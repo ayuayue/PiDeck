@@ -77,4 +77,4 @@
 - `npm run typecheck`
 - `node --test tests/mcpServiceCatalog.test.mjs tests/mcpConfigUi.test.mjs tests/mcpForm.test.mjs`
 - `npm run check:format`
-- `node scripts/generate-content-manifests.mjs`（新增 mcp-setup 技能后重新生成清单）
+- `node scripts/generate-content-manifests.mjs --domain skills`（新增 mcp-setup 技能后重新生成清单；缺 `--domain` 会直接报错）

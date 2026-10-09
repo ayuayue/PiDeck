@@ -24,6 +24,8 @@ export function sessionRecordToSummary(session: SessionRecord): SessionSummary |
 		forked: session.forked,
 		preview: session.preview,
 		updatedAt: session.updatedAt,
+		// 创建时间排序用（settings.sessionSortMode=createdAt）；旧 catalog/扫描路径缺省时回退 updatedAt
+		createdAt: session.createdAt,
 		messageCount: session.messageCount,
 		source: session.source,
 		backend: session.backend,

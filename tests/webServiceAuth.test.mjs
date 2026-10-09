@@ -523,3 +523,33 @@ test("setTokenPolicy hot-swaps token without restart", async () => {
 		assert.ok(manager.getStatus().tokenExpiresAt > before, "longer validity extends the expiry");
 	});
 });
+
+// 时序安全契约：服务默认可绑 0.0.0.0 对外暴露，令牌比对必须用 timingSafeEqual，
+// 禁止 `=== this.authToken` 这类早退比较构成时序侧信道（逐字节猜测令牌）。
+// 空白容忍正则：biome 重排格式不击穿断言（AGENTS.md 正则扫描契约）。
+test("isAuthorized compares tokens with timingSafeEqual, never plain ===", async () => {
+	const source = readFileSync("src/main/web/WebServiceManager.ts", "utf8");
+	const isAuthorizedBlock = source.match(/private\s+isAuthorized\([\s\S]*?\n\t\}/);
+	assert.ok(isAuthorizedBlock, "isAuthorized method must exist in WebServiceManager.ts");
+	const body = isAuthorizedBlock[0];
+	assert.match(body, /timingSafeEqual/, "token comparison must go through timingSafeEqual");
+	assert.doesNotMatch(body, /===\s*this\.authToken/, "plain string comparison of auth token leaks timing");
+	assert.doesNotMatch(body, /get\("token"\)\s*===/, "query token must not be compared with ===");
+
+	// 行为回归：错误令牌 401、正确令牌放行（含长度不等与长度相等但内容错误两种错法）。
+	await withManager(
+		"0.0.0.0",
+		async ({ baseUrl }) => {
+			let response = await fetch(`${baseUrl}/api/nope?token=short`);
+			assert.equal(response.status, 401, "different-length token must be rejected");
+			response = await fetch(`${baseUrl}/api/nope?token=zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz`);
+			assert.equal(response.status, 401, "equal-length wrong token must still be rejected");
+			response = await fetch(`${baseUrl}/api/nope`, { headers: { authorization: "Bearer zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz" } });
+			assert.equal(response.status, 401, "equal-length wrong Bearer token must be rejected");
+			response = await fetch(`${baseUrl}/api/nope?token=fixed-token-1234`);
+			assert.equal(response.status, 404, "correct token must route through (404 unknown path)");
+		},
+		true,
+		{ token: "fixed-token-1234", generatedAt: Date.now(), expiresIn: 0 },
+	);
+});

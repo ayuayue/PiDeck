@@ -28,6 +28,7 @@ const REF_RE = /^[0-9a-f]{64}\.(?:png|jpe?g|webp|gif|bmp|avif)$/;
 function loadModules() {
 	return {
 		ImageBlobStore: loadTsCommonJs("src/main/imagegen/ImageBlobStore.ts").ImageBlobStore,
+		IMAGE_BLOB_MAX_BYTES: loadTsCommonJs("src/main/imagegen/ImageBlobStore.ts").IMAGE_BLOB_MAX_BYTES,
 		ImageSessionStore: loadTsCommonJs("src/main/imagegen/ImageSessionStore.ts").ImageSessionStore,
 	};
 }
@@ -425,6 +426,25 @@ test("ImageBlobStore：引用名白名单拒绝路径穿越与非法扩展名", 
 		const payload = await store.readPayload(ref);
 		assert.equal(payload.mimeType, "image/png");
 		assert.equal(Buffer.from(payload.data, "base64").toString(), "fake-png-payload-ok");
+	} finally {
+		await cleanup(blobs);
+	}
+});
+
+test("ImageBlobStore：readPayload 对超限文件返回 null（读取字节上界，AGENTS.md 生图硬约束）", async () => {
+	// 回归：put() 有 32MB 上界，但 readPayload() 原先无上界直接 readFile+base64 膨胀；
+	// blobs 目录被外部放入超大合法命名文件时（篡改/损坏/手工误放），读取即 OOM。
+	const { ImageBlobStore, IMAGE_BLOB_MAX_BYTES } = loadModules();
+	const blobs = await makeTempDir("pideck-img-blobs-");
+	try {
+		const store = new ImageBlobStore({ getBlobsPath: () => blobs });
+		// 手工放入超过上界的合法命名 blob（绕过 put 的写入口径）
+		const oversizedRef = `${"f".repeat(64)}.png`;
+		await writeFile(join(blobs, oversizedRef), Buffer.alloc(IMAGE_BLOB_MAX_BYTES + 1024, 1));
+		assert.equal(await store.readPayload(oversizedRef), null);
+		// 正常大小文件不受影响
+		const normalRef = await store.put(pngBytes("fine"), "image/png");
+		assert.ok(await store.readPayload(normalRef));
 	} finally {
 		await cleanup(blobs);
 	}

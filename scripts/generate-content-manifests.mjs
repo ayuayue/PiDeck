@@ -124,7 +124,10 @@ export function buildContentManifest(files, contentDir, version) {
  * 返回 ok=false 表示已提交的清单已过期。
  * prompts 域非 check 模式会先做基线资源生成（docs → resources/prompts 同步复制）。
  */
-export function generateContentManifest({ domain, check = false, setVersion = null } = {}) {
+export function generateContentManifest({ domain = null, check = false, setVersion = null } = {}) {
+	// 缺失与未知分开报错：parseArgs 允许 domain:null 透传（裸跑脚本），
+	// "unknown domain: null" 会误导排查方向；缺失时直接告诉用户要补什么参数。
+	if (domain === null) throw new Error("missing required --domain (prompts|skills)");
 	const config = DOMAINS[domain];
 	if (!config) throw new Error(`unknown domain: ${domain} (expected prompts|skills)`);
 

@@ -121,3 +121,17 @@ test("draftCommands: peek 不消费池条目（连续两次预览结果一致）
 	const second = await manager.draftCommands("project-1");
 	assert.deepEqual(first, second);
 });
+
+test("draftCommands: get_commands 用元数据级短超时，不得继承 prompt 级 rpcTimeout", async () => {
+	// 预览是提示增强不是数据链路：卡死的 standby 进程不能把斜杠菜单拖到 rpcTimeout
+	// （默认 600s）。与 AgentManager 另两处 get_commands 元数据查询（10s）同一约定。
+	let observedTimeout;
+	const manager = createManager({
+		rpc: async (_request, timeout) => {
+			observedTimeout = timeout;
+			return { success: true, data: { commands: [] } };
+		},
+	});
+	await manager.draftCommands("project-1");
+	assert.ok(observedTimeout <= 10_000, `preview RPC timeout must stay metadata-bounded, got ${observedTimeout}`);
+});

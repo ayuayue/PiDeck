@@ -1,5 +1,6 @@
 import type { AgentBackend } from "./agent";
 import type { AcpToolConfig } from "./acp";
+import type { SessionSortModeId } from "./session";
 import type { BusySendDelivery } from "../busySendDelivery";
 import { SESSION_TAB_MAX_WIDTH_DEFAULT } from "../sessionTabWidth";
 import { createDefaultExternalEditorSettings, type ExternalEditorSettings } from "./project";
@@ -627,6 +628,13 @@ export type AppSettings = {
 	 * 在展示时安全忽略，避免修改 pi 会话文件或把短生命周期 agentId 持久化。
 	 */
 	pinnedSessionIds?: string[];
+
+	/**
+	 * 项目会话列表排序模式（2027-03 开放排序规则）：updatedAt=最近活跃（历史默认）、
+	 * createdAt=创建时间、title=标题。缺省/非法值回落 updatedAt；由渲染层策略目录
+	 * （sessionSortModes）解释，主进程只存字符串不参与排序。
+	 */
+	sessionSortMode?: SessionSortModeId;
 
 	// ── 会话导入 ──
 	/**

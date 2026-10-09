@@ -23,12 +23,11 @@ function createHarness() {
 	const writes = [];
 	child.stdout = stdout;
 	child.stderr = stderr;
-	child.stdin = {
-		destroyed: false,
-		write: (chunk) => {
-			writes.push(String(chunk));
-			return true;
-		},
+	child.stdin = new EventEmitter();
+	child.stdin.destroyed = false;
+	child.stdin.write = (chunk) => {
+		writes.push(String(chunk));
+		return true;
 	};
 	child.killed = false;
 	child.kill = () => {
@@ -109,10 +108,22 @@ test("受理：下发 complete 指令并转发 started/delta/done", async () => 
 	]);
 });
 
-test("新 run 打断旧 run：旧回调立即 aborted，旧 id 迟到记录被丢弃", async () => {
+test("新 run 打断旧 run：先取消后台旧请求，旧回调立即 aborted，迟到记录被丢弃", async (t) => {
 	const { service, latest } = createService();
+	t.after(() => service.dispose());
 	const first = await acceptRun(service, latest);
 	const second = await acceptRun(service, latest);
+	// 仅清 UI 不会停掉助手里的模型流：必须先取消旧 id，再下发新请求。
+	assert.deepEqual(
+		latest()
+			.commands()
+			.map(({ cmd, id }) => ({ cmd, id })),
+		[
+			{ cmd: "complete", id: first.result.runId },
+			{ cmd: "cancel", id: first.result.runId },
+			{ cmd: "complete", id: second.result.runId },
+		],
+	);
 	// 旧 run 在新 run 受理路径里被本地结算（不等助手响应）。
 	assert.deepEqual(first.recorder.events, [{ kind: "aborted" }]);
 
@@ -162,6 +173,178 @@ test("助手进程退出：run 结算为 protocol，下次调用重新 spawn", a
 	assert.equal(spawnCalls.length, 2);
 	assert.notEqual(harnesses.at(-1), harnesses[0]);
 });
+
+test("首个 complete 同步写入失败：不伪装 started，并允许重拉助手", async (t) => {
+	const { service, latest } = createService();
+	t.after(() => service.dispose());
+	const recorder = createRecorder();
+	const pending = service.enhance({ provider: "p", modelId: "m", userText: "草稿" }, recorder.callbacks);
+	await new Promise((resolve) => setImmediate(resolve));
+	latest().child.stdin.write = () => {
+		throw new Error("sync EPIPE");
+	};
+	latest().emitLine({ type: "ready", protocolVersion: 1 });
+	const result = await pending;
+	assert.equal(result.ok, false);
+	assert.equal(result.errorKind, "protocol");
+	assert.equal(result.message, "增强助手输入管道错误：sync EPIPE");
+	assert.deepEqual(recorder.events, []);
+	assert.equal(latest().child.killed, true);
+
+	const retry = await acceptRun(service, latest);
+	assert.equal(retry.result.ok, true);
+});
+
+test("stdin 同步错误：立即结算当前 run 并允许重拉助手", async (t) => {
+	const { service, spawnCalls, latest } = createService();
+	t.after(() => service.dispose());
+	const first = await acceptRun(service, latest);
+	const old = latest();
+	old.child.stdin.write = () => {
+		throw new Error("sync EPIPE");
+	};
+	service.cancel();
+	assert.equal(old.child.killed, true);
+	assert.deepEqual(first.recorder.events, [{ kind: "error", errorKind: "protocol", message: "增强助手输入管道错误：sync EPIPE" }]);
+	const second = await acceptRun(service, latest);
+	assert.equal(second.result.ok, true);
+	assert.equal(spawnCalls.length, 2);
+});
+
+test("stdin 异步错误：不抛异常、只结算一次并允许重拉助手", async (t) => {
+	const { service, spawnCalls, latest } = createService();
+	t.after(() => service.dispose());
+	const first = await acceptRun(service, latest);
+	const old = latest();
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.doesNotThrow(() => old.child.stdin.emit("error", new Error("write EPIPE")));
+	assert.equal(old.child.killed, true);
+	assert.deepEqual(first.recorder.events, [{ kind: "error", errorKind: "protocol", message: "增强助手输入管道错误：write EPIPE" }]);
+	old.emitClose(1);
+	assert.equal(first.recorder.events.length, 1);
+
+	const second = await acceptRun(service, latest);
+	assert.equal(second.result.ok, true);
+	assert.equal(spawnCalls.length, 2);
+	assert.doesNotThrow(() => old.child.stdin.emit("error", new Error("late pipe error")));
+	assert.deepEqual(second.recorder.events, []);
+	latest().emitLine({ type: "done", id: second.result.runId, text: "重试成功" });
+	assert.deepEqual(second.recorder.events, [{ kind: "done", text: "重试成功" }]);
+});
+
+test("boot 期间 stdin 异步错误：立即拒绝受理并回收进程", async (t) => {
+	const { service, latest } = createService();
+	t.after(() => service.dispose());
+	const recorder = createRecorder();
+	const pending = service.enhance({ provider: "p", modelId: "m", userText: "草稿" }, recorder.callbacks);
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.doesNotThrow(() => latest().child.stdin.emit("error", new Error("write EPIPE")));
+	assert.equal(latest().child.killed, true);
+	assert.equal((await pending).ok, false);
+	assert.deepEqual(recorder.events, []);
+});
+
+test("取消后迟到 stdin 错误：不重复结算已中止的 run", async (t) => {
+	const { service, latest } = createService();
+	t.after(() => service.dispose());
+	const { recorder } = await acceptRun(service, latest);
+	service.cancel();
+	assert.doesNotThrow(() => latest().child.stdin.emit("error", new Error("write EPIPE")));
+	assert.deepEqual(recorder.events, [{ kind: "aborted" }]);
+	assert.equal(latest().child.killed, true);
+});
+
+for (const event of ["close", "error"]) {
+	test(`旧助手迟到 ${event}：不应结算新进程上的 run`, async (t) => {
+		const { service, latest } = createService();
+		t.after(() => service.dispose());
+		const first = await acceptRun(service, latest);
+		const old = latest();
+		old.emitLine({ type: "fatal", stage: "sdk-load", message: "old host failed" });
+		assert.equal(old.child.killed, true);
+		assert.equal(first.recorder.events.at(-1).kind, "error");
+
+		const second = await acceptRun(service, latest);
+		assert.equal(second.result.ok, true);
+		const current = latest();
+		if (event === "close") old.emitClose(1);
+		else old.child.emit("error", new Error("late old host error"));
+
+		assert.deepEqual(second.recorder.events, []);
+		assert.equal(current.child.killed, false);
+		current.emitLine({ type: "done", id: second.result.runId, text: "新进程结果" });
+		assert.deepEqual(second.recorder.events, [{ kind: "done", text: "新进程结果" }]);
+	});
+}
+
+test("旧助手迟到 fatal：不应杀掉新助手或终止新 run", async (t) => {
+	const { service, latest } = createService();
+	t.after(() => service.dispose());
+	await acceptRun(service, latest);
+	const old = latest();
+	old.emitLine({ type: "fatal", stage: "sdk-load", message: "old host failed" });
+
+	const second = await acceptRun(service, latest);
+	const current = latest();
+	old.emitLine({ type: "fatal", stage: "sdk-load", message: "late fatal" });
+	assert.equal(current.child.killed, false);
+	assert.deepEqual(second.recorder.events, []);
+	current.emitLine({ type: "done", id: second.result.runId, text: "新进程结果" });
+	assert.deepEqual(second.recorder.events, [{ kind: "done", text: "新进程结果" }]);
+});
+
+test("新助手必须自行握手：旧助手迟到 ready 不能受理新请求", async (t) => {
+	const { service, latest } = createService();
+	t.after(() => service.dispose());
+	await acceptRun(service, latest);
+	const old = latest();
+	old.emitLine({ type: "fatal", stage: "sdk-load", message: "old host failed" });
+
+	const recorder = createRecorder();
+	const pending = service.enhance({ provider: "p", modelId: "m", userText: "草稿" }, recorder.callbacks);
+	await new Promise((resolve) => setImmediate(resolve));
+	const current = latest();
+	old.emitLine({ type: "ready", protocolVersion: 1 });
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(current.commands(), []);
+
+	current.emitLine({ type: "ready", protocolVersion: 1 });
+	const result = await pending;
+	assert.equal(result.ok, true);
+	assert.equal(current.commands().at(-1).cmd, "complete");
+});
+
+test("新助手退出诊断：不应混入旧助手迟到 stderr", async (t) => {
+	const { service, latest } = createService();
+	t.after(() => service.dispose());
+	await acceptRun(service, latest);
+	const old = latest();
+	old.emitLine({ type: "fatal", stage: "sdk-load", message: "old host failed" });
+
+	const second = await acceptRun(service, latest);
+	old.child.stderr.write("old process diagnostic\n");
+	latest().emitClose(2);
+	assert.deepEqual(second.recorder.events, [{ kind: "error", errorKind: "protocol", message: "增强助手意外退出（code 2）" }]);
+});
+
+for (const fragment of [Buffer.from('{"type":"ready"'), Buffer.from([0xe4, 0xb8])]) {
+	test(`重拉助手：丢弃旧进程的 ${fragment[0] === 0x7b ? "JSON 半帧" : "UTF-8 半字符"}`, async (t) => {
+		const { service, latest } = createService();
+		t.after(() => service.dispose());
+		const recorder = createRecorder();
+		const pending = service.enhance({ provider: "p", modelId: "m", userText: "草稿" }, recorder.callbacks);
+		await new Promise((resolve) => setImmediate(resolve));
+		latest().emitRaw(fragment);
+		latest().emitClose(1);
+		assert.equal((await pending).ok, false);
+		assert.deepEqual(recorder.events, []);
+
+		const retry = await acceptRun(service, latest);
+		assert.equal(retry.result.ok, true);
+		latest().emitLine({ type: "done", id: retry.result.runId, text: "重试成功" });
+		assert.deepEqual(retry.recorder.events, [{ kind: "done", text: "重试成功" }]);
+	});
+}
 
 test("boot 超时：受理失败 sdk-unavailable，且不残留占位", async () => {
 	const { service, latest } = createService({ bootTimeout: 40 });

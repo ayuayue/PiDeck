@@ -333,6 +333,8 @@ const api = {
 		addByPath: (path: string) => ipcRenderer.invoke(ipcChannels.projectsAddByPath, path) as Promise<Project>,
 		remove: (id: string) => ipcRenderer.invoke(ipcChannels.projectsRemove, id) as Promise<Project[]>,
 		reorder: (projectIds: string[]) => ipcRenderer.invoke(ipcChannels.projectsReorder, projectIds) as Promise<Project[]>,
+		// 置顶/取消置顶普通项目；返回更新后的项目列表
+		setPinned: (projectId: string, pinned: boolean) => ipcRenderer.invoke(ipcChannels.projectsSetPinned, projectId, pinned) as Promise<Project[]>,
 		// 重命名项目显示名（仅改 label，不动磁盘目录）；返回更新后的项目列表
 		rename: (id: string, name: string) => ipcRenderer.invoke(ipcChannels.projectsRename, id, name) as Promise<Project[]>,
 		onChanged: (callback: (projects: Project[]) => void) => subscribe(ipcChannels.projectsChanged, callback),

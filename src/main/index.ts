@@ -2163,7 +2163,7 @@ async function autoConnectFeishu() {
 	if (!bot) return;
 	// 不再自动连接，由用户手动在配置页点击连接
 	// 避免应用重启后静默恢复连接导致用户困惑
-	console.log("[飞书] 检测到已保存的 Bot 配置:", bot.name, "(跳过自动连接，需手动连接)");
+	void appLogger?.info("feishu", "Detected saved bot config, skipping auto connect", { bot: bot.name });
 }
 
 function currentMainProcessLocale(): MainProcessLocale {
@@ -2344,11 +2344,11 @@ async function sendAgentPromptWithIntegrations(input: SendPromptInput): Promise<
 		const tab = agentManager.list().find((item) => item.id === input.agentId);
 		if (tab) {
 			await bridge.ensureSessionMirror(tab.id, tab.title, tab.sessionPath).catch((error) => {
-				console.error("[Feishu] auto-bind session mirror failed:", error);
+				void appLogger?.error("feishu", "Auto-bind session mirror failed", { error: error instanceof Error ? error.message : String(error) });
 			});
 			bridge.trackDocRequest(tab.id, docTitle);
 			void bridge.forwardUserMessageToFeishu(tab.id, input.message).catch((error) => {
-				console.error("[Feishu] forward PiDeck message failed:", error);
+				void appLogger?.error("feishu", "Forward PiDeck message failed", { error: error instanceof Error ? error.message : String(error) });
 			});
 			agentInstruction = `${buildFeishuActionInstruction(bridge.getSessionChatId(tab.id))}\n创建飞书文档时，先输出完整正文，最后独立一行写 [CREATE_DOC:文档标题]。`;
 		}
@@ -2357,11 +2357,11 @@ async function sendAgentPromptWithIntegrations(input: SendPromptInput): Promise<
 		const tab = agentManager.list().find((item) => item.id === input.agentId);
 		if (tab) {
 			void bridge.startSessionMirrorRun(tab.id, tab.title, tab.sessionPath).catch((error) => {
-				console.error("[Feishu] session mirror card init failed:", error);
+				void appLogger?.error("feishu", "Session mirror card init failed", { error: error instanceof Error ? error.message : String(error) });
 			});
 			if (input.message.trim()) {
 				void bridge.forwardUserMessageToFeishu(tab.id, input.message).catch((error) => {
-					console.error("[Feishu] forward PiDeck message failed:", error);
+					void appLogger?.error("feishu", "Forward PiDeck message failed", { error: error instanceof Error ? error.message : String(error) });
 				});
 			}
 		}
@@ -2516,7 +2516,7 @@ function registerIpc() {
 		resolveWslEnvironment: async (distro, user) => {
 			const { resolveWslEnvironment } = await import("./wsl/WslEnvironment");
 			return resolveWslEnvironment(distro, user, {
-				warn: (msg: string, detail: Record<string, unknown>) => console.warn("[PiDeck] " + msg, detail),
+				warn: (msg: string, detail: Record<string, unknown>) => void appLogger?.warn("wsl", msg, detail),
 			});
 		},
 	});
@@ -4906,7 +4906,7 @@ app
 			if (wslEnabled && wslDistro && wslUser) {
 				const { resolveWslEnvironment: resolveWsl2 } = await import("./wsl/WslEnvironment");
 				const wslEnv = await resolveWsl2(wslDistro, wslUser, {
-					warn: (msg: string, detail: unknown) => console.warn("[PiDeck] " + String(msg), detail),
+					warn: (msg: string, detail: unknown) => void appLogger?.warn("wsl", String(msg), { detail }),
 				});
 				await sessionScanner.configureWsl(wslEnv);
 				agentManager.configureWsl(wslEnv);
@@ -5036,9 +5036,11 @@ app
 			});
 		void migrateLegacyBuiltInExtensions().catch((error) => {
 			console.error("Failed to migrate legacy built-in extensions:", error);
+			void appLogger?.error("extensions", "Failed to migrate legacy built-in extensions", { error: error instanceof Error ? error.message : String(error) });
 		});
 		void ensureAllPiSettingsDefaults().catch((error) => {
 			console.error("Failed to ensure pi settings defaults:", error);
+			void appLogger?.error("settings", "Failed to ensure pi settings defaults", { error: error instanceof Error ? error.message : String(error) });
 		});
 		void appLogger.info("app", "Application started", {
 			version: app.getVersion(),
@@ -5051,6 +5053,7 @@ app
 		});
 		void webServiceManager.applySettings(settingsStore.get()).catch((error) => {
 			console.error("Failed to start web service:", error);
+			void appLogger?.error("web", "Failed to start web service", { error: error instanceof Error ? error.message : String(error) });
 			void appLogger.warn("web", "Web service disabled after apply failure", {
 				error: error instanceof Error ? error.message : String(error),
 			});
@@ -5079,12 +5082,14 @@ app
 				})
 				.catch((error) => {
 					console.error("Failed to start memory profile:", error);
+					void appLogger?.error("memory", "Failed to start memory profile", { error: error instanceof Error ? error.message : String(error) });
 				});
 		}
 		// 设置里的开发诊断：热启停，不必改环境变量重启。默认关，生产零开销。
 		if (settingsStore.get().developerDiagnostics) {
 			void diagnosticsMonitor?.setEnabled(true).catch((error) => {
 				console.error("Failed to start developer diagnostics:", error);
+				void appLogger?.error("diagnostics", "Failed to start developer diagnostics", { error: error instanceof Error ? error.message : String(error) });
 			});
 		}
 
@@ -5245,6 +5250,7 @@ app
 	.catch((error) => {
 		// 打包启动链无窗口时用户只能看到「没反应」；必须落盘并尽力弹出错误框。
 		console.error("Application startup failed:", error);
+		void appLogger?.error("app", "Application startup failed", { error: error instanceof Error ? error.message : String(error) });
 		void appLogger?.error("app", "Application startup failed", error);
 		void import("electron")
 			.then(({ dialog }) => {
@@ -5323,7 +5329,7 @@ async function ensurePiSettingsDefaults(configDir: string, piVersionHint?: strin
 	if (changed) {
 		await mkdir(configDir, { recursive: true });
 		await writeFile(filePath, JSON.stringify(current, null, 2), "utf8");
-		console.log("[PiDeck] Ensured pi settings defaults at:", filePath);
+		void appLogger?.info("settings", "Ensured pi settings defaults", { filePath });
 	}
 }
 

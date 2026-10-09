@@ -174,7 +174,7 @@ export const WebRemoteAccessSection = memo(function WebRemoteAccessSection(props
 					<div className="grid gap-2">
 						{cf.starting ? (
 							<div className="flex items-center gap-2 text-caption text-text-secondary">
-								<Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+								<Loader2 className="size-3.5 animate-pideck-spin" aria-hidden="true" />
 								{t("settings.remote.cf.starting")}
 							</div>
 						) : cfAccessUrl ? (

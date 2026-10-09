@@ -1,6 +1,5 @@
-import { ChevronRight, ChevronsDownUp, Ellipsis, Filter, Folder, FolderOpen, FolderPlus, Plus, RefreshCw } from "lucide-react";
+import { ChevronRight, ChevronsDownUp, Ellipsis, Filter, Folder, FolderOpen, FolderPlus, Pin, Plus, RefreshCw } from "lucide-react";
 import type { DragEvent } from "react";
-import { useProjectLongPressDrag } from "../../hooks/useProjectLongPressDrag";
 import { SidebarRemovalList, SidebarRemovalRow } from "./SidebarRemovalRow";
 import { useAtomValue } from "jotai";
 import type { Project, WorktreeEntry } from "../../../../shared/types";
@@ -75,10 +74,12 @@ export function ProjectTree(props: {
 	removingWorktreePaths?: ReadonlySet<string>;
 }) {
 	const sessionRuntimeUiById = useAtomValue(sessionRuntimeUiByIdAtom);
-	const longPress = useProjectLongPressDrag();
 	const rootProjects = props.controller.catalog.projects.filter((project) => !project.worktreeParentId && matchesProject(project, props.controller.search.trim(), props.controller));
+	// 项目拖拽不再要求静止长按：原生 HTML5 拖拽自带 ~4px 启动阈值，天然区分点按与拖动
+	//（2027-03 用户反馈「拖动行为不好用」：旧逻辑要先静止长按 350ms 才变 draggable，
+	// 按下即移动会取消 arming，自然拖动手势永远拖不起来）。
 	const dragStart = (event: DragEvent<HTMLButtonElement>, projectId: string) => {
-		if (props.controller.search.trim() || !longPress.canDrag(projectId)) {
+		if (props.controller.search.trim()) {
 			event.preventDefault();
 			return;
 		}
@@ -86,12 +87,18 @@ export function ProjectTree(props: {
 		event.dataTransfer.setData("text/plain", projectId);
 		props.controller.startProjectDrag(projectId);
 	};
-	const drop = (event: DragEvent<HTMLButtonElement>, projectId: string) => {
+	// 落点判定（用户反馈「拖动判定不好用」）：按指针在目标行的上/下半区决定插到目标前/后，
+	// 与插入线指示一致；旧实现按新旧索引猜插入点，下拖与上拖感受不一致。
+	const dropPositionFor = (event: DragEvent<HTMLElement>): "before" | "after" => {
+		const rect = event.currentTarget.getBoundingClientRect();
+		return event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+	};
+	const drop = (event: DragEvent<HTMLButtonElement>, projectId: string, position: "before" | "after") => {
 		event.preventDefault();
 		const source = event.dataTransfer.getData("text/plain") || props.controller.drag.sourceProjectId;
 		props.controller.finishProjectDrag();
 		if (props.controller.search.trim()) return;
-		if (source && source !== projectId) void props.actions.projects.reorder(source, projectId);
+		if (source && source !== projectId) void props.actions.projects.reorder(source, projectId, position);
 	};
 	const renderProject = (project: Project) => {
 		const menuOpen = props.controller.menu?.kind === "project" && props.controller.menu.projectId === project.id;
@@ -100,6 +107,7 @@ export function ProjectTree(props: {
 		const sourceFilter = props.controller.sourceFilterFor(project.id);
 		const dragging = props.controller.drag.sourceProjectId === project.id;
 		const dragOver = props.controller.drag.overProjectId === project.id;
+		const dragPosition = dragOver ? props.controller.drag.overPosition : undefined;
 		const rootProjectSessions = props.controller.catalog.sessionsByProject[project.id] ?? [];
 		// 项目级「运行中」判定：任一 Agent 进程存活（starting/idle/running）即视为运行中。
 		// 与 ActiveSessionsTree 活动页同源，保证折叠时的项目 tag 与展开后的子行状态一致。
@@ -115,7 +123,14 @@ export function ProjectTree(props: {
 		return (
 			<SidebarRemovalRow key={project.id} itemId={project.id} className={cn("project-group mb-1.5", project.worktreeEnabled && "worktree-enabled")}>
 				<div
-					className={cn(treeRowClass, dragging && "dragging opacity-60", dragOver && "drag-over ring-1 ring-border")}
+					className={cn(
+						treeRowClass,
+						dragging && "dragging opacity-60",
+						dragOver && "drag-over",
+						// 插入线指示：落在目标行上/下缘的 2px 高亮线，直观展示松手后项目会插到哪一侧
+						dragPosition === "before" && "before:pointer-events-none before:absolute before:inset-x-1 before:-top-px before:h-0.5 before:rounded-full before:bg-primary before:content-['']",
+						dragPosition === "after" && "before:pointer-events-none before:absolute before:inset-x-1 before:-bottom-px before:h-0.5 before:rounded-full before:bg-primary before:content-['']",
+					)}
 					onContextMenu={(event) => {
 						event.preventDefault();
 						void props.controller.openMenu({ kind: "project", projectId: project.id, x: event.clientX, y: event.clientY });
@@ -132,28 +147,24 @@ export function ProjectTree(props: {
 					</button>
 					<button
 						type="button"
-						className={cn("flex min-w-0 flex-1 select-none items-center gap-1 py-0 pr-1 text-left", longPress.readyProjectId === project.id ? "cursor-grab active:cursor-grabbing" : "cursor-pointer")}
-						draggable={!props.controller.search.trim() && longPress.readyProjectId === project.id}
-						onPointerDown={(event) => {
-							if (!props.controller.search.trim()) longPress.start(project.id, event);
-						}}
-						onPointerMove={longPress.move}
-						onPointerLeave={longPress.cancel}
+						className="flex min-w-0 flex-1 cursor-grab select-none items-center gap-1 py-0 pr-1 text-left active:cursor-grabbing"
+						draggable={!props.controller.search.trim()}
 						onDragStart={(event) => dragStart(event, project.id)}
 						onDragOver={(event) => {
 							if (props.controller.drag.sourceProjectId && props.controller.drag.sourceProjectId !== project.id) {
 								event.preventDefault();
-								props.controller.setProjectDropTarget(project.id);
+								props.controller.setProjectDropTarget(project.id, dropPositionFor(event));
 							}
 						}}
-						onDragLeave={() => props.controller.setProjectDropTarget(undefined)}
-						onDrop={(event) => drop(event, project.id)}
+						onDragLeave={(event) => {
+							// 移入行内子元素也会触发 dragleave：只有真正离开整行才清空指示，避免插入线闪烁
+							if (!event.currentTarget.contains(event.relatedTarget as Node | null)) props.controller.setProjectDropTarget(undefined);
+						}}
+						onDrop={(event) => drop(event, project.id, dropPositionFor(event))}
 						onDragEnd={() => {
-							longPress.cancel();
 							props.controller.finishProjectDrag();
 						}}
 						onClick={() => {
-							if (longPress.consumeClick()) return;
 							// 项目主行同时承担选择和手风琴切换，让项目卡片本身保持唯一且明确的导航入口。
 							props.controller.toggleProject(project.id);
 							props.actions.projects.select(project.id);
@@ -170,6 +181,8 @@ export function ProjectTree(props: {
                     推到最右——旧布局下点在行尾，鼠标移入时会被右侧浮层按钮盖住。 */}
 								<div className="flex min-w-0 flex-1 items-center gap-1">
 									<strong className={`min-w-0 truncate font-medium${project.missing ? " text-muted-foreground" : ""}`}>{projectDirectoryName}</strong>
+									{/* 置顶标记：与 SessionTree 的 Pin 图标同规格；Chat 恒置顶不重复展示 */}
+									{project.kind !== "chat" && project.pinned && <Pin className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />}
 									{/* 待确认徽章：当项目下有会话等待用户输入/确认时醒目展示 */}
 									<PendingAskBadge count={pendingAskCount} />
 									{/* 简洁模式汇总实际计算中状态（含worktree）；空闲进程不转。 */}

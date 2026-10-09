@@ -190,6 +190,79 @@ test("pi 侧取消 prompt（回调已拿到授权码）时通知宿主并继续�
 	});
 });
 
+test("作废提问后能继续下一步，不遗留命令消费者或信号监听", async () => {
+	const fake = await createFakePiPackage(`
+		export const ModelRuntime = {
+			async create() {
+				return {
+					getProvider: () => ({ auth: { oauth: {} } }),
+					async login(providerId, type, interaction) {
+						const controller = new AbortController();
+						const first = interaction.prompt({ type: "text", message: "First", signal: controller.signal });
+						controller.abort();
+						await first.catch(() => undefined);
+						const answer = await interaction.prompt({ type: "text", message: "Second" });
+						if (answer !== "next-step") throw new Error("second prompt lost its answer");
+					},
+				};
+			},
+		};
+	`);
+	try {
+		const run = await runAuthHost({
+			entry: fake.entry,
+			commands: [{ cmd: "login", providerId: "steps", type: "oauth" }],
+			onMessage: (message, send) => {
+				if (message.type === "prompt" && message.prompt.message === "Second") send({ cmd: "answer", id: message.id, value: "next-step" });
+			},
+			timeoutMs: 2_000,
+		});
+		assert.equal(run.timedOut, false, "作废提问不能吞掉后续回答或关闭信号");
+		assert.equal(run.code, 0, run.stderr.join("\n"));
+		assert.equal(resultOf(run.messages)?.ok, true, run.stderr.join("\n"));
+		assert.deepEqual(
+			messagesOfType(run.messages, "prompt").map((message) => message.id),
+			["p1", "p2"],
+		);
+		assert.equal(messagesOfType(run.messages, "prompt-cancelled")[0]?.id, "p1");
+	} finally {
+		await fake.cleanup();
+	}
+});
+
+test("回答后释放提问信号，迟到 abort 不应撤销已回答的提问", async () => {
+	const fake = await createFakePiPackage(`
+		export const ModelRuntime = {
+			async create() {
+				return {
+					getProvider: () => ({ auth: { oauth: {} } }),
+					async login(providerId, type, interaction) {
+						const controller = new AbortController();
+						const answer = await interaction.prompt({ type: "text", message: "Answer", signal: controller.signal });
+						controller.abort();
+						if (answer !== "accepted") throw new Error("answer lost");
+					},
+				};
+			},
+		};
+	`);
+	try {
+		const run = await runAuthHost({
+			entry: fake.entry,
+			commands: [{ cmd: "login", providerId: "steps", type: "oauth" }],
+			onMessage: (message, send) => {
+				if (message.type === "prompt") send({ cmd: "answer", id: message.id, value: "accepted" });
+			},
+			timeoutMs: 2_000,
+		});
+		assert.equal(run.timedOut, false);
+		assert.equal(resultOf(run.messages)?.ok, true, run.stderr.join("\n"));
+		assert.deepEqual(messagesOfType(run.messages, "prompt-cancelled"), []);
+	} finally {
+		await fake.cleanup();
+	}
+});
+
 test("登录失败时透传错误信息", async () => {
 	await withFakePi(async (fake) => {
 		const { messages } = await runAuthHost({ entry: fake.entry, commands: [{ cmd: "login", providerId: "fail-provider", type: "oauth" }] });

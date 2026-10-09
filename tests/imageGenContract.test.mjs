@@ -60,6 +60,9 @@ test("生图图片落盘：blob 存储 + pideck-img 协议 + CSP 允许", () => 
 	assert.match(protocol, /protocol\.handle\(IMAGE_BLOB_PROTOCOL/);
 	assert.match(protocol, /blobs\.resolvePath\(ref\)/);
 	assert.match(blobStore, /IMAGE_BLOB_REF_RE/);
+	// 读取字节上界（AGENTS.md 生图硬约束）：两条读取路径（readPayload + 协议）都必须先 stat 拦截超大文件
+	assert.match(blobStore, /const info = await stat\(file\);[\s\S]*?IMAGE_BLOB_MAX_BYTES\)[\s\S]*?return null/);
+	assert.match(protocol, /info\.size > IMAGE_PROTOCOL_MAX_BYTES[\s\S]*?413/);
 	// 会话存储：字节水位 + 旧格式自愈 + base64 不落 JSONL + 追加不重写
 	assert.match(sessionStore, /MAX_SESSION_BYTES/);
 	assert.match(sessionStore, /MAX_READ_BYTES/);

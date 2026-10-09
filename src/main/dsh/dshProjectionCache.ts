@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -15,6 +15,12 @@ import { join } from "node:path";
  */
 
 export const DSH_PROJECTION_CACHE_RELATIVE = join("storages", "session_projcache.json");
+
+/** 读取上界（稳定性约束 3：会话扫描要有大小上限）：标题是增强数据，超限（损坏/
+ *  外部异常增长）宁整块跳过，让扫描回退既有的「日志折叠取标题」路径；无界整读
+ *  会在后台扫描路径制造主进程内存尖峰（对齐 SessionScanner 的上界体系与生图
+ *  BLOB 读取上界修复，同一事故模式）。正常缓存每记录 ~1KB，32MB 已足够宽裕。 */
+export const DSH_PROJECTION_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 
 /** 从一条缓存记录取出非空 title；结构不对或空白视为缺失。 */
 export function titleFromProjectionRecord(record: unknown): string | undefined {
@@ -54,11 +60,14 @@ export function parseProjectionTitles(raw: string): Map<string, string> {
 	return titles;
 }
 
-/** 读 DSH_HOME 上的官方投影缓存标题（文件缺失/不可读 = 空表）。 */
+/** 读 DSH_HOME 上的官方投影缓存标题（文件缺失/超限/不可读 = 空表）。 */
 export function readSessionProjectionTitles(dshHome: string): Map<string, string> {
 	const filePath = join(dshHome, DSH_PROJECTION_CACHE_RELATIVE);
 	if (!existsSync(filePath)) return new Map();
 	try {
+		// 先 stat 后读：超限文件连读都不读（与生图 BLOB 读取同防御）。TOCTOU 窗口内
+		// 文件被替换大文件时由 readFileSync 自身异常兑底，同样落在空表分支。
+		if (statSync(filePath).size > DSH_PROJECTION_CACHE_MAX_BYTES) return new Map();
 		return parseProjectionTitles(readFileSync(filePath, "utf8"));
 	} catch {
 		return new Map();

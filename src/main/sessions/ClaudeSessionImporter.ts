@@ -5,9 +5,14 @@ import { basename, join } from "node:path";
 import type { ClaudeImportReport, ClaudeImportResult, ClaudeImportStatus, ClaudeSessionSummary } from "../../shared/types";
 import { defaultSessionImportCopy, type SessionImportCopy } from "./SessionImportCopy";
 import { normalizeImportedToolArguments } from "./importToolArguments";
+import { assertSourceWithinRoot } from "./importPathGuard";
 import { readImportMetaHead } from "./importMetaHead";
 import { createBufferedLineSink, mapWithConcurrency, readJsonlObjects, readSessionSourceHead, renameWithRetry, SESSION_SCAN_CONCURRENCY } from "./sessionSourceHead";
 import { importedContentHasToolCall, importedUnknownBlockAsText, normalizeImportedStopReason, tryImportedImageBlock } from "./importNormalize";
+
+// 活链重建索引的条目上界（≈行数）：真实会话分支树远小于此；超限视为文件异常巨大，
+// 返回 null 走「全保留」退化而非逼近堆上限（见 collectLiveChainIds）
+const MAX_CHAIN_INDEX_ENTRIES = 1_000_000;
 
 type ParsedClaudeSession = {
 	meta: {
@@ -70,9 +75,15 @@ export class ClaudeSessionImporter {
 		// 有界并发：内存峰值 = 并发数 × 头部缓冲（见 SESSION_SCAN_CONCURRENCY）
 		const sessions = await mapWithConcurrency(files, SESSION_SCAN_CONCURRENCY, (file) => this.readClaudeSessionHead(file).catch(() => null));
 
-		const summaries = await Promise.all(sessions.filter((session): session is ParsedClaudeSession => Boolean(session)).map((session) => this.toSummary(session, projectPath)));
+		const summaries = await Promise.all(
+			sessions
+				.filter((session): session is ParsedClaudeSession => Boolean(session))
+				// 逐会话兑底：单条畸形数据（null content 元素/非字符串 sessionId/极端时间戳等）
+				// 只降级自己那条，不再炸整张列表（旧实现一条 reject → 整个 scan 裸错误过 IPC）
+				.map((session) => this.toSummary(session, projectPath).catch(() => null)),
+		);
 
-		return summaries.sort((a, b) => b.updatedAt - a.updatedAt);
+		return summaries.filter((s): s is ClaudeSessionSummary => Boolean(s)).sort((a, b) => b.updatedAt - a.updatedAt);
 	}
 
 	async import(projectPath: string, sourcePaths: string[]): Promise<ClaudeImportReport> {
@@ -319,6 +330,8 @@ export class ClaudeSessionImporter {
 					if (message.content.trim()) content.push({ type: "text", text: message.content });
 				} else if (Array.isArray(message.content)) {
 					for (const item of message.content) {
+						// null/非对象元素是合法 JSON（畸形导出产物）：跳过而非 TypeError（2026-03 导入器审计）
+						if (!item || typeof item !== "object") continue;
 						if (item.type === "text") {
 							content.push({ type: "text", text: item.text });
 						} else if (item.type === "thinking") {
@@ -416,6 +429,9 @@ export class ClaudeSessionImporter {
 			const uuid = typeof entry.uuid === "string" && entry.uuid ? entry.uuid : null;
 			if (!uuid) continue;
 			parentById.set(uuid, typeof entry.parentUuid === "string" && entry.parentUuid ? entry.parentUuid : null);
+			// 索引上界：真实会话分支树远小于此；超限说明文件异常巨大，继续收会逼近堆上限。
+			// 返回 null（全保留退化）比 OOM abort 更安全，注释见上
+			if (parentById.size > MAX_CHAIN_INDEX_ENTRIES) return null;
 			if (entry.isSidechain) {
 				anyTipId = uuid;
 			} else {
@@ -539,7 +555,8 @@ export class ClaudeSessionImporter {
 			}
 		}
 
-		if (!firstUserEntry?.sessionId || !firstUserEntry?.cwd) {
+		// 非字符串 sessionId/cwd 是畸形源（数字 id 能过 truthy 检查但下游 .replace/join 炸 TypeError）
+		if (typeof firstUserEntry?.sessionId !== "string" || !firstUserEntry.sessionId || typeof firstUserEntry.cwd !== "string" || !firstUserEntry.cwd) {
 			throw new Error(`Missing ${this.sourceLabel} session metadata`);
 		}
 
@@ -560,11 +577,9 @@ export class ClaudeSessionImporter {
 	}
 
 	private assertClaudeSourcePath(filePath: string) {
-		const root = this.normalize(this.sourceRoot);
-		const target = this.normalize(filePath);
-		if (target !== root && !target.startsWith(`${root}/`)) {
-			throw new Error(`${this.sourceLabel} session path is outside the import root`);
-		}
+		// 语义校验（resolve 后比较）：词法 startsWith 不解析 `..`，曾可被
+		// `<root>/../../任意文件` 绕过（2026-03 导入器安全审计）
+		assertSourceWithinRoot(this.sourceRoot, filePath, this.sourceLabel);
 	}
 
 	/** 读取导入产物头部的 import 标记（有界读头部，不再整读会话文件——见 importMetaHead）。 */
@@ -614,7 +629,8 @@ export class ClaudeSessionImporter {
 
 	private safePathToken(path: string) {
 		const normalized = path.replace(/\\/g, "/");
-		const win = normalized.match(/^([A-Za-z]):\/(.+)$/);
+		// 盘符根（D:\）也要命中本分支：(.+) 时盘根落到 fallback 产出含 ":" 的非法目录名，导入必败
+		const win = normalized.match(/^([A-Za-z]):\/(.*)$/);
 		if (win) return `--${win[1]}--${win[2].replace(/\//g, "-")}--`;
 		return `--${normalized.replace(/^\//, "").replace(/\//g, "-")}--`;
 	}

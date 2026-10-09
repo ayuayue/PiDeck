@@ -63,5 +63,9 @@ export class BackgroundScanCoordinator {
 		for (const timer of this.delayTimers.values()) clearTimeout(timer);
 		this.delayTimers.clear();
 		this.pendingProjects.clear();
+		// 清掉冷却等待期的 scanning 占坑：否则 dispose 后两 schedule 同项目
+		// 会被合并进 pending，而已没有在跑循环会补跑它——项目永久卡在“扫描中”。
+		// 正在执行的扫描任务不受影响：run() 的 finally 仍会 delete（no-op）。
+		this.scanningProjects.clear();
 	}
 }

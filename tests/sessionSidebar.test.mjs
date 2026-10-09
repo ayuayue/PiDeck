@@ -44,6 +44,19 @@ function loadNavTabModule() {
 	});
 }
 
+function loadSharedSessionSortModule() {
+	return loadTsModule("src/shared/sessionSort.ts", "sessionSort.ts", (specifier) => {
+		throw new Error(`Unexpected import: ${specifier}`);
+	});
+}
+
+function loadSessionSortModesModule() {
+	return loadTsModule("src/renderer/src/sessionSortModes.ts", "sessionSortModes.ts", (specifier) => {
+		if (specifier === "../../shared/sessionSort") return loadSharedSessionSortModule();
+		throw new Error(`Unexpected import: ${specifier}`);
+	});
+}
+
 function loadControllerModule() {
 	return loadTsModule("src/renderer/src/hooks/useSidebarController.ts", "useSidebarController.ts", (specifier) => {
 		if (specifier === "react") return {};
@@ -52,6 +65,7 @@ function loadControllerModule() {
 		if (specifier === "../utils/sidebarExpandedProjects") return loadExpandedProjectsModule();
 		if (specifier === "../utils/sidebarNavTab") return loadNavTabModule();
 		if (specifier === "../sessionFilterPills") return loadPillsModule();
+		if (specifier === "../sessionSortModes") return loadSessionSortModesModule();
 		throw new Error(`Unexpected import: ${specifier}`);
 	});
 }
@@ -365,8 +379,9 @@ test("narrow project tree keeps root names from losing avoidable width", () => {
 	// 展开后的 SessionTree 不在这里断言，避免改变会话层级的视觉语义。
 	// 赋值右侧/尾随空格可能被格式化调整：用 \s* 与容错字符类。
 	assert.match(projectTree, /treeRowClass =\s*"[^"]*items-center[^"]*px-1 /);
-	// 根节点名称行走 cn(...)：select-none 与 cursor 态由 cn 合并，className 不再是静态串
-	assert.match(projectTree, /className=\{cn\("flex min-w-0 flex-1 select-none items-center gap-1 py-0 pr-1 text-left"/);
+	// 根节点名称行：拖拽已改为直接原生 draggable（不再长按 arming），className 回归静态串，
+	// 保留 cursor-grab 态与宽度让位类。
+	assert.match(projectTree, /className="flex min-w-0 flex-1 cursor-grab select-none items-center gap-1 py-0 pr-1 text-left/);
 	// 无标题父块：工具行保持 px-1 pb-1 布局，不把名称向右推一档
 	assert.match(projectTree, /className="flex items-center justify-between px-1 pb-1"/);
 });

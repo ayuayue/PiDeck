@@ -20,6 +20,7 @@ import {
 	Link2,
 	List,
 	LoaderCircle,
+	ArrowUpDown,
 	MessageCircle,
 	Pencil,
 	Pin,
@@ -44,10 +45,11 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../ui-shadcn/dialog";
 import { X } from "lucide-react";
 import { cn } from "../../lib/utils";
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
 import { Button } from "../ui-shadcn/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui-shadcn/table";
-import type { SessionSummary, Project, AgentTab, ArchivedDshSession, ArchivedPiSession } from "../../../../shared/types";
+import type { SessionSummary, Project, AgentTab, ArchivedDshSession, ArchivedPiSession, SessionSortModeId } from "../../../../shared/types";
+import { SESSION_SORT_MODES, resolveSessionSortMode } from "../../sessionSortModes";
 import { worktreeSlugify } from "../../../../shared/worktreeSlug";
 import { SessionSourceBadge, SessionBackendMark, DshSourceBadge, ImageGenSourceBadge } from "../session/SessionSourceBadge";
 import { Checkbox } from "../ui-shadcn/checkbox";
@@ -594,6 +596,12 @@ export function ProjectContextMenu(props: {
 	onRemoveProject: () => void;
 	/** 重命名项目显示名（仅改 label，不动磁盘目录）；Chat / worktree 子项目不展示。 */
 	onRenameProject: () => void;
+	/** 置顶/取消置顶：仅普通顶级项目展示（Chat 恒置顶、worktree 子项目固定跟随父项目）。 */
+	isPinned?: boolean;
+	onTogglePin?: () => void;
+	/** 会话排序模式（全局设置，项目菜单作统一入口）；未传时隐藏子菜单。 */
+	sessionSortMode?: SessionSortModeId;
+	onSetSessionSortMode?: (mode: SessionSortModeId) => void;
 	/** worktree 子项目删除必须走 Git worktree 清理流程，不能只移除目录记录。 */
 	onRemoveWorktree?: () => void;
 	/** 聊天项目目录设置（仅内置 Chat 项目展示；调整会话存储目录，主进程校验不与已注册项目重叠）。 */
@@ -630,6 +638,13 @@ export function ProjectContextMenu(props: {
 			<DropdownMenuSeparator />
 			{/* 项目管理：会话/资源/过滤/工作区/刷新集中一组，删除式操作不混入 */}
 			<DropdownMenuLabel>{t("menu.group.manage")}</DropdownMenuLabel>
+			{/* 置顶与重命名同组：高频、非破坏性操作靠前 */}
+			{props.onTogglePin && (
+				<DropdownMenuItem onSelect={props.onTogglePin}>
+					{props.isPinned ? <PinOff className="size-3.5" aria-hidden="true" /> : <Pin className="size-3.5" aria-hidden="true" />}
+					{t(props.isPinned ? "menu.unpinProject" : "menu.pinProject")}
+				</DropdownMenuItem>
+			)}
 			{/* 重命名仅对普通顶级项目开放：聊天项目名固定、worktree 子项目 name 承载 git 分支名 */}
 			{!props.menu.project.kind && !props.menu.project.worktreeParentId && (
 				<DropdownMenuItem onSelect={props.onRenameProject}>
@@ -664,6 +679,24 @@ export function ProjectContextMenu(props: {
 				<Filter className="size-3.5" aria-hidden="true" />
 				{t("menu.filterSessions")}
 			</DropdownMenuItem>
+			{/* 会话排序（全局）：与过滤同组；选项由策略目录驱动，扩展时只改 sessionSortModes */}
+			{props.onSetSessionSortMode && (
+				<DropdownMenuSub>
+					<DropdownMenuSubTrigger>
+						<ArrowUpDown className="size-3.5" aria-hidden="true" />
+						{t("menu.sessionSortMode")}
+					</DropdownMenuSubTrigger>
+					<DropdownMenuSubContent>
+						<DropdownMenuRadioGroup value={props.sessionSortMode} onValueChange={(value) => props.onSetSessionSortMode?.(resolveSessionSortMode(value))}>
+							{SESSION_SORT_MODES.map((option) => (
+								<DropdownMenuRadioItem key={option.id} value={option.id}>
+									{t(option.labelKey)}
+								</DropdownMenuRadioItem>
+							))}
+						</DropdownMenuRadioGroup>
+					</DropdownMenuSubContent>
+				</DropdownMenuSub>
+			)}
 			<DropdownMenuItem onSelect={props.onRefreshProject}>
 				<RefreshCw className="size-3.5" aria-hidden="true" />
 				{t("app.projectRefresh")}

@@ -1,5 +1,5 @@
 import { canonicalizeSessionPath, getSessionEnvironment } from "../../shared/sessionIdentity";
-import type { AgentTab, SessionEnvironment, SessionSummary } from "../../shared/types";
+import type { AgentTab, SessionEnvironment, SessionSortModeId, SessionSummary } from "../../shared/types";
 import { sessionPillOf, type SessionFilterPill } from "./sessionFilterPills";
 
 /**
@@ -69,13 +69,36 @@ export function getProjectChildSessionId(child: ProjectChildItem): string | unde
 	return child.type === "session" ? child.session.id : undefined;
 }
 
-/** Pinned rows lead their project while each partition keeps the existing time order. */
-export function compareProjectChildren(left: ProjectChildItem, right: ProjectChildItem, pinnedSessionIds: ReadonlySet<string>): number {
+/**
+ * 单行的排序时间语义：agent 行用进程创建时间（无 catalog 会话），会话行优先创建时间、
+ * 扫描摘要缺省 createdAt 时回退 updatedAt（与 sortAt 同源，保持稳定）。
+ */
+function projectChildCreatedAt(child: ProjectChildItem): number {
+	return child.type === "agent" ? child.agent.createdAt : (child.session.createdAt ?? child.session.updatedAt);
+}
+
+/** 标题排序的展示名：agent 行用 tab 标题，会话行用名称（无名称时退回 preview 保底稳定）。 */
+function projectChildTitle(child: ProjectChildItem): string {
+	return child.type === "agent" ? child.agent.title : (child.session.name ?? child.session.preview ?? "");
+}
+
+/** Pinned rows lead their project; each sort mode only re-orders the non-pinned partition. */
+export function compareProjectChildren(left: ProjectChildItem, right: ProjectChildItem, pinnedSessionIds: ReadonlySet<string>, sortMode: SessionSortModeId = "updatedAt"): number {
 	const leftId = getProjectChildSessionId(left);
 	const rightId = getProjectChildSessionId(right);
 	const leftPinned = leftId !== undefined && pinnedSessionIds.has(leftId);
 	const rightPinned = rightId !== undefined && pinnedSessionIds.has(rightId);
 	if (leftPinned !== rightPinned) return leftPinned ? -1 : 1;
+	// 置顶分组内部维持「最近活跃」：置顶是显式手动序，不跟随排序模式重排
+	if (leftPinned && rightPinned) return right.sortAt - left.sortAt;
+	if (sortMode === "createdAt") {
+		const byCreated = projectChildCreatedAt(right) - projectChildCreatedAt(left);
+		return byCreated !== 0 ? byCreated : right.sortAt - left.sortAt;
+	}
+	if (sortMode === "title") {
+		const byTitle = projectChildTitle(left).localeCompare(projectChildTitle(right), undefined, { numeric: true, sensitivity: "base" });
+		return byTitle !== 0 ? byTitle : right.sortAt - left.sortAt;
+	}
 	return right.sortAt - left.sortAt;
 }
 
@@ -201,12 +224,15 @@ export function getProjectAgentSessionDisplay({
 	sessions,
 	visibleChildCount,
 	pinnedSessionIds = new Set<string>(),
+	sortMode = "updatedAt",
 }: {
 	agents: AgentTab[];
 	sessions: SessionSummary[];
 	visibleChildCount?: number;
 	/** Stable SessionRecord ids pinned inside this project's list. Unknown ids are ignored. */
 	pinnedSessionIds?: ReadonlySet<string>;
+	/** 排序模式（settings.sessionSortMode）；缺省维持历史「最近活跃」行为。 */
+	sortMode?: SessionSortModeId;
 }): ProjectAgentSessionDisplay {
 	const sessionByKey = new Map<string, SessionSummary>();
 	const unkeyedSessions: SessionSummary[] = [];
@@ -397,7 +423,7 @@ export function getProjectAgentSessionDisplay({
 		}
 	}
 
-	children.sort((left, right) => compareProjectChildren(left, right, pinnedSessionIds));
+	children.sort((left, right) => compareProjectChildren(left, right, pinnedSessionIds, sortMode));
 
 	const limit = visibleChildCount ?? DEFAULT_VISIBLE_PROJECT_CHILD_LIMIT;
 	const visibleChildren = children.slice(0, limit);

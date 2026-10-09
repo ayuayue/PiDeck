@@ -238,6 +238,38 @@ test("pi-context conversion creates a browser-only consent package without execu
 	}
 });
 
+test("pi-context adapter invalidates only the session named by a targeted change event", async () => {
+	// 粒度推送回归：活跃会话追加 → 只重读该会话历史；其他会话沿用 updatedAt memo；epoch 不变。
+	const reads = [];
+	const list = [
+		{ id: "one", projectId: "project-a", title: "One", createdAt: 1, updatedAt: 10, model: "m", readable: true },
+		{ id: "two", projectId: "project-a", title: "Two", createdAt: 1, updatedAt: 20, model: "m", readable: true },
+	];
+	const api = {
+		sessions: {
+			list: async () => ({ sessions: list, nextOffset: null }),
+			entries: async (id) => {
+				reads.push(id);
+				return { entries: [{ id: `${id}-e`, timestamp: "2026-01-01" }], version: `v-${id}`, nextCursor: null, truncated: false };
+			},
+		},
+	};
+	const data = new PiContextData(api, async (entries) => snapshot(entries), context, noWait);
+	const epoch0 = data.epoch;
+	await data.list();
+	assert.deepEqual(reads, ["one", "two"]);
+	// 定向事件：只有 two 变了（updatedAt 也同步推进），one 沿用 memo。
+	list[1].updatedAt = 21;
+	data.invalidate({ catalogChanged: false, sessionId: "two" });
+	assert.equal(data.epoch, epoch0, "targeted invalidation must not abort in-flight reads of other sessions");
+	reads.length = 0;
+	await data.list();
+	assert.deepEqual(reads, ["two"], "unchanged sessions reuse the per-session memo");
+	// 全量事件（无 detail）：epoch 推进，一切作废。
+	data.invalidate();
+	assert.equal(data.epoch, epoch0 + 1);
+});
+
 test("pi-context conversion fails closed on changed viewer seams and imported backend code", async () => {
 	const root = await mkdtemp(join(tmpdir(), "pideck-context-convert-invalid-"));
 	const source = join(root, "source");

@@ -117,14 +117,16 @@ test("visual snapshot: thinking + tool card on mobile", async ({ app }) => {
 	// 6. 发送按钮不被工具行遮挡：提示词按钮收敛为纯图标后，工具行不溢出。
 	const sendBtn = page.locator("button[type=submit]");
 	const sendBox = await sendBtn.boundingBox();
-	expect(sendBox).toBeTruthy();
-	expect(sendBox.x + sendBox.width).toBeLessThanOrEqual(375, "send button must stay inside the mobile viewport");
+	// boundingBox() 可空：显式抛错兼作类型守卫（e2e 不进 typecheck，历史遗留过 null 解引用）。
+	if (!sendBox) throw new Error("send button bounding box not found before mobile viewport assertions");
+	// playwright matcher 单参签名：自定义消息放 expect(value, message)，不是 matcher 第二参。
+	expect(sendBox.x + sendBox.width, "send button must stay inside the mobile viewport").toBeLessThanOrEqual(375);
 	const promptBtn = page.locator("button:has(.lucide-sparkles)").first();
 	const promptLabel = ((await promptBtn.textContent()) ?? "").trim();
-	expect(promptLabel).toBe("", "prompt picker trigger must be icon-only");
+	expect(promptLabel, "prompt picker trigger must be icon-only").toBe("");
 	const promptBox = await promptBtn.boundingBox();
 	if (promptBox) {
-		expect(promptBox.x + promptBox.width).toBeLessThanOrEqual(sendBox.x, "prompt trigger must not overlap the send button");
+		expect(promptBox.x + promptBox.width, "prompt trigger must not overlap the send button").toBeLessThanOrEqual(sendBox.x);
 	}
 
 	// 桌面宽度对照截图

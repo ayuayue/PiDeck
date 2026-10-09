@@ -101,6 +101,35 @@ test("TailscaleAccessReader.startServe 注入 --accept-risk=serve 且失败消�
 	assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ["serve", "--bg", "--accept-risk=serve", "http://127.0.0.1:8765"], "非交互 serve 必须带风险确认 flag");
 });
 
+test("TailscaleAccessReader.startServe 旧版 CLI 不认识 --accept-risk 时去 flag 重试一次", async () => {
+	const { TailscaleAccessReader } = loadModule("src/main/web/remoteAccess/tailscaleAccess.ts");
+	const calls = [];
+	const reader = new TailscaleAccessReader({
+		logger: makeLogger().logger,
+		commandFn: async (args) => {
+			calls.push(args);
+			if (args.includes("--accept-risk=serve")) {
+				throw new Error("Command failed: tailscale serve --bg\nflag provided but not defined: -accept-risk");
+			}
+			return { stdout: "{}", stderr: "" };
+		},
+	});
+	await reader.startServe(8765);
+	assert.equal(calls.length, 2, "首次带 flag 失败后必须重试一次");
+	assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ["serve", "--bg", "http://127.0.0.1:8765"], "旧版重试不得再带 --accept-risk");
+	// 其他错误不重试：首次失败后直接抛
+	const calls2 = [];
+	const reader2 = new TailscaleAccessReader({
+		logger: makeLogger().logger,
+		commandFn: async (args) => {
+			calls2.push(args);
+			throw new Error("Command failed: tailscale serve --bg\nserve: https not enabled on tailnet");
+		},
+	});
+	await assert.rejects(reader2.startServe(8765), /https not enabled on tailnet/);
+	assert.equal(calls2.length, 1, "非 flag 版本错误不重试");
+});
+
 test("extractTryCloudflareUrl 从 cloudflared 日志文本提取 trycloudflare 地址", () => {
 	const { extractTryCloudflareUrl } = loadModule("src/main/web/remoteAccess/cloudflaredTunnel.ts");
 	const logLines = [
@@ -265,4 +294,37 @@ test("getState 反映 web 服务上下文（端口/token/鉴权开关）", () =>
 	assert.equal(state.webPort, 38765);
 	assert.equal(state.webToken, "tok123");
 	assert.equal(state.webRequiresAuth, true);
+});
+
+// ── 隧道启动失败清理（孤儿进程回归）──
+// 场景：waitForUrl 超时/URL 解析失败时 start 抛错。若 manager 不调用 tunnel.stop()，
+// cloudflared 子进程成为孤儿——它可能稍后自行建好隧道，公网入口存在但 UI 显示失败。
+test("cloudflare start 失败时必须 stop 隧道进程（不留孤儿/幽灵公网入口）", async () => {
+	const { logger } = makeLogger();
+	const calls = [];
+	const { RemoteAccessManager } = loadModule("src/main/web/remoteAccess/RemoteAccessManager.ts");
+	const manager = new RemoteAccessManager({
+		logger,
+		getWebServiceStatus: () => WEB_RUNNING,
+		pushState: () => {},
+		detectCloudflared: () => "C:/fake/cloudflared.exe",
+		detectTailscale: () => "",
+		tunnelFactory: () => ({
+			start: async () => {
+				calls.push("start");
+				throw new Error("等待 Cloudflare 分配隧道地址超时（30 秒），请检查网络后重试");
+			},
+			stop: async () => {
+				calls.push("stop");
+			},
+			attachLifecycleWatch: () => {
+				calls.push("watch");
+			},
+		}),
+		readerFactory: () => null,
+	});
+	const state = await manager.start("cloudflare");
+	assert.equal(state.cloudflare.running, false);
+	assert.equal(state.cloudflare.error.includes("超时"), true, `error should surface timeout cause: ${state.cloudflare.error}`);
+	assert.deepEqual(calls, ["start", "stop"], "failed tunnel must be stopped exactly once");
 });

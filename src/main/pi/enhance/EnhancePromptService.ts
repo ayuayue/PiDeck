@@ -12,7 +12,7 @@
  * 与认证助手（PiAuthService，一次操作一个进程）不同，这里同进程串行跑多个
  * run：每个记录都带 id，宿主只认 `activeRun.id`，旧 id 的迟到记录直接丢弃。
  * 生命周期纪律（本文件是所有清理路径的唯一归属地）：
- * - 新 run 到来时先本地结算旧 run（回调 onAborted），再向助手发 complete；
+ * - 新 run 到来时先取消助手侧旧 run 并本地结算（回调 onAborted），再发 complete；
  *   受理路径经 acceptChain 串行化，避免两次点击在 boot 等待窗口内交错双跑；
  * - run 超时 / 助手退出 / spawn 失败 / dispose 都会结算 activeRun；
  * - 助手进程意外退出后允许下次调用重新拉起（childReady 复位即重试路径）。
@@ -124,6 +124,12 @@ function mapHostErrorKind(kind: string | undefined, fallback: EnhanceErrorKind):
 	return kind && HOST_ERROR_KINDS.has(kind as EnhanceErrorKind) ? (kind as EnhanceErrorKind) : fallback;
 }
 
+/** 从原生 Error、跨 realm 错误或未知抛出值中提取稳定的可展示详情。 */
+function getErrorMessage(error: unknown): string {
+	if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") return error.message;
+	return String(error);
+}
+
 /** 解析助手的一行 stdout；非 JSON 或结构异常返回 undefined（前向兼容）。 */
 function parseHostRecord(line: string): HostRecord | undefined {
 	const trimmed = line.trim();
@@ -150,9 +156,9 @@ export class EnhancePromptService {
 	private childReady: Promise<"ready" | "dead"> | null = null;
 	private notifyReady: () => void = () => {};
 	private notifyDead: () => void = () => {};
-	private readonly decoder = new StringDecoder("utf8");
+	private decoder = new StringDecoder("utf8");
 	private buffer = "";
-	private activeRun: { id: string; callbacks: EnhanceRunCallbacks; timer: NodeJS.Timeout } | null = null;
+	private activeRun: { id: string; callbacks: EnhanceRunCallbacks; timer: NodeJS.Timeout; accepted: boolean } | null = null;
 	private stderrTail: string[] = [];
 	/** 受理路径互斥：同一时刻只有一次 enhance() 在走 settle→boot→write 序列。 */
 	private acceptChain: Promise<unknown> = Promise.resolve();
@@ -184,9 +190,9 @@ export class EnhancePromptService {
 
 	/** 串行化的受理实现：打断旧的 → 确保 helper 进程 ready → 登记 run → 下发。 */
 	private async acceptInternal(input: EnhanceRunInput, callbacks: EnhanceRunCallbacks): Promise<EnhanceAcceptResult> {
-		// 打断旧的：本地立即结算（回调先到，UI 立刻可重置），旧 run 在助手侧的
-		// 迟到记录会因 id 不匹配被丢弃，不会二次回调。
-		this.settleActive("aborted");
+		// 先停掉助手侧旧模型流，再本地结算；只清 UI 会让旧请求继续消耗额度。
+		// 旧 id 的迟到记录被丢弃，不等待助手确认，也不会二次回调。
+		this.cancel();
 		const boot = await this.ensureChild();
 		if (boot !== "ready") {
 			return { ok: false, errorKind: "sdk-unavailable", message: "增强助手启动失败，请重试" };
@@ -194,13 +200,28 @@ export class EnhancePromptService {
 		const child = this.child;
 		if (!child) return { ok: false, errorKind: "sdk-unavailable", message: "增强助手启动失败，请重试" };
 		const runId = randomUUID();
+		// 先登记 activeRun，再写 complete：Writable 可能在 write() 内同步发出 error，
+		// 只有这样 stdin 错误处理器才能立即结算本次 run。此时先标记为未受理，
+		// 因为写入失败时回调不能与同步的 ok:false 结果同时对外发出。
 		const timer = setTimeout(() => {
 			this.logger?.warn(`增强请求超时（${Math.round(this.runTimeoutMs / 1000)}s）：runId=${runId}`);
 			this.sendToHelper({ cmd: "cancel", id: runId });
 			if (this.activeRun?.id === runId) this.settleActive("timeout");
 		}, this.runTimeoutMs);
-		this.activeRun = { id: runId, callbacks, timer };
-		this.sendToHelper({ cmd: "complete", id: runId, provider: input.provider, modelId: input.modelId, systemPrompt: ENHANCE_SYSTEM_PROMPT, userText: input.userText });
+		// 定时器必须在写入首帧前就存在：异步 stdin error 可能紧跟 write() 触发，
+		// 此时错误处理会同步清理 activeRun，不能留下一个永不结算的定时器。
+		this.activeRun = { id: runId, callbacks, timer, accepted: false };
+		const sent = this.sendToHelper({ cmd: "complete", id: runId, provider: input.provider, modelId: input.modelId, systemPrompt: ENHANCE_SYSTEM_PROMPT, userText: input.userText });
+		if (!sent.ok) {
+			if (this.activeRun?.id === runId) this.settleActive("protocol", sent.message);
+			else clearTimeout(timer);
+			return { ok: false, errorKind: "protocol", message: sent.message };
+		}
+		if (this.activeRun?.id !== runId) {
+			clearTimeout(timer);
+			return { ok: false, errorKind: "protocol", message: "增强助手输入管道已关闭，请重试" };
+		}
+		this.activeRun.accepted = true;
 		return { ok: true, runId };
 	}
 
@@ -240,18 +261,28 @@ export class EnhancePromptService {
 		}) as ChildProcessWithoutNullStreams;
 		this.child = child;
 		this.stderrTail = [];
-		child.stdout.on("data", (chunk: Buffer) => this.consumeStdout(chunk));
+		// write 的异步 EPIPE 不会被 try/catch 或 child 的 error 监听捕获。
+		// 监听保留到旧进程被回收，身份核对让迟到管道错误只被吸收、不影响新 run。
+		child.stdin.on("error", (error: Error) => this.handleChildStdinError(child, error));
+		// kill 后 close/stdout 仍可能迟到；必须在消费事件处核对进程身份,
+		// 否则旧助手会结算新 run，甚至用旧 ready 跳过新助手的握手。
+		child.stdout.on("data", (chunk: Buffer) => {
+			if (this.child === child) this.consumeStdout(chunk);
+		});
 		child.stderr.on("data", (chunk: Buffer) => {
+			if (this.child !== child) return;
 			const line = chunk.toString("utf8").trim();
 			if (line) this.stderrTail.push(line);
 			if (this.stderrTail.length > 10) this.stderrTail.shift();
 		});
 		// error/close 都把本进程标记为不可用：下次调用 ensureChild 走重拉路径。
 		child.on("error", (error) => {
+			if (this.child !== child) return;
 			this.logger?.error(`增强助手进程错误：${error.message}`);
 			this.markChildDead("spawn-failed", error.message);
 		});
 		child.on("close", (code) => {
+			if (this.child !== child) return;
 			const tail = this.stderrTail.at(-1);
 			this.logger?.warn(`增强助手退出（code ${code ?? "null"}）${tail ? `：${tail}` : ""}`);
 			this.markChildDead("protocol", `增强助手意外退出（code ${code ?? "null"}）${tail ? `：${tail}` : ""}`);
@@ -280,6 +311,9 @@ export class EnhancePromptService {
 		const child = this.child;
 		this.child = null;
 		this.childReady = null;
+		// 半帧/半字符只属于原进程，不能与重拉助手的第一条 ready 拼接。
+		this.buffer = "";
+		this.decoder = new StringDecoder("utf8");
 		this.notifyDead();
 		return child;
 	}
@@ -294,6 +328,16 @@ export class EnhancePromptService {
 		} catch {
 			// 进程已死时的 kill 抛错可以忽略；close 监听负责收尾。
 		}
+	}
+
+	/** 同步写入异常和异步管道错误共用收尾；旧进程的迟到错误只吸收。 */
+	private handleChildStdinError(child: ChildProcessWithoutNullStreams, error: unknown): string | undefined {
+		if (this.child !== child) return undefined;
+		const message = `增强助手输入管道错误：${getErrorMessage(error)}`;
+		this.logger?.error(message);
+		this.killChild("stdin-error");
+		this.settleActive("protocol", message);
+		return message;
 	}
 
 	/** 把当前进程标为不可用并结算进行中的 run（进程自行退出路径）。 */
@@ -377,13 +421,19 @@ export class EnhancePromptService {
 	// 基础设施
 	// ------------------------------------------------------------------
 
-	private sendToHelper(message: unknown): void {
+	private sendToHelper(message: unknown): { ok: true } | { ok: false; message: string } {
 		const child = this.child;
-		if (!child) return;
+		if (!child) return { ok: false, message: "增强助手未运行，请重试" };
 		try {
 			child.stdin.write(`${JSON.stringify(message)}\n`);
-		} catch {
-			// stdin 已坏时助手进程即将退出，close 分支会结算 run。
+			// 测试替身或某些 Writable 实现可能在 write() 内同步发出 error；
+			// 此时监听器已清空当前 child，不能把它当作成功写入。
+			if (this.child !== child) return { ok: false, message: "增强助手输入管道已关闭，请重试" };
+			return { ok: true };
+		} catch (error) {
+			// Writable 也可能同步抛错；不能只等待未来的 close，否则当前 run 会一直
+			// 占着 activeRun 到超时，且 boot 阶段的受理者会拿到一个假成功。
+			return { ok: false, message: this.handleChildStdinError(child, error) ?? "增强助手输入管道已关闭，请重试" };
 		}
 	}
 
@@ -396,6 +446,9 @@ export class EnhancePromptService {
 		if (!run) return;
 		clearTimeout(run.timer);
 		this.activeRun = null;
+		// 首帧写入失败时，受理方还会收到同步的 ok:false；不能再异步发一个
+		// error 回调，避免 IPC 同时发布 error 和受理失败两条终态。
+		if (!run.accepted) return;
 		if (errorKind === "aborted" && !message) run.callbacks.onAborted();
 		else run.callbacks.onError(errorKind, message ?? SETTLE_FALLBACK_MESSAGE[errorKind] ?? "增强请求失败");
 	}

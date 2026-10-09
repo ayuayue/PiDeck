@@ -1,6 +1,6 @@
 import { app, dialog, ipcMain } from "electron";
 import { randomUUID } from "node:crypto";
-import { join, basename } from "node:path";
+import { join, basename, resolve, sep } from "node:path";
 import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 
 import { ipcChannels } from "../../shared/ipc";
@@ -85,12 +85,30 @@ export function registerScratchPadIpc({ appLogger }: ScratchPadIpcDeps): void {
 		};
 	});
 
+	/**
+	 * 草稿路径边界：渲染层传入的路径必须落在 userData/drafts 内。
+	 * list/create 返回的 path 是渲染层唯一合法来源（join(draftsDir, name)），
+	 * 越界路径一律拒绝——否则本 handler 会变成任意文件读/写/删的静默通道
+	 * （对照 filesIpc 的 project boundary 与 pasteFilesIpc 的受管根白名单）。
+	 */
+	const resolveDraftPath = (rawPath: unknown): string => {
+		if (typeof rawPath !== "string" || !rawPath.trim()) throw new Error("Invalid draft path");
+		const resolved = resolve(rawPath);
+		const draftsRoot = resolve(draftsDir);
+		if (resolved !== draftsRoot && !resolved.startsWith(draftsRoot + sep)) {
+			throw new Error("Draft path must stay inside the drafts directory");
+		}
+		return resolved;
+	};
+
 	/** 删除指定草稿 */
 	ipcMain.handle(ipcChannels.scratchPadDelete, async (_event, draftPath: string): Promise<void> => {
 		try {
+			// 先做目录边界校验再进回收站：草稿删除的合法输入只可能是 drafts 内的文件。
+			const safePath = resolveDraftPath(draftPath);
 			// 草稿是用户内容：删除走系统回收站（可恢复）；回收站不可用时抛错，拒绝硬删。
-			await trashPath(draftPath, { source: "scratchPad:delete" });
-			void appLogger.info("scratchPad", "draft deleted", { path: draftPath });
+			await trashPath(safePath, { source: "scratchPad:delete" });
+			void appLogger.info("scratchPad", "draft deleted", { path: safePath });
 		} catch (error) {
 			void appLogger.error("scratchPad", "Draft delete failed", {
 				path: draftPath,
@@ -103,9 +121,11 @@ export function registerScratchPadIpc({ appLogger }: ScratchPadIpcDeps): void {
 	/** 加载指定草稿内容，path 为空时返回空内容 */
 	ipcMain.handle(ipcChannels.scratchPadLoad, async (_event, draftPath?: string): Promise<ScratchPadData> => {
 		if (!draftPath) return { content: "", lastEditedAt: 0, cursorPosition: 0 };
+		// 任意路径读文件是越权通道：先校验 drafts 边界再读。
+		const safePath = resolveDraftPath(draftPath);
 		try {
-			const content = await readFile(draftPath, "utf8");
-			const fileStat = await stat(draftPath);
+			const content = await readFile(safePath, "utf8");
+			const fileStat = await stat(safePath);
 			return { content, lastEditedAt: fileStat.mtimeMs, cursorPosition: 0 };
 		} catch {
 			return { content: "", lastEditedAt: 0, cursorPosition: 0 };
@@ -115,20 +135,24 @@ export function registerScratchPadIpc({ appLogger }: ScratchPadIpcDeps): void {
 	/** 保存内容到指定草稿 */
 	ipcMain.handle(ipcChannels.scratchPadSave, async (_event, draftPath: string, content: string, cursorPosition: number) => {
 		await ensureDraftsDir();
-		await writeFile(draftPath, content, "utf8");
-		void appLogger.info("scratchPad", "saved", { path: draftPath, bytes: Buffer.byteLength(content, "utf8"), cursorPosition });
+		// 写路径同样限制在 drafts 内：渲染层不可信，越界写比越界读更危险。
+		const safePath = resolveDraftPath(draftPath);
+		await writeFile(safePath, content, "utf8");
+		void appLogger.info("scratchPad", "saved", { path: safePath, bytes: Buffer.byteLength(content, "utf8"), cursorPosition });
 	});
 
 	/** 导出指定草稿到用户选择的路径 */
 	ipcMain.handle(ipcChannels.scratchPadExport, async (_event, draftPath?: string) => {
 		if (!draftPath) return false;
-		const suggestedName = basename(draftPath);
+		// 读源也必须限制在 drafts 内；写目标由系统保存对话框选定（用户主动选择，不在边界内）。
+		const safePath = resolveDraftPath(draftPath);
+		const suggestedName = basename(safePath);
 		const { canceled, filePath } = await dialog.showSaveDialog({
 			defaultPath: suggestedName,
 			filters: [{ name: "Markdown", extensions: ["md"] }],
 		});
 		if (canceled || !filePath) return false;
-		const content = await readFile(draftPath, "utf8");
+		const content = await readFile(safePath, "utf8");
 		await writeFile(filePath, content, "utf8");
 		return true;
 	});

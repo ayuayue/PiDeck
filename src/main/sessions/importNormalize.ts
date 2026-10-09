@@ -102,3 +102,15 @@ function stripDataUrl(value: string): string {
 	const match = trimmed.match(/^data:[^;,]+;base64,([A-Za-z0-9+/=\s]+)$/i);
 	return (match ? match[1] : trimmed).replace(/\s+/g, "");
 }
+
+/**
+ * 外部会话源的时间戳转 ISO 串。
+ * 畸形值（NaN/±Infinity/超 ±8.64e15 的 1e300 等）会产出 Invalid Date，
+ * `toISOString()` 抛 RangeError 且被 scan 的 Promise.all 放大成整列表失败
+ * （2026-03 导入器审计实测）；这里回退 epoch，单条消息时间戳错好过整个会话不可导入。
+ */
+export function safeIsoTimestamp(value: number | string | Date): string {
+	const date = value instanceof Date ? value : new Date(value);
+	if (Number.isNaN(date.getTime())) return "1970-01-01T00:00:00.000Z";
+	return date.toISOString();
+}

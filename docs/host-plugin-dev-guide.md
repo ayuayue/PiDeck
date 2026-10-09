@@ -44,7 +44,7 @@ my-plugin/
 }
 ```
 
-把目录放进 PiDeck 的插件目录（设置 → 扩展 → 桌面插件 → 打开插件目录），重新扫描，即可看到插件——默认禁用，点「授权并启用」完成指纹授权后面板即可挂载。
+把目录放进 PiDeck 的插件目录（设置 → PiDeck 插件 → 打开插件目录），重新扫描，即可看到插件——默认禁用，点「授权并启用」完成指纹授权后面板即可挂载。
 
 ### manifest 字段
 
@@ -88,7 +88,7 @@ node scripts/pack-host-plugin.mjs <插件目录> [输出.pideck-plugin]
 ```
 
 - 格式：NDJSON 单文件（header 行 + 每文件一行 base64 + sha256），与目录包同一套预算；归档上限 24 MiB。
-- 安装：设置 → 扩展 → 桌面插件 →「从文件安装…」（文件选择在主进程完成）。安装后默认禁用，需重新授权。
+- 安装：设置 → PiDeck 插件 →「从文件安装…」（文件选择在主进程完成）。安装后默认禁用，需重新授权。
 - 更新语义：**启用中的插件拒绝被替换**（`plugin-in-use`），先禁用再装；禁用状态重装同 id 时，字节一致则指纹不变、内容变化则旧授权失效。
 
 ## 复用现有工具：转换 pi-context
@@ -118,4 +118,6 @@ node scripts/convert-pi-context-host-plugin.mjs "<pi-context 目录>" "<输出�
 
 - 面板是普通 Web 页面：在面板上右键 → 检查即可用 DevTools（仅该实例）。
 - `pideck.context().theme` 跟随 PiDeck 明暗主题，`locale` 跟随界面语言，建议适配。
+- 主题/语言变化会推送 `context.changed` 事件（新 context 在事件负载里），面板应重新渲染文案与配色。
+- 会话变更推送 `sessions.changed`，负载带粒度：活跃会话追加为 `{ sessionId }`，目录级变化（新建/删除/归档/改名）为 `{ catalogChanged: true }`；只有变化过的会话需要重读。
 - 回归测试参考 `tests/hostPlugins.test.mjs`、`tests/hostPluginArchive.test.mjs`；架构与内部模块说明见仓库 `docs/host-plugins.md`。

@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp, Ellipsis, HatGlasses, Image as ImageIcon, Pin, 
 import { useAtomValue } from "jotai";
 import type { AgentTab, Project, SessionRecord, SessionSummary } from "../../../../shared/types";
 import { collectDisplayedSessionIds, filterAgentsForSidebarDisplay, getProjectAgentSessionDisplay, sessionStatusDotClass, type ProjectChildItem } from "../../agentListDisplay";
+import { compareSessionsForSortMode } from "../../sessionSortModes";
 import { sessionRecordToSummary } from "../../atoms";
 import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
 import { t } from "../../i18n";
@@ -97,6 +98,7 @@ export function SessionTree(props: { project: Project; sessions: readonly Sessio
 		sessions: summaries,
 		visibleChildCount: props.visibleChildCount ?? (props.nested ? Number.MAX_SAFE_INTEGER : props.controller.visibleChildCountFor(props.project.id)),
 		pinnedSessionIds: props.controller.pinnedSessionIds,
+		sortMode: props.controller.sessionSortMode,
 	});
 	const displayedSessionIds = collectDisplayedSessionIds(display.visibleChildren, (agent) => {
 		const linked = props.sessions.find((session) => props.controller.catalog.runtimeBySessionId[session.id]?.agentId === agent.id) ?? summaries.find((session) => session.filePath === agent.sessionPath);
@@ -107,7 +109,7 @@ export function SessionTree(props: { project: Project; sessions: readonly Sessio
 		.filter((session) => !displayedSessionIds.has(session.id))
 		.filter((session) => matchesSearch(session.title, search))
 		.filter((session) => filter === null || filter.has(session.source))
-		.sort((left, right) => right.updatedAt - left.updatedAt);
+		.sort((left, right) => compareSessionsForSortMode(left, right, props.controller.sessionSortMode));
 	const catalogLoading = props.controller.catalog.catalogLoadStateByProject[props.project.id]?.status === "loading";
 	const canCollapseChildren = props.controller.hasExpandedChildren(props.project.id);
 	/** 完整文案（含数字），用于 aria-label / title 的无障碍与悬停提示。 */

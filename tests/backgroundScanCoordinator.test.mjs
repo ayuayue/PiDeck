@@ -114,3 +114,22 @@ test("dispose cancels pending cooldown timers", async () => {
 	await sleep(30);
 	assert.equal(runs, 0, "disposed coordinator never fires delayed scans");
 });
+
+test("dispose clears the scanning marker so a later schedule is not swallowed", async () => {
+	// 回归：dispose 只清定时器/pending，不清 scanningProjects 的残留标记时，
+	// 冷却等待期内 dispose 后再 schedule 会被判为“扫描中”合并进 pending，
+	// 但已没有在跑循环会补跑它——项目永久卡在“扫描中”且永不扫描。
+	const coordinator = new BackgroundScanCoordinator(10_000); // 长冷却：首调度停在延迟等待期
+	let runs = 0;
+	const task = async () => {
+		runs += 1;
+	};
+	coordinator.schedule("p1", task);
+	coordinator.dispose();
+
+	// dispose 后重新调度必须能执行（true = 由本次调度执行扫描）
+	const scheduled = coordinator.schedule("p1", task);
+	assert.equal(scheduled, true, "schedule after dispose must not be merged into a dead pending queue");
+	await waitFor(() => runs >= 1);
+	coordinator.dispose();
+});

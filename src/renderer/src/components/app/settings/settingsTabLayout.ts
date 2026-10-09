@@ -34,6 +34,7 @@ export const SETTINGS_TAB_LAYOUT: readonly SettingsTabLayoutEntry[] = [
 	{ id: "vision" },
 	{ id: "imagegen" },
 	{ id: "acp" },
+	{ id: "hostplugins" },
 	{ id: "web", dividerBefore: true },
 	{ id: "editors" },
 	{ id: "git" },
@@ -75,6 +76,7 @@ export const SETTINGS_TAB_LABEL_KEYS: Record<SettingsTabId, TranslationKey> = {
 	vision: "settings.tabs.vision",
 	imagegen: "settings.tabs.imagegen",
 	acp: "settings.tabs.acp",
+	hostplugins: "settings.tabs.hostplugins",
 };
 
 /**
@@ -101,4 +103,5 @@ export const SETTINGS_TAB_KEYWORDS: Record<SettingsTabId, readonly string[]> = {
 	vision: ["视觉", "图片识别", "视觉桥", "vision", "multimodal"],
 	imagegen: ["生图", "画图", "图片生成", "imagegen", "image"],
 	acp: ["acp", "agent", "cli", "工具", "外部 agent", "gemini", "kimi", "claude code", "opencode"],
+	hostplugins: ["插件", "宿主插件", "工作台插件", "plugin", "host plugin", "扩展安装", "pideck 插件"],
 };

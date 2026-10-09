@@ -64,6 +64,7 @@ function fakeExecFile(result) {
 function fakeSpawn({ stdout = "", stderr = Buffer.alloc(0), code = 0 } = {}) {
 	const calls = [];
 	const stdinChunks = [];
+	let stdinErrorListenerCount = 0;
 	const handler = (command, args, options) => {
 		calls.push({ command, args: plain(args), options: plain(options) });
 		const child = new EventEmitter();
@@ -73,6 +74,11 @@ function fakeSpawn({ stdout = "", stderr = Buffer.alloc(0), code = 0 } = {}) {
 		child.stdin = {
 			write: (chunk) => stdinChunks.push(chunk),
 			end: () => {},
+			// 断管兜底守卫：生产代码必须在 write 前注册 stdin error 监听
+			// （wsl.exe 提前退出时排队写报 EOF/EPIPE，无监听会炸主进程）。
+			on: (name) => {
+				if (name === "error") stdinErrorListenerCount += 1;
+			},
 		};
 		process.nextTick(() => {
 			if (stdout.length > 0) child.stdout.emit("data", Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout));
@@ -81,7 +87,7 @@ function fakeSpawn({ stdout = "", stderr = Buffer.alloc(0), code = 0 } = {}) {
 		});
 		return child;
 	};
-	return { handler, calls, stdinChunks };
+	return { handler, calls, stdinChunks, stdinErrorListenerCount: () => stdinErrorListenerCount };
 }
 
 /** 完整 expect argv：wsl.exe -d <distro> -e /bin/sh -c <守卫> pideck <cwd> /usr/bin/env [K=V…] git <args…> */
@@ -232,6 +238,8 @@ test("runGitCommand：WSL 分支把 stdin 转给 wsl.exe（commit-tree / cat-fil
 	assert.deepEqual(fake.calls[0].args, expectedWslArgs("Debian", "/home/dev/proj", ["commit-tree", "abc123"], ["GIT_AUTHOR_NAME=pi-rewind"]));
 	assert.deepEqual(fake.calls[0].options.stdio, ["pipe", "pipe", "pipe"]);
 	assert.deepEqual(fake.stdinChunks, ["pi-rewind:turn-1"]);
+	// 断管兜底守卫：stdin 必须在写入前注册 error 监听（wsl.exe 提前退出时排队写报 EOF/EPIPE，无监听炸主进程）。
+	assert.equal(fake.stdinErrorListenerCount(), 1);
 });
 
 test("runGitCommand：宿主分支保持 (args, options, command) 调用形态", async () => {

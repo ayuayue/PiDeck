@@ -12,6 +12,9 @@ import { dshManuallyStoppedError, isDshManuallyStoppedError } from "./dshManualS
  *
  * 桥协议见 dshHostBridge.ts；hostEntry 侧组合与主进程内嵌形态一致。
  */
+/** dispose 后 start/restartAfterCrash 的拒绝文案（可辨识，不与手动停止/boot 失败混淆）。 */
+const DSH_HOST_DISPOSED_ERROR = "DSH host process was disposed";
+
 export class DshHostProcess {
 	private child: UtilityProcess | null = null;
 	private readonly listeners = new Set<(message: unknown) => void>();
@@ -29,6 +32,10 @@ export class DshHostProcess {
 	private readonly maxRestarts = 3;
 	/** 主动停止中（kill/dispose）：exit 时不触发自动重启。 */
 	private stopping = false;
+	/** 不可逆终态：dispose 后拒绝一切 fork（含崩溃自动重启内部的 start(false)）。
+	 *  崩溃退避窗口（0.5~2s）内 dispose 时，pending 的 restartAfterCrash 会在退避后
+	 *  重新 fork——而 DshHost.dispose 早已返回，新进程成为无人认领的孤儿。 */
+	private disposed = false;
 	/** 最近一次 boot 失败的真实原因（host-error 消息详情，缺省退回 stderr 尾部）。
 	 *  启动成功（host-ready）时清零；渲染层经 getStatus().bootError 拿到它，
 	 *  否则用户只看到笼统的 "exited before ready (code=1)" 而不知道为何失败。 */
@@ -97,6 +104,8 @@ export class DshHostProcess {
 		// 手动停止门控（崩溃自动重启路径也走这里）：用户停过之后不再 fork，
 		// 调用方（restartAfterCrash）按 isDshManuallyStoppedError 判定后静默放弃。
 		if (this.isManualStopped()) throw dshManuallyStoppedError();
+		// 终态门控：dispose 后的对象不得再 fork（见 disposed 字段注释的孤儿竞态）。
+		if (this.disposed) throw new Error(DSH_HOST_DISPOSED_ERROR);
 		this.ready = false;
 		if (resetCrashCounters) {
 			this.bootFailures = 0;
@@ -300,6 +309,9 @@ export class DshHostProcess {
 			// 用 info 记一行即可，warn 会在日志里堆成假故障信号。
 			if (isDshManuallyStoppedError(error)) {
 				this.log("dsh-host", "host auto-restart skipped: manually stopped by user");
+			} else if (error instanceof Error && error.message === DSH_HOST_DISPOSED_ERROR) {
+				// dispose 后的 pending 重启被拒同理：正常时序而非故障，只记 info。
+				this.log("dsh-host", "host auto-restart skipped: process disposed");
 			} else {
 				this.log("dsh-host", `host restart failed: ${String(error)}`);
 			}
@@ -331,8 +343,9 @@ export class DshHostProcess {
 		await this.exitPromise;
 	}
 
-	/** 释放（退出清理）：kill + 清监听。 */
+	/** 释放（退出清理）：kill + 清监听；不可逆——之后拒绝一切 fork（终态门控）。 */
 	async dispose(): Promise<void> {
+		this.disposed = true;
 		this.listeners.clear();
 		await this.kill();
 	}

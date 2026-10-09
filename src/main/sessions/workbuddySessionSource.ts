@@ -1,6 +1,7 @@
 import { mkdir, readdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { normalizeImportedToolArguments } from "./importToolArguments";
+import { assertSourceWithinRoot } from "./importPathGuard";
 import { readImportMetaHead } from "./importMetaHead";
 import { readSessionSourceHead } from "./sessionSourceHead";
 
@@ -79,11 +80,8 @@ export function getWorkBuddyTargetPath(piRoot: string, projectPath: string, sess
 
 /** 路径逃逸校验：只允许读取 ~/.workbuddy/projects 之下的会话文件。 */
 export function assertWorkBuddySourcePath(root: string, filePath: string): void {
-	const base = normalizePath(root);
-	const target = normalizePath(filePath);
-	if (target !== base && !target.startsWith(`${base}/`)) {
-		throw new Error("WorkBuddy session path is outside ~/.workbuddy/projects");
-	}
+	// 语义校验（resolve 后比较）：词法 startsWith 不解析 `..`（2026-03 导入器安全审计）
+	assertSourceWithinRoot(root, filePath, "WorkBuddy");
 }
 
 export function sessionIdFromPath(filePath: string): string {

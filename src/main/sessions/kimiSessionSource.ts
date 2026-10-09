@@ -1,9 +1,8 @@
-import { createReadStream } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { createInterface } from "node:readline";
 import { readImportMetaHead } from "./importMetaHead";
-import { readSessionSourceHead } from "./sessionSourceHead";
+import { assertSourceWithinRoot } from "./importPathGuard";
+import { readSessionSourceHead, readJsonlObjects } from "./sessionSourceHead";
 
 /** Kimi Code 的 wire.jsonl / session_index.jsonl 行结构不固定，统一按 unknown 读取后再逐字段收窄。 */
 export type KimiRecord = Record<string, unknown>;
@@ -85,11 +84,8 @@ export function getKimiTargetPath(piRoot: string, projectPath: string, session: 
 
 /** 路径逃逸校验：只允许读取 ~/.kimi-code 之下的会话文件（sessionDir 来自索引，不可信）。 */
 export function assertKimiSourcePath(root: string, filePath: string): void {
-	const base = normalizePath(root);
-	const target = normalizePath(filePath);
-	if (target !== base && !target.startsWith(`${base}/`)) {
-		throw new Error("Kimi session path is outside ~/.kimi-code");
-	}
+	// 语义校验（resolve 后比较）：词法 startsWith 不解析 `..`（2026-03 导入器安全审计）
+	assertSourceWithinRoot(root, filePath, "Kimi");
 }
 
 export function kimiWirePath(sessionDir: string): string {
@@ -214,24 +210,9 @@ export async function readKimiSessionHead(root: string, wirePath: string): Promi
  * 「导入到一半遇到半行」变成整个会话导入失败；这里选择容忍坏行、保住其余内容。
  */
 export async function* readKimiWireObjects(filePath: string): AsyncGenerator<KimiRecord> {
-	const rl = createInterface({
-		input: createReadStream(filePath, { encoding: "utf8" }),
-		crlfDelay: Infinity,
-	});
-	try {
-		for await (const line of rl) {
-			if (!line.trim()) continue;
-			try {
-				const parsed = JSON.parse(line) as unknown;
-				if (parsed && typeof parsed === "object") {
-					yield parsed as KimiRecord;
-				}
-			} catch {
-				// 坏行/半行跳过（见函数注释）
-			}
-		}
-	} finally {
-		rl.close();
+	// 经 readJsonlObjects（宽容模式：坏行/半行跳过 + 64MiB 单行防线，裸 readline 会无界缓冲）
+	for await (const record of readJsonlObjects(filePath, { skipBadLines: true })) {
+		yield record as KimiRecord;
 	}
 }
 

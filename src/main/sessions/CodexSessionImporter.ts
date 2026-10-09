@@ -1,12 +1,12 @@
 import { app } from "electron";
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { mkdir, open, readdir, stat } from "node:fs/promises";
+import { mkdir, open, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
 import type { CodexImportReport, CodexImportResult, CodexImportStatus, CodexSessionSummary } from "../../shared/types";
 import { getCodexSessionThreadInfo } from "../../shared/codexSessionMeta";
 import { defaultSessionImportCopy, type SessionImportCopy } from "./SessionImportCopy";
+import { assertSourceWithinRoot } from "./importPathGuard";
+import { readJsonlObjects, renameWithRetry } from "./sessionSourceHead";
 import { normalizeImportedToolArguments } from "./importToolArguments";
 import { readImportMetaHead } from "./importMetaHead";
 import { normalizeImportedStopReason, tryImportedImageBlock } from "./importNormalize";
@@ -222,17 +222,26 @@ export class CodexSessionImporter {
 			const targetPath = this.getTargetPath(projectPath, info);
 			const existing = await this.readImportMeta(targetPath);
 			await mkdir(this.getProjectSessionDir(projectPath), { recursive: true });
-			const converted = await this.convertToPiSessionStreaming(projectPath, info, targetPath, threadTitle);
-
-			return {
-				id: String(info.meta.id ?? sourcePath),
-				sourcePath,
-				targetPath,
-				title: converted.title,
-				success: true,
-				overwritten: Boolean(existing),
-				messageCount: converted.messageCount,
-			};
+			// 原子写：先写同目录临时文件再改名（与 Minimax 导入器同构）——直接 open(targetPath, "w")
+			// 会先截断目标，转换中途失败（磁盘满/进程退出）会留下半份产物，旧会话内容也丢了。
+			// 临时文件放目标目录旁（同盘原子改名），不写进源目录（~/.codex）。
+			const tempPath = join(this.getProjectSessionDir(projectPath), `.pideck-import-${randomUUID().slice(0, 8)}.tmp`);
+			try {
+				const converted = await this.convertToPiSessionStreaming(projectPath, info, tempPath, threadTitle);
+				await renameWithRetry(tempPath, targetPath);
+				return {
+					id: String(info.meta.id ?? sourcePath),
+					sourcePath,
+					targetPath,
+					title: converted.title,
+					success: true,
+					overwritten: Boolean(existing),
+					messageCount: converted.messageCount,
+				};
+			} finally {
+				// 成功路径文件已改名不存在；失败路径清掉半份临时文件，不留垃圾
+				await rm(tempPath, { force: true }).catch(() => undefined);
+			}
 		} catch (error) {
 			return {
 				id: sourcePath,
@@ -696,20 +705,9 @@ export class CodexSessionImporter {
 			});
 			parentId = modelChangeId;
 
-			// 逐行流式转换；session_meta/turn_context 等非消息行在循环中被自然跳过
-			const rl = createInterface({
-				input: createReadStream(session.sourcePath, { encoding: "utf8" }),
-				crlfDelay: Infinity,
-			});
-			for await (const line of rl) {
-				let entry: Record<string, any>;
-				try {
-					entry = JSON.parse(line) as Record<string, any>;
-				} catch (error) {
-					// 导入严格语义：坏行即失败（与旧全量实现一致）；错误信息截断行前缀防刷屏
-					throw new Error(`Invalid line in Codex session: ${line.slice(0, 120)} (${error instanceof Error ? error.message : String(error)})`);
-				}
-
+			// 逐行流式转换（经 readJsonlObjects 的 64MiB 单行防线，裸 readline 会无界缓冲
+			// ——2026-03 导入器安全审计）；session_meta/turn_context 等非消息行在循环中被自然跳过
+			for await (const entry of readJsonlObjects(session.sourcePath)) {
 				if (entry.type !== "response_item") continue;
 				const payload = entry.payload ?? {};
 
@@ -929,11 +927,9 @@ export class CodexSessionImporter {
 	}
 
 	private assertCodexSourcePath(filePath: string) {
-		const root = this.normalize(this.codexRoot);
-		const target = this.normalize(filePath);
-		if (target !== root && !target.startsWith(`${root}/`)) {
-			throw new Error("Codex session path is outside ~/.codex/sessions");
-		}
+		// 语义校验（resolve 后比较）：词法 startsWith 不解析 `..`，曾可被
+		// `<root>/../../任意文件` 绕过读任意文件（2026-03 导入器安全审计）
+		assertSourceWithinRoot(this.codexRoot, filePath, "Codex");
 	}
 
 	/** 读取导入产物头部的 import 标记（有界读头部，不再整读会话文件——见 importMetaHead）。 */
@@ -967,7 +963,8 @@ export class CodexSessionImporter {
 
 	private safePathToken(path: string) {
 		const normalized = path.replace(/\\/g, "/");
-		const win = normalized.match(/^([A-Za-z]):\/(.+)$/);
+		// 盘符根（D:\）也要命中本分支：(.+) 时盘根落到 fallback 产出含 ":" 的非法目录名，导入必败
+		const win = normalized.match(/^([A-Za-z]):\/(.*)$/);
 		if (win) return `--${win[1]}--${win[2].replace(/\//g, "-")}--`;
 		return `--${normalized.replace(/^\//, "").replace(/\//g, "-")}--`;
 	}

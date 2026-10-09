@@ -219,6 +219,25 @@ type SessionReferenceMessage = {
 	timestamp: number;
 };
 
+/** 发送历史会话级 LRU 上限：每会话条目已有 50 条 slice 上限，但会话键（含已删除
+ *  的草稿/临时会话）无人清理，桌面进程长运行无界增长；与 stickyEmptySessionIds /
+ *  latestLoadBySession 同构，超限淘汰最早访问的会话键。访问序在模块级 Map 里，
+ *  history 数据本体仍是调用方（hook ref）单一 owner。 */
+const PROMPT_HISTORY_SESSION_LRU_LIMIT = 50;
+const promptHistorySessionOrder = new Map<string, true>();
+function markPromptHistorySessionAccess(history: Record<string, string[]>, sessionId: string) {
+	// delete+set 把本次访问的键移到 Map 尾部（迭代序 = 访问序）
+	promptHistorySessionOrder.delete(sessionId);
+	promptHistorySessionOrder.set(sessionId, true);
+	if (promptHistorySessionOrder.size <= PROMPT_HISTORY_SESSION_LRU_LIMIT) return;
+	const oldest = promptHistorySessionOrder.keys().next().value;
+	if (oldest !== undefined && oldest !== sessionId) {
+		promptHistorySessionOrder.delete(oldest);
+		// 键可能不属于本挂载的 history 对象（多栏各自 ref）：delete 不存在键无害
+		delete history[oldest];
+	}
+}
+
 export type SessionReferenceSelection = {
 	selectedIndices: number[];
 	entries: Array<{ index: number; message: SessionReferenceMessage }>;
@@ -408,6 +427,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 	 * 因此激活前后上下键历史行为一致（issue-139）。
 	 */
 	const getPromptHistory = useCallback(() => {
+		markPromptHistorySessionAccess(promptHistoryRef.current, sessionId);
 		const runtimeHistory = promptHistoryRef.current[sessionId] ?? [];
 		const sessionHistory = extractUserPrompts(store.get(sessionMessagesCacheAtom)[sessionId]?.messages ?? []);
 		return mergePromptHistory(runtimeHistory, sessionHistory);
@@ -1056,6 +1076,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 			const normalized = message.trim();
 			const previous = promptHistoryRef.current[targetSessionId] ?? [];
 			promptHistoryRef.current[targetSessionId] = [normalized, ...previous.filter((item) => item !== normalized)].slice(0, 50);
+			markPromptHistorySessionAccess(promptHistoryRef.current, targetSessionId);
 		},
 		showError: (message, duration) => showNotice(message, duration),
 		showUnknown: () => showNotice(t("app.queuedUnknown"), 6000),

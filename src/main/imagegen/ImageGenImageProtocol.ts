@@ -1,7 +1,10 @@
 import { protocol } from "electron";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { IMAGE_BLOB_PROTOCOL } from "../../shared/imageContentSrc";
 import { imageBlobMimeType, type ImageBlobStore } from "./ImageBlobStore";
+
+/** 展示路径的读取字节上界：与 ImageBlobStore.IMAGE_BLOB_MAX_BYTES 对齐（不直接 import，沙箱白名单）。 */
+const IMAGE_PROTOCOL_MAX_BYTES = 32 * 1024 * 1024;
 
 /**
  * pideck-img:// 协议：把落盘的生图图片交给渲染层 `<img>` 直接加载。
@@ -33,6 +36,10 @@ export function registerImageGenImageProtocol(blobs: ImageBlobStore): void {
 		const file = blobs.resolvePath(ref);
 		if (!file) return new Response("forbidden", { status: 403 });
 		try {
+			// 读取字节上界（AGENTS.md 生图硬约束）：与 readPayload 同口径，防外部放入的超大文件
+			// 整读进内存（Chromium 解码也应拒绝异常大图，这里先在文件系统层拦截）。
+			const info = await stat(file);
+			if (info.size > IMAGE_PROTOCOL_MAX_BYTES) return new Response("payload too large", { status: 413 });
 			const data = await readFile(file);
 			return new Response(data, {
 				headers: {

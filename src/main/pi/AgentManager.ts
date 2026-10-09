@@ -1041,7 +1041,10 @@ export class AgentManager {
 		const runtime = this.agents.get(entry.agentId);
 		if (!runtime || runtime.tab.status !== "idle") return null;
 		try {
-			const response = await runtime.process.client.request({ type: "get_commands" }, this.rpcTimeoutMs);
+			// 元数据查询用固定短超时（与本文件 get_commands 启发式同约定），
+			// 不继承 prompt 级 rpcTimeout（默认 600s）：卡死的 standby 进程不能把
+			// 草稿斜杠菜单的预览拖十分钟——预览失败就回退本地发现。
+			const response = await runtime.process.client.request({ type: "get_commands" }, 10_000);
 			if (!response.success) return null;
 			return (response.data as { commands?: PiCommand[] } | undefined)?.commands ?? [];
 		} catch {

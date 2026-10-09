@@ -362,7 +362,7 @@ export class ConfigManager {
 			JSON.parse(rawJson);
 		} catch (e) {
 			const debugDetails = e instanceof Error ? e.message : String(e);
-			console.error("[ConfigManager] Invalid JSON input", e);
+			void getAppLogger()?.error("config", "Invalid JSON input", { error: e instanceof Error ? e.message : String(e) });
 			return {
 				valid: false,
 				error: this.translate("mainConfig.invalidJson"),
@@ -588,10 +588,7 @@ export class ConfigManager {
 
 					if (!res.ok) {
 						lastDebugDetails = `HTTP ${res.status}: ${res.statusText}`;
-						console.warn("[ConfigManager] Provider model list request failed", {
-							status: res.status,
-							requestUrl: lastRequestUrl,
-						});
+						void getAppLogger()?.warn("config", "Provider model list request failed", { status: res.status, requestUrl: lastRequestUrl });
 						lastError = this.translate("mainConfig.fetchModelsFailed");
 						continue;
 					}
@@ -604,10 +601,7 @@ export class ConfigManager {
 					const contentType = res.headers?.get?.("content-type") ?? "";
 					if (/text\/html/i.test(contentType)) {
 						lastDebugDetails = `HTTP ${res.status} text/html (WAF/anti-bot page)`;
-						console.warn("[ConfigManager] Provider returned an HTML page instead of JSON", {
-							requestUrl: lastRequestUrl,
-							contentType,
-						});
+						void getAppLogger()?.warn("config", "Provider returned an HTML page instead of JSON", { requestUrl: lastRequestUrl, contentType });
 						lastError = this.translate("mainConfig.fetchBlockedByHtml");
 						continue;
 					}
@@ -655,7 +649,7 @@ export class ConfigManager {
 					// 请求 URL（Gemini 的 key 在 query 上）或网关回显的正文，返回值会跨 IPC
 					// 序列化到渲染进程；可操作指引已由下面的专用文案承载，无需原始文本。
 					const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-					console.error("[ConfigManager] Provider model list request failed", e);
+					void getAppLogger()?.error("config", "Provider model list request failed", { error: detail });
 					lastError = describeNetworkFailure(detail, (key) => this.translate(key)) ?? this.translate("mainConfig.fetchModelsFailed");
 				}
 			}
@@ -907,7 +901,7 @@ export class ConfigManager {
 			pkg = JSON.parse(packageJson);
 		} catch (e) {
 			const debugDetails = e instanceof Error ? e.message : String(e);
-			console.error("[ConfigManager] Invalid configuration import JSON", e);
+			void getAppLogger()?.error("config", "Invalid configuration import JSON", { error: e instanceof Error ? e.message : String(e) });
 			return {
 				valid: false,
 				error: this.translate("mainConfig.invalidJson"),
@@ -969,7 +963,7 @@ export class ConfigManager {
 		// DSH 未单独配置时回退 Pi 同 provider 配置（display parity：Pi 已配置并显示 → DSH 卡片默认也显示）。
 		const { settings, effectiveDir } = await this.loadUsageSettingsWithFallback(backend, provider, settingsDir);
 		for (const error of settings.errors) {
-			console.warn("[ConfigManager] 用量探针配置被忽略：", error);
+			void getAppLogger()?.warn("config", "Usage probe config ignored", { error });
 		}
 		if (settings.config?.enabled !== true) {
 			return {
@@ -1008,7 +1002,7 @@ export class ConfigManager {
 
 		const userProbes = await loadUserUsageProbes(effectiveDir);
 		for (const error of userProbes.errors) {
-			console.warn("[ConfigManager] 用户用量探针配置被忽略：", error);
+			void getAppLogger()?.warn("config", "User usage probe config ignored", { error });
 		}
 		const applicable = [...USAGE_PROBE_CANDIDATES, ...userProbes.candidates].filter((c) => candidateApplies(c, resolvedBaseUrl, api));
 		if (applicable.length === 0) {

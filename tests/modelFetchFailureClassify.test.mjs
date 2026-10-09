@@ -78,6 +78,10 @@ function compile() {
 				usageProbeUrls: () => [],
 			};
 		}
+		if (specifier === "../logging/sharedLogger") {
+			// 生产代码错误路径用 getAppLogger()?.error(...) 留痕；测试无主进程 logger，返回 null 即走静默分支
+			return { getAppLogger: () => null };
+		}
 		return {};
 	};
 	vm.runInNewContext(

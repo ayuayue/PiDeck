@@ -32,7 +32,11 @@ async function createTab(t, addresses, host = "0.0.0.0") {
 			"../../ui-shadcn/switch": { Switch: "Switch" },
 			"../../ui-shadcn/select": { Select: "Select", SelectContent: "SelectContent", SelectItem: "SelectItem", SelectTrigger: "SelectTrigger", SelectValue: "SelectValue" },
 			"./SettingsStorageTab": { SettingsSection: "SettingsSection" },
-			"./SettingRows": { SettingRow: "SettingRow", SettingSwitchRow: "SettingSwitchRow" },
+			"./SettingRows": { SettingRow: "SettingRow", SettingSwitchRow: "SettingSwitchRow", SettingBox: "SettingBox" },
+			// 外网访问面板整块 stub 掉：测试只关心地址选择逻辑，且其真实依赖链会拉进
+			// ui-shadcn/dialog（@/ 别名 helper 不解析）；cn 只服务类名合并，地址断言不依赖返回值
+			"./WebRemoteAccessSection": { WebRemoteAccessSection: () => null },
+			"../../../lib/utils": { cn: (...parts) => parts.filter(Boolean).join(" ") },
 		},
 		globals: { window: { clearTimeout, setTimeout } },
 	});
@@ -70,7 +74,15 @@ function nodes(tree, type) {
 }
 
 function choices(tree) {
-	return nodes(tree, "SelectItem").map((node) => node.props.value);
+	// 令牌有效期等新增 Select 的 value 是纯数字时长；地址 value 一定含 . 或 :（IPv4/IPv6）
+	return nodes(tree, "SelectItem")
+		.map((node) => node.props.value)
+		.filter((v) => v.includes(".") || v.includes(":"));
+}
+
+// 令牌有效期 Select 排在地址 Select 之前：按「选项里含地址形态 value」定位地址 Select
+function addressSelectOf(tree) {
+	return nodes(tree, "Select").find((node) => choices([node]).length > 0);
 }
 
 test("IPv4 wildcard binding never advertises IPv6 choices or QR URLs", async (t) => {
@@ -88,14 +100,15 @@ test("IPv4 wildcard uses live status, not the unsaved host draft", async (t) => 
 
 test("changing the live binding discards an incompatible selected address", async (t) => {
 	const tab = await createTab(t, [ipv4, ipv6], "::");
-	nodes(tab.tree, "Select")[0].props.onValueChange(ipv6.address);
+	const addressSelect = addressSelectOf(tab.tree);
+	addressSelect.props.onValueChange(ipv6.address);
 	await tab.settle();
 	assert.equal(tab.qrUrls.at(-1), "http://[2001:db8::5]:8765?token=test-token");
 	tab.setHost("0.0.0.0");
 	tab.props.webServiceChanging = true;
 	const tree = await tab.settle();
 	assert.deepEqual(choices(tree), [ipv4.address]);
-	assert.equal(nodes(tree, "Select")[0].props.value, ipv4.address);
+	assert.equal(addressSelectOf(tree).props.value, ipv4.address);
 	assert.equal(tab.qrUrls.at(-1), "http://192.168.1.5:8765?token=test-token");
 });
 

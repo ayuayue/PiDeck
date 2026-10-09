@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { SessionImportCopy } from "./SessionImportCopy";
-import { importedContentHasToolCall, importedUnknownBlockAsText, normalizeImportedStopReason } from "./importNormalize";
+import { importedContentHasToolCall, importedUnknownBlockAsText, normalizeImportedStopReason, safeIsoTimestamp } from "./importNormalize";
 import { normalizeImportedToolArguments } from "./importToolArguments";
 import { asArray, readNumber, readRecord, readString, type KimiRecord, type ParsedKimiSession } from "./kimiSessionSource";
 
@@ -272,7 +272,7 @@ export async function convertKimiSessionTo(input: {
 	const { projectPath, session, translate, entries, sink } = input;
 	const appendedKeys = input.appendedKeys ?? new Set<string>();
 	const sessionId = session.meta.sessionId;
-	const timestamp = new Date(session.meta.firstTimestamp).toISOString();
+	const timestamp = safeIsoTimestamp(session.meta.firstTimestamp);
 	// 标题回退链：state.title → state.lastPrompt → 首条 user 消息（见 titleState 更新处）
 	const titleState = { title: session.meta.title || session.meta.lastPrompt, preview: "" };
 	let parentId: string | null = null;
@@ -290,7 +290,7 @@ export async function convertKimiSessionTo(input: {
 	const pushMessage = async (role: "user" | "assistant" | "toolResult", content: PiContent[], extra: Record<string, unknown> = {}, timestampValue?: number) => {
 		if (content.length === 0) return;
 		const id = makeId(sessionId, sequence++);
-		const ts = new Date(timestampValue ?? lastTimestamp).toISOString();
+		const ts = safeIsoTimestamp(timestampValue ?? lastTimestamp);
 		await pushEntry({
 			type: "message",
 			id,

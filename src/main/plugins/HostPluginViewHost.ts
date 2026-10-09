@@ -2,8 +2,7 @@
 import { WebContentsView, session, type BrowserWindow } from "electron";
 import { randomUUID } from "node:crypto";
 import { setInterval, clearInterval } from "node:timers";
-import { createHash } from "node:crypto";
-import type { HostPluginBounds, HostPluginContext, HostPluginEvent, HostPluginMountInput } from "../../shared/types/hostPlugin";
+import type { HostPluginBounds, HostPluginContext, HostPluginEvent, HostPluginMountInput, HostPluginSessionsRevision } from "../../shared/types/hostPlugin";
 import { ipcChannels } from "../../shared/ipc";
 import type { HostPluginManager } from "./HostPluginManager";
 import type { HostPluginBroker } from "./HostPluginBroker";
@@ -11,7 +10,7 @@ import type { HostPluginSessions } from "./HostPluginSessions";
 import { readApprovedPluginAsset } from "./hostPluginFiles";
 import { HOST_PLUGIN_CSP, HOST_PLUGIN_SCHEME, pluginAssetFromUrl } from "./hostPluginPolicy";
 
-type Instance = { id: string; pluginId: string; fingerprint: string; window: BrowserWindow; view: WebContentsView; context: HostPluginContext; signature?: string; generation: number; visible: boolean; polling: boolean; detach: () => void };
+type Instance = { id: string; pluginId: string; fingerprint: string; window: BrowserWindow; view: WebContentsView; context: HostPluginContext; revision?: HostPluginSessionsRevision; generation: number; visible: boolean; polling: boolean; detach: () => void };
 
 export class HostPluginViewHost {
 	private readonly instances = new Map<string, Instance>();
@@ -94,6 +93,7 @@ export class HostPluginViewHost {
 		};
 		this.instances.set(id, instance);
 		this.broker.bind(view.webContents.id, plugin.manifest.id, plugin.fingerprint, input.context);
+		this.emulateTheme(instance, input.context.theme);
 		window.contentView.addChildView(view);
 		this.update(id, window, input.context, input.bounds, true);
 		try {
@@ -114,8 +114,9 @@ export class HostPluginViewHost {
 		if (contextChanged) {
 			instance.context = context;
 			instance.generation += 1;
-			instance.signature = undefined;
+			instance.revision = undefined;
 			this.broker.update(instance.view.webContents.id, context);
+			this.emulateTheme(instance, context.theme);
 			this.emit(instance, { type: "context.changed", context });
 		}
 		const content = window.getContentBounds();
@@ -147,17 +148,24 @@ export class HostPluginViewHost {
 		if (this.instances.get(instance.id) === instance && !instance.view.webContents.isDestroyed()) instance.view.webContents.send(ipcChannels.hostPluginEvent, event);
 	}
 
+	/** Panels follow the PiDeck theme, not the OS setting: `nativeTheme.themeSource` (set from the app theme) already steers `prefers-color-scheme`; insertCSS additionally aligns native controls/scrollbars via `color-scheme`. */
+	private emulateTheme(instance: Instance, theme: HostPluginContext["theme"]): void {
+		if (!this.instances.has(instance.id) || instance.view.webContents.isDestroyed()) return;
+		// Electron 43 没有 per-contents setEmulatedMedia；后续 insertCSS 按插入顺序覆盖旧值，切主题无需移除。
+		instance.view.webContents.insertCSS(`:root { color-scheme: ${theme === "light" ? "light" : "dark"}; }`).catch(() => {
+			/* Theme alignment is best-effort: pages without native controls are unaffected either way. */
+		});
+	}
+
 	private async poll(instance: Instance): Promise<void> {
 		if (instance.polling) return;
 		instance.polling = true;
 		const generation = instance.generation;
 		try {
-			const signature = createHash("sha256")
-				.update(await this.sessions.revision(instance.context))
-				.digest("hex");
+			const { revision, detail } = await this.sessions.changeSince(instance.context, instance.revision);
 			if (this.instances.get(instance.id) !== instance || generation !== instance.generation) return;
-			if (instance.signature && instance.signature !== signature) this.emit(instance, { type: "sessions.changed" });
-			instance.signature = signature;
+			instance.revision = revision;
+			if (detail.catalogChanged || detail.sessionId) this.emit(instance, { type: "sessions.changed", detail });
 		} catch {
 			/* Polling failure is local to this optional surface. */
 		} finally {

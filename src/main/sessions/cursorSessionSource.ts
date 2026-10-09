@@ -1,6 +1,7 @@
 import { mkdir, readdir, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { readImportMetaHead } from "./importMetaHead";
+import { assertSourceWithinRoot } from "./importPathGuard";
 import { readSessionSourceHead } from "./sessionSourceHead";
 
 /** Cursor JSONL 行结构不固定，统一按 unknown 读取后再逐字段收窄。 */
@@ -82,11 +83,8 @@ export function getCursorTargetPath(piRoot: string, projectPath: string, session
 
 /** 路径逃逸校验：只允许读取 ~/.cursor/projects 之下的会话文件。 */
 export function assertCursorSourcePath(root: string, filePath: string): void {
-	const base = normalizePath(root);
-	const target = normalizePath(filePath);
-	if (target !== base && !target.startsWith(`${base}/`)) {
-		throw new Error("Cursor session path is outside ~/.cursor/projects");
-	}
+	// 语义校验（resolve 后比较）：词法 startsWith 不解析 `..`（2026-03 导入器安全审计）
+	assertSourceWithinRoot(root, filePath, "Cursor");
 }
 
 export function sessionIdFromPath(filePath: string): string {

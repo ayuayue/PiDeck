@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { SessionImportCopy } from "./SessionImportCopy";
-import { importedContentHasToolCall, normalizeImportedStopReason } from "./importNormalize";
+import { importedContentHasToolCall, normalizeImportedStopReason, safeIsoTimestamp } from "./importNormalize";
 import { asArray, parseWorkBuddyArguments, readNumber, readRecord, readString, readWorkBuddyModel, stripInjectedContext, type ParsedWorkBuddySession, type WorkBuddyRecord } from "./workbuddySessionSource";
 
 export type ConvertedWorkBuddySession = {
@@ -111,7 +111,7 @@ function makeId(sessionId: string, sequence: number): string {
 export async function convertWorkBuddySessionTo(input: { projectPath: string; session: ParsedWorkBuddySession; translate: SessionImportCopy; entries: Iterable<WorkBuddyRecord> | AsyncIterable<WorkBuddyRecord>; sink: (line: string) => Promise<void> | void }): Promise<ConvertedWorkBuddySession> {
 	const { projectPath, session, translate, entries, sink } = input;
 	const sessionId = session.meta.sessionId;
-	const timestamp = new Date(session.meta.firstTimestamp).toISOString();
+	const timestamp = safeIsoTimestamp(session.meta.firstTimestamp);
 	const titleState = { title: session.meta.aiTitle, preview: "" };
 	let pending: PiContent[] = [];
 	let parentId: string | null = null;
@@ -127,7 +127,7 @@ export async function convertWorkBuddySessionTo(input: { projectPath: string; se
 	const pushMessage = async (role: "user" | "assistant" | "toolResult", content: PiContent[], extra: Record<string, unknown> = {}, timestampValue?: number) => {
 		if (content.length === 0) return;
 		const id = makeId(sessionId, sequence++);
-		const ts = new Date(timestampValue ?? session.meta.firstTimestamp).toISOString();
+		const ts = safeIsoTimestamp(timestampValue ?? session.meta.firstTimestamp);
 		await pushEntry({
 			type: "message",
 			id,

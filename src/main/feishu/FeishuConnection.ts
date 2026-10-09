@@ -9,7 +9,18 @@ import { feishuT, type FeishuLocale } from "./FeishuI18n";
 import { getDecryptedBotAppSecret } from "./FeishuConfig";
 import { getAppLogger } from "../logging/sharedLogger";
 
+/** 包装约定（AGENTS.md：日志走主进程 logging 模块）：所有出口必须同时落 appLogger
+ *  （feishu scope）——打包版主进程的 stdout 不落盘，console-only 会让长连接断开
+ *  （WSClient onError）、消息处理异常等关键故障在诊断报告里不可见。console 保留供
+ *  dev 终端直接可见；EPIPE 兑底仅保护 console 侧（appLogger 落盘不经 stdout）。 */
+const toAppLog = (level: "info" | "warn" | "error", args: unknown[]) => {
+	const [first, ...rest] = args;
+	const message = first instanceof Error ? first.message : String(first ?? "");
+	const detail = rest.length === 1 ? rest[0] : rest.length > 0 ? rest : undefined;
+	getAppLogger()?.[level]("feishu", message, detail);
+};
 const log = (...args: unknown[]) => {
+	toAppLog("info", args);
 	try {
 		console.log(...args);
 	} catch {
@@ -17,6 +28,7 @@ const log = (...args: unknown[]) => {
 	}
 };
 const warn = (...args: unknown[]) => {
+	toAppLog("warn", args);
 	try {
 		console.warn(...args);
 	} catch {
@@ -24,6 +36,7 @@ const warn = (...args: unknown[]) => {
 	}
 };
 const logErr = (...args: unknown[]) => {
+	toAppLog("error", args);
 	try {
 		console.error(...args);
 	} catch {
