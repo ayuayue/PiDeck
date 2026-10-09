@@ -101,6 +101,35 @@ test("TailscaleAccessReader.startServe 注入 --accept-risk=serve 且失败消�
 	assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ["serve", "--bg", "--accept-risk=serve", "http://127.0.0.1:8765"], "非交互 serve 必须带风险确认 flag");
 });
 
+test("TailscaleAccessReader.startServe 旧版 CLI 不认识 --accept-risk 时去 flag 重试一次", async () => {
+	const { TailscaleAccessReader } = loadModule("src/main/web/remoteAccess/tailscaleAccess.ts");
+	const calls = [];
+	const reader = new TailscaleAccessReader({
+		logger: makeLogger().logger,
+		commandFn: async (args) => {
+			calls.push(args);
+			if (args.includes("--accept-risk=serve")) {
+				throw new Error("Command failed: tailscale serve --bg\nflag provided but not defined: -accept-risk");
+			}
+			return { stdout: "{}", stderr: "" };
+		},
+	});
+	await reader.startServe(8765);
+	assert.equal(calls.length, 2, "首次带 flag 失败后必须重试一次");
+	assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ["serve", "--bg", "http://127.0.0.1:8765"], "旧版重试不得再带 --accept-risk");
+	// 其他错误不重试：首次失败后直接抛
+	const calls2 = [];
+	const reader2 = new TailscaleAccessReader({
+		logger: makeLogger().logger,
+		commandFn: async (args) => {
+			calls2.push(args);
+			throw new Error("Command failed: tailscale serve --bg\nserve: https not enabled on tailnet");
+		},
+	});
+	await assert.rejects(reader2.startServe(8765), /https not enabled on tailnet/);
+	assert.equal(calls2.length, 1, "非 flag 版本错误不重试");
+});
+
 test("extractTryCloudflareUrl 从 cloudflared 日志文本提取 trycloudflare 地址", () => {
 	const { extractTryCloudflareUrl } = loadModule("src/main/web/remoteAccess/cloudflaredTunnel.ts");
 	const logLines = [

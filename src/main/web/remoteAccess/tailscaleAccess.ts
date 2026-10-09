@@ -144,13 +144,25 @@ export class TailscaleAccessReader {
 	 * `--bg` 让 serve 在后台常驻（配置存进 tailscaled，与本应用生命周期解耦）。
 	 * `--accept-risk=serve`：非交互环境下（无终端可确认）CLI 要求显式接受「把本机服务暴露给 tailnet」
 	 * 的风险标志，否则直接以 "Command failed" 退出（Windows GUI 客户端场景必现）。
+	 * 旧版 CLI 无此 flag（报 "flag provided but not defined: -accept-risk"），且旧版非交互也没有确认门槛：
+	 * 首次带 flag 失败且错误命中该特征时去掉 flag 重试一次，两个版本方向都兼容。
 	 * 错误经 cliErrorMessage 清洗：execFile 默认把命令行拼在首行，真实原因（stderr）在后续行。
 	 */
 	async startServe(port: number): Promise<void> {
+		const plainArgs = ["serve", "--bg", `http://127.0.0.1:${port}`] as const;
 		try {
 			await this.command(["serve", "--bg", "--accept-risk=serve", `http://127.0.0.1:${port}`], { timeoutMs: 20_000 });
 		} catch (error) {
-			throw new Error(cliErrorMessage(error, `tailscale serve 启用失败（端口 ${port}）`));
+			const message = error instanceof Error ? error.message : String(error);
+			if (!message.includes("not defined: -accept-risk") && !message.includes("not defined: --accept-risk")) {
+				throw new Error(cliErrorMessage(error, `tailscale serve 启用失败（端口 ${port}）`));
+			}
+			// 旧版 CLI：无风险确认门槛，直接去 flag 重试；重试仍失败则按原路径报错
+			try {
+				await this.command([...plainArgs], { timeoutMs: 20_000 });
+			} catch (retryError) {
+				throw new Error(cliErrorMessage(retryError, `tailscale serve 启用失败（端口 ${port}）`));
+			}
 		}
 	}
 
