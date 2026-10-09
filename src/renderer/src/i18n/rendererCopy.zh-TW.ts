@@ -11,6 +11,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"hostPlugins.description": "獨立於 pi 程序的工作臺外掛。只加載本地靜態頁面，不能訪問網路、Node 或執行命令；啟用後僅能讀取當前專案中已儲存的會話。",
 	"hostPlugins.rescan": "重新掃描",
 	"hostPlugins.openDirectory": "開啟外掛目錄",
+	"hostPlugins.devGuide": "開發指南",
 	"hostPlugins.install": "從檔案安裝…",
 	"hostPlugins.installSuccess": "外掛已安裝，啟用前需確認授權",
 	"hostPlugins.plugin": "外掛",

@@ -23,6 +23,7 @@ import { Dock, DockItem } from "../motion/dock";
 import { UpdateDotHint } from "./UpdateDotHint";
 import { AnnouncementCenter } from "./AnnouncementCenter";
 import { AutomationDockButton } from "../automation/AutomationDockButton";
+import { HostPluginDockButtons } from "../plugins/HostPluginDockButtons";
 import { BridgeGuiSlot } from "../bridge/BridgeSlot";
 import { MorphingSearch, type MorphingSearchItem } from "../motion/morphing-search";
 import { parseSidebarNavTab } from "../../utils/sidebarNavTab";
@@ -290,6 +291,8 @@ export function SidebarContent(props: SidebarContentProps) {
 					</button>
 					{/* 定时任务入口：放在新建/搜索下面，避免藏在底栏 Dock 里不好找 */}
 					<AutomationDockButton />
+					{/* 宿主插件面板入口：与定时任务同区，无已启用面板时组件自身不渲染 */}
+					<HostPluginDockButtons />
 				</div>
 
 				{/* MorphingSearch 命令面板：锚点固定定位到视口水平居中、垂直约 1/5 处，

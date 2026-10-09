@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { FolderOpen, PackagePlus, RefreshCw, Puzzle } from "lucide-react";
+import { FolderOpen, PackagePlus, RefreshCw, Puzzle, BookOpen } from "lucide-react";
 import type { HostPluginInfo } from "../../../shared/types/hostPlugin";
 import { hostPluginCatalogAtom, hostPluginPanelAtom } from "../atoms/host-plugin-atoms";
 import { settingsOpenAtom } from "../atoms/app-ui-atoms";
@@ -92,6 +92,18 @@ export function HostPluginsTab() {
 					{t("hostPlugins.openDirectory")}
 				</Button>
 				{catalog && <span className="break-all text-xs text-muted-foreground">{catalog.directory}</span>}
+				<span className="flex-1" />
+				{/* 开发指南外链：指向仓库内的单一数据源（docs/host-plugin-dev-guide.md），与插件作者所见一致 */}
+				<Button
+					variant="ghost"
+					size="sm"
+					onClick={() => {
+						void desktopApi.app.openExternal("https://github.com/ayuayue/PiDeck/blob/main/docs/host-plugin-dev-guide.md", true).catch(() => fail("plugin-host-unavailable"));
+					}}
+				>
+					<BookOpen data-icon="inline-start" />
+					{t("hostPlugins.devGuide")}
+				</Button>
 			</div>
 			{error && (
 				<Alert variant="destructive">

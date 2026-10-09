@@ -1,5 +1,6 @@
 /** Validates the small, browser-only v1 plugin contract; unknown capabilities fail closed. */
-import type { HostPluginManifest, HostPluginPermission } from "../../shared/types/hostPlugin";
+import type { HostPluginManifest, HostPluginPanelPresentation, HostPluginPermission } from "../../shared/types/hostPlugin";
+import { isHostPluginPanelIconName } from "../../shared/hostPluginIcons";
 
 export function isPluginRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -28,8 +29,13 @@ export function parseHostPluginManifest(value: unknown): HostPluginManifest {
 	const contributes = value.contributes;
 	if (!isPluginRecord(contributes) || !Array.isArray(contributes.panels) || contributes.panels.length < 1 || contributes.panels.length > 8 || !Array.isArray(contributes.commands) || contributes.commands.length > 16) throw new Error("invalid-contributions");
 	const panels = contributes.panels.map((panel) => {
+		// icon/presentation 可选：icon 必须在白名单内；presentation 只接受 modal|page，未知值 fail-closed 拒装。
 		if (!isPluginRecord(panel) || !isHostPluginId(panel.id) || !label(panel.title) || !isHostPluginAsset(panel.entry) || !panel.entry.endsWith(".html")) throw new Error("invalid-panel");
-		return { id: panel.id, title: panel.title, entry: panel.entry };
+		if (panel.icon !== undefined && !isHostPluginPanelIconName(panel.icon)) throw new Error("invalid-panel-icon");
+		let presentation: HostPluginPanelPresentation | undefined;
+		if (panel.presentation === "modal" || panel.presentation === "page") presentation = panel.presentation;
+		else if (panel.presentation !== undefined) throw new Error("invalid-panel-presentation");
+		return { id: panel.id, title: panel.title, entry: panel.entry, ...(panel.icon !== undefined ? { icon: panel.icon } : {}), ...(presentation !== undefined ? { presentation } : {}) };
 	});
 	if (new Set(panels.map((panel) => panel.id)).size !== panels.length) throw new Error("duplicate-panel");
 	const commands = contributes.commands.map((command) => {

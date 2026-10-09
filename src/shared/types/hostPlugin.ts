@@ -1,5 +1,7 @@
 /** PiDeck-owned browser plugins. This API never proxies pi SDK or runtime commands. */
 export type HostPluginPermission = "sessions.read" | "workbench.navigate";
+/** 面板呈现方式：modal = 大弹框（默认，兼容既有插件）；page = 工作区内联页面（非模态，覆盖会话区）。 */
+export type HostPluginPanelPresentation = "modal" | "page";
 export type HostPluginManifest = {
 	schemaVersion: 1;
 	apiVersion: 1;
@@ -9,7 +11,7 @@ export type HostPluginManifest = {
 	description?: string;
 	permissions: HostPluginPermission[];
 	contributes: {
-		panels: Array<{ id: string; title: string; entry: string }>;
+		panels: Array<{ id: string; title: string; entry: string; icon?: string; presentation?: HostPluginPanelPresentation }>;
 		commands: Array<{ id: string; title: string; panelId: string }>;
 	};
 };

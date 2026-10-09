@@ -159,6 +159,7 @@ import { useQuickTask } from "./hooks/useQuickTask";
 import { QuickTaskSurface } from "./components/app/QuickTaskSurface";
 import { AskPanelOverlay } from "./components/overlays/AskPanelOverlay";
 import { HostPluginPanelHost } from "./components/plugins/HostPluginPanelHost";
+import { HostPluginPageOverlay } from "./components/plugins/HostPluginPageOverlay";
 import { useHostPluginNavigation } from "./hooks/plugins/useHostPluginNavigation";
 import { TerminalDockPanel } from "./components/terminal/TerminalDockPanel";
 import { ResizablePanel, ResizablePanelGroup } from "./components/ui-shadcn/resizable";
@@ -2744,7 +2745,14 @@ export function App() {
 			chrome={sessionTabsBarNode}
 			layout={workbenchLayout}
 			hasContent={workbenchHasContent}
-			session={chatPaneSessionNode}
+			// 插件页面式面板：以工作区会话列上的非模态覆盖层呈现（presentation:"page"），
+			// 会话树保持挂载，关闭覆盖层即原样还原（滚动/草稿/终端内存态不丢）。
+			session={
+				<div className="relative flex h-full min-h-0 min-w-0 flex-col">
+					{chatPaneSessionNode}
+					<HostPluginPageOverlay projectId={activeProject?.id} sessionId={currentSessionId} />
+				</div>
+			}
 			content={workbenchContentNode}
 			onContentWidthChange={handleWorkbenchContentWidth}
 		/>

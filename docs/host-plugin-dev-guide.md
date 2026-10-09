@@ -38,7 +38,7 @@ my-plugin/
 	"version": "1.0.0",
 	"permissions": ["sessions.read"],
 	"contributes": {
-		"panels": [{ "id": "main", "title": "Viewer", "entry": "app.html" }],
+		"panels": [{ "id": "main", "title": "Viewer", "entry": "app.html", "presentation": "page" }],
 		"commands": [{ "id": "open", "title": "Open viewer", "panelId": "main" }]
 	}
 }
@@ -54,8 +54,13 @@ my-plugin/
 | `id` | 小写字母开头，`[a-z0-9.-]`，≤80 字符；同时是安装目录名 |
 | `name` / `version` / `description` | 常规字符串（name/version 必填） |
 | `permissions` | `sessions.read`（读会话）、`workbench.navigate`（导航时间线） |
-| `contributes.panels` | 1–8 个；`entry` 必须是包内相对路径 |
+| `contributes.panels` | 1–8 个；`entry` 必须是包内相对路径；可选 `icon`（白名单：`bar-chart` 等，见 `src/shared/hostPluginIcons.ts`）、`presentation`（`modal` 大弹框=缺省，或 `page` 工作区内联页） |
 | `contributes.commands` | 0–16 个；出现在 PiDeck 命令面板（Ctrl+K） |
+
+## 面板呈现方式与主题适配
+
+- `presentation`（可选）：`modal`（缺省）＝近全屏大弹框；`page`＝工作区内联页面，非模态覆盖会话区，侧栏入口再点即关。适合统计/浏览类长驻面板。
+- **主题令牌**：`context.tokens` 会把 PiDeck 的语义色注入为 CSS 变量（`--color-bg-app`、`--color-bg-panel`、`--color-bg-input`、`--color-border-default`、`--color-text-primary`、`--color-text-secondary`、`--color-accent` 等），随主题/语言变化实时更新。页面样式应消费这些变量（带上游缺省值）而不是硬编码暗色，亮色模式才能自然适配。
 
 ## 运行环境与安全模型
 

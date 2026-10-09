@@ -44,6 +44,32 @@ test("host plugin manifests reject unknown permissions, missing panels and path 
 	assert.throws(() => parseHostPluginManifest(missing), /invalid-command/);
 });
 
+test("host plugin manifest presentation accepts modal/page and rejects anything else", () => {
+	const modal = manifest();
+	modal.contributes.panels[0].presentation = "modal";
+	assert.equal(parseHostPluginManifest(modal).contributes.panels[0].presentation, "modal");
+	const page = manifest();
+	page.contributes.panels[0].presentation = "page";
+	assert.equal(parseHostPluginManifest(page).contributes.panels[0].presentation, "page");
+	const bad = manifest();
+	bad.contributes.panels[0].presentation = "window";
+	assert.throws(() => parseHostPluginManifest(bad), /invalid-panel-presentation/);
+});
+
+test("host plugin panel icons are allowlisted: unknown names fail closed, missing is fine", () => {
+	const withIcon = manifest();
+	withIcon.contributes.panels[0].icon = "bar-chart";
+	// 逐字段断言：loadTsCommonJs 的 vm realm 会让 deepEqual 误判引用不等。
+	const parsed = parseHostPluginManifest(withIcon).contributes.panels[0];
+	assert.equal(parsed.id, "context");
+	assert.equal(parsed.icon, "bar-chart");
+	const unknown = manifest();
+	unknown.contributes.panels[0].icon = "Sparkles";
+	assert.throws(() => parseHostPluginManifest(unknown), /invalid-panel-icon/);
+	// 未声明 icon 的面板照常通过（渲染层用 Puzzle 兜底）。
+	assert.equal(parseHostPluginManifest(manifest()).contributes.panels[0].icon, undefined);
+});
+
 test("host plugin protocol and requests cannot select foreign origins, files or runtime commands", () => {
 	const id = "instance";
 	assert.equal(pluginAssetFromUrl("pideck-plugin://instance/js/app.mjs", id), "js/app.mjs");

@@ -94,6 +94,8 @@
 - **主题跟随是全局驱动 + 每实例补充**：`prefers-color-scheme` 由应用既有的 `nativeTheme.themeSource` 驱动（改 PiDeck 主题即生效）；ViewHost 按当前主题对每实例 `insertCSS` 注入 `color-scheme`（适配原生控件/滚动条）。Electron 43 没有 per-contents `setEmulatedMedia`，不要再尝试。
 - **参考实现 pi-context 是双向契约**：适配器 `resources/host-plugin-adapters/pi-context/`（bridge/data），转换器对 viewer 的 seam（DOM/字段名）有 fail-closed 契约测试——上游改字段名时测试必须红，红后同步适配器，不许放宽断言。
 - 面向插件作者的文档单一数据源是 `docs/host-plugin-dev-guide.md`（官网指南页从它同步）；`tests/docsSharedGuide.test.mjs` 守卫两处不漂移。改 API 面（新增权限/事件）必须同步：`shared/types/hostPlugin.ts` 契约 + dev-guide 事件说明 + `tests/hostPlugins.test.mjs`。
+- **面板呈现双模式**（manifest `panels[].presentation`，缺省 `modal`）：`modal` 走 `HostPluginPanelHost` 大弹框；`page` 走 `HostPluginPageOverlay`——在 App 会话列外包一层 relative 容器，以 `absolute inset-0` 非模态覆盖层呈现，会话树不卸载（滚动/草稿/终端内存态保留），侧栏 `HostPluginDockButtons` 对 page 面板做开关切换（再点即关）。两者共用 `hostPluginPanelAtom` 同一入口，命令面板/设置页自动兼容。共享的加载/错误面在 `HostPluginSurface.tsx`。侧栏入口/图标/呈现方式的源码契约由 `tests/hostPluginSidebarEntry.test.mjs` 守卫。
+- **主题令牌**：`context.tokens` 把 PiDeck 语义色注入为页面 CSS 变量，`context.changed` 实时更新；converter 适配层把 pi-context 自己的 `:root` 中性色（`--bg/--card/--fg/--muted/--blue` 等）重映射到这些 token（后写覆盖，不改上游文件），图表系列色保留上游色板。新插件页面样式应消费 token 变量带缺省值，硬编码暗色在亮色主题下会露馅。
 
 ## dev 态渲染层缓存（Vite 预构建 chunk 的 immutable 陷阱）
 
