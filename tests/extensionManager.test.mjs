@@ -98,6 +98,110 @@ test("a stale lightweight extension scan cannot overwrite a newer force refresh"
 	assert.equal(await manager.list(true), fresh);
 });
 
+/**
+ * 以下三例在实例级钉住 loadList 的并行语义（审查建议）：上面的竞态用例整体打桩了
+ * loadList，守护不到包装层内部的并发结构。这里只打桩两个源（runPi / scanLocalExtensions），
+ * 让真实 loadList 跑完；两源用 deferred 完全由测试控制结算时刻，不依赖真实计时与执行顺序。
+ */
+const PI_LIST_OUTPUT = ["User packages:", "  npm:aaa", "    C:\\ext\\aaa"].join("\n");
+const LOCAL_SCAN_ROWS = [{ id: "local:zzz.ts", source: "zzz.ts", path: "P:\\ext\\zzz.ts", scope: "user" }];
+
+test("loadList starts the pi process list and the local directory scan concurrently", async () => {
+	const { ExtensionManager } = loadExtensionManagerModule();
+	const manager = new ExtensionManager({}, () => ({}));
+	const piDeferred = deferred();
+	const scanDeferred = deferred();
+	const startOrder = [];
+	manager.runPi = () => {
+		startOrder.push("pi");
+		return piDeferred.promise;
+	};
+	manager.scanLocalExtensions = () => {
+		startOrder.push("scan");
+		return scanDeferred.promise;
+	};
+
+	const pending = manager.list(false);
+	// list() 同步驱动 loadList 到 Promise.all 才让出：两个源在第一次 await 之前都已启动。
+	// 若退回「先 await runPi、再 await scanLocalExtensions」的串行写法，此刻只有 ["pi"]。
+	assert.deepEqual(startOrder, ["pi", "scan"]);
+
+	scanDeferred.resolve(LOCAL_SCAN_ROWS);
+	piDeferred.resolve(PI_LIST_OUTPUT);
+	const result = await pending;
+	const sources = result.extensions.map((extension) => extension.source);
+	assert.ok(sources.includes("npm:aaa"));
+	assert.ok(sources.includes("zzz.ts"));
+});
+
+test("loadList returns identical rows no matter which source settles first", async () => {
+	const { ExtensionManager } = loadExtensionManagerModule();
+
+	const collectRows = async (firstSettled) => {
+		const manager = new ExtensionManager({}, () => ({}));
+		const piDeferred = deferred();
+		const scanDeferred = deferred();
+		manager.runPi = () => piDeferred.promise;
+		manager.scanLocalExtensions = () => scanDeferred.promise;
+		const pending = manager.list(false);
+		// deferred 显式控制结算顺序：先让一个源完全落地，再结算另一个；不靠真实计时。
+		if (firstSettled === "pi") {
+			piDeferred.resolve(PI_LIST_OUTPUT);
+			await piDeferred.promise;
+			scanDeferred.resolve(LOCAL_SCAN_ROWS);
+		} else {
+			scanDeferred.resolve(LOCAL_SCAN_ROWS);
+			await scanDeferred.promise;
+			piDeferred.resolve(PI_LIST_OUTPUT);
+		}
+		const result = await pending;
+		// 展开拷回主 realm：vm 沙箱产出的数组带沙箱原型，deepStrictEqual 跨原型必败。
+		return [...result.extensions.map((extension) => [extension.id, extension.source, extension.path ?? null, extension.scope])];
+	};
+
+	const piFirst = await collectRows("pi");
+	const scanFirst = await collectRows("scan");
+	// 合并规则（pi 条目在前、本地条目在后、内置兜底补齐）与两源结算顺序解耦：逐元素一致。
+	assert.deepEqual(scanFirst, piFirst);
+	assert.deepEqual(piFirst.slice(0, 2), [
+		["user:npm:aaa", "npm:aaa", "C:\\ext\\aaa", "user"],
+		["local:zzz.ts", "zzz.ts", "P:\\ext\\zzz.ts", "user"],
+	]);
+});
+
+test("list propagates the first rejected source and never leaks the late rejection as unhandledRejection", async () => {
+	const { ExtensionManager } = loadExtensionManagerModule();
+	const unhandled = [];
+	const onUnhandled = (reason) => unhandled.push(reason);
+	process.on("unhandledRejection", onUnhandled);
+	try {
+		// 两个拒绝方向都验证：先拒绝的源决定 list() 的拒绝原因；另一源迟到的拒绝必须被
+		// Promise.all 挂上的处理函数吸收，不得逃逸成 unhandledRejection。
+		for (const firstRejection of ["scan", "pi"]) {
+			const manager = new ExtensionManager({}, () => ({}));
+			const piDeferred = deferred();
+			const scanDeferred = deferred();
+			manager.runPi = () => piDeferred.promise;
+			manager.scanLocalExtensions = () => scanDeferred.promise;
+			const pending = manager.list(false);
+			if (firstRejection === "scan") {
+				scanDeferred.reject(new Error("scan-boom"));
+				await assert.rejects(pending, /scan-boom/);
+				piDeferred.reject(new Error("pi-late-boom"));
+			} else {
+				piDeferred.reject(new Error("pi-boom"));
+				await assert.rejects(pending, /pi-boom/);
+				scanDeferred.reject(new Error("scan-late-boom"));
+			}
+			// 让事件循环跑到未处理拒绝检测点：真有逃逸时 process 事件已在此之前触发。
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			assert.deepEqual(unhandled, [], `late rejection leaked as unhandledRejection: ${unhandled.map((reason) => String(reason)).join("; ")}`);
+		}
+	} finally {
+		process.off("unhandledRejection", onUnhandled);
+	}
+});
+
 test("parseListOutput strips the pi list (filtered) suffix so uninstall/update use a clean source", () => {
 	const { ExtensionManager } = loadExtensionManagerModule();
 	const manager = new ExtensionManager({}, () => ({}));
@@ -289,6 +393,98 @@ test("npmViewVersion 未配置 npmCommand 时回落裸 npm（行为不变）", a
 		assert.equal(captured.command, "npm");
 		assert.equal(JSON.stringify(captured.args), JSON.stringify(["view", "context-mode", "version"]));
 	} finally {
+		await rm(home, { recursive: true, force: true });
+	}
+});
+
+/**
+ * 接线回归（任务 3 审查建议）：跑真实 loadList(true) 全链路——runPi 喂 `pi list` 假输出、
+ * scanLocalExtensions 喂本地行，registry 基址由 execFile 替身应答 `npm config get registry`，
+ * packument 经 globalThis.fetch 替身供给（npmRegistryVersion 默认 fetchImpl 即 globalThis.fetch）。
+ * 其余用例要么整体打桩 loadList，要么只打桩两源且走 includeVersionInfo=false，守护不到
+ * ExtensionManager 里 resolver 创建与 enrichExtensionVersion 调用点的接线；本用例把
+ * 「latestVersion 来自 registry 快路 + 请求带 corgi Accept 头」固化成永久回归。
+ */
+test("list(true) 的 latestVersion 来自 registry 快路解析值，请求带 corgi Accept 头", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pideck-extmgr-registry-wiring-"));
+	const originalFetch = globalThis.fetch;
+	const fetchCalls = [];
+	const npmCalls = [];
+	try {
+		// 真实 installed package.json：readInstalledVersion 真读盘，currentVersion 不靠打桩。
+		const installedDir = join(home, "npm", "node_modules", "context-mode");
+		await mkdir(installedDir, { recursive: true });
+		await writeFile(join(installedDir, "package.json"), JSON.stringify({ name: "context-mode", version: "1.0.0" }), "utf8");
+		const raw = ["User packages:", "  npm:context-mode", `    ${installedDir}`].join("\n");
+
+		// 独立 sandbox：node:os / node:child_process 只在本用例内替身，不污染共享 loader。
+		const load = createTsSandbox({
+			stubs: {
+				"node:os": { homedir: () => home },
+				"node:child_process": {
+					execFile: (command, args, _options, callback) => {
+						npmCalls.push({ command: String(command), args: [...args] });
+						// config get registry 供基址解析；view 只在快路失败回退时才应出现。
+						const stdout = args.includes("registry") ? "https://registry.npmjs.org/\n" : "9.9.9\n";
+						queueMicrotask(() => callback(null, stdout, ""));
+					},
+				},
+				"../fs/trash": { trashPath: (path) => rm(path, { recursive: true, force: true }) },
+				"../logging/sharedLogger": { getAppLogger: () => null },
+				"../pi/PiProcess": { PiProcess: { invalidateVersionCache: () => {} } },
+			},
+			// 沙箱内 globalThis.fetch 转发到宿主全局：用例替换宿主 globalThis.fetch 即完成注入，
+			// 不必给生产代码增加仅供测试的注入点。
+			globals: { fetch: (...args) => globalThis.fetch(...args) },
+		});
+		const { ExtensionManager } = load("src/main/extensions/ExtensionManager.ts");
+		const manager = new ExtensionManager({ createInvocation: (command, args) => ({ command, args, shell: false }), createProcessEnv: () => ({}) }, () => ({}));
+		manager.runPi = async () => raw;
+		manager.scanLocalExtensions = async () => LOCAL_SCAN_ROWS;
+
+		globalThis.fetch = async (url, init) => {
+			fetchCalls.push({ url, init });
+			const buffer = Buffer.from(JSON.stringify({ "dist-tags": { latest: "2.5.0" } }), "utf8");
+			return {
+				ok: true,
+				status: 200,
+				body: {
+					getReader() {
+						let sent = false;
+						return {
+							async read() {
+								if (sent) return { done: true, value: undefined };
+								sent = true;
+								return { done: false, value: buffer };
+							},
+							async cancel() {},
+						};
+					},
+				},
+			};
+		};
+
+		const result = await manager.list(true);
+		const row = result.extensions.find((extension) => extension.source === "npm:context-mode");
+		assert.ok(row, "npm:context-mode 行必须出现在列表里");
+		// 快路解析值落到列表行：回退值 9.9.9 或缺失（undefined）都必须让本断言失败。
+		assert.equal(row.latestVersion, "2.5.0");
+		assert.equal(row.currentVersion, "1.0.0");
+		assert.equal(row.hasUpdate, true);
+		// 本地扫描行仍参与合并，证明接线没有挤掉并行扫描的结果。
+		assert.ok(result.extensions.some((extension) => extension.source === "zzz.ts"));
+
+		assert.equal(fetchCalls.length, 1);
+		assert.equal(fetchCalls[0].url, "https://registry.npmjs.org/context-mode");
+		assert.equal(fetchCalls[0].init.headers.Accept, "application/vnd.npm.install-v1+json");
+		assert.ok(fetchCalls[0].init.signal, "快路请求必须挂 AbortSignal，超时才能中断挂起的请求");
+		assert.deepEqual(
+			npmCalls.map((call) => call.args.join(" ")),
+			["config get registry"],
+			"快路命中后不得再 spawn npm view",
+		);
+	} finally {
+		globalThis.fetch = originalFetch;
 		await rm(home, { recursive: true, force: true });
 	}
 });

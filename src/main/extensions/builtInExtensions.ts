@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
-import { BUILT_IN_EXTENSIONS_OVERLAY_DIR_NAME, readVerifiedArtifact, type BuiltInExtensionsManifest } from "./builtInExtensionsManifest";
+import { BUILT_IN_EXTENSIONS_OVERLAY_DIR_NAME, invalidateVerifiedArtifactFileHashCache, readVerifiedArtifact, type BuiltInExtensionsManifest } from "./builtInExtensionsManifest";
 
 /**
  * PiDeck 内置扩展（随应用 resources 分发，不再复制到 ~/.pi/agent/extensions）。
@@ -108,6 +108,9 @@ let overlayArtifactCache: { dir: string; manifest: BuiltInExtensionsManifest | n
 /** 供热更新器在写盘/还原后调用，让下一次路径解析重新校验。 */
 export function invalidateBuiltInExtensionsOverlayCache(): void {
 	overlayArtifactCache = null;
+	// 逐文件哈希 memo 住在 manifest 模块：不清的话写盘后的新内容会被旧 stat 判据命中，
+	// 让刚更新的覆盖层仍按旧哈希通过校验。
+	invalidateVerifiedArtifactFileHashCache();
 }
 
 /** 覆盖层的有效清单（校验通过才有值；结果按目录缓存）。 */
