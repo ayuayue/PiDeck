@@ -61,6 +61,12 @@ export type MigrationWriteAction = {
 	scope: { scope: "global" } | { scope: "project"; projectId: string };
 	kind: Exclude<PiResourceKind, "themes">;
 	value: string;
+	/**
+	 * 本动作应写成「整包停用」时给出包的 source（`npm:xxx`）：写进 `packages` 条目，
+	 * 而不是顶层 `extensions` 的路径规则——后者是 2026-10 事故的成因：包目录规则对 pi
+	 * 惰性（pi 的精确匹配只认资源文件路径），却让开关投影把包内扩展误判成停用。
+	 */
+	packageSource?: string;
 	reason: string;
 };
 
@@ -142,7 +148,7 @@ export function planResourceMigration(options: {
 			const packageSources = [...new Set(matched.map((resource) => resource.packageSource).filter((item): item is string => Boolean(item)))];
 			for (const packageSource of packageSources) {
 				if (!packageSource.trim()) continue;
-				actions.push({ scope: { scope: "global" }, kind: "extensions", value: packageSource, reason: `旧禁用记录指向包安装（${packageSource}），整包停用` });
+				actions.push({ scope: { scope: "global" }, kind: "extensions", value: packageSource, packageSource, reason: `旧禁用记录指向包安装（${packageSource}），整包停用` });
 			}
 			for (const resource of matched) {
 				if (resource.packageSource) continue;
@@ -239,7 +245,7 @@ export type MigrationApplyReport = {
  */
 export async function applyResourceMigration(options: {
 	plan: MigrationPlan;
-	service: Pick<PiResourceConfigService, "setFileResourceEnabled">;
+	service: Pick<PiResourceConfigService, "setFileResourceEnabled" | "setPackageEnabled">;
 	state: PiResourceStateStore;
 	/** 迁移记录 key（作用域标识）。 */
 	migrationKey: string;
@@ -250,7 +256,8 @@ export async function applyResourceMigration(options: {
 	let applied = 0;
 	// 动作按作用域分组后按顺序写入；同一文件内的多个 action 由服务的锁内重读保证不互相覆盖。
 	for (const action of plan.actions) {
-		const result = await service.setFileResourceEnabled({ scope: action.scope, kind: action.kind, resourceId: action.value, enabled: false });
+		// 整包停用写 packages 条目（带 packageSource 的动作），其余写顶层精确规则。
+		const result = action.packageSource ? await service.setPackageEnabled({ scope: action.scope, resourceId: action.packageSource, enabled: false }) : await service.setFileResourceEnabled({ scope: action.scope, kind: action.kind, resourceId: action.value, enabled: false });
 		if (!result.ok) {
 			failed.push({ action, error: result.error ?? "unknown error" });
 			continue;

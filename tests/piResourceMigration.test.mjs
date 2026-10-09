@@ -121,6 +121,37 @@ test("applyResourceMigration writes each action and records completion", async (
 	}
 });
 
+test("回归：包安装的整包停用写成 packages 条目动作，不再写顶层 `-<包目录>` 规则", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "pideck-mig-pkg-"));
+	try {
+		const legacy = emptyLegacy();
+		legacy.global.disabledExtensions = [{ scope: "user", source: "npm:demo" }];
+		// 迁移真实拿到的资源：包安装的 value 是包目录（pi list 输出），不是包内文件
+		const pkgDir = "/home/me/.pi/agent/npm/node_modules/demo";
+		const plan = planResourceMigration({ legacy, resources: [{ kind: "extensions", name: "npm:demo", value: pkgDir, scope: "user", packageSource: "npm:demo" }] });
+		assert.equal(plan.actions.length, 1);
+		assert.equal(plan.actions[0].packageSource, "npm:demo");
+		assert.notEqual(plan.actions[0].value, pkgDir, "包目录绝不能当顶层过滤值写入（对 pi 惰性、却让开关弹回）");
+		const calls = [];
+		const service = {
+			setFileResourceEnabled: async (request) => {
+				calls.push(`file|${request.resourceId}`);
+				return { ok: true };
+			},
+			setPackageEnabled: async (request) => {
+				calls.push(`package|${request.resourceId}|${request.enabled}`);
+				return { ok: true, revision: "rev-pkg" };
+			},
+		};
+		const state = new PiResourceStateStore(join(dir, "state.json"));
+		const report = await applyResourceMigration({ plan, service, state, migrationKey: "global" });
+		assert.equal(report.ok, true);
+		assert.deepEqual(calls, ["package|npm:demo|false"]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("applyResourceMigration reports failures and does not record completion", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "pideck-mig-fail-"));
 	try {

@@ -31,7 +31,7 @@ export type ProjectLegacyState = {
 };
 
 export type MigrationRunnerDeps = {
-	service: Pick<PiResourceConfigService, "setFileResourceEnabled" | "readSummary">;
+	service: Pick<PiResourceConfigService, "setFileResourceEnabled" | "setPackageEnabled" | "readSummary">;
 	state: PiResourceStateStore;
 	readSettings: LegacySettingsReader;
 	/** 解析当前全局资源（扩展/技能/提示词），用于把名字映射到原生匹配值。 */

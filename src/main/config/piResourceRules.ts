@@ -47,6 +47,33 @@ export function stripExactResourceRules(entries: readonly string[], value: strin
 }
 
 /**
+ * 去掉「恰好指向某个包安装目录」的精确规则（`+`/`-` 前缀）。
+ *
+ * 背景（2026-10 事故）：旧禁用记录迁移曾把「指向包安装的禁用」写成顶层 `extensions` 的
+ * `-<包目录>`。pi 的精确匹配只认资源文件路径（包内入口文件），包目录规则对 pi 是惰性的，
+ * 但列表投影按值相等比对会命中 → 包内扩展显示成已停用，开关写成功后弹回（Windows/Linux
+ * 同码，差别只在磁盘上是否残留这条规则）。
+ *
+ * 只删除「精确等于包目录」的规则：包内**文件**路径的精确规则对 pi 有效，动了会改变真实
+ * 加载结果；plain 声明条目一律保留（删掉会让来源从发现集合消失，见 stripExactResourceRules）。
+ */
+export function stripPackageRootResourceRules(options: { entries: readonly string[]; packageDirs: readonly string[]; platform?: NodeJS.Platform }): { entries: string[]; removed: string[] } {
+	const platform = options.platform ?? process.platform;
+	const targets = new Set(options.packageDirs.map((dir) => normalizeResourceValue(dir, platform)));
+	const entries: string[] = [];
+	const removed: string[] = [];
+	for (const entry of options.entries) {
+		const isRule = entry.startsWith("+") || entry.startsWith("-");
+		if (isRule && targets.has(normalizeResourceValue(entry.slice(1), platform))) {
+			removed.push(entry);
+			continue;
+		}
+		entries.push(entry);
+	}
+	return { entries, removed };
+}
+
+/**
  * 把一条资源置为启用/停用。
  *
  * - 启用：移除精确负项，再按需补一个精确 `+value`（覆盖用户更宽的 `!glob`）。

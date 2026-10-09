@@ -135,6 +135,31 @@ test("project migration writes project scope and clears project private fields",
 	}
 });
 
+test("global migration disables a package install through the packages entry, not a path rule", async () => {
+	const { deps, applied, cleanup } = makeDeps({
+		readSettings: () => ({ disabledExtensions: [{ scope: "user", source: "npm:demo" }], disabledSkills: [], disabledPrompts: [], disableExtensionWhitelist: false }),
+		// pi list 给的包行：path 是包目录，source 是 npm: 形态
+		resolveGlobalResources: async () => [{ kind: "extensions", name: "npm:demo", value: "/home/me/.pi/agent/npm/node_modules/demo", scope: "user", packageSource: "npm:demo" }],
+		service: {
+			setFileResourceEnabled: async (request) => {
+				applied.push(`file|${request.resourceId}`);
+				return { ok: true, revision: "rev" };
+			},
+			setPackageEnabled: async (request) => {
+				applied.push(`package|${request.resourceId}|${request.enabled}`);
+				return { ok: true, revision: "rev" };
+			},
+		},
+	});
+	try {
+		const result = await runGlobalResourceMigration(deps);
+		assert.equal(result.status, "completed");
+		assert.deepEqual([...applied], ["package|npm:demo|false"]);
+	} finally {
+		cleanup();
+	}
+});
+
 test("project migration without project legacy records is skipped and recorded", async () => {
 	const { deps, cleanup } = makeDeps({
 		readProjectLegacyState: async () => ({ disabledExtensions: [], disabledSkills: [], disabledPrompts: [], inheritedExtensions: [], inheritedSkills: [], inheritedPrompts: [] }),

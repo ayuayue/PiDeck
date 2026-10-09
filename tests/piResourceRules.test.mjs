@@ -9,6 +9,7 @@ const {
 	projectResourceEnabled,
 	setResourceRuleEnabled,
 	stripExactResourceRules,
+	stripPackageRootResourceRules,
 	hasExactResourceEntry,
 	resolveBuiltinExtensionState,
 	setBuiltinExtensionEnabled,
@@ -120,6 +121,33 @@ test("project package delta disable/enable use native pattern sets, not empty ar
 	assert.equal(isPackageDeltaFullyDisabled(enabled), false);
 	// 空的 delta 数组是「没有覆盖」，绝不能被当成停用
 	assert.equal(isPackageDeltaFullyDisabled({ source: "npm:demo", autoload: false, extensions: [] }), false);
+});
+
+test("stripPackageRootResourceRules removes only rules pointing exactly at a package dir", () => {
+	const entries = [
+		"-/agent/npm/node_modules/billion-context-pi", // 迁移残留：包目录（pi 侧惰性）
+		"+C:\\Users\\me\\.pi\\agent\\npm\\node_modules\\demo", // 同一残留的正向形态
+		"-builtin:llama.cpp", // 内置扩展规则：与包目录无关
+		"!/agent/npm/node_modules/demo/*.ts", // glob 不是精确规则
+		"-/agent/npm/node_modules/demo/dist/index.js", // 包内文件对 pi 有效，不能删
+		"/agent/extensions/local.ts", // plain 声明：删了来源就消失
+	];
+	const result = stripPackageRootResourceRules({
+		entries,
+		packageDirs: ["/agent/npm/node_modules/billion-context-pi", "C:\\USERS\\ME\\.pi\\agent\\npm\\node_modules\\demo"],
+		platform: "win32",
+	});
+	// win32：大小写与分隔符归一后再比对，包目录规则两个形态都命中
+	assert.deepEqual([...result.removed], ["-/agent/npm/node_modules/billion-context-pi", "+C:\\Users\\me\\.pi\\agent\\npm\\node_modules\\demo"]);
+	assert.deepEqual([...result.entries], ["-builtin:llama.cpp", "!/agent/npm/node_modules/demo/*.ts", "-/agent/npm/node_modules/demo/dist/index.js", "/agent/extensions/local.ts"]);
+	// posix：大小写不折叠，路径同样分隔符下命中
+	const posix = stripPackageRootResourceRules({ entries: ["-/a/npm/node_modules/demo", "-/A/npm/node_modules/demo"], packageDirs: ["/a/npm/node_modules/demo"], platform: "linux" });
+	assert.deepEqual([...posix.removed], ["-/a/npm/node_modules/demo"]);
+	assert.deepEqual([...posix.entries], ["-/A/npm/node_modules/demo"]);
+	// 没有目标时原样返回
+	const untouched = stripPackageRootResourceRules({ entries: ["-builtin:mcp"], packageDirs: [], platform: "linux" });
+	assert.deepEqual([...untouched.removed], []);
+	assert.deepEqual([...untouched.entries], ["-builtin:mcp"]);
 });
 
 test("projectResourceEnabled reflects native include/exclude ordering (pi-verified)", () => {

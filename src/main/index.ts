@@ -28,7 +28,8 @@ import { isShortcutInput, refreshShortcutBindings } from "./appShortcuts";
 // 主进程复用共享的接管型扩展识别规则（与渲染层横幅单一来源；纯函数无依赖）。
 import { detectThirdPartyMcpExtensions } from "../shared/mcpThirdParty";
 import { PiResourceConfigService } from "./config/PiResourceConfigService";
-import { isPackageSource, isEntryDisabled, packageSourceOf } from "./config/PiResourceConfigService";
+import { isPackageSource, projectExtensionEnabled } from "./config/PiResourceConfigService";
+import { runPackageRootRuleRepair, type PackageRootRuleRepairDeps } from "./config/piPackageRootRuleRepair";
 import { projectResourceEnabled } from "./config/piResourceRules";
 import { PiResourceStateStore } from "./config/PiResourceStateStore";
 import { readPiConfigFile } from "./config/piConfigFileStore";
@@ -678,13 +679,7 @@ function sendSessionRuntimeEnvelope(event: SessionRuntimeEvent): void {
  * 所以合成一个最小 envelope（sessionId=目标会话，agentId 占位）即可送达；
  * notice 分支不会触碰 runtime 状态，无副作用。
  */
-function emitAgentsNotice(payload: {
-	message: string;
-	i18nKey: string;
-	i18nParams?: Record<string, string | number>;
-	kind: "info" | "warning" | "error";
-	sessionId?: string;
-}): void {
+function emitAgentsNotice(payload: { message: string; i18nKey: string; i18nParams?: Record<string, string | number>; kind: "info" | "warning" | "error"; sessionId?: string }): void {
 	const event: SessionRuntimeEvent = {
 		kind: "event",
 		sessionId: payload.sessionId ?? "",
@@ -3752,13 +3747,9 @@ app
 		extensionManager.configureNativeEnabledReader((extension) => {
 			const entries = extensionManagerNativeEntries;
 			if (!entries) return undefined;
-			// 包安装的扩展：整包停用写在 packages 条目过滤里（不在顶层 extensions 数组），
-			// 必须单独查——否则开关写成功了、刷新后仍显示启用，开关弹回。
-			if (extensionManagerNativePackages && isPackageSource(extension.source)) {
-				const pkg = extensionManagerNativePackages.find((entry) => packageSourceOf(entry) === extension.source);
-				if (pkg && isEntryDisabled(pkg)) return false;
-			}
-			return projectResourceEnabled({ entries, value: extension.path ?? extension.source, baseDir: extension.path ? dirname(extension.path) : "" });
+			// 包安装的扩展真值在 packages 条目的过滤里，顶层 extensions 的路径规则对它无效
+			// （历史迁移残留的 `-<包目录>` 会让开关写成功后弹回，见 projectExtensionEnabled）。
+			return projectExtensionEnabled({ source: extension.source, path: extension.path, entries, packages: extensionManagerNativePackages });
 		});
 		// 项目侧资源开关写项目 `.pi/settings.json` 的原生过滤规则（A4）。
 		// 项目自有资源用精确 `-path`；继承全局资源写「绝对路径 plain + +/-」，与 pi config 一致。
@@ -4624,7 +4615,7 @@ app
 				const extensions = file.data.extensions;
 				const packages = file.data.packages;
 				extensionManagerNativeEntries = Array.isArray(extensions) ? extensions.filter((item): item is string => typeof item === "string") : [];
-				extensionManagerNativePackages = Array.isArray(packages) ? packages.filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null && !Array.isArray(item)) : [];
+				extensionManagerNativePackages = Array.isArray(packages) ? [...packages] : [];
 			} catch {
 				extensionManagerNativeEntries = null;
 				extensionManagerNativePackages = null;
@@ -4647,7 +4638,9 @@ app
 				const extensionList = await extensionManager?.list(false).catch(() => null);
 				for (const item of extensionList?.extensions ?? []) {
 					if (!item.source || item.builtIn) continue;
-					resources.push({ kind: "extensions", name: item.source, value: item.path ?? item.source, scope: item.scope === "project" ? "project" : "user" });
+					// 包安装的扩展：`item.path` 是**包目录**，不能当顶层过滤值（写进去就是惰性规则，
+					// 让开关投影误判停用）；带 packageSource 后由规划器改成「整包停用」。
+					resources.push({ kind: "extensions", name: item.source, value: item.path ?? item.source, scope: item.scope === "project" ? "project" : "user", ...(isPackageSource(item.source) ? { packageSource: item.source } : {}) });
 				}
 				const skills = await skillManager?.list().catch(() => null);
 				for (const skill of skills?.skills ?? []) {
@@ -4679,6 +4672,27 @@ app
 			},
 			logger: { info: (scope, message, detail) => void appLogger.info(scope, message, detail), warn: (scope, message, detail) => void appLogger.warn(scope, message, detail) },
 		};
+		/**
+		 * 包目录路径规则清理（幂等）：历史迁移曾把「指向包安装的禁用」写成顶层 `-<包目录>`，
+		 * 对 pi 惰性却让列表投影误判停用。npm 包只装在两处：全局 install 目录与项目 `.pi/npm`。
+		 */
+		const packageRootRuleRepairDeps: PackageRootRuleRepairDeps = {
+			service: {
+				stripPackageRootResourceRules: async (scope, packageDirs) => {
+					const service = piResourceConfigService;
+					if (!service) return { ok: false, error: "pi resource service unavailable", removed: [] };
+					return service.stripPackageRootResourceRules(scope, packageDirs);
+				},
+			},
+			npmRoot: (scope) => {
+				if (scope.scope === "project") {
+					const project = projectStore.get(scope.projectId);
+					return project ? join(project.path, ".pi", "npm", "node_modules") : "";
+				}
+				return join(configManager.getConfigDir(), "npm", "node_modules");
+			},
+			logger: { info: (scope, message, detail) => void appLogger.info(scope, message, detail), warn: (scope, message, detail) => void appLogger.warn(scope, message, detail) },
+		};
 		/** 迁移后刷新投影缓存：否则列表仍按旧列表显示，与实际生效的原生规则不一致。 */
 		const refreshAllProjections = async (): Promise<void> => {
 			await Promise.all([refreshSkillProjection(), refreshPromptProjection(), refreshExtensionProjection()]);
@@ -4692,6 +4706,8 @@ app
 		const ensureResourceMigration = async (projectId?: string): Promise<void> => {
 			if (!projectId) {
 				globalMigrationRun ??= runGlobalResourceMigration(migrationDeps).then(async (result) => {
+					// 先清历史残留的包目录规则，再刷新投影：否则开关仍会显示成停用。
+					await runPackageRootRuleRepair(packageRootRuleRepairDeps, { scope: "global" });
 					await refreshAllProjections();
 					if (result.errors.length > 0) {
 						void appLogger.warn("migration", "Global resource migration reported problems", { status: result.status, errors: result.errors });
@@ -4702,6 +4718,7 @@ app
 			let run = projectMigrationRuns.get(projectId);
 			if (!run) {
 				run = runProjectResourceMigration(migrationDeps, projectId).then(async (result) => {
+					await runPackageRootRuleRepair(packageRootRuleRepairDeps, { scope: "project", projectId });
 					await refreshAllProjections();
 					if (result.errors.length > 0) {
 						void appLogger.warn("migration", "Project resource migration reported problems", { projectId, status: result.status, errors: result.errors });

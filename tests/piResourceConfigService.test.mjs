@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { PiResourceConfigService, isPackageSource, isExactEntryFor, packageSourceOf, isPackageDelta, isEntryDisabled, packageFilterSnapshot, restorePackageDefaults } = loadTsCommonJs("src/main/config/PiResourceConfigService.ts");
+const { PiResourceConfigService, projectExtensionEnabled, isPackageSource, isExactEntryFor, packageSourceOf, isPackageDelta, isEntryDisabled, packageFilterSnapshot, restorePackageDefaults } = loadTsCommonJs("src/main/config/PiResourceConfigService.ts");
 const { PiResourceStateStore, packageSnapshotFingerprint } = loadTsCommonJs("src/main/config/PiResourceStateStore.ts");
 
 function setupProject() {
@@ -348,4 +348,53 @@ test("isPackageSource / isExactEntryFor pure helpers", () => {
 	assert.equal(isExactEntryFor("+/a/b.ts", "/a/b.ts"), true);
 	assert.equal(isExactEntryFor("/a/b.ts", "/a/b.ts"), true);
 	assert.equal(isExactEntryFor("-/a/c.ts", "/a/b.ts"), false);
+});
+
+test("projectExtensionEnabled：包安装看 packages 条目，顶层包目录规则不再否决（回归：开关弹回）", () => {
+	const pkgDir = "C:\\Users\\me\\.pi\\agent\\npm\\node_modules\\billion-context-pi";
+	// 触发用例的真实磁盘状态：packages 里是启用的包条目 + 迁移写下的顶层 -<包目录> 残留
+	const entries = [`-${pkgDir}`, "-builtin:llama.cpp"];
+	assert.equal(projectExtensionEnabled({ source: "npm:billion-context-pi", path: pkgDir, entries, packages: [{ source: "npm:billion-context-pi" }] }), true, "包条目未停用 → 开关必须显示开启，不能被顶层残留按回去");
+	assert.equal(projectExtensionEnabled({ source: "npm:billion-context-pi", path: pkgDir, entries, packages: ["npm:billion-context-pi"] }), true, "纯字符串包条目（默认安装形态）同样是启用");
+	assert.equal(projectExtensionEnabled({ source: "npm:billion-context-pi", path: pkgDir, entries, packages: [{ source: "npm:billion-context-pi", extensions: [], skills: [], prompts: [], themes: [] }] }), false, "整包停用（四类过滤全空）显示停用");
+	assert.equal(projectExtensionEnabled({ source: "npm:billion-context-pi", path: pkgDir, entries, packages: null }), undefined, "packages 快照不可用 → 交回调用方兜底");
+	assert.equal(projectExtensionEnabled({ source: "npm:other", path: "/pkg/other", entries: ["-/pkg/other"], packages: [{ source: "npm:billion-context-pi" }] }), undefined, "包不在本层（项目层声明的包）不拿顶层规则反推");
+	// 本地文件扩展仍然走顶层精确规则
+	assert.equal(projectExtensionEnabled({ source: "my-local-ext", path: "/agent/extensions/a.ts", entries: ["-/agent/extensions/a.ts"], packages: [] }), false);
+	assert.equal(projectExtensionEnabled({ source: "my-local-ext", path: "/agent/extensions/a.ts", entries: [], packages: [] }), true);
+});
+
+test("回归：启用包扩展后读回不再是停用（服务写入 + 投影联合）", async () => {
+	const { service, agentDir, cleanup } = setupProject();
+	try {
+		const pkgDir = join(agentDir, "npm", "node_modules", "billion-context-pi");
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: [{ source: "npm:billion-context-pi" }], extensions: [`-${pkgDir}`, "-builtin:llama.cpp"] }), "utf8");
+		const enabled = await service.setExtensionEnabled({ scope: { scope: "global" }, source: "npm:billion-context-pi", path: pkgDir, enabled: true });
+		assert.equal(enabled.ok, true);
+		const file = readJson(join(agentDir, "settings.json"));
+		assert.equal(projectExtensionEnabled({ source: "npm:billion-context-pi", path: pkgDir, entries: file.extensions, packages: file.packages }), true, "写入成功后的投影必须是开启，否则开关会弹回");
+	} finally {
+		cleanup();
+	}
+});
+
+test("stripPackageRootResourceRules：删掉指向包安装目录的精确规则，保留其它规则", async () => {
+	const { service, agentDir, cleanup } = setupProject();
+	try {
+		const pkgDir = join(agentDir, "npm", "node_modules", "billion-context-pi");
+		const innerFile = join(pkgDir, "dist", "index.js");
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ extensions: [`-${pkgDir}`, "-builtin:llama.cpp", innerFile] }), "utf8");
+		const result = await service.stripPackageRootResourceRules({ scope: "global" }, [pkgDir]);
+		assert.equal(result.ok, true);
+		assert.deepEqual([...result.removed], [`-${pkgDir}`]);
+		assert.deepEqual(readJson(join(agentDir, "settings.json")).extensions, ["-builtin:llama.cpp", innerFile], "包内文件路径对 pi 有效，必须保留");
+		// 幂等：再跑一次没有可删项，也不报错
+		const again = await service.stripPackageRootResourceRules({ scope: "global" }, [pkgDir]);
+		assert.equal(again.ok, true);
+		assert.deepEqual([...again.removed], []);
+		// 没有包目录可参考时不碰文件
+		assert.deepEqual([...(await service.stripPackageRootResourceRules({ scope: "global" }, [])).removed], []);
+	} finally {
+		cleanup();
+	}
 });
