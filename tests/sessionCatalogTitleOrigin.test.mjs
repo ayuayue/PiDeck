@@ -25,6 +25,9 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const nodeRequire = createRequire(import.meta.url);
 
+// 生产同源的身份构造：夹具手写 `pi:native:${path}` 只在 POSIX 下巧合相等。
+const { buildSessionOriginKey } = loadTsCommonJs("src/shared/sessionIdentity.ts");
+
 // 存量自愈用例要接真实探测器：SessionScanner 构造期依赖 electron 的 app/shell。
 const { SessionScanner } = loadTsCommonJs("src/main/sessions/SessionScanner.ts", {
 	stubs: {
@@ -284,9 +287,10 @@ function legacyHealEntry(filePath, title, overrides = {}) {
 	return {
 		id: "legacy-heal",
 		projectId: "project-1",
-		// originKey 与生产 buildSummaryOriginKey 同构：POSIX 路径保留原大小写
-		// （2026-10-08 回归修复：旧实现把 native 一律折小写，Linux 上是身份错乱源）。
-		originKey: `pi:native:${filePath.replace(/\\/g, "/")}`,
+		// originKey 必须由生产构造器给出（buildSummaryOriginKey 的底层）：手写
+		// `pi:native:${path}` 只在 POSIX 下巧合相等，Windows 上 canonicalize 把盘符折小写
+		// （2026-10-09 全套 Windows 验证：自愈用例因此对不上条目而红）。
+		originKey: buildSessionOriginKey({ source: "pi", environment: "native", filePath }),
 		title,
 		titleLocked: true,
 		source: "pi",
@@ -475,16 +479,12 @@ test("an authoritative session_info name upgrades a weak fallback title", async 
 		const catalog = new SessionCatalog(join(dir, "sessions.json"));
 		await catalog.load();
 		// 第 0 步：扫描在 session_info 落盘前先索引（现场形态）→ 弱兜底锁成 fallback。
-		const [early] = await catalog.mergeScanned("project-1", [
-			lightSummary({ name: "某次回答里的一大段 thinking 原文", nameFromSessionInfo: false }),
-		]);
+		const [early] = await catalog.mergeScanned("project-1", [lightSummary({ name: "某次回答里的一大段 thinking 原文", nameFromSessionInfo: false })]);
 		assert.equal(early.title, "某次回答里的一大段 thinking 原文");
 		assert.equal((await readEntry(dir, early.id)).titleOrigin, "fallback");
 
 		// 第 1 步：pi 把 (fork) 名写进 session_info，下一轮扫描读到了权威名。
-		const [healed] = await catalog.mergeScanned("project-1", [
-			lightSummary({ name: "pi 1.0.4/1.0.3 更新通俗解读 (fork)", nameFromSessionInfo: true }),
-		]);
+		const [healed] = await catalog.mergeScanned("project-1", [lightSummary({ name: "pi 1.0.4/1.0.3 更新通俗解读 (fork)", nameFromSessionInfo: true })]);
 		assert.equal(healed.id, early.id, "同一文件的扫描必须命中同一 catalog 条目");
 		assert.equal(healed.title, "pi 1.0.4/1.0.3 更新通俗解读 (fork)", "权威名必须升级弱兜底标题");
 		const healedOnDisk = await readEntry(dir, early.id);
@@ -492,9 +492,7 @@ test("an authoritative session_info name upgrades a weak fallback title", async 
 		assert.equal(healedOnDisk.titleLocked, true);
 
 		// 第 2 步：升级后的 manual 是终态——迟到的弱兜底不得反向覆盖。
-		const [again] = await catalog.mergeScanned("project-1", [
-			lightSummary({ name: "另一段弱兜底", nameFromSessionInfo: false }),
-		]);
+		const [again] = await catalog.mergeScanned("project-1", [lightSummary({ name: "另一段弱兜底", nameFromSessionInfo: false })]);
 		assert.equal(again.title, "pi 1.0.4/1.0.3 更新通俗解读 (fork)");
 	} finally {
 		await rm(dir, { recursive: true, force: true });
@@ -516,9 +514,7 @@ test("a summary-carried authoritative name upgrades a scanned weak fallback titl
 		assert.equal((await readEntry(dir, early.id)).titleOrigin, "fallback");
 
 		// 全扫描（readSummary）带着权威 session_info 名回来（rename 已落盘）。
-		const [healed] = await catalog.mergeScanned("project-1", [
-			lightSummary({ updatedAt: 2000, name: "原会话名 (copy)", nameFromSessionInfo: true }),
-		]);
+		const [healed] = await catalog.mergeScanned("project-1", [lightSummary({ updatedAt: 2000, name: "原会话名 (copy)", nameFromSessionInfo: true })]);
 		assert.equal(healed.id, early.id, "同一文件的扫描必须命中同一 catalog 条目");
 		assert.equal(healed.title, "原会话名 (copy)", "权威名必须升级弱兜底标题");
 		assert.equal((await readEntry(dir, early.id)).titleOrigin, "manual");

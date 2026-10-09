@@ -16,7 +16,7 @@
  *   c. 共享解析器单测：mangled 形态自愈、Windows 形态保持字节契约。
  */
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
@@ -51,10 +51,7 @@ test("shared resolver heals a legacy mangled POSIX session path", () => {
 });
 
 test("shared resolver keeps the Windows byte contract on drive-letter bases", () => {
-	assert.equal(
-		toAbsoluteSessionPath(".pi\\sessions\\x.jsonl", "D:\\Project\\PiDeck", "native"),
-		"D:\\Project\\PiDeck\\.pi\\sessions\\x.jsonl",
-	);
+	assert.equal(toAbsoluteSessionPath(".pi\\sessions\\x.jsonl", "D:\\Project\\PiDeck", "native"), "D:\\Project\\PiDeck\\.pi\\sessions\\x.jsonl");
 	// Windows 形态折叠大小写；POSIX 形态保留（大小写敏感身份）。
 	assert.equal(canonicalizeSessionPath("D:\\Project\\X.jsonl", "native"), "d:/project/x.jsonl");
 	assert.equal(canonicalizeSessionPath("/home/dev/Proj/x.jsonl", "native"), "/home/dev/Proj/x.jsonl");
@@ -64,14 +61,13 @@ test("catalog load heals a persisted mangled path and folds the scanned absolute
 	const { SessionCatalog } = loadCatalog();
 	const dir = await mkdtemp(join(tmpdir(), "pideck-heal-mangled-"));
 	try {
-		const projectPath = dir;
-		const sessionsDir = join(dir, ".pi", "sessions");
-		await mkdir(sessionsDir, { recursive: true });
-		const realFile = join(sessionsDir, "2026-10-07T23-35-20-802Z_abc.jsonl");
-		await writeFile(realFile, '{"type":"session","id":"s"}\n{"type":"message","message":{"role":"user","content":"hello"}}\n', "utf8");
-
-		// 旧版缺陷产物：mangled 路径已落库（现场形态）。
-		const mangled = "\\home\\dev\\PiDeck\\.pi\\sessions\\2026-10-07T23-35-20-802Z_abc.jsonl".replace("home\\dev\\PiDeck", dir.replace(/^\//, "").replace(/\//g, "\\"));
+		// 旧缺陷的 mangled 形态是 POSIX 基址产物（`\home\dev\…`，见文件头现场记录）；Windows 基址
+		// 拼相对路径本来就得到合法盘符路径，`\C:\Users\…` 既不是该现场也不是任何合法路径形态
+		// —— 夹具恒用 POSIX 基址，两端断言在 Windows/macOS/Linux 上完全等价。
+		// heal 与身份折叠都是纯字符串运算（catalog 的 existsSync 桩恒真），盘上无需存在该文件。
+		const projectPath = "/home/dev/PiDeck";
+		const realFile = `${projectPath}/.pi/sessions/2026-10-07T23-35-20-802Z_abc.jsonl`;
+		const mangled = realFile.split("/").join("\\");
 		const catalogPath = join(dir, "sessions.json");
 		await writeFile(
 			catalogPath,
@@ -109,9 +105,7 @@ test("catalog load heals a persisted mangled path and folds the scanned absolute
 		assert.equal(onDisk.filePath, realFile);
 
 		// 扫描按绝对路径发现同一文件 → 折叠到同一条目（不再双记录）。
-		const records = await catalog.mergeScanned("project-1", [
-			{ id: realFile, filePath: realFile, name: undefined, preview: "", messageCount: 1, updatedAt: 2000, source: "pi", environment: "native" },
-		]);
+		const records = await catalog.mergeScanned("project-1", [{ id: realFile, filePath: realFile, name: undefined, preview: "", messageCount: 1, updatedAt: 2000, source: "pi", environment: "native" }]);
 		assert.equal(records.filter((record) => record.filePath === realFile).length, 1, "same file must fold into one record");
 	} finally {
 		await rm(dir, { recursive: true, force: true });
