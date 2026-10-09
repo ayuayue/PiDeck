@@ -150,9 +150,9 @@ test("Web session strips stay collapsed by default and use real tokens only", ()
 test("Web stream recovery wires runtimeBusy into every decision site", () => {
 	// 两个恢复触发点都携带 runtimeBusy（事件触发器 + 主轮询兼容）。
 	assert.equal((webChatApp.match(/runtimeBusy:/g) ?? []).length, 2);
-	// 脱节态轮询提速：间隔取决于 streaming 或 runtime 忙态，且 effect 依赖含 runtime 状态。
-	assert.match(webChatApp, /setInterval\(refresh,\s*streaming \|\| runtimeBusyNow \? 1000 : 3000\)/);
-	assert.match(webChatApp, /\}, \[streaming, activeRuntime\?\.status\]\)/);
+	// 脱节态轮询提速：间隔取决于 SSE 连接（已连降频 30s 心跳）、streaming 或 runtime 忙态，且 effect 依赖含 runtime 状态。
+	assert.match(webChatApp, /setInterval\(refresh,\s*stateEventsConnected \? 30_000 : streaming \|\| runtimeBusyNow \? 1000 : 3000\)/);
+	assert.match(webChatApp, /\}, \[streaming, activeRuntime\?\.status, stateEventsConnected\]\)/);
 	// 忙态镜像 ref 在 render 期赋值（供事件回调读取最新值）。
 	assert.match(webChatApp, /activeRuntimeRef\.current = activeRuntime;/);
 });

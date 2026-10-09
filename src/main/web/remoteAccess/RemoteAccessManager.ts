@@ -338,8 +338,9 @@ export class RemoteAccessManager {
 		if (this.serveDesired && this.reader) {
 			try {
 				await this.reader.stopServe();
-			} catch {
-				// 退出路径尽力而为，失败只记日志
+			} catch (error) {
+				// 退出路径尽力而为，失败只记日志不阻断退出
+				this.logger.warn("web-remote", "tailscale serve stop failed on dispose", { error: error instanceof Error ? error.message : String(error) });
 			}
 		}
 	}
