@@ -4,14 +4,13 @@ import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 
-function loadAskCardModule() {
-	const i18nSource = readFileSync("src/main/feishu/FeishuI18n.ts", "utf8");
-	const { outputText: i18nOutput } = ts.transpileModule(i18nSource, {
-		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-	});
-	const i18nSandbox = { exports: {} };
-	vm.runInNewContext(i18nOutput, i18nSandbox, { filename: "FeishuI18n.ts" });
+import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
+// FeishuI18n 现在带运行时依赖（繁体词典 ./FeishuI18n.zh-TW + 简繁判定 shared/types/settings），
+// 交给统一加载器按源文件目录解析；手写沙箱少了 require 桥就会整片失败。
+const i18n = createTsSandbox()("src/main/feishu/FeishuI18n.ts");
+
+function loadAskCardModule() {
 	const source = readFileSync("src/main/feishu/AskCard.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
 		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -19,7 +18,7 @@ function loadAskCardModule() {
 	const sandbox = {
 		exports: {},
 		require: (name) => {
-			if (name === "./FeishuI18n") return i18nSandbox.exports;
+			if (name === "./FeishuI18n") return i18n;
 			throw new Error(`unexpected require: ${name}`);
 		},
 	};

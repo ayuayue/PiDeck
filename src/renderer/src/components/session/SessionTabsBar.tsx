@@ -1,8 +1,8 @@
 import { useAtomValue } from "jotai";
-import { Check, ChevronDown, ChevronRight, CircleStop, CircleX, Copy, FileDown, FileText, Fingerprint, Folder, Globe, Link2, MessagesSquare, MoreHorizontal, Pencil, PanelLeft, PanelRight, Pin, PinOff, Play, Plus, RefreshCw, RotateCw, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, CircleStop, CircleX, Copy, FileDown, FileText, Fingerprint, Folder, Globe, Link2, MessagesSquare, MoreHorizontal, Pencil, PanelLeft, PanelRight, Pin, PinOff, Play, Plus, RefreshCw, RotateCw, Terminal, X } from "lucide-react";
 import { Fragment, useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { motion, useReducedMotion, type Transition } from "motion/react";
-import { sessionRecordByIdAtomFamily, sessionRuntimeBySessionIdAtomFamily, sessionRecordsAtom, projectInventoryByIdAtom, projectByIdAtomFamily } from "../../atoms";
+import { sessionRecordByIdAtomFamily, sessionRuntimeBySessionIdAtomFamily, sessionRecordsAtom, projectInventoryByIdAtom, projectByIdAtomFamily, acpEnabledAtom, acpToolsAtom } from "../../atoms";
 import { t } from "../../i18n";
 import { displayProjectDirectoryName } from "../../rendererUtils";
 import { copyTextWithCopiedNotice } from "../../utils/clipboardNotice";
@@ -12,7 +12,7 @@ import { canRunSessionAction, type SessionRunAction, type SessionRunCapabilities
 import { sessionDisplayName } from "../../utils/sessionDisplayName";
 import { Button } from "../ui-shadcn/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "../ui-shadcn/context-menu";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "../ui-shadcn/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui-shadcn/tooltip";
 import { cn } from "../../lib/utils";
@@ -122,6 +122,8 @@ export type SessionTabsBarProps = {
 	/** 新建会话目标（聊天区置顶 + 已打开项目），由 App 从项目库存装配 */
 	newSessionTargets: readonly NewSessionTarget[];
 	onNewSessionInProject: (projectId: string) => void;
+	/** 新建 ACP 工具会话（acpEnabled 门控后由 App 提供；菜单里按工具→项目二级选择） */
+	onNewAcpSession?: (projectId: string, toolId: string) => void;
 	onTogglePin: (sessionId: string) => void;
 	onReorder: (sourceId: string, targetId: string, position: "before" | "after") => void;
 	/** 右侧抽屉总开关：打开/关闭整块右侧面板（活动栏在抽屉内、系统按钮下方）。 */
@@ -602,7 +604,7 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
 					})()}
 					{/* 浏览器式新建入口：跟在最后一张标签后面，下拉选择新建到哪个项目。
             （新建会话保留独立「+」按钮；⋯ 菜单只收运行控制与工具） */}
-					{!props.simple && <NewSessionMenu targets={props.newSessionTargets} onSelect={props.onNewSessionInProject} />}
+					{!props.simple && <NewSessionMenu targets={props.newSessionTargets} onSelect={props.onNewSessionInProject} onNewAcpSession={props.onNewAcpSession} />}
 					{/* 文件/Diff 与会话共用本栏：同一套 session-tab 皮，不另开绿条栏 */}
 					{props.editorTabs && props.editorTabs.length > 0 ? (
 						<>
@@ -1183,9 +1185,14 @@ function SessionTab(props: {
  * （2026-08 收敛调整：仅 Tab 上的小箭头下拉被移除，运行控制上收 ⋯ 菜单；
  *   「+」新建是高频入口，保留独立按钮。）
  */
-function NewSessionMenu(props: { targets: readonly NewSessionTarget[]; onSelect: (projectId: string) => void }) {
+function NewSessionMenu(props: { targets: readonly NewSessionTarget[]; onSelect: (projectId: string) => void; onNewAcpSession?: (projectId: string, toolId: string) => void }) {
 	const chatTargets = props.targets.filter((target) => target.isChat);
 	const projectTargets = props.targets.filter((target) => !target.isChat);
+	// ACP 入口是 opt-in：仅开关开启且登记了工具时出现；工具→项目二级选择，
+	// 只列真实项目（chat 区不是文件项目，作为 ACP 工作目录无意义）。
+	const acpEnabled = useAtomValue(acpEnabledAtom);
+	const acpTools = useAtomValue(acpToolsAtom);
+	const acpVisible = Boolean(props.onNewAcpSession) && acpEnabled && acpTools.length > 0 && projectTargets.length > 0;
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
@@ -1211,6 +1218,30 @@ function NewSessionMenu(props: { targets: readonly NewSessionTarget[]; onSelect:
 						</span>
 					</DropdownMenuItem>
 				))}
+				{acpVisible ? (
+					<>
+						<DropdownMenuSeparator />
+						<DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{t("app.newAcpSession")}</DropdownMenuLabel>
+						{acpTools.map((tool) => (
+							<DropdownMenuSub key={tool.id}>
+								<DropdownMenuSubTrigger className="gap-2">
+									<Terminal className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+									<span className="truncate">{tool.name}</span>
+								</DropdownMenuSubTrigger>
+								<DropdownMenuSubContent>
+									{projectTargets.map((target) => (
+										<DropdownMenuItem key={target.projectId} onSelect={() => props.onNewAcpSession?.(target.projectId, tool.id)}>
+											<span className="inline-flex min-w-0 items-center gap-2">
+												<Folder className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+												<span className="truncate">{target.label}</span>
+											</span>
+										</DropdownMenuItem>
+									))}
+								</DropdownMenuSubContent>
+							</DropdownMenuSub>
+						))}
+					</>
+				) : null}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

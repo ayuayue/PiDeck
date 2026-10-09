@@ -62,6 +62,10 @@ export class AcpConnection extends EventEmitter {
 		stdout: NodeJS.ReadableStream,
 	) {
 		super();
+		// 断管兑底（同 PiRpcClient）：agent 死亡与 close() 之间的异步窗口里，
+		// 并发 write 会打到断管道上（POSIX 报 EPIPE、Windows 报 EOF），未监听的
+		// stdin error 会炸主进程；请求结账由 pending 超时与 close() 负责。
+		this.stdin.on("error", () => {});
 		stdout.on("data", (chunk) => this.consumeChunk(chunk));
 		stdout.on("end", () => this.consumeEnd());
 		stdout.on("error", (error) => this.close(error));

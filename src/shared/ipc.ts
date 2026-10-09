@@ -1110,4 +1110,12 @@ export const ipcChannels = {
 	acpToolsSave: "acp:tools-save",
 	/** 单条表单校验（不含落盘；渲染层新增/编辑即时反馈）。 */
 	acpToolValidate: "acp:tool-validate",
+	/** 检测预设工具安装状态/版本（只读；presetId 枚举收口）。 */
+	acpToolDetect: "acp:tool-detect",
+	/** npm 全局安装预设工具（进度经 acpLifecycleEvent 推送）。 */
+	acpToolInstall: "acp:tool-install",
+	/** npm 全局卸载预设工具。 */
+	acpToolUninstall: "acp:tool-uninstall",
+	/** 主→渲染：安装/卸载进度行与结算（webContents 推送）。 */
+	acpLifecycleEvent: "acp:lifecycle-event",
 } as const;

@@ -132,6 +132,7 @@ import {
 	cacheSessionMessagesAtom,
 	upsertSessionAtom,
 	acpToolsAtom,
+	acpEnabledAtom,
 } from "./atoms";
 import { isSameSessionPath } from "./agentListDisplay";
 import { t } from "./i18n";
@@ -348,9 +349,9 @@ export function App() {
 			})
 			.catch(() => undefined);
 	}, [showToast]);
-	// 历史命令：按 agent 隔离，agent 关闭即清除（不持久化）
 	// ACP 工具表（settings.acpTools 快照）：挂载时拉一次供新建会话菜单/设置页共享；
 	// 后续变更由设置页保存后整表回写 acpToolsAtom，不做事件订阅（改动频率极低）。
+	// 同一次拉取顺带同步 acpEnabled 快照：菜单组仅在开关开启时渲染（主进程同规则门控注册）。
 	useEffect(() => {
 		let cancelled = false;
 		void api.acp
@@ -359,10 +360,17 @@ export function App() {
 				if (!cancelled) store.set(acpToolsAtom, tools);
 			})
 			.catch(() => undefined);
+		void api.settings
+			.get()
+			.then((settings) => {
+				if (!cancelled) store.set(acpEnabledAtom, settings.acpEnabled === true);
+			})
+			.catch(() => undefined);
 		return () => {
 			cancelled = true;
 		};
 	}, [store]);
+	// 历史命令：按 agent 隔离，agent 关闭即清除（不持久化）
 	const promptHistoryRef = useRef<Record<string, string[]>>({});
 
 	// 面板宽度的 localStorage 只按 renderer origin 隔离；开发端口变化时会读不到旧值。
@@ -2011,7 +2019,6 @@ export function App() {
 			createAnonymous: async (projectId) => {
 				await createAnonymousSessionWithTab(projectId);
 			},
-			deleteDraft: deleteDraftSession,
 			// ACP 工具会话：backend 固定 acp、acpToolId 指向 settings.acpTools 条目。
 			// 工具表已加载进 acpToolsAtom，此处只按 id 取名称作草稿标题；找不到（刚被删）
 			// 提示引导而不是静默失败。创建后与 createDraft 同一条选中/登记链。
@@ -2026,6 +2033,7 @@ export function App() {
 				selectSessionCommand(projectId, session.id, false);
 				workspaceChrome.registerOpenSession(session.id, "permanent");
 			},
+			deleteDraft: deleteDraftSession,
 			rename: rename.openSessionRename,
 			export: runExportSidebarSession,
 			copy: runCopySidebarSession,
@@ -2147,6 +2155,7 @@ export function App() {
 			settingsExpandedProjectIds={settings.sidebarExpandedProjectIds}
 			settingsNavTab={settings.sidebarNavTab}
 			settingsPinnedSessionIds={settings.pinnedSessionIds}
+			settingsSessionSortMode={settings.sessionSortMode}
 			settingsLoaded={settingsLoaded}
 			onExpandedProjectsReady={() => setExpandedProjectsReady(true)}
 			// 关于弹框：版本号/官网/GitHub 链接数据来自 AppInfo IPC（上方 useEffect 已拉取）
@@ -2344,6 +2353,11 @@ export function App() {
 			.sort((a, b) => Number(b.isChat) - Number(a.isChat)),
 		onNewSessionInProject: (projectId: string) => {
 			void createSessionDraftWithTab(projectId);
+		},
+		// ACP 工具会话入口（Tab 栏 + 下拉尾部，工具→项目二级）：走 sidebarActions.createAcp，
+		// 与设置页共用同一条创建链（backend=acp + acpToolId）。
+		onNewAcpSession: (projectId: string, toolId: string) => {
+			void sidebarActions.sessions.createAcp(projectId, toolId);
 		},
 		onTogglePin: workspaceChrome.togglePin,
 		onReorder: workspaceChrome.reorderTab,

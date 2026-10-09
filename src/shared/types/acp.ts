@@ -43,6 +43,18 @@ export type AcpToolValidation = {
 	reasonKey?: "acp.toolNameRequired" | "acp.toolCommandRequired" | "acp.toolDuplicateName" | "acp.toolInvalidCharacters";
 };
 
+/** 预设工具的安装状态（设置页徽章数据源；主/渲染共享契约）。 */
+export type AcpToolStatus = {
+	presetId: import("../acpToolPresets").AcpToolPresetId;
+	/** installed=命令存在且 --version 成功；missing=命令不存在；npx-ready=npx 按需形态（node/npm 可用即永远可跑）；unknown=检测自身失败。 */
+	state: "installed" | "missing" | "npx-ready" | "unknown";
+	/** 版本号（解析自 --version 首个语义版本词）；npx-ready 时为 npm 版本。 */
+	version?: string;
+};
+
+/** 安装/卸载进度事件（主→渲染 webContents 推送；preload 白名单转发）。 */
+export type AcpLifecycleEvent = { presetId: import("../acpToolPresets").AcpToolPresetId; phase: "line"; line: string } | { presetId: import("../acpToolPresets").AcpToolPresetId; phase: "done"; ok: boolean; output: string };
+
 /** ACP agent 在 initialize/session 握手后暴露给 UI 的能力快照。 */
 export type AcpAgentInfo = {
 	/** initialize 返回的 agent 名（显示用，可能缺失）。 */

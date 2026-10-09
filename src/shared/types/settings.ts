@@ -771,8 +771,14 @@ export type AppSettings = {
 	dshRuntimeMigrationNoticeShown?: boolean;
 
 	/**
+	 * ACP 多后端总开关：默认 false（opt-in）——pi 用户不承受任何 ACP 运行时成本，
+	 * 关闭时主进程不创建 AcpAgentManager、不注册进 CompositeAgentGateway，新建会话也无 ACP 入口。
+	 * 变更重启后生效（热切换会牵动运行中会话生命周期，首版不做）；已登记 acpTools 不受影响，重新开启即恢复。
+	 */
+	acpEnabled?: boolean;
+	/**
 	 * ACP agent CLI 工具登记表（backend=acp 会话的驱动器）：gemini --acp /
-	 * opencode acp / kimi acp / codex-acp 等。数组保序（展示=登记顺序）；
+	 * opencode acp / kimi acp / codex-acp 等。仅在 acpEnabled=true 时被读取。数组保序（展示=登记顺序）；
 	 * 删除工具后旧会话靠 acpSessionId 只读降级。缺省 undefined = 空表（无 ACP 工具）。
 	 */
 	acpTools?: AcpToolConfig[];

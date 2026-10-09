@@ -48,9 +48,10 @@ test("i18n:三语文件均含每个预设描述 key 与预设区文案 key(空�
 	}
 });
 
-test("UI:AcpToolsTab 引用共享预设表(加预设无需改 UI)", () => {
-	const source = readFileSync(join(repoRoot, "src", "renderer", "src", "components", "app", "settings", "AcpToolsTab.tsx"), "utf8");
-	assert.match(source, /ACP_TOOL_PRESETS/, "AcpToolsTab 应遍历共享预设表");
+test("UI:AcpPresetChips 引用共享预设表(加预设无需改 UI)", () => {
+	// 预设芯片已拆到 AcpPresetChips.tsx(AcpToolsTab 只管总开关与登记表)；契约随组件迁移。
+	const source = readFileSync(join(repoRoot, "src", "renderer", "src", "components", "app", "settings", "AcpPresetChips.tsx"), "utf8");
+	assert.match(source, /ACP_TOOL_PRESETS/, "AcpPresetChips 应遍历共享预设表");
 	// 预设描述 key 静态映射:每个预设 id 一条(带连字符的 id 加引号),防止模板字符串拼 key 破坏 t() 的字面量联合
 	for (const preset of ACP_TOOL_PRESETS) {
 		assert.match(source, new RegExp(`["']?${preset.id}["']?\\s*:\\s*"acp\\.presetDesc\\.${preset.id}"`), `PRESET_DESC_KEYS 缺 ${preset.id}`);

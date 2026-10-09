@@ -305,6 +305,11 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 							await runForkMutation("edit", message, newText);
 						} catch (error) {
 							failToast(t("message.editFailed"), error);
+						} finally {
+							// 与 resend 的 fork 分支对称：runForkMutation 内部 showOverlay 后有多个早退路径
+							// （激活失败/entryId 缺失/cancelled/成功切会话），finally 里必须清 overlay，
+							// 否则全遮罩永久挂死（overlay atom 无自动清除机制）。
+							hideOverlay(sessionId);
 						}
 					},
 				);

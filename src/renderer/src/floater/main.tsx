@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { PiTuiLogoMark } from "../components/app/PiTuiLogo";
 import { setI18nLocale, t } from "../i18n";
+import type { MiniOverlayLocale } from "../../../shared/types/miniOverlay";
 import "./floater.css";
 
 /** 悬浮球窗口的窄状态类型（与 main/floating/FloatingController.ts 对齐）。 */
@@ -15,7 +16,7 @@ interface FloatingBallState {
 	activeCount: number;
 	runningCount: number;
 	recentTitles: string[];
-	locale: "zh-CN" | "en-US";
+	locale: MiniOverlayLocale;
 }
 
 const api = (

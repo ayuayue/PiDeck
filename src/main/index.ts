@@ -2402,7 +2402,15 @@ function registerIpc() {
 	// 数据环境（数据模式决策 / 目录归属校验）：业务在 dataEnvService，handler 只校验/适配。
 	// relaunchApp 复用 restartApp（先停常驻服务 + isQuitting，防止 closeToTray 吞掉 relaunch）；
 	// quitApp 先置 isQuitting，与托盘「退出」菜单同一写法，避免 closeToTray 把退出吞成隐藏到托盘。
-	registerAcpIpc({ settingsStore });
+	registerAcpIpc({
+		settingsStore,
+		// 生命周期命令编排惰性取 piLocator:注册时(2361 行附近)它尚未实例化(3484 行)。
+		// createInvocation 复用 AcpAgentManager 同一入口(Windows .cmd 垫片),spawn 带 timeout 兜底。
+		getLifecycleDeps: () => ({
+			createInvocation: (command, args) => piLocator.createInvocation(command, args),
+			spawn: (command, args, options) => spawn(command, args, { timeout: options.timeout, windowsHide: true }),
+		}),
+	});
 	registerDataEnvIpc({
 		getChannel: () => updateChannel,
 		getDecisionDir: () => channelDevDataDir,
@@ -4732,39 +4740,42 @@ app
 		void ensureResourceMigration();
 		ensurePiResourceMigration = ensureResourceMigration;
 		agentManager.configureResourceMigrationGate(ensureResourceMigration);
-		// 多后端网关装配：pi + dsh + acp（DSH 在窗口创建后后台预热，失败时按需重试；
-		// ACP 无预热——每次 create 即 spawn 对应 CLI，工具表为空时 create 直接报错）。
-		// Coordinator 与事件桥接均面向合成器，新增后端只需追加网关实例。
-		acpAgentManager = new AcpAgentManager({
-			piLocator,
-			getProject: (projectId) => projectStore.get(projectId),
-			getTools: () => settingsStore.get().acpTools ?? [],
-			// 图片物化落盘：ACP 消息里的 base64 图复用生图 blob 存储（ref 形态回填消息；
-			// imagegen 装配在另一段完成，经模块级 ref 延迟取实例）。
-			imageStore: {
-				put: (data, mimeType) => acpImageBlobStore?.put(data, mimeType) ?? Promise.resolve(null),
-			},
-			// ACP 会话标题（session_info_update）写回 catalog：ACP 无本地文件，标题在 agent 侧。
-			onTitleChanged: (deckSessionId, title) => {
-				const entry = sessionCatalog?.get(deckSessionId);
-				if (!entry || entry.title === title) return;
-				void sessionCatalog
-					.update(entry.id, { title })
-					.then(() => {
-						if (mainWindow && !mainWindow.isDestroyed()) {
-							mainWindow.webContents.send(ipcChannels.sessionsCatalogRefreshed, { projectId: entry.projectId });
-						}
-					})
-					.catch((error: unknown) => {
-						void appLogger.warn("session", "ACP title sync to catalog failed", { deckSessionId, title, error: error instanceof Error ? error.message : String(error) });
-					});
-			},
-			logger: appLogger,
-		});
-		quitCleanup.register("acp", async () => {
-			await acpAgentManager?.stopAll();
-		});
-		compositeAgentGateway = new CompositeAgentGateway([agentManager, dshAgentManager, acpAgentManager]);
+		// 多后端网关装配：pi + dsh + acp（DSH 在窗口创建后后台预热，失败时按需重试）。
+		// ACP 是 opt-in（settings.acpEnabled，默认 false）：关闭时完全不创建 AcpAgentManager、
+		// 不注册进合成器——pi 用户零成本；开启后每次 create 即 spawn 对应 CLI，无预热。
+		// 变更开关重启生效，故只需启动时读一次。
+		if (settingsStore.get().acpEnabled === true) {
+			acpAgentManager = new AcpAgentManager({
+				piLocator,
+				getProject: (projectId) => projectStore.get(projectId),
+				getTools: () => settingsStore.get().acpTools ?? [],
+				// 图片物化落盘：ACP 消息里的 base64 图复用生图 blob 存储（ref 形态回填消息；
+				// imagegen 装配在另一段完成，经模块级 ref 延迟取实例）。
+				imageStore: {
+					put: (data, mimeType) => acpImageBlobStore?.put(data, mimeType) ?? Promise.resolve(null),
+				},
+				// ACP 会话标题（session_info_update）写回 catalog：ACP 无本地文件，标题在 agent 侧。
+				onTitleChanged: (deckSessionId, title) => {
+					const entry = sessionCatalog?.get(deckSessionId);
+					if (!entry || entry.title === title) return;
+					void sessionCatalog
+						.update(entry.id, { title })
+						.then(() => {
+							if (mainWindow && !mainWindow.isDestroyed()) {
+								mainWindow.webContents.send(ipcChannels.sessionsCatalogRefreshed, { projectId: entry.projectId });
+							}
+						})
+						.catch((error: unknown) => {
+							void appLogger.warn("session", "ACP title sync to catalog failed", { deckSessionId, title, error: error instanceof Error ? error.message : String(error) });
+						});
+				},
+				logger: appLogger,
+			});
+			quitCleanup.register("acp", async () => {
+				await acpAgentManager?.stopAll();
+			});
+		}
+		compositeAgentGateway = new CompositeAgentGateway(acpAgentManager ? [agentManager, dshAgentManager, acpAgentManager] : [agentManager, dshAgentManager]);
 		sessionRuntimeCoordinator = new SessionRuntimeCoordinator(sessionCatalog, compositeAgentGateway, sendAgentPromptWithIntegrations, appLogger);
 		// catalog 外部删除清理的活性探针：预热激活后 pi 可能尚未写出会话文件，
 		// 有活跃绑定的记录不得被扫描当「外部删除」剔掉。

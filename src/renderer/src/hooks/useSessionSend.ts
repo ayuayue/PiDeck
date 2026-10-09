@@ -139,10 +139,10 @@ export function useSessionSend(options: UseSessionSendOptions) {
 	}
 
 	/** 模板正文为空时统一的拦截提示：error 状态 + toast（带模板名，便于定位编辑）。 */
-	function rejectEmptyTemplate(templateName: string) {
+	function rejectEmptyTemplate(targetSessionId: string, templateName: string) {
 		const message = t("app.promptTemplateEmptyBody", { name: templateName });
 		setSendState({
-			sessionId: options.sessionId,
+			sessionId: targetSessionId,
 			state: { status: "error", error: message },
 		});
 		options.showError?.(message, 4500);
@@ -372,10 +372,10 @@ export function useSessionSend(options: UseSessionSendOptions) {
 		//   followUp → flushNextQueuedPrompt (when agent becomes idle)
 		if (options.enqueue && (streamingBehavior === "steer" || streamingBehavior === "followUp")) {
 			const { message: expandedMessage, emptyTemplateName } = expandPromptTemplates(message, options.templates);
-			if (!expandedMessage.trim() && emptyTemplateName) {
-				// 模板正文为空：拦截排队，提示用户先补正文（否则入队的是空白消息）
+			if (emptyTemplateName) {
+				// 展开器会保留空模板的 /命令原文，不能靠消息是否空白判断正文有效。
 				sendingSessionIdsRef.current.delete(sourceSessionId);
-				rejectEmptyTemplate(emptyTemplateName);
+				rejectEmptyTemplate(sessionId, emptyTemplateName);
 				return;
 			}
 			const enqueued = options.enqueue(sessionId, {
@@ -432,8 +432,9 @@ export function useSessionSend(options: UseSessionSendOptions) {
 			// 拒绝时回填原始草稿（含 token），保留 chip 形态供用户修改重发
 			restoreRejectedPrompt(sessionId, keepDraft, rawDraft, imageSnapshot);
 			const errorMessage = error instanceof Error ? error.message : String(error);
+			// ensureSessionId 已把 composer 状态搬到真实会话；失败也必须结算同一身份。
 			setSendState({
-				sessionId: sourceSessionId,
+				sessionId,
 				state: { status: "error", requestId, error: errorMessage },
 			});
 			options.showError?.(errorMessage, 4000);
@@ -442,12 +443,11 @@ export function useSessionSend(options: UseSessionSendOptions) {
 		}
 
 		const { message: expandedMessage, description, emptyTemplateName } = expandPromptTemplates(preparedMessage, options.templates);
-		if (!expandedMessage.trim() && emptyTemplateName) {
-			// 模板正文为空（UI 新建模板只写 frontmatter 未填正文）：拦截发送，
-			// 给明确提示而不是把空白消息发到主进程被拒为“消息不能为空”。
+		if (emptyTemplateName) {
+			// 展开器保留空模板的 /命令原文；按 verdict 拦截，避免误发到主进程。
 			// 回填原始草稿（含引用 token），保留 chip 形态
 			restoreRejectedPrompt(sessionId, keepDraft, rawDraft, imageSnapshot);
-			rejectEmptyTemplate(emptyTemplateName);
+			rejectEmptyTemplate(sessionId, emptyTemplateName);
 			sendingSessionIdsRef.current.delete(sourceSessionId);
 			return;
 		}

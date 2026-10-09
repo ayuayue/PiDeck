@@ -50,8 +50,10 @@ test("ask toast uses the dedicated question kind, not warning", () => {
 	assert.match(card, /question:\s*\{ Icon: MessageCircleQuestion/);
 	assert.match(card, /question:.*--color-tool/);
 	assert.match(notice, /question:\s*"var\(--color-tool\)"/);
-	// 卡片与 DOM 兜底的 kind 联合类型同步包含 question
-	assert.match(notice, /export type NoticeKind = "info" \| "error" \| "warning" \| "question"/);
+	// 卡片与 DOM 兜底的 kind 联合类型同步包含 question（现由共享通知历史档位派生：
+	// neutral 是无 kind 调用的展示档不进语义档，派生式 + 共享源含 question 两者合守）
+	assert.match(notice, /export type NoticeKind = Exclude<SharedNoticeHistoryKind, "neutral">/);
+	assert.ok(readFileSync("src/shared/types/noticeHistory.ts", "utf8").includes('"question"'), "shared notice history kinds must include question so NoticeKind derives it");
 });
 
 test("dialogs ignore outside interactions coming from the toast region", () => {

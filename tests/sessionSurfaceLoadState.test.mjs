@@ -222,3 +222,12 @@ test("history availability gate only flags pages main marked unavailable", () =>
 	assert.equal(sessionHistoryUnavailableState({ messages: [], total: 0, nextBefore: null }), null);
 	assert.equal(sessionHistoryUnavailableState({ messages: [{ role: "user" }], total: 1, nextBefore: 0 }), null);
 });
+
+test("stickyEmptySessionIds 必须有 LRU 上限（会话删除后条目永不清理，桌面进程长运行无界增长）", () => {
+	const controllerSource = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
+	// 与 latestLoadBySession（LATEST_LOAD_LRU_LIMIT=20）同构：模块级 Set 跨挂载存活，
+	// 删除的草稿会话在 catalog 清理后 sticky 条目仍残留，只有上限裁剪能兑底。
+	assert.match(controllerSource, /STICKY_EMPTY_SESSION_LRU_LIMIT = \d+/, "sticky 集合必须声明 LRU 上限常量");
+	assert.match(controllerSource, /stickyEmptySessionIds\.size <= STICKY_EMPTY_SESSION_LRU_LIMIT\) return/, "add 路径必须走上限裁剪");
+	assert.match(controllerSource, /stickyEmptySessionIds\.keys\(\)\.next\(\)\.value/, "超限必须删最早插入的键（Set 迭代序 = 插入序）");
+});

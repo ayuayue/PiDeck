@@ -123,6 +123,102 @@ test("keeps dsh drafts across reload while clearing pi drafts", async () => {
 	}
 });
 
+// 回归：ACP 草稿必须跨重启保留（同 dsh 例外）。ACP 会话数据由外部 agent 侧持久化，
+// catalog 只是映射；激活失败兜底（SessionRuntimeCoordinator 不带 promoteToActive）留下的
+// draft+acpSessionId 若在 load() 被清，agent 侧会话孤儿化且 acpSessionId 永久丢失。
+// 探测集合（staleDrafts）排除了 acp，但剔除 filter 只豁免 dsh —— 两个过滤器自相矛盾。
+test("keeps acp drafts across reload while clearing pi drafts", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-acp-draft-"));
+	const filePath = join(dir, "sessions.json");
+	const now = Date.now();
+	const entry = (overrides) => ({
+		projectId: "project-1",
+		title: "Entry",
+		source: "pi",
+		environment: "native",
+		status: "active",
+		createdAt: now,
+		updatedAt: now,
+		...overrides,
+	});
+	const catalogFile = {
+		version: 1,
+		sessions: [
+			entry({ id: "acp-draft", title: "ACP draft", backend: "acp", status: "draft" }),
+			entry({
+				id: "acp-draft-attach-fallback",
+				title: "ACP draft (attach fallback)",
+				backend: "acp",
+				status: "draft",
+				acpSessionId: "agent-side-orphan",
+			}),
+			entry({ id: "pi-draft", title: "Pi draft", status: "draft" }),
+		],
+	};
+	try {
+		await writeFile(filePath, JSON.stringify(catalogFile), "utf8");
+		const catalog = new SessionCatalog(filePath);
+		await catalog.load();
+		const ids = new Map(catalog.listEntries().map((item) => [item.id, item]));
+		assert.ok(ids.has("acp-draft"), "acp draft must survive reload");
+		assert.ok(ids.get("acp-draft-attach-fallback")?.status === "draft" && ids.get("acp-draft-attach-fallback")?.acpSessionId === "agent-side-orphan", "acp draft with acpSessionId (attach fallback) must survive reload");
+		assert.equal(ids.get("pi-draft"), undefined, "pi draft still cleared");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+// 回归：备份自愈后的启动补写失败不得阻断 load()。主文件损坏、从 .bak 恢复
+// （skipNextBackup=true）时 load() 末尾会 writeSnapshot 落盘恢复结果；磁盘满/
+// 目录只读会让 rename 失败 —— load() 若 reject，whenReady 的 Promise.all 中断、
+// 窗口永不出现（与 SessionCatalog 损坏兜底注释声明的失败模式一致）。
+test("backup-restore snapshot write failure must not reject load()", async () => {
+	const real = nodeRequire("node:fs/promises");
+	const epirmRename = new Proxy(real, {
+		get(target, prop, receiver) {
+			if (prop === "rename") {
+				return async () => {
+					const err = new Error("epipe-like: rename blocked by test (EPERM)");
+					Object.assign(err, { code: "EPERM" });
+					throw err;
+				};
+			}
+			return Reflect.get(target, prop, receiver);
+		},
+	});
+	const { SessionCatalog } = loadCatalog(epirmRename);
+	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-restore-write-"));
+	const filePath = join(dir, "sessions.json");
+	const now = Date.now();
+	const backup = {
+		version: 1,
+		sessions: [
+			{
+				id: "restored-active",
+				projectId: "project-1",
+				title: "Restored",
+				source: "pi",
+				environment: "native",
+				status: "active",
+				createdAt: now,
+				updatedAt: now,
+			},
+		],
+	};
+	try {
+		await writeFile(filePath, "{corrupt json", "utf8");
+		await writeFile(`${filePath}.bak`, JSON.stringify(backup), "utf8");
+		const catalog = new SessionCatalog(filePath);
+		// 当前缺陷：writeSnapshot rename 失败 → load() reject → whenReady 中断
+		await catalog.load();
+		const ids = catalog.listEntries().map((item) => item.id);
+		assert.ok(ids.includes("restored-active"), "memory must hold restored entries after failed self-heal write");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
 test("persists an active session backend switch from pi to dsh", async () => {
 	const { SessionCatalog } = loadCatalog();
 	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-backend-"));

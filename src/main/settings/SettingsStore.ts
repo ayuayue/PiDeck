@@ -278,7 +278,8 @@ Gitmoji 对应关系：
 	// 供应商卡片自定义顺序：空数组 = 未自定义，按配置原序展示
 	providerOrder: [],
 	dshProviderOrder: [],
-	// ACP agent CLI 工具登记表：默认空（用户在设置页登记后才有 acp 会话入口）
+	// ACP 总开关默认 false（opt-in，见 settings.acpEnabled 注释）；工具表默认空。
+	acpEnabled: false,
 	acpTools: [],
 
 	// ── 扩展管理 ──
@@ -520,6 +521,8 @@ export class SettingsStore {
 			this.settings.pinnedSessionIds = normalizePinnedSessionIds(parsed.pinnedSessionIds);
 			// 会话排序模式：未知字符串（手改/未来删除的方案）回落默认「最近活跃」。
 			this.settings.sessionSortMode = normalizeSessionSortMode(parsed.sessionSortMode);
+			// ACP 总开关：可选布尔，缺省/非布尔→false（opt-in；老用户升级后 ACP 入口保持关闭直到主动开启）。
+			this.settings.acpEnabled = parsed.acpEnabled === true;
 			// ACP 工具登记表：手改 settings.json 的脏条目在加载边界归一，不等到首次 update。
 			this.settings.acpTools = sanitizeAcpTools(parsed.acpTools);
 			// 字号档位：旧版本有 5 档（多一个已删除的 "default"），现在是 4 档（紧凑/中/大/特大）。
@@ -725,6 +728,9 @@ export class SettingsStore {
 		}
 		// ACP 工具登记表来自渲染层，入参不可信：逐条过滤（字符串字段去空白/限长、
 		// args 只收字符串数组），非法条目丢弃而不是拒绝整表（单条脏数据不阻断保存）。
+		if ("acpEnabled" in safePatch) {
+			safePatch.acpEnabled = safePatch.acpEnabled === true;
+		}
 		if ("acpTools" in safePatch) {
 			safePatch.acpTools = sanitizeAcpTools(safePatch.acpTools);
 		}

@@ -46,6 +46,16 @@ let nextLoadSequence = 0;
 /** 新建空会话的跨挂载粘性：切 Tab 时 ChatSessionPane/hook 会销毁重建，useRef 粘性会丢失导致切回闪骨架。
  *  模块级 Set 跨实例保持：某会话一旦被判定为空，则在出现第一条消息前始终视为空，即使预热写入 filePath/dshSessionId 也不翻回。 */
 const stickyEmptySessionIds = new Set<string>();
+/** sticky 空会话集上限（LRU 裁剪）：会话从 catalog 删除后条目无人清理，
+ *  桌面进程长运行下无界增长；与 latestLoadBySession 同构，超限删最早插入键。 */
+const STICKY_EMPTY_SESSION_LRU_LIMIT = 100;
+function addStickyEmptySession(sessionId: string) {
+	stickyEmptySessionIds.add(sessionId);
+	if (stickyEmptySessionIds.size <= STICKY_EMPTY_SESSION_LRU_LIMIT) return;
+	// 超限：删最早插入的键（Set 迭代序 = 插入序）；重新 add 保证波及的当前会话不在淘汰位
+	const oldest = stickyEmptySessionIds.keys().next().value;
+	if (oldest !== undefined && oldest !== sessionId) stickyEmptySessionIds.delete(oldest);
+}
 // stickyEmptyRef 已迁移为 stickyEmptySessionIds（全局跨挂载，兼容旧测试断言）
 /** 会话加载请求序号（防迟到响应串台）。键按 sessionId 累积，LRU 裁剪防无界增长（2026-10）。 */
 const latestLoadBySession = new Map<string, number>();
@@ -472,7 +482,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		if (messages.length > 0) {
 			stickyEmptySessionIds.delete(stickySessionId);
 		} else if (knownEmptyFromRecord) {
-			stickyEmptySessionIds.add(stickySessionId);
+			addStickyEmptySession(stickySessionId);
 		}
 	}
 	const knownEmpty = Boolean(stickySessionId && (knownEmptyFromRecord || stickyEmptySessionIds.has(stickySessionId)));

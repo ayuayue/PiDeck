@@ -307,12 +307,13 @@ test("sidebar uses the dev-style source filter overlay and anonymous Session ent
 	const sessionTree = readFileSync("src/renderer/src/components/sidebar/SessionTree.tsx", "utf8");
 	const content = readFileSync("src/renderer/src/components/sidebar/SidebarContent.tsx", "utf8");
 	const controller = readFileSync("src/renderer/src/hooks/useSidebarController.ts", "utf8");
-	const newSessionMenu = readFileSync("src/renderer/src/components/sidebar/NewSessionMenu.tsx", "utf8");
+	// 新建菜单收敛在 SessionTabsBar 的本地 NewSessionMenu（sidebar 同名孤儿组件已删）；
+	// 匿名会话入口保留在侧栏项目右键菜单。
 	const header = readFileSync("src/renderer/src/components/session/SessionHeader.tsx", "utf8");
 	assert.doesNotMatch(projectTree, /sourceFilterOpenProjectId|session-source-filter-menu/);
 	assert.match(projectTree, /sourceFilter !== null/);
-	// 普通/匿名新建已合并到 NewSessionMenu 下拉按钮，匿名入口在其中保留
-	assert.match(newSessionMenu, /createAnonymous\(projectId\)/);
+	// 匿名会话入口：项目右键菜单（SidebarContent）保留 createAnonymous 调用
+	assert.match(content, /createAnonymous\(menuProject\.id\)/);
 	assert.match(content, /SessionSourceFilterMenu/);
 	assert.match(controller, /toggleSourceFilter/);
 	assert.match(sessionTree, /anonymous-indicator/);

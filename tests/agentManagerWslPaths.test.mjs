@@ -145,10 +145,14 @@ function loadAgentManager(existsPredicate = () => false) {
 									: // 会话 JSONL 流式行扫描器：真实加载，但注入被断言的 fs 替身（读到 host 路径）
 										id === "../sessions/jsonlLineStream"
 										? loadTsCommonJs("src/main/sessions/jsonlLineStream.ts", { stubs: { "node:fs/promises": fsPromises } })
-										: // 会话文件汇总纯函数：本测试不覆盖，空实现满足 AgentManager 依赖契约
-											id === "../../shared/fileChanges"
-											? { collectLatestTurnFileChanges: () => [] }
-											: require(id),
+										: // 有界历史分页（宿主插件投影 readBoundedEntryPage）：真实加载，
+											// 注入同一套 fs 替身——open 按 position 读 host 路径，路径断言依赖它
+											id === "../sessions/boundedEntryPage"
+											? loadTsCommonJs("src/main/sessions/boundedEntryPage.ts", { stubs: { "node:fs/promises": fsPromises } })
+											: // 会话文件汇总纯函数：本测试不覆盖，空实现满足 AgentManager 依赖契约
+												id === "../../shared/fileChanges"
+												? { collectLatestTurnFileChanges: () => [] }
+												: require(id),
 		},
 		{ filename: "SessionHistoryReader.ts" },
 	);
