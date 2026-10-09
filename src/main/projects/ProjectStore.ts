@@ -277,6 +277,21 @@ export class ProjectStore {
 		return this.list();
 	}
 
+	/**
+	 * 置顶/取消置顶普通项目：聊天项目恒置顶（list 排序里已固定第一），对其置顶无意义，
+	 * 与 rename 一样拋错让调用方在 UI 层隐藏入口。置顶只改排序权重，不动 sortOrder，
+	 * 取消置顶后项目回到拖拽顺序里的原位置。
+	 */
+	async setPinned(id: string, pinned: boolean) {
+		const project = this.projects.find((candidate) => candidate.id === id);
+		if (!project) throw new Error(`Project not found: ${id}`);
+		if (this.isChatProject(project)) throw new Error("PROJECT_PIN_NOT_ALLOWED");
+		if (Boolean(project.pinned) === pinned) return this.list();
+		project.pinned = pinned;
+		await this.save();
+		return this.list();
+	}
+
 	private ensureChatProject() {
 		// 只按身份定位聊天项目（kind/id），不按路径匹配（issue #149）：聊天目录被设为某项目
 		// 目录后，路径相同的普通项目会被误判为聊天项目，整条覆盖（id/name/kind 被改写）并

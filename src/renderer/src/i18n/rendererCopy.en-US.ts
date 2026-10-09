@@ -3720,6 +3720,8 @@ export const enUS: Record<TranslationKey, string> = {
 	"runControl.startFailedTitle": "Failed to start agent",
 	"menu.pinSession": "Pin Session",
 	"menu.unpinSession": "Unpin Session",
+	"menu.pinProject": "Pin Project",
+	"menu.unpinProject": "Unpin Project",
 	"menu.copySession": "Copy Session",
 	"menu.sessionProxy": "Session proxy",
 	"menu.archiveSession": "Archive Session",

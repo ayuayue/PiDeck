@@ -136,6 +136,7 @@ import {
 import { isSameSessionPath } from "./agentListDisplay";
 import { t } from "./i18n";
 import { isChatProject, loadSessionSourceFilter, saveSessionSourceFilter, isReplacementForPendingAgent, isPendingAgentId, migrateAgentRecord, stampIdleSessionDuration, type PendingAgentTab } from "./rendererUtils";
+import { reorderProjectList } from "./utils/projectOrder";
 import { MiniOverlaySurface } from "./components/mini-overlay/MiniOverlaySurface";
 import type { SessionFilterPill } from "./sessionFilterPills";
 import { useResize } from "./hooks/useResize";
@@ -1662,28 +1663,38 @@ export function App() {
 		}
 	}
 
-	async function reorderProjects(sourceProjectId: string, targetProjectId: string) {
+	async function reorderProjects(sourceProjectId: string, targetProjectId: string, position: "before" | "after" = "after") {
 		if (sourceProjectId === targetProjectId) return;
 		const sourceProject = projects.find((project) => project.id === sourceProjectId);
 		const targetProject = projects.find((project) => project.id === targetProjectId);
 		if (isChatProject(sourceProject) || isChatProject(targetProject)) return;
-		const sourceIndex = projects.findIndex((project) => project.id === sourceProjectId);
-		const targetIndex = projects.findIndex((project) => project.id === targetProjectId);
-		if (sourceIndex === -1 || targetIndex === -1) return;
-
+		// 插入点由拖放边缘显式决定（utils/projectOrder 纯函数，便于单测）。
 		const previousProjects = projects;
-		const nextProjects = [...projects];
-		const [movedProject] = nextProjects.splice(sourceIndex, 1);
-		const targetIndexAfterRemoval = nextProjects.findIndex((project) => project.id === targetProjectId);
-		const insertIndex = sourceIndex < targetIndex ? targetIndexAfterRemoval + 1 : targetIndexAfterRemoval;
-		nextProjects.splice(insertIndex, 0, movedProject);
-		setProjects(nextProjects);
+		const nextProjects = reorderProjectList(projects, (project) => project.id, sourceProjectId, targetProjectId, position);
+		if (nextProjects === previousProjects) return;
+		setProjects([...nextProjects]);
 
 		try {
 			const savedProjects = await api.projects.reorder(nextProjects.map((project) => project.id));
 			setProjects(savedProjects);
 		} catch (error) {
 			setProjects(previousProjects);
+			showToast(
+				t("app.projectSortFailed", {
+					error: error instanceof Error ? error.message : String(error),
+				}),
+				4000,
+			);
+		}
+	}
+
+	/** 置顶/取消置顶普通项目：主进程落库后用返回列表刷新，聊天项目由 ProjectStore 拒绝。 */
+	async function setProjectPinned(project: Project, pinned: boolean) {
+		if (isChatProject(project)) return;
+		try {
+			const savedProjects = await api.projects.setPinned(project.id, pinned);
+			setProjects(savedProjects);
+		} catch (error) {
 			showToast(
 				t("app.projectSortFailed", {
 					error: error instanceof Error ? error.message : String(error),
@@ -1953,6 +1964,7 @@ export function App() {
 			},
 			refreshAll: refreshAllProjects,
 			reorder: reorderProjects,
+			setPinned: setProjectPinned,
 			reveal: (project) => api.files.showInFolder(project.path),
 			openWithEditor: (project) => {
 				workspace.openExternalEditorChooser(project.path, { x: 80, y: 80 });

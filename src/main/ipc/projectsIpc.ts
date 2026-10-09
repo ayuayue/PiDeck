@@ -117,6 +117,17 @@ export function registerProjectsIpc({ projectStore, settingsStore, gitService, w
 		return getVisibleProjects();
 	});
 
+	// 项目置顶/取消置顶：入参边界校验后落库，广播 projectsChanged 让其他渲染实例同步排序。
+	ipcMain.handle(ipcChannels.projectsSetPinned, async (_event, id: unknown, pinned: unknown) => {
+		if (typeof id !== "string" || !id) throw new Error("invalid projectId");
+		if (typeof pinned !== "boolean") throw new Error("invalid pinned");
+		await projectStore.setPinned(id, pinned);
+		const visible = await getVisibleProjects();
+		getMainWindow()?.webContents.send(ipcChannels.projectsChanged, visible);
+		void appLogger.info("project", "Project pin toggled", { projectId: id, pinned });
+		return visible;
+	});
+
 	// 重命名项目显示名：仅改 label 不动磁盘目录。聊天项目 / worktree 子项目由
 	// ProjectStore.rename 拒绝（PROJECT_RENAME_NOT_ALLOWED）。广播 + 返回全量列表，
 	// 让其他渲染实例（LAN Web）与当前窗口都拿到最新 name。

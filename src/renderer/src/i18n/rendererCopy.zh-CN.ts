@@ -3709,6 +3709,8 @@ export const zhCN = {
 	"runControl.startFailedTitle": "启动 Agent 失败",
 	"menu.pinSession": "置顶会话",
 	"menu.unpinSession": "取消置顶",
+	"menu.pinProject": "置顶项目",
+	"menu.unpinProject": "取消置顶",
 	"menu.copySession": "复制会话",
 	"menu.sessionProxy": "会话代理",
 	"menu.archiveSession": "归档会话",
