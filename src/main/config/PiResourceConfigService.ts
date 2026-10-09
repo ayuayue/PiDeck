@@ -341,6 +341,12 @@ export function projectExtensionEnabled(options: { source: string; path?: string
  * 真值看 packages 条目里是否还有实际过滤键；delta 的整包覆盖（`!*`/`!.*`）同样不算过滤式安装。
  *
  * 返回 undefined = 无法判定（非包来源 / 快照不可用 / 该包不在本层），调用方保留 pi list 的结论。
+ *
+ * 边界：只查传入的 packages 快照（当前装配只给全局 settings.json）。项目层的包条目
+ * （项目 .pi/settings.json 的 packages/delta）不在快照里 → 返回 undefined。这是当前 UI 设计的一部分：
+ * 项目行的展示走 ProjectResourceManager.list（本地 .pi/extensions 文件，不带 filtered），
+ * 项目里的包声明只以只读发现行出现（DiscoveredExtensionRow 不渲染徽标）。若将来把项目包条目
+ * 接进普通行，必须先给这里补一份项目作用域快照，而不是退回 pi list 的粗标记。
  */
 export function projectExtensionFiltered(options: { source: string; packages?: readonly unknown[] | null }): boolean | undefined {
 	if (!isPackageSource(options.source)) return undefined;
@@ -349,6 +355,7 @@ export function projectExtensionFiltered(options: { source: string; packages?: r
 	if (entry === undefined) return undefined;
 	if (typeof entry === "string") return false;
 	if (isEntryDisabled(entry)) return false;
+	// 只认实际过滤键：空数组是「全关」声明，整包停用/空对象都不是过滤式安装。
 	return hasPackageFilterKeys(entry as Record<string, unknown>);
 }
 

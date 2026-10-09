@@ -4,6 +4,21 @@ import test from "node:test";
 
 const read = (path) => readFileSync(path, "utf8");
 
+test("过滤式安装徽标只服务全局安装行；项目行/发现行不参与", () => {
+	const modal = read("src/renderer/src/ConfigModal.tsx");
+	const rows = read("src/renderer/src/config/extensionsTableRows.tsx");
+	const projectManager = read("src/main/projects/ProjectResourceManager.ts");
+	// 全局列表（pi list）里的项目作用域行必须丢掉：否则它们会把 pi 的 object=filtered 粗标记带进列表，
+	// 而原生过滤投影只读全局 packages 快照，对项目条目无真值可判（见 projectExtensionFiltered 边界注释）。
+	assert.match(modal, /globalExtensions\s*=\s*globalResult\.extensions\.filter\(\(extension\)\s*=>\s*!isProjectExtension\(extension\)\)/, "ConfigModal 必须继续把 pi list 中的项目作用域行从全局列表剔除");
+	// 项目自有行来自 ProjectResourceManager.list（本地 .pi/extensions），不携带 filtered
+	assert.doesNotMatch(projectManager, /filtered\s*:/, "项目行不得携带 pi list 的 filtered 标记，必须由全局快照投影决定");
+	// 项目里的包声明只以只读发现行展示，不渲染徽标
+	const discoveredStart = rows.indexOf("export function DiscoveredExtensionRow");
+	assert.ok(discoveredStart > 0, "未找到 DiscoveredExtensionRow");
+	assert.doesNotMatch(rows.slice(discoveredStart), /config\.extensionFiltered/, "发现行（项目包声明的唯一展示形态）不得挂过滤式安装徽标");
+});
+
 test("configuration resources share one global/project scope owner", () => {
 	const modal = read("src/renderer/src/ConfigModal.tsx");
 	const scopeModel = read("src/renderer/src/config/resourceScopeModel.ts");
