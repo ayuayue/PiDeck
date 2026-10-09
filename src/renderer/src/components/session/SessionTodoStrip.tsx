@@ -236,7 +236,7 @@ export function SessionTodoStrip(props: { sessionId: string }) {
 				</Button>
 			</div>
 			{!collapsed && (
-				<ul className="mb-2 flex max-h-[180px] flex-col gap-2 overflow-y-auto overscroll-contain [contain:layout_paint] px-3 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-100 motion-reduce:animate-none">
+				<ul className="mb-2 flex max-h-[180px] flex-col gap-2 overflow-y-auto [contain:layout_paint] px-3 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-100 motion-reduce:animate-none">
 					{/* 行内 overflow-hidden：旋转方盒的「变换后包围盒（AABB）」不得外溢到列表
 					    scrollHeight（旋转 svg 的 AABB ≈ 22.6px > 20px 行高，会让外层 ul 的
 					    scrollHeight 反复越界 → 原生滚动条闪）。行高 20px、图标墨迹 16px，

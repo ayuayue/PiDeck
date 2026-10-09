@@ -88,7 +88,10 @@ test("tool enter animation has no translateY", () => {
 // - 引擎 isAtBottom 变化时上报给 controller，controller 再回写 followOutput
 test("followOutput and onFollowChange bridge to the stick engine", () => {
 	assert.match(scrollerSource, /const engineScrollToBottom = stick\.scrollToBottom;/);
-	assert.match(scrollerSource, /if \(!followOutput\) \{\s*engineStopScroll\(\);\s*return;/);
+	// false 分支沿触发（React #185：非沿重复解锁会在 layout cascade 里与引擎/controller 乒乓），
+	// 但沿上仍必须主动调 stopScroll（快照 ref + isFollowEscapeEdge）
+	assert.match(scrollerSource, /const previousFollowOutput = previousFollowOutputRef\.current;/);
+	assert.match(scrollerSource, /if \(!followOutput\) \{\s*if \(isFollowEscapeEdge\(previousFollowOutput, followOutput\)\) engineStopScroll\(\);\s*return;/);
 	assert.match(scrollerSource, /engineScrollToBottom\(\{ animation \}\)/);
 	assert.match(scrollerSource, /reduce \|\| distance <= followThreshold \? "instant" : "smooth"/);
 	assert.match(scrollerSource, /onFollowChange\?\.\(isFollowing\)/);

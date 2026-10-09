@@ -15,7 +15,13 @@ import { createHash } from "node:crypto";
 
 /** 上游来源 npm 包名（与 build 脚本、manifest 校验共用）。 */
 export const PI_AI_PACKAGE_NAME = "@earendil-works/pi-ai";
-export const PI_AI_CATALOG_SCHEMA_VERSION = 1;
+/**
+ * artifact 格式版本，必须与 scripts/generate-pi-ai-catalog.mjs 一致。
+ * v2：取消字段白名单（条目透传官方全部字段，含 `type`），改为紧凑序列化。
+ * v1 产物缺 `type` 等字段，无法在读取时可靠区分 chat / image / classifier，
+ * 因此不兼容：旧覆盖层会被校验拒绝并回退到随包目录，不做迁移器。
+ */
+export const PI_AI_CATALOG_SCHEMA_VERSION = 2;
 
 /** 运行时生成的来源文件：name 为 dist/providers/data 下的文件基名，content 为 utf8 文本。 */
 export type CatalogSourceFile = {
@@ -34,45 +40,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return value != null && typeof value === "object" && !Array.isArray(value);
 }
 
-function nonEmptyString(value: unknown): string | undefined {
-	return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
 /** 与 build 脚本一致：只规范化模型 ID；provider/name/baseUrl 保留上游原值。 */
 function normalizedModelId(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function positiveInt(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
-}
-
-/** 生成一条目录条目。注意键的插入顺序必须与 build 脚本一致，保证 JSON 逐字节相同。 */
+/**
+ * 生成一条目录条目：**保留官方原始字段**，只做最小结构校验。
+ *
+ * 为什么不再按白名单裁剪：旧版只留 9 个字段，把 `type` 一并丢掉，于是 image /
+ * classifier 模型混进了聊天能力补全，且要用的价格、inputLimits、output 等字段
+ * 一旦需要就得再来改一次生成器。现在直接透传官方对象，上游新增字段无需改脚本。
+ *
+ * 只做两件事：无有效 id 的条目丢弃；值为 undefined 的键去掉（JSON.stringify 本
+ * 来也会丢，显式删掉让产物意图清晰）。键顺序必须与来源一致 —— 与 build 脚本输出
+ * 逐字节对齐靠的就是这一点（tests/piAiCatalogGenerate.test.mjs 锁定）。
+ */
 function extractCatalogEntry(model: unknown): Record<string, unknown> | undefined {
 	if (!isRecord(model)) return undefined;
-	const id = normalizedModelId(model.id);
-	if (!id) return undefined;
-
-	const entry: Record<string, unknown> = { id };
-	const name = nonEmptyString(model.name);
-	const provider = nonEmptyString(model.provider);
-	const contextWindow = positiveInt(model.contextWindow);
-	const maxTokens = positiveInt(model.maxTokens);
-	const api = nonEmptyString(model.api);
-	const baseUrl = nonEmptyString(model.baseUrl);
-	if (name) entry.name = name;
-	if (provider) entry.provider = provider;
-	if (api) entry.api = api;
-	if (baseUrl) entry.baseUrl = baseUrl;
-	if (typeof model.reasoning === "boolean") entry.reasoning = model.reasoning;
-	if (Array.isArray(model.input)) {
-		const input = model.input.filter((item) => item === "text" || item === "image");
-		if (input.length > 0) entry.input = input;
+	if (!normalizedModelId(model.id)) return undefined;
+	const entry: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(model)) {
+		if (value === undefined) continue;
+		entry[key] = value;
 	}
-	if (contextWindow !== undefined) entry.contextWindow = contextWindow;
-	if (maxTokens !== undefined) entry.maxTokens = maxTokens;
-	// 保留原始 JSON 映射；运行时仍由 parseThinkingLevelMap 收窄合法档位和值。
-	if (isRecord(model.thinkingLevelMap)) entry.thinkingLevelMap = model.thinkingLevelMap;
 	return entry;
 }
 
@@ -113,9 +104,9 @@ function sha256(content: string): string {
 	return createHash("sha256").update(content, "utf8").digest("hex");
 }
 
-/** 与 build 脚本 serializeJson 一致：2 空格缩进 + 尾随换行。 */
+/** 与 build 脚本 serializeJson 一致：紧凑序列化 + 尾随换行。 */
 function serializeJson(value: unknown): string {
-	return `${JSON.stringify(value, null, 2)}\n`;
+	return `${JSON.stringify(value)}\n`;
 }
 
 /**

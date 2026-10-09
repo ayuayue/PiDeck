@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { zhCN } from "date-fns/locale/zh-CN";
+import { zhTW } from "date-fns/locale/zh-TW";
 import { enUS } from "date-fns/locale/en-US";
 import { getI18nLocale, t, type TranslationKey } from "../../../i18n";
 import { Button } from "../../ui-shadcn/button";
@@ -36,8 +37,11 @@ const MONTH_KEYS: TranslationKey[] = [
 
 export function UsagePeriodPicker(props: { mode: UsagePeriodMode; anchor: string; minYear: number; onModeChange: (mode: UsagePeriodMode) => void; onAnchorChange: (anchor: string) => void }): React.JSX.Element {
 	const { mode, anchor, minYear, onModeChange, onAnchorChange } = props;
-	const localeTag = getI18nLocale() === "zh-CN" ? "zh-CN" : "en-US";
-	const locale = getI18nLocale() === "zh-CN" ? zhCN : enUS;
+	// zh-TW 同样用繁中文日历（词形由词典负责），只有 en-US / pseudo 走英文
+	const localeMode = getI18nLocale();
+	const isEnglishCalendar = localeMode === "en-US" || localeMode === "pseudo";
+	const localeTag = isEnglishCalendar ? "en-US" : localeMode;
+	const locale = isEnglishCalendar ? enUS : localeMode === "zh-TW" ? zhTW : zhCN;
 	const period = useMemo(() => resolvePeriod(mode, anchor), [mode, anchor]);
 	const anchorDate = useMemo(() => parseDayKey(anchor), [anchor]);
 	const currentYear = new Date().getFullYear();

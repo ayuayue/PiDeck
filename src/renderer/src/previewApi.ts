@@ -1,5 +1,5 @@
 import type { PiDesktopApi } from "../../preload";
-import { createDefaultExternalEditorSettings, createDefaultSecurityConfig, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE, DEFAULT_TOAST_DURATION_MS } from "../../shared/types";
+import { createDefaultExternalEditorSettings, createDefaultSecurityConfig, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE, DEFAULT_TOAST_DURATION_MS, emptyRemoteAccessState } from "../../shared/types";
 import { DEFAULT_VOICE_TRANSCRIPTION_CONFIG } from "../../shared/voiceTranscriptionConfig";
 import { SESSION_TAB_MAX_WIDTH_DEFAULT } from "../../shared/sessionTabWidth";
 import type { AppSettings, FileTreeNode, Project, SessionRecord, SessionSummary, TerminalDataEvent, TerminalExitEvent, TerminalTab } from "../../shared/types";
@@ -196,6 +196,7 @@ let previewSettings: AppSettings = {
 	hiddenProviders: [],
 	hiddenModels: [],
 	hiddenModules: [],
+	hiddenComposerFeatures: [],
 
 	fontSize: "medium",
 	uiFontSize: null,
@@ -223,6 +224,17 @@ let previewSettings: AppSettings = {
 	piRpcOffline: false,
 	piRpcNoExtensions: false,
 	piRpcNoSkills: false,
+	// 终端：与主进程 defaultSettings 保持一致（预览壳不真实枚举字体，仅保持设置项形状完整）
+	terminalTheme: "inherit",
+	terminalFontSize: null,
+	terminalFontFamily: "",
+	terminalScrollback: 5000,
+	terminalCursorStyle: "block",
+	terminalCursorBlink: true,
+	terminalCopyOnSelect: false,
+	terminalPaddingY: 8,
+	terminalConfirmClose: "running",
+	terminalStartupCommand: "",
 };
 
 export function createPreviewApi(): PiDesktopApi {
@@ -262,6 +274,18 @@ export function createPreviewApi(): PiDesktopApi {
 		return tab;
 	};
 	return {
+		hostPlugins: {
+			list: async () => ({ ok: false, code: "desktop-only" }),
+			rescan: async () => ({ ok: false, code: "desktop-only" }),
+			setEnabled: async () => ({ ok: false, code: "desktop-only" }),
+			openDirectory: async () => ({ ok: false, code: "desktop-only" }),
+			install: async () => ({ ok: false, code: "desktop-only" }),
+			mount: async () => ({ ok: false, code: "desktop-only" }),
+			update: async () => ({ ok: false, code: "desktop-only" }),
+			unmount: async () => ({ ok: false, code: "desktop-only" }),
+			onChanged: () => () => undefined,
+			onNavigate: () => () => undefined,
+		},
 		clipboard: clipboardStub,
 		// 资源管理器右键菜单预览桩：预览环境无注册表操作，一律报不支持
 		quickTask: { getState: async () => ({ active: false, requestId: 0 }), onChanged: () => () => undefined, exit: async () => undefined, switchToMiniOverlay: async () => undefined },
@@ -331,6 +355,12 @@ export function createPreviewApi(): PiDesktopApi {
 				sampledAt: Date.now(),
 			}),
 			stopAgent: async () => undefined,
+			// 架构检测预览桩：恒报「未在转译层」，预览模式不触发换包提示
+			getArchStatus: async () => ({
+				platform: "",
+				processArch: "",
+				runningUnderArm64Translation: false,
+			}),
 			getDiagnosticsSnapshot: async () => ({
 				enabled: false,
 				sampledAt: Date.now(),
@@ -542,6 +572,13 @@ export function createPreviewApi(): PiDesktopApi {
 			cleanup: async () => 0,
 			getSize: async () => 0,
 			clearAll: async () => 0,
+		},
+		noticeHistory: {
+			// 预览/浏览器模式无主进程落盘：内存环形缓冲照常工作，只是重启不保留
+			get: async () => [],
+			record: async () => undefined,
+			clear: async () => undefined,
+			getSize: async () => 0,
 		},
 		dialog: {
 			pickFiles: async () => [],
@@ -804,6 +841,8 @@ export function createPreviewApi(): PiDesktopApi {
 				ok: true,
 				value: { target, value: [] },
 			}),
+			// 预览模式无 standby 池，草稿命令预览回退本地发现。
+			draftCommands: async () => null,
 			listRuntimeModels: async (target) => ({
 				ok: true,
 				value: { target, value: [] },
@@ -828,6 +867,8 @@ export function createPreviewApi(): PiDesktopApi {
 				ok: true,
 				value: { target, value: { items: [], hasMore: false } },
 			}),
+			// 分支树预览桩：预览环境无会话文件，空态即可。
+			getBranchTree: async () => null,
 			getRewindCheckpointDiff: async (target) => ({
 				ok: true,
 				value: { target, value: "" },
@@ -1484,6 +1525,12 @@ export function createPreviewApi(): PiDesktopApi {
 			detail: async () => null,
 			install: async (slug) => ({ success: true, slug, installDir: "", message: "Preview install" }),
 		},
+		acp: {
+			// 预览模式：无 ACP 工具数据，返回空表/恒过校验保持 PiDesktopApi 形状完整
+			listTools: async () => [],
+			saveTools: async () => [],
+			validateTool: async () => ({ ok: true as const }),
+		},
 		settings: {
 			get: async (): Promise<AppSettings> => ({ ...previewSettings }),
 			update: async (patch): Promise<AppSettings> => {
@@ -1497,7 +1544,29 @@ export function createPreviewApi(): PiDesktopApi {
 				port: 0,
 				token: "",
 				requiresAuth: false,
+				tokenExpiresAt: null,
 			}),
+			rotateWebToken: async () => ({
+				running: false,
+				host: "",
+				port: 0,
+				token: "",
+				requiresAuth: false,
+				tokenExpiresAt: null,
+			}),
+			setWebToken: async () => ({
+				running: false,
+				host: "",
+				port: 0,
+				token: "",
+				requiresAuth: false,
+				tokenExpiresAt: null,
+			}),
+			webRemoteAccessState: async () => emptyRemoteAccessState(),
+			webRemoteAccessStart: async () => ({ ok: false as const, error: "preview" }),
+			webRemoteAccessStop: async () => ({ ok: false as const, error: "preview" }),
+			webRemoteAccessRefresh: async () => emptyRemoteAccessState(),
+			onWebRemoteAccessChanged: noop,
 			testPiProxy: async () => ({
 				success: true,
 				url: "https://api.openai.com/v1/models",
@@ -1614,6 +1683,7 @@ export function createPreviewApi(): PiDesktopApi {
 			testUsageProbe: async () => ({ success: false, error: "preview" }),
 			installUsageSkill: async () => ({ success: false, error: "preview" }),
 			installImageGenSkill: async () => ({ success: false, error: "preview" }),
+			installMcpSetupSkill: async () => ({ success: false, error: "preview" }),
 		},
 		configBackups: {
 			list: async () => ({ ok: true, backups: [] }),
@@ -1699,6 +1769,7 @@ export function createPreviewApi(): PiDesktopApi {
 				{ shell: "pwsh", label: "pwsh", available: true },
 				{ shell: "cmd", label: "cmd", available: true },
 			],
+			fonts: async () => [],
 		},
 		feishu: {
 			connect: async () => ({ success: true, message: "预览模式" }),

@@ -63,10 +63,14 @@ export type SessionCatalogEntry = {
 	piSessionId?: string;
 	/** DSH 会话身份（DSH host 的 sessionId）；backend=dsh 时由 DshAgentManager 创建/attach 维护。 */
 	dshSessionId?: string;
+	/** ACP 会话身份（agent 侧 sessionId）；backend=acp 时由 AcpAgentManager attach 回写，重启后 session/load 恢复。 */
+	acpSessionId?: string;
 	/** DSH 权限预设（read-only/workspace-write/danger-full-access）：草稿期预选，激活时应用。 */
 	permissionPreset?: string;
 	/** DSH agent 预设（会话「模式」）：草稿期预选；激活新建时随 sessions.create 应用，attach 时从 host 回写。 */
 	agentPreset?: string;
+	/** ACP 工具预选（AcpToolConfig.id）：backend=acp 草稿期选哪个 CLI；激活时由 AcpAgentManager 消费。 */
+	acpToolId?: string;
 	/** 会话级代理覆盖（缺省 = 跟随全局）。DSH 会话的设置在 host 启动时被聚合应用。 */
 	proxy?: SessionProxyOverride;
 	/**
@@ -379,7 +383,7 @@ export class SessionCatalog {
 		// catalog 只是 id 映射；即使“创建后激活链路未走完”（attachRuntime 未把
 		// status 置 active），重启后用户仍应在侧栏看到并重新激活它。若在此清掉，
 		// host 侧会话会变成孤儿且无法从侧栏访问。带 dshSessionId 的异常中间态同样保留。
-		const staleDrafts = this.entries.filter((entry) => entry.status === "draft" && entry.backend !== "dsh");
+		const staleDrafts = this.entries.filter((entry) => entry.status === "draft" && entry.backend !== "dsh" && entry.backend !== "acp");
 		if (staleDrafts.length > 0) {
 			this.entries = this.entries.filter((entry) => entry.status !== "draft" || entry.backend === "dsh");
 			try {
@@ -458,6 +462,22 @@ export class SessionCatalog {
 		if (pollutedDsh) {
 			for (const entry of this.entries) {
 				if (entry.backend !== "dsh") continue;
+				delete entry.filePath;
+				delete entry.piSessionId;
+				entry.originKey = undefined;
+			}
+			try {
+				await this.writeSnapshot(this.entries);
+			} catch {
+				// 迁移是 best-effort；内存已生效，下一次启动仍会重试。
+			}
+		}
+		// 兼容旧数据：ACP 会话曾被 pi 分支 attach（filePath/piSessionId 落盘）时同理污染；
+		// ACP 历史在 agent 侧，PiDeck 无本地会话文件，一律清除。
+		const pollutedAcp = this.entries.some((entry) => entry.backend === "acp" && (Boolean(entry.filePath) || Boolean(entry.piSessionId)));
+		if (pollutedAcp) {
+			for (const entry of this.entries) {
+				if (entry.backend !== "acp") continue;
 				delete entry.filePath;
 				delete entry.piSessionId;
 				entry.originKey = undefined;
@@ -566,6 +586,9 @@ export class SessionCatalog {
 		piSessionId?: string;
 		/** fork/clone 产物注册时直接标记（parentSession 链接已由 pi 写入文件头，此处同源标记）。 */
 		forked?: boolean;
+		/** fork/clone 产物继承源会话的模型偏好与思考档位：子会话 JSONL 里没有新的 model_change，扫描回读拿不到，重启后模型选择器会空。 */
+		model?: SessionModelPreference;
+		thinkingLevel?: string;
 	}): Promise<SessionCatalogEntry> {
 		this.assertLoaded();
 		// 与 attachRuntime 同口径：进入 catalog 前归一化为绝对路径，保证 originKey 去重一致。
@@ -610,6 +633,8 @@ export class SessionCatalog {
 					importedSourceId: input.importedSourceId,
 					piSessionId: input.piSessionId,
 					forked: input.forked,
+					model: cloneModelPreference(input.model),
+					thinkingLevel: input.thinkingLevel,
 					status: "active",
 					createdAt: now,
 					updatedAt: now,
@@ -652,6 +677,8 @@ export class SessionCatalog {
 		titleOrigin?: SessionTitleOrigin;
 		/** DSH agent 预设（会话「模式」）草稿期预选；外部会话导入时来自 host 会话 header。 */
 		agentPreset?: string;
+		/** ACP 工具预选（AcpToolConfig.id）：backend=acp 草稿期选哪个 CLI。 */
+		acpToolId?: string;
 		/** 外部（dsh-web 等）会话导入：host 会话已存在，条目直接置 active（重启不清理）。 */
 		dshSessionId?: string;
 		/**
@@ -725,6 +752,7 @@ export class SessionCatalog {
 				thinkingLevel: input.thinkingLevel,
 				permissionPreset: input.permissionPreset,
 				agentPreset: input.agentPreset,
+				acpToolId: input.acpToolId,
 				dshSessionId: input.dshSessionId,
 				createdAt: now,
 				// 外部会话导入带 mtime（真实活跃时间）；pi 草稿没有该字段，仍用当前时刻
@@ -744,6 +772,10 @@ export class SessionCatalog {
 			permissionPreset?: string | null;
 			/** DSH agent 预设（会话「模式」）：草稿期预选；null = 清除预选。 */
 			agentPreset?: string | null;
+			/** ACP 工具预选（AcpToolConfig.id）：草稿期切换；null = 清除预选。 */
+			acpToolId?: string | null;
+			/** ACP 会话身份：激活回写/清理（null = 清空）。 */
+			acpSessionId?: string | null;
 			proxy?: SessionProxyOverride | null;
 			/** 切到生图后端时甩开 pi 会话文件引用（null = 清空）。 */
 			filePath?: string | null;
@@ -763,6 +795,7 @@ export class SessionCatalog {
 			if (patch.thinkingLevel !== undefined) transient.thinkingLevel = patch.thinkingLevel ?? undefined;
 			if (patch.permissionPreset !== undefined) transient.permissionPreset = patch.permissionPreset ?? undefined;
 			if (patch.agentPreset !== undefined) transient.agentPreset = patch.agentPreset ?? undefined;
+			if (patch.acpToolId !== undefined) transient.acpToolId = patch.acpToolId ?? undefined;
 			if (patch.backend !== undefined) transient.backend = patch.backend;
 			// 切到生图后端时需甩开 pi 会话文件（filePath/piSessionId 置空），否则残留文件引用
 			if (patch.filePath !== undefined) transient.filePath = patch.filePath ?? undefined;
@@ -783,6 +816,8 @@ export class SessionCatalog {
 			if (patch.thinkingLevel !== undefined) nextEntry.thinkingLevel = patch.thinkingLevel ?? undefined;
 			if (patch.permissionPreset !== undefined) nextEntry.permissionPreset = patch.permissionPreset ?? undefined;
 			if (patch.agentPreset !== undefined) nextEntry.agentPreset = patch.agentPreset ?? undefined;
+			if (patch.acpToolId !== undefined) nextEntry.acpToolId = patch.acpToolId ?? undefined;
+			if (patch.acpSessionId !== undefined) nextEntry.acpSessionId = patch.acpSessionId ?? undefined;
 			if (patch.backend !== undefined) nextEntry.backend = patch.backend;
 			if (patch.filePath !== undefined) nextEntry.filePath = patch.filePath ?? undefined;
 			if (patch.piSessionId !== undefined) nextEntry.piSessionId = patch.piSessionId ?? undefined;
@@ -848,6 +883,8 @@ export class SessionCatalog {
 		filePath?: string;
 		piSessionId?: string;
 		dshSessionId?: string;
+		/** ACP 会话身份：backend=acp 激活后回写，重启恢复用。 */
+		acpSessionId?: string;
 		/** DSH agent 预设（会话「模式」）：attach/新建后 host 回写（host 会话 header 是权威）。 */
 		agentPreset?: string;
 		/** 真正开聊后再把 DSH 草稿抬成 active；预热只绑 host id，不抬。 */
@@ -865,6 +902,7 @@ export class SessionCatalog {
 				filePath: entry.filePath,
 				piSessionId: entry.piSessionId,
 				dshSessionId: entry.dshSessionId,
+				acpSessionId: entry.acpSessionId,
 				agentPreset: entry.agentPreset,
 				status: entry.status,
 				originKey: entry.originKey,
@@ -877,9 +915,11 @@ export class SessionCatalog {
 			// 否则与扫描器绝对路径 originKey 不一致，同一文件会出现两条记录。
 			const filePath = input.filePath && this.resolveFilePath ? this.resolveFilePath(entry.projectId, input.filePath, entry.environment) : input.filePath;
 			// DSH 的 sessionPath 是 host zstd，不是 pi JSONL；写进 filePath 会让渲染层
-			// 把空会话当成有磁盘历史（起始页 / 骨架来回抽）。
-			if (filePath && entry.backend !== "dsh") entry.filePath = filePath;
+			// 把空会话当成有磁盘历史（起始页 / 骨架来回抽）。ACP 同理：历史在 agent 侧，
+			// PiDeck 无本地会话文件。
+			if (filePath && entry.backend !== "dsh" && entry.backend !== "acp") entry.filePath = filePath;
 			if (input.piSessionId) entry.piSessionId = input.piSessionId;
+			if (input.acpSessionId) entry.acpSessionId = input.acpSessionId;
 			let restoredDismissed = false;
 			if (input.dshSessionId) {
 				entry.dshSessionId = input.dshSessionId;
@@ -899,6 +939,10 @@ export class SessionCatalog {
 			// 输入一半整页换成「正在加载历史」骨架。导入路径 createDraft({dshSessionId})
 			// 已经是 active；真正开聊后由 prompt dispatch 再 promoteToActive。
 			if (input.promoteToActive && input.dshSessionId && !entry.filePath && entry.status === "draft") {
+				entry.status = "active";
+			}
+			// ACP 同语义：无本地文件，真正开聊（prompt dispatch）后才抬 active。
+			if (input.promoteToActive && input.acpSessionId && entry.status === "draft") {
 				entry.status = "active";
 			}
 			let mergedDuplicate = false;
@@ -926,6 +970,7 @@ export class SessionCatalog {
 				canonicalizeSessionPath(before.filePath ?? "", entry.environment) !== canonicalizeSessionPath(entry.filePath ?? "", entry.environment) ||
 				before.piSessionId !== entry.piSessionId ||
 				before.dshSessionId !== entry.dshSessionId ||
+				before.acpSessionId !== entry.acpSessionId ||
 				before.agentPreset !== entry.agentPreset ||
 				before.status !== entry.status ||
 				before.originKey !== entry.originKey ||
@@ -1197,16 +1242,24 @@ export class SessionCatalog {
 					// it may absorb exactly one initial JSONL title before becoming owned.
 					const canInitializeTitle = !isTitleLocked(entry);
 					const initialTitle = summaryTitle || fetchedTitle;
+					// fork/copy 现场（2026-10-08）：扫描在 pi 写入 session_info 名之前的几百毫秒
+					// 窗口里先索引了新文件，从首条/尾部窗口兜底猜出一个标题并锁成 fallback；
+					// 随后权威名落盘，但 canInitializeTitle 把它拒之门外 → 侧栏永久停在猜出
+					// 的正文上。所有权语义上 fallback 是「内容派生的猜测」，权威 session_info
+					// 名是「pi/用户写下的名字」——后者必须能升级前者（fallback → manual）。
+					// auto/manual/legacy 终态不动（无命中时走 ?? 兑底保持原 origin）。
+					const authoritativeUpgrade = initialAuthoritative && resolveTitleOrigin(entry) === "fallback";
+					const canAbsorbTitle = canInitializeTitle || authoritativeUpgrade;
 					// #266 存量自愈：legacy 条目读盘探测过一次。指纹命中（catalog 存的正是弱兜底名、
 					// JSONL 另有权威名）才改写标题；探测过但没命中就消费掉这一次机会，落 manual 终态，
 					// 避免每次扫描都为一个不可能自愈的条目读盘。读盘失败则保持 legacy 下次再试。
 					const legacyProbe = fetchedLegacyProbes.get(originKey);
 					const legacyRepair = legacyProbe ? repairedLegacyFallbackTitle(entry, summaryTitle && summary.nameFromSessionInfo === true ? { ...legacyProbe, authoritative: summaryTitle } : legacyProbe) : undefined;
-					const nextTitle = legacyRepair || (canInitializeTitle ? initialTitle : undefined) || catalogDisplayTitle(entry.title) || scannedFileStemTitle(summary.filePath);
+					const nextTitle = legacyRepair || (canAbsorbTitle ? initialTitle : undefined) || catalogDisplayTitle(entry.title) || scannedFileStemTitle(summary.filePath);
 					// rollout 文件名标题（历史导入兑底）不锁定：留一次被真实标题覆盖的机会；
 					// 真实标题一旦落库即锁定，后续 pi /name 或 JSONL 变化不再反向改写。
 					// 未锁定条目吸收的新标题按来源升级：权威 session_info → manual，首条消息弱回退 → fallback。
-					const nextOrigin = legacyProbe ? "manual" : ((canInitializeTitle && initialTitle ? scannedTitleOrigin(nextTitle, initialAuthoritative) : undefined) ?? resolveTitleOrigin(entry));
+					const nextOrigin = legacyProbe ? "manual" : ((canAbsorbTitle && initialTitle ? scannedTitleOrigin(nextTitle, initialAuthoritative) : undefined) ?? resolveTitleOrigin(entry));
 					const nextTitleLocked = nextOrigin !== undefined;
 					// 父关系最终值：新探测值优先，缺失时保留旧值（轻量扫描恒缺省，不能清掉已持久化的父）。
 					const nextParent = summary.parentSessionPath ?? fetchedParent ?? entry.parentSessionPath;
@@ -1391,7 +1444,9 @@ export class SessionCatalog {
 			thinkingLevel: entry.thinkingLevel,
 			permissionPreset: entry.permissionPreset,
 			agentPreset: entry.agentPreset,
+			acpToolId: entry.acpToolId,
 			dshSessionId: entry.dshSessionId,
+			acpSessionId: entry.acpSessionId,
 			proxy: entry.proxy ? { ...entry.proxy } : undefined,
 			createdAt: entry.createdAt,
 			updatedAt: summary?.updatedAt ?? entry.updatedAt,
@@ -1430,8 +1485,11 @@ export class SessionCatalog {
 			if (!resolved || resolved === entry.filePath) return entry;
 			changed = true;
 			const repaired = { ...entry, filePath: resolved };
-			// originKey 随路径变化重算，否则后续 mergeScanned/attachRuntime 仍按旧 key 去重
-			if (repaired.originKey) repaired.originKey = this.originKeyForEntry(repaired);
+			// originKey 必须无条件重算：早期 catalog 不落 originKey（旧字段缺失），
+			// 只在「已有 originKey」时重算会让这类存量条目修完路径仍带 undefined key，
+			// mergeScanned 无法按 origin 折叠 → 同一文件双记录 + 标题所有权被扫描
+			// 重新初始化为弱兑底（2026-10-08 fork/copy 现场的重复/坏标题根源之一）。
+			repaired.originKey = this.originKeyForEntry(repaired);
 			return repaired;
 		});
 		return changed ? next : undefined;

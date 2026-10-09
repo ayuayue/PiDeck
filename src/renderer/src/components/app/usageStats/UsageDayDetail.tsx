@@ -74,7 +74,7 @@ function ProviderLegend(props: { providers: Array<{ provider: string; tokens: nu
 	);
 }
 
-function titleForPeriod(mode: UsagePeriodMode, selected: string, period: { start: string; end: string }, localeTag: "zh-CN" | "en-US", isCurrent: boolean): string {
+function titleForPeriod(mode: UsagePeriodMode, selected: string, period: { start: string; end: string }, localeTag: "zh-CN" | "zh-TW" | "en-US", isCurrent: boolean): string {
 	switch (mode) {
 		case "day":
 			return isCurrent ? t("usageStats.dayDetail.titleToday") : t("usageStats.dayDetail.titleDay", { date: selected });
@@ -118,7 +118,9 @@ export function UsageDayDetail(props: { rows: UsageDayRow[]; costKnown: boolean 
 	const today = dayKeyOf(new Date());
 	const [mode, setMode] = useState<UsagePeriodMode>("day");
 	const [selected, setSelected] = useState<string>(today);
-	const localeTag = getI18nLocale() === "zh-CN" ? "zh-CN" : "en-US";
+	const localeMode = getI18nLocale();
+	// zh-TW 也走中文日历（同 UsagePeriodPicker），只有 en-US / pseudo 用英文
+	const localeTag = localeMode === "en-US" || localeMode === "pseudo" ? "en-US" : localeMode;
 	const periodWord = t(`usageStats.dayDetail.periodWord.${mode}`);
 
 	const handleModeChange = (m: UsagePeriodMode) => {

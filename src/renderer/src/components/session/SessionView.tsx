@@ -2,7 +2,7 @@ import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject, type ReactNode } from "react";
 import { type GroupImperativeHandle, type PanelImperativeHandle } from "react-resizable-panels";
 import { ResizablePanel, ResizablePanelGroup } from "../ui-shadcn/resizable";
-import type { ChatMessage, GitBranchInfo, ImageContent, TerminalTarget } from "../../../../shared/types";
+import type { ChatMessage, GitBranchInfo, ImageContent, TerminalTarget, TerminalThemeId } from "../../../../shared/types";
 import type { SessionTimelineController } from "../../hooks/useSessionTimelineController";
 import { isLanWeb, desktopApi as api } from "../../desktopApi";
 import { SessionHeader } from "./SessionHeader";
@@ -22,6 +22,7 @@ import { useReplyActions } from "../../hooks/useReplyActions";
 import { useAnimationWindow } from "../../hooks/useAnimationWindow";
 import { chatContentWidthStyle } from "./chatContentWidth";
 import { TerminalDockPanel, TERMINAL_PANEL_COLLAPSED_SIZE, TERMINAL_PANEL_MIN_SIZE } from "../terminal/TerminalDockPanel";
+import type { TerminalDockSettings } from "../terminal/TerminalDock";
 import { useSessionPaneServices } from "./SessionPaneServices";
 import { COMPOSER_MAX_HEIGHT, COMPOSER_MIN_HEIGHT, TIMELINE_MIN_HEIGHT, displayProjectDirectoryName, redistributeTerminalAgainstTimeline, shouldMountBottomComposer, sessionResizableGroupKey, sessionGroupDefaultLayout } from "../../rendererUtils";
 import { projectByIdAtomFamily, sessionRecordByIdAtomFamily } from "../../atoms";
@@ -106,6 +107,10 @@ export type SessionViewProps = {
 	setTerminalCollapsedForOwner: (collapsed: boolean) => void;
 	/** 回写终端分屏高度（全局单份，hook 内部持久化） */
 	setTerminalHeight: (height: number) => void;
+	/** 终端外观设置（App 级单份，随 AppSettings 持久化） */
+	terminalSettings: TerminalDockSettings;
+	/** dock 内主题菜单写回设置 */
+	onTerminalThemeChange: (themeId: TerminalThemeId) => void;
 
 	// ── Other visibility ──
 	settingsOpen: boolean;
@@ -167,6 +172,8 @@ export function SessionView({
 	setTerminalOpenForOwner,
 	setTerminalCollapsedForOwner,
 	setTerminalHeight,
+	terminalSettings,
+	onTerminalThemeChange,
 	settingsOpen,
 	environmentDialog,
 	runCreateSessionDraft,
@@ -391,6 +398,8 @@ export function SessionView({
 						height={terminalRowHeight}
 						maxHeight={availableTerminalHeight}
 						terminal={api.terminal}
+						terminalSettings={terminalSettings}
+						onThemeChange={onTerminalThemeChange}
 						ownerKey={terminalOwnerKey}
 						isProgrammaticResize={() => Date.now() < terminalProgrammaticExpireRef.current}
 						onOpenChange={setTerminalOpenForOwner}

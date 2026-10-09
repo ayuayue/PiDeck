@@ -36,11 +36,18 @@
 - 安全底线：先下载校验、后原子替换（tmp → `.bak` 换位 → rename，失败回滚）；`invalidateBuiltInExtensionsOverlayCache()` 必须在写盘/还原后调用，否则本次更新要等重启才参与注入。
 - 三处磁盘根（`ExtensionManager` 列表/版本、热更新器写盘、`-e` 注入解析）必须同源，统一走 `src/main/index.ts` 的 `resolveBuiltInExtensionRoots()`；各拼一次路径迟早漂移成「更新成功但会话仍加载旧扩展」。
 
-## 会话消息编辑/删除/重发（SessionFileEditor 墓碑协议，与 pi 的跨系统契约）
+## 会话消息编辑/删除/重发（原生 context_edit + 重发墓碑，与 pi 的跨系统契约）
 
-- **PiDeck 的 `deleted` 墓碑（`{type:"deleted", id, originalEntryId, parentId, ts, reason?}`）是自造格式，不是 pi 的 SessionEntry 类型**；pi 1.0 已实测兼容（2026-10 探针，真实 SessionManager）：`parseSessionEntryLine` 是裸 `JSON.parse` 无类型校验，投影按类型白名单跳过 unknown 条目 → 墓碑不进模型上下文、不抢 leafId、墓碑后 append 正常。**不要因为「pi 没这个类型」误判要迁移**；pi 升大版本后重跑探针验证（构造含墓碑的 jsonl → `SessionManager.open` + `buildSessionProjection` 断言被删文本不出现）。
-- 删除/重发截断只影响模型上下文，原文永远保留在 jsonl（pi 官方删除语义 `context_edit + replacement:null` 同理是 append-only）。墓碑必须带 id+parentId（pi 索引把最后一条带 id 的记录当 leaf，无 id 墓碑会让 `get_messages` 整页变空）。
+- **普通编辑/删除写 pi 原生 `context_edit`**（`{type:"context_edit", id, parentId, timestamp, targetId, replacement}`）：删除用 `replacement: null`，编辑用 `replacement: {content}`。原文行一字不改，模型上下文由 pi 的 `buildSessionProjection` 投影得出。因此「删了但原始历史里还在」是设计而非 bug：**已发生的 token/费用不回退，已被压缩摘要转述的内容也不会因这条记录消失**（原始文件、导出、计费仍能看到它）。
+- **展示口径（2026-10 产品决定）**：被移出的条目在时间线上**直接不显示**（无徐章、不折叠，删除就是看不到）；被改写内容显示改写后的正文且不加标记。过滤发生在 `SessionHistoryReader.applyContextEdits`（读取侧），因此桌面、Web、离线 Viewer 同一口径；原始行仍留在文件里，只是不参与展示。
+- 编辑只改文本：`replaceTextInContent` 保留图片/工具块等其它内容后作为 `replacement.content`（直接把新文本当 content 会把附件整体替掉）。
+- **重发（resend）仍用 `deleted` 墓碑做分支截断**，不用 context_edit：重发是「回到这条消息重来」，必须真的截断后续分支，否则旧回答的 tool_call / toolResult 配对会被保留，重发后报工具调用不匹配。墓碑（`{type:"deleted", id, originalEntryId, parentId, ts, reason?}`）是自造格式，pi 1.0 实测兼容（墓碑不进模型上下文、不抢 leafId、墓碑后 append 正常）；**不要因为「pi 没这个类型」误判要迁移**，pi 升大版本后重跑探针。
+- **追加新条目的 parentId 必须是「当前 leaf」而不是「最后一条 message」**（`currentLeafId`：跳过 session 头、取最后一条带 id 的条目）。编辑/删除会追加 `context_edit` 并成为新 leaf，若新消息挂到更早的 message 上就会绕开它分叉，pi 沿新 leaf 回溯时收集不到该编辑——用户的修改静默失效（2026-10 实测：追加后投影回旧内容）。同理，墓碑也必须带 id+parentId，pi 索引把最后一条带 id 的记录当 leaf。
+- **编辑器写盘的 leaf 语义必须与 pi 一致**：pi `SessionManager._buildIndex` 跳过 `type:"session"`、其余条目（含 `context_edit`、`label`、墓碑）都进索引并更新 leafId；PiDeck 侧的 `activeBranchIds`/`currentLeafId` 必须同口径，否则编辑/删除/追加会落在不同分支上。
+- 一次操作追加多条 `context_edit`（删除 assistant 回答时连带 thinking-only / toolResult 祖先）时必须**串成 parent 链**（后一条的 parentId = 前一条的 id）。都挂在同一个 parent 上时后者成侧分支，pi 只沿 leaf 父链收集编辑，前几条会静默失效。
+- 读取侧（`SessionHistoryReader`）把有效编辑汇总成内部 `SessionContextEditsDetail` 后直接作用于消息数组：被移出的条目整条丢弃、被改写的替入新 `text`；`replacement` 形态不认识时按「无编辑」处理（宁可显示原文也不凭空清空上下文）。页面契约不再下发编辑汇总（过滤已在读取侧完成，跨 IPC 再传一遍是重复数据）。按文本定位的回退必须同时匹配原文与有效文本（连续两次编辑时 UI 手里是改写后的文本）。
 - **pi 进程运行中禁止外部改会话文件**：pi 内存 fileEntries 是唯一权威，外部改行被忽略，一旦 pi 全量重写（版本迁移/fork 新文件）外部修改会被覆盖丢失。三道闸（coordinator `requireStoppedForFileMutation` 写前+写后、AgentManager 对 live runtime 二次防御、runtime 通道 `ensureAgentIdle`）不许放宽；写盘期间被重新激活时按「已生效」返回成功并记 warn 日志，不要报 BUSY 引导用户重试（文件已是新内容，重试=二次编辑，2026-10 修复）。
+- 改写入路径后**必须用真实 pi 验收**（本地 pi 的 `loadEntriesFromFile` + `buildSessionProjection`）：断言编辑后模型看到新文本、删除后不出现、原文仍在文件里、继续 append 后编辑仍生效。只跑 PiDeck 自己的读取端会漏掉「leaf 接错导致编辑掉出分支」这类只有 pi 才能发现的失效。
 - rewind checkpoint：merge 冲突（unmerged index）时真实 index 的 `write-tree` 必败，必须降级为 HEAD 树（`indexTreeDegraded` 标志 + warn 日志）而不是放弃快照（2026-10 事故：冲突期间检查点 3 连败整体不可用）；conversation 回退找不到 fork 锚点必须先于文件回退抛错拒绝，静默跳过会 UI 假成功（2026-10 事故）。
 - 失败日志：`logSessionCommandFailure` 标题带错误码（`(SESSION_RUNTIME_BUSY)` 等），按关键词可搜；不要加「无 debugDetails 就不打日志」类早退。
 
@@ -93,3 +100,10 @@
 - **横向 tab 条（内容区切换）**＝下划线：`border-b-2 border-primary` + `text-primary`，shadcn `TabsTrigger variant="line"`（tabs.tsx）是唯一实现；集成浏览器 tab 条手写实现但对齐同一 token。分段条（`variant="default"`，bg-muted 容器+白底高亮）保留给页面/分组级切换，不与 line 混用。
 - **纵向选择列表（侧栏/导航）**＝软填充：`bg-bg-active text-foreground`（SessionTree selectedRowClass 是参照实现），不用下划线、不用 raised card。
 - **豁免**：终端 dock tab 走 `--terminal-*` 主题变量族（foundation.css 有声明注释），不套应用 chrome 语言。
+
+## 繁体中文（zh-TW 四份词典 + locale 分支点）
+
+- 繁体词典**不手写**：`scripts/genZhTwCopy.mjs` 用 opencc-js 的 s2twp 链路（整串分词，不是逐段换字）从 zh-CN 源生成四份产物——`src/renderer/src/i18n/rendererCopy.zh-TW.ts`、`src/shared/i18n/mainProcessCopy.zh-TW.ts`、`src/main/web/WebI18n.zh-TW.ts`、`src/main/feishu/FeishuI18n.zh-TW.ts`。每份带生成器标识头，**改 zh-CN 源后必须重跑**（漏跑由 `tests/zhTwCopy.test.mjs` 的键集断言报红）。
+- opencc-js 按项目惯例**不是**项目依赖（与 `scripts/generate-t2s-table.cjs` 同：运行时只带生成出来的常量表）：首次生成 `npm i --no-save opencc-js@1.4.2 && node scripts/genZhTwCopy.mjs`。脚本头部的 `OVERRIDES` 是分词误伤修正表（opencc 把「内置→內建」拆成「内置→內置」、「播放按钮」附近消出「撥」字这类），**只增改有实际误伤的条目**，别拿它当通用术语表。
+- 语言分支点清单（新增语言/调整判定时一起改，否则某个进程会掉回简体）：`src/shared/types/settings.ts` 的 `AppLanguageMode` + `isTraditionalChineseLanguageTag`（简繁标签判定的唯一实现，其它进程都 import 它）→ `src/renderer/src/i18n.ts` 的 `resolveLocale` → `src/shared/i18n/mainProcessCopy.ts` 的 `normalizeMainProcessLocale` → `src/main/web/WebI18n.ts` 词典 + `src/main/web/WebServiceManager.ts` 注入脚本按浏览器语言分流（`zh-Hant` 也要认，客户端标签全是 `zh-TW`/`zh_CN` 形态）→ `src/main/feishu/FeishuI18n.ts` 的 `normalizeFeishuLocale`/`feishuLanguage`（飞书富文本 API 只认 zh/en，繁体沿用 `zh`）→ `src/main/floating/MiniOverlayWindow.ts` 的浮窗语言分支 → `CommonTab.tsx` 语言下拉。
+- 加载 i18n 模块的测试**别手写 vm 沙箱**：`FeishuI18n.ts` 现在有运行时依赖（繁体词典 + 简繁判定），旧式 `vm.runInNewContext` 沙箱一加 import 就整片失败——用 `tests/helpers/createTsSandbox.mjs`（按源文件目录解析），桩注入见 `tests/feishuI18n.test.mjs`。

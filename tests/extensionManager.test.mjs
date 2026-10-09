@@ -11,6 +11,9 @@ const loadProductionTs = createTsSandbox({
 		"../fs/trash": { trashPath: (path) => rm(path, { recursive: true, force: true }) },
 		"../logging/sharedLogger": { getAppLogger: () => null },
 		"../pi/PiProcess": { PiProcess: { invalidateVersionCache: () => {} } },
+		// fetchPiLatestVersion 走 Electron net.fetch（桌面代理生效）；测试用例替换
+		// globalThis.fetch 注入版本接口应答，这里只做转发。
+		electron: { net: { fetch: (...args) => globalThis.fetch(...args) } },
 	},
 	globals: { fetch: (...args) => globalThis.fetch(...args) },
 });
@@ -212,6 +215,79 @@ test("uninstall allows pi-deck-* local files outside the built-in whitelist (plu
 		await manager.uninstall("pi-deck-demo-plugin.ts");
 		await assert.rejects(readFile(join(extensionsDir, "pi-deck-demo-plugin.ts"), "utf8"), { code: "ENOENT" });
 		await assert.rejects(manager.uninstall("pi-deck-todo.ts"), /builtInCannotUninstall/);
+	} finally {
+		await rm(home, { recursive: true, force: true });
+	}
+});
+
+test("npmViewVersion 复用 pi settings.json 的 npmCommand（#318/#263）", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pideck-extmgr-npmcmd-"));
+	try {
+		await mkdir(join(home, ".pi", "agent"), { recursive: true });
+		await writeFile(join(home, ".pi", "agent", "settings.json"), JSON.stringify({ npmCommand: ["pnpm", "exec", "npm"] }));
+		let captured;
+		// 独立 sandbox：node:os/node:child_process 仅在本用例内 stub，不污染共享 loader
+		const load = createTsSandbox({
+			stubs: {
+				"node:os": { homedir: () => home },
+				"node:child_process": {
+					execFile: (command, args, _options, callback) => {
+						captured = { command: String(command), args: [...args] };
+						queueMicrotask(() => callback(null, "9.9.9\n", ""));
+					},
+				},
+				"../logging/sharedLogger": { getAppLogger: () => null },
+				"../pi/PiProcess": { PiProcess: { invalidateVersionCache: () => {} } },
+			},
+		});
+		const { ExtensionManager } = load("src/main/extensions/ExtensionManager.ts");
+		const manager = new ExtensionManager(
+			{
+				check: async () => ({ installed: true, version: "1.0.0" }),
+				createInvocation: (command, args) => ({ command, args, shell: false }),
+				createProcessEnv: () => ({}),
+				warmWslCommand: async () => undefined,
+			},
+			() => ({}),
+		);
+		const version = await manager.npmViewVersion("context-mode");
+		assert.equal(version, "9.9.9");
+		assert.equal(captured.command, "pnpm", "应使用配置的包装命令而非裸 npm");
+		// VM 跨 realm 数组：用 JSON 文本比较
+		assert.equal(JSON.stringify(captured.args), JSON.stringify(["exec", "npm", "view", "context-mode", "version"]));
+	} finally {
+		await rm(home, { recursive: true, force: true });
+	}
+});
+
+test("npmViewVersion 未配置 npmCommand 时回落裸 npm（行为不变）", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pideck-extmgr-npmcmd-default-"));
+	try {
+		let captured;
+		const load = createTsSandbox({
+			stubs: {
+				"node:os": { homedir: () => home },
+				"node:child_process": {
+					execFile: (command, args, _options, callback) => {
+						captured = { command: String(command), args: [...args] };
+						queueMicrotask(() => callback(null, "1.0.0\n", ""));
+					},
+				},
+				"../logging/sharedLogger": { getAppLogger: () => null },
+				"../pi/PiProcess": { PiProcess: { invalidateVersionCache: () => {} } },
+			},
+		});
+		const { ExtensionManager } = load("src/main/extensions/ExtensionManager.ts");
+		const manager = new ExtensionManager(
+			{
+				createInvocation: (command, args) => ({ command, args, shell: false }),
+				createProcessEnv: () => ({}),
+			},
+			() => ({}),
+		);
+		await manager.npmViewVersion("context-mode");
+		assert.equal(captured.command, "npm");
+		assert.equal(JSON.stringify(captured.args), JSON.stringify(["view", "context-mode", "version"]));
 	} finally {
 		await rm(home, { recursive: true, force: true });
 	}

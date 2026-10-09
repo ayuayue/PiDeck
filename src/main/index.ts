@@ -251,6 +251,8 @@ import { PiModelCapabilityCache, watchPiConfigDirectory } from "./pi/PiModelCapa
 // 生图消息不走 Agent 消息流，改名前需判断标题是否仍是占位名
 import { isDefaultAgentTitle } from "./pi/agentUtils";
 import { CompositeAgentGateway } from "./agents/CompositeAgentGateway";
+import { AcpAgentManager } from "./acp/AcpAgentManager";
+import { registerAcpIpc } from "./ipc/acpIpc";
 import { DshHost, resolveDshHomeDir } from "./dsh/DshHost";
 import { DshPluginInstallService } from "./dsh/DshPluginInstallService";
 import { DshRuntimeStatusService } from "./dsh/runtime/DshRuntimeStatus";
@@ -334,6 +336,8 @@ import { createRendererCrashRecoveryGuard } from "./window/rendererCrashRecovery
 import { registerBackgroundImageProtocol, registerBackgroundsIpc } from "./ipc/backgroundsIpc";
 import { registerThemesIpc } from "./ipc/themesIpc";
 import { registerPluginDevIpc } from "./ipc/pluginDevIpc";
+import { registerHostPluginsIpc } from "./ipc/hostPluginsIpc";
+import { HostPluginService } from "./plugins/HostPluginService";
 import { PluginDevService } from "./extensions/PluginDevService";
 import { registerGitIpc } from "./ipc/gitIpc";
 import { registerStoreIpc } from "./ipc/storeIpc";
@@ -358,11 +362,15 @@ import { WhisperTranscriber } from "./voice/WhisperTranscriber";
 import { WhisperServerPool } from "./voice/WhisperServerPool";
 import { VisionBridgeConfigManager } from "./settings/visionBridgeConfig";
 import { registerSessionIpc, scheduleCatalogBackgroundScan } from "./ipc/sessionIpc";
+import { registerWebRemoteAccessIpc } from "./ipc/webRemoteAccessIpc";
+import { RemoteAccessManager } from "./web/remoteAccess/RemoteAccessManager";
 import { registerSystemIpc } from "./ipc/systemIpc";
 import { registerResourceImportIpc } from "./ipc/resourceImportIpc";
 import { registerBackupIpc } from "./ipc/backupIpc";
 import { registerCatalogIpc } from "./ipc/catalogIpc";
 import { registerQuickMessagesIpc } from "./ipc/quickMessagesIpc";
+import { registerNoticeHistoryIpc } from "./ipc/noticeHistoryIpc";
+import { NoticeHistoryStore } from "./notices/NoticeHistoryStore";
 import { registerReplyActionsIpc } from "./ipc/replyActionsIpc";
 import { QuickMessageStore } from "./quickmessages/QuickMessageStore";
 import { ReplyActionRuleStore } from "./replyactions/ReplyActionRuleStore";
@@ -466,6 +474,9 @@ let dshRuntimeManager: DshRuntimeManager;
 /** DSH runtime 安装编排（阶段 2）：索引选版本 + 进度广播。 */
 let dshRuntimeInstaller: DshRuntimeInstaller;
 let dshAgentManager: DshAgentManager;
+let acpAgentManager: AcpAgentManager;
+/** 生图 blob 存储的延迟引用：imagegen 初始化在另一装配段，ACP 图片物化经此取实例（未初始化时物化退化为保留 data）。 */
+let acpImageBlobStore: ImageBlobStore | null = null;
 /** 多后端合成网关（pi + dsh + 未来后端）；启动装配后赋值，供发送链路按 agentId 路由。 */
 let compositeAgentGateway: CompositeAgentGateway | undefined;
 let configManager: ConfigManager;
@@ -490,6 +501,7 @@ let updateService: UpdateService | null = null;
 let projectResourceManager: ProjectResourceManager;
 let resourceImportManager: ResourceImportManager;
 let webServiceManager: WebServiceManager;
+let remoteAccessManager: RemoteAccessManager;
 let terminalManager: TerminalSessionManager;
 let petSystem: PetSystem | null = null;
 /** 声音提醒服务（完成/出错/等待输入提示音）；null = 未初始化 */
@@ -655,6 +667,38 @@ function sendSessionRuntimeEnvelope(event: SessionRuntimeEvent): void {
 	}
 	// 极简浮窗是独立渲染进程，流式事件单独转发，否则会话页停在打开时的快照。
 	miniOverlayWindow?.sendRuntimeEvent(event);
+}
+
+/**
+ * 无 runtime 绑定也能送达的用户通知（copy 产物/fork 换绑瞬间都没有 runtime）。
+ *
+ * 背景（2026-10-08 现场）：copy/fork 的会话名后缀改名失败只写日志，用户零反馈——
+ * 侧栏标题停在弱兜底上像乱码。渲染层 useSessionRuntimeBridge 对
+ * sourceChannel=agents:notice 的 payload 直接弹 toast，不查 runtime atom，
+ * 所以合成一个最小 envelope（sessionId=目标会话，agentId 占位）即可送达；
+ * notice 分支不会触碰 runtime 状态，无副作用。
+ */
+function emitAgentsNotice(payload: {
+	message: string;
+	i18nKey: string;
+	i18nParams?: Record<string, string | number>;
+	kind: "info" | "warning" | "error";
+	sessionId?: string;
+}): void {
+	const event: SessionRuntimeEvent = {
+		kind: "event",
+		sessionId: payload.sessionId ?? "",
+		agentId: "system",
+		runtimeGeneration: 0,
+		sourceChannel: ipcChannels.agentsNotice,
+		payload: {
+			message: payload.message,
+			i18nKey: payload.i18nKey,
+			i18nParams: payload.i18nParams,
+			kind: payload.kind,
+		},
+	};
+	sendSessionRuntimeEnvelope(event);
 }
 
 function emitSessionRuntimeEvent(agentId: string, sourceChannel: string, payload: unknown): boolean {
@@ -910,10 +954,19 @@ async function copyCatalogSession(sessionId: string) {
 			await sessionScanner.rename(result.sessionPath, forkedTitle);
 			title = forkedTitle;
 		} catch (error) {
+			// 静默历史（2026-10-08 现场）：只写日志 → 用户零反馈，侧栏标题停在弱兜底上
+			// 看着像「复制出的名字是乱的」。改名失败不阻断复制（产物已存在），
+			// 但必须让用户可见：toast 引导手动重命名补上后缀。
 			void appLogger.warn("session", "Copy session suffix rename failed", {
 				sessionId,
 				sessionPath: result.sessionPath,
 				error: error instanceof Error ? error.message : String(error),
+			});
+			emitAgentsNotice({
+				message: mainCopy("notice.sessionSuffixRenameFailed"),
+				i18nKey: "notice.sessionSuffixRenameFailed",
+				i18nParams: { mode: mainCopy("session.forkedSuffix") },
+				kind: "warning",
 			});
 		}
 	}
@@ -928,6 +981,9 @@ async function copyCatalogSession(sessionId: string) {
 		importedSourceId: entry.importedSourceId,
 		// 复制产物同为 fork 身份（文件头带 parentSession，与运行中 clone 同源标记）。
 		forked: true,
+		// 模型偏好/思考档位随复制继承：静态副本不会产生新的 model_change，不继承则重启后模型选择器为空。
+		model: entry.model,
+		thinkingLevel: entry.thinkingLevel,
 	});
 	return { cancelled: false, targetSessionId: copied.id };
 }
@@ -1000,10 +1056,18 @@ async function replaceAgentSession(agentId: string, replace: () => Promise<unkno
 						await agentManager.rename(agentId, forkedTitle);
 						title = forkedTitle;
 					} catch (error) {
+						// 静默历史（2026-10-08 现场）：只写日志 → 用户零反馈，侧栏标题停在弱兑底上。
+						// fork 产物已存在，失败不阻断，但必须可见：toast 引导手动重命名补后缀。
 						void appLogger.warn("session", "Fork session suffix rename failed", {
 							agentId,
 							title,
 							error: error instanceof Error ? error.message : String(error),
+						});
+						emitAgentsNotice({
+							message: mainCopy("notice.sessionSuffixRenameFailed"),
+							i18nKey: "notice.sessionSuffixRenameFailed",
+							i18nParams: { mode: mainCopy("session.forkedSuffix") },
+							kind: "warning",
 						});
 					}
 				}
@@ -1022,6 +1086,10 @@ async function replaceAgentSession(agentId: string, replace: () => Promise<unkno
 				// 会话名，见上方 appendSessionForkSuffix）；开关由调用方按语义传入，
 				// switch_session / 历史会话换绑等不标记。
 				forked: options?.markForked,
+				// 重发/编辑 fork 后的子会话文件里没有新的 model_change，扫描回读拿不到模型；
+				// 不从源会话继承的话，重启后模型选择器为空、激活也不会重放该会话的模型偏好。
+				model: originEntry?.model,
+				thinkingLevel: originEntry?.thinkingLevel,
 			});
 			// 重发/编辑 fork 化替换：旧会话记录打 supersededBy 标记（列表过滤用），
 			// 旧 JSONL 保留可恢复。放在 resolveTargetSessionId 内部：若标记写入失败，
@@ -2339,6 +2407,7 @@ function registerIpc() {
 	// 数据环境（数据模式决策 / 目录归属校验）：业务在 dataEnvService，handler 只校验/适配。
 	// relaunchApp 复用 restartApp（先停常驻服务 + isQuitting，防止 closeToTray 吞掉 relaunch）；
 	// quitApp 先置 isQuitting，与托盘「退出」菜单同一写法，避免 closeToTray 把退出吞成隐藏到托盘。
+	registerAcpIpc({ settingsStore });
 	registerDataEnvIpc({
 		getChannel: () => updateChannel,
 		getDecisionDir: () => channelDevDataDir,
@@ -2423,6 +2492,14 @@ function registerIpc() {
 	registerBackgroundImageProtocol();
 	registerBackgroundsIpc();
 	registerThemesIpc();
+	// Desktop plugins run without AgentManager/RPC; failure leaves the rest of PiDeck untouched.
+	const hostPlugins = new HostPluginService(app.getPath("userData"), sessionCatalog, join(__dirname, "../preload/hostPlugin.js"));
+	const unregisterHostPlugins = registerHostPluginsIpc(hostPlugins, () => mainWindow);
+	quitCleanup.register("host-plugins", () => {
+		unregisterHostPlugins();
+		hostPlugins.dispose();
+	});
+	void hostPlugins.initialize().catch(() => appLogger.warn("host-plugins", "Optional plugin host initialization failed"));
 	// 插件开发支持：demo/指南落 ~/.pi/agent/extensions（与扩展列表同一 home 来源）
 	const pluginDevService = new PluginDevService(resolveBuiltInExtensionRoots(), () => extensionManager?.userHomeDir ?? homedir());
 	registerPluginDevIpc(pluginDevService, {
@@ -2451,6 +2528,17 @@ function registerIpc() {
 	registerResourceImportIpc(resourceImportManager);
 
 	registerScratchPadIpc({ appLogger });
+
+	// 通知历史落盘：showNotice 单点记录后推送主进程，重启可回灌（渲染层环形缓冲只服务当次会话）
+	registerNoticeHistoryIpc(
+		new NoticeHistoryStore({
+			getFilePath: () => join(app.getPath("userData"), "notice-history.json"),
+			log: (level, message, detail) => {
+				if (level === "error") void appLogger.error("notice-history", message, detail);
+				else void appLogger.info("notice-history", message, detail);
+			},
+		}),
+	);
 
 	// 粘贴大文本 → 落盘文件（受管目录，路径校验 + 启动清理）
 	cleanupPasteFiles = registerPasteFilesIpc({
@@ -2545,6 +2633,7 @@ function registerIpc() {
 	// 「图片写进了 A 目录、协议从 B 目录读」。
 	const imageGenRoots = resolveImageGenStorageRoots();
 	const imageBlobStore = new ImageBlobStore({ getBlobsPath: () => imageGenRoots.blobs });
+	acpImageBlobStore = imageBlobStore;
 	void imageBlobStore.ensureDir();
 	const imageSessionStore = new ImageSessionStore({
 		getStorePath: () => imageGenRoots.sessions,
@@ -2768,6 +2857,7 @@ function registerIpc() {
 				}
 			},
 			readDshHistoryPage: (dshSessionId, beforeSeq, options) => dshAgentManager.readHistoryPage(dshSessionId, beforeSeq, options),
+			readAcpMessages: (acpSessionId) => acpAgentManager.readMessagesByAcpSessionId(acpSessionId),
 			readDshProcessEvents: (agentId, dshSessionId) => dshAgentManager.readProcessEvents(agentId, dshSessionId),
 			readDshSystemPrompt: (agentId, dshSessionId) => dshAgentManager.readSystemPrompt(agentId, dshSessionId),
 			readDshMessageFullText: (agentId, messageId) => dshAgentManager.readMessageFullText(agentId, messageId),
@@ -3123,8 +3213,15 @@ function registerIpc() {
 		// 设置变更副作用（代理 / 主题 / 飞书语言 / WSL / 宠物 / Web 服务）
 		applyDesktopProxy,
 		testPiProxy,
-		applyWebServiceSettings: (settings) => webServiceManager.applySettings(settings),
-		restartWebService: (settings) => webServiceManager.restart(settings),
+		// Web 服务启停后收敛外网访问渠道（隧道重建/serve 重指；见 RemoteAccessManager.syncWebService）
+		applyWebServiceSettings: async (settings) => {
+			await webServiceManager.applySettings(settings);
+			await remoteAccessManager?.syncWebService();
+		},
+		restartWebService: async (settings) => {
+			await webServiceManager.restart(settings);
+			await remoteAccessManager?.syncWebService();
+		},
 		reactToPetSettings: async (prev, next) => {
 			await petSystem?.reactToSettings(prev, next);
 		},
@@ -3219,6 +3316,9 @@ function registerIpc() {
 		appLogger,
 		mainCopy: mainCopy as (key: string, params?: Record<string, string | number>) => string,
 	});
+
+	// 外网访问（web:remote-access-*）：cloudflare 隧道 + tailscale serve 启停/状态
+	registerWebRemoteAccessIpc({ remoteAccessManager });
 
 	// 配置备份（config-backup:*）：恢复成功后重载 pideck 设置 + 刷新 pi 模型目录。
 	registerBackupIpc({
@@ -3318,6 +3418,7 @@ async function detectExternalEditorsOnFirstLaunch() {
 
 // 换肤背景图/宠物雪碧图/声音提醒/生图历史图片协议：自定义 scheme 必须在 ready 前注册特权声明（secure 以便渲染层 CSS/图片/音频引用）
 protocol.registerSchemesAsPrivileged([
+	{ scheme: "pideck-plugin", privileges: { secure: true, standard: true, supportFetchAPI: true, corsEnabled: false } },
 	{ scheme: "pideck-bg", privileges: { secure: true, standard: true, corsEnabled: false, supportFetchAPI: true, stream: false } },
 	{ scheme: "pideck-pet", privileges: { secure: true, standard: true, corsEnabled: false, supportFetchAPI: true, stream: false } },
 	{ scheme: "pideck-sound", privileges: { secure: true, standard: true, corsEnabled: false, supportFetchAPI: true, stream: true } },
@@ -4115,6 +4216,10 @@ app
 		// DSH 外部会话自动导入改到 projectStore.load 之后（见下方 scheduleDshForeignAutoImport）：
 		// 必须走只读磁盘扫描，不能依赖 host-ready——否则会与 dsh-web 抢同一份 DSH_HOME。
 		webServiceManager = new WebServiceManager({
+			// 令牌持久化回写：manager 内自动生成/轮换/手动修改后落盘，重启沿用同一令牌。
+			persistToken: (state) => {
+				void settingsStore.update({ webServiceToken: state.token, webServiceTokenGeneratedAt: state.generatedAt, webServiceTokenExpiresIn: state.expiresIn }).catch((error) => appLogger.error("[WebService] persist token failed", error));
+			},
 			// dev 模式（electron-vite dev 不产出 out/renderer 构建物）下，静态资源
 			// 代理到 vite dev server，外部 Web 端加载重构后的 React 版页面并支持热更新；
 			// 打包/正式构建走 out/renderer 构建产物，此值为空。
@@ -4387,6 +4492,21 @@ app
 		quitCleanup.register("theme-schedule", () => clearThemeScheduleTimer());
 		quitCleanup.register("update-check", () => updateService?.stop());
 		quitCleanup.register("web-service", () => webServiceManager?.stop());
+		// 外网访问编排器：状态推送直达主窗口；渠道随 Web 服务启停收敛
+		remoteAccessManager = new RemoteAccessManager({
+			logger: appLogger,
+			getWebServiceStatus: () => webServiceManager.getStatus(),
+			// 隧道参数每次 start 取最新设置；修改后重启隧道生效
+			getTunnelOptions: () => {
+				const s = settingsStore.get();
+				return { protocol: s.webRemoteCloudflaredProtocol ?? "http2", extraArgs: s.webRemoteCloudflaredExtraArgs };
+			},
+			pushState: (state) => {
+				const win = mainWindow;
+				if (win && !win.isDestroyed()) win.webContents.send(ipcChannels.webRemoteAccessChanged, state);
+			},
+		});
+		quitCleanup.register("web-remote-access", () => remoteAccessManager?.dispose());
 		terminalManager = new TerminalSessionManager(
 			(agentId) => {
 				// 多后端：pi 与 DSH runtime 各持自己的 tab 表，终端工作目录必须经合成网关
@@ -4595,9 +4715,39 @@ app
 		void ensureResourceMigration();
 		ensurePiResourceMigration = ensureResourceMigration;
 		agentManager.configureResourceMigrationGate(ensureResourceMigration);
-		// 多后端网关装配：pi + dsh（DSH 在窗口创建后后台预热，失败时按需重试）。
+		// 多后端网关装配：pi + dsh + acp（DSH 在窗口创建后后台预热，失败时按需重试；
+		// ACP 无预热——每次 create 即 spawn 对应 CLI，工具表为空时 create 直接报错）。
 		// Coordinator 与事件桥接均面向合成器，新增后端只需追加网关实例。
-		compositeAgentGateway = new CompositeAgentGateway([agentManager, dshAgentManager]);
+		acpAgentManager = new AcpAgentManager({
+			piLocator,
+			getProject: (projectId) => projectStore.get(projectId),
+			getTools: () => settingsStore.get().acpTools ?? [],
+			// 图片物化落盘：ACP 消息里的 base64 图复用生图 blob 存储（ref 形态回填消息；
+			// imagegen 装配在另一段完成，经模块级 ref 延迟取实例）。
+			imageStore: {
+				put: (data, mimeType) => acpImageBlobStore?.put(data, mimeType) ?? Promise.resolve(null),
+			},
+			// ACP 会话标题（session_info_update）写回 catalog：ACP 无本地文件，标题在 agent 侧。
+			onTitleChanged: (deckSessionId, title) => {
+				const entry = sessionCatalog?.get(deckSessionId);
+				if (!entry || entry.title === title) return;
+				void sessionCatalog
+					.update(entry.id, { title })
+					.then(() => {
+						if (mainWindow && !mainWindow.isDestroyed()) {
+							mainWindow.webContents.send(ipcChannels.sessionsCatalogRefreshed, { projectId: entry.projectId });
+						}
+					})
+					.catch((error: unknown) => {
+						void appLogger.warn("session", "ACP title sync to catalog failed", { deckSessionId, title, error: error instanceof Error ? error.message : String(error) });
+					});
+			},
+			logger: appLogger,
+		});
+		quitCleanup.register("acp", async () => {
+			await acpAgentManager?.stopAll();
+		});
+		compositeAgentGateway = new CompositeAgentGateway([agentManager, dshAgentManager, acpAgentManager]);
 		sessionRuntimeCoordinator = new SessionRuntimeCoordinator(sessionCatalog, compositeAgentGateway, sendAgentPromptWithIntegrations, appLogger);
 		// catalog 外部删除清理的活性探针：预热激活后 pi 可能尚未写出会话文件，
 		// 有活跃绑定的记录不得被扫描当「外部删除」剔掉。
@@ -4889,6 +5039,13 @@ app
 			});
 			void settingsStore.update({ webServiceEnabled: false });
 		});
+		// 外网访问初始探测：探测二进制/登录态与既有 serve 配置（只读），不自动拉起任何渠道
+		void remoteAccessManager
+			.refresh()
+			.then(() => remoteAccessManager.syncWebService())
+			.catch((error) => {
+				void appLogger.warn("web-remote", "Remote access initial probe failed", { error: error instanceof Error ? error.message : String(error) });
+			});
 
 		// 🆕 自动连接：如果已有 Bot 配置，自动启动飞书连接
 		autoConnectFeishu();

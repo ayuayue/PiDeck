@@ -26,9 +26,9 @@ function makeArtifact(packageVersion = "9.9.9-remote") {
 		{ id: "overlay-alpha", name: "Overlay Alpha", provider: "demo", contextWindow: 1000 },
 		{ id: "overlay-beta", name: "Overlay Beta", provider: "demo", contextWindow: 2000, reasoning: true },
 	];
-	const catalogRaw = JSON.stringify({ schemaVersion: 1, entries });
+	const catalogRaw = JSON.stringify({ schemaVersion: 2, entries });
 	const manifestRaw = JSON.stringify({
-		schemaVersion: 1,
+		schemaVersion: 2,
 		catalogSha256: sha256(catalogRaw),
 		entryCount: entries.length,
 		source: {
@@ -303,7 +303,7 @@ test("catalog: 无效覆盖时 openFile 解析回落内置（不指向坏文件�
 	try {
 		const artifact = makeArtifact("9.9.9-remote");
 		// 预置损坏覆盖文件（内容与 manifest 不匹配）
-		writeFileSync(join(dir, "pi-ai-catalog.json"), '{"schemaVersion":1,"entries":[]}', "utf8");
+		writeFileSync(join(dir, "pi-ai-catalog.json"), '{"schemaVersion":2,"entries":[]}', "utf8");
 		writeFileSync(join(dir, "pi-ai-catalog.manifest.json"), artifact.manifestRaw, "utf8");
 		const updater = new PiAiCatalogUpdater({ userDataDir: dir, fetchImpl: makeFetch(artifact), timeoutMs: 200 });
 		const path = updater.resolveEffectiveCatalogPath();

@@ -2,6 +2,7 @@ import { ipcMain } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import type { SessionCommandError, SessionRuntimeTarget, TerminalShell, TerminalTarget } from "../../shared/types";
 import type { AppLogger } from "../logging/AppLogger";
+import { listSystemFontFamilies } from "../fonts/SystemFonts";
 import type { SessionRuntimeCoordinator } from "../sessions/SessionRuntimeCoordinator";
 import type { TerminalSessionManager } from "../terminal/TerminalSessionManager";
 
@@ -58,4 +59,7 @@ export function registerTerminalIpc({ appLogger, sessionRuntimeCoordinator, term
 	});
 	// shell 候选列表（供「选择 Shell」下拉）：只读平台探测结果，无入参可校验
 	ipcMain.handle(ipcChannels.terminalShells, () => terminalManager.listShells());
+	// 系统字体族列表（供终端设置页的字体下拉）：只读枚举 + 进程内缓存，无入参可校验。
+	// 枚举失败返回空数组，下拉退化为「跟随代码字体」一项，不阻断设置页。
+	ipcMain.handle(ipcChannels.terminalFonts, () => listSystemFontFamilies());
 }

@@ -1,7 +1,7 @@
 import type { ModelSpec } from "../../shared/types/modelSpecs";
 import type { AvailableModel } from "../../shared/types/agent";
 import { findModelCapabilityMatch, modelCapabilityMatchToSpec, type ModelCapabilityCandidate, type ModelCapabilityLookupInput } from "./modelCapabilityMatch";
-import { getPiAiCatalogEntries, type PiAiCatalogIndex } from "./piAiBuiltinCatalog";
+import { getPiAiCatalogEntries, piAiCatalogEntryType, type PiAiCatalogIndex } from "./piAiBuiltinCatalog";
 
 function asInput(values: readonly string[] | undefined): Array<"text" | "image"> | undefined {
 	if (!values) return undefined;
@@ -9,8 +9,15 @@ function asInput(values: readonly string[] | undefined): Array<"text" | "image">
 	return input.length > 0 ? input : undefined;
 }
 
+/**
+ * bundled 目录 → 能力补全候选。
+ *
+ * 只收 chat 条目：这个入口服务的是「给聊天模型填容量/图片/思考档位模板」，而旧版产物
+ * 混进了 image / classifier 模型（同名时会把生图条目的空容量当作聊天模型规格）。
+ */
 function piAiCandidates(index: PiAiCatalogIndex): ModelCapabilityCandidate[] {
 	return getPiAiCatalogEntries(index).flatMap((entry) => {
+		if (piAiCatalogEntryType(entry) !== "chat") return [];
 		const provider = entry.provider?.trim();
 		if (!provider || !entry.id.trim()) return [];
 		return [

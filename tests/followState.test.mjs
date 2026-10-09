@@ -332,3 +332,20 @@ test("gesture owner: 只给时间线手势改跟随态", () => {
 	// 起点不在时间线内（外部路由）由调用方补一个 timeline 尾巴，这里验证补法语义
 	assert.equal(follow.resolveGestureOwner([]), "timeline");
 });
+
+test("needsBottomUnlock：目标态已就位时不再解锁（React #185 幂等守卫）", () => {
+	// 已解锁（escapedFromLock=true 且 isAtBottom=false）：无需 setState
+	assert.equal(follow.needsBottomUnlock(true, false), false);
+	// 仍锁底：需要解锁
+	assert.equal(follow.needsBottomUnlock(false, true), true);
+	assert.equal(follow.needsBottomUnlock(false, false), true);
+	// 只逃了锁但 isAtBottom 还是 true（布尔分叉中间态）：也要入队修正
+	assert.equal(follow.needsBottomUnlock(true, true), true);
+});
+
+test("isFollowEscapeEdge：仅 true→false 的沿触发 stopScroll", () => {
+	assert.equal(follow.isFollowEscapeEdge(true, false), true);
+	assert.equal(follow.isFollowEscapeEdge(false, false), false);
+	assert.equal(follow.isFollowEscapeEdge(false, true), false);
+	assert.equal(follow.isFollowEscapeEdge(true, true), false);
+});

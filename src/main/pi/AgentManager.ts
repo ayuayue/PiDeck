@@ -23,7 +23,9 @@ import type {
 	RewindRestoreScope,
 	SendPromptInput,
 	SendPromptResult,
+	PiCommand,
 	SessionEnvironment,
+	SessionBranchTree,
 	SessionMessagePage,
 	SessionRuntimeModelSelection,
 	SessionFileChange,
@@ -1024,6 +1026,30 @@ export class AgentManager {
 	}
 
 	/**
+	 * 草稿会话的斜杠命令预览（Issue #316）：draft 没有 pi 进程，本地发现只覆盖技能/提示词，
+	 * 扩展注册的命令只有活进程的 get_commands 才知道。这里只读借用 standby 池里同项目的
+	 * 已握手进程：项目一致 + 指纹仍是新鲜的（与 claim 同一判定）+ 进程 idle，
+	 * 不认领、不消费池条目。池关闭/无条目/进程非 idle/RPC 失败一律返回 null，
+	 * 渲染层回退本地技能/提示词发现；runtime 建立后仍以本会话 get_commands 为准。
+	 */
+	async draftCommands(projectId: string): Promise<PiCommand[] | null> {
+		if (!this.settingsStore.get().standbyRuntimeEnabled) return null;
+		const project = this.getProject(projectId);
+		if (!project) return null;
+		const entry = this.standbyPool.peek(projectId);
+		if (!entry || entry.fingerprint !== this.computeStandbyFingerprintFor(project)) return null;
+		const runtime = this.agents.get(entry.agentId);
+		if (!runtime || runtime.tab.status !== "idle") return null;
+		try {
+			const response = await runtime.process.client.request({ type: "get_commands" }, this.rpcTimeoutMs);
+			if (!response.success) return null;
+			return (response.data as { commands?: PiCommand[] } | undefined)?.commands ?? [];
+		} catch {
+			return null;
+		}
+	}
+
+	/**
 	 * spawn 指纹：快照所有「只能 spawn 时注入」的输入（PiProcessSettings/扩展列表/桥/WSL/cwd）。
 	 * claim 时不一致即废弃池化进程回退正常创建——这就是「改设置/扩展后何时生效」的答案：
 	 * 已在跑的会话照旧（本来就是），下一个 spawn（含新预热）自动用新值。
@@ -1212,6 +1238,11 @@ export class AgentManager {
 	/** 从同一份历史显示索引读取模型/思考元数据，避免再次走 SessionScanner 摘要读取。 */
 	async readSessionDisplayMetadata(sessionPath: string): Promise<Pick<SessionMessagePage, "model" | "thinkingLevel">> {
 		return this.sessionHistoryReader.readSessionMetadata(sessionPath);
+	}
+
+	/** 会话分支树（右侧抽屉「分支」面板）：文件索引读取，不走 get_tree RPC（冻窗风险）。 */
+	async readSessionBranchTree(sessionPath: string): Promise<SessionBranchTree> {
+		return this.sessionHistoryReader.readBranchTree(sessionPath);
 	}
 
 	/**

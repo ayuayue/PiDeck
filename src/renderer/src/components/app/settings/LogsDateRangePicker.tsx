@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CalendarIcon } from "lucide-react";
 import { zhCN } from "date-fns/locale/zh-CN";
+import { zhTW } from "date-fns/locale/zh-TW";
 import { enUS } from "date-fns/locale/en-US";
 import { Calendar } from "../../ui-shadcn/calendar";
 import { Button } from "../../ui-shadcn/button";
@@ -55,9 +56,11 @@ function rangeLabel(from: string, to: string, localeName: string): string {
 
 export function LogsDateRangePicker(props: { from: string; to: string; onChange: (from: string, to: string) => void }) {
 	const [open, setOpen] = useState(false);
-	// pseudo locale 走 en-US，与 formatI18nDateTime 的处理一致
-	const locale = getI18nLocale() === "zh-CN" ? zhCN : enUS;
-	const localeName = locale.code === "zh-CN" ? "zh-CN" : "en-US";
+	// pseudo locale 走 en-US，与 formatI18nDateTime 的处理一致；zh-TW 用繁中文日历（日期串也交给 zh-TW）
+	const localeMode = getI18nLocale();
+	const isEnglishCalendar = localeMode === "en-US" || localeMode === "pseudo";
+	const locale = isEnglishCalendar ? enUS : localeMode === "zh-TW" ? zhTW : zhCN;
+	const localeName = isEnglishCalendar ? "en-US" : localeMode;
 	const fromDate = parseDatePart(props.from);
 	const toDate = parseDatePart(props.to);
 	const fromTime = extractTime(props.from);

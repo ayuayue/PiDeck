@@ -1,6 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2022",
+    // 与 tsconfig.main.json 对齐：主进程代码用了 findLast/findLastIndex（ES2023），
+    // 而 npm run typecheck 走的是本文件；不声明 lib 时 lib 默认跟 target（ES2022）→ 误报 TS2550。
+    // DOM/DOM.Iterable 是 target 未声明 lib 时的默认值，显式写回以免降级。
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",

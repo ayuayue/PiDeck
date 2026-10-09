@@ -91,10 +91,17 @@ function deferred() {
 	return { promise, resolve };
 }
 
-test("edit preserves CRLF, trailing newline, untouched bytes, unicode and string content", async () => {
+/**
+ * 编辑 = 追加 pi 原生 `context_edit`，不再原地改写原文。
+ *
+ * 这是本轮最关键的语义变更：旧实现把目标行的正文直接改掉，原文就此从历史里消失
+ * （只能从备份找回），编辑也不可撤销。pi 的做法是「原文不动、另记一条编辑指令」，
+ * 模型上下文按指令投影，历史仍可追溯。
+ */
+test("edit appends a native context_edit and leaves the original line untouched", async () => {
 	await withTempSession(basicEntries("旧答案"), { eol: "\r\n", trailing: true, leading: "\r\n" }, async ({ path }) => {
 		const before = await readFile(path, "utf8");
-		const untouched = before.split("\r\n")[2];
+		const originalAnswerLine = before.split("\r\n")[2];
 		let markerSeen = false;
 		const editor = new SessionFileEditor();
 		const result = await editor.editMessage({
@@ -109,16 +116,27 @@ test("edit preserves CRLF, trailing newline, untouched bytes, unicode and string
 		const after = await readFile(path, "utf8");
 		assert.equal(markerSeen, true);
 		assert.equal(after.includes("_reloadMarker"), false);
-		assert.equal(after.startsWith("\r\n"), true);
-		assert.equal(after.endsWith("\r\n"), true);
-		assert.equal(after.split("\r\n")[2], untouched);
-		assert.equal(byOriginalOrId(parseLines(after), "a1").message.content, "新答案");
+		assert.equal(after.startsWith("\r\n"), true, "首部空行必须保留");
+		assert.equal(after.endsWith("\r\n"), true, "尾随换行必须保留");
+		// 原文行逐字节不变（含 CRLF）——这是「不再丢原文」的直接证据
+		assert.equal(after.split("\r\n")[2], originalAnswerLine);
+		assert.equal(byOriginalOrId(parseLines(after), "a1").message.content, "旧答案", "原文保持不变");
+
+		const edit = parseLines(after).find((entry) => entry.type === "context_edit");
+		assert.ok(edit, "必须追加 context_edit 条目");
+		assert.equal(edit.targetId, "a1");
+		assert.deepEqual(edit.replacement, { content: "新答案" });
+		assert.equal(typeof edit.id, "string");
+		assert.equal(edit.parentId, "a1", "新记录接在当前叶之后（成为新的 leaf）");
+		assert.equal(typeof edit.timestamp, "string");
+
 		assert.equal(result.targetEntryId, "a1");
 		assert.deepEqual([...result.changedEntryIds], ["a1"]);
 		assert.equal(await readFile(result.backupPath, "utf8"), before);
 	});
 });
-test("edit keeps non-text blocks and collapses multiple text blocks to the replacement", async () => {
+/** 编辑仍只改文本：图片 / 思考 / 工具块必须原样保留在替换内容里（否则模型会丢附件）。 */
+test("edit replacement keeps non-text blocks and collapses multiple text blocks", async () => {
 	const content = [
 		{ type: "thinking", thinking: "reason" },
 		{ type: "text", text: "first" },
@@ -133,18 +151,18 @@ test("edit keeps non-text blocks and collapses multiple text blocks to the repla
 			newText: "replacement",
 			reload: async () => undefined,
 		});
-		const edited = byOriginalOrId(parseLines(await readFile(path, "utf8")), "a1");
+		const edit = parseLines(await readFile(path, "utf8")).find((entry) => entry.type === "context_edit");
 		assert.deepEqual(
-			edited.message.content.map((block) => block.type),
+			edit.replacement.content.map((block) => block.type),
 			["thinking", "text", "image"],
 		);
-		assert.equal(edited.message.content[1].text, "replacement");
-		assert.equal(edited.message.content[0].thinking, "reason");
-		assert.equal(edited.message.content[2].data, "image-data");
+		assert.equal(edit.replacement.content[1].text, "replacement");
+		assert.equal(edit.replacement.content[0].thinking, "reason");
+		assert.equal(edit.replacement.content[2].data, "image-data");
 	});
 });
 
-test("edit appends a text block when the message has only non-text blocks", async () => {
+test("edit replacement appends a text block when the message has only non-text blocks", async () => {
 	await withTempSession(basicEntries([{ type: "thinking", thinking: "reason" }]), {}, async ({ path }) => {
 		const editor = new SessionFileEditor();
 		await editor.editMessage({
@@ -153,12 +171,12 @@ test("edit appends a text block when the message has only non-text blocks", asyn
 			newText: "visible",
 			reload: async () => undefined,
 		});
-		const edited = byOriginalOrId(parseLines(await readFile(path, "utf8")), "a1");
+		const edit = parseLines(await readFile(path, "utf8")).find((entry) => entry.type === "context_edit");
 		assert.deepEqual(
-			edited.message.content.map((block) => block.type),
+			edit.replacement.content.map((block) => block.type),
 			["thinking", "text"],
 		);
-		assert.equal(edited.message.content[1].text, "visible");
+		assert.equal(edit.replacement.content[1].text, "visible");
 	});
 });
 
@@ -175,13 +193,20 @@ test("locator supports legacy message IDs and unique active-branch text fallback
 			newText: "legacy",
 			reload: async () => undefined,
 		});
+		// 第二次按「正在显示的文本」定位（改写后的 legacy）。文件里 a1 仍是原文 answer，
+		// 文本回退必须同时认原文与有效文本，否则用户连续编辑第二次就会报「消息未找到」。
 		await editor.editMessage({
 			file: fileRef(path),
 			target: target({ entryId: undefined, text: "legacy" }),
 			newText: "fallback",
 			reload: async () => undefined,
 		});
-		assert.equal(byOriginalOrId(parseLines(await readFile(path, "utf8")), "a1").message.content, "fallback");
+		const edits = parseLines(await readFile(path, "utf8")).filter((entry) => entry.type === "context_edit");
+		assert.equal(edits.length, 2, "两次编辑各追加一条 context_edit（不覆盖原文）");
+		assert.equal(edits[0].targetId, "a1");
+		assert.deepEqual(edits[1].replacement, { content: "fallback" });
+		// 原文仍在
+		assert.equal(byOriginalOrId(parseLines(await readFile(path, "utf8")), "a1").message.content, "answer");
 	});
 });
 
@@ -267,6 +292,11 @@ test("parser rejects empty, invalid UTF-8, malformed JSON, duplicate IDs, header
  * 复刻 pi SessionManager._buildIndex + buildSessionPath 的活动分支投影。
  * tombstone 若没有 id/parentId，leaf 会落在删除记录上，get_messages 整页变空。
  */
+/**
+ * 测试侧的 pi 投影模拟：取最后一条带 id 的条目为 leaf，沿父链回溯，
+ * 再按路径上的 context_edit 投影（移出上下文 / 替换内容）。
+ * 与 pi `buildSessionProjection` 的这两条规则一致，用来断言「模型实际会看到什么」。
+ */
 function piActiveMessageTexts(entries) {
 	const byId = new Map();
 	let leafId;
@@ -285,7 +315,23 @@ function piActiveMessageTexts(entries) {
 		path.unshift(current);
 		current = current.parentId ? byId.get(current.parentId) : undefined;
 	}
-	return path.filter((entry) => entry.type === "message").map((entry) => entry.message?.content);
+	const edits = new Map();
+	for (const entry of path) {
+		if (entry.type === "context_edit") edits.set(entry.targetId, entry.replacement);
+	}
+	const texts = [];
+	for (const entry of path) {
+		if (entry.type !== "message") continue;
+		const replacement = edits.get(entry.id);
+		if (replacement === null) continue;
+		if (replacement !== undefined) {
+			if (typeof replacement.content === "string") texts.push(replacement.content);
+			else if (Array.isArray(replacement.content)) texts.push(replacement.content);
+			continue;
+		}
+		texts.push(entry.message?.content);
+	}
+	return texts;
 }
 
 test("deleting the current leaf must not empty pi's remaining active branch", async () => {
@@ -298,11 +344,15 @@ test("deleting the current leaf must not empty pi's remaining active branch", as
 			reload: async () => undefined,
 		});
 		const next = parseLines(await readFile(path, "utf8"));
-		const tombstone = byOriginalOrId(next, "a2");
-		assert.equal(tombstone.type, "deleted");
-		// pi _buildIndex 用 entry.id 当 leaf；没有 id 时 leaf 落在 tombstone 上，整页变空。
-		assert.equal(tombstone.id, "a2");
-		assert.equal(tombstone.parentId, "u2");
+		// 原文行保留，删除表达为追加的 context_edit（replacement: null）。
+		assert.equal(byOriginalOrId(next, "a2").type, "message", "原文不得被改写");
+		const edit = next.find((entry) => entry.type === "context_edit");
+		assert.ok(edit, "必须追加 context_edit");
+		assert.equal(edit.targetId, "a2");
+		assert.equal(edit.replacement, null);
+		// 新记录的 parentId = 当前叶，所以 leaf 落在它上面，分支仍然完整可达。
+		assert.equal(edit.parentId, "a2");
+		assert.equal(edit.id, next[next.length - 1].id, "context_edit 必须是新的 leaf");
 		assert.deepEqual(piActiveMessageTexts(next), ["keep me", "keep answer", "delete leaf"]);
 	});
 });
@@ -341,10 +391,15 @@ test("deleting an assistant answer also tombstones that turn's thinking and tool
 			reload: async () => undefined,
 		});
 		const next = parseLines(await readFile(path, "utf8"));
-		assert.equal(byOriginalOrId(next, "a1").type, "deleted");
-		assert.equal(byOriginalOrId(next, "think1").type, "deleted");
-		assert.equal(byOriginalOrId(next, "tool1").type, "deleted");
-		assert.equal(byOriginalOrId(next, "u2").parentId, "u1");
+		// 三条原文都保留，各自追加一条 replacement: null。
+		assert.equal(byOriginalOrId(next, "a1").type, "message");
+		assert.equal(byOriginalOrId(next, "think1").type, "message");
+		assert.equal(byOriginalOrId(next, "tool1").type, "message");
+		const excluded = next.filter((entry) => entry.type === "context_edit").map((entry) => entry.targetId);
+		// 顺序不参与语义（沿父链上溯，从叶子往根）；用集合断言，避免实现顺序变化就误报。
+		assert.deepEqual(new Set(excluded), new Set(["a1", "think1", "tool1"]), "最终回答与它的过程链一起移出上下文");
+		// 父链没有被重接：u2 仍挂在 a1 之后（context_edit 是旁路记录，不改树形）
+		assert.equal(byOriginalOrId(next, "u2").parentId, "a1");
 		assert.deepEqual(piActiveMessageTexts(next), ["first question", "second question", "answer two"]);
 	});
 });
@@ -359,12 +414,17 @@ test("delete tombstones the target, reparents direct children and leaves grandch
 			reload: async () => undefined,
 		});
 		const next = parseLines(await readFile(path, "utf8"));
-		assert.equal(byOriginalOrId(next, "u1").type, "deleted");
-		assert.equal(byOriginalOrId(next, "a1").parentId, null);
-		assert.equal(byOriginalOrId(next, "a2").parentId, null);
+		// 只追加一条记录，不重接任何子节点、不动兄弟分支——这是与旧墓碑实现最大的差别：
+		// 旧实现把子节点的 parentId 改写到祖父，会让后续审计难以还原原始树形。
+		assert.equal(byOriginalOrId(next, "u1").type, "message");
+		assert.equal(byOriginalOrId(next, "a1").parentId, "u1");
+		assert.equal(byOriginalOrId(next, "a2").parentId, "u1");
 		assert.equal(byOriginalOrId(next, "u2").parentId, "a1");
 		assert.equal(byOriginalOrId(next, "sibling").parentId, null);
-		assert.deepEqual(new Set(result.changedEntryIds), new Set(["u1", "a1", "a2"]));
+		const edits = next.filter((entry) => entry.type === "context_edit");
+		assert.equal(edits.length, 1, "user 消息没有过程链，只移出它自己");
+		assert.equal(edits[0].targetId, "u1");
+		assert.deepEqual([...result.changedEntryIds], ["u1"]);
 	});
 });
 
@@ -539,7 +599,11 @@ test("EPERM rename retries succeed when the expected file stays unchanged", asyn
 			reload: async () => undefined,
 		});
 		assert.equal(attempts >= 5, true);
-		assert.equal(byOriginalOrId(parseLines(await readFile(path, "utf8")), "a1").message.content, "retried");
+		// 编辑语义已改为追加 context_edit：断言新记录落到盘上（原文保持不动）。
+		assert.equal(
+			parseLines(await readFile(path, "utf8")).some((entry) => entry.type === "context_edit" && entry.replacement?.content === "retried"),
+			true,
+		);
 	});
 });
 
@@ -650,7 +714,10 @@ test("module-level physical locking serializes two editor instances and native/W
 		releaseFirst.resolve();
 		await Promise.all([firstPromise, secondPromise]);
 		assert.equal(secondEntered, true);
-		assert.equal(byOriginalOrId(parseLines(await readFile(path, "utf8")), "a1").message.content, "second");
+		assert.equal(
+			parseLines(await readFile(path, "utf8")).some((entry) => entry.type === "context_edit" && entry.replacement?.content === "second"),
+			true,
+		);
 	});
 });
 
@@ -843,6 +910,38 @@ test("appendMessages chains entries after the current leaf and keeps header/trai
 		assert.equal(result.targetEntryId, after[3].id);
 		assert.deepEqual([...result.changedEntryIds], [after[3].id, after[4].id]);
 		assert.equal(await readFile(result.backupPath, "utf8"), before);
+	});
+});
+
+/**
+ * 回归（2026-10 实测发现）：编辑/删除会追加 context_edit，它成为新的 leaf；
+ * 之后追加的消息必须以该记录为 parent，否则会绕开编辑分叉——pi 沿新 leaf 回溯父链
+ * 时收集不到那条编辑，用户的修改静默失效（表现为「改了但模型还是看到旧的」）。
+ */
+test("appendMessages chains after a context_edit leaf so the edit stays on the branch", async () => {
+	await withTempSession(basicEntries("v0"), {}, async ({ path }) => {
+		const editor = new SessionFileEditor();
+		await editor.editMessage({
+			file: fileRef(path),
+			target: target({ text: "v0" }),
+			newText: "v1",
+			reload: async () => undefined,
+		});
+		const editEntry = parseLines(await readFile(path, "utf8")).find((entry) => entry.type === "context_edit");
+		assert.ok(editEntry, "编辑必须留下 context_edit");
+
+		await editor.appendMessages({
+			file: fileRef(path),
+			reload: async () => undefined,
+			entries: [{ role: "user", content: [{ type: "text", text: "after edit" }] }],
+		});
+		const after = parseLines(await readFile(path, "utf8"));
+		const appended = after[after.length - 1];
+		assert.equal(appended.type, "message");
+		assert.equal(appended.parentId, editEntry.id, "新消息必须接在 context_edit 之后（否则编辑掉出分支）");
+		// 用同一套 pi 投影规则复核：模型看到的应是 v1，而不是被绕过的 v0。
+		// 新追加的消息是块状 content，投影后保持数组形态（与 pi 一致）。
+		assert.deepEqual(piActiveMessageTexts(after), ["hello", "v1", [{ type: "text", text: "after edit" }]]);
 	});
 });
 

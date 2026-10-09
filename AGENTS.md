@@ -26,11 +26,12 @@ PiDeck 是 Electron 桌面应用，在多个项目目录间管理和运行 pi RP
 - 与 pi 内部的耦合已收敛到**路径定位**：`pi-deck-gui-bridge-tui.ts` 只解析 pi-tui 的安装路径（给 ext-points 做 types.d.ts 种子 + 诊断日志），不再加载模块；组件识别走实例原型链上的构造器名（serialize 的逐级匹配），不依赖 pi 安装布局。pi 升级挪动位置时定位失败只影响扩展点目录的一种子来源，必须静默降级而非报错。
 - fail-safe：端点起不来 → 不注入 env → 桥静默不工作；桥抛错 → 最多某落点缺席；两种都不得影响 pi 会话与其余功能。生命周期配对：`registerAgent` ↔ `unregisterAgent`（统一走 `AgentManager.unregisterBridgeSession`），stop/restart/删会话/退出都要注销。用户可在扩展设置页整体关掉桥（`removedBuiltInExtensions` → 不再注入），行为回到「没有桥」。
 
-**例外三：standby 运行时池（预热，只允许「提前起进程」这一用途）**
+**例外三：standby 运行时池（预热 + 只读命令预览；「消费池进程」仍然只有「提前起进程」一个用途）**
 
 - 一次 pi RPC 激活约 8.5s（实测 ≈ node/pi boot 0.5s + 用户 npm 扩展 5s + 内置 16 个 TS 扩展 2.4s），全部发生在 spawn→握手段。池的用法：草稿创建/激活完成后 `AgentManager.ensureStandbyAgent(projectId)` 后台起一个完整握手的进程待命（`src/main/pi/StandbyAgentPool.ts`：单槽位、容量 1、10min TTL 自动回收）；新会话激活经 `SessionRuntimeCoordinator.claimStandbyAgent` 认领，认领后照常走 applyLatestPreferences/mergePendingPermissionSettings，模型与权限热更新语义不变。
 - 只服务新会话（noSession/恢复历史会话不认领）；spawn 输入指纹（`src/main/pi/standbyFingerprint.ts`：扩展根/禁用集/offline/noExt/noSkills/customPiPath/WSL/代理/launchArgs）任一变化即丢弃回退普通 spawn，改设置无需重启池；信任走 `resolveTrustWithoutPrompt`，含资源未决策不池化（绝不后台弹 trust 弹窗）。
 - 已知限制：池化进程不带 PIDECK_SESSION_ID，安检门按默认档工作，per-session 安全覆盖对认领会话要重启才生效；池化 agent 对 agents:list/agent:state-changed 不可见。开关 `settings.standbyRuntimeEnabled`（默认开，开发者页可关）。启动耗时探针：`scripts/probePiStartup.mjs`（JITI_DEBUG=1 出逐模块 trace）。
+- 只读借用（Issue #316）：草稿会话斜杠命令预览 `AgentManager.draftCommands` 经 `StandbyAgentPool.peek(projectId)` 查同项目池进程的 `get_commands`（不认领、不消费、进程须 idle、指纹须新鲜）；链路 `sessions:draft-commands` IPC → 渲染层优先预览、空/失败回退本地技能/提示词发现；dsh/browser/preview 模式返回 null。
 
 **例外四：提示词增强侧车（`pi-enhance-host.mjs`，只允许「一次性单条补全请求」这一用途）**
 
@@ -193,7 +194,7 @@ src/
 | 提示词库 xueprompts.db | `content`/`description` 是 gzip BLOB，SQL LIKE 中文恒不命中，必须应用层 gunzip 后匹配 | 商店提示词库维护 |
 | 内置扩展热更新 | 判据是逐文件 sha256 不是版本号；覆盖层必须完整快照 + vendored 依赖；磁盘根统一走 `resolveBuiltInExtensionRoots()` | 内置扩展热更新 |
 | 生图存储 | **base64 不进 JSONL**（只存 ref）；读取永远有字节上界；`<img src>` 只走 `imageContentSrc()` | 生图会话存储 |
-| 会话消息编辑/删除/重发 | 墓碑是自造格式但与 pi 跨版本契约已验证（别误迁）；pi 活着禁改会话文件，三道闸不许放宽；unmerged 降级不弃快照 | 会话消息编辑/删除/重发 |
+| 会话消息编辑/删除/重发 | 编辑/删除写 pi 原生 `context_edit`（原文不改写、费用不回退；被移出的条目界面直接不显示，原始文件仍保留）；重发仍用 `deleted` 墓碑截断分支；追加条目的 parentId 必须取当前 leaf，pi 活着禁改会话文件，三道闸不许放宽 | 会话消息编辑/删除/重发 |
 | Markdown 渲染 | 唯一引擎 MarkdownStream，禁止再引 marked/react-markdown；流式与 settle 是两条路径，**复现要看最终态** | 会话 Markdown 渲染管线 |
 | 插件开发支持 | 能力目录 `pluginDevCatalog.ts` 镜像桥实现（19 落点/42 kind），新增落点/kind 必须同步目录+契约测试；`resources/plugin-dev` 要在 extraResources；demo 已存在不覆盖 | 插件开发支持 |
 | 发版 | CHANGELOG 中英一致 → sync-release-notes → sync-workflow-choices → 打包人工 smoke | docs/release-process.md |

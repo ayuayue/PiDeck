@@ -371,7 +371,7 @@ src/
 │     ├─ atoms/          # Jotai 状态（session-first）
 │     ├─ components/     # session / sidebar / workspace / ui-shadcn 等
 │     ├─ hooks/          # 渲染层 hooks
-│     ├─ i18n/           # 文案（zh-CN / en-US）
+│     ├─ i18n/           # 文案（zh-CN / zh-TW / en-US，繁体由 scripts/genZhTwCopy.mjs 生成）
 │     └─ styles/         # 按域拆分的样式 + 语义 token
 │
 └─ shared/            # 主/渲染共享类型与 IPC 通道定义

@@ -36,6 +36,50 @@ test("pool: put 后可按项目+指纹认领，认领后清空且不再触发 TT
 	assert.deepEqual(expired, []);
 });
 
+test("pool: peek 只读返回同项目条目，不消费也不触发回收", async () => {
+	const expired = [];
+	const pool = new StandbyAgentPool({ ttlMs: 1000, onExpire: (id) => expired.push(id) });
+	pool.put({ projectId: "p1", fingerprint: "fp-a", agentId: "agent-a" });
+	const peeked = pool.peek("p1");
+	// 跨 vm realm 对象无法 deepEqual，逐字段断言
+	assert.equal(peeked?.agentId, "agent-a");
+	assert.equal(peeked?.fingerprint, "fp-a");
+	// peek 不消费：条目仍在，后续仍可认领
+	assert.equal(pool.has("p1"), true);
+	const entry = pool.take("p1", "fp-a");
+	assert.equal(entry?.agentId, "agent-a");
+	await sleep(30);
+	assert.deepEqual(expired, [], "peek 不得重置或触发 TTL");
+	pool.dispose();
+});
+
+test("pool: peek 项目不符或池空返回 null", () => {
+	const pool = new StandbyAgentPool({ ttlMs: 1000, onExpire: () => undefined });
+	assert.equal(pool.peek("p1"), null);
+	pool.put({ projectId: "p1", fingerprint: "fp-a", agentId: "agent-a" });
+	assert.equal(pool.peek("p2"), null);
+	pool.dispose();
+});
+
+test("draftCommands: gateway 提供时透传，缺失或抛错一律返回 null", async () => {
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = createClaimHarness();
+	const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, harness.sender);
+
+	// 默认 harness 无 draftCommands 可选能力（dsh 网关形态）→ null
+	assert.equal(await coordinator.draftCommands("project-1"), null);
+
+	// pi 网关提供 → 透传
+	harness.agents.draftCommands = async (projectId) => [{ name: `x:${projectId}`, description: "", source: "skill" }];
+	assert.deepEqual(await coordinator.draftCommands("project-1"), [{ name: "x:project-1", description: "", source: "skill" }]);
+
+	// 网关抛错 → 吞掉返回 null（预览是提示增强，绝不能把错误抛给 IPC 层）
+	harness.agents.draftCommands = async () => {
+		throw new Error("boom");
+	};
+	assert.equal(await coordinator.draftCommands("project-1"), null);
+});
+
 test("pool: 指纹不匹配即废弃（onExpire 回收旧进程）并返回 null", () => {
 	const expired = [];
 	const pool = new StandbyAgentPool({ ttlMs: 1000, onExpire: (id) => expired.push(id) });

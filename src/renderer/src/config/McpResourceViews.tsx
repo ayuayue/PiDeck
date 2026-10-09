@@ -1,6 +1,9 @@
 import { t } from "../i18n";
-import { LogIn, LogOut, RefreshCw } from "lucide-react";
+import { AppWindow, BookOpen, CircleDot, CreditCard, Database, Flame, GitBranch, Globe, LogIn, LogOut, Map, MapPin, MessageSquare, Notebook, Bell, PenTool, RefreshCw, Search, ShieldAlert, TrainFront, Boxes } from "lucide-react";
 import { Button } from "../components/ui-shadcn/button";
+import { McpCatalogConfiguredMark, McpCatalogGroupTitle } from "./McpServiceTemplateForm";
+import { MCP_SERVICE_CATALOG, type McpServiceCatalogEntry } from "./mcpServiceCatalog";
+import { MCP_BRAND_ICONS, McpBrandIconSvg } from "./mcpServiceBrandIcons";
 import type { McpServerDefinition, McpServerListItem, McpServerTransport } from "../../../shared/types/mcp";
 
 // 识别规则/类型来自 shared（主进程会话启动提醒与渲染层横幅共用单一来源）。
@@ -54,6 +57,8 @@ export function McpServerListPane(props: {
 	onLogout: (name: string) => void;
 	onRefreshStatus: () => void;
 	statusLoading: boolean;
+	selectedTemplate: string | null;
+	onSelectTemplate: (template: string) => void;
 }) {
 	const stateOf = (name: string): { state: string; tools: string[]; error?: string } | undefined => props.statusByName[name];
 	return (
@@ -64,9 +69,8 @@ export function McpServerListPane(props: {
 					<RefreshCw size={12} className={props.statusLoading ? "animate-pideck-spin" : ""} />
 				</Button>
 			</div>
-			{props.servers.length === 0 && !props.creating ? (
-				<div className="px-2 py-6 text-center text-micro text-muted-foreground">{t("config.mcp.empty")}</div>
-			) : (
+			<div className="px-1 pb-0.5 text-micro text-muted-foreground">{t("config.mcp.template.configured")}</div>
+			{props.servers.length > 0 ? (
 				props.servers.map((item) => {
 					const disabled = isMcpServerDisabled(item.definition);
 					const status = props.statusByName[item.name];
@@ -121,8 +125,70 @@ export function McpServerListPane(props: {
 						</div>
 					);
 				})
-			)}
+			) : !props.creating ? (
+				<div className="px-2 py-2 text-micro text-muted-foreground">{t("config.mcp.empty")}</div>
+			) : null}
+			<div className="mt-2 px-1 pb-0.5 text-micro text-muted-foreground">{t("config.mcp.template.recommended")}</div>
+			{(["dev", "work", "maps", "search", "design"] as const).map((category) => (
+				<div key={category} className="mt-1">
+					<McpCatalogGroupTitle category={category} />
+					{MCP_SERVICE_CATALOG.filter((entry) => entry.category === category).map((entry) => {
+						const brand = MCP_BRAND_ICONS[entry.id];
+						const Icon = catalogEntryIcon(entry);
+						const configured = props.servers.some((item) => item.name === entry.defaultName);
+						return (
+							<Button key={entry.id} variant="ghost" size="sm" className={`w-full justify-start gap-2 px-2 ${props.selectedTemplate === entry.id ? "bg-accent/40" : ""}`} aria-pressed={props.selectedTemplate === entry.id} disabled={props.creating} onClick={() => props.onSelectTemplate(entry.id)}>
+								{brand ? <McpBrandIconSvg icon={brand} size={14} /> : <Icon size={14} className="shrink-0" aria-hidden="true" />}
+								<span className="min-w-0 flex-1 truncate text-left">{t(entry.titleKey)}</span>
+								{configured ? <McpCatalogConfiguredMark /> : null}
+							</Button>
+						);
+					})}
+				</div>
+			))}
 			{props.creating ? <div className="rounded-sm bg-accent/40 px-2 py-1.5 text-control font-medium">{t("config.mcp.newServer")}</div> : null}
 		</div>
 	);
+}
+
+/** 回退图标：simple-icons 未收录的服务（context7/firecrawl）用语义相近的 lucide 图标；品牌图标见 mcpServiceBrandIcons。 */
+function catalogEntryIcon(entry: McpServiceCatalogEntry) {
+	switch (entry.id) {
+		case "context7":
+			return BookOpen;
+		case "playwright":
+			return Globe;
+		case "chrome-devtools":
+			return AppWindow;
+		case "github":
+			return GitBranch;
+		case "sentry":
+			return ShieldAlert;
+		case "supabase":
+			return Database;
+		case "notion":
+			return Notebook;
+		case "brave-search":
+			return Search;
+		case "firecrawl":
+			return Flame;
+		case "figma":
+			return PenTool;
+		case "lark":
+			return MessageSquare;
+		case "dingtalk":
+			return Bell;
+		case "amap":
+			return Map;
+		case "tencent-map":
+			return MapPin;
+		case "rail12306":
+			return TrainFront;
+		case "modelscope":
+			return Boxes;
+		case "alipay":
+			return CreditCard;
+		default:
+			return CircleDot;
+	}
 }

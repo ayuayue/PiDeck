@@ -4,19 +4,19 @@ import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 
+import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
+
 const bridgeSource = readFileSync("src/main/feishu/FeishuBridge.ts", "utf8");
 const mainSource = readFileSync("src/main/index.ts", "utf8");
 // 飞书 IPC 处理器已随主进程拆分迁入 ipc/feishuIpc.ts（2027-02），契约同步改读新模块。
 const feishuIpcSource = readFileSync("src/main/ipc/feishuIpc.ts", "utf8");
-const i18nSource = readFileSync("src/main/feishu/FeishuI18n.ts", "utf8");
 
+/**
+ * 真实加载 FeishuI18n：它现在依赖繁体词典与简繁判定，手写沙箱会因缺 require 桥失败，
+ * 统一交给按源文件目录解析的加载器。
+ */
 function compileFeishuI18n() {
-	const output = ts.transpileModule(i18nSource, {
-		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-	}).outputText;
-	const sandbox = { exports: {} };
-	vm.runInNewContext(output, sandbox, { filename: "FeishuI18n.ts" });
-	return sandbox.exports;
+	return createTsSandbox()("src/main/feishu/FeishuI18n.ts");
 }
 
 /** 真实加载 AskCard（卡片构建/action 解析必须走真实现，mock 会丢断言）。 */

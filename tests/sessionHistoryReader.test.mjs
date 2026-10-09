@@ -1015,3 +1015,103 @@ test("readLoadWindow maps the compaction insert point into the window", async ()
 		await rm(directory, { recursive: true, force: true });
 	}
 });
+
+/**
+ * pi 原生 context_edit 在时间线上的呈现规则（2026-10 产品决定）：
+ *   - 被移出上下文的消息**直接不显示**（用户按下删除就应当看不到它，无徐章、不折叠）；
+ *   - 被改写内容的显示**改写后的正文**（否则刚做完的编辑看起来没生效），也不带标记。
+ * 文件里两者原文都保留（pi 的 append-only 语义），只是不再参与展示。
+ */
+test("context_edit：被移出的消息不出现，被改写的显示新正文", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "pideck-history-context-edits-"));
+	const sessionPath = join(directory, "session.jsonl");
+	try {
+		await writeLines(sessionPath, [
+			JSON.stringify({ id: "session", type: "session" }),
+			roleEntry("u1", "session", "user", "q1"),
+			roleEntry("a1", "u1", "assistant", "a1"),
+			roleEntry("u2", "a1", "user", "q2"),
+			roleEntry("a2", "u2", "assistant", "a2"),
+			JSON.stringify({ id: "e1", parentId: "a2", type: "context_edit", targetId: "a1", replacement: null, timestamp: "2026-01-01T00:00:04.000Z" }),
+			JSON.stringify({ id: "e2", parentId: "e1", type: "context_edit", targetId: "u2", replacement: { content: "rewritten q2" }, timestamp: "2026-01-01T00:00:05.000Z" }),
+		]);
+		const reader = createRoleAwareReader((path) => path);
+
+		const page = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 100);
+		// a1 被移出 → 不出现；u2 被改写 → 显示改写后的正文
+		assert.equal(JSON.stringify(joined(page.messages)), JSON.stringify(["q1:u1", "rewritten q2:u2", "a2:a2"]));
+		const replacedMessage = page.messages.find((message) => message.meta?.entryId === "u2");
+		assert.equal(replacedMessage.meta?.contextEdit, undefined, "编辑后不再带任何标记");
+		assert.equal(replacedMessage.meta?.contextEditOriginalText, undefined, "元数据随标记一并下线（原文在文件里，不在载荷里再存一份）");
+		assert.equal(
+			page.messages.some((message) => message.meta?.entryId === "a1"),
+			false,
+			"被移出的消息必须从时间线上消失",
+		);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+/** 同一目标多次编辑：后者覆盖前者（先改写再删除 → 最终就该消失）。 */
+test("context_edit：同一目标多次编辑只保留最后一次的状态", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "pideck-history-context-edits-last-"));
+	const sessionPath = join(directory, "session.jsonl");
+	try {
+		await writeLines(sessionPath, [
+			JSON.stringify({ id: "session", type: "session" }),
+			roleEntry("u1", "session", "user", "q1"),
+			roleEntry("a1", "u1", "assistant", "a1"),
+			JSON.stringify({ id: "e1", parentId: "a1", type: "context_edit", targetId: "u1", replacement: { content: "first" }, timestamp: "2026-01-01T00:00:01.000Z" }),
+			JSON.stringify({ id: "e2", parentId: "e1", type: "context_edit", targetId: "u1", replacement: null, timestamp: "2026-01-01T00:00:02.000Z" }),
+		]);
+		const reader = createRoleAwareReader((path) => path);
+
+		const page = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 100);
+		assert.equal(JSON.stringify(joined(page.messages)), JSON.stringify(["a1:a1"]), "先改写再删除 → u1 最终不显示");
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+/**
+ * 分支隔离：另一分支上的编辑不得影响当前分支的展示。
+ * 文件顺序决定 leaf（最后一条带 id 的条目），所以主分支叶子写最后。
+ */
+test("context_edit：另一分支的编辑不影响当前分支展示", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "pideck-history-context-edits-branch-"));
+	const sessionPath = join(directory, "session.jsonl");
+	try {
+		await writeLines(sessionPath, [
+			JSON.stringify({ id: "session", type: "session" }),
+			roleEntry("u1", "session", "user", "q1"),
+			roleEntry("a1", "u1", "assistant", "main"),
+			// 另一分支：b1 + 其上针对 a1 的编辑（不在 leaf=a2 的父链上）
+			roleEntry("b1", "u1", "assistant", "side"),
+			JSON.stringify({ id: "e-side", parentId: "b1", type: "context_edit", targetId: "a1", replacement: null, timestamp: "2026-01-01T00:00:01.000Z" }),
+			roleEntry("a2", "a1", "assistant", "main leaf"),
+		]);
+		const reader = createRoleAwareReader((path) => path);
+
+		const page = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 100);
+		// 另一分支的删除不得把本分支的 a1 也从界面上抹掉
+		assert.equal(JSON.stringify(joined(page.messages)), JSON.stringify(["q1:u1", "main:a1", "main leaf:a2"]));
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+/** 无编辑时行为不变（旧会话不引入回归噪声）。 */
+test("无 context_edit 时消息原样展示", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "pideck-history-context-edits-none-"));
+	const sessionPath = join(directory, "session.jsonl");
+	try {
+		await writeLines(sessionPath, [JSON.stringify({ id: "session", type: "session" }), roleEntry("u1", "session", "user", "q1"), roleEntry("a1", "u1", "assistant", "a1")]);
+		const reader = createRoleAwareReader((path) => path);
+
+		const page = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 100);
+		assert.equal(JSON.stringify(joined(page.messages)), JSON.stringify(["q1:u1", "a1:a1"]));
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});

@@ -35,7 +35,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, "..");
 
 export const PI_AI_PACKAGE_NAME = "@earendil-works/pi-ai";
-export const PI_AI_CATALOG_SCHEMA_VERSION = 1;
+/**
+ * artifact 格式版本。从 1 开始。
+ * v2：取消字段白名单（条目透传官方全部字段，含 `type`），改为紧凑序列化。
+ * v1 产物只含 9 个裁剪字段、丢失类型，无法在读取时可靠区分 chat / image /
+ * classifier，因此不兼容 —— 旧版本缓存（用户下载的覆盖层）会被校验拒绝并回退到
+ * 随包目录，不做迁移器；用户下次点「更新到最新」会自然得到 v2 产物。
+ */
+export const PI_AI_CATALOG_SCHEMA_VERSION = 2;
 export const PI_AI_CATALOG_FILE_NAME = "pi-ai-catalog.json";
 export const PI_AI_CATALOG_MANIFEST_FILE_NAME = "pi-ai-catalog.manifest.json";
 
@@ -49,47 +56,32 @@ function isRecord(value) {
 	return value != null && typeof value === "object" && !Array.isArray(value);
 }
 
-function nonEmptyString(value) {
-	return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
 // 与旧 runtime loader 一致：只规范化模型 ID；provider/name/baseUrl 保留上游原值，
 // 以免将精确匹配意外变成宽松匹配。
 function normalizedModelId(value) {
 	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function positiveInt(value) {
-	return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
-}
-
-/** 输入模型条目裁剪为 PiDeck 主进程的实际消费字段。 */
+/**
+ * 提取一条目录条目：**保留官方原始字段**，只做最小结构校验。
+ *
+ * 为什么不再按白名单裁剪：旧版只留 9 个字段，把 `type` 一并丢掉，于是 image /
+ * classifier 模型混进了聊天能力补全，且要用的价格、inputLimits、output 等字段
+ * 一旦需要就得再来改一次生成器。现在直接透传官方对象，上游新增字段无需改脚本。
+ *
+ * 只做两件事：
+ *   1. 无有效 id 的条目丢弃（PiDeck 一切匹配都以 id 为键）；
+ *   2. 去掉值为 undefined 的键（JSON.stringify 会直接丢，显式删掉让产物意图清晰）。
+ * 注意键顺序必须与来源保持一致，保证同输入得到字节级一致的输出。
+ */
 export function extractCatalogEntry(model) {
 	if (!isRecord(model)) return undefined;
-	const id = normalizedModelId(model.id);
-	if (!id) return undefined;
-
-	const entry = { id };
-	const name = nonEmptyString(model.name);
-	const provider = nonEmptyString(model.provider);
-	const contextWindow = positiveInt(model.contextWindow);
-	const maxTokens = positiveInt(model.maxTokens);
-	const api = nonEmptyString(model.api);
-	const baseUrl = nonEmptyString(model.baseUrl);
-	if (name) entry.name = name;
-	if (provider) entry.provider = provider;
-	if (api) entry.api = api;
-	if (baseUrl) entry.baseUrl = baseUrl;
-	if (typeof model.reasoning === "boolean") entry.reasoning = model.reasoning;
-	if (Array.isArray(model.input)) {
-		const input = model.input.filter((item) => item === "text" || item === "image");
-		if (input.length > 0) entry.input = input;
+	if (!normalizedModelId(model.id)) return undefined;
+	const entry = {};
+	for (const [key, value] of Object.entries(model)) {
+		if (value === undefined) continue;
+		entry[key] = value;
 	}
-	if (contextWindow !== undefined) entry.contextWindow = contextWindow;
-	if (maxTokens !== undefined) entry.maxTokens = maxTokens;
-	// 保留原始 JSON 映射；运行时仍由 parseThinkingLevelMap 收窄合法档位和值，
-	// 以抵御手工修改或上游未来字段变化。
-	if (isRecord(model.thinkingLevelMap)) entry.thinkingLevelMap = model.thinkingLevelMap;
 	return entry;
 }
 
@@ -155,7 +147,9 @@ export function createPiAiCatalogArtifact(entries) {
 }
 
 export function serializeJson(value) {
-	return `${JSON.stringify(value, null, 2)}\n`;
+	// 紧凑序列化（无缩进）：条目现在透传官方全部字段，2 空格缩进会让产物从 ~0.9MB
+	// 膨胀到 ~1.7MB。上游 42 份原始 JSON 本身就是紧凑格式，这样体积只比原件多几千字节。
+	return `${JSON.stringify(value)}\n`;
 }
 
 function readSourcePackage(sourceDir) {

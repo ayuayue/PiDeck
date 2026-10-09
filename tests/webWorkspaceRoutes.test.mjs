@@ -125,8 +125,8 @@ test("git diff validates group/path, rejects traversal, and caps diff bytes", as
 	assert.equal(ok.body.diff.patch, "@@ -1 +1 @@");
 	assert.equal(calls.diff[0].group, "workingTree");
 	assert.equal(calls.diff[0].filePath, "src/a.ts");
-	// 有界 diff：与桌面 Git 面板同量级的 256KB 上限必须在调用层生效
-	assert.equal(calls.diff[0].maxBytes, 256 * 1024);
+	// 有界 diff：Web 端 1MB 上限必须在调用层生效（放宽首 256KB 对大重构/合并文件过紧）
+	assert.equal(calls.diff[0].maxBytes, 1024 * 1024);
 });
 
 test("git log clamps limit into [1,50] with default 20", async () => {
@@ -164,7 +164,12 @@ test("file-content enforces sandbox, size bound, and binary refusal on a real di
 	await writeFile(join(root, "a.txt"), "hello web", "utf8");
 	await writeFile(join(root, "img.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x00]));
 	await writeFile(join(root, "nul.log"), Buffer.from("a\0b", "utf8"));
+	// 黑名单启发：无扩展名（Makefile）与生僻文本格式（.gradle）不再是白名单外拒读，只要内容无 NUL 就能预览
+	await writeFile(join(root, "Makefile"), "build:\n\tgo build ./...", "utf8");
+	await writeFile(join(root, "build.gradle"), "plugins { id 'java' }", "utf8");
+	// 2MB+1 触发截断预览；512KB+1 在新上限内完整返回
 	await writeFile(join(root, "big.txt"), "x".repeat(512 * 1024 + 1), "utf8");
+	await writeFile(join(root, "huge.txt"), "y".repeat(2 * 1024 * 1024 + 1), "utf8");
 	await mkdir(join(root, "sub"));
 	await writeFile(join(dirname(root), "escape.txt"), "outside", "utf8");
 
@@ -176,19 +181,31 @@ test("file-content enforces sandbox, size bound, and binary refusal on a real di
 	assert.equal(text.body.content, "hello web");
 	assert.equal(text.body.binary, undefined);
 
-	// 扩展名白名单外（png）→ 按二进制拒绝，不吐 UTF-8 乱码
+	// 二进制扩展名黑名单（png）→ 按二进制拒绝，不吐 UTF-8 乱码
 	const png = await call(routes, `/api/file-content?projectId=p1&path=${encodeURIComponent("img.png")}`);
 	assert.equal(png.body.binary, true);
 	assert.equal(png.body.content, undefined);
 
-	// 白名单内但含 NUL 字节 → 仍按二进制拒绝
+	// 黑名单外但含 NUL 字节 → 启发式仍拒
 	const nul = await call(routes, `/api/file-content?projectId=p1&path=${encodeURIComponent("nul.log")}`);
 	assert.equal(nul.body.binary, true);
 
-	// 超 512KB → tooLarge，不读内容
+	// 无扩展名与生僻文本格式（旧白名单会误拒）→ 正常预览
+	const makefile = await call(routes, `/api/file-content?projectId=p1&path=${encodeURIComponent("Makefile")}`);
+	assert.equal(makefile.body.content, "build:\n\tgo build ./...");
+	const gradle = await call(routes, `/api/file-content?projectId=p1&path=${encodeURIComponent("build.gradle")}`);
+	assert.equal(gradle.body.content, "plugins { id 'java' }");
+
+	// 512KB+1 在 2MB 上限内 → 完整内容
 	const big = await call(routes, `/api/file-content?projectId=p1&path=${encodeURIComponent("big.txt")}`);
-	assert.equal(big.body.tooLarge, true);
-	assert.equal(big.body.size, 512 * 1024 + 1);
+	assert.equal(big.body.content?.length, 512 * 1024 + 1);
+	assert.equal(big.body.truncated, undefined);
+
+	// 超 2MB → 截断预览：前 512KB 内容 + truncated 标记（不再空手而归）
+	const huge = await call(routes, `/api/file-content?projectId=p1&path=${encodeURIComponent("huge.txt")}`);
+	assert.equal(huge.body.truncated, true);
+	assert.equal(huge.body.content?.length, 512 * 1024);
+	assert.equal(huge.body.size, 2 * 1024 * 1024 + 1);
 
 	// 沙箱：..逃逸 → 403；目录 → 404；缺失文件 → 404；空 path → 400
 	assert.equal((await call(routes, `/api/file-content?projectId=p1&path=${encodeURIComponent("../escape.txt")}`)).status, 403);

@@ -1,4 +1,5 @@
 import type { AgentBackend } from "./agent";
+import type { AcpToolConfig } from "./acp";
 import type { BusySendDelivery } from "../busySendDelivery";
 import { SESSION_TAB_MAX_WIDTH_DEFAULT } from "../sessionTabWidth";
 import { createDefaultExternalEditorSettings, type ExternalEditorSettings } from "./project";
@@ -24,7 +25,17 @@ export type LogoStyle = "classic" | "pi-tui";
 export function resolveLogoStyle(value: string | null | undefined): LogoStyle {
 	return value === "classic" ? "classic" : "pi-tui";
 }
-export type AppLanguageMode = "system" | "zh-CN" | "en-US" | "pseudo";
+export type AppLanguageMode = "system" | "zh-CN" | "zh-TW" | "en-US" | "pseudo";
+
+/**
+ * 判断语言标签是否属于繁体中文（zh-TW / zh-HK / zh-MO 与 zh-Hant-*）。
+ * 主进程与渲染层共用同一份判定：大小写与下划线都要归一，因为「system」模式下拿到的
+ * 既可能是 Electron 的 app.getLocale()（zh-TW）也可能是浏览器的 navigator.language（zh-Hant-TW）。
+ */
+export function isTraditionalChineseLanguageTag(language: string): boolean {
+	const normalized = language.trim().replace(/_/g, "-").toLowerCase();
+	return normalized.includes("hant") || /^zh-(tw|hk|mo)\b/.test(normalized);
+}
 export type LinkOpenMode = "external" | "internal";
 
 /** 主进程枚举出的可用于手机访问 Web 服务的局域网入口。 */
@@ -73,6 +84,13 @@ export const DEFAULT_TOAST_DURATION_MS = 4000;
 export const TOAST_DURATION_STICKY_MS = -1;
 export type AppFontBaseMode = "system" | "sans" | "serif" | "custom";
 export type AppFontMonoMode = "system-mono" | "custom";
+
+/** 终端配色主题 id：inherit 是实现概念（跟随应用明暗取 pi-soft 亮/暗版），其余为固定配色 */
+export type TerminalThemeId = "inherit" | "solarized-light" | "solarized-dark" | "one-dark" | "monokai";
+/** 关闭终端标签的确认策略：never=从不问；running=有前台进程才问；always=总问 */
+export type TerminalConfirmCloseMode = "never" | "running" | "always";
+/** xterm 光标形状 */
+export type TerminalCursorStyle = "block" | "bar" | "underline";
 /** 主窗口启动尺寸预设：last=上次关闭时的窗口大小（读不到时顺延默认）；fullscreen 占满屏幕，maximized 最大化，其余为固定窗口 */
 export type StartupWindowMode = "last" | "fullscreen" | "maximized" | "normal-large" | "normal-medium" | "normal-compact";
 
@@ -288,6 +306,22 @@ export type AppSettings = {
 	 * 默认 true，与默认 0.0.0.0 绑定配合，阻断局域网未授权访问。
 	 */
 	webServiceRequiresAuth: boolean;
+	/**
+	 * 固定访问令牌。持久化：重启服务/应用不换新，远程设备已保存的链接不失效；
+	 * 缺省时首次启动自动生成并回写。可由设置页手动修改或重新生成。
+	 */
+	webServiceToken?: string;
+	/** 令牌生成/最后修改时刻（epoch ms），过期计时的基准；不随重启重置 */
+	webServiceTokenGeneratedAt?: number;
+	/** 令牌有效期（ms），0 = 永不过期（默认）；从 generatedAt 起算，到期后请求 401 */
+	webServiceTokenExpiresIn?: number;
+	/**
+	 * cloudflared 隧道传输协议：http2 = TCP 443（默认，规避国内 UDP QoS 限速）、
+	 * quic = UDP、auto = cloudflared 自行回退。用户环境差异大，允许调整。
+	 */
+	webRemoteCloudflaredProtocol?: WebRemoteCloudflaredProtocol;
+	/** cloudflared 额外启动参数（空白切分后数组直传子进程，无 shell 注入面）；如 "--edge-ip-version 6" */
+	webRemoteCloudflaredExtraArgs?: string;
 	/** 本地生成的匿名安装标识，不包含账号、路径或机器名 */
 	telemetryInstallId?: string;
 	/** 最近一次发送 app_heartbeat 的本地日期，格式 YYYY-MM-DD */
@@ -420,6 +454,13 @@ export type AppSettings = {
 	 */
 	hiddenModules?: string[];
 
+	/**
+	 * 用户主动隐藏的输入框功能入口 id 列表（清单与语义见 shared/composerFeatures.ts）。
+	 * 可关项：提示词增强/语音输入/快捷消息/权限/Git 分支；只隐藏入口，不停功能与快捷键。
+	 * 默认 `[]` 全部显示；可选以兼容旧 settings.json。
+	 */
+	hiddenComposerFeatures?: string[];
+
 	// ── 供应商卡片排序：用户在模型页拖拽/上移下移后写入的自定义顺序 ──
 	/**
 	 * Pi 模型页供应商卡片的用户自定义顺序（provider key 数组，与 models.json 一致）。
@@ -476,6 +517,28 @@ export type AppSettings = {
 	fontFamilyMono: AppFontMonoMode;
 	/** fontFamilyMono=custom 时的自定义字体族栈，原样写入 CSS font-family */
 	fontFamilyMonoCustom: string;
+
+	// ── 终端（外观/行为/启动）──
+	/** 终端配色主题 id。inherit=跟随应用明暗（深色用 pi-soft 暗版） */
+	terminalTheme: TerminalThemeId;
+	/** 终端字号（px）。为 null 时跟随外观设置的 UI 字号档位 */
+	terminalFontSize: number | null;
+	/** 终端字体族自定义栈。空串时使用 --font-family-mono（外观设置的代码字体） */
+	terminalFontFamily: string;
+	/** 终端滚动回放行数上限（下次新开终端生效） */
+	terminalScrollback: number;
+	/** 光标形状 */
+	terminalCursorStyle: TerminalCursorStyle;
+	/** 光标是否闪烁 */
+	terminalCursorBlink: boolean;
+	/** 选区变化时是否自动复制到系统剪贴板 */
+	terminalCopyOnSelect: boolean;
+	/** 终端内容区上下内边距（px） */
+	terminalPaddingY: number;
+	/** 关闭终端标签时的确认策略 */
+	terminalConfirmClose: TerminalConfirmCloseMode;
+	/** 可选的终端启动命令：非空时新终端在 shell 启动后立即执行该命令 */
+	terminalStartupCommand: string;
 
 	// ── 更新检测 ──
 	/**
@@ -688,12 +751,58 @@ export type AppSettings = {
 	 * 对已运行会话不变。缺省 undefined/false = 完全等同现状（不注入任何行）。
 	 */
 	dshAgentTeamPreset?: boolean;
+
+	/**
+	 * DSH runtime 迁移提示是否已展示过（一次性提示的持久化闩，#317）。
+	 *
+	 * 渲染层展示「runtime 不在 + 存量 dsh 会话」提示前读取；展示后立即写 true，
+	 * 跨重启不再重弹（否则每次启动都弹，提示变成骚扰）。缺省 undefined/false =
+	 * 还没提示过。展示即置位而非「用户点过入口」：错过 toast 的用户仍可从设置页
+	 * 的 DSH 安装引导进入，不为此保持打扰。
+	 */
+	dshRuntimeMigrationNoticeShown?: boolean;
+
+	/**
+	 * ACP agent CLI 工具登记表（backend=acp 会话的驱动器）：gemini --acp /
+	 * opencode acp / kimi acp / codex-acp 等。数组保序（展示=登记顺序）；
+	 * 删除工具后旧会话靠 acpSessionId 只读降级。缺省 undefined = 空表（无 ACP 工具）。
+	 */
+	acpTools?: AcpToolConfig[];
 };
 
 /**
- * Web 服务运行时状态；token 每次 start 随机重生成。
+ * 令牌有效期可选值（ms）。0 = 永不过期（默认）；从 webServiceTokenGeneratedAt 起算。
+ * 主进程 IPC 校验与 SettingsStore 清洗共用同一份枚举，避免两处口径漂移。
+ */
+export const WEB_TOKEN_EXPIRES_IN_CHOICES = [0, 3_600_000, 86_400_000, 604_800_000, 2_592_000_000] as const;
+
+/** cloudflared 隧道传输协议枚举（webRemoteCloudflaredProtocol）；默认 http2（TCP，规避 UDP QoS 限速）。 */
+export const WEB_REMOTE_CLOUDFLARED_PROTOCOLS = ["auto", "quic", "http2"] as const;
+export type WebRemoteCloudflaredProtocol = (typeof WEB_REMOTE_CLOUDFLARED_PROTOCOLS)[number];
+
+/**
+ * 清洗用户输入的 cloudflared 额外参数：允许空格分隔多参数，但仅限可打印 ASCII（拒绝控制字符/非 ASCII），
+ * 长度 ≤500；切分后 argv 直传子进程，无 shell 注入面。非法输入整体置空回退默认。
+ */
+export function sanitizeCloudflaredExtraArgs(value: unknown): string {
+	if (typeof value !== "string") return "";
+	const trimmed = value.trim();
+	if (!trimmed || trimmed.length > 500) return "";
+	return /^[ -~]+$/.test(trimmed) ? trimmed : "";
+}
+
+/**
+ * 手动设置令牌的形状约束：8-128 个可打印非空白 ASCII（不含空格，避免 URL 拼接歧义）。
+ * 自动生成的 UUID 天然满足；用户自定义串在此拦截，超界回落未设置。
+ */
+export function isValidWebTokenShape(value: string): boolean {
+	return /^[!-~]{8,128}$/.test(value);
+}
+
+/**
+ * Web 服务运行时状态；token 持久化固定（见 AppSettings.webServiceToken），重启不换新。
  * requiresAuth 反映用户设置 webServiceRequiresAuth 的清洗结果，缺省视为 true。
- * 渲染层设置页二维码/令牌提示据此附上访问令牌。
+ * 渲染层设置页二维码/令牌提示据此附上访问令牌；tokenExpiresAt 供「剩余有效期」展示（null = 永不过期）。
  */
 export type WebServiceStatusInfo = {
 	running: boolean;
@@ -701,6 +810,7 @@ export type WebServiceStatusInfo = {
 	port: number;
 	token: string;
 	requiresAuth: boolean;
+	tokenExpiresAt: number | null;
 };
 
 // ── 桌面宠物类型 ──
@@ -897,6 +1007,18 @@ export function createDefaultAppSettings(): AppSettings {
 		fontFamilyBaseCustom: "",
 		fontFamilyMono: "system-mono",
 		fontFamilyMonoCustom: "",
+		// 终端外观/行为默认值：主题 inherit 保持 pi-soft 跟随明暗行为，
+		// scrollback 与 TerminalDock 历史硬编码 5000 一致（升级后行为不变）。
+		terminalTheme: "inherit",
+		terminalFontSize: null,
+		terminalFontFamily: "",
+		terminalScrollback: 5000,
+		terminalCursorStyle: "block",
+		terminalCursorBlink: true,
+		terminalCopyOnSelect: false,
+		terminalPaddingY: 8,
+		terminalConfirmClose: "running",
+		terminalStartupCommand: "",
 		removedBuiltInExtensions: [],
 		// 声音提醒：与主进程 defaultSettings 保持一致（完成/异常开、等待输入关）
 		soundAlert: createDefaultSoundAlertSettings(),

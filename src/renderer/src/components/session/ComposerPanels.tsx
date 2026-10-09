@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUp, ChevronDown, ChevronUp, Clock, FileText, ListOrdered, LoaderCircle, Pencil, Split, Square, X, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowUp, ChevronDown, ChevronUp, Clock, Copy, FileText, FolderOpen, ListOrdered, LoaderCircle, Pencil, Split, Square, X, XCircle } from "lucide-react";
 import { useId, type RefObject } from "react";
 import { useAtomValue, useStore } from "jotai";
 import type { ImageContent } from "../../../../shared/types";
@@ -11,6 +11,9 @@ import { resolveComposerSendButtonState } from "../../utils/composerSendButton";
 import { buildAskContextBlock } from "../../utils/askPanelContext";
 import { canChangeQueuedPromptBehavior, canDiscardQueuedPrompt, canRetractQueuedPromptToInput, discardControlHint, retractControlHint } from "../../utils/queuedPromptQueue";
 import { t } from "../../i18n";
+import { desktopApi } from "../../desktopApi";
+import { writeClipboard } from "../../utils/clipboard";
+import { showNotice } from "../../utils/notice";
 import { Button } from "../ui-shadcn/button";
 import { ButtonGroup } from "../ui-shadcn/button-group";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
@@ -55,6 +58,33 @@ export function ComposerAttachmentBar(props: {
 					<FileText size={14} strokeWidth={2} className="shrink-0" aria-hidden="true" />
 					<span className="paste-file-chip-name">{file.fileName}</span>
 					<span className="paste-file-chip-size">{formatBytes(file.bytes)}</span>
+					{/* 粘贴转文件此前只能删除：补「用系统默认程序打开」和「复制路径」两个出口（2026-10 用户反馈） */}
+					<Button
+						variant="ghost"
+						size="icon"
+						className="image-remove-btn paste-file-remove-btn"
+						aria-label={t("menu.defaultOpen")}
+						title={t("menu.defaultOpen")}
+						onClick={() => {
+							void desktopApi.files.open(file.path).catch((error) => showNotice(t("app.openFileFailed", { error: error instanceof Error ? error.message : String(error) })));
+						}}
+					>
+						<FolderOpen size={12} strokeWidth={2.4} aria-hidden="true" />
+					</Button>
+					<Button
+						variant="ghost"
+						size="icon"
+						className="image-remove-btn paste-file-remove-btn"
+						aria-label={t("menu.copyPath")}
+						title={t("menu.copyPath")}
+						onClick={() => {
+							void writeClipboard(file.path).then((ok) => {
+								if (ok) showNotice(t("copy.success"), 1200);
+							});
+						}}
+					>
+						<Copy size={12} strokeWidth={2.4} aria-hidden="true" />
+					</Button>
 					<Button variant="ghost" size="icon" className="image-remove-btn paste-file-remove-btn" aria-label={t("app.pasteFileRemove")} title={t("app.pasteFileRemove")} onClick={() => props.onRemovePasteFile?.(index)}>
 						<X size={12} strokeWidth={2.4} aria-hidden="true" />
 					</Button>

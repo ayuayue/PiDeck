@@ -15,6 +15,7 @@ import {
 	Pencil,
 	Terminal,
 	GitBranch,
+	ListTree,
 	// 命令面板（Ctrl/Cmd+P）操作项图标
 	SquarePen,
 	Settings2,
@@ -56,6 +57,7 @@ import { useRename } from "./hooks/useRename";
 import { useProjectRuntimeCapabilities } from "./hooks/useRuntimeCapabilities";
 import { useSessionRuntimeBridge } from "./hooks/useSessionRuntimeBridge";
 import { useAgentLoadNotice } from "./hooks/useAgentLoadNotice";
+import { useArchMismatchNotice } from "./hooks/useArchMismatchNotice";
 import { useAnnouncementNotifier } from "./hooks/useAnnouncementNotifier";
 import { useModelsVerifyNotifier } from "./hooks/useModelsVerifyNotifier";
 import { useBackgroundAskPatrol } from "./hooks/useBackgroundAskPatrol";
@@ -129,6 +131,7 @@ import {
 	setSessionDraftAtom,
 	cacheSessionMessagesAtom,
 	upsertSessionAtom,
+	acpToolsAtom,
 } from "./atoms";
 import { isSameSessionPath } from "./agentListDisplay";
 import { t } from "./i18n";
@@ -153,6 +156,8 @@ import { useSessionWorkspaceChrome } from "./hooks/useSessionWorkspaceChrome";
 import { useQuickTask } from "./hooks/useQuickTask";
 import { QuickTaskSurface } from "./components/app/QuickTaskSurface";
 import { AskPanelOverlay } from "./components/overlays/AskPanelOverlay";
+import { HostPluginPanelHost } from "./components/plugins/HostPluginPanelHost";
+import { useHostPluginNavigation } from "./hooks/plugins/useHostPluginNavigation";
 import { TerminalDockPanel } from "./components/terminal/TerminalDockPanel";
 import { ResizablePanel, ResizablePanelGroup } from "./components/ui-shadcn/resizable";
 import { AppShell } from "./components/app/AppShell";
@@ -176,7 +181,27 @@ import { flattenFiles, fileNodeDragPayloadToRef, mergeCommands, getToolFilePath,
 const ProjectResourcesModal = lazy(() => import("./components/app/ProjectResourcesModal").then((m) => ({ default: m.ProjectResourcesModal })));
 import { createDefaultAppSettings } from "../../shared/types";
 import { hydrateImageContents } from "../../shared/imageContentSrc";
-import type { AgentRuntimeState, AgentTab, SessionRuntimeTarget, AppSettings, ChatMessage, FileTreeNode, ImageContent, PiCommand, Project, AgentBackend, SessionLaunchPreferences, SessionRecord, SessionSummary, ComposerAgentMode, TerminalTarget, GitBranchInfo, FocusTargetPayload } from "../../shared/types";
+import type {
+	AgentRuntimeState,
+	AgentTab,
+	SessionRuntimeTarget,
+	AppSettings,
+	ChatMessage,
+	FileTreeNode,
+	ImageContent,
+	PiCommand,
+	Project,
+	AgentBackend,
+	SessionLaunchPreferences,
+	SessionRecord,
+	SessionSummary,
+	ComposerAgentMode,
+	TerminalTarget,
+	TerminalThemeId,
+	GitBranchInfo,
+	FocusTargetPayload,
+} from "../../shared/types";
+import type { TerminalDockSettings } from "./components/terminal/TerminalDock";
 
 export function App() {
 	if (missingElectronPreload) {
@@ -323,6 +348,20 @@ export function App() {
 			.catch(() => undefined);
 	}, [showToast]);
 	// 历史命令：按 agent 隔离，agent 关闭即清除（不持久化）
+	// ACP 工具表（settings.acpTools 快照）：挂载时拉一次供新建会话菜单/设置页共享；
+	// 后续变更由设置页保存后整表回写 acpToolsAtom，不做事件订阅（改动频率极低）。
+	useEffect(() => {
+		let cancelled = false;
+		void api.acp
+			.listTools()
+			.then((tools) => {
+				if (!cancelled) store.set(acpToolsAtom, tools);
+			})
+			.catch(() => undefined);
+		return () => {
+			cancelled = true;
+		};
+	}, [store]);
 	const promptHistoryRef = useRef<Record<string, string[]>>({});
 
 	// 面板宽度的 localStorage 只按 renderer origin 隔离；开发端口变化时会读不到旧值。
@@ -677,6 +716,31 @@ export function App() {
 		terminalStatesByOwner,
 		prune: pruneTerminalDockState,
 	} = useTerminalDock(terminalOwner);
+	// 终端外观设置：App 级单份，随 AppSettings 持久化；dock 只收子集 props，不自读 settings
+	const terminalSettings = useMemo<TerminalDockSettings>(
+		() => ({
+			themeId: settings.terminalTheme,
+			fontFamily: settings.terminalFontFamily,
+			fontSize: settings.terminalFontSize,
+			scrollback: settings.terminalScrollback,
+			cursorStyle: settings.terminalCursorStyle,
+			cursorBlink: settings.terminalCursorBlink,
+			copyOnSelect: settings.terminalCopyOnSelect,
+			paddingY: settings.terminalPaddingY,
+			confirmClose: settings.terminalConfirmClose,
+			startupCommand: settings.terminalStartupCommand,
+		}),
+		[settings.terminalTheme, settings.terminalFontFamily, settings.terminalFontSize, settings.terminalScrollback, settings.terminalCursorStyle, settings.terminalCursorBlink, settings.terminalCopyOnSelect, settings.terminalPaddingY, settings.terminalConfirmClose, settings.terminalStartupCommand],
+	);
+	const setTerminalTheme = useCallback(
+		(themeId: TerminalThemeId) => {
+			void api.settings
+				.update({ terminalTheme: themeId })
+				.then(setSettings)
+				.catch(() => showToast(t("settings.terminal.themeChangeFailed"), 3000));
+		},
+		[api, showToast],
+	);
 	const [expandedSidebarProjects, setExpandedSidebarProjects] = useState<Set<string>>(new Set());
 	const expandedSidebarProjectsRef = useRef(expandedSidebarProjects);
 	expandedSidebarProjectsRef.current = expandedSidebarProjects;
@@ -811,6 +875,9 @@ export function App() {
 	});
 	// 激活 Agent 数量告警：受设置 agentCountReminderEnabled 控制（默认开启），每个启动周期提示一次
 	useAgentLoadNotice(settings.agentCountReminderEnabled);
+
+	// 架构错包检测：x64 包跑在 Apple Silicon（Rosetta）下时提示换装 arm64 原生包（可永久关闭）
+	useArchMismatchNotice();
 
 	// logo 风格 → 渲染层镜像 atom + localStorage 缓存：LogoMark/侧栏/关于弹层订阅 atom 即时切换；
 	// localStorage 让下次启动的启动画面（React 挂载前）就能用同一风格，避免开屏闪回默认 pi-tui。
@@ -1117,6 +1184,9 @@ export function App() {
 	}, [terminalOwner, currentSessionId, currentSessionRecord, projects, activeProjectId, getRuntimeTargetForSession]);
 
 	const quickTask = useQuickTask({ ready: settingsLoaded, backend: effectiveAgentBackend, upsertSession, selectSession: selectSessionCommand, registerSession: workspaceChrome.registerOpenSession, refreshProjects, getSessionRecord });
+
+	// 桌面插件发起的会话导航：broker 已验权限/归属，这里只注入现有选中动作（复用唯一选中路径）
+	useHostPluginNavigation(selectSessionCommand);
 
 	// 关闭 Tab / 分屏退栏时的焦点切换：只改 currentSession，不碰 Tab 登记
 	useEffect(() => {
@@ -1677,7 +1747,7 @@ export function App() {
 	 * pi 历史消息改写：无 runtime 直接改 JSONL；有 runtime 先确认停止再改文件。
 	 * DSH 入口在 Injector 按 backend 隐藏。下次发送才重新激活 Agent。
 	 */
-	const { editMessage, deleteMessage, resendUserMessage, forkFromUserMessage, forkingMessageId } = useSessionHistoryMutations({
+	const { editMessage, deleteMessage, resendUserMessage, forkFromUserMessage, forkAtEntry, forkingMessageId } = useSessionHistoryMutations({
 		currentSessionId,
 		getRuntimeTargetForSession,
 		getRuntimeTargetForAgent,
@@ -1930,6 +2000,20 @@ export function App() {
 				await createAnonymousSessionWithTab(projectId);
 			},
 			deleteDraft: deleteDraftSession,
+			// ACP 工具会话：backend 固定 acp、acpToolId 指向 settings.acpTools 条目。
+			// 工具表已加载进 acpToolsAtom，此处只按 id 取名称作草稿标题；找不到（刚被删）
+			// 提示引导而不是静默失败。创建后与 createDraft 同一条选中/登记链。
+			createAcp: async (projectId, toolId) => {
+				const tool = store.get(acpToolsAtom).find((candidate) => candidate.id === toolId);
+				if (!tool) {
+					showToast(t("app.acpNoTools"), 3000);
+					return;
+				}
+				const session = await api.sessions.createDraft({ projectId, title: tool.name, backend: "acp", acpToolId: tool.id });
+				upsertSession(session);
+				selectSessionCommand(projectId, session.id, false);
+				workspaceChrome.registerOpenSession(session.id, "permanent");
+			},
 			rename: rename.openSessionRename,
 			export: runExportSidebarSession,
 			copy: runCopySidebarSession,
@@ -2359,6 +2443,9 @@ export function App() {
 			setTerminalOpenByOwnerKey,
 			setTerminalCollapsedByOwnerKey,
 			setTerminalHeight,
+			terminalSettings,
+			hiddenComposerFeatures: settings.hiddenComposerFeatures ?? [],
+			onTerminalThemeChange: setTerminalTheme,
 			environmentDialog: Boolean(environmentDialog),
 			showNotice,
 			api,
@@ -2405,6 +2492,9 @@ export function App() {
 			setPreviewImage,
 			setTerminalCollapsedByOwnerKey,
 			setTerminalHeight,
+			setTerminalTheme,
+			terminalSettings,
+			settings.hiddenComposerFeatures,
 			setTerminalOpenByOwnerKey,
 			showToast,
 			terminalStatesByOwner,
@@ -2454,6 +2544,8 @@ export function App() {
 							height={terminalRowHeight}
 							maxHeight={availableTerminalHeight ?? 120}
 							terminal={api.terminal}
+							terminalSettings={terminalSettings}
+							onThemeChange={setTerminalTheme}
 							ownerKey={terminalOwner ? terminalOwnerKey(terminalOwner) : undefined}
 							onOpenChange={setTerminalOpenForOwner}
 							onCollapsedChange={setTerminalCollapsedForOwner}
@@ -2842,6 +2934,22 @@ export function App() {
 									onTogglePinned: () => workspace.toggleDrawerPanelPinned("trajectory"),
 									onClick: () => handleToolDrawerAction("trajectory"),
 								},
+								// 分支树面板：与检查点同口径仅 pi 后端展示；条目树是 pi 会话文件的概念。
+								...(rewindSupported
+									? [
+											{
+												id: "branchTree" as const,
+												label: t("session.branchTree.title"),
+												// 图标用 ListTree 而不是 GitFork：活动栏里 Git 面板已经是 GitBranch，两个 git 系图标并排会认错「分支」入口。
+												icon: <ListTree size={16} />,
+												active: drawer === "branchTree",
+												pinned: workspace.pinnedPanels.includes("branchTree"),
+												canRemove: true,
+												onTogglePinned: () => workspace.toggleDrawerPanelPinned("branchTree"),
+												onClick: () => handleToolDrawerAction("branchTree"),
+											},
+										]
+									: []),
 								// 检查点面板：仅当前会话为 pi 后端时展示（rewind 能力；dsh 暂不声明）。
 								...(rewindSupported
 									? [
@@ -2895,7 +3003,19 @@ export function App() {
 							]}
 						/>
 					}
-					drawerContent={(visibleDrawerPanel) => <DrawerSurface drawer={visibleDrawerPanel} drawerCollapsed={drawerCollapsed} git={drawerPorts.git} chrome={drawerPorts.chrome} browser={drawerPorts.browser} files={drawerPorts.files} rpcLog={drawerPorts.rpcLog} scratchPad={scratchPad} />}
+					drawerContent={(visibleDrawerPanel) => (
+						<DrawerSurface
+							drawer={visibleDrawerPanel}
+							drawerCollapsed={drawerCollapsed}
+							git={drawerPorts.git}
+							chrome={drawerPorts.chrome}
+							browser={drawerPorts.browser}
+							files={drawerPorts.files}
+							rpcLog={drawerPorts.rpcLog}
+							scratchPad={scratchPad}
+							branchTree={{ forkAtEntry: (entryId, fallbackText) => void forkAtEntry(entryId, fallbackText, `branch:${entryId}`) }}
+						/>
+					)}
 					setListCollapsed={setListCollapsed}
 					setListWidth={setListWidth}
 					setDrawerCollapsed={setDrawerCollapsed}
@@ -3164,6 +3284,7 @@ export function App() {
 
 					{/* 并行问询结果弹框（AskPanel）：独立匿名会话的结果展示，根级渲染 */}
 					<AskPanelOverlay />
+					<HostPluginPanelHost projectId={activeProject?.id} sessionId={currentSessionId} />
 
 					{/* toast 通知历史：全渲染层唯一一份（设置页/详情弹窗两个入口共用，
 					    模块级 opener 注册式打开，见 utils/noticeHistory + ui-shadcn/notice-history-dialog） */}

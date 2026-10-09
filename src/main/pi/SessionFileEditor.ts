@@ -204,32 +204,6 @@ function textOf(content: unknown): string {
 		.join("");
 }
 
-function setMessageText(message: Record<string, unknown>, text: string): void {
-	const content = message.content;
-	if (typeof content === "string") {
-		message.content = text;
-		return;
-	}
-	if (Array.isArray(content)) {
-		const next: unknown[] = [];
-		let replacedText = false;
-		for (const candidate of content) {
-			const isText = Boolean(candidate && typeof candidate === "object" && (candidate as Record<string, unknown>).type === "text");
-			if (!isText) {
-				next.push(candidate);
-				continue;
-			}
-			if (replacedText) continue;
-			next.push({ ...(candidate as Record<string, unknown>), text });
-			replacedText = true;
-		}
-		if (!replacedText) next.push({ type: "text", text });
-		content.splice(0, content.length, ...next);
-		return;
-	}
-	message.content = [{ type: "text", text }];
-}
-
 function splitJsonl(text: string): JsonlLine[] {
 	if (!text) return [];
 	const lines: JsonlLine[] = [];
@@ -338,6 +312,54 @@ function validateLocatedRole(entry: JsonlEntry, target: SessionEntryTarget): voi
 	}
 }
 
+/**
+ * 会话内当前叶节点（新追加条目的 parentId）。
+ *
+ * 与 pi `SessionManager._buildIndex` 语义一致：跳过 session 头部，取**最后一条带 id**
+ * 的条目（包括 PiDeck 自己的 `deleted` 墓碑与 `_reloadMarker`）。
+ * 不能只找最后一条 message：前面追加过 `context_edit` / label 时，它们就是当前叶，
+ * 跳过它们会把新条目挂到更早的位置，形成平行分支而不是延续当前分支。
+ */
+function currentLeafId(document: JsonlDocument): string | null {
+	for (let index = document.lines.length - 1; index >= 0; index -= 1) {
+		const entry = document.lines[index].entry;
+		if (!entry || entry.type === "session") continue;
+		const candidate = entryIdOf(entry);
+		if (candidate) return candidate;
+	}
+	return null;
+}
+
+/**
+ * 计算「只改文本」的替换内容，保留图片 / 工具块等其他合法内容。
+ *
+ * 为什么不能直接把 newText 当 replacement.content：pi 的 `projectContextEntry`
+ * 会用 replacement.content **整体**替换消息内容，|user 消息直接丢掉附件图片，
+ * 块状内容也会被一个纯文本块顶掉。这里沿用旧 `setMessageText` 的语义（只改第一个
+ * text 块、其余块原样保留），先算好完整 content 再交给 pi。
+ *
+ * 返回 `{ content, changed }`：changed 为 false 表示原文与新文本等价（图片但无文本块等），
+ * 此时仍会写入替换记录，保持「用户确实编辑过」的事实。
+ */
+function replaceTextInContent(content: unknown, text: string): unknown {
+	if (typeof content === "string") return text;
+	if (!Array.isArray(content)) return [{ type: "text", text }];
+	const next: unknown[] = [];
+	let replaced = false;
+	for (const candidate of content) {
+		const isText = Boolean(candidate && typeof candidate === "object" && (candidate as Record<string, unknown>).type === "text");
+		if (!isText) {
+			next.push(candidate);
+			continue;
+		}
+		if (replaced) continue;
+		next.push({ ...(candidate as Record<string, unknown>), text });
+		replaced = true;
+	}
+	if (!replaced) next.push({ type: "text", text });
+	return next;
+}
+
 function locateById(document: JsonlDocument, entryId: string | undefined, target: SessionEntryTarget, activeIds: Set<string>): LocatedEntry | undefined {
 	if (!entryId) return undefined;
 	const lineIndex = document.entryLineById.get(entryId);
@@ -382,6 +404,33 @@ function activeBranchIds(document: JsonlDocument, activeLeafId?: string): Set<st
 	return result;
 }
 
+/**
+ * 分支上每个条目最终生效的替换文本（同一 targetId 后者覆盖前者）。
+ * 仅用于「按文本定位」的回退比较：编辑后的条目在文件里仍是原文，
+ * 但界面上显示的是改写后的文本，用原文比较会找不到刚编辑过的那条。
+ * 返回 Map<targetId, string | null>：null 表示已被移出上下文。
+ */
+function effectiveContextEditTexts(document: JsonlDocument): Map<string, string | null> {
+	const texts = new Map<string, string | null>();
+	for (const line of document.lines) {
+		const entry = line.entry;
+		if (!entry || entry.type !== "context_edit") continue;
+		const targetId = typeof entry.targetId === "string" ? entry.targetId : undefined;
+		if (!targetId) continue;
+		const replacement = entry.replacement;
+		if (replacement === null) {
+			texts.set(targetId, null);
+			continue;
+		}
+		if (replacement && typeof replacement === "object" && !Array.isArray(replacement)) {
+			const content = (replacement as Record<string, unknown>).content;
+			if (typeof content === "string") texts.set(targetId, content);
+			else if (Array.isArray(content)) texts.set(targetId, textOf(content));
+		}
+	}
+	return texts;
+}
+
 function locateEntry(document: JsonlDocument, target: SessionEntryTarget): LocatedEntry {
 	const branchIds = activeBranchIds(document, target.activeLeafId);
 	const exact = locateById(document, target.entryId, target, branchIds);
@@ -389,13 +438,20 @@ function locateEntry(document: JsonlDocument, target: SessionEntryTarget): Locat
 	const legacy = locateById(document, legacyEntryId(target), target, branchIds);
 	if (legacy) return legacy;
 
+	// 文本回退要同时认「原文」与「有效文本（改写后）」：一次编辑后界面上显示的是
+	// 改写内容，用户再编辑一次时带的就是改写文本，而文件里仍是原文。
+	const effectiveTexts = effectiveContextEditTexts(document);
 	const candidates: LocatedEntry[] = [];
 	for (const entryId of branchIds) {
 		const lineIndex = document.entryLineById.get(entryId);
 		if (lineIndex === undefined) continue;
 		const entry = document.lines[lineIndex].entry!;
 		const message = messageOf(entry);
-		if (message?.role !== target.role || textOf(message.content) !== target.text) continue;
+		if (message?.role !== target.role) continue;
+		const rawText = textOf(message.content);
+		const overridden = effectiveTexts.get(entryId);
+		const effective = overridden === undefined ? rawText : (overridden ?? "");
+		if (rawText !== target.text && effective !== target.text) continue;
 		candidates.push({ lineIndex, entry, entryId });
 	}
 
@@ -514,19 +570,14 @@ export class SessionFileEditor {
 		if (entries.length === 0) {
 			throw new SessionFileEditorError("SESSION_ENTRY_NOT_FOUND", "No entries to append");
 		}
-		// leaf = 文件最后一条带 id 的 message 条目（跳过 session header / deleted 墓碑，
-		// 与 activeBranchIds 无显式 leaf 时的回退语义一致）；首条新消息挂到 leaf 之后，
-		// 后续条目按序串成 parent 链。header-only 会话无 message leaf → parentId=null。
-		let parentId: string | null = null;
-		for (let index = document.lines.length - 1; index >= 0; index -= 1) {
-			const entry = document.lines[index].entry;
-			if (!entry || entry.type !== "message") continue;
-			const candidate = entryIdOf(entry);
-			if (candidate) {
-				parentId = candidate;
-				break;
-			}
-		}
+		// leaf = 当前分支尾（与 pi `appendContextEdit` / `SessionManager.leafId` 一致）：
+		// 最后一条带 id 的条目，包含 `context_edit` 与 `label`。
+		//
+		// 不能只找最后一条 message：编辑/删除后会追加 context_edit 记录，它才是真正的 leaf。
+		// 若新消息挂到更早的 message 上，就会绕开那条编辑记录分叉，pi 沿新 leaf 回溯父链时
+		// 收集不到它——用户的编辑会静默失效（2026-10 实测发现）。
+		// 旧墓碑（`deleted`）也算 leaf：它们的 id 与 parentId 构成完整链，pi 同样如此处理。
+		let parentId: string | null = currentLeafId(document);
 
 		const eol = document.lines.length > 0 ? document.lines[document.lines.length - 1].eol || "\n" : "\n";
 		const changedEntryIds: string[] = [];
@@ -636,16 +687,20 @@ export class SessionFileEditor {
 			if (!message || (message.role !== "user" && message.role !== "assistant")) {
 				throw new SessionFileEditorError("SESSION_ENTRY_ROLE_INVALID", "Only user and assistant message entries can be edited");
 			}
-			setMessageText(message, newText ?? "");
-			replaceLine(document, located.lineIndex, located.entry);
+			// 追加 pi 原生 context_edit（pi docs/session-format.md）：原文行不改写，
+			// 模型上下文里这条消息的内容变成替换值。两种做法的关键差别：旧实现原地改文本
+			// 会把原文从历史里抹掉（只能从备份找回），且编辑本身不可撤销。
+			// 仍只改文本：图片、工具块等其它内容原样保留（见 replaceTextInContent）。
+			this.appendContextEdit(document, located.entryId, { content: replaceTextInContent(message.content, newText ?? "") });
 			return [located.entryId];
 		}
 
 		if (kind === "delete") {
-			const parentId = parentIdOf(located.entry);
-			const changed = [located.entryId];
+			// 删除 = 追加 `replacement: null`：目标不再进入模型上下文，但原文留在文件里
+			// （已发生的 token / 费用不回退，已被摘要转述的内容也不会因为这条记录消失）。
+			const targets = [located.entryId];
 			// 删除 assistant 回答时，同一轮的过程链（thinking-only assistant / toolResult 祖先）
-			// 必须一起墓碑：它们只服务于被删的回答，留在分支上会被 groupToolMessages 并进
+			// 必须一起移出上下文：它们只服务于被删的回答，留着会被 groupToolMessages 并进
 			// 下一轮回答（用户反馈「回答删了，但前面的思考和工具串到另一个上面」）。
 			// 沿父链上溯，遇到 user 或带文本的 assistant（上一段回答）即停，保留它们。
 			const isProcessNode = (entry: JsonlEntry | undefined): boolean => {
@@ -659,47 +714,31 @@ export class SessionFileEditor {
 				// thinking-only：只有思考块、没有可见文本
 				return hasThinking && !textOf(content).trim();
 			};
-			let reparentTarget: string | null = parentId ?? null;
 			if (inputRole(located.entry) === "assistant") {
-				const processIds = new Set<string>();
 				let cursor = parentIdOf(located.entry);
 				const byId = document.entryLineById;
 				while (cursor) {
 					const lineIndex = byId.get(cursor);
 					if (lineIndex === undefined) break;
 					const ancestor = document.lines[lineIndex].entry;
-					// 墓碑前 entry 必在 byId 索引内；undefined 防御直接退出上溯
+					// 索引里没有的祖先：直接停（防御异常文件，不抛错）
 					if (!ancestor || !isProcessNode(ancestor)) break;
-					processIds.add(cursor);
-					reparentTarget = parentIdOf(ancestor) ?? null;
+					targets.push(cursor);
 					cursor = parentIdOf(ancestor);
 				}
-				for (const id of processIds) {
-					const lineIndex = byId.get(id);
-					if (lineIndex === undefined) continue;
-					const processEntry = document.lines[lineIndex].entry;
-					// 墓碑前的 entry 一定存在（byId 索引了所有未删除行）；防御空值避免 TS 窄化失败
-					if (!processEntry) continue;
-					replaceLine(document, lineIndex, tombstone(id, this.now(), parentIdOf(processEntry)));
-					changed.push(id);
-				}
 			}
-			for (let index = 0; index < document.lines.length; index += 1) {
-				if (index === located.lineIndex) continue;
-				const child = document.lines[index].entry;
-				if (!child || child.type === "deleted" || parentIdOf(child) !== located.entryId) continue;
-				child.parentId = reparentTarget;
-				replaceLine(document, index, child);
-				const childId = entryIdOf(child);
-				if (childId) changed.push(childId);
+			for (const targetId of targets) {
+				this.appendContextEdit(document, targetId, null);
 			}
-			replaceLine(document, located.lineIndex, tombstone(located.entryId, this.now(), parentId));
-			return changed;
+			return targets;
 		}
 
 		if (inputRole(located.entry) !== "user") {
 			throw new SessionFileEditorError("SESSION_ENTRY_ROLE_INVALID", "Only user messages can be truncated for resend");
 		}
+		// 重发不是「上下文编辑」而是「回到这条消息重来」：必须真的截断后续分支，
+		// 否则 pi 会保留旧回答的 tool_call/toolResult 配对，重发后报工具调用不匹配。
+		// 因此这里继续用墓碑（新分支的 leaf 落在墓碑上，旧分支变为不可达）。
 		const removeIds = descendantEntryIds(document, located.entryId);
 		for (let index = 0; index < document.lines.length; index += 1) {
 			const entry = document.lines[index].entry;
@@ -709,6 +748,31 @@ export class SessionFileEditor {
 			replaceLine(document, index, tombstone(entryId, this.now(), parentIdOf(entry), "resend-truncate"));
 		}
 		return [...removeIds];
+	}
+
+	/**
+	 * 追加一条 pi 原生 context_edit 记录（pi docs/session-format.md#context_edit）。
+	 *
+	 * 形状：`{ type, id, parentId, timestamp, targetId, replacement }`。
+	 * - parentId = 当前叶（当前分支尾），使新记录接在活动分支上，成为新的 leaf；
+	 * - replacement = null（移出上下文）| `{ content }`（替换内容）；
+	 * - 同时追加多条时按顺序串成 parent 链（不能都挂在同一个 parent 上：
+	 *   后一条会成为侧分支，pi 只沿 leaf 父链收集编辑，前一条会静默失效）。
+	 */
+	private appendContextEdit(document: JsonlDocument, targetId: string, replacement: { content: unknown } | null): string {
+		const entryId = this.createUuid();
+		const eol = document.lines.length > 0 ? document.lines[document.lines.length - 1].eol || "\n" : "\n";
+		const entry: JsonlEntry = {
+			type: "context_edit",
+			id: entryId,
+			parentId: currentLeafId(document),
+			timestamp: new Date(this.now()).toISOString(),
+			targetId,
+			replacement,
+		};
+		document.lines.push({ content: JSON.stringify(entry), eol, entry });
+		document.entryLineById.set(entryId, document.lines.length - 1);
+		return entryId;
 	}
 
 	private async readSessionFile(path: string): Promise<Buffer> {

@@ -130,8 +130,8 @@ function createStaleRepoFixture(root) {
 	// 已提交的新产物：守卫失败时必须原样保留
 	const resourcesDir = join(root, "resources");
 	mkdirSync(resourcesDir, { recursive: true });
-	const committedCatalog = `${JSON.stringify({ schemaVersion: 1, entries: [{ id: "new" }] }, null, 2)}\n`;
-	const committedManifest = `${JSON.stringify({ schemaVersion: 1, source: { packageVersion: "0.86.1" }, entryCount: 1 }, null, 2)}\n`;
+	const committedCatalog = `${JSON.stringify({ schemaVersion: 2, entries: [{ id: "new" }] }, null, 2)}\n`;
+	const committedManifest = `${JSON.stringify({ schemaVersion: 2, source: { packageVersion: "0.86.1" }, entryCount: 1 }, null, 2)}\n`;
 	writeFileSync(join(resourcesDir, PI_AI_CATALOG_FILE_NAME), committedCatalog);
 	writeFileSync(join(resourcesDir, PI_AI_CATALOG_MANIFEST_FILE_NAME), committedManifest);
 	// 逃生通道用的「其他来源」：刻意放在默认目录之外（同路径显式传参仍算默认来源）

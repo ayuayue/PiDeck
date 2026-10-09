@@ -1,4 +1,5 @@
 import { mainProcessEnUS, mainProcessZhCN } from "../../shared/i18n/mainProcessCopy";
+import { webZhTW } from "./WebI18n.zh-TW";
 
 export const webZhCN = {
 	...mainProcessZhCN,
@@ -105,6 +106,7 @@ export const webEnUS: Record<WebTranslationKey, string> = {
 
 export const webClientDictionaries = {
 	"zh-CN": webZhCN,
+	"zh-TW": webZhTW,
 	"en-US": webEnUS,
 } as const;
 

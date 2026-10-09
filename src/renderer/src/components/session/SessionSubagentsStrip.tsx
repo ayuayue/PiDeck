@@ -165,7 +165,7 @@ const PiSubagentEntryRow = (props: {
 					{lost && <p className="rounded border border-danger/30 bg-danger-soft px-2 py-1.5 text-danger">{t("sessionSubagents.lostHint")}</p>}
 					{entry.description && <p className="whitespace-pre-wrap break-words">{entry.description}</p>}
 					{entry.error && <div className="whitespace-pre-wrap break-words rounded border border-danger/30 bg-danger-soft px-2 py-1.5 text-danger">{entry.error}</div>}
-					{entry.result && <div className="max-h-32 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded bg-muted/50 px-2 py-1.5">{entry.result}</div>}
+					{entry.result && <div className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded bg-muted/50 px-2 py-1.5">{entry.result}</div>}
 					{(entry.childSessionId || hasLongText) && (
 						<div className="flex flex-wrap items-center gap-2 pt-0.5">
 							{entry.childSessionId && props.onOpenChildSession && (
@@ -383,7 +383,7 @@ export function SessionSubagentsStrip(props: {
 			</div>
 			{!collapsed && (
 				<>
-					<ul className="mb-2 flex max-h-[240px] flex-col gap-1 overflow-y-auto overscroll-contain [contain:layout_paint] [scrollbar-gutter:stable] px-3 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-100 motion-reduce:animate-none">
+					<ul className="mb-2 flex max-h-[240px] flex-col gap-1 overflow-y-auto [contain:layout_paint] [scrollbar-gutter:stable] px-3 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-100 motion-reduce:animate-none">
 						{isDsh ? (entries as DshSubagentEntry[]).map((entry) => <DshSubagentEntryRow key={entry.id} agentId={agentId ?? ""} entry={entry} />) : entries.map((entry) => <PiSubagentEntryRow key={entry.id} entry={entry as PiSubagentEntry} sessionId={props.sessionId} onOpenChildSession={props.onOpenChildSession} />)}
 					</ul>
 					{hasAcpEntries && <p className="-mt-1 px-3 pb-2 text-micro leading-4 text-text-tertiary">{t("sessionSubagents.acpDelegateHint")}</p>}

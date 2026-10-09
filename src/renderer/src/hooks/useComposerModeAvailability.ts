@@ -30,11 +30,19 @@ export function computeVisibleModes(options: { isImageGen: boolean; planModeAvai
  */
 export function useComposerModeAvailability(props: { backend?: AgentBackend; imageGenLocked?: boolean; value: ComposerAgentMode; disabled?: boolean; onChange: (mode: ComposerAgentMode) => void }) {
 	const isDsh = props.backend === "dsh";
+	// ACP 无隐藏 agentMessage 通道(plan/goal 的实现载体),模式菜单只留普通;
+	// pi 的扩展开关对 ACP 会话无意义,不查询。
+	const isAcp = props.backend === "acp";
 	const isImageGen = props.backend === "imagegen" || props.imageGenLocked === true;
 	const [planModeAvailable, setPlanModeAvailable] = useState(true);
 	const [goalModeAvailable, setGoalModeAvailable] = useState(true);
 
 	const refreshAvailability = useCallback(async () => {
+		if (isAcp) {
+			setPlanModeAvailable(false);
+			setGoalModeAvailable(false);
+			return;
+		}
 		if (isDsh) {
 			setPlanModeAvailable(true);
 			setGoalModeAvailable(true);
@@ -51,7 +59,7 @@ export function useComposerModeAvailability(props: { backend?: AgentBackend; ima
 			setPlanModeAvailable(false);
 			setGoalModeAvailable(false);
 		}
-	}, [isDsh]);
+	}, [isAcp, isDsh]);
 
 	// 打开菜单时刷新（扩展开关可能刚在设置页改过）。不可用且当前正在用则强制回退，
 	// 这属于模式状态流转的边界：不在这里回退，用户会卡在一个扩展已删的模式上。

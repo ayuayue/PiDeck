@@ -14,8 +14,9 @@ function createPiAiFixture(root) {
 	writeFileSync(
 		join(dataDir, "z.json"),
 		JSON.stringify({
-			"openai-completions": {
-				zeta: {
+			"openrouter-images": {
+				"image:zeta": {
+					type: "image",
 					id: "zeta",
 					provider: "demo",
 					contextWindow: 0,
@@ -30,7 +31,8 @@ function createPiAiFixture(root) {
 		join(dataDir, "a.json"),
 		JSON.stringify({
 			"openai-completions": {
-				alpha: {
+				"chat:alpha": {
+					type: "chat",
 					id: "alpha",
 					name: " Alpha ",
 					provider: "demo",
@@ -50,7 +52,15 @@ function createPiAiFixture(root) {
 	return sourceDir;
 }
 
-test("生成器裁剪 pi-ai catalog、写入可验证的确定性 artifact", () => {
+/**
+ * 生成器透传官方字段、写入可验证的确定性 artifact 单测。
+ *
+ * 核心契约（2026-10 变更）：不再按白名单裁剪字段。旧版只留 9 个字段，把 `type`
+ * 一并丢掉，导致 image / classifier 模型混进聊天能力补全，且每次要用新字段都得改
+ * 一次生成器。现在条目按官方原字段透传（含 type / cost / compat 等），只做最小
+ * 结构校验（无 id 丢弃）与紧凑序列化。
+ */
+test("生成器透传官方全字段、不再白名单裁剪", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-ai-catalog-"));
 	try {
 		const sourceDir = createPiAiFixture(root);
@@ -66,8 +76,9 @@ test("生成器裁剪 pi-ai catalog、写入可验证的确定性 artifact", () 
 		const catalogRaw = readFileSync(catalogPath, "utf8");
 		const catalog = JSON.parse(catalogRaw);
 		const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+		assert.equal(catalog.schemaVersion, 2, "schemaVersion 2 = 全字段产物；v1 产物无法在读取时区分模型类型");
 		assert.deepEqual(catalog, {
-			schemaVersion: 1,
+			schemaVersion: 2,
 			entries: [
 				{
 					id: "alpha",
@@ -75,20 +86,26 @@ test("生成器裁剪 pi-ai catalog、写入可验证的确定性 artifact", () 
 					provider: "demo",
 					api: "openai-completions",
 					baseUrl: "https://example.test/v1 ",
-					reasoning: true,
-					input: ["text", "image"],
 					contextWindow: 128000,
 					maxTokens: 8192,
+					reasoning: true,
+					input: ["text", "image", "video"],
 					thinkingLevelMap: { off: null, high: "high", future: "keep-for-runtime-validation" },
+					// 下列字段在旧版白名单里被丢弃；现在必须原样保留，供将来消费。
+					type: "chat",
+					cost: { input: 123 },
 				},
-				{ id: "zeta", provider: "demo", input: ["text", "image"] },
+				{ id: "zeta", provider: "demo", type: "image", contextWindow: 0, input: ["text", "audio", "image"], cost: { input: 999 }, compat: { shouldNotShip: true } },
 			],
 		});
+		assert.equal(manifest.schemaVersion, 2);
 		assert.equal(manifest.source.packageName, "@earendil-works/pi-ai");
 		assert.equal(manifest.source.packageVersion, "9.9.9-test");
 		assert.equal(manifest.source.fileCount, 2);
 		assert.equal(manifest.entryCount, 2);
 		assert.equal(manifest.catalogSha256, sha256(catalogRaw));
+		// 紧凑序列化：条目现在带官方全字段，缩进会让产物从 ~0.9MB 膨胀到 ~1.7MB。
+		assert.equal(catalogRaw.includes("\n  "), false, "产物必须紧凑序列化");
 
 		const before = `${catalogRaw}\n${readFileSync(manifestPath, "utf8")}`;
 		const second = generatePiAiCatalog({ sourceDir, outDir });

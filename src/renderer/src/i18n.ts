@@ -1,6 +1,7 @@
 import type { AppLanguageMode, I18nDescriptor, I18nParams } from "../../shared/types";
+import { isTraditionalChineseLanguageTag } from "../../shared/types";
 
-export type SupportedLocale = "zh-CN" | "en-US" | "pseudo";
+export type SupportedLocale = "zh-CN" | "zh-TW" | "en-US" | "pseudo";
 
 function normalizeSystemLanguage(language: string | undefined): string {
 	return (language ?? "").trim().replace(/_/g, "-").toLowerCase();
@@ -12,13 +13,15 @@ function normalizeSystemLanguage(language: string | undefined): string {
  * keeping this pure makes the precedence testable and preserves explicit user choices.
  */
 export function resolveLocale(mode: AppLanguageMode, systemLanguage = typeof navigator === "undefined" ? "en-US" : (navigator.languages?.[0] ?? navigator.language)): SupportedLocale {
-	if (mode === "zh-CN" || mode === "en-US" || mode === "pseudo") return mode;
+	if (mode === "zh-CN" || mode === "zh-TW" || mode === "en-US" || mode === "pseudo") return mode;
 	const normalized = normalizeSystemLanguage(systemLanguage);
-	return normalized === "zh" || normalized.startsWith("zh-") ? "zh-CN" : "en-US";
+	if (normalized !== "zh" && !normalized.startsWith("zh-")) return "en-US";
+	return isTraditionalChineseLanguageTag(normalized) ? "zh-TW" : "zh-CN";
 }
 
 import { enUS } from "./i18n/rendererCopy.en-US";
 import { zhCN } from "./i18n/rendererCopy.zh-CN";
+import { zhTW } from "./i18n/rendererCopy.zh-TW";
 import type { TranslationKey } from "./i18n/rendererCopy.zh-CN";
 
 export type { TranslationKey } from "./i18n/rendererCopy.zh-CN";
@@ -35,6 +38,7 @@ function makePseudoDictionary(source: Record<TranslationKey, string>): Record<Tr
 
 const dictionaries: Record<SupportedLocale, Record<TranslationKey, string>> = {
 	"zh-CN": zhCN,
+	"zh-TW": zhTW,
 	"en-US": enUS,
 	pseudo: makePseudoDictionary(enUS),
 };

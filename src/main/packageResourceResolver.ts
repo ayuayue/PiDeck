@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, globSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { applyAutoloadDisabledPatterns, applyPatterns, isOverridePattern, readSettingsObject, resolveFromBase } from "./resourceWhitelist";
+import { applyAutoloadDisabledPatterns, applyPatterns, isOverridePattern, readConfiguredNpmCommand, readSettingsObject, resolveFromBase } from "./resourceWhitelist";
 
 export type PackageResourceType = "extensions" | "skills" | "prompts";
 export type PackageResourceScope = "user" | "project";
@@ -145,11 +145,7 @@ const globalNpmRootCache = new Map<string, string | null>();
 const pnpmPackagePathCache = new Map<string, Map<string, string>>();
 
 function npmCommand(settingsFile: string): string[] {
-	const configured = readSettingsObject(settingsFile).npmCommand;
-	if (Array.isArray(configured) && configured.length > 0 && configured.every((entry) => typeof entry === "string" && entry.trim().length > 0)) {
-		return configured;
-	}
-	return ["npm"];
+	return readConfiguredNpmCommand(settingsFile);
 }
 
 function packageManagerName(command: string[]): string {

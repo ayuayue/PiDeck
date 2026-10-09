@@ -94,6 +94,16 @@ const MAX_USAGE_RESPONSE_BYTES = 64 * 1024;
 // 模型 id 长度上限：过长 id 往往是误填，且可能撑爆某些网关/日志。
 const MODEL_ID_MAX_LENGTH = 256;
 
+/**
+ * 没有通用「列举模型/部署」端点的协议：它们的模型清单只能从各自控制台或文档手填。
+ *
+ * 为什么必须显式拦：这些协议在 pi 里是合法的聊天协议（所以能出现在 API 类型下拉），
+ * 但它们的 baseUrl 不是 OpenAI 兼容根（如 Bedrock 是 bedrock-runtime.<region>.amazonaws.com）。
+ * 若继续用 openai-completions 的形状发 /v1/models，用户看到的是 404 / TLS 类的误导性
+ * 报错，而正确动作是「手填模型 ID」。
+ */
+const NO_MODEL_LIST_APIS = new Set(["azure-openai-responses", "google-vertex", "bedrock-converse-stream", "pi-messages"]);
+
 /** 判断字符串是否含控制字符（换行/tab 等），防止配置被注入换行破坏 JSON 语义。 */
 function hasControlChar(value: string): boolean {
 	// eslint-disable-next-line no-control-regex
@@ -533,6 +543,17 @@ export class ConfigManager {
 		/** 建议写入配置的 baseUrl（含 /v1 等）；UI 可自动改写 */
 		suggestedBaseUrl?: string;
 	}> {
+		// 没有通用模型列表接口的协议：Azure 部署列表只能从门户复制，Bedrock / Vertex /
+		// Pi Messages 都没有公开的「列举全部部署/模型」端点。这里直接给出可操作提示，
+		// 不用 openai-completions 的形状去试探：那会把请求打到错误路径并掩盖真实原因。
+		const requestedApi = typeof apiType === "string" ? apiType.trim() : "";
+		if (NO_MODEL_LIST_APIS.has(requestedApi)) {
+			return {
+				success: false,
+				error: this.translate("mainConfig.fetchModelsUnsupportedApi", { api: requestedApi }),
+				debugDetails: `api "${requestedApi}" has no generic model listing endpoint`,
+			};
+		}
 		const requests = this.buildModelsRequest(baseUrl, apiKey, apiType, headers);
 		let lastError: string | undefined;
 		let lastDebugDetails: string | undefined;
@@ -668,6 +689,7 @@ export class ConfigManager {
 	 * | Anthropic Messages | /v1/models | /models |
 	 * | Google Gemini | /v1beta/models | - |
 	 * | Mistral Conversations | /v1/models | /models |
+	 * | Azure / Vertex / Bedrock / Pi Messages | 无（调用方已提前拦截，见 NO_MODEL_LIST_APIS）| - |
 	 *
 	 * OpenAI 生态（Chat Completions / Responses / Codex / Mistral）统一通过
 	 * GET /v1/models 获取模型列表。
@@ -680,7 +702,6 @@ export class ConfigManager {
 		// 与真实会话一致：允许 provider 配置的自定义 headers（含 User-Agent）
 		// 覆盖 SDK 默认 UA，保证「获取模型」与「真实会话」走同一套网络形象。
 		const extraHeaders = this.normalizeRequestHeaders(requestHeaders);
-
 		if (api === "google-generative-ai") {
 			// Google Gemini：使用独立的 v1beta 路径
 			const u = baseUrl.replace(/\/+$/, "");
@@ -745,30 +766,67 @@ export class ConfigManager {
 		return {
 			...data,
 			providers: Object.fromEntries(
-				Object.entries(data.providers).map(([name, provider]) => [
-					name,
-					{
-						...provider,
-						api: this.normalizeApiType(provider.api),
-						models: provider.models.map((model) => {
-							const normalized: PiModelItem = {
-								...model,
-								api: typeof model.api === "string" ? this.normalizeApiType(model.api) : model.api,
-							};
-							// pi schema 中 name 可选但需 minLength:1，空 name 会让 pi 整文件拒绝。
-							// 与拉取供应商列表的 parseProviderModelsResponse 行为对齐：name 为空
-							// 就删掉该键（可选字段缺省反而合法），避免手动新增模型留空时写坏文件。
-							if (typeof normalized.name === "string" && normalized.name.length === 0) {
-								delete normalized.name;
-							}
-							return normalized;
-						}),
-					},
-				]),
+				Object.entries(data.providers).map(([name, provider]) => {
+					const normalizedProvider: PiProviderConfig = { ...provider };
+					// 空/纯空白 api 会让 pi 整文件校验失败（schema minLength 1），删键即回到
+					// 「继承默认」的合法形态；不发明 openai-completions，见 normalizeApiForSave。
+					const providerApi = this.normalizeApiForSave(provider.api);
+					if (providerApi !== undefined) normalizedProvider.api = providerApi;
+					else delete normalizedProvider.api;
+					normalizedProvider.models = provider.models.map((model) => {
+						const normalized: PiModelItem = { ...model };
+						const modelApi = this.normalizeApiForSave(model.api);
+						if (modelApi !== undefined) normalized.api = modelApi;
+						else delete normalized.api;
+						// pi schema 中 name 可选但需 minLength:1，空 name 会让 pi 整文件拒绝。
+						// 与拉取供应商列表的 parseProviderModelsResponse 行为对齐：name 为空
+						// 就删掉该键（可选字段缺省反而合法），避免手动新增模型留空时写坏文件。
+						if (typeof normalized.name === "string" && normalized.name.length === 0) {
+							delete normalized.name;
+						}
+						return normalized;
+					});
+					return [name, normalizedProvider];
+				}),
 			),
 		};
 	}
 
+	/**
+	 * 保存路径的 api 归一化：只把已知历史别名改写成 pi 官方 registry 名称，
+	 * **不**发明默认值。
+	 *
+	 * 为什么不能复用 normalizeApiType：那个函数服务「拉取模型列表 / 用量探针」的
+	 * 网络路径，未知值兜底成 openai-completions 是为了「用最通用的协议试一试」；
+	 * 一旦用在写盘路径，就等于把用户的 azure-openai-responses / google-vertex /
+	 * bedrock-converse-stream / pi-messages 静默改写成 openai-completions，保存一次
+	 * 即损坏配置（pi 1.0.4 registry 里这些 id 都真实存在）。
+	 *
+	 * 保留未知值的理由：pi 允许自定义 provider 扩展注册任意 api id（schema 只要求
+	 * 非空字符串），PiDeck 无法穷举；宁可原样保留，也不篡改用户配置。
+	 * 返回 undefined 表示「没有可写值」（缺省或空白），调用方据此删键。
+	 * 入参是 unknown：PiModelItem 的 api 只能经索引签名取到 unknown，在函数内一次收窄，
+	 * 避免调用方各自写 typeof 判断而漏掉一处。
+	 */
+	private normalizeApiForSave(apiType: unknown): string | undefined {
+		if (typeof apiType !== "string") return undefined;
+		const trimmed = apiType.trim();
+		if (!trimmed) return undefined;
+		switch (trimmed) {
+			case "anthropic":
+				return "anthropic-messages";
+			case "openai-chat-completions":
+				// 兼容早期 pi-desktop 暴露过的别名；pi 官方 registry 名称是 openai-completions。
+				return "openai-completions";
+			default:
+				return trimmed;
+		}
+	}
+
+	/**
+	 * 网络探测路径的 api 归一化：未知值兜底成 openai-completions（最通用的 /models 形状）。
+	 * 保存路径必须用 normalizeApiForSave，见其注释。
+	 */
 	private normalizeApiType(apiType?: string) {
 		switch (apiType) {
 			case "anthropic":

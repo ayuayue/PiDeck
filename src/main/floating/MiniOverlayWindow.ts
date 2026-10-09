@@ -164,7 +164,8 @@ export class MiniOverlayWindow {
 			activeSessions: [...openTabs.filter((t) => t.status === "running").sort(byRecency), ...openTabs.filter((t) => t.status !== "running").sort(byRecency)].map(toSessionRef),
 			recentSessions: openTabs.sort(byRecency).slice(0, 5).map(toSessionRef),
 			projects: this.deps.projectStore.list().map((p) => ({ id: p.id, name: p.name, path: p.path })),
-			locale: settings.language === "en-US" ? "en-US" : "zh-CN",
+			// 浮窗与主窗口共用渲染层 i18n：显式 zh-TW 下发繁体；system/pseudo 等沿用历史行为（zh-CN）。
+			locale: settings.language === "zh-TW" ? "zh-TW" : settings.language === "en-US" ? "en-US" : "zh-CN",
 		};
 	}
 

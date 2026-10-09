@@ -82,9 +82,20 @@ export function isInSubagentArtifactsDir(filePath: string): boolean {
 	return filePath.replace(/\\/g, "/").split("/").includes(SUBAGENT_ARTIFACTS_DIR_NAME);
 }
 
+/**
+ * 会话路径的规范形式（identity 比较用）：分隔符统一为 `/`、去尾斜杠，Windows 形态折大小写。
+ *
+ * 大小写折叠必须按**路径形态**而不是 environment="native" 一刀切（2026-10-08 修正）：
+ * native 同时覆盖 Windows 与 Linux/macOS 项目，而 POSIX 文件名区分大小写。
+ * 把 `/home/dev/Proj` 折成 `/home/dev/proj` 会让两个不同会话命中同一 identity
+ * （findByFilePath 返回错记录、attachRuntime 拒绝合法换绑、删除/归档落到错文件）。
+ * WSL 与 POSIX native 同语义（不折），Windows 形态（盘符/UNC）折叠——与
+ * renderer/src/sessionManagerModel.ts 的「WSL 区分大小写」注释同一条规则。
+ */
 export function canonicalizeSessionPath(filePath: string, environment: SessionEnvironment): string {
 	const normalized = filePath.replace(/\\/g, "/").replace(/\/+$/, "");
-	return environment === "native" ? normalized.toLowerCase() : normalized;
+	if (environment === "wsl") return normalized;
+	return hasWindowsDrivePrefix(filePath) || hasWindowsUncPrefix(filePath) ? normalized.toLowerCase() : normalized;
 }
 
 export function getSessionEnvironment(summary: Pick<SessionSummary, "wsl">): SessionEnvironment {
@@ -112,11 +123,54 @@ export function buildSummaryOriginKey(summary: SessionSummary, options?: { wslDi
 	});
 }
 
-/** 判断路径是否为该环境下的绝对路径（纯字符串判断，不依赖 node:path）。 */
-function isAbsolutePath(filePath: string, environment: SessionEnvironment): boolean {
-	if (environment === "wsl") return filePath.startsWith("/");
-	// native：盘符开头、根前缀（如 \\server\share 或 /rooted）。
-	return /^[A-Za-z]:[\\/]/.test(filePath) || filePath.startsWith("/") || filePath.startsWith("\\");
+/**
+ * 路径形态判定：只认「明确带盘符 / UNC / 正斜杠根」这三种无歧义写法。
+ *
+ * 为什么不看 `process.platform`：本模块也由渲染层 import（agentListDisplay /
+ * useSessionActions），那里没有可靠的平台信息；而会话路径的真正判据是**基址自身的形态**——
+ * 盘符基址（`C:\proj`）只可能来自 Windows，POSIX 基址（`/home/...`）只可能来自 Linux/macOS。
+ * 因此平台语义由基址决定（见 resolveSessionPathPlatform），不依赖进程全局。
+ */
+function hasWindowsDrivePrefix(path: string): boolean {
+	return /^[A-Za-z]:[\\/]/.test(path);
+}
+
+/** Windows 的 UNC（`\\server\share\…`）与 `\\?\` 长路径前缀；两者都是绝对路径形态。 */
+function hasWindowsUncPrefix(path: string): boolean {
+	return path.startsWith("\\\\");
+}
+
+/** 基址形态 → 解析语义。native 下盘符/UNC = Windows，其余（含 `/home/...`）= POSIX。 */
+function resolveSessionPathPlatform(base: string, environment: SessionEnvironment): "windows" | "posix" {
+	if (environment === "wsl") return "posix";
+	return hasWindowsDrivePrefix(base) || hasWindowsUncPrefix(base) ? "windows" : "posix";
+}
+
+/**
+ * 判断路径在给定平台语义下是否已是绝对路径（纯字符串，不依赖 node:path）。
+ *
+ * 关键区分（2026-10-08 回归根因）：单个前导 `\` 只在 Windows 上是「当前盘根」形态；
+ * 在 POSIX 上 `\` 是普通文件名字符，`\home\x` 是一条**相对**路径。旧实现把它当绝对
+ * 路径原样透传，于是 Linux 上的 `\home\zhadainian\…` 永远打不开——历史读取与 rename
+ * 全部 ENOENT，时间线卡在骨架屏、fork/copy 后缀写不进文件。
+ */
+function isAbsolutePath(filePath: string, platform: "windows" | "posix"): boolean {
+	if (filePath.startsWith("/")) return true;
+	if (hasWindowsDrivePrefix(filePath) || hasWindowsUncPrefix(filePath)) return true;
+	return platform === "windows" && filePath.startsWith("\\");
+}
+
+/**
+ * 相对路径拼接：Windows 用 `\`，POSIX/WSL 用 `/`（基址与相对部分的分隔符都按目标平台归一）。
+ *
+ * 基址也要归一：pi/catalog/项目设置里同一个 Windows 目录可能以 `D:/Project` 或
+ * `D:\\Project` 两种写法出现，只归一一半会产出混用分隔符的路径（历史 bug）。
+ */
+function joinSessionPath(base: string, relative: string, platform: "windows" | "posix"): string {
+	const trimmedBase = healSeparators(base, platform).replace(/[\\/]+$/, "");
+	const trimmedRelative = relative.replace(/^[\\/]+/, "");
+	if (platform === "windows") return `${trimmedBase}\\${trimmedRelative.replace(/\//g, "\\")}`;
+	return `${trimmedBase}/${trimmedRelative.replace(/\\/g, "/")}`;
 }
 
 /**
@@ -143,13 +197,44 @@ function windowsPathToWslBase(path: string): string {
  * 所有会话路径在进入 catalog / Agent 状态前都应经过本函数。
  *
  * WSL 环境按 Linux 路径语义处理：相对路径解析到 /mnt/<drive>/… 基址。
+ *
+ * **分离的两种失败**（2026-10-08 现场回归）：旧实现把 native 无条件当 Windows——拼接后
+ * 把全部 `/` 换成 `\`，于是 Linux 上 `.pi/sessions/x.jsonl` 被解析成 `\home\dev\proj\.pi\…`。
+ * 该串在 POSIX 上既不是可寻址的绝对路径（历史读取/rename 全部 ENOENT、与扫描器绝对路径
+ * originKey 不一致），又已落进存量 catalog。因此本函数同时做两件事：
+ * 1. 按平台语义正确解析相对路径（POSIX 分隔符恒为 `/`）；
+ * 2. **自愈已损坏形态**：若相对部分本身已包含基址（旧产物 `\home\dev\proj\.pi\…` 对应
+ *    基址 `/home/dev/proj`），直接归一到该基址，不再二次前缀（否则会拼出双层路径）。
  */
 export function toAbsoluteSessionPath(filePath: string, projectPath: string, environment: SessionEnvironment): string {
-	if (isAbsolutePath(filePath, environment)) return filePath;
-	const base = environment === "wsl" ? windowsPathToWslBase(projectPath) : projectPath;
-	const joined = `${base.replace(/[\\/]+$/, "")}/${filePath.replace(/^[\\/]+/, "")}`;
-	// native 统一反斜杠风格，与 node:path resolve 输出一致；WSL 保持正斜杠。
-	return environment === "wsl" ? joined : joined.replace(/\//g, "\\");
+	if (environment === "wsl") {
+		const base = windowsPathToWslBase(projectPath);
+		if (isAbsolutePath(filePath, "posix")) return filePath;
+		if (isPosixPathAlreadyRootedAt(filePath, base)) return healSeparators(filePath, "posix");
+		return joinSessionPath(base, filePath, "posix");
+	}
+	const platform = resolveSessionPathPlatform(projectPath, environment);
+	if (isAbsolutePath(filePath, platform)) return filePath;
+	// 存量损坏自愈：旧版把 POSIX 绝对路径写成反斜杠形态（`\home\dev\proj\.pi\sessions\x.jsonl`），
+	// 它不是本平台的绝对路径，但内容已经是完整路径——按基址重新定根即可恢复可寻址。
+	if (platform === "posix" && isPosixPathAlreadyRootedAt(filePath, projectPath)) return healSeparators(filePath, "posix");
+	return joinSessionPath(projectPath, filePath, platform);
+}
+
+/** 把分隔符归一到目标平台形态（存量反斜杠 POSIX 路径的修复出口）。 */
+function healSeparators(filePath: string, platform: "windows" | "posix"): string {
+	return platform === "windows" ? filePath.replace(/\//g, "\\") : filePath.replace(/\\/g, "/");
+}
+
+/**
+ * 相对部分本身是否已经把 POSIX 基址整段包含进去（旧版反斜杠损坏形态的识别）。
+ * 只去前导分隔符再归一比较，避免把「恰好在别处的同名目录」误判成同一文件。
+ */
+function isPosixPathAlreadyRootedAt(filePath: string, base: string): boolean {
+	const normalizedBase = healSeparators(base, "posix").replace(/\/+$/, "");
+	if (!normalizedBase.startsWith("/")) return false;
+	const normalizedFile = healSeparators(filePath, "posix").replace(/^\/+/, "");
+	return normalizedFile === normalizedBase.slice(1) || normalizedFile.startsWith(`${normalizedBase.slice(1)}/`);
 }
 
 /** 归档/删除子树识别用的最小会话节点（catalog 条目与渲染层 record 都满足）。 */

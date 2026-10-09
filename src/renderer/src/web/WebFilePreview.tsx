@@ -15,10 +15,11 @@ import { Loader2, X } from "lucide-react";
 import { MarkdownStream } from "@/components/session/MarkdownStream";
 import { t } from "@/i18n";
 import { fetchFileContent, fetchGitDiff, fetchGitStatus } from "./webApi";
+import { useDismissOnBack } from "./useDismissOnBack";
 
 export type WebFilePreviewTarget = { kind: "file"; projectId: string; projectRoot: string; path: string; line?: number } | { kind: "diff"; projectId: string; projectRoot: string; path: string };
 
-type FileState = { content?: string; tooLarge?: boolean; binary?: boolean };
+type FileState = { content?: string; tooLarge?: boolean; truncated?: boolean; binary?: boolean };
 type DiffState = { originalContent: string; modifiedContent: string } | null;
 
 /** 把链接里的原始路径裁成项目相对路径；绝对路径按盘符大小写不敏感前缀匹配，裁不进返回 null。 */
@@ -51,7 +52,7 @@ function PreviewHeader({ path, onClose }: { path: string; onClose: () => void })
 				<div className="truncate text-sm font-medium text-foreground">{basename(path)}</div>
 				<div className="truncate text-micro text-muted-foreground">{path}</div>
 			</div>
-			<button type="button" aria-label={t("web.previewClose")} className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground" onClick={onClose}>
+			<button type="button" aria-label={t("web.previewClose")} className="flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 active:bg-muted/80 hover:text-foreground" onClick={onClose}>
 				<X className="size-5" aria-hidden="true" />
 			</button>
 		</header>
@@ -109,21 +110,34 @@ function FilePreviewBody({ projectId, path, line }: { projectId: string; path: s
 	if (state.tooLarge) return <div className="flex flex-1 items-center justify-center px-6 text-center text-caption text-warning">{t("web.fileViewerTooLarge")}</div>;
 	if (state.binary) return <div className="flex flex-1 items-center justify-center px-6 text-center text-caption text-muted-foreground">{t("web.fileViewerBinary")}</div>;
 	if (state.content == null) return <div className="flex flex-1 items-center justify-center px-6 text-center text-caption text-muted-foreground">{t("web.previewLoadFailed")}</div>;
+	// 截断预览：能看前 512KB 比完全不给强；底部提示告知完整内容请回桌面端
+	const truncatedNotice = state.truncated ? <div className="shrink-0 border-t border-border bg-warning/5 px-3 py-1.5 text-micro text-warning">{t("web.fileViewerTruncated")}</div> : null;
 	if (path.toLowerCase().endsWith(".md")) {
 		return (
-			<div className="markdown-body min-h-0 flex-1 overflow-y-auto px-3 py-2">
-				<MarkdownStream text={state.content} onOpenExternal={(url: string) => window.open(url, "_blank", "noopener")} />
+			<div className="flex min-h-0 flex-1 flex-col">
+				<div className="markdown-body min-h-0 flex-1 overflow-y-auto px-3 py-2">
+					<MarkdownStream text={state.content} onOpenExternal={(url: string) => window.open(url, "_blank", "noopener")} />
+				</div>
+				{truncatedNotice}
 			</div>
 		);
 	}
-	return <NumberedText content={state.content} line={line} />;
+	return (
+		<div className="flex min-h-0 flex-1 flex-col">
+			<NumberedText content={state.content} line={line} />
+			{truncatedNotice}
+		</div>
+	);
 }
 
-/** diff 模式：先查 git status 定位文件所在分组，再取双栏内容；未跟踪文件=整文件新增。 */
+/** diff 模式：先查 git status 定位文件所在分组，再取双栏内容；未跟踪文件=整文件新增。
+ * 限制回退：文件已不在任何变更组（git 提交后）、diff 超限或暂存态刚变化 → 自动回退展示
+ * 当前文件内容（带提示条），不再让用户面对「找不到改动」的死胡同。 */
 function DiffPreviewBody({ projectId, path }: { projectId: string; path: string }) {
 	const [diff, setDiff] = useState<DiffState>(null);
 	const [loading, setLoading] = useState(true);
 	const [missing, setMissing] = useState(false);
+	const [tab, setTab] = useState<"original" | "modified">("modified");
 	useEffect(() => {
 		let alive = true;
 		setLoading(true);
@@ -160,22 +174,29 @@ function DiffPreviewBody({ projectId, path }: { projectId: string; path: string 
 		);
 	}
 	if (missing || !diff) {
-		return <div className="flex flex-1 items-center justify-center px-6 text-center text-caption text-muted-foreground">{t("web.diffNotFound")}</div>;
+		// 回退为文件预览：提交后/超限/状态脱节时仍能看到文件本身，提示条说明原因
+		return (
+			<div className="flex min-h-0 flex-1 flex-col">
+				<div className="shrink-0 border-b border-border bg-muted/40 px-3 py-1.5 text-micro text-muted-foreground">{t("web.diffFallbackToFile")}</div>
+				<FilePreviewBody projectId={projectId} path={path} />
+			</div>
+		);
 	}
 	const isNew = diff.originalContent.length === 0;
+	const activeContent = tab === "original" ? diff.originalContent : diff.modifiedContent;
 	return (
-		<div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
-			{isNew ? <div className="rounded bg-success/10 px-2 py-1 text-caption text-success">{t("web.diffNewFile")}</div> : null}
-			{!isNew ? (
-				<section>
-					<div className="mb-1 text-micro font-medium text-muted-foreground">{t("web.diffOriginal")}</div>
-					<pre className="max-h-[38vh] overflow-auto rounded-md border border-border bg-muted/50 p-1.5 text-micro leading-relaxed whitespace-pre-wrap">{diff.originalContent || "—"}</pre>
-				</section>
-			) : null}
-			<section>
-				<div className="mb-1 text-micro font-medium text-muted-foreground">{t("web.diffModified")}</div>
-				<pre className="max-h-[38vh] overflow-auto rounded-md border border-border bg-card p-1.5 text-micro leading-relaxed whitespace-pre-wrap">{diff.modifiedContent || "—"}</pre>
-			</section>
+		<div className="flex min-h-0 flex-1 flex-col">
+			{/* tab 切换替代旧双栏各 38vh：移动端全高滚动，长 diff 不再被高度上限钳住 */}
+			<div className="flex shrink-0 items-center gap-1 border-b border-border bg-card px-2 py-1.5">
+				<button type="button" className={`rounded-md px-2.5 py-1 text-caption transition-colors ${tab === "modified" ? "bg-primary/15 font-medium text-foreground" : "text-muted-foreground hover:bg-muted/60"}`} onClick={() => setTab("modified")}>
+					{t("web.diffModified")}
+				</button>
+				<button type="button" disabled={isNew} className={`rounded-md px-2.5 py-1 text-caption transition-colors ${tab === "original" && !isNew ? "bg-primary/15 font-medium text-foreground" : "text-muted-foreground hover:bg-muted/60"} ${isNew ? "opacity-40" : ""}`} onClick={() => setTab("original")}>
+					{t("web.diffOriginal")}
+				</button>
+				{isNew ? <span className="ml-auto rounded bg-success/10 px-2 py-0.5 text-micro text-success">{t("web.diffNewFile")}</span> : null}
+			</div>
+			<NumberedText content={activeContent} />
 		</div>
 	);
 }
@@ -183,6 +204,8 @@ function DiffPreviewBody({ projectId, path }: { projectId: string; path: string 
 /** 全屏覆盖层：fixed inset-0 盖过时间线/composer；body 由 kind 分流。 */
 export function WebFilePreview(props: { target: WebFilePreviewTarget; onClose: () => void }) {
 	const { target } = props;
+	// 系统返回键/手势与 Esc 关闭（移动端主路径，见 hook 注释）；X 按钮是 PWA 无手势时的兑底
+	useDismissOnBack(props.onClose, true);
 	// 绝对路径裁剪：项目外直接给提示，不发请求（后端本来也会 403）
 	const relative = toProjectRelative(target.path, target.projectRoot);
 	return (

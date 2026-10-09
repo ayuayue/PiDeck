@@ -229,12 +229,20 @@ test("preserves WSL path case while deduplicating native paths", () => {
 	});
 	assert.equal(wslDisplay.children.length, 2);
 
+	// native 折叠只对 Windows 形态（盘符）成立：POSIX 路径是大小写敏感身份
+	// （2026-10-08 回归修复，旧实现把 native 一律折小写，Linux 身份错乱源）。
 	const agents = [
+		{ id: "upper", sessionPath: "D:/Sessions/Session.jsonl", createdAt: 1 },
+		{ id: "lower", sessionPath: "d:/sessions/session.jsonl", createdAt: 2 },
+	];
+	assert.equal(getAgentForSessionPath(agents, "D:/Sessions/Session.jsonl", "wsl")?.id, "upper");
+	assert.equal(getAgentForSessionPath(agents, "D:/Sessions/Session.jsonl", "native")?.id, "lower");
+	// POSIX/WSL 路径大小写敏感：native 下不同大小写不得互相折叠。
+	const posixAgents = [
 		{ id: "upper", sessionPath: "/home/Dev/session.jsonl", createdAt: 1 },
 		{ id: "lower", sessionPath: "/home/dev/session.jsonl", createdAt: 2 },
 	];
-	assert.equal(getAgentForSessionPath(agents, "/home/Dev/session.jsonl", "wsl")?.id, "upper");
-	assert.equal(getAgentForSessionPath(agents, "/home/Dev/session.jsonl", "native")?.id, "lower");
+	assert.equal(getAgentForSessionPath(posixAgents, "/home/Dev/session.jsonl", "native")?.id, "upper");
 });
 
 test("groups imported Codex subagent sessions under their parent session", () => {

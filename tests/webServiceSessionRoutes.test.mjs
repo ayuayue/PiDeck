@@ -851,6 +851,48 @@ test("chat endpoint mints a per-turn request idempotency key instead of reusing 
 	});
 });
 
+/**
+ * 计划模式：/api/chat 必须把 body.agentMessage 原样透传给 sendSessionPrompt
+ * （隐藏指令通道，由内置扩展 pi-deck-plan-mode 识别）；未携带时不得注入空字段。
+ */
+test("chat endpoint forwards agentMessage hidden instruction when present", async () => {
+	const submit = (baseUrl, messageId, extra) =>
+		fetch(`${baseUrl}/api/chat`, {
+			method: "POST",
+			headers: { "content-type": "application/json", accept: "text/event-stream" },
+			body: JSON.stringify({
+				id: "session-1",
+				messages: [{ id: messageId, role: "user", parts: [{ type: "text", text: "帮我重构" }] }],
+				trigger: "submit-message",
+				messageId,
+				...extra,
+			}),
+		});
+	const waitFor = async (predicate) => {
+		for (let attempt = 0; attempt < 200; attempt += 1) {
+			if (predicate()) return;
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
+		throw new Error("condition was not met before the timeout");
+	};
+
+	await withServer(async ({ baseUrl, calls }) => {
+		// 隐居指令透传：内容原样到达 sendSessionPrompt
+		const planned = await submit(baseUrl, "plan-1", { agentMessage: "__PI_DECK_PLAN_MODE__\n帮我重构" });
+		assert.equal(planned.status, 200);
+		void planned.body?.cancel().catch(() => undefined);
+		await waitFor(() => calls.send.length === 1);
+		assert.equal(calls.send[0].agentMessage, "__PI_DECK_PLAN_MODE__\n帮我重构");
+
+		// 普通消息：不携带 agentMessage 字段（不注入空串，保持现有 payload 形态）
+		const plain = await submit(baseUrl, "plain-1", {});
+		assert.equal(plain.status, 200);
+		void plain.body?.cancel().catch(() => undefined);
+		await waitFor(() => calls.send.length === 2);
+		assert.equal("agentMessage" in calls.send[1], false);
+	});
+});
+
 // ── dev 模式静态资源代理：外部 Web 端必须加载重构后的 React 版（A2） ──
 
 /** 起一个 mock vite dev server，记录请求路径并返回固定资源内容。 */

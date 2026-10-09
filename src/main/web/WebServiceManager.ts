@@ -44,7 +44,10 @@ import { serializeWebClientDictionaries, webEnUS } from "./WebI18n";
 import { WebEventStreamRouter, serializeSseFrame, type PiEvent } from "./WebEventStream";
 import { rewriteWebHtmlAssetUrls } from "./webHtmlAssetUrls";
 
-type WebServiceSettings = Pick<AppSettings, "webServiceEnabled" | "webServiceHost" | "webServicePort" | "webServiceRequiresAuth">;
+type WebServiceSettings = Pick<AppSettings, "webServiceEnabled" | "webServiceHost" | "webServicePort" | "webServiceRequiresAuth" | "webServiceToken" | "webServiceTokenGeneratedAt" | "webServiceTokenExpiresIn">;
+
+/** 令牌策略的最小形状（applySettings/restart → start 传递，避免 start 直接依赖完整设置） */
+type WebTokenPolicy = { token?: string; generatedAt?: number; expiresIn?: number };
 
 /** 清洗 host 输入：去空白、剥 IPv6 方括号、空串兜底为 0.0.0.0。 */
 export function normalizeWebHost(raw: string): string {
@@ -115,6 +118,11 @@ type WebServiceDependencies = {
 	 * out/renderer 构建产物（打包/正式构建场景）。
 	 */
 	devRendererUrl?: string;
+	/**
+	 * 令牌持久化回调：自动生成/轮换/手动修改后由 manager 上报，装配层写回 settings。
+	 * 单向依赖（manager 不依赖 SettingsManager），未注入时令牌退化为内存态（仅测试场景）。
+	 */
+	persistToken?: (state: { token: string; generatedAt: number; expiresIn: number }) => void;
 	/** 订阅主进程内部的 pi agent 事件流（agentId, event），返回退订函数。 */
 	subscribePiEvents: (handler: (agentId: string, event: PiEvent) => void) => () => void;
 	/** agentId → sessionId 路由，用于把 pi 事件导向对应 session 的 SSE 连接。 */
@@ -227,9 +235,14 @@ export class WebServiceManager {
 		port: number;
 		token: string;
 		requiresAuth: boolean;
+		tokenExpiresAt: number | null;
 	} | null = null;
-	/** 访问令牌：每次启动随机重生成，泄露的旧令牌在服务重启后即失效。 */
+	/** 访问令牌：持久化固定（deps.persistToken 回写设置），重启不换新，见 applyTokenPolicy。 */
 	private authToken = "";
+	/** 令牌生成/最后修改时刻（epoch ms），持久化不随重启重置 */
+	private tokenGeneratedAt = 0;
+	/** 令牌有效期（ms）；0 = 永不过期 */
+	private tokenExpiresInMs = 0;
 	/** P1-P3 工作区路由（git/files/prompts）；未装配时这些路由 404。由 main/index.ts 在构造后注入。 */
 	workspaceRoutes: { handle(url: URL, request: IncomingMessage, response: ServerResponse): Promise<boolean> } | null = null;
 	/** 设置页「需要 token 鉴权」开关；true 时所有 /api/*（/api/health 除外）强制令牌。 */
@@ -246,6 +259,16 @@ export class WebServiceManager {
 	 *  不追踪 upgrade 后的 socket，不手动销毁会让 stop() 的 server.close() 永远等不到回调。 */
 	private readonly hijackedSockets = new Set<import("node:stream").Duplex>();
 
+	// ── /api/events 状态推送（B：替代 Web 端 1s/3s 轮询）──
+	/** 订阅者集合；写失败（连接断开）时在推送循环里剔除。 */
+	private readonly stateEventClients = new Set<{ writeRaw: (wire: string) => boolean }>();
+	/** 变化检测去抖定时器：pi 事件风暴（流式期间每秒数十条）合并成一次快照比对。 */
+	private statePushTimer: ReturnType<typeof setTimeout> | null = null;
+	/** 最近一次广播的载荷；快照与它一致则跳过推送（流式期间 state 多数字段不变）。 */
+	private lastStatePushJson: string | null = null;
+	/** 低频兑底 tick：捕捉不经 pi 事件的目录变更（桌面端改名/删除/导入）。 */
+	private stateTickTimer: ReturnType<typeof setInterval> | null = null;
+
 	constructor(private readonly deps: WebServiceDependencies) {
 		this.devRendererUrl = deps.devRendererUrl?.trim() ? deps.devRendererUrl.trim().replace(/\/$/, "") : "";
 		this.eventStreamRouter = new WebEventStreamRouter((agentId) => this.deps.getSessionIdForAgent(agentId));
@@ -260,9 +283,12 @@ export class WebServiceManager {
 		const host = normalizeWebHost(settings.webServiceHost);
 		const port = this.normalizePort(settings.webServicePort);
 		const requiresAuth = settings.webServiceRequiresAuth ?? true;
+		// 令牌策略变更不需要重启服务（热更新：已建立的 SSE/长连接不受影响），
+		// 因此在「同配置早退」判断之前先应用；首启动（无 current）留给 start() 统一解析。
+		if (this.current) this.refreshTokenRuntime({ token: settings.webServiceToken, generatedAt: settings.webServiceTokenGeneratedAt, expiresIn: settings.webServiceTokenExpiresIn });
 		if (this.server && this.current?.host === host && this.current.port === port && this.current.requiresAuth === requiresAuth) return;
 		await this.stop();
-		await this.start(host, port, requiresAuth);
+		await this.start(host, port, requiresAuth, { token: settings.webServiceToken, generatedAt: settings.webServiceTokenGeneratedAt, expiresIn: settings.webServiceTokenExpiresIn });
 	}
 
 	/**
@@ -275,7 +301,75 @@ export class WebServiceManager {
 		const port = this.normalizePort(settings.webServicePort);
 		const requiresAuth = settings.webServiceRequiresAuth ?? true;
 		await this.stop();
-		await this.start(host, port, requiresAuth);
+		await this.start(host, port, requiresAuth, { token: settings.webServiceToken, generatedAt: settings.webServiceTokenGeneratedAt, expiresIn: settings.webServiceTokenExpiresIn });
+	}
+
+	/**
+	 * 应用令牌策略（返回是否变化）：
+	 * - 有持久化令牌 → 沿用（重启不换新，远程设备已保存的链接不失效）；
+	 * - 无持久化令牌 → 自动生成 UUID 并回写（首次启用）；
+	 * - expiresIn 从 generatedAt 起算，0 = 永不过期；generatedAt 缺省视为 now。
+	 */
+	private applyTokenPolicy(policy: WebTokenPolicy): boolean {
+		const persisted = policy.token?.trim();
+		const nextToken = persisted && persisted === this.authToken ? this.authToken : persisted || randomUUID();
+		const nextGeneratedAt = policy.generatedAt && policy.generatedAt > 0 ? policy.generatedAt : Date.now();
+		const nextExpiresIn = policy.expiresIn && policy.expiresIn > 0 ? policy.expiresIn : 0;
+		// 新生成的令牌没有持久值可沿用，立即回写（首次启用场景）。
+		if (!persisted) this.deps.persistToken?.({ token: nextToken, generatedAt: nextGeneratedAt, expiresIn: nextExpiresIn });
+		if (nextToken === this.authToken && nextGeneratedAt === this.tokenGeneratedAt && nextExpiresIn === this.tokenExpiresInMs) return false;
+		this.authToken = nextToken;
+		this.tokenGeneratedAt = nextGeneratedAt;
+		this.tokenExpiresInMs = nextExpiresIn;
+		return true;
+	}
+
+	/** 运行中热应用令牌策略并广播（applySettings 保存路径用，不重启服务）。 */
+	private refreshTokenRuntime(policy: WebTokenPolicy) {
+		if (this.applyTokenPolicy(policy)) this.scheduleStatePush();
+	}
+
+	/**
+	 * 设置页手动修改令牌 / 过期策略（web:set-token IPC）：立即热生效 + 持久化，
+	 * 不重启服务（远程设备仅旧令牌失效，服务本身不断）；服务未运行时仅持久化。
+	 */
+	setTokenPolicy(input: { token?: string; expiresIn?: number }): void {
+		const nextToken = input.token?.trim() || this.authToken;
+		const nextExpiresIn = input.expiresIn !== undefined ? (input.expiresIn > 0 ? input.expiresIn : 0) : this.tokenExpiresInMs;
+		// 手动修改令牌 → 过期计时重新起算；仅改过期策略 → 沿用原 generatedAt。
+		const tokenChanged = nextToken !== this.authToken;
+		const nextGeneratedAt = tokenChanged ? Date.now() : this.tokenGeneratedAt || Date.now();
+		if (input.token !== undefined || input.expiresIn !== undefined) this.deps.persistToken?.({ token: nextToken, generatedAt: nextGeneratedAt, expiresIn: nextExpiresIn });
+		this.authToken = nextToken;
+		this.tokenGeneratedAt = nextGeneratedAt;
+		this.tokenExpiresInMs = nextExpiresIn;
+		if (this.current) {
+			this.current = { ...this.current, token: this.authToken, tokenExpiresAt: this.computeTokenExpiresAt() };
+			this.scheduleStatePush();
+		}
+	}
+
+	/** expiresIn > 0 时的绝对过期时刻；0/未设置 → null（永不过期）。 */
+	private computeTokenExpiresAt(): number | null {
+		return this.tokenExpiresInMs > 0 ? this.tokenGeneratedAt + this.tokenExpiresInMs : null;
+	}
+
+	/**
+	 * 轮换访问令牌（设置页「重新生成令牌」）：立即换新并广播状态。
+	 * 旧令牌下一个请求即 401；已建立的 SSE 连接不主动断（下次事件写入失败自然回收），
+	 * Web 端由 401 兜底 UX 引导重新扫码。未运行时无操作。
+	 */
+	rotateToken(): void {
+		const nextToken = randomUUID();
+		const nextGeneratedAt = Date.now();
+		// 轮换后持久化新令牌并重置计时（否则旧 generatedAt 会让新令牌一出生就临近过期）；未运行时仅持久化，下次启动生效。
+		this.deps.persistToken?.({ token: nextToken, generatedAt: nextGeneratedAt, expiresIn: this.tokenExpiresInMs });
+		this.authToken = nextToken;
+		this.tokenGeneratedAt = nextGeneratedAt;
+		if (this.current) {
+			this.current = { ...this.current, token: this.authToken, tokenExpiresAt: this.computeTokenExpiresAt() };
+			this.scheduleStatePush();
+		}
 	}
 
 	/** 渲染层展示二维码/令牌用；未运行时返回空形状（running=false） */
@@ -283,12 +377,30 @@ export class WebServiceManager {
 		if (this.current) {
 			return { running: true, ...this.current };
 		}
-		return { running: false, host: "", port: 0, token: "", requiresAuth: false };
+		return { running: false, host: "", port: 0, token: "", requiresAuth: false, tokenExpiresAt: null };
 	}
 
 	async stop() {
 		// 解绑 pi 事件源，避免服务关闭后仍在转发事件到已失效的 SSE 连接。
 		this.eventStreamRouter.unbindPiSource();
+		// /api/events：停定时器、断开全部状态订阅者（避免向已关服务的 socket 写数据）。
+		if (this.statePushTimer) {
+			clearTimeout(this.statePushTimer);
+			this.statePushTimer = null;
+		}
+		if (this.stateTickTimer) {
+			clearInterval(this.stateTickTimer);
+			this.stateTickTimer = null;
+		}
+		for (const client of this.stateEventClients) {
+			try {
+				client.writeRaw(": service stopping\n\n");
+			} catch {
+				// 连接已失效则忽略
+			}
+		}
+		this.stateEventClients.clear();
+		this.lastStatePushJson = null;
 		if (!this.server) return;
 		const server = this.server;
 		this.server = null;
@@ -320,9 +432,23 @@ export class WebServiceManager {
 		});
 	}
 
-	private async start(host: string, port: number, requiresAuth = true) {
+	private async start(host: string, port: number, requiresAuth = true, tokenPolicy: WebTokenPolicy = {}) {
 		// 启动时绑定 pi 事件源；路由器只在存在活跃 SSE 连接时转发，空闲时零开销。
-		this.eventStreamRouter.bindPiSource(this.deps.subscribePiEvents);
+		// 状态推送：pi 事件是 runtime 状态翻转 / ask 待确认的源头，到达时去抖比对一次快照
+		// （/api/events 订阅者从中拿到即时推送，不再依赖 Web 端轮询发现）。
+		this.eventStreamRouter.bindPiSource(
+			this.deps.subscribePiEvents
+				? (handler) => {
+						const unsubscribe = this.deps.subscribePiEvents((agentId, event) => {
+							handler(agentId, event);
+							this.scheduleStatePush();
+						});
+						return unsubscribe;
+					}
+				: undefined,
+		);
+		// 5s 兑底 tick：捕捉不经 pi 事件的目录变更（桌面端改名/删除/导入等）。
+		this.stateTickTimer = setInterval(() => this.scheduleStatePush(), 5_000);
 		const server = createServer(async (request, response) => {
 			try {
 				await this.handleRequest(request, response, host, port, server);
@@ -356,14 +482,15 @@ export class WebServiceManager {
 			});
 		});
 		this.server = server;
-		// 令牌每次启动随机重生成：泄露的旧令牌在服务重启后即失效。
-		this.authToken = randomUUID();
+		// 令牌持久化固定：有持久值沿用（重启不换新，远程设备链接不失效）；缺省则生成并回写设置。
+		this.applyTokenPolicy(tokenPolicy);
 		this.requiresAuth = requiresAuth;
 		this.current = {
 			host,
 			port: this.getPort(server, port),
 			token: this.authToken,
 			requiresAuth: this.requiresAuth,
+			tokenExpiresAt: this.computeTokenExpiresAt(),
 		};
 	}
 
@@ -388,6 +515,10 @@ export class WebServiceManager {
 		// GET 与 SSE 允许 ?token= 查询参数（浏览器 EventSource 无法携带 header），其余走 Authorization: Bearer。
 		if (this.requiresAuth && url.pathname.startsWith("/api/") && !this.isAuthorized(request, url)) {
 			this.sendError(response, 401, "webError.unauthorized", "A valid web service token is required");
+			return;
+		}
+		if (url.pathname === "/api/events" && request.method === "GET") {
+			this.handleStateEvents(request, response);
 			return;
 		}
 		if (url.pathname === "/api/state") {
@@ -722,6 +853,8 @@ export class WebServiceManager {
 				messages?: Array<{ role?: string; content?: unknown; parts?: Array<{ type?: string; text?: string; mediaType?: string; data?: string }> }>;
 				/** 本轮提交的 user 消息 id（AI SDK submit-message 必然携带）。 */
 				messageId?: string;
+				/** 计划模式等隐藏指令（复用桌面 composer 的 agentMessage 通道）：仅发给 pi，不进用户时间线。 */
+				agentMessage?: string;
 			}>(request, CHAT_MAX_BODY_BYTES);
 			const sessionId = body.id?.trim();
 			if (!sessionId) {
@@ -753,12 +886,15 @@ export class WebServiceManager {
 
 			// 先开流（事件可能在 prompt 预检返回前就到达），再发 prompt。
 			this.handleStream(sessionId, request, response);
+			// agentMessage 只在非空时携带；长度上限与 /prompt 端点的消息体限制对齐，防滥用注入超长隐藏指令
+			const agentMessage = typeof body.agentMessage === "string" ? body.agentMessage.trim().slice(0, 64 * 1024) : "";
 			const result = await this.deps
 				.sendSessionPrompt({
 					sessionId,
 					requestId,
 					message: message || " ",
 					...(images.length > 0 ? { images } : {}),
+					...(agentMessage ? { agentMessage } : {}),
 				})
 				.catch((error: unknown) => ({
 					accepted: false as const,
@@ -954,6 +1090,97 @@ export class WebServiceManager {
 		};
 	}
 
+	/**
+	 * /api/events SSE：把项目/会话/运行态快照推给 Web 端，替代 1s/3s 轮询。
+	 *
+	 * 主进程没有统一的「state 变更」emitter（桌面端的推送点散落在 emitSessionRuntimeEvent
+	 * 各调用处），因此这里用「事件驱动 + 低频兑底」的变化检测：pi agent 事件（runtime
+	 * 状态翻转 / ask 待确认等的源头）到达时去抖 400ms 比对一次快照，另有 5s tick 兑底
+	 * 捕捉桌面端发起的目录变更（改名/删除/导入）。快照与上次广播一致则不推——流式期间
+	 * pi 事件高频但 state 载荷几乎不变，靠 JSON 比对免推。
+	 */
+	private handleStateEvents(request: IncomingMessage, response: ServerResponse): void {
+		response.writeHead(200, {
+			"content-type": "text/event-stream; charset=utf-8",
+			"cache-control": "no-cache, no-transform",
+			connection: "keep-alive",
+			"x-accel-buffering": "no",
+			"access-control-allow-origin": "*",
+		});
+		response.flushHeaders?.();
+
+		const client = {
+			writeRaw: (wire: string): boolean => {
+				if (response.writableEnded || response.destroyed) return false;
+				try {
+					response.write(wire);
+					return true;
+				} catch {
+					return false;
+				}
+			},
+		};
+		this.stateEventClients.add(client);
+		// 连接即推当前快照：前端订阅成功后不再需要首拉 /api/state。
+		void this.pushStateSnapshot([client], true);
+
+		// 心跳：防代理/浏览器空闲断连（与会话流同节奏）。
+		const heartbeat = setInterval(() => {
+			if (response.writableEnded || response.destroyed) {
+				cleanup();
+				return;
+			}
+			try {
+				response.write(": ping\n\n");
+			} catch {
+				cleanup();
+			}
+		}, 15_000);
+		const cleanup = () => {
+			clearInterval(heartbeat);
+			this.stateEventClients.delete(client);
+			if (!response.writableEnded) {
+				try {
+					response.end();
+				} catch {
+					// 已销毁的连接 end() 抛错可忽略
+				}
+			}
+		};
+		response.once("close", cleanup);
+		request.once("close", cleanup);
+	}
+
+	/** 去抖调度一次快照广播；已有待发定时器时静默合并（事件风暴防抖）。 */
+	private scheduleStatePush(): void {
+		if (this.statePushTimer) return;
+		this.statePushTimer = setTimeout(() => {
+			this.statePushTimer = null;
+			void this.pushStateSnapshot();
+		}, 400);
+	}
+
+	/**
+	 * 构建快照并推给目标订阅者（缺省全部）。
+	 * force=true 时无视「与上次一致」门控（新连接的初始快照必须下发）。
+	 */
+	private async pushStateSnapshot(targetClients: Array<{ writeRaw: (wire: string) => boolean }> = [...this.stateEventClients], force = false): Promise<void> {
+		if (targetClients.length === 0) return;
+		let json: string;
+		try {
+			json = serializePublicWebPayload(await this.getState());
+		} catch {
+			// 快照构建失败不广播（订阅者保留旧状态，兑底 tick / 轮询会重试）
+			return;
+		}
+		if (!force && json === this.lastStatePushJson) return;
+		this.lastStatePushJson = json;
+		const wire = `event: state\ndata: ${json}\n\n`;
+		for (const client of targetClients) {
+			if (!client.writeRaw(wire)) this.stateEventClients.delete(client);
+		}
+	}
+
 	private renderPage() {
 		return `<!doctype html>
 <html lang="en-US">
@@ -1045,7 +1272,8 @@ export class WebServiceManager {
 	</div>
 	<script>
 		const dictionaries = ${serializeWebClientDictionaries()};
-		const locale = /^zh(?:-|$)/i.test(navigator.languages?.[0] || navigator.language || "") ? "zh-CN" : "en-US";
+		const clientTag = (navigator.languages?.[0] || navigator.language || "").replace(/_/g, "-").toLowerCase();
+		const locale = clientTag.startsWith("zh") ? (/hant|zh-(tw|hk|mo)/.test(clientTag) ? "zh-TW" : "zh-CN") : "en-US";
 		const copy = dictionaries[locale] || dictionaries["en-US"];
 		// messagesBySession 现在是纯客户端缓存：/api/state 不再携带全量消息（P0 轮询瘦身），
 		// 切会话/轮询时按需拉 /messages/page。
@@ -1772,6 +2000,8 @@ export class WebServiceManager {
 	 * （EventSource 无法携带 header），写操作必须走 Bearer，避免令牌进代理/访问日志。
 	 */
 	private isAuthorized(request: IncomingMessage, url: URL): boolean {
+		// 过期检查先于令牌比对：过期后即使令牌匹配也拒绝（用户显式设置了有效期，到期应强制重新分发）。
+		if (this.tokenExpiresInMs > 0 && Date.now() > this.tokenGeneratedAt + this.tokenExpiresInMs) return false;
 		if (request.headers.authorization === `Bearer ${this.authToken}`) return true;
 		if (request.method !== "GET") return false;
 		return url.searchParams.get("token") === this.authToken;

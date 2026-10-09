@@ -229,6 +229,10 @@ export type PiUpdateCheckResult = {
 	latestVersion?: string;
 	hasUpdate: boolean;
 	error?: string;
+	/** 当前选中的 pi 可执行路径（自更新分派用；未安装时无）。 */
+	command?: string;
+	/** pi.dev 版本接口返回的包名（改名迁移期可能与默认包名不同；自更新 spec 用）。 */
+	packageName?: string;
 };
 
 export type PiProxyTestResult = {

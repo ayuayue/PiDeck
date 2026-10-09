@@ -1,3 +1,6 @@
+import { isTraditionalChineseLanguageTag } from "../types/settings";
+import { mainProcessZhTW } from "./mainProcessCopy.zh-TW";
+
 export const mainProcessZhCN = {
 	"diagnostic.historyLoadFailed": "历史会话加载失败，可继续使用当前 Agent 或重新打开会话重试。",
 	"diagnostic.compactReconnected": "会话压缩完成，Agent 已自动重连",
@@ -114,6 +117,8 @@ export const mainProcessZhCN = {
 	"session.fileTooLargeForWholeRead": "会话文件过大（{sizeMb}MB，超过 {limitMb}MB 整读上限），该操作已取消以免应用崩溃。",
 	// fork/clone 产物物理命名后缀：属于会话名的一部分（重命名可删除），展示层不再拼装。
 	"session.forkedSuffix": "(fork)",
+	// fork/copy 改名失败的用户通知（2026-10-08：只写日志 → 用户零反馈，侧栏标题停在弱兜底上看着像乱码）。
+	"notice.sessionSuffixRenameFailed": "会话 {mode} 已完成，但写会话名后缀失败：文件名后缀未生效，可稍后在会话菜单里手动重命名。",
 	"session.historyTitle": "{project} 历史会话",
 	"session.historyFallbackTitle": "历史会话",
 	"session.summaryPlaceholder": "[摘要]",
@@ -149,6 +154,7 @@ export const mainProcessZhCN = {
 	"mainConfig.emptyModelList": "接口返回了空的模型列表。",
 	"mainConfig.fetchTimeout": "请求超时，请检查网络或 baseUrl。",
 	"mainConfig.fetchModelsFailed": "获取模型列表失败，请检查 provider 配置后重试。",
+	"mainConfig.fetchModelsUnsupportedApi": "「{api}」协议没有通用的模型列表接口，无法自动拉取。请在「额外模型」里手动添加模型 ID（Azure 用部署名，Bedrock/Vertex 用各自的模型 ID）。",
 	"mainConfig.fetchBlockedByHtml": "接口返回的是网页而不是模型数据：请求很可能被网关的 WAF / 人机验证拦下了。请尝试在「测试代选」里切换代理，或在 User-Agent 里选一个官方客户端 UA（如 claude-cli/...）后重试。",
 	"mainConfig.fetchTlsBlocked": "TLS 握手失败（HTTPS 链路被中间设备干扰或封锁）。这通常不是配置错误：请开启代理后重试，或换用该网关的镜像/备用域名。",
 	"mainConfig.fetchUnreachable": "连接不上该地址（超时 / 被拒绝 / 域名解析失败）。请检查网络与代理开关，并确认 baseUrl 可访问。",
@@ -386,6 +392,8 @@ export const mainProcessEnUS: Record<MainProcessTranslationKey, string> = {
 	"session.fileTooLargeForWholeRead": "This session file is too large ({sizeMb}MB, over the {limitMb}MB whole-read limit); the operation was cancelled to avoid crashing the app.",
 	// Physical suffix appended to fork/clone session titles: part of the real name (removable by rename).
 	"session.forkedSuffix": "(fork)",
+	// User notice when the fork/copy suffix rename fails (2026-10-08: logging only gave users zero feedback).
+	"notice.sessionSuffixRenameFailed": "The session {mode} finished, but writing the name suffix failed; the file was not renamed. You can rename it later from the session menu.",
 	"session.historyTitle": "{project} history",
 	"session.historyFallbackTitle": "History",
 	"session.summaryPlaceholder": "[Summary]",
@@ -421,6 +429,7 @@ export const mainProcessEnUS: Record<MainProcessTranslationKey, string> = {
 	"mainConfig.emptyModelList": "The API returned an empty model list.",
 	"mainConfig.fetchTimeout": "The request timed out. Check the network connection or base URL.",
 	"mainConfig.fetchModelsFailed": "Failed to load the model list. Check the provider configuration and try again.",
+	"mainConfig.fetchModelsUnsupportedApi": 'The "{api}" protocol has no generic model listing endpoint, so models cannot be fetched automatically. Add model IDs manually under \u201cExtra Models\u201d (Azure uses deployment names; Bedrock/Vertex use their own model IDs).',
 	"mainConfig.fetchBlockedByHtml": "The endpoint returned a web page instead of model data — the request was most likely blocked by the gateway's WAF / bot check. Try switching the proxy in the connection test, or pick an official client User-Agent (e.g. claude-cli/...) and retry.",
 	"mainConfig.fetchTlsBlocked": "TLS handshake failed (the HTTPS connection is being interfered with or blocked). This is usually not a configuration error: enable a proxy and retry, or use the gateway's mirror/alternative domain.",
 	"mainConfig.fetchUnreachable": "Could not reach the address (timeout / refused / DNS failure). Check your network and proxy settings, and confirm the base URL is reachable.",
@@ -540,14 +549,23 @@ export const mainProcessEnUS: Record<MainProcessTranslationKey, string> = {
 	"shellMenu.quickTask": "Start a task with PiDeck",
 };
 
-export type MainProcessLocale = "zh-CN" | "en-US";
+export type MainProcessLocale = "zh-CN" | "zh-TW" | "en-US";
 
+/** 非 en/zh 的未知标签沿用历史行为回落 zh-CN；zh-Hant 系列（zh-TW/zh-HK/zh-Hant-*）走 zh-TW。 */
 export function normalizeMainProcessLocale(locale: unknown): MainProcessLocale {
 	if (typeof locale !== "string") return "zh-CN";
-	return locale.trim().toLowerCase().startsWith("en") ? "en-US" : "zh-CN";
+	const normalized = locale.trim();
+	if (normalized.toLowerCase().startsWith("en")) return "en-US";
+	return isTraditionalChineseLanguageTag(normalized) ? "zh-TW" : "zh-CN";
 }
 
+const mainProcessDictionaries: Record<MainProcessLocale, Record<MainProcessTranslationKey, string>> = {
+	"zh-CN": mainProcessZhCN,
+	"zh-TW": mainProcessZhTW,
+	"en-US": mainProcessEnUS,
+};
+
 export function mainProcessT(locale: MainProcessLocale, key: MainProcessTranslationKey, params: Record<string, string | number> = {}): string {
-	const template = (locale === "en-US" ? mainProcessEnUS : mainProcessZhCN)[key];
+	const template = mainProcessDictionaries[locale][key];
 	return template.replace(/\{([A-Za-z0-9_]+)\}/g, (match, name: string) => (Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match));
 }

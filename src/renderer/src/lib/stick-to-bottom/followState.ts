@@ -214,3 +214,20 @@ export function isVerticallyScrollableOverflow(overflowY: string): boolean {
 export function isScrollbarGutterHit(clientX: number, viewportLeft: number, clientWidth: number, slopPx = SCROLLBAR_HIT_SLOP_PX): boolean {
 	return clientX >= viewportLeft + clientWidth - slopPx;
 }
+
+/**
+ * 解锁贴底锁的幂等判定：目标态（escapedFromLock=true 且 isAtBottom=false）已就位时无需 setState。
+ * stopScroll/restoreAt 曾无条件 setState——layout effect 非沿触发时会在同一 cascade 里
+ * 反复入队布尔翻转，嵌套渲染 50 层触发 React #185（maximum update depth）。
+ */
+export function needsBottomUnlock(escapedFromLock: boolean, isAtBottom: boolean): boolean {
+	return !escapedFromLock || isAtBottom;
+}
+
+/**
+ * follow 逃逸沿判定：仅 followOutput 由 true 翻转为 false 的沿才执行 stopScroll。
+ * 其余依赖（阈值/动画偏好）变化不应重复解锁，避免与引擎/控制器/ResizeObserver 在同一 cascade 乒乓。
+ */
+export function isFollowEscapeEdge(previousFollow: boolean, currentFollow: boolean): boolean {
+	return previousFollow && !currentFollow;
+}

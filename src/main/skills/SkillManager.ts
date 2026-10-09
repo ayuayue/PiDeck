@@ -367,6 +367,14 @@ export class SkillManager {
 	}
 
 	/**
+	 * 安装内置「MCP 配置助手」技能模板（resources/skills/mcp-setup/SKILL.md）。
+	 * 用户在 MCP 页点「让 AI 帮你配」时安装；之后可在任意会话里让 AI 按官方文档代配任意 MCP 服务。
+	 */
+	async installMcpSetupTemplate(): Promise<{ success: true; path: string } | { success: false; error: string }> {
+		return this.installTemplate("mcp-setup");
+	}
+
+	/**
 	 * 安装内置的「环境诊断」技能模板（resources/skills/pideck-doctor/SKILL.md）。
 	 * 用户在问题反馈页生成诊断报告后，可让 pi 直接读报告分析排障（/skill:pideck-doctor）。
 	 */

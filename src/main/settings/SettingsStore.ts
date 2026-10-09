@@ -3,9 +3,25 @@ import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile, copyFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DEFAULT_IMAGE_GEN_OUTPUT_FORMAT, DEFAULT_IMAGE_GEN_SIZE, DEFAULT_IMAGE_GEN_WATERMARK, parseImageGenOutputFormat, parseImageGenSize, parseImageGenWatermark } from "../../shared/imageGenParams";
-import { createDefaultExternalEditorSettings, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE, DEFAULT_TOAST_DURATION_MS, TOAST_DURATION_STICKY_MS, normalizeSoundAlertSettings, type AppSettings } from "../../shared/types";
+import {
+	createDefaultExternalEditorSettings,
+	createDefaultSoundAlertSettings,
+	DEFAULT_PET_SCALE,
+	DEFAULT_TOAST_DURATION_MS,
+	TOAST_DURATION_STICKY_MS,
+	normalizeSoundAlertSettings,
+	WEB_TOKEN_EXPIRES_IN_CHOICES,
+	WEB_REMOTE_CLOUDFLARED_PROTOCOLS,
+	isValidWebTokenShape,
+	sanitizeCloudflaredExtraArgs,
+	type AppSettings,
+	type TerminalConfirmCloseMode,
+	type TerminalCursorStyle,
+	type TerminalThemeId,
+} from "../../shared/types";
 import { normalizePinnedSessionIds } from "../../shared/pinnedSessions";
 import { normalizeHiddenModules } from "../../shared/hiddenModules";
+import { normalizeHiddenComposerFeatures } from "../../shared/composerFeatures";
 import { parseBusySendDelivery } from "../../shared/busySendDelivery";
 import { sanitizeShortcutOverrides } from "../../shared/shortcuts";
 import { normalizeThemeSchedule } from "../../shared/themeSchedule";
@@ -13,6 +29,7 @@ import { normalizeEnhanceModel } from "../../shared/enhanceModelPreference";
 import { normalizeQuickMessages } from "../../shared/quickMessages";
 import { sanitizePiCustomPaths } from "../pi/piCustomPaths";
 import { sanitizeCustomThemeSnapshot } from "../../shared/customThemes";
+import { sanitizeAcpTools } from "../acp/acpToolConfig";
 import { normalizeFontSizeMode, normalizeOptionalFontSizeMode } from "../../shared/fontSize";
 import { clampSessionTabMaxWidth, SESSION_TAB_MAX_WIDTH_DEFAULT } from "../../shared/sessionTabWidth";
 import { getAppLogger } from "../logging/sharedLogger";
@@ -255,9 +272,13 @@ Gitmoji 对应关系：
 	hiddenAuthProviders: [],
 	// 功能模块默认全显示：隐藏列表为空 = 不隐藏任何模块（对现有用户零行为变化）
 	hiddenModules: [],
+	// 输入框功能入口默认全显示（清单见 shared/composerFeatures.ts）
+	hiddenComposerFeatures: [],
 	// 供应商卡片自定义顺序：空数组 = 未自定义，按配置原序展示
 	providerOrder: [],
 	dshProviderOrder: [],
+	// ACP agent CLI 工具登记表：默认空（用户在设置页登记后才有 acp 会话入口）
+	acpTools: [],
 
 	// ── 扩展管理 ──
 	/** 用户手动移除的内置扩展，启动时跳过自动部署 */
@@ -304,6 +325,9 @@ Gitmoji 对应关系：
 	// ── DSH agent-team 实验预设：默认关（组合层完全不注入）；开启需重启 host 生效 ──
 	dshAgentTeamPreset: false,
 
+	// ── DSH runtime 迁移提示闩：默认 false（还没提示过）；展示后置位，跨重启不重弹 ──
+	dshRuntimeMigrationNoticeShown: false,
+
 	// ── Agent 启动诊断/加速：offline 默认关（保证 pi 启动时模型目录走网络刷新，
 	// 用户新增/更新的模型能实时出现在模型列表）；扩展/技能默认加载 ──
 	piRpcOffline: false,
@@ -323,6 +347,19 @@ Gitmoji 对应关系：
 	fontFamilyBaseCustom: "",
 	fontFamilyMono: "system-mono",
 	fontFamilyMonoCustom: "",
+
+	// 终端外观/行为默认值：主题 inherit 保持现有 pi-soft 跟随明暗行为，
+	// scrollback 与 TerminalDock 原硬编码 5000 一致（升级后行为不变）。
+	terminalTheme: "inherit",
+	terminalFontSize: null,
+	terminalFontFamily: "",
+	terminalScrollback: 5000,
+	terminalCursorStyle: "block",
+	terminalCursorBlink: true,
+	terminalCopyOnSelect: false,
+	terminalPaddingY: 8,
+	terminalConfirmClose: "running",
+	terminalStartupCommand: "",
 };
 
 /**
@@ -350,6 +387,31 @@ export function migrateUpdateSourceToAtomgit(settings: { updateSource?: unknown;
 
 /** 供应商卡片自定义顺序的落盘上限：只防脏数组无限膨胀，正常配置远低于此值 */
 const MAX_PROVIDER_ORDER_ENTRIES = 200;
+
+const TERMINAL_THEME_IDS: readonly string[] = ["inherit", "solarized-light", "solarized-dark", "one-dark", "monokai"];
+const TERMINAL_CURSOR_STYLES: readonly string[] = ["block", "bar", "underline"];
+const TERMINAL_CONFIRM_CLOSE_MODES: readonly string[] = ["never", "running", "always"];
+
+/** 数值设置回落：非有限数用 fallback，否则 clamp 到 [min,max] 并取整。 */
+export function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+	return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+/** 终端主题 id 白名单回落：脏数据（旧 JSON 任意字符串）一律回 inherit。 */
+export function parseTerminalTheme(value: unknown): TerminalThemeId {
+	return TERMINAL_THEME_IDS.includes(value as string) ? (value as TerminalThemeId) : defaultSettings.terminalTheme;
+}
+
+/** 终端光标形状白名单回落。 */
+export function parseTerminalCursorStyle(value: unknown): TerminalCursorStyle {
+	return TERMINAL_CURSOR_STYLES.includes(value as string) ? (value as TerminalCursorStyle) : defaultSettings.terminalCursorStyle;
+}
+
+/** 关闭确认策略白名单回落。 */
+export function parseTerminalConfirmClose(value: unknown): TerminalConfirmCloseMode {
+	return TERMINAL_CONFIRM_CLOSE_MODES.includes(value as string) ? (value as TerminalConfirmCloseMode) : defaultSettings.terminalConfirmClose;
+}
 
 /**
  * toast 展示时长的读取钳制：-1（常驻哨兵，见 TOAST_DURATION_STICKY_MS）与 [1000, 60000]
@@ -397,6 +459,23 @@ export class SettingsStore {
 			// toast 展示时长：旧 settings.json 缺字段或脏值（0/负数/超大/字符串）钳回默认，
 			// 避免升级后 toast 永不再消失或瞬间消失。
 			this.settings.toastDurationMs = clampToastDurationMs(this.settings.toastDurationMs);
+			// 终端设置：旧 JSON 缺字段由 spread 默认值兕底；磁盘无类型，枚举/数值/字符串字段
+			// 逐一回落或钳制，避免 xterm 拿到非法 scrollback/fontSize 直接抛错。
+			this.settings.terminalTheme = parseTerminalTheme(this.settings.terminalTheme);
+			this.settings.terminalCursorStyle = parseTerminalCursorStyle(this.settings.terminalCursorStyle);
+			this.settings.terminalConfirmClose = parseTerminalConfirmClose(this.settings.terminalConfirmClose);
+			this.settings.terminalScrollback = clampNumber(this.settings.terminalScrollback, 0, 200_000, defaultSettings.terminalScrollback);
+			this.settings.terminalPaddingY = clampNumber(this.settings.terminalPaddingY, 0, 32, defaultSettings.terminalPaddingY);
+			// terminalFontSize 为 null 表示「跟随 UI 字号」，放行 null；数值时钳到 [6,32]
+			if (this.settings.terminalFontSize !== null && typeof this.settings.terminalFontSize !== "number") {
+				this.settings.terminalFontSize = defaultSettings.terminalFontSize;
+			} else if (typeof this.settings.terminalFontSize === "number") {
+				this.settings.terminalFontSize = Math.min(32, Math.max(6, Math.round(this.settings.terminalFontSize)));
+			}
+			if (typeof this.settings.terminalFontFamily !== "string") this.settings.terminalFontFamily = "";
+			if (typeof this.settings.terminalStartupCommand !== "string") this.settings.terminalStartupCommand = "";
+			if (typeof this.settings.terminalCursorBlink !== "boolean") this.settings.terminalCursorBlink = defaultSettings.terminalCursorBlink;
+			if (typeof this.settings.terminalCopyOnSelect !== "boolean") this.settings.terminalCopyOnSelect = defaultSettings.terminalCopyOnSelect;
 			// 兼容迁移：内置 CommitMono 字体已移除（打包瘦身），旧设置里的 "commit-mono"
 			// 不再存在于 AppFontMonoMode 枚举，统一回退到系统等宽字体，避免类型漂移。
 			// 注意：磁盘 JSON 是无类型的，旧值可能是已删除的枚举项，先拓宽为 string 再比较。
@@ -438,6 +517,8 @@ export class SettingsStore {
 			this.settings.themeScheduleDarkStart = schedule.darkStart;
 			// 置顶状态只接受稳定、非空的 SessionRecord id；旧设置缺省时自然回落为空。
 			this.settings.pinnedSessionIds = normalizePinnedSessionIds(parsed.pinnedSessionIds);
+			// ACP 工具登记表：手改 settings.json 的脏条目在加载边界归一，不等到首次 update。
+			this.settings.acpTools = sanitizeAcpTools(parsed.acpTools);
 			// 字号档位：旧版本有 5 档（多一个已删除的 "default"），现在是 4 档（紧凑/中/大/特大）。
 			// 刻意不做迁移框架——任何不在档位表里的历史值一律落到「中」，旧用户升级后自动等于中；
 			// 同时避免 UI 下拉读到未知值时变成空白。null（跟随全局）必须保持 null。
@@ -461,6 +542,10 @@ export class SettingsStore {
 			if (typeof this.settings.dshAgentTeamPreset !== "boolean") {
 				this.settings.dshAgentTeamPreset = false;
 			}
+			// 迁移提示闩同理：非布尔回落 false（旧 JSON 缺字段 = 还没提示过，首次启动照常提示一次）。
+			if (typeof this.settings.dshRuntimeMigrationNoticeShown !== "boolean") {
+				this.settings.dshRuntimeMigrationNoticeShown = false;
+			}
 			// 快捷键覆盖来自旧 settings.json 时可能是脏值（未知 id / 非法 accelerator）；
 			// 统一清洗，坏条目回落平台默认，避免主进程匹配读到无效键。
 			this.settings.shortcuts = sanitizeShortcutOverrides(parsed.shortcuts, process.platform);
@@ -474,8 +559,20 @@ export class SettingsStore {
 			if (typeof this.settings.webServiceRequiresAuth !== "boolean") {
 				this.settings.webServiceRequiresAuth = defaultSettings.webServiceRequiresAuth;
 			}
+			// 固定令牌机制：旧 JSON 无该字段 = 尚未生成，留给 WebServiceManager 首次启动生成并回写；
+			// 有值则清洗为 trim 后的 8-128 可打印字符（与设置页/IPC 入口同一约束），越界视为未设置。
+			const parsedToken = typeof parsed.webServiceToken === "string" ? parsed.webServiceToken.trim() : "";
+			this.settings.webServiceToken = isValidWebTokenShape(parsedToken) ? parsedToken : undefined;
+			this.settings.webServiceTokenGeneratedAt = typeof parsed.webServiceTokenGeneratedAt === "number" && Number.isFinite(parsed.webServiceTokenGeneratedAt) && parsed.webServiceTokenGeneratedAt > 0 ? parsed.webServiceTokenGeneratedAt : undefined;
+			const parsedExpiresIn = parsed.webServiceTokenExpiresIn;
+			this.settings.webServiceTokenExpiresIn = typeof parsedExpiresIn === "number" && (WEB_TOKEN_EXPIRES_IN_CHOICES as readonly number[]).includes(parsedExpiresIn) ? parsedExpiresIn : undefined;
+			const parsedProtocol = parsed.webRemoteCloudflaredProtocol;
+			this.settings.webRemoteCloudflaredProtocol = parsedProtocol && (WEB_REMOTE_CLOUDFLARED_PROTOCOLS as readonly string[]).includes(parsedProtocol) ? parsedProtocol : undefined;
+			this.settings.webRemoteCloudflaredExtraArgs = sanitizeCloudflaredExtraArgs(parsed.webRemoteCloudflaredExtraArgs) || undefined;
 			// 隐藏模块来自旧 JSON 时可能是脏值（非数组/含空串与重复项）；统一清洗，缺字段回落空数组（全显示）。
 			this.settings.hiddenModules = normalizeHiddenModules(parsed.hiddenModules);
+			// 输入框功能入口同规则清洗（与 hiddenModules 共用实现）。
+			this.settings.hiddenComposerFeatures = normalizeHiddenComposerFeatures(parsed.hiddenComposerFeatures);
 		}
 		// showThinking 不再作为可持久化的独立配置项，完全跟随 pi agent 的 hideThinkingBlock。
 		// 启动时重新读取以确保每次启动都使用最新值，而非缓存的 defaultSettings。
@@ -623,6 +720,11 @@ export class SettingsStore {
 		if ("quickMessages" in safePatch) {
 			safePatch.quickMessages = normalizeQuickMessages(safePatch.quickMessages);
 		}
+		// ACP 工具登记表来自渲染层，入参不可信：逐条过滤（字符串字段去空白/限长、
+		// args 只收字符串数组），非法条目丢弃而不是拒绝整表（单条脏数据不阻断保存）。
+		if ("acpTools" in safePatch) {
+			safePatch.acpTools = sanitizeAcpTools(safePatch.acpTools);
+		}
 		// 更新源 id 归一化（只允许已知枚举：atomgit 第一首选，github 官方；其余历史值回退 atomgit）。
 		if ("updateSource" in safePatch) {
 			const candidate = safePatch.updateSource;
@@ -708,6 +810,10 @@ export class SettingsStore {
 		if ("hiddenModules" in safePatch) {
 			safePatch.hiddenModules = normalizeHiddenModules(safePatch.hiddenModules);
 		}
+		// 输入框功能入口清单同规则消毒（与 hiddenModules 共用实现）。
+		if ("hiddenComposerFeatures" in safePatch) {
+			safePatch.hiddenComposerFeatures = normalizeHiddenComposerFeatures(safePatch.hiddenComposerFeatures);
+		}
 		// 声音提醒来自渲染层，入参不可信：缺字段/非法引用/越界音量一律回落默认。
 		if ("soundAlert" in safePatch) {
 			safePatch.soundAlert = normalizeSoundAlertSettings(safePatch.soundAlert);
@@ -715,6 +821,38 @@ export class SettingsStore {
 		// toast 展示时长来自渲染层，入参不可信：非法值钳回默认（-1=常驻哨兵放行）。
 		if ("toastDurationMs" in safePatch) {
 			safePatch.toastDurationMs = clampToastDurationMs(safePatch.toastDurationMs);
+		}
+		// 终端设置来自渲染层，入参不可信：枚举白名单回落、数值钳制、类型不符丢弃，
+		// 与 load() 归一化同一套规则（避免脏值经 patch 绕过读取校验直接落盘）。
+		if ("terminalTheme" in safePatch) {
+			safePatch.terminalTheme = parseTerminalTheme(safePatch.terminalTheme);
+		}
+		if ("terminalCursorStyle" in safePatch) {
+			safePatch.terminalCursorStyle = parseTerminalCursorStyle(safePatch.terminalCursorStyle);
+		}
+		if ("terminalConfirmClose" in safePatch) {
+			safePatch.terminalConfirmClose = parseTerminalConfirmClose(safePatch.terminalConfirmClose);
+		}
+		if ("terminalScrollback" in safePatch) {
+			safePatch.terminalScrollback = clampNumber(safePatch.terminalScrollback, 0, 200_000, defaultSettings.terminalScrollback);
+		}
+		if ("terminalPaddingY" in safePatch) {
+			safePatch.terminalPaddingY = clampNumber(safePatch.terminalPaddingY, 0, 32, defaultSettings.terminalPaddingY);
+		}
+		if ("terminalFontSize" in safePatch && safePatch.terminalFontSize !== null) {
+			safePatch.terminalFontSize = clampNumber(safePatch.terminalFontSize, 6, 32, defaultSettings.terminalFontSize ?? 13);
+		}
+		if ("terminalFontFamily" in safePatch && typeof safePatch.terminalFontFamily !== "string") {
+			delete safePatch.terminalFontFamily;
+		}
+		if ("terminalStartupCommand" in safePatch && typeof safePatch.terminalStartupCommand !== "string") {
+			delete safePatch.terminalStartupCommand;
+		}
+		if ("terminalCursorBlink" in safePatch && typeof safePatch.terminalCursorBlink !== "boolean") {
+			delete safePatch.terminalCursorBlink;
+		}
+		if ("terminalCopyOnSelect" in safePatch && typeof safePatch.terminalCopyOnSelect !== "boolean") {
+			delete safePatch.terminalCopyOnSelect;
 		}
 		// 闲置 agent 释放参数来自渲染层，钳制到合理范围避免非法值（0/负数/超大）写入磁盘
 		if ("idleAgentKeepCount" in safePatch) {
@@ -733,6 +871,10 @@ export class SettingsStore {
 		// agent-team 实验预设开关来自渲染层，入参不可信：只接受布尔，非法值不落盘。
 		if ("dshAgentTeamPreset" in safePatch && typeof safePatch.dshAgentTeamPreset !== "boolean") {
 			delete safePatch.dshAgentTeamPreset;
+		}
+		// 迁移提示闩同理：只接受布尔，非法值不落盘（脏 true 会永久静音提示，脏 false 会重弹）。
+		if ("dshRuntimeMigrationNoticeShown" in safePatch && typeof safePatch.dshRuntimeMigrationNoticeShown !== "boolean") {
+			delete safePatch.dshRuntimeMigrationNoticeShown;
 		}
 		this.settings = { ...this.settings, ...safePatch };
 		// 生图字段来自渲染层，非法值丢掉，避免下次请求带坏 size/watermark。

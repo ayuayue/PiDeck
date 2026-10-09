@@ -2560,10 +2560,11 @@ select:focus-visible {
   --git-input-bg: transparent;
 }
 /* 壁纸模式终端一体性：dock 容器/header 透出 chat-pane 单层，与输出区同透明度；
-   xterm 背景在 TerminalDock.tsx 中处理（浅色主题透明，深色主题保留面板档 alpha）。 */
+   xterm 背景在 TerminalDock.tsx 中处理（浅色主题透明，深色主题保留面板档 alpha）。
+   --terminal-bg 必须 !important：主题变量由 TerminalDock inline 注入，普通声明压不过 inline。 */
 :root[data-bg-image="on"] .terminal-dock,
 :root[data-bg-image="on"] .terminal-dock-header {
-  --terminal-bg: transparent;
+  --terminal-bg: transparent !important;
   background: transparent;
 }
 /* xterm 容器三层默认叠 var(--terminal-bg)（+!important），壁纸模式下同样透明，
@@ -3032,15 +3033,18 @@ select:focus-visible {
   border-radius: var(--radius-md);
 }
 .terminal-dock {
-  --terminal-bg: #ffffff;
-  --terminal-fg: #243244;
-  --terminal-panel: #ffffff;
-  --terminal-header: #ffffff;
+  /* 终端主题变量唯一数据源在 renderer/src/terminalThemes.ts，由 TerminalDock 运行时
+     inline 注入到 dock 根元素（按 data-theme 同步的 5 套硬编码块已删——双份定义会漂移）。
+     这里只保留首帧/JS 未注入时的回退值：指向应用 token，而非某个具体主题色。 */
+  --terminal-bg: var(--color-bg-panel, #ffffff);
+  --terminal-fg: var(--color-text-primary, #243244);
+  --terminal-panel: var(--color-bg-panel, #ffffff);
+  --terminal-header: var(--color-bg-panel, #ffffff);
   --terminal-border: color-mix(in srgb, var(--color-border-subtle) 55%, transparent);
-  --terminal-muted: #8b8f94;
+  --terminal-muted: var(--color-text-tertiary, #8b8f94);
   --terminal-active-bg: transparent;
-  --terminal-active-fg: #15803d;
-  --terminal-hover: #f0f1ed;
+  --terminal-active-fg: var(--color-accent, #15803d);
+  --terminal-hover: var(--color-bg-subtle, #f0f1ed);
   position: relative;
   z-index: 0;
   min-height: 120px;
@@ -3049,7 +3053,8 @@ select:focus-visible {
   color: var(--terminal-fg);
   display: grid;
   grid-template-rows: 30px minmax(0, 1fr);
-  box-shadow: 0 -2px 8px -4px var(--terminal-border);
+  /* inherit 暗色下 JS 会注入 --terminal-shadow: none（原 :root[dark] pi-soft 块的例外） */
+  box-shadow: var(--terminal-shadow, 0 -2px 8px -4px var(--terminal-border));
   z-index: 60;
   will-change: transform;
   transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -3057,75 +3062,6 @@ select:focus-visible {
 .terminal-dock[data-motion-state="hidden"] {
   transform: translate3d(0, 100%, 0);
   pointer-events: none;
-}
-.terminal-dock[data-theme="solarized-light"] {
-  --terminal-bg: #fdf6e3;
-  --terminal-fg: #657b83;
-  --terminal-panel: #eee8d5;
-  --terminal-header: #fdf6e3;
-  --terminal-border: color-mix(in srgb, #d9d0ad 55%, transparent);
-  --terminal-muted: #6c7780;
-  --terminal-active-bg: #e6f2d7;
-  --terminal-active-fg: #586e00;
-  --terminal-hover: #e8dfc3;
-}
-.terminal-dock[data-theme="pi-soft"] {
-  /* pi-soft 浅色侧：柔绿灰纸感，与暗色 pi-soft 同族。缺这份映射时浅色回落到纯白 #ffffff，
-     在暖灰面板环境里像一块刺眼白板（2027-03 补齐）。 */
-  --terminal-bg: #f8faf8;
-  --terminal-fg: #33413a;
-  --terminal-panel: #eef2ef;
-  --terminal-header: #f4f7f5;
-  --terminal-border: color-mix(in srgb, #ccd6d0 55%, transparent);
-  --terminal-muted: #75817b;
-  --terminal-active-bg: transparent;
-  --terminal-active-fg: #1a7f37;
-  --terminal-hover: #e3eae6;
-}
-:root[data-theme="dark"] .terminal-dock[data-theme="pi-soft"] {
-  --terminal-bg: #15191d;
-  --terminal-fg: #d9e2dc;
-  --terminal-panel: #1b2025;
-  --terminal-header: #22282e;
-  --terminal-border: color-mix(in srgb, #2a333a 55%, transparent);
-  --terminal-muted: #95a39c;
-  --terminal-active-bg: transparent;
-  --terminal-active-fg: #6ee78c;
-  --terminal-hover: #263039;
-  box-shadow: none;
-}
-.terminal-dock[data-theme="solarized-dark"] {
-  --terminal-bg: #002b36;
-  --terminal-fg: #839496;
-  --terminal-panel: #073642;
-  --terminal-header: #073642;
-  --terminal-border: #164b59;
-  --terminal-muted: #93a1a1;
-  --terminal-active-bg: #114b58;
-  --terminal-active-fg: #2aa198;
-  --terminal-hover: #0f4652;
-}
-.terminal-dock[data-theme="one-dark"] {
-  --terminal-bg: #282c34;
-  --terminal-fg: #abb2bf;
-  --terminal-panel: #21252b;
-  --terminal-header: #282c34;
-  --terminal-border: #3a3f4b;
-  --terminal-muted: #9aa3b4;
-  --terminal-active-bg: #343b46;
-  --terminal-active-fg: #98c379;
-  --terminal-hover: #303640;
-}
-.terminal-dock[data-theme="monokai"] {
-  --terminal-bg: #272822;
-  --terminal-fg: #f8f8f2;
-  --terminal-panel: #20211c;
-  --terminal-header: #272822;
-  --terminal-border: #3e3d32;
-  --terminal-muted: #cfcfc2;
-  --terminal-active-bg: #3a3b31;
-  --terminal-active-fg: #a6e22e;
-  --terminal-hover: #33342c;
 }
 .terminal-dock.collapsed {
   min-height: 30px;
