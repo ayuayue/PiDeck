@@ -385,7 +385,7 @@
     "dsh-bill": "^0.14.0",
     "dsh-tool-pwsh-persistent": "file:packages/dsh-tool-pwsh-persistent",
     "electron": "^43.4.0",
-    "electron-builder": "^26.8.1",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^4.0.0",
     "eslint": "^10.6.0",
     "html-to-image": "^1.11.13",
