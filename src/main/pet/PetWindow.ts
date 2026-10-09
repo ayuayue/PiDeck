@@ -193,16 +193,7 @@ export class PetWindow {
 			this.win.on("moved", () => {
 				if (!this.exists) return;
 				const b = this.win!.getBounds();
-				this.pendingPos = this.toNormalPos(b);
-				if (this.saveTimer) return;
-				this.saveTimer = setTimeout(() => {
-					this.saveTimer = null;
-					if (this.pendingPos) {
-						const p = this.pendingPos;
-						this.pendingPos = null;
-						void savePos(p);
-					}
-				}, 400);
+				this.schedulePersistPosition(this.toNormalPos(b));
 			});
 		}
 
@@ -240,6 +231,23 @@ export class PetWindow {
 		}
 		if (this.win && !this.win.isDestroyed()) this.win.destroy();
 		this.win = null;
+	}
+
+	/** 把位置交给统一防抖路径持久化：moved 事件与 moveTo 共用。
+	 * moveTo 是巡游/拖拽的高频入口（PetPatrol tick 每 50ms 一次），若在这里直接
+	 * savePos 落盘，写盘频率会达到 20 次/秒，完全绕过 400ms 防抖。
+	 * 只更新 pendingPos + 复用防抖 timer；最后一次位置最迟在防抖窗口或 destroy 时落盘。 */
+	private schedulePersistPosition(pos: { x: number; y: number }) {
+		this.pendingPos = pos;
+		if (this.saveTimer) return;
+		this.saveTimer = setTimeout(() => {
+			this.saveTimer = null;
+			if (this.pendingPos) {
+				const p = this.pendingPos;
+				this.pendingPos = null;
+				void savePos(p);
+			}
+		}, 400);
 	}
 
 	/** 把任意布局的窗口 bounds 换算成普通布局左上角（持久化格式） */
@@ -301,9 +309,9 @@ export class PetWindow {
 			width: this.targetSize.width,
 			height: this.targetSize.height,
 		});
-		// 持久化统一换算为普通布局位置：通知展示期间拖拽不会污染位置文件语义
+		// 持久化统一换算为普通布局位置（通知展示期间拖拽不污染位置文件语义），走防抖路径
 		const [w, h] = this.win!.getSize();
-		void savePos(this.toNormalPos({ x, y, width: w, height: h }));
+		this.schedulePersistPosition(this.toNormalPos({ x, y, width: w, height: h }));
 	}
 
 	/** 将当前窗口拉回业务目标尺寸，用于拖拽结束后纠正系统合成器造成的尺寸漂移。 */

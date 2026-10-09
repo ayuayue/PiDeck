@@ -360,7 +360,8 @@ test("moveTo persists positions converted back to the normal layout", async () =
 	const expanded = { ...win.getBounds() };
 	// 通知布局下拖到 (100, 300)，脚底中心 = (100 + w/2, 300 + h)
 	petWindow.moveTo(100, 300);
-	await new Promise((r) => setTimeout(r, 10));
+	// 持久化走 400ms 防抖（schedulePersistPosition）：最后一次位置在防抖窗口后落盘
+	await new Promise((r) => setTimeout(r, 450));
 	const saved = JSON.parse(fsWrites.at(-1));
 	// 换算回普通布局（192x208）：脚底中心不变
 	const feetX = 100 + expanded.width / 2;

@@ -228,9 +228,11 @@ export class TerminalSessionManager {
 	}
 
 	input(tabId: string, data: string) {
-		const runtime = this.requireTab(tabId);
-		if (runtime.tab.exited) return;
-		runtime.pty.write(data);
+		// 与 resize 同源约定：tab 已删（用户关闭/agent 重启 closeAgent）后，渲染层 xterm
+		// 卸载前的迟到按键静默忽略——requireTab 式 throw 会经 ipcMain.handle 变成渲染层 rejection。
+		const found = this.findRuntime(tabId);
+		if (!found || found.runtime.tab.exited) return;
+		found.runtime.pty.write(data);
 	}
 
 	resize(tabId: string, cols: number, rows: number) {
@@ -287,12 +289,6 @@ export class TerminalSessionManager {
 		const next = new Map<string, TerminalRuntime>();
 		this.runtimes.set(ownerKey, next);
 		return next;
-	}
-
-	private requireTab(tabId: string) {
-		const found = this.findRuntime(tabId);
-		if (!found) throw new Error(`Terminal not found: ${tabId}`);
-		return found.runtime;
 	}
 
 	private findRuntime(tabId: string) {

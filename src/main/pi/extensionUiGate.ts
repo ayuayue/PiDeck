@@ -1,3 +1,4 @@
+import { clearTimeout, setTimeout } from "node:timers";
 import { ipcChannels } from "../../shared/ipc";
 import { stripBridgeAnsi } from "../../shared/bridgeText";
 import { looksLikePiSessionFileStem } from "./agentUtils";
@@ -22,6 +23,14 @@ export interface PendingAutomaticTitle {
 	sessionId: string;
 	runtimeGeneration: number;
 }
+
+/** 请求拥有自己的超时句柄，回答、取消、替换和 runtime 销毁时一并释放。 */
+type PendingUiRequest = {
+	method: string;
+	title: string;
+	raisedAt: number;
+	timer?: ReturnType<typeof setTimeout>;
+};
 
 /**
  * 扩展 UI 请求闸（AgentManager 拆分 Wave 4B，2027-02 从 AgentManager 迁出，行为零变化）。
@@ -53,7 +62,7 @@ export class ExtensionUiGate {
 	 * 用于在 abort 时及时发送 cancellation 防止 pi 等待超时；raisedAt 记录提问弹起时刻，
 	 * 供 ask_question 工具耗时扣除用户等待时间（exclude_wait）使用。
 	 */
-	private readonly pendingUIRequests = new Map<string, Map<string, { method: string; title: string; raisedAt: number }>>();
+	private readonly pendingUIRequests = new Map<string, Map<string, PendingUiRequest>>();
 	/**
 	 * 各 agent 已累计的 ask 用户等待毫秒数（raisedAt→回答时刻）。
 	 * 工具耗时（durationMs）应只算 agent 实际处理时长，不含用户盯着问卷思考的时间；
@@ -171,16 +180,19 @@ export class ExtensionUiGate {
 		if (!this.pendingUIRequests.has(agentId)) {
 			this.pendingUIRequests.set(agentId, new Map());
 		}
-		this.pendingUIRequests.get(agentId)!.set(requestId, {
+		const pending = this.pendingUIRequests.get(agentId)!;
+		this.clearUIRequestTimeout(pending.get(requestId));
+		pending.set(requestId, {
 			method: effectiveMethod,
 			title: request.title,
 			raisedAt: Date.now(),
 		});
 
+		// 先武装再广播：宿主可能同步取消未绑定的提问，不能在取消后重新挂上 timer。
+		this.scheduleUIRequestTimeout(agentId, requestId, typed.timeout);
 		// The session runtime owns pending UI. Do not write an additional system
 		// message, because that creates a second interactive card in the timeline.
 		this.host.emitUiRequest(request);
-		this.scheduleUIRequestTimeout(agentId, requestId, typed.timeout);
 		// 桌面通知由 SessionRuntimeCoordinator 统一触发（非聚焦会话才提醒，避免打扰正在看当前会话的用户）；
 		// 此处不重复发，防止一条提问出现两条通知。
 	}
@@ -225,6 +237,7 @@ export class ExtensionUiGate {
 		// 清理 pending 记录
 		const pending = this.pendingUIRequests.get(agentId);
 		if (pending) {
+			this.clearUIRequestTimeout(pending.get(requestId));
 			pending.delete(requestId);
 			if (pending.size === 0) this.pendingUIRequests.delete(agentId);
 		}
@@ -246,7 +259,7 @@ export class ExtensionUiGate {
 		const client = this.host.getClient(agentId);
 		if (!client) return;
 		this.host.markAbortedDuringAsk(agentId);
-		for (const [requestId] of pending) {
+		for (const [requestId, request] of pending) {
 			// 视作用户在此刻结束等待：结算等待时长，供该 ask 工具耗时扣除
 			this.settleAskWait(agentId, requestId);
 			client.sendRaw({
@@ -254,6 +267,7 @@ export class ExtensionUiGate {
 				id: requestId,
 				value: null,
 			});
+			this.clearUIRequestTimeout(request);
 			// extension 收到 null 保持其取消语义；渲染层必须立即移除纯运行时交互
 			this.host.emitUiRequest({
 				agentId,
@@ -290,13 +304,24 @@ export class ExtensionUiGate {
 		}
 	}
 
+	/** 释放请求的超时资源；重复清理和已自然到期的请求都安全。 */
+	private clearUIRequestTimeout(request: PendingUiRequest | undefined): void {
+		if (!request?.timer) return;
+		clearTimeout(request.timer);
+		delete request.timer;
+	}
+
 	private scheduleUIRequestTimeout(agentId: string, requestId: string, timeout: unknown) {
+		const pending = this.pendingUIRequests.get(agentId)?.get(requestId);
+		if (!pending) return;
 		// 扩展显式指定且合法时优先用它；否则退回兜底上限，避免 pi 永久阻塞（见常量注释）。
 		const explicitTimeout = typeof timeout === "number" && Number.isFinite(timeout) && timeout > 0 ? Math.floor(timeout) : undefined;
 		const effectiveTimeout = explicitTimeout ?? ExtensionUiGate.DEFAULT_UI_REQUEST_TIMEOUT_MS;
 
 		const timer = setTimeout(() => {
-			if (!this.pendingUIRequests.get(agentId)?.has(requestId)) return;
+			// 同名请求可被替换：旧回调只能结算它原本拥有的请求，不能取消后来者。
+			if (this.pendingUIRequests.get(agentId)?.get(requestId) !== pending) return;
+			this.clearUIRequestTimeout(pending);
 			// A timeout must close both ends of the protocol. Merely hiding the
 			// renderer form leaves Pi blocked on extension_ui_response indefinitely.
 			this.host.warn("Extension UI request timed out; cancelling to unblock pi", {
@@ -307,6 +332,7 @@ export class ExtensionUiGate {
 			});
 			this.sendUIResponse(agentId, requestId, { cancelled: true });
 		}, effectiveTimeout);
+		pending.timer = timer;
 		timer.unref?.();
 	}
 
@@ -343,6 +369,9 @@ export class ExtensionUiGate {
 
 	/** 生命周期清理：clearAgentState 路径（提问表 + auto-title marker）。 */
 	clearAgent(agentId: string): void {
+		for (const request of this.pendingUIRequests.get(agentId)?.values() ?? []) {
+			this.clearUIRequestTimeout(request);
+		}
 		this.pendingUIRequests.delete(agentId);
 		this.pendingAutomaticTitles.delete(agentId);
 	}

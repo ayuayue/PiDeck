@@ -43,6 +43,11 @@ export class PiRpcClient extends EventEmitter {
 		stdout: NodeJS.ReadableStream,
 	) {
 		super();
+		// 断管兑底：pi 死亡与 child 'close' 派发→rpcClient.close() 之间有异步窗口，
+		// 期间并发到达的 send/sendRaw 会写到断管道上（POSIX 报 EPIPE、Windows 报 EOF）；
+		// 未监听的 stdin error 会炸掉主进程。请求结账由 pending 超时与 close() 负责，
+		// 这里只吞写端异常，不改变任何可见行为。
+		this.stdin.on("error", () => {});
 		stdout.on("data", (chunk) => this.consumeChunk(chunk));
 		stdout.on("end", () => this.consumeEnd());
 	}
