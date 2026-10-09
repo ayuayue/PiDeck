@@ -126,6 +126,26 @@ export function isPackageFullyDisabled(entry: PackageEntryShape): boolean {
 	return (["extensions", "skills", "prompts", "themes"] as PiResourceKind[]).every((kind) => Array.isArray(entry[kind]) && (entry[kind] as unknown[]).length === 0);
 }
 
+/** 条目是否带任意资源过滤键（键存在即算，空数组也算——空数组是「全关」的显式声明）。 */
+export function hasPackageFilterKeys(entry: PackageEntryShape): boolean {
+	return (["extensions", "skills", "prompts", "themes"] as PiResourceKind[]).some((kind) => entry[kind] !== undefined);
+}
+
+/**
+ * 把过滤清空后的普通包条目折回 pi 的默认安装形态（纯字符串）。
+ *
+ * 与 pi config TUI 的清理规则一致（config-selector：过滤键全没了就 `packages[i] = pkg.source`）：
+ * 否则 `{ source }` 空对象会被 `pi list` 永久标成 `(filtered)`，用户只是关过一次开关，
+ * 列表却长期显示「过滤式安装」徽标。只在没有其它字段时才折叠，避免丢未知字段；
+ * delta（`autoload:false`）不走这里——它的键语义不同，调用方另有分支。
+ */
+export function collapsePackageEntry<T extends PackageEntryShape>(entry: T): T | string {
+	const source = entry.source;
+	if (typeof source !== "string" || !source) return entry;
+	if (hasPackageFilterKeys(entry)) return entry;
+	return Object.keys(entry).every((key) => key === "source") ? source : entry;
+}
+
 /**
  * 项目层 delta（`autoload:false`）的整包停用/强制启用过滤。
  * - 停用：`["!*", "!.*"]`（排除所有文件，含隐藏文件与隐藏目录下的文件）

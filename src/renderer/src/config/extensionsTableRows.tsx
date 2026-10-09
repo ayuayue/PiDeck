@@ -74,8 +74,11 @@ export function ExtensionTableRow(props: {
 						<strong className={`truncate text-control font-medium text-foreground${disabled ? " opacity-50" : ""}`}>{name}</strong>
 						{extension.builtIn && <span className="text-micro text-muted-foreground">{t("common.builtIn")}</span>}
 						{/* 过滤式安装徽标：source 已在主进程剥离 "(filtered)" 后缀，
-						    版本查询/更新/卸载均用干净 source；此处仅展示标记 */}
-						{extension.filtered && <span className="text-micro text-muted-foreground">{t("config.extensionFiltered")}</span>}
+						    版本查询/更新/卸载均用干净 source；此处仅展示标记。
+						    停用行不显示：pi list 对「对象形态」一律标 filtered，而 PiDeck 整包停用写的
+						    四类空数组也是对象——用户只是关了开关，不该被说成过滤式安装；
+						    重新启用后条目已折回纯字符串（collapsePackageEntry），徽标自然不会回来。 */}
+						{extension.filtered && effectiveEnabled && <span className="text-micro text-muted-foreground">{t("config.extensionFiltered")}</span>}
 						{disabled && <span className="text-micro text-muted-foreground">{t("config.extensionDisabledBadge")}</span>}
 					</div>
 					<span className="truncate font-mono text-caption text-muted-foreground">{extension.source}</span>

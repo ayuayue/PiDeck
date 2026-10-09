@@ -15,6 +15,8 @@ const {
 	setBuiltinExtensionEnabled,
 	disablePackageFilters,
 	isPackageFullyDisabled,
+	hasPackageFilterKeys,
+	collapsePackageEntry,
 	disablePackageDeltaFilters,
 	enablePackageDeltaFilters,
 	isPackageDeltaFullyDisabled,
@@ -168,4 +170,25 @@ test("projectResourceEnabled reflects native include/exclude ordering (pi-verifi
 	assert.equal(projectResourceEnabled({ entries: ["-x"], value: "/agent/skills/x/SKILL.md", baseDir: "/agent/skills" }), false, "parentRel=x 时 -x 命中");
 	// 父目录绝对路径
 	assert.equal(projectResourceEnabled({ entries: ["-/agent/skills/x"], value: "/agent/skills/x/SKILL.md", baseDir: "/agent" }), false);
+});
+
+test("hasPackageFilterKeys treats explicit empty arrays as filters (they mean load-nothing)", () => {
+	assert.equal(hasPackageFilterKeys({ source: "npm:a" }), false);
+	assert.equal(hasPackageFilterKeys({ source: "npm:a", extensions: [] }), true, "空数组是「该类全关」的显式声明，不能当作没有过滤");
+	assert.equal(hasPackageFilterKeys({ source: "npm:a", skills: ["-x/SKILL.md"] }), true);
+});
+
+test("collapsePackageEntry folds filter-free entries back to the plain string form (pi TUI parity)", () => {
+	// 关过一次再启用、没有快照可用的场景：不折叠会被 pi list 永久标成 (filtered)
+	assert.equal(collapsePackageEntry({ source: "npm:demo" }), "npm:demo");
+	// 还有过滤 → 保持对象
+	const filtered = { source: "npm:demo", extensions: ["keep.ts"] };
+	assert.equal(collapsePackageEntry(filtered), filtered);
+	// 过滤键还在但为空 → 仍算过滤，不折叠
+	assert.equal(collapsePackageEntry({ source: "npm:demo", extensions: [] }).extensions.length, 0);
+	// 有未知字段 → 保留对象，不丢数据
+	const unknown = { source: "npm:demo", custom: 1 };
+	assert.equal(collapsePackageEntry(unknown), unknown);
+	// 缺 source → 原样返回（调用方不应写回这种条目）
+	assert.deepEqual(collapsePackageEntry({ extensions: ["a"] }), { extensions: ["a"] });
 });

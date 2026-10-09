@@ -17,6 +17,8 @@ import { credentialRefFor } from "../../shared/dshCredentialRef";
 import { normalizeDshDeepseekProvider } from "../../shared/dshProviderNames";
 import { parseProviderModelsResponse } from "./parseProviderModels";
 import { isSafeProviderName, piBuiltinSnapshotFromCatalog, resolvePiApiKey } from "./providerMigration";
+import { writePiConfigFile } from "./piConfigFileStore";
+import { mergeSettingsFormPayload } from "./settingsFormPayload";
 import { ensureTokendanceAttribution } from "./tokendanceAttribution";
 import { getAppLogger } from "../logging/sharedLogger";
 import { buildProbeFailureDetail, buildProbeHeaders, candidateApplies, getByPath, parseUsageResponseBody, USAGE_PROBE_CANDIDATES, usageProbeUrls } from "./providerUsageProbe";
@@ -350,8 +352,20 @@ export class ConfigManager {
 		return { valid: true };
 	}
 
+	/**
+	 * 可视化设置表单保存。
+	 *
+	 * 不再整份覆盖：资源类键（packages/extensions/skills/prompts/themes）的真值由
+	 * PiResourceConfigService 与 pi 原生规则并发维护，页面快照整份写回会静默回退它们
+	 * （实测：安装/启用扩展后被设置页保存盖回停用形态）。这里走 writePiConfigFile
+	 * （文件锁内重读 → 只按表单归属合并 → 原子替换），资源键一律以磁盘为准。
+	 * 归属规则与原因见 settingsFormPayload.ts。
+	 */
 	async saveSettingsConfig(settings: PiSettings): Promise<ConfigValidationResult> {
-		await this.writeJsonFile("settings.json", settings);
+		const filePath = join(this.configDir, "settings.json");
+		const result = await writePiConfigFile(filePath, (current) => mergeSettingsFormPayload(current, settings));
+		if (!result.ok) return { valid: false, error: result.error };
+		getAppLogger()?.info("config", "Config file written", { file: filePath, bytes: JSON.stringify(result.data, null, 2).length });
 		return { valid: true };
 	}
 

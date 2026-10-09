@@ -332,7 +332,7 @@ test("扩展开关保留列表缓存：开关后的刷新零重扫描，开关�
 	};
 	// 模拟 pi settings.json 的包级过滤规则作为原生真值
 	let nativeEnabled = true;
-	manager.configureNativeEnabledReader((extension) => (extension.source === "npm:demo" ? nativeEnabled : undefined));
+	manager.configureNativeEnabledReader((extension) => (extension.source === "npm:demo" ? { enabled: nativeEnabled } : undefined));
 	manager.configureNativeToggle(async ({ enabled }) => {
 		nativeEnabled = enabled;
 		return { ok: true };
@@ -346,4 +346,29 @@ test("扩展开关保留列表缓存：开关后的刷新零重扫描，开关�
 	const after = await manager.list(false);
 	assert.equal(scanCount, 1, "开关不应让列表缓存失效");
 	assert.equal(after.extensions.find((extension) => extension.source === "npm:demo")?.enabled, false, "缓存命中仍要重算 enabled");
+});
+
+test("开关后的轻量投影同时刷新过滤式安装标记（缓存不得残留旧 filtered）", async () => {
+	const { ExtensionManager } = loadExtensionManagerModule();
+	const settings = { disabledExtensions: [] };
+	const manager = new ExtensionManager({}, () => settings);
+	let scanCount = 0;
+	manager.runPi = async () => {
+		scanCount += 1;
+		// 首次扫描时条目是对象形态（整包停用也是对象），pi list 会打上 (filtered)
+		return "User packages:\n  npm:demo (filtered)\n    C:\\Users\\demo\\.pi\\agent\\npm\\node_modules\\demo\n";
+	};
+	let nativeFiltered = true;
+	manager.configureNativeEnabledReader((extension) => (extension.source === "npm:demo" ? { enabled: true, filtered: nativeFiltered } : undefined));
+	manager.configureNativeToggle(async () => ({ ok: true }));
+
+	const first = await manager.list(false);
+	assert.equal(first.extensions.find((extension) => extension.source === "npm:demo")?.filtered, true);
+
+	// 启用后条目已折回纯字符串；pi list 不再标 filtered，但列表缓存还是旧快照
+	nativeFiltered = false;
+	await manager.setEnabled("npm:demo", true);
+	const after = await manager.list(false);
+	assert.equal(scanCount, 1, "轻量刷新不应重扫描");
+	assert.equal(after.extensions.find((extension) => extension.source === "npm:demo")?.filtered, false, "缓存命中路径必须按原生条目重算 filtered，否则「过滤式安装」徽标会残留");
 });

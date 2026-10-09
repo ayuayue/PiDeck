@@ -46,6 +46,15 @@ const PI_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
  */
 export const FILTERED_SUFFIX = " (filtered)";
 
+/**
+ * 原生投影结果：启用状态 +（可选的）「过滤式安装」标记。
+ *
+ * filtered 必须在轻量投影里一并重算：列表缓存保存的是上次 `pi list` 解析的 `(filtered)`，
+ * 而开关只在磁盘上改条目形态（整包停用对象 / 折回纯字符串），缓存不会自己更新；
+ * pi list 又只看「条目是不是对象」，整包停用与历史空对象都会被算成 filtered。
+ */
+export type ExtensionNativeState = { enabled: boolean; filtered?: boolean };
+
 type SettingsProvider = () => AppSettings;
 type ExtensionCopy = (key: MainProcessTranslationKey, params?: Record<string, string | number>) => string;
 
@@ -198,7 +207,12 @@ export class ExtensionManager {
 				if (builtInVersion) ext.currentVersion = builtInVersion;
 			} else {
 				// 原生投影优先（迁移后 disabledExtensions 已清空）；未装配时退回旧列表。
-				ext.enabled = this.nativeEnabledReader?.(ext) ?? !disabledExtKeys.has(`${ext.scope}:${ext.source}`);
+				const native = this.nativeEnabledReader?.(ext);
+				ext.enabled = native?.enabled ?? !disabledExtKeys.has(`${ext.scope}:${ext.source}`);
+				// filtered 也必须在投影里重算：缓存里存的是上次 `pi list` 解析的 (filtered)，
+				// 而开关只改磁盘条目形态（整包停用对象 / 折回字符串），缓存不会自己更新。
+				// 原生侧不可判定（undefined，如继承层）时保留 pi list 的结论。
+				if (native?.filtered !== undefined) ext.filtered = native.filtered;
 			}
 		}
 	}
@@ -747,12 +761,12 @@ export class ExtensionManager {
 	}
 
 	/** 注入原生有效状态读取（迁移完成后禁用列表不再是真值来源）。 */
-	configureNativeEnabledReader(reader: (extension: PiExtensionSummary) => boolean | undefined): void {
+	configureNativeEnabledReader(reader: (extension: PiExtensionSummary) => ExtensionNativeState | undefined): void {
 		this.nativeEnabledReader = reader;
 	}
 
 	private nativeToggle: ((input: { source: string; path?: string; scope: PiExtensionSummary["scope"]; projectId?: string; enabled: boolean }) => Promise<{ ok: boolean; error?: string }>) | null = null;
-	private nativeEnabledReader: ((extension: PiExtensionSummary) => boolean | undefined) | null = null;
+	private nativeEnabledReader: ((extension: PiExtensionSummary) => ExtensionNativeState | undefined) | null = null;
 
 	/**
 	 * UI 开关统一入口（桌面 IPC 与 Web 工作区路由共用）：先按身份分流——内置扩展走 PiDeck 设置
