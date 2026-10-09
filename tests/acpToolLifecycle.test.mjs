@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const lifecycle = loadTsCommonJs("src/main/acp/AcpToolLifecycle.ts");
+const lifecycle = loadTsCommonJs("src/main/acp/acpToolLifecycle.ts");
 const { ACP_TOOL_PRESETS } = loadTsCommonJs("src/shared/acpToolPresets.ts");
 
 /** fake child process:EventEmitter + stdout/stderr 流 + kill。 */
