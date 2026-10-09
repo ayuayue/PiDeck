@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { extractUserPrompts, mergePromptHistory } = loadTsCommonJs("src/renderer/src/composerBehavior.ts");
@@ -50,4 +51,13 @@ test("mergePromptHistory: dedupes across runtime and session, keeps runtime copy
 test("mergePromptHistory: respects limit across both sources", () => {
 	// session 反转后最新在前：截断保留的应是各源里最新的条目
 	assert.deepEqual(hostArray(mergePromptHistory(["1", "2"], ["3", "4", "5"], 3)), ["1", "2", "5"]);
+});
+
+test("promptHistoryRef 必须有会话级 LRU 上限（会话删除后发送历史无人清理，桌面进程长运行无界增长）", () => {
+	const composer = readFileSync("src/renderer/src/hooks/useSessionComposerController.ts", "utf8");
+	// 每会话条目已有 50 条 slice 上限，但会话键数量无界：已删除的草稿/临时会话
+	// 残留在模块外 ref 里永不释放。与 stickyEmptySessionIds / latestLoadBySession 同构。
+	assert.match(composer, /PROMPT_HISTORY_SESSION_LRU_LIMIT = \d+/, "发送历史必须声明会话级 LRU 上限常量");
+	assert.match(composer, /markPromptHistorySessionAccess\(/, "写入路径必须走 LRU 访问标记");
+	assert.match(composer, /promptHistorySessionOrder\.keys\(\)\.next\(\)\.value/, "超限必须删最早访问的会话键");
 });
