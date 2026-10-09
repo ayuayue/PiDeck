@@ -34,6 +34,14 @@ export type AcpProjectionState = {
 	commands: PiCommand[];
 	/** 最近一次 session_info_update 的标题(供 catalog 回写)。 */
 	title?: string;
+	/**
+	 * 投影侧信道：本次 update 触及的 messages 下标（无消息变更时为 undefined）。
+	 *
+	 * 用途是图片物化（AcpAgentManager.materializeTouchedImages）：ACP 的图片以 base64 随 chunk
+	 * 抵达，只有知道「这次更新动了哪条消息」才能只对该条落盘、避免每轮全量扫描。
+	 * 语义是「本次 update」而非累计——消费者在每次投影后立刻读取。
+	 */
+	lastTouched?: number[];
 	/** 任意 update 到达过(load 重放也置位)。 */
 	replayed: boolean;
 };
@@ -89,7 +97,7 @@ function toolStatus(status: AcpToolCallUpdate["status"]): "running" | "completed
 }
 
 export function projectAcpSessionUpdate(state: AcpProjectionState, update: AcpSessionUpdate, agentId: string): AcpProjectionState {
-	const next: AcpProjectionState = { ...state, messages: state.messages, toolCardIndex: state.toolCardIndex, commands: state.commands, replayed: true, activeAssistantIndex: state.activeAssistantIndex };
+	const next: AcpProjectionState = { ...state, messages: state.messages, toolCardIndex: state.toolCardIndex, commands: state.commands, replayed: true, activeAssistantIndex: state.activeAssistantIndex, lastTouched: undefined };
 	switch (update.sessionUpdate) {
 		case "user_message_chunk": {
 			// 一次一个 content block:文本块拼 text;图片块进 images(回显路径)。
@@ -97,6 +105,7 @@ export function projectAcpSessionUpdate(state: AcpProjectionState, update: AcpSe
 			if (!content || typeof content !== "object") return state;
 			if (content.type === "text" && typeof content.text === "string" && content.text) {
 				next.messages = [...state.messages, { id: nextMessageId(), agentId, role: "user", text: content.text, timestamp: Date.now() }];
+				next.lastTouched = [state.messages.length];
 				return next;
 			}
 			if (content.type === "image" && typeof content.data === "string" && typeof content.mimeType === "string") {
@@ -111,32 +120,42 @@ export function projectAcpSessionUpdate(state: AcpProjectionState, update: AcpSe
 						timestamp: Date.now(),
 					},
 				];
+				next.lastTouched = [state.messages.length];
 				return next;
 			}
 			return state;
 		}
 		case "agent_message_chunk":
 		case "agent_thought_chunk": {
-			const content = update.content as { type: string; text?: string } | undefined;
+			const isThought = update.sessionUpdate === "agent_thought_chunk";
+			const content = update.content as { type?: string; text?: string; data?: string; mimeType?: string } | undefined;
 			const text = typeof content?.text === "string" ? content.text : "";
-			if (!text) return state;
-			const active = state.activeAssistantIndex !== undefined ? state.messages[state.activeAssistantIndex] : undefined;
-			if (active && active.role === "assistant") {
-				const merged: ChatMessage = update.sessionUpdate === "agent_message_chunk" ? { ...active, text: active.text + text } : { ...active, thinking: (active.thinking ?? "") + text, thinkingStartedAt: active.thinkingStartedAt ?? active.timestamp };
+			// 思考流是纯文本(图块按契约丢弃)；助手正文允许图块——生图结果只有图没有字，
+			// 按 text 为空就丢弃会让生成结果整条消失，所以「无文本但有图」也要建消息／并入。
+			const image = !isThought && content?.type === "image" && typeof content.data === "string" && typeof content.mimeType === "string" ? { type: "image" as const, mimeType: content.mimeType, data: content.data } : undefined;
+			if (!text && !image) return state;
+			const activeIndex = state.activeAssistantIndex;
+			const active = activeIndex !== undefined ? state.messages[activeIndex] : undefined;
+			if (active && active.role === "assistant" && activeIndex !== undefined) {
+				const merged: ChatMessage = isThought ? { ...active, thinking: (active.thinking ?? "") + text, thinkingStartedAt: active.thinkingStartedAt ?? active.timestamp } : { ...active, text: active.text + text, ...(image ? { images: [...(active.images ?? []), image] } : {}) };
 				next.messages = [...state.messages];
-				next.messages[state.activeAssistantIndex as number] = merged;
+				next.messages[activeIndex] = merged;
+				next.lastTouched = [activeIndex];
 			} else {
 				const created: ChatMessage = {
 					id: nextMessageId(),
 					agentId,
 					role: "assistant",
-					text: update.sessionUpdate === "agent_message_chunk" ? text : "",
-					...(update.sessionUpdate === "agent_thought_chunk" ? { thinking: text, thinkingStartedAt: Date.now() } : {}),
+					text: isThought ? "" : text,
+					...(image ? { images: [image] } : {}),
+					...(isThought ? { thinking: text, thinkingStartedAt: Date.now() } : {}),
 					timestamp: Date.now(),
 					stopReason: "pending",
 				};
 				next.messages = [...state.messages, created];
-				next.activeAssistantIndex = next.messages.length - 1;
+				const createdIndex = next.messages.length - 1;
+				next.activeAssistantIndex = createdIndex;
+				next.lastTouched = [createdIndex];
 			}
 			return next;
 		}
@@ -159,6 +178,7 @@ export function projectAcpSessionUpdate(state: AcpProjectionState, update: AcpSe
 						...(toolUpdate.locations?.length ? { locations: toolUpdate.locations } : {}),
 					},
 				};
+				next.lastTouched = [cardIndex];
 			} else {
 				const contentText = toolContentText(toolUpdate);
 				const card: ChatMessage = {
@@ -178,7 +198,9 @@ export function projectAcpSessionUpdate(state: AcpProjectionState, update: AcpSe
 				};
 				next.messages = [...state.messages, card];
 				next.toolCardIndex = new Map(state.toolCardIndex);
-				next.toolCardIndex.set(toolUpdate.toolCallId, next.messages.length - 1);
+				const toolCardIndex = next.messages.length - 1;
+				next.toolCardIndex.set(toolUpdate.toolCallId, toolCardIndex);
+				next.lastTouched = [toolCardIndex];
 			}
 			return next;
 		}
