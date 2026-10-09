@@ -912,6 +912,14 @@ export const ipcChannels = {
 	hostPluginsList: "host-plugins:list",
 	hostPluginsRescan: "host-plugins:rescan",
 	hostPluginsInstall: "host-plugins:install",
+	/**
+	 * 从本地「已解压」的插件目录安装。与上一条分开：Windows 上 showOpenDialog 同时给
+	 * openFile + openDirectory 会退化成只能选目录，.pideck-plugin 反而选不到
+	 * （2026-10，同 dshRuntimeInstallLocalDir）。
+	 */
+	hostPluginsInstallDirectory: "host-plugins:install-directory",
+	/** 脚手架：在插件目录里生成 <id>/ 模板（已存在就拒经，不覆盖作者代码）。 */
+	hostPluginsScaffold: "host-plugins:scaffold",
 	hostPluginsSetEnabled: "host-plugins:set-enabled",
 	hostPluginsOpenDirectory: "host-plugins:open-directory",
 	hostPluginsMount: "host-plugins:mount",

@@ -18,8 +18,9 @@ function label(value: unknown): value is string {
 	return typeof value === "string" && value.trim().length > 0 && value.length <= 160 && !/[\u0000-\u001f]/.test(value);
 }
 
-const HOST_PLUGIN_PERMISSIONS = new Set<string>(["sessions.read", "workbench.navigate"]);
-const isHostPluginPermission = (value: unknown): value is HostPluginPermission => typeof value === "string" && HOST_PLUGIN_PERMISSIONS.has(value);
+const HOST_PLUGIN_PERMISSIONS = new Set<string>(["sessions.read", "workbench.navigate", "workbench.openExternal"]);
+/** 权限白名单校验：manifest 解析与管理入口（脚手架）共用同一份，保证两边不会拒/收不一致。 */
+export const isHostPluginPermission = (value: unknown): value is HostPluginPermission => typeof value === "string" && HOST_PLUGIN_PERMISSIONS.has(value);
 
 /** Returns a newly constructed manifest instead of trusting properties from JSON. */
 export function parseHostPluginManifest(value: unknown): HostPluginManifest {

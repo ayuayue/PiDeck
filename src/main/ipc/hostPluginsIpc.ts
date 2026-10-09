@@ -3,12 +3,34 @@ import { dialog, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } f
 import { ipcChannels } from "../../shared/ipc";
 import type { HostPluginResult } from "../../shared/types/hostPlugin";
 import type { HostPluginService } from "../plugins/HostPluginService";
-import { isHostPluginId, isPluginRecord } from "../plugins/hostPluginManifest";
+import { isHostPluginId, isHostPluginPermission, isPluginRecord } from "../plugins/hostPluginManifest";
+import { createHostPluginScaffold } from "../plugins/hostPluginScaffold";
 import { parsePluginContext } from "../plugins/hostPluginPolicy";
 import { getAppLogger } from "../logging/sharedLogger";
 
 export function registerHostPluginsIpc(service: HostPluginService, getWindow: () => BrowserWindow | null): () => void {
-	const channels = [ipcChannels.hostPluginsList, ipcChannels.hostPluginsRescan, ipcChannels.hostPluginsInstall, ipcChannels.hostPluginsSetEnabled, ipcChannels.hostPluginsOpenDirectory, ipcChannels.hostPluginsMount, ipcChannels.hostPluginsUpdate, ipcChannels.hostPluginsUnmount];
+	const channels = [
+		ipcChannels.hostPluginsList,
+		ipcChannels.hostPluginsRescan,
+		ipcChannels.hostPluginsInstall,
+		ipcChannels.hostPluginsInstallDirectory,
+		ipcChannels.hostPluginsScaffold,
+		ipcChannels.hostPluginsSetEnabled,
+		ipcChannels.hostPluginsOpenDirectory,
+		ipcChannels.hostPluginsMount,
+		ipcChannels.hostPluginsUpdate,
+		ipcChannels.hostPluginsUnmount,
+	];
+	/** 外部链接是本层唯一持有 shell 的地方：策略层已收窄到 https，这里再复查一次协议后才交系统。 */
+	function openExternal(url: string): void {
+		try {
+			const parsed = new URL(url);
+			if (parsed.protocol !== "https:" || !parsed.hostname) return;
+			void shell.openExternal(parsed.toString()).catch((error: unknown) => void getAppLogger()?.warn("host-plugins", "openExternal failed", { message: String(error) }));
+		} catch {
+			/* 形状不合法的 URL 直接丢弃：不开浏览器也不报错。 */
+		}
+	}
 	function trustedWindow(event: IpcMainInvokeEvent): BrowserWindow {
 		const window = getWindow();
 		if (!window || window.isDestroyed() || event.sender !== window.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error("sender-not-authorized");
@@ -48,6 +70,28 @@ export function registerHostPluginsIpc(service: HostPluginService, getWindow: ()
 			return service.manager.installArchive(picked.filePaths[0]);
 		}),
 	);
+	ipcMain.handle(ipcChannels.hostPluginsInstallDirectory, (event) =>
+		result(async () => {
+			const window = trustedWindow(event);
+			// 与归档入口分开弹：Windows 上 openFile + openDirectory 同时给会退化成只能选目录，
+			// .pideck-plugin 反而选不到（见 shared/ipc.ts 的 hostPluginsInstallDirectory）。
+			const picked = await dialog.showOpenDialog(window, { title: "PiDeck host plugin folder", properties: ["openDirectory"] });
+			if (picked.canceled || !picked.filePaths[0]) throw new Error("canceled");
+			return service.manager.installDirectory(picked.filePaths[0]);
+		}),
+	);
+	ipcMain.handle(ipcChannels.hostPluginsScaffold, (event, input: unknown) =>
+		result(async () => {
+			trustedWindow(event);
+			// 输入在边界收窄：id/name 只当文本用，权限走 manifest 的同一份白名单，模式只接受两个枚举。
+			if (!isPluginRecord(input) || typeof input.id !== "string" || input.id.length > 80) throw new Error("invalid-plugin");
+			if (typeof input.name !== "string" || input.name.trim().length === 0 || input.name.length > 160 || /[\u0000-\u001f]/.test(input.name)) throw new Error("invalid-plugin");
+			if (!Array.isArray(input.permissions) || input.permissions.length > 3 || !input.permissions.every(isHostPluginPermission)) throw new Error("invalid-plugin");
+			if (input.presentation !== "modal" && input.presentation !== "page") throw new Error("invalid-plugin");
+			await createHostPluginScaffold(service.manager.directory, { id: input.id, name: input.name, permissions: input.permissions, presentation: input.presentation });
+			return service.manager.rescan();
+		}),
+	);
 	ipcMain.handle(ipcChannels.hostPluginsSetEnabled, (event, id: unknown, enabled: unknown, fingerprint: unknown) =>
 		result(() => {
 			trustedWindow(event);
@@ -84,9 +128,11 @@ export function registerHostPluginsIpc(service: HostPluginService, getWindow: ()
 		const window = getWindow();
 		if (window && !window.isDestroyed()) window.webContents.send(ipcChannels.hostPluginNavigate, input);
 	});
+	const unsubscribeOpenExternal = service.broker.onOpenExternal(openExternal);
 	return () => {
 		unsubscribe();
 		unsubscribeNavigate();
+		unsubscribeOpenExternal();
 		for (const channel of [...channels, ipcChannels.hostPluginRequest]) ipcMain.removeHandler(channel);
 	};
 }

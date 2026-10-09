@@ -1,13 +1,15 @@
 /** Bounded local packages: consent applies to exact bytes, not only manifest/version. */
 import { createHash } from "node:crypto";
-import { lstat, open, readdir, realpath } from "node:fs/promises";
-import { extname, isAbsolute, join, relative } from "node:path";
+import { lstat, mkdir, open, readdir, realpath, writeFile } from "node:fs/promises";
+import { extname, dirname, isAbsolute, join, relative } from "node:path";
 import { isHostPluginAsset, parseHostPluginManifest } from "./hostPluginManifest";
 import type { HostPluginManifest } from "../../shared/types/hostPlugin";
 
 export type HostPluginPackage = { root: string; manifest: HostPluginManifest; fingerprint: string; assets: Map<string, string> };
 const MAX_ASSET_BYTES = 4 * 1024 * 1024;
 const MAX_PACKAGE_BYTES = 16 * 1024 * 1024;
+const MAX_PACKAGE_FILES = 100;
+const MAX_PACKAGE_DEPTH = 8;
 export const HOST_PLUGIN_MIME: Record<string, string> = {
 	".html": "text/html; charset=utf-8",
 	".js": "text/javascript; charset=utf-8",
@@ -61,7 +63,7 @@ export async function readHostPluginPackage(directory: string): Promise<HostPlug
 	// 两次读取之间改写 permissions，指纹仍指向旧 manifest，已授权插件会带着新权限复用旧授权。
 	let manifestBytes: Buffer | undefined;
 	async function visit(prefix: string, depth: number): Promise<void> {
-		if (depth > 8) throw new Error("package-too-deep");
+		if (depth > MAX_PACKAGE_DEPTH) throw new Error("package-too-deep");
 		const entries = await readdir(join(root, prefix), { withFileTypes: true });
 		entries.sort((a, b) => a.name.localeCompare(b.name));
 		for (const entry of entries) {
@@ -71,7 +73,7 @@ export async function readHostPluginPackage(directory: string): Promise<HostPlug
 				await visit(asset, depth + 1);
 				continue;
 			}
-			if (!entry.isFile() || !isHostPluginAsset(asset) || assets.size >= 100) throw new Error("invalid-package-file");
+			if (!entry.isFile() || !isHostPluginAsset(asset) || assets.size >= MAX_PACKAGE_FILES) throw new Error("invalid-package-file");
 			const bytes = await readPluginFile(root, asset);
 			totalBytes += bytes.length;
 			if (totalBytes > MAX_PACKAGE_BYTES) throw new Error("package-too-large");
@@ -87,6 +89,59 @@ export async function readHostPluginPackage(directory: string): Promise<HostPlug
 		.update(JSON.stringify([...assets]))
 		.digest("hex");
 	return { root, manifest, fingerprint, assets };
+}
+
+/**
+ * 把单个包内路径写进暂存目录。嵌套资产（`assets/app.html`）是合法路径，必须逐级建目录，
+ * 否则 writeFile 直接 ENOENT —— 归档与目录两个来源共用这一处，避免两边各修一次。
+ */
+export async function stageHostPluginFile(targetDirectory: string, asset: string, bytes: Buffer): Promise<void> {
+	const target = join(targetDirectory, asset);
+	await mkdir(dirname(target), { recursive: true });
+	await writeFile(target, bytes);
+}
+
+/**
+ * 目录包导入：把用户在对话框里选中的来源目录拷进与落位同卷的隐藏临时目录。
+ * 目录能携带归档格式里根本不存在的形态，逐条明确定义：
+ * - 顶层来源允许是链接（用户指的确实是这个目录，先 realpath 解析一次），包内任何一级符号链接都拒绝；
+ * - `.git` 与 `node_modules` 是开发树产物而非包内容：整棵跳过，否则来源是项目根时光遍历就白花代价；
+ * - 其余可接受文件照搬（与手工放置/归档导入得到的包内容一致，只跳路径形状本身不合法的条目）：
+ *   `isHostPluginAsset` 是路径形状守卫（字符集、无 `..`/空段），扩展名白名单只在服务阶段生效
+ *   （`readApprovedPluginAsset` 查 HOST_PLUGIN_MIME）—— 形状不合法的文件既不可能被 manifest 引用
+ *   也不可能被服务，直接跳过而不是让整个安装失败（真实开发树里总有带空格的文档/截图）。
+ *   单个文件逐个走与安装后同一个 readPluginFile（单文件上限 + 尺寸稳定判定）。
+ * 因此落位目录里的文件集是 readHostPluginPackage 接受集合的子集，拷贝本身不会制造 invalid-package-file。
+ * 预算在拷贝过程中生效：超限立即失败，不落盘、不留半成品。
+ */
+export async function copyHostPluginPackage(sourceDirectory: string, targetDirectory: string): Promise<void> {
+	const root = await realpath(sourceDirectory);
+	await mkdir(targetDirectory, { recursive: true });
+	let files = 0;
+	let totalBytes = 0;
+	async function visit(prefix: string, depth: number): Promise<void> {
+		if (depth > MAX_PACKAGE_DEPTH) throw new Error("package-too-deep");
+		const entries = await readdir(join(root, prefix), { withFileTypes: true });
+		// 稳定顺序：同一来源目录重复导入必须得到同一份按字母序写入的文件集。
+		entries.sort((a, b) => a.name.localeCompare(b.name));
+		for (const entry of entries) {
+			if (entry.name === ".git" || entry.name === "node_modules") continue;
+			const asset = prefix ? `${prefix}/${entry.name}` : entry.name;
+			if (entry.isSymbolicLink()) throw new Error("symlink-not-allowed");
+			if (entry.isDirectory()) {
+				await visit(asset, depth + 1);
+				continue;
+			}
+			if (!entry.isFile() || !isHostPluginAsset(asset)) continue;
+			if (files >= MAX_PACKAGE_FILES) throw new Error("invalid-package-file");
+			const bytes = await readPluginFile(root, asset);
+			totalBytes += bytes.length;
+			if (totalBytes > MAX_PACKAGE_BYTES) throw new Error("package-too-large");
+			files += 1;
+			await stageHostPluginFile(targetDirectory, asset, bytes);
+		}
+	}
+	await visit("", 0);
 }
 
 /** Serving also checks the approved digest: replacing code cannot reuse an old grant. */

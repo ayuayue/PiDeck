@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { HostPluginCatalog, HostPluginInfo } from "../../shared/types/hostPlugin";
 import { renameWithRetry } from "../utils/fsRetry";
 import { isHostPluginId, isPluginRecord } from "./hostPluginManifest";
-import { readHostPluginPackage, type HostPluginPackage } from "./hostPluginFiles";
+import { copyHostPluginPackage, readHostPluginPackage, stageHostPluginFile, type HostPluginPackage } from "./hostPluginFiles";
 import { parseHostPluginArchive } from "./hostPluginArchive";
 
 type Grant = { fingerprint: string; enabled: boolean };
@@ -80,38 +80,64 @@ export class HostPluginManager {
 		// 先看体再读内容：拒绝把超大文件整读进内存。
 		if ((await stat(archivePath)).size > 24 * 1024 * 1024) throw new Error("archive-too-large");
 		const { files } = parseHostPluginArchive(await readFile(archivePath));
-		// 隐藏 temp 目录不会进入 rescan（点前缀过滤），失败也不会污染目录列表。
-		const temporary = join(this.directory, `.install-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+		const temporary = this.temporaryDirectory(".install");
 		try {
 			await mkdir(temporary, { recursive: true });
-			for (const file of files) await writeFile(join(temporary, file.path), file.bytes);
-			// 目录包全量验证（manifest 规则/指纹/panel 入口）复用同一入口，安装包与手工放置无差别信任。
-			const plugin = await readHostPluginPackage(temporary);
-			const grant = this.grants.get(plugin.manifest.id);
-			// 启用中的插件可能正被挂载运行；替换代码必须先禁用，避免运行中被换血。
-			if (grant?.enabled) throw new Error("plugin-in-use");
-			const target = join(this.directory, plugin.manifest.id);
-			const retired = join(this.directory, `.retired-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
-			let previous: string | undefined;
-			try {
-				previous = await rename(target, retired).then(
-					() => retired,
-					() => undefined,
-				);
-			} catch {
-				previous = undefined;
-			}
-			try {
-				await renameWithRetry(temporary, target);
-			} catch (error) {
-				// 换入失败时尽力回滚旧包，不留半更新状态。
-				if (previous) await rename(previous, target).catch(() => undefined);
-				throw error;
-			}
-			if (previous) await rm(previous, { recursive: true, force: true }).catch(() => undefined);
+			for (const file of files) await stageHostPluginFile(temporary, file.path, file.bytes);
+			return await this.commitStagedPackage(temporary);
 		} finally {
 			await rm(temporary, { recursive: true, force: true }).catch(() => undefined);
 		}
+	}
+
+	/**
+	 * 从本地目录安装：「已解压的目录包」是分发归档之外的第二来源（pi-context 这类上游经
+	 * scripts/convert-pi-context-host-plugin.mjs 转换后就是这个形态）。
+	 * 与归档导入共用同一条落位路径，信任判定完全一致，差别只在来源是目录而非归档字节。
+	 */
+	async installDirectory(sourceDirectory: string): Promise<HostPluginCatalog> {
+		// 对话框已限制过一次，这里是服务层自己的边界校验：来源必须是一个真实存在的目录。
+		if (!(await stat(sourceDirectory).catch(() => undefined))?.isDirectory()) throw new Error("not-a-directory");
+		const temporary = this.temporaryDirectory(".install");
+		try {
+			await copyHostPluginPackage(sourceDirectory, temporary);
+			return await this.commitStagedPackage(temporary);
+		} finally {
+			await rm(temporary, { recursive: true, force: true }).catch(() => undefined);
+		}
+	}
+
+	/** 隐藏 temp 目录不会进入 rescan（点前缀过滤），失败也不会污染目录列表。 */
+	private temporaryDirectory(prefix: string): string {
+		return join(this.directory, `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+	}
+
+	/** 全量校验 → 拒绝换血 → 原子换入（失败回滚）；归档与目录两个来源共用，避免两条信任路径漂移。 */
+	private async commitStagedPackage(temporary: string): Promise<HostPluginCatalog> {
+		// 目录包全量验证（manifest 规则/指纹/panel 入口）复用同一入口，安装包与手工放置无差别信任。
+		const plugin = await readHostPluginPackage(temporary);
+		const grant = this.grants.get(plugin.manifest.id);
+		// 启用中的插件可能正被挂载运行；替换代码必须先禁用，避免运行中被换血。
+		if (grant?.enabled) throw new Error("plugin-in-use");
+		const target = join(this.directory, plugin.manifest.id);
+		const retired = this.temporaryDirectory(".retired");
+		let previous: string | undefined;
+		try {
+			previous = await rename(target, retired).then(
+				() => retired,
+				() => undefined,
+			);
+		} catch {
+			previous = undefined;
+		}
+		try {
+			await renameWithRetry(temporary, target);
+		} catch (error) {
+			// 换入失败时尽力回滚旧包，不留半更新状态。
+			if (previous) await rename(previous, target).catch(() => undefined);
+			throw error;
+		}
+		if (previous) await rm(previous, { recursive: true, force: true }).catch(() => undefined);
 		return this.rescan();
 	}
 

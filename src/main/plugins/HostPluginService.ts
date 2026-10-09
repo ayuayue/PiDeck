@@ -20,10 +20,11 @@ export class HostPluginService {
 		userData: string,
 		catalog: SessionCatalog,
 		private readonly preload: string,
+		projectNameOf?: (projectId: string) => string | undefined,
 	) {
 		this.manager = new HostPluginManager(userData, process.env.PIDECK_DISABLE_HOST_PLUGINS === "1");
 		this.sessions = new HostPluginSessions(catalog);
-		this.broker = new HostPluginBroker(this.manager, this.sessions, new HostPluginStorage(join(userData, "host-plugin-storage")));
+		this.broker = new HostPluginBroker(this.manager, this.sessions, new HostPluginStorage(join(userData, "host-plugin-storage")), projectNameOf);
 	}
 
 	async initialize(): Promise<void> {

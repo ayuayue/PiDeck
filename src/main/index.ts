@@ -2537,7 +2537,8 @@ function registerIpc() {
 	registerBackgroundsIpc();
 	registerThemesIpc();
 	// Desktop plugins run without AgentManager/RPC; failure leaves the rest of PiDeck untouched.
-	const hostPlugins = new HostPluginService(app.getPath("userData"), sessionCatalog, join(__dirname, "../preload/hostPlugin.js"));
+	// 项目显示名闭包在面板挂载时才求值：此处 projectStore 尚未装配。
+	const hostPlugins = new HostPluginService(app.getPath("userData"), sessionCatalog, join(__dirname, "../preload/hostPlugin.js"), (projectId) => projectStore?.get(projectId)?.name);
 	const unregisterHostPlugins = registerHostPluginsIpc(hostPlugins, () => mainWindow);
 	quitCleanup.register("host-plugins", () => {
 		unregisterHostPlugins();

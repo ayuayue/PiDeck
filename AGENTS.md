@@ -197,7 +197,7 @@ src/
 | 会话消息编辑/删除/重发 | 编辑/删除写 pi 原生 `context_edit`（原文不改写、费用不回退；被移出的条目界面直接不显示，原始文件仍保留）；重发仍用 `deleted` 墓碑截断分支；追加条目的 parentId 必须取当前 leaf，pi 活着禁改会话文件，三道闸不许放宽 | 会话消息编辑/删除/重发 |
 | Markdown 渲染 | 唯一引擎 MarkdownStream，禁止再引 marked/react-markdown；流式与 settle 是两条路径，**复现要看最终态** | 会话 Markdown 渲染管线 |
 | 插件开发支持 | 能力目录 `pluginDevCatalog.ts` 镜像桥实现（19 落点/42 kind），新增落点/kind 必须同步目录+契约测试；`resources/plugin-dev` 要在 extraResources；demo 已存在不覆盖 | 插件开发支持 |
-| 宿主插件 | 与 pi 扩展是两套系统（`src/main/plugins/`，不依赖 pi 进程）；授权按内容 sha256 指纹不按版本，指纹变即重新授权；历史读取 64MiB/10 万条硬预算；`.pideck-plugin` NDJSON 归档逐文件 sha256；pi-context 适配器 seam 是 fail-closed 契约 | 宿主插件 |
+| 宿主插件 | 与 pi 扩展是两套系统（`src/main/plugins/`，不依赖 pi 进程）；授权按内容 sha256 指纹不按版本，指纹变即重新授权；历史读取 64MiB/10 万条硬预算；改 API/权限面必须同步 `src/preload/hostPlugin.ts` + `docs/host-plugin-dev-guide.md` + 脚手架（生成物过同一套 manifest 校验）；`.pideck-plugin` NDJSON 归档逐文件 sha256；pi-context 适配器 seam 是 fail-closed 契约 | 宿主插件 |
 | 发版 | CHANGELOG 中英一致 → sync-release-notes → sync-workflow-choices → 打包人工 smoke | docs/release-process.md |
 
 ## 协作流程
