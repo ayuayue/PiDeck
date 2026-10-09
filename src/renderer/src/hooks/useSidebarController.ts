@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtom, useAtomValue } from "jotai";
-import type { AgentBackend, AgentTab, Project, SessionRecord } from "../../../shared/types";
+import type { AgentBackend, AgentTab, Project, SessionRecord, SessionSortModeId } from "../../../shared/types";
 import { agentInventoryAtom, projectInventoryAtom, rpcLoggingAgentIdsAtom, sessionCatalogLoadStateAtom, sessionIdsByProjectAtom, sessionRecordsAtom, sidebarExpandedProjectIdsAtom, sidebarNavTabAtom, sidebarRuntimeAtom, toggleRpcLoggingAgent } from "../atoms";
 import { migrateLegacyCollapsedProjects, sameProjectIdSet, writeExpandedSidebarProjects } from "../utils/sidebarExpandedProjects";
 import { parseSidebarNavTab, writeSidebarNavTab, type SidebarNavTab } from "../utils/sidebarNavTab";
 import { SESSION_FILTER_PILLS, parseSessionFilterState, serializeSessionFilterState, sessionPillOf, type SessionFilterPill, type SessionFilterState } from "../sessionFilterPills";
+import { resolveSessionSortMode } from "../sessionSortModes";
 
 export const SIDEBAR_PROJECT_CHILD_PAGE_SIZE = 5;
 
@@ -49,6 +50,9 @@ export type SidebarController = {
 	setNavTab: (tab: SidebarNavTab) => void;
 	/** Stable SessionRecord ids pinned within their owning project list. */
 	pinnedSessionIds: ReadonlySet<string>;
+	/** 当前会话排序模式（settings.sessionSortMode 的运行时快照） */
+	sessionSortMode: SessionSortModeId;
+	setSessionSortMode: (mode: SessionSortModeId) => void;
 	isSessionPinned: (sessionId: string) => boolean;
 	toggleSessionPin: (sessionId: string) => void;
 	expandedProjectIds: ReadonlySet<string>;
@@ -82,9 +86,10 @@ export type SidebarController = {
 	 * 切换到其他工作区时自动展开，避免「选中了却看不到会话」；
 	 * 再次点击当前工作区时切换折叠。
 	 */
-	drag: { sourceProjectId?: string; overProjectId?: string };
+	drag: { sourceProjectId?: string; overProjectId?: string; overPosition?: "before" | "after" };
 	startProjectDrag: (projectId: string) => void;
-	setProjectDropTarget: (projectId?: string) => void;
+	/** overPosition 记录指针落在目标行上半/下半区，驱动插入线指示与落点计算。 */
+	setProjectDropTarget: (projectId?: string, position?: "before" | "after") => void;
 	finishProjectDrag: () => void;
 	menu: SidebarMenuTarget | null;
 	openMenu: (target: SidebarMenuTarget) => Promise<void>;
@@ -177,6 +182,10 @@ export function useSidebarController(
 		settingsPinnedSessionIds?: readonly string[];
 		/** 置顶集合变更时写入 settings.json。 */
 		persistPinnedSessionIds?: (sessionIds: string[]) => void;
+		/** 会话排序模式的权威 settings.json 值（settings.sessionSortMode）。 */
+		settingsSessionSortMode?: SessionSortModeId;
+		/** 排序模式切换时写入 settings.json。 */
+		persistSessionSortMode?: (mode: SessionSortModeId) => void;
 		/** 初始 settings.get 已完成；旧 key 迁移必须等此时才允许落盘。 */
 		settingsLoaded?: boolean;
 		/** 权威 settings 已应用且旧 key 已完成迁移后通知 App 开始懒加载会话。 */
@@ -194,12 +203,18 @@ export function useSidebarController(
 	const [expandedProjectIds, setExpandedProjectIds] = useAtom(sidebarExpandedProjectIdsAtom);
 	const [navTab, setNavTabState] = useAtom(sidebarNavTabAtom);
 	const [pinnedSessionIds, setPinnedSessionIds] = useState<ReadonlySet<string>>(() => new Set());
+	// 排序模式与置顶同策略：settings.json 为权威，controller 独占运行时状态，
+	// 避免迟到的 settings 响应覆盖用户刚切换的选择。
+	const [sessionSortMode, setSessionSortModeState] = useState<SessionSortModeId>(() => resolveSessionSortMode(undefined));
+	const sessionSortModeHydratedRef = useRef(false);
+	const persistSessionSortModeRef = useRef(options.persistSessionSortMode);
+	persistSessionSortModeRef.current = options.persistSessionSortMode;
 	const [sourceFilters, setSourceFilters] = useState<SidebarSourceFilters>(() => readSidebarSourceFilters(options.storage ?? (typeof window === "undefined" ? undefined : window.localStorage)));
 	const [visibleChildCountByProject, setVisibleChildCountByProject] = useState<Record<string, number>>({});
 	const [sourceFilterMenu, setSourceFilterMenu] = useState<SidebarSourceFilterMenu>();
 	const [expandedSubagentGroups, setExpandedSubagentGroups] = useState<Set<string>>(() => new Set());
 	const [expandedWorktreePaths, setExpandedWorktreePaths] = useState<Set<string>>(() => new Set());
-	const [drag, setDrag] = useState<{ sourceProjectId?: string; overProjectId?: string }>({});
+	const [drag, setDrag] = useState<{ sourceProjectId?: string; overProjectId?: string; overPosition?: "before" | "after" }>({});
 	const [menu, setMenu] = useState<SidebarMenuTarget | null>(null);
 	// RPC 日志开关镜像存 atom（rpcLoggingAgentIdsAtom）：右键菜单文案与抽屉 rpcLog Tab 门控共用，
 	// 写入方统一跟随主进程回执（App 层 rpc.setLogging 包装 + 本处菜单打开时的预查）。
@@ -238,6 +253,21 @@ export function useSidebarController(
 		pinnedSessionIdsRef.current = hydrated;
 		setPinnedSessionIds(hydrated);
 	}, [options.settingsLoaded, options.settingsPinnedSessionIds]);
+
+	// 排序模式 hydration：与置顶同款一次性合并，迟到的 settings 不覆盖用户刚切的模式
+	useEffect(() => {
+		if (sessionSortModeHydratedRef.current || !options.settingsLoaded) return;
+		sessionSortModeHydratedRef.current = true;
+		const hydrated = resolveSessionSortMode(options.settingsSessionSortMode);
+		setSessionSortModeState(hydrated);
+	}, [options.settingsLoaded, options.settingsSessionSortMode]);
+
+	const setSessionSortMode = useCallback((mode: SessionSortModeId) => {
+		sessionSortModeHydratedRef.current = true;
+		const next = resolveSessionSortMode(mode);
+		setSessionSortModeState(next);
+		persistSessionSortModeRef.current?.(next);
+	}, []);
 
 	const toggleSessionPin = useCallback((sessionId: string) => {
 		if (!sessionId) return;
@@ -497,6 +527,8 @@ export function useSidebarController(
 		pinnedSessionIds,
 		isSessionPinned: (sessionId) => pinnedSessionIds.has(sessionId),
 		toggleSessionPin,
+		sessionSortMode,
+		setSessionSortMode,
 		expandedProjectIds,
 		isProjectCollapsed: (projectId) => !expandedProjectIds.has(projectId),
 		toggleProject,
@@ -520,7 +552,7 @@ export function useSidebarController(
 		expandWorktreeSessions,
 		drag,
 		startProjectDrag: (projectId) => setDrag({ sourceProjectId: projectId }),
-		setProjectDropTarget: (projectId) => setDrag((current) => ({ ...current, overProjectId: projectId })),
+		setProjectDropTarget: (projectId, position) => setDrag((current) => ({ ...current, overProjectId: projectId, overPosition: projectId ? position : undefined })),
 		finishProjectDrag: () => setDrag({}),
 		menu,
 		openMenu,

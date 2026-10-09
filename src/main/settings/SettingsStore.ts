@@ -20,6 +20,7 @@ import {
 	type TerminalThemeId,
 } from "../../shared/types";
 import { normalizePinnedSessionIds } from "../../shared/pinnedSessions";
+import { normalizeSessionSortMode } from "../../shared/sessionSort";
 import { normalizeHiddenModules } from "../../shared/hiddenModules";
 import { normalizeHiddenComposerFeatures } from "../../shared/composerFeatures";
 import { parseBusySendDelivery } from "../../shared/busySendDelivery";
@@ -517,6 +518,8 @@ export class SettingsStore {
 			this.settings.themeScheduleDarkStart = schedule.darkStart;
 			// 置顶状态只接受稳定、非空的 SessionRecord id；旧设置缺省时自然回落为空。
 			this.settings.pinnedSessionIds = normalizePinnedSessionIds(parsed.pinnedSessionIds);
+			// 会话排序模式：未知字符串（手改/未来删除的方案）回落默认「最近活跃」。
+			this.settings.sessionSortMode = normalizeSessionSortMode(parsed.sessionSortMode);
 			// ACP 工具登记表：手改 settings.json 的脏条目在加载边界归一，不等到首次 update。
 			this.settings.acpTools = sanitizeAcpTools(parsed.acpTools);
 			// 字号档位：旧版本有 5 档（多一个已删除的 "default"），现在是 4 档（紧凑/中/大/特大）。
@@ -805,6 +808,10 @@ export class SettingsStore {
 		}
 		if ("pinnedSessionIds" in safePatch) {
 			safePatch.pinnedSessionIds = normalizePinnedSessionIds(safePatch.pinnedSessionIds);
+		}
+		// 排序模式来自渲染层下拉，入参不可信：非法值回落默认而不是写入坏字符串。
+		if ("sessionSortMode" in safePatch) {
+			safePatch.sessionSortMode = normalizeSessionSortMode(safePatch.sessionSortMode);
 		}
 		// 隐藏模块清单来自渲染层开关，入参不可信：只收字符串、去重去空。
 		if ("hiddenModules" in safePatch) {

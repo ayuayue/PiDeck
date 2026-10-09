@@ -38,7 +38,9 @@ export type SidebarActions = {
 		refresh: (projectId: string) => Promise<void>;
 		/** 重扫所有项目目录的存在性并刷新侧栏清单。 */
 		refreshAll: () => Promise<void>;
-		reorder: (sourceProjectId: string, targetProjectId: string) => Promise<void>;
+		reorder: (sourceProjectId: string, targetProjectId: string, position?: "before" | "after") => Promise<void>;
+		/** 置顶/取消置顶普通项目；聊天项目与 worktree 子项目由菜单层隐藏入口。 */
+		setPinned: (project: Project, pinned: boolean) => Promise<void>;
 		reveal: (project: Project) => Promise<void>;
 		openWithEditor: (project: Project) => void;
 		importSessions: (project: Project, source: "codex" | "claude" | "qoder" | "opencode" | "zcode" | "workbuddy" | "cursor" | "kimi" | "kimiwork" | "minimax") => void;
@@ -550,6 +552,20 @@ export function SidebarContent(props: SidebarContentProps) {
 						actions.projects.rename(menuProject);
 						controller.closeMenu();
 					}}
+					isPinned={menuProject.pinned === true}
+					sessionSortMode={controller.sessionSortMode}
+					onSetSessionSortMode={(mode) => {
+						controller.setSessionSortMode(mode);
+						controller.closeMenu();
+					}}
+					onTogglePin={
+						menuProject.kind !== "chat" && !menuProject.worktreeParentId
+							? () => {
+									void actions.projects.setPinned(menuProject, !(menuProject.pinned === true));
+									controller.closeMenu();
+								}
+							: undefined
+					}
 					onRemoveWorktree={
 						menuProjectWorktreeParent
 							? () => {

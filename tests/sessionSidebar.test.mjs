@@ -44,6 +44,19 @@ function loadNavTabModule() {
 	});
 }
 
+function loadSharedSessionSortModule() {
+	return loadTsModule("src/shared/sessionSort.ts", "sessionSort.ts", (specifier) => {
+		throw new Error(`Unexpected import: ${specifier}`);
+	});
+}
+
+function loadSessionSortModesModule() {
+	return loadTsModule("src/renderer/src/sessionSortModes.ts", "sessionSortModes.ts", (specifier) => {
+		if (specifier === "../../shared/sessionSort") return loadSharedSessionSortModule();
+		throw new Error(`Unexpected import: ${specifier}`);
+	});
+}
+
 function loadControllerModule() {
 	return loadTsModule("src/renderer/src/hooks/useSidebarController.ts", "useSidebarController.ts", (specifier) => {
 		if (specifier === "react") return {};
@@ -52,6 +65,7 @@ function loadControllerModule() {
 		if (specifier === "../utils/sidebarExpandedProjects") return loadExpandedProjectsModule();
 		if (specifier === "../utils/sidebarNavTab") return loadNavTabModule();
 		if (specifier === "../sessionFilterPills") return loadPillsModule();
+		if (specifier === "../sessionSortModes") return loadSessionSortModesModule();
 		throw new Error(`Unexpected import: ${specifier}`);
 	});
 }

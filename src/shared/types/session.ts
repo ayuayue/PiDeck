@@ -122,6 +122,15 @@ export type SessionRuntimeModelSelection = SessionModelPreference & {
 	thinkingLevel?: string;
 };
 
+/**
+ * 项目会话列表排序模式（settings.sessionSortMode）：
+ * - updatedAt：最近活跃（历史默认，会话/置顶行为不变）
+ * - createdAt：创建时间（catalog 回填，扫描摘要缺省时回退 updatedAt）
+ * - title：标题字典序（localeCompare，同名再按 updatedAt 降序稳定）
+ * 新增方案：往渲染层策略目录 sessionSortModes.ts 注册一项即可，主进程只存字符串。
+ */
+export type SessionSortModeId = "updatedAt" | "createdAt" | "title";
+
 export type SessionSummary = {
 	id: string;
 	filePath: string;
@@ -151,6 +160,8 @@ export type SessionSummary = {
 	supersededBy?: string;
 	preview: string;
 	updatedAt: number;
+	/** 会话创建时间（catalog SessionRecord.createdAt 回填）；扫描摘要可能缺省，排序时回退 updatedAt。 */
+	createdAt?: number;
 	messageCount: number;
 	/** 会话来源：pi 原生、Codex 导入、Claude 导入、OpenCode 导入 */
 	source?: SessionSource;
