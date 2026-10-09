@@ -27,6 +27,9 @@ export const MINIMAX_LLM_CALL_MAX_BYTES = 4 * 1024 * 1024;
 /** messages.jsonl 头部读取上界：扫描只需要标题/预览（前几条消息），与文件总大小解耦。 */
 export const MINIMAX_MESSAGES_HEAD_BYTES = 256 * 1024;
 
+/** manifest.json 读取上界：正常仅几十字节；对齐 llm-call 的 4MB 防线，异常巨型文件直接视为无清单。 */
+export const MINIMAX_MANIFEST_MAX_BYTES = 4 * 1024 * 1024;
+
 export type MinimaxManifest = {
 	sessionId: string;
 	createdAtMs: number;
@@ -135,7 +138,11 @@ function readString(value: unknown): string {
 export async function readMinimaxManifest(dir: string): Promise<MinimaxManifest | undefined> {
 	let raw: string;
 	try {
-		raw = await readFile(join(dir, "manifest.json"), "utf8");
+		const manifestPath = join(dir, "manifest.json");
+		const info = await stat(manifestPath);
+		// 异常巨型 manifest（畸形/被替换）不进内存，静默降级为无清单
+		if (info.size > MINIMAX_MANIFEST_MAX_BYTES) return undefined;
+		raw = await readFile(manifestPath, "utf8");
 	} catch {
 		return undefined;
 	}

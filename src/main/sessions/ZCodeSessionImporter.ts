@@ -10,6 +10,10 @@ import { normalizeImportedToolArguments } from "./importToolArguments";
 import { readImportMetaHead } from "./importMetaHead";
 import { IMPORTED_SKIP_PART_TYPES, capImportedImage, importedAttachmentPlaceholder, importedContentHasToolCall, importedUnknownBlockAsText, normalizeImportedStopReason, safeIsoTimestamp } from "./importNormalize";
 
+// 集中式库文件的扫描预算（与 OpenCodeSessionImporter 同理由）：全库物化内存约为磁盘体积若干倍，
+// 超限 scan/import 报结构化错误而非推向堆 abort（不可 catch 的闪退）
+const MAX_SOURCE_DB_BYTES = 512 * 1024 * 1024;
+
 /**
  * zcode（Z.ai CLI）会话导入器。
  *
@@ -295,6 +299,8 @@ export class ZCodeSessionImporter {
 		const match = url.match(/tool-result-([0-9a-f-]+)$/i);
 		if (!match) return undefined;
 		const uuid = match[1];
+		// sessionId 来自不可信 db：正则白名单（sess_<hex>）拒绝 `..`/绝对路径注入，避免 readdir 任意目录
+		if (!/^sess_[0-9a-f-]+$/i.test(sessionId)) return undefined;
 		// 注意：zcode 的 sessionId 本身已带 `sess_` 前缀（如 sess_1ae8ad12-...），
 		// artifacts 目录名与之一致，直接拼接即可，不能再加一次前缀。
 		const dir = join(this.zcodeArtifactsRoot, sessionId);
@@ -323,6 +329,10 @@ export class ZCodeSessionImporter {
 
 	private async readZCodeSessions(projectPath: string): Promise<ParsedZCodeSession[]> {
 		const info = await stat(this.zcodeDb);
+		if (info.size > MAX_SOURCE_DB_BYTES) {
+			// 物化前闸门：继续扫描会把主进程推向堆 abort；宁可让该源列表报错，也不静默跳过
+			throw new Error(`zcode database is ${Math.round(info.size / 1024 / 1024)}MB, exceeding the ${MAX_SOURCE_DB_BYTES / 1024 / 1024}MB scan budget`);
+		}
 		const normalizedProject = this.normalize(projectPath);
 		const db = new DatabaseSync(this.zcodeDb, { readOnly: true });
 		try {
@@ -394,7 +404,11 @@ export class ZCodeSessionImporter {
 	}
 
 	private estimateSessionSize(meta: Record<string, unknown>, messages: ZCodeMessage[]) {
-		return Buffer.byteLength(JSON.stringify({ meta, messages }), "utf8");
+		// 逐条累加而非整包 stringify：估算语义不变，瞬时峰值从「整会话字符串」降到「单条消息字符串」。
+		// 口径与旧公式有常数级偏差，存量已导入会话会一次性显示 outdated（重新导入即刷新，无数据风险）
+		let total = Buffer.byteLength(JSON.stringify(meta), "utf8");
+		for (const message of messages) total += Buffer.byteLength(JSON.stringify(message), "utf8");
+		return total;
 	}
 
 	private firstModel(messages: ZCodeMessage[]) {

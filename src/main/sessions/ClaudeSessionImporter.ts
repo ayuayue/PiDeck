@@ -10,6 +10,10 @@ import { readImportMetaHead } from "./importMetaHead";
 import { createBufferedLineSink, mapWithConcurrency, readJsonlObjects, readSessionSourceHead, renameWithRetry, SESSION_SCAN_CONCURRENCY } from "./sessionSourceHead";
 import { importedContentHasToolCall, importedUnknownBlockAsText, normalizeImportedStopReason, tryImportedImageBlock } from "./importNormalize";
 
+// 活链重建索引的条目上界（≈行数）：真实会话分支树远小于此；超限视为文件异常巨大，
+// 返回 null 走「全保留」退化而非逼近堆上限（见 collectLiveChainIds）
+const MAX_CHAIN_INDEX_ENTRIES = 1_000_000;
+
 type ParsedClaudeSession = {
 	meta: {
 		sessionId: string;
@@ -425,6 +429,9 @@ export class ClaudeSessionImporter {
 			const uuid = typeof entry.uuid === "string" && entry.uuid ? entry.uuid : null;
 			if (!uuid) continue;
 			parentById.set(uuid, typeof entry.parentUuid === "string" && entry.parentUuid ? entry.parentUuid : null);
+			// 索引上界：真实会话分支树远小于此；超限说明文件异常巨大，继续收会逼近堆上限。
+			// 返回 null（全保留退化）比 OOM abort 更安全，注释见上
+			if (parentById.size > MAX_CHAIN_INDEX_ENTRIES) return null;
 			if (entry.isSidechain) {
 				anyTipId = uuid;
 			} else {

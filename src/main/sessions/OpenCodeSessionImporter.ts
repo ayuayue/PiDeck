@@ -10,6 +10,11 @@ import { normalizeImportedToolArguments } from "./importToolArguments";
 import { readImportMetaHead } from "./importMetaHead";
 import { IMPORTED_SKIP_PART_TYPES, importedAttachmentPlaceholder, importedContentHasToolCall, importedUnknownBlockAsText, normalizeImportedStopReason, safeIsoTimestamp, tryImportedImageBlock } from "./importNormalize";
 
+// 集中式库文件的扫描预算：全库物化（messages+parts）内存约为磁盘体积的若干倍，
+// 超过此值时 scan/import 直接报结构化错误而非把主进程推向堆 abort（不可 catch 的闪退）。
+// 512MB 覆盖正常长期使用；触顶属异常巨型库，错误消息会提示用户另寻导入途径。
+const MAX_SOURCE_DB_BYTES = 512 * 1024 * 1024;
+
 type OpenCodeMessage = {
 	id: string;
 	time_created: number;
@@ -276,6 +281,10 @@ export class OpenCodeSessionImporter {
 
 	private async readOpenCodeSessions(projectPath: string): Promise<ParsedOpenCodeSession[]> {
 		const info = await stat(this.openCodeDb);
+		if (info.size > MAX_SOURCE_DB_BYTES) {
+			// 物化前闸门：继续扫描会把主进程推向堆 abort；宁可让该源列表报错，也不静默跳过（会话神秘消失更糟）
+			throw new Error(`OpenCode database is ${Math.round(info.size / 1024 / 1024)}MB, exceeding the ${MAX_SOURCE_DB_BYTES / 1024 / 1024}MB scan budget`);
+		}
 		const normalizedProject = this.normalize(projectPath);
 		const db = new DatabaseSync(this.openCodeDb, { readOnly: true });
 		try {
@@ -331,13 +340,11 @@ export class OpenCodeSessionImporter {
 	}
 
 	private estimateSessionSize(meta: Record<string, any>, messages: OpenCodeMessage[]) {
-		return Buffer.byteLength(
-			JSON.stringify({
-				meta,
-				messages,
-			}),
-			"utf8",
-		);
+		// 逐条累加而非整包 stringify：估算语义不变，瞬时峰值从「整会话字符串」降到「单条消息字符串」。
+		// 口径与旧公式有常数级偏差，存量已导入会话会一次性显示 outdated（重新导入即刷新，无数据风险）
+		let total = Buffer.byteLength(JSON.stringify(meta), "utf8");
+		for (const message of messages) total += Buffer.byteLength(JSON.stringify(message), "utf8");
+		return total;
 	}
 
 	private parseModel(value: unknown) {
