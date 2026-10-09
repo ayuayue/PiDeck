@@ -163,6 +163,50 @@ test("mouse move + typing during the settle window do not cancel repositioning",
 	expect(fingerprint.dist, `repositioning must leave the bottom: ${JSON.stringify(fingerprint)}`).toBeGreaterThan(90);
 });
 
+test("settled repositioning holds its landing spot (no bounce back to the bottom)", async ({ app, window }) => {
+	test.setTimeout(180_000);
+	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
+	await ensureWindowVisible(app);
+	const composer = window.locator(".composer .rich-input");
+	await expect(composer).toHaveAttribute("contenteditable", "true", { timeout: 30_000 });
+
+	for (let i = 1; i <= 3; i += 1) {
+		await sendPrompt(window, `定位保持前置第 ${i} 轮：制造历史高度。`);
+	}
+	await window.waitForTimeout(2000);
+	await goBackToFollowing(window);
+
+	await composer.click();
+	await composer.fill("SLOW LONG 定位保持回归");
+	await window.keyboard.press("Enter");
+	await expect(window.locator(".message-timeline")).toContainText(LONG_REPLY.slice(0, 24), { timeout: 20_000 });
+	await expect(window.locator(".composer-send-primary")).toHaveAttribute("aria-label", "发送", { timeout: 20_000 });
+
+	// 先等定位真的落地（同一双条件），再采样确认它不再被拽回底部。
+	await expect
+		.poll(
+			async () => {
+				await ensureWindowVisible(app);
+				const f = await anchorFingerprint(window);
+				if (!f || f.dist <= 90) return Number.POSITIVE_INFINITY;
+				return Math.abs(f.anchorTopInViewport - f.clientHeight * 0.3);
+			},
+			{ timeout: 8_000 },
+		)
+		.toBeLessThan(90);
+
+	// 落地后 3s 采样：任何一帧回到近底（dist<90）都是「先上后下」回弹。
+	const samples: string[] = [];
+	for (let i = 1; i <= 12; i += 1) {
+		await window.waitForTimeout(250);
+		await ensureWindowVisible(app);
+		const g = await geometry(window);
+		samples.push(`t=${i * 250}ms dist=${Math.round(g.dist)}`);
+	}
+	const bounced = samples.filter((sample) => Number(sample.split("dist=")[1]) < 90);
+	expect(bounced, `viewport bounced back to the bottom: ${samples.join(" | ")}`).toHaveLength(0);
+});
+
 test("real up-scroll before settle keeps the manual history position", async ({ app, window }) => {
 	test.setTimeout(180_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
