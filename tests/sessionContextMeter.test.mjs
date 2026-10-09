@@ -1,37 +1,8 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
 import { formatPercent } from "../src/renderer/src/components/session/TimelineFormat.ts";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
-
-// 与 sessionWidgetChips.test.mjs 相同的 TSX 编译替身模式：只测公开 helper 与源码结构。
-function compile(filePath, stubs = {}) {
-	const source = readFileSync(filePath, "utf8");
-	const output = ts.transpileModule(source, {
-		compilerOptions: {
-			module: ts.ModuleKind.CommonJS,
-			target: ts.ScriptTarget.ES2022,
-			esModuleInterop: true,
-			jsx: ts.JsxEmit.ReactJSX,
-		},
-		fileName: filePath,
-	}).outputText;
-	const module = { exports: {} };
-	const localRequire = (specifier) => stubs[specifier] ?? {};
-	vm.runInNewContext(
-		output,
-		{
-			module,
-			exports: module.exports,
-			require: localRequire,
-			console,
-		},
-		{ filename: filePath },
-	);
-	return module.exports;
-}
 
 const meterPath = "src/renderer/src/components/session/SessionContextMeter.tsx";
 const meterSource = () => readFileSync(meterPath, "utf8");
@@ -40,12 +11,16 @@ const zh = () => readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "ut
 const en = () => readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 
 function loadMeterHelpers() {
-	return compile(meterPath, {
-		react: {},
-		"../../i18n": { t: (key) => key },
-		"../../../../shared/types": {},
-		"../../../../shared/compactFeedback": loadTsCommonJs("src/shared/compactFeedback.ts"),
-		"../ui-shadcn/tooltip": {},
+	return loadTsCommonJs(meterPath, {
+		stubs: {
+			react: {},
+			"../../i18n": { t: (key) => key },
+			"../../../../shared/compactFeedback": loadTsCommonJs("src/shared/compactFeedback.ts"),
+			"../../atoms/app-ui-atoms": {},
+			"../ui-shadcn/tooltip": {},
+			"../app/ProviderUsageDetails": {},
+			"./SurfaceComponents": {},
+		},
 	});
 }
 

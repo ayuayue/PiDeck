@@ -69,10 +69,12 @@ test("message_end/done/error settles perf and pushes a runtime-state patch", () 
 	assert.match(settle, /const totalMs = now - perf\.startedAt;/);
 	assert.match(settle, /perf\.firstTextAt > 0 \? perf\.firstTextAt : perf\.firstDeltaAt > 0 \? perf\.firstDeltaAt : 0/);
 	assert.match(settle, /const ttftMs =/);
-	assert.match(settle, /outputTokens \/ \(\(now - perf\.firstDeltaAt\) \/ 1000\)/);
+	assert.match(settle, /const streamingMs = perf\.firstDeltaAt > 0 \? now - perf\.firstDeltaAt : undefined;/);
+	assert.match(settle, /calculateTokensPerSecond\(outputTokens, streamingMs\)/);
+	assert.match(settle, /calculateTokensPerSecond\(outputTokens, totalMs\)/);
 	// 结算结果本地缓存 + 边沿推送（不触发 get_state/get_session_stats RPC）
-	assert.match(settle, /lastPerfByAgent\.set\(agentId, \{ ttftMs, totalMs, tps, at: now \}\)/);
-	assert.match(settle, /state: \{ ttftMs, totalMs, tps, perfAt: now \}/);
+	assert.match(settle, /lastPerfByAgent\.set\(agentId,\s*\{\s*ttftMs,\s*totalMs,\s*endToEndTps,\s*tps,\s*at:\s*now\s*\}\)/);
+	assert.match(settle, /state:\s*\{\s*ttftMs,\s*totalMs,\s*endToEndTps,\s*tps,\s*perfAt:\s*now\s*\}/);
 });
 
 test("perf timer starts from the sendPrompt request time, consumed once", () => {
@@ -80,7 +82,9 @@ test("perf timer starts from the sendPrompt request time, consumed once", () => 
 	// 起点修正：sendPrompt 在 RPC 请求发出时刻记录请求起点（而非收到 message_start 才起表），
 	// 把 pi 内部排队与模型服务端等待计入用户体感的首 token 延迟，避免统计系统性偏短
 	assert.match(source, /promptRequestedAtByAgent = new Map<string, number>\(\)/);
-	assert.match(readAgentManager(), /this\.messagePerf\.notePromptRequested\(input\.agentId, rpcStartedAt\);/);
+	const manager = readAgentManager();
+	assert.match(manager, /if \(!alreadyBusy\) this\.messagePerf\.notePromptRequested\(input\.agentId, rpcStartedAt\);/);
+	assert.match(manager, /typed\.type === "turn_start" && runtime && !this\.isAgentStreamSealed\(agentId\)/);
 	// 起表时消费请求起点：消费后删除，防止工具后续答回合误用上一次请求起点（应回退事件时刻）
 	const ensure = source.slice(source.indexOf("ensureTimer(agentId: string): void {"), source.indexOf("settle(agentId: string"));
 	assert.match(ensure, /const requestedAt = this\.promptRequestedAtByAgent\.get\(agentId\);/);
@@ -99,7 +103,7 @@ test("getRuntimeState merges last perf metrics", () => {
 
 test("AgentRuntimeState carries perf fields", () => {
 	const source = readFileSync("src/shared/types/agent.ts", "utf8");
-	for (const field of ["ttftMs?: number", "totalMs?: number", "tps?: number", "perfAt?: number"]) {
+	for (const field of ["ttftMs?: number", "totalMs?: number", "endToEndTps?: number", "tps?: number", "perfAt?: number"]) {
 		assert.match(source, new RegExp(field.replace("?", "\\?")), `missing ${field}`);
 	}
 });
@@ -112,7 +116,8 @@ test("ctx.detail shows TTFT / total time / speed with i18n labels", () => {
 	assert.match(surface, /const replyPerfRows/);
 	assert.match(surface, /t\("ctx\.detail\.ttft"\), value: formatDuration\(state\.ttftMs\)/);
 	assert.match(surface, /t\("ctx\.detail\.total"\), value: formatDuration\(state\.totalMs\)/);
-	assert.match(surface, /t\("ctx\.detail\.tps"\), value: `\$\{state\.tps\.toFixed\(0\)\} tok\/s`/);
+	assert.match(surface, /const throughput = buildTpsDisplay\(tpsMode, state\.tps, state\.endToEndTps, "reply"\)/);
+	assert.match(surface, /label: throughput\.label, value: throughput\.value, hint: throughput\.hint/);
 	assert.match(surface, /t\("ctx\.detail\.lastReply"\)/);
 	assert.match(surface, /border-t border-border\/70 pt-2/);
 });

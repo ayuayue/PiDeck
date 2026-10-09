@@ -115,6 +115,14 @@ export type AgentTab = {
 	compactionCount?: number;
 };
 
+/** DSH 会话 TPS 的成对累计量；每种口径只累计有有效用量和耗时的同批步骤。 */
+export type DshTpsProjection = {
+	streamingTokens: number;
+	streamingMs: number;
+	endToEndTokens: number;
+	endToEndMs: number;
+};
+
 export type AgentRuntimeState = {
 	modelName?: string;
 	provider?: string;
@@ -194,6 +202,8 @@ export type AgentRuntimeState = {
 		ttftAvgMs?: number;
 		/** 生成速度（tokens/s；decodeTokens ÷ decode 时长），无输出样本时为 undefined */
 		tokensPerSecond?: number;
+		/** 会话内有效用量样本的输出 tokens ÷ 模型调用总耗时，含等待、不含工具执行。 */
+		endToEndTokensPerSecond?: number;
 	};
 	inputTokens?: number;
 	outputTokens?: number;
@@ -206,12 +216,14 @@ export type AgentRuntimeState = {
 	/** 参与平均统计的 assistant 消息条数（与 cacheHitAveragePercent 同源） */
 	cacheHitSampleCount?: number;
 	cost?: number;
-	/** 最近一次 assistant 回复的首 token 延迟（ms；message_start → 首个 text/thinking delta），由主进程本地计时 */
+	/** 最近一次 assistant 回复的正文首字延迟（ms；请求起点 → 首个 text delta，无正文时用 thinking） */
 	ttftMs?: number;
-	/** 最近一次 assistant 回复的总耗时（ms；message_start → message_end/done/error） */
+	/** 最近一次 assistant 回复的总耗时（ms；请求起点 → message_end/done/error，不含前序工具执行） */
 	totalMs?: number;
-	/** 最近一次 assistant 回复的生成速度（tokens/s；output tokens ÷ 生成期时长） */
+	/** 最近一次 assistant 回复的流式速度（tokens/s；output tokens ÷ 首个有效 thinking/text delta 到回复结束的耗时）。 */
 	tps?: number;
+	/** 最近一次 assistant 回复的端到端速度（tokens/s；同一回复的 output tokens ÷ totalMs）。 */
+	endToEndTps?: number;
 	/** 性能指标结算时刻（Date.now()），渲染层据此判断是否为近期数据 */
 	perfAt?: number;
 };

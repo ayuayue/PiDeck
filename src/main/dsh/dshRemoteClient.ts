@@ -322,7 +322,7 @@ export class DshRemoteClient {
 			if (frame?.type === "snapshot") {
 				if (frame.projections !== undefined) {
 					yield {
-						payload: { sessionId, type: "session/projection", ...(frame.projections as Record<string, unknown>) },
+						payload: { sessionId, type: "session/projection-baseline", block: frame.projections },
 					};
 				}
 				for (const record of frame.records ?? []) {

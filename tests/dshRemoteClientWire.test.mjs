@@ -246,6 +246,22 @@ test("sessionsFollow：opt-in assistantStream，并把实时帧翻成 assistant/
 	client.dispose();
 });
 
+test("sessionsFollow snapshot restores projection totals with their baseline watermark", async () => {
+	const totals = { streamingTokens: 100, streamingMs: 2000, endToEndTokens: 100, endToEndMs: 3000 };
+	const remote = new DshRemoteClient({
+		async *openStream() {
+			yield { type: "snapshot", projections: { asOfSeq: 17, values: { pideckTps: totals } }, records: [] };
+		},
+	});
+	const seen = [];
+	for await (const frame of remote.sessionsFollow({ sessionId: "s1" }, new AbortController().signal)) seen.push(frame);
+	assert.equal(seen.length, 1);
+	assert.equal(seen[0].payload.type, "session/projection-baseline");
+	assert.equal(seen[0].payload.sessionId, "s1");
+	assert.equal(seen[0].payload.block.asOfSeq, 17);
+	assert.deepEqual(seen[0].payload.block.values.pideckTps, totals);
+});
+
 // ── 投影控制流（session/control） ──
 // 0.1.5 把「投影变更广播」从 events.mux 挪到这条 Host 级流：不订阅 ⇒ sessionStats /
 // tokenUsage / contextPressure / contextBreakdown 永远停在 attach 那一刻的初值，

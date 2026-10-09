@@ -163,6 +163,7 @@ export const SETTINGS_FIELD_ANCHORS: readonly SettingsFieldAnchor[] = [
 	},
 
 	// ── 常用设置 ──────────────────────────────────────────────────────
+	{ tab: "common", slug: "common-tps-display-mode", labelKey: "settings.tpsDisplayMode", keywords: ["tps", "流式", "端到端", "生成速度", "streaming", "end-to-end", "throughput"] },
 	{
 		tab: "common",
 		slug: "common-quick-messages",

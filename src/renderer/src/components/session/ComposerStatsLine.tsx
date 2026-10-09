@@ -1,6 +1,9 @@
 import { Fragment, memo, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { t } from "../../i18n";
-import type { AgentRuntimeState } from "../../../../shared/types";
+import type { AgentRuntimeState, TpsDisplayMode } from "../../../../shared/types";
+import { useAtomValue } from "jotai";
+import { tpsDisplayModeAtom } from "../../atoms/tps-atoms";
+import { buildTpsDisplay } from "../../utils/tpsDisplay";
 import { formatDuration } from "./TimelineFormat";
 import { formatTokens } from "./SessionContextMeter";
 
@@ -14,7 +17,7 @@ import { formatTokens } from "./SessionContextMeter";
 /** 单个可悬停指标：text 为展示文本，hint 为悬停说明（计算口径），缺省不渲染 title。 */
 export type ComposerStatPart = { text: string; hint?: string };
 
-export function buildComposerStatsSegments(state: Pick<AgentRuntimeState, "dshSessionStats" | "inputTokens" | "outputTokens" | "cacheHitPercent" | "ttftMs" | "totalMs" | "tps"> | undefined, turnCount = 0): ComposerStatPart[][] {
+export function buildComposerStatsSegments(state: Pick<AgentRuntimeState, "dshSessionStats" | "inputTokens" | "outputTokens" | "cacheHitPercent" | "ttftMs" | "totalMs" | "tps" | "endToEndTps"> | undefined, turnCount = 0, tpsMode: TpsDisplayMode = "streaming"): ComposerStatPart[][] {
 	if (!state) return [];
 	const groups: ComposerStatPart[][] = [];
 	const sessionStats = state.dshSessionStats;
@@ -47,9 +50,8 @@ export function buildComposerStatsSegments(state: Pick<AgentRuntimeState, "dshSe
 		if (sessionStats.ttftAvgMs != null) {
 			speeds.push({ text: t("composerStats.ttftAverage", { duration: formatDuration(sessionStats.ttftAvgMs) }), hint: t("ctx.detail.ttftAverageHint") });
 		}
-		if (sessionStats.tokensPerSecond != null) {
-			speeds.push({ text: t("composerStats.tps", { throughput: String(Math.round(sessionStats.tokensPerSecond)) }), hint: t("ctx.detail.tpsAverageHint") });
-		}
+		const throughput = buildTpsDisplay(tpsMode, sessionStats.tokensPerSecond, sessionStats.endToEndTokensPerSecond, "session");
+		speeds.push({ text: throughput.text, hint: throughput.hint });
 		if (speeds.length > 0) groups.push(speeds);
 	} else {
 		// pi 没有 DSH 的 sessionStats：轮次由 SessionView 用 countUserTurns 传入
@@ -63,8 +65,9 @@ export function buildComposerStatsSegments(state: Pick<AgentRuntimeState, "dshSe
 		if (state.totalMs != null) {
 			lastReply.push({ text: t("composerStats.reply", { duration: formatDuration(state.totalMs) }), hint: t("ctx.detail.totalHint") });
 		}
-		if (state.tps != null) {
-			lastReply.push({ text: t("composerStats.tps", { throughput: String(Math.round(state.tps)) }), hint: t("ctx.detail.tpsHint") });
+		if (state.tps != null || state.endToEndTps != null || state.totalMs != null) {
+			const throughput = buildTpsDisplay(tpsMode, state.tps, state.endToEndTps, "reply");
+			lastReply.push({ text: throughput.text, hint: throughput.hint });
 		}
 		if (lastReply.length > 0) groups.push(lastReply);
 	}
@@ -88,12 +91,13 @@ export function buildComposerStatsSegments(state: Pick<AgentRuntimeState, "dshSe
 }
 
 /** 字符串版（兼容既有调用/测试）：每组用「 · 」拼接成单段文本。 */
-export function buildComposerStatsGroups(state: Pick<AgentRuntimeState, "dshSessionStats" | "inputTokens" | "outputTokens" | "cacheHitPercent" | "ttftMs" | "totalMs" | "tps"> | undefined, turnCount = 0): string[] {
-	return buildComposerStatsSegments(state, turnCount).map((parts) => parts.map((part) => part.text).join(" · "));
+export function buildComposerStatsGroups(state: Pick<AgentRuntimeState, "dshSessionStats" | "inputTokens" | "outputTokens" | "cacheHitPercent" | "ttftMs" | "totalMs" | "tps" | "endToEndTps"> | undefined, turnCount = 0, tpsMode: TpsDisplayMode = "streaming"): string[] {
+	return buildComposerStatsSegments(state, turnCount, tpsMode).map((parts) => parts.map((part) => part.text).join(" · "));
 }
 
 export const ComposerStatsLine = memo(function ComposerStatsLine(props: { state?: AgentRuntimeState; turnCount?: number; contextMeter?: ReactNode }) {
-	const segments = buildComposerStatsSegments(props.state, props.turnCount);
+	const tpsMode = useAtomValue(tpsDisplayModeAtom);
+	const segments = buildComposerStatsSegments(props.state, props.turnCount, tpsMode);
 	const rootRef = useRef<HTMLDivElement | null>(null);
 	const [truncated, setTruncated] = useState(false);
 	const line = segments.map((parts) => parts.map((part) => part.text).join(" · ")).join(" | ");

@@ -25,6 +25,7 @@ import { DSH_RUNNER_NODE_ENV } from "./dshRunnerNodeSidecar";
 import { agentPresetsRow, agentTeamPresetPatchPath, dshSubagentModelSelectionSettingsRow, dshWebAgentPlaneDisableRows } from "./dshPresetComposition";
 import { prepareDshHostProfile } from "./dshHostProfile";
 import { createLegacyPresetPlugin } from "./pideckLegacyPreset";
+import { createDshTpsPlugin, type DshTpsSchemaFactory } from "./pideckTpsProjection";
 import { PIDECK_PLUGIN_BRIDGE_PATH, handlePluginBridgeFetch } from "./pideckPluginBridge";
 import { PIDECK_COMMANDS_BRIDGE_PATH, handleCommandsBridgeFetch } from "./pideckCommandsBridge";
 import { PIDECK_SESSION_BRIDGE_PATH, handleSessionBridgeFetch } from "./pideckSessionBridge";
@@ -338,6 +339,15 @@ async function main(): Promise<void> {
 				importFromApp("@deepseek-ai/cordis-plugin-include"),
 			]);
 			hostCtx.loader.builtins["pideck-legacy-preset"] = createLegacyPresetPlugin(cordis, loader, include, nodeModulesUrl);
+			try {
+				// 投影和 Zod 都取自选中的 runtime；app 顶层 Zod 3 不能交给 DSH 的 Zod 4 registry。
+				const projectionRequire = createRequire(require.resolve("@deepseek-ai/dsh-session-projection"));
+				const [{ z }, { assistantStreamFirstTokenTime }]: [{ z: DshTpsSchemaFactory }, typeof import("@deepseek-ai/dsh-llm")] = await Promise.all([import(pathToFileURL(projectionRequire.resolve("zod")).href), importFromApp("@deepseek-ai/dsh-llm")]);
+				hostCtx.plugin(createDshTpsPlugin(z, assistantStreamFirstTokenTime));
+			} catch (error) {
+				// 统计依赖缺失只让端到端 TPS 不可用，不能阻断 host 启动与会话功能。
+				hostCtx.logger("pideck-tps").warn("TPS projection unavailable: %s", error instanceof Error ? error.message : String(error));
+			}
 			hostCtx.provide("profileContext", profile.profileContext);
 			hostCtx.plugin(PluginPackages, { resolution: profile.resolution });
 			provideCmdline(hostCtx, {

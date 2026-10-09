@@ -1,5 +1,6 @@
 import type { SessionProcessEvent } from "../../shared/types/trajectory";
-import type { AgentRuntimeState } from "../../shared/types";
+import type { AgentRuntimeState, DshTpsProjection } from "../../shared/types";
+import { calculateTokensPerSecond, isDshTpsProjection } from "../../shared/tps";
 import { estimateTokensFromText } from "../tokenEstimate";
 
 /**
@@ -288,18 +289,22 @@ export function parseSessionStatsProjection(values: unknown): DshSessionStatsPro
 	};
 }
 
-/**
- * 由 host sessionStats 投影派生渲染层视图：平均首字延迟与生成速度
- * （无样本字段保持 undefined，UI 不渲染对应行）。
- */
-export function deriveDshSessionStats(raw: DshSessionStatsProjection): AgentRuntimeState["dshSessionStats"] {
+/** 解析 app 自有 TPS 投影；与 sessionStats 独立，保证每种分母只含对应样本。 */
+export function parseDshTpsProjection(values: unknown): DshTpsProjection | undefined {
+	const raw = unwrapProjectionValue(values, "pideckTps");
+	return isDshTpsProjection(raw) ? raw : undefined;
+}
+
+/** 由 host 整段日志的投影派生视图；旧 host 只保留原有流式速度，不估算端到端值。 */
+export function deriveDshSessionStats(raw: DshSessionStatsProjection, throughput?: DshTpsProjection): AgentRuntimeState["dshSessionStats"] {
 	return {
 		turns: raw.turns,
 		steps: raw.steps,
 		llmMs: raw.llmMs,
 		toolMs: raw.toolMs,
 		ttftAvgMs: raw.ttftSteps > 0 ? raw.ttftMs / raw.ttftSteps : undefined,
-		tokensPerSecond: raw.decodeMs > 0 ? raw.decodeTokens / (raw.decodeMs / 1000) : undefined,
+		tokensPerSecond: throughput ? calculateTokensPerSecond(throughput.streamingTokens, throughput.streamingMs) : calculateTokensPerSecond(raw.decodeTokens, raw.decodeMs),
+		endToEndTokensPerSecond: throughput ? calculateTokensPerSecond(throughput.endToEndTokens, throughput.endToEndMs) : undefined,
 	};
 }
 

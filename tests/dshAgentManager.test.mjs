@@ -2092,6 +2092,45 @@ test("session/control baseline → 一次播种 sessionStats / tokenUsage / cont
 	assert.equal(state.contextWindow, 1_000_000);
 });
 
+test("pideckTps baseline and live frames use paired totals and reject older snapshots", async () => {
+	const { host, client } = makeFakeHost();
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
+	await flush();
+
+	client.pushControlFrames({
+		payload: {
+			type: "session/projection-baseline",
+			sessionId: "session-fake-1",
+			block: {
+				asOfSeq: 12,
+				values: {
+					sessionStats: { turns: 3, steps: 5, llmMs: 30_000, toolMs: 20_000, ttftMs: 500, ttftSteps: 2, decodeMs: 1000, decodeTokens: 40 },
+					pideckTps: { streamingTokens: 300, streamingMs: 2500, endToEndTokens: 300, endToEndMs: 4000 },
+				},
+			},
+		},
+	});
+	await flush();
+	let stats = (await manager.getRuntimeState(tab.id)).dshSessionStats;
+	assert.equal(stats.tokensPerSecond, 120);
+	assert.equal(stats.endToEndTokensPerSecond, 75);
+
+	client.pushControlFrames(projectionFrame("session-fake-1", "pideckTps", { streamingTokens: 700, streamingMs: 3500, endToEndTokens: 700, endToEndMs: 7000 }, 20));
+	await flush();
+	stats = (await manager.getRuntimeState(tab.id)).dshSessionStats;
+	assert.equal(stats.tokensPerSecond, 200);
+	assert.equal(stats.endToEndTokensPerSecond, 100);
+
+	client.pushControlFrames({
+		payload: { type: "session/projection-baseline", sessionId: "session-fake-1", block: { asOfSeq: 12, values: { pideckTps: { streamingTokens: 300, streamingMs: 2500, endToEndTokens: 300, endToEndMs: 4000 } } } },
+	});
+	await flush();
+	stats = (await manager.getRuntimeState(tab.id)).dshSessionStats;
+	assert.equal(stats.tokensPerSecond, 200);
+	assert.equal(stats.endToEndTokensPerSecond, 100);
+});
+
 test("session/control 的 sessionStats 实时帧 → 指标条不再退回「N 轮 · M 步」", async () => {
 	const { host, client } = makeFakeHost();
 	const manager = new DshAgentManager(host, () => PROJECT);

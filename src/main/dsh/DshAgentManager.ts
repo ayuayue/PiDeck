@@ -22,6 +22,7 @@ import {
 	parseContextBreakdownProjection,
 	parseContextPressureProjection,
 	parseSessionStatsProjection,
+	parseDshTpsProjection,
 	parseTokenUsageProjection,
 	pushDshProcessEvent,
 	type DshSessionStatsProjection,
@@ -33,11 +34,11 @@ import { approvalUiRequest, buildDshRejectValue, buildDshRespondValue, parseDshA
 import { assembleDshHistoryEntries, countDshUserMessages, DSH_HISTORY_DEFAULT_TURN_PAGE_SIZE, normalizeDshTurnPageSize, planDshHistoryRounds, trimToOldestTurnStart } from "./dshHistoryPagePlan";
 import { isContextOverflowError } from "../../shared/contextOverflow";
 import { parseDshTeamProjection } from "./dshTeamProjection";
-import type { DshTeamState } from "../../shared/types/agent";
+import type { DshTeamState, DshTpsProjection } from "../../shared/types/agent";
 import type { RpcLogEntry } from "../../shared/types/rpcLog";
 import type { RpcLogLiveSink } from "../logging/RpcLogLiveBroadcaster";
 
-const DSH_PROJECTION_KEYS = ["contextPressure", "contextBreakdown", "tokenUsage", "sessionStats", "todos", "inbox", "agentTeam"];
+const DSH_PROJECTION_KEYS = ["contextPressure", "contextBreakdown", "tokenUsage", "sessionStats", "pideckTps", "todos", "inbox", "agentTeam"];
 
 /**
  * DSH 后端网关：实现 SessionAgentGateway，把 DSH host（DshHost）的会话/事件
@@ -351,6 +352,7 @@ export class DshAgentManager implements SessionAgentGateway {
 			runtime.contextBreakdown = parseContextBreakdownProjection(attachProjectionValues);
 			runtime.usageTotals = parseTokenUsageProjection(attachProjectionValues);
 			runtime.sessionStats = parseSessionStatsProjection(attachProjectionValues);
+			runtime.tpsProjection = parseDshTpsProjection(attachProjectionValues);
 			// attach 初值兜底：list projections.values.todos 是底层完整折叠（和原始文件同源，
 			// 但不受 history 尾部截断影响——最早 todo/write 在窗口前也拿得到）。注册 seq
 			// 后与 mux 实时帧按 higher-seq-wins 收敛；解析失败保持 history 重放结果。
@@ -551,6 +553,7 @@ export class DshAgentManager implements SessionAgentGateway {
 			contextWindow: old.contextWindow,
 			usageTotals: old.usageTotals,
 			sessionStats: old.sessionStats,
+			tpsProjection: old.tpsProjection,
 			// 重启瞬间先续上旧值：history 补帧成功后被投影结果覆盖；失败也不丢当前计划
 			todos: old.todos,
 		};
@@ -930,7 +933,7 @@ export class DshAgentManager implements SessionAgentGateway {
 			cacheTotal: usage ? (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0) : undefined,
 			// 缓存命中率：cacheRead ÷ (input + cacheRead + cacheWrite)，与 pi/dsh-web 同公式
 			cacheHitPercent: cacheHitPercentOf(usage),
-			dshSessionStats: sessionStatsRaw ? deriveDshSessionStats(sessionStatsRaw) : undefined,
+			dshSessionStats: sessionStatsRaw ? deriveDshSessionStats(sessionStatsRaw, runtime.tpsProjection) : undefined,
 		};
 	}
 
@@ -1894,6 +1897,14 @@ export class DshAgentManager implements SessionAgentGateway {
 			}
 			return;
 		}
+		if (key === "pideckTps") {
+			const parsed = parseDshTpsProjection(payload.value);
+			if (parsed !== undefined) {
+				runtime.tpsProjection = parsed;
+				this.emitRuntimeState(runtime.tab.id);
+			}
+			return;
+		}
 		if (key === "todos") {
 			// 官方 tool-todo 的 todos 投影：整表快照（null = 清空）。seq 已在
 			// acceptsProjectionFrame 做 higher-seq-wins；解析失败（undefined）保持原值。
@@ -2510,6 +2521,8 @@ type DshAgentRuntime = {
 	usageTotals?: DshUsageTotals;
 	/** 会话统计（host sessionStats 投影；整段日志回合/步骤计数与墙钟汇总，dsh-web StatsLine 同源）。 */
 	sessionStats?: DshSessionStatsProjection;
+	/** 会话 TPS 配对累计量（app 自有 host 投影；历史恢复不受尾页截断影响）。 */
+	tpsProjection?: DshTpsProjection;
 	/** host 侧排队消息（inbox 投影；空数组 = 无排队）。见 parseDshInboxProjection。 */
 	queuedMessages?: DshQueuedMessage[];
 	/** DSH 当轮真实系统提示（system/message 投影；attach/backfill 重放与 mux 实时双来源）。 */

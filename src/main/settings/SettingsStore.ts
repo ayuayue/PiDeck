@@ -23,6 +23,7 @@ import { normalizePinnedSessionIds } from "../../shared/pinnedSessions";
 import { normalizeHiddenModules } from "../../shared/hiddenModules";
 import { normalizeHiddenComposerFeatures } from "../../shared/composerFeatures";
 import { parseBusySendDelivery } from "../../shared/busySendDelivery";
+import { normalizeTpsDisplayMode } from "../../shared/tps";
 import { sanitizeShortcutOverrides } from "../../shared/shortcuts";
 import { normalizeThemeSchedule } from "../../shared/themeSchedule";
 import { normalizeEnhanceModel } from "../../shared/enhanceModelPreference";
@@ -150,6 +151,7 @@ const defaultSettings: AppSettings = {
 	// 忙碌时发送默认「插入当前回合」（对齐 pi 历史行为）；dsh 会话此前默认排队，
 	// 统一后由本设置项决定，用户可在常用设置→会话中改回。
 	busySendDelivery: "steer",
+	tpsDisplayMode: "streaming",
 	// 快捷消息：**遗留字段**。新版本清单存在 userData/quick-messages.json（QuickMessageStore），
 	// 出厂值在随包资源 quick-messages.default.json，不再硬编码。这里保留空数组作为默认值，
 	// 旧数据（升级前用户改过的条目）仍会在读取时原样保留，供首次迁移作种子。
@@ -459,6 +461,7 @@ export class SettingsStore {
 			// toast 展示时长：旧 settings.json 缺字段或脏值（0/负数/超大/字符串）钳回默认，
 			// 避免升级后 toast 永不再消失或瞬间消失。
 			this.settings.toastDurationMs = clampToastDurationMs(this.settings.toastDurationMs);
+			this.settings.tpsDisplayMode = normalizeTpsDisplayMode(this.settings.tpsDisplayMode);
 			// 终端设置：旧 JSON 缺字段由 spread 默认值兕底；磁盘无类型，枚举/数值/字符串字段
 			// 逐一回落或钳制，避免 xterm 拿到非法 scrollback/fontSize 直接抛错。
 			this.settings.terminalTheme = parseTerminalTheme(this.settings.terminalTheme);
@@ -687,6 +690,10 @@ export class SettingsStore {
 		// IPC 入参不可信：自动标题开关只接受布尔值，非法值保持原有设置。
 		if ("autoSessionTitle" in safePatch && typeof safePatch.autoSessionTitle !== "boolean") {
 			delete safePatch.autoSessionTitle;
+		}
+		// TPS 模式只接受两个已知枚举；非法 IPC 入参保留原设置。
+		if ("tpsDisplayMode" in safePatch && safePatch.tpsDisplayMode !== "streaming" && safePatch.tpsDisplayMode !== "endToEnd") {
+			delete safePatch.tpsDisplayMode;
 		}
 		// CUA 开关来自渲染层，入参不可信：只接受布尔值，非法值保持原有设置。
 		if ("cuaEnabled" in safePatch && typeof safePatch.cuaEnabled !== "boolean") {
