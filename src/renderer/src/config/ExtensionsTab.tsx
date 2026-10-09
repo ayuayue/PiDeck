@@ -1,6 +1,6 @@
 import { Button } from "../components/ui-shadcn/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui-shadcn/table";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Loader2, ShoppingBag, ToggleLeft, ToggleRight, Hammer } from "lucide-react";
 import type { PiCliUpdateResult, PiExtensionListResult, PiExtensionSummary, ProjectResourceOverrides } from "../../../shared/types";
 import { t } from "../i18n";
@@ -9,7 +9,7 @@ import { writeClipboard } from "../utils/clipboard";
 import { ExtensionStoreTab } from "./ExtensionStoreTab";
 import { PluginDevSection } from "./PluginDevSection";
 import { ContentTabs } from "./ContentTabs";
-import { isProjectDiscoverySource, type ResourceScope } from "./resourceScopeModel";
+import { isProjectDiscoverySource, projectInstalledExtensionSources, type ResourceScope } from "./resourceScopeModel";
 import { buildProjectOverrideKeyIndex, matchesProjectOverride, type ProjectOverrideKeyIndex } from "./projectOverrideKeys";
 import { useResourceTogglePending } from "../hooks/useResourceTogglePending";
 import { DiscoveredExtensionRow, ExtensionTableRow } from "./extensionsTableRows";
@@ -188,6 +188,9 @@ export function ExtensionsTab(props: {
 	// discovery 行去重：与已安装列表同 source 的条目只保留普通行（带操作），列表只显示一次
 	const installedSources = new Set(props.data.extensions.map((extension) => extension.source));
 	const uniqueDiscoveryExtensions = props.discoveryExtensions.filter((item) => !installedSources.has(item.source));
+	// 商店卡片的已安装判据：项目里安装的包只在 discovery（package-project）里，不进 data.extensions，
+	// 不并入就会让装完的卡片仍显示「安装」并再次触发 pi install -l（见 projectInstalledExtensionSources）。
+	const storeInstalledSources = useMemo(() => (props.scope === "project" ? projectInstalledExtensionSources(props.data.extensions, props.discoveryExtensions) : new Set(props.data.extensions.map((extension) => extension.source))), [props.scope, props.data.extensions, props.discoveryExtensions]);
 	// 数据回落后结算乐观覆盖：真值等于目标值才清除（写盘与刷新是两条链路，不能一写完就清）。
 	useEffect(() => {
 		const derived: Record<string, boolean | undefined> = {};
@@ -240,7 +243,7 @@ export function ExtensionsTab(props: {
 			{extTab === "dev" ? (
 				<PluginDevSection />
 			) : extTab === "store" ? (
-				<ExtensionStoreTab installedExtensions={props.scope === "project" ? props.data.extensions.filter((extension) => extension.scope === "project") : props.data.extensions} projectId={props.scope === "project" ? props.projectId : undefined} onInstalled={() => props.onRefresh()} />
+				<ExtensionStoreTab installedSources={storeInstalledSources} projectId={props.scope === "project" ? props.projectId : undefined} onInstalled={() => props.onRefresh()} />
 			) : (
 				<>
 					{showUpdateDialog && (

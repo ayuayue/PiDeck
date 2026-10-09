@@ -4,7 +4,7 @@ import { showNotice } from "../utils/notice";
 import { writeClipboard } from "../utils/clipboard";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Copy, Download, ExternalLink } from "lucide-react";
-import type { PiPackageCatalog, PiPackageCatalogItem, PiPackageCatalogQuery, PiExtensionSummary } from "../../../shared/types";
+import type { PiPackageCatalog, PiPackageCatalogItem, PiPackageCatalogQuery } from "../../../shared/types";
 import { t } from "../i18n";
 import { StoreSearchBar } from "./StoreSearchBar";
 
@@ -62,8 +62,8 @@ export function formatPublishedAt(timestamp?: number, locale?: string): string {
 }
 
 export function ExtensionStoreTab(props: {
-	/** 已安装扩展列表：用于标记商店卡片「已安装」并禁用安装按钮 */
-	installedExtensions: PiExtensionSummary[];
+	/** 已安装包的 source 集合（`npm:<name>` 等安装源形态）：标记商店卡片「已安装」并禁用安装按钮 */
+	installedSources: ReadonlySet<string>;
 	/** Selected project id; omitted for global pi install. */
 	projectId?: string;
 	/** 安装成功后触发（父级刷新扩展列表） */
@@ -131,8 +131,8 @@ export function ExtensionStoreTab(props: {
 		}
 	};
 
-	/** 已安装判断：installSource（npm:<name>）与已安装扩展的 source 精确匹配 */
-	const isInstalled = useCallback((item: PiPackageCatalogItem) => props.installedExtensions.some((ext) => ext.source === item.installSource), [props.installedExtensions]);
+	/** 已安装判断：installSource（npm:<name>）与已安装 source 集合精确匹配（集合含项目发现项，见 projectInstalledExtensionSources） */
+	const isInstalled = useCallback((item: PiPackageCatalogItem) => props.installedSources.has(item.installSource), [props.installedSources]);
 
 	const handleInstall = async (item: PiPackageCatalogItem) => {
 		if (installing) return;
