@@ -50,6 +50,18 @@ export function registerStoreIpc({ promptManager, skillManager, xuePromptManager
 		const description = "description" in value ? requireString(value.description, "prompt description", 4096) : "";
 		return { name, description };
 	};
+	/**
+	 * 商店导入载荷校验：渲染层不可信，null/非对象会在解构时变成裸 TypeError，
+	 * content 无上界则可被超大字符串压垮写盘路径。字段上限与 promptsEdit 的
+	 * requireString(content, 4MB) 同构，错误信息带字段名方便排查。
+	 */
+	const requireStoreItem = (value: unknown): { title: string; description: string; content: string } => {
+		if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("Invalid store item.");
+		const title = requireString((value as { title?: unknown }).title, "store item title", 512);
+		const description = requireString((value as { description?: unknown }).description, "store item description", 4096);
+		const content = requireString((value as { content?: unknown }).content, "store item content", 4 * 1024 * 1024);
+		return { title, description, content };
+	};
 	const projectRoot = (projectId: unknown): string => {
 		if (typeof projectId !== "string" || !projectId.trim() || projectId.length > 256) {
 			throw new Error("Invalid project id.");
@@ -278,19 +290,16 @@ export function registerStoreIpc({ promptManager, skillManager, xuePromptManager
 		ipcChannels.promptStoreImport,
 		async (
 			_event,
-			{
-				title,
-				description,
-				content,
-				projectId,
-			}: {
+			payload: {
 				title: string;
 				description: string;
 				content: string;
 				projectId?: unknown;
 			},
 		) => {
-			const target = await projectInstallTarget(projectId);
+			// 渲染层不可信：先校验载荷再解析安装目标，null/超大 content 在此拦截。
+			const { title, description, content } = requireStoreItem(payload);
+			const target = await projectInstallTarget(payload.projectId);
 			try {
 				const name = title
 					.trim()
@@ -359,9 +368,11 @@ export function registerStoreIpc({ promptManager, skillManager, xuePromptManager
 	});
 
 	ipcMain.handle(ipcChannels.skillStoreImport, async (_event, item: PromptStoreItem, locationId: "pi-global" | "agents-global" = "pi-global", projectId?: unknown) => {
+		// 渲染层不可信：先校验载荷再解析安装目标，null/超大 content 在此拦截。
+		const { title, description, content } = requireStoreItem(item);
 		const target = await projectInstallTarget(projectId);
 		try {
-			const name = item.title
+			const name = title
 				.trim()
 				.toLowerCase()
 				.replace(/[^\p{L}\p{N}-]+/gu, "-")
@@ -372,23 +383,23 @@ export function registerStoreIpc({ promptManager, skillManager, xuePromptManager
 			const summary = target
 				? await projectResourceManager.importSkillFromStore(target.id, {
 						name,
-						description: item.description || item.title,
-						content: `# ${item.title}\n\n${item.content}`,
+						description: description || title,
+						content: `# ${title}\n\n${content}`,
 					})
 				: await skillManager.create({
 						name,
-						description: item.description || item.title,
+						description: description || title,
 						locationId: locationId ?? "pi-global",
 					});
 
 			if (!target) {
 				const { writeFile } = await import("node:fs/promises");
-				const skillContent = `---\nname: ${name}\ndescription: ${(item.description || item.title).replace(/[\\r\\n]+/g, " ")}\nsource: prompts.chat\n---\n\n# ${item.title}\n\n${item.content}`;
+				const skillContent = `---\nname: ${name}\ndescription: ${(description || title).replace(/[\\r\\n]+/g, " ")}\nsource: prompts.chat\n---\n\n# ${title}\n\n${content}`;
 				await writeFile(summary.path, skillContent, "utf8");
 			}
 
 			void appLogger.info("skill-store", "Imported skill from store", {
-				title: item.title,
+				title,
 				localName: name,
 				scope: target ? "project" : "global",
 			});

@@ -177,3 +177,33 @@ test("prompt IPC accepts an empty description string and leaves required-field p
 	assert.equal(captured.name, "valid");
 	assert.equal(captured.description, "");
 });
+
+test("store imports reject null payloads, non-string fields, and oversized content before any manager call", async () => {
+	let managerCalls = 0;
+	const failIfCalled = () => {
+		managerCalls += 1;
+		throw new Error("manager should not be called");
+	};
+	const { handlers, ipcChannels } = register(
+		{
+			create: failIfCalled,
+			writeContent: failIfCalled,
+			createInProject: failIfCalled,
+			writeContentInProject: failIfCalled,
+		},
+		{ importSkillFromStore: failIfCalled },
+	);
+
+	// null / 非对象：解构前拒绝，而非 TypeError。
+	await assert.rejects(handlers.get(ipcChannels.promptStoreImport)({}, null), /Invalid store item/);
+	await assert.rejects(handlers.get(ipcChannels.promptStoreImport)({}, "str"), /Invalid store item/);
+	await assert.rejects(handlers.get(ipcChannels.skillStoreImport)({}, null, "pi-global"), /Invalid store item/);
+	// 字段类型：title/description/content 必须是字符串。
+	await assert.rejects(handlers.get(ipcChannels.promptStoreImport)({}, { title: 42, description: "d", content: "body" }), /Invalid store item title/);
+	await assert.rejects(handlers.get(ipcChannels.promptStoreImport)({}, { title: "t", description: 42, content: "body" }), /Invalid store item description/);
+	await assert.rejects(handlers.get(ipcChannels.promptStoreImport)({}, { title: "t", description: "d", content: 42 }), /Invalid store item content/);
+	// 资源边界：content 与 promptsEdit 同限 4MB，拒绝超长载荷。
+	await assert.rejects(handlers.get(ipcChannels.promptStoreImport)({}, { title: "t", description: "d", content: "x".repeat(4 * 1024 * 1024 + 1) }), /Invalid store item content/);
+	await assert.rejects(handlers.get(ipcChannels.skillStoreImport)({}, { title: "t", description: "d", content: "x".repeat(4 * 1024 * 1024 + 1) }, "pi-global"), /Invalid store item content/);
+	assert.equal(managerCalls, 0);
+});

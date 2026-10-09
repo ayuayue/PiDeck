@@ -64,12 +64,21 @@ export function registerEditorsIpc(deps: EditorsIpcDeps): void {
 	});
 	ipcMain.handle(ipcChannels.editorsOpenProject, async (_event, editor: ExternalEditor, projectPath: string) => {
 		// 只接收已检测到的编辑器配置；打开项目不经过 shell 拼接命令,降低路径含空格时失败的概率。
-		await openProjectInEditor(editor, projectPath);
+		// 渲染层不可信：editor 对象里的 command/args 可被篡改成任意进程启动器，
+		// 这里只取 editorId，command/name 一律以主进程配置为准。
+		if (typeof editor?.id !== "string" || typeof projectPath !== "string" || !projectPath.trim()) {
+			throw new Error("Invalid editor open request");
+		}
+		// listConfiguredExternalEditors 只返回 enabled 且可启动（resolveLaunchableCommand+exists）
+		// 的编辑器，与渲染层下拉框同一数据源，天然排除未配置/失效 command。
+		const configured = (await listConfiguredExternalEditors(settingsStore.get())).find((candidate) => candidate.id === editor.id);
+		if (!configured) throw new Error(`Unsupported editor: ${editor.id}`);
+		await openProjectInEditor(configured, projectPath);
 		void appLogger.info("editor", "Project opened in external editor", {
-			editorId: editor.id,
-			editorName: editor.name,
-			command: editor.command,
-			args: editor.args,
+			editorId: configured.id,
+			editorName: configured.name,
+			command: configured.command,
+			args: configured.args,
 			projectPath,
 		});
 	});
