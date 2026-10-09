@@ -21,5 +21,9 @@ export interface MiniOverlayState {
 	activeSessions: MiniOverlaySessionRef[];
 	recentSessions: MiniOverlaySessionRef[];
 	projects: Array<{ id: string; name: string; path: string }>;
-	locale: "zh-CN" | "en-US";
+	/**
+	 * 浮窗与主窗口共用渲染层 i18n：繁中（zh-TW）已是一等语言，这里必须能透传，
+	 * 否则用户选繁中后浮窗会静默退回简中。
+	 */
+	locale: "zh-CN" | "zh-TW" | "en-US";
 }
