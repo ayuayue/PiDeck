@@ -2986,6 +2986,14 @@ function registerIpc() {
 			}, index * 1500);
 			timer.unref?.();
 		});
+		// 扩展页关键路径预热：提前探测 pi 版本（--no-approve 判定依赖该缓存），把
+		// `pi --version` 子进程移出首次 extensions:list。尽力而为——warmPiVersionProbe
+		// 内部已吞错记日志，此处再兜一层同步异常，失败绝不会影响启动与 catalog 预热。
+		try {
+			void extensionManager?.warmPiVersionProbe();
+		} catch (error) {
+			void appLogger.warn("extension", "pi version prewarm failed", { error: error instanceof Error ? error.message : String(error) });
+		}
 	}, 3000);
 	prewarmTimer.unref?.();
 
