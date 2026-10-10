@@ -12,6 +12,7 @@ type TabScope = {
 	target: TerminalTarget;
 	terminal: PiDesktopApi["terminal"];
 	pendingCreates: number;
+	hydrating: boolean;
 	closeWhenEmpty: boolean;
 };
 
@@ -60,10 +61,11 @@ export function useTerminalDockTabs(options: TerminalDockTabsOptions) {
 	}, []);
 
 	useEffect(() => {
-		const scope: TabScope = { active: enabled, target, terminal, pendingCreates: 0, closeWhenEmpty: false };
+		const scope: TabScope = { active: enabled, target, terminal, pendingCreates: 0, hydrating: enabled, closeWhenEmpty: false };
 		scopeRef.current = scope;
-		// 新 owner 的 ensure 尚未返回时，旧标签不能继续显示或接受关闭操作。
+		// 新 owner 的 ensure 尚未返回时，旧标签及其回放不能继续留在新面板。
 		commit({ tabs: [], activeTabId: "" });
+		latest.current.onHydrate([]);
 		pendingCloseAllRef.current = null;
 		setPendingCloseTab(null);
 		setConfirmCloseAllOpen(false);
@@ -85,7 +87,11 @@ export function useTerminalDockTabs(options: TerminalDockTabsOptions) {
 				// pending runtime 尚未注册时沿用静默降级，等待父级提供新 target。
 				if (!/Agent not found/i.test(message)) showNotice(message, 4000, "error");
 			} finally {
-				if (scope.active) setLoading(false);
+				scope.hydrating = false;
+				if (scope.active) {
+					if (scope.pendingCreates === 0) latest.current.onHydrate(stateRef.current.tabs);
+					setLoading(false);
+				}
 			}
 		}
 		void loadTabs();
@@ -93,6 +99,18 @@ export function useTerminalDockTabs(options: TerminalDockTabsOptions) {
 			scope.active = false;
 		};
 	}, [targetKey, terminal, enabled, commit]);
+
+	/** 实时归属用于事件与 xterm cleanup，不能等 React 下一次渲染才知道标签已被关闭。 */
+	const ownsTab = useCallback((tabId: string) => Boolean(scopeRef.current?.active) && stateRef.current.tabs.some((tab) => tab.id === tabId), []);
+
+	/** IPC 返回 tab ID 前可能先收到首个提示符；仅在加载/创建窗口暂存未知标签，结算后裁剪。 */
+	const acceptsTabEvent = useCallback(
+		(tabId: string) => {
+			const scope = scopeRef.current;
+			return Boolean(scope?.active && (ownsTab(tabId) || scope.hydrating || scope.pendingCreates > 0));
+		},
+		[ownsTab],
+	);
 
 	/** pending create 尚未结算时不隐藏 dock，否则新 PTY 已创建却无法呈现。 */
 	function closeIfEmpty(scope: TabScope) {
@@ -147,6 +165,7 @@ export function useTerminalDockTabs(options: TerminalDockTabsOptions) {
 			if (scope.active) reportFailure("terminal.createFailed", error);
 		} finally {
 			scope.pendingCreates--;
+			if (scope.active && !scope.hydrating && scope.pendingCreates === 0) latest.current.onHydrate(stateRef.current.tabs);
 			closeIfEmpty(scope);
 		}
 	}
@@ -242,5 +261,7 @@ export function useTerminalDockTabs(options: TerminalDockTabsOptions) {
 		requestCloseAllTabs,
 		closeAllTabs,
 		cancelCloseAll,
+		ownsTab,
+		acceptsTabEvent,
 	};
 }

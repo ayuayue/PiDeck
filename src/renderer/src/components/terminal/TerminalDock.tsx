@@ -101,12 +101,16 @@ export function TerminalDock(props: {
 	/** 可用 shell 列表 */
 	const [shells, setShells] = useState<{ shell: string; label: string; available: boolean }[]>([]);
 	const [shellMenuOpen, setShellMenuOpen] = useState(false);
-	const { tabs, activeTab, loading, pendingCloseTab, confirmCloseAllOpen, setActiveTabId, setPendingCloseTab, markExited, addTab, closeTab, performCloseTab, requestCloseAllTabs, closeAllTabs, cancelCloseAll } = useTerminalDockTabs({
+	const { tabs, activeTab, loading, pendingCloseTab, confirmCloseAllOpen, setActiveTabId, setPendingCloseTab, markExited, addTab, closeTab, performCloseTab, requestCloseAllTabs, closeAllTabs, cancelCloseAll, ownsTab, acceptsTabEvent } = useTerminalDockTabs({
 		target: props.target,
 		terminal: props.terminal,
 		enabled: open && contentReady && Boolean(sessionKey) && !sessionKey.startsWith("pending-"),
 		confirmClose: props.terminalSettings.confirmClose,
 		onHydrate(nextTabs) {
+			const ids = new Set(nextTabs.map((tab) => tab.id));
+			// ensure/create 完成后只留下当前归属；未知标签只能在 IPC 结算前短暂暂存。
+			for (const id of Object.keys(buffersRef.current)) if (!ids.has(id)) delete buffersRef.current[id];
+			for (const id of pendingStartupCommandRef.current) if (!ids.has(id)) pendingStartupCommandRef.current.delete(id);
 			for (const tab of nextTabs) buffersRef.current[tab.id] = tab.buffer ?? buffersRef.current[tab.id] ?? "";
 		},
 		onCreated(tab) {
@@ -224,6 +228,7 @@ export function TerminalDock(props: {
 
 	useEffect(() => {
 		const offData = props.terminal.onData((payload) => {
+			if (!acceptsTabEvent(payload.tabId)) return;
 			// 回放缓冲与主进程对齐截尾到 200K：只作 xterm 重建回放源，不能无限常驻
 			buffersRef.current[payload.tabId] = appendTerminalReplayBuffer(buffersRef.current[payload.tabId] ?? "", payload.data);
 			if (payload.tabId === activeTabIdRef.current) {
@@ -238,6 +243,7 @@ export function TerminalDock(props: {
 			}
 		});
 		const offExit = props.terminal.onExit((payload) => {
+			if (!acceptsTabEvent(payload.tabId)) return;
 			pendingStartupCommandRef.current.delete(payload.tabId);
 			markExited(payload.tabId, payload.exitCode);
 			const exitText = `\r\n[process exited${payload.exitCode != null ? ` with code ${payload.exitCode}` : ""}]\r\n`;
@@ -248,7 +254,7 @@ export function TerminalDock(props: {
 			offData();
 			offExit();
 		};
-	}, [props.terminal, markExited]);
+	}, [props.terminal, markExited, acceptsTabEvent]);
 
 	useEffect(() => {
 		// 必须捕获本次 effect 对应的 tab id：cleanup 执行时 activeTab 已切换到新 tab，
@@ -343,7 +349,8 @@ export function TerminalDock(props: {
 			// 这替代了主进程 200k 裸字符串截断的乱码问题 —— 后者会切坏转义序列。
 			// 主进程原始缓冲仍在（ensure 重水化用），平时 onData 也仍走 200k 截尾：
 			// 只有同一次挂载生命周期内的 tab 切换才用序列化快照（见上）。
-			if (effectTabId) {
+			// 关闭或换 owner 已删除的标签不能在 cleanup 中复活；切 tab/折叠仍保留快照。
+			if (effectTabId && ownsTab(effectTabId)) {
 				const snapshot = serializeRef.current?.serialize({ scrollback: props.terminalSettings.scrollback });
 				if (snapshot) buffersRef.current[effectTabId] = snapshot;
 			}
@@ -366,7 +373,7 @@ export function TerminalDock(props: {
 		};
 		// xtermTheme 刻意不在依赖里：改主题走下面的热更新 effect 更新 options，
 		// 否则每次换配色都会销毁重建终端、丢掉 scrollback 与光标位置。
-	}, [activeTab, collapsed, contentReady, props.terminal]);
+	}, [activeTab, collapsed, contentReady, props.terminal, ownsTab]);
 
 	// 字体/光标/主题热更新：xterm 6.0 支持运行时改 options（实测生效），
 	// 无需销毁终端。改完必须 refit —— 字号变化会改变列数/行数，尺寸要同步给 PTY。

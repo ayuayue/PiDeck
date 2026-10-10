@@ -27,6 +27,10 @@ function dockHarness(initialTabs = [tab("A"), tab("B")], settings = {}) {
 	const notices = [];
 	const terminals = [];
 	const copied = [];
+	const appended = [];
+	const serialized = [];
+	const dataListeners = new Set();
+	const exitListeners = new Set();
 	let nextId = 0;
 	let closeCount = 0;
 	let clipboardOk = true;
@@ -48,7 +52,9 @@ function dockHarness(initialTabs = [tab("A"), tab("B")], settings = {}) {
 		dispose() {}
 		onContextLoss() {}
 		serialize() {
-			return "";
+			const snapshot = "serialized terminal";
+			serialized.push(snapshot);
+			return snapshot;
 		}
 	}
 	class FakeTerminal {
@@ -62,7 +68,8 @@ function dockHarness(initialTabs = [tab("A"), tab("B")], settings = {}) {
 		}
 		loadAddon() {}
 		open() {}
-		write(_data, callback) {
+		write(data, callback) {
+			this.output = (this.output ?? "") + data;
 			callback?.();
 		}
 		scrollToBottom() {}
@@ -89,8 +96,14 @@ function dockHarness(initialTabs = [tab("A"), tab("B")], settings = {}) {
 		input: async () => {},
 		resize: async () => {},
 		shells: async () => [],
-		onData: () => () => {},
-		onExit: () => () => {},
+		onData: (listener) => {
+			dataListeners.add(listener);
+			return () => dataListeners.delete(listener);
+		},
+		onExit: (listener) => {
+			exitListeners.add(listener);
+			return () => exitListeners.delete(listener);
+		},
 	};
 	const load = createTsSandbox({
 		stubs: {
@@ -120,6 +133,12 @@ function dockHarness(initialTabs = [tab("A"), tab("B")], settings = {}) {
 			"../ui-shadcn/popover": { Popover: "popover", PopoverContent: "popover-content", PopoverTrigger: "popover-trigger" },
 			"../../i18n": { t: (key) => key },
 			"../i18n": { t: (key) => key },
+			"../../terminalDockState": {
+				appendTerminalReplayBuffer(current, data) {
+					appended.push(data);
+					return (current + data).slice(-200_000);
+				},
+			},
 			"../../terminalThemes": {
 				TERMINAL_THEME_DEFS: [],
 				resolveTerminalTheme: () => ({ css: {}, xterm: { background: "#ffffff" }, dataTheme: "light" }),
@@ -221,6 +240,17 @@ function dockHarness(initialTabs = [tab("A"), tab("B")], settings = {}) {
 		notices,
 		terminals,
 		copied,
+		appended,
+		serialized,
+		emitData(tabId, data) {
+			for (const listener of dataListeners) listener({ tabId, data });
+		},
+		emitExit(tabId, exitCode) {
+			for (const listener of exitListeners) listener({ tabId, exitCode });
+		},
+		selectTab(id) {
+			find((node) => node.type === "button" && node.props.className?.includes("terminal-tab-label") && node.props.children[0] === id).props.onClick();
+		},
 		get closeCount() {
 			return closeCount;
 		},
@@ -273,6 +303,61 @@ function dockHarness(initialTabs = [tab("A"), tab("B")], settings = {}) {
 		},
 	};
 }
+
+test("unrelated terminal events never enter this dock replay cache", async () => {
+	const h = dockHarness([tab("A")]);
+	await h.ready();
+	h.emitData("foreign", "foreign output");
+	h.emitExit("foreign", 1);
+	assert.deepEqual(h.appended, []);
+	h.emitData("A", "own output");
+	assert.deepEqual(h.appended, ["own output"]);
+	assert.ok(h.terminals.at(-1).output.endsWith("own output"));
+	h.unmount();
+});
+
+test("closed active tab is not serialized back into its deleted replay cache", async () => {
+	const h = dockHarness();
+	await h.ready();
+	h.closeTab("A");
+	await h.settle();
+	assert.deepEqual(h.ids, ["B"]);
+	assert.deepEqual(h.serialized, []);
+	h.emitData("A", "late output");
+	h.emitExit("A", 0);
+	assert.deepEqual(h.appended, []);
+	h.unmount();
+});
+
+test("valid tab switching and collapse still serialize and replay the local terminal", async () => {
+	const h = dockHarness();
+	await h.ready();
+	h.selectTab("B");
+	await h.settle();
+	assert.equal(h.serialized.length, 1);
+	h.selectTab("A");
+	await h.settle();
+	assert.equal(h.terminals.at(-1).output, "serialized terminal");
+	h.render({ collapsed: true });
+	h.render({ collapsed: false });
+	assert.equal(h.terminals.at(-1).output, "serialized terminal");
+	h.unmount();
+});
+
+test("initial output emitted before create settles is retained for replay", async () => {
+	const h = dockHarness([tab("A")]);
+	await h.ready();
+	const creating = deferred();
+	h.setCreate(() => creating.promise);
+	h.addTab();
+	h.emitData("C", "initial prompt");
+	creating.resolve(tab("C"));
+	await h.settle();
+	assert.equal(h.terminals.at(-1).output, "initial prompt");
+	h.emitData("foreign", "foreign output");
+	assert.deepEqual(h.appended, ["initial prompt"]);
+	h.unmount();
+});
 
 test("parallel tab closes cannot resurrect an already closed tab", async () => {
 	const h = dockHarness();
