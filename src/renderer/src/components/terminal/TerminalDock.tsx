@@ -115,7 +115,7 @@ export function TerminalDock(props: {
 		},
 		onCreated(tab) {
 			// 启动命令只注入新标签，不对恢复的终端重跑命令。
-			if (startupCommandRef.current.trim()) pendingStartupCommandRef.current.add(tab.id);
+			if (!tab.exited && startupCommandRef.current.trim()) pendingStartupCommandRef.current.add(tab.id);
 		},
 		onClosed(tabIds) {
 			for (const id of tabIds) {

@@ -13,6 +13,7 @@ type TabScope = {
 	terminal: PiDesktopApi["terminal"];
 	pendingCreates: number;
 	hydrating: boolean;
+	pendingExits: Map<string, number | undefined>;
 	closeWhenEmpty: boolean;
 };
 
@@ -32,6 +33,14 @@ type TerminalDockTabsOptions = {
 function stripReplayBuffer(tab: TerminalTab): TerminalTab {
 	const { buffer: _buffer, ...rest } = tab;
 	return rest;
+}
+
+/** IPC 快照可能早于退出事件；按 tab ID 合并早到的退出状态，含正常退出码 0。 */
+function applyPendingExit(scope: TabScope, tab: TerminalTab): TerminalTab {
+	if (!scope.pendingExits.has(tab.id)) return tab;
+	const exitCode = scope.pendingExits.get(tab.id);
+	scope.pendingExits.delete(tab.id);
+	return { ...tab, exited: true, exitCode };
 }
 
 /** 报错保留原因，并说明是创建还是关闭失败；不伪装成已成功完成。 */
@@ -61,7 +70,7 @@ export function useTerminalDockTabs(options: TerminalDockTabsOptions) {
 	}, []);
 
 	useEffect(() => {
-		const scope: TabScope = { active: enabled, target, terminal, pendingCreates: 0, hydrating: enabled, closeWhenEmpty: false };
+		const scope: TabScope = { active: enabled, target, terminal, pendingCreates: 0, hydrating: enabled, pendingExits: new Map(), closeWhenEmpty: false };
 		scopeRef.current = scope;
 		// 新 owner 的 ensure 尚未返回时，旧标签及其回放不能继续留在新面板。
 		commit({ tabs: [], activeTabId: "" });
@@ -76,8 +85,9 @@ export function useTerminalDockTabs(options: TerminalDockTabsOptions) {
 		setLoading(true);
 		async function loadTabs() {
 			try {
-				const tabs = await terminal.ensure(scope.target);
+				const snapshots = await terminal.ensure(scope.target);
 				if (!scope.active) return;
+				const tabs = snapshots.map((tab) => applyPendingExit(scope, tab));
 				latest.current.onHydrate(tabs);
 				commit({ tabs: tabs.map(stripReplayBuffer), activeTabId: tabs[0]?.id ?? "" });
 			} catch (error) {
@@ -89,7 +99,10 @@ export function useTerminalDockTabs(options: TerminalDockTabsOptions) {
 			} finally {
 				scope.hydrating = false;
 				if (scope.active) {
-					if (scope.pendingCreates === 0) latest.current.onHydrate(stateRef.current.tabs);
+					if (scope.pendingCreates === 0) {
+						scope.pendingExits.clear();
+						latest.current.onHydrate(stateRef.current.tabs);
+					}
 					setLoading(false);
 				}
 			}
@@ -97,6 +110,7 @@ export function useTerminalDockTabs(options: TerminalDockTabsOptions) {
 		void loadTabs();
 		return () => {
 			scope.active = false;
+			scope.pendingExits.clear();
 		};
 	}, [targetKey, terminal, enabled, commit]);
 
@@ -142,9 +156,14 @@ export function useTerminalDockTabs(options: TerminalDockTabsOptions) {
 
 	const markExited = useCallback(
 		(tabId: string, exitCode?: number) => {
-			if (!scopeRef.current?.active) return;
+			const scope = scopeRef.current;
+			if (!scope?.active) return;
 			const current = stateRef.current;
-			if (!current.tabs.some((tab) => tab.id === tabId)) return;
+			if (!current.tabs.some((tab) => tab.id === tabId)) {
+				// 极短命 shell 可先退出再返回 create/ensure；只在未结算窗口暂存，不能串到下一次创建。
+				if (scope.hydrating || scope.pendingCreates > 0) scope.pendingExits.set(tabId, exitCode);
+				return;
+			}
 			commit({ ...current, tabs: current.tabs.map((tab) => (tab.id === tabId ? { ...tab, exited: true, exitCode } : tab)) });
 		},
 		[commit],
@@ -155,8 +174,9 @@ export function useTerminalDockTabs(options: TerminalDockTabsOptions) {
 		if (!scope?.active) return;
 		scope.pendingCreates++;
 		try {
-			const next = await scope.terminal.create(scope.target, shell);
+			const snapshot = await scope.terminal.create(scope.target, shell);
 			if (!scope.active) return;
+			const next = applyPendingExit(scope, snapshot);
 			latest.current.onCreated(next);
 			commit({ tabs: [...stateRef.current.tabs, stripReplayBuffer(next)], activeTabId: next.id });
 			scope.closeWhenEmpty = false;
@@ -165,7 +185,10 @@ export function useTerminalDockTabs(options: TerminalDockTabsOptions) {
 			if (scope.active) reportFailure("terminal.createFailed", error);
 		} finally {
 			scope.pendingCreates--;
-			if (scope.active && !scope.hydrating && scope.pendingCreates === 0) latest.current.onHydrate(stateRef.current.tabs);
+			if (scope.active && !scope.hydrating && scope.pendingCreates === 0) {
+				scope.pendingExits.clear();
+				latest.current.onHydrate(stateRef.current.tabs);
+			}
 			closeIfEmpty(scope);
 		}
 	}

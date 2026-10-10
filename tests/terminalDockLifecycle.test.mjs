@@ -27,6 +27,7 @@ function dockHarness(initialTabs = [tab("A"), tab("B")], settings = {}) {
 	const notices = [];
 	const terminals = [];
 	const copied = [];
+	const inputs = [];
 	const appended = [];
 	const serialized = [];
 	const dataListeners = new Set();
@@ -93,7 +94,9 @@ function dockHarness(initialTabs = [tab("A"), tab("B")], settings = {}) {
 		list: async () => initialTabs,
 		create: (...args) => create(...args),
 		close: (...args) => close(...args),
-		input: async () => {},
+		input: async (...args) => {
+			inputs.push(args);
+		},
 		resize: async () => {},
 		shells: async () => [],
 		onData: (listener) => {
@@ -240,6 +243,7 @@ function dockHarness(initialTabs = [tab("A"), tab("B")], settings = {}) {
 		notices,
 		terminals,
 		copied,
+		inputs,
 		appended,
 		serialized,
 		emitData(tabId, data) {
@@ -253,6 +257,9 @@ function dockHarness(initialTabs = [tab("A"), tab("B")], settings = {}) {
 		},
 		get closeCount() {
 			return closeCount;
+		},
+		isExited(id) {
+			return find((node) => node.type === "button" && node.props.className?.includes("terminal-tab-label") && node.props.children[0] === id).props.children[1] !== "";
 		},
 		get ids() {
 			const ids = [];
@@ -341,6 +348,49 @@ test("valid tab switching and collapse still serialize and replay the local term
 	h.render({ collapsed: true });
 	h.render({ collapsed: false });
 	assert.equal(h.terminals.at(-1).output, "serialized terminal");
+	h.unmount();
+});
+
+test("early terminal exit is shown after create settles and never gets a startup command", async () => {
+	const h = dockHarness([tab("A")], { startupCommand: "test command" });
+	await h.ready();
+	const creating = deferred();
+	h.setCreate(() => creating.promise);
+	h.addTab();
+	h.emitExit("C", 7);
+	creating.resolve(tab("C"));
+	await h.settle();
+	assert.equal(h.isExited("C"), true);
+	assert.ok(h.terminals.at(-1).output.includes("[process exited with code 7]"));
+	h.emitData("C", "late output");
+	await h.settle();
+	assert.deepEqual(h.inputs, []);
+	h.unmount();
+});
+
+test("a create response already marked exited never schedules its startup command", async () => {
+	const h = dockHarness([tab("A")], { startupCommand: "test command" });
+	await h.ready();
+	h.setCreate(async () => ({ ...tab("C"), exited: true, exitCode: 1 }));
+	h.addTab();
+	await h.settle();
+	assert.equal(h.isExited("C"), true);
+	h.emitData("C", "late output");
+	await h.settle();
+	assert.deepEqual(h.inputs, []);
+	h.unmount();
+});
+
+test("a running terminal still receives its startup command once after its first prompt", async () => {
+	const h = dockHarness([tab("A")], { startupCommand: "test command" });
+	await h.ready();
+	h.addTab();
+	await h.settle();
+	h.emitData("C", "first prompt");
+	h.emitData("C", "more output");
+	await h.settle();
+	assert.equal(h.isExited("C"), false);
+	assert.deepEqual(h.inputs, [["C", "test command\r"]]);
 	h.unmount();
 });
 

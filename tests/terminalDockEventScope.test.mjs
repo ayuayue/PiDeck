@@ -80,6 +80,100 @@ function harness() {
 	};
 }
 
+test("exit arriving before create response is applied to the new tab", async () => {
+	for (const exitCode of [7, 0, undefined]) {
+		const h = harness();
+		await h.ready();
+		const creating = deferred();
+		h.setCreate(() => creating.promise);
+		const pending = h.current.addTab();
+		h.current.markExited("C", exitCode);
+		creating.resolve(tab("C"));
+		await pending;
+		await h.settle();
+		assert.equal(h.current.activeTab.exited, true);
+		assert.equal(h.current.activeTab.exitCode, exitCode);
+		h.unmount();
+	}
+});
+
+test("exit arriving before ensure response overrides its older tab snapshot", async () => {
+	const h = harness();
+	const loading = deferred();
+	h.setEnsure(() => loading.promise);
+	h.render();
+	h.current.markExited("A", 2);
+	loading.resolve([tab("A")]);
+	await h.settle();
+	assert.equal(h.current.activeTab.exited, true);
+	assert.equal(h.current.activeTab.exitCode, 2);
+	h.unmount();
+});
+
+test("parallel create responses retain each early exit without changing a running tab", async () => {
+	const h = harness();
+	await h.ready();
+	const c = deferred();
+	const d = deferred();
+	let calls = 0;
+	h.setCreate(() => (++calls === 1 ? c.promise : d.promise));
+	const first = h.current.addTab();
+	const second = h.current.addTab();
+	h.current.markExited("C", 3);
+	h.current.markExited("D", 4);
+	d.resolve(tab("D"));
+	await second;
+	c.resolve(tab("C"));
+	await first;
+	await h.settle();
+	assert.deepEqual(
+		Array.from(h.current.tabs, (item) => [item.id, Boolean(item.exited), item.exitCode]),
+		[
+			["A", false, undefined],
+			["D", true, 4],
+			["C", true, 3],
+		],
+	);
+	h.unmount();
+});
+
+test("failed create discards orphan exit events before a later create", async () => {
+	const h = harness();
+	await h.ready();
+	const creating = deferred();
+	h.setCreate(() => creating.promise);
+	const pending = h.current.addTab();
+	h.current.markExited("foreign", 1);
+	creating.reject(new Error("spawn failed"));
+	await pending;
+	h.setCreate(async () => tab("foreign"));
+	await h.current.addTab();
+	await h.settle();
+	assert.equal(Boolean(h.current.activeTab.exited), false);
+	h.unmount();
+});
+
+test("switching owner discards pending exits and ignores the old create response", async () => {
+	const h = harness();
+	await h.ready();
+	const creating = deferred();
+	h.setCreate(() => creating.promise);
+	const pending = h.current.addTab();
+	h.current.markExited("C", 9);
+	h.setEnsure(async () => [tab("C")]);
+	h.render({ target: { kind: "project", projectId: "other", cwd: "/other" } });
+	await h.settle();
+	creating.resolve(tab("C"));
+	await pending;
+	await h.settle();
+	assert.deepEqual(
+		Array.from(h.current.tabs, (item) => item.id),
+		["C"],
+	);
+	assert.equal(Boolean(h.current.activeTab.exited), false);
+	h.unmount();
+});
+
 test("settled dock accepts only its own tabs and rejects a closed tab immediately", async () => {
 	const h = harness();
 	await h.ready();
