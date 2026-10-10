@@ -308,10 +308,17 @@ test("deriveDshSessionStats computes averages and keeps sample-less fields undef
 	assert.equal(full.toolMs, 4_000);
 	assert.equal(full.ttftAvgMs, 300);
 	assert.equal(full.tokensPerSecond, 300);
-	// 无样本：平均首字/生成速度保持 undefined（UI 不渲染对应行）
+	// 端到端：同一批 decodeTokens ÷（首 token 等待 + 解码）= 2400 ÷ 8.9s
+	assert.equal(full.endToEndTokensPerSecond, 2_400 / 8.9);
+	// 无样本：平均首字/生成速度保持 undefined（UI 显示 —）
 	const empty = deriveDshSessionStats({ turns: 0, steps: 0, llmMs: 0, toolMs: 0, ttftMs: 0, ttftSteps: 0, decodeMs: 0, decodeTokens: 0 });
 	assert.equal(empty.ttftAvgMs, undefined);
 	assert.equal(empty.tokensPerSecond, undefined);
+	assert.equal(empty.endToEndTokensPerSecond, undefined);
+	// 只有首 token、没有 usage 样本：不拿 0 tokens 除首字耗时伪造端到端速度
+	const ttftOnly = deriveDshSessionStats({ turns: 1, steps: 1, llmMs: 2_000, toolMs: 0, ttftMs: 500, ttftSteps: 1, decodeMs: 0, decodeTokens: 0 });
+	assert.equal(ttftOnly.tokensPerSecond, undefined);
+	assert.equal(ttftOnly.endToEndTokensPerSecond, undefined);
 });
 
 test("deriveSessionStatsFallback counts turns with model product, mirroring dsh-web", () => {

@@ -10,6 +10,8 @@ import type { CustomThemeSnapshot } from "../customThemes";
 import { createDefaultSoundAlertSettings, type SoundAlertSettings } from "./soundAlert";
 
 export type SendShortcutMode = "enter-send" | "ctrl-enter-send" | "shift-enter-send";
+/** TPS 展示口径：流式生成速度 / 含首 token 等待的单次模型调用速度。 */
+export type TpsDisplayMode = "streaming" | "endToEnd";
 
 export type AppThemeMode = "system" | "light" | "dark" | "schedule";
 /** 主题色预设：data-accent 属性驱动 foundation.css 的 accent/logo 变量 */
@@ -166,6 +168,8 @@ export type AppSettings = {
 	 * （pi streamingBehavior / DSH sessions.prompt mode）。缺省 "steer"，解析见 shared/busySendDelivery.ts。
 	 */
 	busySendDelivery: BusySendDelivery;
+	/** TPS 默认流式；仅切换展示，两个数值都由运行时计算，无需重启。 */
+	tpsDisplayMode: TpsDisplayMode;
 	/**
 	 * **遗留字段**：输入框底栏「快捷消息」的条目曾存在这里。
 	 * 现已改为独立配置文件 userData/quick-messages.json（主进程 QuickMessageStore，读写都操作该文件），
@@ -936,6 +940,7 @@ export function createDefaultAppSettings(): AppSettings {
 		autoSessionTitle: true,
 		// 与 main SettingsStore 默认一致：忙碌时发送默认「插入当前回合」
 		busySendDelivery: "steer",
+		tpsDisplayMode: "streaming",
 		// 遗留字段：快捷消息已改存独立配置文件 userData/quick-messages.json（见 useQuickMessages），
 		// 这里保留字段只为满足 AppSettings 类型，内容不再被读取。
 		quickMessages: [],

@@ -115,6 +115,7 @@ let previewSettings: AppSettings = {
 	disabledPrompts: [],
 	sessionTabOpenMode: "preview", // 与 SettingsStore 默认一致：忙碌时发送默认「插入当前回合」
 	busySendDelivery: "steer",
+	tpsDisplayMode: "streaming",
 	// 遗留字段：快捷消息已改存独立配置文件（预览模式没有真实文件，见下方 quickMessages 预览桩）
 	quickMessages: [],
 	enableGitManagement: true,
