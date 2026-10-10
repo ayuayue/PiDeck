@@ -2,7 +2,7 @@ import { useStore } from "jotai";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AvailableModel, ModelListReport, SessionRuntimeModelSelection, SessionRuntimeTarget } from "../../../shared/types";
 import { createSessionModelPreference } from "../../../shared/modelDisplayName";
-import { currentSessionIdAtom, sessionRuntimeByIdAtom } from "../atoms";
+import { currentSessionIdAtom, sessionFocusedByIdAtomFamily, sessionRuntimeByIdAtom } from "../atoms";
 import { useSessionPreferenceState } from "./useSessionPreferenceState";
 import { usePendingModelApply } from "./usePendingModelApply";
 import { useSessionPaneServices } from "../components/session/SessionPaneServices";
@@ -15,8 +15,12 @@ import { resolveComposerLiveModel } from "../utils/modelPendingDisplay";
 import { modelKey, pickCycleModel, pickCycleThinkingLevel, resolveFavoriteCycleCandidates, type CycleDirection } from "../utils/preferenceCycle";
 import { WELCOME_DSH_MODEL_KEY, WELCOME_MODEL_KEY, WELCOME_THINKING_KEY } from "../utils/chatSessionBootstrap";
 
-/** 快捷键触发的循环目标（模型 / 思考档位）。 */
-type PendingCycle = "model" | "thinking";
+/** 目录加载前的按键意图仍属于发起栏及绑定，不能转交随后呈现的会话/后端。 */
+type PendingCycle = {
+	kind: "model" | "thinking";
+	isDshSession: boolean;
+	isCurrent: () => boolean;
+};
 
 /** 重启授权同时绑定原会话、运行时代次与栏生命周期，不能只保存可重绑的 Agent ID。 */
 type ModelRestartIntent = {
@@ -445,10 +449,23 @@ export function useSessionPreferenceController(options: {
 	 * 等 models + favorites 就绪后再执行；目录加载完成但仍为空则放弃并提示。
 	 */
 	const pendingCycleRef = useRef<PendingCycle | null>(null);
+	useEffect(() => {
+		// 仅订本栏焦点切片：离开时丢弃旧按键，即使回来前本栏没有重绘也不能复活。
+		const focusedAtom = sessionFocusedByIdAtomFamily(sessionId);
+		return store.sub(focusedAtom, () => {
+			if (!store.get(focusedAtom)) pendingCycleRef.current = null;
+		});
+	}, [sessionId, store]);
 	const catalogReady = models.length > 0;
 	useEffect(() => {
 		const pending = pendingCycleRef.current;
-		if (!pending || !favoritesLoaded) return;
+		if (!pending) return;
+		// 先淘汰旧意图，再检查目录：换栏/换绑时立即丢弃，回来也不能复活旧按键或错误提示。
+		if (!pending.isCurrent() || pending.isDshSession !== isDshSession || store.get(currentSessionIdAtom) !== sessionId) {
+			pendingCycleRef.current = null;
+			return;
+		}
+		if (!favoritesLoaded) return;
 		if (!catalogReady) {
 			if (state.report !== null && !state.catalogLoading) {
 				pendingCycleRef.current = null;
@@ -457,9 +474,9 @@ export function useSessionPreferenceController(options: {
 			return;
 		}
 		pendingCycleRef.current = null;
-		if (pending === "model") void cycleModelRef.current("forward");
+		if (pending.kind === "model") void cycleModelRef.current("forward");
 		else void cycleThinkingRef.current("forward");
-	}, [favoritesLoaded, catalogReady, state.catalogLoading, state.report]);
+	}, [sessionId, runtime?.agentId, runtime?.runtimeGeneration, isDshSession, store, favoritesLoaded, catalogReady, state.catalogLoading, state.report]);
 
 	useEffect(() => {
 		return desktopApi.app.onShortcutTriggered((id) => {
@@ -468,13 +485,17 @@ export function useSessionPreferenceController(options: {
 			if (store.get(currentSessionIdAtom) !== sessionId) return;
 			if (!catalogReady || !favoritesLoaded) {
 				setCycleArmed(true);
-				pendingCycleRef.current = id === "cycleModel" ? "model" : "thinking";
+				pendingCycleRef.current = {
+					kind: id === "cycleModel" ? "model" : "thinking",
+					isDshSession,
+					isCurrent: captureSelection(currentHandle()),
+				};
 				return;
 			}
 			if (id === "cycleModel") void cycleModelRef.current("forward");
 			else void cycleThinkingRef.current("forward");
 		});
-	}, [sessionId, store, catalogReady, favoritesLoaded]);
+	}, [sessionId, store, catalogReady, favoritesLoaded, isDshSession]);
 
 	// 确认/取消入口只授权本次呈现的意图，旧弹窗回调不能挪用随后出现的新模型授权。
 	const confirmationIntent = restartIntentRef.current;
