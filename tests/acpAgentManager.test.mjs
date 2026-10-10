@@ -116,7 +116,7 @@ const TOOL = { id: "gemini", name: "Gemini CLI", command: "gemini", args: ["--ex
 
 test("握手:initialize → session/new;工具命令与项目 cwd 传给 spawn", async (t) => {
 	const calls = [];
-	const { manager, spawnCalls, createAgent } = harness(t, {
+	const { manager, spawnCalls, createAgent, lastProc } = harness(t, {
 		handler: (frame) => {
 			calls.push(frame.method);
 			if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: { loadSession: false } };
@@ -127,6 +127,10 @@ test("握手:initialize → session/new;工具命令与项目 cwd 传给 spawn",
 	const tab = await createAgent();
 	assert.equal(tab.status, "idle");
 	assert.deepEqual(calls, ["initialize", "session/new"]);
+	// mcpServers 必传空数组(ACP v1 规范必填;opencode 缺它 -32602,会话创建即失败)
+	const newParams = lastProc().methodFrames("session/new")[0]?.params;
+	assert.ok(String(newParams?.cwd).endsWith("proj-p1"), "session/new cwd 指向项目");
+	assert.deepEqual(newParams?.mcpServers, [], "session/new 必须携带 mcpServers: []");
 	assert.equal(spawnCalls[0].command, "gemini");
 	assert.deepEqual(spawnCalls[0].args, ["--experimental-acp"]);
 	assert.ok(spawnCalls[0].options.cwd.endsWith("proj-p1"));

@@ -316,16 +316,18 @@ export class AcpAgentManager implements SessionAgentGateway {
 		conn.notify("initialized", {});
 
 		// session/new 或 session/load。load 失败(id 在 agent 侧已不存在)回退新建。
+		// mcpServers 必传空数组: ACP v1 规范该字段必填, opencode 的 zod 校验缺它直接
+		// -32602 Invalid params(实测), 会话创建即失败冒泡成首条消息发送失败。
 		let setup: AcpSessionSetupResult | undefined;
 		if (resumeSessionId && runtime.agentInfo.capabilities.loadSession) {
 			try {
-				setup = (await conn.request("session/load", { sessionId: resumeSessionId, cwd }, HANDSHAKE_TIMEOUT_MS)) as AcpSessionSetupResult;
+				setup = (await conn.request("session/load", { sessionId: resumeSessionId, cwd, mcpServers: [] }, HANDSHAKE_TIMEOUT_MS)) as AcpSessionSetupResult;
 			} catch (error) {
 				this.deps.logger?.warn("acp", `session/load failed, falling back to session/new: ${error instanceof Error ? error.message : String(error)}`);
 			}
 		}
 		if (!setup?.sessionId) {
-			setup = (await conn.request("session/new", { cwd }, HANDSHAKE_TIMEOUT_MS)) as AcpSessionSetupResult;
+			setup = (await conn.request("session/new", { cwd, mcpServers: [] }, HANDSHAKE_TIMEOUT_MS)) as AcpSessionSetupResult;
 		}
 		if (!setup?.sessionId || typeof setup.sessionId !== "string") throw new Error("ACP session/new returned no sessionId");
 		runtime.acpSessionId = setup.sessionId;
