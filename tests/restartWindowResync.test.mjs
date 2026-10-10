@@ -19,7 +19,7 @@ test("edit 的 fork 分支必须与 resend 对称：finally 清 mutation overlay
 	// 早退路径（activateRuntime 失败 / entryId 缺失 / result.cancelled / 成功切会话），
 	// resend 调用方有 finally hideOverlay 兑底，edit 分支缺失 → 全遮罩 overlay 永久挂死。
 	// [^}]* 容忍块内注释，避免注释文字变动破坏契约。
-	assert.match(hook, /runForkMutation\("edit",\s*message,\s*newText\);?\s*\}\s*catch\s*\(error\)\s*\{[^}]*failToast\(t\("message\.editFailed"\),\s*error\);\s*\}\s*finally\s*\{[^}]*hideOverlay\(sessionId\)/, "editMessage 的 fork-mutation 回调必须 try/catch/finally，finally 里 hideOverlay(sessionId)");
+	assert.match(hook, /runForkMutation\(\s*sessionId,\s*"edit",\s*message,\s*newText\s*\);?\s*\}\s*catch\s*\(error\)\s*\{[^}]*failToast\(t\("message\.editFailed"\),\s*error\);\s*\}\s*finally\s*\{[^}]*hideOverlay\(sessionId\)/, "editMessage 的 fork-mutation 回调必须 try/catch/finally，finally 里 hideOverlay(sessionId)");
 });
 
 test("restart 成功路径必须重下发消息窗口（桌面 IPC 与 web 服务路径一致）", () => {
