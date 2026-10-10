@@ -23,6 +23,8 @@
 | `pipeline/render_episode.py` | 整集渲染：旁白脚本 + 批量合成 |
 | `pipeline/concat_series.py` | 多集成片拼接合集 |
 | `EP0X-narration.md`（可选） | 纯旁白长文稿，便于改词 |
+| `cover/cover.html` + `shot.cjs` + `check.cjs` | **视频封面源**：改文字/比例 → 导出 16:9（1920×1080）/ 3:4（1080×1440）封面 |
+| `poster/` | 与正片无关、作者自用：充值价目海报生成器（`price.mjs` 改价 → 出图） |
 
 ### 不要提交（生成物）
 
@@ -33,6 +35,8 @@
 | `pipeline/EP0*/` | 每集截图 / mp3 / clips / 成片 |
 | `pipeline/*.mp4` | 合集等输出 |
 | `pipeline/demo/` | 早期单页试验输出 |
+| `cover/*.png` | 封面出图（源是 `cover/cover.html`，图随时重出） |
+| `poster/*.png` ⚠️ 例外要提交 | 价目海报成品图：根 README 引用了它（`docs/images/gpt-recharge-price.png` 同源） |
 
 产品**源截图**放在仓库已有目录：`docs/images/`（例如 `files.png`、`piEnvCheck.png`）。
 

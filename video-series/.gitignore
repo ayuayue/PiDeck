@@ -13,6 +13,9 @@ pipeline/**/*.mp3
 pipeline/**/*.png
 pipeline/**/*.in.txt
 
+# 视频封面出图（源在 cover/，图随时可重新生成）
+cover/*.png
+
 # 本地临时
 __pycache__/
 *.pyc

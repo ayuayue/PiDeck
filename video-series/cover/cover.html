@@ -1,0 +1,414 @@
+<!doctype html>
+<!-- PiDeck 上手系列 · 视频封面（16:9 = 1920×1080 / 3:4 = 1080×1440）
+     双击打开 → 右侧改文字 / 换比例 → 点「导出 PNG」。
+     视觉 token 与 video-series/decks/generate_decks.py 的 SLIDE_CSS 对齐（同一套系列 grammar：
+     开发工具感、安静克制、无紫渐变、无 emoji slop），改配色请两处一起改。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>PiDeck 视频封面 · 生成器</title>
+<style id="shell-style">
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#0d1117;color:#e8eaed;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+.app{display:flex;height:100%;overflow:hidden}
+.preview{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;padding:20px;
+	background:radial-gradient(900px 600px at 20% 0%,#1b2129,#0d1117 70%)}
+.stage{overflow:hidden;border-radius:10px;box-shadow:0 24px 70px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.07)}
+/* 面板三段式：头部 / 可滚动表单 / 底部操作条（操作条是布局里的一行，不悬浮压内容） */
+.panel{width:372px;flex:0 0 372px;display:flex;flex-direction:column;background:#171c24;border-left:1px solid rgba(255,255,255,.07)}
+.panel__head{padding:15px 18px 13px;border-bottom:1px solid rgba(255,255,255,.06)}
+.panel__title{font-size:15px;font-weight:700;color:#eaf0fb}
+.panel__sub{margin:3px 0 0;font-size:11.5px;color:#6d7c8f}
+.panel__body{flex:1;min-height:0;overflow-y:auto;padding:15px 18px 18px}
+.panel__foot{flex:0 0 auto;padding:13px 18px 15px;border-top:1px solid rgba(255,255,255,.07);background:#1a2029}
+/* 预览模式：右侧操作区整体让位，封面按整窗重新适配；退出按钮浮在右上角 */
+.app.is-preview .panel{display:none}
+.app.is-preview .preview{padding:0}
+.app.is-preview .stage{border-radius:0;box-shadow:none}
+.exit-btn{position:fixed;top:18px;right:18px;z-index:20;display:none;align-items:center;gap:9px;height:38px;padding:0 15px;border:1px solid rgba(255,255,255,.13);border-radius:10px;background:rgba(23,28,36,.9);color:#eaf0fb;font-size:12.5px;font-weight:700;cursor:pointer;transition:background .15s,border-color .15s}
+.exit-btn:hover{background:rgba(37,46,58,.96);border-color:rgba(255,255,255,.22)}
+.app.is-preview .exit-btn{display:inline-flex}
+.exit-btn kbd{font:inherit;font-size:11px;font-weight:600;color:#93a4bb;background:rgba(255,255,255,.08);border-radius:6px;padding:2px 6px}
+.fs{border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:11px 12px 12px;margin:0 0 12px;background:rgba(255,255,255,.015)}
+.fs legend{padding:0 6px;font-size:12px;font-weight:700;color:#8ea3bd;letter-spacing:.4px}
+.f{margin-bottom:9px}
+.f:last-child{margin-bottom:0}
+.f label{display:block;font-size:11.5px;color:#7d8ea8;margin-bottom:5px}
+.f input,.f textarea{width:100%;background:#111720;border:1px solid rgba(255,255,255,.08);border-radius:9px;color:#eaf0fb;padding:9px 10px;font-size:13px;font-family:inherit;line-height:1.5;transition:border-color .15s,box-shadow .15s}
+.f textarea{min-height:76px;resize:vertical}
+.f input:hover,.f textarea:hover{border-color:rgba(255,255,255,.16)}
+.f input:focus,.f textarea:focus{outline:none;border-color:#3d6fd1;box-shadow:0 0 0 3px rgba(61,111,209,.22)}
+button{font-family:inherit;cursor:pointer}
+button:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(61,111,209,.4)}
+.btn{display:inline-flex;align-items:center;gap:8px;border:1px solid transparent;border-radius:10px;font-weight:700;transition:background .15s,border-color .15s,color .15s,box-shadow .15s,transform .08s}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.btn:not(:disabled):active{transform:scale(.985)}
+.btn--primary{width:100%;height:44px;justify-content:flex-start;padding:0 12px 0 14px;font-size:14px;background:linear-gradient(180deg,#3a7ae0,#2f6cd1);color:#fff;box-shadow:0 6px 16px rgba(47,108,209,.26)}
+.btn--primary:hover:not(:disabled){background:linear-gradient(180deg,#4285ea,#3473da)}
+.btn--primary .btn__meta{margin-left:auto;font-size:11.5px;font-weight:600;color:#cfe0ff;background:rgba(0,0,0,.2);padding:3px 8px;border-radius:7px}
+.btn--primary.is-busy{background:#2b4d86;box-shadow:none}
+.btn--primary.is-done{background:linear-gradient(180deg,#2fa06a,#268a5b)}
+.btn--primary.is-fail{background:linear-gradient(180deg,#c0392b,#a5301f)}
+.btn--quiet{height:28px;padding:0 9px;font-size:12px;font-weight:600;background:transparent;border-color:rgba(255,255,255,.1);color:#93a4bb}
+.btn--quiet:hover{background:rgba(255,255,255,.06);color:#eaf0fb}
+.btn--wide{width:100%;justify-content:center;height:34px;margin-bottom:10px;font-size:12.5px}
+.seg{display:flex;gap:4px;padding:4px;margin-bottom:10px;background:#111720;border:1px solid rgba(255,255,255,.07);border-radius:12px}
+.seg__item{flex:1;height:32px;border:0;border-radius:9px;background:transparent;color:#8ea3bd;font-size:12.5px;font-weight:700;transition:background .15s,color .15s}
+.seg__item:hover{background:rgba(255,255,255,.05);color:#dfe6f2}
+.seg__item[aria-pressed="true"]{background:#2c3a4c;color:#fff}
+.spin{width:13px;height:13px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation-duration:2.4s}}
+.hint{margin:9px 0 0;font-size:11.5px;color:#5f6f84;line-height:1.6}
+</style>
+<style id="cover-style">
+/* ── 系列 token（与 decks/generate_decks.py 的 SLIDE_CSS 保持一致）── */
+/* 带 box-sizing 一起写在这里：导出只把 #cover-style 塞进 SVG，缺了这条
+   padding 会加到 1920 之外，导出图右边直接被裁掉一块（外壳的 * 规则不会跟着走） */
+#cover,#cover *{box-sizing:border-box}
+#cover{
+	--bg:#0e1116; --surface:#171b22; --line:rgba(255,255,255,.08);
+	--text:#e8eaed; --muted:#9aa3b2; --dim:#6b7380;
+	--accent:#d4a574; --accent-soft:rgba(212,165,116,.14); --ok:#6fbf8a;
+	--font:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+	--mono:"Cascadia Code","Consolas","SF Mono",ui-monospace,monospace;
+	position:relative; display:flex; flex-direction:column; overflow:hidden;
+	color:var(--text); font-family:var(--font);
+	background:
+		radial-gradient(1200px 600px at 100% -10%, rgba(212,165,116,.10), transparent 55%),
+		radial-gradient(900px 500px at -10% 110%, rgba(90,120,160,.10), transparent 50%),
+		var(--bg);
+}
+#cover::before{
+	content:""; position:absolute; inset:0; pointer-events:none;
+	background-image:linear-gradient(rgba(255,255,255,.015) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.015) 1px,transparent 1px);
+	background-size:48px 48px;
+}
+#cover>*{position:relative; z-index:1}
+#cover.r-169{width:1920px;height:1080px;padding:64px 84px 56px}
+#cover.r-34{width:1080px;height:1440px;padding:56px 60px 48px}
+.mast{display:flex;justify-content:space-between;align-items:center;padding-bottom:26px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:14px;min-width:0}
+.brand svg{width:44px;height:44px;flex:0 0 auto}
+.brand__name{font-size:26px;font-weight:650;letter-spacing:.01em}
+.brand__sub{font-size:20px;color:var(--muted);padding-left:2px}
+.ep-tag{font-family:var(--mono);font-size:19px;color:var(--accent);background:var(--accent-soft);
+	border:1px solid rgba(212,165,116,.28);padding:9px 16px;border-radius:999px;letter-spacing:.06em;white-space:nowrap}
+.split{flex:1;min-height:0;display:flex;align-items:center;gap:60px}
+.hero{flex:1 1 auto;min-width:0}
+h1{font-size:140px;line-height:1.1;font-weight:650;letter-spacing:-.035em;margin:0}
+h1 .accent{color:var(--accent)}
+.lead{margin:28px 0 0;font-size:30px;line-height:1.6;color:var(--muted);max-width:920px}
+.chips{display:flex;flex-wrap:wrap;gap:14px;margin-top:34px}
+.chip{font-size:20px;color:var(--muted);border:1px solid var(--line);background:rgba(255,255,255,.03);padding:10px 17px;border-radius:999px}
+.mock{flex:0 0 auto;width:640px;background:var(--surface);border:1px solid var(--line);border-radius:20px;
+	box-shadow:0 30px 70px rgba(0,0,0,.5);overflow:hidden}
+.mock__bar{display:flex;align-items:center;gap:9px;padding:19px 20px;border-bottom:1px solid var(--line)}
+.mock__bar i{width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.13);flex:0 0 auto}
+.mock__title{margin-left:8px;font-family:var(--mono);font-size:19px;color:var(--accent);letter-spacing:.04em}
+.mock__rows{list-style:none;margin:0;padding:6px 22px}
+.mock__rows li{display:grid;grid-template-columns:150px 1fr auto;align-items:center;gap:14px;padding:18px 0;font-size:23px}
+.mock__rows li+li{border-top:1px solid var(--line)}
+.mock__rows .k{font-family:var(--mono);font-size:19px;color:var(--dim)}
+.mock__rows .v{color:var(--text)}
+.mock__rows .s{font-family:var(--mono);font-size:17px;color:var(--ok);background:rgba(111,191,138,.12);padding:4px 10px;border-radius:999px;white-space:nowrap}
+.mock__cap{margin:0 22px;padding:16px 0 20px;font-size:18px;color:var(--dim);border-top:1px solid var(--line)}
+.foot{display:flex;justify-content:space-between;align-items:center;padding-top:22px;border-top:1px solid var(--line);color:var(--dim);font-size:20px}
+.foot .mono{font-family:var(--mono);letter-spacing:.02em}
+/* ── 3:4 竖版：同一套 grammar 换排布（上下堆叠 + 收字号），不是另做一张图 ── */
+#cover.r-34 .mast{padding-bottom:22px}
+#cover.r-34 .brand svg{width:36px;height:36px}
+#cover.r-34 .brand__name{font-size:22px}
+#cover.r-34 .brand__sub{font-size:17px}
+#cover.r-34 .ep-tag{font-size:16px;padding:7px 13px}
+#cover.r-34 .split{flex-direction:column;align-items:stretch;justify-content:center;gap:40px}
+/* 竖版是列方向：hero 的 flex:1 会把标题区撑开成一大块空白，必须收回自然高度 */
+#cover.r-34 .hero{flex:0 0 auto}
+#cover.r-34 h1{font-size:100px}
+#cover.r-34 .lead{font-size:25px;margin-top:20px;max-width:none}
+#cover.r-34 .chips{margin-top:26px;gap:11px}
+#cover.r-34 .chip{font-size:17px;padding:8px 14px}
+#cover.r-34 .mock{width:100%}
+#cover.r-34 .mock__rows li{grid-template-columns:132px 1fr auto;font-size:21px;padding:15px 0}
+#cover.r-34 .mock__rows .k{font-size:17px}
+#cover.r-34 .foot{font-size:18px}
+</style>
+</head>
+<body>
+<div class="app">
+	<main class="preview"><div class="stage" id="stage"></div></main>
+	<aside class="panel" id="panel"></aside>
+	<button class="exit-btn" id="exitPreview" type="button">退出预览 <kbd>Esc</kbd></button>
+</div>
+<script>
+/* =============== 封面内容（改这里，或在右侧面板里改） =============== */
+const DEFAULT_STATE = {
+	ep: "EP07 · 配置管理",
+	titleMain: "pi",
+	titleAccent: "配置管理",
+	lead: "在哪改 · 何时生效——供应商、模型、权限、扩展，每个开关在哪改、改完是立刻生效还是等重启。",
+	chips: "实操, 约 5–6 分钟, 最新界面",
+	repo: "github.com/ayuayue/PiDeck",
+	byline: "作者 · caoayu",
+	ratio: "r-169"
+};
+/* 右侧示意面板的行：只写「设置页里有什么」，不下效果结论（结论留给正片讲） */
+const ROWS = [
+	["Provider", "供应商与密钥", "已登录"],
+	["Model", "模型与默认值", "已选"],
+	["Auth", "登录与凭据", "已授权"],
+	["Skills", "技能", "已启用"],
+	["Prompts", "提示词", "已启用"],
+	["Extensions", "扩展", "已加载"]
+];
+/* pi 官方 TUI logo：4×4 像素 π（品牌色固定，不随明暗变），与
+   src/renderer/src/components/app/piTuiLogoData.ts 的 PI_TUI_COLORS / PI_TUI_LOGO_CELLS 逐字段对齐；
+   官方是半块字符画的 4 格宽×2 行，这里按逐像素 4×4 还原（正方形，不能压成 4:3） */
+const TUI_COLORS = { coral: "#E48A7A", blue: "#4F8EB3", yellow: "#EAB65D" };
+const TUI_CELLS = {
+	"0:0": "coral",
+	"0:1": "coral",
+	"0:2": "coral",
+	"1:0": "blue",
+	"1:2": "coral",
+	"2:0": "blue",
+	"2:1": "blue",
+	"2:3": "yellow",
+	"3:0": "blue",
+	"3:3": "yellow"
+};
+const LOGO = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4" shape-rendering="crispEdges" aria-hidden="true">${Object.entries(TUI_CELLS)
+	.map(([k, c]) => {
+		const [y, x] = k.split(":").map(Number);
+		return `<rect x="${x}" y="${y}" width="1" height="1" fill="${TUI_COLORS[c]}"/>`;
+	})
+	.join("")}</svg>`;
+
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const chipList = (raw) => String(raw || "").split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+
+function renderCover(s) {
+	document.getElementById("stage").innerHTML = `
+	<div id="cover" class="${s.ratio}">
+		<header class="mast">
+			<div class="brand">${LOGO}<span class="brand__name">PiDeck</span><span class="brand__sub">上手系列</span></div>
+			<div class="ep-tag">${esc(s.ep)}</div>
+		</header>
+		<div class="split">
+			<section class="hero">
+				<h1>${esc(s.titleMain)}<span class="accent">${esc(s.titleAccent)}</span></h1>
+				<p class="lead">${esc(s.lead)}</p>
+				<div class="chips">${chipList(s.chips).map((c) => `<span class="chip">${esc(c)}</span>`).join("")}</div>
+			</section>
+			<section class="mock">
+				<div class="mock__bar"><i></i><i></i><i></i><span class="mock__title">PiDeck · 设置</span></div>
+				<ul class="mock__rows">${ROWS.map(([k, v, st]) => `<li><span class="k">${k}</span><span class="v">${v}</span><span class="s">${st}</span></li>`).join("")}</ul>
+				<div class="mock__cap">配置集中在设置页，一处改完</div>
+			</section>
+		</div>
+		<footer class="foot"><span class="mono">${esc(s.repo)}</span><span>${esc(s.byline)}</span></footer>
+	</div>`;
+	fit();
+}
+
+/* =============== 预览自适应缩放 =============== */
+/* 缩放必须加在 #cover 自己身上：stage 是 overflow:hidden 的裁切盒，
+   缩放加在 stage 上会先按「未缩放的本坐标系」把封面裁掉一块。 */
+function fit() {
+	const cover = document.getElementById("cover");
+	if (!cover) return;
+	const w = cover.offsetWidth;
+	const h = cover.offsetHeight;
+	const preview = document.querySelector(".preview");
+	const k = Math.min(1, (preview.clientWidth - 40) / w, (preview.clientHeight - 40) / h);
+	cover.style.transformOrigin = "top left";
+	cover.style.transform = `scale(${k})`;
+	document.getElementById("stage").style.width = Math.round(w * k) + "px";
+	document.getElementById("stage").style.height = Math.round(h * k) + "px";
+}
+window.addEventListener("resize", fit);
+
+/* =============== 预览模式 =============== */
+/* 收起右侧操作区，封面按整窗重新适配：fit() 读的是 .preview 的可用尺寸，
+   所以必须在面板 display:none 之后再算，并等一帧让布局先落地。 */
+const appEl = document.querySelector(".app");
+const isPreview = () => appEl.classList.contains("is-preview");
+function setPreview(on) {
+	appEl.classList.toggle("is-preview", on);
+	/* 进预览时把焦点从输入框收回来，否则 P 键会被当成打字 */
+	if (on && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+	requestAnimationFrame(fit);
+}
+document.getElementById("exitPreview").addEventListener("click", () => setPreview(false));
+document.addEventListener("keydown", (e) => {
+	if (e.ctrlKey || e.metaKey || e.altKey) return;
+	const typing = e.target instanceof HTMLElement && /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
+	if (e.key === "Escape" && isPreview()) {
+		setPreview(false);
+		return;
+	}
+	if (typing) return;
+	if (e.key === "p" || e.key === "P") setPreview(!isPreview());
+});
+
+/* =============== 面板 =============== */
+let state = { ...DEFAULT_STATE };
+let exportScale = 2;
+
+function field(label, key, val, type) {
+	return `<div class="f"><label>${label}</label><input data-key="${key}" type="${type || "text"}" value="${esc(val)}"></div>`;
+}
+function renderPanel() {
+	const s = state;
+	document.getElementById("panel").innerHTML = `
+		<div class="panel__head">
+			<div class="panel__title">封面内容</div>
+			<p class="panel__sub">左边实时预览，改完点底部按钮导图</p>
+		</div>
+		<div class="panel__body">
+			<fieldset class="fs"><legend>顶部</legend>
+				${field("期数标签（右上角）", "ep", s.ep)}
+			</fieldset>
+			<fieldset class="fs"><legend>标题</legend>
+				${field("前半（白色）", "titleMain", s.titleMain)}
+				${field("强调（金色）", "titleAccent", s.titleAccent)}
+				${`<div class="f"><label>一句话卖点</label><textarea data-key="lead">${esc(s.lead)}</textarea></div>`}
+			</fieldset>
+			<fieldset class="fs"><legend>标签与落款</legend>
+				${field("三个标签（逗号分隔）", "chips", s.chips)}
+				<div class="f">${field("仓库地址", "repo", s.repo)}</div>
+				${field("作者署名", "byline", s.byline)}
+			</fieldset>
+		</div>
+		<div class="panel__foot">
+			<div class="seg" role="group" aria-label="画布比例">
+				<button class="seg__item" data-ratio="r-169" aria-pressed="${s.ratio === "r-169"}">16:9 横版</button>
+				<button class="seg__item" data-ratio="r-34" aria-pressed="${s.ratio === "r-34"}">3:4 竖版</button>
+			</div>
+			<div class="seg" role="group" aria-label="导出倍率">
+				<button class="seg__item" data-scale="2" aria-pressed="${exportScale === 2}">2× 高清</button>
+				<button class="seg__item" data-scale="1" aria-pressed="${exportScale === 1}">1× 原尺寸</button>
+			</div>
+			<button class="btn btn--primary" id="exportBtn"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5v11.5"/><path d="M7.2 10.5 12 15.3l4.8-4.8"/><path d="M4.5 20h15"/></svg><span class="btn__label">导出 PNG</span><span class="btn__meta" id="exportMeta">${metaText()}</span></button>
+			<button class="btn btn--quiet btn--wide" id="previewBtn" type="button"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12S6 5.75 12 5.75 21.5 12 21.5 12 18 18.25 12 18.25 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3.1"/></svg><span>预览模式</span></button>
+			<p class="hint">16:9 = 1920×1080（B站 / YouTube），3:4 = 1080×1440（小红书）。2× 适合平台再压缩，1× 就是平台标准尺寸。字体只用系统字体，换机器不会掉字。按 P 或点「预览模式」可隐藏右侧操作区，Esc 退回。</p>
+		</div>`;
+}
+function metaText() {
+	const base = state.ratio === "r-169" ? [1920, 1080] : [1080, 1440];
+	return `${base[0] * exportScale}×${base[1] * exportScale}`;
+}
+function syncSegs() {
+	document.querySelectorAll(".seg__item").forEach((b) => {
+		const on = b.dataset.ratio ? b.dataset.ratio === state.ratio : Number(b.dataset.scale) === exportScale;
+		b.setAttribute("aria-pressed", String(on));
+	});
+	const meta = document.getElementById("exportMeta");
+	if (meta) meta.textContent = metaText();
+}
+
+document.getElementById("panel").addEventListener("input", (e) => {
+	const el = e.target;
+	if (!el.dataset.key) return;
+	state[el.dataset.key] = el.value;
+	renderCover(state);
+});
+document.getElementById("panel").addEventListener("click", (e) => {
+	const seg = e.target.closest(".seg__item");
+	if (seg) {
+		if (seg.dataset.ratio) {
+			state.ratio = seg.dataset.ratio;
+			renderCover(state);
+		} else {
+			exportScale = Number(seg.dataset.scale);
+			renderPanel();
+		}
+		syncSegs();
+		return;
+	}
+	if (e.target.closest("#previewBtn")) {
+		setPreview(true);
+		return;
+	}
+	if (e.target.closest("#exportBtn")) exportPng(exportScale);
+});
+
+/* =============== 导出 PNG =============== */
+/* 原理：把封面 DOM 包进 SVG <foreignObject> 再画到 canvas，纯本地、无外部依赖。
+   本文件不允许引用 web font / 外链图片，否则导出会掉字、丢图。 */
+async function buildPng(scale) {
+	const node = document.getElementById("cover");
+	const w = node.offsetWidth;
+	const h = node.offsetHeight;
+	const clone = node.cloneNode(true);
+	clone.style.width = w + "px";
+	clone.style.height = h + "px";
+	clone.style.transform = "none"; // 预览里的自适应缩放不能带进导出
+	const wrap = document.createElement("div");
+	wrap.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+	wrap.style.cssText = `width:${w}px;height:${h}px;`;
+	const styleEl = document.createElement("style");
+	styleEl.textContent = document.getElementById("cover-style").textContent;
+	wrap.appendChild(styleEl);
+	wrap.appendChild(clone);
+	const svg =
+		`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">` +
+		`<foreignObject width="100%" height="100%">${new XMLSerializer().serializeToString(wrap)}</foreignObject></svg>`;
+	const img = new Image();
+	await new Promise((res, rej) => {
+		img.onload = res;
+		img.onerror = () => rej(new Error("SVG 渲染失败，可改用截图导出"));
+		img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+	});
+	const canvas = document.createElement("canvas");
+	canvas.width = Math.round(w * scale);
+	canvas.height = Math.round(h * scale);
+	const ctx = canvas.getContext("2d");
+	ctx.fillStyle = "#0e1116"; // 深色底：透明像素在平台侧会被压成白边
+	ctx.fillRect(0, 0, canvas.width, canvas.height);
+	ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+	return canvas.toDataURL("image/png");
+}
+
+async function exportPng(scale) {
+	const btn = document.getElementById("exportBtn");
+	const label = btn.querySelector(".btn__label");
+	const meta = document.getElementById("exportMeta");
+	if (btn.disabled) return;
+	const back = () => {
+		btn.className = "btn btn--primary";
+		btn.disabled = false;
+		label.textContent = "导出 PNG";
+		meta.textContent = metaText();
+	};
+	btn.disabled = true;
+	btn.classList.add("is-busy");
+	label.innerHTML = `<span class="spin"></span>生成中`;
+	try {
+		const url = await buildPng(scale);
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = `${state.ep.replace(/[^\w\u4e00-\u9fa5-]+/g, "")}_封面_${state.ratio === "r-169" ? "16x9" : "3x4"}_${scale}x.png`;
+		a.click();
+		btn.classList.remove("is-busy");
+		btn.classList.add("is-done");
+		label.textContent = "已导出";
+		meta.textContent = "✓";
+		setTimeout(back, 1600);
+	} catch (err) {
+		console.error(err);
+		btn.classList.remove("is-busy");
+		btn.classList.add("is-fail");
+		label.textContent = "导出失败";
+		meta.textContent = "请截图";
+		setTimeout(back, 2600);
+	}
+}
+
+window.__buildPng = buildPng; // 供 shot.cjs / check.cjs 自动化用
+renderPanel();
+renderCover(state);
+</script>
+</body>
+</html>
