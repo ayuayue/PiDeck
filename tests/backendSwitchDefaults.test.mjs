@@ -76,3 +76,15 @@ test("切到 imagegen：独立生图配置，record 同样清空", () => {
 		{ model: null, thinkingLevel: null },
 	);
 });
+
+test("切到 acp：模型由 agent CLI 自决（ACP session/config options），record 清空", () => {
+	assert.deepEqual(
+		plain(
+			resolve("acp", {
+				model: { provider: "thetoken", modelId: "deepseek-v4-flash-0731" },
+				thinkingLevel: "max",
+			}),
+		),
+		{ model: null, thinkingLevel: null },
+	);
+});

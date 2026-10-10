@@ -34,6 +34,7 @@ import {
 	setSessionPasteFilesAtom,
 	setSessionSendStateAtom,
 	upsertSessionAtom,
+	acpToolsAtom,
 	type PastedTextFile,
 } from "../atoms";
 import {
@@ -1845,7 +1846,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 	 */
 	const backendLocked = Boolean(runtime?.agentId) || record?.status === "active" || record?.backend === "imagegen";
 	const changeBackend = useCallback(
-		async (next: AgentBackend) => {
+		async (next: AgentBackend, explicitAcpToolId?: string) => {
 			if (backendLocked) return;
 			// 引导页虚拟会话（无 catalog record）：与 pickModel/pickThinking 的引导页
 			// 分支同构——显式选择写 localStorage 偏好并本地即时回显，不走 IPC。
@@ -1862,23 +1863,53 @@ export function useSessionComposerController(options: UseSessionComposerControll
 				return;
 			}
 			try {
+				// ACP：切换时必须带上工具预选（激活链 spawn 按工具表取命令行），
+				// 默认沿用会话已选或登记表第一项；工具表为空（开关刚被关）不切换。
+				let acpToolId: string | undefined;
+				if (next === "acp") {
+					const tools = store.get(acpToolsAtom);
+					// picker 两页式弹层内选定的工具优先；否则沿用会话已选 ?? 登记表第一项
+					acpToolId = explicitAcpToolId ?? record?.acpToolId ?? tools[0]?.id;
+					if (!acpToolId) {
+						showNotice(t("app.acpNoTools"), 4000);
+						return;
+					}
+				}
 				// 切回 pi 时按 pi 配置重新解析默认模型/思考档位（与 createDraft 缺省填充
 				// 同一解析器 launchDefaults），而不是直接清空——否则用户 pi 配置里的
 				// defaultProvider/defaultModel 不会出现在切回后的会话（底栏回退残留 DSH 默认）。
-				// dsh/imagegen 后端模型由各自部署默认决定，record 保持清空。
+				// dsh/imagegen/acp 后端模型由各自部署默认决定，record 保持清空。
 				const resolved = next === "pi" ? await desktopApi.sessions.resolveLaunchDefaults({ backend: "pi" }).catch(() => undefined) : undefined;
 				const defaults = resolveBackendSwitchDefaults(next, resolved);
 				const updated = await desktopApi.sessions.updateRecord(sessionId, {
 					backend: next,
 					model: defaults.model,
 					thinkingLevel: defaults.thinkingLevel,
+					...(next === "acp" && acpToolId ? { acpToolId } : {}),
 				});
 				upsertSession(updated);
 			} catch (error) {
 				showNotice(error instanceof Error ? error.message : String(error), 4000);
 			}
 		},
-		[backendLocked, isGuideBootstrapSession, record, sessionId, upsertSession],
+		[backendLocked, isGuideBootstrapSession, record, sessionId, store, upsertSession],
+	);
+
+	/**
+	 * ACP 工具二级选择（仅草稿期；激活后工具即固定，UI 不再渲染选择器）：
+	 * 写 record.acpToolId，激活链据此从工具表取命令行 spawn。
+	 */
+	const changeAcpTool = useCallback(
+		async (toolId: string) => {
+			if (backendLocked || record?.backend !== "acp") return;
+			try {
+				const updated = await desktopApi.sessions.updateRecord(sessionId, { acpToolId: toolId });
+				upsertSession(updated);
+			} catch (error) {
+				showNotice(error instanceof Error ? error.message : String(error), 4000);
+			}
+		},
+		[backendLocked, record?.backend, sessionId, upsertSession],
 	);
 
 	const compact = useCallback(async () => {
@@ -1981,6 +2012,8 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		backend: record?.backend ?? (isGuideBootstrapSession ? guideBackendOverride : undefined) ?? "pi",
 		/** 草稿期可切换后端；激活后锁定（undefined → UI 隐藏切换器）。 */
 		changeBackend: backendLocked ? undefined : changeBackend,
+		// ACP 工具二级选择（草稿期；激活后 UI 不再渲染选择器）
+		acpTool: record?.backend === "acp" ? { toolId: record.acpToolId, onChange: backendLocked ? undefined : changeAcpTool } : undefined,
 		/** DSH 部署默认模型（settings.yaml agent-default-model）；仅 dsh 后端时展示，
 		 *  离开 dsh 时清空（否则残留值会随 defaultModel 泄漏到 pi 会话底栏）。 */
 		dshDefaultModel: isDshBackend && dshDefault ? { provider: dshDefault.provider, modelId: dshDefault.model, modelName: dshDefault.model } : undefined,

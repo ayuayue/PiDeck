@@ -298,6 +298,7 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 												backend={composer.backend}
 												enhance={composerFeatureVisible("enhance") ? composer.enhance : undefined}
 												onChangeBackend={composer.changeBackend}
+												acpTool={composer.acpTool}
 												feishuIndicator={feishuIndicator}
 												securityControl={
 													/* C20：后端安全控制位统一入口（pi 安全等级 / DSH 权限预设） */
