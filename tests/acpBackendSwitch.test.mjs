@@ -15,25 +15,23 @@ import { readFileSync } from "node:fs";
 
 const read = (path) => readFileSync(path, "utf8");
 
-test("picker 两页式:后端页只放 Agent CLI 单入口,工具列表在第二页", () => {
+test("picker 选项组:Agent CLI 组内直接列工具,选中即切后端+工具", () => {
 	const source = read("src/renderer/src/components/session/ComposerComponents.tsx");
-	// 后端页单入口(value=acp:pick,不平铺工具);工具项只在 awaitingTool 第二页
-	assert.match(source, /<SelectItem value="acp:pick">/, "后端页必须有 Agent CLI 单入口(不直接切换)");
-	assert.doesNotMatch(source, /SelectItem value=\{`acp:/, "不得按工具平铺列表");
-	assert.match(source, /value=\{`acp-tool:\$\{tool\.id\}`\}/, "工具页按登记表列工具");
+	// 单层下拉 + SelectGroup:组标题下直接列工具项(value 携带工具 id),无两页式跳转
+	assert.match(source, /<SelectGroup>/, "Agent CLI 必须用选项组呈现");
+	assert.match(source, /<SelectLabel className="text-xs text-muted-foreground">\{t\("sessionBackend.acp"\)\}<\/SelectLabel>/, "组标题用 sessionBackend.acp");
+	assert.match(source, /value=\{`acp:\$\{tool\.id\}`\}/, "工具项 value 携带 acp: 前缀 id");
+	// 选中工具项 → onChangeBackend("acp", toolId);受控 value 映射让组内高亮当前工具
+	assert.match(source, /props\.onChangeBackend\("acp", next\.slice\("acp:"\.length\)\)/, "选工具必须带 toolId 走后端切换链");
+	assert.match(source, /props\.backend === "acp" && props\.acpToolId \? `acp:\$\{props\.acpToolId\}` : props\.backend/, "受控 value 必须映射到组内工具项(回显高亮)");
 	// 门控:开关开启且工具非空,或当前后端已是 acp
 	assert.match(source, /acpEnabled && acpTools\.length > 0\) \|\| props\.backend === "acp"/, "acp 入口按 opt-in 门控且保留当前后端");
 });
 
-test("AcpToolControl 二级选择：仅 acp 后端渲染、受控、onChange 缺省只读", () => {
+test("acp 后端隐藏 pi 模型/思考 chip(两套模型语义不混用)", () => {
 	const source = read("src/renderer/src/components/session/ComposerComponents.tsx");
-	const start = source.indexOf("export function AcpToolControl");
-	assert.ok(start >= 0, "AcpToolControl 组件必须存在");
-	const body = source.slice(start, source.indexOf("\n}", start));
-	assert.match(body, /acpToolsAtom/, "工具列表来自共享 atom");
-	assert.match(body, /props\.onChange\?\./, "onChange 可缺省（激活后只读）");
-	// 挂载门：BottomBar 只在 backend==="acp" 且传入 acpTool 槽位时渲染
-	assert.match(source, /props\.backend === "acp" && props\.acpTool \? <AcpToolControl/, "AcpToolControl 仅 acp 后端 + 槽位存在时渲染");
+	assert.match(source, /isImageGenMode \|\| props\.backend === "acp" \? null : \(\s*<ModelThinkingChip/, "acp 后端必须隐藏 ModelThinkingChip");
+	assert.match(source, /focus-visible:ring-0/, "picker 不得有 focus 环闪");
 });
 
 test("controller：切 acp 必须带工具预选，空表不切换", () => {
@@ -63,22 +61,4 @@ test("纯函数：切 acp 模型清空（backendSwitchDefaults 非 pi 分支）"
 	// 防止后人把 acp 误加进「保留模型」分支。
 	const source = read("src/renderer/src/utils/backendSwitchDefaults.ts");
 	assert.match(source, /next !== "pi"/, "非 pi 后端一律清空模型（acp 含于其中）");
-});
-
-test("acp 后端隐藏 pi 模型/思考 chip;picker 两页式弹层选中即切工具", () => {
-	const source = read("src/renderer/src/components/session/ComposerComponents.tsx");
-	// 模型/思考 chip:与 imagegen 同款隐藏(两套模型语义不混用)
-	assert.match(source, /isImageGenMode \|\| props\.backend === "acp" \? null : \(\s*<ModelThinkingChip/, "acp 后端必须隐藏 ModelThinkingChip");
-	// 两页式弹层:点 Agent CLI(acp:pick)后原地切工具页,选中工具即切换后端+工具
-	assert.match(source, /value === "acp:pick"[\s\S]*?setAwaitingTool\(true\)/, "点 Agent CLI 后弹层原地切工具页(radix 不支持程序化冷开,必须在手势链内保持打开)");
-	assert.match(source, /value\.startsWith\("acp-tool:"\)/, "工具页选中项携带 acp-tool: 前缀 id");
-	assert.match(source, /props\.onChangeBackend\("acp", toolId\)/, "选工具后必须带 toolId 调后端切换");
-	assert.match(source, /value === "acp:back"[\s\S]*?setAwaitingTool\(false\)/, "工具页必须有返回入口");
-	// 无 focus 环闪
-	assert.match(source, /focus-visible:ring-0/, "picker/工具下拉不得有 focus 环闪");
-	// 工具下拉 logo-only:触发器无文本节点,工具名进 title 悬停
-	const toolControl = source.slice(source.indexOf("export function AcpToolControl"));
-	const triggerBlock = toolControl.slice(0, toolControl.indexOf("</SelectTrigger>"));
-	assert.doesNotMatch(triggerBlock, />\{current(\?\.)?[^}]*\}</, "触发器不显示工具名文本(logo-only)");
-	assert.match(triggerBlock, /title=\{current/, "工具名进 title 悬停提示");
 });

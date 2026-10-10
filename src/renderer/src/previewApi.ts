@@ -1540,6 +1540,9 @@ export function createPreviewApi(): PiDesktopApi {
 			installTool: async () => ({ ok: false, output: "preview" }),
 			uninstallTool: async () => ({ ok: false, output: "preview" }),
 			onLifecycleEvent: () => () => undefined,
+			getSessionConfig: async () => null,
+			setSessionConfig: async () => [],
+			onSessionConfigChanged: () => () => undefined,
 		},
 		settings: {
 			get: async (): Promise<AppSettings> => ({ ...previewSettings }),

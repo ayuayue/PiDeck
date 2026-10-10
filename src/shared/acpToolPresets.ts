@@ -9,6 +9,9 @@
  * - Qwen Code:`qwen --acp`(QwenLM/qwen-code);npm `@qwen-code/qwen-code`
  * - OpenCode:`opencode acp`(opencode.ai/v2/docs/cli/acp);npm `opencode-ai`(需先 `opencode auth login`)
  * - Cursor Agent:`agent acp`(cursor.com/docs/cli/acp);官方安装走 curl 脚本(不进 npm),标记 manual
+ * - CodeBuddy:`npx -y @tencent-ai/codebuddy-code --acp`(codebuddy.ai/docs/cli/acp;腾讯 Cloud 上沉淀的 codebuddy-code npm 包)
+ * - MiniMax:`npx -y @minimax-ai/code acp`(agent.minimax.io/docs/cli/integrations;region cn/global 自适配)
+ * - 不收录 Google Antigravity:官方 CLI(agy)无任何 ACP 支持的公开证据(2026-10 核对),不编造命令
  *
  * 预设只是「预填表单」:点击后进草稿行,用户仍可改命令/参数,保存走统一校验链
  * (validateTool + sanitizeAcpTools),不做任何绕过。npx/npm 形态在 Windows 上的
@@ -16,7 +19,7 @@
  * install 元数据只被设置页的「检测/安装/卸载」消费:安装命令来自内置表而非用户输入,
  * IPC 层按 presetId 枚举收口,不接受任意命令串。
  */
-export type AcpToolPresetId = "gemini" | "claude-agent" | "codex" | "kimi" | "qwen" | "opencode" | "cursor-agent";
+export type AcpToolPresetId = "gemini" | "claude-agent" | "codex" | "kimi" | "qwen" | "opencode" | "cursor-agent" | "codebuddy" | "minimax";
 
 /** 安装来源:npm 全局包(可经 PiDeck 一键安装/卸载)或手动(官网脚本,只检测与引导)。 */
 export type AcpToolInstall = { kind: "npm"; package: string } | { kind: "manual" };
@@ -46,4 +49,6 @@ export const ACP_TOOL_PRESETS: readonly AcpToolPreset[] = [
 	{ id: "qwen", name: "Qwen Code", command: "qwen", args: ["--acp"], homepage: "https://github.com/QwenLM/qwen-code", install: { kind: "npm", package: "@qwen-code/qwen-code" } },
 	{ id: "opencode", name: "OpenCode", command: "opencode", args: ["acp"], homepage: "https://opencode.ai/docs/cli/acp", install: { kind: "npm", package: "opencode-ai" } },
 	{ id: "cursor-agent", name: "Cursor Agent", command: "agent", args: ["acp"], homepage: "https://cursor.com/docs/cli/acp", install: { kind: "manual" } },
+	{ id: "codebuddy", name: "CodeBuddy", command: "npx", args: ["-y", "@tencent-ai/codebuddy-code", "--acp"], homepage: "https://codebuddy.ai/docs/cli/acp" },
+	{ id: "minimax", name: "MiniMax Code", command: "npx", args: ["-y", "@minimax-ai/code", "acp"], homepage: "https://agent.minimax.io/docs/cli/integrations" },
 ];

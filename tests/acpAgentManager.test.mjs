@@ -468,3 +468,70 @@ test("create merges tool-level env over base process env", async (t) => {
 	assert.equal(spawnCalls[0].options.env.ZAI_CODING_KEY, "sk-tool");
 	assert.equal(spawnCalls[0].options.env.LANG, "zh-CN");
 });
+
+// ── configOptions 规范路径:session/new 枚举 → 查询/下发/通知更新 ──
+
+const CONFIG_OPTIONS = [
+	{
+		id: "model",
+		name: "Model",
+		category: "model",
+		type: "select",
+		currentValue: "gpt-5",
+		options: [
+			{ value: "gpt-5", name: "GPT-5" },
+			{ value: "o3", name: "o3" },
+		],
+	},
+	{ id: "effort", name: "Reasoning effort", category: "thought_level", type: "select", currentValue: "medium" },
+];
+
+test("configOptions:session/new 返回的枚举可查询;set_config_option 用响应整表更新", async (t) => {
+	let applied;
+	const { manager, createAgent, lastProc } = harness(t, {
+		handler: (frame) => {
+			if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: { loadSession: false } };
+			if (frame.method === "session/new") return { sessionId: "sess-cfg", configOptions: CONFIG_OPTIONS };
+			if (frame.method === "session/set_config_option") {
+				applied = frame.params;
+				return { configOptions: [{ ...CONFIG_OPTIONS[0], currentValue: "o3" }, CONFIG_OPTIONS[1]] };
+			}
+			return {};
+		},
+	});
+	const tab = await createAgent();
+	// 查询:握手返回的枚举原样暴露(agent 未提供时是 undefined,渲染层隐藏选择器)
+	assert.equal(manager.getSessionConfigOptions(tab.id)?.[0]?.id, "model");
+
+	const updated = await manager.applyConfigOption(tab.id, "model", "o3");
+	// 下发参数按规范带 sessionId + id + value
+	// 参数名按规范是 configId(非 id);opencode 等实现对 id 形态报 -32602
+	assert.deepEqual(applied, { sessionId: "sess-cfg", configId: "model", value: "o3" });
+	assert.equal(updated[0].currentValue, "o3");
+	assert.equal(manager.getSessionConfigOptions(tab.id)?.[0]?.currentValue, "o3");
+	// 帧确实进了连接(防只改内存不发请求)
+	assert.equal(lastProc().methodFrames("session/set_config_option").length, 1);
+});
+
+test("configOptions:config_option_update 通知整表替换并回调 onConfigOptionsChanged", async (t) => {
+	const seen = [];
+	const { manager, createAgent, lastProc } = harness(
+		t,
+		{
+			handler: (frame) => {
+				if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: { loadSession: false } };
+				if (frame.method === "session/new") return { sessionId: "sess-cfg", configOptions: CONFIG_OPTIONS };
+				return {};
+			},
+		},
+		{ onConfigOptionsChanged: (tab, options) => seen.push({ agentId: tab.id, first: options[0]?.id }) },
+	);
+	const tab = await createAgent();
+	lastProc().writeFromCli({ jsonrpc: "2.0", method: "config_option_update", params: { sessionId: "sess-cfg", configOptions: [{ id: "model", currentValue: "o3" }] } });
+	await waitFor(() => seen.length === 1);
+	// 通知按 agentId 隔离(sessionId 不匹配的丢弃)
+	lastProc().writeFromCli({ jsonrpc: "2.0", method: "config_option_update", params: { sessionId: "other", configOptions: [{ id: "evil" }] } });
+	await sleep(60);
+	assert.deepEqual(seen, [{ agentId: tab.id, first: "model" }]);
+	assert.equal(manager.getSessionConfigOptions(tab.id)?.[0]?.currentValue, "o3");
+});

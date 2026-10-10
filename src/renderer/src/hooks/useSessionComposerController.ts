@@ -66,7 +66,7 @@ import { t } from "../i18n";
 import { COMPOSER_IMAGE_MAX_BYTES, ComposerImageError, dataUrlToFile, getClipboardImageFiles, getDroppedImageFiles, imageMimeTypeFromPath, isImageFilePath, processComposerImageFile } from "../utils/composerImages";
 import { PASTE_TO_FILE_MIN_CHARS } from "../rendererUtils";
 import { resolveBackendSwitchDefaults } from "../utils/backendSwitchDefaults";
-import { GUIDE_BOOTSTRAP_SESSION_ID, readWelcomeBackendPreference, readWelcomeDshModelPreference, readWelcomeModelPreference, resolveGuidePageBackend, WELCOME_BACKEND_KEY } from "../utils/chatSessionBootstrap";
+import { GUIDE_BOOTSTRAP_SESSION_ID, readWelcomeAcpToolPreference, readWelcomeBackendPreference, readWelcomeDshModelPreference, readWelcomeModelPreference, resolveGuidePageBackend, WELCOME_BACKEND_KEY } from "../utils/chatSessionBootstrap";
 import { showNotice } from "../utils/notice";
 import { requireSessionCommand, toSessionRuntimeTarget } from "../utils/sessionCommands";
 import { buildDraftResourceCommands, draftResourceCommandsForProject, selectComposerSuggestionCommands, standbyPreviewCommandsForProject, type DraftResourceCommandSnapshot, type StandbyPreviewCommandSnapshot } from "../utils/draftResourceCommands";
@@ -1854,9 +1854,20 @@ export function useSessionComposerController(options: UseSessionComposerControll
 			// 报「会话不存在，请刷新会话列表后重试」（2026-09 用户反馈的新建页切 DSH 报错）。
 			// 首次发送时 App.ensureSessionForSend 读取同一份偏好创建真实会话，选择不丢失。
 			if (isGuideBootstrapSession) {
+				// acp 偏好携带工具 id（"acp:<toolId>"）；工具表为空/未选时不切也不存
+				let stored: string = next;
+				if (next === "acp") {
+					const tools = store.get(acpToolsAtom);
+					const toolId = explicitAcpToolId ?? tools[0]?.id;
+					if (!toolId) {
+						showNotice(t("app.acpNoTools"), 4000);
+						return;
+					}
+					stored = `acp:${toolId}`;
+				}
 				setGuideBackendOverride(next);
 				try {
-					localStorage.setItem(WELCOME_BACKEND_KEY, next);
+					localStorage.setItem(WELCOME_BACKEND_KEY, stored);
 				} catch {
 					// localStorage 不可用时静默；本次页面内仍由 guideBackendOverride 即时生效
 				}
@@ -2013,7 +2024,13 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		/** 草稿期可切换后端；激活后锁定（undefined → UI 隐藏切换器）。 */
 		changeBackend: backendLocked ? undefined : changeBackend,
 		// ACP 工具二级选择（草稿期；激活后 UI 不再渲染选择器）
-		acpTool: record?.backend === "acp" ? { toolId: record.acpToolId, onChange: backendLocked ? undefined : changeAcpTool } : undefined,
+		acpTool:
+			record?.backend === "acp"
+				? { toolId: record.acpToolId, onChange: backendLocked ? undefined : changeAcpTool }
+				: // 引导页（无 record）：工具 id 从 localStorage 偏好读，picker 组内高亮当前工具
+					isGuideBootstrapSession && guideBackendOverride === "acp"
+					? { toolId: readWelcomeAcpToolPreference(), onChange: backendLocked ? undefined : changeAcpTool }
+					: undefined,
 		/** DSH 部署默认模型（settings.yaml agent-default-model）；仅 dsh 后端时展示，
 		 *  离开 dsh 时清空（否则残留值会随 defaultModel 泄漏到 pi 会话底栏）。 */
 		dshDefaultModel: isDshBackend && dshDefault ? { provider: dshDefault.provider, modelId: dshDefault.model, modelName: dshDefault.model } : undefined,

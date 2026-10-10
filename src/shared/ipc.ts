@@ -1126,4 +1126,10 @@ export const ipcChannels = {
 	acpToolUninstall: "acp:tool-uninstall",
 	/** 主→渲染：安装/卸载进度行与结算（webContents 推送）。 */
 	acpLifecycleEvent: "acp:lifecycle-event",
+	/** 查询 acp 会话的配置枚举（模型/思考档/模式；agent 未提供时 null）。 */
+	acpSessionConfigGet: "acp:session-config-get",
+	/** 下发 session/set_config_option 并返回 agent 回传的整表。 */
+	acpSessionConfigSet: "acp:session-config-set",
+	/** 主→渲染：configOptions 变更（set 响应/config_option_update 通知）。 */
+	acpSessionConfigChanged: "acp:session-config-changed",
 } as const;

@@ -2445,6 +2445,9 @@ function registerIpc() {
 	// quitApp 先置 isQuitting，与托盘「退出」菜单同一写法，避免 closeToTray 把退出吞成隐藏到托盘。
 	registerAcpIpc({
 		settingsStore,
+		// 会话级配置桥惰性取 manager:注册时(此处)尚未实例化(4786 行 opt-in 段),
+		// 与生命周期依赖同一条惰性模式。
+		getSessionManager: () => acpAgentManager,
 		// 生命周期命令编排惰性取 piLocator:注册时(2361 行附近)它尚未实例化(3484 行)。
 		// createInvocation 复用 AcpAgentManager 同一入口(Windows .cmd 垫片),spawn 带 timeout 兜底。
 		getLifecycleDeps: () => ({
@@ -4791,6 +4794,11 @@ app
 				piLocator,
 				getProject: (projectId) => projectStore.get(projectId),
 				getTools: () => settingsStore.get().acpTools ?? [],
+				// configOptions 变更推送：set_config_option 响应/config_option_update 通知都走同一事件,
+				// 渲染层按 agentId 隔离(旧 agent 迟到事件写旧 atom,不再被读)。
+				onConfigOptionsChanged: (tab, options) => {
+					if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(ipcChannels.acpSessionConfigChanged, { agentId: tab.id, options });
+				},
 				// 图片物化落盘：ACP 消息里的 base64 图复用生图 blob 存储（ref 形态回填消息；
 				// imagegen 装配在另一段完成，经模块级 ref 延迟取实例）。
 				imageStore: {
