@@ -219,10 +219,9 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 	 * /中任何一步失败会话保持原状，天然可重试；发送失败仅补状态 toast（旧历史无恙）。
 	 */
 	const runForkMutation = useCallback(
-		async (kind: "resend" | "edit", message: ChatMessage, newText?: string) => {
+		async (sessionId: string, kind: "resend" | "edit", message: ChatMessage, newText?: string) => {
 			const latest = depsRef.current;
-			const sessionId = latest.currentSessionId;
-			if (!sessionId) return;
+			// 确认弹窗等待期间可切焦点；必须传入发起方会话，不能把原消息的 entryId 送进新会话。
 			let target = latest.getRuntimeTargetForSession(sessionId);
 			if (!target) {
 				// 冷会话：fork 走 runtime 命令，必须先有活进程（standby 池摊薄激活成本）
@@ -302,7 +301,7 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 					},
 					async () => {
 						try {
-							await runForkMutation("edit", message, newText);
+							await runForkMutation(sessionId, "edit", message, newText);
 						} catch (error) {
 							failToast(t("message.editFailed"), error);
 						} finally {
@@ -425,7 +424,9 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 					resendingIdsRef.current.add(message.id);
 					setTimeout(() => resendingIdsRef.current.delete(message.id), 30_000);
 					try {
-						await runForkMutation("resend", message);
+						await runForkMutation(sessionId, "resend", message);
+					} catch (error) {
+						failToast(t("message.resendFailed"), error);
 					} finally {
 						resendingIdsRef.current.delete(message.id);
 						hideOverlay(sessionId);

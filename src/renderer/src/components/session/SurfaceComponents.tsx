@@ -8,6 +8,9 @@ import { planRailTicks } from "./timeline/outlineRailTicks";
 import { areOutlineRailItemsEqual, createOutlineItemIndex, resolveVisibleRailActiveId } from "./timeline/outlineRailActive";
 import { useTimelineOutlineActiveId } from "./timeline/useTimelineOutlineActiveId";
 import { useAtomValue } from "jotai";
+import type { TpsDisplayMode } from "../../../../shared/types/settings";
+import { tpsDisplayModeAtom } from "../../atoms/tps-atoms";
+import { buildTpsDisplay } from "../../utils/tpsDisplay";
 import "katex/dist/katex.min.css";
 
 /**
@@ -192,9 +195,10 @@ export type SessionStatusDetail = {
  * 纯函数：label/value 已本地化，调用方只负责布局。
  */
 export function buildSessionStatusDetail(
-	state: Pick<AgentRuntimeState, "contextPercent" | "contextTokens" | "contextWindow" | "inputTokens" | "outputTokens" | "cacheRead" | "cacheWrite" | "cacheTotal" | "cacheHitPercent" | "ttftMs" | "totalMs" | "tps" | "cost" | "dshSessionStats"> | undefined,
+	state: Pick<AgentRuntimeState, "contextPercent" | "contextTokens" | "contextWindow" | "inputTokens" | "outputTokens" | "cacheRead" | "cacheWrite" | "cacheTotal" | "cacheHitPercent" | "ttftMs" | "totalMs" | "tps" | "endToEndTps" | "cost" | "dshSessionStats"> | undefined,
 	averageCacheHit: number | undefined,
 	averageCacheHitSampleCount: number,
+	tpsMode: TpsDisplayMode = "streaming",
 ): SessionStatusDetail {
 	const detailRows: SessionDetailRow[] = [];
 	const replyPerfRows: SessionDetailRow[] = [];
@@ -255,8 +259,9 @@ export function buildSessionStatusDetail(
 	if (state.totalMs != null) {
 		replyPerfRows.push({ label: t("ctx.detail.total"), value: formatDuration(state.totalMs), hint: t("ctx.detail.totalHint") });
 	}
-	if (state.tps != null) {
-		replyPerfRows.push({ label: t("ctx.detail.tps"), value: `${state.tps.toFixed(0)} tok/s`, hint: t("ctx.detail.tpsHint") });
+	if (state.tps != null || state.endToEndTps != null || state.totalMs != null) {
+		const throughput = buildTpsDisplay(tpsMode, state.tps, state.endToEndTps, "reply");
+		replyPerfRows.push({ label: throughput.label, value: throughput.value, hint: throughput.hint });
 	}
 	if (state.cost != null) {
 		detailRows.push({ label: t("ctx.detail.cost"), value: `$${state.cost.toFixed(3)}`, emphasis: true, hint: t("ctx.detail.costHint") });
@@ -280,9 +285,8 @@ export function buildSessionStatusDetail(
 		if (sessionStats.ttftAvgMs != null) {
 			sessionStatRows.push({ label: t("ctx.detail.ttftAverage"), value: formatDuration(sessionStats.ttftAvgMs), hint: t("ctx.detail.ttftAverageHint") });
 		}
-		if (sessionStats.tokensPerSecond != null) {
-			sessionStatRows.push({ label: t("ctx.detail.tps"), value: `${sessionStats.tokensPerSecond.toFixed(0)} tok/s`, hint: t("ctx.detail.tpsAverageHint") });
-		}
+		const throughput = buildTpsDisplay(tpsMode, sessionStats.tokensPerSecond, sessionStats.endToEndTokensPerSecond, "session");
+		sessionStatRows.push({ label: throughput.label, value: throughput.value, hint: throughput.hint });
 	}
 	return {
 		detailRows,
@@ -298,6 +302,7 @@ export function SessionStatus(props: {
 	/** 本会话历史缓存命中率快照，用于展示会话平均命中率 */
 	cacheHitHistory?: number[];
 }) {
+	const tpsMode = useAtomValue(tpsDisplayModeAtom);
 	const state = props.state;
 	if (!state) return null;
 	// 会话平均缓存命中率：主进程基于会话文件全部 assistant 消息 usage 算出的
@@ -305,7 +310,7 @@ export function SessionStatus(props: {
 	const history = props.cacheHitHistory ?? [];
 	const averageCacheHit = state.cacheHitAveragePercent ?? (history.length > 0 ? history.reduce((sum, value) => sum + value, 0) / history.length : undefined);
 	const averageCacheHitSampleCount = state.cacheHitSampleCount ?? history.length;
-	const { detailRows, replyPerfRows, sessionStatRows, hasDetail } = buildSessionStatusDetail(state, averageCacheHit, averageCacheHitSampleCount);
+	const { detailRows, replyPerfRows, sessionStatRows, hasDetail } = buildSessionStatusDetail(state, averageCacheHit, averageCacheHitSampleCount, tpsMode);
 	// cost-chip 悬浮提示里的人民币估算（与明细行共用同一汇率常量）
 	const cnyAmount = state.cost != null ? `¥${(state.cost * USD_TO_CNY_RATE).toFixed(2)}` : undefined;
 

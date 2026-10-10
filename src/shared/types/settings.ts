@@ -2,6 +2,7 @@ import type { AgentBackend } from "./agent";
 import type { AcpToolConfig } from "./acp";
 import type { SessionSortModeId } from "./session";
 import type { BusySendDelivery } from "../busySendDelivery";
+import type { SessionStatusPlacement } from "../sessionStatusPlacement";
 import { SESSION_TAB_MAX_WIDTH_DEFAULT } from "../sessionTabWidth";
 import { createDefaultExternalEditorSettings, type ExternalEditorSettings } from "./project";
 import type { SecurityConfig } from "./security";
@@ -9,6 +10,8 @@ import type { CustomThemeSnapshot } from "../customThemes";
 import { createDefaultSoundAlertSettings, type SoundAlertSettings } from "./soundAlert";
 
 export type SendShortcutMode = "enter-send" | "ctrl-enter-send" | "shift-enter-send";
+/** TPS 展示口径：流式生成速度 / 含首 token 等待的单次模型调用速度。 */
+export type TpsDisplayMode = "streaming" | "endToEnd";
 
 export type AppThemeMode = "system" | "light" | "dark" | "schedule";
 /** 主题色预设：data-accent 属性驱动 foundation.css 的 accent/logo 变量 */
@@ -165,6 +168,8 @@ export type AppSettings = {
 	 * （pi streamingBehavior / DSH sessions.prompt mode）。缺省 "steer"，解析见 shared/busySendDelivery.ts。
 	 */
 	busySendDelivery: BusySendDelivery;
+	/** TPS 默认流式；仅切换展示，两个数值都由运行时计算，无需重启。 */
+	tpsDisplayMode: TpsDisplayMode;
 	/**
 	 * **遗留字段**：输入框底栏「快捷消息」的条目曾存在这里。
 	 * 现已改为独立配置文件 userData/quick-messages.json（主进程 QuickMessageStore，读写都操作该文件），
@@ -348,6 +353,11 @@ export type AppSettings = {
 	 * 消息与输入框共享同一留白（--chat-content-pct），分屏窄栏时由容器查询自动收敛到 100%。
 	 */
 	chatContentWidthPct: number;
+	/**
+	 * 会话状态（待办 / 修改文件 / 子代理）显示位置：右侧边栏下半区或输入框上方，二选一。
+	 * 缺省 sidebar；解析见 shared/sessionStatusPlacement.ts。
+	 */
+	sessionStatusPlacement: SessionStatusPlacement;
 	/**
 	 * 会话 Tab 最大宽度（px，80–400，默认 104=旧硬编码值）。仅封顶不设下限宽度：
 	 * Tab 按内容收缩（w-fit），短标题的 Tab 不受影响；有前置徽标时上限另加
@@ -930,6 +940,7 @@ export function createDefaultAppSettings(): AppSettings {
 		autoSessionTitle: true,
 		// 与 main SettingsStore 默认一致：忙碌时发送默认「插入当前回合」
 		busySendDelivery: "steer",
+		tpsDisplayMode: "streaming",
 		// 遗留字段：快捷消息已改存独立配置文件 userData/quick-messages.json（见 useQuickMessages），
 		// 这里保留字段只为满足 AppSettings 类型，内容不再被读取。
 		quickMessages: [],
@@ -983,6 +994,7 @@ export function createDefaultAppSettings(): AppSettings {
 		workspaceContentOpenMode: "split",
 		contentMaxWidth: 1800,
 		chatContentWidthPct: 80,
+		sessionStatusPlacement: "sidebar",
 		navigationMode: "tabs",
 		sessionTabMaxWidth: SESSION_TAB_MAX_WIDTH_DEFAULT,
 		maxEditorFileSizeMB: 5,
