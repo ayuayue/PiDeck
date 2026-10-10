@@ -17,16 +17,8 @@ import { Input } from "../components/ui-shadcn/input";
 import { Label } from "../components/ui-shadcn/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui-shadcn/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui-shadcn/table";
-
-type ScaffoldDraft = { id: string; name: string; permissions: HostPluginPermission[]; presentation: "modal" | "page" };
-
-/** 与主进程 isHostPluginId 同形：明显不合法的 id 本地先挡，不白跑一趟 IPC。 */
-const SCAFFOLD_ID = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
-const SCAFFOLD_PERMISSIONS = [
-	["sessions.read", "hostPlugins.sessionsRead", "hostPlugins.scaffoldSessionsReadHint"],
-	["workbench.navigate", "hostPlugins.scaffoldNavigate", "hostPlugins.scaffoldNavigateHint"],
-	["workbench.openExternal", "hostPlugins.scaffoldOpenExternal", "hostPlugins.scaffoldOpenExternalHint"],
-] as const;
+import { HOST_PLUGIN_PERMISSION_OPTIONS, HostPluginPermissionDetails } from "./HostPluginPermissionDetails";
+import { hostPluginScaffoldInput, initialHostPluginScaffoldDraft } from "./hostPluginScaffoldDraft";
 
 /** Desktop-owned plugins are global packages with project-scoped data grants, separate from pi extensions. */
 export function HostPluginsTab() {
@@ -38,7 +30,7 @@ export function HostPluginsTab() {
 	const [busy, setBusy] = useState(false);
 	const [createOpen, setCreateOpen] = useState(false);
 	// 默认勾上一个最常见的权限：新手生成的示例直接能看到内容，而不是一打开就报权限错误。
-	const [draft, setDraft] = useState<ScaffoldDraft>(() => ({ id: "", name: "", permissions: ["sessions.read"], presentation: "modal" }));
+	const [draft, setDraft] = useState(initialHostPluginScaffoldDraft);
 	const fail = (code: string) => showNotice(t("hostPlugins.failed", { code }), 4500, "error");
 	const rescan = async () => {
 		setBusy(true);
@@ -81,9 +73,11 @@ export function HostPluginsTab() {
 	};
 	/** 脚手架：先落盘再重扫描，生成的插件直接出现在下表里（默认禁用，仍需授权启用）。 */
 	const scaffold = async () => {
+		const input = hostPluginScaffoldInput(draft);
+		if (!input) return;
 		setBusy(true);
 		try {
-			const result = await desktopApi.hostPlugins.scaffold(draft);
+			const result = await desktopApi.hostPlugins.scaffold(input);
 			if (result.ok) {
 				setCatalog({ catalog: result.value });
 				setCreateOpen(false);
@@ -96,7 +90,7 @@ export function HostPluginsTab() {
 		}
 	};
 	const togglePermission = (permission: HostPluginPermission, checked: boolean) => setDraft((current) => ({ ...current, permissions: checked ? [...current.permissions, permission] : current.permissions.filter((item) => item !== permission) }));
-	const draftReady = SCAFFOLD_ID.test(draft.id) && draft.id.length <= 80 && draft.name.trim().length > 0;
+	const draftReady = hostPluginScaffoldInput(draft) !== null;
 	return (
 		<section className="flex flex-col gap-4">
 			<Alert>
@@ -121,7 +115,7 @@ export function HostPluginsTab() {
 					size="sm"
 					disabled={busy}
 					onClick={() => {
-						setDraft({ id: "", name: "", permissions: ["sessions.read"], presentation: "modal" });
+						setDraft(initialHostPluginScaffoldDraft());
 						setCreateOpen(true);
 					}}
 				>
@@ -185,7 +179,7 @@ export function HostPluginsTab() {
 							</TableCell>
 							<TableCell>
 								<div className="flex flex-col items-start gap-2">
-									<Badge variant="outline">{t(plugin.manifest.permissions.includes("sessions.read") ? "hostPlugins.sessionsRead" : "hostPlugins.noSessionsRead")}</Badge>
+									<HostPluginPermissionDetails manifest={plugin.manifest} />
 									<Badge variant="secondary">{t(plugin.enabled ? "hostPlugins.enabled" : plugin.requiresConsent ? "hostPlugins.changed" : "hostPlugins.disabled")}</Badge>
 								</div>
 							</TableCell>
@@ -238,12 +232,12 @@ export function HostPluginsTab() {
 					if (!open) setConsent(null);
 				}}
 			>
-				<AlertDialogContent>
+				<AlertDialogContent className="max-h-[calc(100vh-64px)] overflow-y-auto">
 					<AlertDialogHeader>
 						<AlertDialogTitle>{t("hostPlugins.consentTitle", { name: consent?.manifest.name ?? "" })}</AlertDialogTitle>
 						<AlertDialogDescription>{t("hostPlugins.consentDescription")}</AlertDialogDescription>
 					</AlertDialogHeader>
-					<p className="text-sm">{t(consent?.manifest.permissions.includes("sessions.read") ? "hostPlugins.sessionsRead" : "hostPlugins.noSessionsRead")}</p>
+					{consent && <HostPluginPermissionDetails manifest={consent.manifest} warnings />}
 					<p className="break-all text-xs text-muted-foreground">{consent?.fingerprint}</p>
 					<AlertDialogFooter>
 						<AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
@@ -258,9 +252,9 @@ export function HostPluginsTab() {
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
-			{/* 脚手架：只生成静态模板（清单 + 页面 + README），不写任何可执行代码，生成后仍需手动授权启用 */}
+			{/* 只生成静态页面与示例 JS，不执行生成物、不启动服务；网络目的地随后仍需显式授权。 */}
 			<Dialog open={createOpen} onOpenChange={setCreateOpen}>
-				<DialogContent className="flex max-w-[min(600px,calc(100vw-48px))] flex-col gap-4">
+				<DialogContent className="flex max-h-[calc(100vh-64px)] max-w-[min(600px,calc(100vw-48px))] flex-col gap-4 overflow-y-auto">
 					<DialogHeader>
 						<DialogTitle>{t("hostPlugins.scaffoldTitle")}</DialogTitle>
 						<DialogDescription>{t("hostPlugins.scaffoldDescription")}</DialogDescription>
@@ -277,19 +271,37 @@ export function HostPluginsTab() {
 						</div>
 						<div className="flex flex-col gap-2">
 							<Label>{t("hostPlugins.scaffoldPermissions")}</Label>
-							{SCAFFOLD_PERMISSIONS.map(([permission, label, hint]) => {
+							{HOST_PLUGIN_PERMISSION_OPTIONS.map(([permission, label, hint]) => {
 								const checked = draft.permissions.includes(permission);
 								return (
 									<div key={permission} className="flex items-start gap-2">
 										<Checkbox id={`host-plugin-permission-${permission}`} checked={checked} onCheckedChange={(value) => togglePermission(permission, value === true)} />
-										<button type="button" className="flex flex-col items-start gap-0.5 text-left" onClick={() => togglePermission(permission, !checked)}>
+										<Label htmlFor={`host-plugin-permission-${permission}`} className="flex cursor-pointer flex-col items-start gap-0.5 text-left">
 											<span className="text-sm">{t(label)}</span>
-											<span className="text-xs text-muted-foreground">{t(hint)}</span>
-										</button>
+											<span className="text-xs font-normal text-muted-foreground">{t(hint)}</span>
+										</Label>
 									</div>
 								);
 							})}
 						</div>
+						{draft.permissions.includes("network.https") && (
+							<div className="flex flex-col gap-1.5">
+								<Label htmlFor="host-plugin-https-origins">{t("hostPlugins.httpsOrigins")}</Label>
+								<Input id="host-plugin-https-origins" spellCheck={false} className="font-mono" placeholder="https://api.example.com" aria-describedby="host-plugin-https-hint" value={draft.httpsOrigins} onChange={(event) => setDraft((current) => ({ ...current, httpsOrigins: event.target.value }))} />
+								<span id="host-plugin-https-hint" className="text-xs text-muted-foreground">
+									{t("hostPlugins.httpsOriginsHint")}
+								</span>
+							</div>
+						)}
+						{draft.permissions.includes("network.local") && (
+							<div className="flex flex-col gap-1.5">
+								<Label htmlFor="host-plugin-local-ports">{t("hostPlugins.localPorts")}</Label>
+								<Input id="host-plugin-local-ports" spellCheck={false} className="font-mono" placeholder="4187" aria-describedby="host-plugin-local-hint" value={draft.localPorts} onChange={(event) => setDraft((current) => ({ ...current, localPorts: event.target.value }))} />
+								<span id="host-plugin-local-hint" className="text-xs text-muted-foreground">
+									{t("hostPlugins.localPortsHint")}
+								</span>
+							</div>
+						)}
 						<div className="flex flex-col gap-1.5">
 							<Label>{t("hostPlugins.scaffoldPresentation")}</Label>
 							<Select value={draft.presentation} onValueChange={(value) => setDraft((current) => ({ ...current, presentation: value === "page" ? "page" : "modal" }))}>

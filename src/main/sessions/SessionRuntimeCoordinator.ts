@@ -1085,6 +1085,10 @@ export class SessionRuntimeCoordinator {
 				return result;
 			}
 			const targetSessionId = await input.resolveTargetSessionId(result);
+			// /fork 会从旧分支 model_change 恢复模型；同一 agentId 并不代表偏好仍已生效。
+			// 换绑前重放目标 catalog 偏好，失败保持解绑，不能公布旧模型再允许重发。
+			this.lastAppliedBySession.delete(targetSessionId);
+			await this.applyLatestPreferences(targetSessionId, input.agentId);
 			const attached = this.completeRuntimeReplacement(replacement, targetSessionId);
 			// The target binding is committed before observers run. Snapshot failures
 			// must not roll the agent back onto the detached origin Session.

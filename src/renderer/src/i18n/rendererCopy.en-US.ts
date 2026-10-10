@@ -3,7 +3,7 @@ import type { TranslationKey } from "./rendererCopy.zh-CN";
 
 export const enUS: Record<TranslationKey, string> = {
 	"hostPlugins.title": "PiDeck plugins",
-	"hostPlugins.description": "Workbench plugins independent of pi processes. Only local static pages are loaded; network, Node and command execution are unavailable. Enabled plugins can only read saved sessions in the current project.",
+	"hostPlugins.description": "Workbench plugins independent of pi processes. Only local static pages are loaded, with no Node or command execution. Reading current-project sessions, requesting declared HTTPS APIs and accessing local services each require separate approval.",
 	"hostPlugins.rescan": "Rescan",
 	"hostPlugins.openDirectory": "Open plugin directory",
 	"hostPlugins.devGuide": "Development guide",
@@ -21,6 +21,17 @@ export const enUS: Record<TranslationKey, string> = {
 	"hostPlugins.scaffoldNavigateHint": "Ask the workbench to open a session or one of its entries (runs no commands).",
 	"hostPlugins.scaffoldOpenExternal": "Open external links",
 	"hostPlugins.scaffoldOpenExternalHint": "Open https links in the system browser (https only, no credentials).",
+	"hostPlugins.networkHttps": "Request declared HTTPS APIs",
+	"hostPlugins.networkHttpsHint": "PiDeck sends GET / POST requests only to public HTTPS origins declared in the manifest.",
+	"hostPlugins.networkLocal": "Request declared local services",
+	"hostPlugins.networkLocalHint": "Only declared ports on 127.0.0.1; never executes BAT files, starts services or accesses other local endpoints.",
+	"hostPlugins.networkDestinations": "Allowed destinations (other origins and ports are inaccessible)",
+	"hostPlugins.networkDataWarning": "This plugin requests both session access and networking. It can send current-project session content to its declared destinations. Verify the code and recipients; PiDeck cannot decide whether a plugin's uploads contain sensitive data.",
+	"hostPlugins.networkLocalWarning": "A local port is not automatically trusted. Verify the program listening on it and its API. PiDeck will not start it or attach browser cookies or app credentials.",
+	"hostPlugins.httpsOrigins": "Allowed HTTPS origins",
+	"hostPlugins.httpsOriginsHint": "Protocol, host and optional port only, for example https://api.example.com. No path, wildcard or credentials. Separate up to 16 origins with commas or spaces.",
+	"hostPlugins.localPorts": "Allowed local ports",
+	"hostPlugins.localPortsHint": "Integers from 1 to 65535, for example 4187. Separate up to 16 ports with commas or spaces. Only http://127.0.0.1:<port> is accessible.",
 	"hostPlugins.scaffoldPresentation": "Panel presentation",
 	"hostPlugins.scaffoldModal": "Dialog (modal)",
 	"hostPlugins.scaffoldPage": "Full page (page)",
@@ -41,7 +52,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"hostPlugins.failed": "Plugin operation failed ({code}). Check the plugin directory and rescan.",
 	"hostPlugins.packageRejected": "Not loaded: {directory} ({code})",
 	"hostPlugins.consentTitle": "Enable {name}",
-	"hostPlugins.consentDescription": "Only enable plugins you trust. Consent is bound to the code fingerprint below; changes require approval again. Disabling closes the panel and revokes data access. Plugins receive only the listed permissions and small isolated local storage.",
+	"hostPlugins.consentDescription": "Only enable plugins you trust. Review each permission and network destination below. Consent is bound to the entire package fingerprint; code or destination changes require approval again. Disabling closes the panel, revokes access and cancels in-flight network requests.",
 	"quickTask.title": "PiDeck quick task",
 	"quickTask.new": "New task",
 	"quickTask.workbench": "Open workbench",
@@ -5225,7 +5236,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"tool.viewDiff": "View this diff",
 	"editor.unsavedMarker": " · Unsaved",
 	"timeline.loadFailed": "Session history failed to load",
-	"timeline.loadFailedHint": "Cannot read the session file; it may have been deleted or its path is stale. Retry, or check the session files under the project directory.",
+	"timeline.loadFailedHint": "Session history could not be loaded. Use the error details below to retry or report the problem; this does not mean the session file is missing.",
 	// DSH host manually stopped: not a stale session file (DSH sessions have no pi session
 	// file) but a deliberately stopped runtime that will not self-heal — the copy must point
 	// at "Start host", the only way back.

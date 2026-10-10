@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Network API Demo</title>
+		<link rel="stylesheet" href="styles.css" />
+	</head>
+	<body>
+		<main>
+			<h1 id="title"></h1>
+			<p id="notice"></p>
+			<section aria-labelledby="https-heading">
+				<h2 id="https-heading"></h2>
+				<p id="https-hint"></p>
+				<label for="https-url" id="https-label"></label>
+				<input id="https-url" type="url" value="https://api.example.com/v1/items" autocomplete="off" spellcheck="false" aria-describedby="https-hint" />
+				<button id="https-request" type="button"></button>
+				<pre id="https-response" role="status" aria-live="polite"></pre>
+			</section>
+			<section aria-labelledby="local-heading">
+				<h2 id="local-heading"></h2>
+				<p id="local-hint"></p>
+				<label for="local-url" id="local-label"></label>
+				<input id="local-url" type="url" value="http://127.0.0.1:4187/api/health" autocomplete="off" spellcheck="false" aria-describedby="local-hint" />
+				<button id="local-request" type="button"></button>
+				<pre id="local-response" role="status" aria-live="polite"></pre>
+			</section>
+		</main>
+		<script type="module" src="app.js"></script>
+	</body>
+</html>

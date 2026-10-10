@@ -208,7 +208,7 @@ test("host plugin storage aborts rename retry after revocation and never replace
 function brokerFixture(permissions = ["sessions.read"]) {
 	let enabled = { manifest: manifest(permissions), fingerprint: "f" };
 	const pending = deferred();
-	const broker = new HostPluginBroker({ getEnabled: () => enabled }, { list: (context) => ({ sessions: [{ id: context.projectId }], nextOffset: null }), entries: () => pending.promise, describe: (context) => context }, { get: () => null, set: async () => undefined });
+	const broker = new HostPluginBroker({ getEnabled: () => enabled, onChanged: () => () => {} }, { list: (context) => ({ sessions: [{ id: context.projectId }], nextOffset: null }), entries: () => pending.promise, describe: (context) => context }, { get: () => null, set: async () => undefined });
 	broker.bind(10, "example.viewer", "f", { projectId: "project-a", locale: "en-US", theme: "dark" });
 	return {
 		broker,
@@ -244,7 +244,7 @@ test("host plugin broker gates workbench navigation by permission and project ow
 	const navigated = [];
 	const make = (permissions) => {
 		const broker = new HostPluginBroker(
-			{ getEnabled: () => ({ manifest: manifest(permissions), fingerprint: "f" }) },
+			{ getEnabled: () => ({ manifest: manifest(permissions), fingerprint: "f" }), onChanged: () => () => {} },
 			{ list: () => ({ sessions: [], nextOffset: null }), entries: async () => ({ entries: [], nextCursor: null, truncated: false }), navigable: (context, id) => context.projectId === "project-a" && id === "history", describe: (context) => context },
 			{ get: () => null, set: async () => undefined },
 		);

@@ -800,9 +800,9 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 			{messageLoadState?.status === "error" && activeMessages.length === 0 && !dshHostStopped && (
 				<div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
 					<p className="text-sm font-medium">{t("timeline.loadFailed")}</p>
-					<p className="max-w-[560px] text-xs text-muted-foreground" title={messageLoadState.error ?? ""}>
-						{t("timeline.loadFailedHint")}
-					</p>
+					<p className="max-w-[560px] text-xs text-muted-foreground">{t("timeline.loadFailedHint")}</p>
+					{/* 解析/读取错误不等于文件丢失：直接展示原因，避免误导用户删除合法会话。 */}
+					{messageLoadState.error && <p className="max-w-[560px] whitespace-pre-wrap break-all text-xs text-muted-foreground">{messageLoadState.error}</p>}
 					<Button type="button" variant="outline" size="sm" onClick={() => void controller.reloadFromDisk()}>
 						{t("common.retry")}
 					</Button>

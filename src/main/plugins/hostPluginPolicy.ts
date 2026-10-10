@@ -1,6 +1,7 @@
 /** Pure policy shared by the view host and broker; failures never fall back to a broader capability. */
 import type { HostPluginContext, HostPluginRequest } from "../../shared/types/hostPlugin";
 import { isHostPluginAsset, isPluginRecord } from "./hostPluginManifest";
+import { parseHostPluginNetworkRequest } from "./hostPluginNetworkPolicy";
 
 export const HOST_PLUGIN_SCHEME = "pideck-plugin";
 export const HOST_PLUGIN_CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; worker-src 'self' blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
@@ -43,6 +44,7 @@ export function parsePluginContext(value: unknown): HostPluginContext {
 export function parsePluginRequest(value: unknown): HostPluginRequest {
 	if (!isPluginRecord(value)) throw new Error("invalid-request");
 	if (value.method === "context.get") return { method: value.method };
+	if (value.method === "network.request") return { method: value.method, request: parseHostPluginNetworkRequest(value.request) };
 	if (value.method === "sessions.list") {
 		if (value.offset !== undefined && (typeof value.offset !== "number" || !Number.isSafeInteger(value.offset) || value.offset < 0 || value.offset > 100_000)) throw new Error("invalid-request");
 		return { method: value.method, offset: typeof value.offset === "number" ? value.offset : undefined };

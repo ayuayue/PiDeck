@@ -1,5 +1,10 @@
 /** PiDeck-owned browser plugins. This API never proxies pi SDK or runtime commands. */
-export type HostPluginPermission = "sessions.read" | "workbench.navigate" | "workbench.openExternal";
+export type HostPluginPermission = "sessions.read" | "workbench.navigate" | "workbench.openExternal" | "network.https" | "network.local";
+/** Declared destinations are part of the code fingerprint and require fresh consent when changed. */
+export type HostPluginNetworkPolicy = { httpsOrigins?: string[]; localPorts?: number[] };
+/** Bounded text requests only: no browser cookies, Node handles, streams or executable responses. */
+export type HostPluginNetworkRequest = { url: string; method?: "GET" | "POST"; headers?: Record<string, string>; body?: string; timeoutMs?: number };
+export type HostPluginNetworkResponse = { url: string; status: number; ok: boolean; headers: Record<string, string>; body: string };
 /** 面板呈现方式：modal = 大弹框（默认，兼容既有插件）；page = 工作区内联页面（非模态，覆盖会话区）。 */
 export type HostPluginPanelPresentation = "modal" | "page";
 export type HostPluginManifest = {
@@ -10,6 +15,7 @@ export type HostPluginManifest = {
 	version: string;
 	description?: string;
 	permissions: HostPluginPermission[];
+	network?: HostPluginNetworkPolicy;
 	contributes: {
 		panels: Array<{ id: string; title: string; entry: string; icon?: string; presentation?: HostPluginPanelPresentation }>;
 		commands: Array<{ id: string; title: string; panelId: string }>;
@@ -71,7 +77,8 @@ export type HostPluginRequest =
 	| { method: "storage.keys" }
 	| { method: "storage.delete"; key: string }
 	| { method: "workbench.navigate"; sessionId: string; entryId?: string }
-	| { method: "workbench.openExternal"; url: string };
+	| { method: "workbench.openExternal"; url: string }
+	| { method: "network.request"; request: HostPluginNetworkRequest };
 export type HostPluginResponse = HostPluginResult<unknown>;
 export type HostPluginMountInput = { pluginId: string; panelId: string; context: HostPluginContext };
 export type HostPluginMount = { instanceId: string; entryUrl: string };
@@ -81,6 +88,7 @@ export type HostPluginScaffoldInput = {
 	id: string;
 	name: string;
 	permissions: HostPluginPermission[];
+	network?: HostPluginNetworkPolicy;
 	presentation: HostPluginPanelPresentation;
 };
 
@@ -129,6 +137,8 @@ export type HostPluginApi = {
 		/** 用系统浏览器打开 https 链接；需 manifest 声明 workbench.openExternal。 */
 		openExternal: (url: string) => Promise<void>;
 	};
+	/** Host-mediated requests to manifest-declared HTTPS origins or IPv4 loopback ports. */
+	network: { request: (input: HostPluginNetworkRequest) => Promise<HostPluginNetworkResponse> };
 	onEvent: (listener: (event: HostPluginEvent) => void) => () => void;
 };
 

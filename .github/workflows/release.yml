@@ -36,6 +36,7 @@ on:
         default: auto
         options:
           - auto
+          - v0.9.0
           - v0.8.0
           - v0.7.9
           - v0.7.8
@@ -45,7 +46,6 @@ on:
           - v0.7.4
           - v0.7.3
           - v0.7.2
-          - v0.7.1
       tag_custom:
         description: "自定义 tag（填了则覆盖上面的下拉选择；用于列表外的旧版本，如 v0.5.2）"
         required: false

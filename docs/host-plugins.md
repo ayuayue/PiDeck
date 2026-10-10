@@ -9,7 +9,7 @@
 |------|------|------|
 | pi 扩展 + GUI 桥（`pi-deck-gui-bridge`） | pi 进程内 | 需要读会话流/拦截模型请求的扩展 |
 | 主题定制 | 渲染层 | 纯视觉 |
-| **宿主插件（本文档）** | PiDeck 主进程 | 只读会话数据的本地 UI 工具 |
+| **宿主插件（本文档）** | PiDeck 桌面壳 | 只读会话 UI 工具、受控 HTTPS API / 已启动本地服务的前端 |
 
 ## 包结构
 
@@ -30,7 +30,7 @@
 }
 ```
 
-- `permissions` 白名单只有三个：`sessions.read`（读会话）、`workbench.navigate`（导航时间线）、`workbench.openExternal`（系统浏览器开 https）；未知权限直接拒绝加载。`storage` 不需要权限，每插件一个独立命名空间（见下）。
+- `permissions` 白名单：`sessions.read`（读会话）、`workbench.navigate`（导航时间线）、`workbench.openExternal`（系统浏览器开 https）、`network.https`（受控公网 HTTPS）、`network.local`（受控固定端口本地 HTTP）；未知权限直接拒绝加载。网络权限必须配对应的 `network.httpsOrigins` / `network.localPorts`，每类 1–16 个不重复目的地。`storage` 不需要权限，每插件一个独立命名空间（见下）。
 - 资产上限：单文件 4 MiB、整包 16 MiB、100 个文件、目录深度 8；禁止符号链接。
 - 面板 `entry` 必须是包内相对路径且以 `.html` 结尾（拒 `../` 逃逸）；可服务扩展名固定为 `HOST_PLUGIN_MIME`：html/js/mjs/css/json/svg/png/jpg/webp/woff2，`pideck-plugin.json` 自身永不可服务（`asset-not-allowed`）。资产路径只允许 `^[a-zA-Z0-9_./-]+$`（空格/中文文件名无法引用）。可选 `icon` 走 `src/shared/hostPluginIcons.ts` 白名单，可选 `presentation` 只接受 `modal`/`page`，其余值 fail closed 拒装（`src/main/plugins/hostPluginManifest.ts`）。
 
@@ -39,10 +39,11 @@
 - 插件默认禁用。启用动作绑定**整包逐文件 sha256 指纹**（不是版本号）：任何文件变化都会使授权失效并要求重新确认（`plugin-changed`）。
 - manifest 只读一次——哈希与解析消费同一份字节，杜绝「两次读取之间改 permissions 复用旧授权」的 TOCTOU。
 - 运行时重新读取资产还会比对授权时记录的 digest（`plugin-code-changed`）。
+- 授权界面从 `HostPluginPermissionDetails` 的统一清单展示所有能力与精确 HTTPS origins / 本地端口。会话读取 + 联网同时存在时必须警告数据外发风险；本地端口授权必须警告服务可能有写入/管理能力。网络目的地变更同样改变指纹，不沿用旧授权。
 
 ## 运行环境
 
-- 每个面板实例一个独立 `WebContentsView`：`sandbox: true`、`contextIsolation: true`、无 Node、专属 `partition`，CSP `connect-src 'none'`（无网络）。
+- 每个面板实例一个独立页面内 `<webview>`：`sandbox: true`、`contextIsolation: true`、无 Node、专属 `partition`，CSP `connect-src 'none'`（页面无直接网络；受控网络只走宿主 API）。
 - 自定义协议 `pideck-plugin://<instance>/...` 只解析本实例的包内资产。
 - 页面通过注入的 `window.pideck` API 访问能力；请求绑定发送者 frame，切换项目/禁用后未完成的响应被作废（`plugin-revoked`）。
 - 频率限制：每实例同时最多 2 个在途请求、每秒最多 20 个请求（1s 滑窗口重置），超出返回 `rate-limited`。
@@ -65,7 +66,18 @@
 - `pideck.workbench.navigate(sessionId, entryId?)`：让 PiDeck 选中该会话并滚动到指定时间线条目（`entryId` 可省略，省略时落到底部）。
 - Broker 门禁与 `sessions.entries` 同源：目标会话必须属于当前项目，否则 `session-not-authorized`；导航事件不携带任何插件数据。
 - pi-context viewer 的「在浏览器中查看」按钮即走此链路：转换器给模型行补 `id`，桥接层 `host.locate` 反查快照行 → `navigate`。
-- `pideck.workbench.openExternal(url)`：只接受 https 且不带账号密码（其余一律 `invalid-request`），经主进程 sink 交给 `openExternalUrl`；插件页自己仍然没有网络。
+- `pideck.workbench.openExternal(url)`：只接受 https 且不带账号密码（其余一律 `invalid-request`），经主进程 sink 交给 `openExternalUrl`；不返回接口结果，也不授予网络权限。
+
+## 受控网络（`network.https` / `network.local`）
+
+- 链路：专属 preload 的 `pideck.network.request(input)` → 同一个 sender-bound Broker → `HostPluginNetwork` → `hostPluginNetworkTransport`。页面的 CSP / webRequest 仍只允许自身资产，不开放 fetch / XHR / WebSocket。
+- HTTPS 精确匹配 `manifest.network.httpsOrigins`（无路径/查询/通配符）；DNS 所有结果必须是公网单播地址，私网/特殊地址/混合结果全部拒绝。Node socket 固定到已验证的 IP，原 URL 保留给 Host / SNI / TLS 证书校验，不做第二次 DNS 解析、不复用连接池。
+- 本地只允许单独声明的 `http://127.0.0.1:<明确端口>`（1–65535），不接受 localhost / IPv6 回环 / 局域网地址。服务必须已运行；PiDeck 不执行 BAT、不启动进程。
+- GET / POST、有界 UTF-8 text/JSON：POST ≤256 KiB、响应 ≤1 MiB、请求头 ≤32 个 / 16 KiB、响应头 ≤16 KiB；默认 15 秒总超时、最多 30 秒，覆盖 DNS 到全部响应。禁止 Cookie / 连接与分帧控制头，不共享宿主凭据；允许插件自己的 Authorization / API key。压缩与二进制响应拒绝。
+- 重定向最多 3 次，仅同 origin；每跳重新验证授权/DNS。301/302/303 的 POST 转 GET，307/308 保留；不跨 origin 转发凭据或正文。
+- Broker 的请求 AbortController 属于实例 binding；update / unbind / 禁用 / 指纹变化 / dispose 都同步撤销，ViewHost 在 guest 已销毁时也必须 unbind。取消 socket 不回滚服务已经执行的操作。
+- HTTP 4xx/5xx 返回 `{ status, ok: false, body }`；策略/传输失败抛稳定错误码，不泄露 URL、凭据或操作系统诊断。不提供代理、Cookie 登录、流式消费、大文件或命令执行。
+- 独立静态 demo：`docs/examples/host-plugins/example.network/`，首次加载零请求、按钮触发两类网络，不读会话、不自动启动服务；回归只用替身网络。
 
 ## 存储（`storage`）
 
@@ -75,7 +87,7 @@
 ## 脚手架（设置页「新建插件…」）
 
 - 入口：`HostPluginDesktopApi.scaffold(input)` → `src/main/plugins/hostPluginScaffold.ts` 在插件目录生成 `<id>/`；复用与安装路径同一套 `isHostPluginId` / `parseHostPluginManifest` 自检——**生成的包必须过安装校验**，否则宁可不生成。
-- 产物：`pideck-plugin.json` / `app.html` / `app.js` / `styles.css` / `README.md`。模板按勾选裁剪：没勾 `sessions.read` 就不生成会话列表代码，没勾 workbench 权限就不生成按钮与调用（manifest 的 `permissions` 与代码永远同一份真相）。
+- 产物：`pideck-plugin.json` / `app.html` / `app.js` / `styles.css` / `README.md`。模板按勾选裁剪：没勾 `sessions.read` 就不生成会话列表代码，没勾 workbench / 网络权限就不生成对应按钮与调用；网络声明先过安装路径的权威解析器，示例 URL 从规范化后的同一份授权派生（`hostPluginScaffoldNetwork.ts`）。默认不联网，网络示例点击才请求、不上传会话、不启动服务。
 - 目标目录已存在时拒绝（`already-exists`），绝不覆盖作者代码；失败时清理已写入的部分产物。
 - 生成后与手工放置等价：重新扫描 → 默认禁用 → 「授权并启用」，指纹与授权链路完全相同。
 
@@ -93,8 +105,10 @@
 - 只转换无 import 的纯模型层与 viewer 静态资产；IO/导航/刷新生命周期改走 `resources/host-plugin-adapters/pi-context/` 的桥接层。
 - 输出必须在新目录（`wx` 独占创建，不覆盖既有包与授权身份），产物默认禁用，需在设置 → PiDeck 插件里手动启用。
 - 第三方代码不 vendoring、不自动启用；上游接缝变化（精确字符串匹配失败）时报错而不是生成不确定产物。
+- 转换后的 viewer 通过 `sessions.*` 获取数据，不依赖原 BAT / Web 服务，不需要网络权限。
 
 ## 开发与验证
 
+- 网络回归：`node --test tests/hostPluginNetwork.test.mjs tests/hostPluginNetworkTransport.test.mjs tests/hostPluginNetworkUi.test.mjs tests/hostPluginNetworkDemo.test.mjs`（策略/撤权、真实 hop 的替身 socket、授权展示、静态 demo；不启动服务或连接真实接口）。
 - 回归测试：`node --test tests/hostPlugins.test.mjs`（manifest/授权/隔离视图/预算/跨项目 fork/撤销提交）、`node --test tests/hostPluginScaffold.test.mjs`（脚手架产物与新增 API 面）、`node --test tests/hostPluginDirectoryInstall.test.mjs`（目录安装）、`node --test tests/hostPluginArchive.test.mjs`（归档）、`node --test tests/piContextHostAdapter.test.mjs`（转换器）。
 - 主进程模块在 `src/main/plugins/`（含 `hostPluginScaffold.ts`）；IPC 入口 `src/main/ipc/hostPluginsIpc.ts`；共享契约 `src/shared/types/hostPlugin.ts`；preload 白名单 `src/preload/hostPlugin.ts`。面向插件作者的完整文档是 `docs/host-plugin-dev-guide.md`（同一份文件同步上官网 `/guide/host-plugins`）。
