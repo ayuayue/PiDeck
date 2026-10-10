@@ -12,6 +12,9 @@ import { currentSessionIdAtom } from "./session-atoms";
  */
 export const enhanceModelAtom = atom<EnhanceModelSelection | null>(null);
 
+/** 显式选择后才发送会话正文，旧设置与引导页均默认为关闭。 */
+export const enhanceIncludeContextAtom = atom(false);
+
 /**
  * 粘贴大文本 → 落盘文件 chip 的元数据（内容只在主进程受管目录，此处仅存指针）。
  * 新写入一律 inProject=false（userData/paste-files）：发送时折叠为原样文本内联；

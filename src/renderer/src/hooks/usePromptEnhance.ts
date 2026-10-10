@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { EnhanceErrorKind } from "../../../shared/types/enhance";
+import type { EnhanceContextMessage, EnhanceErrorKind } from "../../../shared/types/enhance";
 import { desktopApi } from "../desktopApi";
 import { t } from "../i18n";
 import { showNotice } from "../utils/notice";
@@ -24,6 +24,8 @@ export type PromptEnhancePhase = "idle" | "starting" | "streaming";
 
 export type PromptEnhanceView = {
 	phase: PromptEnhancePhase;
+	/** 与请求解析同源的实际增强模型，不是底栏的会话模型。 */
+	modelLabel?: string;
 	/** 流式累积的增强预览（starting 阶段为空串）。 */
 	preview: string;
 	/** 本次增强捕获的原稿快照（预览面板对照展示；idle 恒为空串）。 */
@@ -33,7 +35,7 @@ export type PromptEnhanceView = {
 };
 
 /** 一次增强请求的快照：模型 + 草稿在同一时刻取定，运行中改设置不影响本次。 */
-export type PromptEnhanceRequest = { provider: string; modelId: string; draft: string };
+export type PromptEnhanceRequest = { provider: string; modelId: string; draft: string; context?: EnhanceContextMessage[] };
 
 /** 错误分类 → 用户可读文案（i18n key 必须静态，动态模板串过不了类型检查）。 */
 function enhanceErrorText(kind: EnhanceErrorKind): string {
@@ -65,6 +67,8 @@ function enhanceErrorText(kind: EnhanceErrorKind): string {
 export function usePromptEnhance(input: {
 	/** 会话身份：切会话即作废进行中的 run（不把旧结果回填到新会话）。 */
 	scopeKey: string;
+	/** 仅用于入口提示，设置变更后立即更新，进行中的请求仍保留原快照。 */
+	modelLabel?: string;
 	/** 发起点快照：模型解析失败（无可用模型）或草稿为空时返回 null，由 hook 报可读错误。 */
 	captureRequest: () => PromptEnhanceRequest | null;
 	/** 终态回填：run 存续期间 scopeKey 不变（切会话已取消），总是指向发起会话。 */
@@ -109,7 +113,7 @@ export function usePromptEnhance(input: {
 		setChars(0);
 		setPhase("starting");
 		void desktopApi.enhance
-			.run({ provider: request.provider, modelId: request.modelId, userText: request.draft })
+			.run({ provider: request.provider, modelId: request.modelId, userText: request.draft, ...(request.context?.length ? { context: request.context } : {}) })
 			.then((result) => {
 				// 等待受理期间用户可能已取消/切换会话：候选 id 已被清掉就不再受理。
 				if (runIdRef.current !== candidateRunId) {
@@ -118,7 +122,7 @@ export function usePromptEnhance(input: {
 				}
 				if (!result.ok) {
 					resetToIdle();
-					showNotice(`${t("enhance.failed")}：${result.message || enhanceErrorText(result.errorKind)}`, 6000);
+					showNotice(`${t("enhance.failed")}：${result.errorKind === "model-not-found" ? enhanceErrorText(result.errorKind) : result.message || enhanceErrorText(result.errorKind)}`, 6000);
 					return;
 				}
 				runIdRef.current = result.runId;
@@ -168,7 +172,7 @@ export function usePromptEnhance(input: {
 					break;
 				case "error":
 					resetToIdle();
-					showNotice(`${t("enhance.failed")}：${event.message || enhanceErrorText(event.errorKind)}`, 6000);
+					showNotice(`${t("enhance.failed")}：${event.errorKind === "model-not-found" ? enhanceErrorText(event.errorKind) : event.message || enhanceErrorText(event.errorKind)}`, 6000);
 					break;
 			}
 		});
@@ -191,7 +195,7 @@ export function usePromptEnhance(input: {
 	}, []);
 
 	return {
-		view: { phase, preview, original, chars } satisfies PromptEnhanceView,
+		view: { phase, preview, original, chars, modelLabel: input.modelLabel } satisfies PromptEnhanceView,
 		start,
 		cancel,
 	};

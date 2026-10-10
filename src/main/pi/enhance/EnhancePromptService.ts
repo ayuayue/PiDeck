@@ -211,7 +211,7 @@ export class EnhancePromptService {
 		// 定时器必须在写入首帧前就存在：异步 stdin error 可能紧跟 write() 触发，
 		// 此时错误处理会同步清理 activeRun，不能留下一个永不结算的定时器。
 		this.activeRun = { id: runId, callbacks, timer, accepted: false };
-		const sent = this.sendToHelper({ cmd: "complete", id: runId, provider: input.provider, modelId: input.modelId, systemPrompt: ENHANCE_SYSTEM_PROMPT, userText: input.userText });
+		const sent = this.sendToHelper({ cmd: "complete", id: runId, provider: input.provider, modelId: input.modelId, systemPrompt: ENHANCE_SYSTEM_PROMPT, userText: input.userText, ...(input.context?.length ? { context: input.context } : {}) });
 		if (!sent.ok) {
 			if (this.activeRun?.id === runId) this.settleActive("protocol", sent.message);
 			else clearTimeout(timer);

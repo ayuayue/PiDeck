@@ -34,6 +34,15 @@ Manage authentication credentials:
 - **Font Size** — Adjust the editor and terminal font size.
 - **Auto-save** — Configure session auto-save intervals.
 
+## Prompt Enhancement
+
+The composer's **✦** button rewrites the current draft without sending a session message or running tools. Configure it under **Settings → General → Prompt Enhancement**:
+
+- **Model**: Follow the session model (default) or select a fixed enhancement model. Changes save automatically, and the button tooltip shows the actual enhancement model. The next enhancement uses the new selection without reopening the session; an active enhancement keeps its original settings.
+- **Include conversation context**: Off by default. When enabled, sends only recent loaded user/assistant text from the current session, up to **12 messages and 16,000 characters**. Recent content takes priority; older text may be truncated. Thinking, tool results and images are excluded; no additional history or attachment files are read. Context is sent to the selected enhancement model and may increase usage.
+- **Implementation and DSH compatibility**: PiDeck supplies the UI and helper process; completion calls, the model catalog and credentials come from the **pi SDK**, not DSH. DSH sessions can use enhancement, but the chosen model must be available and authenticated in pi. DSH-only models cannot be used directly; pin an available pi model instead. Missing models produce instructions for changing this setting, never a silent fallback.
+- **Configuration refresh**: Each enhancement reloads pi's local model configuration without network model discovery. Missing/unlaunchable pi or a WSL pi installation produces an enhancement error without affecting the session itself.
+
 ## Web Service and LAN Access
 
 Enable the service from the Web settings page to access PiDeck from another device's browser. The service is off by default. New configurations listen on `0.0.0.0` (all IPv4 interfaces); an explicitly configured address is preserved.

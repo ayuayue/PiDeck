@@ -311,6 +311,7 @@ Gitmoji 对应关系：
 
 	// 提示词增强模型：null = 跟随会话模型；设置页可指定固定模型
 	enhanceModel: null,
+	enhanceIncludeContext: false,
 
 	// ── 更新检测：检查永远自动；自动下载默认开启（v0.7.4 起取代 disableUpdateCheck）──
 	autoDownloadUpdates: true,
@@ -583,6 +584,8 @@ export class SettingsStore {
 			const parsedProtocol = parsed.webRemoteCloudflaredProtocol;
 			this.settings.webRemoteCloudflaredProtocol = parsedProtocol && (WEB_REMOTE_CLOUDFLARED_PROTOCOLS as readonly string[]).includes(parsedProtocol) ? parsedProtocol : undefined;
 			this.settings.webRemoteCloudflaredExtraArgs = sanitizeCloudflaredExtraArgs(parsed.webRemoteCloudflaredExtraArgs) || undefined;
+			// 旧设置或脏值不能隐式打开向增强模型发送会话正文的开关。
+			this.settings.enhanceIncludeContext = parsed.enhanceIncludeContext === true;
 			// 隐藏模块来自旧 JSON 时可能是脏值（非数组/含空串与重复项）；统一清洗，缺字段回落空数组（全显示）。
 			this.settings.hiddenModules = normalizeHiddenModules(parsed.hiddenModules);
 			// 输入框功能入口同规则清洗（与 hiddenModules 共用实现）。
@@ -919,6 +922,10 @@ export class SettingsStore {
 		// 增强模型来自渲染层，入参不可信：非合法形态一律归一为 null（跟随会话模型）。
 		if ("enhanceModel" in safePatch) {
 			this.settings.enhanceModel = normalizeEnhanceModel(this.settings.enhanceModel);
+		}
+		// 上下文会发送给所选供应商：脏值不能隐式打开。
+		if ("enhanceIncludeContext" in safePatch) {
+			this.settings.enhanceIncludeContext = safePatch.enhanceIncludeContext === true;
 		}
 		if ("theme" in safePatch) {
 			this.settings.theme = this.normalizeThemeMode(this.settings.theme);

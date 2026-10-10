@@ -54,6 +54,7 @@ function hookHarness() {
 		host.render(() =>
 			usePromptEnhance({
 				scopeKey,
+				modelLabel: model ? `${model.provider}/${model.modelId}` : undefined,
 				captureRequest: () => (model ? { ...model, draft } : null),
 				applyText: (text) => applies.push(text),
 			}),
@@ -106,6 +107,35 @@ test("受理失败：可读错误 toast + 回 idle，不产生任何回调", asy
 	const after = h.render();
 	assert.equal(after.view.phase, "idle");
 	assert.deepEqual(h.applies, []);
+});
+
+test("模型不在 pi 目录：原始模型名不能遮掉设置页操作提示", async () => {
+	const h = hookHarness();
+	h.render().start();
+	await flush();
+	h.emit({ runId: "run-1", phase: "error", errorKind: "model-not-found", message: "builtin:dsh-only/model" });
+	assert.deepEqual(h.notices, ["enhance.failed：enhance.error.modelNotFound"]);
+});
+
+test("增强入口模型随设置立即刷新，不需要重挂输入框", () => {
+	const h = hookHarness();
+	assert.equal(h.render("s1", { provider: "session", modelId: "model" }).view.modelLabel, "session/model");
+	assert.equal(h.render("s1", { provider: "fixed-pi", modelId: "new" }).view.modelLabel, "fixed-pi/new");
+	assert.equal(h.render("s1", null).view.modelLabel, undefined);
+});
+
+test("下一次请求读取新模型和上下文，进行中请求保持发起快照", async () => {
+	const h = hookHarness();
+	const context = [{ role: "user", text: "仅 s1 的上下文" }];
+	h.render("s1", { provider: "fixed-pi", modelId: "new-model", context }).start();
+	await flush();
+	h.render("s1", { provider: "next-pi", modelId: "next-model" }).start();
+	assert.equal(h.payloads.length, 1);
+	assert.deepEqual(JSON.parse(JSON.stringify(h.payloads[0])), { provider: "fixed-pi", modelId: "new-model", userText: "草稿", context });
+	h.emit({ runId: "run-1", phase: "done", text: "完成" });
+	h.render("s1", { provider: "next-pi", modelId: "next-model" }).start();
+	await flush();
+	assert.deepEqual(JSON.parse(JSON.stringify(h.payloads[1])), { provider: "next-pi", modelId: "next-model", userText: "草稿" });
 });
 
 test("stop：立即回 idle 并通知主进程取消", async () => {

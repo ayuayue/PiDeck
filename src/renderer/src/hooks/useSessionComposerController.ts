@@ -7,12 +7,14 @@ import { FILE_TREE_ABSOLUTE_MAX_DEPTH } from "../../../shared/fileTree";
 import { classifyCompactError, compactOwnerReason, compactRoutedCommand, type CompactNoticeKind } from "../../../shared/compactFeedback";
 import { findImageGenProvider } from "../../../shared/imageGenConfig";
 import { resolveEnhanceTargetModel } from "../../../shared/enhanceModelPreference";
+import { collectPromptEnhanceContext } from "../utils/promptEnhanceContext";
 import type { ImageGenMeta } from "../../../shared/types/imagegen";
 import {
 	busySendDeliveryAtom,
 	cacheSessionMessagesAtom,
 	effectiveAgentBackendAtom,
 	enhanceModelAtom,
+	enhanceIncludeContextAtom,
 	imageGenConfigAtom,
 	projectByIdAtomFamily,
 	sessionAttachmentsBySessionIdAtomFamily,
@@ -276,6 +278,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 	const store = useStore();
 	const record = useAtomValue(sessionRecordByIdAtomFamily(sessionId));
 	const enhanceModelConfig = useAtomValue(enhanceModelAtom);
+	const enhanceIncludeContext = useAtomValue(enhanceIncludeContextAtom);
 	// 引导页虚拟会话没有 record：文件树/@ 引用回退到引导页选中的项目，
 	// 否则 files 恒为空、@ 输入永远匹配不到任何文件。
 	const effectiveProjectId = record?.projectId ?? options.bootstrapProjectId;
@@ -1549,20 +1552,19 @@ export function useSessionComposerController(options: UseSessionComposerControll
 	// 目标模型优先级（resolveEnhanceTargetModel）：设置页指定的固定增强模型 >
 	// 会话记录 > 引导页点选 > 部署/主进程默认；引导页的 welcomeModel 存 localStorage，
 	// 这里不走 catalog 存在性校验——模型被删的边缘情况由主进程报 model-not-found，toast 可见。
+	const enhanceTarget = resolveEnhanceTargetModel({
+		configured: enhanceModelConfig,
+		recordModel: record?.model,
+		welcomeModel: (isDshBackend ? readWelcomeDshModelPreference() : readWelcomeModelPreference())?.model,
+		fallback: isDshBackend && dshDefault ? { provider: dshDefault.provider, modelId: dshDefault.model } : bootstrapDefaults?.model,
+	});
 	const captureEnhanceRequest = useCallback((): PromptEnhanceRequest | null => {
+		if (!enhanceTarget) return null;
 		const draftSnapshot = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
-		const welcome = (isDshBackend ? readWelcomeDshModelPreference() : readWelcomeModelPreference())?.model;
-		// 与底栏 liveModel 同一組底：dsh 取部署默认（settings.yaml agent-default-model），
-		// pi 取主进程解析的启动默认（显式默认 > 切换列表 > 上次使用）。
-		const fallback = isDshBackend && dshDefault ? { provider: dshDefault.provider, modelId: dshDefault.model } : bootstrapDefaults?.model;
-		const resolved = resolveEnhanceTargetModel({
-			configured: enhanceModelConfig,
-			recordModel: record?.model,
-			welcomeModel: welcome,
-			fallback,
-		});
-		return resolved ? { ...resolved, draft: draftSnapshot } : null;
-	}, [bootstrapDefaults, dshDefault, draft, enhanceModelConfig, isDshBackend, record?.model, sessionId]);
+		// 按发起会话读取已加载快照，既不跨分屏取 currentSession，也不为增强额外加载历史。
+		const context = enhanceIncludeContext ? collectPromptEnhanceContext(store.get(sessionMessageCacheBySessionIdAtomFamily(sessionId))?.messages ?? []) : [];
+		return { ...enhanceTarget, draft: draftSnapshot, ...(context.length ? { context } : {}) };
+	}, [draft, enhanceTarget, enhanceIncludeContext, sessionId, store]);
 
 	// 回填 = 整体替换草稿（与语音插入不同：增强是对全文的改写，没有「插入位置」语义）。
 	const applyEnhancedText = useCallback(
@@ -1578,6 +1580,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 
 	const enhance = usePromptEnhance({
 		scopeKey: sessionId,
+		modelLabel: enhanceTarget ? `${enhanceTarget.provider}/${enhanceTarget.modelId}` : undefined,
 		captureRequest: captureEnhanceRequest,
 		applyText: applyEnhancedText,
 	});

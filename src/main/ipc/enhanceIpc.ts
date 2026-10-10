@@ -7,7 +7,7 @@
 
 import type { IpcMain } from "electron";
 import { ipcChannels } from "../../shared/ipc";
-import type { EnhanceEventPayload } from "../../shared/types/enhance";
+import { ENHANCE_CONTEXT_MAX_CHARS, ENHANCE_CONTEXT_MAX_MESSAGES, type EnhanceContextMessage, type EnhanceEventPayload, type EnhanceRunInput } from "../../shared/types/enhance";
 import type { EnhancePromptService } from "../pi/enhance/EnhancePromptService";
 
 /** 模型/供应商 id 是目录中的原始键：中文、空格、冒号、URL 均合法，
@@ -27,14 +27,30 @@ function isModelId(value: unknown): value is string {
 	return nonEmptyString(value, MAX_MODEL_ID_LENGTH) && !MODEL_ID_CONTROL_CHARACTERS.test(value);
 }
 
-function parseEnhanceRunInput(value: unknown): { provider: string; modelId: string; userText: string } {
+/** 上下文只接受正文白名单，并在发给独立助手前再次执行总预算检查。 */
+function parseContext(value: unknown): EnhanceContextMessage[] | undefined {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value) || value.length > ENHANCE_CONTEXT_MAX_MESSAGES) throw new Error("Invalid enhance input: context");
+	const result: EnhanceContextMessage[] = [];
+	let chars = 0;
+	for (const item of value) {
+		if (typeof item !== "object" || item === null || Array.isArray(item) || !("role" in item) || (item.role !== "user" && item.role !== "assistant") || !("text" in item) || !nonEmptyString(item.text, ENHANCE_CONTEXT_MAX_CHARS)) throw new Error("Invalid enhance input: context");
+		chars += item.text.length;
+		if (chars > ENHANCE_CONTEXT_MAX_CHARS) throw new Error("Invalid enhance input: context");
+		result.push({ role: item.role, text: item.text });
+	}
+	return result.length ? result : undefined;
+}
+
+function parseEnhanceRunInput(value: unknown): EnhanceRunInput {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("Invalid enhance input: not an object");
 	const record = value as Record<string, unknown>;
 	// 诊断只带字段名不带值：草稿是用户内容，不进主进程日志。
 	if (!isModelId(record.provider)) throw new Error("Invalid enhance input: provider");
 	if (!isModelId(record.modelId)) throw new Error("Invalid enhance input: modelId");
 	if (!nonEmptyString(record.userText, MAX_DRAFT_LENGTH)) throw new Error("Invalid enhance input: userText");
-	return { provider: record.provider, modelId: record.modelId, userText: record.userText };
+	const context = parseContext(record.context);
+	return { provider: record.provider, modelId: record.modelId, userText: record.userText, ...(context ? { context } : {}) };
 }
 
 export function registerEnhanceIpc(ipc: IpcMain, service: EnhancePromptService | null): void {

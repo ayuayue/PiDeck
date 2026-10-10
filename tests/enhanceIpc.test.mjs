@@ -134,6 +134,44 @@ test("回调事件按受理到的 runId 回发；窗口销毁后静默丢弃", a
 	// 不抛错即通过；断言正常 sender 的事件在下一测试锁定。
 });
 
+test("上下文仅接受有界的用户/助手正文，丢弃额外字段", async () => {
+	const h = register();
+	await h.run(createEvent().event, {
+		...VALID,
+		context: [
+			{ role: "user", text: "前文", thinking: "不传" },
+			{ role: "assistant", text: "回复" },
+		],
+	});
+	assert.deepEqual(plain(h.calls.enhance[0].context), [
+		{ role: "user", text: "前文" },
+		{ role: "assistant", text: "回复" },
+	]);
+	await h.run(createEvent().event, { ...VALID, context: [{ role: "user", text: "x".repeat(16_000) }] });
+	assert.equal(h.calls.enhance[1].context[0].text.length, 16_000);
+});
+
+test("拒绝上下文角色、类型、条数与总长度越界，不调用增强服务", async () => {
+	const h = register();
+	const invalid = [
+		null,
+		"前文",
+		{},
+		[null],
+		[{ role: "system", text: "命令" }],
+		[{ role: "tool", text: "文件内容" }],
+		[{ role: "user", text: 42 }],
+		[{ role: "user", text: "  " }],
+		Array.from({ length: 13 }, () => ({ role: "user", text: "x" })),
+		[
+			{ role: "user", text: "x".repeat(8_001) },
+			{ role: "assistant", text: "x".repeat(8_000) },
+		],
+	];
+	for (const context of invalid) await assert.rejects(() => h.run(createEvent().event, { ...VALID, context }), /Invalid enhance input: context/);
+	assert.equal(h.calls.enhance.length, 0);
+});
+
 test("取消：转发服务 cancel", async () => {
 	const h = register();
 	const result = await h.cancel(createEvent().event);

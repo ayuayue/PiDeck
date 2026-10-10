@@ -6,14 +6,16 @@
  * 并写穿 enhanceModelAtom（composer 点击增强时读 atom，无需重启/重开会话）。
  * 自管理保存（不进 CommonTab 草稿），与 VoiceTranscriptionSettingsSection 同模式。
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
 import { showNotice } from "../../../utils/notice";
 import { useSetAtom } from "jotai";
-import { enhanceModelAtom } from "../../../atoms/composer-atoms";
+import { enhanceIncludeContextAtom, enhanceModelAtom } from "../../../atoms/composer-atoms";
 import { ModelPicker } from "../../session/ComposerComponents";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
+import { Switch } from "../../ui-shadcn/switch";
+import { ENHANCE_CONTEXT_MAX_CHARS, ENHANCE_CONTEXT_MAX_MESSAGES } from "../../../../../shared/types/enhance";
 import type { AvailableModel } from "../../../../../shared/types";
 import type { EnhanceModelSelection } from "../../../../../shared/enhanceModelPreference";
 import { SettingsSection } from "./SettingsStorageTab";
@@ -21,7 +23,11 @@ import { SettingRow, SettingsModelPickerControl } from "./SettingRows";
 
 export function PromptEnhanceSettingsSection() {
 	const setEnhanceModel = useSetAtom(enhanceModelAtom);
+	const setEnhanceIncludeContext = useSetAtom(enhanceIncludeContextAtom);
+	const contextSwitchId = useId();
+	const savingRef = useRef(false);
 	const [configured, setConfigured] = useState<EnhanceModelSelection | null>(null);
+	const [includeContext, setIncludeContext] = useState(false);
 	const [hydrated, setHydrated] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [pickerOpen, setPickerOpen] = useState(false);
@@ -36,6 +42,7 @@ export function PromptEnhanceSettingsSection() {
 			.then((settings) => {
 				if (cancelled) return;
 				setConfigured(settings.enhanceModel ?? null);
+				setIncludeContext(settings.enhanceIncludeContext === true);
 				setHydrated(true);
 			})
 			.catch(() => setHydrated(true));
@@ -62,20 +69,46 @@ export function PromptEnhanceSettingsSection() {
 	/** 选择即保存：写 settings + 写穿 atom；失败回滚本地态并 toast。 */
 	const persist = useCallback(
 		async (next: EnhanceModelSelection | null) => {
+			if (savingRef.current) return;
+			savingRef.current = true;
 			const previous = configured;
 			setConfigured(next);
 			setSaving(true);
 			try {
-				await desktopApi.settings.update({ enhanceModel: next });
-				setEnhanceModel(next);
+				const saved = await desktopApi.settings.update({ enhanceModel: next });
+				setConfigured(saved.enhanceModel ?? null);
+				setEnhanceModel(saved.enhanceModel ?? null);
+				showNotice(t("settings.enhance.saved"), 5000);
 			} catch {
 				setConfigured(previous);
 				showNotice(t("settings.enhance.saveFailed"), 6000);
 			} finally {
+				savingRef.current = false;
 				setSaving(false);
 			}
 		},
 		[configured, setEnhanceModel],
+	);
+
+	/** 明确保存成功后才写穿开关，失败绝不能让下一次增强意外携带正文。 */
+	const persistContext = useCallback(
+		async (next: boolean) => {
+			if (savingRef.current) return;
+			savingRef.current = true;
+			setSaving(true);
+			try {
+				const saved = await desktopApi.settings.update({ enhanceIncludeContext: next });
+				setIncludeContext(saved.enhanceIncludeContext === true);
+				setEnhanceIncludeContext(saved.enhanceIncludeContext === true);
+				showNotice(t("settings.enhance.saved"), 5000);
+			} catch {
+				showNotice(t("settings.enhance.saveFailed"), 6000);
+			} finally {
+				savingRef.current = false;
+				setSaving(false);
+			}
+		},
+		[setEnhanceIncludeContext],
 	);
 
 	const openPicker = useCallback(async () => {
@@ -100,17 +133,23 @@ export function PromptEnhanceSettingsSection() {
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
-						<SelectItem value="session">{t("settings.enhance.followSession")}</SelectItem>
-						<SelectItem value="custom">{t("settings.enhance.customModel")}</SelectItem>
+						<SelectGroup>
+							<SelectItem value="session">{t("settings.enhance.followSession")}</SelectItem>
+							<SelectItem value="custom">{t("settings.enhance.customModel")}</SelectItem>
+						</SelectGroup>
 					</SelectContent>
 				</Select>
 			</SettingRow>
 
 			{configured && (
 				<SettingRow title={<span>{t("settings.enhance.model")}</span>} description={saving ? <span className="text-muted-foreground">{t("common.saving")}</span> : undefined} alignEnd={false}>
-					<SettingsModelPickerControl value={selectedLabel} placeholder={t("settings.enhance.modelPlaceholder")} onOpen={() => void openPicker()} onClear={() => void persist(null)} />
+					<SettingsModelPickerControl value={selectedLabel} placeholder={t("settings.enhance.modelPlaceholder")} disabled={!hydrated || saving} onOpen={() => void openPicker()} onClear={() => void persist(null)} />
 				</SettingRow>
 			)}
+
+			<SettingRow title={<label htmlFor={contextSwitchId}>{t("settings.enhance.includeContext")}</label>} description={t("settings.enhance.includeContextDesc", { messages: ENHANCE_CONTEXT_MAX_MESSAGES, chars: ENHANCE_CONTEXT_MAX_CHARS })}>
+				<Switch id={contextSwitchId} checked={includeContext} disabled={!hydrated || saving} onCheckedChange={(next) => void persistContext(next)} />
+			</SettingRow>
 
 			{pickerOpen && (
 				<ModelPicker

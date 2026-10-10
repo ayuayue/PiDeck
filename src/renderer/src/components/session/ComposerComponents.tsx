@@ -660,7 +660,7 @@ export function ComposerBottomBar(props: {
 							<span className="composer-bar-branch-name truncate">{props.gitInfo.current}</span>
 						</span>
 					) : null}
-					{props.enhance ? <PromptEnhanceControls disabled={props.disabled} view={props.enhance.view} modelLabel={modelName ?? undefined} onStart={props.enhance.start} onCancel={props.enhance.cancel} /> : null}
+					{props.enhance ? <PromptEnhanceControls disabled={props.disabled} view={props.enhance.view} modelLabel={props.enhance.view.modelLabel} onStart={props.enhance.start} onCancel={props.enhance.cancel} /> : null}
 					{props.voiceControls}
 					{props.sendControls}
 				</div>
