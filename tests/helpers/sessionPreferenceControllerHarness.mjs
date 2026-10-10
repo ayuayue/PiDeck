@@ -7,7 +7,7 @@ export const selectedModel = { provider: "selected", id: "chosen", name: "Chosen
 export const actualSelection = { provider: "selected", modelId: "chosen", modelName: "Pi model", thinkingLevel: "high" };
 
 /** 执行真实 controller；稳定 ref/effect 支持换栏、换绑及目录等待，聚焦身份独立于挂载栏。 */
-export function createSessionPreferenceControllerHarness({ bound = true, ready = true, favoritesLoaded = true } = {}) {
+export function createSessionPreferenceControllerHarness({ bound = true, ready = true, favoritesLoaded = true, pendingApply = false } = {}) {
 	const calls = { commands: [], updates: [], upserts: [], pending: [], applied: [], notices: [], restarts: [] };
 	const records = {
 		[SOURCE]: { ...sessionRecord(SOURCE), model: { provider: "saved", modelId: "old", modelName: "Saved" }, thinkingLevel: "low" },
@@ -18,6 +18,7 @@ export function createSessionPreferenceControllerHarness({ bound = true, ready =
 		[SOURCE]: { models: ready ? [selectedModel] : [], favoriteModels: ["selected/chosen"], favoritesLoaded, report: null, catalogLoading: !ready, isDshSession: false },
 		[NEXT]: { models: ready ? [selectedModel] : [], favoriteModels: ["selected/chosen"], favoritesLoaded, report: null, catalogLoading: !ready, isDshSession: false },
 	};
+	const pendingModels = {};
 	const shortcuts = new Set();
 	const refs = [];
 	const states = [];
@@ -28,6 +29,7 @@ export function createSessionPreferenceControllerHarness({ bound = true, ready =
 	let paneSessionId = SOURCE;
 	let focusedSessionId = SOURCE;
 	const runtimeAtom = {};
+	const pendingAtom = {};
 	const focusedAtom = {};
 	const focusAtoms = new Map();
 	const sessionFocusedByIdAtomFamily = (sessionId) => {
@@ -37,7 +39,7 @@ export function createSessionPreferenceControllerHarness({ bound = true, ready =
 	const subscriptions = new Map();
 	// Jotai store 的身份稳定；本栏焦点切片只通知进入/离开，不依赖本栏重绘。
 	const store = {
-		get: (atom) => (atom === runtimeAtom ? runtimes : atom === focusedAtom ? focusedSessionId : focusedSessionId === atom.sessionId),
+		get: (atom) => (atom === runtimeAtom ? runtimes : atom === pendingAtom ? pendingModels : atom === focusedAtom ? focusedSessionId : focusedSessionId === atom.sessionId),
 		sub: (atom, listener) => {
 			const listeners = subscriptions.get(atom) ?? new Set();
 			subscriptions.set(atom, listeners);
@@ -89,7 +91,7 @@ export function createSessionPreferenceControllerHarness({ bound = true, ready =
 				},
 			},
 			jotai: { useStore: () => store },
-			"../atoms": { currentSessionIdAtom: focusedAtom, sessionRuntimeByIdAtom: runtimeAtom, sessionFocusedByIdAtomFamily },
+			"../atoms": { currentSessionIdAtom: focusedAtom, sessionRuntimeByIdAtom: runtimeAtom, modelPendingByIdAtom: pendingAtom, sessionFocusedByIdAtomFamily },
 			"./useSessionPreferenceState": {
 				useSessionPreferenceState: ({ sessionId }) => ({
 					record: records[sessionId],
@@ -100,11 +102,15 @@ export function createSessionPreferenceControllerHarness({ bound = true, ready =
 					currentThinkingLevel: records[sessionId].thinkingLevel,
 					thinkingLevels: ["low", "medium", "high"].map((value) => ({ value })),
 					...preferences[sessionId],
+					modelPending: pendingModels[sessionId],
 					upsertSession: (record) => calls.upserts.push(plain(record)),
-					setModelPending: (value) => calls.pending.push({ sessionId, value: value ? plain(value) : null }),
+					setModelPending: (value) => {
+						pendingModels[sessionId] = value;
+						calls.pending.push({ sessionId, value: value ? plain(value) : null });
+					},
 				}),
 			},
-			"./usePendingModelApply": { usePendingModelApply: () => {} },
+			...(pendingApply ? {} : { "./usePendingModelApply": { usePendingModelApply: () => {} } }),
 			"../components/session/SessionPaneServices": { useSessionPaneServices: () => services },
 			"../desktopApi": {
 				desktopApi: {
@@ -142,5 +148,5 @@ export function createSessionPreferenceControllerHarness({ bound = true, ready =
 	const shortcut = (id) => {
 		for (const listener of [...shortcuts]) listener(id);
 	};
-	return { controller: render(), render, unmount, focus, shortcut, shortcuts, subscriptions, sessions, runtimes, records, preferences, calls, services };
+	return { controller: render(), render, unmount, focus, shortcut, shortcuts, subscriptions, sessions, runtimes, records, preferences, pendingModels, calls, services };
 }
