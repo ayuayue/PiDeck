@@ -31,6 +31,7 @@ const MODULE_LABEL_KEYS: Record<HideableModuleId, TranslationKey> = {
 	git: SETTINGS_TAB_LABEL_KEYS.git,
 	usage: SETTINGS_TAB_LABEL_KEYS.usage,
 	process: SETTINGS_TAB_LABEL_KEYS.process,
+	composerModes: "settings.modules.composerModes",
 	dsh: "settings.modules.dsh",
 };
 
@@ -46,6 +47,7 @@ const MODULE_DESC_KEYS: Record<HideableModuleId, TranslationKey> = {
 	git: "settings.modules.gitDesc",
 	usage: "settings.modules.usageDesc",
 	process: "settings.modules.processDesc",
+	composerModes: "settings.modules.composerModesDesc",
 	dsh: "settings.modules.dshDesc",
 };
 
@@ -92,6 +94,7 @@ export const ModuleVisibilitySection = memo(function ModuleVisibilitySection(pro
 			case "process":
 			case "acp":
 			case "hostplugins":
+			case "composerModes":
 				return null;
 		}
 	};
