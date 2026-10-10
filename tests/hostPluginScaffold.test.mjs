@@ -30,7 +30,7 @@ function manifestFor(permissions) {
 }
 /** broker 替身：只有 getEnabled 被用到，fingerprint 与 bind 时传的值保持一致。 */
 function brokerFor(permissions, sessions, projectNameOf, storage = { get: () => null, set: async () => undefined }) {
-	const broker = new HostPluginBroker({ getEnabled: (id) => (id === "example.viewer" ? { manifest: manifestFor(permissions), fingerprint: "f" } : undefined) }, sessions, storage, projectNameOf);
+	const broker = new HostPluginBroker({ getEnabled: (id) => (id === "example.viewer" ? { manifest: manifestFor(permissions), fingerprint: "f" } : undefined), onChanged: () => () => {} }, sessions, storage, projectNameOf);
 	return broker;
 }
 const emptySessions = { list: () => ({ sessions: [], nextOffset: null }), entries: async () => ({ entries: [], nextCursor: null, truncated: false }), describe: (context) => context };
@@ -81,6 +81,41 @@ test("host plugin scaffold only emits code for the permissions it declares", () 
 	const readme = full.get("README.md");
 	for (const permission of ALL_PERMISSIONS) assert.match(readme, new RegExp(`\`${permission.replace(".", "\\.")}\``));
 	assert.match(readme, /pack-host-plugin\.mjs/);
+});
+
+test("network scaffolds preserve declared grants and never issue requests before a click", () => {
+	const declarations = [
+		{ permissions: ["network.https"], network: { httpsOrigins: ["https://api.example.com/"] } },
+		{ permissions: ["network.local"], network: { localPorts: [4187] } },
+		{ permissions: [...ALL_PERMISSIONS, "network.https", "network.local"], network: { httpsOrigins: ["https://api.example.com"], localPorts: [4187] } },
+	];
+	for (const declaration of declarations) {
+		const files = buildHostPluginScaffold(input(declaration));
+		const manifest = parseHostPluginManifest(JSON.parse(files.get("pideck-plugin.json")));
+		assert.equal(manifest.network?.httpsOrigins?.[0], declaration.network.httpsOrigins?.[0]?.replace(/\/$/, ""));
+		assert.equal(manifest.network?.localPorts?.[0], declaration.network.localPorts?.[0]);
+		assert.match(files.get("app.html"), /id="network-request"/);
+		assert.match(files.get("app.js"), /pideck\.network\.request\(/);
+		assert.match(files.get("app.js"), /addEventListener\("click",[^\n]*requestNetworkDemo/);
+		assert.doesNotMatch(files.get("app.js"), /\bfetch\(|XMLHttpRequest|innerHTML/);
+		assert.doesNotThrow(() => new Function(files.get("app.js")));
+		assert.match(files.get("README.md"), /network\.request/);
+	}
+	const offline = buildHostPluginScaffold(input({ permissions: [] }));
+	assert.doesNotMatch(offline.get("app.html"), /id="network-request"/);
+	assert.doesNotMatch(offline.get("app.js"), /pideck\.network\.request/);
+});
+
+test("invalid network declarations leave no partial scaffold", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pideck-scaffold-network-"));
+	try {
+		for (const over of [{ permissions: ["network.https"] }, { permissions: [], network: { localPorts: [4187] } }, { permissions: ["network.local"], network: { localPorts: [0] } }]) {
+			await assert.rejects(createHostPluginScaffold(root, input(over)), /invalid-network/);
+		}
+		assert.deepEqual(await readdir(root), []);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
 });
 
 test("host plugin scaffold refuses to overwrite an existing folder or an unsafe id", async () => {

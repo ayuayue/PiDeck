@@ -1,12 +1,13 @@
 /** L2 脚手架：从 0 生成一个能直接运行的宿主插件，作者（或 AI）在它上面改，而不是抄文档。
  *
- * 生成的代码只使用 `window.pideck`，并遵守沙箱约束（无网络、无 innerHTML、消费主题变量）；
+ * 生成的代码只使用 `window.pideck`，并遵守沙箱约束（页面不直连网络、无 innerHTML、消费主题变量）；
  * 未勾选的权限不会出现在 manifest 里，对应示例代码也不会生成——模板即最小可用包。
  */
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { HostPluginPermission, HostPluginScaffoldInput } from "../../shared/types/hostPlugin";
 import { isHostPluginId, isPluginRecord, parseHostPluginManifest } from "./hostPluginManifest";
+import { scaffoldNetworkDemo } from "./hostPluginScaffoldNetwork";
 
 const NOTICE = "由 PiDeck 脚手架生成；改完点「重新扫描」，授权指纹会随之失效，需要重新确认。";
 
@@ -21,6 +22,7 @@ function manifestJson(input: HostPluginScaffoldInput): string {
 			version: "0.1.0",
 			description: NOTICE,
 			permissions: input.permissions,
+			...(input.network ? { network: input.network } : {}),
 			contributes: {
 				// icon 必须取自 shared/hostPluginIcons 的白名单，否则 manifest 解析就报 invalid-manifest。
 				panels: [{ id: "main", title: input.name, entry: "app.html", icon: "message", presentation: input.presentation }],
@@ -32,7 +34,9 @@ function manifestJson(input: HostPluginScaffoldInput): string {
 	)}\n`;
 }
 
-function appHtml(permissions: HostPluginPermission[]): string {
+function appHtml(input: HostPluginScaffoldInput): string {
+	const permissions = input.permissions;
+	const network = scaffoldNetworkDemo(input);
 	// 未声明的权限不生成对应界面：模板与 manifest 的 permissions 始终一致（与代码块同一规则）。
 	const readsSessions = permissions.includes("sessions.read");
 	const search = readsSessions ? '      <input id="search" type="search" autocomplete="off" />\n' : "";
@@ -54,7 +58,7 @@ function appHtml(permissions: HostPluginPermission[]): string {
 ${search}${permissions.includes("workbench.openExternal") ? '      <button id="guide" type="button" class="ghost"></button>\n' : ""}    </header>
     <main>
 ${main}      <section id="detail" class="detail"></section>
-    </main>
+${network.html}    </main>
     <p id="status" class="status" role="status"></p>
     <script type="module" src="app.js"></script>
   </body>
@@ -109,10 +113,11 @@ function guideWiring(permissions: HostPluginPermission[]): string {
 
 function appJs(input: HostPluginScaffoldInput): string {
 	const navigate = navigateBlock(input.permissions);
+	const network = scaffoldNetworkDemo(input);
 	// sessions.read 是模板主体（会话列表与历史）：没声明就整块不生成，避免生成一份必然报权限错的示例。
 	const readsSessions = input.permissions.includes("sessions.read");
 	return `// 宿主插件示例：读当前项目的会话目录与历史，并（可选）让工作台跳转。
-// 能力边界：只有 window.pideck 一个入口——不能联网、读文件、执行命令、加载 CDN。
+// 能力边界：只有 window.pideck 一个入口——网络由宿主按授权代发，不能直接 fetch、读文件、执行命令、加载 CDN。
 // 数据范围：只有当前项目（context.projectId）下已保存的会话；其他项目一律 session-not-authorized。
 const pideck = window.pideck;
 
@@ -149,9 +154,9 @@ function renderContext(context) {
   // 当前项目显示名与当前会话标题直接来自 context，不必再查一次。
   nodes.context.textContent = [context.projectName || context.projectId || "", context.sessionTitle || ""].filter(Boolean).join(" · ");
   if (document.getElementById("guide")) document.getElementById("guide").textContent = state.copy.guide;
-}
+${network.render}}
 
-${
+${network.code}${
 	readsSessions
 		? `
 function renderSessions() {
@@ -282,7 +287,7 @@ ${navigate.reveal}${externalLinkBlock(input.permissions)}async function main() {
     void loadSessions(0).catch(report);
   });
   nodes.search.addEventListener("input", () => void search(nodes.search.value.trim()).catch(report));
-${guideWiring(input.permissions)}  await loadSessions(0);
+${guideWiring(input.permissions)}${network.wiring}  await loadSessions(0);
 }
 
 main().catch(report);
@@ -297,9 +302,9 @@ async function main() {
   // 每插件 1 MiB 小存储：计数只是演示持久化，不需要任何权限。
   await pideck.storage.set("openCount", Number((await pideck.storage.get("openCount")) || 0) + 1);
   nodes.status.textContent = state.copy.noPermission;
-}
+${guideWiring(input.permissions)}${network.wiring}}
 
-main().catch(report);
+${externalLinkBlock(input.permissions)}main().catch(report);
 `
 }
 `;
@@ -356,7 +361,8 @@ body {
   font-size: 12px;
 }
 
-input[type="search"] {
+input[type="search"],
+input[type="url"] {
   flex: 0 0 240px;
   padding: 6px 10px;
   border: 1px solid var(--border);
@@ -461,7 +467,7 @@ function readme(input: HostPluginScaffoldInput): string {
 		"|------|------|",
 		"| `pideck-plugin.json` | 清单：id、面板入口、`permissions`（当前：" + permissions + "） |",
 		"| `app.html` | 面板入口页（manifest 的 `contributes.panels[0].entry`） |",
-		"| `app.js` | 面板逻辑：只用 `window.pideck`，无框架、无 CDN、无网络 |",
+		"| `app.js` | 面板逻辑：只用 `window.pideck`，无框架、无 CDN、页面不直接联网 |",
 		"| `styles.css` | 消费 PiDeck 主题变量，亮/暗色自动适配 |",
 		"",
 		"## 可以用的能力",
@@ -472,18 +478,22 @@ function readme(input: HostPluginScaffoldInput): string {
 		"- `pideck.workbench.navigate(sessionId, entryId)`",
 	];
 	if (input.permissions.includes("workbench.openExternal")) lines.push("- `pideck.workbench.openExternal(url)`：用系统浏览器打开 https 链接");
+	lines.push(...scaffoldNetworkDemo(input).readme);
 	lines.push("- `pideck.onEvent(listener)`：`context.changed` / `sessions.changed` 推送", "", "完整规则、错误码与预算见仓库开发指南 `docs/host-plugin-dev-guide.md`（官网同页：/guide/host-plugins）。", "", "## 打包给别人", "", "```bash", "node scripts/pack-host-plugin.mjs <本目录> my-plugin.pideck-plugin", "```", "");
 	return lines.join("\n");
 }
 
 /** 生成的文件集：路径 → 文本内容（与包规则同一套相对路径，读一次就知道会落盘什么）。 */
 export function buildHostPluginScaffold(input: HostPluginScaffoldInput): Map<string, string> {
+	// 与安装同一解析器：先拒绝越权声明并规范化 origin，再从同一份授权生成页面。
+	const manifest = parseHostPluginManifest(JSON.parse(manifestJson(input)));
+	const validatedInput = { ...input, network: manifest.network };
 	return new Map([
-		["pideck-plugin.json", manifestJson(input)],
-		["app.html", appHtml(input.permissions)],
-		["app.js", appJs(input)],
+		["pideck-plugin.json", manifestJson(validatedInput)],
+		["app.html", appHtml(validatedInput)],
+		["app.js", appJs(validatedInput)],
 		["styles.css", stylesCss()],
-		["README.md", readme(input)],
+		["README.md", readme(validatedInput)],
 	]);
 }
 

@@ -6,7 +6,7 @@ title: 宿主插件开发指南
 
 > **宿主插件（Host Plugin）** 是挂在 **PiDeck 桌面壳**上的本地静态扩展：一组 HTML / CSS / JS 文件放进一个目录，配一个 `pideck-plugin.json` 声明，就能在 PiDeck 里拥有自己的面板，读取当前项目的会话数据。
 >
-> 它属于 **PiDeck 的能力域**（不依赖 pi 进程、不联网、不执行命令）。需要拦截模型请求、深度接入 pi 会话流的场景，请改用 pi 扩展 + GUI 桥，见 `docs/plugin-dev-guide.md`。
+> 它属于 **PiDeck 的能力域**（不依赖 pi 进程、不执行命令）。页面不能直接联网，但可在声明目的地并获用户授权后，通过 `window.pideck.network.request()` 调用 HTTPS API 或已启动的本地服务。需要拦截模型请求、深度接入 pi 会话流的场景，请改用 pi 扩展 + GUI 桥，见 `docs/plugin-dev-guide.md`。
 
 ---
 
@@ -14,7 +14,8 @@ title: 宿主插件开发指南
 
 | ✅ 能做 | ❌ 不能做 |
 |--------|----------|
-| 在 PiDeck 里注册自己的面板（大弹框 `modal` 或工作区内联页 `page`） | 联网（`fetch`/`XMLHttpRequest`/WebSocket 一律不可用，CSP `connect-src 'none'`） |
+| 在 PiDeck 里注册自己的面板（大弹框 `modal` 或工作区内联页 `page`） | 页面直接联网（`fetch`/`XMLHttpRequest`/WebSocket 仍被禁止） |
+| 经 `network.request` 调用已授权的公网 HTTPS API / 本地固定端口 HTTP 服务 | 访问未声明的地址、局域网、任意端口；自动执行 BAT 或启动服务 |
 | 读取**当前项目**的会话目录：`sessions.list` / `get` / `search` | 读取其他项目的会话、读取任意本地文件 |
 | 读取会话的活跃分支历史：`sessions.entries`（分页、有预算） | 修改会话、发消息、调用 pi 或任何 RPC 命令 |
 | 让 PiDeck 打开某个会话并定位到某条消息：`workbench.navigate` | 让 PiDeck 执行任意动作（没有通用 IPC 通道） |
@@ -23,17 +24,20 @@ title: 宿主插件开发指南
 | 订阅 `context.changed` / `sessions.changed` 事件做实时刷新 | 访问 `require` / `process` / `ipcRenderer` / Node 或 Electron API |
 | 注册命令到 PiDeck 命令面板（Ctrl+K） | 注册全局快捷键、改 PiDeck 界面、注入脚本到主界面 |
 
-适合做的：**会话数据查看器、统计面板、本地可视化、批量导出预览**这类「只读 + 展示」工具。
+适合做的：**会话数据查看器、统计面板、本地可视化、导出预览、第三方 API 工具、已启动本地服务的前端**。会话 API 仍然只读；网络 POST 则可能改变远端/本地服务的数据，不能把「联网」理解成无副作用。
+
+> **隐私重点**：同时授予 `sessions.read` 与网络权限，插件就有能力把读取到的会话内容发送给声明的地址。授权弹窗会列出具体 origin / 本地端口并警告；PiDeck 不替插件判断上传内容的用途。只安装可信代码，作者应让数据发送行为明确、可理解。
 
 ## 2. 需要什么环境
 
 | 项目 | 要求 |
 |------|------|
 | 写代码 | 任意文本编辑器。**不需要** Node、npm、打包器、TypeScript——插件就是浏览器里的 HTML/CSS/JS |
-| 运行 | 一个已安装的 PiDeck（面板运行时在主进程沙箱里，与 pi 版本无关） |
+| 运行 | 一个支持所用 API 的 PiDeck（页面在独立 Chromium 沙箱里，与 pi 版本无关） |
 | 调试 | PiDeck 内置的开发者工具（面板上右键 → 检查） |
 | 打包/转换脚本 | Node 20+（只有在跑 `scripts/pack-host-plugin.mjs` 等命令行脚本时才需要） |
-| 网络 | 全程不需要 |
+| 网络 | 离线插件不需要；HTTPS 插件需要可达的公网接口；本地插件需要用户已启动、且端口已授权的服务 |
+| 本地服务环境 | 由服务自身决定（可能需要 Node / Python 等）。PiDeck 不安装这些环境、不执行启动脚本 |
 
 ## 3. 五分钟做出第一个插件（推荐路径）
 
@@ -43,7 +47,8 @@ title: 宿主插件开发指南
 2. 点 **「新建插件…」**，填：
    - **插件 ID**：小写字母开头，`[a-z0-9.-]`，≤80 字符，例如 `demo.viewer`（同时是生成目录名）；
    - **显示名**：面板与命令里的名字；
-   - **权限**：按需勾选 `sessions.read` / `workbench.navigate` / `workbench.openExternal`（默认已勾 `sessions.read`）；
+   - **权限**：默认只勾 `sessions.read`；按需增加 `workbench.navigate` / `workbench.openExternal` / `network.https` / `network.local`。纯联网工具可取消会话读取；
+   - **网络目的地**（仅勾网络权限时出现）：HTTPS 填 `https://api.example.com` 这样的 origin，本地填明确端口（如 `4187`）；多个值用逗号或空白分隔，每类最多 16 个，不支持通配符；
    - **面板形态**：`modal`（大弹框，默认）或 `page`（工作区内联页）；
 3. 生成后目录出现在插件目录里，并自动重新扫描（默认**禁用**）；
 4. 在列表里点 **「授权并启用」**；
@@ -59,7 +64,7 @@ title: 宿主插件开发指南
 | `styles.css` | 消费 PiDeck 注入的主题变量（`--color-*`），亮暗色自动适配 |
 | `README.md` | 改哪里、怎么打包、约束清单 |
 
-> 脚手架按你勾的权限生成代码：没勾 `sessions.read` 就不会出现会话列表代码，模板与 manifest 永远一致。
+> 脚手架按你勾的权限生成代码：没勾 `sessions.read` 就不会出现会话列表代码；没勾网络权限就不会生成网络按钮。勾了网络时生成的是**点击才请求**的示例，不自动请求、不上传会话、不启动服务。模板与 manifest 使用同一份目的地声明。
 
 ### 3.2 开发循环
 
@@ -134,7 +139,7 @@ for (const session of page.sessions) {
 
 把目录放进插件目录（设置 → PiDeck 插件 → 「打开插件目录」），点「重新扫描」→「授权并启用」，面板即可挂载。
 
-> 已经有 pi-context？不用手写，见第 9 节的一次性转换脚本。
+> 已经有 pi-context？不用手写，见第 10 节的一次性转换脚本。需要联网示例，见第 5.5 节。
 
 ## 4. 目录、manifest 与包预算
 
@@ -147,7 +152,8 @@ for (const session of page.sessions) {
 | `name` | ✅ | 非空，≤160 字符，无控制字符 |
 | `version` | ✅ | 非空，≤160 字符（仅用于展示，授权不看它） |
 | `description` | — | ≤1000 字符 |
-| `permissions` | ✅ | 数组，只能取 `sessions.read` / `workbench.navigate` / `workbench.openExternal`，不能重复；未知权限拒装 |
+| `permissions` | ✅ | 数组，只能取 `sessions.read` / `workbench.navigate` / `workbench.openExternal` / `network.https` / `network.local`，不能重复；未知权限拒装 |
+| `network` | 网络权限存在时 ✅ | `network.https` 对应 `httpsOrigins`，`network.local` 对应 `localPorts`。没声明对应权限不得填写该字段；规则见 5.5 |
 | `contributes.panels` | ✅ | 1–8 个。`id`（同上 ID 规则）、`title`（≤160）、`entry`（包内相对路径，**必须以 `.html` 结尾**）、`icon`（白名单，可选）、`presentation`（`modal` 或 `page`，可选） |
 | `contributes.commands` | ✅ | 0–16 个。`id`、`title`、`panelId` 必须指向已声明的面板 |
 
@@ -170,7 +176,7 @@ for (const session of page.sessions) {
 
 - 每个面板实例是一个独立沙箱视图：`sandbox: true`、无 Node、无 Electron、专属 partition；
 - 入口页由 PiDeck 用 `pideck-plugin://<实例ID>/app.html` 提供，引用包内文件用**相对路径**（不要带 `?query`）；
-- CSP 由宿主注入：脚本样式只能来自本包，`connect-src 'none'`（**没有任何网络**）；
+- CSP 由宿主注入：脚本样式只能来自本包，`connect-src 'none'`（**页面不能直接联网**）；允许的网络请求只由 PiDeck 主进程经受控 API 执行，不能加载 CDN 脚本或远端页面；
 - 用 ES Module（`<script type="module" src="app.js">`）即可 `import` 包内其他模块。
 
 ## 5. `window.pideck` API 参考
@@ -191,6 +197,7 @@ for (const session of page.sessions) {
 | `pideck.storage.remove(key)` | — | `void` |
 | `pideck.workbench.navigate(sessionId, entryId?)` | `workbench.navigate` | `void` |
 | `pideck.workbench.openExternal(url)` | `workbench.openExternal` | `void` |
+| `pideck.network.request(input)` | `network.https` 或 `network.local` + 对应目的地声明 | `{ url, status, ok, headers, body }` |
 | `pideck.onEvent(listener)` | — | 取消订阅函数 |
 
 > 兼容策略：新能力只做加法。老插件不受影响；想探测新方法用 `typeof pideck.sessions.search === "function"`。
@@ -274,7 +281,116 @@ await pideck.workbench.openExternal("https://github.com/ayuayue/PiDeck/blob/main
 - `navigate` 只对**当前项目的可读会话**生效，否则 `session-not-authorized`；它由 PiDeck 主界面执行，插件页不做任何跳转。
 - `openExternal` 只接受 **https** 且不能带账号密码；系统浏览器打开。带 `http:`、`file:`、`javascript:`、`pideck-plugin:` 一律 `invalid-request`。
 
-### 5.5 事件
+### 5.5 network：第三方 API 与已启动本地服务
+
+**先声明、再授权、最后请求**。网络权限与「用系统浏览器打开链接」是两回事：`openExternal` 不返回接口数据，也不会授予网络权限。
+
+#### A. 清单声明
+
+下面是在已有 manifest 中添加的字段（不是完整插件包）：
+
+```json
+{
+	"permissions": ["network.https", "network.local"],
+	"network": {
+		"httpsOrigins": ["https://api.example.com"],
+		"localPorts": [4187]
+	}
+}
+```
+
+- **HTTPS**：origin = 协议 + 域名 + 可选端口，不带路径、查询、片段或通配符。`https://api.example.com` 不包含其子域名或其他端口；origin 下的路径可请求。运行时域名必须解析到公网地址；私网、回环、特殊用途地址以及公网/私网混合的 DNS 结果都会被拒绝。
+- **本地 HTTP**：只允许 `http://127.0.0.1:<明确端口>`，端口 1–65535；必须单独声明 `network.local` 和 `localPorts`。不支持 `localhost`、IPv6 回环或局域网地址。服务需用户自行启动；授权本地端口可能允许调用服务的写入/管理接口，**不是只有读取权限**。
+- 每类 1–16 个不重复目的地；只用一类时删除另一类的权限与字段。修改目的地同样改变内容指纹，必须重新扫描 / 重新授权。
+
+#### B. HTTPS GET / POST
+
+```js
+// api.example.com 是占位符：换成你的真实 origin 并重新授权后才能测试。
+const response = await pideck.network.request({
+	url: "https://api.example.com/v1/items",
+	method: "GET", // 可省略，默认 GET
+	headers: { Accept: "application/json" },
+});
+
+if (!response.ok) {
+	// HTTP 4xx / 5xx 不会抛错；由插件按 status、body 提示。
+	throw new Error(`HTTP ${response.status}`);
+}
+const data = JSON.parse(response.body); // body 是字符串，不是 fetch Response
+
+const saved = await pideck.network.request({
+	url: "https://api.example.com/v1/items",
+	method: "POST",
+	headers: { "Content-Type": "application/json" },
+	body: JSON.stringify({ example: true }),
+	timeoutMs: 15000,
+});
+```
+
+认证接口可由插件提供 `Authorization` / `X-API-Key` 等请求头；凭据由插件作者/用户管理，**PiDeck 不提供自己的 Cookie、pi 登录凭据或模型 API key**。不要把真实密钥写进插件包/日志；`storage` 是本地 JSON 存储，不是加密密钥保险箱。当前没有 Cookie 会话、OAuth 登录或安全密钥托管 API。
+
+#### C. 已启动本地服务
+
+```js
+const response = await pideck.network.request({
+	url: "http://127.0.0.1:4187/api/health", // 端口须已授权；路径按服务实际接口调整
+	headers: { Accept: "application/json" },
+});
+document.getElementById("status").textContent = response.body; // 不执行返回的 HTML/JS
+```
+
+这只调用已经运行的服务，**不会执行 BAT、不会启动 Node/Python、不会尝试安装服务环境**。如果 `/api/health` 不存在，需要换成真实接口。转换后的 pi-context 已改用 `sessions.*`，不需要原服务；不要为了跑它额外授权联网。
+
+#### D. 类型与硬预算
+
+```ts
+type HostPluginNetworkRequest = {
+	url: string;
+	method?: "GET" | "POST";
+	headers?: Record<string, string>;
+	body?: string; // 仅 POST，JSON 需自行 JSON.stringify
+	timeoutMs?: number;
+};
+type HostPluginNetworkResponse = {
+	url: string; // 最终 URL
+	status: number;
+	ok: boolean; // 200–299
+	headers: Record<string, string>;
+	body: string;
+};
+```
+
+| 项 | 当前边界 |
+|----|----------|
+| URL | ≤2048 字符，不带用户名/密码、片段、空白或控制字符 |
+| 方法 / 正文 | 只支持 GET / POST；GET 不接受 body；POST UTF-8 正文上限 256 KiB |
+| 请求头 | 最多 32 个、总计 16 KiB；值只允许可打印 ASCII；禁止 Cookie / Host / Origin / Referer / Proxy-* / Sec-* 以及 HTTP 连接/分帧等控制头 |
+| 超时 | 默认 15 秒、最多 30 秒；覆盖 DNS、连接、响应与全部重定向，不是每一跳单独计时 |
+| 响应 | 最多 1 MiB；只接收 UTF-8 / ASCII 的 `text/*`、`application/json` 或 `application/*+json`；204/304 空响应可无 Content-Type |
+| 压缩 / 二进制 | 请求使用 `Accept-Encoding: identity`；gzip/br 等压缩响应及二进制响应拒绝，不自动解压、不支持文件传输 |
+| 响应头 | 头部总量上限 16 KiB；只返回 content-type / content-length / cache-control / etag / last-modified / retry-after，不返回 Set-Cookie |
+| 重定向 | 最多 3 次，仅同 origin；每跳复查授权与 DNS 并固定已验证 IP；POST 在 301/302/303 转 GET，307/308 保留方法与正文 |
+| 并发 / 频率 | 与其他 API 共用每实例 2 个在途 / 每秒 20 次预算 |
+| 生命周期 | 关闭面板、上下文变化、禁用、指纹变化、应用退出都会中止在途请求；取消不等于回滚服务已执行的操作 |
+| 连接方式 | 主进程直连，不使用 PiDeck 浏览器 Cookie、模型代理设置或共享连接池；无浏览器 CORS 限制，但所有目的地/地址门禁仍生效 |
+| 尚未提供 | WebSocket、SSE/流式消费、大文件、自动启动服务、任意命令执行 |
+
+如果原项目用 `fetch`，应把调用改为 `pideck.network.request()` 并将 `response.json()` 改成 `JSON.parse(response.body)`；它不是与 fetch 完全等价的替换。
+
+#### E. 可直接导入的 demo
+
+仓库目录：**`docs/examples/host-plugins/example.network`**（`pideck-plugin.json` + `app.html` + `app.js` + `styles.css` + `README.md`）。
+
+1. 先阅读 demo 的 README，把 HTTPS 占位 origin / 接口路径或本地端口改成自己的；
+2. 设置 → PiDeck 插件 → **从文件夹安装…**，选择含 manifest 的那一层；
+3. 核对授权弹窗目的地 → 授权并启用 → 打开面板；
+4. 分别点击 HTTPS / 本地按钮观察结果。**首次加载零请求，不读取会话，不自动启动服务**；
+5. 修改外部开发目录后重新安装；修改安装目录后重新扫描 + 重新授权。
+
+运行这个静态插件不需要 Node/npm。仓库测试用假 `window.pideck` 验证按钮与错误恢复，不会连接真实接口：`node --test tests/hostPluginNetworkDemo.test.mjs`。
+
+### 5.6 事件
 
 ```js
 const off = pideck.onEvent((event) => {
@@ -291,7 +407,7 @@ const off = pideck.onEvent((event) => {
 
 只有变化过的会话需要重读，别每次事件都全量拉取。
 
-### 5.6 主题与样式
+### 5.7 主题与样式
 
 PiDeck 把语义色注入为 CSS 变量（`:root`，随主题/语言实时更新），直接用即可：
 
@@ -315,9 +431,10 @@ body {
 
 | 机制 | 说明 |
 |------|------|
-| 沙箱视图 | 每面板一个独立 webview：`sandbox: true`、无 Node、专属 partition、CSP 禁网 |
+| 沙箱视图 | 每面板一个独立 webview：`sandbox: true`、无 Node、专属 partition、CSP 禁止页面直连；受控网络只走宿主 API |
 | 唯一能力面 | 页面只能通过注入的 `window.pideck` 请求；没有通用 IPC、没有文件系统、没有 pi RPC |
-| 请求绑定实例 | 每个请求绑定它所在的面板实例；插件被禁用、或作用域切走后未完成的结果直接作废（`plugin-revoked`） |
+| 请求绑定实例 | 每个请求绑定面板实例；插件被禁用、上下文变化或面板关闭后未完成的结果作废（`plugin-revoked`），网络 socket 同步中止 |
+| 网络授权 | 启用前展示所有权限与具体 origin / 本地端口；会话读取 + 网络同时存在时提示数据外发风险；每跳复查目的地与公网 DNS，阻止未授权地址 |
 | 项目隔离 | 会话读取逐条校验归属（含 fork 祖先链逐跳校验）；跨项目一律 `session-not-authorized`，也不泄露「该会话是否存在」 |
 | 指纹授权 | 授权 = 整包逐文件 sha256。内容一变授权即失效，必须重新确认；启用中的插件不能被静默替换（`plugin-in-use`） |
 | 频率限制 | 每实例同时最多 2 个在途请求，每秒最多 20 个请求，超出 `rate-limited` |
@@ -340,6 +457,14 @@ body {
 | `storage-too-large` / `storage-full` | 存储超 1 MiB / 超 200 键 | 精简数据或分片存 |
 | `invalid-storage-key` | 键名不合法或命中保留字 | 用 `[a-zA-Z0-9_.-]{1,80}` |
 | `unsupported-method` | 请求了不存在的 API | 检查 `apiVersion` |
+| `invalid-network-request` | URL、方法、正文、请求头或超时不合法 | 按 5.5 的类型/预算传参，不传 Cookie 或控制头 |
+| `network-origin-denied` | origin 或本地端口未在 manifest 中声明 | 补目的地并重新授权；不能只改请求 URL |
+| `network-address-denied` | HTTPS DNS / IP 不属于允许的公网地址 | 使用公网接口；本地服务改用单独授权的 loopback HTTP |
+| `network-redirect-denied` / `network-too-many-redirects` | 跨 origin、无效或过多重定向 | 使用最终的同 origin 接口地址 |
+| `network-timeout` / `network-cancelled` | 总超时 / 请求被中止 | 检查服务状态；别对写入请求自动重试 |
+| `network-request-failed` | DNS、TLS、连接等失败（底层细节不会泄露） | 确认服务运行、地址可达、TLS 证书有效 |
+| `network-response-too-large` / `network-headers-too-large` | 响应正文 / 响应头超预算 | 接口分页、减少返回内容 |
+| `network-response-type-denied` / `network-response-encoding-denied` | 非文本/JSON、压缩、非法 UTF-8 或非支持字符集 | 服务返回有界 UTF-8 JSON/text，禁用压缩 |
 
 加载/安装/发布：
 
@@ -350,6 +475,7 @@ body {
 | `invalid-panel-icon` / `invalid-panel-presentation` | icon 不在白名单 / presentation 不是 `modal`\|`page` |
 | `duplicate-panel` / `duplicate-command` / `duplicate-plugin-id` | id 重复 |
 | `unsupported-permission` | 权限不在允许集合内 |
+| `invalid-network` | 网络权限与目的地不匹配、重复、格式非法或超 16 个 |
 | `missing-panel-entry` / `invalid-asset` / `asset-not-allowed` | 入口或资产路径不合法（缺文件、`..`、绝对路径、非法字符） |
 | `asset-too-large` / `package-too-large` / `package-too-deep` / `invalid-package-file` / `symlink-not-allowed` | 超出包预算（见 4.2） |
 | `already-exists` | 脚手架：目标目录已存在（不覆盖作者代码） |
@@ -361,7 +487,8 @@ body {
 
 - **面板是普通网页**：在面板上右键 → 检查，即可用 DevTools（只作用于该实例，看不到其他面板）。
 - **白屏**：99% 是 `app.js` 抛错——先看 console；其次是 manifest 的 `entry` 指错、文件名带空格/中文。
-- **改文件后面板没变**：内容变了必须**重新扫描 + 重新授权**（指纹机制），旧实例会被卸载。
+- **改文件后面板没变**：改安装目录后必须**重新扫描 + 重新授权**（指纹机制），旧实例会被卸载；改外部开发目录后先重新安装。
+- **网络调用失败**：先确认使用 `pideck.network.request` 而不是 `fetch`，再核对权限 / origin / 端口。`localhost` 不是 `127.0.0.1` 的替代写法；本地服务要自行启动。接口若总是返回压缩或二进制，请改服务配置，当前不支持这类响应。
 - **想脱离 PiDeck 调 UI**：可以在普通浏览器里起个假 `window.pideck` 来调样式，但权限/沙箱行为仍要在 PiDeck 里验证：
 
 ```html
@@ -397,7 +524,7 @@ node scripts/pack-host-plugin.mjs <插件目录> [输出.pideck-plugin]
 node scripts/convert-pi-context-host-plugin.mjs "<pi-context 目录>" "<输出目录>"
 ```
 
-产物默认禁用；上游接缝变化时转换器报错而不是生成不确定产物。
+产物默认禁用；上游接缝变化时转换器报错而不是生成不确定产物。转换后的版本使用 PiDeck 的只读会话 API，**不需要运行原项目的 BAT / Web 服务，也不需要网络权限**。其他工具是否需要后端，必须按其真实接口判断，不能照搬这条结论。
 
 ## 11. 让 AI 帮你写插件
 
@@ -409,11 +536,13 @@ node scripts/convert-pi-context-host-plugin.mjs "<pi-context 目录>" "<输出�
 
 ```
 约束：
-- 只用 window.pideck（context/sessions/storage/workbench/onEvent），没有 fetch、没有 Node、不能用 innerHTML 插入未转义文本
+- 只用 window.pideck（context/sessions/storage/workbench/network/onEvent），没有直接 fetch、没有 Node；不执行接口返回的 HTML/JS，不用 innerHTML 插入未转义文本
 - 会话数据只读，且只属于当前项目；分页用 nextCursor / nextOffset，不要一次拉全量
 - 视觉只消费 --color-* 变量并带缺省值；文案按 context.locale 出中英两份
-- 权限最小化：默认只要 sessions.read，需要跳转/外链才加 workbench.navigate / workbench.openExternal，并同步改 manifest
-- 改完必须提示「重新扫描 + 重新授权」（授权绑定内容指纹）
+- 权限最小化：只声明实际需要的权限；联网需 network.https + network.httpsOrigins 或 network.local + network.localPorts，不支持任意域名/端口
+- 本地服务需用户自行启动，不生成自动执行 BAT/命令的逻辑；网络只能 GET/POST、有界 UTF-8 text/JSON，response.body 需自行解析
+- 默认不上传会话、不把密钥写进包/日志；同时读取会话和联网要明确说明发送哪些数据、发送到哪里
+- 改完必须提示安装目录「重新扫描 + 重新授权」，外部开发目录「重新安装 + 重新授权」（授权绑定内容指纹）
 ```
 
 4. 让 AI 用第 3.2 节的开发循环自测：改文件 → 重新扫描 → 授权 → 打开面板看 console。
@@ -428,6 +557,8 @@ node scripts/convert-pi-context-host-plugin.mjs "<pi-context 目录>" "<输出�
 | 会话读取（权限/预算/描述补全） | `src/main/plugins/HostPluginSessions.ts` |
 | 请求分发与频率限制 | `src/main/plugins/HostPluginBroker.ts` |
 | 私有存储 | `src/main/plugins/HostPluginStorage.ts` |
+| 受控网络 / 地址与预算 / HTTP 传输 | `src/main/plugins/HostPluginNetwork.ts`、`src/main/plugins/hostPluginNetworkPolicy.ts`、`src/main/plugins/hostPluginNetworkTransport.ts` |
+| 网络示例 | `docs/examples/host-plugins/example.network/`、`tests/hostPluginNetworkDemo.test.mjs` |
 | 包扫描与资产预算 | `src/main/plugins/hostPluginFiles.ts` |
 | 归档格式 | `src/main/plugins/hostPluginArchive.ts` |
 | 脚手架（本指南第 3 节） | `src/main/plugins/hostPluginScaffold.ts` |

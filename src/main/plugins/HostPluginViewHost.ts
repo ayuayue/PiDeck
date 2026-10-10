@@ -135,9 +135,10 @@ export class HostPluginViewHost implements HostPluginWebviewBridge {
 		const instance = this.instances.get(id);
 		if (!instance) return;
 		this.instances.delete(id);
-		if (instance.guest && !instance.guest.isDestroyed()) {
+		if (instance.guest) {
+			// destroyed/render-process-gone also revoke the binding: a dead guest can still own live HTTP sockets.
 			this.broker.unbind(instance.guest.id);
-			instance.guest.close();
+			if (!instance.guest.isDestroyed()) instance.guest.close();
 		}
 		instance.detach();
 	}

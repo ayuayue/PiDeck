@@ -29,6 +29,7 @@ const api: HostPluginApi = {
 		navigate: (sessionId, entryId) => request<void>({ method: "workbench.navigate", sessionId, entryId }),
 		openExternal: (url) => request<void>({ method: "workbench.openExternal", url }),
 	},
+	network: { request: (input) => request({ method: "network.request", request: input }) },
 	onEvent: (listener) => {
 		const handler = (_event: Electron.IpcRendererEvent, event: HostPluginEvent) => listener(event);
 		ipcRenderer.on(ipcChannels.hostPluginEvent, handler);
