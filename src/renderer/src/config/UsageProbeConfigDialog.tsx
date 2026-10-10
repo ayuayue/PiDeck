@@ -153,6 +153,8 @@ export function UsageProbeConfigDialog(props: {
 	// 火山方舟 AK/SK：SK 默认掩码（与 Cookie/访问令牌同一套显隐切换）。
 	const [accessKeyId, setAccessKeyId] = useState("");
 	const [secretAccessKey, setSecretAccessKey] = useState("");
+	// Sub2API 面板 JWT：默认掩码（同一套显隐切换）；可选字段，填了才追加查账户钱包余额。
+	const [panelJwt, setPanelJwt] = useState("");
 	const [showToken, setShowToken] = useState(false);
 	const [timeoutSecs, setTimeoutSecs] = useState(10);
 	const [intervalMinutes, setIntervalMinutes] = useState(5);
@@ -191,6 +193,7 @@ export function UsageProbeConfigDialog(props: {
 				setCurrencyPath(config?.currencyPath ?? "");
 				setAccessKeyId(config?.accessKeyId ?? "");
 				setSecretAccessKey(config?.secretAccessKey ?? "");
+				setPanelJwt(config?.panelJwt ?? "");
 				setTimeoutSecs(config?.timeoutSecs ?? 10);
 				setIntervalMinutes(config?.intervalMinutes ?? 5);
 				setLoadErrors(result.errors);
@@ -287,6 +290,7 @@ export function UsageProbeConfigDialog(props: {
 				...(currencyPath.trim() ? { currencyPath: currencyPath.trim() } : {}),
 				...(accessKeyId.trim() ? { accessKeyId: accessKeyId.trim() } : {}),
 				...(secretAccessKey.trim() ? { secretAccessKey: secretAccessKey.trim() } : {}),
+				...(panelJwt.trim() ? { panelJwt: panelJwt.trim() } : {}),
 				...(timeoutSecs !== 10 ? { timeoutSecs } : {}),
 			});
 			setTestResult(result);
@@ -330,8 +334,11 @@ export function UsageProbeConfigDialog(props: {
 			// 通用/Sub2API：apiKey 与 baseUrl 都可选（默认取供应商条目；Sub2API 的 /v1/usage
 			// 与推理端点同 base 同 key，通常两项都留空）。
 			if (current.id === "general" || current.id === "sub2api") {
-				if (apiKey.trim()) config.apiKey = apiKey.trim();
+				// Sub2API 不暴露 API Key 覆盖：凭据直接取供应商配置（界面无输入框，存盘也不回写旧值）。
+				if (current.id === "general" && apiKey.trim()) config.apiKey = apiKey.trim();
 				if (baseUrl.trim()) config.baseUrl = baseUrl.trim();
+				// Sub2API 面板 JWT（可选）：填了才写，清空即回到纯 /v1/usage 模式。
+				if (current.id === "sub2api" && panelJwt.trim()) config.panelJwt = panelJwt.trim();
 			} else if (current.id === "newapi") {
 				if (baseUrl.trim()) config.baseUrl = baseUrl.trim();
 				if (!accessToken.trim() || !userId.trim()) {
@@ -508,11 +515,29 @@ export function UsageProbeConfigDialog(props: {
 							</section>
 
 							{/* 模板字段区：仅声明式模板有字段；内置/套餐/订阅零字段 */}
-							{(currentTemplate?.id === "general" || currentTemplate?.id === "sub2api") && (
+							{currentTemplate?.id === "general" && (
 								<section className="space-y-3">
 									<div className="grid grid-cols-2 gap-3">
 										<OptionalField label={t("config.usageProbe.credentialApiKey")} placeholder={t("config.usageProbe.credentialApiKeyPlaceholder")} value={apiKey} onChange={setApiKey} />
 										<OptionalField label={t("config.usageProbe.credentialBaseUrl")} placeholder={t("config.usageProbe.credentialBaseUrlPlaceholder")} value={baseUrl} onChange={setBaseUrl} />
+									</div>
+								</section>
+							)}
+							{/* Sub2API：凭据直接取供应商 apiKey（不暴露覆盖输入框），只有端点覆盖 + 面板 JWT 两个字段 */}
+							{currentTemplate?.id === "sub2api" && (
+								<section className="space-y-3">
+									<OptionalField label={t("config.usageProbe.credentialBaseUrl")} placeholder={t("config.usageProbe.credentialBaseUrlPlaceholder")} value={baseUrl} onChange={setBaseUrl} />
+									<div className="space-y-1.5">
+										<div className="flex items-center justify-between">
+											<Label className="text-xs font-medium text-foreground">{t("config.usageProbe.sub2apiPanelJwt")}</Label>
+											<button type="button" className="inline-flex items-center gap-1 text-micro text-text-tertiary transition-colors hover:text-foreground" onClick={() => setShowToken((value) => !value)}>
+												{showToken ? <EyeOff size={12} /> : <Eye size={12} />}
+												{showToken ? t("config.usageProbe.hideKey") : t("config.usageProbe.showKey")}
+											</button>
+										</div>
+										{/* JWT 默认掩码（防截图泄密）；过期后余额段消失，重新粘贴新令牌即可 */}
+										<Input type={showToken ? "text" : "password"} value={panelJwt} onChange={(event) => setPanelJwt(event.target.value)} placeholder={t("config.usageProbe.sub2apiPanelJwtPlaceholder")} className="h-9" data-testid="usage-probe-sub2api-jwt" />
+										<p className="text-caption leading-relaxed text-text-tertiary">{t("config.usageProbe.sub2apiPanelJwtHint")}</p>
 									</div>
 								</section>
 							)}

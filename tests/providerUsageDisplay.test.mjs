@@ -135,6 +135,37 @@ test("usageBadgeSegments：balance 出「余额+金额」；credits 出「剩+�
 	assert.equal(json(display.usageBadgeSegments(creditsResult({ total: 200, used: 50 }), t)), json([{ labelKey: "config.usage.remainingShort", text: "150", tone: "ok" }]));
 });
 
+test("usageBadgeSegments：credits+balance 合并（Sub2API 面板余额）余额段在已用/剩余/窗口段之前", () => {
+	const t = (key) => `#${key}`;
+	const json = (value) => JSON.stringify(value);
+	// 无限量订阅形态（zuiapi 实测）：只有已用 + 面板余额 → [余额, 已用]
+	assert.equal(
+		json(display.usageBadgeSegments({ success: true, kind: "credits", credits: { used: 5.8 }, balance: { value: 12.34, currency: "USD" } }, t)),
+		json([
+			{ labelKey: "config.usage.balanceShort", text: "$12.34", tone: "ok" },
+			{ labelKey: "config.usage.usedShort", text: "5.8", tone: "neutral" },
+		]),
+	);
+	// 余额 0 → 灰（公益站账号钱包常为 0，绿色会误导「还有钱」）
+	assert.equal(
+		json(display.usageBadgeSegments({ success: true, kind: "credits", credits: { used: 5.8 }, balance: { value: 0 } }, t)),
+		json([
+			{ labelKey: "config.usage.balanceShort", text: "0", tone: "neutral" },
+			{ labelKey: "config.usage.usedShort", text: "5.8", tone: "neutral" },
+		]),
+	);
+	// 窗口形态：余额段排在窗口段之前
+	assert.equal(
+		json(display.usageBadgeSegments({ success: true, kind: "credits", credits: { windows: [{ key: "fiveHour", total: 100, used: 45 }] }, balance: { value: 9.9 } }, t)),
+		json([
+			{ labelKey: "config.usage.balanceShort", text: "9.9", tone: "ok" },
+			{ labelKey: "sessionContext.usageWindowFiveHour", text: "45%", tone: "ok" },
+		]),
+	);
+	// credits 全空只剩面板余额：余额段单独成行，不能被 null 吞掉
+	assert.equal(json(display.usageBadgeSegments({ success: true, kind: "credits", credits: {}, balance: { value: 3 } }, t)), json([{ labelKey: "config.usage.balanceShort", text: "3", tone: "ok" }]));
+});
+
 test("usageBadgeSegments：credits windows 逐窗出「窗口名+百分比」，剩余可反推已用", () => {
 	const t = (key) => `#${key}`;
 	const json = (value) => JSON.stringify(value);

@@ -122,6 +122,8 @@ export type UsageProbeProviderConfig = {
 	accessKeyId?: string;
 	/** 火山方舟模板：Secret Access Key；只用于本地派生 HMAC 签名，不写日志与遥测。 */
 	secretAccessKey?: string;
+	/** Sub2API 模板：网页后台登录态 JWT（可选）；填了追加 /api/v1/auth/me 查账户钱包余额，与已用并列展示。 */
+	panelJwt?: string;
 	/** 超时（秒），默认 10。 */
 	timeoutSecs?: number;
 	/** 自动查询间隔（分钟），默认 5；0 = 不自动。 */
@@ -204,6 +206,8 @@ export type UsageProbeTestInput = {
 	/** 火山方舟模板 AK/SK：与 apiKey 互斥（签名鉴权，不用 Bearer）。 */
 	accessKeyId?: string;
 	secretAccessKey?: string;
+	/** Sub2API 模板：网页后台 JWT（可选，追加查账户钱包余额）。 */
+	panelJwt?: string;
 	/** 测试用超时（秒）；缺省 10。 */
 	timeoutSecs?: number;
 };

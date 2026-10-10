@@ -255,6 +255,10 @@ export function usageBadgeSegments(result: ProviderUsageResult, translate: Usage
 	}
 	if (result.kind === "credits" && result.credits) {
 		const credits = result.credits;
+		// 面板余额合并（Sub2API JWT）：credits 形态之上并列余额段，与已用/剩余同屏；
+		// 余额>0 绿、≤0 灰（余额无「百分比」语义，不参与档位计算）。
+		const panelBalance = result.balance;
+		const balanceSegment: UsageBadgeSegment[] = panelBalance ? [{ labelKey: "config.usage.balanceShort", text: formatBalance(panelBalance), tone: panelBalance.value > 0 ? "ok" : "neutral" }] : [];
 		// 逐窗口段：算得出百分比出「窗口名+百分比」；无总额但有剩余量退化为「窗口名+剩余」；
 		// 两者都算不出的窗口直接跳过（展示「窗口名 —」是噪音）。
 		const windowSegments = (credits.windows ?? []).flatMap((window): UsageBadgeSegment[] => {
@@ -270,16 +274,17 @@ export function usageBadgeSegments(result: ProviderUsageResult, translate: Usage
 		});
 		if ((credits.windows?.length ?? 0) > 0) {
 			// 窗口全跳过时落到主值分支（有剩余/已用就别整行消失）。
-			if (windowSegments.length > 0) return windowSegments;
+			if (windowSegments.length > 0) return [...balanceSegment, ...windowSegments];
 		}
 		const remaining = credits.remaining ?? (credits.total != null && credits.used != null ? credits.total - credits.used : undefined);
 		if (remaining != null) {
-			return [{ labelKey: "config.usage.remainingShort", text: formatAmount(remaining), tone: usageTone(result) }];
+			return [...balanceSegment, { labelKey: "config.usage.remainingShort", text: formatAmount(remaining), tone: usageTone(result) }];
 		}
 		if (credits.used != null) {
-			return [{ labelKey: "config.usage.usedShort", text: formatAmount(credits.used), tone: "neutral" }];
+			return [...balanceSegment, { labelKey: "config.usage.usedShort", text: formatAmount(credits.used), tone: "neutral" }];
 		}
-		return null;
+		// 只剩面板余额（已用/剩余都缺）：余额段单独成行，别返回 null 把它吞了。
+		return balanceSegment.length > 0 ? balanceSegment : null;
 	}
 	return null;
 }

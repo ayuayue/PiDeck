@@ -120,3 +120,25 @@ test("sub2api 无任何可用数值时不命中（回退其他候选/原始展�
 	assert.equal(parse({ mode: "wallet", isValid: true }).matched, false);
 	assert.equal(parse("nope").matched, false);
 });
+
+/** parseSub2ApiPanelBalance 的便捷入口：/api/v1/auth/me 响应 → 余额段。 */
+function parsePanel(body) {
+	return custom.parseSub2ApiPanelBalance(body, JSON.stringify(body));
+}
+
+test("sub2api 面板余额解析：data.balance 输出余额（USD，冻结额不扣减）", () => {
+	const res = parsePanel({ code: 0, message: "success", data: { id: 1, email: "a@b.c", balance: 12.34, frozen_balance: 1.5, total_recharged: 100 } });
+	assert.ok(res && res.matched, "应命中");
+	assert.equal(res.kind, "balance");
+	// 与网页面板同口径：余额取 balance 原值，冻结额不扣减。
+	assert.equal(res.balance.value, 12.34);
+	assert.equal(res.balance.currency, "USD");
+});
+
+test("sub2api 面板余额解析：JWT 失效（非 2xx 在请求层已被挡）与结构变更静默不命中", () => {
+	// 上游包一层 { code, message, data }；无 data（如错误响应）不命中。
+	assert.equal(parsePanel({ code: "unauthorized", message: "无效合牌" }).matched, false);
+	// data.balance 缺失（上游结构变更）不命中。
+	assert.equal(parsePanel({ code: 0, data: { id: 1 } }).matched, false);
+	assert.equal(parsePanel(null).matched, false);
+});

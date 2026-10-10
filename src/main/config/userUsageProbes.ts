@@ -398,6 +398,10 @@ export function normalizeProviderConfig(input: unknown): { config: UsageProbePro
 	const secretAccessKey = optionalString(input.secretAccessKey);
 	if (secretAccessKey) config.secretAccessKey = secretAccessKey;
 
+	// Sub2API 面板 JWT：登录态令牌无格式可校验（非空即可）；会过期，仅用于追加查账户钱包余额。
+	const panelJwt = optionalString(input.panelJwt);
+	if (panelJwt) config.panelJwt = panelJwt;
+
 	if (input.timeoutSecs !== undefined) {
 		if (typeof input.timeoutSecs !== "number" || !Number.isInteger(input.timeoutSecs) || input.timeoutSecs < 1 || input.timeoutSecs > 300) {
 			return { error: "timeoutSecs 必须是 1-300 的整数" };

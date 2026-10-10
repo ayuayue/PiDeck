@@ -63,7 +63,7 @@ export function isDeclarativeTemplateId(id: string): boolean {
  */
 export function buildDeclarativeUsageProbeTemplate(
 	templateId: string,
-	config: Pick<UsageProbeProviderConfig, "apiKey" | "baseUrl" | "accessToken" | "userId" | "cookie" | "cookiePath" | "valuePath" | "currencyPath" | "accessKeyId" | "secretAccessKey">,
+	config: Pick<UsageProbeProviderConfig, "apiKey" | "baseUrl" | "accessToken" | "userId" | "cookie" | "cookiePath" | "valuePath" | "currencyPath" | "accessKeyId" | "secretAccessKey" | "panelJwt">,
 	endpoint: { baseUrl: string; apiKey: string },
 ): { candidates: UsageProbeCandidate[]; candidate: UsageProbeCandidate; baseUrl: string; apiKey: string } | { error: string } {
 	if (templateId === "general") {
@@ -171,9 +171,13 @@ export function buildDeclarativeUsageProbeTemplate(
 		// Sub2API 网关：/v1/usage 与 OpenAI 兼容端点同 base（与 newapi/cookie 相反，不剥 /v1，
 		// 版本化补齐交给探测层）；鉴权就是供应商 apiKey（自动补 Bearer）。三种计费形态
 		//（钱包/订阅/key 额度）结构差异大且随部署版本漂移，交给专用解析器 sub2api-usage 分流。
+		// 面板 JWT（可选）：无限量订阅分组的 key 在 /v1/usage 里没有余额，只能用网页登录态
+		// 追加查 /api/v1/auth/me 的账户钱包余额（执行层合并，失败只丢余额段）。
+		const panelJwt = config.panelJwt?.trim() ?? "";
+		const candidate: UsageProbeCandidate = panelJwt ? { ...sub2apiUsageProbe(), panelBalance: { token: panelJwt } } : sub2apiUsageProbe();
 		return {
-			candidate: sub2apiUsageProbe(),
-			candidates: [sub2apiUsageProbe()],
+			candidate,
+			candidates: [candidate],
 			baseUrl: config.baseUrl?.trim() || endpoint.baseUrl,
 			apiKey: config.apiKey?.trim() || endpoint.apiKey,
 		};

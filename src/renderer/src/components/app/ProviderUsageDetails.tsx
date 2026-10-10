@@ -93,7 +93,9 @@ export function ProviderUsageDetails(props: {
 	const result = entry.result;
 	// 开关关着（默认态）：不查也不空着——直接告诉用户去哪开。
 	const notEnabled = state != null && !state.enabled;
-	const balance = result?.kind === "balance" && result.success ? result.balance : undefined;
+	// balance 不再限定 kind=balance：Sub2API 面板余额合并会把账户钱包余额并进 credits
+	// 形态的结果（余额行在窗口/已用行之上，与徽标同序）；钱包形态本身仍是 kind=balance。
+	const balance = result?.success ? result.balance : undefined;
 	const credits = result?.kind === "credits" && result.success ? result.credits : undefined;
 	const periods = result?.kind === "periods" && result.success ? result.periods : undefined;
 	const windows = credits?.windows ?? [];

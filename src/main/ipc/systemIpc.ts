@@ -2384,6 +2384,8 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 			// 火山方舟 AK/SK：必填透传（缺任一项模板构建即报错，测试按钮才能给出人话提示）。
 			...(typeof input.accessKeyId === "string" ? { accessKeyId: input.accessKeyId } : {}),
 			...(typeof input.secretAccessKey === "string" ? { secretAccessKey: input.secretAccessKey } : {}),
+			// Sub2API 面板 JWT（可选）：透传后模板构建才会挂 panelBalance 追加余额请求。
+			...(typeof input.panelJwt === "string" ? { panelJwt: input.panelJwt } : {}),
 			...(typeof input.timeoutSecs === "number" ? { timeoutSecs: input.timeoutSecs } : {}),
 		});
 		void appLogger.info("config", "Usage probe tested", {

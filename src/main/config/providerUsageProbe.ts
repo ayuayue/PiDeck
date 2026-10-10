@@ -145,6 +145,13 @@ export type UsageProbeCandidate = {
 	noBearer?: boolean;
 	/** 链式预检：先请求预检端点再请求主端点（如 xAI identity → billing）。 */
 	preflight?: UsageProbePreflight;
+	/**
+	 * Sub2API 面板余额合并：主端点 /v1/usage 成功且解析出非 balance 形态（订阅/Key
+	 * 额度，无钱包余额）时，用该网页后台 JWT 追加请求 {origin}/api/v1/auth/me 取
+	 * 账户钱包余额，并进结果的 balance 字段（与已用并列展示）。JWT 过期/请求失败
+	 * 只丢余额段，不影响主结果——只在模板构建层注入，用户探针不使用。
+	 */
+	panelBalance?: { token: string };
 	/** 响应解析规格；缺省走 periods（opencode-go 兼容）。 */
 	parse?: UsageProbeParse;
 	/**

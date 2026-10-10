@@ -136,3 +136,20 @@ test("sub2api 模板：可选覆盖 baseUrl/apiKey 优先于供应商条目", ()
 	assert.equal(built.baseUrl, "https://gw.override.example/v1");
 	assert.equal(built.apiKey, "sk-other");
 });
+
+test("sub2api 模板：panelJwt 挂 panelBalance（追加余额请求），空白视为未填", () => {
+	const withJwt = tpl.buildDeclarativeUsageProbeTemplate("sub2api", { panelJwt: "eyJ.jwt.token" }, { baseUrl: "https://api.zuiapi.ccwu.cc/v1", apiKey: "sk-zui" });
+	assert.ok(!("error" in withJwt));
+	// 主候选与候选列表同源：执行层从 candidate 读 panelBalance 追加 /api/v1/auth/me。
+	assert.equal(withJwt.candidate.panelBalance.token, "eyJ.jwt.token");
+	assert.equal(withJwt.candidates[0].panelBalance.token, "eyJ.jwt.token");
+	// JWT 只追加余额请求，不改主请求形态（仍是 /usage + 专用解析器）。
+	assert.equal(withJwt.candidate.path, "/usage");
+	assert.equal(withJwt.candidate.parse.resolver, "sub2api-usage");
+	// 空白 JWT（纯空格）等同未填：不挂 panelBalance，不发出多余请求。
+	const blank = tpl.buildDeclarativeUsageProbeTemplate("sub2api", { panelJwt: "   " }, { baseUrl: "https://api.zuiapi.ccwu.cc/v1", apiKey: "sk-zui" });
+	assert.ok(!("error" in blank));
+	assert.equal(blank.candidate.panelBalance, undefined);
+	const without = tpl.buildDeclarativeUsageProbeTemplate("sub2api", {}, { baseUrl: "https://api.zuiapi.ccwu.cc/v1", apiKey: "sk-zui" });
+	assert.equal(without.candidate.panelBalance, undefined);
+});

@@ -579,3 +579,22 @@ function parseKimiCredits(body: unknown, raw: string): UsageProbeResponse {
 		...(booster ? { booster } : {}),
 	};
 }
+
+/**
+ * Sub2API 面板用户信息（GET /api/v1/auth/me，网页后台 JWT 鉴权）解析。
+ *
+ * 上游通用路由（auth_handler.GetCurrentUser → response.Success 包一层
+ * { code, message, data }，data 即 userProfileResponse 内嵌 dto.User）：
+ *   { "code": 0, "message": "success", "data": { ..., "balance": 12.34, "frozen_balance": 0, ... } }
+ * balance 是账户钱包余额（USD），与 API key 维度的用量数字并列展示；冻结额不扣减
+ * （与网页面板同口径）。取不到 data.balance 视为未命中——JWT 失效（401 在请求层已被
+ * 挡下）或上游结构变更时静默降级，调用方只丢余额段、不影响主用量结果。
+ */
+export function parseSub2ApiPanelBalance(body: unknown, raw: string): UsageProbeResponse {
+	if (!body || typeof body !== "object" || Array.isArray(body)) return { matched: false, raw };
+	const data = getByPath(body, "data");
+	if (!data || typeof data !== "object" || Array.isArray(data)) return { matched: false, raw };
+	const balance = toNumber((data as Record<string, unknown>).balance);
+	if (balance === undefined) return { matched: false, raw };
+	return { matched: true, kind: "balance", balance: { value: balance, currency: "USD" } };
+}

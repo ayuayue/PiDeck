@@ -2683,7 +2683,11 @@ export const enUS: Record<TranslationKey, string> = {
 	"config.usageProbe.newapiHint": "New API / OneAPI relay balance (credits converted automatically)",
 	"config.usageProbe.cookieHint": "Self-hosted gateway web-admin API (e.g. /api/wallet/summary): needs the login Cookie and must NOT use the API Key (dual credentials conflict)",
 	"config.usageProbe.volcengineHint": "Volcengine Ark (ark) plan usage: signs requests with a console-generated AK/SK pair to query Agent Plan or Coding Plan quota — the subscribed plan is detected automatically",
-	"config.usageProbe.sub2apiHint": "Sub2API self-hosted gateway usage: queries /v1/usage and auto-detects wallet balance, subscription limits, or key quota; credentials default to the provider apiKey — usually nothing to fill in",
+	"config.usageProbe.sub2apiHint":
+		"Sub2API self-hosted gateway usage: queries /v1/usage and auto-detects wallet balance, subscription limits, or key quota; credentials are taken automatically from the provider apiKey — nothing to fill in. For unlimited subscription groups with no balance, optionally paste a panel JWT below to also show the account wallet balance",
+	"config.usageProbe.sub2apiPanelJwt": "Panel JWT (optional)",
+	"config.usageProbe.sub2apiPanelJwtPlaceholder": "Web dashboard login JWT, used to additionally query the account wallet balance",
+	"config.usageProbe.sub2apiPanelJwtHint": "How to get: web dashboard → F12 → Network → any /api/v1 request's Authorization header (strip the Bearer prefix). When the token expires the balance row disappears — just paste a fresh one; usage/limits are unaffected",
 	"config.usageProbe.legacyDetected": "Legacy probe detected ({name}, {count} total): Cookie template fields pre-filled — just save to migrate to the new format",
 	"config.usageProbe.legacyUnnamed": "unnamed probe",
 	"config.usageProbe.credentialApiKey": "API Key (optional)",
