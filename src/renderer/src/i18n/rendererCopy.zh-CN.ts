@@ -5018,6 +5018,8 @@ export const zhCN = {
 	"terminal.closeCurrent": "关闭当前终端",
 	"terminal.collapse": "收起终端",
 	"terminal.copied": "已复制",
+	"terminal.createFailed": "创建终端失败",
+	"terminal.closeFailed": "关闭终端失败",
 	"terminal.exited": "已退出",
 	"terminal.expand": "展开终端",
 	"terminal.more": "终端更多操作",
