@@ -4,7 +4,7 @@ import { applySessionRuntimeEventAtom, cacheSessionMessagesAtom, sessionRecordsA
 import { sessionIdByRuntimeAgentIdAtomFamily, sessionRuntimeBySessionIdAtomFamily } from "../../atoms/session-selectors";
 import { dshRuntimeStatusAtom } from "../../atoms/dsh-atoms";
 import { openSettingsAtom } from "../../atoms/app-ui-atoms";
-import { isLiveRuntimeStatus, requireSessionCommand, resolveSessionRunState, sessionRunCapabilities, SessionCommandFailure, toSessionRuntimeTarget, type SessionRunCapabilities, type SessionRunAction } from "../../utils/sessionCommands";
+import { canRunSessionAction, isLiveRuntimeStatus, requireSessionCommand, resolveSessionRunState, sessionRunCapabilities, SessionCommandFailure, toSessionRuntimeTarget, type SessionRunCapabilities, type SessionRunAction } from "../../utils/sessionCommands";
 import { sessionHistoryUnavailableState } from "../../utils/sessionHistoryAvailability";
 import { DSH_INSTALL_SETTINGS_TARGET, maybeHintMissingDshRunnerNode, showDshRuntimeBlockHint } from "../../utils/dshRuntimeHint";
 import { dshSendBlockReason } from "../../../../shared/types/dshRuntime";
@@ -56,6 +56,8 @@ export function useSessionRunControl({ agents, activeAgent, activeAgentId, activ
 	const [activatingSessionId, setActivatingSessionId] = useState<string | null>(null);
 	const [stoppingAgentId, setStoppingAgentId] = useState<string | null>(null);
 	const [reloadingSessionId, setReloadingSessionId] = useState<string | null>(null);
+	// state 负责呈现；首次 await 前按会话加锁，避免同轮点击以及克隆/重启互相抢绑定。
+	const replacingSessionIdsRef = useRef(new Set<string>());
 
 	const getRuntimeTargetForSession = (sessionId: string | undefined) => (sessionId ? toSessionRuntimeTarget(sessionId, store.get(sessionRuntimeBySessionIdAtomFamily(sessionId))) : undefined);
 	// target 存在不代表 live（error/closed 终态仍持有绑定）：改文件前是否要先停 Agent
@@ -71,13 +73,16 @@ export function useSessionRunControl({ agents, activeAgent, activeAgentId, activ
 		if (!projectId || !targetSessionId) return;
 		await refreshProjectSessions(projectId);
 		registerOpenSession(targetSessionId, "permanent");
-		selectSessionCommand(projectId, targetSessionId, true);
+		await selectSessionCommand(projectId, targetSessionId, true);
 	}
 
+	/** 克隆锁与重启共用，项目归属在请求前从原会话快照取得。 */
 	async function cloneAgentSession(agentId: string) {
+		const target = getRuntimeTargetForAgent(agentId);
+		if (!target || replacingSessionIdsRef.current.has(target.sessionId)) return;
+		const projectId = store.get(sessionRecordsAtom)[target.sessionId]?.projectId ?? agents.find((agent) => agent.id === agentId)?.projectId;
+		replacingSessionIdsRef.current.add(target.sessionId);
 		try {
-			const target = getRuntimeTargetForAgent(agentId);
-			if (!target) return;
 			const result = requireSessionCommand(await api.sessions.cloneRuntime(target));
 			if (result?.cancelled) {
 				showToast(t("app.sessionCopyCancelled"));
@@ -85,10 +90,11 @@ export function useSessionRunControl({ agents, activeAgent, activeAgentId, activ
 			}
 			showToast(t("app.currentSessionCopied"));
 			await refreshRuntimeState(agentId);
-			const projectId = agents.find((agent) => agent.id === agentId)?.projectId ?? activeProjectId;
 			await openReplacedRuntimeSession(projectId, result.targetSessionId);
 		} catch (err) {
 			showToast(err instanceof Error ? err.message : String(err), 5000);
+		} finally {
+			replacingSessionIdsRef.current.delete(target.sessionId);
 		}
 	}
 
@@ -108,7 +114,16 @@ export function useSessionRunControl({ agents, activeAgent, activeAgentId, activ
 		const target = getRuntimeTargetForAgent(agentId);
 		if (!target) return;
 		const result = await api.sessions.getRuntimeState(target).catch(() => undefined);
-		if (result?.ok) applyAgentRuntimeState(agentId, result.value.value);
+		if (!result?.ok) return;
+		const current = getRuntimeTargetForAgent(agentId);
+		const response = result.value;
+		// 查询期间克隆/重启可能已换绑，不能把旧快照重新包装成新一代运行时事件。
+		if (!current || current.sessionId !== response.target.sessionId || current.agentId !== response.target.agentId || current.runtimeGeneration !== response.target.runtimeGeneration) return;
+		applyRuntimeEvent({
+			...response.target,
+			sourceChannel: "agents:runtime-state",
+			payload: { agentId, state: response.value },
+		});
 	}
 
 	/**
@@ -281,9 +296,9 @@ export function useSessionRunControl({ agents, activeAgent, activeAgentId, activ
 
 	async function restartActiveAgent(agentId = activeAgentId) {
 		if (!agentId) return;
-		const restartingAgent = agents.find((agent) => agent.id === agentId) ?? activeAgent;
-		if (!restartingAgent) return;
-		const target = getRuntimeTargetForAgent(restartingAgent.id);
+		// 显式 ID 已失效时不能借当前焦点兜底，否则模型选择器等异步入口会重启别的会话。
+		const restartingAgent = agents.find((agent) => agent.id === agentId) ?? (activeAgent?.id === agentId ? activeAgent : undefined);
+		const target = getRuntimeTargetForAgent(agentId);
 		if (!target) {
 			// error/closed 终态仍保留 agentId+runtimeGeneration（target 存在，可幂等重启）；
 			// 只有 detached/无绑定（无 target）才会走到这里。该场景由 restartSessionAnyState
@@ -291,10 +306,15 @@ export function useSessionRunControl({ agents, activeAgent, activeAgentId, activ
 			showToast(t("sessionCommand.runtimeUnavailable"), 4000);
 			return;
 		}
+		const capabilities = getSessionRunCapabilities(target.sessionId);
+		if (!capabilities || !canRunSessionAction(capabilities, "restart")) return;
+		replacingSessionIdsRef.current.add(target.sessionId);
 		try {
 			await restartRuntimeTarget(target, restartingAgent);
 		} catch (error) {
 			showToast(error instanceof Error ? error.message : String(error), 5000);
+		} finally {
+			replacingSessionIdsRef.current.delete(target.sessionId);
 		}
 	}
 
@@ -308,55 +328,63 @@ export function useSessionRunControl({ agents, activeAgent, activeAgentId, activ
 	 */
 	async function restartSessionAnyState(sessionId: string) {
 		if (!sessionId) return;
-		const runtime = store.get(sessionRuntimeBySessionIdAtomFamily(sessionId));
-		const target = toSessionRuntimeTarget(sessionId, runtime);
-		if (target) {
-			try {
-				await restartRuntimeTarget(
-					target,
-					agents.find((agent) => agent.id === target.agentId),
-				);
-				return;
-			} catch (error) {
-				const canFallback = error instanceof SessionCommandFailure && (error.code === "SESSION_RUNTIME_UNAVAILABLE" || error.code === "SESSION_RUNTIME_CHANGED");
-				if (!canFallback) {
-					showToast(error instanceof Error ? error.message : String(error), 5000);
+		// 确认框等待期间能力也会变化：在实际重启处重查队列/握手/互斥态，不只靠菜单置灰。
+		const capabilities = getSessionRunCapabilities(sessionId);
+		if (!capabilities || !canRunSessionAction(capabilities, "restart")) return;
+		replacingSessionIdsRef.current.add(sessionId);
+		try {
+			const runtime = store.get(sessionRuntimeBySessionIdAtomFamily(sessionId));
+			const target = toSessionRuntimeTarget(sessionId, runtime);
+			if (target) {
+				try {
+					await restartRuntimeTarget(
+						target,
+						agents.find((agent) => agent.id === target.agentId),
+					);
+					return;
+				} catch (error) {
+					const canFallback = error instanceof SessionCommandFailure && (error.code === "SESSION_RUNTIME_UNAVAILABLE" || error.code === "SESSION_RUNTIME_CHANGED");
+					if (!canFallback) {
+						showToast(error instanceof Error ? error.message : String(error), 5000);
+						return;
+					}
+					// 主进程绑定已解绑（前端未同步）：降级为重新激活启动，不重复报错。
+					// 先清掉 restart 失败残留的 error pending，避免激活成功后侧栏出现两个同会话 agent。
+					pendingAgentsRef.current = pendingAgentsRef.current.filter((agent) => agent.id !== target.agentId);
+					setPendingAgents(pendingAgentsRef.current);
+				}
+			}
+			// 未启动/已解绑：激活会话（ensureRuntime 对无绑定会话 create 新 Agent，幂等去重防重复点击）。
+			// DSH 会话 runtime 不可用（未安装/损坏）时 host 无法 fork，activateRuntime 只会抛
+			// 模块解析裸报错——给「去安装」提示（含直达入口）而不是把底层错误甩给用户。
+			const restartRecord = store.get(sessionRecordsAtom)[sessionId];
+			if (restartRecord?.backend === "dsh") {
+				const dshStatus = store.get(dshRuntimeStatusAtom);
+				if (dshSendBlockReason(dshStatus.state)) {
+					showDshRuntimeBlockHint(() => store.set(openSettingsAtom, DSH_INSTALL_SETTINGS_TARGET), dshStatus.state, dshStatus.reason, {
+						installed: dshStatus.runtimeVersion,
+						declared: dshStatus.declaredRuntimeVersion,
+					});
 					return;
 				}
-				// 主进程绑定已解绑（前端未同步）：降级为重新激活启动，不重复报错。
-				// 先清掉 restart 失败残留的 error pending，避免激活成功后侧栏出现两个同会话 agent。
-				pendingAgentsRef.current = pendingAgentsRef.current.filter((agent) => agent.id !== target.agentId);
-				setPendingAgents(pendingAgentsRef.current);
+				maybeHintMissingDshRunnerNode(() => store.set(openSettingsAtom, { tab: "dev", section: "dsh-runner-node" }));
 			}
-		}
-		// 未启动/已解绑：激活会话（ensureRuntime 对无绑定会话 create 新 Agent，幂等去重防重复点击）。
-		// DSH 会话 runtime 不可用（未安装/损坏）时 host 无法 fork，activateRuntime 只会抛
-		// 模块解析裸报错——给「去安装」提示（含直达入口）而不是把底层错误甩给用户。
-		const restartRecord = store.get(sessionRecordsAtom)[sessionId];
-		if (restartRecord?.backend === "dsh") {
-			const dshStatus = store.get(dshRuntimeStatusAtom);
-			if (dshSendBlockReason(dshStatus.state)) {
-				showDshRuntimeBlockHint(() => store.set(openSettingsAtom, DSH_INSTALL_SETTINGS_TARGET), dshStatus.state, dshStatus.reason, {
-					installed: dshStatus.runtimeVersion,
-					declared: dshStatus.declaredRuntimeVersion,
-				});
-				return;
+			// 重启活会话走 restartRuntimeTarget→restartingAgentId→SessionSurfaceStage 的 isRestarting 遮罩；
+			// 这里（无绑定）没有 restartingAgentId，需显式设置 activating 遮罩，让会话消息区域也有加载动画。
+			setActivatingSessionId(sessionId);
+			setMutationOverlay({ sessionId, kind: "activating" });
+			try {
+				const activated = requireSessionCommand(await api.sessions.activateRuntime(sessionId));
+				void refreshRuntimeState(activated.agentId);
+				showToast(t("app.sessionStarted"), 2000);
+			} catch (error) {
+				showToast(error instanceof Error ? error.message : String(error), 5000);
+			} finally {
+				setActivatingSessionId((current) => (current === sessionId ? null : current));
+				setMutationOverlay({ sessionId, kind: null });
 			}
-			maybeHintMissingDshRunnerNode(() => store.set(openSettingsAtom, { tab: "dev", section: "dsh-runner-node" }));
-		}
-		// 重启活会话走 restartRuntimeTarget→restartingAgentId→SessionSurfaceStage 的 isRestarting 遮罩；
-		// 这里（无绑定）没有 restartingAgentId，需显式设置 activating 遮罩，让会话消息区域也有加载动画。
-		setActivatingSessionId(sessionId);
-		setMutationOverlay({ sessionId, kind: "activating" });
-		try {
-			const activated = requireSessionCommand(await api.sessions.activateRuntime(sessionId));
-			void refreshRuntimeState(activated.agentId);
-			showToast(t("app.sessionStarted"), 2000);
-		} catch (error) {
-			showToast(error instanceof Error ? error.message : String(error), 5000);
 		} finally {
-			setActivatingSessionId((current) => (current === sessionId ? null : current));
-			setMutationOverlay({ sessionId, kind: null });
+			replacingSessionIdsRef.current.delete(sessionId);
 		}
 	}
 
@@ -383,7 +411,7 @@ export function useSessionRunControl({ agents, activeAgent, activeAgentId, activ
 		if (!sessionId) return undefined;
 		const runtime = store.get(sessionRuntimeBySessionIdAtomFamily(sessionId));
 		const target = toSessionRuntimeTarget(sessionId, runtime);
-		const busy = activatingSessionId === sessionId || reloadingSessionId === sessionId || (Boolean(target?.agentId) && restartingAgentId === target?.agentId) || queueFlushBySessionRef.current.has(sessionId);
+		const busy = replacingSessionIdsRef.current.has(sessionId) || activatingSessionId === sessionId || reloadingSessionId === sessionId || (Boolean(target?.agentId) && restartingAgentId === target?.agentId) || queueFlushBySessionRef.current.has(sessionId);
 		const activeQueued = queuedPromptsRef.current[sessionId] ?? [];
 		return sessionRunCapabilities({
 			state: resolveSessionRunState(runtime, Boolean(target)),
@@ -404,7 +432,7 @@ export function useSessionRunControl({ agents, activeAgent, activeAgentId, activ
 	async function runSessionControl(sessionId: string, action: SessionRunAction): Promise<void> {
 		if (!sessionId) return;
 		const capabilities = getSessionRunCapabilities(sessionId);
-		if (!capabilities) return;
+		if (!capabilities || !canRunSessionAction(capabilities, action)) return;
 
 		if (action === "reload") {
 			await reloadSessionMessages(sessionId);
