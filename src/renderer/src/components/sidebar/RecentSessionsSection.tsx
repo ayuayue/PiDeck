@@ -155,7 +155,7 @@ function RecentSessionRowItem(props: { row: RecentSessionRow; projectName?: stri
 						<div className="conversation-title flex min-w-0 items-center gap-1.5">
 							{props.actions.sessions.simpleNavigation ? <SessionActivityIndicator status={runtime?.status} sessionId={sessionId} /> : runtime && <span className={cn("size-1.5 shrink-0 rounded-full", sessionStatusDotClass(runtime.status))} aria-hidden="true" />}
 							<TitleScrollText text={displayTitle} className={runtime ? "font-medium" : "font-normal text-muted-foreground/90"} />
-							{(row.session.backend === "dsh" || row.session.backend === "imagegen") && <SessionBackendMark backend={row.session.backend} />}
+							{(row.session.backend === "dsh" || row.session.backend === "imagegen" || row.session.backend === "acp") && <SessionBackendMark backend={row.session.backend} />}
 							{pendingAsk && <PendingAskBadge count={1} />}
 							{row.session.source && row.session.source !== "pi" && <SessionSourceBadge source={row.session.source} />}
 							{/* 相对时间常显，hover 行时让位给右侧「⋯」按钮（与上方活动行一致）。 */}
