@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const custom = loadTsCommonJs("src/main/config/providerUsageCustom.ts");
@@ -137,8 +138,18 @@ test("sub2api 面板余额解析：data.balance 输出余额（USD，冻结额�
 
 test("sub2api 面板余额解析：JWT 失效（非 2xx 在请求层已被挡）与结构变更静默不命中", () => {
 	// 上游包一层 { code, message, data }；无 data（如错误响应）不命中。
-	assert.equal(parsePanel({ code: "unauthorized", message: "无效合牌" }).matched, false);
+	assert.equal(parsePanel({ code: "unauthorized", message: "无效令牌" }).matched, false);
 	// data.balance 缺失（上游结构变更）不命中。
 	assert.equal(parsePanel({ code: 0, data: { id: 1 } }).matched, false);
 	assert.equal(parsePanel(null).matched, false);
+});
+
+test("面板 JWT 失败不再纯静默：合并层带 panelBalanceError，401 归因为过期", () => {
+	// 源码扫描契约（空白容忍）：主结果成功但面板余额追加失败时必须带原因字段，
+	// UI 才能显示「JWT 已过期」而不是余额段无感消失（2026-10 实测踩坑：用户贴的
+	// JWT 已到期，静默降级看起来像功能坏了）。
+	const source = readFileSync("src/main/config/ConfigManager.ts", "utf8");
+	assert.match(source, /else\s+result\.panelBalanceError\s*=\s*merged\.reason/);
+	assert.match(source, /result\.status\s*===\s*401/);
+	assert.match(source, /reason:\s*unauthorized\s*\?\s*"unauthorized"\s*:\s*"failed"/);
 });

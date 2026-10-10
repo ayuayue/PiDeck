@@ -305,6 +305,12 @@ export type ProviderUsageResult = {
 	/** 与主额度并存的独立货币（如 Kimi Boost 点数）；有则 UI 追加展示。 */
 	booster?: ProviderUsageBooster;
 	/**
+	 * Sub2API 面板 JWT 余额追加失败原因：unauthorized = /api/v1/auth/me 返回 401
+	 * （JWT 过期/无效），failed = 网络/服务端/结构等其他错误。存在时余额段被丢弃
+	 * （主结果照常），UI 显式提示「余额段为何消失」而不是无感隐藏。
+	 */
+	panelBalanceError?: "unauthorized" | "failed";
+	/**
 	 * 无法结构化解析时保留的原始响应体（已脱敏/截断，可安全展示）。
 	 * 也用于标记「未启用用量查询」这类结构性失败（success=false 且 error 带标识）。
 	 */

@@ -2704,6 +2704,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.usageProbe.sub2apiPanelJwt": "面板 JWT（可選）",
 	"config.usageProbe.sub2apiPanelJwtPlaceholder": "網頁後臺登入態 JWT，用於追加查詢帳戶錢包餘額",
 	"config.usageProbe.sub2apiPanelJwtHint": "獲取：網頁後臺 F12 → Network → 任一 /api/v1 請求的 Authorization 頭（去掉 Bearer 字首）。令牌過期後餘額段消失，重新貼上新令牌即可；已用/限額不受影響",
+	"config.usageProbe.sub2apiPanelJwtExpired": "面板 JWT 已過期或無效，餘額段已隱藏；重新貼上新令牌即可恢復",
+	"config.usageProbe.sub2apiPanelJwtFailed": "面板餘額查詢失敗（網路或服務端異常），餘額段已隱藏",
 	"config.usageProbe.legacyDetected": "檢測到舊版探針配置（{name}，共 {count} 條）：已自動填入 Cookie 模板欄位，直接儲存即可遷移為新格式",
 	"config.usageProbe.legacyUnnamed": "未命名探針",
 	"config.usageProbe.credentialApiKey": "API Key（可選）",

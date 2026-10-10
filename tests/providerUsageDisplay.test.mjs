@@ -133,6 +133,10 @@ test("usageBadgeSegments：balance 出「余额+金额」；credits 出「剩+�
 	assert.equal(json(display.usageBadgeSegments(creditsResult({ used: 42 }), t)), json([{ labelKey: "config.usage.usedShort", text: "42", tone: "neutral" }]));
 	// total-used 反推剩余
 	assert.equal(json(display.usageBadgeSegments(creditsResult({ total: 200, used: 50 }), t)), json([{ labelKey: "config.usage.remainingShort", text: "150", tone: "ok" }]));
+	// panelBalanceError（面板 JWT 失效）不影响徽标分段：提示只在详情面板/弹窗展示。
+	const withErr = creditsResult({ used: 42 });
+	withErr.panelBalanceError = "unauthorized";
+	assert.equal(json(display.usageBadgeSegments(withErr, t)), json(display.usageBadgeSegments(creditsResult({ used: 42 }), t)));
 });
 
 test("usageBadgeSegments：credits+balance 合并（Sub2API 面板余额）余额段在已用/剩余/窗口段之前", () => {

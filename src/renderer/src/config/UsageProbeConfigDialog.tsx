@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { Loader2, Bot, Eye, EyeOff } from "lucide-react";
+import { AlertCircle, Bot, Eye, EyeOff, Loader2 } from "lucide-react";
 import { t } from "../i18n";
 import type { TranslationKey } from "../i18n";
 import type { ProviderUsageResult, UsageProbeProviderConfig, UsageProbeTemplateCategory } from "../../../shared/types/providerUsage";
@@ -643,6 +643,14 @@ export function UsageProbeConfigDialog(props: {
 										<pre className="max-h-44 overflow-auto whitespace-pre-wrap break-all font-mono text-micro leading-relaxed text-text-secondary">{testDetail}</pre>
 									</div>
 								)}
+								{testState === "success" && testResult?.panelBalanceError ? (
+									// Sub2API 面板 JWT 失效：主查询成功但余额段被丢弃（401=过期最常见），
+									// 显式提示原因而不是无感消失，用户才知道要重贴新令牌。
+									<div className="flex items-center gap-1.5 text-caption leading-5 text-amber-600 dark:text-amber-400" data-testid="usage-probe-panel-jwt-warning">
+										<AlertCircle size={12} aria-hidden="true" />
+										<span>{testResult.panelBalanceError === "unauthorized" ? t("config.usageProbe.sub2apiPanelJwtExpired") : t("config.usageProbe.sub2apiPanelJwtFailed")}</span>
+									</div>
+								) : null}
 							</section>
 						</>
 					)}

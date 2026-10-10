@@ -175,6 +175,19 @@ export function ProviderUsageDetails(props: {
 					})}
 				</div>
 			) : null}
+			{result?.success && result.panelBalanceError ? (
+				// Sub2API 面板 JWT 失效：主结果正常但余额段被丢弃，显式说明原因（401=过期
+				// 最常见）而不是无感消失；行内附「去配置」入口，重贴新令牌即可恢复。
+				<div className="flex items-center gap-1.5 px-0.5 text-caption leading-5 text-amber-600 dark:text-amber-400" data-testid="provider-usage-panel-jwt-warning">
+					<AlertCircle size={12} aria-hidden="true" />
+					<span>{result.panelBalanceError === "unauthorized" ? t("config.usageProbe.sub2apiPanelJwtExpired") : t("config.usageProbe.sub2apiPanelJwtFailed")}</span>
+					{props.onConfigureUsage && (
+						<button type="button" data-testid="provider-usage-configure" onClick={props.onConfigureUsage} className="ml-auto inline-flex flex-none items-center rounded px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-muted/60 hover:text-foreground">
+							{t("config.usage.configure")}
+						</button>
+					)}
+				</div>
+			) : null}
 			{notEnabled ? (
 				// 未启用：与失败态同一行布局，但用中性色（不是错误，只是没开）。
 				<div className="flex items-center gap-1.5 px-0.5 text-caption leading-5 text-text-tertiary">

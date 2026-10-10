@@ -1396,10 +1396,12 @@ export class ConfigManager {
 					};
 					// Sub2API 面板余额合并：主端点 /v1/usage 解析出 credits（订阅/Key 额度形态，
 					// 无钱包余额）且候选带面板 JWT 时，追加请求 /api/v1/auth/me 把账户钱包余额
-					// 并进结果（与已用并列展示）；JWT 过期/接口异常只丢余额段，主结果照常返回。
+					// 并进结果（与已用并列展示）；JWT 过期/接口异常只丢余额段，主结果照常返回，
+					// 但带上失败原因（401=过期最常见），UI 显式提示而不是无感消失。
 					if (candidate.panelBalance && parsed.kind !== "balance" && !parsed.balance) {
 						const merged = await this.fetchSub2ApiPanelBalance(baseUrl, candidate.panelBalance.token, timeoutMs);
-						if (merged) result.balance = merged;
+						if (merged.ok) result.balance = merged.balance;
+						else result.panelBalanceError = merged.reason;
 					}
 					return result;
 				}
@@ -1424,12 +1426,14 @@ export class ConfigManager {
 	 * Sub2API 面板余额：GET {origin}/api/v1/auth/me（网页后台 JWT 鉴权，上游通用路由
 	 * auth_handler.GetCurrentUser → userProfileResponse 内嵌 dto.User，余额在 data.balance）。
 	 * 管理面挂在网关 host 根而非 OpenAI 兼容 base（/v1），故 rootPath 只取 origin；
-	 * 请求头以 JWT 作为 Bearer 凭据（与 apiKey 同一形式）。任何失败（401 过期/网络/结构
-	 * 变更）都返回 undefined——面板余额是锦上添花段，绝不能拖垮主用量结果。
+	 * 请求头以 JWT 作为 Bearer 凭据（与 apiKey 同一形式）。失败时返回 { ok:false, reason }：
+	 * 401 归因为 unauthorized（JWT 过期/无效，最常见），其余归为 failed；面板余额是锦上
+	 * 添花段，绝不能拖垮主用量结果，UI 依 reason 给出「重贴新令牌」提示。
 	 */
-	private async fetchSub2ApiPanelBalance(baseUrl: string, token: string, timeoutMs: number): Promise<ProviderUsageResult["balance"] | undefined> {
+	private async fetchSub2ApiPanelBalance(baseUrl: string, token: string, timeoutMs: number): Promise<{ ok: true; balance: ProviderUsageResult["balance"] } | { ok: false; reason: "unauthorized" | "failed" }> {
 		// rootPath：跳过版本化补齐与路径段拼接，只取 origin + /api/v1/auth/me。
 		const urls = usageProbeUrls({ path: "/api/v1/auth/me", rootPath: true }, baseUrl, (url) => this.ensureVersionPath(url));
+		let unauthorized = false;
 		for (const url of urls) {
 			const result = await usageProbeRequest(url, {
 				method: "GET",
@@ -1437,7 +1441,13 @@ export class ConfigManager {
 				timeoutMs,
 				maxBytes: MAX_USAGE_RESPONSE_BYTES,
 			});
-			if ("error" in result || result.status < 200 || result.status >= 300) continue;
+			if ("error" in result) continue;
+			// 401 = JWT 过期/无效：面板鉴权体系里唯一可归因的确定性失败，单独标记。
+			if (result.status === 401) {
+				unauthorized = true;
+				continue;
+			}
+			if (result.status < 200 || result.status >= 300) continue;
 			let body: unknown;
 			try {
 				body = JSON.parse(result.raw);
@@ -1446,8 +1456,8 @@ export class ConfigManager {
 			}
 			// 响应体先按 JWT 脱敏再进解析（profile 含邮箱等账号信息，且不能让令牌意外落入 raw）。
 			const parsed = parseSub2ApiPanelBalance(body, this.redactSecret(result.raw, token));
-			if (parsed.matched && parsed.balance) return parsed.balance;
+			if (parsed.matched && parsed.balance) return { ok: true, balance: parsed.balance };
 		}
-		return undefined;
+		return { ok: false, reason: unauthorized ? "unauthorized" : "failed" };
 	}
 }
