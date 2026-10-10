@@ -24,6 +24,7 @@ import { normalizeSessionSortMode } from "../../shared/sessionSort";
 import { normalizeHiddenModules } from "../../shared/hiddenModules";
 import { normalizeHiddenComposerFeatures } from "../../shared/composerFeatures";
 import { parseBusySendDelivery } from "../../shared/busySendDelivery";
+import { parseSessionStatusPlacement } from "../../shared/sessionStatusPlacement";
 import { sanitizeShortcutOverrides } from "../../shared/shortcuts";
 import { normalizeThemeSchedule } from "../../shared/themeSchedule";
 import { normalizeEnhanceModel } from "../../shared/enhanceModelPreference";
@@ -229,6 +230,8 @@ Gitmoji 对应关系：
 	// 内容区宽度默认 80%：轻微留白兼顾阅读舒适（1826px 面板 → 内容 1461px）；
 	// 分屏窄栏时由容器查询自动收敛，详见 foundation.css --chat-content-pct。
 	chatContentWidthPct: 80,
+	// 会话状态默认显示在右侧边栏下半区（另一选项：输入框上方折叠条）
+	sessionStatusPlacement: "sidebar",
 	// 会话 Tab 最大宽度默认 104px：与旧硬编码 max-w-[104px] 一致，迁移零回归。
 	navigationMode: "tabs",
 	sessionTabMaxWidth: SESSION_TAB_MAX_WIDTH_DEFAULT,
@@ -492,6 +495,8 @@ export class SettingsStore {
 			}
 			// 忙碌时投递行为来自旧 JSON 时可能是任意值；回落默认，避免发送链路带着坏语义。
 			this.settings.busySendDelivery = parseBusySendDelivery(this.settings.busySendDelivery);
+			// 会话状态显示位置同理：旧 JSON 缺字段或坏值回落默认。
+			this.settings.sessionStatusPlacement = parseSessionStatusPlacement(this.settings.sessionStatusPlacement);
 			// 兼容迁移：旧版 contentMaxWidth(px) → chatContentWidthPct(%)。
 			// 语义从「最大宽度 px」变为「占面板百分比」，无法精确换算（面板宽度可变），
 			// 用线性映射保留旧值感觉：800→60%、1400→84%、1800(不限)→100%。
@@ -704,6 +709,10 @@ export class SettingsStore {
 		}
 		if ("navigationMode" in safePatch && safePatch.navigationMode !== "tabs" && safePatch.navigationMode !== "simple") {
 			delete safePatch.navigationMode;
+		}
+		// 会话状态显示位置只接受已知枚举，非法值丢掉、保持原设置（不重置用户选择）。
+		if ("sessionStatusPlacement" in safePatch && parseSessionStatusPlacement(safePatch.sessionStatusPlacement) !== safePatch.sessionStatusPlacement) {
+			delete safePatch.sessionStatusPlacement;
 		}
 		// Logo 风格只接受已知枚举，非法值保持原设置（缺省 classic 由默认值完成）。
 		if ("logoStyle" in safePatch && safePatch.logoStyle !== "classic" && safePatch.logoStyle !== "pi-tui") {

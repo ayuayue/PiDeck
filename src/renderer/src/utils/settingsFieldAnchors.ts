@@ -32,6 +32,12 @@ export type SettingsFieldAnchor = {
 export const SETTINGS_FIELD_ANCHORS: readonly SettingsFieldAnchor[] = [
 	{ tab: "appearance", slug: "appearance-navigation-mode", labelKey: "settings.navigationMode", keywords: ["简洁模式", "标签模式", "simple", "navigation"] },
 	{
+		tab: "appearance",
+		slug: "appearance-session-status-placement",
+		labelKey: "settings.sessionStatusPlacement",
+		keywords: ["待办", "修改文件", "子代理", "右侧边栏", "输入框上方", "会话状态", "todo", "subagents", "changed files", "sidebar"],
+	},
+	{
 		tab: "notification",
 		slug: "notification-toast-duration",
 		labelKey: "settings.toastDuration",

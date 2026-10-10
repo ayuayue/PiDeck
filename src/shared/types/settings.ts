@@ -2,6 +2,7 @@ import type { AgentBackend } from "./agent";
 import type { AcpToolConfig } from "./acp";
 import type { SessionSortModeId } from "./session";
 import type { BusySendDelivery } from "../busySendDelivery";
+import type { SessionStatusPlacement } from "../sessionStatusPlacement";
 import { SESSION_TAB_MAX_WIDTH_DEFAULT } from "../sessionTabWidth";
 import { createDefaultExternalEditorSettings, type ExternalEditorSettings } from "./project";
 import type { SecurityConfig } from "./security";
@@ -348,6 +349,11 @@ export type AppSettings = {
 	 * 消息与输入框共享同一留白（--chat-content-pct），分屏窄栏时由容器查询自动收敛到 100%。
 	 */
 	chatContentWidthPct: number;
+	/**
+	 * 会话状态（待办 / 修改文件 / 子代理）显示位置：右侧边栏下半区或输入框上方，二选一。
+	 * 缺省 sidebar；解析见 shared/sessionStatusPlacement.ts。
+	 */
+	sessionStatusPlacement: SessionStatusPlacement;
 	/**
 	 * 会话 Tab 最大宽度（px，80–400，默认 104=旧硬编码值）。仅封顶不设下限宽度：
 	 * Tab 按内容收缩（w-fit），短标题的 Tab 不受影响；有前置徽标时上限另加
@@ -983,6 +989,7 @@ export function createDefaultAppSettings(): AppSettings {
 		workspaceContentOpenMode: "split",
 		contentMaxWidth: 1800,
 		chatContentWidthPct: 80,
+		sessionStatusPlacement: "sidebar",
 		navigationMode: "tabs",
 		sessionTabMaxWidth: SESSION_TAB_MAX_WIDTH_DEFAULT,
 		maxEditorFileSizeMB: 5,

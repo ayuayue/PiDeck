@@ -29,7 +29,9 @@ const DISMISSED_WIDGETS_KEY = "pid:session-dismissed-widgets-v2";
 
 /** 手动关闭记录：key = widgetDismissalId(sessionId, widgetKey)，value = 关闭时的内容指纹。 */
 type DismissedWidgets = Record<string, string>;
-type WidgetLines = { key: string; lines: readonly string[] };
+/** 一个 todo 数据源的行快照（pi widget / DSH todos / 历史快照归一化后的同构行式）。 */
+export type TodoWidgetLines = { key: string; lines: readonly string[] };
+type WidgetLines = TodoWidgetLines;
 
 /** 列表内容指纹（djb2）：只需稳定区分「工具是否更新过列表」，不需要密码学强度。 */
 export function widgetLinesSignature(lines: readonly string[]): string {
@@ -134,7 +136,7 @@ function PendingGlyph() {
 	);
 }
 
-function StatusGlyph({ status }: { status: AgentTodoItem["status"] }) {
+export function StatusGlyph({ status }: { status: AgentTodoItem["status"] }) {
 	if (status === "completed") return <CompletedGlyph />;
 	if (status === "in-progress") return <ProgressGlyph />;
 	// cancelled 与 pending 同形（解析器不会产生 cancelled，兜底即可）
@@ -160,12 +162,13 @@ function todoItemsToLines(items: readonly AgentTodoItem[]): string[] {
 	});
 }
 
-export function SessionTodoStrip(props: { sessionId: string }) {
-	const runtime = useAtomValue(sessionRuntimeBySessionIdAtomFamily(props.sessionId));
-	const runtimeUi = useAtomValue(sessionRuntimeUiBySessionIdAtomFamily(props.sessionId));
-	// dismiss records are loaded once, then updated locally when the user closes this strip.
-	const [dismissed, setDismissed] = useState(loadDismissedWidgets);
-	const { collapsed, toggleCollapsed } = useComposerWidgetCollapsed(`todo:${props.sessionId}`, true);
+/**
+ * 会话 todo 数据源（三源归一化成统一行式）。折叠条与右侧边栏「会话状态」面板共用：
+ * 折叠条在此之上叠加 dismiss 过滤，常驻面板直接展示完整列表。
+ */
+export function useSessionTodoSources(sessionId: string): TodoWidgetLines[] {
+	const runtime = useAtomValue(sessionRuntimeBySessionIdAtomFamily(sessionId));
+	const runtimeUi = useAtomValue(sessionRuntimeUiBySessionIdAtomFamily(sessionId));
 
 	const runtimeHandle: RuntimeHandle | undefined = runtime?.agentId
 		? {
@@ -177,10 +180,10 @@ export function SessionTodoStrip(props: { sessionId: string }) {
 	const widgets = coherent?.widgets ?? {};
 
 	// 会话级 todo 快照：仅历史会话（无 coherent runtime）拉取，避免活会话多余 IPC
-	const todoSnapshot = useSessionTodoSnapshot(props.sessionId, !coherent);
+	const todoSnapshot = useSessionTodoSnapshot(sessionId, !coherent);
 
 	// 数据源归一化成统一行式，再整体走 dismiss 指纹与解析链路
-	const linesByKey = useMemo<WidgetLines[]>(() => {
+	return useMemo<WidgetLines[]>(() => {
 		// DSH 不产出 Pi widget，优先消费其运行时的结构化 todos；
 		// Pi 活会话仍以 widget 为实时真源；历史会话用快照兜底。
 		if (runtime?.backend === "dsh") {
@@ -199,18 +202,52 @@ export function SessionTodoStrip(props: { sessionId: string }) {
 		}
 		return result;
 	}, [coherent, runtime?.backend, runtime?.state?.todos, todoSnapshot, widgets]);
+}
+
+/** 行快照 → 待办项：pi-deck-todo 先剥离元数据行，再统一解析。 */
+export function todoWidgetsToItems(widgets: readonly TodoWidgetLines[]): AgentTodoItem[] {
+	const lines: string[] = [];
+	for (const widget of widgets) {
+		lines.push(...(widget.key === "pi-deck-todo" ? stripPiDeckTodoWidgetMetadata(widget.lines) : widget.lines));
+	}
+	return parseAgentTodoItems(lines);
+}
+
+/** 单条待办行（折叠条与右侧边栏面板共用）。 */
+export function TodoItemRow({ item }: { item: AgentTodoItem }) {
+	return (
+		/* 行内 overflow-hidden：旋转方盒的「变换后包围盒（AABB）」不得外溢到列表
+		    scrollHeight（旋转 svg 的 AABB ≈ 22.6px > 20px 行高，会让外层 ul 的
+		    scrollHeight 反复越界 → 原生滚动条闪）。行高 20px、图标墨迹 16px，
+		    居中留 2px 余量，裁切不会切到可见像素。
+
+		    ⚠️ li 必须 shrink-0：ul 是「flex 列 + max-h-[180px]」容器，flex 子项
+		    默认 flex-shrink:1，而行上的 overflow-hidden 会把 flex 的自动最小尺寸
+		    （min-height:auto，通常等于内容高）清零 → 内容超过 180px 时每行都能被
+		    继续压缩。于是 Chromium 把 13 行实测从 20px 线性压到 6.47px：文字被行
+		    overflow-hidden 切成横条、相邻行叠在一起，且 scrollHeight 收缩到与
+		    clientHeight 相等 → 滚动条根本不出现，用户滚不动（2027-01 排版事故）。
+		    shrink-0 让行保持固有高度，超出部分交还给 overflow-y-auto 滚动。 */
+		<li className="flex min-w-0 items-center gap-2.5 overflow-hidden shrink-0 text-control leading-5 text-text-secondary">
+			<span className="grid size-4 shrink-0 place-items-center" aria-hidden="true">
+				<StatusGlyph status={item.status} />
+			</span>
+			<span className="min-w-0 truncate">{item.title}</span>
+		</li>
+	);
+}
+
+export function SessionTodoStrip(props: { sessionId: string }) {
+	// dismiss records are loaded once, then updated locally when the user closes this strip.
+	const [dismissed, setDismissed] = useState(loadDismissedWidgets);
+	const { collapsed, toggleCollapsed } = useComposerWidgetCollapsed(`todo:${props.sessionId}`, true);
+	const linesByKey = useSessionTodoSources(props.sessionId);
 
 	// A source stays dismissed only while its raw lines stay identical. Keep raw metadata here
 	// until after the decision so a new plan with matching tasks becomes visible again.
 	const visibleWidgets = useMemo(() => linesByKey.filter((w) => !isWidgetDismissed(dismissed, props.sessionId, w.key, w.lines)), [linesByKey, dismissed, props.sessionId]);
 
-	const items = useMemo(() => {
-		const lines: string[] = [];
-		for (const widget of visibleWidgets) {
-			lines.push(...(widget.key === "pi-deck-todo" ? stripPiDeckTodoWidgetMetadata(widget.lines) : widget.lines));
-		}
-		return parseAgentTodoItems(lines);
-	}, [visibleWidgets]);
+	const items = useMemo(() => todoWidgetsToItems(visibleWidgets), [visibleWidgets]);
 
 	const dismissVisibleWidgets = () => {
 		const next = dismissWidgetEntries(dismissed, props.sessionId, visibleWidgets);
@@ -237,25 +274,9 @@ export function SessionTodoStrip(props: { sessionId: string }) {
 			</div>
 			{!collapsed && (
 				<ul className="mb-2 flex max-h-[180px] flex-col gap-2 overflow-y-auto [contain:layout_paint] px-3 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-100 motion-reduce:animate-none">
-					{/* 行内 overflow-hidden：旋转方盒的「变换后包围盒（AABB）」不得外溢到列表
-					    scrollHeight（旋转 svg 的 AABB ≈ 22.6px > 20px 行高，会让外层 ul 的
-					    scrollHeight 反复越界 → 原生滚动条闪）。行高 20px、图标墨迹 16px，
-					    居中留 2px 余量，裁切不会切到可见像素。
-
-					    ⚠️ li 必须 shrink-0：ul 是「flex 列 + max-h-[180px]」容器，flex 子项
-					    默认 flex-shrink:1，而行上的 overflow-hidden 会把 flex 的自动最小尺寸
-					    （min-height:auto，通常等于内容高）清零 → 内容超过 180px 时每行都能被
-					    继续压缩。于是 Chromium 把 13 行实测从 20px 线性压到 6.47px：文字被行
-					    overflow-hidden 切成横条、相邻行叠在一起，且 scrollHeight 收缩到与
-					    clientHeight 相等 → 滚动条根本不出现，用户滚不动（2027-01 排版事故）。
-					    shrink-0 让行保持固有高度，超出部分交还给 overflow-y-auto 滚动。 */}
+					{/* 行的 overflow-hidden / shrink-0 约束见 TodoItemRow */}
 					{items.map((item) => (
-						<li key={item.id} className="flex min-w-0 items-center gap-2.5 overflow-hidden shrink-0 text-control leading-5 text-text-secondary">
-							<span className="grid size-4 shrink-0 place-items-center" aria-hidden="true">
-								<StatusGlyph status={item.status} />
-							</span>
-							<span className="min-w-0 truncate">{item.title}</span>
-						</li>
+						<TodoItemRow key={item.id} item={item} />
 					))}
 				</ul>
 			)}

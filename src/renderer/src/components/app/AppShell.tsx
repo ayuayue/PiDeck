@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode, type CSSProperties } from 
 import { type Layout, type LayoutChangedMeta, type PanelImperativeHandle } from "react-resizable-panels";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../ui-shadcn/resizable";
 import { AppHeader } from "../AppHeader";
+import { RightSidebarStack } from "../workspace/RightSidebarStack";
 import { WorkspaceDrawerHost } from "../workspace/WorkspaceDrawerHost";
 import { useNotifyLayoutResized } from "../../hooks/useNotifyLayoutResized";
 import { LIST_WIDTH_MIN, LIST_WIDTH_MAX } from "../../hooks/useResize";
@@ -62,6 +63,8 @@ export interface AppShellProps {
 	drawerContent: (panel: WorkspaceDrawerPanel) => ReactNode;
 	/** 抽屉活动栏（files/git/browser 切换），由 App 注入；抽屉打开时常驻。 */
 	drawerRail?: ReactNode;
+	/** 右侧边栏下半区（常驻会话状态面板），由 App 注入；不传则抽屉列保持单区结构。 */
+	drawerFooter?: ReactNode;
 	outlineContent?: ReactNode;
 
 	setListCollapsed: (v: boolean) => void;
@@ -133,6 +136,7 @@ export function AppShell(props: AppShellProps) {
 		chatPaneContent,
 		drawerContent,
 		drawerRail,
+		drawerFooter,
 		outlineContent,
 		setListCollapsed,
 		setListWidth,
@@ -474,7 +478,13 @@ export function AppShell(props: AppShellProps) {
 							if (event.target === event.currentTarget) setDrawerEntering(false);
 						}}
 					>
-						<WorkspaceDrawerHost panel={drawer} collapsed={drawerCollapsed} pinned={drawerPinned} onCollapse={onDrawerCollapse} onClose={onDrawerClose} onRestore={onDrawerRestore} onTogglePin={onToggleDrawerPin} rail={drawerRail} renderPanel={(panel) => drawerContent(panel)} />
+						{/* 右侧边栏：上半区为原抽屉宿主（props 不变），下半区为 App 注入的常驻面板。
+						    纵向分组嵌在 drawer Panel 内部，不进入水平 Group 的直系子节点。 */}
+						<RightSidebarStack
+							open={Boolean(drawer) && !drawerCollapsed}
+							bottom={drawerFooter}
+							top={<WorkspaceDrawerHost panel={drawer} collapsed={drawerCollapsed} pinned={drawerPinned} onCollapse={onDrawerCollapse} onClose={onDrawerClose} onRestore={onDrawerRestore} onTogglePin={onToggleDrawerPin} rail={drawerRail} renderPanel={(panel) => drawerContent(panel)} />}
+						/>
 					</div>
 				</ResizablePanel>
 			</ResizablePanelGroup>
