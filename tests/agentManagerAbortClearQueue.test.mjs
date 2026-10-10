@@ -26,6 +26,8 @@ function createManager(requestHandler) {
 	const runtime = {
 		tab: {
 			id: "agent-1",
+			deckSessionId: "session-original",
+			runtimeGeneration: 1,
 			projectId: "project-1",
 			cwd: "C:/project",
 			title: "Session",
@@ -38,6 +40,7 @@ function createManager(requestHandler) {
 		process: {
 			isRunning: () => true,
 			getDiagnostics: () => null,
+			stop: () => {},
 			client: { request: requestHandler },
 		},
 	};
@@ -68,6 +71,9 @@ test("abort 先发 clear_queue 再发 abort，撤回的排队消息广播 agents
 	assert.deepEqual(requests, ["clear_queue", "abort"], "clear_queue 必须先于 abort（pi Esc 语义）");
 	const cleared = emits.find((entry) => entry.channel === "agents:queue-cleared");
 	assert.ok(cleared, "有撤回消息时应广播 agents:queue-cleared");
+	assert.equal(cleared.payload.agentId, "agent-1", "宿主 runtime 事件桥按 agentId 路由，缺身份就无法回填草稿");
+	assert.equal(cleared.payload.sessionId, "session-original");
+	assert.equal(cleared.payload.runtimeGeneration, 1);
 	assert.deepEqual(cleared.payload.steering, ["改一下方向"]);
 	assert.deepEqual(cleared.payload.followUp, ["最后总结"]);
 });
@@ -108,6 +114,62 @@ test("队列为空时 clear_queue 返回空列表：仍按顺序发两条命令�
 		emits.some((entry) => entry.channel === "agents:queue-cleared"),
 		false,
 	);
+});
+
+/** 让队列撤回停在 await 边界，观察旧停止请求是否影响后来的生命周期。 */
+function deferredQueue() {
+	let resolve;
+	const promise = new Promise((done) => (resolve = done));
+	return { promise, resolve };
+}
+
+for (const change of ["closed agent", "new process", "new session binding", "new runtime generation"]) {
+	test(`a late clear_queue response cannot resume abort after ${change}`, async (t) => {
+		const queue = deferredQueue();
+		const requests = [];
+		const { manager, runtime, emits } = createManager(async (payload) => {
+			requests.push(payload.type);
+			return payload.type === "clear_queue" ? queue.promise : { success: true };
+		});
+		t.after(() => manager.stopAll());
+		const pending = manager.abort("agent-1");
+		assert.deepEqual(requests, ["clear_queue"]);
+		if (change === "closed agent") await manager.stop("agent-1");
+		else if (change === "new process") {
+			manager.agents.set("agent-1", { ...runtime, tab: { ...runtime.tab, status: "running" }, process: { ...runtime.process, client: { request: async () => ({ success: true }) } } });
+		} else if (change === "new session binding") runtime.tab.deckSessionId = "session-new";
+		else runtime.tab.runtimeGeneration = 2;
+		emits.length = 0;
+		queue.resolve({ success: true, data: { steering: ["原会话排队消息"], followUp: [] } });
+		await pending;
+		assert.deepEqual(requests, ["clear_queue"], "退出/换绑后的旧请求不得再发 abort");
+		assert.deepEqual(emits, [], "迟到结果不得发布队列、idle、notice 或复活旧状态");
+		if (change === "new process") assert.equal(manager.agents.get("agent-1").tab.status, "running");
+		if (change === "closed agent") assert.equal(manager.toolExecutingByAgent.has("agent-1"), false);
+	});
+}
+
+test("a late clear_queue response restores withdrawn prompts without stopping the next turn", async (t) => {
+	const queue = deferredQueue();
+	const requests = [];
+	const { manager, runtime, emits } = createManager(async (payload) => {
+		requests.push(payload.type);
+		return payload.type === "clear_queue" ? queue.promise : { success: true };
+	});
+	t.after(() => manager.stopAll());
+	const pending = manager.abort("agent-1");
+	manager.handlePiEvent("agent-1", { type: "agent_start" });
+	emits.length = 0;
+	queue.resolve({ success: true, data: { steering: ["已撤回消息"], followUp: [] } });
+	await pending;
+	assert.deepEqual(requests, ["clear_queue"], "新回合使原停止操作失效，不能再发 abort");
+	assert.equal(runtime.tab.status, "running", "旧停止不能覆盖新回合状态");
+	assert.deepEqual(
+		emits.map((event) => event.channel),
+		["agents:queue-cleared"],
+		"已撤回文本仍恢复到原会话草稿，但不能发布旧停止状态",
+	);
+	assert.deepEqual(emits[0].payload.steering, ["已撤回消息"]);
 });
 
 test("renderer 桥消费 agents:queue-cleared 并 append 写回输入框（不清空草稿）", () => {

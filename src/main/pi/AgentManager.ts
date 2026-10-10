@@ -2116,8 +2116,11 @@ export class AgentManager {
 		}
 	}
 
+	/** 中止当前回合并撤回队列；await 后核对原 runtime/回合，不能误停下一轮。 */
 	async abort(agentId: string) {
 		const runtime = this.requireRuntime(agentId);
+		const runtimeProcess = runtime.process;
+		const runtimeIdentity = this.streamRuntimeTriple(agentId);
 
 		// pi 在等待 extension_ui_response 时（如 ask_question），不发 abort 也能处理，
 		// 但必须解除 pending 请求的阻塞，否则 pi 不会继续读取 stdin 中的后续命令。
@@ -2145,7 +2148,7 @@ export class AgentManager {
 		// abort 升级上下文：记录 abort 时是否有工具在执行 + RPC ack 状态。
 		// pi 的 abort RPC 要等会话 idle 才响应，ack 迟到 ≠ 卡死；升级逻辑据此避免补刀。
 		const hadActiveTool = Boolean(this.toolExecutingByAgent.get(agentId) || (this.activeToolCallsByAgent.get(agentId)?.size ?? 0) > 0);
-		this.abortGate.beginEscalation(agentId, hadActiveTool);
+		const escalation = this.abortGate.beginEscalation(agentId, hadActiveTool);
 
 		// pi 的交互 Esc 语义（pi docs/rpc-commands.md「clear_queue」段）：先 clear_queue 再 abort。
 		// abort 只停当前 run，队列里剩余的 steering/followUp 消息会被继续投递并另起
@@ -2153,19 +2156,21 @@ export class AgentManager {
 		// clear_queue 自 pi 0.85.1 提供；更低版本回 unknown-command error，静默降级为
 		// abort-only 的旧行为（见 clearQueueBeforeAbort），停止主路径不受影响。
 		const clearedQueue = await this.clearQueueBeforeAbort(runtime, agentId);
+		// clear_queue 的响应可能晚于关闭/重建/换绑，不得为旧 runtime 外发状态或发 abort。
+		if (this.agents.get(agentId) !== runtime || runtime.process !== runtimeProcess || runtime.tab.deckSessionId !== runtimeIdentity.sessionId || runtime.tab.runtimeGeneration !== runtimeIdentity.runtimeGeneration) return;
 		if (clearedQueue) {
-			// 撤回的排队消息经 runtime 事件桥写回输入框（CLI Esc 同款语义），
-			// 避免「点了停止、排队的消息也丢了」。
-			this.emit("agents:queue-cleared", { ...this.streamRuntimeTriple(agentId), ...clearedQueue });
+			// 同一会话即使已开始新回合，撤回文本也须回填；agentId 是宿主桥路由的必要身份。
+			this.emit("agents:queue-cleared", { agentId, ...runtimeIdentity, ...clearedQueue });
 		}
+		if (!this.abortGate.isCurrentEscalation(agentId, escalation)) return;
 
 		runtime.process.client
 			.request({ type: "abort" }, 10_000)
 			.then(() => {
-				this.abortGate.markAbortAcked(agentId);
+				this.abortGate.markAbortAcked(agentId, escalation);
 			})
 			.catch((error) => {
-				this.abortGate.markAbortFailed(agentId);
+				this.abortGate.markAbortFailed(agentId, escalation);
 				// abort 超时或失败不影响前端状态切换，但必须留痕：abort 失败后
 				// pi 可能仍在流式输出而 UI 已显示停止，是排查状态错位的关键线索。
 				void this.appLogger?.warn("agent", "Abort RPC failed", {

@@ -18,13 +18,13 @@ test("abort escalation is ack-aware and never double-aborts a winding-down pi", 
 	const controller = readFileSync("src/main/pi/abortStreamGateController.ts", "utf8");
 
 	// 1) abort() 必须登记升级上下文（工具在跑 + ack 状态）
-	assert.match(agentManager, /this\.abortGate\.beginEscalation\(agentId,\s*hadActiveTool\);/);
-	assert.match(agentManager, /this\.abortGate\.markAbortAcked\(agentId\);/);
-	assert.match(agentManager, /this\.abortGate\.markAbortFailed\(agentId\);/);
+	assert.match(agentManager, /const\s+escalation\s*=\s*this\.abortGate\.beginEscalation\(agentId,\s*hadActiveTool\);/);
+	assert.match(agentManager, /this\.abortGate\.markAbortAcked\(agentId,\s*escalation\);/);
+	assert.match(agentManager, /this\.abortGate\.markAbortFailed\(agentId,\s*escalation\);/);
 
 	// 2) 升级判定必须按 ack/工具状态分派，而不是无条件补刀
-	assert.match(controller, /const shouldSendAbortBash = escalation\?\.hadActiveTool === true;/);
-	assert.match(controller, /const shouldResendAbort = !escalation \|\| escalation\.failed;/);
+	assert.match(controller, /const\s+shouldSendAbortBash\s*=\s*escalation\.hadActiveTool;/);
+	assert.match(controller, /const\s+shouldResendAbort\s*=\s*escalation\.failed;/);
 	assert.match(controller, /if \(!shouldSendAbortBash && !shouldResendAbort\) \{[\s\S]*?Abort escalation skipped/);
 
 	// 3) abort_bash 只在有工具执行时发送；二次 abort 只在 RPC 失败/超时时补发
