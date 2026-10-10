@@ -31,17 +31,19 @@ node shot.cjs --ep "EP08 · 多项目" --title "pi" --accent "多项目协作" -
 ## 自检
 
 ```bash
-node check.cjs    # 13 项：画布/导出像素尺寸、元素不溢出画布、导出图与原生渲染一致、参数化生效、预览模式、无网络字体
+node check.cjs    # 15 项：画布/导出像素尺寸、元素不溢出画布、导出图与原生渲染一致、参数化生效、预览模式、示意面板增删改移、行数过多自动缩小、无网络字体
 ```
 
 ## 预览模式
 
-面板底部「预览模式」按钮（或按 `P`）把右侧操作区整个收起来，封面按整窗重新适配；按 `Esc`（或再按一次 `P`）退回。
+面板右上角「预览 P」按钮（或按 `P`）把右侧操作区整个收起来，封面按整窗重新适配；按 `Esc`（或再按一次 `P`）退回。
 输入框里打字时 `P` 不触发切换；只影响外壳预览，导出与默认内容不变。
 
 ## 改默认内容
 
-- `cover.html` 顶部 `DEFAULT_STATE`：期数 / 标题两段 / 卖点 / 标签 / 落款；`ROWS`：右侧示意面板那六行（增删行就改这个数组）。顶部 logo 是 pi 官方 TUI 彩色位标，源码在 `TUI_COLORS` / `TUI_CELLS`（色值取自 `src/renderer/src/components/app/piTuiLogoData.ts`）。
+- 面板里能改的字段：期数标签；品牌名 / 品牌后缀；标题前半 / 强调 / 卖点；三个标签；仓库地址 / 作者署名；示意面板的窗口标题 / 每一行（键、值、右侧胶囊，可增删行、可上下移）/ 底部一句话。
+- `cover.html` 顶部就是这套默认值：`DEFAULT_STATE` + `ROWS`（`ROWS` 是示意面板的默认行，`s` 留空则不显示胶囊）。顶部 logo 是 pi 官方 TUI 彩色位标，源码在 `TUI_COLORS` / `TUI_CELLS`（色值取自 `src/renderer/src/components/app/piTuiLogoData.ts`）。
+- 示意面板行数多时 `fitMock()` 把它整体等比缩小，避免撑破画布（自检里 14 行仍不溢出）。
 - 配色、字号、间距在 `#cover-style` 里。**这套 token 与 `decks/generate_decks.py` 的 `SLIDE_CSS`
   是同一套系列 grammar**，改配色两处一起改，别让封面和正片不像一家人。
 

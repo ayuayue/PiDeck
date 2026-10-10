@@ -18,6 +18,8 @@ html,body{margin:0;height:100%;background:#0d1117;color:#e8eaed;font-family:"Seg
 /* 面板三段式：头部 / 可滚动表单 / 底部操作条（操作条是布局里的一行，不悬浮压内容） */
 .panel{width:372px;flex:0 0 372px;display:flex;flex-direction:column;background:#171c24;border-left:1px solid rgba(255,255,255,.07)}
 .panel__head{padding:15px 18px 13px;border-bottom:1px solid rgba(255,255,255,.06)}
+.panel__head-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+kbd{font:inherit;font-size:10.5px;font-weight:600;color:#93a4bb;background:rgba(255,255,255,.08);border-radius:5px;padding:1px 5px}
 .panel__title{font-size:15px;font-weight:700;color:#eaf0fb}
 .panel__sub{margin:3px 0 0;font-size:11.5px;color:#6d7c8f}
 .panel__body{flex:1;min-height:0;overflow-y:auto;padding:15px 18px 18px}
@@ -29,7 +31,7 @@ html,body{margin:0;height:100%;background:#0d1117;color:#e8eaed;font-family:"Seg
 .exit-btn{position:fixed;top:18px;right:18px;z-index:20;display:none;align-items:center;gap:9px;height:38px;padding:0 15px;border:1px solid rgba(255,255,255,.13);border-radius:10px;background:rgba(23,28,36,.9);color:#eaf0fb;font-size:12.5px;font-weight:700;cursor:pointer;transition:background .15s,border-color .15s}
 .exit-btn:hover{background:rgba(37,46,58,.96);border-color:rgba(255,255,255,.22)}
 .app.is-preview .exit-btn{display:inline-flex}
-.exit-btn kbd{font:inherit;font-size:11px;font-weight:600;color:#93a4bb;background:rgba(255,255,255,.08);border-radius:6px;padding:2px 6px}
+.exit-btn kbd{color:#93a4bb}
 .fs{border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:11px 12px 12px;margin:0 0 12px;background:rgba(255,255,255,.015)}
 .fs legend{padding:0 6px;font-size:12px;font-weight:700;color:#8ea3bd;letter-spacing:.4px}
 .f{margin-bottom:9px}
@@ -52,11 +54,27 @@ button:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(61,111,209,.4)}
 .btn--primary.is-fail{background:linear-gradient(180deg,#c0392b,#a5301f)}
 .btn--quiet{height:28px;padding:0 9px;font-size:12px;font-weight:600;background:transparent;border-color:rgba(255,255,255,.1);color:#93a4bb}
 .btn--quiet:hover{background:rgba(255,255,255,.06);color:#eaf0fb}
-.btn--wide{width:100%;justify-content:center;height:34px;margin-bottom:10px;font-size:12.5px}
-.seg{display:flex;gap:4px;padding:4px;margin-bottom:10px;background:#111720;border:1px solid rgba(255,255,255,.07);border-radius:12px}
-.seg__item{flex:1;height:32px;border:0;border-radius:9px;background:transparent;color:#8ea3bd;font-size:12.5px;font-weight:700;transition:background .15s,color .15s}
+.btn--ghost{height:28px;padding:0 11px;font-size:12px;font-weight:600;background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.09);color:#a9b8cb}
+.btn--ghost:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.16);color:#eaf0fb}
+.btn--add{width:100%;height:30px;justify-content:center;margin-top:7px}
+.seg{display:flex;gap:3px;padding:3px;margin-bottom:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:10px}
+.seg__item{flex:1;height:29px;border:0;border-radius:7px;background:transparent;color:#8ea3bd;font-size:12px;font-weight:700;transition:background .15s,color .15s,box-shadow .15s}
 .seg__item:hover{background:rgba(255,255,255,.05);color:#dfe6f2}
-.seg__item[aria-pressed="true"]{background:#2c3a4c;color:#fff}
+.seg__item[aria-pressed="true"]{background:linear-gradient(180deg,rgba(93,140,255,.24),rgba(93,140,255,.13));color:#fff;box-shadow:inset 0 0 0 1px rgba(120,160,255,.26)}
+/* 行编辑器：键 / 值 一行，胶囊 + 上移下移删除 一行（面板只有 372px，分两行才不挤） */
+.rows{display:flex;flex-direction:column;gap:6px}
+.row{padding:8px;border:1px solid rgba(255,255,255,.07);border-radius:10px;background:rgba(255,255,255,.02)}
+.row__top,.row__bot{display:flex;gap:6px}
+.row__bot{margin-top:6px}
+.row input{min-width:0;background:#0f151d;border:1px solid rgba(255,255,255,.08);border-radius:8px;color:#eaf0fb;padding:6px 8px;font-size:12px;font-family:inherit;transition:border-color .15s,box-shadow .15s}
+.row input:hover{border-color:rgba(255,255,255,.16)}
+.row input:focus{outline:none;border-color:#3d6fd1;box-shadow:0 0 0 3px rgba(61,111,209,.2)}
+.row__k{flex:0 0 86px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.row__v,.row__s{flex:1}
+.icon-btn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;flex:0 0 auto;border:1px solid rgba(255,255,255,.09);border-radius:8px;background:rgba(255,255,255,.03);color:#93a4bb;font-size:12px;line-height:1;cursor:pointer;transition:background .15s,color .15s,border-color .15s}
+.icon-btn:hover:not(:disabled){background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.16);color:#eaf0fb}
+.icon-btn:disabled{opacity:.32;cursor:not-allowed}
+.icon-btn--del:hover:not(:disabled){background:rgba(214,88,74,.18);border-color:rgba(214,88,74,.42);color:#ef8b7f}
 .spin{width:13px;height:13px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.spin{animation-duration:2.4s}}
@@ -143,25 +161,32 @@ h1 .accent{color:var(--accent)}
 </div>
 <script>
 /* =============== 封面内容（改这里，或在右侧面板里改） =============== */
+/* 右侧示意面板的默认行：只写「设置页里有什么」，不下效果结论（结论留给正片讲）。
+   s = 右侧那枚小胶囊，留空则不显示；面板里可增删行、改名、上下移。 */
+const ROWS = [
+	{ k: "Provider", v: "供应商与密钥", s: "已登录" },
+	{ k: "Model", v: "模型与默认值", s: "已选" },
+	{ k: "Auth", v: "登录与凭据", s: "已授权" },
+	{ k: "Skills", v: "技能", s: "已启用" },
+	{ k: "Prompts", v: "提示词", s: "已启用" },
+	{ k: "Extensions", v: "扩展", s: "已加载" }
+];
+
 const DEFAULT_STATE = {
 	ep: "EP07 · 配置管理",
+	brandName: "PiDeck",
+	brandSub: "上手系列",
 	titleMain: "pi",
 	titleAccent: "配置管理",
 	lead: "在哪改 · 何时生效——供应商、模型、权限、扩展，每个开关在哪改、改完是立刻生效还是等重启。",
 	chips: "实操, 约 5–6 分钟, 最新界面",
+	mockTitle: "PiDeck · 设置",
+	mockCap: "配置集中在设置页，一处改完",
+	rows: ROWS.map((r) => ({ ...r })),
 	repo: "github.com/ayuayue/PiDeck",
 	byline: "作者 · caoayu",
 	ratio: "r-169"
 };
-/* 右侧示意面板的行：只写「设置页里有什么」，不下效果结论（结论留给正片讲） */
-const ROWS = [
-	["Provider", "供应商与密钥", "已登录"],
-	["Model", "模型与默认值", "已选"],
-	["Auth", "登录与凭据", "已授权"],
-	["Skills", "技能", "已启用"],
-	["Prompts", "提示词", "已启用"],
-	["Extensions", "扩展", "已加载"]
-];
 /* pi 官方 TUI logo：4×4 像素 π（品牌色固定，不随明暗变），与
    src/renderer/src/components/app/piTuiLogoData.ts 的 PI_TUI_COLORS / PI_TUI_LOGO_CELLS 逐字段对齐；
    官方是半块字符画的 4 格宽×2 行，这里按逐像素 4×4 还原（正方形，不能压成 4:3） */
@@ -192,7 +217,7 @@ function renderCover(s) {
 	document.getElementById("stage").innerHTML = `
 	<div id="cover" class="${s.ratio}">
 		<header class="mast">
-			<div class="brand">${LOGO}<span class="brand__name">PiDeck</span><span class="brand__sub">上手系列</span></div>
+			<div class="brand">${LOGO}<span class="brand__name">${esc(s.brandName)}</span><span class="brand__sub">${esc(s.brandSub)}</span></div>
 			<div class="ep-tag">${esc(s.ep)}</div>
 		</header>
 		<div class="split">
@@ -202,14 +227,15 @@ function renderCover(s) {
 				<div class="chips">${chipList(s.chips).map((c) => `<span class="chip">${esc(c)}</span>`).join("")}</div>
 			</section>
 			<section class="mock">
-				<div class="mock__bar"><i></i><i></i><i></i><span class="mock__title">PiDeck · 设置</span></div>
-				<ul class="mock__rows">${ROWS.map(([k, v, st]) => `<li><span class="k">${k}</span><span class="v">${v}</span><span class="s">${st}</span></li>`).join("")}</ul>
-				<div class="mock__cap">配置集中在设置页，一处改完</div>
+				<div class="mock__bar"><i></i><i></i><i></i><span class="mock__title">${esc(s.mockTitle)}</span></div>
+				<ul class="mock__rows">${s.rows.map((r) => `<li><span class="k">${esc(r.k)}</span><span class="v">${esc(r.v)}</span>${r.s ? `<span class="s">${esc(r.s)}</span>` : ""}</li>`).join("")}</ul>
+				<div class="mock__cap">${esc(s.mockCap)}</div>
 			</section>
 		</div>
 		<footer class="foot"><span class="mono">${esc(s.repo)}</span><span>${esc(s.byline)}</span></footer>
 	</div>`;
 	fit();
+	fitMock();
 }
 
 /* =============== 预览自适应缩放 =============== */
@@ -227,7 +253,23 @@ function fit() {
 	document.getElementById("stage").style.width = Math.round(w * k) + "px";
 	document.getElementById("stage").style.height = Math.round(h * k) + "px";
 }
-window.addEventListener("resize", fit);
+window.addEventListener("resize", () => {
+	fit();
+	fitMock();
+});
+
+/* 行数多时把示意面板整体等比缩小：行由内容决定，多出来的行不能撑破画布。
+   只缩 mock 自己（字号与文字区排版不动）；offsetHeight 是 layout 尺寸，不受 transform 影响。 */
+function fitMock() {
+	const mock = document.querySelector("#cover .mock");
+	const split = document.querySelector("#cover .split");
+	if (!mock || !split) return;
+	mock.style.transform = "none";
+	const avail = split.clientHeight - 10;
+	const k = mock.offsetHeight > avail ? avail / mock.offsetHeight : 1;
+	mock.style.transformOrigin = "center";
+	mock.style.transform = k < 1 ? `scale(${k.toFixed(3)})` : "";
+}
 
 /* =============== 预览模式 =============== */
 /* 收起右侧操作区，封面按整窗重新适配：fit() 读的是 .preview 的可用尺寸，
@@ -253,22 +295,48 @@ document.addEventListener("keydown", (e) => {
 });
 
 /* =============== 面板 =============== */
-let state = { ...DEFAULT_STATE };
+let state = { ...DEFAULT_STATE, rows: DEFAULT_STATE.rows.map((r) => ({ ...r })) };
 let exportScale = 2;
 
 function field(label, key, val, type) {
 	return `<div class="f"><label>${label}</label><input data-key="${key}" type="${type || "text"}" value="${esc(val)}"></div>`;
 }
+/* 行编辑器：键 / 值 一行，胶囊 + 上移/下移/删除 一行（面板 372px 宽，分两行才不挤） */
+function rowEditor(rows) {
+	return rows
+		.map(
+			(r, i) => `<div class="row">
+				<div class="row__top">
+					<input class="row__k" data-row="${i}" data-f="k" value="${esc(r.k)}" placeholder="Provider" aria-label="键">
+					<input class="row__v" data-row="${i}" data-f="v" value="${esc(r.v)}" placeholder="供应商与密钥" aria-label="值">
+				</div>
+				<div class="row__bot">
+					<input class="row__s" data-row="${i}" data-f="s" value="${esc(r.s)}" placeholder="右侧胶囊（可留空）" aria-label="状态">
+					<button class="icon-btn" type="button" data-act="up" data-i="${i}" title="上移" aria-label="上移"${i === 0 ? " disabled" : ""}>↑</button>
+					<button class="icon-btn" type="button" data-act="down" data-i="${i}" title="下移" aria-label="下移"${i === rows.length - 1 ? " disabled" : ""}>↓</button>
+					<button class="icon-btn icon-btn--del" type="button" data-act="del" data-i="${i}" title="删除这一行" aria-label="删除这一行">×</button>
+				</div>
+			</div>`
+		)
+		.join("");
+}
 function renderPanel() {
 	const s = state;
 	document.getElementById("panel").innerHTML = `
 		<div class="panel__head">
-			<div class="panel__title">封面内容</div>
-			<p class="panel__sub">左边实时预览，改完点底部按钮导图</p>
+			<div class="panel__head-row">
+				<div>
+					<div class="panel__title">封面内容</div>
+					<p class="panel__sub">左边实时预览，改完点底部导图</p>
+				</div>
+				<button class="btn btn--ghost" id="previewBtn" type="button">预览 <kbd>P</kbd></button>
+			</div>
 		</div>
 		<div class="panel__body">
 			<fieldset class="fs"><legend>顶部</legend>
 				${field("期数标签（右上角）", "ep", s.ep)}
+				${field("品牌名", "brandName", s.brandName)}
+				${field("品牌后缀", "brandSub", s.brandSub)}
 			</fieldset>
 			<fieldset class="fs"><legend>标题</legend>
 				${field("前半（白色）", "titleMain", s.titleMain)}
@@ -279,6 +347,15 @@ function renderPanel() {
 				${field("三个标签（逗号分隔）", "chips", s.chips)}
 				<div class="f">${field("仓库地址", "repo", s.repo)}</div>
 				${field("作者署名", "byline", s.byline)}
+			</fieldset>
+			<fieldset class="fs"><legend>右侧示意面板</legend>
+				${field("窗口标题", "mockTitle", s.mockTitle)}
+				<div class="f">
+					<label>行：键 / 值 / 右侧胶囊（胶囊留空则不显示）</label>
+					<div class="rows">${rowEditor(s.rows)}</div>
+					<button class="btn btn--ghost btn--add" type="button" data-act="add">＋ 加一行</button>
+				</div>
+				${field("底部一句话", "mockCap", s.mockCap)}
 			</fieldset>
 		</div>
 		<div class="panel__foot">
@@ -291,8 +368,7 @@ function renderPanel() {
 				<button class="seg__item" data-scale="1" aria-pressed="${exportScale === 1}">1× 原尺寸</button>
 			</div>
 			<button class="btn btn--primary" id="exportBtn"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5v11.5"/><path d="M7.2 10.5 12 15.3l4.8-4.8"/><path d="M4.5 20h15"/></svg><span class="btn__label">导出 PNG</span><span class="btn__meta" id="exportMeta">${metaText()}</span></button>
-			<button class="btn btn--quiet btn--wide" id="previewBtn" type="button"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12S6 5.75 12 5.75 21.5 12 21.5 12 18 18.25 12 18.25 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3.1"/></svg><span>预览模式</span></button>
-			<p class="hint">16:9 = 1920×1080（B站 / YouTube），3:4 = 1080×1440（小红书）。2× 适合平台再压缩，1× 就是平台标准尺寸。字体只用系统字体，换机器不会掉字。按 P 或点「预览模式」可隐藏右侧操作区，Esc 退回。</p>
+			<p class="hint">16:9 → B站 / YouTube，3:4 → 小红书；2× 供平台再压缩，1× 是平台标准尺寸。行数多了示意面板会自动等比缩小，不会撑破画布。</p>
 		</div>`;
 }
 function metaText() {
@@ -310,6 +386,12 @@ function syncSegs() {
 
 document.getElementById("panel").addEventListener("input", (e) => {
 	const el = e.target;
+	/* 示意面板的行：data-row 指向行号、data-f 指向键/值/胶囊 */
+	if (el.dataset.row !== undefined) {
+		state.rows[Number(el.dataset.row)][el.dataset.f] = el.value;
+		renderCover(state);
+		return;
+	}
 	if (!el.dataset.key) return;
 	state[el.dataset.key] = el.value;
 	renderCover(state);
@@ -329,6 +411,25 @@ document.getElementById("panel").addEventListener("click", (e) => {
 	}
 	if (e.target.closest("#previewBtn")) {
 		setPreview(true);
+		return;
+	}
+	const act = e.target.closest("[data-act]");
+	if (act) {
+		const a = act.dataset.act;
+		const i = Number(act.dataset.i);
+		if (a === "add") state.rows.push({ k: "Key", v: "新条目", s: "" });
+		else if (a === "del") state.rows.splice(i, 1);
+		else if ((a === "up" && i > 0) || (a === "down" && i < state.rows.length - 1)) {
+			const [item] = state.rows.splice(i, 1);
+			state.rows.splice(a === "up" ? i - 1 : i + 1, 0, item);
+		}
+		renderCover(state);
+		renderPanel();
+		/* 加行后把焦点直接落到新行的值上，接着就能打字 */
+		if (a === "add") {
+			const vals = document.querySelectorAll(".row__v");
+			if (vals.length) vals[vals.length - 1].focus();
+		}
 		return;
 	}
 	if (e.target.closest("#exportBtn")) exportPng(exportScale);

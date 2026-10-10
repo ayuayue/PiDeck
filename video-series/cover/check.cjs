@@ -151,6 +151,39 @@ async function compareWithNative(page) {
 	}));
 	ok("预览模式：隐藏面板并整窗适配，Esc 退回", pvIn.panel && pvIn.exit && pvIn.width > pvBefore && pvOut.panel && pvOut.exit, `stage ${pvBefore}→${pvIn.width}px`);
 
+	// 示意面板行编辑：增行 / 改值 / 上下移 / 删行都必须即时进画布
+	const rowsTest = await page.evaluate(() => {
+		const rowCount = () => document.querySelectorAll("#cover .mock__rows li").length;
+		const values = () => [...document.querySelectorAll("#cover .mock__rows .v")].map((el) => el.textContent);
+		const before = rowCount();
+		state.rows = state.rows.slice(0, 3); // 先瘦到 3 行，好验位移
+		renderCover(state);
+		renderPanel();
+		document.querySelector('[data-act="add"]').click();
+		const added = rowCount();
+		const lastVal = document.querySelector(".row__v:last-of-type");
+		const inp = [...document.querySelectorAll(".row__v")].pop();
+		inp.value = "自检行";
+		inp.dispatchEvent(new Event("input", { bubbles: true }));
+		const typed = values().pop();
+		document.querySelector('[data-act="down"][data-i="0"]').click();
+		const moved = values()[1];
+		document.querySelector('[data-act="del"][data-i="0"]').click();
+		return { before, added, typed, moved, afterDel: rowCount() };
+	});
+	ok("示意面板可增行/改值/下移/删行", rowsTest.added === 4 && rowsTest.typed === "自检行" && rowsTest.moved === "供应商与密钥" && rowsTest.afterDel === 3, JSON.stringify(rowsTest));
+
+	// 行数多时必须自动等比缩小，不能撑破画布
+	const fitTest = await page.evaluate(() => {
+		state.ratio = "r-169";
+		state.rows = Array.from({ length: 14 }, (_, i) => ({ k: `K${i}`, v: `条目 ${i}`, s: "已配置" }));
+		renderCover(state);
+		const c = document.getElementById("cover").getBoundingClientRect();
+		const m = document.querySelector("#cover .mock").getBoundingClientRect();
+		return { over: Math.round(Math.max(m.bottom - c.bottom, c.top - m.top)), scale: document.querySelector("#cover .mock").style.transform };
+	});
+	ok("14 行时示意面板自动缩小且不溢出画布", fitTest.over <= 1 && fitTest.scale.startsWith("scale"), JSON.stringify(fitTest));
+
 	// 导出路径的前提：只用系统字体、无外链图片（否则导出掉字/丢图）
 	const src = fs.readFileSync(path.join(DIR, "cover.html"), "utf8");
 	ok("无 @font-face（导出不依赖网络字体）", !/@font-face/.test(src));
