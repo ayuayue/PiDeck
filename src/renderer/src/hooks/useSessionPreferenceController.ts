@@ -2,7 +2,7 @@ import { useStore } from "jotai";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AvailableModel, ModelListReport, SessionRuntimeModelSelection, SessionRuntimeTarget } from "../../../shared/types";
 import { createSessionModelPreference } from "../../../shared/modelDisplayName";
-import { currentSessionIdAtom, sessionRuntimeByIdAtom } from "../atoms";
+import { currentSessionIdAtom, sessionFocusedByIdAtomFamily, sessionRuntimeByIdAtom } from "../atoms";
 import { useSessionPreferenceState } from "./useSessionPreferenceState";
 import { usePendingModelApply } from "./usePendingModelApply";
 import { useSessionPaneServices } from "../components/session/SessionPaneServices";
@@ -15,8 +15,21 @@ import { resolveComposerLiveModel } from "../utils/modelPendingDisplay";
 import { modelKey, pickCycleModel, pickCycleThinkingLevel, resolveFavoriteCycleCandidates, type CycleDirection } from "../utils/preferenceCycle";
 import { WELCOME_DSH_MODEL_KEY, WELCOME_MODEL_KEY, WELCOME_THINKING_KEY } from "../utils/chatSessionBootstrap";
 
-/** 快捷键触发的循环目标（模型 / 思考档位）。 */
-type PendingCycle = "model" | "thinking";
+/** 目录加载前的按键意图仍属于发起栏及绑定，不能转交随后呈现的会话/后端。 */
+type PendingCycle = {
+	kind: "model" | "thinking";
+	isDshSession: boolean;
+	isCurrent: () => boolean;
+};
+
+/** 重启授权同时绑定原会话、运行时代次与栏生命周期，不能只保存可重绑的 Agent ID。 */
+type ModelRestartIntent = {
+	handle: SessionRuntimeTarget;
+	isCurrent: () => boolean;
+	provider: string;
+	modelId: string;
+	modelName: string;
+};
 
 export type SessionPreferenceController = {
 	/** 会话后端（DSH 的目录/档位来自 host catalog）：选择器与循环共用 */
@@ -114,14 +127,30 @@ export function useSessionPreferenceController(options: {
 	const { restartActiveAgent } = useSessionPaneServices();
 	// 不跟 restartTarget state 同步：ConfirmDialog 点确定会先 onOpenChange(false)
 	// 走 onCancel 清掉 state；确认意图放 ref，避免当成取消后丢数据。
-	const restartIntentRef = useRef<{
-		agentId: string;
-		provider: string;
-		modelId: string;
-		modelName: string;
-	} | null>(null);
+	const restartIntentRef = useRef<ModelRestartIntent | null>(null);
+	// state 的重绘晚于同轮点击；同步记录本次 owner，防重复提交，也不让旧 finally 解掉新锁。
+	const restartingIntentRef = useRef<ModelRestartIntent | null>(null);
 	const recordRef = useRef(record);
 	recordRef.current = record;
+	// 按一次栏生命周期隔离请求；切走再回来也不能复活先前的选择结果。
+	const selectionScopeRef = useRef({ sessionId, active: true });
+	if (selectionScopeRef.current.sessionId !== sessionId) selectionScopeRef.current = { sessionId, active: true };
+	useEffect(() => {
+		const scope = selectionScopeRef.current;
+		scope.active = true;
+		return () => {
+			scope.active = false;
+		};
+	}, [sessionId]);
+
+	/** 保存请求的来源栏与绑定；store 实时检查覆盖换绑后尚未重绘的窗口。 */
+	function captureSelection(handle: SessionRuntimeTarget | undefined) {
+		const scope = selectionScopeRef.current;
+		return () => {
+			const current = currentHandle();
+			return scope.sessionId === sessionId && selectionScopeRef.current === scope && scope.active && current?.agentId === handle?.agentId && current?.runtimeGeneration === handle?.runtimeGeneration;
+		};
+	}
 
 	function writeSelectedModelToState(model: SessionRuntimeModelSelection) {
 		const current = recordRef.current;
@@ -138,24 +167,20 @@ export function useSessionPreferenceController(options: {
 		return toSessionRuntimeTarget(sessionId, store.get(sessionRuntimeByIdAtom)[sessionId]);
 	}
 
-	/**
-	 * 运行时代理命令失败时，若错误是「运行时不可用/绑定已变化」（例如 Agent 已被关闭、
-	 * 或历史会话尚未启动 Agent），降级为只更新会话记录。Agent 下次启动时
-	 * SessionRuntimeCoordinator.applyPreferences 会把记录里的模型应用到新进程。
-	 */
-	function isStaleRuntimeFailure(error: unknown): boolean {
-		return error instanceof SessionCommandFailure && (error.code === "SESSION_RUNTIME_UNAVAILABLE" || error.code === "SESSION_RUNTIME_CHANGED");
+	/** 仅当前绑定不可用时保存下次启动偏好；CHANGED 是已退休请求，不能降级写记录。 */
+	function isUnavailableRuntimeFailure(error: unknown): boolean {
+		return error instanceof SessionCommandFailure && error.code === "SESSION_RUNTIME_UNAVAILABLE";
 	}
 
 	function selectedModelPreference(model: AvailableModel) {
 		return createSessionModelPreference(model.provider, model.id, model.name);
 	}
 
-	async function applyModelToRecord(model: AvailableModel) {
+	async function applyModelToRecord(model: AvailableModel, isCurrent: () => boolean) {
 		const updated = await desktopApi.sessions.updateRecord(sessionId, {
 			model: selectedModelPreference(model),
 		});
-		state.upsertSession(updated);
+		if (isCurrent()) state.upsertSession(updated);
 	}
 
 	function currentLiveModel() {
@@ -184,10 +209,13 @@ export function useSessionPreferenceController(options: {
 	}
 
 	function offerModelRestart(handle: SessionRuntimeTarget, model: AvailableModel) {
+		const isCurrent = captureSelection(handle);
+		if (!isCurrent()) return;
 		onApplied();
 		const selected = selectedModelPreference(model);
 		restartIntentRef.current = {
-			agentId: handle.agentId,
+			handle,
+			isCurrent,
 			...selected,
 		};
 		setRestartTarget({
@@ -209,18 +237,22 @@ export function useSessionPreferenceController(options: {
 	 * 后端明确返回 busy 时才排队模型切换；支持运行中选择的 Pi/DSH 会直接在当前 runtime
 	 * 入口应用，已发出的请求继续使用原配置，后续 step 使用新配置。
 	 */
-	async function pickModelWhileBusy(handle: SessionRuntimeTarget, model: AvailableModel) {
+	async function pickModelWhileBusy(handle: SessionRuntimeTarget, model: AvailableModel, isCurrent: () => boolean) {
 		try {
 			const listed = requireSessionCommand(await desktopApi.sessions.listRuntimeModels(handle));
+			if (!isCurrent()) return;
 			const snapshotHasModel = listed.value.some((item) => item.provider === model.provider && item.id === model.id);
 			if (!snapshotHasModel) {
 				offerModelRestart(handle, model);
 				return;
 			}
-		} catch {
-			// 查快照失败（含生成中 busy）不挡选择：先记下，本轮结束后 setRuntimeModel 再判断要不要重启。
+		} catch (error) {
+			// 快照 busy/不可用不挡选择；明确的换绑拒绝不得包装成排队写入。
+			if (error instanceof SessionCommandFailure && error.code === "SESSION_RUNTIME_CHANGED") throw error;
 		}
-		await applyModelToRecord(model);
+		if (!isCurrent()) return;
+		await applyModelToRecord(model, isCurrent);
+		if (!isCurrent()) return;
 		markModelPending(model);
 		onApplied();
 	}
@@ -242,28 +274,31 @@ export function useSessionPreferenceController(options: {
 		}
 		const selected = selectedModelPreference(model);
 		const handle = currentHandle();
+		const isCurrent = captureSelection(handle);
 		try {
 			if (handle) {
 				try {
 					// Pi 返回的模型名与实际生效档位是运行态真值；旧档位不随 set_model 重发。
 					const applied = requireSessionCommand(await desktopApi.sessions.setRuntimeModel(handle, selected.provider, selected.modelId, selected.modelName));
+					if (!isCurrent()) return;
 					writeSelectedModelToState(applied.value);
 					state.setModelPending(undefined);
 				} catch (error) {
+					if (!isCurrent()) return;
 					if (error instanceof SessionCommandFailure && error.code === "SESSION_RUNTIME_BUSY") {
-						await pickModelWhileBusy(handle, model);
+						await pickModelWhileBusy(handle, model, isCurrent);
 						return;
 					}
-					// 运行时代理不可用（Agent 已关/绑定已换）时降级写记录，
-					// 保证「先选模型、后启动 Agent」的流程始终可用。
-					if (!isStaleRuntimeFailure(error)) throw error;
-					await applyModelToRecord(model);
+					// 当前绑定确实不可用时仍允许「先选模型，后启动」。
+					if (!isUnavailableRuntimeFailure(error)) throw error;
+					await applyModelToRecord(model, isCurrent);
 				}
 			} else {
-				await applyModelToRecord(model);
+				await applyModelToRecord(model, isCurrent);
 			}
-			onApplied();
+			if (isCurrent()) onApplied();
 		} catch (error) {
+			if (!isCurrent()) return;
 			// 模型在本地 models.json 存在但运行中 Agent 快照未加载（pi set_model 校验失败）：
 			// 关闭选择器并提示用户重启 Agent 使新模型生效，而非直接报错。
 			if (error instanceof SessionCommandFailure && error.needsRestart && handle) {
@@ -279,11 +314,14 @@ export function useSessionPreferenceController(options: {
 	const canClearModel = (!record || record.status === "draft") && !runtime?.agentId;
 
 	async function clearModel() {
-		// 点击前再次检查实时绑定，防止选择器打开后 Agent 已启动。
-		if ((record && record.status !== "draft") || currentHandle()) return;
+		// 点击与异步保存回包都必须仍是原栏的未启动草稿；已发出的源记录保存可完成，但不能污染新栏。
+		const ownsSelection = captureSelection(undefined);
+		const isCurrent = () => ownsSelection() && (record ? recordRef.current?.status === "draft" : !recordRef.current);
+		if (!isCurrent()) return;
 		try {
 			if (record) {
 				const updated = await desktopApi.sessions.updateRecord(sessionId, { model: null });
+				if (!isCurrent()) return;
 				state.upsertSession(updated);
 			} else {
 				localStorage.removeItem(isDshSession ? WELCOME_DSH_MODEL_KEY : WELCOME_MODEL_KEY);
@@ -291,7 +329,7 @@ export function useSessionPreferenceController(options: {
 			state.setModelPending(undefined);
 			onApplied();
 		} catch (error) {
-			showNotice(error instanceof Error ? error.message : String(error), 4000);
+			if (isCurrent()) showNotice(error instanceof Error ? error.message : String(error), 4000);
 		}
 	}
 
@@ -308,31 +346,35 @@ export function useSessionPreferenceController(options: {
 			return;
 		}
 		const handle = currentHandle();
+		const isCurrent = captureSelection(handle);
 		try {
 			if (handle) {
 				try {
 					const applied = requireSessionCommand(await desktopApi.sessions.setRuntimeThinking(handle, level));
+					if (!isCurrent()) return;
 					const current = recordRef.current;
 					if (current) {
 						// Pi 可能规范化/钳制档位；记录与底栏统一采用实际生效值。
 						state.upsertSession({ ...current, thinkingLevel: applied.value.thinkingLevel, updatedAt: Date.now() });
 					}
 				} catch (error) {
-					// 与模型选择同一策略：运行时不可用时降级为写记录，启动时生效
-					if (!isStaleRuntimeFailure(error)) throw error;
+					if (!isCurrent()) return;
+					// 与模型选择同一策略：仅当前绑定不可用时保存启动偏好。
+					if (!isUnavailableRuntimeFailure(error)) throw error;
 					const updated = await desktopApi.sessions.updateRecord(sessionId, {
 						thinkingLevel: level,
 					});
-					state.upsertSession(updated);
+					if (isCurrent()) state.upsertSession(updated);
 				}
 			} else {
 				const updated = await desktopApi.sessions.updateRecord(sessionId, {
 					thinkingLevel: level,
 				});
-				state.upsertSession(updated);
+				if (isCurrent()) state.upsertSession(updated);
 			}
-			onApplied();
+			if (isCurrent()) onApplied();
 		} catch (error) {
+			if (!isCurrent()) return;
 			// 附带 debugDetails：DSH setThinking 的 selectModel 被 host 拒绝（如当前模型
 			// 不支持该档位）时，把真实原因展示给用户，而不是只看到「会话操作失败，请重试。」
 			showNotice(sessionCommandFailureToast(error), 4000);
@@ -407,10 +449,23 @@ export function useSessionPreferenceController(options: {
 	 * 等 models + favorites 就绪后再执行；目录加载完成但仍为空则放弃并提示。
 	 */
 	const pendingCycleRef = useRef<PendingCycle | null>(null);
+	useEffect(() => {
+		// 仅订本栏焦点切片：离开时丢弃旧按键，即使回来前本栏没有重绘也不能复活。
+		const focusedAtom = sessionFocusedByIdAtomFamily(sessionId);
+		return store.sub(focusedAtom, () => {
+			if (!store.get(focusedAtom)) pendingCycleRef.current = null;
+		});
+	}, [sessionId, store]);
 	const catalogReady = models.length > 0;
 	useEffect(() => {
 		const pending = pendingCycleRef.current;
-		if (!pending || !favoritesLoaded) return;
+		if (!pending) return;
+		// 先淘汰旧意图，再检查目录：换栏/换绑时立即丢弃，回来也不能复活旧按键或错误提示。
+		if (!pending.isCurrent() || pending.isDshSession !== isDshSession || store.get(currentSessionIdAtom) !== sessionId) {
+			pendingCycleRef.current = null;
+			return;
+		}
+		if (!favoritesLoaded) return;
 		if (!catalogReady) {
 			if (state.report !== null && !state.catalogLoading) {
 				pendingCycleRef.current = null;
@@ -419,9 +474,9 @@ export function useSessionPreferenceController(options: {
 			return;
 		}
 		pendingCycleRef.current = null;
-		if (pending === "model") void cycleModelRef.current("forward");
+		if (pending.kind === "model") void cycleModelRef.current("forward");
 		else void cycleThinkingRef.current("forward");
-	}, [favoritesLoaded, catalogReady, state.catalogLoading, state.report]);
+	}, [sessionId, runtime?.agentId, runtime?.runtimeGeneration, isDshSession, store, favoritesLoaded, catalogReady, state.catalogLoading, state.report]);
 
 	useEffect(() => {
 		return desktopApi.app.onShortcutTriggered((id) => {
@@ -430,43 +485,56 @@ export function useSessionPreferenceController(options: {
 			if (store.get(currentSessionIdAtom) !== sessionId) return;
 			if (!catalogReady || !favoritesLoaded) {
 				setCycleArmed(true);
-				pendingCycleRef.current = id === "cycleModel" ? "model" : "thinking";
+				pendingCycleRef.current = {
+					kind: id === "cycleModel" ? "model" : "thinking",
+					isDshSession,
+					isCurrent: captureSelection(currentHandle()),
+				};
 				return;
 			}
 			if (id === "cycleModel") void cycleModelRef.current("forward");
 			else void cycleThinkingRef.current("forward");
 		});
-	}, [sessionId, store, catalogReady, favoritesLoaded]);
+	}, [sessionId, store, catalogReady, favoritesLoaded, isDshSession]);
+
+	// 确认/取消入口只授权本次呈现的意图，旧弹窗回调不能挪用随后出现的新模型授权。
+	const confirmationIntent = restartIntentRef.current;
 
 	async function confirmRestart() {
-		const intent = restartIntentRef.current;
-		if (!intent || restarting) return;
+		const intent = confirmationIntent;
+		if (!intent || restartIntentRef.current !== intent || intent.handle.sessionId !== sessionId || !intent.isCurrent() || restartingIntentRef.current?.isCurrent()) return;
+		restartingIntentRef.current = intent;
 		setRestarting(true);
 		// 先关确认框，避免 AlertDialog 关闭动画盖住 overlay。
 		setRestartTarget(null);
 		try {
-			const updated = await desktopApi.sessions.updateRecord(sessionId, {
+			const updated = await desktopApi.sessions.updateRecord(intent.handle.sessionId, {
 				model: {
 					provider: intent.provider,
 					modelId: intent.modelId,
 					modelName: intent.modelName,
 				},
 			});
+			// 保存等待期间可能已切栏/换代，或有新确认意图；旧授权不能继续重启现在的进程。
+			if (!intent.isCurrent() || restartIntentRef.current !== intent) return;
 			state.upsertSession(updated);
 			state.setModelPending(undefined);
-			await restartActiveAgent(intent.agentId);
+			await restartActiveAgent(intent.handle.agentId);
 		} catch (error) {
-			showNotice(error instanceof Error ? error.message : String(error), 4000);
+			if (intent.isCurrent()) showNotice(error instanceof Error ? error.message : String(error), 4000);
 		} finally {
-			restartIntentRef.current = null;
-			setRestarting(false);
+			if (restartIntentRef.current === intent) restartIntentRef.current = null;
+			if (restartingIntentRef.current === intent) {
+				restartingIntentRef.current = null;
+				setRestarting(false);
+			}
 		}
 	}
 
 	function cancelRestart() {
 		// 只关框：点确定也会先走 onOpenChange(false)→onCancel。
 		// 不能在这里清 restartIntentRef，否则确认路径读到空、重启不会发生。
-		setRestartTarget(null);
+		if (confirmationIntent && restartIntentRef.current === confirmationIntent && confirmationIntent.isCurrent()) setRestartTarget(null);
 	}
 
 	// 不做 memo：本 controller 只服务一个选择器宿主组件，缓存对象反而要靠 ref 兜住
@@ -497,8 +565,8 @@ export function useSessionPreferenceController(options: {
 		applyThinking: (level) => applyThinkingRef.current(level),
 		cycleModel,
 		cycleThinking,
-		restartTarget,
-		restarting,
+		restartTarget: restartIntentRef.current?.isCurrent() ? restartTarget : null,
+		restarting: restarting && Boolean(restartingIntentRef.current?.isCurrent()),
 		confirmRestart,
 		cancelRestart,
 	};

@@ -1,8 +1,8 @@
 import { useAtomValue } from "jotai";
-import { Check, ChevronDown, ChevronRight, CircleStop, CircleX, Copy, FileDown, FileText, Fingerprint, Folder, Globe, Link2, MessagesSquare, MoreHorizontal, Pencil, PanelLeft, PanelRight, Pin, PinOff, Play, Plus, RefreshCw, RotateCw, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, CircleStop, CircleX, Copy, FileDown, FileText, Fingerprint, Folder, Globe, Link2, MessagesSquare, MoreHorizontal, Pencil, PanelLeft, PanelRight, Pin, PinOff, Play, Plus, RefreshCw, RotateCw, Terminal, X } from "lucide-react";
 import { Fragment, useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { motion, useReducedMotion, type Transition } from "motion/react";
-import { sessionRecordByIdAtomFamily, sessionRuntimeBySessionIdAtomFamily, sessionRecordsAtom, projectInventoryByIdAtom, projectByIdAtomFamily } from "../../atoms";
+import { sessionRecordByIdAtomFamily, sessionRuntimeBySessionIdAtomFamily, sessionRecordsAtom, projectInventoryByIdAtom, projectByIdAtomFamily, acpEnabledAtom, acpToolsAtom } from "../../atoms";
 import { t } from "../../i18n";
 import { displayProjectDirectoryName } from "../../rendererUtils";
 import { copyTextWithCopiedNotice } from "../../utils/clipboardNotice";
@@ -12,7 +12,7 @@ import { canRunSessionAction, type SessionRunAction, type SessionRunCapabilities
 import { sessionDisplayName } from "../../utils/sessionDisplayName";
 import { Button } from "../ui-shadcn/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "../ui-shadcn/context-menu";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "../ui-shadcn/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui-shadcn/tooltip";
 import { cn } from "../../lib/utils";
@@ -122,6 +122,8 @@ export type SessionTabsBarProps = {
 	/** 新建会话目标（聊天区置顶 + 已打开项目），由 App 从项目库存装配 */
 	newSessionTargets: readonly NewSessionTarget[];
 	onNewSessionInProject: (projectId: string) => void;
+	/** 新建 ACP 工具会话（acpEnabled 门控后由 App 提供；菜单里按工具→项目二级选择） */
+	onNewAcpSession?: (projectId: string, toolId: string) => void;
 	onTogglePin: (sessionId: string) => void;
 	onReorder: (sourceId: string, targetId: string, position: "before" | "after") => void;
 	/** 右侧抽屉总开关：打开/关闭整块右侧面板（活动栏在抽屉内、系统按钮下方）。 */
@@ -154,6 +156,12 @@ export type SessionTabsBarProps = {
 	 * 避免内容区再开第二套「绿条」Tab 栏。
 	 */
 	editorTabs?: readonly WorkbenchEditorTabItem[];
+	/**
+	 * 页面式宿主插件面板（presentation:"page"）作为伪 Tab 挂进本栏：打开时占据会话区，
+	 * 会话 Tab 全部退为非选中（currentSessionId 由装配层置 undefined）；关闭伪 Tab 即收起插件页。
+	 * simple 模式不渲染（无 Tab 栏语义，插件页直接铺满会话区）。
+	 */
+	pluginTab?: { title: string; icon?: React.ComponentType<{ className?: string }>; onClose: () => void } | null;
 	onSelectEditorTab?: (tabId: string) => void;
 	onCloseEditorTab?: (tabId: string) => void;
 	onPromoteEditorPreview?: (tabId: string) => void;
@@ -602,7 +610,14 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
 					})()}
 					{/* 浏览器式新建入口：跟在最后一张标签后面，下拉选择新建到哪个项目。
             （新建会话保留独立「+」按钮；⋯ 菜单只收运行控制与工具） */}
-					{!props.simple && <NewSessionMenu targets={props.newSessionTargets} onSelect={props.onNewSessionInProject} />}
+					{!props.simple && <NewSessionMenu targets={props.newSessionTargets} onSelect={props.onNewSessionInProject} onNewAcpSession={props.onNewAcpSession} />}
+					{/* 页面式插件面板伪 Tab：始终选中态（它就是当前呈现的视图），与会话 Tab 之间加竖线分隔 */}
+					{!props.simple && props.pluginTab ? (
+						<>
+							<span className="mx-0.5 h-5 w-px shrink-0 bg-border-strong" aria-hidden="true" />
+							<HostPluginTab tab={props.pluginTab} indicatorId={activeIndicatorId} indicatorTransition={indicatorTransition} />
+						</>
+					) : null}
 					{/* 文件/Diff 与会话共用本栏：同一套 session-tab 皮，不另开绿条栏 */}
 					{props.editorTabs && props.editorTabs.length > 0 ? (
 						<>
@@ -816,6 +831,46 @@ function EditorWorkbenchTab(props: {
 }
 
 /**
+ * 页面式宿主插件面板伪 Tab：与 EditorWorkbenchTab 同一套 session-tab 皮。
+ * 它在栏里始终是选中态（呈现的视图就是它），背景走与会话 Tab 共享的 layoutId 指示器，
+ * 选中背景从上一个 Tab spring 滑过来。不可拖拽排序，唯一动作是关闭（即收起插件页）。
+ */
+function HostPluginTab(props: { tab: { title: string; icon?: React.ComponentType<{ className?: string }>; onClose: () => void }; indicatorId: string; indicatorTransition: Transition }) {
+	const { tab } = props;
+	const Icon = tab.icon;
+	return (
+		<div
+			role="tab"
+			aria-selected={true}
+			aria-label={tab.title}
+			className={cn(
+				"session-tab group relative flex h-7 shrink-0 cursor-pointer select-none items-center rounded-md border border-transparent px-2 font-medium text-foreground text-[length:var(--font-size-tab)] leading-(--line-height-tab) transition-[color,background-color,border-color,box-shadow,transform] duration-base",
+				"w-fit max-w-(--session-tab-max-w)",
+			)}
+		>
+			<span className="relative z-10 flex min-w-0 flex-1 items-center gap-1.5">
+				{Icon ? <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
+				<span className="min-w-0 flex-1 truncate">{tab.title}</span>
+				<button
+					type="button"
+					role="tab-close"
+					aria-label={t("tabs.close")}
+					title={t("tabs.close")}
+					className="inline-grid size-4 shrink-0 place-items-center rounded-sm text-muted-foreground/70 opacity-60 transition-[color,background-color,opacity] hover:bg-accent hover:text-foreground hover:opacity-100"
+					onClick={(event) => {
+						event.stopPropagation();
+						tab.onClose();
+					}}
+				>
+					<X className="size-3" />
+				</button>
+			</span>
+			<motion.span aria-hidden="true" layoutId={props.indicatorId} layout="position" transition={props.indicatorTransition} className="pointer-events-none absolute inset-0 rounded-md bg-accent" />
+		</div>
+	);
+}
+
+/**
  * 分组组头胶囊（分屏组/项目分组共用）：浏览器标签组风格。
  *
  * 旧版「虚线边框 + 灰色底 + 裸数字」太粗糙；新版改为：
@@ -926,7 +981,7 @@ function SessionTab(props: {
 	// 两处 gap-1.5 12），104px 下标题只剩约 50px ≈ 4-5 个汉字，已在可读性下限附近：
 	// 若还嫌宽，应先改「状态点/关闭按钮只在激活或 hover 时占位」的取舍，而不是继续压宽度。
 	// 截断细节由 hover 富提示（标题 + 工作区）与 TitleScrollText 滚动兜底。
-	const hasLeadingBadges = Boolean(record?.backend === "dsh" || record?.backend === "imagegen" || runtime?.state?.planModeActive || (runtime?.state?.goal && runtime.state.goal.phase !== "complete"));
+	const hasLeadingBadges = Boolean(record?.backend === "dsh" || record?.backend === "imagegen" || record?.backend === "acp" || runtime?.state?.planModeActive || (runtime?.state?.goal && runtime.state.goal.phase !== "complete"));
 	// Tab 级操作（固定/关闭等）改为右键菜单（ContextMenu，光标处弹出）；Tab 本体点击仍是切换，
 	// 拖拽排序与中键关闭与菜单互不干扰（drag/auxclick 不触发 click）。
 	// 运行控制（停止/重启/重新加载）只作用于当前会话，已上收右上角 ⋯ 更多操作菜单。
@@ -944,7 +999,7 @@ function SessionTab(props: {
 						<SessionActivityIndicator status={status} sessionId={sessionId} busy={props.isRestarting || props.isStopping || props.isReloading} />
 						{pinned && <Pin className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />}
 						<TitleScrollText text={title} disabled className="truncate font-bold" />
-						{(record?.backend === "dsh" || record?.backend === "imagegen") && <SessionBackendBadge backend={record.backend} className="h-4 shrink-0" />}
+						{(record?.backend === "dsh" || record?.backend === "imagegen" || record?.backend === "acp") && <SessionBackendBadge backend={record.backend} className="h-4 shrink-0" />}
 						{runtime?.state?.planModeActive && <span className="shrink-0 text-xs text-muted-foreground">{t("app.composerModePlan")}</span>}
 						{runtime?.state?.goal && runtime.state.goal.phase !== "complete" && <span className="shrink-0 text-xs text-muted-foreground">{t("app.composerModeGoal")}</span>}
 					</div>
@@ -1019,7 +1074,7 @@ function SessionTab(props: {
 								)}
 								{pinned && <Pin className="size-3 shrink-0 text-muted-foreground/70" aria-hidden="true" />}
 								{/* DSH/生图是文字标记，保留自然宽度；固定 size-4 会让文字溢出到右侧操作按钮区域。 */}
-								{(record?.backend === "dsh" || record?.backend === "imagegen") && <SessionBackendBadge backend={record?.backend} className="h-4 shrink-0" />}
+								{(record?.backend === "dsh" || record?.backend === "imagegen" || record?.backend === "acp") && <SessionBackendBadge backend={record?.backend} className="h-4 shrink-0" />}
 								{/* G12：DSH plan 模式 / danger 权限预设全局可见（数据来自 runtime state，tab 级常显） */}
 								{runtime?.state?.planModeActive && (
 									<span className="shrink-0 rounded bg-primary/15 px-1 text-[10px] font-medium leading-4 text-primary" title={t("app.composerModePlan")}>
@@ -1183,9 +1238,14 @@ function SessionTab(props: {
  * （2026-08 收敛调整：仅 Tab 上的小箭头下拉被移除，运行控制上收 ⋯ 菜单；
  *   「+」新建是高频入口，保留独立按钮。）
  */
-function NewSessionMenu(props: { targets: readonly NewSessionTarget[]; onSelect: (projectId: string) => void }) {
+function NewSessionMenu(props: { targets: readonly NewSessionTarget[]; onSelect: (projectId: string) => void; onNewAcpSession?: (projectId: string, toolId: string) => void }) {
 	const chatTargets = props.targets.filter((target) => target.isChat);
 	const projectTargets = props.targets.filter((target) => !target.isChat);
+	// ACP 入口是 opt-in：仅开关开启且登记了工具时出现；工具→项目二级选择，
+	// 只列真实项目（chat 区不是文件项目，作为 ACP 工作目录无意义）。
+	const acpEnabled = useAtomValue(acpEnabledAtom);
+	const acpTools = useAtomValue(acpToolsAtom);
+	const acpVisible = Boolean(props.onNewAcpSession) && acpEnabled && acpTools.length > 0 && projectTargets.length > 0;
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
@@ -1211,6 +1271,30 @@ function NewSessionMenu(props: { targets: readonly NewSessionTarget[]; onSelect:
 						</span>
 					</DropdownMenuItem>
 				))}
+				{acpVisible ? (
+					<>
+						<DropdownMenuSeparator />
+						<DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{t("app.newAcpSession")}</DropdownMenuLabel>
+						{acpTools.map((tool) => (
+							<DropdownMenuSub key={tool.id}>
+								<DropdownMenuSubTrigger className="gap-2">
+									<Terminal className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+									<span className="truncate">{tool.name}</span>
+								</DropdownMenuSubTrigger>
+								<DropdownMenuSubContent>
+									{projectTargets.map((target) => (
+										<DropdownMenuItem key={target.projectId} onSelect={() => props.onNewAcpSession?.(target.projectId, tool.id)}>
+											<span className="inline-flex min-w-0 items-center gap-2">
+												<Folder className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+												<span className="truncate">{target.label}</span>
+											</span>
+										</DropdownMenuItem>
+									))}
+								</DropdownMenuSubContent>
+							</DropdownMenuSub>
+						))}
+					</>
+				) : null}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

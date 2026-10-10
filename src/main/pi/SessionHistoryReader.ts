@@ -389,7 +389,7 @@ export function boundTurnWindowStart(entries: ReadonlyArray<{ role?: string; byt
 
 /**
  * 从 pi 消息 content 提取「重发」回填内容：string 或 blocks 数组（text/image）。
- * 图片块格式：{ type: "image", source: { type: "base64", media_type, data } }。
+ * 图片同时兼容 pi flat data/mimeType 与 Anthropic source.data/media_type，和消息投影一致。
  */
 function extractResendContent(content: unknown): { text: string; images?: ImageContent[] } {
 	if (typeof content === "string") return { text: content };
@@ -397,20 +397,14 @@ function extractResendContent(content: unknown): { text: string; images?: ImageC
 		const textParts: string[] = [];
 		const images: ImageContent[] = [];
 		for (const block of content) {
-			const typed = block as {
-				type?: string;
-				text?: string;
-				source?: { type?: string; media_type?: string; data?: string };
-			} | null;
-			if (!typed || typeof typed !== "object") continue;
-			if (typed.type === "text" && typeof typed.text === "string") {
-				textParts.push(typed.text);
-			} else if (typed.type === "image" && typed.source?.type === "base64" && typeof typed.source.data === "string") {
-				images.push({
-					type: "image",
-					mimeType: typeof typed.source.media_type === "string" ? typed.source.media_type : "image/png",
-					data: typed.source.data,
-				});
+			if (!isRecord(block)) continue;
+			if (block.type === "text" && typeof block.text === "string") {
+				textParts.push(block.text);
+			} else if (block.type === "image") {
+				const source = isRecord(block.source) ? block.source : undefined;
+				const data = typeof block.data === "string" ? block.data : typeof source?.data === "string" ? source.data : "";
+				const mimeType = typeof block.mimeType === "string" ? block.mimeType : typeof block.mime_type === "string" ? block.mime_type : typeof source?.media_type === "string" ? source.media_type : "image/png";
+				if (data) images.push({ type: "image", data, mimeType });
 			}
 		}
 		return { text: textParts.join("\n"), ...(images.length > 0 ? { images } : {}) };
@@ -1583,10 +1577,10 @@ export class SessionHistoryReader {
 	}
 
 	/**
-	 * pi fork 产物（forkFromUserMessage/重发/编辑/回退 checkpoint 的子会话）只落增量：
-	 * header 带 parentSession 指针，会话正文在祖先文件里。这里把祖先活动分支的消息条目
-	 * 前置合并进子会话索引（条目标 chainHostPath，字节物化按各自文件读），时间线/分页/
-	 * 全文检索因此能看到完整历史；模型上下文本就由 pi 运行时沿链重建，此处只补展示层。
+	 * parentSession 是 fork 来源标记，不代表子文件一定只含增量。共享 message id
+	 * 表示子文件已复制活动前缀，以子文件为权威；仅增量文件才补祖先活动消息。
+	 * 索引条目的 chainHostPath 与 offset/byteLength 成对保留，让时间线/分页/全文检索
+	 * 从正确文件物化消息。此处只补展示层，不参与 pi 的模型上下文构建。
 	 * 祖先缺失（被清理）或链超深/成环时降级为单文件索引：丢前缀但不阻塞打开。
 	 */
 	private async mergeForkChain(hostPath: string, version: { size: number; mtimeMs: number }, own: SessionDisplayIndex, depth: number, visited: Set<string>, guard?: PluginHistoryGuard): Promise<SessionDisplayIndex> {
@@ -1610,9 +1604,12 @@ export class SessionHistoryReader {
 			});
 			return own;
 		}
-		// 祖先只取消息条目：设置类条目（model_change/system 等）子文件有自己的同 id 拷贝，
-		// 重复注入只会污染条目表与分支回溯。
-		const inherited = parent.activeMessageEntries.map((entry) => ({ ...entry, chainHostPath: parent.hostPath }));
+		// pi 的完整 fork 已复制活动前缀（沿用 entry id），子文件就是分支权威；
+		// 再拼父分支不但重复消息，还会混入 fork 点之后/父会话后续追加的轮次。
+		if (own.activeMessageEntries.some((entry) => parent.entries.has(entry.id))) return own;
+		// 增量 fork 才补祖先消息；offset/byteLength 必须与原始来源文件配对，
+		// 二级及以上的继承条目不能被重定向到直接父文件。
+		const inherited = parent.activeMessageEntries.map((entry) => ({ ...entry, chainHostPath: entry.chainHostPath ?? parent.hostPath }));
 		const entries = new Map<string, SessionDisplayEntry>();
 		for (const entry of inherited) entries.set(entry.id, entry);
 		for (const entry of own.entries.values()) entries.set(entry.id, entry);

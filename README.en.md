@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.8.0-blue)
+![Version](https://img.shields.io/badge/version-0.9.0-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -81,17 +81,25 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.8.0 (2026-10-07)** (2026-10-07)
+> **Latest: v0.9.0 (2026-10-10)** (2026-10-10)
 
-### v0.8.0 (2026-10-07) Release Highlights
-- 🚀 **MCP config page redesign**
-- 🚀 **Prompt enhance in the composer (✦)**
-- 🚀 **Resend & edit now fork cleanly**
-- 🚀 **Web session routes /s/<id>**
-- ✨ **All WSL-project sessions vanished from the sidebar (0.7.9 regression)**
-- ✨ **Optimistic locking for mcp.json saves**
-- ✨ **Untrusted projects show guidance instead of raw IPC errors**
-- ✨ **Extension output cards follow renderer-registration and fold into process groups**
+### v0.9.0 (2026-10-10) Release Highlights
+- 🚀 **ACP backend: more AI coding tools in one workbench**
+- 🚀 **Independent PiDeck host-plugin system**
+- 🚀 **Built-in remote access and access tokens**
+- 🚀 **Web live events and Plan Mode**
+- 🚀 **Terminal settings, WebGL and snapshot replay**
+- 🚀 **Native sessions and model catalogs aligned with pi 1.0.4**
+- 🚀 **MCP service catalog and AI configuration assistant**
+- 🚀 **Session branch panel**
+- 🚀 **Project pinning and list management**
+- 🚀 **Traditional Chinese UI**
+- 🚀 **Notification history across restarts**
+- 🚀 **Choose which composer controls to show**
+- ✨ **Extension-command previews in draft sessions**
+- ✨ **Faster resource-toggle feedback**
+- ✨ **Remote and mobile polish**
+- ✨ **Security and long-running stability hardening**
 
 [View Full Changelog →](CHANGELOG.md)
 

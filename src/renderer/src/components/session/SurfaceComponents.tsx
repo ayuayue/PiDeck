@@ -8,6 +8,9 @@ import { planRailTicks } from "./timeline/outlineRailTicks";
 import { areOutlineRailItemsEqual, createOutlineItemIndex, resolveVisibleRailActiveId } from "./timeline/outlineRailActive";
 import { useTimelineOutlineActiveId } from "./timeline/useTimelineOutlineActiveId";
 import { useAtomValue } from "jotai";
+import type { TpsDisplayMode } from "../../../../shared/types/settings";
+import { tpsDisplayModeAtom } from "../../atoms/tps-atoms";
+import { buildTpsDisplay } from "../../utils/tpsDisplay";
 import "katex/dist/katex.min.css";
 
 /**
@@ -192,9 +195,10 @@ export type SessionStatusDetail = {
  * 纯函数：label/value 已本地化，调用方只负责布局。
  */
 export function buildSessionStatusDetail(
-	state: Pick<AgentRuntimeState, "contextPercent" | "contextTokens" | "contextWindow" | "inputTokens" | "outputTokens" | "cacheRead" | "cacheWrite" | "cacheTotal" | "cacheHitPercent" | "ttftMs" | "totalMs" | "tps" | "cost" | "dshSessionStats"> | undefined,
+	state: Pick<AgentRuntimeState, "contextPercent" | "contextTokens" | "contextWindow" | "inputTokens" | "outputTokens" | "cacheRead" | "cacheWrite" | "cacheTotal" | "cacheHitPercent" | "ttftMs" | "totalMs" | "tps" | "endToEndTps" | "cost" | "dshSessionStats"> | undefined,
 	averageCacheHit: number | undefined,
 	averageCacheHitSampleCount: number,
+	tpsMode: TpsDisplayMode = "streaming",
 ): SessionStatusDetail {
 	const detailRows: SessionDetailRow[] = [];
 	const replyPerfRows: SessionDetailRow[] = [];
@@ -255,8 +259,9 @@ export function buildSessionStatusDetail(
 	if (state.totalMs != null) {
 		replyPerfRows.push({ label: t("ctx.detail.total"), value: formatDuration(state.totalMs), hint: t("ctx.detail.totalHint") });
 	}
-	if (state.tps != null) {
-		replyPerfRows.push({ label: t("ctx.detail.tps"), value: `${state.tps.toFixed(0)} tok/s`, hint: t("ctx.detail.tpsHint") });
+	if (state.tps != null || state.endToEndTps != null || state.totalMs != null) {
+		const throughput = buildTpsDisplay(tpsMode, state.tps, state.endToEndTps, "reply");
+		replyPerfRows.push({ label: throughput.label, value: throughput.value, hint: throughput.hint });
 	}
 	if (state.cost != null) {
 		detailRows.push({ label: t("ctx.detail.cost"), value: `$${state.cost.toFixed(3)}`, emphasis: true, hint: t("ctx.detail.costHint") });
@@ -280,9 +285,8 @@ export function buildSessionStatusDetail(
 		if (sessionStats.ttftAvgMs != null) {
 			sessionStatRows.push({ label: t("ctx.detail.ttftAverage"), value: formatDuration(sessionStats.ttftAvgMs), hint: t("ctx.detail.ttftAverageHint") });
 		}
-		if (sessionStats.tokensPerSecond != null) {
-			sessionStatRows.push({ label: t("ctx.detail.tps"), value: `${sessionStats.tokensPerSecond.toFixed(0)} tok/s`, hint: t("ctx.detail.tpsAverageHint") });
-		}
+		const throughput = buildTpsDisplay(tpsMode, sessionStats.tokensPerSecond, sessionStats.endToEndTokensPerSecond, "session");
+		sessionStatRows.push({ label: throughput.label, value: throughput.value, hint: throughput.hint });
 	}
 	return {
 		detailRows,
@@ -298,6 +302,7 @@ export function SessionStatus(props: {
 	/** 本会话历史缓存命中率快照，用于展示会话平均命中率 */
 	cacheHitHistory?: number[];
 }) {
+	const tpsMode = useAtomValue(tpsDisplayModeAtom);
 	const state = props.state;
 	if (!state) return null;
 	// 会话平均缓存命中率：主进程基于会话文件全部 assistant 消息 usage 算出的
@@ -305,7 +310,7 @@ export function SessionStatus(props: {
 	const history = props.cacheHitHistory ?? [];
 	const averageCacheHit = state.cacheHitAveragePercent ?? (history.length > 0 ? history.reduce((sum, value) => sum + value, 0) / history.length : undefined);
 	const averageCacheHitSampleCount = state.cacheHitSampleCount ?? history.length;
-	const { detailRows, replyPerfRows, sessionStatRows, hasDetail } = buildSessionStatusDetail(state, averageCacheHit, averageCacheHitSampleCount);
+	const { detailRows, replyPerfRows, sessionStatRows, hasDetail } = buildSessionStatusDetail(state, averageCacheHit, averageCacheHitSampleCount, tpsMode);
 	// cost-chip 悬浮提示里的人民币估算（与明细行共用同一汇率常量）
 	const cnyAmount = state.cost != null ? `¥${(state.cost * USD_TO_CNY_RATE).toFixed(2)}` : undefined;
 
@@ -651,6 +656,7 @@ export const UserBubble = memo(function UserBubble(props: {
 	onResendUserMessage?: (message: ChatMessage) => void;
 	onEditMessage?: (message: ChatMessage, newText: string) => void;
 	onDeleteMessage?: (messageId: string, entryId?: string) => void;
+	onRemoveMessageImage?: (message: ChatMessage, index: number) => void;
 	/** 从该用户消息 fork 新会话；忙碌时不展示入口 */
 	onForkMessage?: (message: ChatMessage) => void;
 	/** 回退工作区文件到该消息时刻前最近的检查点；仅 pi 后端注入（rewind 能力） */
@@ -842,7 +848,7 @@ export const UserBubble = memo(function UserBubble(props: {
 	/** 编辑后重发：放回 composer 输入框，由用户自行修改后发送。 */
 	const handleEditAndResend = () => {
 		document.querySelector<HTMLElement>(".composer-box .rich-input, .composer-box textarea")?.focus();
-		window.dispatchEvent(new CustomEvent("user-message-edit", { detail: { text: message.text } }));
+		window.dispatchEvent(new CustomEvent("user-message-edit", { detail: { text: message.text, images: message.images } }));
 	};
 	return (
 		<article /* user-turn 为 e2e 选择器锚点 */
@@ -861,7 +867,7 @@ export const UserBubble = memo(function UserBubble(props: {
 								<MessageImage src={src} alt={t("app.imageAlt", { index: index + 1 })} className="size-16 max-h-40 cursor-pointer rounded-md border border-border object-cover transition-colors duration-fast hover:border-border-strong" onClick={() => props.onPreviewImage(img)} />
 								{/* 上传图片此前只有点击预览、无复制/保存入口（2026-10 用户反馈）；hover 动作条与生图卡片同规格 */}
 								<div className="absolute -top-2.5 right-0 z-10 opacity-0 transition-opacity duration-fast group-hover/img:opacity-100 focus-within:opacity-100" onClick={(event) => event.stopPropagation()}>
-									<ImageActionButtons image={img} />
+									<ImageActionButtons image={img} onRemove={props.onRemoveMessageImage && img.data ? () => props.onRemoveMessageImage?.(message, index) : undefined} />
 								</div>
 							</div>
 						);

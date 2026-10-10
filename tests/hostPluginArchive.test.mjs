@@ -140,6 +140,27 @@ test("host plugin manager installs archives disabled-by-default and keeps consen
 	}
 });
 
+test("host plugin manager installs nested assets from an archive", async () => {
+	// 回归：包内子目录资产在归档里本来就是合法路径，落位时必须逐级建目录，否则 writeFile 直接 ENOENT。
+	const root = await mkdtemp(join(tmpdir(), "pideck-install-nested-"));
+	const archivePath = join(root, "nested.pideck-plugin");
+	try {
+		await writeFile(
+			archivePath,
+			buildHostPluginArchive([
+				{ path: "pideck-plugin.json", bytes: Buffer.from(JSON.stringify({ ...manifest(), contributes: { panels: [{ id: "context", title: "Context", entry: "assets/app.html" }], commands: [] } }), "utf8") },
+				{ path: "assets/app.html", bytes: Buffer.from("<!doctype html><title>nested</title>", "utf8") },
+			]),
+		);
+		const manager = await managerWith(join(root, "host-plugins"));
+		const catalog = await manager.installArchive(archivePath);
+		assert.equal(catalog.plugins[0].manifest.contributes.panels[0].entry, "assets/app.html");
+		assert.equal(await readFile(join(catalog.directory, "example.viewer", "assets", "app.html"), "utf8"), "<!doctype html><title>nested</title>");
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 test("host plugin manager install failures clean up temp state and surface stable codes", async () => {
 	const root = await mkdtemp(join(tmpdir(), "pideck-install-fail-"));
 	const archivePath = join(root, "broken.pideck-plugin");

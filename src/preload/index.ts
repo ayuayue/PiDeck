@@ -3,7 +3,7 @@ import { ipcChannels } from "../shared/ipc";
 import type { TokendanceAuthMode, TokendancePaymentSessionResult } from "../shared/tokendance";
 import type { AcpToolConfig, AcpToolInput, AcpToolValidation } from "../shared/types/acp";
 import type { AnnouncementState } from "../shared/types/announcement";
-import type { HostPluginDesktopApi } from "../shared/types/hostPlugin";
+import type { HostPluginContext, HostPluginDesktopApi } from "../shared/types/hostPlugin";
 import type { RpcLogBatch, RpcLogEntry } from "../shared/types/rpcLog";
 import type { ModelTraceRecord } from "../shared/types/bridge";
 import type { DshRuntimeStatus, DshRuntimeInstallProgress } from "../shared/types/dshRuntime";
@@ -220,8 +220,10 @@ const hostPlugins: HostPluginDesktopApi = {
 	setEnabled: (id, enabled, fingerprint) => ipcRenderer.invoke(ipcChannels.hostPluginsSetEnabled, id, enabled, fingerprint),
 	openDirectory: () => ipcRenderer.invoke(ipcChannels.hostPluginsOpenDirectory),
 	install: () => ipcRenderer.invoke(ipcChannels.hostPluginsInstall),
+	installDirectory: () => ipcRenderer.invoke(ipcChannels.hostPluginsInstallDirectory),
+	scaffold: (input) => ipcRenderer.invoke(ipcChannels.hostPluginsScaffold, input),
 	mount: (input) => ipcRenderer.invoke(ipcChannels.hostPluginsMount, input),
-	update: (id, context, bounds, visible) => ipcRenderer.invoke(ipcChannels.hostPluginsUpdate, id, context, bounds, visible),
+	update: (instanceId: string, context: HostPluginContext) => ipcRenderer.invoke(ipcChannels.hostPluginsUpdate, instanceId, context),
 	unmount: (id) => ipcRenderer.invoke(ipcChannels.hostPluginsUnmount, id),
 	onChanged: (callback) => subscribe(ipcChannels.hostPluginsChanged, callback),
 	onNavigate: (callback) => subscribe(ipcChannels.hostPluginNavigate, callback),
@@ -635,6 +637,8 @@ const api = {
 		readRecordMessagePage: (sessionId: string, before?: number, pageSize?: number, options?: { beforeEntryId?: string }) => ipcRenderer.invoke(ipcChannels.sessionsCatalogReadMessagePage, sessionId, before, pageSize, options) as Promise<import("../shared/types").SessionMessagePage>,
 		/** 无 runtime 时直接改 JSONL（编辑）。运行中必须先停 Agent。 */
 		editCatalogMessage: (sessionId: string, messageId: string, newText: string, entryId?: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogEditMessage, sessionId, messageId, newText, entryId) as Promise<SessionCommandResult<void>>,
+		/** 原地移除单图：只传快照，main 在文件锁内校验目标；运行中必须先停。 */
+		removeCatalogMessageImage: (sessionId: string, messageId: string, imageTarget: import("../shared/types").SessionMessageImageTarget, entryId?: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogRemoveMessageImage, sessionId, messageId, imageTarget, entryId) as Promise<SessionCommandResult<void>>,
 		/** 无 runtime 时直接改 JSONL（删除）。运行中必须先停 Agent。 */
 		deleteCatalogMessage: (sessionId: string, messageId: string, entryId?: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogDeleteMessage, sessionId, messageId, entryId) as Promise<SessionCommandResult<void>>,
 		/** 无 runtime 时截断 JSONL 供重发。运行中必须先停 Agent。 */
@@ -1167,6 +1171,20 @@ const api = {
 		saveTools: (tools: AcpToolInput[]) => ipcRenderer.invoke(ipcChannels.acpToolsSave, tools) as Promise<AcpToolConfig[]>,
 		/** 单条表单校验（不落盘；渲染层即时反馈）。 */
 		validateTool: (input: AcpToolInput) => ipcRenderer.invoke(ipcChannels.acpToolValidate, input) as Promise<AcpToolValidation>,
+		/** 检测预设工具安装状态/版本（只读）。 */
+		detectTool: (presetId: import("../shared/acpToolPresets").AcpToolPresetId) => ipcRenderer.invoke(ipcChannels.acpToolDetect, presetId) as Promise<import("../shared/types/acp").AcpToolStatus>,
+		/** npm 全局安装（进度经 onLifecycleEvent 推送）；manual 形态会 reject，渲染层引导官网。 */
+		installTool: (presetId: import("../shared/acpToolPresets").AcpToolPresetId) => ipcRenderer.invoke(ipcChannels.acpToolInstall, presetId) as Promise<{ ok: boolean; output: string }>,
+		/** npm 全局卸载。 */
+		uninstallTool: (presetId: import("../shared/acpToolPresets").AcpToolPresetId) => ipcRenderer.invoke(ipcChannels.acpToolUninstall, presetId) as Promise<{ ok: boolean; output: string }>,
+		/** 安装/卸载进度行与结算推送；返回退订函数。 */
+		onLifecycleEvent: (callback: (event: import("../shared/types/acp").AcpLifecycleEvent) => void) => subscribe(ipcChannels.acpLifecycleEvent, callback),
+		/** 查询 acp 会话的配置枚举（模型/思考档/模式；agent 未提供时 null）。 */
+		getSessionConfig: (agentId: string) => ipcRenderer.invoke(ipcChannels.acpSessionConfigGet, agentId) as Promise<import("../shared/types/acp").AcpSessionConfigOption[] | null>,
+		/** 下发 session/set_config_option，返回 agent 回传的整表。 */
+		setSessionConfig: (agentId: string, optionId: string, value: string | boolean) => ipcRenderer.invoke(ipcChannels.acpSessionConfigSet, { agentId, optionId, value }) as Promise<import("../shared/types/acp").AcpSessionConfigOption[]>,
+		/** configOptions 变更推送（按 agentId 隔离）；返回退订函数。 */
+		onSessionConfigChanged: (callback: (event: import("../shared/types/acp").AcpSessionConfigChangedEvent) => void) => subscribe(ipcChannels.acpSessionConfigChanged, callback),
 	},
 	settings: {
 		get: () => ipcRenderer.invoke(ipcChannels.settingsGet) as Promise<AppSettings>,

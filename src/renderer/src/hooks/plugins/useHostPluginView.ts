@@ -1,23 +1,21 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import type { HostPluginBounds, HostPluginContext } from "../../../../shared/types/hostPlugin";
+import type { HostPluginContext } from "../../../../shared/types/hostPlugin";
 import { desktopApi } from "../../desktopApi";
 
 const TOKEN_NAMES = ["--color-bg-app", "--color-bg-panel", "--color-bg-input", "--color-text-primary", "--color-text-secondary", "--color-border-default", "--color-accent", "--color-text-inverse"];
 
-/** Measure only the allocated native surface; plugin content never enters the React DOM. */
-function surfaceInput(element: HTMLElement, scope: { projectId?: string; sessionId?: string }): { context: HostPluginContext; bounds: HostPluginBounds; visible: boolean } {
+/** 创建型 API 需要的额外属性：全局 WebviewElement（types.d.ts）只声明了方法面。 */
+type CreatableWebview = WebviewElement & { src: string; partition: string };
+
+/** 插件面板是页面内 <webview>（与内置浏览器同层叠模型，可被弹层正常覆盖），布局跟随 DOM 天然同步。 */
+function contextInput(scope: { projectId?: string; sessionId?: string }): HostPluginContext {
 	const root = document.documentElement;
 	const style = getComputedStyle(root);
 	const tokens = Object.fromEntries(TOKEN_NAMES.map((name) => [name, style.getPropertyValue(name).trim()]).filter(([, value]) => value));
-	const rect = element.getBoundingClientRect();
-	return {
-		context: { ...scope, locale: root.lang.startsWith("zh") ? "zh-CN" : "en-US", theme: root.dataset.theme === "light" ? "light" : "dark", tokens },
-		bounds: { x: Math.max(0, rect.x), y: Math.max(0, rect.y), width: Math.max(0, rect.width), height: Math.max(0, rect.height) },
-		visible: document.visibilityState !== "hidden" && rect.width > 0 && rect.height > 0,
-	};
+	return { ...scope, locale: root.lang.startsWith("zh") ? "zh-CN" : "en-US", theme: root.dataset.theme === "light" ? "light" : "dark", tokens };
 }
 
-/** Pairs native view lifetime with the panel, rejecting late mounts after close/switch/StrictMode cleanup. */
+/** Pairs guest lifetime with the panel host element, rejecting late mounts after close/switch/StrictMode cleanup. */
 export function useHostPluginView(element: RefObject<HTMLDivElement | null>, pluginId: string, panelId: string, projectId?: string, sessionId?: string) {
 	const scope = useRef({ projectId, sessionId });
 	scope.current = { projectId, sessionId };
@@ -29,10 +27,8 @@ export function useHostPluginView(element: RefObject<HTMLDivElement | null>, plu
 		if (!target) return;
 		let disposed = false;
 		let instanceId: string | undefined;
+		let guest: WebviewElement | undefined;
 		let frame = 0;
-		let mountTimer = 0;
-		setLoading(true);
-		setError(undefined);
 		const fail = (code: string) => {
 			if (!disposed) {
 				setError(code);
@@ -41,9 +37,8 @@ export function useHostPluginView(element: RefObject<HTMLDivElement | null>, plu
 		};
 		const update = () => {
 			if (disposed || !instanceId) return;
-			const input = surfaceInput(target, scope.current);
 			void desktopApi.hostPlugins
-				.update(instanceId, input.context, input.bounds, input.visible)
+				.update(instanceId, contextInput(scope.current))
 				.then((result) => {
 					if (!result.ok) fail(result.code);
 				})
@@ -54,41 +49,42 @@ export function useHostPluginView(element: RefObject<HTMLDivElement | null>, plu
 			frame = requestAnimationFrame(update);
 		};
 		synchronize.current = schedule;
-		const resize = new ResizeObserver(schedule);
-		resize.observe(target);
 		const appearance = new MutationObserver(schedule);
 		appearance.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "data-theme", "data-appearance", "data-accent", "lang"] });
-		window.addEventListener("resize", schedule);
-		document.addEventListener("visibilitychange", schedule);
-		// Native views cannot follow a CSS transform animation. Mount after the host dialog settles.
-		mountTimer = window.setTimeout(() => {
-			const input = surfaceInput(target, scope.current);
-			void desktopApi.hostPlugins
-				.mount({ pluginId, panelId, context: input.context, bounds: input.bounds })
-				.then(async (result) => {
-					if (!result.ok) {
-						fail(result.code);
-						return;
-					}
-					if (disposed) {
-						await desktopApi.hostPlugins.unmount(result.value.instanceId);
-						return;
-					}
-					instanceId = result.value.instanceId;
-					setLoading(false);
-					schedule();
-				})
-				.catch(() => fail("plugin-host-unavailable"));
-		}, 250);
+		void desktopApi.hostPlugins
+			.mount({ pluginId, panelId, context: contextInput(scope.current) })
+			.then(async (result) => {
+				if (!result.ok) {
+					fail(result.code);
+					return;
+				}
+				if (disposed) {
+					await desktopApi.hostPlugins.unmount(result.value.instanceId);
+					return;
+				}
+				instanceId = result.value.instanceId;
+				// 必须先 mount 成功再创建 webview：窗口 attach 策略只放行指向活实例的 host-plugin:<id> partition。
+				const view = document.createElement("webview") as CreatableWebview;
+				view.src = result.value.entryUrl;
+				view.partition = `host-plugin:${instanceId}`;
+				view.className = "h-full w-full";
+				view.addEventListener("dom-ready", () => {
+					if (!disposed) setLoading(false);
+				});
+				view.addEventListener("did-fail-load", () => fail("plugin-load-failed"));
+				view.addEventListener("destroyed", () => {
+					if (!disposed) fail("plugin-load-failed");
+				});
+				guest = view;
+				target.appendChild(view);
+			})
+			.catch(() => fail("plugin-host-unavailable"));
 		return () => {
 			disposed = true;
 			synchronize.current = undefined;
-			clearTimeout(mountTimer);
 			cancelAnimationFrame(frame);
-			resize.disconnect();
 			appearance.disconnect();
-			window.removeEventListener("resize", schedule);
-			document.removeEventListener("visibilitychange", schedule);
+			guest?.remove();
 			if (instanceId) void desktopApi.hostPlugins.unmount(instanceId).catch(() => undefined);
 		};
 	}, [element, pluginId, panelId]);

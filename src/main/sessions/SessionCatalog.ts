@@ -383,9 +383,11 @@ export class SessionCatalog {
 		// catalog 只是 id 映射；即使“创建后激活链路未走完”（attachRuntime 未把
 		// status 置 active），重启后用户仍应在侧栏看到并重新激活它。若在此清掉，
 		// host 侧会话会变成孤儿且无法从侧栏访问。带 dshSessionId 的异常中间态同样保留。
+		// ACP 同理（StaleDraftReaper 的 acp 豁免、Coordinator 激活失败兑底的
+		// draft+acpSessionId 中间态都依赖该保留语义，清单除即 agent 侧孤儿化）。
 		const staleDrafts = this.entries.filter((entry) => entry.status === "draft" && entry.backend !== "dsh" && entry.backend !== "acp");
 		if (staleDrafts.length > 0) {
-			this.entries = this.entries.filter((entry) => entry.status !== "draft" || entry.backend === "dsh");
+			this.entries = this.entries.filter((entry) => entry.status !== "draft" || entry.backend === "dsh" || entry.backend === "acp");
 			try {
 				await this.writeSnapshot(this.entries);
 			} catch {

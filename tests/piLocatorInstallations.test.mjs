@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -268,14 +268,18 @@ test("目录扫描已命中时不启动交互式 shell；一份都没扫到才�
 
 	// 第一个 shell 就能报出路径时必须立即停下（不把每个 shell 都跑一遍）
 	const shellDir = posixProbeTempDir("shell");
+	// 探测输出用 posix 形式（probeLoginShellPi 只认 / 开头）；#318 起返回值会过
+	// safeRealpath（防 fnm 会话级软链失效），Windows 宿主上归一成本盘原生绝对路径。
+	// 隔离 worktree 的 node_modules 可能是 junction，断言同样按真实文件路径比较。
 	const shellPi = toPosixProbePath(writeEntry(join(shellDir, "pi")));
+	const shellPiNative = realpathSync(join(shellDir, "pi"));
 	const fallback = createHarness({ platform: "linux", env: { SHELL: process.execPath }, shellPi: `${shellPi}\n` });
 	try {
 		const { PiLocator } = fallback.locatorModule;
 		const installations = await new PiLocator().listInstallations("", false, "", "");
 		const shellCalls = fallback.spawns.filter((call) => String(call.args[call.args.length - 1]).includes("command -v pi"));
 		assert.equal(shellCalls.length, 1, "第一个 shell 报出路径后不应继续尝试其它 shell");
-		assert.equal(installations[0]?.path, shellPi);
+		assert.equal(installations[0]?.path, shellPiNative);
 	} finally {
 		fallback.cleanup();
 		rmSync(shellDir, { recursive: true, force: true });
@@ -285,15 +289,16 @@ test("目录扫描已命中时不启动交互式 shell；一份都没扫到才�
 test("交互式登录 shell 解析出的 pi 会补进列表并标 shellDefault（即使在扫描目录之外）", async () => {
 	const customDir = posixProbeTempDir("custom");
 	// 同上：登录 shell 反查只在 posix 语义下发生，测试需显式指定平台与可用的 $SHELL；
-	// 路径用 posix 探测形式（probeLoginShellPi 只认 / 开头且存在的路径），
-	// 列表断言按同一形式比较。
+	// 探测输出用 posix 形式（probeLoginShellPi 只认 / 开头且存在的路径）；#318 起返回值
+	// 过 safeRealpath 归一到本机真实绝对路径，断言也解析 junction/软链后的真实落点。
 	const customPi = toPosixProbePath(writeEntry(join(customDir, "pi")));
+	const customPiNative = realpathSync(join(customDir, "pi"));
 	const harness = createHarness({ platform: "linux", env: { SHELL: process.execPath }, shellPi: `${customPi}\n` });
 	try {
 		const { PiLocator } = harness.locatorModule;
 		const installations = await new PiLocator().listInstallations("", false, "", "", { forceShellProbe: true });
 
-		const fromShell = installations.find((item) => item.path === customPi);
+		const fromShell = installations.find((item) => item.path === customPiNative);
 		assert.ok(fromShell, `登录 shell 反查到的 pi 必须出现在列表里：${installations.map((item) => item.path).join(", ")}`);
 		assert.equal(fromShell.shellDefault, true);
 	} finally {

@@ -139,6 +139,8 @@ export const ipcChannels = {
 	sessionsCatalogExportHtml: "sessions:catalog-export-html",
 	/** 无 runtime 时直接改 pi JSONL（编辑消息）。运行中必须先停 Agent。 */
 	sessionsCatalogEditMessage: "sessions:catalog-edit-message",
+	/** 只移除 user 消息中的选中图片；运行中必须先停 Agent。 */
+	sessionsCatalogRemoveMessageImage: "sessions:catalog-remove-message-image",
 	/** 无 runtime 时直接改 pi JSONL（删除消息）。运行中必须先停 Agent。 */
 	sessionsCatalogDeleteMessage: "sessions:catalog-delete-message",
 	/** 无 runtime 时截断 pi JSONL 供重发。运行中必须先停 Agent。 */
@@ -910,6 +912,14 @@ export const ipcChannels = {
 	hostPluginsList: "host-plugins:list",
 	hostPluginsRescan: "host-plugins:rescan",
 	hostPluginsInstall: "host-plugins:install",
+	/**
+	 * 从本地「已解压」的插件目录安装。与上一条分开：Windows 上 showOpenDialog 同时给
+	 * openFile + openDirectory 会退化成只能选目录，.pideck-plugin 反而选不到
+	 * （2026-10，同 dshRuntimeInstallLocalDir）。
+	 */
+	hostPluginsInstallDirectory: "host-plugins:install-directory",
+	/** 脚手架：在插件目录里生成 <id>/ 模板（已存在就拒经，不覆盖作者代码）。 */
+	hostPluginsScaffold: "host-plugins:scaffold",
 	hostPluginsSetEnabled: "host-plugins:set-enabled",
 	hostPluginsOpenDirectory: "host-plugins:open-directory",
 	hostPluginsMount: "host-plugins:mount",
@@ -1108,4 +1118,18 @@ export const ipcChannels = {
 	acpToolsSave: "acp:tools-save",
 	/** 单条表单校验（不含落盘；渲染层新增/编辑即时反馈）。 */
 	acpToolValidate: "acp:tool-validate",
+	/** 检测预设工具安装状态/版本（只读；presetId 枚举收口）。 */
+	acpToolDetect: "acp:tool-detect",
+	/** npm 全局安装预设工具（进度经 acpLifecycleEvent 推送）。 */
+	acpToolInstall: "acp:tool-install",
+	/** npm 全局卸载预设工具。 */
+	acpToolUninstall: "acp:tool-uninstall",
+	/** 主→渲染：安装/卸载进度行与结算（webContents 推送）。 */
+	acpLifecycleEvent: "acp:lifecycle-event",
+	/** 查询 acp 会话的配置枚举（模型/思考档/模式；agent 未提供时 null）。 */
+	acpSessionConfigGet: "acp:session-config-get",
+	/** 下发 session/set_config_option 并返回 agent 回传的整表。 */
+	acpSessionConfigSet: "acp:session-config-set",
+	/** 主→渲染：configOptions 变更（set 响应/config_option_update 通知）。 */
+	acpSessionConfigChanged: "acp:session-config-changed",
 } as const;

@@ -3,7 +3,7 @@ import { useAtom, useAtomValue } from "jotai";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, ChevronsDownUp, FileText, Folder, FolderOpen, FolderTree, LoaderCircle, RefreshCw, X } from "lucide-react";
 import { normalizeSessionPathForCompare } from "../../agentListDisplay";
-import { SessionSourceBadge } from "./SessionSourceBadge";
+import { SessionBackendMark, SessionSourceBadge } from "./SessionSourceBadge";
 import { Button } from "../ui-shadcn/button";
 import { ConfirmDialog } from "../ui-shadcn/ConfirmDialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui-shadcn/collapsible";
@@ -735,6 +735,8 @@ function SessionsPanel(props: {
 											<div className="session-card-title">
 												<strong>{session.name || t("common.untitled")}</strong>
 												{session.source && session.source !== "pi" && <SessionSourceBadge source={session.source} />}
+												{/* 非 pi 后端（dsh/imagegen/acp）用后端徽标区分；此前只显 source 徽标，ACP/DSH 会话在此卡无任何标识 */}
+												{session.backend && session.backend !== "pi" && <SessionBackendMark backend={session.backend} />}
 												<small>
 													{new Date(session.updatedAt).toLocaleString()} ·{" "}
 													{t("drawer.sessionMessages", {

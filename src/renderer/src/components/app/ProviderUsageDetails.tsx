@@ -93,7 +93,9 @@ export function ProviderUsageDetails(props: {
 	const result = entry.result;
 	// 开关关着（默认态）：不查也不空着——直接告诉用户去哪开。
 	const notEnabled = state != null && !state.enabled;
-	const balance = result?.kind === "balance" && result.success ? result.balance : undefined;
+	// balance 不再限定 kind=balance：Sub2API 面板余额合并会把账户钱包余额并进 credits
+	// 形态的结果（余额行在窗口/已用行之上，与徽标同序）；钱包形态本身仍是 kind=balance。
+	const balance = result?.success ? result.balance : undefined;
 	const credits = result?.kind === "credits" && result.success ? result.credits : undefined;
 	const periods = result?.kind === "periods" && result.success ? result.periods : undefined;
 	const windows = credits?.windows ?? [];
@@ -171,6 +173,19 @@ export function ProviderUsageDetails(props: {
 						if (!period) return null;
 						return <UsageBarRow key={key} label={label} percent={period.percent ?? null} />;
 					})}
+				</div>
+			) : null}
+			{result?.success && result.panelBalanceError ? (
+				// Sub2API 面板 JWT 失效：主结果正常但余额段被丢弃，显式说明原因（401=过期
+				// 最常见）而不是无感消失；行内附「去配置」入口，重贴新令牌即可恢复。
+				<div className="flex items-center gap-1.5 px-0.5 text-caption leading-5 text-amber-600 dark:text-amber-400" data-testid="provider-usage-panel-jwt-warning">
+					<AlertCircle size={12} aria-hidden="true" />
+					<span>{result.panelBalanceError === "unauthorized" ? t("config.usageProbe.sub2apiPanelJwtExpired") : t("config.usageProbe.sub2apiPanelJwtFailed")}</span>
+					{props.onConfigureUsage && (
+						<button type="button" data-testid="provider-usage-configure" onClick={props.onConfigureUsage} className="ml-auto inline-flex flex-none items-center rounded px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-muted/60 hover:text-foreground">
+							{t("config.usage.configure")}
+						</button>
+					)}
 				</div>
 			) : null}
 			{notEnabled ? (

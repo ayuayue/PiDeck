@@ -1,4 +1,4 @@
-import { Check, Copy, Download } from "lucide-react";
+import { Check, Copy, Download, Trash2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import type { ImageContent } from "../../../../shared/types";
 import { loadImageBase64 } from "../../../../shared/imageContentSrc";
@@ -16,7 +16,7 @@ function imageDownloadExt(mimeType: string): string {
 }
 
 /**
- * 对话图片统一动作（复制图片 / 保存为文件）。
+ * 对话图片统一动作（复制图片 / 保存为文件 / 有历史权限时移除单图）。
  *
  * 覆盖两类形态：新上传图片（内联 base64）直接取字节；历史 ref 引用经
  * `imagegen:read-image-blob` 按需取回（与生图卡片同一条按需回读通道，
@@ -25,7 +25,7 @@ function imageDownloadExt(mimeType: string): string {
  * 使用方：UserBubble 缩略图 hover 覆盖层、ImagePreviewModal 预览工具条。
  * 视觉与生图卡片（FinalAnswer）的 copy/save 按钮同规格（ghost icon-sm / size-7）。
  */
-export function ImageActionButtons(props: { image: ImageContent | null | undefined; className?: string }) {
+export function ImageActionButtons(props: { image: ImageContent | null | undefined; className?: string; onRemove?: () => void }) {
 	const [copied, setCopied] = useState(false);
 	// ref 形态的按需取回通道：仅历史生图/落盘引用会走到，普通上传图片在内联分支短路
 	const readImageBlob = useCallback((ref: string) => window.piDesktop.imagegen.readImageBlob(ref), []);
@@ -74,6 +74,11 @@ export function ImageActionButtons(props: { image: ImageContent | null | undefin
 			<Button variant="ghost" size="icon-sm" className="size-7 rounded-none border-l border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground" type="button" onClick={saveImage} title={t("imagegen.save")} aria-label={t("imagegen.save")}>
 				<Download size={14} aria-hidden="true" />
 			</Button>
+			{props.onRemove && (
+				<Button variant="ghost" size="icon-sm" className="size-7 rounded-none border-l border-border/60 text-muted-foreground hover:bg-muted hover:text-destructive" type="button" onClick={props.onRemove} title={t("message.removeImage")} aria-label={t("message.removeImage")}>
+					<Trash2 size={14} aria-hidden="true" />
+				</Button>
+			)}
 		</div>
 	);
 }

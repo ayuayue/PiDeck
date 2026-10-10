@@ -339,6 +339,8 @@ import { registerThemesIpc } from "./ipc/themesIpc";
 import { registerPluginDevIpc } from "./ipc/pluginDevIpc";
 import { registerHostPluginsIpc } from "./ipc/hostPluginsIpc";
 import { HostPluginService } from "./plugins/HostPluginService";
+import { HOST_PLUGIN_SCHEME } from "./plugins/hostPluginPolicy";
+import { hostPluginPartitionId, hostPluginWebviewBridge } from "./plugins/hostPluginWebviewPolicy";
 import { PluginDevService } from "./extensions/PluginDevService";
 import { registerGitIpc } from "./ipc/gitIpc";
 import { registerStoreIpc } from "./ipc/storeIpc";
@@ -1678,6 +1680,36 @@ function configureBrowserPanelWebviewHost(window: BrowserWindow): void {
 	}
 
 	window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
+		// 宿主插件面板：partition 形如 host-plugin:<instanceId>，由 HostPluginViewHost 签发；
+		// 与内置浏览器不同，必须携带独立 preload（桥接 broker），其余安全档位与浏览器面板一致。
+		const hostPluginId = hostPluginPartitionId(params.partition ?? "");
+		if (hostPluginId) {
+			const bridge = hostPluginWebviewBridge();
+			if (!bridge || !bridge.hasLive(hostPluginId) || (params.src !== `${HOST_PLUGIN_SCHEME}://${hostPluginId}/` && !params.src?.startsWith(`${HOST_PLUGIN_SCHEME}://${hostPluginId}/`))) {
+				event.preventDefault();
+				void appLogger.warn("host-plugins", "Blocked host-plugin webview attachment", { instanceId: hostPluginId });
+				return;
+			}
+			webPreferences.partition = params.partition;
+			webPreferences.sandbox = true;
+			webPreferences.additionalArguments = rendererHeapAdditionalArguments();
+			webPreferences.nodeIntegration = false;
+			webPreferences.nodeIntegrationInWorker = false;
+			webPreferences.nodeIntegrationInSubFrames = false;
+			webPreferences.contextIsolation = true;
+			webPreferences.webSecurity = true;
+			webPreferences.allowRunningInsecureContent = false;
+			webPreferences.webviewTag = false;
+			delete webPreferences.preload;
+			delete (webPreferences as Record<string, unknown>).preloadURL;
+			const pluginPreload = bridge.preloadPath();
+			if (pluginPreload) webPreferences.preload = pluginPreload;
+			delete params.preload;
+			delete params.preloadURL;
+			delete params.allowfileaccess;
+			delete params.allowpopups;
+			return;
+		}
 		const sourceUrl = params.src || "about:blank";
 		if ((params.partition && params.partition !== BROWSER_PANEL_PARTITION) || !isAllowedBrowserPanelUrl(sourceUrl)) {
 			event.preventDefault();
@@ -1711,6 +1743,15 @@ function configureBrowserPanelWebviewHost(window: BrowserWindow): void {
 	});
 
 	window.webContents.on("did-attach-webview", (_event, guest) => {
+		// 宿主插件 guest：绑定到实例表并接管生命周期；未登记的实例立即关闭。
+		const pluginBridge = hostPluginWebviewBridge();
+		if (pluginBridge) {
+			const hostPluginId = pluginBridge.instanceForGuest(guest);
+			if (hostPluginId) {
+				pluginBridge.attachGuest(hostPluginId, guest);
+				return;
+			}
+		}
 		if (guest.session !== browserPanelSession) {
 			void appLogger.warn("browser", "Closed webview with unexpected session");
 			guest.close();
@@ -2402,7 +2443,18 @@ function registerIpc() {
 	// 数据环境（数据模式决策 / 目录归属校验）：业务在 dataEnvService，handler 只校验/适配。
 	// relaunchApp 复用 restartApp（先停常驻服务 + isQuitting，防止 closeToTray 吞掉 relaunch）；
 	// quitApp 先置 isQuitting，与托盘「退出」菜单同一写法，避免 closeToTray 把退出吞成隐藏到托盘。
-	registerAcpIpc({ settingsStore });
+	registerAcpIpc({
+		settingsStore,
+		// 会话级配置桥惰性取 manager:注册时(此处)尚未实例化(4786 行 opt-in 段),
+		// 与生命周期依赖同一条惰性模式。
+		getSessionManager: () => acpAgentManager,
+		// 生命周期命令编排惰性取 piLocator:注册时(2361 行附近)它尚未实例化(3484 行)。
+		// createInvocation 复用 AcpAgentManager 同一入口(Windows .cmd 垫片),spawn 带 timeout 兜底。
+		getLifecycleDeps: () => ({
+			createInvocation: (command, args) => piLocator.createInvocation(command, args),
+			spawn: (command, args, options) => spawn(command, args, { timeout: options.timeout, windowsHide: true }),
+		}),
+	});
 	registerDataEnvIpc({
 		getChannel: () => updateChannel,
 		getDecisionDir: () => channelDevDataDir,
@@ -2488,7 +2540,8 @@ function registerIpc() {
 	registerBackgroundsIpc();
 	registerThemesIpc();
 	// Desktop plugins run without AgentManager/RPC; failure leaves the rest of PiDeck untouched.
-	const hostPlugins = new HostPluginService(app.getPath("userData"), sessionCatalog, join(__dirname, "../preload/hostPlugin.js"));
+	// 项目显示名闭包在面板挂载时才求值：此处 projectStore 尚未装配。
+	const hostPlugins = new HostPluginService(app.getPath("userData"), sessionCatalog, join(__dirname, "../preload/hostPlugin.js"), (projectId) => projectStore?.get(projectId)?.name);
 	const unregisterHostPlugins = registerHostPluginsIpc(hostPlugins, () => mainWindow);
 	quitCleanup.register("host-plugins", () => {
 		unregisterHostPlugins();
@@ -4745,39 +4798,47 @@ app
 		void ensureResourceMigration();
 		ensurePiResourceMigration = ensureResourceMigration;
 		agentManager.configureResourceMigrationGate(ensureResourceMigration);
-		// 多后端网关装配：pi + dsh + acp（DSH 在窗口创建后后台预热，失败时按需重试；
-		// ACP 无预热——每次 create 即 spawn 对应 CLI，工具表为空时 create 直接报错）。
-		// Coordinator 与事件桥接均面向合成器，新增后端只需追加网关实例。
-		acpAgentManager = new AcpAgentManager({
-			piLocator,
-			getProject: (projectId) => projectStore.get(projectId),
-			getTools: () => settingsStore.get().acpTools ?? [],
-			// 图片物化落盘：ACP 消息里的 base64 图复用生图 blob 存储（ref 形态回填消息；
-			// imagegen 装配在另一段完成，经模块级 ref 延迟取实例）。
-			imageStore: {
-				put: (data, mimeType) => acpImageBlobStore?.put(data, mimeType) ?? Promise.resolve(null),
-			},
-			// ACP 会话标题（session_info_update）写回 catalog：ACP 无本地文件，标题在 agent 侧。
-			onTitleChanged: (deckSessionId, title) => {
-				const entry = sessionCatalog?.get(deckSessionId);
-				if (!entry || entry.title === title) return;
-				void sessionCatalog
-					.update(entry.id, { title })
-					.then(() => {
-						if (mainWindow && !mainWindow.isDestroyed()) {
-							mainWindow.webContents.send(ipcChannels.sessionsCatalogRefreshed, { projectId: entry.projectId });
-						}
-					})
-					.catch((error: unknown) => {
-						void appLogger.warn("session", "ACP title sync to catalog failed", { deckSessionId, title, error: error instanceof Error ? error.message : String(error) });
-					});
-			},
-			logger: appLogger,
-		});
-		quitCleanup.register("acp", async () => {
-			await acpAgentManager?.stopAll();
-		});
-		compositeAgentGateway = new CompositeAgentGateway([agentManager, dshAgentManager, acpAgentManager]);
+		// 多后端网关装配：pi + dsh + acp（DSH 在窗口创建后后台预热，失败时按需重试）。
+		// ACP 是 opt-in（settings.acpEnabled，默认 false）：关闭时完全不创建 AcpAgentManager、
+		// 不注册进合成器——pi 用户零成本；开启后每次 create 即 spawn 对应 CLI，无预热。
+		// 变更开关重启生效，故只需启动时读一次。
+		if (settingsStore.get().acpEnabled === true) {
+			acpAgentManager = new AcpAgentManager({
+				piLocator,
+				getProject: (projectId) => projectStore.get(projectId),
+				getTools: () => settingsStore.get().acpTools ?? [],
+				// configOptions 变更推送：set_config_option 响应/config_option_update 通知都走同一事件,
+				// 渲染层按 agentId 隔离(旧 agent 迟到事件写旧 atom,不再被读)。
+				onConfigOptionsChanged: (tab, options) => {
+					if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(ipcChannels.acpSessionConfigChanged, { agentId: tab.id, options });
+				},
+				// 图片物化落盘：ACP 消息里的 base64 图复用生图 blob 存储（ref 形态回填消息；
+				// imagegen 装配在另一段完成，经模块级 ref 延迟取实例）。
+				imageStore: {
+					put: (data, mimeType) => acpImageBlobStore?.put(data, mimeType) ?? Promise.resolve(null),
+				},
+				// ACP 会话标题（session_info_update）写回 catalog：ACP 无本地文件，标题在 agent 侧。
+				onTitleChanged: (deckSessionId, title) => {
+					const entry = sessionCatalog?.get(deckSessionId);
+					if (!entry || entry.title === title) return;
+					void sessionCatalog
+						.update(entry.id, { title })
+						.then(() => {
+							if (mainWindow && !mainWindow.isDestroyed()) {
+								mainWindow.webContents.send(ipcChannels.sessionsCatalogRefreshed, { projectId: entry.projectId });
+							}
+						})
+						.catch((error: unknown) => {
+							void appLogger.warn("session", "ACP title sync to catalog failed", { deckSessionId, title, error: error instanceof Error ? error.message : String(error) });
+						});
+				},
+				logger: appLogger,
+			});
+			quitCleanup.register("acp", async () => {
+				await acpAgentManager?.stopAll();
+			});
+		}
+		compositeAgentGateway = new CompositeAgentGateway(acpAgentManager ? [agentManager, dshAgentManager, acpAgentManager] : [agentManager, dshAgentManager]);
 		sessionRuntimeCoordinator = new SessionRuntimeCoordinator(sessionCatalog, compositeAgentGateway, sendAgentPromptWithIntegrations, appLogger);
 		// catalog 外部删除清理的活性探针：预热激活后 pi 可能尚未写出会话文件，
 		// 有活跃绑定的记录不得被扫描当「外部删除」剔掉。

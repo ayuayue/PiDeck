@@ -2,6 +2,7 @@ import type { PiDesktopApi } from "../../preload";
 import { createDefaultExternalEditorSettings, createDefaultSecurityConfig, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE, DEFAULT_TOAST_DURATION_MS, emptyRemoteAccessState } from "../../shared/types";
 import { DEFAULT_VOICE_TRANSCRIPTION_CONFIG } from "../../shared/voiceTranscriptionConfig";
 import { SESSION_TAB_MAX_WIDTH_DEFAULT } from "../../shared/sessionTabWidth";
+import { ACP_TOOL_PRESETS } from "../../shared/acpToolPresets";
 import type { AppSettings, FileTreeNode, Project, SessionRecord, SessionSummary, TerminalDataEvent, TerminalExitEvent, TerminalTab } from "../../shared/types";
 import type { ResourceImportKind } from "../../shared/types/resourceImport";
 import type { ReplyActionRule } from "../../shared/types/replyActions";
@@ -114,6 +115,7 @@ let previewSettings: AppSettings = {
 	disabledPrompts: [],
 	sessionTabOpenMode: "preview", // 与 SettingsStore 默认一致：忙碌时发送默认「插入当前回合」
 	busySendDelivery: "steer",
+	tpsDisplayMode: "streaming",
 	// 遗留字段：快捷消息已改存独立配置文件（预览模式没有真实文件，见下方 quickMessages 预览桩）
 	quickMessages: [],
 	enableGitManagement: true,
@@ -167,6 +169,7 @@ let previewSettings: AppSettings = {
 	workspaceContentOpenMode: "split",
 	contentMaxWidth: 1800,
 	chatContentWidthPct: 80,
+	sessionStatusPlacement: "sidebar",
 	navigationMode: "tabs",
 	sessionTabMaxWidth: SESSION_TAB_MAX_WIDTH_DEFAULT,
 	maxEditorFileSizeMB: 5,
@@ -280,6 +283,8 @@ export function createPreviewApi(): PiDesktopApi {
 			setEnabled: async () => ({ ok: false, code: "desktop-only" }),
 			openDirectory: async () => ({ ok: false, code: "desktop-only" }),
 			install: async () => ({ ok: false, code: "desktop-only" }),
+			installDirectory: async () => ({ ok: false, code: "desktop-only" }),
+			scaffold: async () => ({ ok: false, code: "desktop-only" }),
 			mount: async () => ({ ok: false, code: "desktop-only" }),
 			update: async () => ({ ok: false, code: "desktop-only" }),
 			unmount: async () => ({ ok: false, code: "desktop-only" }),
@@ -725,6 +730,7 @@ export function createPreviewApi(): PiDesktopApi {
 			readRecordMessages: async () => [],
 			readRecordMessagePage: async () => ({ messages: [], total: 0, nextBefore: null }),
 			editCatalogMessage: async () => ({ ok: true as const, value: undefined }),
+			removeCatalogMessageImage: async () => ({ ok: false as const, error: { code: "SESSION_COMMAND_FAILED" as const } }),
 			deleteCatalogMessage: async () => ({ ok: true as const, value: undefined }),
 			prepareCatalogResend: async () => ({ ok: true as const, value: { text: "" } }),
 			readProcessEvents: async () => [],
@@ -1527,10 +1533,18 @@ export function createPreviewApi(): PiDesktopApi {
 			install: async (slug) => ({ success: true, slug, installDir: "", message: "Preview install" }),
 		},
 		acp: {
-			// 预览模式：无 ACP 工具数据，返回空表/恒过校验保持 PiDesktopApi 形状完整
+			// 预览模式：无 ACP 工具数据，返回空表/恒过校验保持 PiDesktopApi 形状完整；
+			// 生命周期接口返回固定缺省值（无安装检测、无事件流）
 			listTools: async () => [],
 			saveTools: async () => [],
 			validateTool: async () => ({ ok: true as const }),
+			detectTool: async () => ({ presetId: ACP_TOOL_PRESETS[0]?.id ?? "gemini", state: "unknown" as const }),
+			installTool: async () => ({ ok: false, output: "preview" }),
+			uninstallTool: async () => ({ ok: false, output: "preview" }),
+			onLifecycleEvent: () => () => undefined,
+			getSessionConfig: async () => null,
+			setSessionConfig: async () => [],
+			onSessionConfigChanged: () => () => undefined,
 		},
 		settings: {
 			get: async (): Promise<AppSettings> => ({ ...previewSettings }),

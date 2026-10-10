@@ -11,6 +11,7 @@ import { resolveHistoryMutationPath, shouldShowResendRollbackHint } from "../uti
 import { sessionHistoryUnavailableState } from "../utils/sessionHistoryAvailability";
 import type { NoticeKind } from "../utils/notice";
 import { messageEntryId } from "../utils/sessionCommands";
+import { useSessionMessageImageRemoval } from "./useSessionMessageImageRemoval";
 
 type ConfirmConfig = {
 	title: string;
@@ -60,6 +61,7 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 	const setLoadState = useSetAtom(setSessionMessageLoadStateAtom);
 	const setQuotes = useSetAtom(setSessionQuotesAtom);
 	const [forkingMessageId, setForkingMessageId] = useState<string | null>(null);
+	const forkingRef = useRef(false);
 	const resendingIdsRef = useRef<Set<string>>(new Set());
 	const overlaySessionRef = useRef<string | undefined>(undefined);
 	const depsRef = useRef(deps);
@@ -169,6 +171,8 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 		[hideOverlay, reloadTimelineFromDisk, showOverlay, stopIfRunning],
 	);
 
+	const removeMessageImage = useSessionMessageImageRemoval({ deps, runFileMutation, onFailure: failToast });
+
 	/**
 	 * 解析 fork 锚点 entryId。
 	 * - pi：优先 meta.entryId，其次消息 id 的 "-history-" 后缀，最后 getForkMessages 文本回退匹配。
@@ -216,10 +220,9 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 	 * /中任何一步失败会话保持原状，天然可重试；发送失败仅补状态 toast（旧历史无恙）。
 	 */
 	const runForkMutation = useCallback(
-		async (kind: "resend" | "edit", message: ChatMessage, newText?: string) => {
+		async (sessionId: string, kind: "resend" | "edit", message: ChatMessage, newText?: string) => {
 			const latest = depsRef.current;
-			const sessionId = latest.currentSessionId;
-			if (!sessionId) return;
+			// 确认弹窗等待期间可切焦点；必须传入发起方会话，不能把原消息的 entryId 送进新会话。
 			let target = latest.getRuntimeTargetForSession(sessionId);
 			if (!target) {
 				// 冷会话：fork 走 runtime 命令，必须先有活进程（standby 池摊薄激活成本）
@@ -299,9 +302,14 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 					},
 					async () => {
 						try {
-							await runForkMutation("edit", message, newText);
+							await runForkMutation(sessionId, "edit", message, newText);
 						} catch (error) {
 							failToast(t("message.editFailed"), error);
+						} finally {
+							// 与 resend 的 fork 分支对称：runForkMutation 内部 showOverlay 后有多个早退路径
+							// （激活失败/entryId 缺失/cancelled/成功切会话），finally 里必须清 overlay，
+							// 否则全遮罩永久挂死（overlay atom 无自动清除机制）。
+							hideOverlay(sessionId);
 						}
 					},
 				);
@@ -417,7 +425,9 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 					resendingIdsRef.current.add(message.id);
 					setTimeout(() => resendingIdsRef.current.delete(message.id), 30_000);
 					try {
-						await runForkMutation("resend", message);
+						await runForkMutation(sessionId, "resend", message);
+					} catch (error) {
+						failToast(t("message.resendFailed"), error);
 					} finally {
 						resendingIdsRef.current.delete(message.id);
 						hideOverlay(sessionId);
@@ -473,17 +483,14 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 		[confirmStopIfRunning, failToast, hideOverlay, runFileMutation, runForkMutation, showOverlay],
 	);
 
-	/**
-	 * 在指定 entry 上 fork 新会话（显式 fork 动作的共享主体）。
-	 * forkFromUserMessage 从时间线消息解析 entryId 后走这里；分支树面板直接持有
-	 * entryId（节点即条目），省掉文本反查，共用同一套 overlay/草稿回填/会话切换语义。
-	 */
-	const forkAtEntry = useCallback(
-		async (entryId: string, fallbackText: string, busyKey: string) => {
+	/** 显式分支的共享生命周期：消息锚点解析与分支树条目都绑定发起时的会话快照。 */
+	const runExplicitFork = useCallback(
+		async (entryOrMessage: string | ChatMessage, fallbackText: string, busyKey: string, images?: ImageContent[]) => {
 			const latest = depsRef.current;
 			const sessionId = latest.currentSessionId;
-			if (!sessionId || latest.isAgentCurrentlyBusy()) return;
-			if (forkingMessageId) return;
+			if (!sessionId || latest.isAgentCurrentlyBusy() || forkingRef.current) return;
+			// state 只负责呈现；首次 await 前同步加锁，覆盖冷启动、锚点解析和同一轮重复点击。
+			forkingRef.current = true;
 			setForkingMessageId(busyKey);
 			try {
 				let target = latest.getRuntimeTargetForSession(sessionId);
@@ -495,6 +502,11 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 						agentId: activated.agentId,
 						runtimeGeneration: activated.runtimeGeneration,
 					};
+				}
+				const entryId = typeof entryOrMessage === "string" ? entryOrMessage : await resolveForkEntryId(entryOrMessage, target);
+				if (!entryId) {
+					latest.showToast(t("app.forkMissingEntryId"), 4000);
+					return;
 				}
 				showOverlay(sessionId, "forking");
 				const result = requireSessionCommand(await api.sessions.forkRuntimeSession(target, entryId));
@@ -522,50 +534,30 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 					});
 				}
 				latest.setPromptForAgent(draftTarget, promptText);
-				window.dispatchEvent(new CustomEvent("user-message-edit", { detail: { text: promptText } }));
+				window.dispatchEvent(new CustomEvent("user-message-edit", { detail: { text: promptText, images } }));
 				latest.showToast(t("app.forkDone"), 3500);
 			} catch (error) {
 				const msg = error instanceof Error ? error.message : String(error);
 				latest.showToast(t("app.forkFailed", { error: latest.translateAgentErrorMessage(msg) }), 5000);
 			} finally {
+				forkingRef.current = false;
 				setForkingMessageId(null);
 				hideOverlay(sessionId);
 			}
 		},
-		[forkingMessageId, hideOverlay, showOverlay],
+		[hideOverlay, resolveForkEntryId, showOverlay],
 	);
 
-	const forkFromUserMessage = useCallback(
-		async (message: ChatMessage) => {
-			const latest = depsRef.current;
-			const sessionId = latest.currentSessionId;
-			if (!sessionId || latest.isAgentCurrentlyBusy()) return;
-			// entryId 解析可能需要活 runtime（文本反查兜底）：先取现成 target，没有再激活一次（仅解析用，
-			// fork 本体与 overlay 生命周期交给 forkAtEntry）。
-			let target: SessionRuntimeTarget | undefined = latest.getRuntimeTargetForSession(sessionId);
-			if (!target) {
-				showOverlay(sessionId, "activating");
-				const activated = requireSessionCommand(await api.sessions.activateRuntime(sessionId));
-				target = {
-					sessionId,
-					agentId: activated.agentId,
-					runtimeGeneration: activated.runtimeGeneration,
-				};
-				hideOverlay(sessionId);
-			}
-			const entryId = await resolveForkEntryId(message, target);
-			if (!entryId) {
-				latest.showToast(t("app.forkMissingEntryId"), 4000);
-				return;
-			}
-			await forkAtEntry(entryId, message.text, message.id);
-		},
-		[forkAtEntry, hideOverlay, resolveForkEntryId, showOverlay],
-	);
+	/** 分支树直接给出条目 ID，与消息入口共用防重入及清理边界。 */
+	const forkAtEntry = useCallback((entryId: string, fallbackText: string, busyKey: string, images?: ImageContent[]) => runExplicitFork(entryId, fallbackText, busyKey, images), [runExplicitFork]);
+
+	/** 时间线入口在同一快照内完成激活、解析和分支，不在 await 后重新读取焦点。 */
+	const forkFromUserMessage = useCallback((message: ChatMessage) => runExplicitFork(message, message.text, message.id, message.images), [runExplicitFork]);
 
 	return {
 		editMessage,
 		deleteMessage,
+		removeMessageImage,
 		resendUserMessage,
 		forkFromUserMessage,
 		forkAtEntry,

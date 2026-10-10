@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>GPT 充值 · 价目海报（可改价）</title>
+
+<!-- ===== 海报样式：导出 PNG 时会被整体内联进 SVG，勿加外部依赖 ===== -->
+<style id="poster-style">
+*{box-sizing:border-box}
+.poster{
+	width:1200px;
+	padding:32px 42px 38px;
+	display:flex;flex-direction:column;gap:18px;
+	background:
+		radial-gradient(760px 430px at 50% -8%, #ffffff 0%, rgba(255,255,255,0) 62%),
+		radial-gradient(620px 460px at 104% 104%, #e7eefb 0%, rgba(231,238,251,0) 62%),
+		radial-gradient(620px 460px at -4% 104%, #e7eefb 0%, rgba(231,238,251,0) 62%),
+		linear-gradient(180deg,#f8fbff 0%,#eff5fd 54%,#e9f1fc 100%);
+	font-family:"Microsoft YaHei","PingFang SC","Hiragino Sans GB","Source Han Sans SC","Noto Sans CJK SC",system-ui,sans-serif;
+	color:#0e2350;position:relative;
+}
+.poster::after{content:"";position:absolute;inset:14px;border:2px solid #e3ebf9;border-radius:34px;pointer-events:none}
+
+/* 顶部 */
+.head{text-align:center;padding-top:6px}
+.title{
+	margin:0;font-size:132px;line-height:1.02;font-weight:900;letter-spacing:2px;
+	background:linear-gradient(180deg,#4fadf8 0%,#1f5ec2 46%,#0a1c46 100%);
+	-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent;
+	filter:drop-shadow(0 5px 12px rgba(22,60,130,.14));
+}
+.subrow{display:flex;align-items:center;justify-content:center;gap:18px;margin-top:18px}
+.deco{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.deco i{display:block;height:2px;width:86px;background:linear-gradient(90deg,rgba(168,192,230,0),#a9c0e6)}
+.deco.r i{background:linear-gradient(270deg,rgba(168,192,230,0),#a9c0e6)}
+.deco b{width:10px;height:10px;border-radius:50%;background:#1d3f7d}
+.sub{
+	border:2px solid #e0e9f8;background:#fff;border-radius:999px;padding:15px 36px;
+	font-size:31px;font-weight:700;letter-spacing:1px;color:#1b3d7a;
+	box-shadow:0 10px 24px rgba(28,66,140,.07);white-space:nowrap;
+}
+
+/* 卡片通用 */
+.card{
+	position:relative;overflow:hidden;border-radius:44px;
+	background:linear-gradient(180deg,#ffffff 0%,#f5f9ff 100%);
+	border:2px solid #e4ecfa;
+	box-shadow:0 24px 48px rgba(24,64,140,.10);
+	display:flex;flex-direction:column;align-items:center;justify-content:center;
+}
+.wave{position:absolute;left:-2%;right:-2%;bottom:-3px;width:104%;height:76px;pointer-events:none}
+
+/* 价格字（渐变填充） */
+.num{
+	font-family:"Arial Black","Microsoft YaHei",system-ui,sans-serif;
+	font-weight:900;letter-spacing:-3px;
+	background:linear-gradient(180deg,#2f6cc4 0%,#143c8c 44%,#0a1f55 100%);
+	-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent;
+}
+.cur,.unit{font-weight:900;color:#12306e}
+
+/* 主卡 */
+.hero{padding:26px 40px 34px}
+.hero-name{display:flex;align-items:center;gap:26px;font-size:74px;line-height:1.1;font-weight:900;letter-spacing:1px;color:#0d2350;white-space:nowrap}
+.laurel{width:56px;height:88px;display:block;flex:0 0 auto}
+.laurel.flip{transform:scaleX(-1)}
+.hero-price{display:flex;align-items:flex-end;justify-content:center;gap:8px;margin-top:-4px}
+.hero-price .cur{font-size:74px;padding-bottom:44px}
+.hero-price .num{font-size:216px;line-height:1.05}
+.hero-price .num.d4{font-size:186px}
+.hero-price .unit{font-size:56px;padding-bottom:40px}
+.divider{display:flex;align-items:center;gap:12px;width:100%;margin-top:12px}
+.divider i{flex:1;height:2px;background:linear-gradient(90deg,rgba(190,208,236,0),#cbd9f0)}
+.divider i:last-child{background:linear-gradient(270deg,rgba(190,208,236,0),#cbd9f0)}
+.divider b{width:13px;height:13px;background:#cfe0f7;border-radius:2px;transform:rotate(45deg)}
+
+/* 第二排 */
+.row2{display:grid;grid-template-columns:1fr 1.42fr;gap:18px;align-items:stretch}
+.tier{padding:24px 26px 34px}
+.tier-title{display:flex;align-items:center;gap:16px;font-size:50px;line-height:1.15;font-weight:900;letter-spacing:1px;color:#0d2350;white-space:nowrap}
+.tier-title::before,.tier-title::after{content:"";width:44px;height:2px;flex:0 0 auto;background:linear-gradient(90deg,rgba(199,214,240,0),#c3d4ee)}
+.tier-title::after{background:linear-gradient(270deg,rgba(199,214,240,0),#c3d4ee)}
+.tier-price{display:flex;align-items:flex-end;justify-content:center;gap:6px;margin-top:8px}
+.tier-price .cur{font-size:56px;padding-bottom:26px}
+.tier-price .num{font-size:168px;line-height:1.05}
+.tier-price .num.d4{font-size:140px}
+.tier-price .unit{font-size:42px;padding-bottom:22px}
+.variants{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;width:100%;margin-top:10px}
+.variant{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:0 2px;position:relative;min-width:0}
+.variant + .variant::before{content:"";position:absolute;left:0;top:10%;bottom:6%;width:2px;background:linear-gradient(180deg,rgba(226,234,248,0),#e2eaf8,rgba(226,234,248,0))}
+.pill{background:#eaf2ff;color:#2b5091;border-radius:999px;padding:7px 22px;font-size:27px;font-weight:700;white-space:nowrap}
+.variant .vprice{display:flex;align-items:flex-end;justify-content:center;gap:3px;margin-top:6px;white-space:nowrap}
+.variant .vprice .cur{font-size:44px;padding-bottom:16px}
+.variant .vprice .num{font-size:122px;line-height:1.05;letter-spacing:-4px}
+.variant .vprice .num.d4{font-size:98px}
+.variant .vunit{font-size:36px;font-weight:900;color:#12306e;margin-top:-10px}
+
+/* 成品号列表 */
+.listcard{padding:24px 36px 30px;justify-content:flex-start}
+.list-title{display:flex;align-items:center;justify-content:center;gap:22px;width:100%;font-size:46px;line-height:1.2;font-weight:900;color:#0d2350;white-space:nowrap}
+.list-title i{width:118px;height:2px;background:linear-gradient(90deg,rgba(199,214,240,0),#c3d4ee)}
+.list-title i:last-child{background:linear-gradient(270deg,rgba(199,214,240,0),#c3d4ee)}
+.items{list-style:none;margin:16px 0 0;padding:0;width:100%;display:flex;flex-direction:column;gap:8px}
+.items li{display:flex;align-items:center;gap:16px;padding:12px 26px;border-radius:18px;font-size:38px;line-height:1.25;font-weight:800;color:#0e2350}
+.items li:nth-child(odd){background:linear-gradient(90deg,#eef5ff,#f8fbff)}
+.bullet{width:17px;height:17px;border-radius:3px;background:#b9d2f2;transform:rotate(45deg);flex:0 0 auto}
+.iname{flex:1;min-width:0}
+.iprice{font-family:"Arial Black","Microsoft YaHei",system-ui,sans-serif;font-size:44px;font-weight:900;color:#0d2a63;letter-spacing:-1px;flex:0 0 auto}
+.iprice::before{content:"¥";font-family:"Microsoft YaHei",system-ui,sans-serif;font-size:30px;font-weight:900;margin-right:4px;color:#2a4d92}
+.items li.note{color:#3d5b92;font-weight:700;font-size:32px}
+.items li.note .bullet{background:#d3e2f7}
+
+/* 底部小字（发票 / 说明） */
+.footnote{display:flex;align-items:center;justify-content:center;gap:14px;font-size:31px;line-height:1.3;font-weight:700;color:#3d5b92;text-align:center}
+.footnote i{width:15px;height:15px;border-radius:3px;background:#d3e2f7;transform:rotate(45deg);flex:0 0 auto}
+</style>
+
+<!-- ===== 页面外壳 + 控制面板样式（不进导出） ===== -->
+<style>
+html,body{margin:0;height:100%}
+body{background:#222936;font-family:"Microsoft YaHei",system-ui,sans-serif;color:#dfe6f2;overflow:hidden}
+.app{display:flex;height:100%}
+.preview{flex:1;overflow:auto;padding:20px;display:flex;justify-content:center;align-items:center;background:#222936}
+.stage{box-shadow:0 20px 60px rgba(0,0,0,.45);border-radius:6px;overflow:hidden}
+/* 面板三段式：头部（标题 + 恢复默认）/ 可滚动表单 / 底部操作条。
+   操作条是布局里的一行（flex 子项，flex:0 0 auto），不再是 sticky 悬浮压住表单内容 */
+.panel{width:396px;flex:0 0 396px;display:flex;flex-direction:column;background:#171c24;border-left:1px solid rgba(255,255,255,.07)}
+.panel__head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:15px 18px 13px;border-bottom:1px solid rgba(255,255,255,.06)}
+.panel__title{font-size:15px;font-weight:700;color:#eaf0fb;letter-spacing:.2px}
+.panel__sub{margin:3px 0 0;font-size:11.5px;color:#6d7c8f}
+.panel__body{flex:1;min-height:0;overflow-y:auto;padding:15px 18px 18px;scrollbar-width:thin;scrollbar-color:#39465a transparent}
+.panel__body::-webkit-scrollbar{width:10px}
+.panel__body::-webkit-scrollbar-thumb{background:#39465a;border:3px solid transparent;background-clip:content-box;border-radius:10px}
+.panel__foot{flex:0 0 auto;padding:13px 18px 15px;border-top:1px solid rgba(255,255,255,.07);background:#1a2029}
+.fs{border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:11px 12px 12px;margin:0 0 12px;background:rgba(255,255,255,.015)}
+.fs legend{padding:0 6px;font-size:12px;font-weight:700;color:#8ea3bd;letter-spacing:.4px}
+.f{margin-bottom:9px}
+.f label{display:block;font-size:11.5px;color:#7d8ea8;margin-bottom:5px}
+.f input{width:100%;height:36px;background:#111720;border:1px solid rgba(255,255,255,.08);border-radius:9px;color:#eaf0fb;padding:0 10px;font-size:13px;font-family:inherit;transition:border-color .15s,box-shadow .15s}
+.f input:hover{border-color:rgba(255,255,255,.16)}
+.f input:focus{outline:none;border-color:#3d6fd1;box-shadow:0 0 0 3px rgba(61,111,209,.22)}
+.two{display:flex;gap:8px}
+.two>div{flex:1;min-width:0}
+.rowbox{border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:9px 10px 3px;margin-bottom:9px;background:rgba(0,0,0,.12)}
+.rowline{display:flex;align-items:flex-end;gap:8px;margin-bottom:9px}
+.rowline .f{flex:1;margin:0}
+button{font-family:inherit;cursor:pointer}
+button:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(61,111,209,.4)}
+/* 按钮三个层级：primary（导出，唯一主操作）/ mini（行内增删）/ quiet（极少用的恢复默认） */
+.btn{display:inline-flex;align-items:center;gap:8px;border:1px solid transparent;border-radius:10px;font-weight:700;transition:background .15s,border-color .15s,color .15s,box-shadow .15s,transform .08s}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.btn:not(:disabled):active{transform:scale(.985)}
+.btn--primary{width:100%;height:44px;justify-content:flex-start;padding:0 12px 0 14px;font-size:14px;background:linear-gradient(180deg,#3a7ae0,#2f6cd1);color:#fff;box-shadow:0 6px 16px rgba(47,108,209,.26)}
+.btn--primary:hover:not(:disabled){background:linear-gradient(180deg,#4285ea,#3473da)}
+.btn--primary .btn__meta{margin-left:auto;font-size:11.5px;font-weight:600;color:#cfe0ff;background:rgba(0,0,0,.2);padding:3px 8px;border-radius:7px}
+.btn--primary.is-busy{background:#2b4d86;box-shadow:none}
+.btn--primary.is-done{background:linear-gradient(180deg,#2fa06a,#268a5b);box-shadow:0 6px 16px rgba(47,160,106,.24)}
+.btn--primary.is-fail{background:linear-gradient(180deg,#c0392b,#a5301f);box-shadow:none}
+.btn--quiet{height:28px;padding:0 9px;font-size:12px;font-weight:600;background:transparent;border-color:rgba(255,255,255,.1);color:#93a4bb}
+.btn--quiet:hover{background:rgba(255,255,255,.06);color:#eaf0fb;border-color:rgba(255,255,255,.2)}
+.seg{display:flex;gap:4px;padding:4px;margin-bottom:10px;background:#111720;border:1px solid rgba(255,255,255,.07);border-radius:12px}
+.seg__item{flex:1;height:32px;border:0;border-radius:9px;background:transparent;color:#8ea3bd;font-size:12.5px;font-weight:700;transition:background .15s,color .15s}
+.seg__item:hover{background:rgba(255,255,255,.05);color:#dfe6f2}
+.seg__item[aria-pressed="true"]{background:#2c3a4c;color:#fff}
+.mini{display:inline-flex;align-items:center;justify-content:center;gap:5px;height:28px;padding:0 10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);color:#a9bbd2;border-radius:8px;font-size:12px;font-weight:600;transition:background .15s,border-color .15s,color .15s}
+.mini:hover{background:rgba(255,255,255,.1);color:#eaf0fb}
+.mini--add{width:100%;border-style:dashed;color:#7fa6e8}
+.mini--add:hover{background:rgba(61,111,209,.14);border-color:#3d6fd1;color:#a8c6ff}
+.mini--danger{background:transparent;color:#8b9bb0}
+.mini--danger:hover{background:rgba(220,38,38,.14);border-color:rgba(220,38,38,.5);color:#f08a8a}
+.spin{width:13px;height:13px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation-duration:2.4s}}
+.hint{margin:9px 0 0;font-size:11.5px;color:#5f6f84;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="app">
+	<div class="preview" id="preview"><div class="stage" id="stage"><div class="poster" id="poster"></div></div></div>
+	<aside class="panel" id="panel"></aside>
+</div>
+
+<script>
+/* =========================================================================
+   价格 / 文案配置：面板里改也行，直接改下面这坨也行，改完刷新即生效。
+   price = null 表示不显示价格（海报显示「询价」）；footerNote 是海报最底部那行小字（发票/说明），留空就不显示
+   只放售价，不含任何成本信息
+   ========================================================================= */
+const DEFAULT_STATE = {
+	title: "GPT 充值",
+	subtitle: "官网直充 · 保订阅",
+	hero: { name: "GPT Plus", price: 135 },
+	tiers: [
+		{ name: "Pro ×5倍", price: 680, variants: [] },
+		{ name: "Pro ×20倍", price: null, variants: [
+			{ label: "", price: 1250 },
+			{ label: "", price: 1400 }
+		] }
+	],
+	listTitle: "成品号（质保订阅）",
+	items: [
+		{ name: "Claude pro成品号（超稳）", price: 170 },
+		{ name: "时价波动，欢迎询价", price: null, note: true }
+	],
+	footerNote: "可开发票 · 需加 6% 税点"
+};
+
+/* 面板按钮图标：内联 SVG（不用 emoji 当图标） */
+const ICON_DL = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5v11.5"/><path d="M7.2 10.5 12 15.3l4.8-4.8"/><path d="M4.5 20h15"/></svg>`;
+const ICON_RESET = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.6 12a8.4 8.4 0 1 0 2.7-6.2"/><path d="M3.4 4.4v5.2h5.2"/></svg>`;
+let exportScale = 2; // 导出倍率：面板底部选，只影响导出，不影响预览
+
+function syncScale() {
+	document.querySelectorAll(".seg__item").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.scale) === exportScale)));
+	const meta = document.getElementById("exportMeta");
+	if (meta) meta.textContent = exportScale === 2 ? "2400px" : "1200px";
+}
+
+
+
+
+
+
+
+
+
+const LAUREL = `<svg class="laurel" viewBox="0 0 52 96" aria-hidden="true">
+	<path d="M44 90C26 80 16 58 19 32c1-10 4-18 10-26" fill="none" stroke="#c9a349" stroke-width="2.2" stroke-linecap="round" opacity=".9"/>
+	<g fill="#d8b25c">
+		<ellipse cx="24" cy="78" rx="10" ry="3.7" transform="rotate(-95 24 78)"/>
+		<ellipse cx="14" cy="68" rx="10" ry="3.7" transform="rotate(-105 14 68)"/>
+		<ellipse cx="9" cy="55" rx="10" ry="3.7" transform="rotate(-112 9 55)"/>
+		<ellipse cx="8" cy="42" rx="10" ry="3.7" transform="rotate(-105 8 42)"/>
+		<ellipse cx="12" cy="29" rx="10" ry="3.7" transform="rotate(-95 12 29)"/>
+		<ellipse cx="19" cy="17" rx="9.6" ry="3.5" transform="rotate(-80 19 17)"/>
+	</g>
+</svg>`;
+const WAVE = (a) => `<svg class="wave" viewBox="0 0 400 100" preserveAspectRatio="none" aria-hidden="true">
+	<path d="M0,72 C70,34 150,96 230,62 C290,37 350,58 400,40 L400,100 L0,100 Z" fill="#dbe8fb" opacity="${a}"/>
+	<path d="M0,88 C90,58 160,104 250,80 C310,64 360,80 400,66 L400,100 L0,100 Z" fill="#cfe0f8" opacity="${a * 0.9}"/>
+</svg>`;
+
+const money = (v) => (v === null || v === undefined || v === "" ? null : Math.round(Number(v)));
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* ---------------- 海报渲染 ---------------- */
+function priceBlock(price, cls) {
+	if (price === null) return `<div class="${cls}"><span class="num">询价</span></div>`;
+	const n = money(price);
+	const wide = String(n).length >= 4 ? " d4" : "";
+	return `<div class="${cls}"><span class="cur">¥</span><span class="num${wide}">${n}</span><span class="unit">/月</span></div>`;
+}
+
+/* 分栏价格：元和「/月」分两行，给四位数字留宽度 */
+function variantPrice(v) {
+	if (v.price === null || v.price === undefined || v.price === "")
+		return `<div class="vprice"><span class="num">询价</span></div>`;
+	const n = money(v.price);
+	const wide = String(n).length >= 4 ? " d4" : "";
+	return `<div class="vprice"><span class="cur">¥</span><span class="num${wide}">${n}</span></div><div class="vunit">/月</div>`;
+}
+
+function renderPoster(s) {
+	const tiers = s.tiers.filter((t) => t.variants.length || t.price !== null);
+	const tierCard = (t) => {
+		if (t.variants.length) {
+			return `<section class="card tier">
+				<div class="tier-title"><span>${esc(t.name)}</span></div>
+				<div class="variants">${t.variants
+					.map((v) => `<div class="variant">${v.label ? `<span class="pill">${esc(v.label)}</span>` : ""}${variantPrice(v)}</div>`)
+					.join("")}</div>
+				${WAVE(0.85)}
+			</section>`;
+		}
+		return `<section class="card tier">
+			<div class="tier-title"><span>${esc(t.name)}</span></div>
+			${priceBlock(t.price, "tier-price")}
+			${WAVE(0.85)}
+		</section>`;
+	};
+
+	document.getElementById("poster").innerHTML = `
+		<div class="head">
+			<h1 class="title">${esc(s.title)}</h1>
+			<div class="subrow">
+				<span class="deco"><i></i><b></b></span>
+				<div class="sub">${esc(s.subtitle)}</div>
+				<span class="deco r"><b></b><i></i></span>
+			</div>
+		</div>
+		<section class="card hero">
+			<div class="hero-name">${LAUREL}<span>${esc(s.hero.name)}</span>${LAUREL.replace('class="laurel"', 'class="laurel flip"')}</div>
+			${priceBlock(s.hero.price, "hero-price")}
+			<div class="divider"><i></i><b></b><i></i></div>
+			${WAVE(0.8)}
+		</section>
+		<div class="row2">${tiers.map(tierCard).join("")}</div>
+		<section class="card listcard">
+			<div class="list-title"><i></i><span>${esc(s.listTitle)}</span><i></i></div>
+			<ul class="items">${s.items
+				.map(
+					(it) =>
+						`<li class="${it.note ? "note" : ""}"><span class="bullet"></span><span class="iname">${esc(it.name)}</span>${
+							it.price === null ? "" : `<span class="iprice">${money(it.price)}</span>`
+						}</li>`
+				)
+				.join("")}</ul>
+			${WAVE(0.7)}
+		</section>
+		${s.footerNote ? `<div class="footnote"><i></i><span>${esc(s.footerNote)}</span></div>` : ""}`;
+	const p = document.getElementById("poster");
+	p.style.height = "auto";
+	fit();
+}
+
+/* ---------------- 预览自适应缩放 ---------------- */
+const stage = document.getElementById("stage");
+const preview = document.getElementById("preview");
+/* 缩放必须加在 #poster 自己身上：stage 是 overflow:hidden 的裁切盒，缩放加在 stage 上会先在“未缩放的
+   本坐标系”里把海报裁到 stage 的布局尺寸（= 缩放后的尺寸），用户只能看到海报左上一角。 */
+function fit() {
+	const poster = document.getElementById("poster");
+	const w = poster.offsetWidth || 1200;
+	const h = poster.offsetHeight || 1500;
+	const avail = { w: preview.clientWidth - 40, h: preview.clientHeight - 40 };
+	const k = Math.min(1, avail.w / w, avail.h / h);
+	poster.style.transformOrigin = "top left";
+	poster.style.transform = `scale(${k})`;
+	stage.style.width = Math.round(w * k) + "px";
+	stage.style.height = Math.round(h * k) + "px";
+}
+window.addEventListener("resize", fit);
+
+/* ---------------- 控制面板 ---------------- */
+let state = JSON.parse(JSON.stringify(DEFAULT_STATE));
+
+function field(label, path, val, type) {
+	return `<div class="f"><label>${label}</label><input data-path="${path}" type="${type || "text"}" value="${val === null || val === undefined ? "" : esc(val)}"></div>`;
+}
+
+function renderPanel() {
+	const s = state;
+	const listRows = s.items
+		.map(
+			(it, i) => `<div class="rowbox">
+				${field("条目名称", `items.${i}.name`, it.name)}
+				<div class="rowline">${field("售价（留空=不显示）", `items.${i}.price`, it.price, "number")}<button class="mini mini--danger" data-act="delItem" data-i="${i}">删除</button></div>
+			</div>`
+		)
+		.join("");
+
+	const tierBlocks = s.tiers
+		.map((t, i) => {
+			const vs = t.variants
+				.map(
+					(v, j) => `<div class="rowbox">
+					<div class="two"><div>${field("分栏名", `tiers.${i}.variants.${j}.label`, v.label)}</div><div>${field("售价", `tiers.${i}.variants.${j}.price`, v.price, "number")}</div></div>
+					<div class="rowline"><button class="mini mini--danger" data-act="delVariant" data-i="${i}" data-j="${j}">删除该分栏</button></div>
+				</div>`
+				)
+				.join("");
+			return `<fieldset class="fs"><legend>第二排 · 卡 ${i + 1}</legend>
+				<div class="f">${field("大标题", `tiers.${i}.name`, t.name)}</div>
+				${
+					t.variants.length
+						? vs
+						: field("售价", `tiers.${i}.price`, t.price, "number")
+				}
+				<button class="mini mini--add" data-act="addVariant" data-i="${i}">+ 加一个分栏（如 IOS充值）</button>
+			</fieldset>`;
+		})
+		.join("");
+
+	document.getElementById("panel").innerHTML = `
+		<div class="panel__head">
+			<div>
+				<div class="panel__title">价目表编辑</div>
+				<p class="panel__sub">左边实时预览，改完点底部按钮直接导图</p>
+			</div>
+			<button class="btn btn--quiet" id="reset" title="恢复到初始价格（当前修改会丢失）">${ICON_RESET}恢复默认</button>
+		</div>
+		<div class="panel__body">
+			<fieldset class="fs"><legend>顶部</legend>
+				<div class="f">${field("标题", "title", s.title)}</div>
+				<div class="f">${field("副标题", "subtitle", s.subtitle)}</div>
+			</fieldset>
+			<fieldset class="fs"><legend>主价（大卡）</legend>
+				<div class="f">${field("名称", "hero.name", s.hero.name)}</div>
+				${field("售价", "hero.price", s.hero.price, "number")}
+			</fieldset>
+			${tierBlocks}
+			<fieldset class="fs"><legend>成品号列表</legend>
+				<div class="f">${field("小标题", "listTitle", s.listTitle)}</div>
+				${listRows}
+				<button class="mini mini--add" data-act="addItem">+ 添加一行</button>
+			</fieldset>
+			<fieldset class="fs"><legend>底部小字（发票等）</legend>
+				<div class="f">${field("底部小字（留空=不显示）", "footerNote", s.footerNote)}</div>
+			</fieldset>
+		</div>
+		<div class="panel__foot">
+			<div class="seg" role="group" aria-label="导出倍率">
+				<button class="seg__item" data-scale="2" aria-pressed="${exportScale === 2}">2× 高清</button>
+				<button class="seg__item" data-scale="1" aria-pressed="${exportScale === 1}">1× 普通</button>
+			</div>
+			<button class="btn btn--primary" id="exportBtn">${ICON_DL}<span class="btn__label">导出 PNG</span><span class="btn__meta" id="exportMeta">${exportScale === 2 ? "2400px" : "1200px"}</span></button>
+			<p class="hint">2× = 2400px 宽，发微信/小红书够清；1× = 1200px。字体用的是系统字体（微软雅黑），换机器不会掉字。</p>
+		</div>`;
+}
+
+function setPath(path, value) {
+	const keys = path.split(".");
+	let o = state;
+	for (let i = 0; i < keys.length - 1; i++) o = o[keys[i]];
+	o[keys[keys.length - 1]] = value;
+}
+document.getElementById("panel").addEventListener("input", (e) => {
+	const path = e.target.dataset.path;
+	if (!path) return;
+	const isNum = e.target.type === "number";
+	const raw = e.target.value;
+	setPath(path, raw === "" ? (isNum ? null : "") : isNum ? Number(raw) : raw);
+	renderPoster(state);
+});
+
+document.getElementById("panel").addEventListener("click", (e) => {
+	const btn = e.target.closest("button[data-act]");
+	if (btn) {
+		const a = btn.dataset.act;
+		const i = Number(btn.dataset.i);
+		const j = Number(btn.dataset.j);
+		if (a === "addItem") state.items.push({ name: "新条目", price: null });
+		if (a === "delItem") state.items.splice(i, 1);
+		if (a === "addVariant" && state.tiers[i].variants.length < 3) {
+			state.tiers[i].price = null;
+			state.tiers[i].variants.push({ label: "渠道名", price: null });
+		}
+		if (a === "delVariant") {
+			state.tiers[i].variants.splice(j, 1);
+			if (!state.tiers[i].variants.length) state.tiers[i].price = null;
+		}
+		renderPanel();
+		renderPoster(state);
+		return;
+	}
+	const seg = e.target.closest(".seg__item");
+	if (seg) {
+		exportScale = Number(seg.dataset.scale);
+		syncScale();
+		return;
+	}
+	if (e.target.closest("#exportBtn")) exportPng(exportScale);
+	if (e.target.closest("#reset")) {
+		if (!confirm("恢复默认价格？当前所有修改都会丢失。")) return;
+		state = JSON.parse(JSON.stringify(DEFAULT_STATE));
+		renderPanel();
+		renderPoster(state);
+	}
+});
+
+/* ---------------- 导出 PNG ---------------- */
+/* 原理：把海报 DOM 包进 SVG <foreignObject> 再画到 canvas，纯本地、无外部依赖。
+   注意：字体必须是系统字体（本文件没有引用任何 web font），否则导出会掉字。 */
+async function buildPng(scale) {
+	const node = document.getElementById("poster");
+	const w = node.offsetWidth;
+	const h = node.offsetHeight;
+	const clone = node.cloneNode(true);
+	clone.style.width = w + "px";
+	clone.style.height = h + "px";
+	clone.style.transform = "none"; // 预览里的自适应缩放不能带进导出
+	const wrap = document.createElement("div");
+	wrap.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+	wrap.style.cssText = `width:${w}px;height:${h}px;`;
+	const styleEl = document.createElement("style");
+	styleEl.textContent = document.getElementById("poster-style").textContent;
+	wrap.appendChild(styleEl);
+	wrap.appendChild(clone);
+	const svg =
+		`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">` +
+		`<foreignObject width="100%" height="100%">${new XMLSerializer().serializeToString(wrap)}</foreignObject></svg>`;
+	const img = new Image();
+	await new Promise((res, rej) => {
+		img.onload = res;
+		img.onerror = () => rej(new Error("SVG 渲染失败，可改用截图导出"));
+		img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+	});
+	const canvas = document.createElement("canvas");
+	canvas.width = Math.round(w * scale);
+	canvas.height = Math.round(h * scale);
+	const ctx = canvas.getContext("2d");
+	ctx.fillStyle = "#ffffff";
+	ctx.fillRect(0, 0, canvas.width, canvas.height);
+	ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+	return canvas.toDataURL("image/png");
+}
+
+/* 导出反馈三态：生成中（转圈 + 禁用）/ 已导出（绿）/ 失败（红），到点自动复位 */
+async function exportPng(scale) {
+	const btn = document.getElementById("exportBtn");
+	const label = btn.querySelector(".btn__label");
+	const meta = document.getElementById("exportMeta");
+	if (btn.disabled) return;
+	const oldLabel = label.textContent;
+	const oldMeta = meta.textContent;
+	const back = () => {
+		btn.removeAttribute("class");
+		btn.className = "btn btn--primary";
+		btn.disabled = false;
+		label.textContent = oldLabel;
+		meta.textContent = oldMeta;
+	};
+	btn.disabled = true;
+	btn.classList.add("is-busy");
+	label.innerHTML = `<span class="spin"></span>生成中`;
+	meta.textContent = scale === 2 ? "2400px" : "1200px";
+	try {
+		const url = await buildPng(scale);
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = `GPT充值价目表_${new Date().toISOString().slice(0, 10)}.png`;
+		a.click();
+		btn.classList.remove("is-busy");
+		btn.classList.add("is-done");
+		label.textContent = "已导出";
+		meta.textContent = "✓";
+		setTimeout(back, 1600);
+	} catch (err) {
+		console.error(err);
+		btn.classList.remove("is-busy");
+		btn.classList.add("is-fail");
+		label.textContent = "导出失败";
+		meta.textContent = "请截图";
+		setTimeout(back, 2600);
+	}
+}
+
+window.__buildPng = buildPng; // 供自动化/调试用
+window.__setState = (s) => {
+	state = s;
+	renderPanel();
+	renderPoster(state);
+};
+
+renderPanel();
+renderPoster(state);
+</script>
+</body>
+</html>

@@ -50,6 +50,7 @@ import { resolveLaunchDefaultOptions, isModelInModelsConfig } from "../sessions/
 import { BackgroundScanCoordinator } from "../sessions/BackgroundScanCoordinator";
 import { DIRECTORY_IMPORT_MAX_SUMMARIES } from "../sessions/directorySessionImport";
 import type { DirectorySessionImporter } from "../sessions/DirectorySessionImporter";
+import { registerSessionImageMutationIpc } from "./sessionImageMutationIpc";
 
 function isDshModelDiscoveryInput(input: unknown): input is DshModelDiscoveryInput {
 	if (!isRecord(input) || typeof input.settingsNs !== "string" || !input.settingsNs.trim()) return false;
@@ -797,7 +798,10 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			title: title || undefined,
 			// 切到生图后端时甩开 pi 会话文件引用：生图历史独立存 ImageSessionStore，
 			// 残留 filePath 会让生图/重发/历史加载误落到不存在的 pi 文件（ENOENT 根因）。
-			...(patch.backend === "imagegen" ? { filePath: null, piSessionId: null } : {}),
+			// 切到生图/ACP 后端时甩开 pi 会话文件引用：生图历史独立存 ImageSessionStore，
+			// ACP 会话由 agent CLI 自持（session/new 在远端）；残留 filePath 会让历史加载
+			// 误落到不存在的 pi 文件（ENOENT 根因，imagegen 同款）。
+			...(patch.backend === "imagegen" || patch.backend === "acp" ? { filePath: null, piSessionId: null } : {}),
 		});
 	});
 	ipcMain.handle(ipcChannels.sessionsCatalogDelete, async (_event, sessionId: string) => {
@@ -1387,6 +1391,9 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			path: result.path,
 		});
 		return result;
+	});
+	registerSessionImageMutationIpc(ipcMain, sessionRuntimeCoordinator, (error, context) => {
+		logSessionCommandFailure(appLogger, error, { operation: "removeCatalogMessageImage", ...context });
 	});
 	// catalog 级消息改写：按 sessionId 操作 JSONL，不要求 live runtime。
 	// 运行中必须先停（coordinator 拒绝 SESSION_RUNTIME_BUSY）；入参在边界校验。

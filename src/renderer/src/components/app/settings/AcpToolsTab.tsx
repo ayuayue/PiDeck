@@ -1,11 +1,13 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import { useAtom } from "jotai";
-import { ExternalLink, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { desktopApi } from "../../../desktopApi";
 import { acpToolsAtom } from "../../../atoms";
 import { t } from "../../../i18n";
 import type { AcpToolConfig } from "../../../../../shared/types/acp";
-import { ACP_TOOL_PRESETS, type AcpToolPreset, type AcpToolPresetId } from "../../../../../shared/acpToolPresets";
+import type { AcpToolPreset } from "../../../../../shared/acpToolPresets";
+import { Switch } from "../../ui-shadcn/switch";
+import { AcpPresetChips } from "./AcpPresetChips";
 import { Button } from "../../ui-shadcn/button";
 import { Input } from "../../ui-shadcn/input";
 import { Textarea } from "../../ui-shadcn/textarea";
@@ -37,10 +39,13 @@ function envFromText(text: string): Record<string, string> | undefined {
 }
 
 /**
- * 设置弹窗「ACP 工具」tab:管理 settings.acpTools 表(名称/命令/启动参数)。
+ * 设置弹窗「ACP 工具」tab:总开关(opt-in)+ 预设工具生命周期(检测/安装/卸载)+ settings.acpTools 表。
  *
  * 数据流(与 pi/dsh 设置无关的独立持久层,模式同生图 tab):
- * - 初值来自 acpToolsAtom(App 挂载时经 acpToolsList IPC 拉取),保存走
+ * - 总开关即时写盘(settings.acpEnabled,同 WebRemoteAccessSection 模式),变更重启生效;
+ *   关闭态只显示引导文案——opt-in,pi 用户零运行时成本(主进程不注册 ACP 网关)。
+ * - 预设芯片(AcpPresetChips)管「本机 CLI 装没装」:检测只读,npm 安装/卸载经确认弹窗。
+ * - 工具表初值来自 acpToolsAtom(App 挂载时经 acpToolsList IPC 拉取),保存走
  *   acpToolsSave(主进程 sanitizeAcpTools 消毒落盘,返回规范化表),成功后
  *   整表回写 atom——新建会话菜单与设置页共享同一份快照,无需事件订阅;
  * - 校验双层:保存前逐条走主进程 validateTool(名称/命令必填、与已存表查重),
@@ -55,6 +60,34 @@ export const AcpToolsTab = forwardRef<AcpToolsTabHandle, { onDirtyChange?: (dirt
 	const [hydrated, setHydrated] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | undefined>();
+	// 总开关独立于弹框 draft:即时写盘(同 WebRemoteAccessSection 模式),变更重启生效。
+	// undefined = 尚未从主进程拉到(settings.get 异步),期间禁用开关防抖动。
+	const [enabled, setEnabled] = useState<boolean | undefined>(undefined);
+
+	useEffect(() => {
+		let cancelled = false;
+		void desktopApi.settings
+			.get()
+			.then((settings) => {
+				if (!cancelled) setEnabled(settings.acpEnabled === true);
+			})
+			.catch(() => {
+				if (!cancelled) setEnabled(false);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	const toggleEnabled = useCallback(async (next: boolean) => {
+		setEnabled(next);
+		try {
+			await desktopApi.settings.update({ acpEnabled: next });
+		} catch (cause) {
+			setError(cause instanceof Error ? cause.message : String(cause));
+			setEnabled(!next);
+		}
+	}, []);
 
 	// 挂载时以 atom 快照为初值;之后只经保存回写,弹窗开关不重复拉 IPC
 	useEffect(() => {
@@ -138,76 +171,63 @@ export const AcpToolsTab = forwardRef<AcpToolsTabHandle, { onDirtyChange?: (dirt
 	return (
 		<div className="flex flex-col gap-4">
 			<section className="flex flex-col gap-2">
-				<h3 className="text-sm font-semibold">{t("acp.toolsTitle")}</h3>
+				<div className="flex items-center justify-between gap-4">
+					<h3 className="text-sm font-semibold">{t("acp.toolsTitle")}</h3>
+					<Switch checked={enabled === true} disabled={enabled === undefined} onCheckedChange={(checked) => void toggleEnabled(checked)} aria-label={t("acp.toolsTitle")} />
+				</div>
 				<p className="text-muted-foreground text-xs leading-relaxed">{t("acp.toolsDescription")}</p>
+				{enabled === true ? <p className="text-muted-foreground text-[11px]">{t("acp.enabledHint")}</p> : null}
 			</section>
-			<section className="flex flex-col gap-2">
-				<h4 className="text-xs font-semibold">{t("acp.presetsTitle")}</h4>
-				<div className="flex flex-wrap gap-2">
-					{ACP_TOOL_PRESETS.map((preset) => (
-						<div key={preset.id} className="border-border bg-background flex items-center gap-2 rounded-md border px-2.5 py-1.5">
-							<button type="button" className="hover:bg-accent flex items-center gap-1.5 rounded px-1 py-0.5 text-left" title={t(PRESET_DESC_KEYS[preset.id])} onClick={() => addFromPreset(preset)}>
-								<Plus size={12} aria-hidden="true" />
-								<span className="text-xs">{preset.name}</span>
-							</button>
-							<a href={preset.homepage} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground" title={t("acp.presetHome")}>
-								<ExternalLink size={11} aria-hidden="true" />
-							</a>
-						</div>
-					))}
-				</div>
-				<p className="text-muted-foreground text-xs">{t("acp.presetsHint")}</p>
-			</section>
-			{rows.length === 0 ? (
-				<p className="text-muted-foreground py-6 text-center text-xs">{t("acp.toolsEmpty")}</p>
+			{enabled !== true ? (
+				// 关闭态:只展示引导文案,不跑检测不列登记表——opt-in,pi 用户零成本。
+				<section className="flex flex-col gap-2">
+					<p className="text-muted-foreground py-6 text-center text-xs">{t("acp.disabledHint")}</p>
+				</section>
 			) : (
-				<div className="flex flex-col gap-3">
-					{rows.map((row, index) => (
-						// 行 key 用 index:新增/删除都经整表保存,草稿行没有稳定身份
-						<div key={index} className="border-border bg-background flex flex-col gap-2 rounded-md border p-3">
-							<div className="grid grid-cols-[1fr_1fr_auto] gap-2">
-								<Input value={row.name} placeholder={t("acp.toolName")} onChange={(event) => patchRow(index, { name: event.target.value })} />
-								<Input value={row.command} placeholder={t("acp.toolCommand")} onChange={(event) => patchRow(index, { command: event.target.value })} />
-								<Button variant="ghost" size="icon" title={t("acp.toolRemove")} onClick={() => removeRow(index)}>
-									<Trash2 size={14} aria-hidden="true" />
-								</Button>
-							</div>
-							<Input
-								value={row.args.join(" ")}
-								placeholder={t("acp.toolArgs")}
-								onChange={(event) => {
-									// 参数按空白拆分:与主进程 spawn 的数组语义一致,避免引号转义教学成本
-									patchRow(index, { args: event.target.value.trim() ? event.target.value.split(/\s+/) : [] });
-								}}
-							/>
-							<Textarea value={row.envText} placeholder={t("acp.toolEnv")} rows={2} className="font-mono text-xs" spellCheck={false} onChange={(event) => patchRow(index, { envText: event.target.value })} aria-label={t("acp.toolEnv")} />
+				<>
+					<AcpPresetChips onAdd={addFromPreset} />
+					{rows.length === 0 ? (
+						<p className="text-muted-foreground py-6 text-center text-xs">{t("acp.toolsEmpty")}</p>
+					) : (
+						<div className="flex flex-col gap-3">
+							{rows.map((row, index) => (
+								// 行 key 用 index:新增/删除都经整表保存,草稿行没有稳定身份
+								<div key={index} className="border-border bg-background flex flex-col gap-2 rounded-md border p-3">
+									<div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+										<Input value={row.name} placeholder={t("acp.toolName")} onChange={(event) => patchRow(index, { name: event.target.value })} />
+										<Input value={row.command} placeholder={t("acp.toolCommand")} onChange={(event) => patchRow(index, { command: event.target.value })} />
+										<Button variant="ghost" size="icon" title={t("acp.toolRemove")} onClick={() => removeRow(index)}>
+											<Trash2 size={14} aria-hidden="true" />
+										</Button>
+									</div>
+									<Input
+										value={row.args.join(" ")}
+										placeholder={t("acp.toolArgs")}
+										onChange={(event) => {
+											// 参数按空白拆分:与主进程 spawn 的数组语义一致,避免引号转义教学成本
+											patchRow(index, { args: event.target.value.trim() ? event.target.value.split(/\s+/) : [] });
+										}}
+									/>
+									<Textarea value={row.envText} placeholder={t("acp.toolEnv")} rows={2} className="font-mono text-xs" spellCheck={false} onChange={(event) => patchRow(index, { envText: event.target.value })} aria-label={t("acp.toolEnv")} />
+								</div>
+							))}
 						</div>
-					))}
-				</div>
+					)}
+					<div className="flex items-center justify-between">
+						<Button variant="outline" size="sm" onClick={addRow}>
+							<Plus size={14} aria-hidden="true" />
+							{t("acp.toolAdd")}
+						</Button>
+						<Button size="sm" disabled={!dirty || saving} onClick={() => void save()}>
+							{saving ? t("common.saving") : t("common.save")}
+						</Button>
+					</div>
+				</>
 			)}
-			<div className="flex items-center justify-between">
-				<Button variant="outline" size="sm" onClick={addRow}>
-					<Plus size={14} aria-hidden="true" />
-					{t("acp.toolAdd")}
-				</Button>
-				<Button size="sm" disabled={!dirty || saving} onClick={() => void save()}>
-					{saving ? t("common.saving") : t("common.save")}
-				</Button>
-			</div>
 			{error ? <p className="text-destructive text-xs">{error}</p> : null}
 		</div>
 	);
 });
-
-/** 预设 id → i18n 描述 key：静态字面量映射保证 t() 的 key 联合类型可收窄(模板字符串拼不出来)。 */
-const PRESET_DESC_KEYS: Record<AcpToolPresetId, Parameters<typeof t>[0]> = {
-	gemini: "acp.presetDesc.gemini",
-	"claude-agent": "acp.presetDesc.claude-agent",
-	codex: "acp.presetDesc.codex",
-	kimi: "acp.presetDesc.kimi",
-	qwen: "acp.presetDesc.qwen",
-	opencode: "acp.presetDesc.opencode",
-};
 
 /** 脏标记投影:参数顺序无关(重排行不算脏),字段稳定序列化即可。 */
 function serializeRows(rows: AcpToolRow[]): string {

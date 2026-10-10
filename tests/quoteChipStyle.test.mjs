@@ -58,7 +58,8 @@ test("inline chips follow the Proma skeleton (tinted, borderless, compact)", () 
  */
 test("bubble renders chips in original order, never lifted above the text", () => {
 	assert.match(surfaceComponents, /buildBubbleRefSegments\(cleanText\)/);
-	assert.match(surfaceComponents, /renderBubbleSegments\(bubbleSegments, props\)/);
+	// 第二参已改为展开 props（含 onFileContextMenu 等菜单接线）：只锚定首参不变
+	assert.match(surfaceComponents, /renderBubbleSegments\(bubbleSegments,/);
 	// 不能再出现「引用单独一行提前」的布局
 	assert.doesNotMatch(surfaceComponents, /buildBubbleRefLayout|bubbleLayout\.quotes/);
 });

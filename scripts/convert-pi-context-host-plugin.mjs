@@ -133,7 +133,7 @@ export async function convertPiContext(sourceDirectory, outputDirectory) {
 	files.set("model.mjs", compileModel(adaptPiContextModel(modelSource)));
 	files.set("app.html", replace(replace(replace(html, 'href="/"', 'href="./app.html"'), '<main id="app">', '<aside id="host-note" role="status"></aside>\n<main id="app">'), '<script src="app.js"></script>', '<script type="module" src="app.js"></script>'));
 	const appearance =
-		'\n/* PiDeck tokens affect this isolated page only, never host workbench CSS. */\n:root { color-scheme: dark; }\n:root[data-host-theme="light"] { color-scheme: light; }\nbody { background: var(--color-bg-app, #1a1b26); color: var(--color-text-primary, #c0caf5); }\nheader, .card, .panel, .kpic { background: var(--color-bg-panel, #24283b); border-color: var(--color-border-default, #414868); }\n#host-note { padding: 10px 16px; border-bottom: 1px solid var(--color-border-default, #414868); font-size: 12px; overflow-wrap: anywhere; }\n';
+		'\n/* PiDeck tokens affect this isolated page only, never host workbench CSS. */\n:root { color-scheme: dark; }\n:root[data-host-theme="light"] { color-scheme: light; }\n/* 中性面/文字/强调色跟随 PiDeck token（两主题都适配）；图表系列色保持上游自己的色板。 */\n:root { --bg: var(--color-bg-app, #282c34); --card: var(--color-bg-panel, #2c313a); --card2: var(--color-bg-input, #21252b); --border: var(--color-border-default, #3a4048); --fg: var(--color-text-primary, #abb2bf); --muted: var(--color-text-secondary, #5c6370); --blue: var(--color-accent, #61afef); --on-blue: var(--color-text-inverse, #1c2026); }\nbody { background: var(--bg); color: var(--fg); }\n.kpi b, .card .m, summary b { color: var(--fg); }\n.card, .panel, .kpic, .cat { background: var(--card); border-color: var(--border); box-shadow: 0 0 24px rgba(0, 0, 0, 0.18); }\n/* 剩余硬编码暗色控件（开关/药丸/输入框/代码块/热图空格）统一重映射到 token，亮色主题不再残留暗面。 */\n.tog, .pill, #vreq, .dna, pre.code, .mdown code { background: var(--card2); border-color: var(--border); color: var(--fg); }\n.tag.neg { background: var(--card2); border-color: var(--border); color: var(--muted); }\n.pills button.on, .tog.on, .bhead .pills button.on { background: var(--blue); border-color: var(--blue); color: var(--on-blue); }\n.hc.l0 { background: var(--card2); }\n#host-note { padding: 10px 16px; border-bottom: 1px solid var(--color-border-default, #414868); font-size: 12px; overflow-wrap: anywhere; }\n';
 	files.set("styles.css", (await boundedSource(source, "viewer/public/styles.css")) + appearance);
 	files.set("NOTICE", await boundedSource(source, "viewer/NOTICE"));
 	for (const asset of ["data.mjs", "bridge.mjs", "worker.mjs"]) files.set(asset, await boundedSource(ADAPTERS, asset));
@@ -148,7 +148,7 @@ export async function convertPiContext(sourceDirectory, outputDirectory) {
 				version: `${pkg.version}-pideck.1`,
 				description: "Local pi-context viewer adaptation. Historical estimates only; no pi runtime or HTTP server.",
 				permissions: ["sessions.read", "workbench.navigate"],
-				contributes: { panels: [{ id: "context", title: "Context viewer", entry: "app.html" }], commands: [{ id: "context.open", title: "Open context viewer", panelId: "context" }] },
+				contributes: { panels: [{ id: "context", title: "Context viewer", entry: "app.html", icon: "bar-chart", presentation: "page" }], commands: [{ id: "context.open", title: "Open context viewer", panelId: "context" }] },
 			},
 			null,
 			2,
@@ -167,7 +167,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
 		process.exitCode = 1;
 	} else {
 		try {
-			process.stdout.write(`Created disabled local plugin: ${await convertPiContext(source, output)}\nRescan and explicitly enable it in PiDeck Settings → Extensions → Desktop plugins.\n`);
+			process.stdout.write(`Created disabled local plugin: ${await convertPiContext(source, output)}\nRescan and explicitly enable it in PiDeck Settings → PiDeck 插件 (host plugins).\n`);
 		} catch (error) {
 			process.stderr.write(`Conversion failed: ${error.message}\n`);
 			process.exitCode = 1;

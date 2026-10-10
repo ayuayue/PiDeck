@@ -87,13 +87,17 @@
 
 ## 宿主插件（userData/host-plugins：独立于 pi 进程的 PiDeck 原生插件）
 
-- **与 pi 扩展是两套系统**：pi 扩展（`resources/extensions/`，`-e` 注入）活在 pi 进程里管 Agent 行为；宿主插件是 PiDeck 自己的插件——面板是主进程 `HostPluginViewHost` 起的 WebContentsView，加载 `userData/host-plugins/<id>/panel.html`，不经 pi、不走 pi 的扩展点。代码全部在 `src/main/plugins/`（Broker/Manager/Service/Sessions/Storage/ViewHost + policy/manifest/files/archive）。IPC 通道集中在 `shared/ipc.ts` 的 `host-plugins:*` 一组。
+- **与 pi 扩展是两套系统**：pi 扩展（`resources/extensions/`，`-e` 注入）活在 pi 进程里管 Agent 行为；宿主插件是 PiDeck 自己的插件——面板是渲染层创建的页面内 `<webview>`（partition `host-plugin:<instanceId>`，与内置浏览器同层叠模型，可被弹层正常覆盖），由主进程 `HostPluginViewHost` 签发实例、经窗口 attach 策略（`hostPluginWebviewPolicy`）校验后加载 `userData/host-plugins/<id>/` 资产，不经 pi、不走 pi 的扩展点。代码全部在 `src/main/plugins/`（Broker/Manager/Service/Sessions/Storage/ViewHost + policy/manifest/files/archive/webviewPolicy）。IPC 通道集中在 `shared/ipc.ts` 的 `host-plugins:*` 一组。
 - **授权看内容指纹不看版本**：manifest 权限白名单是注册表式的，插件目录内容 sha256 指纹变化 → 旧授权立即失效需重新授权——这是安全特性，**禁止放宽为版本号比较或沿用旧授权**。storage rename 等敏感操作在 `beforeAttempt` 每次尝试前复查授权。
+- **网络不解除页面沙箱**：`network.https` + `network.httpsOrigins` / `network.local` + `network.localPorts` 经 `HostPluginNetwork` 代发；CSP `connect-src 'none'` 与页面 webRequest 包内资产门禁保持不变。HTTPS 每跳检查精确 origin、DNS 全结果公网且 socket 固定已验证 IP；本地只收 `http://127.0.0.1:<已授权端口>`。授权 UI 必须显示具体目的地并提示「会话读取 + 联网」的数据外发风险。本阶段不执行 BAT/启动服务；Broker 的 binding 撤销必须同步 abort，在 guest 已销毁时 ViewHost 也要 unbind，不能只丢弃迟到结果。守卫：`tests/hostPluginNetwork{,Transport,Ui,Demo}.test.mjs`；可导入示例：`docs/examples/host-plugins/example.network/`。
 - **历史读取有硬预算**：`HostPluginSessions` 单次请求 64MiB/10 万条上限，超限抛 `history-too-large`，不退化为全量扫描；目录索引用 changeSince 签名对比做粒度推送（活跃会话追加报 `{ sessionId }`，目录级变化报 `{ catalogChanged: true }`），面板侧定向失效、epoch 不打断其他在途读取。
 - **`.pideck-plugin` 归档是 NDJSON**（header 行 + 每文件一行 base64+sha256+size）：上限归档 24MiB / 单文件 4MiB / 100 文件 / 展开 16MiB，逐文件 sha256 校验，超限抛稳定错误码。选 NDJSON 而非 zip 是因为 Node 运行时无内置 zip 解压。
 - **主题跟随是全局驱动 + 每实例补充**：`prefers-color-scheme` 由应用既有的 `nativeTheme.themeSource` 驱动（改 PiDeck 主题即生效）；ViewHost 按当前主题对每实例 `insertCSS` 注入 `color-scheme`（适配原生控件/滚动条）。Electron 43 没有 per-contents `setEmulatedMedia`，不要再尝试。
 - **参考实现 pi-context 是双向契约**：适配器 `resources/host-plugin-adapters/pi-context/`（bridge/data），转换器对 viewer 的 seam（DOM/字段名）有 fail-closed 契约测试——上游改字段名时测试必须红，红后同步适配器，不许放宽断言。
-- 面向插件作者的文档单一数据源是 `docs/host-plugin-dev-guide.md`（官网指南页从它同步）；`tests/docsSharedGuide.test.mjs` 守卫两处不漂移。改 API 面（新增权限/事件）必须同步：`shared/types/hostPlugin.ts` 契约 + dev-guide 事件说明 + `tests/hostPlugins.test.mjs`。
+- 面向插件作者的文档单一数据源是 `docs/host-plugin-dev-guide.md`（官网指南页从它同步）；`tests/docsSharedGuide.test.mjs` 守卫两处不漂移。改 API 面（新增权限/方法/事件）必须同步四处：`shared/types/hostPlugin.ts` 契约 + `src/preload/hostPlugin.ts` 注入面 + dev-guide 的 API/错误码表 + `tests/hostPlugins.test.mjs`。
+- **脚手架是权限真相的第一个消费者**：设置页「新建插件…」经 `host-plugins:scaffold` → `src/main/plugins/hostPluginScaffold.ts` 生成 `<id>/`（已存在则 `already-exists`，不覆盖作者代码）。生成物必须过与安装路径**同一套** `isHostPluginId`/`parseHostPluginManifest` 自检，且模板只生成已勾选权限对应的代码（manifest 的 `permissions` 与生成代码同一份真相）；改 API/权限面时漏同步它，作者拿到的示例一运行就 `permission-denied`。守卫：`tests/hostPluginScaffold.test.mjs`（含每种权限组合的 `new Function` 语法解析）、`tests/hostPluginDirectoryInstall.test.mjs`（「从文件夹安装…」）。
+- **面板呈现双模式**（manifest `panels[].presentation`，缺省 `modal`）：`modal` 走 `HostPluginPanelHost` 大弹框；`page` 走 `HostPluginPageOverlay`——在 App 会话列外包一层 relative 容器，以 `absolute inset-0` 非模态覆盖层呈现，会话树不卸载（滚动/草稿/终端内存态保留），侧栏 `HostPluginDockButtons` 对 page 面板做开关切换（再点即关）。两者共用 `hostPluginPanelAtom` 同一入口，命令面板/设置页自动兼容。共享的加载/错误面在 `HostPluginSurface.tsx`。侧栏入口/图标/呈现方式的源码契约由 `tests/hostPluginSidebarEntry.test.mjs` 守卫。
+- **主题令牌**：`context.tokens` 把 PiDeck 语义色注入为页面 CSS 变量，`context.changed` 实时更新；converter 适配层把 pi-context 自己的 `:root` 中性色（`--bg/--card/--fg/--muted/--blue` 等）重映射到这些 token（后写覆盖，不改上游文件），图表系列色保留上游色板。新插件页面样式应消费 token 变量带缺省值，硬编码暗色在亮色主题下会露馅。
 
 ## dev 态渲染层缓存（Vite 预构建 chunk 的 immutable 陷阱）
 

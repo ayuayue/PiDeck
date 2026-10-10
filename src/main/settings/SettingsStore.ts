@@ -24,6 +24,8 @@ import { normalizeSessionSortMode } from "../../shared/sessionSort";
 import { normalizeHiddenModules } from "../../shared/hiddenModules";
 import { normalizeHiddenComposerFeatures } from "../../shared/composerFeatures";
 import { parseBusySendDelivery } from "../../shared/busySendDelivery";
+import { parseSessionStatusPlacement } from "../../shared/sessionStatusPlacement";
+import { normalizeTpsDisplayMode } from "../../shared/tps";
 import { sanitizeShortcutOverrides } from "../../shared/shortcuts";
 import { normalizeThemeSchedule } from "../../shared/themeSchedule";
 import { normalizeEnhanceModel } from "../../shared/enhanceModelPreference";
@@ -151,6 +153,7 @@ const defaultSettings: AppSettings = {
 	// 忙碌时发送默认「插入当前回合」（对齐 pi 历史行为）；dsh 会话此前默认排队，
 	// 统一后由本设置项决定，用户可在常用设置→会话中改回。
 	busySendDelivery: "steer",
+	tpsDisplayMode: "streaming",
 	// 快捷消息：**遗留字段**。新版本清单存在 userData/quick-messages.json（QuickMessageStore），
 	// 出厂值在随包资源 quick-messages.default.json，不再硬编码。这里保留空数组作为默认值，
 	// 旧数据（升级前用户改过的条目）仍会在读取时原样保留，供首次迁移作种子。
@@ -229,6 +232,8 @@ Gitmoji 对应关系：
 	// 内容区宽度默认 80%：轻微留白兼顾阅读舒适（1826px 面板 → 内容 1461px）；
 	// 分屏窄栏时由容器查询自动收敛，详见 foundation.css --chat-content-pct。
 	chatContentWidthPct: 80,
+	// 会话状态默认显示在右侧边栏下半区（另一选项：输入框上方折叠条）
+	sessionStatusPlacement: "sidebar",
 	// 会话 Tab 最大宽度默认 104px：与旧硬编码 max-w-[104px] 一致，迁移零回归。
 	navigationMode: "tabs",
 	sessionTabMaxWidth: SESSION_TAB_MAX_WIDTH_DEFAULT,
@@ -278,7 +283,8 @@ Gitmoji 对应关系：
 	// 供应商卡片自定义顺序：空数组 = 未自定义，按配置原序展示
 	providerOrder: [],
 	dshProviderOrder: [],
-	// ACP agent CLI 工具登记表：默认空（用户在设置页登记后才有 acp 会话入口）
+	// ACP 总开关默认 false（opt-in，见 settings.acpEnabled 注释）；工具表默认空。
+	acpEnabled: false,
 	acpTools: [],
 
 	// ── 扩展管理 ──
@@ -460,6 +466,7 @@ export class SettingsStore {
 			// toast 展示时长：旧 settings.json 缺字段或脏值（0/负数/超大/字符串）钳回默认，
 			// 避免升级后 toast 永不再消失或瞬间消失。
 			this.settings.toastDurationMs = clampToastDurationMs(this.settings.toastDurationMs);
+			this.settings.tpsDisplayMode = normalizeTpsDisplayMode(this.settings.tpsDisplayMode);
 			// 终端设置：旧 JSON 缺字段由 spread 默认值兕底；磁盘无类型，枚举/数值/字符串字段
 			// 逐一回落或钳制，避免 xterm 拿到非法 scrollback/fontSize 直接抛错。
 			this.settings.terminalTheme = parseTerminalTheme(this.settings.terminalTheme);
@@ -491,6 +498,8 @@ export class SettingsStore {
 			}
 			// 忙碌时投递行为来自旧 JSON 时可能是任意值；回落默认，避免发送链路带着坏语义。
 			this.settings.busySendDelivery = parseBusySendDelivery(this.settings.busySendDelivery);
+			// 会话状态显示位置同理：旧 JSON 缺字段或坏值回落默认。
+			this.settings.sessionStatusPlacement = parseSessionStatusPlacement(this.settings.sessionStatusPlacement);
 			// 兼容迁移：旧版 contentMaxWidth(px) → chatContentWidthPct(%)。
 			// 语义从「最大宽度 px」变为「占面板百分比」，无法精确换算（面板宽度可变），
 			// 用线性映射保留旧值感觉：800→60%、1400→84%、1800(不限)→100%。
@@ -520,6 +529,8 @@ export class SettingsStore {
 			this.settings.pinnedSessionIds = normalizePinnedSessionIds(parsed.pinnedSessionIds);
 			// 会话排序模式：未知字符串（手改/未来删除的方案）回落默认「最近活跃」。
 			this.settings.sessionSortMode = normalizeSessionSortMode(parsed.sessionSortMode);
+			// ACP 总开关：可选布尔，缺省/非布尔→false（opt-in；老用户升级后 ACP 入口保持关闭直到主动开启）。
+			this.settings.acpEnabled = parsed.acpEnabled === true;
 			// ACP 工具登记表：手改 settings.json 的脏条目在加载边界归一，不等到首次 update。
 			this.settings.acpTools = sanitizeAcpTools(parsed.acpTools);
 			// 字号档位：旧版本有 5 档（多一个已删除的 "default"），现在是 4 档（紧凑/中/大/特大）。
@@ -691,6 +702,10 @@ export class SettingsStore {
 		if ("autoSessionTitle" in safePatch && typeof safePatch.autoSessionTitle !== "boolean") {
 			delete safePatch.autoSessionTitle;
 		}
+		// TPS 模式只接受两个已知枚举；非法 IPC 入参保留原设置。
+		if ("tpsDisplayMode" in safePatch && safePatch.tpsDisplayMode !== "streaming" && safePatch.tpsDisplayMode !== "endToEnd") {
+			delete safePatch.tpsDisplayMode;
+		}
 		// CUA 开关来自渲染层，入参不可信：只接受布尔值，非法值保持原有设置。
 		if ("cuaEnabled" in safePatch && typeof safePatch.cuaEnabled !== "boolean") {
 			delete safePatch.cuaEnabled;
@@ -701,6 +716,10 @@ export class SettingsStore {
 		}
 		if ("navigationMode" in safePatch && safePatch.navigationMode !== "tabs" && safePatch.navigationMode !== "simple") {
 			delete safePatch.navigationMode;
+		}
+		// 会话状态显示位置只接受已知枚举，非法值丢掉、保持原设置（不重置用户选择）。
+		if ("sessionStatusPlacement" in safePatch && parseSessionStatusPlacement(safePatch.sessionStatusPlacement) !== safePatch.sessionStatusPlacement) {
+			delete safePatch.sessionStatusPlacement;
 		}
 		// Logo 风格只接受已知枚举，非法值保持原设置（缺省 classic 由默认值完成）。
 		if ("logoStyle" in safePatch && safePatch.logoStyle !== "classic" && safePatch.logoStyle !== "pi-tui") {
@@ -725,6 +744,9 @@ export class SettingsStore {
 		}
 		// ACP 工具登记表来自渲染层，入参不可信：逐条过滤（字符串字段去空白/限长、
 		// args 只收字符串数组），非法条目丢弃而不是拒绝整表（单条脏数据不阻断保存）。
+		if ("acpEnabled" in safePatch) {
+			safePatch.acpEnabled = safePatch.acpEnabled === true;
+		}
 		if ("acpTools" in safePatch) {
 			safePatch.acpTools = sanitizeAcpTools(safePatch.acpTools);
 		}

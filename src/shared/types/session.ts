@@ -339,6 +339,8 @@ export type UpdateSessionRecordInput = {
 	/** 后端（pi/dsh）：仅草稿期可变更；会话激活（active/有 runtime）后锁定——pi 会话文件
 	 *  与 DSH session log 格式不同，中途切换会导致消息同步渲染不可靠。 */
 	backend?: import("./agent").AgentBackend;
+	/** ACP 工具预选（AcpToolConfig.id）：与 backend:"acp" 配套，仅草稿期可改；null = 清除预选。 */
+	acpToolId?: string | null;
 	/** 会话级代理覆盖；null = 恢复跟随全局（清除已保存覆盖）。 */
 	proxy?: SessionProxyOverride | null;
 };
@@ -346,6 +348,13 @@ export type UpdateSessionRecordInput = {
 export type ForkMessage = {
 	entryId: string;
 	text: string;
+};
+
+/** 删除用户消息单图的稳定快照：可见序号 + 数量 + 内容哈希，拒绝过期 UI 误删另一张图。 */
+export type SessionMessageImageTarget = {
+	index: number;
+	expectedImageCount: number;
+	expectedHash: string;
 };
 
 /** 图片内容格式，与 pi RPC 的 ImageContent 一致 */

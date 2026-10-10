@@ -12,6 +12,7 @@
  *   3. 错误必须还原成人话（工作目录不存在 / 找不到可执行文件），而不是甩 ENOENT。
  */
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -266,6 +267,33 @@ test("close 后的 PiRpcClient 立即拒绝新请求（不再空等超时）", a
 	assert.match(error.message, /RPC command not sent/);
 	// 管道已销毁的进程不能再被写：写入会以未监听的 stream error 冒泡成未捕获异常。
 	assert.doesNotThrow(() => client.sendRaw({ type: "abort" }));
+});
+
+test("管道断裂但尚未 close 的窗口期写入不产生未捕获异常", async () => {
+	// 回归：pi 死亡与 child 'close' 事件派发→rpcClient.close() 之间有异步窗口，
+	// 期间并发到达的 send/sendRaw（如 extension_ui_response 回包）会写到断管道上，
+	// 未监听的 stdin error（POSIX 报 EPIPE、Windows 报 EOF）会炸掉主进程。
+	// 行为复现在 POSIX 上是红→绿；Windows 下 Node 对已销毁管道的排队写是静默丢弃，
+	// 无法行为复现，因此另用源码契约断言守住构造器里的 stdin error 监听。
+	const child = spawn(process.execPath, ["-e", "process.exit(3)"], { stdio: ["pipe", "pipe", "pipe"] });
+	const client = new PiRpcClient(child.stdin, child.stdout);
+	await new Promise((resolve) => child.once("close", resolve));
+	const uncaught = [];
+	const handler = (err) => uncaught.push(err);
+	process.on("uncaughtException", handler);
+	try {
+		// 大 payload 确保超出管道缓冲后排队写入断管，POSIX 上稳定触发写端 error 事件。
+		client.sendRaw({ type: "extension_ui_response", payload: "x".repeat(2 * 1024 * 1024) });
+		await new Promise((resolve) => setTimeout(resolve, 500));
+		assert.equal(uncaught.length, 0, `不应有未捕获异常：${uncaught[0]?.stack}`);
+	} finally {
+		process.off("uncaughtException", handler);
+		client.close();
+	}
+	const source = readFileSync("src/main/pi/PiRpcClient.ts", "utf8");
+	assert.match(source, /this\.stdin\.on\("error"/);
+	const acpSource = readFileSync("src/main/acp/AcpConnection.ts", "utf8");
+	assert.match(acpSource, /this\.stdin\.on\("error"/);
 });
 
 test("PiProcess 诊断里带上 Windows 启动通道与 cmd.exe 回退原因", async () => {

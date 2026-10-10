@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.8.0-blue)
+![Version](https://img.shields.io/badge/version-0.9.0-blue)
 
 国内 AtomGit 托管：https://atomgit.com/ayuayue/PiDeck
 <!-- 预留 AtomGit G-Star 徽章位（替换占位链接后启用）
@@ -80,6 +80,7 @@
   - [🤝 参与贡献](#-参与贡献)
   - [💬 社区交流](#-社区交流)
   - [🔒 安全与隐私](#-安全与隐私)
+  - [🛒 作者的小店](#-作者的小店)
   - [☕ 赞助](#-赞助)
   - [License](#license)
 
@@ -100,17 +101,25 @@
 
 ## 📋 更新日志
 
-> **最新版本 v0.8.0 (2026-10-07)**（2026-10-07）
+> **最新版本 v0.9.0 (2026-10-10)**（2026-10-10）
 
-### v0.8.0 (2026-10-07) 更新亮点
-- 🚀 **MCP 配置页改版**
-- 🚀 **输入框提示词增强（✦）**
-- 🚀 **重发/编辑 fork 化**
-- 🚀 **Web 端会话路由 /s/<id>**
-- ✨ **WSL 项目全部会话从侧栏消失（0.7.9 回归）**
-- ✨ **mcp.json 保存加乐观锁**
-- ✨ **未信任项目的资源面板降级为引导文案**
-- ✨ **扩展输出卡按渲染器注册口径显示并折进执行过程组**
+### v0.9.0 (2026-10-10) 更新亮点
+- 🚀 **ACP 协议后端：接入更多 AI 编程工具**
+- 🚀 **独立 PiDeck 宿主插件系统**
+- 🚀 **内置外网访问与访问令牌**
+- 🚀 **Web 实时事件推送与计划模式**
+- 🚀 **终端设置、WebGL 与快照回放**
+- 🚀 **对齐 pi 1.0.4 原生会话与模型目录**
+- 🚀 **MCP 服务目录与 AI 配置助手**
+- 🚀 **会话分支面板**
+- 🚀 **项目置顶与列表管理**
+- 🚀 **繁体中文界面**
+- 🚀 **通知历史可跨重启查看**
+- 🚀 **输入框功能按需显示**
+- ✨ **草稿会话可预览扩展命令**
+- ✨ **资源开关反馈更及时**
+- ✨ **远程与移动端体验完善**
+- ✨ **安全与长运行稳定性加固**
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
 
@@ -411,6 +420,18 @@ src/
 ## 🔒 安全与隐私
 
 本应用启动本地 `pi` 进程并通过 Electron IPC 暴露有限的文件操作。请仅运行你信任的源码。应用默认发送匿名、低频的 `app_heartbeat` 使用统计，用于了解版本分布、平台兼容性和活跃安装数量，可在设置中关闭；不会收集项目路径、代码、消息内容、会话内容或文件名，也不会上传文件。第三方统计服务会接收请求元数据。pi agent 子进程代理和桌面端模型拉取/测试代理可独立配置；系统浏览器打开的外部链接仍由系统浏览器网络设置决定。
+
+---
+
+## 🛒 作者的小店
+
+顺手打个广告：需要充值 ChatGPT Plus / Pro、Claude 的同学可以找我 —— 官网直充、保订阅，成品号质保订阅，可开发票（加 6% 税点）。
+
+<p align="center">
+  <a href="docs/images/gpt-recharge-price.png"><img src="docs/images/gpt-recharge-price.png" alt="GPT 充值价目表" width="420" /></a>
+</p>
+
+价格跟着时价波动，以最新这张图为准（点开看大图）。改价 / 重新出图：`cd video-series/poster && node price.mjs`，说明见 [video-series/poster/README.md](video-series/poster/README.md)。
 
 ---
 

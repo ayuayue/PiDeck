@@ -44,6 +44,32 @@ test("host plugin manifests reject unknown permissions, missing panels and path 
 	assert.throws(() => parseHostPluginManifest(missing), /invalid-command/);
 });
 
+test("host plugin manifest presentation accepts modal/page and rejects anything else", () => {
+	const modal = manifest();
+	modal.contributes.panels[0].presentation = "modal";
+	assert.equal(parseHostPluginManifest(modal).contributes.panels[0].presentation, "modal");
+	const page = manifest();
+	page.contributes.panels[0].presentation = "page";
+	assert.equal(parseHostPluginManifest(page).contributes.panels[0].presentation, "page");
+	const bad = manifest();
+	bad.contributes.panels[0].presentation = "window";
+	assert.throws(() => parseHostPluginManifest(bad), /invalid-panel-presentation/);
+});
+
+test("host plugin panel icons are allowlisted: unknown names fail closed, missing is fine", () => {
+	const withIcon = manifest();
+	withIcon.contributes.panels[0].icon = "bar-chart";
+	// 逐字段断言：loadTsCommonJs 的 vm realm 会让 deepEqual 误判引用不等。
+	const parsed = parseHostPluginManifest(withIcon).contributes.panels[0];
+	assert.equal(parsed.id, "context");
+	assert.equal(parsed.icon, "bar-chart");
+	const unknown = manifest();
+	unknown.contributes.panels[0].icon = "Sparkles";
+	assert.throws(() => parseHostPluginManifest(unknown), /invalid-panel-icon/);
+	// 未声明 icon 的面板照常通过（渲染层用 Puzzle 兜底）。
+	assert.equal(parseHostPluginManifest(manifest()).contributes.panels[0].icon, undefined);
+});
+
 test("host plugin protocol and requests cannot select foreign origins, files or runtime commands", () => {
 	const id = "instance";
 	assert.equal(pluginAssetFromUrl("pideck-plugin://instance/js/app.mjs", id), "js/app.mjs");
@@ -120,16 +146,27 @@ test("host plugin storage stays in its own namespace, enforces quota and revocat
 			storage.set("viewer.one", "layout", "changed", () => false),
 			/plugin-revoked/,
 		);
+		// 配额按插件包计：单文件 1 MiB（MAX_STORE_BYTES）、最多 200 个键（MAX_STORE_KEYS）。
 		await assert.rejects(
-			storage.set("viewer.one", "large", "x".repeat(70_000), () => true),
+			storage.set("viewer.one", "large", "x".repeat(1_200_000), () => true),
 			/storage-too-large/,
 		);
+		// 已有 layout 一个键，再写到满 200 个键；接下来的新增一律 storage-full。
+		for (let index = 0; index < 199; index += 1) await storage.set("viewer.one", `k${index}`, index, () => true);
+		await assert.rejects(
+			storage.set("viewer.one", "overflow", 1, () => true),
+			/storage-full/,
+		);
+		// 已存在的键仍然可写：上限只拦新增键。
+		await storage.set("viewer.one", "k0", 1, () => true);
 		await assert.rejects(storage.get("../outside", "layout"), /invalid-plugin-id/);
 		await assert.rejects(
 			storage.set("viewer.one", "__proto__", {}, () => true),
 			/invalid-storage-key/,
 		);
-		assert.deepEqual(JSON.parse(await readFile(join(root, "storage", "viewer.one.json"), "utf8")), { layout: { mode: "dna" } });
+		const stored = JSON.parse(await readFile(join(root, "storage", "viewer.one.json"), "utf8"));
+		assert.equal(stored.layout.mode, "dna");
+		assert.equal(Object.keys(stored).length, 200);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
@@ -171,7 +208,7 @@ test("host plugin storage aborts rename retry after revocation and never replace
 function brokerFixture(permissions = ["sessions.read"]) {
 	let enabled = { manifest: manifest(permissions), fingerprint: "f" };
 	const pending = deferred();
-	const broker = new HostPluginBroker({ getEnabled: () => enabled }, { list: (context) => ({ sessions: [{ id: context.projectId }], nextOffset: null }), entries: () => pending.promise }, { get: () => null, set: async () => undefined });
+	const broker = new HostPluginBroker({ getEnabled: () => enabled, onChanged: () => () => {} }, { list: (context) => ({ sessions: [{ id: context.projectId }], nextOffset: null }), entries: () => pending.promise, describe: (context) => context }, { get: () => null, set: async () => undefined });
 	broker.bind(10, "example.viewer", "f", { projectId: "project-a", locale: "en-US", theme: "dark" });
 	return {
 		broker,
@@ -207,8 +244,8 @@ test("host plugin broker gates workbench navigation by permission and project ow
 	const navigated = [];
 	const make = (permissions) => {
 		const broker = new HostPluginBroker(
-			{ getEnabled: () => ({ manifest: manifest(permissions), fingerprint: "f" }) },
-			{ list: () => ({ sessions: [], nextOffset: null }), entries: async () => ({ entries: [], nextCursor: null, truncated: false }), navigable: (context, id) => context.projectId === "project-a" && id === "history" },
+			{ getEnabled: () => ({ manifest: manifest(permissions), fingerprint: "f" }), onChanged: () => () => {} },
+			{ list: () => ({ sessions: [], nextOffset: null }), entries: async () => ({ entries: [], nextCursor: null, truncated: false }), navigable: (context, id) => context.projectId === "project-a" && id === "history", describe: (context) => context },
 			{ get: () => null, set: async () => undefined },
 		);
 		broker.bind(10, "example.viewer", "f", { projectId: "project-a", locale: "en-US", theme: "dark" });

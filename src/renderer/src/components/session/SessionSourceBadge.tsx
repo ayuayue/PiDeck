@@ -1,6 +1,6 @@
 import { useId } from "react";
 import type { AgentBackend, SessionSource } from "../../../../shared/types";
-import { ImageIcon } from "lucide-react";
+import { ImageIcon, Terminal as TerminalIcon } from "lucide-react";
 import { t } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { Badge } from "../ui-shadcn/badge";
@@ -208,11 +208,12 @@ export function AgentPresetLogo(props: { className?: string }) {
 	);
 }
 
-/** 后端文本标记：DSH=短文本；生图=图片图标+短文本/仅图标，避免与来源徽标重复。 */
+/** 后端文本标记：DSH=短文本；生图=图片图标+短文本/仅图标，避免与来源徽标重复；ACP=终端图标+通用名（工具名在输入框/会话详情展示）。 */
 export function SessionBackendBadge(props: { backend?: AgentBackend; className?: string }) {
 	const backend = props.backend ?? "dsh";
 	const isImageGen = backend === "imagegen";
-	const label = isImageGen ? t("sessionBackend.imagegen") : t("sessionBackend.dsh");
+	const isAcp = backend === "acp";
+	const label = isImageGen ? t("sessionBackend.imagegen") : isAcp ? t("sessionBackend.acp") : t("sessionBackend.dsh");
 	return (
 		<Badge
 			variant="outline"
@@ -222,6 +223,7 @@ export function SessionBackendBadge(props: { backend?: AgentBackend; className?:
 			className={cn("h-4 rounded px-1 text-[9px] font-semibold leading-none tracking-wide", isImageGen ? "border-violet-300/70 text-violet-700 dark:border-violet-700/70 dark:text-violet-300" : "border-muted-foreground/40 text-muted-foreground", props.className)}
 		>
 			{isImageGen && <ImageIcon className="mr-0.5 size-2.5" aria-hidden="true" />}
+			{isAcp && <TerminalIcon className="mr-0.5 size-2.5" aria-hidden="true" />}
 			{label}
 		</Badge>
 	);
@@ -232,7 +234,7 @@ export function SessionBackendBadge(props: { backend?: AgentBackend; className?:
  * 这样保留来源信息的同时，避免每个普通 Pi 会话都增加一个视觉噪点。
  */
 export function SessionBackendMark(props: { backend?: AgentBackend; className?: string }) {
-	if (props.backend === "dsh" || props.backend === "imagegen") {
+	if (props.backend === "dsh" || props.backend === "imagegen" || props.backend === "acp") {
 		return <SessionBackendBadge backend={props.backend} className={props.className} />;
 	}
 	return null;

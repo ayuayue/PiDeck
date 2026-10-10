@@ -89,7 +89,7 @@ function formatDuration(ms: number): string {
 /* ------------------------------------------------------------------ */
 
 /** 单条 pi 子代理：点击行展开详情（描述 / 错误 / 结果预览 / 元信息 / 打开子会话）。 */
-const PiSubagentEntryRow = (props: {
+export const PiSubagentEntryRow = (props: {
 	entry: PiSubagentEntry;
 	/** 所属会话：打开结果 Dialog 时从会话文件 record 拉取全文 */
 	sessionId: string;
@@ -222,7 +222,7 @@ const PiSubagentEntryRow = (props: {
 /* DSH 子代理                                                           */
 /* ------------------------------------------------------------------ */
 
-type DshSubagentEntry = {
+export type DshSubagentEntry = {
 	id: string;
 	label?: string;
 	activity: "running" | "inactive";
@@ -266,7 +266,7 @@ function useDshSubagents(agentId: string | undefined): DshSubagentEntry[] {
 }
 
 /** 单条 DSH 子代理：点击行展开只读 transcript（readDshSubagentHistory）。 */
-const DshSubagentEntryRow = (props: { agentId: string; entry: DshSubagentEntry }) => {
+export const DshSubagentEntryRow = (props: { agentId: string; entry: DshSubagentEntry }) => {
 	const { entry } = props;
 	const { collapsed, toggleCollapsed } = useComposerWidgetCollapsed(`dsh-subagent:${entry.id}`, true);
 	const [transcript, setTranscript] = useState<Array<{ role: string; text: string }> | null>(null);
@@ -336,6 +336,42 @@ const DshSubagentEntryRow = (props: { agentId: string; entry: DshSubagentEntry }
 };
 
 /* ------------------------------------------------------------------ */
+/* 数据通道（横栏与右侧边栏「会话状态」面板共用）                         */
+/* ------------------------------------------------------------------ */
+
+export type SessionSubagentList = {
+	isDsh: boolean;
+	agentId: string | undefined;
+	piEntries: PiSubagentEntry[];
+	dshEntries: DshSubagentEntry[];
+	total: number;
+	running: number;
+	/** acp_delegate（billion-context）委托条目无子会话文件与完整结果文本，展开时提示产出位置 */
+	hasAcpEntries: boolean;
+	loading: boolean;
+};
+
+/** pi：三源合并；DSH：轮询。两条数据通道只取其一，渲染层不区分后端。 */
+export function useSessionSubagentList(sessionId: string): SessionSubagentList {
+	const runtime = useAtomValue(sessionRuntimeBySessionIdAtomFamily(sessionId));
+	const isDsh = runtime?.backend === "dsh";
+	const agentId = runtime?.agentId;
+	const piSubs = useSessionSubagents(sessionId);
+	const dshEntries = useDshSubagents(isDsh ? agentId : undefined);
+	const piEntries = isDsh ? [] : piSubs.entries;
+	return {
+		isDsh,
+		agentId,
+		piEntries,
+		dshEntries,
+		total: isDsh ? dshEntries.length : piEntries.length,
+		running: isDsh ? dshEntries.filter((e) => e.activity === "running").length : piEntries.filter((e) => e.status === "running" || e.status === "queued").length,
+		hasAcpEntries: piEntries.some((e) => e.via === "acp-delegate"),
+		loading: !isDsh && piSubs.loading,
+	};
+}
+
+/* ------------------------------------------------------------------ */
 /* 横栏本体                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -344,23 +380,12 @@ export function SessionSubagentsStrip(props: {
 	/** 打开子会话只读视图（SessionView 透传 openSidebarSessionById 通路） */
 	onOpenChildSession?: (sessionId: string) => void;
 }) {
-	const runtime = useAtomValue(sessionRuntimeBySessionIdAtomFamily(props.sessionId));
-	const isDsh = runtime?.backend === "dsh";
-	const agentId = runtime?.agentId;
-
 	const { collapsed, toggleCollapsed } = useComposerWidgetCollapsed(`subagents:${props.sessionId}`, true);
-
-	// pi：三源合并；DSH：轮询。两条数据通道只取其一，渲染层不区分后端
-	const piSubs = useSessionSubagents(props.sessionId);
-	const dshEntries = useDshSubagents(isDsh ? agentId : undefined);
-	const entries = isDsh ? dshEntries : piSubs.entries;
-	const running = isDsh ? dshEntries.filter((e) => e.activity === "running").length : piSubs.entries.filter((e) => e.status === "running" || e.status === "queued").length;
-	// acp_delegate（billion-context）委托条目无子会话文件与完整结果文本，展开时提示产出位置
-	const hasAcpEntries = !isDsh && piSubs.entries.some((e) => e.via === "acp-delegate");
+	const { isDsh, agentId, piEntries, dshEntries, total, running, hasAcpEntries } = useSessionSubagentList(props.sessionId);
 
 	// 无子代理：不渲染（「有那个显示那个」）。pi 空态细分（插件未装等）在展开
 	// 列表内用现有文案表达，折叠卡本身不常显空条
-	if (entries.length === 0) return null;
+	if (total === 0) return null;
 
 	return (
 		<ComposerWidgetFrame data-testid="session-subagents-strip" aria-label={t("sessionSubagents.title")}>
@@ -384,7 +409,7 @@ export function SessionSubagentsStrip(props: {
 			{!collapsed && (
 				<>
 					<ul className="mb-2 flex max-h-[240px] flex-col gap-1 overflow-y-auto [contain:layout_paint] [scrollbar-gutter:stable] px-3 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-100 motion-reduce:animate-none">
-						{isDsh ? (entries as DshSubagentEntry[]).map((entry) => <DshSubagentEntryRow key={entry.id} agentId={agentId ?? ""} entry={entry} />) : entries.map((entry) => <PiSubagentEntryRow key={entry.id} entry={entry as PiSubagentEntry} sessionId={props.sessionId} onOpenChildSession={props.onOpenChildSession} />)}
+						{isDsh ? dshEntries.map((entry) => <DshSubagentEntryRow key={entry.id} agentId={agentId ?? ""} entry={entry} />) : piEntries.map((entry) => <PiSubagentEntryRow key={entry.id} entry={entry} sessionId={props.sessionId} onOpenChildSession={props.onOpenChildSession} />)}
 					</ul>
 					{hasAcpEntries && <p className="-mt-1 px-3 pb-2 text-micro leading-4 text-text-tertiary">{t("sessionSubagents.acpDelegateHint")}</p>}
 				</>

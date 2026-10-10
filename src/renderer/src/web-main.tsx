@@ -13,9 +13,10 @@ import { setI18nLocale } from "./i18n";
 import { resolveLocale } from "./i18n";
 import { WebChatApp } from "./web/WebChatApp";
 
-// 与桌面端一致的 locale 解析：优先浏览器语言，中文走 zh-CN
-setI18nLocale(resolveLocale("system"));
-document.documentElement.lang = resolveLocale("system") === "zh-CN" ? "zh-CN" : "en-US";
+// 与桌面端一致的 locale 解析：优先浏览器语言，中文按简体/繁体分流
+const initialLocale = resolveLocale("system");
+setI18nLocale(initialLocale);
+document.documentElement.lang = initialLocale === "pseudo" ? "en-US" : initialLocale;
 
 // 暗色模式：跟随系统 prefers-color-scheme，映射到 foundation.css 的 data-theme
 const darkMedia = window.matchMedia("(prefers-color-scheme: dark)");

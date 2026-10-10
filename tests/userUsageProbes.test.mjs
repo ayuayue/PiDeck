@@ -358,6 +358,12 @@ test("normalizeProviderConfig：enabled/template/超时/间隔边界校验", () 
 	assert.match(normalizeProviderConfig({ enabled: "yes" }).error, /布尔/);
 });
 
+test("normalizeProviderConfig：Sub2API panelJwt 归一化（trim 保留、空白丢弃）", () => {
+	assert.equal(normalizeProviderConfig({ template: "sub2api", panelJwt: "  eyJhbGciOiJIUzI1NiJ9.payload.sig  " }).config.panelJwt, "eyJhbGciOiJIUzI1NiJ9.payload.sig");
+	// 纯空白等同未填：弹窗清空 JWT 保存后不再追加余额请求。
+	assert.equal(normalizeProviderConfig({ template: "sub2api", panelJwt: "   " }).config.panelJwt, undefined);
+});
+
 test("providers-only 文件：弹窗读取零错误（DSH「缺少 probes 数组」黄条回归）", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "usage-probes-noerr-"));
 	try {

@@ -27,16 +27,30 @@ export const WELCOME_THINKING_KEY = "pideck:welcome-thinking";
 /** 欢迎页（未启动 Agent）显式切换的后端存储 key；首次发送时提升到真实会话。 */
 export const WELCOME_BACKEND_KEY = "pideck:welcome-backend";
 
-/** 读取欢迎页最后显式切换的后端（仅认 pi/dsh；无则 undefined）。 */
+/** 读取欢迎页最后显式切换的后端（pi/dsh/acp；无则 undefined）。 */
 export function readWelcomeBackendPreference(): AgentBackend | undefined {
 	try {
 		const raw = localStorage.getItem(WELCOME_BACKEND_KEY);
 		// imagegen 是模式不是后端切换器的取值，历史脏数据一律忽略。
+		// acp 偏好携带工具 id（"acp:<toolId>"），后端枚举与工具分别读取。
 		if (raw === "pi" || raw === "dsh") return raw;
+		if (raw !== null && raw.startsWith("acp:")) return "acp";
 	} catch {
 		// localStorage 不可用时视为无偏好
 	}
 	return undefined;
+}
+
+/** 读取欢迎页 ACP 偏好携带的工具 id（非 acp 偏好/无工具段时 undefined）。 */
+export function readWelcomeAcpToolPreference(): string | undefined {
+	try {
+		const raw = localStorage.getItem(WELCOME_BACKEND_KEY);
+		if (raw === null || !raw.startsWith("acp:")) return undefined;
+		const toolId = raw.slice("acp:".length);
+		return toolId || undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 /**
@@ -52,10 +66,14 @@ export function readWelcomeBackendPreference(): AgentBackend | undefined {
 export function resolveGuidePageBackend(input: {
 	/** 引导页显式切换的后端（localStorage 偏好，无则 undefined）。 */
 	override?: AgentBackend;
+	/** 引导页 ACP 偏好携带的工具 id（无则 acp 偏好不成立，回落 pi——建不出会话）。 */
+	acpToolId?: string;
 	/** 设置项默认后端，已经过 DSH runtime 安装态钳制（effectiveAgentBackendAtom）。 */
 	effectiveDefault: AgentBackend;
 }): AgentBackend {
 	if (input.override === "dsh" && input.effectiveDefault !== "dsh") return "pi";
+	// acp 必须有工具 id（偏好残留但工具已被删时回落，首次发送才不会报错）
+	if (input.override === "acp" && !input.acpToolId) return "pi";
 	return input.override ?? input.effectiveDefault;
 }
 

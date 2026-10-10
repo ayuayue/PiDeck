@@ -340,7 +340,7 @@ export function SessionTree(props: { project: Project; sessions: readonly Sessio
                   标题被截断时 hover 滚动展示全文（TitleScrollText，未溢出则静止）；
                   选中背景仍保留，聚焦行也允许 hover 查看完整标题。 */}
 									<TitleScrollText text={child.session.name || t("common.untitled")} className={cn(runtime ? "font-medium" : "font-normal text-muted-foreground/90")} />
-									{(child.session.backend === "dsh" || child.session.backend === "imagegen") && <SessionBackendMark backend={child.session.backend} />}
+									{(child.session.backend === "dsh" || child.session.backend === "imagegen" || child.session.backend === "acp") && <SessionBackendMark backend={child.session.backend} />}
 									{/* 待确认 ask：挂在会话行本身，用户一眼看出是哪个会话在等回答
                   （项目/标题栏徽章只给汇总数，多会话同时等待时分不清）。
                   与 ActiveSessionsTree、项目行共用 PendingAskBadge，语义与视觉一致。 */}

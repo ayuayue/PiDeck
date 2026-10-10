@@ -60,6 +60,7 @@ test("cookie 模板缺 Cookie / 接口路径 / 余额字段时分别返回错误
 test("isDeclarativeTemplateId 覆盖 cookie", () => {
 	assert.equal(tpl.isDeclarativeTemplateId("newapi"), true);
 	assert.equal(tpl.isDeclarativeTemplateId("cookie"), true);
+	assert.equal(tpl.isDeclarativeTemplateId("sub2api"), true);
 	assert.equal(tpl.isDeclarativeTemplateId("balance"), false);
 });
 
@@ -113,4 +114,42 @@ test("volcengine 模板：缺 AK/SK 分别给出对应人话错误", () => {
 	const noSk = tpl.buildDeclarativeUsageProbeTemplate("volcengine", { accessKeyId: "AK" }, { baseUrl: "https://ark.cn-beijing.volces.com/v3", apiKey: "k" });
 	assert.ok("error" in noSk);
 	assert.match(String(noSk.error), /Secret Access Key/);
+});
+
+test("sub2api 模板：/usage 与推理端点同 base（不剥 /v1）、凭据默认取供应商 apiKey", () => {
+	const built = tpl.buildDeclarativeUsageProbeTemplate("sub2api", {}, { baseUrl: "https://api.zuiapi.ccwu.cc/v1", apiKey: "sk-zui" });
+	assert.ok(!("error" in built), "应构建成功（零必填字段）");
+	// 与 newapi/cookie 相反：Sub2API 的 /v1/usage 与兼容端点同根，保留 /v1 交给探测层版本化补齐。
+	assert.equal(built.baseUrl, "https://api.zuiapi.ccwu.cc/v1");
+	assert.equal(built.apiKey, "sk-zui");
+	assert.equal(built.candidate.path, "/usage");
+	assert.equal(built.candidate.noVersionPath, undefined);
+	assert.equal(built.candidate.parse.kind, "custom");
+	assert.equal(built.candidate.parse.resolver, "sub2api-usage");
+	// 单候选：钱包/订阅/Key 额度三形态由解析器按响应结构分流，无需多候选探测。
+	assert.equal(built.candidates.length, 1);
+});
+
+test("sub2api 模板：可选覆盖 baseUrl/apiKey 优先于供应商条目", () => {
+	const built = tpl.buildDeclarativeUsageProbeTemplate("sub2api", { baseUrl: "https://gw.override.example/v1", apiKey: "sk-other" }, { baseUrl: "https://api.zuiapi.ccwu.cc/v1", apiKey: "sk-zui" });
+	assert.ok(!("error" in built));
+	assert.equal(built.baseUrl, "https://gw.override.example/v1");
+	assert.equal(built.apiKey, "sk-other");
+});
+
+test("sub2api 模板：panelJwt 挂 panelBalance（追加余额请求），空白视为未填", () => {
+	const withJwt = tpl.buildDeclarativeUsageProbeTemplate("sub2api", { panelJwt: "eyJ.jwt.token" }, { baseUrl: "https://api.zuiapi.ccwu.cc/v1", apiKey: "sk-zui" });
+	assert.ok(!("error" in withJwt));
+	// 主候选与候选列表同源：执行层从 candidate 读 panelBalance 追加 /api/v1/auth/me。
+	assert.equal(withJwt.candidate.panelBalance.token, "eyJ.jwt.token");
+	assert.equal(withJwt.candidates[0].panelBalance.token, "eyJ.jwt.token");
+	// JWT 只追加余额请求，不改主请求形态（仍是 /usage + 专用解析器）。
+	assert.equal(withJwt.candidate.path, "/usage");
+	assert.equal(withJwt.candidate.parse.resolver, "sub2api-usage");
+	// 空白 JWT（纯空格）等同未填：不挂 panelBalance，不发出多余请求。
+	const blank = tpl.buildDeclarativeUsageProbeTemplate("sub2api", { panelJwt: "   " }, { baseUrl: "https://api.zuiapi.ccwu.cc/v1", apiKey: "sk-zui" });
+	assert.ok(!("error" in blank));
+	assert.equal(blank.candidate.panelBalance, undefined);
+	const without = tpl.buildDeclarativeUsageProbeTemplate("sub2api", {}, { baseUrl: "https://api.zuiapi.ccwu.cc/v1", apiKey: "sk-zui" });
+	assert.equal(without.candidate.panelBalance, undefined);
 });

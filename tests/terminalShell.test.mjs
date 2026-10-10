@@ -225,6 +225,20 @@ test("closing an agent leaves project terminal buckets intact", () => {
 	assert.equal(instance.list(agentTarget("agentC")).length, 0);
 });
 
+test("input on a removed tab is silently ignored (no cross-IPC throw)", () => {
+	// 回归：agent 重启/退出走 closeAgent 删 runtime，渲染层 xterm 卸载前的迟到按键
+	// 不允许抛错——ipcMain.handle 内 throw 会序列化成渲染层未处理 rejection。
+	// 与 resize 的静默忽略（下同源注释）同一约定。
+	const { manager } = loadWithPty();
+	const instance = new manager(
+		(agentId) => `C:/agents/${agentId}`,
+		() => {},
+	);
+	const tab = instance.create(agentTarget("agentD"));
+	instance.closeAgent("agentD");
+	assert.doesNotThrow(() => instance.input(tab.id, "ls\r"));
+});
+
 test("ensure returns existing tabs for the same owner instead of duplicating", () => {
 	const { manager, spawns } = loadWithPty();
 	const instance = new manager(

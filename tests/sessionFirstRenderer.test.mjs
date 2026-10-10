@@ -84,10 +84,12 @@ test("typing in the current Composer prewarms its runtime once", () => {
 });
 
 test("forking a user message opens the new session as a permanent tab", () => {
-	const body = functionBody("forkFromUserMessage", sessionHistoryMutationsSource);
 	// fork 做于 Tab 栏之前：只刷新列表不切焦点/不登记，新会话会出现但点 Tab 对不上 runtime。
 	// fork 结果统一交给会话工作区 chrome 登记永久 Tab，并切换到新会话。
-	assert.match(body, /openReplacedRuntimeSession\(/);
+	// 消息锚点与分支树条目共用同一生命周期，登记/切换不分叉为两条路径。
+	assert.match(sessionHistoryMutationsSource, /const\s+forkFromUserMessage\s*=\s*useCallback\(\s*\(message:\s*ChatMessage\)\s*=>\s*runExplicitFork\(message,\s*message\.text,\s*message\.id,\s*message\.images\)/);
+	assert.match(sessionHistoryMutationsSource, /const\s+forkAtEntry\s*=\s*useCallback\(\s*\(entryId:\s*string,\s*fallbackText:\s*string,\s*busyKey:\s*string,\s*images\?:\s*ImageContent\[\]\)\s*=>\s*runExplicitFork\(entryId,\s*fallbackText,\s*busyKey,\s*images\)/);
+	assert.match(functionBody("runExplicitFork", sessionHistoryMutationsSource), /await\s+latest\.openReplacedRuntimeSession\(projectId,\s*targetSessionId\)/);
 	assert.match(functionBody("openReplacedRuntimeSession", sessionRunControlSource), /registerOpenSession\(targetSessionId, "permanent"\)/);
 	assert.match(functionBody("openReplacedRuntimeSession", sessionRunControlSource), /selectSessionCommand\(projectId, targetSessionId, true\)/);
 	assert.match(functionBody("cloneAgentSession", sessionRunControlSource), /openReplacedRuntimeSession\(/);

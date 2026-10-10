@@ -80,13 +80,14 @@ import { activeAgentIdAtom } from "./hooks/useSessionRuntimeController";
 import { useSessionHistoryMutations } from "./hooks/useSessionHistoryMutations";
 import { useUserMessageEditReplay } from "./hooks/useUserMessageEditReplay";
 import { isLiveRuntimeStatus, sessionCommandFailureToast, type SessionRunCapabilities, type SessionRunAction } from "./utils/sessionCommands";
-import { GUIDE_BOOTSTRAP_SESSION_ID, readWelcomeBackendPreference, readWelcomeDshModelPreference, readWelcomeModelPreference, readWelcomeThinkingPreference, resolveChatSessionBootstrap, resolveGuidePageBackend } from "./utils/chatSessionBootstrap";
+import { GUIDE_BOOTSTRAP_SESSION_ID, readWelcomeAcpToolPreference, readWelcomeBackendPreference, readWelcomeDshModelPreference, readWelcomeModelPreference, readWelcomeThinkingPreference, resolveChatSessionBootstrap, resolveGuidePageBackend } from "./utils/chatSessionBootstrap";
 import { useAppAppearance } from "./hooks/appearance/useAppAppearance";
 import { useAppBootstrapInfo } from "./hooks/app/useAppBootstrapInfo";
 import { useBootOverlayReady } from "./hooks/app/useBootOverlayReady";
 import { useCommandPalette } from "./hooks/app/useCommandPalette";
 import { useSidebarArchiveActions } from "./hooks/sidebar/useSidebarArchiveActions";
 import { useSettingsUpdater } from "./hooks/settings/useSettingsUpdater";
+import { useTpsDisplayMode } from "./hooks/settings/useTpsDisplayMode";
 import { useSessionRunControl } from "./hooks/session/useSessionRunControl";
 import { useProjectFileTreeController } from "./hooks/files/useProjectFileTreeController";
 import { useSessionDurationTracking } from "./hooks/session/useSessionDurationTracking";
@@ -132,6 +133,7 @@ import {
 	cacheSessionMessagesAtom,
 	upsertSessionAtom,
 	acpToolsAtom,
+	acpEnabledAtom,
 } from "./atoms";
 import { isSameSessionPath } from "./agentListDisplay";
 import { t } from "./i18n";
@@ -151,6 +153,7 @@ import { SessionSplitStage } from "./components/session/SessionSplitStage";
 import { splitLayoutSessionIds } from "./utils/sessionSplitEdge";
 import { SessionTabsBar, type SessionTabsBarProps, type SessionToolAction } from "./components/session/SessionTabsBar";
 import { SessionPaneServicesProvider, type SessionFileOpenContext } from "./components/session/SessionPaneServices";
+import { SessionStatusPanel } from "./components/session/statusPanel/SessionStatusPanel";
 import { ProjectEmptyState } from "./components/session/ProjectEmptyState";
 import { FileLinkBaseProvider } from "./components/session/FileLinkBase";
 import { useSessionWorkspaceChrome } from "./hooks/useSessionWorkspaceChrome";
@@ -158,6 +161,8 @@ import { useQuickTask } from "./hooks/useQuickTask";
 import { QuickTaskSurface } from "./components/app/QuickTaskSurface";
 import { AskPanelOverlay } from "./components/overlays/AskPanelOverlay";
 import { HostPluginPanelHost } from "./components/plugins/HostPluginPanelHost";
+import { HostPluginPageOverlay } from "./components/plugins/HostPluginPageOverlay";
+import { useHostPluginPageTab } from "./hooks/useHostPluginPageTab";
 import { useHostPluginNavigation } from "./hooks/plugins/useHostPluginNavigation";
 import { TerminalDockPanel } from "./components/terminal/TerminalDockPanel";
 import { ResizablePanel, ResizablePanelGroup } from "./components/ui-shadcn/resizable";
@@ -182,6 +187,7 @@ import { flattenFiles, fileNodeDragPayloadToRef, mergeCommands, getToolFilePath,
 const ProjectResourcesModal = lazy(() => import("./components/app/ProjectResourcesModal").then((m) => ({ default: m.ProjectResourcesModal })));
 import { createDefaultAppSettings } from "../../shared/types";
 import { hydrateImageContents } from "../../shared/imageContentSrc";
+import { parseSessionStatusPlacement, placementShowsSidebarPanel } from "../../shared/sessionStatusPlacement";
 import type {
 	AgentRuntimeState,
 	AgentTab,
@@ -348,9 +354,9 @@ export function App() {
 			})
 			.catch(() => undefined);
 	}, [showToast]);
-	// 历史命令：按 agent 隔离，agent 关闭即清除（不持久化）
 	// ACP 工具表（settings.acpTools 快照）：挂载时拉一次供新建会话菜单/设置页共享；
 	// 后续变更由设置页保存后整表回写 acpToolsAtom，不做事件订阅（改动频率极低）。
+	// 同一次拉取顺带同步 acpEnabled 快照：菜单组仅在开关开启时渲染（主进程同规则门控注册）。
 	useEffect(() => {
 		let cancelled = false;
 		void api.acp
@@ -359,10 +365,17 @@ export function App() {
 				if (!cancelled) store.set(acpToolsAtom, tools);
 			})
 			.catch(() => undefined);
+		void api.settings
+			.get()
+			.then((settings) => {
+				if (!cancelled) store.set(acpEnabledAtom, settings.acpEnabled === true);
+			})
+			.catch(() => undefined);
 		return () => {
 			cancelled = true;
 		};
 	}, [store]);
+	// 历史命令：按 agent 隔离，agent 关闭即清除（不持久化）
 	const promptHistoryRef = useRef<Record<string, string[]>>({});
 
 	// 面板宽度的 localStorage 只按 renderer origin 隔离；开发端口变化时会读不到旧值。
@@ -876,6 +889,7 @@ export function App() {
 	});
 	// 激活 Agent 数量告警：受设置 agentCountReminderEnabled 控制（默认开启），每个启动周期提示一次
 	useAgentLoadNotice(settings.agentCountReminderEnabled);
+	useTpsDisplayMode(settings.tpsDisplayMode);
 
 	// 架构错包检测：x64 包跑在 Apple Silicon（Rosetta）下时提示换装 arm64 原生包（可永久关闭）
 	useArchMismatchNotice();
@@ -1302,7 +1316,7 @@ export function App() {
 				// 选了 dsh 但 DSH runtime 不可用时按 effectiveAgentBackendAtom 同一条
 				// 钳制规则回落 pi，避免首次发送才在 createDraft 门控上抛错。
 				// 与 ComposerArea 的展示用同一纯函数：展示的后端和创建的后端必须一致。
-				const draftBackend = resolveGuidePageBackend({ override: readWelcomeBackendPreference(), effectiveDefault: effectiveAgentBackend });
+				const draftBackend = resolveGuidePageBackend({ override: readWelcomeBackendPreference(), acpToolId: readWelcomeAcpToolPreference(), effectiveDefault: effectiveAgentBackend });
 				// 模型偏好按后端分开取（issue #253）：DSH 的模型是 host route 名，不在 models.json，
 				// 必须作为显式 model 直接带给 host；pi 的偏好走 welcomeModel（launchDefaults 会按
 				// models.json 校验存在性）。历史上 DSH 侧不读偏好，点选因此永远不生效。
@@ -1319,6 +1333,7 @@ export function App() {
 					projectId: project.id,
 					title: draftBackend === "dsh" ? `${project.name} DSH` : `${project.name} agent`,
 					backend: draftBackend,
+					...(draftBackend === "acp" ? { acpToolId: readWelcomeAcpToolPreference() } : {}),
 					...(welcomeModel ? (draftBackend === "dsh" ? { model: welcomeModel } : { welcomeModel }) : {}),
 					...(welcomeThinking ? { thinkingLevel: welcomeThinking } : {}),
 				});
@@ -1758,7 +1773,7 @@ export function App() {
 	 * pi 历史消息改写：无 runtime 直接改 JSONL；有 runtime 先确认停止再改文件。
 	 * DSH 入口在 Injector 按 backend 隐藏。下次发送才重新激活 Agent。
 	 */
-	const { editMessage, deleteMessage, resendUserMessage, forkFromUserMessage, forkAtEntry, forkingMessageId } = useSessionHistoryMutations({
+	const { editMessage, deleteMessage, removeMessageImage, resendUserMessage, forkFromUserMessage, forkAtEntry, forkingMessageId } = useSessionHistoryMutations({
 		currentSessionId,
 		getRuntimeTargetForSession,
 		getRuntimeTargetForAgent,
@@ -2011,7 +2026,6 @@ export function App() {
 			createAnonymous: async (projectId) => {
 				await createAnonymousSessionWithTab(projectId);
 			},
-			deleteDraft: deleteDraftSession,
 			// ACP 工具会话：backend 固定 acp、acpToolId 指向 settings.acpTools 条目。
 			// 工具表已加载进 acpToolsAtom，此处只按 id 取名称作草稿标题；找不到（刚被删）
 			// 提示引导而不是静默失败。创建后与 createDraft 同一条选中/登记链。
@@ -2026,6 +2040,7 @@ export function App() {
 				selectSessionCommand(projectId, session.id, false);
 				workspaceChrome.registerOpenSession(session.id, "permanent");
 			},
+			deleteDraft: deleteDraftSession,
 			rename: rename.openSessionRename,
 			export: runExportSidebarSession,
 			copy: runCopySidebarSession,
@@ -2147,6 +2162,7 @@ export function App() {
 			settingsExpandedProjectIds={settings.sidebarExpandedProjectIds}
 			settingsNavTab={settings.sidebarNavTab}
 			settingsPinnedSessionIds={settings.pinnedSessionIds}
+			settingsSessionSortMode={settings.sessionSortMode}
 			settingsLoaded={settingsLoaded}
 			onExpandedProjectsReady={() => setExpandedProjectsReady(true)}
 			// 关于弹框：版本号/官网/GitHub 链接数据来自 AppInfo IPC（上方 useEffect 已拉取）
@@ -2345,6 +2361,11 @@ export function App() {
 		onNewSessionInProject: (projectId: string) => {
 			void createSessionDraftWithTab(projectId);
 		},
+		// ACP 工具会话入口（Tab 栏 + 下拉尾部，工具→项目二级）：走 sidebarActions.createAcp，
+		// 与设置页共用同一条创建链（backend=acp + acpToolId）。
+		onNewAcpSession: (projectId: string, toolId: string) => {
+			void sidebarActions.sessions.createAcp(projectId, toolId);
+		},
 		onTogglePin: workspaceChrome.togglePin,
 		onReorder: workspaceChrome.reorderTab,
 		// 分屏组胶囊：分屏内会话聚合为组（颜色标记 + 展开/收起）
@@ -2431,6 +2452,7 @@ export function App() {
 			resendUserMessage,
 			editMessage,
 			deleteMessage,
+			removeMessageImage,
 			forkFromUserMessage,
 			forkingMessageId,
 			openSidebarSessionById: async (projectId: string, sessionId: string) => {
@@ -2474,6 +2496,7 @@ export function App() {
 			createSessionDraftWithTab,
 			changeChatPath,
 			deleteMessage,
+			removeMessageImage,
 			diffFilePath,
 			displayAgents,
 			editMessage,
@@ -2585,6 +2608,8 @@ export function App() {
 		);
 	}, []);
 	const simpleMode = settings.navigationMode === "simple";
+	// 会话状态显示位置：首屏设置未拉到 / 预览环境缺字段时按默认值处理
+	const sessionStatusPlacement = parseSessionStatusPlacement(settings.sessionStatusPlacement);
 	const [simpleContentExpanded, setSimpleContentExpanded] = useState(false);
 	useEffect(() => setSimpleContentExpanded(false), [activeTabId, gitDrawerDiff?.filePath, simpleMode]);
 	const workbenchLayout = simpleMode ? (simpleContentExpanded ? "maximize" : "split") : workbenchHasGitDiff ? gitDiffDisplayMode : editorMode;
@@ -2675,10 +2700,22 @@ export function App() {
 		} else closeEditorTab(id);
 	};
 	const toggleSimpleContent = () => setSimpleContentExpanded((value) => !value);
+	// 页面式插件面板伪 Tab：tab 模式下挂进 SessionTabsBar（打开时会话 Tab 退非选中，
+	// 点任意会话 Tab 即收起）；simple 模式不挂（插件页直接铺满会话区，由 Overlay 承担）。
+	const hostPluginPageTab = useHostPluginPageTab();
 	const sessionTabsBarNode = (
 		<SessionTabsBar
 			{...sessionTabsProps}
 			simple={simpleMode}
+			// 插件页占据会话区时，会话 Tab 不得显示选中态（当前呈现的不是会话）
+			currentSessionId={hostPluginPageTab ? undefined : currentSessionId}
+			pluginTab={simpleMode ? null : hostPluginPageTab}
+			// 点任意会话 Tab（含当前 Tab，sessionId 不变的场景）也要收起插件页；
+			// Overlay 的 scope 变化兑底只覆盖「切到别的会话」这一分支。
+			onSelect={(sessionId) => {
+				hostPluginPageTab?.onClose();
+				workspaceChrome.selectTab(sessionId);
+			}}
 			sessionActions={tabsSessionActions}
 			contextSessionActions={buildTabsSessionActions}
 			toolActions={sessionToolActions}
@@ -2728,7 +2765,14 @@ export function App() {
 			chrome={sessionTabsBarNode}
 			layout={workbenchLayout}
 			hasContent={workbenchHasContent}
-			session={chatPaneSessionNode}
+			// 插件页面式面板：以工作区会话列上的非模态覆盖层呈现（presentation:"page"），
+			// 会话树保持挂载，关闭覆盖层即原样还原（滚动/草稿/终端内存态不丢）。
+			session={
+				<div className="relative flex h-full min-h-0 min-w-0 flex-col">
+					{chatPaneSessionNode}
+					<HostPluginPageOverlay projectId={activeProject?.id} sessionId={currentSessionId} />
+				</div>
+			}
 			content={workbenchContentNode}
 			onContentWidthChange={handleWorkbenchContentWidth}
 		/>
@@ -3014,6 +3058,13 @@ export function App() {
 									: []),
 							]}
 						/>
+					}
+					drawerFooter={
+						placementShowsSidebarPanel(sessionStatusPlacement) ? (
+							<SessionPaneServicesProvider value={sessionPaneServices}>
+								<SessionStatusPanel sessionId={currentSessionId} />
+							</SessionPaneServicesProvider>
+						) : undefined
 					}
 					drawerContent={(visibleDrawerPanel) => (
 						<DrawerSurface

@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { Loader2, Bot, Eye, EyeOff } from "lucide-react";
+import { AlertCircle, Bot, Eye, EyeOff, Loader2 } from "lucide-react";
 import { t } from "../i18n";
 import type { TranslationKey } from "../i18n";
 import type { ProviderUsageResult, UsageProbeProviderConfig, UsageProbeTemplateCategory } from "../../../shared/types/providerUsage";
@@ -42,6 +42,7 @@ const CATEGORY_LABEL_KEY: Record<UsageProbeTemplateCategory, TranslationKey> = {
 	newapi: "config.usageProbe.category.newapi",
 	cookie: "config.usageProbe.category.cookie",
 	volcengine: "config.usageProbe.category.volcengine",
+	sub2api: "config.usageProbe.category.sub2api",
 };
 
 /** 类别 → 说明文案 i18n key（内置/套餐/订阅无字段，说明即全部）。 */
@@ -53,15 +54,18 @@ const CATEGORY_HINT_KEY: Record<UsageProbeTemplateCategory, TranslationKey> = {
 	newapi: "config.usageProbe.newapiHint",
 	cookie: "config.usageProbe.cookieHint",
 	volcengine: "config.usageProbe.volcengineHint",
+	sub2api: "config.usageProbe.sub2apiHint",
 };
 
-/** 模板 id → 类别（内置 templateId 由主进程识别结果给出；声明式三个固定）。 */
+/** 模板 id → 类别（内置 templateId 由主进程识别结果给出；声明式固定五个）。 */
 const DECLARATIVE_TEMPLATE_CATEGORY: Record<string, UsageProbeTemplateCategory> = {
 	general: "general",
 	newapi: "newapi",
 	cookie: "cookie",
 	// 火山方舟：凭据是 AK/SK（不是 apiKey），归入自己的类别，说明文案走 volcengineHint。
 	volcengine: "volcengine",
+	// Sub2API：凭据就是供应商 apiKey（可选覆盖），零必填字段，说明文案走 sub2apiHint。
+	sub2api: "sub2api",
 };
 
 /** 「无模板」哨兵：供应商既不适用通用也不适用 New API 时，明确不选任何预设模板。 */
@@ -149,6 +153,8 @@ export function UsageProbeConfigDialog(props: {
 	// 火山方舟 AK/SK：SK 默认掩码（与 Cookie/访问令牌同一套显隐切换）。
 	const [accessKeyId, setAccessKeyId] = useState("");
 	const [secretAccessKey, setSecretAccessKey] = useState("");
+	// Sub2API 面板 JWT：默认掩码（同一套显隐切换）；可选字段，填了才追加查账户钱包余额。
+	const [panelJwt, setPanelJwt] = useState("");
 	const [showToken, setShowToken] = useState(false);
 	const [timeoutSecs, setTimeoutSecs] = useState(10);
 	const [intervalMinutes, setIntervalMinutes] = useState(5);
@@ -187,6 +193,7 @@ export function UsageProbeConfigDialog(props: {
 				setCurrencyPath(config?.currencyPath ?? "");
 				setAccessKeyId(config?.accessKeyId ?? "");
 				setSecretAccessKey(config?.secretAccessKey ?? "");
+				setPanelJwt(config?.panelJwt ?? "");
 				setTimeoutSecs(config?.timeoutSecs ?? 10);
 				setIntervalMinutes(config?.intervalMinutes ?? 5);
 				setLoadErrors(result.errors);
@@ -245,7 +252,8 @@ export function UsageProbeConfigDialog(props: {
 	 * 保存时只写开关/超时/间隔，查询走内置候选 + 旧探针自动匹配。 */
 	const currentTemplate = useMemo((): { id: string; category: UsageProbeTemplateCategory } | null => {
 		if (template === NONE_TEMPLATE) return null;
-		if (template === "general" || template === "newapi" || template === "cookie" || template === "volcengine") {
+		// 声明式模板：hasOwnProperty 防 "toString" 等原型链键误命中。
+		if (Object.prototype.hasOwnProperty.call(DECLARATIVE_TEMPLATE_CATEGORY, template)) {
 			return { id: template, category: DECLARATIVE_TEMPLATE_CATEGORY[template] };
 		}
 		if (recognized && recognized.templateId === template) {
@@ -282,6 +290,7 @@ export function UsageProbeConfigDialog(props: {
 				...(currencyPath.trim() ? { currencyPath: currencyPath.trim() } : {}),
 				...(accessKeyId.trim() ? { accessKeyId: accessKeyId.trim() } : {}),
 				...(secretAccessKey.trim() ? { secretAccessKey: secretAccessKey.trim() } : {}),
+				...(panelJwt.trim() ? { panelJwt: panelJwt.trim() } : {}),
 				...(timeoutSecs !== 10 ? { timeoutSecs } : {}),
 			});
 			setTestResult(result);
@@ -320,11 +329,16 @@ export function UsageProbeConfigDialog(props: {
 			intervalMinutes,
 		};
 		// 内置识别命中 / 无模板：不写 template（自动路由）；声明式：写模板 id + 模板字段。
-		if (!isNone && current && (current.id === "general" || current.id === "newapi" || current.id === "cookie" || current.id === "volcengine")) {
+		if (!isNone && current && Object.prototype.hasOwnProperty.call(DECLARATIVE_TEMPLATE_CATEGORY, current.id)) {
 			config.template = current.id;
-			if (current.id === "general") {
-				if (apiKey.trim()) config.apiKey = apiKey.trim();
+			// 通用/Sub2API：apiKey 与 baseUrl 都可选（默认取供应商条目；Sub2API 的 /v1/usage
+			// 与推理端点同 base 同 key，通常两项都留空）。
+			if (current.id === "general" || current.id === "sub2api") {
+				// Sub2API 不暴露 API Key 覆盖：凭据直接取供应商配置（界面无输入框，存盘也不回写旧值）。
+				if (current.id === "general" && apiKey.trim()) config.apiKey = apiKey.trim();
 				if (baseUrl.trim()) config.baseUrl = baseUrl.trim();
+				// Sub2API 面板 JWT（可选）：填了才写，清空即回到纯 /v1/usage 模式。
+				if (current.id === "sub2api" && panelJwt.trim()) config.panelJwt = panelJwt.trim();
 			} else if (current.id === "newapi") {
 				if (baseUrl.trim()) config.baseUrl = baseUrl.trim();
 				if (!accessToken.trim() || !userId.trim()) {
@@ -451,7 +465,7 @@ export function UsageProbeConfigDialog(props: {
 								<Switch checked={enabled} onCheckedChange={setEnabled} data-testid="usage-probe-enable" />
 							</div>
 
-							{/* 预设模板：识别命中只显示「已内置」+ 通用 + NewAPI；未识别只显示通用 + NewAPI */}
+							{/* 预设模板：固定五个声明式（通用/NewAPI/Cookie/火山方舟/Sub2API）+ 无模板；识别命中额外追加「已内置」pill */}
 							<section className="space-y-1.5">
 								<p className="text-sm font-medium text-foreground">{t("config.usageProbe.templatesTitle")}</p>
 								<div className="flex flex-wrap gap-1.5">
@@ -474,6 +488,9 @@ export function UsageProbeConfigDialog(props: {
 									</button>
 									<button type="button" className={pillClass(template === "volcengine")} onClick={() => setTemplate("volcengine")} data-testid="usage-probe-template-volcengine">
 										{t("config.usageProbe.category.volcengine")}
+									</button>
+									<button type="button" className={pillClass(template === "sub2api")} onClick={() => setTemplate("sub2api")} data-testid="usage-probe-template-sub2api">
+										{t("config.usageProbe.category.sub2api")}
 									</button>
 								</div>
 								{template === NONE_TEMPLATE && (
@@ -503,6 +520,24 @@ export function UsageProbeConfigDialog(props: {
 									<div className="grid grid-cols-2 gap-3">
 										<OptionalField label={t("config.usageProbe.credentialApiKey")} placeholder={t("config.usageProbe.credentialApiKeyPlaceholder")} value={apiKey} onChange={setApiKey} />
 										<OptionalField label={t("config.usageProbe.credentialBaseUrl")} placeholder={t("config.usageProbe.credentialBaseUrlPlaceholder")} value={baseUrl} onChange={setBaseUrl} />
+									</div>
+								</section>
+							)}
+							{/* Sub2API：凭据直接取供应商 apiKey（不暴露覆盖输入框），只有端点覆盖 + 面板 JWT 两个字段 */}
+							{currentTemplate?.id === "sub2api" && (
+								<section className="space-y-3">
+									<OptionalField label={t("config.usageProbe.credentialBaseUrl")} placeholder={t("config.usageProbe.credentialBaseUrlPlaceholder")} value={baseUrl} onChange={setBaseUrl} />
+									<div className="space-y-1.5">
+										<div className="flex items-center justify-between">
+											<Label className="text-xs font-medium text-foreground">{t("config.usageProbe.sub2apiPanelJwt")}</Label>
+											<button type="button" className="inline-flex items-center gap-1 text-micro text-text-tertiary transition-colors hover:text-foreground" onClick={() => setShowToken((value) => !value)}>
+												{showToken ? <EyeOff size={12} /> : <Eye size={12} />}
+												{showToken ? t("config.usageProbe.hideKey") : t("config.usageProbe.showKey")}
+											</button>
+										</div>
+										{/* JWT 默认掩码（防截图泄密）；过期后余额段消失，重新粘贴新令牌即可 */}
+										<Input type={showToken ? "text" : "password"} value={panelJwt} onChange={(event) => setPanelJwt(event.target.value)} placeholder={t("config.usageProbe.sub2apiPanelJwtPlaceholder")} className="h-9" data-testid="usage-probe-sub2api-jwt" />
+										<p className="text-caption leading-relaxed text-text-tertiary">{t("config.usageProbe.sub2apiPanelJwtHint")}</p>
 									</div>
 								</section>
 							)}
@@ -608,6 +643,14 @@ export function UsageProbeConfigDialog(props: {
 										<pre className="max-h-44 overflow-auto whitespace-pre-wrap break-all font-mono text-micro leading-relaxed text-text-secondary">{testDetail}</pre>
 									</div>
 								)}
+								{testState === "success" && testResult?.panelBalanceError ? (
+									// Sub2API 面板 JWT 失效：主查询成功但余额段被丢弃（401=过期最常见），
+									// 显式提示原因而不是无感消失，用户才知道要重贴新令牌。
+									<div className="flex items-center gap-1.5 text-caption leading-5 text-amber-600 dark:text-amber-400" data-testid="usage-probe-panel-jwt-warning">
+										<AlertCircle size={12} aria-hidden="true" />
+										<span>{testResult.panelBalanceError === "unauthorized" ? t("config.usageProbe.sub2apiPanelJwtExpired") : t("config.usageProbe.sub2apiPanelJwtFailed")}</span>
+									</div>
+								) : null}
 							</section>
 						</>
 					)}

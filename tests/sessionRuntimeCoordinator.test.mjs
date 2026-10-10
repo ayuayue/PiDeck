@@ -1648,6 +1648,35 @@ test("catalog message mutation writes the file only after the runtime is stopped
 	);
 });
 
+test("catalog image removal refuses live runtime and forwards a stopped session target", async () => {
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = createHarness({ entry: catalogEntry({ filePath: "C:/sessions/session-1.jsonl", status: "active" }), tabs: [{ id: "agent-a", status: "idle", createdAt: 1 }] });
+	const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, harness.sender);
+	const runtimeGeneration = coordinator.bindExistingAgent("session-1", "agent-a");
+	const imageTarget = { index: 1, expectedImageCount: 2, expectedHash: "a".repeat(64) };
+	const live = await coordinator.removeCatalogMessageImage("session-1", "message-1", imageTarget, "entry-1");
+	assert.equal(live.ok, false);
+	assert.equal(live.error.code, "SESSION_RUNTIME_BUSY");
+	assert.equal(harness.calls.mutatePersisted.length, 0);
+	assert.equal((await coordinator.stopRuntime({ sessionId: "session-1", agentId: "agent-a", runtimeGeneration })).ok, true);
+	assert.equal((await coordinator.removeCatalogMessageImage("session-1", "message-1", imageTarget, "entry-1")).ok, true);
+	assert.equal(harness.calls.mutatePersisted.length, 1);
+	assert.equal(harness.calls.mutatePersisted[0].operation, "remove-image");
+	assert.equal(harness.calls.mutatePersisted[0].extra.entryId, "entry-1");
+	assert.deepEqual(harness.calls.mutatePersisted[0].extra.imageTarget, imageTarget);
+});
+
+test("catalog image removal rejects non-pi and anonymous sessions without writing", async () => {
+	for (const entry of [catalogEntry({ backend: "dsh" }), catalogEntry({ backend: "imagegen" }), catalogEntry({ backend: "acp" }), catalogEntry({ filePath: undefined })]) {
+		const { SessionRuntimeCoordinator } = loadCoordinator();
+		const harness = createHarness({ entry });
+		const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, harness.sender);
+		const result = await coordinator.removeCatalogMessageImage("session-1", "message-1", { index: 0, expectedImageCount: 1, expectedHash: "a".repeat(64) });
+		assert.equal(result.ok, false);
+		assert.equal(harness.calls.mutatePersisted.length, 0);
+	}
+});
+
 test("catalog message mutation refuses DSH sessions", async () => {
 	const { SessionRuntimeCoordinator } = loadCoordinator();
 	const harness = createHarness({

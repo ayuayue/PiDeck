@@ -16,12 +16,13 @@ import { Button } from "../ui-shadcn/button";
 import { BridgeGuiSlot, useBridgeSessionId } from "../bridge/BridgeSlot";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui-shadcn/popover";
 import type { PiDesktopApi } from "../../../../preload";
-import type { TerminalShell, TerminalTab, TerminalTarget } from "../../../../shared/types";
+import type { TerminalShell, TerminalTarget } from "../../../../shared/types";
 import type { TerminalConfirmCloseMode, TerminalCursorStyle, TerminalThemeId } from "../../../../shared/types/settings";
-import { shouldConfirmTerminalClose } from "../../terminalDockState";
+import { useTerminalDockTabs } from "../../hooks/useTerminalDockTabs";
 import { TERMINAL_THEME_DEFS, resolveTerminalTheme } from "../../terminalThemes";
 import { t } from "../../i18n";
 import { appendTerminalReplayBuffer } from "../../terminalDockState";
+import { createTerminalDockIo, type TerminalDockIo } from "./terminalDockIo";
 
 /** 字体族兕底：xterm 需要具体字体串（canvas 测量），不能用 var() */
 const TERMINAL_FALLBACK_FONT_FAMILY = '"Cascadia Mono", Consolas, monospace';
@@ -58,11 +59,6 @@ function resolveTerminalFont(settings: TerminalDockSettings): { fontFamily: stri
 
 const TERMINAL_OPEN_ANIMATION_MS = 300;
 
-function stripReplayBuffer(tab: TerminalTab): TerminalTab {
-	const { buffer: _buffer, ...rest } = tab;
-	return rest;
-}
-
 export function TerminalDock(props: {
 	target: TerminalTarget;
 	open: boolean;
@@ -88,6 +84,7 @@ export function TerminalDock(props: {
 	const fitRef = useRef<FitAddon | null>(null);
 	const webglRef = useRef<WebglAddon | null>(null);
 	const serializeRef = useRef<SerializeAddon | null>(null);
+	const ioRef = useRef<TerminalDockIo | null>(null);
 	const activeTabIdRef = useRef("");
 	const buffersRef = useRef<Record<string, string>>({});
 	/** 待注入启动命令的 tabId：shell 首个提示符输出后注入一次，避免被 shell 初始化覆盖 */
@@ -96,14 +93,8 @@ export function TerminalDock(props: {
 	const startupCommandRef = useRef(props.terminalSettings.startupCommand);
 	// 归属键：决定加载 gate 与 pending 占位判断；project 终端由父级显式传入
 	const sessionKey = props.sessionKey ?? (props.target.kind === "agent" ? `agent:${props.target.agentId}` : `project:${props.target.projectId}`);
-	/* copyNotice 已改用 toast (sonner) 实现 */
-	const [tabs, setTabs] = useState<TerminalTab[]>([]);
-	const [activeTabId, setActiveTabId] = useState("");
+	const { open, collapsed } = props;
 	const [themeMenuOpen, setThemeMenuOpen] = useState(false);
-	const [confirmCloseAllOpen, setConfirmCloseAllOpen] = useState(false);
-	const [pendingCloseTab, setPendingCloseTab] = useState<TerminalTab | null>(null);
-	/* copyNotice 已改用 toast (sonner) 实现 */
-	const [loading, setLoading] = useState(false);
 	const [contentReady, setContentReady] = useState(false);
 	const [motionOpen, setMotionOpen] = useState(false);
 	const [appTheme, setAppTheme] = useState(() => document.documentElement.dataset.theme ?? "light");
@@ -112,7 +103,33 @@ export function TerminalDock(props: {
 	/** 可用 shell 列表 */
 	const [shells, setShells] = useState<{ shell: string; label: string; available: boolean }[]>([]);
 	const [shellMenuOpen, setShellMenuOpen] = useState(false);
-	const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
+	const { tabs, activeTab, loading, pendingCloseTab, confirmCloseAllOpen, setActiveTabId, setPendingCloseTab, markExited, addTab, closeTab, performCloseTab, requestCloseAllTabs, closeAllTabs, cancelCloseAll, ownsTab, acceptsTabEvent } = useTerminalDockTabs({
+		target: props.target,
+		terminal: props.terminal,
+		enabled: open && contentReady && Boolean(sessionKey) && !sessionKey.startsWith("pending-"),
+		confirmClose: props.terminalSettings.confirmClose,
+		onHydrate(nextTabs) {
+			const ids = new Set(nextTabs.map((tab) => tab.id));
+			// ensure/create 完成后只留下当前归属；未知标签只能在 IPC 结算前短暂暂存。
+			for (const id of Object.keys(buffersRef.current)) if (!ids.has(id)) delete buffersRef.current[id];
+			for (const id of pendingStartupCommandRef.current) if (!ids.has(id)) pendingStartupCommandRef.current.delete(id);
+			for (const tab of nextTabs) buffersRef.current[tab.id] = tab.buffer ?? buffersRef.current[tab.id] ?? "";
+		},
+		onCreated(tab) {
+			// 提示符可能先于 create 返回；只补发新建且仍运行的标签，不对恢复终端重跑。
+			if (tab.exited || !startupCommandRef.current.trim()) return;
+			pendingStartupCommandRef.current.add(tab.id);
+			if (buffersRef.current[tab.id]) sendStartupCommand(tab.id);
+		},
+		onClosed(tabIds) {
+			for (const id of tabIds) {
+				pendingStartupCommandRef.current.delete(id);
+				delete buffersRef.current[id];
+			}
+		},
+		onClose: props.onClose,
+		onExpand: () => props.onCollapsedChange(false),
+	});
 	const themeId = props.terminalSettings.themeId;
 	// 主题解析的唯一入口：inherit 按应用明暗取 pi-soft 亮/暗版，显式主题不分明暗。
 	const resolvedTheme = useMemo(() => resolveTerminalTheme(themeId, appTheme), [themeId, appTheme]);
@@ -144,7 +161,6 @@ export function TerminalDock(props: {
 		}
 		return base;
 	}, [resolvedTheme, wallpaperMode]);
-	const { open, collapsed } = props;
 
 	useEffect(() => {
 		if (props.closing) return;
@@ -196,52 +212,6 @@ export function TerminalDock(props: {
 		startupCommandRef.current = props.terminalSettings.startupCommand;
 	}, [props.terminalSettings.startupCommand]);
 
-	useEffect(() => {
-		if (!open || !contentReady || !sessionKey) return;
-		// pending-* 是渲染层占位，主进程还没有对应 agent runtime
-		if (sessionKey.startsWith("pending-")) return;
-		let cancelled = false;
-		async function loadTabs() {
-			setLoading(true);
-			try {
-				const nextTabs = await props.terminal.ensure(props.target);
-				if (cancelled) return;
-				buffersRef.current = nextTabs.reduce<Record<string, string>>(
-					(current, tab) => ({
-						...current,
-						[tab.id]: tab.buffer ?? current[tab.id] ?? "",
-					}),
-					{ ...buffersRef.current },
-				);
-				setTabs(nextTabs.map(stripReplayBuffer));
-				setActiveTabId(nextTabs[0]?.id ?? "");
-			} catch (error) {
-				// ensure 失败不能变成 unhandled rejection：Mac 上会表现为启动 agent 后终端报错/像闪退
-				if (!cancelled) {
-					setTabs([]);
-					setActiveTabId("");
-					const message = error instanceof Error ? error.message : String(error);
-					// Agent 尚未就绪时的竞态：静默跳过，等真实 agentId 再挂载
-					if (!/Agent not found/i.test(message)) {
-						showNotice(message, 4000, "error");
-					}
-				}
-			} finally {
-				if (!cancelled) setLoading(false);
-			}
-		}
-		void loadTabs();
-		return () => {
-			cancelled = true;
-		};
-	}, [
-		// target 序列化键：agent 绑定变更（restart）或项目切换都会重建终端实例
-		props.target.kind === "agent" ? `agent:${props.target.agentId}:${props.target.runtimeGeneration}` : `project:${props.target.projectId}`,
-		props.terminal,
-		open,
-		contentReady,
-	]);
-
 	// 独立加载可用 shell 列表，避免与 loadTabs 耦合
 	useEffect(() => {
 		if (!open || !contentReady) return;
@@ -260,24 +230,32 @@ export function TerminalDock(props: {
 		};
 	}, [props.terminal, open, contentReady]);
 
+	/** 发送前移除待办，避免输出重入重复执行；失败不自动重试可能有副作用的命令。 */
+	function sendStartupCommand(tabId: string) {
+		if (!pendingStartupCommandRef.current.delete(tabId)) return;
+		const command = startupCommandRef.current.trim();
+		if (!command) return;
+		void props.terminal.input(tabId, `${command}\r`).catch((error: unknown) => {
+			if (!ownsTab(tabId)) return;
+			showNotice(`${t("settings.terminal.startupCommand")} · ${t("common.error")}: ${error instanceof Error ? error.message : String(error)}`, 4000, "error");
+		});
+	}
+
 	useEffect(() => {
 		const offData = props.terminal.onData((payload) => {
+			if (!acceptsTabEvent(payload.tabId)) return;
 			// 回放缓冲与主进程对齐截尾到 200K：只作 xterm 重建回放源，不能无限常驻
 			buffersRef.current[payload.tabId] = appendTerminalReplayBuffer(buffersRef.current[payload.tabId] ?? "", payload.data);
 			if (payload.tabId === activeTabIdRef.current) {
 				xtermRef.current?.write(payload.data);
 			}
-			// 启动命令注入：必须等 shell 自己的首个提示符输出后再写，否则会被 shell 初始化覆盖。
-			// 每个 tabId 只注入一次（Set 去重），tab 关闭时从 Set 移除。
-			if (pendingStartupCommandRef.current.has(payload.tabId)) {
-				pendingStartupCommandRef.current.delete(payload.tabId);
-				const command = startupCommandRef.current.trim();
-				if (command) void props.terminal.input(payload.tabId, `${command}\r`);
-			}
+			// 等 shell 首次输出后再注入；与 create 完成后的早到提示符走同一去重入口。
+			sendStartupCommand(payload.tabId);
 		});
 		const offExit = props.terminal.onExit((payload) => {
+			if (!acceptsTabEvent(payload.tabId)) return;
 			pendingStartupCommandRef.current.delete(payload.tabId);
-			setTabs((current) => current.map((tab) => (tab.id === payload.tabId ? { ...tab, exited: true, exitCode: payload.exitCode } : tab)));
+			markExited(payload.tabId, payload.exitCode);
 			const exitText = `\r\n[process exited${payload.exitCode != null ? ` with code ${payload.exitCode}` : ""}]\r\n`;
 			buffersRef.current[payload.tabId] = appendTerminalReplayBuffer(buffersRef.current[payload.tabId] ?? "", exitText);
 			if (payload.tabId === activeTabIdRef.current) xtermRef.current?.write(exitText);
@@ -286,7 +264,7 @@ export function TerminalDock(props: {
 			offData();
 			offExit();
 		};
-	}, [props.terminal]);
+	}, [props.terminal, markExited, acceptsTabEvent]);
 
 	useEffect(() => {
 		// 必须捕获本次 effect 对应的 tab id：cleanup 执行时 activeTab 已切换到新 tab，
@@ -296,6 +274,7 @@ export function TerminalDock(props: {
 		fitRef.current = null;
 		webglRef.current = null;
 		serializeRef.current = null;
+		ioRef.current = null;
 		if (collapsed || !contentReady || !activeTab || !containerRef.current) return;
 
 		const { fontFamily, fontSize } = resolveTerminalFont(props.terminalSettings);
@@ -345,15 +324,16 @@ export function TerminalDock(props: {
 		// 终端内 URL 可点：交给系统浏览器，与消息区链接策略一致（#115 U3）
 		terminal.loadAddon(new WebLinksAddon((_event, uri) => openInSystemBrowser(uri)));
 		terminal.open(containerRef.current);
+		xtermRef.current = terminal;
+		fitRef.current = fit;
+		// 首次 fit、容器/设置/高度变化共用同一实例边界，旧 xterm 的迟到失败不能干扰新面板。
+		const io = createTerminalDockIo(props.terminal, activeTab.id, () => xtermRef.current === terminal && ownsTab(activeTab.id) && !activeTab.exited);
+		ioRef.current = io;
 		let resizeFrame: number | null = null;
-		const dataDisposable = terminal.onData((data) => {
-			if (!activeTab.exited) void props.terminal.input(activeTab.id, data);
-		});
+		const dataDisposable = terminal.onData(io.input);
 		const resize = () => {
 			fit.fit();
-			if (!activeTab.exited) {
-				void props.terminal.resize(activeTab.id, terminal.cols, terminal.rows);
-			}
+			io.resize(terminal.cols, terminal.rows);
 		};
 		const scheduleResize = () => {
 			if (resizeFrame != null) window.cancelAnimationFrame(resizeFrame);
@@ -370,18 +350,19 @@ export function TerminalDock(props: {
 			scheduleResize();
 		});
 
-		xtermRef.current = terminal;
-		fitRef.current = fit;
 		const focusFrame = window.requestAnimationFrame(() => {
 			scheduleResize();
 			terminal.focus();
 		});
 		return () => {
+			io.dispose();
+			if (ioRef.current === io) ioRef.current = null;
 			// 用 SerializeAddon 导出可回放内容（含转义序列），写入缓存供下次挂载恢复。
 			// 这替代了主进程 200k 裸字符串截断的乱码问题 —— 后者会切坏转义序列。
 			// 主进程原始缓冲仍在（ensure 重水化用），平时 onData 也仍走 200k 截尾：
 			// 只有同一次挂载生命周期内的 tab 切换才用序列化快照（见上）。
-			if (effectTabId) {
+			// 关闭或换 owner 已删除的标签不能在 cleanup 中复活；切 tab/折叠仍保留快照。
+			if (effectTabId && ownsTab(effectTabId)) {
 				const snapshot = serializeRef.current?.serialize({ scrollback: props.terminalSettings.scrollback });
 				if (snapshot) buffersRef.current[effectTabId] = snapshot;
 			}
@@ -395,10 +376,16 @@ export function TerminalDock(props: {
 				webglRef.current = null;
 			}
 			terminal.dispose();
+			// 右键复制等异步完成后可能再读 ref；卸载后不允许聚焦已销毁的 xterm。
+			if (xtermRef.current === terminal) {
+				xtermRef.current = null;
+				fitRef.current = null;
+				serializeRef.current = null;
+			}
 		};
 		// xtermTheme 刻意不在依赖里：改主题走下面的热更新 effect 更新 options，
 		// 否则每次换配色都会销毁重建终端、丢掉 scrollback 与光标位置。
-	}, [activeTab, collapsed, contentReady, props.terminal]);
+	}, [activeTab, collapsed, contentReady, props.terminal, ownsTab]);
 
 	// 字体/光标/主题热更新：xterm 6.0 支持运行时改 options（实测生效），
 	// 无需销毁终端。改完必须 refit —— 字号变化会改变列数/行数，尺寸要同步给 PTY。
@@ -413,7 +400,7 @@ export function TerminalDock(props: {
 		// theme 必须整体换新对象：xterm 按引用比较（实测热更新生效）
 		terminal.options.theme = xtermTheme;
 		fitRef.current?.fit();
-		if (activeTab && !activeTab.exited) void props.terminal.resize(activeTab.id, terminal.cols, terminal.rows);
+		ioRef.current?.resize(terminal.cols, terminal.rows);
 	}, [props.terminalSettings.fontFamily, props.terminalSettings.fontSize, props.terminalSettings.cursorStyle, props.terminalSettings.cursorBlink, xtermTheme, activeTab, props.terminal]);
 
 	// 选区即复制（可选）：xterm 的 selection 是终端内部数据，只能靠事件回读。
@@ -425,18 +412,18 @@ export function TerminalDock(props: {
 			if (selection) void writeClipboard(selection);
 		});
 		return () => disposable.dispose();
-	}, [props.terminalSettings.copyOnSelect, activeTab?.id]);
+		// 必须与 xterm 创建条件同步；折叠、退出或重挂都会换实例，不只是换 tab id。
+	}, [props.terminalSettings.copyOnSelect, activeTab, collapsed, contentReady, props.terminal]);
 
 	useEffect(() => {
 		fitRef.current?.fit();
-		if (activeTab && xtermRef.current && !activeTab.exited) {
-			void props.terminal.resize(activeTab.id, xtermRef.current.cols, xtermRef.current.rows);
-		}
+		if (xtermRef.current) ioRef.current?.resize(xtermRef.current.cols, xtermRef.current.rows);
 	}, [props.height, activeTab, props.terminal]);
 
 	useEffect(() => {
 		if (collapsed || !contentReady || !activeTab || activeTab.exited) return;
-		requestAnimationFrame(() => xtermRef.current?.focus());
+		const frame = requestAnimationFrame(() => xtermRef.current?.focus());
+		return () => cancelAnimationFrame(frame);
 	}, [activeTab?.id, activeTab?.exited, collapsed, contentReady]);
 
 	/* copyNotice cleanup 已禁用（改为 toast sonner） */
@@ -446,103 +433,18 @@ export function TerminalDock(props: {
 		await addTab(shell as TerminalShell);
 	}
 
-	async function addTab(shell?: TerminalShell) {
-		const next = await props.terminal.create(props.target, shell);
-		// 启动命令只对新开的终端注入（回放已有 tab 属于恢复，不应重跑命令）
-		if (startupCommandRef.current.trim()) pendingStartupCommandRef.current.add(next.id);
-		setTabs((current) => [...current, stripReplayBuffer(next)]);
-		setActiveTabId(next.id);
-		props.onCollapsedChange(false);
-	}
-
-	/** 取最新前台进程名：list 是拉取式的（主进程 snapshot 里带 frontProcess），无需新通道 */
-	async function freshFrontProcess(tab: TerminalTab): Promise<string | undefined> {
-		try {
-			const fresh = await props.terminal.list(props.target);
-			return fresh.find((item) => item.id === tab.id)?.frontProcess ?? tab.frontProcess;
-		} catch {
-			// 拿不到最新状态时退回创建时的快照，不阻断关闭流程
-			return tab.frontProcess;
-		}
-	}
-
-	async function performCloseTab(tab: TerminalTab) {
-		pendingStartupCommandRef.current.delete(tab.id);
-		try {
-			await props.terminal.close(tab.id);
-		} catch {
-			// tab 可能已退出；继续做本地清理
-		}
-		delete buffersRef.current[tab.id];
-		const nextTabs = tabs.filter((item) => item.id !== tab.id);
-		setTabs(nextTabs);
-		if (nextTabs.length === 0) {
-			props.onClose();
-			return;
-		}
-		if (tab.id === activeTab?.id) {
-			setActiveTabId(nextTabs[nextTabs.length - 1].id);
-		}
-	}
-
-	async function closeTab(tab: TerminalTab) {
-		const mode = props.terminalSettings.confirmClose;
-		if (mode === "always") {
-			setPendingCloseTab(tab);
-			return;
-		}
-		if (mode === "running") {
-			const frontProcess = await freshFrontProcess(tab);
-			if (shouldConfirmTerminalClose(mode, frontProcess, tab.shell)) {
-				setPendingCloseTab(tab);
-				return;
-			}
-		}
-		await performCloseTab(tab);
-	}
-
-	async function closeAllTabs() {
-		if (tabs.length === 0) return;
-		pendingStartupCommandRef.current.clear();
-		await Promise.all(tabs.map((tab) => props.terminal.close(tab.id)));
-		buffersRef.current = {};
-		setTabs([]);
-		setConfirmCloseAllOpen(false);
-		props.onClose();
-	}
-
-	/** 关闭全部同样受 confirmClose 策略约束：never 直接关，running 仅在有前台进程时问 */
-	async function requestCloseAllTabs() {
-		const mode = props.terminalSettings.confirmClose;
-		if (mode === "never") {
-			await closeAllTabs();
-			return;
-		}
-		if (mode === "running") {
-			let fresh = tabs;
-			try {
-				fresh = await props.terminal.list(props.target);
-			} catch {
-				// 拉取失败时退回本地快照判定，不阻断关闭流程
-			}
-			if (!fresh.some((tab) => shouldConfirmTerminalClose(mode, tab.frontProcess, tab.shell))) {
-				await closeAllTabs();
-				return;
-			}
-		}
-		setConfirmCloseAllOpen(true);
-	}
-
 	async function copySelectionOnContextMenu(event: ReactMouseEvent<HTMLDivElement>) {
-		const selection = xtermRef.current?.getSelection();
+		const terminal = xtermRef.current;
+		const selection = terminal?.getSelection();
 		if (!selection) return;
 
 		// xterm 默认右键会落到浏览器菜单；选区存在时直接复制，符合桌面终端的右键复制习惯。
 		event.preventDefault();
 		event.stopPropagation();
-		await writeClipboard(selection);
-		showNotice(t("terminal.copied"), 1200);
-		xtermRef.current?.focus();
+		const copied = await writeClipboard(selection);
+		if (xtermRef.current !== terminal) return;
+		if (copied) showNotice(t("terminal.copied"), 1200);
+		terminal?.focus();
 	}
 
 	function focusTerminalSoon() {
@@ -682,7 +584,7 @@ export function TerminalDock(props: {
 					{/* copyNotice 已改用 toast (sonner) 实现 */}
 				</div>
 			)}
-			{confirmCloseAllOpen && <ConfirmDialog title={t("terminal.closeAllConfirm")} message={t("terminal.closeAllDescription")} confirmLabel={t("terminal.closeAll")} danger onConfirm={() => void closeAllTabs()} onCancel={() => setConfirmCloseAllOpen(false)} />}
+			{confirmCloseAllOpen && <ConfirmDialog title={t("terminal.closeAllConfirm")} message={t("terminal.closeAllDescription")} confirmLabel={t("terminal.closeAll")} danger onConfirm={() => void closeAllTabs()} onCancel={cancelCloseAll} />}
 			{pendingCloseTab && (
 				<ConfirmDialog
 					title={t("terminal.closeTabConfirm")}

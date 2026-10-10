@@ -42,10 +42,7 @@ function createReader(logs = []) {
 }
 
 function oneTurnSessionJsonl() {
-	return [
-		JSON.stringify({ id: "session", type: "session" }),
-		JSON.stringify({ id: "u1", parentId: "session", type: "message", message: { role: "user", content: [{ type: "text", text: "hello" }] } }),
-	].join("\n") + "\n";
+	return [JSON.stringify({ id: "session", type: "session" }), JSON.stringify({ id: "u1", parentId: "session", type: "message", message: { role: "user", content: [{ type: "text", text: "hello" }] } })].join("\n") + "\n";
 }
 
 test("readRecentMessages keeps the legitimate new-session race: missing file, existing directory", async () => {
@@ -107,10 +104,7 @@ test("readRecentMessages unreachable-path error is a loud, diagnosable failure",
 		const logs = [];
 		const reader = createReader(logs);
 		await assert.rejects(() => reader.readRecentMessages(sessionPath, 3));
-		assert.ok(
-			!logs.some((entry) => typeof entry.message === "string" && entry.message.includes("treating recent history as empty")),
-			"must not log the empty-history excuse for an unreachable path",
-		);
+		assert.ok(!logs.some((entry) => typeof entry.message === "string" && entry.message.includes("treating recent history as empty")), "must not log the empty-history excuse for an unreachable path");
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}

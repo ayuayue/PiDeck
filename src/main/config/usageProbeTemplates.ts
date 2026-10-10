@@ -6,7 +6,8 @@
  * - newapi：New API / OneAPI 中转站 /api/user/self（访问令牌 + 用户 ID，积分 /500000 → USD）；
  * - cookie：自研网关网页后台接口（如 /api/wallet/summary），用登录态 Cookie 而非 apiKey
  *   （noBearer 防止与自动补的 Bearer 构成双凭证冲突，见 AMBIGUOUS_CREDENTIALS 坑）；
- * - volcengine：火山方舟 AK/SK（控制面 OpenAPI 签名，双 plan 自动探测，凭据在专用弹层填写）。
+ * - volcengine：火山方舟 AK/SK（控制面 OpenAPI 签名，双 plan 自动探测，凭据在专用弹层填写）；
+ * - sub2api：Sub2API 自部署网关 /v1/usage（钱包余额/订阅限额/Key 额度三形态由专用解析器分流）。
  *
  * 「自定义接口（高级）」不开放：用户和我们都不需要脚本级自定义；旧 probes 数组
  * 仅保留读取兼容（AI 直接写），UI 不再暴露字段级表单。
@@ -26,6 +27,8 @@ export const USAGE_PROBE_TEMPLATES: readonly UsageProbeTemplateMeta[] = [
 	{ id: "cookie", category: "cookie" },
 	// 火山方舟 AK/SK：凭据不是 apiKey 而是控制台密钥对，入参由专用弹层收集。
 	{ id: "volcengine", category: "plan" },
+	// Sub2API 网关：/v1/usage 与推理端点同 base，凭据就是供应商 apiKey，零必填字段。
+	{ id: "sub2api", category: "sub2api" },
 ];
 
 /**
@@ -45,9 +48,9 @@ export const USAGE_PROBE_CATEGORY_BY_TEMPLATE_ID: Record<string, UsageProbeTempl
 	"tokendance-balance": "balance",
 };
 
-/** 声明式模板 id 是否合法（general / newapi / cookie / volcengine）。 */
+/** 声明式模板 id 是否合法（general / newapi / cookie / volcengine / sub2api）。 */
 export function isDeclarativeTemplateId(id: string): boolean {
-	return id === "general" || id === "newapi" || id === "cookie" || id === "volcengine";
+	return id === "general" || id === "newapi" || id === "cookie" || id === "volcengine" || id === "sub2api";
 }
 
 /**
@@ -60,7 +63,7 @@ export function isDeclarativeTemplateId(id: string): boolean {
  */
 export function buildDeclarativeUsageProbeTemplate(
 	templateId: string,
-	config: Pick<UsageProbeProviderConfig, "apiKey" | "baseUrl" | "accessToken" | "userId" | "cookie" | "cookiePath" | "valuePath" | "currencyPath" | "accessKeyId" | "secretAccessKey">,
+	config: Pick<UsageProbeProviderConfig, "apiKey" | "baseUrl" | "accessToken" | "userId" | "cookie" | "cookiePath" | "valuePath" | "currencyPath" | "accessKeyId" | "secretAccessKey" | "panelJwt">,
 	endpoint: { baseUrl: string; apiKey: string },
 ): { candidates: UsageProbeCandidate[]; candidate: UsageProbeCandidate; baseUrl: string; apiKey: string } | { error: string } {
 	if (templateId === "general") {
@@ -164,6 +167,21 @@ export function buildDeclarativeUsageProbeTemplate(
 			apiKey: accessKeyId,
 		};
 	}
+	if (templateId === "sub2api") {
+		// Sub2API 网关：/v1/usage 与 OpenAI 兼容端点同 base（与 newapi/cookie 相反，不剥 /v1，
+		// 版本化补齐交给探测层）；鉴权就是供应商 apiKey（自动补 Bearer）。三种计费形态
+		//（钱包/订阅/key 额度）结构差异大且随部署版本漂移，交给专用解析器 sub2api-usage 分流。
+		// 面板 JWT（可选）：无限量订阅分组的 key 在 /v1/usage 里没有余额，只能用网页登录态
+		// 追加查 /api/v1/auth/me 的账户钱包余额（执行层合并，失败只丢余额段）。
+		const panelJwt = config.panelJwt?.trim() ?? "";
+		const candidate: UsageProbeCandidate = panelJwt ? { ...sub2apiUsageProbe(), panelBalance: { token: panelJwt } } : sub2apiUsageProbe();
+		return {
+			candidate,
+			candidates: [candidate],
+			baseUrl: config.baseUrl?.trim() || endpoint.baseUrl,
+			apiKey: config.apiKey?.trim() || endpoint.apiKey,
+		};
+	}
 	return { error: `未知模板：${templateId}` };
 }
 
@@ -178,4 +196,9 @@ export function generalUsageProbe(): UsageProbeCandidate {
 		currencyPath: "unit",
 	} as const;
 	return { path: "/usage", parse };
+}
+
+/** Sub2API 模板候选：钱包余额/订阅限额/Key 额度三形态由专用解析器按响应结构分流。 */
+export function sub2apiUsageProbe(): UsageProbeCandidate {
+	return { path: "/usage", parse: { kind: "custom", resolver: "sub2api-usage" } };
 }

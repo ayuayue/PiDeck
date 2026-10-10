@@ -26,12 +26,15 @@ test("TurnAuthorHeader uses shadcn Avatar logos without a visible name", () => {
 	assert.match(header, /aria-label=\{name\}/);
 	assert.match(header, /sessionBackend\.pi/);
 	assert.match(header, /sessionBackend\.dsh/);
+	// ACP 回复头不能冒充 pi：终端图标 + Agent CLI 名称（工具名在输入框/详情展示）
+	assert.match(header, /isAcp \? <TerminalIcon/);
+	assert.match(header, /sessionBackend\.acp/);
 	assert.doesNotMatch(header, /<span[^>]*>\{\s*name\s*\}<\/span>/);
 });
 
 test("sidebar SessionBackendMark still hides Pi to avoid list noise", () => {
-	// 侧栏/Tab 降噪策略保持不变：只有非默认后端（dsh/imagegen）才打标。
-	assert.match(backendMark, /if \(props\.backend === "dsh" \|\| props\.backend === "imagegen"\)/);
+	// 侧栏/Tab 降噪策略保持不变：只有非默认后端（dsh/imagegen/acp）才打标（acp 用终端图标+Agent CLI）。
+	assert.match(backendMark, /if \(props\.backend === "dsh" \|\| props\.backend === "imagegen" \|\| props\.backend === "acp"\)/);
 	assert.match(backendMark, /<SessionBackendBadge backend=\{props\.backend\}/);
 	assert.match(backendMark, /return null;/);
 });

@@ -48,6 +48,8 @@ export type SessionPaneServices = {
 	resendUserMessage?: (message: ChatMessage) => void;
 	editMessage?: (message: ChatMessage, newText: string) => void;
 	deleteMessage?: (messageId: string, entryId?: string) => void;
+	/** 所属 pane 明确传身份；不能使用聚焦会话替非聚焦栏删除图片。 */
+	removeMessageImage?: (sessionId: string, message: ChatMessage, index: number) => void;
 	forkFromUserMessage?: (message: ChatMessage) => void;
 	forkingMessageId?: string | null;
 	openSidebarSessionById?: (projectId: string, sessionId: string) => Promise<void>;

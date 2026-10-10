@@ -109,6 +109,9 @@ export const dshModuleHiddenAtom = atom((get) => isModuleHidden(get(hiddenModule
 /** 生图入口是否隐藏：输入框后端下拉里的生图选项。 */
 export const imageGenModuleHiddenAtom = atom((get) => isModuleHidden(get(hiddenModulesAtom), "imagegen"));
 
+/** 输入框底栏模式选择器是否被隐藏（设置 → 外观 → 功能模块）。 */
+export const composerModesHiddenAtom = atom((get) => isModuleHidden(get(hiddenModulesAtom), "composerModes"));
+
 /**
  * 忙碌时发送消息的默认投递行为（设置项 busySendDelivery 的渲染层快照）。
  * App 在 settings 变化时写入；composer/发送链路在决策时刻读取，

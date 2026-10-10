@@ -1,4 +1,4 @@
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject, type ReactNode } from "react";
 import { type GroupImperativeHandle, type PanelImperativeHandle } from "react-resizable-panels";
 import { ResizablePanel, ResizablePanelGroup } from "../ui-shadcn/resizable";
@@ -25,7 +25,7 @@ import { TerminalDockPanel, TERMINAL_PANEL_COLLAPSED_SIZE, TERMINAL_PANEL_MIN_SI
 import type { TerminalDockSettings } from "../terminal/TerminalDock";
 import { useSessionPaneServices } from "./SessionPaneServices";
 import { COMPOSER_MAX_HEIGHT, COMPOSER_MIN_HEIGHT, TIMELINE_MIN_HEIGHT, displayProjectDirectoryName, redistributeTerminalAgainstTimeline, shouldMountBottomComposer, sessionResizableGroupKey, sessionGroupDefaultLayout } from "../../rendererUtils";
-import { projectByIdAtomFamily, sessionRecordByIdAtomFamily } from "../../atoms";
+import { projectByIdAtomFamily, publishSessionLatestAgentRunAtom, sessionRecordByIdAtomFamily, sessionStatusInSidebarAtomFamily } from "../../atoms";
 import type { EnqueuePromptSnapshot } from "../../hooks/useSessionSend";
 import { groupToolMessages } from "../app/AppUtils";
 import type { AgentRunItem } from "./timeline/types";
@@ -73,6 +73,7 @@ export type SessionViewProps = {
 	onResendUserMessage?: (message: ChatMessage) => void;
 	onEditMessage?: (message: ChatMessage, newText: string) => void;
 	onDeleteMessage?: (messageId: string, entryId?: string) => void;
+	onRemoveMessageImage?: (message: ChatMessage, index: number) => void;
 	onForkMessage?: (message: ChatMessage) => void;
 	onRewindToMessage?: (message: ChatMessage) => void;
 	forkingMessageId?: string | null;
@@ -148,6 +149,7 @@ export function SessionView({
 	onResendUserMessage,
 	onEditMessage,
 	onDeleteMessage,
+	onRemoveMessageImage,
 	onForkMessage,
 	onRewindToMessage,
 	forkingMessageId,
@@ -226,6 +228,15 @@ export function SessionView({
 		// 新问题已发出但 Agent 尚未产生新 run 时，隐藏上一轮文件，避免误导。
 		return latestRun && latestUserTimestamp <= latestRun.endedAt ? latestRun : undefined;
 	}, [sessionTimeline.messages]);
+	// 右侧边栏「会话状态」面板复用这里算好的 run（文件修改实时增量），不重复解析时间线；
+	// 会话切换/卸载时撤回，避免面板展示过期 run。
+	const publishLatestAgentRun = useSetAtom(publishSessionLatestAgentRunAtom);
+	useEffect(() => {
+		publishLatestAgentRun({ sessionId, run: latestAgentRun });
+	}, [latestAgentRun, publishLatestAgentRun, sessionId]);
+	useEffect(() => () => publishLatestAgentRun({ sessionId, run: undefined }), [publishLatestAgentRun, sessionId]);
+	// 面板正可见地展示本会话时，输入框上方的待办/修改文件/子代理折叠条让位给面板
+	const statusInSidebar = useAtomValue(sessionStatusInSidebarAtomFamily(sessionId));
 	const sessionPanels = { terminal: terminalPanelVisible };
 	const timelineColumnMinSize = bottomComposerVisible ? TIMELINE_MIN_HEIGHT + COMPOSER_MIN_HEIGHT : TIMELINE_MIN_HEIGHT;
 	const timelineColumnStyle = {
@@ -322,6 +333,7 @@ export function SessionView({
 								onResendUserMessage,
 								onEditMessage,
 								onDeleteMessage,
+								onRemoveMessageImage,
 								onForkMessage,
 								onRewindToMessage,
 								forkingMessageId,
@@ -369,10 +381,10 @@ export function SessionView({
 								widgets={
 									<>
 										<SessionQueuedMessagesStrip sessionId={sessionId} />
-										<SessionTodoStrip sessionId={sessionId} />
+										{!statusInSidebar && <SessionTodoStrip sessionId={sessionId} />}
 										<SessionTeamStrip sessionId={sessionId} />
-										<SessionFilesStrip sessionId={sessionId} run={latestAgentRun} onOpenFile={onOpenFile} onDiffFile={onDiffFile} />
-										<SessionSubagentsStrip sessionId={sessionId} onOpenChildSession={onOpenBranchSession} />
+										{!statusInSidebar && <SessionFilesStrip sessionId={sessionId} run={latestAgentRun} onOpenFile={onOpenFile} onDiffFile={onDiffFile} />}
+										{!statusInSidebar && <SessionSubagentsStrip sessionId={sessionId} onOpenChildSession={onOpenBranchSession} />}
 										<SessionGoalStrip sessionId={sessionId} />
 									</>
 								}

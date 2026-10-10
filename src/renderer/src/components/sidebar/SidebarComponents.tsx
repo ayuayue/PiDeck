@@ -411,7 +411,7 @@ export function SessionManagerModal(props: {
 														<span className="truncate text-control text-text-primary">{session.name || session.preview?.slice(0, 60) || t("common.untitled")}</span>
 														{/* worktree 家族聚合：非主工作区会话打目录名标签，让用户一眼区分会话属于哪个工作区 */}
 														{sessionWorkspaceLabel(session.projectId, family) && <WorkspaceTag label={sessionWorkspaceLabel(session.projectId, family)!} />}
-														{session.backend === "dsh" || session.backend === "imagegen" ? (
+														{session.backend === "dsh" || session.backend === "imagegen" || session.backend === "acp" ? (
 															// DSH/生图会话无来源徽标（source 恒为 pi），用后端徽标区分（与侧栏树一致）
 															<SessionBackendMark backend={session.backend} />
 														) : (

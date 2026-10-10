@@ -90,6 +90,12 @@ export function loadTsCommonJs(filePath, options = {}) {
 				// 都会在求值时整片 ReferenceError。默认 stable 通道；测 dev 通道的用例
 				// 经 options.globals 覆盖（见 tests/channelIdentity.test.mjs）。
 				__PIDECK_DEV_BUILD__: false,
+				// vm 是独立的 realm：不给宿主 Error，模块抛的 Error 在测试里 instanceof 失败、
+				// assert.rejects(promise, ErrorClass) 一律失配（hostPluginScaffold 踩过）。
+				Error,
+				TypeError,
+				RangeError,
+				SyntaxError,
 				...options.globals,
 			},
 			{ filename: absolutePath },

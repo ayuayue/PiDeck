@@ -74,6 +74,26 @@ try {
 	// 本机 opencode 默认 model 为空会导致 UnknownError,显式指定可用模型(ds-2api/deepseek-chat-search)
 	const newSession = await conn.request("session/new", { cwd, mcpServers: [], model: process.env.ACP_SMOKE_MODEL ?? "ds-2api/deepseek-chat-search" });
 	console.log(`[smoke] session/new ok: ${newSession.sessionId} (stopReason=${newSession.stopReason})`);
+	// configOptions 规范路径验证:枚举打印 + 第一个 select 型 option 试设为当前值(幂等),
+	// 响应必回整表;agent 不提供时只提示跳过(非错误)。
+	const configOptions = Array.isArray(newSession.configOptions) ? newSession.configOptions : undefined;
+	if (configOptions?.length) {
+		console.log(`[smoke] configOptions: ${configOptions.map((option) => `${option.id}[${option.category ?? "?"}]=${String(option.currentValue ?? "?")}`).join(", ")}`);
+		const probe = configOptions.find((option) => option.type !== "boolean" && Array.isArray(option.options) && option.options.length > 0 && option.currentValue !== undefined);
+		if (probe) {
+			const flat = [];
+			for (const item of probe.options ?? [])
+				if ("group" in item) flat.push(...item.options);
+				else flat.push(item);
+			const current = flat.find((item) => item.value === probe.currentValue) ?? flat[0];
+			if (current) {
+				const setResult = await conn.request("session/set_config_option", { sessionId: newSession.sessionId, configId: probe.id, value: current.value }, 30_000);
+				const after = Array.isArray(setResult?.configOptions) ? setResult.configOptions.find((option) => option.id === probe.id) : undefined;
+				console.log(`[smoke] set_config_option(${probe.id}=${current.value}) ok → currentValue=${String(after?.currentValue ?? "?")}`);
+			}
+		}
+	}
+	if (!configOptions) console.log("[smoke] configOptions: (none returned by agent)");
 
 	// 1x1 红色 PNG(base64),验证图片块能随 prompt 送达且不炸
 	const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeklEQVR4nO3PUQkAIBTAwBfNKPYvoSH8OITBAtxm7fN1wwUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWPHYB68rxeKnuGVEAAAAASUVORK5CYII=";

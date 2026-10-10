@@ -5,6 +5,7 @@ import { TipTapComposer } from "./composer";
 import { SessionReferenceModal } from "../app/SessionReferenceModal";
 import { t } from "../../i18n";
 import { useSessionComposerController } from "../../hooks/useSessionComposerController";
+import { useAcpSessionConfig } from "../../hooks/useAcpSessionConfig";
 import { ComposerAttachmentBar, ComposerSendControls, SessionDeliveryNotice } from "./ComposerPanels";
 import { ComposerPickerHost } from "./ComposerPickerHost";
 import { SecurityControl } from "./SecurityControl";
@@ -128,6 +129,9 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 		// 输入框 `/login`：桌面接管后打开登录供应商弹框（pi 的登录只在它的 CLI 层）
 		onProviderLogin: useSessionPaneServices().openProviderLogin,
 	});
+	// ACP 会话配置(configOptions):枚举由 agent 回传,选择经 session/set_config_option 下发。
+	// agentId 未就绪/后端不符时 hook 内部自挂空,无额外成本。
+	const acpConfig = useAcpSessionConfig(composer.runtime?.agentId, composer.backend);
 
 	const modelPendingMap = useAtomValue(modelPendingByIdAtom);
 	const sessionRecords = useAtomValue(sessionRecordsAtom);
@@ -298,6 +302,8 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 												backend={composer.backend}
 												enhance={composerFeatureVisible("enhance") ? composer.enhance : undefined}
 												onChangeBackend={composer.changeBackend}
+												acpTool={composer.acpTool}
+												acpConfig={composer.backend === "acp" && acpConfig.options ? { options: acpConfig.options, onSet: (optionId, value) => void acpConfig.setOption(optionId, value) } : undefined}
 												feishuIndicator={feishuIndicator}
 												securityControl={
 													/* C20：后端安全控制位统一入口（pi 安全等级 / DSH 权限预设） */

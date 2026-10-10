@@ -4,7 +4,11 @@ import { join } from "node:path";
 import { renameWithRetry } from "../utils/fsRetry";
 import { isHostPluginId, isPluginRecord } from "./hostPluginManifest";
 
-const MAX_STORE_BYTES = 64 * 1024;
+const MAX_STORE_BYTES = 1024 * 1024;
+const MAX_STORE_KEYS = 200;
+const VALID_KEY = /^[a-zA-Z0-9_.-]{1,80}$/;
+const RESERVED_KEYS = ["__proto__", "prototype", "constructor"];
+
 export class HostPluginStorage {
 	private readonly queues = new Map<string, Promise<void>>();
 	constructor(private readonly directory: string) {}
@@ -35,7 +39,7 @@ export class HostPluginStorage {
 	}
 
 	private validateKey(key: string): void {
-		if (!/^[a-zA-Z0-9_.-]{1,80}$/.test(key) || ["__proto__", "prototype", "constructor"].includes(key)) throw new Error("invalid-storage-key");
+		if (!VALID_KEY.test(key) || RESERVED_KEYS.includes(key)) throw new Error("invalid-storage-key");
 	}
 
 	async get(id: string, key: string): Promise<unknown> {
@@ -44,12 +48,36 @@ export class HostPluginStorage {
 		return (await this.read(id))[key] ?? null;
 	}
 
+	/** 只列出白名单形状的键：手写过的存储文件也不能把原型链名字带进插件视野。 */
+	async keys(id: string): Promise<string[]> {
+		await this.queues.get(id);
+		return Object.keys(await this.read(id))
+			.filter((key) => VALID_KEY.test(key) && !RESERVED_KEYS.includes(key))
+			.sort();
+	}
+
+	async remove(id: string, key: string, authorized: () => boolean): Promise<void> {
+		this.validateKey(key);
+		await this.mutate(id, authorized, (data) => {
+			delete data[key];
+			return data;
+		});
+	}
+
 	/** Serial writes share a quota; failed writes never publish a partially updated store. */
 	async set(id: string, key: string, value: unknown, authorized: () => boolean): Promise<void> {
 		this.validateKey(key);
-		const pending = (this.queues.get(id) ?? Promise.resolve()).then(async () => {
-			const data = await this.read(id);
+		await this.mutate(id, authorized, (data) => {
+			// 键数上限与体积上限同属配额：只限制字节数会让无数小键把读取代价抬高。
+			if (data[key] === undefined && Object.keys(data).length >= MAX_STORE_KEYS) throw new Error("storage-full");
 			data[key] = value;
+			return data;
+		});
+	}
+
+	private async mutate(id: string, authorized: () => boolean, update: (data: Record<string, unknown>) => Record<string, unknown>): Promise<void> {
+		const pending = (this.queues.get(id) ?? Promise.resolve()).then(async () => {
+			const data = update(await this.read(id));
 			const serialized = JSON.stringify(data);
 			if (Buffer.byteLength(serialized) > MAX_STORE_BYTES) throw new Error("storage-too-large");
 			if (!authorized()) throw new Error("plugin-revoked");

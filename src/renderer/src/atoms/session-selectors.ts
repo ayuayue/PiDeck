@@ -3,7 +3,7 @@ import { atomFamily, selectAtom } from "jotai/utils";
 import type { SessionRecord, SessionSummary } from "../../../shared/types";
 import { sessionDisplayName } from "../utils/sessionDisplayName";
 import { isDisplayableSessionRecord } from "../utils/sessionRecordDisplay";
-import { sessionHistoryMutationOverlayByIdAtom, sessionIdsByProjectAtom, sessionRecordsAtom, sessionRuntimeByIdAtom, sessionRuntimeUiByIdAtom } from "./session-atoms";
+import { currentSessionIdAtom, sessionHistoryMutationOverlayByIdAtom, sessionIdsByProjectAtom, sessionRecordsAtom, sessionRuntimeByIdAtom, sessionRuntimeUiByIdAtom } from "./session-atoms";
 
 export function sessionRecordToSummary(session: SessionRecord): SessionSummary | undefined {
 	// DSH 会话没有 pi 会话文件（会话由 DSH host 持久化在 $DSH_HOME，catalog 只存映射记录），
@@ -38,6 +38,9 @@ export function sessionRecordToSummary(session: SessionRecord): SessionSummary |
 		codexAgentNickname: session.codexAgentNickname,
 	};
 }
+
+/** 仅通知本栏焦点进入/离开，其他栏之间的焦点切换不唤醒非聚焦栏。 */
+export const sessionFocusedByIdAtomFamily = atomFamily((sessionId: string) => selectAtom(currentSessionIdAtom, (focusedId) => focusedId === sessionId, Object.is));
 
 export const sessionRecordByIdAtomFamily = atomFamily((sessionId: string) => atom((get) => get(sessionRecordsAtom)[sessionId]));
 

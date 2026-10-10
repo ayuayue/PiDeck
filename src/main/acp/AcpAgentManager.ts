@@ -18,7 +18,7 @@ import type { ChatMessage, SendPromptInput, SendPromptResult, SessionUiResponseI
 import type { PiCommand } from "../../shared/types/app";
 import type { SessionAgentGateway } from "../sessions/SessionRuntimeCoordinator";
 import type { PiLocator } from "../pi/PiLocator";
-import { ACP_ERROR_CODE, type AcpAgentCapabilities, type AcpContentBlock, type AcpIncomingRequest, type AcpPermissionRequestParams, type AcpSessionPromptResult, type AcpSessionSetupResult, type AcpSessionUpdateNotification } from "./acpProtocol";
+import { ACP_ERROR_CODE, type AcpAgentCapabilities, type AcpConfigOption, type AcpContentBlock, type AcpIncomingRequest, type AcpPermissionRequestParams, type AcpSessionPromptResult, type AcpSessionSetupResult, type AcpSessionUpdateNotification } from "./acpProtocol";
 import { AcpConnection, AcpRpcError, ACP_DEFER_RESPONSE } from "./AcpConnection";
 import { acpPromptBlocks, initialAcpProjection, projectAcpSessionUpdate, settleAcpTurn, type AcpProjectionState } from "./AcpEventProjector";
 
@@ -54,6 +54,9 @@ type AcpAgentRuntime = {
 	flushPending: boolean;
 	/** 会话标题(session_info_update / new 返回值;供 catalog 自动标题)。 */
 	title?: string;
+	/** session/new|load 与 set_config_option 返回的会话级配置(模型/思考档/模式)。
+	 *  渲染层按 category 渲染选择器;agent 不提供时恒 undefined(回退隐藏)。 */
+	configOptions?: AcpConfigOption[];
 	/** session/update 串行链:投影→物化(异步落盘)→flush 必须按序完成,
 	 * 否则并发的物化回写会用旧 messages 快照覆盖后到的投影结果(图片/流式块丢失)。 */
 	updateChain: Promise<void>;
@@ -66,6 +69,8 @@ type AcpManagerDeps = {
 	/** 读取用户登记的 ACP 工具表(settings.acpTools)。 */
 	getTools: () => AcpToolConfig[];
 	onTitleChanged?: (deckSessionId: string, title: string) => void;
+	/** configOptions 变更推送(set_config_option 响应/config_option_update 通知)。 */
+	onConfigOptionsChanged?: (tab: AgentTab, options: AcpConfigOption[]) => void;
 	logger?: { info(channel: string, message: string, meta?: Record<string, unknown>): void; warn(channel: string, message: string, meta?: Record<string, unknown>): void };
 	/** 图片落盘(base64→内容寻址 ref):生图 ImageBlobStore 的最小结构化依赖,便于单测注入假实现。 */
 	imageStore?: { put(data: string, mimeType: string): Promise<string | null> };
@@ -150,9 +155,27 @@ export class AcpAgentManager implements SessionAgentGateway {
 	}
 
 	async setModel(agentId: string, _provider: string, _modelId: string): Promise<unknown> {
-		// ACP v1 无模型切换请求(各 CLI 自管);no-op 保住 applyLatestPreferences 链路。
+		// ACP v1 模型选择走 session/set_config_option(configOptions 规范路径),
+		// 不经 pi 的 setModel;no-op 保住 applyLatestPreferences 链路。
 		this.requireRuntime(agentId);
 		return {};
+	}
+
+	/** 当前会话配置枚举(模型/思考档/模式);agent 未提供时 undefined(渲染层隐藏选择器)。 */
+	getSessionConfigOptions(agentId: string): AcpConfigOption[] | undefined {
+		return this.requireRuntime(agentId).configOptions;
+	}
+
+	/** 下发配置选择并返回 agent 回传的完整 configOptions(规范:响应必带整表)。 */
+	async applyConfigOption(agentId: string, optionId: string, value: string | boolean): Promise<AcpConfigOption[]> {
+		const runtime = this.requireRuntime(agentId);
+		const conn = runtime.conn;
+		if (!conn || conn.isClosed()) throw new Error("ACP agent is not running");
+		const result = (await conn.request("session/set_config_option", { sessionId: runtime.acpSessionId, configId: optionId, value }, 15_000)) as { configOptions?: AcpConfigOption[] } | null;
+		if (!result || !Array.isArray(result.configOptions)) throw new Error("session/set_config_option returned no configOptions");
+		runtime.configOptions = result.configOptions;
+		this.deps.onConfigOptionsChanged?.(runtime.tab, result.configOptions);
+		return result.configOptions;
 	}
 
 	async setThinking(agentId: string, _level: string): Promise<unknown> {
@@ -248,6 +271,16 @@ export class AcpAgentManager implements SessionAgentGateway {
 		if (!conn) throw new Error("ACP connection missing");
 		// 通知在握手后才有意义,但先注册分发(部分 CLI 握手期即可能推 update)。
 		conn.on("notification", (notification: { method?: string }) => {
+			// config_option_update:agent 主动推送配置变更(如限流降级模型),不进投影链,
+			// 直接整表替换并通知渲染层(会话期可能无 in-flight set 请求,不能只在响应里更新)
+			if (notification.method === "config_option_update") {
+				const params = (notification as { params?: { sessionId?: string; configOptions?: AcpConfigOption[] } }).params;
+				if (params?.sessionId === runtime.acpSessionId && Array.isArray(params.configOptions)) {
+					runtime.configOptions = params.configOptions;
+					this.deps.onConfigOptionsChanged?.(runtime.tab, params.configOptions);
+				}
+				return;
+			}
 			// 串行链:物化(异步落盘)回写 projection 前不能让下一个 update 先投影,
 			// 否则旧快照覆盖新消息;链兑 catch,单条失败不断链。
 			runtime.updateChain = runtime.updateChain
@@ -283,20 +316,24 @@ export class AcpAgentManager implements SessionAgentGateway {
 		conn.notify("initialized", {});
 
 		// session/new 或 session/load。load 失败(id 在 agent 侧已不存在)回退新建。
+		// mcpServers 必传空数组: ACP v1 规范该字段必填, opencode 的 zod 校验缺它直接
+		// -32602 Invalid params(实测), 会话创建即失败冒泡成首条消息发送失败。
 		let setup: AcpSessionSetupResult | undefined;
 		if (resumeSessionId && runtime.agentInfo.capabilities.loadSession) {
 			try {
-				setup = (await conn.request("session/load", { sessionId: resumeSessionId, cwd }, HANDSHAKE_TIMEOUT_MS)) as AcpSessionSetupResult;
+				setup = (await conn.request("session/load", { sessionId: resumeSessionId, cwd, mcpServers: [] }, HANDSHAKE_TIMEOUT_MS)) as AcpSessionSetupResult;
 			} catch (error) {
 				this.deps.logger?.warn("acp", `session/load failed, falling back to session/new: ${error instanceof Error ? error.message : String(error)}`);
 			}
 		}
 		if (!setup?.sessionId) {
-			setup = (await conn.request("session/new", { cwd }, HANDSHAKE_TIMEOUT_MS)) as AcpSessionSetupResult;
+			setup = (await conn.request("session/new", { cwd, mcpServers: [] }, HANDSHAKE_TIMEOUT_MS)) as AcpSessionSetupResult;
 		}
 		if (!setup?.sessionId || typeof setup.sessionId !== "string") throw new Error("ACP session/new returned no sessionId");
 		runtime.acpSessionId = setup.sessionId;
 		if (typeof setup.title === "string" && setup.title.trim()) runtime.title = setup.title.trim();
+		// configOptions 规范路径(取代旧 modes):模型/思考档/模式枚举,渲染层选择器数据源
+		runtime.configOptions = Array.isArray(setup.configOptions) ? setup.configOptions : undefined;
 	}
 
 	/** 会话期请求处理注册(permission/request 等)。 */

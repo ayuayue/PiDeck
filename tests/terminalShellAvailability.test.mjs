@@ -64,7 +64,10 @@ test("裸名命令：扫 PATH，Windows 补 .exe/.cmd/.bat 后缀", () => {
 test("裸名命令：POSIX 平台只扫无后缀", () => {
 	const manager = loadManager();
 	withPlatform("linux", () => {
-		const dir = mkdtempSync(join(tmpdir(), "terminal-shell-posix-"));
+		// PATH 按 stub 后的 linux 语义用 ":" 切分：目录必须不含冒号，否则 Windows 盘符
+		// （C:\...）会被切成两个不存在的 PATH 段，探测在 Windows 宿主机上恒 false。
+		// 用 cwd 相对目录（无盘符、无冒号）让本用例在两种宿主机上都确定性成立。
+		const dir = mkdtempSync("terminal-shell-posix-");
 		const originalPath = process.env.PATH;
 		try {
 			writeFileSync(join(dir, "fakeprobe"), "");
