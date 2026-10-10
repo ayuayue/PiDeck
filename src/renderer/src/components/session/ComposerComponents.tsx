@@ -544,7 +544,9 @@ export function ComposerBottomBar(props: {
 					    visibleModes 为空（imagegen 会话/legacy 锁定）不渲染，走专用生图底栏；
 					    hiddenModules 隐藏时收起入口（特殊模式仍可由上方退出×退出）；
 					    打开时刷新扩展开关可用性（设置页可能刚改过 plan/goal 扩展）。 */}
-					{visibleModes.length > 0 && !modesHidden ? (
+					{/* 只剩 normal 一项（ACP 会话无 pi 扩展 / plan+goal 都被关）不渲染单选项下拉——
+					    没有意义还占位；ACP 的模式等价物是 configOptions 的 mode 类选项（已由 AcpConfigControls 渲染）。打开时刷新扩展开关可用性（设置页可能刚改过 plan/goal 扩展）。 */}
+					{visibleModes.length > 1 && !modesHidden ? (
 						<Select
 							value={props.composerAgentMode}
 							disabled={props.disabled}

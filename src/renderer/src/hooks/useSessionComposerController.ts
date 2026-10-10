@@ -315,6 +315,10 @@ export function useSessionComposerController(options: UseSessionComposerControll
 	// 真实会话（record 短暂未就绪）不受 localStorage 残留影响。
 	const isGuideBootstrapSession = sessionId === GUIDE_BOOTSTRAP_SESSION_ID;
 	const [guideBackendOverride, setGuideBackendOverride] = useState<AgentBackend | undefined>(() => (isGuideBootstrapSession ? readWelcomeBackendPreference() : undefined));
+	// 引导页 ACP 工具预选单独入 state：acp→acp 换工具时后端名不变，
+	// setGuideBackendOverride("acp") 同值不触发重渲染，trigger 回显会停在旧工具；
+	// 工具 id 必须自己有 state 才能让受控 Select 刷新。
+	const [guideAcpToolOverride, setGuideAcpToolOverride] = useState<string | undefined>(() => (isGuideBootstrapSession ? readWelcomeAcpToolPreference() : undefined));
 	const isDshBackend = record?.backend === "dsh" || runtime?.backend === "dsh" || (isGuideBootstrapSession && guideBackendOverride === "dsh");
 	const hasImageGenHistory = (messageCache?.messages ?? []).some((message) => Boolean(message.meta?.imageGen));
 	// 生图供应商/模型来自独立 imagegen.json，与会话 LLM 模型无关。
@@ -1856,6 +1860,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 			if (isGuideBootstrapSession) {
 				// acp 偏好携带工具 id（"acp:<toolId>"）；工具表为空/未选时不切也不存
 				let stored: string = next;
+				let guideToolId: string | undefined;
 				if (next === "acp") {
 					const tools = store.get(acpToolsAtom);
 					const toolId = explicitAcpToolId ?? tools[0]?.id;
@@ -1864,8 +1869,11 @@ export function useSessionComposerController(options: UseSessionComposerControll
 						return;
 					}
 					stored = `acp:${toolId}`;
+					guideToolId = toolId;
 				}
 				setGuideBackendOverride(next);
+				// acp→acp 换工具：后端同值不触发重渲染，工具 id 单独 set（见 state 声明处注释）
+				if (guideToolId) setGuideAcpToolOverride(guideToolId);
 				try {
 					localStorage.setItem(WELCOME_BACKEND_KEY, stored);
 				} catch {
@@ -2029,7 +2037,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 				? { toolId: record.acpToolId, onChange: backendLocked ? undefined : changeAcpTool }
 				: // 引导页（无 record）：工具 id 从 localStorage 偏好读，picker 组内高亮当前工具
 					isGuideBootstrapSession && guideBackendOverride === "acp"
-					? { toolId: readWelcomeAcpToolPreference(), onChange: backendLocked ? undefined : changeAcpTool }
+					? { toolId: guideAcpToolOverride, onChange: backendLocked ? undefined : changeAcpTool }
 					: undefined,
 		/** DSH 部署默认模型（settings.yaml agent-default-model）；仅 dsh 后端时展示，
 		 *  离开 dsh 时清空（否则残留值会随 defaultModel 泄漏到 pi 会话底栏）。 */

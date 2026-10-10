@@ -56,9 +56,11 @@ test("legacy 含生图消息的 pi 会话（isImageGen=true）：同样锁定为
 // composerModes 隐藏控制；隐藏时特殊模式仍由退出×兑底，不锁死用户。
 test("模式选择器已常驻底栏并可被功能模块设置隐藏（源码形状）", () => {
 	const composer = readFileSync("src/renderer/src/components/session/ComposerComponents.tsx", "utf8");
-	assert.match(composer, /visibleModes\.length > 0 && !modesHidden/, "常驻条件：可见模式非空且未被隐藏");
+	// 常驻条件：至少两个可选模式且未被隐藏（只剩 normal 的单选项下拉不渲染——
+	// ACP 会话无 pi 扩展/plan+goal 都被关时不占位，ACP 模式等价物走 configOptions）
+	assert.match(composer, /visibleModes\.length > 1 && !modesHidden/, "常驻条件：至少两个可选模式且未被隐藏");
 	assert.match(composer, /composerModesHiddenAtom/, "读取 composerModes 隐藏开关");
-	assert.match(composer, /app\.composerModeSelectLabel/, "选择器 aria-label 文案");
+	assert.match(composer, /aria-label=\{t\(MODE_LABEL\[props\.composerAgentMode\]\)\}/, "选择器 aria-label 携带当前模式全名（normal 态只显图标，可访问性靠它）");
 	assert.doesNotMatch(composer, /composerAddMode/, "「+」菜单不再承载模式分组");
 	const modules = readFileSync("src/renderer/src/components/app/settings/ModuleVisibilitySection.tsx", "utf8");
 	assert.match(modules, /composerModes:/, "功能模块设置页列出模式选择器开关");
