@@ -5026,6 +5026,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	"terminal.copied": "已複製",
 	"terminal.createFailed": "建立終端失敗",
 	"terminal.closeFailed": "關閉終端失敗",
+	"terminal.inputFailed": "傳送終端輸入失敗",
+	"terminal.resizeFailed": "調整終端尺寸失敗",
 	"terminal.exited": "已退出",
 	"terminal.expand": "展開終端",
 	"terminal.more": "終端更多操作",

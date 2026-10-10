@@ -5037,6 +5037,8 @@ export const enUS: Record<TranslationKey, string> = {
 	"terminal.copied": "Copied",
 	"terminal.createFailed": "Failed to create terminal",
 	"terminal.closeFailed": "Failed to close terminal",
+	"terminal.inputFailed": "Failed to send terminal input",
+	"terminal.resizeFailed": "Failed to resize terminal",
 	"terminal.exited": "exited",
 	"terminal.expand": "Expand terminal",
 	"terminal.more": "More terminal actions",

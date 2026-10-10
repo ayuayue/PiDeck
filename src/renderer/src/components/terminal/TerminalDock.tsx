@@ -22,6 +22,7 @@ import { useTerminalDockTabs } from "../../hooks/useTerminalDockTabs";
 import { TERMINAL_THEME_DEFS, resolveTerminalTheme } from "../../terminalThemes";
 import { t } from "../../i18n";
 import { appendTerminalReplayBuffer } from "../../terminalDockState";
+import { createTerminalDockIo, type TerminalDockIo } from "./terminalDockIo";
 
 /** 字体族兕底：xterm 需要具体字体串（canvas 测量），不能用 var() */
 const TERMINAL_FALLBACK_FONT_FAMILY = '"Cascadia Mono", Consolas, monospace';
@@ -83,6 +84,7 @@ export function TerminalDock(props: {
 	const fitRef = useRef<FitAddon | null>(null);
 	const webglRef = useRef<WebglAddon | null>(null);
 	const serializeRef = useRef<SerializeAddon | null>(null);
+	const ioRef = useRef<TerminalDockIo | null>(null);
 	const activeTabIdRef = useRef("");
 	const buffersRef = useRef<Record<string, string>>({});
 	/** 待注入启动命令的 tabId：shell 首个提示符输出后注入一次，避免被 shell 初始化覆盖 */
@@ -272,6 +274,7 @@ export function TerminalDock(props: {
 		fitRef.current = null;
 		webglRef.current = null;
 		serializeRef.current = null;
+		ioRef.current = null;
 		if (collapsed || !contentReady || !activeTab || !containerRef.current) return;
 
 		const { fontFamily, fontSize } = resolveTerminalFont(props.terminalSettings);
@@ -321,15 +324,16 @@ export function TerminalDock(props: {
 		// 终端内 URL 可点：交给系统浏览器，与消息区链接策略一致（#115 U3）
 		terminal.loadAddon(new WebLinksAddon((_event, uri) => openInSystemBrowser(uri)));
 		terminal.open(containerRef.current);
+		xtermRef.current = terminal;
+		fitRef.current = fit;
+		// 首次 fit、容器/设置/高度变化共用同一实例边界，旧 xterm 的迟到失败不能干扰新面板。
+		const io = createTerminalDockIo(props.terminal, activeTab.id, () => xtermRef.current === terminal && ownsTab(activeTab.id) && !activeTab.exited);
+		ioRef.current = io;
 		let resizeFrame: number | null = null;
-		const dataDisposable = terminal.onData((data) => {
-			if (!activeTab.exited) void props.terminal.input(activeTab.id, data);
-		});
+		const dataDisposable = terminal.onData(io.input);
 		const resize = () => {
 			fit.fit();
-			if (!activeTab.exited) {
-				void props.terminal.resize(activeTab.id, terminal.cols, terminal.rows);
-			}
+			io.resize(terminal.cols, terminal.rows);
 		};
 		const scheduleResize = () => {
 			if (resizeFrame != null) window.cancelAnimationFrame(resizeFrame);
@@ -346,13 +350,13 @@ export function TerminalDock(props: {
 			scheduleResize();
 		});
 
-		xtermRef.current = terminal;
-		fitRef.current = fit;
 		const focusFrame = window.requestAnimationFrame(() => {
 			scheduleResize();
 			terminal.focus();
 		});
 		return () => {
+			io.dispose();
+			if (ioRef.current === io) ioRef.current = null;
 			// 用 SerializeAddon 导出可回放内容（含转义序列），写入缓存供下次挂载恢复。
 			// 这替代了主进程 200k 裸字符串截断的乱码问题 —— 后者会切坏转义序列。
 			// 主进程原始缓冲仍在（ensure 重水化用），平时 onData 也仍走 200k 截尾：
@@ -396,7 +400,7 @@ export function TerminalDock(props: {
 		// theme 必须整体换新对象：xterm 按引用比较（实测热更新生效）
 		terminal.options.theme = xtermTheme;
 		fitRef.current?.fit();
-		if (activeTab && !activeTab.exited) void props.terminal.resize(activeTab.id, terminal.cols, terminal.rows);
+		ioRef.current?.resize(terminal.cols, terminal.rows);
 	}, [props.terminalSettings.fontFamily, props.terminalSettings.fontSize, props.terminalSettings.cursorStyle, props.terminalSettings.cursorBlink, xtermTheme, activeTab, props.terminal]);
 
 	// 选区即复制（可选）：xterm 的 selection 是终端内部数据，只能靠事件回读。
@@ -413,9 +417,7 @@ export function TerminalDock(props: {
 
 	useEffect(() => {
 		fitRef.current?.fit();
-		if (activeTab && xtermRef.current && !activeTab.exited) {
-			void props.terminal.resize(activeTab.id, xtermRef.current.cols, xtermRef.current.rows);
-		}
+		if (xtermRef.current) ioRef.current?.resize(xtermRef.current.cols, xtermRef.current.rows);
 	}, [props.height, activeTab, props.terminal]);
 
 	useEffect(() => {
