@@ -114,8 +114,10 @@ export function TerminalDock(props: {
 			for (const tab of nextTabs) buffersRef.current[tab.id] = tab.buffer ?? buffersRef.current[tab.id] ?? "";
 		},
 		onCreated(tab) {
-			// 启动命令只注入新标签，不对恢复的终端重跑命令。
-			if (!tab.exited && startupCommandRef.current.trim()) pendingStartupCommandRef.current.add(tab.id);
+			// 提示符可能先于 create 返回；只补发新建且仍运行的标签，不对恢复终端重跑。
+			if (tab.exited || !startupCommandRef.current.trim()) return;
+			pendingStartupCommandRef.current.add(tab.id);
+			if (buffersRef.current[tab.id]) sendStartupCommand(tab.id);
 		},
 		onClosed(tabIds) {
 			for (const id of tabIds) {
@@ -226,6 +228,17 @@ export function TerminalDock(props: {
 		};
 	}, [props.terminal, open, contentReady]);
 
+	/** 发送前移除待办，避免输出重入重复执行；失败不自动重试可能有副作用的命令。 */
+	function sendStartupCommand(tabId: string) {
+		if (!pendingStartupCommandRef.current.delete(tabId)) return;
+		const command = startupCommandRef.current.trim();
+		if (!command) return;
+		void props.terminal.input(tabId, `${command}\r`).catch((error: unknown) => {
+			if (!ownsTab(tabId)) return;
+			showNotice(`${t("settings.terminal.startupCommand")} · ${t("common.error")}: ${error instanceof Error ? error.message : String(error)}`, 4000, "error");
+		});
+	}
+
 	useEffect(() => {
 		const offData = props.terminal.onData((payload) => {
 			if (!acceptsTabEvent(payload.tabId)) return;
@@ -234,13 +247,8 @@ export function TerminalDock(props: {
 			if (payload.tabId === activeTabIdRef.current) {
 				xtermRef.current?.write(payload.data);
 			}
-			// 启动命令注入：必须等 shell 自己的首个提示符输出后再写，否则会被 shell 初始化覆盖。
-			// 每个 tabId 只注入一次（Set 去重），tab 关闭时从 Set 移除。
-			if (pendingStartupCommandRef.current.has(payload.tabId)) {
-				pendingStartupCommandRef.current.delete(payload.tabId);
-				const command = startupCommandRef.current.trim();
-				if (command) void props.terminal.input(payload.tabId, `${command}\r`);
-			}
+			// 等 shell 首次输出后再注入；与 create 完成后的早到提示符走同一去重入口。
+			sendStartupCommand(payload.tabId);
 		});
 		const offExit = props.terminal.onExit((payload) => {
 			if (!acceptsTabEvent(payload.tabId)) return;

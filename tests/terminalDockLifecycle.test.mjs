@@ -39,6 +39,7 @@ function dockHarness(initialTabs = [tab("A"), tab("B")], settings = {}) {
 	let create = async () => tab("C");
 	let close = async () => {};
 	let ensure = async () => initialTabs;
+	let input = async () => {};
 	const react = {
 		...host.react,
 		useMemo(factory, deps) {
@@ -96,6 +97,7 @@ function dockHarness(initialTabs = [tab("A"), tab("B")], settings = {}) {
 		close: (...args) => close(...args),
 		input: async (...args) => {
 			inputs.push(args);
+			await input(...args);
 		},
 		resize: async () => {},
 		shells: async () => [],
@@ -277,6 +279,9 @@ function dockHarness(initialTabs = [tab("A"), tab("B")], settings = {}) {
 		setEnsure(fn) {
 			ensure = fn;
 		},
+		setInput(fn) {
+			input = fn;
+		},
 		confirmCloseAll() {
 			find((node) => node.type === "confirm" && node.props.title === "terminal.closeAllConfirm").props.onConfirm();
 		},
@@ -357,6 +362,7 @@ test("early terminal exit is shown after create settles and never gets a startup
 	const creating = deferred();
 	h.setCreate(() => creating.promise);
 	h.addTab();
+	h.emitData("C", "first prompt");
 	h.emitExit("C", 7);
 	creating.resolve(tab("C"));
 	await h.settle();
@@ -390,6 +396,98 @@ test("a running terminal still receives its startup command once after its first
 	h.emitData("C", "more output");
 	await h.settle();
 	assert.equal(h.isExited("C"), false);
+	assert.deepEqual(h.inputs, [["C", "test command\r"]]);
+	h.unmount();
+});
+
+test("prompt arriving before create response triggers the startup command once after creation", async () => {
+	const h = dockHarness([tab("A")], { startupCommand: " test command " });
+	await h.ready();
+	const creating = deferred();
+	h.setCreate(() => creating.promise);
+	h.addTab();
+	h.emitData("C", "first prompt");
+	assert.deepEqual(h.inputs, []);
+	creating.resolve(tab("C"));
+	await h.settle();
+	assert.deepEqual(h.inputs, [["C", "test command\r"]]);
+	h.emitData("C", "more output");
+	await h.settle();
+	assert.deepEqual(h.inputs, [["C", "test command\r"]]);
+	h.unmount();
+});
+
+test("parallel creates wait for each terminal's own prompt before injecting once", async () => {
+	const h = dockHarness([tab("A")], { startupCommand: "test command" });
+	await h.ready();
+	const c = deferred();
+	const d = deferred();
+	let calls = 0;
+	h.setCreate(() => (++calls === 1 ? c.promise : d.promise));
+	h.addTab();
+	h.addTab();
+	h.emitData("C", "early prompt");
+	h.emitData("foreign", "other terminal's prompt");
+	d.resolve(tab("D"));
+	await h.settle();
+	assert.deepEqual(h.inputs, []);
+	c.resolve(tab("C"));
+	await h.settle();
+	assert.deepEqual(h.inputs, [["C", "test command\r"]]);
+	h.emitData("C", "more output");
+	h.emitData("D", "first prompt");
+	h.emitData("D", "more output");
+	await h.settle();
+	assert.deepEqual(h.inputs, [
+		["C", "test command\r"],
+		["D", "test command\r"],
+	]);
+	h.unmount();
+});
+
+test("hydrating an existing terminal never reruns its startup command", async () => {
+	const h = dockHarness([{ ...tab("A"), buffer: "saved prompt" }], { startupCommand: "test command" });
+	await h.ready();
+	h.emitData("A", "live prompt");
+	await h.settle();
+	assert.deepEqual(h.inputs, []);
+	h.unmount();
+});
+
+test("failed create discards its early prompt instead of triggering the next terminal", async () => {
+	const h = dockHarness([tab("A")], { startupCommand: "test command" });
+	await h.ready();
+	const creating = deferred();
+	h.setCreate(() => creating.promise);
+	h.addTab();
+	h.emitData("C", "orphan prompt");
+	creating.reject(new Error("spawn failed"));
+	await h.settle();
+	h.setCreate(async () => tab("C"));
+	h.addTab();
+	await h.settle();
+	assert.deepEqual(h.inputs, []);
+	h.emitData("C", "new prompt");
+	await h.settle();
+	assert.deepEqual(h.inputs, [["C", "test command\r"]]);
+	h.unmount();
+});
+
+test("startup command write failure is reported without retrying on later output", async () => {
+	const h = dockHarness([tab("A")], { startupCommand: "test command" });
+	await h.ready();
+	h.setInput(async () => {
+		throw new Error("write failed");
+	});
+	h.addTab();
+	await h.settle();
+	h.emitData("C", "first prompt");
+	await h.settle();
+	assert.equal(h.notices.length, 1);
+	assert.match(h.notices[0][0], /write failed/);
+	assert.equal(h.notices[0][2], "error");
+	h.emitData("C", "more output");
+	await h.settle();
 	assert.deepEqual(h.inputs, [["C", "test command\r"]]);
 	h.unmount();
 });
@@ -595,12 +693,13 @@ test("switching terminal owner clears stale tabs before the new owner hydrates",
 	h.unmount();
 });
 
-test("old owner create completion cannot insert a tab into the new owner", async () => {
-	const h = dockHarness([tab("A")]);
+test("old owner create completion cannot insert a tab or run its command in the new owner", async () => {
+	const h = dockHarness([tab("A")], { startupCommand: "test command" });
 	await h.ready();
 	const creating = deferred();
 	h.setCreate(() => creating.promise);
 	h.addTab();
+	h.emitData("C", "early prompt");
 	h.setEnsure(async () => [tab("D")]);
 	h.render({ target: { kind: "project", projectId: "other", cwd: "/other" } });
 	await h.settle();
@@ -608,5 +707,6 @@ test("old owner create completion cannot insert a tab into the new owner", async
 	await h.settle();
 	assert.deepEqual(h.ids, ["D"]);
 	assert.equal(h.closeCount, 0);
+	assert.deepEqual(h.inputs, []);
 	h.unmount();
 });
