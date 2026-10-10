@@ -141,7 +141,8 @@ test("manual picker reload (force) refreshes catalog before re-hydration", () =>
 	// 默认 hydration 走 --no-extensions 快速档）：两件事必须留在同一次调用里，
 	// 否则按钮会先刷新目录再用快速档重建，扩展模型永远补不回来。
 	assert.match(refreshCall, /modelCapabilityCache\.refresh\(\{ loadExtensions: true \}\)/);
-	// 渲染层已有 refreshing 转圈状态（失败也不打断选择器使用）。
+	// 手动刷新和普通加载分别拥有 busy 状态，不能沿用被替代请求的 loading。
 	const hook = readFileSync("src/renderer/src/hooks/useBackendModelCatalog.ts", "utf8");
-	assert.match(hook, /if \(force\) setRefreshing\(true\)/);
+	assert.match(hook, /setRefreshing\(\s*force\s*\)/);
+	assert.match(hook, /setLoading\(\s*!force\s*\)/);
 });
