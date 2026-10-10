@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, type MutableRefObject } from "react";
 import { useStore, useSetAtom } from "jotai";
-import { applySessionRuntimeEventAtom, cacheSessionMessagesAtom, sessionRecordsAtom, setSessionHistoryMutationOverlayAtom, setSessionMessageLoadStateAtom } from "../../atoms/session-atoms";
+import { applySessionRuntimeEventAtom, cacheSessionMessagesAtom, sessionHistoryMutationOverlayByIdAtom, sessionMessageLoadStateAtom, sessionMessagesCacheAtom, sessionRecordsAtom, setSessionHistoryMutationOverlayAtom, setSessionMessageLoadStateAtom, type SessionLoadState } from "../../atoms/session-atoms";
 import { sessionIdByRuntimeAgentIdAtomFamily, sessionRuntimeBySessionIdAtomFamily } from "../../atoms/session-selectors";
 import { dshRuntimeStatusAtom } from "../../atoms/dsh-atoms";
 import { openSettingsAtom } from "../../atoms/app-ui-atoms";
@@ -56,8 +56,11 @@ export function useSessionRunControl({ agents, activeAgent, activeAgentId, activ
 	const [activatingSessionId, setActivatingSessionId] = useState<string | null>(null);
 	const [stoppingAgentId, setStoppingAgentId] = useState<string | null>(null);
 	const [reloadingSessionId, setReloadingSessionId] = useState<string | null>(null);
-	// state 负责呈现；首次 await 前按会话加锁，避免同轮点击以及克隆/重启互相抢绑定。
+	// state 负责呈现；首次 await 前按会话加锁，避免克隆/重启/重载/关闭同轮互相抢绑定。
 	const replacingSessionIdsRef = useRef(new Set<string>());
+	// 启动握手允许关闭恢复；两个异步 owner 分开记账，任一先结束都不能解掉对方的锁。
+	const activatingSessionIdsRef = useRef(new Set<string>());
+	const stoppingSessionIdsRef = useRef(new Set<string>());
 
 	const getRuntimeTargetForSession = (sessionId: string | undefined) => (sessionId ? toSessionRuntimeTarget(sessionId, store.get(sessionRuntimeBySessionIdAtomFamily(sessionId))) : undefined);
 	// target 存在不代表 live（error/closed 终态仍持有绑定）：改文件前是否要先停 Agent
@@ -79,7 +82,7 @@ export function useSessionRunControl({ agents, activeAgent, activeAgentId, activ
 	/** 克隆锁与重启共用，项目归属在请求前从原会话快照取得。 */
 	async function cloneAgentSession(agentId: string) {
 		const target = getRuntimeTargetForAgent(agentId);
-		if (!target || replacingSessionIdsRef.current.has(target.sessionId)) return;
+		if (!target || replacingSessionIdsRef.current.has(target.sessionId) || stoppingSessionIdsRef.current.has(target.sessionId)) return;
 		const projectId = store.get(sessionRecordsAtom)[target.sessionId]?.projectId ?? agents.find((agent) => agent.id === agentId)?.projectId;
 		replacingSessionIdsRef.current.add(target.sessionId);
 		try {
@@ -137,13 +140,33 @@ export function useSessionRunControl({ agents, activeAgent, activeAgentId, activ
 		// live 运行时（starting/idle/running）不能强刷磁盘，会覆盖内存中的流式消息；
 		// error/closed 终态仍持有绑定（getRuntimeTargetForSession 有 target），但进程已死，
 		// 应当允许从磁盘刷新——这里必须按 status 判 live，不能用 target 判（否则 error/closed 的重载入口会被静默吞掉）。
-		if (isSessionRuntimeLive(sessionId)) return;
+		const capabilities = getSessionRunCapabilities(sessionId);
+		if (!capabilities || !canRunSessionAction(capabilities, "reload") || !store.get(sessionRecordsAtom)[sessionId] || store.get(sessionHistoryMutationOverlayByIdAtom)[sessionId]) return;
+		const target = getRuntimeTargetForSession(sessionId);
+		const cachedEntry = store.get(sessionMessagesCacheAtom)[sessionId];
+		const previousLoadState = store.get(sessionMessageLoadStateAtom)[sessionId];
+		const loadingState: SessionLoadState = { status: "loading" };
+		// await 期间发送/重绑/历史编辑可从别的入口启动；写盘结果生效前重查归属，不能只在请求前挡 live。
+		const isCurrentReload = () => {
+			const current = getRuntimeTargetForSession(sessionId);
+			return (
+				Boolean(store.get(sessionRecordsAtom)[sessionId]) &&
+				!isSessionRuntimeLive(sessionId) &&
+				current?.agentId === target?.agentId &&
+				current?.runtimeGeneration === target?.runtimeGeneration &&
+				store.get(sessionMessagesCacheAtom)[sessionId] === cachedEntry &&
+				store.get(sessionMessageLoadStateAtom)[sessionId] === loadingState &&
+				store.get(sessionHistoryMutationOverlayByIdAtom)[sessionId] === "reloading"
+			);
+		};
+		replacingSessionIdsRef.current.add(sessionId);
 		// 标记重载中：Tab 栏「重载」菜单项/tab 徽章 + 会话消息区域遮罩据此显示 loading 动画
 		setReloadingSessionId(sessionId);
 		setMutationOverlay({ sessionId, kind: "reloading" });
-		setSessionMessageLoadState({ sessionId, state: { status: "loading" } });
+		setSessionMessageLoadState({ sessionId, state: loadingState });
 		try {
 			const page = await api.sessions.readRecordMessagePage(sessionId, undefined, 100);
+			if (!isCurrentReload()) return;
 			// DSH host 被手动停止：读盘返回带原因的空页，不是「空会话」。
 			// 必须早退，否则 force 写空缓存会把这个会话洗成空白（看着像数据丢了）。
 			const unavailable = sessionHistoryUnavailableState(page);
@@ -162,14 +185,24 @@ export function useSessionRunControl({ agents, activeAgent, activeAgentId, activ
 			setSessionMessageLoadState({ sessionId, state: { status: "ready" } });
 			showToast(t("app.sessionReloaded"), 2000);
 		} catch (error) {
+			if (!isCurrentReload()) return;
 			setSessionMessageLoadState({
 				sessionId,
 				state: { status: "error", error: error instanceof Error ? error.message : String(error) },
 			});
 			showToast(t("app.sessionReloadFailed", { error: error instanceof Error ? error.message : String(error) }), 5000);
 		} finally {
+			replacingSessionIdsRef.current.delete(sessionId);
 			setReloadingSessionId((current) => (current === sessionId ? null : current));
-			setMutationOverlay({ sessionId, kind: null });
+			// 丢弃迟到页时只恢复本次 loading；新读取/新运行时的状态与遮罩归新 owner 管。
+			store.set(sessionMessageLoadStateAtom, (current) => {
+				if (current[sessionId] !== loadingState) return current;
+				const next = { ...current };
+				if (previousLoadState && store.get(sessionRecordsAtom)[sessionId]) next[sessionId] = previousLoadState;
+				else delete next[sessionId];
+				return next;
+			});
+			if (store.get(sessionHistoryMutationOverlayByIdAtom)[sessionId] === "reloading") setMutationOverlay({ sessionId, kind: null });
 		}
 	}
 
@@ -187,19 +220,31 @@ export function useSessionRunControl({ agents, activeAgent, activeAgentId, activ
 			showToast(t("sessionCommand.runtimeUnavailable"), 3000);
 			return;
 		}
-		// 标记停止中：Tab 栏「停止」菜单项/tab 徽章 + 会话消息区域遮罩据此显示 loading 动画
+		const overlay = store.get(sessionHistoryMutationOverlayByIdAtom)[target.sessionId];
+		const closingActivation = activatingSessionIdsRef.current.has(target.sessionId) && store.get(sessionRuntimeBySessionIdAtomFamily(target.sessionId))?.status === "starting" && (!overlay || overlay === "activating");
+		if (stoppingSessionIdsRef.current.has(target.sessionId) || (!closingActivation && (replacingSessionIdsRef.current.has(target.sessionId) || overlay))) return;
+		stoppingSessionIdsRef.current.add(target.sessionId);
+		// 不以 capabilities.pending 挡 starting：关闭进程仍是卡在握手中的会话的恢复出口。
 		setStoppingAgentId(agentId);
 		setMutationOverlay({ sessionId: target.sessionId, kind: "stopping" });
 		try {
 			requireSessionCommand(await api.sessions.stopRuntime(target));
+		} catch (error) {
+			showToast(error instanceof Error ? error.message : String(error), 5000);
 		} finally {
+			stoppingSessionIdsRef.current.delete(target.sessionId);
 			setStoppingAgentId((current) => (current === agentId ? null : current));
-			setMutationOverlay({ sessionId: target.sessionId, kind: null });
+			if (store.get(sessionHistoryMutationOverlayByIdAtom)[target.sessionId] === "stopping") setMutationOverlay({ sessionId: target.sessionId, kind: null });
 		}
 	}
 
 	function requestCloseAgent(agent: Pick<AgentTab, "id" | "noSession">): Promise<void> {
 		if (!agent.noSession) return closeAgent(agent.id);
+		const target = getRuntimeTargetForAgent(agent.id);
+		if (!target) {
+			showToast(t("sessionCommand.runtimeUnavailable"), 3000);
+			return Promise.resolve();
+		}
 		overlays.showConfirm({
 			title: t("app.anonymousChatCloseTitle"),
 			message: t("app.anonymousChatCloseBody"),
@@ -207,9 +252,13 @@ export function useSessionRunControl({ agents, activeAgent, activeAgentId, activ
 			confirmLabel: t("common.close"),
 			onConfirm: () => {
 				overlays.clearConfirm();
-				void closeAgent(agent.id).catch((error) => {
-					showToast(error instanceof Error ? error.message : String(error), 5000);
-				});
+				const current = getRuntimeTargetForAgent(agent.id);
+				// 匿名记录会被关闭删除：确认仅授权当时的会话与那一代进程，不能跟随 agent 重绑。
+				if (!current || current.sessionId !== target.sessionId || current.agentId !== target.agentId || current.runtimeGeneration !== target.runtimeGeneration) {
+					showToast(t("sessionCommand.runtimeChanged"), 3000);
+					return;
+				}
+				void closeAgent(agent.id);
 			},
 		});
 		return Promise.resolve();
@@ -371,6 +420,7 @@ export function useSessionRunControl({ agents, activeAgent, activeAgentId, activ
 			}
 			// 重启活会话走 restartRuntimeTarget→restartingAgentId→SessionSurfaceStage 的 isRestarting 遮罩；
 			// 这里（无绑定）没有 restartingAgentId，需显式设置 activating 遮罩，让会话消息区域也有加载动画。
+			activatingSessionIdsRef.current.add(sessionId);
 			setActivatingSessionId(sessionId);
 			setMutationOverlay({ sessionId, kind: "activating" });
 			try {
@@ -380,8 +430,9 @@ export function useSessionRunControl({ agents, activeAgent, activeAgentId, activ
 			} catch (error) {
 				showToast(error instanceof Error ? error.message : String(error), 5000);
 			} finally {
+				activatingSessionIdsRef.current.delete(sessionId);
 				setActivatingSessionId((current) => (current === sessionId ? null : current));
-				setMutationOverlay({ sessionId, kind: null });
+				if (store.get(sessionHistoryMutationOverlayByIdAtom)[sessionId] === "activating") setMutationOverlay({ sessionId, kind: null });
 			}
 		} finally {
 			replacingSessionIdsRef.current.delete(sessionId);
@@ -411,7 +462,7 @@ export function useSessionRunControl({ agents, activeAgent, activeAgentId, activ
 		if (!sessionId) return undefined;
 		const runtime = store.get(sessionRuntimeBySessionIdAtomFamily(sessionId));
 		const target = toSessionRuntimeTarget(sessionId, runtime);
-		const busy = replacingSessionIdsRef.current.has(sessionId) || activatingSessionId === sessionId || reloadingSessionId === sessionId || (Boolean(target?.agentId) && restartingAgentId === target?.agentId) || queueFlushBySessionRef.current.has(sessionId);
+		const busy = replacingSessionIdsRef.current.has(sessionId) || stoppingSessionIdsRef.current.has(sessionId) || activatingSessionId === sessionId || reloadingSessionId === sessionId || (Boolean(target?.agentId) && restartingAgentId === target?.agentId) || queueFlushBySessionRef.current.has(sessionId);
 		const activeQueued = queuedPromptsRef.current[sessionId] ?? [];
 		return sessionRunCapabilities({
 			state: resolveSessionRunState(runtime, Boolean(target)),
