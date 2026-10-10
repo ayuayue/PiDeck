@@ -61,6 +61,7 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 	const setLoadState = useSetAtom(setSessionMessageLoadStateAtom);
 	const setQuotes = useSetAtom(setSessionQuotesAtom);
 	const [forkingMessageId, setForkingMessageId] = useState<string | null>(null);
+	const forkingRef = useRef(false);
 	const resendingIdsRef = useRef<Set<string>>(new Set());
 	const overlaySessionRef = useRef<string | undefined>(undefined);
 	const depsRef = useRef(deps);
@@ -482,17 +483,14 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 		[confirmStopIfRunning, failToast, hideOverlay, runFileMutation, runForkMutation, showOverlay],
 	);
 
-	/**
-	 * 在指定 entry 上 fork 新会话（显式 fork 动作的共享主体）。
-	 * forkFromUserMessage 从时间线消息解析 entryId 后走这里；分支树面板直接持有
-	 * entryId（节点即条目），省掉文本反查，共用同一套 overlay/草稿回填/会话切换语义。
-	 */
-	const forkAtEntry = useCallback(
-		async (entryId: string, fallbackText: string, busyKey: string, images?: ImageContent[]) => {
+	/** 显式分支的共享生命周期：消息锚点解析与分支树条目都绑定发起时的会话快照。 */
+	const runExplicitFork = useCallback(
+		async (entryOrMessage: string | ChatMessage, fallbackText: string, busyKey: string, images?: ImageContent[]) => {
 			const latest = depsRef.current;
 			const sessionId = latest.currentSessionId;
-			if (!sessionId || latest.isAgentCurrentlyBusy()) return;
-			if (forkingMessageId) return;
+			if (!sessionId || latest.isAgentCurrentlyBusy() || forkingRef.current) return;
+			// state 只负责呈现；首次 await 前同步加锁，覆盖冷启动、锚点解析和同一轮重复点击。
+			forkingRef.current = true;
 			setForkingMessageId(busyKey);
 			try {
 				let target = latest.getRuntimeTargetForSession(sessionId);
@@ -504,6 +502,11 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 						agentId: activated.agentId,
 						runtimeGeneration: activated.runtimeGeneration,
 					};
+				}
+				const entryId = typeof entryOrMessage === "string" ? entryOrMessage : await resolveForkEntryId(entryOrMessage, target);
+				if (!entryId) {
+					latest.showToast(t("app.forkMissingEntryId"), 4000);
+					return;
 				}
 				showOverlay(sessionId, "forking");
 				const result = requireSessionCommand(await api.sessions.forkRuntimeSession(target, entryId));
@@ -537,40 +540,19 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 				const msg = error instanceof Error ? error.message : String(error);
 				latest.showToast(t("app.forkFailed", { error: latest.translateAgentErrorMessage(msg) }), 5000);
 			} finally {
+				forkingRef.current = false;
 				setForkingMessageId(null);
 				hideOverlay(sessionId);
 			}
 		},
-		[forkingMessageId, hideOverlay, showOverlay],
+		[hideOverlay, resolveForkEntryId, showOverlay],
 	);
 
-	const forkFromUserMessage = useCallback(
-		async (message: ChatMessage) => {
-			const latest = depsRef.current;
-			const sessionId = latest.currentSessionId;
-			if (!sessionId || latest.isAgentCurrentlyBusy()) return;
-			// entryId 解析可能需要活 runtime（文本反查兜底）：先取现成 target，没有再激活一次（仅解析用，
-			// fork 本体与 overlay 生命周期交给 forkAtEntry）。
-			let target: SessionRuntimeTarget | undefined = latest.getRuntimeTargetForSession(sessionId);
-			if (!target) {
-				showOverlay(sessionId, "activating");
-				const activated = requireSessionCommand(await api.sessions.activateRuntime(sessionId));
-				target = {
-					sessionId,
-					agentId: activated.agentId,
-					runtimeGeneration: activated.runtimeGeneration,
-				};
-				hideOverlay(sessionId);
-			}
-			const entryId = await resolveForkEntryId(message, target);
-			if (!entryId) {
-				latest.showToast(t("app.forkMissingEntryId"), 4000);
-				return;
-			}
-			await forkAtEntry(entryId, message.text, message.id, message.images);
-		},
-		[forkAtEntry, hideOverlay, resolveForkEntryId, showOverlay],
-	);
+	/** 分支树直接给出条目 ID，与消息入口共用防重入及清理边界。 */
+	const forkAtEntry = useCallback((entryId: string, fallbackText: string, busyKey: string, images?: ImageContent[]) => runExplicitFork(entryId, fallbackText, busyKey, images), [runExplicitFork]);
+
+	/** 时间线入口在同一快照内完成激活、解析和分支，不在 await 后重新读取焦点。 */
+	const forkFromUserMessage = useCallback((message: ChatMessage) => runExplicitFork(message, message.text, message.id, message.images), [runExplicitFork]);
 
 	return {
 		editMessage,
