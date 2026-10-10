@@ -1,18 +1,20 @@
 import { Button } from "../components/ui-shadcn/button";
+import { Input } from "../components/ui-shadcn/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui-shadcn/table";
-import { useEffect, useState, type ReactNode } from "react";
-import { Loader2, ShoppingBag, ToggleLeft, ToggleRight, Hammer } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Loader2, Search, ShoppingBag, ToggleLeft, ToggleRight, Hammer } from "lucide-react";
 import type { PiCliUpdateResult, PiExtensionListResult, PiExtensionSummary, ProjectResourceOverrides } from "../../../shared/types";
 import { t } from "../i18n";
 import { showNotice } from "../utils/notice";
 import { writeClipboard } from "../utils/clipboard";
+import { extensionShortName, filterExtensionsByQuery } from "../utils/extensionFilter";
 import { ExtensionStoreTab } from "./ExtensionStoreTab";
 import { PluginDevSection } from "./PluginDevSection";
 import { ContentTabs } from "./ContentTabs";
-import { isProjectDiscoverySource, type ResourceScope } from "./resourceScopeModel";
+import { isProjectDiscoverySource, projectInstalledExtensionSources, type ResourceScope } from "./resourceScopeModel";
 import { buildProjectOverrideKeyIndex, matchesProjectOverride, type ProjectOverrideKeyIndex } from "./projectOverrideKeys";
 import { useResourceTogglePending } from "../hooks/useResourceTogglePending";
-import { DiscoveredExtensionRow, ExtensionTableRow } from "./extensionsTableRows";
+import { DiscoveredExtensionRow, ExtensionTableRow, type DiscoveredExtensionItem } from "./extensionsTableRows";
 import { RecommendedPackagesPanel } from "./extensionsRecommendedPackages";
 import { BuiltInExtensionsUpdatePanel } from "./BuiltInExtensionsUpdatePanel";
 import { PiBuiltinExtensionsPanel } from "./PiBuiltinExtensionsPanel";
@@ -36,14 +38,6 @@ function getExtensionsApi(): ExtensionsApi {
 /** 把 IPC/主进程异常转成可读文本，避免内置扩展操作退回原生 alert。 */
 function formatExtensionError(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
-}
-
-/** 从扩展来源提取简短描述名 */
-function shortName(source: string): string {
-	return source
-		.replace(/^(?:npm|file|github|git|https?):/i, "")
-		.replace(/\.ts$/, "")
-		.replace(/@[^/]+\//, "");
 }
 
 /** 开关乐观覆盖的行身份：scope + source（同名扩展可在 user/project 两级各自独立开关）。 */
@@ -71,6 +65,8 @@ export function ExtensionsTab(props: {
 		physicalScope: "user" | "project";
 		enabled: boolean;
 		managed: boolean;
+		/** 包版本（发现链路从包 package.json 带出）；settings-* 行缺省。 */
+		version?: string;
 	}>;
 	data: PiExtensionListResult;
 	loading: boolean;
@@ -80,10 +76,16 @@ export function ExtensionsTab(props: {
 	onRefreshAfterToggle?: () => void | Promise<void>;
 	onToggle?: (extension: PiExtensionSummary, enabled: boolean) => void | Promise<void>;
 	onUninstall: (extension: PiExtensionSummary) => void;
+	/** 项目包发现行（package-project）的卸载请求：由 ConfigModal 弹确认后走 `pi remove -l`。 */
+	onUninstallProjectPackage?: (item: DiscoveredExtensionItem) => void;
+	/** 发现行（含 settings-*）打开安装位置：授权由 ConfigModal 按 physicalScope 决定项目边界。 */
+	onShowDiscoveredInFolder?: (item: DiscoveredExtensionItem) => void;
 	onShowInFolder: (extension: PiExtensionSummary) => void;
 }) {
 	// 一级 tab：已安装 / 扩展商店（与 SkillsTab 的「本地/商店」结构对齐）
 	const [extTab, setExtTab] = useState<"local" | "store" | "dev">("local");
+	// 已安装列表搜索词：只服务本页渲染的局部 state（不过 IPC、不建全局 atom）
+	const [extensionQuery, setExtensionQuery] = useState("");
 	const [removingBuiltIn, setRemovingBuiltIn] = useState<string | null>(null);
 	// 开关的乐观覆盖：点击立刻翻转显示，写盘 + 刷新结束后清掉（时间线不再等全量刷新）。
 	const { begin, end, settle, shown, isPending } = useResourceTogglePending();
@@ -93,8 +95,8 @@ export function ExtensionsTab(props: {
 		for (const c of props.data.conflicts) {
 			showNotice(
 				t("config.extensionConflict", {
-					builtIn: shortName(c.builtIn),
-					thirdParty: shortName(c.thirdParty),
+					builtIn: extensionShortName(c.builtIn),
+					thirdParty: extensionShortName(c.thirdParty),
 				}),
 				8000,
 				"warning",
@@ -132,7 +134,7 @@ export function ExtensionsTab(props: {
 			// 必须等刷新落地再往下走：清除覆盖只发生在真值已经跟上之后，否则开关会先弹回旧值。
 			// 用轻量刷新（forceRefresh=false）：开关不改结构，重扫描（pi list + npm view）只是白等。
 			await (props.onRefreshAfterToggle ?? props.onRefresh)();
-			showNotice(t(enabled ? "config.extensionEnabledToast" : "config.extensionDisabledToast", { name: shortName(extension.source) }), 3500);
+			showNotice(t(enabled ? "config.extensionEnabledToast" : "config.extensionDisabledToast", { name: extensionShortName(extension.source) }), 3500);
 		} catch (e) {
 			showNotice(t("config.extensionOperationFailed", { error: formatExtensionError(e) }), 4500, "error");
 		} finally {
@@ -159,14 +161,14 @@ export function ExtensionsTab(props: {
 		}
 	};
 
-	/** 更新单个扩展（`pi update <source>`），完成后强制刷新列表拿新版本。 */
-	const handleUpdateOne = async (extension: PiExtensionSummary) => {
+	/** 更新单个扩展（`pi update <source>`），完成后强制刷新列表拿新版本。参数只收 source：已装行与发现行（项目包）共用同一回路。 */
+	const handleUpdateOne = async (extension: { source: string }) => {
 		if (updatingOne) return;
 		setUpdatingOne(extension.source);
 		try {
 			await getExtensionsApi().updateOne(extension.source);
 			props.onRefresh();
-			showNotice(t("config.extensionUpdatedToast", { name: shortName(extension.source) }), 3000);
+			showNotice(t("config.extensionUpdatedToast", { name: extensionShortName(extension.source) }), 3000);
 		} catch (e) {
 			showNotice(t("config.extensionOperationFailed", { error: formatExtensionError(e) }), 4500, "error");
 		} finally {
@@ -181,13 +183,28 @@ export function ExtensionsTab(props: {
 		showNotice(t("config.extensionUpdateCommandCopied", { command }), 2500);
 	};
 
-	const projectExtensions = props.data.extensions.filter((extension) => extension.scope === "project");
-	const globalExtensions = props.data.extensions.filter((extension) => extension.scope !== "project");
-	const visibleExtensions = props.scope === "project" ? [...projectExtensions, ...globalExtensions] : globalExtensions;
+	const projectExtensions = useMemo(() => props.data.extensions.filter((extension) => extension.scope === "project"), [props.data.extensions]);
+	const globalExtensions = useMemo(() => props.data.extensions.filter((extension) => extension.scope !== "project"), [props.data.extensions]);
+	// 作用域内全部已安装行（未过搜索）：刷新期的加载占位仍以它判空，避免搜索无匹配时被加载态顶掉
+	const visibleExtensions = useMemo(() => (props.scope === "project" ? [...projectExtensions, ...globalExtensions] : globalExtensions), [props.scope, projectExtensions, globalExtensions]);
 	const disabledGlobalSources = buildProjectOverrideKeyIndex(props.projectOverrides.disabledGlobalExtensions);
-	// discovery 行去重：与已安装列表同 source 的条目只保留普通行（带操作），列表只显示一次
-	const installedSources = new Set(props.data.extensions.map((extension) => extension.source));
-	const uniqueDiscoveryExtensions = props.discoveryExtensions.filter((item) => !installedSources.has(item.source));
+	// 商店卡片的已安装判据：项目里安装的包只在 discovery（package-project）里，不进 data.extensions，
+	// 不并入就会让装完的卡片仍显示「安装」并再次触发 pi install -l（见 projectInstalledExtensionSources）。
+	const storeInstalledSources = useMemo(() => (props.scope === "project" ? projectInstalledExtensionSources(props.data.extensions, props.discoveryExtensions) : new Set(props.data.extensions.map((extension) => extension.source))), [props.scope, props.data.extensions, props.discoveryExtensions]);
+	// 已安装列表搜索：纯渲染层过滤（filterExtensionsByQuery），不走 IPC、不防抖。
+	// 空查询时该函数原样返回入参，因此「没有安装任何扩展」与「搜索无匹配」是两种可区分的空态；
+	// discovery 行走同一规则，杜绝分组表头残留与计数/行数不符。
+	const filteredProjectExtensions = useMemo(() => filterExtensionsByQuery(projectExtensions, extensionQuery), [projectExtensions, extensionQuery]);
+	const filteredGlobalExtensions = useMemo(() => filterExtensionsByQuery(globalExtensions, extensionQuery), [globalExtensions, extensionQuery]);
+	const filteredExtensions = useMemo(() => (props.scope === "project" ? [...filteredProjectExtensions, ...filteredGlobalExtensions] : filteredGlobalExtensions), [props.scope, filteredProjectExtensions, filteredGlobalExtensions]);
+	const filteredDiscoveryExtensions = useMemo(() => {
+		// discovery 行去重：与已安装列表同 source 的条目只保留普通行（带操作），列表只显示一次
+		const installedSources = new Set(props.data.extensions.map((extension) => extension.source));
+		return filterExtensionsByQuery(
+			props.discoveryExtensions.filter((item) => !installedSources.has(item.source)),
+			extensionQuery,
+		);
+	}, [props.data.extensions, props.discoveryExtensions, extensionQuery]);
 	// 数据回落后结算乐观覆盖：真值等于目标值才清除（写盘与刷新是两条链路，不能一写完就清）。
 	useEffect(() => {
 		const derived: Record<string, boolean | undefined> = {};
@@ -196,6 +213,48 @@ export function ExtensionsTab(props: {
 		}
 		settle(derived);
 	}, [props.data, props.scope, props.projectOverrides, settle, disabledGlobalSources]);
+	/** 项目包发现行的乐观键：source 即包源（npm:<name>），与已安装行的 extensionToggleKey 命名空间隔离。 */
+	const discoveredPackageToggleKey = (item: DiscoveredExtensionItem) => `project-package:${item.source}`;
+	/**
+	 * package-project 发现行的整包开关：与全局包行同一原生回路（setExtensionEnabled 按 isPackageSource
+	 * 分流到项目层 packages delta），path 对包源无意义传 undefined；projectId 缺失时后端会拒绝项目层写入。
+	 */
+	const handleDiscoveredPackageToggle = async (item: DiscoveredExtensionItem, enabled: boolean) => {
+		const key = discoveredPackageToggleKey(item);
+		if (!begin(key, enabled)) return;
+		try {
+			await getExtensionsApi().toggle(item.source, enabled, "project", undefined, props.projectId);
+			// 等刷新落地再清覆盖：轻量刷新会同时重拉 discovery（发现行 enabled 的真值来源），否则开关会弹回旧值。
+			await (props.onRefreshAfterToggle ?? props.onRefresh)();
+			showNotice(t(enabled ? "config.extensionEnabledToast" : "config.extensionDisabledToast", { name: extensionShortName(item.source) }), 3500);
+		} catch (e) {
+			showNotice(t("config.extensionOperationFailed", { error: formatExtensionError(e) }), 4500, "error");
+		} finally {
+			end(key);
+		}
+	};
+	/** 发现行渲染：项目组（package-project/settings-project）与全局继承组分开；操作能力由行组件按 sourceId 自判。 */
+	const renderDiscoveredRows = (projectGroup: boolean) =>
+		props.scope === "project" &&
+		filteredDiscoveryExtensions
+			.filter((item) => isProjectDiscoverySource(item.sourceId) === projectGroup)
+			.map((item) => {
+				const key = discoveredPackageToggleKey(item);
+				return (
+					<DiscoveredExtensionRow
+						key={`discovered:${item.path}`}
+						item={item}
+						effectiveEnabled={shown(key, item.enabled)}
+						toggling={isPending(key)}
+						uninstalling={props.uninstallingSource === item.source}
+						updating={updatingOne === item.source}
+						onToggle={handleDiscoveredPackageToggle}
+						onUninstall={props.onUninstallProjectPackage}
+						onUpdate={handleUpdateOne}
+						onShowInFolder={props.onShowDiscoveredInFolder}
+					/>
+				);
+			});
 	const renderExtensionRows = (extensions: PiExtensionSummary[], inherited: boolean) =>
 		extensions.map((extension) => {
 			return (
@@ -240,7 +299,7 @@ export function ExtensionsTab(props: {
 			{extTab === "dev" ? (
 				<PluginDevSection />
 			) : extTab === "store" ? (
-				<ExtensionStoreTab installedExtensions={props.scope === "project" ? props.data.extensions.filter((extension) => extension.scope === "project") : props.data.extensions} projectId={props.scope === "project" ? props.projectId : undefined} onInstalled={() => props.onRefresh()} />
+				<ExtensionStoreTab installedSources={storeInstalledSources} projectId={props.scope === "project" ? props.projectId : undefined} onInstalled={() => props.onRefresh()} />
 			) : (
 				<>
 					{showUpdateDialog && (
@@ -284,9 +343,17 @@ export function ExtensionsTab(props: {
 					{/* 已安装扩展列表 */}
 					<div className="config-section">
 						<h3 className="extensions-installed-title mb-2 text-sm font-semibold tracking-tight text-foreground">{t("config.installedExtensions")}</h3>
-						<div className="mb-3 mt-2 flex items-center justify-between gap-3">
-							<div className="min-w-0">
-								<span className="font-mono text-xs tabular-nums text-muted-foreground">{t("config.count.extensions", { count: visibleExtensions.length })}</span>
+						<div className="mb-3 mt-2 flex flex-wrap items-center justify-between gap-3">
+							<div className="flex min-w-0 flex-1 flex-col gap-1">
+								<div className="flex min-w-0 items-center gap-2">
+									{/* 搜索框：写法对齐 DshPluginSection / ProxyTab 的「左图标 + Input」组合 */}
+									<div className="relative min-w-0 flex-1 basis-52">
+										<Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/70" aria-hidden="true" />
+										<Input type="search" value={extensionQuery} onChange={(event) => setExtensionQuery(event.currentTarget.value)} placeholder={t("config.extensionListSearchPlaceholder")} aria-label={t("config.extensionListSearchPlaceholder")} className="h-8 pl-8 text-control" />
+									</div>
+									{/* 有查询词时显示「匹配数 / 总数」，否则维持原有总数计数 */}
+									<span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{extensionQuery.trim().length > 0 ? t("config.extensionListResultCount", { matched: filteredExtensions.length, count: visibleExtensions.length }) : t("config.count.extensions", { count: visibleExtensions.length })}</span>
+								</div>
 								<small className="skills-restart-hint block text-caption text-muted-foreground">{t("config.extensionRestartHint")}</small>
 							</div>
 							{/* 窄窗口下按钮换行而不是被裁掉：shrink-0 保证按钮不被压缩，
@@ -318,8 +385,9 @@ export function ExtensionsTab(props: {
 									<Loader2 size={14} className="animate-pideck-spin" aria-hidden="true" />
 									{t("config.loadingExtensions")}
 								</div>
-							) : visibleExtensions.length === 0 ? (
-								<div className="py-12 text-center text-control text-muted-foreground">{t("config.emptyExtensions")}</div>
+							) : filteredExtensions.length === 0 ? (
+								// 两种空态互斥：有查询词是「无匹配」，否则是「未安装任何扩展」
+								<div className="py-12 text-center text-control text-muted-foreground">{extensionQuery.trim().length > 0 ? t("config.extensionListNoResults") : t("config.emptyExtensions")}</div>
 							) : (
 								<Table>
 									<TableHeader>
@@ -330,24 +398,24 @@ export function ExtensionsTab(props: {
 										</TableRow>
 									</TableHeader>
 									<TableBody>
-										{props.scope === "project" && projectExtensions.length > 0 ? (
+										{props.scope === "project" && filteredProjectExtensions.length > 0 ? (
 											<TableRow>
 												<TableCell colSpan={3} className="bg-bg-hover px-3 py-1.5 text-caption font-semibold text-foreground">
 													{t("config.resourceGroup.project")}
 												</TableCell>
 											</TableRow>
 										) : null}
-										{props.scope === "project" ? renderExtensionRows(projectExtensions, false) : null}
-										{props.scope === "project" && uniqueDiscoveryExtensions.filter((item) => isProjectDiscoverySource(item.sourceId)).map((item) => <DiscoveredExtensionRow key={`discovered:${item.path}`} item={item} />)}
-										{props.scope === "project" && globalExtensions.length > 0 ? (
+										{props.scope === "project" ? renderExtensionRows(filteredProjectExtensions, false) : null}
+										{renderDiscoveredRows(true)}
+										{props.scope === "project" && filteredGlobalExtensions.length > 0 ? (
 											<TableRow>
 												<TableCell colSpan={3} className="bg-bg-hover px-3 py-1.5 text-caption font-semibold text-foreground">
 													{t("config.resourceGroup.global")}
 												</TableCell>
 											</TableRow>
 										) : null}
-										{renderExtensionRows(globalExtensions, props.scope === "project")}
-										{props.scope === "project" && uniqueDiscoveryExtensions.filter((item) => !isProjectDiscoverySource(item.sourceId)).map((item) => <DiscoveredExtensionRow key={`discovered:${item.path}`} item={item} />)}
+										{renderExtensionRows(filteredGlobalExtensions, props.scope === "project")}
+										{renderDiscoveredRows(false)}
 									</TableBody>
 								</Table>
 							)}

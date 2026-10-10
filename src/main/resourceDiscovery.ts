@@ -57,6 +57,8 @@ export type DiscoveredExtensionResource = {
 	physicalScope: "user" | "project";
 	enabled: boolean;
 	managed: boolean;
+	/** 包版本（package.json 就近向上查）；settings-* 行恒缺省。 */
+	version?: string;
 };
 
 export type ResourceDiscoveryOptions = {
@@ -345,6 +347,7 @@ export function discoverExtensions(options: ResourceDiscoveryOptions): Discovere
 			physicalScope: resource.physicalScope,
 			enabled: resource.enabled && !disabledKeys.has(`${resource.scope}:${source}`),
 			managed: true,
+			version: resource.version,
 		});
 	}
 

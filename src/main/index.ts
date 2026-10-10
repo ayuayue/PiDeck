@@ -28,7 +28,7 @@ import { isShortcutInput, refreshShortcutBindings } from "./appShortcuts";
 // 主进程复用共享的接管型扩展识别规则（与渲染层横幅单一来源；纯函数无依赖）。
 import { detectThirdPartyMcpExtensions } from "../shared/mcpThirdParty";
 import { PiResourceConfigService } from "./config/PiResourceConfigService";
-import { isPackageSource, projectExtensionEnabled } from "./config/PiResourceConfigService";
+import { isPackageSource, projectExtensionEnabled, projectExtensionFiltered } from "./config/PiResourceConfigService";
 import { runPackageRootRuleRepair, type PackageRootRuleRepairDeps } from "./config/piPackageRootRuleRepair";
 import { projectResourceEnabled } from "./config/piResourceRules";
 import { PiResourceStateStore } from "./config/PiResourceStateStore";
@@ -3039,6 +3039,14 @@ function registerIpc() {
 			}, index * 1500);
 			timer.unref?.();
 		});
+		// 扩展页关键路径预热：提前探测 pi 版本（--no-approve 判定依赖该缓存），把
+		// `pi --version` 子进程移出首次 extensions:list。尽力而为——warmPiVersionProbe
+		// 内部已吞错记日志，此处再兜一层同步异常，失败绝不会影响启动与 catalog 预热。
+		try {
+			void extensionManager?.warmPiVersionProbe();
+		} catch (error) {
+			void appLogger.warn("extension", "pi version prewarm failed", { error: error instanceof Error ? error.message : String(error) });
+		}
 	}, 3000);
 	prewarmTimer.unref?.();
 
@@ -3802,7 +3810,12 @@ app
 			if (!entries) return undefined;
 			// 包安装的扩展真值在 packages 条目的过滤里，顶层 extensions 的路径规则对它无效
 			// （历史迁移残留的 `-<包目录>` 会让开关写成功后弹回，见 projectExtensionEnabled）。
-			return projectExtensionEnabled({ source: extension.source, path: extension.path, entries, packages: extensionManagerNativePackages });
+			const enabled = projectExtensionEnabled({ source: extension.source, path: extension.path, entries, packages: extensionManagerNativePackages });
+			if (enabled === undefined) return undefined;
+			// filtered 也按 packages 条目重算：pi list 只按「条目是不是对象」打标，
+			// 整包停用（四类空数组）与历史空对象会被误标成过滤式安装。
+			const filtered = projectExtensionFiltered({ source: extension.source, packages: extensionManagerNativePackages });
+			return filtered === undefined ? { enabled } : { enabled, filtered };
 		});
 		// 项目侧资源开关写项目 `.pi/settings.json` 的原生过滤规则（A4）。
 		// 项目自有资源用精确 `-path`；继承全局资源写「绝对路径 plain + +/-」，与 pi config 一致。

@@ -18,9 +18,11 @@ import { PI_BUILTIN_EXTENSIONS, PI_RESOURCE_KINDS } from "../../shared/types/piR
 import { resolveDefaultToolsInLayer } from "../../shared/defaultTools";
 import { readPiConfigFile, readStringArraySetting, writePiConfigFile } from "./piConfigFileStore";
 import {
+	collapsePackageEntry,
 	disablePackageDeltaFilters,
 	disablePackageFilters,
 	enablePackageDeltaFilters,
+	hasPackageFilterKeys,
 	isPackageDeltaFullyDisabled,
 	isPackageFullyDisabled,
 	projectResourceEnabled,
@@ -238,11 +240,13 @@ export class PiResourceConfigService {
 				const snapshot = snapshotCurrent ? this.state.takePackageSnapshot(snapshotKey) : undefined;
 				const wasPlainString = snapshotCurrent && this.state.isPackageSnapshotPlainString(snapshotKey);
 				if (snapshot && Object.keys(snapshot).length > 0) {
-					packages[index] = { ...restorePackageDefaults(entry), ...snapshot };
+					packages[index] = collapsePackageEntry({ ...restorePackageDefaults(entry), ...snapshot });
 				} else if (wasPlainString) {
 					packages[index] = source;
 				} else {
-					packages[index] = restorePackageDefaults(entry);
+					// 没有可用快照（跨版本/外部改过/条目本来就是空对象）：删掉四类过滤后若只剩 source，
+					// 折回纯字符串——与 pi config TUI 的清理规则一致，避免 `pi list` 把空对象永久标成 (filtered)。
+					packages[index] = collapsePackageEntry(restorePackageDefaults(entry));
 				}
 			} else {
 				packages[index] = disablePackageFilters(entry as { source: string });
@@ -326,6 +330,33 @@ export function projectExtensionEnabled(options: { source: string; path?: string
 		return entry === undefined ? undefined : !isEntryDisabled(entry);
 	}
 	return projectResourceEnabled({ entries: options.entries, value: options.path ?? options.source, baseDir: options.path ? dirname(options.path) : "" });
+}
+
+/**
+ * 扩展列表的「过滤式安装」投影。
+ *
+ * pi list 的 `(filtered)` 只按「条目是不是对象」判定，所以两类条目会被误标：
+ * 1. PiDeck 的整包停用（四类空数组）——用户只是关了开关；
+ * 2. 历史/外部残留的空对象 `{ source }`——根本没有过滤。
+ * 真值看 packages 条目里是否还有实际过滤键；delta 的整包覆盖（`!*`/`!.*`）同样不算过滤式安装。
+ *
+ * 返回 undefined = 无法判定（非包来源 / 快照不可用 / 该包不在本层），调用方保留 pi list 的结论。
+ *
+ * 边界：只查传入的 packages 快照（当前装配只给全局 settings.json）。项目层的包条目
+ * （项目 .pi/settings.json 的 packages/delta）不在快照里 → 返回 undefined。这是当前 UI 设计的一部分：
+ * 项目行的展示走 ProjectResourceManager.list（本地 .pi/extensions 文件，不带 filtered），
+ * 项目里的包声明只以只读发现行出现（DiscoveredExtensionRow 不渲染徽标）。若将来把项目包条目
+ * 接进普通行，必须先给这里补一份项目作用域快照，而不是退回 pi list 的粗标记。
+ */
+export function projectExtensionFiltered(options: { source: string; packages?: readonly unknown[] | null }): boolean | undefined {
+	if (!isPackageSource(options.source)) return undefined;
+	if (!options.packages) return undefined;
+	const entry = options.packages.find((candidate) => packageSourceOf(candidate) === options.source);
+	if (entry === undefined) return undefined;
+	if (typeof entry === "string") return false;
+	if (isEntryDisabled(entry)) return false;
+	// 只认实际过滤键：空数组是「全关」声明，整包停用/空对象都不是过滤式安装。
+	return hasPackageFilterKeys(entry as Record<string, unknown>);
 }
 
 /** 条目是否精确指向该值（带 `+`/`-` 前缀时比较去掉前缀后的值）。 */

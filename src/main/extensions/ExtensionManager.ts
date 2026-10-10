@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { clearTimeout, setTimeout } from "node:timers";
 import { readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { basename, join, relative, sep } from "node:path";
 import { homedir } from "node:os";
 import { trashPath } from "../fs/trash";
@@ -12,6 +13,8 @@ import { toWslLinuxPath, toWindowsHostPath, type WslEnvironment } from "../wsl/W
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 import { BUILT_IN_EXTENSIONS, INTERNAL_BUILT_IN_EXTENSIONS, isBuiltInExtensionName, isDefaultDisabledBuiltInExtension, readEffectiveBuiltInExtensionsVersion, resolveBuiltInExtensionPath, type BuiltInExtensionPathRoots } from "./builtInExtensions";
 import { MIN_PI_VERSION_FOR_EXTENSION_WHITELIST, piVersionAtLeast } from "./extensionVersionGate";
+// 版本查询快路：registry HTTP 优先，失败逐包回退 npm view 子进程（传输层优化，展示语义不变）。
+import { createNpmRegistryVersionResolver } from "./npmRegistryVersion";
 // 版本比较与应用更新检查共用同一实现（含预发布语义：beta < 同号正式版）。
 import { compareVersions } from "../utils/versionCompare";
 import { discoverExtensionEntries } from "./extensionDiscovery";
@@ -45,6 +48,15 @@ const PI_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
  * 过滤状态存进 PiExtensionSummary.filtered，避免污染卸载/更新等以 source 为参数的命令。
  */
 export const FILTERED_SUFFIX = " (filtered)";
+
+/**
+ * 原生投影结果：启用状态 +（可选的）「过滤式安装」标记。
+ *
+ * filtered 必须在轻量投影里一并重算：列表缓存保存的是上次 `pi list` 解析的 `(filtered)`，
+ * 而开关只在磁盘上改条目形态（整包停用对象 / 折回纯字符串），缓存不会自己更新；
+ * pi list 又只看「条目是不是对象」，整包停用与历史空对象都会被算成 filtered。
+ */
+export type ExtensionNativeState = { enabled: boolean; filtered?: boolean };
 
 type SettingsProvider = () => AppSettings;
 type ExtensionCopy = (key: MainProcessTranslationKey, params?: Record<string, string | number>) => string;
@@ -198,21 +210,32 @@ export class ExtensionManager {
 				if (builtInVersion) ext.currentVersion = builtInVersion;
 			} else {
 				// 原生投影优先（迁移后 disabledExtensions 已清空）；未装配时退回旧列表。
-				ext.enabled = this.nativeEnabledReader?.(ext) ?? !disabledExtKeys.has(`${ext.scope}:${ext.source}`);
+				const native = this.nativeEnabledReader?.(ext);
+				ext.enabled = native?.enabled ?? !disabledExtKeys.has(`${ext.scope}:${ext.source}`);
+				// filtered 也必须在投影里重算：缓存里存的是上次 `pi list` 解析的 (filtered)，
+				// 而开关只改磁盘条目形态（整包停用对象 / 折回字符串），缓存不会自己更新。
+				// 原生侧不可判定（undefined，如继承层）时保留 pi list 的结论。
+				if (native?.filtered !== undefined) ext.filtered = native.filtered;
 			}
 		}
 	}
 
 	private async loadList(includeVersionInfo: boolean): Promise<PiExtensionListResult> {
-		const raw = await this.runPi(["list"], 20_000);
+		// pi 进程列表与本地目录枚举互不依赖，并行启动把两条串行等待（子进程 spawn + 目录 IO）
+		// 合并为一次往返；后续解析与 npm view 链仍等 pi 输出，行为与顺序不变。
+		const [raw, localExtensions] = await Promise.all([this.runPi(["list"], 20_000), this.scanLocalExtensions()]);
 		const parsed = this.parseListOutput(raw);
 		// npm view 是扩展页变慢的主因；默认列表先跳过，只有手动刷新时再查更新。
-		const piInstalled = includeVersionInfo ? await Promise.all(parsed.map((extension) => this.enrichExtensionVersion(extension))) : parsed;
-
-		// 扫描本地自动发现的扩展（~/.pi/agent/extensions/ 下的 .ts/.js 文件、
-		// index.ts/index.js 目录和 pi.extensions manifest），pi list 只列出通过
-		// pi install 安装的包，不包含本地文件扩展。
-		const localExtensions = await this.scanLocalExtensions();
+		let piInstalled = parsed;
+		if (includeVersionInfo) {
+			// registry HTTP 快路：实例随本轮 loadList 创建——同包去重与基址解析都按轮次刷新，
+			// 尊重用户改 npmrc 镜像后的下一轮刷新；快路失败逐包回退 npm view 子进程。
+			const versionResolver = createNpmRegistryVersionResolver({
+				resolveRegistryBase: () => this.resolveNpmRegistryBase(),
+				npmViewFallback: (packageName) => this.npmViewVersion(packageName),
+			});
+			piInstalled = await Promise.all(parsed.map((extension) => this.enrichExtensionVersion(extension, versionResolver.resolveLatestVersion)));
+		}
 
 		// 合并，已通过 pi 安装的优先保留原条目
 		const installedPaths = new Set(piInstalled.map((ext) => ext.path));
@@ -379,7 +402,13 @@ export class ExtensionManager {
 		if (!name || name !== trimmed || !isBuiltInExtensionName(name)) {
 			throw new Error("非法内置扩展路径");
 		}
-		await rm(join(extensionsDir, name), { force: true });
+		// 早返回：loadList 每次都会对 removedBuiltInExtensions 逐项调用本方法清理残留，
+		// 绝大多数条目早已不存在；先 existsSync 判定可免掉无效的 rm 系统调用（force 语义保留给真实存在）。
+		const target = join(extensionsDir, name);
+		if (!existsSync(target)) {
+			return;
+		}
+		await rm(target, { force: true });
 		// 启动残留清理的硬删（非用户主动删除，仅限 pi-deck-* 内置白名单）：记日志便于审计。
 		getAppLogger()?.info("extension", "Built-in extension file removed", { name, path: join(extensionsDir, name) });
 	}
@@ -459,7 +488,8 @@ export class ExtensionManager {
 		this.invalidateListCache();
 	}
 
-	async uninstall(source: string, scope: PiExtensionSummary["scope"] = "user"): Promise<void> {
+	/** 卸载：user/unknown 走全局缓存；project 走 `pi remove -l`，projectRoot 由 IPC 层经信任校验解析后传入。 */
+	async uninstall(source: string, scope: PiExtensionSummary["scope"] = "user", options: { projectRoot?: string } = {}): Promise<void> {
 		const normalized = source.trim();
 		if (!normalized) throw new Error(this.translate("mainExtension.sourceRequired"));
 		// 只挡白名单内置成员：pi-deck- 前缀不足以证明内置身份——插件开发 demo
@@ -473,7 +503,9 @@ export class ExtensionManager {
 		if (this.isLocalFileExtension(normalized)) {
 			await this.removeLocalExtension(normalized);
 		} else {
-			await this.runPi(["remove", normalized, ...(scope === "project" ? ["-l"] : [])], 30_000);
+			// 项目层 remove 与 install 同一信任路径：带项目 cwd + projectInstall（不推 --no-approve）。
+			// --no-approve 下 pi 视项目为不信任直接拒改本地 packages（"Project is not trusted"），且无 cwd 会删错目录。
+			await this.runPi(["remove", normalized, ...(scope === "project" ? ["-l"] : [])], 30_000, options.projectRoot ? { cwd: options.projectRoot, projectInstall: true } : {});
 		}
 		await this.clearDisabledEntry(normalized, scope);
 		// 列表已变，清缓存，避免 UI 继续读到旧安装态。
@@ -634,15 +666,16 @@ export class ExtensionManager {
 		}
 	}
 
-	private async enrichExtensionVersion(extension: PiExtensionSummary): Promise<PiExtensionSummary> {
+	private async enrichExtensionVersion(extension: PiExtensionSummary, resolveLatestVersion: (packageName: string) => Promise<string | null>): Promise<PiExtensionSummary> {
 		if (!extension.source.toLowerCase().startsWith("npm:")) return extension;
 		const packageName = extension.source.replace(/^npm:/i, "");
 		try {
-			const [currentVersion, latestVersion] = await Promise.all([this.readInstalledVersion(extension.path), this.npmViewVersion(packageName)]);
+			const [currentVersion, latestVersion] = await Promise.all([this.readInstalledVersion(extension.path), resolveLatestVersion(packageName)]);
 			return {
 				...extension,
 				currentVersion,
-				latestVersion,
+				// 快路与回退都以 null 表示「没查到」，投影到 PiExtensionSummary 的 undefined 语义
+				latestVersion: latestVersion ?? undefined,
 				hasUpdate: Boolean(currentVersion && latestVersion && compareVersions(latestVersion, currentVersion) > 0),
 			};
 		} catch (error) {
@@ -723,6 +756,34 @@ export class ExtensionManager {
 		});
 	}
 
+	/**
+	 * 解析 npm registry 基址（`npm config get registry`）：与 npm view 走同一 npm 上下文，
+	 * 自动尊重 user/project npmrc 的镜像与 scope 配置。子进程失败、超时或输出不是
+	 * http(s) 地址时返回 null，版本查询整轮回退 npm view 子进程（现状行为）。
+	 */
+	private resolveNpmRegistryBase(): Promise<string | null> {
+		const configured = readConfiguredNpmCommand(join(this.homeDir, ".pi", "agent", "settings.json"));
+		const invocation = this.locator.createInvocation(configured[0], [...configured.slice(1), "config", "get", "registry"]);
+		return new Promise<string | null>((resolve) => {
+			execFile(
+				invocation.command,
+				invocation.args,
+				{
+					env: this.locator.createProcessEnv(this.getSettings(), invocation.pathPrefix),
+					shell: invocation.shell,
+					windowsHide: true,
+					timeout: 10_000,
+					encoding: "utf8",
+					windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+				},
+				(error, stdout) => {
+					const value = (error ? "" : stdout).trim();
+					resolve(/^https?:\/\//i.test(value) ? value : null);
+				},
+			);
+		});
+	}
+
 	/** CLI output can include registry credentials or personal paths; redact before logging/displaying it. */
 	private sanitizeCommandOutput(value: string): string {
 		return truncateText(redactForReport(value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "").trim(), this.homeDir), 4_000);
@@ -747,12 +808,12 @@ export class ExtensionManager {
 	}
 
 	/** 注入原生有效状态读取（迁移完成后禁用列表不再是真值来源）。 */
-	configureNativeEnabledReader(reader: (extension: PiExtensionSummary) => boolean | undefined): void {
+	configureNativeEnabledReader(reader: (extension: PiExtensionSummary) => ExtensionNativeState | undefined): void {
 		this.nativeEnabledReader = reader;
 	}
 
 	private nativeToggle: ((input: { source: string; path?: string; scope: PiExtensionSummary["scope"]; projectId?: string; enabled: boolean }) => Promise<{ ok: boolean; error?: string }>) | null = null;
-	private nativeEnabledReader: ((extension: PiExtensionSummary) => boolean | undefined) | null = null;
+	private nativeEnabledReader: ((extension: PiExtensionSummary) => ExtensionNativeState | undefined) | null = null;
 
 	/**
 	 * UI 开关统一入口（桌面 IPC 与 Web 工作区路由共用）：先按身份分流——内置扩展走 PiDeck 设置
@@ -842,6 +903,34 @@ export class ExtensionManager {
 		if (this.piVersionPromise) return this.piVersionPromise;
 		this.piVersionPromise = this.detectPiVersion();
 		return this.piVersionPromise;
+	}
+
+	/**
+	 * 启动空闲预热：提前跑一次 pi 版本探测并写入 piVersion 缓存，让首次
+	 * extensions:list 的 --no-approve 判定不再同步等待 `pi --version` 子进程。
+	 *
+	 * 尽力而为语义（预热硬约束）：已有缓存则直接返回、不重复探测；探测失败只记日志，
+	 * 并把缓存还原成未探测状态——不把 null 固化，否则一次失败的预热会让后续真实调用
+	 * 永远拿不到版本，--no-approve 判定被永久降级（预热失败不得影响任何主流程）。
+	 */
+	async warmPiVersionProbe(): Promise<void> {
+		if (this.piVersion) return;
+		// 只回滚自己发起的探测：蹭已在飞的探测时失败结果归真实调用方语义，不干预。
+		const startedProbe = this.piVersionPromise === null;
+		// getPiVersion 函数体内没有 await，调用返回时登记已同步完成；async 包装器不是登记物，
+		// 紧邻一次读取拿到的才是本次自发探测写进 this.piVersionPromise 的那个 promise 身份。
+		const probePromise = this.getPiVersion();
+		const registeredProbe = this.piVersionPromise;
+		try {
+			const version = await probePromise;
+			// 交错窗口内末写者胜出：applyUpdate 的 finally 先清空缓存、新调用方随后登记新探测时，
+			// 抹掉 this.piVersionPromise 会让后续真实调用白跑一次 `pi --version` 子进程；
+			// 只有登记者仍是本次自发探测才还原，否则保留新调用方的登记。
+			if (startedProbe && version === null && this.piVersionPromise === registeredProbe) this.piVersionPromise = null;
+		} catch (error) {
+			if (startedProbe && this.piVersionPromise === registeredProbe) this.piVersionPromise = null;
+			void getAppLogger()?.warn("extensions", "pi version prewarm failed", { error: error instanceof Error ? error.message : String(error) });
+		}
 	}
 
 	private async detectPiVersion(): Promise<string | null> {

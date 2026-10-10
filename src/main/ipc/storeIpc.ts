@@ -574,9 +574,13 @@ export function registerStoreIpc({ promptManager, skillManager, xuePromptManager
 		await extensionManager.restoreBuiltIn(source);
 		void appLogger.info("extension", "Built-in extension restored", { source });
 	});
-	ipcMain.handle(ipcChannels.extensionsUninstall, async (_event, source: string, scope?: "user" | "project" | "unknown") => {
+	ipcMain.handle(ipcChannels.extensionsUninstall, async (_event, source: string, scope?: "user" | "project" | "unknown", projectId?: unknown) => {
 		try {
-			const result = await extensionManager.uninstall(source, scope);
+			// 项目层卸载与安装走同一信任门（projectInstallTarget 内含 resolveProjectRoot + trust 校验）：
+			// 否则 pi remove -l 在错误 cwd 下被推入 --no-approve，pi 以 "Project is not trusted" 拒改本地 packages。
+			const target = scope === "project" ? await projectInstallTarget(projectId) : undefined;
+			if (scope === "project" && !target) throw new Error("Project scope requires a project id.");
+			const result = await extensionManager.uninstall(source, scope, target ? { projectRoot: target.root } : {});
 			void appLogger.info("extension", "Extension uninstalled", { source, scope });
 			return result;
 		} catch (error) {

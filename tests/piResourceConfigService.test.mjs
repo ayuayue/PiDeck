@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { PiResourceConfigService, projectExtensionEnabled, isPackageSource, isExactEntryFor, packageSourceOf, isPackageDelta, isEntryDisabled, packageFilterSnapshot, restorePackageDefaults } = loadTsCommonJs("src/main/config/PiResourceConfigService.ts");
+const { PiResourceConfigService, projectExtensionEnabled, projectExtensionFiltered, isPackageSource, isExactEntryFor, packageSourceOf, isPackageDelta, isEntryDisabled, packageFilterSnapshot, restorePackageDefaults } = loadTsCommonJs("src/main/config/PiResourceConfigService.ts");
 const { PiResourceStateStore, packageSnapshotFingerprint } = loadTsCommonJs("src/main/config/PiResourceStateStore.ts");
 
 function setupProject() {
@@ -187,6 +187,34 @@ test("string-form package entry (pi install 默认形态) disables and re-enable
 	}
 });
 
+test("enable without a usable snapshot folds the emptied filter object back to a plain string", async () => {
+	const { service, agentDir, cleanup } = setupProject();
+	try {
+		// 迁移/手改留下的停用对象，但没有对应快照（跨版本、快照文件丢失、外部改过）
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: [{ source: "npm:legacy", extensions: [], skills: [], prompts: [], themes: [] }] }), "utf8");
+		const on = await service.setPackageEnabled({ scope: { scope: "global" }, resourceId: "npm:legacy", enabled: true });
+		assert.equal(on.ok, true, JSON.stringify(on));
+		const restored = readJson(join(agentDir, "settings.json")).packages[0];
+		assert.equal(restored, "npm:legacy", "空过滤对象应折回纯字符串，否则 pi list 永久显示 (filtered)，用户只是关过开关却像做了过滤式安装");
+	} finally {
+		cleanup();
+	}
+});
+
+test("enable keeps unknown fields instead of dropping them while collapsing", async () => {
+	const { service, agentDir, cleanup } = setupProject();
+	try {
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: [{ source: "npm:legacy", extensions: [], skills: [], prompts: [], themes: [], custom: 1 }] }), "utf8");
+		const on = await service.setPackageEnabled({ scope: { scope: "global" }, resourceId: "npm:legacy", enabled: true });
+		assert.equal(on.ok, true, JSON.stringify(on));
+		const restored = readJson(join(agentDir, "settings.json")).packages[0];
+		assert.equal(restored.source, "npm:legacy");
+		assert.equal(restored.custom, 1, "折叠不能丢未知字段");
+	} finally {
+		cleanup();
+	}
+});
+
 test("string-form entry with prior partial filters restores those filters", async () => {
 	const { service, agentDir, cleanup } = setupProject();
 	try {
@@ -362,6 +390,27 @@ test("projectExtensionEnabled：包安装看 packages 条目，顶层包目录�
 	// 本地文件扩展仍然走顶层精确规则
 	assert.equal(projectExtensionEnabled({ source: "my-local-ext", path: "/agent/extensions/a.ts", entries: ["-/agent/extensions/a.ts"], packages: [] }), false);
 	assert.equal(projectExtensionEnabled({ source: "my-local-ext", path: "/agent/extensions/a.ts", entries: [], packages: [] }), true);
+});
+
+test("projectExtensionFiltered：整包停用/空对象不算过滤式安装，真过滤键才算", () => {
+	const packages = [
+		"npm:plain",
+		{ source: "npm:disabled", extensions: [], skills: [], prompts: [], themes: [] },
+		{ source: "npm:empty" },
+		{ source: "npm:partial", extensions: ["-dist/index.js"] },
+		{ source: "npm:delta-off", autoload: false, extensions: ["!*", "!.*"], skills: ["!*", "!.*"], prompts: ["!*", "!.*"], themes: ["!*", "!.*"] },
+		{ source: "npm:delta-select", autoload: false, skills: ["custom/SKILL.md"] },
+	];
+	assert.equal(projectExtensionFiltered({ source: "npm:plain", packages }), false, "纯字符串 = 默认安装");
+	assert.equal(projectExtensionFiltered({ source: "npm:disabled", packages }), false, "整包停用只是关了开关，不是过滤式安装（pi list 会误标 filtered）");
+	assert.equal(projectExtensionFiltered({ source: "npm:empty", packages }), false, "历史残留的空对象没有过滤");
+	assert.equal(projectExtensionFiltered({ source: "npm:partial", packages }), true, "有实际过滤键才是过滤式安装");
+	assert.equal(projectExtensionFiltered({ source: "npm:delta-off", packages }), false, "delta 的全关覆盖同样不算过滤式安装");
+	assert.equal(projectExtensionFiltered({ source: "npm:delta-select", packages }), true);
+	// 无法判定：包不在本层 / 快照不可用 / 非包来源（保留 pi list 的结论）
+	assert.equal(projectExtensionFiltered({ source: "npm:missing", packages }), undefined);
+	assert.equal(projectExtensionFiltered({ source: "npm:plain", packages: null }), undefined);
+	assert.equal(projectExtensionFiltered({ source: "local-ext.ts", packages }), undefined);
 });
 
 test("回归：启用包扩展后读回不再是停用（服务写入 + 投影联合）", async () => {

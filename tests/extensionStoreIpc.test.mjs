@@ -62,6 +62,7 @@ test("ExtensionsTab 挂载商店 Tab（已安装/商店两级）", () => {
 	const tab = readFileSync("src/renderer/src/config/ExtensionsTab.tsx", "utf8");
 	assert.match(tab, /ExtensionStoreTab/);
 	assert.match(tab, /config\.extensionStoreTab/);
-	assert.match(tab, /installedExtensions=/);
+	// 商店卡片的已安装判据走 source 集合（含项目 discovery 里的 package-project 条目，见 projectInstalledExtensionSources）
+	assert.match(tab, /installedSources=\{\s*storeInstalledSources\s*\}/);
 	assert.match(tab, /onInstalled=/);
 });
