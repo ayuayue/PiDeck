@@ -2706,6 +2706,8 @@ export const enUS: Record<TranslationKey, string> = {
 	"config.usageProbe.sub2apiPanelJwt": "Panel JWT (optional)",
 	"config.usageProbe.sub2apiPanelJwtPlaceholder": "Web dashboard login JWT, used to additionally query the account wallet balance",
 	"config.usageProbe.sub2apiPanelJwtHint": "How to get: web dashboard → F12 → Network → any /api/v1 request's Authorization header (strip the Bearer prefix). When the token expires the balance row disappears — just paste a fresh one; usage/limits are unaffected",
+	"config.usageProbe.sub2apiPanelJwtExpired": "Panel JWT expired or invalid — the balance segment is hidden; paste a fresh token to restore it",
+	"config.usageProbe.sub2apiPanelJwtFailed": "Panel balance query failed (network or server error) — the balance segment is hidden",
 	"config.usageProbe.legacyDetected": "Legacy probe detected ({name}, {count} total): Cookie template fields pre-filled — just save to migrate to the new format",
 	"config.usageProbe.legacyUnnamed": "unnamed probe",
 	"config.usageProbe.credentialApiKey": "API Key (optional)",

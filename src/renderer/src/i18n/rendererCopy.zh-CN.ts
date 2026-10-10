@@ -2698,6 +2698,8 @@ export const zhCN = {
 	"config.usageProbe.sub2apiPanelJwt": "面板 JWT（可选）",
 	"config.usageProbe.sub2apiPanelJwtPlaceholder": "网页后台登录态 JWT，用于追加查询账户钱包余额",
 	"config.usageProbe.sub2apiPanelJwtHint": "获取：网页后台 F12 → Network → 任一 /api/v1 请求的 Authorization 头（去掉 Bearer 前缀）。令牌过期后余额段消失，重新粘贴新令牌即可；已用/限额不受影响",
+	"config.usageProbe.sub2apiPanelJwtExpired": "面板 JWT 已过期或无效，余额段已隐藏；重新粘贴新令牌即可恢复",
+	"config.usageProbe.sub2apiPanelJwtFailed": "面板余额查询失败（网络或服务端异常），余额段已隐藏",
 	"config.usageProbe.legacyDetected": "检测到旧版探针配置（{name}，共 {count} 条）：已自动填入 Cookie 模板字段，直接保存即可迁移为新格式",
 	"config.usageProbe.legacyUnnamed": "未命名探针",
 	"config.usageProbe.credentialApiKey": "API Key（可选）",

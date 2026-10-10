@@ -23,6 +23,7 @@ import {
 	sessionMessagesCacheAtom,
 	sessionPasteFilesBySessionIdAtomFamily,
 	sessionRecordByIdAtomFamily,
+	sessionRecordsAtom,
 	sessionRuntimeBySessionIdAtomFamily,
 	sessionRuntimeUiBySessionIdAtomFamily,
 	sessionQuotesBySessionIdAtomFamily,
@@ -34,6 +35,9 @@ import {
 	setSessionPasteFilesAtom,
 	setSessionSendStateAtom,
 	upsertSessionAtom,
+	promoteSessionComposerStateAtom,
+	removeSessionStateAtom,
+	currentSessionIdAtom,
 	acpToolsAtom,
 	type PastedTextFile,
 } from "../atoms";
@@ -1085,6 +1089,24 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		},
 		showError: (message, duration) => showNotice(message, duration),
 		showUnknown: () => showNotice(t("app.queuedUnknown"), 6000),
+		// ACP 首启失败回收：激活从未成功（draft + 拒收）的 acp 会话没有任何可恢复内容
+		// （agent 侧会话未建、无消息），删除后把回填的草稿搬回引导页，不留在历史列表。
+		pruneFailedAcpDraft: async (failedSessionId) => {
+			const failed = store.get(sessionRecordsAtom)[failedSessionId];
+			if (!failed || failed.backend !== "acp" || failed.status !== "draft") return false;
+			// 先搬草稿（restoreRejectedPrompt 已把输入回填到该会话 composer），再删会话——
+			// 反序会让 promote 读不到源会话状态，用户输入丢失。
+			store.set(promoteSessionComposerStateAtom, { fromSessionId: failedSessionId, toSessionId: GUIDE_BOOTSTRAP_SESSION_ID });
+			await desktopApi.sessions.deleteRecord(failedSessionId).catch(() => undefined);
+			// 先切回引导页再删会话：removeSessionStateAtom 发现删的是当前会话会把
+			// currentSessionId 置 undefined，App 会渲染一帧空态引导页再被下一行设回 GUIDE，
+			// 视觉上就是「闪一下」（与用户报的首启闪烁同源）——先设 GUIDE 则 remove 判定不命中不清空。
+			if (store.get(currentSessionIdAtom) === failedSessionId) {
+				store.set(currentSessionIdAtom, GUIDE_BOOTSTRAP_SESSION_ID);
+			}
+			store.set(removeSessionStateAtom, failedSessionId);
+			return true;
+		},
 		enqueue,
 	});
 
