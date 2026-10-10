@@ -5203,7 +5203,7 @@ export const zhCN = {
 	"tool.viewDiff": "查看本次 diff",
 	"editor.unsavedMarker": " · 未保存",
 	"timeline.loadFailed": "会话历史加载失败",
-	"timeline.loadFailedHint": "无法读取会话文件，可能已被删除或路径失效。可重试，或检查该项目目录下的会话文件。",
+	"timeline.loadFailedHint": "暂时无法加载会话历史。请根据下方错误详情重试或反馈问题；此提示不代表会话文件已丢失。",
 	// DSH host 被手动停止：不是文件失效（DSH 会话没有 pi 会话文件），而是运行时没在跑，
 	// 且手动停止态不会自愈——文案必须给出「启动 host」这个唯一恢复路径。
 	"timeline.dshHostStopped": "DSH 运行时已手动停止",

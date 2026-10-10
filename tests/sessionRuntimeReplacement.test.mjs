@@ -93,6 +93,97 @@ for (const operation of ["clone", "fork", "switch"]) {
 	});
 }
 
+test("fork replacement reapplies the selected provider and thinking before publishing target state", async () => {
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = makeHarness();
+	const model = { provider: "selected-provider", modelId: "selected-model", modelName: "Selected model" };
+	harness.catalog.get = (sessionId) => (harness.records.has(sessionId) ? { id: sessionId, model, thinkingLevel: "high" } : undefined);
+	let actualProvider = "old-provider";
+	const order = [];
+	harness.agents.setModel = async (_agentId, provider, modelId) => {
+		assert.equal(modelId, model.modelId);
+		actualProvider = provider;
+		order.push("model");
+	};
+	harness.agents.setThinking = async (_agentId, level) => {
+		assert.equal(level, "high");
+		order.push("thinking");
+	};
+	const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, async () => ({ accepted: true }));
+	coordinator.bindExistingAgent("old-session", "agent-1");
+	await coordinator.replaceBoundRuntime({
+		agentId: "agent-1",
+		replace: async () => {
+			// pi /fork restores model_change from the source branch, not the recent catalog selection.
+			actualProvider = "old-provider";
+			return { text: "resend" };
+		},
+		resolveTargetSessionId: async () => "fork-session",
+		canRestoreOrigin: () => false,
+		onDetached: () => undefined,
+		onAttached: () => {
+			order.push("attached");
+			assert.equal(actualProvider, model.provider);
+		},
+		onRestored: () => assert.fail("successful fork must not restore origin"),
+	});
+	assert.deepEqual(order, ["model", "thinking", "attached"]);
+});
+
+test("returning to a previously applied target invalidates its same-agent preference cache", async () => {
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = makeHarness();
+	const model = { provider: "selected-provider", modelId: "selected-model" };
+	harness.catalog.get = (sessionId) => (harness.records.has(sessionId) ? { id: sessionId, model } : undefined);
+	let actualProvider = "old-provider";
+	let applications = 0;
+	harness.agents.setModel = async (_agentId, provider) => {
+		actualProvider = provider;
+		applications += 1;
+	};
+	const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, async () => ({ accepted: true }));
+	coordinator.bindExistingAgent("fork-session", "agent-1");
+	assert.equal((await coordinator.activateRuntime("fork-session")).ok, true);
+	coordinator.bindExistingAgent("old-session", "agent-1");
+	await coordinator.replaceBoundRuntime({
+		agentId: "agent-1",
+		replace: async () => {
+			actualProvider = "old-provider";
+			return {};
+		},
+		resolveTargetSessionId: async () => "fork-session",
+		canRestoreOrigin: () => false,
+		onDetached: () => undefined,
+		onAttached: () => assert.equal(actualProvider, model.provider),
+		onRestored: () => assert.fail("successful replacement must not restore origin"),
+	});
+	assert.equal(applications, 2);
+});
+
+test("replacement preference failure stays detached and never publishes a misleading model", async () => {
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = makeHarness();
+	harness.catalog.get = (sessionId) => (harness.records.has(sessionId) ? { id: sessionId, model: { provider: "selected", modelId: "model" } } : undefined);
+	harness.agents.setModel = async () => {
+		throw new Error("provider unavailable");
+	};
+	const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, async () => ({ accepted: true }));
+	coordinator.bindExistingAgent("old-session", "agent-1");
+	await assert.rejects(
+		coordinator.replaceBoundRuntime({
+			agentId: "agent-1",
+			replace: async () => ({}),
+			resolveTargetSessionId: async () => "fork-session",
+			canRestoreOrigin: () => false,
+			onDetached: () => undefined,
+			onAttached: () => assert.fail("failed preferences must not publish target state"),
+			onRestored: () => assert.fail("fork changed identity; cannot restore origin"),
+		}),
+		/provider unavailable/,
+	);
+	assert.equal(coordinator.getSessionId("agent-1"), undefined);
+});
+
 test("replacement failure restores the old binding when identity is unchanged", async () => {
 	const { SessionRuntimeCoordinator } = loadCoordinator();
 	const harness = makeHarness();

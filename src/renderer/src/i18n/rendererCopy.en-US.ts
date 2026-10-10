@@ -5220,7 +5220,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"tool.viewDiff": "View this diff",
 	"editor.unsavedMarker": " · Unsaved",
 	"timeline.loadFailed": "Session history failed to load",
-	"timeline.loadFailedHint": "Cannot read the session file; it may have been deleted or its path is stale. Retry, or check the session files under the project directory.",
+	"timeline.loadFailedHint": "Session history could not be loaded. Use the error details below to retry or report the problem; this does not mean the session file is missing.",
 	// DSH host manually stopped: not a stale session file (DSH sessions have no pi session
 	// file) but a deliberately stopped runtime that will not self-heal — the copy must point
 	// at "Start host", the only way back.

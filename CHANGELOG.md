@@ -1,11 +1,37 @@
-## Unreleased
+## v0.9.0 (2026-10-10)
+
+This is a major feature update: PiDeck expands beyond the pi / DSH workbench with ACP tools and an independent host-plugin system, alongside upgrades to remote access, the terminal and native session management.
 
 ### 🚀 New Features
-- **Image actions in user messages** — Copy and save images from message thumbnails or the image preview. Desktop pi sessions also support removing one image: confirmation stops a live Agent before updating the session file, preserving the message text, other images and later conversation. (#323)
+- **ACP backend: more AI coding tools in one workbench** — Create sessions driven by external ACP CLIs, with seven launch presets for Gemini CLI, Claude Agent, Codex CLI, Kimi CLI, Qwen Code, OpenCode and Cursor Agent. Tool detection, one-click install/uninstall where supported, per-tool environment variables and session images are included. Enable it explicitly in Settings → ACP Tools and restart; existing pi / DSH sessions stay unchanged.
+- **Independent PiDeck host-plugin system** — Local HTML / CSS / JS plugins run independently of pi and can register modal or workspace-page panels, sidebar entries and command-palette actions. With explicit permissions, they can read the current project's sessions, navigate to messages and store private state; theme and language follow the app. Install from a folder or a `.pideck-plugin` file, generate a scaffold in Settings, and use the authoring guide shared with the docs site. Authorization is bound to per-file content fingerprints and must be renewed when plugin contents change.
+- **Built-in remote access and access tokens** — The Web service gains registration-free temporary cloudflared tunnels and Tailscale Serve, with setup guides and configurable parameters. Remote access is protected by revocable access tokens rather than relying only on a reachable service address.
+- **Web live events and Plan Mode** — Session state and replies initiated on the desktop stream over SSE instead of frequent polling. The Web composer supports Plan Mode, keeping progress more consistent between phone and desktop.
+- **Terminal settings, WebGL and snapshot replay** — A dedicated terminal settings page shares a single theme source, with WebGL rendering, terminal snapshot replay and confirmation before closing a terminal.
+- **Native sessions and model catalogs aligned with pi 1.0.4** — Edits and deletions append native pi `context_edit` entries instead of rewriting original messages; the UI shows effective content while retaining the original records. Model catalogs preserve all official fields and model types, API settings no longer replace custom protocols with the default, and new Azure configurations use the native provider identifier.
+- **MCP service catalog and AI configuration assistant** — Built-in service listings, brand icons and an AI configuration assistant reduce manual setup, with additional presets for Chinese services.
+- **Session branch panel** — A new Branches panel in the right drawer provides read-only desktop browsing of pi's `/tree`.
+- **Project pinning and list management** — Pin projects and use improved drag ordering; project-session sorting is now backed by an extensible strategy catalog.
+- **Traditional Chinese UI** — New zh-TW coverage includes the main workbench and mini overlay, avoiding partial fallback to Simplified Chinese.
+- **Notification history across restarts** — Toast notifications are archived to disk for later review, with cleanup controls on the cache and logs page.
+- **Choose which composer controls to show** — Appearance settings can hide permissions, quick messages, Git branch, prompt enhance and voice-input controls; thinking level is now an inline dropdown.
+- **Image and attachment actions in user messages** — Copy and save images from message thumbnails or the image preview, and open attached files from their chips. Desktop pi sessions also support removing one image: confirmation stops a live Agent before updating the session file, preserving the message text, other images and later conversation. (#323)
+
+### ✨ Improvements
+- **Extension-command previews in draft sessions** — Unsent sessions can read slash commands from the standby process without consuming it or activating a session runtime. (#316)
+- **Faster resource-toggle feedback** — Extension switches respond immediately, while package-resource reads and writes and project-scope routing share the same source, reducing switches bouncing back after refresh.
+- **Remote and mobile polish** — Full-screen file previews, system-back dismissal for overlays and larger close-button hit areas; the Tailscale entry also supports older CLI versions.
+- **Security and long-running stability hardening** — Stronger Web authentication, IPC input validation and sidecar/child-process cleanup, bounded session imports and sent-history caches, and broken-pipe handling for RPC and Git reduce unexpected exits.
 
 ### 🐛 Fixes
+- **Resend preserves the selected model and provider** — After a fork, the target session's model and thinking level are reapplied and the same-process preference cache is invalidated before publishing the runtime or allowing resend. Failed application does not publish misleading state. Together with inherited model preferences, this prevents requests to the old provider after switching and the `-/-` footer state. (#331)
+- **Second-level fork history and duplicate messages** — Incremental forks retain each ancestor message's original file path and byte offset. Forks with a copied full prefix use the child file as authoritative, without duplicating parent messages or importing later parent-branch turns. History-load failures show the actual cause instead of presenting parse errors as missing files. (#332)
 - **Images survive edit, fork and resend** — Composer refill restores the message's images, clears stale attachments for text-only messages, and resend snapshots recognize both flat pi image blocks and nested base64 image blocks. (#324)
 - **Prompt enhance accepts custom provider and model names** — Chinese characters, spaces, colons and URL-style names are no longer rejected by the IPC validator; blank, control-character and oversized identifiers remain blocked. (#322)
+- **Composer scrolling no longer triggers React update-depth errors** — Stopping scroll and restoring a position are idempotent, avoiding `Maximum update depth exceeded`; cross-paragraph selection quotes and scroll positioning after replies settle are also repaired.
+- **Linux session paths and unstaged diffs** — Relative session paths no longer cause broken fork/copy titles or stalled history loading. Line endings are normalized between Git objects and the working tree so diffs do not mark entire files red and green.
+- **More reliable pi detection and updates** — Detection and extension updates work with fnm's XDG layout and custom npm locations. Update checks follow the desktop network proxy, and self-updates are dispatched according to installation type. (#318)
+- **DSH migration prompts and macOS installation guidance** — The DSH runtime migration prompt appears only once across restarts. macOS artifacts explicitly label architecture, with startup guidance for mistakenly installed Rosetta builds. (#317)
 
 ## v0.8.0 (2026-10-07)
 

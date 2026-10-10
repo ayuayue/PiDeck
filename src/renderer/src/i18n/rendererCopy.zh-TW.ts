@@ -5209,7 +5209,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"tool.viewDiff": "檢視本次 diff",
 	"editor.unsavedMarker": " · 未儲存",
 	"timeline.loadFailed": "會話歷史載入失敗",
-	"timeline.loadFailedHint": "無法讀取會話檔案，可能已被刪除或路徑失效。可重試，或檢查該專案目錄下的會話檔案。",
+	"timeline.loadFailedHint": "暫時無法載入會話歷史。請根據下方錯誤詳情重試或反饋問題；此提示不代表會話檔案已丟失。",
 	// DSH host 被手动停止：不是文件失效（DSH 会话没有 pi 会话文件），而是运行时没在跑，
 	// 且手动停止态不会自愈——文案必须给出「启动 host」这个唯一恢复路径。
 	"timeline.dshHostStopped": "DSH 執行時已手動停止",

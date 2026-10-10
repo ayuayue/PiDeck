@@ -1577,10 +1577,10 @@ export class SessionHistoryReader {
 	}
 
 	/**
-	 * pi fork 产物（forkFromUserMessage/重发/编辑/回退 checkpoint 的子会话）只落增量：
-	 * header 带 parentSession 指针，会话正文在祖先文件里。这里把祖先活动分支的消息条目
-	 * 前置合并进子会话索引（条目标 chainHostPath，字节物化按各自文件读），时间线/分页/
-	 * 全文检索因此能看到完整历史；模型上下文本就由 pi 运行时沿链重建，此处只补展示层。
+	 * parentSession 是 fork 来源标记，不代表子文件一定只含增量。共享 message id
+	 * 表示子文件已复制活动前缀，以子文件为权威；仅增量文件才补祖先活动消息。
+	 * 索引条目的 chainHostPath 与 offset/byteLength 成对保留，让时间线/分页/全文检索
+	 * 从正确文件物化消息。此处只补展示层，不参与 pi 的模型上下文构建。
 	 * 祖先缺失（被清理）或链超深/成环时降级为单文件索引：丢前缀但不阻塞打开。
 	 */
 	private async mergeForkChain(hostPath: string, version: { size: number; mtimeMs: number }, own: SessionDisplayIndex, depth: number, visited: Set<string>, guard?: PluginHistoryGuard): Promise<SessionDisplayIndex> {
@@ -1604,9 +1604,12 @@ export class SessionHistoryReader {
 			});
 			return own;
 		}
-		// 祖先只取消息条目：设置类条目（model_change/system 等）子文件有自己的同 id 拷贝，
-		// 重复注入只会污染条目表与分支回溯。
-		const inherited = parent.activeMessageEntries.map((entry) => ({ ...entry, chainHostPath: parent.hostPath }));
+		// pi 的完整 fork 已复制活动前缀（沿用 entry id），子文件就是分支权威；
+		// 再拼父分支不但重复消息，还会混入 fork 点之后/父会话后续追加的轮次。
+		if (own.activeMessageEntries.some((entry) => parent.entries.has(entry.id))) return own;
+		// 增量 fork 才补祖先消息；offset/byteLength 必须与原始来源文件配对，
+		// 二级及以上的继承条目不能被重定向到直接父文件。
+		const inherited = parent.activeMessageEntries.map((entry) => ({ ...entry, chainHostPath: entry.chainHostPath ?? parent.hostPath }));
 		const entries = new Map<string, SessionDisplayEntry>();
 		for (const entry of inherited) entries.set(entry.id, entry);
 		for (const entry of own.entries.values()) entries.set(entry.id, entry);
