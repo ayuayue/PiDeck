@@ -80,6 +80,7 @@
   - [🤝 参与贡献](#-参与贡献)
   - [💬 社区交流](#-社区交流)
   - [🔒 安全与隐私](#-安全与隐私)
+  - [🛒 作者的小店](#-作者的小店)
   - [☕ 赞助](#-赞助)
   - [License](#license)
 
@@ -419,6 +420,18 @@ src/
 ## 🔒 安全与隐私
 
 本应用启动本地 `pi` 进程并通过 Electron IPC 暴露有限的文件操作。请仅运行你信任的源码。应用默认发送匿名、低频的 `app_heartbeat` 使用统计，用于了解版本分布、平台兼容性和活跃安装数量，可在设置中关闭；不会收集项目路径、代码、消息内容、会话内容或文件名，也不会上传文件。第三方统计服务会接收请求元数据。pi agent 子进程代理和桌面端模型拉取/测试代理可独立配置；系统浏览器打开的外部链接仍由系统浏览器网络设置决定。
+
+---
+
+## 🛒 作者的小店
+
+顺手打个广告：需要充值 ChatGPT Plus / Pro、Claude 的同学可以找我 —— 官网直充、保订阅，成品号质保订阅，可开发票（加 6% 税点）。
+
+<p align="center">
+  <a href="docs/images/gpt-recharge-price.png"><img src="docs/images/gpt-recharge-price.png" alt="GPT 充值价目表" width="420" /></a>
+</p>
+
+价格跟着时价波动，以最新这张图为准（点开看大图）。改价 / 重新出图：`cd video-series/poster && node price.mjs`，说明见 [video-series/poster/README.md](video-series/poster/README.md)。
 
 ---
 
