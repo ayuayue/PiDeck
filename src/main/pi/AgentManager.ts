@@ -2936,9 +2936,16 @@ export class AgentManager {
 	 */
 	async setModel(agentId: string, provider: string, modelId: string): Promise<void> {
 		const runtime = this.requireRuntime(agentId);
+		const process = runtime.process;
+		const { deckSessionId, runtimeGeneration, sessionPath } = runtime.tab;
+		const assertCurrentRuntime = () => {
+			// 自动重连可保留 agentId/代次；旧进程的确认不能授权当前会话写回偏好或重启。
+			if (this.agents.get(agentId) !== runtime || runtime.process !== process || runtime.tab.deckSessionId !== deckSessionId || runtime.tab.runtimeGeneration !== runtimeGeneration || runtime.tab.sessionPath !== sessionPath) throw new Error("Model selection cancelled: runtime changed");
+		};
 		// Pi RPC 没有运行中 busy 门禁：set_model 立即更新 Agent state；已经发出的
 		// provider request 不可改写，后续同一 turn step/下一次 request 会读取新模型。
-		const response = await runtime.process.client.request({ type: "set_model", provider, modelId }, 60_000);
+		const response = await process.client.request({ type: "set_model", provider, modelId }, 60_000);
+		assertCurrentRuntime();
 		if (!response.success) {
 			// pi 对 set_model 用启动时加载的模型快照校验；模型不在快照中返回
 			// "Model not found: provider/model"。此时分两种情况：
@@ -2951,6 +2958,7 @@ export class AgentManager {
 			const errorText = response.error ?? "";
 			if (/model not found/i.test(errorText)) {
 				const [localHasModel, catalogHasModel] = await Promise.all([this.localModelsContains(provider, modelId), this.resolveModelInCatalog?.(provider, modelId) ?? Promise.resolve(false)]);
+				assertCurrentRuntime();
 				if (localHasModel || catalogHasModel) {
 					const err = new Error(errorText) as Error & { needsRestart?: boolean };
 					err.needsRestart = true;
@@ -2961,29 +2969,35 @@ export class AgentManager {
 		}
 		this.emitState();
 	}
+
+	/** 读取选择命令实际生效的模型/档位；进程退役时不能降级成可持久化的偏好。 */
 	async getRuntimeModelThinkingState(agentId: string): Promise<SessionRuntimeModelSelection | undefined> {
 		const runtime = this.requireRuntime(agentId);
+		const process = runtime.process;
+		const { deckSessionId, runtimeGeneration, sessionPath } = runtime.tab;
+		let response: RpcResponse | undefined;
 		try {
-			const response = await runtime.process.client.request({ type: "get_state" }, this.rpcTimeoutMs);
-			if (!response.success || !isRecord(response.data) || !isRecord(response.data.model)) return undefined;
-			const model = response.data.model;
-			const provider = normalizedRuntimeName(model.provider);
-			const modelId = normalizedRuntimeName(model.id);
-			if (!provider || !modelId) return undefined;
-			const modelName = normalizedRuntimeName(model.name) ?? modelId;
-			return {
-				provider,
-				modelId,
-				modelName,
-				...(typeof response.data.thinkingLevel === "string" ? { thinkingLevel: response.data.thinkingLevel } : {}),
-			};
+			response = await process.client.request({ type: "get_state" }, this.rpcTimeoutMs);
 		} catch (error) {
 			void this.appLogger?.warn("agent", "Runtime model state read failed", {
 				agentId,
 				error: error instanceof Error ? error.message : String(error),
 			});
-			return undefined;
 		}
+		// 必须在 RPC catch 外校验：undefined 只表示当前进程查询不可用，不表示旧进程有效。
+		if (this.agents.get(agentId) !== runtime || runtime.process !== process || runtime.tab.deckSessionId !== deckSessionId || runtime.tab.runtimeGeneration !== runtimeGeneration || runtime.tab.sessionPath !== sessionPath) throw new Error("Runtime model state cancelled: runtime changed");
+		if (!response?.success || !isRecord(response.data) || !isRecord(response.data.model)) return undefined;
+		const model = response.data.model;
+		const provider = normalizedRuntimeName(model.provider);
+		const modelId = normalizedRuntimeName(model.id);
+		if (!provider || !modelId) return undefined;
+		const modelName = normalizedRuntimeName(model.name) ?? modelId;
+		return {
+			provider,
+			modelId,
+			modelName,
+			...(typeof response.data.thinkingLevel === "string" ? { thinkingLevel: response.data.thinkingLevel } : {}),
+		};
 	}
 
 	/** 本地 models.json 是否包含指定 provider/modelId；仅用于判断运行时模型快照是否过期。 */
@@ -3033,8 +3047,12 @@ export class AgentManager {
 
 	async setThinking(agentId: string, level: string): Promise<void> {
 		const runtime = this.requireRuntime(agentId);
+		const process = runtime.process;
+		const { deckSessionId, runtimeGeneration, sessionPath } = runtime.tab;
 		// 与 set_model 相同：选择链路只确认命令是否接受，不额外读取 get_state。
-		const response = await runtime.process.client.request({ type: "set_thinking_level", level }, 60_000);
+		const response = await process.client.request({ type: "set_thinking_level", level }, 60_000);
+		// 档位确认属于发送命令的进程，不能把自动重连前的成功写回当前会话。
+		if (this.agents.get(agentId) !== runtime || runtime.process !== process || runtime.tab.deckSessionId !== deckSessionId || runtime.tab.runtimeGeneration !== runtimeGeneration || runtime.tab.sessionPath !== sessionPath) throw new Error("Thinking selection cancelled: runtime changed");
 		if (!response.success) throw new Error(response.error ?? "set_thinking_level failed");
 		this.emitState();
 	}
