@@ -18,6 +18,15 @@ import { WELCOME_DSH_MODEL_KEY, WELCOME_MODEL_KEY, WELCOME_THINKING_KEY } from "
 /** 快捷键触发的循环目标（模型 / 思考档位）。 */
 type PendingCycle = "model" | "thinking";
 
+/** 重启授权同时绑定原会话、运行时代次与栏生命周期，不能只保存可重绑的 Agent ID。 */
+type ModelRestartIntent = {
+	handle: SessionRuntimeTarget;
+	isCurrent: () => boolean;
+	provider: string;
+	modelId: string;
+	modelName: string;
+};
+
 export type SessionPreferenceController = {
 	/** 会话后端（DSH 的目录/档位来自 host catalog）：选择器与循环共用 */
 	isDshSession: boolean;
@@ -114,12 +123,9 @@ export function useSessionPreferenceController(options: {
 	const { restartActiveAgent } = useSessionPaneServices();
 	// 不跟 restartTarget state 同步：ConfirmDialog 点确定会先 onOpenChange(false)
 	// 走 onCancel 清掉 state；确认意图放 ref，避免当成取消后丢数据。
-	const restartIntentRef = useRef<{
-		agentId: string;
-		provider: string;
-		modelId: string;
-		modelName: string;
-	} | null>(null);
+	const restartIntentRef = useRef<ModelRestartIntent | null>(null);
+	// state 的重绘晚于同轮点击；同步记录本次 owner，防重复提交，也不让旧 finally 解掉新锁。
+	const restartingIntentRef = useRef<ModelRestartIntent | null>(null);
 	const recordRef = useRef(record);
 	recordRef.current = record;
 	// 按一次栏生命周期隔离请求；切走再回来也不能复活先前的选择结果。
@@ -138,7 +144,7 @@ export function useSessionPreferenceController(options: {
 		const scope = selectionScopeRef.current;
 		return () => {
 			const current = currentHandle();
-			return selectionScopeRef.current === scope && scope.active && current?.agentId === handle?.agentId && current?.runtimeGeneration === handle?.runtimeGeneration;
+			return scope.sessionId === sessionId && selectionScopeRef.current === scope && scope.active && current?.agentId === handle?.agentId && current?.runtimeGeneration === handle?.runtimeGeneration;
 		};
 	}
 
@@ -199,10 +205,13 @@ export function useSessionPreferenceController(options: {
 	}
 
 	function offerModelRestart(handle: SessionRuntimeTarget, model: AvailableModel) {
+		const isCurrent = captureSelection(handle);
+		if (!isCurrent()) return;
 		onApplied();
 		const selected = selectedModelPreference(model);
 		restartIntentRef.current = {
-			agentId: handle.agentId,
+			handle,
+			isCurrent,
 			...selected,
 		};
 		setRestartTarget({
@@ -301,11 +310,14 @@ export function useSessionPreferenceController(options: {
 	const canClearModel = (!record || record.status === "draft") && !runtime?.agentId;
 
 	async function clearModel() {
-		// 点击前再次检查实时绑定，防止选择器打开后 Agent 已启动。
-		if ((record && record.status !== "draft") || currentHandle()) return;
+		// 点击与异步保存回包都必须仍是原栏的未启动草稿；已发出的源记录保存可完成，但不能污染新栏。
+		const ownsSelection = captureSelection(undefined);
+		const isCurrent = () => ownsSelection() && (record ? recordRef.current?.status === "draft" : !recordRef.current);
+		if (!isCurrent()) return;
 		try {
 			if (record) {
 				const updated = await desktopApi.sessions.updateRecord(sessionId, { model: null });
+				if (!isCurrent()) return;
 				state.upsertSession(updated);
 			} else {
 				localStorage.removeItem(isDshSession ? WELCOME_DSH_MODEL_KEY : WELCOME_MODEL_KEY);
@@ -313,7 +325,7 @@ export function useSessionPreferenceController(options: {
 			state.setModelPending(undefined);
 			onApplied();
 		} catch (error) {
-			showNotice(error instanceof Error ? error.message : String(error), 4000);
+			if (isCurrent()) showNotice(error instanceof Error ? error.message : String(error), 4000);
 		}
 	}
 
@@ -464,35 +476,44 @@ export function useSessionPreferenceController(options: {
 		});
 	}, [sessionId, store, catalogReady, favoritesLoaded]);
 
+	// 确认/取消入口只授权本次呈现的意图，旧弹窗回调不能挪用随后出现的新模型授权。
+	const confirmationIntent = restartIntentRef.current;
+
 	async function confirmRestart() {
-		const intent = restartIntentRef.current;
-		if (!intent || restarting) return;
+		const intent = confirmationIntent;
+		if (!intent || restartIntentRef.current !== intent || intent.handle.sessionId !== sessionId || !intent.isCurrent() || restartingIntentRef.current?.isCurrent()) return;
+		restartingIntentRef.current = intent;
 		setRestarting(true);
 		// 先关确认框，避免 AlertDialog 关闭动画盖住 overlay。
 		setRestartTarget(null);
 		try {
-			const updated = await desktopApi.sessions.updateRecord(sessionId, {
+			const updated = await desktopApi.sessions.updateRecord(intent.handle.sessionId, {
 				model: {
 					provider: intent.provider,
 					modelId: intent.modelId,
 					modelName: intent.modelName,
 				},
 			});
+			// 保存等待期间可能已切栏/换代，或有新确认意图；旧授权不能继续重启现在的进程。
+			if (!intent.isCurrent() || restartIntentRef.current !== intent) return;
 			state.upsertSession(updated);
 			state.setModelPending(undefined);
-			await restartActiveAgent(intent.agentId);
+			await restartActiveAgent(intent.handle.agentId);
 		} catch (error) {
-			showNotice(error instanceof Error ? error.message : String(error), 4000);
+			if (intent.isCurrent()) showNotice(error instanceof Error ? error.message : String(error), 4000);
 		} finally {
-			restartIntentRef.current = null;
-			setRestarting(false);
+			if (restartIntentRef.current === intent) restartIntentRef.current = null;
+			if (restartingIntentRef.current === intent) {
+				restartingIntentRef.current = null;
+				setRestarting(false);
+			}
 		}
 	}
 
 	function cancelRestart() {
 		// 只关框：点确定也会先走 onOpenChange(false)→onCancel。
 		// 不能在这里清 restartIntentRef，否则确认路径读到空、重启不会发生。
-		setRestartTarget(null);
+		if (confirmationIntent && restartIntentRef.current === confirmationIntent && confirmationIntent.isCurrent()) setRestartTarget(null);
 	}
 
 	// 不做 memo：本 controller 只服务一个选择器宿主组件，缓存对象反而要靠 ref 兜住
@@ -523,8 +544,8 @@ export function useSessionPreferenceController(options: {
 		applyThinking: (level) => applyThinkingRef.current(level),
 		cycleModel,
 		cycleThinking,
-		restartTarget,
-		restarting,
+		restartTarget: restartIntentRef.current?.isCurrent() ? restartTarget : null,
+		restarting: restarting && Boolean(restartingIntentRef.current?.isCurrent()),
 		confirmRestart,
 		cancelRestart,
 	};
