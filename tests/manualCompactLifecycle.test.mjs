@@ -43,7 +43,11 @@ function harness({ ownership, request } = {}) {
 	manager.resolveSessionCompactionOwnership = ownership ?? (async () => undefined);
 	manager.getSessionCacheHitStats = async () => ({ sampleCount: 0 });
 	manager.emitRuntimeState = () => {
-		const emission = manager.getRuntimeState(AGENT_ID).then((state) => states.push(state));
+		// 与真实 emitter 一致：运行时退役后的状态查询失败静默丢弃，不产生悬空 rejection。
+		const emission = manager
+			.getRuntimeState(AGENT_ID)
+			.then((state) => states.push(state))
+			.catch(() => {});
 		stateEmissions.push(emission);
 		return emission;
 	};

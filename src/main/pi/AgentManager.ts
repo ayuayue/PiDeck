@@ -2767,15 +2767,18 @@ export class AgentManager {
 		return this.cacheHitStatsReader(this.toSessionHostPath(sessionPath));
 	}
 
+	/** 读取同一运行时的 RPC/文件统计快照；等待期间退役或换绑时拒绝旧结果。 */
 	async getRuntimeState(agentId: string): Promise<AgentRuntimeState> {
 		const runtime = this.requireRuntime(agentId);
+		const process = runtime.process;
+		const { deckSessionId, runtimeGeneration, sessionPath } = runtime.tab;
 		// 文件统计（读会话 + 逐行 parse）与两个 RPC 并行：总耗时 = max(RPC, 文件)，
 		// 且文件结果带 (size, mtimeMs) 缓存，会话未变化时零 IO 零 parse
 		const [stateResponse, statsResponse, fileHitStats] = await Promise.all([
-			runtime.process.client.request({ type: "get_state" }, this.rpcTimeoutMs).catch(() => ({ data: undefined })),
-			runtime.process.client.request({ type: "get_session_stats" }).catch(() => ({ data: undefined })),
-			runtime.tab.sessionPath
-				? this.getSessionCacheHitStats(runtime.tab.sessionPath)
+			process.client.request({ type: "get_state" }, this.rpcTimeoutMs).catch(() => ({ data: undefined })),
+			process.client.request({ type: "get_session_stats" }).catch(() => ({ data: undefined })),
+			sessionPath
+				? this.getSessionCacheHitStats(sessionPath)
 				: Promise.resolve({
 						latest: undefined as number | undefined,
 						average: undefined as number | undefined,
@@ -2783,6 +2786,8 @@ export class AgentManager {
 						conversationTokens: undefined as number | undefined,
 					}),
 		]);
+		// 不能把旧进程的模型/用量与新绑定的本地状态拼成一份有效快照。
+		if (this.agents.get(agentId) !== runtime || runtime.process !== process || runtime.tab.deckSessionId !== deckSessionId || runtime.tab.runtimeGeneration !== runtimeGeneration || runtime.tab.sessionPath !== sessionPath) throw new Error("Runtime state cancelled: runtime changed");
 		const state = asRecord(stateResponse.data);
 		const stats = asRecord(statsResponse.data);
 		const model = asRecord(state?.model);
@@ -2870,7 +2875,12 @@ export class AgentManager {
 
 	private async emitRuntimeState(agentId: string) {
 		try {
+			const runtime = this.requireRuntime(agentId);
+			const process = runtime.process;
+			const { deckSessionId, runtimeGeneration, sessionPath } = runtime.tab;
 			const state = await this.getRuntimeState(agentId);
+			// 查询完成到恢复发布之间仍有 microtask 间隙，必须在真正 emit 处再次校验。
+			if (this.agents.get(agentId) !== runtime || runtime.process !== process || runtime.tab.deckSessionId !== deckSessionId || runtime.tab.runtimeGeneration !== runtimeGeneration || runtime.tab.sessionPath !== sessionPath) return;
 			const latestToolSequence = this.toolStateSequenceByAgent.get(agentId) ?? 0;
 			// getRuntimeState 包含异步 RPC；若期间发生新工具事件，只覆盖非工具字段，
 			// 工具字段保留调用完成时的最新本地真值和序号。
