@@ -69,8 +69,9 @@ export type ProviderUsageBooster = {
  * - newapi：New API / OneAPI 中转站（需要访问令牌 + 用户 ID）。
  * - cookie：自研网关网页后台接口（需要登录态 Cookie）。
  * - volcengine：火山方舟 AK/SK 签名查询（控制面 open.volcengineapi.com）。
+ * - sub2api：Sub2API 自部署网关 /v1/usage（钱包/订阅/Key 额度三形态自动分流）。
  */
-export type UsageProbeTemplateCategory = "balance" | "plan" | "subscription" | "general" | "newapi" | "cookie" | "volcengine";
+export type UsageProbeTemplateCategory = "balance" | "plan" | "subscription" | "general" | "newapi" | "cookie" | "volcengine" | "sub2api";
 
 /** 声明式模板元数据（渲染层 pills 数据源；纯数据、无密钥）。 */
 export type UsageProbeTemplateMeta = {
@@ -97,7 +98,7 @@ export type UsageProbeProviderConfig = {
 	/** 启动开关。不写 = 自动（内置命中即开、未命中即按未配置处理）。 */
 	enabled?: boolean;
 	/**
-	 * 模板 id："general" | "newapi" | "cookie" | "volcengine"；内置命中的 provider 可省略
+	 * 模板 id："general" | "newapi" | "cookie" | "volcengine" | "sub2api"；内置命中的 provider 可省略
 	 * （自动识别），识别不到时用户必须显式选一个声明式模板。
 	 */
 	template?: string;
@@ -190,7 +191,7 @@ export type UsageProbeTestInput = {
 	provider: string;
 	/** 配置宿主（缺省 pi）；dsh = 端点走 pi-ai catalog 兜底、凭据从 $DSH_HOME/.credentials.yaml 读。 */
 	backend?: UsageProbeBackend;
-	/** "general" | "newapi" | "cookie" | "volcengine" | 内置 templateId（省略 = 自动识别）。 */
+	/** "general" | "newapi" | "cookie" | "volcengine" | "sub2api" | 内置 templateId（省略 = 自动识别）。 */
 	template?: string;
 	apiKey?: string;
 	baseUrl?: string;

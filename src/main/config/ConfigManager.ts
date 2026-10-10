@@ -22,7 +22,7 @@ import { getAppLogger } from "../logging/sharedLogger";
 import { buildProbeFailureDetail, buildProbeHeaders, candidateApplies, getByPath, parseUsageResponseBody, USAGE_PROBE_CANDIDATES, usageProbeUrls } from "./providerUsageProbe";
 import type { UsageProbeAttempt, UsageProbeCandidate } from "./providerUsageProbe";
 import { resolveProviderUsageEndpoint } from "./providerUsageResolver";
-import { buildDeclarativeUsageProbeTemplate, USAGE_PROBE_CATEGORY_BY_TEMPLATE_ID } from "./usageProbeTemplates";
+import { buildDeclarativeUsageProbeTemplate, isDeclarativeTemplateId, USAGE_PROBE_CATEGORY_BY_TEMPLATE_ID } from "./usageProbeTemplates";
 import { loadUsageProbeProviderConfigs, loadUsageProbeSettings, loadUserUsageProbes, loadUserUsageProbesDetailed } from "./userUsageProbes";
 import type { UserUsageProbe, UsageProbeSettingsLoadResult } from "./userUsageProbes";
 import { usageProbeRequest } from "./usageProbeTransport";
@@ -987,7 +987,7 @@ export class ConfigManager {
 
 		// 3) 模板路由：声明式模板优先（用户显式选择），否则内置 + 旧探针自动匹配。
 		const template = settings.config?.template;
-		if (template === "general" || template === "newapi" || template === "cookie" || template === "volcengine") {
+		if (template !== undefined && isDeclarativeTemplateId(template)) {
 			const built = buildDeclarativeUsageProbeTemplate(template, settings.config ?? {}, {
 				baseUrl: resolvedBaseUrl,
 				apiKey: resolvedApiKey,
@@ -1158,8 +1158,8 @@ export class ConfigManager {
 			return { success: false, error: this.translate("mainConfig.providerUsageUnsupported") };
 		}
 
-		// 声明式模板（general/newapi/cookie/volcengine）：构建候选时可携带覆盖字段。
-		if (template === "general" || template === "newapi" || template === "cookie" || template === "volcengine") {
+		// 声明式模板（general/newapi/cookie/volcengine/sub2api）：构建候选时可携带覆盖字段。
+		if (template !== undefined && isDeclarativeTemplateId(template)) {
 			const built = buildDeclarativeUsageProbeTemplate(
 				template,
 				{

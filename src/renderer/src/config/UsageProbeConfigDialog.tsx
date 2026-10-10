@@ -42,6 +42,7 @@ const CATEGORY_LABEL_KEY: Record<UsageProbeTemplateCategory, TranslationKey> = {
 	newapi: "config.usageProbe.category.newapi",
 	cookie: "config.usageProbe.category.cookie",
 	volcengine: "config.usageProbe.category.volcengine",
+	sub2api: "config.usageProbe.category.sub2api",
 };
 
 /** 类别 → 说明文案 i18n key（内置/套餐/订阅无字段，说明即全部）。 */
@@ -53,15 +54,18 @@ const CATEGORY_HINT_KEY: Record<UsageProbeTemplateCategory, TranslationKey> = {
 	newapi: "config.usageProbe.newapiHint",
 	cookie: "config.usageProbe.cookieHint",
 	volcengine: "config.usageProbe.volcengineHint",
+	sub2api: "config.usageProbe.sub2apiHint",
 };
 
-/** 模板 id → 类别（内置 templateId 由主进程识别结果给出；声明式三个固定）。 */
+/** 模板 id → 类别（内置 templateId 由主进程识别结果给出；声明式固定五个）。 */
 const DECLARATIVE_TEMPLATE_CATEGORY: Record<string, UsageProbeTemplateCategory> = {
 	general: "general",
 	newapi: "newapi",
 	cookie: "cookie",
 	// 火山方舟：凭据是 AK/SK（不是 apiKey），归入自己的类别，说明文案走 volcengineHint。
 	volcengine: "volcengine",
+	// Sub2API：凭据就是供应商 apiKey（可选覆盖），零必填字段，说明文案走 sub2apiHint。
+	sub2api: "sub2api",
 };
 
 /** 「无模板」哨兵：供应商既不适用通用也不适用 New API 时，明确不选任何预设模板。 */
@@ -245,7 +249,8 @@ export function UsageProbeConfigDialog(props: {
 	 * 保存时只写开关/超时/间隔，查询走内置候选 + 旧探针自动匹配。 */
 	const currentTemplate = useMemo((): { id: string; category: UsageProbeTemplateCategory } | null => {
 		if (template === NONE_TEMPLATE) return null;
-		if (template === "general" || template === "newapi" || template === "cookie" || template === "volcengine") {
+		// 声明式模板：hasOwnProperty 防 "toString" 等原型链键误命中。
+		if (Object.prototype.hasOwnProperty.call(DECLARATIVE_TEMPLATE_CATEGORY, template)) {
 			return { id: template, category: DECLARATIVE_TEMPLATE_CATEGORY[template] };
 		}
 		if (recognized && recognized.templateId === template) {
@@ -320,9 +325,11 @@ export function UsageProbeConfigDialog(props: {
 			intervalMinutes,
 		};
 		// 内置识别命中 / 无模板：不写 template（自动路由）；声明式：写模板 id + 模板字段。
-		if (!isNone && current && (current.id === "general" || current.id === "newapi" || current.id === "cookie" || current.id === "volcengine")) {
+		if (!isNone && current && Object.prototype.hasOwnProperty.call(DECLARATIVE_TEMPLATE_CATEGORY, current.id)) {
 			config.template = current.id;
-			if (current.id === "general") {
+			// 通用/Sub2API：apiKey 与 baseUrl 都可选（默认取供应商条目；Sub2API 的 /v1/usage
+			// 与推理端点同 base 同 key，通常两项都留空）。
+			if (current.id === "general" || current.id === "sub2api") {
 				if (apiKey.trim()) config.apiKey = apiKey.trim();
 				if (baseUrl.trim()) config.baseUrl = baseUrl.trim();
 			} else if (current.id === "newapi") {
@@ -451,7 +458,7 @@ export function UsageProbeConfigDialog(props: {
 								<Switch checked={enabled} onCheckedChange={setEnabled} data-testid="usage-probe-enable" />
 							</div>
 
-							{/* 预设模板：识别命中只显示「已内置」+ 通用 + NewAPI；未识别只显示通用 + NewAPI */}
+							{/* 预设模板：固定五个声明式（通用/NewAPI/Cookie/火山方舟/Sub2API）+ 无模板；识别命中额外追加「已内置」pill */}
 							<section className="space-y-1.5">
 								<p className="text-sm font-medium text-foreground">{t("config.usageProbe.templatesTitle")}</p>
 								<div className="flex flex-wrap gap-1.5">
@@ -474,6 +481,9 @@ export function UsageProbeConfigDialog(props: {
 									</button>
 									<button type="button" className={pillClass(template === "volcengine")} onClick={() => setTemplate("volcengine")} data-testid="usage-probe-template-volcengine">
 										{t("config.usageProbe.category.volcengine")}
+									</button>
+									<button type="button" className={pillClass(template === "sub2api")} onClick={() => setTemplate("sub2api")} data-testid="usage-probe-template-sub2api">
+										{t("config.usageProbe.category.sub2api")}
 									</button>
 								</div>
 								{template === NONE_TEMPLATE && (
@@ -498,7 +508,7 @@ export function UsageProbeConfigDialog(props: {
 							</section>
 
 							{/* 模板字段区：仅声明式模板有字段；内置/套餐/订阅零字段 */}
-							{currentTemplate?.id === "general" && (
+							{(currentTemplate?.id === "general" || currentTemplate?.id === "sub2api") && (
 								<section className="space-y-3">
 									<div className="grid grid-cols-2 gap-3">
 										<OptionalField label={t("config.usageProbe.credentialApiKey")} placeholder={t("config.usageProbe.credentialApiKeyPlaceholder")} value={apiKey} onChange={setApiKey} />

@@ -179,6 +179,7 @@ export type UsageTranslate = (key: TranslationKey, params?: I18nParams) => strin
  */
 const USAGE_WINDOW_LABEL_KEYS: Record<string, TranslationKey> = {
 	fiveHour: "sessionContext.usageWindowFiveHour",
+	daily: "sessionContext.usageWindowDaily",
 	weekly: "sessionContext.usageWindowWeekly",
 	mcpMonthly: "sessionContext.usageWindowMcpMonthly",
 	included: "sessionContext.usageWindowIncluded",

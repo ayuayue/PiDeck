@@ -88,9 +88,9 @@ export type UsageProbeParse =
 	/**
 	 * 专用解析器：响应结构特殊（cent 包装、percent/count 混合、多端点链），
 	 * 声明式路径表达不了，注册专用函数解析。目前支持 xai-billing / codex-usage /
-	 * commandcode-credits / kimi-credits。
+	 * commandcode-credits / kimi-credits / sub2api-usage。
 	 */
-	| { kind: "custom"; resolver: "xai-billing" | "codex-usage" | "commandcode-credits" | "kimi-credits" | "volcengine-plan" };
+	| { kind: "custom"; resolver: "xai-billing" | "codex-usage" | "commandcode-credits" | "kimi-credits" | "volcengine-plan" | "sub2api-usage" };
 
 /** 链式预检（如 xAI 需先查 identity 拿 userId 再查 billing）：
  *  先请求预检端点，把响应里 capture.path 的值注入主请求的 capture.header。 */

@@ -18,7 +18,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { UsageProbeBoosterConfig, UsageProbeConfig, UsageProbeParseConfig, UsageProbeProviderConfig, UsageProbeWindowConfig } from "../../shared/types/providerUsage";
 import type { UsageProbeCandidate } from "./providerUsageProbe";
-import { USAGE_PROBE_CATEGORY_BY_TEMPLATE_ID } from "./usageProbeTemplates";
+import { isDeclarativeTemplateId, USAGE_PROBE_CATEGORY_BY_TEMPLATE_ID } from "./usageProbeTemplates";
 
 /** 旧探针（shared 契约别名）。历史代码以 UserUsageProbe 引用，与跨进程 UsageProbeConfig 同构。 */
 export type UserUsageProbe = UsageProbeConfig;
@@ -353,7 +353,8 @@ export function normalizeProviderConfig(input: unknown): { config: UsageProbePro
 		if (typeof input.template !== "string") return { error: "template 必须是字符串" };
 		const id = input.template.trim();
 		const isBuiltin = Object.prototype.hasOwnProperty.call(USAGE_PROBE_CATEGORY_BY_TEMPLATE_ID, id);
-		if (!isBuiltin && id !== "general" && id !== "newapi" && id !== "cookie" && id !== "volcengine") {
+		// 声明式模板 id（general/newapi/cookie/volcengine/sub2api）显式放行。
+		if (!isBuiltin && !isDeclarativeTemplateId(id)) {
 			return { error: `未知模板：${id}` };
 		}
 		config.template = id;

@@ -69,6 +69,7 @@ import { listWebNetworkAddresses } from "../web/WebNetwork";
 import { toggleMainWindowDevTools } from "../devTools";
 import { applyProviderMigration, previewProviderMigration, type ProviderMigrationDeps } from "../config/providerMigrationService";
 import { USAGE_PROBE_CANDIDATES } from "../config/providerUsageProbe";
+import { isDeclarativeTemplateId } from "../config/usageProbeTemplates";
 import { saveUsageProbeForProvider } from "../config/userUsageProbes";
 import type { UsageProbeProviderConfig, UsageProbeTestInput } from "../../shared/types/providerUsage";
 import type { ProviderMigrationDirection } from "../../shared/types/providerMigration";
@@ -2358,9 +2359,9 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 			return { success: false, error: "Invalid provider name" };
 		}
 		const template = typeof input.template === "string" ? input.template.trim() : undefined;
-		// 白名单：声明式模板 id + 内置候选 templateId。火山方舟是声明式但不在候选表里
-		// （它没有内置默认 provider），必须显式放行，否则弹窗「测试」会被判成未知模板。
-		if (template && template !== "general" && template !== "newapi" && template !== "cookie" && template !== "volcengine") {
+		// 白名单：声明式模板 id + 内置候选 templateId。火山方舟/sub2api 是声明式但不在候选表里
+		// （它们没有内置默认 provider），必须显式放行，否则弹窗「测试」会被判成未知模板。
+		if (template && !isDeclarativeTemplateId(template)) {
 			// 内置模板 id 也接受（识别命中后的「测试」按钮走这条路径）。
 			const knownBuiltin = USAGE_PROBE_CANDIDATES.some((c) => c.templateId === template);
 			if (!knownBuiltin) {

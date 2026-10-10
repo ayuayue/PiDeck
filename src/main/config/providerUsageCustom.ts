@@ -12,12 +12,13 @@ import { getByPath, toNumber } from "./providerUsagePath";
 import { parseBooster } from "./providerUsageBooster";
 
 /** 专用解析器表：kind:"custom" 的 resolver 名称 → 解析函数。 */
-const CUSTOM_RESOLVERS: Record<"xai-billing" | "codex-usage" | "commandcode-credits" | "kimi-credits" | "volcengine-plan", (body: unknown, raw: string) => UsageProbeResponse> = {
+const CUSTOM_RESOLVERS: Record<"xai-billing" | "codex-usage" | "commandcode-credits" | "kimi-credits" | "volcengine-plan" | "sub2api-usage", (body: unknown, raw: string) => UsageProbeResponse> = {
 	"xai-billing": parseXaiBilling,
 	"codex-usage": parseCodexUsage,
 	"commandcode-credits": parseCommandcodeCredits,
 	"kimi-credits": parseKimiCredits,
 	"volcengine-plan": parseVolcenginePlan,
+	"sub2api-usage": parseSub2ApiUsage,
 };
 
 /** 按 resolver 名解析（未注册的 resolver 返回 undefined，由调用方回退 raw）。 */
@@ -203,6 +204,98 @@ function parseCommandcodeCredits(body: unknown, raw: string): UsageProbeResponse
 			// 主剩余兜底：窗口全部被 UI 跳过时 inline 回退到「剩 63.45」；窗口渲染期间主值不出现。
 			remaining: monthlyRemaining,
 			windows,
+		},
+	};
+}
+
+/** 宽松对象收窄：响应字段是 gin.H 动态拼的，逐字段防御式取值。 */
+function asBox(value: unknown): Record<string, unknown> | undefined {
+	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+/**
+ * Sub2API 网关 GET /v1/usage 解析（自部署中转站；结构来源 sub2api 源码
+ * backend/internal/handler/gateway_handler.go 的 Usage()，响应随计费形态分三支）：
+ * - 钱包（按量分组）：顶层 balance/remaining 同值 + unit（"USD"）；输出 balance 形态。
+ * - 订阅（不限量分组的订阅形态）：subscription.{daily,weekly,monthly}_usage_usd 与
+ *   *_limit_usd（limit 为 null = 该档不限）；顶层 remaining = 各已配置限额剩余的最小值，
+ *   -1 = 未配置任何限额；输出 credits + 多窗口。旧版部署（如 zuiapi）字段名是
+ *   used_quota/total_quota/expire_time，作月档窗口的别名兜底。
+ * - quota_limited（key 配了总额度或速率限制）：quota.{limit,used,remaining} 三件套 +
+ *   rate_limits[]（window "5h"/"1d"/"7d"，各自 limit/used）；输出 credits + 速率窗口。
+ * usage.total.actual_cost（该 key 的真实美元消耗）作主值已用的兜底：订阅未配任何限额时
+ * （zuiapi 实测形态）没有窗口也没有可用 remaining，只剩「已用」可展示。
+ */
+function parseSub2ApiUsage(body: unknown, raw: string): UsageProbeResponse {
+	if (!body || typeof body !== "object" || Array.isArray(body)) return { matched: false, raw };
+	const root = body as Record<string, unknown>;
+	const unitRaw = root.unit;
+	const unit = typeof unitRaw === "string" && unitRaw.trim() !== "" ? unitRaw.trim() : undefined;
+	// 钱包分支：只有钱包形态给顶层 balance（订阅/额度形态不给）；balance 与 remaining 同值。
+	const walletBalance = toNumber(root.balance);
+	if (walletBalance !== undefined && !asBox(root.subscription)) {
+		return { matched: true, kind: "balance", balance: { value: walletBalance, ...(unit ? { currency: unit } : {}) } };
+	}
+	const windows: NonNullable<ProviderUsageCredits["windows"]> = [];
+	// quota_limited：key 总额度三件套 → 主值；速率限制数组 → 并列窗口（5h/1d/7d → 既有窗口 key）。
+	const quota = asBox(root.quota);
+	const quotaTotal = quota ? toNumber(quota.limit) : undefined;
+	const quotaUsed = quota ? toNumber(quota.used) : undefined;
+	const quotaRemaining = quota ? toNumber(quota.remaining) : undefined;
+	for (const item of Array.isArray(root.rate_limits) ? root.rate_limits : []) {
+		const entry = asBox(item);
+		if (!entry) continue;
+		const windowName = typeof entry.window === "string" ? entry.window : "";
+		const key = windowName === "5h" ? "fiveHour" : windowName === "1d" ? "daily" : windowName === "7d" ? "weekly" : null;
+		if (!key) continue;
+		const total = toNumber(entry.limit);
+		const used = toNumber(entry.used);
+		if (total === undefined && used === undefined) continue;
+		windows.push({ key, ...(total !== undefined ? { total } : {}), ...(used !== undefined ? { used } : {}) });
+	}
+	// 订阅分支：日/周/月三档 usage/limit 对；limit 缺省或 <=0 = 该档不限额，不出窗口
+	//（否则会造出「已用 x / 总额 0」的假窗口）。
+	const subscription = asBox(root.subscription);
+	if (subscription) {
+		const tiers: [key: string, usageField: string, limitField: string][] = [
+			["daily", "daily_usage_usd", "daily_limit_usd"],
+			["weekly", "weekly_usage_usd", "weekly_limit_usd"],
+			["monthly", "monthly_usage_usd", "monthly_limit_usd"],
+		];
+		for (const [key, usageField, limitField] of tiers) {
+			const limit = toNumber(subscription[limitField]);
+			if (limit === undefined || limit <= 0) continue;
+			const used = toNumber(subscription[usageField]);
+			windows.push({ key, total: limit, used: Math.max(0, used ?? 0) });
+		}
+		// 旧版部署别名：没有 *_limit_usd，只有 used_quota/total_quota，作月档兜底。
+		if (!windows.some((window) => window.key === "monthly")) {
+			const totalQuota = toNumber(subscription.total_quota);
+			if (totalQuota !== undefined && totalQuota > 0) {
+				const usedQuota = toNumber(subscription.used_quota);
+				windows.push({ key: "monthly", total: totalQuota, used: Math.max(0, usedQuota ?? 0) });
+			}
+		}
+	}
+	// 主值：remaining 仅取 >= 0（订阅不限额时是 -1，展示出来会误导成「剩 -1」）。
+	const remainingRaw = toNumber(root.remaining);
+	const remaining = remainingRaw !== undefined && remainingRaw >= 0 ? remainingRaw : quotaRemaining !== undefined && quotaRemaining >= 0 ? quotaRemaining : undefined;
+	// quota_limited 的主值已用取 quota.used（与 total/remaining 同口径）；其余形态取真实消耗。
+	const usageTotal = asBox(asBox(root.usage)?.total);
+	const actualCost = usageTotal ? toNumber(usageTotal.actual_cost) : undefined;
+	const total = quotaTotal !== undefined && quotaTotal > 0 ? quotaTotal : undefined;
+	const used = total !== undefined ? quotaUsed : actualCost;
+	if (windows.length === 0 && remaining === undefined && used === undefined && total === undefined) {
+		return { matched: false, raw };
+	}
+	return {
+		matched: true,
+		kind: "credits",
+		credits: {
+			...(total !== undefined ? { total } : {}),
+			...(used !== undefined ? { used } : {}),
+			...(remaining !== undefined ? { remaining } : {}),
+			...(windows.length > 0 ? { windows } : {}),
 		},
 	};
 }
