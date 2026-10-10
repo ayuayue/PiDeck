@@ -122,6 +122,25 @@ export function useSessionPreferenceController(options: {
 	} | null>(null);
 	const recordRef = useRef(record);
 	recordRef.current = record;
+	// 按一次栏生命周期隔离请求；切走再回来也不能复活先前的选择结果。
+	const selectionScopeRef = useRef({ sessionId, active: true });
+	if (selectionScopeRef.current.sessionId !== sessionId) selectionScopeRef.current = { sessionId, active: true };
+	useEffect(() => {
+		const scope = selectionScopeRef.current;
+		scope.active = true;
+		return () => {
+			scope.active = false;
+		};
+	}, [sessionId]);
+
+	/** 保存请求的来源栏与绑定；store 实时检查覆盖换绑后尚未重绘的窗口。 */
+	function captureSelection(handle: SessionRuntimeTarget | undefined) {
+		const scope = selectionScopeRef.current;
+		return () => {
+			const current = currentHandle();
+			return selectionScopeRef.current === scope && scope.active && current?.agentId === handle?.agentId && current?.runtimeGeneration === handle?.runtimeGeneration;
+		};
+	}
 
 	function writeSelectedModelToState(model: SessionRuntimeModelSelection) {
 		const current = recordRef.current;
@@ -138,24 +157,20 @@ export function useSessionPreferenceController(options: {
 		return toSessionRuntimeTarget(sessionId, store.get(sessionRuntimeByIdAtom)[sessionId]);
 	}
 
-	/**
-	 * 运行时代理命令失败时，若错误是「运行时不可用/绑定已变化」（例如 Agent 已被关闭、
-	 * 或历史会话尚未启动 Agent），降级为只更新会话记录。Agent 下次启动时
-	 * SessionRuntimeCoordinator.applyPreferences 会把记录里的模型应用到新进程。
-	 */
-	function isStaleRuntimeFailure(error: unknown): boolean {
-		return error instanceof SessionCommandFailure && (error.code === "SESSION_RUNTIME_UNAVAILABLE" || error.code === "SESSION_RUNTIME_CHANGED");
+	/** 仅当前绑定不可用时保存下次启动偏好；CHANGED 是已退休请求，不能降级写记录。 */
+	function isUnavailableRuntimeFailure(error: unknown): boolean {
+		return error instanceof SessionCommandFailure && error.code === "SESSION_RUNTIME_UNAVAILABLE";
 	}
 
 	function selectedModelPreference(model: AvailableModel) {
 		return createSessionModelPreference(model.provider, model.id, model.name);
 	}
 
-	async function applyModelToRecord(model: AvailableModel) {
+	async function applyModelToRecord(model: AvailableModel, isCurrent: () => boolean) {
 		const updated = await desktopApi.sessions.updateRecord(sessionId, {
 			model: selectedModelPreference(model),
 		});
-		state.upsertSession(updated);
+		if (isCurrent()) state.upsertSession(updated);
 	}
 
 	function currentLiveModel() {
@@ -209,18 +224,22 @@ export function useSessionPreferenceController(options: {
 	 * 后端明确返回 busy 时才排队模型切换；支持运行中选择的 Pi/DSH 会直接在当前 runtime
 	 * 入口应用，已发出的请求继续使用原配置，后续 step 使用新配置。
 	 */
-	async function pickModelWhileBusy(handle: SessionRuntimeTarget, model: AvailableModel) {
+	async function pickModelWhileBusy(handle: SessionRuntimeTarget, model: AvailableModel, isCurrent: () => boolean) {
 		try {
 			const listed = requireSessionCommand(await desktopApi.sessions.listRuntimeModels(handle));
+			if (!isCurrent()) return;
 			const snapshotHasModel = listed.value.some((item) => item.provider === model.provider && item.id === model.id);
 			if (!snapshotHasModel) {
 				offerModelRestart(handle, model);
 				return;
 			}
-		} catch {
-			// 查快照失败（含生成中 busy）不挡选择：先记下，本轮结束后 setRuntimeModel 再判断要不要重启。
+		} catch (error) {
+			// 快照 busy/不可用不挡选择；明确的换绑拒绝不得包装成排队写入。
+			if (error instanceof SessionCommandFailure && error.code === "SESSION_RUNTIME_CHANGED") throw error;
 		}
-		await applyModelToRecord(model);
+		if (!isCurrent()) return;
+		await applyModelToRecord(model, isCurrent);
+		if (!isCurrent()) return;
 		markModelPending(model);
 		onApplied();
 	}
@@ -242,28 +261,31 @@ export function useSessionPreferenceController(options: {
 		}
 		const selected = selectedModelPreference(model);
 		const handle = currentHandle();
+		const isCurrent = captureSelection(handle);
 		try {
 			if (handle) {
 				try {
 					// Pi 返回的模型名与实际生效档位是运行态真值；旧档位不随 set_model 重发。
 					const applied = requireSessionCommand(await desktopApi.sessions.setRuntimeModel(handle, selected.provider, selected.modelId, selected.modelName));
+					if (!isCurrent()) return;
 					writeSelectedModelToState(applied.value);
 					state.setModelPending(undefined);
 				} catch (error) {
+					if (!isCurrent()) return;
 					if (error instanceof SessionCommandFailure && error.code === "SESSION_RUNTIME_BUSY") {
-						await pickModelWhileBusy(handle, model);
+						await pickModelWhileBusy(handle, model, isCurrent);
 						return;
 					}
-					// 运行时代理不可用（Agent 已关/绑定已换）时降级写记录，
-					// 保证「先选模型、后启动 Agent」的流程始终可用。
-					if (!isStaleRuntimeFailure(error)) throw error;
-					await applyModelToRecord(model);
+					// 当前绑定确实不可用时仍允许「先选模型，后启动」。
+					if (!isUnavailableRuntimeFailure(error)) throw error;
+					await applyModelToRecord(model, isCurrent);
 				}
 			} else {
-				await applyModelToRecord(model);
+				await applyModelToRecord(model, isCurrent);
 			}
-			onApplied();
+			if (isCurrent()) onApplied();
 		} catch (error) {
+			if (!isCurrent()) return;
 			// 模型在本地 models.json 存在但运行中 Agent 快照未加载（pi set_model 校验失败）：
 			// 关闭选择器并提示用户重启 Agent 使新模型生效，而非直接报错。
 			if (error instanceof SessionCommandFailure && error.needsRestart && handle) {
@@ -308,31 +330,35 @@ export function useSessionPreferenceController(options: {
 			return;
 		}
 		const handle = currentHandle();
+		const isCurrent = captureSelection(handle);
 		try {
 			if (handle) {
 				try {
 					const applied = requireSessionCommand(await desktopApi.sessions.setRuntimeThinking(handle, level));
+					if (!isCurrent()) return;
 					const current = recordRef.current;
 					if (current) {
 						// Pi 可能规范化/钳制档位；记录与底栏统一采用实际生效值。
 						state.upsertSession({ ...current, thinkingLevel: applied.value.thinkingLevel, updatedAt: Date.now() });
 					}
 				} catch (error) {
-					// 与模型选择同一策略：运行时不可用时降级为写记录，启动时生效
-					if (!isStaleRuntimeFailure(error)) throw error;
+					if (!isCurrent()) return;
+					// 与模型选择同一策略：仅当前绑定不可用时保存启动偏好。
+					if (!isUnavailableRuntimeFailure(error)) throw error;
 					const updated = await desktopApi.sessions.updateRecord(sessionId, {
 						thinkingLevel: level,
 					});
-					state.upsertSession(updated);
+					if (isCurrent()) state.upsertSession(updated);
 				}
 			} else {
 				const updated = await desktopApi.sessions.updateRecord(sessionId, {
 					thinkingLevel: level,
 				});
-				state.upsertSession(updated);
+				if (isCurrent()) state.upsertSession(updated);
 			}
-			onApplied();
+			if (isCurrent()) onApplied();
 		} catch (error) {
+			if (!isCurrent()) return;
 			// 附带 debugDetails：DSH setThinking 的 selectModel 被 host 拒绝（如当前模型
 			// 不支持该档位）时，把真实原因展示给用户，而不是只看到「会话操作失败，请重试。」
 			showNotice(sessionCommandFailureToast(error), 4000);
