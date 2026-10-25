@@ -504,6 +504,16 @@ export const AppearanceTab = memo(function AppearanceTab(props: AppearanceTabPro
 					dirtyLabel={t("settings.scrollToLatestOnSend")}
 					onChange={(checked) => updateDraft({ scrollToLatestOnSend: checked })}
 				/>
+				{/* 侧栏分组标题栏冻结：开启后「聊天」「项目」标题在列表滚动时粘在顶部；默认关闭 = 历史行为 */}
+				<SettingSwitchRow
+					anchor="appearance-sidebar-sticky-group-headers"
+					title={t("settings.sidebarStickyGroupHeaders")}
+					description={t("settings.sidebarStickyGroupHeadersDesc")}
+					checked={draft.sidebarStickyGroupHeaders === true}
+					dirty={isDirty("sidebarStickyGroupHeaders")}
+					dirtyLabel={t("settings.sidebarStickyGroupHeaders")}
+					onChange={(checked) => updateDraft({ sidebarStickyGroupHeaders: checked })}
+				/>
 			</SettingsSection>
 
 			{/* 窗口样式 */}

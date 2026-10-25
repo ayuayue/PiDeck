@@ -731,6 +731,11 @@ export type AppSettings = {
 	 * 在展示时安全忽略，避免修改 pi 会话文件或把短生命周期 agentId 持久化。
 	 */
 	pinnedSessionIds?: string[];
+	/**
+	 * 侧栏「聊天」「项目」分组标题栏在列表滚动时冻结（sticky）在滚动区顶部。
+	 * 可选以兼容旧 settings.json；缺省视为关闭（历史行为：标题随列表滚走）。
+	 */
+	sidebarStickyGroupHeaders?: boolean;
 
 	/**
 	 * 项目会话列表排序模式（2027-03 开放排序规则）：updatedAt=最近活跃（历史默认）、

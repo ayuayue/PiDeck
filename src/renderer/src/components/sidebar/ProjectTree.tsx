@@ -36,6 +36,11 @@ const treeRowClass = "group conversation relative flex min-h-8 w-full items-cent
  * 压缩+截断只损失尾部文字，不影响辨认。 */
 const dimmedActionsClass = "pointer-events-none absolute top-1/2 right-1 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100";
 
+/** 分组标题栏冻结（settings.sidebarStickyGroupHeaders）：列表滚动时标题粘在滚动区顶部
+ * （滚动容器是 SidebarContent 的 .conversation-list）。行从标题下方穿过时用 bg-sidebar
+ * 遮底 + z-10 抬层，pt-1 给粘住后的顶边留呼吸感；关闭时保持历史行为随列表滚走。 */
+const stickyGroupHeaderClass = "sticky top-0 z-10 bg-sidebar pt-1";
+
 function matchesProject(project: Project, search: string, controller: SidebarController) {
 	if (!search) return true;
 	const query = search.toLowerCase();
@@ -71,8 +76,13 @@ export function ProjectTree(props: {
 	branchByProject?: Readonly<Record<string, string | null | undefined>>;
 	/** 正在删除的 worktree 路径集合（透传给 WorktreeTree 驱动淡出动画）。 */
 	removingWorktreePaths?: ReadonlySet<string>;
+	/** 「聊天」「项目」分组标题栏在列表滚动时冻结（sticky）在滚动区顶部（settings.sidebarStickyGroupHeaders）。 */
+	stickyGroupHeaders?: boolean;
 }) {
 	const sessionRuntimeUiById = useAtomValue(sessionRuntimeUiByIdAtom);
+	// 冻结标题只在常规模式生效：simple 壳侧栏背景是 --simple-shell-surface，
+	// 遮底用的 bg-sidebar 会在该模式下露出色差，直接不启用。
+	const stickyHeader = !props.simple && props.stickyGroupHeaders === true;
 	const rootProjects = props.controller.catalog.projects.filter((project) => !project.worktreeParentId && matchesProject(project, props.controller.search.trim(), props.controller));
 	// 项目拖拽不再要求静止长按：原生 HTML5 拖拽自带 ~4px 启动阈值，天然区分点按与拖动
 	//（2027-03 用户反馈「拖动行为不好用」：旧逻辑要先静止长按 350ms 才变 draggable，
@@ -292,7 +302,7 @@ export function ProjectTree(props: {
             + 「⋯ 更多操作」（完整项目菜单，新建/定位/会话管理/目录设置）。
             新建与折叠都是最常用入口，直接外露；其余操作收进完整菜单。 */}
 				<div
-					className="flex items-center justify-between px-1 pb-1"
+					className={cn("flex items-center justify-between px-1 pb-1", stickyHeader && stickyGroupHeaderClass)}
 					// 右键与「⋯」同款完整项目菜单：让 Chat 项目行获得与工作区项目一致的操作入口
 					onContextMenu={(event) => {
 						event.preventDefault();
@@ -394,7 +404,7 @@ export function ProjectTree(props: {
 				<div>
 					{/* 分组标题栏：左侧「项目」标题，右侧 = 「+ 添加项目」+ 全部折叠/展开（高频操作外露）
             + 「⋯ 更多操作」。目录存在性重扫属于低频维护动作，收进菜单避免挤占窄侧栏。 */}
-					<div className="flex items-center justify-between px-1 pb-1">
+					<div className={cn("flex items-center justify-between px-1 pb-1", stickyHeader && stickyGroupHeaderClass)}>
 						<span className="text-caption font-medium text-muted-foreground">{t("app.sidebarProjects")}</span>
 						<div className="flex items-center gap-0.5">
 							{/* 添加项目是最常用入口，外露为显式「+」按钮 */}

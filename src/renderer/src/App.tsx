@@ -2409,6 +2409,7 @@ export function App() {
 			settingsNavTab={settings.sidebarNavTab}
 			settingsPinnedSessionIds={settings.pinnedSessionIds}
 			settingsSessionSortMode={settings.sessionSortMode}
+			stickyGroupHeaders={settings.sidebarStickyGroupHeaders === true}
 			settingsLoaded={settingsLoaded}
 			onExpandedProjectsReady={() => setExpandedProjectsReady(true)}
 			// 关于弹框：版本号/官网/GitHub 链接数据来自 AppInfo IPC（上方 useEffect 已拉取）

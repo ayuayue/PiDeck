@@ -4670,6 +4670,8 @@ export const zhCN = {
 	"settings.sectionEditors": "外部编辑器",
 	"settings.scrollToLatestOnSend": "发送消息后自动滚动到最新",
 	"settings.scrollToLatestOnSendDesc": "默认开启。关闭后发送时保持当前滚动位置：上翻看历史时不会被拽回底部；停在底部时仍会跟随新回复增长。",
+	"settings.sidebarStickyGroupHeaders": "侧栏分组标题栏冻结",
+	"settings.sidebarStickyGroupHeadersDesc": "开启后，侧栏「聊天」「项目」分组标题栏在列表滚动时固定在顶部，不随内容滚走。",
 	"settings.contentWidthPct": "聊天内容宽度",
 	"settings.contentWidthPctDesc": "消息、输入框与待发送共用同一宽度。100% 接近全宽（仍留 12px 边距）。",
 	"settings.sessionStatusPlacement": "会话状态位置",

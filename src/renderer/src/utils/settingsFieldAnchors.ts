@@ -224,6 +224,12 @@ const SETTINGS_ROW_ANCHORS = [
 		keywords: ["会话标签打开方式", "预览", "固定标签", "tab 打开模式", "preview"],
 	},
 	{
+		tab: "appearance",
+		slug: "appearance-sidebar-sticky-group-headers",
+		labelKey: "settings.sidebarStickyGroupHeaders",
+		keywords: ["侧栏", "分组标题", "冻结", "置顶", "吸附", "标题栏", "sticky", "freeze", "pin"],
+	},
+	{
 		tab: "common",
 		slug: "common-auto-session-title",
 		labelKey: "settings.autoSessionTitle",

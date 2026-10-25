@@ -168,6 +168,8 @@ const defaultSettings: AppSettings = {
 	startupWindowMode: "last",
 	piEnvironmentChecked: false,
 	sessionTabOpenMode: "preview",
+	// 侧栏分组标题栏冻结默认关闭：保持历史行为（标题随列表滚走），用户可在设置里开启
+	sidebarStickyGroupHeaders: false,
 	// 默认开启：标题由当前 pi 模型异步生成，侧栏不再全是「新会话」；
 	// 会额外消耗一次模型调用和少量 token，设置说明已写明，用户可随时关闭。
 	autoSessionTitle: true,
@@ -502,6 +504,10 @@ export class SettingsStore {
 			if (typeof this.settings.autoSessionTitle !== "boolean") {
 				this.settings.autoSessionTitle = defaultSettings.autoSessionTitle;
 			}
+			// 侧栏分组标题栏冻结开关同理：旧配置缺字段/脏值回落 false（默认关闭 = 历史行为）。
+			if (typeof this.settings.sidebarStickyGroupHeaders !== "boolean") {
+				this.settings.sidebarStickyGroupHeaders = defaultSettings.sidebarStickyGroupHeaders;
+			}
 			// 公告通知开关同理：旧配置缺字段回落 true（默认开启），脏数据（字符串等）也回落。
 			if (typeof this.settings.announcementNotificationEnabled !== "boolean") {
 				this.settings.announcementNotificationEnabled = defaultSettings.announcementNotificationEnabled;
@@ -776,6 +782,10 @@ export class SettingsStore {
 		// IPC 入参不可信：自动标题开关只接受布尔值，非法值保持原有设置。
 		if ("autoSessionTitle" in safePatch && typeof safePatch.autoSessionTitle !== "boolean") {
 			delete safePatch.autoSessionTitle;
+		}
+		// 侧栏分组标题栏冻结开关同理：只接受布尔值，脏值不落盘。
+		if ("sidebarStickyGroupHeaders" in safePatch && typeof safePatch.sidebarStickyGroupHeaders !== "boolean") {
+			delete safePatch.sidebarStickyGroupHeaders;
 		}
 		// 「用户是否手动选过后端」是安全阀：非布尔值不能写进去，否则自动选择可能被意外锁死或反复改写。
 		// （后端枚举本身沿用既有写法不做白名单，避免与 AgentBackend 未来扩展不一致。）
