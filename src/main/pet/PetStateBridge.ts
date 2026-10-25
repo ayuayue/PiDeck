@@ -23,13 +23,7 @@ const WAITING_METHODS = new Set(["select", "confirm", "input", "editor", "batch_
 /** 同一 Agent 成功完成的提醒冷却：settled 与 get_state 兜底可能重复触发，8 秒内只提醒一次 */
 const DONE_COOLDOWN_MS = 8000;
 
-export type PetStateCopyKey =
-	| "pet.doneNotification"
-	| "pet.agentError"
-	| "pet.waitingNotification"
-	| "pet.doneSuffix"
-	| "pet.errorSuffix"
-	| "pet.waitingSuffix";
+export type PetStateCopyKey = "pet.doneNotification" | "pet.agentError" | "pet.waitingNotification" | "pet.doneSuffix" | "pet.errorSuffix" | "pet.waitingSuffix";
 
 const defaultPetStateCopy: Record<PetStateCopyKey, string> = {
 	"pet.doneNotification": "{title} completed",
@@ -41,18 +35,21 @@ const defaultPetStateCopy: Record<PetStateCopyKey, string> = {
 };
 
 function defaultTranslate(key: PetStateCopyKey, params: Record<string, string> = {}): string {
-	return defaultPetStateCopy[key].replace(/\{([A-Za-z0-9_]+)\}/g, (match, name) => (
-		Object.prototype.hasOwnProperty.call(params, name) ? params[name] : match
-	));
+	return defaultPetStateCopy[key].replace(/\{([A-Za-z0-9_]+)\}/g, (match, name) => (Object.prototype.hasOwnProperty.call(params, name) ? params[name] : match));
 }
 
 function statusToMode(status: AgentStatus): PetMode | null {
 	switch (status) {
-		case "running": return "running";
-		case "error": return "failed";
-		case "starting": return "waiting";
-		case "idle": return "idle";
-		default: return null;
+		case "running":
+			return "running";
+		case "error":
+			return "failed";
+		case "starting":
+			return "waiting";
+		case "idle":
+			return "idle";
+		default:
+			return null;
 	}
 }
 
@@ -87,7 +84,10 @@ function aggregate(tabs: AgentTab[], pendingRequests: Map<string, Set<string>>):
 		for (const status of PRIORITY) {
 			if (active.some((a) => a.status === status)) {
 				const mapped = statusToMode(status);
-				if (mapped) { mode = mapped; break; }
+				if (mapped) {
+					mode = mapped;
+					break;
+				}
 			}
 		}
 	}
@@ -132,15 +132,21 @@ export class PetStateBridge {
 		private readonly notify: (n: PetNotification | null) => void = () => {},
 	) {}
 
-	get currentState(): PetAggregateState | null { return this.lastState; }
+	get currentState(): PetAggregateState | null {
+		return this.lastState;
+	}
 
 	attach(agentManager: { addStateListener: (cb: (tabs: AgentTab[]) => void) => () => void }) {
 		this.unsubscribe = agentManager.addStateListener((tabs) => this.update(tabs));
 	}
 
 	detach() {
-		this.unsubscribe?.(); this.unsubscribe = null;
-		if (this.debounceTimer) { clearTimeout(this.debounceTimer); this.debounceTimer = null; }
+		this.unsubscribe?.();
+		this.unsubscribe = null;
+		if (this.debounceTimer) {
+			clearTimeout(this.debounceTimer);
+			this.debounceTimer = null;
+		}
 		this.clearTransition();
 		this.patrol?.stop();
 	}
@@ -149,13 +155,19 @@ export class PetStateBridge {
 		this.currentTabs = tabs;
 		this.detectErrorEdges(tabs);
 		if (this.debounceTimer) clearTimeout(this.debounceTimer);
-		this.debounceTimer = setTimeout(() => { this.debounceTimer = null; this.push(aggregate(tabs, this.pendingRequests)); }, this.debounceMs);
+		this.debounceTimer = setTimeout(() => {
+			this.debounceTimer = null;
+			this.push(aggregate(tabs, this.pendingRequests));
+		}, this.debounceMs);
 	}
 
 	pushNow(tabs: AgentTab[], force = true) {
 		this.currentTabs = tabs;
 		this.detectErrorEdges(tabs);
-		if (this.debounceTimer) { clearTimeout(this.debounceTimer); this.debounceTimer = null; }
+		if (this.debounceTimer) {
+			clearTimeout(this.debounceTimer);
+			this.debounceTimer = null;
+		}
 		this.push(aggregate(tabs, this.pendingRequests), force);
 	}
 
@@ -281,11 +293,17 @@ export class PetStateBridge {
 	/** 设置统一过渡定时器，自动清除上一个 */
 	private setTransition(ms: number, fn: () => void) {
 		this.clearTransition();
-		this.transTimer = setTimeout(() => { this.transTimer = null; fn(); }, ms);
+		this.transTimer = setTimeout(() => {
+			this.transTimer = null;
+			fn();
+		}, ms);
 	}
 
 	private clearTransition() {
-		if (this.transTimer) { clearTimeout(this.transTimer); this.transTimer = null; }
+		if (this.transTimer) {
+			clearTimeout(this.transTimer);
+			this.transTimer = null;
+		}
 	}
 
 	// ── 状态推送核心 ──

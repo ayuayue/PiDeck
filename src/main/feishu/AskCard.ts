@@ -25,16 +25,15 @@ export type AskUiRequest = {
 	batchQuestions?: Array<Record<string, unknown>>;
 };
 
-export type AskOption = string | {
-	label: string;
-	value?: string;
-	description?: string;
-};
+export type AskOption =
+	| string
+	| {
+			label: string;
+			value?: string;
+			description?: string;
+	  };
 
-export type AskAction =
-	| { requestId: string; kind: "confirm"; confirmed: boolean }
-	| { requestId: string; kind: "option"; option: string }
-	| { requestId: string; kind: "cancel" };
+export type AskAction = { requestId: string; kind: "confirm"; confirmed: boolean } | { requestId: string; kind: "option"; option: string } | { requestId: string; kind: "cancel" };
 
 type AskButtonValue = {
 	action: string;
@@ -65,12 +64,13 @@ export function normalizeAskOption(value: unknown): AskOption | undefined {
 	};
 }
 
-
 /** 解码批量 ask 的 title envelope（与 AgentManager.tryParseBatchAskEnvelope 同构）。 */
-export function tryParseBatchAskEnvelope(title: string): {
-	review: boolean;
-	questions: Array<Record<string, unknown>>;
-} | undefined {
+export function tryParseBatchAskEnvelope(title: string):
+	| {
+			review: boolean;
+			questions: Array<Record<string, unknown>>;
+	  }
+	| undefined {
 	const raw = title.trim();
 	if (!raw.startsWith("{")) return undefined;
 	try {
@@ -78,20 +78,12 @@ export function tryParseBatchAskEnvelope(title: string): {
 		if (parsed.__piDeckBatchAsk !== 1 || !Array.isArray(parsed.questions)) {
 			return undefined;
 		}
-		const questions = parsed.questions.filter(
-			(question): question is Record<string, unknown> => {
-				if (!question || typeof question !== "object") return false;
-				const typed = question as Record<string, unknown>;
-				return (
-					typeof typed.id === "string" &&
-					typeof typed.question === "string" &&
-					["select", "multi_select", "confirm", "input", "editor"].includes(String(typed.type))
-				);
-			},
-		);
-		return questions.length > 0
-			? { review: parsed.review === true, questions }
-			: undefined;
+		const questions = parsed.questions.filter((question): question is Record<string, unknown> => {
+			if (!question || typeof question !== "object") return false;
+			const typed = question as Record<string, unknown>;
+			return typeof typed.id === "string" && typeof typed.question === "string" && ["select", "multi_select", "confirm", "input", "editor"].includes(String(typed.type));
+		});
+		return questions.length > 0 ? { review: parsed.review === true, questions } : undefined;
 	} catch {
 		return undefined;
 	}
@@ -132,7 +124,7 @@ export function buildAskCard(input: { request: AskUiRequest; locale?: FeishuLoca
 		const shownOptions = request.options.slice(0, MAX_OPTION_BUTTONS).map((option, index) => ({ option, index }));
 		const optionLines = shownOptions.map(({ option, index }) => {
 			const normalized = normalizeAskOption(option);
-			const label = typeof normalized === "string" ? normalized : normalized?.label ?? "";
+			const label = typeof normalized === "string" ? normalized : (normalized?.label ?? "");
 			const description = normalized && typeof normalized !== "string" ? normalized.description : undefined;
 			return `${index + 1}. ${label}${description ? `：${description}` : ""}`;
 		});
@@ -212,21 +204,21 @@ export function parseAskActionValue(value: unknown): AskAction | undefined {
 
 function askTitle(request: AskUiRequest, locale: FeishuLocale): string {
 	switch (request.method) {
-		case "confirm": return feishuT(locale, "ask.titleConfirm");
-		case "select": return feishuT(locale, "ask.titleSelect");
-		case "batch_ask": return feishuT(locale, "ask.titleBatch");
-		default: return feishuT(locale, "ask.titleInput");
+		case "confirm":
+			return feishuT(locale, "ask.titleConfirm");
+		case "select":
+			return feishuT(locale, "ask.titleSelect");
+		case "batch_ask":
+			return feishuT(locale, "ask.titleBatch");
+		default:
+			return feishuT(locale, "ask.titleInput");
 	}
 }
 
 function optionButton(option: AskOption, requestId: string, index: number) {
 	const normalized = normalizeAskOption(option);
-	const label = normalized
-		? typeof normalized === "string" ? normalized : normalized.label
-		: "";
-	const value = normalized
-		? typeof normalized === "string" ? normalized : normalized.value ?? normalized.label
-		: "";
+	const label = normalized ? (typeof normalized === "string" ? normalized : normalized.label) : "";
+	const value = normalized ? (typeof normalized === "string" ? normalized : (normalized.value ?? normalized.label)) : "";
 	return {
 		tag: "button",
 		text: { tag: "plain_text", content: truncateButtonText(`${index + 1}. ${label}`) },

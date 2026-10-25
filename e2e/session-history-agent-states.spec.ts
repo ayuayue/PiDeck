@@ -184,9 +184,11 @@ test("never-started session: delete confirms, edit applies directly, resend auto
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 
 	// 进入预置项目：项目行默认折叠，先点击展开（同时选中项目），会话行才渲染
-	const projectRow = window.locator(".conversation", {
-		hasText: "pideck-seed-never-started-history-",
-	}).first();
+	const projectRow = window
+		.locator(".conversation", {
+			hasText: "pideck-seed-never-started-history-",
+		})
+		.first();
 	await expect(projectRow).toBeVisible({ timeout: 30_000 });
 	await projectRow.click();
 
@@ -293,9 +295,11 @@ test.describe("content-area loading overlay", () => {
 		await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 
 		// 进入预置项目并打开历史会话（agent 从未 spawn）
-		const projectRow = window.locator(".conversation", {
-			hasText: "pideck-seed-never-started-overlay-",
-		}).first();
+		const projectRow = window
+			.locator(".conversation", {
+				hasText: "pideck-seed-never-started-overlay-",
+			})
+			.first();
 		await expect(projectRow).toBeVisible({ timeout: 30_000 });
 		await projectRow.click();
 		const historyRow = window.locator(".conversation", { hasText: "遮罩验证会话" }).first();
@@ -311,12 +315,8 @@ test.describe("content-area loading overlay", () => {
 		await menu.getByText("重启", { exact: true }).click();
 
 		// 激活 runtime 需 spawn mock pi（数百 ms～1s）：会话消息区域遮罩（role=status，仅可见时挂载 role）应显示「正在启动会话…」
-		await expect(
-			window.locator('[role="status"]').filter({ hasText: "正在启动会话…" }),
-		).toBeVisible({ timeout: 10_000 });
+		await expect(window.locator('[role="status"]').filter({ hasText: "正在启动会话…" })).toBeVisible({ timeout: 10_000 });
 		// 激活完成：遮罩消失（role 被摘除），会话进入 live
-		await expect(
-			window.locator('[role="status"]').filter({ hasText: "正在启动会话…" }),
-		).toHaveCount(0, { timeout: 30_000 });
+		await expect(window.locator('[role="status"]').filter({ hasText: "正在启动会话…" })).toHaveCount(0, { timeout: 30_000 });
 	});
 });

@@ -1,34 +1,34 @@
-import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync, renameSync, readdirSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync, renameSync, readdirSync, copyFileSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { dshRuntimeMissingError } from "./dshRuntimeMissing";
 import { getAppLogger } from "../logging/sharedLogger";
 import { applyProxyEnvPatch, type HostProxyEnvPatch } from "../sessions/sessionProxyPolicy";
 import { DshHostProcess, resolveHostEntryPath } from "./DshHostProcess";
+import { DSH_RUNNER_NODE_ENV } from "./dshRunnerNodeSidecar";
+import { resolveDshRunnerNodePath } from "./dshRunnerNode";
 import { DshApiClient, type DshFetchTransport } from "./DshApiClient";
-import { toDshAvailableModels, toDshFetchedModels } from "./dshModels";
-import { parseAgentDefaultModel } from "./dshDefaultModel";
+import { dshManuallyStoppedError } from "./dshManualStop";
+import { applyDshBillBackfillPatch } from "./dshBillBackfillPatch";
+import { DshRemoteClient } from "./dshRemoteClient";
+import { toDshAvailableModels, toDshFetchedModels, unwrapDshDiscoveryModels } from "./dshModels";
+import { isRecord, readDshSettingsSnapshot } from "./dshProfileSettings";
 import { credentialValueFromDocument, isValidCredentialRef } from "./dshCredentials";
-import { workspaceDirFor, findDshSessionDir } from "./dshSessionPath";
-import {
-	migrateLegacyPideckDshFiles,
-	pideckArchivePath,
-	pideckDshHome,
-	pideckHostLockPath,
-} from "./pideckDshHome";
-import { foldSessionTitleFromDir, listForeignSessionsFromDisk, scanDshSessionHeaders } from "./dshForeignSessionScan";
+import { workspaceDirFor, findDshSessionDir, dshSessionFilePath } from "./dshSessionPath";
+import { toWindowsHostPath, type WslEnvironment } from "../wsl/WslPaths";
+import { migrateLegacyPideckDshFiles, pideckArchivePath, pideckDshHome, pideckHostLockPath } from "./pideckDshHome";
+import { foldSessionTitleFromDir, listForeignSessionsFromDiskAsync, scanDshSessionHeadersAsync } from "./dshForeignSessionScan";
+import { externalHostHolderPid, resolveDshHomeSharing } from "./dshHomeSharing";
+import type { DshHomeSharingState } from "../../shared/types/dshHome";
 import { PIDECK_PLUGIN_BRIDGE_PATH } from "./pideckPluginBridge";
+import { classifyStaticPlugins, ensureUserPatchLayerIsArrayDocument, isUserPluginEntry, nearestPackageDir, readUserPatchRows, removeUserPatchRow, resolveManagedPluginDir, USER_PATCH_FILENAME, withArrayDocumentFallback } from "./dshUserPlugins";
 import { PIDECK_COMMANDS_BRIDGE_PATH } from "./pideckCommandsBridge";
+import { PIDECK_SESSION_BRIDGE_PATH } from "./pideckSessionBridge";
 import type { DshFetchMessage } from "./dshHostBridge";
-import type {
-	DshCommandView,
-	DshPluginBridgeResponse,
-	DshPluginInstallInput,
-	DshPluginLifecycleInput,
-	DshPluginView,
-	DshStaticPluginView,
-} from "../../shared/types";
+import type { DshCommandView, DshPluginBridgeResponse, DshPluginInstallInput, DshPluginLifecycleInput, DshPluginView, DshStaticPluginView, DshUserPluginUninstallInput, DshUserPluginUninstallResult } from "../../shared/types";
 
 // 注意：主进程产物为 CJS，而 @deepseek-ai/* 是 ESM-only 包。
 // 静态 import 会被 electron-vite 打包器改写（externalize 后变 require，Node <22.12 无法加载 ESM），
@@ -43,8 +43,9 @@ import type {
  * 形态说明（docs/dsh-agent-backend-plan.md §3.2 形态 b）：
  * - host 在 utilityProcess 里 boot（无 web/无 HTTP/无端口），原生 ABI 与崩溃面
  *   不污染主进程；hostEntry 产物经 electron-vite 多入口打包到 out/main/。
- * - 按需启动：默认后端为 dsh 时窗口首帧后后台预热；纯 pi 用户不 fork host。
- *   发送/历史/配置链路调用 ensureStarted() 幂等兜底。
+ * - 启动预热：runtime 已安装且用户没手动停止过 host 时，窗口首帧后后台预热（不等用户
+ *   先把默认后端切成 dsh——装 runtime 本身就是显式选择，boot 约 20s，装了就该提前拉起）；
+ *   纯 pi 且未装 runtime 的用户不 fork host，发送/历史/配置链路调用 ensureStarted() 幂等兜底。
  * - 桥协议：dshHostBridge.ts（fetch-request/response/chunk/end/error）。
  *
  * DSH_HOME：直接使用用户真实 ~/.dsh（与 dsh CLI 行为一致，配置/凭证/会话
@@ -54,7 +55,8 @@ import type {
 export class DshHost {
 	private hostProcess: DshHostProcess | null = null;
 	private apiClient: DshApiClient | null = null;
-	private client: import("@deepseek-ai/dsh-host-apiproxy").AbstractApiClient | null = null;
+	/** 0.1.5 领域客户端（Typert Remote 适配层；见 dshRemoteClient.ts）。 */
+	private client: DshRemoteClient | null = null;
 	private startPromise: Promise<void> | null = null;
 	private dshHome = "";
 	private configDir = "";
@@ -64,12 +66,18 @@ export class DshHost {
 	/** DSH_HOME 并发锁（B6）：锁文件路径与是否由本实例持有。 */
 	private hostLockPath = "";
 	private ownsHostLock = false;
+	/**
+	 * 当前 WSL 环境（装配时经 configureWsl 注入，与 AgentManager.configureWsl 同一时机）。
+	 * DSH host 是 Windows 原生进程：它拿到的路径必须能被 Windows 的 node:fs realpath 解析，
+	 * 而 WSL 模式下项目记录的是 Linux 路径（/mnt/h/...）——直接交给 host 会被当成
+	 * 当前盘根目录（realpath('/mnt/h/x') → C:\mnt）而报 ENOENT，会话必然创建失败。
+	 */
+	private wslEnvironment: WslEnvironment | null = null;
 
 	constructor(
 		private readonly getUserDataDir: () => string,
 		private readonly getAppPath: () => string,
-		private readonly log: (scope: string, message: string, detail?: unknown) => void =
-			(scope, message, detail) => getAppLogger()?.info(scope, message, detail),
+		private readonly log: (scope: string, message: string, detail?: unknown) => void = (scope, message, detail) => getAppLogger()?.info(scope, message, detail),
 		/** DSH_HOME 覆盖目录 getter（设置里 dshHomeDir）；空串/undefined = 自动用 ~/.dsh。 */
 		private readonly getDshHomeOverride: () => string | undefined = () => undefined,
 		/**
@@ -80,7 +88,8 @@ export class DshHost {
 		private readonly resolveHostProxyEnvPatch: () => HostProxyEnvPatch | undefined = () => undefined,
 		/**
 		 * 外部 DSH runtime 根目录（阶段 2：userData/runtimes/dsh/<version>，其下有 node_modules）。
-		 * 返回 undefined 时回退 app 内置 node_modules（依赖分区前的存量包走这条）。
+		 * 返回 undefined 时仅在旧 full/存量包兼容模式下回退 app 内置 node_modules；新的 dev/lite
+		 * 路径由上层安装态门控，不把项目 node_modules 当作已发布 runtime。
 		 * 只影响 @deepseek-ai/* 的解析；hostEntry 与桥代码始终在 app 内。
 		 */
 		private readonly resolveRuntimeAppRoot: () => string | undefined = () => undefined,
@@ -89,6 +98,24 @@ export class DshHost {
 		 * 主进程装配时注入 electron shell.trashItem；测试注入假实现，保持 DshHost 与 electron 解耦。
 		 */
 		private readonly trashPath: (path: string) => Promise<void> = () => Promise.reject(new Error("trashPath not injected")),
+		/**
+		 * Windows 沙箱 runner 的本机 CUI node。空串/undefined = 自动探测。
+		 * 改路径后需重启 host 才写入 fork env。
+		 */
+		private readonly getDshRunnerNodePath: () => string | undefined = () => undefined,
+		/**
+		 * 用户是否手动停止了 DSH host（设置项 dshManualStopped，持久化跨重启）。
+		 * 为真时所有「自动拉起」路径（ensureStarted 按需兜底 / 后台预热 / 崩溃自动重启 /
+		 * runtime 磁盘操作后恢复）一律不 fork，只有用户显式调用 startManually() 才放行。
+		 * 缺省 false = 保持按需自动启动的历史语义。
+		 */
+		private readonly isManualStopped: () => boolean = () => false,
+		/**
+		 * agent-team 实验预设开关（设置项 dshAgentTeamPreset，默认关）。仅在 fork 时
+		 * 读取并经 --dsh-agent-team=1 传给 hostEntry：组合层变更无 per-session 通道，
+		 * 切换后需重启 DSH host 才对新旧会话生效（崩溃自动重启复用同 argv，开关快照不变）。
+		 */
+		private readonly isAgentTeamPresetEnabled: () => boolean = () => false,
 	) {}
 
 	/** 订阅 host-ready（首次启动与崩溃自动重启；E4：崩溃后恢复运行时状态）。 */
@@ -119,9 +146,23 @@ export class DshHost {
 		return this.hostProcess?.pid;
 	}
 
-	/** 启动/按需兜底（幂等）：fork host 并建立桥接客户端。 */
+	/** 是否处于「用户手动停止」状态（不想让它运行；自动拉起路径据此拒绝 fork）。 */
+	isManuallyStopped(): boolean {
+		return this.isManualStopped();
+	}
+
+	/**
+	 * 启动/按需兜底（幂等）：fork host 并建立桥接客户端。
+	 *
+	 * 手动停止优先：用户显式停过之后，所有自动路径（发送/历史/配置读取的兜底、
+	 * 后台预热、崩溃重启）都不再拉起——否则「停了一次又被某某后台任务悄悄拉回来」，
+	 * 用户会认为停止没生效。想恢复必须由用户在配置页点「启动」（走 startManually）。
+	 */
 	ensureStarted(): Promise<void> {
 		if (this.client) return Promise.resolve();
+		if (this.isManualStopped()) {
+			return Promise.reject(dshManuallyStoppedError());
+		}
 		this.startPromise ??= this.start().catch((error) => {
 			this.startPromise = null;
 			throw error;
@@ -129,8 +170,24 @@ export class DshHost {
 		return this.startPromise;
 	}
 
+	/**
+	 * 用户显式启动（清除手动停止语义后 boot）：配置页「启动」按钮走这里。
+	 * 必须由上层先把 settings.dshManualStopped 写成 false 再调用——本方法只负责 boot，
+	 * 不改 persisted 状态（DshHost 不持有 SettingsStore 写权限，保持单向依赖）。
+	 */
+	async startManually(): Promise<boolean> {
+		// 已在跑就直接返回成功（重复点「启动」不该 dispose 重建）。
+		if (this.isStarted() && this.isHostProcessRunning() && this.isHostReady()) return true;
+		try {
+			await this.ensureStarted();
+		} catch {
+			return false;
+		}
+		return this.isHostProcessRunning() && this.isHostReady();
+	}
+
 	/** 已启动时返回领域客户端（未启动返回 null）。 */
-	getClient(): import("@deepseek-ai/dsh-host-apiproxy").AbstractApiClient | null {
+	getClient(): DshRemoteClient | null {
 		return this.client;
 	}
 
@@ -157,7 +214,7 @@ export class DshHost {
 		if (!client) {
 			return { writable: false, hasDocument: false, namespaces: [] };
 		}
-		const described = await client.settings.describe({});
+		const described = await client.settingsDescribe();
 		if (!described.result.ok) {
 			throw new Error(`dsh settings.describe failed: ${JSON.stringify(described.result.error)}`);
 		}
@@ -178,19 +235,11 @@ export class DshHost {
 	}
 
 	/** settings.update：合并 patch 到 namespace 用户层（secret 可写；返回新脱敏视图）。 */
-	async updateSettings(
-		ns: string,
-		patch: Record<string, unknown>,
-		expectedRevision?: number,
-	): Promise<unknown> {
+	async updateSettings(ns: string, patch: Record<string, unknown>, expectedRevision?: number): Promise<unknown> {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) throw new Error("DSH host is not started");
-		const updated = await client.settings.update({ ns, patch, expectedRevision });
-		if (!updated.result.ok) {
-			throw new Error(`dsh settings.update failed: ${JSON.stringify(updated.result.error)}`);
-		}
-		return updated.result.value;
+		return this.writeDshNamespace(client, ns, "update", expectedRevision, (revision) => client.settingsUpdate({ ns, patch, expectedRevision: revision }));
 	}
 
 	/**
@@ -199,34 +248,80 @@ export class DshHost {
 	 * 可以删除单个 key（如 llm-pi-ai.providers.<route>），这是配置面删除
 	 * provider/字段的唯一正确路径——merge 空 dict 不会删掉现有 key。
 	 */
-	async mutateSettings(
-		ns: string,
-		ops: Array<
-			| { op: "set"; path: string[]; value: unknown }
-			| { op: "unset"; path: string[] }
-		>,
-		expectedRevision?: number,
-	): Promise<unknown> {
+	async mutateSettings(ns: string, ops: Array<{ op: "set"; path: string[]; value: unknown } | { op: "unset"; path: string[] }>, expectedRevision?: number): Promise<unknown> {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) throw new Error("DSH host is not started");
-		const updated = await client.settings.mutate({ ns, ops, expectedRevision });
-		if (!updated.result.ok) {
-			throw new Error(`dsh settings.mutate failed: ${JSON.stringify(updated.result.error)}`);
+		return this.writeDshNamespace(client, ns, "mutate", expectedRevision, (revision) => client.settingsMutate({ ns, ops, expectedRevision: revision }));
+	}
+
+	/**
+	 * DSH settings 写入统一入口（update/mutate 共用）：settings-conflict 冲突重试。
+	 *
+	 * 背景：渲染层保存时持有的 revision 来自页面加载时的 settings.describe。
+	 * 同一保存动作里的多次写入（如批量删除 provider 时每个 unset 各一次 mutate）
+	 * 共用同一个过期 revision——第一次写入成功后 revision 已递增，后续全部被拒；
+	 * dsh-web / host 热加载等外部并发写也会让本页 revision 过期。渲染层 update
+	 * 链路自带「重 describe 再试一次」，但 mutate 直调链路没有——统一收口在主进程：
+	 * 命中冲突时重读该 namespace 的最新 revision 再试（最多 3 次尝试）。
+	 * 重试安全性：update 是部分合并、mutate unset/set 是幂等路径操作，
+	 * 对「读到的最新值」重放不会放大副作用。
+	 */
+	private async writeDshNamespace(
+		client: NonNullable<DshHost["client"]>,
+		ns: string,
+		label: "update" | "mutate",
+		expectedRevision: number | undefined,
+		write: (revision: number | undefined) => Promise<{
+			result: { ok: true; value: unknown } | { ok: false; error: unknown };
+		}>,
+	): Promise<unknown> {
+		let revision = expectedRevision;
+		const MAX_ATTEMPTS = 3;
+		for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+			const result = await write(revision);
+			if (result.result.ok) return result.result.value;
+			const error = result.result.error;
+			// 非冲突错误（schema 拒绝等）与重试耗尽：原样上抛，保留 code/message
+			// 供渲染层既有的冲突匹配（"changed since it was read"）与错误展示使用。
+			if (!isDshSettingsConflict(error) || attempt === MAX_ATTEMPTS) {
+				throw new Error(`dsh settings.${label} failed: ${JSON.stringify(error)}`);
+			}
+			// 冲突：重读 namespace 拿最新 revision 再试；describe 失败时退化为
+			// 不带乐观校验（undefined）的最后一次重试。
+			revision = await this.readNamespaceRevision(client, ns);
 		}
-		return updated.result.value;
+		// 循环内必然 return/throw，这里仅满足 TS 控制流分析。
+		throw new Error(`dsh settings.${label} failed: exhausted retries`);
+	}
+
+	/** settings.describe 的单 namespace revision 读取（冲突重试用）；describe 失败返回 undefined。 */
+	private async readNamespaceRevision(client: NonNullable<DshHost["client"]>, ns: string): Promise<number | undefined> {
+		try {
+			const described = await client.settingsDescribe();
+			if (!described.result.ok) return undefined;
+			const found = (described.result.value.namespaces ?? []).find((item) => item.ns === ns);
+			return typeof found?.revision === "number" ? found.revision : undefined;
+		} catch {
+			return undefined;
+		}
 	}
 
 	/** credentials.describe：refs 必须匹配 env 名格式（^[A-Za-z_][A-Za-z0-9_]*$）。 */
-	async describeCredentials(refs: string[]): Promise<Record<string, {
-		configured: boolean;
-		source?: string;
-		writable: boolean;
-	}>> {
+	async describeCredentials(refs: string[]): Promise<
+		Record<
+			string,
+			{
+				configured: boolean;
+				source?: string;
+				writable: boolean;
+			}
+		>
+	> {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) return {};
-		const described = await client.credentials.describe({ refs });
+		const described = await client.credentialsDescribe({ refs });
 		if (!described.result.ok) return {};
 		return described.result.value.credentials ?? {};
 	}
@@ -236,7 +331,7 @@ export class DshHost {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) throw new Error("DSH host is not started");
-		const result = await client.credentials.set({ ref, value });
+		const result = await client.credentialsSet({ ref, value });
 		if (!result.result.ok) {
 			throw new Error(`dsh credentials.set failed: ${JSON.stringify(result.result.error)}`);
 		}
@@ -247,7 +342,7 @@ export class DshHost {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) throw new Error("DSH host is not started");
-		const result = await client.credentials.unset({ ref });
+		const result = await client.credentialsUnset({ ref });
 		if (!result.result.ok) {
 			throw new Error(`dsh credentials.unset failed: ${JSON.stringify(result.result.error)}`);
 		}
@@ -281,7 +376,7 @@ export class DshHost {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) throw new Error("DSH host is not started");
-		const result = await client.settings.openDocument({}, new AbortController().signal);
+		const result = await client.settingsOpenDocument(new AbortController().signal);
 		if (!result.result.ok) {
 			throw new Error(`dsh settings.openDocument failed: ${JSON.stringify(result.result.error)}`);
 		}
@@ -293,22 +388,95 @@ export class DshHost {
 		return this.dshHome || resolveDshHomeDir(override, this.getUserDataDir());
 	}
 
+	/**
+	 * 注入当前 WSL 环境（null = 非 WSL 模式或未配置）。
+	 *
+	 * 边界约定：进出 DSH host 的路径按「Windows 主机视角」处理——workspace 建/解析，
+	 * 以及 host 自己按 workspace 路径编码的会话目录（$DSH_HOME/sessions/<编码>/<sessionId>）。
+	 * 上层（DshAgentManager、index.ts 的 IPC 装配）继续用项目记录的路径（WSL 模式下是
+	 * /mnt/... 形式），转换只发生在这一层，避免主机路径渗进 tab.cwd / catalog / 渲染层
+	 * ——渲染层拿 agent.cwd 当文件链接与编辑器的 baseDir，Linux 路径才是它要的形式。
+	 */
+	configureWsl(environment: WslEnvironment | null): void {
+		this.wslEnvironment = environment;
+	}
+
+	/**
+	 * 交给 DSH host 的路径统一走这里转成 Windows 主机路径。
+	 * 转换失败（相对路径 / 不支持的 UNC / 发行版不匹配）保持原样：让 host 报出真实错误，
+	 * 好过在这里换成一个更让人困惑的路径。
+	 */
+	private toHostPath(path: string): string {
+		if (!this.wslEnvironment) return path;
+		try {
+			return toWindowsHostPath(path, this.wslEnvironment);
+		} catch {
+			return path;
+		}
+	}
+
+	/**
+	 * 会话日志文件路径：必须按 host 实际使用的 workspace 路径编码。
+	 * WSL 项目在 host 侧是 H:\...，用 /mnt/h/... 编码会得到一个 host 从未写过的目录
+	 * （「复制会话文件路径」指向假路径，删除/归档只能靠 sessionId 兜底扫描）。
+	 */
+	sessionFilePath(cwd: string, sessionId: string): string {
+		return dshSessionFilePath(this.getHomeDir(), this.toHostPath(cwd), sessionId);
+	}
+
 	/** DSH 配置管理页数据：host 启动状态 + DSH_HOME 目录 + 最近一次 boot 失败原因。 */
 	async getStatus(): Promise<{
 		started: boolean;
 		homeDir: string;
 		/** 最近一次 host boot 失败的真实原因（host-error 详情/stderr 尾部）；成功或从未失败为 null。 */
 		bootError?: string | null;
+		/** DSH_HOME 共享/冲突状态（issue #189 问题 1：与 dsh CLI 共用目录会互相覆盖状态）。 */
+		sharing: DshHomeSharingState;
+		/** 用户是否手动停止了 host（true 时不会自动启动，只有显式「启动」才拉起）。 */
+		manuallyStopped: boolean;
 	}> {
 		// E14：started 语义 = host 进程存活且 boot 完成（client 非 null 可能在崩溃重启
 		// 超限放弃后仍是陈旧引用，UI 会误显示「已启动」）。
 		const started = this.client !== null && this.isHostProcessRunning() && this.isHostReady();
+		const homeDir = this.getHomeDir();
 		return {
 			started,
-			homeDir: this.getHomeDir(),
+			homeDir,
 			// boot 失败详情透给渲染层：即使 describe 抛错，概览页也能拿到真实原因。
 			bootError: this.hostProcess?.getLastBootError() ?? null,
+			manuallyStopped: this.isManualStopped(),
+			sharing: {
+				...resolveDshHomeSharing({
+					dshHome: homeDir,
+					override: this.getDshHomeOverride(),
+					homeDir: homedir(),
+				}),
+				// 双 PiDeck 实例可检测：锁文件记录的 pid 仍存活且不是自己。
+				// 外部 dsh CLI 不写该锁，属已知盲区（sharesCliHome 负责兜底提示）。
+				externalHostPid: this.readExternalHostPid(),
+			},
 		};
+	}
+
+	/**
+	 * 读锁文件取「另一个存活 DSH host」的 pid（无/陈旧/自己持有 = undefined）。
+	 * 只读不写：getStatus 是纯查询路径，不得因为看一眼状态就改锁。
+	 */
+	private readExternalHostPid(): number | undefined {
+		const lockPath = this.hostLockPath || pideckHostLockPath(this.getHomeDir());
+		let raw: string | undefined;
+		try {
+			if (!existsSync(lockPath)) return undefined;
+			raw = readFileSync(lockPath, "utf8");
+		} catch {
+			// 锁文件读不到（权限/占用）：无法判定，按无冲突处理。
+			return undefined;
+		}
+		return externalHostHolderPid({
+			lockRaw: raw,
+			selfPid: process.pid,
+			isAlive: isProcessAlive,
+		});
 	}
 
 	/**
@@ -321,7 +489,7 @@ export class DshHost {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) return [];
-		const listed = await client.llm.models({});
+		const listed = await client.sessionsModelCatalog();
 		if (!listed.result.ok) return [];
 		return toDshAvailableModels(listed.result.value.groups ?? []);
 	}
@@ -331,15 +499,13 @@ export class DshHost {
 	 * apiKey 仅在调用方有未保存草稿时出现；已保存凭证由 DSH 的 adapter/credentials
 	 * seam 自己解析，避免 PiDeck 读取并转运密钥。settingsNs 是 adapter 选择的必要契约。
 	 */
-	async discoverModels(
-		input: import("../../shared/types").DshModelDiscoveryInput,
-	): Promise<import("../../shared/types").FetchedModel[]> {
+	async discoverModels(input: import("../../shared/types").DshModelDiscoveryInput): Promise<import("../../shared/types").FetchedModel[]> {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) throw new Error("DSH host is not started");
 		const settingsNs = input.settingsNs.trim();
 		if (!settingsNs) throw new Error("DSH model discovery requires settingsNs");
-		const discovered = await client.llm.discoverModels({
+		const discovered = await client.llmDiscoverModels({
 			settingsNs,
 			...(input.provider?.trim() ? { provider: input.provider.trim() } : {}),
 			...(input.baseURL?.trim() ? { baseURL: input.baseURL.trim() } : {}),
@@ -349,7 +515,10 @@ export class DshHost {
 		if (!discovered.result.ok) {
 			throw new Error(`dsh llm.discoverModels failed: ${discovered.result.error.code}: ${discovered.result.error.message}`);
 		}
-		return toDshFetchedModels(discovered.result.value.models ?? []);
+		// 线上结果 schema 是纯数组（dsh-llm typert：z.array(z.object({ id, ... }))）；
+		// 之前写成 value.models ?? []，对数组取 .models 恒 undefined → 配置页永远
+		// 「已获取 0 个模型」。unwrapDshDiscoveryModels 做数组/包装双形态解包。
+		return toDshFetchedModels(unwrapDshDiscoveryModels(discovered.result.value));
 	}
 
 	/**
@@ -360,43 +529,58 @@ export class DshHost {
 	 * title 为归档时刻 catalog 里的会话名：不存则恢复/列表只能看到 host id
 	 * 或退化为日志折叠（见 listArchivedSessions / unarchiveSession）。
 	 * 返回归档目录路径；会话不存在时返回 undefined。
+	 * @param cwd 上层传入的项目路径（catalog 记录的 project.path）；目录定位按 host 视角转换后编码。
 	 */
 	async archiveSession(dshSessionId: string, cwd: string, title?: string): Promise<string | undefined> {
-		const sourceDir = join(this.getHomeDir(), "sessions", workspaceDirFor(cwd), dshSessionId);
+		const hostCwd = this.toHostPath(cwd);
+		const sourceDir = join(this.getHomeDir(), "sessions", workspaceDirFor(hostCwd), dshSessionId);
 		if (!existsSync(sourceDir)) return undefined;
-  const archiveRoot = pideckArchivePath(this.getHomeDir());
+		const archiveRoot = pideckArchivePath(this.getHomeDir());
 		const targetDir = join(archiveRoot, dshSessionId);
 		mkdirSync(archiveRoot, { recursive: true });
 		if (existsSync(targetDir)) rmSync(targetDir, { recursive: true, force: true });
 		renameSync(sourceDir, targetDir);
-		writeFileSync(join(targetDir, "pideck-manifest.json"), JSON.stringify({
-			dshSessionId,
-			cwd,
-			archivedAt: Date.now(),
-			// G14+：标题随 manifest 持久化，恢复后列表/会话记录直接可用；
-			// 旧归档没有该字段，由读取侧用日志折叠兜底。
-			...(typeof title === "string" && title.trim() ? { title: title.trim() } : {}),
-		}), "utf8");
+		writeFileSync(
+			join(targetDir, "pideck-manifest.json"),
+			JSON.stringify({
+				dshSessionId,
+				// cwd 保持上层传入的项目路径形式：恢复时 sessionIpc 要按它匹配/注册项目记录
+				// （WSL 项目存的是 /mnt/...，换主机路径会让 findByPath 落空并新建重复项目）。
+				cwd,
+				// host 实际使用的 workspace 路径：恢复时按它还原目录，与当前 WSL 开关无关
+				// （归档后关掉 WSL 再恢复也要能移回原位）。
+				hostCwd,
+				archivedAt: Date.now(),
+				// G14+：标题随 manifest 持久化，恢复后列表/会话记录直接可用；
+				// 旧归档没有该字段，由读取侧用日志折叠兜底。
+				...(typeof title === "string" && title.trim() ? { title: title.trim() } : {}),
+			}),
+			"utf8",
+		);
 		return targetDir;
 	}
 
 	/** 恢复归档的 DSH 会话（G14）：读 manifest 移回原 workspace 目录。返回恢复后的目录、manifest 中的原 cwd 与标题。 */
 	async unarchiveSession(dshSessionId: string): Promise<{ restoredPath: string; cwd: string; title?: string } | undefined> {
-  const archiveRoot = pideckArchivePath(this.getHomeDir());
+		const archiveRoot = pideckArchivePath(this.getHomeDir());
 		const archivedDir = join(archiveRoot, dshSessionId);
 		const manifestPath = join(archivedDir, "pideck-manifest.json");
 		if (!existsSync(manifestPath)) return undefined;
 		let cwd = "";
+		let hostCwd = "";
 		let title: string | undefined;
 		try {
-			const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { cwd?: unknown; title?: unknown };
+			const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { cwd?: unknown; hostCwd?: unknown; title?: unknown };
 			if (typeof manifest.cwd === "string" && manifest.cwd) cwd = manifest.cwd;
+			if (typeof manifest.hostCwd === "string" && manifest.hostCwd) hostCwd = manifest.hostCwd;
 			if (typeof manifest.title === "string" && manifest.title.trim()) title = manifest.title.trim();
 		} catch {
 			// manifest 损坏：无法恢复原位置
 			return undefined;
 		}
-		const targetDir = join(this.getHomeDir(), "sessions", workspaceDirFor(cwd), dshSessionId);
+		// 优先用归档时记录的 host 路径（自描述，跨「归档期间切换 WSL 开关」也正确）；
+		// 旧 manifest 没有该字段时按当前环境转换，非 WSL 场景转换即原样。
+		const targetDir = join(this.getHomeDir(), "sessions", workspaceDirFor(hostCwd || this.toHostPath(cwd)), dshSessionId);
 		mkdirSync(dirname(targetDir), { recursive: true });
 		renameSync(archivedDir, targetDir);
 		// 旧归档 manifest 无标题时，从恢复后的会话日志前缀只读折叠补全
@@ -429,7 +613,7 @@ export class DshHost {
 	 *            失配时按 sessionId 兜底扫描（项目目录移动后仍可删除）。
 	 */
 	async deleteSession(dshSessionId: string, cwd: string): Promise<boolean> {
-		const target = findDshSessionDir(this.getHomeDir(), cwd, dshSessionId);
+		const target = findDshSessionDir(this.getHomeDir(), this.toHostPath(cwd), dshSessionId);
 		if (!target) return false;
 		await this.trashPath(target);
 		return true;
@@ -441,38 +625,43 @@ export class DshHost {
 	 * 会话日志前缀只读折叠补全（与外部会话导入同源策略）。
 	 * manifest 缺失/损坏的目录跳过（无 manifest 不视为 PiDeck 归档）。
 	 */
-	listArchivedSessions(): Array<import("../../shared/types").ArchivedDshSession> {
-  const archiveRoot = pideckArchivePath(this.getHomeDir());
+	/**
+	 * 2027-02 性能审计改异步：旧归档缺标题时逐目录读 256KiB 日志前缀 + zstd 同步解压，
+	 * 归档条目多时同步实现把主进程事件循环堵数百 ms（打开归档管理页整窗卡）。
+	 * 现在每个归档目录处理前让出一轮事件循环；目录遍历走 fs/promises。
+	 */
+	async listArchivedSessions(): Promise<Array<import("../../shared/types").ArchivedDshSession>> {
+		const archiveRoot = pideckArchivePath(this.getHomeDir());
 		if (!existsSync(archiveRoot)) return [];
-		return readdirSync(archiveRoot, { withFileTypes: true })
-			.filter((item) => item.isDirectory())
-			.map((item): import("../../shared/types").ArchivedDshSession | undefined => {
-				const manifestPath = join(archiveRoot, item.name, "pideck-manifest.json");
-				try {
-					const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
-						dshSessionId?: unknown;
-						cwd?: unknown;
-						archivedAt?: unknown;
-						title?: unknown;
-					};
-					const dshSessionId = typeof manifest.dshSessionId === "string" ? manifest.dshSessionId : item.name;
-					// manifest 携带的标题优先（G14+ 归档时刻写入）；旧归档缺省时
-					// 从归档目录的日志前缀折叠，避免归档区只能显示裸 host id。
-					const manifestTitle = typeof manifest.title === "string" && manifest.title.trim()
-						? manifest.title.trim()
-						: undefined;
-					const title = manifestTitle ?? foldSessionTitleFromDir(join(archiveRoot, item.name));
-					return {
-						dshSessionId,
-						cwd: typeof manifest.cwd === "string" ? manifest.cwd : "",
-						archivedAt: typeof manifest.archivedAt === "number" ? manifest.archivedAt : 0,
-						...(title ? { title } : {}),
-					};
-				} catch {
-					return undefined;
-				}
-			})
-			.filter((item): item is import("../../shared/types").ArchivedDshSession => Boolean(item));
+		const entries = await readdir(archiveRoot, { withFileTypes: true });
+		const listed: Array<import("../../shared/types").ArchivedDshSession> = [];
+		for (const item of entries) {
+			if (!item.isDirectory()) continue;
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			const manifestPath = join(archiveRoot, item.name, "pideck-manifest.json");
+			try {
+				const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+					dshSessionId?: unknown;
+					cwd?: unknown;
+					archivedAt?: unknown;
+					title?: unknown;
+				};
+				const dshSessionId = typeof manifest.dshSessionId === "string" ? manifest.dshSessionId : item.name;
+				// manifest 携带的标题优先（G14+ 归档时刻写入）；旧归档缺省时
+				// 从归档目录的日志前缀折叠，避免归档区只能显示裸 host id。
+				const manifestTitle = typeof manifest.title === "string" && manifest.title.trim() ? manifest.title.trim() : undefined;
+				const title = manifestTitle ?? foldSessionTitleFromDir(join(archiveRoot, item.name));
+				listed.push({
+					dshSessionId,
+					cwd: typeof manifest.cwd === "string" ? manifest.cwd : "",
+					archivedAt: typeof manifest.archivedAt === "number" ? manifest.archivedAt : 0,
+					...(title ? { title } : {}),
+				});
+			} catch {
+				// manifest 缺失/损坏的目录跳过（无 manifest 不视为 PiDeck 归档）
+			}
+		}
+		return listed;
 	}
 
 	/**
@@ -510,10 +699,78 @@ export class DshHost {
 		return Array.isArray(value) ? (value as DshPluginView[]) : [];
 	}
 
-	/** 静态 Loader 条目清单（只读：moduleName/enabled/fiberPhase）。 */
+	/** 静态 Loader 条目清单（origin 标注来源：user = 用户补丁层 / builtin = 官方与 PiDeck 组合）。 */
 	async listStaticPlugins(): Promise<DshStaticPluginView[]> {
 		const value = await this.pluginRpc("staticInventory", undefined);
-		return Array.isArray(value) ? (value as DshStaticPluginView[]) : [];
+		const views = Array.isArray(value) ? (value as DshStaticPluginView[]) : [];
+		try {
+			const patchPath = join(this.getHomeDir(), USER_PATCH_FILENAME);
+			const { rows } = readUserPatchRows(patchPath);
+			return classifyStaticPlugins(views, rows);
+		} catch (error) {
+			// 分类是纯增强：读不到用户补丁层时按 builtin 呈现，不让列表失败
+			this.log("dsh-host", "plugin origin classification skipped", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return views;
+		}
+	}
+
+	/**
+	 * 卸载用户自装的静态插件：从 $DSH_HOME/cordis.patch.yml 移除对应行（下个 host
+	 * 重启生效），可选把插件目录移入回收站（仅限 userData/dsh-plugins 内的 PiDeck
+	 * 管理目录）。内置条目一律拒绝——它们属于 base/预设/PiDeck 组合，不归用户卸载。
+	 */
+	async uninstallUserPlugin(input: DshUserPluginUninstallInput): Promise<DshUserPluginUninstallResult> {
+		const patchPath = join(this.getHomeDir(), USER_PATCH_FILENAME);
+		const { rows, exists } = readUserPatchRows(patchPath);
+		if (!exists) {
+			return { rowRemoved: false, reason: "no user patch layer found (nothing user-installed)" };
+		}
+		const probe = { entryId: input.entryId, moduleName: input.moduleName };
+		if (!isUserPluginEntry(probe, rows)) {
+			return {
+				rowRemoved: false,
+				reason: "entry is not declared in the user patch layer (builtin plugins cannot be uninstalled here)",
+			};
+		}
+
+		// 先备份再改写：补丁文件是用户自管文件，误删行可从 .bak 恢复
+		const backupPath = `${patchPath}.bak-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+		copyFileSync(patchPath, backupPath);
+		const current = readFileSync(patchPath, "utf8");
+		const removed = removeUserPatchRow(current, { entryId: input.entryId, moduleName: input.moduleName });
+		if (!removed.removed) {
+			return { rowRemoved: false, reason: removed.reason, backupPath };
+		}
+		// 删掉最后一行会只剩表头注释：补成合法空数组文档，否则下次 host 启动被 dsh 拒。
+		writeFileSync(patchPath, withArrayDocumentFallback(removed.text), "utf8");
+		this.log("dsh-host", "user plugin uninstalled from patch layer", {
+			entryId: input.entryId,
+			moduleName: input.moduleName,
+			backupPath,
+		});
+
+		const result: DshUserPluginUninstallResult = { rowRemoved: true, backupPath };
+		if (input.deleteFiles === true) {
+			const matchedRow = rows.find((row) => isUserPluginEntry(probe, [row]));
+			const pluginDir = matchedRow?.name !== undefined ? resolveManagedPluginDir(matchedRow.name, join(this.getUserDataDir(), "dsh-plugins")) : undefined;
+			if (pluginDir === undefined) {
+				// 管理目录之外不代删，但把插件实际位置告诉用户（常见于换实例卸载：
+				// 插件装在另一个 userData 的 dsh-plugins 下）
+				const hintDir = matchedRow?.name !== undefined ? nearestPackageDir(matchedRow.name) : undefined;
+				result.reason = hintDir ? `plugin files are outside this install's managed folder: ${hintDir}` : "plugin directory is outside PiDeck's managed folder; remove it manually if needed";
+				result.keptPluginDir = hintDir;
+			} else {
+				try {
+					await this.trashPath(pluginDir);
+					result.removedPluginDir = pluginDir;
+				} catch (error) {
+					result.fileError = error instanceof Error ? error.message : String(error);
+				}
+			}
+		}
+		return result;
 	}
 
 	/** 安装动态插件（define：定义源码包，不运行；按会话归属）。 */
@@ -548,6 +805,24 @@ export class DshHost {
 	}
 
 	/**
+	 * 冷读会话日志 cursor（0.1.5 `session/page` 的 throughSeq 上界）。
+	 *
+	 * 契约见 pideckSessionBridge：cursor 来自 host 内 sessionQuery 的
+	 * observation（与 page 内部 sourceFor 同一数据源），不激活会话、不写投影缓存；
+	 * 取 cursor 与后续 page 之间日志只可能增长，旧 cursor 仍是合法切点。
+	 * 空日志返回 -1（page 拿到 -1 会返回空页）。
+	 * 返回非合法数字（桥未挂载/返回异常）时抛错，由调用方（historyPage）回退。
+	 */
+	async readSessionCursor(sessionId: string): Promise<number> {
+		const value = await this.bridgeRpc(PIDECK_SESSION_BRIDGE_PATH, "cursor", { sessionId });
+		const cursor = (value as { cursor?: unknown } | undefined)?.cursor;
+		if (typeof cursor !== "number" || !Number.isSafeInteger(cursor)) {
+			throw new Error("session bridge returned an invalid cursor");
+		}
+		return cursor;
+	}
+
+	/**
 	 * DSH 会话内容搜索（G9）：wire `session.search` 搜索 user/assistant/steering 消息面，
 	 * 结果最多 20 个会话（无游标，hasMore 提示收窄查询）。返回 { sessionId, snippet }，
 	 * 由渲染层按 dshSessionId 映射回 catalog 记录。
@@ -558,11 +833,11 @@ export class DshHost {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) return [];
-		const searched = await client.sessions.search({ query: trimmed }, new AbortController().signal);
+		const searched = await client.sessionsSearch({ query: trimmed }, new AbortController().signal);
 		if (!searched.result.ok) return [];
 		return (searched.result.value.items ?? []).map((item) => ({
 			sessionId: String(item.sessionId),
-			snippet: item.snippet,
+			snippet: item.snippet ?? "",
 		}));
 	}
 
@@ -571,20 +846,24 @@ export class DshHost {
 	 * 只读扫 DSH_HOME/sessions，不启动 host——配置页概览不能为了数孤儿去抢 dsh-web。
 	 */
 	async listSessionIds(): Promise<string[]> {
-		return scanDshSessionHeaders(this.getHomeDir()).map((header) => header.id);
+		// 异步切片版（2027-02 性能审计）：同步整段扫会冻结事件循环数百 ms~秒级
+		return (await scanDshSessionHeadersAsync(this.getHomeDir())).map((header) => header.id);
 	}
 
 	/**
 	 * 外部（dsh-web 等其他工具）创建的根会话清单：只读扫磁盘 header，
 	 * 不 fork host、不 sessions.list / history。双 host 会互相覆盖 session log。
 	 */
-	async listForeignSessions(): Promise<Array<{
-		dshSessionId: string;
-		title?: string;
-		cwd?: string;
-		updatedAt?: number;
-	}>> {
-		return listForeignSessionsFromDisk(this.getHomeDir());
+	async listForeignSessions(): Promise<
+		Array<{
+			dshSessionId: string;
+			title?: string;
+			cwd?: string;
+			updatedAt?: number;
+		}>
+	> {
+		// 异步切片版：冷会话折叠（256KiB 前缀 + zstd 解压）按会话让出，不再整段阻塞主进程
+		return listForeignSessionsFromDiskAsync(this.getHomeDir());
 	}
 
 	/**
@@ -593,13 +872,15 @@ export class DshHost {
 	 * 新会话必须带这个 workspaceId 创建，host 才会 attachSession；
 	 * 只传 cwd 会永远留在 dsh-web「未分组」。失败返回 undefined，由创建方失败，
 	 * 不再静默降级成 cwd-only。
+	 * @param cwd 上层传入的项目路径；发给 host 前转成 Windows 主机路径（host 用
+	 *            node:fs realpath 归一化 path，Linux 路径在 Windows 上必然 ENOENT）。
 	 */
-	async resolveWorkspaceId(cwd: string): Promise<import("@deepseek-ai/dsh-host-apiproxy").WorkspaceId | undefined> {
+	async resolveWorkspaceId(cwd: string): Promise<import("@deepseek-ai/dsh-workspace/types").WorkspaceId | undefined> {
 		try {
 			await this.ensureStarted();
 			const client = this.client;
 			if (!client) return undefined;
-			const resolved = await client.workspace.create({ path: cwd });
+			const resolved = await client.workspaceCreate({ path: this.toHostPath(cwd) });
 			if (!resolved.result.ok) return undefined;
 			return resolved.result.value.workspace.workspaceId;
 		} catch {
@@ -612,16 +893,18 @@ export class DshHost {
 	 * 已注册路由（active）。模型页「添加提供方」从 declared 未激活行中选择，
 	 * 与 dsh-web 的休眠目录选择同源。首次调用会懒 boot。
 	 */
-	async listProviders(): Promise<Array<{
-		provider: string;
-		displayName: string;
-		active: boolean;
-		declared?: boolean;
-	}>> {
+	async listProviders(): Promise<
+		Array<{
+			provider: string;
+			displayName: string;
+			active: boolean;
+			declared?: boolean;
+		}>
+	> {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) return [];
-		const listed = await client.llm.providers({});
+		const listed = await client.llmProviders();
 		if (!listed.result.ok) return [];
 		return (listed.result.value.providers ?? []).map((entry) => ({
 			provider: entry.provider,
@@ -632,21 +915,22 @@ export class DshHost {
 	}
 
 	/**
-	 * DSH agent 预设目录（agentPreset.list）：会话 agent 的组合预设（standard/code/…）。
-	 * 只读展示（id/trust/isDefault/名称/描述），配置页「预设设置」分区用。
+	 * DSH agent 预设目录（agentPresets/list）：会话 agent 的组合预设（standard/ptc/…）。
+	 * 只读展示（id/isDefault/名称/描述），配置页「预设设置」分区用。
 	 */
-	async listAgentPresets(): Promise<Array<{
-		id: string;
-		trust: "system" | "user";
-		isDefault: boolean;
-		name?: string;
-		description?: string;
-		broken?: string;
-	}>> {
+	async listAgentPresets(): Promise<
+		Array<{
+			id: string;
+			isDefault: boolean;
+			name?: string;
+			description?: string;
+			broken?: string;
+		}>
+	> {
 		await this.ensureStarted();
 		const client = this.client;
 		if (!client) return [];
-		const listed = await client.agentPresets.list({});
+		const listed = await client.agentPresetsList();
 		if (!listed.result.ok) {
 			// 目录拉取失败/为空时记日志：会话头模式胶囊与配置页「预设设置」都依赖这份名单，
 			// 空名单 = 部署未装配 agent-presets 组合行（此时胶囊按设计隐藏）。
@@ -661,16 +945,8 @@ export class DshHost {
 				hint: "agent-presets 组合行未装配时 PiDeck 隐藏会话头模式胶囊（与 dsh-web 一致）",
 			});
 		}
-		return presets.map((preset: {
-			id: string;
-			trust: "system" | "user";
-			isDefault: boolean;
-			name?: string;
-			description?: string;
-			broken?: string;
-		}) => ({
+		return presets.map((preset: { id: string; isDefault: boolean; name?: string; description?: string; broken?: string }) => ({
 			id: preset.id,
-			trust: preset.trust,
 			isDefault: preset.isDefault,
 			...(typeof preset.name === "string" && preset.name ? { name: preset.name } : {}),
 			...(typeof preset.description === "string" && preset.description ? { description: preset.description } : {}),
@@ -678,18 +954,12 @@ export class DshHost {
 		}));
 	}
 
-	/**
-	 * 部署默认模型选择（settings.yaml 的 agent-default-model 段）。
-	 * 草稿/未激活会话的底栏与选择器展示默认模型/思考档位用；无需启动 host
-	 * （直接读 DSH_HOME/settings.yaml，host 写出的简单 YAML）。文件缺失或解析
-	 * 失败返回 undefined，调用方回退为不展示默认值。
-	 */
+	/** 草稿会话读取已保存的 profile 默认模型；尚未迁移时兼容旧 settings.yaml。 */
 	getDefaultModelSelection(): import("./dshDefaultModel").DshDefaultModel | undefined {
-		const home = this.getHomeDir();
-		const filePath = join(home, "settings.yaml");
-		if (!existsSync(filePath)) return undefined;
 		try {
-			return parseAgentDefaultModel(readFileSync(filePath, "utf8"));
+			const value = readDshSettingsSnapshot(this.getHomeDir())["agent-default-model"];
+			if (!isRecord(value) || typeof value.provider !== "string" || !value.provider || typeof value.model !== "string" || !value.model) return undefined;
+			return { provider: value.provider, model: value.model, ...(typeof value.reasoningEffort === "string" ? { reasoningEffort: value.reasoningEffort } : {}) };
 		} catch {
 			return undefined;
 		}
@@ -701,7 +971,7 @@ export class DshHost {
 	 * 进程不遵守本锁，阻断也无法防外部并发，但至少双 PiDeck 实例有提示）。
 	 */
 	private acquireHostLock(): void {
-  this.hostLockPath = pideckHostLockPath(this.dshHome);
+		this.hostLockPath = pideckHostLockPath(this.dshHome);
 		try {
 			if (existsSync(this.hostLockPath)) {
 				const raw = readFileSync(this.hostLockPath, "utf8");
@@ -732,6 +1002,9 @@ export class DshHost {
 	}
 
 	private async start(): Promise<void> {
+		// 门控在读到这里时才判定（而非只在 ensureStarted 入口）：startPromise 可能在
+		// 用户点「停止」之前就已建好，晚到的 await 不该越过刚刚生效的停止决定。
+		if (this.isManualStopped()) throw dshManuallyStoppedError();
 		const userData = this.getUserDataDir();
 		const override = this.getDshHomeOverride()?.trim();
 		// DSH_HOME 解析：设置覆盖 > ~/.dsh（统一入口，新用户也用 ~/.dsh，不另起炉灶）。
@@ -749,16 +1022,41 @@ export class DshHost {
 		// 确认无残留后随下一版删除该调用（见 pideckDshHome.ts 头部「生命周期」说明）。
 		migrateLegacyPideckDshFiles(this.dshHome);
 		mkdirSync(pideckDshHome(this.dshHome), { recursive: true });
+		// 用户补丁层自愈：旧版本卸载最后一个用户插件后只留下表头注释（空文档），
+		// 而 dsh 0.2.0-rc.2 起要求补丁文件顶层必须是 YAML 数组，否则 loadOptionalPatches
+		// 直接抛错、host 起不来。fork 前补成 `[]`，用户不必手动编辑 ~/.dsh。
+		if (ensureUserPatchLayerIsArrayDocument(join(this.dshHome, USER_PATCH_FILENAME))) {
+			this.log("dsh-host", `用户补丁层是空文档，已补成合法空数组：${join(this.dshHome, USER_PATCH_FILENAME)}`);
+		}
 		this.acquireHostLock();
 
 		// 定位 hostEntry 产物与 node_modules 锚点（bareModuleBaseUrl）。
 		// @deepseek-ai/* 现在可能来自外部 runtime（阶段 2：userData/runtimes/dsh/<v>），
-		// 因此 require 基准改用 runtime 目录而不是 appPath；未装 runtime 时回退内置。
+		// 因此 require 基准改用 runtime 目录；新的 dev/lite 未安装时不会启动 host，旧 full/存量包
+		// 才允许通过 appPath 继续解析内置依赖。
 		// hostEntry 仍是 PiDeck 自己的产物，继续从 appPath 解析。
 		const runtimeRoot = this.resolveRuntimeAppRoot?.() ?? this.getAppPath();
 		const require = createRequire(join(runtimeRoot, "package.json"));
-		const appRoot = dirname(dirname(dirname(require.resolve("@deepseek-ai/dsh-base/package.json"))));
+		// @deepseek-ai/* 自阶段 2 起外置为 runtime 资源（app.asar 里本就没有它们），未安装 runtime
+		// 时这里必然解析失败。没有守卫的话 MODULE_NOT_FOUND 会沿 ensureClient → IPC 抛到渲染层，
+		// 会话历史分页整页失败且原因不可读（#375）。收敛成结构化错误，让调用方识别为「运行时未安装」。
+		let appRoot: string;
+		try {
+			appRoot = dirname(dirname(dirname(require.resolve("@deepseek-ai/dsh-base/package.json"))));
+		} catch (error) {
+			throw dshRuntimeMissingError(runtimeRoot, error);
+		}
 		const hostEntryPath = resolveHostEntryPath(this.getAppPath());
+
+		// dsh-bill 启动回填默认关（CPU 修复）：必须在 fork 前对 host 实际加载的那份
+		// dsh-bill 应用文件补丁——require 锚点与 hostEntry 的 require.resolve 同源
+		//（runtimeRoot），dev / 打包内置 / userData 安装的 runtime 三种形态都命中。
+		// 失败不阻断 boot（fail-open：保持官方行为，只是 CPU 问题仍在）。
+		try {
+			applyDshBillBackfillPatch(require.resolve("dsh-bill"), (message, detail) => this.log("dsh-host", message, detail));
+		} catch (error) {
+			this.log("dsh-host", "dsh-bill 回填补丁异常（继续启动）", { error: String(error) });
+		}
 
 		// 会话级代理覆盖（DSH 降级方案）：DSH 是单一共享 host，无法按会话注入，
 		// 只能聚合所有 DSH 会话的开关应用到 host（off 优先于 on，见 sessionProxyPolicy）。
@@ -771,20 +1069,30 @@ export class DshHost {
 		const forkEnv = buildDshHostForkEnv();
 		const proxyPatch = this.resolveHostProxyEnvPatch();
 		if (proxyPatch) applyProxyEnvPatch(forkEnv, proxyPatch);
+		// Windows 沙箱 runner 改走 CUI node sidecar（B 方案）：host 仍是 utilityProcess，
+		// 但 runner 不再用 electron.exe，避免 AllocConsole 闪窗。路径写入 fork env，
+		// hostEntry 在补丁安装前 configureDshRunnerNodeSidecar。
+		const runnerNode = await resolveDshRunnerNodePath({
+			platform: process.platform,
+			configuredPath: this.getDshRunnerNodePath(),
+			envPath: process.env[DSH_RUNNER_NODE_ENV],
+			userDataPath: this.getUserDataDir(),
+			resourcesPath: typeof process.resourcesPath === "string" ? process.resourcesPath : undefined,
+			appPath: this.getAppPath(),
+		});
+		if (runnerNode) forkEnv[DSH_RUNNER_NODE_ENV] = runnerNode;
 
 		const hostProcess = new DshHostProcess(
 			hostEntryPath,
-			[
-				`--dsh-home=${this.dshHome}`,
-				`--dsh-config=${this.configDir}`,
-				`--dsh-node-modules=${pathToFileURL(appRoot + "/").href}`,
-			],
+			[`--dsh-home=${this.dshHome}`, `--dsh-config=${this.configDir}`, `--dsh-node-modules=${pathToFileURL(appRoot + "/").href}`, ...(this.isAgentTeamPresetEnabled() ? ["--dsh-agent-team=1"] : [])],
 			// E5：utilityProcess.fork 的 env 显式传入即整体替换——传 {} 会让 host 以
 			// 近空环境运行（无 PATH/SystemRoot 等），host 内 spawn 的 bash/pwsh 子进程
 			// 依赖这些变量。改为继承主进程环境并剔除 Electron/Node 宿主注入类变量
 			// （ELECTRON_*/NODE_OPTIONS），避免污染 DSH 子进程树。
 			forkEnv,
 			(scope, message, detail) => this.log(scope, message, detail),
+			// 崩溃自动重启不经过 DshHost.start，必须把手动停止门控透传到进程层。
+			() => this.isManualStopped(),
 		);
 		this.hostProcess = hostProcess;
 		// 崩溃联动：host 进程退出（运行中崩溃）时中断全部在途桥 fetch（mux 长连接），
@@ -816,30 +1124,10 @@ export class DshHost {
 		};
 		this.apiClient = new DshApiClient({
 			transport,
-			// 与 hostEntry 一致：CJS 产物里裸 import() 会走默认解析（打包后找不到 app node_modules），
-			// 必须按 file URL 动态导入（createRequire 解析真实路径）。
-			loadModule: () => import(pathToFileURL(require.resolve("@deepseek-ai/dsh-host-apiproxy")).href),
 			log: (message, detail) => this.log("dsh-bridge", message, detail),
 		});
-		try {
-			// 覆写后的客户端即领域客户端（doFetch 走桥）。
-			const client = await this.apiClient.getClient();
-			this.client = client;
-		} catch (error) {
-			// E10：启动失败路径必须清理已 fork 的 host 进程与 apiClient——否则下次
-			// ensureStarted 会再 fork 一个新 host，双 host 进程并存。
-			this.log("dsh-host", "host client init failed; cleaning up forked host", {
-				error: error instanceof Error ? error.message : String(error),
-			});
-			this.apiClient.dispose();
-			this.apiClient = null;
-			this.unsubscribeHostExit?.();
-			this.unsubscribeHostExit = null;
-			await hostProcess.dispose().catch(() => undefined);
-			this.hostProcess = null;
-			this.releaseHostLock();
-			throw error;
-		}
+		// 0.1.5：领域客户端是 Typert Remote 适配层（旧 AbstractApiClient 已废）。
+		this.client = new DshRemoteClient(this.apiClient);
 		this.log("dsh-host", "host ready（utilityProcess）");
 	}
 
@@ -878,14 +1166,24 @@ export class DshHost {
 }
 
 /**
+ * 判定 DSH settings 写入错误是否为乐观并发冲突（revision 过期）。
+ * host 的结构化错误 code 是 "settings-conflict"（连字符小写），消息含
+ * "changed since it was read"；两者任一命中即视为冲突（容错 host 文案演进）。
+ * 纯函数（可单测）：输入为 settings.update/mutate result.error 的 unknown 形状。
+ */
+export function isDshSettingsConflict(error: unknown): boolean {
+	if (typeof error !== "object" || error === null) return false;
+	const record = error as { code?: unknown; message?: unknown };
+	if (typeof record.code === "string" && /settings[-_]conflict/i.test(record.code)) return true;
+	return typeof record.message === "string" && record.message.includes("changed since it was read");
+}
+
+/**
  * DSH_HOME 目录解析（纯函数，可单测）：
  * 1. 设置里 dshHomeDir 非空 → 以用户覆盖为准（任意自定义目录）；
  * 2. 否则一律用 ~/.dsh（与 dsh CLI 共用同一目录；不存在时由调用方 mkdirSync 自动创建）。
  */
-export function resolveDshHomeDir(
-	override: string | undefined,
-	_realUserDataDir: string,
-): string {
+export function resolveDshHomeDir(override: string | undefined, _realUserDataDir: string): string {
 	if (override?.trim()) return override.trim();
 	return join(homedir(), ".dsh");
 }

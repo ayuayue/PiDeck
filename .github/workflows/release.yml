@@ -1,5 +1,23 @@
 name: Release
 
+# 发版链路（tag push 即全自动）：
+#   push tag v* → 本 workflow 5 个安装包构建 job + pack-dsh-runtime job（单 ubuntu
+#   runner 交叉打包 6 平台 runtime tgz，含 win32-arm64 / darwin-x64 这两个历史缺口）
+#   → softprops 用 RELEASE_PAT 发布（GITHUB_TOKEN 发布不广播 release: published，防递归）
+#   → post-release-sidecars.yml 被触发：只负责触发 sync-atomgit.yml（runtime 补发
+#      职责已由交叉打包取代，见 docs/dsh-runtime-cross-pack.md）
+#   → sync-atomgit.yml 等资产清单稳定后同步到 AtomGit 镜像。
+# 手动补发入口：publish-dsh-runtime.yml / publish-dsh-runner-node.yml（保留，用于
+# 给旧版本补发或重试；前者同样支持 --target-* 交叉模式），sync-atomgit.yml 手动
+# 触发用于补同步。
+#
+# 通道维度（2026-09 channel-switch 起）：workflow_dispatch 新增 channel 输入——
+#   stable（默认）：正式 Release，历史行为不变；
+#   dev：PiDeck Dev 预发布 Release（prerelease=true，构建走 dist:*:dev 双品牌包）。
+# dev 发版统一走本入口选 channel=dev（tag 须含 -beta 段，如 v0.8.0-beta.1）；
+# push tag v* 恒按 stable 处理。build-dev.yml 是 dev 的另一手动构建入口，
+# 同样恒 prerelease（发布语义与本 workflow 对齐）。
+
 on:
   push:
     tags:
@@ -7,11 +25,43 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: >-
-          指定 tag（如 v0.6.7）则按该 tag 的代码打包。
-          留空则用当前分支最新 commit + package.json 版本号正式发布（自动 tag vX.Y.Z）。
+        # 下拉（choice）的选项只能是这里写死的静态列表，无法动态读取仓库 tag，
+        # 因此列表外的历史版本用下面的 tag_custom 手填；发版后把新 tag 插在 auto 之后，
+        # 列表保留最近 10 个即可（更旧的版本一律走 tag_custom）。
+        # 注意 choice 不接受空字符串选项，故「留空 = 按 package.json 发正式版」
+        # 用哨兵值 auto 表达，在 resolve 步骤里还原成空串，保持原有分支逻辑不变。
+        description: "目标 tag：auto = 用当前分支最新 commit + package.json 版本号正式发版；列表外的旧版本填下面的 tag_custom"
         required: false
+        type: choice
+        default: auto
+        options:
+          - auto
+          - v0.9.6
+          - v0.9.5
+          - v0.9.1
+          - v0.9.0
+          - v0.8.0
+          - v0.7.9
+          - v0.7.8
+          - v0.7.7
+          - v0.7.6
+          - v0.7.5
+      tag_custom:
+        description: "自定义 tag（填了则覆盖上面的下拉选择；用于列表外的旧版本，如 v0.5.2）"
+        required: false
+        type: string
         default: ""
+      channel:
+        # 通道维度：stable = 正式 Release（默认，历史行为）；dev = PiDeck Dev 预发布
+        # Release（prerelease=true，构建走 dist:*:dev 双品牌包）。dev 发版统一走本入口，
+        # tag 须含 -beta 段（resolve-version 里校验）；push tag v* 恒按 stable。
+        description: "发布通道：stable=正式版；dev=开发版预发布（tag 需形如 v0.8.0-beta.1）"
+        required: false
+        type: choice
+        default: stable
+        options:
+          - stable
+          - dev
 
 permissions:
   contents: write
@@ -26,17 +76,29 @@ jobs:
       ref: ${{ steps.resolve.outputs.ref }}
       # 仅「手动留空 tag」时需要：把 release tag 指到本次构建的分支 HEAD
       target_commitish: ${{ steps.resolve.outputs.target_commitish }}
+      # 通道维度：dev 通道 → true（build 与 Release 创建两处消费；push 触发恒 false）
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Resolve version and ref
         id: resolve
+        env:
+          # 手工输入一律走 env，避免自定义 tag 直接拼进 shell；
+          # 两个输入在此归一：tag_custom 非空则优先（供下拉列表外的旧版本使用）；
+          # dispatch 下 tag 必有值（choice 的 default=auto 会被服务端填入），
+          # push 事件下两者都为空串，走 push tag 分支。
+          INPUT_TAG: ${{ github.event.inputs.tag_custom != '' && github.event.inputs.tag_custom || github.event.inputs.tag }}
+          # 通道输入：push 事件无此输入（空串）→ 恒按 stable；手输内容不拼 shell，走 env。
+          INPUT_CHANNEL: ${{ github.event.inputs.channel }}
         run: |
           TARGET_COMMITISH=""
-          if [ -n "${{ github.event.inputs.tag }}" ]; then
+          # 还原哨兵值：auto ≡ 旧的「留空」
+          if [ "$INPUT_TAG" = "auto" ]; then INPUT_TAG=""; fi
+          if [ -n "$INPUT_TAG" ]; then
             # 手动触发且指定了 tag → 用 tag 的代码（不要用分支 HEAD 覆盖 tag 指向）
-            TAG="${{ github.event.inputs.tag }}"
+            TAG="$INPUT_TAG"
             REF="refs/tags/${TAG}"
             VERSION="${TAG#v}"
             echo "Using provided tag: ${TAG}"
@@ -61,6 +123,22 @@ jobs:
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "ref=${REF}" >> $GITHUB_OUTPUT
           echo "target_commitish=${TARGET_COMMITISH}" >> $GITHUB_OUTPUT
+          # 通道维度：dev 通道要求 prerelease 版本号（tag 含 -beta 段），保证 dev Release
+          # 恒带 prerelease 标记——不抢占 GitHub /releases/latest（stable 的 macOS 手动更新
+          # 与 DSH runtime latest 跟随都读它），也不会被 sync-atomgit 当 stable 镜像同步。
+          CHANNEL="${INPUT_CHANNEL:-stable}"
+          PRERELEASE="false"
+          if [ "$CHANNEL" = "dev" ]; then
+            case "$TAG" in
+              *-beta*) PRERELEASE="true" ;;
+              *)
+                echo "::error::dev 通道发版必须使用 prerelease 版本号（X.Y.Z-beta.N，tag 形如 v0.8.0-beta.1），got: ${TAG}"
+                exit 1
+                ;;
+            esac
+          fi
+          echo "channel=${CHANNEL} prerelease=${PRERELEASE}"
+          echo "prerelease=${PRERELEASE}" >> $GITHUB_OUTPUT
 
   extract-changelog:
     name: Extract changelog
@@ -109,25 +187,53 @@ jobs:
           - platform: windows
             os: windows-latest
             command: npm run build && npx electron-builder --win nsis portable zip --publish never
+            # dev 通道：PiDeck Dev 双品牌包（经 scripts/dist-dev.js）。--publish never 显式
+            # 关闭 electron-builder 在 CI 对 tagged checkout 的 onTagOrDraft 自动发布——
+            # 发布统一由下方 softprops 步骤完成，保持「单发布方」不变量。dist:mac:dev 自身
+            # 不带架构参数（runner 是 arm64），x64/arm64 用 `npm run <script> -- <args>` 透传。
+            command_dev: npm run dist:win:dev -- --publish never
             electron_mirror: https://npmmirror.com/mirrors/electron/
             electron_builder_binaries_mirror: https://npmmirror.com/mirrors/electron-builder-binaries/
           - platform: macos
             name: macOS x64
             os: macos-latest
             command: npm run build && npx electron-builder --mac dmg zip --x64 --publish never
+            command_dev: npm run dist:mac:dev -- --x64 --publish never
             electron_mirror: ""
             electron_builder_binaries_mirror: ""
           - platform: macos
             name: macOS arm64
             os: macos-latest
             command: npm run build && npx electron-builder --mac dmg zip --arm64 --publish never
+            command_dev: npm run dist:mac:dev -- --arm64 --publish never
             electron_mirror: ""
             electron_builder_binaries_mirror: ""
           - platform: linux
+            name: Linux x64
             os: ubuntu-latest
-            command: npm run build && npx electron-builder --linux AppImage deb tar.gz --publish never
+            native_arch: x64
+            command: npm run build && npx electron-builder --linux AppImage deb tar.gz --x64 --publish never
+            command_dev: npm run dist:linux:dev -- --publish never
             electron_mirror: https://npmmirror.com/mirrors/electron/
             electron_builder_binaries_mirror: https://npmmirror.com/mirrors/electron-builder-binaries/
+          # Linux arm64 用原生 arm64 runner（ubuntu-24.04-arm，GA）：node-pty 等原生模块
+          # 在 npm ci 时按 arm64 编译，避免 x64 runner 交叉构建把 x64 二进制打进 arm64 包。
+          # 注意：原生 runner 解决的是「架构对不对」，不解决「glibc 基线」——两个 Linux 目标
+          # 都由下方 "Rebuild native modules on the glibc 2.28 baseline" 步骤在 Debian 10
+          # 容器里重建 node-pty，否则 ubuntu-24.04(-arm) 的 glibc 2.39 会把 openpty/forkpty
+          # 绑到 GLIBC_2.34，统信 UOS 20 / 麒麟 V10（glibc 2.28）上无法 dlopen（#257）。
+          # skip_yml=true：不上传本 job 生成的 latest-linux.yml——它只含 arm64 文件，
+          # 会覆盖 x64 job 的 yml，导致 x64 用户升级时按文件名匹配拉到 arm64 包。
+          # arm64 用户暂以手动下载为主（多架构合并 yml 需要单 job 构建，后续可再优化）。
+          - platform: linux
+            name: Linux arm64
+            os: ubuntu-24.04-arm
+            native_arch: arm64
+            command: npm run build && npx electron-builder --linux AppImage deb tar.gz --arm64 --publish never
+            command_dev: npm run dist:linux:dev:arm64 -- --publish never
+            electron_mirror: https://npmmirror.com/mirrors/electron/
+            electron_builder_binaries_mirror: https://npmmirror.com/mirrors/electron-builder-binaries/
+            skip_yml: true
 
     runs-on: ${{ matrix.os }}
 
@@ -146,11 +252,34 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Linux 原生模块的 glibc 基线：runner 自带的 glibc 2.39 会把 openpty/forkpty 绑到
+      # GLIBC_2.34（2.34 起这两个符号从 libutil.so.1 并入 libc.so.6），而国产发行版
+      # （统信 UOS 20 / 麒麟 V10）仍是 glibc 2.28，dlopen 失败后 node-pty 的 loader 会把它
+      # 报成 "Cannot find module './prebuilds/linux-arm64//pty.node'"，看起来像打包漏了原生
+      # 模块（#257 用户反馈的实际根因）。在 Debian 10 容器里重建后产物只依赖 glibc 2.28。
+      # 判定标准与本地复现命令见 scripts/linux-native-baseline.js。
+      - name: Rebuild native modules on the glibc 2.28 baseline
+        if: matrix.platform == 'linux'
+        run: node scripts/linux-native-baseline.js rebuild --platform linux-${{ matrix.native_arch }}
+
+      # dev 通道：tag 所指 commit 的 package.json 未必已 bump 到 beta 版本号，而产物名与
+      # latest*.yml 内版本取自 package.json——构建前写入，保证与 Release tag 一致
+      # （与 build-dev.yml 同款；stable 保持既有约定：tag 自带版本一致的提交）。
+      - name: Set package version from tag (dev channel)
+        if: needs.resolve-version.outputs.prerelease == 'true'
+        shell: bash
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+        run: |
+          npm pkg set version="${VERSION}"
+          node -p "'package.json version -> ' + require('./package.json').version"
+
       - name: Generate app icon
         run: npm run make-icon
 
       - name: Build packages
-        run: ${{ matrix.command }}
+        # stable 走原命令；dev 通道（prerelease=true）走 dist:*:dev 双品牌包命令
+        run: ${{ needs.resolve-version.outputs.prerelease == 'true' && matrix.command_dev || matrix.command }}
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -161,10 +290,49 @@ jobs:
           ELECTRON_MIRROR: ${{ matrix.electron_mirror }}
           ELECTRON_BUILDER_BINARIES_MIRROR: ${{ matrix.electron_builder_binaries_mirror }}
 
+      # 打包后门禁：真正发出去的 pty.node 必须是基线内产物。afterPack 只保证「产物在包里且
+      # 被 asarUnpack」，这里再核对 ELF 符号需求，防止重建步骤被跳过或 runner 升级后静默回退。
+      - name: Verify packaged native modules against the glibc 2.28 baseline
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          extract="$RUNNER_TEMP/pideck-deb"
+          rm -rf "$extract"
+          mkdir -p "$extract"
+          dpkg-deb -x release/*.deb "$extract"
+          unpacked="$(find "$extract" -maxdepth 4 -type d -name app.asar.unpacked | head -n 1)"
+          if [ -z "$unpacked" ]; then
+            echo "找不到 app.asar.unpacked，无法核对原生模块基线"
+            exit 1
+          fi
+          node scripts/linux-native-baseline.js scan --root "$unpacked" --fail
+
+      # 打包后门禁：mac 包必须带有效 bundle 签名。electron-builder 26.15 起找不到证书时
+      # 不再回退 ad-hoc（26.8.1 的 fallBackToAdhoc 已删除），本仓库又没有 Apple 证书，
+      # 签名会被静默跳过且 CI 全绿，产物在 Apple Silicon 上停在 _dyld_start 起不来（#347）。
+      - name: Verify macOS bundle signature
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: node scripts/verify-mac-signature.mjs
+
+      # sidecar 跟应用版本 Release 一起发，不另开 tag（独立 tag 会抢走 GitHub /releases/latest）。
+      # runner-node 只在 Windows job 打两个 arch；DSH runtime tgz 改由下方专用的
+      # pack-dsh-runtime 单 job 交叉打包 6 平台（2026-09 起不再依赖各构建机本地产出）。
+      - name: Pack DSH runner Node sidecar
+        if: matrix.platform == 'windows'
+        run: node scripts/pack-dsh-runner-node.mjs --arch x64 && node scripts/pack-dsh-runner-node.mjs --arch arm64
+
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
-          # 始终正式发布：手动留空 tag 时已解析为 v${package.json.version}
+          # 用 PAT 而非默认 GITHUB_TOKEN 发布：GITHUB_TOKEN 创建的 Release 不会广播
+          # `release: published` 事件（GitHub 防递归机制），导致 sync-atomgit 等
+          # 监听 release 事件的 workflow 永远不触发。PAT 发布的事件可正常触发。
+          token: ${{ secrets.RELEASE_PAT }}
+          # stable 恒正式发布（手动留空 tag 时已解析为 v${package.json.version）；
+          # dev 通道（channel=dev）恒 prerelease，不抢占 /releases/latest。
+          prerelease: ${{ needs.resolve-version.outputs.prerelease == 'true' }}
           tag_name: ${{ needs.resolve-version.outputs.tag }}
           # 仅「留空 tag」模式有值，把 tag 指到本次构建的分支 HEAD；其它模式留空不覆盖
           target_commitish: ${{ needs.resolve-version.outputs.target_commitish }}
@@ -180,4 +348,111 @@ jobs:
             release/*.deb
             release/*.tar.gz
             release/*.blockmap
-            release/latest*.yml
+            ${{ matrix.skip_yml != true && 'release/latest*.yml' || '' }}
+            dist-runtime/dsh-runner-node/*.zip
+            dist-runtime/dsh-runner-node/dsh-runner-node-releases.json
+
+  # DSH runtime tgz：单 runner 交叉打包 6 平台（2026-09 起，替代「各构建机本地产出 +
+  # post-release-sidecars 补 2 个平台」的旧链路）。
+  # 可行性根因：runtime 闭包内所有原生依赖都以 prebuild 分发（node-pty tarball 自带
+  # 全平台 prebuilds、koffi/sharp/rg 是 optional 平台包），
+  # `npm install --os --cpu --libc --ignore-scripts` 可在任意宿主交叉解析出目标平台
+  # 完整树（WSL 真机 boot 已验证，见 docs/dsh-runtime-cross-pack.md）。
+  # linux 目标必须显式 --libc glibc：npm 在非 Linux 宿主上检测不到 libc，会把
+  # libc:["glibc"] 的平台包（@img/sharp-linux-x64 等）静默过滤掉。
+  pack-dsh-runtime:
+    name: Pack DSH runtime (${{ matrix.os }}-${{ matrix.arch }})
+    # 依赖 build-release：Release 由 build 矩阵的「Upload release assets」末步创建（约 15-20 分钟），
+    # 而本任务 3 分钟即完成——不等 build 会「release not found」重试 5 次后失败
+    # （v0.7.8 首跑 5/6 失败、v0.7.8-beta 首跑失败二跑才过，都是这个竞态）。串行代价仅 +3 分钟。
+    needs: [resolve-version, build-release]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: win32
+            arch: x64
+          - os: win32
+            arch: arm64
+          - os: darwin
+            arch: x64
+          - os: darwin
+            arch: arm64
+          - os: linux
+            arch: x64
+          - os: linux
+            arch: arm64
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-version.outputs.ref || '' }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+          cache: npm
+
+      # 交叉解析本身只要 npm + package-lock.json（runtime 闭包由 pack 脚本在隔离
+      # 目录自装），但**不能**因此省掉完整 npm ci——pack 脚本还会做两件必须依赖 root
+      # node_modules 的事：
+      #   1) 裸 import tar（prod）/ semver（dev）：归档写入与范围匹配；
+      #   2) 构建仓库内 packages/ 下的 file: 本地包（若有）：需 tsc + @types/node，
+      #      这些只在 dev 树里，--omit=dev 装不到。
+      # 2026-09-22 两次事故都源于此：v0.7.7 发布时漏 tar → 12 个 runtime 资产全缺；
+      # 补发时又因 --omit=dev 缺 tsc/@deepseek-ai → 6 个平台再次全挂。
+      # 所以这里老老实实装完整依赖（ubuntu 约 45 秒），--ignore-scripts 跳过 electron
+      # 等原生后置脚本（本 job 不需要二进制）。不要再手工 curl 拼 node_modules。
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      # 依赖再被「优化」掉就在这里先红：覆盖上面两组历史缺包的裸 import / 构建工具链。
+      - name: Verify packing script deps resolvable
+        shell: bash
+        run: |
+          node --input-type=module -e "await import('tar'); await import('semver'); console.log('packing script deps ok')"
+          node -e "require.resolve('typescript'); require.resolve('@deepseek-ai/dsh-tools'); console.log('local package build deps ok')"
+          test -d node_modules/@types/node
+
+      - name: Pack DSH runtime (cross)
+        run: node scripts/pack-dsh-runtime.mjs --target-os ${{ matrix.os }} --target-arch ${{ matrix.arch }}
+
+      - name: Check runtime archive
+        run: node scripts/check-dsh-asar.mjs --target-os ${{ matrix.os }} --target-arch ${{ matrix.arch }}
+
+      - name: Upload onto app Release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          # 手工输入走 env，避免直接拼进 shell。
+          TAG: ${{ needs.resolve-version.outputs.tag }}
+        shell: bash
+        run: |
+          ARCHIVE="dsh-runtime-${{ matrix.os }}-${{ matrix.arch }}.tgz"
+          INDEX="dsh-runtime-${{ matrix.os }}-${{ matrix.arch }}-releases.json"
+          if [ ! -f "dist-runtime/${ARCHIVE}" ] || [ ! -f "dist-runtime/${INDEX}" ]; then
+            echo "::error::缺少产物 dist-runtime/${ARCHIVE} 或 ${INDEX}"
+            ls -la dist-runtime || true
+            exit 1
+          fi
+          if [[ ! "$TAG" =~ ^v[0-9] ]]; then
+            echo "::error::目标不是应用版本 tag（got ${TAG}）。拒绝创建独立 sidecar Release。"
+            exit 1
+          fi
+          echo "Uploading ${ARCHIVE} onto ${TAG}"
+          # 并发追加偶发 422，短回退重试（与旧链路同款）。
+          for i in 1 2 3 4 5; do
+            if gh release upload "$TAG" \
+              "dist-runtime/${ARCHIVE}" \
+              "dist-runtime/${INDEX}" \
+              --clobber \
+              --repo "${{ github.repository }}"; then
+              exit 0
+            fi
+            echo "upload failed, retry ${i}/5"
+            sleep $((i * 5))
+          done
+          echo "::error::上传 ${ARCHIVE} 到 ${TAG} 失败"
+          exit 1

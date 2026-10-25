@@ -137,16 +137,8 @@ test("reconcileRuns does not reuse an image-gen run when status flips to error",
 	const failed = makeImageGenRun("error", "API refused the request");
 
 	assert.equal(sameAgentRunForRender(generating, generating), true);
-	assert.equal(
-		sameAgentRunForRender(generating, makeImageGenRun("generating")),
-		true,
-		"identical generating placeholders should still compare equal",
-	);
-	assert.equal(
-		sameAgentRunForRender(generating, failed),
-		false,
-		"imageGen status change must be visible to TurnRow memo",
-	);
+	assert.equal(sameAgentRunForRender(generating, makeImageGenRun("generating")), true, "identical generating placeholders should still compare equal");
+	assert.equal(sameAgentRunForRender(generating, failed), false, "imageGen status change must be visible to TurnRow memo");
 
 	const first = reconcileRuns(undefined, [generating]);
 	const second = reconcileRuns(first, [failed]);
@@ -166,16 +158,10 @@ test("reconcileRuns removes stale runs when next shrinks", () => {
 
 // 契约：SessionMessageTimeline 用 reconcileRuns 复用引用，TurnRow memo 走快速路径
 test("timeline wires reconcileRuns and TurnRow memo fast path", () => {
-	const timeline = readFileSync(
-		"src/renderer/src/components/session/SessionMessageTimeline.tsx",
-		"utf8",
-	);
+	const timeline = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
 	assert.match(timeline, /reconcileRuns\(prevRenderedRunsRef\.current, renderedRuns\)/);
 	assert.match(timeline, /prevRenderedRunsRef = useRef<RenderMessage\[\] \| undefined>/);
 
-	const turnRow = readFileSync(
-		"src/renderer/src/components/session/turn/TurnRow.tsx",
-		"utf8",
-	);
+	const turnRow = readFileSync("src/renderer/src/components/session/turn/TurnRow.tsx", "utf8");
 	assert.match(turnRow, /sameAgentRunForRender\(prev\.run, next\.run\)/);
 });

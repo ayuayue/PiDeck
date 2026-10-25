@@ -1,3 +1,8 @@
+---
+title: Usage Guide | PiDeck pi desktop tutorial
+description: "Full usage tutorial for PiDeck (the pi desktop client): from install to your first AI coding task — projects, sessions, mode switching, and Git workflow basics."
+---
+
 # Usage Guide
 
 This guide walks through the main features of PiDeck step by step.

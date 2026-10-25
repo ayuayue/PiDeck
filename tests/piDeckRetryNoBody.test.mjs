@@ -17,12 +17,7 @@ import test from "node:test";
 
 function isNoBodyError(errorMessage) {
 	if (!errorMessage) return false;
-	return (
-		/\(no body\)/i.test(errorMessage) ||
-		/no body\s*$/i.test(errorMessage) ||
-		/empty\s+response\s+body/i.test(errorMessage) ||
-		/no\s+response\s+body/i.test(errorMessage)
-	);
+	return /\(no body\)/i.test(errorMessage) || /no body\s*$/i.test(errorMessage) || /empty\s+response\s+body/i.test(errorMessage) || /no\s+response\s+body/i.test(errorMessage);
 }
 
 const ANTHROPIC_MESSAGE_APIS = new Set(["anthropic-messages", "anthropic"]);
@@ -36,32 +31,17 @@ function needsOverflowUnanchor(errorMessage, api) {
 const REWRITE_TAG_PATTERN = /\((?:connection error|overloaded)\)\s*$/i;
 
 function makeRetryableErrorMessage(errorMessage, api) {
-	const tagged = REWRITE_TAG_PATTERN.test(errorMessage)
-		? errorMessage
-		: errorMessage + " (connection error)";
-	return needsOverflowUnanchor(errorMessage, api)
-		? "transient upstream fault: " + tagged
-		: tagged;
+	const tagged = REWRITE_TAG_PATTERN.test(errorMessage) ? errorMessage : errorMessage + " (connection error)";
+	return needsOverflowUnanchor(errorMessage, api) ? "transient upstream fault: " + tagged : tagged;
 }
 
 // --- 本地化 / 传输层瞬态故障识别（与扩展源码同步） ---
 
-const NON_RETRYABLE_LOCALIZED_PATTERNS = [
-	/额度|余额|配额|限额|上限|欠费|充值|扣费|计费/,
-	/(api[_\s-]?key|密钥|令牌).{0,8}(无效|错误|过期|不存在)/i,
-	/鉴权|认证|未授权|无权|禁止访问|已被禁用/,
-	/不存在|未找到|找不到|不支持|不可用渠道/,
-	/参数错误|格式错误|请求错误|非法|校验失败/,
-];
+const NON_RETRYABLE_LOCALIZED_PATTERNS = [/额度|余额|配额|限额|上限|欠费|充值|扣费|计费/, /(api[_\s-]?key|密钥|令牌).{0,8}(无效|错误|过期|不存在)/i, /鉴权|认证|未授权|无权|禁止访问|已被禁用/, /不存在|未找到|找不到|不支持|不可用渠道/, /参数错误|格式错误|请求错误|非法|校验失败/];
 
-const NON_RETRYABLE_HTTP_STATUS_PATTERN =
-	/(?:^|[^0-9])(?:400|401|402|403|404|405|406|409|410|412|413|415|422|431)\b/;
+const NON_RETRYABLE_HTTP_STATUS_PATTERN = /(?:^|[^0-9])(?:400|401|402|403|404|405|406|409|410|412|413|415|422|431)\b/;
 
-const TRANSIENT_OVERLOAD_PATTERNS = [
-	/访问量过大|流量过大|并发.*?过(?:大|高)|请求过快|频率过高/,
-	/负载(?:过高|过大|满载)|压力过大|排队中|拥挤/,
-	/服务繁忙|系统繁忙|业务繁忙|服务器繁忙|繁忙，请/,
-];
+const TRANSIENT_OVERLOAD_PATTERNS = [/访问量过大|流量过大|并发.*?过(?:大|高)|请求过快|频率过高/, /负载(?:过高|过大|满载)|压力过大|排队中|拥挤/, /服务繁忙|系统繁忙|业务繁忙|服务器繁忙|繁忙，请/];
 
 const TRANSIENT_UPSTREAM_PATTERNS = [
 	/暂时不可用|临时不可用|暂不可用|暂时无法(?:访问|响应|处理)|临时无法(?:访问|响应|处理)/,
@@ -74,33 +54,16 @@ const TRANSIENT_UPSTREAM_PATTERNS = [
 	/请稍后重试|请稍后再试|稍后重试|稍后再试|请重试|请重新尝试/,
 ];
 
-const TRANSIENT_TRANSPORT_PATTERNS = [
-	/^stream_read_error$/i,
-	/unexpected\s+eof/i,
-	/premature\s+close/i,
-	/upstream\s+request\s+failed/i,
-	/no\s+available\s+channel/i,
-	/GOAWAY/i,
-];
+const TRANSIENT_TRANSPORT_PATTERNS = [/^stream_read_error$/i, /unexpected\s+eof/i, /premature\s+close/i, /upstream\s+request\s+failed/i, /no\s+available\s+channel/i, /GOAWAY/i];
 
-const ALREADY_RETRYABLE_SIGNALS = [
-	/\b(?:429|500|502|503|504|524)\b/,
-	/rate.?limit|too many requests|overloaded/i,
-	/service.?unavailable|server.?error|internal.?error/i,
-	/timed?\s*out|timeout|terminated/i,
-	/connection.?error|socket hang up|fetch failed/i,
-];
+const ALREADY_RETRYABLE_SIGNALS = [/\b(?:429|500|502|503|504|524)\b/, /rate.?limit|too many requests|overloaded/i, /service.?unavailable|server.?error|internal.?error/i, /timed?\s*out|timeout|terminated/i, /connection.?error|socket hang up|fetch failed/i];
 
 function isTransientError(errorMessage) {
 	if (!errorMessage) return false;
 	if (NON_RETRYABLE_LOCALIZED_PATTERNS.some((p) => p.test(errorMessage))) return false;
 	if (NON_RETRYABLE_HTTP_STATUS_PATTERN.test(errorMessage)) return false;
 	if (ALREADY_RETRYABLE_SIGNALS.some((p) => p.test(errorMessage))) return false;
-	return (
-		TRANSIENT_OVERLOAD_PATTERNS.some((p) => p.test(errorMessage)) ||
-		TRANSIENT_UPSTREAM_PATTERNS.some((p) => p.test(errorMessage)) ||
-		TRANSIENT_TRANSPORT_PATTERNS.some((p) => p.test(errorMessage))
-	);
+	return TRANSIENT_OVERLOAD_PATTERNS.some((p) => p.test(errorMessage)) || TRANSIENT_UPSTREAM_PATTERNS.some((p) => p.test(errorMessage)) || TRANSIENT_TRANSPORT_PATTERNS.some((p) => p.test(errorMessage));
 }
 
 const OVERLOAD_TAG = "overloaded";
@@ -116,9 +79,7 @@ function rewriteErrorMessage(message) {
 	const errorMessage = message.errorMessage;
 	if (!errorMessage) return undefined;
 	if (isNoBodyError(errorMessage)) {
-		const needsRewrite =
-			needsOverflowUnanchor(errorMessage, message.api) ||
-			!ALREADY_RETRYABLE_SIGNALS.some((p) => p.test(errorMessage));
+		const needsRewrite = needsOverflowUnanchor(errorMessage, message.api) || !ALREADY_RETRYABLE_SIGNALS.some((p) => p.test(errorMessage));
 		if (!needsRewrite) return undefined;
 		return makeRetryableErrorMessage(errorMessage, message.api);
 	}
@@ -128,28 +89,17 @@ function rewriteErrorMessage(message) {
 
 // =========================================================================
 // pi agent-session 层判定副本
-// （pi 0.84.4：_isRetryableError = isContextOverflow 优先，其次 isRetryableAssistantError）
+// （pi ≤ 0.85：_isRetryableError = isContextOverflow 优先，其次 isRetryableAssistantError；
+//   pi ≥ 0.86：上游已把 bodyless 400/413 移出溢出判定，本副本用于锁定 ≤0.85 的兜底口径）
 // =========================================================================
 
 /**
- * pi 的 OVERFLOW_PATTERNS 末条会把 `^4(00|13) (no body)` 判为上下文溢出，
+ * pi（≤0.85）的 OVERFLOW_PATTERNS 末条会把 `^4(00|13) (no body)` 判为上下文溢出，
  * 命中后走压缩恢复而非重试。这是 400 空响应「不重试」的真正原因，
  * 只补 `(connection error)` 无法绕过（正则锚定开头）。
  */
-const OVERFLOW_PATTERNS = [
-	/prompt is too long/i,
-	/request_too_large/i,
-	/exceeds the context window/i,
-	/context[_ ]length[_ ]exceeded/i,
-	/too many tokens/i,
-	/token limit exceeded/i,
-	/^4(?:00|13)\s*(?:status code)?\s*\(no body\)/i,
-];
-const NON_OVERFLOW_PATTERNS = [
-	/^(Throttling error|Service unavailable):/i,
-	/rate limit/i,
-	/too many requests/i,
-];
+const OVERFLOW_PATTERNS = [/prompt is too long/i, /request_too_large/i, /exceeds the context window/i, /context[_ ]length[_ ]exceeded/i, /too many tokens/i, /token limit exceeded/i, /^4(?:00|13)\s*(?:status code)?\s*\(no body\)/i];
+const NON_OVERFLOW_PATTERNS = [/^(Throttling error|Service unavailable):/i, /rate limit/i, /too many requests/i];
 
 function isContextOverflow(message) {
 	const errorMessage = message.errorMessage;
@@ -162,19 +112,7 @@ function isContextOverflow(message) {
 // pi 重试判定副本（与 pi-ai/dist/utils/retry.js 的 isRetryableAssistantError 一致）
 // =========================================================================
 
-const NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN = new RegExp(
-	[
-		"GoUsageLimitError",
-		"FreeUsageLimitError",
-		"Monthly usage limit reached",
-		"available balance",
-		"insufficient_quota",
-		"out of budget",
-		"quota exceeded",
-		"billing",
-	].join("|"),
-	"i",
-);
+const NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN = new RegExp(["GoUsageLimitError", "FreeUsageLimitError", "Monthly usage limit reached", "available balance", "insufficient_quota", "out of budget", "quota exceeded", "billing"].join("|"), "i");
 
 const RETRYABLE_PROVIDER_ERROR_PATTERN = new RegExp(
 	[
@@ -226,6 +164,20 @@ function piWillRetry(message) {
 	return isRetryableAssistantError(message);
 }
 
+/**
+ * pi ≥ 0.86 的溢出判定副本：上游已把 bodyless 400/413 末条移出 OVERFLOW_PATTERNS
+ * （实测 0.86.1：`400 status code (no body)` 的 isContextOverflow=false）。
+ * 但 400/413 仍不在重试名单里 —— 改写必须保留 `(connection error)`。
+ */
+const OVERFLOW_PATTERNS_086 = [/prompt is too long/i, /request_too_large/i, /exceeds the context window/i, /context[_ ]length[_ ]exceeded/i, /too many tokens/i, /token limit exceeded/i];
+
+function isContextOverflow086(message) {
+	const errorMessage = message.errorMessage;
+	if (message.stopReason !== "error" || !errorMessage) return false;
+	if (NON_OVERFLOW_PATTERNS.some((p) => p.test(errorMessage))) return false;
+	return OVERFLOW_PATTERNS_086.some((p) => p.test(errorMessage));
+}
+
 // =========================================================================
 // 纯函数行为测试
 // =========================================================================
@@ -253,33 +205,18 @@ test("isNoBodyError 不误伤有 body 的真实错误", () => {
 });
 
 test("makeRetryableErrorMessage 追加连接错误说明并保留原文", () => {
-	assert.equal(
-		makeRetryableErrorMessage("503 status code (no body)"),
-		"503 status code (no body) (connection error)",
-	);
+	assert.equal(makeRetryableErrorMessage("503 status code (no body)"), "503 status code (no body) (connection error)");
 });
 
 test("makeRetryableErrorMessage 对 400/413 破锚，对其它状态码不破锚", () => {
-	assert.equal(
-		makeRetryableErrorMessage("400 status code (no body)", "openai-completions"),
-		"transient upstream fault: 400 status code (no body) (connection error)",
-	);
-	assert.equal(
-		makeRetryableErrorMessage("413 status code (no body)", "openai-completions"),
-		"transient upstream fault: 413 status code (no body) (connection error)",
-	);
+	assert.equal(makeRetryableErrorMessage("400 status code (no body)", "openai-completions"), "transient upstream fault: 400 status code (no body) (connection error)");
+	assert.equal(makeRetryableErrorMessage("413 status code (no body)", "openai-completions"), "transient upstream fault: 413 status code (no body) (connection error)");
 	// 503 本就可重试，无需破锚，保留原文便于诊断
-	assert.equal(
-		makeRetryableErrorMessage("503 status code (no body)", "openai-completions"),
-		"503 status code (no body) (connection error)",
-	);
+	assert.equal(makeRetryableErrorMessage("503 status code (no body)", "openai-completions"), "503 status code (no body) (connection error)");
 });
 
 test("makeRetryableErrorMessage 对 anthropic api 不破锚（保留 pi 的压缩恢复路径）", () => {
-	assert.equal(
-		makeRetryableErrorMessage("400 status code (no body)", "anthropic-messages"),
-		"400 status code (no body) (connection error)",
-	);
+	assert.equal(makeRetryableErrorMessage("400 status code (no body)", "anthropic-messages"), "400 status code (no body) (connection error)");
 });
 
 // =========================================================================
@@ -296,7 +233,7 @@ test("原始 400 空响应被 pi 判为上下文溢出而跳过重试（问题�
 	assert.equal(piWillRetry(original), false);
 });
 
-test("只追加 connection error 无法绕过溢出误判（pi 0.84.4 回归防护）", () => {
+test("只追加 connection error 无法绕过溢出误判（pi ≤0.85 回归防护）", () => {
 	// 这是 0.84.x 之前有效的旧方案：命中重试名单，却被溢出判定抢先拦截
 	const legacy = {
 		stopReason: "error",
@@ -317,6 +254,21 @@ test("破锚改写后 400 空响应不再被判溢出，进入 pi 重试", () =>
 	assert.equal(isContextOverflow(rewritten), false);
 	assert.equal(isRetryableAssistantError(rewritten), true);
 	assert.equal(piWillRetry(rewritten), true);
+});
+
+test("400 空响应版本矩阵：≤0.85 靠破锚，≥0.86 破锚无害且标注仍必需", () => {
+	const raw = { stopReason: "error", errorMessage: "400 status code (no body)", api: "openai-completions" };
+	// ≤0.85：原文被溢出误判拦下，重试根本不发生（破锚的原因）
+	assert.equal(piWillRetry(raw), false);
+	// ≥0.86：上游已修掉溢出误判，但原文依旧不在重试名单里
+	assert.equal(isContextOverflow086(raw), false);
+	assert.equal(isRetryableAssistantError(raw), false);
+
+	const rewritten = { ...raw, errorMessage: makeRetryableErrorMessage(raw.errorMessage, raw.api) };
+	// 改写后两个版本都必须进入重试闭环（破锚对 ≥0.86 无副作用，(connection error) 不可省）
+	assert.equal(piWillRetry(rewritten), true);
+	assert.equal(isContextOverflow086(rewritten), false);
+	assert.equal(isRetryableAssistantError(rewritten), true);
 });
 
 test("anthropic 的 400 空响应仍走压缩恢复而非重试", () => {
@@ -390,20 +342,11 @@ test("过载类中文文案标注为 overloaded 并可重试", () => {
 });
 
 test("上游/网关类中文文案标注为 connection error 并可重试", () => {
-	for (const errorMessage of [
-		"上游服务暂不可用",
-		"网关响应异常，请稍后重试",
-		"连接被上游重置",
-		"服务正在重启，请稍后重试",
-	]) {
+	for (const errorMessage of ["上游服务暂不可用", "网关响应异常，请稍后重试", "连接被上游重置", "服务正在重启，请稍后重试"]) {
 		const message = { stopReason: "error", errorMessage, api: "openai-completions" };
 		const rewritten = rewriteErrorMessage(message);
 		assert.match(rewritten, /\(connection error\)$/, errorMessage);
-		assert.equal(
-			piWillRetry({ ...message, errorMessage: rewritten }),
-			true,
-			`应可重试: ${errorMessage}`,
-		);
+		assert.equal(piWillRetry({ ...message, errorMessage: rewritten }), true, `应可重试: ${errorMessage}`);
 	}
 });
 
@@ -412,24 +355,14 @@ test("上游/网关类中文文案标注为 connection error 并可重试", () =
 // =========================================================================
 
 test("额度/配额类中文文案不改写（重试无意义）", () => {
-	for (const errorMessage of [
-		"您已达到每周/每月使用上限，您的限额将在 2026-09-02 重置。",
-		"403 用户额度不足, 剩余额度: ＄-2.521900",
-		"预扣费额度失败, 用户剩余额度: ¥0.247150",
-		"api key 7天限额已用完",
-	]) {
+	for (const errorMessage of ["您已达到每周/每月使用上限，您的限额将在 2026-09-02 重置。", "403 用户额度不足, 剩余额度: ＄-2.521900", "预扣费额度失败, 用户剩余额度: ¥0.247150", "api key 7天限额已用完"]) {
 		const message = { stopReason: "error", errorMessage, api: "openai-completions" };
 		assert.equal(rewriteErrorMessage(message), undefined, `不应改写: ${errorMessage}`);
 	}
 });
 
 test("鉴权/模型不存在/请求构造错误类中文文案不改写", () => {
-	for (const errorMessage of [
-		"404: 模型不存在",
-		"API Key 无效或已过期",
-		"您无权访问该模型",
-		"请求参数错误：messages 格式非法",
-	]) {
+	for (const errorMessage of ["404: 模型不存在", "API Key 无效或已过期", "您无权访问该模型", "请求参数错误：messages 格式非法"]) {
 		const message = { stopReason: "error", errorMessage, api: "openai-completions" };
 		assert.equal(rewriteErrorMessage(message), undefined, `不应改写: ${errorMessage}`);
 	}
@@ -437,12 +370,7 @@ test("鉴权/模型不存在/请求构造错误类中文文案不改写", () => 
 
 test("已含 pi 重试锚点的文案不改写（避免无意义后缀）", () => {
 	// 这些 pi 自己就能重试，扩展不该插手
-	for (const errorMessage of [
-		'429: {"message":"该模型当前访问量过大，请您稍后再试"}',
-		'503: {"code":"upstream_unavailable","message":"上游服务暂不可用"}',
-		'500: {"message":"没有可用的健康 CPA 出口账号"}',
-		"上游服务连接超时 timeout",
-	]) {
+	for (const errorMessage of ['429: {"message":"该模型当前访问量过大，请您稍后再试"}', '503: {"code":"upstream_unavailable","message":"上游服务暂不可用"}', '500: {"message":"没有可用的健康 CPA 出口账号"}', "上游服务连接超时 timeout"]) {
 		const message = { stopReason: "error", errorMessage, api: "openai-completions" };
 		assert.equal(rewriteErrorMessage(message), undefined, `不应改写: ${errorMessage}`);
 		assert.equal(piWillRetry(message), true, `pi 本就应重试: ${errorMessage}`);
@@ -450,12 +378,7 @@ test("已含 pi 重试锚点的文案不改写（避免无意义后缀）", () =
 });
 
 test("用户主动中止（aborted）绝不重试——否则已停止的会话会复活", () => {
-	for (const errorMessage of [
-		"Request was aborted.",
-		"Request aborted",
-		"Operation aborted",
-		"This operation was aborted",
-	]) {
+	for (const errorMessage of ["Request was aborted.", "Request aborted", "Operation aborted", "This operation was aborted"]) {
 		const message = { stopReason: "error", errorMessage, api: "openai-completions" };
 		assert.equal(rewriteErrorMessage(message), undefined, `不应改写: ${errorMessage}`);
 		assert.equal(piWillRetry(message), false, `不应重试: ${errorMessage}`);
@@ -467,21 +390,12 @@ test("用户主动中止（aborted）绝不重试——否则已停止的会话�
 // =========================================================================
 
 test("传输层瞬态错误改写后进入 pi 重试闭环", () => {
-	for (const errorMessage of [
-		"stream_read_error",
-		"unexpected EOF",
-		"Upstream request failed",
-		'http2: server sent GOAWAY and closed the connection; LastStreamID=21, ErrCode=NO_ERROR',
-	]) {
+	for (const errorMessage of ["stream_read_error", "unexpected EOF", "Upstream request failed", "http2: server sent GOAWAY and closed the connection; LastStreamID=21, ErrCode=NO_ERROR"]) {
 		const message = { stopReason: "error", errorMessage, api: "openai-completions" };
 		assert.equal(piWillRetry(message), false, `改写前不应重试: ${errorMessage}`);
 		const rewritten = rewriteErrorMessage(message);
 		assert.ok(rewritten, `应改写: ${errorMessage}`);
-		assert.equal(
-			piWillRetry({ ...message, errorMessage: rewritten }),
-			true,
-			`改写后应重试: ${errorMessage}`,
-		);
+		assert.equal(piWillRetry({ ...message, errorMessage: rewritten }), true, `改写后应重试: ${errorMessage}`);
 	}
 });
 
@@ -530,10 +444,7 @@ test("408 空响应仍被救援（Request Timeout 属瞬态，不在 4xx 排除�
 });
 
 test("泛化错误不改写（信息不足，宁可漏判）", () => {
-	for (const errorMessage of [
-		"Provider finish_reason: error",
-		"Provider finish_reason: repetition_truncation",
-	]) {
+	for (const errorMessage of ["Provider finish_reason: error", "Provider finish_reason: repetition_truncation"]) {
 		const message = { stopReason: "error", errorMessage, api: "openai-completions" };
 		assert.equal(rewriteErrorMessage(message), undefined, `不应改写: ${errorMessage}`);
 	}
@@ -543,10 +454,7 @@ test("泛化错误不改写（信息不足，宁可漏判）", () => {
 // 契约：扩展源码结构与注册
 // =========================================================================
 
-const extensionSource = readFileSync(
-	"resources/extensions/pi-deck-retry-no-body.ts",
-	"utf8",
-);
+const extensionSource = readFileSync("resources/extensions/pi-deck-retry-no-body.ts", "utf8");
 const builtInsSource = readFileSync("src/main/extensions/builtInExtensions.ts", "utf8");
 
 test("扩展注册了 message_end 拦截与纯函数", () => {

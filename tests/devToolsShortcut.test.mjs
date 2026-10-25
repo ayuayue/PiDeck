@@ -106,8 +106,12 @@ test("toggleMainWindowDevTools: open, close, and invalid-window branches", () =>
 		isDestroyed: () => false,
 		webContents: {
 			isDevToolsOpened: () => true,
-			closeDevTools: () => { closed = true; },
-			openDevTools: () => { assert.fail("must not open when already opened"); },
+			closeDevTools: () => {
+				closed = true;
+			},
+			openDevTools: () => {
+				assert.fail("must not open when already opened");
+			},
 			once: () => {},
 		},
 	};
@@ -124,9 +128,13 @@ test("toggleMainWindowDevTools: open, close, and invalid-window branches", () =>
 		isDestroyed: () => false,
 		webContents: {
 			isDevToolsOpened: () => false,
-			openDevTools: (opts) => { openOpts = opts; },
+			openDevTools: (opts) => {
+				openOpts = opts;
+			},
 			closeDevTools: () => {},
-			once: (event, cb) => { onceRegistered = { event, cb }; },
+			once: (event, cb) => {
+				onceRegistered = { event, cb };
+			},
 		},
 	};
 	assert.equal(mod.toggleMainWindowDevTools(openingWin), true);
@@ -139,7 +147,9 @@ test("offscreen devtools window is repositioned to primary display center on ope
 	let devToolsWin = {
 		isDestroyed: () => false,
 		getBounds: () => ({ x: 5000, y: 5000, width: 1200, height: 800 }),
-		setBounds: () => { throw new Error("should not be called for visible window"); },
+		setBounds: () => {
+			throw new Error("should not be called for visible window");
+		},
 	};
 	const browserWindow = { fromWebContents: () => devToolsWin };
 	const screen = {
@@ -149,7 +159,9 @@ test("offscreen devtools window is repositioned to primary display center on ope
 	const mod = loadDevTools({ screen, browserWindow });
 	// 屏幕外的窗口：触发 devtools-opened 后应 setBounds 到主屏居中
 	let repositioned = null;
-	devToolsWin.setBounds = (b) => { repositioned = b; };
+	devToolsWin.setBounds = (b) => {
+		repositioned = b;
+	};
 	let onceCb = null;
 	const win = {
 		isDestroyed: () => false,
@@ -159,7 +171,9 @@ test("offscreen devtools window is repositioned to primary display center on ope
 			closeDevTools: () => {},
 			// 真实 Electron 在 devtools-opened 后就绪；mock 需提供该属性
 			devToolsWebContents: {},
-			once: (_event, cb) => { onceCb = cb; },
+			once: (_event, cb) => {
+				onceCb = cb;
+			},
 		},
 	};
 	mod.toggleMainWindowDevTools(win);
@@ -170,7 +184,13 @@ test("offscreen devtools window is repositioned to primary display center on ope
 	assert.equal(repositioned.width, 1200);
 	assert.equal(repositioned.height, 800);
 	// 已在屏幕内的窗口：不 reposition
-	devToolsWin = { ...devToolsWin, getBounds: () => ({ x: 100, y: 100, width: 800, height: 600 }), setBounds: () => { throw new Error("visible window must not be repositioned"); } };
+	devToolsWin = {
+		...devToolsWin,
+		getBounds: () => ({ x: 100, y: 100, width: 800, height: 600 }),
+		setBounds: () => {
+			throw new Error("visible window must not be repositioned");
+		},
+	};
 	onceCb = null;
 	const win2 = {
 		isDestroyed: () => false,
@@ -179,7 +199,9 @@ test("offscreen devtools window is repositioned to primary display center on ope
 			openDevTools: () => {},
 			closeDevTools: () => {},
 			devToolsWebContents: {},
-			once: (_event, cb) => { onceCb = cb; },
+			once: (_event, cb) => {
+				onceCb = cb;
+			},
 		},
 	};
 	mod.toggleMainWindowDevTools(win2);
@@ -190,9 +212,9 @@ test("main window and webview guest both route devtools shortcuts through the sh
 	const main = readFileSync("src/main/index.ts", "utf8");
 	const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
 	assert.match(main, /import \{ isDevToolsShortcut, toggleMainWindowDevTools \} from "\.\/devTools"/);
-	// 主窗口 before-input-event 统一走共享判断 + 开关
+	// 主窗口 before-input-event 统一走共享匹配（注册表 + 用户覆盖）+ 开关
 	assert.match(main, /mainWindow\.webContents\.on\("before-input-event"/);
-	assert.match(main, /isDevToolsShortcut\(input\)/);
+	assert.match(main, /isShortcutInput\("toggleDevTools", input\)/);
 	assert.match(main, /toggleMainWindowDevTools\(mainWindow\)/);
 	// webview guest（独立 webContents）同样转发，避免内置浏览器里 F12 无响应
 	assert.match(main, /guest\.on\("before-input-event"/);

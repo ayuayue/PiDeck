@@ -8,15 +8,15 @@
 
 // Radix 的 outside 事件是 CustomEvent，真实指针目标在 detail.originalEvent.target 上
 export type OutsideInteractionEvent = {
-  target: EventTarget | null;
-  preventDefault: () => void;
-  detail?: { originalEvent?: Event };
+	target: EventTarget | null;
+	preventDefault: () => void;
+	detail?: { originalEvent?: Event };
 };
 
 const TOAST_REGION_SELECTOR = "[data-sonner-toaster], #app-notice-fallback-host";
 
 /** 判定外部交互是否来自全局 toast 区域；命中后调用方应 event.preventDefault() 阻止弹框关闭 */
 export function isOutsideInteractionFromToast(event: OutsideInteractionEvent): boolean {
-  const target = event.detail?.originalEvent?.target ?? event.target;
-  return target instanceof Element && Boolean(target.closest(TOAST_REGION_SELECTOR));
+	const target = event.detail?.originalEvent?.target ?? event.target;
+	return target instanceof Element && Boolean(target.closest(TOAST_REGION_SELECTOR));
 }

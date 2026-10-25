@@ -10,11 +10,10 @@
  * 本模块只读 profile 与 credential ref；密钥取值与最终路由（catalog 兜底、pi 侧
  * auth 回退）由 ConfigManager.resolveUsageEndpoint 组合。
  */
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readDshSettingsSnapshot } from "../dsh/dshProfileSettings";
 import { credentialRefFor } from "../../shared/dshCredentialRef";
 import { normalizeDshDeepseekProvider } from "../../shared/dshProviderNames";
-import { loadYamlObject, parseDshSettingsDocument } from "./providerMigration";
+import { parseDshSettingsDocument } from "./providerMigration";
 
 export type DshUsageProviderProfile = {
 	/** DSH 配置文件命名空间：自定义供应商或官方 DeepSeek。 */
@@ -33,22 +32,18 @@ export type DshUsageProviderProfile = {
  * 读取 DSH provider 的用量查询 profile。
  * settings.yaml 缺失/损坏/无该 route 时返回 undefined（调用方回落既有 pi/catalog 解析）。
  */
-export async function loadDshUsageProviderProfile(
-	homeDir: string,
-	provider: string,
-): Promise<DshUsageProviderProfile | undefined> {
+export async function loadDshUsageProviderProfile(homeDir: string, provider: string): Promise<DshUsageProviderProfile | undefined> {
 	// 官方 DeepSeek 在 llm.models / session.models 里的组 id 是 deepseek-official，
 	// 与配置面规范名 deepseek 不一致：先归一化再特判，否则选择器/圆球查不到官方路由。
 	const name = normalizeDshDeepseekProvider(provider?.trim() ?? "");
 	if (!name) return undefined;
 
-	let raw: string;
+	let doc: ReturnType<typeof parseDshSettingsDocument>;
 	try {
-		raw = await readFile(join(homeDir, "settings.yaml"), "utf8");
+		doc = parseDshSettingsDocument(readDshSettingsSnapshot(homeDir));
 	} catch {
 		return undefined;
 	}
-	const doc = parseDshSettingsDocument(loadYamlObject(raw));
 
 	// 官方 DeepSeek 是独立命名空间（llm-deepseek），路由名固定为 deepseek。
 	if (name === "deepseek" && doc.deepseek) {

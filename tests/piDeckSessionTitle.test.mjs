@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const extensionPath = "resources/extensions/pi-deck-session-title.ts";
 
@@ -17,19 +18,23 @@ function compileExtension({ enabled = true, completeSimple }) {
 		fileName: extensionPath,
 	}).outputText;
 	const module = { exports: {} };
-	vm.runInNewContext(output, {
-		module,
-		exports: module.exports,
-		require: (specifier) => {
-			if (specifier === "@earendil-works/pi-ai/compat") return { completeSimple };
-			return {};
+	vm.runInNewContext(
+		output,
+		{
+			module,
+			exports: module.exports,
+			require: (specifier) => {
+				if (specifier === "@earendil-works/pi-ai/compat") return { completeSimple };
+				return {};
+			},
+			process: { env: { PIDECK_AUTO_SESSION_TITLE: enabled ? "1" : "0" } },
+			console,
+			AbortController,
+			setTimeout,
+			clearTimeout,
 		},
-		process: { env: { PIDECK_AUTO_SESSION_TITLE: enabled ? "1" : "0" } },
-		console,
-		AbortController,
-		setTimeout,
-		clearTimeout,
-	}, { filename: extensionPath });
+		{ filename: extensionPath },
+	);
 	return module.exports;
 }
 
@@ -60,23 +65,15 @@ function messageEntry(message, index) {
 	};
 }
 
-function createHarness({
-	enabled = true,
-	entries = [],
-	titleName,
-	authBaseUrl,
-	hasModel = true,
-	authResolver,
-} = {}) {
+function createHarness({ enabled = true, entries = [], titleName, authBaseUrl, hasModel = true, authResolver } = {}) {
 	let branch = entries;
 	let sessionId = "session-1";
 	let currentName = titleName;
-	let nextCompletion = () => Promise.resolve(assistantMessage([
-		{ type: "text", text: "Title: 修复登录流程！" },
-	]));
+	let nextCompletion = () => Promise.resolve(assistantMessage([{ type: "text", text: "Title: 修复登录流程！" }]));
 	const handlers = new Map();
 	const completeCalls = [];
 	const setNames = [];
+	const statusUpdates = [];
 	const sessionManager = {
 		getSessionId: () => sessionId,
 		getBranch: () => branch,
@@ -87,14 +84,21 @@ function createHarness({
 		cwd: "C:/project",
 		sessionManager,
 		model: hasModel ? { provider: "test-provider", id: "test-model" } : undefined,
+		ui: {
+			setStatus(key, text) {
+				statusUpdates.push({ key, text });
+			},
+		},
 		modelRegistry: {
-			getApiKeyAndHeaders: authResolver ?? (async () => ({
-				ok: true,
-				apiKey: "test-key",
-				headers: {},
-				env: {},
-				...(authBaseUrl ? { baseUrl: authBaseUrl } : {}),
-			})),
+			getApiKeyAndHeaders:
+				authResolver ??
+				(async () => ({
+					ok: true,
+					apiKey: "test-key",
+					headers: {},
+					env: {},
+					...(authBaseUrl ? { baseUrl: authBaseUrl } : {}),
+				})),
 		},
 	};
 	const completeSimple = (model, titleContext, options) => {
@@ -121,6 +125,7 @@ function createHarness({
 		completeCalls,
 		handlers,
 		setNames,
+		statusUpdates,
 		setBranch(next) {
 			branch = next;
 		},
@@ -154,7 +159,13 @@ async function startFresh(harness, entries, reason = "new") {
 function freshBranch({ user = "请修复登录页面", assistant = "我会先检查登录流程" } = {}) {
 	return [
 		messageEntry(userMessage(user), 0),
-		messageEntry(assistantMessage([{ type: "thinking", thinking: "不要泄露这段思考" }, { type: "text", text: assistant }]), 1),
+		messageEntry(
+			assistantMessage([
+				{ type: "thinking", thinking: "不要泄露这段思考" },
+				{ type: "text", text: assistant },
+			]),
+			1,
+		),
 	];
 }
 
@@ -166,6 +177,7 @@ test("首轮 settled 后只用最小独立 context 生成标题并写回 session
 	await flushAsyncWork();
 
 	assert.deepEqual(harness.setNames, ["修复登录流程"]);
+	assert.deepEqual(harness.statusUpdates, [{ key: "pideck:auto-title", text: "修复登录流程" }]);
 	assert.equal(harness.completeCalls.length, 1);
 	const request = harness.completeCalls[0];
 	assert.equal(request.titleContext.tools, undefined);
@@ -174,7 +186,69 @@ test("首轮 settled 后只用最小独立 context 生成标题并写回 session
 	assert.match(request.titleContext.messages[0].content, /我会先检查登录流程/);
 	assert.doesNotMatch(request.titleContext.messages[0].content, /super-secret-value/);
 	assert.doesNotMatch(request.titleContext.messages[0].content, /不要泄露这段思考/);
-	assert.equal(request.options.maxTokens, 64);
+	assert.equal(request.options.maxTokens, 512);
+});
+
+test("推理模型吃光输出预算时升级预算重发一次并完成命名", async () => {
+	const entries = freshBranch({ user: "排查越界 bug" });
+	const harness = createHarness({ entries });
+	let calls = 0;
+	harness.setCompletion(() => {
+		calls += 1;
+		// 第一次：输出预算全被 thinking 吃掉（stopReason=length，没有正文）
+		if (calls === 1) {
+			return Promise.resolve(assistantMessage([{ type: "thinking", thinking: "先想想标题怎么写" }], "length"));
+		}
+		return Promise.resolve(assistantMessage([{ type: "text", text: "越界 bug 排查" }]));
+	});
+	await startFresh(harness, entries);
+	await harness.emit("agent_settled");
+	await flushAsyncWork();
+	await flushAsyncWork();
+
+	assert.deepEqual(
+		harness.completeCalls.map((call) => call.options.maxTokens),
+		[512, 2048],
+	);
+	assert.deepEqual(harness.setNames, ["越界 bug 排查"]);
+});
+
+test("非截断的空标题响应不做升级重发", async () => {
+	const entries = freshBranch();
+	const harness = createHarness({ entries });
+	harness.setCompletion(() => Promise.resolve(assistantMessage([], "stop")));
+	await startFresh(harness, entries);
+	await harness.emit("agent_settled");
+	await flushAsyncWork();
+
+	assert.equal(harness.completeCalls.length, 1);
+	assert.deepEqual(harness.setNames, []);
+});
+
+test("两次预算都被推理吃光时放弃命名，同一轮不重复重发", async () => {
+	const entries = freshBranch();
+	const harness = createHarness({ entries });
+	harness.setCompletion(() => Promise.resolve(assistantMessage([{ type: "thinking", thinking: "一直在想标题" }], "length")));
+	await startFresh(harness, entries);
+	await harness.emit("agent_settled");
+	await flushAsyncWork();
+	await flushAsyncWork();
+	assert.equal(harness.completeCalls.length, 2);
+	assert.deepEqual(harness.setNames, []);
+
+	// 同一轮重复 settled 不得再发（升级重发不能放大成每轮多次请求）
+	await harness.emit("agent_settled");
+	await flushAsyncWork();
+	assert.equal(harness.completeCalls.length, 2);
+
+	// 下一轮 agent run 才重新尝试（MAX_TITLE_ATTEMPTS = 2）
+	harness.setCompletion(() => Promise.resolve(assistantMessage([{ type: "text", text: "重试成功" }])));
+	await harness.emit("agent_start");
+	await harness.emit("agent_settled");
+	await flushAsyncWork();
+	await flushAsyncWork();
+	assert.equal(harness.completeCalls.length, 3);
+	assert.deepEqual(harness.setNames, ["重试成功"]);
 });
 
 test("uses a credential-provided base URL for the independent request", async () => {
@@ -239,21 +313,12 @@ test("cleans model formatting, removes emoji, and enforces the short title contr
 	assert.doesNotMatch(redactSensitiveText('password="my secret phrase"'), /my secret phrase/);
 	assert.equal(cleanTitle("x"), undefined);
 	// 不再硬截断：模型输出由提示词约束长度，超长时不切碎词、原样保留（2026 现场："issue" → "issu"）。
-	assert.equal(
-		cleanTitle("一个非常非常非常非常非常非常长的标题"),
-		"一个非常非常非常非常非常非常长的标题",
-	);
-	assert.equal(
-		cleanTitle("Fix: DSH session files not removed from the workspace"),
-		"Fix: DSH session files not removed from the workspace",
-	);
+	assert.equal(cleanTitle("一个非常非常非常非常非常非常长的标题"), "一个非常非常非常非常非常非常长的标题");
+	assert.equal(cleanTitle("Fix: DSH session files not removed from the workspace"), "Fix: DSH session files not removed from the workspace");
 });
 
 test("names an interrupted first run from the user request", async () => {
-	const entries = [
-		messageEntry(userMessage("修复构建失败"), 0),
-		messageEntry(assistantMessage([{ type: "text", text: "检索尚未完成" }], "aborted"), 1),
-	];
+	const entries = [messageEntry(userMessage("修复构建失败"), 0), messageEntry(assistantMessage([{ type: "text", text: "检索尚未完成" }], "aborted"), 1)];
 	const harness = createHarness({ entries });
 	await startFresh(harness, entries);
 	await harness.emit("agent_settled");
@@ -265,10 +330,7 @@ test("names an interrupted first run from the user request", async () => {
 });
 
 test("names an errored first run from the user request", async () => {
-	const entries = [
-		messageEntry(userMessage("修复启动报错"), 0),
-		messageEntry(assistantMessage([], "error"), 1),
-	];
+	const entries = [messageEntry(userMessage("修复启动报错"), 0), messageEntry(assistantMessage([], "error"), 1)];
 	const harness = createHarness({ entries });
 	await startFresh(harness, entries);
 	await harness.emit("agent_settled");
@@ -280,12 +342,11 @@ test("names an errored first run from the user request", async () => {
 
 test("prewarms credentials before an interrupted run settles", async () => {
 	let resolveAuth;
-	const authReady = new Promise((resolve) => { resolveAuth = resolve; });
+	const authReady = new Promise((resolve) => {
+		resolveAuth = resolve;
+	});
 	let authCalls = 0;
-	const entries = [
-		messageEntry(userMessage("中断后仍应生成标题"), 0),
-		messageEntry(assistantMessage([], "aborted"), 1),
-	];
+	const entries = [messageEntry(userMessage("中断后仍应生成标题"), 0), messageEntry(assistantMessage([], "aborted"), 1)];
 	const harness = createHarness({ entries });
 	harness.context.modelRegistry.getApiKeyAndHeaders = async () => {
 		authCalls += 1;
@@ -330,7 +391,9 @@ test("retries a failed title request only on a later agent run", async () => {
 
 test("manual rename wins and aborts the pending title request", async () => {
 	let resolveCompletion;
-	const completion = new Promise((resolve) => { resolveCompletion = resolve; });
+	const completion = new Promise((resolve) => {
+		resolveCompletion = resolve;
+	});
 	const entries = freshBranch();
 	const harness = createHarness({ entries });
 	harness.setCompletion(() => completion);
@@ -348,7 +411,9 @@ test("manual rename wins and aborts the pending title request", async () => {
 
 test("shutdown cancels only the title side request, while an ordinary session switch event does not", async () => {
 	let resolveCompletion;
-	const completion = new Promise((resolve) => { resolveCompletion = resolve; });
+	const completion = new Promise((resolve) => {
+		resolveCompletion = resolve;
+	});
 	const entries = freshBranch();
 	const harness = createHarness({ entries });
 	harness.setCompletion(() => completion);
@@ -364,7 +429,9 @@ test("shutdown cancels only the title side request, while an ordinary session sw
 
 	// A real Pi runtime replacement emits session_shutdown; it must abort the side request.
 	let resolveSecond;
-	const secondCompletion = new Promise((resolve) => { resolveSecond = resolve; });
+	const secondCompletion = new Promise((resolve) => {
+		resolveSecond = resolve;
+	});
 	harness.setCompletion(() => secondCompletion);
 	harness.clearName();
 	const secondEntries = freshBranch({ user: "第二个会话", assistant: "完成" });
@@ -393,7 +460,9 @@ test("fork/resume sessions and duplicate settled events are not auto-named", asy
 	assert.equal(resumeHarness.completeCalls.length, 0);
 
 	let resolveCompletion;
-	const completion = new Promise((resolve) => { resolveCompletion = resolve; });
+	const completion = new Promise((resolve) => {
+		resolveCompletion = resolve;
+	});
 	const duplicateEntries = freshBranch();
 	const duplicateHarness = createHarness({ entries: duplicateEntries });
 	duplicateHarness.setCompletion(() => completion);
@@ -405,4 +474,137 @@ test("fork/resume sessions and duplicate settled events are not auto-named", asy
 	resolveCompletion(assistantMessage([{ type: "text", text: "唯一标题" }]));
 	await flushAsyncWork();
 	assert.deepEqual(duplicateHarness.setNames, ["唯一标题"]);
+});
+
+// 回归 2026-10 #250：首条消息用 /模板 时，块正文是发给主模型的上下文，不是用户意图。
+// 旧实现把 1600 字预算全给了模板正文，用户真正说的话被截掉，标题变成模板里的章节名。
+const templateBlock = (name, body) => `<prompt_template name="${name}">\n${body}\n</prompt_template>`;
+const longTemplateBody = `# 翻译官工作规则\n${"规则正文。".repeat(500)}`;
+
+test("只插了 /模板 没写正文时直接用模板名命名，不再请求模型", async () => {
+	const entries = [messageEntry(userMessage(templateBlock("翻译官", longTemplateBody)), 0)];
+	const harness = createHarness({ entries });
+	await startFresh(harness, entries);
+	await harness.emit("agent_settled");
+	await flushAsyncWork();
+
+	// 模板名本身就是最准确的标题：省掉一次模型请求，也不再受推理模型输出预算/超时影响。
+	assert.equal(harness.completeCalls.length, 0);
+	assert.deepEqual(harness.setNames, ["/翻译官"]);
+});
+
+test("首条消息带 /模板 时只把用户自己写的话送进标题请求", async () => {
+	const entries = [messageEntry(userMessage(`${templateBlock("翻译官", longTemplateBody)}\n\nhow are you`), 0)];
+	const harness = createHarness({ entries });
+	await startFresh(harness, entries);
+	await harness.emit("agent_settled");
+	await flushAsyncWork();
+
+	assert.equal(harness.completeCalls.length, 1);
+	const content = harness.completeCalls[0].titleContext.messages[0].content;
+	assert.match(content, /how are you/);
+	// 模板正文与 XML 包装不能出现在标题请求里（否则又会总结出「翻译官工作规则」）。
+	assert.doesNotMatch(content, /规则正文/);
+	assert.doesNotMatch(content, /prompt_template/);
+});
+
+test("扩展自带的块清洗与 shared 解析层逐条一致", () => {
+	// 扩展是 pi 用 -e 加载的独立文件，无法 import shared，只能自带一份实现；
+	// 这里逐条对照，防止两侧对同一条消息得出不同标题（分叉即回归）。
+	const { formatPromptTemplateBlock, textForSessionTitle } = loadTsCommonJs("src/shared/expandedRefBlocks.ts");
+	const { titleTextFromUserInput } = loadTsCommonJs(extensionPath, {
+		stubs: { "@earendil-works/pi-ai/compat": { completeSimple: () => Promise.reject(new Error("unused")) } },
+	});
+	const template = formatPromptTemplateBlock("翻译官", longTemplateBody);
+	const samples = [
+		`${template}\n\nhow are you`,
+		template,
+		`帮我翻译 ${template}\n\n这段话`,
+		'<quoted_context label="引用A" message_id="m1">\nA 全文\n</quoted_context>\n照着改',
+		'<referenced_session name="会话B">\n[User]: x\n</referenced_session>',
+		'<skill name="cv-writer">\n指令正文\n</skill>\n帮我写简历',
+		'<skill name="cv-writer">\n指令正文\n</skill>',
+		`${formatPromptTemplateBlock("a", "A")}\n${formatPromptTemplateBlock("b", "B")}`,
+		"普通消息，没有块",
+		"<skill> 是什么意思",
+		// 视觉桥块（2026-10 现场：只发图不写字的消息把标记行写成了标题）——两侧都必须剥掉标记与描述。
+		// 组成顺序与真实链路一致：input 钩子总是「用户正文（含引用块）在前、描述追加在后」。
+		"帮我看下这个界面\n\n[图片 #1（视觉桥已查看，以下为图片实际内容）]\n这是一张截图，展示供应商列表管理界面。",
+		"[图片 #1（视觉桥已查看，以下为图片实际内容）]\n这是一张截图，展示供应商列表管理界面。",
+		"[图片 #1 未发送给模型：视觉桥未配置]",
+		"[图片 #1 视觉桥转换失败：接口超时。请检查视觉桥设置（模型/接口地址/API Key）后重试，此图片内容不可见]",
+	];
+	for (const sample of samples) {
+		assert.equal(titleTextFromUserInput(sample).text, textForSessionTitle(sample), `diverged on: ${sample.slice(0, 48)}`);
+	}
+	// 纯块输入必须被标记出来（调用方据此跳过模型请求）。
+	assert.equal(titleTextFromUserInput(template).blockOnly, true);
+	assert.equal(titleTextFromUserInput(`帮我翻译 ${template}\n\n这段话`).blockOnly, false);
+	assert.equal(titleTextFromUserInput("普通消息，没有块").blockOnly, false);
+});
+
+// 回归 2026-10-14：内置自动命名扩展的旁路补全被第三方上下文代理（billion-context 的 acp-proxy）
+// 接管，模型返回的是代理自己注入的确认标记行（`📦 [ACP] acp_status result: …`）。
+// 扩展剥掉前导 emoji 与尾部冒号后原样收下，脏标记被写进 session_info，侧栏标题于是变成一段工具日志。
+test("cleanTitle 拒绝工具/上下文代理的确认标记行", () => {
+	const { cleanTitle } = compileExtension({ completeSimple: () => Promise.reject(new Error("unused")) });
+	assert.equal(cleanTitle("[ACP] acp_status result"), undefined);
+	assert.equal(cleanTitle("📦 [ACP] acp_status result: 压缩完成"), undefined);
+	assert.equal(cleanTitle("[ACP] Compression FAILED: None of the 1 requested range(s) resolved"), undefined);
+	assert.equal(cleanTitle("📦 [ACP] Compressed 3 ranges, saved 12k tokens"), undefined);
+});
+
+// 防误伤：模型写的正常标题不能被形态黑名单丢掉。中文正文、混合大小写标签、标签不在行首的都不是日志行。
+// 只有「[全大写标签] + 纯 ASCII 整行」这种日志形态会被丢弃（代价是本轮不命名，宿主侧所有权仍按窄判定走）。
+test("cleanTitle 不误伤带方括号/冒号/下划线的正常标题", () => {
+	const { cleanTitle } = compileExtension({ completeSimple: () => Promise.reject(new Error("unused")) });
+	assert.equal(cleanTitle("[WIP] 重构商店页"), "[WIP] 重构商店页");
+	assert.equal(cleanTitle("[Bug] fix the API timeouts"), "[Bug] fix the API timeouts");
+	assert.equal(cleanTitle("Debug [ACP] 状态泄漏"), "Debug [ACP] 状态泄漏");
+	assert.equal(cleanTitle("Pi 机理与应用：90分钟课程规划"), "Pi 机理与应用：90分钟课程规划");
+	assert.equal(cleanTitle("[TODO] 补全标题形态说明"), "[TODO] 补全标题形态说明");
+});
+
+test("模型返回确认标记行时不写会话名，下一轮仍可正常命名", async () => {
+	const entries = freshBranch();
+	const harness = createHarness({ entries });
+	harness.setCompletion(() => Promise.resolve(assistantMessage([{ type: "text", text: "📦 [ACP] acp_status result: ok" }])));
+	await startFresh(harness, entries);
+	await harness.emit("agent_settled");
+	await flushAsyncWork();
+
+	// 既不写 session_info，也不发 marker（宿主侧 triple match 因此拿不到脏名）。
+	assert.deepEqual(harness.setNames, []);
+	assert.deepEqual(harness.statusUpdates, []);
+
+	harness.setCompletion(() => Promise.resolve(assistantMessage([{ type: "text", text: "修复登录流程" }])));
+	await harness.emit("agent_start");
+	await harness.emit("agent_settled");
+	await flushAsyncWork();
+	assert.deepEqual(harness.setNames, ["修复登录流程"]);
+});
+
+test("扩展自带的标记标题判定与 shared 逐条一致", () => {
+	// 扩展由 pi 用 -e 独立加载、不能 import 应用源码，只能自带一份；这里逐条对照防分叉。
+	const { looksLikeToolMarkerTitle: sharedLooks } = loadTsCommonJs("src/shared/sessionIdentity.ts");
+	const { looksLikeToolMarkerTitle: extensionLooks } = loadTsCommonJs(extensionPath, {
+		stubs: { "@earendil-works/pi-ai/compat": { completeSimple: () => Promise.reject(new Error("unused")) } },
+	});
+	const samples = [
+		"[ACP] acp_status result",
+		"📦 [ACP] acp_status result: 压缩完成",
+		"[ACP] Compression FAILED: None of the 1 requested range(s) resolved",
+		"❌ [ACP] Compression FAILED: none",
+		"[WIP] 重构商店页",
+		"[Bug] fix the API timeouts",
+		"[TODO] refactor login page",
+		"Debug [ACP] 状态泄漏",
+		"[ACP]",
+		"修复登录流程",
+		"Pi 机理与应用：90分钟课程规划 (fork)",
+		"Untitled",
+	];
+	for (const sample of samples) {
+		assert.equal(extensionLooks(sample), sharedLooks(sample), `diverged on: ${sample}`);
+	}
 });

@@ -37,14 +37,35 @@ function parseCsv(text) {
 	for (const line of text.split(/\r?\n/)) {
 		if (!line.trim() || line.startsWith("ts,")) continue;
 		const fields = splitCsvLine(line);
-		if (![10, 11, 14, 15, 17].includes(fields.length)) throw new Error(`malformed row: ${line.slice(0, 60)}`);
+		if (![10, 11, 14, 15, 17, 18, 21].includes(fields.length)) throw new Error(`malformed row: ${line.slice(0, 60)}`);
 		const num = (v) => (v === "" ? null : Number(v));
 		const [ts, type, pid, label, rssKB, privateKB, sharedKB, peakRssKB, heapUsedKB, jsHeapKB, ...rest] = fields;
 		// 后加列插入位置随版本变化（totalJSHeapKB 插在 jsHeapKB 与 domNodes 之间），
-		// 按列数分支对齐：11 列 [domNodes]；14 列 [domNodes,img,imgPx,cvPx]；15/17 列带 totalJSHeapKB
-		const [totalJSHeapKB, domNodes, imgCount, imgPixels, canvasPixels, workerCount, workerJSHeapKB] =
-			rest.length === 1 || rest.length === 4 ? [null, ...rest] : rest;
-		rows.push({ ts: Number(ts), type, pid: Number(pid), label, rssKB: num(rssKB), privateKB: num(privateKB), sharedKB: num(sharedKB), peakRssKB: num(peakRssKB), heapUsedKB: num(heapUsedKB), jsHeapKB: num(jsHeapKB), totalJSHeapKB: totalJSHeapKB === undefined ? null : num(totalJSHeapKB), domNodes: domNodes === undefined ? null : num(domNodes), imgCount: imgCount === undefined ? null : num(imgCount), imgPixels: imgPixels === undefined ? null : num(imgPixels), canvasPixels: canvasPixels === undefined ? null : num(canvasPixels), workerCount: workerCount === undefined ? null : num(workerCount), workerJSHeapKB: workerJSHeapKB === undefined ? null : num(workerJSHeapKB) });
+		// 按列数分支对齐：11 列 [domNodes]；14 列 [domNodes,img,imgPx,cvPx]；15/17 列带 totalJSHeapKB；
+		// 18 列再带 streaming；21 列行尾追加 [heapTotalKB,externalKB,arrayBuffersKB]
+		const [totalJSHeapKB, domNodes, imgCount, imgPixels, canvasPixels, workerCount, workerJSHeapKB, , heapTotalKB, externalKB, arrayBuffersKB] = rest.length === 1 || rest.length === 4 ? [null, ...rest] : rest;
+		rows.push({
+			ts: Number(ts),
+			type,
+			pid: Number(pid),
+			label,
+			rssKB: num(rssKB),
+			privateKB: num(privateKB),
+			sharedKB: num(sharedKB),
+			peakRssKB: num(peakRssKB),
+			heapUsedKB: num(heapUsedKB),
+			jsHeapKB: num(jsHeapKB),
+			totalJSHeapKB: totalJSHeapKB === undefined ? null : num(totalJSHeapKB),
+			domNodes: domNodes === undefined ? null : num(domNodes),
+			imgCount: imgCount === undefined ? null : num(imgCount),
+			imgPixels: imgPixels === undefined ? null : num(imgPixels),
+			canvasPixels: canvasPixels === undefined ? null : num(canvasPixels),
+			workerCount: workerCount === undefined ? null : num(workerCount),
+			workerJSHeapKB: workerJSHeapKB === undefined ? null : num(workerJSHeapKB),
+			heapTotalKB: heapTotalKB === undefined ? null : num(heapTotalKB),
+			externalKB: externalKB === undefined ? null : num(externalKB),
+			arrayBuffersKB: arrayBuffersKB === undefined ? null : num(arrayBuffersKB),
+		});
 	}
 	return rows;
 }
@@ -57,11 +78,16 @@ function splitCsvLine(line) {
 		const ch = line[i];
 		if (inQuote) {
 			if (ch === '"') {
-				if (line[i + 1] === '"') { cur += '"'; i++; } else inQuote = false;
+				if (line[i + 1] === '"') {
+					cur += '"';
+					i++;
+				} else inQuote = false;
 			} else cur += ch;
 		} else if (ch === '"') inQuote = true;
-		else if (ch === ",") { out.push(cur); cur = ""; }
-		else cur += ch;
+		else if (ch === ",") {
+			out.push(cur);
+			cur = "";
+		} else cur += ch;
 	}
 	out.push(cur);
 	return out;
@@ -90,14 +116,66 @@ function aggregate(rows) {
 	for (const [pid, list] of byPid) {
 		const last = list[list.length - 1];
 		const rss = sanitizeRss(list.map((r) => r.rssKB).filter((v) => v !== null));
-		const jsHeap = list.map((r) => r.jsHeapKB).filter((v) => v !== null).pop() ?? null;
-		const heapUsed = list.map((r) => r.heapUsedKB).filter((v) => v !== null).pop() ?? null;
-		const domNodes = list.map((r) => r.domNodes).filter((v) => v !== null).pop() ?? null;
-		const workerCount = list.map((r) => r.workerCount).filter((v) => v !== null && v >= 0).pop() ?? null;
-		const workerJSHeap = list.map((r) => r.workerJSHeapKB).filter((v) => v !== null).pop() ?? null;
+		const jsHeap =
+			list
+				.map((r) => r.jsHeapKB)
+				.filter((v) => v !== null)
+				.pop() ?? null;
+		const heapUsed =
+			list
+				.map((r) => r.heapUsedKB)
+				.filter((v) => v !== null)
+				.pop() ?? null;
+		const domNodes =
+			list
+				.map((r) => r.domNodes)
+				.filter((v) => v !== null)
+				.pop() ?? null;
+		const workerCount =
+			list
+				.map((r) => r.workerCount)
+				.filter((v) => v !== null && v >= 0)
+				.pop() ?? null;
+		const workerJSHeap =
+			list
+				.map((r) => r.workerJSHeapKB)
+				.filter((v) => v !== null)
+				.pop() ?? null;
+		const heapTotal =
+			list
+				.map((r) => r.heapTotalKB)
+				.filter((v) => v !== null)
+				.pop() ?? null;
+		const external =
+			list
+				.map((r) => r.externalKB)
+				.filter((v) => v !== null)
+				.pop() ?? null;
+		const arrayBuffers =
+			list
+				.map((r) => r.arrayBuffersKB)
+				.filter((v) => v !== null)
+				.pop() ?? null;
 		const startRss = rss.length ? rss[0] : null;
 		const endRss = rss.length ? rss[rss.length - 1] : null;
-		out.push({ pid, type: last.type, label: last.label, startRssKB: startRss, endRssKB: endRss, peakRssKB: rss.length ? Math.max(...rss) : null, growthKB: startRss !== null && endRss !== null ? endRss - startRss : null, samples: list.length, endJsHeapKB: jsHeap, endHeapUsedKB: heapUsed, endDomNodes: domNodes, endWorkerCount: workerCount, endWorkerJSHeapKB: workerJSHeap });
+		out.push({
+			pid,
+			type: last.type,
+			label: last.label,
+			startRssKB: startRss,
+			endRssKB: endRss,
+			peakRssKB: rss.length ? Math.max(...rss) : null,
+			growthKB: startRss !== null && endRss !== null ? endRss - startRss : null,
+			samples: list.length,
+			endJsHeapKB: jsHeap,
+			endHeapUsedKB: heapUsed,
+			endDomNodes: domNodes,
+			endWorkerCount: workerCount,
+			endWorkerJSHeapKB: workerJSHeap,
+			endHeapTotalKB: heapTotal,
+			endExternalKB: external,
+			endArrayBuffersKB: arrayBuffers,
+		});
 	}
 	out.sort((a, b) => (b.growthKB ?? -Infinity) - (a.growthKB ?? -Infinity));
 	return out;
@@ -154,6 +232,12 @@ function report(rows, label) {
 	lines.push(`- 采样点数：${rows.length}（${tsList.length} 轮，间隔约 ${duration ? Math.round(duration / tsList.length / 1000) : "-"}s）`);
 	lines.push(`- 全体进程 RSS：起始 ${fmtKB(tStart)} → 末尾 ${fmtKB(tEnd)}，峰值 ${fmtKB(tPeak)}，增长 ${fmtKB(tEnd !== null && tStart !== null ? tEnd - tStart : null)}`);
 	lines.push("");
+	// 主进程 V8 明细（2026-12 补采列）：heapTotal 与 heapUsed 差值即堆内空闲水位，
+	// external/arrayBuffers 是堆外增长的归因依据；旧格式 CSV 无这些列时跳过
+	const mainAgg = aggs.find((a) => a.type === "Browser");
+	if (mainAgg && mainAgg.endHeapTotalKB !== null) {
+		lines.push(`- 主进程 V8（末）：heap ${fmtKB(mainAgg.endHeapUsedKB)} / ${fmtKB(mainAgg.endHeapTotalKB)}，external ${fmtKB(mainAgg.endExternalKB)}，arrayBuffers ${fmtKB(mainAgg.endArrayBuffersKB)}`);
+	}
 	lines.push("| 进程 | 起始 RSS | 末尾 RSS | 峰值 | 增长 | V8堆(末) | DOM(末) | worker(末) | 采样数 |");
 	lines.push("|---|---|---|---|---|---|---|---|---|");
 	for (const a of aggs) {
@@ -164,9 +248,7 @@ function report(rows, label) {
 		const dom = a.endDomNodes === null ? "-" : a.endDomNodes.toLocaleString("en-US");
 		// worker：count(JS 堆合计)；count -1 表示未探测
 		const wk = a.endWorkerCount === null || a.endWorkerCount < 0 ? "-" : `${a.endWorkerCount}(${fmtKB(a.endWorkerJSHeapKB)})`;
-		lines.push(
-			`| ${a.label}#${a.pid} (${a.type}) | ${fmtKB(a.startRssKB)} | ${fmtKB(a.endRssKB)} | ${fmtKB(a.peakRssKB)} | ${fmtKB(a.growthKB)} | ${fmtKB(v8Heap)} | ${dom} | ${wk} | ${a.samples} |`,
-		);
+		lines.push(`| ${a.label}#${a.pid} (${a.type}) | ${fmtKB(a.startRssKB)} | ${fmtKB(a.endRssKB)} | ${fmtKB(a.peakRssKB)} | ${fmtKB(a.growthKB)} | ${fmtKB(v8Heap)} | ${dom} | ${wk} | ${a.samples} |`);
 	}
 	return lines.join("\n");
 }

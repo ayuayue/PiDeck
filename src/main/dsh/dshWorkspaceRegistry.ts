@@ -23,10 +23,7 @@ export type DshWorkspaceRecord = {
 };
 
 /** 从一条 workspace 行取出 path / sessionIds；结构不对则跳过。 */
-export function workspaceRecordFromUnknown(
-	workspaceId: string,
-	record: unknown,
-): DshWorkspaceRecord | undefined {
+export function workspaceRecordFromUnknown(workspaceId: string, record: unknown): DshWorkspaceRecord | undefined {
 	if (!workspaceId.trim() || !record || typeof record !== "object") return undefined;
 	const row = record as Record<string, unknown>;
 	const path = typeof row.path === "string" ? row.path.trim() : "";
@@ -88,10 +85,7 @@ export function accountedSessionIds(workspaces: readonly DshWorkspaceRecord[]): 
  * 认领前只做磁盘对照；真正写入仍由官方 attachSession 做 realpath 校验。
  */
 export function sameWorkspacePath(left: string, right: string): boolean {
-	const normalize = (value: string) => value
-		.replace(/\\/g, "/")
-		.replace(/\/+$/g, "")
-		.replace(/\/+/g, "/");
+	const normalize = (value: string) => value.replace(/\\/g, "/").replace(/\/+$/g, "").replace(/\/+/g, "/");
 	const a = normalize(left);
 	const b = normalize(right);
 	if (!a || !b) return false;
@@ -99,9 +93,6 @@ export function sameWorkspacePath(left: string, right: string): boolean {
 }
 
 /** 按会话 cwd 找已注册 workspace；没有匹配返回 undefined（不得为此新建 workspace）。 */
-export function findWorkspaceByCwd(
-	workspaces: readonly DshWorkspaceRecord[],
-	cwd: string,
-): DshWorkspaceRecord | undefined {
+export function findWorkspaceByCwd(workspaces: readonly DshWorkspaceRecord[], cwd: string): DshWorkspaceRecord | undefined {
 	return workspaces.find((workspace) => sameWorkspacePath(workspace.path, cwd));
 }

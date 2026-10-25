@@ -15,14 +15,28 @@ export const CELL_H = 208;
 
 /** PetMode → spritesheet 行号 */
 export const MODE_ROW: Record<string, number> = {
-	idle: 0, running: 7, failed: 5, waiting: 6, waving: 3,
-	"running-right": 1, "running-left": 2, jumping: 4, review: 8,
+	idle: 0,
+	running: 7,
+	failed: 5,
+	waiting: 6,
+	waving: 3,
+	"running-right": 1,
+	"running-left": 2,
+	jumping: 4,
+	review: 8,
 };
 
 /** PetMode → 帧数（连续取前 N 列，列索引 0..N-1） */
 export const MODE_FRAMES: Record<string, number> = {
-	idle: 6, running: 6, failed: 8, waiting: 6, waving: 4,
-	"running-right": 8, "running-left": 8, jumping: 5, review: 6,
+	idle: 6,
+	running: 6,
+	failed: 8,
+	waiting: 6,
+	waving: 4,
+	"running-right": 8,
+	"running-left": 8,
+	jumping: 5,
+	review: 6,
 };
 
 export type SpriteSheet = {

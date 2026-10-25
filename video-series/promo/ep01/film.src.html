@@ -1,0 +1,1386 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>PiDeck EP01</title>
+<style>
+  /* ============ fonts (injected by build.mjs) ============ */
+  @font-face { font-family: "Brand"; src: url("__FONT_BRAND__") format("woff2"); font-weight: 100 900; }
+  @font-face { font-family: "Mono";  src: url("__FONT_MONO__")  format("woff2"); font-weight: 100 900; }
+
+  /* ============ stage ============ */
+  html,body{margin:0;padding:0;background:#08080a;overflow:hidden;width:1920px;height:1080px}
+  *{box-sizing:border-box}
+  #bg{position:absolute;inset:0;background:
+      radial-gradient(1100px 720px at 50% 44%, #14151a 0%, #0b0b0e 52%, #060608 100%),
+      #08080a;}
+  #grid{position:absolute;inset:0;opacity:0;
+    background-image:
+      linear-gradient(to right, rgba(255,255,255,.055) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255,255,255,.055) 1px, transparent 1px);
+    background-size:64px 64px; background-position:center center;
+    -webkit-mask-image:radial-gradient(760px 520px at 50% 44%, #000 0%, transparent 78%);
+            mask-image:radial-gradient(760px 520px at 50% 44%, #000 0%, transparent 78%);}
+  #vig{position:absolute;inset:0;background:radial-gradient(1300px 900px at 50% 46%, transparent 52%, rgba(0,0,0,.62) 100%);}
+
+  #world{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0}
+
+  /* ============ THE one shape ============ */
+  #shape{position:absolute;left:0;top:0;background:#171717;overflow:hidden;
+    box-shadow:0 60px 160px rgba(0,0,0,.66), 0 0 0 1px rgba(255,255,255,.055) inset;}
+  #tile{position:absolute;left:0;top:0;background:#0a0a0b;overflow:hidden;
+    box-shadow:0 0 0 1px rgba(255,255,255,.14) inset;}
+  /* the pi-tui 4×4 pixel mark IS the grid that becomes the window */
+  #pixgrid{position:absolute;left:0;top:0;width:168px;height:168px}
+  #pixgrid .pc{position:absolute;width:42px;height:42px;transform-origin:0 0;
+    box-shadow:0 0 0 1px rgba(255,255,255,.045) inset}
+  #shinesweep{position:absolute;left:0;top:0;width:120px;height:3000px;opacity:0;
+    background:linear-gradient(90deg, transparent, rgba(255,255,255,.5) 42%, rgba(255,255,255,.9) 50%, rgba(255,255,255,.5) 58%, transparent);
+    filter:blur(6px)}
+
+  /* ============ window chrome ============ */
+  #win{position:absolute;left:0;top:0;width:1600px;height:900px;font-family:"Microsoft YaHei UI","PingFang SC",system-ui,sans-serif;
+    color:#ecece7;-webkit-font-smoothing:antialiased}
+  #tabbar{position:absolute;left:0;top:0;width:1600px;height:42px;background:#131313;
+    border-bottom:1px solid #232323;display:flex;align-items:flex-end;padding:0 8px;gap:4px}
+  .tab{height:33px;display:flex;align-items:center;gap:7px;padding:0 12px;border-radius:8px 8px 0 0;
+    font-size:15px;color:#9a9a94;white-space:nowrap;position:relative}
+  .tab.on{background:#333333;color:#ecece7}
+  .tab .x{width:16px;height:16px;border-radius:5px;background:rgba(255,255,255,.10);display:grid;place-items:center;
+    font-size:11px;color:#c9c9c4}
+  .tabnew{height:33px;width:32px;display:grid;place-items:center;color:#8a8a85}
+  /* real: SessionTabsBar renders AnimatedBadge — running/pending/waiting = animated amber spinner */
+  .tab .trun{width:12px;height:12px;border-radius:50%;flex:none;opacity:0;
+    border:1.8px solid rgba(251,191,36,.24);border-top-color:#fbbf24}
+
+  #crumb{position:absolute;left:0;top:42px;width:1600px;height:40px;background:#121212;
+    border-bottom:1px solid #1c1c1c;display:flex;align-items:center;gap:9px;padding:0 18px;font-size:14.5px;color:#8f8f8a}
+  #crumb .p{color:#c6c6c0}
+  #crumb .sep{color:#4a4a47}
+  .pswap{position:relative;display:inline-block;width:132px;height:20px;vertical-align:middle}
+  .pswap .p{position:absolute;left:0;top:0;white-space:nowrap}
+  #cr2{opacity:0}
+
+  #side{position:absolute;left:0;top:82px;width:250px;height:794px;background:#171717;
+    border-right:1px solid #222;display:flex;flex-direction:column}
+  .sb-new{margin:10px 12px 6px;height:34px;border-radius:9px;background:#242424;border:1px solid #2f2f2f;
+    display:flex;align-items:center;gap:9px;padding:0 12px;font-size:14.5px;color:#e2e2dd}
+  .sb-row{display:flex;align-items:center;gap:9px;height:30px;margin:0 12px;border-radius:7px;font-size:14px;color:#a3a39e}
+  .sb-seg{margin:8px 12px 6px;display:flex;gap:16px;font-size:13px;color:#7d7d78}
+  .sb-seg .on{color:#ecece7}
+  .proj{margin:2px 8px 0;position:relative}
+  .projh{display:flex;align-items:center;gap:7px;height:30px;padding:0 8px;border-radius:7px;
+    font-size:14px;color:#cfcfca}
+  .projh.sub{color:#9c9c97}
+  /* real: ProjectTree shows a bg-warning dot on a project with a running agent */
+  .projh .pdot{width:6px;height:6px;border-radius:50%;background:#fbbf24;opacity:0;margin-left:auto;flex:none}
+  #projtip{position:absolute;left:212px;top:32px;background:#2b2b2b;border:1px solid #3a3a3a;border-radius:8px;
+    padding:7px 11px;font-size:12.5px;color:#e2e2dd;white-space:nowrap;opacity:0;
+    box-shadow:0 10px 26px rgba(0,0,0,.5)}
+  .sess{display:flex;align-items:center;gap:8px;height:32px;padding:0 8px 0 34px;border-radius:8px;
+    font-size:14px;color:#a9a9a4;position:relative}
+  .sess.on{background:#2b2b2b;color:#ecece7}
+  /* real: SessionTree renderRuntimeStatusDot — size-1.5 rounded-full animate-pulse */
+  .sess .dot{width:6px;height:6px;border-radius:50%;background:#3d3d3a;flex:none}
+  .sess .tx{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .sb-foot{margin-top:auto;height:52px;border-top:1px solid #1e1e1e;display:flex;align-items:center;
+    justify-content:flex-end;gap:8px;padding:0 14px}
+  .sb-foot .ic{width:28px;height:28px;border-radius:8px;display:grid;place-items:center}
+  .sb-foot .ic.a{background:#242424;border:1px solid #2c2c2c}
+
+  #main{position:absolute;left:250px;top:82px;width:1055px;height:794px;background:#171717;overflow:hidden}
+  #timeline{position:absolute;left:0;top:0;width:1055px;height:490px;padding:22px 24px;overflow:hidden;
+    display:flex;flex-direction:column;justify-content:flex-end}
+  .urow{display:flex;justify-content:flex-end;margin-bottom:16px}
+  .ubub{max-width:640px;background:#242424;border:1px solid #2e2e2e;border-radius:12px;padding:11px 15px;
+    font-size:15.5px;color:#e6e6e1;line-height:1.5}
+  .toolrow{display:flex;align-items:center;gap:10px;height:30px;font-size:14px;color:#9c9c97;
+    transform-origin:0 50%}
+  .toolrow .ic{width:17px;height:17px;border-radius:5px;background:#262626;display:grid;place-items:center;flex:none}
+  .toolrow .nm{color:#d2d2cd;font-family:"Mono",monospace;font-size:13px}
+  .toolrow .st{color:#6f6f6a;font-size:12.5px}
+  .toolrow .ms{color:#5f5f5b;font-size:12px;font-family:"Mono",monospace}
+  .agentline{display:flex;align-items:center;gap:9px;height:34px;font-size:14.5px;color:#bdbdb8}
+  .spin{width:13px;height:13px;border-radius:50%;border:2px solid #4b4b47;border-top-color:#e2e2dd;
+    animation:spin .9s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  #composer{position:absolute;left:22px;top:518px;width:1011px;height:126px;background:#262626;
+    border:1px solid #303030;border-radius:16px;padding:14px 16px 10px;display:flex;flex-direction:column;justify-content:space-between}
+  #ctext{font-size:15.5px;color:#e9e9e4;line-height:1.5;min-height:44px;letter-spacing:.2px;position:absolute;left:16px;top:14px;right:16px}
+  #cph{font-size:15.5px;color:#7f7f7a;line-height:1.5;position:absolute;left:16px;top:14px;right:16px}
+  #cfoot{display:flex;align-items:center;gap:9px;margin-top:auto}
+  .cic{width:28px;height:28px;border-radius:8px;display:grid;place-items:center}
+  .cmodel{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:14px;color:#d3d3ce}
+  .mmax{font-size:12.5px;color:#8d8d88;border:1px solid #333;border-radius:6px;padding:1px 6px}
+  .sendbtn{width:38px;height:38px;border-radius:11px;background:#121212;display:grid;place-items:center}
+  /* real: ComposerBackendPicker — logo-only 15px, no chevron */
+  .cbk{width:26px;height:26px;border-radius:7px;background:#1e1e1e;border:1px solid #333;display:grid;place-items:center;position:relative}
+  #bkmenu{position:absolute;left:0;bottom:34px;width:186px;background:#1d1d1f;border:1px solid #303034;border-radius:12px;
+    padding:6px;box-shadow:0 20px 50px rgba(0,0,0,.6);opacity:0}
+  #bkmenu .bk{display:flex;align-items:center;gap:9px;height:32px;padding:0 9px;border-radius:8px;font-size:14px;color:#c2c2bd}
+  #bkmenu .bk.on{background:#2b2b2b;color:#ecece7}
+  /* real: ComposerStatsLine sits UNDER the composer, per session — no global status bar */
+  #stats{position:absolute;left:22px;top:652px;width:1011px;height:20px;display:flex;align-items:center;
+    gap:0;font-size:12px;color:#6a6a65;font-family:"Mono",monospace;white-space:nowrap;opacity:0}
+  #stats b{color:#8d8d88;font-weight:400}
+
+  #term{position:absolute;left:0;top:518px;width:1055px;height:276px;background:#141414;
+    border-top:1px solid #2a2a2a;display:flex;flex-direction:column;overflow:hidden}
+  .termbar{height:34px;display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid #212121;
+    font-size:13px;color:#8e8e89;background:#171717}
+  .termbar .tt.on{color:#ecece7}
+  .termbody{flex:1;padding:12px 16px;font-family:"Mono",monospace;font-size:13.6px;line-height:1.62;color:#c9c9c4}
+  .prompt{color:#7f8fbf}
+  .cmd{color:#ecece7}
+  .caret{display:inline-block;width:8px;height:16px;background:#dcdcd7;vertical-align:-3px}
+  .tout{color:#a9a9a4;white-space:pre}
+  .tmod{color:#e0b877}
+  .tnew{color:#8fbf7f}
+
+  /* ---- split view (real: drag a session tab onto a pane edge) ---- */
+  #split{position:absolute;left:0;top:0;width:1055px;height:794px;opacity:0}
+  #split .spane{position:absolute;top:0;height:794px;background:#171717;overflow:hidden}
+  #spL{left:0}
+  #sash{position:absolute;top:0;width:7px;height:794px;background:transparent;cursor:col-resize}
+  #sash::after{content:"";position:absolute;left:2px;top:0;width:3px;height:100%;
+    background:#2f2f2f;border-radius:2px}
+  #sash .grip{position:absolute;left:-7px;top:390px;width:21px;height:14px;border-radius:7px;background:#2f2f2f;
+    display:flex;align-items:center;justify-content:center;gap:2px}
+  #sash .grip i{width:2px;height:8px;border-radius:1px;background:#8a8a85;display:block}
+  .sphead{height:34px;display:flex;align-items:center;gap:8px;padding:0 14px;border-bottom:1px solid #212121;
+    font-size:13px;color:#9a9a94;background:#141414}
+  .sphead .sd{width:11px;height:11px;border-radius:50%;border:1.6px solid rgba(251,191,36,.24);border-top-color:#fbbf24;flex:none}
+  .sphead .sg{margin-left:auto;font-family:"Mono",monospace;font-size:11.5px;color:#5e5e5a}
+  .spbody{padding:14px 16px;display:flex;flex-direction:column;justify-content:flex-end;height:760px}
+  #dropghost{position:absolute;left:0;top:0;width:300px;height:300px;border:2px dashed #6ba87d;border-radius:14px;
+    background:rgba(74,120,84,.30);box-shadow:0 0 0 1px rgba(107,168,125,.35),0 18px 50px rgba(0,0,0,.5);
+    display:none;align-items:center;justify-content:center;
+    font-size:14px;color:#c8e8d2;letter-spacing:1px}
+  /* 跟着光标走的被拖拽 Tab（HTML5 DnD 的 drag image）。屏幕定位（跟 #trail 同层），
+     因为位置来自 w2s（相机变换后的屏幕坐标） */
+  #dragtab{position:absolute;left:0;top:0;height:30px;padding:0 12px;border-radius:8px;background:#2b2b2e;
+    border:1px solid #3d3d41;display:none;align-items:center;gap:7px;font-size:13px;color:#e2e2dd;
+    box-shadow:0 14px 34px rgba(0,0,0,.6);white-space:nowrap;transform-origin:0 50%}
+  #dragtab .dr{width:11px;height:11px;border-radius:50%;border:1.6px solid rgba(251,191,36,.24);
+    border-top-color:#fbbf24;flex:none}
+
+  #right{position:absolute;left:1305px;top:82px;width:295px;height:794px;background:#171717;
+    border-left:1px solid #222;padding:14px 0 0;display:flex;flex-direction:column}
+  .rhead{display:flex;align-items:center;gap:8px;padding:0 14px 10px;font-size:14px;color:#cfcfca}
+  .rhead .ct{margin-left:auto;color:#8f8f8a;font-size:13px}
+  .frow{display:flex;align-items:center;gap:8px;height:28px;padding:0 14px;font-size:13.5px;color:#a8a8a3;
+    transform-origin:0 50%}
+  .frow .fd{width:8px;height:8px;border-radius:3px;flex:none}
+  .rempty{margin:6px 14px 0;font-size:13.5px;color:#5f5f5b}
+  .rfoot{margin-top:auto;padding-bottom:14px}
+  .rmsg{margin:10px 14px 0;border:1px solid #2a2a2a;border-radius:10px;background:#1d1d1d;padding:9px 10px;
+    font-size:13px;color:#7e7e79;height:62px}
+  .commitbtn{margin:10px 14px 0;height:34px;border-radius:9px;background:#e9e9e4;color:#171717;
+    display:flex;align-items:center;justify-content:center;gap:8px;font-size:14.5px;font-weight:600}
+
+  /* ============ hud ============ */
+  #hud{position:absolute;left:0;top:0;width:1920px;height:1080px;pointer-events:none}
+  .ff{font-family:"Brand",Georgia,serif}
+
+  #openline{position:absolute;left:0;top:96px;width:1920px;text-align:center}
+  .oh{font-size:76px;line-height:1.06;color:#f2f2ee;letter-spacing:-.5px;white-space:nowrap}
+  .oh .sm{color:#9d9d98}
+
+  /* ---- floating ball (real: separate overlay window, running-count badge) ---- */
+  #floater{position:absolute;left:1452px;top:596px;width:96px;height:96px;opacity:0}
+  #fball{position:absolute;inset:0;border-radius:50%;background:linear-gradient(150deg,#2a2a2e,#161618);
+    box-shadow:0 18px 44px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.08) inset;display:grid;place-items:center}
+  #fring{position:absolute;inset:-6px;border-radius:50%;border:2px solid rgba(74,222,128,.5);opacity:0}
+  #fcount{font-family:"Mono",monospace;font-size:34px;color:#ecece7;line-height:1}
+  #fbadge{position:absolute;right:-6px;top:-4px;min-width:26px;height:26px;border-radius:13px;background:#3d6b4a;
+    display:grid;place-items:center;font-size:13px;color:#eaf6ee;font-family:"Mono",monospace;
+    box-shadow:0 4px 12px rgba(0,0,0,.5)}
+  #flabel{position:absolute;left:110px;top:32px;white-space:nowrap;font-size:14px;color:#b6b6b1;
+    background:rgba(26,26,28,.9);border:1px solid #2f2f33;border-radius:9px;padding:8px 12px;opacity:0}
+
+  /* ---- knowledge cards (editorial, screen space) ---- */
+  .card{position:absolute;left:0;top:0;width:1920px;height:1080px;opacity:0}
+  .ctag{font-size:15px;letter-spacing:5px;color:#8e8e89;text-transform:uppercase}
+  /* 卡片标题居中：.cti 是绝对定位 + auto 宽度，只加 left 会缩成内容宽而左对齐，贴到屏幕边上像被截断 */
+  .cti{font-size:44px;color:#f4f4ef;letter-spacing:-.2px;text-align:center;line-height:1.15;
+    left:60px;width:1800px}
+  .csub{font-size:16px;color:#8a8a85;text-align:center;margin-top:12px}
+  .pane2{position:absolute;border-radius:18px;background:#131315;border:1px solid #26262a;padding:24px 28px;overflow:hidden}
+  .p2hd{display:flex;align-items:center;gap:13px;height:46px;margin-bottom:6px}
+  .p2nm{font-size:25px;color:#f0f0eb}
+  .p2sb{font-size:14.5px;color:#7e7e79}
+  .row2{display:flex;min-height:84px;border-top:1px solid #212125;padding:16px 0 12px}
+  .rk{width:126px;flex:none;font-size:14.5px;color:#7e7e79;padding-top:4px}
+  .rv{flex:1;font-size:17px;color:#d2d2cd;line-height:1.55}
+  .rv code{font-family:"Mono",monospace;font-size:15.5px;color:#e0b877;background:rgba(224,184,119,.10);
+    border-radius:5px;padding:2px 6px}
+  .row2.hi{background:linear-gradient(90deg, rgba(236,236,231,.085), rgba(236,236,231,0) 78%)}
+  .wipebar{position:absolute;top:0;width:3px;height:100%;background:linear-gradient(180deg,transparent,rgba(236,236,231,.85),transparent);opacity:0}
+
+  /* 裸终端堆 */
+  .termstack{position:absolute;border-radius:14px;background:#101012;border:1px solid #242428;overflow:hidden}
+  .tsbar{height:28px;background:#17171a;border-bottom:1px solid #222226;display:flex;align-items:center;gap:7px;padding:0 11px;
+    font-family:"Mono",monospace;font-size:12px;color:#8a8a85}
+  .tsbar .d{width:9px;height:9px;border-radius:50%;background:#33333a}
+  .tsbody{padding:9px 12px;font-family:"Mono",monospace;font-size:12.5px;line-height:1.62;color:#7f7f7a}
+
+  /* 导入芯片 */
+  .chip{display:flex;align-items:center;gap:10px;height:46px;padding:0 16px 0 12px;border-radius:11px;
+    background:#17171a;border:1px solid #28282c;font-size:16px;color:#d6d6d1;white-space:nowrap;position:absolute;left:0;top:0}
+  .chip .ci{width:22px;height:22px;border-radius:6px;background:#24242a;display:grid;place-items:center;flex:none;
+    font-family:"Mono",monospace;font-size:11px;color:#9d9d98}
+  .chip.done{background:#1a201c;border-color:#2c3d31;color:#dfe7e1}
+  .chip .cx{margin-left:10px;font-family:"Mono",monospace;font-size:13px;color:#6f6f6a}
+
+  /* 数字 */
+  .stat{position:absolute;text-align:center;width:340px}
+  .statn{font-family:"Mono",monospace;font-size:74px;color:#f2f2ee;line-height:1;letter-spacing:-2px}
+  .statl{font-size:16px;color:#8a8a85;margin-top:14px}
+  /* 42 个 provider 方块：<i> 是行内元素，不给尺寸就全是 0×0，只剩 gap 撑出一条空白带 */
+  #provdots i{width:13px;height:13px;border-radius:3px;display:block;flex:none;
+    transform-origin:50% 50%;box-shadow:0 0 0 1px rgba(0,0,0,.35)}
+  .dotsrow{display:flex;gap:7px;justify-content:center;margin-top:16px}
+  .dotsrow i{width:7px;height:7px;border-radius:50%;background:#2f2f34;display:block}
+
+  /* recap chips */
+  .rc{position:absolute;display:flex;align-items:center;gap:11px;height:62px;padding:0 22px;border-radius:15px;
+    background:#151517;border:1px solid #2a2a2e;font-size:17.5px;color:#dcdcd7;white-space:nowrap}
+  .rc .ri{width:28px;height:28px;border-radius:8px;background:#232327;display:grid;place-items:center;flex:none}
+
+  #caps{position:absolute;left:0;top:932px;width:1920px;text-align:center}
+  #capscrim{position:absolute;left:0;top:872px;width:1920px;height:208px;
+    background:linear-gradient(to bottom, rgba(6,6,8,0), rgba(6,6,8,.80) 42%, rgba(6,6,8,.92))}
+  .cap{position:absolute;left:0;top:0;width:1920px;display:flex;flex-direction:column;align-items:center;gap:12px}
+  .capline{width:0;height:1px;background:linear-gradient(90deg,transparent,rgba(236,236,231,.85),transparent)}
+  .capkick{font-size:15px;letter-spacing:5px;color:#8e8e89;text-transform:uppercase}
+  .captext{font-size:40px;line-height:1.22;color:#f4f4ef;letter-spacing:-.2px}
+  .captext .b{color:#9d9d98}
+
+  #endcard{position:absolute;left:0;top:0;width:1920px;text-align:center}
+  #word,#tagline,#links,#lic{position:absolute;left:0;width:1920px;text-align:center}
+  #word{font-family:"Brand",Georgia,serif;font-size:118px;letter-spacing:-2px;color:#f6f6f2;line-height:1}
+  #tagline{font-size:27px;color:#a8a8a3;margin-top:20px;letter-spacing:.5px}
+  #links{font-family:"Mono",monospace;font-size:16.5px;color:#7e7e79;margin-top:26px;line-height:1.9}
+  #links b{color:#c9c9c4;font-weight:400}
+  #lic{font-size:14px;color:#5e5e5a;margin-top:12px;letter-spacing:2px}
+
+  #cur1,#cur2{position:absolute;left:0;top:0;width:0;height:0}
+  .carrow{position:absolute;left:0;top:0;width:26px;height:26px;transform-origin:2px 2px}
+  .cpill{position:absolute;left:22px;top:20px;height:26px;border-radius:8px;padding:0 10px;
+    display:flex;align-items:center;font-size:13.5px;white-space:nowrap;color:#0f0f11;font-weight:600}
+  #cur2 .cpill{background:#e9e9e4}
+  #cur1 .cpill{background:#9fb0c9}
+
+  #water{position:absolute;inset:0;opacity:0;background:radial-gradient(520px 300px at 50% 46%, rgba(74,120,84,.30), transparent 70%)}
+</style>
+</head>
+<body>
+
+<div id="bg"></div>
+<div id="grid"></div>
+<div id="vig"></div>
+
+<div id="world">
+  <div id="shape">
+    <div id="tile"><div id="pixgrid"></div></div>
+    <div id="shinesweep"></div>
+
+    <div id="win">
+      <div id="tabbar">
+        <div class="tab on" id="tb1"><span class="trun"></span><span class="tx">宣传视频 EP01</span><span class="x">✕</span></div>
+        <div class="tab" id="tb2"><span class="trun"></span><span class="tx">DSH 配置排查</span><span class="x">✕</span></div>
+        <div class="tab" id="tb3"><span class="trun"></span><span class="tx">文件列表刷新</span><span class="x">✕</span></div>
+        <div class="tab" id="tb4"><span class="trun"></span><span class="tx">搜索浮层定位</span><span class="x">✕</span></div>
+        <div class="tab" id="tb5"><span class="trun"></span><span class="tx">拉取最新代码</span><span class="x">✕</span></div>
+        <div class="tabnew">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a8a85" stroke-width="1.7"><path d="M12 5v14M5 12h14"/></svg>
+        </div>
+      </div>
+
+      <div id="crumb">
+        <span>pi-desktop-dev</span><span class="sep">/</span><span class="pswap"><span class="p" id="cr1">宣传视频 EP01</span><span class="p" id="cr2">文件列表刷新</span></span>
+      </div>
+
+      <div id="side">
+        <div class="sb-new">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#e2e2dd" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
+          <span>新建会话</span>
+        </div>
+        <div class="sb-row">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#a3a39e" stroke-width="1.7"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
+          <span>搜索会话</span>
+        </div>
+        <div class="sb-row">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#a3a39e" stroke-width="1.7"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg>
+          <span>定时任务</span>
+        </div>
+        <div class="sb-seg"><span class="on">活动</span><span>聊天</span><span>项目</span></div>
+
+        <div class="proj">
+          <div class="projh">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8f8f8a" stroke-width="1.9"><path d="m6 9 6 6 6-6"/></svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#cfcfca" stroke-width="1.6"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+            <span>pi-desktop-dev</span>
+            <span class="pdot" id="pdot"></span>
+          </div>
+          <div id="projtip">此工作区有会话在运行</div>
+          <div class="sess" data-i="0"><span class="dot"></span><span class="tx">宣传视频 EP01</span></div>
+          <div class="sess" data-i="1"><span class="dot"></span><span class="tx">DSH 配置排查</span></div>
+          <div class="sess" data-i="2"><span class="dot"></span><span class="tx">文件列表刷新</span></div>
+          <div class="sess" data-i="3"><span class="dot"></span><span class="tx">搜索浮层定位</span></div>
+          <div class="sess" data-i="4"><span class="dot"></span><span class="tx">拉取最新代码</span></div>
+          <div class="projh sub" style="margin-top:4px">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6f6f6a" stroke-width="1.9"><path d="m9 6 6 6-6 6"/></svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9c9c97" stroke-width="1.6"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+            <span>workbuddy2api</span>
+          </div>
+          <div class="projh sub">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6f6f6a" stroke-width="1.9"><path d="m9 6 6 6-6 6"/></svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9c9c97" stroke-width="1.6"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+            <span>qoder2api-hub</span>
+          </div>
+        </div>
+
+        <div class="sb-foot">
+          <div class="ic">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9a9a95" stroke-width="1.7"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.6 6.6 0 0 0 9.8 9.8"/></svg>
+          </div>
+          <div class="ic a">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#e2e2dd" stroke-width="1.7"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <div id="main">
+        <div id="timeline">
+          <div class="urow" id="u1"><div class="ubub">把这期宣传片的开场重做一版</div></div>
+          <div class="toolrow" id="t1"><span class="ic"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#b8b8b2" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></span><span class="nm">read</span><span class="st">完成</span><span class="ms">135ms</span><span class="st">读取 STORYBOARD-v2.md</span></div>
+          <div class="toolrow" id="t2"><span class="ic"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#b8b8b2" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></span><span class="nm">edit</span><span class="st">完成</span><span class="ms">2.1s</span><span class="st">修改 film.src.html</span></div>
+          <div class="toolrow" id="t3"><span class="ic"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#b8b8b2" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></span><span class="nm">bash</span><span class="st">完成</span><span class="ms">896ms</span><span class="st">node build.mjs</span></div>
+          <div class="toolrow" id="t4"><span class="ic"><span class="spin"></span></span><span class="nm">bash</span><span class="st">运行中</span><span class="spin"></span><span class="ms">3.2s</span><span class="st">node render-video-seek.js</span></div>
+          <div class="agentline" id="a1"><span class="spin"></span><span>开场换成像素 logo 直接长成窗口。</span></div>
+        </div>
+
+        <div id="composer">
+          <div id="cph">输入消息，@ 引用文件，/ 运行命令，&amp; 引用会话…</div>
+          <div id="ctext"></div>
+          <div id="cfoot">
+            <div class="cbk" id="cbk">
+              <svg viewBox="0 0 4 4" width="15" height="15" shape-rendering="crispEdges">
+                <rect x="0" y="0" width="1" height="1" fill="#E48A7A"/><rect x="1" y="0" width="1" height="1" fill="#E48A7A"/>
+                <rect x="2" y="0" width="1" height="1" fill="#E48A7A"/><rect x="0" y="1" width="1" height="1" fill="#4F8EB3"/>
+                <rect x="2" y="1" width="1" height="1" fill="#E48A7A"/><rect x="0" y="2" width="1" height="1" fill="#4F8EB3"/>
+                <rect x="1" y="2" width="1" height="1" fill="#4F8EB3"/><rect x="3" y="2" width="1" height="1" fill="#EAB65D"/>
+                <rect x="0" y="3" width="1" height="1" fill="#4F8EB3"/><rect x="3" y="3" width="1" height="1" fill="#EAB65D"/>
+              </svg>
+              <div id="bkmenu">
+                <div class="bk on"><svg viewBox="0 0 4 4" width="13" height="13" shape-rendering="crispEdges"><rect x="0" y="0" width="1" height="1" fill="#E48A7A"/><rect x="1" y="0" width="1" height="1" fill="#E48A7A"/><rect x="2" y="0" width="1" height="1" fill="#E48A7A"/><rect x="0" y="1" width="1" height="1" fill="#4F8EB3"/><rect x="2" y="1" width="1" height="1" fill="#E48A7A"/><rect x="0" y="2" width="1" height="1" fill="#4F8EB3"/><rect x="1" y="2" width="1" height="1" fill="#4F8EB3"/><rect x="3" y="2" width="1" height="1" fill="#EAB65D"/><rect x="0" y="3" width="1" height="1" fill="#4F8EB3"/><rect x="3" y="3" width="1" height="1" fill="#EAB65D"/></svg><span>Pi</span></div>
+                <div class="bk"><span style="width:13px;height:13px;border-radius:3px;background:#4f8eb3;display:block"></span><span>DSH</span></div>
+                <div class="bk"><span style="width:13px;height:13px;border-radius:50%;background:#8b7fd4;display:block"></span><span>Video</span></div>
+                <div class="bk"><span style="width:13px;height:13px;border-radius:3px;background:#d48fb4;display:block"></span><span>ImageGen</span></div>
+                <div class="bk"><span style="width:13px;height:13px;border-radius:3px;background:#5f5f66;display:block"></span><span>Agent CLI</span></div>
+              </div>
+            </div>
+            <div class="cic">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#b0b0ab" stroke-width="1.7"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg>
+            </div>
+            <div class="cic">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#b0b0ab" stroke-width="1.7"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>
+            </div>
+            <div class="cmodel"><span>zuapi/deepseek-v4.1-flash</span><span class="mmax">max</span></div>
+            <div class="sendbtn" id="sendbtn">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#7c7c77" stroke-width="1.8"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+            </div>
+          </div>
+        </div>
+        <div id="stats"><b>9 turns</b>&nbsp; | &nbsp;<b>First token 28.0s</b> · <b>Reply 30.8s</b> · <b>Streaming 307 tok/s</b> &nbsp; | &nbsp;<b>Cache hit 100%</b> &nbsp; | &nbsp;<b>Input 213K tok · Output 276K tok</b></div>
+
+        <div id="term">
+          <div class="termbar">
+            <span class="tt on">PowerShell</span><span class="tt">cmd</span><span class="tt">Git Bash</span>
+            <span style="margin-left:auto;color:#6f6f6a">pi on main</span>
+          </div>
+          <div class="termbody" id="termbody"></div>
+        </div>
+
+        <div id="split">
+          <div class="spane" id="spL">
+            <div class="sphead"><span class="sd"></span><span>宣传视频 EP01</span><span class="sg">9.4s</span></div>
+            <div class="spbody">
+              <div class="urow"><div class="ubub">把这期宣传片的开场重做一版</div></div>
+              <div class="toolrow"><span class="ic"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#b8b8b2" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></span><span class="nm">read</span><span class="st">完成</span><span class="ms">135ms</span><span class="st">STORYBOARD.md</span></div>
+              <div class="toolrow"><span class="ic"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#b8b8b2" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></span><span class="nm">bash</span><span class="st">运行中</span><span class="spin"></span><span class="ms">4.1s</span></div>
+              <div class="agentline"><span class="spin"></span><span>开场换成像素长成窗口。</span></div>
+            </div>
+          </div>
+          <div id="sash"><div class="grip"><i></i><i></i><i></i></div></div>
+          <div class="spane" id="spR">
+            <div class="sphead"><span class="sd"></span><span>文件列表刷新</span><span class="sg">2.6s</span></div>
+            <div class="spbody">
+              <div class="urow"><div class="ubub">列表没跟着目录变</div></div>
+              <div class="toolrow"><span class="ic"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#b8b8b2" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></span><span class="nm">edit</span><span class="st">完成</span><span class="ms">1.4s</span><span class="st">SidebarContent.tsx</span></div>
+              <div class="toolrow"><span class="ic"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#b8b8b2" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></span><span class="nm">bash</span><span class="st">运行中</span><span class="spin"></span><span class="ms">1.1s</span></div>
+              <div class="agentline"><span class="spin"></span><span>watcher 还没回来。</span></div>
+            </div>
+          </div>
+          <div id="dropghost">在右侧打开</div>
+        </div>
+      </div>
+
+      <div id="right">
+        <div class="rhead"><span>更改</span><span class="ct" id="rct">+0</span></div>
+        <div class="rempty" id="rempty">无未提交更改</div>
+        <div id="ftree"></div>
+        <div class="rfoot">
+          <div class="rmsg">消息（Ctrl+Enter 提交到"dev"）</div>
+          <div class="commitbtn" id="commitbtn">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#171717" stroke-width="2.1"><path d="M20 6 9 17l-5-5"/></svg>
+            <span>提交</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="hud">
+  <div id="water"></div>
+  <div id="openline">
+    <div class="oh" id="oh1"><span><span class="sm">5</span> 个项目同时在跑</span></div>
+    <div class="oh" id="oh2" style="position:absolute;left:0;top:0;width:1920px"><span>一个窗口，<span class="sm">5</span> 个 Tab</span></div>
+  </div>
+
+  <!-- floating ball: real PiDeck overlay window with a running-count badge -->
+  <div id="floater">
+    <div id="fring"></div>
+    <div id="fball"><div id="fcount">0</div></div>
+    <div id="fbadge">0</div>
+    <div id="flabel">Running 0</div>
+  </div>
+
+  <!-- knowledge card 1: Pi vs DSH -->
+  <div class="card" id="card1">
+    <div class="cti" style="position:absolute;left:60px;top:126px">同一个窗口，两套 Agent 后端</div>
+    <div class="wipebar" id="wipe1" style="left:1150px"></div>
+    <div class="pane2" id="piCard" style="left:60px;top:236px;width:1090px;height:266px">
+      <div class="p2hd">
+        <svg viewBox="0 0 4 4" width="30" height="30" shape-rendering="crispEdges">
+          <rect x="0" y="0" width="1" height="1" fill="#E48A7A"/><rect x="1" y="0" width="1" height="1" fill="#E48A7A"/>
+          <rect x="2" y="0" width="1" height="1" fill="#E48A7A"/><rect x="0" y="1" width="1" height="1" fill="#4F8EB3"/>
+          <rect x="2" y="1" width="1" height="1" fill="#E48A7A"/><rect x="0" y="2" width="1" height="1" fill="#4F8EB3"/>
+          <rect x="1" y="2" width="1" height="1" fill="#4F8EB3"/><rect x="3" y="2" width="1" height="1" fill="#EAB65D"/>
+          <rect x="0" y="3" width="1" height="1" fill="#4F8EB3"/><rect x="3" y="3" width="1" height="1" fill="#EAB65D"/>
+        </svg>
+        <span class="p2nm">Pi</span><span class="p2sb">你自己装的编码 Agent CLI</span>
+      </div>
+      <div class="row2" data-r="0"><div class="rk">怎么来的</div><div class="rv">你自己装，加进系统 <code>PATH</code>。PiDeck 只负责定位，不打包、不改它。</div></div>
+      <div class="row2" data-r="1"><div class="rk">怎么跑</div><div class="rv"><code>pi --mode rpc</code>，stdio JSON-RPC，一个会话一个进程。</div></div>
+      <div class="row2" data-r="2"><div class="rk">会话文件</div><div class="rv">pi 原生读写，PiDeck 不复刻、不劫持。</div></div>
+    </div>
+    <div class="pane2" id="dshCard" style="left:60px;top:522px;width:1090px;height:266px">
+      <div class="p2hd">
+        <span style="width:30px;height:30px;border-radius:8px;background:#4f8eb3;display:block"></span>
+        <span class="p2nm">DSH</span><span class="p2sb">DeepSeek Harness · 官方 Agent Harness</span>
+      </div>
+      <div class="row2" data-r="0"><div class="rk">怎么来的</div><div class="rv">PiDeck 托管下载、按需升级，不用自己装。</div></div>
+      <div class="row2" data-r="1"><div class="rk">怎么跑</div><div class="rv">内嵌 <code>utilityProcess</code>，零端口、零后台 HTTP。</div></div>
+      <div class="row2" data-r="2"><div class="rk">会话文件</div><div class="rv">独立的 <code>home</code> / 凭据 / 模型目录，会话落在 <code>$DSH_HOME/sessions</code>。</div></div>
+    </div>
+  </div>
+
+  <!-- knowledge card 2: PiDeck vs a bare terminal -->
+  <div class="card" id="card2">
+    <div class="cti" style="position:absolute;left:60px;top:110px">一个窗口，代替五个窗口</div>
+    <div class="pane2" id="rawCard" style="left:60px;top:222px;width:812px;height:596px">
+      <div class="p2hd"><span class="p2nm" style="font-size:22px">裸终端</span><span class="p2sb">5 个窗口 · 5 套 shell</span></div>
+      <div id="rawstack" style="position:relative;height:520px;margin-top:10px"></div>
+    </div>
+    <div id="rawlbl" style="position:absolute;left:60px;top:828px;font-size:15px;color:#7e7e79">窗口关掉，上下文就没了</div>
+    <div id="decklbl" style="position:absolute;right:60px;top:876px;font-size:15px;color:#9fd4ab;text-align:right">一个窗口 · 5 个 Tab · 会话可找回</div>
+  </div>
+
+  <!-- knowledge card 3: importers -->
+  <div class="card" id="card3">
+    <div class="cti" style="position:absolute;left:60px;top:126px">11 种来源的历史会话，直接接进来</div>
+    <div class="csub" style="position:absolute;left:60px;top:206px">扫描本地已有记录 → 导入为 PiDeck 会话副本，原文件不改</div>
+    <div id="chipwrap" style="position:absolute;left:60px;top:280px;width:1120px;height:520px"></div>
+  </div>
+
+  <!-- by the numbers -->
+  <div class="card" id="card4">
+    <div class="stat" id="n1" style="left:120px;top:240px"><div class="statn" id="n1v">0</div><div class="statl">个模型条目 · 来自 pi-ai 目录</div></div>
+    <div class="stat" id="n2" style="left:500px;top:240px"><div class="statn" id="n2v">0</div><div class="statl">个 provider 文件</div></div>
+    <div class="stat" id="n3" style="left:880px;top:240px"><div class="statn" id="n3v">0</div><div class="statl">种历史会话可导入</div></div>
+    <div class="stat" id="n4" style="left:1260px;top:240px"><div class="statn" id="n4v">0</div><div class="statl">个会话 = 1 个独立进程</div></div>
+    <div id="provdots" style="position:absolute;left:0;top:496px;width:1920px;display:flex;gap:9px;justify-content:center"></div>
+    <div style="position:absolute;left:0;top:586px;width:1920px;text-align:center;font-size:19px;color:#a8a8a3">
+      MIT 开源 · Windows / macOS / Linux
+    </div>
+  </div>
+
+  <!-- recap chips -->
+  <div class="card" id="card5"></div>
+
+  <div id="capscrim"></div>
+  <div id="caps"></div>
+
+  <div id="endcard" style="opacity:0">
+    <div id="word">PiDeck</div>
+    <div id="tagline">多项目 · 多会话的编码 Agent 桌面工作台</div>
+    <div id="links"><div><b>atomgit.com/ayuayue/PiDeck</b></div><div>github.com/ayuayue/PiDeck</div></div>
+    <div id="lic">MIT LICENSE · WINDOWS / macOS / LINUX</div>
+  </div>
+
+  <canvas id="trail" width="1920" height="1080" style="position:absolute;left:0;top:0"></canvas>
+  <div id="dragtab"><span class="dr"></span>DSH 配置排查</div>
+
+  <div id="cur1"><div class="carrow"><svg width="26" height="26" viewBox="0 0 26 26"><path d="M3 2 L3 20.5 L8.6 15.2 L12.1 22.6 L15.4 21 L11.9 13.8 L19.2 13.4 Z" fill="#f4f4ef" stroke="#15151a" stroke-width="1.3" stroke-linejoin="round"/></svg></div><div class="cpill">你</div></div>
+  <div id="cur2"><div class="carrow"><svg width="26" height="26" viewBox="0 0 26 26"><path d="M3 2 L3 20.5 L8.6 15.2 L12.1 22.6 L15.4 21 L11.9 13.8 L19.2 13.4 Z" fill="#f4f4ef" stroke="#15151a" stroke-width="1.3" stroke-linejoin="round"/></svg></div><div class="cpill">PiDeck</div></div>
+</div>
+
+<script>
+/* ============================================================================
+   PiDeck EP01 · v4. 纯 seek(t) 影片：每帧都是 t 的纯函数。
+   产品事实全部来自真实代码，不用任何 PiDeck 并不存在的界面。
+   ========================================================================== */
+const DUR = 79.6;
+const B = 0.5;                       // beat (120 BPM) / bar = 2.0s
+const WIN = { w:1600, h:900 };
+const WIN_O = { x:960, y:455 };
+const TILE = 168;
+
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const LOWFX=/nofx/.test(location.hash);
+const ss=(a,b,x)=>{const t=clamp((x-a)/(b-a||1e-6),0,1);return t*t*(3-2*t);};
+const eOut=x=>1-Math.pow(1-clamp(x,0,1),3);
+
+function stepR(tau,o){const w=o.w,z=o.z===undefined?1:o.z;
+  if(tau<=0)return 0;const wd=w*Math.sqrt(1-z*z);
+  return 1-Math.exp(-z*w*tau)*(Math.cos(wd*tau)+(z*w/wd)*Math.sin(wd*tau));}
+const SP=(z)=>({w:17,z});
+
+/* ---- timeline（80s，11 段） ---- */
+const T={
+  pix:[0.30,1.90],
+  oh1:[0.95,2.95], oh2:[3.15,5.95],
+  click:5.80, morph:[6.00,7.90],
+  rows:7.05, tl:7.85, comp:8.75, settle:9.10,
+  C1:[9.95,15.10],
+  C2:[15.60,19.80], clickSess:16.00, tab:16.10,
+  cam1:[16.55,18.15], type1:[17.00,19.30], send:19.50,
+  tabs:[20.00,21.20],
+  camTab:[22.20,24.40], camBack:[24.90,25.50],
+  projTip:25.10,
+  C3:[21.80,26.20],
+  dragGrip:27.30, dropAt:28.10, split:[27.90,28.90],
+  C4:[28.40,32.40], sash:31.20,
+  camOut:[32.60,33.50], floater:33.00, ballCount:[33.60,36.20],
+  C5:[33.60,37.40],
+  splitBack:[37.70,38.40], term:37.90, type2:[38.40,39.30],
+  out:39.35, chg:[38.70,40.20],
+  cam2:[40.40,42.10], commit:42.20,
+  C6:[39.60,43.90],
+  cmp1:[45.60,53.20], C7:[46.60,52.60],
+  cmp2:[53.60,60.80], C8:[54.60,60.20],
+  cmp3:[61.20,67.40], C9:[62.20,67.00],
+  nums:[67.80,72.40], C10:[68.60,72.80],
+  recap:[72.80,75.40], C11:[72.60,75.60],
+  collapse:[75.60,77.10], slam:77.50, camEnd:[77.40,78.50],
+  word:78.10, tagline:78.70, links:79.10
+};
+
+/* pi-tui 官方 4×4 位图（src/renderer/src/components/app/piTuiLogoData.ts） */
+const PIX=[
+  ['#E48A7A',0,0],['#E48A7A',1,0],['#E48A7A',2,0],[null,3,0],
+  ['#4F8EB3',0,1],[null,1,1],['#E48A7A',2,1],[null,3,1],
+  ['#4F8EB3',0,2],['#4F8EB3',1,2],[null,2,2],['#EAB65D',3,2],
+  ['#4F8EB3',0,3],[null,1,3],[null,2,3],['#EAB65D',3,3]
+];
+
+/* 每个会话 = 一个 Tab（真实：点侧栏开 Tab → AnimatedBadge 转圈 = 正在跑） */
+const TABS=[
+  {t:'宣传视频 EP01', open:16.10, run:19.55},
+  {t:'DSH 配置排查',  open:20.00, run:20.06},
+  {t:'文件列表刷新',  open:20.27, run:20.33},
+  {t:'搜索浮层定位',  open:20.54, run:20.60},
+  {t:'拉取最新代码',  open:20.81, run:20.87}
+];
+const SROW=(i)=>267+i*32;
+
+/* ---- camera ---- */
+class Track{
+  constructor(v){this.v0=v;this.ev=[];}
+  to(t,v,sp,dur){this.ev.push({t,v,sp:sp||SP(0.82),lead:dur===undefined?0.55:dur});return this;}
+  at(t){
+    let k=0;while(k<this.ev.length&&this.ev[k].t<=t)k++;
+    const prevV=k===0?this.v0:this.ev[k-1].v;
+    const nxt=this.ev[k];
+    if(!nxt)return prevV;
+    const s=nxt.t-nxt.lead;
+    if(t<=s)return prevV;
+    return prevV+(nxt.v-prevV)*stepR(t-s,nxt.sp);
+  }
+}
+const camX=new Track(960), camY=new Track(455), camZ=new Track(2.44);
+camZ.to(5.30,2.42,SP(0.90),0.80);
+camZ.to(9.25,0.90,SP(0.74),2.40);
+camZ.to(17.05,1.56,SP(0.74),0.90);
+camZ.to(20.40,0.92,SP(0.74),1.00);
+camZ.to(23.30,1.85,SP(0.74),1.00);      // 标签栏特写（0.5 个 tab 的 z 会把左端切掉半个 tab）
+camZ.to(25.20,0.92,SP(0.74),1.00);
+camZ.to(32.90,0.93,SP(0.74),1.00);
+camZ.to(41.25,1.64,SP(0.74),1.10);      // 推向右侧文件树
+camZ.to(43.60,0.94,SP(0.74),1.40);
+camZ.to(46.20,0.32,SP(0.78),1.10);      // 知识卡：窗口缩成缩略图
+camZ.to(54.40,0.40,SP(0.78),1.20);
+camZ.to(62.00,0.36,SP(0.78),1.20);
+camZ.to(68.40,0.45,SP(0.78),1.00);
+camZ.to(73.60,0.90,SP(0.76),1.20);
+camZ.to(77.60,0.90,SP(0.74),0.40);
+camZ.to(78.80,1.52,SP(0.80),1.00);
+camX.to(17.05,770,SP(0.74),0.90);
+camX.to(20.40,960,SP(0.74),1.00);
+camX.to(23.30,1000,SP(0.74),1.00);
+camX.to(25.20,960,SP(0.74),1.00);
+camX.to(32.90,960,SP(0.74),1.00);
+camX.to(41.25,1610,SP(0.74),1.10);
+camX.to(43.60,960,SP(0.74),1.40);
+camX.to(46.20,-727,SP(0.78),1.10);
+camX.to(54.40,392,SP(0.78),1.20);
+camX.to(62.00,-700,SP(0.78),1.20);
+camX.to(68.40,960,SP(0.78),1.00);
+camX.to(73.60,960,SP(0.76),1.20);
+camX.to(78.80,960,SP(0.80),1.00);
+camY.to(17.05,752,SP(0.74),0.90);
+camY.to(20.40,455,SP(0.74),1.00);
+camY.to(23.30,250,SP(0.74),1.00);
+camY.to(25.20,455,SP(0.74),1.00);
+camY.to(32.90,455,SP(0.74),1.00);
+camY.to(41.25,230,SP(0.74),1.10);
+camY.to(43.60,455,SP(0.74),1.40);
+camY.to(46.20,-45,SP(0.78),1.10);
+camY.to(54.40,120,SP(0.78),1.20);
+camY.to(62.00,120,SP(0.78),1.20);
+camY.to(68.40,455,SP(0.78),1.00);
+camY.to(73.60,455,SP(0.76),1.20);
+camY.to(78.80,520,SP(0.80),1.00);
+
+const cam=t=>({x:camX.at(t),y:camY.at(t),z:camZ.at(t)});
+const w2s=(t,wx,wy)=>{const c=cam(t);return{x:960+(wx-c.x)*c.z, y:540+(wy-c.y)*c.z};};
+
+/* ---- the one shape ---- */
+/* 形变弹簧必须比普通转场慢得多：SP(0.72) 的 w=17 在 0.3s 内就收敛，
+   1600px 的生长看起来是「跳」出来的，交接那 1 秒全是空窗 */
+const shW=new Track(TILE).to(T.morph[1],WIN.w,{w:5.4,z:0.78},1.70).to(T.collapse[1],TILE,{w:5.8,z:0.78},0.95);
+const shH=new Track(TILE).to(T.morph[1],WIN.h,{w:5.4,z:0.78},1.70).to(T.collapse[1],TILE,{w:5.8,z:0.78},0.95);
+const shR=new Track(34).to(T.morph[1],12,{w:5.4,z:0.78},1.70).to(T.collapse[1],34,{w:5.8,z:0.78},0.95);
+
+/* ---- cursor ---- */
+const TABX=[0,0,0,0,0];
+(function measureTabs(){
+  const tabs=[...document.querySelectorAll('.tab')];
+  tabs.forEach(el=>{el.style.transform='none';el.style.opacity='1';});
+  tabs.forEach((el,i)=>{TABX[i]=160+el.offsetLeft+el.offsetWidth/2;});
+})();
+const uX=new Track(1980).to(1.20,1860,SP(0.84),1.00).to(5.35,WIN_O.x,SP(0.80),3.60)
+  .to(T.clickSess,290,SP(0.80),3.20)
+  .to(17.60,420,SP(0.80),1.50)
+  .to(T.send,1158,SP(0.80),1.60)
+  .to(19.86,290,SP(0.80),1.00)
+  .to(TABS[1].open,290,SP(0.92),0.20)
+  .to(TABS[2].open,290,SP(0.92),0.20)
+  .to(TABS[3].open,290,SP(0.92),0.20)
+  .to(TABS[4].open,290,SP(0.92),0.20)
+  .to(23.30,TABX[3],SP(0.80),1.30)          // 悬停标签栏特写
+  .to(T.dragGrip,TABX[2],SP(0.80),1.20)     // 抓住第 3 个 Tab
+  .to(T.dropAt,1440,SP(0.86),0.80)          // 拖到右缘
+  .to(30.60,1440,SP(0.80),0.60)
+  .to(T.sash,900,SP(0.80),1.30)             // 拖动分隔条
+  .to(33.60,1852,SP(0.80),1.10)
+  .to(T.commit,1612,SP(0.80),1.40)
+  .to(45.40,700,SP(0.80),4.00);
+const uY=new Track(1090).to(1.20,980,SP(0.84),1.00).to(5.35,WIN_O.y,SP(0.80),3.60)
+  .to(T.clickSess,SROW(0),SP(0.80),3.20)
+  .to(17.60,SROW(0)-26,SP(0.80),1.50)
+  .to(T.send,620,SP(0.80),1.60)
+  .to(19.86,SROW(1),SP(0.80),1.00)
+  .to(TABS[1].open,SROW(1),SP(0.92),0.20)
+  .to(TABS[2].open,SROW(2),SP(0.92),0.20)
+  .to(TABS[3].open,SROW(3),SP(0.92),0.20)
+  .to(TABS[4].open,SROW(4),SP(0.92),0.20)
+  .to(23.30,30,SP(0.80),1.30)
+  .to(T.dragGrip,30,SP(0.80),1.20)
+  .to(T.dropAt,405,SP(0.86),0.80)
+  .to(30.60,405,SP(0.80),0.60)
+  .to(T.sash,405,SP(0.80),1.30)
+  .to(33.60,892,SP(0.80),1.10)
+  .to(T.commit,850,SP(0.80),1.40)
+  .to(45.40,700,SP(0.80),4.00);
+const aX=new Track(1500).to(22.40,TABX[1],SP(0.80),1.20).to(23.50,TABX[4],SP(0.80),0.80)
+  .to(24.60,TABX[0],SP(0.80),0.80).to(25.70,TABX[3],SP(0.80),0.80)
+  .to(29.20,300,SP(0.80),1.20).to(30.30,760,SP(0.80),0.80)
+  .to(34.60,420,SP(0.80),1.20).to(36.00,1100,SP(0.80),0.90)
+  .to(75.00,WIN_O.x,SP(0.80),6.00);
+const aY=new Track(190).to(22.40,30,SP(0.80),1.20).to(23.50,30,SP(0.80),0.80)
+  .to(24.60,30,SP(0.80),0.80).to(25.70,30,SP(0.80),0.80)
+  .to(29.20,300,SP(0.80),1.20).to(30.30,300,SP(0.80),0.80)
+  .to(34.60,250,SP(0.80),1.20).to(36.00,250,SP(0.80),0.90)
+  .to(75.00,WIN_O.y,SP(0.80),6.00);
+
+const drift=(t,a)=>1.5*Math.sin(t*a)+0.9*Math.sin(t*a*1.7+1.1);
+
+const $=(s)=>document.querySelector(s);
+const $$=(s)=>[...document.querySelectorAll(s)];
+const setB=(el,b)=>{if(LOWFX){el.style.filter='none';return;}el.style.filter=b>0.06?('blur('+b.toFixed(2)+'px)'):'none';};
+function vis(t,tin,tout,dOut){
+  const e=stepR(t-tin,SP(0.95));
+  let x=0; if(tout!=null){const u=clamp((t-tout)/(dOut||0.13),0,1);x=u*u;}
+  return{o:e*(1-x), b:(1-e)*8+x*8, dy:(1-e)*12-x*10};
+}
+function apply(el,v){el.style.opacity=v.o.toFixed(3);setB(el,v.b);el.style.transform='translateY('+v.dy.toFixed(2)+'px)';}
+
+/* ---- 像素 logo = 会长成窗口的那 16 格 ---- */
+(function buildPix(){
+  const host=$('#pixgrid');let h='';
+  PIX.forEach((p,i)=>{
+    const col=i%4,row=(i/4)|0;
+    h+='<div class="pc" data-i="'+i+'" data-c="'+col+'" data-r="'+row+'" style="left:'+(col*42)+'px;top:'+(row*42)+'px;'
+      +(p[0]?'background:'+p[0]+';':'')+'"></div>';
+  });
+  host.innerHTML=h;
+})();
+const PXC=$$('#pixgrid .pc');
+
+function tileScale(t){
+  const intro=stepR(t,{w:13,z:0.66});
+  const e=stepR(t-T.slam,{w:22,z:0.62});
+  const slam=1+0.34*Math.sin(Math.min(clamp(e,0,1),1)*Math.PI)+0.12*Math.max(0,e-1);
+  return intro*slam;
+}
+function tileBlur(t){
+  if(t<T.slam-0.34)return 0;
+  return (1-stepR(t-T.slam,{w:22,z:0.62}))*10;
+}
+function drawShape(t){
+  const w=shW.at(t), h=shH.at(t), r=shR.at(t);
+  const s=$('#shape');
+  s.style.width=w+'px'; s.style.height=h+'px';
+  s.style.left=(WIN_O.x-w/2)+'px'; s.style.top=(WIN_O.y-h/2)+'px';
+  s.style.borderRadius=r+'px';
+
+  /* 交接进度由「形状长到哪儿了」决定，而不是另起一个弹簧：原来的独立弹簧让 logo
+     在窗口才刚起开时就淡掉，6.4s 那一拍是块空屏（product-launch-motion 的 no dead time） */
+  const winO=clamp(((w-TILE)/(WIN.w-TILE)-0.30)/0.38,0,1);
+  const win=$('#win');
+  const dying=stepR(t-T.collapse[0],SP(0.85));
+  /* 数字卡要一个干净的场：收束段把窗口整个收走（卡片是屏幕定位的，否则数字会被窗口压住） */
+  const hideNums=stepR(t-(T.nums[0]-0.50),{w:15,z:0.86})*(1-stepR(t-(T.recap[0]-0.15),{w:15,z:0.86}));
+  /* #shape 自带 #171717 底色，只淡 #win 不够——容器还在，数字卡就永远压着一块灰板 */
+  s.style.opacity=(1-hideNums).toFixed(3);
+  win.style.opacity=(winO*(1-dying)*(1-hideNums)).toFixed(3);
+  setB(win,(1-winO)*13+hideNums*11);
+
+  const tl=$('#tile');
+  tl.style.width=w+'px'; tl.style.height=h+'px';
+  tl.style.left='0px'; tl.style.top='0px'; tl.style.borderRadius=r+'px';
+  tl.style.opacity=clamp(1-winO+dying,0,1).toFixed(3);
+  const tsc=tileScale(t);
+  tl.style.transformOrigin='50% 50%';
+  tl.style.transform='scale('+tsc.toFixed(4)+')';
+  setB(tl,tileBlur(t));
+
+  /* 16 格从 tile 展开成窗口的四乘四栅格：logo 本身就是那张栅格 */
+  const pg=$('#pixgrid');
+  pg.style.width=w+'px'; pg.style.height=h+'px';
+  const g=stepR(t-T.morph[0]+0.10,SP(0.80));
+  /* 栅格淡出两次：morph 末尾淡出、收束时淡回来。原来的 gf 只有一个方向，
+     morph 之后永远是 1，尾板上的像素 logo 就再也不出现了。stepR 是单调的，
+     「淡回来」必须写成反向因子相乘，不能用 Math.max */
+  const gf=stepR(t-(T.morph[1]-0.30),SP(0.86))*(1-stepR(t-(T.collapse[0]+0.05),SP(0.86)));
+  for(const el of PXC){
+    const c=+el.dataset.c, rw=+el.dataset.r;
+    const tx=c*(w/4)-c*42, ty=rw*(h/4)-rw*42;
+    el.style.transform='translate('+tx.toFixed(1)+'px,'+ty.toFixed(1)+'px) scale('
+      +(1+(w/4/42-1)*g).toFixed(4)+','+(1+(h/4/42-1)*g).toFixed(4)+')';
+    el.style.opacity=clamp(1-gf,0,1).toFixed(3);
+    setB(el,gf*7);
+  }
+
+  const sw=stepR(t-6.85,{w:9,z:0.86});
+  const swE=clamp((sw-0.02)/0.98,0,1);
+  const sweep=$('#shinesweep');
+  sweep.style.opacity=(swE*(1-swE)*4*0.55).toFixed(3);
+  sweep.style.transform='translateX('+(-260+swE*2140).toFixed(1)+'px) rotate(14deg)';
+
+  const c=cam(t);
+  $('#world').style.transform='translate(960px,540px) scale('+c.z.toFixed(4)+') translate('+(-c.x).toFixed(2)+'px,'+(-c.y).toFixed(2)+'px)';
+}
+
+/* ---- 冷开场 ---- */
+function drawOpen(t){
+  apply($('#oh1'),vis(t,T.oh1[0],T.oh2[0],0.16));
+  apply($('#oh2'),vis(t,T.oh2[0],T.click+0.06,0.16));
+  const g=eOut(clamp((t-0.15)/1.1,0,1))*0.9*(1-ss(5.4,6.4,t));
+  $('#grid').style.opacity=g.toFixed(3);
+  $('#grid').style.transform='translate('+((1-g)*40).toFixed(1)+'px,'+((1-g)*26).toFixed(1)+'px)';
+  /* 像素逐格落位：真实 10 格按固定顺序点亮 */
+  const ord=[0,1,2,4,8,6,5,9,12,11,15,3,7,10,13,14];
+  for(const el of PXC){
+    const k=ord.indexOf(+el.dataset.i);
+    const tt=T.pix[0]+k*0.085;
+    const e=stepR(t-tt,{w:24,z:0.66});
+    if(el.dataset.base==null)el.dataset.base=el.style.transform;
+    el.dataset.s0='1';
+    if(t<T.morph[0]){
+      el.style.transform='translate(0,'+((1-e)*-40).toFixed(1)+'px) scale('+(0.5+0.5*e).toFixed(3)+')';
+      el.style.opacity=e.toFixed(3);
+    }
+  }
+}
+
+/* ---- 分区入场 ---- */
+/* 行入场：dt 是这一行的错峰偏移（秒）。v3 写成 rowIn(t,t0,i,dt) 但调用只传了 3 个参数，
+   dt 变 undefined -> t0+i*undefined=NaN -> 整棵子树 opacity/transform 写成非法值被浏览器丢弃 */
+function rowIn(t,t0,dt){return vis(t,t0+dt,null);}
+function drawRows(t){
+  $$('.sb-new,.sb-row,.sb-seg,.projh').forEach((el,i)=>apply(el,rowIn(t,T.rows,i*0.055)));
+  $$('.sess').forEach((el,i)=>apply(el,rowIn(t,T.rows+0.18,i*0.075)));
+  apply($('#u1'),rowIn(t,T.tl,0,0));
+  apply($('#t1'),rowIn(t,T.tl+0.30,0,0));
+  apply($('#t2'),rowIn(t,T.tl+0.58,0,0));
+  apply($('#t3'),rowIn(t,T.tl+0.86,0,0));
+  apply($('#t4'),rowIn(t,T.tl+1.14,0,0));
+  apply($('#a1'),rowIn(t,T.tl+1.46,0,0));
+  apply($('#composer'),rowIn(t,T.comp,0,0));
+  apply($('#stats'),rowIn(t,T.comp+0.4,0,0));
+  apply($('#right'),rowIn(t,T.chg[0]-0.30,0,0));
+  apply($('#tabbar'),vis(t,T.morph[0]+0.55,null));
+  apply($('#crumb'),vis(t,T.morph[0]+0.72,null));
+}
+
+/* ---- Tab 栏：真实 AnimatedBadge = 琥珀色转圈 ---- */
+function drawTabs(t){
+  $$('.tab').forEach((el,i)=>{
+    const T_=TABS[i];
+    const e=stepR(t-T_.open,{w:20,z:0.80});
+    el.style.opacity=e.toFixed(3);
+    el.style.transform='scaleX('+(0.16+0.84*e).toFixed(4)+')';
+    el.style.transformOrigin='0% 50%';
+    setB(el,(1-e)*7);
+    const r=stepR(t-T_.run,{w:9,z:0.86});
+    const d=el.querySelector('.trun');
+    /* 每个 Tab 自己的相位：不同步 = 各自在跑 */
+    d.style.opacity=r.toFixed(3);
+    d.style.transform='rotate('+(((t*440)+i*79)%360).toFixed(1)+'deg)';
+  });
+}
+/* ---- 侧栏：真实 size-1.5 脉动状态点 + 项目行琥珀点 ---- */
+function drawSess(t){
+  $$('.sess').forEach((el,i)=>{
+    const r=TABS[i]?stepR(t-TABS[i].run,{w:9,z:0.86}):0;
+    const p=0.5+0.5*Math.pow(Math.max(0,Math.sin((t-i*0.11)/B*Math.PI)),2);
+    const d=el.querySelector('.dot');
+    d.style.background=r>0.02?'#fbbf24':'#3d3d3a';
+    d.style.opacity=(0.30+0.70*r).toFixed(3);
+    d.style.transform='scale('+(0.80+0.55*r*p).toFixed(3)+')';
+  });
+  /* ProjectTree 的 bg-warning 点 + 原生 title 文案 */
+  const any=TABS.some(x=>stepR(t-x.run,{w:9,z:0.86})>0.05);
+  const pd=$('#pdot');
+  const p2=0.5+0.5*Math.pow(Math.max(0,Math.sin(t/B*Math.PI)),2);
+  pd.style.opacity=(any?(0.45+0.55*p2):0).toFixed(3);
+  pd.style.transform='scale('+(0.82+0.34*p2).toFixed(3)+')';
+  const tv=vis(t,T.projTip,T.projTip+1.5,0.20);
+  const tt=$('#projtip');
+  tt.style.opacity=tv.o.toFixed(3); setB(tt,tv.b);
+  tt.style.transform='translateX('+tv.dy.toFixed(1)+'px)';
+}
+
+/* ---- 分屏：真实 SessionSplitStage（拖 Tab 到窗格边缘） ---- */
+const SPLIT_L0=505;
+function drawSplit(t){
+  const sp=$('#split');
+  const on=stepR(t-T.split[0],SP(0.86))*(1-ss(T.splitBack[0],T.splitBack[1],t));
+  sp.style.opacity=on.toFixed(3);
+  const w=1-on;
+  $('#timeline').style.opacity=w.toFixed(3);
+  setB($('#timeline'),(1-w)*6);
+  /* 拖动分隔条 = 真实的可调 pane 宽度 */
+  const drag=stepR(t-T.sash,{w:11,z:0.86});
+  const L=SPLIT_L0+drag*145;
+  $('#spL').style.width=L.toFixed(1)+'px';
+  $('#sash').style.left=(L-3).toFixed(1)+'px';
+  $('#spR').style.left=(L+4).toFixed(1)+'px';
+  $('#spR').style.width=(1055-L-4).toFixed(1)+'px';
+  $('#sash .grip').style.top=(396+ (1-on)*300).toFixed(1)+'px';
+  $('#sash .grip').style.opacity=on.toFixed(3);
+  $$('.sphead .sd').forEach((d,i)=>{d.style.transform='rotate('+(((t*430)+i*97)%360).toFixed(1)+'deg)';});
+  $$('.sg').forEach((g,i)=>{g.textContent=(Math.max(0,t-T.split[0])*(i?1.35:0.82)).toFixed(1)+'s';});
+  $$('.spbody .spin').forEach((sp2,i)=>{sp2.style.transform='rotate('+(((t*440)+i*61)%360).toFixed(1)+'deg)';});
+  /* 拖拽落点预览 */
+  const gh=$('#dropghost');
+  const dragging=stepR(t-(T.dragGrip-0.10),SP(0.9))*(1-stepR(t-(T.dropAt+0.06),SP(0.9)));
+  gh.style.display=dragging>0.02?'flex':'none';
+  if(dragging>0.02){
+    const gx=1055-320, gy=200;
+    gh.style.left=gx+'px'; gh.style.top=gy+'px';
+    gh.style.opacity=dragging.toFixed(3);
+    gh.style.transform='scale('+(0.9+0.1*dragging).toFixed(3)+')';
+  }
+  /* 被拖拽的 Tab 跟着光标走（否则「把 Tab 拖到边上」读起来像凭空出现一个框） */
+  const dt2=$('#dragtab');
+  dt2.style.display=dragging>0.02?'flex':'none';
+  if(dragging>0.02){
+    const u=w2s(t,uX.at(t)+drift(t,1.9),uY.at(t)+drift(t,2.3));
+    dt2.style.left=(u.x+16).toFixed(1)+'px';
+    dt2.style.top=(u.y-34).toFixed(1)+'px';
+    dt2.style.opacity=clamp(dragging*1.6,0,1).toFixed(3);
+    dt2.style.transform='rotate('+((1-dragging)*-5).toFixed(2)+'deg)';
+    dt2.querySelector('.dr').style.transform='rotate('+(((t*440)+97)%360).toFixed(1)+'deg)';
+  }
+}
+
+/* ---- composer + 后端选择器 ---- */
+const PHRASE='把这期宣传片的开场重做一版';
+const CMD='git status --short';
+function typed(t,t0,dt,full){const n=Math.floor(clamp((t-t0)/dt,0,1)*full.length+1e-6);return full.slice(0,n);}
+function drawComposer(t){
+  const ph=$('#cph'),tx=$('#ctext');
+  const typing=t>=T.type1[0]&&t<T.type1[1];
+  const s=typed(t,T.type1[0],0.192,PHRASE);
+  const on=ss(T.type1[0],T.type1[0]+0.10,t);
+  const gone=ss(T.send,T.send+0.22,t);
+  tx.style.opacity=clamp(on-gone,0,1).toFixed(3);
+  tx.innerHTML=(s?s.replace(/ /g,'&nbsp;'):'')+(typing?'<span class="caret" style="background:#f0f0eb"></span>':'');
+  ph.style.opacity=clamp(1-on+gone,0,1).toFixed(3);
+  const pr=stepR(t-T.send,{w:26,z:0.7});
+  const recoil=stepR(t-(T.send+0.12),{w:19,z:0.8});
+  const sb=$('#sendbtn');
+  sb.style.transform='scale('+(1-pr*0.16+recoil*0.16).toFixed(3)+')';
+  /* ComposerBackendPicker 展开：放在「打字」段（相机正对着 composer），
+     原来挂在发送后，会盖住 5 个 Tab 长出来的那一拍 */
+  const mk=stepR(t-(T.type1[0]+0.30),SP(0.84))*(1-ss(T.type1[0]+1.30,T.type1[0]+1.80,t));
+  const bk=$('#bkmenu');
+  bk.style.opacity=bk2(mk).toFixed(3);
+  bk.style.transform='translateY('+((1-bk2(mk))*10).toFixed(2)+'px) scale('+(0.94+0.06*bk2(mk)).toFixed(4)+')';
+  bk.style.transformOrigin='50% 100%';
+  setB(bk,(1-bk2(mk))*5);
+  const comp=$('#composer');
+  const outp=stepR(t-T.term,{w:15,z:0.86});
+  comp.style.transform='translateY('+(outp*330).toFixed(1)+'px) scale('+(1-outp*0.06).toFixed(4)+')';
+  $('#stats').style.transform='translateY('+(outp*330).toFixed(1)+'px)';
+  $('#stats').style.opacity=(1-outp).toFixed(3);
+}
+function bk2(x){return clamp(x,0,1);}
+
+/* ---- terminal ---- */
+const OUT=[
+  [' M package-lock.json','tmod'],
+  [' M resources/extensions/extensions-manifest.json','tmod'],
+  [' M src/main/dsh/dshHostProfile.ts','tmod'],
+  [' M src/renderer/src/components/session/ModelThinkingChip.tsx','tmod'],
+  [' M src/renderer/src/components/sidebar/ProjectTree.tsx','tmod'],
+  [' M tests/dshProfileLinkPrune.test.mjs','tmod'],
+  ['?? src/main/dsh/dshProfileLinkPrune.ts','tnew'],
+  ['?? video-series/promo/','tnew']
+];
+function drawTerm(t){
+  const tm=$('#term');
+  const e=stepR(t-T.term,{w:14,z:0.86});
+  tm.style.transform='translateY('+((1-e)*300).toFixed(1)+'px)';
+  tm.style.opacity=e.toFixed(3);
+  const body=$('#termbody');
+  if(t<T.term){body.innerHTML='';return;}
+  const cs=typed(t,T.type2[0],0.0522,CMD);
+  const typing=t>=T.type2[0]&&t<T.type2[1];
+  const nOut=Math.floor(clamp((t-T.out)/0.10,0,OUT.length));
+  let h='<div><span class="prompt">PS C:\\Users\\14012\\dev\\pi-desktop-dev&gt;</span> <span class="cmd">'+cs+'</span>'
+    +(typing?'<span class="caret"></span>':'')+'</div>';
+  for(let i=0;i<nOut;i++)h+='<div class="tout"><span class="'+OUT[i][1]+'">'+OUT[i][0]+'</span></div>';
+  body.innerHTML=h;
+}
+
+/* ---- right panel ---- */
+const FILES=[
+  ['M','#e0b877','src/renderer/src/components/sidebar'],
+  ['','#7e7e79','ProjectTree.tsx'],
+  ['M','#e0b877','src/renderer/src/styles'],
+  ['','#7e7e79','tailwind.css'],
+  ['??','#8fbf7f','src/main/dsh'],
+  ['','#8fbf7f','dshProfileLinkPrune.ts'],
+  ['M','#e0b877','video-series/.gitignore']
+];
+(function buildTree(){
+  const host=$('#ftree');let h='';
+  FILES.forEach((f,i)=>{
+    h+='<div class="frow" data-i="'+i+'">'+(f[0]?'<span class="fd" style="background:'+f[1]+'"></span>':'')
+      +'<span>'+f[2]+'</span></div>';
+  });
+  host.innerHTML=h;
+})();
+function drawRight(t){
+  const ct=$('#rct');
+  const spOn=stepR(t-T.split[0],SP(0.86))*(1-ss(T.splitBack[0],T.splitBack[1],t));
+  $('#right').style.opacity=clamp(1-spOn*0.85,0,1).toFixed(3);
+  const e=stepR(t-T.chg[0],{w:8,z:0.86});
+  ct.textContent='+'+Math.round(18*clamp(e*1.04,0,1));
+  ct.style.opacity=ss(T.chg[0]-0.05,T.chg[0]+0.12,t).toFixed(3);
+  $('#rempty').style.opacity=(1-ss(T.chg[0],T.chg[0]+0.30,t)).toFixed(3);
+  $$('#ftree .frow').forEach((el,i)=>{
+    const t0=T.chg[0]+i*0.115;
+    const k=stepR(t-t0,{w:18,z:0.84});
+    el.style.opacity=k.toFixed(3);
+    el.style.transform='translateX('+((1-k)*14).toFixed(2)+'px)';
+    const g=clamp(1-(t-(T.commit+0.22+i*0.05))/0.75,0,1);
+    el.style.background=(g*0.16).toFixed(3)+' rgba(233,233,228,'+(g*0.10).toFixed(3)+')';
+  });
+  const pr=stepR(t-T.commit,{w:26,z:0.68});
+  const cb=$('#commitbtn');
+  cb.style.transform='scale('+(1-pr*0.055).toFixed(4)+')';
+  const wOut=stepR(t-(T.commit+0.12),{w:12,z:0.86});
+  cb.style.background=wOut>0.01?'#cfcfc9':'#e9e9e4';
+  cb.querySelector('span').textContent=wOut>0.6?'已暂存':'提交';
+}
+
+/* ---- 浮动球：真实 overlay 窗口的运行计数 ---- */
+function drawFloater(t){
+  const fl=$('#floater');
+  const e=stepR(t-T.floater,{w:13,z:0.72});
+  fl.style.opacity=clamp(e*(1-ss(T.cmp1[0]-0.35,T.cmp1[0]+0.30,t)),0,1).toFixed(3);
+  const k=stepR(t-T.floater,{w:13,z:0.72});
+  fl.style.transform='translate('+((1-k)*180).toFixed(1)+'px,'+((1-k)*-90).toFixed(1)+'px) scale('+(0.5+0.5*k).toFixed(4)+')';
+  /* 计数 odometer：1→5，每个会话一个 */
+  const n=Math.round(5*clamp((t-T.ballCount[0])/0.52,0,1));
+  $('#fcount').textContent=n;
+  $('#fbadge').textContent=n;
+  $('#flabel').textContent='Running '+n;
+  const ring=$('#fring');
+  const p=0.5+0.5*Math.sin(t*3.4);
+  const live=stepR(t-T.ballCount[1]+1.2,{w:5,z:0.86});
+  ring.style.opacity=clamp(live*(0.25+0.5*p)*(1-ss(T.splitBack[0],T.splitBack[1],t)),0,1).toFixed(3);
+  ring.style.transform='scale('+(1+p*0.06).toFixed(3)+')';
+  const lb=$('#flabel');
+  const lo=stepR(t-(T.ballCount[1]+0.6),SP(0.86));
+  lb.style.opacity=clamp(lo*(1-ss(T.splitBack[0]+0.6,T.splitBack[1],t)),0,1).toFixed(3);
+  lb.style.transform='translateX('+((1-lo)*-12).toFixed(1)+'px)';
+  $('#fball').style.transform='scale('+(1+0.05*stepR(t-(T.ballCount[1]+1.6),{w:22,z:0.6})*(1-stepR(t-(T.ballCount[1]+2.3),{w:14,z:0.8}))).toFixed(4)+')';
+}
+
+/* ---- 知识卡 1：Pi vs DSH ---- */
+function drawCard1(t){
+  const c=$('#card1');
+  const e=vis(t,T.cmp1[0],T.cmp2[0],0.30);
+  c.style.opacity=e.o.toFixed(3); setB(c,e.b);
+  const wipe=stepR(t-(T.cmp1[0]+0.55),SP(0.80));
+  const w=$('#wipe1');
+  w.style.opacity=(wipe*(1-wipe)*4*0.7).toFixed(3);
+  w.style.left=(60+wipe*1090).toFixed(1)+'px';
+  $$('.pane2').forEach((p,i)=>{
+    const k=stepR(t-(T.cmp1[0]+0.18+i*0.16),{w:17,z:0.80});
+    const d=stepR(t-(T.cmp2[0]-0.28),{w:15,z:0.86});
+    const o=k*(1-d);
+    p.style.opacity=o.toFixed(3); setB(p,(1-k)*8+d*8);
+    p.style.transform='translateY('+((1-k)*34-d*26).toFixed(1)+'px) scale('+(0.975+0.025*k-d*0.03).toFixed(4)+')';
+    p.style.transformOrigin='50% 50%';
+  });
+  /* 逐行对滑高亮：循环扫过，不留空档（product-launch-motion 的「每拍有事发生」）。
+     原来只扫一次（45.6+0.75..48.0），后面 5 秒卡片是死的 */
+  const CYC=2.42, ph=(((t-(T.cmp1[0]+0.70))%CYC)+CYC)%CYC;
+  $$('.row2').forEach((r,i)=>{
+    const n=+r.dataset.r;
+    const h=clamp(1-Math.abs(ph-n*0.72)/0.42,0,1);
+    r.classList.toggle('hi',h>0.02);
+    r.style.opacity=(stepR(t-(T.cmp1[0]+0.40+n*0.10),{w:18,z:0.84})).toFixed(3);
+    r.style.transform='translateX('+((1-stepR(t-(T.cmp1[0]+0.46+n*0.10),{w:18,z:0.84}))*-16).toFixed(1)+'px)';
+  });
+}
+
+/* ---- 知识卡 2：PiDeck vs 裸终端 ---- */
+const RAW=[
+  ['1 - pwsh','> pi --mode rpc\n> '],
+  ['2 - pwsh','> cd workbuddy2api\n> pi'],
+  ['3 - Windows PowerShell','> git status\n> npm run dev'],
+  ['4 - cmd','> pi --resume ???\n> '],
+  ['5 - Git Bash','> grep -r TODO\n> ']
+];
+(function buildRaw(){
+  const host=$('#rawstack');let h='';
+  RAW.forEach((r,i)=>{
+    h+='<div class="termstack" data-i="'+i+'" style="left:'+(14+i*9)+'px;top:'+(10+i*74)+'px;width:'+(700-i*22)+'px;height:132px;opacity:'+(0.55+i*0.09)+'">'
+      +'<div class="tsbar"><span class="d"></span><span>'+r[0]+'</span></div>'
+      +'<div class="tsbody">'+r[1].replace(/\n/g,'<br>')+'</div></div>';
+  });
+  h+='<div style="position:absolute;left:20px;top:404px;font-family:\'Mono\',monospace;font-size:15px;color:#5f5f5a">5 个窗口 · 5 份历史 · 关掉就没了</div>';
+  host.innerHTML=h;
+})();
+function drawCard2(t){
+  const c=$('#card2');
+  const e=vis(t,T.cmp2[0],T.cmp3[0],0.30);
+  c.style.opacity=e.o.toFixed(3); setB(c,e.b);
+  const d0=stepR(t-(T.cmp2[0]+0.20),{w:17,z:0.80});
+  /* d1 = 退场弹簧，必须以本卡的出场点 cmp3 为基准；写成 cmp2[0]-0.30（早于本卡出现）
+     会让 d1 恒为 1，(1-d1)=0 把整个终端堆乘没了 */
+  const d1=stepR(t-(T.cmp3[0]-0.30),{w:15,z:0.86});
+  const p=$('#rawCard');
+  p.style.opacity=(d0*(1-d1)).toFixed(3); setB(p,(1-d0)*8+d1*8);
+  p.style.transform='translateX('+((1-d0)*-40+d1*-30).toFixed(1)+'px)';
+  $$('#rawstack .termstack').forEach((el,i)=>{
+    const k=stepR(t-(T.cmp2[0]+0.28+i*0.11),{w:19,z:0.80});
+    el.style.transform='translate('+((1-k)*-42).toFixed(1)+'px,'+((1-k)*26).toFixed(1)+'px) rotate('+((1-k)*-2.4).toFixed(2)+'deg)';
+    el.style.opacity=(0.55+i*0.09)*k*(1-d1).toFixed(3);
+  });
+  const lab=$('#rawlbl');
+  const lo=stepR(t-(T.cmp2[0]+1.3),SP(0.86))*(1-d1);
+  lab.style.opacity=lo.toFixed(3);
+  const lab2=$('#decklbl');
+  lab2.style.opacity=clamp(lo*1.15,0,1).toFixed(3);
+  lab2.style.transform='translateX('+((1-lo)*18).toFixed(1)+'px)';
+}
+
+/* ---- 知识卡 3：11 种导入来源 ---- */
+const IMPORTS=[['Codex','CX'],['Claude','CL'],['Qoder','QD'],['OpenCode','OC'],['Cursor','CR'],
+  ['Kimi','KM'],['Kimi Work','KW'],['MiniMax','MM'],['WorkBuddy','WB'],['ZCode','ZC'],['本地目录','FS']];
+(function buildChips(){
+  const host=$('#chipwrap');let h='';
+  IMPORTS.forEach((c,i)=>{
+    h+='<div class="chip" data-i="'+i+'"><span class="ci">'+c[1]+'</span><span>'+c[0]
+      +'</span><span class="cx">→ 会话</span></div>';
+  });
+  host.innerHTML=h;
+})();
+const CHIP_POS=IMPORTS.map((c,i)=>({x:(i%4)*278,y:((i/4)|0)*74}));
+function drawCard3(t){
+  const c=$('#card3');
+  const e=vis(t,T.cmp3[0],T.nums[0],0.30);
+  c.style.opacity=e.o.toFixed(3); setB(c,e.b);
+  $$('#chipwrap .chip').forEach((el,i)=>{
+    const p=CHIP_POS[i];
+    const k=stepR(t-(T.cmp3[0]+0.14+i*0.085),{w:18,z:0.78});
+    /* 0.10 起每个 chip 变成「已导入」的绿色态 */
+    const conv=stepR(t-(T.cmp3[0]+1.35+i*0.11),{w:13,z:0.8});
+    el.classList.toggle('done',conv>0.02);
+    el.style.opacity=k.toFixed(3);
+    setB(el,(1-k)*7);
+    el.style.transform='translate('+((1-k)*-150).toFixed(1)+'px,'+((1-k)*26).toFixed(1)+'px) scale('+(0.94+0.06*k).toFixed(4)+')';
+    el.style.left=p.x+'px'; el.style.top=p.y+'px';
+    const cx=el.querySelector('.cx');
+    cx.style.opacity=(0.15+0.85*conv).toFixed(3);
+  });
+}
+
+/* ---- 数字 ---- */
+const NUM=[['#n1v',1714,0],['#n2v',42,1],['#n3v',11,2],['#n4v',1,3]];
+function drawNums(t){
+  const c=$('#card4');
+  const e=vis(t,T.nums[0],T.recap[0],0.30);
+  c.style.opacity=e.o.toFixed(3); setB(c,e.b);
+  NUM.forEach((n,i)=>{
+    const el=$(n[0]);
+    const k=stepR(t-(T.nums[0]+0.18+i*0.20),{w:17,z:0.80});
+    const box=el.parentElement;
+    box.style.opacity=k.toFixed(3);
+    box.style.transform='translateY('+((1-k)*26).toFixed(1)+'px)';
+    setB(box,(1-k)*7);
+    const v=Math.round(n[1]*clamp((t-(T.nums[0]+0.28+i*0.20))/1.05,0,1));
+    el.textContent=n[1]===1?'1':v.toLocaleString('en-US');
+  });
+  const dp=$('#provdots');
+  if(!dp.dataset.built){
+    let h='';for(let i=0;i<42;i++)h+='<i></i>';
+    dp.innerHTML=h;dp.dataset.built='1';
+  }
+  $$('#provdots i').forEach((el,i)=>{
+    const k=stepR(t-(T.nums[0]+1.5+i*0.028),{w:20,z:0.7});
+    const hue=[228,142,181][i%3];
+    el.style.opacity=(k*0.9).toFixed(3);
+    el.style.transform='scale('+(k*0.9).toFixed(3)+')';
+    el.style.background='hsl('+hue+',38%,'+(38+((i*7)%22))+'%)';
+  });
+}
+
+/* ---- recap ---- */
+const RECAP=[['多会话 · 一个会话一个 Tab','M5 3h6v6h-6zM15 3h4v6h-4z'],
+  ['拖到边上 · 一屏两会话','M4 4h7v16H4zM13 4h7v16h-7z'],
+  ['终端 · 文件 · Git 同会话','M4 5h16v14H4zM7 9h10M7 13h7'],
+  ['浮动球 · 几个在跑一眼看到','M12 4a8 8 0 1 0 .1 0z'],
+  ['11 种历史会话直接导入','M12 4v16M4 12h16'],
+  ['Pi + DSH 双后端同窗口','M4 5h7v14H4zM13 5h7v14h-7z']];
+(function buildRecap(){
+  const host=$('#card5');let h='';
+  RECAP.forEach((r,i)=>{
+    h+='<div class="rc" data-i="'+i+'"><span class="ri"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c2c2bd" stroke-width="1.7" stroke-linecap="round">'
+      +(i===3?'<circle cx="12" cy="12" r="7"/>'+r[1].slice(r[1].indexOf('a8')-1):'')+'</svg></span><span>'+r[0]+'</span></div>';
+  });
+  host.innerHTML=h;
+})();
+function drawRecap(t){
+  const c=$('#card5');
+  const e=vis(t,T.recap[0],T.collapse[0]+0.5,0.40);
+  c.style.opacity=e.o.toFixed(3); setB(c,e.b);
+  $$('#card5 .rc').forEach((el,i)=>{
+    const col=i%3, rw=(i/3)|0;
+    const tx=372+col*392, ty=330+rw*104;
+    const k=stepR(t-(T.recap[0]+0.10+i*0.13),{w:18,z:0.80});
+    const d=stepR(t-(T.collapse[0]+0.10),{w:14,z:0.86});
+    el.style.left=tx+'px'; el.style.top=ty+'px';
+    el.style.opacity=(k*(1-d)).toFixed(3);
+    setB(el,(1-k)*7);
+    const ox=(i%2?1:-1)*(1-k)*90;
+    el.style.transform='translate('+ox.toFixed(1)+'px,'+((1-k)*34+d*180).toFixed(1)+'px) scale('+(0.9+0.1*k-d*0.2).toFixed(4)+')';
+  });
+}
+
+/* ---- captions ---- */
+const CAPS=[
+  {t:T.C1, k:'WORKBENCH', a:'一个工作台，', b:'管住所有项目'},
+  {t:T.C2, k:'ONE SESSION ONE TAB', a:'点一个会话，', b:'就开一个 Tab'},
+  {t:T.C3, k:'PARALLEL', a:'5 个会话，5 个独立进程，', b:'各自在跑'},
+  {t:T.C4, k:'SPLIT', a:'把 Tab 拖到边上，', b:'一屏两会话'},
+  {t:T.C5, k:'OVERVIEW', a:'桌面浮动球：', b:'几个在跑一眼看到'},
+  {t:T.C6, k:'IN-SESSION', a:'终端 · 文件 · Git，', b:'都在同一个会话里'},
+  {t:T.C7, k:'BACKENDS', a:'两个后端，', b:'各自的会话各自跑'},
+  {t:T.C8, k:'ONE WINDOW', a:'五个窗口的开销，', b:'一个窗口就够'},
+  {t:T.C9, k:'IMPORT', a:'在别处跑过的会话，', b:'直接接进来'},
+  {t:T.C10, k:'BY THE NUMBERS', a:'1700+ 模型条目，', b:'一个会话一个进程'},
+  {t:T.C11, k:'RECAP', a:'多项目 · 多会话，', b:'同时在跑'}
+];
+(function buildCaps(){
+  let h='';
+  CAPS.forEach((c,i)=>{h+='<div class="cap" id="cap'+i+'"><div class="capline"></div>'
+    +'<div class="capkick">'+c.k+'</div>'
+    +'<div class="captext"><span class="a">'+c.a+'</span><span class="b">'+c.b+'</span></div></div>';});
+  $('#caps').innerHTML=h;
+})();
+function drawCaps(t){
+  CAPS.forEach((c,i)=>{
+    const el=$('#cap'+i);
+    const v=vis(t,c.t[0],c.t[1],0.14);
+    el.style.opacity=v.o.toFixed(3); setB(el,v.b);
+    el.style.transform='translateY('+v.dy.toFixed(2)+'px)';
+    const ln=el.querySelector('.capline');
+    ln.style.width=Math.round(stepR(t-(c.t[0]+0.06),{w:11,z:0.86})*150)+'px';
+    const kick=el.querySelector('.capkick'), tx=el.querySelector('.captext');
+    const k=stepR(t-(c.t[0]+0.10),{w:19,z:0.84});
+    kick.style.opacity=k.toFixed(3); kick.style.transform='translateY('+((1-k)*8).toFixed(2)+'px)';
+    const k2=stepR(t-(c.t[0]+0.18),{w:15,z:0.78});
+    tx.style.opacity=k2.toFixed(3); tx.style.transform='translateY('+((1-k2)*20).toFixed(2)+'px) scale('+(0.975+0.025*k2).toFixed(4)+')';
+    tx.style.transformOrigin='50% 50%';
+  });
+}
+
+/* ---- end card ---- */
+function drawEnd(t){
+  const ec=$('#endcard');
+  const on=vis(t,T.slam+0.02,null,null);
+  ec.style.opacity=on.o.toFixed(3); setB(ec,on.b);
+  const sc=tileScale(t), c=cam(t);
+  const base=540+((WIN_O.y+TILE/2*sc)-c.y)*c.z+44;
+  const w=stepR(t-T.word,{w:19,z:0.74});
+  const wd=$('#word');
+  wd.style.top=base+'px';
+  wd.style.opacity=w.toFixed(3);
+  wd.style.transform='translateY('+((1-w)*46).toFixed(2)+'px) scale('+(0.86+0.14*w).toFixed(4)+')';
+  setB(wd,(1-w)*11);
+  const tg=stepR(t-T.tagline,{w:15,z:0.8});
+  const el=$('#tagline'); el.style.top=(base+150)+'px'; el.style.opacity=tg.toFixed(3); setB(el,(1-tg)*6);
+  const lk=stepR(t-T.links,{w:13,z:0.8});
+  const ls=$('#links'); ls.style.top=(base+215)+'px'; ls.style.opacity=lk.toFixed(3);
+  const lc=$('#lic'); lc.style.top=(base+300)+'px'; lc.style.opacity=(lk*0.95).toFixed(3);
+  ec.style.left='0px'; ec.style.top='0px'; ec.style.height='0px'; ec.style.overflow='visible';
+}
+
+/* ---- cursor ---- */
+const cvs=$('#trail'), cx2=cvs.getContext('2d');
+const HAND=22.40;
+const CLICKS=[[T.click,1],[T.clickSess,1],[T.send,1],
+  [TABS[1].open,1],[TABS[2].open,1],[TABS[3].open,1],[TABS[4].open,1],
+  [T.dropAt,1],[T.ballCount[1]+1.6,1],[T.commit,1]];
+const DRAG=[[T.dragGrip,T.dropAt],[T.sash-0.05,T.sash+0.95]];
+function drawCursor(t){
+  const uo=1-ss(HAND-0.12,HAND+0.30,t);
+  /* 知识卡段是编辑性内容，光标退场；收束时回来 */
+  const ed=ss(T.cmp1[0]-0.40,T.cmp1[0]+0.20,t)*(1-ss(T.recap[0]-0.30,T.recap[0]+0.40,t));
+  const uA=uo*(1-ed);
+  drawOne(1,t,w2s(t,uX.at(t)+drift(t,1.9),uY.at(t)+drift(t,2.3)),uA);
+  const aA=ss(HAND-0.16,HAND+0.22,t)*(1-ss(T.collapse[0]+0.15,T.collapse[0]+0.60,t))*(1-ed);
+  drawOne(2,t,w2s(t,aX.at(t)+drift(t,2.7),aY.at(t)+drift(t,3.1)),aA);
+  cx2.clearRect(0,0,1920,1080);
+  const path=(X,Y,alpha,col)=>{
+    if(alpha<=0.02)return;
+    for(let i=25;i>=1;i--){
+      const ta=t-i*0.0095, tb=t-(i-1)*0.0095;
+      if(ta<0.02)continue;
+      const a=w2s(ta,X.at(ta)+drift(ta,2.3),Y.at(ta)+drift(ta,2.7));
+      const b=w2s(tb,X.at(tb)+drift(tb,2.3),Y.at(tb)+drift(tb,2.7));
+      const u=1-i/26;
+      cx2.beginPath();cx2.moveTo(a.x,a.y);cx2.lineTo(b.x,b.y);
+      cx2.strokeStyle=col.replace('$A',(alpha*u*0.55).toFixed(3));
+      cx2.lineWidth=(1.2+u*7.5).toFixed(2);cx2.lineCap='round';
+      cx2.stroke();
+    }
+  };
+  path(uX,uY,uA,'rgba(159,176,201,$A)');
+  path(aX,aY,aA,'rgba(236,236,231,$A)');
+}
+function drawOne(id,t,S,alpha){
+  const el=document.getElementById('cur'+id);
+  if(alpha<=0.01){el.style.opacity='0';return;}
+  el.style.opacity=alpha.toFixed(3);
+  const pt=Math.max(0,t-0.033);
+  const prev=w2s(pt,id===1?uX.at(pt):aX.at(pt),id===1?uY.at(pt):aY.at(pt));
+  const vx=S.x-prev.x, vy=S.y-prev.y;
+  const rot=clamp(Math.atan2(vy,vx)*180/Math.PI,0,90)*0.5;
+  el.style.left=S.x+'px'; el.style.top=S.y+'px';
+  const ar=el.querySelector('.carrow');
+  let pr=0;
+  for(const [ct,cid] of CLICKS){ if(cid!==id)continue;
+    const d=Math.abs(t-ct); if(d<0.34)pr=Math.max(pr,(1-d/0.34)); }
+  for(const [a,b] of DRAG){ if(id!==1)continue;
+    if(t>=a&&t<=b)pr=Math.max(pr,1); }
+  ar.style.transform='rotate('+rot.toFixed(2)+'deg) scale('+(1-pr*0.13).toFixed(3)+')';
+  const pil=el.querySelector('.cpill');
+  pil.style.transform='scale('+(0.90+0.10*clamp(alpha*2,0,1)).toFixed(3)+')';
+  pil.style.transformOrigin='0 50%';
+  let rip=0; for(const [ct,cid] of CLICKS){ if(cid!==id)continue;
+    const d=t-ct; if(d>=0&&d<0.62)rip=Math.max(rip,d/0.62); }
+  let r=document.getElementById('rip'+id);
+  if(rip>0){
+    if(!r){r=document.createElement('div');r.id='rip'+id;
+      r.style.cssText='position:absolute;left:-14px;top:-14px;width:56px;height:56px;border-radius:50%;border:1.5px solid rgba(255,255,255,.55)';
+      el.appendChild(r);}
+    r.style.transform='scale('+(0.5+rip*2.1).toFixed(3)+')';
+    r.style.opacity=((1-rip)*0.85).toFixed(3);
+  } else if(r){r.style.opacity='0';}
+}
+
+function drawWater(t){
+  const w=clamp(1-(t-6.0)/1.4,0,1)*0.9;
+  const el=$('#water');
+  el.style.opacity=(w*0.5).toFixed(3);
+  el.style.transform='scale('+(1+(1-w)*0.5).toFixed(3)+')';
+}
+
+/* ============ render ============ */
+function render(t){
+  drawShape(t); drawOpen(t); drawRows(t); drawTabs(t); drawSess(t);
+  drawSplit(t); drawComposer(t); drawTerm(t); drawRight(t); drawFloater(t);
+  drawCard1(t); drawCard2(t); drawCard3(t); drawNums(t); drawRecap(t);
+  drawCaps(t); drawEnd(t); drawCursor(t); drawWater(t);
+}
+window.__duration=DUR;
+window.__seek=function(time){ window.__seekRender=true; render(clamp(time,0,DUR)); };
+let lastTick=null;
+(function tick(t){
+  /* 渲染器/探针一置 __seekRender，自驱时钟就彻底交棒给 __seek。
+     这里必须「只 return、不 render」：rAF 回调的 t 是毫秒时间戳，
+     一旦在这里 render，seek 出来的帧会被一个 t=几万的毫秒帧（clamp 成片尾）悄悄覆盖，
+     探针读到的是别的时刻的 DOM，成片也会混入尾帧。 */
+  if(window.__seekRender){ window.__ready=true; return; }
+  if(lastTick===null)window.__ready=true;
+  lastTick=t; render(t);
+  if(!window.__recording) requestAnimationFrame(tick);
+})(0);
+</script>
+</body>
+</html>

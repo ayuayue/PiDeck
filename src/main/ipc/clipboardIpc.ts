@@ -1,14 +1,7 @@
 import { ipcMain } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import type { AppLogger } from "../logging/AppLogger";
-import {
-	readClipboardFilePaths,
-	readClipboardHtml,
-	readClipboardImageDataUrl,
-	readClipboardText,
-	writeClipboardImageDataUrl,
-	writeClipboardText,
-} from "../clipboard/nativeClipboard";
+import { readClipboardFilePaths, readClipboardHtml, readClipboardImageDataUrl, readClipboardText, writeClipboardImageDataUrl, writeClipboardText } from "../clipboard/nativeClipboard";
 
 export type ClipboardIpcDeps = {
 	appLogger: Pick<AppLogger, "warn">;

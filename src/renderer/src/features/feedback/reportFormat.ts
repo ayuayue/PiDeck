@@ -1,11 +1,4 @@
-import type {
-	FeedbackProjectContext,
-	HealthCheckItem,
-	HealthReport,
-	HealthReportContext,
-	HealthReportFormat,
-	HealthStatus,
-} from "../../../../shared/types";
+import type { FeedbackProjectContext, HealthCheckItem, HealthReport, HealthReportContext, HealthReportFormat, HealthStatus } from "../../../../shared/types";
 
 /**
  * 诊断报告的三种输出形态纯函数。
@@ -55,12 +48,7 @@ function environmentLines(env: HealthReport["environment"]): string[] {
 	if (env.flags.developerDiagnostics) flags.push("dev diagnostics on");
 	if (env.flags.webServiceEnabled) flags.push("web service on");
 	if (env.flags.customPiPathConfigured) flags.push("custom pi path");
-	const osLabel =
-		env.platform === "win32"
-			? `Windows ${env.osVersion}`
-			: env.platform === "darwin"
-				? `macOS ${env.osVersion}`
-				: `${env.platform} ${env.osVersion}`;
+	const osLabel = env.platform === "win32" ? `Windows ${env.osVersion}` : env.platform === "darwin" ? `macOS ${env.osVersion}` : `${env.platform} ${env.osVersion}`;
 	return [
 		`- PiDeck ${env.appVersion} (${env.installMode})`,
 		`- OS: ${osLabel} (${env.arch})`,
@@ -97,10 +85,7 @@ function recentErrorLines(summary: HealthReport["logSummary"], limit = 150): str
 
 /** 日志统计行：总量 + 今日，让「今天的报错」一眼可见。 */
 function logSummaryLine(summary: HealthReport["logSummary"]): string {
-	const today =
-		summary.todayError > 0 || summary.todayWarn > 0
-			? ` · today ${summary.todayError} errors / ${summary.todayWarn} warns`
-			: "";
+	const today = summary.todayError > 0 || summary.todayWarn > 0 ? ` · today ${summary.todayError} errors / ${summary.todayWarn} warns` : "";
 	return `Total ${summary.total} · errors ${summary.error} · warns ${summary.warn} (last 7 days)${today}`;
 }
 
@@ -178,18 +163,10 @@ export function formatCard(report: HealthReport, context: HealthReportContext): 
  * 用户粘贴给 ChatGPT/DeepSeek/群友即可让 AI 帮忙定位；也用于「新建会话分析」
  * 直接填进 PiDeck 新会话的输入框（此时 pi 会自动加载项目 AGENTS.md 与技能）。
  */
-export function formatAiPrompt(
-	report: HealthReport,
-	context: HealthReportContext,
-	projectContext?: FeedbackProjectContext,
-): string {
+export function formatAiPrompt(report: HealthReport, context: HealthReportContext, projectContext?: FeedbackProjectContext): string {
 	const lines: string[] = [];
-	lines.push(
-		`你是一名专业的桌面软件技术支持工程师。请根据下面的 PiDeck 诊断报告，判断可能的问题根因，并给出**分步骤、可执行**的排查和修复建议。`,
-	);
-	lines.push(
-		`如果信息不足，请明确说明你还缺哪些信息，而不是猜测。涉及修改配置文件时，提醒先备份，且不要泄露或要求提供任何密钥/Token。`,
-	);
+	lines.push(`你是一名专业的桌面软件技术支持工程师。请根据下面的 PiDeck 诊断报告，判断可能的问题根因，并给出**分步骤、可执行**的排查和修复建议。`);
+	lines.push(`如果信息不足，请明确说明你还缺哪些信息，而不是猜测。涉及修改配置文件时，提醒先备份，且不要泄露或要求提供任何密钥/Token。`);
 	lines.push("");
 	lines.push(`## 用户描述`);
 	lines.push(context.description.trim() || "（用户未填写）");
@@ -221,10 +198,7 @@ export function formatAiPrompt(
 		// 仓库地址才是唯一始终可访问的定位方式；本地开发场景 pi 的 cwd 本就是项目根，无需指路。
 		lines.push(`项目地址（源码仓库）：https://github.com/ayuayue/PiDeck`);
 		lines.push("");
-		lines.push(
-			`本次分析基于 PiDeck 工程。项目根目录的 AGENTS.md 记录了编码规范、架构约束与测试门禁，` +
-				`以下为内容${projectContext.agentsMdTruncated ? "（超出上限已截断，可让 pi 读取项目根目录完整版）" : ""}：`,
-		);
+		lines.push(`本次分析基于 PiDeck 工程。项目根目录的 AGENTS.md 记录了编码规范、架构约束与测试门禁，` + `以下为内容${projectContext.agentsMdTruncated ? "（超出上限已截断，可让 pi 读取项目根目录完整版）" : ""}：`);
 		lines.push("");
 		// 用 4 个反引号作围栏：AGENTS.md 正文可能自带 ```，3 反引号围栏会被提前闭合
 		lines.push("````");
@@ -232,13 +206,9 @@ export function formatAiPrompt(
 		lines.push("````");
 		if (projectContext.skills.length > 0) {
 			lines.push("");
-			lines.push(
-				`项目级可用技能：${projectContext.skills.join(", ")}（如需可让 pi 执行 /skill:<名称> 获取使用说明）`,
-			);
+			lines.push(`项目级可用技能：${projectContext.skills.join(", ")}（如需可让 pi 执行 /skill:<名称> 获取使用说明）`);
 		}
-		lines.push(
-			`提示：排查 PiDeck 自身问题时，可让 pi 使用全局技能 /skill:pideck-doctor 读取诊断报告与故障模式库。`,
-		);
+		lines.push(`提示：排查 PiDeck 自身问题时，可让 pi 使用全局技能 /skill:pideck-doctor 读取诊断报告与故障模式库。`);
 	}
 	lines.push("");
 	lines.push("请输出：1) 最可能的根因（按可能性排序）；2) 每条的验证方法；3) 修复步骤；4) 修复后如何验证。");
@@ -246,12 +216,7 @@ export function formatAiPrompt(
 }
 
 /** 按格式生成对应文本。projectContext 只参与 prompt 形态（新建会话分析用）。 */
-export function formatReport(
-	report: HealthReport,
-	context: HealthReportContext,
-	format: HealthReportFormat,
-	projectContext?: FeedbackProjectContext,
-): string {
+export function formatReport(report: HealthReport, context: HealthReportContext, format: HealthReportFormat, projectContext?: FeedbackProjectContext): string {
 	if (format === "card") return formatCard(report, context);
 	if (format === "prompt") return formatAiPrompt(report, context, projectContext);
 	return formatMarkdown(report, context);

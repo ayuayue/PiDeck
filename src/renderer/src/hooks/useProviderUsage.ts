@@ -1,30 +1,41 @@
 /**
  * Provider 用量查询 hook：atoms（provider-usage-atoms）之上的取数副作用层。
  *
- * 自动查询纪律（对齐 cc-switch「按设置的间隔探查、不主动冗余刷新」）：
- * - 新鲜期 = 主进程返回的 intervalMinutes（默认 5 分钟，0 = 关闭自动查询）——
- *   不是固定 60s。打开面板/卡片时只有「从未查过」或「已超过间隔」才发请求；
- * - interval = 0：打开时查一次（用户主动查看 = 手动性质），此后不自动重查、
- *   不轮询，只有手动刷新 / 测试 / 保存后置失效才会再发；
- * - 手动刷新（useProviderUsageRefresh）永远直接发请求，不走新鲜期判定。
+ * 自动查询纪律：
+ * - 是否查询由每个 provider 徽章里的开关决定（usage-probes.json 的 enabled）：
+ *   显式 false → 不查；显式 true / 内置识别 / 已配模板 → 查；
+ * - 状态表尚未回来时不抢发（等状态表），状态表已就绪但该 provider 不在表里 → 按开处理
+ *   （与历史行为一致，避免圆球面板/选择器对表外 provider 永远不查）；
+ * - 新鲜期 = 主进程返回的 intervalMinutes（默认 5 分钟）；
+ * - interval = 0：该 provider 不轮询，且已查过的条目不自动重查；
+ * - 手动刷新（useProviderUsageRefresh）永远直接发请求，不看新鲜期。
  *
  * 查询只写 atoms（组件卸载后写入也无害：缓存本就是跨组件共享的），无 cancelled 需求。
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import type { ProviderUsageResult, UsageProbeBackend } from "../../../shared/types/providerUsage";
+import type { ProviderUsageResult, UsageProbeBackend, UsageProbeProviderState, UsageProbeStatesResult } from "../../../shared/types/providerUsage";
 import { normalizeDshDeepseekProvider } from "../../../shared/dshProviderNames";
 import { desktopApi } from "../desktopApi";
 import {
 	beginProviderUsageAtom,
+	markProviderUsageStatesStatusAtom,
+	mergeProviderUsageStatesAtom,
 	providerUsageEntryAtomFamily,
 	providerUsageRecordsReadAtom,
+	providerUsageStateAtomFamily,
+	providerUsageStatesReadAtom,
+	providerUsageStatesStatusAtom,
 	resolveProviderUsageAtom,
 	type ProviderUsageEntry,
 } from "../atoms/provider-usage-atoms";
+import { USAGE_PROBE_DEFAULT_INTERVAL_MINUTES, shouldAutoFetchProviderUsage } from "./providerUsageAutoQuery";
+import { selectWarmupProviders, warmupDelayMs } from "./providerUsageWarmup";
 
-/** 默认自动查询间隔（分钟）：与主进程默认一致（学 cc-switch），0 = 关闭自动查询。 */
-export const USAGE_PROBE_DEFAULT_INTERVAL_MINUTES = 5;
+export {
+	USAGE_PROBE_DEFAULT_INTERVAL_MINUTES,
+	providerUsageEntryStale,
+} from "./providerUsageAutoQuery";
 
 /**
  * 用量展示/缓存 key：DSH 链路的 provider 名前缀 `dsh:`，避免与 pi 侧同名 provider
@@ -48,12 +59,7 @@ const inFlight = new Map<string, Promise<void>>();
  * @param provider 原始 provider 名（主进程按它解析端点/配置）
  * @param cacheKey 渲染层缓存 key（与 provider 相同；DSH 链路为 `dsh:<provider>`）
  */
-function startFetch(
-	provider: string,
-	cacheKey: string,
-	resolve: (key: string, result: ProviderUsageResult) => void,
-	backend: UsageProbeBackend = "pi",
-): void {
+function startFetch(provider: string, cacheKey: string, resolve: (key: string, result: ProviderUsageResult) => void, backend: UsageProbeBackend = "pi"): void {
 	if (inFlight.has(cacheKey)) return;
 	const promise = desktopApi.config
 		.fetchUsage(provider, backend)
@@ -68,59 +74,72 @@ function startFetch(
 	inFlight.set(cacheKey, promise);
 }
 
-/**
- * entry 是否需要（重）查：
- * - 从未完成过（fetchedAt=null）→ 需要（首查）；
- * - interval <= 0（关闭自动查询）→ 不需要（只靠手动刷新）；
- * - 否则按 interval 分钟过期判定（默认 5 分钟），不再有固定 60s 的冗余重查。
- */
-export function providerUsageEntryStale(
-	entry: Pick<ProviderUsageEntry, "fetchedAt"> | null,
-	intervalMinutes: number = USAGE_PROBE_DEFAULT_INTERVAL_MINUTES,
-	now: number = Date.now(),
-): boolean {
-	if (!entry || entry.fetchedAt == null) return true;
-	if (intervalMinutes <= 0) return false;
-	return now - entry.fetchedAt >= intervalMinutes * 60_000;
+/** 订阅单个 provider 的用量查询状态（徽章只读展示用）：未加载到 = undefined。 */
+export function useProviderUsageState(provider: string | undefined, backend: UsageProbeBackend = "pi"): UsageProbeProviderState | undefined {
+	const cacheKey = provider ? usageCacheKey(provider, backend) : "";
+	return useAtomValue(providerUsageStateAtomFamily(cacheKey));
 }
 
-/** provider → 内置识别结果的模块级缓存（跨组件共享，避免重复 IPC）；识别结果跟随 provider 名/backend。 */
-const usageRecognizedCache = new Map<string, boolean>();
-const usageRecognizedInFlight = new Map<string, Promise<boolean>>();
+/** 状态表模块级去重：同一 (backend, provider 列表签名) 只发一次 IPC，多张卡片共享结果。 */
+const statesInFlight = new Map<string, Promise<UsageProbeStatesResult>>();
 
 /**
- * provider 是否命中内置用量模板（零配置自动生效）：渲染层据此隐藏「用量查询」配置按钮。
- * 缓存 key 与 usageCacheKey 同规则（DSH 链路 dsh: 前缀隔离）；首次查询后在模块级缓存，
- * 多次卡片挂载共享同一结果、不重复发 IPC。识别结果可能随 baseUrl 编辑过期——卡片重挂载时
- * 若已有缓存仍沿用（用量本身也按缓存展示，行为一致；重开应用即刷新）。
+ * 批量拉取 provider 用量状态（徽章开关 / 启动预热选源）。
+ *
+ * - pi 链路 providers 传空数组 = 主进程按 models.json + auth.json + 已配置项枚举；
+ * - dsh 链路必须显式传卡片 provider 名（主进程不枚举 DSH settings.yaml）；
+ * - 结果按 usageCacheKey 写入 atom，同一签名并发挂载共享一次 IPC；
+ * - 拉取期间把 backend 标为 loading，避免卡片在「状态未知」时抢发一轮白请求。
  */
-export function useProviderUsageRecognized(
-	provider: string | undefined,
-	backend: UsageProbeBackend = "pi",
-): boolean {
-	const cacheKey = provider ? usageCacheKey(provider, backend) : undefined;
-	const [recognized, setRecognized] = useState<boolean>(() =>
-		cacheKey ? (usageRecognizedCache.get(cacheKey) ?? false) : false,
-	);
+export function useProviderUsageStatesLoader(providers: string[], backend: UsageProbeBackend = "pi"): void {
+	const merge = useSetAtom(mergeProviderUsageStatesAtom);
+	const markStatus = useSetAtom(markProviderUsageStatesStatusAtom);
+	// 用字符串签名做依赖：调用方每次渲染传新数组也不会重跑 effect。
+	const providerKey = providers.join("\n");
 	useEffect(() => {
-		if (!provider || !cacheKey) return;
-		if (usageRecognizedCache.has(cacheKey)) {
-			setRecognized(usageRecognizedCache.get(cacheKey)!);
-			return;
-		}
-		// in-flight 去重：并发挂载的多个卡片共享同一次 IPC，避免重复请求。
-		if (usageRecognizedInFlight.has(cacheKey)) {
-			void usageRecognizedInFlight.get(cacheKey)!.then(setRecognized);
-			return;
-		}
-		const promise = desktopApi.config.usageRecognized(provider, backend).then((res) => res.recognized);
-		usageRecognizedInFlight.set(cacheKey, promise);
-		promise.then((value) => {
-			usageRecognizedCache.set(cacheKey, value);
-			setRecognized(value);
+		// pi 链路一律请求「全量」（主进程按 models.json + auth.json + 已配置项枚举）：
+		// 签名与 backend 同名，多张卡片/多个消费点共享同一次 IPC，不会按卡片扇出。
+		// dsh 链路必须带卡片 provider 名（主进程不枚举 DSH settings.yaml），按列表签名去重。
+		const list = backend === "pi" ? [] : providerKey ? providerKey.split("\n") : [];
+		const signature = backend === "pi" ? "pi" : `dsh|${providerKey}`;
+		let cancelled = false;
+		markStatus(backend, "loading");
+		const pending = statesInFlight.get(signature) ?? desktopApi.config.listUsageProbeStates({ providers: list, backend }).catch(() => ({ providers: {}, errors: [] }));
+		statesInFlight.set(signature, pending);
+		void pending.then((result) => {
+			// 卸载后仍写 atoms 无害（状态是跨组件共享的），但标记状态要避免覆盖后一次加载。
+			if (!cancelled) markStatus(backend, "ready");
+			const entries: Record<string, UsageProbeProviderState> = {};
+			for (const [name, state] of Object.entries(result.providers)) {
+				entries[usageCacheKey(name, backend)] = state;
+			}
+			merge(entries);
 		});
-	}, [provider, cacheKey, backend]);
-	return recognized;
+		return () => {
+			cancelled = true;
+		};
+	}, [providerKey, backend, merge, markStatus]);
+}
+
+/**
+ * 重拉指定 provider 的状态（用量查询弹窗保存后调）：徽章的开关态/间隔来自状态表，
+ * 保存只写了 usage-probes.json，必须回读一次才能让徽章立即从「未启用」变「查询中」。
+ * 只请求该 provider（pi 侧主进程仍全量解析，dsh 侧只回名单内），开销与一次刷新同级。
+ */
+export function useRefreshProviderUsageState(): (provider: string, backend?: UsageProbeBackend) => Promise<void> {
+	const merge = useSetAtom(mergeProviderUsageStatesAtom);
+	return useCallback(
+		async (provider: string, backend: UsageProbeBackend = "pi") => {
+			if (!provider) return;
+			const result = await desktopApi.config.listUsageProbeStates({ providers: [provider], backend }).catch(() => ({ providers: {}, errors: [] }));
+			const entries: Record<string, UsageProbeProviderState> = {};
+			for (const [name, state] of Object.entries(result.providers)) {
+				entries[usageCacheKey(name, backend)] = state;
+			}
+			merge(entries);
+		},
+		[merge],
+	);
 }
 
 /** 订阅并自动取数：provider 未指定时不查（三处调用方各自兜底 provider 来源）。
@@ -128,43 +147,95 @@ export function useProviderUsageRecognized(
  * `dsh:<provider>` 隔离；**主进程收到的永远是原始 provider 名**（缓存 key 只在
  * 渲染层 atom 里用，不能当 provider 名发过去——之前把 `dsh:deepseek` 整体当
  * provider 寄回主进程，导致 DSH 卡片用量永远解析不出、显示为空）。
- * 首次挂载查一次；成功后按主进程返回的 intervalMinutes 排下一次自动刷新
- * （0 = 不自动；默认 5 分钟）。 */
-export function useProviderUsageEntry(
-	provider: string | undefined,
-	backend: UsageProbeBackend = "pi",
-): ProviderUsageEntry {
+ * 自动查询前置条件 = 该 provider 的开关为真（徽章开关/弹窗「是否启用」，默认关）；
+ * 本 hook 自己拉一次该 provider 的状态（pi 全量/单条同一次 IPC，dsh 按名字）。
+ * 开关打开后按 intervalMinutes 排下一次自动刷新（0 = 不轮询；默认 5 分钟）。 */
+export function useProviderUsageEntry(provider: string | undefined, backend: UsageProbeBackend = "pi"): ProviderUsageEntry {
 	const cacheKey = provider ? usageCacheKey(provider, backend) : undefined;
+	// 自己拉状态：调用方（卡片/圆球/选择器）不必各自记着先加载状态表。
+	useProviderUsageStatesLoader(provider ? [provider] : [], backend);
 	const entry = useAtomValue(providerUsageEntryAtomFamily(cacheKey ?? ""));
+	const state = useAtomValue(providerUsageStateAtomFamily(cacheKey ?? ""));
 	const begin = useSetAtom(beginProviderUsageAtom);
 	const resolve = useSetAtom(resolveProviderUsageAtom);
-	// 生效间隔：已查到结果用配置值（0 = 不自动）；未查到用默认值（首查）。
-	const intervalMinutes =
-		entry.result?.intervalMinutes ?? USAGE_PROBE_DEFAULT_INTERVAL_MINUTES;
+	// provider 级开关：未显式开启（状态未到或 enabled=false）一律不自动查。
+	const queryEnabled = state?.enabled === true;
+	// 生效间隔：已查到结果用配置值（0 = 该 provider 不轮询）；未查到用状态表/默认值。
+	const intervalMinutes = entry.result?.intervalMinutes ?? state?.intervalMinutes ?? USAGE_PROBE_DEFAULT_INTERVAL_MINUTES;
 	useEffect(() => {
-		if (!provider || !cacheKey) return;
-		// 依赖只用原始值 cacheKey/fetchedAt / intervalMinutes（entry 对象引用经 selectAtom/Object.is 已稳定）。
-		if (!providerUsageEntryStale(entry, intervalMinutes)) return;
-		begin(cacheKey);
-		startFetch(provider, cacheKey, resolve, backend);
-	}, [provider, cacheKey, entry.fetchedAt, intervalMinutes, begin, resolve, backend]);
+		if (!provider || !cacheKey || !queryEnabled) return;
+		// 走新鲜期（从未查过或已过 interval 才发）。
+		if (
+			shouldAutoFetchProviderUsage({
+				reason: "mount",
+				entry,
+				intervalMinutes,
+			})
+		) {
+			begin(cacheKey);
+			startFetch(provider, cacheKey, resolve, backend);
+		}
+		// 依赖只用 fetchedAt 而非整个 entry：begin() 会把 status 改成 loading，
+		// 若订整个对象会在首查发出后立刻重跑 effect（inFlight 能挡住 HTTP，但仍多一次 begin）。
+	}, [provider, cacheKey, entry.fetchedAt, intervalMinutes, queryEnabled, begin, resolve, backend]);
 
-	// 自动轮询：只对「已成功且间隔 > 0」的 provider 排下一次刷新；
-	// interval = 0 时不轮询（关闭自动查询 = 完全手动）。
-	// 挂载在哪个面板就轮询哪个（模型卡片/选择器可见时才有订阅者），不后台刷全部。
+	// 自动轮询：开关开 + 间隔 > 0 才排下一次刷新。
+	// 挂载在哪个消费面板就轮询哪个（圆球面板/模型选择器展开区/配置卡片），不后台刷全部供应商。
 	useEffect(() => {
-		if (!provider || !cacheKey || intervalMinutes <= 0) return;
+		if (!provider || !cacheKey || !queryEnabled) return;
+		if (
+			!shouldAutoFetchProviderUsage({
+				reason: "poll",
+				entry,
+				intervalMinutes,
+			})
+		) {
+			return;
+		}
 		const timer = window.setTimeout(() => {
 			begin(cacheKey);
 			startFetch(provider, cacheKey, resolve, backend);
 		}, intervalMinutes * 60_000);
 		return () => window.clearTimeout(timer);
-	}, [provider, cacheKey, intervalMinutes, begin, resolve, backend]);
+	}, [provider, cacheKey, intervalMinutes, queryEnabled, begin, resolve, backend]);
 
 	return entry;
 }
 
-/** 手动刷新单个 provider（详情面板刷新按钮 / 保存探针后重查）：不走新鲜期判定。 */
+/**
+ * 启动预热：应用启动后把「已开启」的 provider 各查一次，让卡片一打开就有数据。
+ *
+ * 为什么只查已开启的：默认关（enabled ?? false），所以预热名单通常只有用户真正开过的几条；
+ * 又因为串行 + 错峰（warmupDelayMs），即使多条共用一个本地网关也不会同时打过去。
+ * 只跑一次：整个应用生命周期内预热一轮，之后的刷新交给轮询/手动/挂载首查。
+ * 调用方：App.tsx 装配层。
+ */
+export function useProviderUsageStartupWarmup(): void {
+	// pi 链路请求全量（主进程按 models.json + auth.json + 已配置项枚举）；
+	// dsh 链路不带名字 = 主进程只回 DSH 侧已配置过的 provider。
+	useProviderUsageStatesLoader([], "pi");
+	useProviderUsageStatesLoader([], "dsh");
+	const states = useAtomValue(providerUsageStatesReadAtom);
+	const status = useAtomValue(providerUsageStatesStatusAtom);
+	const refresh = useProviderUsageRefresh();
+	const started = useRef(false);
+	useEffect(() => {
+		if (started.current) return;
+		const piStatus = status.pi ?? "idle";
+		const dshStatus = status.dsh ?? "idle";
+		// 状态表在途就等；两边都从未请求（不可能，但保持幂等）也不排。
+		if (piStatus === "loading" || dshStatus === "loading") return;
+		if (piStatus === "idle" && dshStatus === "idle") return;
+		started.current = true;
+		const targets = selectWarmupProviders(states);
+		const timers = targets.map((target, index) => window.setTimeout(() => refresh(target.provider, target.backend), warmupDelayMs(index)));
+		return () => {
+			for (const timer of timers) window.clearTimeout(timer);
+		};
+	}, [status.pi, status.dsh, states, refresh]);
+}
+
+/** 手动刷新单个 provider（详情面板刷新按钮 / 保存探针后重查）：不看开关、不走新鲜期。 */
 export function useProviderUsageRefresh(): (provider: string, backend?: UsageProbeBackend) => void {
 	const begin = useSetAtom(beginProviderUsageAtom);
 	const resolve = useSetAtom(resolveProviderUsageAtom);
@@ -179,7 +250,7 @@ export function useProviderUsageRefresh(): (provider: string, backend?: UsagePro
 	);
 }
 
-/** 批量刷新（模型选择器打开时）：只查「从未查过或已超过各自间隔」的 provider，跳过新鲜条目。
+/** 批量刷新（模型选择器打开时）：只查「从未查过或已超过各自间隔」的 provider。
  * 调用方为模型选择器（provider 即缓存 key）；DSH 会话的选择器传 backend="dsh"，
  * 与 pi 侧同名 provider（如 deepseek）互不串缓存、也不误读对方链路的配置。 */
 export function useProviderUsageBatchRefresh(): (providers: string[], backend?: UsageProbeBackend) => void {
@@ -193,8 +264,16 @@ export function useProviderUsageBatchRefresh(): (providers: string[], backend?: 
 				const cacheKey = usageCacheKey(provider, backend);
 				const record = records[cacheKey] ?? null;
 				const interval = record?.result?.intervalMinutes ?? USAGE_PROBE_DEFAULT_INTERVAL_MINUTES;
-				// 新鲜期去重：未查过（无记录）才触发；interval=0 的已查条目不再自动重查。
-				if (!providerUsageEntryStale(record, interval)) continue;
+				// 走新鲜期（未查过才触发；interval=0 的已查条目不再自动重查）。
+				if (
+					!shouldAutoFetchProviderUsage({
+						reason: "batch",
+						entry: record,
+						intervalMinutes: interval,
+					})
+				) {
+					continue;
+				}
 				begin(cacheKey);
 				startFetch(provider, cacheKey, resolve, backend);
 			}

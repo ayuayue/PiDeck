@@ -1,0 +1,229 @@
+name: Sync Release to AtomGit
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tags:
+        # 下拉，选项列表由 scripts/sync-workflow-choices.js 在发版时自动跟新
+        # （新 tag 插在 auto 之后，保留最近 10 个），不手改。
+        # auto = 同步 GitHub 最新 Release（与「留空」同义）；列表外的旧版本用下面的 tags_custom。
+        # 注意：GitHub 的 choice 不支持多选（multiple 不是合法键，actionlint 直接报错，
+        # 官方 feature request #2076 至今未实现），选多个只能走 tags_custom 逗号分隔。
+        description: "要同步的 Release Tag：auto = GitHub 最新 Release；列表外的旧版本 / 一次性补多个用下面的 tags_custom"
+        required: false
+        type: choice
+        default: auto
+        options:
+          - auto
+          - v0.9.6
+          - v0.9.5
+          - v0.9.1
+          - v0.9.0
+          - v0.8.0
+          - v0.7.9
+          - v0.7.8
+          - v0.7.7
+          - v0.7.6
+          - v0.7.5
+      tags_custom:
+        # 与其它 workflow 的 tag_custom 同语义：非空则覆盖上面的选择。
+        # 多个 tag 用英文逗号分隔（如 v0.5.2,v0.5.3）——历史上本输入就是逗号分隔多值。
+        description: "自定义 tag（逗号分隔可多个，如 v0.5.2,v0.5.3；填了就覆盖上面的下拉选择）"
+        required: false
+        type: string
+        default: ""
+      force_resync:
+        description: "强制全量重传：先删除 AtomGit 上已存在的同名 Release 再重建（同版本号重新构建产物重发版时使用）"
+        required: false
+        type: boolean
+        default: false
+      push_refs:
+        # 镜像仓库时代分支/标签由 AtomGit 平台自动跟随；解除镜像后不再自动同步，
+        # 需主动推送。release 事件下默认就会做（见下方 job steps），本开关用于手动补推。
+        description: "同时把全部分支与标签推送到 AtomGit（增量；用于镜像解除后手动补同步）"
+        required: false
+        type: boolean
+        default: false
+      refs_only:
+        # 「只同步代码」专用：只跑分支/标签推送，跳过 Release 与附件相关的所有步骤
+        # （tag 解析、资产等待、hosts 加速、附件上传）。
+        # 与 push_refs 的区别：push_refs 是「顺带推代码」，本开关是「只推代码」。
+        description: "只同步代码（分支与标签）到 AtomGit，跳过 Release 与附件同步（此时 tags / tags_custom / force_resync 均被忽略）"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# 防并发：release 事件与手动触发同时跑会互相抢占上传（同名附件幂等跳过依赖串行）
+concurrency:
+  group: sync-atomgit
+  cancel-in-progress: false
+
+env:
+  # 发版自动化链（post-release-sidecars.yml）后，同一 Release 的资产由两批工作流
+  # 先后上传：① release.yml 的 5 个构建 job（softprops 发布即触发本 workflow，此时
+  # 资产往往还没传完）→ ② 本 workflow 自己在默认分支上定义的等待窗口等它稳定。
+  # 采样间隔 60s，连续 STABLE_REQUIRED 次清单未变才算稳定，最长等 30 分钟。
+  # 若 30 分钟后仍不稳定（某 job 卡住/失败），带警告继续同步已上传资产（sync 幂等，
+  # 后续补齐的资产可由 post-release-sidecars 结尾的再次触发或手动重跑同步）。
+  ASSET_WAIT_DEADLINE_SECONDS: "1800"
+  ASSET_POLL_INTERVAL_SECONDS: "60"
+  ASSET_STABLE_REQUIRED: "5"
+
+jobs:
+  sync-atomgit:
+    name: Sync Release to AtomGit
+    runs-on: ubuntu-latest
+    # prerelease（dev 通道）Release 不同步：AtomGit 是 stable 更新镜像源
+    # （客户端 updateSource=atomgit 的 latest feed），同步 beta 产物会让 stable
+    # 客户端拉到 dev 包。release 事件对象自带 prerelease 布尔标记；仅拦自动链路，
+    # 手动触发（workflow_dispatch）不受限——人工填 beta tag 属人为决策，自行担责。
+    if: ${{ !(github.event_name == 'release' && github.event.release.prerelease) }}
+    # 兜底超时：历史上 PUT 上传挂起导致 job 卡了 52 分钟无进展；
+    # 三个版本全量约 7GB，上传速度不确定，给足 6 小时（GitHub hosted runner 上限）；超时强制失败后可重跑（已传附件自动跳过）
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Resolve target tags
+        id: resolve-tags
+        # refs_only 模式不涉及 Release：跳过解析，也避开「拿不到 tag 就 exit 1」的硬失败
+        if: ${{ github.event.inputs.refs_only != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 两个手工输入在此归一：tags_custom 非空则优先（列表外的旧版本 / 多 tag 手输入口），
+          # 否则用下拉选择；push/release 事件下两者均为空串。
+          # 走 env 而不是直接拼进 run：手输内容不可信，直接插值会被 $(...) / 引号注入。
+          INPUT_TAGS: ${{ github.event.inputs.tags_custom != '' && github.event.inputs.tags_custom || github.event.inputs.tags }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          TAGS="$INPUT_TAGS"
+          # 还原哨兵值：auto ≡ 旧的「留空」（取 GitHub 最新 Release）
+          if [ "$TAGS" = "auto" ]; then TAGS=""; fi
+          if [ -z "$TAGS" ] && [ "$EVENT_NAME" = "release" ]; then
+            TAGS="$RELEASE_TAG"
+          fi
+          if [ -z "$TAGS" ]; then
+            # 留空时只同步 GitHub 仓库最新 Release（与旧行为一致）
+            echo "No tags specified, fetching latest release from GitHub..."
+            TAGS=$(gh release view --repo "${{ github.repository }}" --json tagName -q .tagName)
+          fi
+          if [ -z "$TAGS" ]; then
+            echo "::error::未能识别或获取到合法的 Release Tag"
+            exit 1
+          fi
+          # 归一化：去空白、去空段；只同步应用版本 tag（vX.Y.Z）。
+          # sidecar 之类的非版本 tag 会抢走 GitHub/AtomGit latest，更新检查会指错包。
+          TAGS=$(echo "$TAGS" | tr ',' '\n' | sed 's/[[:space:]]//g' | grep -E '^v[0-9]' | paste -sd, -)
+          if [ -z "$TAGS" ]; then
+            echo "::error::没有可同步的应用版本 tag（vX.Y.Z）。拒绝同步 sidecar / 其它非版本 Release。"
+            exit 1
+          fi
+          echo "Target tags: ${TAGS}"
+          echo "tags=${TAGS}"
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+
+      # git refs（分支 + 标签）同步：AtomGit 解除「镜像仓库」后，分支/标签不再由平台自动跟随，
+      # 必须先把 tag 推过去 —— sync-release-to-atomgit.mjs 只处理 Release 与附件，不做 git 推送，
+      # 远端缺 tag 时建 Release 会直接报错（v0.7.6 曾因此整链失败）。
+      # 放在资产等待之前：tag 越早到位越好，且推送成本随发版增量（通常 1-2 个 ref）。
+      # continue-on-error：refs 同步失败不阻断 Release 资产同步（两条链路互不依赖），
+      # 但失败会以 warning + error 注解暴露在本次 run 里，可勾选 push_refs 单独重跑。
+      - name: Sync git refs to AtomGit (branches + tags)
+        # 三条触发路径：① 发版自动链（release）；② push_refs 手动补推（顺带验写权限）；
+        # ③ refs_only 只同步代码（此时它是本次唯一的实质步骤）。
+        if: ${{ github.event_name == 'release' || github.event.inputs.push_refs == 'true' || github.event.inputs.refs_only == 'true' }}
+        # refs_only 模式下本步骤就是全部目标，失败必须硬失败；
+        # 其余场景（发版链 / 顺带补推）后面还有 Release 同步，refs 失败不应阻断它。
+        continue-on-error: ${{ github.event.inputs.refs_only != 'true' }}
+        env:
+          ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
+        run: |
+          # 手动补同步（push_refs / refs_only）时顺便验一次 Token 写权限：权限不足就直接给出
+          # 「勾选 write_repository」的明确指引，而不是等到发版当晚才暴露。
+          # release 自动链不加探针——正常路径零额外推送，真缺权限时脚本自己会在推 refs 前拦住。
+          REFS_ARGS=""
+          if [ "${{ github.event.inputs.push_refs }}" = "true" ] || [ "${{ github.event.inputs.refs_only }}" = "true" ]; then
+            REFS_ARGS="--probe-write"
+          fi
+          node scripts/sync-refs-to-atomgit.mjs $REFS_ARGS
+
+      # 等待 Release 资产清单稳定后再同步：release:published 在第一个构建 job 发布
+      # Release 时就触发，此时安装包 / runtime tgz / runner-node 往往只传了一部分；
+      # 不等待就会把半成品同步到 AtomGit（v0.7.5 旧敕）。对多个 tag 逐个等待。
+      # 手动触发（workflow_dispatch）通常用于补同步，资产已稳定，但同样走一遍窗口
+      # 只是立即生效（对每个 tag 也采样，稳定即过，不会白等）。
+      - name: Wait until release assets stop changing
+        # refs_only 不碰 Release，没有任何资产需要等
+        if: ${{ github.event.inputs.refs_only != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAGS: ${{ steps.resolve-tags.outputs.tags }}
+        run: |
+          deadline=$((SECONDS + ASSET_WAIT_DEADLINE_SECONDS))
+          for TAG in $(echo "$TAGS" | tr ',' ' '); do
+            stable=0
+            last_sig="__init__"
+            runtime_count=-1
+            echo "等待 ${TAG} 资产稳定（最长 ${ASSET_WAIT_DEADLINE_SECONDS}s）…"
+            while [ $SECONDS -lt $deadline ]; do
+              # 一次 API 调用同时取：全量签名单（名字+大小，任一变化都算在传）与
+              # runtime tgz 数量（预期 6 份：release.yml 产出 win32-x64/darwin-arm64/linux-x64/linux-arm64 4 份 + 本链补 win32-arm64/darwin-x64 2 份）。
+              sig=$(gh api "repos/${{ github.repository }}/releases/tags/${TAG}" \
+                --jq '[.assets[] | (.name + ":" + (.size | tostring))] | sort | join("|")' 2>/dev/null) || sig=""
+              runtime_count=$(gh api "repos/${{ github.repository }}/releases/tags/${TAG}" \
+                --jq '[.assets[] | select(.name | startswith("dsh-runtime-") and endswith(".tgz"))] | length' 2>/dev/null) || runtime_count=0
+              if [ -n "$sig" ] && [ "$sig" = "$last_sig" ] && [ "$runtime_count" -ge 6 ]; then
+                stable=$((stable + 1))
+              else
+                stable=0
+              fi
+              last_sig="$sig"
+              echo "  采样：资产签名长度 ${#sig}，runtime tgz ${runtime_count}/6，稳定计数 ${stable}/${ASSET_STABLE_REQUIRED}"
+              if [ "$stable" -ge "$ASSET_STABLE_REQUIRED" ]; then
+                echo "${TAG} 资产已稳定（runtime tgz ${runtime_count}/6）"
+                break
+              fi
+              sleep "$ASSET_POLL_INTERVAL_SECONDS"
+            done
+            if [ "$stable" -lt "$ASSET_STABLE_REQUIRED" ]; then
+              echo "::warning::${TAG} 资产清单在 ${ASSET_WAIT_DEADLINE_SECONDS}s 内未达到稳定（runtime tgz ${runtime_count}/6）。按当前资产继续同步；缺失部分可等 post-release-sidecars 完成后的再次触发或手动重跑本 workflow 补齐。"
+            fi
+          done
+
+      - name: AtomGit 官方代理解析加速（/etc/hosts）
+        # refs_only 不需要上传（走 git 协议，非对象存储），跳过
+        if: ${{ github.event.inputs.refs_only != 'true' }}
+        # AtomGit 官方提供的加速方案：runner 直连 AtomGit/GitCode 对象存储跨境上传极慢
+        # （实测 160MB 需 20-35 分钟），固定解析到官方代理 IP 后走优化线路。
+        # 仅 runner 内临时生效，不改仓库。
+        run: |
+          echo "159.138.147.37 api.atomgit.com" | sudo tee -a /etc/hosts
+          echo "159.138.147.37 file.atomgit.com" | sudo tee -a /etc/hosts
+          echo "159.138.147.37 file.gitcode.com" | sudo tee -a /etc/hosts
+          getent hosts api.atomgit.com file.atomgit.com file.gitcode.com
+
+      - name: Run sync script
+        # refs_only 的核心语义：跳过 Release 与附件同步
+        if: ${{ github.event.inputs.refs_only != 'true' }}
+        run: |
+          EXTRA_ARGS=""
+          if [ "${{ github.event.inputs.force_resync }}" = "true" ]; then
+            EXTRA_ARGS="--force-resync"
+          fi
+          node scripts/sync-release-to-atomgit.mjs --tags "${{ steps.resolve-tags.outputs.tags }}" --gh-repo "${{ github.repository }}" $EXTRA_ARGS
+        env:
+          ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

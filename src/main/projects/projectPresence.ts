@@ -30,32 +30,20 @@ export const defaultPathCheck: PathCheck = async (path) => {
  * 给项目列表附加存在性标记。chat 项目（userData 下自动创建）跳过；
  * 返回新数组（原对象不可变，missing 时浅拷贝加标记）。
  */
-export async function attachProjectPresence(
-	projects: readonly Project[],
-	checkPath: PathCheck = defaultPathCheck,
-	resolvePath: ProjectPathResolver = (project) => project.path,
-): Promise<Project[]> {
+export async function attachProjectPresence(projects: readonly Project[], checkPath: PathCheck = defaultPathCheck, resolvePath: ProjectPathResolver = (project) => project.path): Promise<Project[]> {
 	const results: Project[] = [];
 	for (const project of projects) {
 		if (project.kind === "chat" || !project.path) {
 			results.push(project);
 			continue;
 		}
-		results.push(
-			(await isProjectMissing(project, checkPath, resolvePath))
-				? { ...project, missing: true }
-				: project,
-		);
+		results.push((await isProjectMissing(project, checkPath, resolvePath)) ? { ...project, missing: true } : project);
 	}
 	return results;
 }
 
 /** 单个项目是否标记 missing：目录 stat 失败且确认不是环境不可达。 */
-async function isProjectMissing(
-	project: Project,
-	checkPath: PathCheck,
-	resolvePath: ProjectPathResolver,
-): Promise<boolean> {
+async function isProjectMissing(project: Project, checkPath: PathCheck, resolvePath: ProjectPathResolver): Promise<boolean> {
 	const hostPath = resolvePath(project);
 	if (await checkPath(hostPath)) return false;
 	// WSL 项目（UNC 路径）：stat 失败可能是发行版未启动（UNC 根不可达），

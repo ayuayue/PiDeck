@@ -12,35 +12,20 @@
  * 要求改 toast），失败提示就近展示（与头部保存按钮对照），底部保留运行日志诊断区。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, ChevronsUpDown, RefreshCw, Trash2 } from "lucide-react";
+import { Check, RefreshCw, Trash2 } from "lucide-react";
 import { t } from "../../../i18n";
-import { cn } from "../../../lib/utils";
 import { desktopApi } from "../../../desktopApi";
 import { showNotice } from "../../../utils/notice";
+import { useFavoriteModels } from "../../../hooks/useFavoriteModels";
 import { Button } from "../../ui-shadcn/button";
 import { Input } from "../../ui-shadcn/input";
 import { Textarea } from "../../ui-shadcn/textarea";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "../../ui-shadcn/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
 import { ModelPicker } from "../../session/ComposerComponents";
-import type {
-	AvailableModel,
-	VisionBridgeConfig,
-	VisionLogInfo,
-} from "../../../../../shared/types";
+import type { AvailableModel, VisionBridgeConfig, VisionLogInfo } from "../../../../../shared/types";
 import { SettingsSection } from "./SettingsStorageTab";
-import { SettingRow, SettingSwitchRow } from "./SettingRows";
-import {
-	DEFAULT_PROMPT,
-	DEFAULT_TIMEOUT_MS,
-	configFilePath,
-	emptyDraft,
-} from "./visionDraft.ts";
+import { SettingRow, SettingSwitchRow, SettingsModelPickerControl } from "./SettingRows";
+import { DEFAULT_PROMPT, DEFAULT_TIMEOUT_MS, configFilePath, emptyDraft } from "./visionDraft.ts";
 
 export type { VisionBridgeConfig, VisionBridgeState } from "../../../../../shared/types";
 export { useVisionBridgeDraft, DEFAULT_PROMPT, DEFAULT_TIMEOUT_MS, configFilePath, emptyDraft } from "./visionDraft.ts";
@@ -73,6 +58,8 @@ export function VisionBridgeSettingsTab(props: {
 	// 模型列表加载不出来时选择器里的刷新按钮可立即重试。
 	const [models, setModels] = useState<AvailableModel[]>([]);
 	const [modelsRefreshing, setModelsRefreshing] = useState(false);
+	// 收藏与输入框模型选择器同源（设置页各选择器都打开前重读，避免缓存不一致）
+	const { favoriteModels, refreshFavoriteModels, toggleFavorite } = useFavoriteModels();
 	const loadModels = useCallback(async (force = false) => {
 		if (force) setModelsRefreshing(true);
 		try {
@@ -95,6 +82,7 @@ export function VisionBridgeSettingsTab(props: {
 
 	const openPicker = async () => {
 		await loadModels();
+		await refreshFavoriteModels();
 		setPickerOpen(true);
 	};
 
@@ -123,10 +111,7 @@ export function VisionBridgeSettingsTab(props: {
 	}, [draft?.provider, draft?.model]);
 
 	/** 当前配置对应的模型能力（模型列表来自 pi --list-models 全量输出） */
-	const selectedModel = useMemo(
-		() => models.find((m) => m.provider === draft?.provider && m.id === draft?.model),
-		[models, draft?.provider, draft?.model],
-	);
+	const selectedModel = useMemo(() => models.find((m) => m.provider === draft?.provider && m.id === draft?.model), [models, draft?.provider, draft?.model]);
 
 	/** token 数转人类可读：1048576→"1M"，67109→"65.5K"，204800→"200K" */
 	const formatTokens = (n: number): string => {
@@ -139,14 +124,9 @@ export function VisionBridgeSettingsTab(props: {
 
 	return (
 		<div className="min-w-0">
-			<SettingsSection title={t("settings.vision.section")} description={t("settings.vision.sectionDesc")}>
+			<SettingsSection id="settings-section-vision-general" title={t("settings.vision.section")} description={t("settings.vision.sectionDesc")}>
 				{/* 总开关 */}
-				<SettingSwitchRow
-					title={t("settings.vision.enabled")}
-					description={t("settings.vision.enabledDesc")}
-					checked={draft?.enabled ?? true}
-					onChange={(checked) => updateDraft({ enabled: checked })}
-				/>
+				<SettingSwitchRow title={t("settings.vision.enabled")} description={t("settings.vision.enabledDesc")} checked={draft?.enabled ?? true} onChange={(checked) => updateDraft({ enabled: checked })} />
 
 				{/* 视觉模型选择：复用会话的 ModelPicker（全量模型，含 auth.json），
 				    是否支持视觉由用户自行判断，不做能力标注/过滤 */}
@@ -167,19 +147,9 @@ export function VisionBridgeSettingsTab(props: {
 								<span className="flex flex-wrap gap-x-3 gap-y-1">
 									{selectedModel ? (
 										<>
-											<span>
-												{selectedModel.images === true
-													? t("settings.vision.supportsImages")
-													: selectedModel.images === false
-														? t("settings.vision.unsupportedImages")
-														: t("settings.vision.capabilityUnknown")}
-											</span>
-											{selectedModel.contextWindow !== undefined && (
-												<span>{t("settings.vision.contextWindow", { size: formatTokens(selectedModel.contextWindow) })}</span>
-											)}
-											{selectedModel.maxTokens !== undefined && (
-												<span>{t("settings.vision.outputCap", { size: formatTokens(selectedModel.maxTokens) })}</span>
-											)}
+											<span>{selectedModel.images === true ? t("settings.vision.supportsImages") : selectedModel.images === false ? t("settings.vision.unsupportedImages") : t("settings.vision.capabilityUnknown")}</span>
+											{selectedModel.contextWindow !== undefined && <span>{t("settings.vision.contextWindow", { size: formatTokens(selectedModel.contextWindow) })}</span>}
+											{selectedModel.maxTokens !== undefined && <span>{t("settings.vision.outputCap", { size: formatTokens(selectedModel.maxTokens) })}</span>}
 											{selectedModel.reasoning && <span>{t("settings.vision.thinking")}</span>}
 										</>
 									) : (
@@ -193,38 +163,12 @@ export function VisionBridgeSettingsTab(props: {
 						) : undefined
 					}
 				>
-					<Button
-						type="button"
-						variant="outline"
-						className="w-full justify-between font-mono text-control"
-						/* provider/model 是不可断行 token（/ 与 - 都不产生换行机会），
-						   长模型名靠 min-w-0 truncate 收在按钮内省略号截断，
-						   悬停 title 显示完整引用；未选择时不挂 title，避免空 tooltip。 */
-						title={selectedModelLabel || undefined}
-						onClick={openPicker}
-					>
-						<span
-							className={cn(
-								"min-w-0 truncate",
-								!selectedModelLabel && "text-muted-foreground",
-							)}
-						>
-							{selectedModelLabel || t("settings.vision.modelPlaceholder")}
-						</span>
-						<ChevronsUpDown size={14} className="flex-none opacity-60" aria-hidden />
-					</Button>
+					<SettingsModelPickerControl value={selectedModelLabel} placeholder={t("settings.vision.modelPlaceholder")} onOpen={openPicker} onClear={() => updateDraft({ provider: "", model: "" })} />
 				</SettingRow>
 
 				{/* API 格式（一般自动推断） */}
-				<SettingRow
-					title={<span>{t("settings.vision.api")}</span>}
-					description={t("settings.vision.apiDesc")}
-					alignEnd={false}
-				>
-					<Select
-						value={draft?.api ?? "auto"}
-						onValueChange={(api) => updateDraft({ api: api === "auto" ? undefined : (api as VisionBridgeConfig["api"]) })}
-					>
+				<SettingRow title={<span>{t("settings.vision.api")}</span>} description={t("settings.vision.apiDesc")} alignEnd={false}>
+					<Select value={draft?.api ?? "auto"} onValueChange={(api) => updateDraft({ api: api === "auto" ? undefined : (api as VisionBridgeConfig["api"]) })}>
 						<SelectTrigger className="w-full">
 							<SelectValue />
 						</SelectTrigger>
@@ -238,37 +182,16 @@ export function VisionBridgeSettingsTab(props: {
 				</SettingRow>
 
 				{/* 可选覆盖项 */}
-				<SettingRow
-					title={<span>{t("settings.vision.baseUrl")}</span>}
-					description={t("settings.vision.baseUrlDesc")}
-					stacked
-				>
-					<Input
-						value={draft?.baseUrl ?? ""}
-						placeholder="https://open.bigmodel.cn/api/paas/v4"
-						onChange={(event) => updateDraft({ baseUrl: event.target.value || undefined })}
-					/>
+				<SettingRow title={<span>{t("settings.vision.baseUrl")}</span>} description={t("settings.vision.baseUrlDesc")} stacked>
+					<Input value={draft?.baseUrl ?? ""} placeholder="https://open.bigmodel.cn/api/paas/v4" onChange={(event) => updateDraft({ baseUrl: event.target.value || undefined })} />
 				</SettingRow>
 
-				<SettingRow
-					title={<span>{t("settings.vision.apiKey")}</span>}
-					description={t("settings.vision.apiKeyDesc")}
-					stacked
-				>
-					<Input
-						type="password"
-						value={draft?.apiKey ?? ""}
-						onChange={(event) => updateDraft({ apiKey: event.target.value || undefined })}
-					/>
+				<SettingRow title={<span>{t("settings.vision.apiKey")}</span>} description={t("settings.vision.apiKeyDesc")} stacked>
+					<Input type="password" value={draft?.apiKey ?? ""} onChange={(event) => updateDraft({ apiKey: event.target.value || undefined })} />
 				</SettingRow>
 
 				{/* 描述最大 token：下拉「不限制 / 自定义」；不限制时不传该字段，Anthropic 必填则请求侧兜底 1024 */}
-				<SettingRow
-					title={<span>{t("settings.vision.maxTokens")}</span>}
-					description={t("settings.vision.maxTokensDesc")}
-					alignEnd={false}
-					stacked
-				>
+				<SettingRow title={<span>{t("settings.vision.maxTokens")}</span>} description={t("settings.vision.maxTokensDesc")} alignEnd={false} stacked>
 					<div className="flex w-full items-start gap-2">
 						{/* 0/undefined 一律视为「不限制」；>0 为手动限制值 */}
 						{(() => {
@@ -295,41 +218,19 @@ export function VisionBridgeSettingsTab(props: {
 											<SelectItem value="custom">{t("settings.vision.maxTokensCustom")}</SelectItem>
 										</SelectContent>
 									</Select>
-									{custom && (
-										<Input
-											type="number"
-											min={1}
-											max={32768}
-											className="w-32 shrink-0"
-											value={maxTokens}
-											onChange={(event) => updateDraft({ maxTokens: Number(event.target.value) || undefined })}
-										/>
-									)}
+									{custom && <Input type="number" min={1} max={32768} className="w-32 shrink-0" value={maxTokens} onChange={(event) => updateDraft({ maxTokens: Number(event.target.value) || undefined })} />}
 								</>
 							);
 						})()}
 					</div>
 				</SettingRow>
-				<SettingRow
-					title={<span>{t("settings.vision.concurrency")}</span>}
-					alignEnd={false}
-				>
-					<Input
-						type="number"
-						min={1}
-						max={16}
-						value={draft?.concurrency ?? 2}
-						onChange={(event) => updateDraft({ concurrency: Number(event.target.value) || undefined })}
-					/>
+				<SettingRow title={<span>{t("settings.vision.concurrency")}</span>} alignEnd={false}>
+					<Input type="number" min={1} max={16} value={draft?.concurrency ?? 2} onChange={(event) => updateDraft({ concurrency: Number(event.target.value) || undefined })} />
 				</SettingRow>
 
 				{/* 单图转换超时：UI 以秒为单位（用户直觉），落盘转毫秒与配置文件/扩展一致；
 				    清空/非法输入回退默认（undefined → 展示层回显默认值）。 */}
-				<SettingRow
-					title={<span>{t("settings.vision.timeout")}</span>}
-					description={t("settings.vision.timeoutDesc")}
-					alignEnd={false}
-				>
+				<SettingRow title={<span>{t("settings.vision.timeout")}</span>} description={t("settings.vision.timeoutDesc")} alignEnd={false}>
 					<Input
 						type="number"
 						min={1}
@@ -338,24 +239,15 @@ export function VisionBridgeSettingsTab(props: {
 						onChange={(event) => {
 							const seconds = Number(event.target.value);
 							updateDraft({
-								timeoutMs:
-									Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1000) : undefined,
+								timeoutMs: Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1000) : undefined,
 							});
 						}}
 					/>
 				</SettingRow>
 
 				{/* 提示词模板 + 恢复默认 */}
-				<SettingRow
-					title={<span>{t("settings.vision.promptTemplate")}</span>}
-					description={t("settings.vision.promptTemplateDesc")}
-					stacked
-				>
-					<Textarea
-						rows={6}
-						value={draft?.promptTemplate ?? DEFAULT_PROMPT}
-						onChange={(event) => updateDraft({ promptTemplate: event.target.value })}
-					/>
+				<SettingRow title={<span>{t("settings.vision.promptTemplate")}</span>} description={t("settings.vision.promptTemplateDesc")} stacked>
+					<Textarea rows={6} value={draft?.promptTemplate ?? DEFAULT_PROMPT} onChange={(event) => updateDraft({ promptTemplate: event.target.value })} />
 					<div className="pt-2">
 						<Button variant="outline" size="sm" onClick={() => updateDraft({ promptTemplate: DEFAULT_PROMPT })}>
 							{t("settings.vision.promptDefault")}
@@ -365,17 +257,10 @@ export function VisionBridgeSettingsTab(props: {
 			</SettingsSection>
 
 			{/* 配置文件位置说明：扩展与 PiDeck 共享 */}
-			<SettingsSection
-				title={t("settings.vision.configFile")}
-				description={
-					<code className="break-all text-caption text-muted-foreground">
-						{configDir ? configFilePath(configDir) : ""}
-					</code>
-				}
-			/>
+			<SettingsSection id="settings-section-vision-config-file" title={t("settings.vision.configFile")} description={<code className="break-all text-caption text-muted-foreground">{configDir ? configFilePath(configDir) : ""}</code>} />
 
 			{/* 运行记录诊断区：发一张图 → 回来刷新，即可确认视觉桥是否真的生效 */}
-			<SettingsSection title={t("settings.vision.logSection")} description={t("settings.vision.logSectionDesc")}>
+			<SettingsSection id="settings-section-vision-logs" title={t("settings.vision.logSection")} description={t("settings.vision.logSectionDesc")}>
 				<div className="flex items-center gap-2 px-0.5 pb-2">
 					<Button variant="outline" size="sm" onClick={loadLog}>
 						<RefreshCw size={12} aria-hidden />
@@ -399,9 +284,7 @@ export function VisionBridgeSettingsTab(props: {
 						</small>
 					)}
 				</div>
-				<pre className="m-0 max-h-[220px] overflow-auto whitespace-pre-wrap break-all rounded-md bg-bg-muted p-3 text-caption leading-relaxed text-text-secondary">
-					{logInfo?.exists && logInfo.content ? logInfo.content : t("settings.vision.logEmpty")}
-				</pre>
+				<pre className="m-0 max-h-[220px] overflow-auto whitespace-pre-wrap break-all rounded-md bg-bg-muted p-3 text-caption leading-relaxed text-text-secondary">{logInfo?.exists && logInfo.content ? logInfo.content : t("settings.vision.logEmpty")}</pre>
 			</SettingsSection>
 
 			{/* 保存失败提示：成功走全局 toast（showNotice），失败就近展示便于与头部保存按钮对照 */}
@@ -419,8 +302,8 @@ export function VisionBridgeSettingsTab(props: {
 					refreshing={modelsRefreshing}
 					onRefresh={() => void loadModels(true)}
 					current={draft?.provider ? { provider: draft.provider, modelId: draft.model } : undefined}
-					favoriteModels={[]}
-					onToggleFavorite={() => undefined}
+					favoriteModels={favoriteModels}
+					onToggleFavorite={toggleFavorite}
 					onPick={onPickModel}
 					onClose={() => setPickerOpen(false)}
 				/>

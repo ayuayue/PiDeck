@@ -22,10 +22,7 @@ export function parseClockToMinutes(value: string | undefined): number | undefin
 }
 
 /** 规范化为 HH:mm；非法回落到默认。 */
-export function normalizeClockTime(
-	value: string | undefined,
-	fallback: string,
-): string {
+export function normalizeClockTime(value: string | undefined, fallback: string): string {
 	const minutes = parseClockToMinutes(value);
 	if (minutes === undefined) return fallback;
 	const hours = Math.floor(minutes / 60);
@@ -33,10 +30,7 @@ export function normalizeClockTime(
 	return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
 }
 
-export function normalizeThemeSchedule(input: {
-	lightStart?: string;
-	darkStart?: string;
-}): { lightStart: string; darkStart: string } {
+export function normalizeThemeSchedule(input: { lightStart?: string; darkStart?: string }): { lightStart: string; darkStart: string } {
 	return {
 		lightStart: normalizeClockTime(input.lightStart, DEFAULT_THEME_SCHEDULE_LIGHT_START),
 		darkStart: normalizeClockTime(input.darkStart, DEFAULT_THEME_SCHEDULE_DARK_START),
@@ -51,11 +45,7 @@ function minutesOfDay(date: Date): number {
  * 当前时刻是否落在浅色窗口 [lightStart, darkStart)。
  * darkStart 可小于 lightStart（跨午夜）。
  */
-export function isLightScheduleWindow(
-	now: Date,
-	lightStart: string,
-	darkStart: string,
-): boolean {
+export function isLightScheduleWindow(now: Date, lightStart: string, darkStart: string): boolean {
 	const schedule = normalizeThemeSchedule({ lightStart, darkStart });
 	const light = parseClockToMinutes(schedule.lightStart) ?? 7 * 60;
 	const dark = parseClockToMinutes(schedule.darkStart) ?? 19 * 60;
@@ -65,11 +55,7 @@ export function isLightScheduleWindow(
 	return current >= light || current < dark;
 }
 
-export function resolveScheduledTheme(
-	now: Date,
-	lightStart: string,
-	darkStart: string,
-): "light" | "dark" {
+export function resolveScheduledTheme(now: Date, lightStart: string, darkStart: string): "light" | "dark" {
 	return isLightScheduleWindow(now, lightStart, darkStart) ? "light" : "dark";
 }
 
@@ -79,30 +65,16 @@ export type ResolvedAppColorScheme = "light" | "dark";
  * 把用户主题设置解析成实际 light/dark。
  * system 跟 OS；schedule 跟本地时钟；其余原样。
  */
-export function resolveAppColorScheme(input: {
-	theme: string;
-	themeScheduleLightStart?: string;
-	themeScheduleDarkStart?: string;
-	systemPrefersDark?: boolean;
-	now?: Date;
-}): ResolvedAppColorScheme {
+export function resolveAppColorScheme(input: { theme: string; themeScheduleLightStart?: string; themeScheduleDarkStart?: string; systemPrefersDark?: boolean; now?: Date }): ResolvedAppColorScheme {
 	if (input.theme === "light" || input.theme === "dark") return input.theme;
 	if (input.theme === "schedule") {
-		return resolveScheduledTheme(
-			input.now ?? new Date(),
-			input.themeScheduleLightStart ?? DEFAULT_THEME_SCHEDULE_LIGHT_START,
-			input.themeScheduleDarkStart ?? DEFAULT_THEME_SCHEDULE_DARK_START,
-		);
+		return resolveScheduledTheme(input.now ?? new Date(), input.themeScheduleLightStart ?? DEFAULT_THEME_SCHEDULE_LIGHT_START, input.themeScheduleDarkStart ?? DEFAULT_THEME_SCHEDULE_DARK_START);
 	}
 	return input.systemPrefersDark ? "dark" : "light";
 }
 
 /** 距下一次浅色/暗色切换的毫秒数；至少 1s，避免卡在边界上连触发。 */
-export function msUntilNextThemeBoundary(
-	now: Date,
-	lightStart: string,
-	darkStart: string,
-): number {
+export function msUntilNextThemeBoundary(now: Date, lightStart: string, darkStart: string): number {
 	const schedule = normalizeThemeSchedule({ lightStart, darkStart });
 	const light = parseClockToMinutes(schedule.lightStart) ?? 7 * 60;
 	const dark = parseClockToMinutes(schedule.darkStart) ?? 19 * 60;

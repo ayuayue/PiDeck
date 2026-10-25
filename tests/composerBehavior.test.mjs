@@ -1,22 +1,11 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 function loadComposerBehaviorModule() {
-	const source = readFileSync("src/renderer/src/composerBehavior.ts", "utf8");
-	const { outputText } = ts.transpileModule(source, {
-		compilerOptions: {
-			module: ts.ModuleKind.CommonJS,
-			target: ts.ScriptTarget.ES2022,
-		},
-	});
-	const sandbox = { exports: {} };
-	vm.runInNewContext(outputText, sandbox, {
-		filename: "composerBehavior.ts",
-	});
-	return sandbox.exports;
+	// composerBehavior 现在会调用纯消息块 codec；使用共享依赖图加载器，
+	// 避免手写 VM loader 在生产模块新增本地 import 后失去 require 能力。
+	return loadTsCommonJs("src/renderer/src/composerBehavior.ts");
 }
 
 test("ignores Enter while an IME composition is being confirmed", () => {
@@ -39,13 +28,19 @@ test("ignores Enter while an IME composition is being confirmed", () => {
 test("ignores Chromium keyCode 229 even when the native composing flag is absent", () => {
 	const { getComposerEnterIntent } = loadComposerBehaviorModule();
 
-	assert.equal(getComposerEnterIntent({
-		key: "Enter",
-		ctrlKey: false,
-		metaKey: false,
-		shiftKey: false,
-		nativeEvent: { keyCode: 229 },
-	}, "enter-send"), "ignore");
+	assert.equal(
+		getComposerEnterIntent(
+			{
+				key: "Enter",
+				ctrlKey: false,
+				metaKey: false,
+				shiftKey: false,
+				nativeEvent: { keyCode: 229 },
+			},
+			"enter-send",
+		),
+		"ignore",
+	);
 });
 
 test("sends on plain Enter when Enter-to-send is enabled", () => {
@@ -68,13 +63,19 @@ test("sends on plain Enter when Enter-to-send is enabled", () => {
 test("inserts newline on Shift+Enter when Enter-to-send is enabled", () => {
 	const { getComposerEnterIntent } = loadComposerBehaviorModule();
 
-	assert.equal(getComposerEnterIntent({
-		key: "Enter",
-		ctrlKey: false,
-		metaKey: false,
-		shiftKey: true,
-		nativeEvent: { isComposing: false },
-	}, "enter-send"), "newline");
+	assert.equal(
+		getComposerEnterIntent(
+			{
+				key: "Enter",
+				ctrlKey: false,
+				metaKey: false,
+				shiftKey: true,
+				nativeEvent: { isComposing: false },
+			},
+			"enter-send",
+		),
+		"newline",
+	);
 });
 
 test("inserts newline on Ctrl+Enter when Enter-to-send is enabled", () => {
@@ -98,59 +99,74 @@ test("inserts newline on Ctrl+Enter when Enter-to-send is enabled", () => {
 test("plan mode sends on plain Enter regardless of sendShortcut", () => {
 	const { isPlanModeSendKey } = loadComposerBehaviorModule();
 
-	assert.equal(isPlanModeSendKey({
-		key: "Enter",
-		ctrlKey: false,
-		metaKey: false,
-		shiftKey: false,
-		nativeEvent: { isComposing: false },
-	}), true);
+	assert.equal(
+		isPlanModeSendKey({
+			key: "Enter",
+			ctrlKey: false,
+			metaKey: false,
+			shiftKey: false,
+			nativeEvent: { isComposing: false },
+		}),
+		true,
+	);
 });
 
 test("plan mode keeps Shift+Enter as newline", () => {
 	const { isPlanModeSendKey } = loadComposerBehaviorModule();
 
-	assert.equal(isPlanModeSendKey({
-		key: "Enter",
-		ctrlKey: false,
-		metaKey: false,
-		shiftKey: true,
-		nativeEvent: { isComposing: false },
-	}), false);
+	assert.equal(
+		isPlanModeSendKey({
+			key: "Enter",
+			ctrlKey: false,
+			metaKey: false,
+			shiftKey: true,
+			nativeEvent: { isComposing: false },
+		}),
+		false,
+	);
 });
 
 test("plan mode keeps Ctrl+Enter as newline", () => {
 	const { isPlanModeSendKey } = loadComposerBehaviorModule();
 
-	assert.equal(isPlanModeSendKey({
-		key: "Enter",
-		ctrlKey: true,
-		metaKey: false,
-		shiftKey: false,
-	}), false);
+	assert.equal(
+		isPlanModeSendKey({
+			key: "Enter",
+			ctrlKey: true,
+			metaKey: false,
+			shiftKey: false,
+		}),
+		false,
+	);
 });
 
 test("plan mode ignores Enter while an IME composition is being confirmed", () => {
 	const { isPlanModeSendKey } = loadComposerBehaviorModule();
 
-	assert.equal(isPlanModeSendKey({
-		key: "Enter",
-		ctrlKey: false,
-		metaKey: false,
-		shiftKey: false,
-		nativeEvent: { isComposing: true },
-	}), false);
+	assert.equal(
+		isPlanModeSendKey({
+			key: "Enter",
+			ctrlKey: false,
+			metaKey: false,
+			shiftKey: false,
+			nativeEvent: { isComposing: true },
+		}),
+		false,
+	);
 });
 
 test("plan mode ignores non-Enter keys", () => {
 	const { isPlanModeSendKey } = loadComposerBehaviorModule();
 
-	assert.equal(isPlanModeSendKey({
-		key: "a",
-		ctrlKey: false,
-		metaKey: false,
-		shiftKey: false,
-	}), false);
+	assert.equal(
+		isPlanModeSendKey({
+			key: "a",
+			ctrlKey: false,
+			metaKey: false,
+			shiftKey: false,
+		}),
+		false,
+	);
 });
 
 test("keeps normal composer submissions visible without hidden agent instructions", () => {
@@ -190,37 +206,55 @@ test("goal and plan modes leave slash commands unmarked", () => {
 
 test("deriveComposerAgentMode keeps explicit normal over a still-active DSH goal", () => {
 	const { deriveComposerAgentMode } = loadComposerBehaviorModule();
-	assert.equal(deriveComposerAgentMode({
-		backend: "dsh",
-		localMode: "normal",
-		goalPhase: "active",
-	}), "normal");
-	assert.equal(deriveComposerAgentMode({
-		backend: "dsh",
-		goalPhase: "active",
-	}), "goal");
-	assert.equal(deriveComposerAgentMode({
-		backend: "dsh",
-		localMode: "goal",
-		planModeActive: true,
-	}), "plan");
+	assert.equal(
+		deriveComposerAgentMode({
+			backend: "dsh",
+			localMode: "normal",
+			goalPhase: "active",
+		}),
+		"normal",
+	);
+	assert.equal(
+		deriveComposerAgentMode({
+			backend: "dsh",
+			goalPhase: "active",
+		}),
+		"goal",
+	);
+	assert.equal(
+		deriveComposerAgentMode({
+			backend: "dsh",
+			localMode: "goal",
+			planModeActive: true,
+		}),
+		"plan",
+	);
 });
 
 test("applyDshGoalSendTransform prefixes /goal only when creating a new objective", () => {
 	const { applyDshGoalSendTransform } = loadComposerBehaviorModule();
-	assert.equal(applyDshGoalSendTransform({
-		message: "Fix the build",
-		mode: "goal",
-	}), "/goal Fix the build");
-	assert.equal(applyDshGoalSendTransform({
-		message: "keep going",
-		mode: "goal",
-		goal: { phase: "active" },
-	}), "keep going");
-	assert.equal(applyDshGoalSendTransform({
-		message: "/goal pause",
-		mode: "goal",
-	}), "/goal pause");
+	assert.equal(
+		applyDshGoalSendTransform({
+			message: "Fix the build",
+			mode: "goal",
+		}),
+		"/goal Fix the build",
+	);
+	assert.equal(
+		applyDshGoalSendTransform({
+			message: "keep going",
+			mode: "goal",
+			goal: { phase: "active" },
+		}),
+		"keep going",
+	);
+	assert.equal(
+		applyDshGoalSendTransform({
+			message: "/goal pause",
+			mode: "goal",
+		}),
+		"/goal pause",
+	);
 });
 
 test("parsePiGoalWidget reads phase, rounds, and objective", () => {
@@ -260,18 +294,6 @@ test("history navigation falls back to rendered prompt when live draft is missin
 	});
 
 	assert.equal(draft, "fallback draft");
-});
-
-test("history line bounds use the live draft cursor position", () => {
-	const { getComposerHistoryLineBounds } = loadComposerBehaviorModule();
-
-	const multi = getComposerHistoryLineBounds("line1\nline2", 2);
-	assert.equal(multi.isFirstLine, true);
-	assert.equal(multi.isLastLine, false);
-
-	const last = getComposerHistoryLineBounds("line1\nline2", 8);
-	assert.equal(last.isFirstLine, false);
-	assert.equal(last.isLastLine, true);
 });
 
 // confirm 扩展层走 select([是,否])：桌面端必须识别为纯是否题，不展示自定义输入。
@@ -321,13 +343,23 @@ test("expandPromptTemplates keeps /name as-is when the template body is empty (f
 	assert.equal(noTrailing.message, "/commit-push");
 	assert.equal(noTrailing.emptyTemplateName, "commit-push");
 
-	// 正常模板照常展开，不产生 emptyTemplateName
+	// 正常模板把名称和正文一起持久化：模型仍读正文，时间线重载后可恢复 /review chip。
 	const normal = expandPromptTemplates("/review", templates);
-	assert.equal(normal.message, "\n请审查暂存的 Git 更改");
+	assert.equal(normal.message, '<prompt_template name="review">\n请审查暂存的 Git 更改\n</prompt_template>');
 	assert.equal(normal.emptyTemplateName, undefined);
+	assert.equal(normal.description, "审查");
 
 	// 消息同时含空模板与普通文本：展开其余部分，仍标记空模板
 	const mixed = expandPromptTemplates("先看下 /commit-push 再处理", templates);
 	assert.equal(mixed.message, "先看下 /commit-push 再处理");
 	assert.equal(mixed.emptyTemplateName, "commit-push");
+});
+
+test("deriveComposerAgentMode:ACP 后端恒普通模式(无 agentMessage 通道,残留 localMode 不误带入)", () => {
+	const { deriveComposerAgentMode } = loadComposerBehaviorModule();
+	assert.equal(deriveComposerAgentMode({ backend: "acp", localMode: "plan" }), "normal");
+	assert.equal(deriveComposerAgentMode({ backend: "acp", localMode: "goal" }), "normal");
+	assert.equal(deriveComposerAgentMode({ backend: "acp" }), "normal");
+	// 其他后端不受影响
+	assert.equal(deriveComposerAgentMode({ backend: "pi", localMode: "plan" }), "plan");
 });

@@ -30,24 +30,15 @@ test("非最后一个 agent-run + 空文本骨架 + 活动流 → 不挂载（st
 });
 
 test("非最后一个 agent-run 即使 agentRunning/isStreaming 也不挂载", () => {
-	assert.equal(
-		resolveLiveInterimId({ ...base, isLastAgentRun: false, agentRunning: true, isStreaming: true }),
-		undefined,
-	);
+	assert.equal(resolveLiveInterimId({ ...base, isLastAgentRun: false, agentRunning: true, isStreaming: true }), undefined);
 });
 
 test("最后一个 agent-run + 已落定正文 + 流式中 → 保持挂载", () => {
-	assert.equal(
-		resolveLiveInterimId({ ...base, lastMessageText: "已落定的正文", isStreaming: true }),
-		"msg-1",
-	);
+	assert.equal(resolveLiveInterimId({ ...base, lastMessageText: "已落定的正文", isStreaming: true }), "msg-1");
 });
 
 test("最后一个 agent-run + 已落定正文 + 无流式 → 不挂载（settled，落回容器内渲染）", () => {
-	assert.equal(
-		resolveLiveInterimId({ ...base, lastMessageText: "已落定的正文" }),
-		undefined,
-	);
+	assert.equal(resolveLiveInterimId({ ...base, lastMessageText: "已落定的正文" }), undefined);
 });
 
 test("无活动流 → 不挂载", () => {

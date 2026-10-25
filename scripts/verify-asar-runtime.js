@@ -27,34 +27,10 @@ if (!fs.existsSync(asarPath)) {
 // 注意：@deepseek-ai/* 与 dsh-bill/dsh-tool-pwsh-persistent 已依赖分区（仅 devDependencies），
 // 不进 app.asar——它们的加载锚点在外部 runtime（resources/dsh-runtime 归档 / userData 已装目录），
 // 归档完整性由 scripts/check-dsh-asar.mjs + check-dsh-boot.mjs 守护，这里不再断言。
-const MUST_KEEP = [
-	"node-pty",
-	"sql.js",
-	"@larksuiteoapi/node-sdk",
-	"@img/sharp-win32-x64",
-	"@vscode/ripgrep-win32-x64",
-	"openai",
-	"@anthropic-ai/sdk",
-	"@mistralai/mistralai",
-	"@google/genai",
-	"zod",
-	"undici",
-	"@electron-toolkit/utils",
-	"koffi",
-];
+const MUST_KEEP = ["node-pty", "sql.js", "@larksuiteoapi/node-sdk", "@img/sharp-win32-x64", "@vscode/ripgrep-win32-x64", "openai", "@anthropic-ai/sdk", "@mistralai/mistralai", "@google/genai", "zod", "undici", "@electron-toolkit/utils", "koffi"];
 
 // 已知冗余（已打进 out/renderer）：抽样式验证排除规则确实生效
-const SHOULD_BE_GONE = [
-	"date-fns",
-	"recharts",
-	"shiki",
-	"framer-motion",
-	"@reduxjs/toolkit",
-	"@tiptap/core",
-	"prosemirror-view",
-	"pngjs",
-	"linkifyjs",
-];
+const SHOULD_BE_GONE = ["date-fns", "recharts", "shiki", "framer-motion", "@reduxjs/toolkit", "@tiptap/core", "prosemirror-view", "pngjs", "linkifyjs"];
 
 // 主进程模型目录是 extraResources，不再依赖根 pi-ai SDK；DSH 自身的 pi-ai
 // 仍由 @deepseek-ai 闭包按需保留，不能把它当作 PiDeck 主进程的 MUST_KEEP 根。
@@ -77,20 +53,23 @@ function has(pkgName) {
 
 /** 读取 asar 内所有 pi-ai package.json，兼容 Windows 的反斜杠目录表。 */
 function piAiVersionsInAsar() {
-	return Array.from(new Set(
-		asar.listPackage(asarPath)
-			.filter((listedPath) => listedPath.replace(/[\\/]/g, "/").endsWith("/node_modules/@earendil-works/pi-ai/package.json"))
-			.map((listedPath) => {
-				try {
-					const relativePath = listedPath.replace(/^[\\/]+/, "");
-					const pkg = JSON.parse(asar.extractFile(asarPath, relativePath).toString("utf8"));
-					return typeof pkg.version === "string" ? pkg.version : undefined;
-				} catch {
-					return undefined;
-				}
-			})
-			.filter(Boolean),
-	));
+	return Array.from(
+		new Set(
+			asar
+				.listPackage(asarPath)
+				.filter((listedPath) => listedPath.replace(/[\\/]/g, "/").endsWith("/node_modules/@earendil-works/pi-ai/package.json"))
+				.map((listedPath) => {
+					try {
+						const relativePath = listedPath.replace(/^[\\/]+/, "");
+						const pkg = JSON.parse(asar.extractFile(asarPath, relativePath).toString("utf8"));
+						return typeof pkg.version === "string" ? pkg.version : undefined;
+					} catch {
+						return undefined;
+					}
+				})
+				.filter(Boolean),
+		),
+	);
 }
 
 function catalogSourceVersion() {

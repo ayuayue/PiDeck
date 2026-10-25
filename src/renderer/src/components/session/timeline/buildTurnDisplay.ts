@@ -18,18 +18,25 @@
  * 由 turn/TurnRow 渲染成「一个汇总按钮 + 步骤原位穿插 + 回答常驻」。
  */
 import type { AgentRunItem, ThinkingGroupItem } from "../../app/AppUtils";
+import type { ChatMessage } from "../../../../../shared/types";
 import type { TurnDisplayItem } from "./types";
+// 显式 .ts 扩展名兼容 Node type stripping 直接加载的单测。
+import { cleanAnswerText } from "./answerText.ts";
 
-/* 内联 strip 工具：本模块零运行时依赖（node 单测直接加载 .ts，
- * 无扩展名相对 import 在 node ESM 下不可解析；与 TimelineFormat.ts 同逻辑，改动需同步）。 */
+/* 思考步骤只去控制码，不应用正文的思考标签过滤。 */
 const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
 
 function stripAnsi(text: string): string {
 	return text.replace(ANSI_RE, "");
 }
 
-function stripThinkingTags(text: string): string {
-	return text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim();
+/** 重试状态消息判定（内联副本）：与 timelineFailureNotice.RETRY_STATUS_KEYS 同口径。
+ * 本模块被 node 单测直接加载，不能引入带 React/i18n 依赖的运行时模块。 */
+const RETRY_STATUS_I18N_KEYS = new Set(["diagnostic.retryScheduled", "diagnostic.retryScheduledAfterDelay", "diagnostic.retrySucceeded", "diagnostic.retryFailed"]);
+
+function isRetryStatusMessage(message: ChatMessage): boolean {
+	const key = message.meta?.i18nKey;
+	return typeof key === "string" && RETRY_STATUS_I18N_KEYS.has(key);
 }
 
 export function buildTurnDisplay(
@@ -70,15 +77,31 @@ export function buildTurnDisplay(
 			});
 			return;
 		}
+		if (item.kind === "retry-group") {
+			// 自动重试状态：作为过程行展示（run 内 upsert 同 id），无需展开思考等逻辑
+			if (isRetryStatusMessage(item.message)) {
+				items.push({ kind: "process-entry", entry: { kind: "retry-entry", id: item.id, message: item.message } });
+			}
+			return;
+		}
+		if (item.kind === "error-group") {
+			// 错误诊断：与重试行同层的过程行（可点开看 debugDetails 具体错误）
+			if (item.message.role === "error") {
+				items.push({ kind: "process-entry", entry: { kind: "error-entry", id: item.id, message: item.message } });
+			}
+			return;
+		}
+		if (item.kind === "extension-entries") {
+			// 扩展输出：过程组成员行（折进大折叠栏，用户决策 2026-10：不单独成块）
+			items.push({ kind: "process-entry", entry: { kind: "extension-entry", id: item.id, messages: item.messages } });
+			return;
+		}
 		if (item.kind !== "message" || item.message.role !== "assistant") return;
 		// 消息自带的思考 / live 同 id：插到该回答之前（思考→回答时序）。
 		// Live 时 text 可空，叶子 ThinkingStep 从 streamingThinkingByIdAtom 填。
 		const thinkingId = `msg-thinking-${item.message.id}`;
 		const isLive = Boolean(liveThinkingId && liveThinkingId === thinkingId);
-		const thinking =
-			showThinking && item.message.thinking?.trim()
-				? stripAnsi(item.message.thinking)
-				: "";
+		const thinking = showThinking && item.message.thinking?.trim() ? stripAnsi(item.message.thinking) : "";
 		if (thinking || (showThinking && isLive)) {
 			pushThinking(
 				{
@@ -87,15 +110,8 @@ export function buildTurnDisplay(
 					id: thinkingId,
 					messages: [item.message],
 					text: thinking,
-					startedAt:
-						item.message.thinkingStartedAt ??
-						item.message.timestamp ??
-						run.startedAt,
-					endedAt: isLive
-						? 0
-						: (item.message.thinkingEndedAt ??
-							item.message.timestamp ??
-							run.endedAt),
+					startedAt: item.message.thinkingStartedAt ?? item.message.timestamp ?? run.startedAt,
+					endedAt: isLive ? 0 : (item.message.thinkingEndedAt ?? item.message.timestamp ?? run.endedAt),
 				},
 				true,
 			);
@@ -103,7 +119,7 @@ export function buildTurnDisplay(
 		// 空文本消息：始终保留 interim 挂载点（Live 正文走独立通道，骨架可为空）。
 		// 旧逻辑在 isComplete 时跳过空文本，会导致 agentRunning 判定滞后时整段无挂载、
 		// 只能等 message_end 才突然出现最终回答（打字机 E2E 采不到 .execution-interim）。
-		const text = stripThinkingTags(stripAnsi(item.message.text)).trim();
+		const text = cleanAnswerText(item.message.text);
 		const hasImages = Boolean(item.message.images?.length);
 		// 生图消息（meta.imageGen 存在）：即使生成中 text/images 都为空，也不能降级为
 		// interim 挂载点——它需要走 final-answer 才能由 FinalAnswer 渲染生图动画/结果。
@@ -122,11 +138,7 @@ export function buildTurnDisplay(
 		// - 无 stopReason / pending（骨架占位残留）：回退启发式（历史旧数据兼容）。
 		// 位置守卫防御异常数据（stop 消息后仍有条目）：保证每 run 至多一个 final-answer。
 		const isRunTail = isComplete && index === run.items.length - 1;
-		const isFinal =
-			isRunTail &&
-			(item.message.stopReason === "stop" ||
-				!item.message.stopReason ||
-				item.message.stopReason === "pending");
+		const isFinal = isRunTail && (item.message.stopReason === "stop" || !item.message.stopReason || item.message.stopReason === "pending");
 		if (isFinal) {
 			items.push({ kind: "final-answer", id: item.message.id, message: item.message });
 		} else {
@@ -141,9 +153,9 @@ export function buildTurnDisplay(
 export function hasFoldableContent(items: TurnDisplayItem[]): boolean {
 	return items.some((item) => {
 		if (item.kind === "final-answer") return false;
-		// 空文本 interim（live 挂载点/错误占位）不是可折叠内容：
-		// 全空 run（如连续 error 空消息）不应出现「0 段中间回复」的按钮。
-		if (item.kind === "interim-answer") return !!item.message.text.trim();
+		// 清理后没有正文的 interim（live 骨架/错误占位/仅思考标签）不可折叠，
+		// 否则汇总栏会计入一条 AnswerOutput 实际不渲染的回复。
+		if (item.kind === "interim-answer") return !!cleanAnswerText(item.message.text);
 		return true;
 	});
 }

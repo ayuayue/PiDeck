@@ -1,12 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-	alignEntryIdsForDisplayMessages,
-	assertResendRootEntry,
-	collectDescendantEntryIds,
-	findLastUserMessageLine,
-	takeActiveEntryId,
-} from "../src/main/pi/sessionEntryIds.ts";
+import { alignEntryIdsForDisplayMessages, assertResendRootEntry, collectDescendantEntryIds, findLastUserMessageLine, takeActiveEntryId } from "../src/main/pi/sessionEntryIds.ts";
 
 function extractText(content) {
 	if (!Array.isArray(content)) return "";
@@ -122,20 +116,14 @@ test("wrong early root would wipe history — assertResendRootEntry blocks non-u
 		id: "a1",
 		message: { role: "assistant", content: [{ type: "text", text: "hi" }] },
 	};
-	assert.throws(
-		() => assertResendRootEntry(assistantEntry, "resend-me", extractText),
-		/must be a user message/,
-	);
+	assert.throws(() => assertResendRootEntry(assistantEntry, "resend-me", extractText), /must be a user message/);
 
 	const wrongUser = {
 		type: "message",
 		id: "u1",
 		message: { role: "user", content: [{ type: "text", text: "first" }] },
 	};
-	assert.throws(
-		() => assertResendRootEntry(wrongUser, "resend-me", extractText),
-		/text mismatch/,
-	);
+	assert.throws(() => assertResendRootEntry(wrongUser, "resend-me", extractText), /text mismatch/);
 });
 
 test("findLastUserMessageLine prefers the latest duplicate text", () => {

@@ -56,9 +56,7 @@ function computePackedSet() {
 
 /** node_modules 下全部 @deepseek-ai 包（顶层 hoisted）。 */
 function listTopLevelDshPackages() {
-	return readdirSync(join(nodeModulesDir, SCOPE)).filter((name) =>
-		existsSync(join(nodeModulesDir, SCOPE, name, "package.json")),
-	);
+	return readdirSync(join(nodeModulesDir, SCOPE)).filter((name) => existsSync(join(nodeModulesDir, SCOPE, name, "package.json")));
 }
 
 const SCAN_EXTS = new Set([".js", ".mjs", ".cjs", ".yml", ".yaml"]);
@@ -98,14 +96,5 @@ test("peer-only @deepseek-ai 包若被打包代码引用，必须声明进 depen
 		if (hit) referenced.push(`${pkg}（被 ${hit.slice(repoRoot.length + 1)} 引用）`);
 	}
 
-	assert.deepEqual(
-		referenced,
-		[],
-		[
-			"以下 @deepseek-ai 包仅以 peerDependency 存在（npm 本地安装使 dev 正常），",
-			"但被打包代码静态引用，electron-builder 打包后会缺失，",
-			"DSH host 启动即 ERR_MODULE_NOT_FOUND 退出。请把它们加入 package.json dependencies：",
-			...referenced,
-		].join("\n"),
-	);
+	assert.deepEqual(referenced, [], ["以下 @deepseek-ai 包仅以 peerDependency 存在（npm 本地安装使 dev 正常），", "但被打包代码静态引用，electron-builder 打包后会缺失，", "DSH host 启动即 ERR_MODULE_NOT_FOUND 退出。请把它们加入 package.json dependencies：", ...referenced].join("\n"));
 });

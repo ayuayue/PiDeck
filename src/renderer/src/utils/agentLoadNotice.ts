@@ -15,22 +15,15 @@ import type { AgentStatus } from "../../../shared/types/agent";
 export const HIGH_AGENT_COUNT_THRESHOLD = 15;
 
 /** 视为「激活、占内存」的运行时状态集合。 */
-export const ACTIVATED_AGENT_STATUSES: ReadonlySet<AgentStatus | "detached"> = new Set([
-  "starting",
-  "idle",
-  "running",
-  "error",
-]);
+export const ACTIVATED_AGENT_STATUSES: ReadonlySet<AgentStatus | "detached"> = new Set(["starting", "idle", "running", "error"]);
 
 /** 统计激活 Agent 数量；入参用结构类型，避免单测时引入 jotai 依赖。 */
-export function countActivatedAgents(
-  runtimes: Record<string, { status?: string | null }>,
-): number {
-  let count = 0;
-  for (const runtime of Object.values(runtimes)) {
-    if (ACTIVATED_AGENT_STATUSES.has(runtime.status as AgentStatus | "detached")) {
-      count += 1;
-    }
-  }
-  return count;
+export function countActivatedAgents(runtimes: Record<string, { status?: string | null }>): number {
+	let count = 0;
+	for (const runtime of Object.values(runtimes)) {
+		if (ACTIVATED_AGENT_STATUSES.has(runtime.status as AgentStatus | "detached")) {
+			count += 1;
+		}
+	}
+	return count;
 }

@@ -15,12 +15,14 @@ export type ParsedWslUncPath = {
 export type WslPathErrorCode = "WSL_DISTRO_MISMATCH" | "INVALID_WSL_PATH";
 
 export class WslPathError extends Error {
-	constructor(
-		readonly code: WslPathErrorCode,
-		message: string,
-	) {
+	/** 不用构造器参数属性：本模块经 gitWsl→gitRun→rewind checkpointCore 被
+	 *  tests/*.test.mjs 用 Node type stripping 直接加载，参数属性在 strip-only
+	 *  模式下是语法错误（ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX）。 */
+	readonly code: WslPathErrorCode;
+	constructor(code: WslPathErrorCode, message: string) {
 		super(`${code}: ${message}`);
 		this.name = "WslPathError";
+		this.code = code;
 	}
 }
 
@@ -32,10 +34,7 @@ function normalizeLinuxPath(path: string): string {
 
 function ensureMatchingDistro(actual: string, expected: string): void {
 	if (actual.toLowerCase() === expected.toLowerCase()) return;
-	throw new WslPathError(
-		"WSL_DISTRO_MISMATCH",
-		`Selected path belongs to "${actual}", but the active WSL distribution is "${expected}".`,
-	);
+	throw new WslPathError("WSL_DISTRO_MISMATCH", `Selected path belongs to "${actual}", but the active WSL distribution is "${expected}".`);
 }
 
 /** Parses both \\wsl$ and \\wsl.localhost, including legacy forward-slash forms. */
@@ -124,16 +123,11 @@ export function toWindowsHostPath(path: string, environment: Pick<WslEnvironment
 }
 
 /** Keeps the existing /mnt storage convention while preserving WSL-internal projects as UNC. */
-export function normalizeSelectedWslProjectPath(
-	path: string,
-	environment: Pick<WslEnvironment, "distro">,
-): string {
+export function normalizeSelectedWslProjectPath(path: string, environment: Pick<WslEnvironment, "distro">): string {
 	if (parseWslUncPath(path)) return toWindowsHostPath(path, environment);
 	return toWslLinuxPath(path, environment);
 }
 
 export function isWslDistroMismatchError(error: unknown): boolean {
-	return error instanceof WslPathError
-		? error.code === "WSL_DISTRO_MISMATCH"
-		: error instanceof Error && error.message.includes("WSL_DISTRO_MISMATCH");
+	return error instanceof WslPathError ? error.code === "WSL_DISTRO_MISMATCH" : error instanceof Error && error.message.includes("WSL_DISTRO_MISMATCH");
 }

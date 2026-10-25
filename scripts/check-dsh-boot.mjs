@@ -1,162 +1,88 @@
 #!/usr/bin/env node
-/**
- * DSH runtime 归档的 boot 冒烟测试：解压 tgz 到临时目录，按 hostEntry 的插件组合
- * 真实 boot 一次 cordis 插件树，跑通才算归档可用。
- *
- *   node scripts/check-dsh-boot.mjs [<dsh-runtime-*.tgz>]
- *
- * 2026-08 事故背景：tar 扫描类校验只能确认「包存在」，抓不到「包在但入口文件被裁 /
- * 依赖包整体缺席」（@earendil-works/pi-ai 空壳、koffi 的 src/ 被裁）这类
- * host 加载到一半才崩的问题。真实 boot 是这类缺陷的唯一可靠门禁。
- *
- * 插件组合镜像 src/main/dsh/hostEntry.ts 的 patches，但跳过 PiDeck 私有插件
- * （pideck-* 是 app 侧代码、随 app 分发，不在 runtime 归档里，不属于本校验对象）；
- * 其余全部为 runtime 包，与 host 实际加载路径一致。
- */
-import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+/** Boot the actual PiDeck DSH host + RPC bridge in a disposable HOME. No model/network calls. */
+import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { inspect } from "node:util";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import * as tar from "tar";
+import { buildDshHarness, startDshHarness } from "./dsh-boot-harness.mjs";
 
-const scriptDir = dirname(fileURLToPath(import.meta.url));
-const defaultArchive = join(
-	scriptDir,
-	"..",
-	"dist-runtime",
-	`dsh-runtime-${process.platform}-${process.arch}.tgz`,
-);
-
-const [rawPath] = process.argv.slice(2);
-const archivePath = rawPath ? resolve(rawPath) : defaultArchive;
-
-if (!existsSync(archivePath)) {
-	console.error(`用法: node scripts/check-dsh-boot.mjs [<dsh-runtime-*.tgz>]\n找不到归档: ${archivePath}`);
-	process.exit(1);
+const root = fileURLToPath(new URL("..", import.meta.url));
+const [input] = process.argv.slice(2);
+const installed = input === "--installed";
+const archive = resolve(input ?? join(root, "dist-runtime", `dsh-runtime-${process.platform}-${process.arch}.tgz`));
+if (!installed && !existsSync(archive)) throw new Error(`Archive not found: ${archive}`);
+const temp = mkdtempSync(join(tmpdir(), "pideck-dsh-boot-"));
+let host;
+function value(result) {
+	assert.equal(result.ok, true, JSON.stringify(result));
+	return result.value;
 }
-
-// 镜像 hostEntry 的 agent plane 禁用名单（dsh-base 的进程级全局工具）
-const DSH_WEB_AGENT_PLANE_DISABLED = [
-	"tool-bash", "tool-pwsh", "tool-jobs", "tool-fs", "tool-fs-search",
-	"tool-str-replace-editor", "skill-filesystem", "tool-skill", "tool-goal",
-	"plan-mode", "compaction-basic", "command-compact", "tool-result-pruner",
-	"tool-subagent-control", "tool-subagent-list-agents", "tool-subagent",
-	"tool-subagent-fork", "workflow-worker-thread", "tool-workflow", "tool-ralph",
-	"agent-instructions", "tool-todo", "tool-web",
-];
-
-const tmpRoot = mkdtempSync(join(tmpdir(), "dsh-boot-check-"));
 try {
-	console.log(`解压到临时目录: ${tmpRoot}`);
-	await tar.x({ file: archivePath, cwd: tmpRoot });
-	const nmRoot = join(tmpRoot, "dsh-runtime", "node_modules");
-	if (!existsSync(nmRoot)) {
-		console.error("FAIL 归档内没有 dsh-runtime/node_modules（解压后布局不对）");
-		process.exit(1);
+	let runtimeRoot = root;
+	if (!installed) {
+		await tar.x({ file: archive, cwd: temp });
+		runtimeRoot = join(temp, "dsh-runtime");
+		const manifest = JSON.parse(readFileSync(join(runtimeRoot, "manifest.json"), "utf8"));
+		const declared = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).dshRuntimeVersion;
+		assert.equal(manifest.runtimeVersion, declared);
 	}
-
-	// 独立临时 DSH_HOME / config：校验不碰用户真实数据
-	const dshHome = join(tmpRoot, "home");
-	const configDir = join(tmpRoot, "config");
-	mkdirSync(dshHome, { recursive: true });
-	mkdirSync(configDir, { recursive: true });
-	writeFileSync(join(configDir, "cordis.yml"), "[]\n");
-
-	// hostEntry 会写入 configDir 的 app 本地插件（directoryPicker 是 dsh-host-apiproxy
-	// 激活的前置服务，不补 host 会停在 pending；其余两个是行为插件，与 runtime 无关
-	// 但保持与真实 host 相同的组合以贴近实际加载路径）。
-	writeFileSync(
-		join(configDir, "pideck-directory-picker.js"),
-		[
-			"export default {",
-			"  apply(ctx) {",
-			"    ctx.provide('directoryPicker', {",
-			"      capability() { return { kind: 'none' }; },",
-			"    });",
-			"  },",
-			"};",
-			"",
-		].join("\n"),
+	const home = join(temp, "home");
+	mkdirSync(home);
+	const legacy = "agent-presets:\n  default: minimal\n";
+	writeFileSync(join(home, "settings.yaml"), legacy);
+	// 旧目录身份、递归组合、相对插件/资源、缺省 metadata 和 teardown 不写回。
+	const presetDir = join(home, ".agent-presets", "legacy-custom");
+	mkdirSync(presetDir, { recursive: true });
+	const oldComposition =
+		"- id: delegation\n  name: cordis:group\n  group: true\n  isolate:\n    workflowEngine: true\n  config:\n    - id: workflow-worker-thread\n      name: '@deepseek-ai/dsh-workflow-worker-thread'\n      config:\n        provider: spawn\n- id: nested\n  name: cordis:include\n  config:\n    path: ./nested.yml\n";
+	const nested = "- id: resource-check\n  name: ./resource-check.mjs\n";
+	writeFileSync(join(presetDir, "agent.cordis.yml"), oldComposition);
+	writeFileSync(join(presetDir, "nested.yml"), nested);
+	writeFileSync(join(presetDir, "resource.txt"), "legacy-resource");
+	writeFileSync(join(presetDir, "resource-check.mjs"), 'import {readFileSync} from "node:fs"; export function apply(ctx) { if(readFileSync(new URL("resource.txt",ctx.baseUrl),"utf8") !== "legacy-resource") throw new Error("relative resource lost"); }');
+	const build = await buildDshHarness(temp);
+	host = await startDshHarness({ build, home, runtimeRoot });
+	const inventory = value(await (await host.rpc.rawFetch("/pideck-plugin/rpc", { method: "POST", body: JSON.stringify({ method: "staticInventory" }) })).json());
+	assert.ok(inventory.length > 0, "static plugin inventory must be available");
+	assert.deepEqual(
+		inventory.filter((entry) => entry.fiberPhase === "failed"),
+		[],
+		"no plugin may silently fail after host-ready",
 	);
-	writeFileSync(join(configDir, "pideck-slash-bridge.js"), "export default { apply() {} };\n");
-	writeFileSync(join(configDir, "pideck-minimal-tool-filter.js"), "export default { apply() {} };\n");
-
-	process.env.DSH_HOME = dshHome;
-	process.env.DSH_TELEMETRY_DISABLED = "1";
-
-	const requireRt = createRequire(join(nmRoot, "package.json"));
-	const importFromRt = (specifier) => import(pathToFileURL(requireRt.resolve(specifier)).href);
-
-	const [{ boot, loadOverlayPatches }, { provideCmdline }] = await Promise.all([
-		importFromRt("@deepseek-ai/dsh-app-boot"),
-		importFromRt("@deepseek-ai/dsh-cmdline"),
-	]);
-
-	const basePatchPath = requireRt.resolve("@deepseek-ai/dsh-base/cordis.patch.yml");
-	const patches = loadOverlayPatches("pideck-dsh", basePatchPath);
-	patches.push({ id: "hmr", disabled: true });
-	patches.push({ id: "session-telemetry-otel", disabled: true });
-	for (const id of DSH_WEB_AGENT_PLANE_DISABLED) patches.push({ id, disabled: true });
-	patches.push({
-		insert: [
-			{ id: "storage", name: "@deepseek-ai/dsh-storage" },
-			{ id: "storage-json", name: "@deepseek-ai/dsh-storage-json", config: { root: { __jsExpr: "dshHomePath('storages')" } } },
-			{ id: "storage-domain", name: "@deepseek-ai/dsh-storage-domain", config: { backend: "json" } },
-			{ id: "session-projection-cache", name: "@deepseek-ai/dsh-session-projection-cache", config: { writeEveryEvents: 200, writeIntervalMs: 5000 } },
-			{ id: "session-stats", name: "@deepseek-ai/dsh-session-stats" },
-			{ id: "workspace", name: "@deepseek-ai/dsh-workspace" },
-			{ id: "api-gateway", name: "@deepseek-ai/dsh-host-apiproxy" },
-			{ id: "pideck-directory-picker", name: "./pideck-directory-picker.js" },
-			{ id: "pideck-slash-bridge", name: "./pideck-slash-bridge.js" },
-			{ id: "pideck-minimal-tool-filter", name: "./pideck-minimal-tool-filter.js" },
-			{ id: "tool-pwsh-persistent", name: requireRt.resolve("dsh-tool-pwsh-persistent") },
-			{
-				id: "agent-presets",
-				name: "@deepseek-ai/dsh-agent-presets",
-				config: {
-					default: "standard",
-					roots: [{ path: join(dirname(requireRt.resolve("@deepseek-ai/dsh/package.json")), "config", "agent-presets"), trust: "system" }],
-				},
-			},
-			{ id: "plugin-inventory", name: "@deepseek-ai/dsh-host-plugin-inventory" },
-			{ id: "cordis-host-runner", name: "@deepseek-ai/dsh-cordis-host-runner" },
-			{ id: "bill", name: requireRt.resolve("dsh-bill") },
-		],
-	});
-
-	const ctx = await boot(
-		"pideck-dsh",
-		join(configDir, "cordis.yml"),
-		patches,
-		(hostCtx) => {
-			provideCmdline(hostCtx, { args: [], exit: () => undefined });
-		},
-		pathToFileURL(nmRoot + "/").href,
+	assert.ok(!inventory.some((entry) => /dsh-webserver|dsh-web-app$/.test(entry.moduleName)), "headless composition must not mount a browser server");
+	const telemetry = inventory.find((entry) => entry.moduleName === "@deepseek-ai/dsh-session-telemetry-otel");
+	assert.equal(telemetry?.enabled, false, "telemetry must stay disabled");
+	const presets = value(await host.rpc.call("agentPresets/list", {}));
+	assert.deepEqual(
+		presets.presets.map((item) => item.id),
+		["standard", "ptc", "minimal", "cordis", "legacy-custom"],
 	);
-	console.log("BOOT OK — 插件树加载成功（runtime 自包含校验通过）");
-	// 不上 await ctx.stop()：部分插件（storage/workspace）会起后台任务，优雅停止
-	// 可能永久挂起；校验目的是「树能加载」，到此即成功，直接退出让进程回收全部资源。
-	process.exit(0);
+	for (const preset of presets.presets) assert.equal(preset.broken, undefined, `${preset.id}: ${preset.broken}`);
+	const described = value(await host.rpc.call("settings/describe", {}));
+	assert.equal(described.writable, true);
+	const registry = described.namespaces.find((item) => item.ns === "agent-preset-registry");
+	assert.ok(registry, "preset settings namespace must exist");
+	assert.equal(registry.value.selectedDefault, "minimal");
+	value(await host.rpc.call("settings/update", { ns: registry.ns, patch: { selectedDefault: "ptc" }, expectedRevision: registry.revision }));
+	assert.equal(readFileSync(join(home, "settings.yaml"), "utf8"), legacy);
+	await host.stop();
+	host = await startDshHarness({ build, home, runtimeRoot });
+	const restored = value(await host.rpc.call("settings/describe", {}));
+	assert.equal(restored.namespaces.find((item) => item.ns === registry.ns)?.value.selectedDefault, "ptc");
+	assert.equal(readFileSync(join(home, "settings.yaml"), "utf8"), legacy);
+	const restarted = value(await host.rpc.call("agentPresets/list", {}));
+	for (const preset of restarted.presets) assert.equal(preset.broken, undefined, `${preset.id}: ${preset.broken}`);
+	await host.stop();
+	assert.equal(readFileSync(join(presetDir, "agent.cordis.yml"), "utf8"), oldComposition);
+	assert.equal(readFileSync(join(presetDir, "nested.yml"), "utf8"), nested);
+	console.log(`BOOT OK — real hostEntry, official/legacy presets, read-only includes, profile write/restart (${installed ? "installed tree" : "archive"})`);
 } catch (error) {
-	console.error("BOOT FAILED — 插件树加载失败（归档缺运行文件）：");
-	console.error(inspect(error, { depth: 4, colors: false, breakLength: 120 }));
-	const walk = (e, depth = 0) => {
-		const errs = e?.errors ?? e?.cause?.errors;
-		if (!Array.isArray(errs)) return;
-		for (const sub of errs) {
-			const msg = sub instanceof Error ? sub.message : String(sub);
-			console.error(`${"  ".repeat(depth)}- ${msg}`);
-			walk(sub, depth + 1);
-		}
-	};
-	walk(error);
-	process.exit(1);
+	console.error("BOOT FAILED", error);
+	if (host) console.error(host.logs());
+	process.exitCode = 1;
 } finally {
-	try {
-		rmSync(tmpRoot, { recursive: true, force: true });
-	} catch {
-		// 原生模块（node-pty 等）可能在 Windows 上短暂锁住文件；清理失败不影响校验结论
-	}
+	await host?.stop();
+	rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }

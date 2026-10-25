@@ -20,8 +20,10 @@ function loadTranspiledModule(filePath, overrides = new Map()) {
 	const sandbox = {
 		clearTimeout,
 		exports: {},
+		// jsonlLineStream（会话 JSONL 流式扫描）运行时需要 Buffer
+		Buffer,
 		process,
-		require: (id) => overrides.has(id) ? overrides.get(id) : require(id),
+		require: (id) => (overrides.has(id) ? overrides.get(id) : require(id)),
 		setTimeout,
 	};
 	vm.runInNewContext(outputText, sandbox, { filename: filePath });
@@ -63,10 +65,7 @@ function loadSessionScanner(homePath) {
 		},
 	});
 	const codexMeta = loadCodexMetaModule();
-	const messageContent = loadTranspiledModule(
-		"src/main/pi/messageContent.ts",
-		new Map([["../feishu/docActions", { stripFeishuDocActionHint: (text) => text }]]),
-	);
+	const messageContent = loadTranspiledModule("src/main/pi/messageContent.ts", new Map([["../feishu/docActions", { stripFeishuDocActionHint: (text) => text }]]));
 	const fsRetry = loadTranspiledModule("src/main/utils/fsRetry.ts");
 	const sessionSummaryCache = loadTranspiledModule(
 		"src/main/sessions/sessionSummaryCache.ts",
@@ -78,6 +77,10 @@ function loadSessionScanner(homePath) {
 	);
 	const wslPaths = loadTranspiledModule("src/main/wsl/WslPaths.ts");
 	const sessionIdentity = loadTranspiledModule("src/shared/sessionIdentity.ts");
+	// SessionScanner 新增的自包含块折叠（无依赖纯函数）
+	const expandedRefBlocks = loadTranspiledModule("src/shared/expandedRefBlocks.ts");
+	// 会话 JSONL 流式行扫描器（只依赖 node:fs/promises，测试注入真实实现）
+	const jsonlLineStream = loadTranspiledModule("src/main/sessions/jsonlLineStream.ts");
 	const sandbox = {
 		AbortController,
 		AbortSignal,
@@ -95,12 +98,15 @@ function loadSessionScanner(homePath) {
 				};
 			}
 			if (id === "../../shared/codexSessionMeta") return codexMeta;
+			if (id === "../pi/sessionEntryIds") return loadTranspiledModule("src/main/pi/sessionEntryIds.ts");
 			if (id === "../pi/messageContent") return messageContent;
 			if (id === "./sessionSummaryCache") return sessionSummaryCache;
 			if (id === "../wsl/WslPaths") return wslPaths;
 			// sessionNameLine 为无依赖纯函数模块，直接编译加载真实实现，保证清理口径一致
 			if (id === "./sessionNameLine") return loadSessionNameLineModule();
 			if (id === "../../shared/sessionIdentity") return sessionIdentity;
+			if (id === "../../shared/expandedRefBlocks") return expandedRefBlocks;
+			if (id === "./jsonlLineStream") return jsonlLineStream;
 			// sharedLogger 未注册时 getAppLogger 返回 null，SessionScanner 埋点静默跳过
 			if (id === "../logging/sharedLogger") return { getAppLogger: () => null };
 			return require(id);
@@ -186,10 +192,7 @@ test("rename heals legacy PiDeck sessionName head lines that broke pi loading (#
 		const scanner = new SessionScanner();
 		const file = join(home, "session-b.jsonl");
 		// 旧版 PiDeck 的破坏产物：头部前置无 type 的 sessionName 私有行
-		writeSession(file, [
-			{ sessionName: "Old PiDeck name", ts: 1700000000000 },
-			...healthySession,
-		]);
+		writeSession(file, [{ sessionName: "Old PiDeck name", ts: 1700000000000 }, ...healthySession]);
 		assert.notEqual(firstParseableEntry(readLines(file))?.type, "session");
 
 		await scanner.rename(file, "Healed");
@@ -276,12 +279,7 @@ test("copy produces a pi-loadable session with the copy name as session_info (#1
 		const { SessionScanner } = loadSessionScanner(home);
 		const scanner = new SessionScanner();
 		const file = join(home, "session-e.jsonl");
-		writeSession(file, [
-			healthySession[0],
-			{ type: "session_info", id: "bbbb0001", parentId: "aaaa0001", timestamp: "2026-01-01T00:00:00.500Z", name: "Origin" },
-			healthySession[1],
-			healthySession[2],
-		]);
+		writeSession(file, [healthySession[0], { type: "session_info", id: "bbbb0001", parentId: "aaaa0001", timestamp: "2026-01-01T00:00:00.500Z", name: "Origin" }, healthySession[1], healthySession[2]]);
 
 		const summary = await scanner.copy(file);
 

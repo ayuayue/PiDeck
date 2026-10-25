@@ -82,12 +82,7 @@ export function consumeTitleEvent(line: string, state: LoggedTitleFold): void {
 	const content = (data as { content?: unknown }).content;
 	if (!Array.isArray(content)) return;
 	const text = content
-		.filter((block): block is { type: string; text: string } => (
-			Boolean(block)
-			&& typeof block === "object"
-			&& (block as { type?: unknown }).type === "text"
-			&& typeof (block as { text?: unknown }).text === "string"
-		))
+		.filter((block): block is { type: string; text: string } => Boolean(block) && typeof block === "object" && (block as { type?: unknown }).type === "text" && typeof (block as { text?: unknown }).text === "string")
 		.map((block) => block.text)
 		.join("\n");
 	const fallback = fallbackSessionTitle(text);

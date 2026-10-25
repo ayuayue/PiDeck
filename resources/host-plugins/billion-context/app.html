@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>billion-context</title>
+		<link rel="stylesheet" href="styles.css" />
+	</head>
+	<body>
+		<main class="panel">
+			<header class="head">
+				<span class="dot" id="dot" data-state="unknown"></span>
+				<div class="head-text">
+					<h1>billion-context</h1>
+					<p id="status" class="status">…</p>
+				</div>
+				<button id="refresh" class="ghost" type="button"><span class="glyph">↻</span></button>
+			</header>
+
+			<dl class="facts">
+				<div><dt id="label-pid">pid</dt><dd id="pid">—</dd></div>
+				<div><dt id="label-version">version</dt><dd id="version">—</dd></div>
+				<div><dt id="label-ui">Web UI</dt><dd id="ui" class="mono">—</dd></div>
+			</dl>
+
+			<p id="message" class="message" hidden></p>
+
+			<div class="actions">
+				<button id="start" class="primary" type="button">…</button>
+				<button id="stop" type="button">…</button>
+				<button id="open" type="button">…</button>
+			</div>
+
+			<p class="note" id="note"></p>
+		</main>
+		<script src="app.js"></script>
+	</body>
+</html>

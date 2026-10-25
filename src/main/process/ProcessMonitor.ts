@@ -18,29 +18,29 @@ const PS_TIMEOUT_MS = 2000;
 
 /** 采集超时后 kill 子进程，避免监控调用挂死 IPC。 */
 function runCollect(args: string[], timeoutMs: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(args[0], args.slice(1), {
-      windowsHide: true,
-      timeout: timeoutMs,
-      killSignal: "SIGKILL",
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", (error) => reject(error));
-    child.on("close", (code) => {
-      if (code !== 0) {
-        reject(new Error(`collect exited ${code}: ${stderr.trim()}`));
-      } else {
-        resolve(stdout);
-      }
-    });
-  });
+	return new Promise((resolve, reject) => {
+		const child = spawn(args[0], args.slice(1), {
+			windowsHide: true,
+			timeout: timeoutMs,
+			killSignal: "SIGKILL",
+		});
+		let stdout = "";
+		let stderr = "";
+		child.stdout.on("data", (chunk: Buffer) => {
+			stdout += chunk.toString();
+		});
+		child.stderr.on("data", (chunk: Buffer) => {
+			stderr += chunk.toString();
+		});
+		child.on("error", (error) => reject(error));
+		child.on("close", (code) => {
+			if (code !== 0) {
+				reject(new Error(`collect exited ${code}: ${stderr.trim()}`));
+			} else {
+				resolve(stdout);
+			}
+		});
+	});
 }
 
 export { formatBytes } from "../../shared/formatBytes";
@@ -50,34 +50,20 @@ export { formatBytes } from "../../shared/formatBytes";
  * - Windows：PowerShell PrivateMemorySize64（tasklist 的 Mem Usage 是工作集，含共享页，
  *   多进程合计会把共享页重复计数——之前"内置监控 700MB vs 任务管理器 400MB"的根因）
  * - Linux/macOS：ps -o rss（无专用/共享分离，接受 RSS 口径） */
-export async function sampleProcessMemoryBytes(
-  pid: number,
-): Promise<number | undefined> {
-  try {
-    if (process.platform === "win32") {
-      const out = await runCollect(
-        [
-          "powershell",
-          "-NoProfile",
-          "-NonInteractive",
-          "-Command",
-          `(Get-Process -Id ${pid} -ErrorAction SilentlyContinue).PrivateMemorySize64`,
-        ],
-        TASKLIST_TIMEOUT_MS,
-      );
-      const bytes = parsePrivateMemoryBytes(out);
-      return bytes ?? undefined;
-    }
-    const out = await runCollect(
-      ["ps", "-o", "rss=", "-p", String(pid)],
-      PS_TIMEOUT_MS,
-    );
-    const kb = parsePsRssKb(out);
-    return kb == null ? undefined : kb * 1024;
-  } catch {
-    // 进程恰好退出/命令缺失都算采样失败，快照继续可用
-    return undefined;
-  }
+export async function sampleProcessMemoryBytes(pid: number): Promise<number | undefined> {
+	try {
+		if (process.platform === "win32") {
+			const out = await runCollect(["powershell", "-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid} -ErrorAction SilentlyContinue).PrivateMemorySize64`], TASKLIST_TIMEOUT_MS);
+			const bytes = parsePrivateMemoryBytes(out);
+			return bytes ?? undefined;
+		}
+		const out = await runCollect(["ps", "-o", "rss=", "-p", String(pid)], PS_TIMEOUT_MS);
+		const kb = parsePsRssKb(out);
+		return kb == null ? undefined : kb * 1024;
+	} catch {
+		// 进程恰好退出/命令缺失都算采样失败，快照继续可用
+		return undefined;
+	}
 }
 
 /**
@@ -85,29 +71,26 @@ export async function sampleProcessMemoryBytes(
  * agent 内存采样失败项不计入汇总，避免"查不到就少一块"造成总和误导。
  */
 export async function getProcessSnapshot(
-  agents: Array<{
-    agentId: string;
-    pid: number;
-    kind?: AgentProcessMetric["kind"];
-    sessionId?: string;
-    sessionTitle?: string;
-    sessionTitles?: string[];
-  }>,
+	agents: Array<{
+		agentId: string;
+		pid: number;
+		kind?: AgentProcessMetric["kind"];
+		sessionId?: string;
+		sessionTitle?: string;
+		sessionTitles?: string[];
+	}>,
 ): Promise<ProcessMetricsSnapshot> {
-  const sampled = await Promise.all(
-    agents.map(async (agent) => {
-      const memoryBytes = await sampleProcessMemoryBytes(agent.pid);
-      // 展开保留会话身份字段（sessionId/sessionTitle/sessionTitles），供监控表展示
-      return { ...agent, memoryBytes } as AgentProcessMetric;
-    }),
-  );
-  const totalAgentBytes = sampled.reduce(
-    (sum, item) => sum + (item.memoryBytes ?? 0),
-    0,
-  );
-  return {
-    agents: sampled,
-    totalAgentBytes,
-    sampledAt: Date.now(),
-  };
+	const sampled = await Promise.all(
+		agents.map(async (agent) => {
+			const memoryBytes = await sampleProcessMemoryBytes(agent.pid);
+			// 展开保留会话身份字段（sessionId/sessionTitle/sessionTitles），供监控表展示
+			return { ...agent, memoryBytes } as AgentProcessMetric;
+		}),
+	);
+	const totalAgentBytes = sampled.reduce((sum, item) => sum + (item.memoryBytes ?? 0), 0);
+	return {
+		agents: sampled,
+		totalAgentBytes,
+		sampledAt: Date.now(),
+	};
 }

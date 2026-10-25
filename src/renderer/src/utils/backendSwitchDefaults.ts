@@ -1,5 +1,4 @@
-import type { AgentBackend } from "../../../shared/types";
-import type { ResolvedLaunchDefaults } from "../../../shared/types";
+import type { AgentBackend, ResolvedLaunchDefaults, SessionModelPreference } from "../../../shared/types";
 
 /**
  * 切换会话后端时的默认模型/思考档位决策（纯函数，可单测）。
@@ -19,7 +18,7 @@ export function resolveBackendSwitchDefaults(
 	next: AgentBackend,
 	resolved?: ResolvedLaunchDefaults,
 ): {
-	model: { provider: string; modelId: string } | null;
+	model: SessionModelPreference | null;
 	thinkingLevel: string | null;
 } {
 	if (next !== "pi") return { model: null, thinkingLevel: null };

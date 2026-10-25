@@ -3,14 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, renameSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import {
-	DESKTOP_PARK_SUFFIX,
-	isDesktopBlockedExtension,
-	parkBlockedExtensionsInDir,
-	restoreAllParkedExtensions,
-	scanExtensionDir,
-	unparkBlockedExtensions,
-} from "./piExtensionFilter";
+import { DESKTOP_PARK_SUFFIX, isDesktopBlockedExtension, parkBlockedExtensionsInDir, restoreAllParkedExtensions, scanExtensionDir, unparkBlockedExtensions } from "./piExtensionFilter";
 
 test("isDesktopBlockedExtension matches codeisland variants only", () => {
 	assert.equal(isDesktopBlockedExtension("codeisland.ts"), true);

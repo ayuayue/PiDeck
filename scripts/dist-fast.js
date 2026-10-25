@@ -18,6 +18,7 @@
  */
 const { execSync } = require("node:child_process");
 const path = require("node:path");
+const { electronBuilderEnv } = require("./electronBuilderEnv.js");
 
 const root = path.resolve(__dirname, "..");
 
@@ -28,10 +29,12 @@ const formats = args.length > 0 ? args.join(" ") : "nsis";
 console.log(`[1/4] 构建本地 packages（file: 依赖需要 lib/ 产物）…`);
 execSync("npm run build:packages", { cwd: root, stdio: "inherit", shell: true });
 
-// DSH runtime 随包资源：electron-builder 的 extraResources 会去 dist-runtime/dsh-runtime
-// 取，目录为空（只有 .gitkeep）时打出来的包 DSH 不可用。--if-missing 让后续快速打包
-// 跳过重打（依赖没变的话产物是一样的），只有首次或手动删除后才花那 20 秒。
-console.log(`\n[2/4] 准备 DSH runtime 随包资源（--if-missing）…`);
+// DSH runtime 官方默认 lite：extraResources 目录只留 .gitkeep，安装包不随 runtime。
+// --if-missing 跳过重打 tgz，但仍会清 extraResources，避免本地 --full 残留被打进包。
+// 前置同步声明版本根字段（devDependencies 会被 electron-builder 从 asar 剥掉，
+// 打包版靠根字段做 runtime 版本一致性门控——见 scripts/sync-dsh-declared-version.mjs）。
+console.log(`\n[2/4] 同步 DSH 声明版本 + 准备随包资源（--if-missing）…`);
+execSync("node scripts/sync-dsh-declared-version.mjs", { cwd: root, stdio: "inherit", shell: true });
 execSync("node scripts/pack-dsh-runtime.mjs --if-missing", { cwd: root, stdio: "inherit", shell: true });
 
 // build:fast 同步生成 pi-ai catalog，避免快速包带上升级前的静态模型目录。
@@ -43,7 +46,7 @@ execSync(`npx electron-builder --win ${formats} --config.compression=store`, {
 	cwd: root,
 	stdio: "inherit",
 	shell: true,
-	env: { ...process.env, PI_FAST_PACK: "1" },
+	env: electronBuilderEnv({ ...process.env, PI_FAST_PACK: "1" }),
 });
 
 console.log(`\n✅ 快速打包完成！产物在 release/ 目录。`);

@@ -7,7 +7,8 @@
  * 注意：本文件保持纯状态（atoms + 纯函数），不 import desktopApi——
  * atoms/index.ts 会被 Node 测试（runtimeAtoms 等）整体加载，而 desktopApi
  * 顶层访问 window（浏览器/Electron 才有），顶层依赖会把整个 atoms 面炸掉。
- * 目录加载逻辑（loadDshAgentPresets）放在消费组件 DshAgentPresetControl 内。
+ * 目录加载逻辑（loadDshAgentPresets / 刷新与 TTL）放在 utils/dshAgentPresets.ts，
+ * 本文件只留纯状态与查询函数。
  */
 import { atom } from "jotai";
 import type { DshRuntimeInstallPhase, DshRuntimeStatus } from "../../../shared/types/dshRuntime";
@@ -15,7 +16,6 @@ import type { DshRuntimeInstallPhase, DshRuntimeStatus } from "../../../shared/t
 /** agentPreset.list 名单行的身份字段（与 DshHost.listAgentPresets 返回子集一致）。 */
 export type DshAgentPresetIdentity = {
 	id: string;
-	trust: "system" | "user";
 	isDefault: boolean;
 	name?: string;
 	description?: string;

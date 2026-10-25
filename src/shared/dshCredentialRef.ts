@@ -2,9 +2,9 @@
  * DSH provider API key credential reference derivation.
  *
  * Normal provider names use the same conventional spelling as dsh-web
- * (`<ROUTE>_API_KEY`). Legacy Pi configs can contain names outside the new
- * provider-name whitelist, so those routes receive a stable, valid, unique
- * PiDeck-owned reference instead of an invalid environment-variable name.
+ * (`<ROUTE>_API_KEY`). Names may also contain Unicode or other characters;
+ * those routes receive a stable, valid PiDeck-owned reference instead of an
+ * invalid environment-variable name.
  */
 
 const PROVIDER_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/;
@@ -19,13 +19,8 @@ function stableRouteDigest(value: string): string {
 }
 
 /** From provider profile and route id derive the credential reference DSH stores. */
-export function credentialRefFor(
-	profile: { apiKeyEnv?: unknown } | undefined,
-	routeId: string,
-): string {
-	const explicit = typeof profile?.apiKeyEnv === "string" && profile.apiKeyEnv.trim()
-		? profile.apiKeyEnv.trim()
-		: "";
+export function credentialRefFor(profile: { apiKeyEnv?: unknown } | undefined, routeId: string): string {
+	const explicit = typeof profile?.apiKeyEnv === "string" && profile.apiKeyEnv.trim() ? profile.apiKeyEnv.trim() : "";
 	if (explicit) return explicit;
 
 	if (PROVIDER_NAME_PATTERN.test(routeId)) {

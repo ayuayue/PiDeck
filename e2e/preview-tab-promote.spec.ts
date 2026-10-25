@@ -39,17 +39,17 @@ test("preview tab becomes permanent after send", async ({ window }) => {
 	await window.keyboard.press("Enter");
 	const timeline = window.locator(".message-timeline");
 	await expect(timeline).toContainText("Mock 回复：「预览会话一号」", { timeout: 15_000 });
-	await expect(window.locator(".session-tabs-bar [role=\"tab\"]")).toHaveCount(1);
+	await expect(window.locator('.session-tabs-bar [role="tab"]')).toHaveCount(1);
 
 	// 关闭 Tab（会话仍在 catalog）
-	await window.locator(".session-tabs-bar [role=\"tab\"]").first().locator('[role="tab-close"]').click();
-	await expect(window.locator(".session-tabs-bar [role=\"tab\"]")).toHaveCount(0, { timeout: 10_000 });
+	await window.locator('.session-tabs-bar [role="tab"]').first().locator('[role="tab-close"]').click();
+	await expect(window.locator('.session-tabs-bar [role="tab"]')).toHaveCount(0, { timeout: 10_000 });
 
 	// 关闭 Tab 后 agent 仍在运行：侧栏显示为 agent 行（状态点 + 会话标题，标题已更新为首条消息内容，
 	// 不再是 draft 时的「项目名 agent」），点击同样走 preview 模式
 	const row = window.locator(".agent-row", { hasText: "预览会话一号" }).first();
 	await row.click();
-	const previewTab = window.locator(".session-tabs-bar [role=\"tab\"]").first();
+	const previewTab = window.locator('.session-tabs-bar [role="tab"]').first();
 	await expect(previewTab).toBeVisible({ timeout: 10_000 });
 	await expect(previewTab).toHaveClass(/italic/, { timeout: 10_000 });
 

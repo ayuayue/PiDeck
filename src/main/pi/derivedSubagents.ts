@@ -14,12 +14,17 @@
  *
  * 2. subagent 工具（nicobailon 的 pi-subagents 插件，npm 无 scope 包）：工具名为
  *    "subagent"（注意 @tintinweb 版的工具名是 "Agent"，其历史由 record/锚点覆盖）。
- *    单任务前台派发（args 有 agent+task、无 action/workflow 字段、async!==true）的
- *    toolResult 携带最终报告全文，可直接推导终态；后台派发（async===true）工具立即
- *    返回转后台确认，历史侧不推导（id 空间与 subagent-async widget 的 asyncId 不同，
- *    同时推导会出现双行），运行中状态由渲染层消费 subagent-async widget 实时呈现。
+ *    单任务派发（args 有 agent+task、无 action/workflow 字段）按配对 toolResult 分流：
+ *    前台结果携带最终报告全文，直接推导终态；异步回执（含 "The async run is
+ *    detached" 引导文，覆盖 asyncByDefault/forceTopLevelAsync 运行时强制后台、模型
+ *    args 不带 async:true 的场景）不足终态——把条目重键为回执中的 asyncId 并保持
+ *    running。asyncId 与 subagent-async widget 的 run.id 同源，渲染层按 id 合并去重
+ *    （旧设计因派发用 toolCallId、widget 用 asyncId 导致双行而放弃推导，重键后解决），
+ *    且派发 args.task 的描述文本可补充给无 task 文本的 widget 条目。
  *
- * 推导条目 source 为 "toolcall"（live 降级逻辑见 downgradeStaleRunning）；
+ * 推导条目 source 为 "toolcall"（live 降级逻辑见 downgradeStaleRunning；异步条目
+ * 的终态只能降到 stopped——完成通知是 custom_message/subagent-notify 且单任务不带
+ * runId，无法可靠关联回 asyncId，历史会话只能识别到「已不在运行」）。
  * acp 条目 id 固定用派发 toolCallId（acp_delegate_xxx），与桥接扩展落盘的
  * record/锚点 id 对齐；runId 只用于把终态通知/取消关联回派发条目。
  *
@@ -36,9 +41,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-const TERMINAL_STATUSES = new Set<PiSubagentStatus>([
-	"completed", "error", "stopped", "aborted", "steered",
-]);
+const TERMINAL_STATUSES = new Set<PiSubagentStatus>(["completed", "error", "stopped", "aborted", "steered"]);
 
 /** content 归一化为纯文本（string 直返；数组只拼接 text 项，工具调用/思考块忽略）。 */
 export function extractEntryText(content: unknown): string {
@@ -51,6 +54,25 @@ export function extractEntryText(content: unknown): string {
 		}
 	}
 	return out;
+}
+
+/**
+ * nicobailon pi-subagents 异步派发回执特征：派发立即返回、运行转后台。交互/非交互
+ * 两种引导文都以 "The async run is detached" 开头，作为回执判定标记。
+ */
+const ASYNC_RECEIPT_MARKER = "The async run is detached";
+
+/** 回执首段中携带 asyncId 的行："Async: worker [uuid]" / "Async workflow [id]" 等。 */
+const ASYNC_ID_LINE_RE = /^Async[^\n]*\s\[([^\]\s]+)\]$/m;
+
+/** 判断 subagent 工具结果是否为异步派发回执（非最终报告）。 */
+export function isAsyncDispatchReceipt(text: string): boolean {
+	return text.includes(ASYNC_RECEIPT_MARKER);
+}
+
+/** 从回执文本提取 asyncId（与 subagent-async widget 的 run.id 同源）；提取失败返回 undefined。 */
+export function extractAsyncRunId(text: string): string | undefined {
+	return ASYNC_ID_LINE_RE.exec(text)?.[1];
 }
 
 /** 派发确认 / 系统通知文本中的 runId（形如 runId `del_xxx`）。 */
@@ -72,9 +94,7 @@ export function extractAcpErrorExcerpt(text: string): string | undefined {
  * 纯函数：不关心分支/压缩等索引概念，按文件顺序扫（委托审计语义与 record 读取
  * 一致：不随对话分支回退丢失）。损坏条目由调用方过滤；字段缺失的条目跳过。
  */
-export function deriveAcpDelegateEntries(
-	rawEntries: readonly unknown[],
-): PiSubagentEntry[] {
+export function deriveAcpDelegateEntries(rawEntries: readonly unknown[]): PiSubagentEntry[] {
 	const byId = new Map<string, PiSubagentEntry>();
 	// runId → 派发 toolCallId：终态通知/取消只带 runId，需要这层反查
 	const entryIdByRunId = new Map<string, string>();
@@ -117,8 +137,7 @@ export function deriveAcpDelegateEntries(
 			continue;
 		}
 
-		if (role === "toolResult" && message.toolName === ACP_DELEGATE_TOOL
-			&& typeof message.toolCallId === "string") {
+		if (role === "toolResult" && message.toolName === ACP_DELEGATE_TOOL && typeof message.toolCallId === "string") {
 			// 派发确认（后台运行，非终态）：只登记 runId 关联
 			const runId = extractAcpRunId(extractEntryText(message.content));
 			if (runId) entryIdByRunId.set(runId, message.toolCallId);
@@ -150,15 +169,19 @@ export function deriveAcpDelegateEntries(
 /**
  * 从会话文件原始条目推导 subagent 工具（nicobailon pi-subagents）的子代理条目。
  *
- * 只推导单任务前台派发：args 有 agent、无 action/workflow 字段且 async !== true，
- * 其配对 toolResult 携带最终报告全文，可直接落终态。action 管理查询（list/status 等）、
- * 工作流脚本派发和后台派发（async === true）都不在此推导——后台/工作流运行由渲染层
- * 消费 subagent-async widget 实时呈现，历史侧重复推导会出现 id 空间不同的双行。
+ * 推导单任务派发：args 有 agent、无 action/workflow 字段。前台派发的 toolResult
+ * 携带最终报告全文，直接落终态；异步派发回执（含运行时强制后台的派发）把条目
+ * 重键为回执中的 asyncId 并保持 running——与 subagent-async widget 的 run.id
+ * 同源后，渲染层按 id 合并去重，且派发 args.task 的描述文本可供无 task 文本的
+ * widget 条目补充（widget 快照只有 agent 名）。action 管理查询（list/status 等）
+ * 与工作流脚本派发不是单次运行，不推导。
  */
-export function deriveSubagentToolEntries(
-	rawEntries: readonly unknown[],
-): PiSubagentEntry[] {
+export function deriveSubagentToolEntries(rawEntries: readonly unknown[]): PiSubagentEntry[] {
 	const byId = new Map<string, PiSubagentEntry>();
+	// toolCallId → 条目：派发初始以 toolCallId 为键；异步回执到达后重键为 asyncId。
+	// 两张表共享同一 entry 对象，重键时同步增删 byId，byToolCallId 保留原键供后续
+	// 同 callId 结果幂等。
+	const byToolCallId = new Map<string, PiSubagentEntry>();
 
 	for (const raw of rawEntries) {
 		if (!isRecord(raw) || raw.type !== "message" || !isRecord(raw.message)) continue;
@@ -170,14 +193,13 @@ export function deriveSubagentToolEntries(
 			for (const item of message.content) {
 				if (!isRecord(item) || item.type !== "toolCall" || item.name !== SUBAGENT_TOOL) continue;
 				const toolCallId = typeof item.id === "string" ? item.id : "";
-				if (!toolCallId || byId.has(toolCallId)) continue;
+				if (!toolCallId || byToolCallId.has(toolCallId)) continue;
 				const args = isRecord(item.arguments) ? item.arguments : {};
 				// 派发形态：agent 必带；action（管理查询）与 workflowScript*（工作流）不是单次运行
 				if (typeof args.agent !== "string" || !args.agent) continue;
 				if (args.action != null || args.workflowScript != null || args.workflowScriptPath != null) continue;
-				// 后台派发交给 subagent-async widget，见函数头注释
-				if (args.async === true) continue;
-				byId.set(toolCallId, {
+				// async:true 显式后台派发也推导：回执到达后重键为 asyncId（见下方 toolResult 分支）
+				const entry: PiSubagentEntry = {
 					id: toolCallId,
 					type: args.agent,
 					description: typeof args.task === "string" ? args.task : "",
@@ -185,18 +207,32 @@ export function deriveSubagentToolEntries(
 					startedAt: Number.isFinite(timestampMs) ? timestampMs : undefined,
 					source: "toolcall",
 					via: "pi-subagents-tool",
-				});
+				};
+				byToolCallId.set(toolCallId, entry);
+				byId.set(toolCallId, entry);
 			}
 			continue;
 		}
 
-		if (role === "toolResult" && message.toolName === SUBAGENT_TOOL
-			&& typeof message.toolCallId === "string") {
-			// 前台派发的结果即最终报告（与 acp 的「派发确认」语义不同）
-			const entry = byId.get(message.toolCallId);
+		if (role === "toolResult" && message.toolName === SUBAGENT_TOOL && typeof message.toolCallId === "string") {
+			const entry = byToolCallId.get(message.toolCallId);
 			if (!entry || TERMINAL_STATUSES.has(entry.status)) continue;
-			entry.status = message.isError === true ? "error" : "completed";
 			const text = extractEntryText(message.content);
+			// 异步派发回执：运行转后台，非最终报告。重键为回执中的 asyncId（与
+			// subagent-async widget 的 run.id 同源，渲染层按 id 合并去重），保持
+			// running；提取不到 asyncId 的罕见回执（如 external-job follow-up）
+			// 保持 toolCallId 键，状态不变，由运行时 widget / 活性降级覆盖。
+			if (isAsyncDispatchReceipt(text)) {
+				const asyncId = extractAsyncRunId(text);
+				if (asyncId && asyncId !== entry.id) {
+					byId.delete(entry.id);
+					entry.id = asyncId;
+					byId.set(asyncId, entry);
+				}
+				continue;
+			}
+			// 前台派发的结果即最终报告（与异步回执的「派发确认」语义不同）
+			entry.status = message.isError === true ? "error" : "completed";
 			if (text) entry.result = text;
 			if (Number.isFinite(timestampMs)) entry.completedAt = timestampMs;
 		}
@@ -210,24 +246,20 @@ export function deriveSubagentToolEntries(
  * （call_xxx）天然不相交，直接拼接后统一按 startedAt 降序。
  */
 export function deriveToolSubagentEntries(rawEntries: readonly unknown[]): PiSubagentEntry[] {
-	return mergeSubagentSources(
-		[],
-		[...deriveAcpDelegateEntries(rawEntries), ...deriveSubagentToolEntries(rawEntries)],
-	);
+	return mergeSubagentSources([], [...deriveAcpDelegateEntries(rawEntries), ...deriveSubagentToolEntries(rawEntries)]);
 }
 
 /**
  * record/锚点（权威）与工具推导条目合并：推导条目 id（acp_delegate_* / call_xxx）
  * 与 pi-subagents 插件的 agent id（UUID）天然不相交，合并只影响推导链自身。
  *
- * 同 id 时默认 record 优先；唯一例外：record 是「stopped 且无任何结果/错误文本」
- * ——即读取侧由残留 start 锚点合成的空壳——而推导条目已从终态信号拿到真实结局时，
- * 推导更准确，以推导为准。
+ * 同 id 时默认 record 优先；两个例外：
+ * - record 是「stopped 且无任何结果/错误文本」——即读取侧由残留 start 锚点合成的
+ *   空壳——而推导条目已从终态信号拿到真实结局时，推导更准确，以推导为准；
+ * - record 缺描述文本（由事件桥落盘的终态 record 不带 task）时用推导补齐：任务
+ *   文本只有会话文件里的派发 args 能提供，空描述会让面板行丢掉任务文案。
  */
-export function mergeSubagentSources(
-	records: PiSubagentEntry[],
-	derived: PiSubagentEntry[],
-): PiSubagentEntry[] {
+export function mergeSubagentSources(records: PiSubagentEntry[], derived: PiSubagentEntry[]): PiSubagentEntry[] {
 	const byId = new Map(records.map((record) => [record.id, record]));
 	for (const entry of derived) {
 		const existing = byId.get(entry.id);
@@ -235,24 +267,56 @@ export function mergeSubagentSources(
 			byId.set(entry.id, entry);
 			continue;
 		}
-		const isBareStoppedShell = existing.status === "stopped"
-			&& existing.result == null && existing.error == null;
+		const isBareStoppedShell = existing.status === "stopped" && existing.result == null && existing.error == null;
 		if (isBareStoppedShell && TERMINAL_STATUSES.has(entry.status)) {
 			byId.set(entry.id, entry);
+			continue;
+		}
+		if (!existing.description && entry.description) {
+			byId.set(entry.id, { ...existing, description: entry.description });
 		}
 	}
 	return [...byId.values()].sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
 }
 
 /**
- * 无活 runtime 时清理推导条目残留的 running：终态通知没写进文件（进程被杀/崩溃）
- * 的委托在会话文件里永远是 running，历史会话里会误导为仍在运行。降级为 stopped，
- * 与 start 锚点残留合成 stopped 同语义；活会话保持 running（后续通知/桥接会覆盖）。
+ * 无活 runtime 时清理残留的 running/queued：子代理是 pi 的子进程，没有活 runtime
+ * 就没有可以被协调的子代理——终态通知没写进文件（进程被杀/崩溃）的委托在会话文件里
+ * 永远是 running，历史会话里会误导为仍在运行。降级为 stopped，与 start 锚点残留
+ * 合成 stopped 同语义；活会话保持 running（后续通知/桥接会覆盖）。
+ *
+ * 覆盖面必须包含全部三源（record / bridge / toolcall）：只处理 toolcall 时，会话文件
+ * 里 record 残留的 running 会在历史视图里永久亮着「运行中」（用户实测：父会话早已
+ * 结束，面板仍显示子代理在跑）。
  */
 export function downgradeStaleRunning(entries: PiSubagentEntry[]): PiSubagentEntry[] {
 	let changed = false;
 	const next = entries.map((entry) => {
-		if (entry.source === "toolcall" && (entry.status === "running" || entry.status === "queued")) {
+		if (entry.status === "running" || entry.status === "queued") {
+			changed = true;
+			return { ...entry, status: "stopped" as const };
+		}
+		return entry;
+	});
+	return changed ? next : entries;
+}
+
+/**
+ * 活 runtime 的历史对账降级：本代 runtime 启动（tab.createdAt）之前派发的
+ * running/queued 条目已随上一代 pi 进程消亡——子代理是 pi 的子进程，父进程
+ * 停止/崩溃后失去协调者，PiDeck stop 还会整树终止它们，永远等不到终态写盘。
+ * 不降级的话旧会话激活后面板会一直显示「运行中」（2026-09-14 用户环境实测：
+ * 真实活动子代理 0，历史投影仍显示 33 个 running）。
+ *
+ * 与 downgradeStaleRunning 的差异：活 runtime 下不能一刀切——本代启动之后
+ * 派发的异步运行可能真的还在跑，只按 startedAt 对账；startedAt 缺失的条目
+ * 无法判定，保守保留原状。对 record 与 toolcall 两源统一生效（record 的
+ * running 残留同样来自已消亡的旧 runtime）。
+ */
+export function downgradeRunningStartedBefore(entries: PiSubagentEntry[], startedBeforeMs: number): PiSubagentEntry[] {
+	let changed = false;
+	const next = entries.map((entry) => {
+		if ((entry.status === "running" || entry.status === "queued") && typeof entry.startedAt === "number" && entry.startedAt < startedBeforeMs) {
 			changed = true;
 			return { ...entry, status: "stopped" as const };
 		}

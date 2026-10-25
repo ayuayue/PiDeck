@@ -2,8 +2,18 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover：刘海屏安全区；interactive-widget=resizes-content：Android 键盘压缩视口，
+         配合根容器 100dvh 让 composer 始终在键盘上方（iOS 由 dvh 自身处理） -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>PiDeck Web</title>
+    <!-- favicon 显式声明：不写时浏览器会自动请求 /favicon.ico → 控制台 404 噪音（移动走查 #1） -->
+    <link rel="icon" type="image/png" href="/icons/icon-192.png" />
+    <!-- PWA：安装到主屏/桌面（manifest + SW 注册在 WebChatApp；SW 不拦 /api/* 与 SSE） -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#18181b" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <!-- 样式由 web-main.tsx import ./styles.css（桌面端同一套 design token / Tailwind），
          不在 HTML 内维护内联 CSS，避免与桌面端样式分叉。 -->
   </head>

@@ -1,8 +1,12 @@
 /** Pi models.json thinking-level mapping. null explicitly disables a level. */
-export type ThinkingLevelMap = Partial<Record<
-	"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
-	string | null
->>;
+export type ThinkingLevelMap = Partial<Record<"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max", string | null>>;
+
+/**
+ * provider → 该供应商当前模型 id 集合（来自 models.json）。
+ * 配置保存前的「设置跟着模型走」清理用它判定：键里的 provider 在表里、但模型 id 不在集合里 = 孤儿。
+ * 不在表里的 provider 一律不动——pi 内置 provider 的档位/隐藏设置是合法的，不能误伤。
+ */
+export type ProviderModelIdIndex = ReadonlyMap<string, ReadonlySet<string>>;
 
 export type ModelSpecSource = "listing" | "pi-ai" | "pi-runtime";
 export type ModelSpecMatchKind = "provider-id" | "model-id" | "id-tail" | "name-alias";

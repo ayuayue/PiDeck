@@ -51,17 +51,11 @@ export type ProviderEndpointLookup = {
  * 顺序：models.json 精确 key（含内联/apiAuth key）→ pi-ai catalog 兜底。
  * 返回 matched=false 表示未命中，上层据此给出「暂不支持」文案。
  */
-export async function resolveProviderUsageEndpoint(
-	lookup: ProviderEndpointLookup,
-	provider: string,
-): Promise<ResolvedProviderEndpoint> {
+export async function resolveProviderUsageEndpoint(lookup: ProviderEndpointLookup, provider: string): Promise<ResolvedProviderEndpoint> {
 	const name = provider?.trim() ?? "";
 	if (!name) return { provider: name, matched: false };
 
-	const [modelsRes, authRes] = await Promise.all([
-		lookup.getModelsConfig(),
-		lookup.getAuthConfig(),
-	]);
+	const [modelsRes, authRes] = await Promise.all([lookup.getModelsConfig(), lookup.getAuthConfig()]);
 	const providers = modelsRes.parsed?.providers ?? {};
 	const auth = authRes.parsed ?? {};
 

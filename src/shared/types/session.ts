@@ -1,5 +1,7 @@
 export type ChatRole = "user" | "assistant" | "tool" | "system" | "error";
 
+import type { VideoContent } from "./videogen";
+
 export type I18nParams = Record<string, string | number | boolean | null | undefined>;
 
 /** Structured copy crosses process boundaries without forcing main to choose a locale. */
@@ -18,6 +20,8 @@ export type ChatMessage = {
 	timestamp: number;
 	meta?: Record<string, unknown> & I18nDescriptor;
 	images?: ImageContent[]; // 用户消息中附加的图片
+	/** 生视频产物（meta.videoGen 消息）：只有落盘 ref 形态，展示走 pideck-video:// 协议 */
+	videos?: VideoContent[];
 	/** 思考内容：来自 thinking 内容块，用于展示模型推理过程 */
 	thinking?: string;
 	/** 思考段开始时间（可选；缺省回退 message.timestamp） */
@@ -31,13 +35,34 @@ export type ChatMessage = {
 	 * 历史会话/旧版本数据可能缺失，渲染层需回退启发式判定。
 	 */
 	stopReason?: string;
+	/**
+	 * 本条 assistant 消息实际使用的模型（provider + modelId）。
+	 * 来源：pi 会话文件每条 assistant 消息自带 provider/model 字段，实时链路由
+	 * message_end 的完整消息提供；DSH 用当轮 request/context 上报的路由模型。
+	 * 旧数据、非模型产出的消息（错误/扩展输出）与 ACP 会话可能缺失，渲染层按缺省不显示。
+	 */
+	model?: { provider: string; modelId: string };
 };
+
+/**
+ * 历史不可读的结构化原因（渲染层据此出专态 UI，而不是让 IPC 抛裸错误）。
+ * - dsh-host-stopped：DSH host 被用户手动停止，host 不会自动拉起，「启动 host」是唯一恢复路径。
+ * - file-missing：pi 会话文件还不存在——新建会话（含微信/飞书桥建的会话）在收到第一条
+ *   消息前不落盘，此前打开会读到 ENOENT；这是「还没内容」而不是读取故障。
+ */
+export type SessionHistoryUnavailableReason = "dsh-host-stopped" | "dsh-runtime-missing" | "file-missing";
 
 /** A bounded historical timeline slice. `nextBefore` is the exclusive index for an older page. */
 export type SessionMessagePage = {
 	messages: ChatMessage[];
 	total: number;
 	nextBefore: number | null;
+	/**
+	 * 本页不是「读到了空历史」而是「历史暂时读不了」：messages 为空且原因为 unavailable。
+	 * 渲染层必须据此进错误专态，不能按空会话渲染起始页——DSH 会话没有 pi 会话文件，
+	 * 把 host 未运行显示成「文件已删除/路径失效」会把用户引向错误方向。
+	 */
+	unavailable?: SessionHistoryUnavailableReason;
 	/** 当前活动分支最后使用的模型；由历史索引读取时顺手提取。 */
 	model?: { provider: string; modelId: string };
 	/** 当前活动分支最后记录的思考档位；无显式记录但有模型时回退为 off。 */
@@ -69,8 +94,49 @@ export type FileTreeNode = {
 	size?: number;
 };
 
-export type SessionSource = "pi" | "codex" | "claude" | "opencode";
+/**
+ * 工作区文件名搜索结果（issue #215）：扁平列表，不构树。
+ * `path` 为绝对路径，预览/打开/在文件夹中显示等复用 FileTreeNode 的下游链路；
+ * 高亮由渲染层用查询词在 name 上 indexOf 计算，主进程不冗余回传命中片段。
+ */
+export type FileSearchResult = {
+	name: string;
+	path: string;
+	relativePath: string;
+	type: "file" | "directory";
+};
+
+/**
+ * 工作区文件内容检索命中（Go file-index sidecar）。
+ * `line` 为 1 起行号，`column` 为命中词在行内的 0 起字符位置，`snippet` 是窗口化后的可读片段。
+ */
+export type FileContentSearchHit = {
+	name: string;
+	path: string;
+	relativePath: string;
+	line: number;
+	column: number;
+	snippet: string;
+};
+
+/** 内容检索聚合结果：hits 已按相关度排序并截断，其余字段用于「扫了多少、是否截断」的提示。 */
+export type FileContentSearchResult = {
+	hits: FileContentSearchHit[];
+	matchedFiles: number;
+	scannedFiles: number;
+	scannedBytes: number;
+	truncated: boolean;
+};
+
+export type SessionSource = "pi" | "codex" | "claude" | "opencode" | "zcode" | "workbuddy" | "cursor" | "qoder" | "kimi" | "kimiwork" | "minimax";
 export type SessionEnvironment = "native" | "wsl";
+
+/**
+ * 外部连接渠道（会话来源标记）：外部 IM 桥（微信/飞书）在 PiDeck 里建的会话。
+ * 侧栏与标题栏据此显示渠道标志，让「手机发来的会话」在会话列表里可辨认；
+ * 缺省表示桌面端直接创建。旧 catalog 没有该字段，缺省即兼容，无需迁移。
+ */
+export type SessionChannel = "wechat" | "feishu";
 
 /**
  * 会话级代理覆盖模式（单会话开关，复用全局代理 URL，不存每会话 URL）：
@@ -85,6 +151,27 @@ export type SessionProxyOverride = {
 	mode: SessionProxyMode;
 };
 
+/** PiDeck 会话记录里的模型名称快照；运行中 Pi 会话写回 Pi 返回的 model.name。 */
+export type SessionModelPreference = {
+	provider: string;
+	modelId: string;
+	modelName?: string;
+};
+
+/** 成功切换后从运行时读回的实际模型与思考档位。 */
+export type SessionRuntimeModelSelection = SessionModelPreference & {
+	thinkingLevel?: string;
+};
+
+/**
+ * 项目会话列表排序模式（settings.sessionSortMode）：
+ * - updatedAt：最近活跃（历史默认，会话/置顶行为不变）
+ * - createdAt：创建时间（catalog 回填，扫描摘要缺省时回退 updatedAt）
+ * - title：标题字典序（localeCompare，同名再按 updatedAt 降序稳定）
+ * 新增方案：往渲染层策略目录 sessionSortModes.ts 注册一项即可，主进程只存字符串。
+ */
+export type SessionSortModeId = "updatedAt" | "createdAt" | "title";
+
 export type SessionSummary = {
 	id: string;
 	filePath: string;
@@ -92,6 +179,11 @@ export type SessionSummary = {
 	projectId?: string;
 	projectPath?: string;
 	name?: string;
+	/**
+	 * name 是否来自权威 session_info（false = 首条消息弱回退）；缺省按权威处理。
+	 * catalog 只用它区分所有权：#266 弱回退只能算 fallback，可被扩展模型标题升级。
+	 */
+	nameFromSessionInfo?: boolean;
 	/** 子会话：关联的父会话文件路径。有该字段时不在会话列表顶层显示，而是嵌套在父会话下。 */
 	parentSessionPath?: string;
 	/**
@@ -101,13 +193,31 @@ export type SessionSummary = {
 	 * 展示层不再按该标记拼装，重命名删除后缀即为删除。
 	 */
 	forked?: boolean;
+	/**
+	 * 重发/编辑 fork 化重试后，本会话已被 fork 出的子会话替换：值为子会话稳定 id。
+	 * 旧文件保留在磁盘（可恢复），仅会话列表默认过滤；forkFromUserMessage 的显式
+	 * 分支 fork 不设此标记（新旧会话都要看到）。
+	 */
+	supersededBy?: string;
 	preview: string;
 	updatedAt: number;
+	/** 会话创建时间（catalog SessionRecord.createdAt 回填）；扫描摘要可能缺省，排序时回退 updatedAt。 */
+	createdAt?: number;
 	messageCount: number;
 	/** 会话来源：pi 原生、Codex 导入、Claude 导入、OpenCode 导入 */
 	source?: SessionSource;
 	/** 运行时后端；缺省 "pi"。草稿/历史行用来区分 DSH 会话。 */
 	backend?: import("./agent").AgentBackend;
+	/**
+	 * 外部连接渠道（微信/飞书桥建的会话）：来源徽标只能区分 pi/dsh，渠道徽标区分「从哪来」。
+	 * 由 catalog 记录透传（见 sessionRecordToSummary），扫描摘要不带该字段。
+	 */
+	channel?: SessionChannel;
+	/**
+	 * 侧边任务会话（右侧抽屉「侧边任务」面板持有）：与普通会话唯一的差别是不登记主区
+	 * 常驻 Tab（发消息时抑制 promote）。缺省 = 普通会话，旧 catalog 无此字段天然兼容。
+	 */
+	sideTask?: boolean;
 	/** 标记此会话文件来自 WSL，rename/delete/copy 等操作需走 wsl.exe */
 	wsl?: boolean;
 	/** 从 JSONL 中的 model_change / thinking_level_change 提取的最后值 */
@@ -117,6 +227,8 @@ export type SessionSummary = {
 	hasImageGen?: boolean;
 	/** DSH 会话身份（DSH host 的 sessionId）；backend=dsh 的会话用来重启后 attach 旧会话。 */
 	dshSessionId?: string;
+	/** ACP 工具 id；backend=acp 的会话用来解析侧栏/tab 品牌徽标（与 TurnAuthorHeader 同源）。 */
+	acpToolId?: string;
 	codexSessionId?: string;
 	codexThreadSource?: "user" | "subagent";
 	codexParentThreadId?: string;
@@ -137,9 +249,8 @@ export type ArchivedDshSession = {
 };
 
 /**
- * pi 归档区会话清单行：会话摘要 + 归档前的原始路径（index.json 反查）。
- * originalPath 用于把归档会话按项目归属过滤（弹窗归档视图不再全量）；
- * 索引缺失/损坏的极旧归档为 undefined，弹窗不展示（配置页仍全局可恢复）。
+ * pi 归档区会话清单行：summary 的 projectPath 来自归档 JSONL 的 cwd，用于按项目归属；
+ * originalPath 是归档路径到原文件路径的索引，恢复时必需。
  */
 export type ArchivedPiSession = {
 	summary: SessionSummary;
@@ -158,6 +269,10 @@ export type SessionRecord = {
 	noSession?: boolean;
 	source: SessionSource;
 	environment: SessionEnvironment;
+	/** 外部连接渠道（微信/飞书桥建的会话）；缺省 = 桌面端创建。 */
+	channel?: SessionChannel;
+	/** 侧边任务会话标记（见 SessionSummary.sideTask）；面板归属与主区 Tab 抑制的唯一判据。 */
+	sideTask?: boolean;
 	/** 运行时后端（pi/dsh）；缺省 "pi"，旧 catalog 数据无需迁移。 */
 	backend?: import("./agent").AgentBackend;
 	filePath?: string;
@@ -172,13 +287,21 @@ export type SessionRecord = {
 	 * 与「子代理/嵌套子会话」（parentSessionPath 会被侧栏折叠到父行下）语义不同，两者独立存储。
 	 */
 	forked?: boolean;
+	/** 同 SessionSummary.supersededBy：重发/编辑 fork 化替换后指向子会话 id，列表默认过滤。 */
+	supersededBy?: string;
+	/**
+	 * #354 身份归并别名：启动期修复把历史重复身份记录并入本条时，被吸收记录的历史稳定 ID。
+	 * 这些 ID 仍被 settings 置顶 / 渲染层持久化的 Tab 置顶与最近活动引用，渲染层据此把引用
+	 * 迁移到本条 id（解析入口见 shared/sessionIdAliases.ts）。缺省 = 无归并历史，旧数据无需迁移。
+	 */
+	mergedSessionIds?: string[];
 	projectPath?: string;
 	preview: string;
 	messageCount: number;
 	status: "draft" | "active";
-	model?: { provider: string; modelId: string };
+	model?: SessionModelPreference;
 	thinkingLevel?: string;
-	/** DSH 会话权限预设（read-only / workspace-write / danger-full-access）；
+	/** DSH 权限预设（read-only / workspace-write / danger-full-access）；
 	 *  草稿期预选，激活时经 /permission 命令应用到 host 会话。 */
 	permissionPreset?: string;
 	/**
@@ -189,6 +312,10 @@ export type SessionRecord = {
 	agentPreset?: string;
 	/** DSH 会话身份（DSH host 的 sessionId）；backend=dsh 的会话用来重启后 attach 旧会话。 */
 	dshSessionId?: string;
+	/** ACP 会话身份（agent 侧 sessionId）；backend=acp 的会话用来重启后 session/load 恢复。 */
+	acpSessionId?: string;
+	/** ACP 工具预选（AcpToolConfig.id）：backend=acp 草稿期选哪个 CLI；激活后回写实际工具。 */
+	acpToolId?: string;
 	/** 会话级代理覆盖（缺省 = 跟随全局）；沿用全局代理 URL，仅生效于下次 spawn。 */
 	proxy?: SessionProxyOverride;
 	createdAt: number;
@@ -204,20 +331,24 @@ export type SessionRecord = {
 export type CreateSessionDraftInput = {
 	projectId: string;
 	title?: string;
-	model?: { provider: string; modelId: string };
-	/** 欢迎页（引导页）偏好模型：仅作回退来源（解析器优先级：显式默认 > 欢迎偏好 > 上次使用 > 空），
-	 *  显式默认模型存在时被忽略——与 model 字段（用户主动指名）语义不同。 */
-	welcomeModel?: { provider: string; modelId: string };
+	model?: SessionModelPreference;
+	/** 欢迎页（引导页）显式选择的模型：仅在本次创建时参与解析，优先于配置默认、
+	 * enabledModels 与 lastUsedModel；`modelName` 是点选瞬间保存的显示快照。 */
+	welcomeModel?: SessionModelPreference;
 	thinkingLevel?: string;
 	/** 运行时后端；缺省 "pi"（旧调用方无需改动）。 */
 	backend?: import("./agent").AgentBackend;
 	/** DSH agent 预设（会话「模式」）草稿期预选；激活时随 sessions.create 应用。 */
 	agentPreset?: string;
+	/** ACP 工具预选（AcpToolConfig.id）：backend=acp 草稿期选哪个 CLI，激活时随 create 应用。 */
+	acpToolId?: string;
+	/** 建为侧边任务会话（右侧抽屉「侧边任务」面板持有）；仅布尔 true 被接受，其余按普通会话。 */
+	sideTask?: boolean;
 };
 
 /** 启动前选择的模型与思考级别；显式值优先于 pi 配置默认值。 */
 export type SessionLaunchPreferences = {
-	model?: { provider: string; modelId: string };
+	model?: SessionModelPreference;
 	thinkingLevel?: string;
 };
 
@@ -226,12 +357,20 @@ export type SessionLaunchPreferences = {
  * 引导页（无 record 虚拟会话）用它预先高亮真正会生效的模型/思考档位。
  */
 export type ResolvedLaunchDefaults = {
-	model?: { provider: string; modelId: string };
+	model?: SessionModelPreference;
 	thinkingLevel?: string;
 	/** 解析结果是否来自用户显式配置的默认模型（settings.defaultProvider+defaultModel 且有效）。
 	 *  渲染层据此决定欢迎页偏好是否参与展示回退：显式默认存在时偏好被覆盖
 	 *  （用户规则：默认模型 > 偏好 > 上次使用 > 空）。 */
 	defaultModelConfigured?: boolean;
+	/**
+	 * pi settings.json 的「每模型默认档位」表快照（键 `provider/modelId`，见
+	 * shared/modelThinkingLevels.ts）。thinkingLevel 只按解析出的模型算一份，而引导页
+	 * 用户可以改选模型——渲染层拿这张表按**当前展示的模型**反查，才能让底栏显示与
+	 * 创建时实际套用（createDraft 同样按最终模型查表）保持一致。
+	 * 非 DSH 后端且表非空时才返回。
+	 */
+	modelThinkingLevels?: Record<string, string>;
 };
 
 /** sessions.resolve-launch-defaults 入参：只需声明后端；缺省按非 DSH 解析。 */
@@ -256,7 +395,7 @@ export type CreateAnonymousSessionResult = {
 export type UpdateSessionRecordInput = {
 	title?: string;
 	/** null = 清空（切后端时丢掉另一套目录里的模型）。 */
-	model?: { provider: string; modelId: string } | null;
+	model?: SessionModelPreference | null;
 	thinkingLevel?: string | null;
 	/** DSH 会话权限预设（草稿期预选；激活会话经 /permission 命令应用后回写同步）。 */
 	permissionPreset?: string | null;
@@ -265,8 +404,12 @@ export type UpdateSessionRecordInput = {
 	/** 后端（pi/dsh）：仅草稿期可变更；会话激活（active/有 runtime）后锁定——pi 会话文件
 	 *  与 DSH session log 格式不同，中途切换会导致消息同步渲染不可靠。 */
 	backend?: import("./agent").AgentBackend;
+	/** ACP 工具预选（AcpToolConfig.id）：与 backend:"acp" 配套，仅草稿期可改；null = 清除预选。 */
+	acpToolId?: string | null;
 	/** 会话级代理覆盖；null = 恢复跟随全局（清除已保存覆盖）。 */
 	proxy?: SessionProxyOverride | null;
+	/** 侧边任务标记：true = 收进侧边任务面板，null = 释放回普通会话（面板不再列出，会话本身保留）。 */
+	sideTask?: boolean | null;
 };
 
 export type ForkMessage = {
@@ -274,11 +417,30 @@ export type ForkMessage = {
 	text: string;
 };
 
+/** 删除用户消息单图的稳定快照：可见序号 + 数量 + 内容哈希，拒绝过期 UI 误删另一张图。 */
+export type SessionMessageImageTarget = {
+	index: number;
+	expectedImageCount: number;
+	expectedHash: string;
+};
+
 /** 图片内容格式，与 pi RPC 的 ImageContent 一致 */
 export type ImageContent = {
 	type: "image";
-	data: string; // base64 编码的图片数据
+	/**
+	 * base64 编码的图片数据。
+	 * 历史生图记录（ImageSessionStore）走 ref 落盘引用时缺省——base64 只在
+	 * 「正在生成 / 正在发送」的生命周期里存在，进历史即换成 ref。
+	 * 发给 pi / 生图供应商的图片必须带 data（ref 形态只在展示与历史回读之间流转）。
+	 */
+	data?: string;
 	mimeType: string; // 如 "image/png", "image/jpeg", "image/gif", "image/webp"
+	/**
+	 * 落盘引用：`userData/imagegen/blobs` 下的内容寻址文件名（sha256 + 扩展名）。
+	 * 与 data 二选一，两者同时存在时 data 优先（见 shared/imageContentSrc.ts）。
+	 * 白名单与协议解析见 main/imagegen/ImageBlobStore.ts、ImageGenImageProtocol.ts。
+	 */
+	ref?: string;
 };
 
 export type SendPromptInput = {
@@ -296,14 +458,18 @@ export type SendPromptInput = {
 };
 
 /** 主进程完成 pi prompt 预检后的明确接收结果。 */
-export type SendPromptResult =
-	| { accepted: true }
-	| ({ accepted: false; error: string; delivery?: "rejected" } & I18nDescriptor)
-	| ({ accepted: false; error: string; delivery: "unknown" } & I18nDescriptor);
+export type SendPromptResult = { accepted: true } | ({ accepted: false; error: string; delivery?: "rejected" } & I18nDescriptor) | ({ accepted: false; error: string; delivery: "unknown" } & I18nDescriptor);
 
 export type SendSessionPromptInput = Omit<SendPromptInput, "agentId"> & {
 	sessionId: string;
 	requestId: string;
+	/**
+	 * 发送前核对「运行时真的在用会话选择的模型」，不一致就拒绝本次发送。
+	 * 只给 fork 化重发/编辑用：这两个动作的前提是「在用户看到的那个模型上重试」，
+	 * pi 找不到 fork 恢复的模型时会静默回落到默认模型（issue #370）；普通发送沿用
+	 * 2026-09 的降级策略（模型偏好失效只提示、不阻断）。
+	 */
+	requireAppliedModel?: boolean;
 };
 
 export type SendSessionPromptResult = SendPromptResult & {
@@ -339,6 +505,8 @@ export type SessionRuntimeInfo = SessionRuntimeTarget & {
 	createdAt: number;
 	compactionCount?: number;
 	noSession?: boolean;
+	/** PiDeck 会话身份（AgentTab.deckSessionId 透传）：渲染层侧栏 ACP「agent↔会话」配对用，缺它会把同一会话画成两行。 */
+	deckSessionId?: string;
 };
 
 export type SessionCommandErrorCode =
@@ -348,7 +516,9 @@ export type SessionCommandErrorCode =
 	| "SESSION_RUNTIME_CHANGED"
 	| "SESSION_RUNTIME_BUSY"
 	| "SESSION_COMMAND_FAILED"
-	| "SESSION_MODEL_NOT_FOUND";
+	| "SESSION_MODEL_NOT_FOUND"
+	/** 会话文件超出可安全编辑的上限（SessionFileEditor 的整读护栏，见 v8HeapLimits.ts）*/
+	| "SESSION_FILE_TOO_LARGE";
 
 export type SessionCommandError = {
 	code: SessionCommandErrorCode;
@@ -358,9 +528,7 @@ export type SessionCommandError = {
 	needsRestart?: boolean;
 };
 
-export type SessionCommandResult<T> =
-	| { ok: true; value: T }
-	| { ok: false; error: SessionCommandError };
+export type SessionCommandResult<T> = { ok: true; value: T } | { ok: false; error: SessionCommandError };
 
 export type SessionTargetedValue<T> = {
 	target: SessionRuntimeTarget;
@@ -379,4 +547,52 @@ export type SessionUiResponseInput = {
 	agentId: string;
 	runtimeGeneration: number;
 	response: AgentUiResponse;
+};
+
+/** 会话分支树（pi get_tree RPC 的瘦身投影）：主进程在 IPC 边界截断预览文本，渲染层只拿导航所需字段。 */
+export type SessionBranchNode = {
+	id: string;
+	parentId: string | null;
+	/** message 条目的角色；非 message 条目（usage/model_change/compaction…）为 "other"，渲染层折叠直链。 */
+	role: "user" | "assistant" | "system" | "other";
+	/** 条目类型原值（message/usage/model_change/compaction/branch_summary…），用于折叠链上的标记。 */
+	entryType: string;
+	preview: string;
+	timestamp: string;
+	/** 分支摘要（branch_summary / label entry 解析结果）。 */
+	label?: string;
+	children: SessionBranchNode[];
+};
+
+export type SessionBranchTree = {
+	roots: SessionBranchNode[];
+	/** 当前叶子（活跃分支末端）；空会话为 null。 */
+	leafId: string | null;
+};
+
+// ── 跨会话全文搜索（Go session-index sidecar）────────────────────────────
+
+/** 单条正文命中：messageId 供渲染层调 jumpToMessage 定位到具体消息。 */
+export type SessionSearchMatch = {
+	messageId: string;
+	role: "user" | "assistant";
+	timestampMs: number;
+	/** 命中处前后文摘要（控制字符已折叠，单行展示）。 */
+	snippet: string;
+};
+
+/** 单个会话的命中集合。filePath 是会话文件路径，**不是** SessionRecord.id（id 是跨重启稳定的身份，映射见 renderer utils/sessionContentSearchHits）。 */
+export type SessionSearchSessionHit = {
+	filePath: string;
+	updatedAtMs: number;
+	matches: SessionSearchMatch[];
+	/** 命中总数（未截断）：matches 只保留评分最高的若干条，界面用它报真实条数。 */
+	hitCount?: number;
+};
+
+export type SessionSearchResult = {
+	sessions: SessionSearchSessionHit[];
+	/** 命中会话总数（可能大于 sessions.length，后者按 limit 截断）。 */
+	totalHitSessions: number;
+	truncated: boolean;
 };

@@ -1,10 +1,16 @@
-import * as pty from "node-pty";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { sep } from "node:path";
 import { ipcChannels } from "../../shared/ipc";
 import type { TerminalShell, TerminalTab, TerminalTarget } from "../../shared/types";
 import { toWindowsHostPath, toWslLinuxPath } from "../wsl/WslPaths";
 import { getWslExe } from "../wsl/wslExe";
+import { loadNodePty, type NodePtyModule } from "./nodePtyRuntime";
+import { createTerminalDataBatcher, type TerminalDataBatcher } from "./terminalDataBatching";
+import { appendTerminalReplay, createTerminalReplayBuffer, terminalReplayText, type TerminalReplayBuffer } from "./terminalReplayBuffer";
+
+/** node-pty 的 PTY 句柄类型：类型查询不产生运行时 import（原生模块只经 ./nodePtyRuntime 惰性加载）。 */
+type Pty = import("node-pty").IPty;
 
 // 简单日志，不依赖 appLogger 以避免循环引用
 const log = (msg: string) => {
@@ -13,12 +19,14 @@ const log = (msg: string) => {
 
 type TerminalRuntime = {
 	tab: TerminalTab;
-	pty: pty.IPty;
-	buffer: string;
+	pty: Pty;
+	/** 主进程回放缓冲（切回时重建 xterm 用），分段存储 + 200K 字符上限（见 terminalReplayBuffer） */
+	buffer: TerminalReplayBuffer;
+	/** PTY 输出合批器：16ms 内的小 chunk 合成一次 IPC emit，exit/close 前必须 flush 保序 */
+	batcher: TerminalDataBatcher;
 };
 
 type Emit = (channel: string, payload: unknown) => void;
-const MAX_TERMINAL_REPLAY_BUFFER = 200_000;
 type TerminalShellCandidate = {
 	shell: TerminalShell;
 	command: string;
@@ -50,10 +58,7 @@ export function isAgentOwnerKey(ownerKey: string): boolean {
 	return ownerKey.startsWith("agent:");
 }
 
-export function getTerminalShellCandidates(
-	platform: NodeJS.Platform,
-	env: NodeJS.ProcessEnv,
-): TerminalShellCandidate[] {
+export function getTerminalShellCandidates(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): TerminalShellCandidate[] {
 	if (platform === "win32") {
 		const candidates: TerminalShellCandidate[] = [
 			{ shell: "pwsh", command: "pwsh.exe", args: [] },
@@ -61,10 +66,7 @@ export function getTerminalShellCandidates(
 			{ shell: "cmd", command: "cmd.exe", args: [] },
 		];
 		// 检测 Git Bash（常见安装路径）
-		const gitBashPaths = [
-			"C:\\Program Files\\Git\\bin\\bash.exe",
-			"C:\\Program Files (x86)\\Git\\bin\\bash.exe",
-		];
+		const gitBashPaths = ["C:\\Program Files\\Git\\bin\\bash.exe", "C:\\Program Files (x86)\\Git\\bin\\bash.exe"];
 		for (const p of gitBashPaths) {
 			if (existsSync(p)) {
 				candidates.push({ shell: "git-bash", command: p, args: ["--login", "-i"] });
@@ -85,27 +87,18 @@ export function getTerminalShellCandidates(
 		if (userShell) candidates.push(userShell);
 		// macOS GUI 应用拿到的进程环境通常不是用户登录 shell 环境；
 		// 用登录 shell 启动可以让 zsh/bash 初始化 TTY 与用户 PATH，行为更接近 Terminal.app。
-		candidates.push(
-			{ shell: "zsh", command: "/bin/zsh", args: ["-l"] },
-			{ shell: "bash", command: "/bin/bash", args: ["-l"] },
-			{ shell: "sh", command: "/bin/sh", args: [] },
-		);
+		candidates.push({ shell: "zsh", command: "/bin/zsh", args: ["-l"] }, { shell: "bash", command: "/bin/bash", args: ["-l"] }, { shell: "sh", command: "/bin/sh", args: [] });
 		return dedupeShellCandidates(candidates);
 	}
 
 	const userShell = normalizePosixShell(env.SHELL);
 	const candidates: TerminalShellCandidate[] = [];
 	if (userShell) candidates.push(userShell);
-	candidates.push(
-		{ shell: "bash", command: "bash", args: [] },
-		{ shell: "sh", command: "sh", args: [] },
-	);
+	candidates.push({ shell: "bash", command: "bash", args: [] }, { shell: "sh", command: "sh", args: [] });
 	return dedupeShellCandidates(candidates);
 }
 
-function normalizePosixShell(
-	shellPath: string | undefined,
-): TerminalShellCandidate | null {
+function normalizePosixShell(shellPath: string | undefined): TerminalShellCandidate | null {
 	if (!shellPath) return null;
 	const name = shellPath.split(/[\\/]/).pop();
 	if (name === "zsh") return { shell: "zsh", command: shellPath, args: ["-l"] };
@@ -113,6 +106,23 @@ function normalizePosixShell(
 	if (name === "fish") return { shell: "fish", command: shellPath, args: ["-l"] };
 	if (name === "sh") return { shell: "sh", command: shellPath, args: [] };
 	return { shell: "sh", command: shellPath, args: [] };
+}
+
+/**
+ * 裸命令名走 PATH 查找，绝对/相对路径查 existsSync。找不到时该 shell 标为不可用。
+ * 只做存在性检查，不真的 spawn PTY —— 探测不应有副作用（不会留下多余 shell 进程）。
+ */
+export function isShellCommandAvailable(command: string): boolean {
+	if (command.includes("/") || command.includes("\\")) return existsSync(command);
+	const exts = process.platform === "win32" ? [".exe", ".cmd", ".bat", ""] : [""];
+	const dirs = (process.env.PATH ?? "").split(process.platform === "win32" ? ";" : ":");
+	for (const dir of dirs) {
+		if (!dir) continue;
+		for (const ext of exts) {
+			if (existsSync(`${dir}${sep}${command}${ext}`)) return true;
+		}
+	}
+	return false;
 }
 
 function dedupeShellCandidates(candidates: TerminalShellCandidate[]) {
@@ -127,6 +137,9 @@ function dedupeShellCandidates(candidates: TerminalShellCandidate[]) {
 
 export class TerminalSessionManager {
 	private readonly runtimes = new Map<string, Map<string, TerminalRuntime>>();
+	/** 每归属锿的标题序号计数器：标题必须与序号一一对应，关闭后不复用，
+	 * 否则同桶两个活动 tab 会同名（「pwsh 2」×2）。桶删除时同步清理（见 close/closeAgent/closeOwner）。 */
+	private readonly ownerSeq = new Map<string, number>();
 
 	constructor(
 		private readonly getCwd: (agentId: string) => string,
@@ -146,9 +159,7 @@ export class TerminalSessionManager {
 	}
 
 	list(target: TerminalTarget) {
-		return [...(this.runtimes.get(this.ownerKey(target))?.values() ?? [])].map(
-			(runtime) => this.snapshot(runtime),
-		);
+		return [...(this.runtimes.get(this.ownerKey(target))?.values() ?? [])].map((runtime) => this.snapshot(runtime));
 	}
 
 	/**
@@ -159,7 +170,10 @@ export class TerminalSessionManager {
 		return this.shellCandidates().map((c) => ({
 			shell: c.shell,
 			label: this.displayShell(c.shell),
-			available: true,
+			// 候选列表本身已按平台探测过（shellCandidates 里 git-bash/wsl 走 existsSync），
+			// 这里补一层可执行性判定：绝对路径查 existsSync，裸命令名走 PATH 查找。
+			// 判为不可用时置灰，避免用户点了 shell 却 spawn 失败（此前恒 true 是死代码）。
+			available: isShellCommandAvailable(c.command),
 		}));
 	}
 
@@ -174,27 +188,42 @@ export class TerminalSessionManager {
 	create(target: TerminalTarget, shell?: TerminalShell): TerminalTab {
 		const ownerKey = this.ownerKey(target);
 		const resolvedCwd = this.cwdFor(target);
-		const runtimes = this.ensureOwner(ownerKey);
-		const index = runtimes.size + 1;
-		const id = randomUUID();
+		// spawn 必须先于桶/序号分配：node-pty 不可用或所有 shell 都 spawn 失败时
+		// create 会抛错，不能留下空桶和已被消耗的标题序号（渲染层每次挂载都会重试）。
 		const spawned = this.spawnShell(resolvedCwd, shell);
+		const runtimes = this.ensureOwner(ownerKey);
+		// 单调递增序号：不能用 runtimes.size + 1（关闭一个 tab 后 size 回退，新建会与存活 tab 撞名）
+		const seq = (this.ownerSeq.get(ownerKey) ?? 0) + 1;
+		this.ownerSeq.set(ownerKey, seq);
+		const id = randomUUID();
 		const tab: TerminalTab = {
 			id,
 			agentId: target.kind === "agent" ? target.agentId : "",
 			ownerKey,
-			title: `${this.displayShell(spawned.shell)} ${index}`,
+			title: `${this.displayShell(spawned.shell)} ${seq}`,
 			cwd: resolvedCwd,
 			shell: spawned.shell,
 			createdAt: Date.now(),
 		};
-		const runtime: TerminalRuntime = { tab, pty: spawned.pty, buffer: "" };
+		// 16ms（一帧）合批：node-pty 高吞吐时逐 chunk emit 会让主进程与渲染层
+		// 双双被 IPC 调用频率打满；合批后打字回显延迟人眼不可感知。
+		const runtime: TerminalRuntime = {
+			tab,
+			pty: spawned.pty,
+			buffer: createTerminalReplayBuffer(),
+			batcher: createTerminalDataBatcher((data) => {
+				this.emit(ipcChannels.terminalData, { tabId: id, data });
+			}),
+		};
 		runtimes.set(id, runtime);
 
 		spawned.pty.onData((data) => {
 			this.appendBuffer(runtime, data);
-			this.emit(ipcChannels.terminalData, { tabId: id, data });
+			runtime.batcher.push(data);
 		});
 		spawned.pty.onExit((event) => {
+			// 保序：退出事件发出前，把已收到的输出全部送达渲染层
+			runtime.batcher.flush();
 			tab.exited = true;
 			tab.exitCode = event.exitCode;
 			const exitText = `\r\n[process exited${event.exitCode != null ? ` with code ${event.exitCode}` : ""}]\r\n`;
@@ -209,9 +238,11 @@ export class TerminalSessionManager {
 	}
 
 	input(tabId: string, data: string) {
-		const runtime = this.requireTab(tabId);
-		if (runtime.tab.exited) return;
-		runtime.pty.write(data);
+		// 与 resize 同源约定：tab 已删（用户关闭/agent 重启 closeAgent）后，渲染层 xterm
+		// 卸载前的迟到按键静默忽略——requireTab 式 throw 会经 ipcMain.handle 变成渲染层 rejection。
+		const found = this.findRuntime(tabId);
+		if (!found || found.runtime.tab.exited) return;
+		found.runtime.pty.write(data);
 	}
 
 	resize(tabId: string, cols: number, rows: number) {
@@ -224,9 +255,16 @@ export class TerminalSessionManager {
 	close(tabId: string) {
 		const found = this.findRuntime(tabId);
 		if (!found) return;
+		// 关闭前冲刷并停用合批器：kill 触发的 onExit 仍会 flush，但 dispose 后为 no-op，
+		// 避免已删 runtime 的尾巴数据在 close 之后迟到
+		found.runtime.batcher.flush();
+		found.runtime.batcher.dispose();
 		found.runtime.pty.kill();
 		found.tabs.delete(tabId);
-		if (found.tabs.size === 0) this.runtimes.delete(found.runtime.tab.ownerKey);
+		if (found.tabs.size === 0) {
+			this.runtimes.delete(found.runtime.tab.ownerKey);
+			this.ownerSeq.delete(found.runtime.tab.ownerKey);
+		}
 	}
 
 	/** 关闭某个 agent 的全部终端（agent 退出/重启时调用） */
@@ -234,9 +272,12 @@ export class TerminalSessionManager {
 		const tabs = this.runtimes.get(`agent:${agentId}`);
 		if (!tabs) return;
 		for (const runtime of tabs.values()) {
+			runtime.batcher.flush();
+			runtime.batcher.dispose();
 			runtime.pty.kill();
 		}
 		this.runtimes.delete(`agent:${agentId}`);
+		this.ownerSeq.delete(`agent:${agentId}`);
 	}
 
 	closeAll() {
@@ -249,9 +290,12 @@ export class TerminalSessionManager {
 		const tabs = this.runtimes.get(ownerKey);
 		if (!tabs) return;
 		for (const runtime of tabs.values()) {
+			runtime.batcher.flush();
+			runtime.batcher.dispose();
 			runtime.pty.kill();
 		}
 		this.runtimes.delete(ownerKey);
+		this.ownerSeq.delete(ownerKey);
 	}
 
 	private ensureOwner(ownerKey: string) {
@@ -260,12 +304,6 @@ export class TerminalSessionManager {
 		const next = new Map<string, TerminalRuntime>();
 		this.runtimes.set(ownerKey, next);
 		return next;
-	}
-
-	private requireTab(tabId: string) {
-		const found = this.findRuntime(tabId);
-		if (!found) throw new Error(`Terminal not found: ${tabId}`);
-		return found.runtime;
 	}
 
 	private findRuntime(tabId: string) {
@@ -279,28 +317,35 @@ export class TerminalSessionManager {
 	private snapshot(runtime: TerminalRuntime): TerminalTab {
 		return {
 			...runtime.tab,
-			buffer: runtime.buffer,
+			// 分段缓冲只在快照时 join 一次（列表/切回是低频操作，不在追加热路径上）
+			buffer: terminalReplayText(runtime.buffer),
+			// 前台进程名：渲染层在「关闭确认=running」时据此判断是否有任务在跑。
+			// node-pty 的 process 在 shell 空闲时就是 shell 自己的名字，非默认 shell 即视为有进程。
+			frontProcess: runtime.pty.process,
 		};
 	}
 
 	private appendBuffer(runtime: TerminalRuntime, data: string) {
 		// Renderer 会在切换项目/agent 时卸载 TerminalDock；主进程保留有限回放，
 		// 切回来才能重建 xterm scrollback，同时用字符上限避免长期终端占用过多内存。
-		runtime.buffer = `${runtime.buffer}${data}`;
-		if (runtime.buffer.length > MAX_TERMINAL_REPLAY_BUFFER) {
-			runtime.buffer = runtime.buffer.slice(-MAX_TERMINAL_REPLAY_BUFFER);
-		}
+		// 分段追加（O(1) 摊还）代替单字符串拼接+截断：后者在上限附近每个 chunk 都要
+		// 整段拷贝 200K，高吞吐输出时每秒几十 MB 的无谓拷贝全部压在主进程事件循环上。
+		appendTerminalReplay(runtime.buffer, data);
 	}
 
-	private spawnShell(cwd: string, preferredShell?: TerminalShell): { shell: TerminalShell; pty: pty.IPty } {
+	private spawnShell(cwd: string, preferredShell?: TerminalShell): { shell: TerminalShell; pty: Pty } {
+		// node-pty 只在这里惰性加载：加载失败必须在候选循环之外抛出，否则会被下面的
+		// 逐候选 catch 覆盖成 lastError，最终报成误导性的「No supported shell found」。
+		let nodePty: NodePtyModule;
+		try {
+			nodePty = loadNodePty();
+		} catch (error) {
+			log(`node-pty unavailable: ${error instanceof Error ? error.message : String(error)}`);
+			throw error;
+		}
 		const candidates = this.shellCandidates();
 		// 如果有首选 shell，先在候选列表中查找匹配项
-		const ordered = preferredShell
-			? [
-					...candidates.filter((c) => c.shell === preferredShell),
-					...candidates.filter((c) => c.shell !== preferredShell),
-			  ]
-			: candidates;
+		const ordered = preferredShell ? [...candidates.filter((c) => c.shell === preferredShell), ...candidates.filter((c) => c.shell !== preferredShell)] : candidates;
 		log(`spawnShell: preferred=${preferredShell}, ordered=${ordered.map((c) => c.shell).join(", ")}`);
 		let lastError: unknown;
 		for (const candidate of ordered) {
@@ -317,17 +362,13 @@ export class TerminalSessionManager {
 				// WSL 终端：--cd 用 Linux 路径，PTY 的 cwd 仍必须是 Windows 主机路径。
 				if (wsl?.wslEnabled && wsl.wslDistro && wsl.wslUser) {
 					try {
-						args = [
-							...args,
-							"--cd",
-							toWslLinuxPath(cwd, { distro: wsl.wslDistro }),
-						];
+						args = [...args, "--cd", toWslLinuxPath(cwd, { distro: wsl.wslDistro })];
 						spawnCwd = toWindowsHostPath(cwd, { distro: wsl.wslDistro });
 					} catch (error) {
 						log(`Failed to convert WSL terminal cwd: ${error instanceof Error ? error.message : String(error)}`);
 					}
 				}
-				const terminal = pty.spawn(candidate.command, args, {
+				const terminal = nodePty.spawn(candidate.command, args, {
 					name: "xterm-256color",
 					cols: 80,
 					rows: 24,
@@ -340,20 +381,13 @@ export class TerminalSessionManager {
 				log(`Failed to spawn ${candidate.shell} (${candidate.command}): ${error instanceof Error ? error.message : String(error)}`);
 			}
 		}
-		throw lastError instanceof Error
-			? lastError
-			: new Error("No supported shell found");
+		throw lastError instanceof Error ? lastError : new Error("No supported shell found");
 	}
 
 	private shellCandidates(): TerminalShellCandidate[] {
 		const candidates = getTerminalShellCandidates(process.platform, process.env);
 		const settings = this.getSettings();
-		if (
-			process.platform !== "win32" ||
-			!settings.wslEnabled ||
-			!settings.wslDistro ||
-			!settings.wslUser
-		) {
+		if (process.platform !== "win32" || !settings.wslEnabled || !settings.wslDistro || !settings.wslUser) {
 			return candidates;
 		}
 		const wslExe = getWslExe();

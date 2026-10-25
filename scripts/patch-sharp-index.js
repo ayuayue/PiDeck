@@ -24,9 +24,7 @@ function patchSharpIndexCjs(content) {
 	}
 	const match = content.match(/^module\.exports = require\('\.\/lib\/([^']+\.node)'\);$/m);
 	if (!match) {
-		throw new Error(
-			`sharp index.cjs 格式不符，resourcesPath 补丁无法应用（请检查 sharp/@img 版本升级）：\n${content.slice(0, 200)}`,
-		);
+		throw new Error(`sharp index.cjs 格式不符，resourcesPath 补丁无法应用（请检查 sharp/@img 版本升级）：\n${content.slice(0, 200)}`);
 	}
 	const nodeFile = match[1];
 	return [

@@ -18,87 +18,76 @@ const sharedIpc = read("shared/ipc.ts");
 const preload = read("preload/index.ts");
 
 const TRASH_CALLERS = [
-  ["main/extensions/ExtensionManager.ts", "extension:uninstall"],
-  ["main/fs/FileSystemService.ts", "files:delete"],
-  ["main/git/GitService.ts", "git:discard-file"],
-  ["main/git/GitService.ts", "git:delete-files"],
-  ["main/git/WorktreeService.ts", "git:worktree-remove"],
-  ["main/ipc/backgroundsIpc.ts", "backgrounds:cleanup"],
-  ["main/ipc/backgroundsIpc.ts", "backgrounds:remove"],
-  ["main/ipc/scratchPadIpc.ts", "scratchPad:delete"],
-  ["main/projects/ProjectResourceManager.ts", "projects:delete-skill"],
-  ["main/projects/ProjectResourceManager.ts", "projects:delete-extension"],
-  ["main/prompts/PromptManager.ts", "prompts:delete"],
-  ["main/prompts/PromptManager.ts", "prompts:delete-project"],
-  ["main/skills/SkillManager.ts", "skills:delete"],
+	["main/extensions/ExtensionManager.ts", "extension:uninstall"],
+	["main/fs/FileSystemService.ts", "files:delete"],
+	["main/git/GitService.ts", "git:discard-file"],
+	["main/git/GitService.ts", "git:delete-files"],
+	["main/git/WorktreeService.ts", "git:worktree-remove"],
+	["main/ipc/backgroundsIpc.ts", "backgrounds:cleanup"],
+	["main/ipc/backgroundsIpc.ts", "backgrounds:remove"],
+	["main/ipc/scratchPadIpc.ts", "scratchPad:delete"],
+	["main/projects/ProjectResourceManager.ts", "projects:delete-skill"],
+	["main/projects/ProjectResourceManager.ts", "projects:delete-extension"],
+	["main/prompts/PromptManager.ts", "prompts:delete"],
+	["main/prompts/PromptManager.ts", "prompts:delete-project"],
+	["main/skills/SkillManager.ts", "skills:delete"],
 ];
 
 test("trashPath records success (warn) and failure (error) audit entries with path+source", () => {
-  assert.match(trash, /getAppLogger\(\)\?\.warn\("fs:trash", "文件移入回收站"/);
-  assert.match(trash, /getAppLogger\(\)\?\.error\("fs:trash", "移入回收站失败"/);
-  assert.match(trash, /path: targetPath/);
-  assert.match(trash, /source: context\.source/);
-  // 失败必须继续抛错：删除失败比永久丢失安全
-  assert.match(trash, /throw error/);
+	assert.match(trash, /getAppLogger\(\)\?\.warn\("fs:trash", "文件移入回收站"/);
+	assert.match(trash, /getAppLogger\(\)\?\.error\("fs:trash", "移入回收站失败"/);
+	assert.match(trash, /path: targetPath/);
+	assert.match(trash, /source: context\.source/);
+	// 失败必须继续抛错：删除失败比永久丢失安全
+	assert.match(trash, /throw error/);
 });
 
 test("every delete entry point passes a source context", () => {
-  for (const [file, source] of TRASH_CALLERS) {
-    const content = read(file);
-    // 只断言 source 存在（trashPath 带嵌套括号的参数匹配脆弱，可能误报）
-    assert.match(content, new RegExp(`source: "${source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`), `${file} must use source "${source}"`);
-  }
+	for (const [file, source] of TRASH_CALLERS) {
+		const content = read(file);
+		// 只断言 source 存在（trashPath 带嵌套括号的参数匹配脆弱，可能误报）
+		assert.match(content, new RegExp(`source: "${source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`), `${file} must use source "${source}"`);
+	}
 });
 
 test("SkillManager.delete goes to recycle bin, no rm force on user skills", () => {
-  assert.match(skillManager, /trashPath\(skill\.type === "directory" \? skill\.dir : skill\.path, \{ source: "skills:delete" \}\)/);
-  const deleteBlock = skillManager.slice(skillManager.indexOf("async delete(skillPath"), skillManager.indexOf("async openFolder"));
-  assert.doesNotMatch(deleteBlock, /\brm\(/);
+	assert.match(skillManager, /trashPath\(skill\.type === "directory" \? skill\.dir : skill\.path, \{ source: "skills:delete" \}\)/);
+	const deleteBlock = skillManager.slice(skillManager.indexOf("async delete(skillPath"), skillManager.indexOf("async openFolder"));
+	assert.doesNotMatch(deleteBlock, /\brm\(/);
 });
 
 test("destructive git operations leave audit traces", () => {
-  // git 审计日志带 repoPath: cwd（多仓库支持后统一补字段）
-  assert.match(gitIpc, /appLogger\.warn\("git", "Files deleted \(recycle bin\)", \{ projectId, count: paths\.length, paths, repoPath: cwd \}\)/);
-  assert.match(gitIpc, /appLogger\.warn\("git", "Reset to commit", \{ projectId, hash, mode, repoPath: cwd \}\)/);
-  assert.match(gitIpc, /appLogger\.warn\("git", "Commit dropped", \{ projectId, hash, repoPath: cwd \}\)/);
-  assert.match(gitIpc, /appLogger\.warn\("git", "Branch checked out", \{ projectId, branch, repoPath: cwd, changed: result \}\)/);
-  assert.match(gitIpc, /appLogger\.info\("git", "Commit created", \{ projectId, message, repoPath: cwd \}\)/);
-  assert.match(gitIpc, /appLogger\.info\("git", "Commit cherry-picked", \{ projectId, hash, repoPath: cwd \}\)/);
-  assert.match(gitIpc, /appLogger\.info\("git", "Commit reverted", \{ projectId, hash, repoPath: cwd \}\)/);
-  assert.match(gitIpc, /appLogger\.info\("git", "Pushed", \{ projectId, repoPath: cwd \}\)/);
-  assert.match(gitIpc, /appLogger\.info\("git", "Pulled", \{ projectId, repoPath: cwd \}\)/);
+	// git 审计日志带 repoPath: cwd（多仓库支持后统一补字段）
+	assert.match(gitIpc, /appLogger\.warn\("git", "Files deleted \(recycle bin\)", \{ projectId, count: paths\.length, paths, repoPath: cwd \}\)/);
+	assert.match(gitIpc, /appLogger\.warn\("git", "Reset to commit", \{ projectId, hash, mode, repoPath: cwd \}\)/);
+	assert.match(gitIpc, /appLogger\.warn\("git", "Commit dropped", \{ projectId, hash, repoPath: cwd \}\)/);
+	assert.match(gitIpc, /appLogger\.warn\("git", "Branch checked out", \{ projectId, branch, repoPath: cwd, changed: result \}\)/);
+	assert.match(gitIpc, /appLogger\.info\("git", "Commit created", \{ projectId, message, repoPath: cwd \}\)/);
+	assert.match(gitIpc, /appLogger\.info\("git", "Commit cherry-picked", \{ projectId, hash, repoPath: cwd \}\)/);
+	assert.match(gitIpc, /appLogger\.info\("git", "Commit reverted", \{ projectId, hash, repoPath: cwd \}\)/);
+	assert.match(gitIpc, /appLogger\.info\("git", "Pushed", \{ projectId, repoPath: cwd \}\)/);
+	assert.match(gitIpc, /appLogger\.info\("git", "Pulled", \{ projectId, repoPath: cwd \}\)/);
 });
 
 test("LogViewer uses paginated listPage with table and pagination components", () => {
-  assert.match(logViewer, /logs\.listPage\(query\)/);
-  assert.match(logViewer, /from: toTimestamp\(from\)/);
-  assert.match(logViewer, /to: toTimestamp\(to\)/); // 起止双端筛选
-  assert.match(logViewer, /<Pagination page=\{page \+ 1\}/);
-  assert.match(logViewer, /<Table>/);
-  assert.match(logViewer, /<TableHead>/);
+	assert.match(logViewer, /logs\.listPage\(query\)/);
+	assert.match(logViewer, /from: toTimestamp\(from\)/);
+	assert.match(logViewer, /to: toTimestamp\(to\)/); // 起止双端筛选
+	assert.match(logViewer, /<Pagination page=\{page \+ 1\}/);
+	assert.match(logViewer, /<Table>/);
+	assert.match(logViewer, /<TableHead>/);
 });
 
 test("listPage channel is wired across shared ipc, systemIpc, preload", () => {
-  assert.match(sharedIpc, /logsListPage: "logs:list-page"/);
-  assert.match(preload, /listPage: \(query\?: AppLogQuery\)/);
-  assert.match(read("main/ipc/systemIpc.ts"), /ipcChannels\.logsListPage/);
+	assert.match(sharedIpc, /logsListPage: "logs:list-page"/);
+	assert.match(preload, /listPage: \(query\?: AppLogQuery\)/);
+	assert.match(read("main/ipc/systemIpc.ts"), /ipcChannels\.logsListPage/);
 });
 
 test("log viewer i18n keys exist in both locales", () => {
-  const keys = [
-    "logs.resultsCount",
-    "logs.column.time",
-    "logs.column.level",
-    "logs.column.scope",
-    "logs.column.message",
-    "logs.column.detail",
-    "logs.rangeFilter",
-    "logs.rangeFrom",
-    "logs.rangeTo",
-    "logs.clearRangeFilter",
-  ];
-  for (const key of keys) {
-    assert.match(zh, new RegExp(`"${key}":`), `${key} must exist in zh-CN`);
-    assert.match(en, new RegExp(`"${key}":`), `${key} must exist in en-US`);
-  }
+	const keys = ["logs.resultsCount", "logs.column.time", "logs.column.level", "logs.column.scope", "logs.column.message", "logs.column.detail", "logs.rangeFilter", "logs.rangeFrom", "logs.rangeTo", "logs.clearRangeFilter"];
+	for (const key of keys) {
+		assert.match(zh, new RegExp(`"${key}":`), `${key} must exist in zh-CN`);
+		assert.match(en, new RegExp(`"${key}":`), `${key} must exist in en-US`);
+	}
 });

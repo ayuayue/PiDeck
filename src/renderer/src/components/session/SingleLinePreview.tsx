@@ -61,10 +61,7 @@ export const SingleLinePreview = memo(function SingleLinePreview(props: {
 		>
 			{props.running && showSweep && (
 				// 扫光：仅流式中存在，思考结束即消失；motion-reduce 时关闭
-				<span
-					aria-hidden="true"
-					className="pointer-events-none absolute inset-y-0 left-[-300px] w-[300px] animate-thinking-sweep motion-reduce:animate-none bg-[linear-gradient(90deg,transparent,color-mix(in_srgb,var(--color-bg-app)_55%,transparent),transparent)]"
-				/>
+				<span aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-[-300px] w-[300px] animate-thinking-sweep motion-reduce:animate-none bg-[linear-gradient(90deg,transparent,color-mix(in_srgb,var(--color-bg-app)_55%,transparent),transparent)]" />
 			)}
 			<span className="whitespace-nowrap">{summary}</span>
 		</div>

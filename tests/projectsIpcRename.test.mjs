@@ -10,13 +10,13 @@ import test from "node:test";
 const source = readFileSync("src/main/ipc/projectsIpc.ts", "utf8");
 
 test("projects:rename 注册并校验 id/name 为字符串", () => {
-  assert.match(source, /ipcChannels\.projectsRename/);
-  assert.match(source, /typeof id !== "string" \|\| !id/);
-  assert.match(source, /typeof name !== "string"/);
-  assert.match(source, /projectStore\.rename\(id, name\)/);
+	assert.match(source, /ipcChannels\.projectsRename/);
+	assert.match(source, /typeof id !== "string" \|\| !id/);
+	assert.match(source, /typeof name !== "string"/);
+	assert.match(source, /projectStore\.rename\(id, name\)/);
 });
 
 test("projects:rename 成功后广播 projects:changed 并返回可见列表", () => {
-  assert.match(source, /getMainWindow\(\)\?\.webContents\.send\(ipcChannels\.projectsChanged, visible\)/);
-  assert.match(source, /return visible;/);
+	assert.match(source, /getMainWindow\(\)\?\.webContents\.send\(ipcChannels\.projectsChanged, visible\)/);
+	assert.match(source, /return visible;/);
 });

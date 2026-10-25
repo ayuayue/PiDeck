@@ -15,7 +15,7 @@ import type { UsageRecord } from "../../shared/types/usageStats";
 const ACCEPTED_FIELD_COUNTS = new Set([10, 11]);
 
 function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
+	return typeof value === "number" && Number.isFinite(value);
 }
 
 /**
@@ -23,78 +23,78 @@ function isFiniteNumber(value: unknown): value is number {
  * （与 pi-tracker readAll 的 costKnown 兼容逻辑一致）。
  */
 function parseCostKnown(row: unknown[], cost: number): boolean {
-  if (row.length > 10) {
-    return row[10] === 1;
-  }
-  return cost > 0;
+	if (row.length > 10) {
+		return row[10] === 1;
+	}
+	return cost > 0;
 }
 
 /** 解析一行；非法行返回 null（调用方计数，不中断）。 */
 export function parseUsageLogLine(line: string): UsageRecord | null {
-  if (!line.trim()) return null;
+	if (!line.trim()) return null;
 
-  let row: unknown;
-  try {
-    row = JSON.parse(line);
-  } catch {
-    return null;
-  }
-  if (!Array.isArray(row)) return null;
-  if (!ACCEPTED_FIELD_COUNTS.has(row.length)) return null;
+	let row: unknown;
+	try {
+		row = JSON.parse(line);
+	} catch {
+		return null;
+	}
+	if (!Array.isArray(row)) return null;
+	if (!ACCEPTED_FIELD_COUNTS.has(row.length)) return null;
 
-  const ts = row[0];
-  const sid = row[1];
-  const cwd = row[2];
-  const model = row[3];
-  const input = row[4];
-  const output = row[5];
-  const cacheRead = row[6];
-  const cacheWrite = row[7];
-  const totalTokens = row[8];
-  const cost = row[9];
+	const ts = row[0];
+	const sid = row[1];
+	const cwd = row[2];
+	const model = row[3];
+	const input = row[4];
+	const output = row[5];
+	const cacheRead = row[6];
+	const cacheWrite = row[7];
+	const totalTokens = row[8];
+	const cost = row[9];
 
-  if (!isFiniteNumber(ts) || ts <= 0) return null;
-  if (typeof sid !== "string" || sid.length === 0) return null;
-  if (typeof cwd !== "string") return null;
-  if (typeof model !== "string" || model.length === 0) return null;
-  // 数值字段做防御：非法类型视为坏行（不静默清零，避免脏数据污染统计）
-  for (const value of [input, output, cacheRead, cacheWrite, totalTokens, cost]) {
-    if (!isFiniteNumber(value)) return null;
-  }
+	if (!isFiniteNumber(ts) || ts <= 0) return null;
+	if (typeof sid !== "string" || sid.length === 0) return null;
+	if (typeof cwd !== "string") return null;
+	if (typeof model !== "string" || model.length === 0) return null;
+	// 数值字段做防御：非法类型视为坏行（不静默清零，避免脏数据污染统计）
+	for (const value of [input, output, cacheRead, cacheWrite, totalTokens, cost]) {
+		if (!isFiniteNumber(value)) return null;
+	}
 
-  return {
-    ts,
-    sid,
-    cwd,
-    model,
-    input,
-    output,
-    cacheRead,
-    cacheWrite,
-    totalTokens,
-    cost,
-    costKnown: parseCostKnown(row, cost),
-  };
+	return {
+		ts,
+		sid,
+		cwd,
+		model,
+		input,
+		output,
+		cacheRead,
+		cacheWrite,
+		totalTokens,
+		cost,
+		costKnown: parseCostKnown(row, cost),
+	};
 }
 
 export type ParseLogResult = {
-  records: UsageRecord[];
-  /** 坏行数（空行不计入坏行） */
-  skippedLines: number;
+	records: UsageRecord[];
+	/** 坏行数（空行不计入坏行） */
+	skippedLines: number;
 };
 
 /** 解析整段日志内容（读取层逐段调用后合并即可）。 */
 export function parseUsageLogContent(content: string): ParseLogResult {
-  const records: UsageRecord[] = [];
-  let skippedLines = 0;
-  for (const line of content.split("\n")) {
-    if (!line.trim()) continue;
-    const record = parseUsageLogLine(line);
-    if (record) {
-      records.push(record);
-    } else {
-      skippedLines++;
-    }
-  }
-  return { records, skippedLines };
+	const records: UsageRecord[] = [];
+	let skippedLines = 0;
+	for (const line of content.split("\n")) {
+		if (!line.trim()) continue;
+		const record = parseUsageLogLine(line);
+		if (record) {
+			records.push(record);
+		} else {
+			skippedLines++;
+		}
+	}
+	return { records, skippedLines };
 }

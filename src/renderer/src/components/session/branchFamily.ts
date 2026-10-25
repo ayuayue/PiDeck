@@ -24,36 +24,22 @@ function byCreatedAt(a: SessionRecord, b: SessionRecord): number {
  * 从会话记录派生当前会话的分支族。
  * 记录缺失、或当前会话既无来源也无兄弟/子分支时返回 undefined（导航条不渲染）。
  */
-export function deriveBranchFamily(
-	records: Record<string, SessionRecord>,
-	sessionId: string,
-): BranchFamily | undefined {
+export function deriveBranchFamily(records: Record<string, SessionRecord>, sessionId: string): BranchFamily | undefined {
 	const record = records[sessionId];
 	if (!record) return undefined;
 	// 只有同项目、已落盘的会话参与分支关系；noSession 是运行时匿名会话，无文件可导航
-	const all = Object.values(records).filter(
-		(candidate) => candidate.projectId === record.projectId && !candidate.noSession,
-	);
+	const all = Object.values(records).filter((candidate) => candidate.projectId === record.projectId && !candidate.noSession);
 
 	// parentSessionId 由目录按路径解析；父会话不在目录内（其它项目/已删除）时
 	// 退回 parentSessionPath 直接匹配，仍能找到来源链接
-	const parent = record.parentSessionId
-		? records[record.parentSessionId]
-		: record.parentSessionPath
-			? all.find((candidate) => candidate.filePath === record.parentSessionPath)
-			: undefined;
+	const parent = record.parentSessionId ? records[record.parentSessionId] : record.parentSessionPath ? all.find((candidate) => candidate.filePath === record.parentSessionPath) : undefined;
 
 	// 兄弟分支：同 parentSessionId 或同 parentSessionPath（解析失败时的兜底），
 	// 用 Map 按 id 去重并保证自身一定在内
 	const siblingMap = new Map<string, SessionRecord>();
 	if (record.parentSessionId || record.parentSessionPath) {
 		for (const candidate of all) {
-			const sameParent = Boolean(
-				(record.parentSessionId &&
-					candidate.parentSessionId === record.parentSessionId) ||
-				(record.parentSessionPath &&
-					candidate.parentSessionPath === record.parentSessionPath),
-			);
+			const sameParent = Boolean((record.parentSessionId && candidate.parentSessionId === record.parentSessionId) || (record.parentSessionPath && candidate.parentSessionPath === record.parentSessionPath));
 			if (sameParent) siblingMap.set(candidate.id, candidate);
 		}
 	}
@@ -61,9 +47,7 @@ export function deriveBranchFamily(
 	const siblings = [...siblingMap.values()].sort(byCreatedAt);
 	const currentIndex = siblings.findIndex((candidate) => candidate.id === record.id);
 
-	const children = all
-		.filter((candidate) => candidate.parentSessionId === record.id)
-		.sort(byCreatedAt);
+	const children = all.filter((candidate) => candidate.parentSessionId === record.id).sort(byCreatedAt);
 
 	// 无任何分支关系（无来源、无兄弟、无子分支）时不显示导航条
 	if (!parent && siblings.length <= 1 && children.length === 0) return undefined;

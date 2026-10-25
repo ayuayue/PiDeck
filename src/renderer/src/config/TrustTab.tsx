@@ -12,12 +12,7 @@ import { Label } from "../components/ui-shadcn/label";
  */
 export type TrustFile = Record<string, boolean>;
 
-export function TrustTab(props: {
-	data: TrustFile;
-	saving: boolean;
-	onChange: (data: TrustFile) => void;
-	onSave: () => void;
-}) {
+export function TrustTab(props: { data: TrustFile; saving: boolean; onChange: (data: TrustFile) => void; onSave: () => void }) {
 	const [addPath, setAddPath] = useState("");
 	const entries = Object.entries(props.data).sort(([left], [right]) => left.localeCompare(right));
 
@@ -59,10 +54,7 @@ export function TrustTab(props: {
 					}}
 					placeholder={t("config.trust.addPlaceholder")}
 				/>
-				<Button size="sm" variant="outline"
-					onClick={addEntry}
-					disabled={!addPath.trim() || props.saving}
-				>
+				<Button size="sm" variant="outline" onClick={addEntry} disabled={!addPath.trim() || props.saving}>
 					<Plus size={14} />
 					{t("config.trust.add")}
 				</Button>
@@ -78,22 +70,13 @@ export function TrustTab(props: {
 					{entries.map(([path, trusted]) => (
 						<div key={path} className="config-trust-row" data-trusted={trusted || undefined}>
 							<Label className="config-trust-toggle">
-								<Checkbox
-									checked={trusted}
-									onCheckedChange={(checked) => toggleEntry(path, checked === true)}
-								/>
+								<Checkbox checked={trusted} onCheckedChange={(checked) => toggleEntry(path, checked === true)} />
 								<span className="config-trust-path" title={path}>
 									{path}
 								</span>
-								<span className="config-trust-status">
-									{trusted ? t("config.trust.statusTrusted") : t("config.trust.statusIgnored")}
-								</span>
+								<span className="config-trust-status">{trusted ? t("config.trust.statusTrusted") : t("config.trust.statusIgnored")}</span>
 							</Label>
-							<Button variant="outline" size="sm" className="text-destructive"
-								title={t("common.delete")}
-								onClick={() => removeEntry(path)}
-								disabled={props.saving}
-							>
+							<Button variant="outline" size="sm" className="text-destructive" title={t("common.delete")} onClick={() => removeEntry(path)} disabled={props.saving}>
 								<Trash2 size={13} />
 							</Button>
 						</div>

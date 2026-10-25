@@ -21,14 +21,7 @@ export function chooseMessageMode(text: string): FeishuMessageMode {
 	const trimmed = text.trim();
 	if (!trimmed) return "text";
 	const metrics = analyzeText(trimmed);
-	if (
-		trimmed.length >= INTERACTIVE_LENGTH_THRESHOLD ||
-		metrics.hasTable ||
-		metrics.codeBlockCount > 0 ||
-		metrics.headingCount >= 3 ||
-		metrics.listItemCount >= 8 ||
-		metrics.linkCount >= 5
-	) {
+	if (trimmed.length >= INTERACTIVE_LENGTH_THRESHOLD || metrics.hasTable || metrics.codeBlockCount > 0 || metrics.headingCount >= 3 || metrics.listItemCount >= 8 || metrics.linkCount >= 5) {
 		return "interactive";
 	}
 	if (metrics.lineCount >= 2 && (metrics.looksLikeMarkdown || trimmed.length >= POST_LENGTH_THRESHOLD)) return "post";
@@ -107,17 +100,7 @@ function analyzeText(text: string) {
 }
 
 function looksLikeMarkdown(text: string) {
-	return [
-		/^#{1,6}\s+\S/m,
-		/^\s*[-*+]\s+\S/m,
-		/^\s*\d+\.\s+\S/m,
-		/^>\s+\S/m,
-		/```[\s\S]*?```/,
-		/\*\*[^*\n][\s\S]*?\*\*/,
-		/`[^`\n]+`/,
-		/\[[^\]\n]+\]\(https?:\/\/[^)\s]+\)/,
-		/^\s*\|.+\|\s*$/m,
-	].some((pattern) => pattern.test(text));
+	return [/^#{1,6}\s+\S/m, /^\s*[-*+]\s+\S/m, /^\s*\d+\.\s+\S/m, /^>\s+\S/m, /```[\s\S]*?```/, /\*\*[^*\n][\s\S]*?\*\*/, /`[^`\n]+`/, /\[[^\]\n]+\]\(https?:\/\/[^)\s]+\)/, /^\s*\|.+\|\s*$/m].some((pattern) => pattern.test(text));
 }
 
 function markdownToPost(text: string, language: "zh" | "en") {
@@ -247,9 +230,7 @@ function createTableElement(header: string[], rows: string[][]) {
 			vertical_align: "top",
 			horizontal_align: "left",
 		})),
-		rows: rows.map((row) => Object.fromEntries(
-			header.map((_, index) => [`col_${index}`, cleanInlineMarkdown(row[index] ?? "")]),
-		)),
+		rows: rows.map((row) => Object.fromEntries(header.map((_, index) => [`col_${index}`, cleanInlineMarkdown(row[index] ?? "")]))),
 	};
 }
 

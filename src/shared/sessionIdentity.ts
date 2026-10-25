@@ -17,9 +17,45 @@ export type SessionOriginInput = {
 export function looksLikePiSessionFileStem(title: string): boolean {
 	const trimmed = title.replace(/\s+/g, " ").trim();
 	// 秒后的毫秒在文件名里是 `-239`，不是 ISO 的 `.239`。
-	return /^\d{4}-\d{2}-\d{2}T\d{2}[-:]\d{2}[-:]\d{2}(?:[.,-]\d+)?Z(?:_[A-Za-z0-9-]+)?$/.test(
-		trimmed,
-	);
+	return /^\d{4}-\d{2}-\d{2}T\d{2}[-:]\d{2}[-:]\d{2}(?:[.,-]\d+)?Z(?:_[A-Za-z0-9-]+)?$/.test(trimmed);
+}
+
+/**
+ * Codex 会话源文件名 stem（rollout-<ISO 时间戳>-<UUID>）。
+ *
+ * Codex jsonl 本身不带会话名，早期导入器拿不到名字时把文件名当标题写进导入产物，
+ * 侧栏显示成 `rollout-2026-07-13T18-44-48-019f5b14-…`（截断后就是一串 ID 样文本）。
+ * 这类标题是占位名：允许后续扫描/重导入用真实标题（Codex 状态库会话名或首条用户消息）覆盖。
+ */
+export function looksLikeCodexSessionFileStem(title: string): boolean {
+	const trimmed = title.replace(/\s+/g, " ").trim();
+	// 完整文件名（含 .jsonl）与 cleanTitle 截断形态（40 字符 + "..."，末段可能被切短）都要命中。
+	return /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-[0-9a-f]{8}(?:-[0-9a-f]+)*(?:\.jsonl)?(?:\.{3})?$/i.test(trimmed);
+}
+
+/** 标记行前导的象形符号（📦/❌ 等）与紧随空白，判定前先剥掉。 */
+const MARKER_PICTOGRAPH_PREFIX = /^[\p{Extended_Pictographic}\uFE0F\u200D]+[ \t]*/u;
+/**
+ * 工具/上下文代理确认标记行的标题形态：`[全大写标签]` + 紧随的 ASCII 正文，且这段正文里
+ * 带日志分隔符（`_` 或 `:`，如 acp_status / FAILED:）。三条同时成立才算，防止误伤正常标题——
+ * `[WIP] 重构商店页`（中文正文）、`[Bug] fix the API timeouts`（标签非全大写、正文无分隔符）都不是标记行。
+ */
+const MARKER_TAG_TITLE = /^\[[A-Z][A-Z0-9_-]{1,11}\][ \t]+[\x20-\x7E]*[:_]/;
+
+/**
+ * 工具/上下文代理的确认标记形态标题（如 `[ACP] acp_status result`、
+ * `[ACP] Compression FAILED: None of the 1 requested range(s) resolved …`）。
+ *
+ * 现场（2026-10-14）：内置自动命名扩展的旁路补全被第三方上下文代理接管，
+ * 返回的是代理自己注入的确认标记行（原文形如 `📦 [ACP] acp_status result: …`）。
+ * 扩展剥掉 emoji 与尾部冒号后原样收下并写进 pi 的 session_info，侧栏标题于是变成一段工具标记。
+ *
+ * 这类文本不是任何人起的会话名字：必须始终当占位名，让后续权威名/自动标题能替换它，
+ * 否则条目被锁成 manual 终态，脏名永久留存。
+ */
+export function looksLikeToolMarkerTitle(title: string): boolean {
+	const trimmed = title.replace(/\s+/g, " ").trim().replace(MARKER_PICTOGRAPH_PREFIX, "");
+	return MARKER_TAG_TITLE.test(trimmed);
 }
 
 /** pi-subagents 产物目录名：artifactDir="session"（默认）把子代理输入/输出/转储写进父会话同级目录。 */
@@ -71,44 +107,37 @@ export function isInSubagentArtifactsDir(filePath: string): boolean {
 	return filePath.replace(/\\/g, "/").split("/").includes(SUBAGENT_ARTIFACTS_DIR_NAME);
 }
 
-export function canonicalizeSessionPath(
-	filePath: string,
-	environment: SessionEnvironment,
-): string {
+/**
+ * 会话路径的规范形式（identity 比较用）：分隔符统一为 `/`、去尾斜杠，Windows 形态折大小写。
+ *
+ * 大小写折叠必须按**路径形态**而不是 environment="native" 一刀切（2026-10-08 修正）：
+ * native 同时覆盖 Windows 与 Linux/macOS 项目，而 POSIX 文件名区分大小写。
+ * 把 `/home/dev/Proj` 折成 `/home/dev/proj` 会让两个不同会话命中同一 identity
+ * （findByFilePath 返回错记录、attachRuntime 拒绝合法换绑、删除/归档落到错文件）。
+ * WSL 与 POSIX native 同语义（不折），Windows 形态（盘符/UNC）折叠——与
+ * renderer/src/sessionManagerModel.ts 的「WSL 区分大小写」注释同一条规则。
+ */
+export function canonicalizeSessionPath(filePath: string, environment: SessionEnvironment): string {
 	const normalized = filePath.replace(/\\/g, "/").replace(/\/+$/, "");
-	return environment === "native" ? normalized.toLowerCase() : normalized;
+	if (environment === "wsl") return normalized;
+	return hasWindowsDrivePrefix(filePath) || hasWindowsUncPrefix(filePath) ? normalized.toLowerCase() : normalized;
 }
 
-export function getSessionEnvironment(
-	summary: Pick<SessionSummary, "wsl">,
-): SessionEnvironment {
+export function getSessionEnvironment(summary: Pick<SessionSummary, "wsl">): SessionEnvironment {
 	return summary.wsl ? "wsl" : "native";
 }
 
-export function getImportedSessionSourceId(
-	summary: Pick<SessionSummary, "source" | "codexSessionId">,
-): string | undefined {
+export function getImportedSessionSourceId(summary: Pick<SessionSummary, "source" | "codexSessionId">): string | undefined {
 	return summary.source === "codex" ? summary.codexSessionId : undefined;
 }
 
 export function buildSessionOriginKey(input: SessionOriginInput): string {
-	const environmentKey = input.environment === "wsl"
-		? `wsl:${input.wslDistro ?? "unknown"}:${input.wslUser ?? "unknown"}`
-		: "native";
-	const importedKey = input.importedSourceId
-		? `:${encodeURIComponent(input.importedSourceId)}`
-		: "";
-	return [
-		input.source,
-		environmentKey,
-		canonicalizeSessionPath(input.filePath, input.environment),
-	].join(":") + importedKey;
+	const environmentKey = input.environment === "wsl" ? `wsl:${input.wslDistro ?? "unknown"}:${input.wslUser ?? "unknown"}` : "native";
+	const importedKey = input.importedSourceId ? `:${encodeURIComponent(input.importedSourceId)}` : "";
+	return [input.source, environmentKey, canonicalizeSessionPath(input.filePath, input.environment)].join(":") + importedKey;
 }
 
-export function buildSummaryOriginKey(
-	summary: SessionSummary,
-	options?: { wslDistro?: string; wslUser?: string },
-): string {
+export function buildSummaryOriginKey(summary: SessionSummary, options?: { wslDistro?: string; wslUser?: string }): string {
 	return buildSessionOriginKey({
 		source: summary.source ?? "pi",
 		environment: getSessionEnvironment(summary),
@@ -119,15 +148,65 @@ export function buildSummaryOriginKey(
 	});
 }
 
-/** 判断路径是否为该环境下的绝对路径（纯字符串判断，不依赖 node:path）。 */
-function isAbsolutePath(filePath: string, environment: SessionEnvironment): boolean {
-	if (environment === "wsl") return filePath.startsWith("/");
-	// native：盘符开头、根前缀（如 \\server\share 或 /rooted）。
-	return (
-		/^[A-Za-z]:[\\/]/.test(filePath) ||
-		filePath.startsWith("/") ||
-		filePath.startsWith("\\")
-	);
+/**
+ * 路径形态判定：只认「明确带盘符 / UNC / 正斜杠根」这三种无歧义写法。
+ *
+ * 为什么不看 `process.platform`：本模块也由渲染层 import（agentListDisplay /
+ * useSessionActions），那里没有可靠的平台信息；而会话路径的真正判据是**基址自身的形态**——
+ * 盘符基址（`C:\proj`）只可能来自 Windows，POSIX 基址（`/home/...`）只可能来自 Linux/macOS。
+ * 因此平台语义由基址决定（见 resolveSessionPathPlatform），不依赖进程全局。
+ */
+function hasWindowsDrivePrefix(path: string): boolean {
+	return /^[A-Za-z]:[\\/]/.test(path);
+}
+
+/** Windows 的 UNC（`\\server\share\…`）与 `\\?\` 长路径前缀；两者都是绝对路径形态。 */
+function hasWindowsUncPrefix(path: string): boolean {
+	return path.startsWith("\\\\");
+}
+
+/** 基址形态 → 解析语义。native 下盘符/UNC = Windows，其余（含 `/home/...`）= POSIX。 */
+function resolveSessionPathPlatform(base: string, environment: SessionEnvironment): "windows" | "posix" {
+	if (environment === "wsl") return "posix";
+	return hasWindowsDrivePrefix(base) || hasWindowsUncPrefix(base) ? "windows" : "posix";
+}
+
+/**
+ * 判断路径在给定平台语义下是否已是绝对路径（纯字符串，不依赖 node:path）。
+ *
+ * 关键区分（2026-10-08 回归根因）：单个前导 `\` 只在 Windows 上是「当前盘根」形态；
+ * 在 POSIX 上 `\` 是普通文件名字符，`\home\x` 是一条**相对**路径。旧实现把它当绝对
+ * 路径原样透传，于是 Linux 上的 `\home\zhadainian\…` 永远打不开——历史读取与 rename
+ * 全部 ENOENT，时间线卡在骨架屏、fork/copy 后缀写不进文件。
+ */
+function isAbsolutePath(filePath: string, platform: "windows" | "posix"): boolean {
+	if (filePath.startsWith("/")) return true;
+	if (hasWindowsDrivePrefix(filePath) || hasWindowsUncPrefix(filePath)) return true;
+	return platform === "windows" && filePath.startsWith("\\");
+}
+
+/**
+ * 无歧义绝对路径判定（不含单个前导 `\` 的 Windows 盘根形态，也不依赖平台猜测）。
+ *
+ * 用途是「确不确认同源」这类**破坏性**判断：路径解析器（`SessionFilePathResolver`）在项目
+ * 解析不出来时按契约原样返回入参，此时相对路径（如 `.pi/sessions/same.jsonl`）在不同项目下
+ * 会算出同一个身份键——把它当已确认物理位置会把两个项目各自的文件归并成一条（#354）。
+ */
+export function isUnambiguousAbsoluteSessionPath(filePath: string): boolean {
+	return filePath.startsWith("/") || hasWindowsDrivePrefix(filePath) || hasWindowsUncPrefix(filePath);
+}
+
+/**
+ * 相对路径拼接：Windows 用 `\`，POSIX/WSL 用 `/`（基址与相对部分的分隔符都按目标平台归一）。
+ *
+ * 基址也要归一：pi/catalog/项目设置里同一个 Windows 目录可能以 `D:/Project` 或
+ * `D:\\Project` 两种写法出现，只归一一半会产出混用分隔符的路径（历史 bug）。
+ */
+function joinSessionPath(base: string, relative: string, platform: "windows" | "posix"): string {
+	const trimmedBase = healSeparators(base, platform).replace(/[\\/]+$/, "");
+	const trimmedRelative = relative.replace(/^[\\/]+/, "");
+	if (platform === "windows") return `${trimmedBase}\\${trimmedRelative.replace(/\//g, "\\")}`;
+	return `${trimmedBase}/${trimmedRelative.replace(/\\/g, "/")}`;
 }
 
 /**
@@ -154,17 +233,44 @@ function windowsPathToWslBase(path: string): string {
  * 所有会话路径在进入 catalog / Agent 状态前都应经过本函数。
  *
  * WSL 环境按 Linux 路径语义处理：相对路径解析到 /mnt/<drive>/… 基址。
+ *
+ * **分离的两种失败**（2026-10-08 现场回归）：旧实现把 native 无条件当 Windows——拼接后
+ * 把全部 `/` 换成 `\`，于是 Linux 上 `.pi/sessions/x.jsonl` 被解析成 `\home\dev\proj\.pi\…`。
+ * 该串在 POSIX 上既不是可寻址的绝对路径（历史读取/rename 全部 ENOENT、与扫描器绝对路径
+ * originKey 不一致），又已落进存量 catalog。因此本函数同时做两件事：
+ * 1. 按平台语义正确解析相对路径（POSIX 分隔符恒为 `/`）；
+ * 2. **自愈已损坏形态**：若相对部分本身已包含基址（旧产物 `\home\dev\proj\.pi\…` 对应
+ *    基址 `/home/dev/proj`），直接归一到该基址，不再二次前缀（否则会拼出双层路径）。
  */
-export function toAbsoluteSessionPath(
-	filePath: string,
-	projectPath: string,
-	environment: SessionEnvironment,
-): string {
-	if (isAbsolutePath(filePath, environment)) return filePath;
-	const base = environment === "wsl" ? windowsPathToWslBase(projectPath) : projectPath;
-	const joined = `${base.replace(/[\\/]+$/, "")}/${filePath.replace(/^[\\/]+/, "")}`;
-	// native 统一反斜杠风格，与 node:path resolve 输出一致；WSL 保持正斜杠。
-	return environment === "wsl" ? joined : joined.replace(/\//g, "\\");
+export function toAbsoluteSessionPath(filePath: string, projectPath: string, environment: SessionEnvironment): string {
+	if (environment === "wsl") {
+		const base = windowsPathToWslBase(projectPath);
+		if (isAbsolutePath(filePath, "posix")) return filePath;
+		if (isPosixPathAlreadyRootedAt(filePath, base)) return healSeparators(filePath, "posix");
+		return joinSessionPath(base, filePath, "posix");
+	}
+	const platform = resolveSessionPathPlatform(projectPath, environment);
+	if (isAbsolutePath(filePath, platform)) return filePath;
+	// 存量损坏自愈：旧版把 POSIX 绝对路径写成反斜杠形态（`\home\dev\proj\.pi\sessions\x.jsonl`），
+	// 它不是本平台的绝对路径，但内容已经是完整路径——按基址重新定根即可恢复可寻址。
+	if (platform === "posix" && isPosixPathAlreadyRootedAt(filePath, projectPath)) return healSeparators(filePath, "posix");
+	return joinSessionPath(projectPath, filePath, platform);
+}
+
+/** 把分隔符归一到目标平台形态（存量反斜杠 POSIX 路径的修复出口）。 */
+function healSeparators(filePath: string, platform: "windows" | "posix"): string {
+	return platform === "windows" ? filePath.replace(/\//g, "\\") : filePath.replace(/\\/g, "/");
+}
+
+/**
+ * 相对部分本身是否已经把 POSIX 基址整段包含进去（旧版反斜杠损坏形态的识别）。
+ * 只去前导分隔符再归一比较，避免把「恰好在别处的同名目录」误判成同一文件。
+ */
+function isPosixPathAlreadyRootedAt(filePath: string, base: string): boolean {
+	const normalizedBase = healSeparators(base, "posix").replace(/\/+$/, "");
+	if (!normalizedBase.startsWith("/")) return false;
+	const normalizedFile = healSeparators(filePath, "posix").replace(/^\/+/, "");
+	return normalizedFile === normalizedBase.slice(1) || normalizedFile.startsWith(`${normalizedBase.slice(1)}/`);
 }
 
 /** 归档/删除子树识别用的最小会话节点（catalog 条目与渲染层 record 都满足）。 */
@@ -180,10 +286,7 @@ export type SessionTreeNode = {
  * pi-subagents / Claude 式子会话都落在这个 sibling-dir 里；扫描器归档/删除父文件时
  * 会把整个目录一起搬走，但 catalog.remove(id) 以前只摘父条目，目录里的子条目会变成幽灵行。
  */
-function sessionSiblingDirPrefix(
-	filePath: string,
-	environment: SessionEnvironment,
-): string | undefined {
+function sessionSiblingDirPrefix(filePath: string, environment: SessionEnvironment): string | undefined {
 	const canonical = canonicalizeSessionPath(filePath, environment);
 	const jsonl = canonical.match(/\.jsonl$/i);
 	if (!jsonl) return undefined;
@@ -199,18 +302,12 @@ function sessionSiblingDirPrefix(
  *
  * 匿名会话/草稿没有 filePath，不能仅凭同项目就当成子会话，否则归档父会话会误伤它们。
  */
-export function isSessionDescendantOf(
-	candidate: SessionTreeNode,
-	ancestor: SessionTreeNode,
-): boolean {
+export function isSessionDescendantOf(candidate: SessionTreeNode, ancestor: SessionTreeNode): boolean {
 	if (candidate.id === ancestor.id) return false;
 	if (!ancestor.filePath) return false;
 	const environment = ancestor.environment ?? candidate.environment ?? "native";
 	const ancestorPath = canonicalizeSessionPath(ancestor.filePath, environment);
-	if (
-		candidate.parentSessionPath &&
-		canonicalizeSessionPath(candidate.parentSessionPath, environment) === ancestorPath
-	) {
+	if (candidate.parentSessionPath && canonicalizeSessionPath(candidate.parentSessionPath, environment) === ancestorPath) {
 		return true;
 	}
 	if (!candidate.filePath) return false;
@@ -223,10 +320,7 @@ export function isSessionDescendantOf(
  * 收集 parent 及其全部后代 id（含 parent 自身）。
  * 闭包迭代：parentSessionPath 链接的孙会话即使不在 sibling-dir 里也能被收进来。
  */
-export function collectSessionSubtreeIds(
-	sessions: SessionTreeNode[],
-	parent: SessionTreeNode,
-): string[] {
+export function collectSessionSubtreeIds(sessions: SessionTreeNode[], parent: SessionTreeNode): string[] {
 	const byId = new Map<string, SessionTreeNode>();
 	for (const session of sessions) {
 		if (session.id) byId.set(session.id, session);

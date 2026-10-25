@@ -32,10 +32,15 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
 
+      # 打包后门禁：bundle 必须有有效签名（无 Apple 证书时靠 build.mac.identity 的显式
+      # ad-hoc，原因见 docs/release-process.md「打包验证」与 issue #347）。
+      - name: Verify macOS bundle signature
+        run: node scripts/verify-mac-signature.mjs
+
       - name: Upload macOS test artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pi-desktop-macos-arm64-test
+          name: PiDeck-macos-arm64-test
           if-no-files-found: error
           path: |
             release/*.dmg

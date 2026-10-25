@@ -247,11 +247,17 @@ test("agent flow: fork from user message prefills composer", async ({ window }) 
 
 	// 成功信号：composer 预填 或 成功 toast（sonner 竞态下二选一）
 	await expect
-		.poll(async () => {
-			const draft = (await composer.innerText().catch(() => "")).trim();
-			if (draft.includes("fork 源句")) return true;
-			return window.getByText("已 fork 为新会话，原文已放入输入框").isVisible().catch(() => false);
-		}, { timeout: 15_000 })
+		.poll(
+			async () => {
+				const draft = (await composer.innerText().catch(() => "")).trim();
+				if (draft.includes("fork 源句")) return true;
+				return window
+					.getByText("已 fork 为新会话，原文已放入输入框")
+					.isVisible()
+					.catch(() => false);
+			},
+			{ timeout: 15_000 },
+		)
 		.toBe(true);
 });
 

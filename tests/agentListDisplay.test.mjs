@@ -53,14 +53,10 @@ test("matches native Session paths only for runtime/catalog deduplication", () =
 	const parentPath = "C:\\sessions\\parent.jsonl";
 	const childPath = "C:\\sessions\\parent\\run\\session.jsonl";
 
-	assert.equal(
-		isSameSessionPath(childPath, childPath.toLowerCase().replaceAll("\\", "/")),
-		true,
-	);
+	assert.equal(isSameSessionPath(childPath, childPath.toLowerCase().replaceAll("\\", "/")), true);
 	assert.equal(isSameSessionPath(parentPath, childPath), false);
 	assert.equal(isSameSessionPath(undefined, undefined), false);
 });
-
 
 test("keeps a stable Session row and key when a runtime is attached", () => {
 	const { getProjectAgentSessionDisplay, getSessionRowKey } = loadModule();
@@ -74,13 +70,15 @@ test("keeps a stable Session row and key when a runtime is attached", () => {
 		sessions: [record],
 	});
 	const after = getProjectAgentSessionDisplay({
-		agents: [{
-			id: "runtime-1",
-			sessionPath: "c:/SESSIONS/STABLE.jsonl",
-			sessionEnvironment: "native",
-			createdAt: 2,
-			status: "idle",
-		}],
+		agents: [
+			{
+				id: "runtime-1",
+				sessionPath: "c:/SESSIONS/STABLE.jsonl",
+				sessionEnvironment: "native",
+				createdAt: 2,
+				status: "idle",
+			},
+		],
 		sessions: [record],
 	});
 
@@ -106,14 +104,16 @@ test("DSH agent 与 DSH 会话按 dshSessionId 配对：只渲染一个会话行
 	// 会话行（无 filePath → unkeyedSessions）同时出现会产生两个相同标题的条目，
 	// 必须按 dshSessionId 配对合并成一个会话行。
 	const display = getProjectAgentSessionDisplay({
-		agents: [{
-			id: "dsh:session-abc",
-			backend: "dsh",
-			sessionId: "session-abc",
-			sessionPath: undefined,
-			createdAt: 2,
-			status: "idle",
-		}],
+		agents: [
+			{
+				id: "dsh:session-abc",
+				backend: "dsh",
+				sessionId: "session-abc",
+				sessionPath: undefined,
+				createdAt: 2,
+				status: "idle",
+			},
+		],
 		sessions: [dshSession],
 	});
 	assert.equal(display.children.length, 1, "配对后只保留一个行，不得出现重复条目");
@@ -125,13 +125,95 @@ test("DSH agent 与 DSH 会话按 dshSessionId 配对：只渲染一个会话行
 test("DSH agent 无配对会话时仍平铺为 agent 行（孤儿不消失）", () => {
 	const { getProjectAgentSessionDisplay } = loadModule();
 	const display = getProjectAgentSessionDisplay({
-		agents: [{
-			id: "dsh:orphan",
-			backend: "dsh",
-			sessionId: "session-orphan",
-			createdAt: 2,
-			status: "idle",
-		}],
+		agents: [
+			{
+				id: "dsh:orphan",
+				backend: "dsh",
+				sessionId: "session-orphan",
+				createdAt: 2,
+				status: "idle",
+			},
+		],
+		sessions: [],
+	});
+	assert.equal(display.children.length, 1);
+	assert.equal(display.children[0].type, "agent");
+});
+
+test("DSH attach 回写窗口期：按 deckSessionId 兜底配对，不产生重复条目", () => {
+	// 2026-09-12 automation 实测：attachRuntime 回写 dshSessionId 是 fire-and-forget，
+	// 渲染层 agent 快照先于 catalog attach 到达时 session.dshSessionId 还没落盘，
+	// 只按 dshSessionId 配对会出现「agent 行 + 会话行」两个相同标题的条目。
+	const { getProjectAgentSessionDisplay } = loadModule();
+	const dshSession = session({
+		id: "catalog-dsh-1",
+		filePath: "",
+		backend: "dsh",
+		// dshSessionId 尚未回写（attach 窗口期）
+		source: "pi",
+		updatedAt: 5,
+	});
+	const display = getProjectAgentSessionDisplay({
+		agents: [
+			{
+				id: "dsh:session-xyz",
+				backend: "dsh",
+				sessionId: "session-xyz",
+				deckSessionId: "catalog-dsh-1",
+				createdAt: 2,
+				status: "running",
+			},
+		],
+		sessions: [dshSession],
+	});
+	assert.equal(display.children.length, 1, "deckSessionId 兜底配对后只保留一个行");
+	assert.equal(display.children[0].type, "session");
+	assert.equal(display.children[0].agent?.id, "dsh:session-xyz", "会话行携带配对 agent 装饰");
+});
+
+test("ACP agent 与 ACP 会话按 deckSessionId 配对：只渲染一个会话行，不产生重复 agent 行", () => {
+	// ACP agent tab 没有 sessionPath、ACP 记录没有 filePath（两者都不带 key），
+	// 不配对时项目树同时渲染 agent 行与会话行（同一标题两份）。
+	const { getProjectAgentSessionDisplay } = loadModule();
+	const acpSession = session({
+		id: "acp-session-1",
+		filePath: "",
+		backend: "acp",
+		acpSessionId: "ses_ec54bf011ffe",
+		source: "pi",
+		updatedAt: 5,
+	});
+	const display = getProjectAgentSessionDisplay({
+		agents: [
+			{
+				id: "acp:71b36945-0780",
+				backend: "acp",
+				deckSessionId: "acp-session-1",
+				sessionPath: undefined,
+				createdAt: 2,
+				status: "idle",
+			},
+		],
+		sessions: [acpSession],
+	});
+	assert.equal(display.children.length, 1, "配对后只保留一个行，不得出现重复条目");
+	assert.equal(display.children[0].type, "session");
+	assert.equal(display.children[0].session.id, "acp-session-1");
+	assert.equal(display.children[0].agent?.id, "acp:71b36945-0780", "会话行携带配对 agent 装饰");
+});
+
+test("ACP agent 无配对会话时仍平铺为 agent 行（孤儿不消失）", () => {
+	const { getProjectAgentSessionDisplay } = loadModule();
+	const display = getProjectAgentSessionDisplay({
+		agents: [
+			{
+				id: "acp:orphan",
+				backend: "acp",
+				deckSessionId: "missing-session",
+				createdAt: 2,
+				status: "idle",
+			},
+		],
 		sessions: [],
 	});
 	assert.equal(display.children.length, 1);
@@ -154,7 +236,10 @@ test("filters runtime rows by their canonical Session origin before falling back
 		visibleSessions: [piSession],
 		sources: new Set(["pi"]),
 	});
-	assert.deepEqual(visible.map((agent) => agent.id), ["pi-runtime", "unlinked-pi"]);
+	assert.deepEqual(
+		visible.map((agent) => agent.id),
+		["pi-runtime", "unlinked-pi"],
+	);
 });
 
 test("unlinked DSH agents match the dsh filter pill instead of their pi source", () => {
@@ -169,39 +254,44 @@ test("unlinked DSH agents match the dsh filter pill instead of their pi source",
 		visibleSessions: [],
 		sources: new Set(["pi"]),
 	});
-	assert.deepEqual(onlyPi.map((agent) => agent.id), ["pi-runtime"]);
+	assert.deepEqual(
+		onlyPi.map((agent) => agent.id),
+		["pi-runtime"],
+	);
 	const onlyDsh = filterAgentsForSidebarDisplay({
 		agents,
 		allSessions: [],
 		visibleSessions: [],
 		sources: new Set(["dsh"]),
 	});
-	assert.deepEqual(onlyDsh.map((agent) => agent.id), ["dsh-runtime"]);
+	assert.deepEqual(
+		onlyDsh.map((agent) => agent.id),
+		["dsh-runtime"],
+	);
 });
 
 test("preserves WSL path case while deduplicating native paths", () => {
 	const { getProjectAgentSessionDisplay, getAgentForSessionPath } = loadModule();
 	const wslDisplay = getProjectAgentSessionDisplay({
 		agents: [],
-		sessions: [
-			session({ filePath: "/home/Dev/session.jsonl", wsl: true }),
-			session({ filePath: "/home/dev/session.jsonl", wsl: true }),
-		],
+		sessions: [session({ filePath: "/home/Dev/session.jsonl", wsl: true }), session({ filePath: "/home/dev/session.jsonl", wsl: true })],
 	});
 	assert.equal(wslDisplay.children.length, 2);
 
+	// native 折叠只对 Windows 形态（盘符）成立：POSIX 路径是大小写敏感身份
+	// （2026-10-08 回归修复，旧实现把 native 一律折小写，Linux 身份错乱源）。
 	const agents = [
+		{ id: "upper", sessionPath: "D:/Sessions/Session.jsonl", createdAt: 1 },
+		{ id: "lower", sessionPath: "d:/sessions/session.jsonl", createdAt: 2 },
+	];
+	assert.equal(getAgentForSessionPath(agents, "D:/Sessions/Session.jsonl", "wsl")?.id, "upper");
+	assert.equal(getAgentForSessionPath(agents, "D:/Sessions/Session.jsonl", "native")?.id, "lower");
+	// POSIX/WSL 路径大小写敏感：native 下不同大小写不得互相折叠。
+	const posixAgents = [
 		{ id: "upper", sessionPath: "/home/Dev/session.jsonl", createdAt: 1 },
 		{ id: "lower", sessionPath: "/home/dev/session.jsonl", createdAt: 2 },
 	];
-	assert.equal(
-		getAgentForSessionPath(agents, "/home/Dev/session.jsonl", "wsl")?.id,
-		"upper",
-	);
-	assert.equal(
-		getAgentForSessionPath(agents, "/home/Dev/session.jsonl", "native")?.id,
-		"lower",
-	);
+	assert.equal(getAgentForSessionPath(posixAgents, "/home/Dev/session.jsonl", "native")?.id, "upper");
 });
 
 test("groups imported Codex subagent sessions under their parent session", () => {
@@ -223,9 +313,7 @@ test("groups imported Codex subagent sessions under their parent session", () =>
 				codexThreadSource: "subagent",
 				codexParentThreadId: "parent-thread",
 			}),
-		].map((item, index) =>
-			index === 0 ? { ...item, id: "parent-thread" } : item,
-		),
+		].map((item, index) => (index === 0 ? { ...item, id: "parent-thread" } : item)),
 		visibleChildCount: 5,
 	});
 
@@ -282,10 +370,7 @@ test("keeps a started Pi child session nested under its parent without a duplica
 	};
 	const display = getProjectAgentSessionDisplay({
 		agents: [pendingChildAgent],
-		sessions: [
-			session({ filePath: parentPath, name: "Parent", source: "pi", updatedAt: 10 }),
-			childSession,
-		],
+		sessions: [session({ filePath: parentPath, name: "Parent", source: "pi", updatedAt: 10 }), childSession],
 		visibleChildCount: 5,
 	});
 
@@ -300,22 +385,26 @@ test("does not duplicate an orphan Pi child when its Agent is already the top-le
 	const { getProjectAgentSessionDisplay } = loadModule();
 	const childPath = "/sessions/missing-parent/run/run-0/session.jsonl";
 	const display = getProjectAgentSessionDisplay({
-		agents: [{
-			id: "agent-child",
-			projectId: "p1",
-			cwd: "/project",
-			title: "Worker",
-			status: "running",
-			sessionPath: childPath,
-			createdAt: 20,
-		}],
-		sessions: [session({
-			filePath: childPath,
-			name: "Worker",
-			source: "pi",
-			updatedAt: 12,
-			parentSessionPath: "/sessions/missing-parent.jsonl",
-		})],
+		agents: [
+			{
+				id: "agent-child",
+				projectId: "p1",
+				cwd: "/project",
+				title: "Worker",
+				status: "running",
+				sessionPath: childPath,
+				createdAt: 20,
+			},
+		],
+		sessions: [
+			session({
+				filePath: childPath,
+				name: "Worker",
+				source: "pi",
+				updatedAt: 12,
+				parentSessionPath: "/sessions/missing-parent.jsonl",
+			}),
+		],
 		visibleChildCount: 5,
 	});
 
@@ -381,9 +470,6 @@ test("collectDisplayedSessionIds excludes drafts already shown as agent or sessi
 		codexSubagents: [],
 		piSubagents: [],
 	};
-	const ids = collectDisplayedSessionIds(
-		[sessionRow, agentRow],
-		(agent) => (agent.id === "live-1" ? "draft-1" : undefined),
-	);
+	const ids = collectDisplayedSessionIds([sessionRow, agentRow], (agent) => (agent.id === "live-1" ? "draft-1" : undefined));
 	assert.deepEqual([...ids], ["history-1", "draft-1"]);
 });

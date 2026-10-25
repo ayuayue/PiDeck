@@ -3,14 +3,7 @@
  * 在 React 挂载前由 index.html 引入；覆盖层移除前循环播放，尊重 prefers-reduced-motion。
  */
 
-type ColorKey =
-	| "cyan"
-	| "red"
-	| "green"
-	| "orange"
-	| "flash"
-	| "white"
-	| "ink";
+type ColorKey = "cyan" | "red" | "green" | "orange" | "flash" | "white" | "ink";
 
 type Piece = {
 	color: ColorKey;
@@ -121,18 +114,7 @@ const LOGO_TIMING = {
 	loopGapMs: 120,
 };
 
-const FINAL_LOGO = [
-	"3:2",
-	"3:3",
-	"3:4",
-	"4:2",
-	"4:4",
-	"5:2",
-	"5:3",
-	"5:5",
-	"6:2",
-	"6:5",
-];
+const FINAL_LOGO = ["3:2", "3:3", "3:4", "4:2", "4:4", "5:2", "5:3", "5:5", "6:2", "6:5"];
 
 const FINAL_LOGO_BOUNDS = { minX: 2, maxX: 5, minY: 3, maxY: 6 } as const;
 
@@ -166,17 +148,11 @@ function easeOutCubic(t: number) {
 }
 
 function prefersReducedMotion() {
-	return (
-		typeof window !== "undefined" &&
-		window.matchMedia("(prefers-reduced-motion: reduce)").matches
-	);
+	return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 function isDarkScheme() {
-	return (
-		typeof window !== "undefined" &&
-		window.matchMedia("(prefers-color-scheme: dark)").matches
-	);
+	return typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
 function settledLogoColor(): ColorKey {
@@ -205,15 +181,7 @@ function finalLogoCells(color: ColorKey): Cells {
 	return cells;
 }
 
-function drawBlock(
-	ctx: CanvasRenderingContext2D,
-	left: number,
-	top: number,
-	width: number,
-	height: number,
-	color: ColorKey,
-	neighbors: { top?: string; right?: string; bottom?: string; left?: string },
-) {
+function drawBlock(ctx: CanvasRenderingContext2D, left: number, top: number, width: number, height: number, color: ColorKey, neighbors: { top?: string; right?: string; bottom?: string; left?: string }) {
 	const fillColor = COLORS[color] ?? COLORS.white;
 	const borderColor = BORDER_COLORS[color] ?? fillColor;
 	const sameTop = neighbors.top === color;
@@ -233,14 +201,7 @@ function drawBlock(
 	const innerHeight = height - inset * 2;
 	if (innerWidth <= 0 || innerHeight <= 0) return;
 
-	const fillAlpha = (
-		fill: string,
-		alpha: number,
-		x: number,
-		y: number,
-		w: number,
-		h: number,
-	) => {
+	const fillAlpha = (fill: string, alpha: number, x: number, y: number, w: number, h: number) => {
 		if (alpha <= 0 || w <= 0 || h <= 0) return;
 		ctx.globalAlpha = alpha;
 		ctx.fillStyle = fill;
@@ -250,37 +211,16 @@ function drawBlock(
 
 	const faceTopH = Math.max(1, Math.floor(innerHeight * 0.55));
 	fillAlpha("#ffffff", 0.08, innerLeft, innerTop, innerWidth, faceTopH);
-	fillAlpha(
-		"#000000",
-		0.06,
-		innerLeft,
-		innerTop + faceTopH,
-		innerWidth,
-		innerHeight - faceTopH,
-	);
+	fillAlpha("#000000", 0.06, innerLeft, innerTop + faceTopH, innerWidth, innerHeight - faceTopH);
 
 	const topOuter = sameTop ? 1 : 2;
 	const bottomOuter = sameBottom ? 1 : 2;
 	fillAlpha("#ffffff", sameTop ? 0.12 : 0.28, left, top, width, topOuter);
-	fillAlpha(
-		borderColor,
-		sameBottom ? 0.24 : 1,
-		left,
-		top + height - bottomOuter,
-		width,
-		bottomOuter,
-	);
+	fillAlpha(borderColor, sameBottom ? 0.24 : 1, left, top + height - bottomOuter, width, bottomOuter);
 
 	const sideOuter = 2;
 	fillAlpha(borderColor, sameLeft ? 0.22 : 0.62, left, top, sameLeft ? 1 : sideOuter, height);
-	fillAlpha(
-		borderColor,
-		sameRight ? 0.22 : 0.62,
-		left + width - (sameRight ? 1 : sideOuter),
-		top,
-		sameRight ? 1 : sideOuter,
-		height,
-	);
+	fillAlpha(borderColor, sameRight ? 0.22 : 0.62, left + width - (sameRight ? 1 : sideOuter), top, sameRight ? 1 : sideOuter, height);
 }
 
 function paintCells(canvas: HTMLCanvasElement, cells: Cells, cssSize: number) {
@@ -335,11 +275,7 @@ function isOverlayAlive(overlay: HTMLElement | null) {
 	return Boolean(overlay?.isConnected) && !overlay?.classList.contains("fade-out");
 }
 
-async function playOnce(
-	canvas: HTMLCanvasElement,
-	size: number,
-	shouldContinue: () => boolean,
-) {
+async function playOnce(canvas: HTMLCanvasElement, size: number, shouldContinue: () => boolean) {
 	const frameMs = 1000 / LOGO_FPS;
 	const paint = (cells: Cells) => {
 		if (!shouldContinue()) return;

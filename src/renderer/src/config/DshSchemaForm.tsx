@@ -1,31 +1,11 @@
 import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { t } from "../i18n";
 import { Input } from "../components/ui-shadcn/input";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "../components/ui-shadcn/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui-shadcn/select";
 import { cn } from "../lib/utils";
 import { dshFieldCopy } from "./dshFieldLabels";
 import type { DshSectionApi } from "./dshSchema";
-import {
-	dictEntries,
-	hasDshDraftChanges,
-	isSecretSet,
-	normalizeDshNumberDraft,
-	normalizeDshSchema,
-	objectFields,
-	pruneEmptyObjects,
-	readDshDraftValue,
-	readPath,
-	setPath,
-	unionConstOptions,
-	type DshSchema,
-	type DshSchemaRef,
-} from "./dshSchema";
+import { dictEntries, hasDshDraftChanges, isSecretSet, normalizeDshNumberDraft, normalizeDshSchema, objectFields, pruneEmptyObjects, readDshDraftValue, readPath, setPath, unionConstOptions, type DshSchema, type DshSchemaRef } from "./dshSchema";
 
 export type DshNamespaceView = {
 	ns: string;
@@ -73,10 +53,7 @@ export function DshSchemaForm(props: DshSchemaFormProps) {
 	const [error, setError] = useState<string | null>(null);
 
 	/** 保存视角的草稿：number 字段的原始字符串草稿归一化为数值（脏判定与提交同源）。 */
-	const effectiveDraft = useMemo(
-		() => (schema && root ? normalizeDshNumberDraft(schema, root, draft) : draft),
-		[schema, root, draft],
-	);
+	const effectiveDraft = useMemo(() => (schema && root ? normalizeDshNumberDraft(schema, root, draft) : draft), [schema, root, draft]);
 
 	/** 脏 = 草稿里存在与已保存值不同的字段（草稿保留编辑轨迹，不因「等于原值」删键）。 */
 	const dirty = hasDshDraftChanges(effectiveDraft as Record<string, unknown>, namespace.value);
@@ -131,29 +108,23 @@ export function DshSchemaForm(props: DshSchemaFormProps) {
 		<div className="flex min-w-0 flex-col">
 			<div className="flex shrink-0 items-center gap-2 border-b border-border/40 px-4 py-2">
 				<span className="text-caption font-semibold text-foreground">{namespace.ns}</span>
-				<span className="rounded-full border border-border-subtle px-2 py-0.5 text-micro text-muted-foreground">
-					{namespace.applies === "live" ? t("config.dsh.appliesLive") : t("config.dsh.appliesRestart")}
-				</span>
-				{error && <span className="max-w-64 truncate text-micro text-danger" title={error}>{error}</span>}
-				{dirty && <span className="ml-auto text-micro text-amber-500" title={t("config.dirtyTooltip")}>●</span>}
+				<span className="rounded-full border border-border-subtle px-2 py-0.5 text-micro text-muted-foreground">{namespace.applies === "live" ? t("config.dsh.appliesLive") : t("config.dsh.appliesRestart")}</span>
+				{error && (
+					<span className="max-w-64 truncate text-micro text-danger" title={error}>
+						{error}
+					</span>
+				)}
+				{dirty && (
+					<span className="ml-auto text-micro text-amber-500" title={t("config.dirtyTooltip")}>
+						●
+					</span>
+				)}
 				{saving && <span className="ml-auto text-micro text-muted-foreground">{t("common.saving")}</span>}
 			</div>
 			<div className="p-4">
-				{!writable && (
-					<div className="mb-3 rounded-sm border border-border-subtle bg-bg-panel px-3.5 py-2.5 text-control text-muted-foreground">
-						{t("config.dsh.readOnly")}
-					</div>
-				)}
+				{!writable && <div className="mb-3 rounded-sm border border-border-subtle bg-bg-panel px-3.5 py-2.5 text-control text-muted-foreground">{t("config.dsh.readOnly")}</div>}
 				<div className="grid max-w-2xl gap-3">
-					<Field
-						schema={schema}
-						ref={root}
-						path={[]}
-						value={value([])}
-						secrets={namespace.secrets}
-						onChange={update}
-						writable={writable}
-					/>
+					<Field schema={schema} ref={root} path={[]} value={value([])} secrets={namespace.secrets} onChange={update} writable={writable} />
 				</div>
 			</div>
 		</div>
@@ -175,16 +146,7 @@ export function DshSchemaField(props: {
 	return <Field {...props} />;
 }
 
-function Field(props: {
-	schema: DshSchema;
-	ref: DshSchemaRef;
-	path: string[];
-	value: unknown;
-	placeholder?: string;
-	secrets: Array<{ path: string[]; set: boolean }>;
-	onChange: (path: string[], next: unknown) => void;
-	writable: boolean;
-}) {
+function Field(props: { schema: DshSchema; ref: DshSchemaRef; path: string[]; value: unknown; placeholder?: string; secrets: Array<{ path: string[]; set: boolean }>; onChange: (path: string[], next: unknown) => void; writable: boolean }) {
 	const { schema, ref, path, value, placeholder, secrets, onChange, writable } = props;
 	const meta = ref.meta ?? {};
 
@@ -193,16 +155,7 @@ function Field(props: {
 		return (
 			<div className="grid gap-2.5">
 				{fields.map((field) => (
-					<Field
-						key={field.name}
-						schema={schema}
-						ref={field.ref}
-						path={[...path, field.name]}
-						value={readPath(value, [field.name])}
-						secrets={secrets}
-						onChange={onChange}
-						writable={writable}
-					/>
+					<Field key={field.name} schema={schema} ref={field.ref} path={[...path, field.name]} value={readPath(value, [field.name])} secrets={secrets} onChange={onChange} writable={writable} />
 				))}
 			</div>
 		);
@@ -218,26 +171,10 @@ function Field(props: {
 						<div className="mb-2 flex items-center gap-2">
 							<span className="truncate font-mono text-micro font-semibold text-foreground">{entry.key}</span>
 						</div>
-						{inner ? (
-							<Field
-								schema={schema}
-								ref={inner}
-								path={[...path, entry.key]}
-								value={entry.value}
-								secrets={secrets}
-								onChange={onChange}
-								writable={writable}
-							/>
-						) : (
-							<JsonReadonly value={entry.value} />
-						)}
+						{inner ? <Field schema={schema} ref={inner} path={[...path, entry.key]} value={entry.value} secrets={secrets} onChange={onChange} writable={writable} /> : <JsonReadonly value={entry.value} />}
 					</div>
 				))}
-				{entries.length === 0 && (
-					<div className="rounded-sm border border-dashed border-border-subtle px-3 py-2.5 text-micro text-muted-foreground">
-						{t("config.dsh.emptySection")}
-					</div>
-				)}
+				{entries.length === 0 && <div className="rounded-sm border border-dashed border-border-subtle px-3 py-2.5 text-micro text-muted-foreground">{t("config.dsh.emptySection")}</div>}
 			</div>
 		);
 	}
@@ -252,17 +189,15 @@ function Field(props: {
 			const current = typeof value === "string" ? value : "";
 			return (
 				<Labeled name={path[path.length - 1] ?? ""} meta={meta}>
-					<Select
-						value={current || undefined}
-						disabled={!writable}
-						onValueChange={(next) => onChange(path, next)}
-					>
-						<SelectTrigger size="sm" className="h-8 w-full">
+					<Select value={current || undefined} disabled={!writable} onValueChange={(next) => onChange(path, next)}>
+						<SelectTrigger size="sm" className="w-full">
 							<SelectValue placeholder={t("config.dsh.selectPlaceholder")} />
 						</SelectTrigger>
 						<SelectContent>
 							{options.map((option) => (
-								<SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+								<SelectItem key={option.value} value={option.value}>
+									{option.label}
+								</SelectItem>
 							))}
 						</SelectContent>
 					</Select>
@@ -293,9 +228,7 @@ function Field(props: {
 					disabled={!writable || (isSecret && secretSet)}
 					onChange={(event) => onChange(path, event.target.value)}
 				/>
-				{isCredentialRef && (
-					<span className="text-micro text-muted-foreground">{t("config.dsh.credentialRefHint", { env: current })}</span>
-				)}
+				{isCredentialRef && <span className="text-micro text-muted-foreground">{t("config.dsh.credentialRefHint", { env: current })}</span>}
 			</Labeled>
 		);
 	}
@@ -306,13 +239,7 @@ function Field(props: {
 		const current = typeof value === "string" ? value : typeof value === "number" ? String(value) : "";
 		return (
 			<Labeled name={path[path.length - 1] ?? ""} meta={meta}>
-				<Input
-					className="h-8"
-					type="number"
-					value={current}
-					disabled={!writable}
-					onChange={(event) => onChange(path, event.target.value)}
-				/>
+				<Input size="sm" type="number" value={current} disabled={!writable} onChange={(event) => onChange(path, event.target.value)} />
 			</Labeled>
 		);
 	}
@@ -321,13 +248,7 @@ function Field(props: {
 		const current = value === true;
 		return (
 			<Labeled name={path[path.length - 1] ?? ""} meta={meta} inline>
-				<input
-					type="checkbox"
-					checked={current}
-					disabled={!writable}
-					onChange={(event) => onChange(path, event.target.checked)}
-					className="size-4 accent-[var(--color-accent)]"
-				/>
+				<input type="checkbox" checked={current} disabled={!writable} onChange={(event) => onChange(path, event.target.checked)} className="size-4 accent-[var(--color-accent)]" />
 			</Labeled>
 		);
 	}
@@ -335,28 +256,17 @@ function Field(props: {
 	return <JsonReadonly value={value} />;
 }
 
-function Labeled(props: {
-	name: string;
-	meta: Record<string, unknown>;
-	children: ReactNode;
-	inline?: boolean;
-	secretSet?: boolean;
-}) {
+function Labeled(props: { name: string; meta: Record<string, unknown>; children: ReactNode; inline?: boolean; secretSet?: boolean }) {
 	const copy = dshFieldCopy(props.name);
 	// schema 很少带 title；用字段名映射中文/英文，空 path 不再显示无意义根标签
 	const title = (typeof props.meta.title === "string" && props.meta.title) || copy.label;
-	const description =
-		(typeof props.meta.description === "string" && props.meta.description) || copy.hint;
+	const description = (typeof props.meta.description === "string" && props.meta.description) || copy.hint;
 	return (
 		<label className={cn("grid gap-1", props.inline && "flex items-center justify-between gap-2")}>
 			<span className="grid min-w-0 gap-0.5">
 				<span className="flex items-center gap-1.5 text-caption font-medium text-foreground">
 					{title ? <span className="truncate">{title}</span> : null}
-					{props.secretSet && (
-						<span className="rounded-full border border-emerald-300/70 bg-emerald-500/10 px-1.5 py-px text-micro text-emerald-700 dark:border-emerald-700/70 dark:text-emerald-300">
-							{t("config.dsh.secretSet")}
-						</span>
-					)}
+					{props.secretSet && <span className="rounded-full border border-emerald-300/70 bg-emerald-500/10 px-1.5 py-px text-micro text-emerald-700 dark:border-emerald-700/70 dark:text-emerald-300">{t("config.dsh.secretSet")}</span>}
 				</span>
 				{description && <span className="text-micro text-muted-foreground">{description}</span>}
 			</span>

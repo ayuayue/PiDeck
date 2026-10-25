@@ -9,12 +9,7 @@ import { linter, lintGutter } from "@codemirror/lint";
 import { jsonParseLinter } from "@codemirror/lang-json";
 import { baseEditorExtensions, foldMarkerDOM, resolveEditorLanguage } from "../../utils/codemirrorSetup";
 import { t } from "../../i18n";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../ui-shadcn/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
 
 export type CodeMirrorEditorProps = {
 	value: string;
@@ -42,15 +37,7 @@ type SelectionMenu = {
 /** 统一封装：与旧 MonacoEditor 的 props 完全兼容（value/onChange/language/height/readOnly），
  * 外部切换时零成本替换。EditorView 生命周期由本组件托管：卸载 dispose、外部 value 变化
  * 以「与当前文档不同才替换」的方式同步，避免覆盖用户正在输入的内容。 */
-export const CodeMirrorEditor = memo(function CodeMirrorEditor({
-	value,
-	onChange,
-	language,
-	height = "100%",
-	readOnly = false,
-	onAttachSelection,
-	initialLine,
-}: CodeMirrorEditorProps) {
+export const CodeMirrorEditor = memo(function CodeMirrorEditor({ value, onChange, language, height = "100%", readOnly = false, onAttachSelection, initialLine }: CodeMirrorEditorProps) {
 	const hostRef = useRef<HTMLDivElement | null>(null);
 	const viewRef = useRef<EditorView | null>(null);
 	const onChangeRef = useRef(onChange);
@@ -104,9 +91,7 @@ export const CodeMirrorEditor = memo(function CodeMirrorEditor({
 					highlightSelectionMatches(),
 					indentUnit.of("  "),
 					// JSON 语法错误即时提示（配置文件编辑高价值；YAML 暂无官方 linter）
-					...(isJson
-						? [lintGutter(), linter(jsonParseLinter())]
-						: []),
+					...(isJson ? [lintGutter(), linter(jsonParseLinter())] : []),
 					keymap.of([
 						...closeBracketsKeymap,
 						...defaultKeymap,
@@ -143,7 +128,7 @@ export const CodeMirrorEditor = memo(function CodeMirrorEditor({
 			view.destroy();
 			viewRef.current = null;
 		};
-	// 语言/只读变化需重建实例（CM6 无热切换语言的标准路径，重建成本低且简单可靠）
+		// 语言/只读变化需重建实例（CM6 无热切换语言的标准路径，重建成本低且简单可靠）
 	}, [language, readOnly]);
 
 	// initialLine 变化（重新点击同文件链接/切换 tab）：文档未变时重新定位
@@ -174,41 +159,46 @@ export const CodeMirrorEditor = memo(function CodeMirrorEditor({
 		}
 	}, [value]);
 
-	return <div ref={hostRef} style={{ height, minHeight: 60 }} className="codemirror-host" onContextMenu={handleContextMenu}>
-		{/* 引用选中内容：虚拟锚点钉在右键坐标上（与 FileContextMenu 同模式，Radix 处理视口碰撞/ESC） */}
-		{selectionMenu && (
-			<DropdownMenu open onOpenChange={(open) => { if (!open) setSelectionMenu(null); }}>
-				<DropdownMenuTrigger
-					aria-hidden
-					tabIndex={-1}
-					style={{
-						position: "fixed",
-						left: selectionMenu.x,
-						top: selectionMenu.y,
-						width: 0,
-						height: 0,
-						padding: 0,
-						border: 0,
-						background: "transparent",
-						pointerEvents: "none",
+	return (
+		<div ref={hostRef} style={{ height, minHeight: 60 }} className="codemirror-host" onContextMenu={handleContextMenu}>
+			{/* 引用选中内容：虚拟锚点钉在右键坐标上（与 FileContextMenu 同模式，Radix 处理视口碰撞/ESC） */}
+			{selectionMenu && (
+				<DropdownMenu
+					open
+					onOpenChange={(open) => {
+						if (!open) setSelectionMenu(null);
 					}}
-				/>
-				<DropdownMenuContent align="start" side="bottom" className="min-w-44">
-					<DropdownMenuItem
-						onSelect={() => {
-							const menu = selectionMenu;
-							setSelectionMenu(null);
-							onAttachSelectionRef.current?.(menu.startLine, menu.endLine);
+				>
+					<DropdownMenuTrigger
+						aria-hidden
+						tabIndex={-1}
+						style={{
+							position: "fixed",
+							left: selectionMenu.x,
+							top: selectionMenu.y,
+							width: 0,
+							height: 0,
+							padding: 0,
+							border: 0,
+							background: "transparent",
+							pointerEvents: "none",
 						}}
-					>
-						{t("editor.attachSelectionRange", {
-							range: selectionMenu.startLine === selectionMenu.endLine
-								? String(selectionMenu.startLine)
-								: `${selectionMenu.startLine}-${selectionMenu.endLine}`,
-						})}
-					</DropdownMenuItem>
-				</DropdownMenuContent>
-			</DropdownMenu>
-		)}
-	</div>;
+					/>
+					<DropdownMenuContent align="start" side="bottom" className="min-w-44">
+						<DropdownMenuItem
+							onSelect={() => {
+								const menu = selectionMenu;
+								setSelectionMenu(null);
+								onAttachSelectionRef.current?.(menu.startLine, menu.endLine);
+							}}
+						>
+							{t("editor.attachSelectionRange", {
+								range: selectionMenu.startLine === selectionMenu.endLine ? String(selectionMenu.startLine) : `${selectionMenu.startLine}-${selectionMenu.endLine}`,
+							})}
+						</DropdownMenuItem>
+					</DropdownMenuContent>
+				</DropdownMenu>
+			)}
+		</div>
+	);
 });

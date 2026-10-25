@@ -32,7 +32,7 @@
   /*
    * 等宽字体栈必须带 CJK 回退：栈内西文等宽字体（Consolas/Menlo 等）不含汉字，
    * 若直接落到通用 monospace，Windows 会经 FontLink 用 SimSun(宋体) 渲染中文，
-   * 11px 小字 + 合成 600 字重时笔画挤压缠在一起（如「下次调用前」投递徽章）。
+   * 11px 小字 + 合成 600 字重时笔画挤压缠在一起（如等宽小字徽章/时间戳）。
    * CJK 字体放在通用 monospace 之前，西文仍命中前面的等宽字体，汉字命中 UI 同款字体。
    */
   --font-family-mono:
@@ -41,10 +41,13 @@
     "Hiragino Sans GB", "Noto Sans CJK SC", monospace;
   --font-family-business: var(--font-family-mono);
   --font-size-micro: 11px;
+  /* 会话 Tab 栏标题字号：独立一轨（外观设置「会话 Tab 栏字号」），
+     出厂基线与 --font-size-micro 同值，保证未单独设置时视觉不变。 */
+  --font-size-tab: 11px;
   --font-size-caption: 12px;
   --font-size-control: 13px;
   --font-size-body: 14px;
-  --font-size-chat: 15px;
+  --font-size-chat: 16px;
   /*
    * 会话正文行高：无单位倍率，随 --font-size-chat 各档缩放。
    * 旧值散落写成 1.68（15px → 25.2px），段落偏疏、扫描密度低于 Codex/Cursor
@@ -54,12 +57,27 @@
    * 不要对 CJK 正文设负 letter-spacing。
    */
   --line-height-chat: 1.6;
+  /*
+   * 过程层字号：**派生自会话正文**，只分两档（标题 / 详情），不随界面字号变化。
+   * 为什么派生：字号属于「可读性设置」——用户调大正文是因为看不清，那同样看不清的过程行
+   *（组头 / 工具调用 / 思考）也必须跟着变大；过程层的"降权"改由颜色 / 字重承担，不靠缩小字号。
+   * 为什么只有两档：**2px 是能一眼分辨的最小步长**。正文在 14~20 区间里塞不下 3 个互不相同的
+   * 过程档位（正文−2 / −4 就已经触到 12px 下限），所以**徽章并入详情档**，不再设第 4 档——
+   * 旧的四档里有 1px 步长，相邻档位肉眼分不出来，等于给了用户几个"看起来一样"的层级。
+   * max() 是下限保护：小档位下不让标题 / 详情继续缩，任何档位都不低于可读下限。
+   * 行高用无单位倍率，随字号一起缩放（固定 px 行高会在大档位下压扁文字、裁切固定高度的行）。
+   */
+  --font-size-chat-row: max(13px, calc(var(--font-size-chat) - 2px));
+  --font-size-chat-detail: max(12px, calc(var(--font-size-chat) - 4px));
+  --line-height-chat-row: 1.54;
+  --line-height-chat-detail: 1.5;
   --font-size-input: 14px;
   --font-size-title: 16px;
   --font-size-brand: 18px;
   --font-size-heading: 20px;
   --font-size-logo: 36px;
   --line-height-micro: 16px;
+  --line-height-tab: 16px;
   --line-height-caption: 18px;
   --line-height-control: 20px;
   --line-height-body: 22px;
@@ -73,28 +91,43 @@
    */
   /* 默认浅色外观以纯白为基底；灰色只用于控件表面、hover 和选中层级。 */
   --color-bg-app: #ffffff;
-  --color-bg-sidebar: #ffffff;
+  /* 主次分明（对齐 ZCode 排版，docs/zcode-design-analysis.md）：chrome 退一档——
+     侧栏/右抽屉 #f0f0f0（ZCode sidebar 同值），正文面板保持纯白，
+     内容浮在 chrome 之上，焦点自然落在会话区。
+     皮肤（fresh-green 等）各自定制更深的 sidebar 分层，不受此处影响。 */
+  --color-bg-sidebar: #f0f0f0;
   --color-bg-panel: #ffffff;
   /* 浮层与普通面板分离：壁纸模式下普通面板可透图，但菜单必须保持稳定的不透明底。 */
   --color-bg-popover: #ffffff;
   --color-bg-input: #ffffff;
-  --color-bg-muted: #f4f4f5;
-  --color-bg-hover: #e5e7eb;
-  --color-bg-active: #dfe3e8;
+  /* 控件表面/hover/选中层：全部纯中性灰（R=G=B，无色相）——ZCode 质感的关键
+     是灰阶零色相噪声，色相只留给语义色与身份色（见 docs/zcode-design-analysis.md）。
+     交互阶梯对齐 ZCode 的「纸感」：侧栏 #f0f0f0 上 hover Δ6（#eaeaea）、选中 Δ12
+     （#e4e4e4，≈ZCode 选中墨量 4.7%）——选中感靠小步长，不靠深底；白面板上两档
+     相应为 Δ21/Δ27，仍清晰可辨。暗色阶梯保持更大步长不动（ZCode 暗色同理）。
+     注意：侧栏上的行/按钮 hover 必须用 bg-bg-hover；bg-muted 比 sidebar 还亮一档，
+     罩上去是反向变亮、视觉不可见（守卫见 tests/lightNeutralBackground.test.mjs）。 */
+  --color-bg-muted: #f4f4f4;
+  --color-bg-hover: #eaeaea;
+  --color-bg-active: #e4e4e4;
   --color-text-primary: #202124;
-  /* 灰阶加深一档：secondary/tertiary 在白底上对比不足是“发灰不亮”的主因之一，
-     secondary 7.5:1 / tertiary 4.8:1，均达 WCAG AA。 */
-  --color-text-secondary: #4b5563;
-  --color-text-tertiary: #6b7280;
-  /* 过程层文字（思考/工具调用）：比 tertiary 更浅，向背景混 35%——
+  /* 中性墨水（ZCode 同法）：secondary/tertiary 全纯灰零色相，去 slate 蓝调；
+     深度保持可读——secondary 8.9:1 / tertiary 5.7:1（muted 弱底 5.2:1），均达 WCAG AA。 */
+  --color-text-secondary: #4a4a4a;
+  --color-text-tertiary: #666666;
+  /* 过程层文字（思考/工具调用）：比 tertiary 更浅——
      与正文（primary）的差异主要由颜色承担，字重保持可读不降档。
-     亮色显式 #9fa3ac（tertiary 65% + 白 35% 的实测值），避免 color-mix 在
-     主题切换/变量解析时序上引入不确定性；暗色由下方 dark 块显式覆盖。 */
-  --color-text-faint: #9fa3ac;
+     亮色显式纯中性 #9a9a9a，避免 color-mix 在主题切换/变量解析时序上引入
+     不确定性；暗色由下方 dark 块显式覆盖。 */
+  --color-text-faint: #9a9a9a;
   --color-text-inverse: #ffffff;
-  --color-border-subtle: #e5e5e5;
-  --color-border-default: #dfdfdf;
-  --color-border-strong: #d7d7d7;
+  /* 边框墨水化（ZCode 同法）：不透明灰线 → 墨水 alpha 罩染（rgba(13,13,13,x)）。
+     视觉等值换算（白底上）：0.10→#e6e6e6 / 0.13→#dedede / 0.17→#d5d5d5，对应旧
+     #e5e5e5/#dfdfdf/#d7d7d7。好处：叠在任何表面（侧栏 #f0f0f0、皮肤色底）色相永远
+     中性一致，hover/强调只需改 alpha 不需要另一块灰。皮肤保留自己的带色相边框（身份色）。 */
+  --color-border-subtle: rgba(13, 13, 13, 0.1);
+  --color-border-default: rgba(13, 13, 13, 0.13);
+  --color-border-strong: rgba(13, 13, 13, 0.17);
   /* 默认主题色：黑白灰；语义状态色（info/warning/danger）仍保留用于状态反馈。
      accent 取 shadcn zinc 的 primary 值（浅色近黑 zinc-900）：主按钮（保存/创建/导出/发送）
      呈现纯黑白底，与 secondary 灰底拉开层级；若用中灰（gray-500），default 与
@@ -125,11 +158,17 @@
   --color-danger: #b42318;
   --color-danger-soft: #fdecea;
   /* 成功色（diff 添加侧 / 完成态）：与 danger 同构，strong 为更深的强调档 */
-  --color-success: #15803d;
+  /* 成功色：blue-600/green-700 在白底仅 4.5 临界，graphite 等皮肤非纯白底
+     （#ececec）上跌到 4.25 不达 AA；加深一档后白底 6+、皮肤底 5+，
+     与 strong #166534 保持两档距离（见 tests/themeContrast.test.mjs）。 */
+  --color-success: #14703a;
   --color-success-soft: #dcfce7;
   --color-success-strong: #166534;
-  --color-warning: #b7791f;
-  --color-info: #2563eb;
+  /* 警告色：同色相加深一档过 WCAG AA——原 #b7791f 在白底仅 3.64:1、
+     bg-warning/15 透明徽章底上仅 3.08:1，LogViewer 警告行/导入取消提示这类
+     真实文字用途不达标；amber-800 白底 6.85:1、15% 透明底 5.46:1（见 tests/themeContrast.test.mjs）。 */
+  --color-warning: #854d0e;
+  --color-info: #1d4ed8;
   /* 工具身份色（工具行图标 / MCP 来源徽标 / ask 工具卡）：默认继承 --color-info，
      保持各主题现有观感不变；皮肤可在自身色板块覆盖（fresh-green 用青绿替换冷蓝），
      与 --color-thinking 同属「身份色」——状态色（info/警告/危险）与身份色解耦，
@@ -138,13 +177,21 @@
   /* 过程行图标色：默认 zinc 主题会把 brand-purple 洗成灰，思考/工具 logo 必须单独保色，
      否则和正文 tertiary 糊成一块。不跟 data-accent 走，身份色不等于主题强调色。 */
   --color-thinking: #6366f1;
+  /* 输入框/消息引用 chip 身份色（file/skill/session）：不随 data-accent 洗白，
+     否则默认 neutral 主题下三类引用糊成灰阶、无法区分。
+     2026-09 对齐 Proma 后底色与文字同源（color-mix 同 token 派生），文字即身份色，
+     因此浅色档必须够深才能过 WCAG AA：实测 #2563eb 仅 4.37:1、#16a34a 仅 2.82:1，
+     已换成 #1d4ed8（5.57:1）与 #166534（5.73:1）；skill 紫 4.53:1 达标保持。 */
+  --color-chip-file: #1d4ed8;
+  --color-chip-skill: #7c3aed;
+  --color-chip-session: #166534;
   --color-code-bg: #111418;
   --color-code-text: #d1d5db;
   --color-chat-card-bg: #fafafa;
-  --color-chat-muted-bg: #f4f4f5;
+  --color-chat-muted-bg: #f4f4f4;
   --color-chat-control-bg: #ffffff;
   --color-chat-table-bg: #ffffff;
-  --color-chat-link: #4b5563;
+  --color-chat-link: #4a4a4a;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -161,6 +208,9 @@
    */
   --z-dialog: 950;
   --z-popover: 960;
+  /* 浮层侧滑抽屉（beui Drawer，如公告详情）：高于弹窗(950)及弹窗内 popover(960)，
+   * 但低于 1000 旧式浮层，避免反被旧浮层盖住。 */
+  --z-drawer: 980;
   /* shadcn new-york 默认 radius 约 0.5rem，整体略圆一点更接近官方 */
   --radius-xs: 4px;
   --radius-sm: 6px;
@@ -183,11 +233,25 @@
      双层扩散，让输入卡片与消息区拉开层级；focus 时叠加 focus-ring 使用。 */
   --shadow-composer-lifted: 0 2px 12px rgba(9, 9, 11, 0.06), 0 1px 3px rgba(9, 9, 11, 0.04);
   --shadow-drawer: -4px 0 12px rgba(9, 9, 11, 0.06);
+  /* 尺寸档阴影（sm/md/lg/xl/2xl）：浅色值对齐 Tailwind 默认刻度（迁移时视觉零变化），
+     暗色侧在下方深色块同档加深——修复 Tailwind 默认阴影不响应暗色模式的问题
+     （暗色下浮层发飘）。经 tailwind.css @theme 桥接后 shadow-* utility 全量生效，
+     含 beui 安装组件（主题层统一，不改组件文件）。场景语义阴影（popover/modal/
+     composer/drawer）优先于尺寸档使用。 */
+  --shadow-sm: 0 1px 2px 0 rgba(9, 9, 11, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(9, 9, 11, 0.07), 0 2px 4px -2px rgba(9, 9, 11, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(9, 9, 11, 0.08), 0 4px 6px -4px rgba(9, 9, 11, 0.07);
+  --shadow-xl: 0 20px 25px -5px rgba(9, 9, 11, 0.09), 0 8px 10px -6px rgba(9, 9, 11, 0.07);
+  --shadow-2xl: 0 25px 50px -12px rgba(9, 9, 11, 0.12);
   --focus-ring: 0 0 0 3px rgba(24, 24, 27, 0.16);
+  /* outline 版焦点环颜色：供需要负 offset / 不能占用 box-shadow 的场景；
+     注意 --focus-ring 是完整 box-shadow 值，不能直接塞进 outline 的颜色位（历史上有 16 处这么写导致整条声明作废） */
+  --focus-ring-color: rgba(24, 24, 27, 0.22);
   /* 换肤背景图：none=不启用；mask 由 JS 注入（rgba 遮罩） */
   --app-bg-image: none;
   --app-bg-mask: none;
-  --overlay-backdrop: rgba(9, 9, 11, 0.4);
+  /* 模态遮罩统一档：shadcn DialogOverlay 与旧轨 modal-backdrop/prompts-editor-backdrop 共用（2026-03 全局遮罩收敛） */
+  --overlay-backdrop: rgba(9, 9, 11, 0.45);
   --overlay-backdrop-soft: rgba(15, 23, 42, 0.14);
   --overlay-backdrop-subtle: rgba(15, 23, 42, 0.08);
   --image-preview-backdrop: rgba(0, 0, 0, 0.78);
@@ -228,6 +292,11 @@
 /* ===== 主题色预设（data-accent） =====
  * 默认主题使用中性灰；绿色作为可选主题保留，不再承担出厂默认色。
  * 自定义主题：新增一个 data-accent 值 + SettingsModal 色板预设条目即可。
+ * 注意：accent 色块只覆盖「主色/链接/logo」等装饰色，刻意不覆盖状态语义色
+ * （--color-danger / --color-warning / --color-info）——状态灯（idle=蓝、
+ * 运行=黄、错误=红）必须跨主题恒定可辨识，否则暖阳米/紫/玫等主题下
+ * idle 灯会被染成主色、与运行/错误灯糊在一起（见 sessionStatusDotClass）。
+ * 状态色与身份色解耦的约定见上方 --color-tool 注释。
  */
 :root[data-accent="green"] {
   /* 森系绿（参考同目录 Proma 的 theme-forest-light 森息晨光）：
@@ -255,7 +324,6 @@
   --color-logo-green-mid: #2f6fe0;
   --color-logo-green-deep: #2456b8;
   --color-brand-green: #1d4ed8;
-  --color-info: #2563eb;
   --color-chat-link: #2563eb;
 }
 :root[data-accent="purple"] {
@@ -266,7 +334,6 @@
   --color-logo-green-mid: #7c3aed;
   --color-logo-green-deep: #6d28d9;
   --color-brand-green: #6d28d9;
-  --color-info: #7c3aed;
   --color-chat-link: #7c3aed;
 }
 :root[data-accent="amber"] {
@@ -277,7 +344,6 @@
   --color-logo-green-mid: #c26a06;
   --color-logo-green-deep: #9a5505;
   --color-brand-green: #92400e;
-  --color-info: #b45309;
   --color-chat-link: #b45309;
 }
 :root[data-accent="rose"] {
@@ -288,7 +354,6 @@
   --color-logo-green-mid: #e11d48;
   --color-logo-green-deep: #be123c;
   --color-brand-green: #be123c;
-  --color-info: #e11d48;
   --color-chat-link: #e11d48;
 }
 
@@ -321,9 +386,11 @@
     "Hiragino Sans GB", "Noto Sans CJK SC", monospace;
 }
 
-/* 字号预设：拆分为 UI / 会话正文 / 输入框三轨，各自通过 data 属性切换。
+/* 字号预设：拆分为 UI / 会话 Tab 栏 / 会话正文 / 输入框四轨，各自通过 data 属性切换。
    - data-ui-font-size 控制 sidebar、按钮、列表、弹窗等 UI 字号
      （micro / caption / control / body / title / brand / heading / logo）
+   - data-tab-font-size 控制会话/文件 Tab 标题 --font-size-tab
+     （档位值与 UI 轨的 micro 逐级对齐：null 时 JS 回落界面字号，出厂视觉不变）
    - data-chat-font-size 控制会话正文 --font-size-chat（行高走 --line-height-chat 倍率，不随档位改）
    - data-input-font-size 控制 composer 输入框 --font-size-input
    控件高度 token 不随字号变化。 */
@@ -392,6 +459,23 @@
   --line-height-heading: 36px;
 }
 
+:root[data-tab-font-size="compact"] {
+  --font-size-tab: 10px;
+  --line-height-tab: 15px;
+}
+:root[data-tab-font-size="medium"] {
+  --font-size-tab: 12px;
+  --line-height-tab: 18px;
+}
+:root[data-tab-font-size="large"] {
+  --font-size-tab: 13px;
+  --line-height-tab: 19px;
+}
+:root[data-tab-font-size="xlarge"] {
+  --font-size-tab: 14px;
+  --line-height-tab: 20px;
+}
+
 :root[data-chat-font-size="compact"] {
   --font-size-chat: 14px;
 }
@@ -428,23 +512,38 @@
   color-scheme: dark;
   /* 暗色黑灰基底 + 中性灰默认主题；data-accent 可切换到彩色主题。 */
   --color-bg-app: #121212;
-  --color-bg-sidebar: #171717;
-  --color-bg-panel: #171717;
-  --color-bg-popover: #171717;
-  --color-bg-input: #171717;
+  /* 主次分明（对齐 ZCode 排版，docs/zcode-design-analysis.md）：暗色方向反过来——
+     chrome 更暗（#141414），正文面板 #1a1a1a 更亮，
+     深度序列 chrome < content < sticky（bg-app #121212），与浅色的白卡浮层同构。 */
+  --color-bg-sidebar: #141414;
+  --color-bg-panel: #1a1a1a;
+  /* 浮层提一档（ZCode 深度阶梯同构：panel #202020 → card/menu #2b2b2b）：popover 相对
+     panel 提亮 5%，菜单/弹窗永远浮在内容之上。用相对色而非写死 hex：graphite/sea-blue/
+     warm-beige 皮肤不覆盖 popover/input，继承此处的相对派生可自动获得正确的浮层方向
+     （写死 #242424 会让 panel 更亮的 graphite 出现「菜单比内容暗」的反向浮层）。 */
+  --color-bg-popover: color-mix(in srgb, var(--color-bg-panel) 95%, white);
+  /* 输入框贴平内容面（ZCode：inputs should feel calm and integrated, not glowing）：
+     相对引用让不覆盖此 token 的皮肤自动对齐自己的 panel。 */
+  --color-bg-input: var(--color-bg-panel);
   --color-bg-muted: #262626;
   --color-bg-hover: #262626;
   --color-bg-active: #333333;
   --color-text-primary: #ecece7;
   --color-text-secondary: #b8b8b2;
-  --color-text-tertiary: #8a8a84;
+  /* 暗色下 tertiary 提亮一档：原 #8a8a84 在 bg-muted #262626 上 4.36:1 不足 AA，
+     graphite 皮肤更亮的 #303030 弱底上仅 3.8:1；#9a9a94 全部 4.6~5.3:1，
+     仍低于 secondary #b8b8b2 保持层级（见 tests/themeContrast.test.mjs）。 */
+  --color-text-tertiary: #9a9a94;
   /* 暗色下 faint 显式定义：color-mix 会把 tertiary 向 bg-app(#121212) 混，
      算出来约 #595c59，在暗底上对比不足看不清；暗色「浅」= 比 tertiary 更亮，
      取 #a0a09a（比正文 tertiary 亮一档但仍低于 secondary，保持过程层语义）。 */
   --color-text-faint: #a0a09a;
   --color-text-inverse: #121212;
-  --color-border-subtle: #262626;
-  --color-border-default: #2e2e2e;
+  /* 边框墨水化：白墨水 alpha（暗色深度阶梯的另一半——ZCode 暗色边框是
+     rgba(255,255,255,0.1)，叠在更深底色上自动形成正确亮度）。
+     视觉等值换算（panel #1a1a1a 上）：0.05→#262626 / 0.09→#2f2f2f / 0.14→#383838。 */
+  --color-border-subtle: rgba(255, 255, 255, 0.05);
+  --color-border-default: rgba(255, 255, 255, 0.09);
   /* 暗色语法高亮（GitHub dark 系） */
   --code-keyword: #ff7b72;
   --code-string: #a5d6ff;
@@ -456,7 +555,7 @@
   --code-operator: #79c0ff;
   --code-property: #7ee787;
   --code-constant: #79c0ff;
-  --color-border-strong: #3a3a3a;
+  --color-border-strong: rgba(255, 255, 255, 0.14);
   /* 暗色 neutral accent = shadcn zinc 暗色 primary（近白 zinc-50）：主按钮暗色下呈白底黑字，
      与浅色主题互为反色；strong 为 hover/聚焦环的稍暗一档。 */
   --color-accent: #fafafa;
@@ -464,12 +563,18 @@
   --color-accent-soft: #2a2a2a;
   /* 危险色暗色提亮：#b42318 深红在暗底上发闷，destructive 按钮/错误态改用亮红；
      soft 同步换成深红底（直接沿用浅色 #fdecea 会在暗色界面出现粉底徽章）。 */
-  --color-danger: #ef4444;
+  /* 危险色暗色提亮：red-400 档——danger-soft 徽章底、sea-blue/graphite 等皮肤较亮面板上
+     red-500 #ef4444 仅 4.0~4.1:1 不达 AA；与 success(#4ade80)/warning(#fbbf24) 同取 400 档，
+     黑字/深底全部 4.8~6.8:1（家族策略见 tests/themeContrast.test.mjs）。 */
+  --color-danger: #f87171;
   --color-danger-soft: #3a1d1d;
   /* 成功色暗色提亮：同 danger 策略，soft 用深绿底（沿用浅绿会在暗色界面出现荧光底） */
   --color-success: #4ade80;
   --color-success-soft: #14291c;
   --color-success-strong: #86efac;
+  /* 警告色暗色提亮：补齐 danger/success 的家族策略（此前漏覆盖、长期继承浅色 #b7791f，
+     在暗底上发闷且透明徽章底不足 AA）；amber-400 在 #121212 上 11.2:1、bg-warning/15 底 8.3:1。 */
+  --color-warning: #fbbf24;
   --color-brand-green: #9ca3af;
   --color-brand-purple: #9ca3af;
   --color-brand-blue: #9ca3af;
@@ -477,12 +582,17 @@
   --color-brand-rose: #9ca3af;
   --color-info: #60a5fa;
   --color-thinking: #818cf8;
+  /* 引用 chip 身份色暗色档：比浅色提亮一档，保证在深灰底上有足够辨识度
+     （实测文字/底色 5.2~7.7:1，均达 AA）。 */
+  --color-chip-file: #60a5fa;
+  --color-chip-skill: #a78bfa;
+  --color-chip-session: #4ade80;
   --color-code-bg: #1a1a1a;
   --color-code-text: #d1d5db;
-  --color-chat-card-bg: #171717;
+  --color-chat-card-bg: #1a1a1a;
   --color-chat-muted-bg: #202020;
   --color-chat-control-bg: #171717;
-  --color-chat-table-bg: #171717;
+  --color-chat-table-bg: #1a1a1a;
   --color-chat-link: #d1d5db;
   --color-logo-green: #9ca3af;
   --color-logo-green-mid: #6b7280;
@@ -493,24 +603,32 @@
   --shadow-composer: 0 1px 2px 0 rgba(0, 0, 0, 0.35);
   --shadow-composer-lifted: 0 2px 16px rgba(0, 0, 0, 0.38), 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-drawer: -4px 0 12px rgba(0, 0, 0, 0.35);
+  /* 尺寸档阴影暗色侧：与 --shadow-popover/modal 的暗色深度（0.4/0.45/0.35）同家族，
+     按档位递增，避免暗色下浮层「发飘」 */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.45), 0 4px 6px -4px rgba(0, 0, 0, 0.35);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+  --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.55);
   --focus-ring: 0 0 0 3px rgba(250, 250, 250, 0.2);
-  --overlay-backdrop: rgba(0, 0, 0, 0.7);
+  --focus-ring-color: rgba(250, 250, 250, 0.26);
+  --overlay-backdrop: rgba(0, 0, 0, 0.65);
   --overlay-backdrop-soft: rgba(0, 0, 0, 0.55);
   --overlay-backdrop-subtle: rgba(0, 0, 0, 0.35);
 }
 
-/* 暗色主题色预设（data-accent），亮色系保证可读性 */
+/* 暗色主题色预设（data-accent），亮色系保证可读性；
+   同样不覆盖状态语义色（--color-info 等），状态灯跨主题恒定。 */
 :root[data-theme="dark"][data-accent="green"] {
   /* 森系绿暗色（参考 Proma theme-forest-dark 森息夜语）：雾绿灰主色 hsl(145,25%,42%)；
      accent-soft 用其 --accent（hsl 150 12% 22% = #313f38）作悬停/选中暖调。 */
-  --color-accent: #508667;
+  --color-accent: #55906c;
   --color-accent-strong: #66a380;
   --color-accent-soft: #313f38;
   --color-brand-green: #87c5a1;
   --color-logo-green: #64b486;
   --color-logo-green-mid: #508667;
   --color-logo-green-deep: #3d6b4d;
-  --color-info: #60a5fa;
   --color-chat-link: #87c5a1;
 }
 :root[data-theme="dark"][data-accent="blue"] {
@@ -521,18 +639,16 @@
   --color-logo-green-mid: #3b82f6;
   --color-logo-green-deep: #2563eb;
   --color-brand-green: #60a5fa;
-  --color-info: #60a5fa;
   --color-chat-link: #60a5fa;
 }
 :root[data-theme="dark"][data-accent="purple"] {
   --color-accent: #a78bfa;
-  --color-accent-strong: #8b5cf6;
+  --color-accent-strong: #9064f8;
   --color-accent-soft: #241f3a;
   --color-logo-green: #a78bfa;
   --color-logo-green-mid: #8b5cf6;
   --color-logo-green-deep: #7c3aed;
   --color-brand-green: #a78bfa;
-  --color-info: #a78bfa;
   --color-chat-link: #a78bfa;
 }
 :root[data-theme="dark"][data-accent="amber"] {
@@ -543,7 +659,6 @@
   --color-logo-green-mid: #f59e0b;
   --color-logo-green-deep: #d97706;
   --color-brand-green: #fbbf24;
-  --color-info: #fbbf24;
   --color-chat-link: #fbbf24;
 }
 :root[data-theme="dark"][data-accent="rose"] {
@@ -554,7 +669,6 @@
   --color-logo-green-mid: #f43f5e;
   --color-logo-green-deep: #e11d48;
   --color-brand-green: #fb7185;
-  --color-info: #fb7185;
   --color-chat-link: #fb7185;
 }
 
@@ -580,8 +694,11 @@
   --color-bg-hover: #dadece;
   --color-bg-active: #c9d0be;
   --color-text-primary: #273529;
-  --color-text-secondary: #515f4e;
-  --color-text-tertiary: #697463;
+  --color-text-secondary: #4b5744;
+  --color-text-tertiary: #5a6656;
+  /* 皮肤底非纯白：基础 faint #9fa3ac 在 #f6f7f2 上仅 2.35:1 低于 2.5 地板，
+     按皮肤色相给显式值（见 tests/themeContrast.test.mjs）。 */
+  --color-text-faint: #8d998e;
   --color-border-subtle: #d4dacd;
   --color-border-default: #c8cfbf;
   --color-border-strong: #bac2ae;
@@ -604,7 +721,7 @@
   --color-bg-active: #36443d;
   --color-text-primary: #e9edea;
   --color-text-secondary: #b2bdb6;
-  --color-text-tertiary: #7b8e83;
+  --color-text-tertiary: #8ea294;
   --color-border-subtle: #2f3a34;
   --color-border-default: #384740;
   --color-border-strong: #40544a;
@@ -624,7 +741,9 @@
   --color-bg-active: #dedede;
   --color-text-primary: #1f1f22;
   --color-text-secondary: #4a4a4d;
-  --color-text-tertiary: #6e6e72;
+  --color-text-tertiary: #66666a;
+  /* 同 fresh-green：非纯白底需自己的 faint（基础 #9fa3ac 在 #ececec 上 2.14:1） */
+  --color-text-faint: #8f8f8b;
   --color-border-subtle: #d8d8d8;
   --color-border-default: #d0d0d0;
   --color-border-strong: #c7c7c7;
@@ -642,7 +761,7 @@
   --color-bg-active: #383838;
   --color-text-primary: #ecece7;
   --color-text-secondary: #b8b8b2;
-  --color-text-tertiary: #8a8a84;
+  --color-text-tertiary: #9a9a94;
   --color-border-subtle: #3a3a3a;
   --color-border-default: #444444;
   --color-border-strong: #4f4f4f;
@@ -660,7 +779,9 @@
   --color-bg-active: #dfeaf3;
   --color-text-primary: #1c2e3d;
   --color-text-secondary: #3f586b;
-  --color-text-tertiary: #5f7488;
+  --color-text-tertiary: #55697d;
+  /* 同 fresh-green：非纯白底需自己的 faint（基础 #9fa3ac 在 #eef5fb 上 2.30:1） */
+  --color-text-faint: #8a97a8;
   --color-border-subtle: #dbe7f0;
   --color-border-default: #d3e1ec;
   --color-border-strong: #c9d9e6;
@@ -696,7 +817,9 @@
   --color-bg-active: #e8dfd0;
   --color-text-primary: #33291c;
   --color-text-secondary: #5d5140;
-  --color-text-tertiary: #7c6f5a;
+  --color-text-tertiary: #71654f;
+  /* 同 fresh-green：非纯白底需自己的 faint（基础 #9fa3ac 在 #f7f2ea 上 2.27:1） */
+  --color-text-faint: #94907f;
   --color-border-subtle: #e6dccb;
   --color-border-default: #ded2bf;
   --color-border-strong: #d4c6b0;
@@ -714,7 +837,7 @@
   --color-bg-active: #3e362b;
   --color-text-primary: #f0e9dd;
   --color-text-secondary: #c2b6a2;
-  --color-text-tertiary: #9a8d77;
+  --color-text-tertiary: #ab9f8a;
   --color-border-subtle: #453c2f;
   --color-border-default: #51473a;
   --color-border-strong: #5d5344;
@@ -729,6 +852,10 @@
 body {
   margin: 0;
   overflow: hidden;
+  /* 全局灰阶抗锯齿（Windows 下无视觉影响，macOS/Webkit 渲染下消除彩色边缘）；
+     编辑器/代码等正文密集区在 surfaces.css 里局部回退 subpixel-antialiased 保文字锐度 */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   /* 换肤背景图：--app-bg-image 由 App.tsx 按设置注入（pideck-bg:// 协议），
      --app-bg-mask 为同色遮罩渐变（浅色白/暗色黑，透明度=1-opacity）。
      背景移到独立 fixed 层，避免 body 背景传播规则被 Electron/Chromium 的全屏根容器覆盖。 */
@@ -744,6 +871,26 @@ body::before {
   background-size: auto, cover;
   background-position: center, center;
   background-attachment: fixed, fixed;
+}
+/* Wallpaper Engine 视频壁纸层（WallpaperVideoLayer portal 到 body）：与 body::before 同层、
+   位于 #root 之下；遮罩复用 --app-bg-mask，面板透明度档位仍由壁纸 token 决定。 */
+.wallpaper-video-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.wallpaper-video-layer video,
+.wallpaper-video-layer img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.wallpaper-video-mask {
+  position: absolute;
+  inset: 0;
+  background-image: var(--app-bg-mask, none);
 }
 #root {
   position: relative;
@@ -786,7 +933,7 @@ input[type="range"]::-webkit-slider-thumb {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 input[type="range"]:focus-visible {
-  outline: var(--focus-ring);
+  outline: 2px solid var(--focus-ring-color);
   outline-offset: 2px;
 }
 button:disabled {
@@ -802,11 +949,12 @@ select:focus-visible {
   outline-offset: 2px;
 }
 @media (prefers-reduced-motion: reduce) {
-  /* Spinner 是进行中操作的功能反馈，不是装饰性动效；保留其线性旋转，
-     其余动画仍按系统偏好压缩为单帧。 */
-  *:not(.animate-pideck-spin),
-  *:not(.animate-pideck-spin)::before,
-  *:not(.animate-pideck-spin)::after {
+  /* Spinner 是进行中操作的功能反馈，不是装饰性动效；标题滚动是用户主动
+     hover 触发的「查看完整标题」功能行为（压成单帧会直接跳尾，无法阅读）。
+     两者保留其线性运动，其余动画仍按系统偏好压缩为单帧。 */
+  *:not(.animate-pideck-spin):not(.animate-title-scroll),
+  *:not(.animate-pideck-spin):not(.animate-title-scroll)::before,
+  *:not(.animate-pideck-spin):not(.animate-title-scroll)::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
@@ -844,10 +992,14 @@ select:focus-visible {
 }
 
 /* ── environment body ───────────────────────────── */
+/* min-height:0 是 body 能在限高弹框内滚动的首要：flex 子项默认 min-height:auto
+   会阻止收缩（同 2027-01 待办条事故机理），父级 max-h 一旦生效这里必须显式归零 */
 .environment-body {
   padding: 16px 24px 4px;
   overflow-y: auto;
+  min-height: 0;
   flex: 1;
+  scrollbar-gutter: stable;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -866,70 +1018,6 @@ select:focus-visible {
 .env-card > strong {
   color: var(--color-text-primary);
 }
-.env-inline-link {
-  color: var(--color-accent);
-  text-decoration: none;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.env-inline-link:hover {
-  text-decoration: underline;
-}
-.env-card > strong {
-  font-size: var(--font-size-control);
-}
-.env-card > small {
-  color: var(--color-text-secondary);
-  line-height: 1.55;
-  font-size: var(--font-size-caption);
-}
-.env-stepper {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-2);
-  padding: var(--space-2);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-muted);
-}
-.env-step {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-caption);
-}
-.env-step span {
-  width: 22px;
-  height: 22px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-pill);
-  background: var(--color-bg-panel);
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-micro);
-  font-weight: 700;
-}
-.env-step b {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
-}
-.env-step.done,
-.env-step.active {
-  color: var(--color-text-primary);
-}
-.env-step.done span,
-.env-step.active span {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  color: var(--color-text-inverse);
-}
-
 /* ── 加载状态卡片 ──────────────────────────────── */
 .env-loading-card {
   flex-direction: row;
@@ -984,138 +1072,6 @@ select:focus-visible {
   font-size: var(--font-size-caption);
 }
 
-/* ── 错误详情卡片 ──────────────────────────────── */
-.env-error-card {
-  border-color: color-mix(
-    in srgb,
-    var(--color-danger) 24%,
-    var(--color-border-subtle)
-  );
-  background: var(--color-danger-soft);
-}
-.env-error-card strong {
-  color: var(--color-danger);
-}
-.env-error-pre {
-  margin: 4px 0 0;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-panel);
-  border: 1px solid
-    color-mix(in srgb, var(--color-danger) 24%, var(--color-border-subtle));
-  color: var(--color-danger);
-  font-size: var(--font-size-caption);
-  font-family: var(--font-family-mono);
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-  line-height: 1.6;
-}
-
-/* ── 通用卡片内按钮 ────────────────────────────── */
-.env-card-btn {
-  align-self: flex-start;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  padding: 7px 16px;
-  background: var(--color-bg-panel);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-caption);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.env-card-btn.primary {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  color: var(--color-text-inverse);
-}
-.env-card-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* ── 已搜索目录卡片 ────────────────────────────── */
-.env-dirs-list {
-  max-height: 150px;
-  overflow: auto;
-  margin: 4px 0 0;
-  padding-left: 18px;
-  scrollbar-gutter: stable;
-  font-size: var(--font-size-caption);
-  color: var(--color-text-secondary);
-}
-.env-dirs-list li {
-  margin: 3px 0;
-  word-break: break-all;
-}
-
-/* ── 终端参考命令 ──────────────────────────────── */
-.ref-commands {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.ref-command-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-panel);
-  font-size: var(--font-size-caption);
-}
-.ref-label {
-  flex-shrink: 0;
-  padding: 2px 6px;
-  border-radius: var(--radius-xs);
-  background: var(--color-info);
-  color: var(--color-text-inverse);
-  font-size: var(--font-size-micro);
-  font-weight: 600;
-}
-.ref-command-item code {
-  flex: 1;
-  font-size: var(--font-size-caption);
-  color: var(--color-text-primary);
-  word-break: break-all;
-  user-select: all;
-}
-
-/* ── 自定义路径输入行 ──────────────────────────── */
-.custom-path-input-row {
-  display: flex;
-  gap: 8px;
-}
-.custom-path-input-row input {
-  flex: 1;
-  padding: 7px 10px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-control);
-  background: var(--color-bg-panel);
-  color: var(--color-text-primary);
-  outline: none;
-}
-.custom-path-input-row input:focus {
-  border-color: var(--color-accent);
-  box-shadow: var(--focus-ring);
-}
-
-/* ── 校验结果提示 ──────────────────────────────── */
-.custom-path-result {
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-control);
-}
-.custom-path-result.success {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-}
-.custom-path-result.error {
-  background: var(--color-danger-soft);
-  color: var(--color-danger);
-}
-
 /* ── footer ────────────────────────────────────── */
 .environment-footer {
   display: flex;
@@ -1146,165 +1102,6 @@ select:focus-visible {
   color: var(--color-text-primary);
 }
 
-/* ── npm 安装卡片 ────────────────────────────── */
-.env-npm-install-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.env-install-loading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0;
-}
-
-.env-install-npm-version {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-  font-size: var(--font-size-caption);
-  font-family: var(--font-family-business);
-}
-
-.env-install-area {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.env-install-command-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.env-install-command-label {
-  font-size: var(--font-size-caption);
-  font-weight: 600;
-  color: var(--color-text-secondary);
-}
-
-.env-install-command-input {
-  width: 100%;
-  padding: 7px 10px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-control);
-  font-family: var(--font-family-business);
-  background: var(--color-bg-panel);
-  color: var(--color-text-primary);
-  outline: none;
-}
-.env-install-command-input:focus {
-  border-color: var(--color-accent);
-  box-shadow: var(--focus-ring);
-}
-
-.env-install-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-/* 镜像切换按钮 */
-.env-mirror-btn {
-  border: 1px solid var(--color-border-subtle);
-  background: var(--color-bg-panel);
-  color: var(--color-text-primary);
-}
-.env-mirror-btn.active {
-  border-color: var(--color-accent);
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-}
-
-.env-install-progress {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0;
-}
-
-.env-install-success {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent-soft);
-}
-.env-install-success .env-success-icon {
-  flex-shrink: 0;
-}
-.env-install-success .env-success-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.env-install-success .env-success-info strong {
-  font-size: var(--font-size-control);
-  color: var(--color-accent);
-}
-.env-install-success .env-success-info small {
-  font-size: var(--font-size-caption);
-  color: var(--color-text-secondary);
-}
-
-.env-install-result {
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-caption);
-}
-.env-install-result.success {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-}
-.env-install-result.error {
-  background: var(--color-danger-soft);
-  color: var(--color-danger);
-}
-.env-install-result strong {
-  display: block;
-  margin-bottom: 4px;
-  font-size: var(--font-size-control);
-}
-
-.env-install-output-pre {
-  max-height: 200px;
-  overflow: auto;
-  padding: 8px;
-  margin-top: 6px;
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-code);
-  font-size: var(--font-size-micro);
-  font-family: var(--font-family-business);
-  line-height: 1.4;
-  white-space: pre-wrap;
-  word-break: break-all;
-  color: var(--color-text-primary);
-}
-.env-install-stderr {
-  color: var(--color-danger);
-}
-
-.env-install-npm-missing {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 0;
-}
-.env-install-npm-missing strong {
-  color: var(--color-warning);
-}
-.env-install-npm-missing small {
-  color: var(--color-text-secondary);
-}
-
 .wechat-shell {
   position: relative;
   --list-width: 190px;
@@ -1320,7 +1117,6 @@ select:focus-visible {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--color-bg-app);
 }
 /* 三栏面板组：充满标题栏以外的全部空间 */
 .shell-panel-group {
@@ -1347,11 +1143,6 @@ select:focus-visible {
 .shell-panel-chat .chat-pane,
 .shell-panel-drawer .detail-drawer {
   height: 100%;
-}
-/* 自定义标题栏：抽屉内容从系统按钮下方开始，避免活动栏与 min/max/close 抢同一行。 */
-.custom-titlebar-enabled .shell-panel-drawer .detail-drawer {
-  padding-top: var(--window-drag-height);
-  box-sizing: border-box;
 }
 /* 抽屉/侧栏开合内容动画（AppShell）：面板库宽度即时变化，内容层补一次
    进入动画制造“滑出/淡入”感。只动 transform/opacity；animation 播完自动
@@ -1380,16 +1171,18 @@ select:focus-visible {
   }
 }
 /* 拖拽区高度同时暴露在 :root：sonner toaster、兑底 toast 等浮层渲染在 #root 内、
-   并非 .wechat-shell 的后代，读不到 shell 作用域变量，会错误地按 0px 计算顶部 offset */
+   并非 .wechat-shell 的后代，读不到 shell 作用域变量，会错误地按 0px 计算顶部 offset。
+   quick-task-shell 也属于同一套自定义标题栏契约，不能只依赖完整工作台选择器。 */
 :root {
   --window-drag-height: 0px;
 }
-:root:has(.wechat-shell.custom-titlebar-enabled) {
+:root:has(.custom-titlebar-enabled) {
   --window-drag-height: 40px;
   /* 4 × 36px；拖拽层 / Tab 栏让位 / 控件条共用，避免各写 144 漂移 */
   --window-controls-width: 144px;
 }
-.wechat-shell.custom-titlebar-enabled {
+.wechat-shell.custom-titlebar-enabled,
+.quick-task-shell.custom-titlebar-enabled {
   --window-drag-height: 40px;
   --window-controls-width: 144px;
   /* 内容顶到窗口上沿：不再留空白标题条。拖拽/窗口按钮用 fixed 叠层。 */
@@ -1432,7 +1225,6 @@ select:focus-visible {
   /* 紧凑靠右上角：每键 36px（原 50px） */
   grid-template-columns: repeat(4, 36px);
   height: var(--window-drag-height);
-  background: var(--color-bg-panel);
   -webkit-app-region: no-drag;
 }
 /* app-region 不继承（见 toaster 注释）：后代必须显式 no-drag，
@@ -1482,7 +1274,8 @@ select:focus-visible {
   background: color-mix(in srgb, var(--color-danger) 86%, #000);
   color: var(--color-text-inverse);
 }
-/* 侧栏 Logo 行即标题栏热区；高度与窗口控件对齐。 */
+/* 侧栏 Logo 行即标题栏热区；高度与窗口控件对齐。
+   compact 小任务也复用该 40px chrome；它的业务动作通过下方按钮规则显式 no-drag。 */
 .custom-titlebar-enabled .list-toolbar {
   position: relative;
   z-index: 930;
@@ -1510,6 +1303,14 @@ select:focus-visible {
    抽屉打开后控件叠在抽屉顶上，会话 Tab 不再预留 144px（否则开关会与抽屉 tab 栏隔开）。 */
 .custom-titlebar-enabled:not(.drawer-open) .session-tabs-bar {
   margin-right: var(--window-controls-width);
+}
+/* compact 的业务动作位于共享窗口控件左侧；让 toolbar 本身避开控件区，
+   同时把按钮和 toolbar 后代标记为 no-drag，避免 Electron 的拖拽命中规则吞掉点击。 */
+.quick-task-shell.custom-titlebar-enabled .list-toolbar {
+  margin-right: var(--window-controls-width);
+}
+.quick-task-shell.custom-titlebar-enabled .list-toolbar button {
+  -webkit-app-region: no-drag;
 }
 /* 抽屉开关：固定在会话 Tab 栏最右侧 */
 .session-tabs-bar .header-drawer-toggle {
@@ -1610,7 +1411,7 @@ select:focus-visible {
 }
 
 .pi-logo-canvas-stage:focus-visible {
-  outline: var(--focus-ring);
+  outline: 2px solid var(--focus-ring-color);
   outline-offset: 2px;
 }
 
@@ -1849,10 +1650,6 @@ select:focus-visible {
   transition: background 0.12s ease, transform 0.1s ease;
   animation: none;
 }
-.project-group > .conversation:first-child.project-loading {
-  /* 会话加载中：行背景微微呼吸，提示后台仍在工作 */
-  animation: project-loading-pulse 1.2s ease-in-out infinite;
-}
 @keyframes project-loading-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.65; }
@@ -1875,21 +1672,12 @@ select:focus-visible {
     box-shadow: inset 0 0 0 0 rgba(35, 134, 54, 0);
   }
 }
-.project-group > .conversation:first-child.click-animating {
-  animation: project-click-flash 0.35s ease-out;
-}
 .project-group > .conversation:first-child .conversation-title strong {
   /* 项目行是容器不是选中叶子：字重与未选中会话同级，避免父级看起来「被选中」。 */
   color: var(--color-text-primary);
   font-weight: 500;
 }
 /* 项目行无 .active：选中高亮只挂在会话叶子上。 */
-.project-group > .conversation.project-draggable:first-child {
-  cursor: grab;
-}
-.project-group > .conversation.project-draggable:first-child:active {
-  cursor: grabbing;
-}
 .project-group > .conversation.dragging:first-child {
   opacity: 0.58;
 }
@@ -1911,10 +1699,6 @@ select:focus-visible {
 }
 :root[data-theme="dark"] .worktree-children {
   background: color-mix(in srgb, var(--color-bg-muted) 38%, transparent);
-}
-.worktree-main-header-only {
-  margin-top: 2px;
-  margin-bottom: 2px;
 }
 /* worktree 主工作区直接复用 .conversation 行模型，只覆盖缩进层级所需的列宽。 */
 .worktree-workspace-header {
@@ -1949,31 +1733,6 @@ select:focus-visible {
   /* 开启/关闭工作区时 margin 会变化，加过渡避免行位置突变跳动 */
   transition: margin-left 0.18s ease;
 }
-.worktree-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 26px;
-  padding: 3px 6px;
-  font-size: var(--font-size-control);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition:
-    background 0.15s,
-    color 0.15s;
-  width: 100%;
-  box-sizing: border-box;
-  border: none;
-  background: transparent;
-  color: var(--color-text-secondary);
-}
-.worktree-row:hover {
-  background: var(--color-bg-hover);
-}
-.worktree-row.active {
-  color: var(--color-text-primary);
-  background: color-mix(in srgb, var(--color-accent-soft) 54%, transparent);
-}
 /* 删除 worktree 时的淡出动画：行根节点命中（workspace-tree-row）时淡出并左移，
    指针失效防止动画期间误点；由 removingWorktreePaths 状态驱动（WorktreeTree 接线）。 */
 .workspace-tree-row.worktree-removing {
@@ -1983,58 +1742,6 @@ select:focus-visible {
     opacity 0.25s ease,
     transform 0.25s ease;
   pointer-events: none;
-}
-.worktree-row .worktree-branch-icon {
-  display: inline-flex;
-  align-items: center;
-  color: var(--color-text-tertiary);
-  flex-shrink: 0;
-}
-.worktree-row.active .worktree-branch-icon {
-  color: var(--color-accent);
-}
-.worktree-row .worktree-branch-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-family-business);
-  font-size: var(--font-size-caption);
-  font-weight: 500;
-}
-.worktree-row .worktree-remove {
-  opacity: 0;
-  transition: opacity 0.15s;
-  flex-shrink: 0;
-}
-.worktree-row:hover .worktree-remove {
-  opacity: 1;
-}
-/* 当前激活的 worktree 行上删除按钮始终可见，避免用户不移鼠标就找不到入口 */
-.worktree-row.active .worktree-remove {
-  opacity: 1;
-}
-/* 子工作区新建 Agent 按钮，与删除按钮一致的显隐策略 */
-.worktree-row .worktree-new-agent {
-  opacity: 0;
-  transition: opacity 0.15s;
-  flex-shrink: 0;
-}
-.worktree-row:hover .worktree-new-agent,
-.worktree-row.active .worktree-new-agent {
-  opacity: 1;
-}
-/* worktree 行的目录名副信息，低对比避免与分支名争夺注意力 */
-.worktree-row .worktree-dir-meta {
-  flex-shrink: 0;
-  max-width: 82px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--font-size-micro);
-  color: var(--color-text-tertiary);
-  font-family: var(--font-family-business);
 }
 .worktree-sessions-more {
   display: block;
@@ -2056,50 +1763,6 @@ select:focus-visible {
 .worktree-sessions-more:hover {
   color: var(--color-accent);
   background: var(--color-bg-hover);
-}
-.worktree-children .worktree-nested-row {
-  /* 子工作区里的会话/Agent 已经处在二级容器内，缩进收窄避免出现“楼梯越走越深”。 */
-  padding-left: 20px;
-}
-.worktree-sandbox-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
-  min-height: 22px;
-  margin: 5px 0 2px;
-  padding: 0 4px 0 6px;
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-caption);
-}
-.worktree-sandbox-toolbar > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.worktree-create-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  height: var(--control-height-xs);
-  padding: 0 5px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-caption);
-  cursor: pointer;
-  opacity: 0.72;
-  transition:
-    background 0.12s ease,
-    color 0.12s ease,
-    opacity 0.12s ease;
-}
-.worktree-create-btn:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-accent);
-  opacity: 1;
 }
 
 /* ── Worktree 创建对话框 ── */
@@ -2147,7 +1810,7 @@ select:focus-visible {
 }
 .worktree-create-input:focus {
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px var(--focus-ring);
+  box-shadow: var(--focus-ring);
 }
 /* 分支名预览：提示用户输入经 slugify 后的实际分支名 */
 .worktree-create-preview {
@@ -2163,22 +1826,8 @@ select:focus-visible {
   color: var(--color-text-secondary);
   font-family: var(--font-family-business);
 }
-
-.filter-indicator {
-  margin-left: 6px;
-  color: var(--color-accent);
-  flex-shrink: 0;
-  cursor: pointer;
-}
-.filter-indicator:hover {
-  color: var(--color-accent-hover, var(--color-accent));
-  opacity: 0.85;
-}
 .project-fold {
   display: none;
-}
-.project-fold.has-agents {
-  color: var(--color-text-tertiary);
 }
 .project-row-actions {
   display: flex;
@@ -2198,10 +1847,7 @@ select:focus-visible {
   /* 项目操作属于辅助动作，默认收起能显著降低左栏视觉噪音。 */
   opacity: 1;
   pointer-events: auto;
-}
-
-.project-action,
-.project-info {
+}.project-action{
   width: 21px;
   height: 21px;
   display: grid;
@@ -2217,9 +1863,7 @@ select:focus-visible {
 }
 .project-action {
   cursor: pointer;
-}
-.project-action:hover,
-.project-info:hover {
+}.project-action:hover{
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
   opacity: 1;
@@ -2242,9 +1886,6 @@ select:focus-visible {
   display: none;
 }
 .agent-row::after {
-  display: none;
-}
-.agent-node-marker {
   display: none;
 }
 .agent-row .conversation-title {
@@ -2272,6 +1913,11 @@ select:focus-visible {
 }
 .agent-more-row,
 .session-more-row {
+  /* 分页行（查看更多 / 收起 / 加载更多）的基座：只保留 flex 骨架与右侧数字对齐。
+     横向留白/对齐交给 JSX 的 `px-2`，与会话行（`px-2`）逐像素对齐——
+     旧值 margin-left 8px + padding-left 14px 把入口推得比会话标题右 14px，用户看到「没对齐」。
+     （注：本注释必须留在块内，块的紧邻上方写注释会让 sidebarRowAlignment 的
+     选择器解析把注释当成选择器前缀，导致「rule for .agent-more-row not found」。） */
   position: relative;
   /* 同 .agent-row：button 的 width:auto 是 shrink-to-fit，fill-available 扣除 margin 撑满。 */
   width: -webkit-fill-available;
@@ -2280,8 +1926,8 @@ select:focus-visible {
   align-items: center;
   gap: 7px;
   min-height: 26px;
-  margin: 2px 0 2px 8px;
-  padding: 4px 6px 4px 14px;
+  margin: 2px 0;
+  padding: 2px 8px;
   border: 0;
   border-radius: var(--radius-md);
   background: transparent;
@@ -2334,6 +1980,9 @@ select:focus-visible {
   font-size: var(--font-size-caption);
   font-weight: 400;
   line-height: var(--line-height-caption);
+  /* web 端 Tailwind preflight 未重置 button 的 text-align:center（UA 默认值），
+     strong 是 display:block 撑满行宽，不重置会让标题文字在块内居中漂浮。 */
+  text-align: left;
   white-space: nowrap;
   text-overflow: clip;
   -webkit-mask-image: linear-gradient(
@@ -2346,9 +1995,6 @@ select:focus-visible {
 .session-row:hover .conversation-title strong,
 .session-row.active .conversation-title strong {
   color: var(--color-text-secondary);
-}
-.session-node-marker {
-  display: none;
 }
 /* 会话来源统一使用组件级 Badge，避免旧版来源胶囊样式在不同容器中重复维护。 */
 /* 父行内嵌的子会话折叠按钮：置于行尾，不单独占横条 */
@@ -2393,15 +2039,11 @@ select:focus-visible {
   gap: 1px;
   /* 缩进由 SessionTree 的 tailwind utility（ml-3）控制，避免 legacy 层覆盖 */
   margin: 0 0 2px 0;
-}
-.codex-subagent-sidebar-toggle,
-.codex-subagent-sidebar-row {
+}.codex-subagent-sidebar-row{
   margin: 0;
   padding-left: 18px;
   min-height: 24px;
-}
-.codex-subagent-sidebar-toggle:hover,
-.codex-subagent-sidebar-row:hover {
+}.codex-subagent-sidebar-row:hover{
   background: var(--color-bg-hover);
   color: var(--color-text-secondary);
 }
@@ -2424,8 +2066,25 @@ select:focus-visible {
   flex-shrink: 0;
 }
 .session-more-row {
-  margin-left: 8px;
+  /* 横向留白与对齐统一交给 JSX 的 px-2（与会话行对齐）；这里只保留底部收尾间距。 */
   margin-bottom: 6px;
+}
+.session-more-row,
+.session-more-btn {
+  /* 「查看更多 / 收起 / 加载更多」行：统一压到 26px，比会话行（32px）矮一档。
+     两处入口（项目页 SessionTree、活动页「最近会话」）共用这一条高度，
+     避免同一个功能在不同页里长得不一样（用户要求两处对齐）。 */
+  min-height: 26px;
+  padding: 2px 8px;
+}
+/* 「查看更多」按钮：数字需靠右对齐到会话行的时间列，故按钮本体必须是
+   fill-available 宽的 flex 容器（ml-auto 依赖父级 flex）。
+   仅作用于更多按钮，同排的「收起」按钮（共用 session-more-row 类但 shrink-0）不受影响。 */
+.session-more-btn {
+  display: flex;
+  align-items: center;
+  width: -webkit-fill-available;
+  width: stretch;
 }
 /* 水平 Group 的竖线分隔条（AppShell 左右栏）。
    v4：Separator aria-orientation=vertical；拖拽中 data-separator="active"。
@@ -2487,12 +2146,6 @@ select:focus-visible {
   opacity: 1;
 }
 
-/* 换肤壁纸模式：启用背景图（data-bg-image="on"）时主容器透明，
-   bg 系列 token 的半透明由 App.tsx 注入（覆盖所有面板/输入框，整体协调）；
-   未启用时保持原不透明背景（零回归） */
-:root[data-bg-image="on"] .wechat-shell {
-  background: transparent;
-}
 /* 壁纸模式项目栏文件夹图标底：project-avatar 默认是 muted/panel 混色灰块，
    半透明注入后仍透不干净；透明化后只留 Folder 图标本色。
    选中态（active）的 accent-soft 高亮靠更高特异性保留（不透明化），维持选中区分。
@@ -2524,10 +2177,11 @@ select:focus-visible {
   --git-input-bg: transparent;
 }
 /* 壁纸模式终端一体性：dock 容器/header 透出 chat-pane 单层，与输出区同透明度；
-   xterm 背景在 TerminalDock.tsx 中处理（浅色主题透明，深色主题保留面板档 alpha）。 */
+   xterm 背景在 TerminalDock.tsx 中处理（浅色主题透明，深色主题保留面板档 alpha）。
+   --terminal-bg 必须 !important：主题变量由 TerminalDock inline 注入，普通声明压不过 inline。 */
 :root[data-bg-image="on"] .terminal-dock,
 :root[data-bg-image="on"] .terminal-dock-header {
-  --terminal-bg: transparent;
+  --terminal-bg: transparent !important;
   background: transparent;
 }
 /* xterm 容器三层默认叠 var(--terminal-bg)（+!important），壁纸模式下同样透明，
@@ -2537,16 +2191,13 @@ select:focus-visible {
 :root[data-bg-image="on"] .terminal-xterm .xterm-screen {
   background: transparent !important;
 }
-/* 壁纸模式下弹窗（shadcn Dialog）比普通面板再实一档：统一各弹窗透明度，
-   与侧栏/会话区/抽屉同一基色，不透明度更高保证内容可读。
+/* 壁纸模式下弹窗（shadcn Dialog）统一用「弹窗基线」：比普通面板实一档，
+   与侧栏/会话区/抽屉同一基色，≥90% 不透明度保证内容可读。弹窗下方仍是页面正文，
+   面板档（背景图可见度 80% → 30%）会让正文透进弹窗内容（用户反馈「有些弹窗
+   页面太透了」）——所以弹窗只有这一档，不再有按业务类型降档的例外。
    关键：在 dialog-content 上局部覆盖 bg 系列变量（CSS 变量继承）——
    弹窗内 section 卡片/控件引用同一档位，消除 Header 透、Body 实的多层叠加。 */
-:root[data-bg-image="on"] [data-slot="dialog-content"],
-/* 草稿本：与弹框共享同基色令牌注入（header/body 同基色顶部一体）；
-   最终透明度由下方独立规则覆盖为面板档（跟随背景图滑块）。 */
-:root[data-bg-image="on"] .scratch-pad-panel {
-  /* 弹窗下方仍是页面正文，透明度过低会把 Markdown 文字透进设置内容；普通弹框
-     保持 90% 基线，业务工作台可在本规则之后单独降到页面面板档。 */
+:root[data-bg-image="on"] [data-slot="dialog-content"] {
   --wallpaper-dialog-alpha: max(90%, calc(var(--wallpaper-panel-alpha, 30%) + 35%));
   background-color: color-mix(in srgb, var(--wallpaper-base, var(--color-bg-app)) var(--wallpaper-dialog-alpha), transparent);
   --color-bg-panel: color-mix(in srgb, var(--wallpaper-base, var(--color-bg-app)) var(--wallpaper-dialog-alpha), transparent);
@@ -2571,32 +2222,30 @@ select:focus-visible {
 :root[data-bg-image="on"] .copy-menu-popover {
   --color-bg-popover: color-mix(in srgb, var(--wallpaper-base, var(--color-bg-app)) var(--wallpaper-panel-alpha, 30%), transparent);
 }
-/* Pi 配置管理是工作台式弹框，header、layout、sidebar、main、content 全部覆盖
-   通用 Dialog 的 90% 基线，最终共享同一个页面透明度。 */
+/* 上述降档浮层的「毛玻璃」承诺兑现：半透明底色必须叠加 backdrop-filter 才是真磨砂，
+   否则透出的是下层正文锐利边缘，观感像浮层没渲染完。blur 只挂在小体积浮层，
+   侧栏/抽屉等大面板不加（GPU 成本与取色兜底已够）。 */
+:root[data-bg-image="on"] .widget-popover,
+:root[data-bg-image="on"] .ctx-detail-tooltip,
+:root[data-bg-image="on"] .copy-menu-popover {
+  backdrop-filter: blur(18px) saturate(1.3);
+}/* 工作台大弹框（Pi 配置管理 / 设置 / 项目资源 / 环境管理）：只做内部透明化，
+   透明度走通用弹窗基线，不再单独降档。此前它们跟随面板档（背景图可见度 80%
+   → 仅 30% 不透明），弹窗下方的正文会透进设置内容、文字与下层互相穿透，
+   观感发虚（用户反馈「有些弹窗页面太透了」）。 */
 :root[data-bg-image="on"] [data-slot="dialog-content"].config-modal,
 :root[data-bg-image="on"] [data-slot="dialog-content"].settings-modal,
-:root[data-bg-image="on"] [data-slot="dialog-content"].project-resources-dialog,
 :root[data-bg-image="on"] [data-slot="dialog-content"].environment-dialog {
-  /* 这些都是完整工作台弹框，header 与内容必须共享页面面板档透明度。 */
-  --wallpaper-dialog-alpha: var(--wallpaper-panel-alpha, 30%);
-  /* 弹窗内卡片/列表项透明化：弹窗自身已有 panel-alpha 底色，内部元素若再叠一层
-     bg-panel/muted（同样 30%）会形成双层半透明白（≈51%），观感像磨砂灰白补丁。
+  /* 弹窗内卡片/列表项透明化：弹窗自身已有弹窗基线底色，内部元素若再叠一层
+     bg-panel/muted 会形成双层半透明（≈51%）白，观感像磨砂灰白补丁。
      默认态透明透出弹窗底色（单层）；hover/active/输入框保留底色提供交互反馈与边界。
      --color-bg-subtle 经 @theme inline 映射到 --color-bg-muted，随之一同透明。 */
   --color-bg-panel: transparent;
   --color-card: transparent;
   --color-bg-muted: transparent;
 }
-/* 草稿本是独立书写平面：壁纸模式下面板底色统一为系统面板色并跟随背景图透明度
-   （内部控件/textarea 经 BG_TOKENS 内联注入与滑块联动）。overlay 已不画遮罩
-   （2026-12：草稿本改为悬浮便签，不再全屏遮挡），无需再盖背景图。 */
-:root[data-bg-image="on"] .scratch-pad-panel {
-  /* 草稿本是独立书写平面，但底色统一为系统面板色并跟随背景图透明度：
-     内部控件（工具条/textarea 等）经 BG_TOKENS 内联注入已与滑块联动（30% 档），
-     面板底色此前被 100% 强改纯白，视觉突兀且滑块失效；改为同档半透明后
-     三者同色同档，背景图透出，可读性由壁纸取色兜底。 */
-  --wallpaper-dialog-alpha: var(--wallpaper-panel-alpha, 30%);
-}
+/* 草稿本透明度已在通用弹窗基线规则里与弹框同档（见上），此处不再单独降档；
+   overlay 不画遮罩（草稿本为悬浮便签，不全屏遮挡），无需再盖背景图。 */
 
 /* 大弹框内容级联入场（DialogContent stagger prop）：content 整体淡入的同时，
    直接子元素（header/body/footer…）按序轻微浮起，延迟窗口控制在 content
@@ -2633,8 +2282,13 @@ select:focus-visible {
    fill-mode 用 backwards 而非 both：both 会把 to{opacity:1} 永久钉在元素上，
    动画优先级高于普通声明，压掉 disabled 项的 data-[disabled]:opacity-50 置灰（
    表现为右键菜单里的禁用项不显示半透明）；backwards 结束后元素恢复正常声明，
-   由于 to 状态与元素默认值（opacity 1 / transform none）一致，视觉无差异。 */
-.dropdown-stagger > * {
+   由于 to 状态与元素默认值（opacity 1 / transform none）一致，视觉无差异。
+   必须排除 Radix popper 包裹层 [data-radix-popper-content-wrapper]：子菜单
+   （DropdownMenuSubContent 未走 Portal）就挂在菜单内容的 DOM 里，包裹层靠
+   内联 transform: translate3d(x, y, 0) 定位，而动画的 transform 优先级高于内联
+   样式，会被顶成 left:0/top:0 —— 表现为二级菜单先在父菜单左上角闪一下再瞬移
+   到位（父菜单包裹层本身带 transform，正好是它的包含块原点）。 */
+.dropdown-stagger > *:not([data-radix-popper-content-wrapper]) {
   animation: dropdown-stagger-in 180ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 .dropdown-stagger > *:nth-child(1) { animation-delay: 30ms; }
@@ -2664,7 +2318,6 @@ select:focus-visible {
   min-width: 0;
   min-height: 0;
   height: 100%;
-  background: var(--color-bg-panel);
   overflow: hidden;
 }
 
@@ -2672,6 +2325,12 @@ select:focus-visible {
 .session-v-group {
   flex: 1;
   min-height: 0;
+}
+/* 终端折叠/展开动画：仅 collapsed 翻转后的 200ms 窗口内挂 flex-grow 过渡
+   （react-resizable-panels 用内联 flexGrow 控尺寸，程序化 setLayout 因而可过渡）；
+   拖拽时属性不存在，直接操作不带阻尼。窗口由 SessionView 的 terminalCollapseAnimating 驱动。 */
+.session-v-group[data-terminal-collapse-anim="true"] > [data-panel] {
+  transition: flex-grow 160ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .session-v-timeline,
 .session-v-terminal {
@@ -2750,16 +2409,7 @@ select:focus-visible {
   min-width: 0;
   flex-shrink: 1;
 }
-.chat-header strong {
-  /* 标题排版由 SessionHeader Tailwind 承担 */
-}
-/* 标题后的压缩次数小徽标：只显示数字，带边框，与来源 Badge 视觉一致；
-   hover 通过 title 提示“压缩了几次，仅显示压缩后的会话记录”。 */
-.compaction-count-badge {
-  /* 徽标样式由 SessionHeader Tailwind 承担 */
-  flex: 0 0 auto;
-  cursor: default;
-}.chat-header-actions {
+.chat-header-actions {
   /* flex/gap 由 SessionHeader Tailwind 承担 */
   overflow: visible;
   max-width: 100%;
@@ -2767,20 +2417,6 @@ select:focus-visible {
   flex: 0 0 auto;
   /* scrollbar-width:none 已隐藏滚动条；无需 webkit 伪元素（Chromium 121+ 忽略） */
   scrollbar-width: none;
-}
-.chat-header-actions > .chat-agent-id {
-  margin-left: auto;
-}
-.header-action-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-muted);
-  flex: 0 0 auto;
-  overflow: visible;
 }
 .panel-group button:not(.active) {
   background: transparent;
@@ -2792,92 +2428,6 @@ select:focus-visible {
   margin-left: 0;
   flex: 0 0 auto;
 }
-
-/* Header 面板按钮统一按同一控件模型排版；带下拉箭头的“文件”和普通“终端”保持相同基线、字号和高度。 */
-.header-action-group > button,
-.header-action-group .file-action-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 26px;
-  min-width: 90px;
-  padding: 0 10px;
-  font-size: var(--font-size-control);
-  font-weight: 600;
-  line-height: var(--line-height-control);
-  color: var(--color-text-primary);
-}
-
-/* 分支选择器按钮与新建会话按钮视觉统一 */
-.header-action-group .branch-trigger {
-  height: 26px;
-  min-width: 90px;
-  max-width: 120px;
-  padding: 0 10px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-pill);
-  background: var(--color-bg-panel);
-  color: var(--color-text-primary);
-  box-shadow: 0 1px 2px
-    color-mix(in srgb, var(--color-text-primary) 5%, transparent);
-}
-.header-action-group .branch-trigger:hover:not(:disabled) {
-  background: var(--color-bg-hover);
-  border-color: var(--color-border-strong);
-  color: var(--color-text-primary);
-  box-shadow: 0 2px 5px
-    color-mix(in srgb, var(--color-text-primary) 8%, transparent);
-}
-.header-action-group .branch-trigger .branch-icon {
-  color: var(--color-text-secondary);
-}
-.header-action-group .branch-trigger .branch-label {
-  font-weight: 600;
-  line-height: var(--line-height-control);
-}
-.header-action-group .branch-trigger .branch-chevron {
-  width: 14px;
-  height: 14px;
-  margin-left: 0;
-  flex: 0 0 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.header-action-group .file-action-trigger > span:first-child {
-  display: inline-flex;
-  align-items: center;
-  font-size: inherit;
-  font-weight: inherit;
-  line-height: var(--line-height-control);
-  color: inherit;
-}
-.header-action-group .file-action-trigger > svg {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  margin-left: 0;
-  color: var(--color-text-secondary);
-  flex: 0 0 14px;
-}
-.file-action-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 50%;
-  transform: translateX(-50%);
-  min-width: 100px;
-  width: max-content;
-  z-index: 100;
-  padding: var(--space-1);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-panel);
-  box-shadow: var(--shadow-popover);
-  animation: session-combo-in 0.15s ease-out;
-}
 @keyframes session-combo-in {
   from {
     opacity: 0;
@@ -2887,31 +2437,6 @@ select:focus-visible {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
   }
-}
-/* 文件树新建项弹层：输入框占满宽度，避免 label/input 挤在一行 */
-
-.file-action-menu button {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 32px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-primary);
-  padding: 6px var(--space-3);
-  font-size: var(--font-size-control);
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-.file-action-menu button:hover:not(:disabled) {
-  background: var(--color-bg-hover);
-}
-.file-action-menu button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 .editor-logo {
   display: inline-grid;
@@ -2995,11 +2520,6 @@ select:focus-visible {
   color: var(--color-text-secondary);
   font-weight: 500;
 }
-
-/* ---- Branch custom dropdown ---- */
-.branch-chevron.open {
-  transform: rotate(180deg);
-}
 @keyframes branch-dropdown-in {
   from {
     opacity: 0;
@@ -3009,14 +2529,6 @@ select:focus-visible {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
   }
-}
-.branch-dropdown button.active {
-  color: var(--color-accent);
-  font-weight: 600;
-  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
-}
-.branch-dropdown button.active .branch-item-icon {
-  color: var(--color-accent);
 }
 
 /* ---- Header action buttons ---- */
@@ -3124,29 +2636,32 @@ select:focus-visible {
 .message-list.message-list > * + * {
   margin-top: var(--space-4);
 }
-/* 会话定位跳转命中时的短暂高亮，帮助用户在长会话中识别落点。 */
+/* 跳转落位提示（会话内查找 / 刻度 / 大纲共用）：只在元素自身背景上铺一层极淡的强调色再淡出。
+   元素自己的圆角、边框、阴影一律不动。历史上这里是「3px box-shadow 外描边 + border-radius 覆盖」：
+   套在整条轮次行上就是一个巨大的绿框，还会改掉气泡原本的圆角（2027-02 用户反馈「边框效果太丑」）。
+   keyframes 只写 from：to 取元素自身的 background-color，所以有底色的用户气泡和透明的轮次行
+   都能平滑收回，不会在动画结尾踢掉底色。 */
 @keyframes messageJumpHighlight {
-  0% {
-    box-shadow: 0 0 0 3px var(--color-accent);
-  }
-  100% {
-    box-shadow: 0 0 0 0 transparent;
+  from {
+    background-color: color-mix(in srgb, var(--color-accent) 14%, transparent);
   }
 }
 .message-jump-highlight {
-  animation: messageJumpHighlight 2s ease-out;
-  border-radius: var(--radius-md);
+  animation: messageJumpHighlight 1.4s ease-out;
 }
 .terminal-dock {
-  --terminal-bg: #ffffff;
-  --terminal-fg: #243244;
-  --terminal-panel: #ffffff;
-  --terminal-header: #ffffff;
+  /* 终端主题变量唯一数据源在 renderer/src/terminalThemes.ts，由 TerminalDock 运行时
+     inline 注入到 dock 根元素（按 data-theme 同步的 5 套硬编码块已删——双份定义会漂移）。
+     这里只保留首帧/JS 未注入时的回退值：指向应用 token，而非某个具体主题色。 */
+  --terminal-bg: var(--color-bg-panel, #ffffff);
+  --terminal-fg: var(--color-text-primary, #243244);
+  --terminal-panel: var(--color-bg-panel, #ffffff);
+  --terminal-header: var(--color-bg-panel, #ffffff);
   --terminal-border: color-mix(in srgb, var(--color-border-subtle) 55%, transparent);
-  --terminal-muted: #8b8f94;
+  --terminal-muted: var(--color-text-tertiary, #8b8f94);
   --terminal-active-bg: transparent;
-  --terminal-active-fg: #15803d;
-  --terminal-hover: #f0f1ed;
+  --terminal-active-fg: var(--color-accent, #15803d);
+  --terminal-hover: var(--color-bg-subtle, #f0f1ed);
   position: relative;
   z-index: 0;
   min-height: 120px;
@@ -3155,7 +2670,8 @@ select:focus-visible {
   color: var(--terminal-fg);
   display: grid;
   grid-template-rows: 30px minmax(0, 1fr);
-  box-shadow: 0 -2px 8px -4px var(--terminal-border);
+  /* inherit 暗色下 JS 会注入 --terminal-shadow: none（原 :root[dark] pi-soft 块的例外） */
+  box-shadow: var(--terminal-shadow, 0 -2px 8px -4px var(--terminal-border));
   z-index: 60;
   will-change: transform;
   transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -3163,62 +2679,6 @@ select:focus-visible {
 .terminal-dock[data-motion-state="hidden"] {
   transform: translate3d(0, 100%, 0);
   pointer-events: none;
-}
-.terminal-dock[data-theme="solarized-light"] {
-  --terminal-bg: #fdf6e3;
-  --terminal-fg: #657b83;
-  --terminal-panel: #eee8d5;
-  --terminal-header: #fdf6e3;
-  --terminal-border: color-mix(in srgb, #d9d0ad 55%, transparent);
-  --terminal-muted: #6c7780;
-  --terminal-active-bg: #e6f2d7;
-  --terminal-active-fg: #586e00;
-  --terminal-hover: #e8dfc3;
-}
-:root[data-theme="dark"] .terminal-dock[data-theme="pi-soft"] {
-  --terminal-bg: #15191d;
-  --terminal-fg: #d9e2dc;
-  --terminal-panel: #1b2025;
-  --terminal-header: #22282e;
-  --terminal-border: color-mix(in srgb, #2a333a 55%, transparent);
-  --terminal-muted: #95a39c;
-  --terminal-active-bg: transparent;
-  --terminal-active-fg: #6ee78c;
-  --terminal-hover: #263039;
-  box-shadow: none;
-}
-.terminal-dock[data-theme="solarized-dark"] {
-  --terminal-bg: #002b36;
-  --terminal-fg: #839496;
-  --terminal-panel: #073642;
-  --terminal-header: #073642;
-  --terminal-border: #164b59;
-  --terminal-muted: #93a1a1;
-  --terminal-active-bg: #114b58;
-  --terminal-active-fg: #2aa198;
-  --terminal-hover: #0f4652;
-}
-.terminal-dock[data-theme="one-dark"] {
-  --terminal-bg: #282c34;
-  --terminal-fg: #abb2bf;
-  --terminal-panel: #21252b;
-  --terminal-header: #282c34;
-  --terminal-border: #3a3f4b;
-  --terminal-muted: #9aa3b4;
-  --terminal-active-bg: #343b46;
-  --terminal-active-fg: #98c379;
-  --terminal-hover: #303640;
-}
-.terminal-dock[data-theme="monokai"] {
-  --terminal-bg: #272822;
-  --terminal-fg: #f8f8f2;
-  --terminal-panel: #20211c;
-  --terminal-header: #272822;
-  --terminal-border: #3e3d32;
-  --terminal-muted: #cfcfc2;
-  --terminal-active-bg: #3a3b31;
-  --terminal-active-fg: #a6e22e;
-  --terminal-hover: #33342c;
 }
 .terminal-dock.collapsed {
   min-height: 30px;
@@ -3230,6 +2690,9 @@ select:focus-visible {
   border-bottom: 1px solid var(--terminal-border);
   background: var(--terminal-header);
 }
+/* 终端 tab 激活态豁免声明：终端 dock 是跟随终端主题（--terminal-* 变量族）的
+   独立 themed 表面，激活态用主题 active 色文字而非应用 tab 语言（下划线/软填充），
+   不要以「统一 tab 激活态」为由改回应用 chrome 体系（2027-10 tab 语言统一）。 */
 .terminal-tab.active {
   background: var(--terminal-active-bg);
   color: var(--terminal-active-fg);
@@ -3243,8 +2706,10 @@ select:focus-visible {
   color: var(--terminal-fg);
 }
 .terminal-tab-close:hover {
-  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
-  color: var(--color-danger);
+  /* 中性 hover：与全局其余关闭钮一致；红色 hover 只保留给真正危险操作，
+     终端 tab 关闭是常规动作，红色在这里显得像报错（2027-10 精致度审查）。 */
+  background: var(--terminal-hover);
+  color: var(--terminal-fg);
   opacity: 1;
 }
 
@@ -3275,14 +2740,6 @@ select:focus-visible {
 .terminal-placeholder {
   margin-top: 14px;
   color: var(--terminal-muted);
-}
-.terminal-confirm-actions button.danger {
-  background: var(--color-danger);
-  border-color: var(--color-danger);
-  color: var(--color-text-inverse);
-}
-.terminal-confirm-actions button.danger:hover {
-  background: color-mix(in srgb, var(--color-danger) 88%, black);
 }
 .history-loading {
   display: flex;
@@ -3368,4 +2825,35 @@ select:focus-visible {
   to {
     opacity: 1;
   }
+}
+
+.mini-overlay-mode .shell-panel-list,
+.mini-overlay-mode .shell-panel-drawer,
+.mini-overlay-mode .splitter {
+  display: none !important;
+}
+.mini-overlay-mode .shell-panel-chat {
+  flex: 1 1 100% !important;
+  min-width: 0 !important;
+}
+.mini-overlay-mode .custom-titlebar-enabled .titlebar,
+.mini-overlay-mode .app-statusbar {
+  display: none !important;
+}
+.mini-overlay-mode .chat-pane {
+  border-radius: 0;
+}
+/* 浮窗模式：精简输入底栏——隐藏安全等级/DSH 权限、快捷消息、分支展示与语音输入，
+   保留模型 chip（见下方截断规则）。锚点是组件上的语义 class（composer-bar-btn.*），
+   旧版曾用 .composer-hints/.branch-badge 等不存在的类名，从未生效（2027-02 重写）。 */
+.mini-overlay-root .composer-bar-btn.security,
+.mini-overlay-root .composer-bar-btn.quick-messages,
+.mini-overlay-root .composer-bar-btn.branch,
+.mini-overlay-root .composer-bar-branch,
+.mini-overlay-root .composer-voice-controls {
+  display: none !important;
+}
+/* 模型 chip：浮窗宽度有限，长模型名必须截断避免挤掉发送键（全局 max-w-[52ch] 过宽） */
+.mini-overlay-root .composer-bar-btn.model-thinking {
+  max-width: 18ch;
 }

@@ -12,9 +12,6 @@ console.log("[1/2] 打包代码（跳过类型检查）…");
 execSync("npx electron-vite build", { cwd: root, stdio: "inherit" });
 
 console.log("\n[2/2] 编译便携单 exe（不压缩 ASAR）…");
-execSync(
-  "npx electron-builder --win portable -c.compression=store",
-  { cwd: root, stdio: "inherit" },
-);
+execSync("npx electron-builder --win portable -c.compression=store", { cwd: root, stdio: "inherit" });
 
 console.log("\n✅ 完成！便携 exe 在 release/ 目录下");

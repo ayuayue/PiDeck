@@ -15,18 +15,13 @@ const require = createRequire(join(repoRoot, "package.json"));
 
 test("package.json keeps dsh-session-stats in devDependencies for the runtime archive", () => {
 	const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
-	assert.ok(
-		pkg.devDependencies["@deepseek-ai/dsh-session-stats"],
-		"@deepseek-ai/dsh-session-stats must be a devDependency (deps partitioned into the dsh-runtime archive)",
-	);
+	assert.ok(pkg.devDependencies["@deepseek-ai/dsh-session-stats"], "@deepseek-ai/dsh-session-stats must be a devDependency (deps partitioned into the dsh-runtime archive)");
 });
 
 test("dsh-session-stats is resolvable from the app root", () => {
 	const resolved = require.resolve("@deepseek-ai/dsh-session-stats");
 	assert.ok(existsSync(resolved), `missing ${resolved}`);
-	const pkg = JSON.parse(
-		readFileSync(require.resolve("@deepseek-ai/dsh-session-stats/package.json"), "utf8"),
-	);
+	const pkg = JSON.parse(readFileSync(require.resolve("@deepseek-ai/dsh-session-stats/package.json"), "utf8"));
 	assert.equal(pkg.name, "@deepseek-ai/dsh-session-stats");
 });
 

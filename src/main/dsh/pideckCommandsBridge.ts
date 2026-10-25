@@ -58,8 +58,7 @@ export function toCommandView(descriptor: unknown): DshCommandView | undefined {
 	const description = record.description;
 	if (typeof name !== "string" || !name || typeof description !== "string") return undefined;
 	const input = record.input;
-	const hint =
-		typeof input === "object" && input !== null ? (input as Record<string, unknown>).hint : undefined;
+	const hint = typeof input === "object" && input !== null ? (input as Record<string, unknown>).hint : undefined;
 	return {
 		name,
 		description,
@@ -76,11 +75,7 @@ export type CommandsBridgeService = {
  * 桥 RPC 分发：method + params → 服务调用。纯函数（service 可注入替身），
  * 供 hostEntry 的 fetch 路由与单测共用。当前只有只读 list；未知方法返回结构化错误。
  */
-export async function commandsBridgeRpc(
-	service: CommandsBridgeService | undefined,
-	method: unknown,
-	params: unknown,
-): Promise<CommandsBridgeResult<unknown>> {
+export async function commandsBridgeRpc(service: CommandsBridgeService | undefined, method: unknown, params: unknown): Promise<CommandsBridgeResult<unknown>> {
 	if (!service) return { ok: false, error: "command bridge service is not available" };
 	switch (method) {
 		case "list":
@@ -94,10 +89,7 @@ export async function commandsBridgeRpc(
  * hostEntry fetch 路由的桥请求处理：POST JSON { method, params } → 结构化 JSON 响应。
  * 与主进程 DshHost.bridgeRpc 的 rawFetch 协议对齐；错误返回 400 + { ok: false, error }。
  */
-export async function handleCommandsBridgeFetch(
-	ctx: CommandsBridgeCtx,
-	init?: { method?: string; headers?: Record<string, string>; body?: string },
-): Promise<Response> {
+export async function handleCommandsBridgeFetch(ctx: CommandsBridgeCtx, init?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<Response> {
 	const result = await (async (): Promise<CommandsBridgeResult<unknown>> => {
 		if ((init?.method ?? "GET").toUpperCase() !== "POST") {
 			return { ok: false, error: "command bridge requires POST" };
@@ -139,9 +131,7 @@ export function apply(ctx: CommandsBridgeCtx): void {
 			const commands = ctx.get?.("commands") as { list?(agent: unknown): unknown[] } | undefined;
 			if (!commands?.list) return { ok: false, error: "commands registry is not mounted" };
 			const descriptors = commands.list(agent);
-			const views = Array.isArray(descriptors)
-				? descriptors.map(toCommandView).filter((view): view is DshCommandView => Boolean(view))
-				: [];
+			const views = Array.isArray(descriptors) ? descriptors.map(toCommandView).filter((view): view is DshCommandView => Boolean(view)) : [];
 			return { ok: true, value: views };
 		},
 	};

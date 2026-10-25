@@ -1,3 +1,8 @@
+---
+title: Features | PiDeck pi Agent desktop workbench
+description: "PiDeck features at a glance: multi-project pi Agent workspace, session history and restore, Git integration, built-in terminal and browser, visual config management — the open-source pi desktop client."
+---
+
 # Features
 
 PiDeck brings together project management, session management, Git operations, and terminal access in a single desktop application.

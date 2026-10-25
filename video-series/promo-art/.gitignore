@@ -1,0 +1,13 @@
+# 渲染产物与生成素材（可随时由 代码工程/render.py 重新生成）
+output/
+审片/
+qa/
+assets/
+代码工程/__pycache__/
+*.mp4
+*.wav
+*.png
+*.jpg
+
+# 字体二进制随 代码工程/lib/fonts 分发源管理，本地副本不入库
+代码工程/lib/fonts/

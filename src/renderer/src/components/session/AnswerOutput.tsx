@@ -1,18 +1,12 @@
-import { memo } from "react";
+import { memo, useRef } from "react";
 import { useAtomValue } from "jotai";
 import { streamingTextBySessionIdAtomFamily } from "../../atoms/session-atoms";
+import { useHoldTextWhileSelecting } from "../../hooks/useHoldTextWhileSelecting";
 import { MarkdownStream } from "./MarkdownStream";
-
-/** 与 TimelineFormat 同逻辑的内联副本（node 单测可直接加载，零外部依赖）。 */
-const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
-
-function stripAnsi(text: string): string {
-	return text.replace(ANSI_RE, "");
-}
-
-function stripThinkingTags(text: string): string {
-	return text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim();
-}
+import { RawToolCallFallback } from "./RawToolCallFallback";
+import { SettledLongAnswer } from "./SettledLongAnswer";
+import { cleanAnswerText } from "./timeline/answerText.ts";
+import { detectLeakedToolCallXml } from "./timeline/leakedToolCallText.ts";
 
 /**
  * 中间回答视觉档位。
@@ -27,7 +21,13 @@ function answerOutputClassName(variant: AnswerOutputVariant): string {
 	// 折叠区 gap 为 0：settled 中间段必须自己留空，否则贴着思考/工具行。
 	// live 挂在折叠容器外，父级 flex gap-3 已经分隔，不能再叠 mt-3。
 	if (variant === "process") {
-		return "execution-interim markdown-body my-3 text-chat text-text-primary";
+		// my-5 = 段前段后各 20px（--spacing 4px × 5，原为 my-3 的 12px）。
+		// ⑤ 在这里用**段前段后距**而不是加大行高把中间回复"托"出来：
+		//   - 段前段后距与回复行数无关，10 行也不会再加倍；
+		//   - 行高（leading-*）会随行数线性变高，且会让中间回复与最终回复在同一屏
+		//     出现两种行距（都是正文，行距不一致看着像 bug）。
+		// 行高保持 --line-height-chat(1.6)，不额外加 leading-*。
+		return "execution-interim markdown-body my-5 text-chat text-text-primary";
 	}
 	return "execution-interim markdown-body text-chat text-text-primary";
 }
@@ -53,36 +53,20 @@ export const AnswerOutput = memo(function AnswerOutput(props: {
 	settle?: boolean;
 	/** 视觉档位；live 忽略，始终按 answer 渲染（边打边读）。 */
 	variant?: AnswerOutputVariant;
+	/** 引用锚点：settled 中间回复透传消息 id，渲染为 data-message-id（划选引用解析用）。 */
+	messageId?: string;
 	onOpenExternal: (url: string, forceSystem?: boolean) => void;
 	onOpenFile?: (path: string) => void;
 }) {
 	if (props.mode === "live") {
-		return (
-			<LiveAnswerBody
-				sessionId={props.sessionId ?? ""}
-				hidden={props.hidden}
-				isStreaming={props.isStreaming}
-				onOpenExternal={props.onOpenExternal}
-				onOpenFile={props.onOpenFile}
-			/>
-		);
+		return <LiveAnswerBody sessionId={props.sessionId ?? ""} hidden={props.hidden} isStreaming={props.isStreaming} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />;
 	}
-	const cleanText = stripThinkingTags(stripAnsi(props.text ?? ""));
-	if (!cleanText.trim()) return null;
+	const cleanText = cleanAnswerText(props.text ?? "");
+	if (!cleanText) return null;
+	// 兜底（issue #315）：服务端漏出的工具调用协议原文不走 markdown，折叠展示。
 	return (
-		<div
-			className={answerOutputClassName(props.variant ?? "process")}
-			data-is-streaming="0"
-			data-variant={props.variant ?? "process"}
-			data-settle={props.settle ? "1" : undefined}
-			style={{ display: props.hidden ? "none" : undefined }}
-		>
-			<MarkdownStream
-				text={cleanText}
-				isStreaming={false}
-				onOpenExternal={props.onOpenExternal}
-				onOpenFile={props.onOpenFile}
-			/>
+		<div className={answerOutputClassName(props.variant ?? "process")} data-message-id={props.messageId} data-is-streaming="0" data-variant={props.variant ?? "process"} data-settle={props.settle ? "1" : undefined} style={{ display: props.hidden ? "none" : undefined }}>
+			{detectLeakedToolCallXml(cleanText) ? <RawToolCallFallback text={cleanText} messageId={props.messageId} /> : <SettledLongAnswer text={cleanText} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />}
 		</div>
 	);
 });
@@ -91,29 +75,20 @@ export const AnswerOutput = memo(function AnswerOutput(props: {
  * Live 正文：atom → MarkdownStream（打字机在 MarkdownStream 内部，
  * 不再自持打字机，避免双重逐字；流式轻量渲染与思考同构）。
  */
-const LiveAnswerBody = memo(function LiveAnswerBody(props: {
-	sessionId: string;
-	hidden?: boolean;
-	isStreaming?: boolean;
-	onOpenExternal: (url: string, forceSystem?: boolean) => void;
-	onOpenFile?: (path: string) => void;
-}) {
+const LiveAnswerBody = memo(function LiveAnswerBody(props: { sessionId: string; hidden?: boolean; isStreaming?: boolean; onOpenExternal: (url: string, forceSystem?: boolean) => void; onOpenFile?: (path: string) => void }) {
 	const streaming = useAtomValue(streamingTextBySessionIdAtomFamily(props.sessionId));
 	const sourceText = streaming?.content ?? "";
-	const text = stripThinkingTags(stripAnsi(sourceText));
+	const text = cleanAnswerText(sourceText);
+	// 划选期间冻结正文渲染：指针按下到松开之间只要来一个新 chunk，文本节点就会重挂，
+	// 浏览器会把正在拖选的 Selection 当场收掉（快照都来不及拍）。冻结只影响渲染用文本，
+	// streaming atom 照常接收；松手后立刻换回最新文本，打字机自己追平。
+	// 详见 useHoldTextWhileSelecting 头注释（这是刻意的产品行为：指针下的文字不能动）。
+	const liveRef = useRef<HTMLDivElement | null>(null);
+	const displayText = useHoldTextWhileSelecting(text, liveRef);
 	return (
-		<div
-			className={answerOutputClassName("answer")}
-			data-is-streaming={props.isStreaming ? "1" : "0"}
-			data-variant="answer"
-			style={{ display: props.hidden ? "none" : undefined }}
-		>
-			<MarkdownStream
-				text={text}
-				isStreaming={Boolean(props.isStreaming)}
-				onOpenExternal={props.onOpenExternal}
-				onOpenFile={props.onOpenFile}
-			/>
+		<div ref={liveRef} className={answerOutputClassName("answer")} data-live-answer="true" data-is-streaming={props.isStreaming ? "1" : "0"} data-variant="answer" style={{ display: props.hidden ? "none" : undefined }}>
+			{/* 兜底判定要求闭标记已到（见 detectLeakedToolCallXml）：流式半截 XML 仍走 markdown，落定后切换。 */}
+			{detectLeakedToolCallXml(displayText) ? <RawToolCallFallback text={displayText} /> : <MarkdownStream text={displayText} isStreaming={Boolean(props.isStreaming)} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />}
 		</div>
 	);
 });

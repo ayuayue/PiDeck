@@ -23,10 +23,7 @@ import { execFile } from "node:child_process";
 import type { PiLocator } from "./PiLocator";
 import type { SettingsStore } from "../settings/SettingsStore";
 import type { PiModelProbeResult } from "../../shared/types/fetchedModel";
-import {
-	applyConfigProxyTarget,
-	type ConfigProxyTarget,
-} from "../sessions/sessionProxyPolicy";
+import { applyConfigProxyTarget, type ConfigProxyTarget } from "../sessions/sessionProxyPolicy";
 
 /**
  * 探测超时：放宽到 120s。
@@ -46,39 +43,18 @@ export const PROBE_TIMEOUT_MS = 120_000;
 // 实测每个 flag 都真实生效，减少首包延迟。
 // 注意：本集【不带】--no-extensions——扩展 provider 模型（issue #181）必须可测；
 // 只在进程级失败（超时等）时降级到 PROBE_BASE_ARGS_NO_EXTENSIONS。
-const PROBE_BASE_ARGS = [
-	"--mode", "json",
-	"--print",
-	"--no-session",
-	"--no-skills",
-	"--no-tools",
-	"--no-context-files",
-	"--no-prompt-templates",
-	"--no-themes",
-	"--offline",
-];
+const PROBE_BASE_ARGS = ["--mode", "json", "--print", "--no-session", "--no-skills", "--no-tools", "--no-context-files", "--no-prompt-templates", "--no-themes", "--offline"];
 
 // 降级核心集：只保留长期存在的核心 flag，用于老版本 pi。
 // --no-context-files（issue #3253）、--no-themes、--no-prompt-templates 等较新，老 pi
 // 解析到未知长 flag 会直接 `Error: Unknown option: --xxx` 硬退（实测：任意未知长 flag
 // 快速退出 out=0），导致探针误报「测试失败」。删掉这些纯优化的 --no-* 只影响冷启动
 // 速度，结果仍与会话一致；仍保留扩展加载（同 PROBE_BASE_ARGS 的 #181 理由）。
-const PROBE_BASE_ARGS_MINIMAL = [
-	"--mode", "json",
-	"--print",
-	"--no-session",
-	"--offline",
-];
+const PROBE_BASE_ARGS_MINIMAL = ["--mode", "json", "--print", "--no-session", "--offline"];
 
 // 最终降级（无扩展）：带扩展的两次尝试都超时/pi 层异常时才用——坏扩展工厂挂起时
 // pi 启动被卡住（异步 factory 被 await），去掉扩展后探测应立即正常完成。
-const PROBE_BASE_ARGS_NO_EXTENSIONS = [
-	"--mode", "json",
-	"--print",
-	"--no-session",
-	"--no-extensions",
-	"--offline",
-];
+const PROBE_BASE_ARGS_NO_EXTENSIONS = ["--mode", "json", "--print", "--no-session", "--no-extensions", "--offline"];
 
 export type { PiModelProbeResult };
 
@@ -86,13 +62,7 @@ export type { PiModelProbeResult };
 function extractText(content: unknown): string {
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
-	return content
-		.map((part) =>
-			part && typeof part === "object" && (part as { type?: string }).type === "text"
-				? String((part as { text?: unknown }).text ?? "")
-				: "",
-		)
-		.join("");
+	return content.map((part) => (part && typeof part === "object" && (part as { type?: string }).type === "text" ? String((part as { text?: unknown }).text ?? "") : "")).join("");
 }
 
 /**
@@ -139,20 +109,14 @@ export function parsePiProbeOutput(stdout: string): Omit<PiModelProbeResult, "la
 	if (lastAssistant.stopReason === "error") {
 		return {
 			success: false,
-			error:
-				typeof lastAssistant.errorMessage === "string" && lastAssistant.errorMessage
-					? lastAssistant.errorMessage
-					: "model call failed",
+			error: typeof lastAssistant.errorMessage === "string" && lastAssistant.errorMessage ? lastAssistant.errorMessage : "model call failed",
 			model,
 			snippet,
 		};
 	}
 
 	const usage = lastAssistant.usage as Record<string, unknown> | undefined;
-	const tokens =
-		usage && typeof usage.input === "number"
-			? { input: usage.input, output: typeof usage.output === "number" ? usage.output : undefined }
-			: undefined;
+	const tokens = usage && typeof usage.input === "number" ? { input: usage.input, output: typeof usage.output === "number" ? usage.output : undefined } : undefined;
 
 	return { success: true, model, snippet, tokens };
 }
@@ -173,20 +137,16 @@ function hasAgentEndEvent(stdout: string): boolean {
  * timedOut 用于触发【无扩展】降级：坏扩展的异步工厂被 await 时会让 pi 启动挂起，
  * 与模型本身超时同形（#181），重试一次无扩展可把两者区分开。
  */
-function runProbeOnce(
-	piLocator: PiLocator,
-	settings: ReturnType<SettingsStore["get"]>,
-	invocation: ReturnType<PiLocator["createInvocation"]>,
-): Promise<
-	| { ok: true; stdout: string }
-	| { ok: false; errorMessage: string; unknownOption: boolean; timedOut: boolean }
-> {
+function runProbeOnce(piLocator: PiLocator, settings: ReturnType<SettingsStore["get"]>, invocation: ReturnType<PiLocator["createInvocation"]>, envOverrides?: NodeJS.ProcessEnv): Promise<{ ok: true; stdout: string } | { ok: false; errorMessage: string; unknownOption: boolean; timedOut: boolean }> {
 	return new Promise((resolve) => {
 		const child = execFile(
 			invocation.command,
 			invocation.args,
 			{
-				env: piLocator.createProcessEnv(settings, invocation.pathPrefix, invocation.wsl),
+				env: {
+					...piLocator.createProcessEnv(settings, invocation.pathPrefix, invocation.wsl),
+					...(envOverrides ?? {}),
+				},
 				shell: invocation.shell,
 				windowsHide: true,
 				timeout: PROBE_TIMEOUT_MS,
@@ -199,15 +159,11 @@ function runProbeOnce(
 					const timedOut = errObj.killed || errObj.code === "ETIMEDOUT";
 					// 超时信息带上秒数：便于一眼区分「探针超时」与「模型报错」，
 					// 也方便后续回收用户反馈时判断是否真到了 thinking 阶段的上界。
-					const message = timedOut
-						? `pi model probe timed out after ${Math.round(PROBE_TIMEOUT_MS / 1000)}s`
-						: (stderr?.trim() || error.message).slice(0, 500);
+					const message = timedOut ? `pi model probe timed out after ${Math.round(PROBE_TIMEOUT_MS / 1000)}s` : (stderr?.trim() || error.message).slice(0, 500);
 					resolve({
 						ok: false,
 						errorMessage: message,
-						unknownOption: /unknown option/i.test(
-							`${stderr ?? ""}\n${stdout ?? ""}\n${error.message}`,
-						),
+						unknownOption: /unknown option/i.test(`${stderr ?? ""}\n${stdout ?? ""}\n${error.message}`),
 						timedOut,
 					});
 					return;
@@ -237,13 +193,7 @@ function runProbeOnce(
  * pi 层无 agent_end 结果时）。模型级结果（agent_end 成功或 stopReason=error）
  * 一律直接返回，不降级——降级只针对“pi 没跑起来”的情形（#181 坏扩展场景）。
  */
-export async function probePiModel(
-	piLocator: PiLocator,
-	settingsStore: SettingsStore,
-	providerName: string,
-	modelId: string,
-	proxyTarget?: ConfigProxyTarget,
-): Promise<PiModelProbeResult> {
+export async function probePiModel(piLocator: PiLocator, settingsStore: SettingsStore, providerName: string, modelId: string, proxyTarget?: ConfigProxyTarget, envOverrides?: NodeJS.ProcessEnv): Promise<PiModelProbeResult> {
 	const startedAt = Date.now();
 	const settings = settingsStore.get();
 	// 测试代理显式选择时覆盖探针设置（follow 原样返回，不产生新对象）。
@@ -252,25 +202,15 @@ export async function probePiModel(
 	if (settings.wslEnabled && settings.wslDistro && settings.wslUser) {
 		await piLocator.warmWslCommand(settings.wslDistro, settings.wslUser);
 	}
-	const command = piLocator.resolveCommand(
-		settings.customPiPath,
-		settings.wslEnabled,
-		settings.wslDistro,
-		settings.wslUser,
-	);
+	const command = piLocator.resolveCommand(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser);
 
 	// 老 pi 优雅降级：先用全集优化参数跑，命中 "Unknown option" 再退到最小核心集重试一次。
 	// 全集参数跑通即返回；模型真正的报错/超时不命中 unknown-option，直接返回不降级。
 	let lastErrorMessage = "pi model probe failed";
 	let retryWithoutExtensions = false;
 	for (const baseArgs of [PROBE_BASE_ARGS, PROBE_BASE_ARGS_MINIMAL]) {
-		const invocation = piLocator.createInvocation(command, [
-			...baseArgs,
-			"--provider", providerName,
-			"--model", modelId,
-			"Hi",
-		]);
-		const outcome = await runProbeOnce(piLocator, probeSettings, invocation);
+		const invocation = piLocator.createInvocation(command, [...baseArgs, "--provider", providerName, "--model", modelId, "Hi"]);
+		const outcome = await runProbeOnce(piLocator, probeSettings, invocation, envOverrides);
 		if (outcome.ok) {
 			const parsed = parsePiProbeOutput(outcome.stdout);
 			// 有 agent_end（无论成功/模型报错）都是模型级结果，直接返回；
@@ -292,13 +232,8 @@ export async function probePiModel(
 	}
 
 	if (retryWithoutExtensions) {
-		const invocation = piLocator.createInvocation(command, [
-			...PROBE_BASE_ARGS_NO_EXTENSIONS,
-			"--provider", providerName,
-			"--model", modelId,
-			"Hi",
-		]);
-		const outcome = await runProbeOnce(piLocator, probeSettings, invocation);
+		const invocation = piLocator.createInvocation(command, [...PROBE_BASE_ARGS_NO_EXTENSIONS, "--provider", providerName, "--model", modelId, "Hi"]);
+		const outcome = await runProbeOnce(piLocator, probeSettings, invocation, envOverrides);
 		if (outcome.ok) {
 			const parsed = parsePiProbeOutput(outcome.stdout);
 			return { ...parsed, latencyMs: Date.now() - startedAt };

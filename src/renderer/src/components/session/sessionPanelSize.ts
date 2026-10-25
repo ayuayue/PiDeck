@@ -7,25 +7,20 @@
  * in that case instead of letting the lifecycle race crash the renderer.
  */
 export type PanelPixelSizeReader = {
-  getSize: () => { inPixels: number };
+	getSize: () => { inPixels: number };
 };
 
 export type PanelPixelReadResult = {
-  pixels: number;
-  ready: boolean;
+	pixels: number;
+	ready: boolean;
 };
 
-export function readPanelPixels(
-  panel: PanelPixelSizeReader | null | undefined,
-  fallback: number,
-): PanelPixelReadResult {
-  if (!panel) return { pixels: fallback, ready: false };
-  try {
-    const pixels = panel.getSize().inPixels;
-    return typeof pixels === "number" && Number.isFinite(pixels)
-      ? { pixels: Math.round(pixels), ready: true }
-      : { pixels: fallback, ready: false };
-  } catch {
-    return { pixels: fallback, ready: false };
-  }
+export function readPanelPixels(panel: PanelPixelSizeReader | null | undefined, fallback: number): PanelPixelReadResult {
+	if (!panel) return { pixels: fallback, ready: false };
+	try {
+		const pixels = panel.getSize().inPixels;
+		return typeof pixels === "number" && Number.isFinite(pixels) ? { pixels: Math.round(pixels), ready: true } : { pixels: fallback, ready: false };
+	} catch {
+		return { pixels: fallback, ready: false };
+	}
 }

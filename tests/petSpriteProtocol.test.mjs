@@ -2,10 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, sep } from "node:path";
 import test from "node:test";
-import {
-	parsePetSpriteUrl,
-	isSpritePathAllowed,
-} from "../src/main/pet/petSpriteUrl.ts";
+import { parsePetSpriteUrl, isSpritePathAllowed } from "../src/main/pet/petSpriteUrl.ts";
 import { petSpriteUrl } from "../src/main/pet/petPackageScanner.ts";
 
 /**

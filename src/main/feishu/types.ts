@@ -76,11 +76,15 @@ export type FeishuCardActionEvent = {
 
 export type LarkSDK = {
 	Client: new (opts: Record<string, unknown>) => LarkClient;
-	WSClient: new (opts: Record<string, unknown>) => {
-		start: (opts: Record<string, unknown>) => void;
+	WSClient: new (
+		opts: Record<string, unknown>,
+	) => {
+		start: (opts: Record<string, unknown>) => Promise<void>;
 		stop?: () => void;
 	};
-	EventDispatcher: new (opts: Record<string, unknown>) => {
+	EventDispatcher: new (
+		opts: Record<string, unknown>,
+	) => {
 		register: (handlers: Record<string, (data: unknown) => Promise<unknown | undefined | void>>) => unknown;
 	};
 	normalizeCardAction: (event: Record<string, unknown>, opts?: { includeRaw?: boolean }) => FeishuCardActionEvent | null;
@@ -90,12 +94,7 @@ export type LarkSDK = {
 };
 
 export type LarkClient = {
-	request: <T = Record<string, unknown>>(opts: {
-		method: string;
-		url: string;
-		data?: Record<string, unknown>;
-		params?: Record<string, unknown>;
-	}) => Promise<T>;
+	request: <T = Record<string, unknown>>(opts: { method: string; url: string; data?: Record<string, unknown>; params?: Record<string, unknown> }) => Promise<T>;
 	im: {
 		message: {
 			create: (opts: Record<string, unknown>) => Promise<Record<string, unknown>>;

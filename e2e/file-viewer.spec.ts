@@ -24,13 +24,13 @@ test("file viewer opens in workbench split and closes back to the drawer", async
 
 	// 侧栏分段(56469f95)后默认停在「聊天」分段，工作区项目行在「项目」分段下，先切换
 	await window.getByRole("tab", { name: "项目" }).click();
-	// 进入预置项目：侧栏项目显示目录名（pideck-seed-fv-*）
-	const projectItem = window.locator(".conversation", { hasText: "pideck-seed-fv-" }).first();
+	// 进入预置项目：侧栏项目行显示项目名（seedProjects[].name；目录名已不再作为行标题）
+	const projectItem = window.locator(".conversation", { hasText: "file-viewer" }).first();
 	await expect(projectItem).toBeVisible({ timeout: 20_000 });
 	await projectItem.click();
 	// 项目 select 后：点项目行的「新建 Agent」进入会话视图（main 无会话时空）
 	// 注：项目行按钮已迁移为 aria-label 定位（旧 .project-action 类已随侧栏重构移除）
-	const projectRow = window.locator(".conversation", { hasText: "pideck-seed-fv-" }).first();
+	const projectRow = window.locator(".conversation", { hasText: "file-viewer" }).first();
 	await projectRow.hover();
 	await projectRow.getByRole("button", { name: "普通会话" }).first().click();
 

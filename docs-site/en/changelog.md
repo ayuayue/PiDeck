@@ -1,3 +1,8 @@
+---
+title: Changelog | PiDeck pi desktop release notes
+description: "Release notes for every PiDeck version: new features, fixes, and improvements across the pi desktop workbench."
+---
+
 # Changelog
 
 The full changelog is maintained in the project repository:

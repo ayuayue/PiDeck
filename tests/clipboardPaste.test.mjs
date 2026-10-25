@@ -31,10 +31,7 @@ test("composer and git commit input paste through the consistent html read", () 
 });
 
 test("Ctrl+V composer paste inserts clipboard text/plain, never TipTap HTML", () => {
-	const props = readFileSync(
-		"src/renderer/src/components/session/composer/tiptap/buildComposerEditorProps.ts",
-		"utf8",
-	);
+	const props = readFileSync("src/renderer/src/components/session/composer/tiptap/buildComposerEditorProps.ts", "utf8");
 	assert.match(props, /insertComposerPlainText\(view, payload\)/);
 	assert.match(props, /getData\("text\/plain"\)/);
 });

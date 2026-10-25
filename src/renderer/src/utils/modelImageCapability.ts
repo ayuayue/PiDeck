@@ -30,19 +30,13 @@ export function imagesFromModelsJson(modelsFile: unknown): Map<string, boolean> 
 	return result;
 }
 
-export function modelSupportsNativeImages(
-	models: ListedModel[],
-	current: { provider?: string; modelId?: string } | undefined,
-	localFile?: unknown,
-): boolean {
+export function modelSupportsNativeImages(models: ListedModel[], current: { provider?: string; modelId?: string } | undefined, localFile?: unknown): boolean {
 	if (!current?.provider || !current.modelId) return false;
 	const key = `${current.provider}\0${current.modelId}`;
 	const local = imagesFromModelsJson(localFile).get(key);
 	if (local === true) return true;
 	if (local === false) return false;
-	const found = models.find(
-		(model) => model.provider === current.provider && model.id === current.modelId,
-	);
+	const found = models.find((model) => model.provider === current.provider && model.id === current.modelId);
 	return found?.images === true;
 }
 
@@ -52,10 +46,7 @@ export function modelSupportsNativeImages(
  * - true：视觉桥可能接管，允许按开关轮询
  * - null：pi 模型目录还没解析完，不能先乐观显示转换中
  */
-export function resolveVisionBridgeExpected(input: {
-	backend?: string;
-	modelSupportsImages: boolean | null;
-}): boolean | null {
+export function resolveVisionBridgeExpected(input: { backend?: string; modelSupportsImages: boolean | null }): boolean | null {
 	if (input.backend === "dsh") return false;
 	if (input.modelSupportsImages === true) return false;
 	if (input.modelSupportsImages === null) return null;

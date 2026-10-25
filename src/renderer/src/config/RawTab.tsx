@@ -23,25 +23,14 @@ export function RawTab(props: {
 	onSave: () => void;
 }) {
 	// 与 DSH joinConfigPath 一致：去尾斜杠后拼接文件名（平台路径，避免 /\ 混用）。
-	const rawFilePath = props.configDir
-		? `${props.configDir.replace(/[\\/]+$/, "")}/${props.fileName}`
-		: "";
+	const rawFilePath = props.configDir ? `${props.configDir.replace(/[\\/]+$/, "")}/${props.fileName}` : "";
 	return (
 		<div className="config-raw-tab flex min-h-0 flex-1 flex-col gap-3">
 			<div className="flex shrink-0 items-center justify-between gap-3">
-				<ConfigSelect
-					value={props.fileName}
-					options={RAW_FILE_OPTIONS}
-					onChange={props.onChangeFileName}
-				/>
+				<ConfigSelect value={props.fileName} options={RAW_FILE_OPTIONS} onChange={props.onChangeFileName} />
 			</div>
 			{/* 源文件都是 JSON：CodeMirror 提供语法高亮/折叠/括号匹配，JSON 语法错误即时提示（lint）。 */}
-			<CodeMirrorEditor
-				value={props.content}
-				language="json"
-				height="100%"
-				onChange={props.onChangeContent}
-			/>
+			<CodeMirrorEditor value={props.content} language="json" height="100%" onChange={props.onChangeContent} />
 			{/* 编辑位置说明：标注当前文件在 pi 配置目录里的实际路径（随下拉切换），保存后由 pi 读取 */}
 			<div className="flex shrink-0 flex-col gap-1 rounded-md border border-border-subtle bg-bg-panel px-3 py-2">
 				{rawFilePath && (

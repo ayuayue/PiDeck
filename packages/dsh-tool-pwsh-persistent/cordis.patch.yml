@@ -1,5 +1,0 @@
-# dsh plugin --profile web add dsh-tool-pwsh-persistent
-# 官方 CLI 会把本 patch 叠进 bundle；手动挂载只需下面这一行。
-- insert:
-    - id: tool-pwsh-persistent
-      name: dsh-tool-pwsh-persistent

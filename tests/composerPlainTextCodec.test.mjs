@@ -4,9 +4,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 // 共享 helper 自动解析 plainTextCodec → chips → quoteChip 依赖图
 function loadCodec() {
-	return loadTsCommonJs(
-		"src/renderer/src/components/session/composer/tiptap/plainTextCodec.ts",
-	);
+	return loadTsCommonJs("src/renderer/src/components/session/composer/tiptap/plainTextCodec.ts");
 }
 
 const { plainTextToComposerDoc, composerDocToPlainText } = loadCodec();

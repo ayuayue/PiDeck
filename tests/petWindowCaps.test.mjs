@@ -1,11 +1,27 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { resolve } from "node:path";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
 const require = createRequire(import.meta.url);
+
+/**
+ * 未显式打桩的相对 import → 交给统一沙箱按**源文件目录**解析。
+ *
+ * 本文件需要自建 sandbox 全局（MockBrowserWindow / 计时器 spies），因此不能直接用
+ * createTsSandbox 加载 PetWindow；这里只借用它「按源文件目录解析」的能力。
+ */
+const petSandbox = createTsSandbox();
+
+function resolveUnstubbedRequire(specifier) {
+	if (!specifier.startsWith(".")) return require(specifier);
+	const target = resolve("src/main/pet", /\.(ts|tsx|js)$/.test(specifier) ? specifier : `${specifier}.ts`);
+	return petSandbox(target);
+}
 
 function loadModule(mockProcess = {}) {
 	const source = readFileSync("src/main/pet/PetWindow.ts", "utf8");
@@ -31,17 +47,36 @@ function loadModule(mockProcess = {}) {
 			MockBrowserWindow.last = this;
 		}
 
-		isDestroyed() { return false; }
+		isDestroyed() {
+			return false;
+		}
 		setAlwaysOnTop() {}
-		on(name, listener) { this.listeners.set(name, listener); }
-		loadFile() { return Promise.resolve(); }
-		loadURL() { return Promise.resolve(); }
+		on(name, listener) {
+			this.listeners.set(name, listener);
+		}
+		loadFile() {
+			return Promise.resolve();
+		}
+		loadURL() {
+			return Promise.resolve();
+		}
 		showInactive() {}
-		getBounds() { return this.bounds; }
-		getPosition() { return [this.bounds.x, this.bounds.y]; }
-		getSize() { return [this.bounds.width, this.bounds.height]; }
-		setSize(width, height) { this.bounds = { ...this.bounds, width, height }; }
-		setBounds(bounds) { this.setBoundsCalls += 1; this.bounds = { ...this.bounds, ...bounds }; }
+		getBounds() {
+			return this.bounds;
+		}
+		getPosition() {
+			return [this.bounds.x, this.bounds.y];
+		}
+		getSize() {
+			return [this.bounds.width, this.bounds.height];
+		}
+		setSize(width, height) {
+			this.bounds = { ...this.bounds, width, height };
+		}
+		setBounds(bounds) {
+			this.setBoundsCalls += 1;
+			this.bounds = { ...this.bounds, ...bounds };
+		}
 		destroy() {}
 	}
 	let intervalCalls = 0;
@@ -51,7 +86,10 @@ function loadModule(mockProcess = {}) {
 		__dirname: "/tmp/pi-desktop-test/out/main/pet",
 		setTimeout,
 		clearTimeout,
-		setInterval: () => { intervalCalls += 1; return 1; },
+		setInterval: () => {
+			intervalCalls += 1;
+			return 1;
+		},
 		clearInterval: () => undefined,
 		process: {
 			platform: "linux",
@@ -100,15 +138,21 @@ function loadModule(mockProcess = {}) {
 			if (id === "node:fs/promises") {
 				return {
 					mkdir: async () => {},
-					readFile: async () => { throw new Error("no position file"); },
-					writeFile: async (_path, content) => { fsWrites.push(String(content)); },
+					readFile: async () => {
+						throw new Error("no position file");
+					},
+					writeFile: async (_path, content) => {
+						fsWrites.push(String(content));
+					},
 				};
 			}
 			// PetWindow 的诊断日志（2026-08 新增）走 appLogger，测试环境静默
 			if (id.endsWith("logging/sharedLogger")) {
 				return { getAppLogger: () => null };
 			}
-			return require(id);
+			// 未显式打桩的相对 import：交给统一沙箱按**源文件目录**（src/main/pet）解析。
+			// 生产新增本地模块（#213 的 ../v8HeapLimits 等）不再让本文件整片 MODULE_NOT_FOUND。
+			return resolveUnstubbedRequire(id);
 		},
 	};
 	vm.runInNewContext(outputText, sandbox, {
@@ -214,10 +258,7 @@ test("restricted Linux windows avoid transparent backgrounds and absolute positi
 
 test("patrol is disabled when free positioning is unavailable", () => {
 	const source = readFileSync("src/main/pet/index.ts", "utf8");
-	assert.match(
-		source,
-		/petPatrolEnabled[\s\S]{0,160}detectPetWindowCaps\(\)\.freePosition/,
-	);
+	assert.match(source, /petPatrolEnabled[\s\S]{0,160}detectPetWindowCaps\(\)\.freePosition/);
 });
 
 test("scale changes push appearance settings to the pet window", () => {
@@ -319,7 +360,8 @@ test("moveTo persists positions converted back to the normal layout", async () =
 	const expanded = { ...win.getBounds() };
 	// 通知布局下拖到 (100, 300)，脚底中心 = (100 + w/2, 300 + h)
 	petWindow.moveTo(100, 300);
-	await new Promise((r) => setTimeout(r, 10));
+	// 持久化走 400ms 防抖（schedulePersistPosition）：最后一次位置在防抖窗口后落盘
+	await new Promise((r) => setTimeout(r, 450));
 	const saved = JSON.parse(fsWrites.at(-1));
 	// 换算回普通布局（192x208）：脚底中心不变
 	const feetX = 100 + expanded.width / 2;

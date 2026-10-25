@@ -40,17 +40,12 @@ function compile(execFileImpl = () => {}) {
 		// 与真实实现的 follow 语义一致），提供等价 mock 即可。
 		if (specifier === "../sessions/sessionProxyPolicy") {
 			return {
-				applyConfigProxyTarget: (settings, target) =>
-					target === undefined ? settings : settings,
+				applyConfigProxyTarget: (settings, target) => (target === undefined ? settings : settings),
 			};
 		}
 		return {};
 	};
-	vm.runInNewContext(
-		output,
-		{ module, exports: module.exports, require: localRequire, console },
-		{ filename: MODULE_PATH },
-	);
+	vm.runInNewContext(output, { module, exports: module.exports, require: localRequire, console }, { filename: MODULE_PATH });
 	return module.exports;
 }
 
@@ -101,10 +96,7 @@ test("stopReason=error 判定为失败并携带 errorMessage", () => {
 });
 
 test("无 agent_end 事件时判定为失败", () => {
-	const stdout = [
-		JSON.stringify({ type: "session", version: 3, id: "x" }),
-		JSON.stringify({ type: "agent_start" }),
-	].join("\n");
+	const stdout = [JSON.stringify({ type: "session", version: 3, id: "x" }), JSON.stringify({ type: "agent_start" })].join("\n");
 
 	const result = parsePiProbeOutput(stdout);
 	assert.equal(result.success, false);

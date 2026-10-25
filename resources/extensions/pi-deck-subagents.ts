@@ -9,6 +9,12 @@
  * 系统通知，并入同一快照；派发即落 start 锚点、终态落 subagents:record，读取侧
  * （SessionHistoryReader）与 pi-subagents 数据同通道复用。
  *
+ * 再补 nicobailon pi-subagents 的异步链（`subagent` 工具 async 派发）：该链不落任何
+ * 会话文件记录，终态只活在插件自己的 `subagent-async` widget 里，而插件对已完成的
+ * job 只保留 10s（async-job-tracker 的 completionRetentionMs）——widget 一被清空，
+ * 渲染层就回退到「工具调用推导 = 永远运行中」。这里从派发 args 与异步回执里识别
+ * asyncId，终态事件到达时落 subagents:record（持久）并并入桥接快照（实时保持）。
+ *
  * @packageDocumentation
  */
 
@@ -110,9 +116,23 @@ export function reduceSnapshot(
 			const fields = extractFields(data);
 			if (!fields.id) return { state, changed: false };
 			const existing = state.get(fields.id);
-			if (!existing) return { state, changed: false };
-			if (existing.status === "running") return { state, changed: false };
+			if (existing?.status === "running") return { state, changed: false }; // 重复 started 幂等
 			const next = cloneState(state);
+			if (!existing) {
+				// 前台子代理（spawnAndWait，isBackground=false）不经过 created：插件只在后台派发时发 created。
+				// 无此 upsert 时运行期间快照 agents 为空，面板整块不渲染，直到终态事件（自带完整字段的 upsert 分支）才出现条目。
+				// started 载荷只有 {id,type,description}：startedAt 用到达时刻近似，与 created 分支 fields.startedAt || Date.now() 的口径一致。
+				next.set(fields.id, {
+					id: fields.id,
+					type: fields.type ?? "",
+					description: fields.description ?? "",
+					status: "running",
+					toolUses: fields.toolUses ?? 0,
+					tokens: fields.tokens ?? 0,
+					startedAt: fields.startedAt || Date.now(),
+				});
+				return { state: next, changed: true };
+			}
 			next.set(fields.id, { ...existing, status: "running" });
 			return { state: next, changed: true };
 		}
@@ -320,6 +340,121 @@ export function reduceAcpNotification(
 }
 
 /* ------------------------------------------------------------------ */
+/* pi-subagents（nicobailon）异步链桥接                                 */
+/* ------------------------------------------------------------------ */
+
+const SUBAGENT_TOOL = "subagent";
+const ASYNC_COMPLETE_EVENT = "subagent:async-complete";
+
+/** 异步派发回执里携带 asyncId 的行："Async: worker [uuid]"（与 `subagent-async` widget 的 run.id 同源，
+ *  与主进程推导 `derivedSubagents.extractAsyncRunId` 同一正则，两边改动需同步）。 */
+const ASYNC_ID_LINE_RE = /^Async[^\n]*\s\[([^\]\s]+)\]$/m;
+
+/** 派发描述符：回执给出 asyncId 后，快照条目与终态 record 都用它补 type/description/startedAt。 */
+export type AsyncRunDescriptor = { type: string; description: string; startedAt: number };
+
+/** 异步链桥接状态：`pending` 按 toolCallId 暂存派发，`byRunId` 在回执到达后按 asyncId 存档。 */
+export type AsyncRunBridgeState = { pending: Map<string, AsyncRunDescriptor>; byRunId: Map<string, AsyncRunDescriptor> };
+
+/** 从异步派发回执文本提取 asyncId；非异步回执（前台派发的最终报告）返回 undefined。 */
+export function extractAsyncRunId(text: string): string | undefined {
+	return ASYNC_ID_LINE_RE.exec(text)?.[1];
+}
+
+/**
+ * 工具执行事件 → 异步派发描述符。
+ *
+ * 只认「派发形态」（有 agent、无 action/workflowScript* 字段），与主进程推导
+ * `deriveSubagentToolEntries` 同口径：action 管理查询与工作流脚本不是单次运行。
+ * start 拿不到 asyncId（回执在 end 才到），所以按 toolCallId 暂存；end 解析出
+ * asyncId 后搬进 byRunId——只有异步回执才留档，前台派发的最终报告不产生条目。
+ */
+export function reduceSubagentAsyncToolEvent(state: AsyncRunBridgeState, eventName: string, data: unknown, now: number): { state: AsyncRunBridgeState; asyncId?: string; descriptor?: AsyncRunDescriptor } {
+	if (!data || typeof data !== "object") return { state };
+	const event = data as Record<string, unknown>;
+	if (event.toolName !== SUBAGENT_TOOL) return { state };
+	const toolCallId = typeof event.toolCallId === "string" ? event.toolCallId : "";
+	if (!toolCallId) return { state };
+
+	if (eventName === "tool_execution_start") {
+		if (state.pending.has(toolCallId)) return { state };
+		const args = event.args && typeof event.args === "object" ? event.args as Record<string, unknown> : {};
+		if (typeof args.agent !== "string" || !args.agent) return { state };
+		if (args.action != null || args.workflowScript != null || args.workflowScriptPath != null) return { state };
+		const pending = new Map(state.pending);
+		pending.set(toolCallId, {
+			type: args.agent,
+			description: typeof args.task === "string" ? args.task : "",
+			startedAt: now,
+		});
+		return { state: { pending, byRunId: state.byRunId } };
+	}
+
+	if (eventName === "tool_execution_end") {
+		const descriptor = state.pending.get(toolCallId);
+		if (!descriptor) return { state };
+		const pending = new Map(state.pending);
+		pending.delete(toolCallId);
+		const asyncId = extractAsyncRunId(extractToolResultText(event.result));
+		// 有 asyncId 才是后台运行（登记终态落盘用）；无则前台派发已完成，描述符使命结束
+		if (!asyncId) return { state: { pending, byRunId: state.byRunId } };
+		const byRunId = new Map(state.byRunId);
+		byRunId.set(asyncId, descriptor);
+		return { state: { pending, byRunId }, asyncId, descriptor };
+	}
+
+	return { state };
+}
+
+/**
+ * 插件 async 终态 → PiDeck record 状态。
+ *
+ * 只映射确定已结束的状态；`paused` / 未知状态不落终态（运行可能恢复，落终态会让
+ * 面板把还在跑的 run 误标成已停止）。partial（部分失败）按失败类呈现引导关注，
+ * 与渲染层 `SNAPSHOT_STATE_TO_STATUS` 同口径。
+ */
+const ASYNC_TERMINAL_STATUS_MAP: Record<string, AgentSnapshot["status"]> = {
+	complete: "completed",
+	completed: "completed",
+	failed: "error",
+	partial: "error",
+	error: "error",
+	stopped: "stopped",
+	rejected: "stopped",
+};
+
+/**
+ * 终态事件 payload → 桥接快照条目 + `subagents:record` 载荷（纯函数，可单测）。
+ *
+ * id 只认 payload 的 runId/id（= 派发回执的 asyncId）；取不到状态或状态未知返回
+ * undefined（宁可不落，也不误报终态）。描述/类型优先用派发侧捕获的描述符（插件
+ * 事件里的 task 是 PROMPT_REDACTED，只有会话文件里的 args 才有真文本）；描述符
+ * 缺失时降级用 payload.agent、描述留空（读取侧 `mergeSubagentSources` 从派发 args 回填）。
+ */
+export function buildSubagentAsyncTerminal(payload: unknown, descriptor: AsyncRunDescriptor | undefined, now: number): { entry: AgentSnapshot; record: Record<string, unknown> } | undefined {
+	if (!payload || typeof payload !== "object") return undefined;
+	const data = payload as Record<string, unknown>;
+	const id = typeof data.runId === "string" && data.runId ? data.runId : typeof data.id === "string" && data.id ? data.id : "";
+	if (!id) return undefined;
+	const status = ASYNC_TERMINAL_STATUS_MAP[String(data.state ?? data.status ?? "")];
+	if (!status) return undefined;
+
+	const durationMs = typeof data.durationMs === "number" && Number.isFinite(data.durationMs) && data.durationMs > 0 ? data.durationMs : undefined;
+	const startedAt = descriptor?.startedAt ?? (durationMs !== undefined ? now - durationMs : now);
+	// 完成时刻优先用 payload 自带的绝对时刻（result 文件 timestamp / endedAt），
+	// 其次按真实时长反推，最后退化到事件到达时刻
+	const payloadEndedAt = typeof data.timestamp === "number" && Number.isFinite(data.timestamp) ? data.timestamp : typeof data.endedAt === "number" && Number.isFinite(data.endedAt) ? data.endedAt : undefined;
+	const completedAt = payloadEndedAt ?? (durationMs !== undefined ? startedAt + durationMs : now);
+	const type = descriptor?.type || (typeof data.agent === "string" && data.agent ? data.agent : SUBAGENT_TOOL);
+	const description = descriptor?.description ?? "";
+	// 只写错误摘要：payload 的 summary/resultPreview 是截断预览，写进 record.result
+	// 会被「查看完整结果」当成全文展示（完整文本在插件产出目录里）
+	const error = status === "error" && typeof data.error === "string" && data.error ? data.error.slice(0, 2000) : undefined;
+	const entry: AgentSnapshot = { id, type, description, status, toolUses: 0, tokens: 0, startedAt, completedAt, ...(error ? { error } : {}) };
+	return { entry, record: { id, type, description, status, startedAt, completedAt, ...(error ? { error } : {}) } };
+}
+
+/* ------------------------------------------------------------------ */
 /* 扩展主体                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -329,8 +464,9 @@ const WIDGET_KEY = "pi-deck-subagents";
  * 子代理 start 锚点条目类型（会话文件 custom 条目）。
  * created 事件时立即落盘：运行中被重启终止的子代理没有 subagents:record
  * （插件只在完成时写），无此锚点则重启后彻底消失。
- * 读取侧（SessionHistoryReader.readSubagentRecords）同字符串过滤，
- * 残留锚点（无 record 覆盖）合成 stopped 条目，改动需两侧同步。
+ * 读取侧（SessionHistoryReader.readSubagentRecords）同字符串过滤：
+ * 残留锚点（无 record 覆盖）按活 runtime 对账合成——本代派发 → running，
+ * 否则 stopped（详见 #300），改动需两侧同步。
  */
 const START_ENTRY_TYPE = "pi-deck-subagent-start";
 
@@ -459,9 +595,6 @@ export default function piDeckSubagentsBridge(pi: any): void {
 		if (savedCtx) schedulePush(savedCtx);
 	}
 
-	pi.on("tool_execution_start", (event: unknown, ctx?: any) => handleAcpToolEvent("tool_execution_start", event, ctx));
-	pi.on("tool_execution_end", (event: unknown, ctx?: any) => handleAcpToolEvent("tool_execution_end", event, ctx));
-
 	// 终态系统通知以 user 消息注入会话（message_end 可捕获）：据此迁到终态并落
 	// subagents:record（历史重建的权威数据，读取侧与 pi-subagents record 同通道）。
 	pi.on("message_end", (event: unknown, ctx?: any) => {
@@ -497,6 +630,105 @@ export default function piDeckSubagentsBridge(pi: any): void {
 		if (savedCtx) schedulePush(savedCtx);
 	});
 
+	/**
+	 * 工具执行事件分发：acp_delegate（billion-context）与 subagent 异步链（nicobailon）
+	 * 共用同两个 pi.on 注册点，各自 reducer 内部按工具名过滤。
+	 */
+	function handleToolEvent(eventName: string, data: unknown, ctx?: any) {
+		handleAcpToolEvent(eventName, data, ctx);
+		handleAsyncToolEvent(eventName, data);
+	}
+
+	/* pi-subagents（nicobailon）异步链：subagent 工具异步派发不落任何会话文件记录，
+	 * 终态只活在插件自己的 `subagent-async` widget 里，而该 widget 在完成 10s 后被
+	 * 插件清空（async-job-tracker 的 completionRetentionMs）→ 渲染层回退到工具推导的
+	 * 「永远运行中」。这里把终态落成 subagents:record（持久）+ 并入桥接快照（实时）。 */
+	let asyncBridge: AsyncRunBridgeState = { pending: new Map(), byRunId: new Map() };
+	/** 已落盘的终态（id → status）：完成事件因投递重试/会话恢复重放时不重复写记录。 */
+	let asyncRecorded = new Map<string, string>();
+
+	function handleAsyncToolEvent(eventName: string, data: unknown) {
+		const result = reduceSubagentAsyncToolEvent(asyncBridge, eventName, data, Date.now());
+		asyncBridge = result.state;
+	}
+
+	/**
+	 * 异步终态：落 subagents:record + 并入桥接快照。
+	 *
+	 * 快照那份是给实时面板看的——插件的 `subagent-async` widget 10s 后会消失，而桥接
+	 * 快照里的终态会留到会话结束，否则渲染层会回退到推导条目的 running。
+	 * 但只有派发被桥接看见（byRunId 有描述符）的异步 run 才落盘：工作流子 run 与
+	 * 「桥接晚于派发加载」的 run 不并入，避免面板凭空多出无描述的条目（推导侧
+	 * 读取时的描述回填另在 `mergeSubagentSources` 处理）。
+	 */
+	function handleAsyncComplete(data: unknown) {
+		const payload = data && typeof data === "object" ? data as Record<string, unknown> : {};
+		const runId = typeof payload.runId === "string" && payload.runId ? payload.runId : typeof payload.id === "string" ? payload.id : "";
+		const descriptor = runId ? asyncBridge.byRunId.get(runId) : undefined;
+		if (!descriptor) return;
+		const built = buildSubagentAsyncTerminal(data, descriptor, Date.now());
+		if (!built) return;
+		const { entry, record } = built;
+		if (asyncRecorded.get(entry.id) === entry.status) return;
+		asyncRecorded.set(entry.id, entry.status);
+		try {
+			pi.appendEntry(RECORD_ENTRY_TYPE, record);
+		} catch {
+			// 落盘失败只损失历史重建（会话已收尾等）；实时快照仍然照常推送
+		}
+		snapshot.set(entry.id, entry);
+		if (savedCtx) schedulePush(savedCtx);
+	}
+
+	pi.events.on(ASYNC_COMPLETE_EVENT, handleAsyncComplete);
+
+	// 工具执行事件（acp 派发/取消 + subagent 异步派发回执）统一在两个注册点分发
+	pi.on("tool_execution_start", (event: unknown, ctx?: any) => handleToolEvent("tool_execution_start", event, ctx));
+	pi.on("tool_execution_end", (event: unknown, ctx?: any) => handleToolEvent("tool_execution_end", event, ctx));
+
+	/**
+	 * 会话关闭（pi 在 /new、resume、fork、quit 时触发 session_shutdown）：
+	 * 给仍在 running/queued 的条目补一条终态 record。
+	 *
+	 * 为什么需要：子代理 runner 是 pi 的子进程，会话关闭后旧会话文件里永远停在
+	 * running——后续终态通知属于新会话文件，旧文件再也等不到写入，面板就一直显示
+	 * 「运行中」、时长无限增长（用户实测几千分钟）。这里按关闭时刻补 stopped；
+	 * 读取侧按 offset「后写覆盖先写」，若 runner 事后真的完成了，插件的终态 record
+	 * 会盖过这条近似值。
+	 *
+	 * appendEntry 必须容错：teardown 阶段会话已在收尾，落盘失败只是少一条审计
+	 * 记录，不能让异常冒泡打断 pi 的会话切换。
+	 */
+	pi.on("session_shutdown", (_event: unknown, ctx?: any) => {
+		if (ctx) savedCtx = ctx;
+		if (debounceTimer !== null) {
+			clearTimeout(debounceTimer);
+			debounceTimer = null;
+		}
+		const closedAt = Date.now();
+		// 先收集再改写：同一进程内切回该会话（resume）时快照也必须是终态，
+		// 否则面板会凭内存快照把已关闭的条目重新报成 running。
+		const inflight = Array.from(snapshot.values()).filter(
+			(entry) => entry.status === "running" || entry.status === "queued",
+		);
+		for (const entry of inflight) {
+			try {
+				pi.appendEntry(RECORD_ENTRY_TYPE, {
+					id: entry.id,
+					type: entry.type,
+					description: entry.description,
+					status: "stopped",
+					startedAt: entry.startedAt,
+					completedAt: closedAt,
+					via: entry.via,
+				});
+			} catch {
+				// 落盘失败仅损失审计记录，不影响 pi 的会话切换
+			}
+			snapshot.set(entry.id, { ...entry, status: "stopped", completedAt: closedAt });
+		}
+	});
+
 	pi.on("session_start", (_event: unknown, ctx: any) => {
 		// 重置快照（新会话开始，无存活后台代理）。
 		// pluginActive 不重置：一个 pi 进程对应一个会话，插件加载状态进程级不变；
@@ -504,6 +736,8 @@ export default function piDeckSubagentsBridge(pi: any): void {
 		// 若在此重置会把 ready 置的 true 覆盖掉，导致插件在位却误报未安装。
 		snapshot = new Map();
 		acpRunIds = new Map();
+		asyncBridge = { pending: new Map(), byRunId: new Map() };
+		asyncRecorded = new Map();
 		savedCtx = ctx;
 		if (debounceTimer !== null) {
 			clearTimeout(debounceTimer);

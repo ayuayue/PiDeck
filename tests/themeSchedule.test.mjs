@@ -3,15 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const {
-	normalizeClockTime,
-	normalizeThemeSchedule,
-	resolveAppColorScheme,
-	resolveScheduledTheme,
-	msUntilNextThemeBoundary,
-	DEFAULT_THEME_SCHEDULE_LIGHT_START,
-	DEFAULT_THEME_SCHEDULE_DARK_START,
-} = loadTsCommonJs("src/shared/themeSchedule.ts");
+const { normalizeClockTime, normalizeThemeSchedule, resolveAppColorScheme, resolveScheduledTheme, msUntilNextThemeBoundary, DEFAULT_THEME_SCHEDULE_LIGHT_START, DEFAULT_THEME_SCHEDULE_DARK_START } = loadTsCommonJs("src/shared/themeSchedule.ts");
 
 function at(hours, minutes, seconds = 0) {
 	return new Date(2026, 7, 21, hours, minutes, seconds, 0);
@@ -49,16 +41,22 @@ test("resolveAppColorScheme keeps explicit light/dark and uses schedule/system",
 	assert.equal(resolveAppColorScheme({ theme: "dark", systemPrefersDark: false }), "dark");
 	assert.equal(resolveAppColorScheme({ theme: "system", systemPrefersDark: true }), "dark");
 	assert.equal(resolveAppColorScheme({ theme: "system", systemPrefersDark: false }), "light");
-	assert.equal(resolveAppColorScheme({
-		theme: "schedule",
-		themeScheduleLightStart: "07:00",
-		themeScheduleDarkStart: "19:00",
-		now: at(10, 0),
-	}), "light");
-	assert.equal(resolveAppColorScheme({
-		theme: "schedule",
-		now: at(22, 0),
-	}), "dark");
+	assert.equal(
+		resolveAppColorScheme({
+			theme: "schedule",
+			themeScheduleLightStart: "07:00",
+			themeScheduleDarkStart: "19:00",
+			now: at(10, 0),
+		}),
+		"light",
+	);
+	assert.equal(
+		resolveAppColorScheme({
+			theme: "schedule",
+			now: at(22, 0),
+		}),
+		"dark",
+	);
 });
 
 test("msUntilNextThemeBoundary sleeps until the next start, not zero at the boundary second", () => {

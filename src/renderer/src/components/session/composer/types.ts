@@ -3,13 +3,7 @@
  * TipTap / 旧 contentEditable 都应实现同一 props；草稿真相永远是 string。
  */
 
-import type {
-	ClipboardEvent,
-	DragEvent,
-	FocusEvent,
-	KeyboardEvent,
-	MutableRefObject,
-} from "react";
+import type { ClipboardEvent, DragEvent, FocusEvent, KeyboardEvent, MutableRefObject } from "react";
 import type { ComposerChip } from "./chips";
 
 export type { ComposerChip };
@@ -36,6 +30,11 @@ export type ComposerEditorProps = {
 	onBlur?: (event: FocusEvent<HTMLDivElement>) => void;
 	disabled?: boolean;
 	placeholder?: string;
+	/**
+	 * 输入预测的 ghost 文案（回合结束后预测的下一句）：只作为视觉层叠在编辑器上方，
+	 * 不进入 ProseMirror 文档，不影响光标/撤销/发送判定。调用方负责在采纳时写回草稿。
+	 */
+	suggestion?: string;
 	className?: string;
 	/** 程序化变更的光标请求；消费（或判定过期丢弃）后应置回 null */
 	caretRef?: MutableRefObject<ComposerCaretRequest | null>;

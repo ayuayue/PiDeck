@@ -23,10 +23,7 @@ function asNumber(value: unknown): number | undefined {
 }
 
 /** 从 ToolEventView 信封中按 call/result 取出视图本体。 */
-export function unwrapToolView(
-	envelope: DshToolViewEnvelope,
-	want: "call" | "result",
-): Record<string, unknown> | undefined {
+export function unwrapToolView(envelope: DshToolViewEnvelope, want: "call" | "result"): Record<string, unknown> | undefined {
 	if (!isRecord(envelope)) return undefined;
 	if (envelope.for !== want) return undefined;
 	return isRecord(envelope.view) ? envelope.view : undefined;
@@ -76,11 +73,7 @@ function diffsSummary(diffs: unknown): string | undefined {
 /** search 结果 → "path: N 处命中" 列表。 */
 function searchSummary(view: Record<string, unknown>): string | undefined {
 	const shape = view.shape;
-	const groups = Array.isArray(view.files)
-		? (view.files as unknown[])
-		: Array.isArray(view.paths)
-			? (view.paths as unknown[])
-			: undefined;
+	const groups = Array.isArray(view.files) ? (view.files as unknown[]) : Array.isArray(view.paths) ? (view.paths as unknown[]) : undefined;
 	if (shape !== "matches" && !Array.isArray(view.files)) return undefined;
 	const parts: string[] = [];
 	for (const group of groups ?? []) {
@@ -109,9 +102,7 @@ function readSummary(view: Record<string, unknown>): string | undefined {
  * 视图标题（卡片头，如 terminal 的命令、diff 的 "Write foo.txt"）。
  * call 优先，result 可替换标题（缺省保持 call 标题）。
  */
-export function toolViewTitle(
-	meta: { view?: DshToolViewEnvelope; resultView?: DshToolViewEnvelope } | undefined,
-): string | undefined {
+export function toolViewTitle(meta: { view?: DshToolViewEnvelope; resultView?: DshToolViewEnvelope } | undefined): string | undefined {
 	const call = meta ? unwrapToolView(meta.view, "call") : undefined;
 	const result = meta ? unwrapToolView(meta.resultView, "result") : undefined;
 	return asString(result?.title) ?? asString(call?.title);
@@ -125,9 +116,7 @@ function clipOutput(text: string): string {
  * 工具入参（dsh-web RecordPayload direction=input / inputDetail）：
  * call 视图的命令、cwd、rawInput、call 侧 diff。
  */
-export function toolViewInput(
-	meta: { view?: DshToolViewEnvelope; resultView?: DshToolViewEnvelope; args?: unknown } | undefined,
-): string | undefined {
+export function toolViewInput(meta: { view?: DshToolViewEnvelope; resultView?: DshToolViewEnvelope; args?: unknown } | undefined): string | undefined {
 	if (!meta) return undefined;
 	const call = unwrapToolView(meta.view, "call");
 	const parts: string[] = [];
@@ -151,9 +140,7 @@ export function toolViewInput(
  * 工具结果（dsh-web RecordPayload direction=output / outputDetail）：
  * 输出、退出码、result 侧 diff/search/read/content。
  */
-export function toolViewOutput(
-	meta: { view?: DshToolViewEnvelope; resultView?: DshToolViewEnvelope } | undefined,
-): string | undefined {
+export function toolViewOutput(meta: { view?: DshToolViewEnvelope; resultView?: DshToolViewEnvelope } | undefined): string | undefined {
 	if (!meta) return undefined;
 	const result = unwrapToolView(meta.resultView, "result");
 	if (!result) return undefined;
@@ -186,9 +173,7 @@ export function toolViewOutput(
  * 视图详情（入参 + 结果拼在一起，账本摘要用）。
  * inspector 优先分开展示 inputDetail / outputDetail。
  */
-export function toolViewDetail(
-	meta: { view?: DshToolViewEnvelope; resultView?: DshToolViewEnvelope; args?: unknown } | undefined,
-): string | undefined {
+export function toolViewDetail(meta: { view?: DshToolViewEnvelope; resultView?: DshToolViewEnvelope; args?: unknown } | undefined): string | undefined {
 	const input = toolViewInput(meta);
 	const output = toolViewOutput(meta);
 	if (input && output) return `${input}\n${output}`;

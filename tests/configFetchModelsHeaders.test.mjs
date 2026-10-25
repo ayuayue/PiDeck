@@ -67,10 +67,7 @@ function compile() {
 		// 目录富化：已从 fetchProviderModels 移除，测试只关心请求头。
 		if (specifier === "./parseProviderModels") {
 			return {
-				parseProviderModelsResponse: (body) =>
-					Array.isArray(body?.data)
-						? body.data.map((m) => ({ id: m.id }))
-						: [],
+				parseProviderModelsResponse: (body) => (Array.isArray(body?.data) ? body.data.map((m) => ({ id: m.id })) : []),
 			};
 		}
 		if (specifier === "./mcpConfig") {
@@ -93,11 +90,7 @@ function compile() {
 		// 路径里要么已被擦除、要么被上面的桩/传入的 translate 覆盖。
 		return {};
 	};
-	vm.runInNewContext(
-		output,
-		{ module, exports: module.exports, require: localRequire, console, setTimeout, clearTimeout, AbortController },
-		{ filename: MODULE_PATH },
-	);
+	vm.runInNewContext(output, { module, exports: module.exports, require: localRequire, console, setTimeout, clearTimeout, AbortController }, { filename: MODULE_PATH });
 	return module.exports;
 }
 
@@ -107,34 +100,17 @@ test("携带自定义 User-Agent 时，/models 请求使用它而非 SDK 默认"
 	lastRequestHeaders = null;
 	// translate 固定为同一实现，避免依赖 mainProcessCopy 桩
 	const manager = new ConfigManager(undefined, (key, params) => ({ key, params }));
-	const result = await manager.fetchProviderModels(
-		"https://bailucode.com/openapi/v1",
-		"sk-test",
-		"openai-completions",
-		{ "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) fake-browser" },
-	);
+	const result = await manager.fetchProviderModels("https://bailucode.com/openapi/v1", "sk-test", "openai-completions", { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) fake-browser" });
 	assert.equal(result.success, true, "自定义 UA 下应能成功拉取模型列表");
 	assert.ok(lastRequestHeaders, "应发起一次 /models 请求");
 	const ua = lastRequestHeaders["User-Agent"];
-	assert.equal(
-		ua,
-		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) fake-browser",
-		"必须使用 provider 配置的 User-Agent，而不是 OpenAI/JS 默认值",
-	);
+	assert.equal(ua, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) fake-browser", "必须使用 provider 配置的 User-Agent，而不是 OpenAI/JS 默认值");
 });
 
 test("未配置 User-Agent 时仍回退到 SDK 默认 UA（不回归）", async () => {
 	lastRequestHeaders = null;
 	const manager = new ConfigManager(undefined, (key, params) => ({ key, params }));
-	const result = await manager.fetchProviderModels(
-		"https://bailucode.com/openapi/v1",
-		"sk-test",
-		"openai-completions",
-	);
+	const result = await manager.fetchProviderModels("https://bailucode.com/openapi/v1", "sk-test", "openai-completions");
 	assert.equal(result.success, true);
-	assert.equal(
-		lastRequestHeaders["User-Agent"],
-		"OpenAI/JS 6.26.0",
-		"未配置自定义 UA 时应保持 SDK 默认值，避免影响既有 provider 的检测一致性",
-	);
+	assert.equal(lastRequestHeaders["User-Agent"], "OpenAI/JS 6.26.0", "未配置自定义 UA 时应保持 SDK 默认值，避免影响既有 provider 的检测一致性");
 });

@@ -13,129 +13,163 @@
  * 2. ResizeObserver 正增长且行为为 instant 时同步写 scrollTop（避免 rAF 晚一帧 paint 砰抖）
  * 3. scrollGeneration 打断在途 rAF，避免与同步校正打架
  * 4. instantResizeThreshold：大块离散增高强制 instant
+ * 5. 同时观察 scroll viewport 尺寸，输入栏/相邻面板增高时继续吸底
+ * 6. resizeGeneration 隔离连续同尺寸 resize 的异步清理
+ * 7. 跟随态只由用户输入 / 显式命令改变；布局 scroll 与 resize 只校正几何
+ * 8. 上滚逃逸累计「读者自身位移」，不把弹簧滞后 / 内容增高算进距底
  */
 import { useCallback, useMemo, useRef, useState } from "react";
+import { type Animation, type SpringAnimation, mergeAnimations } from "./mergeAnimations";
 import {
-  type Animation,
-  type SpringAnimation,
-  mergeAnimations,
-} from "./mergeAnimations";
+	decideFollowFromUserInput,
+	distanceAfterWheelDelta,
+	followDirectionFromKey,
+	hasRoomAlong,
+	isScrollChainCut,
+	isScrollbarGutterHit,
+	isScrollContainerOverflow,
+	isVerticallyScrollableOverflow,
+	needsBottomUnlock,
+	nextReaderUpPx,
+	readerDisplacementFromKey,
+	resolveGestureOwner,
+	STICK_TO_BOTTOM_OFFSET_PX,
+	type FollowDirection,
+	type ScrollChainLink,
+} from "./followState";
+import { clearResizeScrollGuard, markResizeScrollGuard } from "./resizeScrollGuard";
 
 export type { Animation, SpringAnimation } from "./mergeAnimations";
+export {
+	AT_BOTTOM_TOLERANCE_PX,
+	decideFollowFromUserInput,
+	shouldRelockFromDownInput,
+	STICK_TO_BOTTOM_OFFSET_PX,
+} from "./followState";
 
-const STICK_TO_BOTTOM_OFFSET_PX = 70;
-/**
- * 距底容差带（dsh-web ChatView 同值 25px）：用户滚动后距底 <= 25px 仍视为「在底部」。
- * 两个用途：
- * 1. 上滚逃逸守卫——流式回复期间滚轮/触控板轻微上滚（含贴底时滚不动产生的滚动事件）
- *    不再误逃逸，底部按钮不会在回复过程中反复闪现（dsh 的 movedByReader + 25px 判定）；
- * 2. wheel 逃逸守卫——贴底/近底时向上滚轮不逃逸（无位移的滚动没有逃逸意图）。
- */
-const AT_BOTTOM_TOLERANCE_PX = 25;
-/**
- * 流式增长逃逸锁定窗口（ms）：最后一次内容正增长后的窗口内，上滚逃逸受
- * GROWTH_ESCAPE_GUARD_PX 守卫带保护。
- *
- * 为什么需要：流式渲染逐行增高时，弹簧追底动画存在物理滞后（stiffness/damping
- * 参数偏保守），scrollTop 经常落后 target 数十到上百 px——距底远超 25px 容差带。
- * 此时用户/触控板轻微上滚（含惯性、误触）会被误判为「逃逸锁底」，之后内容增长
- * 不再跟随，表现为「推着推着就不动了」，只能手动点回底按钮（2026-08 用户反馈）。
- * 窗口取 500ms 覆盖一次渲染间隔（通常 <200ms）；流式结束约 500ms 后恢复正常逃逸。
- */
-const POSITIVE_RESIZE_ESCAPE_LOCKOUT_MS = 500;
-/**
- * 增长守卫带（px）：距底 <= 该距离且处于增长活跃窗口时，上滚不逃逸。
- * 与 lockout 窗口组合：流式中轻微上滚（弹簧追赶带内）保持跟随；
- * 距底更远的上滚（明确要读历史）即使流式中也立即逃逸，不被长时间锁死。
- */
-const GROWTH_ESCAPE_GUARD_PX = 200;
 const SIXTY_FPS_INTERVAL_MS = 1000 / 60;
 const RETAIN_ANIMATION_DURATION_MS = 350;
 
 /**
- * 是否处于「增长守卫带」：距底 <= GROWTH_ESCAPE_GUARD_PX 且最后一次正增长在
- * POSITIVE_RESIZE_ESCAPE_LOCKOUT_MS 内。守卫带内的上滚不视为逃逸意图——
- * 流式渲染中弹簧追底滞后（距底常 >25px 容差带），轻微上滚/惯性误触会被误判为
- * 用户上滚读历史，导致锁底永久丢失（「推着推着就不动了」，只能手动点回底按钮）。
- * 距底超过守卫带的上滚（明确要读历史）即使流式中也立即逃逸。
+ * 从手势起点向**外**收集完整的滚动链（含引擎自己的 scroller），供 `resolveGestureOwner` 判定归属。
+ *
+ * 不能用「第一个 overflow-y 容器」代替：浏览器会继续往外找第一个在该方向上**真有余量**的一环
+ * （2026-08 探针：代码块到顶 ⊂ 已上滚的组体 → 滚的是组体）；中途遇到已到边且
+ * `overscroll-behavior-y: contain | none` 的环就直接断链（谁都不滚）。
  */
-function isWithinGrowthGuardBand(
-	distanceFromBottom: number,
-	state: Pick<StickToBottomState, "lastPositiveResizeAt">,
-): boolean {
-	return (
-		distanceFromBottom <= GROWTH_ESCAPE_GUARD_PX &&
-		performance.now() - state.lastPositiveResizeAt < POSITIVE_RESIZE_ESCAPE_LOCKOUT_MS
-	);
+function collectScrollChain(scroll: HTMLElement, target: EventTarget | null, direction: FollowDirection): ScrollChainLink[] {
+	const chain: ScrollChainLink[] = [];
+	// wheel/键盘事件常落在文本节点上（或 event.target 为 null，如程序化 noteWheel）。
+	let element: HTMLElement | null = target instanceof HTMLElement ? target : target instanceof Node ? target.parentElement : scroll;
+	// 起点可能在 scroller 之外（如 composer 区域的滚轮路由进来）：那样直接算时间线手势。
+	let inside = false;
+	while (element) {
+		const style = getComputedStyle(element);
+		const isTimeline = element === scroll;
+		chain.push({
+			isTimeline,
+			isScrollContainer: isScrollContainerOverflow(style.overflowY),
+			// hidden 可程序化滚动却不接收用户滚轮；仍保留其 overscroll-behavior 断链语义。
+			canScrollAlong: isVerticallyScrollableOverflow(style.overflowY) && hasRoomAlong(element, direction),
+			chainCut: isScrollChainCut(style.overscrollBehaviorY),
+		});
+		if (isTimeline) {
+			inside = true;
+			break;
+		}
+		element = element.parentElement;
+	}
+	// 起点不在时间线内（外部路由的 wheel）：链上只有非时间线环，视为时间线手势。
+	if (!inside) chain.push({ isTimeline: true, isScrollContainer: false, canScrollAlong: false, chainCut: false });
+	return chain;
 }
+
+/** 用户真实滚动意图：向上浏览历史 / 向下回到尾部。
+ *  与 layout 滚动（resize/动画/程序化定位）严格区分：意图只由用户
+ *  wheel/触摸/滚动条等真实输入产生；内容收缩导致的 scrollTop clamp 不上报。
+ *  时间线 controller 的历史扩窗只消费该意图，修复「clamp 被误判为用户上滑」，
+ *  导致运行中脱离吸底、回底按钮连点无效的问题（见 scrollHistoryPolicy）。 */
+export type ScrollUserIntent = "up" | "down";
+
+/**
+ * 用户意图的来源：
+ * - "input"：真实 wheel/touch 输入（浏览器默认滚动尚未发生），unambiguous；
+ * - "scroll"：scroll 事件派生的方向判断（可能是本组件程序化滚动/动画自激发的
+ *   scrollTop 变化，必须由 programmaticScroll 窗口抑制，不能当作真实用户输入）。
+ */
+export type ScrollIntentSource = "scroll" | "input";
 
 export interface ScrollElements {
-  scrollElement: HTMLElement;
-  contentElement: HTMLElement;
+	scrollElement: HTMLElement;
+	contentElement: HTMLElement;
 }
 
-export type GetTargetScrollTop = (
-  targetScrollTop: number,
-  context: ScrollElements,
-) => number;
+export type GetTargetScrollTop = (targetScrollTop: number, context: ScrollElements) => number;
 
 export interface StickToBottomOptions extends SpringAnimation {
-  resize?: Animation;
-  initial?: Animation | boolean;
-  targetScrollTop?: GetTargetScrollTop;
-  /**
-   * 内容高度单次增长超过该像素时，resize 强制 instant。
-   * 工具卡/折叠栏等离散跳变若仍走弹簧，会出现「先撑上去再弹回」的砰抖。
-   * 小幅增长（正文逐字）仍用 resize 弹簧。
-   * @default 28
-   */
-  instantResizeThreshold?: number;
+	resize?: Animation;
+	initial?: Animation | boolean;
+	targetScrollTop?: GetTargetScrollTop;
+	/**
+	 * 内容高度单次增长超过该像素时，resize 强制 instant。
+	 * 工具卡/折叠栏等离散跳变若仍走弹簧，会出现「先撑上去再弹回」的砰抖。
+	 * 小幅增长（正文逐字）仍用 resize 弹簧。
+	 * @default 28
+	 */
+	instantResizeThreshold?: number;
+	/**
+	 * 用户滚动意图回调（上滚/下滚）。每个符合逃逸/重锁语义的输入事件都会上报；
+	 * resize、引擎动画和通过原子 API 的程序化定位不会上报。
+	 * 时间线 controller 据此把「用户浏览历史」与「布局滚动」分开，
+	 * 修复 clamp scrollTop 被误判为上滑导致运行中脱离吸底的问题。
+	 */
+	onUserIntent?: (intent: ScrollUserIntent, source: ScrollIntentSource) => void;
 }
 
 export type ScrollToBottomOptions =
-  | ScrollBehavior
-  | {
-      /**
-       * Whether to wait for any existing scrolls to finish before
-       * performing this one. Or if a millisecond is passed,
-       * it will wait for that duration before performing the scroll.
-       *
-       * @default false
-       */
-      wait?: boolean | number;
-      /**
-       * Whether to prevent the user from escaping the scroll,
-       * by scrolling up with their mouse.
-       */
-      ignoreEscapes?: boolean;
-      /**
-       * Only scroll to the bottom if we're already at the bottom.
-       *
-       * @default false
-       */
-      preserveScrollPosition?: boolean;
-      /**
-       * The extra duration in ms that this scroll event should persist for.
-       * (in addition to the time that it takes to get to the bottom)
-       *
-       * Not to be confused with the duration of the animation -
-       * for that you should adjust the animation option.
-       *
-       * @default 0
-       */
-      duration?: number | Promise<void>;
-      /**
-       * The animation to use for the scroll.
-       */
-      animation?: Animation;
-    };
+	| ScrollBehavior
+	| {
+			/**
+			 * Whether to wait for any existing scrolls to finish before
+			 * performing this one. Or if a millisecond is passed,
+			 * it will wait for that duration before performing the scroll.
+			 *
+			 * @default false
+			 */
+			wait?: boolean | number;
+			/**
+			 * Whether to prevent the user from escaping the scroll,
+			 * by scrolling up with their mouse.
+			 */
+			ignoreEscapes?: boolean;
+			/**
+			 * Only scroll to the bottom if we're already at the bottom.
+			 *
+			 * @default false
+			 */
+			preserveScrollPosition?: boolean;
+			/**
+			 * The extra duration in ms that this scroll event should persist for.
+			 * (in addition to the time that it takes to get to the bottom)
+			 *
+			 * Not to be confused with the duration of the animation -
+			 * for that you should adjust the animation option.
+			 *
+			 * @default 0
+			 */
+			duration?: number | Promise<void>;
+			/**
+			 * The animation to use for the scroll.
+			 */
+			animation?: Animation;
+	  };
 
-export type ScrollToBottom = (
-  scrollOptions?: ScrollToBottomOptions,
-) => Promise<boolean> | boolean;
+export type ScrollToBottom = (scrollOptions?: ScrollToBottomOptions) => Promise<boolean> | boolean;
 
 export type StopScroll = () => void;
 export type ScrollByWheel = (deltaY: number) => void;
+/** 只根据滚轮 delta 更新跟随态，不改 scrollTop（浏览器 / 调用方负责位移）。 */
+export type NoteWheel = (deltaY: number, target?: EventTarget | null) => void;
 
 /** 原子恢复任意滚动位置（会话切换回历史查看位置用）。
  *  与原生 scrollTop 赋值的区别：定位 + 解锁锁底 + 取消在途动画一次完成，
@@ -144,547 +178,638 @@ export type ScrollByWheel = (deltaY: number) => void;
 export type RestoreAt = (scrollTop: number) => void;
 
 export interface StickToBottomState {
-  scrollTop: number;
-  lastScrollTop?: number;
-  ignoreScrollToTop?: number;
-  targetScrollTop: number;
-  calculatedTargetScrollTop: number;
-  scrollDifference: number;
-  resizeDifference: number;
-  /** 最近一次内容正增长时刻（performance.now，ms）；0 = 尚未增长。 */
-  lastPositiveResizeAt: number;
-  /** 每次新开滚动会话递增；在途 rAF 发现代数过期则退出，避免与同步校正打架。 */
-  scrollGeneration: number;
-  animation?: {
-    behavior: "instant" | Required<SpringAnimation>;
-    ignoreEscapes: boolean;
-    promise: Promise<boolean>;
-  };
-  lastTick?: number;
-  velocity: number;
-  accumulated: number;
-  escapedFromLock: boolean;
-  isAtBottom: boolean;
-  isNearBottom: boolean;
-  resizeObserver?: ResizeObserver;
+	scrollTop: number;
+	lastScrollTop?: number;
+	ignoreScrollToTop?: number;
+	targetScrollTop: number;
+	calculatedTargetScrollTop: number;
+	scrollDifference: number;
+	resizeDifference: number;
+	/** Resize guard generation; equal-sized consecutive changes must remain distinguishable. */
+	resizeGeneration: number;
+	/** 每次新开滚动会话递增；在途 rAF 发现代数过期则退出，避免与同步校正打架。 */
+	scrollGeneration: number;
+	animation?: {
+		behavior: "instant" | Required<SpringAnimation>;
+		ignoreEscapes: boolean;
+		promise: Promise<boolean>;
+	};
+	lastTick?: number;
+	velocity: number;
+	accumulated: number;
+	escapedFromLock: boolean;
+	isAtBottom: boolean;
+	isNearBottom: boolean;
+	resizeObserver?: ResizeObserver;
+	scrollResizeObserver?: ResizeObserver;
 }
 
 export interface StickToBottomInstance {
-  contentRef: React.MutableRefObject<HTMLElement | null> & React.RefCallback<HTMLElement>;
-  scrollRef: React.MutableRefObject<HTMLElement | null> & React.RefCallback<HTMLElement>;
-  scrollToBottom: ScrollToBottom;
-  stopScroll: StopScroll;
-  scrollByWheel: ScrollByWheel;
-  /** 原子恢复位置：写 scrollTop 的同时解除锁底并取消在途弹簧动画。 */
-  restoreAt: RestoreAt;
-  isAtBottom: boolean;
-  isNearBottom: boolean;
-  escapedFromLock: boolean;
-  state: StickToBottomState;
+	contentRef: React.MutableRefObject<HTMLElement | null> & React.RefCallback<HTMLElement>;
+	scrollRef: React.MutableRefObject<HTMLElement | null> & React.RefCallback<HTMLElement>;
+	scrollToBottom: ScrollToBottom;
+	stopScroll: StopScroll;
+	scrollByWheel: ScrollByWheel;
+	noteWheel: NoteWheel;
+	/** 原子恢复位置：写 scrollTop 的同时解除锁底并取消在途弹簧动画。 */
+	restoreAt: RestoreAt;
+	isAtBottom: boolean;
+	isNearBottom: boolean;
+	escapedFromLock: boolean;
+	state: StickToBottomState;
 }
 
 let mouseDown = false;
 if (typeof document !== "undefined") {
-  document.addEventListener("mousedown", () => {
-    mouseDown = true;
-  });
-  document.addEventListener("mouseup", () => {
-    mouseDown = false;
-  });
-  document.addEventListener("click", () => {
-    mouseDown = false;
-  });
+	document.addEventListener("mousedown", () => {
+		mouseDown = true;
+	});
+	document.addEventListener("mouseup", () => {
+		mouseDown = false;
+	});
+	document.addEventListener("click", () => {
+		mouseDown = false;
+	});
 }
 
 export const useStickToBottom = (options: StickToBottomOptions = {}): StickToBottomInstance => {
-  const [escapedFromLock, updateEscapedFromLock] = useState(false);
-  const [isAtBottom, updateIsAtBottom] = useState(options.initial !== false);
-  const [isNearBottom, setIsNearBottom] = useState(false);
-  const optionsRef = useRef<StickToBottomOptions | null>(null);
-  optionsRef.current = options;
+	const [escapedFromLock, updateEscapedFromLock] = useState(false);
+	const [isAtBottom, updateIsAtBottom] = useState(options.initial !== false);
+	const [isNearBottom, setIsNearBottom] = useState(false);
+	const optionsRef = useRef<StickToBottomOptions | null>(null);
+	optionsRef.current = options;
 
-  const isSelecting = useCallback(() => {
-    if (!mouseDown) {
-      return false;
-    }
-    const selection = window.getSelection();
-    if (!selection || !selection.rangeCount) {
-      return false;
-    }
-    const range = selection.getRangeAt(0);
-    return (
-      range.commonAncestorContainer.contains(scrollRef.current as Node) ||
-      (scrollRef.current as Node | null)?.contains(range.commonAncestorContainer)
-    );
-  }, []);
+	const isSelecting = useCallback(() => {
+		if (!mouseDown) {
+			return false;
+		}
+		const selection = window.getSelection();
+		// A regular click also creates a collapsed Selection. Treating that caret as
+		// text selection means any coincident resize/animation scroll escapes the lock
+		// and shows the go-bottom button even though the reader never scrolled.
+		if (!selection || selection.isCollapsed || !selection.rangeCount) {
+			return false;
+		}
+		const range = selection.getRangeAt(0);
+		return range.commonAncestorContainer.contains(scrollRef.current as Node) || (scrollRef.current as Node | null)?.contains(range.commonAncestorContainer);
+	}, []);
 
-  const setIsAtBottom = useCallback(
-    (isAtBottom: boolean) => {
-      state.isAtBottom = isAtBottom;
-      updateIsAtBottom(isAtBottom);
-    },
-    [],
-  );
+	const setIsAtBottom = useCallback((isAtBottom: boolean) => {
+		state.isAtBottom = isAtBottom;
+		updateIsAtBottom(isAtBottom);
+	}, []);
 
-  const setEscapedFromLock = useCallback(
-    (escapedFromLock: boolean) => {
-      state.escapedFromLock = escapedFromLock;
-      updateEscapedFromLock(escapedFromLock);
-    },
-    [],
-  );
+	const setEscapedFromLock = useCallback((escapedFromLock: boolean) => {
+		state.escapedFromLock = escapedFromLock;
+		updateEscapedFromLock(escapedFromLock);
+	}, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: state intentionally created once
-  const state = useMemo<StickToBottomState>(() => {
-    let lastCalculation: { targetScrollTop: number; calculatedScrollTop: number } | undefined;
-    return {
-      escapedFromLock,
-      isAtBottom,
-      lastPositiveResizeAt: 0,
-      resizeDifference: 0,
-      scrollGeneration: 0,
-      accumulated: 0,
-      velocity: 0,
-      get scrollTop() {
-        return scrollRef.current?.scrollTop ?? 0;
-      },
-      set scrollTop(scrollTop: number) {
-        if (scrollRef.current) {
-          scrollRef.current.scrollTop = scrollTop;
-          state.ignoreScrollToTop = scrollRef.current.scrollTop;
-        }
-      },
-      get targetScrollTop() {
-        if (!scrollRef.current || !contentRef.current) {
-          return 0;
-        }
-        return scrollRef.current.scrollHeight - 1 - scrollRef.current.clientHeight;
-      },
-      get calculatedTargetScrollTop() {
-        if (!scrollRef.current || !contentRef.current) {
-          return 0;
-        }
-        const { targetScrollTop } = this;
-        if (!optionsRef.current?.targetScrollTop) {
-          return targetScrollTop;
-        }
-        if (lastCalculation?.targetScrollTop === targetScrollTop) {
-          return lastCalculation.calculatedScrollTop;
-        }
-        const calculatedScrollTop = Math.max(
-          Math.min(
-            optionsRef.current.targetScrollTop(targetScrollTop, {
-              scrollElement: scrollRef.current,
-              contentElement: contentRef.current,
-            }),
-            targetScrollTop,
-          ),
-          0,
-        );
-        lastCalculation = { targetScrollTop, calculatedScrollTop };
-        requestAnimationFrame(() => {
-          lastCalculation = undefined;
-        });
-        return calculatedScrollTop;
-      },
-      get scrollDifference() {
-        return this.calculatedTargetScrollTop - this.scrollTop;
-      },
-      get isNearBottom() {
-        return this.scrollDifference <= STICK_TO_BOTTOM_OFFSET_PX;
-      },
-    };
-  }, []);
+	/**
+	 * 每次已确认的用户滚动都独立上报。方向不是可去重的状态：
+	 * 「上滚 → 回底 → 再上滚」是两个不同浏览周期，第二次 up 仍必须通知 controller。
+	 */
+	const reportUserIntent = useCallback((intent: ScrollUserIntent, source: ScrollIntentSource) => {
+		optionsRef.current?.onUserIntent?.(intent, source);
+	}, []);
 
-  const scrollToBottom = useCallback<ScrollToBottom>(
-    (scrollOptions = {}) => {
-      if (typeof scrollOptions === "string") {
-        scrollOptions = { animation: scrollOptions };
-      }
-      if (!scrollOptions.preserveScrollPosition) {
-        setIsAtBottom(true);
-      }
-      const waitElapsed = Date.now() + (Number(scrollOptions.wait) || 0);
-      const behavior = mergeAnimations(optionsRef.current ?? {}, scrollOptions.animation);
-      const { ignoreEscapes = false } = scrollOptions;
-      let durationElapsed: number;
-      let startTarget = state.calculatedTargetScrollTop;
-      if (scrollOptions.duration instanceof Promise) {
-        scrollOptions.duration.finally(() => {
-          durationElapsed = Date.now();
-        });
-      } else {
-        durationElapsed = waitElapsed + (scrollOptions.duration ?? 0);
-      }
-      // instant 不复用在途动画：旧闭包的 startTarget 会把连续增高拖成多帧阶梯。
-      if (scrollOptions.wait !== true || behavior === "instant") {
-        state.animation = undefined;
-      }
-      if (state.animation?.behavior === behavior) {
-        return state.animation.promise;
-      }
-      const generation = ++state.scrollGeneration;
-      const next = async (): Promise<boolean> => {
-        const promise = new Promise(requestAnimationFrame).then(() => {
-          if (generation !== state.scrollGeneration) {
-            return false;
-          }
-          if (!state.isAtBottom) {
-            state.animation = undefined;
-            return false;
-          }
-          const { scrollTop } = state;
-          const tick = performance.now();
-          const tickDelta = (tick - (state.lastTick ?? tick)) / SIXTY_FPS_INTERVAL_MS;
-          state.animation || (state.animation = { behavior, promise, ignoreEscapes });
-          if (state.animation.behavior === behavior) {
-            state.lastTick = tick;
-          }
-          if (isSelecting()) {
-            return next();
-          }
-          if (waitElapsed > Date.now()) {
-            return next();
-          }
-          if (scrollTop < Math.min(startTarget, state.calculatedTargetScrollTop)) {
-            if (state.animation?.behavior === behavior) {
-              if (behavior === "instant") {
-                state.scrollTop = state.calculatedTargetScrollTop;
-                return next();
-              }
-              state.velocity =
-                (behavior.damping * state.velocity +
-                  behavior.stiffness * state.scrollDifference) /
-                behavior.mass;
-              state.accumulated += state.velocity * tickDelta;
-              state.scrollTop += state.accumulated;
-              if (state.scrollTop !== scrollTop) {
-                state.accumulated = 0;
-              }
-            }
-            return next();
-          }
-          if (durationElapsed > Date.now()) {
-            startTarget = state.calculatedTargetScrollTop;
-            return next();
-          }
-          state.animation = undefined;
-          /**
-           * If we're still below the target, then queue
-           * up another scroll to the bottom with the last
-           * requested animation.
-           */
-          if (state.scrollTop < state.calculatedTargetScrollTop) {
-            return scrollToBottom({
-              animation: mergeAnimations(optionsRef.current ?? {}, optionsRef.current?.resize),
-              ignoreEscapes,
-              duration: Math.max(0, durationElapsed - Date.now()) || undefined,
-            });
-          }
-          return state.isAtBottom;
-        });
-        return promise.then((isAtBottomResult: boolean) => {
-          requestAnimationFrame(() => {
-            if (!state.animation) {
-              state.lastTick = undefined;
-              state.velocity = 0;
-            }
-          });
-          return isAtBottomResult;
-        });
-      };
-      return next();
-    },
-    [setIsAtBottom, isSelecting, state],
-  );
+	const inputSessionRef = useRef({
+		pointer: false,
+		touch: false,
+		readerUpPx: 0,
+		lastUpAt: 0,
+	});
 
-  const stopScroll = useCallback(() => {
-    setEscapedFromLock(true);
-    setIsAtBottom(false);
-  }, [setEscapedFromLock, setIsAtBottom]);
+	const resetReaderUp = useCallback(() => {
+		inputSessionRef.current.readerUpPx = 0;
+		inputSessionRef.current.lastUpAt = 0;
+	}, []);
 
-  /**
-   * 原子恢复位置（会话切换回历史查看位置）。
-   * 与「原生赋值 scrollTop + 依赖 scroll 事件被动解锁」的区别：
-   * - scrollGeneration += 1：在途弹簧动画的 next() 会因代数过期直接退出，
-   *   避免下一帧把刚恢复的位置又写回底部；
-   * - animation = undefined：清理动画状态，防止保留期内的重复滚底；
-   * - setEscapedFromLock(true) + setIsAtBottom(false)：立即解锁锁底，
-   *   busy 会话的 ResizeObserver（instant 贴底）看到 isAtBottom=false 不再拽回。
-   * - state.scrollTop 写入会设置 ignoreScrollToTop，后续 scroll 事件被引擎忽略，
-   *   不会误判为「用户滚动」重新锁底。
-   */
-  const restoreAt = useCallback((scrollTop: number) => {
-    state.scrollGeneration += 1;
-    state.animation = undefined;
-    setEscapedFromLock(true);
-    setIsAtBottom(false);
-    state.scrollTop = Math.max(0, scrollTop);
-  }, [setEscapedFromLock, setIsAtBottom, state]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: state intentionally created once
+	const state = useMemo<StickToBottomState>(() => {
+		let lastCalculation: { targetScrollTop: number; calculatedScrollTop: number } | undefined;
+		return {
+			escapedFromLock,
+			isAtBottom,
+			resizeDifference: 0,
+			resizeGeneration: 0,
+			scrollGeneration: 0,
+			accumulated: 0,
+			velocity: 0,
+			get scrollTop() {
+				return scrollRef.current?.scrollTop ?? 0;
+			},
+			set scrollTop(scrollTop: number) {
+				if (scrollRef.current) {
+					scrollRef.current.scrollTop = scrollTop;
+					state.ignoreScrollToTop = scrollRef.current.scrollTop;
+				}
+			},
+			get targetScrollTop() {
+				if (!scrollRef.current || !contentRef.current) {
+					return 0;
+				}
+				return scrollRef.current.scrollHeight - 1 - scrollRef.current.clientHeight;
+			},
+			get calculatedTargetScrollTop() {
+				if (!scrollRef.current || !contentRef.current) {
+					return 0;
+				}
+				const { targetScrollTop } = this;
+				if (!optionsRef.current?.targetScrollTop) {
+					return targetScrollTop;
+				}
+				if (lastCalculation?.targetScrollTop === targetScrollTop) {
+					return lastCalculation.calculatedScrollTop;
+				}
+				const calculatedScrollTop = Math.max(
+					Math.min(
+						optionsRef.current.targetScrollTop(targetScrollTop, {
+							scrollElement: scrollRef.current,
+							contentElement: contentRef.current,
+						}),
+						targetScrollTop,
+					),
+					0,
+				);
+				lastCalculation = { targetScrollTop, calculatedScrollTop };
+				requestAnimationFrame(() => {
+					lastCalculation = undefined;
+				});
+				return calculatedScrollTop;
+			},
+			get scrollDifference() {
+				return this.calculatedTargetScrollTop - this.scrollTop;
+			},
+			get isNearBottom() {
+				return this.scrollDifference <= STICK_TO_BOTTOM_OFFSET_PX;
+			},
+		};
+	}, []);
 
-  const handleScroll = useCallback(
-    ({ target }: Event) => {
-      if (target !== scrollRef.current) {
-        return;
-      }
-      const { scrollTop, ignoreScrollToTop } = state;
-      let { lastScrollTop = scrollTop } = state;
-      state.lastScrollTop = scrollTop;
-      state.ignoreScrollToTop = undefined;
-      if (ignoreScrollToTop && ignoreScrollToTop > scrollTop) {
-        /**
-         * When the user scrolls up while the animation plays, the `scrollTop` may
-         * not come in separate events; if this happens, to make sure `isScrollingUp`
-         * is correct, set the lastScrollTop to the ignored event.
-         */
-        lastScrollTop = ignoreScrollToTop;
-      }
-      setIsNearBottom(state.isNearBottom);
-      /**
-       * Scroll events may come before a ResizeObserver event,
-       * so in order to ignore resize events correctly we use a
-       * timeout.
-       *
-       * @see https://github.com/WICG/resize-observer/issues/25#issuecomment-248757228
-       */
-      setTimeout(() => {
-        /**
-         * When theres a resize difference ignore the resize event.
-         */
-        if (state.resizeDifference || scrollTop === ignoreScrollToTop) {
-          return;
-        }
-        if (isSelecting()) {
-          setEscapedFromLock(true);
-          setIsAtBottom(false);
-          return;
-        }
-        const isScrollingDown = scrollTop > lastScrollTop;
-        const isScrollingUp = scrollTop < lastScrollTop;
-        if (state.animation?.ignoreEscapes) {
-          state.scrollTop = lastScrollTop;
-          return;
-        }
-        if (isScrollingUp) {
-          // dsh-web 式回笼带：上滚后距底 <= 25px 仍视为在底部，不逃逸。
-          // 流式回复中用户（或触控板惯性）轻微上滚时，若立刻解锁锁底，
-          // 后续内容增长不再贴底，底部按钮随之闪现；只有真正上滚离开实时尾部才解锁。
-          const distanceFromBottom =
-            (scrollRef.current?.scrollHeight ?? 0) -
-            scrollTop -
-            (scrollRef.current?.clientHeight ?? 0);
-          if (
-            distanceFromBottom > AT_BOTTOM_TOLERANCE_PX &&
-            // 增长活跃窗口 + 守卫带：弹簧追底滞后中（距底常 >25px）的轻微上滚
-            // 不视为逃逸——「推着推着就不动了」的根因（详见常量注释）。
-            !isWithinGrowthGuardBand(distanceFromBottom, state)
-          ) {
-            setEscapedFromLock(true);
-            setIsAtBottom(false);
-          }
-        }
-        if (isScrollingDown) {
-          setEscapedFromLock(false);
-        }
-        if (!state.escapedFromLock && state.isNearBottom) {
-          setIsAtBottom(true);
-        }
-      }, 1);
-    },
-    [setEscapedFromLock, setIsAtBottom, isSelecting, state],
-  );
+	/**
+	 * 幂等解锁：目标态已就位（escapedFromLock=true 且 isAtBottom=false）时不再 setState。
+	 * stopScroll/restoreAt 会被 MessageScroller 的 layout effect、controller、ResizeObserver
+	 * 多路触发；无条件 setState 会让同一 cascade 反复入队布尔翻转，嵌套渲染 50 层
+	 * 直接触发 React #185（maximum update depth，线上用户实测堆栈在 stopScroll 体内）。
+	 */
+	const unlockBottomLock = useCallback(() => {
+		if (needsBottomUnlock(state.escapedFromLock, state.isAtBottom)) {
+			setEscapedFromLock(true);
+			setIsAtBottom(false);
+		}
+	}, [state, setEscapedFromLock, setIsAtBottom]);
 
-  const applyWheelEscape = useCallback(
-    (target: EventTarget | null, deltaY: number) => {
-      if (!(target instanceof HTMLElement)) return;
-      let element = target;
-      while (!["scroll", "auto"].includes(getComputedStyle(element).overflow)) {
-        if (!element.parentElement) {
-          return;
-        }
-        element = element.parentElement;
-      }
-      /**
-       * The browser may cancel the scrolling from the mouse wheel
-       * if we update it from the animation in meantime.
-       * To prevent this, always escape when the wheel is scrolled up.
-       */
-      if (
-        element === scrollRef.current &&
-        deltaY < 0 &&
-        scrollRef.current.scrollHeight > scrollRef.current.clientHeight &&
-        // dsh-web 式回笼带：距底 <= 25px 时向上滚轮不逃逸。
-        // 贴底时滚轮上滚不会产生任何位移（scrollTop 已到 floor），旧逻辑无条件逃逸，
-        // 流式回复中滚轮误触/惯性会让底部按钮闪现；距底足够远的上滚才有逃逸意图。
-        scrollRef.current.scrollHeight -
-          scrollRef.current.scrollTop -
-          scrollRef.current.clientHeight >
-          AT_BOTTOM_TOLERANCE_PX &&
-        // 增长活跃窗口 + 守卫带：弹簧追底滞后中的轻微上滚不逃逸（同上）。
-        !isWithinGrowthGuardBand(
-          scrollRef.current.scrollHeight -
-            scrollRef.current.scrollTop -
-            scrollRef.current.clientHeight,
-          state,
-        ) &&
-        !state.animation?.ignoreEscapes
-      ) {
-        setEscapedFromLock(true);
-        setIsAtBottom(false);
-      }
-    },
-    [setEscapedFromLock, setIsAtBottom, state],
-  );
+	const scrollToBottom = useCallback<ScrollToBottom>(
+		(scrollOptions = {}) => {
+			if (typeof scrollOptions === "string") {
+				scrollOptions = { animation: scrollOptions };
+			}
+			if (!scrollOptions.preserveScrollPosition) {
+				resetReaderUp();
+				setIsAtBottom(true);
+			}
+			const waitElapsed = Date.now() + (Number(scrollOptions.wait) || 0);
+			const behavior = mergeAnimations(optionsRef.current ?? {}, scrollOptions.animation);
+			const { ignoreEscapes = false, preserveScrollPosition = false } = scrollOptions;
+			let durationElapsed: number;
+			let startTarget = state.calculatedTargetScrollTop;
+			if (scrollOptions.duration instanceof Promise) {
+				scrollOptions.duration.finally(() => {
+					durationElapsed = Date.now();
+				});
+			} else {
+				durationElapsed = waitElapsed + (scrollOptions.duration ?? 0);
+			}
+			// instant 不复用在途动画：旧闭包的 startTarget 会把连续增高拖成多帧阶梯。
+			if (scrollOptions.wait !== true || behavior === "instant") {
+				state.animation = undefined;
+			}
+			if (state.animation?.behavior === behavior) {
+				return state.animation.promise;
+			}
+			const generation = ++state.scrollGeneration;
+			const next = async (): Promise<boolean> => {
+				const promise = new Promise(requestAnimationFrame).then(() => {
+					if (generation !== state.scrollGeneration) {
+						return false;
+					}
+					if (!state.isAtBottom) {
+						state.animation = undefined;
+						return false;
+					}
+					const { scrollTop } = state;
+					const tick = performance.now();
+					const tickDelta = (tick - (state.lastTick ?? tick)) / SIXTY_FPS_INTERVAL_MS;
+					state.animation || (state.animation = { behavior, promise, ignoreEscapes });
+					if (state.animation.behavior === behavior) {
+						state.lastTick = tick;
+					}
+					if (isSelecting()) {
+						return next();
+					}
+					if (waitElapsed > Date.now()) {
+						return next();
+					}
+					if (scrollTop < Math.min(startTarget, state.calculatedTargetScrollTop)) {
+						if (state.animation?.behavior === behavior) {
+							if (behavior === "instant") {
+								state.scrollTop = state.calculatedTargetScrollTop;
+								return next();
+							}
+							state.velocity = (behavior.damping * state.velocity + behavior.stiffness * state.scrollDifference) / behavior.mass;
+							state.accumulated += state.velocity * tickDelta;
+							state.scrollTop += state.accumulated;
+							if (state.scrollTop !== scrollTop) {
+								state.accumulated = 0;
+							}
+						}
+						return next();
+					}
+					if (durationElapsed > Date.now()) {
+						startTarget = state.calculatedTargetScrollTop;
+						return next();
+					}
+					state.animation = undefined;
+					/**
+					 * If we're still below the target, then queue
+					 * up another scroll to the bottom with the last
+					 * requested animation.
+					 */
+					if (state.scrollTop < state.calculatedTargetScrollTop) {
+						return scrollToBottom({
+							animation: mergeAnimations(optionsRef.current ?? {}, optionsRef.current?.resize),
+							ignoreEscapes,
+							preserveScrollPosition,
+							duration: Math.max(0, durationElapsed - Date.now()) || undefined,
+						});
+					}
+					return state.isAtBottom;
+				});
+				return promise.then((isAtBottomResult: boolean) => {
+					requestAnimationFrame(() => {
+						if (!state.animation) {
+							state.lastTick = undefined;
+							state.velocity = 0;
+						}
+					});
+					return isAtBottomResult;
+				});
+			};
+			return next();
+		},
+		[resetReaderUp, setIsAtBottom, isSelecting, state],
+	);
 
-  const handleWheel = useCallback(
-    ({ target, deltaY }: WheelEvent) => applyWheelEscape(target, deltaY),
-    [applyWheelEscape],
-  );
+	const stopScroll = useCallback(() => {
+		resetReaderUp();
+		unlockBottomLock();
+	}, [resetReaderUp, unlockBottomLock]);
 
-  const scrollRef = useRefCallback((scroll) => {
-    scrollRef.current?.removeEventListener("scroll", handleScroll);
-    scrollRef.current?.removeEventListener("wheel", handleWheel);
-    scroll?.addEventListener("scroll", handleScroll, { passive: true });
-    scroll?.addEventListener("wheel", handleWheel, { passive: true });
-  }, []);
+	/**
+	 * 原子恢复位置（会话切换回历史查看位置）。
+	 * 与「原生赋值 scrollTop + 依赖 scroll 事件被动解锁」的区别：
+	 * - scrollGeneration += 1：在途弹簧动画的 next() 会因代数过期直接退出，
+	 *   避免下一帧把刚恢复的位置又写回底部；
+	 * - animation = undefined：清理动画状态，防止保留期内的重复滚底；
+	 * - setEscapedFromLock(true) + setIsAtBottom(false)：立即解锁锁底，
+	 *   busy 会话的 ResizeObserver（instant 贴底）看到 isAtBottom=false 不再拽回。
+	 * - state.scrollTop 写入会设置 ignoreScrollToTop，后续 scroll 事件被引擎忽略，
+	 *   不会误判为「用户滚动」重新锁底。
+	 */
+	const restoreAt = useCallback(
+		(scrollTop: number) => {
+			state.scrollGeneration += 1;
+			state.animation = undefined;
+			resetReaderUp();
+			unlockBottomLock();
+			state.scrollTop = Math.max(0, scrollTop);
+		},
+		[resetReaderUp, unlockBottomLock, state],
+	);
 
-  /** Uses the same wheel-escape rules when input originates outside the viewport. */
-  const scrollByWheel = useCallback<ScrollByWheel>((deltaY) => {
-    const scroll = scrollRef.current;
-    if (!scroll || !Number.isFinite(deltaY) || deltaY === 0) return;
-    applyWheelEscape(scroll, deltaY);
-    scroll.scrollBy({ top: deltaY });
-  }, [applyWheelEscape]);
-  const contentRef = useRefCallback((content) => {
-    state.resizeObserver?.disconnect();
-    if (!content) {
-      return;
-    }
-    let previousHeight: number | undefined;
-    state.resizeObserver = new ResizeObserver(([entry]) => {
-      const { height } = entry.contentRect;
-      const difference = height - (previousHeight ?? height);
-      state.resizeDifference = difference;
-      /**
-       * Sometimes the browser can overscroll past the target,
-       * so check for this and adjust appropriately.
-       */
-      if (state.scrollTop > state.targetScrollTop) {
-        state.scrollTop = state.targetScrollTop;
-      }
-      setIsNearBottom(state.isNearBottom);
-      if (difference >= 0) {
-        // 流式增长活跃窗口：任何正增长都刷新逃逸锁定计时（见常量注释）。
-        state.lastPositiveResizeAt = performance.now();
-        // 注意：这里不再自动恢复已逃逸的锁底（曾用 isNearBottom<=70px 判定）。
-        // 会话输出完成后仍有正增长（settle 全量渲染/图片加载/尾部组件），
-        // 用户上滚 25~70px 读历史会被反复拽回底部，无法阅读上方内容；
-        // 逃逸后只能由用户主动下滚回近底带（handleScroll 重锁路径）恢复。
-        /**
-         * If it's a positive resize, scroll to the bottom when
-         * we're already at the bottom.
-         * 大块离散增高（工具卡入场等）强制 instant，避免弹簧滞后造成砰抖；
-         * 小幅增长保留配置的 resize 动画（逐字跟底）。
-         *
-         * instant 必须在本 RO 回调内同步写 scrollTop：
-         * RO 在 paint 前触发，而 scrollToBottom 的 rAF 要等到下一帧——
-         * 中间那一帧旧 scrollTop 就是工具卡「砰」一下的根因。
-         */
-        const requested = mergeAnimations(
-          optionsRef.current ?? {},
-          previousHeight ? optionsRef.current?.resize : optionsRef.current?.initial,
-        );
-        const threshold = optionsRef.current?.instantResizeThreshold ?? 28;
-        const animation =
-          previousHeight &&
-          difference > threshold &&
-          requested !== "instant"
-            ? "instant"
-            : requested;
-        if (animation === "instant") {
-          // preserveScrollPosition：仅已锁底时跟随，不把用户上滚强拽回来
-          if (state.isAtBottom) {
-            state.scrollGeneration += 1;
-            state.animation = undefined;
-            state.scrollTop = state.calculatedTargetScrollTop;
-          }
-        } else {
-          scrollToBottom({
-            animation,
-            wait: true,
-            preserveScrollPosition: true,
-            duration: RETAIN_ANIMATION_DURATION_MS,
-          });
-        }
-      } else {
-        /**
-         * Else if it's a negative resize, check if we're near the bottom
-         * if we are want to un-escape from the lock, because the resize
-         * could have caused the container to be at the bottom.
-         *
-         * 逃逸守卫（与 handleScroll 的重锁路径同一规则）：只有「用户从未上滚逃逸」
-         * 时才允许负增长把近底状态重新锁底。已逃逸用户（上滚读历史）即使距底 <70px
-         * 也不被负增长拽回——流式中中间回复 message_end 会经历 live 挂载点（折叠外）
-         * 先卸载、History 落库后 settled 再进折叠（折叠内）的两帧高度往返，若无守卫，
-         * 负增长帧会把读历史的用户误重锁，随后正增长帧 instant 拽底（先上后下抖动）。
-         */
-        if (!state.escapedFromLock && state.isNearBottom) {
-          setEscapedFromLock(false);
-          setIsAtBottom(true);
-        }
-      }
-      previousHeight = height;
-      /**
-       * Reset the resize difference after the scroll event
-       * has fired. Requires a rAF to wait for the scroll event,
-       * and a setTimeout to wait for the other timeout we have in
-       * resizeObserver in case the scroll event happens after the
-       * resize event.
-       */
-      requestAnimationFrame(() => {
-        setTimeout(() => {
-          if (state.resizeDifference === difference) {
-            state.resizeDifference = 0;
-          }
-        }, 1);
-      });
-    });
-    state.resizeObserver?.observe(content);
-  }, []);
+	const boundScrollRef = useRef<HTMLElement | null>(null);
 
-  return {
-    contentRef,
-    scrollRef,
-    scrollToBottom,
-    stopScroll,
-    scrollByWheel,
-    restoreAt,
-    /**
-     * 对外「是否锁底跟随」只用严格 isAtBottom。
-     * 旧实现 `isAtBottom || isNearBottom` 会在用户已上滚但距底 <70px 时仍报跟随，
-     * ResizeObserver 继续拽底 → 触底附近周期性上跳/回弹。
-     */
-    isAtBottom,
-    isNearBottom,
-    escapedFromLock,
-    state,
-  };
+	const applyUserInput = useCallback(
+		(direction: "up" | "down", thisInputPx: number, distanceFromBottom: number, canScroll: boolean): void => {
+			const next = nextReaderUpPx({
+				previous: inputSessionRef.current.readerUpPx,
+				previousAt: inputSessionRef.current.lastUpAt,
+				now: performance.now(),
+				direction,
+				thisInputPx,
+			});
+			inputSessionRef.current.readerUpPx = next.readerUpPx;
+			inputSessionRef.current.lastUpAt = next.at;
+			const decision = decideFollowFromUserInput({
+				direction,
+				readerDisplacementPx: next.readerUpPx,
+				distanceFromBottom,
+				ignoreEscapes: Boolean(state.animation?.ignoreEscapes),
+				canScroll,
+			});
+			if (decision.action === "none") return;
+			reportUserIntent(decision.report, "input");
+			if (decision.action === "escape") {
+				resetReaderUp();
+				setEscapedFromLock(true);
+				setIsAtBottom(false);
+				return;
+			}
+			if (decision.action === "relock") {
+				resetReaderUp();
+				setEscapedFromLock(false);
+				setIsAtBottom(true);
+			}
+		},
+		[reportUserIntent, resetReaderUp, setEscapedFromLock, setIsAtBottom, state],
+	);
+
+	/**
+	 * 只有拖滚动条 / 触摸 / 非折叠拖选才让随后的 scroll 改跟随态。
+	 * 滚轮和键盘在各自事件里已经按「读者位移」决策，不得再把 32ms 窗口
+	 * 里的布局 clamp 算成用户上翻。
+	 */
+	const isUserDrivenScroll = useCallback(() => {
+		return inputSessionRef.current.pointer || inputSessionRef.current.touch || isSelecting();
+	}, [isSelecting]);
+
+	const handleScroll = useCallback(
+		({ target }: Event) => {
+			if (target !== scrollRef.current) {
+				return;
+			}
+			const { scrollTop, ignoreScrollToTop } = state;
+			let { lastScrollTop = scrollTop } = state;
+			state.lastScrollTop = scrollTop;
+			state.ignoreScrollToTop = undefined;
+			if (ignoreScrollToTop && ignoreScrollToTop > scrollTop) {
+				lastScrollTop = ignoreScrollToTop;
+			}
+			setIsNearBottom(state.isNearBottom);
+			if (state.animation?.ignoreEscapes) {
+				state.scrollTop = lastScrollTop;
+				return;
+			}
+			// 布局 scroll 只更新几何。已确认的拖动不得再被 resizeDifference 丢弃，
+			// 否则流式增高期间拖滚动条会被引擎反手拽回底部。
+			if (!isUserDrivenScroll()) {
+				return;
+			}
+			const direction = scrollTop < lastScrollTop ? "up" : scrollTop > lastScrollTop ? "down" : undefined;
+			if (!direction) {
+				return;
+			}
+			const distanceFromBottom = (scrollRef.current?.scrollHeight ?? 0) - scrollTop - (scrollRef.current?.clientHeight ?? 0);
+			applyUserInput(direction, Math.abs(scrollTop - lastScrollTop), distanceFromBottom, Boolean(scrollRef.current && scrollRef.current.scrollHeight > scrollRef.current.clientHeight));
+		},
+		[applyUserInput, isUserDrivenScroll, state],
+	);
+
+	const applyWheelOnScroll = useCallback(
+		(element: HTMLElement, deltaY: number) => {
+			if (deltaY === 0) return;
+			const currentDistance = element.scrollHeight - element.scrollTop - element.clientHeight;
+			const predictedDistance = distanceAfterWheelDelta(currentDistance, deltaY);
+			applyUserInput(deltaY < 0 ? "up" : "down", Math.abs(deltaY), predictedDistance, element.scrollHeight > element.clientHeight);
+		},
+		[applyUserInput],
+	);
+
+	const applyWheelEscape = useCallback(
+		(target: EventTarget | null, deltaY: number) => {
+			const scroll = scrollRef.current;
+			if (!scroll || deltaY === 0) return;
+			// 归属判定：只有“真的会滚时间线”的手势才允许改跟随态。
+			if (resolveGestureOwner(collectScrollChain(scroll, target, deltaY < 0 ? "up" : "down")) !== "timeline") return;
+			applyWheelOnScroll(scroll, deltaY);
+		},
+		[applyWheelOnScroll],
+	);
+
+	const endPointerSession = useCallback(() => {
+		inputSessionRef.current.pointer = false;
+		document.removeEventListener("pointerup", endPointerSession);
+		document.removeEventListener("pointercancel", endPointerSession);
+	}, []);
+
+	const handlePointerDown = useCallback(
+		(event: PointerEvent) => {
+			const scroll = scrollRef.current;
+			if (!scroll) return;
+			const rect = scroll.getBoundingClientRect();
+			if (!isScrollbarGutterHit(event.clientX, rect.left, scroll.clientWidth)) {
+				return;
+			}
+			inputSessionRef.current.pointer = true;
+			document.addEventListener("pointerup", endPointerSession);
+			document.addEventListener("pointercancel", endPointerSession);
+		},
+		[endPointerSession],
+	);
+
+	const handleTouchStart = useCallback(() => {
+		inputSessionRef.current.touch = true;
+	}, []);
+
+	const handleTouchEnd = useCallback((event: TouchEvent) => {
+		if (event.touches.length === 0) {
+			inputSessionRef.current.touch = false;
+		}
+	}, []);
+
+	const handleKeyDown = useCallback(
+		(event: KeyboardEvent) => {
+			const direction = followDirectionFromKey(event.key);
+			const scroll = scrollRef.current;
+			if (!direction || !scroll) return;
+			// 键盘滚动同样要看向上链（探针 K7 / B：键盘手势在含 contain 的嵌套容器到边时谁都不滚，
+			// 而代码块到边时浏览器滚的是外层组体，不是时间线），否则会把死手势或内层手势
+			// 当成时间线手势：窗口一像素没动，跟随态却已经变了。
+			if (resolveGestureOwner(collectScrollChain(scroll, event.target, direction)) !== "timeline") return;
+			const thisInputPx = readerDisplacementFromKey(event.key, scroll.clientHeight);
+			const currentDistance = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight;
+			const predictedDistance = distanceAfterWheelDelta(currentDistance, direction === "down" ? thisInputPx : -thisInputPx);
+			applyUserInput(direction, thisInputPx, predictedDistance, scroll.scrollHeight > scroll.clientHeight);
+		},
+		[applyUserInput],
+	);
+
+	const scrollRef = useRefCallback((scroll) => {
+		const previous = boundScrollRef.current;
+		previous?.removeEventListener("scroll", handleScroll);
+		previous?.removeEventListener("pointerdown", handlePointerDown);
+		previous?.removeEventListener("touchstart", handleTouchStart);
+		previous?.removeEventListener("touchend", handleTouchEnd);
+		previous?.removeEventListener("touchcancel", handleTouchEnd);
+		previous?.removeEventListener("keydown", handleKeyDown);
+		boundScrollRef.current = scroll;
+		if (!scroll) {
+			endPointerSession();
+			inputSessionRef.current.touch = false;
+		}
+		scroll?.addEventListener("scroll", handleScroll, { passive: true });
+		scroll?.addEventListener("pointerdown", handlePointerDown);
+		scroll?.addEventListener("touchstart", handleTouchStart, { passive: true });
+		scroll?.addEventListener("touchend", handleTouchEnd, { passive: true });
+		scroll?.addEventListener("touchcancel", handleTouchEnd, { passive: true });
+		scroll?.addEventListener("keydown", handleKeyDown);
+
+		state.scrollResizeObserver?.disconnect();
+		state.scrollResizeObserver = undefined;
+		if (!scroll) {
+			return;
+		}
+
+		let previousHeight: number | undefined;
+		state.scrollResizeObserver = new ResizeObserver(([entry]) => {
+			const { height } = entry.contentRect;
+			const difference = height - (previousHeight ?? height);
+			previousHeight = height;
+			if (!difference) {
+				return;
+			}
+
+			const resizeGeneration = markResizeScrollGuard(state, difference);
+
+			/**
+			 * Composer widgets and sibling panels consume height from the timeline without
+			 * changing message content. Preserve the physical bottom synchronously so no
+			 * stale-scroll frame is painted. Escaped readers keep their history position.
+			 */
+			if (difference < 0 && state.isAtBottom) {
+				state.scrollGeneration += 1;
+				state.animation = undefined;
+				state.scrollTop = state.calculatedTargetScrollTop;
+			}
+			setIsNearBottom(state.isNearBottom);
+
+			// A growing viewport may clamp scrollTop upward. Keep that browser-generated
+			// scroll event inside the same resize guard instead of reporting reader intent.
+			requestAnimationFrame(() => {
+				setTimeout(() => {
+					clearResizeScrollGuard(state, resizeGeneration);
+				}, 1);
+			});
+		});
+		state.scrollResizeObserver.observe(scroll);
+	}, []);
+
+	/** Uses the same wheel-escape rules when input originates outside the viewport. */
+	const noteWheel = useCallback<NoteWheel>(
+		(deltaY, target) => {
+			const scroll = scrollRef.current;
+			if (!scroll || !Number.isFinite(deltaY) || deltaY === 0) return;
+			if (target) {
+				applyWheelEscape(target, deltaY);
+				return;
+			}
+			applyWheelOnScroll(scroll, deltaY);
+		},
+		[applyWheelEscape, applyWheelOnScroll],
+	);
+
+	const scrollByWheel = useCallback<ScrollByWheel>(
+		(deltaY) => {
+			const scroll = scrollRef.current;
+			if (!scroll || !Number.isFinite(deltaY) || deltaY === 0) return;
+			applyWheelOnScroll(scroll, deltaY);
+			scroll.scrollBy({ top: deltaY });
+		},
+		[applyWheelOnScroll],
+	);
+	const contentRef = useRefCallback((content) => {
+		state.resizeObserver?.disconnect();
+		if (!content) {
+			return;
+		}
+		let previousHeight: number | undefined;
+		state.resizeObserver = new ResizeObserver(([entry]) => {
+			const { height } = entry.contentRect;
+			const difference = height - (previousHeight ?? height);
+			const resizeGeneration = markResizeScrollGuard(state, difference);
+			/**
+			 * Sometimes the browser can overscroll past the target,
+			 * so check for this and adjust appropriately.
+			 */
+			if (state.scrollTop > state.targetScrollTop) {
+				state.scrollTop = state.targetScrollTop;
+			}
+			setIsNearBottom(state.isNearBottom);
+			if (difference >= 0) {
+				// 内容增高只校正几何：已跟随则贴底，已浏览则不动。
+				// 这里不再自动恢复已逃逸的锁底（曾用 isNearBottom<=70px 判定）。
+				/**
+				 * If it's a positive resize, scroll to the bottom when
+				 * we're already at the bottom.
+				 * 大块离散增高（工具卡入场等）强制 instant，避免弹簧滞后造成砰抖；
+				 * 小幅增长保留配置的 resize 动画（逐字跟底）。
+				 *
+				 * instant 必须在本 RO 回调内同步写 scrollTop：
+				 * RO 在 paint 前触发，而 scrollToBottom 的 rAF 要等到下一帧——
+				 * 中间那一帧旧 scrollTop 就是工具卡「砰」一下的根因。
+				 */
+				const requested = mergeAnimations(optionsRef.current ?? {}, previousHeight ? optionsRef.current?.resize : optionsRef.current?.initial);
+				const threshold = optionsRef.current?.instantResizeThreshold ?? 28;
+				const animation = previousHeight && difference > threshold && requested !== "instant" ? "instant" : requested;
+				if (animation === "instant") {
+					// preserveScrollPosition：仅已锁底时跟随，不把用户上滚强拽回来
+					if (state.isAtBottom) {
+						state.scrollGeneration += 1;
+						state.animation = undefined;
+						state.scrollTop = state.calculatedTargetScrollTop;
+					}
+				} else {
+					scrollToBottom({
+						animation,
+						wait: true,
+						preserveScrollPosition: true,
+						duration: RETAIN_ANIMATION_DURATION_MS,
+					});
+				}
+			}
+			// 内容收缩只记录几何，不改跟随态。浏览中的用户即使被 clamp 到近底圈，
+			// 也必须自己下滚或点回底才能重新跟随。
+			previousHeight = height;
+			/**
+			 * Reset the resize difference after the scroll event has fired.
+			 * rAF waits for that scroll; +1ms covers RO/scroll 交错。
+			 */
+			requestAnimationFrame(() => {
+				setTimeout(() => {
+					clearResizeScrollGuard(state, resizeGeneration);
+				}, 1);
+			});
+		});
+		state.resizeObserver?.observe(content);
+	}, []);
+
+	return {
+		contentRef,
+		scrollRef,
+		scrollToBottom,
+		stopScroll,
+		scrollByWheel,
+		noteWheel,
+		restoreAt,
+		/**
+		 * 对外「是否锁底跟随」只用严格 isAtBottom。
+		 * 旧实现 `isAtBottom || isNearBottom` 会在用户已上滚但距底 <70px 时仍报跟随，
+		 * ResizeObserver 继续拽底 → 触底附近周期性上跳/回弹。
+		 */
+		isAtBottom,
+		isNearBottom,
+		escapedFromLock,
+		state,
+	};
 };
 
 type RefCallbackRef<T> = React.MutableRefObject<T | null> & React.RefCallback<T>;
 
-function useRefCallback<T extends HTMLElement>(
-  callback: (ref: T | null) => void,
-  deps: React.DependencyList,
-): RefCallbackRef<T> {
-  // biome-ignore lint/correctness/useExhaustiveDependencies: ref identity must be stable
-  const result = useCallback(
-    (ref: T | null) => {
-      (result as RefCallbackRef<T>).current = ref;
-      return callback(ref);
-    },
-    deps,
-  ) as unknown as RefCallbackRef<T>;
-  return result;
+function useRefCallback<T extends HTMLElement>(callback: (ref: T | null) => void, deps: React.DependencyList): RefCallbackRef<T> {
+	// biome-ignore lint/correctness/useExhaustiveDependencies: ref identity must be stable
+	const result = useCallback((ref: T | null) => {
+		(result as RefCallbackRef<T>).current = ref;
+		return callback(ref);
+	}, deps) as unknown as RefCallbackRef<T>;
+	return result;
 }
-

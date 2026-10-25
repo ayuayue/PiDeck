@@ -1,0 +1,79 @@
+name: Publish DSH runner Node
+
+# Windows DSH 沙箱用的 Node 24 zip：不进安装包。
+# 挂到目标 GitHub *应用* Release（vX.Y.Z；留空时取 latest），再由 sync-atomgit 同步到 AtomGit。
+# 禁止独立 sidecar tag：会抢走 /releases/latest，把更新检查指到 Node zip。
+# Node 补丁版本不变时不必每次应用发版都重跑。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        # 下拉（choice）选项为静态列表，无法动态读取 Release；
+        # 列表外的历史版本用下面的 tag_custom 手填。
+        # choice 不接受空字符串选项，故「留空 = latest」用哨兵值 auto 表示。
+        description: "目标应用 Release tag：auto = 当前 GitHub latest；列表外的旧版本填下面的 tag_custom"
+        required: false
+        type: choice
+        default: auto
+        options:
+          - auto
+          - v0.9.6
+          - v0.9.5
+          - v0.9.1
+          - v0.9.0
+          - v0.8.0
+          - v0.7.9
+          - v0.7.8
+          - v0.7.7
+          - v0.7.6
+          - v0.7.5
+      tag_custom:
+        description: "自定义 tag（填了则覆盖上面的下拉选择；用于列表外的旧版本）"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  pack-and-upload:
+    name: Pack Node 24 sidecar and upload
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+
+      - name: Pack both Windows arches
+        run: node scripts/pack-dsh-runner-node.mjs --arch x64 && node scripts/pack-dsh-runner-node.mjs --arch arm64
+
+      - name: Upload onto target app Release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          # tag_custom 非空则优先（下拉列表外的旧版本），否则用下拉选择。
+          INPUT_TAG: ${{ inputs.tag_custom != '' && inputs.tag_custom || inputs.tag }}
+        run: |
+          # 还原哨兵值：auto 等价于未指定（走 latest）
+          if [ "$INPUT_TAG" = "auto" ]; then INPUT_TAG=""; fi
+          if [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG=$(gh api "repos/${{ github.repository }}/releases/latest" --jq .tag_name)
+          fi
+          TAG="$(echo "$TAG" | xargs)"
+          if [[ ! "$TAG" =~ ^v[0-9] ]]; then
+            echo "::error::GitHub latest 不是应用版本 tag（got ${TAG}）。拒绝创建独立 sidecar Release。"
+            exit 1
+          fi
+          echo "Uploading Node 24 sidecar onto ${TAG}"
+          gh release upload "$TAG" \
+            dist-runtime/dsh-runner-node/*.zip \
+            dist-runtime/dsh-runner-node/dsh-runner-node-releases.json \
+            --clobber \
+            --repo "${{ github.repository }}"

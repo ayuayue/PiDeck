@@ -14,9 +14,7 @@ type ResolveWslEnvironmentOptions = {
 function resolveWslCommand(): string {
 	if (process.platform !== "win32") return "wsl.exe";
 	const systemRoot = process.env.SystemRoot || "C:\\Windows";
-	const candidates = process.arch === "ia32"
-		? [join(systemRoot, "Sysnative", "wsl.exe"), join(systemRoot, "System32", "wsl.exe")]
-		: [join(systemRoot, "System32", "wsl.exe")];
+	const candidates = process.arch === "ia32" ? [join(systemRoot, "Sysnative", "wsl.exe"), join(systemRoot, "System32", "wsl.exe")] : [join(systemRoot, "System32", "wsl.exe")];
 	return candidates.find((candidate) => existsSync(candidate)) ?? "wsl.exe";
 }
 
@@ -24,11 +22,7 @@ function fallbackHome(user: string): string {
 	return user === "root" ? "/root" : `/home/${user}`;
 }
 
-export async function resolveWslEnvironment(
-	distro: string,
-	user: string,
-	options: ResolveWslEnvironmentOptions = {},
-): Promise<WslEnvironment> {
+export async function resolveWslEnvironment(distro: string, user: string, options: ResolveWslEnvironmentOptions = {}): Promise<WslEnvironment> {
 	const run = options.execFile ?? execFile;
 	const command = options.wslCommand ?? resolveWslCommand();
 	const linuxHome = await new Promise<string>((resolve) => {

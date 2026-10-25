@@ -7,38 +7,44 @@
  * - 工具起止优先用 meta.startedAt + meta.durationMs（与 AgentManager 写入约定一致），
  *   不用 message.timestamp（update/end 会刷新，历史恢复后耗时不可还原）。
  * - in-flight（running / pending）不伪造 duration：endedAt 留空，时间列显示为进行中。
- * - 历史 assistant/thinking 往往只有一个 timestamp（结束时刻）。轮内用相邻锚点
- *   回推区间，避免账本只剩工具有耗时；用户/过程事件仍是时间点，不编造。
+ * - assistant 耗时：meta.durationMs（pi 落盘的真实响应时长，timestamp = 请求开始）
+ *   存在时直接用；缺失（旧数据/其它后端）才回退到邻居锚点回推。
  * - JSONL / DSH 过程事件按墙钟落入最近 turn；轮内顺序对齐 dsh-web layout.ts：
  *   初始系统提示最先，其余按 seq，无 seq 退回墙钟。重试（llm/retry）是过程记录，
  *   不得因 timestamp=0 被插到轮首。
- * - 系统提示词 Pi 不落盘：可选的 extras.systemPrompt 仅作参考记录，不是当轮请求快照。
+ * - 系统提示词来自会话事实：pi 的 `message.role==="system"` 条目（按文件顺序重放）与压缩
+ *   快照、dsh 的 `system/message` + `request/header`，两后端统一由 processEvents 快照
+ *   （kind=systemPrompt）带进来。初始一份固定排轮首，中途变更留在真实位置；
+ *   不再用 pi-system 模板充当「系统提示」。
+ * - 模型请求快照（extras.modelTraces）按请求时刻落入所在用户轮：时间点记录，
+ *   不伪造区间；检查器凭 modelTrace.traceId 回读完整请求体。
  */
 
 import type { ChatMessage } from "../../../../../shared/types";
-import type { SessionProcessEvent } from "../../../../../shared/types/trajectory";
-import {
-	toolViewDetail,
-	toolViewInput,
-	toolViewOutput,
-	toolViewTitle,
-	type DshToolViewEnvelope,
-} from "./dshToolView";
+import type { SessionProcessEvent, SessionPromptSnapshot } from "../../../../../shared/types/trajectory";
+import { toolViewDetail, toolViewInput, toolViewOutput, toolViewTitle, type DshToolViewEnvelope } from "./dshToolView";
 import { compareTrajectoryRecords, seqOfMessage, sortTurnRecords, wallTime } from "./trajectoryOrder";
 
 export { compareTrajectoryRecords };
 
 export type TrajectoryLane = "input" | "model" | "tools" | "process";
 
-export type TrajectoryRecordKind =
-	| "user"
-	| "assistant"
-	| "thinking"
-	| "tool"
-	| "system"
-	| "error"
-	| "process"
-	| "systemPrompt";
+export type TrajectoryRecordKind = "user" | "assistant" | "thinking" | "tool" | "system" | "error" | "process" | "systemPrompt" | "modelRequest";
+
+/** 模型请求快照摘要（rpcLogs direction:"model" 的 request 条目，hook 层拉取后传入）。 */
+export type TrajectoryModelTraceSummary = {
+	traceId: string;
+	/** 快照归属的 pi 子进程 agent（回读完整请求体需要；RpcLogEntry.agentId）。 */
+	agentId?: string;
+	/** 请求发起时刻（RpcLogEntry.time，毫秒墙钟）。 */
+	time: number;
+	model?: string;
+	provider?: string;
+	messageCount?: number;
+	toolCount?: number;
+	payloadBytes?: number;
+	truncated?: boolean;
+};
 
 export type TrajectoryRecord = {
 	id: string;
@@ -74,8 +80,14 @@ export type TrajectoryRecord = {
 	retry?: number;
 	maxRetries?: number;
 	retryDelayMs?: number;
-	/** 本条 assistant 消息的 token 用量（DSH adapter 上报，存 meta.usage；pi 无此字段）。 */
-	usage?: { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number };
+	/** 本条 assistant 消息的 token 用量（pi 会话文件的 usage / DSH adapter 上报，均存 meta.usage）。 */
+	usage?: { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number };
+	/** systemPrompt 记录的快照种类（初始 / 变更 / 压缩快照）。 */
+	promptKind?: SessionPromptSnapshot["kind"];
+	/** systemPrompt 记录的系统提示词快照（含工具目录与变更）。 */
+	prompt?: SessionPromptSnapshot;
+	/** modelRequest 记录的快照指针：检查器凭它回读完整请求体并展示体积/截断标记。 */
+	modelTrace?: { traceId: string; agentId?: string; messageCount?: number; toolCount?: number; payloadBytes?: number; truncated?: boolean };
 };
 
 export type TrajectoryTurn = {
@@ -98,8 +110,8 @@ export type TrajectoryModel = {
 
 export type TrajectoryBuildExtras = {
 	processEvents?: SessionProcessEvent[];
-	/** 内置/参考系统提示，不是 Pi 当轮真实请求体。 */
-	systemPrompt?: string;
+	/** 模型请求快照摘要（升序传入即可，内部按时间落轮）。 */
+	modelTraces?: TrajectoryModelTraceSummary[];
 };
 
 const SUMMARY_LIMIT = 96;
@@ -133,11 +145,7 @@ function laneOf(kind: TrajectoryRecordKind): TrajectoryLane {
 }
 
 function isThinkingOnly(message: ChatMessage): boolean {
-	return (
-		message.role === "assistant" &&
-		Boolean(message.thinking?.trim()) &&
-		!message.text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim()
-	);
+	return message.role === "assistant" && Boolean(message.thinking?.trim()) && !message.text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim();
 }
 
 function isInFlightTool(message: ChatMessage): boolean {
@@ -148,7 +156,7 @@ function isInFlightAssistant(message: ChatMessage): boolean {
 	return message.stopReason === "pending";
 }
 
-/** 从消息 meta.usage 提取 token 用量（DSH adapter 上报；无效/全零返回 undefined）。 */
+/** 从消息 meta.usage 提取 token 用量（pi 会话文件/DSH adapter 同形；无效/全零返回 undefined）。 */
 function usageOf(message: ChatMessage): TrajectoryRecord["usage"] | undefined {
 	const usage = message.meta?.usage;
 	if (!usage || typeof usage !== "object") return undefined;
@@ -161,6 +169,7 @@ function usageOf(message: ChatMessage): TrajectoryRecord["usage"] | undefined {
 		outputTokens,
 		...(typeof u.cacheReadTokens === "number" ? { cacheReadTokens: u.cacheReadTokens } : {}),
 		...(typeof u.cacheWriteTokens === "number" ? { cacheWriteTokens: u.cacheWriteTokens } : {}),
+		...(typeof u.reasoningTokens === "number" ? { reasoningTokens: u.reasoningTokens } : {}),
 	};
 }
 
@@ -168,16 +177,9 @@ function pushRecord(records: TrajectoryRecord[], record: TrajectoryRecord): void
 	records.push(record);
 }
 
-function flushTurn(
-	turns: TrajectoryTurn[],
-	records: TrajectoryRecord[],
-	startedAt: number,
-	id: string,
-): void {
+function flushTurn(turns: TrajectoryTurn[], records: TrajectoryRecord[], startedAt: number, id: string): void {
 	if (records.length === 0) return;
-	const endedCandidates = records
-		.map((record) => record.endedAt)
-		.filter((value): value is number => typeof value === "number");
+	const endedCandidates = records.map((record) => record.endedAt).filter((value): value is number => typeof value === "number");
 	const inFlight = records.some((record) => record.endedAt === undefined);
 	const endedAt = inFlight ? undefined : endedCandidates.length > 0 ? Math.max(...endedCandidates) : startedAt;
 	turns.push({
@@ -192,7 +194,7 @@ function flushTurn(
 }
 
 function isPointKind(kind: TrajectoryRecordKind): boolean {
-	return kind === "user" || kind === "process" || kind === "systemPrompt" || kind === "system" || kind === "error";
+	return kind === "user" || kind === "process" || kind === "systemPrompt" || kind === "system" || kind === "error" || kind === "modelRequest";
 }
 
 function recordAnchor(record: TrajectoryRecord): number {
@@ -214,11 +216,12 @@ function inferWorkDurations(turns: TrajectoryTurn[]): void {
 			if (record.kind !== "thinking" && record.kind !== "assistant") continue;
 
 			const next = turn.records[index + 1];
-			const sameStampAsAssistant =
-				record.kind === "thinking" &&
-				next?.kind === "assistant" &&
-				next.startedAt === record.startedAt &&
-				(record.endedAt === undefined || record.endedAt === record.startedAt);
+			// 同一轮 assistant 已有实测 durationMs（pi 落盘的真实区间）时，不要再给
+			// 它的 thinking 回推区间：否则同一段耗时在两条记录上各算一次。
+			const measuredNeighbour = record.kind === "thinking" && next?.kind === "assistant" && next.durationMs !== undefined;
+			if (measuredNeighbour) continue;
+
+			const sameStampAsAssistant = record.kind === "thinking" && next?.kind === "assistant" && next.startedAt === record.startedAt && (record.endedAt === undefined || record.endedAt === record.startedAt);
 			if (sameStampAsAssistant) continue;
 
 			const prev = turn.records
@@ -241,9 +244,7 @@ function inferWorkDurations(turns: TrajectoryTurn[]): void {
 			record.durationMs = end - start;
 		}
 
-		const endedCandidates = turn.records
-			.map((record) => record.endedAt)
-			.filter((value): value is number => typeof value === "number");
+		const endedCandidates = turn.records.map((record) => record.endedAt).filter((value): value is number => typeof value === "number");
 		turn.inFlight = turn.records.some((record) => record.endedAt === undefined);
 		if (!turn.inFlight && endedCandidates.length > 0) {
 			turn.endedAt = Math.max(...endedCandidates);
@@ -254,6 +255,23 @@ function inferWorkDurations(turns: TrajectoryTurn[]): void {
 
 function processRecord(event: SessionProcessEvent, turnIndex: number): TrajectoryRecord {
 	const startedAt = wallTime(event.timestamp);
+	// 系统提示词快照：账本里要与其它过程记录区分开（初始/变更/压缩快照），
+	// 并在检查器里展示全文与工具目录（见 TrajectoryRecord.prompt）。
+	if (event.kind === "systemPrompt" && event.prompt) {
+		return {
+			id: `process:${event.id}`,
+			kind: "systemPrompt",
+			lane: "process",
+			turnIndex,
+			title: event.prompt.kind,
+			summary: summarize(event.summary),
+			startedAt,
+			endedAt: startedAt || undefined,
+			seq: event.seq,
+			promptKind: event.prompt.kind,
+			prompt: event.prompt,
+		};
+	}
 	return {
 		id: `process:${event.id}`,
 		kind: "process",
@@ -278,6 +296,70 @@ function processRecord(event: SessionProcessEvent, turnIndex: number): Trajector
 		retryDelayMs: event.retryDelayMs,
 		status: event.tokensBefore !== undefined ? String(event.tokensBefore) : undefined,
 	};
+}
+
+/** 模型请求快照的体积标签（账本时长列与摘要共用）。 */
+export function traceSizeLabel(bytes: number | undefined): string {
+	if (bytes === undefined || bytes <= 0) return "";
+	if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	return `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+function modelRequestRecord(trace: TrajectoryModelTraceSummary, turnIndex: number): TrajectoryRecord {
+	const parts = [trace.model ?? "model"];
+	if (trace.messageCount !== undefined) parts.push(`${trace.messageCount} msgs`);
+	if (trace.toolCount !== undefined) parts.push(`${trace.toolCount} tools`);
+	const size = traceSizeLabel(trace.payloadBytes);
+	if (size) parts.push(size);
+	return {
+		id: `model:${trace.traceId}`,
+		kind: "modelRequest",
+		lane: "model",
+		turnIndex,
+		title: "modelRequest",
+		summary: parts.join(" · "),
+		startedAt: trace.time,
+		// 请求快照是时间点：起止同刻，不伪造区间（UI 时长列改显体积）。
+		endedAt: trace.time,
+		modelId: trace.model,
+		provider: trace.provider,
+		modelTrace: {
+			traceId: trace.traceId,
+			agentId: trace.agentId,
+			messageCount: trace.messageCount,
+			toolCount: trace.toolCount,
+			payloadBytes: trace.payloadBytes,
+			truncated: trace.truncated,
+		},
+	};
+}
+
+/** 按墙钟找墙钟时刻所属的用户轮（无 seq 的快照专用；轮列表按时间升序）。 */
+function turnIndexAtTime(turns: TrajectoryTurn[], at: number): number {
+	if (turns.length === 0) return -1;
+	if (!(at > 0)) return turns.length - 1;
+	if (at < turns[0].startedAt) return 0;
+	for (let index = 0; index < turns.length; index += 1) {
+		const nextStart = turns[index + 1]?.startedAt;
+		if (nextStart === undefined || at < nextStart) return index;
+	}
+	return turns.length - 1;
+}
+
+function insertModelTraces(turns: TrajectoryTurn[], traces: TrajectoryModelTraceSummary[]): void {
+	if (traces.length === 0) return;
+	const ordered = [...traces].sort((left, right) => left.time - right.time);
+	for (const trace of ordered) {
+		const target = turnIndexAtTime(turns, trace.time);
+		if (target < 0) {
+			// 无消息可归轮（纯快照视图）：单独成轮，保证账本不空。
+			const record = modelRequestRecord(trace, 0);
+			flushTurn(turns, [record], record.startedAt, record.id);
+			continue;
+		}
+		const turn = turns[target];
+		turn.records.push(modelRequestRecord(trace, turn.index));
+	}
 }
 
 /** 过程事件落轮：优先 seq（dsh-web 按 startSeq 挂 step），无 seq 再按墙钟。 */
@@ -328,11 +410,7 @@ function insertProcessEvents(turns: TrajectoryTurn[], events: SessionProcessEven
 /**
  * 从 ChatMessage[] 构建轨迹。now 仅用于空会话兜底 domain，不写入 in-flight duration。
  */
-export function buildTrajectory(
-	messages: ChatMessage[],
-	now = Date.now(),
-	extras: TrajectoryBuildExtras = {},
-): TrajectoryModel {
+export function buildTrajectory(messages: ChatMessage[], now = Date.now(), extras: TrajectoryBuildExtras = {}): TrajectoryModel {
 	const turns: TrajectoryTurn[] = [];
 	let current: TrajectoryRecord[] = [];
 	let turnStartedAt = 0;
@@ -388,31 +466,21 @@ export function buildTrajectory(
 			const durationMs = asNumber(message.meta?.durationMs);
 			const inFlight = isInFlightTool(message);
 			const name = toolNameOf(message);
-			const endedAt = inFlight
-				? undefined
-				: durationMs !== undefined
-					? startedAt + durationMs
-					: wallTime(message.timestamp);
+			const endedAt = inFlight ? undefined : durationMs !== undefined ? startedAt + durationMs : wallTime(message.timestamp);
 			// DSH 工具视图（host ToolEventView，dsh-web 同数据源）：call/result 视图
 			// 提供命令/输出/退出码/diff 等更完整的信息，标题用卡片头（如 "Write foo.txt"）。
-			const meta = message.meta as
-				| { view?: DshToolViewEnvelope; resultView?: DshToolViewEnvelope; args?: unknown; [key: string]: unknown }
-				| undefined;
+			const meta = message.meta as { view?: DshToolViewEnvelope; resultView?: DshToolViewEnvelope; args?: unknown; [key: string]: unknown } | undefined;
 			const viewTitle = toolViewTitle(meta);
 			const viewDetail = toolViewDetail(meta);
 			const inputDetail = toolViewInput(meta);
-			const outputDetail = toolViewOutput(meta)
-				?? asString(message.meta?.detailText)
-				?? asString(message.meta?.result);
+			const outputDetail = toolViewOutput(meta) ?? asString(message.meta?.detailText) ?? asString(message.meta?.result);
 			pushRecord(current, {
 				id: message.id,
 				kind: "tool",
 				lane: laneOf("tool"),
 				turnIndex: turns.length,
 				title: viewTitle ?? name,
-				summary: summarize(
-					viewTitle ?? asString(message.meta?.detailText) ?? message.text ?? name,
-				),
+				summary: summarize(viewTitle ?? asString(message.meta?.detailText) ?? message.text ?? name),
 				startedAt,
 				endedAt,
 				durationMs: inFlight ? undefined : durationMs,
@@ -432,9 +500,7 @@ export function buildTrajectory(
 			if (message.thinking?.trim()) {
 				const startedAt = wallTime(message.thinkingStartedAt ?? message.timestamp);
 				const hasSpan = message.thinkingStartedAt !== undefined && message.thinkingEndedAt !== undefined;
-				const endedAt = isThinkingOnly(message) && isInFlightAssistant(message)
-					? undefined
-					: wallTime(message.thinkingEndedAt ?? message.timestamp);
+				const endedAt = isThinkingOnly(message) && isInFlightAssistant(message) ? undefined : wallTime(message.thinkingEndedAt ?? message.timestamp);
 				pushRecord(current, {
 					id: `${message.id}:thinking`,
 					kind: "thinking",
@@ -453,7 +519,12 @@ export function buildTrajectory(
 			if (!isThinkingOnly(message)) {
 				const inFlight = isInFlightAssistant(message);
 				const usage = usageOf(message);
+				// pi 的 assistant 消息 timestamp = 请求开始（ai/types.ts），配合 meta.durationMs
+				// 得到真实区间；缺 durationMs 的旧数据/其它后端退回时间点 + 邻居锚点回推。
 				const stamp = wallTime(message.timestamp);
+				const measuredDurationMs = asNumber(message.meta?.durationMs);
+				const startedAt = wallTime(asNumber(message.meta?.startedAt) ?? stamp);
+				const endedAt = inFlight ? undefined : measuredDurationMs !== undefined && startedAt > 0 ? startedAt + measuredDurationMs : stamp;
 				pushRecord(current, {
 					id: message.id,
 					kind: "assistant",
@@ -461,8 +532,9 @@ export function buildTrajectory(
 					turnIndex: turns.length,
 					title: "assistant",
 					summary: summarize(message.text),
-					startedAt: stamp,
-					endedAt: inFlight ? undefined : stamp,
+					startedAt,
+					endedAt,
+					durationMs: inFlight || measuredDurationMs === undefined ? undefined : Math.max(0, measuredDurationMs),
 					status: message.stopReason,
 					text: message.text,
 					outputDetail: message.text,
@@ -489,58 +561,34 @@ export function buildTrajectory(
 			seq,
 			status: asString(message.meta?.status),
 			...(retry !== undefined ? { retry } : {}),
-			...(asNumber(message.meta?.maxAttempts) !== undefined
-				? { maxRetries: asNumber(message.meta?.maxAttempts) }
-				: {}),
-			...(asNumber(message.meta?.delayMs) !== undefined
-				? { retryDelayMs: asNumber(message.meta?.delayMs) }
-				: {}),
+			...(asNumber(message.meta?.maxAttempts) !== undefined ? { maxRetries: asNumber(message.meta?.maxAttempts) } : {}),
+			...(asNumber(message.meta?.delayMs) !== undefined ? { retryDelayMs: asNumber(message.meta?.delayMs) } : {}),
 		});
 	}
 
 	if (current.length > 0) flushTurn(turns, current, turnStartedAt, turnId || current[0].id);
 	insertProcessEvents(turns, extras.processEvents ?? []);
-
-	if (extras.systemPrompt?.trim()) {
-		const promptRecord: TrajectoryRecord = {
-			id: "system-prompt-reference",
-			kind: "systemPrompt",
-			lane: "process",
-			turnIndex: 0,
-			title: "systemPrompt",
-			summary: summarize(extras.systemPrompt),
-			startedAt: turns[0]?.startedAt ?? now,
-			endedAt: turns[0]?.startedAt ?? now,
-			text: extras.systemPrompt,
-			detail: extras.systemPrompt,
-		};
-		if (turns.length === 0) {
-			flushTurn(turns, [promptRecord], promptRecord.startedAt, promptRecord.id);
-		} else {
-			turns[0].records.unshift(promptRecord);
-			turns[0].startedAt = Math.min(turns[0].startedAt, promptRecord.startedAt);
-		}
-	}
+	insertModelTraces(turns, extras.modelTraces ?? []);
+	// 系统提示词不再用「参考模板」冒充：快照全部来自会话事实（pi 会话文件的 system
+	// 条目 / dsh 的 system.message 与请求头），无事实就不出记录。
 
 	// 对齐 dsh-web layout.ts：轮内按 seq（无 seq 则墙钟）排，再回推耗时。
 	// 耗时回推依赖邻居顺序；排完后再 infer，避免重试/过程事件插在轮首后把 assistant 区间拉歪。
 	for (const turn of turns) sortTurnRecords(turn);
 	inferWorkDurations(turns);
 
-	const records = turns.flatMap((turn) =>
-		turn.records.map((record) => ({ ...record, turnIndex: turn.index })),
-	);
-	const times = records.flatMap((record) => {
-		const values = [record.startedAt];
-		if (record.endedAt !== undefined) values.push(record.endedAt);
-		return values;
-	}).filter((value) => value > 0);
+	const records = turns.flatMap((turn) => turn.records.map((record) => ({ ...record, turnIndex: turn.index })));
+	const times = records
+		.flatMap((record) => {
+			const values = [record.startedAt];
+			if (record.endedAt !== undefined) values.push(record.endedAt);
+			return values;
+		})
+		.filter((value) => value > 0);
 	const domainStart = times.length > 0 ? Math.min(...times) : now;
 	const closedEnd = times.length > 0 ? Math.max(...times) : now;
 	// domain 右端：有 in-flight 时伸到 now，让时间线开区间可见；账本本身仍不写 duration。
-	const domainEnd = records.some((record) => record.endedAt === undefined)
-		? Math.max(closedEnd, now)
-		: closedEnd;
+	const domainEnd = records.some((record) => record.endedAt === undefined) ? Math.max(closedEnd, now) : closedEnd;
 
 	return { turns, records, domainStart, domainEnd };
 }
@@ -548,10 +596,7 @@ export function buildTrajectory(
 export type TrajectoryTimeRange = { start: number; end: number };
 
 /** 区间过滤：与 span 有重叠即保留；无区间则全量。 */
-export function filterRecordsByRange(
-	records: TrajectoryRecord[],
-	range: TrajectoryTimeRange | undefined,
-): TrajectoryRecord[] {
+export function filterRecordsByRange(records: TrajectoryRecord[], range: TrajectoryTimeRange | undefined): TrajectoryRecord[] {
 	if (!range) return records;
 	const lo = Math.min(range.start, range.end);
 	const hi = Math.max(range.start, range.end);

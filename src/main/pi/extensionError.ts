@@ -16,12 +16,7 @@ function stringifyUnknown(value: unknown): string {
 		return firstNonEmptyString(value.stack, value.message) || value.name;
 	}
 	if (value && typeof value === "object") {
-		const nested = firstNonEmptyString(
-			Reflect.get(value, "message"),
-			Reflect.get(value, "error"),
-			Reflect.get(value, "stack"),
-			Reflect.get(value, "reason"),
-		);
+		const nested = firstNonEmptyString(Reflect.get(value, "message"), Reflect.get(value, "error"), Reflect.get(value, "stack"), Reflect.get(value, "reason"));
 		if (nested) return nested;
 		try {
 			const json = JSON.stringify(value);
@@ -35,17 +30,8 @@ function stringifyUnknown(value: unknown): string {
 
 /** 从 extension_error 事件抽出扩展名（若有）和错误正文。 */
 export function formatExtensionErrorReason(event: Record<string, unknown>): string {
-	const extensionName = firstNonEmptyString(
-		event.extensionName,
-		event.extension,
-		event.source,
-	);
-	const detail =
-		stringifyUnknown(event.error) ||
-		stringifyUnknown(event.message) ||
-		stringifyUnknown(event.errorMessage) ||
-		stringifyUnknown(event.reason) ||
-		"Extension error";
+	const extensionName = firstNonEmptyString(event.extensionName, event.extension, event.source);
+	const detail = stringifyUnknown(event.error) || stringifyUnknown(event.message) || stringifyUnknown(event.errorMessage) || stringifyUnknown(event.reason) || "Extension error";
 	if (extensionName && !detail.includes(extensionName)) {
 		return `${extensionName}: ${detail}`;
 	}

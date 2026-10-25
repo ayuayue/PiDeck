@@ -21,6 +21,18 @@ const NORMAL_MODE_TOOLS = ["read", "bash", "edit", "write", "ask_question"];
 const PLAN_MODE_DISABLED_TOOLS = new Set<string>(["edit", "write"]);
 const PLAN_MANAGED_TOOLS = new Set<string>([...PLAN_MODE_TOOLS, ...NORMAL_MODE_TOOLS]);
 
+// 静态模式规则：pi 1.x 走系统提示 section，旧宿主仍作为 before_agent_start 消息注入。
+const PLAN_MODE_CONTEXT_TEXT = `[PLAN MODE ACTIVE]\nYou are in PiDeck Plan Mode.\n\nRules:\n- Only inspect and reason. Do not edit or write files.\n- Bash is restricted to read-only commands.\n- Ask the user with ask_question when a requirement is ambiguous.\n- Keep plan steps concise: one short sentence per step; avoid long clauses, parentheticals, or run-on requirements.\n- Put each step on its own numbered line (\"1. ...\", \"2. ...\"). Never nest or merge steps — the UI renders and tracks them line by line.\n- End your response with a numbered plan under an exact \"Plan:\" heading.\n\nPlan:\n1. First concrete step\n2. Second concrete step`;
+
+/**
+ * pi 1.x 的 before_agent_start 事件带可变 systemPromptOptions.sections；旧宿主没有该字段。
+ * 扩展必须自包含，所以这里与 security-gate/goal-mode 各自保留一份（不跨文件 import）。
+ */
+function readSystemPromptSections(event: { systemPromptOptions?: { sections?: Record<string, string> } }): Record<string, string> | undefined {
+	const sections = event.systemPromptOptions?.sections;
+	return sections && typeof sections === "object" ? sections : undefined;
+}
+
 interface TodoItem {
 	step: number;
 	text: string;
@@ -33,6 +45,17 @@ interface PlanModeState {
 	executing?: boolean;
 	toolsBeforePlanMode?: string[];
 }
+
+/**
+ * plan 模式激活来源：
+ * - "composer"：桌面输入框计划 chip 发出的带标记消息（agentMessage 前缀隐藏标记）。
+ *   这种路径下 composer 切回普通后发出的下一条**无标记**消息是唯一的退出信号。
+ * - "command"：用户直接输入 /plan 命令激活。此时没有隐藏标记可依赖——
+ *   后续普通任务消息本身就是「只读分析」的请求，绝不能当作退出信号，
+ *   否则 /plan 刚开启、下一条消息立刻被禁用（2026-12 用户反馈：plan 模式貌似没法使用）。
+ *   命令流的退出路径：计划草案选单关闭 / 「开始执行」 / 显式 /plan off。
+ */
+type PlanModeActivationSource = "composer" | "command";
 
 const DESTRUCTIVE_PATTERNS = [
 	/\brm\b/i,
@@ -174,6 +197,7 @@ export default function piDeckPlanModeExtension(pi: ExtensionAPI): void {
 	let executionMode = false;
 	let todoItems: TodoItem[] = [];
 	let toolsBeforePlanMode: string[] | undefined;
+	let activationSource: PlanModeActivationSource | undefined;
 
 	function updateWidget(ctx: ExtensionContext): void {
 		// 规划阶段生成 Plan 后就应显示；以前只在 executionMode 才 setWidget，
@@ -216,19 +240,31 @@ export default function piDeckPlanModeExtension(pi: ExtensionAPI): void {
 	}
 
 	function enablePlanModeTools(): void {
-		if (toolsBeforePlanMode === undefined) toolsBeforePlanMode = pi.getActiveTools();
-		pi.setActiveTools(getPlanModeTools(toolsBeforePlanMode));
+		// 快照只在首次进入 plan 时记录（退出时用它找回写权限），plan 模式的工具面以**当前**
+		// 注册表为准：重复进入 plan（/plan on 后发 composer 计划消息）时若用旧快照重算，
+		// 快照之后注册的第三方工具会在进入 plan 的一刻被覆盖删除（与退出路径同一类 bug，issue #349）。
+		const current = pi.getActiveTools();
+		if (toolsBeforePlanMode === undefined) toolsBeforePlanMode = current;
+		pi.setActiveTools(getPlanModeTools(current));
 	}
 
 	function restoreNormalModeTools(): void {
-		pi.setActiveTools(toolsBeforePlanMode ?? getNormalModeTools(pi.getActiveTools()));
+		// 增量恢复：快照只负责找回 plan 前的工具面（含 edit/write 写权限），
+		// plan 期间后注册的第三方工具（billion-context 压缩工具等异步注册）以当前注册表为准保留。
+		// 旧实现用快照全量覆盖 setActiveTools，会把 plan 激活后才注册的工具整批删掉（issue #349）。
+		const current = pi.getActiveTools();
+		const snapshot = toolsBeforePlanMode ?? getNormalModeTools(current);
+		const keepThirdParty = current.filter((name) => !PLAN_MANAGED_TOOLS.has(name));
+		pi.setActiveTools(uniqueToolNames([...snapshot, ...keepThirdParty]));
 		toolsBeforePlanMode = undefined;
 	}
 
-	function setPlanMode(ctx: ExtensionContext, enabled: boolean): void {
+	function setPlanMode(ctx: ExtensionContext, enabled: boolean, source?: PlanModeActivationSource): void {
 		planModeEnabled = enabled;
 		executionMode = false;
 		todoItems = [];
+		// 激活来源只在开启时登记，关闭时清掉：残留来源会让后续开启误用上一次的退出语义。
+		activationSource = enabled ? source : undefined;
 		if (enabled) {
 			enablePlanModeTools();
 			ctx.ui.notify("PiDeck 计划模式已启用。启用期间只能执行只读命令，不能修改文件。", "info");
@@ -244,9 +280,9 @@ export default function piDeckPlanModeExtension(pi: ExtensionAPI): void {
 		description: "切换 PiDeck 计划模式（只读探索，适用于复杂任务先做分析）",
 		handler: async (args, ctx) => {
 			const normalized = String(args ?? "").trim().toLowerCase();
-			if (["on", "enable", "enabled"].includes(normalized)) setPlanMode(ctx, true);
+			if (["on", "enable", "enabled"].includes(normalized)) setPlanMode(ctx, true, "command");
 			else if (["off", "disable", "disabled", "normal"].includes(normalized)) setPlanMode(ctx, false);
-			else setPlanMode(ctx, !planModeEnabled);
+			else setPlanMode(ctx, !planModeEnabled, "command");
 		},
 	});
 
@@ -266,10 +302,12 @@ export default function piDeckPlanModeExtension(pi: ExtensionAPI): void {
 
 	pi.on("input", async (event, ctx) => {
 		if (!event.text.startsWith(PI_DECK_PLAN_MODE_MARKER)) {
-			// 用户发了一条普通消息（无 plan 标记）：若仍处于 plan 模式且非执行中，
-			// 视为退出 plan——composer 切回 normal 发消息即退出只读模式。
-			// pi-desktop RPC 模式下 /plan 命令不路由，这里作为会话内退出的兜底。
-			if (planModeEnabled && !executionMode) {
+			// 无标记普通消息只在「composer 计划 chip」激活时才是退出信号：
+			// 用户把输入框切回普通模式再发消息，说明要离开只读计划模式。
+			// /plan 命令激活（source=command）时不能这么退出——普通任务消息本身就是
+			// 分析请求，退出会立刻关掉刚开启的只读模式并让任务带写权限执行
+			// （2026-12 用户反馈：/plan 后下一条消息直接提示已禁用）。
+			if (planModeEnabled && !executionMode && activationSource === "composer") {
 				setPlanMode(ctx, false);
 			}
 			return;
@@ -277,6 +315,7 @@ export default function piDeckPlanModeExtension(pi: ExtensionAPI): void {
 
 		// 由桌面输入框模式触发：隐藏标记只用于路由，必须在进入 LLM 前剥离。
 		planModeEnabled = true;
+		activationSource = "composer";
 		executionMode = false;
 		todoItems = [];
 		enablePlanModeTools();
@@ -313,12 +352,20 @@ export default function piDeckPlanModeExtension(pi: ExtensionAPI): void {
 		};
 	});
 
-	pi.on("before_agent_start", async () => {
+	pi.on("before_agent_start", async (event) => {
 		if (planModeEnabled) {
+			// 静态规则进系统提示 section 而不是每轮 message：后者会把同一段文字在会话历史里
+			// 复制一份又一份（实测单会话 22 条），既占 token 又污染历史（issue #365-09）。
+			// 旧宿主无 sections 时保留原路径。
+			const sections = readSystemPromptSections(event);
+			if (sections) {
+				sections["pi_deck_plan_mode"] = PLAN_MODE_CONTEXT_TEXT;
+				return undefined;
+			}
 			return {
 				message: {
 					customType: "pi-deck-plan-mode-context",
-					content: `[PLAN MODE ACTIVE]\nYou are in PiDeck Plan Mode.\n\nRules:\n- Only inspect and reason. Do not edit or write files.\n- Bash is restricted to read-only commands.\n- Ask the user with ask_question when a requirement is ambiguous.\n- Keep plan steps concise: one short sentence per step; avoid long clauses, parentheticals, or run-on requirements.\n- Put each step on its own numbered line (\"1. ...\", \"2. ...\"). Never nest or merge steps — the UI renders and tracks them line by line.\n- End your response with a numbered plan under an exact \"Plan:\" heading.\n\nPlan:\n1. First concrete step\n2. Second concrete step`,
+					content: PLAN_MODE_CONTEXT_TEXT,
 					display: false,
 				},
 			};
@@ -403,6 +450,7 @@ export default function piDeckPlanModeExtension(pi: ExtensionAPI): void {
 			if (choice?.startsWith("开始执行")) {
 				planModeEnabled = false;
 				executionMode = true;
+				activationSource = undefined;
 				restoreNormalModeTools();
 				updateWidget(ctx);
 				persistState();
@@ -435,14 +483,25 @@ export default function piDeckPlanModeExtension(pi: ExtensionAPI): void {
 		const planModeEntry = entries
 			.filter((entry: { type: string; customType?: string }) => entry.type === "custom" && entry.customType === "pi-deck-plan-mode")
 			.pop() as { data?: PlanModeState } | undefined;
+		let droppedStaleTodos = false;
 		if (planModeEntry?.data) {
 			// plan 模式不跨会话恢复：新会话默认 normal，避免用户被锁在只读模式无法写入。
-			// 仅 execution（正在执行已确认计划）和 todos 跨会话续接。
-			todoItems = planModeEntry.data.todos ?? todoItems;
-			executionMode = planModeEntry.data.executing ?? executionMode;
+			// 待办只在执行态下续接：非执行态（计划草案）恢复回来的待办永远不会被
+			// [DONE:n] 标记（turn_end 靠 executionMode 拦截），只会永久挂成「N 待处理」，
+			// 且面板 X 只是渲染层隐藏、重开会话又会从会话文件里读回来（issue #393）。
+			const wasExecuting = planModeEntry.data.executing === true;
+			const restoredTodos = planModeEntry.data.todos ?? [];
+			droppedStaleTodos = !wasExecuting && restoredTodos.length > 0;
+			todoItems = wasExecuting ? restoredTodos : [];
+			executionMode = wasExecuting;
 			toolsBeforePlanMode = planModeEntry.data.toolsBeforePlanMode ?? toolsBeforePlanMode;
 		}
 		planModeEnabled = false;
+		// 激活来源是运行时状态，不随会话恢复（plan 模式本身不跨会话），重置避免残留。
+		activationSource = undefined;
 		updateWidget(ctx);
+		// 丢弃草案时同步写回：否则会话文件里的旧 todos 会一直被后来的恢复读到，
+		// 每次重开都要再过滤一遍（#393 里「关标签再打开又回来」的直接来源）。
+		if (droppedStaleTodos) persistState();
 	});
 }

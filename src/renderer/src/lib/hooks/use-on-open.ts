@@ -16,9 +16,9 @@ import { useState } from "react";
  * during this one's render. Put those in an effect keyed to `open`.
  */
 export function useOnOpen(open: boolean, start: () => void) {
-  const [wasOpen, setWasOpen] = useState(open);
-  if (open !== wasOpen) {
-    setWasOpen(open);
-    if (open) start();
-  }
+	const [wasOpen, setWasOpen] = useState(open);
+	if (open !== wasOpen) {
+		setWasOpen(open);
+		if (open) start();
+	}
 }

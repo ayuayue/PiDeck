@@ -10,22 +10,10 @@ import type { EditorTabOpenMode } from "./editorTabs";
  * 所以此规则收敛在这里，避免各入口再各写一次。
  */
 export function openGitFileInEditor(
-  dismissGitDiff: () => void,
-  openTab: (
-    path: string,
-    mode: "view" | "diff",
-    originalContent?: string,
-    modifiedContent?: string,
-    allowSave?: boolean,
-    tabKey?: string,
-    label?: string,
-    preserveDrawer?: boolean,
-    openMode?: EditorTabOpenMode,
-    initialLine?: number,
-    fileAccessScope?: ProjectFileAccessScope,
-  ) => void,
-  path: string,
+	dismissGitDiff: () => void,
+	openTab: (path: string, mode: "view" | "diff", originalContent?: string, modifiedContent?: string, allowSave?: boolean, tabKey?: string, label?: string, preserveDrawer?: boolean, openMode?: EditorTabOpenMode, initialLine?: number, fileAccessScope?: ProjectFileAccessScope) => void,
+	path: string,
 ): void {
-  dismissGitDiff();
-  openTab(path, "view", undefined, undefined, true, undefined, undefined, undefined, "permanent");
+	dismissGitDiff();
+	openTab(path, "view", undefined, undefined, true, undefined, undefined, undefined, "permanent");
 }

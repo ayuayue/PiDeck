@@ -5,6 +5,8 @@
 
 import { mergeAttributes, Node } from "@tiptap/core";
 import type { ComposerChip } from "../chips";
+import { formatChipDisplayLabel, isDirectoryFileChip, stripChipDisplayPrefix } from "../chips";
+import { chipIconDomSpec } from "../chipIcons";
 
 export type MentionChipAttrs = {
 	kind: ComposerChip["kind"];
@@ -52,7 +54,9 @@ export const MentionChip = Node.create({
 					return {
 						kind,
 						raw,
-						label: el.textContent?.replace(/^[@/&❝]/, "").trim() || raw.slice(1),
+						// 只按类型剥前缀（file 的 @、skill 的 /skill:）；统一剥 [@/&❝]
+						// 会把引用内容自身的 / & ❝ 吃掉。
+						label: stripChipDisplayPrefix(kind, el.textContent?.trim() ?? "") || raw.slice(1),
 					};
 				},
 			},
@@ -60,47 +64,31 @@ export const MentionChip = Node.create({
 	},
 
 	renderHTML({ node, HTMLAttributes }) {
-		const kind = String(node.attrs.kind ?? "file");
+		// 收窄 kind 到合法枚举：attrs 来自编辑器插入/历史解析，防御性回退 file
+		const rawKind = node.attrs.kind;
+		const kind: ComposerChip["kind"] = rawKind === "skill" || rawKind === "session" || rawKind === "quote" ? rawKind : "file";
 		const raw = String(node.attrs.raw ?? "");
 		const label = String(node.attrs.label ?? raw);
-		// 文件/技能（含提示词模板，同为 slash 命令 token）引用按用户要求做普通文本：
-		// 不再套 .input-chip 徽章外观，与正文同视感。仍保留 data-raw/data-type 与
-		// contenteditable=false——点击定位（closest [data-raw]）与内容再解析都依赖它们。
-		if (kind === "file" || kind === "skill") {
-			return [
-				"span",
-				mergeAttributes(HTMLAttributes, {
-					"data-type": kind,
-					"data-raw": raw,
-					contenteditable: "false",
-					title: raw,
-				}),
-				raw || label,
-			];
-		}
-		// session（& 会话引用）与 quote（❝ 对话引用）保留 chip 外观：它们是跨内容引用，
-		// 徽章化有助于与正文区分，且时间线共用同一渲染。
-		const icon = kind === "file" ? "@" : kind === "session" ? "&" : kind === "quote" ? "❝" : "/";
-		// 单行省略内联在节点上：chip 是原子装饰节点，关键视觉不依赖样式表加载顺序
-		// （@layer(legacy) + Vite HMR 曾出现更新丢失导致折行，见 quoteChipStyle 契约测试）；
-		// 颜色仍走 timeline.css 的 .input-chip--quote（语义 token，暗色自适应）。
-		const extraAttrs = kind === "quote"
-			? {
-					style:
-						"display:inline-block;max-width:280px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;vertical-align:bottom;",
-			  }
-			: {};
+		// 目录引用用文件夹图标（Proma `.directory-mention-chip` 同款区分）。
+		const isDirectoryRef = isDirectoryFileChip(raw);
+		// chip 外观（2026-09 对齐 Proma）：类型色浅底 + 同色文字 + 12px currentColor 图标，
+		// 无边框。保留 data-raw/data-type 与 contenteditable=false——点击定位
+		// （closest [data-raw]）与内容再解析都依赖它们。
+		// 单行截断由 timeline.css 的共用骨架统一管理，不在节点上写内联样式，
+		// 否则输入框与气泡两边会逐渐不一致。
 		return [
 			"span",
-			mergeAttributes(HTMLAttributes, extraAttrs, {
+			mergeAttributes(HTMLAttributes, {
 				class: `input-chip input-chip--${kind}`,
 				"data-type": kind,
 				"data-raw": raw,
 				contenteditable: "false",
 				title: raw,
 			}),
-			["span", { class: "input-chip__icon" }, icon],
-			["span", { class: "input-chip__label" }, label],
+			chipIconDomSpec(kind, { isDirectory: isDirectoryRef }),
+			// 展示文本与气泡侧同源（formatChipDisplayLabel）：只 file 保留 @，
+			// 其余交给图标表达；attrs.label 保持纯文本，重建后统一推导展示文本。
+			["span", { class: "input-chip__label" }, formatChipDisplayLabel(kind, label)],
 		];
 	},
 

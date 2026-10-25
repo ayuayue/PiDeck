@@ -3,25 +3,14 @@ import { t, type TranslationKey } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { Button } from "../../components/ui-shadcn/button";
 import { Badge } from "../../components/ui-shadcn/badge";
-import { Progress } from "../../components/ui-shadcn/progress";
 import { ScrollArea } from "../../components/ui-shadcn/scroll-area";
 import { Textarea } from "../../components/ui-shadcn/textarea";
-import {
-	Tabs,
-	TabsList,
-	TabsTrigger,
-	TabsContent,
-} from "../../components/ui-shadcn/tabs";
-import {
-	Dialog,
-	DialogClose,
-	DialogContent,
-	DialogHeader,
-	DialogTitle,
-} from "../../components/ui-shadcn/dialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui-shadcn/tabs";
+import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "../../components/ui-shadcn/dialog";
 import { SectionHeading } from "../../components/ui-shadcn/section-heading";
-import { X, Copy, RefreshCw, FileDown, PackageOpen, Sparkles, MonitorCheck, Bug, MessageSquarePlus } from "lucide-react";
+import { X, Copy, RefreshCw, FileDown, PackageOpen, Sparkles, MonitorCheck, Bug, Loader2, MessageSquarePlus } from "lucide-react";
 import type { HealthStatus } from "../../../../shared/types";
+import { buildFeedbackIssueUrl } from "./issueUrl";
 import { summarizeChecks } from "./reportFormat";
 import { useFeedbackReport, type HealthCheckState } from "./useFeedbackReport";
 import type { AppInfo, Project } from "../../../../shared/types";
@@ -60,22 +49,29 @@ const STATE_LABEL: Record<HealthCheckState, TranslationKey> = {
  * - AI 分析：生成可复制给任意 AI 的分析提示词
  * - 导出分享：复制 Markdown / 群卡片 / 导出文件
  *
- * 使用成熟的 ui-shadcn 组件（Tabs/ScrollArea/Badge/Progress），不引入新依赖。
+ * 使用成熟的 ui-shadcn 组件（Tabs/ScrollArea/Badge），不引入新依赖。
  * 所有复制走主进程剪贴板（大文本可靠），所有导出走主进程保存对话框。
  */
 export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpenExternal, onCreateSessionWithPrompt }: FeedbackDialogProps) {
 	const feedback = useFeedbackReport({ projectName: project?.name ?? "", projectId: project?.id });
 	const [activeTab, setActiveTab] = useState("describe");
 
-	const summary = useMemo(
-		() => (feedback.report ? summarizeChecks(feedback.report.checks) : null),
-		[feedback.report],
+	const summary = useMemo(() => (feedback.report ? summarizeChecks(feedback.report.checks) : null), [feedback.report]);
+
+	// GitHub 对超长查询串直接拒绝（"Whoa there! Your request URL is too long."，issue #397）：
+	// URL 只带标题 + 简述 + 环境摘要，完整报告交给剪贴板（见 handleOpenIssue）。
+	const issue = useMemo(
+		() =>
+			buildFeedbackIssueUrl({
+				title: `${t("feedback.issueTitle")}${feedback.context.description.trim().split("\n")[0].slice(0, 60) || t("feedback.issueTitleEmpty")}`,
+				description: feedback.context.description,
+				steps: feedback.context.steps,
+				report: feedback.report,
+			}),
+		[feedback.context.description, feedback.context.steps, feedback.report],
 	);
 
 	if (!open) return null;
-
-	const issueTitle = `${t("feedback.issueTitle")}${feedback.context.description.trim().split("\n")[0].slice(0, 60) || t("feedback.issueTitleEmpty")}`;
-	const githubUrl = `https://github.com/ayuayue/PiDeck/issues/new?title=${encodeURIComponent(issueTitle)}&body=${encodeURIComponent(feedback.text)}`;
 
 	const handleCopy = async () => {
 		const ok = await feedback.copyText();
@@ -104,10 +100,17 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 		if (ok) onClose();
 	};
 
-	/** 直接用系统浏览器打开 GitHub Issue 预填页（issue 页需要登录/富文本，不适合内置浏览器）。 */
-	const handleOpenIssue = () => {
+	/**
+	 * 直接用系统浏览器打开 GitHub Issue 预填页（issue 页需要登录/富文本，不适合内置浏览器）。
+	 * 顺序固定「先复制、后打开」：完整诊断报告（体检项 + 最近报错日志）走剪贴板，
+	 * 用户在新 Issue 正文里 Ctrl+V 即可粘上，URL 因此不需要塞全文（issue #397）。
+	 */
+	const handleOpenIssue = async () => {
 		if (!onOpenExternal) return;
-		onOpenExternal(githubUrl);
+		// 没跑过体检就没有可复制的报告：照常打开，提示用户先诊断再附报告
+		const copied = feedback.report ? await feedback.copyMarkdown().catch(() => false) : false;
+		onOpenExternal(issue.url);
+		onToast(!feedback.report ? t("feedback.openIssueNoReport") : copied ? t("feedback.openIssueCopied") : t("feedback.openIssueCopyFailed"));
 	};
 
 	const handleExport = async (kind: "md" | "zip") => {
@@ -118,13 +121,7 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 
 	return (
 		<Dialog open onOpenChange={(next) => !next && onClose()}>
-			<DialogContent
-				showCloseButton={false}
-				className={cn(
-					"flex flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(860px,calc(100vw-48px))]",
-					"h-[min(640px,calc(100vh-80px))]",
-				)}
-			>
+			<DialogContent showCloseButton={false} className={cn("flex flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(860px,calc(100vw-48px))]", "h-[min(640px,calc(100vh-80px))]")}>
 				<DialogHeader className="flex-row items-center justify-between border-b px-4 py-3">
 					<div className="min-w-0 flex-1">
 						<DialogTitle className="flex items-center gap-2 text-base">
@@ -147,7 +144,7 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 							<TabsTrigger value="health">
 								{t("feedback.tab.health")}
 								{summary && summary.error > 0 ? (
-									<Badge variant="destructive" className="ml-1.5 h-4 px-1 text-[10px]">
+									<Badge variant="destructive" className="ml-1.5 h-4 px-1 text-micro">
 										{summary.error}
 									</Badge>
 								) : null}
@@ -160,30 +157,10 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 					<div className="min-h-0 flex-1">
 						{/* ── 问题描述 ── */}
 						<TabsContent value="describe" className="m-0 flex h-full flex-col gap-3 overflow-y-auto p-4">
-							<SectionHeading
-								title={t("feedback.descriptionLabel")}
-								description={t("feedback.descriptionHint")}
-							/>
-							<Textarea
-								className="min-h-[120px]"
-								value={feedback.context.description}
-								onChange={(event) =>
-									feedback.setContext((prev) => ({ ...prev, description: event.target.value }))
-								}
-								placeholder={t("feedback.descriptionPlaceholder")}
-							/>
-							<SectionHeading
-								title={t("feedback.stepsLabel")}
-								description={t("feedback.stepsHint")}
-							/>
-							<Textarea
-								className="min-h-[100px]"
-								value={feedback.context.steps}
-								onChange={(event) =>
-									feedback.setContext((prev) => ({ ...prev, steps: event.target.value }))
-								}
-								placeholder={t("feedback.stepsPlaceholder")}
-							/>
+							<SectionHeading title={t("feedback.descriptionLabel")} description={t("feedback.descriptionHint")} />
+							<Textarea className="min-h-[120px]" value={feedback.context.description} onChange={(event) => feedback.setContext((prev) => ({ ...prev, description: event.target.value }))} placeholder={t("feedback.descriptionPlaceholder")} />
+							<SectionHeading title={t("feedback.stepsLabel")} description={t("feedback.stepsHint")} />
+							<Textarea className="min-h-[100px]" value={feedback.context.steps} onChange={(event) => feedback.setContext((prev) => ({ ...prev, steps: event.target.value }))} placeholder={t("feedback.stepsPlaceholder")} />
 							<div className="mt-auto flex justify-end gap-2 pt-2">
 								<Button variant="default" onClick={() => setActiveTab("health")}>
 									{t("feedback.nextDiagnose")}
@@ -194,17 +171,8 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 						{/* ── 环境诊断 ── */}
 						<TabsContent value="health" className="m-0 flex h-full flex-col">
 							<div className="flex flex-wrap items-center gap-2 border-b px-4 py-2.5">
-								<Button
-									variant="default"
-									size="sm"
-									disabled={feedback.state === "running"}
-									onClick={() => void feedback.runCheck()}
-								>
-									{feedback.state === "running" ? (
-										<RefreshCw size={15} className="animate-pideck-spin" aria-hidden="true" />
-									) : (
-										<MonitorCheck size={15} aria-hidden="true" />
-									)}
+								<Button variant="default" size="sm" disabled={feedback.state === "running"} onClick={() => void feedback.runCheck()}>
+									{feedback.state === "running" ? <RefreshCw size={15} className="animate-pideck-spin" aria-hidden="true" /> : <MonitorCheck size={15} aria-hidden="true" />}
 									<span className="ml-1.5">{t(STATE_LABEL[feedback.state])}</span>
 								</Button>
 								{feedback.report ? (
@@ -212,14 +180,8 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 										<span>
 											{t("feedback.health.score")}：{summary?.score ?? "-"}
 										</span>
-										{summary?.error ? (
-											<Badge variant="destructive">{t("feedback.health.errors", { count: summary.error })}</Badge>
-										) : null}
-										{summary?.warn ? (
-											<Badge className="bg-amber-500/15 text-amber-600">
-												{t("feedback.health.warns", { count: summary.warn })}
-											</Badge>
-										) : null}
+										{summary?.error ? <Badge variant="destructive">{t("feedback.health.errors", { count: summary.error })}</Badge> : null}
+										{summary?.warn ? <Badge className="bg-amber-500/15 text-amber-600">{t("feedback.health.warns", { count: summary.warn })}</Badge> : null}
 									</div>
 								) : null}
 							</div>
@@ -232,21 +194,18 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 									</div>
 								) : feedback.state === "running" ? (
 									<div className="flex h-full flex-col items-center justify-center gap-3">
-										<Progress className="h-1.5 w-56" />
+										<Loader2 size={28} className="animate-pideck-spin text-muted-foreground" aria-hidden="true" />
 										<p className="text-sm text-muted-foreground">{t("feedback.health.runningHint")}</p>
 									</div>
 								) : feedback.state === "error" ? (
-									<div className="text-sm text-red-600">{t("feedback.health.errorDetail")}：{feedback.error}</div>
+									<div className="text-sm text-red-600">
+										{t("feedback.health.errorDetail")}：{feedback.error}
+									</div>
 								) : (
 									<div className="space-y-2">
 										{feedback.report!.checks.map((check) => (
-											<div
-												key={check.id}
-												className="flex items-start gap-2 rounded-lg border px-3 py-2"
-											>
-												<span className={cn("mt-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium", STATUS_TONE[check.status])}>
-													{check.status.toUpperCase()}
-												</span>
+											<div key={check.id} className="flex items-start gap-2 rounded-lg border px-3 py-2">
+												<span className={cn("mt-0.5 rounded px-1.5 py-0.5 text-micro font-medium", STATUS_TONE[check.status])}>{check.status.toUpperCase()}</span>
 												<div className="min-w-0 flex-1">
 													<div className="text-sm font-medium">{t(`health.check.${check.id}` as never)}</div>
 													{check.detail ? (
@@ -257,9 +216,7 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 												</div>
 											</div>
 										))}
-										{feedback.report!.checks.length === 0 ? (
-											<p className="text-sm text-muted-foreground">{t("feedback.health.empty")}</p>
-										) : null}
+										{feedback.report!.checks.length === 0 ? <p className="text-sm text-muted-foreground">{t("feedback.health.empty")}</p> : null}
 									</div>
 								)}
 							</div>
@@ -268,11 +225,7 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 						{/* ── AI 分析 ── */}
 						<TabsContent value="ai" className="m-0 flex h-full flex-col">
 							<div className="border-b px-4 py-2.5">
-								<SectionHeading
-									className="[&>h3]:text-sm"
-									title={t("feedback.ai.title")}
-									description={t("feedback.ai.hint")}
-								/>
+								<SectionHeading className="[&>h3]:text-sm" title={t("feedback.ai.title")} description={t("feedback.ai.hint")} />
 							</div>
 							<div className="flex min-h-0 flex-1 flex-col p-4">
 								<div className="mb-2 flex justify-end">
@@ -280,22 +233,13 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 										<Copy size={14} aria-hidden="true" />
 										<span className="ml-1.5">{t("feedback.copyReport")}</span>
 									</Button>
-									<Button
-										variant="default"
-										size="sm"
-										className="ml-2"
-										disabled={!feedback.report || !onCreateSessionWithPrompt}
-										onClick={() => void handleCreateSession()}
-										title={t("feedback.ai.createSessionHint")}
-									>
+									<Button variant="default" size="sm" className="ml-2" disabled={!feedback.report || !onCreateSessionWithPrompt} onClick={() => void handleCreateSession()} title={t("feedback.ai.createSessionHint")}>
 										<MessageSquarePlus size={14} aria-hidden="true" />
 										<span className="ml-1.5">{t("feedback.ai.createSession")}</span>
 									</Button>
 								</div>
 								<ScrollArea className="min-h-0 flex-1 rounded-lg border bg-muted/30 p-3">
-									<pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground">
-										{feedback.state === "done" ? feedback.promptText : t("feedback.ai.notReady")}
-									</pre>
+									<pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground">{feedback.state === "done" ? feedback.promptText : t("feedback.ai.notReady")}</pre>
 								</ScrollArea>
 							</div>
 						</TabsContent>
@@ -303,11 +247,7 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 						{/* ── 导出分享 ── */}
 						<TabsContent value="share" className="m-0 flex h-full flex-col">
 							<div className="border-b px-4 py-2.5">
-								<SectionHeading
-									className="[&>h3]:text-sm"
-									title={t("feedback.share.title")}
-									description={t("feedback.share.hint")}
-								/>
+								<SectionHeading className="[&>h3]:text-sm" title={t("feedback.share.title")} description={t("feedback.share.hint")} />
 							</div>
 							<div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
 								<div className="grid gap-3 sm:grid-cols-2">
@@ -316,7 +256,14 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 										title={t("feedback.share.copyMarkdown")}
 										desc={t("feedback.share.copyMarkdownDesc")}
 										action={
-											<Button variant="secondary" size="sm" onClick={() => { feedback.setFormat("markdown"); void handleCopy(); }}>
+											<Button
+												variant="secondary"
+												size="sm"
+												onClick={() => {
+													feedback.setFormat("markdown");
+													void handleCopy();
+												}}
+											>
 												{t("feedback.copyReport")}
 											</Button>
 										}
@@ -353,22 +300,11 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 									/>
 								</div>
 								<div className="mt-auto flex flex-wrap items-center gap-2 border-t pt-3">
-									<Button
-										variant="default"
-										size="sm"
-										onClick={() => void handleOpenIssue()}
-										disabled={!onOpenExternal}
-										title={t("feedback.openIssueHint")}
-									>
+									<Button variant="default" size="sm" onClick={() => void handleOpenIssue()} disabled={!onOpenExternal} title={t("feedback.openIssueHint")}>
 										<Bug size={14} aria-hidden="true" />
 										<span className="ml-1.5">{t("feedback.openIssue")}</span>
 									</Button>
-									<Button
-										variant="secondary"
-										size="sm"
-										onClick={() => onOpenExternal?.("https://github.com/ayuayue/PiDeck")}
-										disabled={!onOpenExternal}
-									>
+									<Button variant="secondary" size="sm" onClick={() => onOpenExternal?.("https://github.com/ayuayue/PiDeck")} disabled={!onOpenExternal}>
 										{t("feedback.authorGithub")}
 									</Button>
 								</div>
@@ -381,17 +317,7 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 	);
 }
 
-function ShareCard({
-	icon,
-	title,
-	desc,
-	action,
-}: {
-	icon: React.ReactNode;
-	title: string;
-	desc: string;
-	action: React.ReactNode;
-}) {
+function ShareCard({ icon, title, desc, action }: { icon: React.ReactNode; title: string; desc: string; action: React.ReactNode }) {
 	return (
 		<div className="flex flex-col gap-2 rounded-lg border p-3">
 			<div className="flex items-center gap-2 text-sm font-medium">

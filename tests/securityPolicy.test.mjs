@@ -1,20 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-	createDefaultSecurityConfig,
-	createDefaultSecurityLevels,
-} from "../src/shared/types/security.ts";
-import {
-	buildSnapshot,
-	evaluatePathAction,
-	isPathInsideRoot,
-	matchBashDenyPatterns,
-	matchesSensitivePath,
-	resolveLevel,
-	resolveLevelId,
-	sanitizeLineList,
-	validateSecurityConfig,
-} from "../src/main/security/policy.ts";
+import { createDefaultSecurityConfig, createDefaultSecurityLevels } from "../src/shared/types/security.ts";
+import { buildSnapshot, evaluatePathAction, isPathInsideRoot, matchBashDenyPatterns, matchesSensitivePath, resolveLevel, resolveLevelId, sanitizeLineList, validateSecurityConfig } from "../src/main/security/policy.ts";
 
 /**
  * 安全策略纯函数测试：

@@ -10,49 +10,41 @@ const sessionAtoms = readFileSync("src/renderer/src/atoms/session-atoms.ts", "ut
 const mainEntry = readFileSync("src/renderer/src/main.tsx", "utf8");
 const notice = readFileSync("src/renderer/src/utils/notice.ts", "utf8");
 const sonner = readFileSync("src/renderer/src/components/ui-shadcn/sonner.tsx", "utf8");
-const sessionView = readFileSync(
-  "src/renderer/src/components/session/SessionView.tsx",
-  "utf8",
-);
-const header = readFileSync(
-  "src/renderer/src/components/session/SessionHeader.tsx",
-  "utf8",
-);
+const sessionView = readFileSync("src/renderer/src/components/session/SessionView.tsx", "utf8");
+const header = readFileSync("src/renderer/src/components/session/SessionHeader.tsx", "utf8");
 
 test("通知统一走 sonner 全局 toast（不再有 app-notice 锚点浮层）", () => {
-  // pi extension 的 notify 请求仍渲染进 runtime atom
-  assert.match(sessionAtoms, /request\.method === "notify"/);
-  assert.match(sessionAtoms, /notification:\s*\{/);
+	// pi extension 的 notify 请求仍渲染进 runtime atom
+	assert.match(sessionAtoms, /request\.method === "notify"/);
+	assert.match(sessionAtoms, /notification:\s*\{/);
 
-  // showNotice 出口保持，内部落到 sonner
-  const runtimeController = readFileSync(
-    "src/renderer/src/hooks/useSessionRuntimeController.ts",
-    "utf8",
-  );
-  assert.match(runtimeController, /showNotice\(\s*notification\.message/);
-  assert.match(notice, /from "sonner"/);
-  assert.match(notice, /toast\.custom/);
-  assert.match(notice, /duration \?\? .*1500/);
-  assert.match(runtimeController, /backgroundPending/);
-  assert.match(runtimeController, /Number\.POSITIVE_INFINITY/);
+	// showNotice 出口保持，内部落到 sonner
+	const runtimeController = readFileSync("src/renderer/src/hooks/useSessionRuntimeController.ts", "utf8");
+	assert.match(runtimeController, /showNotice\(\s*notification\.message/);
+	assert.match(notice, /from "sonner"/);
+	assert.match(notice, /toast\.custom/);
+	// toast 时长口径：设置项 toastDurationMs 全局统一，只有调用方显式常驻（Infinity）保留，
+	// 契约是「resolvedDuration 取 noticeDefaultDurationMs 且只对 Infinity 开例外」，不锁死字面量。
+	assert.match(notice, /resolvedDuration[\s\S]{0,160}?noticeDefaultDurationMs/);
+	// M7：后台 Ask 巡检 effect 已搬到 App 级单点挂载的 useBackgroundAskPatrol
+	const askPatrol = readFileSync("src/renderer/src/hooks/useBackgroundAskPatrol.ts", "utf8");
+	assert.match(askPatrol, /backgroundPending/);
+	assert.match(runtimeController, /Number\.POSITIVE_INFINITY/);
 
-  // Toaster 使用官方右上角布局；关闭/复制按钮由自定义卡片渲染（NoticeToastCard）
-  assert.match(sonner, /position="top-right"/);
-  const card = readFileSync(
-    "src/renderer/src/components/ui-shadcn/notice-toast.tsx",
-    "utf8",
-  );
-  assert.match(card, /toast\.dismiss/);
-  // fallback toast must align with Sonner while leaving the custom title-bar drag region.
-  assert.match(notice, /"top:calc\(var\(--window-drag-height, 0px\) \+ 12px\)"/);
-  assert.doesNotMatch(notice, /"top:16px"/);
-  assert.match(notice, /common\.close/);
+	// Toaster 使用官方右上角布局；关闭/复制按钮由自定义卡片渲染（NoticeToastCard）
+	assert.match(sonner, /position="top-right"/);
+	const card = readFileSync("src/renderer/src/components/ui-shadcn/notice-toast.tsx", "utf8");
+	assert.match(card, /toast\.dismiss/);
+	// fallback toast must align with Sonner while leaving the custom title-bar drag region.
+	assert.match(notice, /"top:calc\(var\(--window-drag-height, 0px\) \+ 12px\)"/);
+	assert.doesNotMatch(notice, /"top:16px"/);
+	assert.match(notice, /common\.close/);
 
-  // Toaster 挂载在渲染树根（TooltipProvider 同级）
-  assert.match(mainEntry, /ui-shadcn\/sonner/);
-  assert.match(mainEntry, /<Toaster \/>/);
+	// Toaster 挂载在渲染树根（TooltipProvider 同级）
+	assert.match(mainEntry, /ui-shadcn\/sonner/);
+	assert.match(mainEntry, /<Toaster \/>/);
 
-  // 旧自研浮层不得回流
-  assert.doesNotMatch(sessionView, /NoticeCenter/);
-  assert.doesNotMatch(header, /app-notice/);
+	// 旧自研浮层不得回流
+	assert.doesNotMatch(sessionView, /NoticeCenter/);
+	assert.doesNotMatch(header, /app-notice/);
 });

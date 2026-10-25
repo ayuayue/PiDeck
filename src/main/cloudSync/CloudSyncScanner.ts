@@ -531,7 +531,11 @@ export class CloudSyncScanner {
 		let error: string | undefined;
 		// 只读 host 数据源：投影缓存标题 + 磁盘 header（cwd / 日志折叠标题），不启动 host、不写缓存。
 		const projectionTitles = readSessionProjectionTitles(dshHome);
-		const headersById = new Map(scanDshSessionHeaders(dshHome).map((header) => [header.id, header]));
+		// 折叠开关按 dev 语义收口：投影缓存已覆盖的会话不再读日志折叠（读日志是冷会话兜底），
+		// 与 dshForeignSessionScan.listForeignSessionsFromDisk 的清单场景一致，保证两处标题同源。
+		const headersById = new Map(
+			scanDshSessionHeaders(dshHome, { foldTitle: (sessionId) => !projectionTitles.has(sessionId) }).map((header) => [header.id, header]),
+		);
 		// 工作区目录 → 合成节点（同一 workspace 的未匹配会话归到同一节点）。
 		const workspaceNodes = new Map<string, CloudSyncProjectSelectionNode>();
 		// 工作区显示名：取该工作区内首个带 cwd 的会话的目录末段（readdir 顺序无关紧要，同 workspace 通常同一目录）。

@@ -14,9 +14,7 @@ function stripCpaCompletionMarker(text: string): string {
 export function extractMessageText(content: unknown): string {
 	if (typeof content === "string") {
 		// 宿主指令 / 飞书能力提示只给模型看，UI 与历史展示前剥离。
-		return stripCpaCompletionMarker(
-			stripHostInstruction(stripFeishuDocActionHint(content)),
-		);
+		return stripCpaCompletionMarker(stripHostInstruction(stripFeishuDocActionHint(content)));
 	}
 	if (!Array.isArray(content)) return "";
 
@@ -44,9 +42,7 @@ export function extractMessageText(content: unknown): string {
 		text += String(typed.text ?? "");
 	}
 
-	return stripCpaCompletionMarker(
-		stripHostInstruction(stripFeishuDocActionHint(text)),
-	);
+	return stripCpaCompletionMarker(stripHostInstruction(stripFeishuDocActionHint(text)));
 }
 
 /**

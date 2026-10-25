@@ -5,10 +5,7 @@ import ts from "typescript";
 import vm from "node:vm";
 
 function loadDomEventBridge() {
-	const source = readFileSync(
-		"src/renderer/src/components/session/composer/tiptap/domEventBridge.ts",
-		"utf8",
-	);
+	const source = readFileSync("src/renderer/src/components/session/composer/tiptap/domEventBridge.ts", "utf8");
 	const output = ts.transpileModule(source, {
 		compilerOptions: {
 			module: ts.ModuleKind.CommonJS,
@@ -17,11 +14,7 @@ function loadDomEventBridge() {
 		fileName: "domEventBridge.ts",
 	}).outputText;
 	const module = { exports: {} };
-	vm.runInNewContext(
-		output,
-		{ module, exports: module.exports, require: () => ({}), console, Object },
-		{ filename: "domEventBridge.ts" },
-	);
+	vm.runInNewContext(output, { module, exports: module.exports, require: () => ({}), console, Object }, { filename: "domEventBridge.ts" });
 	return module.exports;
 }
 

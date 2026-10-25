@@ -16,23 +16,14 @@ const { formatBootExitError } = loadTsCommonJs("src/main/dsh/DshHostProcess.ts",
 });
 
 test("formatBootExitError 保留原有的笼统格式（无失败详情时）", () => {
-	assert.equal(
-		formatBootExitError(1, null),
-		"DSH host process exited before ready (code=1)",
-	);
+	assert.equal(formatBootExitError(1, null), "DSH host process exited before ready (code=1)");
 });
 
 test("formatBootExitError 附带 host-error 详情（用户能看到真实原因）", () => {
-	assert.equal(
-		formatBootExitError(1, "Error: Cannot find module '@deepseek-ai/dsh-app-boot'"),
-		"DSH host process exited before ready (code=1): Error: Cannot find module '@deepseek-ai/dsh-app-boot'",
-	);
+	assert.equal(formatBootExitError(1, "Error: Cannot find module '@deepseek-ai/dsh-app-boot'"), "DSH host process exited before ready (code=1): Error: Cannot find module '@deepseek-ai/dsh-app-boot'");
 });
 
 test("formatBootExitError 附带多行 stderr 尾部（host 崩溃未发 host-error 时兜底）", () => {
 	const detail = "TypeError: x is not a function\n    at boot (hostEntry.js:12:3)";
-	assert.match(
-		formatBootExitError(1, detail),
-		/^DSH host process exited before ready \(code=1\): TypeError: x is not a function/,
-	);
+	assert.match(formatBootExitError(1, detail), /^DSH host process exited before ready \(code=1\): TypeError: x is not a function/);
 });

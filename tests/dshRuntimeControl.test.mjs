@@ -2,10 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const {
-	applyDshControlEvent,
-	beginDshCancel,
-} = loadTsCommonJs("src/main/dsh/dshRuntimeControl.ts");
+const { applyDshControlEvent, beginDshCancel } = loadTsCommonJs("src/main/dsh/dshRuntimeControl.ts");
 
 const idle = () => ({
 	status: "idle",

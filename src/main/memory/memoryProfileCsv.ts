@@ -46,15 +46,19 @@ export interface ProfileRowData {
 	workerJSHeapKB: number | null;
 	/** 本轮是否有活跃流式回复（0/1；渲染窗口行才有意义，主进程由调用方注入探针） */
 	streaming: number | null;
+	/** 主进程 V8 堆总大小（KB，heapTotal——含未归还 OS 的空闲页，与 heapUsed 差值即空闲水位；判断 committed 不还 OS 的直接信号） */
+	heapTotalKB: number | null;
+	/** 主进程 V8 external 内存（KB，不含 arrayBuffers 的堆外部分） */
+	externalKB: number | null;
+	/** 主进程 V8 arrayBuffers 内存（KB，TypedArray/ArrayBuffer 专用记账，2026-12 内存排查补采） */
+	arrayBuffersKB: number | null;
 }
 
-export const MEMORY_PROFILE_HEADER =
-	"ts,type,pid,label,rssKB,privateKB,sharedKB,peakRssKB,heapUsedKB,jsHeapKB,totalJSHeapKB,domNodes,imgCount,imgPixels,canvasPixels,workerCount,workerJSHeapKB,streaming";
+export const MEMORY_PROFILE_HEADER = "ts,type,pid,label,rssKB,privateKB,sharedKB,peakRssKB,heapUsedKB,jsHeapKB,totalJSHeapKB,domNodes,imgCount,imgPixels,canvasPixels,workerCount,workerJSHeapKB,streaming,heapTotalKB,externalKB,arrayBuffersKB";
 
 /** 把一行数据序列化为 CSV 文本（null 输出空串，label 转义逗号/引号）。 */
 export function toProfileCsvRow(row: ProfileRowData): string {
-	const esc = (v: string): string =>
-		v.includes(",") || v.includes('"') ? `"${v.replaceAll('"', '""')}"` : v;
+	const esc = (v: string): string => (v.includes(",") || v.includes('"') ? `"${v.replaceAll('"', '""')}"` : v);
 	return [
 		row.ts,
 		esc(row.type),
@@ -74,6 +78,9 @@ export function toProfileCsvRow(row: ProfileRowData): string {
 		row.workerCount ?? "",
 		row.workerJSHeapKB ?? "",
 		row.streaming ?? "",
+		row.heapTotalKB ?? "",
+		row.externalKB ?? "",
+		row.arrayBuffersKB ?? "",
 	].join(",");
 }
 
@@ -91,40 +98,19 @@ export function parseMemoryCsv(text: string): ParsedProfileRow[] {
 		// 手工切分：label 可能带逗号（被引号包裹），不能简单 split(",")
 		const fields = splitCsvLine(line);
 		// 兼容旧格式（新列是后加的）；其余字段数一律抛错防静默错位
-		if (![10, 11, 14, 15, 17, 18].includes(fields.length)) {
+		if (![10, 11, 14, 15, 17, 18, 21].includes(fields.length)) {
 			throw new Error(`memory profile row malformed (${fields.length} fields): ${line.slice(0, 80)}`);
 		}
-		const num = (v: string | null): number | null =>
-			v === null || v === "" ? null : Number(v);
-		const [
-			ts,
-			type,
-			pid,
-			label,
-			rssKB,
-			privateKB,
-			sharedKB,
-			peakRssKB,
-			heapUsedKB,
-			jsHeapKB,
-			...rest
-		] = fields;
+		const num = (v: string | null): number | null => (v === null || v === "" ? null : Number(v));
+		const [ts, type, pid, label, rssKB, privateKB, sharedKB, peakRssKB, heapUsedKB, jsHeapKB, ...rest] = fields;
 		// 后加列在不同版本插入位置不同（totalJSHeapKB 插在 jsHeapKB 与 domNodes 之间），
 		// 不能按固定索引解构，必须按列数分支：
 		//   11 列: [domNodes]
 		//   14 列: [domNodes, imgCount, imgPixels, canvasPixels]
 		//   15 列: [totalJSHeapKB, domNodes, imgCount, imgPixels, canvasPixels]
 		//   17 列: 15 列 + [workerCount, workerJSHeapKB]
-		const [
-			totalJSHeapKB,
-			domNodes,
-			imgCount,
-			imgPixels,
-			canvasPixels,
-			workerCount,
-			workerJSHeapKB,
-			streaming,
-		] = rest.length === 1 || rest.length === 4 ? [null, ...rest] : rest;
+		//   18 列: 17 列 + [streaming]；21 列再追加行尾 [heapTotalKB, externalKB, arrayBuffersKB]
+		const [totalJSHeapKB, domNodes, imgCount, imgPixels, canvasPixels, workerCount, workerJSHeapKB, streaming, heapTotalKB, externalKB, arrayBuffersKB] = rest.length === 1 || rest.length === 4 ? [null, ...rest] : rest;
 		rows.push({
 			ts: Number(ts),
 			type,
@@ -144,6 +130,9 @@ export function parseMemoryCsv(text: string): ParsedProfileRow[] {
 			workerCount: workerCount === undefined ? null : num(workerCount),
 			workerJSHeapKB: workerJSHeapKB === undefined ? null : num(workerJSHeapKB),
 			streaming: streaming === undefined ? null : num(streaming),
+			heapTotalKB: heapTotalKB === undefined ? null : num(heapTotalKB),
+			externalKB: externalKB === undefined ? null : num(externalKB),
+			arrayBuffersKB: arrayBuffersKB === undefined ? null : num(arrayBuffersKB),
 		});
 	}
 	return rows;
@@ -201,6 +190,12 @@ export interface ProcessSummary {
 	endHeapUsedKB: number | null;
 	/** 末尾 DOM 节点数（渲染进程才有；判断 DOM 累积的直接信号） */
 	endDomNodes: number | null;
+	/** 末尾主进程 V8 堆总大小（heapTotal；与 endHeapUsedKB 差值即堆内空闲水位） */
+	endHeapTotalKB: number | null;
+	/** 末尾主进程 V8 external（堆外） */
+	endExternalKB: number | null;
+	/** 末尾主进程 V8 arrayBuffers */
+	endArrayBuffersKB: number | null;
 }
 
 /**
@@ -252,6 +247,18 @@ export function aggregateMemoryProfile(rows: ParsedProfileRow[]): ProcessSummary
 			.map((r) => r.domNodes)
 			.filter((v): v is number => v !== null)
 			.pop();
+		const heapTotal = list
+			.map((r) => r.heapTotalKB)
+			.filter((v): v is number => v !== null)
+			.pop();
+		const external = list
+			.map((r) => r.externalKB)
+			.filter((v): v is number => v !== null)
+			.pop();
+		const arrayBuffers = list
+			.map((r) => r.arrayBuffersKB)
+			.filter((v): v is number => v !== null)
+			.pop();
 		const startRss = rss.length ? rss[0] : null;
 		const endRss = rss.length ? rss[rss.length - 1] : null;
 		out.push({
@@ -266,6 +273,9 @@ export function aggregateMemoryProfile(rows: ParsedProfileRow[]): ProcessSummary
 			endJsHeapKB: jsHeap ?? null,
 			endHeapUsedKB: heapUsed ?? null,
 			endDomNodes: domNodes ?? null,
+			endHeapTotalKB: heapTotal ?? null,
+			endExternalKB: external ?? null,
+			endArrayBuffersKB: arrayBuffers ?? null,
 		});
 	}
 	// 按增长从大到小排：泄漏嫌疑最重的排最前
@@ -296,7 +306,5 @@ export function totalRssSeries(rows: ParsedProfileRow[]): { ts: number; totalKB:
 		if (!cleanSet.get(r.pid)?.has(r.rssKB)) continue; // 异常读数不计入总和
 		byTs.set(r.ts, (byTs.get(r.ts) ?? 0) + r.rssKB);
 	}
-	return [...byTs.entries()]
-		.map(([ts, totalKB]) => ({ ts, totalKB }))
-		.sort((a, b) => a.ts - b.ts);
+	return [...byTs.entries()].map(([ts, totalKB]) => ({ ts, totalKB })).sort((a, b) => a.ts - b.ts);
 }

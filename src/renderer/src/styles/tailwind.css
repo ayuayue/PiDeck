@@ -23,6 +23,10 @@
 @source "../../../../src/renderer/src/**/*.{ts,tsx,js,jsx}";
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+/* 标准工作台的自定义标题栏（排除 simple 外壳与小任务窗口）：窗口控件行、抽屉列顶部让位区
+   与会话 Tab 栏共用同一条标题栏底边线。小任务窗口的 list-toolbar 底边线本就铺满控件区、
+   simple 外壳没有 40px 标题栏行，二者都不能再叠一条（壁纸模式控件背景透明，叠线会加深）。 */
+@custom-variant workspace-titlebar (&:where(.custom-titlebar-enabled:not(.quick-task-shell):not(.simple-shell), .custom-titlebar-enabled:not(.quick-task-shell):not(.simple-shell) *));
 
 @layer base {
   *,
@@ -92,9 +96,17 @@
   --color-border: var(--color-border-default);
   --color-input: var(--color-border-default);
   --color-ring: var(--color-accent-strong);
+  --radius-xs: var(--radius-xs);
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
+  /* 尺寸档阴影桥接：shadow-* utility 从 Tailwind 默认灰切到 foundation 主题档
+     （浅色值与默认刻度一致，暗色加深）；同名声明被 legacy 层 foundation.css 覆盖生效 */
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+  --shadow-2xl: var(--shadow-2xl);
 
   --font-sans: var(--font-family-base);
   --font-brand: var(--font-family-brand);
@@ -114,6 +126,9 @@
      但随 data-ui-font-size / data-chat-font-size 设置缩放（全局统一字号规范） */
   --text-micro: var(--font-size-micro);
   --text-micro--line-height: var(--line-height-micro);
+  /* 会话 Tab 栏标题：随「会话 Tab 栏字号」设置缩放（--font-size-tab，见 foundation.css） */
+  --text-tab: var(--font-size-tab);
+  --text-tab--line-height: var(--line-height-tab);
   --text-caption: var(--font-size-caption);
   --text-caption--line-height: var(--line-height-caption);
   --text-control: var(--font-size-control);
@@ -132,6 +147,14 @@
   --text-body--line-height: var(--line-height-body);
   --text-chat: var(--font-size-chat);
   --text-chat--line-height: var(--line-height-chat);
+  /* 过程层（组头 / 工具调用 / 思考 / 重试错误 / 提问卡 / 大折叠栏胶囊）字号体系。
+     与 --text-chat 同源派生，随「会话正文字号」缩放，**不随界面字号**。
+     只有两档，保证层级任何档位下都恒定且肉眼可辨：row(正文−2) > detail(正文−4)。
+     徽章用 detail 档（靠 chip 底色区分，不单独设字号）。 */
+  --text-chat-row: var(--font-size-chat-row);
+  --text-chat-row--line-height: var(--line-height-chat-row);
+  --text-chat-detail: var(--font-size-chat-detail);
+  --text-chat-detail--line-height: var(--line-height-chat-detail);
   --text-input: var(--font-size-input);
   --text-input--line-height: var(--line-height-input);
   --text-title: var(--font-size-title);
@@ -345,6 +368,13 @@
 
 /* hover 滚动时收窄右端渐隐（legacy 的 28px mask 会吃掉滚出的尾端文字）；
  * 仅在 animate-title-scroll 同用时生效，未滚动的行保持原渐隐截断观感。 */
+/* 溢出但未 hover 时的静态渐隐：标题是硬裁（不写 ellipsis，否则 hover 滚动期间省略号会
+ * 一直贴在右缘），没有提示「后面还有字」就只能看到半个字。14px 渐隐是低成本的可供性。 */
+@utility title-scroll-mask {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 14px), transparent);
+}
+
 @utility title-scroll-mask-narrow {
   -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 6px), transparent);
   mask-image: linear-gradient(90deg, #000 calc(100% - 6px), transparent);
@@ -360,9 +390,10 @@
  * 标题被截断时，hover 让全文滚到末尾停住再回弹，离开回开头。
  * 时长/距离由组件实测溢出后注入 --title-scroll-duration / --title-scroll-distance；
  * 未溢出的行不加 animate-title-scroll，完全静止。
- * 匀速（linear）：组件按 5px/s 线性折算时长，这里不再叠加缓动曲线，
- * 避免中段瞬时加速导致长标题看不清。 */
-@theme {
+ * 匀速（linear）：组件按 30px/s 线性折算时长，这里不再叠加缓动曲线，
+ * 避免中段瞬时加速导致长标题看不清。
+ * 必须 inline：否则嵌套 var 会在 :root token 定义时提前解析，冻结为 3s fallback。 */
+@theme inline {
   --animate-title-scroll: title-scroll-to-end var(--title-scroll-duration, 3s) linear forwards;
 
   @keyframes title-scroll-to-end {

@@ -7,24 +7,13 @@
  * 扩展负责「按快照拦截」。
  */
 
-import type {
-	SecurityAction,
-	SecurityConfig,
-	SecurityLevelConfig,
-	SecurityPolicySnapshot,
-} from "../../shared/types/security";
+import type { SecurityAction, SecurityConfig, SecurityLevelConfig, SecurityPolicySnapshot } from "../../shared/types/security";
 
 /**
  * 敏感路径模式（本地副本，与 shared/types/security.ts 的 DEFAULT_SENSITIVE_PATH_PATTERNS
  * 及扩展内置列表对齐；保持无运行时依赖，便于 node --test 直接 import 本模块）。
  */
-const SENSITIVE_PATH_PATTERNS: string[] = [
-	"(^|[\\\\/])\\.env([.$]|$)",
-	"(^|[\\\\/])\\.git([\\\\/]|$)",
-	"(^|[\\\\/])(id_rsa|id_ed25519|id_ecdsa)(\\.pub)?$",
-	"(^|[\\\\/])\\.(npmrc|yarnrc|pnpm-workspace)([.$]|$)",
-	"(\\.pem|\\.key|\\.p12)$",
-];
+const SENSITIVE_PATH_PATTERNS: string[] = ["(^|[\\\\/])\\.env([.$]|$)", "(^|[\\\\/])\\.git([\\\\/]|$)", "(^|[\\\\/])(id_rsa|id_ed25519|id_ecdsa)(\\.pub)?$", "(^|[\\\\/])\\.(npmrc|yarnrc|pnpm-workspace)([.$]|$)", "(\\.pem|\\.key|\\.p12)$"];
 
 /** 路径分隔符归一化：Windows 反斜杠 → 正斜杠，便于统一比较 */
 export function normalizePathForCompare(p: string): string {
@@ -40,9 +29,7 @@ export function normalizePathForCompare(p: string): string {
  */
 export function sanitizeLineList(value: string[] | undefined): string[] {
 	if (!Array.isArray(value)) return [];
-	return value
-		.map((line) => (typeof line === "string" ? line.trim() : ""))
-		.filter((line) => line !== "");
+	return value.map((line) => (typeof line === "string" ? line.trim() : "")).filter((line) => line !== "");
 }
 
 /** 判断 target 是否位于 root 目录之内（含等于）。Windows 忽略盘符大小写。 */
@@ -81,10 +68,7 @@ export function resolveLevelId(config: SecurityConfig, sessionId?: string): stri
 }
 
 /** 按 id 取等级配置；找不到时回退 standard，仍无则取第一个等级（极端损坏兜底）。 */
-export function resolveLevel(
-	config: SecurityConfig,
-	levelId: string,
-): SecurityLevelConfig {
+export function resolveLevel(config: SecurityConfig, levelId: string): SecurityLevelConfig {
 	const found = config.levels.find((level) => level.id === levelId);
 	if (found) return found;
 	const standard = config.levels.find((level) => level.id === "standard");
@@ -147,10 +131,7 @@ export function buildSnapshot(config: SecurityConfig): SecurityPolicySnapshot {
  * 求值 bash 命令：命中危险模式 → 返回命中动作（denyBash 逻辑由调用方组合）；
  * 返回 null 表示未命中任何危险模式。
  */
-export function matchBashDenyPatterns(
-	level: SecurityLevelConfig,
-	command: string,
-): string | null {
+export function matchBashDenyPatterns(level: SecurityLevelConfig, command: string): string | null {
 	for (const pattern of level.denyBashPatterns) {
 		try {
 			if (new RegExp(pattern).test(command)) return pattern;
@@ -162,11 +143,7 @@ export function matchBashDenyPatterns(
 }
 
 /** 求值文件访问动作：黑名单/敏感文件 → deny；目录边界外的写 → deny（读放行降级）；否则 null 由工具动作决定 */
-export function evaluatePathAction(
-	level: SecurityLevelConfig,
-	filePath: string,
-	cwd: string,
-): SecurityAction | null {
+export function evaluatePathAction(level: SecurityLevelConfig, filePath: string, cwd: string): SecurityAction | null {
 	for (const dir of level.denyDirs) {
 		if (isPathInsideRoot(filePath, dir)) return "deny";
 	}

@@ -13,6 +13,8 @@
  * - prompt：立即 success，然后以 ~80ms 间隔流式输出 12 个 text_delta，
  *   文本为 "Mock 回复：「<消息>」"；prompt 含 "SLOW" 时放慢到 220ms×18，
  *   便于稳定地在中途点击「停止」。
+ * - prompt 含 RETRY_OK / RETRY_FAIL：复刻 pi 的自动重试事件序列
+ *   （见 simulateRetry；E2E：retry-status-card.spec.ts）。
  * - abort：立即 success；取消进行中的流，发 agent_end + agent_settled。
  * - 其它命令一律 success（桌面端对未知字段宽容），避免误报错误气泡。
  */
@@ -29,11 +31,7 @@ if (process.argv.includes("--version")) {
 //（modelListCache.parsePiListModels，无需启动 agent），列序：
 // provider  model  context  max-out  thinking  images
 if (process.argv.includes("--list-models")) {
-	process.stdout.write(
-		"provider  model           context  max-out  thinking  images\n" +
-		"mock      mock-model      128000   8192     yes       no\n" +
-		"mock      mock-model-pro  256000   8192     yes       no\n",
-	);
+	process.stdout.write("provider  model           context  max-out  thinking  images\n" + "mock      mock-model      128000   8192     yes       no\n" + "mock      mock-model-pro  256000   8192     yes       no\n");
 	process.exit(0);
 }
 
@@ -47,20 +45,20 @@ function log(direction, payload) {
 	try {
 		fs.mkdirSync(path.dirname(LOG_PATH), { recursive: true });
 		fs.appendFileSync(LOG_PATH, `${direction} ${JSON.stringify(payload)}\n`);
-	} catch { /* 日志失败不影响协议 */ }
+	} catch {
+		/* 日志失败不影响协议 */
+	}
 }
 
 // sessionId 按 cwd 稳定哈希：重启 Agent（杀进程重 spawn）后桌面端期望
 // 同一会话文件被重新接管（#113 3.2-6 续聊语义），不能按时间乱变。
 const crypto = require("node:crypto");
-const sessionId =
-	"mock-" + crypto.createHash("md5").update(process.cwd()).digest("hex").slice(0, 10);
+const sessionId = "mock-" + crypto.createHash("md5").update(process.cwd()).digest("hex").slice(0, 10);
 // 桌面端 resume 历史会话时会传 --session <path>（PiProcess.start:305 → finalPiArgs.push("--session", sessionPath)）。
 // 真实 pi 会加载该文件续写；mock 必须同样尊重它，否则「未启动会话重发」会在 mock 自己的
 // mock-<hash>.jsonl 里另起炉灶，丢掉截断前保留的历史（编辑后的首轮回复从时间线消失）。
 const sessionArgIndex = process.argv.indexOf("--session");
-const resumeSessionPath =
-	sessionArgIndex >= 0 && process.argv[sessionArgIndex + 1] ? process.argv[sessionArgIndex + 1] : null;
+const resumeSessionPath = sessionArgIndex >= 0 && process.argv[sessionArgIndex + 1] ? process.argv[sessionArgIndex + 1] : null;
 // 模型/思考级别有状态跟踪：桌面端 set_model/set_thinking_level 后会重新
 // get_state 拉取（AgentManager.getRuntimeState），mock 必须返回更新后的值。
 const MODELS = [
@@ -93,27 +91,35 @@ function encodeSessionDir(cwd) {
 // 2) 项目 cwd/.pi/sessions 镜像，SessionScanner 扫历史（#113 3.2-9）
 let sessionFile = resumeSessionPath;
 let sessionHeaderWritten = false;
-const TMP_SESSION_FILE_PATH = path.join(require("node:os").tmpdir(), sessionId + ".jsonl");
 const PROJECT_SESSIONS_DIR = path.join(process.cwd(), ".pi", "sessions");
 const PROJECT_SESSION_FILE_PATH = path.join(PROJECT_SESSIONS_DIR, sessionId + ".jsonl");
+// Session identity tests need the RPC-reported file and scanner file to be the same,
+// as with real pi; retain the older dual-file fixture for existing recovery tests.
+const TMP_SESSION_FILE_PATH = process.env.PIDECK_MOCK_SESSION_IN_PROJECT === "1" ? PROJECT_SESSION_FILE_PATH : path.join(require("node:os").tmpdir(), sessionId + ".jsonl");
 function ensureSessionFile() {
 	if (sessionFile) return;
 	try {
-		fs.writeFileSync(TMP_SESSION_FILE_PATH, "", { flag: "a" });
 		fs.mkdirSync(PROJECT_SESSIONS_DIR, { recursive: true });
+		fs.writeFileSync(TMP_SESSION_FILE_PATH, "", { flag: "a" });
 		const settingsPath = path.join(process.cwd(), ".pi", "settings.json");
 		if (!fs.existsSync(settingsPath)) {
 			fs.writeFileSync(settingsPath, JSON.stringify({ sessionDir: ".pi/sessions" }, null, 2));
 		}
 		fs.writeFileSync(PROJECT_SESSION_FILE_PATH, "", { flag: "a" });
-	} catch { /* 写失败仅影响 fork/历史恢复类用例 */ }
+	} catch {
+		/* 写失败仅影响 fork/历史恢复类用例 */
+	}
 	sessionFile = TMP_SESSION_FILE_PATH;
 }
 // 重启后的新进程：tmp 文件已存在则恢复 sessionFile（桌面端 reattach 语义）。
 // resume 模式下 sessionFile 已指向 --session 传入的文件，不能被残留的 tmp 文件覆盖。
 if (!resumeSessionPath && fs.existsSync(TMP_SESSION_FILE_PATH)) {
 	sessionFile = TMP_SESSION_FILE_PATH;
-	try { sessionHeaderWritten = fs.statSync(TMP_SESSION_FILE_PATH).size > 0; } catch { /* ignore */ }
+	try {
+		sessionHeaderWritten = fs.statSync(TMP_SESSION_FILE_PATH).size > 0;
+	} catch {
+		/* ignore */
+	}
 }
 // 启动即落盘：get_state 必须返回真实 sessionFile，桌面端才会给 catalog 记录 attach
 // filePath（canAttachRuntimeMetadata），会话才走「有文件」的编辑/删除/重发路径而非匿名路径。
@@ -146,17 +152,23 @@ const ASK_MARKERS = {
 	ASK_CONFIRM: { method: "confirm", title: "确认继续吗？" },
 	ASK_INPUT: { method: "input", title: "请输入你的名字", placeholder: "例如：张三" },
 	ASK_EDITOR: { method: "editor", title: "请写下修改意见", placeholder: "多行内容" },
-	ASK_BATCH: { method: "input", title: JSON.stringify({ __piDeckBatchAsk: 1, questions: [
-		{ id: "b1", type: "select", question: "选择框架", options: ["React", "Vue"] },
-		{ id: "b2", type: "confirm", question: "使用 TypeScript？" },
-		{ id: "b3", type: "input", question: "项目名", placeholder: "my-app" },
-	] }) },
+	ASK_BATCH: {
+		method: "input",
+		title: JSON.stringify({
+			__piDeckBatchAsk: 1,
+			questions: [
+				{ id: "b1", type: "select", question: "选择框架", options: ["React", "Vue"] },
+				{ id: "b2", type: "confirm", question: "使用 TypeScript？" },
+				{ id: "b3", type: "input", question: "项目名", placeholder: "my-app" },
+			],
+		}),
+	},
 };
 let pendingAsk = null; // { requestId, method, title, marker }
 let askAnswerLog = []; // 记录每次 ask 的答案，供 E2E 主进程侧断言
 
 function emitAsk(marker, markerConfig) {
-	const requestId = "ask-" + (nextEntrySeq++);
+	const requestId = "ask-" + nextEntrySeq++;
 	pendingAsk = { requestId, method: markerConfig.method, marker };
 	emit({
 		type: "extension_ui_request",
@@ -225,19 +237,23 @@ if (sessionFile && fs.existsSync(sessionFile)) {
 					if (role === "user" || role === "assistant") {
 						const text = Array.isArray(entry.message.content)
 							? entry.message.content
-								.filter((b) => b && b.type === "text")
-								.map((b) => b.text)
-								.join("")
+									.filter((b) => b && b.type === "text")
+									.map((b) => b.text)
+									.join("")
 							: (entry.message.content ?? "");
 						if (text) {
 							conversationMessages.push({ role, content: [{ type: "text", text }] });
 						}
 					}
 				}
-			} catch { /* 单行损坏跳过 */ }
+			} catch {
+				/* 单行损坏跳过 */
+			}
 		}
 		if (maxSeq > 0) nextEntrySeq = maxSeq + 1;
-	} catch { /* 读失败保持默认序号 */ }
+	} catch {
+		/* 读失败保持默认序号 */
+	}
 }
 
 /** 把对话写成可被 SessionHistoryReader 分页读取的真实 JSONL（#113 3.2-9） */
@@ -248,53 +264,225 @@ function appendSessionMessages(userText, assistantText) {
 	const lines = [];
 	if (!sessionHeaderWritten) {
 		const headerId = `e${nextEntrySeq++}`;
-		lines.push(JSON.stringify({
-			// 文件头必须是 type "session"：SessionFileEditor 以此统计 header
-			//（type "session_info" 只是追加的改名记录，头用它会报「found 0 headers」）。
-			type: "session",
-			version: 3,
-			id: headerId,
-			parentId: null,
-			name: userText.slice(0, 40) || "mock session",
-			cwd: process.cwd(),
-			timestamp: new Date(now).toISOString(),
-		}));
+		lines.push(
+			JSON.stringify({
+				// 文件头必须是 type "session"：SessionFileEditor 以此统计 header
+				//（type "session_info" 只是追加的改名记录，头用它会报「found 0 headers」）。
+				type: "session",
+				version: 3,
+				id: headerId,
+				parentId: null,
+				name: userText.slice(0, 40) || "mock session",
+				cwd: process.cwd(),
+				timestamp: new Date(now).toISOString(),
+			}),
+		);
 		lastEntryId = headerId;
 		sessionHeaderWritten = true;
 	}
 	const userParent = lastEntryId;
 	const userId = `e${nextEntrySeq++}`;
-	lines.push(JSON.stringify({
-		type: "message",
-		id: userId,
-		parentId: userParent,
-		timestamp: new Date(now).toISOString(),
-		message: { role: "user", content: [{ type: "text", text: userText }] },
-	}));
+	lines.push(
+		JSON.stringify({
+			type: "message",
+			id: userId,
+			parentId: userParent,
+			timestamp: new Date(now).toISOString(),
+			message: { role: "user", content: [{ type: "text", text: userText }] },
+		}),
+	);
 	const assistantId = `e${nextEntrySeq++}`;
-	lines.push(JSON.stringify({
-		type: "message",
-		id: assistantId,
-		parentId: userId,
-		timestamp: new Date(now + 1).toISOString(),
-		message: { role: "assistant", content: [{ type: "text", text: assistantText }] },
-	}));
+	lines.push(
+		JSON.stringify({
+			type: "message",
+			id: assistantId,
+			parentId: userId,
+			timestamp: new Date(now + 1).toISOString(),
+			message: { role: "assistant", content: [{ type: "text", text: assistantText }] },
+		}),
+	);
 	lastEntryId = assistantId;
 	const payload = lines.join("\n") + "\n";
 	// 双写：tmp（runtime sessionFile）+ 项目 sessions（历史扫描）。
 	// resume 模式下 sessionFile 已在项目 sessions 目录（--session 指向），
 	// 项目镜像就是同一文件，再写一次会把整段对话重复一遍。
-	try { fs.appendFileSync(sessionFile, payload); } catch { /* ignore */ }
+	try {
+		fs.appendFileSync(sessionFile, payload);
+	} catch {
+		/* ignore */
+	}
 	if (PROJECT_SESSION_FILE_PATH !== sessionFile) {
 		try {
 			fs.mkdirSync(PROJECT_SESSIONS_DIR, { recursive: true });
 			fs.appendFileSync(PROJECT_SESSION_FILE_PATH, payload);
-		} catch { /* ignore */ }
+		} catch {
+			/* ignore */
+		}
 	}
 }
 
 function emit(event) {
 	send(event);
+}
+
+/** 自动重试模拟用的错误原文（与真实 5xx 网关错误同形）。 */
+const RETRY_ERROR = "HTTP 429 Too Many Requests";
+
+/**
+ * 自动重试事件序列模拟（E2E：retry-status-card.spec.ts）。
+ * 对齐真实 pi（dist/core/agent-session.js）：
+ * - 每次重试前发 auto_retry_start{attempt,maxAttempts,delayMs,errorMessage}；
+ * - 重试由 agent.continue() 继续，continue 会再发一次 agent_start；
+ * - 成功那次 assistant message_end **之后**才发 auto_retry_end{success:true} 并把计数归零
+ *   ——计数按「一次 LLM 调用」归零，所以同一轮 run 内多次 5xx 会连发多组 success，
+ *   桌面端据此各留一张成功卡（用户反馈「重试成功卡堆一排」的复现路径）；
+ * - 耗尽则发 auto_retry_end{success:false,finalError}，本轮 run 以 error 收尾。
+ *
+ * RETRY_OK：同一轮内连续 3 个「网关空响应 → 重试成功」周期（真实空响应形态：重试后的
+ *   调用成功但没有任何正文，所以时间线上只看得到一排重试卡），随后用 SLOW 节奏流式输出
+ *   正常回答——留出足够窗口让 E2E 在「本轮仍在跑」时断言时间线上没有成功卡。
+ *   必须在轮内断言：agent_settled 会重读会话文件，PiDeck 本地卡片本来就会被清掉。
+ * RETRY_FAIL：重试耗尽 → 桌面端保留失败卡留痕。
+ */
+function simulateRetry(userText) {
+	const failOnly = userText.includes("RETRY_FAIL");
+	const backoffMs = 1500;
+	streaming = true;
+	emit({ type: "agent_start" });
+	const runCycle = (left) => {
+		if (left <= 0) {
+			if (failOnly) {
+				// 失败卡同理要留出稳定断言窗口：agent_settled 会重读会话文件，
+				// 只隔一帧就收尾的话 E2E 拿不到「失败卡留在时间线上」的稳定状态。
+				setTimeout(() => {
+					streaming = false;
+					emit({
+						type: "agent_end",
+						messages: [{ role: "assistant", content: [{ type: "text", text: "" }], stopReason: "error", errorMessage: RETRY_ERROR }],
+					});
+					emit({ type: "agent_settled" });
+				}, 2500);
+				return;
+			}
+			// 重试全部收敛后、最终回答前留一段空窗：E2E 要在这段时间内断言
+			// 「时间线上没有成功卡」。不能等到回答流式开始再断言——流式途中渲染层
+			// 会因窗口/前缀重算把这几张卡清掉，那时断言等于什么都没测。
+			setTimeout(() => startStream("SLOW " + userText), 4000);
+			return;
+		}
+		emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: backoffMs, errorMessage: RETRY_ERROR });
+		setTimeout(() => {
+			if (failOnly) {
+				emit({ type: "auto_retry_end", success: false, attempt: 1, maxAttempts: 3, finalError: RETRY_ERROR });
+				runCycle(0);
+				return;
+			}
+			emit({ type: "agent_start" });
+			// 网关空响应：这次调用算「成功」但没有任何正文。
+			// stopReason 用 toolUse 而不是 stop：真实重试多发在工具循环中间（重试后的调用
+			// 继续要工具），而 stop 会在渲染层断开 agent-run；一旦断成多个 run，turn 挂载
+			// 窗口只保留尾部 3 轮，早于窗口起点的重试卡会被 slice 掉，反而复现不出「堆一排」。
+			emit({ type: "message_start", message: { role: "assistant", content: [{ type: "text", text: "" }] } });
+			emit({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "" }], stopReason: "toolUse" } });
+			emit({ type: "auto_retry_end", success: true, attempt: 1 });
+			runCycle(left - 1);
+		}, backoffMs);
+	};
+	runCycle(failOnly ? 1 : 3);
+}
+
+/* ── PiDeck #262 前台子代理 widget 帧重放（E2E：subagents-foreground.spec.ts）──
+ * 真实链路里这些帧由内置桥接扩展 resources/extensions/pi-deck-subagents.ts 在
+ * subagents:started / subagents:completed 事件上经 ctx.ui.setWidget 推送；mock 不跑
+ * pi 的扩展加载器，改为直接重放该生产文件本身（typescript 转译 + 最小扩展 API），
+ * 再以 pi 原生 extension_ui_request{method:"setWidget"} 帧发给桌面端。
+ * 帧在桥接回调触发瞬间转发（含桥接自身 200ms 去抖），mock 不设任何本地定时器。
+ * 载荷形状对齐 @gotgenes/pi-subagents 21.7.4（#262 记录的版本：前台 spawnAndWait 只发
+ * started、无 created，载荷仅 id/type/description；completed 自带 result/toolUses/
+ * durationMs/tokens）——该包**不参与运行时**，E2E 不安装/不执行它，形状只是夹具依据；
+ * 生产桥接顶部 docstring 里的 @tintinweb/pi-subagents 是项目内旧署名，此处以 #262 的
+ * @gotgenes 记录为准。帧由生产函数生成，桥接逻辑一改帧就跟着变，不是手写静态 JSON。
+ */
+const SUBAGENT_FG_MARKER = "SUBAGENTS_FG";
+const SUBAGENT_FG_ENTRY_ID = "fg-e2e-262";
+let subagentReplay = null;
+
+function createSubagentReplay() {
+	const ts = require("typescript");
+	const { createRequire } = require("node:module");
+	const bridgePath = path.join(__dirname, "..", "resources", "extensions", "pi-deck-subagents.ts");
+	const source = fs.readFileSync(bridgePath, "utf8");
+	const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } });
+	const bridgeModule = {};
+	// 以桥接文件自身为模块解析基准：桥接将来新增相对 import 时不会错误地按 e2e/ 目录解析
+	new Function("exports", "require", outputText)(bridgeModule, createRequire(bridgePath));
+	const handlers = new Map();
+	const lifecycle = new Map();
+	// 最小 pi 扩展 API（与 tests/piSubagentsBridge.test.mjs 的 createMockPi 同构）
+	bridgeModule.default({
+		events: { on: (name, cb) => handlers.set(name, cb) },
+		on: (name, cb) => lifecycle.set(name, cb),
+		appendEntry: () => {},
+	});
+	// 桥接真正调用 ctx.ui.setWidget 时**立即**转发为 pi 原生 RPC——不猜去抖时间、
+	// 不复制帧。下一帧的 requestId + 期望状态在 started/completed 触发前登记，回调
+	// 按登记消费；未登记的回调（session_start 的初始空帧）忽略。帧状态与阶段不符时
+	// 直接抛错（响亮失败），避免把错阶段的帧贴上本阶段的 requestId 蒙混过关。
+	let pendingFrame = null;
+	const ctx = {
+		ui: {
+			setWidget: (key, lines) => {
+				const pending = pendingFrame;
+				pendingFrame = null;
+				if (!pending) return;
+				const snapshot = JSON.parse(lines[0]);
+				const entry = (snapshot.agents ?? []).find((agent) => agent.id === SUBAGENT_FG_ENTRY_ID);
+				if (entry?.status !== pending.expectStatus) {
+					throw new Error(`#262 重放帧与阶段不符：期望 ${pending.expectStatus}，实际 ${entry?.status ?? "<无条目>"}（${lines[0]}）`);
+				}
+				emit({ type: "extension_ui_request", id: pending.requestId, method: "setWidget", widgetKey: key, widgetLines: lines });
+			},
+		},
+	};
+	lifecycle.get("session_start")({ type: "session_start" }, ctx);
+	return {
+		started() {
+			pendingFrame = { requestId: "subagents-fg-running", expectStatus: "running" };
+			handlers.get("subagents:started")({ id: SUBAGENT_FG_ENTRY_ID, type: "Explore", description: "查找认证相关文件" });
+		},
+		completed() {
+			pendingFrame = { requestId: "subagents-fg-completed", expectStatus: "completed" };
+			handlers.get("subagents:completed")({
+				id: SUBAGENT_FG_ENTRY_ID,
+				type: "Explore",
+				description: "查找认证相关文件",
+				status: "completed",
+				result: "找到 3 个认证文件",
+				toolUses: 5,
+				durationMs: 42000,
+				tokens: { input: 100, output: 200, total: 300 },
+			});
+		},
+	};
+}
+
+/** #262 重放的 run 外壳：started 期间 UI 处于运行中；终态帧后正常收尾本轮。 */
+function beginSubagentReplayRun() {
+	streaming = true;
+	emit({ type: "agent_start" });
+	emit({ type: "message_start", message: { role: "assistant", content: [{ type: "text", text: "" }] } });
+}
+
+function finishSubagentReplayRun(userText) {
+	streaming = false;
+	const reply = "前台子代理已完成。";
+	appendSessionMessages(userText, reply);
+	// 与 startStream 正常收尾一致：内存对话同步更新，get_messages 才能返回本轮
+	conversationMessages.push({ role: "user", content: [{ type: "text", text: userText }] }, { role: "assistant", content: [{ type: "text", text: reply }] });
+	const full = { role: "assistant", content: [{ type: "text", text: reply }], stopReason: "stop" };
+	emit({ type: "message_end", message: full });
+	emit({ type: "agent_end", messages: [full] });
+	emit({ type: "agent_settled" });
 }
 
 function stopStream(settled) {
@@ -315,50 +503,62 @@ function startStream(userText, options = {}) {
 	// BURST 模式：模拟真实 LLM 突发输出——前 6 个 chunk 慢速（250ms），
 	// 之后 15ms 密集推送（复现「开头吐字、后面蹦字」）。
 	const burst = userText.includes("BURST");
+	// TOOLMANY 模式（过程组内部跟底 e2e 用）：`TOOLMANY <n>` 会**逐个**推 n 次工具调用，
+	// 每次之间隔 manyToolDelayMs，用于制造「组体已展开、成员仍在继续到达」的增长窗口。
+	// 刻意不夹中间文本（tool 之间没有 text_delta）——一旦夹了，分组层会把它们切成多个组
+	// （中间回复是组边界），组体就撑不出内部滚动，测不到跟底。
+	const manyToolCount = (() => {
+		const match = /TOOLMANY\s+(\d+)/.exec(userText);
+		return match ? Number(match[1]) : 0;
+	})();
+	const manyToolDelayMs = Math.max(streamIntervalMs, 250);
+	let manyToolEmitted = 0;
 	// prompt 含 "MDEMO" 时回复富 markdown，用于截图巡检渲染元素（链接/代码/表格/引用）
 	// raw 模式（Ask 回答回显）：不套模板、不截断，保证长 JSON 答案完整回传
-	const reply = options.raw
-		? userText
-		: userText.includes("BURST")
-		? "Mock 回复：「BURST」" +
-		  "第一段缓慢吐字节奏稳定，然后密集输出段以极快速度连续推送多字符用于复现真实模型突发输出导致的蹦字现象，这段文本会在一两百毫秒内一次性灌入渲染层。"
-		: userText.includes("LONG")
-		? "Mock 回复：「LONG」" +
-		  Array.from({ length: 120 })
-			.map((_, i) => `第 ${i + 1} 行：长回答示例文本，用于撑高时间线高度（滚动/贴底类用例需要内容溢出视口）。`)
-			.join("\n")
-		: userText.includes("MDEMO")
-		? [			"以下是渲染元素巡检：",
-			"",
-			"修改了 src/main/index.ts 和 ./docs/ui-2.0-revamp-plan.md，详见 https://github.com/miaojingang/pi-desktop 。",
-			"",
-			"> 引用块：重构期间禁止静默吞掉对方改动，每个冲突都要确认能力归属。",
-			"",
-			"行内代码 `npm run typecheck` 必须通过。",
-			"",
-			"```ts",
-			"const gate = await runTypecheck();",
-			"if (!gate.ok) throw new Error(\"typecheck failed\");",
-			"```",
-			"",
-			"| 批次 | 状态 | 说明 |",
-			"| --- | --- | --- |",
-			"| U2 | ✅ | Streamdown 渲染管线 |",
-			"| U5 | ✅ | 组件清扫 |",
-			"",
-			"```mermaid",
-			"graph LR",
-			"  A[启动] --> B{校验}",
-			"  B -->|通过| C[执行]",
-			"  B -->|失败| D[报错]",
-			"  C --> E[结束]",
-			"```",
-			"",
-			"行内公式 $x^2 + y^2 = z^2$ 与块级公式：",
-			"",
-			"$$\\int_0^1 x^2 \\, dx = \\frac{1}{3}$$",
-		].join("\n")
-		: `Mock 回复：「${userText.slice(0, 40)}」流式渲染验证完成。`;
+	const reply = userText.startsWith("MATH_REPRO\n")
+		? userText.slice("MATH_REPRO\n".length)
+		: options.raw
+			? userText
+			: userText.includes("BURST")
+				? "Mock 回复：「BURST」" + "第一段缓慢吐字节奏稳定，然后密集输出段以极快速度连续推送多字符用于复现真实模型突发输出导致的蹦字现象，这段文本会在一两百毫秒内一次性灌入渲染层。"
+				: userText.includes("LONG")
+					? "Mock 回复：「LONG」" +
+						Array.from({ length: 120 })
+							.map((_, i) => `第 ${i + 1} 行：长回答示例文本，用于撑高时间线高度（滚动/贴底类用例需要内容溢出视口）。`)
+							.join("\n")
+					: userText.includes("MDEMO")
+						? [
+								"以下是渲染元素巡检：",
+								"",
+								"修改了 src/main/index.ts 和 ./docs/ui-2.0-revamp-plan.md，详见 https://github.com/miaojingang/pi-desktop 。",
+								"",
+								"> 引用块：重构期间禁止静默吞掉对方改动，每个冲突都要确认能力归属。",
+								"",
+								"行内代码 `npm run typecheck` 必须通过。",
+								"",
+								"```ts",
+								"const gate = await runTypecheck();",
+								'if (!gate.ok) throw new Error("typecheck failed");',
+								"```",
+								"",
+								"| 批次 | 状态 | 说明 |",
+								"| --- | --- | --- |",
+								"| U2 | ✅ | Streamdown 渲染管线 |",
+								"| U5 | ✅ | 组件清扫 |",
+								"",
+								"```mermaid",
+								"graph LR",
+								"  A[启动] --> B{校验}",
+								"  B -->|通过| C[执行]",
+								"  B -->|失败| D[报错]",
+								"  C --> E[结束]",
+								"```",
+								"",
+								"行内公式 $x^2 + y^2 = z^2$ 与块级公式：",
+								"",
+								"$$\\int_0^1 x^2 \\, dx = \\frac{1}{3}$$",
+							].join("\n")
+						: `Mock 回复：「${userText.slice(0, 40)}」流式渲染验证完成。`;
 	const chunkCount = slow ? 18 : burst ? 24 : 12;
 	const per = Math.max(1, Math.ceil(reply.length / chunkCount));
 	streamChunks = [];
@@ -384,7 +584,7 @@ function startStream(userText, options = {}) {
 			});
 		}
 	}
-	if (userText.includes("TOOL")) {
+	if (manyToolCount === 0 && userText.includes("TOOL")) {
 		emit({
 			type: "tool_execution_start",
 			toolName: "bash",
@@ -416,6 +616,16 @@ function startStream(userText, options = {}) {
 		return true;
 	};
 	const emitChunk = () => {
+		// TOOLMANY：先把 n 个工具调用逐个推完，再进入正文流。
+		// 每个 tick 只推一个，组体在这段时间里持续增高（跟底用例的增长窗口）。
+		if (manyToolEmitted < manyToolCount) {
+			const id = `tool-e2e-many-${manyToolEmitted}`;
+			emit({ type: "tool_execution_start", toolName: "bash", toolCallId: id, args: { command: `echo step-${manyToolEmitted}` } });
+			emit({ type: "tool_execution_end", toolCallId: id });
+			manyToolEmitted += 1;
+			streamTimer = setTimeout(emitChunk, manyToolDelayMs);
+			return;
+		}
 		if (streamStep >= streamChunks.length) {
 			streamTimer = null;
 			const full = {
@@ -424,10 +634,7 @@ function startStream(userText, options = {}) {
 				stopReason: "stop",
 			};
 			appendSessionMessages(userText, reply);
-			conversationMessages.push(
-				{ role: "user", content: [{ type: "text", text: userText }] },
-				{ role: "assistant", content: [{ type: "text", text: reply }] },
-			);
+			conversationMessages.push({ role: "user", content: [{ type: "text", text: userText }] }, { role: "assistant", content: [{ type: "text", text: reply }] });
 			emit({ type: "message_end", message: full });
 			// steer 队列非空：同 run 继续（无 agent_end/agent_settled 间隔）
 			if (drainSteerMessagesIntoRun()) return;
@@ -471,6 +678,17 @@ function handleCommand(cmd) {
 		case "get_session_stats":
 			respond(cmd, { tokens: { input: 100, output: 50 }, contextUsage: { percent: contextPercent } });
 			return;
+		case "get_commands": {
+			// 提示词模板清单：渲染层靠这里的 source=prompt + sourceInfo.path 去读正文，
+			// 从而在发送前本地展开并保留 `/<模板名>` 身份（会话文件里存 <prompt_template>）。
+			// 路径固定取项目内 .pi/e2e-template.md（用例负责写入）；文件不存在时主进程
+			// 读正文会跳过，渲染层退回「交给 pi 展开」——不影响其他用例。
+			const templatePath = path.join(process.cwd(), ".pi", "e2e-template.md");
+			const commands = [];
+			if (fs.existsSync(templatePath)) commands.push({ name: "e2e-template", description: "E2E 模板", source: "prompt", sourceInfo: { path: templatePath } });
+			respond(cmd, { commands });
+			return;
+		}
 		case "get_available_models":
 			respond(cmd, { models: MODELS });
 			return;
@@ -524,6 +742,23 @@ function handleCommand(cmd) {
 					});
 					setTimeout(() => process.exit(1), 80);
 				}, 80);
+				return;
+			}
+			// PiDeck #262：前台子代理 started/completed widget 帧重放。
+			// 放在 streaming 排队判断之前——终态帧由第二条 prompt（..._DONE）触发。
+			if (text.includes(SUBAGENT_FG_MARKER)) {
+				subagentReplay = subagentReplay ?? createSubagentReplay();
+				if (text.includes(`${SUBAGENT_FG_MARKER}_DONE`)) {
+					subagentReplay.completed();
+					finishSubagentReplayRun(text);
+				} else {
+					beginSubagentReplayRun();
+					subagentReplay.started();
+				}
+				return;
+			}
+			if (text.includes("RETRY_OK") || text.includes("RETRY_FAIL")) {
+				simulateRetry(text);
 				return;
 			}
 			if (streaming) {

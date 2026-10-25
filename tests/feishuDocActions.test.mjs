@@ -32,10 +32,7 @@ test("detects Feishu doc intent from user message", () => {
 test("removes Feishu action markers before writing document body", () => {
 	const { stripFeishuActionMarkers } = loadDocActionsModule();
 
-	assert.equal(
-		stripFeishuActionMarkers("正文\n[CREATE_DOC:今日新闻]\n[SEND_FILE:/tmp/a.md]"),
-		"正文",
-	);
+	assert.equal(stripFeishuActionMarkers("正文\n[CREATE_DOC:今日新闻]\n[SEND_FILE:/tmp/a.md]"), "正文");
 });
 
 test("builds Feishu text children from assistant body", () => {

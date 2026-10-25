@@ -2,12 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const {
-	validateListParams,
-	toCommandView,
-	commandsBridgeRpc,
-	handleCommandsBridgeFetch,
-} = loadTsCommonJs("src/main/dsh/pideckCommandsBridge.ts", { globals: { Response } });
+const { validateListParams, toCommandView, commandsBridgeRpc, handleCommandsBridgeFetch } = loadTsCommonJs("src/main/dsh/pideckCommandsBridge.ts", { globals: { Response } });
 
 test("validateListParams：sessionId 必填，其余字段忽略", () => {
 	const ok = validateListParams({ sessionId: "session-1", extra: 42 });
@@ -77,10 +72,13 @@ test("handleCommandsBridgeFetch：POST JSON 协议、非 POST/坏 JSON/缺服务
 	assert.deepEqual(JSON.parse(await ok.text()), { ok: true, value: [{ name: "plan", description: "Plan mode" }] });
 
 	// 缺服务：400 + 结构化错误
-	const missingService = await handleCommandsBridgeFetch({ get: () => undefined }, {
-		method: "POST",
-		body: JSON.stringify({ method: "list", params: { sessionId: "s" } }),
-	});
+	const missingService = await handleCommandsBridgeFetch(
+		{ get: () => undefined },
+		{
+			method: "POST",
+			body: JSON.stringify({ method: "list", params: { sessionId: "s" } }),
+		},
+	);
 	assert.equal(missingService.status, 400);
 	assert.equal(JSON.parse(await missingService.text()).ok, false);
 

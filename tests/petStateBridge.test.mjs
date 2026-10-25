@@ -40,13 +40,13 @@ function createFakeTimers() {
 				tasks.set(id, { fn, at: now + ms });
 				return id;
 			},
-			clearTimeout: (id) => { tasks.delete(id); },
+			clearTimeout: (id) => {
+				tasks.delete(id);
+			},
 		},
 		async advance(ms) {
 			now += ms;
-			const due = [...tasks.entries()]
-				.filter(([, t]) => t.at <= now)
-				.sort((a, b) => a[1].at - b[1].at);
+			const due = [...tasks.entries()].filter(([, t]) => t.at <= now).sort((a, b) => a[1].at - b[1].at);
 			for (const [id] of due) tasks.delete(id);
 			for (const [, t] of due) t.fn();
 		},
@@ -72,8 +72,12 @@ function createHarness(timers) {
 	// 记录 start/stop 调用，供多任务/巡游互斥断言使用
 	const patrol = {
 		calls: [],
-		start() { this.calls.push("start"); },
-		stop() { this.calls.push("stop"); },
+		start() {
+			this.calls.push("start");
+		},
+		stop() {
+			this.calls.push("stop");
+		},
 		active: false,
 		setDragging: () => {},
 	};
@@ -209,10 +213,7 @@ test("error takes priority over waiting, waiting over running", () => {
 	bridge.pushNow([tab({ id: "a", title: "A", status: "running", createdAt: 1 })]);
 	bridge.updateUIRequest({ agentId: "a", requestId: "r1", method: "select", title: "q" });
 	assert.equal(states.at(-1).mode, "waiting");
-	bridge.pushNow([
-		tab({ id: "a", title: "A", status: "running", createdAt: 1 }),
-		tab({ id: "b", title: "B", status: "error", createdAt: 2 }),
-	]);
+	bridge.pushNow([tab({ id: "a", title: "A", status: "running", createdAt: 1 }), tab({ id: "b", title: "B", status: "error", createdAt: 2 })]);
 	assert.equal(states.at(-1).mode, "failed");
 });
 
@@ -246,10 +247,7 @@ test("failed overlay persists while an agent stays errored instead of forcing id
 	const fake = createFakeTimers();
 	const { bridge, states, patrol } = createHarness(fake);
 	// 任务 A 仍在运行、任务 B 出错（多任务并发）
-	bridge.pushNow([
-		tab({ id: "A", title: "A", status: "running", createdAt: 1 }),
-		tab({ id: "B", title: "B", status: "error", createdAt: 2 }),
-	]);
+	bridge.pushNow([tab({ id: "A", title: "A", status: "running", createdAt: 1 }), tab({ id: "B", title: "B", status: "error", createdAt: 2 })]);
 	assert.equal(states.at(-1).mode, "failed");
 	await fake.advance(4100);
 	// A 仍在 running、B 仍在 error：过渡到期必须保持 failed，而不是回旧快照的 idle
@@ -260,16 +258,10 @@ test("failed overlay persists while an agent stays errored instead of forcing id
 test("failed overlay settles back to running once the error clears", async () => {
 	const fake = createFakeTimers();
 	const { bridge, states } = createHarness(fake);
-	bridge.pushNow([
-		tab({ id: "A", title: "A", status: "running", createdAt: 1 }),
-		tab({ id: "B", title: "B", status: "error", createdAt: 2 }),
-	]);
+	bridge.pushNow([tab({ id: "A", title: "A", status: "running", createdAt: 1 }), tab({ id: "B", title: "B", status: "error", createdAt: 2 })]);
 	assert.equal(states.at(-1).mode, "failed");
 	// 错误清除（B 恢复运行）：非 force 推送在动画锁内被抑制，failed 闪播完成后再回落
-	bridge.update([
-		tab({ id: "A", title: "A", status: "running", createdAt: 1 }),
-		tab({ id: "B", title: "B", status: "running", createdAt: 2 }),
-	]);
+	bridge.update([tab({ id: "A", title: "A", status: "running", createdAt: 1 }), tab({ id: "B", title: "B", status: "running", createdAt: 2 })]);
 	await fake.advance(200);
 	assert.equal(states.at(-1).mode, "failed");
 	await fake.advance(3900);

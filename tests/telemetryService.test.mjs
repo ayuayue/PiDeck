@@ -158,3 +158,81 @@ test("skips heartbeat outside packaged builds", async () => {
 
 	assert.equal(calls.length, 0);
 });
+
+test("merges snapshot into properties and $set with fixed fields winning collisions", async () => {
+	const { TelemetryService } = loadTelemetryModule();
+	const store = createSettingsStore();
+	const calls = [];
+	let snapshotCalls = 0;
+	const service = new TelemetryService({
+		settingsStore: store,
+		capture: async (request) => calls.push(request),
+		config: {
+			projectKey: "phc_test",
+			host: "https://us.i.posthog.com",
+		},
+		metadata: {
+			appVersion: "0.4.16",
+			platform: "win32",
+			arch: "x64",
+			packaged: true,
+		},
+		snapshot: () => {
+			snapshotCalls += 1;
+			return {
+				feature_pet: true,
+				sessions_total: 12,
+				hidden_modules: ["pet"],
+				// 快照相机字段不得覆盖固定字段
+				app_version: "9.9.9-fake",
+			};
+		},
+		now: () => new Date("2026-06-11T01:00:00Z"),
+		createInstallId: () => "install-1",
+	});
+
+	await service.sendHeartbeat();
+
+	assert.equal(snapshotCalls, 1);
+	assert.equal(calls.length, 1);
+	const properties = calls[0].body.properties;
+	assert.equal(properties.feature_pet, true);
+	assert.equal(properties.sessions_total, 12);
+	assert.deepEqual(properties.hidden_modules, ["pet"]);
+	assert.equal(properties.app_version, "0.4.16");
+	assert.equal(properties.$set.feature_pet, true);
+	assert.equal(properties.$set.sessions_total, 12);
+	assert.equal(properties.$set.app_version, "0.4.16");
+});
+
+test("does not invoke snapshot when heartbeat gates fail", async () => {
+	const { TelemetryService } = loadTelemetryModule();
+	const store = createSettingsStore({ telemetryEnabled: false });
+	const calls = [];
+	let snapshotCalls = 0;
+	const service = new TelemetryService({
+		settingsStore: store,
+		capture: async (request) => calls.push(request),
+		config: {
+			projectKey: "phc_test",
+			host: "https://us.i.posthog.com",
+		},
+		metadata: {
+			appVersion: "0.4.16",
+			platform: "win32",
+			arch: "x64",
+			packaged: true,
+		},
+		snapshot: () => {
+			snapshotCalls += 1;
+			return { feature_pet: true };
+		},
+		now: () => new Date("2026-06-11T01:00:00Z"),
+		createInstallId: () => "install-1",
+	});
+
+	await service.sendHeartbeat();
+
+	assert.equal(calls.length, 0);
+	assert.equal(snapshotCalls, 0);
+});

@@ -1,9 +1,9 @@
 /**
- * Provider 用量展示纯函数（无 React）：三处（圆球面板 / 模型卡片 / 模型选择器行）
- * 共用的格式化、状态档位与相对时间。视觉规则学自 cc-switch UsageFooter/TierBadge：
+ * Provider 用量展示纯函数（无 React）：圆球面板与模型选择器展开区共用的
+ * 格式化、状态档位与相对时间。视觉规则学自 cc-switch UsageFooter/TierBadge：
  * - 百分比档位：≥90% 红、≥70% 橙、其余绿（utilizationColor 同款阈值）；
  * - 余额/剩余量：≤0 红、不足总额 10% 橙、其余绿；
- * - 查询失败/无可用数值 → null（三处统一「不渲染」，避免报错噪音）。
+ * - 查询失败/无可用数值 → null（所有消费端统一「不渲染」，避免报错噪音）。
  */
 import type { TranslationKey } from "../i18n";
 import type { I18nParams } from "../../../shared/types";
@@ -86,11 +86,8 @@ export function usagePercent(result: ProviderUsageResult): number | null {
 			if (total == null || used == null || total <= 0) return null;
 			return Math.min(100, Math.round((used / total) * 100));
 		};
-		const usedOf = (total?: number, used?: number, remaining?: number): number | undefined =>
-			used ?? (remaining != null && total != null ? total - remaining : undefined);
-		const windowPercents = (credits.windows ?? [])
-			.map((window) => fromWindow(window.total, usedOf(window.total, window.used, window.remaining)))
-			.filter((value): value is number => value != null);
+		const usedOf = (total?: number, used?: number, remaining?: number): number | undefined => used ?? (remaining != null && total != null ? total - remaining : undefined);
+		const windowPercents = (credits.windows ?? []).map((window) => fromWindow(window.total, usedOf(window.total, window.used, window.remaining))).filter((value): value is number => value != null);
 		if (windowPercents.length > 0) return Math.max(...windowPercents);
 		const mainPercent = fromWindow(credits.total, usedOf(credits.total, credits.used, credits.remaining));
 		if (mainPercent != null) return mainPercent;
@@ -182,6 +179,7 @@ export type UsageTranslate = (key: TranslationKey, params?: I18nParams) => strin
  */
 const USAGE_WINDOW_LABEL_KEYS: Record<string, TranslationKey> = {
 	fiveHour: "sessionContext.usageWindowFiveHour",
+	daily: "sessionContext.usageWindowDaily",
 	weekly: "sessionContext.usageWindowWeekly",
 	mcpMonthly: "sessionContext.usageWindowMcpMonthly",
 	included: "sessionContext.usageWindowIncluded",
@@ -222,9 +220,8 @@ export type UsageBadgeSegment = {
 const TONE_SEVERITY: Record<UsageTone, number> = { empty: 3, low: 2, ok: 1, neutral: 0 };
 
 /** 单窗口的已用百分比（0-100 封顶）：used 缺失时用 total-remaining 反推；无 total 不产生百分比。 */
-function usageWindowPercent(window: { total?: number; used?: number; remaining?: number }): number | null {
-	const used = window.used ??
-		(window.remaining != null && window.total != null ? window.total - window.remaining : undefined);
+export function usageWindowPercent(window: { total?: number; used?: number; remaining?: number }): number | null {
+	const used = window.used ?? (window.remaining != null && window.total != null ? window.total - window.remaining : undefined);
 	if (window.total == null || used == null || window.total <= 0) return null;
 	return Math.min(100, (used / window.total) * 100);
 }
@@ -238,10 +235,7 @@ function usageWindowPercent(window: { total?: number; used?: number; remaining?:
  * booster 不进 inline（点数明细在详情面板展示，inline 保持单行紧凑）。
  * 返回 null = 无可展示数值（调用方不渲染）。
  */
-export function usageBadgeSegments(
-	result: ProviderUsageResult,
-	translate: UsageTranslate,
-): UsageBadgeSegment[] | null {
+export function usageBadgeSegments(result: ProviderUsageResult, translate: UsageTranslate): UsageBadgeSegment[] | null {
 	if (!result.success) return null;
 	if (result.kind === "periods" && result.periods) {
 		const segments: UsageBadgeSegment[] = [];
@@ -261,13 +255,15 @@ export function usageBadgeSegments(
 	}
 	if (result.kind === "credits" && result.credits) {
 		const credits = result.credits;
+		// 面板余额合并（Sub2API JWT）：credits 形态之上并列余额段，与已用/剩余同屏；
+		// 余额>0 绿、≤0 灰（余额无「百分比」语义，不参与档位计算）。
+		const panelBalance = result.balance;
+		const balanceSegment: UsageBadgeSegment[] = panelBalance ? [{ labelKey: "config.usage.balanceShort", text: formatBalance(panelBalance), tone: panelBalance.value > 0 ? "ok" : "neutral" }] : [];
 		// 逐窗口段：算得出百分比出「窗口名+百分比」；无总额但有剩余量退化为「窗口名+剩余」；
 		// 两者都算不出的窗口直接跳过（展示「窗口名 —」是噪音）。
 		const windowSegments = (credits.windows ?? []).flatMap((window): UsageBadgeSegment[] => {
 			const label = usageWindowLabel(window.key);
-			const labelField = "key" in label
-				? { labelKey: label.key }
-				: { labelText: label.text };
+			const labelField = "key" in label ? { labelKey: label.key } : { labelText: label.text };
 			const percent = usageWindowPercent(window);
 			if (percent != null) {
 				return [{ ...labelField, text: `${Math.round(percent)}%`, tone: usageToneForPercent(percent) }];
@@ -278,17 +274,17 @@ export function usageBadgeSegments(
 		});
 		if ((credits.windows?.length ?? 0) > 0) {
 			// 窗口全跳过时落到主值分支（有剩余/已用就别整行消失）。
-			if (windowSegments.length > 0) return windowSegments;
+			if (windowSegments.length > 0) return [...balanceSegment, ...windowSegments];
 		}
-		const remaining = credits.remaining ??
-			(credits.total != null && credits.used != null ? credits.total - credits.used : undefined);
+		const remaining = credits.remaining ?? (credits.total != null && credits.used != null ? credits.total - credits.used : undefined);
 		if (remaining != null) {
-			return [{ labelKey: "config.usage.remainingShort", text: formatAmount(remaining), tone: usageTone(result) }];
+			return [...balanceSegment, { labelKey: "config.usage.remainingShort", text: formatAmount(remaining), tone: usageTone(result) }];
 		}
 		if (credits.used != null) {
-			return [{ labelKey: "config.usage.usedShort", text: formatAmount(credits.used), tone: "neutral" }];
+			return [...balanceSegment, { labelKey: "config.usage.usedShort", text: formatAmount(credits.used), tone: "neutral" }];
 		}
-		return null;
+		// 只剩面板余额（已用/剩余都缺）：余额段单独成行，别返回 null 把它吞了。
+		return balanceSegment.length > 0 ? balanceSegment : null;
 	}
 	return null;
 }
@@ -297,25 +293,17 @@ export function usageBadgeSegments(
  * inline 主段（选择器分组行的单值位）：多档里挑档位最严重的一段示警
  * （与旧「取最高百分比」语义一致——任一窗口吃紧都要先看到）。
  */
-export function usageBadgePrimarySegment(
-	result: ProviderUsageResult,
-	translate: UsageTranslate,
-): UsageBadgeSegment | null {
+export function usageBadgePrimarySegment(result: ProviderUsageResult, translate: UsageTranslate): UsageBadgeSegment | null {
 	const segments = usageBadgeSegments(result, translate);
 	if (!segments || segments.length === 0) return null;
-	return segments.reduce((worst, segment) =>
-		TONE_SEVERITY[segment.tone] > TONE_SEVERITY[worst.tone] ? segment : worst,
-	segments[0]);
+	return segments.reduce((worst, segment) => (TONE_SEVERITY[segment.tone] > TONE_SEVERITY[worst.tone] ? segment : worst), segments[0]);
 }
 
 /**
  * 相对更新时间（cc-switch inline 的 Clock 行）：刚刚 / n 分钟前 / n 小时前 / n 天前。
  * 超过 30 天或时钟异常回退短日期（避免出现「9999 天前」这类荒谬值）。
  */
-export function formatRelativeTime(
-	timestamp: number,
-	now: number = Date.now(),
-): string {
+export function formatRelativeTime(timestamp: number, now: number = Date.now()): string {
 	const elapsed = now - timestamp;
 	if (!Number.isFinite(elapsed) || elapsed < 0) return "justNow";
 	const minutes = Math.floor(elapsed / 60_000);
@@ -329,21 +317,13 @@ export function formatRelativeTime(
 }
 
 /** 相对时间 i18n key 集合（与 rendererCopy 中 config.usage.time* 一一对应）。 */
-export type RelativeTimeKey =
-	| "config.usage.timeJustNow"
-	| "config.usage.timeMinutesAgo"
-	| "config.usage.timeHoursAgo"
-	| "config.usage.timeDaysAgo"
-	| "config.usage.timeStale";
+export type RelativeTimeKey = "config.usage.timeJustNow" | "config.usage.timeMinutesAgo" | "config.usage.timeHoursAgo" | "config.usage.timeDaysAgo" | "config.usage.timeStale";
 
 /**
  * 把 formatRelativeTime 的标记翻成 i18n key 与参数（组件层用 t() 渲染）。
  * 独立成纯函数便于单测与复用（详情面板 / inline 卡头共用）。
  */
-export function relativeTimeParts(
-	timestamp: number,
-	now: number = Date.now(),
-): { key: RelativeTimeKey; params?: Record<string, number> } {
+export function relativeTimeParts(timestamp: number, now: number = Date.now()): { key: RelativeTimeKey; params?: Record<string, number> } {
 	const mark = formatRelativeTime(timestamp, now);
 	if (mark === "justNow") return { key: "config.usage.timeJustNow" };
 	if (mark === "stale") return { key: "config.usage.timeStale" };

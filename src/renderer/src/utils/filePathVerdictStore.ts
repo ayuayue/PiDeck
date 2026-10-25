@@ -50,10 +50,7 @@ function trimCache(): void {
 }
 
 /** 读取判定结果：true/false = 已校验；undefined = 未校验（含校验失败）。 */
-export function getFilePathVerdict(
-	absPath: string,
-	scope?: ProjectFileAccessScope,
-): boolean | undefined {
+export function getFilePathVerdict(absPath: string, scope?: ProjectFileAccessScope): boolean | undefined {
 	return verdictCache.get(verdictKey(absPath, scope));
 }
 
@@ -77,10 +74,7 @@ function armFlushTimer(): void {
  * 批量请求存在性校验：按项目授权域分桶，250ms 去抖后逐桶发 IPC。
  * 同一 IPC 只能携带一个 projectId，不能把两个分屏项目的路径混在一批里。
  */
-export function requestFilePathVerdicts(
-	paths: string[],
-	scope?: ProjectFileAccessScope,
-): void {
+export function requestFilePathVerdicts(paths: string[], scope?: ProjectFileAccessScope): void {
 	const key = scopeKey(scope);
 	const bucket = pendingByScope.get(key) ?? { scope, paths: [] };
 	let added = false;

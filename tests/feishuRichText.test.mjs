@@ -17,13 +17,7 @@ function loadRichTextModule() {
 	return sandbox.exports;
 }
 
-const tableMarkdown = [
-	"当前工作区有以下文件：",
-	"",
-	"| 文件 | 大小 | 日期 |",
-	"|------|------|------|",
-	"| `temp.pdf` | 352KB | 06-29 |",
-].join("\n");
+const tableMarkdown = ["当前工作区有以下文件：", "", "| 文件 | 大小 | 日期 |", "|------|------|------|", "| `temp.pdf` | 352KB | 06-29 |"].join("\n");
 
 test("routes markdown tables to interactive cards with table elements", () => {
 	const { chooseMessageMode } = loadRichTextModule();
@@ -38,11 +32,20 @@ test("renders markdown tables as Feishu card table elements", () => {
 	const table = elements.find((element) => element.tag === "table");
 
 	assert.ok(table, "expected a Feishu table element");
-	assert.deepEqual(Array.from(table.columns, (column) => column.display_name), ["文件", "大小", "日期"]);
-	assert.deepEqual({ ...table.rows[0] }, {
-		col_0: "temp.pdf",
-		col_1: "352KB",
-		col_2: "06-29",
-	});
-	assert.equal(elements.some((element) => element.tag === "markdown" && /\|------\|/.test(element.content)), false);
+	assert.deepEqual(
+		Array.from(table.columns, (column) => column.display_name),
+		["文件", "大小", "日期"],
+	);
+	assert.deepEqual(
+		{ ...table.rows[0] },
+		{
+			col_0: "temp.pdf",
+			col_1: "352KB",
+			col_2: "06-29",
+		},
+	);
+	assert.equal(
+		elements.some((element) => element.tag === "markdown" && /\|------\|/.test(element.content)),
+		false,
+	);
 });

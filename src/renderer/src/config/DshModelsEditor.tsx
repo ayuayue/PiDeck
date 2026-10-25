@@ -5,13 +5,7 @@ import { showNotice } from "../utils/notice";
 import { Button } from "../components/ui-shadcn/button";
 import { ModelsTable, type DshModelRow } from "./DshModelsTable";
 import { FetchedModelCombobox } from "./FetchedModelCombobox";
-import {
-	appendBlankDshModel,
-	appendFetchedDshModels,
-	removeDshModelAt,
-	seedDshModelsForCustomEdit,
-	updateDshModelAt,
-} from "./dshModels";
+import { appendBlankDshModel, appendFetchedDshModels, dshModelInputField, removeDshModelAt, seedDshModelsForCustomEdit, updateDshModelAt } from "./dshModels";
 import type { FetchedModel } from "../../../shared/types/fetchedModel";
 import type { ModelSpec } from "../../../shared/types/modelSpecs";
 import type { ModelItem } from "./configTypes";
@@ -21,20 +15,16 @@ import { computeModelSpecPatches } from "../utils/modelSpecAutoFill";
  * DSH 的 reasoningEfforts 需要“规范档位 → 上游 wire 值”映射；pi-ai catalog 的
  * ModelSpec 只知道模型是否推理，不能安全构造这份映射。因此自动补全只写容量和图片输入。
  */
-function dshModelSpecPatches(
-  model: ModelItem,
-  spec: ModelSpec | null,
-  supportsGenericInput: boolean,
-) {
-  return computeModelSpecPatches(model, spec).filter(([field]) =>
-    field !== "reasoning" && (supportsGenericInput || field !== "input"),
-  );
+function dshModelSpecPatches(model: ModelItem, spec: ModelSpec | null, supportsGenericInput: boolean) {
+	return computeModelSpecPatches(model, spec).filter(([field]) => field !== "reasoning" && (supportsGenericInput || field !== "input"));
 }
 
 /**
  * DSH custom model editor: extend or interrogate the adapter catalog without
  * starting from an empty draft. The visible fields follow dsh-web's curated
- * model editor; advanced modality settings remain in settings.yaml.
+ * model editor, plus the input-modality control dsh-web keeps in the advanced
+ * settings page: a model declared text-only is rejected by DSH prompt
+ * admission as soon as a message carries an image.
  */
 export function DshModelsEditor(props: {
 	models: DshModelRow[];
@@ -77,9 +67,7 @@ export function DshModelsEditor(props: {
 	};
 
 	// 继承目录时 models 为空，勾选器仍要把目录 id 标成已配置，避免重复拉回
-	const existingIds = (models.length > 0 ? models : (catalog ?? []))
-		.map((model) => (typeof model.id === "string" ? model.id : ""))
-		.filter(Boolean);
+	const existingIds = (models.length > 0 ? models : (catalog ?? [])).map((model) => (typeof model.id === "string" ? model.id : "")).filter(Boolean);
 
 	const fetchModels = async () => {
 		const settingsNs = props.settingsNs.trim();
@@ -119,12 +107,7 @@ export function DshModelsEditor(props: {
 		// DSH discovery 只返回 endpoint/catalog 可确认的容量；已知模型再由本地 pi-ai catalog 补图片输入。
 		// reasoning 只有 DSH 明确返回的 wire 映射才可信，不能从 Pi 的布尔事实构造。
 		const appended = nextRows.slice(existing.length);
-		const specs = await Promise.all(appended.map((row) =>
-			desktopApi.projects.getModelSpec(
-				props.providerKey ?? "",
-				typeof row.id === "string" ? row.id : "",
-			).catch(() => null),
-		));
+		const specs = await Promise.all(appended.map((row) => desktopApi.projects.getModelSpec(props.providerKey ?? "", typeof row.id === "string" ? row.id : "").catch(() => null)));
 		for (let offset = 0; offset < appended.length; offset += 1) {
 			const row = nextRows[existing.length + offset];
 			if (!row || typeof row.id !== "string") continue;
@@ -133,15 +116,9 @@ export function DshModelsEditor(props: {
 				name: typeof row.name === "string" ? row.name : undefined,
 				contextWindow: typeof row.contextWindow === "number" ? row.contextWindow : undefined,
 				maxTokens: typeof row.maxTokens === "number" ? row.maxTokens : undefined,
-				input: Array.isArray(row.input)
-					? row.input.filter((item): item is string => typeof item === "string")
-					: undefined,
+				input: Array.isArray(row.input) ? row.input.filter((item): item is string => typeof item === "string") : undefined,
 			};
-			for (const [field, value] of dshModelSpecPatches(
-				model,
-				specs[offset],
-				props.settingsNs === "llm-pi-ai",
-			)) {
+			for (const [field, value] of dshModelSpecPatches(model, specs[offset], props.settingsNs === "llm-pi-ai")) {
 				nextRows = updateDshModelAt({
 					draftModels: nextRows,
 					savedModels,
@@ -169,6 +146,9 @@ export function DshModelsEditor(props: {
 			name: typeof row.name === "string" ? row.name : undefined,
 			contextWindow: typeof row.contextWindow === "number" ? row.contextWindow : undefined,
 			maxTokens: typeof row.maxTokens === "number" ? row.maxTokens : undefined,
+			// 已声明的模态不能被目录补全覆盖（补全只填空字段；手填可能是适配器目录
+			// 没收录的视觉别名，例如中转站的 `...-vision-exp`）。
+			input: Array.isArray(row.input) ? row.input.filter((item): item is string => typeof item === "string") : undefined,
 		};
 		const updates = dshModelSpecPatches(model, spec, props.settingsNs === "llm-pi-ai");
 		if (updates.length === 0) return;
@@ -184,49 +164,24 @@ export function DshModelsEditor(props: {
 			});
 		}
 		props.onChange(nextRows);
-		showNotice(
-			t("config.modelSpecAutoFilled", { model: spec?.matchedId ?? trimmed }),
-			3000,
-		);
+		showNotice(t("config.modelSpecAutoFilled", { model: spec?.matchedId ?? trimmed }), 3000);
 	};
 
 	return (
 		<div className="grid gap-2">
 			{canDiscoverModels && (
 				<div className="flex flex-wrap items-center justify-end gap-1.5">
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						className="h-7"
-						disabled={!writable || fetching}
-						onClick={() => void fetchModels()}
-					>
+					<Button type="button" variant="outline" size="sm" className="h-7" disabled={!writable || fetching} onClick={() => void fetchModels()}>
 						{fetching ? t("config.fetchingModels") : t("config.fetchModels")}
 					</Button>
 				</div>
 			)}
-			{fetchError && (
-				<div className="rounded-sm border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-control leading-relaxed text-danger whitespace-pre-line">
-					{fetchError}
-				</div>
-			)}
+			{fetchError && <div className="rounded-sm border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-control leading-relaxed text-danger whitespace-pre-line">{fetchError}</div>}
 			{fetched && fetched.length > 0 && (
 				<div className="flex flex-col gap-2 rounded-md border border-border-subtle bg-bg-subtle p-2.5">
-					<FetchedModelCombobox
-						models={fetched}
-						value={selectedIds}
-						existingModelIds={existingIds}
-						onChange={setSelectedIds}
-					/>
+					<FetchedModelCombobox models={fetched} value={selectedIds} existingModelIds={existingIds} onChange={setSelectedIds} />
 					<div className="flex justify-end border-t border-border-subtle pt-2">
-						<Button
-							type="button"
-							variant="default"
-							size="sm"
-							disabled={selectedIds.length === 0}
-							onClick={() => void saveSelected()}
-						>
+						<Button type="button" variant="default" size="sm" disabled={selectedIds.length === 0} onClick={() => void saveSelected()}>
 							{t("config.saveSelectedModels")}
 						</Button>
 					</div>
@@ -241,6 +196,7 @@ export function DshModelsEditor(props: {
 				defaultContextWindow={props.defaultContextWindow}
 				defaultMaxTokens={props.defaultMaxTokens}
 				allowCapacitySuffixes={props.settingsNs === "llm-deepseek"}
+				inputField={dshModelInputField(props.settingsNs)}
 				writable={writable}
 				onAdd={() => props.onChange(appendBlankDshModel(seedInput))}
 				onUpdate={(index, field, value) => props.onChange(updateDshModelAt({ ...seedInput, index, field, value }))}

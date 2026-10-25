@@ -1,4 +1,4 @@
-import { matchPlainFilePaths } from "../../utils/filePathLinks.ts";
+import { extractFileLinkLocation, matchPlainFilePaths } from "../../utils/filePathLinks.ts";
 
 /**
  * 本地复刻 react-markdown 的 defaultUrlTransform（迁移 streamdown 后不再依赖 react-markdown 包）：
@@ -41,44 +41,100 @@ export function markdownUrlTransform(url: string): string {
 }
 
 /**
- * mdast 插件：把裸文件路径转成 file:// 链接。
- * 只处理 type === "text" 的叶子节点，天然跳过 code / inlineCode / link 内的文本。
+ * mdast 插件：把裸文件路径和完整的 inline-code 文件引用转成 file:// 链接。
+ * 普通文本只处理叶子节点，天然跳过 code / link 内的文本；inlineCode 仅在完整内容
+ * 符合文件路径时转换，因此模型遵循 `path:line` 规则后，行内代码也能直接点击。
  * 匹配规则与存在性校验共用 utils/filePathLinks 的 matchPlainFilePaths（含 URL 尾巴排除），
  * 保证「渲染出的链接」与「后续 stat 校验的对象」永远同一份字符串。
  */
+function encodeFileLinkTarget(path: string): string {
+	return `file://${encodeURIComponent(path).replace(/%2F/g, "/").replace(/%3A/g, ":")}`;
+}
+
+/**
+ * 判断 inline code 是否是一个完整的文件引用，而不是任意代码片段。
+ * 带目录的路径复用裸文本识别规则；只有 inline code 才额外允许 `package.json`
+ * 这类单段文件名。这样不会把普通句子里的 `main.ts` 误判成链接，但模型按规则
+ * 输出的 `` `package.json:1` `` 仍然可以点击打开。
+ */
+export function isStandaloneFileReference(value: string): boolean {
+	const raw = value.trim();
+	if (!raw || raw !== value) return false;
+	const location = extractFileLinkLocation(raw);
+	if (!isLocalPathRef(location.path)) return false;
+	const matches = matchPlainFilePaths(location.path);
+	if (matches.length === 1 && matches[0]?.path === location.path) return true;
+	return /^[^\\/\s<>"'`|?*\[\](){}，。；：！？、（）【】《》「」『』“”‘’·…—～￥×÷→←↑↓⇒／]+\.[\p{L}\p{N}]+$/u.test(location.path);
+}
+
+/** remark mdast 节点的最小内部形状：remark 插件边界类型包未随包引入，字段按实际访问点声明；
+ * __segs/__fileLink 是本插件在 text/inlineCode 节点上挂载的私有载荷（父节点消费后整体替换并删除）。 */
+type MdNode = {
+	type: string;
+	value?: string;
+	url?: string;
+	children?: MdNode[];
+	__segs?: MdNode[];
+	__fileLink?: MdNode;
+	[key: string]: unknown;
+};
+
 export const remarkLinkifyPaths = () => {
-	return (tree: any) => {
-		const visit = (node: any) => {
+	return (tree: MdNode) => {
+		const visit = (node: MdNode) => {
 			if (!node || typeof node !== "object") return;
 			const type: string = node.type;
-			if (type === "code" || type === "inlineCode" || type === "link") return;
+			if (type === "code" || type === "link") return;
+			if (type === "inlineCode") {
+				if (typeof node.value === "string" && isStandaloneFileReference(node.value)) {
+					node.__fileLink = {
+						type: "link",
+						url: encodeFileLinkTarget(node.value),
+						children: [{ type: "inlineCode", value: node.value }],
+					};
+				}
+				return;
+			}
 			if (type === "text" && typeof node.value === "string") {
 				const text: string = node.value;
 				const matches = matchPlainFilePaths(text);
 				if (matches.length === 0) return;
-				const segs: any[] = [];
+				const segs: MdNode[] = [];
 				let last = 0;
 				for (const match of matches) {
 					if (match.start > last) segs.push({ type: "text", value: text.slice(last, match.start) });
 					segs.push({
 						type: "link",
-						url: `file://${encodeURIComponent(match.path).replace(/%2F/g, "/").replace(/%3A/g, ":")}`,
+						url: encodeFileLinkTarget(match.path),
 						children: [{ type: "text", value: match.path }],
 					});
 					last = match.end;
 				}
+				// 最后一个命中之后仍有正文时必须原样补回：父节点会用 __segs **整体替换**本
+				// 文本节点，少了这一段，路径之后的全部文字（含换行后的后续行）会从回复里
+				// 整段消失——用户看到的现象就是「/ 后面的文本不显示」。
+				// 回归来历：fb6b5667 把 while 循环重写成 for-of 时漏掉这段尾部回填，
+				// 2026-09-23 经会话 jsonl 实测暴露（91 条回复 47 条丢文本）。
+				// 链接文本本身等于原文路径，因此补回尾段不会改变链接已产出的部分。
+				if (last < text.length) {
+					segs.push({ type: "text", value: text.slice(last) });
+				}
 				node.__segs = segs;
 				return;
 			}
-			const children: any[] | undefined = node.children;
+			const children: MdNode[] | undefined = node.children;
 			if (Array.isArray(children)) {
-				const next: any[] = [];
+				const next: MdNode[] = [];
 				for (const child of children) {
 					visit(child);
-					if (child && (child as any).__segs) {
-						const segs = (child as any).__segs;
-						delete (child as any).__segs;
+					if (child && child.__segs) {
+						const segs = child.__segs;
+						delete child.__segs;
 						next.push(...segs);
+					} else if (child && child.__fileLink) {
+						const fileLink = child.__fileLink;
+						delete child.__fileLink;
+						next.push(fileLink);
 					} else {
 						next.push(child);
 					}

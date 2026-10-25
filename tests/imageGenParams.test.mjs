@@ -20,11 +20,7 @@ function transpile(fileName) {
 
 function loadParams() {
 	const configModule = { exports: {} };
-	vm.runInNewContext(
-		transpile("src/shared/imageGenConfig.ts"),
-		{ module: configModule, exports: configModule.exports },
-		{ filename: "imageGenConfig.ts" },
-	);
+	vm.runInNewContext(transpile("src/shared/imageGenConfig.ts"), { module: configModule, exports: configModule.exports }, { filename: "imageGenConfig.ts" });
 	const paramsModule = { exports: {} };
 	vm.runInNewContext(
 		transpile("src/shared/imageGenParams.ts"),
@@ -192,9 +188,6 @@ describe("parseImageGenReferenceImages", () => {
 
 	test("buildImageGenImageField converts to dataURI array", () => {
 		const { buildImageGenImageField } = loadParams();
-		assert.deepEqual(
-			buildImageGenImageField([{ type: "image", data: "abc", mimeType: "image/jpeg" }]),
-			["data:image/jpeg;base64,abc"],
-		);
+		assert.deepEqual(buildImageGenImageField([{ type: "image", data: "abc", mimeType: "image/jpeg" }]), ["data:image/jpeg;base64,abc"]);
 	});
 });

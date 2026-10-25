@@ -30,8 +30,7 @@ function loadModule(mockProcess = {}) {
 							disableHardwareAccelerationCalls++;
 						},
 						commandLine: {
-							appendSwitch: (name, value) =>
-								appendedSwitches.push({ name, value }),
+							appendSwitch: (name, value) => appendedSwitches.push({ name, value }),
 						},
 					},
 				};
@@ -45,8 +44,7 @@ function loadModule(mockProcess = {}) {
 	return {
 		...sandbox.exports,
 		appendedSwitches,
-		getDisableHardwareAccelerationCalls: () =>
-			disableHardwareAccelerationCalls,
+		getDisableHardwareAccelerationCalls: () => disableHardwareAccelerationCalls,
 	};
 }
 
@@ -54,16 +52,20 @@ test("uses X11 ozone backend on Linux Wayland when the desktop pet is enabled", 
 	const { getLinuxDisplayBackendSwitches } = loadModule();
 
 	assert.deepEqual(
-		JSON.parse(JSON.stringify(getLinuxDisplayBackendSwitches({
-			platform: "linux",
-			env: {
-				XDG_SESSION_TYPE: "wayland",
-				WAYLAND_DISPLAY: "wayland-0",
-				DISPLAY: ":0",
-			},
-			argv: [],
-			petEnabled: true,
-		}))),
+		JSON.parse(
+			JSON.stringify(
+				getLinuxDisplayBackendSwitches({
+					platform: "linux",
+					env: {
+						XDG_SESSION_TYPE: "wayland",
+						WAYLAND_DISPLAY: "wayland-0",
+						DISPLAY: ":0",
+					},
+					argv: [],
+					petEnabled: true,
+				}),
+			),
+		),
 		[
 			{ name: "ozone-platform", value: "x11" },
 			{ name: "log-level", value: "3" },
@@ -77,28 +79,36 @@ test("does not force X11 by default when the desktop pet is disabled (#108)", ()
 	// 未传 petEnabled（默认未启用宠物）时，即使处于 Wayland + XWayland 环境
 	// 也不得强制 ozone-platform=x11，否则主窗口在部分 GNOME/Wayland 环境不可见。
 	assert.deepEqual(
-		JSON.parse(JSON.stringify(getLinuxDisplayBackendSwitches({
-			platform: "linux",
-			env: {
-				XDG_SESSION_TYPE: "wayland",
-				WAYLAND_DISPLAY: "wayland-0",
-				DISPLAY: ":0",
-			},
-			argv: [],
-		}))),
+		JSON.parse(
+			JSON.stringify(
+				getLinuxDisplayBackendSwitches({
+					platform: "linux",
+					env: {
+						XDG_SESSION_TYPE: "wayland",
+						WAYLAND_DISPLAY: "wayland-0",
+						DISPLAY: ":0",
+					},
+					argv: [],
+				}),
+			),
+		),
 		[],
 	);
 	assert.deepEqual(
-		JSON.parse(JSON.stringify(getLinuxDisplayBackendSwitches({
-			platform: "linux",
-			env: {
-				XDG_SESSION_TYPE: "wayland",
-				WAYLAND_DISPLAY: "wayland-0",
-				DISPLAY: ":0",
-			},
-			argv: [],
-			petEnabled: false,
-		}))),
+		JSON.parse(
+			JSON.stringify(
+				getLinuxDisplayBackendSwitches({
+					platform: "linux",
+					env: {
+						XDG_SESSION_TYPE: "wayland",
+						WAYLAND_DISPLAY: "wayland-0",
+						DISPLAY: ":0",
+					},
+					argv: [],
+					petEnabled: false,
+				}),
+			),
+		),
 		[],
 	);
 });
@@ -107,16 +117,20 @@ test("forces X11 without the pet when the backend is explicitly set to x11", () 
 	const { getLinuxDisplayBackendSwitches } = loadModule();
 
 	assert.deepEqual(
-		JSON.parse(JSON.stringify(getLinuxDisplayBackendSwitches({
-			platform: "linux",
-			env: {
-				XDG_SESSION_TYPE: "wayland",
-				WAYLAND_DISPLAY: "wayland-0",
-				DISPLAY: ":0",
-				PIDECK_LINUX_DISPLAY_BACKEND: "x11",
-			},
-			argv: [],
-		}))),
+		JSON.parse(
+			JSON.stringify(
+				getLinuxDisplayBackendSwitches({
+					platform: "linux",
+					env: {
+						XDG_SESSION_TYPE: "wayland",
+						WAYLAND_DISPLAY: "wayland-0",
+						DISPLAY: ":0",
+						PIDECK_LINUX_DISPLAY_BACKEND: "x11",
+					},
+					argv: [],
+				}),
+			),
+		),
 		[
 			{ name: "ozone-platform", value: "x11" },
 			{ name: "log-level", value: "3" },
@@ -128,17 +142,21 @@ test("does not force X11 when user opts into native Wayland", () => {
 	const { getLinuxDisplayBackendSwitches } = loadModule();
 
 	assert.deepEqual(
-		JSON.parse(JSON.stringify(getLinuxDisplayBackendSwitches({
-			platform: "linux",
-			env: {
-				XDG_SESSION_TYPE: "wayland",
-				WAYLAND_DISPLAY: "wayland-0",
-				DISPLAY: ":0",
-				PIDECK_LINUX_DISPLAY_BACKEND: "wayland",
-			},
-			argv: [],
-			petEnabled: true,
-		}))),
+		JSON.parse(
+			JSON.stringify(
+				getLinuxDisplayBackendSwitches({
+					platform: "linux",
+					env: {
+						XDG_SESSION_TYPE: "wayland",
+						WAYLAND_DISPLAY: "wayland-0",
+						DISPLAY: ":0",
+						PIDECK_LINUX_DISPLAY_BACKEND: "wayland",
+					},
+					argv: [],
+					petEnabled: true,
+				}),
+			),
+		),
 		[],
 	);
 });
@@ -147,16 +165,20 @@ test("does not override an explicit ozone platform argument", () => {
 	const { getLinuxDisplayBackendSwitches } = loadModule();
 
 	assert.deepEqual(
-		JSON.parse(JSON.stringify(getLinuxDisplayBackendSwitches({
-			platform: "linux",
-			env: {
-				XDG_SESSION_TYPE: "wayland",
-				WAYLAND_DISPLAY: "wayland-0",
-				DISPLAY: ":0",
-			},
-			argv: ["pideck", "--ozone-platform=wayland"],
-			petEnabled: true,
-		}))),
+		JSON.parse(
+			JSON.stringify(
+				getLinuxDisplayBackendSwitches({
+					platform: "linux",
+					env: {
+						XDG_SESSION_TYPE: "wayland",
+						WAYLAND_DISPLAY: "wayland-0",
+						DISPLAY: ":0",
+					},
+					argv: ["pideck", "--ozone-platform=wayland"],
+					petEnabled: true,
+				}),
+			),
+		),
 		[],
 	);
 });
@@ -165,16 +187,20 @@ test("does not force X11 outside Linux", () => {
 	const { getLinuxDisplayBackendSwitches } = loadModule();
 
 	assert.deepEqual(
-		JSON.parse(JSON.stringify(getLinuxDisplayBackendSwitches({
-			platform: "darwin",
-			env: {
-				XDG_SESSION_TYPE: "wayland",
-				WAYLAND_DISPLAY: "wayland-0",
-				DISPLAY: ":0",
-			},
-			argv: [],
-			petEnabled: true,
-		}))),
+		JSON.parse(
+			JSON.stringify(
+				getLinuxDisplayBackendSwitches({
+					platform: "darwin",
+					env: {
+						XDG_SESSION_TYPE: "wayland",
+						WAYLAND_DISPLAY: "wayland-0",
+						DISPLAY: ":0",
+					},
+					argv: [],
+					petEnabled: true,
+				}),
+			),
+		),
 		[],
 	);
 });
@@ -211,22 +237,19 @@ test("does not override an explicit Chromium log level", () => {
 
 	applyLinuxDisplayBackendWorkaround(true);
 
-	assert.deepEqual(appendedSwitches, [
-		{ name: "ozone-platform", value: "x11" },
-	]);
+	assert.deepEqual(appendedSwitches, [{ name: "ozone-platform", value: "x11" }]);
 });
 
 test("disables hardware acceleration when forcing X11 on Linux Wayland", () => {
-	const { applyLinuxDisplayBackendWorkaround, getDisableHardwareAccelerationCalls } =
-		loadModule({
-			platform: "linux",
-			env: {
-				XDG_SESSION_TYPE: "wayland",
-				WAYLAND_DISPLAY: "wayland-0",
-				DISPLAY: ":0",
-			},
-			argv: ["pideck"],
-		});
+	const { applyLinuxDisplayBackendWorkaround, getDisableHardwareAccelerationCalls } = loadModule({
+		platform: "linux",
+		env: {
+			XDG_SESSION_TYPE: "wayland",
+			WAYLAND_DISPLAY: "wayland-0",
+			DISPLAY: ":0",
+		},
+		argv: ["pideck"],
+	});
 
 	applyLinuxDisplayBackendWorkaround(true);
 
@@ -234,17 +257,16 @@ test("disables hardware acceleration when forcing X11 on Linux Wayland", () => {
 });
 
 test("keeps hardware acceleration when Linux GPU disable is opted out", () => {
-	const { applyLinuxDisplayBackendWorkaround, getDisableHardwareAccelerationCalls } =
-		loadModule({
-			platform: "linux",
-			env: {
-				XDG_SESSION_TYPE: "wayland",
-				WAYLAND_DISPLAY: "wayland-0",
-				DISPLAY: ":0",
-				PIDECK_LINUX_DISABLE_GPU: "0",
-			},
-			argv: ["pideck"],
-		});
+	const { applyLinuxDisplayBackendWorkaround, getDisableHardwareAccelerationCalls } = loadModule({
+		platform: "linux",
+		env: {
+			XDG_SESSION_TYPE: "wayland",
+			WAYLAND_DISPLAY: "wayland-0",
+			DISPLAY: ":0",
+			PIDECK_LINUX_DISABLE_GPU: "0",
+		},
+		argv: ["pideck"],
+	});
 
 	applyLinuxDisplayBackendWorkaround(true);
 
@@ -252,11 +274,7 @@ test("keeps hardware acceleration when Linux GPU disable is opted out", () => {
 });
 
 test("applies nothing and keeps GPU acceleration when the pet is disabled (#108)", () => {
-	const {
-		applyLinuxDisplayBackendWorkaround,
-		appendedSwitches,
-		getDisableHardwareAccelerationCalls,
-	} = loadModule({
+	const { applyLinuxDisplayBackendWorkaround, appendedSwitches, getDisableHardwareAccelerationCalls } = loadModule({
 		platform: "linux",
 		env: {
 			XDG_SESSION_TYPE: "wayland",

@@ -16,8 +16,27 @@ test("askNotificationEnabled 三处默认值一致且默认关闭", () => {
 	assert.match(settingsType, /askNotificationEnabled: boolean/);
 	// 默认关闭：主进程持久化默认、渲染层首屏默认、预览 mock 三处同步
 	assert.match(store, /askNotificationEnabled: false/);
-	assert.match(app, /askNotificationEnabled: false/);
+	// App 首屏默认已抽到 shared/types/settings.ts 的 createDefaultAppSettings；settingsType 已含该文件
+	assert.match(settingsType, /askNotificationEnabled: false/);
 	assert.match(preview, /askNotificationEnabled: false/);
+});
+
+test("autoSessionTitle 四处默认开启且设置说明提示额外 token 消耗", () => {
+	const settingsType = readFileSync("src/shared/types/settings.ts", "utf8");
+	const store = readFileSync("src/main/settings/SettingsStore.ts", "utf8");
+	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
+	const preview = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+	const commonTab = readFileSync("src/renderer/src/components/app/settings/CommonTab.tsx", "utf8");
+	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
+	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
+	assert.match(settingsType, /autoSessionTitle: boolean/);
+	// 默认开启：主进程持久化默认、渲染层首屏默认、预览 mock 三处同步
+	assert.match(store, /autoSessionTitle: true/);
+	assert.match(settingsType, /autoSessionTitle: true/);
+	assert.match(preview, /autoSessionTitle: true/);
+	assert.match(commonTab, /checked=\{draft\.autoSessionTitle \?\? false\}/);
+	assert.match(zh, /settings\.autoSessionTitleDesc[\s\S]{0,220}token/);
+	assert.match(en, /settings\.autoSessionTitleDesc[\s\S]{0,260}tokens/);
 });
 
 test("AgentManager 的 Ask 通知改由独立开关门控，与通用通知解耦", () => {
@@ -29,23 +48,17 @@ test("AgentManager 的 Ask 通知改由独立开关门控，与通用通知解�
 });
 
 test("设置面板与未保存摘要均提供该开关", () => {
-	const commonTab = readFileSync(
-		"src/renderer/src/components/app/settings/CommonTab.tsx",
-		"utf8",
-	);
-	const summary = readFileSync(
-		"src/renderer/src/components/app/settings/unsavedChangesSummary.ts",
-		"utf8",
-	);
-	assert.match(commonTab, /updateDraft\(\{ askNotificationEnabled: checked \}\)/);
-	assert.match(summary, /\{ field: "askNotificationEnabled", tab: "common", itemKey: "settings\.askNotification" \}/);
+	const notificationTab = readFileSync("src/renderer/src/components/app/settings/NotificationTab.tsx", "utf8");
+	const summary = readFileSync("src/renderer/src/components/app/settings/unsavedChangesSummary.ts", "utf8");
+	assert.match(notificationTab, /updateDraft\(\{ askNotificationEnabled: checked \}\)/);
+	assert.match(summary, /\{ field: "askNotificationEnabled", tab: "notification", itemKey: "settings\.askNotification" \}/);
 });
 
 test("i18n 双语文案齐全且通用通知描述不再混入提问场景", () => {
 	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 	assert.match(zh, /"settings\.askNotification": "Ask 提问系统通知"/);
-	assert.match(zh, /"settings\.askNotificationDesc": "后台会话的 Agent 向你提问/);
+	assert.match(zh, /"settings\.askNotificationDesc": "Agent 向你提问/);
 	assert.match(en, /"settings\.askNotification": "Ask question notifications"/);
-	assert.match(en, /"settings\.askNotificationDesc": "When an agent in a background session asks/);
+	assert.match(en, /"settings\.askNotificationDesc": "When an agent asks/);
 });

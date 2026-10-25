@@ -20,20 +20,10 @@ function rendererSourceFiles(directory = "src/renderer/src") {
 }
 
 function staticTranslationKeys(filePath) {
-	const source = ts.createSourceFile(
-		filePath,
-		read(filePath),
-		ts.ScriptTarget.Latest,
-		true,
-	);
+	const source = ts.createSourceFile(filePath, read(filePath), ts.ScriptTarget.Latest, true);
 	const keys = new Set();
 	function visit(node) {
-		if (
-			ts.isCallExpression(node) &&
-			ts.isIdentifier(node.expression) &&
-			node.expression.text === "t" &&
-			ts.isStringLiteral(node.arguments[0])
-		) {
+		if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "t" && ts.isStringLiteral(node.arguments[0])) {
 			keys.add(node.arguments[0].text);
 		}
 		ts.forEachChild(node, visit);
@@ -43,13 +33,11 @@ function staticTranslationKeys(filePath) {
 }
 
 test("renderer locale dictionaries expose the same translation keys", () => {
-  assert.deepEqual(Object.keys(enUS).sort(), Object.keys(zhCN).sort());
+	assert.deepEqual(Object.keys(enUS).sort(), Object.keys(zhCN).sort());
 });
 
 test("every static renderer translation key exists in both locale dictionaries", () => {
-	const usedKeys = new Set(
-		rendererSourceFiles().flatMap((filePath) => [...staticTranslationKeys(filePath)]),
-	);
+	const usedKeys = new Set(rendererSourceFiles().flatMap((filePath) => [...staticTranslationKeys(filePath)]));
 	for (const key of usedKeys) {
 		assert.ok(Object.hasOwn(zhCN, key), `zh-CN is missing ${key}`);
 		assert.ok(Object.hasOwn(enUS, key), `en-US is missing ${key}`);
@@ -104,12 +92,17 @@ const skillStore = read("src/renderer/src/config/SkillStoreTab.tsx");
 const yaoStore = read("src/renderer/src/config/YaoPromptTab.tsx");
 const skillHub = read("src/renderer/src/config/SkillHubStorePanel.tsx");
 const promptStore = read("src/renderer/src/config/PromptStoreTab.tsx");
-const extensions = read("src/renderer/src/config/ExtensionsTab.tsx");
+const extensions = read("src/renderer/src/config/ExtensionsTab.tsx") + "\n" + read("src/renderer/src/config/extensionsRecommendedPackages.tsx");
 const configShared = read("src/renderer/src/config/ConfigShared.tsx");
 const providerHeaders = read("src/renderer/src/config/providerHeaders.ts");
+// UA 预设清单已从 providerHeaders.ts 迁到 userAgentPresets.ts（纯函数 + 分组元数据，可单测）；
+// 这里跟着改指向，否则断言的是旧位置，迁移后会假失败。
+const userAgentPresets = read("src/renderer/src/config/userAgentPresets.ts");
 const queuedPrompt = read("src/renderer/src/hooks/useQueuedPrompt.ts");
 
-test("remaining renderer product copy is available in Chinese and English", () => {
+test("remaining renderer product copy is available in Chinese and English", async () => {
+	// 词典按需加载：en-US 需先 ensure，否则 t() 回退 zh-CN。
+	await i18n.ensureI18nLocale("en-US");
 	i18n.setI18nLocale("zh-CN");
 	assert.equal(i18n.t("settings.tabs.common"), "\u5e38\u7528\u8bbe\u7f6e");
 	assert.equal(i18n.t("settings.tabs.appearance"), "\u5916\u89c2\u8bbe\u7f6e");
@@ -167,13 +160,13 @@ test("reachable renderer surfaces use i18n without changing their UI structure",
 	assert.match(skillStore, /className="prompt-store-tab"[\s\S]*?t\("config\.skillStoreSearchPlaceholder"\)/);
 	assert.match(yaoStore, /className="store-sub-tab"[\s\S]*?t\("config\.yaoSearchPlaceholder"\)/);
 	assert.match(skillHub, /className="skillhub-installed-badge"[\s\S]*?t\("config\.installed"\)/);
-	assert.match(promptStore, /<TabsTrigger value="yao"[\s\S]*?t\("config\.promptStoreChinesePicks"\)/);
+	assert.match(promptStore, /value: "yao", label: t\("config\.promptStoreChinesePicks"\)/);
 	assert.match(extensions, /className="extensions-recommended-desc">[\s\S]*?t\(pkg\.descriptionKey\)/);
 	assert.match(configShared, /getApiTypeDescription\(option\)/);
-	assert.match(providerHeaders, /label: t\("config\.userAgentBrowser"\)/);
+	assert.match(userAgentPresets, /labelKey: "config\.userAgentBrowser"/);
 	assert.match(queuedPrompt, /unknownDeliveryMessage = t\("app\.queuedDeliveryUnknown"\)/);
 
-	for (const source of [fileDiffViewer, timeline, drawer, settingsStorage, surface, skillStore, yaoStore, skillHub, promptStore, extensions, providerHeaders, queuedPrompt]) {
+	for (const source of [fileDiffViewer, timeline, drawer, settingsStorage, surface, skillStore, yaoStore, skillHub, promptStore, extensions, providerHeaders, userAgentPresets, queuedPrompt]) {
 		assert.doesNotMatch(source, /" · 未保存"|"加载中\.\.\."|`加载更多历史消息|"复制安装命令"|"消息可能未送达"|>中文精选</);
 	}
 });

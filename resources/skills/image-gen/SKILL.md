@@ -21,10 +21,12 @@ description: 生成图片。当用户想让 AI 生成图片、插画、海报、
 
    | 平台 | 配置路径 |
    |------|----------|
-   | Windows 安装版 | `%APPDATA%\pi-desktop\imagegen.json`（即 `C:\Users\<用户>\AppData\Roaming\pi-desktop\imagegen.json`） |
+   | Windows 安装版 | `%APPDATA%\PiDeck\imagegen.json`（即 `C:\Users\<用户>\AppData\Roaming\PiDeck\imagegen.json`） |
    | Windows 便携版 | `<exe 同目录>\data\imagegen.json` |
-   | macOS | `~/Library/Application Support/pi-desktop/imagegen.json` |
-   | Linux | `~/.config/pi-desktop/imagegen.json` |
+   | macOS | `~/Library/Application Support/PiDeck/imagegen.json` |
+   | Linux | `~/.config/PiDeck/imagegen.json` |
+
+   旧版数据目录名为 `pi-desktop`，新首启已自动改名为 `PiDeck`；若 `PiDeck` 下没有该文件，再回退查同名 `pi-desktop` 路径。
 
    文件结构：
 

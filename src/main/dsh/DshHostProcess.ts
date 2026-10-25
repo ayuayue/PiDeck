@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import type { UtilityProcess } from "electron";
 import { getAppLogger } from "../logging/sharedLogger";
+import { dshManuallyStoppedError, isDshManuallyStoppedError } from "./dshManualStop";
 
 /**
  * DSH host utilityProcess 生命周期管理（v2 形态，对应计划 §3.2 形态 b）。
@@ -11,6 +12,16 @@ import { getAppLogger } from "../logging/sharedLogger";
  *
  * 桥协议见 dshHostBridge.ts；hostEntry 侧组合与主进程内嵌形态一致。
  */
+/** dispose 后 start/restartAfterCrash 的拒绝文案（可辨识，不与手动停止/boot 失败混淆）。 */
+const DSH_HOST_DISPOSED_ERROR = "DSH host process was disposed";
+
+/** utilityProcess.fork 的最小依赖面（测试注入桩用，避免在单测里拉起 Electron）。 */
+export type DshHostForkLike = (entryPath: string, args: string[], options: { env: Record<string, string>; stdio: "pipe"; serviceName: string }) => UtilityProcess;
+
+/** 测试/诊断可调的启动参数默认值。 */
+const DEFAULT_BOOT_READY_TIMEOUT_MS = 30_000;
+const DEFAULT_KILL_GRACE_MS = 5_000;
+
 export class DshHostProcess {
 	private child: UtilityProcess | null = null;
 	private readonly listeners = new Set<(message: unknown) => void>();
@@ -20,6 +31,10 @@ export class DshHostProcess {
 	private readyRejecters: Array<(error: Error) => void> = [];
 	private ready = false;
 	private exitPromise: Promise<void> | null = null;
+	/** exitPromise 记的是哪个 child 的退出（child 被替换后旧 Promise 不再代表当前进程）。 */
+	private exitChild: UtilityProcess | null = null;
+	/** 最近一次 fork 出来的进程：kill() 把 child 置 null 之后，start() 的 catch 仍要能把它收掉。 */
+	private lastForked: UtilityProcess | null = null;
 	/** 启动失败（未 ready 退出）连续计数；host-ready 时清零。 */
 	private bootFailures = 0;
 	/** 运行期崩溃（ready 后退出）连续计数；显式 start(true) 时清零。
@@ -28,6 +43,10 @@ export class DshHostProcess {
 	private readonly maxRestarts = 3;
 	/** 主动停止中（kill/dispose）：exit 时不触发自动重启。 */
 	private stopping = false;
+	/** 不可逆终态：dispose 后拒绝一切 fork（含崩溃自动重启内部的 start(false)）。
+	 *  崩溃退避窗口（0.5~2s）内 dispose 时，pending 的 restartAfterCrash 会在退避后
+	 *  重新 fork——而 DshHost.dispose 早已返回，新进程成为无人认领的孤儿。 */
+	private disposed = false;
 	/** 最近一次 boot 失败的真实原因（host-error 消息详情，缺省退回 stderr 尾部）。
 	 *  启动成功（host-ready）时清零；渲染层经 getStatus().bootError 拿到它，
 	 *  否则用户只看到笼统的 "exited before ready (code=1)" 而不知道为何失败。 */
@@ -50,6 +69,21 @@ export class DshHostProcess {
 		/** fork 环境变量（DSH_HOME 等已在 entry 内设置；这里可补应用级 env）。 */
 		private readonly forkEnv: Record<string, string>,
 		log?: (scope: string, message: string, detail?: unknown) => void,
+		/**
+		 * 用户是否手动停止了 host（由 DshHost 透传 settings.dshManualStopped）。
+		 * 崩溃自动重启路径（restartAfterCrash → start）不经过 DshHost.start，
+		 * 必须在这里二次门控，否则「停止后崩溃重启又把 host 拉起来」。
+		 */
+		private readonly isManualStopped: () => boolean = () => false,
+		/**
+		 * 可注入的依赖面（默认走 Electron 真实实现）：
+		 * - fork：utilityProcess.fork；测试用桩进程验证「boot 超时 / 早退是否留下孤儿进程」；
+		 * - bootReadyTimeoutMs：等待 host-ready 的上限（E1）；测试压到毫秒级。
+		 */
+		private readonly deps: {
+			fork?: DshHostForkLike;
+			bootReadyTimeoutMs?: number;
+		} = {},
 	) {
 		this.log = log ?? ((scope, message, detail) => getAppLogger()?.info(scope, message, detail));
 	}
@@ -84,24 +118,34 @@ export class DshHostProcess {
 	async start(resetCrashCounters = false): Promise<void> {
 		if (this.child) {
 			if (this.ready) return;
-			await this.waitForReady();
+			// 复用同一进程的等待同样要有超时与收尸：否则「已 fork 未 ready」状态被
+			// 并发 start 复用时，这里会永久挂起（ensureStarted/dispose 都 await 它）。
+			try {
+				await this.waitForReady(this.deps.bootReadyTimeoutMs ?? DEFAULT_BOOT_READY_TIMEOUT_MS);
+			} catch (error) {
+				await this.reapTerminatedChild(this.child);
+				throw error;
+			}
 			return;
 		}
+		// 手动停止门控（崩溃自动重启路径也走这里）：用户停过之后不再 fork，
+		// 调用方（restartAfterCrash）按 isDshManuallyStoppedError 判定后静默放弃。
+		if (this.isManualStopped()) throw dshManuallyStoppedError();
+		// 终态门控：dispose 后的对象不得再 fork（见 disposed 字段注释的孤儿竞态）。
+		if (this.disposed) throw new Error(DSH_HOST_DISPOSED_ERROR);
 		this.ready = false;
 		if (resetCrashCounters) {
 			this.bootFailures = 0;
 			this.runtimeCrashes = 0;
 		}
-		const { utilityProcess } = await import("electron");
-		this.log("dsh-host", `forking host entry: ${this.entryPath}`);
-		const child = utilityProcess.fork(this.entryPath, this.forkArgs, {
-			env: this.forkEnv,
-			// 显式 pipe stdio：否则 Windows 上 stderr 可能不可读，boot 失败只能看到 exit code。
-			stdio: "pipe",
-			serviceName: "pideck-dsh-host",
-		});
+		const child = await this.forkChild();
 		this.child = child;
+		this.lastForked = child;
+		// 带上来源 child：被 kill 淘汰的旧进程可能在途消息里还有 host-ready / host-exit，
+		// 若不校验来源，迟到帧会把实例重新标记成 ready（并触发 onReady 订阅者按
+		// 「启动成功」恢复状态），而此时真正在跑的已经是另一个进程。
 		child.on("message", (message) => {
+			if (this.child !== child) return;
 			this.handleMessage(message);
 		});
 		// hostEntry 的 console.error / 未捕获异常都会走 stderr；转发到主进程日志，
@@ -117,6 +161,12 @@ export class DshHostProcess {
 			}
 		});
 		child.on("exit", (code) => {
+			// 已被淘汰的旧进程退出：本次启动已由 start() 的 catch 结算过（含自动重启判定），
+			// 再走一遍会把新一轮启动的 child/ready 状态清掉。
+			if (this.child !== child) {
+				this.log("dsh-host", `superseded host process exited code=${code}`);
+				return;
+			}
 			const wasReady = this.ready;
 			this.log("dsh-host", `host process exited code=${code} (${wasReady ? "was ready" : "before ready"})`);
 			this.child = null;
@@ -138,36 +188,88 @@ export class DshHostProcess {
 				reject(new Error(formatBootExitError(code, this.getLastBootError())));
 			}
 			this.exitPromise = null;
+			this.exitChild = null;
+			// 注意：不要在这里复位 stopping——下一行的自动重启分支正要靠它区分
+			// 「用户主动停止」和「崩溃」；复位会让崩溃自动重启永久失效（E3）。
+			// 复位点在 restartAfterCrash 内部（重新 fork 前）。
 			// 崩溃/启动失败自动重启（限次）：boot 失败与运行期崩溃分开计数（E3），
 			// 各限 maxRestarts 次；重试成功前保持等待，超限才抛给调用方。
 			if (!this.stopping) {
 				if (wasReady) {
 					if (this.runtimeCrashes < this.maxRestarts) {
 						this.runtimeCrashes += 1;
-						this.log(
-							"dsh-host",
-							`host crashed after ready (code=${code}); auto-restarting (crash ${this.runtimeCrashes}/${this.maxRestarts})`,
-						);
+						this.log("dsh-host", `host crashed after ready (code=${code}); auto-restarting (crash ${this.runtimeCrashes}/${this.maxRestarts})`);
 						void this.restartAfterCrash(this.runtimeCrashes);
 					} else {
 						this.log("dsh-host", "host crash restart limit reached; giving up");
 					}
 				} else if (this.bootFailures < this.maxRestarts) {
 					this.bootFailures += 1;
-					this.log(
-						"dsh-host",
-						`host exited before ready (code=${code}); auto-restarting (boot ${this.bootFailures}/${this.maxRestarts})`,
-					);
+					this.log("dsh-host", `host exited before ready (code=${code}); auto-restarting (boot ${this.bootFailures}/${this.maxRestarts})`);
 					void this.restartAfterCrash(this.bootFailures);
 				} else {
 					this.log("dsh-host", "host boot failure restart limit reached; giving up");
 				}
 			}
 		});
-		await this.waitForReady();
+		// ⚠️ 本方法的失败路径必须自己收尸：调用方（DshHost.start）在 reject 后会把
+		// startPromise 置空并重新 start()，新的 DshHostProcess 会覆盖 hostProcess 引用。
+		// 这里若直接抛错而子进程还活着，那个进程就再也没有任何路径能 kill 它——
+		// 实测：host 冷启动超过等待上限时，一次请求会留下一个约 250MB 的孤儿 host
+		// 及其 runner 子进程，且两代会同时抢同一个 DSH_HOME（2026-10 内存排查）。
+		try {
+			await this.waitForReady(this.deps.bootReadyTimeoutMs ?? DEFAULT_BOOT_READY_TIMEOUT_MS);
+		} catch (error) {
+			await this.reapTerminatedChild(child);
+			throw error;
+		}
 	}
 
-	private waitForReady(timeoutMs = 30_000): Promise<void> {
+	/**
+	 * 本次 start() 失败的收尸：只终止「本次 fork 出来的那个进程」。
+	 *
+	 * 不能直接 await this.kill()——kill() 杀的是 this.child，而 this.child 可能已经被
+	 * 另一条路径换掉了：exit 回调里 `void restartAfterCrash(n)` 会同步调用 kill()
+	 * （child 随即在 kill 里被置 null），新启动的 start() 与它交错执行时，等
+	 * waitForReady 的 reject 传到 catch 这里，this.child 可能已经是**新的、正在
+	 * 启动的**进程；此时 kill() 会把正常的重启一起杀掉。
+	 */
+	private async reapTerminatedChild(child: UtilityProcess): Promise<void> {
+		// child 仍指向本次进程：走标准 kill（含等待退出与宽限期兜底）。
+		if (this.child === child) {
+			await this.kill();
+			return;
+		}
+		// 走到这里说明 exit 回调已经清过 this.child（进程自己退出了，或 kill 已发起）：
+		// 正常情况无需再动它——对一个已退出的进程补一刀，在某些平台上 PID 可能已被复用。
+		// 唯一需要兜底的是「this.child 被别的路径置空、但进程其实还活着」（例如并发
+		// restartAfterCrash 里的 kill 置空后新 fork 失败）。此时只能按进程号确认存活，
+		// 而 Electron UtilityProcess 没有跨平台可靠的探测手段，因此记录日志交给上层
+		// 决策，不盲目 kill。
+		if (this.lastForked !== child) return;
+		this.log("dsh-host", "start failed after child reference was detached; process may need manual cleanup");
+	}
+
+	/** 拉起 host utilityProcess（默认走 Electron；测试注入桩进程）。 */
+	private async forkChild(): Promise<UtilityProcess> {
+		this.log("dsh-host", `forking host entry: ${this.entryPath}`);
+		if (this.deps.fork) {
+			return this.deps.fork(this.entryPath, this.forkArgs, {
+				env: this.forkEnv,
+				stdio: "pipe",
+				serviceName: "pideck-dsh-host",
+			});
+		}
+		const { utilityProcess } = await import("electron");
+		return utilityProcess.fork(this.entryPath, this.forkArgs, {
+			env: this.forkEnv,
+			// 显式 pipe stdio：否则 Windows 上 stderr 可能不可读，boot 失败只能看到 exit code。
+			stdio: "pipe",
+			serviceName: "pideck-dsh-host",
+		});
+	}
+
+	private waitForReady(timeoutMs = DEFAULT_BOOT_READY_TIMEOUT_MS): Promise<void> {
 		if (this.ready) return Promise.resolve();
 		return new Promise<void>((resolve, reject) => {
 			// E1：健康信号等待必须有超时——boot 卡死（进程存活但不发 host-ready）时
@@ -292,37 +394,64 @@ export class DshHostProcess {
 			this.log("dsh-host", `host restarted after crash (attempt ${attempt})`);
 			return true;
 		} catch (error) {
-			this.log("dsh-host", `host restart failed: ${String(error)}`);
+			// 手动停止态下的 fork 被拒绝（start() 抛出 dshManuallyStoppedError）不算「崩溃重启失败」：
+			// 用 info 记一行即可，warn 会在日志里堆成假故障信号。
+			if (isDshManuallyStoppedError(error)) {
+				this.log("dsh-host", "host auto-restart skipped: manually stopped by user");
+			} else if (error instanceof Error && error.message === DSH_HOST_DISPOSED_ERROR) {
+				// dispose 后的 pending 重启被拒同理：正常时序而非故障，只记 info。
+				this.log("dsh-host", "host auto-restart skipped: process disposed");
+			} else {
+				this.log("dsh-host", `host restart failed: ${String(error)}`);
+			}
 			return false;
 		}
 	}
 
-	/** 停止 host：kill 进程并等待退出（退出清理清单调用）。 */
+	/** 停止 host：kill 进程并等待退出（退出清理清单调用）。
+	 *
+	 * 必须幂等且可并发：boot 超时收尸（start 的 catch）、用户手动停止、退出清理
+	 * 三条路径可能同时进来。exitPromise 按「被 kill 的那个 child」记账——旧实现复用
+	 * 已 resolve 的 Promise，后到的调用会在进程还活着时立刻返回。 */
 	async kill(): Promise<void> {
 		const child = this.child;
 		if (!child) return;
 		this.stopping = true;
-		// 未 ready 的等待者也要失败（kill 中断 boot）。
+		// 未 ready 的等待者也要失败（kill 中断 boot）。被 kill 淘汰的等待者即使超时
+		// 也不能再进 rejecters：start 的 catch 还要再调一次 kill，重复 reject 无意义。
 		const rejecters = this.readyRejecters;
 		this.readyRejecters = [];
+		this.readyResolvers = [];
 		for (const reject of rejecters) reject(new Error("DSH host process was killed"));
-		this.exitPromise ??= new Promise<void>((resolve) => {
-			child.once("exit", () => resolve());
-			child.kill();
-			// 兜底：kill 后 5s 未退出强制终止（Windows 上偶发）。
-			setTimeout(() => {
-				if (this.child === child) {
-					this.log("dsh-host", "host did not exit within 5s after kill; forcing terminate");
-					child.kill();
-				}
-				resolve();
-			}, 5000).unref();
+		const pending = this.exitPromise;
+		if (pending && this.exitChild === child) {
+			await pending;
+			return;
+		}
+		let settle: () => void = () => {};
+		const exitPromise = new Promise<void>((resolve) => {
+			settle = resolve;
 		});
-		await this.exitPromise;
+		this.exitPromise = exitPromise;
+		this.exitChild = child;
+		child.once("exit", () => settle());
+		child.kill();
+		// 兜底：kill 后宽限期未退出强制终止（Windows 上偶发）。必须无条件 settle——
+		// 旧实现只在 this.child === child 时才 settle，遇到 child 已被换掉就永久悬挂
+		// （容错路径里 await this.kill() 会把 boot 失败变成永不返回）。
+		setTimeout(() => {
+			if (!this.child || this.child === child) {
+				this.log("dsh-host", "host did not exit within grace period after kill; forcing terminate");
+				child.kill();
+			}
+			settle();
+		}, DEFAULT_KILL_GRACE_MS).unref();
+		await exitPromise;
 	}
 
-	/** 释放（退出清理）：kill + 清监听。 */
+	/** 释放（退出清理）：kill + 清监听；不可逆——之后拒绝一切 fork（终态门控）。 */
 	async dispose(): Promise<void> {
+		this.disposed = true;
 		this.listeners.clear();
 		await this.kill();
 	}

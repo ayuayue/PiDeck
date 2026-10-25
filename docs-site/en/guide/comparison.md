@@ -1,3 +1,8 @@
+---
+title: PiDeck vs Cursor / Claude Code / Codex | pi desktop comparison
+description: "Compare PiDeck (the pi desktop client) with Cursor, Claude Code, and Codex Desktop: architecture differences, capability matrix, and which AI coding desktop fits your workflow."
+---
+
 # PiDeck vs Other AI Coding Tools
 
 Here's how PiDeck compares to other popular AI coding tools.

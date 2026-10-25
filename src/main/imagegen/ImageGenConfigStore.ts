@@ -4,14 +4,7 @@
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import {
-	EMPTY_IMAGE_GEN_CONFIG,
-	findImageGenProvider,
-	sanitizeImageGenConfig,
-	type ImageGenConfigFile,
-	type ImageGenProviderConfig,
-	type ImageGenProviderExtraParams,
-} from "../../shared/imageGenConfig";
+import { EMPTY_IMAGE_GEN_CONFIG, findImageGenProvider, sanitizeImageGenConfig, type ImageGenConfigFile, type ImageGenProviderConfig, type ImageGenProviderExtraParams } from "../../shared/imageGenConfig";
 
 export type ImageGenCredentials = {
 	baseUrl: string;
@@ -21,11 +14,13 @@ export type ImageGenCredentials = {
 };
 
 export class ImageGenConfigStore {
-	constructor(private readonly deps: {
-		/** 配置文件绝对路径（主进程用 userData/imagegen.json，测试注入临时文件） */
-		getConfigPath: () => string;
-		log: (message: string, ...args: unknown[]) => void;
-	}) {}
+	constructor(
+		private readonly deps: {
+			/** 配置文件绝对路径（主进程用 userData/imagegen.json，测试注入临时文件） */
+			getConfigPath: () => string;
+			log: (message: string, ...args: unknown[]) => void;
+		},
+	) {}
 
 	async getConfig(): Promise<ImageGenConfigFile> {
 		try {

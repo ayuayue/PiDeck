@@ -11,18 +11,18 @@
 
 /** 判定解析后的记录是否为旧版私有 sessionName 行：有 sessionName 字符串且无 type（pi 原生记录一律有 type）。 */
 export function isLegacySessionNameEntry(parsed: unknown): boolean {
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return false;
-  const record = parsed as Record<string, unknown>;
-  return typeof record.sessionName === "string" && typeof record.type !== "string";
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return false;
+	const record = parsed as Record<string, unknown>;
+	return typeof record.sessionName === "string" && typeof record.type !== "string";
 }
 
 /** 解析单行 JSON 并判定是否为旧版私有 sessionName 行；不可解析的行返回 false（原样保留）。 */
 export function isLegacySessionNameLine(line: string): boolean {
-  try {
-    return isLegacySessionNameEntry(JSON.parse(line));
-  } catch {
-    return false;
-  }
+	try {
+		return isLegacySessionNameEntry(JSON.parse(line));
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -37,18 +37,18 @@ export function isLegacySessionNameLine(line: string): boolean {
  * （与 pi 校验语义一致，确保与文件名同源的 header）——其余损坏形态不动，留给人工处理。
  */
 export function tryRestorePathGluedHeader(head: string): string | null {
-  const newline = head.indexOf("\n");
-  const firstLine = newline === -1 ? head : head.slice(0, newline);
-  const marker = firstLine.indexOf(".jsonl{");
-  if (marker < 0) return null;
-  const candidate = firstLine.slice(marker + ".jsonl{".length - 1); // 从 `{` 起
-  try {
-    const parsed = JSON.parse(candidate) as Record<string, unknown>;
-    if (parsed.type === "session" && typeof parsed.id === "string") return candidate;
-    return null;
-  } catch {
-    return null;
-  }
+	const newline = head.indexOf("\n");
+	const firstLine = newline === -1 ? head : head.slice(0, newline);
+	const marker = firstLine.indexOf(".jsonl{");
+	if (marker < 0) return null;
+	const candidate = firstLine.slice(marker + ".jsonl{".length - 1); // 从 `{` 起
+	try {
+		const parsed = JSON.parse(candidate) as Record<string, unknown>;
+		if (parsed.type === "session" && typeof parsed.id === "string") return candidate;
+		return null;
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -57,12 +57,12 @@ export function tryRestorePathGluedHeader(head: string): string | null {
  * 供会话修复与重命名共用，保证两处清理口径一致；非私有行内容与顺序原样保留。
  */
 export function stripLegacySessionNameLine(raw: string): string {
-  const kept: string[] = [];
-  for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (isLegacySessionNameLine(trimmed)) continue;
-    kept.push(trimmed);
-  }
-  return kept.length > 0 ? `${kept.join("\n")}\n` : "";
+	const kept: string[] = [];
+	for (const line of raw.split(/\r?\n/)) {
+		const trimmed = line.trim();
+		if (!trimmed) continue;
+		if (isLegacySessionNameLine(trimmed)) continue;
+		kept.push(trimmed);
+	}
+	return kept.length > 0 ? `${kept.join("\n")}\n` : "";
 }

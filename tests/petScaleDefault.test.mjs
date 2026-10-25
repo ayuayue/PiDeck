@@ -13,7 +13,8 @@ const petMain = readFileSync("src/renderer/src/pet/main.tsx", "utf8");
 test("pet scale factory default is 30% (0.3), not 100%", () => {
 	assert.match(settingsType, /export const DEFAULT_PET_SCALE = 0\.3;/);
 	assert.match(store, /petScale: DEFAULT_PET_SCALE,/);
-	assert.match(app, /petScale: DEFAULT_PET_SCALE,/);
+	// App 首屏默认值已抽到 shared/types/settings.ts 的 createDefaultAppSettings；settings.ts 已在 settingsType 里
+	assert.match(settingsType, /petScale: DEFAULT_PET_SCALE,/);
 	assert.match(preview, /petScale: DEFAULT_PET_SCALE,/);
 	assert.match(petTab, /draft\.petScale \?\? DEFAULT_PET_SCALE/);
 	assert.match(petIndex, /s\.petScale \?\? DEFAULT_PET_SCALE/);

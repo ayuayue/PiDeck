@@ -7,12 +7,8 @@
  */
 export type ComposerSendButtonState = "send" | "stop" | "spinner";
 
-export function resolveComposerSendButtonState(input: {
-  isAgentBusy: boolean;
-  hasContent: boolean;
-  isGeneratingImage?: boolean;
-}): ComposerSendButtonState {
-  if (input.isGeneratingImage) return "spinner";
-  if (input.isAgentBusy && !input.hasContent) return "stop";
-  return "send";
+export function resolveComposerSendButtonState(input: { isAgentBusy: boolean; hasContent: boolean; isGeneratingImage?: boolean }): ComposerSendButtonState {
+	if (input.isGeneratingImage) return "spinner";
+	if (input.isAgentBusy && !input.hasContent) return "stop";
+	return "send";
 }

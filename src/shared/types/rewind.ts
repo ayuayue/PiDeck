@@ -51,6 +51,8 @@ export type RewindCheckpointSummary = {
 	skippedLargeFiles?: string[];
 	/** 因 >=200 个文件跳过快照的目录；恢复时受保护不被误删 */
 	skippedLargeDirs?: string[];
+	/** 因未跟踪总字节预算（MAX_UNTRACKED_TOTAL_BYTES）跳过的文件；恢复时受保护 */
+	skippedOverBudgetFiles?: string[];
 };
 
 /** IPC 边界校验：回退范围枚举（渲染层入参一律不可信）。 */
@@ -72,11 +74,31 @@ export type RewindCheckpointPageParams = {
 	beforeTimestamp?: number;
 };
 
+/**
+ * 自动打点健康状态（主进程 per 工作目录维护，随列表响应附带）。
+ * 背景：打点失败此前只写主进程日志，界面完全静默——用户以为有快照，
+ * 真要回滚才发现一个点都没有（2026-09-13 用户报告，某目录一天 1500 次静默失败）。
+ */
+export type RewindCheckpointHealth = {
+	/** 最近一次成功打点时刻（epoch ms），从未成功则缺省 */
+	lastSuccessAt?: number;
+	/** 最近一次失败时刻（epoch ms） */
+	lastErrorAt?: number;
+	/** 最近一次失败原因（截断后的错误摘要） */
+	lastError?: string;
+	/** 失败分类：no-git = 工作目录不是 git 仓库（检查点永远不可用）；other = 其他 */
+	lastErrorKind?: "no-git" | "other";
+	/** 连续失败次数（成功一次即清零；>0 表示当前处于失败态） */
+	consecutiveFailures: number;
+};
+
 /** 检查点列表分页结果。 */
 export type RewindCheckpointPage = {
 	items: RewindCheckpointSummary[];
 	/** 是否还有更早的检查点（决定「加载更多」按钮是否展示） */
 	hasMore: boolean;
+	/** 当前工作目录的自动打点健康状态（失败态时渲染层显示警示条） */
+	health?: RewindCheckpointHealth;
 };
 
 /**

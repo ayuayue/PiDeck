@@ -1,0 +1,31 @@
+#!/bin/sh
+# PiDeck —— pre-push 钩子：把本次 push 的引用同步镜像到 AtomGit 远端。
+#
+# 为什么是 pre-push：git 没有 post-push 钩子，pre-push 是唯一能在 push 流程里自动执行的位置；
+# 这里只读「本次实际要推的引用」，因此推哪个分支/标签就镜像哪个，不做全量 --mirror。
+#
+# 本文件只做三件事：找 node → 找仓库根 → 把决定权交给 scripts/atomgit-mirror.mjs。
+# 真正的判定逻辑（递归防护、删除跳过、远端自愈、失败策略）都在那个 Node 模块里，
+# 这样它可以被单元测试直接覆盖，不必依赖 sh。
+#
+# 行为保证：默认「尽力而为」——镜像失败只打印提示，绝不阻断本次 push；
+# 需要「镜像失败即失败」时设 PI_DECK_ATOMGIT_STRICT=1。
+#
+# 关闭/定制：PI_DECK_SKIP_ATOMGIT=1 跳过；PI_DECK_ATOMGIT_REMOTE / PI_DECK_ATOMGIT_URL
+# 改远端名与默认地址；PI_DECK_ATOMGIT_DRY_RUN=1 只打印将要执行的 push。
+#
+# 安装：node scripts/install-git-hooks.mjs（npm install 会经 prepare 自动执行；幂等）。
+
+# node 缺失时放行：钩子不能让开发者的 push 因为环境缺东西而失败
+command -v node >/dev/null 2>&1 || {
+	echo "ℹ️  未找到 node，跳过 AtomGit 镜像（不影响本次 push）"
+	exit 0
+}
+
+root="$(git rev-parse --show-toplevel 2>/dev/null)"
+[ -n "$root" ] || exit 0
+mirror="$root/scripts/atomgit-mirror.mjs"
+[ -f "$mirror" ] || exit 0
+
+# exec：node 直接接管 stdin（pre-push 的引用清单）与退出码，避免多一层进程
+exec node "$mirror" "$@"

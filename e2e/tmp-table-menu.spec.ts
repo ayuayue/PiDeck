@@ -1,4 +1,5 @@
 import { test, expect } from "./mock-pi-fixture";
+import { openFirstSession } from "./open-session";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -12,9 +13,7 @@ mkdirSync(OUT_DIR, { recursive: true });
 test("table toolbar dropdown must not overlap table text", async ({ window }) => {
 	test.setTimeout(180_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
-	await window.getByRole("button", { name: "启动 Agent" }).click();
-	const composer = window.locator(".composer .rich-input");
-	await expect(composer).toHaveAttribute("contenteditable", "true", { timeout: 30_000 });
+	const composer = await openFirstSession(window);
 	const timeline = window.locator(".message-timeline");
 
 	await composer.click();

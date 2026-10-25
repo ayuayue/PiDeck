@@ -20,8 +20,10 @@ function loadTranspiledModule(filePath, overrides = new Map()) {
 	const sandbox = {
 		clearTimeout,
 		exports: {},
+		// jsonlLineStream（会话 JSONL 流式扫描）运行时需要 Buffer
+		Buffer,
 		process,
-		require: (id) => overrides.has(id) ? overrides.get(id) : require(id),
+		require: (id) => (overrides.has(id) ? overrides.get(id) : require(id)),
 		setTimeout,
 	};
 	vm.runInNewContext(outputText, sandbox, { filename: filePath });
@@ -67,10 +69,7 @@ function loadSessionScanner(homePath) {
 		},
 	});
 	const codexMeta = loadCodexMetaModule();
-	const messageContent = loadTranspiledModule(
-		"src/main/pi/messageContent.ts",
-		new Map([["../feishu/docActions", { stripFeishuDocActionHint: (text) => text }]]),
-	);
+	const messageContent = loadTranspiledModule("src/main/pi/messageContent.ts", new Map([["../feishu/docActions", { stripFeishuDocActionHint: (text) => text }]]));
 	const fsRetry = loadTranspiledModule("src/main/utils/fsRetry.ts");
 	const sessionSummaryCache = loadTranspiledModule(
 		"src/main/sessions/sessionSummaryCache.ts",
@@ -82,6 +81,10 @@ function loadSessionScanner(homePath) {
 	);
 	const wslPaths = loadTranspiledModule("src/main/wsl/WslPaths.ts");
 	const sessionIdentity = loadTranspiledModule("src/shared/sessionIdentity.ts");
+	// SessionScanner 新增的自包含块折叠（无依赖纯函数）
+	const expandedRefBlocks = loadTranspiledModule("src/shared/expandedRefBlocks.ts");
+	// 会话 JSONL 流式行扫描器（只依赖 node:fs/promises，测试注入真实实现）
+	const jsonlLineStream = loadTranspiledModule("src/main/sessions/jsonlLineStream.ts");
 	const sandbox = {
 		AbortController,
 		AbortSignal,
@@ -104,12 +107,15 @@ function loadSessionScanner(homePath) {
 				};
 			}
 			if (id === "../../shared/codexSessionMeta") return codexMeta;
+			if (id === "../pi/sessionEntryIds") return loadTranspiledModule("src/main/pi/sessionEntryIds.ts");
 			if (id === "../pi/messageContent") return messageContent;
 			if (id === "./sessionSummaryCache") return sessionSummaryCache;
 			if (id === "../wsl/WslPaths") return wslPaths;
 			// sessionNameLine 为无依赖纯函数模块，直接编译加载真实实现，保证清理口径一致
 			if (id === "./sessionNameLine") return loadSessionNameLineModule();
 			if (id === "../../shared/sessionIdentity") return sessionIdentity;
+			if (id === "../../shared/expandedRefBlocks") return expandedRefBlocks;
+			if (id === "./jsonlLineStream") return jsonlLineStream;
 			// sharedLogger 未注册时 getAppLogger 返回 null，SessionScanner 埋点静默跳过
 			if (id === "../logging/sharedLogger") return { getAppLogger: () => null };
 			return require(id);
@@ -165,11 +171,7 @@ test("deleteArchived 拒绝归档目录外的文件（防路径穿越）", async
 		await scanner.list();
 
 		// 未归档的普通会话路径不在 .pideck-archive 内，deleteArchived 必须拒绝。
-		await assert.rejects(
-			() => scanner.deleteArchived(sessionPath),
-			/拒绝删除/,
-			"归档目录外的路径应被拒绝",
-		);
+		await assert.rejects(() => scanner.deleteArchived(sessionPath), /拒绝删除/, "归档目录外的路径应被拒绝");
 		assert.ok(existsSync(sessionPath), "拒绝后原文件应仍在磁盘");
 	} finally {
 		rmSync(home, { recursive: true, force: true });

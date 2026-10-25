@@ -26,14 +26,8 @@ export function compactMiddlePackages(nodes: FileTreeNode[]): FileTreeNode[] {
 	return nodes.map((node) => {
 		if (node.type !== "directory") return node;
 		// 先递归折叠子树，再判断自身是否可并入子目录（自底向上合并整条链）。
-		const children = Array.isArray(node.children)
-			? compactMiddlePackages(node.children)
-			: node.children;
-		if (
-			Array.isArray(children) &&
-			children.length === 1 &&
-			isLoadedDirectory(children[0])
-		) {
+		const children = Array.isArray(node.children) ? compactMiddlePackages(node.children) : node.children;
+		if (Array.isArray(children) && children.length === 1 && isLoadedDirectory(children[0])) {
 			const child = children[0];
 			return { ...child, name: `${node.name}.${child.name}` };
 		}

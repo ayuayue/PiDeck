@@ -29,15 +29,7 @@
  * 2 会让已稳定的大块长期滞留 tail 每帧重解析；1 即「最后一块」最小热路径。 */
 export const UNSTABLE_TAIL_BLOCKS = 1;
 
-export type MarkdownBlockKind =
-	| "fence"
-	| "heading"
-	| "list"
-	| "quote"
-	| "hr"
-	| "html"
-	| "paragraph"
-	| "blank";
+export type MarkdownBlockKind = "fence" | "heading" | "list" | "quote" | "hr" | "html" | "paragraph" | "blank";
 
 export type MarkdownBlockSpan = {
 	start: number;
@@ -171,13 +163,7 @@ export function splitTopLevelMarkdownBlocks(text: string, from = 0): MarkdownBlo
 		}
 
 		if (isQuote(first.trimmed) || isListItem(first.trimmed) || isIndentedCode(first.trimmed) || isHtmlBlock(first.trimmed)) {
-			const kind: MarkdownBlockKind = isQuote(first.trimmed)
-				? "quote"
-				: isListItem(first.trimmed)
-					? "list"
-					: isHtmlBlock(first.trimmed)
-						? "html"
-						: "paragraph";
+			const kind: MarkdownBlockKind = isQuote(first.trimmed) ? "quote" : isListItem(first.trimmed) ? "list" : isHtmlBlock(first.trimmed) ? "html" : "paragraph";
 			let next = first.next;
 			while (next < text.length) {
 				const look = readLine(text, next);
@@ -201,13 +187,7 @@ export function splitTopLevelMarkdownBlocks(text: string, from = 0): MarkdownBlo
 				next = look.next;
 				break;
 			}
-			if (
-				isFenceOpen(look.trimmed) ||
-				isAtxHeading(look.trimmed) ||
-				isThematicBreak(look.trimmed) ||
-				isListItem(look.trimmed) ||
-				isQuote(look.trimmed)
-			) {
+			if (isFenceOpen(look.trimmed) || isAtxHeading(look.trimmed) || isThematicBreak(look.trimmed) || isListItem(look.trimmed) || isQuote(look.trimmed)) {
 				break;
 			}
 			next = look.next;
@@ -222,10 +202,7 @@ export function splitTopLevelMarkdownBlocks(text: string, from = 0): MarkdownBlo
  * 由「内容块列表」计算可冻结前缀终点：去掉尾部 N 个内容块 + 任何未闭合围栏。
  * 独立成纯函数供全量/增量两条路径共用，保证两者结果一致。
  */
-export function computeFrozenEnd(
-	content: MarkdownBlockSpan[],
-	unstableTail: number = UNSTABLE_TAIL_BLOCKS,
-): { prefixEnd: number; frozenBlocks: MarkdownBlockSpan[] } {
+export function computeFrozenEnd(content: MarkdownBlockSpan[], unstableTail: number = UNSTABLE_TAIL_BLOCKS): { prefixEnd: number; frozenBlocks: MarkdownBlockSpan[] } {
 	if (content.length === 0) return { prefixEnd: 0, frozenBlocks: [] };
 
 	let lastUnstableIndex = content.length;
@@ -240,10 +217,7 @@ export function computeFrozenEnd(
 }
 
 /** 计算可冻结前缀终点（全量扫描入口；增量路径见 IncrementalMarkdownFrontier）。 */
-export function resolveFrozenPrefixEnd(
-	text: string,
-	unstableTail: number = UNSTABLE_TAIL_BLOCKS,
-): { prefixEnd: number; frozenBlocks: MarkdownBlockSpan[] } {
+export function resolveFrozenPrefixEnd(text: string, unstableTail: number = UNSTABLE_TAIL_BLOCKS): { prefixEnd: number; frozenBlocks: MarkdownBlockSpan[] } {
 	const blocks = splitTopLevelMarkdownBlocks(text);
 	const content = blocks.filter((block) => block.kind !== "blank");
 	return computeFrozenEnd(content, unstableTail);
@@ -275,19 +249,12 @@ export class IncrementalMarkdownFrontier {
 			this.generation += 1;
 		}
 		this.prevText = text;
-		const split = appended && this.cached
-			? this.rescanAppend(text, this.cached)
-			: this.fullScan(text);
+		const split = appended && this.cached ? this.rescanAppend(text, this.cached) : this.fullScan(text);
 		// 冻结边界未动且 generation 未变时复用上一次的 prefix 字符串对象：
 		// 流式每帧追加 6~12 字，若每帧 slice 都会新分配一个大字符串
 		// （V8 对 slice 可能生成引用父串的 SlicedString，使旧串无法及时回收），
 		// 长时间流式会持续积累分配压力；边界移动时内容才真正变化，必须重 slice。
-		if (
-			this.cached &&
-			appended &&
-			this.cached.generation === split.generation &&
-			this.cached.prefixEnd === split.prefixEnd
-		) {
+		if (this.cached && appended && this.cached.generation === split.generation && this.cached.prefixEnd === split.prefixEnd) {
 			split.prefix = this.cached.prefix;
 		}
 		this.cached = split;

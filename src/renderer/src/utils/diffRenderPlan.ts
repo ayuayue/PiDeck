@@ -46,10 +46,7 @@ export type DiffRenderPlan =
 	  }
 	| { mode: "fallback" };
 
-export function getDiffRenderPlan(
-	oldLineCount: number,
-	newLineCount: number,
-): DiffRenderPlan {
+export function getDiffRenderPlan(oldLineCount: number, newLineCount: number): DiffRenderPlan {
 	const maxSide = Math.max(oldLineCount, newLineCount);
 	if (maxSide > HUNK_LIMITED_MAX_LINES) {
 		return { mode: "fallback" };

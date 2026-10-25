@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 function asJson(value) {
 	return JSON.parse(JSON.stringify(value));
@@ -44,6 +45,8 @@ function loadDshModelsModule() {
 					},
 				};
 			}
+			// 模型展示顺序统一比较器（shared/modelOrder）：纯函数，真实加载保持与生产一致的排序。
+			if (id === "../../../shared/modelOrder") return loadTsCommonJs("src/shared/modelOrder.ts");
 			throw new Error(`Unexpected require: ${id}`);
 		},
 	};
@@ -59,11 +62,7 @@ test("first custom add while inheriting catalog keeps catalog then appends blank
 			{ id: "deepseek-reasoner", name: "DeepSeek Reasoner" },
 		],
 	});
-	assert.deepEqual(asJson(next), [
-		{ id: "deepseek-chat", name: "DeepSeek Chat" },
-		{ id: "deepseek-reasoner", name: "DeepSeek Reasoner" },
-		{ id: "" },
-	]);
+	assert.deepEqual(asJson(next), [{ id: "deepseek-chat", name: "DeepSeek Chat" }, { id: "deepseek-reasoner", name: "DeepSeek Reasoner" }, { id: "" }]);
 });
 
 test("adding onto saved custom models does not wipe them", () => {
@@ -80,22 +79,23 @@ test("adding onto saved custom models does not wipe them", () => {
 test("empty draft falls back to saved or catalog instead of wiping them", () => {
 	const { seedDshModelsForCustomEdit, appendBlankDshModel } = loadDshModelsModule();
 	assert.deepEqual(
-		asJson(seedDshModelsForCustomEdit({
-			draftModels: [],
-			savedModels: [{ id: "saved", name: "Saved" }],
-			catalog: [{ id: "catalog" }],
-		})),
+		asJson(
+			seedDshModelsForCustomEdit({
+				draftModels: [],
+				savedModels: [{ id: "saved", name: "Saved" }],
+				catalog: [{ id: "catalog" }],
+			}),
+		),
 		[{ id: "saved", name: "Saved" }],
 	);
 	assert.deepEqual(
-		asJson(appendBlankDshModel({
-			draftModels: [],
-			catalog: [{ id: "catalog", name: "Catalog" }],
-		})),
-		[
-			{ id: "catalog", name: "Catalog" },
-			{ id: "" },
-		],
+		asJson(
+			appendBlankDshModel({
+				draftModels: [],
+				catalog: [{ id: "catalog", name: "Catalog" }],
+			}),
+		),
+		[{ id: "catalog", name: "Catalog" }, { id: "" }],
 	);
 });
 
@@ -187,10 +187,7 @@ test("DSH cards seed custom models instead of starting from an empty draft array
 	assert.match(editor, /appendBlankDshModel/);
 	assert.match(editor, /appendFetchedDshModels/);
 	assert.match(editor, /desktopApi\.sessions\.discoverDshModels/);
-	assert.doesNotMatch(
-		cards,
-		/const models = Array.isArray\((?:provider|next)\.models\) \? \[\.\.\.(?:provider|next)\.models\] : \[\];\s*models\.push\(\{ id: ""/,
-	);
+	assert.doesNotMatch(cards, /const models = Array.isArray\((?:provider|next)\.models\) \? \[\.\.\.(?:provider|next)\.models\] : \[\];\s*models\.push\(\{ id: ""/);
 });
 
 test("official DeepSeek lets inherited catalog rows materialize a model override", () => {
@@ -213,4 +210,36 @@ test("official DeepSeek inherits catalog rows from DSH composition base through 
 	assert.match(preload, /base\?: unknown/);
 	assert.match(cards, /readPath\(namespace\.base, \["models"\]\)/);
 	assert.match(cards, /schemaDefaultModels/);
+});
+
+// 回归（用户反馈「DSH 发图片识别不了，配置里没地方开图片能力」）：DSH 两个适配器
+// 的模态字段拼写不同，且缺省/空数组都表示沿用目录；配置页需要把这三态映射对。
+test("DSH input modality helpers map both adapter field spellings and the inherit state", () => {
+	const { dshModelInputField, dshModalitySelection, dshModalityValue } = loadDshModelsModule();
+	assert.equal(dshModelInputField("llm-pi-ai"), "input");
+	assert.equal(dshModelInputField("llm-deepseek"), "inputModalities");
+	assert.equal(dshModelInputField("unknown"), undefined);
+	assert.equal(dshModalitySelection(undefined), "inherit");
+	assert.equal(dshModalitySelection([]), "inherit");
+	assert.equal(dshModalitySelection(["text"]), "text");
+	assert.equal(dshModalitySelection(["text", "image"]), "textImage");
+	assert.equal(dshModalityValue("inherit"), undefined);
+	assert.deepEqual(asJson(dshModalityValue("text")), ["text"]);
+	assert.deepEqual(asJson(dshModalityValue("textImage")), ["text", "image"]);
+});
+
+test("DSH model editor renders the input-modality control for both adapters", () => {
+	const editor = readFileSync("src/renderer/src/config/DshModelsEditor.tsx", "utf8");
+	const table = readFileSync("src/renderer/src/config/DshModelsTable.tsx", "utf8");
+	// 编辑器按 namespace 选择字段名（llm-pi-ai=input / llm-deepseek=inputModalities）
+	assert.match(editor, /inputField=\{dshModelInputField\(props\.settingsNs\)\}/);
+	// 表格的容量展开区必须能编辑模态，而不是只存在于 settings.yaml
+	assert.match(table, /config\.dsh\.modelInputModalities/);
+	assert.match(table, /config\.dsh\.inputModalityTextImage/);
+	assert.match(table, /onUpdate\(index, inputField, dshModalityValue\(selection\)\)/);
+	// 行上直接显示图片能力（不用展开也能看出模型支不支持图片）
+	assert.match(table, /Image as ImageIcon/);
+	assert.match(table, /dshModalitySelection\(model\[inputField\]\) === "textImage"/);
+	// 目录补全（id 失焦）不得覆盖用户已声明的模态
+	assert.match(editor, /input: Array\.isArray\(row\.input\)/);
 });

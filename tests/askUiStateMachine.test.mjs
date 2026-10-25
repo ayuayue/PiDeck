@@ -6,10 +6,10 @@ import vm from "node:vm";
 
 /**
  * Ask 提问 UI 状态机与应答构造（#ask-ui）：
- * - 纯逻辑：pickActiveAskRequest / buildAskResponse / serializeBatchAnswers / hasTextSelection
+ * - 纯逻辑：pickActiveAskRequest / buildAskResponse / serializeBatchAnswers / shouldSuppressAskClick
  * - 静态契约：渲染层使用提取的纯逻辑 + shadcn 组件与语义字号 token；
  *   主进程 select 无选项降级为 input（不再静默取消）；
- *   overlay / timeline / 安全卡在选项点击前调 hasTextSelection，避免划选复制误答。
+ *   overlay / timeline / 安全卡在选项点击前调按压感知守卫 shouldSuppressAskClick，避免划选 mouseup 冒充 click 误答。
  */
 
 function loadAskUi(sandboxExtras = {}) {
@@ -69,6 +69,41 @@ test("pickActiveAskRequest: 过滤 responding 与 pending 之外的请求", () =
 	assert.equal(picked, active);
 });
 
+test("resolveActiveAskRequest: 同代且 pending 时才返回请求", () => {
+	const { resolveActiveAskRequest } = loadAskUi();
+	const req = request({ requestId: "req-1", method: "select" });
+	const ui = { agentId: "agent-1", runtimeGeneration: 3, requests: { a: { status: "pending", request: req } } };
+	assert.equal(resolveActiveAskRequest({ agentId: "agent-1", runtimeGeneration: 3, status: "running" }, ui), req);
+	// 旧 runtime 的迟到请求：agentId / generation 不同一律拒绝
+	assert.equal(resolveActiveAskRequest({ agentId: "agent-1", runtimeGeneration: 2, status: "running" }, ui), undefined);
+	assert.equal(resolveActiveAskRequest({ agentId: "agent-old", runtimeGeneration: 3, status: "running" }, ui), undefined);
+	// detached / closed 的 runtime 不再可交互（即使 UI 还残留 pending 请求）
+	assert.equal(resolveActiveAskRequest({ agentId: "agent-1", runtimeGeneration: 3, status: "detached" }, ui), undefined);
+	assert.equal(resolveActiveAskRequest({ agentId: "agent-1", runtimeGeneration: 3, status: "closed" }, ui), undefined);
+	// 缺少 runtime 或 ui 时没有可交互请求
+	assert.equal(resolveActiveAskRequest(undefined, ui), undefined);
+	assert.equal(resolveActiveAskRequest({ agentId: "agent-1", runtimeGeneration: 3, status: "running" }, undefined), undefined);
+});
+
+test("shouldAutoAdvanceBatchAnswer: 多题批次的单值选择才自动前进", () => {
+	const { shouldAutoAdvanceBatchAnswer } = loadAskUi();
+	// select / confirm / input 是「一次提交即完成本题」，答完即自动前进（issue #230 第 1 点）
+	assert.equal(shouldAutoAdvanceBatchAnswer({ type: "select", total: 3 }), true);
+	assert.equal(shouldAutoAdvanceBatchAnswer({ type: "confirm", total: 3 }), true);
+	assert.equal(shouldAutoAdvanceBatchAnswer({ type: "input", total: 3 }), true);
+	// multi_select 需多次勾选，editor 每次击键都写答案（会打字即跳题），都不能自动跳
+	assert.equal(shouldAutoAdvanceBatchAnswer({ type: "multi_select", total: 3 }), false);
+	assert.equal(shouldAutoAdvanceBatchAnswer({ type: "editor", total: 3 }), false);
+	// 单题批次（total === 1）同样一步提交：末题即直接提交全部，与单卡 select 点击即提交
+	// 的行为对齐（2026-01 用户反馈：点答案后还要再点一次提交很麻烦）。
+	assert.equal(shouldAutoAdvanceBatchAnswer({ type: "select", total: 1 }), true);
+	assert.equal(shouldAutoAdvanceBatchAnswer({ type: "confirm", total: 1 }), true);
+	// multi_select 单题批次仍不自动：多选需要多次勾选，末题提交按钮保留
+	assert.equal(shouldAutoAdvanceBatchAnswer({ type: "multi_select", total: 1 }), false);
+	// total = 0 时卡片不渲染（BatchAskInlineBar 对空批次 return null），策略结果无实际消费方
+	assert.equal(shouldAutoAdvanceBatchAnswer({ type: "select", total: 0 }), true);
+});
+
 test("classifyAskCardStatus: 明确回答视为 answered", () => {
 	const { classifyAskCardStatus } = loadAskUi();
 	assert.equal(classifyAskCardStatus("answered", false), "answered");
@@ -111,32 +146,42 @@ test("buildAskResponse: 取消回传 cancelled", () => {
 
 test("splitAskOption: 保留普通选项并拆分标题与说明", () => {
 	const { splitAskOption, formatAskTitle } = loadAskUi();
-	assert.equal(JSON.stringify(splitAskOption("开始执行|恢复写权限，按步骤改代码并勾进度")), JSON.stringify({
-		label: "开始执行",
-		description: "恢复写权限，按步骤改代码并勾进度",
-	}));
-	assert.equal(JSON.stringify(splitAskOption("包含 | 竖线的普通文案")), JSON.stringify({
-		label: "包含",
-		description: "竖线的普通文案",
-	}));
+	assert.equal(
+		JSON.stringify(splitAskOption("开始执行|恢复写权限，按步骤改代码并勾进度")),
+		JSON.stringify({
+			label: "开始执行",
+			description: "恢复写权限，按步骤改代码并勾进度",
+		}),
+	);
+	assert.equal(
+		JSON.stringify(splitAskOption("包含 | 竖线的普通文案")),
+		JSON.stringify({
+			label: "包含",
+			description: "竖线的普通文案",
+		}),
+	);
 	assert.equal(JSON.stringify(splitAskOption("普通选项")), JSON.stringify({ label: "普通选项" }));
-	assert.equal(JSON.stringify(splitAskOption("模型 A — 适合长上下文任务")), JSON.stringify({
-		label: "模型 A",
-		description: "适合长上下文任务",
-	}));
+	assert.equal(
+		JSON.stringify(splitAskOption("模型 A — 适合长上下文任务")),
+		JSON.stringify({
+			label: "模型 A",
+			description: "适合长上下文任务",
+		}),
+	);
 	assert.equal(formatAskTitle("[PI_DECK_PLAN_NEXT] 计划草案已就绪\n\n1. 读取代码"), "计划草案已就绪\n\n1. 读取代码");
 });
 
 test("parseSecurityConfirmTitle: 解析安全确认 JSON 负载，非安全标题返回 null", () => {
 	const { parseSecurityConfirmTitle } = loadAskUi();
-	const parsed = parseSecurityConfirmTitle(
-		"[PI_DECK_SECURITY_CONFIRM]{\"tool\":\"bash\",\"level\":\"standard\",\"detail\":\"rm -rf node_modules\"}",
+	const parsed = parseSecurityConfirmTitle('[PI_DECK_SECURITY_CONFIRM]{"tool":"bash","level":"standard","detail":"rm -rf node_modules"}');
+	assert.equal(
+		JSON.stringify(parsed),
+		JSON.stringify({
+			tool: "bash",
+			level: "standard",
+			detail: "rm -rf node_modules",
+		}),
 	);
-	assert.equal(JSON.stringify(parsed), JSON.stringify({
-		tool: "bash",
-		level: "standard",
-		detail: "rm -rf node_modules",
-	}));
 	// 非安全确认标题不误判
 	assert.equal(parseSecurityConfirmTitle("普通提问"), null);
 	assert.equal(parseSecurityConfirmTitle("[PI_DECK_PLAN_NEXT] 计划草案"), null);
@@ -152,10 +197,7 @@ test("parseSecurityConfirmTitle: JSON 损坏兑底返回原始负载，不丢确
 
 test("formatAskTitle: 安全确认标记兑换底为可读摘要，不泄露 JSON", () => {
 	const { formatAskTitle, formatSecurityConfirmSummary } = loadAskUi();
-	assert.equal(
-		formatAskTitle("[PI_DECK_SECURITY_CONFIRM]{\"tool\":\"bash\",\"level\":\"strict\",\"detail\":\"sudo rm\"}"),
-		"安全确认：bash",
-	);
+	assert.equal(formatAskTitle('[PI_DECK_SECURITY_CONFIRM]{"tool":"bash","level":"strict","detail":"sudo rm"}'), "安全确认：bash");
 	assert.equal(formatSecurityConfirmSummary({ tool: "", level: "", detail: "" }), "安全确认");
 });
 
@@ -188,9 +230,7 @@ test("serializeBatchAnswers: 混合题型序列化并保留 label/wasCustom", ()
 
 test("serializeBatchAnswers: multi_select 数组 value 序列化与 label 拼接", () => {
 	const { serializeBatchAnswers, batchAnswerLabel } = loadAskUi();
-	const questions = [
-		{ id: "m1", type: "multi_select" },
-	];
+	const questions = [{ id: "m1", type: "multi_select" }];
 	const answers = { m1: ["A", "C"] };
 	const parsed = JSON.parse(serializeBatchAnswers(questions, answers));
 	assert.deepEqual(parsed.answers[0], { id: "m1", type: "multi_select", value: ["A", "C"], label: "A、C", wasCustom: false });
@@ -208,29 +248,51 @@ function mockSelection(text) {
 	};
 }
 
-test("hasTextSelection: 无 window 视为没有划选", () => {
-	const { hasTextSelection } = loadAskUi();
-	assert.equal(hasTextSelection(), false);
+// 按压感知划选守卫（askUi.ts）：只吞「本次按压新拖出的选区」。
+// 背景：Chromium 按钮上 mousedown 不塌缩选区，旧守卫直接查全局选区会把
+// 「划选复制/双击选词之后的真实点击」也吞掉（ask 选项点不动，2026-09 修复）。
+test("shouldSuppressAskClickSnapshot: click 时无有效选区 → 放行（任意快照）", () => {
+	const { shouldSuppressAskClickSnapshot } = loadAskUi("");
+	assert.equal(shouldSuppressAskClickSnapshot("", ""), false);
+	assert.equal(shouldSuppressAskClickSnapshot("旧选区", ""), false);
+	assert.equal(shouldSuppressAskClickSnapshot(null, ""), false);
+	// 纯空白选区与旧守卫 trim 语义一致
+	assert.equal(shouldSuppressAskClickSnapshot(null, "  \n\t  "), false);
 });
 
-test("hasTextSelection: 空选区 / 纯空白 / null 视为没有划选", () => {
-	assert.equal(loadAskUi(mockSelection("")).hasTextSelection(), false);
-	assert.equal(loadAskUi(mockSelection("  \n\t  ")).hasTextSelection(), false);
-	assert.equal(loadAskUi(mockSelection(null)).hasTextSelection(), false);
+test("shouldSuppressAskClickSnapshot: 选区与按压快照一致（旧选区残留）→ 放行 —— 修复点", () => {
+	const { shouldSuppressAskClickSnapshot } = loadAskUi("问题标题文本");
+	assert.equal(shouldSuppressAskClickSnapshot("问题标题文本", "问题标题文本"), false);
 });
 
-test("hasTextSelection: 非空划选返回 true", () => {
-	assert.equal(loadAskUi(mockSelection("提问内容")).hasTextSelection(), true);
+test("shouldSuppressAskClickSnapshot: 选区与快照不一致（本次按压新拖出）→ 吞掉", () => {
+	const { shouldSuppressAskClickSnapshot } = loadAskUi("拖出来的新选区");
+	// 按压开始时无选区，click 时出现选区 = 划选恰好结束在按钮上的冒充 click
+	assert.equal(shouldSuppressAskClickSnapshot("", "拖出来的新选区"), true);
+	// 按压期间选区被改变同样视为冒充
+	assert.equal(shouldSuppressAskClickSnapshot("按压前的旧选区", "改变后选区"), true);
+});
+
+test("shouldSuppressAskClickSnapshot: 无按压快照且有选区 → 保守吞掉（兜底旧守卫语义）", () => {
+	const { shouldSuppressAskClickSnapshot } = loadAskUi("划选文本");
+	assert.equal(shouldSuppressAskClickSnapshot(null, "划选文本"), true);
+	assert.equal(shouldSuppressAskClickSnapshot(undefined, "划选文本"), true);
+});
+
+test("shouldSuppressAskClick: 无 window 视为不吞（SSR 兜底）", () => {
+	const { shouldSuppressAskClick } = loadAskUi(undefined);
+	assert.equal(shouldSuppressAskClick(), false);
 });
 
 // ── 静态契约 ──
 
 test("SessionRuntimeUiOverlay 使用提取的纯逻辑与语义字号 token", () => {
 	const source = readFileSync("src/renderer/src/components/overlays/SessionRuntimeUiOverlay.tsx", "utf8");
-	assert.match(source, /import \{[^}]*pickActiveAskRequest[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
+	assert.match(source, /import \{[^}]*resolveActiveAskRequest[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
 	assert.match(source, /import \{[^}]*buildAskResponse[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
 	assert.match(source, /import \{[^}]*serializeBatchAnswers[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
-	assert.match(source, /import \{[^}]*hasTextSelection[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
+	assert.match(source, /import \{[^}]*shouldSuppressAskClick[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
+	assert.doesNotMatch(source, /hasTextSelection/);
 	// 不再直接构造应答 payload（统一走 askUi.buildAskResponse）
 	assert.doesNotMatch(source, /void answer\(\{ value/);
 	assert.doesNotMatch(source, /void answer\(\{ confirmed/);
@@ -238,48 +300,70 @@ test("SessionRuntimeUiOverlay 使用提取的纯逻辑与语义字号 token", ()
 	assert.match(source, /variant="outline"/);
 	assert.doesNotMatch(source, /text-\[13px\]/);
 	assert.doesNotMatch(source, /text-\[11px\]/);
-	// submitValue 与 BatchQuestion 的 true/false/select 都要守卫划选（后者不走 submitValue）
-	const guards = source.match(/if \(hasTextSelection\(\)\) return;/g);
+	// submitValue 与 BatchQuestion 的 true/false/select 都要守卫划选（后者不走 submitValue）；
+	// 统一用按压感知守卫：只吞本次按压新拖出的选区，旧选区残留不得吞真实点击
+	const guards = source.match(/if \(shouldSuppressAskClick\(\)\) return;/g);
 	assert.ok(guards && guards.length >= 4);
 });
 
-test("Timeline 已清理死代码，安全卡在选项点击前调 hasTextSelection", () => {
+test("SessionRuntimeUiOverlay keeps recovery prompts visible after model errors", () => {
+	const source = readFileSync("src/renderer/src/components/overlays/SessionRuntimeUiOverlay.tsx", "utf8");
+	assert.doesNotMatch(source, /runtime\.status !== "error"/);
+	// 同代判定（含 detached/closed 拒绝）已提到 askUi.resolveActiveAskRequest：
+	// overlay 与布局层（底栏占位）必须用同一份判据，不能再在组件里各写一份。
+	const askUi = readFileSync("src/renderer/src/utils/askUi.ts", "utf8");
+	assert.match(askUi, /runtime\.status === "detached" \|\| runtime\.status === "closed"/);
+	assert.match(source, /resolveActiveAskRequest\(runtime, ui\)/);
+});
+
+test("Timeline 已清理死代码，安全卡在选项点击前调按压感知守卫", () => {
 	const timeline = readFileSync("src/renderer/src/components/session/TimelineEventCards.tsx", "utf8");
 	const security = readFileSync("src/renderer/src/components/overlays/SecurityConfirmCard.tsx", "utf8");
 	// AskQuestionCard 死代码已删除：Timeline 不再有可交互 ask 卡片，守卫职责由 SessionRuntimeUiOverlay 承担
 	assert.doesNotMatch(timeline, /import \{[^}]*hasTextSelection[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
-	assert.match(security, /import \{[^}]*hasTextSelection[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
-	const securityGuards = security.match(/if \(hasTextSelection\(\)\) return;/g);
+	assert.match(security, /import \{[^}]*shouldSuppressAskClick[^}]*\} from "\.\.\/\.\.\/utils\/askUi"/);
+	const securityGuards = security.match(/if \(shouldSuppressAskClick\(\)\) return;/g);
 	assert.ok(securityGuards && securityGuards.length >= 2);
 });
 
 test("AgentManager/飞书 envelope 白名单接受 multi_select 批量问题", () => {
-	// multi_select 走批量 envelope，主进程与飞书两处同构解析都必须放行该类型
-	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	// multi_select 走批量 envelope，uiGate/飞书两处同构解析都必须放行该类型
+	// （uiGate 域已随 AgentManager 拆分 Wave 4B 迁入 src/main/pi/extensionUiGate.ts）。
+	const uiGate = readFileSync("src/main/pi/extensionUiGate.ts", "utf8");
 	const askCard = readFileSync("src/main/feishu/AskCard.ts", "utf8");
 	// 渲染端 toAgentUiRequest 白名单也必须同构放行，否则 multi_select 选项不渲染
 	// （2026-09 回归：主进程放行、渲染端过滤导致选项组件整体消失）。
 	const sessionAtoms = readFileSync("src/renderer/src/atoms/session-atoms.ts", "utf8");
 	const whiteList = /\["select", "multi_select", "confirm", "input", "editor"\]\.includes\(String\(typed\.type\)\)/;
-	assert.match(agentManager, whiteList);
+	assert.match(uiGate, whiteList);
 	assert.match(askCard, whiteList);
 	assert.match(sessionAtoms, whiteList);
 });
 
 test("AgentManager select 无选项降级为 input（不静默取消）", () => {
-	const source = readFileSync("src/main/pi/AgentManager.ts", "utf8");
+	// select 降级逻辑已随 AgentManager 拆分 Wave 4B 迁入 extensionUiGate.ts
+	const source = readFileSync("src/main/pi/extensionUiGate.ts", "utf8");
 	assert.match(source, /select 无有效选项时降级为 input/);
 	assert.match(source, /effectiveMethod/);
 	assert.doesNotMatch(source, /select 无选项时自动取消，不等用户响应/);
 });
 
-test("ask_question 扩展 schema 支持 multi_select 且强制走批量 envelope", () => {
+test("ask_question 扩展 schema 支持 multi_select 且一切提问统一走批量 envelope", () => {
 	const ext = readFileSync("resources/extensions/pi-deck-ask-question.ts", "utf8");
-	// 批量与单问题两处类型枚举都含 multi_select
+	// 2026-09 prompt 瘦身：schema 顶层单问题字段已删除，类型枚举只剩 QuestionSchema 一处
 	const enumOccurrences = ext.match(/StringEnum\(\["select", "multi_select", "confirm", "input", "editor"\]/g);
-	assert.ok(enumOccurrences && enumOccurrences.length >= 2);
-	// 单问题 multi_select 也强制走批量 envelope（RPC 单选无法表达多选）
-	assert.match(ext, /needsBatchEnvelope = isBatch \|\| questions\.some\(\(q\) => q\.type === "multi_select"\)/);
+	assert.ok(enumOccurrences && enumOccurrences.length === 1, `类型枚举应只剩 QuestionSchema 一处，实际: ${enumOccurrences?.length}`);
+	assert.doesNotMatch(ext, /questions is provided/, "顶层单问题字段（含其描述文案）应已从 schema 删除");
+	assert.doesNotMatch(ext, /single-question mode/, "单问题模式的 schema 描述应已删除");
+	// 运行时兼容保留：老模型直接传顶层字段仍能被 toQuestions 归一化
+	assert.match(ext, /params\.question \?\? ""/, "toQuestions 顶层回退应保留");
+	// 单一渲染形态（2026-09 收口）：不再有单问题弹框分支，execute 一律调 askBatch
+	assert.doesNotMatch(ext, /needsBatchEnvelope/, "单问题/批量双路径已废除，不应再按形态分流");
+	assert.doesNotMatch(ext, /async function askOne/, "askOne（原生弹框路径）应已删除");
+	assert.match(ext, /await askBatch\(questions, record\.review === true, ctx\)/);
+	// select 题自定义输入恒定显示：allowOther 不再读模型传值
+	assert.doesNotMatch(ext, /allowOther !== false/);
+	assert.match(ext, /allowOther: type === "select" \? true : undefined/);
 	// multi_select 空数组视为未作答
 	assert.match(ext, /!Array\.isArray\(value\) \|\| value\.length > 0/);
 });
@@ -287,5 +371,26 @@ test("ask_question 扩展 schema 支持 multi_select 且强制走批量 envelope
 test("渲染层不再用 find 取第一个 pending 请求", () => {
 	const source = readFileSync("src/renderer/src/components/overlays/SessionRuntimeUiOverlay.tsx", "utf8");
 	assert.doesNotMatch(source, /Object\.values\(ui\.requests\)\.find/);
-	assert.match(source, /pickActiveAskRequest\(ui\.requests\)/);
+	// 同代判定 + 当前请求解析统一走 askUi.resolveActiveAskRequest：
+	// 布局层（SessionRuntimeInjector）必须用同一份判据决定底栏 ask 是否占位。
+	assert.match(source, /resolveActiveAskRequest\(runtime, ui\)/);
+});
+
+test("单问题卡初始草稿注入 request.prefill（issue #285：首帧输入框不再空白）", () => {
+	const askUi = loadAskUi();
+	// 有预填：value 落位，选择态保持空
+	// 工厂对象来自 vm 沙箱（跨 realm prototype），先展开成宿主对象再比较
+	assert.deepEqual({ ...askUi.initialAskSingleDraft("默认答案") }, { selectedOption: "", value: "默认答案", expanded: true });
+	// 无预填 / 空串 / 非字符串：与空草稿一致，不抛错
+	assert.deepEqual({ ...askUi.initialAskSingleDraft() }, { ...askUi.emptyAskSingleDraft() });
+	assert.deepEqual({ ...askUi.initialAskSingleDraft("") }, { ...askUi.emptyAskSingleDraft() });
+	assert.deepEqual({ ...askUi.initialAskSingleDraft(undefined) }, { ...askUi.emptyAskSingleDraft() });
+});
+
+test("Overlay 的单问题草稿两处初始化都走 initialAskSingleDraft(prefill)", () => {
+	const overlay = readFileSync("src/renderer/src/components/overlays/SessionRuntimeUiOverlay.tsx", "utf8");
+	// 首帧渲染与后续 patch 共用同一入口，两处都注入 request.prefill，避免只修一处再漂移
+	assert.match(overlay, /draft\?\.single \?\? initialAskSingleDraft\(request\?\.prefill\)/);
+	assert.match(overlay, /current\?\.single \?\? initialAskSingleDraft\(request\?\.prefill\)/);
+	assert.doesNotMatch(overlay, /emptyAskSingleDraft\(\)/, "Overlay 不再直接用空草稿工厂（prefill 只能从 initial 工厂进入）");
 });

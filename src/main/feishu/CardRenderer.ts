@@ -35,9 +35,7 @@ export function renderRunCard(state: RunState, opts: RenderOptions = {}): object
 	}
 
 	// ── 3. 正在执行的操作 ──
-	const runningTools = state.blocks.filter(
-		(b) => b.kind === "tool" && b.tool.status === "running",
-	);
+	const runningTools = state.blocks.filter((b) => b.kind === "tool" && b.tool.status === "running");
 	for (const b of runningTools) {
 		if (b.kind === "tool") {
 			elements.push(renderRunningTool(b.tool, locale));
@@ -50,9 +48,7 @@ export function renderRunCard(state: RunState, opts: RenderOptions = {}): object
 	}
 
 	// ── 5. 已完成的工具 ──
-	const doneTools = state.blocks.filter(
-		(b) => b.kind === "tool" && b.tool.status !== "running",
-	);
+	const doneTools = state.blocks.filter((b) => b.kind === "tool" && b.tool.status !== "running");
 	if (doneTools.length > 0) {
 		elements.push(renderDoneTools(doneTools, locale));
 	}
@@ -103,9 +99,7 @@ function renderTrail(trail: TrailEntry[], isRunning: boolean, locale: FeishuLoca
 
 /** 思考过程 — notation 小字 */
 function renderThinking(content: string, active: boolean, locale: FeishuLocale): object {
-	const display = content.length > THINKING_MAX
-		? content.slice(0, THINKING_MAX) + `\n\n${feishuT(locale, "card.truncated")}`
-		: content;
+	const display = content.length > THINKING_MAX ? content.slice(0, THINKING_MAX) + `\n\n${feishuT(locale, "card.truncated")}` : content;
 
 	const title = feishuT(locale, active ? "card.thinkingActive" : "card.thinkingHistory");
 	return { tag: "markdown", content: `${title}\n${display}`, text_size: "notation" };
@@ -122,17 +116,13 @@ function renderRunningTool(tool: ToolEntry, locale: FeishuLocale): object {
 
 /** 输出正文 */
 function renderOutput(text: string, locale: FeishuLocale): object[] {
-	const display = text.length > OUTPUT_MAX
-		? text.slice(0, OUTPUT_MAX) + `\n\n${feishuT(locale, "card.truncated")}`
-		: text;
+	const display = text.length > OUTPUT_MAX ? text.slice(0, OUTPUT_MAX) + `\n\n${feishuT(locale, "card.truncated")}` : text;
 	return markdownToCardElements(display);
 }
 
 /** 已完成的工具列表 */
 function renderDoneTools(blocks: Block[], locale: FeishuLocale): object {
-	const tools = blocks
-		.filter((b) => b.kind === "tool")
-		.map((b) => (b as { kind: "tool"; tool: ToolEntry }).tool);
+	const tools = blocks.filter((b) => b.kind === "tool").map((b) => (b as { kind: "tool"; tool: ToolEntry }).tool);
 
 	const MAX = 8;
 	let hidden = 0;
@@ -162,9 +152,7 @@ function renderFooter(state: RunState, isRunning: boolean, stopHint: string | un
 		if (state.footer === "thinking") {
 			parts.push(feishuT(locale, "card.footerThinking"));
 		} else if (state.footer === "tool_running") {
-			const rt = [...state.blocks].reverse().find(
-				(b) => b.kind === "tool" && b.tool.status === "running",
-			);
+			const rt = [...state.blocks].reverse().find((b) => b.kind === "tool" && b.tool.status === "running");
 			if (rt?.kind === "tool") parts.push(feishuT(locale, "card.footerTool", { name: rt.tool.name }));
 			else parts.push(feishuT(locale, "card.footerToolGeneric"));
 		} else if (state.footer === "streaming") {

@@ -13,6 +13,28 @@ pipeline/**/*.mp3
 pipeline/**/*.png
 pipeline/**/*.in.txt
 
+# 视频封面出图（源在 cover/，图随时可重新生成）
+cover/*.png
+
+# 宣传片 promo/：截图素材、构建产物、渲染中间帧与成片都可重新生成
+promo/**/assets/
+promo/**/*.html
+!promo/**/film.src.html
+promo/**/frames/
+promo/**/verify/
+promo/**/verify-*.png
+promo/**/sheet/
+promo/**/*.mp4
+promo/**/*.wav
+promo/**/*.mp3
+promo/**/*.log
+promo/**/.seek-tmp-*/
+
+# 日更 daily/：成片、截图、音频、字幕、HTML 等全部可重新生成
+daily/out/
+daily/publish/pool.md
+daily/publish/pool.json
+
 # 本地临时
 __pycache__/
 *.pyc

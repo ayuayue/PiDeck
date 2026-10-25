@@ -1,0 +1,32 @@
+{
+	"name": "PiDeck",
+	"short_name": "PiDeck",
+	"description": "在浏览器中管理并运行 pi 编码助手会话（PiDeck Web 端）",
+	"lang": "zh-CN",
+	"start_url": "/",
+	"scope": "/",
+	"display": "standalone",
+	"orientation": "any",
+	"background_color": "#18181b",
+	"theme_color": "#18181b",
+	"icons": [
+		{
+			"src": "/icons/icon-192.png",
+			"sizes": "192x192",
+			"type": "image/png",
+			"purpose": "any"
+		},
+		{
+			"src": "/icons/icon-512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "any"
+		},
+		{
+			"src": "/icons/maskable-512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "maskable"
+		}
+	]
+}

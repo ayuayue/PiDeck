@@ -21,7 +21,6 @@ export const PET_BASE_H = 208;
 /** UI 字号档位 → 提醒气泡 CSS 字号（px）；与 foundation.css --font-size-control 一致 */
 export const NOTIFICATION_FONT_SIZE_PX: Record<AppFontSizeMode, number> = {
 	compact: 12,
-	default: 13,
 	medium: 14,
 	large: 15,
 	xlarge: 16,
@@ -43,10 +42,7 @@ export const NOTIFICATION_MAX_WIDTH = 240;
 export const NOTIFICATION_DURATION_MS = 4000;
 
 /** 有效 UI 字号档位：uiFontSize 未单独设置时回退全局 fontSize */
-export function effectiveUIFontSize(
-	uiFontSize: AppFontSizeMode | null | undefined,
-	fontSize: AppFontSizeMode,
-): AppFontSizeMode {
+export function effectiveUIFontSize(uiFontSize: AppFontSizeMode | null | undefined, fontSize: AppFontSizeMode): AppFontSizeMode {
 	return uiFontSize ?? fontSize;
 }
 
@@ -70,30 +66,18 @@ export type PetLayout = {
 };
 
 /** 由缩放 + 字号档位 + 通知可见性推导窗口/精灵/气泡几何 */
-export function petLayout(args: {
-	scale: number;
-	fontMode: AppFontSizeMode;
-	notificationVisible: boolean;
-}): PetLayout {
+export function petLayout(args: { scale: number; fontMode: AppFontSizeMode; notificationVisible: boolean }): PetLayout {
 	const scale = Math.max(0.1, Number.isFinite(args.scale) ? args.scale : 1);
 	const fontMode = args.fontMode;
 	const fontSizePx = NOTIFICATION_FONT_SIZE_PX[fontMode];
 	const spriteW = Math.round(PET_BASE_W * scale);
 	const spriteH = Math.round(PET_BASE_H * scale);
 	const bubbleMaxWidth = NOTIFICATION_MAX_WIDTH;
-	const notificationSlotW = Math.round(
-		bubbleMaxWidth + NOTIFICATION_PAD_X * 2 + NOTIFICATION_STROKE * 2,
-	);
-	const notificationSlotH = Math.round(
-		fontSizePx * 1.5 * NOTIFICATION_MAX_LINES +
-			NOTIFICATION_PAD_Y * 2 +
-			NOTIFICATION_STROKE * 2,
-	);
+	const notificationSlotW = Math.round(bubbleMaxWidth + NOTIFICATION_PAD_X * 2 + NOTIFICATION_STROKE * 2);
+	const notificationSlotH = Math.round(fontSizePx * 1.5 * NOTIFICATION_MAX_LINES + NOTIFICATION_PAD_Y * 2 + NOTIFICATION_STROKE * 2);
 	const notificationVisible = args.notificationVisible;
 	const windowW = notificationVisible ? Math.max(spriteW, notificationSlotW) : spriteW;
-	const windowH = notificationVisible
-		? spriteH + NOTIFICATION_GAP + notificationSlotH
-		: spriteH;
+	const windowH = notificationVisible ? spriteH + NOTIFICATION_GAP + notificationSlotH : spriteH;
 	return {
 		scale,
 		fontMode,
@@ -117,10 +101,7 @@ export type Pos2D = { x: number; y: number };
  * 从任意布局尺寸切换时，保持「精灵脚底中心」不变的窗口左上角。
  * 两种布局下精灵都底部对齐，因此脚底 = 窗口底边中点。
  */
-export function keepFeetCenter(
-	from: { x: number; y: number; width: number; height: number },
-	to: Size2D,
-): Pos2D {
+export function keepFeetCenter(from: { x: number; y: number; width: number; height: number }, to: Size2D): Pos2D {
 	const feetX = from.x + from.width / 2;
 	const feetY = from.y + from.height;
 	return {
@@ -130,11 +111,7 @@ export function keepFeetCenter(
 }
 
 /** 把当前任意布局的窗口左上角换算成「普通布局（无通知槽位）」下的位置，用于持久化 */
-export function toNormalLayoutPosition(
-	pos: Pos2D,
-	currentSize: Size2D,
-	normalSize: Size2D,
-): Pos2D {
+export function toNormalLayoutPosition(pos: Pos2D, currentSize: Size2D, normalSize: Size2D): Pos2D {
 	const feetX = pos.x + currentSize.width / 2;
 	const feetY = pos.y + currentSize.height;
 	return {
@@ -144,10 +121,7 @@ export function toNormalLayoutPosition(
 }
 
 /** 把窗口钳制到 workArea 内，保证整个窗口可见 */
-export function clampToWorkArea(
-	rect: { x: number; y: number; width: number; height: number },
-	wa: WorkArea,
-): Pos2D {
+export function clampToWorkArea(rect: { x: number; y: number; width: number; height: number }, wa: WorkArea): Pos2D {
 	const maxX = wa.x + wa.width - rect.width;
 	const maxY = wa.y + wa.height - rect.height;
 	return {
@@ -159,23 +133,20 @@ export function clampToWorkArea(
 // ═══ 气泡字体与分段排版（Canvas 绘制用，纯函数可测） ═══
 
 /** 默认系统字体栈（与 foundation.css data-font-base="system" 一致） */
-export const DEFAULT_PET_FONT_STACK =
-	"-apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", \"PingFang SC\", \"HarmonyOS Sans SC\", \"Hiragino Sans GB\", \"Noto Sans CJK SC\", sans-serif";
+export const DEFAULT_PET_FONT_STACK = '-apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "HarmonyOS Sans SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif';
 
 /** 按 PiDeck 字体设置解析气泡字体栈（system/sans/serif 预设与 custom 用户字体） */
 export function petFontStack(fontBase: AppFontBaseMode, customFont: string): string {
 	switch (fontBase) {
 		case "sans":
-			return "\"Inter\", \"Segoe UI Variable Text\", \"Segoe UI\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", \"PingFang SC\", \"HarmonyOS Sans SC\", \"Hiragino Sans GB\", \"Noto Sans CJK SC\", sans-serif";
+			return '"Inter", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "HarmonyOS Sans SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif';
 		case "serif":
-			return "Georgia, \"Source Han Serif SC\", \"Noto Serif CJK SC\", \"Songti SC\", \"SimSun\", serif";
+			return 'Georgia, "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "SimSun", serif';
 		case "custom": {
 			// 用户字体通常只填西文字体：必须追加 CJK 回退，否则中文经 FontLink 落到 SimSun
 			//（11px 小字合成粗体后笔画挤压，与主界面 mono 栈同因，见 foundation.css 注释）。
 			const font = customFont.trim();
-			return font
-				? `${font}, "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "HarmonyOS Sans SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif`
-				: DEFAULT_PET_FONT_STACK;
+			return font ? `${font}, "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "HarmonyOS Sans SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif` : DEFAULT_PET_FONT_STACK;
 		}
 		default:
 			return DEFAULT_PET_FONT_STACK;
@@ -193,13 +164,24 @@ export function wrapTextByMeasure(measure: (text: string) => number, text: strin
 	let cur = "";
 	for (const word of words) {
 		const trial = cur ? cur + " " + word : word;
-		if (measure(trial) <= maxW) { cur = trial; continue; }
-		if (cur) { lines.push(cur); cur = ""; }
-		if (measure(word) <= maxW) { cur = word; continue; }
+		if (measure(trial) <= maxW) {
+			cur = trial;
+			continue;
+		}
+		if (cur) {
+			lines.push(cur);
+			cur = "";
+		}
+		if (measure(word) <= maxW) {
+			cur = word;
+			continue;
+		}
 		let chunk = "";
 		for (const ch of word) {
-			if (measure(chunk + ch) > maxW && chunk) { lines.push(chunk); chunk = ch; }
-			else chunk += ch;
+			if (measure(chunk + ch) > maxW && chunk) {
+				lines.push(chunk);
+				chunk = ch;
+			} else chunk += ch;
 		}
 		cur = chunk;
 	}
@@ -225,13 +207,7 @@ export type NotificationSegment = { text: string; kind: "title" | "status" };
  * 通知气泡分段排版：标题黑色段 + 状态词状态色段。
  * 状态词尾随标题最后一行行尾（带前导空格）；标题为空或状态词超宽时状态词独立成行。
  */
-export function layoutNotificationSegments(
-	measure: (text: string) => number,
-	title: string,
-	status: string,
-	maxW: number,
-	maxLines: number,
-): NotificationSegment[][] {
+export function layoutNotificationSegments(measure: (text: string) => number, title: string, status: string, maxW: number, maxLines: number): NotificationSegment[][] {
 	const statusWithGap = "  " + status; // 双空格：中文引号与状态词之间的分隔在 Canvas 中文字体下更明显
 	// 标题为空：状态词独立一行
 	if (!title.trim()) {

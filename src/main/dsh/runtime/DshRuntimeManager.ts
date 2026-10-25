@@ -20,15 +20,7 @@ import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, sta
 // 用 cpSync/rmSync 会同步阻塞主进程事件循环，安装/卸载期间整个 UI 卡死。
 import { cp, rename, rm } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import {
-	DSH_RUNTIME_ARCHIVE_ROOT,
-	DSH_RUNTIME_MANIFEST_FILE,
-	isAppVersionCompatible,
-	isManifestSchemaSupported,
-	selectRuntime,
-	type DshRuntimeManifest,
-	type InstalledDshRuntime,
-} from "../../../shared/types/dshRuntimeManifest";
+import { DSH_RUNTIME_ARCHIVE_ROOT, DSH_RUNTIME_MANIFEST_FILE, isAppVersionCompatible, isManifestSchemaSupported, selectRuntime, type DshRuntimeManifest, type InstalledDshRuntime } from "../../../shared/types/dshRuntimeManifest";
 
 /** 随包 runtime 目录名（位于 Electron 的 resources 目录下）。 */
 export const DSH_BUNDLED_RUNTIME_DIRNAME = "dsh-runtime";
@@ -41,13 +33,12 @@ export type DshRuntimeLayout = {
 	tempRoot: string;
 };
 
-/** 下载器：`onProgress(receivedBytes, totalBytes|undefined)`。 */
-export type DshRuntimeDownloader = (
-	url: string,
-	destPath: string,
-	onProgress?: (received: number, total?: number) => void,
-	signal?: AbortSignal,
-) => Promise<void>;
+/**
+ * 下载器：`onProgress(receivedBytes, totalBytes|undefined)`。
+ * `options.resumeFromBytes`：目标文件已有的字节数，下载器据此带 Range 续传并在其后追加写；
+ * 服务端不支持 Range 时自行退回全量重下，调用方只需保证 destPath 是那个半截文件。
+ */
+export type DshRuntimeDownloader = (url: string, destPath: string, onProgress?: (received: number, total?: number) => void, signal?: AbortSignal, options?: { resumeFromBytes?: number }) => Promise<void>;
 
 /** 解压器：把 tarball 解到 destDir（destDir 由本模块创建并保证为空）。 */
 export type DshRuntimeExtractor = (archivePath: string, destDir: string) => Promise<void>;
@@ -62,9 +53,7 @@ export type DshRuntimeManagerDeps = {
 };
 
 /** 安装结果：成功给出落位目录与版本；失败给出原因（调用方决定是否提示）。 */
-export type DshRuntimeInstallResult =
-	| { ok: true; dirName: string; manifest: DshRuntimeManifest }
-	| { ok: false; error: string };
+export type DshRuntimeInstallResult = { ok: true; dirName: string; manifest: DshRuntimeManifest } | { ok: false; error: string };
 
 export type DshRuntimeInstallOptions = {
 	signal?: AbortSignal;
@@ -73,10 +62,7 @@ export type DshRuntimeInstallOptions = {
 };
 
 /** 读取并校验单个版本目录的 manifest；不可读/不兼容返回 undefined（调用方按不存在处理）。 */
-export function readRuntimeManifest(
-	dir: string,
-	appVersion: string,
-): { manifest: DshRuntimeManifest; compatible: boolean } | undefined {
+export function readRuntimeManifest(dir: string, appVersion: string): { manifest: DshRuntimeManifest; compatible: boolean } | undefined {
 	const manifestPath = join(dir, DSH_RUNTIME_MANIFEST_FILE);
 	if (!existsSync(manifestPath)) return undefined;
 	try {
@@ -86,8 +72,7 @@ export function readRuntimeManifest(
 		}
 		return {
 			manifest: parsed,
-			compatible:
-				isManifestSchemaSupported(parsed) && isAppVersionCompatible(appVersion, parsed),
+			compatible: isManifestSchemaSupported(parsed) && isAppVersionCompatible(appVersion, parsed),
 		};
 	} catch {
 		// 清单损坏 = 该版本不可用，但目录仍在，等待回收或重装。
@@ -107,6 +92,20 @@ function errorMessage(error: unknown): string {
 		if (typeof message === "string" && message.length > 0) return message;
 	}
 	return String(error);
+}
+
+/** rename 带线性退避重试：瞬时锁（EPERM/EBUSY，杀毒/资源管理器扫描）与 rm 的
+ *  maxRetries/retryDelay 同款节奏吸收；重试耗尽后抛原错误由调用方处理。 */
+async function renameWithRetry(from: string, to: string, attempts = 5, delayMs = 300): Promise<void> {
+	for (let attempt = 1; ; attempt += 1) {
+		try {
+			await rename(from, to);
+			return;
+		} catch (error) {
+			if (attempt >= attempts) throw error;
+			await new Promise((resolve) => setTimeout(resolve, delayMs));
+		}
+	}
 }
 
 /** 计算文件 sha256（小写 hex）。 */
@@ -147,10 +146,7 @@ export type BundledDshRuntime = {
  * 用户永远不会触发解压（它不进 asar、不随启动加载）。想要小安装包的场景用
  * `--lite` 打出不含该目录的包，届时回到在线/手动导入。
  */
-export function readBundledRuntime(
-	dir: string | undefined,
-	appVersion: string,
-): BundledDshRuntime | undefined {
+export function readBundledRuntime(dir: string | undefined, appVersion: string): BundledDshRuntime | undefined {
 	if (!dir || !existsSync(dir)) return undefined;
 	const manifestPath = join(dir, DSH_RUNTIME_MANIFEST_FILE);
 	if (!existsSync(manifestPath)) return undefined;
@@ -163,6 +159,52 @@ export function readBundledRuntime(
 	} catch {
 		return undefined;
 	}
+}
+
+/**
+ * 读取应用当前声明的 dsh 依赖版本。优先级：
+ * 1. 根字段 `dshRuntimeVersion` —— 打包态唯一可靠来源：electron-builder 会把
+ *    devDependencies 从 app.asar 内 package.json 删掉（fileTransformer cleanupPackageJson
+ *    isMain 强制删除），自定义根字段则原样保留；由 scripts/sync-dsh-declared-version.mjs
+ *    在每次打包前从 devDependencies 同步，单一事实源不漂移。
+ * 2. dependencies/devDependencies 里的 @deepseek-ai/dsh —— dev 模式兜底（仓库根
+ *    package.json 完整可读）。
+ * 与用户是否安装 runtime 无关；dev（仓库根）与打包态（asar 内 package.json 可读）
+ * 均可用，作为「关于」面板没有安装/随包资源时的兜底展示。
+ */
+function tryReadDshVersion(dir: string): string | undefined {
+	try {
+		const parsed = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+			dshRuntimeVersion?: unknown;
+			dependencies?: Record<string, unknown>;
+			devDependencies?: Record<string, unknown>;
+		};
+		// 根字段优先：打包态 devDependencies 已被剥掉，依赖声明读不到。
+		if (typeof parsed.dshRuntimeVersion === "string" && parsed.dshRuntimeVersion) {
+			return parsed.dshRuntimeVersion;
+		}
+		// dsh 不是直接 require 的运行时依赖（打包进 dist-runtime），声明在 devDependencies；两处都查
+		const version = parsed.dependencies?.["@deepseek-ai/dsh"] ?? parsed.devDependencies?.["@deepseek-ai/dsh"];
+		return typeof version === "string" ? version : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * 读取「本版本配套」的 dsh 版本 = package.json 声明的 @deepseek-ai/dsh 版本。
+ * 候选目录依次尝试：electron-vite dev 下 app.getAppPath() 可能指向 out/
+ * （未复制 package.json），而编译产物在 out/main —— 因此再向上找 out/ 与项目根。
+ * 打包态 app.asar 根含 package.json，同样命中。任何一层读不到就返回 undefined。
+ */
+export function readDeclaredDshVersion(appPath: string | undefined): string | undefined {
+	const here = typeof __dirname === "string" ? __dirname : "";
+	const candidates = [appPath ?? "", here ? join(here, "..") : "", here ? join(here, "..", "..") : ""].filter((dir): dir is string => Boolean(dir));
+	for (const dir of candidates) {
+		const version = tryReadDshVersion(dir);
+		if (version) return version;
+	}
+	return undefined;
 }
 
 export class DshRuntimeManager {
@@ -211,10 +253,7 @@ export class DshRuntimeManager {
 	 * 直接 rename 会跨卷失败（EXDEV）且破坏用户来源；复制到 tempRoot（与 runtimesRoot
 	 * 同卷）再 rename，落位仍是原子的，来源目录保持不动。
 	 */
-	async installFromDirectory(
-		dirPath: string,
-		options: DshRuntimeInstallOptions = {},
-	): Promise<DshRuntimeInstallResult> {
+	async installFromDirectory(dirPath: string, options: DshRuntimeInstallOptions = {}): Promise<DshRuntimeInstallResult> {
 		const log = this.deps.log ?? (() => {});
 		if (!existsSync(dirPath) || !statSync(dirPath).isDirectory()) {
 			return { ok: false, error: "directory not found" };
@@ -222,9 +261,7 @@ export class DshRuntimeManager {
 
 		// 与 tarball 约定一致：目录内可能直接是 dsh-runtime/（解压产物）或套一层包装，
 		// 剥掉顶层后才是 node_modules + manifest。
-		let sourceRoot = existsSync(join(dirPath, DSH_RUNTIME_ARCHIVE_ROOT))
-			? join(dirPath, DSH_RUNTIME_ARCHIVE_ROOT)
-			: dirPath;
+		let sourceRoot = existsSync(join(dirPath, DSH_RUNTIME_ARCHIVE_ROOT)) ? join(dirPath, DSH_RUNTIME_ARCHIVE_ROOT) : dirPath;
 
 		// 用户可能选中的是「安装目录的父级」（如 runtimesRoot 本身，卸载后仍残留在磁盘上）：
 		// 目录自身没有 manifest，但里面唯一子目录就是完整 runtime。此时一级探测会失败，
@@ -261,10 +298,9 @@ export class DshRuntimeManager {
 
 			options.onPhase?.("finalizing");
 			const target = this.versionDir(sourceManifest.runtimeVersion);
-			// 同版本已存在：先清掉再 rename（rename 到非空目录在 Windows 会失败）。
-			await rm(target, { recursive: true, force: true });
 			mkdirSync(this.deps.layout.runtimesRoot, { recursive: true });
-			await rename(staging, target);
+			// 同版本重装走换位落位：任意时刻崩溃 target 都不会是半空目录（见 swapRuntimeDirectory）。
+			await this.swapRuntimeDirectory(staging, target);
 			log("dsh-runtime", "runtime installed from directory", {
 				version: sourceManifest.runtimeVersion,
 			});
@@ -282,11 +318,7 @@ export class DshRuntimeManager {
 	 * 从本地 tarball 安装（手动导入 / 已下载完成的场景）。
 	 * 流程：sha256 校验 → 解压到临时目录 → 校验 manifest 与关键包 → 原子 rename 落位 → 清理。
 	 */
-	async installFromArchive(
-		archivePath: string,
-		expectedSha256?: string,
-		options: DshRuntimeInstallOptions = {},
-	): Promise<DshRuntimeInstallResult> {
+	async installFromArchive(archivePath: string, expectedSha256?: string, options: DshRuntimeInstallOptions = {}): Promise<DshRuntimeInstallResult> {
 		const log = this.deps.log ?? (() => {});
 		if (!existsSync(archivePath)) return { ok: false, error: "archive not found" };
 		if (!this.extract) return { ok: false, error: "extractor is not configured" };
@@ -307,18 +339,15 @@ export class DshRuntimeManager {
 			await this.extract(archivePath, staging);
 
 			// 归档约定：顶层是 dsh-runtime/ 目录，剥掉这一层后才是 node_modules + manifest。
-			const root = existsSync(join(staging, DSH_RUNTIME_ARCHIVE_ROOT))
-				? join(staging, DSH_RUNTIME_ARCHIVE_ROOT)
-				: staging;
+			const root = existsSync(join(staging, DSH_RUNTIME_ARCHIVE_ROOT)) ? join(staging, DSH_RUNTIME_ARCHIVE_ROOT) : staging;
 			const manifest = this.verifyStagedRuntime(root);
 			if (typeof manifest === "string") return { ok: false, error: manifest };
 
 			options.onPhase?.("finalizing");
 			const target = this.versionDir(manifest.runtimeVersion);
-			// 同版本已存在：先清掉再 rename（rename 到非空目录在 Windows 会失败）。
-			await rm(target, { recursive: true, force: true });
 			mkdirSync(this.deps.layout.runtimesRoot, { recursive: true });
-			await rename(root, target);
+			// 同版本重装走换位落位：任意时刻崩溃 target 都不会是半空目录（见 swapRuntimeDirectory）。
+			await this.swapRuntimeDirectory(root, target);
 			log("dsh-runtime", "runtime installed", { version: manifest.runtimeVersion });
 			return { ok: true, dirName: manifest.runtimeVersion, manifest };
 		} catch (error) {
@@ -331,16 +360,14 @@ export class DshRuntimeManager {
 	}
 
 	/** 从 URL 安装：先下载到临时文件，再走 installFromArchive 的同一条校验/落位链路。 */
-	async installFromUrl(
-		url: string,
-		expectedSha256: string,
-		options: DshRuntimeInstallOptions = {},
-	): Promise<DshRuntimeInstallResult> {
+	async installFromUrl(url: string, expectedSha256: string, options: DshRuntimeInstallOptions = {}): Promise<DshRuntimeInstallResult> {
 		if (!this.download) return { ok: false, error: "downloader is not configured" };
 		mkdirSync(this.deps.layout.tempRoot, { recursive: true });
 		const archivePath = join(this.deps.layout.tempRoot, `download-${Date.now()}.tgz`);
 		try {
 			options.onPhase?.("downloading");
+			// 记录安装来源 URL：运行时是外部下载的二进制，出问题时需能审计来源
+			this.deps.log?.("dsh-runtime", "runtime download started", { url });
 			await this.download(url, archivePath, options.onDownloadProgress, options.signal);
 			return await this.installFromArchive(archivePath, expectedSha256, options);
 		} catch (error) {
@@ -371,6 +398,55 @@ export class DshRuntimeManager {
 			// 抛带上下文的可读错误（含失败版本），不让裸 EPERM 跨 IPC 变成「未处理异常」。
 			throw new Error(`failed to remove runtime directory "${dirName}": ${message}`);
 		}
+	}
+
+	/**
+	 * 同卷换位落位：旧版本目录先 rename 进暂存区（瞬时操作），新目录再 rename 落位；
+	 * 落位失败把旧目录原样放回。相比「先 rm 旧目录再 rename」，任意时刻崩溃 target
+	 * 都不会是半空目录——要么旧完整、要么新完整。rename 遇瞬时锁（杀软/资源
+	 * 管理器/残留 DLL 句柄）与 rm 同款线性退避；旧目录清理失败仅记日志（残留在
+	 * tempRoot，不影响下次安装，也不阻塞本次安装成功）。
+	 */
+	private async swapRuntimeDirectory(stagingDir: string, target: string): Promise<void> {
+		const log = this.deps.log ?? (() => {});
+		const previous = existsSync(target) ? join(this.deps.layout.tempRoot, `previous-${Date.now()}`) : undefined;
+		let rollbackFailed = false;
+		try {
+			if (previous) await renameWithRetry(target, previous);
+			try {
+				await renameWithRetry(stagingDir, target);
+			} catch (error) {
+				// 落位失败：旧目录原样放回，不留半空 target；回滚也失败只能记日志
+				// （旧目录已安全在 tempRoot，用户数据未丢，下次安装可重试）。
+				if (previous) {
+					try {
+						await renameWithRetry(previous, target);
+					} catch (rollbackError) {
+						rollbackFailed = true;
+						log("dsh-runtime", "runtime swap rollback failed; keeping previous copy", {
+							error: errorMessage(rollbackError),
+							previous,
+						});
+					}
+				}
+				throw error;
+			}
+		} finally {
+			// 成功路径：previous 是被换下的旧版本垃圾，正常清理。
+			// 回滚失败时：previous 是旧运行时的唯一幸存副本，绝不能删——删了它，
+			// 用户已装运行时就彻底丢失（target 半空 + tempRoot 被清）。残留仅供找回。
+			if (previous && !rollbackFailed) await rm(previous, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }).catch(() => {});
+		}
+	}
+
+	/**
+	 * 指定版本是否已安装且完整可用（manifest 可读 / schema 兼容 / app 版本兼容 /
+	 * node_modules 与关键包齐全）。供编排层短路「重复安装同一版本」——重装一次要
+	 * 下载几十 MB 并解压数万个小文件，已装且校验通过时是纯浪费；损坏或半残的
+	 * 目录过不了校验，会正常走重装路径。
+	 */
+	isVersionInstalled(version: string): boolean {
+		return typeof this.verifyStagedRuntime(this.versionDir(version)) !== "string";
 	}
 
 	/**

@@ -15,26 +15,9 @@
  */
 
 /** 受管控的内置工具全集（pi 内置 7 个 + PiDeck 提问工具） */
-export type SecurityToolName =
-	| "read"
-	| "write"
-	| "edit"
-	| "bash"
-	| "grep"
-	| "find"
-	| "ls"
-	| "ask_question";
+export type SecurityToolName = "read" | "write" | "edit" | "bash" | "grep" | "find" | "ls" | "ask_question";
 
-export const SECURITY_TOOLS: readonly SecurityToolName[] = [
-	"read",
-	"write",
-	"edit",
-	"bash",
-	"grep",
-	"find",
-	"ls",
-	"ask_question",
-];
+export const SECURITY_TOOLS: readonly SecurityToolName[] = ["read", "write", "edit", "bash", "grep", "find", "ls", "ask_question"];
 
 /** 文件/目录访问边界模式 */
 export type SecurityPathPolicy = "unrestricted" | "workspace" | "custom";
@@ -165,13 +148,7 @@ export const DEFAULT_DENY_BASH_PATTERNS: string[] = [
 ];
 
 /** 默认敏感路径（相对文件名匹配；保护 .env / 密钥 / git 元数据） */
-export const DEFAULT_SENSITIVE_PATH_PATTERNS: string[] = [
-	"(^|[\\\\/])\\.env([.$]|$)",
-	"(^|[\\\\/])\\.git([\\\\/]|$)",
-	"(^|[\\\\/])(id_rsa|id_ed25519|id_ecdsa)(\\.pub)?$",
-	"(^|[\\\\/])\\.(npmrc|yarnrc|pnpm-workspace)([.$]|$)",
-	"(\\.pem|\\.key|\\.p12)$",
-];
+export const DEFAULT_SENSITIVE_PATH_PATTERNS: string[] = ["(^|[\\\\/])\\.env([.$]|$)", "(^|[\\\\/])\\.git([\\\\/]|$)", "(^|[\\\\/])(id_rsa|id_ed25519|id_ecdsa)(\\.pub)?$", "(^|[\\\\/])\\.(npmrc|yarnrc|pnpm-workspace)([.$]|$)", "(\\.pem|\\.key|\\.p12)$"];
 
 /** 默认配置工厂：enabled=true（安全门默认启用）+ 默认等级 off（完全放行，行为零干预） */
 export function createDefaultSecurityConfig(): SecurityConfig {

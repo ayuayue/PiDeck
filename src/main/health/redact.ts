@@ -73,14 +73,11 @@ const SECRET_RULES: Array<{ pattern: RegExp; replacement: string | ((...args: st
 	// 值要求至少 1 个字符：`"token": ""` 这种空占位符无需替换，避免无意义噪音；
 	// catch-all 排除引号，避免 `""`/`''` 空串被当作裸值二次命中。
 	{
-		pattern:
-			/"([^"]*(?:api[-_]?key|apikey|access[-_]?token|refresh[-_]?token|token|secret|password|passwd|authorization|cookie|private[-_]?key|credential)[^"]*)"\s*:\s*("(?:[^"\\]|\\.)+"|'[^']+'|[^\s"',;)}\]]+)/gi,
-		replacement: (_match, key: string, value: string) =>
-			`"${key}": ${value.startsWith('"') || value.startsWith("'") ? REDACTED : `"${REDACTED}"`}`,
+		pattern: /"([^"]*(?:api[-_]?key|apikey|access[-_]?token|refresh[-_]?token|token|secret|password|passwd|authorization|cookie|private[-_]?key|credential)[^"]*)"\s*:\s*("(?:[^"\\]|\\.)+"|'[^']+'|[^\s"',;)}\]]+)/gi,
+		replacement: (_match, key: string, value: string) => `"${key}": ${value.startsWith('"') || value.startsWith("'") ? REDACTED : `"${REDACTED}"`}`,
 	},
 	{
-		pattern:
-			/\b(api[-_]?key|apikey|access[-_]?token|refresh[-_]?token|token|secret|password|passwd|authorization|cookie|private[-_]?key|credential)\b(\s*[:=]\s*)(?!\[redacted\])(?:"[^"]*"|'[^']*'|[^\s,;)}\]]+)/gi,
+		pattern: /\b(api[-_]?key|apikey|access[-_]?token|refresh[-_]?token|token|secret|password|passwd|authorization|cookie|private[-_]?key|credential)\b(\s*[:=]\s*)(?!\[redacted\])(?:"[^"]*"|'[^']*'|[^\s,;)}\]]+)/gi,
 		replacement: (_match, key: string, separator: string) => `${key}${separator}${REDACTED}`,
 	},
 	// URL query 里的敏感参数
@@ -97,14 +94,7 @@ const SECRET_RULES: Array<{ pattern: RegExp; replacement: string | ((...args: st
 /** 清洗自由文本里的凭据、邮箱与手机号。 */
 export function redactSecrets(value: string): string {
 	if (typeof value !== "string" || !value) return "";
-	return SECRET_RULES.reduce(
-		(acc, rule) =>
-			acc.replace(
-				rule.pattern,
-				rule.replacement as string & ((...args: string[]) => string),
-			),
-		value,
-	);
+	return SECRET_RULES.reduce((acc, rule) => acc.replace(rule.pattern, rule.replacement as string & ((...args: string[]) => string)), value);
 }
 
 /** 报告出场的唯一入口：先遮蔽路径，再清洗凭据。 */
@@ -117,4 +107,54 @@ export function truncateText(value: string, maxChars: number): string {
 	const text = typeof value === "string" ? value : "";
 	if (text.length <= maxChars) return text;
 	return `${text.slice(0, Math.max(0, maxChars - 1))}…`;
+}
+
+/** detail 递归脱敏的边界：深度 / 条目数 / 单值长度，防止异常 detail 把诊断包撑爆。 */
+const MAX_DETAIL_DEPTH = 4;
+const MAX_DETAIL_ITEMS = 20;
+const MAX_DETAIL_STRING_CHARS = 500;
+
+/**
+ * 键名命中这些词时整段替换值。
+ *
+ * detail 里的凭据常常是没有已知前缀的裸值（`{ token: "aBc123" }`），
+ * 光靠 SECRET_RULES 的文本正则洗不到，只能按键名判定。
+ */
+const SENSITIVE_DETAIL_KEY = /api[-_]?key|apikey|access[-_]?token|refresh[-_]?token|token|secret|password|passwd|authorization|cookie|credential|private[-_]?key/i;
+
+/**
+ * 对日志 detail 做递归脱敏。
+ *
+ * 为什么必须脱敏而不是丢弃：detail 是错误定位的主要来源（require stack、RPC 超时的
+ * 毫秒数与命令名、git 失败的原始 stderr），整列丢掉等于让诊断包不可诊断；但它同样是
+ * 任意 JSON，可能夹带 home 路径、请求体甚至凭据，所以要和 message 走同一套清洗。
+ *
+ * 深度、条目数、单值长度三重限制保证异常 detail 不会把 zip 撑爆。
+ */
+export function redactDetail(value: unknown, maskPath: (value: string) => string, depth = 0, seen = new WeakSet<object>()): unknown {
+	if (value === null || value === undefined) return value;
+	if (typeof value === "string") return truncateText(redactSecrets(maskPath(value)), MAX_DETAIL_STRING_CHARS);
+	if (typeof value === "number" || typeof value === "boolean") return value;
+	if (typeof value === "bigint") return String(value);
+	// function / symbol 无法序列化，丢弃以免 JSON.stringify 产出无意义的键
+	if (typeof value !== "object") return undefined;
+	// 循环引用：正常日志来自 JSON.parse 不会有，但这是导出 API，不能假设调用方守规矩
+	if (seen.has(value)) return "[circular]";
+	seen.add(value);
+	if (depth >= MAX_DETAIL_DEPTH) return "[truncated]";
+	if (Array.isArray(value)) {
+		const items = value.slice(0, MAX_DETAIL_ITEMS).map((item) => redactDetail(item, maskPath, depth + 1, seen));
+		if (value.length > MAX_DETAIL_ITEMS) items.push(`[...${value.length - MAX_DETAIL_ITEMS} more]`);
+		return items;
+	}
+	const out: Record<string, unknown> = {};
+	for (const [key, item] of Object.entries(value as Record<string, unknown>).slice(0, MAX_DETAIL_ITEMS)) {
+		if (SENSITIVE_DETAIL_KEY.test(key)) {
+			out[key] = REDACTED;
+			continue;
+		}
+		const redacted = redactDetail(item, maskPath, depth + 1, seen);
+		if (redacted !== undefined) out[key] = redacted;
+	}
+	return out;
 }

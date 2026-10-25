@@ -75,11 +75,13 @@ export function parseAgentTodoItems(lines: readonly string[]): AgentTodoItem[] {
  * 历史会话无 runtime widgets，任务 tab 从主进程快照重建。转换为 widget 行格式后
  * 复用 parseAgentTodoItems，保证与活会话路径同解析口径（状态映射、同标题消歧）。
  */
-export function sessionTodoSnapshotToItems(
-	snapshot: import("../../../../shared/types").SessionTodoSnapshot | undefined,
-): AgentTodoItem[] {
+export function sessionTodoSnapshotToItems(snapshot: import("../../../../shared/types").SessionTodoSnapshot | undefined): AgentTodoItem[] {
 	if (!snapshot) return [];
-	const lines = snapshot.todos.map((todo) => `${todo.done ? "☑" : "☐"} #${todo.id} ${todo.text}`);
+	// v3 三态：completed→☑、in_progress→◐、其余→☐，与 pi-deck-todo widget 行式同构。
+	const lines = snapshot.todos.map((todo) => {
+		const mark = todo.status === "completed" ? "☑" : todo.status === "in_progress" ? "◐" : "☐";
+		return `${mark} #${todo.id} ${todo.text}`;
+	});
 	return parseAgentTodoItems(lines);
 }
 
@@ -89,9 +91,7 @@ export function sessionTodoSnapshotToItems(
  * DSH 已提供稳定的状态字段，不能绕回行文本 parser；按正文生成稳定 key，
  * 并为重复正文追加序号，避免状态更新时 React 列表错误复用行节点。
  */
-export function runtimeTodosToItems(
-	todos: readonly import("../../../../shared/types").TodoItem[] | null | undefined,
-): AgentTodoItem[] {
+export function runtimeTodosToItems(todos: readonly import("../../../../shared/types").TodoItem[] | null | undefined): AgentTodoItem[] {
 	if (!todos) return [];
 	const occurrences = new Map<string, number>();
 	return todos.map((todo) => {

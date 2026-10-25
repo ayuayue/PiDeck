@@ -5,7 +5,7 @@ export { useLazyComponent, LazyWrapper } from "./useLazyComponent";
 export { useSessionLoader } from "./useSessionLoader";
 export { useGlobalAgentListeners } from "./useGlobalAgentListeners";
 export {
-  useProjectRuntimeCapabilities,
-  useRuntimeCapabilities,
+	useProjectRuntimeCapabilities,
+	useRuntimeCapabilities,
 } from "./useRuntimeCapabilities";
 export { useSessionRuntimeBridge } from "./useSessionRuntimeBridge";

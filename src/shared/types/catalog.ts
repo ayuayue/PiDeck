@@ -28,16 +28,37 @@ export type CatalogUpdateStatus = {
 
 /** 更新/还原失败原因码：渲染层按码映射 i18n 文案，message 仅入日志。 */
 export type CatalogUpdateFailCode =
-	| "network" // 两个下载源都失败/超时
+	| "network" // 两个下载源（npm + 分支回退）都失败/超时
 	| "validation" // 下载内容与 manifest 校验不过（防坏数据上盘）
+	| "incompatible" // 远端产物 schemaVersion 与当前版本支持的版本不一致，需先升级 PiDeck
 	| "write" // 磁盘写入失败
 	| "no-backup"; // 没有可用备份（恢复上一个覆盖版时）
 
+/** 检查结论里的远端来源：分支预生成件（branch）或 npm latest 回退（npm）。 */
+export type CatalogCheckSourceId = "branch" | "npm";
+
 export type CatalogUpdateResult =
-	| { ok: true }
+	| {
+			// updated=false 表示没有发生覆盖写：远端不高于当前生效版本
+			ok: true;
+			updated: boolean;
+			/** updated=false 的原因：远端与当前一致 / 远端比当前旧（发布分支目录同步滞后） */
+			skipped?: "already-latest" | "remote-behind";
+			/** updated=false 时远端源给出的版本，供 UI 说明「谁落后」 */
+			remoteVersion?: string | null;
+			/** updated=false 时当前生效版本（覆盖层优先，否则内置） */
+			localVersion?: string | null;
+	  }
 	| { ok: false; code: CatalogUpdateFailCode; message: string };
 
 /** 「检查更新」结果：远端 manifest 比对当前生效版本。 */
 export type CatalogCheckResult =
-	| { ok: true; remoteVersion: string; localVersion: string | null; hasUpdate: boolean }
+	| {
+			ok: true;
+			remoteVersion: string;
+			localVersion: string | null;
+			hasUpdate: boolean;
+			/** 本次结论来自哪条源；分支不可达时的 npm 回退版本可能与仓库预生成件不同 */
+			source?: CatalogCheckSourceId;
+	  }
 	| { ok: false; code: CatalogUpdateFailCode; message: string };

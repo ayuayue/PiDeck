@@ -2,6 +2,7 @@ import { test, expect } from "./mock-pi-fixture";
 import type { Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { openFirstSession, openSettings } from "./open-session";
 
 /**
  * 会话态视觉巡检（#115）：借助 mock pi 截图真实会话运行中的关键状态，
@@ -21,9 +22,7 @@ async function shot(window: Page, name: string) {
 test("visual tour: live session states", async ({ window }) => {
 	test.setTimeout(180_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
-	await window.getByRole("button", { name: "启动 Agent" }).click();
-	const composer = window.locator(".composer .rich-input");
-	await expect(composer).toHaveAttribute("contenteditable", "true", { timeout: 30_000 });
+	const composer = await openFirstSession(window);
 	const timeline = window.locator(".message-timeline");
 
 	// 1. 流式输出中（慢速流，抓中间态 + 停止按钮）
@@ -81,18 +80,18 @@ test("visual tour: live session states", async ({ window }) => {
 	await shot(window, "36-markdown-elements");
 
 	// 7. 暗色主题下的会话页：切主题后重截一张完整对话 + markdown 元素
-	await window.locator(".settings-icon").click();
+	await openSettings(window);
 	const modal = window.locator(".settings-modal");
 	await expect(modal).toBeVisible();
 	await modal.getByText("外观设置").click();
 	await modal.locator("[data-slot='select-trigger']").first().click();
 	await window.locator("[data-slot='select-content']").getByText("暗色").click();
 	await modal.getByRole("button", { name: "保存" }).click();
-	await expect
-		.poll(() => window.evaluate(() => document.documentElement.dataset.theme), { timeout: 5000 })
-		.toBe("dark");
+	await expect.poll(() => window.evaluate(() => document.documentElement.dataset.theme), { timeout: 5000 }).toBe("dark");
 	await window.keyboard.press("Escape");
-	await expect(modal).toBeHidden({ timeout: 5000 }).catch(() => undefined);
+	await expect(modal)
+		.toBeHidden({ timeout: 5000 })
+		.catch(() => undefined);
 	await shot(window, "35-session-dark");
 	await shot(window, "37-markdown-elements-dark");
 });

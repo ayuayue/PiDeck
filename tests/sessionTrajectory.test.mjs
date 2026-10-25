@@ -5,10 +5,7 @@ import ts from "typescript";
 import vm from "node:vm";
 
 function loadModule() {
-	const source = readFileSync(
-		"src/renderer/src/components/session/trajectory/buildTrajectory.ts",
-		"utf8",
-	);
+	const source = readFileSync("src/renderer/src/components/session/trajectory/buildTrajectory.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
 		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 	});
@@ -20,12 +17,7 @@ function loadModule() {
 
 /** buildTrajectory 依赖的 dsh 工具视图助手（独立纯模块，vm 内编译加载）。 */
 function loadTrajectoryDep(specifier) {
-	const file =
-		specifier === "./dshToolView"
-			? "src/renderer/src/components/session/trajectory/dshToolView.ts"
-			: specifier === "./trajectoryOrder"
-				? "src/renderer/src/components/session/trajectory/trajectoryOrder.ts"
-				: undefined;
+	const file = specifier === "./dshToolView" ? "src/renderer/src/components/session/trajectory/dshToolView.ts" : specifier === "./trajectoryOrder" ? "src/renderer/src/components/session/trajectory/trajectoryOrder.ts" : undefined;
 	if (!file) throw new Error(`unexpected require: ${specifier}`);
 	const source = readFileSync(file, "utf8");
 	const { outputText } = ts.transpileModule(source, {
@@ -35,7 +27,7 @@ function loadTrajectoryDep(specifier) {
 		exports: {},
 		module: { exports: {} },
 		require: (inner) => {
-			if (inner === "./buildTrajectory") return { };
+			if (inner === "./buildTrajectory") return {};
 			throw new Error(`unexpected nested require: ${inner}`);
 		},
 	};
@@ -182,34 +174,36 @@ test("trajectory source concatenates runtime history prefix with the live window
 	assert.match(source, /\[\.\.\.cachedEntry\.history\.messages, \.\.\.cachedEntry\.messages\]/);
 	assert.match(source, /prependSessionHistoryPageAtom/);
 	assert.match(source, /readProcessEvents/);
-	assert.match(source, /pi-system/);
-	// dsh 会话：系统提示由 harness 在请求时组装，从 host request/header 事件读取
-	// （readDshSystemPrompt），不加载 pi 的 pi-system 模板——否则 dsh 轨迹错误显示
-	// pi 的系统提示（2026-08 用户反馈）
+	// 系统提示词走 processEvents 快照链路（pi 会话文件重放 / dsh system.message），
+	// 不再单独读「最近一次请求头」或退回 pi-system 模板——那两条路只能看到最新提示，
+	// 看不到会话开头的初始提示词与中途变更（2026-10 轨迹补齐）。
+	assert.doesNotMatch(source, /pi-system/);
+	assert.doesNotMatch(source, /readDshSystemPrompt/);
 	assert.match(source, /record\?\.backend === "dsh"/);
 	assert.match(source, /isDshSession/);
-	assert.match(source, /readDshSystemPrompt/);
 	assert.match(panel, /currentSessionIdAtom/);
 	assert.match(panel, /processEvents/);
 });
 
 test("first user message is the initial prompt; process events join the ledger", () => {
 	const { buildTrajectory } = loadModule();
-	const model = buildTrajectory(
-		[
-			msg({ id: "u1", role: "user", text: "first ask", timestamp: 2000 }),
-			msg({ id: "u2", role: "user", text: "follow up", timestamp: 4000 }),
+	const model = buildTrajectory([msg({ id: "u1", role: "user", text: "first ask", timestamp: 2000 }), msg({ id: "u2", role: "user", text: "follow up", timestamp: 4000 })], 5000, {
+		processEvents: [
+			{ id: "s1", kind: "session", timestamp: 1000, summary: "cwd /repo", cwd: "/repo" },
+			{ id: "m1", kind: "modelChange", timestamp: 2500, summary: "openai/gpt", provider: "openai", modelId: "gpt" },
+			{
+				id: "p1",
+				kind: "systemPrompt",
+				timestamp: 500,
+				summary: "initial · 11 chars · 1 tools",
+				detail: "You are pi.",
+				prompt: { kind: "initial", text: "You are pi.", tools: ["bash"] },
+			},
 		],
-		5000,
-		{
-			processEvents: [
-				{ id: "s1", kind: "session", timestamp: 1000, summary: "cwd /repo", cwd: "/repo" },
-				{ id: "m1", kind: "modelChange", timestamp: 2500, summary: "openai/gpt", provider: "openai", modelId: "gpt" },
-			],
-			systemPrompt: "You are pi.",
-		},
-	);
+	});
 	assert.equal(model.records[0].kind, "systemPrompt");
+	assert.equal(model.records[0].promptKind, "initial");
+	assert.equal(model.records[0].prompt?.text, "You are pi.");
 	assert.equal(model.records.find((r) => r.id === "u1")?.isInitialPrompt, true);
 	assert.equal(model.records.find((r) => r.id === "u2")?.isInitialPrompt, undefined);
 	assert.ok(model.records.some((r) => r.processKind === "session"));
@@ -242,47 +236,33 @@ test("assistant message usage lands on the trajectory record (DSH adapter report
 
 test("assistant message without usage leaves record.usage undefined (pi path)", () => {
 	const { buildTrajectory } = loadModule();
-	const model = buildTrajectory([
-		msg({ id: "u1", role: "user", text: "go", timestamp: 1000 }),
-		msg({ id: "a1", role: "assistant", text: "done", timestamp: 2000, stopReason: "stop" }),
-	]);
+	const model = buildTrajectory([msg({ id: "u1", role: "user", text: "go", timestamp: 1000 }), msg({ id: "a1", role: "assistant", text: "done", timestamp: 2000, stopReason: "stop" })]);
 	assert.equal(model.records.find((r) => r.kind === "assistant")?.usage, undefined);
 });
 
 test("ledger orders by seq, not array order (dsh-web layoutEntryOrder)", () => {
 	const { buildTrajectory } = loadModule();
-	const model = buildTrajectory([
-		msg({ id: "dsh:30", role: "assistant", text: "later", timestamp: 3000, stopReason: "stop" }),
-		msg({ id: "dsh:10", role: "user", text: "first", timestamp: 1000 }),
-		msg({ id: "dsh:20", role: "tool", text: "read", timestamp: 2000, meta: { toolName: "read", status: "done" } }),
-	]);
+	const model = buildTrajectory([msg({ id: "dsh:30", role: "assistant", text: "later", timestamp: 3000, stopReason: "stop" }), msg({ id: "dsh:10", role: "user", text: "first", timestamp: 1000 }), msg({ id: "dsh:20", role: "tool", text: "read", timestamp: 2000, meta: { toolName: "read", status: "done" } })]);
 	assert.equal(model.records.map((r) => r.kind).join(","), "user,tool,assistant");
 	assert.equal(model.records.map((r) => r.seq).join(","), "10,20,30");
 });
 
 test("retry process event stays after the user that opened the turn", () => {
 	const { buildTrajectory } = loadModule();
-	const model = buildTrajectory(
-		[
-			msg({ id: "dsh:10", role: "user", text: "go", timestamp: 2000 }),
-			msg({ id: "dsh:40", role: "assistant", text: "ok", timestamp: 4000, stopReason: "stop" }),
+	const model = buildTrajectory([msg({ id: "dsh:10", role: "user", text: "go", timestamp: 2000 }), msg({ id: "dsh:40", role: "assistant", text: "ok", timestamp: 4000, stopReason: "stop" })], 5000, {
+		processEvents: [
+			{
+				id: "retry-1",
+				kind: "retry",
+				timestamp: 2500,
+				seq: 25,
+				summary: "retry 1/3: overloaded",
+				retry: 1,
+				maxRetries: 3,
+				retryDelayMs: 800,
+			},
 		],
-		5000,
-		{
-			processEvents: [
-				{
-					id: "retry-1",
-					kind: "retry",
-					timestamp: 2500,
-					seq: 25,
-					summary: "retry 1/3: overloaded",
-					retry: 1,
-					maxRetries: 3,
-					retryDelayMs: 800,
-				},
-			],
-		},
-	);
+	});
 	assert.equal(model.records.map((r) => r.kind).join(","), "user,process,assistant");
 	const retry = model.records.find((r) => r.processKind === "retry");
 	assert.equal(retry?.retry, 1);
@@ -333,4 +313,90 @@ test("trajectory header turn count follows the unified round contract", () => {
 	assert.match(view, /dshSessionStats\.turns/);
 	assert.doesNotMatch(view, /count: model\.turns\.length/);
 	assert.doesNotMatch(view, /countDialogueTurns/);
+});
+
+test("model traces land in their user turns as point records", () => {
+	const { buildTrajectory } = loadModule();
+	const model = buildTrajectory([msg({ id: "u1", role: "user", text: "first", timestamp: 1000 }), msg({ id: "a1", role: "assistant", text: "ok", timestamp: 1500 }), msg({ id: "u2", role: "user", text: "second", timestamp: 3000 }), msg({ id: "a2", role: "assistant", text: "done", timestamp: 3500 })], Date.now(), {
+		modelTraces: [
+			// 乱序传入：内部按 time 归轮，不得依赖入参顺序
+			{ traceId: "t2", agentId: "ag1", time: 3100, model: "glm-5.3", provider: "openai", messageCount: 8, toolCount: 28, payloadBytes: 61234, truncated: false },
+			{ traceId: "t1", agentId: "ag1", time: 1050, model: "glm-5.3", provider: "openai", messageCount: 4, toolCount: 28, payloadBytes: 56800 },
+		],
+	});
+	const requests = model.records.filter((r) => r.kind === "modelRequest");
+	assert.equal(requests.length, 2);
+	const first = requests.find((r) => r.id === "model:t1");
+	const second = requests.find((r) => r.id === "model:t2");
+	assert.equal(first?.turnIndex, 0);
+	assert.equal(second?.turnIndex, 1);
+	// 请求快照是时间点：起止同刻，不得伪造区间
+	assert.equal(first?.startedAt, first?.endedAt);
+	assert.equal(first?.durationMs, undefined);
+	assert.equal(first?.lane, "model");
+	// 摘要携带体积与计数（账本时长列改显体积）
+	assert.match(second?.summary ?? "", /8 msgs/);
+	assert.match(second?.summary ?? "", /28 tools/);
+	assert.match(second?.summary ?? "", /59\.8 KB|1\.5 MB/);
+	// 回读指针完整保留：agentId/messageCount/truncated 供检查器使用
+	assert.equal(first?.modelTrace?.agentId, "ag1");
+	assert.equal(second?.modelTrace?.truncated, false);
+	assert.equal(first?.modelTrace?.messageCount, 4);
+});
+
+test("model trace before the first user message falls into turn 0; without messages it forms its own turn", () => {
+	const { buildTrajectory } = loadModule();
+	const early = buildTrajectory([msg({ id: "u1", role: "user", text: "hi", timestamp: 2000 })], Date.now(), {
+		modelTraces: [{ traceId: "t0", time: 1500 }],
+	});
+	const earlyRecord = early.records.find((r) => r.kind === "modelRequest");
+	assert.equal(earlyRecord?.turnIndex, 0);
+	assert.ok(early.turns[0].records.some((r) => r.id === "model:t0"));
+
+	const empty = buildTrajectory([], Date.now(), { modelTraces: [{ traceId: "solo", time: 5000 }] });
+	assert.equal(empty.turns.length, 1);
+	assert.equal(empty.records[0]?.kind, "modelRequest");
+	assert.equal(empty.records[0]?.startedAt, empty.records[0]?.endedAt);
+});
+
+test("modelRequest ledger wiring: kindLabel key, size label in duration column, full-request entry", () => {
+	// 展示层接线契约：kind 标签、时长列改显体积、检查器可回读完整请求体
+	const view = readFileSync("src/renderer/src/components/session/trajectory/SessionTrajectoryView.tsx", "utf8");
+	assert.match(view, /session\.trajectory\.kind\.modelRequest/);
+	assert.match(view, /traceSizeLabel/);
+	assert.match(view, /viewFullRequest/);
+	assert.match(view, /ModelTraceDetail/);
+});
+
+test("prompt updates stay where they happened; only the initial prompt is hoisted", () => {
+	const { buildTrajectory } = loadModule();
+	const model = buildTrajectory([msg({ id: "u1", role: "user", text: "go", timestamp: 1000 }), msg({ id: "a1", role: "assistant", text: "ok", timestamp: 2000, stopReason: "stop" })], 9000, {
+		processEvents: [
+			{ id: "p0", kind: "systemPrompt", timestamp: 500, summary: "initial", prompt: { kind: "initial", text: "base", tools: [] } },
+			{ id: "p1", kind: "systemPrompt", timestamp: 3000, summary: "update", prompt: { kind: "update", text: "base+v2", tools: ["bash"] } },
+		],
+	});
+	const order = model.records.map((record) => (record.kind === "systemPrompt" ? `prompt:${record.promptKind}` : record.kind)).join(",");
+	assert.equal(order, "prompt:initial,user,assistant,prompt:update");
+	assert.equal(model.records[0].prompt?.text, "base");
+	assert.equal(model.records[3].prompt?.tools.join(","), "bash");
+});
+
+test("system prompt snapshot renders in the ledger inspector, replacing the pi-system fallback", () => {
+	const view = readFileSync("src/renderer/src/components/session/trajectory/SessionTrajectoryView.tsx", "utf8");
+	assert.match(view, /function PromptSnapshotDetail/);
+	assert.match(view, /session\.trajectory\.prompt\.fullText/);
+	assert.match(view, /session\.trajectory\.prompt\.toolList/);
+	assert.match(view, /record\.promptKind === "initial"/);
+	assert.doesNotMatch(view, /readDshSystemPrompt|desktopApi.prompts/);
+});
+
+test("pi assistant durationMs drives the exact ledger span", () => {
+	const { buildTrajectory } = loadModule();
+	const model = buildTrajectory([msg({ id: "u1", role: "user", text: "go", timestamp: 1000 }), msg({ id: "a1", role: "assistant", text: "ok", timestamp: 1200, stopReason: "stop", meta: { durationMs: 4000, startedAt: 1200, usage: { inputTokens: 10, outputTokens: 20, reasoningTokens: 5 } } })]);
+	const assistant = model.records.find((record) => record.kind === "assistant");
+	assert.equal(assistant?.startedAt, 1200);
+	assert.equal(assistant?.endedAt, 5200);
+	assert.equal(assistant?.durationMs, 4000);
+	assert.equal(assistant?.usage?.reasoningTokens, 5);
 });

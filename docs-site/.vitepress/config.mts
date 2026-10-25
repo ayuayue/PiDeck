@@ -1,4 +1,6 @@
 import { defineConfig } from "vitepress";
+import { sharedGuideDocsPlugin } from "./sharedGuideDocs";
+import { sharedReadmeImagesPlugin } from "./sharedReadmeImages";
 
 // 自定义域名部署在站点根路径；本地/兼容旧 github.io 子路径时可用 VITEPRESS_BASE=/PiDeck/
 const base = process.env.VITEPRESS_BASE ?? "/";
@@ -9,6 +11,17 @@ export default defineConfig({
   base,
   cleanUrls: true,
   lastUpdated: true,
+  // 页面已在 frontmatter title 里带品牌与关键词（如「PiDeck - pi desktop 桌面工作台」），
+  // 关闭默认的「| siteTitle」后缀拼接，避免 title 重复啰嗦、稀释搜索关键词权重。
+  // 注意：titleTemplate 是 defineConfig 顶层字段，且关闭值是 false（VitePress 未处理 null）。
+  titleTemplate: false,
+
+  // README 与官网共用的图片（如微信群二维码）以 docs/images 为唯一数据源，
+  // dev / build 启动时由插件同步进 public/images，避免同一张图两边各存一份。
+  // 插件开发指南同理：docs/host-plugin-dev-guide.md 同步为 /guide/host-plugins 页面。
+  vite: {
+    plugins: [sharedReadmeImagesPlugin(), sharedGuideDocsPlugin()],
+  },
 
   // ===== 多语言：key 必须用 root / en（不是 / 和 /en/）=====
   locales: {
@@ -21,24 +34,46 @@ export default defineConfig({
       themeConfig: {
         nav: [
           { text: "首页", link: "/" },
-          { text: "使用指南", link: "/guide/usage-guide" },
-          { text: "功能手册", link: "/guide/feature-reference" },
-          { text: "FAQ", link: "/guide/faq" },
-          { text: "问题排查", link: "/guide/troubleshooting" },
-          { text: "产品对比", link: "/guide/comparison" },
+          {
+            text: "指南",
+            items: [
+              { text: "全景指南", link: "/guide/ultimate-guide" },
+              { text: "快速开始", link: "/guide/getting-started" },
+              { text: "功能手册", link: "/guide/feature-reference" },
+              { text: "原理解析", link: "/guide/architecture-deep-dive" },
+            ],
+          },
+          {
+            text: "帮助",
+            items: [
+              { text: "FAQ", link: "/guide/faq" },
+              { text: "问题排查", link: "/guide/troubleshooting" },
+              { text: "产品对比", link: "/guide/comparison" },
+            ],
+          },
           { text: "更新日志", link: "/changelog" },
           { text: "下载", link: "https://github.com/ayuayue/PiDeck/releases" },
+          {
+            text: "源码",
+            items: [
+              { text: "GitHub 仓库（海外）", link: "https://github.com/ayuayue/PiDeck" },
+              { text: "AtomGit 仓库（国内镜像）", link: "https://atomgit.com/ayuayue/PiDeck" },
+            ],
+          },
         ],
         sidebar: {
           "/guide/": [
             {
               text: "指南",
               items: [
+                { text: "从零到精通终极全景指南", link: "/guide/ultimate-guide" },
+                { text: "核心原理解析与深度指南", link: "/guide/architecture-deep-dive" },
                 { text: "完整使用指南（新手向）", link: "/guide/usage-guide" },
                 { text: "快速开始", link: "/guide/getting-started" },
                 { text: "功能介绍", link: "/guide/features" },
                 { text: "功能操作手册", link: "/guide/feature-reference" },
                 { text: "配置与 Skills", link: "/guide/settings" },
+                { text: "宿主插件开发指南", link: "/guide/host-plugins" },
                 { text: "常见问题", link: "/guide/faq" },
                 { text: "问题排查指南", link: "/guide/troubleshooting" },
                 { text: "产品对比", link: "/guide/comparison" },
@@ -74,19 +109,40 @@ export default defineConfig({
       themeConfig: {
         nav: [
           { text: "Home", link: "/en/" },
-          { text: "Guide", link: "/en/guide/usage-guide" },
-          { text: "Feature Reference", link: "/en/guide/feature-reference" },
-          { text: "FAQ", link: "/en/guide/faq" },
-          { text: "Troubleshooting", link: "/en/guide/troubleshooting" },
-          { text: "Comparison", link: "/en/guide/comparison" },
+          {
+            text: "Guide",
+            items: [
+              { text: "Ultimate Guide", link: "/guide/ultimate-guide" },
+              { text: "Quick Start", link: "/en/guide/getting-started" },
+              { text: "Feature Reference", link: "/en/guide/feature-reference" },
+              { text: "Deep Dive", link: "/guide/architecture-deep-dive" },
+            ],
+          },
+          {
+            text: "Help",
+            items: [
+              { text: "FAQ", link: "/en/guide/faq" },
+              { text: "Troubleshooting", link: "/en/guide/troubleshooting" },
+              { text: "Comparison", link: "/en/guide/comparison" },
+            ],
+          },
           { text: "Changelog", link: "/en/changelog" },
           { text: "Download", link: "https://github.com/ayuayue/PiDeck/releases" },
+          {
+            text: "Source",
+            items: [
+              { text: "GitHub (Global)", link: "https://github.com/ayuayue/PiDeck" },
+              { text: "AtomGit (China mirror)", link: "https://atomgit.com/ayuayue/PiDeck" },
+            ],
+          },
         ],
         sidebar: {
           "/en/guide/": [
             {
               text: "Guide",
               items: [
+                { text: "Ultimate Guide (Zero to Hero)", link: "/guide/ultimate-guide" },
+                { text: "Architecture Deep Dive", link: "/guide/architecture-deep-dive" },
                 { text: "Usage Guide", link: "/en/guide/usage-guide" },
                 { text: "Quick Start", link: "/en/guide/getting-started" },
                 { text: "Features", link: "/en/guide/features" },
@@ -123,7 +179,11 @@ export default defineConfig({
   themeConfig: {
     logo: "/icon.svg",
     siteTitle: "PiDeck",
-    socialLinks: [{ icon: "github", link: "https://github.com/ayuayue/PiDeck" }],
+    // 只保留内置图标（github）；AtomGit 无内置图标，作为「源码」下拉项出现在导航中，
+    // 避免 socialLinks 里出现 no-icon 空白图标位。
+    socialLinks: [
+      { icon: "github", link: "https://github.com/ayuayue/PiDeck", ariaLabel: "GitHub 仓库" },
+    ],
     search: {
       provider: "local",
       options: {
@@ -171,6 +231,24 @@ export default defineConfig({
     ["meta", { name: "twitter:title", content: "PiDeck - pi Agent Desktop Workbench" }],
     ["meta", { name: "twitter:description", content: "Manage multiple pi AI coding agents in local workspaces. Open-source desktop app with sessions, Git, terminal, and extensions." }],
     ["meta", { name: "twitter:image", content: `${siteOrigin}/og-image.png` }],
+    // 搜索引擎站长平台验证位：GSC/Bing 验证码通过 CI 环境变量注入（pages.yml 的 env），
+    // 不用为了验证改代码。变量为空时不注入该 meta（head 数组类型要求二元素元组）。
+    ...(process.env.GSC_VERIFICATION
+      ? [
+          [
+            "meta",
+            { name: "google-site-verification", content: process.env.GSC_VERIFICATION },
+          ] as [string, Record<string, string>],
+        ]
+      : []),
+    ...(process.env.BING_VERIFICATION
+      ? [
+          [
+            "meta",
+            { name: "msvalidate.01", content: process.env.BING_VERIFICATION },
+          ] as [string, Record<string, string>],
+        ]
+      : []),
     [
       "script",
       { type: "application/ld+json" },
@@ -184,6 +262,10 @@ export default defineConfig({
         "url": siteOrigin,
         "downloadUrl": "https://github.com/ayuayue/PiDeck/releases",
         "sourceCodeRepository": "https://github.com/ayuayue/PiDeck",
+        "sameAs": [
+          "https://github.com/ayuayue/PiDeck",
+          "https://atomgit.com/ayuayue/PiDeck"
+        ],
         "license": "https://opensource.org/licenses/MIT",
         "author": {
           "@type": "Organization",

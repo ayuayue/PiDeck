@@ -18,7 +18,7 @@ export class PetPatrol {
 	private tickTimer: NodeJS.Timeout | null = null;
 	private pauseTimer: NodeJS.Timeout | null = null;
 	private direction: "left" | "right" = "right";
-	private readonly speed = 40;     // px/s
+	private readonly speed = 40; // px/s
 	private readonly tickMs = 50;
 	private readonly edgeMargin = 16;
 	/** 巡游中锁定的工作区，避免行进途中显示器坐标系抖动 */
@@ -47,7 +47,9 @@ export class PetPatrol {
 		return this.businessIdleCheck ? this.businessIdleCheck() : true;
 	}
 
-	get active(): boolean { return this.tickTimer !== null || this.pauseTimer !== null; }
+	get active(): boolean {
+		return this.tickTimer !== null || this.pauseTimer !== null;
+	}
 
 	start() {
 		// 拖拽中绝不（重新）起巡游。拖拽开始时 bridge.update() 仍会异步触发 maybeStartPatrol，
@@ -62,8 +64,14 @@ export class PetPatrol {
 	}
 
 	stop() {
-		if (this.tickTimer) { clearInterval(this.tickTimer); this.tickTimer = null; }
-		if (this.pauseTimer) { clearTimeout(this.pauseTimer); this.pauseTimer = null; }
+		if (this.tickTimer) {
+			clearInterval(this.tickTimer);
+			this.tickTimer = null;
+		}
+		if (this.pauseTimer) {
+			clearTimeout(this.pauseTimer);
+			this.pauseTimer = null;
+		}
 		this.walkWorkArea = null;
 		this.lastTickX = null;
 	}
@@ -75,9 +83,15 @@ export class PetPatrol {
 	}
 
 	private beginWalk() {
-		if (this.pauseTimer) { clearTimeout(this.pauseTimer); this.pauseTimer = null; }
+		if (this.pauseTimer) {
+			clearTimeout(this.pauseTimer);
+			this.pauseTimer = null;
+		}
 		// 业务非 idle（任务运行/出错/待输入）时不起步：散步帧不得抢占动画通道
-		if (!this.isBusinessIdle()) { this.stop(); return; }
+		if (!this.isBusinessIdle()) {
+			this.stop();
+			return;
+		}
 		const wa = this.resolveWorkArea();
 		if (!wa) return; // 无法确定坐标系则不开始，避免用错边界位移
 		this.walkWorkArea = wa;
@@ -89,7 +103,10 @@ export class PetPatrol {
 
 	/** 抵达边界：停止步行，进入 idle 停顿并安排下一次巡游 */
 	private endWalk() {
-		if (this.tickTimer) { clearInterval(this.tickTimer); this.tickTimer = null; }
+		if (this.tickTimer) {
+			clearInterval(this.tickTimer);
+			this.tickTimer = null;
+		}
 		this.walkWorkArea = null;
 		this.lastTickX = null;
 		this.pushState("idle");
@@ -124,13 +141,25 @@ export class PetPatrol {
 
 	private tick() {
 		// 双保险：即便因时序问题 tick 仍被触发，拖拽中也绝不移动窗口
-		if (this.dragging) { this.stop(); return; }
+		if (this.dragging) {
+			this.stop();
+			return;
+		}
 		// 业务态检查：过渡期间（failed/review）或任务恢复运行时，散步帧立即让位
-		if (!this.isBusinessIdle()) { this.stop(); return; }
+		if (!this.isBusinessIdle()) {
+			this.stop();
+			return;
+		}
 		const win = this.getPetWindow();
-		if (!win || win.isDestroyed()) { this.stop(); return; }
+		if (!win || win.isDestroyed()) {
+			this.stop();
+			return;
+		}
 		const wa = this.walkWorkArea;
-		if (!wa) { this.endWalk(); return; }
+		if (!wa) {
+			this.endWalk();
+			return;
+		}
 
 		const now = Date.now();
 		const [x, y] = win.getPosition();
@@ -158,12 +187,18 @@ export class PetPatrol {
 			const rightEdge = wa.x + wa.width - win.getSize()[0] - this.edgeMargin;
 			const nx = this.clampX(x + step, wa);
 			this.movePetWindow?.(nx, y) ?? win.setPosition(nx, y);
-			if (x + step >= rightEdge) { this.endWalk(); return; }
+			if (x + step >= rightEdge) {
+				this.endWalk();
+				return;
+			}
 		} else {
 			const leftEdge = wa.x + this.edgeMargin;
 			const nx = this.clampX(x - step, wa);
 			this.movePetWindow?.(nx, y) ?? win.setPosition(nx, y);
-			if (x - step <= leftEdge) { this.endWalk(); return; }
+			if (x - step <= leftEdge) {
+				this.endWalk();
+				return;
+			}
 		}
 	}
 

@@ -5,6 +5,7 @@
 
 import type { EditorProps } from "@tiptap/pm/view";
 import type { ComposerChip } from "../chips";
+import { stripChipDisplayPrefix } from "../chips";
 import { htmlToPlainText } from "../../../../utils/clipboard";
 import { toComposerDomKeyboardEvent } from "./domEventBridge";
 import { insertComposerPlainText } from "./insertComposerPlainText";
@@ -22,8 +23,10 @@ function readChipFromDom(chipEl: HTMLElement): ComposerChip | null {
 	const raw = chipEl.getAttribute("data-raw") ?? "";
 	const kind = chipEl.getAttribute("data-type");
 	if (kind !== "file" && kind !== "skill" && kind !== "session" && kind !== "quote") return null;
-	const label =
-		chipEl.querySelector(".input-chip__label")?.textContent?.trim() || raw.slice(1);
+	// DOM 中的展示文本必须按类型剥前缀（file 的 @、skill 的 /skill:），
+	// 不能统一剥 [@/&❝]——那会把 label 自身的 / & ❝ 当成前缀吃掉（引用路径/命令场景）。
+	const rawLabel = chipEl.querySelector(".input-chip__label")?.textContent?.trim() || raw.slice(1);
+	const label = stripChipDisplayPrefix(kind, rawLabel);
 	return { start: 0, end: raw.length, raw, kind, label };
 }
 

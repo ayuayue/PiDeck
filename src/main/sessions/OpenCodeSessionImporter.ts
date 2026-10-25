@@ -1,19 +1,19 @@
 import { app } from "electron";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, stat, writeFile, readFile } from "node:fs/promises";
+import { mkdir, stat, utimes, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type {
-	OpenCodeImportReport,
-	OpenCodeImportResult,
-	OpenCodeImportStatus,
-	OpenCodeSessionSummary,
-} from "../../shared/types";
-import {
-	defaultSessionImportCopy,
-	type SessionImportCopy,
-} from "./SessionImportCopy";
+import type { OpenCodeImportReport, OpenCodeImportResult, OpenCodeImportStatus, OpenCodeSessionSummary } from "../../shared/types";
+import { defaultSessionImportCopy, type SessionImportCopy } from "./SessionImportCopy";
+import { normalizeImportedToolArguments } from "./importToolArguments";
+import { readImportMetaHead } from "./importMetaHead";
+import { IMPORTED_SKIP_PART_TYPES, importedAttachmentPlaceholder, importedContentHasToolCall, importedUnknownBlockAsText, normalizeImportedStopReason, safeIsoTimestamp, tryImportedImageBlock } from "./importNormalize";
+
+// 集中式库文件的扫描预算：全库物化（messages+parts）内存约为磁盘体积的若干倍，
+// 超过此值时 scan/import 直接报结构化错误而非把主进程推向堆 abort（不可 catch 的闪退）。
+// 512MB 覆盖正常长期使用；触顶属异常巨型库，错误消息会提示用户另寻导入途径。
+const MAX_SOURCE_DB_BYTES = 512 * 1024 * 1024;
 
 type OpenCodeMessage = {
 	id: string;
@@ -76,6 +76,13 @@ export class OpenCodeSessionImporter {
 			await mkdir(this.getProjectSessionDir(projectPath), { recursive: true });
 			// OpenCode 历史集中存放在 SQLite 中；导入时只生成 pi 可读副本，不修改原始数据库。
 			await writeFile(targetPath, converted.raw, "utf8");
+			// 侧栏列表时间取文件 mtime：写入后回调为会话真实最后时间，避免导入会话
+			// 全部显示为「刚刚导入」并排序置顶（与 ZCode/Claude 导入器同口径）。
+			const lastTimestamp = Number(parsed.meta.time_updated ?? 0);
+			if (lastTimestamp > 0) {
+				const stamp = new Date(lastTimestamp);
+				await utimes(targetPath, stamp, stamp);
+			}
 			return {
 				id: String(parsed.meta.id),
 				sourcePath,
@@ -99,11 +106,7 @@ export class OpenCodeSessionImporter {
 		const targetPath = this.getTargetPath(projectPath, session);
 		const importMeta = await this.readImportMeta(targetPath);
 		const converted = this.convertToPiSession(projectPath, session);
-		const status: OpenCodeImportStatus = !importMeta
-			? "new"
-			: importMeta.sourceMtime === session.sourceMtime && importMeta.sourceSize === session.sourceSize
-				? "current"
-				: "outdated";
+		const status: OpenCodeImportStatus = !importMeta ? "new" : importMeta.sourceMtime === session.sourceMtime && importMeta.sourceSize === session.sourceSize ? "current" : "outdated";
 
 		return {
 			id: String(session.meta.id),
@@ -123,7 +126,7 @@ export class OpenCodeSessionImporter {
 
 	private convertToPiSession(projectPath: string, session: ParsedOpenCodeSession) {
 		const sessionId = String(session.meta.id);
-		const timestamp = new Date(Number(session.meta.time_created ?? session.sourceMtime)).toISOString();
+		const timestamp = safeIsoTimestamp(Number(session.meta.time_created ?? session.sourceMtime));
 		const model = this.parseModel(session.meta.model);
 		const titleState = { title: "", preview: "" };
 		const lines: string[] = [];
@@ -140,7 +143,7 @@ export class OpenCodeSessionImporter {
 				type: "message",
 				id,
 				parentId,
-				timestamp: new Date(messageTimestamp).toISOString(),
+				timestamp: safeIsoTimestamp(messageTimestamp),
 				message: {
 					role,
 					content,
@@ -181,7 +184,8 @@ export class OpenCodeSessionImporter {
 		for (const message of session.messages) {
 			const messageData = message.data;
 			const role = messageData.role;
-			const content: any[] = [];
+			const content: Array<Record<string, unknown>> = [];
+			const toolQueue: Array<{ part: OpenCodePart; callId: string; name: string }> = [];
 			for (const part of message.parts) {
 				const partData = part.data;
 				if (partData.type === "text" && partData.text) {
@@ -190,45 +194,83 @@ export class OpenCodeSessionImporter {
 					content.push({ type: "thinking", thinking: String(partData.text), thinkingSignature: "opencode_reasoning" });
 				} else if (partData.type === "tool") {
 					const toolCallId = String(partData.callID ?? part.id);
+					const name = String(partData.tool ?? "tool");
+					const args = normalizeImportedToolArguments(partData.state?.input);
 					if (role === "assistant") {
-						content.push({ type: "toolCall", id: toolCallId, name: String(partData.tool ?? "tool"), arguments: partData.state?.input ?? {} });
+						// OpenCode 的 tool part 挂在 assistant 上，input+output 同 part。
+						// 必须拆成 toolCall + 后面的 toolResult，否则时间线没有工具卡。
+						content.push({ type: "toolCall", id: toolCallId, name, arguments: args });
+						toolQueue.push({ part, callId: toolCallId, name });
 					} else {
-						pushMessage("toolResult", [{ type: "text", text: this.extractToolOutput(partData) }], {
-							toolCallId,
-							toolName: String(partData.tool ?? "tool"),
-							isError: partData.state?.status === "error",
-						}, part.time_created);
+						pushMessage(
+							"toolResult",
+							[{ type: "text", text: this.extractToolOutput(partData) }],
+							{
+								toolCallId,
+								toolName: name,
+								isError: partData.state?.status === "error",
+							},
+							part.time_created,
+						);
 					}
+				} else if (IMPORTED_SKIP_PART_TYPES.has(String(partData.type ?? ""))) {
+					continue;
+				} else if (partData.type === "file") {
+					const image = tryImportedImageBlock(partData);
+					content.push(image ?? importedAttachmentPlaceholder(String(partData.filename ?? partData.url ?? "")));
+				} else if (partData.type) {
+					const image = tryImportedImageBlock(partData);
+					content.push(image ?? importedUnknownBlockAsText(partData));
 				}
 			}
 
 			if (role === "user") {
 				pushMessage("user", content, {}, message.time_created);
 			} else if (role === "assistant") {
-				pushMessage("assistant", content, {
-					api: "opencode-import",
-					provider: messageData.providerID ?? model.providerID ?? "opencode",
-					model: messageData.modelID ?? model.id ?? model.modelID ?? "opencode",
-					stopReason: messageData.finish ?? "stop",
-					tokens: messageData.tokens,
-				}, message.time_created);
+				pushMessage(
+					"assistant",
+					content,
+					{
+						api: "opencode-import",
+						provider: messageData.providerID ?? model.providerID ?? "opencode",
+						model: messageData.modelID ?? model.id ?? model.modelID ?? "opencode",
+						stopReason: normalizeImportedStopReason({
+							raw: messageData.finish,
+							hasToolCall: importedContentHasToolCall(content),
+						}),
+						tokens: messageData.tokens,
+					},
+					message.time_created,
+				);
+			}
+			for (const { part, callId, name } of toolQueue) {
+				pushMessage(
+					"toolResult",
+					[{ type: "text", text: this.extractToolOutput(part.data) }],
+					{
+						toolCallId: callId,
+						toolName: name,
+						isError: part.data.state?.status === "error",
+					},
+					part.time_created,
+				);
 			}
 		}
 
-		const title = this.cleanTitle(String(session.meta.title ?? "")) || titleState.title ||
-			this.cleanTitle(basename(session.sourcePath)) ||
-			this.translate("session.importedTitle", { source: "OpenCode" });
+		const title = this.cleanTitle(String(session.meta.title ?? "")) || titleState.title || this.cleanTitle(basename(session.sourcePath)) || this.translate("session.importedTitle", { source: "OpenCode" });
 		// 使用 pi 原生 session_info 格式追加在末尾，避免旧版 sessionName 行（无 type 字段）
 		// 在文件头破坏 pi 的首行校验导致会话无法加载（见 #114）。
 		const sessionInfoId = randomUUID().slice(0, 8);
-		lines.push(JSON.stringify({
-			type: "session_info",
-			id: sessionInfoId,
-			parentId,
-			timestamp: new Date().toISOString(),
-			name: title,
-			cwd: projectPath,
-		}));
+		lines.push(
+			JSON.stringify({
+				type: "session_info",
+				id: sessionInfoId,
+				parentId,
+				timestamp: new Date().toISOString(),
+				name: title,
+				cwd: projectPath,
+			}),
+		);
 		return {
 			raw: `${lines.join("\n")}\n`,
 			title,
@@ -239,10 +281,15 @@ export class OpenCodeSessionImporter {
 
 	private async readOpenCodeSessions(projectPath: string): Promise<ParsedOpenCodeSession[]> {
 		const info = await stat(this.openCodeDb);
+		if (info.size > MAX_SOURCE_DB_BYTES) {
+			// 物化前闸门：继续扫描会把主进程推向堆 abort；宁可让该源列表报错，也不静默跳过（会话神秘消失更糟）
+			throw new Error(`OpenCode database is ${Math.round(info.size / 1024 / 1024)}MB, exceeding the ${MAX_SOURCE_DB_BYTES / 1024 / 1024}MB scan budget`);
+		}
 		const normalizedProject = this.normalize(projectPath);
 		const db = new DatabaseSync(this.openCodeDb, { readOnly: true });
 		try {
-			const sessions = db.prepare(`
+			const sessions = db
+				.prepare(`
 				select s.*, p.worktree
 				from session s
 				join project p on p.id = s.project_id
@@ -250,7 +297,8 @@ export class OpenCodeSessionImporter {
 				   or lower(replace(s.directory, '\\', '/')) = lower(?)
 				   or lower(replace(s.directory, '\\', '/')) like lower(? || '/%')
 				order by s.time_updated desc
-			`).all(normalizedProject, normalizedProject, normalizedProject) as Array<Record<string, any>>;
+			`)
+				.all(normalizedProject, normalizedProject, normalizedProject) as Array<Record<string, any>>;
 
 			return sessions.map((session) => {
 				const messages = db.prepare("select id, time_created, time_updated, data from message where session_id = ? order by time_created asc").all(session.id) as Array<Record<string, any>>;
@@ -283,7 +331,7 @@ export class OpenCodeSessionImporter {
 	}
 
 	private parseJson(value: unknown) {
-		if (typeof value !== "string") return value && typeof value === "object" ? value as Record<string, any> : {};
+		if (typeof value !== "string") return value && typeof value === "object" ? (value as Record<string, any>) : {};
 		try {
 			return JSON.parse(value);
 		} catch {
@@ -292,44 +340,35 @@ export class OpenCodeSessionImporter {
 	}
 
 	private estimateSessionSize(meta: Record<string, any>, messages: OpenCodeMessage[]) {
-		return Buffer.byteLength(
-			JSON.stringify({
-				meta,
-				messages,
-			}),
-			"utf8",
-		);
+		// 逐条累加而非整包 stringify：估算语义不变，瞬时峰值从「整会话字符串」降到「单条消息字符串」。
+		// 口径与旧公式有常数级偏差，存量已导入会话会一次性显示 outdated（重新导入即刷新，无数据风险）
+		let total = Buffer.byteLength(JSON.stringify(meta), "utf8");
+		for (const message of messages) total += Buffer.byteLength(JSON.stringify(message), "utf8");
+		return total;
 	}
 
 	private parseModel(value: unknown) {
 		if (typeof value === "string") return this.parseJson(value);
-		return value && typeof value === "object" ? value as Record<string, any> : {};
+		return value && typeof value === "object" ? (value as Record<string, any>) : {};
 	}
 
-	private toUsage(tokens: any) {
+	private toUsage(tokens: unknown) {
+		// 用量块来自 OpenCode 会话 JSON，字段名随版本漂移；这里统一收窄后取值，缺省落 0
+		const record = tokens && typeof tokens === "object" ? (tokens as Record<string, unknown>) : {};
+		const cache = record.cache && typeof record.cache === "object" ? (record.cache as Record<string, unknown>) : {};
 		return {
-			input: Number(tokens?.input ?? 0),
-			output: Number(tokens?.output ?? 0),
-			cacheRead: Number(tokens?.cache?.read ?? 0),
-			cacheWrite: Number(tokens?.cache?.write ?? 0),
-			totalTokens: Number(tokens?.total ?? 0),
+			input: Number(record.input ?? 0),
+			output: Number(record.output ?? 0),
+			cacheRead: Number(cache.read ?? 0),
+			cacheWrite: Number(cache.write ?? 0),
+			totalTokens: Number(record.total ?? 0),
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 		};
 	}
 
+	/** 读取导入产物头部的 import 标记（有界读头部，不再整读会话文件——见 importMetaHead）。 */
 	private async readImportMeta(targetPath: string) {
-		try {
-			const raw = await readFile(targetPath, "utf8");
-			for (const line of raw.split(/\r?\n/).filter(Boolean).slice(0, 8)) {
-				const entry = JSON.parse(line) as any;
-				if (entry.type === "opencode_import") {
-					return { sourceMtime: Number(entry.sourceMtime), sourceSize: Number(entry.sourceSize) };
-				}
-			}
-		} catch {
-			return undefined;
-		}
-		return undefined;
+		return readImportMetaHead(targetPath, "opencode_import");
 	}
 
 	private getTargetPath(projectPath: string, session: ParsedOpenCodeSession) {
@@ -343,7 +382,8 @@ export class OpenCodeSessionImporter {
 
 	private safePathToken(path: string) {
 		const normalized = path.replace(/\\/g, "/");
-		const win = normalized.match(/^([A-Za-z]):\/(.+)$/);
+		// 盘符根（D:\）也要命中本分支：(.+) 时盘根落到 fallback 产出含 ":" 的非法目录名，导入必败
+		const win = normalized.match(/^([A-Za-z]):\/(.*)$/);
 		if (win) return `--${win[1]}--${win[2].replace(/\//g, "-")}--`;
 		return `--${normalized.replace(/^\//, "").replace(/\//g, "-")}--`;
 	}
@@ -360,7 +400,10 @@ export class OpenCodeSessionImporter {
 	}
 
 	private extractPiText(content: unknown[]) {
-		return content.map((item: any) => item?.text ?? item?.thinking ?? item?.name ?? "").filter(Boolean).join(" ");
+		return content
+			.map((item) => (typeof item === "string" ? item : item && typeof item === "object" ? String((item as Record<string, unknown>).text ?? (item as Record<string, unknown>).thinking ?? (item as Record<string, unknown>).name ?? "") : ""))
+			.filter(Boolean)
+			.join(" ");
 	}
 
 	private cleanTitle(value?: string) {
@@ -378,6 +421,9 @@ export class OpenCodeSessionImporter {
 	}
 
 	private normalize(path?: string) {
-		return String(path ?? "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+		return String(path ?? "")
+			.replace(/\\/g, "/")
+			.replace(/\/+$/, "")
+			.toLowerCase();
 	}
 }

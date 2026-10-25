@@ -167,19 +167,7 @@ async function main() {
 	// 本地 stub 插件：directoryPicker 服务只声明 capability，无 native/browse 能力。
 	// ApiProxyService.inject 需要该服务存在；host.pickDirectory/listDirectory/createDirectory
 	// 在 capability.kind 不匹配时返回 directory-picker-unavailable（优雅降级）。
-	writeFileSync(
-		join(configDir, "pideck-directory-picker.js"),
-		[
-			"export default {",
-			"  apply(ctx) {",
-			"    ctx.provide('directoryPicker', {",
-			"      capability() { return { kind: 'none' }; },",
-			"    });",
-			"  },",
-			"};",
-			"",
-		].join("\n"),
-	);
+	writeFileSync(join(configDir, "pideck-directory-picker.js"), ["export default {", "  apply(ctx) {", "    ctx.provide('directoryPicker', {", "      capability() { return { kind: 'none' }; },", "    });", "  },", "};", ""].join("\n"));
 
 	// ── boot：prepare 钩子里补 launcher 职责（cmdline + appExit）──────────────
 	const bootStartedAt = Date.now();
@@ -201,7 +189,7 @@ async function main() {
 			pathToFileURL(join(projectRoot, "node_modules") + "/").href,
 		);
 	} catch (error) {
-		log("boot", `FAILED：${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+		log("boot", `FAILED：${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
 		if (minimal) {
 			log("hint", "仍失败：见上方错误；可尝试去掉 --minimal（本机 node-pty/sharp 已装好）");
 		} else {
@@ -398,10 +386,13 @@ async function main() {
 	await Promise.race([pump.catch(() => undefined), sleep(3000)]).catch(() => undefined);
 	const disposedAt = Date.now();
 	const disposeDone = await Promise.race([
-		ctx.fiber.dispose().then(() => true, (error) => {
-			log("dispose", `warn: ${String(error)}`);
-			return true;
-		}),
+		ctx.fiber.dispose().then(
+			() => true,
+			(error) => {
+				log("dispose", `warn: ${String(error)}`);
+				return true;
+			},
+		),
 		sleep(5000).then(() => false),
 	]);
 	if (disposeDone) {

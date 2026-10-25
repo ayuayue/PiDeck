@@ -69,9 +69,7 @@ export function ensureTokendanceAttribution(models: PiModelsFile): PiModelsFile 
 		}
 		const headers = readHeaders(provider);
 		// 大小写不敏感检查：HTTP 头语义不区分大小写，用户写 x-app-url 也算已配置
-		const hasAppUrl = headers
-			? Object.keys(headers).some((key) => key.toLowerCase() === TOKENDANCE_APP_URL_HEADER.toLowerCase())
-			: false;
+		const hasAppUrl = headers ? Object.keys(headers).some((key) => key.toLowerCase() === TOKENDANCE_APP_URL_HEADER.toLowerCase()) : false;
 		if (hasAppUrl) {
 			providers[name] = provider;
 			continue;

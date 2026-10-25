@@ -5,10 +5,7 @@ import ts from "typescript";
 import vm from "node:vm";
 
 function loadModule() {
-	const source = readFileSync(
-		"src/renderer/src/components/session/markdown/incrementalMarkdown.ts",
-		"utf8",
-	);
+	const source = readFileSync("src/renderer/src/components/session/markdown/incrementalMarkdown.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
 		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 	});
@@ -169,21 +166,9 @@ test("incremental rescan is identical to full rescan across append sequences (pr
 			text += chunk;
 			const split = frontier.update(text);
 			const expected = resolveFrozenPrefixEnd(text);
-			assert.equal(
-				split.prefixEnd,
-				expected.prefixEnd,
-				`seed=${seed} step=${i}: prefixEnd mismatch for text:\n${text}`,
-			);
-			assert.equal(
-				split.prefix,
-				text.slice(0, expected.prefixEnd),
-				`seed=${seed} step=${i}: prefix mismatch`,
-			);
-			assert.equal(
-				split.tail,
-				text.slice(expected.prefixEnd),
-				`seed=${seed} step=${i}: tail mismatch`,
-			);
+			assert.equal(split.prefixEnd, expected.prefixEnd, `seed=${seed} step=${i}: prefixEnd mismatch for text:\n${text}`);
+			assert.equal(split.prefix, text.slice(0, expected.prefixEnd), `seed=${seed} step=${i}: prefix mismatch`);
+			assert.equal(split.tail, text.slice(expected.prefixEnd), `seed=${seed} step=${i}: tail mismatch`);
 			assert.equal(split.generation, 0, `seed=${seed} step=${i}: generation must stay 0 on append`);
 		}
 	}

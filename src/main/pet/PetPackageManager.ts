@@ -10,16 +10,12 @@ import { PetPackageScanner, type BuiltinPetEntry } from "./petPackageScanner.ts"
  * 避免将 6.2MB 的 webp 精灵图打包进 app.asar。
  */
 function petResourcesDir(): string {
-	const base = is.dev
-		? join(app.getAppPath(), "build")
-		: process.resourcesPath;
+	const base = is.dev ? join(app.getAppPath(), "build") : process.resourcesPath;
 	return join(base, "pets");
 }
 
 /** 内置宠物清单，spritePath 为运行时路径，构建时通过 extraResources 分发出 asar */
-const BUILTIN_PETS = [
-	{ id: "clawd", displayName: "Clawd", description: "A tiny pixel Clawd companion made from your sticker GIFs.", dir: "clawd-3", file: "spritesheet.webp" },
-];
+const BUILTIN_PETS = [{ id: "clawd", displayName: "Clawd", description: "A tiny pixel Clawd companion made from your sticker GIFs.", dir: "clawd-3", file: "spritesheet.webp" }];
 
 /**
  * PetPackageManager —— 内置 + petdex 双轨宠物包管理。

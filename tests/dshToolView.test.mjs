@@ -20,11 +20,7 @@ function transpile(filePath) {
 
 function loadModule() {
 	const sandbox = { exports: {} };
-	vm.runInNewContext(
-		transpile("src/renderer/src/components/session/trajectory/dshToolView.ts"),
-		sandbox,
-		{ filename: "dshToolView.ts" },
-	);
+	vm.runInNewContext(transpile("src/renderer/src/components/session/trajectory/dshToolView.ts"), sandbox, { filename: "dshToolView.ts" });
 	return sandbox.exports;
 }
 
@@ -91,10 +87,22 @@ test("toolViewDetail：generic rawInput + content 文本", () => {
 
 test("toolViewDetail：search 命中列表与 read 行数", () => {
 	const search = toolViewDetail({
-		resultView: { for: "result", view: {
-			card: "search", shape: "matches",
-			files: [{ path: "a.ts", matches: [{ lineNumber: 1, line: "x" }, { lineNumber: 2, line: "y" }] }],
-		} },
+		resultView: {
+			for: "result",
+			view: {
+				card: "search",
+				shape: "matches",
+				files: [
+					{
+						path: "a.ts",
+						matches: [
+							{ lineNumber: 1, line: "x" },
+							{ lineNumber: 2, line: "y" },
+						],
+					},
+				],
+			},
+		},
 	});
 	assert.match(search ?? "", /a\.ts: 2 处命中/);
 	const read = toolViewDetail({

@@ -1,82 +1,866 @@
-## v0.7.4-beta - 2026-09-04
+## v0.9.6 (2026-10-24)
+
+The through-line of this release is lightness and steadiness: timeline virtualization plus a full pass of memory work tames long-session scrolling, idle residency and startup payload (the main startup chunk drops from 5.5MB to 3.7MB, with idle heavyweights such as the audio utility and standby processes reined in one by one); the built-in browser agent lets pi operate pages directly; Wallpaper Engine video wallpapers, favorites and PiDeck data over MCP all land here; and the Web gets a repair pass from image attachments to touch targets.
 
 ### 🚀 New Features
-- **Command Code usage query support** — A new commandcode-credits parser reads the /alpha/billing/credits endpoint and shows 5h / weekly / monthly windows; the monthly window reverse-looks-up the 5h/week cap combo from the official pricing table with a double check (cap matches the plan + remaining is under the cap), degrading to remaining-only on failure (fail-closed against fabricated denominators).
-- **Application update lifecycle hardening** — The update service is restructured into automatic (electron-updater downloads and installs) / manual (unsigned macOS builds only check and guide manual downloads) delivery modes; stale updater references removed, install-time exit preparation with timeout recovery, so the update flow is more reliable.
-- **Update source mirrors with auto health checks** — The update settings can switch between GitHub official / built-in mirrors (ghfast, ghproxy.net, ghproxy.cxkpro) / a custom mirror prefix, applied at runtime without a restart; opening the settings page auto-probes mirror availability and speed with ok / slow / broken markers, plus a manual re-check button.
+- **Built-in browser agent: pi can drive the built-in browser** — Once enabled in Settings, the `pideck-cua` MCP host exposes `browser_*` tools to pi: navigate, click, type, screenshot and read page snapshots. Snapshots draw recognition boxes directly on the page and actions flash their target, so you can see where the agent clicked; consecutive actions run under a single lease, and debug overlays are cleared before screenshots. Write actions are auto-approved by default and can be switched to per-action confirmation in Settings; page content is always treated as untrusted input, never bypassing the built-in browser's navigation whitelist or the webview's security posture. Browser tools and CUA have separate switches, both off by default.
+- **Wallpaper Engine video wallpapers** — Appearance settings can point at your local Steam Wallpaper Engine workshop folder to play video wallpapers: the workshop content directory (App 431960) is resolved automatically, playability is probed before playback, and a decode failure falls back to the preview image instead of a black screen; trailing NUL padding in project.json is tolerated too. Closing the settings dialog keeps wallpaper panels translucent instead of breaking them (#398).
+- **Favorites: whole replies and selected snippets** — The star on an AI turn, the message context menu and "favorite selection" in the selection popover all collect content into favorites. Snapshots are saved locally (never touching session files or the pi protocol), so they stay readable after a session is deleted or a message edited; the favorites page is a page-style tab in the session tab bar with search, filters, batch delete and drag-to-reorder, and the detail pane renders Markdown while recording the source session and model. The sidebar entry can be hidden under "feature modules". The agents list supports drag-to-reorder as well.
+- **PiDeck data over MCP** — PiDeck's own MCP service gains three tool families: the agent directory (read-only metadata, with opt-in create / edit / delete / bind-session), scheduled tasks (project-scoped reads with opt-in writes) and favorites (read-only list with opt-in text writes). External agents can create agents, look up tasks or record favorites for you; an agent's role prompt is "write-only" — writable through tools, never echoed back. All write switches default to off.
+- **Environment setup page rebuilt** — Environment detection can install pi in one click; the not-installed page is redesigned with a DSH alternative card and automatic backend detection; the environment guide joins the command palette with a more compact install list.
+- **One-click model config import** — The model config page can import providers already configured by other agent tools on your machine (Claude Code, Codex, …), so you don't re-type base URLs and keys.
+- **Settings sidebar search** — Settings entries are searchable in Chinese, English or pinyin initials; the search box sits at the top of the content column and no longer wraps badly in a narrow sidebar.
+- **Session outline rail rebuilt** — The outline rail moves to the left edge and stays visible, with preview cards appearing on hover and entries kept to a sliding window of at most 30; the right edge no longer leaves a silent ghost.
+- **DSH auto-retries made visible** — DSH's llm/retry used to live only in background logs; it now projects into the timeline as a visible auto-retry status card showing how many retries happened and where they stuck.
+- **Web: in-turn queued sends and in-session search** — Web messages can be queued while a turn is running (with cancel, pause-after-stop and resume), and the model / prompt search fields inside popovers accept typing again; in-session search taps the backend's full-session index, and provider quota usage joins the context usage readout.
+- **Synced with pi 1.4.0** — The model catalog moves to pi-ai 1.4.0, and session file parsing gains three BOM tolerance fixes.
+- **Figma MCP OAuth direct connect** — Figma's official MCP OAuth dynamic client registration (DCR) is whitelisted, so it connects right after authorization instead of requiring a manually copied token.
+
+### ✨ Improvements
+- **Timeline virtualization: long sessions stop rescanning the whole list** — The scrolling hot path drops its O(N) scans (in-viewport row caching), and history turns are virtualized with batched mounting; very long answers collapse by default (30K preview + expand), so a single wall of text no longer inflates the resident DOM (#400, #401).
+- **A full pass of memory work** — The audio service runs in-process, eliminating a resident utility process (measured at about 107MB); the main startup chunk drops from 5.5MB to 3.7MB (the pinyin dictionary and the xterm family load on demand); standby pi process TTL tightens from 10 minutes to 3; the session message cache for closed tabs is capped at 64MiB combined; the runtime history prefix gains the same 2,400-entry cap as disk paging; 15 session-scoped states without a release path get release registration; and xterm instance lifecycles decouple from terminal tabs, so a shell exiting no longer tears down and rebuilds the whole instance (scrollback and the WebGL context survive).
+- **Streaming and RPC hot paths** — ANSI stripping for streaming deltas moves to the emit site, removing O(N²) accumulated copies; the RPC line pump switches to chunked buffers, so huge frame responses (tens-of-MB session snapshots) stop being flattened whole twice (pi/ACP and the Go sidecars share one implementation); state pushes gain a 250ms throttle and a version-key gate, so tool-dense turns no longer clone and ship the full state dozens of times per second.
+- **Faster prompt library and skill store** — The store's first open fetches only the category bar (no more pulling all 4,012 entries with BLOBs just to render categories); paging uses a light projection with descriptions filled on demand; the sql.js instance is reused by (size, mtime) instead of re-reading 4.34MB every time; template and skill lists cache for 1.5 seconds with explicit invalidation on writes; and offline remote checks move to the background so the list never stalls.
+- **Main process de-blocking** — Taskbar icon scanning leaves the window-creation critical path; DSH disk scanning yields the event loop slice by slice so external session listings stop freezing the main process; settings writes get trailing merges so high-frequency changes stop rewriting the file at triple volume; agent invocation counts merge into a 1-second flush; checkpoint bookkeeping goes async; and Git refs watching is exempted from UNC polling on WSL projects.
+- **Look & feel and motion, consolidated (ZCode feedback)** — Zero-hue grays, inky borders, nested-radius decay, shadow step-down and type-size discipline land in phases; tool-call rows follow process-line typography (silent when done, verb labels + monospace object chips, localized keyword dictionary); dozens of collapsible panels share one folding primitive with animated height; closing session / terminal tabs, deleting sidebar activity rows, agents and favorites all fade and collapse with motion; and mermaid colors follow theme switches without going stale.
+- **Git panel and end-of-turn files** — Git actions are grouped by function with sync actions promoted to the top repository bar; the end-of-turn "modified files" chip opens the diff on left-click, with the preview moved to the context menu; auto-scroll after sending can be turned off under feature modules.
 
 ### 🐛 Fixes
-- **Tool stopwatch no longer resets mid-stream** — Tool duration now starts from meta.startedAt (same baseline as the final durationMs), so long-running commands no longer flash back to near-zero while streaming output.
-- **Vision-bridge model picker fits extra-long model names** — Overlong provider/model tokens truncate inside the button with an ellipsis (full name on hover) instead of breaking the layout.
-- **Unified session turn counting** — Pi sessions count “N rounds” by speaking-turn cycles (consecutive user messages merge into one turn); DSH keeps the official sessionStats semantics with a dsh-web-aligned fallback; the usage page renames “turns” to “call counts” to avoid confusion with session turns.
-- **Fork titles persist and long sidebar names scroll** — Forked session titles survive restarts; extra-long sidebar titles scroll on hover.
-- **Git badge state survives tab switches** — Ahead/behind badges are cached per project + repo scope, so switching session tabs no longer blanks them (the cached value shows instantly and a background refresh corrects it shortly after).
-- **Calmer title scrolling** — Tab and sidebar title scrolling is slower and constant-speed with a doubled max duration, and the currently selected item no longer scrolls, so titles stay readable.
+- **Sending rejected after a stop times out (#371)** — A stop timeout reset the session to idle while pi was still streaming, so the next message was rejected with "Agent is already processing" and nothing retried it. Sends now consult the authoritative busy state and retry after the stream breaks off.
+- **Stop button dead, session stuck on "processing" forever (#361)** — On Windows a hung bash could time out the stop's Abort RPC too, leaving the session stuck with no way out. A wedged stop now escalates step by step instead of silently giving up, with a one-click runtime rebuild entry.
+- **Resend / fork silently swapped the model (#370)** — A failed runtime model restore used to fall back silently to the default provider / model, with the UI showing -/- and no hint; resends / edits now verify the runtime model first, and forked child sessions inherit model preferences.
+- **A cleared goal resurrects after restart (#395)** — After clearing goal mode, a restart brought the old goal back labeled "paused"; clearing now persists immediately.
+- **Feedback link too long blocks issue reporting (#397)** — The GitHub issue prefill link was so long the reporting page failed to open; it is now a short URL with the full report going through the clipboard.
+- **Background image and translucency break after opening Settings (#398)** — With a custom theme, opening and closing the settings dialog broke the wallpaper and translucency until you switched sessions.
+- **`<style>` in a model reply polluted page-wide icons** — Untrusted HTML went straight into the sanitizer, and `<style>` selectors could resize icons across the whole page; content now goes raw → detox → sanitize, so model output can never touch global styles again.
+- **Local images rejected with 403 on desktop** — The desktop page origin joins the local image whitelist, so Markdown images in real sessions no longer all 403.
+- **DSH PTC run_code failed across the board** — The runner node rejected version-manager shims (nvm / volta), so PTC's run_code could not run once on Windows; shims are now recognized and resolved to the real node.
+- **Feishu-bound DSH sessions always reported "runtime unavailable"** — Bot binding goes through a unified gateway lookup instead of failing the moment a runtime handle is missing.
+- **Web image attachments never reached pi** — Images kept going into the legacy body.images field the server never reads, leaving the bubble without even a thumbnail; they now go as file parts and arrive with thumbnails.
+- **Web: thinking text doubled, Git commit dates off by years** — Thinking sections rendered once per each of the streaming and settle paths, and Git commit dates mis-parsed time zones into the wrong year.
+- **Web sends rejected after returning from the background** — The runtime was actually running but the client hadn't pulled the stream, so a send was misjudged as ready and then rejected by pi; that case now queues.
+- **Export-to-HTML fallback** — When a pi temporary session returned a relative path or wrote no file, the export silently failed; the project root is now resolved and the export falls back to a host-side self-contained render.
+- **Composer history order scrambled on up-arrow** — Session history was reversed repeatedly, getting messier the more you scrolled.
+- **Your own words invisible after template argument substitution** — Once arguments were filled into the template block, the user's original text outside the block stopped rendering; a visible copy now remains so you can see what you said after sending.
+- **Read-only preview to edit lost changes** — The read-only state wasn't explicit and edits made after switching were dropped; read-only is now visibly labeled, and files outside the project can be explicitly unlocked for editing.
+- **CUA couldn't see secondary displays** — Desktop input injection and window enumeration now cover secondary monitors.
+- **Selection popover popping up in the sidebar / settings** — The popover switches to a reply-body whitelist and stops appearing outside the message area.
+- **"Open in system" failing on Linux** — files:open goes through the protected entry point and no longer reports "reply was never sent".
+- **Sidebar hover inverted to lighter in light theme** — The contrast ladder aligns with the paper feel, so hover is actually visible.
+- **Web mobile touch targets** — Message actions, sidebar session rows, popover close buttons, code-block copy and project row buttons enlarge to 36px on coarse pointers, so landscape tablets no longer fall back to 28px dots.
+- **Session stop button in red** — The stop button for a running session now wears red for its consequences instead of blending in with ordinary actions.
+
+### 🙏 Acknowledgements
+
+Thanks to **liziye627-design** for the Wallpaper Engine video wallpapers (workshop folder resolution, playability probing, decode-failure fallback and full NUL-tolerance hardening, #403 #405 #399).
+
+Thanks to **op15066212** for the timeline virtualization proposal and reproduction data (#400, #401) and for pinpointing the resurrecting cleared goal (#395); to **Dicores** for reporting the runtime-wedge chain in a row (send rejected after a stop timeout #371, wedged stop with no way out #361, renderer log hygiene #376); to **hetingyi** for catching the silent model downgrade on fork (#370); to **CxC-j** for the wallpaper panel translucency breakage (#398); and to **MrSpeaker10969** for the feedback link blocking issue reports (#397).
+
+Special thanks to **罪**, **橙子** and **微时** for providing the model service used in our software development 🎉
+
+## v0.9.5 (2026-10-21)
+
+The through-line of this release is seeing the details: the trajectory inspector is rebuilt so each turn's actual system prompt, token usage and duration are all visible; images inside conversations finally render, zoom, copy and save; agents grow from a modal into a manageable marketplace, and one-shot calls such as selection translation and input prediction now share the same sidecar. Performance got a pass as well: cold-start session scanning drops from 3994ms to 105ms, first paint loads 0.86MB less, and the installer is 6.3MB smaller.
+
+### 🚀 New Features
+- **Trajectory inspector rebuilt: folded by turn, long sessions stay responsive** — A 15,000-record session used to mean 15,000 DOM nodes and a possible full re-scan of the session file (about 117ms for 38.8MB) on every token flush. The ledger now mounts only the last 3 turns with at most 120 steps each, loading 3 more when you scroll up; the overview switches from one button per record to lane + pixel-bucket aggregation, so a bucket reads ×N. Refresh is event-driven (session, runtime generation, turn-state changes) with a 5-second fallback only while the session is active. Every turn except the last is folded by default, and the turn header shows "N steps · N tools", token totals and duration; more than 8 consecutive tool calls in one turn collapse into a single row, and the toolbar folds or expands everything at once. Switching sessions resets the state. The right-hand rail now covers every user message: clicking a tick that hasn't loaded yet pages forward along the loaded boundary (up to 7 requests) before jumping.
+- **The trajectory shows the real system prompt and usage for each turn** — The old "system prompt" row was a template-generated reference, not the actual request body, and pi's assistant entry carried only a timestamp with no tokens or duration. The panel now replays `system` entries along the active parent chain (including section patches and tool additions/removals): the first request is recorded as the initial system prompt, and every later change gets its own row with full text, tool list and a character-count diff. Patches from rewind, branch and fork side chains no longer contaminate what is currently loaded. pi's on-disk usage (input / output / cacheRead / cacheWrite / reasoning / cost) and `meta.durationMs` feed the ledger too, so a turn row reads "18k→1.2k" with real timing. Snapshots are clipped at 96,000 UTF-16 code units and 256KiB, always on a full code-point boundary, so emoji never turn into garbage.
+- **Images in conversations finally render** — Local images in Markdown did not render: the dev page origin is http, and bare `file://` subresources are rejected by Chromium. A new read-only `pideck-file://` protocol whitelists userData, the screenshots directory, the chat workspace and project paths, validating both request and root via `realpath` (Windows 8.3 short names and long names are not the same string), with a 32MiB per-file cap. A single image is limited to `min(100%, 640px)` × 360px; two or more in one paragraph become 96px tiles; clicking opens a preview overlay (Esc is intercepted in the capture phase, so it doesn't also stop generation). Failures show "failed · filename" with a retry button, and a streaming half-path heals once the full path arrives. The overlay toolbar and the corner badge copy or save the image, reading bytes over IPC and picking the extension from the real MIME type (svg / avif / bmp no longer saved as `.png`).
+- **Agents: from a modal to a marketplace, and to a page tab** — "Agents" and "Scheduled tasks" are now page-style tabs in the session tab bar: switching sessions only deactivates them (search, details and editing state are kept); closing unloads them. Four built-in roles ship (translator, PiDeck helper, diagnostic helper, plugin-dev helper) with card search, five category filters and usage counts; create, duplicate, edit and delete all work, built-ins are editable and can be restored to their shipped presets. "Use" starts a session on the backend the agent specifies and binds it; the role prompt is injected as a hidden `agentMessage`, so the timeline only shows what you typed, with an expandable read-only "role prompt" strip above the composer.
+- **In-app selection translation** — Selecting text in a session floats a translate button that streams the result in place and can copy it; the timeline selection popover offers both "quote and ask" and "translate", and only one popover can be open at a time, so mouseup on the context menu or toolbar buttons is no longer read as a new gesture. Settings → General → Selection tool sets the master switch and default agent, and links to agent management. System-wide selection (triggered by copying in any app) is not enabled in this release: native capture is implemented on Windows UIAutomation (no clipboard access, no key simulation), but its hit rate needs more validation, so the entry point is hidden and the feature defaults off; turning it back on needs no structural change.
+- **Input prediction: the next sentence, right after a turn ends** — When a turn finishes and the composer is empty, the current turn's context is used to predict the next sentence in the background, shown as a ghost hint at the draft position; Tab or → accepts it into the draft (without sending), Esc ignores it, and failures and timeouts stay silent (logged only as `suggest`). The ghost is an absolutely positioned visual layer: it never enters the editor document, undo history or send checks. On by default, with an optional dedicated prediction model that is independent of the prompt-enhancement model and otherwise follows the session model.
+- **Timeline right-click copy, and the selection survives streaming** — The context menu offers copy selection, copy as plain text, copy as Markdown and select all; the selection is latched the moment the right button goes down, so it still copies correctly after the highlight disappears. When text is selected the menu narrows to "Copy" and "Select all" instead of mixing in whole-message actions. While dragging, live rendering of the body is frozen (data keeps arriving and catches up on release), and the selection is restored from text anchors even after the tree is swapped when streaming ends.
+- **Runtime controls pinned in the session header, plus `/reload`** — The hover-only control bar is now always visible at 28px (primary action / reload / ⋯ menu). pi sessions support `/reload` to hot-reload extensions and skills (through `ctx.reload()`, without writing an optimistic user message and without reusing `sendPrompt`); DSH exposes a host restart (with confirmation for a shared host), and ACP renders none of it. While reloading only the reload button spins and the timeline is masked; a missing extension, a failed reload or an unhandled command returns a structured error plus a toast without affecting the session.
+- **Host plugins: card rows and install from GitHub** — The three-column table becomes card rows: icon, version, status dot, capability chips and a split button, with permission details left to the authorization dialog. Install entries merge into "from file / from folder / from GitHub"; GitHub goes only through `codeload.github.com` tar.gz with a built-in tar parser (no third-party extraction dependency for untrusted input), and all three paths share the same budget and trust rules. Authorization still fingerprints per-file content sha256: change the content and you re-approve.
+- **The update page recommends the right installer for your device** — Combinations that cannot update in place (unsigned macOS, Linux arm64, deb / tar.gz) now match Release assets by platform, architecture and install shape and show the recommended package. One click downloads it to the system downloads folder with streaming progress and a sha256 check, then opens or reveals the file.
+- **DSH: models can declare image input, and skills are readable before a session starts** — The model editor gains an input-modality tri-state (follow the catalog / text only / text + image) that writes both `input` and `inputModalities` and shows an image icon on the row, so sending an image is no longer misjudged as a text-only model. A new session can read the skill catalog before it starts (host authority union plus shared SKILL.md scan), so skills work from the first message.
+
+### ✨ Improvements
+- **Cold-start session scanning is 38× faster** — On Windows, `setTimeout(0)` measures 16.3ms per call, so scanning 1040 sessions four at a time wasted about 4.2 seconds in pure waiting; a sliding window takes it from 3994ms to 105ms. The same startup pass also pre-warms one standby process for the most recently active project, and a claim whose fingerprint is already warming waits (up to 30s) instead of spawning a second process in parallel (production once ran a 26.5s real session alongside a 12.1s standby). DSH host prewarming is now gated on "runtime installed and not manually stopped", and the CUA and MCP SDKs load through dynamic import (about 100ms of cold require).
+- **About 0.86MB less on first paint** — The en-US and zh-TW dictionaries (about 430KB each) load through dynamic import on demand, dropping the static chunk from 1.42MB to 0.56MB; `index.html` no longer modulepreloads either.
+- **About 6.3MB smaller installer** — The Feishu SDK (a single 5MB file) leaves app.asar for a tar.gz under resources (0.93MB with gzip -9). It is extracted into userData the first time the integration is enabled, validating sha256, byte count and path traversal, then swapped in atomically with retries on failure; the Windows delete and swap steps back off 100ms × 3, so a virus scanner holding a file no longer counts as fatal.
+- **End-of-turn "modified files": from a persistent card to a chip row** — Which files a turn touched belongs to that turn's conclusion, so it now sits after the body and before the action bar as a single folded line (overflow collected into `+N`, clicking expands in place), left-click opens the file and right-click opens the diff. This also fixes a silent file loss: `meta.args` was truncated at 8,000 characters for every tool, and when write / edit exceeded that with a full file body the JSON broke and `file_path` disappeared, taking the filename with it. File tools now allow 1,000,000 characters, dropping the loss rate across 60 local sessions from 5.0% (213/4221) to 0.69%.
+- **Prompt template arguments are actually substituted** — Positional `$1` / `$2`, `$@` / `$ARGUMENTS`, `${N:-default}`, `${@:N:L}` slicing and quoted splitting now follow pi's rules; previously they were left verbatim for the model, so `pi-subagents`' `$@` argument landed at the end of the body. With placeholders the arguments go into the body and the input is not appended again; without placeholders the user's input is still appended after the block (we deliberately do not copy pi's "discard the input" behavior, because losing text is worse). Templates with the same name merge in pi's load order (project first, disabled ones skipped) instead of whichever came first in the array.
+- **Mode entry moved into the "+" menu** — Plan and goal start from the mode group of the "+" menu; plain mode is no longer a choice there. While active, a colored short-name chip appears in the bottom bar and one click returns to plain mode, with the composer border following the mode color. Bottom-bar controls are unified into 28×28 boxes with 15px glyphs, and the onboarding composer widens from 980 to 1080px.
+- **In-session find covers more cases** — The entry point moves from floating over the body to the session header toolbar; DSH sessions are supported too (host history projection, multi-word AND, 100-hit cap); a match inside a folded execution section expands that turn before jumping, paging in earlier history as needed.
+- **Settings tidied up** — The storage page merges the log and cache sections into one list (clean all / local UI cache / RPC logs / pasted files / notification history) with uniformly red "Clean" buttons and right-aligned fixed-width sizes; the model picker re-reads favorites when opened and persists a switch immediately; a disabled MCP entry offers "Enable" in place; search gains anchors for selection, input prediction and trajectory.
+- **DSH drops the built-in persistent pwsh tool** — `pwsh_persistent` is removed along with its local package, packaging chain and guard tests, and DSH sessions use the official preset tools. If your prompts named that tool, switch to the official bash / pwsh preset; its startup failures will no longer appear in the logs.
+
+### 🐛 Fixes
+- **Archived or restored sessions keep only the last few turns (#392)** — The session-store entry table reused a file based only on `size` + `mtimeMs`; when a file was rewritten and happened to be longer (message edit, compaction rewrite, import), reading resumed from a stale offset and the entry chain broke, leaving the active branch with only its tail, `nextBefore` null (so not even "load more") and no self-healing on restart. Reuse now re-reads the first and last entry offsets and byte lengths to validate the id, table version goes 1→2 to discard old tables once, and over-long lines only probe a 64KiB prefix.
+- **History disappears after stopping and resuming a session** — On runtime resume the disk page was overwritten by the first windowed flush (an empty first frame turned the whole session empty), with no way to load more by scrolling up. Flush now converts the disk page into a history prefix first (carrying indexVersion and a continuation cursor), and same-generation invalidation now requires "the file was rewritten and shrank", so appends no longer drop a loaded prefix.
+- **Plan-mode drafts stay on screen forever (#393)** — If you left after a plan was produced without pressing "start", the todo strip showed "N pending" indefinitely and the panel's × only hid it until the next open. Reopening now resumes only an executing plan; a non-executing draft is discarded and the state reset, so old sessions heal on the next open.
+- **A DSH startup timeout leaves an orphan host (about 250MB)** — When `waitForReady` timed out it only rejected instead of killing, and the retry overwrote the reference, so the first fork had no killable path left; two host generations also fought over the same `DSH_HOME` lock. Failure paths now reap before rethrowing, kills are tracked per child, and a late host-ready cannot resurrect an instance.
+- **Sandboxed commands in packaged DSH all fail** — PTC and every sandboxed command on installed Windows builds failed with `Windows Job runner exited with exit code 1`: the node.exe runner was being injected with a preload from inside app.asar, which real node cannot read. The sidecar branch no longer injects it and creates its own console-less window.
+- **DSH fork now really creates a new session (#381)** — Fork no longer rewrites `dshSessionId` in place; it creates a new catalog entry (title suffixed `(fork)`, inheriting model / permissions / presets) and rebinds the runtime atomically, keeping the original session, with desktop and Web both switching to the new one.
+- **Three DSH mismatches** — Multi-select questions no longer degrade into single select (where ticking the first option auto-submitted, and the answer array now passes through verbatim); switching sessions no longer persists the host choice as the deployment default model, and historical sessions show their real model; the end-of-turn "modified files" is no longer always empty in PTC mode (sub-calls are projected into hidden messages for the summary, including in reopened historical sessions).
+- **Git panel: unstaged changes mixed in staged files (#391)** — After staging, the same file appeared in both groups and its row showed "failed to read…" with the stage / rollback buttons hidden; the Changes group now lists only worktree and untracked files. A staged diff over `maxBuffer` now degrades by truncation (the AI summary takes the first 8,000 characters) instead of failing with `stdout maxBuffer length exceeded`.
+- **Web shows a Network error after returning from the background** — The server only relayed while a subscriber was connected and the translator was per-connection, so a phone that opened a session midway saw only the trailing frames. The translator and current-turn frames are now session-scoped, a new connection replays the whole turn (2,000-frame cap, 64-session LRU), and the error state clears once the disk catch-up finishes.
+- **Inline scripts in the HTML preview blocked by CSP (#377)** — `iframe srcDoc` inherits the main window CSP (no `unsafe-inline`), so anything drawn with JS vanished. A new `pideck-html://` protocol lets the main process set CSP on the response headers while the iframe keeps `allow-scripts` and no same-origin access; the URL limit is now measured after base64 (Chinese expands 4×, emoji 5.33×), and anything over 1.5MB falls back to srcDoc instead of a blank page.
+- **rewind checkpoint fights for the git index lock (#372, #386)** — Checkpoints ran `write-tree` against your index, colliding with `index.lock` (measured 14–22 times a day). It now copies to a temporary index before writing the tree, non-git repositories enter a 30-minute cooldown (previously 70% of all failures, up to 52 log lines a day), WSL locates the index with `rev-parse --git-path index`, and empty-tree snapshots are rejected instead of saved silently.
+- **Diagnostics bundles lost their detail (#374)** — The per-line log whitelist kept only 4 fields, dropping `MODULE_NOT_FOUND` require stacks, RPC timeout milliseconds and git stderr. It now redacts recursively (home → `~`, credentials → `[redacted]`, depth 4 / 20 entries / 500 characters per value) and keeps the detail intact.
+- **Empty values in the usage panel** — When a probe only reports "total + remaining", the detail panel derives the used percentage as `total - remaining` instead of showing an empty bar and "—" (#378); Sub2API JWTs now refresh in place 60 seconds before expiry or on a 401 from `/auth/me`, trying once and writing the rotated token back, so the panel no longer goes blank.
+- **The installer's "Run PiDeck" launches the wrong app** — The default `$launchLink` prefers the Start Menu .lnk, which may point at another identically named and identically versioned install (an unpacked build or an old directory) — and the version number still looks right. It now launches `$INSTDIR\${APP_EXECUTABLE_FILENAME}` directly, still passing `--updated` after an upgrade.
+- **Parallel sends no longer lose the main session's context (#210)** — Parallel subtasks inherit the main session's context and settings instead of each starting on the default provider / model.
+- **Startup default-filling no longer overwrites settings.json** — Parse failures (BOM, hand-edited comments) skip the write entirely, only missing keys are added (`packages`, providers and theme are left as they are), and a complete file is not written to at all; writes go through pi's file lock plus atomic replace so pi / the TUI cannot clobber each other concurrently.
+- **Font-size tokens swallowed by tailwind-merge (#389)** — Project utilities such as `text-control` / `text-micro` were merged away as conflicts, silently dropping button, badge and file-tree sizes in the same class chain; they are now registered as font-size tokens.
+- **Ordered-list numbers clipped to their right half (#369)** — With macOS custom fonts, `::marker` overflowed the list padding and was cut off by `overflow-x: clip`; counters are now absolutely positioned inside `li` with the body indented 1.7em.
+- **Collapsed chat groups falsely reported "no sessions" (#387)** — A collapsed group had no visual difference and read like an empty state; collapsed groups now have a clear collapsed style and empty-state copy.
+- **Trailing extension output no longer folds the final answer** — After the parent turn settled, trailing output from background subagents / extensions was still absorbed into that turn as its last entry, demoting the real final answer into a folded "intermediate answer" (what `acp-nudge`-style notifications actually looked like). Output is now flushed at the turn boundary and rendered as a separate card after the answer; the sidebar's active / history / draft sessions also moved the backend and origin badge to the left of the title.
+- **Trajectory blank states and wheel zoom** — When facts cannot be read, the panel header now says why: read budget exceeded, parent session missing (fork prerequisites), only the host window was read (the initial prompt may be a window snapshot), or the backend is unavailable. "Backend unavailable" is no longer conflated with "there are no facts": an unready DSH host is retried every 5 seconds (up to 12 times) and a failed read keeps the last successful data. Overview wheel zoom now uses a native non-passive listener, so zooming no longer scrolls the whole panel with it (React drops `preventDefault` on `onWheel`).
+- **Slash-command chips and preset locking** — History messages no longer lose their `/command` chip: `get_commands` declared commands without implementing them, so the renderer's command whitelist was always empty; aliases are now implemented and a "declared means implemented" assertion guards it. Local template expansion yields to host / extension / skill / ACP commands so `/a` and `/b` side by side both expand, and reserved commands no longer spend three IPC round trips on every send. DSH preset locking now shares one predicate between the main process and the header pill (locked once there is a runtime, a `dshSessionId`, or an active session), so the UI can no longer offer a click the main process rejects.
+
+### 🙏 Acknowledgements
+
+Thanks to **bfzha** for rebuilding the trajectory inspector end to end (S0–S4: prompt snapshots with index-based bounded reads, the rail catalog with a merged index, the ledger render window with pixel-aggregated overview, event-driven refresh, and turn summaries with folding), and for Markdown image rendering inside conversations (the read-only `pideck-file://` protocol and the 640×360 / 96px multi-image layout), prompt template argument substitution with same-name merging, and the end-of-turn "modified files" rework — which also cut the file loss rate from 5.0% to 0.69%.
+
+Thanks to **TanCan1998** ([@TanCan1998](https://github.com/TanCan1998)) for clearing five blockers in a row: deriving the used percentage in usage details when a probe reports only total and remaining, keeping redacted detail in diagnostics bundles, moving HTML preview to the `pideck-html://` protocol to lift the CSP limit, an explainable error when the DSH runtime is not installed, and rewind checkpoints no longer fighting for the user's git index lock, including the WSL and empty-tree edge cases (#380, #382, #383, #384, #386).
+
+Thanks also to **op15066212**, **Dicores**, **fengxinzi1814**, **Lamb-Yang** and **lamugu** for the issues and reproductions: archived / restored sessions keeping only the last few turns (#392), plan drafts stuck forever (#393), HTML preview scripts blocked by CSP (#377), font-size tokens merged away (#389), scrambled Git staging groups (#391) and DSH fork rewriting the original session (#381) all trace straight back to their triage.
+
+Special thanks to **罪**, **橙子** and **微时** for providing the model service used in our software development 🎉
+
+## v0.9.1 (2026-10-18)
+
+The through-line of this release is finding things, seeing them clearly, and reaching further: sessions and files are now searchable by body text and by pinyin, WeChat joins as a second IM channel, ACP tools open up to stable builds, and pi 1.3.0 and DSH 0.2.1 come along for the ride. The macOS signing defect from 0.9.0 is fixed here as well.
+
+### 🚀 New Features
+- **WeChat (ilink) support: a second IM channel on your phone** — Settings → External Connections now logs in with a WeChat QR code and routes WeChat messages into PiDeck sessions. Models are tried in your priority order, falling back to the next one when a call fails; a typing indicator shows before the reply, and thinking sections are stripped so only the final answer is delivered. Sessions carry a WeChat / Feishu channel badge in the sidebar and are auto-named from their first messages. Each channel picks its own session backend (pi / DSH), and switching backends rebinds a fresh session so two histories never blur into one record. Outbound `client_id`s are unique per message, so a second reply is no longer swallowed by idempotent dedupe.
+- **Cross-session body search, not just titles** — The sidebar search used to filter titles only, so a forgotten session name meant a lost conversation. A bundled Go index sidecar (`session-index`, standard library only) scans every session's body into a snapshot and keeps it incrementally up to date (a thousand sessions / 1.6 GB builds in about 12 seconds; later launches read the snapshot in 37 ms, compressing it past 64 MB). Queries split on whitespace and require every word, in any order, in Chinese or ASCII; results arrive in timeline order with matched snippets and hit counts, and clicking one jumps straight to that message. Besides the global session directory the index also reads each project's sessionDir from `.pi/settings.json` (WSL projects are not supported). When the index is not ready or fails, search falls back to title filtering immediately instead of hanging for tens of seconds.
+- **Find in session (Ctrl/Cmd+Shift+F)** — A magnifier sits at the top-right of the message area, deliberately bound to a different shortcut than Ctrl+F (search sessions). It uses the same index sidecar's `search-session` command, lists hits in timeline order (100 by default) with surrounding snippets, and locates the chosen one in the timeline; a 42.7 MiB session answers in about 2 ms. In split view each pane searches its own session, and DSH / ACP sessions offer no entry point.
+- **Pinyin search for session titles and the file drawer** — Both the sidebar session search and the file drawer accept plain Latin letters: `xhhy` matches 小红书运营, and `cq` and `zq` both match 重庆 (heteronym initials are built in), with full-pinyin and skip-letter queries working too. Scores match the file index value for value (full-name initials 700 / initials prefix 680 / full pinyin 640 / skip-letter 560); the session side uses a shipped pinyin table (26.7k entries, `npm run gen:pinyin-table`), so two or three letters are enough to reach the name you call a session out loud.
+- **Search file contents from the file drawer** — The drawer search box now looks inside files as well as at names. A bundled `file-index` sidecar scans by extension whitelist, capped at 1 MiB per file and 64 MiB per scan, skipping dependency and build directories; hits are grouped per file with line-numbered snippets. When the sidecar is unavailable, not ready, or the project lives in WSL it returns `null`, the UI hides the content section instead of leaving an empty spinning panel, and name search falls back to walking the tree directly.
+- **Side tasks: a second session that stays out of the tab bar** — Both the sidebar and tab-bar session menus gain "Side task", opening an independent session in the right drawer with the full chat surface (model, permissions, tool cards, queued messages) that never takes over the main tab bar or the current focus. The drawer's width cap goes from 560 to 880 so it can sit beside your main conversation while you code; a Rocket icon sets it apart from regular sessions.
+- **Session-level average TPS** — Session stats no longer stop at per-turn readings: turn intervals are unioned before averaging, so overlapping time from parallel derived subagent tasks is never counted twice. The composer reading, session status and the trajectory inspector's multi-formula display all consume the same interval data and follow the streaming / end-to-end switch immediately.
+- **Web on mobile: give the portrait screen back to content** — The top bar and composer used to be permanent fixtures in mobile browsers, leaving only 594 px of usable content height on a 375×812 screen. The top bar now collapses with scroll direction (expands after 8 px upward, collapses after 24 px downward, judged on cumulative distance; always expanded on desktop), the composer shrinks to 66 px when idle and to 0 once the bar is collapsed and you are away from the bottom, and opening an overlay, switching sessions or focusing the composer forces everything back open. Collapsed state uses `inert` + `aria-hidden` to drop keyboard focus, animations run 240 ms, folding no longer unmounts tool rows, and auto-stick while streaming does not count as user scrolling — so the bar no longer flickers while output streams.
+- **ACP tools available on stable builds** — The ACP entry point used to be dev-only. It is now gated purely by the Settings → ACP Tools switch (off by default, takes effect after a restart), so stable builds can create Gemini CLI / Claude Agent / Codex CLI and other external CLI sessions too.
+- **Synced with pi 1.3.0** — The model catalog moves to pi-ai 1.3.0, including the opencode gateway rename and kimi-coding switching to the OpenAI protocol at `/v1`; models.json accepts the official new fields, and `sessionShareDestination` passes through as-is (deliberately without a dedicated control, via the "other settings" JSON escape hatch).
+- **DSH runtime upgraded to 0.2.1** — The bundled DeepSeek Harness moves to 0.2.1-rc.2: all 29 `@deepseek-ai/dsh*` dependencies and the lockfile are rebuilt, the merged-away dsh-invariants / dsh-subagent-in-process-driver packages are dropped, PeerScope is wired up, and the pwsh plugin is pinned to an exact version.
+- **Prompt library as a remote asset, with millisecond search** — The library is no longer bundled (saving about 4.3 MB). It downloads from Release assets into userData, AtomGit first with GitHub as fallback, requiring the sha256 and db to come from the same source as a pair, and checks for updates hourly. Retrieval moves to the `xue-index` sidecar (4012 entries held in memory), hitting Chinese in milliseconds across titles, descriptions and bodies — the old sql.js LIKE query ran against gzipped BLOBs and never matched Chinese at all.
+- **Usage queries cover MiniMax Coding Plan** — A new built-in probe parses both the new `/v1/token_plan/remains` and the legacy `/v1/api/openplatform/coding_plan/remains` endpoints and reports the remaining 5-hour rolling window and weekly window on either `minimaxi.com` or `minimax.io`.
+- **Ctrl/Cmd+W closes the current session tab** — It follows the tab context menu's "Close" semantics: a running session asks first, confirming stops it and then closes it, and the session record is kept (not deleted). The shortcut can be rebound in Settings.
+- **Git status colors in the file tree** — Files and directories now carry IDEA-style added / modified / deleted / untracked / conflict colors: the immediate parent gets the solid tone, deeper ancestors fade to 65% (with a 2.5 contrast floor), keys match case-insensitively with a Windows / macOS fallback, visible files reload automatically when `refs` change, untracked is amber-brown and conflicts are red. Data is refetched only when content actually changed — no polling.
+
+### ✨ Improvements
+- **On-disk session index on by default** — Entry tables persist to `<userData>/session-store/tables/`, keyed by `size` + `mtimeMs`, updated by a tail scan, evicted by mtime past 256 files / 512 MiB, capped at 32 MB per table and written through a temp file plus rename. Reopening a large session after a restart takes 14–20 ms (a cold pure-TS build costs 99–188 ms); `settings.sessionStoreEnabled` now defaults to on, and turning it off falls back to pure TS parsing.
+- **Extension list prewarmed on first screen** — Three seconds after startup the extension list is fetched in the background, so the extensions page opens with content instead of an empty list waiting on the handshake. ExtensionManager is also split into four single-responsibility modules (1073 → 502 lines).
+- **Goal mode stops re-injecting the full objective every turn** — Static rules and the objective body move into a system-prompt section (`pi_deck_goal_mode`), with only a one-line Round marker added per turn, so continuation turns no longer pile up history (#366); the three plan / security-level mode prompts follow the same system-prompt sections (#365).
+- **List ordering is drag-only** — Provider cards (models / auth / DSH) and the quick-message dialog drop their up / down buttons in favor of whole-card drag with a FLIP settle animation; drag handles are keyboard-focusable and nudge with ↑/↓.
+- **Session list times advance by turn** — Timestamps now come from turn start / end and only move when a turn actually happens; the display granularity (just now / N minutes / N hours / N days / N months) also shrinks in size so it stops competing with the title.
+- **Appearance settings keep consolidating** — The feature-module list gains a "waiting tips" toggle, and the mode picker moves from feature modules to the more apt "composer features".
+- **The file drawer no longer hides build output** — `build` / `dist` / `target` and friends are visible in the tree; browsing and search keep separate ignore lists that skip only `.git` and `node_modules`.
+- **Long lists mount on demand** — The file drawer mounts 200 rows per batch, `FileRow` / `DirectoryRow` and the Git change tree are memoized, and the app root no longer subscribes to the whole session message list — long-session scrolling and session switches stop re-rendering the entire tree.
+
+### 🐛 Fixes
+- **macOS app would not launch on Apple Silicon** — The 0.9.0 macOS packages silently skipped code signing (since electron-builder 26.15 there is no automatic fallback to an ad-hoc signature when no certificate is found), so the app opened no window, the process stalled at `_dyld_start`, and no "Open Anyway" option was offered. Packaging now signs explicitly with an ad-hoc signature, and the release workflow verifies it — a missing signature fails the packaging job instead of shipping a broken build. Reinstalling this build fixes existing 0.9.0 installations; as a stopgap, the installed app can be re-signed manually (`codesign --force --deep --sign -`) to restore launching — repeat it after every reinstall.
+- **Local network access and terminal SSH work again** — The same signing regression also degraded the signature identifier to `Electron`. macOS records the Local Network permission against the signature identifier, so a grant previously given to `com.ayuayue.pi-desktop` no longer applied: on 0.9.0 LAN model services failed (`Connection error` / `EHOSTUNREACH`) and `ssh` inside the PiDeck terminal reported `No route to host`, even though the Local Network switch looked enabled. The signature identifier now matches the app's own bundle ID again, nested helpers are signed with their own identifiers, and the app declares `NSLocalNetworkUsageDescription`. If local network access is still blocked after upgrading, remove the stale `Electron` entry in System Settings → Privacy & Security → Local Network and allow PiDeck again.
+- **DSH backends on the Web no longer feel like they never finish** — The Web page only subscribed to pi events, so a DSH backend produced no SSE frames at all: output arrived only through 3-second polling and a stop was invisible. A new `DshChannelToPiEvents` translates channel payloads into pi event shapes and reuses the same streaming adapter, giving non-pi backends live events and an explicit turn-end frame too.
+- **Ctrl+Tab follows the tab-bar order** — It used to walk the internal session order, so after dragging tabs into a split the shortcut stopped matching what you see; tab-bar expansion and flattening now share a single source (#346).
+- **The history skeleton no longer stays forever after a restart** — The first history load captured `runtimeGeneration` as undefined, so the request cancelled itself and the UI sat on the skeleton (#350).
+- **No more duplicate history records or mismatched titles** — Older builds wrote directory identity keys in lowercase while the new code looked them up with original casing, so one session appeared as two; legacy identities are now merged safely while keeping titles and old ID references, and late scan results no longer roll back activity time or ordering (#354).
+- **Sessions could not be deleted on Windows** — Deletion now waits for the pi process to actually exit (polling for up to 3 seconds) and then retries the recycle bin, instead of failing silently while files were still held (#364).
+- **Deleting a project no longer gets stuck on a dead runtime** — Liveness is judged by the process itself, and leftover runtimes plus standby processes are reclaimed before the delete (#360).
+- **tailscale works when launched from the macOS Dock** — The GUI binary prints `The Tailscale GUI failed to start` yet exits 0, which broke JSON parsing; it now runs explicitly in GUI mode with a `TERM` fallback (#351).
+- **Session titles no longer absorb tool lines or placeholders** — Tool marker lines stop becoming titles, and the visual bridge's placeholder title is never used for new sessions (existing dirty titles are deliberately left alone so old session names do not suddenly change).
+- **Thinking-level and thinking-marker fixes** — Thinking intensity is clamped to what the current model supports, following pi-ai's own rules, so the picker can no longer escape the supported range; unclosed thinking markers no longer leak into assistant prose, and the trajectory and Feishu final messages follow the same semantics.
+- **Empty external-connection sessions get a friendly state** — The pi session file does not exist before the first message, which used to surface as an ENOENT error; it now reads "this session has no content yet", and the model picker expands all providers.
+- **Three WeChat channel fixes** — Enabling now works right after the QR login, failed settings actions return the backend's own error text instead of one generic failure, and switching backends rebinds a new session seeded from the current one and labels it in the UI.
+- **Skill store search and install recovered** — Store search goes through Electron's `net.fetch` (a bare fetch ignores the proxy because of undici, so overseas APIs hung until timeout), and installs run through spawn with streaming parsing, pushing progress into the UI and injecting proxy environment variables.
+- **Tool cards no longer say "done" while still running** — The expanded status section renders from real runtime state, showing running while it runs.
+- **Sub-session pills stop covering the trailing "⋯"** — The pill moves right up against the timestamp and yields on hover.
+- **The editor's current-line highlight no longer covers text** — The highlight moved to a background layer so glyphs and selected text stay readable, with a CodeMirror regression guard.
+- **Host plugin polish** — The `billion-context` sample no longer flashes a black console window, and overlong paths and descriptions no longer break the plugin table's columns.
+
+### 🙏 Acknowledgements
+
+Thanks to **san-ren** for reworking the mobile Web viewport and turning the top-bar / composer collapse into testable pure functions with e2e coverage; to **GME** for session-level average TPS (interval unions removing overlapping work) and the thinking-level clamp; to **Q-xuan** for stopping unclosed thinking markers from leaking into prose; and to **bfzha** for this round's file-tree Git coloring, history identity merge and session-find fixes; to **juzijun233** for the unified API aggregation layer (`piDeckApi` facade plus domain-registry assembly across 55 domains, #355); and to **yuta2** for pinpointing and validating the missing macOS signature on 0.9.0 and how to fix it (#347) 🎉
+
+Thanks also to **LLLinggg**, **Lamb-Yang**, **Newbeeha**, **op15066212**, **45231hgjkl** and **gugugaga008** for the issues and reproductions — several fixes in this release came straight from their triage.
+
+Special thanks to **罪**, **橙子** and **微时** for providing the model service used in our software development 🎉
+
+
+## v0.9.0 (2026-10-14)
+
+This is a major feature update: PiDeck expands beyond the pi / DSH workbench with ACP tools and an independent host-plugin system, alongside upgrades to remote access, the terminal and native session management.
+
+### 🚀 New Features
+- **ACP backend: more AI coding tools in one workbench** — Create sessions driven by external ACP CLIs, with nine launch presets for Gemini CLI, Claude Agent, Codex CLI, Kimi CLI, Qwen Code, OpenCode, Cursor Agent, CodeBuddy and MiniMax Code. Tool detection, one-click install/uninstall where supported, per-tool environment variables and session images are included. Enable it explicitly in Settings → ACP Tools and restart; existing pi / DSH sessions stay unchanged. Settings marks the whole feature as experimental — it has not been through complete usage testing yet — and links to the in-app feedback entry for anything you run into.
+- **Independent PiDeck host-plugin system** — Local HTML / CSS / JS plugins run independently of pi and can register modal or workspace-page panels, sidebar entries and command-palette actions. With explicit permissions, they can read the current project's sessions, navigate to messages and store private state; theme and language follow the app. Install from a folder or a `.pideck-plugin` file, generate a scaffold in Settings, and use the authoring guide shared with the docs site. Authorization is bound to per-file content fingerprints and must be renewed when plugin contents change.
+- **Built-in remote access and access tokens** — The Web service gains registration-free temporary cloudflared tunnels and Tailscale Serve, with setup guides and configurable parameters. Remote access is protected by revocable access tokens rather than relying only on a reachable service address.
+- **Web live events and Plan Mode** — Session state and replies initiated on the desktop stream over SSE instead of frequent polling. The Web composer supports Plan Mode, keeping progress more consistent between phone and desktop.
+- **Terminal settings, WebGL and snapshot replay** — A dedicated terminal settings page shares a single theme source, with WebGL rendering, terminal snapshot replay and confirmation before closing a terminal.
+- **Native sessions and model catalogs aligned with pi 1.0.4** — Edits and deletions append native pi `context_edit` entries instead of rewriting original messages; the UI shows effective content while retaining the original records. Model catalogs preserve all official fields and model types, API settings no longer replace custom protocols with the default, and new Azure configurations use the native provider identifier.
+- **MCP service catalog and AI configuration assistant** — Built-in service listings, brand icons and an AI configuration assistant reduce manual setup, with additional presets for Chinese services.
+- **Session branch panel** — A new Branches panel in the right drawer provides read-only desktop browsing of pi's `/tree`.
+- **Project pinning and list management** — Pin projects and use improved drag ordering; project-session sorting is now backed by an extensible strategy catalog.
+- **Traditional Chinese UI** — New zh-TW coverage includes the main workbench and mini overlay, avoiding partial fallback to Simplified Chinese.
+- **Notification history across restarts** — Toast notifications are archived to disk for later review, with cleanup controls on the cache and logs page.
+- **Choose which composer controls to show** — Appearance settings can hide permissions, quick messages, Git branch, prompt enhance and voice-input controls; thinking level is now an inline dropdown.
+- **Image and attachment actions in user messages** — Copy and save images from message thumbnails or the image preview, and open attached files from their chips. Desktop pi sessions also support removing one image: confirmation stops a live Agent before updating the session file, preserving the message text, other images and later conversation. (#323)
+- **Independent video-generation backend** — A trust domain parallel to image generation: no LLM agent, direct supplier video APIs and its own history store. Submitting a job persists a placeholder first, then polls and downloads the result to disk, so a job survives cancellation, network jitter and app restarts. Generated videos stream through the `pideck-video://` protocol into an inline `<video>` card (no IPC, no session-file bloat) with placeholder animation, playback, cancel and save-as; the composer backend dropdown gains Video Gen, generation parameters come from its own config rather than the session model, and Settings gains a Video Gen tab with a module-visibility switch.
+- **Right sidebar split into two panes, with a persistent session-status panel** - The right sidebar now has an upper pane holding the existing drawers (files / Git / editor) and a lower pane with a persistent Session Status panel that shows the current session's todos, changed files and subagents in grouped tabs, so you no longer have to watch the collapsed strips above the composer. The lower pane can be resized, collapsed and remembers its ratio across restarts, and collapses automatically when the sidebar is too short. A new "Session status placement" setting (Appearance, default "Above composer") switches between the collapsed strips above the composer and the lower right-sidebar pane; when the panel is visible the duplicate strips above the composer yield and return once it is collapsed or the sidebar closes. (#334)
+- **TPS measurement modes: streaming and end-to-end** - Tokens per second used to measure streaming speed only, hiding how long the first token took to arrive. Settings → General → Session gains a "TPS measurement mode": streaming (output tokens ÷ first non-empty content delta to reply completion) and end-to-end (output tokens ÷ request sent to reply completion, including first-token wait and excluding tool execution), defaulting to streaming. Switching updates the composer stats, session status, context meter and trajectory inspector immediately; labels name the measurement (e.g. `Streaming 123 tok/s` / `End-to-end 98 tok/s`) and an unavailable metric shows `— tok/s` instead of disappearing. (#327)
+- **Custom Logo image and app display name** — Appearance settings gain a "Custom image" Logo style (a source file up to 12 MB is scaled to fit 512×512 and re-encoded as a transparent PNG of at most 1.5 MB) plus an app display name of up to 24 characters, where empty falls back to PiDeck. Both take effect without a restart in the brand area, the About dialog, empty-state / mini-overlay / Web timeline logos, session-source badges, the MCP pideck icon, the window and tray icons, the taskbar title and the startup splash; the image lives inline in settings.json as a `data:image/*` data URL (no new IPC channel), renders without an extra dark plate behind it, and falls back to the pi-tui mark everywhere when no image is set.
+- **PiDeck exposes itself over MCP (read-only by default)** — A bundled MCP server, loopback-only and off until you enable it, lets any MCP client list the projects you authorized and their saved sessions, page through session entries, search titles, and read a settings overview and the built-in-extension inventory. Authorization is per project and re-evaluated on every request, so under the wildcard grant a project added to the workspace becomes readable immediately and stops being readable the moment it is removed — without rotating the token; an optional all-projects wildcard plus a separate write switch unlock `sessions_abort` (the same "Stop responding" semantics as the UI: the session, its history and the pi process survive), and `runtime_status` carries `runtimeGeneration` for optimistic concurrency. Results come from an explicit allow-list projection: credentials, tokens, proxy URLs, executable paths and plugin private storage never enter a view.
+- **Host plugins can drive local services** — A new `service.local` permission plus a manifest `services` allow-list lets a plugin start and stop a named local service and open its loopback UI in the built-in browser. A plugin can only name a service — command, arguments and port stay in main-process adapters, IDs must match a shared allow-list — and revoking authorization aborts in-flight start/stop. The bundled `billion-context` sample plugin exercises the whole path and, like every built-in sample, is seeded on first run but still needs your explicit authorization.
+- **Every reply is labelled with the model that produced it** — Sessions often switch models mid-conversation, yet afterwards there was no way to tell which model gave a particular reply. The timeline now shows a small label with the model actually used at the bottom of each turn, right after the duration reading, with the full `provider/model` on hover. Historical sessions, live sessions and DSH sessions are all covered; the name comes straight from the provider / model recorded on that message in pi's session file, with no extra storage. Tool-only turns, older records and backends that do not report a model (ACP, for example) show no label.
+- **Model catalogs update in the background when a new version appears** — The catalog was only fetched when you clicked "Update catalog", so it stayed on the old version after a pi release. PiDeck now checks on startup and updates in the background without blocking the UI; turn the automatic update off in Settings if you prefer.
+
+### ✨ Improvements
+- **Extension-command previews in draft sessions** — Unsent sessions can read slash commands from the standby process without consuming it or activating a session runtime. (#316)
+- **Faster resource-toggle feedback** — Extension switches respond immediately, while package-resource reads and writes and project-scope routing share the same source, reducing switches bouncing back after refresh.
+- **Remote and mobile polish** — Full-screen file previews, system-back dismissal for overlays and larger close-button hit areas; the Tailscale entry also supports older CLI versions.
+- **Security and long-running stability hardening** — Stronger Web authentication, IPC input validation and sidecar/child-process cleanup, bounded session imports and sent-history caches, and broken-pipe handling for RPC and Git reduce unexpected exits.
+- **Notifications can wait until you look away, and now carry the PiDeck brand** - A new "Alert only when unfocused" setting (off by default): once enabled, system notifications and alert sounds appear only while the main window is not in front, so watching PiDeck no longer rings at you; in-app toasts and the timeline are unaffected, and the tray's manual "Check for updates" result is deliberately not gated (a user-initiated action must answer). The same change fixes installed builds showing `pi-desktop` as the notification title (`app.getName()` reads the npm package name inside the asar, regardless of `productName`) and the near-black plate around the logo in dark-mode toasts (the full icon used to carry it; notifications now use a transparent-background brand wordmark, silently falling back to the default system icon when the asset is missing).
+- **Thinking levels are now picked, not guessed** - Thinking levels in provider and model tables used to be two dropdowns (xhigh / max) that neither explained what to pick nor what would be written to config, and the expanded card and provider page offered different capabilities. They are now a checklist of pi's canonical levels: ticking a base level removes the entry and follows pi's default (so providers that reject identity values never receive one), ticking xhigh / max writes that value, and non-identity upstream values (`off="none"`, `high="HIGH"`) are preserved and shown as `→ value`; cell summaries only show the endpoints (continuous `off → max`, otherwise `off…max`). The provider page now stages every edit and saves on confirm, prunes orphan per-model config before saving, and the connection test carries per-model user agents.
+- **Command palette (Ctrl+P) settings index updated** - The settings index is a static list (settings tabs render lazily, so the runtime cannot see inactive tabs) and is maintained by hand, so new settings kept going unindexed: source anchors that never reached the index, and whole new settings sections that had neither row anchors nor an index entry. Searching for a feature you only remember by name ("idle agent memory", "CUA desktop control") returned nothing. The index now registers 18 orphaned anchors (52 → 70 row-level entries) and 52 settings sections got stable ids plus section-level anchors, so an entire section can be found and jumped to; a new reverse-guard test fails whenever an anchor or section id in the settings source is missing from the index.
+- **Feature tips rotate while a reply is streaming** - The streaming status bar now rotates hints about capabilities that have no visible entry point (command palette, selection quotes, queued sends, the right-edge panel, export and more), one every 7 seconds, without adding a card or fighting the status. Key hints render the bindings you actually use, and all three locales are synced by the generator. The pool has since grown from 23 to 57 hints, covering the backend switcher, per-session security tiers, tab splitting, fork navigation, the file-tree context menu, the RPC log's model row, the PiDeck MCP service, CUA desktop control, the session-status placement and composer-control visibility settings, the zoom / favourite-model / thinking-level shortcuts and the slash commands the desktop really handles.
+- **The pi-side "Plugin development" entry is hidden** - Now that the host-plugin system (which does not depend on pi) has taken over the plugin entry points, the extensions page no longer renders the Plugin development tab and the two built-in extensions `pi-deck-gui-bridge` and `pi-deck-ext-points` are no longer injected (code, docs and existing settings remain — they simply have no entry point).
+- **File-tree folders pin to the top while scrolling** — Long trees now behave like VSCode's sticky scroll: the three outermost directory levels stay pinned as a breadcrumb trail while deeper rows scroll away, and pinned rows carry an opaque background plus a bottom shadow so passing content never shows through. Indentation moved into the row (8px per level) and every row keeps a 16px arrow slot, so files and folders finally share the icon and name columns; guides are drawn per row from the ancestors' segments instead of one long tree line, in a colour whose contrast was measured against all 12 themes.
+- **Expanded process entries keep their title in view** — Scrolling through a long expanded tool or thinking entry used to take its title out of the group, so looking back at "which read was that" or collapsing it meant hunting for the row again. The title now sticks within its own entry (only when expanded and taller than the group viewport), a "back to top" icon appears while it is stuck, and both it and the existing bottom collapse entry go through the group's own scroll engine — so output keeps flowing without yanking your reading position back to the bottom.
+- **ACP tools show their brand** — The backend dropdown, the locked-state indicator and message headers now render the tool's brand mark (Gemini, Claude, Codex, Kimi, Qwen, OpenCode, Cursor, CodeBuddy, MiniMax), inferred from the registered command, arguments and display name; custom tools fall back to a generic terminal icon instead of pretending to be a brand.
+- **Host-plugin actions are one click away** — The actions column is now a split button whose main half toggles enable/disable — the one frequent, reversible action — while panel entry points and unlink moved into the caret menu with unlink marked destructive. Disabled rows show a short "Enable" label so the column keeps its width.
+- **MCP catalog keeps growing** — Tavily, Exa, Tencent Docs, Baidu Netdisk, Qichacha and Baizhi joined the built-in service catalog. Bitmap brand marks can now carry a plate colour, so Baizhi's black ring stays visible in dark mode instead of merging into the panel background.
+- **Usage templates cover Sub2API gateways** — A built-in template reads a Sub2API panel's balance using panel JWTs, reports expired or failed tokens as such instead of a generic probe error, and can show the wallet balance of each account when the gateway exposes it.
+- **Mode controls get out of the way** — The composer's mode picker drops its filled background and chevron and uses a lightning icon for normal mode; plan and goal mode hints lose their left rail and standalone exit button.
+- **The ACP entry point is development-only** — Stable builds no longer show the ACP backend entry or its settings page, so an experimental capability that has not been through complete usage testing is not pushed to regular users; the code stays and development builds can keep debugging it.
+
+### 🐛 Fixes
+- **npm 12's variable-style `.cmd` shims no longer resolve to the wrong entry** — Windows shim parsing now only accepts a JS entry found on the actual execution line (one containing `%*`). npm 12 rewrote `npm.cmd` / `npx.cmd` to assign the entry to a variable (`SET "NPM_CLI_JS=%~dp0\node_modules\npm\bin\npm-cli.js"`) and run it as `"%NODE_EXE%" "%NPM_CLI_JS%" %*`; the old "first `node_modules\...js` anywhere in the file" rule picked up `npm-prefix.js` from that assignment, so an absolute `npm.cmd` path (a configured npm command, or the portable-node fallback during guided install) turned installs into "print the prefix" — exit code 0 with nothing installed. Shims whose entry cannot be determined statically now run the real shim through `cmd.exe` instead.
+- **The context ring no longer shows "System + tools: 0"** — Those two segments used to be inferred as "total usage − conversation estimate", so estimation error and provider-specific usage accounting pushed the value to 0 (many providers' sessions kept showing "System + tools ~0") or inflated it into hundreds of thousands. They are now measured instead: the system prompt sections and tool declarations persisted in the session file are replayed to compute the System/Tools segments, and the conversation segment is the residual "total usage − system − tools" (which automatically covers thinking, images and the last reply), falling back to the message-text estimate when the residual is unusable. Pi sessions now show the same three-row breakdown as DSH sessions, and every number's tooltip states its source.
+- **"Close Agent" converges reliably on failed sessions** — When the main process drops a runtime whose terminal (error/closed) process is already gone, it now pushes the detach to the UI, so no stale red runtime mark stays in the sidebar and repeated "Close Agent" clicks stop being a no-op. Session and draft menus keep the "Close Agent" entry in error/closed states, and a missing runtime or a same-turn conflict is reported explicitly instead of silently dropping the click.
+- **Model catalogs respect picker lifecycle and source** — Closing or unmounting a picker discards pending results and error notices. Switching backend or project immediately hides the old catalog and its success flag, preventing incorrect invalidation of welcome-page model preferences; manual refresh and initial loading no longer leave each other's busy indicators active.
+- **Manual compaction stays bound to its runtime** — Ownership discovery reserves the operation before any asynchronous work, preventing duplicate clicks even when a completion event arrives before the RPC reply. Failures release the progress state, while late results after closing or replacing the runtime cannot restart a retired process or clear the replacement's context. History loading also checks the original runtime before publishing messages, pagination and compaction counts. Background timeouts remain busy until completion or close; extension-owned commands keep their existing route.
+- **Stop requests cannot interrupt the next reply** — Late queue-clear, state-query and tool-abort results cannot continue aborting a rebound, closed or newly started turn. Withdrawn queued text carries the complete runtime identity back to its source session's draft. The slow-stop warning now rechecks that the original turn is still running, without late notices after settlement, restart or close.
+- **Restart and clone respect their source runtime** — An obsolete Agent ID can no longer restart the focused session, late state responses are discarded after rebinding, and same-turn clone/restart requests share a per-session guard. Restart confirmations recheck queued delivery before replacing the runtime; failures clear progress and allow manual retry, while cloning uses the source session's project and waits for selection to settle.
+- **Creating a branch stays bound to its source session** — Switching sessions during runtime activation or message-anchor lookup no longer sends the original entry to the newly focused session. Message and branch-tree actions share a synchronous guard against duplicate requests; activation and fork failures are reported locally, clear progress and allow manual retry, while quotes and images still return to the new draft without automatic sending.
+- **Resend and edit stay bound to their source session** — Switching focus while a confirmation is open no longer forks the newly selected session with the original message's entry. Activation and fork failures during resend are reported locally, clear the progress overlay and allow manual retry; cancelled operations and uncertain delivery never trigger automatic resend.
+- **Terminal input and resize failures are visible without flooding notices** — IPC failures from typing, initial layout, container resizing and font/height changes are handled locally instead of becoming global unhandled errors. Consecutive failures of each operation produce one notice, with feedback reset after success. Input is never retried automatically, and late failures after closing, switching owners or unmounting cannot disturb the current dock.
+- **Terminal startup commands survive early prompts** — When shell output arrives before the create response, the new terminal still receives its startup command exactly once. Parallel creates use each terminal's own output; restored, exited or stale-owner terminals never rerun the command. Write failures are reported without automatically retrying potentially side-effectful commands.
+- **Early terminal exits retain their status** — Shells that exit before their create or restore response arrives keep their exited label and exit code, including zero. Parallel creates, failed retries and owner switches do not reuse unrelated exit events. Exited terminals no longer receive startup commands; running terminals still receive the command once after their first prompt.
+- **Terminal replay caches follow the current tabs** — Ready docks no longer retain other terminals' output or exit events, and snapshot cleanup cannot recreate caches after a tab closes or its owner changes. Initial output arriving before a create response is preserved, unrelated caches are pruned when the operation settles, and normal tab-switch and collapse replay is unchanged.
+- **More reliable terminal tab closing and copying** — Parallel closes cannot resurrect closed tabs, and close-all only affects the captured tabs, preserving terminals created while closing is in progress. Creation and close failures are reported, with failed tabs kept visible. Owner changes clear stale tabs and ignore late results; copy-on-select works after collapsing and expanding, and failed clipboard writes no longer report success.
+- **Resend preserves the selected model and provider** — After a fork, the target session's model and thinking level are reapplied and the same-process preference cache is invalidated before publishing the runtime or allowing resend. Failed application does not publish misleading state. Together with inherited model preferences, this prevents requests to the old provider after switching and the `-/-` footer state. (#331)
+- **Second-level fork history and duplicate messages** — Incremental forks retain each ancestor message's original file path and byte offset. Forks with a copied full prefix use the child file as authoritative, without duplicating parent messages or importing later parent-branch turns. History-load failures show the actual cause instead of presenting parse errors as missing files. (#332)
+- **Images survive edit, fork and resend** — Composer refill restores the message's images, clears stale attachments for text-only messages, and resend snapshots recognize both flat pi image blocks and nested base64 image blocks. (#324)
+- **Prompt enhance accepts custom provider and model names** — Chinese characters, spaces, colons and URL-style names are no longer rejected by the IPC validator; blank, control-character and oversized identifiers remain blocked. (#322)
+- **Composer scrolling no longer triggers React update-depth errors** — Stopping scroll and restoring a position are idempotent, avoiding `Maximum update depth exceeded`; cross-paragraph selection quotes and scroll positioning after replies settle are also repaired.
+- **Linux session paths and unstaged diffs** — Relative session paths no longer cause broken fork/copy titles or stalled history loading. Line endings are normalized between Git objects and the working tree so diffs do not mark entire files red and green.
+- **More reliable pi detection and updates** — Detection and extension updates work with fnm's XDG layout and custom npm locations. Update checks follow the desktop network proxy, and self-updates are dispatched according to installation type. (#318)
+- **DSH migration prompts and macOS installation guidance** — The DSH runtime migration prompt appears only once across restarts. macOS artifacts explicitly label architecture, with startup guidance for mistakenly installed Rosetta builds. (#317)
+- **Extension version checks keep local versions when the registry fails** — The version column used to collapse to "Current: - · Latest: -" with a red "Failed to check extension versions" line whenever the npm registry was unreachable (a mirror that cannot be reached makes npm retry for ~85s, past PiDeck's 30s subprocess timeout). Reading the installed `package.json` and querying the registry are now settled separately, so a network failure only leaves "Latest" unknown — "Current" still shows and `hasUpdate` stays false while the latest version is unknown. npm timeouts are labelled `(timeout 30s)` in the error so the log distinguishes a slow registry from a bad npm invocation, and registry fallbacks log their reason.
+- **The Settings pet preview respects reduced motion** — The Settings pet preview was the last continuously animating sprite loop running at full frame rate; under `prefers-reduced-motion` it now stretches its frame interval 4× (near-freeze rather than a static frame, which would make shape evaluation unreliable), matching the overlay's behaviour.
+- **Probe-detected version paths no longer rewrite base URLs that do not use them** - After a successful model probe, the root base URL was automatically suffixed with /v1 and written back to config - but version segments do not belong to every protocol: anthropic-messages appends `/v1/messages` itself through the Anthropic SDK, mistral appends `v1/chat/completions`, codex appends `/codex/responses` and pi-messages calls `/messages` directly. Probes try `<base>/v1/models` first for compatibility reasons, and that succeeding only proves the probe shape works, not that session endpoints need the version segment. The rewrite made every session of those protocols return 404, and manually restoring the value only lasted until the next probe. The decision is now driven by the API type: only OpenAI-family APIs (including the undeclared-API fallback) and Google-family APIs gain a version path, while everything else and unknown custom API ids keep exactly what you typed. (#337)
+- **A failed ACP first send lands on the guide page instead of an empty state panel** - When a rejected first message recycled its draft session, the selection was written as the guide page's virtual session id (which has no session record), so the UI mounted a real session panel for that virtual session; with no session inside, it rendered the old empty state ("Start a new Session."), hiding the composer and the refilled draft. Clearing the selection now returns to the real guide page (the only representation of "no current session" in this app), with a repo-wide guard test that fails if any code writes the guide page's virtual id into the current session again.
+- **Switching channels no longer offers an older dev build** - With a stable version newer than the latest dev prerelease (e.g. 0.9.0 vs 0.8.0-beta.9), the "Switch to Dev" dialog used to still offer that older prerelease for download. Version comparison now follows full semver prerelease rules (0.8.0-beta.9 < 0.8.0), and the service refuses any target that is not strictly newer than the current version, pushing an up-to-date snapshot and reporting "Already up to date, no switch needed" instead of a downgrade. (#336)
+- **Timed-out ACP turns send session/cancel, so stuck sessions can be closed** - When a turn timed out on the agent side the old turn was never settled, so later prompts queued forever and timed out repeatedly, while stopping was a no-op because the turn flag had already been cleared. Timeouts now raise a distinguishable typed error and send `session/cancel` to settle the old turn, and "Close Agent" bypasses in-flight dispatch leases (closing is the only recovery from a stuck turn), while other paths keep their concurrency assertions.
+- **Reopening an ACP session restores the agent-side session and its history** - The handshake never wrote back the agent-side session id and the catalog never stored it, so reopening a historical ACP session always created a new empty one; the history replayed during `session/load` was then dropped wholesale because the session id was still an empty string. The id is now written back after the handshake and temporarily attached before `session/load` is sent, covering both the new and restore paths, so replayed history shows up again.
+- **Custom theme deletion really removes the file, and the editor dialog no longer fills the screen** - "Edit the built-in sample, then save" drops a file into the theme directory that shares the built-in sample's id, and deletion keyed on that id bailed out early on a built-in match: the UI reported "Deleted" while the file stayed on disk and reappeared after a refresh. Reads, writes and deletes are now keyed on the file name (fileId), a missing file raises instead of reporting success, and the built-in sample row drops its edit action (use "Copy sample" instead); the theme JSON editor dialog is now bounded by the viewport with long content scrolling inside it, keeping the save button visible.
+- **Four composer entry and media-mode problems** - Enabling the ACP switch and saving a tool required a restart before ACP appeared in the backend dropdown (the switch only wrote to disk; it now updates the renderer snapshot immediately, the main-process gateway is registered permanently and reads the switch when creating a session, refusing to spawn while off, including sessions restored from history); image and video modes kept showing permission controls and the Feishu mirror (the predicate now considers mode or backend and hides unrelated controls consistently); the exit button did nothing after selecting video mode (exiting is now handled by the backend picker); and a new session switched to image generation could no longer change backend, with unused prewarmed processes never reclaimed (the lock predicate is now "a message was sent", the bound runtime is stopped before switching and the project's unclaimed prewarmed process is released).
+- **Copied and forked session titles are no longer locked to message text by a scan race** - The scanner indexed a new file before the "source name (fork)" title was written, locking the title to a content-derived fallback; the name computed by the command layer then had no way into the catalog, and because large files only read a head/tail window the name was pushed out of the tail window, leaving the first user message as the title forever. Command-layer registration may now overwrite unconfirmed / content-derived fallback titles (user renames, extension-assigned names and existing entries stay untouched), and the scanner downgrades a session name whose timestamp predates the file's own header to a weak candidate.
+- **The app-log viewer refreshes as soon as logs are deleted** - The delete controls in Cache & Logs live outside the viewer, so clearing logs left the table on the deleted rows until you hit refresh; the viewer is now told to re-query after a successful delete.
+- **Windows packaging no longer aborts on a transient unzip failure** - Unpacking the Electron distribution writes a temporary directory and then renames it into place; on Windows, antivirus or the indexer can briefly hold handles on freshly written files, so the rename returns EPERM and the packaging tool does not retry - `npm run dist:win` failed outright. An install-time patch now gives that call a bounded retry (only EPERM / EACCES / EBUSY, roughly 6 seconds before rethrowing the original error so real failures are not swallowed), and it fails loudly if the tool's structure changes instead of silently disabling itself.
+- **ACP follows Agent Client Protocol v1** — Permission replies use the standard nested `outcome` shape with request / cancel / connection-close settled exactly once; the transport no longer lets an oversized frame be overtaken by a smaller one, drains queued frames before closing on stdout EOF and turns a synchronous stdin write failure into a close; the projector handles partial `tool_call_update` patches, replaces the whole plan from `plan` entries, merges multi-block `user_message_chunk` echoes into one message, materialises tool-result images, maps `max_tokens` to a length stop reason and groups history by user turn; `set_config_option` is serialised so it cannot roll a change back out of order, and empty loads plus paged catalogs are handled.
+- **ACP user messages stay in the timeline** — `user_message_chunk` is an optional echo that some agents never send (OpenCode among them), while `agents:message` replaces the whole list, so the renderer's optimistic bubble was wiped by the first flush. Prompt dispatch now writes the entry on the main-process side (images materialised first) and consumes the agent's echo by prefix, so a missing echo no longer piles up either; a dispatch failure that produced no content withdraws the ghost message, leaving the composer refilled. The first prompt also seeds a title with DSH's truncation rules, which the agent may still override later.
+- **A failed ACP first send keeps the error scene** — Recovering the draft session used to trigger whenever the renderer record was still `draft`, even when the runtime had activated and the agent had created its session but rejected the prompt (a gateway answering `-32000 Authentication required`, for example) — deleting the only copy of the error and dropping you on the guide page. Recovery now also requires that activation never produced an agent session.
+- **Host-plugin panels, browser entry points and uninstall** — Eight issues from user retesting: `services.openUi`'s void contract no longer leaks `{ value: null }` into the panel, the built-in sample refreshes to the shipped version as long as its files were not hand-edited, opening a Web UI pins its drawer entry so the browser tab has an owner (this also fixed "open in browser" from message links), sidebar panels gain a `popover` form, plugins can finally be uninstalled (seeded built-ins refuse, since they would come straight back), a service that keeps respawning after a stop now reports `stop-restarted` instead of a bare failure, refresh shows a spinner and unlocks when the query settles, and the actions column stopped hiding every action behind one ellipsis.
+- **Ask cards stop submitting multi-select questions early** — Enter on a batch card only checked "answered", so a multi-select question with a single tick marked itself done and the card could be submitted with the remaining options unticked. Enter now returns `none` for multi-select — the option button still toggles natively and the explicit "next / submit all" buttons finish the card — matching the click path. Single-value questions are unchanged.
+- **The composer's slash menu stops offering commands pi cannot run in RPC mode** — `copy`, `export`, `share`, `session`, `settings` and `clone` exist only in pi's TUI and would be sent to the model as plain text, so you got an answer instead of an action. They are now hidden, since the desktop has an equivalent entry point for each (message copy, session export, context ring, settings page, clone); `/hotkeys` has no button, so it stays and opens the settings shortcut page instead of being sent.
+- **Git commit summaries tell "nothing staged" apart from "no repository"** — The smart-commit path returned one vague error and claimed the summary model settings were at fault; the IPC layer now returns `GIT_COMMIT_NO_REPO` / `GIT_COMMIT_EMPTY_DIFF` / `GIT_COMMIT_DIFF_FAILED` separately — only an empty model reply still points at the model settings — `getStagedDiff` propagates failures instead of swallowing them, and the panel tells you to stage something while silently refreshing git status. (#338)
+- **Context usage follows a session model switch** — Switching a session's model left the context ring showing the previous model's usage until the next turn; usage is now refreshed as soon as the new model is applied.
+- **Async subagents stop showing "running" after they finish** — Async subagent runs from pi-subagents write no session entry, and the plugin forgets a finished job after 10 seconds, so the UI fell back to "still running" forever (and reported lost after two hours). The bridge now recognises the async id, subscribes to completion, persists a terminal state into `subagents:record` and merges it into the snapshot, so completed and failed runs settle; `paused` and unknown states are left alone because those runs can still resume.
+- **Adding a model no longer invents capabilities** — Capability matching treated `pi --list-models` output as fact even though it echoes models.json with 128000 / 16384 / false fallbacks, picked the first provider alphabetically when an id existed more than once (55 of 279 groups disagreed on context window), failed to match `-free` / `-latest` / namespaced aliases, and accepted absurd endpoint values such as `max_output_tokens=32763840008`. Values are normalised by model family and only the official catalog decides what a model supports.
+- **Web resend and edit no longer leave duplicate sessions** — Fork and clone now go through the same command layer as the desktop, so the Web UI gets identical resend/edit semantics and stops creating the extra session a resend used to leave behind.
+- **20 palette colours regain contrast** — A full sweep re-tuned 20 theme colours that fell below WCAG contrast thresholds, with a guard test so a future palette edit cannot quietly regress them.
+- **Modals close with Escape, and keyboard reachability was repaired** — Full-screen browser, image preview and IM guide overlays gained Escape handling (the guide now closes through one shared path); IM Bot headers, built-in browser tabs, Git directory headers and RPC log rows gained roles, tabIndex, `aria-expanded` and Enter/Space activation; tab strips expose proper tablist/tab semantics with three-locale accessible names, and the RPC log row shows a focus ring.
+- **The project list's collapsed yellow dot means "a session is running"** — It used to key off a live agent process, so a finished or stopped session kept the dot lit while its pi process stayed idle, contradicting the blue idle dot on the child row. Both now use the same running-state rule, and the outdated "process has not exited" tooltip copy is gone.
+- **App, config and data directories agree on the PiDeck name** — The package and product name, the user-data root and the Feishu config directory no longer mix `pi-desktop` / `pi-deck` / `PiDeck` spellings; existing installations migrate the legacy root on first launch through an idempotent migrator that renames the root, rewrites session headers and converts config with a temp-file-plus-rename, publishes a version-bound completion record (16 KiB read cap) only after the whole chain succeeds, and leaves both roots untouched when they coexist (a downgraded install must keep working). A failure never blocks startup: it keeps the old root, retries on the next launch, and the new `docs/data-migrations.md` ledger records every automatic migration and its owner.
+
+- **ACP busy sends queue instead of steering mid-turn** — ACP has no steer channel beyond `session/cancel`, so a send while a turn was running could be dispatched as an in-turn steer the agent does not understand. Busy sends now always converge to queued follow-ups (the queue row's steer button disables and the split menu hides its steer entry for ACP sessions). The same pass localizes gateway errors end to end, so a `-32000 Authentication required` guides you to sign in instead of showing a bare code; rejects images up front with a named reason when the tool declares no image prompts; accepts OpenCode's `availableCommands` spelling in `available_commands_update` (the slash menu used to stay empty); and reads non-standard `usage_update` payloads into the context meter.
+- **A cold ACP session explains itself, and first-start failures say what happened** — Reopening a historical ACP session used to activate nothing and leave an empty composer with no explanation. The welcome page now carries a strip saying the history stays with the tool and is restored on the next send, falling back to a read-only guide when the bound tool was removed. First-start failures are localized: `spawn ENOENT` names the tool and the full command line, a handshake timeout says so, and a deleted or disabled tool says that, instead of one generic error; the composer placeholder names the tool too (`Send to {tool}…`).
+- **The top bar stops showing a stale pi version after an external upgrade** — Upgrading pi outside PiDeck (`npm i -g` / `pi update`) left the header on the cached version while "Check for Pi updates" replied that pi was already up to date, even though the install list on the same screen already showed the new version (1.1.0 vs v1.2.0). Real probes now write their result back to the cached state — the update check, the install list's active entry and the session-level silent recheck — under rules that never clear the command or turn a partial probe into "not installed".
+- **MCP resource reporting survives pi 1.2** — pi 1.2 reports whether a server offers resources as a boolean where 1.1 reported a count; `mcp list` parsing now accepts both shapes, so the resources field no longer silently disappears after a pi upgrade.
+- **Failed pi self-updates say what to do, and bun / WSL installs update through the right channel** — Failure messages now split by cause: a lagging registry (npm `ETARGET`, bun `No version matching`) gets the exact retry command with `--registry=https://registry.npmjs.org` when PiDeck runs it, while the pi-side channel only points at the official registry (hard-coding npm would install a second pi on a pnpm / yarn machine); release-age gates (`minimumReleaseAge` / `min-release-age`) get a relaxation hint instead of being misdiagnosed as a stale mirror, and network errors pass through unchanged. bun installs resolve bun from the installation root's `bin` (symlinked, Homebrew and scoop layouts used to fail with ENOENT), pass `BUN_INSTALL` so a GUI launch never installs into `~/.bun`, and pi's own bun branch receives `--ignore-scripts` and, on bun 1.3+, `--minimum-release-age=0`. WSL targets always delegate to the distro's pi update, so the host's package manager can no longer install pi on Windows by mistake.
+- **Windows taskbar buttons carry the PiDeck brand instead of Electron's** — Windows resolves a taskbar button's name and icon from the Start Menu or pinned shortcut matching its AppUserModelID, so a leftover Electron shortcut — or a dev / unpacked build with no shortcut at all — showed Electron's atom mark no matter what the window icon was. PiDeck now writes the current logo to a content-addressed `.ico` and refreshes the icon of shortcuts that point at this executable only; it never creates or deletes a shortcut, and falls back to the exe's static icon (with a log line) when none exists.
+- **The prompt-enhance host no longer dies on a startup timeout** — The host's boot wait went from 15 to 30 seconds (a managed install's `dist/index.js` is tens of megabytes, and a cold cache plus antivirus scanning can exceed a dozen seconds), and the deadline check now waits one extra event-loop turn, so a host that has already completed its handshake is no longer killed while its `ready` line is still in the pipe. Diagnosability came along too: the host script logs each boot stage (node version, SDK path and import time, runtime creation time, `ready` sent), timeout warnings carry a child stderr summary, and unparsable stdout lines are reported instead of dropped silently; the auth host's boot chain got the same stage logs. (#341)
+- **A missing native module no longer keeps the whole app from starting** — node-pty was imported statically at module scope, so a missing platform binary (cross-architecture packaging, an optional dependency that did not follow) crashed the main process during evaluation, before any window appeared. It is now loaded lazily inside a function with a try/catch fallback: when the terminal is unavailable everything else keeps working. (#257)
+- **A new session's first message keeps the model you just picked** — Picking a model in the footer right after creating a session still sent the first message with the configured default, because validation read a different source than the picker (the picker writes a session-level choice, validation read the configured default). Both now read the same selection state. (#340)
+- **The proxy master switch explains itself when an allow-list takes over** — Under provider allow-list mode the master proxy switch is driven by the allow-list, and the switch used to look unresponsive; it is now greyed out with an inline explanation. (#342)
+- **Ask cards submit on click** — A question card used to require picking an option and then pressing Submit; clicking an option now submits directly (multi-select cards still advance through the explicit next / submit-all buttons), saving a step. (#344)
+- **Three stuck-runtime ACP fixes** — The first turn could sit on "starting" forever, stopping could not escalate to a forced kill, and a stuck turn had no watchdog; stopping now settles the stuck turn, so a restart is no longer required.
+- **Switching to the ACP backend no longer breaks the composer** — Moving the footer from pi to ACP changed the number of conditional hooks and threw `Rendered more hooks than during the previous render` (React #310), taking out the whole composer; the footer hooks are now unconditional.
+- **An incompatible remote catalog shape gets its own error code** — A remote catalog whose schemaVersion is incompatible with this build no longer mixes into "repository files look wrong" and reports the real reason instead.
+- **Update-failure hints include the scoped registry** — The retry command in a failed update prompt now carries the `@earendil-works:registry` scope override, so retrying no longer hits a mirror that has not synced.
+
+### 🙏 Acknowledgements
+
+Thanks to **juzijun233** and **EEEEEEEEdison** for their code contributions: the channel-switch version guard (#336), the right-sidebar split with its session-status panel (#334) and the TPS measurement modes (#327) 🎉
+
+Thanks to **bfzha** for the file-tree sticky scroll, the sticky process-entry titles, the PiDeck naming unification with its legacy data-directory migration, and the context-usage refresh after a model switch.
+
+Thanks to **ct-jaryn** for the Baizhi service-catalog preset (#339) 🎉
+
+Thanks to **fengxinzi1814** for making ask cards submit on click (#344) 🎉
+
+Special thanks to **罪**, **橙子** and **微时** for providing the model service used in our software development 🎉
+
+## v0.8.0 (2026-10-07)
+
+### 🚀 New Features
+- **MCP config page redesign** - The three-pane layout is now two: the standalone "connection status" panel is gone and status lives inline in the server list (status dot, connected servers show tool counts, needs-auth rows expose a direct "Log in" button, errors get a red-dot tooltip), with detection running automatically on save and on page open. The seven-field OAuth form is removed - no-auth servers just work, login-required servers use the status-area login button (aligned with pi TUI /mcp), and API keys go into headers; servers with preset oauth params keep a read-only hint without losing their values. Editor actions moved up next to the name (check reachability / delete / undo), deletion now gives explicit feedback ("deleted on save" / "reverts to inherited on save" badges plus undo-delete), and logout only appears for servers with stored credentials. HTTP servers gain a "provider login auth" card (auth.json provider dropdown, global scope only); the smart-add panel is now reachable from manual config, and new HTTP entries prefill https:// with the URL selected on first focus.
+- **Prompt enhance in the composer (✦)** - A new ✦ button in the composer toolbar hands the current draft to a one-shot model rewrite and streams the result back into the box; while running, the bottom bar shows an enhance capsule (loader + live word count) and can be stopped at any time. The enhance model can be pinned in Settings → General, otherwise it follows the session model / onboarding pick.
+- **Resend & edit now fork cleanly** - Resending or editing history no longer rewrites in place: a tail resend/edit creates a new session that supersedes the old one (marked and hidden from the list, file kept and recoverable), while resending or editing from a middle message branches instead - the new session gets a "(fork)" suffix and the old one stays visible, each going its own way. History reads follow the fork chain.
+- **Web session routes `/s/<id>`** - Refresh, back-navigation and shared links now return to the same session instead of dropping you on the home view.
+
+### 🐛 Fixes
+- **All WSL-project sessions vanished from the sidebar (0.7.9 regression)** - After upgrading to 0.7.9, every session under WSL projects disappeared from the list in one go (data was intact - only the list was mis-filtered): the dead-file filter on the session list checked WSL sessions' Linux-side paths on the Windows host, which always missed, so all WSL sessions were filtered out as deleted files. WSL sessions are now exempt from that filter and reappear on upgrade.
+- **Optimistic locking for mcp.json saves** - External edits are no longer silently overwritten by a stale page draft.
+- **Untrusted projects show guidance instead of raw IPC errors** - The resources panel degrades to an explanatory hint for untrusted projects.
+- **Extension output cards follow renderer-registration and fold into process groups**
+- **Resend failures now explain "history was rolled back"** - A toast after a failed send clarifies that history was rolled back, so you don't assume the message never went out.
+- **Model selector group headers align name and count on the baseline**
+- **Mobile web interaction & rendering polish** - Send button, file preview, menu icons and streaming status improvements; the composer drops the camera button and tightens toolbar spacing.
+
+### 🙏 Acknowledgements
+
+Special thanks to **微时佬友** and **橙子** for the subscription services that supported development 🎉
+
+## v0.7.9 (2026-10-07)
+
+### 🚀 New Features
+- **Compaction sliders in Settings** - The session-compaction reserve and keep-recent amounts are now edited as percentage sliders (1–50%) converted against the default model's context window; values still persist as absolute token counts (pi contract unchanged), and when the window can't be detected the sliders convert against a 200k reference window with an explanatory hint.
+- **Floating ball & mini overlay - minimize to a ball, pick up where you left off** - Closing the main window with the floating ball enabled now tucks PiDeck into a small translucent ball instead of quitting; click it to expand a 480×640 mini overlay that shows the desktop app's own UI in a dedicated compact layout - the active session's full chat and composer with model switching, plus a home view for starting a new session (pick project & model), resuming recent sessions, or switching to task mode - and collapse back to the ball or return to the workbench at any time. The overlay is frameless and transparent; the tray right-click menu gains a floating-ball submenu (show / hide / exit); the Settings toggle applies instantly and is remembered across restarts; focusing the main window automatically closes the overlay so the two never coexist.
+- **Mini overlay home: direct access to active sessions** - The overlay home now lists every open session under "Active sessions" above "Recent sessions": sessions running an agent come first with a pulsing green dot, and one click jumps straight into the session (across projects - no need to pick the project first). The list shares the floating-ball running-badge data source and refreshes live from main-process pushes.
+- **Richer tray right-click menu** - The tray menu now shows the app version, a "Check for updates" action (result delivered as a system notification), your five most recent / pinned projects that jump straight into the workspace, and shortcuts to open the data and logs folders; the menu rebuilds itself whenever the project set changes.
+- **Tray icon follows the Logo style** - Switching the Logo style now refreshes the window and tray icons together, and packaged icons (ico / icns / png set) are generated from the pi-tui glyph with proper vertical centering (the glyph previously sat 82px too high on the canvas).
+- **Scratch pad moved into the right sidebar**
+- **Anonymous heartbeat gains feature-adoption and usage-scale stats** - The daily `app_heartbeat` (packaged builds only, still governed by the same Settings toggle) now carries an anonymous snapshot: OS version & system locale, install mode, UI language and theme, startup time, session/project/active-agent/automation-task/feishu-bot counts, the on/off states of nine feature toggles (pet, floating ball, web service, CUA, standby runtime pool, WSL, desktop & pi proxies, feishu), and which built-in modules are hidden. These power the version/platform/adoption dashboards that steer development priorities. The privacy line is unchanged - no project paths, project or file names, message content, or credentials are ever collected - and the telemetry description in Settings now spells out the new scope.
+- **TokenDance top-up (agent payment)** — The TokenDance card on the configuration page gains a "top up" entry: enter an integer amount (1-100000 CNY) to get a payment QR code, pay with WeChat or Alipay, and PiDeck confirms the status every 3 seconds - only a server-confirmed `paid` reports the credit and refreshes the balance. On mobile it shows a single "Pay with Alipay" button that opens the app only when you click it (older sessions without a deep link fall back to QR scanning). Requests go straight to TokenDance's official payment API carrying only your own API key, so the credit lands in the TokenDance account that owns that key: the dialog shows the target key's last four characters so you can verify it, and if the provider endpoint has been pointed at a third-party relay the top-up is refused outright instead of crediting the relay's account. Expired, failed and refunded sessions each explain the outcome so you can create a new one.
+- **Standby runtime pool — new sessions activate instantly** - Activating a new pi RPC session used to cost ~8.5s of spawn + handshake before the first token. After a draft is created, PiDeck now warms one fully-handshaked pi process in the background (`settings.standbyRuntimeEnabled`, on by default); the next session activation claims it and is ready almost instantly, with model and permission hot-updates applying as usual. Any change to the spawn fingerprint (extensions, proxies, pi path, launch args…) discards the warm process and falls back to a normal spawn, so changing settings needs no restart; trust resolution never prompts in the background, and a claimed-then-abandoned warm-up no longer gets swept by the session scanner (which previously bounced you back to the guide page, lost drafts, or spawned a second process on send). The Web client's draft creation warms the same pool, so the first message sent from phone starts in seconds too.
+- **Plugin development interface (capability catalog + AI authoring guide + demo)** - Settings → Extensions gains a "Plugin development" tab: it lists every capability a PiDeck plugin (= a pi extension TypeScript file, no build step) can use — 19 GUI slots (sidebar, composer, status bar, terminal toolbar, timeline events…), native services (file picker, open-in-system), 42 declarative UI node kinds, and a curated table of native pi extension points. One click exports a bilingual AI-PLUGIN-GUIDE.md that doubles as a prompt, so handing the file to any AI yields a working plugin; another click copies a bundled demo plugin (a single sidebar stats panel exercising commands, events, GUI slots and the file services). The guide also covers the zero-code open surfaces (custom themes, prompt/skill stores, custom providers, usage probes) so not every customization needs a plugin.
+- **Session imports: Kimi Code, Kimi Work and MinimaxCode** - The project context-menu importer adds three new sources next to Codex / Claude / OpenCode / ZCode / WorkBuddy / Cursor / Qoder: Kimi Code (`~/.kimi/code-history`), Kimi Work (kimi-desktop runtime directory scan with WAL-immune indexing plus a three-level data-directory probe and manual override in the dialog), and MinimaxCode (`~/.minimax/v2/sessions`, with session titles read from its sqlite index — the name you see in the minimaxcode UI — falling back to the first real user message, skipping injected context blocks). All three reuse the established pipeline: cwd matching for the current project, incremental imports by source mtime/size, atomic writes and idempotent re-imports.
+- **Adapts to pi 1.0.x — resource management now rides pi's native config** - Extension, skill, prompt-template and resource toggles no longer maintain a PiDeck-side whitelist; they project pi's native filtered configuration instead (with one-time migration of legacy disable records and a whole-package restore state), which also brings a panel for toggling pi's built-in extensions. MCP configuration aligns with the 0.99.2+/1.0 native semantics including project-scoped servers, `clientRegistration` and the 1.0.1/1.0.2 project-override shapes; pi 1.0.0's three-state `quietStartup`, `authServerMetadataUrl` and logout copy are supported, and third-party MCP takeover hints are now judged by the runtime session source. String-shaped package entries toggle correctly, and a package-wide disable no longer bounces its switches back on.
+- **In-app pi update details and a more reliable updater** - When a new pi version is available, PiDeck can now pull and show the official changelog for exactly the range you'd update through; the pi version shown per session is quietly re-verified against the runtime so an externally-upgraded CLI no longer leaves a stale version on screen. Update reliability improves on both ends: pi/DSH update flows retry and report better, and the portable-node symlink repair gains a five-step backoff ladder (50→900ms) plus diagnostics, so antivirus scanners briefly locking freshly-created symlinks no longer silently break portable installs.
+- **CUA: full-chain fixes and an auto-approve switch** - The desktop-operation capability gets a chain of repairs: screenshots no longer come back as 1×1 blanks, multi-monitor coordinates are handled, the approval queue no longer double-fires on double-clicks (one approval card per action), SendInput is packed into explicit 40-byte buffers instead of silently no-op'ing, and a missing koffi native binding degrades gracefully instead of crashing startup. A new `cuaAutoApprove` setting skips the per-action approval card (on by default; turn it off in Settings to approve each desktop action yourself).
+- **Logo & app icon in the official pi TUI style** - Appearance settings can switch the Logo style to pi's official TUI three-colour pixel mark (now the default), and the window / taskbar / Dock icon follows the style at runtime — no restart, installer icons unchanged. The mark renders as a true 1:1 square, the classic preview keeps readable contrast, and the splash-screen switcher no longer trips the CSP (it's content-hash allowlisted now).
+- **Web: pick the backend when creating a session** - The Web client's new-session sheet gains a backend picker (pi / DSH / image generation); switching is only offered for freshly-created zero-message drafts — history, duplicated, cloned and forked sessions stay locked to their backend, so an old session can never be quietly reopened on the wrong runtime.
+- **Session housekeeping: external deletions and orphan processes** - Sessions deleted outside PiDeck (rm, another tool) are now cleaned from the sidebar instead of lingering as ghosts, and a watchdog reaps leftover pi child processes whose sessions no longer exist.
+- **Four waves of UI polish + global motion pass** - Tab active states, panel headers, file-tree selection, scrollbars, wallpapers, hover feedback and shadows are unified onto semantic tokens (300+ call sites), ~1770 lines of dead CSS are removed, and the previously missing global motion vocabulary (loading, expand/collapse, overlays, micro-interactions) is filled in under *reduce motion* guard. User-facing copy is normalised in one sweep (pi→Pi, dsh→DSH, trailing "..." → "…", full-width colons in label rows). The docs site gets the matching visual pass (icon feature cards, teal-green gradients, dark mode, navigation convergence, copy buttons, screenshot grid alignment).
+
+### 🐛 Fixes
+- **New sessions keep your last-used model** - Models offered by the picker but absent from models.json (e.g. auth-managed providers) were treated as deleted, so with no default configured every new session started with an empty model picker; existence checks now accept the full pi model catalog, so the last-used (or just-picked) model prefills again.
+- **No more flash of the guide page at startup** - The splash mask now waits until the real content is ready before it lifts, so a slow first frame no longer flashes the onboarding guide; the logo-style switcher script that CSP silently blocked is explicitly allowlisted instead of dying quietly.
+- **Win11 snap layouts restore exactly** - A window snapped (drag-to-edge / snap layout) and later reopened restores its precise position and size instead of the un-snapped geometry.
+- **Session timestamps no longer churn (#314)** - Re-attaching a runtime rewrote session metadata and made untouched sessions look "just updated"; attach is now idempotent and a path guard that was always-true no longer rewrites records, so ordering in the sidebar stops jumping.
+- **Multi-reply turns edit and save correctly (#310)** - When one turn carried several AI replies, an inline edit + save wrote the intermediate replies back duplicated; edits now round-trip byte-faithful.
+- **Bridge extensions render timeline entries again; ask-prefill fixed** - `appendEntry` contributions from GUI-bridge extensions (e.g. plugin panels pushing timeline items) render in the timeline, and the single-question card keeps its prefill instead of arriving empty.
+- **Provider edit page stops clobbering your draft (#311)** - A parent refresh no longer overwrites unsaved API-type and User-Agent edits mid-typing.
+- **Project-scoped resources: trust wiring, MCP dual entry, inheritance** - Project-scoped prompt/skill/MCP resources gained four repairs: trust decisions wire through, the MCP panel's dual entry points agree, disabling inherits correctly, and `exposure` aliases normalise.
+- **Web batch of fixes** - Streaming catch-up no longer stalls behind a slow turn (plus a "load more" entry moved to the top of the message flow); the context ring opens a details popover (rewind checkpoint display removed); the mobile session menu uses a bottom action sheet so it can't be clipped by the sidebar; narrow-screen composer tool rows yield to the send button instead of squashing; session titles align left instead of floating centred; and the brand slot follows the default logo style instead of a hardcoded classic; the header status indicator compacts to a small dot so mobile titles survive, DSH permission becomes a single shield-icon button with the current tier checked in its dropdown, and the permission icon reads runtime state first so a state poll no longer bounces it back to the stale value.
+- **Smaller repairs** - The sidebar collapse button no longer duplicates the top nav bar in simple mode; drawer-tab close affordances move into the tab corner; the settings error fallback page lays out correctly with a recovery action; the composer no longer shows a black focus ring; the extensions list shows a spinner while loading; a terminal-target TDZ crash and an i18n key-set drift are fixed; and the window icon asset path is corrected; retry status rows now show a live countdown instead of a static waiting label.
+- **Imported sessions no longer break on strict providers (400 tool_calls)** - Claude / Qoder / Codex transcripts containing abandoned branches (rewinds, interrupted resumes) or split parallel tool calls could produce orphaned tool results, after which switching models or continuing the conversation failed with `Messages with role 'tool' must be a response to a preceding message with 'tool_calls'`. The importers now reconstruct the live conversation chain, merge consecutive assistant runs and demote orphaned tool results to user text; previously imported sessions are automatically flagged as outdated and offered a re-import.
+- **Mini overlay reliability & polish batch** - Switching projects in the mini overlay no longer lands on a stale nested-subagent record that fails with ENOENT: the catalog cache branch is now sorted by recency and drops entries whose session file vanished before the cleanup sweep, and the external-deletion cleanup climbs ancestor directories so subagent sessions whose whole parent directory was deleted no longer linger forever. The mini composer bar hides the security / quick-message / branch / voice controls and truncates long model names; the empty state creates sessions via a project picker instead of always targeting the first project; the mini overlay and task mode can switch into each other from both title bars; and the overlay shell switches to the system window boundary (DWM shadow + Win11 rounded corners), staying distinguishable when stacked on other apps.
+- **Empty stale drafts are reaped automatically** - Blank sessions created via "new session" and never used no longer pile up in the sidebar until restart: a background sweep now removes pi drafts that are still empty after 30 idle minutes (checked every 5 minutes). Drafts with any user investment - a manual title, an explicit model choice, or a preset DSH permission / agent / proxy - are always spared, as are sessions in use or focused; the sidebar refreshes silently after cleanup.
+- **Web DSH tools panel fits narrow screens** - The goals / subagents / skills / plugins tab strip scrolls horizontally instead of clipping the last tab, and the content area is capped at 60vh with internal scrolling so long plugin lists no longer push the dialog off-screen.
+- **Web session output stays in sync + manual refresh** - Opening or switching back to a session on phone/web now silently re-pulls the latest messages from disk (stale-while-revalidate), so output produced on desktop no longer leaves a stale snapshot; a final pull fires the moment a run finishes so the last chunk can't slip through; and the session "···" menu gains a "Refresh messages" action for on-demand sync.
+- **Web "prompt dispatch is in progress" race fixed** - Stopping, restarting or activating a session at the exact moment a message was being dispatched hit a millisecond-level dispatch window and failed with that error. These paths now wait (up to 2 seconds) for the dispatch window to close instead; only a genuinely stuck dispatch still errors.
+- **Mini overlay docking, always-on-top semantics & system window boundary** - Edge-docked overlay now truly flush with the screen edge (the residual 24px gap is gone). With "always on top" enabled, the overlay is no longer auto-hidden when the desktop window takes focus - it stays visible until manually hidden or the switch is turned off. The compact shell switches to the system window boundary (DWM shadow + Win11 rounded corners, same look as task mode), so it remains distinguishable on any background, and the floating ball no longer pops a long-title tooltip on hover.
+- **Mini overlay streaming output, page memory & badge switch** - Messages now stream live inside the overlay instead of appearing only after refocusing. Collapsing and reopening the overlay restores the last-viewed session page instead of jumping back home (tap Home to go back manually). The running-tasks count badge on the overlay/floating ball can now be turned off in settings.
+- **Ctrl+Tab cycles session tabs** - Browser-style tab cycling: Ctrl+Tab switches to the next session tab and Ctrl+Shift+Tab to the previous one, wrapping around; it works while typing in the composer and inside the built-in browser, and both bindings are customizable under Settings → Shortcuts (macOS follows the Chromium convention of Control+Tab, since ⌘Tab is reserved by the system app switcher).
+- **Pi built-in extension toggles and tool status now follow pi's real rules** - The extensions panel projected built-in extension on/off state with a simplified exact-match rule, so toggles could disagree with what pi actually loads once glob rules exist, and toggling could clobber your glob entries. The projection now evaluates pi's native semantics (global `!` → `+` → `-` ordering, project-layer last-match-wins, minimatch globs) and writes back without touching your other entries. The panel also resolves `defaultTools` inheritance across the global/project layers so per-extension tool status (tool-search, codemode) displays correctly, and stale async reads can no longer overwrite the panel after you switch scope.
+- **Demo plugin no longer misjudged as a built-in extension** - The bundled demo plugin file happens to match the old `pi-deck-` prefix heuristic for "built-in", so once copied into your extension directory it showed a built-in badge and package version, its toggle wrote the wrong config branch (the row could even vanish permanently), and uninstall errored with "built-in extensions cannot be removed". Built-in identity is now decided solely by the `-e` injection whitelist: the demo toggles and uninstalls like any normal extension (to the recycle bin), genuine built-ins keep their protection - and a built-in's remove affordance no longer disappears once it's disabled.
+- **DSH sessions resume again after the 0.7.8 runtime layout change** - Composite DSH bundles moved into `~/.dsh/.pideck/profile/`, where preset skills' loader expressions (resolving `@deepseek-ai/dsh-agent-preset` relative to the bundle) could no longer walk up to the runtime's node_modules: the preset failed to mount at host start, the failure was persisted, and every historical session on that preset died with "Cannot find module" on resume - a session-level runtime restart didn't help. The host now pre-resolves such expressions to absolute runtime paths when dumping the bundle; since the bundle regenerates on every host start, affected sessions self-heal on upgrade with no data migration.
+- **Built-in browser no longer drops navigations before the webview is ready** - Navigating while the guest webview was still attaching (first mount, user-agent restore, URL updates, unmount/remount races) failed with "The WebView must be attached to the DOM and the dom-ready event emitted"; navigation calls now wait for dom-ready instead of racing it.
+- **Web service: runtime restarts stay visible, and the settings toggle no longer hangs** - Restarting a session's runtime over the web now sends response headers immediately plus a 2-second heartbeat, so the 8-10s pi cold start shows a live connection instead of a spinning black box. And turning the Web service off in settings could hang forever because websockets hijacked by the dev proxy bypassed `closeAllConnections` - hijacked sockets are now tracked and destroyed on stop, with a 1.5s timeout backstop.
+- **Web message edit/delete now apply instantly (optimistic)** - Runtime edit/delete runs a stop-agent → rewrite → pi-reload chain that takes seconds, and the web client used to leave the old bubble on screen the whole time. It now applies the same end state locally as the desktop editor (edit replaces the text part only, delete removes exactly one reply, confirmed edits swap in place with a color-ring feedback and deletions play an exit animation), silently reconciles when the server finishes, and rolls back to server truth on failure.
+- **Model catalog refreshed (pi-ai 1.0.4)** - The bundled pi-ai catalog upgrades to 1.0.4 (1604→1620 models), so newly released models appear in the model picker.
+
+### 🙏 Thanks
+
+Special thanks to **微时佬友** and **橙子** for providing the subscription service used in our software development 🎉
+
+## v0.7.8 - 2026-10-03
+
+### 🚀 New Features
+- **Data folder renamed to PiDeck with automatic migration** - The packaged userData folder moves off its legacy name `pi-desktop` to `PiDeck` (Windows `%APPDATA%\PiDeck`, macOS `~/Library/Application Support/PiDeck`, Linux `~/.config/PiDeck`), so the default chat folder no longer reads as "pi desktop". On the first launch after updating, PiDeck renames the folder, rewrites stored absolute paths in settings and directory records, renames the matching session folders under `~/.pi/agent/sessions`, and updates the old working directory in each session header (historical message bodies remain byte-for-byte unchanged). Startup also repairs missed working directories for existing beta users so their old chat sessions can resume (#298). After the folder migration, PiDeck shows a one-time "Data folder migrated" notice that never repeats. If the rename fails (folder locked, etc.) this launch keeps using the old folder and retries next time; portable builds and an explicit `--user-data-dir` are never touched, and a new/old folder collision conservatively keeps the new folder.
+- **Custom themes (JSON theme packs + an AI authoring guide)** - Drop a JSON theme pack into `userData/custom-themes/` to restyle the whole UI: a whitelist of 45 semantic tokens with light/dark variants, and a validator that rejects unsafe values such as `var()`, `url()` and gradients. Settings → Appearance gains a "custom themes" section with a card list (built-in samples, user files, graceful parse-failure states), an in-app validating editor, instant preview on apply with a persisted snapshot (the look survives even if the theme file is later deleted, and switching back to a built-in skin clears it), and recycle-bin deletes. A one-click "AI guide" exports a bilingual AI-THEME-GUIDE.md that doubles as a prompt - format rules, the full token table and a complete example - so handing the file path to any AI yields a valid theme pack.
+- **Usage probe template for Volcengine Ark (AK/SK)** - The provider usage dialog gains a "Volcengine Ark AK/SK" preset next to the generic / New API / cookie-login templates: enter the Access Key ID (AK) and Secret Access Key (SK) from "Access Control → Key Management" in the console and PiDeck signs V4 requests to read your Agent Plan / Coding Plan quota, detecting automatically which plan the account is subscribed to - no usage-probes.json needed. The region is inferred from the provider's inference base URL (ark.cn-beijing.volces.com → cn-beijing) and falls back to cn-beijing, so the optional request URL can usually be left empty.
+- **Provider names now accept Chinese** - "Add provider" used to reject anything not starting with a letter, so Chinese names were impossible; the rule now follows configuration-key semantics: 1-80 characters with Chinese, digits and spaces allowed, rejecting only path separators, `..`, control characters, `%` and the reserved name `__proto__`. Credential references are derived separately (English names keep `<ROUTE>_API_KEY`; Chinese and other names get a generated `PIDECK_<8 hex>_API_KEY`), and DSH stores only that reference in settings.yaml, so a Chinese name never ends up in an environment variable name. Existing configurations are unaffected.
+- **DSH "Add provider" now collects everything it needs** - It used to be a single name field that saved immediately; it is now a full form with name, Base URL, API type, API key and a model editor (fetch or add manually), noting in place that the key is stored separately in credentials while settings.yaml keeps only a reference. Validation failures say what is missing (invalid or duplicate name, missing Base URL / API type / valid model for a custom provider).
+- **Clear the model preselection in one click** - The model picker on the onboarding page and for not-yet-started sessions gains "Clear preselection": it drops the current preselection and falls back to the default resolution without touching running sessions (the button is not shown for them, and a confirmation guards the click).
+- **Voice dictation in the composer** - A microphone button records next to the send control and puts the transcript into the draft. The local engine runs whisper.cpp fully offline (runtime and models download with resume and cancel, the model list is capped at Small and defaults to Small); the cloud engine speaks both OpenAI-compatible `/audio/transcriptions` and Volcengine Doubao Speech (big-model file recognition flash, where the new console's single API key goes in the App ID field with the token left blank). "Test connection" pushes a short silent probe through the configured path so a missing key, an unactivated resource or an exhausted quota is reported in settings instead of after you finish speaking. Capture moved to an AudioWorklet segmenter with a live level bar, the last segment is finished after you release the button ("finishing last segment"), and Doubao replies are normalised (traditional → simplified, "no speech" placeholders discarded).
+- **Grouped process timeline (on by default)** - Consecutive thinking and tool calls inside one turn fold into a process group: the header shows an activity-category summary, the body is height-capped and scrolls on its own, while intermediate replies, retries and errors stay first-class rows and the final answer never folds away. The *Process group display* setting controls it and is now on by default; one click turns it off to bring back the flat layout. Group headers are sized and weighted below their content, sit on the conversation text track, and no longer steal wheel or bottom-following gestures from the timeline.
+- **Automatic session titles are now on by default** - After the first run the current pi model generates a title asynchronously, so the sidebar no longer fills up with "New session". This makes one extra model call and consumes a small amount of tokens (the setting description says so); turn it off any time if you mind - the change takes effect after creating or restarting an Agent.
+- **Import Qoder sessions** - The project context menu can import your Qoder conversation history (`~/.qoder-cn/projects`) into PiDeck for the current project, next to Codex / Claude / OpenCode / ZCode / WorkBuddy / Cursor. Only real sessions are offered: subagent transcripts kept in a folder beside a session stay inside it.
+- **Model configuration export / import panel (#261)** - The Models settings page can now serialise selected providers (API keys included) into a Base64 string - copy it or save it as a file - optionally protected with a password, and read such a payload back with an explicit message when it is malformed, from an unsupported version, is not model configuration data, or needs a password you did not give. On import you pick which providers come in and resolve every name clash individually or in bulk (overwrite / merge / keep local / adopt imported). Unencrypted exports are encoding, not protection, and the panel says so.
+- **The send button now carries the delivery menu** - A caret next to the send button exposes *steer into the current turn / queue for the next turn / send in parallel* at the moment of sending (parallel hands the draft to a background Ask session and is greyed out when attachments are present); the main button and the caret are joined into a single capsule with the shadcn ButtonGroup primitive instead of a big disc plus a small grey circle.
+- **Latest-reply quick actions** - Actions now appear only at the end of the latest reply, not below the composer's todo cards. Triggers and labels are declarative rules now (`userData/reply-actions.json`, editable in Settings → General → Reply quick actions): continue and commit after a reply, retry / re-investigate on failure, plus keyword triggers on the reply text. Each rule asks only two things - what the button says and a single *when to show* dropdown (reply finished / reply failed / always / keyword match) - instead of several checkboxes whose combination users had to infer. Each action sends its prompt directly without changing the draft or attachments; actions stay hidden while processing or awaiting a question response. Built-in rules work out of the box and can be re-added or reset.
+- **New built-in quick messages** - The factory list gains two common openers: "你好" and "请问你是什么模型".
+- **Simple navigation mode** - Appearance settings gain a single-list navigation alternative to the default tab layout: back/forward history, a right-side file workspace, long-press to reorder projects, and *Recent* that only records agents actually started (up to 20). Switching layouts keeps editor instances and their undo history.
+- **In-app notification controls** - Settings now offers a toast duration preset (including a sticky, manually dismissed option) next to a notification history panel with filtering and paging. That duration is a single global measure: it also overrides durations supplied by callers and error/warning toasts, and only sticky notices are exempt.
+- **Question cards polish and wording** - The batch question card now slides between questions, rolls its title in character by character, draws its check marks and springs its progress bar, all degrading under *reduce motion*; the wording is unified from "questionnaire" to "question".
+- **Font size presets simplified** - Five nearly indistinguishable steps (14/15/16/18/20) become four evenly spaced ones (14/16/18/20, default *Medium* = 16px); a stored legacy value falls back to Medium instead of leaving the dropdown blank, and process/timeline text now scales with the conversation font rather than the interface chrome track.
+- **The DSH host can be stopped deliberately** - Stopping the host from the UI is now a persisted intent instead of something the next start silently undoes; it will not auto-start again.
+- **pi command sources managed in one place** - The settings page and the environment dialog now list every pi installation found on the machine (official installer locations, package-manager globals, portable copies and custom paths) with version / path / source / which one is active, and clicking a row switches the active one; extra paths you add form a fallback pool. The one-click installer no longer runs npm when a usable pi is already present, and the old "custom pi path" and "detected pi installs" panels are merged into a single "pi command source" panel.
+- **Desktop operation capability (CUA, experimental)** - pi can now operate the desktop after you approve: clicking, typing, scrolling and screenshot inspection are served by a CUA MCP server built into the main process (StreamableHTTP, loopback only); every write action pops an approval card and is denied automatically after 30 seconds without approval. The approval card renders as a fixed overlay (it used to be pushed out of the viewport by the full-screen shell, surfacing as cua_click returning sent:0 / approval_timeout), and the packaged koffi native bindings no longer crash the Windows build at startup or break non-Windows loads.
+- **DSH plugin marketplace** - Settings → DSH gains a plugin marketplace: dual-source search over the official marketplace directory and the npm registry (single-source failure degrades gracefully), one-click install (npm pack fetch, dependency-closure resolution, user patch-layer registration with idempotent re-installs and automatic backups), uninstall through the managed recycling path; installing a UI-only plugin (dsh.client.platform=web) shows a compatibility warning.
+- **Built-in agent-team preset and Team view** - The DSH preset page adds the official agent-team preset (@deepseek-ai/dsh-experimental-agent-team-profile, off by default; when enabled the official patch is appended at the end of the composition). Teammate state drives a native Team strip in the session (same pipeline as todos), and spawn_teammate projects as a regular tool card.
+- **Persistent PowerShell tool for DSH** - Built-in dsh-tool-pwsh-persistent: each agent reuses one resident pwsh session (node-pty + -NoExit), saving the ~350ms cold start of every pwsh -Command; unlike the official counterpart it does not depend on ctx.terminals and uses the distinct tool name pwsh_persistent, so it never conflicts with the one-shot sandbox pwsh - just open a DSH session and it is there.
+- **Web reaches desktop-class capability** - The browser/mobile Web client catches up with desktop: rename/delete/duplicate sessions, export as HTML and Markdown; inline edit, delete and resend-refill of messages; header overflow menu (restart/compact/clone/DSH permission preset); a Rewind panel (checkpoint list + diff preview + scope-scoped restore, fork switches to the new session); expandable tool cards showing input/output/error, including historical turns; image send/receive (paste/attachment, client-side compression, 8MB/4 images/2MB each caps); a header context-usage ring; a prompt-template picker; read-only Git status/diff/log, file tree with bounded reads (512KB) and fork branch-bar navigation. The stop button actually interrupts the runtime (it used to only drop the local SSE stream), /api/state polling no longer ships every message, and the timeline visuals and turn grouping now match the desktop.
+- **Web mobile usability and interaction redesign** - Touch devices get always-visible message actions (desktop keeps hover); SSE reconnection on visibility/online changes with silent disk-window backfill; light/dark/system themes; a PWA (manifest + service worker that never intercepts API/SSE, fixing stale shells after releases caused by immutable caching); system share, Android keyboard viewport, safe-area layout and a swipe-from-left-edge gesture; file-changes/subagent/TODO strips, skills and extensions panels, and in-session search (Ctrl/Cmd+K). Model and thinking level move into pills parked in the composer with responsive bottom sheets (bottom slide-up on narrow screens, centred card on wide), and the header goes borderless.
+- **Usage statistics gain week/month/year views** - The today overview becomes a four-mode switcher: calendar (unchanged), full-week highlight, year paging + 12-month grid, and a year dropdown; titles, cards, detail lists and empty states follow the mode, and historical periods show their exact range. Aggregation happens in the renderer - the data pipeline is untouched.
+- **Model request snapshots and the RPC log panel** - A new "model" observation point: the complete request body pi actually sends to the provider is persisted to userData/logs/model-traces/ (30-day + 256MB budget, head-preserving truncation above 1.5MB), the timeline keeps only a summary, and expanding a model row reads the trace back by id. A structured viewer parses OpenAI/Anthropic dialects into system prompt / message stream / tool definitions with a raw-JSON fallback, and a session's system prompt now prefers the real system from the latest snapshot (same source as what the provider sees). RPC logs move from a modal dialog to a transient right-drawer panel (remembers and restores the previous panel), enabling logging from the sidebar also opens the panel, and the drawer rail gains a dedicated tab that collapses when every agent stops logging. The DSH backend supports live RPC logs too. The trajectory panel gains a "source session" row for one-click jumps to fork/subagent parents.
+- **Adapts to pi 0.99 and 1.0.0** - MCP configuration moves to the 0.99 built-in schema (exposure/timeout fields, dual-written for older versions) and the config page drops the misleading "install pi-mcp-adapter first" takeover; bash tool truncation is now stated on the tool card with a copyable full-output path; the version gate misparse that treated pi 1.0.0 as an old release (silently disabling the extension whitelist, skill injection and trust-all-tools) is fixed; in-app pi updates pick the official pi update --self entry by version; automatic compaction failures now surface a user notice instead of log-only; the bundled pi-ai catalog upgrades to 1.0.0 (1592→1604 models).
+- **One-step DSH runtime upgrade to 0.2.0-rc.2** - The upgrade path moves to the profile/preset bundle architecture, keeps old configs and presets working, and drops deprecated interfaces; V4 events, session models, subagents and fork are adapted, with archived isolation and a migration gate (automatic backup before upgrade, rollback on failure). Same-version reinstalls are atomic (failed swaps roll back without half-written directories), stale projection frames can no longer roll state back, and the send queue closes its loop (inbox projection consumption plus a cancel-queued action in the UI).
+- **Web service security and settings** - The service now listens on 0.0.0.0 by default with an explicit "require auth" toggle (on by default; previously inferred from the loopback host); network enumeration supports IPv6 (global unicast only, link-local/ULA excluded); the settings tab is redesigned with the token-auth switch and public-bind warning, an editable host, one-click copy of the token-bearing preview URL and a monospace QR block.
+- **WSL projects use the distro's own git** - When the project lives under \\wsl.localhost or \\wsl$, the Git panel, worktrees and rewind checkpoints go through wsl.exe to run git inside the distro: host git.exe over 9P hit dubious-ownership misjudgements and line-ending/mode mismatches that made the repo flicker into whole-tree changes. The distro's ~/.gitconfig, SSH, credential helpers and hooks just work (#295).
+- **Foreground subagents visible while running** - Synchronous (spawnAndWait) foreground subagents used to appear only when they finished - the panel stayed empty during the run; the started event now shows them live (#262, thanks @525300887039).
+- **Provider batch management consolidated** - The red "batch delete" entry becomes a neutral "batch manage" with a dropdown choosing batch delete or batch export, exiting and clearing the selection afterwards; the export panel gets direct "copy to clipboard / save to file" buttons; provider- and model-level toolbars gain select-all / invert / clear-selection.
+- **Customisable pinned drawer tabs** - The workspace drawer rail lets you choose which panels stay pinned: add or remove resident tabs on demand instead of the fixed default set.
+- **Session tab-bar font size** - Appearance settings gain a fourth font track, "session tab bar": tab titles used to follow the interface size only and can now be tuned separately; leaving it empty falls back to the interface size, so users who never set it see zero visual change.
+- **Scroll-to-top on send** - Sending a message smoothly scrolls the new user row to the top of the viewport (history pushed down); finished turns and tab switches no longer run positioning animations, and the auto-collapse (after a 1.5s reading pause) stays.
+- **PiDeck Dev channel** - Development builds get their own installer (separate appId / product name PiDeck Dev / pideck-dev:// protocol) that installs alongside the stable channel without interference; macOS and Linux gain dev build scripts and a manual CI job."
+
+### 🐛 Fixes
+- **One-click pi install no longer fails on Windows** - Step 3 of the environment guide failed immediately with an empty "Installation failed". The installer launched npm directly, but npm on Windows is a .cmd shim that cannot be started that way, while the npm detection on the same path goes through cmd.exe - so "installable: yes" and "install always fails" were both true. Installation now resolves the shim and starts node directly (falling back to cmd.exe), and spawn failures surface the OS error instead of showing nothing.
+- **Fixed path linkification swallowing the rest of the text** - Once a path appeared in Markdown, the text from that point on disappeared, including the following line (they share a single text node in mdast); API paths in table cells made it almost certain, and 47 of 91 replies lost text in a real session. Splitting the text node now appends the tail after the last match. (#274, thanks @TheMapleBin for the fix)
+- **Fixed Chinese prose slashes being mistaken for paths** - Expressions like "降分辨率/抽帧", "事件触发/级联" or "1.3 TB/摄像头/30 天" were treated as trailing-slash directories and existence-checked, which greyed out the whole run and dropped the text after the slash. Existence checks now only run for strong prefixes (`C:\`, `~/`, `/`, `./`) or candidates that look like real paths, and a slash followed by CJK requires at least two segments with an ASCII first segment; auto-detected bare paths render as plain text when the check fails, and only explicit author-written links keep the grey treatment. (#277)
+- **Session titles are no longer locked to the first message (#266)** - The sidebar and session header showed the first user message instead of the title pi planned for the session: the first rename pinned the title to manual, after which pi's naming could never land, and sessions upgraded from older versions carried a `titleLocked` flag that kept showing the first sentence forever. Titles now record their origin (fallback / auto / manual / legacy), automatic naming may overwrite the first-message fallback, a one-time self-heal repairs existing sessions, and manually renamed sessions are still left alone.
+- **Fixed the missing DSH backend packages** - The cross-platform packaging job was missing a build tool, so the DSH runtime archives and indexes for all six platforms were never produced, which made the very first "Install DSH backend" in a 0.7.7 build fail with an unavailable runtime index (the missing 0.7.7 assets have been published as well).
+- **Browsing history no longer yanks the viewport** - Opening a historical session or switching back to an old one no longer auto-scrolls to the final answer. Only live sessions (agent started, running or idle) that are already following the bottom schedule the reply-end positioning; stopped sessions cancel any pending positioning and leave your reading position alone, manual scrolling up exits follow mode, "Move to latest" restores it, and the easing is now a gentler ease-in-out cubic.
+- **Sessions animate out when deleted** - Deleting a session no longer sends the whole list back into a loading state or nudges the remaining rows: the row fades out over 0.1s while neighbours shift smoothly over 0.16s. Animations stay off while a search filter is active (membership is judged on the unfiltered list) and under "reduce motion", and a failed delete keeps the session and explains why.
+- **Fixed the to-do strip being squashed into thin bars** - When the session to-do strip grew tall, each row was compressed to 6.47px, clipping the text into bars that overlapped their neighbours, and with scroll height equal to client height there was no scrollbar and no scrolling. Rows keep their natural height and the overflow scrolls.
+- **Provider and model names are no longer swallowed or split by the Windows command line** - With looser names, quotes and `%` in a name or model id got re-interpreted by cmd.exe through the shim invocation: anything after a `&` was executed as a command (the probe popped up a calculator) and a name like `a%PATH%b` expanded to the whole system PATH. Quoted arguments are now escaped and passed through verbatim, and names containing `%` are rejected on create/rename instead (quotes cannot stop `%VAR%` expansion); existing configurations keep working.
+- **The settings window no longer overflows when narrow** - Below 820px the config forms overflowed horizontally and fields were squeezed (a utility class overrode the grid layout). The grid is restored with shrinkable columns, connection fields switch to a single column inside narrow containers, and the test-connection input is allowed to wrap.
+- **Draft sessions no longer offer "Rename"** - Renaming during the draft phase pinned the title to manual and blocked pi's planned name from ever landing; the action is now hidden for draft sessions in the tab menu, and renaming after the session starts is unaffected.
+- **Questions always render as the same card** - A single question used to pop a native dialog while several questions used the tab card, so the same tool looked different from run to run and the free-text box came and went. Every question now travels in one batch envelope (desktop, AskPanel and Web all show the same card), the custom-answer input is always visible, and the tool description tells the model to merge multiple questions into a single call; older sessions still read back correctly. After you answer, the echo sits inline at the tool call - aligned with pi's own card - instead of a fixed card at the end of the timeline.
+- **Thinking level now follows the model that is actually in effect** - Switching models used to replay the previous level, silently overriding the target model's default strength; PiDeck reads the runtime state back after the switch (and after a manual level change) and stores what pi really applied, with model and level operations serialised per session so a stale snapshot can no longer win. The displayed model name comes from pi too. (#280)
+- **Draft sessions discover skills and resources like the Pi TUI** - The skill picker and resource commands work before a session starts, matching what discovery shows in the terminal. (#264)
+- **The suggested `/v1` base URL is finally applied everywhere** - Detection can propose `.../v1` when a root URL is reachable, but only the manual "Fetch models" button honoured that suggestion: the add-provider dialog threw the result away and background discovery ignored it, so the saved `models.json` kept the root URL and sessions 404'd. Both paths now rewrite the draft/form value (in memory until you save).
+- **The authentication assistant no longer drops its own answers** - `node:readline` treats U+2028/U+2029 as line breaks while `JSON.stringify` leaves them unescaped, so a payload containing either was split into two invalid frames and the login dialog reported a timeout although the assistant had already replied. Framing is now manual and LF-based (CRLF tolerant, partial frames buffered, the trailing frame flushed when stdout ends, oversized lines settled as a protocol error).
+- **Fixed the local whisper runtime always showing a failed state** - the status probe judged a healthy installation as broken, and non-speech placeholder transcripts ("no speech" and friends) are now discarded instead of landing in the draft.
+- **Toggling an extension no longer jumps the list back to the top** - Disable/enable, uninstall and the built-in extension update replaced the whole table with a loading placeholder, which collapsed the scroll height (pinning `scrollTop` to 0) and dropped focus from the switch you had just clicked. Refreshes now keep the existing rows; only a genuine first load shows the placeholder.
+- **Long notification text no longer blows the toast open** - Over-long error strings wrap behind a max height instead of stretching the notification across the window.
+- **Context recovery stays available after an overflow failure** - The failing turn produces no usage statistics, so the context ring had no percentage and the only recovery entry (compact the context) was disabled exactly when you needed it; once the main process flags an overflow the compact action stays available and pi decides what it can compress.
+- **Error and retry rows expand on the whole row** - Only a 20px chevron used to be clickable, which users experienced as "cannot click"; the row is now the toggle (matching tool cards) and opens the untruncated detail. A failed turn also keeps a clue when only a stop reason or a trailing error message exists, instead of an empty "reason unknown" bubble.
+- **A model catalog that cannot be read now says why** — With the DSH host stopped deliberately, an empty model list is reported as "host stopped, start it in Settings → DSH" instead of a runtime failure you could retry forever.
+- **Extension points panel built-in (#293)** — The extension points panel is now a built-in extension `pi-deck-ext-points` shipped with PiDeck. It lists all mountable points from pi and PiDeck at runtime (no build-time snapshot), with search, checkbox, per-point usage text, and one-click draft generation. Falls back from a full config page (bridge ≥ 1.3.0) to a settings card (old bridge) to silent no-op.
+- **Bridge frame ANSI sanitisation and status bar retirement (#294)** — Session status lines were showing raw ANSI escape codes (e.g. `[38;2;138;190;183m 🔌 MCP: 3 servers enabled[39m`). The bridge now sanitises all frames at the single egress point: true colour is quantised to a semantic tone (independent field), unrecognised sequences are stripped, and the host side has a fallback pass. The bridge status bar is retired by product decision (PiDeck's own stats line covers the same area); data is still collected, rendering can be restored in three steps.
+- **Composer toolbar extension slot disabled** — The `composer.toolbar` GUI bridge slot (input box lower-left) no longer renders extension-contributed content, preventing unwanted text from appearing in that area.
+- **Installing the DSH backend no longer fakes success** - Installation now targets exactly the dsh runtime version declared for this app version instead of "the newest compatible one": since the status gate compares versions verbatim, installing 0.2.0-rc.1 for a build that requires 0.2.0-rc.2 left the UI showing "not installed" after a "successful" install. When the download source (or the bundled assets) has no matching version the install fails with a readable message listing the available versions instead of downloading something that can't pass the gate, and the error is now surfaced in the UI instead of leaving the button spinning.
+- **Local DSH runtime import accepts archives again on Windows** - The import dialog used to enable file and directory picking at the same time, which on Windows degrades to directory-only, so a .tgz could not be selected at all. Importing an archive and importing an extracted directory are now two separate entries with two dialogs; IPC failures on install/uninstall also land in the error state instead of spinning forever.
+- **Uninstalling the last DSH user plugin no longer breaks the next start** - Removing the final plugin left only the header comment in `cordis.patch.yml`, which dsh (since 0.2.0-rc.2) rejects because the patch file must be a top-level YAML array, and the host could not start. PiDeck now self-heals that comment-only file into a legal empty array before forking the host (and writes the same fallback when uninstalling), so you don't have to edit `~/.dsh` by hand.
+- **The session tab context menu is back** - Right-clicking a session tab did nothing: the tab's context-menu trigger was wrapped one level too deep, and the event handler was merged onto a non-DOM wrapper (the tooltip root) instead of the tab itself, so it was silently dropped. The trigger now wraps the tab element directly, restoring pin / close / close others / close all.
+- **Tab group dividers are visible again** - The thin separator between session tabs of different projects was drawn at 50% of an already light border colour, so it blended into the background. It is now an opaque border-strong line (light #d7d7d7 / dark #3a3a3a) and a little taller.
+- **Actionable notice when a DSH session's write lock is held** - Sending into a session held by another DSH client (the DeepSeek desktop app or a dsh CLI) used to dump raw JSON; it now says clearly to close the session there or quit that app and retry.
+- **Fixed a runtime error initialising the terminal target at startup** - The terminal target computation referenced a later hook's return value, so the declaration order crashed startup session recovery; the computation now sits in the right place.
+- **Fixed the left sidebar being squeezed to zero by a pinned drawer** - Restoring the "pinned right file workspace" layout made the drawer's constraints tighten asynchronously, and the relayout collapsed the only foldable panel - the list - to 0 with no self-heal (folding it manually brought it back). Non-interactive layout changes now self-heal immediately at the saved width when the sidebar turns out collapsed.
+- **Context ring stays beside the stats line** - A 0.7.8-beta regression that pushed the context usage ring off the composer stats line is fixed; the ring keeps its place.
+- **Message edit/delete/resend stability** - Rewind snapshots no longer fail wholesale on repositories with a conflicted index (degraded to the HEAD tree and marked, returning to the real index after restore); conversation rewind without a fork anchor rejects explicitly instead of pretending success; a runtime reactivating mid-write counts as applied instead of misreporting BUSY; clearing the edit box now abandons the edit.
+- **Stopping also clears the queue** - pi's stop semantics only interrupt the current turn, so queued steer/followUp messages kept firing; stop now sends clear_queue first and the withdrawn messages are appended back into the input box (never clobbering what you are typing), with old pi versions degrading silently to abort-only.
+- **Fixed the ask_question syntax error that dropped extensions for new sessions** - A prompt-slimming change left a syntax error that made pi exit on extension load, and PiDeck's fallback silently restarted with --no-extensions - every new session lost its extensions. Fixed and verified against all 19 whitelisted extensions.
+- **Built-in browser opens a blank page** - Opening the browser panel no longer visits the website automatically; the default page is now about:blank.
+- **Environment dialog no longer overflows the screen** - Without pi installed, the detection dialog stacked eight layers of content past the viewport with the title and buttons out of sight; it gains a height cap and a stable scrollbar, and stays the same size when content is small.
+- **Tab hover tooltips restored and context menu extended** - The tab hover tooltip (title + workspace) lost to a regression is back; the right-click menu gains the same session actions as the ⋯ menu (rename/duplicate/export HTML/copy path/open file), working for background tabs too.
+- **Main-process security and stability hardening** - External-command injection surfaces are closed off (argument escaping and path validation), quit/stop lifecycle pairing for child processes and listeners, bounded byte limits on every log-domain read, and renderer type/architecture fixes (two P0 batches).
+- **Adding a reply quick action no longer does nothing** - A newly added rule with empty text was silently dropped by the main-process sanitiser, but "Add" persisted it immediately, so the row vanished on the round-trip and the click looked dead. Adding now creates a local pending row (auto-focused, trigger selectable first) that only persists once its text gains a first non-blank character, and clearing an existing row degrades to a local draft instead of deleting it (no more rows vanishing on select-all-and-retype). Commit/push intent matching also learns English plurals ("ready to push the commits") and a commit+push combo pattern that needs no remote wording.
+- **Per-session security levels survive a manual restart (#302)** - restart() dropped the deckSessionId when rebuilding the session, so the restarted pi process lost its session identity: the security extension could not find the per-session override and confirmed actions at the global default while the menu still showed the override value. Manual restarts now carry the session id like compact-reconnects and crash-restarts always did, locked in by a source-scan regression test.
+- **Manual compaction timeouts honour rpcTimeout instead of reporting "compaction failed" (#303)** - The wait was hard-capped at 120s, so raising rpcTimeout changed nothing: in a real case pi finished compacting at 149.4s while PiDeck had already declared failure. The wait now follows the rpcTimeout setting (default 600s) like other long RPCs; a timeout is no longer a failure but "still compacting in the background, the session will update when it finishes, no retry needed". The button stays disabled while compaction runs, the compaction_end event closes the loop, a successful background compaction posts a follow-up system message, and repeated triggers during the wait are prevented.
+- **The extension-whitelist downgrade branch injects built-in extensions again (#307, second layer)** - The version-gate downgrade path (old pi or an over-budget command line) failed to take the injection helper's return value, so a downgraded launch carried no --extension at all and built-ins like session-title silently died - the second root cause behind #307's symptoms (the primary one, the pi 1.0.0 version misparse, was fixed earlier). A behavioural regression test now guards both the whitelist and the downgrade branches.
+- **Font-size presets preview live in the settings dialog and roll back on discard** - Font sizes were outside the dialog's live-preview scope: theme colours changed instantly while a font choice appeared to do nothing, reading as "the setting doesn't work" (saving did apply it; the pipeline was verified end-to-end). The four font tracks (interface / tab bar / conversation / input) now preview instantly alongside theme colours, "discard changes" rolls the font back too, and the fallback chain has a single shared implementation so the dialog preview and the persisted path cannot drift.
+- **Startup theme transitions no longer raise spurious errors** - The theme-switch ViewTransition is no longer forced during early startup (settings not loaded, window not yet shown), and Chromium's expected "transition was skipped" rejection is consumed at the call boundary instead of leaking into a global "unhandled exception" toast.
+
+- **GUI bridge & extension-point panels now opt-in (default off)** — The developer-facing GUI bridge and extension-point observation capabilities are no longer enabled by default (after upgrading, behavior falls back to "no bridge"; the few extensions that rely on it will prompt you to enable it). Turn it on with one click in extension settings when needed; the toggle self-heals — if the built-in extension overlay directory is manually emptied, default injection is restored automatically. The enable/disable toggles for extensions, skills and prompts were also restyled as colored switches so on/off state is obvious at a glance.
+- **Context-ring metrics accuracy fixes, with per-metric hover explanations** — The root causes of "System + Tools" often showing 0 are fixed one by one: archived messages from before a compaction were still counted into the conversation estimate (now counted from the most recent compaction point), tool-call arguments and results were excluded (now included), and Chinese text was badly underestimated at 4 chars/token (now CJK-weighted); a DSH breakdown frame with missing fields no longer renders the default as 0. Every number on the ring panel and the stats strip under the input box now shows its calculation basis on hover (usage comes from the latest request's actual stats; estimates are labeled as such).
+- **Sidebar list refreshes immediately after fork / clone** — pi and DSH fork and clone used to return success without pushing a list refresh, so the new session only appeared after the next manual refresh; the list now silently reloads right after success.
+- **Custom themes no longer stick to the previous light/dark mode** — A race between theme token injection and the data-theme write left the UI on the old mode after quick toggling or a system flip (including the built-in Berry Night sample); injection now reads resolvedTheme to eliminate the race.
+- **Running sub-agents no longer shown as "stopped" (#300)** — When a sub-agent start anchor dispatched by the live runtime hasn't been persisted yet, the history panel judged the running sub-agent as stopped; anchors now synthesize a running state.
+- **pi update check now matches the CLI** — The version check no longer goes through npm latest; it uses the same pi.dev endpoint as `pi update --self`, so PiDeck no longer briefly disagrees with the CLI when npm and the official release are out of sync.
+- **Web file tree tolerates just-deleted subdirectories** — files:list returns an empty subtree instead of throwing when it hits a directory deleted moments ago, so the tree no longer breaks because a folder vanished mid-scan.
+
+### 🔧 Performance
+- **First batch of quick wins (startup / memory / motion / bundle size)** - Binary previews in the file drawer gain a 64MB main-process cap (arbitrarily large files could previously be read whole; over-limit reads now get a proper i18n message); startup preferences (sandbox / single instance / pet) merge into one shared settings read, with ready / first-window timing probes added for cold starts; theme switches move to ViewTransition (degrading to a hard cut under *reduce motion*); pending external-browser navigation becomes event-driven, dropping a 50ms standing poll; the split-view drag preview drops the transitions that forced per-frame reflows; Feishu uploads stat before reading so a 30MB over-limit file is never read into memory first; the bundle-size analyser learns 9 real runtime dependencies and stops flagging them as removable.
+- **Second batch of medium wins (terminal / Git / lazy loading / parallel startup)** - Terminal output is batched (16ms window with a 64K immediate flush, ordered flush on exit) with the renderer buffer aligned to a 200K tail cap and paired cleanup on both sides; the two 4-second git branch polls (session panel and global) converge onto a refs event source that only fires on .git changes (the GitPanel's independent guard stays); CodeMirror becomes a React.lazy import, dropping the whole editor package from the main chunk and loading it on first diff open; two serial startup JSON reads (session catalogue / automation config) now run in parallel.
+
+### 🙏 Thanks
+
+Special thanks to **微时佬友** and **橙子** for providing the model service used in our software development 🎉
+
+Thanks to **@bfzha** for the process-group timeline, quote-overlay fixes, voice input fixes, font-size tier redesign and many other improvements throughout the release, **@buhuikongpan** for the extension points built-in (#293) and the bridge ANSI sanitisation fix (#294), **@TheMapleBin** for the path-linkification text-loss fix (#274 / #276), **@525300887039** for reporting the Chinese-slash misdetection (#277), **@cmyk-xing** for the looser provider names, the DSH add-provider form, the narrow-window layout, the simple navigation mode (#268), the delete exit animation, the window-position restore and the guide-page cache fix, and **@juzijun233** for the model configuration export/import panels (#261) and the stable↔dev channel switcher (#283).
+
+## v0.7.7 - 2026-09-22
+
+### 🚀 New Features
+- **Search workspace files by name (#215)** - The file drawer toolbar gains a search button that searches as you type (250ms debounce): the main process scans file names across the whole workspace (same ignore rules as the file tree, any depth), skips oversized directories one level at a time, and returns whatever it has collected once it hits the 200-result cap or the 8s timeout - huge monorepos get usable results in seconds instead of hanging or being rejected. Results are a flat list with the same Seti icons as the tree and highlighted matches; single-click previews, double-click opens permanently, and the right-click menu is shared with the file tree (reveal in folder / copy path work out of the box). While the debounce is pending, shortening the query filters the last full snapshot client-side for zero-latency feedback, and stale results from a slow scan are dropped by generation so they never overwrite newer input; Esc first clears the query, then closes back to the tree.
+- **Import sessions from another directory (recover history after a move or rename)** - The project context menu gains "Import sessions from another directory": it first lists the session directories that actually contain sessions (the source list only holds directories with sessions - pick one to list its sessions, or use "choose another directory"), then imports the checked ones in one go and reports how many succeeded / failed. Imports go through the existing importer and are converted into pi-readable sessions tagged by source instead of being copied raw, so a moved or renamed project folder gets its history back without moving JSONL by hand; selecting an ancestor directory (the whole session-library root, say) no longer floods the candidate list with every session.
+- **Import external resources (MCP / skills / prompt templates)** - The configuration page gains an Import entry that pulls MCP configs, skills and prompt templates in from an external source, with a choice of destination (global Pi MCP / project Pi MCP / global skills / project skills ...). Reads and writes are boundary-checked first, so a path escaping the project or the app-data directory is rejected instead of half-writing into existing config (thanks @zx3022448, PR #221).
+- **Strict tool sampling can be switched explicitly (`compat.supportsStrictMode`)** - Since pi 0.86 the read / bash / edit / write tools are described with strict JSON-schema definitions (on by default for openai-completions), and a relay that does not understand strict mode can leak tool calls as plain text markers (common on DeepSeek-family routes). The provider form gains a three-state "strict tool sampling" control - follow pi's default / on / off - so config files no longer need hand-editing.
+- **Hide and reorder providers, models and auth entries** - Models can be hidden individually (collected under a "hidden models" group with one-click restore) and auth entries have their own independent hide / restore; provider cards support drag reordering (drag, plus move up / down and "restore default order"). The order is a local PiDeck preference that is never written back to config; the Models and Auth pages share one order, the model picker follows it, and DSH lists providers in the same order.
+- **New "cycle model" and "cycle thinking effort" shortcuts (Ctrl+M / Ctrl+T, macOS ⌘⌥M / ⌘⌥T)** - Cycle through the session's favourite models (the footer model name updates immediately) and through thinking effort; empty favourites, a single favourite, models without effort control and a failed catalogue load each get an explicit message, and both bindings are rebindable in Settings.
+- **Session tab hover tooltips show the workspace** - The tooltip is now two lines: the session title first, the workspace (project folder name + full path) second, and the breadcrumb's workspace segment gained a pill background - same-named sessions across projects can be told apart without opening them.
+- **Hour-scale durations for long tasks** - Steps past an hour render in hours (days beyond that) instead of readings like "3120m".
+- **DSH host can be stopped manually (persisted across restarts)** - The DSH configuration overview gains "Stop host / Start host": once stopped, PiDeck never auto-starts it again (restarts included), active DSH sessions stop too, and the overview reports "stopped manually" with a way back. This removes the deadlock where the DSH CLI wanted to own the host while the foreground PiDeck instance kept taking it back.
+- **The pi environment guide installs portable Node and the pi CLI in one click** - The environment guide walks through "install Node → confirm npm → install pi" with runnable steps, and existing installs take the "already installed pi?" branch to verify; the portable Node copy only serves PiDeck and leaves the system PATH untouched.
+- **DSH runtime archives are cross-packed from a single runner** - Runtime archives for all six platforms are now cross-packed by one runner, shortening the re-publish path instead of queueing per-platform native runners.
+- **The model catalogue moves to pi 0.86.1 (1443 models)** - Refreshed from upstream against the previous 0.85.1 snapshot: 145 entries added, 56 removed and 140 changed, bringing two new providers (radius at 27 entries, meta at 5), amazon-bedrock gaining its apac / eu / global / in / us-gov region prefixes (+38) and an openrouter refresh (366 → 380). Settings → Model catalogue → "Check for updates" pulls it right away, from either source, with no release required.
+- **Compact Windows quick tasks straight from Explorer (PR #243)** - The Explorer right-click menu for the desktop, folders and folder backgrounds gains "PiDeck quick task" (on Windows 11 you may need "Show more options" first): picking a folder opens a compact 720×760 window with nothing but the composer, and whatever you send runs in the normal session runtime. Closing the small window returns to the workbench with the task still running, and **nothing executes until you press send** (no accidental runs); a folder that is not yet a project asks you to confirm "add it as a project" before you can type, and a missing / non-folder / no-permission path each get their own message instead of a generic failure. The entry can be toggled in Settings - it registers independent verbs, so switching it off leaves the existing "Open with PiDeck" registration untouched (thanks @r0y1z2, PR #243).
+- **A cross-project "recent sessions" section on the activity page (10 rows by default, load more on demand)** - The activity rows only cover agents bound to the current runtime (live and terminal states), so after a restart the agent list is empty and the whole activity page goes blank - the sessions you just used are the ones with no way back in. A cross-project "recent sessions" section now sits below the activity rows, separated by a divider: the row count is windowed (10 by default, +10 per "load more"), decoupling DOM from total history (exactly what made the page feel slow); row chrome, selected background and the trailing "⋯" menu are character-for-character identical to history session rows; mounting quietly warms up project catalogues that have not been scanned yet (one request per project, no loading state, no scan storm), the full-page empty state only appears when both sections are empty, and an empty recent section collapses entirely rather than leaving a floating divider. A follow-up round tightened the layout further: the activity page is split into two independently scrolling regions (each `min-h-0 + flex-1 + overflow-y-auto`) with "recent sessions" living permanently in the lower half - a long activity list can no longer push it out of view, nor the other way round - and section titles stick to the top; the pager is `sticky bottom-0`, pinned to the lower edge when the content overflows so it is visible without scrolling all the way down, while still occupying its own row so it never covers the last one. The pager entry is verbatim the project page's (the margin / padding that pushed it 14px to the right is gone, and the number column uses `session-more-btn + ml-auto`), row height is 26px everywhere (session rows are 32px, so the pager sits one notch lower), section titles went up to `font-semibold` to match the project page's group headings so a section reads as a section rather than one more session row, and once the list has been expanded a "collapse" entry appears (gated by the `canCollapseRecent` pure function - the initial 10 rows alone cannot be collapsed).
+- **Import dialogs: search and incremental rendering for session and directory lists** - Importing external sessions can mean thousands of rows, and rendering them all at once is visibly slow: the three session lists (Codex parent rows / orphan subagents / generic list) and the "import sessions from another directory" source list now render 40 rows first and append as you reach the bottom, with the search row outside the scroll container so it stays visible while scrolling. Matching lives in a pure strategy module (the index is rebuilt only when the session list changes, and typing only does substring checks), so it is unit-testable without React. In search mode "select all" applies to matching rows only, so already-checked rows that do not match are never cleared; the source list can be searched by project path / group directory / session count / last used.
+- **Quick messages in the composer footer (insert, or send straight away - maintain them in Settings)** - The usual nudges (continue, commit, push, commit + push ...) had to be retyped or dug out of history every time. A quick-message button now sits to the right of the permission control in the composer footer: clicking an entry inserts it into the input, while the button at the end of the row sends it right away - without consuming the draft or attachments and without restoring the text if delivery is rejected, so whatever you were writing stays intact. The factory list is no longer hard-coded: the shipped resource `resources/quick-messages.default.json` provides 16 common instructions, and the single runtime source of truth is `quick-messages.json` in your user-data directory - editable by hand, with "open config file" and "reload" in Settings, and re-read every time the popup opens, so hand edits need no restart; entries left behind in `settings.json` by an older build are migrated into it on first read. Entry management no longer sits flat on the settings page - 16 inputs plus reorder buttons stretched it to nearly a screen and a half and pushed the rest of the settings out of sight. The settings row now keeps only "first 3 entries + N total + configure more...", which opens a dedicated dialog: the dialog has its own scroll area and its height does not change with the entry count, it supports search (case-insensitive substring; Enter inserts the first hit and leaves IME composition alone) and paging (8 per page with the page number clamped), rows are 28px tall and long entries are truncated, and insert / send are two side-by-side buttons that no longer rely on menu `stopPropagation`; "open config file" / "reload" collapse into icon buttons on the search row. (At the 30-entry cap a dropdown menu burst through the window, so the popup became a Popover.) Settings → Common → "Quick messages" still supports add / delete / move up / move down / restore defaults, caps the list at 30 entries with case-insensitive de-duplication, merges keystrokes over 400ms, writes add / delete / reorder immediately and flushes on blur or dialog close (outside the settings dialog's save / cancel cycle).
+- **Typing `/login` in the composer opens the desktop login dialog instead of being sent to the model** - `/login` was already in the built-in command table and its hint text, but the send path intercepted only two hard-coded patterns (`/new` and `/compact`), so `/login` fell through to the ordinary send branch: users asked to log in and the model answered "I can't do that". Classification of the take-over commands (new / compact / login) now lives in a pure module (`composerSlashCommand.ts`) and the send path only dispatches: a `/login` hit opens the login dialog (`/login <provider>` preselects a provider) without writing an optimistic bubble, creating a session or taking the send lock, since logging in produces no conversation content. The dialog side adds `ProviderLoginModal` + `useProviderLoginFlow`, going through the auth exception channel (`resources/pi-auth-host.mjs`) to list providers, log in, answer pi's follow-up prompts, cancel and log out - credentials are still written into pi's own `auth.json`. One adjacent reducer defect that could stall the flow is fixed too: unrelated events no longer clear a pending prompt (which made the input box vanish while pi was waiting, stalling until timeout).
+- **The session tab width cap is now an appearance setting** - The hard-coded 104px (132px for tabs carrying a DSH / image-gen / Plan badge) was the measured readability floor, but it felt tight on wide screens and could not be adjusted at all. It is now a slider under Settings → window appearance: 104 by default (zero migration, pixel-identical to the old look), range 80-400, with badge-carrying tabs widened by +28px (the old 132 - 104 delta). The slider clamps locally for instant preview and the main process normalises again on save, so dirty values (non-numeric / out of range / strings) fall back to the default. The boundary rules live in a pure module (`shared/sessionTabWidth.ts`) shared by the store and the settings page so the two min/max pairs cannot drift, and session tabs plus file / diff tabs read the same root-injected CSS variables (`--session-tab-max-w` / `--session-tab-max-w-badged`).
+- **Provider compatibility hints moved into a "?" tooltip beside the label** - The permanent small text under developer role / reasoning effort / return thinking content / strict tool sampling made the form loose and pushed the checkboxes out of view. All four are now a help icon beside the label: hover or keyboard focus reveals the original text, the full copy stays in `aria-label`, the longest one (strict tool sampling, ~130 characters) wraps inside a width-capped left-aligned tooltip, and click / Enter / Space on the trigger stop propagating so the checkbox is no longer toggled by accident. The now-unused `.config-compat-item-desc` rule is gone and the row height is tight again.
+- **Appearance settings gain a "feature modules" visibility switch (#248)** - Settings → Appearance → Feature modules lets you hide the UI entry points you don't use: Feishu bot / desktop pet / vision bridge / image generation / web service / Git / usage stats / process monitor / DSH backend (app basics such as common, shortcuts, notifications, appearance and proxy cannot be hidden). Only the entry is hidden - no configuration is cleared and no background feature stops: a connected Feishu bridge keeps running, DSH sessions keep going, and a hidden-but-active module shows a badge on its switch row ("connected" / "sessions running" / "enabled" / "configured") so you know it is still alive. The settings sidebar filters live against the draft, so flipping a switch previews immediately; hiding dsh also removes the Pi/DSH pane header from the configuration manager and drops DSH from the composer backend dropdown (same for imagegen, while the current session's already-selected backend stays listed). Hidden tabs remain searchable in the command palette (subtitle reads "hidden, click to show"), and deep links to a hidden tab show it for that dialog with a notice - whether to restore permanently stays a decision made in the appearance page (thanks @cmyk-xing, PR #254).
+- **Windows reopen at their last position, size, and maximized state (#258)** - With `startupWindowMode="last"` (the default) only width/height were remembered, so restarts always centered the window on the primary display, dropped maximization, and ignored multi-monitor layouts. Position and maximized state are now persisted alongside size: a recorded position is clamped back into the work area and restored on its original display (centering only when nothing is recorded); old files with just width/height still load (position falls back to center) and half-written coordinates are discarded as a whole. The close path saves normal-bounds x/y plus a maximized flag - during compact quick-task mode the pre-enter state of the main window is captured, and fullscreen is persisted as maximized. The "last" option label now reads "last window position and size" (thanks @cmyk-xing, PR #259).
+
+### 🐛 Fixes
+- **Third-party relays no longer fail to list models - or to use a manually typed one** - two independent root causes. First, the proxy handed to the pi child process only set `HTTPS_PROXY` and friends, but pi's LLM calls go through undici, which by **default ignores those variables entirely** - so the proxy looked configured while requests still went direct, and a gateway that is only reachable through a proxy showed up as "can't list models / Connection error even with a model typed in". `NODE_USE_ENV_PROXY=1` is now injected alongside the proxy (measured: `HTTPS_PROXY` alone → FAIL; with the switch → OK models=15), and the assembly rules moved into `sessionProxyPolicy.buildPiProxyEnvPatch`, shared with the DSH host so the two can't drift. Second, turning the desktop proxy off explicitly sent `direct`, i.e. force-bypassing any proxy the user already has configured in the OS; it now falls back to `system` (follow the system setting), so PiDeck no longer cuts off the user's own network path. Model fetching is also diagnosable now: a WAF challenge page / non-JSON body reports that the request was blocked by a gateway and suggests switching the proxy or using an official client UA, and TLS handshake failures and connection timeouts each get actionable wording instead of a blanket "failed to load the model list".
+- **Provider User-Agent collapsed into a single editable dropdown, with a much fuller preset list** - Previously a "pick a preset" dropdown plus a separate free-text field fought each other (after choosing a preset the text field still held the old value, and a hand-typed value never appeared among the options); they are now one editable dropdown where presets are picked and arbitrary values are typed, with "unset (use runtime default)" as a regular entry. Presets are grouped into Official CLI / Official SDK / Generic HTTP client and, beyond the existing claude-cli / claude-code / Kilo-Code, now cover codex-cli, cursor-agent, OpenAI/JS, anthropic-sdk-typescript, openai-node, GoogleGenerativeAI, Mistral, Go-http-client, curl and a full Chrome UA - for gateways that allow-list by UA. A UA containing control characters such as newlines is now flagged in the form instead of being dropped silently.
+- **Shared DSH config directory is now called out (#189)** - PiDeck defaults to your local `~/.dsh`, sharing config, credentials, and plugin state with the dsh CLI, while DSH itself allows only one host per `DSH_HOME` - running both overwrites each other (the classic symptom: a catppuccin theme picked in the CLI web UI is written back to the default within minutes by the foreground PiDeck instance). PiDeck was in fact already detecting this, but only wrote it to the app log, so nothing was visible in the UI. The DSH configuration overview now reports it in two tiers: when the default directory is un-isolated it neutrally explains the overwrite risk and gives a paste-ready `DSH_HOME` isolation command; when the lock file shows another live PiDeck host it escalates to a warning and reports that host's pid; after the user has explicitly switched directories nothing is shown. The decision logic is a pure module (`dshHomeSharing.ts`) with 13 unit tests covering stale locks, our own lock, and corrupt locks (no false positives).
+- **Announcement toasts no longer repeat forever** - A toast was only deduplicated in renderer memory, while the only way to mark an announcement read was opening the announcement center. Closing a toast (or letting it time out) therefore recorded nothing, so the same unread announcement was re-shown on **every launch** and **every renderer crash-reload** - and a backlog of unread items was popped one by one at 4s intervals, which is exactly the "it keeps popping up, not just once" report. The "already notified" set is now persisted in the main process (`notifiedIds`, separate from `readIds`, following the same save path as the read set), so each announcement toasts **once per machine**; a round shows only the newest item and marks the suppressed older ones as notified too (otherwise they would take their turn as the next "newest", popping N times for N backlogged items) - older unread items still surface via the sidebar dot. Turning off "Announcement notifications" while running now also takes effect immediately: the toggle is re-read on every poll tick, so a poll already in flight can no longer keep popping (previously only the sidebar entry disappeared). Turning off a toast is deliberately **not** treated as read - the red dot and the read archive stay until the user actually opens the announcement center.
+- **Wallpaper-mode dialogs are no longer see-through, and the night-mode selected state in ask cards is back** - Two separate problems. First, with a background image enabled the workbench dialogs (Settings / Pi configuration / project resources / environment) were deliberately dropped to panel-level opacity - just 30% opaque at 80% image visibility - so the page text behind them bled straight into the settings content and two layers of text interleaved; every dialog (the scratch pad included) now shares the ≥90% "dialog baseline", while inner cards stay flattened so no double-translucent patch reappears. Second, the selected ask option was nearly indistinguishable from an unselected one in dark mode: options are shadcn `Button variant="outline"`, whose `bg-background` / `dark:bg-input/30` / `dark:border-input` utilities live in the utilities layer and, by layer order (legacy < utilities), override the legacy selected rule - in light mode only the border colour survived, and in dark mode even that was overridden. The selected state is now expressed through component utilities (with `dark:` / `hover:` counterparts) at all five option sites (batch single- and multi-select, confirm yes / no, single-card select); dark mode uses a stronger accent tint plus an accent border, the single-card select also carries a check mark as a non-colour cue, and the batch question tabs' `active` / `answered` states were collected the same way.
+- **The session tab bar is no longer stretched by long titles** - Tab width caps had been widened to 208 / 256px for long titles, were tightened to 176 / 224px, and are now down to 104px (normal tabs) and 132px (tabs carrying a DSH / image-gen / Plan / Goal badge): the fixed overhead is roughly 54px (16px padding + 10px status dot + 16px close button + two 12px gaps), which leaves about 50px ≈ 4-5 CJK characters for the title at 104px - the readability floor, so squeezing further means making the status dot and close button occupy space only when active or hovered. Long titles no longer fill the whole bar, while the micro font size and per-line character budget stay; the cap is now a configurable appearance setting (defaulting to exactly these two values - see "The session tab width cap is now an appearance setting" above), and the regression guard now forbids hard-coding the old caps again (116 / 148 and max-w-44/52/56/64). The contrast problems of the tab hover tooltip and the breadcrumb workspace segment (grey, hard-to-read hover text on light themes) are fixed as well (thanks @xiaYuTian11, PR #226).
+- **Bracketed LaTeX formulas now render (PR #251, thanks @Q-xuan)** - When a model follows the LaTeX convention of `\(...\)` / `\[...\]` delimiters, prose and table cells showed raw source like `\le` or `\boxed`: the remark-math pipeline only understands dollar delimiters, and Markdown had already swallowed the bracket delimiters as plain escapes. The render copy now normalizes bracket delimiters to `$...$` / `$$...$$` before chunking (code blocks / inline code / existing dollar math / unclosed streaming fragments stay untouched, and prose after a display formula does not fall into the formula block), still through the existing KaTeX - no new dependencies; the session text and copy content are never rewritten. Ships with real remark-math / KaTeX regression tests and an Electron E2E.
+- **"Stop answering" and "Close agent" are no longer the same phrase for different things** - The run-control menu used one ambiguous phrase for two actions with very different outcomes (stop the current answer vs. terminate the process); the names are now split by intent so the target and the consequence are obvious in the menu (thanks @bfzha).
+- **Skill rename is routed by skill type** - Renaming a markdown skill no longer moves the whole skill root directory (which made the skill disappear), and the missing `skills:rename` IPC handler is registered, restoring global skill rename (thanks @xiaYuTian11, PR #227).
+- **Plan Mode is no longer kicked out by an ordinary message** - Sending a normal message after `/plan` no longer drops out of plan mode immediately, so a planning session can keep the conversation going.
+- **Small fixes around the file tree, file references and shell text** - A file-tree lazy-load placeholder can no longer stick permanently over file names; file references inside inline code are clickable again (thanks @Q-xuan, PR #228); shell operators such as `&&` and `|` are no longer rendered as session chips; the status-glyph canvas is widened to 16×16 so its right edge stops clipping; the redundant file-reference hint extension is removed and a scheduled-task shutdown race is fixed.
+- **Ask waiting hints use the question tone** - "Waiting for an answer" on ask cards (the background-ask patrol notice included) is no longer classified as an error, so the tone matches the card state.
+- **Automatic retries now land in the run's process row instead of a standalone card** - The retry status card used to be inserted between tool calls and the following answer, split off from the tool timeline and visibly out of order. `diagnostic.retry*` messages are now collected into the owning agent-run's process sequence as process rows on the same level as tools / thinking (reusing the tool-card visual language), with three isomorphic states: retrying (spinning icon + amber running badge), finally failed (red icon and text + danger-soft failure badge) and retry succeeded (neutral completion badge - success still goes to a toast, and the row stays as the cycle's end marker). Grouping order matters: inside a run the retry branch flushes the preceding tools before joining the group so its timing is strictly after them, and when no run has started it stays a standalone entry rather than fabricating an empty run (`buildTurnDisplay` / `segmentSummary` summarise the retry-entry process item and `retryCount`). The timeline's system branch short-circuits every retry card through `isRetryStatusMessage`, handing the trace-keeping job over to the process rows; the success / failure toast path (`composeFailureNotice`) is unchanged.
+- **The model picker's primary and secondary lines are pinned down** - The favourites bar and the "hidden models" group mix providers without group headings for context, and previously showed only the model name, so neither the owning provider nor the id was visible. The primary line is now the name (falling back to the id when missing or blank) and the secondary line is always `provider/id`; hidden rows share the same rules as visible ones (just de-emphasised). The value and fallback rules are a pure module (`modelRowLabels`) with 5 locking cases.
+- **No model_change write when the model did not change** - `setModel` is now idempotent: re-applying the same model within one run no longer emits a meaningless model-change event (nor triggers a redundant session reload).
+- **Backup pruning no longer deletes the wrong (oldest) backup** - The backup list sort gained a deterministic secondary key, so count-based `prune` no longer mis-deletes when timestamps collide within the same second.
+- **The DSH session timeline no longer splits every intermediate reply into its own turn** - Intermediate replies within a step belong to the same turn again, matching pi's own rhythm.
+- **dsh-bill no longer pins the CPU while the host starts** - Historical backfill is off by default, so starting the host no longer maxes out a core replaying old bills.
+- **A provider with a proxy selected no longer goes direct** - The "fetch models" request now carries the proxy choice, so providers configured with a proxy stop failing to list models.
+- **A torn settings write no longer silently resets everything** - `settings.json` is now written atomically, serialized and backed by a `.bak` fallback: a killed process or a full disk no longer makes the app read a half-written file back as all-default settings.
+- **The built-in web service binds loopback by default, with mandatory token auth off-loopback** - Exposing it to the LAN is no longer wide open, and JSON bodies are capped at 2MiB (413 beyond that, the connection is dropped past 16MiB) so a single request cannot blow up the main process (thanks @bfzha).
+- **Concurrent image-gen writes no longer lose lines** - Old-format migration and appends are serialized per file, so two concurrent snapshots can no longer overwrite each other, and images that cannot be stored are no longer dropped silently during migration (a count mismatch keeps the original line intact). Image-gen responses are capped at 32MB with a streaming abort that reports `responseTooLarge`, and extension-updater downloads stream with the same early abort.
+- **Timeline scroll races** - Fixes occasional jumps to top / bottom when switching sessions, cold restore pinning the view to the top, slow upward scrolling being unable to escape (keeping the 30% quiet-collapse and the two-stage escape), and the inverted ordering between restore-to-bottom and asynchronous transcript reads (thanks @xiaYuTian11, PR #224).
+- **AtomGit update checks 404 on macOS** - The check now reads the version from the OpenAPI, restoring update detection for macOS builds.
+- **The main process is no longer frozen by login-shell PATH probing** - Probing moved to asynchronous warm-up with a process-level cache, so a first launch or a new terminal no longer stalls the app.
+- **Multi-pane (split) performance** - Composer subscriptions are isolated per `sessionId` through an atomFamily, the background-ask patrol collapses into a single App-level mount, and the timeline controller subscribes to a per-session `loadState` slice: streaming in one pane no longer re-renders the other.
+- **A custom Git executable path now applies everywhere** - Only some Git operations honoured the configured path while 11 read paths still used bare `git`; every one goes through `currentGitExecutable` now, so a custom Git (portable, or installed outside PATH) works for reads too.
+- **Session and event boundary hardening** - Late streaming events after a stop are rejected as "no runtime" instead of leaking dead agent state; `agentsLog` / `agentsTextStream` payloads carry the full `sessionId + runtimeGeneration` triple so stale results from an old runtime are dropped; main-process direct sends are restricted to the subscribed-channel allowlist; `PiRpcClient`'s line buffer is capped at 8MB (unterminated data can no longer grow forever); Git write operations validate the commit hash and reset mode; oversized diffs are truncated to `maxBytes` before reaching the renderer; the renderer drops the webview's dead `allowpopups` / `allowfileaccess` attributes, and a batch of redundant `any` assertions plus dead IPC channel constants is gone (thanks @juzijun233 for the hardening series).
+- **The skill and prompt pages can create resources again** - An earlier cleanup that removed the old forms took the whole creation path with it, leaving both pages unable to create anything. Reinstated selectively for the current architecture: the new-skill card (name / location / description) and the new-prompt card are back, routed to the global or project-level API by scope, and project-level creation still validates the project boundary. The card labels had also been flattened into one character per line by a legacy `display: grid` rule overriding the shared Label's flex layout - they now use a native label with full-width fields, and the dead styling plus its dark-mode / narrow-screen overrides are gone.
+- **The sidebar segmented control no longer leaves an empty track** - Only the buttons stretched before, so widening the sidebar exposed a blank stretch on the right; the three segments (Activities / Chats / Projects) now split the track evenly, adapt to the width, and truncate labels that would overflow.
+- **A disabled vision bridge no longer reports a fake "conversion failed"** - When the bridge was off and the current model had not declared image input, the old code applied the failure marker outright: users saw a red "vision bridge conversion failed: vision bridge not configured" and were sent to check their key and endpoint, which pointed the investigation in the wrong direction. In reality pi degrades unsupported images to "(image omitted: model does not support images)" before the request leaves the process, so the original image never reaches the provider and cannot 400 - "bridge is off" is a configuration fact, not a fault. It is now a neutral "[image #N not sent to the model: <reason>]" marker with an amber card and an actionable next step per cause (no image selected / stale model catalogue, restart the session / no vision model chosen), while genuine failures (unresolvable endpoint, call failed or timed out) keep the failure text; the catalogue check reads `models.json` and compares it by path + mtime.
+- **The AtomGit update source now actually fetches files** - Two independent layers of breakage. First, `atomgit.com/<owner>/<repo>/raw/<ref>/<path>` had been taken over by GitCode's frontend, so a programmatic request came back as an SPA HTML shell (captcha SDK included) and `JSON.parse` on it could only fail. Second, even with the right URL the official AtomGit contents API answers with a **base64 envelope** (`{type,encoding,content}`) that the model-catalogue chain handed straight to the JSON parser without ever decoding it. Both are fixed together: URL construction (per-segment path encoding, ref moved into the query) and the base64 decoding now live in one shared module (`src/main/update/atomGitContents.ts`) used by all four chains that pull files out of the repository - built-in extension hot update, built-in prompts/skills hot update, the changelog and the model catalogue - and every source pair keeps GitHub raw as its fallback half, so choosing AtomGit changes speed, not success. Verified against the live API (`source: atomgit` → `checkRemote ok`, `remoteVersion 0.86.0`, `update ok`), with a source-scan regression guard that turns red if `${host}/.../raw/` concatenation reappears anywhere under `src/`.
+- **Per-model User-Agent no longer takes up a whole column** - Most models never need their own UA override, so an inline input on every row wasted width and looked cluttered; it collapses into a fingerprint icon in the actions column - grey when unset, accent-highlighted with the current value in its tooltip when set, opening a dialog for edits (reusing the preset dropdown, groups included) with a one-click clear for overrides. Two adjacent bugs went with it: the UA dropdown rendered its group heading as the literal `section.group` (missing JSX braces), and the empty-table column count comment disagreed with the real column count.
+- **The files drawer's search entry actually opens now** - The magnifier button in the files panel toolbar never rendered: the drawer passed the current project only to the session-history panel, so the files panel always received an empty project, the button's conditional render never held and no search could be issued. And even inside the search view an empty query returned `null` for the whole panel, leaving blank space with no input box in sight. The drawer now passes the current project through to the files panel and adds two keyboard entries: `Ctrl+F` (`⌘F` on macOS) and type-to-search, where the first character is carried into the query of an input that focuses itself on open; leaving search returns focus to the panel so keystrokes keep working. Search itself is unchanged (full-depth name scan, 250ms debounce, 200 results / 8s cap).
+- **The ask card is pinned to the bottom of the column with full-width option rows, and the composer stays visible (#230)** - A blocking question no longer scrolls away with the timeline content: the card moved to the bottom of the timeline column, side by side with the composer, so it stays in view while you scroll back for context. Ask and the composer each take their own space, so the input box stays visible and focusable (the Ask card's height ceiling reserves the composer's minimum height, long Ask content scrolls inside the card, and the two bottom bars cannot overlap in a narrow window). Options are full-width rows everywhere (the 2/4-column grid and its 72px minimum-height heuristic are gone), so long option text is no longer squeezed into a narrow strip; single-value answers (single select / confirm) advance to the next question automatically and submit on the last one, multi_select / input / editor still advance explicitly, and single-question batches deliberately do not auto-advance so "click the option = submit" cannot misfire (thanks @bfzha).
+- **File links in the chat: Ctrl/⌘ + click opens the default app, and extension-less files / directories are clickable too (#229)** - The file-link context menu gains "Open with default app" (so a `.md` mentioned in a reply can open in Typora) with the same order as the files-drawer menu. A plain click is unchanged (text still opens in the built-in editor with line targeting and a read-only diff); Ctrl/⌘ + click hands the path to the system default app, reusing the modifier gesture external links already use, with one shared platform label for the menu entry and the tooltip. Extension-less files (Makefile, .gitignore, ...) and directories (trailing slash, multi-segment extension-less) are recognised now: they stay *candidates*, existence is verified by a silent stat, and false positives degrade to plain text (thanks @bfzha, @Q-xuan).
+- **pi 0.86 `system` entries no longer make edits and deletes land on the wrong entry** - pi 0.86 records system-prompt and tool-list changes as `role:"system"` session entries; they produce no chat message but were mixed into an entry list filtered only by `type`, which shifted every entryId: edits and deletes that locate an entry by id landed on a neighbouring entry (resend had a text check as a backstop, edit and delete had none). The same root cause pushed notification and compaction card anchors too far down the timeline (sometimes clamping them to the end), drifted the "load more" anchor, and made the sidebar message count tally system entries as messages. "Consumes an entryId slot" is now a single predicate (`isRoleMessageRole`) shared by window-id collection, card anchors, window offsets and counting, with red-to-green regression tests (thanks @bfzha).
+- **DSH v1+ sessions are visible again, and "load more" pages by turn** - Official session log files carry a format generation (v0 has no version in the name, later generations append `vN`) and PiDeck only recognised the unversioned name, so v1+ sessions simply did not exist as far as the app was concerned: on this machine 79 v0 and 21 v3 sessions coexist, and those 21 were never listed and could not be deleted. Discovery now accepts v0/v1+, picks the highest generation when several exist and prefers the compressed file within one generation, so the foreign-session list and archived titles support the new format (non-official patterns are still rejected, so half-written files never count as sessions). A separate bug: "load more" handed the renderer's *turn* count to the host as a message-event count, so a sparse session advanced 3 messages per click and took many clicks to reach older content - the count is converted by a pure function now (turns × 24 clamped to [60,120], 240 per page, at most 3 turns topped up), the page start aligns to a turn boundary, and out-of-range events are dropped so the cursor cannot stall. A click shows a spinner, and **failures are no longer silent**: a failure row (raw error in its tooltip) appears under the button with a retry, cleared when you switch sessions so it never leaks across sessions.
+- **The DSH stats line has its data back** - 0.1.5 split the event mux into three streams and PiDeck subscribed only to session events plus the approval/question stream, missing the host-level `session/control` stream - the only source of projection-change broadcasts. Token usage, context pressure and cache-hit rate therefore froze at their subscribe-time values (a brand-new session had nothing at all), and the line under the composer fell back to "N turns · M steps". The control subscription is in place now (same exponential-backoff self-healing as the main stream, with the host's re-sent baseline filling the gap after a reconnect), baseline and history-tail share one projection-seeding path, and older sequence numbers can no longer overwrite newer frames.
+- **After a manual DSH host stop, history reads report a dedicated state instead of an error** - Reopening a DSH session after stopping the host manually returned an error that only surfaced as "it won't open"; that error is now the "runtime stopped" state with a primary "Start host" button that restores it in one click, and a failed read no longer overwrites the manual-stop state with an empty cache.
+- **DSH foreign-session scanning is bounded in CPU and memory** - Single-frame decompression carries an 8MiB cap (zstd frames declare a contentSize, and a 339-byte frame can legitimately expand to 10MB - unbounded decompression is a main-process memory spike), title folding became an explicit opt-in that is off by default (the list only needs ids, yet read a 256KiB prefix per session and decompressed it frame by frame), and the prefix read is two-stage (64KiB first, 256KiB only when folding is really needed). Measured over 79 local sessions: id enumeration 78.5ms → 17.1ms, sidebar list 78.5ms → 26.1ms.
+- **Windows no longer restore off-screen** - Restored window bounds are constrained to the visible work area, so unplugging an external monitor or changing resolution can no longer leave the window somewhere unreachable.
+- **Notice details render through the same markdown pipeline as session messages** - Clicking "view details" on a long toast body used to render plain text, while announcements and similar content are markdown, so users saw literal `**bold**` and code fences; the body now goes through the same streamdown sanitize pipeline as session messages, the announcement center and the changelog (plain-text notices still break lines normally), the dialog and the announcement center no longer look different, and long bodies get a height ceiling. Clipboard writes collapsed into one `writeClipboard` as well: the toast's own implementation silently failed while the window was unfocused, and everything now goes through the Electron main process and only ticks the check mark once the write actually succeeded.
+- **Per-turn duration moved onto the action row** - The duration and the action buttons now share one row with the duration at the end, saving a row of height; turns with no final answer (tool/thinking only) still show their duration. Icon sizing was aligned too (clock 12 → 14) along with the button gaps, and the translucent de-emphasis moved from the button group to the whole row so icons and the number no longer look mismatched.
+- **Auth presets cover the two new 0.86 providers** - Meta (Muse) via `META_API_KEY` and Radius, which is OAuth-only (run `/login radius` in the pi terminal; the preset is marked oauth and links to the pi docs), plus a value-uniqueness guard on the preset table.
+- **DSH sessions could not be created in WSL mode** - The DSH host is a native Windows process and normalises the workspace path through `realpath`, while a WSL-mode project record is a Linux path (`/mnt/h/...`): handed to the host as-is it is read as a directory on the current drive root (`realpath('/mnt/h/x')` → `C:\mnt`) and fails with ENOENT, so session creation always failed. The conversion now lives at the host boundary (`configureWsl` + `toHostPath`): workspace creation, the session file directory, archive / unarchive / delete all go through it; the manifest keeps the project-path form of cwd (so sessions still match their project and no duplicate project is created) and stores hostCwd alongside, so toggling WSL during archiving can still resolve back to the real host directory. `tab.cwd` from the renderer is deliberately untouched - it doubles as the baseDir for file links and the editor, and a WSL project needs exactly the Linux form (5 regression cases, all red before the DshHost change).
+- **Session titles no longer mistake an expanded prompt template for user intent (#250)** - When the first message uses `/template`, the `<prompt_template ...>` wrapper is an instruction envelope for the model, not something the user said, but neither title path stripped it: the placeholder title wrote the whole template XML into the tab name, and the async summary failed to strip before its 1600-character cut so the template body ate the budget (in the reported 2096-character message, "how are you" sat after the closing tag and never reached the title request). `shared/expandedRefBlocks` gains `textForSessionTitle`: it keeps only the text the user wrote outside the blocks, falling back to the block label (template name / session name / quote) when there is none, and all four plain-text exits (placeholder title, scan fallback, catalogue backfill, async summary) go through the same cleaning; a template-only message is named after the template directly, saving a model request the template would have drowned out. The extension is a standalone file loaded by pi via `-e` and cannot import application source, so it carries its own same-semantics copy, with tests keeping the two in lockstep step by step (any divergence is a regression). Titles already dirtied by older builds self-heal now: a title that is an unfolded block's raw text is corrected on the next message or the next scan instead of sitting in the sidebar forever. DSH's title folding (`dshSessionTitleFold`) was deliberately left alone - it is a contract isomorphic to the official dsh-session-title.
+- **Title ownership is settled on PiDeck's auto-naming, and locked sessions stop being re-scanned** - two adjacent problems. First, anyone could write the catalogue title: pi runtime renames (`/name`, TUI rename, `session_info_changed`, the first-turn auto rename) all went through one callback and could overwrite a name PiDeck had generated. Only PiDeck's own auto-title extension marker (`pideck:auto-title`, and it must immediately precede the matching `session_info` change) can now claim a fresh placeholder title; `claimTitleOwnership` / `applyAutomaticTitle` separate "the user already owns this" from "still auto-overridable", generic pi runtime names no longer enter that write-back path at all, and ownership is reserved before the asynchronous `set_session_name` lands so a late automatic result cannot outrun a manual claim. Second, sessions whose title was already locked were still re-reading their head/tail windows whenever the file mtime changed - pure waste. `SessionTitleFetchOptions.includeTitle=false` now lets locked records read only the bounded header for structural metadata (flattened-subagent parent links, fork markers), never touching the title windows, with `inferSessionNameAndValidity` branching accordingly and only the one disk probe that repairs a legacy flat subagent's missing parent link retained.
+- **The todo strip's scrollbar no longer flickers** - The "in progress" icon is a rotating 16×16 svg, and Chromium measures scroll overflow from a descendant's **post-transform bounding box**: at 45° the AABB is 16×√2 ≈ 22.6px, about 1.3px taller than the 20px row, which pushed the outer `overflow-y:auto` list's scrollHeight from 104 to 105 - so the native scrollbar appeared and disappeared at the rotation's frequency (measured: 23~34 of 60 frames carried a scrollbar, clientWidth alternating 991↔981; only visible when the last row was in-progress, because only overflow below the last row counts towards scrollHeight). The row `<li>` gains `overflow-hidden`, confining the rotating AABB to the 20px row (16px of ring ink plus 2px of centred slack, clipping nothing visible), so scrollHeight stays constant and the scrollbar never appears. The rotation must stay on the svg root: moving it down to the `<circle>` was tried, but Chromium gives SVG children a default `transform-origin` of `0 0`, so the ring swings out of the box around the viewBox origin and gets clipped into a small arc. The `scrollbar-gutter: stable` added to the widget stack last round is reverted as well - the strip's own list is what flickers, a gutter cannot fix it, and it narrowed the card by 10px, breaking the alignment contract with the composer / message column. An E2E case samples the scroll fingerprint frame by frame as a regression guard.
+- **Continuous upward scrolling in a long session no longer deadlocks the preload window** - Programmatic-scroll suppression used to be a boolean meaning "this frame's scroll was ours", reset only in the next rAF: during one continuous up-scroll new scrolls kept overwriting the flag while the older rAF's cleanup ended a newer suppression early, so real up-scrolling was permanently misread as programmatic, the window stopped expanding, and you could keep scrolling back without anything earlier ever loading. Suppression is now a **deadline**-backed `programmaticScrollGuard` (with a generation token so an older rAF cannot clear a newer suppression window, and a finite window that a single-frame marker cannot cut short), so the flag can no longer latch. The E2E case grew from a 6-turn to a 9-turn conversation and requires one continuous up-scroll to cross two 3-turn windows - exactly the path that used to fail.
+- **New sessions created from the project guide no longer inherit the guide's earlier messages (#255)** - The Nth message sent from the guide page (the virtual bootstrap session) produced a new session whose opening already contained every user bubble sent from the guide before it (N-1 stale messages on the Nth send), going away only after a restart or a session switch. Root cause: promoting the virtual session to a real one **copied** its message cache instead of **moving** it - the virtual session id is a constant with no catalog record, so the leftover cache was never cleaned and was appended as previous messages into the next new session. Promotion now uses the same move semantics as drafts/attachments: append into the new session, then delete the source key, release the outline projection and evict the LRU entry (thanks @cmyk-xing, PR #256).
+- **Codex imports get the real session name, and tool calls no longer vanish in stretches** - Two reported problems: imported session names were rollout file names (`rollout-2026-07-13T18-44-48-019f5b14-474...`), and tool calls in the middle of a session disappeared - only `function_call` was imported, while the largest category, `custom_tool_call` (apply_patch / exec), plus `web_search_call` / `tool_search_call + output` / `image_generation_call` / `agent_message`, was skipped wholesale. Titles now come from Codex's own plain-text index `~/.codex/session_index.jsonl` (`{id, thread_name}`, append-only with the last entry winning; measured identical to the SQLite state database entry by entry - 106 entries, 0 differences, every user rename included), which has no locks, no WAL and no temp copies and behaves the same on all three platforms; the state-database path (which existed to dodge locks and a missing `-shm`) is deleted entirely. Title priority is index `thread_name` → first user message in the jsonl → "Codex session <date>", never falling back to the rollout file name. The skipped call kinds are normalized and imported too, so the replayed step sequence matches the original session.
+- **Linux packages no longer lose the node-pty runtime artifact to the cleanup script (#257)** - The afterPack cleanup stripped the Linux node-pty runtime artifact as well, so the packaged build failed on startup on that platform; the cleanup is split into modules (file utils / node-pty / remaining redundancy) that explicitly preserve node-pty's platform artifacts, with tests covering both the delete and the preserve side.
+- **Picking a model on the project guide after switching to DSH now works (#253)** - Three stacked defects. First, the click was dropped: `applyModel`'s no-record branch returned outright for the DSH backend without writing anything (the concern - not leaking a DSH catalogue choice into pi's welcome preference - was valid, but the implementation skipped persistence altogether), so DSH now has its own `WELCOME_DSH_MODEL_KEY`: pi and DSH models come from different catalogues (`models.json` vs host route names) and one shared key would let either side parse the other's model, while separate keys also keep each backend's last pick. Second, the footer fell back to the pi model: `bootstrapDefaults` resolved the backend from the settings value (`effectiveAgentBackend`) and ignored the guide page's `guideBackendOverride`, so after the switch `dshDefaultModel ?? bootstrapDefaultModel` leaked the pi default into the footer. Third, the precedence between guide-page preference and runtime state is settled in the same pass.
+- **The selected model's display name no longer jumps when the agent starts** - Before launch the footer rendered from the session record, after launch the name returned by runtime `get_state` took over: with a local `models.json` mapping router9/qd/qfmodel to qwen-3.8-flash, the label flipped from id to alias. The root cause was display authority split in two - the session record stored only `provider/id` and the name was backfilled by the runtime. Selection and execution are now fully separated: `createSessionModelPreference` in `shared/modelDisplayName` makes every newly written `SessionRecord.model` a complete `{ provider, modelId, modelName }` snapshot (`name.trim() || modelId`, blanks treated as missing and never rendering an empty name), and the composer footer / picker read only the session record or the guide preference, explicitly ignoring runtime parameters, so the same local snapshot shows before and after launch. Runtime state still drives streaming, tools, token/cost and execution identity, but no longer decides the displayed name of the current selection.
+- **A picked model or thinking level is no longer overwritten by what the runtime reports** - Following on from the entry above: after `setRuntimeModel` / `setRuntimeThinking` succeeded, the `provider/id` the runtime reported (or the host-normalized level) was written back into the session preference, so a click could be rewritten by execution state; the session preference now stores the user's pick while runtime state only refreshes execution state and the config alias of the same model. The footer resolves "the session record's user choice first, runtime only as a fallback" (`resolveComposerLiveModel`: `record ?? runtime ?? fallback`), borrowing the runtime's name only when it matches the selection so an older runtime's name cannot bleed onto a new choice, and falling back to the id otherwise; pi-side display names only honour the alias configured in PiDeck's `models.json` (`resolveModelDisplayName`, falling back to the id when absent) instead of being overwritten by a catalogue name.
+- **The sidebar's "Import sessions" submenu no longer flashes in the parent menu's top-left corner** - The `.dropdown-stagger > *` cascade entrance animation hit Radix's popper wrapper: `DropdownMenuSubContent` does not use a Portal, so its `[data-radix-popper-content-wrapper]` is a direct child of the menu content, and since the wrapper is positioned by an inline `transform` the animation's `transform` took precedence and pinned it to `left:0/top:0` - the submenu faded in at the parent menu's top-left for 180ms and only then teleported into place. The selector now excludes the wrapper with `:not([data-radix-popper-content-wrapper])` (`:not` does not affect `nth-child` counting, so the parent menu keeps its 30-180ms stagger), with a new contract test locking the exclusion in.
+
+### 🙏 Thanks
+
+Special thanks to **微时佬友** for providing the model service used in our
+software development 🎉
+
+Thanks to **juzijun233, bfzha, xiaYuTian11, cmyk-xing, Q-xuan, zx3022448, r0y1z2** and other contributors for their code 🙏
+
+What each contributed this cycle: juzijun233 (the stability / security hardening series - no more main-process freezes from PATH probing, session and event boundaries, per-session subscription isolation), xiaYuTian11 (timeline scroll fixes #224, session tab width and font size #226, skill rename routed by type #227), cmyk-xing (appearance-settings module visibility toggles #254, clearing the guide page's virtual session cache on first send #256, restoring window position and maximized state on startup #259), bfzha (run-control semantics split, web service loopback binding with token auth, shell text and status glyph fixes - plus this cycle's ask card rework #230, the pi 0.86 system-entry misalignment fix and the retry card cleanup), Q-xuan (clickable inline-code file references #228), zx3022448 (external resource import #221), r0y1z2 (the compact Windows Explorer quick-task window, PR #243).
+
+Thanks to **miller, 伊森龙** for their generous donations and support! 🎉
+
+Thanks to all group members who submitted suggestions and bug reports! 🙏
+
+Thanks to everyone who filed issues and feature requests on GitHub! 🙏
+
+> 💬 **QQ feedback group: 1026218644** | **Author's WeChat: caoayu97** (mention "PiDeck"; WeChat group invites available)
+
+## v0.7.6 - 2026-09-17
+
+### 🚀 New Features
+- **Customizable global shortcuts** - Settings gains a Shortcuts tab: Open Settings / New Session / Search / DevTools can all be rebound. Click Edit to record a key, Esc to cancel, Delete to restore the default; conflicting bindings disable save. Matching lives in the main process and applies immediately after save or backup restore; sidebar kbd hints follow the real binding, and the built-in browser webview forwards the same shortcuts.
+- **Ctrl/Cmd+P command palette** - A new global command palette: fuzzy-search and jump to every settings tab plus the configuration pages (models / auth / MCP / trust / raw file), or run actions directly - restart / stop the current agent, reload the session, copy the agent ID, start a new session, open settings. Matched characters are highlighted; ↑↓ to move, Enter to run, Esc to close. Rebindable in Settings (Ctrl+P by default). It is deliberately separate from session search (Ctrl+F): the palette searches configuration and commands, Ctrl+F searches projects and sessions. Specific settings fields are searchable too: the palette jumps straight to an individual setting item (wherever an anchor is annotated) and briefly highlights the landing spot; an anchor-list-vs-source test keeps renamed fields from silently scrolling to nothing.
+- **Hot updates for official prompt templates and built-in skills** - Official templates and bundled skills reuse the built-in-extension overlay (read-only `resources` → userData overlay): remote manifest + per-file sha256, atomic replace, AtomGit / GitHub dual sources; writes take effect without a restart. The settings store panel can check and one-click update.
+- **WB enhancement prompt templates in the store** - Ships "general enhancement" and "deep enhancement" WB templates, available directly from the prompt store.
+- **Project-scoped scheduled tasks, management as a modal** - Automation tasks can be scoped to a project. The manager is now a modal instead of covering the session workspace, so opening it does not interrupt the current session or split panes.
+- **Session tab "current session actions"** - The ⋯ menu gains the same actions as the sidebar context menu: rename / duplicate / export HTML / copy session file path / open session file. When search lands on a session the sidebar has not rendered, the ⋯ menu is the stable entry.
+- **Context menu for file path links in sessions** - Right-clicking a file path link in the timeline opens a menu: open in the file explorer (files are located and selected, directories open directly), copy the absolute path, or copy the project-relative path. Clicking a directory link no longer fails with a cryptic "illegal operation on a directory" - clicks are routed through a scoped stat that distinguishes files from directories first.
+- **Copy the agent ID from sidebar and tab menus** - The run-control group in both the sidebar session / agent context menu and the session tab ⋯ menu gains "Copy agent ID", so the running instance id can be pasted straight into a log while debugging (it is not the same as the restart-stable session record id); the entry is hidden when there is no binding (never started / detached).
+- **DSH permission button unified with the pi security-level menu (#214)** - The DSH permission preset trigger is now icon-only, using the same shield-strength iconography as pi's security-level menu; the current preset is shown via tooltip.
+- **Ask cards submit on Enter** - Single and batch cards submit with Enter after an answer (including "select then Enter"). IME composition Enter only confirms a candidate and never submits; the editor still uses Enter for newline and Ctrl/Cmd+Enter to submit.
+- **Import Cursor Agent sessions** - The project context menu scans the agent transcripts under `~/.cursor/projects` and converts them into native pi sessions (toolCall and toolResult paired up), with import, source filtering, and a source badge in the sidebar.
+- **Official installer no longer ships DSH runtime** - The default pack is lite: extraResources stays empty. First DSH use downloads the platform archive from the current latest app Release (AtomGit / GitHub), same sidecar pattern as runner-node. Offline / intranet builds still use `--full`. npm leftover hashed dirs from old DSH upgrades are no longer packed into the tarball.
+- **Manual DSH runtime publish** - New `Publish DSH runtime` Action: packs tgz + per-platform indexes on 6 native runners (win/mac/linux × x64/arm64) and attaches them to the current latest app Release (`v*`), or an explicitly chosen tag so a patched runtime can land on an older release. No standalone sidecar tag. Re-run AtomGit sync after attaching; the workflow caches node_modules keyed by the lockfile hash, cutting the ~10-minute dependency install on windows-11-arm when unchanged.
+- **Manual three-platform builds and collaboration templates** - New Windows / macOS / Linux manual build workflows (x64 / arm64 matrices off `main`, artifacts uploaded, `publish=never`), plus Bug report / feature request issue templates and a PR checklist template.
+- **Compaction is handed off to extensions that own the context window** - When a session extension takes over the context window by cancelling pi's compaction through the `session_before_compact` hook (e.g. Magic Context), the ring's compact action and `/compact` no longer send a compact request that is guaranteed to be rejected: PiDeck detects the owner (its command is confirmed registered in this session via `get_commands`, the takeover switch is read from user-level config), rewrites the action into that extension's own compaction command (Magic Context → `/ctx-wrapup`) and says so; when the owner has no usable entry point it explains why (historian model not configured, several owners installed at once) instead of appearing to do nothing.
+
+### 🐛 Fixes
+- **Image-gen sessions no longer OOM the renderer from inline base64** - Images are content-addressed blobs plus refs; base64 no longer lands in JSONL. Reads use a bounded tail window, and the old format self-migrates on first open. The `reason:"oom"` crash-reload loop and blank window from repeated image gen are gone.
+- **Layered renderer OOM controls** - Main-process heap stays at 384MB while session windows rise to 2GB. History windows add an entry budget on top of "last N turns"; a turn's fold mounts only the tail steps by default; failed compaction no longer unconditionally reloads the whole transcript.
+- **Resident caches gain byte budgets** - Log-line cache, session-history full-text LRU, and on-disk history messages now have byte / count caps, closing four unbounded-growth paths.
+- **Huge sessions no longer fail to open or crash the app** - Session JSONL is now scanned in chunks with a bounded load window instead of being read as a single string (the V8 single-string cap is ~537M characters and the main process only has 384MB of heap, so a few hundred MB of transcript aborts the process). Index rebuilds, rename, export, process events, the WSL channel, and file-change reads all share the same streaming implementation; the 438M- and 1.03B-character sessions seen in the field now open, paginate, and rename normally.
+- **Last full-file read behind 1GB imported-session crashes** - The cache-hit-stats poller and the six importers' import-meta readers still read whole session JSONL files; selecting a 1GB-scale Codex session aborted the main process under its 384MB heap (exit 134, no stack). Cache stats now stream line-by-line and reuse results on two levels (zero scans when unchanged, tail-only scans for appends); import metadata reads a fixed head window, decoupling memory from file size.
+- **Claude / Cursor / WorkBuddy imports no longer crash on large source files (concurrency is a multiplier)** - These three importers read every source file in full and fan them out with Promise.all; twelve 60MB files scanned in parallel were enough to exhaust the main-process heap. Scanning is now head-bounded with bounded concurrency, and importing streams line-by-line through an atomic temp-file rename; even modest files no longer crash, and scan/import share one converter so a fix can no longer land in one importer and miss the others.
+- **Size guard for editing messages in huge sessions** - Editing / deleting / resending a message needs the full document to recompute parent chains and write back atomically, which cannot be streamed; beyond the 32MB guard (same threshold as the scanner) a readable "session file too large" error is thrown instead of aborting the process mid-read. The error-code-to-copy chain is complete in both languages (with actual size and limit placeholders), no longer falling back to a generic "session operation failed".
+- **WSL custom path validation follows the on-screen config** - The settings modal is draft-based: "verify and save" only writes the draft, while "check and use" reads persisted settings in the main process - switching WSL source / distro / user without pressing Save first made the Linux path run as a Windows file and fail unconditionally. WSL draft fields are now committed before detect / check; the first stderr line is surfaced into the settings page on failure (it used to go only to the dev console), and a Linux absolute path without a WSL context gets an actionable message instead of a generic "cannot run pi CLI".
+- **Imported sessions are written as proper pi JSONL** - Claude / Codex / OpenCode / ZCode / WorkBuddy / Cursor imports now pair tool calls with tool results, serialize tool arguments as objects, normalize stop reasons to pi's enum, and fall unknown blocks back to JSON text. Small images become pi image blocks; oversized or byte-less ones become placeholders, so large base64 no longer lands in session files.
+- **pi startup failures are no longer a silent timeout** - A spawn failure (process never started) used to report nothing and simply wait out the RPC timeout (10 minutes by default); it now fails in milliseconds, settles the pending request immediately, and restores extensions parked for this start. Windows misreports a missing working directory as `spawn cmd.exe ENOENT`, which is now translated back into the real cause; a pi path invalidated by an nvm/fnm version switch is identified separately. The startup handshake timeout drops from 600s to 90s, and both timeouts and skipped extension fallbacks are explained in the diagnostic card.
+- **Built-in extension hot-update overlays carry their vendored runtime dependencies** - pi resolves module imports by walking up from the extension file's directory, and the userData overlay has no node_modules above it, so an updated overlay crashed pi at startup (`Cannot find module 'undici'`) and disabled every extension (the 2026-09-15 incident). Updates now bundle `node_modules/<pkg>` alongside the overlay files, and existing verified overlays self-heal at startup without a manual re-update.
+- **"Extensions disabled" now tells you why** - The timeline diagnostic card and the toast share one reason resolution: the Settings → Developer "start without extensions" switch (a persistent cause inherited by every new session, which used to be completely silent) and a one-shot startup fallback (this run only) each get their own copy, and each cause's toast fires once per run instead of on every session.
+- **Windows now always launches pi via node (fallback is no longer silent)** - Locally installed `node_modules/.bin/*.cmd` shims used to always go through `cmd.exe /d /s /c`; like npm global shims they are now reduced to `node <entry>` (extension-less entries are recognized by shebang), which also restores the command-line budget from 8191 to 32767. Only a missing shim / unrecognized shape / missing entry falls back to cmd.exe, and the fallback reason plus launch channel are written into the diagnostic card.
+- **Packaged DSH black console window (koffi)** - koffi is now an app dependency with a complete runtime resolve chain, so host/runner can hide the console after packaging and no longer spawn a visible black window.
+- **DSH sandbox runner uses local Node 24** - On Windows the sandbox runner no longer starts as electron.exe (GUI). It reuses the machine's `node.exe` (detect / set the path in Developer settings, including nvm/fnm/mise/Scoop). The installer does not ship Node; if none is found you can one-click download a PiDeck-only copy from the current latest app Release (AtomGit/GitHub). PATH stays unchanged.
+- **DSH runtime downloads follow the matching app release** - Runtime archives are resolved against a specific app tag: packaged builds fetch the runtime paired with their own version, dev follows latest (or an explicitly configured tag), instead of always pulling latest and risking a runtime/app version mismatch. Dev and packaged installs now share the same external-runtime probe / install chain; the bundled node_modules fallback only serves pre-partition installers.
+- **Broken DSH runtime archives can no longer ship silently** - The v0.7.5 sidecar archive contained a local `file:` package with `src/` but no compiled `lib/`, and the archive gate mistook the always-present `exports["./package.json"]` metadata export for a resolvable entry, so CI stayed green. Packing now pre-checks every closure package's on-disk entries (file: packages are built automatically when their entry is missing), and the gate ignores metadata / wildcard exports.
+- **Installer payload trim** - Drops unused Electron shader DLLs (`dxcompiler` / `dxil` / SwiftShader), the Lark SDK ESM copy (`es/`), and node-pty compile-time trees (`src` / `third_party` / `build` / `deps`). Windows PTY still ships `prebuilds/<platform>/conpty`. Renderer Shiki now aliases a web+coding language set instead of the 346-lang full bundle.
+
+- **Linux "double-click does nothing" after an update** - The single-instance lock now handshakes and checks whether the lock owner still responds. Stale upgrade locks, PID reuse, and zombie owners no longer make the second instance exit silently. Problem-feedback health checks now report lock status.
+- **Stopping a session kills the whole subagent tree** - Child processes spawned by pi-subagents / acp_delegate are cleaned up with the parent, so orphans no longer keep burning tokens.
+- **Stale model preferences no longer block send** - If a saved model was renamed or deleted, the runtime keeps its current model and the timeline prompts a re-pick, instead of failing every send with "Failed to apply session preferences".
+- **Empty new-session history is no longer a load error** - ENOENT before the first JSONL write is treated as empty history. Live-runtime subagent panels reconcile against this generation's start time, so leftover history rows no longer show as still running.
+- **Timeline stick-to-bottom no longer leaves on layout growth** - Growing thinking blocks / tool cards / the composer only correct geometry; stick-to-bottom is left only by a real user scroll up.
+- **Scrolling back through history is no longer yanked around by window growth** - Expansion and pagination now compensate the position of the turn you are reading relative to the viewport top instead of a whole-page height delta; late syntax highlighting and images still pin that position, and wheel-up scrolling is not locked.
+- **Auto-title works again on reasoning models** - The title sidecar's output budget was too small and got spent entirely on thinking. Budget 64→512, with one retry at 2048 when truncated with no visible text.
+- **Empty automation budgets stay unlimited** - Saving "unlimited" no longer silently snaps back to 30min / 200K / 200 steps on the next edit.
+- **Announcements drop jsDelivr** - Fetch prefers the AtomGit contents API with GitHub raw as fallback, so a CDN snapshot (up to 24h stale) can no longer hide new announcements even after a manual refresh.
+- **Release asset sync no longer skips same-named artifacts silently** - The AtomGit sync upgraded from "dedupe by file name" to "file name + remote size" validation, treating same-name-different-size as a conflict; `--force-resync` now deletes every attachment of that tag and re-uploads everything (AtomGit only exposes deletion by attachment id and has no delete-whole-release API). After the v0.7.5 re-tag, the new artifacts used to be skipped entirely by name, which left mirror users upgrading to the old build even once the update check was fixed. A follow-up fixed the size probe itself - the AtomGit download CDN answers HEAD with 401, which had left remote sizes unknown and the conflict check inert - by falling back to a `Range: bytes=0-0` request; the sync script also gains `--only` / `--select` / `--force-upload` / `--dry-run` for re-uploading a hand-picked subset instead of wiping the whole release.
+- **Idle animations no longer burn CPU / GPU** - The desktop pet switched from a 60fps rAF spin to on-demand scheduling (zero painting while idle, a 100ms low-frequency fallback, and 1/4 frame rate under reduced-motion); the tool-card sheen sweeps once on entry instead of looping forever, the timeline node halo uses a static ring with opacity breathing instead of a box-shadow spread, and a batch of unreferenced animation components was removed.
+- **Brand shimmer no longer occupies the GPU while idle** - The wordmark now sweeps once every 5 minutes and drops `bg-clip-text` to a flat color while resting; a hidden window or a reduced-motion preference stops it entirely, and the sidebar π logo plays on click instead of on session start.
+- **Cancelled compaction no longer looks like "nothing happened"** - An extension that owns context management in the session (e.g. a context-compression plugin) rejects pi's compaction before summarization starts via the `session_before_compact` hook; that `Compaction cancelled` used to be classified as silent, so clicking the ring's compact action or `/compact` just appeared to do nothing. The main process now resolves the source from evidence (hook rejected before summarization → extension owns compaction; our own stop was pressed during the window → interrupted) and throws a stable message the renderer turns into an actionable notice; the `Compaction ended` log gained start→end elapsed time and `Compact failed` carries the resolution evidence.
+- **Rewind checkpoints are actually pruned now** - The prune code paths existed but were never called, so one repo accumulated 5,627 `refs/pi-checkpoints/*` entries and 73% of `git log --all` was snapshot noise. Current-session checkpoints are trimmed to the retention cap (throttled to once a minute per repo), inactive sessions' checkpoints are cleaned on each session's first run (throttled to ten minutes), and deletions go through a batched `git update-ref --stdin` instead of one process per ref.
+- **Config deep links switch the top-level section too** - Opening a deep link to models / auth / MCP / usage while the config modal was last left on skills / prompts / extensions now lands on the right page; previously only the tab changed and the modal stayed on the old section.
+- **Provider migration overwrite confirmation uses the in-app dialog** - Replaces the native `window.confirm` (which ignored the app theme and blocked the renderer) with the styled ConfirmDialog; the flow became preview → confirm → apply.
+- **Store search submits on Enter** - The extension store and prompt store search no longer fire a request per keystroke (the previous 300ms debounce); Enter or the search button submits, and pressing it again on an unchanged query forces a cache-bypassing refresh.
+- **Custom notification sounds play again** - The renderer CSP had no `media-src`, so custom sounds loaded via the `pideck-sound://` protocol fell back to `default-src 'self'` and were silently blocked - no error, just no sound. The CSP now declares `media-src 'self' pideck-sound:`, and a regression test guards the whole chain (media-src sources, the privileged scheme declaration, and the protocol handler's filename whitelist) against future CSP edits.
+- **Two 400s from DeepSeek relays** - The `latest_reminder` role in the upstream error enum is DeepSeek V4's own, which shows the relay is proxying the official API: DeepSeek's OpenAI-compatible layer rejects the `developer` role and requires `reasoning_content` to be passed back on historical turns that carry tool_calls. pi's automatic compat detection only matches a provider name / baseUrl containing `deepseek.com`, so custom relays (88api / b.ai / tokendance ...) were missing both keys and failed with `unknown variant 'developer'` and `The reasoning_content in the thinking mode must be passed back to the API`. The provider form gains a three-state "pass back thinking content" checkbox (untouched writes no key / explicit true / explicit false vetoes auto-detection), auto-filled when the provider name, baseUrl or any model ID looks DeepSeek-backed; DSH migration carries the two whitelisted keys for openai-completions only, and compat merging is now per-key with pi-side custom keys preserved (no more losing `thinkingFormat`).
+- **Subagent leftovers: stale state, duration and wake-up turns** - A finished parent left subagents showing "running", durations piling up into thousands of minutes, and a wake-up by a background subagent folding the previous final answer into an "intermediate" one. Stale-state downgrade now covers plugin-record sources (the renderer's fast snapshot no longer overwrites the main process's downgrade), the built-in extension gained a `session_shutdown` hook (pi retires the runner on /new, resume, fork and quit, so the old session file no longer stays running forever), durations gained h / d units with anything still running / queued past two hours labelled "stopped (unreachable)", and the `custom_message` pi drops before waking the parent is projected back into the message stream as a collapsible notice card that restores the turn boundary (older data falls back to breaking turns on `stopReason === "stop"`).
+- **Saving from the window header no longer skips the provider form** - Add / edit provider is a sub-page inside the models tab whose fields live in page-local state; the header save button went straight to writing `models.json`, bypassing that draft, so clicking it and refreshing lost the new provider. The page now exposes one submit entry point through `onRequestSave`, the first click commits the in-page draft and the next state update continues to disk, and the in-page button shares the same draft; a failed form validation clears the pending flag so it cannot leak into the next visit.
+- **Automatic session titles are now off by default** - The title request makes an extra call to the current pi model after the first run and consumes tokens, which used to happen without the user noticing. It is now opt-in (main-process settings, renderer defaults, the preview shell and the switch fallback all agree), and the setting description spells out the extra model call and small token cost.
+- **Ask cards: visible batch progress and correct input-question button width** - The batch ask card gains a progress bar (answered / total, turning success-coloured when complete) whose text doubles as the accessible name; the pure-input question's submit button carried `w-full`, which combined with Button's default `shrink-0` squeezed the input into a narrow strip - the button now keeps its own width and the input absorbs the remaining space.
+- **Launch-argument injection budget now guarded for all three resource kinds** - Extensions / skills / prompt templates share one command-line budget computed per launch channel (cmd.exe 8191 / CreateProcess 32767); when it is exceeded the injection is dropped entirely and pi falls back to default discovery, with the reason spelled out in the diagnostic card and toast. Only skills had this guard before, so oversized extension or prompt-template lists ran into the Windows command-line limit and handed pi a truncated argument list.
+
+### 🙏 Thanks
+
+Special thanks to **微时佬友** for providing the model service used in our
+software development 🎉
+
+Thanks to  **追梦**  for their generous donations and support! 🎉
+
+Thanks to all group members who submitted suggestions and bug reports! 🙏
+
+Thanks to everyone who filed issues and feature requests on GitHub! 🙏
+
+> 💬 **QQ feedback group: 1026218644** | **Author's WeChat: caoayu97** (mention "PiDeck"; WeChat group invites available)
+
+## v0.7.5 - 2026-09-12
+
+### 🚀 New Features
+- **Inline reference chips aligned with Proma and self-contained persistence** - Composer and bubble reference chips now share the Proma skeleton (tinted background, same-hue text and icon, no border, baseline aligned); file chips show only the file name, directory references use a folder icon, and only the `@` prefix remains since the icon conveys the type. Bubble reference chips render back at their original position so multiple references are no longer reordered. Reference / session / skill / prompt-template blocks persist self-containedly: switching sessions or restarting still restores chips, and edit-resend or fork replay no longer leaks raw XML. The file-tree context menu "add to conversation reference" now supports directories (`@dir/`, the trailing slash distinguishing a directory from a mention) and reuses the same reference format as drag-and-drop and the editor context menu.
+- **Sidebar session hover preview card** - Hovering a sidebar session row for 1.5s opens a preview card (debounced against races), so you can confirm a session's content without opening it first.
+- **Configurable Git executable path with detection** - A new `gitExecutablePath` setting: empty means auto-resolve (PATH → common install locations), and a configured value applies to every Git operation (GitService / WorktreeService / checkpoint / git init). The Git tab gains a path input with detect / browse / reset buttons showing source, version and path; saving applies immediately without a restart.
+- **Built-in prompt templates restored and AtomGit mirror added** - Built-in prompt templates are back in the prompt store; the README and docs-site link to the AtomGit mirror.
+- **DeepSeek DSH runtime upgraded to 0.1.5 (Typert Remote)** - The bundled DSH backend runtime moves from 0.1.1-rc.2 to 0.1.5-rc.1 and adopts the new Connection / Gateway Remote transport. Every domain the desktop talks to (session, settings, credentials, LLM, workspace, skills, goals, subagents) is re-mapped onto the new wire contract, with a descriptor-level payload checker (`npm run check:dsh-wire`) guarding field names, nesting and required fields against the runtime's own schemas. The bundled agent-preset roster works again - standard / code / minimal compose with the subagent model-selection host service mounted, the static plugin inventory lists the loader entries of the host composition, and the composition file now lives inside the runtime install so preset package rows resolve from the right `node_modules`.
+- **DSH sessions stream their thinking again, and tool cards show results** - Assistant deltas no longer live in the session log in 0.1.5; the follow stream now opts into the live assistant channel, so the thinking process streams in real time and long answers appear incrementally. Tool results carry their content again (the new `tool-result` wrapper block is unwrapped), so tool cards show what actually came back instead of only which tool ran.
+- **DSH runtime version gate** - If the installed runtime does not match the version this PiDeck build pairs with, DSH is disabled outright with a guided reinstall prompt - no more starting a runtime whose bridge protocol may have changed underneath, which previously surfaced as loader or plugin-tree crashes.
+- **Scheduled tasks (Automation)** - Cron-based scheduled tasks with a visual cron editor, entry point moved to the sidebar, run-history management, stop, and floating status cards; each task runs in normal / plan / goal mode, completion detection was rewritten (fixing blank sessions, runs that never ended and missing notifications), and DSH-backed sessions can run scheduled tasks as well.
+- **In-app update log** - A changelog viewer fetches `CHANGELOG.md` / `CHANGELOG.zh-CN.md` from the AtomGit OpenAPI with a local cache, reachable from two entry points.
+- **Update source now prefers AtomGit** - The update source order becomes AtomGit (first choice) plus GitHub official; releases sync to AtomGit automatically (or manually, with tag batching and hosts-accelerated transfers), and existing users' `updateSource` migrates from GitHub to AtomGit once.
+- **Per-session proxy settings** - Proxy can be configured for a single session (follow global / on / off) without affecting others; saving applies immediately, entries were added to the session tab bar and the Agent menu, and the dialog host is consolidated into the App layer.
+- **`pi-deck-trash-guard` built-in extension** - File deletions are backed up to the system recycle bin first, so an agent's over-eager delete is recoverable.
+- **Built-in extension remote hot updates** - Built-in extensions can now be updated without shipping a new release: the repo maintains an `extensions-manifest.json` (per-file sha256, package-level version gating); the client fetches and verifies it, writes a userData overlay with atomic replacement and a `.bak` fallback, validates the overlay as a complete set (partial overlays never activate), and the extension manager gains an update-check / one-click-update panel.
+- **Release pipeline & docs site** - The release pipeline builds Linux arm64 artifacts (deb / AppImage / tar.gz) and the manual builder accepts an explicit branch and architecture; the docs site gains VitePress scaffolding.
+- **Smaller UI polish** - Notice toasts truncate long messages with a details dialog; the sidebar "show more" row splits its counts into right-aligned columns; dock entry tooltips are unified; extension-backed models no longer hydrate by default (restore via the refresh button), and saving a model gives instant feedback.
+
+### 🐛 Fixes
+- **AtomGit mirror update checks no longer return 404** - The AtomGit/GitCode `releases/download` route rejects any query string, while electron-updater always appends a `?noCache=` cache-buster when checking for updates, so the AtomGit update source could never reach `latest.yml` and always failed with a 404. Update requests are now stripped of the `noCache` parameter at the session level via `webRequest` interception on the updater's own partition session (electron-updater sends requests on a dedicated `"electron-updater"` partition, not the default session); the official GitHub update source is unaffected.
+- **DSH sandbox hang and console window fixed** - The runtime environment for the two-level sandbox runners previously only reached the first level: the second-level ACL runner lacked `ELECTRON_RUN_AS_NODE` and loaded as a GUI app whose event loop never exits (commands returned correct output but every call burned the full 120s timeout), and it spawned pwsh with a newly created visible console. Node run-mode and the runner preload are now installed into the host process environment at boot and passed down the chain, so the second-level runner inherits the hidden console - both the hang and the black window are gone.
+- **Second and subsequent DSH sessions respond again** - An early return on the shared event pump's startup path swallowed the per-session journal follow pump (the sole source of session events in 0.1.5), so a second session streamed nothing, never completed, and logged no error. Every runtime now ensures its follow pump is created (idempotent, safe to call repeatedly).
+- **DSH journal replay no longer duplicates messages and traces** - During journal snapshot replay (the tail snapshot sent when a follow pump opens), messages and process events are deduplicated by id, eliminating React duplicate-key warnings in the timeline and trace list (`dsh:*` / `process:dsh-process:*`).
+- **DSH model discovery no longer always reports "0 models fetched"** - Fixed reading a nonexistent `.models` field off the wire result of `llm/discoverModels` (which is a plain array), which made every provider fetch 0 models on the config page; both the bare-array and `{models:[...]}` wrapped response shapes are handled.
+- **DSH runtime install EPERM failure fixed** - Install / import now stops the DSH host first and restarts it afterwards when it was running (previously only uninstall did; the host process maps native modules like `koffi.node` into DLL handles, so replacing the directory always failed with `EPERM: operation not permitted`); placement cleanup gains retries.
+- **DSH runtime installs ~5× faster** - Extraction now uses the OS-bundled tar (Windows / macOS / Linux) in a two-pass scheme: list every entry for safety validation first (any unsafe entry falls back to the previous implementation), then extract natively, cutting ~44k small files from ~80s to ~17s; when the target version is already installed and verifies cleanly, download and extraction are skipped entirely (repeat installs return instantly); partially-removed install directories can be re-entered and reinstalled.
+- **Built-in Todo extension plan cache freezing** - The plan text is now carried by the latest tool result only (append-only) and the per-turn context reminder is gone; a persistent briefing is re-injected after compaction / fork. Relay users no longer bust the prompt-prefix cache on every plan change (which previously froze the cache and spiked token usage).
+- **Automation list no longer jumps on toggle** - List sorting now uses the creation time (previously every save bumped `updatedAt`, so toggling a card pushed it to the top and looked like "the other card got clicked").
+- **Web chat per-turn idempotency** - `/api/chat` now carries a per-turn idempotency key, fixing duplicated messages in retry scenarios.
+- **Extension manager long descriptions no longer break the table** - Long description cells wrap with a two-line clamp (full text on hover), so the version and action columns stay visible.
+- **Process metrics memory caption** - The memory column shows a persistent caption clarifying the real pi process memory accounting after node-direct launch.
+- **Kimi Coding multi-window quotas and booster wallet** - Usage queries support Kimi Coding's 5h / weekly / monthly windows plus the booster wallet.
+- **Web Ask prompt missing and sidebar pending-question badge** - Fixed the missing Ask question text and concurrent-input warning on the Web surface; the sidebar now shows a pending-question badge.
+- **Accent colors no longer bleed into session status lights** - Removed the `--color-info` override from all 9 accent blocks so session and sidebar status semantics (idle blue / running yellow / error red) stay constant across themes.
+- **Dark-mode selected states no longer render white-on-white** - Usage-query preset pills now use `--color-text-inverse`, with the same fix applied to settings model checkboxes and the Git push badge.
+- **Usage dialog built-in badge no longer stretched** - Fixed the flex-col stretch turning the "built-in" badge into a full-width grey bar; it now sits inline with its label.
+- **Context menu failing to open and project-open flow** - Stopped pre-escaping the registry command value (which caused the Windows "cannot access the specified device" error); cold start / second instance now waits for projectStore before resolving the project directory; adding a project from the context menu broadcasts a sidebar refresh.
+- **Problem-feedback copy no longer mentions email** - Removed the leftover half-sentence about sending email (#194).
+- **DSH preset composition could not resolve bundled plugins** - 24 shipped preset rows (persona, tool-fs, plan-mode, subagent, workflow...) failed to resolve because the host composition file lived under the user data directory, where the node_modules lookup walk never reaches the runtime; the composition now lives inside the runtime install and the preset roster composes normally.
+- **DSH session chain payload and streaming defects** - `session/prompt` was missing its mandatory `requestId` (the host's idempotency key, also used to bind attachments), `session/page` payloads were not wrapped in `request`, `session/list` used the wrong wire name, and the plugin static inventory always showed 0 entries because an async host call was not awaited.
+- **Skill Hub install failing on Node 24 / Windows** - Directly spawning a `.cmd` raised EINVAL; the call is now wrapped through `cmd.exe /d /s /c`.
+- **Ask badges** - The pending-question badge moved down to the session row so several waiting sessions can be told apart, and missing badges on the Chat / activity pages were restored; store search misses and the locked default category were fixed too.
+- **Sent bubble corruption on special characters** - `/skill:`, `/permit`, `@` and `&` in a sent message no longer render incorrectly.
+- **Store hot-keyword chips losing their label on hover** - The accent surface colour was being used as the text colour.
+- **Danger-menu icon colour and sidebar hover-preview fallback** - Corrected the icon colour inside destructive menus and the preview card's summary fallback.
+- **Resend after session restart no longer reports "message not found"** - Restarting a session and resending now works without the stale-message error.
+- **WSL global skills honor the Linux home whitelist** - WSL mode now merges global skills from the Linux home directory into the whitelist (issue #203).
+- **nicobailon subagent async dispatch no longer mis-marks completion** - Async pi-subagents dispatch no longer marks tasks complete before they finish, and panel entries show the task description (thanks @lerrorgk, PR #206).
+
+### 🙏 Thanks
+
+Special thanks to **微时佬友** for providing the Grok model service used in our
+software development 🎉
+
+Thanks to **sgafxh, r0y1z2, c834292137, bfzha, lerrorgk** and all contributors for their code contributions 🙏
+
+Thanks to all group members who submitted suggestions and bug reports! 🙏
+
+Thanks to everyone who filed issues and feature requests on GitHub! 🙏
+
+> 💬 **QQ feedback group: 1026218644**
+
+## v0.7.4 - 2026-09-08
+
+### 🚀 New Features
+- **App update & portable build optimizations** - The update card now explicitly informs Windows portable users that the in-app update runs the setup installer, with a direct link to download the portable executable manually from GitHub Releases; Linux AppImage auto-updates now preserve a fixed artifact name to cleanly overwrite the running binary in place without breaking desktop shortcuts; update mirror health check dynamically resolves the real setup asset filename from `latest.yml` with path traversal sanitization, eliminating hardcoded version numbers; failing GitHub direct updates now suggest switching to a mirror.
+- **WorkBuddy session import** - Import WorkBuddy sessions automatically from `~/.workbuddy/projects` matching the current project: the project context menu gains an "Import WorkBuddy Sessions" action, listing sessions by recency with new / current / outdated badges. Injected system-reminder contexts and user_query wrappers are cleanly stripped to preserve original prompts, reasoning thoughts and tool call executions are merged into standard assistant turns, and file rollback snapshot noise is filtered out; imported sessions display a dedicated WorkBuddy source badge with sidebar filtering support.
+- **Enhanced project and directory context menus** - Sidebar chat projects now open the full project context menu; directories now support an "Open in PiDeck" context menu action.
+- **About dialog displays runtime component versions** - The About modal now shows not only the PiDeck app version, but also detected versions of the pi CLI, DeepSeek DSH, bundled pi-ai model catalog, and the package build timestamp.
+- **Config backup & announcement system advancements** - Config backups now support manual export, single-file and full restore, and batch deletion; announcements have migrated to the `announcements-md` build pipeline with full Markdown rendering, detail modals, and community discussion links.
+- **DSH version fallback & auto-usage query toggle** - Enhanced fallback version detection for the DSH runtime, along with an auto-usage query toggle for model providers.
+- **Unified settings multi-level tabs & store search UI** - Restyled multi-level navigation tabs in Config Management and unified the store search bar appearance; sidebar branding area upgraded with a two-line beUI wordmark layout.
+- **Command Code usage query support** - A new commandcode-credits parser reads the /alpha/billing/credits endpoint and shows 5h / weekly / monthly windows; the monthly window reverse-looks-up the 5h/week cap combo from the official pricing table with a double check (cap matches the plan + remaining is under the cap), degrading to remaining-only on failure (fail-closed against fabricated denominators).
+- **Application update lifecycle hardening** - The update service is restructured into automatic (electron-updater downloads and installs) / manual (unsigned macOS builds only check and guide manual downloads) delivery modes; stale updater references removed, install-time exit preparation with timeout recovery, so the update flow is more reliable.
+- **Update source mirrors with auto health checks** - The update settings can switch between GitHub official / built-in mirrors (ghfast, ghproxy.net, ghproxy.cxkpro) / a custom mirror prefix, applied at runtime without a restart; opening the settings page auto-probes mirror availability and speed with ok / slow / broken markers, plus a manual re-check button.
+- **Composer voice transcription** - Built-in microphone recording in the composer with requesting / recording / transcribing / cancel states; audio is transcribed through a configurable OpenAI-compatible `/audio/transcriptions` endpoint in the main process and inserted at the captured caret/selection without auto-sending. The microphone button stays hidden until base URL, model and API key are all configured. Credentials are encrypted with the OS keychain (`safeStorage`) and never leave the main process; audio stays in memory.
+- **Recovery from request body size limits** - When a gateway rejects the session with HTTP 413 / request-too-large errors, a confirmation offers to compact the session with a temporary model (auto-restored afterwards), breaking the deadlock where both the chat request and the compaction request exceed the same limit.
+- **Built-in TokenDance provider** - TokenDance (tokendance.space) ships as a built-in provider with a live model catalog, one-click OAuth key install, in-line balance display in the auth list and DSH migration support; manually added TokenDance providers automatically receive the `X-App-URL` attribution header so usage is credited to the app.
+- **pi v0.85.0 tracking** - The bundled model catalog is regenerated against pi-ai 0.85.0 (1336 entries) with updated model lists and capability fields.
+- **ZCode session import** - Import ZCode (Z.ai CLI) sessions from `~/.zcode/cli/db/db.sqlite`: the project context menu gains an "Import ZCode Sessions" entry with a picker showing title / preview / message count and new / current / outdated status. Conversations are converted into Pi-readable sessions (text, reasoning, tool calls with matched results, image attachments restored from artifacts), subagent sessions and timeline noise are skipped, and imported sessions carry a ZCode source badge with dedicated filtering.
+- **pi.dev extension store** - Extension management gains a two-pane "Installed / Store" view; the store lists packages from the pi.dev Package Catalog page (name / description / author / type / monthly downloads / publish date / npm & GitHub links) with search, type filtering, sort by downloads or latest, and pagination. One-click install, copy the install command, open the pi.dev page, and already-installed packages are marked "installed" with the install button disabled.
+- **Provider groups sorted by recent use** - The model picker's provider groups now sort "recently used first" (the newest used provider jumps to the top, up to 8 remembered); never-used / non-built-in providers fall back to built-in-pinned alphabetical order, and the `other` fallback group always stays last, so commonly used providers need no repeated scrolling.
+- **Serverless announcement system** - Announcements are managed as a repo-root `announcements.json` (announcing = committing), fetched from multiple sources with a staggered 2h polling timer; the sidebar announcement center shows an unread dot / popup list / manual refresh / mark-all-read; the popup policy is do-not-disturb aware (deferred while typing, an agent is running, a modal is open, or the window is inactive, then auto-complemented when idle).
+- **TokenDance one-click setup now grabs the API key too** - Authorization and key retrieval merge into one click: a loopback callback server (RFC 8252 §7.3, system-assigned port, 128-bit random callback token) captures the code, exchanges it and writes the key; it degrades to the manual paste path when the local bind fails.
+- **Model catalog updates via GitHub branch + app-update mirrors** - Catalog check/download switch from the npm `latest` tag to pre-generated branch artifacts over GitHub raw, reusing the update mirror configuration (auto-generated mirror proxy URLs) for far better reachability in CN networks; falls back to npm latest when every source fails, keeping the anti-downgrade version comparison.
+- **Settings gains a dedicated "Notifications" tab** - The notification toggles (session done / Ask / agent count) and sound alerts merge into one tab under Common settings.
+- **Ask notifications no longer depend on session focus** - Any pending Ask question in the background now notifies.
+- **Resource management aligned with pi 0.85** - Extension / prompt / skill discovery and project-level installs follow pi 0.85 semantics; the project resource management screen reuses the settings-page resource UI.
+- **Announcement center entry hides when reminders are off** - Turning off announcement reminders also hides the sidebar announcement entry.
+
+### 🐛 Fixes
+- **WSL environment Node/pi detection** - Fixes an issue where desktop PiDeck could not detect pi in WSL environments using version managers like nvm or fnm (#191).
+- **Split-pane independent Git branch display** - Split panes now show and switch Git branches independently based on the active session's project scope.
+- **Session timeline stick-to-bottom smoothing** - Fixed race conditions during streaming and scrolling so auto-scrolling to the bottom is much smoother.
+- **Adaptive inference for ask_question type** - The `type` field in extension tool questions is now optional and automatically inferred based on the question shape.
+- **Update dot popover overflow protection** - Fixed the first-time update dot explanatory bubble overflowing off the left edge of the screen and getting clipped by the sidebar.
+- **Thinking/generating indicator restored** - Restored the dot-matrix Loader animation for clearer response generation states.
+- **Provider usage UI refinements** - Polished layout details and formatting for provider credit and usage cards.
+- **Tool stopwatch no longer resets mid-stream** - Tool duration now starts from meta.startedAt (same baseline as the final durationMs), so long-running commands no longer flash back to near-zero while streaming output.
+- **Vision-bridge model picker fits extra-long model names** - Overlong provider/model tokens truncate inside the button with an ellipsis (full name on hover) instead of breaking the layout.
+- **Unified session turn counting** - Pi sessions count "N rounds" by speaking-turn cycles (consecutive user messages merge into one turn); DSH keeps the official sessionStats semantics with a dsh-web-aligned fallback; the usage page renames "turns" to "call counts" to avoid confusion with session turns.
+- **Fork titles persist and long sidebar names scroll** - Forked session titles survive restarts; extra-long sidebar titles scroll on hover.
+- **Git badge state survives tab switches** - Ahead/behind badges are cached per project + repo scope, so switching session tabs no longer blanks them (the cached value shows instantly and a background refresh corrects it shortly after).
+- **Calmer title scrolling** - Sidebar and tab title scrolling is unified to a constant 5px/s with no upper duration cap, so very long titles never turn into a fast flicker.
+- **Ask wait time no longer counts into reply duration** - Elapsed time while waiting for the user's answer is excluded from the reported response time.
+- **Ask select boxes no longer swallow clicks on press-drag** - A press-perception guard keeps press-drag selection from eating the click underneath.
+- **Edit / resend after stopping a session no longer errors** - Stopped messages keep their identity, so editing or resending no longer reports "Message not found".
+- **Pasted long text is stored in the app-data directory** - Oversized pasted content goes under the app data dir; the settings storage page can count and clean it up.
+- **Crash-page auto-refresh countdown fixed** - The 5-second countdown no longer freezes in dev builds (StrictMode double-mount race).
+- **Welcome-page model pick is no longer silently overridden** - The model chosen on the welcome page wins even when a default model is configured.
+- **Catalog update check not fooled by stale jsDelivr cache** - jsDelivr is removed from catalog sources (stale CDN data previously reported "already up to date"); mirror proxies + GitHub raw remain, with npm-latest fallback on failure.
+- **Prompt name and action-area display fixed** - In Config Management, prompt names and their action area no longer render incorrectly.
+- **Model list write order matches the picker** - Persisted model lists are sorted by the same shared rule (`shared/modelOrder`) the dropdown shows.
+- **macOS layout hides the pi brand logo** - The logo no longer takes space in the compact macOS layout.
+
+### 🙏 Thanks
+
+Special thanks to **微时佬友** for providing the Grok model service used in our
+software development 🎉
+
+Thanks to  **歌者、幕书、王女士、何希尔**  for their generous donations and support! 🎉
+
+Thanks to **sgafxh, r0y1z2, c834292137, bfzha** and all contributors for their
+code contributions 🙏
+
+Thanks to all group members who submitted suggestions and bug reports! 🙏
+
+> 💬 **QQ feedback group: 1026218644**
 
 ## v0.7.3 - 2026-09-03
 
 ### 🚀 New Features
-- **Chat session archives** — Sessions can be archived out of the workspace, with bulk delete on the archive screen so old chats stop crowding the sidebar.
-- **Active tab always in view** — When tabs overflow, the active session tab auto-scrolls to the visible center, so you always see which session you're on.
-- **Refined default-model priority** — Draft defaults now follow: explicit default > enabledModels > welcome preference > last used > none; the welcome preference is validated against the catalog before use, and thinking level always comes from the default setting.
-- **DSH runtime: dev uses project deps, packs stay lean** — Dev mode uses the repo's @deepseek-ai dependencies directly (no download); packaged builds ship without the runtime and offer on-demand install, so users who don't use DSH aren't charged the download.
-- **Rewind checkpoints** — Full checkpoint flow: dialog, drawer, timeline restore, auto snapshots, and session-fork restore; the checkpoint list is paginated so long sessions stay usable.
-- **Import DSH runtime from a folder** — Install a DSH runtime from an already-extracted directory instead of downloading it every time.
-- **Automatic session titles** — New sessions get an auto-generated title, including after an agent interrupt, so the sidebar is no longer a wall of “New session”.
-- **Idle agent auto-release** — Background sweep reclaims idle runtimes to cut memory use when many sessions stay open; checkpoint loading is faster too.
-- **Usage rows stay put, model cards get denser** — Built-in usage templates hide the config entry once recognized and keep the usage row visible; the Pi Models tab now puts model count and usage on the card header instead of an extra footer strip.
-- **Feedback reports include project context** — The feedback page attaches project environment and log stats, so diagnosis no longer needs a hand-assembled dump.
-- **Ask notifications jump to the session** — Background Ask completion toasts can “Go to session” in one click.
-- **Deep links into config backends** — Deep links open the Pi or DSH page inside Config Management directly.
-- **beUI rolled out across the app** — UI switches over to beUI components; the sidebar marks sessions that are currently running.
-- **Subagents and session widget cards** — Built-in pi-subagents extension reads child-agent records and detects failures; todos, subagents, and file changes share one segmented card, and historical sessions can still show todo snapshots.
-- **pi-tui rename sync** — Renaming a session in pi-tui now shows up in the PiDeck sidebar after a project refresh or session restart, instead of sticking to the old title.
-- **ask_question multi-select** — Question cards support multi-select with a single submit.
-- **On-demand fast packing** — `dist:fast` can target portable / zip / nsis so local installers are quicker to verify.
-- **DSH runtime version detection & worktree fade-out** — Built-in DSH runtimes show the detected version; deleting a worktree fades out instead of vanishing abruptly.
-- **Model catalog updater** — The settings page can pull the latest model catalog from GitHub to override the bundled copy, with one-click restore and graceful fallback; probes skip auto-attaching a Bearer when a custom auth header is configured.
-- **Turn-based memory management for long sessions** — History browsing now uses a unified turn protocol: turns are counted per speaking turn (consecutive user messages merge into one), with disk pagination prefetch, execution details unloaded when a historical turn folds, and the timeline compact-summary card retired; context usage is no longer capped at 100%, matching the pi CLI semantics. Long sessions browse more smoothly.
-- **Session tabs regrouped by project** — New sessions land at the tail of their project's group (instead of the global end), with separators between project groups.
-- **Project display-name rename** — Projects can have a display name (label only, disk directory untouched) for a more readable sidebar.
-- **Fork session marker** — Forked sessions carry a `(fork)` marker physically written into the session name, so it no longer reappears after rename/delete; the old session is confirmed to have no leftover runtime state after a fork.
-- **Open-file action in the session files list** — The session's modified-files list gains an “open file” action entry.
-- **Explicit proxy-policy override for model fetching & connection tests** — Model listing and connection tests can explicitly pick a proxy policy instead of being bound to the global config.
+- **Chat session archives** - Sessions can be archived out of the workspace, with bulk delete on the archive screen so old chats stop crowding the sidebar.
+- **Active tab always in view** - When tabs overflow, the active session tab auto-scrolls to the visible center, so you always see which session you're on.
+- **Refined default-model priority** - Draft defaults now follow: explicit default > enabledModels > welcome preference > last used > none; the welcome preference is validated against the catalog before use, and thinking level always comes from the default setting.
+- **DSH runtime: dev uses project deps, packs stay lean** - Dev mode uses the repo's @deepseek-ai dependencies directly (no download); packaged builds ship without the runtime and offer on-demand install, so users who don't use DSH aren't charged the download.
+- **Rewind checkpoints** - Full checkpoint flow: dialog, drawer, timeline restore, auto snapshots, and session-fork restore; the checkpoint list is paginated so long sessions stay usable.
+- **Import DSH runtime from a folder** - Install a DSH runtime from an already-extracted directory instead of downloading it every time.
+- **Automatic session titles** - New sessions get an auto-generated title, including after an agent interrupt, so the sidebar is no longer a wall of "New session".
+- **Idle agent auto-release** - Background sweep reclaims idle runtimes to cut memory use when many sessions stay open; checkpoint loading is faster too.
+- **Usage rows stay put, model cards get denser** - Built-in usage templates hide the config entry once recognized and keep the usage row visible; the Pi Models tab now puts model count and usage on the card header instead of an extra footer strip.
+- **Feedback reports include project context** - The feedback page attaches project environment and log stats, so diagnosis no longer needs a hand-assembled dump.
+- **Ask notifications jump to the session** - Background Ask completion toasts can "Go to session" in one click.
+- **Deep links into config backends** - Deep links open the Pi or DSH page inside Config Management directly.
+- **beUI rolled out across the app** - UI switches over to beUI components; the sidebar marks sessions that are currently running.
+- **Subagents and session widget cards** - Built-in pi-subagents extension reads child-agent records and detects failures; todos, subagents, and file changes share one segmented card, and historical sessions can still show todo snapshots.
+- **pi-tui rename sync** - Renaming a session in pi-tui now shows up in the PiDeck sidebar after a project refresh or session restart, instead of sticking to the old title.
+- **ask_question multi-select** - Question cards support multi-select with a single submit.
+- **On-demand fast packing** - `dist:fast` can target portable / zip / nsis so local installers are quicker to verify.
+- **DSH runtime version detection & worktree fade-out** - Built-in DSH runtimes show the detected version; deleting a worktree fades out instead of vanishing abruptly.
+- **Model catalog updater** - The settings page can pull the latest model catalog from GitHub to override the bundled copy, with one-click restore and graceful fallback; probes skip auto-attaching a Bearer when a custom auth header is configured.
+- **Turn-based memory management for long sessions** - History browsing now uses a unified turn protocol: turns are counted per speaking turn (consecutive user messages merge into one), with disk pagination prefetch, execution details unloaded when a historical turn folds, and the timeline compact-summary card retired; context usage is no longer capped at 100%, matching the pi CLI semantics. Long sessions browse more smoothly.
+- **Session tabs regrouped by project** - New sessions land at the tail of their project's group (instead of the global end), with separators between project groups.
+- **Project display-name rename** - Projects can have a display name (label only, disk directory untouched) for a more readable sidebar.
+- **Fork session marker** - Forked sessions carry a `(fork)` marker physically written into the session name, so it no longer reappears after rename/delete; the old session is confirmed to have no leftover runtime state after a fork.
+- **Open-file action in the session files list** - The session's modified-files list gains an "open file" action entry.
+- **Explicit proxy-policy override for model fetching & connection tests** - Model listing and connection tests can explicitly pick a proxy policy instead of being bound to the global config.
 
 ### 🐛 Fixes
-- **Refresh stale projects** — Refresh handles vanished projects, and file-delete failures surface instead of failing silently.
-- **Selected-state backgrounds restored** — The @theme token self-reference was overriding foundation :root values, blanking bg-accent / bg-bg-active; switching to @theme inline reference fixes active tab, sidebar selection and related backgrounds across themes.
-- **Dev no longer prompts to download DSH runtime** — The install / reinstall buttons are hidden in dev mode; only packaged builds show the on-demand install flow.
-- **DSH runtime install no longer blocks the main process** — Install / uninstall use async fs, uninstall shows progress; multi_select allowlists and markdown layout are tightened along the way.
-- **Model connection-test timeouts** — Tests send stdin EOF and degrade on older pi, so the spinner no longer runs forever.
-- **Reading history no longer jumps to the latest turn** — Window-growth compensation uses restoreAt, keeping the viewport on the turn you were reading.
-- **Shared DSH tool-card details** — Expanded DSH tool cards reuse the same cleaned-up detail copy as PI.
-- **Composer no longer squashes the todo bar** — The input column uses intrinsic height so the todo bar stays readable after window resize.
-- **API key action buttons aligned** — Auth-page key actions line up instead of sitting askew.
-- **Generic transient-error retries** — The built-in extension covers empty-body / transient errors that pi’s retry list missed, so fewer sessions die on a blip.
-- **Session outline rail keeps up** — Cheaper updates, scroll following, and per-pane isolation, without hitching during streaming.
-- **Stable proxy model selection** — Picking a model through a proxy no longer snaps to the wrong item.
-- **Model probes and DSH runtime errors** — Probe timeouts are looser; DSH runtime install progress and failures are spelled out.
-- **Git push / pull no longer freeze** — Push and pull buttons recover instead of sticking in a busy state.
-- **History-session indicator height** — The sidebar history indicator no longer crowds the title.
-- **Sidebar worktree title overlap** — Worktree titles and action buttons no longer stack on top of each other.
-- **Pi CLI update notice anchored** — The update notice sits on the controls instead of floating elsewhere.
-- **DSH default model catalog restored** — `settings.describe` `base` is forwarded across layers so default models list again via base → schema default.
-- **Linux packages keep DSH sharp** — Linux builds no longer strip sharp / libvips, so DSH-related features can start.
-- **Spinner animation unified** — Loading states share one animation utility so spinners don’t freeze.
-- **Subagent records survive restart and fork** — Start anchors persist (killed-by-restart agents are marked stopped); a full entry-table scan keeps fork side-branch records.
-- **Tool results can open files** — Tool output is tighter, and results can open the matching file in the workspace.
-- **Extension-provided models selectable in pickers** — The model selector, connection test, and Git commit-message generation load extensions by default (falling back to no-extension mode on failure), so models registered by extensions in the CLI are also selectable in PiDeck.
-- **Checkpoint lists no longer show "No checkpoints yet" forever** — Reading switched to a single `git cat-file --batch` (SHAs via stdin, no command-line length limit), fixing the list coming back empty once a repository accumulated hundreds of refs; the checkpoints panel also gained a manual refresh button.
-- **No more flashing CMD windows** — Pi child processes are spawned hidden on Windows, so launching a session no longer pops a console window.
-- **Usage probe failures are diagnosable** — Every failed attempt (URL/method/status/redacted response summary) is recorded and shown when all probes miss; New API-style management endpoints no longer get a redundant `/v1` attempt, and failures are grouped into actionable hints.
-- **Open-file inside Git diff fixed** — Clicking the inline “open file” button on a diff line no longer does nothing after the diff updates; it opens the snapshot path in the scoped preview.
-- **Auto session titles no longer hard-truncated** — Title generation avoids cutting words in the middle; weak fallback no longer overwrites a real existing title.
-- **Vision models mis-flagged as text-only fixed** — Some vision models are no longer treated as text-only; the page scroll position no longer jumps after a connection test.
-- **Git summary generation honors the model proxy list** — The commit-summary subprocess follows the model proxy list and rebuilds when proxy config changes.
-- **Git history graph excludes rewind checkpoints** — Checkpoints no longer show up as commits; image-generation mode hides security-level and context controls.
-- **DSH session delete moves to recycle bin** — Deleting a DSH session also moves its `~/.dsh/sessions` directory into the system recycle bin.
-- **Project-row action overlap fixed** — Hover action buttons no longer cover the project name at medium sidebar widths.
-- **Timeline state kept across session switches** — Execution expand/collapse state survives switching sessions; interrupted turns fold automatically when reading history, and a new turn unfolds on start.
+- **Refresh stale projects** - Refresh handles vanished projects, and file-delete failures surface instead of failing silently.
+- **Selected-state backgrounds restored** - The @theme token self-reference was overriding foundation :root values, blanking bg-accent / bg-bg-active; switching to @theme inline reference fixes active tab, sidebar selection and related backgrounds across themes.
+- **Dev no longer prompts to download DSH runtime** - The install / reinstall buttons are hidden in dev mode; only packaged builds show the on-demand install flow.
+- **DSH runtime install no longer blocks the main process** - Install / uninstall use async fs, uninstall shows progress; multi_select allowlists and markdown layout are tightened along the way.
+- **Model connection-test timeouts** - Tests send stdin EOF and degrade on older pi, so the spinner no longer runs forever.
+- **Reading history no longer jumps to the latest turn** - Window-growth compensation uses restoreAt, keeping the viewport on the turn you were reading.
+- **Shared DSH tool-card details** - Expanded DSH tool cards reuse the same cleaned-up detail copy as PI.
+- **Composer no longer squashes the todo bar** - The input column uses intrinsic height so the todo bar stays readable after window resize.
+- **API key action buttons aligned** - Auth-page key actions line up instead of sitting askew.
+- **Generic transient-error retries** - The built-in extension covers empty-body / transient errors that pi's retry list missed, so fewer sessions die on a blip.
+- **Session outline rail keeps up** - Cheaper updates, scroll following, and per-pane isolation, without hitching during streaming.
+- **Stable proxy model selection** - Picking a model through a proxy no longer snaps to the wrong item.
+- **Model probes and DSH runtime errors** - Probe timeouts are looser; DSH runtime install progress and failures are spelled out.
+- **Git push / pull no longer freeze** - Push and pull buttons recover instead of sticking in a busy state.
+- **History-session indicator height** - The sidebar history indicator no longer crowds the title.
+- **Sidebar worktree title overlap** - Worktree titles and action buttons no longer stack on top of each other.
+- **Pi CLI update notice anchored** - The update notice sits on the controls instead of floating elsewhere.
+- **DSH default model catalog restored** - `settings.describe` `base` is forwarded across layers so default models list again via base → schema default.
+- **Linux packages keep DSH sharp** - Linux builds no longer strip sharp / libvips, so DSH-related features can start.
+- **Spinner animation unified** - Loading states share one animation utility so spinners don't freeze.
+- **Subagent records survive restart and fork** - Start anchors persist (killed-by-restart agents are marked stopped); a full entry-table scan keeps fork side-branch records.
+- **Tool results can open files** - Tool output is tighter, and results can open the matching file in the workspace.
+- **Extension-provided models selectable in pickers** - The model selector, connection test, and Git commit-message generation load extensions by default (falling back to no-extension mode on failure), so models registered by extensions in the CLI are also selectable in PiDeck.
+- **Checkpoint lists no longer show "No checkpoints yet" forever** - Reading switched to a single `git cat-file --batch` (SHAs via stdin, no command-line length limit), fixing the list coming back empty once a repository accumulated hundreds of refs; the checkpoints panel also gained a manual refresh button.
+- **No more flashing CMD windows** - Pi child processes are spawned hidden on Windows, so launching a session no longer pops a console window.
+- **Usage probe failures are diagnosable** - Every failed attempt (URL/method/status/redacted response summary) is recorded and shown when all probes miss; New API-style management endpoints no longer get a redundant `/v1` attempt, and failures are grouped into actionable hints.
+- **Open-file inside Git diff fixed** - Clicking the inline "open file" button on a diff line no longer does nothing after the diff updates; it opens the snapshot path in the scoped preview.
+- **Auto session titles no longer hard-truncated** - Title generation avoids cutting words in the middle; weak fallback no longer overwrites a real existing title.
+- **Vision models mis-flagged as text-only fixed** - Some vision models are no longer treated as text-only; the page scroll position no longer jumps after a connection test.
+- **Git summary generation honors the model proxy list** - The commit-summary subprocess follows the model proxy list and rebuilds when proxy config changes.
+- **Git history graph excludes rewind checkpoints** - Checkpoints no longer show up as commits; image-generation mode hides security-level and context controls.
+- **DSH session delete moves to recycle bin** - Deleting a DSH session also moves its `~/.dsh/sessions` directory into the system recycle bin.
+- **Project-row action overlap fixed** - Hover action buttons no longer cover the project name at medium sidebar widths.
+- **Timeline state kept across session switches** - Execution expand/collapse state survives switching sessions; interrupted turns fold automatically when reading history, and a new turn unfolds on start.
 
 ### 🙏 Thanks
 
@@ -88,287 +872,287 @@ Thanks to all group members who submitted suggestions and bug reports! 🙏
 ## v0.7.2 - 2026-08-30
 
 ### 🚀 New Features
-- **Usage query rebuild (aligned with cc-switch)** — Unified usage display across Models / Auth / DSH (amount or percentage at the bottom-right of the card + bar-chart icon entry in the header); per-provider enable switch + built-in template auto-detection + generic / New API declarative templates + timeout / auto-query interval (default 5 min, 0 = manual only); no automatic probing when disabled or unsupported.
-- **Multi-segment usage badges** — Usage now renders multi-window segments (5h / weekly / MCP, three-tier percentages): cards show all segments dot-separated, model-selector rows show the most severe segment for alerting; segment labels share one table with the detail panel, and custom probe window names are shown as-is.
-- **DSH usage query pipeline** — Same usage display and probe configuration on the DSH model config page: config stored at `$DSH_HOME/.pideck/usage-probes.json`, credentials read from the DSH credential store (`.credentials.yaml`); identical to the pi side and fully isolated.
-- **Usage query AI assist** — The usage dialog gains an AI-assist button that drops a prepared prompt (driving the usage-probe skill) into the main session composer to look up unsupported providers; without an active session it copies the prompt to the clipboard instead.
-- **PiDeck-specific files consolidated** — Session archives / host mutex lock / usage config under DSH_HOME now live in `~/.dsh/.pideck/` (one-time migration; the migration logic will be removed in the next release once the legacy layout is confirmed gone).
-- **Proactive update notifications (quota-free)** — PiDeck and Pi CLI now auto-check for updates every 2h in the background (first check 30s after launch). When a new version is found, a dot badge appears on the Settings gear and the update dialog opens automatically (once per version, with "Skip this version" support). The check source switched from the GitHub REST API to the `releases/latest` redirect + `latest.yml` (aligned with electron-updater's strategy): no more 60/hour/IP quota limit and no authentication required.
-- **Release pipeline now ships latest.yml** — electron-builder gains `publish` (provider: github); `dist:win` prints the asset list to upload with the Release. Channel metadata is platform-specific (Windows: `latest.yml` / macOS: `latest-mac.yml` / Linux: `latest-linux.yml`) and each client reads its own platform file; when missing, the client falls back to the atom/API path automatically.
-- **Check timeout protection** — Every GitHub check request has a 10s timeout: with a broken local network, manual "Check for Updates" spins at most 10s then shows an error and can be retried; background checks keep scheduling the next round after failure (eliminating the historical "infinite spinner, manual update blocked" issue).
-- **Pi CLI background check** — Pi CLI version is checked every 2h alongside the app; a toast notifies about new versions and the "Version & Updates" settings section shows current → latest.
-- **Manual check no longer swallowed** — Clicking "Check for Updates" while an auto-check is in flight now shares the same in-flight request instead of being gated away (the historical root cause of "new version but no prompt").
-- **Session ruler rail completions** — The session right-edge ruler rail now covers all loaded messages (the 15-item cap is gone), tick spacing auto-shrinks as messages grow, ticks are evenly thinned out when space is tight (first/last always kept), and the rail yields bottom space when the terminal dock is open.
-- **Ruler rail offsets for split view** — When a file/diff workspace pane is open, the right-edge ruler rail shifts right to hug the message area's right edge; it returns to the window edge in solo/maximized views.
+- **Usage query rebuild (aligned with cc-switch)** - Unified usage display across Models / Auth / DSH (amount or percentage at the bottom-right of the card + bar-chart icon entry in the header); per-provider enable switch + built-in template auto-detection + generic / New API declarative templates + timeout / auto-query interval (default 5 min, 0 = manual only); no automatic probing when disabled or unsupported.
+- **Multi-segment usage badges** - Usage now renders multi-window segments (5h / weekly / MCP, three-tier percentages): cards show all segments dot-separated, model-selector rows show the most severe segment for alerting; segment labels share one table with the detail panel, and custom probe window names are shown as-is.
+- **DSH usage query pipeline** - Same usage display and probe configuration on the DSH model config page: config stored at `$DSH_HOME/.pideck/usage-probes.json`, credentials read from the DSH credential store (`.credentials.yaml`); identical to the pi side and fully isolated.
+- **Usage query AI assist** - The usage dialog gains an AI-assist button that drops a prepared prompt (driving the usage-probe skill) into the main session composer to look up unsupported providers; without an active session it copies the prompt to the clipboard instead.
+- **PiDeck-specific files consolidated** - Session archives / host mutex lock / usage config under DSH_HOME now live in `~/.dsh/.pideck/` (one-time migration; the migration logic will be removed in the next release once the legacy layout is confirmed gone).
+- **Proactive update notifications (quota-free)** - PiDeck and Pi CLI now auto-check for updates every 2h in the background (first check 30s after launch). When a new version is found, a dot badge appears on the Settings gear and the update dialog opens automatically (once per version, with "Skip this version" support). The check source switched from the GitHub REST API to the `releases/latest` redirect + `latest.yml` (aligned with electron-updater's strategy): no more 60/hour/IP quota limit and no authentication required.
+- **Release pipeline now ships latest.yml** - electron-builder gains `publish` (provider: github); `dist:win` prints the asset list to upload with the Release. Channel metadata is platform-specific (Windows: `latest.yml` / macOS: `latest-mac.yml` / Linux: `latest-linux.yml`) and each client reads its own platform file; when missing, the client falls back to the atom/API path automatically.
+- **Check timeout protection** - Every GitHub check request has a 10s timeout: with a broken local network, manual "Check for Updates" spins at most 10s then shows an error and can be retried; background checks keep scheduling the next round after failure (eliminating the historical "infinite spinner, manual update blocked" issue).
+- **Pi CLI background check** - Pi CLI version is checked every 2h alongside the app; a toast notifies about new versions and the "Version & Updates" settings section shows current → latest.
+- **Manual check no longer swallowed** - Clicking "Check for Updates" while an auto-check is in flight now shares the same in-flight request instead of being gated away (the historical root cause of "new version but no prompt").
+- **Session ruler rail completions** - The session right-edge ruler rail now covers all loaded messages (the 15-item cap is gone), tick spacing auto-shrinks as messages grow, ticks are evenly thinned out when space is tight (first/last always kept), and the rail yields bottom space when the terminal dock is open.
+- **Ruler rail offsets for split view** - When a file/diff workspace pane is open, the right-edge ruler rail shifts right to hug the message area's right edge; it returns to the window edge in solo/maximized views.
 
 ### 🐛 Fixes
-- **Update check fallback path** — When a Release lacks latest.yml, the check now degrades to the atom feed + REST fallback instead of failing outright.
-- **Update check pipeline hardening** — Repo coordinates unified into PiDeck constants (no longer relying on GitHub rename redirects); recommended download assets get a HEAD availability check with automatic naming-variant correction on 404 (falling back to opening the release page in a browser when all variants fail); version comparison now honors semver pre-release semantics (beta < same-number stable, so beta clients get notified about stable releases); a pre/post-release end-to-end self-check script was added.
-- **DSH usage query provider normalization** — `deepseek-official` / `llm-deepseek` are now normalized to `deepseek` on both main process and renderer, fixing usage/balance missing in the model selector and the orb panel while the DSH card row still showed it (all three now share one cache key, so refreshing one refreshes all).
-- **File manager open & terminal ownership fixes** — Windows now launches explorer.exe via absolute path and uses `shell.openPath` to open directories (macOS too), so the window properly activates to the foreground; the terminal button falls back to the current session's project when `activeProjectId` isn't synced, so cross-project sessions keep showing "Open terminal".
-- **Session panel terminal fold height sync** — The fold/expand height sync was reworked to read the composer's steady-state size before `setLayout`, fixing the fold-then-height-not-released and floating-input issues.
-- **Composer stability** — The send button stays visible when the input has content during busy state; composer height stays stable after switching history; image-gen composer controls keep a single row.
-- **Thinking picker no longer blocked by capability probes** — Opening the thinking-level picker no longer waits on capability probes.
-- **Usage display polish** — Empty provider usage rows are hidden and spacing above the usage toggle is adjusted.
+- **Update check fallback path** - When a Release lacks latest.yml, the check now degrades to the atom feed + REST fallback instead of failing outright.
+- **Update check pipeline hardening** - Repo coordinates unified into PiDeck constants (no longer relying on GitHub rename redirects); recommended download assets get a HEAD availability check with automatic naming-variant correction on 404 (falling back to opening the release page in a browser when all variants fail); version comparison now honors semver pre-release semantics (beta < same-number stable, so beta clients get notified about stable releases); a pre/post-release end-to-end self-check script was added.
+- **DSH usage query provider normalization** - `deepseek-official` / `llm-deepseek` are now normalized to `deepseek` on both main process and renderer, fixing usage/balance missing in the model selector and the orb panel while the DSH card row still showed it (all three now share one cache key, so refreshing one refreshes all).
+- **File manager open & terminal ownership fixes** - Windows now launches explorer.exe via absolute path and uses `shell.openPath` to open directories (macOS too), so the window properly activates to the foreground; the terminal button falls back to the current session's project when `activeProjectId` isn't synced, so cross-project sessions keep showing "Open terminal".
+- **Session panel terminal fold height sync** - The fold/expand height sync was reworked to read the composer's steady-state size before `setLayout`, fixing the fold-then-height-not-released and floating-input issues.
+- **Composer stability** - The send button stays visible when the input has content during busy state; composer height stays stable after switching history; image-gen composer controls keep a single row.
+- **Thinking picker no longer blocked by capability probes** - Opening the thinking-level picker no longer waits on capability probes.
+- **Usage display polish** - Empty provider usage rows are hidden and spacing above the usage toggle is adjusted.
 
 ### 🚀 New Features
 
-- **Model capability auto-adaptation & thinking-effort pipeline** — Compatible
+- **Model capability auto-adaptation & thinking-effort pipeline** - Compatible
   with pi 0.84.3: endpoint-reported `contextWindow` / `maxTokens` / thinking
   levels drive model adaptation, and the capability cache is invalidated per
   runtime generation; `get_available_thinking_levels` is cached through the
   runtime IPC keyed by `sessionId + agentId + generation + provider + modelId`
   (DSH keeps its own reasoningEfforts); models unmatched by the endpoint
   default to open thinking levels instead of guessing.
-- **Manual model catalog refresh** — The model selector now has a manual
+- **Manual model catalog refresh** - The model selector now has a manual
   refresh that force-pulls the model catalog (instead of relying on cache),
   so newly added models show up.
-- **Usage query expanded** — Built-in usage/balance queries for OpenRouter,
+- **Usage query expanded** - Built-in usage/balance queries for OpenRouter,
   Moonshot-Kimi and generic OpenAI-compatible gateways, one-click
   usage-probes config generation, a new `usage-probe` skill and
   `/skill:usage-probe` entry point for custom providers; probe cards now also
   show balance / Boost points.
-- **Session restart & reload** — The session context menu and tab bar now
+- **Session restart & reload** - The session context menu and tab bar now
   expose "Restart" and "Reload", fixing terminal-state agents that could no
   longer issue runtime commands.
-- **DSH session-header agent mode pill** — The DSH session header shows an
+- **DSH session-header agent mode pill** - The DSH session header shows an
   agent-mode pill: selectable during draft, read-only once activated
   (agentPresetLocked).
-- **Built-in pi-deck-retry-no-body extension** — Empty-response errors now
+- **Built-in pi-deck-retry-no-body extension** - Empty-response errors now
   reuse pi's retry mechanism, reducing session interruption from occasional
   empty bodies.
-- **Ask queries carry main-session context** — Parallel Ask queries read the
+- **Ask queries carry main-session context** - Parallel Ask queries read the
   main conversation context and bring answers back to the main thread
   (quote-into-composer), so background questions stay in sync with the
   conversation.
-- **Sidebar Chats / projects segmentation** — The sidebar splits Chats and
+- **Sidebar Chats / projects segmentation** - The sidebar splits Chats and
   projects, adds a New-session menu and session search for faster navigation.
-- **Session right-edge ruler rail** — A beUI PreviewRail on the session right
+- **Session right-edge ruler rail** - A beUI PreviewRail on the session right
   edge maps timeline positions for quick jump-to-message navigation.
-- **Theme cycling from the sidebar footer** — Light → dark → follow-system
+- **Theme cycling from the sidebar footer** - Light → dark → follow-system
   cycling with a beUI dock in the footer.
-- **Global notifications as card toasts** — System notice delivery upgraded to
+- **Global notifications as card toasts** - System notice delivery upgraded to
   custom card toasts.
-- **JetBrains editor scan & system file-manager detection** — Deeper
+- **JetBrains editor scan & system file-manager detection** - Deeper
   JetBrains editor directory scanning and automatic system file-manager
   detection for "open in editor / reveal in explorer" actions.
-- **Bundled image-gen skill template** — One-click install of the built-in
+- **Bundled image-gen skill template** - One-click install of the built-in
   image generation skill template.
-- **Markdown file-link line jumps** — Explicit file links jump to the target
+- **Markdown file-link line jumps** - Explicit file links jump to the target
   line (`path:line`); bare drive-letter hrefs are no longer stripped by the
   URL filter, and clickable links keep working outside capsules.
-- **DSH official todo bridged** — DSH's native todo feeds the existing todo
+- **DSH official todo bridged** - DSH's native todo feeds the existing todo
   bar.
-- **Ask panel notification toggle** — New standalone notification switch for
+- **Ask panel notification toggle** - New standalone notification switch for
   Ask (parallel-query) responses, so background questions can stay silent.
-- **Guide page @-file reference & default picks** — The onboarding guide now
+- **Guide page @-file reference & default picks** - The onboarding guide now
   supports `@` file references and pre-selects the default model / thinking
   level for new sessions.
-- **Usage probe multi-account & standalone endpoints** — Provider usage
+- **Usage probe multi-account & standalone endpoints** - Provider usage
   probing supports multi-account / multi-role balances (e.g. Zhipu) and
   per-provider standalone endpoint configuration.
 
-- **DSH dual agent backend** — pi / DSH (DeepSeek Harness) sessions coexist in the
+- **DSH dual agent backend** - pi / DSH (DeepSeek Harness) sessions coexist in the
   same project and can be freely created, switched and browsed; DSH is deeply
   embedded (utilityProcess boot, no `dsh web`, no port, no background HTTP),
   lazily started so app startup stays fast.
-- **DSH session capabilities** — history paging (`session.history` event-stream
+- **DSH session capabilities** - history paging (`session.history` event-stream
   pages with seq cursors), fork (`session.fork` anchored at a seq, forked text
   prefilled into the composer), compact (`/compact` command), and an
   approval/question bridge (`approval/requested` + `question/requested` →
   desktop Ask dialog → `respond` receipt).
-- **DSH session persistence** — a `dshSessionId` mapping is written to the
+- **DSH session persistence** - a `dshSessionId` mapping is written to the
   catalog; after restart, old sessions are re-attached with a history-tail
   replay; fork/restart keep the mapping in sync.
-- **DSH config management page** — a DSH pane in Settings: schema-driven
+- **DSH config management page** - a DSH pane in Settings: schema-driven
   settings/credentials forms, host-level model catalog, host status and restart.
-- **v2 transport** — the DSH host moved from an in-process embed into a
+- **v2 transport** - the DSH host moved from an in-process embed into a
   utilityProcess (MessagePort fetch bridge over the same `AbstractApiClient`
   contract); native ABI and crash surface no longer touch the main process;
   the hostEntry is a dedicated build output and is asarUnpacked.
-- **Backend identity & capability sets** — sessions carry a `backend` marker
+- **Backend identity & capability sets** - sessions carry a `backend` marker
   (defaults to `pi`, zero migration for old data); UI hides entry points by
   declared capability (DSH hides edit/delete of history messages, keeps
   resend/fork; compact is always visible).
-- **DSH command completion from the host registry** — A new
+- **DSH command completion from the host registry** - A new
   `pideck-command-bridge` (in-process host bridge) feeds the Composer `/` menu
   from `ctx.commands` in real time (including user/plugin-registered commands),
   falling back to the static suggestion set while a session is not active.
-- **DSH session HTML export** — Projection-based export: pages the full host
+- **DSH session HTML export** - Projection-based export: pages the full host
   history and renders a self-contained HTML file (static inline styles in the
   dsh-web visual language), returning a file path with the same protocol as
   pi's `export_html`; live sessions export from memory, history sessions are
   collected with a runaway guard.
-- **DSH skill catalog presentation** — `skill.list` wired into the session
+- **DSH skill catalog presentation** - `skill.list` wired into the session
   tools panel ("Skills" tab): name/description/when-to-use plus `/name`
   slash-invocation hints (user-only skills get a badge).
-- **Current-plan Todo extension** — The bundled Todo extension now supports explicit
+- **Current-plan Todo extension** - The bundled Todo extension now supports explicit
   plan replacement and restoration, branch-scoped persistence, and retains stale
   tasks until the agent explicitly clears them.
-- **Model spec autofill from listing + pi-ai** — Fetching models now keeps
+- **Model spec autofill from listing + pi-ai** - Fetching models now keeps
   `contextWindow` / `maxTokens` when the endpoint returns them. Missing fields
   match `@earendil-works/pi-ai` builtins (same catalog DSH uses). Unmatched
   models stay empty instead of guessing 128k/8k. The OpenRouter/models.dev
   SQLite table (`model-specs.db`) is gone.
-- **DSH provider retry count** — DSH has no global retry setting. Custom settings
+- **DSH provider retry count** - DSH has no global retry setting. Custom settings
   on each DeepSeek / OpenAI-compatible provider now expose `retryPolicy.maxRetries`
   (default 5, transient errors only).
-- **DSH 0.1.0-rc.8** — Bump `@deepseek-ai/dsh*` to the current harness release.
+- **DSH 0.1.0-rc.8** - Bump `@deepseek-ai/dsh*` to the current harness release.
   Keep the local `dsh-tool-pwsh-persistent` plugin: official persistent PowerShell
   still uses `ctx.terminals`, registers as `pwsh` (collides with the one-shot
   sandboxed tool), and is not mounted by default presets.
-- **DSH 0.1.0-rc.7** — Bump `@deepseek-ai/dsh*` to the current harness release
+- **DSH 0.1.0-rc.7** - Bump `@deepseek-ai/dsh*` to the current harness release
   (plugin settings cards, Job Panel for Codex/Claude Code subagents, durable
   MCP/ACP image attachments, large-history pagination fix, max-token session
   recovery). English built-in `Code mode` label follows upstream as `PTC mode`.
   `dsh-bill` is 0.13.1.
-- **Web UI restyled in the dsh-web design language** — The built-in web
+- **Web UI restyled in the dsh-web design language** - The built-in web
   service follows the official dsh-web design tokens: semantic palette
   (background layers, border levels, label hierarchy, state colors) and font
   stacks taken from the official dist, near-black layered dark theme; sidebar /
   header / timeline / composer refinements (frosted header, focus ring on the
   composer, content column width, slim scrollbars).
-- **Web DSH tools panel** — A "DSH tools" entry in the session header for dsh
+- **Web DSH tools panel** - A "DSH tools" entry in the session header for dsh
   sessions: Goals (read-only), Subagents (directory + expandable transcript),
   Skills, and Plugins tabs, all over REST (same main-process sources as the
   desktop IPC).
-- **Web DSH plugin management** — Dynamic Cordis plugin inventory + install
+- **Web DSH plugin management** - Dynamic Cordis plugin inventory + install
   form + run / stop / two-step uninstall (G13 semantics: in-process temporary,
   session-owned, panel gestures without approval), plus the read-only static
   loader list.
-- **Dual-backend badges on the Web** — Sidebar session rows and the session
+- **Dual-backend badges on the Web** - Sidebar session rows and the session
   header show pi/dsh backend badges (same source as the desktop
   SessionBackendMark), so both backends are instantly distinguishable.
 
 ### ✨ UX Improvements
 
-- **History runtime-operation overlay** — Running operations on history
+- **History runtime-operation overlay** - Running operations on history
   sessions shows a loading overlay over the message area, preventing
   double-clicks and misclicks.
-- **Tab-bar loading state** — Fixed the loading display and session-reload
+- **Tab-bar loading state** - Fixed the loading display and session-reload
   logic for tab-bar operations for more accurate feedback.
-- **Model capability explainer card removed** — The capability explainer card
+- **Model capability explainer card removed** - The capability explainer card
   is gone; adapted results go straight into the composer, one less step.
-- **Settings grouping** — Cache and log settings moved into the "Developer
+- **Settings grouping** - Cache and log settings moved into the "Developer
   settings" group for clearer categorization.
-- **Tab-bar run controls converge into a ⋯ menu** — Run controls moved into a
+- **Tab-bar run controls converge into a ⋯ menu** - Run controls moved into a
   grouped ⋯ menu, decluttering the session tab bar.
-- **Scratch-pad panel re-layout & editor picker redesign** — The scratch-pad
+- **Scratch-pad panel re-layout & editor picker redesign** - The scratch-pad
   panel is re-arranged and the external-editor picker dialog rebuilt.
-- **Timeline process-layer text dimming** — Process-layer text uses the dimmer
+- **Timeline process-layer text dimming** - Process-layer text uses the dimmer
   `text-faint` token with tool-card polish.
-- **Startup auto-update check removed** — The app no longer pings the update
+- **Startup auto-update check removed** - The app no longer pings the update
   endpoint on startup, keeping startup snappier.
-- **Persistent PowerShell terminal hardening** — The persistent `pwsh` tool
+- **Persistent PowerShell terminal hardening** - The persistent `pwsh` tool
   keeps multi-line command line breaks (ConPTY LF fix), resolves PowerShell
   installs via winget / WindowsApps, and injects git/npx environment variables
   to prevent interactive prompts.
-- **Sidebar expanded-session collapse control** — Expanded project sessions in
+- **Sidebar expanded-session collapse control** - Expanded project sessions in
   the sidebar can now be collapsed / expanded individually via a control.
-- **Model default-collapse derived state** — The model directory default
+- **Model default-collapse derived state** - The model directory default
   collapse is derived state now, so collapsed groups survive async catalog
   loads instead of flashing open.
 
-- **DSH session export entry enabled** — Sidebar/drawer "Export HTML" now works
+- **DSH session export entry enabled** - Sidebar/drawer "Export HTML" now works
   for dsh sessions instead of reporting "not supported yet".
 
 ### 🔧 Performance
 
-- **Terminal-session runtime memory released** — Terminal-state sessions now
+- **Terminal-session runtime memory released** - Terminal-state sessions now
   free their runtime state memory.
-- **Export runaway guard** — History export is page-capped and oversized images
+- **Export runaway guard** - History export is page-capped and oversized images
   are skipped to avoid hundred-megabyte HTML files.
 
 ### 🐛 Bug Fixes
 
-- **Unstarted-session editing & bundled skill auto-install** — Fixed editing
+- **Unstarted-session editing & bundled skill auto-install** - Fixed editing
   for unstarted sessions and the bundled-skill auto-install flow.
-- **Vision-bridge misconfig image handling** — No more uncaught exceptions
+- **Vision-bridge misconfig image handling** - No more uncaught exceptions
   when the vision bridge is misconfigured; also fixed Git operation timeouts.
-- **Official provider new-model false alarm** — Selecting a newly added model
+- **Official provider new-model false alarm** - Selecting a newly added model
   on an official provider no longer falsely reports "not configured".
-- **Approval card text selection** — Fixed text in approval cards being
+- **Approval card text selection** - Fixed text in approval cards being
   unselectable.
-- **Session error-state logging** — Completed applog records for abnormal
+- **Session error-state logging** - Completed applog records for abnormal
   session states to aid troubleshooting.
-- **Always-on-top button state sync** — The button now mirrors the main
+- **Always-on-top button state sync** - The button now mirrors the main
   process's real always-on-top state.
-- **Docs fullscreen toggle crash** — Fixed the composer panel
+- **Docs fullscreen toggle crash** - Fixed the composer panel
   `Group not found` crash when toggling docs fullscreen.
-- **DSH host warmup & `/new` command** — Improved DSH host warmup strategy and
+- **DSH host warmup & `/new` command** - Improved DSH host warmup strategy and
   fixed `/new` commands being wrongly intercepted.
-- **App background wallpaper token injection** — Wallpaper token injection no
+- **App background wallpaper token injection** - Wallpaper token injection no
   longer makes light/dark themes override each other.
-- **File-manager open action & navigation** — Fixed file-manager open modes
+- **File-manager open action & navigation** - Fixed file-manager open modes
   and related navigation defects.
-- **PreviewRail jump on partially loaded messages** — Ruler jumps are now
+- **PreviewRail jump on partially loaded messages** - Ruler jumps are now
   reachable while messages are still loading.
-- **Pet state desync under concurrent tasks** — Pet failed/review transitions
+- **Pet state desync under concurrent tasks** - Pet failed/review transitions
   re-aggregate by business state; patrol and business states are mutually
   exclusive.
-- **Model save validation** — Saving a model no longer treats config-fallback
+- **Model save validation** - Saving a model no longer treats config-fallback
   as a false green light.
-- **Failed-message diagnostic cards** — Failed messages render diagnostic
+- **Failed-message diagnostic cards** - Failed messages render diagnostic
   cards; retry progress only pops a toast.
-- **RPC log toggle silent failure** — The log toggle no longer fails silently.
-- **DSH archive name loss & cross-project archive view** — Archive names
+- **RPC log toggle silent failure** - The log toggle no longer fails silently.
+- **DSH archive name loss & cross-project archive view** - Archive names
   survive and the archive view no longer over-collects across projects.
-- **Local packages built before pack/start** — Packaging/startup builds local
+- **Local packages built before pack/start** - Packaging/startup builds local
   packages first, fixing the DSH host crash from a missing `lib/index.js`.
-- **Settings modal scrolling & child-session parent backfill** — The settings
+- **Settings modal scrolling & child-session parent backfill** - The settings
   modal scrolls properly and flat subagent parents are backfilled to avoid
   orphaned tiles.
-- **DSH live image rendering** — Streaming DSH images render again (hydrated
+- **DSH live image rendering** - Streaming DSH images render again (hydrated
   bytes kept during live streaming).
-- **False MCP badges on ordinary tools** — Ordinary tools no longer get MCP
+- **False MCP badges on ordinary tools** - Ordinary tools no longer get MCP
   badges.
-- **Markdown `~` path split by strikethrough** — `~`-prefixed file links no
+- **Markdown `~` path split by strikethrough** - `~`-prefixed file links no
   longer get split by the single-tilde strikethrough, and unresolvable links
   show a hint instead of silently opening an empty file.
-- **DSH plugin config input** — Plugin config inputs are no longer interrupted
+- **DSH plugin config input** - Plugin config inputs are no longer interrupted
   mid-typing; plugin-area layout and config-page position are remembered.
-- **pi→DSH provider migration no longer requires pre-seeded DSH entries** —
+- **pi→DSH provider migration no longer requires pre-seeded DSH entries** -
   Migrating a built-in provider to DSH works even when the DSH side has no
   same-name entry yet.
-- **Markdown file-link existence check** — Message links to files now verify
+- **Markdown file-link existence check** - Message links to files now verify
   the target; stale paths degrade to plain text instead of dead links.
-- **Unsaved-close confirm lists all changes** — The settings/config close
+- **Unsaved-close confirm lists all changes** - The settings/config close
   dialog now enumerates every unsaved item, and dirty marks clear
   automatically when a field is reverted to its original value.
-- **Panel widths preserved across zoom changes** — Splitter widths no longer
+- **Panel widths preserved across zoom changes** - Splitter widths no longer
   jump when the window zoom factor changes.
-- **Pi model field editing restored** — Model fields on the pi configuration
+- **Pi model field editing restored** - Model fields on the pi configuration
   page can be edited again.
-- **Runtime switch & turn history alignment** — Switching runtimes keeps turn
+- **Runtime switch & turn history alignment** - Switching runtimes keeps turn
   history display in sync.
-- **Session delete/archive cleanup** — Deleting or archiving a session no
+- **Session delete/archive cleanup** - Deleting or archiving a session no
   longer leaves stray child sessions behind.
 
-- **DSH injected context no longer projected as user messages** — AGENTS.md /
+- **DSH injected context no longer projected as user messages** - AGENTS.md /
   runtime context / skills injected into DSH sessions are filtered by
   `source.kind`; the timeline keeps only real conversation.
-- **Files drawer scroll container ownership** — Scrolling is scoped to the
+- **Files drawer scroll container ownership** - Scrolling is scoped to the
   drawer container (synced with the dev-baseline fix); `files-panel` no longer
   scrolls itself vertically.
-- **Removed the ineffective "Expand changed files by default" setting** — The
+- **Removed the ineffective "Expand changed files by default" setting** - The
   changed-file list now lives above the composer and always starts collapsed,
   so the old toggle that auto-expanded each turn's list had stopped doing
   anything; the setting and its leftover dead code were removed.
-- **Packaged terminal could not load pty.node (#154)** — afterPack now keeps
+- **Packaged terminal could not load pty.node (#154)** - afterPack now keeps
   asar unpacked metadata when it repacks, and `node-pty` is listed in
   `asarUnpack`, so `terminal:ensure` can load the native module in the
   installed app.
 
 ### 🙏 Thanks
 
-- **@bfzha** — Persistent PowerShell terminal hardening, pet-state fixes, DSH
+- **@bfzha** - Persistent PowerShell terminal hardening, pet-state fixes, DSH
   archive / live-image / plugin-input fixes, markdown link line-jumps &
   clickability, build/startup packaging fixes, plus the earlier round: DSH
   config management/migration layering, CodeMirror config source-file page,
   full appearance theme redraw (Classic / Forest Green / Graphite Gray /
   Seafoam Blue / Warm Sun), selection-to-quote chips, and cross-session scroll
   anchor preservation (#163).
-- **@ayuayue** — Usage-probe enhancements with balance/Boost, Ask
+- **@ayuayue** - Usage-probe enhancements with balance/Boost, Ask
   main-context, sidebar segmentation & search, PreviewRail ruler, theme
   cycling, card toasts, editor/file-manager detection, image-gen skill
   template, tab-bar & timeline polish, plus the model capability pipeline,
@@ -383,120 +1167,120 @@ community testing environment 🎉
 
 ### 🚀 New Features
 
-- **Session trajectory in the right drawer + process ledger** — The thinking
+- **Session trajectory in the right drawer + process ledger** - The thinking
   trajectory moves from the center session column into its own right-drawer
   tab (reusing the session message cache). JSONL process events, the first-round
   initial prompt, and `pi-system` references now land in the ledger; durations
   show only measured or within-round inferred ranges instead of fake 0ms.
-- **Markdown incremental rendering** — Long streaming messages render
+- **Markdown incremental rendering** - Long streaming messages render
   incrementally (IncrementalMarkdownFrontier / frozen chunks) instead of
   re-parsing the whole document every frame; full rendering (syntax
   highlighting / mermaid / element tree) is deferred until idle.
-- **Reading surfaces unified into split view** — The right-drawer editor panel
+- **Reading surfaces unified into split view** - The right-drawer editor panel
   is removed; file reading now happens in the center split view
   (SessionTabsBar + WorkbenchContent) on a unified surface.
-- **macOS native traffic lights on the custom title bar** — The custom title
+- **macOS native traffic lights on the custom title bar** - The custom title
   bar uses the system window buttons (hiddenInset + trafficLightPosition),
   with the sidebar collapse and session tabs making room for the lights.
-- **Empty-workspace onboarding** — When no workspace projects exist, the
+- **Empty-workspace onboarding** - When no workspace projects exist, the
   sidebar renders an empty-state card with an add-directory button.
-- **Web ask request cards** — The local web service gained a `/api/ui-response`
+- **Web ask request cards** - The local web service gained a `/api/ui-response`
   endpoint; `ask` requests render as cards with a request snapshot, and the
   SSE tool-loop wrap-up is fixed.
-- **Onboarding is now a compose page** — The empty workspace renders the
+- **Onboarding is now a compose page** - The empty workspace renders the
   centered composer directly as a renderer-only virtual session (no catalog
   record, no pi process, no tab). The project name under the logo becomes a
   dropdown covering all projects (including the built-in Chat), and the
   selected model/thinking level shows live. The real session is created on
   first send with the composer state and typed messages moved over in one
-  step — Chat projects now also get a normal saveable draft session. Startup
+  step - Chat projects now also get a normal saveable draft session. Startup
   no longer auto-creates a draft session.
-- **Turn file-change list: manual collapse only** — The per-turn modified-file
+- **Turn file-change list: manual collapse only** - The per-turn modified-file
   list is collapsed/expanded by a persistent toggle on its title row; the
   count-threshold auto-collapse is removed.
-- **Home quick actions removed** — The home composer drops the quick-action
+- **Home quick actions removed** - The home composer drops the quick-action
   buttons and settles the input height at 150px.
 
 ### ✨ UX Improvements
 
-- **Desktop pet at native sprite size** — The pet renders each sprite cell at
+- **Desktop pet at native sprite size** - The pet renders each sprite cell at
   its original size with high-quality interpolation and stays in sync with
   zoom/font-size changes (no more blurry 160×176 compression).
-- **Streaming conversations expand intermediate steps by default** — Thinking
+- **Streaming conversations expand intermediate steps by default** - Thinking
   and tool-execution steps are expanded during streaming by default; the
   process safety gate ships enabled but zero-touch, so read-only users are
   never interrupted.
-- **Unified dsh-web look** — Session todo bar, merged model/thinking selector,
+- **Unified dsh-web look** - Session todo bar, merged model/thinking selector,
   and context ring with unified status details now match between desktop and
   web.
-- **System notification jumps to its session** — Clicking a notification
+- **System notification jumps to its session** - Clicking a notification
   prioritizes the session `record.id` and switches to that session instead of
   landing on the current one.
-- **Thinking blocks & collapsible cards touch-friendly** — The whole thinking
+- **Thinking blocks & collapsible cards touch-friendly** - The whole thinking
   row toggles open/closed with hover/active feedback and a rotating chevron;
   expanded content gets a collapse button at the bottom; collapsed previews
   use a monospace font. The Web timeline gets the same interaction polish.
-- **Tool cards stop spinning while running** — The running state drops the
+- **Tool cards stop spinning while running** - The running state drops the
   spinner animation (the label stays), still driven by tool execution events.
-- **Centered home composer** — The ComposerArea on the empty home page is
+- **Centered home composer** - The ComposerArea on the empty home page is
   uniformly centered at the same width as the guide page, no longer offset by
   leftover layout.
-- **DevTools shortcuts consolidated** — Shortcuts are consolidated in
+- **DevTools shortcuts consolidated** - Shortcuts are consolidated in
   `devTools.ts`; F12 inside a webview now opens the main window's DevTools
   instead of being swallowed by the embedded page.
 
 ### 🔧 Performance
 
-- **Streaming render optimizations** — Frozen chunk references stay stable
+- **Streaming render optimizations** - Frozen chunk references stay stable
   (no per-frame plugin rebuild), prefix strings are cached to avoid slicing
   large strings every frame, and settle-time full rendering is deferred to
   `requestIdleCallback`.
-- **Settings page opens instantly** — The settings modal is split with per-tab
+- **Settings page opens instantly** - The settings modal is split with per-tab
   lazy loading (first-open chunk 441KB → 25KB); the pet spritesheet switched
   to the `pideck-pet://` protocol (manifest no longer embeds a 7.4MB base64
   image) with mtime/size fingerprint caching; app-log reads are line-cached
   with zero re-reads of history files.
-- **Wider streaming push window** — text/thinking push batching window widened
+- **Wider streaming push window** - text/thinking push batching window widened
   from 50ms to 100ms, cutting render frequency further on top of incremental
   rendering.
-- **Streaming event flood no longer leaks memory** — Streaming rendering is
+- **Streaming event flood no longer leaks memory** - Streaming rendering is
   O(n) per-frame scans and full IPC events are handled on demand; RAM no
   longer climbs to GB-scale without dropping back under event floods.
-- **Plain-text fallback for unfreezable messages** — Long messages that cannot
+- **Plain-text fallback for unfreezable messages** - Long messages that cannot
   be frozen render as plain text during streaming, settle-time full rendering
   is capped, and the typewriter stops idling frames.
 
 ### 🐛 Bug Fixes
 
-- **pi custom path fallback** — When `customPiPath` becomes invalid, detection
+- **pi custom path fallback** - When `customPiPath` becomes invalid, detection
   falls back to auto-detection instead of getting stuck.
-- **Update check is manual-only** — Updates are only triggered from the
+- **Update check is manual-only** - Updates are only triggered from the
   settings page; with updates disabled, no auto checks or spinner states.
-- **Drawer tab width breathing** — Unified `scrollbar-gutter: stable` on
+- **Drawer tab width breathing** - Unified `scrollbar-gutter: stable` on
   scrolling containers stops the drawer width oscillating on tab switches.
-- **Floating session menu follows resize** — The session-position floating
+- **Floating session menu follows resize** - The session-position floating
   menu tracks window zoom/resize (ResizeObserver writes back panel pixels);
   sidebar width syncing fixed too.
-- **Project path tooltip flicker** — Hovering no longer toggles the tooltip
+- **Project path tooltip flicker** - Hovering no longer toggles the tooltip
   open/closed, and the trigger area covers the whole row.
-- **Git panel collapse header** — The collapse button aligns with the real
+- **Git panel collapse header** - The collapse button aligns with the real
   32px header height instead of sitting 6px low and clipped.
-- **Pet window session isolation** — Partition constants are unified so the
+- **Pet window session isolation** - Partition constants are unified so the
   sprite protocol attaches to its own dedicated session.
-- **Streaming scroll-follow never yanks history readers back** — While
+- **Streaming scroll-follow never yanks history readers back** - While
   streaming, a slight scroll up (touchpad inertia / accidental input) no
   longer escapes the bottom-follow (growth guard band), so the reply keeps
   scrolling into view. After the user has genuinely scrolled away to read
-  history, content growth no longer drags them back to the bottom — follow
+  history, content growth no longer drags them back to the bottom - follow
   re-locks only when they scroll back down near the bottom, so no manual
   scroll-to-bottom button is needed.
-- **Context ring popover re-anchors instead of closing** — The context-meter
+- **Context ring popover re-anchors instead of closing** - The context-meter
   popover re-anchors to its trigger on scroll/resize (rAF-merged, no re-render
   when the position is unchanged) instead of auto-closing while the stream
   scrolls; outside click / Escape remain the only ways to dismiss it.
-- **Thinking-collapse trailing whitespace** — A thinking step collapsed to a
+- **Thinking-collapse trailing whitespace** - A thinking step collapsed to a
   single line no longer leaves trailing whitespace in its end state.
-- **Add-project no longer hijacked by chat (#149)** — The add-project entry
+- **Add-project no longer hijacked by chat (#149)** - The add-project entry
   point is no longer taken over by the session chat area and stays reachable
   from the sidebar.
 
@@ -504,256 +1288,256 @@ community testing environment 🎉
 
 ### 🚀 New Features
 
-- **Session-first architecture (#113)** — Sessions are now the first-class
+- **Session-first architecture (#113)** - Sessions are now the first-class
   citizen: runtime bindings, streaming state, composer, and runtime UI are
   scoped per session; the global agent-centric state was migrated to Jotai atoms
   keyed by sessionId.
-- **Session tab bar** — Pin tabs, drag-to-reorder with insertion indicator,
+- **Session tab bar** - Pin tabs, drag-to-reorder with insertion indicator,
   preview mode with auto-pin on send, status badges, and a unified tab dropdown
   (new-session entry moved into the project dropdown).
-- **Split view rework** — Focus-driven view switching, per-panel exit from split,
+- **Split view rework** - Focus-driven view switching, per-panel exit from split,
   and split-group capsules with custom names/colors.
-- **Session branch navigation** — A message-branch pager (AI Elements style) to
+- **Session branch navigation** - A message-branch pager (AI Elements style) to
   navigate between forked conversation branches.
-- **Streaming rendering overhaul** — Typewriter reveal (useSmoothStream) on a
+- **Streaming rendering overhaul** - Typewriter reveal (useSmoothStream) on a
   dedicated live stream channel; thinking steps stream in as Markdown; the
   execution process folds into a Chain-of-Thought step timeline; intermediate
   replies stay inside the fold; scroll position survives session switches.
-- **Session file change summary** — After a session completes, the files
+- **Session file change summary** - After a session completes, the files
   written/edited in this round are summarized at the end for review.
-- **Theme system** — Skin presets, custom background images, switchable accent
+- **Theme system** - Skin presets, custom background images, switchable accent
   colors (warm-white palette), and wallpaper transparency for panels/dialogs;
   content max width is now a percentage of the session panel (legacy px values
   migrated, cap raised to 1800).
-- **Editor: CodeMirror 6** — Replaced Monaco (bundle 72MB → 39MB); default edit
+- **Editor: CodeMirror 6** - Replaced Monaco (bundle 72MB → 39MB); default edit
   mode, auto-save, right-click selection reference, image/PDF preview; the editor
   became a first-class drawer panel.
-- **Markdown: Streamdown as the single engine** — Code / mermaid / math all
+- **Markdown: Streamdown as the single engine** - Code / mermaid / math all
   render via Streamdown official plugins; react-markdown removed.
-- **Git inline operations** — Inline add / rollback / open-file in the Changes
+- **Git inline operations** - Inline add / rollback / open-file in the Changes
   list (VS Code semantics); push/pull status badges; delete via context menu
   (goes to recycle bin); commit-message generation with progress / timeout /
   debounce; diff rendering via @pierre/diffs.
-- **RPC log viewer & audit** — Real-time RPC log dialog (auto-scroll / search /
+- **RPC log viewer & audit** - Real-time RPC log dialog (auto-scroll / search /
   copy / save to file); log query & audit (logQuery / sharedLogger / trash
   audit) with a rebuilt LogViewer.
-- **Usage statistics** — Settings tab with real-time durations and per-session
+- **Usage statistics** - Settings tab with real-time durations and per-session
   average cache hit rate; onboarding card with one-click install.
-- **Model management** — Live model list (local models.json preferred, new
+- **Model management** - Live model list (local models.json preferred, new
   models take effect on agent restart); model table with capabilities column;
   tiered pricing editor; latency metrics (TTFT / total time / tokens per second)
   in session context detail.
-- **Vision bridge** — Gives non-vision models eyes via tool results; prompt
+- **Vision bridge** - Gives non-vision models eyes via tool results; prompt
   template persisted to config file.
-- **System notifications** — Session end and AI asks raise system notifications;
+- **System notifications** - Session end and AI asks raise system notifications;
   clicking jumps to the conversation.
-- **Pet status reminders** — Head bubbles, font follows settings, colored status
+- **Pet status reminders** - Head bubbles, font follows settings, colored status
   words, and waiting-for-action hints.
-- **Web service: SSE + React frontend** — `/api/chat` streams via the AI SDK
+- **Web service: SSE + React frontend** - `/api/chat` streams via the AI SDK
   UIMessageStream protocol; the external web UI is aligned with the desktop UI.
-- **File tree → composer @-references** — Drag files or directories onto the
+- **File tree → composer @-references** - Drag files or directories onto the
   input to insert @ references (including @directory).
-- **Window & layout memory** — Window size preset `last`; sidebar/drawer widths
+- **Window & layout memory** - Window size preset `last`; sidebar/drawer widths
   and settings-page tab positions persist across restarts.
-- **Cache cleanup** — "Clear UI local cache" action in the settings cache/log
+- **Cache cleanup** - "Clear UI local cache" action in the settings cache/log
   page.
-- **Image generation mode** — Composer switches to image generation, reusing the
+- **Image generation mode** - Composer switches to image generation, reusing the
   existing model configuration; beUI dot-matrix animation covers generating →
   done → failed states; results render as messages (the prompt appears
   immediately, the image follows the assistant reply).
-- **Security management** — Tiered tool-permission gates (pi-deck-security-gate
+- **Security management** - Tiered tool-permission gates (pi-deck-security-gate
   extension + Pi management config + session-level switch); thinking effort and
   safety level can be switched while a run is in progress (#146).
-- **Model spec autofill** — Built-in SQLite spec table (synced before releases);
+- **Model spec autofill** - Built-in SQLite spec table (synced before releases);
   SenseTime / StepFun models included; saved models auto-complete their specs
   instead of hardcoded defaults.
-- **Web service: LAN access + QR code** — Local-network access with a scannable
+- **Web service: LAN access + QR code** - Local-network access with a scannable
   QR code in settings; the Web UI can start new sessions straight from the home
   page (model / thinking preferences included); model list, create-project and
   header sidebar on the Web panel; session/project lists sorted by time with
   project sessions collapsed to 5 by default.
-- **Usage stats: daily breakdown** — Today overview and per-day searchable
+- **Usage stats: daily breakdown** - Today overview and per-day searchable
   details; aggregator v2 with per-day model/project breakdown.
-- **Audit trail expansion** — Session create/copy/export/rename and the full
+- **Audit trail expansion** - Session create/copy/export/rename and the full
   runtime lifecycle, settings/security-sensitive operations (secret values never
   written to disk), pi process spawn diagnostics and agent lifecycle exit
   decisions, background image / git init / single-instance / web-service
   start-stop, and log-clearing all leave audit records.
-- **Vision bridge enhancements** — Conversions visible in the session (image
+- **Vision bridge enhancements** - Conversions visible in the session (image
   cards + request details); configurable timeout (default 30s → 120s);
   "unlimited" max_tokens option; saves unified through the settings dialog
   header.
-- **Collapsible thinking line (deepseek-harness mode)** — Thinking is
+- **Collapsible thinking line (deepseek-harness mode)** - Thinking is
   collapsed to a single line by default: while streaming it shows the latest
   line with a sweep animation, then switches to the first line and stops (the
   earlier marquee approach was removed); clicking the title row expands the
   full text.
-- **Per-turn duration moved to the end** — Turn duration now sits at the tail
+- **Per-turn duration moved to the end** - Turn duration now sits at the tail
   of the turn (live while streaming); the row header keeps only the time.
-- **Send-to-top animation removed** — Sending no longer smooth-scrolls the
+- **Send-to-top animation removed** - Sending no longer smooth-scrolls the
   viewport to clear the screen: it conflicted with stream following and caused
   occasional jitter; plain bottom-follow is restored.
-- **Diff improvements** — Large-file diffs get GitHub-style folding /
+- **Diff improvements** - Large-file diffs get GitHub-style folding /
   virtualization / worker rendering; the change view defaults to changed hunks
   only; per-turn file-change lists (TurnFileChanges with beUI FileDiff syntax
   highlighting) replace the bottom global summary; file lists with more than 3
   items collapse by default.
-- **Paged history for very long sessions** — 12-turn cache + three-level paging
+- **Paged history for very long sessions** - 12-turn cache + three-level paging
   pipeline; full output viewable in history sessions; smoother scroll-up paging;
   fixes edit/delete/re-send targeting.
-- **Parallel ask panel** — Send-behavior menu always visible (shadcn dropdown)
+- **Parallel ask panel** - Send-behavior menu always visible (shadcn dropdown)
   with anonymous-session capsule results; ask cards render and support
   answering.
-- **Log viewer** — Time-range filtering and paged navigation.
-- **Process monitor** — Shows the session title bound to each agent; dedicated
+- **Log viewer** - Time-range filtering and paged navigation.
+- **Process monitor** - Shows the session title bound to each agent; dedicated
   memory metric matching Task Manager; only pi agents tracked (Electron's own
   processes excluded).
-- **Tray restart** — "Restart" item in the tray menu (clean shutdown then
+- **Tray restart** - "Restart" item in the tray menu (clean shutdown then
   relaunch).
-- **RPC log menu** — Right-click action changed to "Open RPC log" and works
+- **RPC log menu** - Right-click action changed to "Open RPC log" and works
   while the agent is running.
-- **Unified save placement** — Pi management and security pages save through the
+- **Unified save placement** - Pi management and security pages save through the
   dialog header (unsaved-changes yellow dot + close confirmation; per-tab save
   buttons removed).
-- **Formula copy** — Inline formulas copy by clicking the formula body; a
+- **Formula copy** - Inline formulas copy by clicking the formula body; a
   persistent copy button covers both inline and block formulas.
-- **UI polish** — Narrow-sidebar button yield, ordered todo list, widget
+- **UI polish** - Narrow-sidebar button yield, ordered todo list, widget
   type-scale and file-row hover transitions; compact cards aligned with thinking
   cards and long user messages auto-fold; session header breadcrumb
   (project/title) with TODO badge; beUI ReasoningText status indicator;
   completed todos keep a check mark without strikethrough.
-- **Prompt management** — Delete confirmation dialog; copy buttons default to
+- **Prompt management** - Delete confirmation dialog; copy buttons default to
   text with animated shadcn DropdownMenus.
-- **Misc** — Ctrl/Cmd+click links open in system browser; fee tooltip converts
+- **Misc** - Ctrl/Cmd+click links open in system browser; fee tooltip converts
   to RMB (est. rate 7.2); boot animation + AppErrorBoundary + error reporting;
   session restart transition animation; default model config for new sessions;
   collapsible ask panel with object options.
 
 ### ✨ UX Improvements
 
-- **Sidebar discoverability** — Three-dot menu entry, blurred overlay backdrop,
+- **Sidebar discoverability** - Three-dot menu entry, blurred overlay backdrop,
   and collapsible sub-items in the project tree.
-- **Attachment picker** — Defaults to files only; pasted images preview as images.
-- **RPC log interaction polish** — Unified right-click menu across session/agent;
+- **Attachment picker** - Defaults to files only; pasted images preview as images.
+- **RPC log interaction polish** - Unified right-click menu across session/agent;
   toggle disabled with a hint when the agent is not running.
-- **Tool call timeline** — Compact and low-key tool cards with three-state status
+- **Tool call timeline** - Compact and low-key tool cards with three-state status
   badges.
-- **Feishu bound sessions** — ask interactions disabled with a clear hint.
-- **Content width & cards** — 100% content width keeps 24px side gaps; message
+- **Feishu bound sessions** - ask interactions disabled with a clear hint.
+- **Content width & cards** - 100% content width keeps 24px side gaps; message
   and input share one width percentage; mermaid keeps natural width; ask-card
   header compacted; tool cards aligned with system radius tokens.
-- **Skill picker** — Simplified path display in the directory picker.
+- **Skill picker** - Simplified path display in the directory picker.
 
 ### 🛠 Architecture
 
-- **Issue #113 structure refactor** — `shared/types.ts` split into 11 domain
+- **Issue #113 structure refactor** - `shared/types.ts` split into 11 domain
   files; tsconfig split into main/preload/renderer; IPC handlers extracted per
   domain (`editorsIpc` / `scratchPadIpc` / `projectsIpc` / `storeIpc` /
   `sessionIpc` / `systemIpc`); `agentUtils` / `modelListCache` / `wslExe`
   modules; FeishuConnection extracted from FeishuBridge; App.tsx slimmed via
-  10+ hooks (useSessionActions / useComposerSend / useQueuedPrompt / …) and
-  component extraction (AppShell / SessionView / SidebarComponents / …).
-- **UI 2.0** — Tailwind CSS v4 + shadcn/ui across the app: native inputs /
+  10+ hooks (useSessionActions / useComposerSend / useQueuedPrompt / ...) and
+  component extraction (AppShell / SessionView / SidebarComponents / ...).
+- **UI 2.0** - Tailwind CSS v4 + shadcn/ui across the app: native inputs /
   textareas / checkboxes / buttons / tabs replaced; dialogs on the shadcn Dialog
   shell; react-resizable-panels for session & workbench layouts; toasts on
   sonner; ~1900 lines of dead CSS removed.
-- **Session-first runtime** — SessionRuntimeInjector isolates streaming from the
+- **Session-first runtime** - SessionRuntimeInjector isolates streaming from the
   App root; session-owned composer / timeline / sidebar / surface; stale runtime
   results rejected by generation.
-- **Packaging** — Renderer deps moved to devDependencies; asar compression
+- **Packaging** - Renderer deps moved to devDependencies; asar compression
   maximum.
-- **E2E infrastructure** — Playwright Electron harness with mock-pi RPC flows
+- **E2E infrastructure** - Playwright Electron harness with mock-pi RPC flows
   (prompt / stream / done / abort, queued prompts, model picker, compact / fork,
   restart keeps session usable).
 
 ### 🔧 Performance
 
-- **Streaming & memory governance** — Incremental message flush, de-shiki
+- **Streaming & memory governance** - Incremental message flush, de-shiki
   highlighting, asar store, scroll takeover; renderer message cache cap 20 → 8.
-- **Activation paging** — Only the latest 3 turns stream live; history pages in
+- **Activation paging** - Only the latest 3 turns stream live; history pages in
   by full-turn pagination.
-- **Tool output truncation** — Oversized tool results truncated on send with
+- **Tool output truncation** - Oversized tool results truncated on send with
   "view full output" on demand; lazy image decoding; cache release on agent exit.
-- **Timeline rendering** — `content-visibility` skips off-screen layout/paint.
-- **Session directory cache** — Cached tree shows immediately, background scan
+- **Timeline rendering** - `content-visibility` skips off-screen layout/paint.
+- **Session directory cache** - Cached tree shows immediately, background scan
   pushes updates; cache hit-rate stats file-level cached and parallelized.
-- **Electron 43 & startup slimming** — Electron 43 upgrade, memory-sampling
+- **Electron 43 & startup slimming** - Electron 43 upgrade, memory-sampling
   toolchain and first-paint reduction; process monitor uses a dedicated memory
   metric aligned with Task Manager.
 
 ### 🐛 Bug Fixes
 
-- **"Stop" could not stop the agent** — `abort_bash` escalation plus a
+- **"Stop" could not stop the agent** - `abort_bash` escalation plus a
   user-facing hint.
-- **Disappearing intermediate replies** — Live mount points now require an
+- **Disappearing intermediate replies** - Live mount points now require an
   active stream + stopReason protocol; reply-loss loops eliminated.
-- **Model list permanently empty on startup** — Empty results are no longer
+- **Model list permanently empty on startup** - Empty results are no longer
   cached; first empty fetch auto-retries.
-- **Linux Wayland sessions** — No longer force XWayland by default (compat layer
+- **Linux Wayland sessions** - No longer force XWayland by default (compat layer
   only when the pet is enabled).
-- **Delete operations** — Unified through the system recycle bin with audit logs.
-- **Historical session rename/copy** — Uses pi-native session_info append format.
-- **Web dev proxy** — Fixed blank page and host column width; HMR websocket
+- **Delete operations** - Unified through the system recycle bin with audit logs.
+- **Historical session rename/copy** - Uses pi-native session_info append format.
+- **Web dev proxy** - Fixed blank page and host column width; HMR websocket
   proxy added.
-- **Links in dialogs** — Forced to system browser (skill/extension cards,
+- **Links in dialogs** - Forced to system browser (skill/extension cards,
   diagnostics docs, env guide, web service).
-- **Path refs with spaces** — Pasting absolute paths with spaces now forms
+- **Path refs with spaces** - Pasting absolute paths with spaces now forms
   complete file references; attachment picker defaults to files only.
-- **Feishu ask/confirm** — Answer cards no longer block the agent.
-- **Split/UI fixes** — Split maximize width restore, runtime-config bottom-bar
+- **Feishu ask/confirm** - Answer cards no longer block the agent.
+- **Split/UI fixes** - Split maximize width restore, runtime-config bottom-bar
   refresh, terminal dock input-height jump, RPC log right-click menu, sidebar
   draft right-click, unstarted-agent composer history keys.
-- **Black-screen governance** — Renderer crash auto-recovery; timeline scroll
+- **Black-screen governance** - Renderer crash auto-recovery; timeline scroll
   windowing.
-- **History loading** — Duplicate/missing messages on history reload fixed;
+- **History loading** - Duplicate/missing messages on history reload fixed;
   opening or switching back to history sessions no longer flashes the new-session
   start page; skeleton-screen and fade-in timing fixes; large sessions no longer
   show a wrong start page (compaction paging coordinate space).
-- **Editing** — Editing a message scrolled out of view discards the stale history
+- **Editing** - Editing a message scrolled out of view discards the stale history
   prefix ("edit doesn't refresh" fixed).
-- **Streaming & timeline** — Live-body mounting gated per turn (steer no longer
+- **Streaming & timeline** - Live-body mounting gated per turn (steer no longer
   duplicates the same intermediate reply); tombstones keep id/parentId so the
   whole page is never cleared; deleting an assistant reply tombstones the same
   turn's thinking/tool chain; line-wrap scroll follows with a spring; auto-
   collapsed execution no longer steals scroll; negative-growth re-lock escape
   guard.
-- **Extensions** — `(filtered)` suffix from `pi list` parsed, so filtered
+- **Extensions** - `(filtered)` suffix from `pi list` parsed, so filtered
   installs can be uninstalled / updated / version-checked.
-- **WSL** — Session read/write maxBuffer enlarged so large sessions no longer
+- **WSL** - Session read/write maxBuffer enlarged so large sessions no longer
   vanish from the list (#147).
-- **Session security level** — Override now keyed by session identity
+- **Session security level** - Override now keyed by session identity
   (PIDECK_SESSION_ID), fixing ineffective overrides.
-- **Corrupted session repair** — Auto-fixes first-line "path+header" glue and
+- **Corrupted session repair** - Auto-fixes first-line "path+header" glue and
   legacy private sessionName header lines; catalog rename retries on transient
   EPERM (antivirus locks) instead of blocking new sessions.
-- **Clipboard & images** — Bitmap fallback for pasted images; right-click paste
+- **Clipboard & images** - Bitmap fallback for pasted images; right-click paste
   supports images (WeChat screenshots no longer become @path references).
-- **Composer** — Plain @ / & no longer open suggestions; pastes stay plain text
+- **Composer** - Plain @ / & no longer open suggestions; pastes stay plain text
   so the cursor doesn't jump; models switchable during generation (effective
   next round).
-- **Tabs & split** — Fork switches to the new session and registers a pinned
+- **Tabs & split** - Fork switches to the new session and registers a pinned
   tab; Enter-send promotes preview tabs across all four send paths; pinned tabs
   share normal tab width; drawer float-bar follows zoom; startup width
   oscillation and post-cache-clear drawer flash fixed.
-- **Wallpaper mode** — Frosted blocks become transparent; scratchpad panel color
+- **Wallpaper mode** - Frosted blocks become transparent; scratchpad panel color
   follows the system panel and background transparency.
-- **Git** — Windows 8.3 short paths no longer misreport "outside" or break
+- **Git** - Windows 8.3 short paths no longer misreport "outside" or break
   worktree deletes; untracked-file diff opens; manual refresh syncs push/pull
   badges; badges readable in dark mode; non-git repos pause polling; stage/
   unstage races skip stale paths silently.
-- **Toasts** — Abnormal-session toasts persist instead of auto-dismissing;
+- **Toasts** - Abnormal-session toasts persist instead of auto-dismissing;
   toasts elevated above dialogs.
-- **Links** — Official-site links always open in the system browser, regardless
+- **Links** - Official-site links always open in the system browser, regardless
   of the embedded-browser setting.
-- **pi runtime** — mise custom directory and dynamic PATH support; npm
+- **pi runtime** - mise custom directory and dynamic PATH support; npm
   detection reuses search directories.
-- **RPC & process** — RPC timeouts honor user config; failure toasts carry the
+- **RPC & process** - RPC timeouts honor user config; failure toasts carry the
   concrete reason; manual stop no longer fires a "completed" system
   notification; first-word/total timing starts at request send (thinking mode
   uses the first body delta).
-- **Models** — Spec matching/merge semantics fixed; saved models complete specs
+- **Models** - Spec matching/merge semantics fixed; saved models complete specs
   from the built-in table; 5 historical-model regressions fixed.
-- **Misc UI** — Template-picker eye preview / back buttons readable in dark
+- **Misc UI** - Template-picker eye preview / back buttons readable in dark
   mode; empty-body template sends blocked with a clear hint; checkboxes in
   session-management/import dialogs toggle; default model/provider clearing
   only clears values (X no longer misaligned); sidebar section header rows fully
@@ -763,11 +1547,11 @@ community testing environment 🎉
 
 ### 🙏 Acknowledgements
 
-- **@bfzz / @bfzha** — Git inline operations, split view, session tab bar, UI 2.0
+- **@bfzz / @bfzha** - Git inline operations, split view, session tab bar, UI 2.0
   migration, and much of the session-first refactor.
-- **@1900EasonJin** — Theme system, wallpaper transparency, pet status reminders,
+- **@1900EasonJin** - Theme system, wallpaper transparency, pet status reminders,
   thinking-stream rendering, and terminal/UI polish.
-- **@qgx1992** — Ctrl/Cmd+click system-browser links.
+- **@qgx1992** - Ctrl/Cmd+click system-browser links.
 
 Special thanks to community members **微时、kylin、Island、PieDriver** for
 providing model services for our software development 🎉
@@ -782,131 +1566,131 @@ Thanks to all group members who submitted suggestions and bug reports! 🙏
 
 ### 🚀 New Features
 
-- **Compact titlebar + Codex-style right sidebar** — Slimmer top chrome and
+- **Compact titlebar + Codex-style right sidebar** - Slimmer top chrome and
   right-drawer tabs restyled for denser multi-panel workflows (Files / Git /
   Browser / ScratchPad).
-- **File editor nested under Files tab** — Editor tabs live inside the Files
+- **File editor nested under Files tab** - Editor tabs live inside the Files
   drawer instead of a separate surface; drawer chrome is tighter and more
   consistent with Git/Browser panels.
-- **File tree drag / drop / move** — Drag files into the tree, paste files, and
+- **File tree drag / drop / move** - Drag files into the tree, paste files, and
   drag-to-move entries inside the project file panel.
-- **@ file suggestions with directory tree & search** — File picker shows a
+- **@ file suggestions with directory tree & search** - File picker shows a
   browsable tree plus filter, making deep paths easier to reference.
-- **Composer file path refs via paste / drop** — Drop or paste files into the
+- **Composer file path refs via paste / drop** - Drop or paste files into the
   input to insert path chips; spaced paths are preserved correctly.
-- **Text links open in built-in editor** — Clicking text-file links opens the
+- **Text links open in built-in editor** - Clicking text-file links opens the
   in-app editor; binary files still open externally.
-- **Batch Ask Tab UI** — `ask_question` batch mode renders all questions as tabs
+- **Batch Ask Tab UI** - `ask_question` batch mode renders all questions as tabs
   with an optional Submit/review step before returning answers.
-- **Ctrl/Cmd+click markdown links open system browser** — Modifier-click leaves
+- **Ctrl/Cmd+click markdown links open system browser** - Modifier-click leaves
   the in-app browser and hands the URL to the OS default browser.
-- **Tailwind CSS v4 + shadcn + sonner toasts** — Renderer styling stack upgraded;
+- **Tailwind CSS v4 + shadcn + sonner toasts** - Renderer styling stack upgraded;
   toast notifications migrate to `sonner` with theme-aware presentation.
-- **Sidebar project expand/collapse persistence** — Project fold state is
+- **Sidebar project expand/collapse persistence** - Project fold state is
   remembered across app restarts.
-- **Session message Fork** — Fork a new session from a user message (pi `/fork`);
+- **Session message Fork** - Fork a new session from a user message (pi `/fork`);
   hidden while the agent is busy; fills the original prompt into the composer
   for edit-and-resend.
-- **Boot splash official pi assembly animation** — Cold-start overlay loops the
+- **Boot splash official pi assembly animation** - Cold-start overlay loops the
   same pixel tetromino logo animation as the sidebar (larger/faster); PiDeck
   title and subtitle use Plantin brand serif to match the empty-state tone.
-- **Single-instance window reuse** — On by default: opening PiDeck again focuses
+- **Single-instance window reuse** - On by default: opening PiDeck again focuses
   the existing window (including tray-hidden) instead of spawning another
   process; can be disabled in Common settings (restart required).
-- **Startup window size presets** — Appearance setting for maximized / fullscreen
+- **Startup window size presets** - Appearance setting for maximized / fullscreen
   / large-medium-compact windows; default maximized (historical behavior that
   keeps the taskbar visible).
-- **Compaction settings UI** — Config → Settings splits `compaction` into Auto
+- **Compaction settings UI** - Config → Settings splits `compaction` into Auto
   compact / Reserve reply tokens / Keep recent tokens instead of raw JSON.
-- **LaTeX / math fence rendering** — Session `latex`/`tex`/`math` code fences
+- **LaTeX / math fence rendering** - Session `latex`/`tex`/`math` code fences
   render with KaTeX.
-- **Electron Chromium sandbox toggle** — Dev setting to enable renderer sandbox
+- **Electron Chromium sandbox toggle** - Dev setting to enable renderer sandbox
   (off by default for Windows AV/GPU compatibility); requires app restart.
 
 ### ✨ UX Improvements
 
-- **Plan mode flow polish** — End-of-plan three-card layout, revise back button,
+- **Plan mode flow polish** - End-of-plan three-card layout, revise back button,
   and clearer read-only skip behavior.
-- **Composer widgets & extension UI** — Extension widgets stay above the
+- **Composer widgets & extension UI** - Extension widgets stay above the
   composer, height is more compact, and built-in extension conflict handling is
   friendlier (including todo labels).
-- **Context compact entry** — Composer compact control only shows when context
+- **Context compact entry** - Composer compact control only shows when context
   usage is above 30%; calmer styling, and friendly toasts for session-too-small
   / nothing-to-compact errors.
-- **UI color neutralization** — Reduce saturated green accents; refine composer
+- **UI color neutralization** - Reduce saturated green accents; refine composer
   bar and status indicator contrast.
-- **Worktree sidebar hierarchy** — Clearer nesting, collapsible worktree
+- **Worktree sidebar hierarchy** - Clearer nesting, collapsible worktree
   sessions, lighter fills, and less visual noise on active rows.
-- **Extension install / uninstall UX** — Clearer progress and reliable local file
+- **Extension install / uninstall UX** - Clearer progress and reliable local file
   cleanup on uninstall.
-- **RPC / agent launch options** — Optional `--no-themes` / `--offline` /
+- **RPC / agent launch options** - Optional `--no-themes` / `--offline` /
   `--no-extensions` / `--no-skills`, version cache warm-up on app start, and
   dev settings to disable extensions/skills for faster or safer launches.
-- **Docs & community** — Docs-site screenshots updated to the latest UI; expanded
+- **Docs & community** - Docs-site screenshots updated to the latest UI; expanded
   English home and bilingual nav; README Star History chart auto-updates via CI;
   tutorial video production workflow added for maintainers.
 
 ### 🐛 Bug Fixes
 
-- **Composer history ↑/↓ drops half-typed draft** — ArrowUp now snapshots the
+- **Composer history ↑/↓ drops half-typed draft** - ArrowUp now snapshots the
   live draft from `livePromptByAgentRef` instead of a stale rendered prompt, so
   ArrowDown restores the full in-progress text.
-- **Agent start crash-safety / diagnostics (esp. macOS arm)** — Attach pi process
+- **Agent start crash-safety / diagnostics (esp. macOS arm)** - Attach pi process
   lifecycle listeners before `spawn`, keep a default `error` sink so ENOENT no
   longer becomes an uncaught main-process crash, surface structured startup
   failure cards, and log platform/arch + child-process-gone details for Issue
   triage. Also expand macOS pi search paths (`/opt/homebrew/bin`, etc.) for
   Dock-launched PATH gaps.
-- **Pet stuck on review/failed/jumping** (#107) — Transition recovery timers are
+- **Pet stuck on review/failed/jumping** (#107) - Transition recovery timers are
   no longer cleared by cooldown/overlap early-returns, so review/failed return
   to idle on schedule.
-- **Stop abort afterglow** — Seal stream generations on abort so delayed
+- **Stop abort afterglow** - Seal stream generations on abort so delayed
   thinking/text no longer mix into the next reply; stop feedback is toast-only.
-- **Disabled built-in extensions still loaded** — Remove/conflict yield now deletes
+- **Disabled built-in extensions still loaded** - Remove/conflict yield now deletes
   user-dir built-in extension files and purges residuals so third-party tools no
   longer clash and break RPC.
-- **Manual compact button & state** — Restore composer compact control; send
+- **Manual compact button & state** - Restore composer compact control; send
   `customInstructions` on RPC; clear `isCompacting` and return to idle after
   finish; surface concrete failure reasons in toasts.
-- **System titlebar missing sidebar toggles** (#104) — Left/right sidebar
+- **System titlebar missing sidebar toggles** (#104) - Left/right sidebar
   switches remain available when using the OS native title bar.
-- **Paste image as attachment + spaced path refs** — Image paste attaches as
+- **Paste image as attachment + spaced path refs** - Image paste attaches as
   image content; file path chips keep spaces instead of breaking mid-path.
-- **Terminal dock race / unhandled rejection** — Harden dock against pending
+- **Terminal dock race / unhandled rejection** - Harden dock against pending
   agent transitions and avoid unhandled promise rejections on close/switch.
-- **Terminal dock owner isolation** — Dock state is keyed by owner so project
+- **Terminal dock owner isolation** - Dock state is keyed by owner so project
   terminals no longer leak across agents/sessions.
-- **Clipboard “Document is not focused”** — All copy paths go through Electron
+- **Clipboard "Document is not focused"** - All copy paths go through Electron
   main-process `clipboard.writeText` via preload, with graceful fallbacks.
-- **Local file links + todo widget fonts** (#103) — Local file links are
+- **Local file links + todo widget fonts** (#103) - Local file links are
   clickable again; todo widgets honor the configured interface font.
-- **Incomplete tool/thinking turns merge into next reply** — Thinking-only
+- **Incomplete tool/thinking turns merge into next reply** - Thinking-only
   assistant turns are preserved; normal incomplete runs no longer get merged
   into the following answer.
-- **Resend safety** — Resend only truncates descendants of the current user
+- **Resend safety** - Resend only truncates descendants of the current user
   turn and refuses unsafe non-last-user roots.
-- **Select cancel no longer picks first option** — Cancel returns `value: null`
+- **Select cancel no longer picks first option** - Cancel returns `value: null`
   instead of a cancelled sentinel that could be misread as a selection.
-- **Agent `get_state` timeout auto-retry** — Startup state fetch retries on
+- **Agent `get_state` timeout auto-retry** - Startup state fetch retries on
   timeout instead of leaving the agent stuck.
-- **Composer placeholder & prompt history** — Clearing the input restores the
+- **Composer placeholder & prompt history** - Clearing the input restores the
   placeholder; prompt history persists across restart.
-- **Manual release with empty tag** — Workflow_dispatch without a tag publishes
+- **Manual release with empty tag** - Workflow_dispatch without a tag publishes
   a formal release instead of a draft-only artifact.
-- **macOS test build OOM** — CI mac build uses `build:fast` and a higher Node
+- **macOS test build OOM** - CI mac build uses `build:fast` and a higher Node
   heap limit.
-- **package-lock dependency sync** — Restore missing lockfile entries after
+- **package-lock dependency sync** - Restore missing lockfile entries after
   merge/tooling drift.
 
 ### 🙏 Acknowledgements
 
 Thanks to all contributors for their PRs, issues, and feedback in this release:
 
-- **@1900EasonJin** — System titlebar sidebar toggles (#104); pet stuck-state fix (#107)
-- **@zzq168281-coder** — Interactive local file links & todo font honor (#103)
-- **@me9rez** — TypeScript incremental build output hygiene (#97)
-- **@weishiair** — Delete residual built-in extension files on disable to stop tool conflicts/RPC failures
-- **@clancyclaw** — Preserve RichInput newlines for multi-line drafts
+- **@1900EasonJin** - System titlebar sidebar toggles (#104); pet stuck-state fix (#107)
+- **@zzq168281-coder** - Interactive local file links & todo font honor (#103)
+- **@me9rez** - TypeScript incremental build output hygiene (#97)
+- **@weishiair** - Delete residual built-in extension files on disable to stop tool conflicts/RPC failures
+- **@clancyclaw** - Preserve RichInput newlines for multi-line drafts
 
 Special thanks to **微时佬友** for providing the Grok model service used in our
 community testing environment 🎉
@@ -921,143 +1705,143 @@ Thanks to all users who submitted suggestions and bug reports for PiDeck! 🙏
 
 ### 🚀 New Features
 
-- **Sidebar brand lockup redesign** — The official pi canvas logo now uses a cropped
+- **Sidebar brand lockup redesign** - The official pi canvas logo now uses a cropped
   bounding box (no empty board space), displays the PiDeck wordmark in Plantin serif,
   and animates on agent start/close events for visual feedback. The settled color is
   theme-adaptive (ink/white).
-- **Multi-tab file editor** — Up to 5 concurrent editor tabs, modal/drawer dual mode,
+- **Multi-tab file editor** - Up to 5 concurrent editor tabs, modal/drawer dual mode,
   diff comparison mode, Monaco editor with dark/light themes, Markdown preview, and
   auto-save (Ctrl+S) with dirty state indicator.
-- **Session reference (@-mention)** — Type `&` to pop up the session list for the
+- **Session reference (@-mention)** - Type `&` to pop up the session list for the
   current project, select specific messages or reference the full context. Selection
   persists across reopens.
-- **Feishu/Lark integration** — Bi-directional messaging, streaming cards, auto-group
+- **Feishu/Lark integration** - Bi-directional messaging, streaming cards, auto-group
   creation, member management, and a dedicated Feishu link indicator in the composer.
-- **Git source control (major rewrite)** — VS Code-style 3-tab panel (Changes / History /
+- **Git source control (major rewrite)** - VS Code-style 3-tab panel (Changes / History /
   Compare), AI commit message generation, Git graph with colored lanes, cherry-pick /
   revert / reset / drop via context menu, branch switching, and worktree support.
-- **Git Push / Pull** — Push and Pull buttons in the Changes pane header with full IPC
+- **Git Push / Pull** - Push and Pull buttons in the Changes pane header with full IPC
   pipeline and error notifications.
-- **Customizable Commit Message Prompt** — New Setting `gitCommitMessagePrompt`,
+- **Customizable Commit Message Prompt** - New Setting `gitCommitMessagePrompt`,
   a textarea in the Git section, template supports `{diff}` placeholder, Gitmoji mapping.
-- **Git panel relative paths** — Directory group headers now show paths relative to
+- **Git panel relative paths** - Directory group headers now show paths relative to
   project root instead of absolute file system paths.
-- **Chinese Prompt Store (XuePrompt)** — Replaced old yao-prompts files with SQLite
+- **Chinese Prompt Store (XuePrompt)** - Replaced old yao-prompts files with SQLite
   database (~4000 Chinese prompts). Supports 20+ category filters, FTS3 full-text
   search, pagination, and one-click import.
-- **Skills.sh Community Skill Store** — Switched to CLI registry
+- **Skills.sh Community Skill Store** - Switched to CLI registry
   (skill.xfyun.cn) for search, installing via `npx -g -s <skill> -y` with sort by
   downloads and installation animations.
-- **HTML preview uses built-in browser** — Opening an HTML file defaults to source view.
+- **HTML preview uses built-in browser** - Opening an HTML file defaults to source view.
   Clicking the preview button switches to the right-side browser panel with webview
   rendering, eliminating iframe sandbox restrictions.
-- **Composer redesign (OpenCode style)** — Replaced the top pill-button toolbar with a
+- **Composer redesign (OpenCode style)** - Replaced the top pill-button toolbar with a
   bottom bar: mode toggle / prompt template / attachment / model name / thinking level.
-- **Client message queue** — Queue messages while the agent is busy (follow-up or steer
+- **Client message queue** - Queue messages while the agent is busy (follow-up or steer
   mode). Retract queued messages back to the editor. Visual queue status.
-- **Recommended extension packages** — All packages show copy-install-command buttons,
+- **Recommended extension packages** - All packages show copy-install-command buttons,
   action buttons arranged horizontally, install status per-package.
-- **Async skill installation** — `npx skills install` runs via `execFile` without
+- **Async skill installation** - `npx skills install` runs via `execFile` without
   blocking the main process UI.
-- **Built-in browser panel** — Browse in the right drawer with tabs, fullscreen, and
+- **Built-in browser panel** - Browse in the right drawer with tabs, fullscreen, and
   mobile viewport presets. Links open internally in the browser panel.
-- **ScratchPad** — Overlay-style scratch pad with content preview, selection mapping,
+- **ScratchPad** - Overlay-style scratch pad with content preview, selection mapping,
   and theme-aware semantic colors.
-- **Local packaging** — `npm run compile-exe` for fast portable `.exe`. `npm run dist:win`
+- **Local packaging** - `npm run compile-exe` for fast portable `.exe`. `npm run dist:win`
   supports single-format builds (nsis / portable / zip).
 - **Auto-scroll to latest message** on historical session open.
-- **Toast notification system** — Self-built notice mechanism replaces `sonner` dependency.
+- **Toast notification system** - Self-built notice mechanism replaces `sonner` dependency.
   Agent operations, file copy, model switch, and Git actions all show notifications.
-- **Expandable compaction card** — Pre-compaction message history visible in a
+- **Expandable compaction card** - Pre-compaction message history visible in a
   collapsible section.
-- **WSL environment support** (experimental) — Session scanning, file operations, and
+- **WSL environment support** (experimental) - Session scanning, file operations, and
   path handling adapted for WSL.
-- **WSL environment support** — Session scanning, file operations, and path
+- **WSL environment support** - Session scanning, file operations, and path
   handling adapted for WSL (via @Lopution PR #84).
 
 ### ✨ UX Improvements
 
-- **Settings redesigned** — Global draft save/cancel replaces per-tab save buttons.
+- **Settings redesigned** - Global draft save/cancel replaces per-tab save buttons.
   New tab categories: Common, Appearance, Proxy, Dev, Pet, Storage.
-- **Font size/face per-zone** — Independent font size configuration for chat, code,
+- **Font size/face per-zone** - Independent font size configuration for chat, code,
   sidebar, and composer. Preset themes (Sans/Serif/Mono) and window zoom.
-- **File sidebar** — New create file/folder functionality, tree view for Git panel,
+- **File sidebar** - New create file/folder functionality, tree view for Git panel,
   relative paths, persistent drawer state per project.
-- **Behavior selector moved left of stop button** — Clearer visual layout.
-- **Composer bottom bar style unified** — All buttons use `composer-bar-btn` style
+- **Behavior selector moved left of stop button** - Clearer visual layout.
+- **Composer bottom bar style unified** - All buttons use `composer-bar-btn` style
   (28px small radius).
-- **Skills/Prompts auto-refresh on local tab switch** — Newly installed items
+- **Skills/Prompts auto-refresh on local tab switch** - Newly installed items
   immediately visible.
-- **Document preview** — Markdown files default to rendered preview (with source
+- **Document preview** - Markdown files default to rendered preview (with source
   toggle). HTML files preview in the built-in browser panel.
-- **File diff side-by-side toggle** — Now works reliably in modal mode (key remount +
+- **File diff side-by-side toggle** - Now works reliably in modal mode (key remount +
   keepCurrentModel). Button hidden in drawer mode (container too narrow for split view).
-- **Built-in browser webview stability** — Fixed initial load cancellation (ERR_ABORTED),
+- **Built-in browser webview stability** - Fixed initial load cancellation (ERR_ABORTED),
   dom-ready infinite refresh, and webview-not-ready white screen issues.
-- **Browser close/maximize buttons moved to tab bar** — Saves vertical space.
-- **Copy install command button** — Added next to install buttons for manual terminal use.
-- **Session outline & quick action bar** — Floating outline panel with jump-to-message.
+- **Browser close/maximize buttons moved to tab bar** - Saves vertical space.
+- **Copy install command button** - Added next to install buttons for manual terminal use.
+- **Session outline & quick action bar** - Floating outline panel with jump-to-message.
   Quick actions: terminal, file drawer, Git, browser, scratch pad, external editor.
-- **NoSession anonymous agent** — Chat entry at top of project list, writes to app
+- **NoSession anonymous agent** - Chat entry at top of project list, writes to app
   user-data directory for general conversations.
-- **Content width restriction** — Draggable content width slider for comfortable
+- **Content width restriction** - Draggable content width slider for comfortable
   reading of long code lines.
-- **Pin mode** — Pin frequently used agents to the top of the sidebar.
+- **Pin mode** - Pin frequently used agents to the top of the sidebar.
 
 ### 🐛 Bug Fixes
 
-- **Monaco CSP error** — `loader.config({ monaco })` moved to module scope, preventing
+- **Monaco CSP error** - `loader.config({ monaco })` moved to module scope, preventing
   CDN fallback blocked by CSP.
-- **TurnRow "Rendered fewer hooks" crash** — Moved `useMemo` before early returns,
+- **TurnRow "Rendered fewer hooks" crash** - Moved `useMemo` before early returns,
   fixing white screen on sending messages.
-- **"TextModel got disposed before DiffEditorWidget model got reset"** — Added
+- **"TextModel got disposed before DiffEditorWidget model got reset"** - Added
   `keepCurrentOriginalModel` + `keepCurrentModifiedModel` to prevent model disposal
   race when switching diff editors.
-- **Stop button invisible during agent response** — Now always shown when agent is busy.
-- **NoSession anonymous agent duplicate in sidebar** — Added `noSession` matching path.
-- **Agent startup status stuck on "starting"** — Fixed `setAgents` to overwrite
+- **Stop button invisible during agent response** - Now always shown when agent is busy.
+- **NoSession anonymous agent duplicate in sidebar** - Added `noSession` matching path.
+- **Agent startup status stuck on "starting"** - Fixed `setAgents` to overwrite
   existing entries when API returns.
-- **Same-session resend truncation** — Fixed to delete only the last message's
+- **Same-session resend truncation** - Fixed to delete only the last message's
   descendant entries, not everything before it.
-- **Skills.sh search crash** — Added `Array.isArray` guard in `loadPersisted()`.
-- **Prompt category returns no data** — DB category matching fixed between slug
+- **Skills.sh search crash** - Added `Array.isArray` guard in `loadPersisted()`.
+- **Prompt category returns no data** - DB category matching fixed between slug
   and original name.
-- **Title bar color mismatch** — Unified `background` across `.window-controls`.
-- **sql.js ESM loading failure in packaged app** — Fixed WASM path resolution.
-- **GitService.getStagedDiff maxBuffer too small** — Increased from 5KB to 10MB.
-- **Dev terminal Chinese garbled** — Auto-run `chcp 65001` on Windows.
-- **HTML preview white screen** — Fixed webview dom-ready infinite refresh and
+- **Title bar color mismatch** - Unified `background` across `.window-controls`.
+- **sql.js ESM loading failure in packaged app** - Fixed WASM path resolution.
+- **GitService.getStagedDiff maxBuffer too small** - Increased from 5KB to 10MB.
+- **Dev terminal Chinese garbled** - Auto-run `chcp 65001` on Windows.
+- **HTML preview white screen** - Fixed webview dom-ready infinite refresh and
   ERR_ABORTED on initial load.
-- **Docs site build failure** — VitePress YAML `&` wrapped in quotes.
-- **TypeScript CI failure** — Removed duplicate `setAttachedImages` function.
-- **Bundled extension disabled/re-enable** — Fixed loss of built-in extensions after
+- **Docs site build failure** - VitePress YAML `&` wrapped in quotes.
+- **TypeScript CI failure** - Removed duplicate `setAttachedImages` function.
+- **Bundled extension disabled/re-enable** - Fixed loss of built-in extensions after
   disable.
-- **Old pi compatibility** — Graceful fallback for `--no-approve` parameter.
-- **Session loading indicator flicker** — Enforce a 200 ms minimum display duration
+- **Old pi compatibility** - Graceful fallback for `--no-approve` parameter.
+- **Session loading indicator flicker** - Enforce a 200 ms minimum display duration
   to avoid a brief flash on fast API responses.
-- **Send message auto-scroll** — Scroll to end instead of beginning.
-- **Thinking animation removed** — Unified "responding" animation as default.
-- **Agent idle after agent_end** — Added fallback idle check to avoid stuck animation.
-- **Multi-select image share padding** — Added padding to avoid text clipping.
-- **Ask dialog interaction** — Confirm button sizing, custom input always visible,
+- **Send message auto-scroll** - Scroll to end instead of beginning.
+- **Thinking animation removed** - Unified "responding" animation as default.
+- **Agent idle after agent_end** - Added fallback idle check to avoid stuck animation.
+- **Multi-select image share padding** - Added padding to avoid text clipping.
+- **Ask dialog interaction** - Confirm button sizing, custom input always visible,
   hide background card when dialog open, filter out Pi's default ✎ option.
-- **Message CPA_DONE marker cleanup** — Strips `CPA_DONE` from message end.
-- **User message edit** — Edited text backfilled to composer for re-sending.
+- **Message CPA_DONE marker cleanup** - Strips `CPA_DONE` from message end.
+- **User message edit** - Edited text backfilled to composer for re-sending.
 
 ### 🙏 Acknowledgements
 
 Thanks to all contributors for their PRs, issues, and feedback:
 
-- **@1900EasonJin** — Feishu integration, MemSpacedCard, think throttling, sidebar
+- **@1900EasonJin** - Feishu integration, MemSpacedCard, think throttling, sidebar
   card design, ScratchPad, terminal encoding fix (#80, #74, #60, #44, #42, #35, #34)
-- **@frostime** — Session info sync, custom font/zoom, model picker auto-scroll,
+- **@frostime** - Session info sync, custom font/zoom, model picker auto-scroll,
   max thinking level, RPC extension lifecycle (#58, #56, #53, #52, #50)
-- **@me9rez** — Dependency cleanup, SkillManager symlink scanning (#86, #69)
-- **@bfzha** — VS Code-style Git panel with complex workflows (#68)
-- **@Lopution** — WSL path handling across desktop boundaries (#84)
-- **@buaassp** — Hide internal pi-subagent sessions (#57)
-- **@magic2066** — Codex subagent import fix, Linux dev/pet fixes (#40, #41)
-- **@pangolinknight** — Stream throttling, tool result truncation, white screen fix (#33)
+- **@me9rez** - Dependency cleanup, SkillManager symlink scanning (#86, #69)
+- **@bfzha** - VS Code-style Git panel with complex workflows (#68)
+- **@Lopution** - WSL path handling across desktop boundaries (#84)
+- **@buaassp** - Hide internal pi-subagent sessions (#57)
+- **@magic2066** - Codex subagent import fix, Linux dev/pet fixes (#40, #41)
+- **@pangolinknight** - Stream throttling, tool result truncation, white screen fix (#33)
 
 Special thanks to **微时佬友** for providing the Grok model service used in our
 community testing environment 🎉
@@ -1118,7 +1902,7 @@ community testing environment 🎉
 - **Turn row gap**: increased from 8px to 12px between blocks
 - **Extension widgets**: redesigned as collapsible cards with dismiss (X) button
 - **Unified modal sizing**: all full-screen modals use 1300×850 + `min(vw,vh) - 48px` + backdrop click-to-close
-- **Uniform icon buttons**: SkillsTab, ExtensionsTab, ProjectResourcesModal — text buttons → lucide icon buttons with hover titles
+- **Uniform icon buttons**: SkillsTab, ExtensionsTab, ProjectResourcesModal - text buttons → lucide icon buttons with hover titles
   - Enable/disable toggle icons: ToggleRight (green)/ToggleLeft (default)
 - **Model selection UI**: simplified and refined (288 → 124 lines)
 - **Enter key**: native browser newline handling, no manual `<br>` insertion
@@ -1190,7 +1974,7 @@ community testing environment 🎉
   management; widget rendering by widget key (no flatMap merging), with
   truncation and scrolling for long text.
 - **Content Width Restriction**: New draggable content width slider (default
-  unlimited, drag left to narrow, minimum 800 px).
+  unlimited, drag left to narrow, minimum 800 px).
 - **Thinking Block Rework & Status Indicator**:
   - Thinking rendered as ThinkingBlock cards, AssistantText reverted to plain text
   - Thinking blocks rendered in-place by `<thinking>` tags, preserving original
@@ -1200,7 +1984,7 @@ community testing environment 🎉
   - Toolbar "running" dot replaced by three-dot animated indicator at message
     list bottom: supports "Thinking", "Executing {tool}", and waiting states;
     auto-hides when model starts responding
-  - Optimized waiting indicator spacing (16 px above)
+  - Optimized waiting indicator spacing (16 px above)
   - Flat timeline rendering + unified message spacing + inline thinking segments
 - **Extension Management Enhancement**:
   - Disable/enable built-in extensions with animated button
@@ -1235,11 +2019,11 @@ community testing environment 🎉
   accent-tinted background.
 - **Web Search Card Subtitle**: Collapsed `web_search` / `fetch_content` tool cards
   now show the search query or URL as a subtitle.
-- **Content Width Slider**: Minimum value raised from 50 to 800 px to prevent
+- **Content Width Slider**: Minimum value raised from 50 to 800 px to prevent
   overly narrow composition area.
-- **Waiting Indicator Spacing**: Three-dot indicator now has 16 px margin above.
-- **Composer Optimization**: Default height reduced by 25 px, forced reset after
-  sending; composer moved down 10 px for more bottom breathing room.
+- **Waiting Indicator Spacing**: Three-dot indicator now has 16 px margin above.
+- **Composer Optimization**: Default height reduced by 25 px, forced reset after
+  sending; composer moved down 10 px for more bottom breathing room.
 - **Terminal Toggle Animation**: Changed to smooth slide-in from below the input
   area instead of a jarring pop.
 - **Right Drawer Animation**: Grid layout transition animation improved, reverted
@@ -1257,7 +2041,7 @@ community testing environment 🎉
 ### 🐛 Bug Fixes
 
 - **Dark Mode White Backgrounds**: Fixed hardcoded `#fcfcfc` in `.chat-pane`,
-  `.composer`, `.composer-box`, and loading overlay — now properly adapts to
+  `.composer`, `.composer-box`, and loading overlay - now properly adapts to
   dark mode via `--color-bg-panel`.
 - **RichInput Newline Fix**: Fixed multi-line paste newline loss in contentEditable.
 - **Message Rendering Fixes**:
@@ -1287,7 +2071,7 @@ community testing environment 🎉
 - **Desktop Pet System (MVP-2)**: Global transparent floating pet window with
   Canvas animation engine, idle/patrol/review/tease interactions, notification
   bubbles, and graceful fallback on Linux/Wayland
-- **Built-in Pets**: 5 pets — clawd, cache-capy, duo, octohack, fangjia;
+- **Built-in Pets**: 5 pets - clawd, cache-capy, duo, octohack, fangjia;
   selector with Canvas animation preview
 - **ContentEditable Chip Input System (#24)**: `@path` and `/command` rendered
   as visual interactive inline chips with click-to-open for file chips;
@@ -1327,7 +2111,7 @@ community testing environment 🎉
 ### 🔧 Performance
 
 - **Streaming stutter**: memo-wrapped AssistantText, dynamic mermaid `import()`
-- **Pet code reduction**: 41% reduction (10 files, −1096 lines)
+- **Pet code reduction**: 41% reduction (10 files, -1096 lines)
 
 ### 📦 Chore
 
@@ -1864,14 +2648,14 @@ Thanks to @ayuayue, @1900EasonJin, @zx3022448 for their contributions!
 - Added startup pi CLI environment checks with a visible status dialog.
 - Added a reusable pi command locator for packaged Electron environments.
 - Added manual environment checking in Settings.
-- Added app version display and a “Check for updates” action that opens GitHub Releases.
+- Added app version display and a "Check for updates" action that opens GitHub Releases.
 - Added a static startup screen to avoid a blank white window while the renderer loads.
 
 ### Improved
 - Packaged app startup now shows the window only after it is ready to display.
 - Project loading is deferred so the main UI can render sooner.
 - The pi CLI detector searches common PATH, npm, pnpm, Yarn, Volta, mise, nvm, asdf, bun, deno, and local bin locations.
-- Windows `.cmd` pi shims are checked through a shell to avoid false “not installed” results.
+- Windows `.cmd` pi shims are checked through a shell to avoid false "not installed" results.
 - Missing pi CLI guidance now links to the official installation guide.
 - Historical sessions started from a parent folder can now appear under the matching child project when the session content references that project.
 

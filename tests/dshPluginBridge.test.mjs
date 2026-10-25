@@ -2,16 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const {
-	validatePluginInstallInput,
-	validatePluginLifecycleInput,
-	toDynamicPluginView,
-	toStaticPluginView,
-	mergeStaticPluginViews,
-	resolveBridgeAgent,
-	pluginBridgeRpc,
-	handlePluginBridgeFetch,
-} = loadTsCommonJs("src/main/dsh/pideckPluginBridge.ts", { globals: { Response } });
+const { validatePluginInstallInput, validatePluginLifecycleInput, toDynamicPluginView, toStaticPluginView, mergeStaticPluginViews, resolveBridgeAgent, pluginBridgeRpc, handlePluginBridgeFetch, apply } = loadTsCommonJs("src/main/dsh/pideckPluginBridge.ts", { globals: { Response } });
 
 test("validatePluginInstallInput：host-only 源码包合法", () => {
 	const result = validatePluginInstallInput({
@@ -180,9 +171,7 @@ test("pluginBridgeRpc：分发到服务方法，未知方法/缺服务返回结�
 
 test("handlePluginBridgeFetch：POST JSON 协议、非 POST/坏 JSON/缺服务都返回结构化 4xx", async () => {
 	const ctx = {
-		get: (key) => key === "pideckPluginBridge"
-			? { inventory: () => ({ ok: true, value: [] }) }
-			: undefined,
+		get: (key) => (key === "pideckPluginBridge" ? { inventory: () => ({ ok: true, value: [] }) } : undefined),
 	};
 	const ok = await handlePluginBridgeFetch(ctx, {
 		method: "POST",
@@ -199,10 +188,59 @@ test("handlePluginBridgeFetch：POST JSON 协议、非 POST/坏 JSON/缺服务�
 	assert.equal(badJson.status, 400);
 	assert.equal(JSON.parse(await badJson.text()).ok, false);
 
-	const missingService = await handlePluginBridgeFetch({ get: () => undefined }, {
-		method: "POST",
-		body: JSON.stringify({ method: "inventory" }),
-	});
+	const missingService = await handlePluginBridgeFetch(
+		{ get: () => undefined },
+		{
+			method: "POST",
+			body: JSON.stringify({ method: "inventory" }),
+		},
+	);
 	assert.equal(missingService.status, 400);
 	assert.equal(JSON.parse(await missingService.text()).ok, false);
+});
+
+// ── 静态 Loader 清单：必须 await（回归） ──
+// 背景：dsh-host-plugin-inventory 的 list() 是 async（内部还要聚合各 preset 的
+// compositionInventory）。漏 await 时快照是 Promise，entries 取不到，桥返回
+// ok:true + 空数组 —— 配置页就显示「暂无静态条目（0 条）」这种静默错误。
+
+test("staticInventory：await 异步 list()，条目映射为视图（漏 await 会静默 0 条）", async () => {
+	let service;
+	const ctx = {
+		provide: (_name, value) => {
+			service = value;
+		},
+		get: (name) =>
+			name === "pluginInventory"
+				? {
+						list: async () => ({
+							entries: [
+								{ entryId: "pideck/agent-presets", moduleName: "@deepseek-ai/dsh-agent-presets", enabled: true, fiberPhase: "active" },
+								{ entryId: "pideck/plan-mode", moduleName: "@deepseek-ai/dsh-plan-mode", enabled: false, fiberPhase: null },
+							],
+						}),
+					}
+				: undefined,
+	};
+	apply(ctx);
+	const result = await service.staticInventory();
+	assert.equal(result.ok, true);
+	assert.equal(result.value.length, 2, "异步清单条目必须透传（0 条即回归）");
+	assert.equal(result.value[0].moduleName, "@deepseek-ai/dsh-agent-presets");
+	assert.equal(result.value[0].enabled, true);
+	assert.equal(result.value[1].moduleName, "@deepseek-ai/dsh-plan-mode");
+	assert.equal(result.value[1].enabled, false);
+});
+
+test("staticInventory：pluginInventory 未挂载时报结构化错误（不吞成空清单）", async () => {
+	let service;
+	apply({
+		provide: (_name, value) => {
+			service = value;
+		},
+		get: () => undefined,
+	});
+	const result = await service.staticInventory();
+	assert.equal(result.ok, false);
+	assert.match(result.error, /pluginInventory is not mounted/);
 });

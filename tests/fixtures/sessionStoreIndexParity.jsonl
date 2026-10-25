@@ -1,0 +1,22 @@
+{"type":"session","id":"s1","timestamp":"2026-03-01T10:00:00.000Z","cwd":"/tmp/parity","parentSession":"parent-abc"}
+{"type":"message","id":"m1","parentId":"s1","timestamp":"2026-03-01T10:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"первый вопрос про 索引 🔍"}]}}
+{"type":"message","id":"m2","parentId":"m1","timestamp":"2026-03-01T10:00:02.500Z","message":{"role":"assistant","content":[{"type":"text","text":"ответ: 建表"},{"type":"thinking","thinking":"internal"}],"provider":"anthropic","model":"claude-sonnet-4.5","toolName":"read_file","id":"call-1","timestamp":1772350002000}}
+{"type":"message","id":"m3","parentId":"m2","role":"user","data":{"message":{"role":"user","content":"строка без блока"}}}
+{"type":"model_change","id":"m4","parentId":"m3","provider":"openai","modelId":"gpt-5.2"}
+{"type":"thinking_level_change","id":"m5","parentId":"m4","thinkingLevel":"high"}
+{"type":"custom_message","id":"m6","parentId":"m5","customType":"plan-note","display":true,"message":{"role":"assistant","content":[{"type":"text","text":"custom 显示卡"}]}}
+{"type":"message","id":"m7","parentId":"m6","message":{"role":"user","content":[{"type":"text","text":"без timestamp"}]}}
+{"type":"compaction","id":"m8","parentId":"m7","summary":"压缩摘要：保留最近三轮","firstKeptEntryId":"m3","tokensBefore":12345,"timestamp":"2026-03-01T10:05:00.000Z"}
+{"type":"context_edit","id":"m9","parentId":"m8","targetId":"m2","replacement":null}
+{"type":"context_edit","id":"m10","parentId":"m9","targetId":"m3","replacement":{"content":[{"type":"text","text":"замена "},{"type":"image","data":"x"}]}}
+{"type":"todo_snapshot","id":"m11","parentId":"m10","todos":[]}
+not json at all
+{"id":"m12","parentId":"m11"}
+{"type":"message","id":"m13","parentId":"m12","message":{"role":"assistant","content":[{"type":"text","text":"пустой toolName"}],"toolName":""}}
+{"type":"message","id":14,"parentId":"m13","message":{"role":"user","content":[{"type":"text","text":"числовой id"}]}}
+{"type":"custom","id":"m15","parentId":"m13","customType":"pi-deck-todo","display":true}
+{"type":"message","id":"m16","parentId":"m15","timestamp":"2026-03-01T10:10:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"финал ✨"}]}}
+{"type":"message","id":"m17","parentId":"m16","message":{"role":"assistant","provider":"openai","model":"gpt-5.2-codex","content":[{"type":"text","text":"со сменой модели"}]}}
+{"type":"message","id":"m18","parentId":"m17","message":{"role":"assistant","provider":"openai","model":"","content":[{"type":"text","text":"пустая модель"}]}}
+{"type":"message","id":"m19","parentId":"m18","message":{"role":"user","content":[{"type":"text","text":"<quoted_context label=\"模型：打开远端项目\" message_id=\"db59\">\n引用正文一大段\n</quoted_context>\n真正的问题在这里"}]}}
+{"type":"message","id":"m20","parentId":"m19","message":{"role":"user","content":[{"type":"text","text":"<quoted_context label=\"x\" message_id=\"y\">\n未闭合的引用块"}]}}

@@ -16,13 +16,7 @@ export interface WorktreeActionsDeps {
 	setProjects: (projects: Project[]) => void;
 	refreshWorktrees: (projectId: string) => Promise<void>;
 	overlays: {
-		showConfirm: (opts: {
-			title: string;
-			message: string;
-			danger?: boolean;
-			confirmLabel: string;
-			onConfirm: () => void;
-		}) => void;
+		showConfirm: (opts: { title: string; message: string; danger?: boolean; confirmLabel: string; onConfirm: () => void }) => void;
 		clearConfirm: () => void;
 	};
 }
@@ -82,18 +76,8 @@ export function useWorktreeActions(deps: WorktreeActionsDeps) {
 	 * 请求删除 worktree：先校验是否有运行中的 Agent，再弹确认框，确认后执行删除。
 	 * 避免误删正在使用的 worktree，也保证删除结果通过 toast 反馈给用户。
 	 */
-	function requestRemoveWorktree(
-		parentProjectId: string,
-		worktreePath: string,
-		childProject: Project | undefined,
-	) {
-		const childAgents = childProject
-			? displayAgents.filter(
-					(a) =>
-						a.projectId === childProject.id &&
-						(a.status === "running" || a.status === "starting"),
-				)
-			: [];
+	function requestRemoveWorktree(parentProjectId: string, worktreePath: string, childProject: Project | undefined) {
+		const childAgents = childProject ? displayAgents.filter((a) => a.projectId === childProject.id && (a.status === "running" || a.status === "starting")) : [];
 		if (childAgents.length > 0) {
 			showNotice(t("app.worktreeRemoveBlockedByAgents"), 5000);
 			return;

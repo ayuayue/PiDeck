@@ -13,13 +13,7 @@ import type { ThinkingGroupItem } from "../timeline/types";
  * 打字机只认 live.streaming：禁止用「整轮 isStreaming」回退，否则上一则已落盘的
  * 思考会在下一则 live 思考期间被当成仍在流式，出现「两段一起打字」。
  */
-export const ThinkingStep = memo(function ThinkingStep(props: {
-	group: ThinkingGroupItem;
-	hidden: boolean;
-	showThinking?: boolean;
-	onOpenExternal: (url: string) => void;
-	onOpenFile?: (path: string) => void;
-}) {
+export const ThinkingStep = memo(function ThinkingStep(props: { group: ThinkingGroupItem; hidden: boolean; showThinking?: boolean; onOpenExternal: (url: string) => void; onOpenFile?: (path: string) => void }) {
 	const live = useAtomValue(streamingThinkingEntryByIdAtomFamily(props.group.id));
 	const text = live?.text ?? props.group.text;
 	const startedAt = live?.startedAt ?? props.group.startedAt;

@@ -23,6 +23,8 @@
 | `pipeline/render_episode.py` | 整集渲染：旁白脚本 + 批量合成 |
 | `pipeline/concat_series.py` | 多集成片拼接合集 |
 | `EP0X-narration.md`（可选） | 纯旁白长文稿，便于改词 |
+| `cover/*.html` + `shot.cjs` + `check*.cjs` | **视频封面源**：`cover.html`（EP 系列）/ `pi-or-dsh.html`（介绍片「Pi Or Dsh？我全都要」），改文字/比例 → 导出 16:9（1920×1080）/ 3:4（1080×1440）封面 |
+| `poster/` | 与正片无关、作者自用：充值价目海报生成器（`price.mjs` 改价 → 出图） |
 
 ### 不要提交（生成物）
 
@@ -33,6 +35,8 @@
 | `pipeline/EP0*/` | 每集截图 / mp3 / clips / 成片 |
 | `pipeline/*.mp4` | 合集等输出 |
 | `pipeline/demo/` | 早期单页试验输出 |
+| `cover/*.png` | 封面出图（源是 `cover/cover.html`，图随时重出） |
+| `poster/*.png` ⚠️ 例外要提交 | 价目海报成品图：根 README 引用了它（`docs/images/gpt-recharge-price.png` 同源） |
 
 产品**源截图**放在仓库已有目录：`docs/images/`（例如 `files.png`、`piEnvCheck.png`）。
 
@@ -218,3 +222,149 @@ video-series/
 git status video-series
 # 不应出现 *.mp4 / pipeline/EP0* / decks/EP0*
 ```
+
+---
+
+## 11. PiDeck AI 日更（`daily/`，另一条流水线）
+
+> 上手系列（`decks/` + `pipeline/`）是**长教程合集**；日更是**每天一条 60–90 秒短视频**。
+> 两条流水线独立，目录、脚本、产物都不共用。
+
+### 11.1 目录
+
+```
+daily/
+  config/series.json      栏目配置：账号、平台、画幅、时长区间、内容配比、音色、链接
+  prompts/daily-script.md 写稿 prompt（喂给写稿模型，输出定稿 JSON）
+  scripts/YYYY-MM-DD.json 定稿脚本：一份 JSON 描述整期（唯一事实源）
+  topics/build_pool.py    选题池：挖 CHANGELOG / 公告 / 维护域文档 / git log / gh issue
+  templates/deck_css.py   幻灯片设计语言 + 动效层（16:9 + 3:4 双画幅）
+  pipeline/daily_deck.py  脚本 JSON → 整集单页 HTML（所有屏叠一页，逐屏带时间轴变量）
+  pipeline/timeline.py    纯计算：各屏时长 → 整集时间轴 → 图层出入场窗口
+  pipeline/subtitles.py   SRT 解析 + 整集一份 ASS（折行、淡入、去悬空标点）
+  pipeline/render_motion.py 逐帧渲染：定位 CSS 动画时间轴 → PNG 管道 → ffmpeg 编码
+  pipeline/render_daily.py 渲染编排：配音 → 时间轴 → 音轨 → HTML → ASS → 成片
+  pipeline/publish_copy.py 发布文案：B 站 / 竖版 / 动态
+  probe_motion.py         按时刻抽帧验收（不重渲，秒级出图）
+  tests/test_daily_pipeline.py 纯逻辑单测（32 条）
+  publish/YYYY-MM-DD.md   发布文案成品（可提交）
+  out/YYYY-MM-DD/         渲染产物（可重新生成，不提交）
+```
+
+### 11.2 一天的工作流
+
+```bash
+cd video-series/daily
+
+# 1) 选题：从仓库真实素材里挖候选（技巧 / 更新 / 日志三类）
+python topics/build_pool.py --days 14
+
+# 2) 写稿：把 prompts/daily-script.md + 选题喂给写稿模型，产出 scripts/<date>.json
+#    （人工核对功能真实性与口径，必要时手改）
+
+# 3) 出片：一条命令跑完两个画幅
+python pipeline/render_daily.py --script scripts/2026-10-20.json
+#    产物：out/2026-10-20/2026-10-20-16x9.mp4 与 2026-10-20-3x4.mp4
+
+# 4) 发布文案
+python pipeline/publish_copy.py --script scripts/2026-10-20.json
+#    产物：publish/2026-10-20.md（含 B 站标题/简介/标签/动态 + 竖版标题/简介）
+
+# 5) 人工审核后自己上传（B 站 / 抖音 / 小红书）
+```
+
+### 11.3 常用参数
+
+| 命令 | 作用 |
+|------|------|
+| `render_daily.py --formats 16x9` | 只出一个画幅（调版式时快一半） |
+| `render_daily.py --no-tts` | 复用已有音频，只重烧画面（改字幕样式时用） |
+| `render_daily.py --force-tts` | 忽略缓存重新配音 |
+| `render_daily.py --limit 15` | 只渲前 15 秒（试片用，整集重渲约 3 分钟/画幅） |
+| `render_daily.py --fps 24` | 降帧率（默认 30） |
+| `daily_deck.py --script ... ` | 只出 HTML，不配音（预览排版） |
+| `probe_motion.py` | 按时刻抽帧到 `out/<date>/probe/`，秒级验收画面 |
+
+### 11.4 脚本 JSON 结构
+
+```jsonc
+{
+  "date": "2026-10-20",
+  "episode": 1,
+  "kind": "tip",                       // tip 技巧 / update 更新 / devlog 日志
+  "title": "在 PiDeck 里用 @ 引用文件，不用再手打路径",
+  "epTag": "Day 001",
+  "formats": ["16x9", "3x4"],
+  "voice": { "name": "zh-CN-YunxiNeural", "rate": "-10%", "pitch": "-2Hz" },
+  "slides": [
+    {
+      "id": "01-hook",                 // 两位序号前缀，决定顺序
+      "type": "hook",                 // hook/cover/steps/bullets/shot/quote/cta
+      "title": "还在手打文件路径？",
+      "lead": "想让 AI 读你项目里的文件，敲一个 @ 就够了。",
+      "narration": "还在手打文件路径？……"   // 口播词，逐 slide 一段 TTS
+    },
+    {
+      "id": "02-picker",
+      "type": "shot",
+      "image": "docs/images/files.png",     // 仓库 docs/images 下真实文件
+      "crop":    { "x": 0.145, "y": 0.45, "w": 0.30, "h": 0.45 },  // 16:9 裁剪框（0..1 比例）
+      "crop3x4": { "x": 0.155, "y": 0.46, "w": 0.265, "h": 0.42 }, // 竖版裁剪框，缺省回退 crop
+      "caption": "输入框里敲 @，项目里的文件直接列出来",
+      "narration": "……"
+    }
+  ],
+  "publish": { "bilibili": {...}, "vertical": {...}, "dynamic": "……" }
+}
+```
+
+`crop` / `crop3x4` 是 **0..1 的比例框**（x/y/w/h），不是像素。产品截图原图多在 2560×1380，
+整屏缩到窄画幅里只剩一条，必须裁到「弹窗/面板」那块才看得清。裁剪用 Pillow，
+缺 Pillow 时退化为不裁剪（出片优先于构图）。
+
+### 11.5 动效管线：动画怎么做出来的
+
+成片不是「一张张静帧拼的」，而是**整集一页 HTML**：
+
+1. `timeline.py` 把各屏时长排成时间轴，每屏得到一个图层窗口（`enter_at` / `exit_at`）。
+2. `daily_deck.py` 把所有屏写成**同一页**里叠放的绝对定位图层，每层带 `--in` / `--out` 两个 CSS 变量；
+   入场 stagger、交叉溶解、进度条、背景漂移、首尾淡入淡出全是 CSS keyframes（`templates/deck_css.py`）。
+3. `render_motion.py` 用 Playwright 把 `document.getAnimations()` 全部 `pause()` 后把 `currentTime`
+   定位到当前帧，逐帧截图（PNG）写进 ffmpeg 的 stdin 管道，与音轨、字幕共用同一套时间轴。
+   CSS `animation-delay` 的语义会被完整还原（delay 3s 的元素在 currentTime=3.2s 时才出现）。
+4. `subtitles.py` 把各屏 SRT 按时间轴偏移拼成**整集一份** ASS（分屏各烧各的会让字幕跟着画面闪），
+   ffmpeg 用 `ass=` 滤镜烧进画面。
+
+动效调整都在 `templates/deck_css.py` 里改（class 名：`.rise` `.rise-soft` `.pop` `.rule` `.reveal`），
+改完跑 `daily_deck.py` + `probe_motion.py` 抽帧看效果，不用重渲整集。
+
+### 11.6 字幕与编码的坑（都踩过）
+
+1. **不能直接用 `subtitles=xxx.srt:force_style=...`**。SRT 没有分辨率信息，ffmpeg 内部转 ASS 时
+   固定用 384×288 作脚本分辨率，libass 再按画面尺寸放大——26 号字在 1080p 下会变成近 100px，
+   直接盖住画面。必须自己写 ASS 头，显式写死 `PlayResX/PlayResY` = 画幅尺寸。
+2. **libass 不会给无空格的中文断行**（只在空格/连字符处断），长句会顶出画面两侧。
+   `wrap_cjk()` 按字宽预估预折行（尽量在标点后断、避头尾），再用 ASS 的 `\N` 硬换行。
+   每行字数上限在 `templates/deck_css.py` 的 `FORMATS[*].subtitle.max_em`。
+3. **ASS 的 `Dialogue` 字段数必须与 `Format` 声明一致（10 个）**。多写一个空字段，
+   libass 会把正文顶偏，并在行首多出一个杂字符（表现为字幕开头凭空多个「，」）。
+4. **edge-tts 断句会把标点甩到下一条开头**（字幕行首孤零零一个「，」）。`trim_cue_text()` 削掉首尾悬空标点。
+5. **ffmpeg 的 stderr 不能走 PIPE**：管道写满时 ffmpeg 阻塞，而我们还在往它 stdin 灌帧 → 直接死锁。
+   `render_motion.py` 把 stderr 落到临时文件。
+6. **浏览器中途崩了不能让整条渲染挂住**：页面是确定性的，`render_motion.py` 捕获异常后重开浏览器
+   从当前帧继续（最多重启 3 次）。
+7. **不要用 ffmpeg 的 `crop` 表达式做推镜**：`crop=w='iw/(1+0.06*t/3)'` 里的 `t` 不会逐帧重算，
+   会报 `Nothing was written into output file, because at least one of its streams received no packets`。
+   运镜一律用 CSS `transform: scale()`。
+8. **时长以解码后的 PCM 为准**：mp3 容器时长带编码器填充，按屏各烧各的再拼会累积 1.5～2.1s 漂移。
+   `decode_pcm()` 的样本数是权威时长，画面、字幕、音轨三者共用同一套秒数。
+9. **烧录字幕会压住画面文案**：截图页的图是满屏的，字幕一上来就盖在图上。
+   `templates/deck_css.py` 里的 `--sub-band`（16:9 = 230px，3:4 = 240px）是底部字幕安全区，
+   `.layer.has-img .layer-in` 把它排成下内边距，把图整体顶上去；纯文字页不挂 `has-img`，保持垂直居中。
+
+### 11.7 提交
+
+只提交 `config/ prompts/ scripts/ templates/ pipeline/ topics/ tests/ publish/<date>.md`；
+`daily/out/` 与 `daily/publish/pool.*` 已在 `.gitignore` 里忽略。
+
+---

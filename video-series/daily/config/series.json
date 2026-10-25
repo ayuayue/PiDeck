@@ -1,0 +1,40 @@
+{
+  "seriesName": "PiDeck AI 日更",
+  "seriesTag": "PiDeck AI 日更",
+  "owner": "曹阿宇",
+  "bilibili": {
+    "name": "曹阿宇",
+    "uid": 109011082,
+    "url": "https://space.bilibili.com/109011082"
+  },
+  "platforms": ["bilibili", "douyin", "xiaohongshu"],
+  "aspectRatios": ["16x9", "3x4"],
+  "durationSec": { "min": 55, "max": 95 },
+  "contentMix": {
+    "tip": 0.5,
+    "update": 0.25,
+    "devlog": 0.25
+  },
+  "kindLabels": {
+    "tip": "技巧教程",
+    "update": "更新播报",
+    "devlog": "开发日志"
+  },
+  "voice": {
+    "name": "zh-CN-YunxiNeural",
+    "rate": "-10%",
+    "pitch": "-2Hz"
+  },
+  "footer": {
+    "brand": "PiDeck",
+    "slogan": "让 pi 会话可视化管理",
+    "handle": "@曹阿宇"
+  },
+  "links": {
+    "github": "https://github.com/ayuayue/PiDeck",
+    "releases": "https://github.com/ayuayue/PiDeck/releases",
+    "qq": "https://qm.qq.com/q/pi-deck"
+  },
+  "disclaimer": "本视频画面与配音由 AI 生成，内容经人工审核后发布。",
+  "hashtags": ["PiDeck", "pi", "AI编程", "开源工具", "AI日更"]
+}

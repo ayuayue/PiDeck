@@ -93,9 +93,7 @@ export function normalizeForeignTitle(title: string | undefined): string | undef
 }
 
 /** catalog 中已映射的 host 会话 id 集合（导入过滤/去重用）。 */
-export function knownForeignSessionIds(
-	entries: ReadonlyArray<{ dshSessionId?: string }>,
-): Set<string> {
+export function knownForeignSessionIds(entries: ReadonlyArray<{ dshSessionId?: string }>): Set<string> {
 	const known = new Set<string>();
 	for (const entry of entries) {
 		if (entry.dshSessionId) known.add(entry.dshSessionId);
@@ -104,10 +102,7 @@ export function knownForeignSessionIds(
 }
 
 /** 按 cwd 过滤出尚未导入的外部会话（纯函数）。 */
-export function splitForeignSessions(
-	items: readonly DshForeignSessionItem[],
-	knownIds: ReadonlySet<string>,
-): { pending: DshForeignSessionItem[]; imported: DshForeignSessionItem[] } {
+export function splitForeignSessions(items: readonly DshForeignSessionItem[], knownIds: ReadonlySet<string>): { pending: DshForeignSessionItem[]; imported: DshForeignSessionItem[] } {
 	const pending: DshForeignSessionItem[] = [];
 	const imported: DshForeignSessionItem[] = [];
 	for (const item of items) {
@@ -131,11 +126,7 @@ export type ForeignProjectPick = {
  * cwd 存在但未注册 → 返回 cwdToRegister（按会话自己的目录建项目）；
  * 无 cwd → 兑底项目。
  */
-export function pickProjectForForeignSession(
-	item: DshForeignSessionItem,
-	findProjectByPath: (cwd: string) => { id: string } | null,
-	fallbackProjectId: string,
-): ForeignProjectPick {
+export function pickProjectForForeignSession(item: DshForeignSessionItem, findProjectByPath: (cwd: string) => { id: string } | null, fallbackProjectId: string): ForeignProjectPick {
 	if (item.cwd) {
 		const matched = findProjectByPath(item.cwd);
 		if (matched) return { projectId: matched.id, matched: true };
@@ -160,11 +151,7 @@ export function cwdDisplayName(cwd: string | undefined): string | undefined {
 }
 
 /** 目录末段 / i18n 兑底——不是 dsh-web 那种投影标题，纠正归属时可以被官方缓存覆盖。 */
-export function isPlaceholderForeignTitle(
-	title: string | undefined,
-	cwd: string | undefined,
-	fallbackTitle: string,
-): boolean {
+export function isPlaceholderForeignTitle(title: string | undefined, cwd: string | undefined, fallbackTitle: string): boolean {
 	const normalized = normalizeForeignTitle(title);
 	if (!normalized) return true;
 	if (normalized === fallbackTitle) return true;
@@ -173,11 +160,7 @@ export function isPlaceholderForeignTitle(
 }
 
 /** 解析最终标题：投影 > 可选 host 补全 > cwd 末段 > 兜底标题。 */
-export async function resolveForeignSessionTitle(
-	item: DshForeignSessionItem,
-	fallbackTitle: string,
-	resolveHostTitle?: (dshSessionId: string) => Promise<string | undefined>,
-): Promise<string> {
+export async function resolveForeignSessionTitle(item: DshForeignSessionItem, fallbackTitle: string, resolveHostTitle?: (dshSessionId: string) => Promise<string | undefined>): Promise<string> {
 	const projected = normalizeForeignTitle(item.title);
 	if (projected) return projected;
 	if (resolveHostTitle) {
@@ -195,13 +178,7 @@ export async function resolveForeignSessionTitle(
  * @param keepExistingTitle 纠正归属时保留 catalog 已有「真实」标题。
  * 上一轮用 cwd 末段兑底的占位名不算真实标题：官方投影缓存有 title 时要覆盖上去。
  */
-export async function importForeignSession(
-	deps: DshForeignSyncDeps,
-	dshSessionId: string,
-	item?: DshForeignSessionItem,
-	allowHostTitle = true,
-	keepExistingTitle = false,
-): Promise<SessionRecord> {
+export async function importForeignSession(deps: DshForeignSyncDeps, dshSessionId: string, item?: DshForeignSessionItem, allowHostTitle = true, keepExistingTitle = false): Promise<SessionRecord> {
 	// 手动单条导入（allowHostTitle）才清墓碑；批量同步与它同开关，避免刷新把刚删的映射写回。
 	const restoreDismissed = allowHostTitle;
 	let target = item;
@@ -213,18 +190,12 @@ export async function importForeignSession(
 	const projectId = await resolveForeignProjectId(deps, target);
 	// 批量同步禁止 host 标题补全：resolveHostTitle 会 sessions.history，抢 dsh-web。
 	const fallback = resolveFallbackTitle(deps.fallbackTitle);
-	const title = await resolveForeignSessionTitle(
-		target,
-		fallback,
-		allowHostTitle ? deps.resolveHostTitle : undefined,
-	);
+	const title = await resolveForeignSessionTitle(target, fallback, allowHostTitle ? deps.resolveHostTitle : undefined);
 	const existing = deps.getExistingDraft?.(dshSessionId);
 	const projected = Boolean(normalizeForeignTitle(target.title));
 	// 已有真实标题且本轮仍没有投影名：保住旧名，避免 cwd 末段盖掉 host 回写。
 	// 已有占位名但本轮读到投影：必须写回，否则侧栏永远停在目录名。
-	const retainTitle = keepExistingTitle && existing
-		&& !isPlaceholderForeignTitle(existing.title, target.cwd, fallback)
-		&& !projected;
+	const retainTitle = keepExistingTitle && existing && !isPlaceholderForeignTitle(existing.title, target.cwd, fallback) && !projected;
 	return deps.createDraft({
 		projectId,
 		title,
@@ -244,10 +215,7 @@ export async function importForeignSession(
  * 解析最终项目 id：已注册 → 用该项目；有 cwd 未注册 → 按目录建项目；无 cwd → 兑底。
  * 有自己目录时绝不进兑底，否则 dsh-web 里按 workspace 分开的会话会堆在「外部会话」里。
  */
-export async function resolveForeignProjectId(
-	deps: DshForeignSyncDeps,
-	item: DshForeignSessionItem,
-): Promise<string> {
+export async function resolveForeignProjectId(deps: DshForeignSyncDeps, item: DshForeignSessionItem): Promise<string> {
 	const picked = pickProjectForForeignSession(item, deps.findProjectByPath, "__fallback__");
 	if (picked.matched && picked.projectId) return picked.projectId;
 	if (picked.cwdToRegister) {
@@ -268,10 +236,7 @@ export async function resolveForeignProjectId(
  * （上一版把未注册目录全塞进兑底，启动时要把它们拆回各自目录）。
  * 单条失败只记日志不阻断其余。
  */
-export async function syncForeignSessions(
-	deps: DshForeignSyncDeps,
-	knownIds?: ReadonlySet<string>,
-): Promise<DshForeignSyncResult> {
+export async function syncForeignSessions(deps: DshForeignSyncDeps, knownIds?: ReadonlySet<string>): Promise<DshForeignSyncResult> {
 	const items = await deps.listForeignSessions();
 	let imported = 0;
 	let skipped = 0;
@@ -292,10 +257,7 @@ export async function syncForeignSessions(
 			else imported += 1;
 		} catch (error) {
 			// 主动拒绝注册的 cwd、或用户已删映射：计入 skipped，不是导入失败。
-			if (
-				error instanceof Error &&
-				(error.message === "FOREIGN_CWD_NOT_REGISTERED" || error.message === "DISMISSED_DSH_SESSION")
-			) {
+			if (error instanceof Error && (error.message === "FOREIGN_CWD_NOT_REGISTERED" || error.message === "DISMISSED_DSH_SESSION")) {
 				skipped += 1;
 				continue;
 			}

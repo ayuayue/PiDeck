@@ -30,41 +30,47 @@ test("empty / invalid input → empty config", () => {
 test("apiStyle 白名单：siliconflow 保留，非法回退 undefined（语义 openai）", () => {
 	const { sanitizeImageGenConfig } = loadConfig();
 	const next = sanitizeImageGenConfig({
-		providers: [{
-			id: "ig-sf",
-			name: "SiliconFlow",
-			baseUrl: "https://api.siliconflow.cn/v1",
-			apiKey: "k",
-			models: ["Kwai-Kolors/Kolors"],
-			apiStyle: "siliconflow",
-			referenceMode: "image-field",
-		}],
+		providers: [
+			{
+				id: "ig-sf",
+				name: "SiliconFlow",
+				baseUrl: "https://api.siliconflow.cn/v1",
+				apiKey: "k",
+				models: ["Kwai-Kolors/Kolors"],
+				apiStyle: "siliconflow",
+				referenceMode: "image-field",
+			},
+		],
 	});
 	assert.equal(next.providers[0].apiStyle, "siliconflow");
 	assert.equal(next.providers[0].referenceMode, "image-field");
 
 	// 旧配置无 apiStyle → undefined（向 openai 方言兼容）
 	const legacy = sanitizeImageGenConfig({
-		providers: [{
-			id: "ig-legacy",
-			name: "Legacy",
-			baseUrl: "https://x/v1",
-			apiKey: "k",
-			models: ["m"],
-		}],
+		providers: [
+			{
+				id: "ig-legacy",
+				name: "Legacy",
+				baseUrl: "https://x/v1",
+				apiKey: "k",
+				models: ["m"],
+			},
+		],
 	});
 	assert.equal(legacy.providers[0].apiStyle, undefined);
 
 	// 非法值（手改文件/脏数据）→ undefined，不写未知方言
 	const bad = sanitizeImageGenConfig({
-		providers: [{
-			id: "ig-bad",
-			name: "Bad",
-			baseUrl: "https://x/v1",
-			apiKey: "k",
-			models: ["m"],
-			apiStyle: "baidu",
-		}],
+		providers: [
+			{
+				id: "ig-bad",
+				name: "Bad",
+				baseUrl: "https://x/v1",
+				apiKey: "k",
+				models: ["m"],
+				apiStyle: "baidu",
+			},
+		],
 	});
 	assert.equal(bad.providers[0].apiStyle, undefined);
 });
@@ -72,15 +78,17 @@ test("apiStyle 白名单：siliconflow 保留，非法回退 undefined（语义 
 test("strips kind and keeps extraParams flags", () => {
 	const { sanitizeImageGenConfig } = loadConfig();
 	const next = sanitizeImageGenConfig({
-		providers: [{
-			id: "ig-a",
-			name: "Ark",
-			kind: "ark",
-			baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
-			apiKey: "sk-test",
-			models: ["doubao-seedream", "doubao-seedream", ""],
-			extraParams: { size: true, output_format: true, watermark: false },
-		}],
+		providers: [
+			{
+				id: "ig-a",
+				name: "Ark",
+				kind: "ark",
+				baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+				apiKey: "sk-test",
+				models: ["doubao-seedream", "doubao-seedream", ""],
+				extraParams: { size: true, output_format: true, watermark: false },
+			},
+		],
 		activeProviderId: "ig-a",
 		activeModel: "doubao-seedream",
 	});
@@ -93,17 +101,41 @@ test("strips kind and keeps extraParams flags", () => {
 	assert.equal(next.activeModel, "doubao-seedream");
 });
 
+test("empty or invalid active selection stays unset instead of selecting the first provider/model", () => {
+	const { sanitizeImageGenConfig } = loadConfig();
+	const input = {
+		providers: [
+			{ id: "ig-a", name: "A", baseUrl: "https://a.example/v1", apiKey: "k", models: ["m1"] },
+			{ id: "ig-b", name: "B", baseUrl: "https://b.example/v1", apiKey: "k", models: ["m2"] },
+		],
+	};
+
+	const empty = sanitizeImageGenConfig({ ...input, activeProviderId: "", activeModel: "" });
+	assert.equal(empty.activeProviderId, "");
+	assert.equal(empty.activeModel, "");
+
+	const invalidProvider = sanitizeImageGenConfig({ ...input, activeProviderId: "missing", activeModel: "m1" });
+	assert.equal(invalidProvider.activeProviderId, "");
+	assert.equal(invalidProvider.activeModel, "");
+
+	const emptyModel = sanitizeImageGenConfig({ ...input, activeProviderId: "ig-a", activeModel: "" });
+	assert.equal(emptyModel.activeProviderId, "ig-a");
+	assert.equal(emptyModel.activeModel, "");
+});
+
 test("legacy kind=ark without extraParams enables all three official fields", () => {
 	const { sanitizeImageGenConfig } = loadConfig();
 	const next = sanitizeImageGenConfig({
-		providers: [{
-			id: "ig-old",
-			name: "old",
-			kind: "ark",
-			baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
-			apiKey: "k",
-			models: ["m1"],
-		}],
+		providers: [
+			{
+				id: "ig-old",
+				name: "old",
+				kind: "ark",
+				baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+				apiKey: "k",
+				models: ["m1"],
+			},
+		],
 	});
 	assert.equal(next.providers[0].extraParams.size, true);
 	assert.equal(next.providers[0].extraParams.output_format, true);
@@ -124,14 +156,16 @@ test("encode/decode selection round-trips model ids that contain slashes", () =>
 test("rejects non-http baseUrl and unknown extraParams keys", () => {
 	const { sanitizeImageGenConfig, DEFAULT_IMAGE_GEN_EXTRA_PARAMS } = loadConfig();
 	const next = sanitizeImageGenConfig({
-		providers: [{
-			id: "ig-1",
-			name: "x",
-			baseUrl: "file:///tmp",
-			apiKey: "k",
-			models: ["m"],
-			extraParams: { size: true, foo: true },
-		}],
+		providers: [
+			{
+				id: "ig-1",
+				name: "x",
+				baseUrl: "file:///tmp",
+				apiKey: "k",
+				models: ["m"],
+				extraParams: { size: true, foo: true },
+			},
+		],
 	});
 	assert.equal(next.providers[0].baseUrl, "");
 	assert.equal(next.providers[0].extraParams.size, true);

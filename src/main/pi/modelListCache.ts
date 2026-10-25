@@ -79,28 +79,38 @@ let configInvalidated = false;
 /** pi --list-models 第一档参数：带扩展（默认发现扩展，含扩展贡献的模型）。
  * 与 CLI 默认行为一致；不使用 --no-extensions，让 pi.registerProvider 类插件
  * （如 antigravity）的模型能进入选择器。 */
-export const MODEL_LIST_EXT_ARGS = [
-	"--list-models",
-	"--offline",
-	"--no-skills",
-	"--no-themes",
-];
+export const MODEL_LIST_EXT_ARGS = ["--list-models", "--offline", "--no-skills", "--no-themes"];
 
 /** pi --list-models 加速参数（降级档）：offline 跳过网络目录刷新，no-ext/skills/themes 跳过发现加载。
  * 若第一档因坏扩展/慢扩展失败，用本档再试一次。 */
-export const MODEL_LIST_FAST_ARGS = [
-	"--list-models",
-	"--offline",
-	"--no-extensions",
-	"--no-skills",
-	"--no-themes",
-];
+export const MODEL_LIST_FAST_ARGS = ["--list-models", "--offline", "--no-extensions", "--no-skills", "--no-themes"];
 
 /** 老版本 pi 只认 --list-models；加速旗标会 unknown option。 */
 export const MODEL_LIST_COMPAT_ARGS = ["--list-models"];
 
 export function isUnknownCliOption(message: string): boolean {
 	return /unknown option|unrecognized option|unexpected argument/i.test(message);
+}
+
+/**
+ * 端点被 WAF / 人机验证拦截的判定（纯函数，可单测）。
+ *
+ * 判据来自真实故障：网关（Cloudflare / 阿里云 WAF 等）返回 HTTP **200**，正文却是
+ * JS 挑战页 HTML；pi 侧解析 JSON 失败后抛出的信息是 `Unexpected token '<'` 之类，
+ * 看起来像「配置损坏」，实际是**被拦了**。两种失败的可操作动作完全不同：
+ * 前者要改配置，后者要换代理 / 配 UA，混在一起会把用户引向错误方向。
+ * 因此单独分出一类，并在渲染层给出对应引导。
+ */
+export function isWafBlockedSignal(message: string): boolean {
+	if (!message) return false;
+	return (
+		// JSON 解析撞上 HTML：挑战页最典型的落地形态
+		/Unexpected token '<'|Unexpected token <|is not valid JSON|not valid JSON/i.test(message) ||
+		// 网关直接表明身份 / 拦截动作
+		/\bWAF\b|Access Denied|attention required|Just a moment|cf-browser-verification|captcha|challenge|you have been blocked/i.test(message) ||
+		// 服务端明确拒绝但链路是通的（403/429 常见于按 UA 或出口 IP 拦截）
+		/HTTP\s+403|status\s+403|HTTP\s+429|status\s+429/i.test(message)
+	);
 }
 
 function isYesNo(token: string): boolean {
@@ -142,7 +152,7 @@ export function parsePiListModels(stdout: string): AvailableModel[] {
 			models.push({
 				provider,
 				id: modelId,
-				name: `${provider}/${modelId}`,
+				name: modelId,
 				contextWindow: parseTokenSize(tail[0] ?? ""),
 				maxTokens: parseTokenSize(tail[1] ?? ""),
 				reasoning: tail[2]?.toLowerCase() === "yes",
@@ -160,7 +170,7 @@ export function parsePiListModels(stdout: string): AvailableModel[] {
 			models.push({
 				provider,
 				id: modelId,
-				name: `${provider}/${modelId}`,
+				name: modelId,
 				contextWindow: parseTokenSize(prev),
 				maxTokens: parseTokenSize(last),
 			});
@@ -174,7 +184,7 @@ export function parsePiListModels(stdout: string): AvailableModel[] {
 			models.push({
 				provider,
 				id: modelId,
-				name: `${provider}/${modelId}`,
+				name: modelId,
 				reasoning: last.toLowerCase() === "yes",
 			});
 			continue;
@@ -186,7 +196,7 @@ export function parsePiListModels(stdout: string): AvailableModel[] {
 		models.push({
 			provider,
 			id: modelId,
-			name: `${provider}/${modelId}`,
+			name: modelId,
 		});
 	}
 	return models;
@@ -232,7 +242,7 @@ export function modelsFromPiConfig(modelsFile: unknown): AvailableModel[] {
 			models.push({
 				provider,
 				id: record.id,
-				name: typeof record.name === "string" && record.name ? record.name : `${provider}/${record.id}`,
+				name: typeof record.name === "string" && record.name.trim() ? record.name.trim() : record.id,
 				reasoning: record.reasoning === true,
 				contextWindow: typeof record.contextWindow === "number" ? record.contextWindow : undefined,
 				maxTokens: typeof record.maxTokens === "number" ? record.maxTokens : undefined,
@@ -259,28 +269,30 @@ function clip(text: string, max = 260): string {
  *   老版 pi 不支持该旗标，提示升级而非排查配置；
  * - empty：pi 正常、配置合法但没有模型——去模型页添加 provider。
  */
-export function classifyModelListFailure(
-	signals: ModelListFailureSignals,
-): { reason: ModelListFailReason; detail: string } {
+export function classifyModelListFailure(signals: ModelListFailureSignals): { reason: ModelListFailReason; detail: string } {
 	const first = signals.cliError?.message ?? "";
 	if (!signals.piInstalled) {
 		return { reason: "pi-not-found", detail: clip(first || "pi not installed") };
 	}
 	if (signals.configDiagnostic) {
 		const d = signals.configDiagnostic;
-		const position =
-			d.line !== undefined ? ` at line ${d.line}:${d.column ?? 1}` : "";
+		const position = d.line !== undefined ? ` at line ${d.line}:${d.column ?? 1}` : "";
 		return {
 			reason: "config-invalid",
 			detail: clip(`${d.fileName} parse failed${position}: ${d.message}`),
 		};
 	}
+	// WAF / 反爬拦截必须排在通用 config 正则之前：
+	// 挑战页导致的报错常带 json / parse 字样（例如 Unexpected token '<'），
+	// 若先按 /config|parse/ 归类会误判成「配置损坏」，把用户引向改配置，
+	// 而真正可操作的动作是换代理或配一个能过白名单的 UA。
+	if (isWafBlockedSignal(first)) {
+		return { reason: "waf-blocked", detail: clip(first) };
+	}
 	if (isUnknownCliOption(first)) {
 		return {
 			reason: "version-too-old",
-			detail: clip(
-				`pi ${signals.version ?? "unknown"} rejects --list-models: ${first}`,
-			),
+			detail: clip(`pi ${signals.version ?? "unknown"} rejects --list-models: ${first}`),
 		};
 	}
 	if (/config|json|parse|provider|auth|yaml/i.test(first)) {
@@ -292,9 +304,7 @@ export function classifyModelListFailure(
 	return { reason: "empty", detail: "no models in models.json / auth.json" };
 }
 
-async function loadModelsFromLocalConfigDetailed(
-	configSource?: ModelListConfigSource,
-): Promise<{ models: AvailableModel[]; diagnostic: ModelListConfigDiagnostic | null }> {
+async function loadModelsFromLocalConfigDetailed(configSource?: ModelListConfigSource): Promise<{ models: AvailableModel[]; diagnostic: ModelListConfigDiagnostic | null }> {
 	if (!configSource) return { models: [], diagnostic: null };
 	try {
 		const result = await configSource.getModelsConfig();
@@ -319,61 +329,48 @@ async function loadModelsFromLocalConfigDetailed(
 	}
 }
 
-async function loadModelsFromLocalConfig(
-	configSource?: ModelListConfigSource,
-): Promise<AvailableModel[]> {
+async function loadModelsFromLocalConfig(configSource?: ModelListConfigSource): Promise<AvailableModel[]> {
 	return (await loadModelsFromLocalConfigDetailed(configSource)).models;
 }
 
 /** 执行 pi CLI 命令并返回 stdout（WSL/customPath 解析与进程环境同 execPiListModels）。 */
-async function runPiCliCommand(
-	piLocator: PiLocator,
-	settingsStore: SettingsStore,
-	args: readonly string[],
-): Promise<string> {
+async function runPiCliCommand(piLocator: PiLocator, settingsStore: SettingsStore, args: readonly string[]): Promise<string> {
 	const settings = settingsStore.get();
 	// 拉模型列表可以等 WSL which；不能在 resolveCommand 里同步卡住主进程。
 	if (settings.wslEnabled && settings.wslDistro && settings.wslUser) {
 		await piLocator.warmWslCommand(settings.wslDistro, settings.wslUser);
 	}
-	const command = piLocator.resolveCommand(
-		settings.customPiPath,
-		settings.wslEnabled,
-		settings.wslDistro,
-		settings.wslUser,
-	);
+	const command = piLocator.resolveCommand(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser);
 	const invocation = piLocator.createInvocation(command, [...args]);
 	return new Promise((resolve, reject) => {
-		void import("node:child_process").then(({ execFile }) => {
-			execFile(
-				invocation.command,
-				invocation.args,
-				{
-					env: piLocator.createProcessEnv(settings, invocation.pathPrefix, invocation.wsl),
-					shell: invocation.shell,
-					windowsHide: true,
-					timeout: 20_000,
-					encoding: "utf8",
-					windowsVerbatimArguments: invocation.windowsVerbatimArguments,
-				},
-				(error, stdout, stderr) => {
-					if (error) {
-						const message = (stderr || error.message).slice(0, 300);
-						reject(new Error(message));
-					} else {
-						resolve(stdout);
-					}
-				},
-			);
-		}).catch(reject);
+		void import("node:child_process")
+			.then(({ execFile }) => {
+				execFile(
+					invocation.command,
+					invocation.args,
+					{
+						env: piLocator.createProcessEnv(settings, invocation.pathPrefix, invocation.wsl),
+						shell: invocation.shell,
+						windowsHide: true,
+						timeout: 20_000,
+						encoding: "utf8",
+						windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+					},
+					(error, stdout, stderr) => {
+						if (error) {
+							const message = (stderr || error.message).slice(0, 300);
+							reject(new Error(message));
+						} else {
+							resolve(stdout);
+						}
+					},
+				);
+			})
+			.catch(reject);
 	});
 }
 
-async function execPiListModels(
-	piLocator: PiLocator,
-	settingsStore: SettingsStore,
-	args: readonly string[],
-): Promise<string> {
+async function execPiListModels(piLocator: PiLocator, settingsStore: SettingsStore, args: readonly string[]): Promise<string> {
 	return runPiCliCommand(piLocator, settingsStore, args);
 }
 
@@ -381,10 +378,7 @@ async function execPiListModels(
  * 第一档任何失败都降级（坏扩展/慢扩展不属于配置问题）；后续档位仅在
  * unknown-option 时降级（老版本 pi），真实错误（配置损坏、命令不存在）立即上抛，
  * 保留给 classifyModelListFailure 分类。 */
-export async function runPiListModels(
-	piLocator: PiLocator,
-	settingsStore: SettingsStore,
-): Promise<AvailableModel[]> {
+export async function runPiListModels(piLocator: PiLocator, settingsStore: SettingsStore): Promise<AvailableModel[]> {
 	const argSets = [MODEL_LIST_EXT_ARGS, MODEL_LIST_FAST_ARGS, MODEL_LIST_COMPAT_ARGS];
 	let lastError: Error | null = null;
 	for (const [index, args] of argSets.entries()) {
@@ -417,11 +411,15 @@ type ModelListResolveDetail = {
 	configDiagnostic: ModelListConfigDiagnostic | null;
 };
 
-async function resolveModelsDetailed(
-	piLocator: PiLocator,
-	settingsStore: SettingsStore,
-	configSource?: ModelListConfigSource,
-): Promise<ModelListResolveDetail> {
+/** resolveModelsDetailed 的可调行为：保存后的验证传 retryOnEmpty:false 跳过空表重试。 */
+type ResolveModelsOptions = {
+	/** CLI 成功执行但列表为空时是否重试一次（默认 true：启动早期 pi 冷启动可能返回空表头）。
+	 *  保存后的验证场景环境是热的，空表是真实信号，重试只会白白多 fork 一次（~17s）。 */
+	retryOnEmpty?: boolean;
+};
+
+async function resolveModelsDetailed(piLocator: PiLocator, settingsStore: SettingsStore, configSource?: ModelListConfigSource, options?: ResolveModelsOptions): Promise<ModelListResolveDetail> {
+	const retryOnEmpty = options?.retryOnEmpty !== false;
 	let cliError: Error | null = null;
 	// 第一次尝试（内部含未知参数自动降级为仅 --list-models）
 	try {
@@ -433,6 +431,16 @@ async function resolveModelsDetailed(
 		cliError = error instanceof Error ? error : new Error(String(error));
 	}
 	// 空结果重试一次：启动早期 pi 冷启动/环境未就绪时可能返回空表头。
+	// retryOnEmpty=false（保存后验证）时跳过：刚保存完环境是热的，空表就是真实结果。
+	if (!retryOnEmpty) {
+		const fallback = await loadModelsFromLocalConfigDetailed(configSource);
+		return {
+			models: fallback.models,
+			cliError,
+			fellBackToConfig: fallback.models.length > 0,
+			configDiagnostic: fallback.diagnostic,
+		};
+	}
 	await new Promise((resolve) => setTimeout(resolve, 500));
 	try {
 		const models = await runPiListModels(piLocator, settingsStore);
@@ -452,11 +460,7 @@ async function resolveModelsDetailed(
 	};
 }
 
-async function resolveModels(
-	piLocator: PiLocator,
-	settingsStore: SettingsStore,
-	configSource?: ModelListConfigSource,
-): Promise<AvailableModel[]> {
+async function resolveModels(piLocator: PiLocator, settingsStore: SettingsStore, configSource?: ModelListConfigSource): Promise<AvailableModel[]> {
 	return (await resolveModelsDetailed(piLocator, settingsStore, configSource)).models;
 }
 
@@ -467,11 +471,7 @@ async function resolveModels(
  * 首次 fork 返回空时自动重试一次（间隔 500ms），覆盖 pi 冷启动慢的场景。
  * 返回的数组由调用方消费，不应修改。
  */
-export function fetchModelList(
-	piLocator: PiLocator,
-	settingsStore: SettingsStore,
-	configSource?: ModelListConfigSource,
-): Promise<AvailableModel[]> {
+export function fetchModelList(piLocator: PiLocator, settingsStore: SettingsStore, configSource?: ModelListConfigSource): Promise<AvailableModel[]> {
 	if (cachedListModels) return Promise.resolve(cachedListModels);
 	if (cachedListModelsPending) return cachedListModelsPending;
 
@@ -491,11 +491,7 @@ export function fetchModelList(
  * 若存在在途请求（可能对应保存前的旧配置），不直接复用其结果——
  * 链式等它结束后重新 fork，保证返回的是新配置的列表。
  */
-export function refreshModelList(
-	piLocator: PiLocator,
-	settingsStore: SettingsStore,
-	configSource?: ModelListConfigSource,
-): Promise<AvailableModel[]> {
+export function refreshModelList(piLocator: PiLocator, settingsStore: SettingsStore, configSource?: ModelListConfigSource): Promise<AvailableModel[]> {
 	const pending = cachedListModelsPending;
 	if (pending) {
 		cachedListModelsPending = pending
@@ -558,10 +554,7 @@ export const MODEL_CATALOG_STALE_MS = 4 * 60 * 60 * 1000;
  * 失败不抛出（网络/pi 未安装/超时都返回 false），由调用方按需记日志：
  * 目录刷新是尽力而为的后台任务，不应影响模型列表主流程。
  */
-export async function refreshModelCatalogStore(
-	piLocator: PiLocator,
-	settingsStore: SettingsStore,
-): Promise<boolean> {
+export async function refreshModelCatalogStore(piLocator: PiLocator, settingsStore: SettingsStore): Promise<boolean> {
 	try {
 		await runPiCliCommand(piLocator, settingsStore, MODEL_CATALOG_REFRESH_ARGS);
 		return true;
@@ -574,11 +567,7 @@ export async function refreshModelCatalogStore(
  * 判断模型目录缓存是否已过期：models-store.json 不存在（首次使用、从未开过 TUI）
  * 或 mtime 距今超过 maxAgeMs 都视为需要刷新。
  */
-export async function isModelCatalogStale(
-	configDir: string,
-	maxAgeMs: number = MODEL_CATALOG_STALE_MS,
-	now: () => number = Date.now,
-): Promise<boolean> {
+export async function isModelCatalogStale(configDir: string, maxAgeMs: number = MODEL_CATALOG_STALE_MS, now: () => number = Date.now): Promise<boolean> {
 	try {
 		const mtimeMs = (await stat(join(configDir, "models-store.json"))).mtimeMs;
 		return now() - mtimeMs >= maxAgeMs;
@@ -592,12 +581,7 @@ export async function isModelCatalogStale(
  * 冷启动节流版目录刷新：目录过期才跑 pi update --models，否则跳过。
  * 返回 { ran: 是否实际执行, ok: 执行是否成功 }，不抛错。
  */
-export async function refreshModelCatalogIfStale(
-	piLocator: PiLocator,
-	settingsStore: SettingsStore,
-	configDir: string,
-	options?: { maxAgeMs?: number; now?: () => number },
-): Promise<{ ran: boolean; ok: boolean }> {
+export async function refreshModelCatalogIfStale(piLocator: PiLocator, settingsStore: SettingsStore, configDir: string, options?: { maxAgeMs?: number; now?: () => number }): Promise<{ ran: boolean; ok: boolean }> {
 	if (!(await isModelCatalogStale(configDir, options?.maxAgeMs, options?.now))) {
 		return { ran: false, ok: true };
 	}
@@ -613,12 +597,7 @@ export async function refreshModelCatalogIfStale(
  *   CLI 错误/配置诊断分类成 pi-not-found / version-too-old / config-invalid /
  *   cli-failed / empty，UI 可按原因给出具体引导（升级 pi / 修配置 / 配置 pi 路径）。
  */
-export async function resolveModelListReport(
-	piLocator: PiLocator,
-	settingsStore: SettingsStore,
-	configSource?: ModelListConfigSource,
-	force = false,
-): Promise<ModelListReport> {
+export async function resolveModelListReport(piLocator: PiLocator, settingsStore: SettingsStore, configSource?: ModelListConfigSource, force = false, options?: { retryOnEmpty?: boolean }): Promise<ModelListReport> {
 	const now = Date.now();
 	// 非手动刷新且缓存有数据：直接返回，避免与启动预取并发 fork。
 	if (!force && cachedListModels && cachedListModels.length > 0) {
@@ -647,7 +626,7 @@ export async function resolveModelListReport(
 			};
 		}
 	}
-	const detail = await resolveModelsDetailed(piLocator, settingsStore, configSource);
+	const detail = await resolveModelsDetailed(piLocator, settingsStore, configSource, options);
 	if (detail.models.length > 0) {
 		// 与 fetchModelList 相同：空结果不写缓存；配置失效期间也不写（避免旧结果覆盖新配置）。
 		if (!configInvalidated) cachedListModels = detail.models;
@@ -657,10 +636,7 @@ export async function resolveModelListReport(
 			reason: null,
 			version: null,
 			// CLI 失败但配置兜底成功：仍能看到列表，附带一句来源说明，不打断使用。
-			detail:
-				detail.fellBackToConfig && detail.cliError
-					? `CLI failed, fell back to local models.json: ${clip(detail.cliError.message)}`
-					: "",
+			detail: detail.fellBackToConfig && detail.cliError ? `CLI failed, fell back to local models.json: ${clip(detail.cliError.message)}` : "",
 			source: detail.fellBackToConfig ? "config-fallback" : "cli",
 			at: now,
 		};
@@ -671,12 +647,7 @@ export async function resolveModelListReport(
 	let version: string | null = null;
 	let checkError: string | null = null;
 	try {
-		const status = await piLocator.check(
-			settings.customPiPath,
-			settings.wslEnabled,
-			settings.wslDistro,
-			settings.wslUser,
-		);
+		const status = await piLocator.check(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser);
 		installed = status.installed;
 		version = status.installed && status.version ? status.version : null;
 		checkError = status.error ?? null;
@@ -691,10 +662,7 @@ export async function resolveModelListReport(
 		version,
 	});
 	// pi 未安装时，--version 健康检查的错误文本比 CLI stderr 更可读（"pi: command not found"）。
-	const detailText =
-		classification.reason === "pi-not-found" && checkError
-			? clip(checkError)
-			: classification.detail;
+	const detailText = classification.reason === "pi-not-found" && checkError ? clip(checkError) : classification.detail;
 	return {
 		models: [],
 		ok: false,

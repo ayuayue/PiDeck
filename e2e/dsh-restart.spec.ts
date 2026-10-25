@@ -22,8 +22,7 @@ test("DSH 重启会话保留原消息并可续聊", async ({ window }) => {
 	const realSettings = join(homedir(), ".dsh", "settings.yaml");
 	if (existsSync(realSettings)) copyFileSync(realSettings, join(dshHome, "settings.yaml"));
 	await window.evaluate(async (dir) => {
-		await (window as unknown as { piDesktop: { settings: { update: (patch: { dshHomeDir?: string }) => Promise<unknown> } } })
-			.piDesktop.settings.update({ dshHomeDir: dir });
+		await (window as unknown as { piDesktop: { settings: { update: (patch: { dshHomeDir?: string }) => Promise<unknown> } } }).piDesktop.settings.update({ dshHomeDir: dir });
 	}, dshHome);
 
 	// ── 2. 新建 DSH 会话并发一条消息 ──────────────────────────────────────────
@@ -42,17 +41,16 @@ test("DSH 重启会话保留原消息并可续聊", async ({ window }) => {
 	await expect(window.locator(".chat-list-pane")).toContainText(FIRST, { timeout: 30_000 });
 	await expect(timeline).toContainText(FIRST, { timeout: 15_000 });
 
-	const readDshRecords = () => window.evaluate(async () => {
-		const pi = (window as unknown as { piDesktop: { sessions: { listCatalog: (projectId: string, opts?: unknown) => Promise<Array<{ id: string; title: string; dshSessionId?: string; backend?: string }>> } } }).piDesktop;
-		try {
-			const records = await pi.sessions.listCatalog("builtin-chat", { scan: false });
-			return records
-				.filter((r) => r.backend === "dsh")
-				.map((r) => ({ id: r.id, title: r.title, dsh: r.dshSessionId }));
-		} catch (error) {
-			return { __error: String(error) };
-		}
-	});
+	const readDshRecords = () =>
+		window.evaluate(async () => {
+			const pi = (window as unknown as { piDesktop: { sessions: { listCatalog: (projectId: string, opts?: unknown) => Promise<Array<{ id: string; title: string; dshSessionId?: string; backend?: string }>> } } }).piDesktop;
+			try {
+				const records = await pi.sessions.listCatalog("builtin-chat", { scan: false });
+				return records.filter((r) => r.backend === "dsh").map((r) => ({ id: r.id, title: r.title, dsh: r.dshSessionId }));
+			} catch (error) {
+				return { __error: String(error) };
+			}
+		});
 	const before = await readDshRecords();
 	console.log("[dsh-restart] before =>", JSON.stringify(before));
 	const records = Array.isArray(before) ? before : [];

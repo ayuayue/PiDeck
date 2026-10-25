@@ -6,9 +6,7 @@
 import type { Editor } from "@tiptap/core";
 import type { EditorView } from "@tiptap/pm/view";
 
-export type ComposerPlainInsertStep =
-	| { type: "text"; text: string }
-	| { type: "hardBreak" };
+export type ComposerPlainInsertStep = { type: "text"; text: string } | { type: "hardBreak" };
 
 /**
  * 将任意剪贴板纯文本规范成编辑器可插入的步骤。

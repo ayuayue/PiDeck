@@ -1,12 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-	createStreamGateState,
-	isStreamGateSealed,
-	noteAbortSettled,
-	openStreamGateForNewRun,
-	sealStreamGate,
-} from "../src/main/pi/streamGate.ts";
+import { createStreamGateState, isStreamGateSealed, noteAbortSettled, openStreamGateForNewRun, sealStreamGate } from "../src/main/pi/streamGate.ts";
 
 test("new gate accepts stream events", () => {
 	const state = createStreamGateState();

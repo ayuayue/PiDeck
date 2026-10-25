@@ -1,3 +1,8 @@
+---
+title: 快速开始 | PiDeck 安装与首次配置 | pi desktop 入门
+description: PiDeck（pi desktop 桌面客户端）快速上手：下载安装 Windows/macOS/Linux 安装包、首次启动环境自检、一键安装 Node 与 pi CLI、创建第一个 Agent 会话。
+---
+
 # 快速开始
 
 PiDeck 是一个用于管理多个 [pi](https://pi.dev) 编码 Agent 会话的桌面工作台。它负责桌面端工作流，Agent 能力仍由 pi CLI 提供。
@@ -28,7 +33,7 @@ Windows、macOS、Linux 的预构建安装包发布在 GitHub Releases：
 
 ```bash
 git clone https://github.com/ayuayue/PiDeck.git
-cd pi-desktop
+cd PiDeck
 npm install
 npm run make-icon
 npm run dev

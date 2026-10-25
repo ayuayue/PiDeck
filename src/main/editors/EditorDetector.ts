@@ -1,15 +1,9 @@
 import { access, readdir } from "node:fs/promises";
 import { basename, delimiter, dirname, extname, join } from "node:path";
 import { spawn } from "node:child_process";
-import { shell } from "electron";
-import {
-	SUPPORTED_EXTERNAL_EDITORS,
-	createDefaultExternalEditorSettings,
-	type AppSettings,
-	type ExternalEditor,
-	type ExternalEditorId,
-	type ExternalEditorSettings,
-} from "../../shared/types";
+import { clearTimeout, setTimeout } from "node:timers";
+import { openSystemPath } from "../fs/openPath";
+import { SUPPORTED_EXTERNAL_EDITORS, createDefaultExternalEditorSettings, type AppSettings, type ExternalEditor, type ExternalEditorId, type ExternalEditorSettings } from "../../shared/types";
 
 type EditorCandidate = {
 	id: ExternalEditorId;
@@ -29,11 +23,7 @@ type EditorCandidate = {
 	programsExeName?: string;
 };
 
-const WINDOWS_PROGRAM_FILES = [
-	process.env.LOCALAPPDATA,
-	process.env.ProgramFiles,
-	process.env["ProgramFiles(x86)"],
-].filter((value): value is string => Boolean(value));
+const WINDOWS_PROGRAM_FILES = [process.env.LOCALAPPDATA, process.env.ProgramFiles, process.env["ProgramFiles(x86)"]].filter((value): value is string => Boolean(value));
 
 const CANDIDATES: EditorCandidate[] = [
 	{
@@ -62,12 +52,7 @@ const CANDIDATES: EditorCandidate[] = [
 		id: "cursor",
 		name: "Cursor",
 		commands: ["cursor", "cursor.cmd"],
-		commonPaths: [
-			...WINDOWS_PROGRAM_FILES.map((root) => join(root, "Programs", "Cursor", "Cursor.exe")),
-			"/usr/bin/cursor",
-			"/usr/local/bin/cursor",
-			"/Applications/Cursor.app/Contents/Resources/app/bin/cursor",
-		],
+		commonPaths: [...WINDOWS_PROGRAM_FILES.map((root) => join(root, "Programs", "Cursor", "Cursor.exe")), "/usr/bin/cursor", "/usr/local/bin/cursor", "/Applications/Cursor.app/Contents/Resources/app/bin/cursor"],
 		windowsExecutableNames: ["Cursor.exe", "cursor.cmd"],
 		windowsRegistryNames: ["cursor"],
 	},
@@ -75,12 +60,7 @@ const CANDIDATES: EditorCandidate[] = [
 		id: "zed",
 		name: "Zed",
 		commands: ["zed", "zed.cmd"],
-		commonPaths: [
-			...WINDOWS_PROGRAM_FILES.map((root) => join(root, "Programs", "Zed", "Zed.exe")),
-			"/usr/bin/zed",
-			"/usr/local/bin/zed",
-			"/Applications/Zed.app/Contents/MacOS/cli",
-		],
+		commonPaths: [...WINDOWS_PROGRAM_FILES.map((root) => join(root, "Programs", "Zed", "Zed.exe")), "/usr/bin/zed", "/usr/local/bin/zed", "/Applications/Zed.app/Contents/MacOS/cli"],
 		windowsExecutableNames: ["Zed.exe", "zed.cmd"],
 		windowsRegistryNames: ["zed"],
 	},
@@ -89,11 +69,7 @@ const CANDIDATES: EditorCandidate[] = [
 		name: "IntelliJ IDEA",
 		commands: ["idea", "idea64.exe", "idea.bat"],
 		commonPaths: [
-			...WINDOWS_PROGRAM_FILES.flatMap((root) => [
-				join(root, "JetBrains", "IntelliJ IDEA 2025.3", "bin", "idea64.exe"),
-				join(root, "JetBrains", "IntelliJ IDEA 2025.2", "bin", "idea64.exe"),
-				join(root, "JetBrains", "IntelliJ IDEA 2025.1", "bin", "idea64.exe"),
-			]),
+			...WINDOWS_PROGRAM_FILES.flatMap((root) => [join(root, "JetBrains", "IntelliJ IDEA 2025.3", "bin", "idea64.exe"), join(root, "JetBrains", "IntelliJ IDEA 2025.2", "bin", "idea64.exe"), join(root, "JetBrains", "IntelliJ IDEA 2025.1", "bin", "idea64.exe")]),
 			"/usr/bin/idea",
 			"/usr/local/bin/idea",
 			"/Applications/IntelliJ IDEA.app/Contents/MacOS/idea",
@@ -109,11 +85,7 @@ const CANDIDATES: EditorCandidate[] = [
 		name: "WebStorm",
 		commands: ["webstorm", "webstorm64.exe", "webstorm.bat"],
 		commonPaths: [
-			...WINDOWS_PROGRAM_FILES.flatMap((root) => [
-				join(root, "JetBrains", "WebStorm 2025.3", "bin", "webstorm64.exe"),
-				join(root, "JetBrains", "WebStorm 2025.2", "bin", "webstorm64.exe"),
-				join(root, "JetBrains", "WebStorm 2025.1", "bin", "webstorm64.exe"),
-			]),
+			...WINDOWS_PROGRAM_FILES.flatMap((root) => [join(root, "JetBrains", "WebStorm 2025.3", "bin", "webstorm64.exe"), join(root, "JetBrains", "WebStorm 2025.2", "bin", "webstorm64.exe"), join(root, "JetBrains", "WebStorm 2025.1", "bin", "webstorm64.exe")]),
 			"/usr/bin/webstorm",
 			"/usr/local/bin/webstorm",
 			"/Applications/WebStorm.app/Contents/MacOS/webstorm",
@@ -128,11 +100,7 @@ const CANDIDATES: EditorCandidate[] = [
 		name: "PhpStorm",
 		commands: ["phpstorm", "phpstorm64.exe", "phpstorm.bat"],
 		commonPaths: [
-			...WINDOWS_PROGRAM_FILES.flatMap((root) => [
-				join(root, "JetBrains", "PhpStorm 2025.3", "bin", "phpstorm64.exe"),
-				join(root, "JetBrains", "PhpStorm 2025.2", "bin", "phpstorm64.exe"),
-				join(root, "JetBrains", "PhpStorm 2025.1", "bin", "phpstorm64.exe"),
-			]),
+			...WINDOWS_PROGRAM_FILES.flatMap((root) => [join(root, "JetBrains", "PhpStorm 2025.3", "bin", "phpstorm64.exe"), join(root, "JetBrains", "PhpStorm 2025.2", "bin", "phpstorm64.exe"), join(root, "JetBrains", "PhpStorm 2025.1", "bin", "phpstorm64.exe")]),
 			"/usr/bin/phpstorm",
 			"/usr/local/bin/phpstorm",
 			"/Applications/PhpStorm.app/Contents/MacOS/phpstorm",
@@ -146,15 +114,7 @@ const CANDIDATES: EditorCandidate[] = [
 		id: "pycharm",
 		name: "PyCharm",
 		commands: ["pycharm", "pycharm64.exe", "pycharm.bat"],
-		commonPaths: [
-			...WINDOWS_PROGRAM_FILES.flatMap((root) => [
-				join(root, "JetBrains", "PyCharm 2025.3", "bin", "pycharm64.exe"),
-				join(root, "JetBrains", "PyCharm 2025.2", "bin", "pycharm64.exe"),
-			]),
-			"/usr/bin/pycharm",
-			"/usr/local/bin/pycharm",
-			"/Applications/PyCharm.app/Contents/MacOS/pycharm",
-		],
+		commonPaths: [...WINDOWS_PROGRAM_FILES.flatMap((root) => [join(root, "JetBrains", "PyCharm 2025.3", "bin", "pycharm64.exe"), join(root, "JetBrains", "PyCharm 2025.2", "bin", "pycharm64.exe")]), "/usr/bin/pycharm", "/usr/local/bin/pycharm", "/Applications/PyCharm.app/Contents/MacOS/pycharm"],
 		windowsExecutableNames: ["pycharm64.exe", "pycharm.bat"],
 		windowsRegistryNames: ["pycharm"],
 		programsNamePrefixes: ["PyCharm"],
@@ -198,12 +158,24 @@ function runRegQuery(key: string) {
 			stdio: ["ignore", "pipe", "ignore"],
 		});
 		let output = "";
+		let settled = false;
+		const finish = (value: string) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			resolve(value);
+		};
+		// /s 全子树扫描在异常庞大的注册表树上可能长时间不返回；限时兕底防止启动期编辑器探测卡死。
+		const timer = setTimeout(() => {
+			child.kill();
+			finish(output);
+		}, 8000);
 		child.stdout.setEncoding("utf8");
 		child.stdout.on("data", (chunk) => {
 			output += chunk;
 		});
-		child.once("error", () => resolve(""));
-		child.once("close", () => resolve(output));
+		child.once("error", () => finish(""));
+		child.once("close", () => finish(output));
 	});
 }
 
@@ -230,18 +202,14 @@ async function findInWindowsRegistry(candidate: EditorCandidate) {
 	const executableNames = candidate.windowsExecutableNames ?? [];
 	if (names.length === 0 || executableNames.length === 0) return null;
 
-	const roots = [
-		"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
-		"HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
-		"HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
-	];
+	const roots = ["HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall", "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall", "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall"];
 	for (const root of roots) {
 		const output = await runRegQuery(root);
 		for (const block of output.split(/\r?\n(?=HKEY_)/)) {
 			const displayName = parseRegValue(block, "DisplayName").toLowerCase();
 			if (!displayName || !names.some((name) => displayName.includes(name))) continue;
 			const displayIcon = normalizeDisplayIcon(parseRegValue(block, "DisplayIcon"));
-			if (displayIcon && isLaunchableRegistryPath(displayIcon, executableNames) && await exists(displayIcon)) return displayIcon;
+			if (displayIcon && isLaunchableRegistryPath(displayIcon, executableNames) && (await exists(displayIcon))) return displayIcon;
 			const installLocation = parseRegValue(block, "InstallLocation");
 			if (!installLocation) continue;
 			for (const executableName of executableNames) {
@@ -260,10 +228,7 @@ async function findInWindowsRegistry(candidate: EditorCandidate) {
  * 抽出为纯函数便于单测：传入 readdir 结果即可断言匹配规则。
  * 返回第一个匹配的目录名；无匹配返回 null。
  */
-export function matchProgramsDirName(
-	entries: string[],
-	namePrefixes: string[],
-): string | null {
+export function matchProgramsDirName(entries: string[], namePrefixes: string[]): string | null {
 	for (const entry of entries) {
 		if (namePrefixes.some((prefix) => entry.toLowerCase().startsWith(prefix.toLowerCase()))) {
 			return entry;
@@ -277,9 +242,7 @@ export function matchProgramsDirName(
  * JetBrains 系安装：直接子目录 `{prefix}*` 或 `JetBrains\{prefix}*`，
  * 命中后校验 `bin\{exeName}` 是否存在。
  */
-async function findInProgramsByPrefix(
-	candidate: EditorCandidate,
-): Promise<string | null> {
+async function findInProgramsByPrefix(candidate: EditorCandidate): Promise<string | null> {
 	const prefixes = candidate.programsNamePrefixes ?? [];
 	const exeName = candidate.programsExeName;
 	if (prefixes.length === 0 || !exeName) return null;
@@ -349,10 +312,7 @@ export async function detectExternalEditors(): Promise<ExternalEditor[]> {
 	return editors;
 }
 
-export function mergeDetectedExternalEditors(
-	current: ExternalEditorSettings | undefined,
-	detected: ExternalEditor[],
-): ExternalEditorSettings {
+export function mergeDetectedExternalEditors(current: ExternalEditorSettings | undefined, detected: ExternalEditor[]): ExternalEditorSettings {
 	const next: ExternalEditorSettings = {
 		...createDefaultExternalEditorSettings(),
 		...(current ?? {}),
@@ -393,7 +353,7 @@ export async function listConfiguredExternalEditors(settings: AppSettings): Prom
 export async function validateExternalEditorCommand(command: string) {
 	const trimmed = command.trim();
 	return {
-		valid: Boolean(trimmed) && await exists(trimmed),
+		valid: Boolean(trimmed) && (await exists(trimmed)),
 		command: trimmed,
 	};
 }
@@ -426,11 +386,7 @@ async function resolveLaunchableCommand(command: string): Promise<string | null>
 	// 优先查 bin/<name> 上一级的 Code.exe 等 GUI 主程序,避免走
 	// cmd/start 链。某些环境下 start 对所有程序返回“拒绝访问”。
 	const dir = dirname(command);
-	const guiCandidates = [
-		join(dir, "..", "Code.exe"),
-		join(dir, "..", "Code - Insiders.exe"),
-		join(dir, "..", "VSCodium.exe"),
-	];
+	const guiCandidates = [join(dir, "..", "Code.exe"), join(dir, "..", "Code - Insiders.exe"), join(dir, "..", "VSCodium.exe")];
 	for (const candidate of guiCandidates) {
 		if (await exists(candidate)) return candidate;
 	}
@@ -454,11 +410,30 @@ function toWindowsCompatiblePath(path: string): string {
 	// /mnt/d/tmp → D:\tmp
 	const mntMatch = path.match(/^\/mnt\/([a-z])\/(.*)/);
 	if (mntMatch) {
-		return `${mntMatch[1].toUpperCase()}:\\${mntMatch[2].replace(/\//g, '\\')}`;
+		return `${mntMatch[1].toUpperCase()}:\\${mntMatch[2].replace(/\//g, "\\")}`;
 	}
 	// /home/user/... → \\wsl$\<distro>\home\user\...（通过 WSL 网络共享）
 	// distro 无法从路径本身推断，回退到原路径（VS Code 可能通过 WSL remote 连接）
 	return path;
+}
+
+/**
+ * 打开外部编辑器的 spawn 选项。
+ * win32 必须带 windowsHide：`.cmd` / `.bat` 垫片走 `cmd.exe /c start`，
+ * 缺了会闪出控制台（即使用户最终看到的是 GUI 编辑器）。
+ */
+export function editorLaunchSpawnOptions(): {
+	detached: true;
+	stdio: "ignore";
+	shell: false;
+	windowsHide: true;
+} {
+	return {
+		detached: true,
+		stdio: "ignore",
+		shell: false,
+		windowsHide: true,
+	};
 }
 
 export async function openProjectInEditor(editor: ExternalEditor, projectPath: string) {
@@ -471,10 +446,10 @@ export async function openProjectInEditor(editor: ExternalEditor, projectPath: s
 	return new Promise<void>((resolve, reject) => {
 		const needsCmd = process.platform === "win32" && /\.(cmd|bat)$/i.test(launchCommand);
 		const launchArgs = [...(editor.args ?? []), ...(editor.id === "vscode" ? ["--new-window"] : []), resolvedPath];
-		const command = needsCmd ? (process.env.ComSpec || "cmd.exe") : launchCommand;
+		const command = needsCmd ? process.env.ComSpec || "cmd.exe" : launchCommand;
 		const args = needsCmd
-			// Windows 批处理启动 GUI 程序时使用 start 更可靠；第一个空字符串是窗口标题占位。
-			? ["/d", "/s", "/c", `start "" ${quoteCmdArg(launchCommand)} ${launchArgs.map(quoteCmdArg).join(" ")}`]
+			? // Windows 批处理启动 GUI 程序时使用 start 更可靠；第一个空字符串是窗口标题占位。
+				["/d", "/s", "/c", `start "" ${quoteCmdArg(launchCommand)} ${launchArgs.map(quoteCmdArg).join(" ")}`]
 			: launchArgs;
 
 		// 打开外部编辑器问题常与 PATH、cmd shim、路径空格有关；保留控制台诊断信息方便用户反馈。
@@ -488,11 +463,7 @@ export async function openProjectInEditor(editor: ExternalEditor, projectPath: s
 			needsCmd,
 		});
 
-		const child = spawn(command, args, {
-			detached: true,
-			stdio: "ignore",
-			shell: false,
-		});
+		const child = spawn(command, args, editorLaunchSpawnOptions());
 		child.once("error", async (error) => {
 			console.error("[EditorDetector] failed to launch editor", {
 				editorId: editor.id,
@@ -501,7 +472,8 @@ export async function openProjectInEditor(editor: ExternalEditor, projectPath: s
 				error,
 			});
 			// 部分 GUI 应用不适合 spawn 时,回退到系统打开路径,避免用户点击后无反馈。
-			const fallbackError = await shell.openPath(projectPath);
+			// 走受保护入口：Linux 上 shell.openPath 永不 settle，会让这个 Promise 永不结算（issue #396）。
+			const fallbackError = await openSystemPath(projectPath);
 			if (fallbackError) reject(error);
 			else resolve();
 		});

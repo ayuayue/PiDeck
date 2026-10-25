@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PiDeck 资源页统一改造原型（扩展 / 技能 / 提示词）</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --app: #101113;
+      --panel: #18191c;
+      --muted: #222328;
+      --hover: #2b2d32;
+      --popover: #202125;
+      --text: #f4f4f5;
+      --secondary: #d1d5db;
+      --tertiary: #9ca3af;
+      --border: #303238;
+      --border-strong: #44464e;
+      --accent: #508667;
+      --accent-soft: rgba(80, 134, 103, .16);
+      --success: #4ade80;
+      --success-soft: rgba(34, 197, 94, .14);
+      --warning: #facc15;
+      --warning-soft: rgba(250, 204, 21, .12);
+      --danger: #f87171;
+      --danger-soft: rgba(248, 113, 113, .12);
+      --info: #60a5fa;
+      --info-soft: rgba(96, 165, 250, .13);
+      --shadow-modal: 0 24px 70px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .04);
+      --shadow-popover: 0 16px 36px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .04);
+      --focus: 0 0 0 3px rgba(250, 250, 250, .14);
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Microsoft YaHei UI", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; }
+    body { margin: 0; overflow: auto; background: var(--app); color: var(--text); font-family: var(--font); font-size: 13px; }
+    button, input { font: inherit; color: inherit; }
+    svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ── 外壳 ─────────────────────────────── */
+    .shell { max-width: 1080px; margin: 0 auto; padding: 22px 24px 60px; }
+    .proto-title { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+    .proto-sub { color: var(--tertiary); font-size: 12px; margin: 0 0 18px; }
+    .proto-note { background: var(--muted); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 12px; color: var(--secondary); line-height: 1.7; margin-bottom: 16px; }
+    .proto-note b { color: var(--text); }
+    .proto-note code { font-family: var(--mono); font-size: 11px; background: var(--popover); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+
+    /* ── 顶部页签（模拟三个资源页） ─────────── */
+    .page-tabs { display: inline-flex; gap: 2px; background: var(--muted); border: 1px solid var(--border); border-radius: 8px; padding: 3px; margin-bottom: 14px; }
+    .page-tab { border: 0; background: transparent; border-radius: 6px; padding: 6px 18px; font-size: 13px; color: var(--tertiary); cursor: pointer; }
+    .page-tab.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+
+    /* ── 卡片（模拟配置弹窗内容区） ─────────── */
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .card-head { padding: 14px 16px 10px; }
+    .card-head h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+
+    /* ── 页内一级 Tab（本地 / 商店） ────────── */
+    .inner-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); padding: 0 16px; }
+    .inner-tab { border: 0; background: transparent; padding: 9px 14px 9px; font-size: 13px; color: var(--tertiary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .inner-tab.on { color: var(--text); border-bottom-color: var(--accent); }
+    .inner-tab .bag { display: inline-block; vertical-align: -3px; margin-right: 6px; }
+    .inner-tab .bag svg { width: 14px; height: 14px; }
+
+    /* ── 工具条（统一部分） ────────────────── */
+    .toolbar { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+    .toolbar .count { font-family: var(--mono); font-size: 11px; color: var(--tertiary); margin-right: auto; }
+    .btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border-strong); background: var(--panel); border-radius: 7px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+    .btn:hover { background: var(--hover); }
+    .btn.primary { background: var(--accent); border-color: transparent; color: #fff; }
+    .btn .ic svg { width: 13px; height: 13px; }
+
+    /* 作用域选择器（统一组件：全局 + 全部项目） */
+    .scope { position: relative; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border-strong); background: var(--panel); border-radius: 7px; padding: 5px 10px; font-size: 12px; cursor: pointer; min-width: 132px; }
+    .scope .caret { margin-left: auto; color: var(--tertiary); }
+    .scope .caret svg { width: 12px; height: 12px; }
+    .scope-menu { position: absolute; top: calc(100% + 4px); left: 0; min-width: 210px; background: var(--popover); border: 1px solid var(--border); border-radius: 9px; box-shadow: var(--shadow-popover); padding: 4px; z-index: 20; }
+    .scope-menu[hidden] { display: none; }
+    .scope-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; color: var(--secondary); }
+    .scope-item:hover { background: var(--hover); }
+    .scope-item.on { color: var(--text); background: var(--accent-soft); }
+    .scope-item .ic svg { width: 13px; height: 13px; color: var(--tertiary); }
+    .scope-sep { height: 1px; background: var(--border); margin: 4px 6px; }
+
+    /* 筛选分段（统一组件：全部 / 已启用 / 未启用） */
+    .seg { display: inline-flex; background: var(--muted); border: 1px solid var(--border); border-radius: 7px; padding: 2px; }
+    .seg button { border: 0; background: transparent; border-radius: 5px; padding: 4px 12px; font-size: 12px; color: var(--tertiary); cursor: pointer; }
+    .seg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+
+    /* 搜索框（统一组件） */
+    .search { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border-strong); background: var(--panel); border-radius: 7px; padding: 5px 10px; min-width: 190px; }
+    .search svg { width: 13px; height: 13px; color: var(--tertiary); }
+    .search input { border: 0; outline: 0; background: transparent; font-size: 12px; width: 100%; }
+    .search input::placeholder { color: var(--tertiary); }
+
+    /* ── 表格（统一容器） ──────────────────── */
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; font-weight: 500; font-size: 11px; color: var(--tertiary); padding: 8px 16px; border-bottom: 1px solid var(--border); }
+    td { padding: 9px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; font-size: 12px; }
+    tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: var(--hover); }
+    .row-name { font-weight: 500; color: var(--text); display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+    .row-name .mono { font-family: var(--mono); font-size: 11px; color: var(--tertiary); display: block; margin-top: 2px; }
+    .row-desc { color: var(--tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 380px; }
+    .row-path { font-family: var(--mono); font-size: 11px; color: var(--tertiary); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    td.ops { text-align: right; white-space: nowrap; }
+    .op { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; background: transparent; border-radius: 6px; cursor: pointer; color: var(--tertiary); vertical-align: middle; }
+    .op:hover { background: var(--hover); color: var(--text); }
+    .op.danger:hover { background: var(--danger-soft); color: var(--danger); }
+    .op svg { width: 15px; height: 15px; }
+
+    /* 行级启停开关（统一组件）：启用 = 主题色高亮 */
+    .toggle { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; background: transparent; border-radius: 6px; cursor: pointer; vertical-align: middle; }
+    .toggle svg { width: 18px; height: 18px; }
+    .toggle.on { color: var(--accent); }
+    .toggle.off { color: var(--tertiary); }
+    .toggle:hover { background: var(--hover); }
+
+    /* 行级来源标签（统一组件）：内置 / 全局 / 项目 */
+    .src { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 1px 8px; font-size: 10.5px; line-height: 16px; }
+    .src svg { width: 11px; height: 11px; }
+    .src.builtin { background: var(--info-soft); color: var(--info); }
+    .src.global { background: var(--muted); color: var(--tertiary); border: 1px solid var(--border); }
+    .src.project { background: var(--success-soft); color: var(--success); }
+
+    /* 状态徽标（沿用 skill-state） */
+    .state { border-radius: 999px; padding: 1px 8px; font-size: 10.5px; line-height: 16px; }
+    .state.on { background: var(--accent-soft); color: var(--accent); }
+    .state.off { background: var(--muted); color: var(--tertiary); }
+
+    /* 分组头（项目视图：项目组在上、全局组在下） */
+    .group-head td { background: var(--muted); color: var(--secondary); font-size: 11px; font-weight: 600; padding: 5px 16px; letter-spacing: .02em; }
+
+    .empty { padding: 44px 0; text-align: center; color: var(--tertiary); font-size: 12px; }
+
+    /* 统一/差异说明 */
+    .legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 16px; }
+    .legend .box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+    .legend h4 { margin: 0 0 8px; font-size: 12px; font-weight: 600; }
+    .legend ul { margin: 0; padding-left: 16px; font-size: 12px; color: var(--secondary); line-height: 1.8; }
+    .legend .uni { border-color: var(--success); }
+    .legend .keep { border-color: var(--info); }
+    .legend .remove { border-color: var(--danger); }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <h1 class="proto-title">资源页统一改造原型 · 扩展 / 技能 / 提示词</h1>
+    <p class="proto-sub">目标：三个资源页共用一套「范围 + 筛选 + 搜索 + 行级标签 + 启停开关」交互；去掉分组框与「继承」概念；修复重复列出。</p>
+
+    <div class="proto-note">
+      <b>统一边界（本原型演示部分）：</b>① 作用域选择器 = 全局 + <b>全部已注册项目</b>（可直接切换）；② 筛选分段 = 全部 / 已启用 / 未启用；③ 搜索框（按名称/来源过滤）；④ 行级来源标签 = <span class="src builtin">内置</span> <span class="src global">全局</span> <span class="src project">项目</span>；⑤ 行级启停开关（启用 = 主题色高亮）；⑥ 全局视图<b>不分组</b>，只保留「内置」徽标；项目视图<b>分组</b>：项目组在上、全局组在下，组内行带来源标签。托管行（包/设置声明）与普通行按来源<b>去重</b>，同源只出现一次。
+    </div>
+
+    <!-- 模拟三个资源页 -->
+    <div class="page-tabs" id="pageTabs">
+      <button class="page-tab on" data-page="ext">扩展</button>
+      <button class="page-tab" data-page="skill">技能</button>
+      <button class="page-tab" data-page="prompt">提示词</button>
+    </div>
+
+    <!-- ═══════════ 扩展页 ═══════════ -->
+    <section class="card" id="page-ext">
+      <div class="inner-tabs">
+        <button class="inner-tab on">已安装</button>
+        <button class="inner-tab"><span class="bag"><svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg></span>扩展商店</button>
+      </div>
+      <div class="toolbar">
+        <button class="scope" id="scopeBtn">
+          <span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
+          <span id="scopeLabel">全局</span>
+          <span class="caret"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></span>
+          <div class="scope-menu" id="scopeMenu" hidden>
+            <div class="scope-item on" data-scope="global"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>全局</div>
+            <div class="scope-sep"></div>
+            <div class="scope-item" data-scope="p1"><span class="ic"><svg viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></span>PiDeck</div>
+            <div class="scope-item" data-scope="p2"><span class="ic"><svg viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></span>PiDeck-cloud-sync</div>
+            <div class="scope-item" data-scope="p3"><span class="ic"><svg viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></span>巡检</div>
+            <div class="scope-item" data-scope="p4"><span class="ic"><svg viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></span>测试</div>
+          </div>
+        </button>
+        <div class="seg" id="extSeg">
+          <button data-f="all" class="on">全部</button>
+          <button data-f="on">已启用</button>
+          <button data-f="off">未启用</button>
+        </div>
+        <div class="search">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="extQuery" placeholder="搜索扩展…" />
+        </div>
+        <button class="btn primary"><span class="ic"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 5v6h6"/></svg></span>刷新</button>
+        <button class="btn"><span class="ic"><svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>打开目录</button>
+      </div>
+      <table>
+        <thead><tr><th style="width:38%">扩展</th><th style="width:26%">版本</th><th style="width:22%">路径</th><th style="text-align:right">操作</th></tr></thead>
+        <tbody id="extRows"></tbody>
+      </table>
+      <div class="empty" id="extEmpty" hidden>没有符合条件的扩展</div>
+    </section>
+
+    <!-- ═══════════ 技能页 ═══════════ -->
+    <section class="card" id="page-skill" hidden>
+      <div class="inner-tabs">
+        <button class="inner-tab on">技能</button>
+        <button class="inner-tab"><span class="bag"><svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg></span>商店</button>
+      </div>
+      <div class="toolbar">
+        <button class="scope" id="scopeBtn2">
+          <span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
+          <span id="scopeLabel2">全局</span>
+          <span class="caret"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></span>
+        </button>
+        <div class="seg" id="skillSeg">
+          <button data-f="all" class="on">全部</button>
+          <button data-f="on">已启用</button>
+          <button data-f="off">未启用</button>
+        </div>
+        <div class="search">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="skillQuery" placeholder="搜索技能…" />
+        </div>
+        <button class="btn primary"><span class="ic"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 5v6h6"/></svg></span>刷新</button>
+        <button class="btn"><span class="ic"><svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>打开目录</button>
+      </div>
+      <table>
+        <thead><tr><th style="width:34%">名称</th><th style="width:40%">描述</th><th style="width:16%">路径</th><th style="text-align:right">操作</th></tr></thead>
+        <tbody id="skillRows"></tbody>
+      </table>
+      <div class="empty" id="skillEmpty" hidden>没有符合条件的技能</div>
+    </section>
+
+    <!-- ═══════════ 提示词页 ═══════════ -->
+    <section class="card" id="page-prompt" hidden>
+      <div class="inner-tabs">
+        <button class="inner-tab on">提示词</button>
+        <button class="inner-tab"><span class="bag"><svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg></span>商店</button>
+      </div>
+      <div class="toolbar">
+        <button class="scope" id="scopeBtn3">
+          <span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
+          <span id="scopeLabel3">全局</span>
+          <span class="caret"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></span>
+        </button>
+        <div class="seg" id="promptSeg">
+          <button data-f="all" class="on">全部</button>
+          <button data-f="on">已启用</button>
+          <button data-f="off">未启用</button>
+        </div>
+        <div class="search">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="promptQuery" placeholder="搜索提示词…" />
+        </div>
+        <button class="btn primary"><span class="ic"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 5v6h6"/></svg></span>刷新</button>
+        <button class="btn"><span class="ic"><svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>打开目录</button>
+      </div>
+      <table>
+        <thead><tr><th style="width:34%">名称</th><th style="width:50%">描述</th><th style="text-align:right">操作</th></tr></thead>
+        <tbody id="promptRows"></tbody>
+      </table>
+      <div class="empty" id="promptEmpty" hidden>没有符合条件的提示词</div>
+    </section>
+
+    <!-- 统一 / 保留差异 说明 -->
+    <div class="legend">
+      <div class="box uni">
+        <h4>✅ 统一为公共组件（三个页面共用）</h4>
+        <ul>
+          <li>作用域选择器：全局 + 全部已注册项目（可直接切换，不再只有当前项目）</li>
+          <li>筛选分段：全部 / 已启用 / 未启用 + 搜索框</li>
+          <li>行级来源标签：<span class="src builtin">内置</span> / <span class="src global">全局</span> / <span class="src project">项目</span></li>
+          <li>行级启停开关：ToggleLeft / ToggleRight，启用 = 主题色高亮</li>
+          <li>表格容器：表头 / 空态 / 加载态 / 计数</li>
+        </ul>
+      </div>
+      <div class="box keep">
+        <h4>🔵 保留各自差异（不强求统一）</h4>
+        <ul>
+          <li>列结构：扩展 = 扩展/版本/路径/操作；技能 = 名称/描述/路径/操作；提示词 = 名称/描述/操作</li>
+          <li>行操作集：扩展 = 开关+更新+复制指令+卸载+打开位置；技能/提示词 = 开关+编辑+重命名+删除</li>
+          <li>创建表单：扩展无；技能/提示词有（名称/描述，技能另有位置选择）</li>
+          <li>商店子页：pi.dev 目录 / 技能商店 / 提示词商店 内容完全不同</li>
+          <li>扩展专属：白名单总开关、全部更新、内置扩展恢复</li>
+        </ul>
+      </div>
+      <div class="box remove">
+        <h4>🔴 移除 / 修复</h4>
+        <ul>
+          <li>全局视图不再套分组框，只有「内置」徽标（全部都是全局来源，无需分组）</li>
+          <li><b>项目视图保留分组：项目组在上、全局组在下</b>；组内行仍带来源标签（内置/全局/项目）</li>
+          <li>移除「继承」概念与相关文案（改行级来源标签）</li>
+          <li>修复重复列出：托管行（包/设置声明）与普通行按来源去重，同源只出现一次</li>
+          <li>全局范围 = 只显示全局内容（含内置）；项目范围 = 项目 + 全局 混合</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ── 模拟数据 ──────────────────────────────
+    // kind: builtin | global | project；scope 归属：global 范围只显示 builtin+global，project 范围全显示
+    const extData = [
+      { name: "pi-mcp-adapter", src: "npm:pi-mcp-adapter", kind: "global", scope: "global", ver: "当前 2.32.1 · 最新 2.32.1", path: "C:\\Users\\…\\.pi\\agent\\npm\\node_modules\\pi-mcp-adapter", on: true },
+      { name: "pi-subagents", src: "npm:pi-subagents", kind: "global", scope: "global", ver: "当前 0.65.0 · 最新 0.65.1", path: "C:\\Users\\…\\.pi\\agent\\npm\\node_modules\\pi-subagents", on: true },
+      { name: "pi-deck-todo", src: "pi-deck-todo.ts", kind: "builtin", scope: "global", ver: "-", path: "resources\\extensions\\pi-deck-todo.ts", on: true },
+      { name: "pi-deck-vision", src: "pi-deck-vision.ts", kind: "builtin", scope: "global", ver: "-", path: "resources\\extensions\\pi-deck-vision.ts", on: true },
+      { name: "local-helper", src: "local-helper.ts", kind: "project", scope: "p1", ver: "-", path: "F:\\PiDeck\\.pi\\extensions\\local-helper.ts", on: false },
+      { name: "team-bridge", src: "npm:team-bridge", kind: "project", scope: "p2", ver: "当前 1.0.3 · 最新 1.0.3", path: "F:\\PiDeck-cloud-sync\\.pi\\npm\\node_modules\\team-bridge", on: true },
+      { name: "context-mode", src: "npm:context-mode", kind: "global", scope: "global", ver: "当前 1.2.0 · 最新 1.2.0", path: "C:\\Users\\…\\.pi\\agent\\npm\\node_modules\\context-mode", on: false },
+    ];
+    const skillData = [
+      { name: "image-gen", desc: "生成图片。读取生图供应商配置，调用 OpenAI 兼容的图片生成 API…", kind: "global", scope: "global", path: "~/.pi/agent/skills/image-gen", on: true },
+      { name: "pideck-doctor", desc: "排查 PiDeck 桌面应用的问题。引导用户生成环境诊断报告…", kind: "global", scope: "global", path: "~/.pi/agent/skills/pideck-doctor", on: true },
+      { name: "usage-probe", desc: "为 PiDeck 的「用量查询」功能排查/扩展供应商支持…", kind: "global", scope: "global", path: "~/.pi/agent/skills/usage-probe", on: true },
+      { name: "demo-skill", desc: "A project-local skill", kind: "project", scope: "p1", path: "F:\\PiDeck\\.pi\\skills\\demo-skill", on: true },
+      { name: "paseo", desc: "Paseo reference for managing workspaces…", kind: "global", scope: "global", path: "~/.agents/skills/paseo", on: false },
+      { name: "ci-helper", desc: "项目 CI 流程技能", kind: "project", scope: "p3", path: "F:\\巡检\\.pi\\skills\\ci-helper", on: false },
+    ];
+    const promptData = [
+      { name: "review", desc: "Review staged git changes for bugs, security issues…", kind: "builtin", scope: "global", on: true },
+      { name: "commit", desc: "Generate a conventional commit message from staged changes", kind: "builtin", scope: "global", on: true },
+      { name: "commit-own", desc: "Commit only the files you modified yourself…", kind: "builtin", scope: "global", on: true },
+      { name: "project-prompt", desc: "A project-local prompt template", kind: "project", scope: "p1", on: true },
+      { name: "test", desc: "Write tests for a function or component covering edge cases", kind: "builtin", scope: "global", on: false },
+      { name: "code-review", desc: "项目内代码评审模板", kind: "project", scope: "p4", on: false },
+    ];
+    const projectNames = { p1: "PiDeck", p2: "PiDeck-cloud-sync", p3: "巡检", p4: "测试" };
+
+    // ── 图标 ──────────────────────────────────
+    const ICONS = {
+      edit: '<svg viewBox="0 0 24 24"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>',
+      rename: '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+      del: '<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+      folder: '<svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
+      copy: '<svg viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>',
+      update: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 5v6h6"/></svg>',
+      trash: '<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+      restore: '<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>',
+      toggleOn: '<svg viewBox="0 0 24 24"><rect width="20" height="12" x="2" y="6" rx="6"/><circle cx="16" cy="12" r="4"/></svg>',
+      toggleOff: '<svg viewBox="0 0 24 24"><rect width="20" height="12" x="2" y="6" rx="6"/><circle cx="8" cy="12" r="4"/></svg>',
+    };
+
+    // ── 渲染 ──────────────────────────────────
+    let currentScope = "global"; // global | p1..p4
+    const state = {
+      ext: { seg: "all", q: "" },
+      skill: { seg: "all", q: "" },
+      prompt: { seg: "all", q: "" },
+    };
+
+    function srcBadge(kind) {
+      const cls = kind === "builtin" ? "builtin" : kind === "project" ? "project" : "global";
+      const label = kind === "builtin" ? "内置" : kind === "project" ? "项目" : "全局";
+      const ic = kind === "builtin"
+        ? '<svg viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"/><path d="M9 9h6v6H9z"/></svg>'
+        : kind === "project"
+          ? '<svg viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>'
+          : '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+      return `<span class="src ${cls}">${ic}${label}</span>`;
+    }
+
+    function toggleBtn(on) {
+      return `<button class="toggle ${on ? "on" : "off"}" data-role="toggle">${on ? ICONS.toggleOn : ICONS.toggleOff}</button>`;
+    }
+
+    function visibleInScope(item) {
+      if (currentScope === "global") return item.scope === "global"; // 全局范围只显示全局（含内置）
+      return true; // 项目范围 = 项目 + 全局 混合
+    }
+
+    function renderTable(tbodyId, emptyId, rows, seg, q, columns, colspan) {
+      const tbody = document.getElementById(tbodyId);
+      const empty = document.getElementById(emptyId);
+      const filtered = rows.filter((r) => {
+        if (!visibleInScope(r)) return false;
+        if (seg === "on" && !r.on) return false;
+        if (seg === "off" && r.on) return false;
+        if (q && !(`${r.name} ${r.src ?? r.desc ?? ""}`.toLowerCase().includes(q.toLowerCase()))) return false;
+        return true;
+      });
+      // 项目视图：项目组在上、全局组在下；全局视图不分组
+      let html = "";
+      if (currentScope !== "global") {
+        const project = filtered.filter((r) => r.scope !== "global");
+        const global = filtered.filter((r) => r.scope === "global");
+        if (project.length > 0) html += `<tr class="group-head"><td colspan="${colspan}">项目</td></tr>` + project.map(columns).join("");
+        if (global.length > 0) html += `<tr class="group-head"><td colspan="${colspan}">全局</td></tr>` + global.map(columns).join("");
+      } else {
+        html = filtered.map(columns).join("");
+      }
+      tbody.innerHTML = html;
+      empty.hidden = filtered.length > 0;
+    }
+
+    const extCols = (r) => `<tr>
+      <td><span class="row-name">${r.name}${srcBadge(r.kind)}<span class="mono">${r.src}</span></span></td>
+      <td class="row-desc" title="${r.ver}">${r.ver}</td>
+      <td class="row-path" title="${r.path}">${r.path}</td>
+      <td class="ops">
+        ${r.kind === "project" ? `<button class="op" title="打开位置">${ICONS.folder}</button>` : ""}
+        ${toggleBtn(r.on)}
+        ${r.kind === "builtin"
+          ? `<button class="op danger" title="移除">${ICONS.trash}</button>`
+          : `<button class="op" title="复制更新指令">${ICONS.copy}</button><button class="op danger" title="卸载">${ICONS.trash}</button>`}
+      </td></tr>`;
+    const skillCols = (r) => `<tr>
+      <td><span class="row-name">${r.name}${srcBadge(r.kind)}<span class="mono">${r.path}</span></span></td>
+      <td class="row-desc" title="${r.desc}">${r.desc}</td>
+      <td class="row-path" title="${r.path}">${r.path}</td>
+      <td class="ops">${toggleBtn(r.on)}<button class="op" title="编辑">${ICONS.edit}</button><button class="op" title="重命名">${ICONS.rename}</button><button class="op danger" title="删除">${ICONS.del}</button></td></tr>`;
+    const promptCols = (r) => `<tr>
+      <td><span class="row-name">/${r.name}${srcBadge(r.kind)}</span></td>
+      <td class="row-desc" title="${r.desc}">${r.desc}</td>
+      <td class="ops">${toggleBtn(r.on)}<button class="op" title="编辑">${ICONS.edit}</button><button class="op" title="重命名">${ICONS.rename}</button><button class="op danger" title="删除">${ICONS.del}</button></td></tr>`;
+
+    function rerender() {
+      renderTable("extRows", "extEmpty", extData, state.ext.seg, state.ext.q, extCols, 4);
+      renderTable("skillRows", "skillEmpty", skillData, state.skill.seg, state.skill.q, skillCols, 4);
+      renderTable("promptRows", "promptEmpty", promptData, state.prompt.seg, state.prompt.q, promptCols, 3);
+      // 作用域标签
+      const label = currentScope === "global" ? "全局" : projectNames[currentScope];
+      for (const id of ["scopeLabel", "scopeLabel2", "scopeLabel3"]) document.getElementById(id).textContent = label;
+      document.querySelectorAll(".scope-item").forEach((el) => el.classList.toggle("on", el.dataset.scope === currentScope));
+    }
+
+    // ── 交互 ──────────────────────────────────
+    document.getElementById("pageTabs").addEventListener("click", (e) => {
+      const btn = e.target.closest(".page-tab");
+      if (!btn) return;
+      document.querySelectorAll(".page-tab").forEach((b) => b.classList.toggle("on", b === btn));
+      for (const id of ["page-ext", "page-skill", "page-prompt"]) document.getElementById(id).hidden = id !== `page-${btn.dataset.page}`;
+    });
+
+    function bindScope(btnId, menuId) {
+      const btn = document.getElementById(btnId);
+      const menu = document.getElementById(menuId);
+      if (!menu) return; // 2/3 页共用同一份菜单逻辑（原型简化：仅扩展页有完整菜单）
+      btn.addEventListener("click", (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; });
+      document.addEventListener("click", () => { menu.hidden = true; });
+      menu.addEventListener("click", (e) => {
+        const item = e.target.closest(".scope-item");
+        if (!item) return;
+        currentScope = item.dataset.scope;
+        menu.hidden = true;
+        rerender();
+      });
+    }
+    bindScope("scopeBtn", "scopeMenu");
+
+    function bindSeg(segId, key) {
+      document.getElementById(segId).addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-f]");
+        if (!btn) return;
+        state[key].seg = btn.dataset.f;
+        segId && document.querySelectorAll(`#${segId} button`).forEach((b) => b.classList.toggle("on", b === btn));
+        rerender();
+      });
+    }
+    bindSeg("extSeg", "ext");
+    bindSeg("skillSeg", "skill");
+    bindSeg("promptSeg", "prompt");
+
+    function bindQuery(inputId, key) {
+      document.getElementById(inputId).addEventListener("input", (e) => {
+        state[key].q = e.target.value;
+        rerender();
+      });
+    }
+    bindQuery("extQuery", "ext");
+    bindQuery("skillQuery", "skill");
+    bindQuery("promptQuery", "prompt");
+
+    // 行内开关点击演示
+    document.addEventListener("click", (e) => {
+      const t = e.target.closest("[data-role=toggle]");
+      if (!t) return;
+      const tr = t.closest("tr");
+      const name = tr.querySelector(".row-name")?.textContent.trim();
+      const pool = [...extData, ...skillData, ...promptData].find((r) => name && (r.name === name || `/${r.name}` === name));
+      if (pool) { pool.on = !pool.on; rerender(); }
+    });
+
+    rerender();
+  </script>
+</body>
+</html>

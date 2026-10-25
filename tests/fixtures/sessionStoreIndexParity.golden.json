@@ -1,0 +1,218 @@
+{
+  "path": "tests/fixtures/sessionStoreIndexParity.jsonl",
+  "size": 3112,
+  "mtimeMs": 0,
+  "endsWithNewline": true,
+  "lastEntryId": "m20",
+  "entries": [
+    {
+      "id": "s1",
+      "parentId": null,
+      "type": "session",
+      "offset": 0,
+      "byteLength": 116,
+      "hasMessage": false,
+      "timestamp": "2026-03-01T10:00:00.000Z",
+      "parentSession": "parent-abc"
+    },
+    {
+      "id": "m1",
+      "parentId": "s1",
+      "type": "message",
+      "offset": 117,
+      "byteLength": 191,
+      "hasMessage": true,
+      "role": "user",
+      "messageTimestamp": 1772359201000,
+      "timestamp": "2026-03-01T10:00:01.000Z",
+      "preview": "первый вопрос про 索引 🔍"
+    },
+    {
+      "id": "m2",
+      "parentId": "m1",
+      "type": "message",
+      "offset": 309,
+      "byteLength": 326,
+      "hasMessage": true,
+      "assistantModel": {
+        "provider": "anthropic",
+        "modelId": "claude-sonnet-4.5"
+      },
+      "role": "assistant",
+      "toolName": "read_file",
+      "messageId": "call-1",
+      "messageTimestamp": 1772350002000,
+      "timestamp": "2026-03-01T10:00:02.500Z"
+    },
+    {
+      "id": "m3",
+      "parentId": "m2",
+      "type": "message",
+      "offset": 636,
+      "byteLength": 136,
+      "hasMessage": false,
+      "role": "user",
+      "preview": "строка без блока"
+    },
+    {
+      "id": "m4",
+      "parentId": "m3",
+      "type": "model_change",
+      "offset": 773,
+      "byteLength": 89,
+      "hasMessage": false,
+      "modelChangeProvider": "openai",
+      "modelChangeId": "gpt-5.2"
+    },
+    {
+      "id": "m5",
+      "parentId": "m4",
+      "type": "thinking_level_change",
+      "offset": 863,
+      "byteLength": 81,
+      "hasMessage": false,
+      "thinkingLevel": "high"
+    },
+    {
+      "id": "m6",
+      "parentId": "m5",
+      "type": "custom_message",
+      "offset": 945,
+      "byteLength": 176,
+      "hasMessage": true,
+      "customType": "plan-note",
+      "customDisplay": true,
+      "role": "assistant"
+    },
+    {
+      "id": "m7",
+      "parentId": "m6",
+      "type": "message",
+      "offset": 1122,
+      "byteLength": 124,
+      "hasMessage": true,
+      "role": "user",
+      "preview": "без timestamp"
+    },
+    {
+      "id": "m8",
+      "parentId": "m7",
+      "type": "compaction",
+      "offset": 1247,
+      "byteLength": 177,
+      "hasMessage": false,
+      "summary": "压缩摘要：保留最近三轮",
+      "firstKeptEntryId": "m3",
+      "timestamp": "2026-03-01T10:05:00.000Z",
+      "tokensBefore": 12345
+    },
+    {
+      "id": "m9",
+      "parentId": "m8",
+      "type": "context_edit",
+      "offset": 1425,
+      "byteLength": 84,
+      "hasMessage": false,
+      "contextEditTargetId": "m2",
+      "contextEditExcludes": true
+    },
+    {
+      "id": "m10",
+      "parentId": "m9",
+      "type": "context_edit",
+      "offset": 1510,
+      "byteLength": 161,
+      "hasMessage": false,
+      "contextEditTargetId": "m3",
+      "contextEditText": "замена "
+    },
+    {
+      "id": "m11",
+      "parentId": "m10",
+      "type": "todo_snapshot",
+      "offset": 1672,
+      "byteLength": 63,
+      "hasMessage": false
+    },
+    {
+      "id": "m12",
+      "parentId": "m11",
+      "type": "",
+      "offset": 1752,
+      "byteLength": 29,
+      "hasMessage": false
+    },
+    {
+      "id": "m13",
+      "parentId": "m12",
+      "type": "message",
+      "offset": 1782,
+      "byteLength": 150,
+      "hasMessage": true,
+      "role": "assistant",
+      "toolName": ""
+    },
+    {
+      "id": "m15",
+      "parentId": "m13",
+      "type": "custom",
+      "offset": 2060,
+      "byteLength": 88,
+      "hasMessage": false,
+      "customType": "pi-deck-todo"
+    },
+    {
+      "id": "m16",
+      "parentId": "m15",
+      "type": "message",
+      "offset": 2149,
+      "byteLength": 168,
+      "hasMessage": true,
+      "role": "assistant",
+      "messageTimestamp": 1772359800000,
+      "timestamp": "2026-03-01T10:10:00.000Z"
+    },
+    {
+      "id": "m17",
+      "parentId": "m16",
+      "type": "message",
+      "offset": 2318,
+      "byteLength": 189,
+      "hasMessage": true,
+      "assistantModel": {
+        "provider": "openai",
+        "modelId": "gpt-5.2-codex"
+      },
+      "role": "assistant"
+    },
+    {
+      "id": "m18",
+      "parentId": "m17",
+      "type": "message",
+      "offset": 2508,
+      "byteLength": 171,
+      "hasMessage": true,
+      "role": "assistant"
+    },
+    {
+      "id": "m19",
+      "parentId": "m18",
+      "type": "message",
+      "offset": 2680,
+      "byteLength": 252,
+      "hasMessage": true,
+      "role": "user",
+      "preview": "真正的问题在这里"
+    },
+    {
+      "id": "m20",
+      "parentId": "m19",
+      "type": "message",
+      "offset": 2933,
+      "byteLength": 178,
+      "hasMessage": true,
+      "role": "user"
+    }
+  ],
+  "oversizedLines": 0
+}

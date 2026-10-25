@@ -4,6 +4,61 @@ import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "node:path";
 import type { Plugin } from "vite";
 import { readDevGitBranch, resolveDevVitePort } from "./src/main/devIsolation";
+import { readFile } from "node:fs/promises";
+import { transformWithEsbuild } from "vite";
+import { hostPluginPreloadPlugin } from "./scripts/hostPluginPreload";
+
+/**
+ * AudioWorklet 语音分段器内联插件。
+ *
+ * `src/renderer/src/utils/voicePcmSegmenter.ts` 是有单测覆盖的 TS 模块，但 AudioWorklet
+ * 作用域没有模块解析器，不能 import；同时 Vite 也没有 AudioWorklet 入口类型。
+ * 因此用 `?raw` 把源码当字符串内联，但这个插件必须把 TS 编译成 JS —— 否则 worklet
+ * 拿到的是带 type/interface 的 TS 源码，`addModule` 会 SyntaxError（只有真人点麦克风才暴露）。
+ *
+ * 只处理这一个明确路径：其它 `?raw` 导入（纯文本资源）不需要也不应该被转译。
+ */
+function audioWorkletSegmenterPlugin(): Plugin {
+	// 必须用路径后缀匹配：Vite 传进来的 id 是绝对路径，`startsWith` 相对路径在真实构建里恒为 false，
+	// 会被 Vite 内置的 ?raw 处理器抢先返回 TS 源码（addModule 直接 SyntaxError）。
+	const SEGMENTER_SUFFIX = "voicePcmSegmenter.ts?raw";
+
+	return {
+		name: "pideck-audio-worklet-segmenter",
+		// 必须早于 Vite 内置 asset/raw 插件，否则拿不到这个 id。
+		enforce: "pre",
+		async transform(_code, id) {
+			if (!id.replace(/\\/g, "/").endsWith(SEGMENTER_SUFFIX)) return;
+			const source = await readFile(id.replace(/\?.*$/, ""), "utf8");
+			const transpiled = await transformWithEsbuild(source, `${SEGMENTER_SUFFIX}.js`, { loader: "ts", target: "es2022", format: "esm" });
+			return { code: `export default ${JSON.stringify(transpiled.code)};`, map: null };
+		},
+	};
+}
+
+/**
+ * 把裸导入 `shiki` 指到精细 bundle。
+ * worker 不继承 renderer.resolve.alias，必须 renderer plugins + worker.plugins 都挂。
+ * find 必须是 `/^shiki$/`：字符串前缀会把 `shiki/core` / `shiki/wasm` 一并改写。
+ */
+function shikiBundleAliasPlugin(): Plugin {
+	return {
+		name: "shiki-bundle-alias",
+		enforce: "pre",
+		config() {
+			return {
+				resolve: {
+					alias: [
+						{
+							find: /^shiki$/,
+							replacement: resolve("src/renderer/src/shiki/bundle.ts"),
+						},
+					],
+				},
+			};
+		},
+	};
+}
 
 /**
  * KaTeX 字体精简 Vite 插件
@@ -52,13 +107,16 @@ export default defineConfig({
         // electron-vite 多入口：lib.entry 对象形式输出到 out/main。
         // hostEntry 是 utilityProcess 的 DSH host 入口，独立 chunk 供 DshHostProcess fork；
         // runnerConsolePreload 经 host 补丁 NODE_OPTIONS=--require 注入沙箱 runner。
-        // 持久 pwsh 已抽成独立包 dsh-tool-pwsh-persistent，不再打进 out/main。
         entry: {
           index: resolve(__dirname, "src/main/index.ts"),
           hostEntry: resolve(__dirname, "src/main/dsh/hostEntry.ts"),
           runnerConsolePreload: resolve(__dirname, "src/main/dsh/runnerConsolePreload.ts"),
           pideckPluginBridge: resolve(__dirname, "src/main/dsh/pideckPluginBridge.ts"),
           pideckCommandsBridge: resolve(__dirname, "src/main/dsh/pideckCommandsBridge.ts"),
+          // hostEntry 的 Loader 行按 join(__dirname, "pideckSessionBridge.js") 引用本文件；
+          // 只作为静态 import 时 rollup 会打成带 hash 的共享 chunk，Loader 行找不到文件
+          // （out/main 被清空重建后必然复现），必须保持独立入口产出稳定文件名。
+          pideckSessionBridge: resolve(__dirname, "src/main/dsh/pideckSessionBridge.ts"),
         },
         formats: ["cjs"],
       },
@@ -69,7 +127,7 @@ export default defineConfig({
         // `@deepseek-ai/dsh-app-boot`。打进 out/main 后 import.meta.url
         // 变成产物路径，createRequire(...)("../package.json") 会报
         // Cannot find module '../package.json'（发送 DSH 消息即触发）。
-        external: [/^@deepseek-ai\//, "dsh-tool-pwsh-persistent", "dsh-bill"],
+        external: [/^@deepseek-ai\//, "dsh-bill"],
       },
     },
     define: {
@@ -78,7 +136,7 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin(), hostPluginPreloadPlugin()],
   },
   renderer: {
     // Windows 上 localhost 可能优先解析到 IPv6 ::1，Electron 加载 dev server 时会超时；固定 IPv4 保证本机访问稳定。
@@ -114,17 +172,21 @@ export default defineConfig({
       ],
     },
     resolve: {
-      alias: {
-        "@": resolve("src/renderer/src"),
-        "@renderer": resolve("src/renderer/src"),
-        "@shared": resolve("src/shared"),
-      },
+      alias: [
+        { find: "@", replacement: resolve("src/renderer/src") },
+        { find: "@renderer", replacement: resolve("src/renderer/src") },
+        { find: "@shared", replacement: resolve("src/shared") },
+        // 必须精确匹配裸 `shiki`：字符串前缀会把 `shiki/core` / `shiki/wasm` 一并改写，
+        // @pierre/diffs 的 worker 与引擎入口会解析到不存在的 bundle.ts/core。
+        { find: /^shiki$/, replacement: resolve("src/renderer/src/shiki/bundle.ts") },
+      ],
     },
-    plugins: [react(), tailwindcss(), katexWoff2OnlyPlugin()],
+    plugins: [audioWorkletSegmenterPlugin(), react(), tailwindcss(), katexWoff2OnlyPlugin(), shikiBundleAliasPlugin()],
     worker: {
       // @pierre/diffs 的 worker 线程脚本是 ESM（含 import），
       // 必须用 ES 格式打包（iife 不支持 code-splitting），产物以 module worker 加载
       format: "es",
+      plugins: () => [shikiBundleAliasPlugin()],
     },
     build: {
       // 不计算 gzip 压缩后大小（节约构建时间）
@@ -139,6 +201,9 @@ export default defineConfig({
           index: resolve("src/renderer/index.html"),
           pet: resolve("src/renderer/pet.html"),
           web: resolve("src/renderer/web.html"),
+          floater: resolve("src/renderer/floater.html"),
+          // 系统级划词浮窗：独立小窗口（全局快捷键触发），不加载主工作台
+          "selection-tool": resolve("src/renderer/selection-tool.html"),
         },
         output: {
           // 将大体积的第三方依赖拆分为独立 chunk，减少首屏需要加载和解析的 JS 体积。

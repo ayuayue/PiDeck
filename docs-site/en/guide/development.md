@@ -1,3 +1,8 @@
+---
+title: Development & Packaging | Build PiDeck pi desktop from source
+description: "Build and package PiDeck from source: environment setup, npm scripts, Electron build pipeline, extension hot-update mechanism, and the release process for the pi desktop open-source project."
+---
+
 # Development & Packaging
 
 This guide covers building PiDeck from source and creating distribution packages.

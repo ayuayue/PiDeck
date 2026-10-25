@@ -13,8 +13,7 @@ import { t } from "../../../i18n";
 import { showNotice } from "../../../utils/notice";
 
 /** 与扩展 DEFAULT_PROMPT 保持一致（恢复默认按钮用）。 */
-export const DEFAULT_PROMPT =
-	"请详细描述这张图片的内容。如果图片中有文字（代码、报错、UI 文案、文档等），请完整准确地转录所有可见文字；如果是图表，请说明类型、坐标轴含义和关键数值；如果涉及界面，请描述布局与元素。输出使用中文。";
+export const DEFAULT_PROMPT = "请详细描述这张图片的内容。如果图片中有文字（代码、报错、UI 文案、文档等），请完整准确地转录所有可见文字；如果是图表，请说明类型、坐标轴含义和关键数值；如果涉及界面，请描述布局与元素。输出使用中文。";
 
 /** 超时默认值（ms），与主进程/扩展 DEFAULT_CONFIG 保持一致；UI 以秒为单位展示。 */
 export const DEFAULT_TIMEOUT_MS = 120_000;

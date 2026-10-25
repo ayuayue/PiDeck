@@ -78,12 +78,7 @@ async function sampleScroll(window: Page, windowMs: number, intervalMs = 40) {
 }
 
 /** 模拟用户滚轮向下滚动 N 格，观察滚动后是否被拉回（跳上去）。 */
-async function wheelDownAndCheckJumpBack(
-	window: Page,
-	steps = 10,
-	deltaPerStep = 140,
-	settleMs = 700,
-): Promise<{ maxTop: number; finalTop: number; jumpedBack: boolean; lastDist: number }> {
+async function wheelDownAndCheckJumpBack(window: Page, steps = 10, deltaPerStep = 140, settleMs = 700): Promise<{ maxTop: number; finalTop: number; jumpedBack: boolean; lastDist: number }> {
 	return window.evaluate(
 		({ stepsArg, deltaArg, settleMsArg }) =>
 			new Promise((resolve) => {
@@ -109,9 +104,8 @@ async function wheelDownAndCheckJumpBack(
 						}, settleMsArg);
 						return;
 					}
-					timeline.dispatchEvent(
-						new WheelEvent("wheel", { deltaY: deltaArg, bubbles: true, cancelable: true }),
-					);
+					const content = timeline.querySelector(".turn-row") ?? timeline.querySelector("p") ?? timeline;
+					content.dispatchEvent(new WheelEvent("wheel", { deltaY: deltaArg, bubbles: true, cancelable: true }));
 					timeline.scrollTop += deltaArg;
 					tops.push(timeline.scrollTop);
 					step += 1;
@@ -158,21 +152,11 @@ test("steer insertion during stream keeps viewport pinned at bottom", async ({ a
 	expect(samples.length).toBeGreaterThan(20);
 	const offBottom = samples.filter((s) => s.distToBottom > 40).length;
 	const offBottomRatio = offBottom / samples.length;
-	console.log(
-		"[steer-scroll] samples:", samples.length,
-		"offBottom>40px:", offBottom, "ratio:", offBottomRatio.toFixed(2),
-		"lastDist:", samples[samples.length - 1]?.distToBottom,
-		"scrollTop trace:", samples.map((s) => `${s.t}:${s.scrollTop}/${s.distToBottom}`).join(" "),
-	);
+	console.log("[steer-scroll] samples:", samples.length, "offBottom>40px:", offBottom, "ratio:", offBottomRatio.toFixed(2), "lastDist:", samples[samples.length - 1]?.distToBottom, "scrollTop trace:", samples.map((s) => `${s.t}:${s.scrollTop}/${s.distToBottom}`).join(" "));
 	expect(offBottomRatio, "viewport should stay pinned to bottom during steer delivery").toBeLessThan(0.5);
 
 	// ── Phase D：模拟用户持续下滑，验证不会被「跳上去」──
 	const jump = await wheelDownAndCheckJumpBack(window, 10, 140, 700);
-	console.log(
-		"[steer-scroll] wheelDown maxTop:", jump.maxTop,
-		"finalTop:", jump.finalTop,
-		"jumpedBack:", jump.jumpedBack,
-		"lastDist:", jump.lastDist,
-	);
+	console.log("[steer-scroll] wheelDown maxTop:", jump.maxTop, "finalTop:", jump.finalTop, "jumpedBack:", jump.jumpedBack, "lastDist:", jump.lastDist);
 	expect(jump.jumpedBack, "scrolling down should not be yanked back up").toBe(false);
 });

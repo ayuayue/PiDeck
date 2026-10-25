@@ -64,12 +64,10 @@ function fixUnixTerminalHelperPath() {
 	//   helperPath = helperPath.replace('node_modules.asar', 'node_modules.asar.unpacked');
 	// 当路径已包含 app.asar.unpacked 时，第一条会将 app.asar.unpacked 误替换为
 	// app.asar.unpacked.unpacked，导致 spawn-helper 路径指向不存在的目录。
-	const oldReplaceBlock =
-		`helperPath = helperPath.replace('app.asar', 'app.asar.unpacked');
+	const oldReplaceBlock = `helperPath = helperPath.replace('app.asar', 'app.asar.unpacked');
 helperPath = helperPath.replace('node_modules.asar', 'node_modules.asar.unpacked');`;
 
-	const newReplaceBlock =
-		`if (helperPath.includes('app.asar') && !helperPath.includes('app.asar.unpacked')) {
+	const newReplaceBlock = `if (helperPath.includes('app.asar') && !helperPath.includes('app.asar.unpacked')) {
   helperPath = helperPath.replace('app.asar', 'app.asar.unpacked');
 }
 if (helperPath.includes('node_modules.asar') && !helperPath.includes('node_modules.asar.unpacked')) {

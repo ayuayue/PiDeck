@@ -1,9 +1,13 @@
 ---
 layout: home
+# Homepage title/description: targets core search terms like "pi desktop" and
+# "pi coding agent desktop client" (VitePress home layout extracts no description from body).
+title: PiDeck - The pi Desktop Workbench | Desktop Client for pi Coding Agents
+description: PiDeck is the open-source pi desktop workbench — manage multiple pi AI coding agent sessions, Git, terminal, and model configs in one desktop window, with Codex/Claude session import. Available for Windows, macOS, and Linux.
 
 hero:
   name: PiDeck
-  text: Desktop Workbench for pi AI Coding Agents
+  text: Desktop Workbench for <span class="keep-together">pi AI Coding Agents</span>
   tagline: Manage local pi coding assistant sessions, configs, Git, and terminal in a unified desktop workspace for Windows, macOS, and Linux.
   actions:
     - theme: brand
@@ -13,27 +17,40 @@ hero:
       text: Get Started
       link: /en/guide/getting-started
     - theme: alt
-      text: View on GitHub
-      link: https://github.com/ayuayue/PiDeck
+      text: Source Code
+      items:
+        - text: GitHub (Global)
+          link: https://github.com/ayuayue/PiDeck
+        - text: AtomGit (China mirror)
+          link: https://atomgit.com/ayuayue/PiDeck
 
 features:
-  - title: Multi-Project Workspace
-    details: Add, search, drag-sort, and switch local project folders. Run multiple pi agents simultaneously with per-project isolation.
-  - title: Session History & Restore
-    details: Restore previous conversations, browse tool calls and answers by timeline, and review file changes in past sessions. Import Codex and Claude sessions.
-  - title: Git Integration
+  - icon: 🗂️
+    title: Multi-Project Workspace
+    details: Add, search, drag-sort, and switch local project folders. Every agent session stays project-isolated while multiple pi agents run side by side.
+  - icon: 🕘
+    title: Session History & Restore
+    details: Restore previous conversations, browse tool calls and answers by timeline, and replay file changes in past sessions. Import Codex and Claude sessions.
+  - icon: 🌿
+    title: Git Integration
     details: Real-time branch display, VS Code-style 3-panel view (Changes/History/Compare), AI commit summaries, branch graph, cherry-pick/revert/reset/drop, and worktree support.
-  - title: Session Reference (&)
-    details: Type & in composer to search and reference past sessions across the same project. Inject full context or select specific messages.
-  - title: Message Queue
-    details: Queue prompts while agent is busy. Retract queued messages back to input for editing. Follow-up and steer modes.
-  - title: Multi-Tab File Editor
-    details: Up to 5 concurrent file tabs with Monaco Editor. Modal/drawer dual display mode. Diff comparison with side-by-side view.
-  - title: Built-in Browser
-    details: Multi-tab right-drawer browser with fullscreen mode, device presets (PC/Mobile/Tablet), and URL navigation.
-  - title: Built-in Terminal Dock
-    details: Agent-scoped terminal tabs with PowerShell/cmd/sh fallback, multiple tabs, theme switching, height resizing, and right-click copy.
-  - title: Cross-Platform
+  - icon: 💬
+    title: Chat & References
+    details: Type & to reference past sessions and inject cross-session context. Queue prompts while the agent is busy. Jump fast with the session outline panel.
+  - icon: 📝
+    title: File Editor
+    details: Multi-tab file editor with modal/drawer dual modes, diff comparison, Markdown preview, powered by Monaco Editor.
+  - icon: 🧰
+    title: Built-in Tools
+    details: Built-in browser (tabs/fullscreen/device presets), scratch pad, external editor integration, floating quick-action bar, and a built-in terminal.
+  - icon: 🖥️
+    title: Terminal Dock
+    details: Agent-scoped terminal tabs with PowerShell/cmd/sh fallback, multiple tabs, theme switching, drag-to-resize, and right-click copy.
+  - icon: ⚙️
+    title: Config & Plugins
+    details: Visually edit Models, Auth, and Settings. Manage global and project-level Skills and Extensions, with slash commands and template insertion.
+  - icon: 🌐
+    title: Cross-Platform
     details: Windows, macOS, and Linux installers via GitHub Releases. Source install supported via npm.
 ---
 
@@ -42,19 +59,21 @@ features:
   <figcaption>Workspace, sessions, file drawer, Git branches, and tool calls — all in one desktop window.</figcaption>
 </figure>
 
-- **Multi-Project Workspace** — Add, search, drag-sort, and switch local project folders. Run multiple pi agents simultaneously with per-project isolation.
-- **Session History & Restore** — Restore previous conversations, browse tool calls and answers by timeline, and review file changes in past sessions. Import local Codex and Claude sessions.
-- **Git Integration** — Real-time branch display and switching, VS Code-style 3-panel view (Changes/History/Compare), AI commit message generation, branch graph visualization, cherry-pick/revert/reset/drop, file tree with Git status, worktree support.
-- **Session Reference (&)** — Type & in composer to search and reference past sessions across the same project. Inject full context or select specific messages.
-- **Message Queue** — Queue prompts while agent is busy. Retract queued messages back to input for editing. Follow-up and steer modes.
-- **Multi-Tab File Editor** — Up to 5 concurrent file tabs with Monaco Editor. Modal/drawer dual display mode. Diff comparison with side-by-side view.
-- **Built-in Browser** — Multi-tab right-drawer browser with fullscreen mode, device presets (PC/Mobile/Tablet), and URL navigation.
-- **Floating Action Bar** — Quick access to Terminal, Files, Git, Browser, Scratch Pad, and External Editor from the conversation outline area.
-- **Built-in Terminal Dock** — Agent-scoped terminal tabs with PowerShell/cmd/sh fallback, multiple tabs, theme switching, height resizing, and right-click copy.
-- **Visual Config Management** — Graphical editors for Models, Auth, and Settings. Global and project-level Skills and Extension management.
-- **Context-Aware Input** — `@` file suggestions, `!` shell execution, `/` slash commands, and command history in a single composer.
-- **Built-in Browser Preview** — Right-drawer browser with tabs, URL bar, fullscreen mode, and PC/mobile/tablet viewport presets.
-- **Cross-Platform** — Windows, macOS, and Linux installers via GitHub Releases. Source install supported via npm.
+<p class="version-badge"><a href="/en/changelog">v0.7.8</a> released · <a href="/en/guide/getting-started">Download & install</a> · <a href="/en/changelog">Changelog</a></p>
+
+## Community
+
+Join the PiDeck community for discussion and feedback:
+
+| Channel | Entry |
+|---|---|
+| **QQ group** | `1026218644` <CopyText text="1026218644" /> |
+| **WeChat group** | Scan the QR code below (group links expire after 7 days — add the author's WeChat instead if it no longer works) |
+| **Author's WeChat** | `caoayu97` (mention "PiDeck" when adding) <CopyText text="caoayu97" /> |
+
+<p class="community-block">
+  <img class="community-qr" src="/images/wechat-qrcode.png" alt="PiDeck WeChat group QR code" />
+</p>
 
 ---
 

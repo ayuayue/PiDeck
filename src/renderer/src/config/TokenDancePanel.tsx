@@ -3,19 +3,25 @@
  *
  * 与 PiDeck 的关系边界（用户确认的方案）：
  * - 不做任何内置/展示层注入：模型不存在于配置时，会话模型列表也不会出现；
- * - 卡片提供「确认写入」：用户点击 → 同意弹窗（写入清单 + 平台优势）→ 主进程把
- *   供应商信息 + 目录模型写入 pi models.json（与 DSH 模型目录），之后一切走既有链路；
- * - API Key 由用户自行获取：OAuth 授权（PKCE headless）或粘贴已有 Key，二选一。
+ * - 卡片提供「一键配置」：用户点击 → 同意弹窗 → 授权 → 自动拿到 API Key → 写入
+ *   pi models.json（与 DSH 模型目录），之后一切走既有链路；
+ * - API Key 获取与配置写入合并成**一个操作**（见 TokenDanceSetupDialog）：主进程起本地
+ *   回环端口接收授权回调，用户只需在浏览器点一次「授权」，不需要复制粘贴任何东西；
+ *   自动接收不可用时才降级到「粘贴授权码 / 直接粘贴 Key」手动路径。
  * - 侵入性最低：只在配置页显示；不启动弹通知，用户不打开配置页则完全无感知。
  */
-import { useCallback, useEffect, useState } from "react";
-import { ChevronDown, ChevronUp, ExternalLink, KeyRound, Loader2, PlugZap, ShieldCheck, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronUp, ExternalLink, KeyRound, Loader2, PlugZap, ShieldCheck, Sparkles, Wallet } from "lucide-react";
 import { t } from "../i18n";
 import { desktopApi } from "../desktopApi";
 import { showNotice } from "../utils/notice";
+import { useProviderUsageRefresh } from "../hooks/useProviderUsage";
+import { TokenDanceTopUpDialog } from "./TokenDanceTopUpDialog";
 import { Button } from "../components/ui-shadcn/button";
+import { Badge } from "../components/ui-shadcn/badge";
 import { Input } from "../components/ui-shadcn/input";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../components/ui-shadcn/dialog";
+import { Collapsible, CollapsibleContent } from "../components/ui-shadcn/collapsible";
 import { TOKENDANCE_APP_URL, TOKENDANCE_BASE_URL, TOKENDANCE_PROVIDER } from "../../../shared/tokendance";
 import type { ModelItem } from "./configTypes";
 
@@ -42,165 +48,260 @@ type CatalogState = {
 	error: string | null;
 };
 
-/** Key 弹窗内部状态机：oauth idle → started(有 flowId) → busy → error。 */
-type AuthDialogState =
-	| { phase: "idle"; error: string | null }
-	| { phase: "started"; flowId: string; authUrl: string; error: string | null }
-	| { phase: "busy"; flowId: string; authUrl: string; error: string | null };
+/**
+ * 单一操作弹窗的状态机：
+ * - idle    未开始，只展示写入清单 + 主按钮
+ * - waiting 已打开授权页，等本地回环回调自动送达 code（主路径，用户无需操作）
+ * - busy    正在交换 Key / 写入配置
+ * - manual  自动接收不可用（降级或超时），展开手动粘贴区
+ */
+type SetupPhase = "idle" | "waiting" | "busy" | "manual";
+
+/** 进行中的授权流程凭证（flowId 用于 await/exchange/cancel；authUrl 仅用于展示）。 */
+type SetupFlow = { flowId: string; authUrl: string };
 
 /**
- * 获取 API Key 弹窗：两种获取路径并存——
- * ① OAuth 授权（打开授权页 → 粘贴一次性 code → 主进程交换 Key）；
- * ② 已有 Key 直接粘贴（用户自行在 TokenDance 后台创建）。
- * 两条路径最终都调 onKeyObtained(key)，由父级写入配置。
+ * 一键配置弹窗：把「授权拿 Key」和「写入配置」合成一次点击。
+ *
+ * 主路径（callback 模式）：start → 开浏览器 → 用户在授权页点确认 → 平台把一次性 code
+ * 重定向回本机回环端口 → 主进程用 PKCE verifier 交换出 API Key → 立即写入配置。
+ * 用户视角只有一个动作：点「授权并一键配置」，然后回到 PiDeck 看结果。
+ *
+ * 降级路径：端口绑定失败或等待超时 → 展开手动区，允许粘贴授权码（headless 交换）
+ * 或直接粘贴已在后台创建好的 API Key。
  */
-function TokenDanceKeyDialog(props: {
+function TokenDanceSetupDialog(props: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	onKeyObtained: (apiKey: string) => void;
+	/** 已配置时只更新 Key（文案不同，写入仍是幂等 upsert）。 */
+	configured: boolean;
+	/** 目录模型数，用于「将写入 N 个模型」文案。 */
+	modelCount: number;
+	onDone: (outcome: TokendanceInstallOutcome) => void;
 }) {
-	const [state, setState] = useState<AuthDialogState>({ phase: "idle", error: null });
+	const [phase, setPhase] = useState<SetupPhase>("idle");
+	const [flow, setFlow] = useState<SetupFlow | null>(null);
+	const [error, setError] = useState<string | null>(null);
 	const [code, setCode] = useState("");
 	const [pastedKey, setPastedKey] = useState("");
+	/** 关闭/卸载时要 cancel 的 flow：用 ref 保证拿到最新值，不闭包过期状态。 */
+	const flowRef = useRef<SetupFlow | null>(null);
+	// 依赖数组只写单个回调，不写整个 props 对象（AGENTS.md 禁止 props 袋透传）。
+	const { onOpenChange, onDone } = props;
 
-	// 弹窗关闭即重置状态机（下次打开重新 start，避免使用过期 verifier）。
+	/** 放弃未完成的授权流程：释放主进程回环端口（成功交换后 flowRef 已清空，不会误关）。 */
+	const cancelPendingFlow = useCallback(() => {
+		const current = flowRef.current;
+		flowRef.current = null;
+		if (current) void desktopApi.config.tokendanceAuthCancel(current.flowId).catch(() => undefined);
+	}, []);
+
+	/** 关闭弹窗并重置：下次打开必须重新 start（一次性 code 与 verifier 都不可复用）。 */
 	const close = useCallback(() => {
+		cancelPendingFlow();
 		props.onOpenChange(false);
-		setState({ phase: "idle", error: null });
+		setPhase("idle");
+		setFlow(null);
+		setError(null);
 		setCode("");
 		setPastedKey("");
-	}, [props]);
+	}, [cancelPendingFlow, onOpenChange]);
 
-	const handleStart = async () => {
-		setState({ phase: "idle", error: null });
-		const result = await desktopApi.config.tokendanceAuthStart();
-		if (!result.ok) {
-			setState({ phase: "idle", error: result.error });
-			return;
-		}
-		// 打开系统浏览器授权页；headless 模式确认后页面展示一次性 code（10 分钟有效）。
-		await desktopApi.app.openExternal(result.authUrl, true);
-		setState({ phase: "started", flowId: result.flowId, authUrl: result.authUrl, error: null });
-		showNotice(t("config.tokendance.oauthOpened"), 3000);
-	};
+	// 组件随配置弹窗卸载时也要退订本地端口，否则端口挂到主进程 30 分钟过期清理为止。
+	useEffect(() => cancelPendingFlow, [cancelPendingFlow]);
 
-	const handleExchange = async () => {
-		if (state.phase !== "started") return;
-		const trimmed = code.trim();
-		if (!trimmed) return;
-		setState({ phase: "busy", flowId: state.flowId, authUrl: state.authUrl, error: null });
-		const result = await desktopApi.config.tokendanceAuthExchange(state.flowId, trimmed);
-		if (result.ok) {
-			// Key 只在本次响应出现一次：立即写入并提示，之后不保留在内存。
-			props.onKeyObtained(result.key);
+	/** 写入配置（Key 已在手）：成功回执父级并关闭；失败留在弹窗内可重试。 */
+	const installWithKey = useCallback(
+		async (apiKey: string) => {
+			setPhase("busy");
+			setError(null);
+			const result = await desktopApi.config.installTokendance(apiKey);
+			if (!result.ok) {
+				setPhase("manual");
+				setError(result.error ?? t("config.tokendance.installFailed"));
+				return false;
+			}
+			showNotice(t("config.tokendance.installSuccess", { count: result.modelCount }), 4000);
+			onDone({ modelCount: result.modelCount, dshSaved: result.dshSaved });
 			close();
+			return true;
+		},
+		[close, onDone],
+	);
+
+	/**
+	 * 主路径：一次点击跑完「授权 → 自动收 code → 交换 Key → 写入配置」。
+	 * 每一步失败都留在弹窗里并给出可执行的下一步，不吞错误。
+	 */
+	const handleOneClick = useCallback(async () => {
+		setError(null);
+		setPhase("busy");
+		const start = await desktopApi.config.tokendanceAuthStart("callback");
+		if (!start.ok) {
+			setPhase("idle");
+			setError(start.error);
 			return;
 		}
-		setState({ phase: "started", flowId: state.flowId, authUrl: state.authUrl, error: result.error });
-	};
+		const nextFlow = { flowId: start.flowId, authUrl: start.authUrl };
+		flowRef.current = nextFlow;
+		setFlow(nextFlow);
+		// 打开系统浏览器授权页；callback 模式下确认后平台会把 code 重定向回本机端口。
+		await desktopApi.app.openExternal(start.authUrl, true).catch(() => undefined);
 
-	const handlePaste = () => {
+		// 主进程绑定回环端口失败 → 已降级 headless（授权页展示一次性 code），直接展开手动区。
+		if (start.mode === "headless") {
+			setPhase("manual");
+			setError(start.fallbackReason ? `${t("config.tokendance.headlessFallback")}（${start.fallbackReason}）` : t("config.tokendance.headlessFallback"));
+			return;
+		}
+
+		setPhase("waiting");
+		const exchanged = await desktopApi.config.tokendanceAuthAwait(start.flowId);
+		if (!exchanged.ok) {
+			// 超时/交换失败：flow 可能已被主进程清理，保留 authUrl 供重开授权页。
+			setPhase("manual");
+			setError(exchanged.error);
+			return;
+		}
+		flowRef.current = null;
+		await installWithKey(exchanged.key);
+	}, [installWithKey]);
+
+	/** 手动路径 A：粘贴授权页上展示的一次性授权码，由主进程交换成 Key。 */
+	const handleExchangeCode = useCallback(async () => {
+		const trimmed = code.trim();
+		if (!trimmed || !flow) return;
+		setPhase("busy");
+		setError(null);
+		const result = await desktopApi.config.tokendanceAuthExchange(flow.flowId, trimmed);
+		if (!result.ok) {
+			setPhase("manual");
+			setError(result.error);
+			return;
+		}
+		flowRef.current = null;
+		await installWithKey(result.key);
+	}, [code, flow, installWithKey]);
+
+	/** 手动路径 B：用户已在 TokenDance 后台自建 Key，直接写入。 */
+	const handlePasteKey = useCallback(async () => {
 		const trimmed = pastedKey.trim();
 		if (!trimmed) return;
-		props.onKeyObtained(trimmed);
-		setPastedKey("");
-	};
+		await installWithKey(trimmed);
+	}, [installWithKey, pastedKey]);
+
+	const busy = phase === "busy";
+	const waiting = phase === "waiting";
 
 	return (
 		<Dialog open={props.open} onOpenChange={(open) => (open ? undefined : close())}>
 			<DialogContent className="max-w-md">
 				<DialogHeader>
-					<DialogTitle>{t("config.tokendance.keyTitle")}</DialogTitle>
+					<DialogTitle>{t(props.configured ? "config.tokendance.keyTitle" : "config.tokendance.installTitle")}</DialogTitle>
 				</DialogHeader>
 				<div className="flex min-w-0 flex-col gap-3 text-sm leading-relaxed text-text-secondary">
-					<p className="text-muted-foreground">{t("config.tokendance.keyDesc")}</p>
+					<p className="text-muted-foreground">{t(props.configured ? "config.tokendance.keyDesc" : "config.tokendance.installDesc", { count: props.modelCount })}</p>
 
-					{/* 路径 ②：已有 Key 直接粘贴（无需打开授权页） */}
-					{/* min-w-0 必须在每一层（grid item → flex 行 → flex-1 列）：否则长内容
-					   的 min-content 会把 DialogContent 的 grid 单列轨道撑宽，输入框画出弹窗。 */}
-					<div className="flex min-w-0 items-start gap-2">
-						<span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--color-accent-soft)] font-mono text-[11px] font-semibold text-[var(--color-accent)]">1</span>
-						<div className="min-w-0 flex-1">
-							<p>{t("config.tokendance.keyOptionPaste")}</p>
-							<Input
-								value={pastedKey}
-								onChange={(e) => setPastedKey(e.target.value)}
-								placeholder={t("config.tokendance.keyPastePlaceholder")}
-								className="mt-2 h-8 font-mono"
-								type="password"
-							/>
-							<Button
-								variant="secondary"
-								size="sm"
-								className="mt-2 h-7"
-								disabled={!pastedKey.trim()}
-								onClick={handlePaste}
-							>
-								<KeyRound className="size-3.5" aria-hidden="true" />
-								{t("config.tokendance.keyApply")}
-							</Button>
-						</div>
-					</div>
+					{/* 写入清单只在首次配置时展示；已配置只更新 Key，不再重复列优势 */}
+					{!props.configured && (
+						<>
+							<ul className="grid gap-1.5 text-xs">
+								<li className="flex items-start gap-1.5">
+									<span className="mt-0.5 shrink-0 text-[var(--color-accent)]">●</span>
+									{t("config.tokendance.advantageOne")}
+								</li>
+								<li className="flex items-start gap-1.5">
+									<span className="mt-0.5 shrink-0 text-[var(--color-accent)]">●</span>
+									{t("config.tokendance.advantageTwo")}
+								</li>
+								{/* 新用户体验额度：注册即送，先试后充，降低首次使用门槛 */}
+								<li className="flex items-start gap-1.5">
+									<span className="mt-0.5 shrink-0 text-[var(--color-accent)]">●</span>
+									{t("config.tokendance.advantageCredit")}
+								</li>
+							</ul>
+							<p className="rounded-sm border border-border-subtle bg-bg-subtle/60 px-2.5 py-2 text-micro text-muted-foreground">{t("config.tokendance.installWrites")}</p>
+						</>
+					)}
 
-					{/* 路径 ①：OAuth 授权（应用归因随 app_url 写入新 Key） */}
-					<div className="flex min-w-0 items-start gap-2">
-						<span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--color-accent-soft)] font-mono text-[11px] font-semibold text-[var(--color-accent)]">2</span>
-						<div className="min-w-0 flex-1">
-							<p>{t("config.tokendance.keyOptionOauth")}</p>
-							<p className="mt-1 text-[11px] text-text-tertiary">{t("config.tokendance.oauthAppUrl", { appUrl: TOKENDANCE_APP_URL })}</p>
-							{state.phase === "started" && (
-								<>
-									<p className="mt-2 text-[11px] text-text-tertiary">{t("config.tokendance.oauthStepCode")}</p>
-									<Input
-										value={code}
-										onChange={(e) => setCode(e.target.value)}
-										placeholder={t("config.tokendance.oauthCodePlaceholder")}
-										className="mt-1.5 h-8"
-									/>
-								</>
-							)}
-							{state.phase === "started" && (
-								<p className="mt-1.5 w-full min-w-0 truncate font-mono text-[11px] text-text-tertiary" title={state.authUrl}>
-									{authUrlLabel(state.authUrl)}
+					{/* 归因说明：Key 会带上 app_url，用户可核对不是 PiDeck 偷偷收集信息 */}
+					<p className="text-micro text-text-tertiary">{t("config.tokendance.oauthAppUrl", { appUrl: TOKENDANCE_APP_URL })}</p>
+
+					{/* 进度反馈：waiting 是主路径的关键提示，告诉用户「回浏览器点确认就行」 */}
+					{(waiting || busy) && (
+						<p className="flex items-center gap-2 rounded-sm border border-border-subtle bg-bg-subtle/60 px-2.5 py-2 text-xs text-text-secondary">
+							<Loader2 className="size-3.5 shrink-0 animate-pideck-spin text-[var(--color-accent)]" aria-hidden="true" />
+							<span className="min-w-0">{t(busy ? "config.tokendance.writingConfig" : "config.tokendance.waitingBrowser")}</span>
+						</p>
+					)}
+
+					{error && <p className="rounded-sm border border-danger/20 bg-danger-soft px-2.5 py-1.5 text-xs text-danger">{error}</p>}
+
+					{/* 手动降级区：只在自动接收不可用（或用户主动选择）时展开，避免主路径被干扰 */}
+					{phase === "manual" && (
+						<div className="flex min-w-0 flex-col gap-2.5 rounded-sm border border-border-subtle bg-bg-subtle/40 p-2.5">
+							<p className="text-micro text-text-tertiary">{t("config.tokendance.manualHint")}</p>
+
+							{flow && (
+								<p className="w-full min-w-0 truncate font-mono text-micro text-text-tertiary" title={flow.authUrl}>
+									{authUrlLabel(flow.authUrl)}
 								</p>
 							)}
-							{state.error && (
-								<p className="mt-1.5 rounded-sm border border-danger/20 bg-danger-soft px-2.5 py-1.5 text-xs text-danger">{state.error}</p>
-							)}
-							<div className="mt-2 flex flex-wrap gap-1.5">
-								{state.phase === "idle" ? (
-									<Button variant="default" size="sm" className="h-7" onClick={handleStart}>
-										<ExternalLink className="size-3.5" aria-hidden="true" />
-										{t("config.tokendance.oauthOpenPage")}
-									</Button>
-								) : (
-									<>
-										<Button variant="outline" size="sm" className="h-7" onClick={handleStart}>
-											{t("config.tokendance.oauthReopen")}
-										</Button>
-										<Button
-											variant="default"
-											size="sm"
-											className="h-7"
-											onClick={handleExchange}
-											disabled={state.phase === "busy" || !code.trim()}
-										>
-											{state.phase === "busy" ? (
-												<Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-											) : (
-												<KeyRound className="size-3.5" aria-hidden="true" />
-											)}
+
+							{/* 路径 A：粘贴一次性授权码（headless 交换） */}
+							<div className="flex min-w-0 items-start gap-2">
+								<span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--color-accent-soft)] font-mono text-micro font-semibold text-[var(--color-accent)]">1</span>
+								{/* min-w-0 必须在每一层（grid item → flex 行 → flex-1 列）：否则长内容
+								    的 min-content 会把 DialogContent 的 grid 单列轨道撑宽，输入框画出弹窗。 */}
+								<div className="min-w-0 flex-1">
+									<p className="text-xs">{t("config.tokendance.oauthStepCode")}</p>
+									<div className="mt-1.5 flex items-center gap-1.5">
+										<Input value={code} onChange={(e) => setCode(e.target.value)} placeholder={t("config.tokendance.oauthCodePlaceholder")} className="h-8 min-w-0 flex-1" />
+										<Button variant="secondary" size="sm" className="h-8 shrink-0" disabled={!code.trim() || !flow} onClick={() => void handleExchangeCode()}>
+											<KeyRound className="size-3.5" aria-hidden="true" />
 											{t("config.tokendance.oauthExchange")}
 										</Button>
-									</>
-								)}
+									</div>
+									{flow && (
+										<Button variant="ghost" size="sm" className="mt-1.5 h-7 px-0 text-micro" onClick={() => void desktopApi.app.openExternal(flow.authUrl, true).catch(() => undefined)}>
+											<ExternalLink className="size-3.5" aria-hidden="true" />
+											{t("config.tokendance.oauthReopen")}
+										</Button>
+									)}
+								</div>
+							</div>
+
+							{/* 路径 B：直接粘贴已自建 API Key（完全跳过授权页） */}
+							<div className="flex min-w-0 items-start gap-2">
+								<span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--color-accent-soft)] font-mono text-micro font-semibold text-[var(--color-accent)]">2</span>
+								<div className="min-w-0 flex-1">
+									<p className="text-xs">{t("config.tokendance.keyOptionPaste")}</p>
+									<div className="mt-1.5 flex items-center gap-1.5">
+										<Input value={pastedKey} onChange={(e) => setPastedKey(e.target.value)} placeholder={t("config.tokendance.keyPastePlaceholder")} className="h-8 min-w-0 flex-1 font-mono" type="password" />
+										<Button variant="secondary" size="sm" className="h-8 shrink-0" disabled={!pastedKey.trim()} onClick={() => void handlePasteKey()}>
+											<KeyRound className="size-3.5" aria-hidden="true" />
+											{t("config.tokendance.keyApply")}
+										</Button>
+									</div>
+								</div>
 							</div>
 						</div>
-					</div>
+					)}
 				</div>
-				<DialogFooter>
-					<Button variant="ghost" size="sm" onClick={close}>
-						{t("config.tokendance.keyLater")}
+				<DialogFooter className="gap-2">
+					{phase === "manual" ? (
+						<Button variant="ghost" size="sm" onClick={close}>
+							{t("config.tokendance.keyLater")}
+						</Button>
+					) : (
+						<Button variant="ghost" size="sm" onClick={close} disabled={waiting || busy}>
+							{t("common.cancel")}
+						</Button>
+					)}
+					{/* 主按钮：一次点击完成授权 + 写入；waiting 时允许重开授权页重试 */}
+					<Button variant="default" size="sm" onClick={() => void handleOneClick()} disabled={busy || waiting}>
+						{busy || waiting ? <Loader2 className="size-3.5 animate-pideck-spin" aria-hidden="true" /> : <PlugZap className="size-3.5" aria-hidden="true" />}
+						{t(props.configured ? "config.tokendance.setupPrimaryUpdate" : "config.tokendance.setupPrimary")}
 					</Button>
 				</DialogFooter>
 			</DialogContent>
@@ -226,9 +327,12 @@ export function TokenDancePanel(props: TokenDancePanelProps) {
 		loading: true,
 		error: null,
 	});
-	const [confirmOpen, setConfirmOpen] = useState(false);
-	const [keyOpen, setKeyOpen] = useState(false);
+	const [setupOpen, setSetupOpen] = useState(false);
+	const [topUpOpen, setTopUpOpen] = useState(false);
 	const [installing, setInstalling] = useState(false);
+	// 到账后刷新余额缓存：会话上下文面板与用量弹窗订阅同一 atom，一处刷新多处联动。
+	const refreshUsage = useProviderUsageRefresh();
+	const handlePaid = useCallback(() => refreshUsage(TOKENDANCE_PROVIDER), [refreshUsage]);
 
 	// 目录只读展示（模型数/时效）；失败不阻塞「配置」——写入时主进程会再取目录并报错。
 	const loadCatalog = useCallback(async (): Promise<ModelItem[]> => {
@@ -262,23 +366,15 @@ export function TokenDancePanel(props: TokenDancePanelProps) {
 		void loadCatalog();
 	}, [loadCatalog]);
 
-	/** 关键写入入口：调主进程一键安装；成功回执 onInstalled，无 Key 时顺势引导获取。 */
-	const handleInstall = async (apiKey?: string) => {
+	/** 打开一键配置弹窗；目录为空/上次拉取失败时先补拉，让「将写入 N 个模型」显示真实数字。 */
+	const openSetup = async () => {
 		setInstalling(true);
 		try {
-			const result = await desktopApi.config.installTokendance(apiKey);
-			if (!result.ok) {
-				showNotice(result.error ?? t("config.tokendance.installFailed"), 4000);
-				return;
-			}
-			showNotice(t("config.tokendance.installSuccess", { count: result.modelCount }), 4000);
-			setConfirmOpen(false);
-			props.onInstalled({ modelCount: result.modelCount, dshSaved: result.dshSaved });
-			// 没带 Key 安装成功 → 顺势引导获取 Key（用户已有 Key 时不再打扰）
-			if (!apiKey) setKeyOpen(true);
+			if (catalog.models.length === 0 && !catalog.loading) await loadCatalog();
 		} finally {
 			setInstalling(false);
 		}
+		setSetupOpen(true);
 	};
 
 	/** 打开 TokenDance 官网模型列表页（优势详情让用户自行确认，避免过度承诺）。 */
@@ -291,104 +387,90 @@ export function TokenDancePanel(props: TokenDancePanelProps) {
 	const [expanded, setExpanded] = useState(false);
 
 	return (
-		<section className="config-builtin-provider-panel mb-2.5 rounded-lg border border-dashed border-border-subtle bg-bg-subtle/40 p-3.5">
+		<section className="config-builtin-provider-panel mb-2.5 rounded-lg border border-border-subtle bg-bg-subtle/40 p-3.5">
 			{/* 整行标题可点击展开/收起：折叠态下右侧图标小，用户可能注意不到，整行即开关 */}
-			<button
-				type="button"
-				className="flex w-full items-center gap-2 text-left"
-				onClick={() => setExpanded((v) => !v)}
-				aria-expanded={expanded}
-				aria-label={t("config.tokendance.expandDetails")}
-				title={t("config.tokendance.expandDetails")}
-			>
+			<button type="button" className="flex w-full items-center gap-2 text-left" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded} aria-label={t("config.tokendance.expandDetails")} title={t("config.tokendance.expandDetails")}>
 				<span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-[var(--color-accent-soft)]">
 					<Sparkles className="size-3.5 text-[var(--color-accent)]" aria-hidden="true" />
 				</span>
 				<span className="font-mono text-sm font-semibold text-text-primary">{TOKENDANCE_PROVIDER}</span>
 				{props.configured && (
-					<span className="flex items-center gap-1 rounded-full border border-emerald-300/70 bg-emerald-500/10 px-1.5 py-px text-micro text-emerald-700 dark:border-emerald-700/70 dark:text-emerald-300">
+					<Badge variant="success" size="sm">
 						<ShieldCheck className="size-3" aria-hidden="true" />
 						{t("config.tokendance.configuredBadge")}
-					</span>
+					</Badge>
 				)}
 				<span className="min-w-0 flex-1 truncate text-micro text-text-tertiary">{t("config.tokendance.subtitle")}</span>
-				<span className="shrink-0 text-text-tertiary">
-					{expanded ? <ChevronUp className="size-4" aria-hidden="true" /> : <ChevronDown className="size-4" aria-hidden="true" />}
-				</span>
+				<span className="shrink-0 text-text-tertiary">{expanded ? <ChevronUp className="size-4" aria-hidden="true" /> : <ChevronDown className="size-4" aria-hidden="true" />}</span>
 			</button>
 
-			{expanded && (<>
-			{/* 平台优势（聚合 + 特价 + 新用户体验额度）；详情给官网链接，由用户自行核对 */}
-			<ul className="mt-2 grid gap-1 text-xs text-text-secondary">
-				<li className="flex items-start gap-1.5">
-					<span className="mt-0.5 shrink-0 text-[var(--color-accent)]">●</span>
-					{t("config.tokendance.advantageOne")}
-				</li>
-				<li className="flex items-start gap-1.5">
-					<span className="mt-0.5 shrink-0 text-[var(--color-accent)]">●</span>
-					{t("config.tokendance.advantageTwo")}
-				</li>
-				{/* 新用户体验额度：注册即送，先试后充，降低首次使用门槛 */}
-				<li className="flex items-start gap-1.5">
-					<span className="mt-0.5 shrink-0 text-[var(--color-accent)]">●</span>
-					{t("config.tokendance.advantageCredit")}
-				</li>
-			</ul>
+			{/* 折叠详情走共享折叠原语（真高度渐变 + exit 后卸载 + reduced-motion 回退）；
+			    display:contents 让根不生成盒子，折叠态零空档；三段详情（优势/基址/提示）合一收进单个折叠体。 */}
+			<Collapsible open={expanded} className="contents">
+				{/* 不再挂 animate-in/fade-in：twMerge 会把 animate-* 判同组，保留会盖掉高度动画。 */}
+				<CollapsibleContent>
+					{/* 平台优势（聚合 + 特价 + 新用户体验额度）；详情给官网链接，由用户自行核对 */}
+					<ul className="mt-2 grid gap-1 text-xs text-text-secondary">
+						<li className="flex items-start gap-1.5">
+							<span className="mt-0.5 shrink-0 text-[var(--color-accent)]">●</span>
+							{t("config.tokendance.advantageOne")}
+						</li>
+						<li className="flex items-start gap-1.5">
+							<span className="mt-0.5 shrink-0 text-[var(--color-accent)]">●</span>
+							{t("config.tokendance.advantageTwo")}
+						</li>
+						{/* 新用户体验额度：注册即送，先试后充，降低首次使用门槛 */}
+						<li className="flex items-start gap-1.5">
+							<span className="mt-0.5 shrink-0 text-[var(--color-accent)]">●</span>
+							{t("config.tokendance.advantageCredit")}
+						</li>
+					</ul>
 
-			<div className="mt-2 grid gap-1.5 text-xs text-text-secondary">
-				<div className="flex items-center gap-1.5">
-					<span className="min-w-[72px] shrink-0 text-text-tertiary">{t("config.field.baseUrl")}</span>
-					<code className="truncate font-mono text-[11px] text-text-primary">{TOKENDANCE_BASE_URL}</code>
-				</div>
-				<div className="flex items-center gap-1.5">
-					<span className="min-w-[72px] shrink-0 text-text-tertiary">{t("config.tokendance.modelsCount")}</span>
-					{catalog.loading ? (
-						<Loader2 className="size-3 animate-spin text-text-tertiary" aria-hidden="true" />
-					) : catalog.error ? (
-						<span className="text-danger">{t("config.tokendance.catalogError")}</span>
-					) : (
-						<span>
-							{catalog.models.length}
-							{catalog.fromCache ? ` · ${t("config.tokendance.fromCache")}` : ""}
-						</span>
-					)}
-				</div>
-				<div className="flex items-center gap-1.5">
-					<span className="min-w-[72px] shrink-0 text-text-tertiary">{t("config.tokendance.appUrlLabel")}</span>
-					<code className="truncate font-mono text-[11px] text-text-primary">{TOKENDANCE_APP_URL}</code>
-				</div>
-			</div>
+					<div className="mt-2 grid gap-1.5 text-xs text-text-secondary">
+						<div className="flex items-center gap-1.5">
+							<span className="min-w-[72px] shrink-0 text-text-tertiary">{t("config.field.baseUrl")}</span>
+							<code className="truncate font-mono text-micro text-text-primary">{TOKENDANCE_BASE_URL}</code>
+						</div>
+						<div className="flex items-center gap-1.5">
+							<span className="min-w-[72px] shrink-0 text-text-tertiary">{t("config.tokendance.modelsCount")}</span>
+							{catalog.loading ? (
+								<Loader2 className="size-3 animate-pideck-spin text-text-tertiary" aria-hidden="true" />
+							) : catalog.error ? (
+								<span className="text-danger">{t("config.tokendance.catalogError")}</span>
+							) : (
+								<span>
+									{catalog.models.length}
+									{catalog.fromCache ? ` · ${t("config.tokendance.fromCache")}` : ""}
+								</span>
+							)}
+						</div>
+						<div className="flex items-center gap-1.5">
+							<span className="min-w-[72px] shrink-0 text-text-tertiary">{t("config.tokendance.appUrlLabel")}</span>
+							<code className="truncate font-mono text-micro text-text-primary">{TOKENDANCE_APP_URL}</code>
+						</div>
+					</div>
 
-			<p className="mt-2 text-[11px] leading-relaxed text-text-tertiary">{t("config.tokendance.hint")}</p>
-			</>)}
+					<p className="mt-2 text-micro leading-relaxed text-text-tertiary">{t("config.tokendance.hint")}</p>
+				</CollapsibleContent>
+			</Collapsible>
 
 			<div className="mt-3 flex flex-wrap items-center gap-1.5">
-				<Button
-					size="sm"
-					variant="default"
-					onClick={() => {
-						// 目录为空/上次拉取失败：打开确认弹窗前补拉一次，让写入清单显示真实模型数
-						if (catalog.models.length === 0 && !catalog.loading) {
-							void loadCatalog().then(() => setConfirmOpen(true));
-							return;
-						}
-						setConfirmOpen(true);
-					}}
-					disabled={props.configured || installing}
-					title={props.configured ? t("config.tokendance.alreadyConfiguredTitle") : undefined}
-				>
-					{installing ? (
-						<Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-					) : (
-						<PlugZap className="size-3.5" aria-hidden="true" />
-					)}
+				<Button size="sm" variant={props.configured ? "outline" : "default"} onClick={() => void openSetup()} disabled={props.configured || installing} title={props.configured ? t("config.tokendance.alreadyConfiguredTitle") : undefined}>
+					{installing ? <Loader2 className="size-3.5 animate-pideck-spin" aria-hidden="true" /> : <PlugZap className="size-3.5" aria-hidden="true" />}
 					{props.configured ? t("config.tokendance.alreadyConfigured") : t("config.tokendance.addToConfig")}
 				</Button>
 				{props.configured && (
-					<Button size="sm" variant="outline" onClick={() => setKeyOpen(true)}>
-						<KeyRound className="size-3.5" aria-hidden="true" />
-						{t("config.tokendance.oauthButton")}
-					</Button>
+					<>
+						<Button size="sm" variant="outline" onClick={() => setSetupOpen(true)}>
+							<KeyRound className="size-3.5" aria-hidden="true" />
+							{t("config.tokendance.oauthButton")}
+						</Button>
+						{/* 充值入口：只在已配置（已有 API Key）时出现——未配置时无 Key，无法发起充值 */}
+						<Button size="sm" variant="outline" onClick={() => setTopUpOpen(true)}>
+							<Wallet className="size-3.5" aria-hidden="true" />
+							{t("config.tokendance.topUpButton")}
+						</Button>
+					</>
 				)}
 				<Button size="sm" variant="ghost" onClick={openSite}>
 					<ExternalLink className="size-3.5" aria-hidden="true" />
@@ -396,53 +478,10 @@ export function TokenDancePanel(props: TokenDancePanelProps) {
 				</Button>
 			</div>
 
-			{/* 安装前的同意弹窗：写入清单 + 平台优势 + 官网入口（争取用户明确同意再落盘） */}
-			<Dialog open={confirmOpen} onOpenChange={(open) => (open ? undefined : setConfirmOpen(false))}>
-				<DialogContent className="max-w-md">
-					<DialogHeader>
-						<DialogTitle>{t("config.tokendance.installTitle")}</DialogTitle>
-					</DialogHeader>
-					<div className="flex flex-col gap-3 text-sm leading-relaxed text-text-secondary">
-						<p>{t("config.tokendance.installDesc", { count: catalog.models.length })}</p>
-						<ul className="grid gap-1.5 text-xs">
-							<li className="flex items-start gap-1.5">
-								<span className="mt-0.5 shrink-0 text-[var(--color-accent)]">●</span>
-								{t("config.tokendance.advantageOne")}
-							</li>
-							<li className="flex items-start gap-1.5">
-								<span className="mt-0.5 shrink-0 text-[var(--color-accent)]">●</span>
-								{t("config.tokendance.advantageTwo")}
-							</li>
-							<li className="flex items-start gap-1.5">
-								<span className="mt-0.5 shrink-0 text-[var(--color-accent)]">●</span>
-								{t("config.tokendance.advantageCredit")}
-							</li>
-						</ul>
-						<p className="rounded-sm border border-border-subtle bg-bg-subtle/60 px-2.5 py-2 text-[11px] text-muted-foreground">
-							{t("config.tokendance.installWrites")}
-						</p>
-					</div>
-					<DialogFooter className="gap-2">
-						<Button variant="ghost" size="sm" onClick={() => setConfirmOpen(false)}>
-							{t("common.cancel")}
-						</Button>
-						<Button variant="default" size="sm" onClick={() => void handleInstall()} disabled={installing}>
-							{installing ? (
-								<Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-							) : (
-								<PlugZap className="size-3.5" aria-hidden="true" />
-							)}
-							{t("config.tokendance.installConfirm")}
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
-
-			<TokenDanceKeyDialog
-				open={keyOpen}
-				onOpenChange={setKeyOpen}
-				onKeyObtained={(apiKey) => void handleInstall(apiKey)}
-			/>
+			{/* 单一操作弹窗：授权 + 交换 Key + 写入配置一次完成 */}
+			<TokenDanceSetupDialog open={setupOpen} onOpenChange={setSetupOpen} configured={props.configured} modelCount={catalog.models.length} onDone={props.onInstalled} />
+			{/* 充值弹窗：创建支付会话（主进程）→ 扫码 → 轮询到账 */}
+			<TokenDanceTopUpDialog open={topUpOpen} onOpenChange={setTopUpOpen} onPaid={handlePaid} />
 		</section>
 	);
 }

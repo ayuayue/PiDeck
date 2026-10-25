@@ -26,10 +26,7 @@ function plain(value) {
 }
 
 function loadTerminalSessionManagerModule() {
-	const source = readFileSync(
-		"src/main/terminal/TerminalSessionManager.ts",
-		"utf8",
-	);
+	const source = readFileSync("src/main/terminal/TerminalSessionManager.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
 		compilerOptions: {
 			module: ts.ModuleKind.CommonJS,
@@ -40,20 +37,34 @@ function loadTerminalSessionManagerModule() {
 	const sandbox = {
 		exports: {},
 		require: (name) => {
-			if (name === "node-pty") return {};
+			// 原生模块只经 ./nodePtyRuntime 惰性加载（见该文件头注释）：
+			// 本用例只测纯函数，替身不参与。
+			if (name === "./nodePtyRuntime") return { loadNodePty: () => ({}) };
 			if (name === "node:crypto") return { randomUUID: () => "id" };
 			if (name === "../../shared/ipc") return { ipcChannels: {} };
 			// shell 检测依赖宿主环境（git-bash 路径、wsl.exe），桩掉以保证候选列表断言可复现；
 			// existsSync=false / execSync 抛错 = 宿主未安装可选 shell 的最小环境。
 			if (name === "node:fs") return { existsSync: () => false };
 			if (name === "node:child_process") {
-				return { execSync: () => { throw new Error("not available in test sandbox"); } };
+				return {
+					execSync: () => {
+						throw new Error("not available in test sandbox");
+					},
+				};
 			}
 			if (name === "../wsl/WslPaths") {
 				return loadTranspiledModule("src/main/wsl/WslPaths.ts");
 			}
 			if (name === "../wsl/wslExe") {
 				return { getWslExe: () => ({ command: "wsl.exe", shell: false }) };
+			}
+			if (name === "./terminalDataBatching") {
+				return loadTranspiledModule("src/main/terminal/terminalDataBatching.ts");
+			}
+			// 回放缓冲是纯函数模块（无自身 import）：与 dataBatching 同样就地解析，
+			// 否则落到 CJS require 会按 tests/ 目录解析成 MODULE_NOT_FOUND。
+			if (name === "./terminalReplayBuffer") {
+				return loadTranspiledModule("src/main/terminal/terminalReplayBuffer.ts");
 			}
 			return require(name);
 		},
@@ -84,23 +95,14 @@ test("keeps Windows shell candidates unchanged", () => {
 
 	const candidates = getTerminalShellCandidates("win32", {});
 
-	assert.deepEqual(
-		plain(candidates.map((candidate) => candidate.command)),
-		["pwsh.exe", "powershell.exe", "cmd.exe"],
-	);
-	assert.deepEqual(
-		plain(candidates.map((candidate) => candidate.args)),
-		[[], [], []],
-	);
+	assert.deepEqual(plain(candidates.map((candidate) => candidate.command)), ["pwsh.exe", "powershell.exe", "cmd.exe"]);
+	assert.deepEqual(plain(candidates.map((candidate) => candidate.args)), [[], [], []]);
 });
 
 // ── owner 隔离（项目/agent 终端不串台） ────────────────────────────
 
 function loadWithPty() {
-	const source = readFileSync(
-		"src/main/terminal/TerminalSessionManager.ts",
-		"utf8",
-	);
+	const source = readFileSync("src/main/terminal/TerminalSessionManager.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
 		compilerOptions: {
 			module: ts.ModuleKind.CommonJS,
@@ -128,18 +130,30 @@ function loadWithPty() {
 		exports: {},
 		process: { platform: "win32", env: {} },
 		require: (name) => {
-			if (name === "node-pty") return ptyStub;
+			if (name === "./nodePtyRuntime") return { loadNodePty: () => ptyStub };
 			if (name === "node:crypto") return { randomUUID: () => `id-${spawns.length}` };
 			if (name === "../../shared/ipc") return { ipcChannels: {} };
 			if (name === "node:fs") return { existsSync: () => false };
 			if (name === "node:child_process") {
-				return { execSync: () => { throw new Error("not available in test sandbox"); } };
+				return {
+					execSync: () => {
+						throw new Error("not available in test sandbox");
+					},
+				};
 			}
 			if (name === "../wsl/WslPaths") {
 				return loadTranspiledModule("src/main/wsl/WslPaths.ts");
 			}
 			if (name === "../wsl/wslExe") {
 				return { getWslExe: () => ({ command: "wsl.exe", shell: false }) };
+			}
+			if (name === "./terminalDataBatching") {
+				return loadTranspiledModule("src/main/terminal/terminalDataBatching.ts");
+			}
+			// 回放缓冲是纯函数模块（无自身 import）：与 dataBatching 同样就地解析，
+			// 否则落到 CJS require 会按 tests/ 目录解析成 MODULE_NOT_FOUND。
+			if (name === "./terminalReplayBuffer") {
+				return loadTranspiledModule("src/main/terminal/terminalReplayBuffer.ts");
 			}
 			return require(name);
 		},
@@ -158,7 +172,10 @@ function projectTarget(cwd, projectId = "p1") {
 
 test("owner key normalizes agent id and project cwd for isolation", () => {
 	const { manager, spawns } = loadWithPty();
-	const instance = new manager((agentId) => `C:/agents/${agentId}`, () => {});
+	const instance = new manager(
+		(agentId) => `C:/agents/${agentId}`,
+		() => {},
+	);
 
 	// 同一项目路径的不同写法（大小写/分隔符/尾斜杠）必须归一为同一个隔离键
 	const a = instance.create(projectTarget("C:\\Users\\Me\\Proj"));
@@ -177,7 +194,10 @@ test("owner key normalizes agent id and project cwd for isolation", () => {
 
 test("project terminals are spawned in the project cwd, agent terminals in agent cwd", () => {
 	const { manager, spawns } = loadWithPty();
-	const instance = new manager((agentId) => `C:/agents/${agentId}`, () => {});
+	const instance = new manager(
+		(agentId) => `C:/agents/${agentId}`,
+		() => {},
+	);
 
 	instance.create(projectTarget("D:/work/proj"));
 	instance.create(agentTarget("agentB"));
@@ -198,20 +218,16 @@ test("configured WSL terminals use the Linux cwd inside the selected distro", ()
 
 	assert.equal(tab.shell, "wsl");
 	assert.equal(spawns[0].command, "wsl.exe");
-	assert.deepEqual(plain(spawns[0].args), [
-		"-d",
-		"Ubuntu-24.04",
-		"-u",
-		"dev",
-		"--cd",
-		"/mnt/d/work/proj",
-	]);
+	assert.deepEqual(plain(spawns[0].args), ["-d", "Ubuntu-24.04", "-u", "dev", "--cd", "/mnt/d/work/proj"]);
 	assert.equal(spawns[0].cwd, "D:\\work\\proj");
 });
 
 test("closing an agent leaves project terminal buckets intact", () => {
 	const { manager } = loadWithPty();
-	const instance = new manager((agentId) => `C:/agents/${agentId}`, () => {});
+	const instance = new manager(
+		(agentId) => `C:/agents/${agentId}`,
+		() => {},
+	);
 
 	instance.create(projectTarget("D:/work/proj"));
 	instance.create(agentTarget("agentC"));
@@ -221,9 +237,26 @@ test("closing an agent leaves project terminal buckets intact", () => {
 	assert.equal(instance.list(agentTarget("agentC")).length, 0);
 });
 
+test("input on a removed tab is silently ignored (no cross-IPC throw)", () => {
+	// 回归：agent 重启/退出走 closeAgent 删 runtime，渲染层 xterm 卸载前的迟到按键
+	// 不允许抛错——ipcMain.handle 内 throw 会序列化成渲染层未处理 rejection。
+	// 与 resize 的静默忽略（下同源注释）同一约定。
+	const { manager } = loadWithPty();
+	const instance = new manager(
+		(agentId) => `C:/agents/${agentId}`,
+		() => {},
+	);
+	const tab = instance.create(agentTarget("agentD"));
+	instance.closeAgent("agentD");
+	assert.doesNotThrow(() => instance.input(tab.id, "ls\r"));
+});
+
 test("ensure returns existing tabs for the same owner instead of duplicating", () => {
 	const { manager, spawns } = loadWithPty();
-	const instance = new manager((agentId) => `C:/agents/${agentId}`, () => {});
+	const instance = new manager(
+		(agentId) => `C:/agents/${agentId}`,
+		() => {},
+	);
 
 	const first = instance.ensure(projectTarget("E:/repo"));
 	assert.equal(first.length, 1);
@@ -233,18 +266,15 @@ test("ensure returns existing tabs for the same owner instead of duplicating", (
 });
 
 test("terminal manager wiring resolves agent cwd through the composite gateway (multi-backend)", () => {
-  // 回归防护：终端 cwd 只从 pi agentManager 解析会让 DSH 会话（backend=dsh，runtime 在
-  // dshAgentManager）的终端在创建时抛 `Agent not found`，表现为「DSH 后端终端打不开」。
-  const source = readFileSync("src/main/index.ts", "utf8");
-  const start = source.indexOf("new TerminalSessionManager(");
-  assert.notEqual(start, -1);
-  const block = source.slice(
-    start,
-    source.indexOf("quitCleanup.register(\"terminal\"", start),
-  );
-  // 合成网关（pi + dsh）按 agentId 找 tab 拿 cwd；找不到时再退回 pi 管理器抛同语义错误
-  assert.match(block, /compositeAgentGateway/);
-  assert.match(block, /\.list\(\)/);
-  assert.match(block, /candidate\.id === agentId/);
-  assert.match(block, /return tab\.cwd/);
+	// 回归防护：终端 cwd 只从 pi agentManager 解析会让 DSH 会话（backend=dsh，runtime 在
+	// dshAgentManager）的终端在创建时抛 `Agent not found`，表现为「DSH 后端终端打不开」。
+	const source = readFileSync("src/main/index.ts", "utf8");
+	const start = source.indexOf("new TerminalSessionManager(");
+	assert.notEqual(start, -1);
+	const block = source.slice(start, source.indexOf('quitCleanup.register("terminal"', start));
+	// 合成网关（pi + dsh）按 agentId 找 tab 拿 cwd；找不到时再退回 pi 管理器抛同语义错误
+	assert.match(block, /compositeAgentGateway/);
+	assert.match(block, /\.list\(\)/);
+	assert.match(block, /candidate\.id === agentId/);
+	assert.match(block, /return tab\.cwd/);
 });

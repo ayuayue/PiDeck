@@ -51,12 +51,7 @@ export function expandedPanelSize(viewportWidth: number, viewportHeight: number)
  * 折叠时面板不参与，仅约束胶囊本身。
  * 极端小窗口下区间可能倒置（minX > maxX），用 Math.max 兜底防止反转。
  */
-export function clampCapsulePosition(
-	x: number,
-	y: number,
-	viewport: { width: number; height: number },
-	expanded: boolean,
-): { x: number; y: number } {
+export function clampCapsulePosition(x: number, y: number, viewport: { width: number; height: number }, expanded: boolean): { x: number; y: number } {
 	const { width: vw, height: vh } = viewport;
 	const { width: pillW } = pillSize(vw);
 	const { width: panelW, height: panelH } = expandedPanelSize(vw, vh);

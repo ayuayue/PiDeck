@@ -28,6 +28,28 @@ jobs:
           node-version: 24.13.0
           cache: npm
 
+      # Go 工具链钉版本：runner 预装 Go 版本浮动，低于 go.mod 要求（1.26）时
+      # build:xue-index / build:session-index 会 fail-open 静默跳过（包里没 sidecar，
+      # 运行时降级）——不红灯但功能缺失，所以必须显式安装而不是赌镜像预装版本。
+      # session-index / session-store 纯标准库无 go.sum，不进缓存清单；
+      # xue-index（sqlite）与 file-index（拼音）有依赖，go.sum 不齐会让构建静默跳过。
+      - name: Setup Go (sidecar builds)
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: |
+            native/xue-index/go.sum
+            native/file-index/go.sum
+
+      # 三个 sidecar 的 Go 单测：宿主与 Go 侧的协议字段名/索引语义是手写镜像，
+      # 本地漏跑时靠这里兜底（例如快照与语料同代校验、URI 路径转义）
+      - name: Go unit tests (sidecars)
+        run: |
+          go -C native/session-index test ./...
+          go -C native/xue-index test ./...
+          go -C native/file-index test ./...
+          go -C native/session-store test ./...
+
       - name: Install dependencies
         run: npm ci
 
@@ -38,11 +60,19 @@ jobs:
         run: npm run build && npx electron-builder --win nsis portable zip --${{ matrix.arch }} --publish never
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
+          XUE_INDEX_OS: win32
+          XUE_INDEX_ARCH: ${{ matrix.arch }}
+          SESSION_INDEX_OS: win32
+          SESSION_INDEX_ARCH: ${{ matrix.arch }}
+          FILE_INDEX_OS: win32
+          FILE_INDEX_ARCH: ${{ matrix.arch }}
+          SESSION_STORE_OS: win32
+          SESSION_STORE_ARCH: ${{ matrix.arch }}
 
       - name: Upload Windows ${{ matrix.arch }} artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pi-desktop-windows-${{ matrix.arch }}
+          name: PiDeck-windows-${{ matrix.arch }}
           if-no-files-found: error
           path: |
             release/*.exe

@@ -1,5 +1,6 @@
 import { test, expect } from "./mock-pi-fixture";
 import type { Page } from "@playwright/test";
+import { openFirstSession } from "./open-session";
 
 /**
  * 打字机感回归（学 Proma 的 50ms 合并节奏）：
@@ -9,19 +10,9 @@ import type { Page } from "@playwright/test";
  * 对齐 Proma PI_PARTIAL_UPDATE_INTERVAL_MS=50 后，渲染层 20fps 更新，queue 平滑逐字。
  */
 
+/** 打开第一个会话并使合成器可用（UI 2.0 起欢迎页已无「启动 Agent」按钮）。 */
 async function startAgent(window: Page) {
-	const startButton = window.getByRole("button", { name: "启动 Agent" });
-	const composer = window.locator(".composer .rich-input");
-	for (let attempt = 0; attempt < 4; attempt += 1) {
-		await startButton.click();
-		const gone = await startButton
-			.waitFor({ state: "hidden", timeout: 5000 })
-			.then(() => true)
-			.catch(() => false);
-		if (gone) break;
-	}
-	await expect(composer).toHaveAttribute("contenteditable", "true", { timeout: 30_000 });
-	return composer;
+	return openFirstSession(window);
 }
 
 /** rAF 逐帧采样 .execution-interim 文本长度增量，返回帧序列 */
@@ -111,8 +102,5 @@ test("typewriter: burst streaming must not jump (maxDelta <= 3)", async ({ windo
 	// 防蹦验证：maxStep=3（流中）+ maxDrainStep=6（结束排空）；React concurrent 合并
 	// 偶发让 DOM 一帧反映 2 帧步进（≤6），但绝不允许 10+ 大蹦（修复前 16/12）。
 	expect(maxDelta, "burst should be capped (no jump)").toBeLessThanOrEqual(6);
-	expect(
-		samples.filter((s) => s.delta > 3).length,
-		"at most a couple of merged frames allowed",
-	).toBeLessThanOrEqual(3);
+	expect(samples.filter((s) => s.delta > 3).length, "at most a couple of merged frames allowed").toBeLessThanOrEqual(3);
 });

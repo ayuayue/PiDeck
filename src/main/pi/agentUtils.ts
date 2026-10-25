@@ -5,12 +5,31 @@
 
 import type { ChatMessage, Project } from "../../shared/types";
 import { looksLikePiSessionFileStem } from "../../shared/sessionIdentity";
+import { looksLikeExpandedRefBlockTitle, textForSessionTitle } from "../../shared/expandedRefBlocks";
+import { isRoleMessageRole } from "./sessionEntryIds";
 
 export { looksLikePiSessionFileStem } from "../../shared/sessionIdentity";
 
-/** 去除 ANSI 转义码，用于清洗 thinking 中的终端颜色控制序列。 */
+/**
+ * 去除 ANSI 转义码，用于清洗 thinking 中的终端颜色控制序列。
+ *
+ * 快速路径（2027-02 性能审计）：绝大多数模型正文根本不含 ESC 字符，先做单字符
+ * includes 扫描（memchr 级，远快于正则）命中即返回原引用——此前流式通道每个 delta
+ * 都对全量累积文本跑正则 replace（O(N²)/消息的扫描 + 分配），长回复时主进程持续承压。
+ */
 export function stripAnsi(text: string): string {
+	if (!text.includes("\u001b")) return text;
 	return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
+}
+
+/** RPC/JSON 边界收窄：unknown → Record<string, unknown>（非对象返回 undefined；数组会收窄成 Record，调用方按需另判 Array.isArray）。 */
+export function asRecord(value: unknown): Record<string, unknown> | undefined {
+	return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
+}
+
+/** 边界收窄：unknown → 非空 string（其余返回 undefined）。 */
+export function nonEmptyString(value: unknown): string | undefined {
+	return typeof value === "string" && value ? value : undefined;
 }
 
 /** 从参数列表中取首个有效数字。 */
@@ -36,10 +55,7 @@ export function clampPercent(value: number | undefined): number | undefined {
  * record.id（coordinator 绑定维护）优先：renderer 的 sessionRecordByIdAtomFamily
  * 只按 record.id 索引会话；tab.sessionId 是 pi 侧会话 id（两套体系），仅作兜底。
  */
-export function resolveNotificationSessionId(
-	resolveRecordId: (() => string | undefined) | undefined,
-	piSessionId: string | undefined,
-): string | undefined {
+export function resolveNotificationSessionId(resolveRecordId: (() => string | undefined) | undefined, piSessionId: string | undefined): string | undefined {
 	return resolveRecordId?.() ?? piSessionId;
 }
 
@@ -80,14 +96,15 @@ export function trimHistoryMessages<T>(rawMessages: T[], maxTurns = 12): T[] {
 /**
  * 统计 [0, endIndex) 内会消费 entryId 槽位的角色消息数（user/assistant/toolResult）。
  * 与 AgentMessageProjector 的槽位消费规则一致：compactionSummary/branchSummary/非角色条目
- * 不消费槽位。用于 trim 后把 activeEntryIds 与保留消息重新对齐。
+ * 不消费槽位（pi 0.86 起窗口里可能夹 `role:"system"` 的 prompt/tool 更新条目，同样不算）。
+ * 用于 trim 后把 activeEntryIds 与保留消息重新对齐。
  */
 export function countRoleMessagesBefore<T>(rawMessages: T[], endIndex: number): number {
 	const bound = Math.min(Math.max(0, endIndex), rawMessages.length);
 	let count = 0;
 	for (let i = 0; i < bound; i++) {
 		const role = (rawMessages[i] as { role?: unknown } | undefined)?.role;
-		if (role === "user" || role === "assistant" || role === "toolResult") count++;
+		if (isRoleMessageRole(role)) count++;
 	}
 	return count;
 }
@@ -98,19 +115,13 @@ export function countRoleMessagesBefore<T>(rawMessages: T[], endIndex: number): 
  * 卡片会被 slice 切出窗口导致用户看不到；这里把窗口前仍存在的系统卡片找回，
  * 保证压缩标记在时间线可见区顶部（"压缩展示在正确的时间位"）。
  */
-export function leadingSummaryCards(
-	all: ChatMessage[],
-	windowStart: number,
-): ChatMessage[] {
+export function leadingSummaryCards(all: ChatMessage[], windowStart: number): ChatMessage[] {
 	if (windowStart <= 0) return [];
 	const cards: ChatMessage[] = [];
 	const bound = Math.min(windowStart, all.length);
 	for (let i = 0; i < bound; i++) {
 		const message = all[i];
-		if (
-			message.role === "system" &&
-			(message.meta?.type === "compaction" || message.meta?.type === "branchSummary")
-		) {
+		if (message.role === "system" && (message.meta?.type === "compaction" || message.meta?.type === "branchSummary")) {
 			cards.push(message);
 		}
 	}
@@ -173,9 +184,7 @@ export function buildMessageFlushPayload(
 		totalLength: all.length,
 		...(boundedWindow > 0 ? { windowStart: boundedWindow } : {}),
 		...(fileVersion ? { fileVersion } : {}),
-		...(typeof windowStartFilePos === "number" && windowStartFilePos >= 0
-			? { windowStartFilePos }
-			: {}),
+		...(typeof windowStartFilePos === "number" && windowStartFilePos >= 0 ? { windowStartFilePos } : {}),
 	};
 }
 
@@ -209,26 +218,26 @@ export function cleanTitle(value?: string): string | undefined {
 /** 从消息列表推断会话标题（取首条 user 或 assistant 消息的清洗后文本）。 */
 export function inferTitleFromMessages(messages: ChatMessage[]): string | undefined {
 	const firstUserText = messages.find((message) => message.role === "user")?.text;
-	const firstAssistantText = messages.find(
-		(message) => message.role === "assistant",
-	)?.text;
-	return cleanTitle(firstUserText) || cleanTitle(firstAssistantText);
+	const firstAssistantText = messages.find((message) => message.role === "assistant")?.text;
+	// 标题只取用户自己写的话：/模板、&会话、❝引用块的正文是发给模型的上下文，
+	// 直接当标题会把整段 XML 写进侧栏（2026-10 现场：标题变成 `<prompt_template …>`）；
+	// 只插了模板没写正文时回退到模板名，而不是把模板全文/空串当标题。
+	return cleanTitle(firstUserText ? textForSessionTitle(firstUserText) : undefined) || cleanTitle(firstAssistantText);
 }
 
 /** 判断 Agent 标题是否为默认/占位标题（仅此时允许首轮回话自动改名）。
  *  必须覆盖 catalog 草稿名（session.newTitle：「新会话」/「New session」）和 DSH 占位名，
  *  不能只认 `${project} agent`——漏判则 refreshAutoTitle 直接 return，侧栏一直停在占位名。
  *  pi 文件名时间戳 / catalog 清掉时间戳后的 Untitled 也算占位，否则历史会话加载后无法用首条消息补名。 */
-export function isDefaultAgentTitle(
-	title: string,
-	project: Project,
-	translate: (key: string, params?: Record<string, string | number>) => string,
-): boolean {
+export function isDefaultAgentTitle(title: string, project: Project, translate: (key: string, params?: Record<string, string | number>) => string): boolean {
 	const trimmed = title.replace(/\s+/g, " ").trim();
 	if (!trimmed) return true;
 	if (looksLikePiSessionFileStem(trimmed)) return true;
 	// catalog 把时间戳标题写成 Untitled；扫描器默认文案也是 Untitled。
 	if (/^untitled(?: session)?$/i.test(trimmed)) return true;
+	// 未折叠的自包含块原文（`<prompt_template …>` 等 2026-10 现场写入的脏标题）没有信息价值，
+	// 必须当占位名：否则它既不是默认名、也永远等不到下一次自动命名，只能留在侧栏。
+	if (looksLikeExpandedRefBlockTitle(trimmed)) return true;
 	return (
 		trimmed === `${project.name} agent` ||
 		trimmed === `${project.name} DSH` ||
@@ -242,4 +251,26 @@ export function isDefaultAgentTitle(
 		trimmed === "新会话" ||
 		trimmed === "New session"
 	);
+}
+
+/**
+ * compaction_end 之后是否需要重载消息（纯函数，单独可测）。
+ *
+ * 业务规则：pi 只在压缩**成功**时向会话 JSONL 写入新的边界记录与摘要，失败/中止的压缩
+ * 不改写文件。因此失败时重载读到的还是同一份文件，属于纯重复开销：
+ * 整段窗口重新读盘 + 投影 + 全量下发，反而把内存峰值重新抬高一次。
+ *
+ * 2026-08 #213：压缩失败（上下文超限，压缩请求本身也超限）后仍无条件重载，
+ * 与紧随其后的用户发消息重载叠加，直接把渲染进程推到 OOM。
+ *
+ * 边界：`result` 缺失（旧版 pi 不上报结果）按「不重载」处理——宁可少刷一次卡片，
+ * 也不要在未知成败时用全量读盘赌内存；压缩成功后紧跟的 agent 事件仍会带来一次刷新。
+ *
+ * 返回值取真值而不是 `=== true`：pi 成功时给的是**对象**
+ * （`{summary, firstKeptEntryId, tokensBefore, usage}`，见 pi docs/rpc.md
+ * 「compaction_start / compaction_end」），失败/中止时才是 `null`。
+ * 写成 `=== true` 会变成“永远不重载”，前端停在压缩前分支——正是本函数要修的现象。
+ */
+export function shouldReloadMessagesAfterCompaction(event: { result?: unknown }): boolean {
+	return Boolean(event.result);
 }

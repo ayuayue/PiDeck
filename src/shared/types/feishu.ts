@@ -1,5 +1,7 @@
 // ===== 飞书桥接类型 =====
 
+import type { ImChannelBackend } from "./agent";
+
 export type FeishuBotConfig = {
 	id: string;
 	name: string;
@@ -12,6 +14,9 @@ export type FeishuBotConfig = {
 	requireMention?: boolean;
 	/** 用户自己的 open_id（用于自动拉群时加入 user_id_list）。在飞书中给 Bot 发 /whoami 即可获取 */
 	defaultUserOpenId?: string;
+	/** 新建飞书会话使用的后端（pi/dsh）；缺省 = 跟随会话默认。
+	 *  改这里会让已有绑定在下一条消息时换绑成新后端的新会话（换绑会主动回消息说明），原会话留在侧栏。 */
+	backend?: ImChannelBackend;
 };
 
 export type FeishuBridgeStatus = {
@@ -38,6 +43,8 @@ export type FeishuChatBinding = {
 	channelId?: string;
 	modelId?: string;
 	source: "feishu" | "session-mirror";
+	/** 该会话创建时选定的后端，随会话走（不随设置改）。 */
+	backend?: ImChannelBackend;
 	chatType: "p2p" | "group";
 	groupName?: string;
 	createdAt: number;

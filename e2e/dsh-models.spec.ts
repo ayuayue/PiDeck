@@ -26,8 +26,7 @@ test("DSH 模型列表、切换与思考档位（草稿 → 激活全链路）",
 		copyFileSync(realSettings, join(dshHome, "settings.yaml"));
 	}
 	await window.evaluate(async (dir) => {
-		await (window as unknown as { piDesktop: { settings: { update: (patch: { dshHomeDir?: string }) => Promise<unknown> } } })
-			.piDesktop.settings.update({ dshHomeDir: dir });
+		await (window as unknown as { piDesktop: { settings: { update: (patch: { dshHomeDir?: string }) => Promise<unknown> } } }).piDesktop.settings.update({ dshHomeDir: dir });
 	}, dshHome);
 
 	// ── 2. 新建 DSH 会话草稿（新会话默认 DSH 后端）────────────────────────────
@@ -53,9 +52,7 @@ test("DSH 模型列表、切换与思考档位（草稿 → 激活全链路）",
 	const picker = window.locator(".model-picker");
 	await expect(picker).toBeVisible();
 	// llm-pi-ai（opencode-go，来自 settings.yaml）+ llm-deepseek（deepseek-official 官方路由）
-	await expect(
-		picker.locator('[data-picker-value="opencode-go/deepseek-v4-flash"]'),
-	).toBeVisible({ timeout: 30_000 });
+	await expect(picker.locator('[data-picker-value="opencode-go/deepseek-v4-flash"]')).toBeVisible({ timeout: 30_000 });
 	await expect(picker.locator('[data-picker-value="deepseek-official/deepseek-v4-pro"]')).toBeVisible();
 	// 反面：DSH 会话不得展示 pi 的 models.json 专属模型（例如 anthropic 组）
 	await expect(picker.locator('[data-picker-value^="anthropic/"]')).toHaveCount(0);
@@ -84,22 +81,25 @@ test("DSH 模型列表、切换与思考档位（草稿 → 激活全链路）",
 	// 等 runtime 激活并完成偏好应用（无凭证回合会失败，但 selectModel 已应用）。
 	// 注意：用固定间隔轮询而非 expect.poll——实测 poll 首轮立即求值会与发送竞态
 	// （Playwright evaluate 等待渲染主线程让出，轮询窗口内一直拿不到 runtime）。
-	const readDshRuntimeState = () => window.evaluate(async () => {
-		const pi = (window as unknown as {
-			piDesktop: {
-				sessions: {
-					listRuntimes: () => Promise<Array<{ sessionId: string; agentId: string; runtimeGeneration: number }>>;
-					getRuntimeState: (target: unknown) => Promise<{ ok: boolean; value: { value?: { modelId?: string; provider?: string; thinkingLevel?: string } } }>;
-				};
-			};
-		}).piDesktop;
-		const runtimes = await pi.sessions.listRuntimes();
-		const dsh = runtimes.find((runtime) => runtime.agentId.startsWith("dsh:"));
-		if (!dsh) return null;
-		// getRuntimeState 返回 SessionTargetedValue：{ target, value: AgentRuntimeState }
-		const result = await pi.sessions.getRuntimeState(dsh);
-		return result.ok ? (result.value.value ?? null) : null;
-	});
+	const readDshRuntimeState = () =>
+		window.evaluate(async () => {
+			const pi = (
+				window as unknown as {
+					piDesktop: {
+						sessions: {
+							listRuntimes: () => Promise<Array<{ sessionId: string; agentId: string; runtimeGeneration: number }>>;
+							getRuntimeState: (target: unknown) => Promise<{ ok: boolean; value: { value?: { modelId?: string; provider?: string; thinkingLevel?: string } } }>;
+						};
+					};
+				}
+			).piDesktop;
+			const runtimes = await pi.sessions.listRuntimes();
+			const dsh = runtimes.find((runtime) => runtime.agentId.startsWith("dsh:"));
+			if (!dsh) return null;
+			// getRuntimeState 返回 SessionTargetedValue：{ target, value: AgentRuntimeState }
+			const result = await pi.sessions.getRuntimeState(dsh);
+			return result.ok ? (result.value.value ?? null) : null;
+		});
 	let state: { modelId?: string; provider?: string; thinkingLevel?: string } | null = null;
 	for (let attempt = 0; attempt < 30; attempt += 1) {
 		state = await readDshRuntimeState();
@@ -118,9 +118,7 @@ test("DSH 模型列表、切换与思考档位（草稿 → 激活全链路）",
 	// ── 8. 运行中会话再次切换模型（走 setRuntimeModel → host selectModel）─────
 	await modelBtn.click();
 	await expect(picker).toBeVisible();
-	await expect(
-		picker.locator('[data-picker-value="deepseek-official/deepseek-v4-pro"]'),
-	).toBeVisible({ timeout: 10_000 });
+	await expect(picker.locator('[data-picker-value="deepseek-official/deepseek-v4-pro"]')).toBeVisible({ timeout: 10_000 });
 	await picker.locator('[data-picker-value="deepseek-official/deepseek-v4-pro"]').click();
 	await expect(picker).toHaveCount(0, { timeout: 5_000 });
 	for (let attempt = 0; attempt < 15; attempt += 1) {

@@ -3,16 +3,13 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { dshFieldCopy, isDshCustomSettingsHiddenField, isDshDeepseekProfileVisibleField, isDshPiAiCustomRoute } = loadTsCommonJs(
-	"src/renderer/src/config/dshFieldLabels.ts",
-	{
-		stubs: {
-			"../i18n": {
-				t: (key) => key,
-			},
+const { dshFieldCopy, isDshCustomSettingsHiddenField, isDshDeepseekProfileVisibleField, isDshPiAiCustomRoute } = loadTsCommonJs("src/renderer/src/config/dshFieldLabels.ts", {
+	stubs: {
+		"../i18n": {
+			t: (key) => key,
 		},
 	},
-);
+});
 
 test("known DSH fields get human labels instead of raw keys or (root)", () => {
 	assert.equal(dshFieldCopy("baseURL").label, "config.dsh.field.baseURL");

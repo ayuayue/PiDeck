@@ -7,8 +7,7 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const ts = require("typescript");
-const source = readFileSync("src/main/pi/historyMessages.ts", "utf8")
-	.replace('import type { ChatMessage } from "../../shared/types";\n\n', "");
+const source = readFileSync("src/main/pi/historyMessages.ts", "utf8").replace('import type { ChatMessage } from "../../shared/types";\n\n', "");
 const compiled = ts.transpileModule(source, {
 	compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
 }).outputText;
@@ -31,11 +30,7 @@ assert.deepEqual(
 	["h1", "h2", "new-user", "new-assistant"],
 	"messages created while background history is loading should be preserved after loaded history",
 );
-assert.equal(
-	mergeHistoryWithPreservedMessages(history, current, undefined),
-	history,
-	"without a preserve boundary the loaded history should be used as-is",
-);
+assert.equal(mergeHistoryWithPreservedMessages(history, current, undefined), history, "without a preserve boundary the loaded history should be used as-is");
 assert.deepEqual(
 	mergeHistoryWithPreservedMessages(history, [{ ...history[0], timestamp: 1_100 }], 1_000).map((message) => message.id),
 	["h1", "h2"],

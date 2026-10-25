@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip";
@@ -32,16 +32,7 @@ export function PathTooltip(props: {
 	/** 指针离开触发区后多久才关；盖住快划过边缘的抖动。 */
 	hideDelay?: number;
 }) {
-	const {
-		content,
-		children,
-		className,
-		side = "right",
-		align = "start",
-		sideOffset = 8,
-		delayDuration = 250,
-		hideDelay = 220,
-	} = props;
+	const { content, children, className, side = "right", align = "start", sideOffset = 8, delayDuration = 250, hideDelay = 220 } = props;
 	const [open, setOpen] = useState(false);
 	const hideTimerRef = useRef(0);
 	useEffect(() => () => window.clearTimeout(hideTimerRef.current), []);
@@ -56,22 +47,14 @@ export function PathTooltip(props: {
 	};
 
 	return (
-		<Tooltip
-			open={open}
-			onOpenChange={onOpenChange}
-			delayDuration={delayDuration}
-			disableHoverableContent
-		>
+		<Tooltip open={open} onOpenChange={onOpenChange} delayDuration={delayDuration} disableHoverableContent>
 			<TooltipTrigger asChild>{children}</TooltipTrigger>
 			<TooltipContent
 				side={side}
 				align={align}
 				sideOffset={sideOffset}
 				arrowClassName="bg-popover fill-popover"
-				className={cn(
-					"pointer-events-none max-w-[min(440px,calc(100vw-40px))] rounded-lg border border-border bg-popover px-3 py-2 text-caption text-popover-foreground shadow-md animate-none data-[state=closed]:animate-none",
-					className,
-				)}
+				className={cn("pointer-events-none max-w-[min(440px,calc(100vw-40px))] rounded-lg border border-border bg-popover px-3 py-2 text-caption text-popover-foreground shadow-md animate-none data-[state=closed]:animate-none", className)}
 			>
 				<span className="block max-w-full break-all whitespace-pre-wrap">{content}</span>
 			</TooltipContent>

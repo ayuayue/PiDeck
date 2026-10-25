@@ -14,13 +14,7 @@ test("pideck-bg protocol serves background images from userData", async ({ windo
 	const userData = await app.evaluate(({ app: electronApp }) => electronApp.getPath("userData"));
 	const dir = join(userData, "backgrounds");
 	mkdirSync(dir, { recursive: true });
-	writeFileSync(
-		join(dir, "bg-e2e.png"),
-		Buffer.from(
-			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
-			"base64",
-		),
-	);
+	writeFileSync(join(dir, "bg-e2e.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
 
 	// 渲染层 img 加载协议图片（模拟缩略图/背景图路径）
 	const ok = await window.evaluate(

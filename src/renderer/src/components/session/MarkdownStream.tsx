@@ -1,41 +1,45 @@
 import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
-import { Streamdown, defaultRehypePlugins, defaultRemarkPlugins, type Components } from "streamdown";
+import { Streamdown, defaultRemarkPlugins, type Components } from "streamdown";
 import { code } from "@streamdown/code";
 import { mermaid } from "@streamdown/mermaid";
 import { createMathPlugin } from "@streamdown/math";
 import { MarkdownLink, remarkLinkifyPaths } from "./MarkdownLink";
+import { MarkdownImage } from "./MarkdownImage";
+import { useFileLinkBaseDir } from "./FileLinkBase";
+import { resolveMarkdownImageSrc } from "./markdownImageSrc";
+import { MarkdownImageGroupProvider, imageCountInChildren } from "./MarkdownImageGroup";
+import { localImageUrl } from "../../../../shared/localImage";
 import { markdownUrlTransform } from "./MarkdownLinkCore";
-import { remarkGfmNoSingleTilde } from "../../utils/markdownPlugins";
+import { remarkGfmNoSingleTilde, remarkRecoverLocalImages } from "../../utils/markdownPlugins";
+import { remarkInlineMathGuard } from "../../utils/markdownInlineMath";
+import { normalizeMathDelimiters } from "../../utils/normalizeMathDelimiters";
+import { UNTRUSTED_MARKDOWN_REHYPE_PLUGINS } from "./markdownSanitize";
 import { FormulaCopyLayer } from "./FormulaCopyLayer";
 import { useSmoothStream } from "../../utils/useSmoothStream";
-import {
-	STREAM_LIGHT_MAX_CHARS,
-	STREAM_UNFREEZABLE_MIN_CHARS,
-	SETTLE_FULL_MAX_CHARS,
-	shouldRenderStreamPlain,
-	shouldKeepLightOnSettle,
-} from "./markdownStreamPolicy";
+import { useDocumentTheme } from "../../hooks/useDocumentTheme";
+import { STREAM_LIGHT_MAX_CHARS, STREAM_UNFREEZABLE_MIN_CHARS, SETTLE_FULL_MAX_CHARS, shouldRenderStreamPlain, shouldKeepLightOnSettle } from "./markdownStreamPolicy";
 // 兼容导出：既有引用与源码契约测试从 MarkdownStream 读阈值常量
 export { STREAM_LIGHT_MAX_CHARS } from "./markdownStreamPolicy";
-import {
-	IncrementalMarkdownFrontier,
-	UNSTABLE_TAIL_BLOCKS,
-} from "./markdown/incrementalMarkdown";
+import { IncrementalMarkdownFrontier, UNSTABLE_TAIL_BLOCKS } from "./markdown/incrementalMarkdown";
 
 /**
  * 数学公式插件（KaTeX）。@streamdown/math 默认 singleDollarTextMath: false，
  * 只解析 $$...$$；而 AI 输出行内公式普遍用单美元 $...$（如 $E=mc^2$），
  * 不开则整句原样输出（用户可见的“公式没渲染”）。
  * 开启单美元的安全边界（remark-math 行为）：必须成对的 $...$ 才解析，
- * 单独的 $5、$HOME 等不受影响；副作用是 “$5 and $6” 这类成对美元会被当
- * 行内公式（与 GitHub math 渲染行为一致，可接受）。
+ * 单独的 $5、$HOME 等不受影响；成对但内容不是公式的写法（`报价 $5 元，含税 $6 元`）
+ * 由 remarkInlineMathGuard 在 mdast 层降级为原文，避免被 KaTeX 当公式渲染（2026-10）。
  */
 const mathPlugin = createMathPlugin({ singleDollarTextMath: true });
 
 // 流式精简插件集合：必须是模块级稳定引用（不能每帧内联 []）——
 // pipe 的 useMemo 依赖 resolvedRemarkPlugins，内联新数组会让 pipe 每帧重建，
 // FrozenMarkdownChunk 的 memo 比较 props.pipe 引用变化 → 冻结 prefix 每帧全量重解析。
-const NO_STREAM_REMARK_PLUGINS: Parameters<typeof Streamdown>[0]["remarkPlugins"] = [];
+// 行内公式判别挂在这里的原因：plugins.math 流式期间也生效，不同步会让中文货币文本
+// 流式中被 KaTeX 渲染、settle 后变回原文，出现可见闪变。
+// remarkRecoverLocalImages 必须同时在流式集合里：带空格的本地图片路径在流式中
+// 就是一行原始 `![..](..)` 文本，settle 后才变图的话等于「图晚一拍出现」。
+const NO_STREAM_REMARK_PLUGINS: Parameters<typeof Streamdown>[0]["remarkPlugins"] = [remarkInlineMathGuard, remarkRecoverLocalImages];
 const NO_STREAM_REHYPE_PLUGINS: Parameters<typeof Streamdown>[0]["rehypePlugins"] = [];
 
 /**
@@ -82,7 +86,7 @@ const PlainStreamSplit = memo(function PlainStreamSplit(props: { text: string })
  * - 数学公式：@streamdown/math（KaTeX，$...$/$$...$$）
  * - mermaid 图表：@streamdown/mermaid（```mermaid 代码块 → 交互式 SVG + 全屏/缩放/下载控件）
  * - 表格：GFM + 内建复制/下载（CSV/TSV/Markdown）控件
- * - HTML 标签：默认 sanitize（未知标签剥属性保留文本）
+ * - HTML 标签：raw 渲染后走 markdownSanitize.ts 的白名单（未知标签剥掉、危险子树整棵丢弃）
  *
  * 有意保留的项目能力（streamdown 无对应内置或桌面语义不同）：
  * - a 仍走 MarkdownLink：file:// 本地路径可点击打开、外链经 onOpenExternal
@@ -90,6 +94,8 @@ const PlainStreamSplit = memo(function PlainStreamSplit(props: { text: string })
  *   危险协议（javascript:/data:）由 urlTransform 拦截
  * - cytoscape / wardley 图表：streamdown 只有 mermaid，经 plugins.renderers
  *   注册自定义渲染器保留（见 MarkdownDiagramRenderers）
+ * - img 走 MarkdownImage：本地路径解析（盘符/相对 cwd/file://）、懒加载、限高、
+ *   点击放大、失败降级为「失败文案 + alt/原路径」，不在正文里裸渲染 <img>
  *
  * 流式冻结（学 dsh IncrementalMarkdownParser）：
  * - 追加文本只重塑解析前沿，prefix 用 generation+offset 钉 key，只重解析尾部
@@ -102,7 +108,7 @@ type StreamdownPipe = {
 	isAnimating?: boolean;
 	remarkPlugins: Parameters<typeof Streamdown>[0]["remarkPlugins"];
 	rehypePlugins: Parameters<typeof Streamdown>[0]["rehypePlugins"];
-	urlTransform: (url: string) => string;
+	urlTransform: (url: string, key: string) => string;
 	plugins: Parameters<typeof Streamdown>[0]["plugins"];
 	mermaid: Parameters<typeof Streamdown>[0]["mermaid"];
 	components: Components;
@@ -112,23 +118,10 @@ type StreamdownPipe = {
  * 单段 Streamdown。text 不变时 memo bailout，冻结前缀每帧零解析。
  * key 由调用方用 generation+offset 钉住，非 append 时整段重建。
  */
-const FrozenMarkdownChunk = memo(function FrozenMarkdownChunk(props: {
-	text: string;
-	frozen?: boolean;
-	pipe: StreamdownPipe;
-}) {
+const FrozenMarkdownChunk = memo(function FrozenMarkdownChunk(props: { text: string; frozen?: boolean; pipe: StreamdownPipe }) {
 	return (
 		<div data-md-frozen={props.frozen ? "1" : "0"} className="contents">
-			<Streamdown
-				mode="static"
-				isAnimating={props.pipe.isAnimating}
-				remarkPlugins={props.pipe.remarkPlugins}
-				rehypePlugins={props.pipe.rehypePlugins}
-				urlTransform={props.pipe.urlTransform}
-				plugins={props.pipe.plugins}
-				mermaid={props.pipe.mermaid}
-				components={props.pipe.components}
-			>
+			<Streamdown mode="static" isAnimating={props.pipe.isAnimating} remarkPlugins={props.pipe.remarkPlugins} rehypePlugins={props.pipe.rehypePlugins} urlTransform={props.pipe.urlTransform} plugins={props.pipe.plugins} mermaid={props.pipe.mermaid} components={props.pipe.components}>
 				{props.text}
 			</Streamdown>
 		</div>
@@ -152,14 +145,17 @@ export const MarkdownStream = memo(function MarkdownStream(props: {
 	/** 是否禁用图表/代码高亮等重型渲染（静态小场景如更新日志可关以省内存） */
 	light?: boolean;
 }) {
-	const isDark = typeof document !== "undefined" &&
-		document.documentElement.dataset.theme === "dark";
+	// 订阅式读主题（2027-02 修正）：直读 dataset 拿不到切主题后的变化，mermaid
+	// 配置会保持旧明暗档直到下次无关重渲染。观察器见 hooks/useDocumentTheme。
+	const isDark = useDocumentTheme() === "dark";
 	// 逐字打字机：默认参数见 useSmoothStream（约 8ms / 每帧最多 6 字）。
 	const { displayedContent } = useSmoothStream({
 		content: props.text,
 		isStreaming: Boolean(props.isStreaming),
 	});
-	const displayText = props.isStreaming ? displayedContent : props.text;
+	const rawDisplayText = props.isStreaming ? displayedContent : props.text;
+	// 在分块前统一分隔符，避免公式跨冻结边界；消息原文与复制内容不改写。
+	const displayText = useMemo(() => normalizeMathDelimiters(rawDisplayText), [rawDisplayText]);
 	const isStreamingNow = Boolean(props.isStreaming);
 	// 流式期间走轻量渲染：跳过代码高亮/mermaid/数学等重插件，只跑 marked 核心解析，
 	// 否则 30fps 逐字渲染会让插件管线（每帧全量树遍历）占满主线程，React concurrent
@@ -167,11 +163,12 @@ export const MarkdownStream = memo(function MarkdownStream(props: {
 	// 流结束 isStreaming 变 false 后，全量渲染（高亮/mermaid/表格/元素树）是一次
 	// 实测 70-100ms 的同步长任务：若发生在用户滚动/交互期间会造成可见卡顿与滚动跳动。
 	// 因此 settle 后先保持流式末帧的轻量渲染，requestIdleCallback 空闲时再切全量
-	// （timeout 兜底防永久延迟）；静态场景（从未流式，如 FileDiffViewer）不延迟。
+	// （timeout 兜底防永久延迟）。静态场景（从未流式，如 FileDiffViewer）分屏打开时，旁边
+	// 常是正在流式渲染的会话：小文档立即全量无可感卡顿；大文档（>40K）同样走 idle
+	// 调度，避免 shiki 全量高亮与会话流式渲染抢主线程（2027-02 分屏卡顿修复）。
 	const wasStreamingRef = useRef(false);
 	const [settleFull, setSettleFull] = useState(false);
-	const effectiveLight = props.light || isStreamingNow || !settleFull ||
-		shouldKeepLightOnSettle(props.text.length);
+	const effectiveLight = props.light || isStreamingNow || !settleFull || shouldKeepLightOnSettle(props.text.length);
 	useEffect(() => {
 		if (isStreamingNow) {
 			// 新一轮流式：复位，等待下次 settle 再调度全量
@@ -180,15 +177,18 @@ export const MarkdownStream = memo(function MarkdownStream(props: {
 			return;
 		}
 		if (!wasStreamingRef.current) {
-			// 静态场景（从未流式）：立即全量，不延迟
-			setSettleFull(true);
-			return;
+			// 静态场景（从未流式）：小文档（≤40K）立即全量；大文档首帧先轻量渲染，
+			// 空闲再补全量高亮（与流式 settle 同款调度）。首帧轻量期间 frozenSplit
+			// 走冻结切分渲染，文本立即可读可滚，不是白屏。
+			if (displayText.length <= STREAM_LIGHT_MAX_CHARS) {
+				setSettleFull(true);
+				return;
+			}
+		} else {
+			wasStreamingRef.current = false;
 		}
-		wasStreamingRef.current = false;
 		const schedule = () => setSettleFull(true);
-		const id = typeof window.requestIdleCallback === "function"
-			? window.requestIdleCallback(schedule, { timeout: 1500 })
-			: window.setTimeout(schedule, 50);
+		const id = typeof window.requestIdleCallback === "function" ? window.requestIdleCallback(schedule, { timeout: 1500 }) : window.setTimeout(schedule, 50);
 		return () => {
 			if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(id);
 			else window.clearTimeout(id);
@@ -201,31 +201,18 @@ export const MarkdownStream = memo(function MarkdownStream(props: {
 	const frontierRef = useRef<IncrementalMarkdownFrontier | undefined>(undefined);
 	if (!frontierRef.current) frontierRef.current = new IncrementalMarkdownFrontier();
 	const usingFrozen = isStreamingNow || !settleFull;
-	const frozenSplit =
-		usingFrozen && !props.light && displayText.length <= STREAM_LIGHT_MAX_CHARS
-			? frontierRef.current.update(displayText)
-			: undefined;
+	const frozenSplit = usingFrozen && !props.light && displayText.length <= STREAM_LIGHT_MAX_CHARS ? frontierRef.current.update(displayText) : undefined;
 	if (!usingFrozen) frontierRef.current.reset();
 	// 流式纯文本兜底（长度单调递增，一旦触发保持到 settle，不会反复横跳）：
 	// 1. 整体超长（>40K）：marked 解析成本线性增长，流式期间回退纯文本；
 	// 2. 不可冻结（未闭合代码围栏等，prefixEnd=0）且超过小阈值：每帧都是全量
 	//    重渲染（大代码块流式输出时 GC 追不上，原生内存实测 200-450MB/min 爬升），
 	//    同样回退纯文本，settle 后一次全量渲染。
-	const streamPlain =
-		isStreamingNow && displayText.length > STREAM_LIGHT_MAX_CHARS ||
-		(frozenSplit !== undefined && frozenSplit.prefixEnd === 0 && displayText.length > STREAM_UNFREEZABLE_MIN_CHARS);
+	const streamPlain = (isStreamingNow && displayText.length > STREAM_LIGHT_MAX_CHARS) || (frozenSplit !== undefined && frozenSplit.prefixEnd === 0 && displayText.length > STREAM_UNFREEZABLE_MIN_CHARS);
 	// 流式中精简插件：gfm/codeMeta/linkifyPaths 与 math 等插件都留到静态渲染；
 	// 外部显式传入的插件（FileDiffViewer 等场景）不受流式精简影响。
-	const resolvedRemarkPlugins = isStreamingNow
-		? NO_STREAM_REMARK_PLUGINS
-		: (props.remarkPlugins ?? [
-				remarkGfmNoSingleTilde,
-				defaultRemarkPlugins.codeMeta,
-				remarkLinkifyPaths,
-			]);
-	const resolvedRehypePlugins = isStreamingNow
-		? NO_STREAM_REHYPE_PLUGINS
-		: (props.rehypePlugins ?? [defaultRehypePlugins.raw]);
+	const resolvedRemarkPlugins = isStreamingNow ? NO_STREAM_REMARK_PLUGINS : (props.remarkPlugins ?? [remarkGfmNoSingleTilde, remarkInlineMathGuard, remarkRecoverLocalImages, defaultRemarkPlugins.codeMeta, remarkLinkifyPaths]);
+	const resolvedRehypePlugins = isStreamingNow ? NO_STREAM_REHYPE_PLUGINS : (props.rehypePlugins ?? UNTRUSTED_MARKDOWN_REHYPE_PLUGINS);
 	// 显式 Components 标注：让 a 的 props 走上下文类型推断（streamdown 的
 	// Components 是「具名槽位 | 索引签名」联合，直接内联会触发索引签名分支的类型不兼容）
 	// useMemo 依赖回调 props：回调引用变化时 components 重建，streamElement 随之重建，
@@ -235,16 +222,35 @@ export const MarkdownStream = memo(function MarkdownStream(props: {
 	const components: Components = useMemo(
 		() =>
 			props.components ?? {
-				a: (linkProps) => (
-					<MarkdownLink
-						{...(linkProps as unknown as React.AnchorHTMLAttributes<HTMLAnchorElement>)}
-						onOpenExternal={props.onOpenExternal}
-						onOpenFile={props.onOpenFile}
-					/>
+				a: (linkProps) => <MarkdownLink {...(linkProps as unknown as React.AnchorHTMLAttributes<HTMLAnchorElement>)} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />,
+				// 图片统一走 MarkdownImage（懒加载/限高/点击放大/失败降级），不要在组件里直接渲染 img
+				img: (imageProps) => <MarkdownImage destination={imageProps.src ?? ""} alt={imageProps.alt ?? ""} />,
+				// 同段多图：属性会被 rehype-sanitize 剥掉，只能在 p 这一层数出子级图片数、经 context 传下去
+				p: (paragraphProps) => (
+					<MarkdownImageGroupProvider count={imageCountInChildren(paragraphProps.node)}>
+						<p>{paragraphProps.children}</p>
+					</MarkdownImageGroupProvider>
 				),
 			},
 		[props.components, props.onOpenExternal, props.onOpenFile],
 	);
+	// 图片 URL 在 urlTransform 这一步就解析完（流式/hast 之后就只剩「能加载的地址」）：
+	// - 本地路径（盘符/相对/畸形空格）在组件之外变成 pideck-file://，否则可能被后面的
+	//   URL 规范化/清洗环节静默丢掉，到组件里只剩空串（那种 bug 表现为「图不显示且没有报错」）；
+	// - 解不出就返回空串，MarkdownImage 会降级成 alt 文本，不会出现空 src 白图。
+	const baseDir = useFileLinkBaseDir();
+	const urlTransform = useMemo(() => {
+		const fallback = props.urlTransform ?? markdownUrlTransform;
+		const streaming = Boolean(props.isStreaming);
+		return (url: string, key: string) => {
+			if (key !== "src") return fallback(url);
+			const resolved = resolveMarkdownImageSrc(url, { baseDir, toLocalUrl: localImageUrl }) ?? "";
+			// 流式时不解析本地图：路径正写到一半（`C:\Users\a` → `.png`）会打空请求，
+			// 还会先闪一下「加载失败」。settle 后一次性解析（dsh 同样在 streaming 期间
+			// 跳过本地路径）。远程图不受影响。
+			return streaming && resolved.startsWith("pideck-file:") ? "" : resolved;
+		};
+	}, [baseDir, props.isStreaming, props.urlTransform]);
 	const pipe: StreamdownPipe = useMemo(
 		() => ({
 			// 学 Proma：流式期间也用 static 模式（同步渲染）。streamdown 的 streaming 模式
@@ -254,7 +260,7 @@ export const MarkdownStream = memo(function MarkdownStream(props: {
 			isAnimating: props.isStreaming,
 			remarkPlugins: resolvedRemarkPlugins,
 			rehypePlugins: resolvedRehypePlugins,
-			urlTransform: props.urlTransform ?? markdownUrlTransform,
+			urlTransform,
 			plugins: (effectiveLight
 				? { math: mathPlugin }
 				: {
@@ -270,63 +276,34 @@ export const MarkdownStream = memo(function MarkdownStream(props: {
 			},
 			components,
 		}),
-		[
-			components,
-			props.isStreaming,
-			effectiveLight,
-			resolvedRemarkPlugins,
-			resolvedRehypePlugins,
-			props.urlTransform,
-			isDark,
-		],
+		[components, props.isStreaming, effectiveLight, resolvedRemarkPlugins, resolvedRehypePlugins, urlTransform, isDark],
 	);
 	// 冻结切分与 streamPlain 已在上面（settle effect 之后）先行计算，
 	// 此处直接消费 frozenSplit：节流窗口内 displayText 不变时 useMemo 返回
 	// 同一 element 引用，React 直接 bailout，Streamdown 子树（含 marked 解析）完全跳过。
-	const streamElement = useMemo(
-		() => {
-			if (streamPlain) {
-				// 超长兜底：流式期间纯文本节点（主线程只做字符串切片），
-				// 排版交给容器 markdown-body（pre-wrap 语义由此处补上）。
-				// 冻结/活动两段拆分：每帧 layout 成本 ≤4K 字符，不随全文增长。
-				return <PlainStreamSplit text={displayText} />;
-			}
-			// settle 后整篇一次渲染：自愈跨冻结边界的链接/脚注/表格，并恢复高亮插件。
-			if (!frozenSplit || frozenSplit.prefixEnd === 0) {
-				return (
-					<Streamdown
-						mode="static"
-						isAnimating={pipe.isAnimating}
-						remarkPlugins={pipe.remarkPlugins}
-						rehypePlugins={pipe.rehypePlugins}
-						urlTransform={pipe.urlTransform}
-						plugins={pipe.plugins}
-						mermaid={pipe.mermaid}
-						components={pipe.components}
-					>
-						{displayText}
-					</Streamdown>
-				);
-			}
-			// 流式冻结：prefix 用 generation+offset 钉 key，tail 每帧重解析（UNSTABLE_TAIL_BLOCKS）。
+	const streamElement = useMemo(() => {
+		if (streamPlain) {
+			// 超长兜底：流式期间纯文本节点（主线程只做字符串切片），
+			// 排版交给容器 markdown-body（pre-wrap 语义由此处补上）。
+			// 冻结/活动两段拆分：每帧 layout 成本 ≤4K 字符，不随全文增长。
+			return <PlainStreamSplit text={displayText} />;
+		}
+		// settle 后整篇一次渲染：自愈跨冻结边界的链接/脚注/表格，并恢复高亮插件。
+		if (!frozenSplit || frozenSplit.prefixEnd === 0) {
 			return (
-				<Fragment>
-					<FrozenMarkdownChunk
-						key={`${frozenSplit.generation}:0`}
-						text={frozenSplit.prefix}
-						frozen
-						pipe={pipe}
-					/>
-					<FrozenMarkdownChunk
-						key={`${frozenSplit.generation}:${frozenSplit.prefixEnd}`}
-						text={frozenSplit.tail}
-						pipe={pipe}
-					/>
-				</Fragment>
+				<Streamdown mode="static" isAnimating={pipe.isAnimating} remarkPlugins={pipe.remarkPlugins} rehypePlugins={pipe.rehypePlugins} urlTransform={pipe.urlTransform} plugins={pipe.plugins} mermaid={pipe.mermaid} components={pipe.components}>
+					{displayText}
+				</Streamdown>
 			);
-		},
-		[displayText, frozenSplit, pipe, streamPlain],
-	);
+		}
+		// 流式冻结：prefix 用 generation+offset 钉 key，tail 每帧重解析（UNSTABLE_TAIL_BLOCKS）。
+		return (
+			<Fragment>
+				<FrozenMarkdownChunk key={`${frozenSplit.generation}:0`} text={frozenSplit.prefix} frozen pipe={pipe} />
+				<FrozenMarkdownChunk key={`${frozenSplit.generation}:${frozenSplit.prefixEnd}`} text={frozenSplit.tail} pipe={pipe} />
+			</Fragment>
+		);
+	}, [displayText, frozenSplit, pipe, streamPlain]);
 	return (
 		<Fragment>
 			{streamElement}

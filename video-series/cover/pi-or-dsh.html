@@ -1,0 +1,492 @@
+<!doctype html>
+<!-- PiDeck 介绍片 · 视频封面（16:9 = 1920×1080 / 3:4 = 1080×1440）
+     主题「Pi Or Dsh？我全都要」：PiDeck 里 pi 与 dsh 两个 agent 运行时都装得下。
+     与 cover.html 共用同一套系列 grammar（同一份 token、同一套外壳与导出链路），
+     只是把右侧示意面板换成「双运行时」卡片。改配色请与 cover.html、
+     decks/generate_decks.py 的 SLIDE_CSS 一起改，别让两张封面不像一家人。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>PiDeck 封面 · Pi Or Dsh？我全都要</title>
+<style id="shell-style">
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#0d1117;color:#e8eaed;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+.app{display:flex;height:100%;overflow:hidden}
+.preview{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;padding:20px;
+	background:radial-gradient(900px 600px at 20% 0%,#1b2129,#0d1117 70%)}
+.stage{overflow:hidden;border-radius:10px;box-shadow:0 24px 70px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.07)}
+/* 面板三段式：头部 / 可滚动表单 / 底部操作条（操作条是布局里的一行，不悬浮压内容） */
+.panel{width:372px;flex:0 0 372px;display:flex;flex-direction:column;background:#171c24;border-left:1px solid rgba(255,255,255,.07)}
+.panel__head{padding:15px 18px 13px;border-bottom:1px solid rgba(255,255,255,.06)}
+.panel__head-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+kbd{font:inherit;font-size:10.5px;font-weight:600;color:#93a4bb;background:rgba(255,255,255,.08);border-radius:5px;padding:1px 5px}
+.panel__title{font-size:15px;font-weight:700;color:#eaf0fb}
+.panel__sub{margin:3px 0 0;font-size:11.5px;color:#6d7c8f}
+.panel__body{flex:1;min-height:0;overflow-y:auto;padding:15px 18px 18px}
+.panel__foot{flex:0 0 auto;padding:13px 18px 15px;border-top:1px solid rgba(255,255,255,.07);background:#1a2029}
+/* 预览模式：右侧操作区整体让位，封面按整窗重新适配；退出按钮浮在右上角 */
+.app.is-preview .panel{display:none}
+.app.is-preview .preview{padding:0}
+.app.is-preview .stage{border-radius:0;box-shadow:none}
+.exit-btn{position:fixed;top:18px;right:18px;z-index:20;display:none;align-items:center;gap:9px;height:38px;padding:0 15px;border:1px solid rgba(255,255,255,.13);border-radius:10px;background:rgba(23,28,36,.9);color:#eaf0fb;font-size:12.5px;font-weight:700;cursor:pointer;transition:background .15s,border-color .15s}
+.exit-btn:hover{background:rgba(37,46,58,.96);border-color:rgba(255,255,255,.22)}
+.app.is-preview .exit-btn{display:inline-flex}
+.exit-btn kbd{color:#93a4bb}
+.fs{border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:11px 12px 12px;margin:0 0 12px;background:rgba(255,255,255,.015)}
+.fs legend{padding:0 6px;font-size:12px;font-weight:700;color:#8ea3bd;letter-spacing:.4px}
+.f{margin-bottom:9px}
+.f:last-child{margin-bottom:0}
+.f label{display:block;font-size:11.5px;color:#7d8ea8;margin-bottom:5px}
+.f input,.f textarea{width:100%;background:#111720;border:1px solid rgba(255,255,255,.08);border-radius:9px;color:#eaf0fb;padding:9px 10px;font-size:13px;font-family:inherit;line-height:1.5;transition:border-color .15s,box-shadow .15s}
+.f textarea{min-height:76px;resize:vertical}
+.f input:hover,.f textarea:hover{border-color:rgba(255,255,255,.16)}
+.f input:focus,.f textarea:focus{outline:none;border-color:#3d6fd1;box-shadow:0 0 0 3px rgba(61,111,209,.22)}
+button{font-family:inherit;cursor:pointer}
+button:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(61,111,209,.4)}
+.btn{display:inline-flex;align-items:center;gap:8px;border:1px solid transparent;border-radius:10px;font-weight:700;transition:background .15s,border-color .15s,color .15s,box-shadow .15s,transform .08s}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.btn:not(:disabled):active{transform:scale(.985)}
+.btn--primary{width:100%;height:44px;justify-content:flex-start;padding:0 12px 0 14px;font-size:14px;background:linear-gradient(180deg,#3a7ae0,#2f6cd1);color:#fff;box-shadow:0 6px 16px rgba(47,108,209,.26)}
+.btn--primary:hover:not(:disabled){background:linear-gradient(180deg,#4285ea,#3473da)}
+.btn--primary .btn__meta{margin-left:auto;font-size:11.5px;font-weight:600;color:#cfe0ff;background:rgba(0,0,0,.2);padding:3px 8px;border-radius:7px}
+.btn--primary.is-busy{background:#2b4d86;box-shadow:none}
+.btn--primary.is-done{background:linear-gradient(180deg,#2fa06a,#268a5b)}
+.btn--primary.is-fail{background:linear-gradient(180deg,#c0392b,#a5301f)}
+.btn--ghost{height:28px;padding:0 11px;font-size:12px;font-weight:600;background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.09);color:#a9b8cb}
+.btn--ghost:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.16);color:#eaf0fb}
+.seg{display:flex;gap:3px;padding:3px;margin-bottom:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:10px}
+.seg__item{flex:1;height:29px;border:0;border-radius:7px;background:transparent;color:#8ea3bd;font-size:12px;font-weight:700;transition:background .15s,color .15s,box-shadow .15s}
+.seg__item:hover{background:rgba(255,255,255,.05);color:#dfe6f2}
+.seg__item[aria-pressed="true"]{background:linear-gradient(180deg,rgba(93,140,255,.24),rgba(93,140,255,.13));color:#fff;box-shadow:inset 0 0 0 1px rgba(120,160,255,.26)}
+.spin{width:13px;height:13px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation-duration:2.4s}}
+.hint{margin:9px 0 0;font-size:11.5px;color:#5f6f84;line-height:1.6}
+</style>
+<style id="cover-style">
+/* ── 系列 token（与 cover.html / decks/generate_decks.py 的 SLIDE_CSS 保持一致）── */
+/* 带 box-sizing 一起写在这里：导出只把 #cover-style 塞进 SVG，缺了这条
+   padding 会加到 1920 之外，导出图右边直接被裁掉一块（外壳的 * 规则不会跟着走） */
+#cover,#cover *{box-sizing:border-box}
+#cover{
+	--bg:#0e1116; --surface:#171b22; --line:rgba(255,255,255,.08);
+	--text:#e8eaed; --muted:#9aa3b2; --dim:#6b7380;
+	--accent:#d4a574; --accent-soft:rgba(212,165,116,.14); --ok:#6fbf8a;
+	--dsh:#6cc0e8;
+	--font:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+	--mono:"Cascadia Code","Consolas","SF Mono",ui-monospace,monospace;
+	position:relative; display:flex; flex-direction:column; overflow:hidden;
+	color:var(--text); font-family:var(--font);
+	background:
+		radial-gradient(1200px 600px at 100% -10%, rgba(212,165,116,.10), transparent 55%),
+		radial-gradient(900px 500px at -10% 110%, rgba(90,120,160,.10), transparent 50%),
+		var(--bg);
+}
+#cover::before{
+	content:""; position:absolute; inset:0; pointer-events:none;
+	background-image:linear-gradient(rgba(255,255,255,.015) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.015) 1px,transparent 1px);
+	background-size:48px 48px;
+}
+#cover>*{position:relative; z-index:1}
+#cover.r-169{width:1920px;height:1080px;padding:64px 84px 56px}
+#cover.r-34{width:1080px;height:1440px;padding:56px 60px 48px}
+.mast{display:flex;justify-content:space-between;align-items:center;padding-bottom:26px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:14px;min-width:0}
+.brand svg{width:44px;height:44px;flex:0 0 auto}
+.brand__name{font-size:26px;font-weight:650;letter-spacing:.01em}
+.brand__sub{font-size:20px;color:var(--muted);padding-left:2px}
+.ep-tag{font-family:var(--mono);font-size:19px;color:var(--accent);background:var(--accent-soft);
+	border:1px solid rgba(212,165,116,.28);padding:9px 16px;border-radius:999px;letter-spacing:.06em;white-space:nowrap}
+.split{flex:1;min-height:0;display:flex;align-items:center;gap:60px}
+.hero{flex:1 1 auto;min-width:0}
+/* 标题两行：上行是问句（白），下行是「我全都要」的落点（金）——
+   两行都用 block，避免长标题被浏览器在中途折行折出第三种断句 */
+h1{margin:0;letter-spacing:-.03em}
+h1 .q{display:block;font-size:92px;font-weight:600;color:var(--text);letter-spacing:-.02em}
+h1 .q .or{color:var(--dim);font-style:italic;font-weight:500;padding:0 8px}
+h1 .a{display:block;margin-top:6px;font-size:196px;font-weight:700;line-height:1.04;color:var(--accent);
+	text-shadow:0 0 70px rgba(212,165,116,.22)}
+.lead{margin:30px 0 0;font-size:28px;line-height:1.62;color:var(--muted);max-width:820px}
+.chips{display:flex;flex-wrap:wrap;gap:14px;margin-top:34px}
+.chip{font-size:20px;color:var(--muted);border:1px solid var(--line);background:rgba(255,255,255,.03);padding:10px 17px;border-radius:999px}
+/* 右侧：双运行时卡 —— 不写「哪个更好」，只写「两个都在」 */
+.vs{flex:0 0 auto;width:620px;background:var(--surface);border:1px solid var(--line);border-radius:20px;
+	box-shadow:0 30px 70px rgba(0,0,0,.5);overflow:hidden}
+.vs__bar{display:flex;align-items:center;gap:9px;padding:19px 20px;border-bottom:1px solid var(--line)}
+.vs__bar i{width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.13);flex:0 0 auto}
+.vs__title{margin-left:8px;font-family:var(--mono);font-size:19px;color:var(--accent);letter-spacing:.04em}
+.vs__body{padding:26px 24px 6px}
+.rt{display:flex;align-items:center;gap:20px;padding:22px;border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.025)}
+.rt__logo{flex:0 0 auto;width:64px;height:64px;display:flex;align-items:center;justify-content:center;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.04)}
+.rt__logo svg{width:44px;height:44px;display:block}
+.rt__logo--dsh{color:var(--dsh)}
+.rt__txt{flex:1;min-width:0}
+.rt__txt b{display:block;font-size:30px;font-weight:650;letter-spacing:-.01em}
+.rt__txt span{display:block;margin-top:5px;font-size:19px;color:var(--dim)}
+.rt__ok{font-family:var(--mono);font-size:18px;color:var(--ok);background:rgba(111,191,138,.12);padding:6px 13px;border-radius:999px;white-space:nowrap}
+.vs__or{display:flex;align-items:center;gap:14px;padding:14px 4px}
+.vs__or::before,.vs__or::after{content:"";flex:1;height:1px;background:var(--line)}
+.vs__or span{font-family:var(--mono);font-size:17px;color:var(--dim);letter-spacing:.14em}
+.vs__cap{margin:16px 24px 0;padding:18px 0 22px;font-size:18px;color:var(--dim);border-top:1px solid var(--line)}
+.foot{display:flex;justify-content:space-between;align-items:center;padding-top:22px;border-top:1px solid var(--line);color:var(--dim);font-size:20px}
+.foot .mono{font-family:var(--mono);letter-spacing:.02em}
+/* ── 3:4 竖版：同一套 grammar 换排布（上下堆叠 + 收字号），不是另做一张图 ── */
+#cover.r-34 .mast{padding-bottom:22px}
+#cover.r-34 .brand svg{width:36px;height:36px}
+#cover.r-34 .brand__name{font-size:22px}
+#cover.r-34 .brand__sub{font-size:17px}
+#cover.r-34 .ep-tag{font-size:16px;padding:7px 13px}
+#cover.r-34 .split{flex-direction:column;align-items:stretch;justify-content:center;gap:38px}
+/* 竖版是列方向：hero 的 flex:1 会把标题区撑开成一大块空白，必须收回自然高度 */
+#cover.r-34 .hero{flex:0 0 auto}
+#cover.r-34 h1 .q{font-size:76px}
+#cover.r-34 h1 .a{font-size:156px;margin-top:4px}
+#cover.r-34 .lead{font-size:26px;margin-top:24px;max-width:none}
+#cover.r-34 .chips{margin-top:28px;gap:11px}
+#cover.r-34 .chip{font-size:17px;padding:8px 14px}
+#cover.r-34 .vs{width:100%}
+#cover.r-34 .vs__title{font-size:17px}
+#cover.r-34 .vs__body{padding:22px 22px 6px}
+#cover.r-34 .rt{padding:22px;gap:20px}
+#cover.r-34 .rt__logo{width:64px;height:64px}
+#cover.r-34 .rt__logo svg{width:44px;height:44px}
+#cover.r-34 .rt__txt b{font-size:30px}
+#cover.r-34 .rt__txt span{font-size:19px}
+#cover.r-34 .rt__ok{font-size:17px;padding:6px 12px}
+#cover.r-34 .vs__cap{font-size:18px}
+#cover.r-34 .foot{font-size:18px}
+</style>
+</head>
+<body>
+<div class="app">
+	<main class="preview"><div class="stage" id="stage"></div></main>
+	<aside class="panel" id="panel"></aside>
+	<button class="exit-btn" id="exitPreview" type="button">退出预览 <kbd>Esc</kbd></button>
+</div>
+<script>
+/* =============== 封面内容（改这里，或在右侧面板里改） =============== */
+const DEFAULT_STATE = {
+	slug: "PiOrDsh",
+	ep: "介绍片 · 双运行时",
+	brandName: "PiDeck",
+	brandSub: "上手系列",
+	qMain: "Pi Or Dsh？",
+	answer: "我全都要",
+	lead: "pi 官方运行时和 dsh 运行时都在 PiDeck 里——选一个能干活，两个一起也能干活。",
+	chips: "介绍片, 约 4 分钟, 双运行时",
+	cardTitle: "PiDeck · 运行时",
+	piName: "Pi",
+	piDesc: "pi 官方 agent 运行时",
+	dshName: "DSH",
+	dshDesc: "dsh 运行时",
+	okLabel: "✓ 都可用",
+	cardCap: "一个 PiDeck，两个后端 —— 选一个也行，都要也行",
+	repo: "github.com/ayuayue/PiDeck",
+	byline: "作者 · caoayu",
+	ratio: "r-169"
+};
+/* pi 官方 TUI logo：4×4 像素 π（品牌色固定，不随明暗变），与
+   src/renderer/src/components/app/piTuiLogoData.ts 的 PI_TUI_COLORS / PI_TUI_LOGO_CELLS 逐字段对齐 */
+const TUI_COLORS = { coral: "#E48A7A", blue: "#4F8EB3", yellow: "#EAB65D" };
+const TUI_CELLS = {
+	"0:0": "coral",
+	"0:1": "coral",
+	"0:2": "coral",
+	"1:0": "blue",
+	"1:2": "coral",
+	"2:0": "blue",
+	"2:1": "blue",
+	"2:3": "yellow",
+	"3:0": "blue",
+	"3:3": "yellow"
+};
+const LOGO = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4" shape-rendering="crispEdges" aria-hidden="true">${Object.entries(TUI_CELLS)
+	.map(([k, c]) => {
+		const [y, x] = k.split(":").map(Number);
+		return `<rect x="${x}" y="${y}" width="1" height="1" fill="${TUI_COLORS[c]}"/>`;
+	})
+	.join("")}</svg>`;
+/* DSH 官方 logo（DeepSeek 鲸鱼），path 逐字段取自
+   src/renderer/src/components/session/SessionSourceBadge.tsx 的 DshLogo */
+const DSH_LOGO = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" aria-hidden="true"><path fill="currentColor" fill-rule="nonzero" d="M48.8354 10.0479C48.3232 9.79199 48.1025 10.2798 47.8032 10.5278C47.7007 10.6079 47.6143 10.7119 47.5273 10.8076C46.7793 11.624 45.9048 12.1597 44.7622 12.0957C43.0923 12 41.666 12.5356 40.4058 13.8398C40.1377 12.2319 39.2476 11.272 37.8926 10.6558C37.1836 10.3359 36.4668 10.0156 35.9702 9.31982C35.6235 8.82373 35.5293 8.27197 35.356 7.72754C35.2456 7.3999 35.1353 7.06396 34.7651 7.00781C34.3633 6.94385 34.2056 7.2876 34.0479 7.57568C33.418 8.75195 33.1733 10.0479 33.1973 11.3599C33.2524 14.312 34.4736 16.6641 36.8999 18.3359C37.1758 18.5278 37.2466 18.7197 37.1597 19C36.9946 19.5757 36.7974 20.1357 36.624 20.7119C36.5137 21.0801 36.3486 21.1597 35.9624 21C34.6309 20.4321 33.481 19.5918 32.4644 18.5757C30.7393 16.8721 29.1792 14.9917 27.2334 13.52C26.7764 13.1758 26.3193 12.856 25.8467 12.5518C23.8618 10.584 26.1069 8.96777 26.627 8.77588C27.1704 8.57568 26.8159 7.8877 25.0591 7.896C23.3022 7.90381 21.6953 8.50391 19.647 9.30371C19.3477 9.42383 19.0322 9.51172 18.7095 9.58398C16.8501 9.22363 14.9199 9.14355 12.9033 9.37598C9.10596 9.80762 6.07275 11.6396 3.84326 14.7681C1.16455 18.5278 0.53418 22.7998 1.30664 27.2559C2.11768 31.9521 4.46582 35.8398 8.07373 38.8799C11.8159 42.0322 16.1255 43.5762 21.041 43.2803C24.0269 43.104 27.3516 42.6963 31.1016 39.4561C32.0469 39.936 33.0396 40.1279 34.686 40.272C35.9546 40.3921 37.1758 40.208 38.1211 40.0078C39.6021 39.688 39.4995 38.2881 38.9639 38.0322C34.623 35.9678 35.5762 36.8081 34.71 36.1279C36.9155 33.4639 40.2402 30.6958 41.54 21.728C41.6426 21.0161 41.5557 20.5679 41.54 19.9917C41.5322 19.6396 41.6108 19.5039 42.0049 19.4639C43.0923 19.3359 44.1479 19.0317 45.1167 18.4878C47.9292 16.9199 49.064 14.3438 49.3315 11.2559C49.3711 10.7837 49.3237 10.2959 48.8354 10.0479ZM24.3262 37.8398C20.1196 34.4639 18.0791 33.3521 17.2358 33.3999C16.4482 33.4482 16.5898 34.3682 16.7632 34.9678C16.9443 35.5601 17.1812 35.9683 17.5117 36.4878C17.7402 36.832 17.8979 37.3442 17.2832 37.728C15.9282 38.584 13.5728 37.4399 13.4624 37.3838C10.7207 35.7358 8.42822 33.5601 6.81348 30.584C5.25342 27.7197 4.34766 24.6479 4.19775 21.3677C4.1582 20.5757 4.38672 20.2959 5.15869 20.1519C6.17529 19.96 7.22314 19.9199 8.23926 20.0718C12.5327 20.7119 16.1885 22.6719 19.2529 25.7759C21.002 27.5439 22.3252 29.6558 23.6885 31.7202C25.1377 33.9121 26.6978 36 28.6831 37.7119C29.3843 38.312 29.9434 38.7681 30.479 39.104C28.8643 39.2881 26.1699 39.3281 24.3262 37.8398ZM26.3433 24.6001C26.3433 24.248 26.6191 23.9678 26.9658 23.9678C27.0444 23.9678 27.1152 23.9839 27.1782 24.0078C27.2651 24.04 27.3438 24.0879 27.4067 24.1602C27.5171 24.272 27.5801 24.4321 27.5801 24.6001C27.5801 24.9521 27.3042 25.2319 26.9575 25.2319C26.6108 25.2319 26.3433 24.9521 26.3433 24.6001ZM32.6064 27.8799C32.2046 28.0479 31.8027 28.1919 31.4165 28.208C30.8179 28.2397 30.1641 27.9922 29.8096 27.688C29.2583 27.2158 28.8643 26.9521 28.6987 26.1279C28.6279 25.7759 28.6675 25.2319 28.7305 24.9199C28.8721 24.248 28.7144 23.8159 28.2495 23.4238C27.8716 23.104 27.3911 23.0161 26.8633 23.0161C26.666 23.0161 26.4849 22.9277 26.3511 22.856C26.1304 22.7441 25.9492 22.4639 26.1226 22.1201C26.1777 22.0078 26.4458 21.7358 26.5088 21.688C27.2256 21.272 28.0527 21.4077 28.8169 21.7197C29.5259 22.0161 30.0615 22.5601 30.834 23.3281C31.6216 24.2559 31.7632 24.5117 32.2124 25.208C32.5669 25.752 32.8901 26.312 33.1104 26.9521C33.2446 27.3521 33.0713 27.6802 32.6064 27.8799Z"/></svg>`;
+
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const chipList = (raw) => String(raw || "").split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+/* 问句里的连接词 Or 压成灰色：两个品牌名要跳出来，「还是」这个词不该抢眼。
+   字段里没写 Or 就原样输出，不做额外猜测。 */
+const markOr = (raw) => esc(raw).replace(/\bOr\b/g, '<span class="or">Or</span>');
+
+function renderCover(s) {
+	document.getElementById("stage").innerHTML = `
+	<div id="cover" class="${s.ratio}">
+		<header class="mast">
+			<div class="brand">${LOGO}<span class="brand__name">${esc(s.brandName)}</span><span class="brand__sub">${esc(s.brandSub)}</span></div>
+			<div class="ep-tag">${esc(s.ep)}</div>
+		</header>
+		<div class="split">
+			<section class="hero">
+				<h1>
+					<span class="q">${markOr(s.qMain)}</span>
+					<span class="a">${esc(s.answer)}</span>
+				</h1>
+				<p class="lead">${esc(s.lead)}</p>
+				<div class="chips">${chipList(s.chips).map((c) => `<span class="chip">${esc(c)}</span>`).join("")}</div>
+			</section>
+			<section class="vs">
+				<div class="vs__bar"><i></i><i></i><i></i><span class="vs__title">${esc(s.cardTitle)}</span></div>
+				<div class="vs__body">
+					<div class="rt">
+						<span class="rt__logo">${LOGO}</span>
+						<span class="rt__txt"><b>${esc(s.piName)}</b><span>${esc(s.piDesc)}</span></span>
+						<span class="rt__ok">${esc(s.okLabel)}</span>
+					</div>
+					<div class="vs__or"><span>or</span></div>
+					<div class="rt">
+						<span class="rt__logo rt__logo--dsh">${DSH_LOGO}</span>
+						<span class="rt__txt"><b>${esc(s.dshName)}</b><span>${esc(s.dshDesc)}</span></span>
+						<span class="rt__ok">${esc(s.okLabel)}</span>
+					</div>
+				</div>
+				<div class="vs__cap">${esc(s.cardCap)}</div>
+			</section>
+		</div>
+		<footer class="foot"><span class="mono">${esc(s.repo)}</span><span>${esc(s.byline)}</span></footer>
+	</div>`;
+	fit();
+	fitCard();
+}
+
+/* =============== 预览自适应缩放 =============== */
+/* 缩放必须加在 #cover 自己身上：stage 是 overflow:hidden 的裁切盒，
+   缩放加在 stage 上会先按「未缩放的本坐标系」把封面裁掉一块。 */
+function fit() {
+	const cover = document.getElementById("cover");
+	if (!cover) return;
+	const w = cover.offsetWidth;
+	const h = cover.offsetHeight;
+	const preview = document.querySelector(".preview");
+	const k = Math.min(1, (preview.clientWidth - 40) / w, (preview.clientHeight - 40) / h);
+	cover.style.transformOrigin = "top left";
+	cover.style.transform = `scale(${k})`;
+	document.getElementById("stage").style.width = Math.round(w * k) + "px";
+	document.getElementById("stage").style.height = Math.round(h * k) + "px";
+}
+window.addEventListener("resize", () => {
+	fit();
+	fitCard();
+});
+
+/* 卡片比可用高度高时整体等比缩小（offsetHeight 是 layout 尺寸，不受 transform 影响） */
+function fitCard() {
+	const card = document.querySelector("#cover .vs");
+	const split = document.querySelector("#cover .split");
+	if (!card || !split) return;
+	card.style.transform = "none";
+	const avail = split.clientHeight - 10;
+	const k = card.offsetHeight > avail ? avail / card.offsetHeight : 1;
+	card.style.transformOrigin = "center";
+	card.style.transform = k < 1 ? `scale(${k.toFixed(3)})` : "";
+}
+
+/* =============== 预览模式 =============== */
+/* 收起右侧操作区，封面按整窗重新适配：fit() 读的是 .preview 的可用尺寸，
+   所以必须在面板 display:none 之后再算，并等一帧让布局先落地。 */
+const appEl = document.querySelector(".app");
+const isPreview = () => appEl.classList.contains("is-preview");
+function setPreview(on) {
+	appEl.classList.toggle("is-preview", on);
+	/* 进预览时把焦点从输入框收回来，否则 P 键会被当成打字 */
+	if (on && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+	requestAnimationFrame(fit);
+}
+document.getElementById("exitPreview").addEventListener("click", () => setPreview(false));
+document.addEventListener("keydown", (e) => {
+	if (e.ctrlKey || e.metaKey || e.altKey) return;
+	const typing = e.target instanceof HTMLElement && /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
+	if (e.key === "Escape" && isPreview()) {
+		setPreview(false);
+		return;
+	}
+	if (typing) return;
+	if (e.key === "p" || e.key === "P") setPreview(!isPreview());
+});
+
+/* =============== 面板 =============== */
+let state = { ...DEFAULT_STATE };
+let exportScale = 2;
+
+function field(label, key, val, type) {
+	return `<div class="f"><label>${label}</label><input data-key="${key}" type="${type || "text"}" value="${esc(val)}"></div>`;
+}
+function renderPanel() {
+	const s = state;
+	document.getElementById("panel").innerHTML = `
+		<div class="panel__head">
+			<div class="panel__head-row">
+				<div>
+					<div class="panel__title">封面内容</div>
+					<p class="panel__sub">左边实时预览，改完点底部导图</p>
+				</div>
+				<button class="btn btn--ghost" id="previewBtn" type="button">预览 <kbd>P</kbd></button>
+			</div>
+		</div>
+		<div class="panel__body">
+			<fieldset class="fs"><legend>顶部</legend>
+				${field("标签（右上角）", "ep", s.ep)}
+				${field("品牌名", "brandName", s.brandName)}
+				${field("品牌后缀", "brandSub", s.brandSub)}
+			</fieldset>
+			<fieldset class="fs"><legend>标题</legend>
+				${field("上行问句（白）", "qMain", s.qMain)}
+				${field("下行落点（金）", "answer", s.answer)}
+				${`<div class="f"><label>一句话卖点</label><textarea data-key="lead">${esc(s.lead)}</textarea></div>`}
+			</fieldset>
+			<fieldset class="fs"><legend>标签与落款</legend>
+				${field("三个标签（逗号分隔）", "chips", s.chips)}
+				${field("仓库地址", "repo", s.repo)}
+				${field("作者署名", "byline", s.byline)}
+			</fieldset>
+			<fieldset class="fs"><legend>右侧运行时卡</legend>
+				${field("窗口标题", "cardTitle", s.cardTitle)}
+				${field("上：名字", "piName", s.piName)}
+				${field("上：说明", "piDesc", s.piDesc)}
+				${field("下：名字", "dshName", s.dshName)}
+				${field("下：说明", "dshDesc", s.dshDesc)}
+				${field("右侧胶囊（两行共用）", "okLabel", s.okLabel)}
+				${field("底部一句话", "cardCap", s.cardCap)}
+			</fieldset>
+			<fieldset class="fs"><legend>出图</legend>
+				${field("文件名前缀", "slug", s.slug)}
+			</fieldset>
+		</div>
+		<div class="panel__foot">
+			<div class="seg" role="group" aria-label="画布比例">
+				<button class="seg__item" data-ratio="r-169" aria-pressed="${s.ratio === "r-169"}">16:9 横版</button>
+				<button class="seg__item" data-ratio="r-34" aria-pressed="${s.ratio === "r-34"}">3:4 竖版</button>
+			</div>
+			<div class="seg" role="group" aria-label="导出倍率">
+				<button class="seg__item" data-scale="2" aria-pressed="${exportScale === 2}">2× 高清</button>
+				<button class="seg__item" data-scale="1" aria-pressed="${exportScale === 1}">1× 原尺寸</button>
+			</div>
+			<button class="btn btn--primary" id="exportBtn"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5v11.5"/><path d="M7.2 10.5 12 15.3l4.8-4.8"/><path d="M4.5 20h15"/></svg><span class="btn__label">导出 PNG</span><span class="btn__meta" id="exportMeta">${metaText()}</span></button>
+			<p class="hint">16:9 → B站 / YouTube，3:4 → 小红书；2× 供平台再压缩，1× 是平台标准尺寸。</p>
+		</div>`;
+}
+function metaText() {
+	const base = state.ratio === "r-169" ? [1920, 1080] : [1080, 1440];
+	return `${base[0] * exportScale}×${base[1] * exportScale}`;
+}
+function syncSegs() {
+	document.querySelectorAll(".seg__item").forEach((b) => {
+		const on = b.dataset.ratio ? b.dataset.ratio === state.ratio : Number(b.dataset.scale) === exportScale;
+		b.setAttribute("aria-pressed", String(on));
+	});
+	const meta = document.getElementById("exportMeta");
+	if (meta) meta.textContent = metaText();
+}
+
+document.getElementById("panel").addEventListener("input", (e) => {
+	const el = e.target;
+	if (!el.dataset.key) return;
+	state[el.dataset.key] = el.value;
+	renderCover(state);
+});
+document.getElementById("panel").addEventListener("click", (e) => {
+	const seg = e.target.closest(".seg__item");
+	if (seg) {
+		if (seg.dataset.ratio) {
+			state.ratio = seg.dataset.ratio;
+			renderCover(state);
+		} else {
+			exportScale = Number(seg.dataset.scale);
+			renderPanel();
+		}
+		syncSegs();
+		return;
+	}
+	if (e.target.closest("#previewBtn")) {
+		setPreview(true);
+		return;
+	}
+	if (e.target.closest("#exportBtn")) exportPng(exportScale);
+});
+
+/* =============== 导出 PNG =============== */
+/* 原理：把封面 DOM 包进 SVG <foreignObject> 再画到 canvas，纯本地、无外部依赖。
+   本文件不允许引用 web font / 外链图片，否则导出会掉字、丢图。 */
+async function buildPng(scale) {
+	const node = document.getElementById("cover");
+	const w = node.offsetWidth;
+	const h = node.offsetHeight;
+	const clone = node.cloneNode(true);
+	clone.style.width = w + "px";
+	clone.style.height = h + "px";
+	clone.style.transform = "none"; // 预览里的自适应缩放不能带进导出
+	const wrap = document.createElement("div");
+	wrap.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+	wrap.style.cssText = `width:${w}px;height:${h}px;`;
+	const styleEl = document.createElement("style");
+	styleEl.textContent = document.getElementById("cover-style").textContent;
+	wrap.appendChild(styleEl);
+	wrap.appendChild(clone);
+	const svg =
+		`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">` +
+		`<foreignObject width="100%" height="100%">${new XMLSerializer().serializeToString(wrap)}</foreignObject></svg>`;
+	const img = new Image();
+	await new Promise((res, rej) => {
+		img.onload = res;
+		img.onerror = () => rej(new Error("SVG 渲染失败，可改用截图导出"));
+		img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+	});
+	const canvas = document.createElement("canvas");
+	canvas.width = Math.round(w * scale);
+	canvas.height = Math.round(h * scale);
+	const ctx = canvas.getContext("2d");
+	ctx.fillStyle = "#0e1116"; // 深色底：透明像素在平台侧会被压成白边
+	ctx.fillRect(0, 0, canvas.width, canvas.height);
+	ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+	return canvas.toDataURL("image/png");
+}
+
+async function exportPng(scale) {
+	const btn = document.getElementById("exportBtn");
+	const label = btn.querySelector(".btn__label");
+	const meta = document.getElementById("exportMeta");
+	if (btn.disabled) return;
+	const back = () => {
+		btn.className = "btn btn--primary";
+		btn.disabled = false;
+		label.textContent = "导出 PNG";
+		meta.textContent = metaText();
+	};
+	btn.disabled = true;
+	btn.classList.add("is-busy");
+	label.innerHTML = `<span class="spin"></span>生成中`;
+	try {
+		const url = await buildPng(scale);
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = `${state.slug}_封面_${state.ratio === "r-169" ? "16x9" : "3x4"}_${scale}x.png`;
+		a.click();
+		btn.classList.remove("is-busy");
+		btn.classList.add("is-done");
+		label.textContent = "已导出";
+		meta.textContent = "✓";
+		setTimeout(back, 1600);
+	} catch (err) {
+		console.error(err);
+		btn.classList.remove("is-busy");
+		btn.classList.add("is-fail");
+		label.textContent = "导出失败";
+		meta.textContent = "请截图";
+		setTimeout(back, 2600);
+	}
+}
+
+window.__buildPng = buildPng; // 供 shot / check 自动化用
+renderPanel();
+renderCover(state);
+</script>
+</body>
+</html>

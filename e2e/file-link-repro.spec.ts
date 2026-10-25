@@ -17,10 +17,7 @@ mkdirSync(join(projectDir, "src", "main"), { recursive: true });
 mkdirSync(join(projectDir, "docs"), { recursive: true });
 writeFileSync(join(projectDir, "src", "main", "index.ts"), "export const seedContent = 42;\n// link-repro marker-a\n");
 // 40 行的跳转目标：第 25 行为特征行 "// line 25"，用于断言「打开后滚动定位到指定行」
-writeFileSync(
-	join(projectDir, "src", "main", "jump.ts"),
-	Array.from({ length: 40 }, (_, i) => `// line ${i + 1}`).join("\n") + "\n",
-);
+writeFileSync(join(projectDir, "src", "main", "jump.ts"), Array.from({ length: 40 }, (_, i) => `// line ${i + 1}`).join("\n") + "\n");
 writeFileSync(join(projectDir, "docs", "ui-2.0-revamp-plan.md"), "# Revamp Plan\n\nlink-repro marker-b content.\n");
 
 const isWin32 = process.platform === "win32";
@@ -30,7 +27,6 @@ const fsJumpFwd = fsJumpPath.replace(/\\/g, "/");
 // defaultUrlTransform 当未知协议清空 href → 点击无反应，已修复后两种形态都要覆盖）；
 // POSIX 路径本身以 / 开头，不能再前置 /（否则变成协议相对 //var/... 同样点不开）。
 const fsJumpMarkdown = `${isWin32 ? "/" : ""}${fsJumpFwd}:25`;
-
 
 const fsAbsPath = join(projectDir, "docs", "ui-2.0-revamp-plan.md"); // C:\...\ui-2.0-revamp-plan.md
 const fsAbsFwd = fsAbsPath.replace(/\\/g, "/");
@@ -135,10 +131,7 @@ test("B/C: history session absolute-path links show content; dead link downgrade
 	const timeline = window.locator(".message-timeline");
 	await expect(timeline).toContainText("绝对路径巡检", { timeout: 20_000 });
 	// 绝对 \ 路径链接（反斜杠形态）→ 打开有内容
-	const backslash = timeline
-		.locator('a[href^="file://"]', { hasText: "ui-2.0-revamp-plan.md" })
-		.filter({ hasText: fsAbsPath })
-		.first();
+	const backslash = timeline.locator('a[href^="file://"]', { hasText: "ui-2.0-revamp-plan.md" }).filter({ hasText: fsAbsPath }).first();
 	await expect(backslash).toBeVisible({ timeout: 15_000 });
 	await backslash.click();
 	const stage = window.locator(".workbench-stage-split").first();
@@ -177,8 +170,6 @@ test("B/C: history session absolute-path links show content; dead link downgrade
 	await expect(stage).toContainText("link-repro marker-a", { timeout: 10_000 });
 
 	// 死链：不存在的绝对路径 → 降级为纯文本（无 file:// 锚点），不会出现空白编辑器
-	await expect(
-		timeline.locator('a[href^="file://"]', { hasText: "no-such-file.ts" }),
-	).toHaveCount(0, { timeout: 10_000 });
+	await expect(timeline.locator('a[href^="file://"]', { hasText: "no-such-file.ts" })).toHaveCount(0, { timeout: 10_000 });
 	await expect(timeline.locator(".assistant-text", { hasText: "no-such-file.ts" })).toBeVisible({ timeout: 10_000 });
 });

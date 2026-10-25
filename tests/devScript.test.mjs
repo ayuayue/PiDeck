@@ -3,11 +3,7 @@ import { createRequire } from "node:module";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
-const {
-	createDevEnvironment,
-	getElectronViteInvocation,
-	withDefaultElectronArgs,
-} = require("../scripts/dev.js");
+const { createDevEnvironment, getElectronViteInvocation, withDefaultElectronArgs } = require("../scripts/dev.js");
 
 test("disables Electron sandbox for Linux dev runs by default", () => {
 	const env = createDevEnvironment({
@@ -24,7 +20,7 @@ test("removes stale electron-vite dev environment from parent shells", () => {
 		platform: "linux",
 		env: {
 			ELECTRON_RENDERER_URL: "http://127.0.0.1:5175/",
-			ELECTRON_CLI_ARGS: "[\"--ozone-platform=wayland\"]",
+			ELECTRON_CLI_ARGS: '["--ozone-platform=wayland"]',
 			NODE_ENV_ELECTRON_VITE: "development",
 			PATH: "/usr/bin",
 		},
@@ -63,6 +59,24 @@ test("does not disable Electron sandbox outside Linux", () => {
 	assert.equal(Object.hasOwn(env, "ELECTRON_DISABLE_SANDBOX"), false);
 });
 
+test("Windows dev injects the local node.exe as DSH runner sidecar", () => {
+	const env = createDevEnvironment({
+		platform: "win32",
+		env: { PATH: "C:\\Windows" },
+		nodeExecPath: "C:\\Program Files\\nodejs\\node.exe",
+	});
+	assert.equal(env.PIDECK_DSH_RUNNER_NODE, "C:\\Program Files\\nodejs\\node.exe");
+});
+
+test("Windows dev does not override an explicit DSH runner sidecar", () => {
+	const env = createDevEnvironment({
+		platform: "win32",
+		env: { PIDECK_DSH_RUNNER_NODE: "D:\\override\\node.exe" },
+		nodeExecPath: "C:\\Program Files\\nodejs\\node.exe",
+	});
+	assert.equal(env.PIDECK_DSH_RUNNER_NODE, "D:\\override\\node.exe");
+});
+
 test("runs electron-vite dev and forwards extra arguments", () => {
 	const invocation = getElectronViteInvocation({
 		nodeExecPath: "/usr/bin/node",
@@ -77,16 +91,7 @@ test("runs electron-vite dev and forwards extra arguments", () => {
 	});
 
 	assert.equal(invocation.command, "/usr/bin/node");
-	assert.deepEqual(invocation.args, [
-		"/repo/node_modules/electron-vite/bin/electron-vite.js",
-		"dev",
-		"--debug",
-		"main",
-		"--",
-		"--trace-warnings",
-		"--ozone-platform=x11",
-		"--log-level=3",
-	]);
+	assert.deepEqual(invocation.args, ["/repo/node_modules/electron-vite/bin/electron-vite.js", "dev", "--debug", "main", "--", "--trace-warnings", "--ozone-platform=x11", "--log-level=3"]);
 });
 
 test("does not override an explicit Chromium log level", () => {
@@ -102,13 +107,7 @@ test("does not override an explicit Chromium log level", () => {
 		},
 	});
 
-	assert.deepEqual(invocation.args, [
-		"/repo/node_modules/electron-vite/bin/electron-vite.js",
-		"dev",
-		"--",
-		"--log-level=1",
-		"--ozone-platform=x11",
-	]);
+	assert.deepEqual(invocation.args, ["/repo/node_modules/electron-vite/bin/electron-vite.js", "dev", "--", "--log-level=1", "--ozone-platform=x11"]);
 });
 
 test("adds startup X11 ozone argument on Linux Wayland", () => {
@@ -148,7 +147,7 @@ test("does not add startup X11 ozone argument outside Linux", () => {
 				WAYLAND_DISPLAY: "wayland-0",
 				DISPLAY: ":0",
 			},
-			}),
-			["--", "--log-level=3"],
-		);
-	});
+		}),
+		["--", "--log-level=3"],
+	);
+});

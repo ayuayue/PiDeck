@@ -24,14 +24,16 @@ async function makeFixture() {
 	const petdexSprite = join(petdexDir, "capy", "sprite.bin");
 	await writeFile(builtinSprite, "BUILTIN-A");
 	await writeFile(petdexSprite, "PETDEX-B");
-	await writeFile(join(petdexDir, "capy", "pet.json"), JSON.stringify({
-		id: "capy", displayName: "Capy", spritesheetPath: "sprite.bin",
-	}));
-
-	const scanner = new PetPackageScanner(
-		[{ id: "clawd", displayName: "Clawd", description: "", spritePath: builtinSprite }],
-		petdexDir,
+	await writeFile(
+		join(petdexDir, "capy", "pet.json"),
+		JSON.stringify({
+			id: "capy",
+			displayName: "Capy",
+			spritesheetPath: "sprite.bin",
+		}),
 	);
+
+	const scanner = new PetPackageScanner([{ id: "clawd", displayName: "Clawd", description: "", spritePath: builtinSprite }], petdexDir);
 	return { root, builtinSprite, petdexDir, scanner };
 }
 
@@ -100,17 +102,29 @@ test("new petdex package invalidates cache and appears in the list", async () =>
 	const { root, petdexDir, scanner } = await makeFixture();
 	try {
 		const first = await scanner.list();
-		assert.equal(first.some((m) => m.id === "capy"), true);
+		assert.equal(
+			first.some((m) => m.id === "capy"),
+			true,
+		);
 
 		// 新增社区包目录
 		await mkdir(join(petdexDir, "octo"), { recursive: true });
 		await writeFile(join(petdexDir, "octo", "sprite.bin"), "OCTO-C");
-		await writeFile(join(petdexDir, "octo", "pet.json"), JSON.stringify({
-			id: "octo", displayName: "Octo", spritesheetPath: "sprite.bin",
-		}));
+		await writeFile(
+			join(petdexDir, "octo", "pet.json"),
+			JSON.stringify({
+				id: "octo",
+				displayName: "Octo",
+				spritesheetPath: "sprite.bin",
+			}),
+		);
 
 		const second = await scanner.list();
-		assert.equal(second.some((m) => m.id === "octo"), true, "新增目录应触发重扫");
+		assert.equal(
+			second.some((m) => m.id === "octo"),
+			true,
+			"新增目录应触发重扫",
+		);
 		assert.equal(await scanner.resolveSpritePath("octo"), join(petdexDir, "octo", "sprite.bin"));
 	} finally {
 		await rm(root, { recursive: true, force: true });
@@ -136,10 +150,17 @@ test("builtin sprite removal is reflected after fingerprint change", async () =>
 	const { root, builtinSprite, scanner } = await makeFixture();
 	try {
 		const first = await scanner.list();
-		assert.equal(first.some((m) => m.id === "clawd"), true);
+		assert.equal(
+			first.some((m) => m.id === "clawd"),
+			true,
+		);
 		await rm(builtinSprite);
 		const second = await scanner.list();
-		assert.equal(second.some((m) => m.id === "clawd"), false, "文件删除应触发重扫并移除");
+		assert.equal(
+			second.some((m) => m.id === "clawd"),
+			false,
+			"文件删除应触发重扫并移除",
+		);
 		assert.equal(await scanner.resolveSpritePath("clawd"), null);
 	} finally {
 		await rm(root, { recursive: true, force: true });
@@ -153,12 +174,21 @@ test("petdex spritesheetPath cannot escape petsRoot (protocol whitelist safety)"
 		const outside = join(root, "outside.bin");
 		await writeFile(outside, "SECRET");
 		await mkdir(join(petdexDir, "evil"), { recursive: true });
-		await writeFile(join(petdexDir, "evil", "pet.json"), JSON.stringify({
-			id: "evil", displayName: "Evil", spritesheetPath: "../../outside.bin",
-		}));
+		await writeFile(
+			join(petdexDir, "evil", "pet.json"),
+			JSON.stringify({
+				id: "evil",
+				displayName: "Evil",
+				spritesheetPath: "../../outside.bin",
+			}),
+		);
 
 		const list = await scanner.list();
-		assert.equal(list.some((m) => m.id === "evil"), false, "逃逸路径的包必须被跳过");
+		assert.equal(
+			list.some((m) => m.id === "evil"),
+			false,
+			"逃逸路径的包必须被跳过",
+		);
 		assert.equal(await scanner.resolveSpritePath("evil"), null);
 	} finally {
 		await rm(root, { recursive: true, force: true });

@@ -21,7 +21,7 @@ function loadTranspiledModule(filePath, overrides = new Map()) {
 		clearTimeout,
 		exports: {},
 		process,
-		require: (id) => overrides.has(id) ? overrides.get(id) : require(id),
+		require: (id) => (overrides.has(id) ? overrides.get(id) : require(id)),
 		setTimeout,
 		setImmediate: typeof setImmediate === "function" ? setImmediate : (fn) => setTimeout(fn, 0),
 	};
@@ -48,11 +48,7 @@ function loadMessageContentModule() {
 		target: ts.ScriptTarget.ES2022,
 	};
 	const docActions = { exports: {} };
-	vm.runInNewContext(
-		ts.transpileModule(readFileSync("src/main/feishu/docActions.ts", "utf8"), { compilerOptions }).outputText,
-		docActions,
-		{ filename: "docActions.ts" },
-	);
+	vm.runInNewContext(ts.transpileModule(readFileSync("src/main/feishu/docActions.ts", "utf8"), { compilerOptions }).outputText, docActions, { filename: "docActions.ts" });
 	const messageContent = {
 		exports: {},
 		require: (id) => {
@@ -60,11 +56,7 @@ function loadMessageContentModule() {
 			throw new Error(`Unexpected messageContent import: ${id}`);
 		},
 	};
-	vm.runInNewContext(
-		ts.transpileModule(readFileSync("src/main/pi/messageContent.ts", "utf8"), { compilerOptions }).outputText,
-		messageContent,
-		{ filename: "messageContent.ts" },
-	);
+	vm.runInNewContext(ts.transpileModule(readFileSync("src/main/pi/messageContent.ts", "utf8"), { compilerOptions }).outputText, messageContent, { filename: "messageContent.ts" });
 	return messageContent.exports;
 }
 
@@ -122,7 +114,7 @@ function loadSessionSummaryCacheModule(homePath) {
 			if (id === "electron") {
 				return {
 					app: {
-						getPath: (name) => name === "userData" ? join(homePath, "user-data") : homePath,
+						getPath: (name) => (name === "userData" ? join(homePath, "user-data") : homePath),
 					},
 				};
 			}
@@ -167,6 +159,10 @@ function loadSessionScanner(homePath, fsOverrides = {}) {
 	const sessionSummaryCache = loadSessionSummaryCacheModule(homePath);
 	const wslPaths = loadWslPathsModule();
 	const sessionIdentity = loadTranspiledModule("src/shared/sessionIdentity.ts");
+	// SessionScanner 新增的自包含块折叠（无依赖纯函数）
+	const expandedRefBlocks = loadTranspiledModule("src/shared/expandedRefBlocks.ts");
+	// 会话 JSONL 流式行扫描器（只依赖 node:fs/promises，测试注入真实实现）
+	const jsonlLineStream = loadTranspiledModule("src/main/sessions/jsonlLineStream.ts");
 	const sandbox = {
 		AbortController,
 		AbortSignal,
@@ -178,12 +174,15 @@ function loadSessionScanner(homePath, fsOverrides = {}) {
 		require: (id) => {
 			if (id === "electron") return { app: { getPath: () => homePath }, shell: {} };
 			if (id === "../../shared/codexSessionMeta") return codexMeta;
+			if (id === "../pi/sessionEntryIds") return loadTranspiledModule("src/main/pi/sessionEntryIds.ts");
 			if (id === "../pi/messageContent") return messageContent;
 			if (id === "../wsl/WslPaths") return wslPaths;
 			if (id === "./sessionSummaryCache") return sessionSummaryCache;
 			// sessionNameLine 为无依赖纯函数模块，直接编译加载真实实现，保证清理口径一致
 			if (id === "./sessionNameLine") return loadSessionNameLineModule();
 			if (id === "../../shared/sessionIdentity") return sessionIdentity;
+			if (id === "../../shared/expandedRefBlocks") return expandedRefBlocks;
+			if (id === "./jsonlLineStream") return jsonlLineStream;
 			// sharedLogger 未注册时 getAppLogger 返回 null，SessionScanner 埋点静默跳过
 			if (id === "../logging/sharedLogger") return { getAppLogger: () => null };
 			if (id === "node:fs") return { ...require(id), ...fsOverrides };
@@ -196,7 +195,7 @@ function loadSessionScanner(homePath, fsOverrides = {}) {
 
 function writeSession(filePath, entries) {
 	mkdirSync(dirname(filePath), { recursive: true });
-	writeFileSync(filePath, `${entries.map(entry => JSON.stringify(entry)).join("\n")}\n`, "utf8");
+	writeFileSync(filePath, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf8");
 }
 
 function session(name, cwd) {
@@ -219,7 +218,9 @@ test("validates a local parent session by reading only the bounded file head", (
 				fixture.copy(buffer, offset);
 				return fixture.length;
 			},
-			closeSync: () => { closed = true; },
+			closeSync: () => {
+				closed = true;
+			},
 		});
 		const scanner = new SessionScanner();
 		assert.equal(scanner.isSessionFile("virtual-parent.jsonl"), true);
@@ -242,6 +243,14 @@ test("aborts a hung WSL scan before the renderer watchdog and allows a clean ret
 			attempts += 1;
 			if (attempts > 1) return [];
 			return new Promise((_resolve, reject) => {
+				// 已经 abort 过的 signal 不会再派发 abort 事件：只挂监听不查 aborted 时，这个 promise
+				// 永远不会 settle，await 它的 list() 会挂死。10ms watchdog 很容易在前面的
+				// ensureLoaded / resolveScanRoots 之后才触发（CI 上更慢），此时文件会整篇无输出
+				// 地挂到 step 超时（2026-10-12 CI 实测 25 分钟无输出、45 分钟被 kill）。
+				if (signal.aborted) {
+					reject(signal.reason);
+					return;
+				}
 				signal.addEventListener("abort", () => reject(signal.reason), { once: true });
 			});
 		};
@@ -273,16 +282,13 @@ test("hides persisted pi-subagents runs without deleting them or unrelated neste
 		writeSession(nestedUserFile, session("Nested user session", projectPath));
 		writeSession(lookalikeFile, session("Path lookalike", projectPath));
 		// Explicit metadata covers new runs even when intercom naming is unavailable.
-		writeSession(workerFile, [
-			...session("Worker without generated name", projectPath),
-			{ type: "custom", customType: "pi-subagents.child-session", data: { schemaVersion: 1 } },
-		]);
+		writeSession(workerFile, [...session("Worker without generated name", projectPath), { type: "custom", customType: "pi-subagents.child-session", data: { schemaVersion: 1 } }]);
 		// Generated naming plus the standard path retains compatibility with old runs.
 		writeSession(reviewerFile, session("subagent-reviewer-run-abc-1", projectPath));
 
 		const { SessionScanner } = loadSessionScanner(home);
 		const summaries = await new SessionScanner().list(projectPath);
-		const visiblePaths = new Set(summaries.map(summary => summary.filePath));
+		const visiblePaths = new Set(summaries.map((summary) => summary.filePath));
 
 		assert.equal(visiblePaths.has(parentFile), true);
 		assert.equal(visiblePaths.has(nestedUserFile), true);
@@ -291,13 +297,16 @@ test("hides persisted pi-subagents runs without deleting them or unrelated neste
 		assert.equal(visiblePaths.has(workerFile), true);
 		assert.equal(visiblePaths.has(reviewerFile), true);
 		// 列表扫描不再读 JSONL 正文，标题留给 catalog / 点开后的 readSummary。
-		assert.equal(summaries.some(summary => summary.name === "subagent-worker-manual-0"), false);
+		assert.equal(
+			summaries.some((summary) => summary.name === "subagent-worker-manual-0"),
+			false,
+		);
 		assert.equal(existsSync(workerFile), true);
 		assert.equal(existsSync(reviewerFile), true);
 		// 验证子会话的 parentSessionPath 指向正确的父会话文件
-		const workerSummary = summaries.find(s => s.filePath === workerFile);
+		const workerSummary = summaries.find((s) => s.filePath === workerFile);
 		assert.equal(workerSummary.parentSessionPath, parentFile);
-		const reviewerSummary = summaries.find(s => s.filePath === reviewerFile);
+		const reviewerSummary = summaries.find((s) => s.filePath === reviewerFile);
 		assert.equal(reviewerSummary.parentSessionPath, parentFile);
 	} finally {
 		rmSync(home, { recursive: true, force: true });
@@ -315,13 +324,25 @@ test("groups WSL child sessions with POSIX parent paths", async () => {
 		const childFile = `${sessionsRoot}/--mnt-f-git-optimize--/parent/run-abc/run-0/session.jsonl`;
 		const forkChildFile = `${sessionsRoot}/--mnt-f-git-optimize--/detached/run-xyz/run-0/session.jsonl`;
 		const files = new Map([
-			[parentFile, `${session("Parent", projectPath).map((entry) => JSON.stringify(entry)).join("\n")}\n`],
-			[forkParentFile, `${session("Fork parent", projectPath).map((entry) => JSON.stringify(entry)).join("\n")}\n`],
-			[childFile, `${session("subagent-worker-wsl-0", projectPath).map((entry) => JSON.stringify(entry)).join("\n")}\n`],
-			[forkChildFile, `${[
-				{ type: "session", id: "wsl-fork-child", parentSession: "../../../fork-parent.jsonl", cwd: projectPath },
-				...session("subagent-worker-wsl-fork-0", projectPath),
-			].map((entry) => JSON.stringify(entry)).join("\n")}\n`],
+			[
+				parentFile,
+				`${session("Parent", projectPath)
+					.map((entry) => JSON.stringify(entry))
+					.join("\n")}\n`,
+			],
+			[
+				forkParentFile,
+				`${session("Fork parent", projectPath)
+					.map((entry) => JSON.stringify(entry))
+					.join("\n")}\n`,
+			],
+			[
+				childFile,
+				`${session("subagent-worker-wsl-0", projectPath)
+					.map((entry) => JSON.stringify(entry))
+					.join("\n")}\n`,
+			],
+			[forkChildFile, `${[{ type: "session", id: "wsl-fork-child", parentSession: "../../../fork-parent.jsonl", cwd: projectPath }, ...session("subagent-worker-wsl-fork-0", projectPath)].map((entry) => JSON.stringify(entry)).join("\n")}\n`],
 		]);
 		const { SessionScanner } = loadSessionScanner(home);
 		const scanner = new SessionScanner();
@@ -352,7 +373,10 @@ test("groups WSL child sessions with POSIX parent paths", async () => {
 		assert.equal(summaries.find((item) => item.filePath === childFile)?.parentSessionPath, parentFile);
 		// 仅 header 引用的 fork 父路径要读正文；列表扫描只认磁盘嵌套，这里保持平铺。
 		assert.equal(summaries.find((item) => item.filePath === forkChildFile)?.parentSessionPath, undefined);
-		assert.equal(summaries.some((item) => item.parentSessionPath?.includes("\\")), false);
+		assert.equal(
+			summaries.some((item) => item.parentSessionPath?.includes("\\")),
+			false,
+		);
 		// 摘要扫描与父会话校验都只读头部，禁止对大型 JSONL 再走一次完整 cat。
 		assert.equal(fullReadCount.get(parentFile) ?? 0, 0);
 		assert.equal(fullReadCount.get(forkParentFile) ?? 0, 0);
@@ -371,10 +395,7 @@ test("uses a valid renamed parent session and ignores false-positive path owners
 		const fakeOwnerFile = join(piDir, "manual.jsonl");
 		const lookalikeFile = join(piDir, "manual", "arbitrary", "run-0", "session.jsonl");
 
-		writeSession(parentFile, [
-			{ sessionName: "Renamed parent", ts: Date.now() },
-			...session("Original parent", projectPath),
-		]);
+		writeSession(parentFile, [{ sessionName: "Renamed parent", ts: Date.now() }, ...session("Original parent", projectPath)]);
 		writeSession(childFile, session("subagent-worker-renamed-parent-0", projectPath));
 		writeSession(fakeOwnerFile, [{ sessionName: "Not a Pi session" }]);
 		writeSession(lookalikeFile, session("Path lookalike", projectPath));
@@ -402,33 +423,16 @@ test("handles orphan, fork, rename and imported-session compatibility without fa
 
 		writeSession(orphanFile, session("subagent-worker-orphan-run-0", projectPath));
 		// PiDeck rename prepends sessionName; the original generated session_info remains authoritative.
-		writeSession(renamedChildFile, [
-			{ sessionName: "Renamed child", cwd: projectPath },
-			...session("subagent-worker-old-run-0", projectPath),
-		]);
-		writeSession(legacyForkFile, [
-			{ type: "session", id: "legacy-child", parentSession: "parent-session.jsonl", cwd: projectPath },
-			...session("subagent-worker-fork-run-0", projectPath),
-		]);
-		writeSession(manualForkFile, [
-			{ type: "session", id: "manual-child", parentSession: "parent-session.jsonl", cwd: projectPath },
-			{ type: "session_info", name: "subagent-worker-copied-parent-0", cwd: projectPath },
-			...session("Manual user fork", projectPath),
-		]);
-		writeSession(markedCustomFile, [
-			...session("Custom-location child", projectPath),
-			{ type: "custom", customType: "pi-subagents.child-session", data: { schemaVersion: 1 } },
-		]);
+		writeSession(renamedChildFile, [{ sessionName: "Renamed child", cwd: projectPath }, ...session("subagent-worker-old-run-0", projectPath)]);
+		writeSession(legacyForkFile, [{ type: "session", id: "legacy-child", parentSession: "parent-session.jsonl", cwd: projectPath }, ...session("subagent-worker-fork-run-0", projectPath)]);
+		writeSession(manualForkFile, [{ type: "session", id: "manual-child", parentSession: "parent-session.jsonl", cwd: projectPath }, { type: "session_info", name: "subagent-worker-copied-parent-0", cwd: projectPath }, ...session("Manual user fork", projectPath)]);
+		writeSession(markedCustomFile, [...session("Custom-location child", projectPath), { type: "custom", customType: "pi-subagents.child-session", data: { schemaVersion: 1 } }]);
 		writeSession(join(piDir, "codex-parent.jsonl"), session("Codex owner", projectPath));
-		writeSession(importedFile, [
-			...session("subagent-reviewer-import-run-0", projectPath),
-			{ type: "custom", customType: "pi-subagents.child-session", data: { schemaVersion: 1 } },
-			{ type: "codex_import", version: 1, codexSessionId: "codex-child", sourcePath: join(home, "missing.jsonl") },
-		]);
+		writeSession(importedFile, [...session("subagent-reviewer-import-run-0", projectPath), { type: "custom", customType: "pi-subagents.child-session", data: { schemaVersion: 1 } }, { type: "codex_import", version: 1, codexSessionId: "codex-child", sourcePath: join(home, "missing.jsonl") }]);
 
 		const { SessionScanner } = loadSessionScanner(home);
 		const summaries = await new SessionScanner().list(projectPath);
-		const visiblePaths = new Set(summaries.map(summary => summary.filePath));
+		const visiblePaths = new Set(summaries.map((summary) => summary.filePath));
 
 		// 子会话包含在摘要列表中，但标记了 parentSessionPath
 		assert.equal(visiblePaths.has(orphanFile), true);
@@ -438,16 +442,16 @@ test("handles orphan, fork, rename and imported-session compatibility without fa
 		assert.equal(visiblePaths.has(markedCustomFile), true);
 		assert.equal(visiblePaths.has(importedFile), true);
 		// 父文件不存在时不能把路径形似扩展产物的 JSONL 静默挂到虚构父会话下。
-		const orphanSummary = summaries.find(s => s.filePath === orphanFile);
+		const orphanSummary = summaries.find((s) => s.filePath === orphanFile);
 		assert.equal(orphanSummary.parentSessionPath, undefined);
 		// renamedChild: 父文件不存在，不能挂到虚构父会话下。
-		const renamedSummary = summaries.find(s => s.filePath === renamedChildFile);
+		const renamedSummary = summaries.find((s) => s.filePath === renamedChildFile);
 		assert.equal(renamedSummary.parentSessionPath, undefined);
 		// legacyFork: 标准 .jsonl 文件路径不可推断父会话，fork parent 文件不存在
-		const forkSummary = summaries.find(s => s.filePath === legacyForkFile);
+		const forkSummary = summaries.find((s) => s.filePath === legacyForkFile);
 		assert.equal(forkSummary.parentSessionPath, undefined);
 		// markedCustomFile: 显式标记，路径不可推断父会话（无 parentSessionPath）
-		const customSummary = summaries.find(s => s.filePath === markedCustomFile);
+		const customSummary = summaries.find((s) => s.filePath === markedCustomFile);
 		assert.equal(customSummary.parentSessionPath, undefined);
 	} finally {
 		rmSync(home, { recursive: true, force: true });
@@ -464,16 +468,13 @@ test("resolves fork child with absolute Windows parent path via parentSession he
 		const forkChildFile = join(projDir, "fork-child.jsonl");
 
 		writeSession(parentFile, session("Parent", projectPath));
-		writeSession(forkChildFile, [
-			{ type: "session", parentSession: parentFile, cwd: projectPath },
-			...session("subagent-reviewer-abc-1", projectPath),
-		]);
+		writeSession(forkChildFile, [{ type: "session", parentSession: parentFile, cwd: projectPath }, ...session("subagent-reviewer-abc-1", projectPath)]);
 
 		const { SessionScanner } = loadSessionScanner(home);
 		const scanner = new SessionScanner();
 		const listed = await scanner.list(projectPath);
 		assert.equal(listed.length, 2);
-		assert.equal(listed.find(s => s.filePath === forkChildFile)?.parentSessionPath, undefined);
+		assert.equal(listed.find((s) => s.filePath === forkChildFile)?.parentSessionPath, undefined);
 		const forkSummary = await scanner["readSummary"](forkChildFile);
 		assert.equal(forkSummary.parentSessionPath, parentFile);
 	} finally {
@@ -611,9 +612,7 @@ test("excludes pi-subagents artifact dumps from scan results", async () => {
 		// 产物目录与真实子会话并存：子会话仍应正常嵌套，产物必须整体排除。
 		const childFile = join(piDir, "parent", "31f02534-c7dc-457e-a1ca-dc9311027461", "run-0", "session.jsonl");
 		writeSession(childFile, session("subagent-reviewer-31f02534-1", projectPath));
-		writeSession(join(piDir, "subagent-artifacts", "31f02534_reviewer_0_transcript.jsonl"), [
-			{ version: 1, recordType: "message", runId: "31f02534", agent: "reviewer", role: "user", text: "review prompt" },
-		]);
+		writeSession(join(piDir, "subagent-artifacts", "31f02534_reviewer_0_transcript.jsonl"), [{ version: 1, recordType: "message", runId: "31f02534", agent: "reviewer", role: "user", text: "review prompt" }]);
 
 		const { SessionScanner } = loadSessionScanner(home);
 		const summaries = await new SessionScanner().list(projectPath);
@@ -649,17 +648,21 @@ test("inferSessionNameAndValidity flags transcript dumps without a type header a
 		// transcript 转储：首条记录用 recordType 而无 type → valid:false。
 		// 放在普通目录（非 subagent-artifacts），目录过滤够不到，只能靠会话头校验。
 		const transcriptFile = join(piDir, "stray_abc_worker_0_transcript.jsonl");
-		writeFileSync(transcriptFile, `${JSON.stringify({
-			version: 1,
-			recordType: "message",
-			source: "foreground",
-			runId: "abc",
-			agent: "worker",
-			cwd: projectPath,
-			sourceEventType: "initial_prompt",
-			role: "user",
-			message: { role: "user", content: [{ type: "text", text: "review prompt" }] },
-		})}\n`, "utf8");
+		writeFileSync(
+			transcriptFile,
+			`${JSON.stringify({
+				version: 1,
+				recordType: "message",
+				source: "foreground",
+				runId: "abc",
+				agent: "worker",
+				cwd: projectPath,
+				sourceEventType: "initial_prompt",
+				role: "user",
+				message: { role: "user", content: [{ type: "text", text: "review prompt" }] },
+			})}\n`,
+			"utf8",
+		);
 		// 旧版私有 sessionName 头行（#114 存量损坏）：跳过后首条真实记录带 type → valid:true。
 		const legacyFile = join(piDir, "legacy-renamed.jsonl");
 		writeSession(legacyFile, [

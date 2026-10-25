@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "version": "1.0.1",
+  "bundleSha256": "abcfc3dee4b3826fb523ea2dbdf0b65c5f8a25745853e3cb7471e5bf2302ddd7",
+  "fileCount": 16,
+  "files": [
+    {
+      "name": "pi-deck-ask-question.ts",
+      "sha256": "b6b604c09feccece07ac7307882876f2d0071190051cdf3d2d03cef47e2cfb00",
+      "bytes": 13855
+    },
+    {
+      "name": "pi-deck-goal-mode.ts",
+      "sha256": "575c434dba46b40fe5e92fe9907c80e84ae539e9fc2c762a9defab1dd84cb7fb",
+      "bytes": 15079
+    },
+    {
+      "name": "pi-deck-model-trace.ts",
+      "sha256": "df2ccd398f01ec26c4bdea3a865d9afcb12c94c82c5483484dbc54dc054f0c97",
+      "bytes": 9168
+    },
+    {
+      "name": "pi-deck-nul-redirect-fix.ts",
+      "sha256": "d450aa00781a5cedccad426e91aa49d494702398974ec31ef4b3e43ffd97a45d",
+      "bytes": 5734
+    },
+    {
+      "name": "pi-deck-plan-mode.ts",
+      "sha256": "a6b42533e73e84798c1f31881d8562b46b09bee2c4cc084be73bd46bd05e2a6d",
+      "bytes": 20564
+    },
+    {
+      "name": "pi-deck-request-size-recovery.ts",
+      "sha256": "71c0215a8d090a65da3f01b7da9fecf6265a1e7b32a396b20b7b9d5d2627e58f",
+      "bytes": 14456
+    },
+    {
+      "name": "pi-deck-retry-no-body.ts",
+      "sha256": "0e2edc4dc4ff1b32c3a1f553362804d8ae8d60657f741d011b6e94642cf4ccae",
+      "bytes": 15606
+    },
+    {
+      "name": "pi-deck-runtime.ts",
+      "sha256": "67df35a6aaeca7c57d65c057af010b799d902e151b0f8053a79496ef496db8b4",
+      "bytes": 1218
+    },
+    {
+      "name": "pi-deck-security-gate.ts",
+      "sha256": "493b2402ec6bc00475d0407502ef54bfdece63516b1597c2d43918705ac1637b",
+      "bytes": 14938
+    },
+    {
+      "name": "pi-deck-session-title.ts",
+      "sha256": "acb4b8270d349bfe3c2b5f5f9bc34004044be36c512cbf2b60bf78cd1c7d952b",
+      "bytes": 28546
+    },
+    {
+      "name": "pi-deck-shell-proxy.ts",
+      "sha256": "c73f68c7c1e0f2464dead835c861146c9d32356d357444ce4a0bc736ae796e9f",
+      "bytes": 2137
+    },
+    {
+      "name": "pi-deck-subagents.ts",
+      "sha256": "a8979f143e84a59044eae234a571a2dcd291e97a74df9443dec8e9a270552a77",
+      "bytes": 34320
+    },
+    {
+      "name": "pi-deck-todo-state.ts",
+      "sha256": "2b2c30b84cf07257a2277ef2c34883a06f56c6003951ba44d8390ccb25455b44",
+      "bytes": 20037
+    },
+    {
+      "name": "pi-deck-todo.ts",
+      "sha256": "7434ebaf3e2ccf3a12a6997e620c0745c389d1871e19c2f609fb5abee62cd7dd",
+      "bytes": 16400
+    },
+    {
+      "name": "pi-deck-trash-guard.ts",
+      "sha256": "b2e2d82a1b0d0cc061a71a475506ca624ff9cf01d0194ae0ee0bafc4c2514b23",
+      "bytes": 20228
+    },
+    {
+      "name": "pi-deck-vision.ts",
+      "sha256": "90b38ad76b8deaa632914ed0680c2cdaac437d52d32de80abcd9206583467897",
+      "bytes": 56104
+    }
+  ]
+}

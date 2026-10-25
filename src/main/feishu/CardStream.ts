@@ -12,6 +12,7 @@
  */
 
 import type { LarkClient } from "./types";
+import { getAppLogger } from "../logging/sharedLogger";
 
 const THROTTLE_MS = 200;
 const MAX_UPDATE_RETRIES = 2;
@@ -35,12 +36,7 @@ export class CardStream {
 	 * 发送初始卡片并返回 CardStream。
 	 * 只调用一次 im.message.create/reply，后续更新用 im.v1.message.patch。
 	 */
-	static async open(
-		client: LarkClient,
-		chatId: string,
-		initialCard: object,
-		opts: { replyToMessageId?: string } = {},
-	): Promise<CardStream> {
+	static async open(client: LarkClient, chatId: string, initialCard: object, opts: { replyToMessageId?: string } = {}): Promise<CardStream> {
 		let messageId: string | undefined;
 
 		if (opts.replyToMessageId) {
@@ -149,6 +145,13 @@ export class CardStream {
 					}
 					this.lastPatchFailed = true;
 					this.lastPatchError = errMsg + apiDetail;
+					// 终态失败必须落 appLogger（打包版 stdout 不落盘，流式卡片更新静默丢失是
+					// 飞书域排障盲区）；console 保留供 dev 终端可见（AGENTS.md 日志规范）。
+					getAppLogger()?.error("feishu", "CardStream patch failed after retries", {
+						messageId: this.messageId,
+						cardSize: JSON.stringify(card).length,
+						error: errMsg + apiDetail,
+					});
 					console.error("[飞书 CardStream] patch 失败（已达最大重试）", {
 						messageId: this.messageId,
 						cardSize: JSON.stringify(card).length,
@@ -156,6 +159,12 @@ export class CardStream {
 					});
 					throw new Error(`CardStream patch 失败: ${errMsg}${apiDetail}`);
 				}
+				getAppLogger()?.warn("feishu", "CardStream patch retry", {
+					attempt,
+					max: MAX_UPDATE_RETRIES,
+					messageId: this.messageId,
+					error: lastErr instanceof Error ? lastErr.message : String(lastErr),
+				});
 				console.warn(`[飞书 CardStream] patch 重试 ${attempt}/${MAX_UPDATE_RETRIES}:`, lastErr instanceof Error ? lastErr.message : String(lastErr));
 				await new Promise((r) => setTimeout(r, 200 * attempt));
 			}

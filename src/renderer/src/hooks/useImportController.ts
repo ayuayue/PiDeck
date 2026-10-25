@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toggleSelectedPaths } from "../utils/importSessionList";
 
 export type ImportControllerOptions<TSummary, TReport> = {
 	projectId: string | null | undefined;
@@ -18,7 +19,8 @@ export type ImportControllerState<TSummary, TReport> = {
 	error: string | null;
 	refresh: () => Promise<void>;
 	toggle: (sourcePath: string) => void;
-	toggleAll: () => void;
+	/** 全选 / 取消全选；传入 sourcePaths 时只在该子集内切换（列表搜索后「全选」不应波及被过滤掉的行）。 */
+	toggleAll: (sourcePaths?: string[]) => void;
 	importSelected: () => Promise<TReport | null>;
 	reset: () => void;
 };
@@ -31,14 +33,9 @@ function errorMessage(reason: unknown): string {
  * Provider-agnostic import state. Sequence numbers make a late scan/import unable
  * to overwrite a newer project or a freshly closed overlay.
  */
-export function useImportController<TSummary, TReport>(
-	options: ImportControllerOptions<TSummary, TReport>,
-): ImportControllerState<TSummary, TReport> {
+export function useImportController<TSummary, TReport>(options: ImportControllerOptions<TSummary, TReport>): ImportControllerState<TSummary, TReport> {
 	const { projectId, scan, importSelected: importApi, selectInitial, getSourcePath } = options;
-	const pathOf = useCallback(
-		(session: TSummary) => getSourcePath?.(session) ?? (session as { sourcePath?: string }).sourcePath ?? "",
-		[getSourcePath],
-	);
+	const pathOf = useCallback((session: TSummary) => getSourcePath?.(session) ?? (session as { sourcePath?: string }).sourcePath ?? "", [getSourcePath]);
 	const [sessions, setSessions] = useState<TSummary[]>([]);
 	const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
 	const [loading, setLoading] = useState(false);
@@ -84,17 +81,16 @@ export function useImportController<TSummary, TReport>(
 	}, [projectId, refresh]);
 
 	const toggle = useCallback((sourcePath: string) => {
-		setSelectedPaths((current) => current.includes(sourcePath)
-			? current.filter((path) => path !== sourcePath)
-			: [...current, sourcePath]);
+		setSelectedPaths((current) => (current.includes(sourcePath) ? current.filter((path) => path !== sourcePath) : [...current, sourcePath]));
 	}, []);
 
-	const toggleAll = useCallback(() => {
-		setSelectedPaths((current) => {
-			const all = sessions.map(pathOf).filter(Boolean);
-			return all.length > 0 && all.every((path) => current.includes(path)) ? [] : all;
-		});
-	}, [pathOf, sessions]);
+	const toggleAll = useCallback(
+		(sourcePaths?: string[]) => {
+			const targets = sourcePaths ?? sessions.map(pathOf).filter(Boolean);
+			setSelectedPaths((current) => toggleSelectedPaths(current, targets));
+		},
+		[pathOf, sessions],
+	);
 
 	const importSelected = useCallback(async () => {
 		if (!projectId || selectedPaths.length === 0 || importing) return null;

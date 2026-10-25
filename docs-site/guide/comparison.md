@@ -1,3 +1,8 @@
+---
+title: PiDeck 与 Cursor / Claude Code / Codex 对比 | pi desktop 选型
+description: PiDeck（pi 桌面客户端）与 Cursor、Claude Code、Codex Desktop 等 AI 编码工具的对比：架构差异、能力矩阵、适用场景，帮你判断 pi desktop 是否适合你的工作流。
+---
+
 # PiDeck 与其他 AI 编码工具对比
 
 本文对比 **PiDeck** 与 **Claude Code**、**Codex CLI**、**Cursor**、**Windsurf** 等工具的定位差异，帮助你选择适合本地 AI 编码工作流的工具。

@@ -36,3 +36,17 @@ export type DiagnosticsSnapshot = {
 	/** 最近若干条关键耗时（新→旧） */
 	recentTimings: DiagnosticsEventTiming[];
 };
+
+/**
+ * 运行架构状态：用于检测「x64 包跑在 ARM 芯片转译层下」（macOS Rosetta 2）。
+ * 典型事故（2026-10）：M1 Pro 用户在 Release 页默认点开无后缀的 x64 dmg，全程
+ * Rosetta 转译导致严重卡顿。渲染层据此提示换装 arm64 包。
+ */
+export type ArchStatus = {
+	/** 运行平台：darwin / win32 / linux（process.platform） */
+	platform: string;
+	/** 当前二进制架构：x64 / arm64 等（process.arch） */
+	processArch: string;
+	/** Electron 判定：x64 二进制正跑在 ARM64 转译层下（macOS=Rosetta 2，Windows=ARM 模拟） */
+	runningUnderArm64Translation: boolean;
+};

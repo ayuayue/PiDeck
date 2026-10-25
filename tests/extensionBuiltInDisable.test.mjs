@@ -1,87 +1,30 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
+import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
 const require = createRequire(import.meta.url);
 
-function transpile(filePath) {
-	return ts.transpileModule(readFileSync(filePath, "utf8"), {
-		compilerOptions: {
-			module: ts.ModuleKind.CommonJS,
-			target: ts.ScriptTarget.ES2022,
-		},
-	}).outputText;
-}
-
-function loadWslPaths() {
-	const sandbox = { exports: {}, require };
-	vm.runInNewContext(transpile("src/main/wsl/WslPaths.ts"), sandbox, { filename: "WslPaths.ts" });
-	return sandbox.exports;
-}
-
-/**
- * 加载 ExtensionManager，并把 homeDir 重定向到 fixture（通过 mock os.homedir）。
- * 同时可 mock runPi 输出，便于测 list 冲突路径。
- */
+/** Load the real dependency graph while redirecting user files and pi execution to fixtures. */
 function loadExtensionManager({ homeDir, runPiOutput = "", fsOverrides = {} } = {}) {
-	const wslPaths = loadWslPaths();
 	const realOs = require("node:os");
-	const sandbox = {
-		exports: {},
-		require: (id) => {
-			if (id === "node:os") {
-				return {
-					...realOs,
-					homedir: () => homeDir ?? realOs.homedir(),
-				};
-			}
-			if (id === "node:fs/promises") {
-				return { ...require(id), ...fsOverrides };
-			}
-			if (id === "node:child_process") {
-				const real = require(id);
-				return {
-					...real,
-					execFile: (cmd, args, opts, cb) => {
-						// runPi 走 execFile；返回预设 stdout，模拟 pi list
-						queueMicrotask(() => cb(null, runPiOutput, ""));
-					},
-				};
-			}
-			if (id === "../wsl/WslPaths") return wslPaths;
-			if (id === "../pi/PiLocator") return {};
-			if (id === "../fs/trash") return { trashPath: async () => {} };
-			if (id === "../logging/sharedLogger") return { getAppLogger: () => null };
-			if (id === "./extensionVersionGate") {
-				return require("../src/main/extensions/extensionVersionGate.ts");
-			}
-			if (id === "./builtInExtensions") {
-				// ExtensionManager 只需要内置名列表；避免 vm 沙箱解析相对 TS 路径失败。
-				return {
-					BUILT_IN_EXTENSIONS: [
-						"pi-deck-ask-question.ts",
-						"pi-deck-nul-redirect-fix.ts",
-						"pi-deck-plan-mode.ts",
-						"pi-deck-todo.ts",
-					],
-				};
-			}
-			// ExtensionManager 依赖 ../utils/versionCompare 的 compareVersions；.ts 经 node 类型剥离可 require。
-			if (id === "../utils/versionCompare") {
-				return require("../src/main/utils/versionCompare.ts");
-			}
-			return require(id);
+	const load = createTsSandbox({
+		stubs: {
+			"node:os": { ...realOs, homedir: () => homeDir ?? realOs.homedir() },
+			"node:fs/promises": { ...require("node:fs/promises"), ...fsOverrides },
+			"node:child_process": {
+				...require("node:child_process"),
+				execFile: (_command, _args, _options, callback) => queueMicrotask(() => callback(null, runPiOutput, "")),
+			},
+			"../pi/PiProcess": { PiProcess: { invalidateVersionCache: () => {} } },
+			"../fs/trash": { trashPath: async () => {} },
+			"../logging/sharedLogger": { getAppLogger: () => null },
 		},
-	};
-	vm.runInNewContext(transpile("src/main/extensions/ExtensionManager.ts"), sandbox, {
-		filename: "ExtensionManager.ts",
 	});
-	return sandbox.exports;
+	return load("src/main/extensions/ExtensionManager.ts");
 }
 
 test("disableBuiltIn records removal and deletes user extension file", async () => {
@@ -131,12 +74,7 @@ test("list auto-disables built-in todo and deletes file when third-party rpiv-to
 	writeFileSync(builtinPath, "// builtin\n", "utf8");
 
 	let settings = { removedBuiltInExtensions: [] };
-	const piListOutput = [
-		"User packages:",
-		"npm:@juicesharp/rpiv-todo",
-		join(fixtureHome, ".pi", "agent", "npm", "node_modules", "@juicesharp", "rpiv-todo"),
-		"",
-	].join("\n");
+	const piListOutput = ["User packages:", "npm:@juicesharp/rpiv-todo", join(fixtureHome, ".pi", "agent", "npm", "node_modules", "@juicesharp", "rpiv-todo"), ""].join("\n");
 
 	const { ExtensionManager } = loadExtensionManager({
 		homeDir: fixtureHome,
@@ -219,6 +157,80 @@ test("list purges residual built-in file already marked removed", async () => {
 	assert.equal(existsSync(builtinPath), true);
 	await manager.list(false);
 	assert.equal(existsSync(builtinPath), false, "residual removed built-in must be purged on list");
+
+	rmSync(fixtureHome, { recursive: true, force: true });
+});
+
+test("toggleFromUi 内置扩展走 PiDeck 设置路由，绝不写原生过滤规则", async () => {
+	const fixtureHome = mkdtempSync(join(tmpdir(), "pideck-toggle-from-ui-builtin-"));
+	let settings = { removedBuiltInExtensions: ["pi-deck-todo.ts"] };
+	const { ExtensionManager } = loadExtensionManager({ homeDir: fixtureHome });
+	const manager = new ExtensionManager(
+		{
+			check: async () => ({ installed: true, version: "0.80.0" }),
+			createInvocation: (cmd, args) => ({ command: cmd, args, shell: false }),
+			createProcessEnv: () => process.env,
+			resolveCommand: () => "pi",
+		},
+		() => ({}),
+		() => settings,
+		async (patch) => {
+			settings = { ...settings, ...patch };
+			return settings;
+		},
+	);
+	const nativeCalls = [];
+	manager.configureNativeToggle(async (input) => {
+		nativeCalls.push(input);
+		return { ok: true };
+	});
+
+	// 普通内置扩展：开关走 removedBuiltInExtensions（RPC -e 注入），不能落到原生过滤规则
+	await manager.toggleFromUi("pi-deck-todo.ts", true);
+	assert.equal(settings.removedBuiltInExtensions?.length, 0);
+	assert.equal(nativeCalls.length, 0, "内置扩展不得写原生过滤规则");
+
+	rmSync(fixtureHome, { recursive: true, force: true });
+});
+
+test("toggleFromUi 非内置扩展走原生规则：透传路径，缺路径按 source 反查列表", async () => {
+	const fixtureHome = mkdtempSync(join(tmpdir(), "pideck-toggle-from-ui-native-"));
+	const { ExtensionManager } = loadExtensionManager({ homeDir: fixtureHome });
+	const manager = new ExtensionManager(
+		{ check: async () => ({ installed: true, version: "0.80.0" }), createInvocation: (cmd, args) => ({ command: cmd, args, shell: false }), createProcessEnv: () => process.env, resolveCommand: () => "pi" },
+		() => ({}),
+		() => ({}),
+		async () => ({}),
+	);
+	const nativeCalls = [];
+	manager.configureNativeToggle(async (input) => {
+		nativeCalls.push(input);
+		return { ok: true };
+	});
+	// Web 端扩展列表剥离了宿主机路径：本地文件扩展必须按 source 反查出真实路径（pi 按绝对路径精确匹配）
+	manager.list = async () => ({ extensions: [{ name: "my-ext", source: "my-ext", path: "/home/u/.pi/agent/extensions/my-ext.ts", scope: "user", enabled: false }] });
+
+	await manager.toggleFromUi("my-ext", false, "user", "/home/u/.pi/agent/extensions/my-ext.ts");
+	// 沙箱内创建的对象与外层 realm 的 deepStrictEqual 会因原型不同失败：逐项比较
+	const forwarded = nativeCalls.at(-1);
+	assert.equal(forwarded.source, "my-ext");
+	assert.equal(forwarded.path, "/home/u/.pi/agent/extensions/my-ext.ts");
+	assert.equal(forwarded.scope, "user");
+	assert.equal(forwarded.projectId, undefined);
+	assert.equal(forwarded.enabled, false);
+
+	await manager.toggleFromUi("my-ext", true, "user");
+	assert.equal(nativeCalls.at(-1).path, "/home/u/.pi/agent/extensions/my-ext.ts", "缺 path 时必须用列表里的真实路径");
+
+	// 插件开发 demo：pi-deck- 前缀但不在白名单 → 仍走原生规则（issue #321）
+	manager.list = async () => ({ extensions: [] });
+	await manager.toggleFromUi("pi-deck-demo-plugin.ts", true, "user");
+	assert.equal(nativeCalls.at(-1).source, "pi-deck-demo-plugin.ts");
+	assert.equal(nativeCalls.at(-1).path, undefined);
+
+	// 项目作用域：projectId 原样透传（主进程据此定位项目层配置）
+	await manager.toggleFromUi("my-ext", false, "project", "/home/u/proj/.pi/extensions/my-ext.ts", "p1");
+	assert.equal(nativeCalls.at(-1).projectId, "p1");
 
 	rmSync(fixtureHome, { recursive: true, force: true });
 });

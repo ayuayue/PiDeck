@@ -2,21 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { builtinPresetKeys, presetDisplayDescription, presetDisplayName } = loadTsCommonJs(
-	"src/renderer/src/config/dshPresetDisplay.ts",
-);
+const { builtinPresetKeys, presetDisplayDescription, presetDisplayName } = loadTsCommonJs("src/renderer/src/config/dshPresetDisplay.ts");
 
 /** 桩 t：直接回显 key，验证路由到 i18n 而非文件元数据。 */
 const t = (key) => `[${key}]`;
 
-test("builtinPresetKeys: 4 个随附预设（system trust）返回 i18n key", () => {
+test("builtinPresetKeys: 4 个官方预设的稳定 ID 返回 i18n key", () => {
 	const standard = builtinPresetKeys({ id: "standard", trust: "system" });
 	assert.equal(standard?.name, "config.dsh.presetStandardName");
 	assert.equal(standard?.description, "config.dsh.presetStandardDesc");
 
-	const code = builtinPresetKeys({ id: "code", trust: "system" });
-	assert.equal(code?.name, "config.dsh.presetCodeName");
-	assert.equal(code?.description, "config.dsh.presetCodeDesc");
+	const code = builtinPresetKeys({ id: "ptc" });
+	assert.equal(code?.name, "config.dsh.presetPtcName");
+	assert.equal(code?.description, "config.dsh.presetPtcDesc");
 
 	const minimal = builtinPresetKeys({ id: "minimal", trust: "system" });
 	assert.equal(minimal?.name, "config.dsh.presetMinimalName");
@@ -27,9 +25,9 @@ test("builtinPresetKeys: 4 个随附预设（system trust）返回 i18n key", ()
 	assert.equal(cordis?.description, "config.dsh.presetCordisDesc");
 });
 
-test("builtinPresetKeys: 同名的 user 预设不得冒用内置显示名", () => {
-	assert.equal(builtinPresetKeys({ id: "standard", trust: "user" }), undefined);
-	assert.equal(builtinPresetKeys({ id: "code", trust: "user" }), undefined);
+test("builtinPresetKeys: 不把旧 code 或自定义 ID 当作官方 ptc", () => {
+	assert.equal(builtinPresetKeys({ id: "code" }), undefined);
+	assert.equal(builtinPresetKeys({ id: "custom" }), undefined);
 });
 
 test("builtinPresetKeys: 未知 system id 回退文件元数据", () => {

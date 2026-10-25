@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, ClipboardCheck, Copy, Eye, EyeOff, X } from "lucide-react";
+import { Check, ChevronDown, CircleHelp, Copy, Eye, EyeOff, X } from "lucide-react";
 import { Button } from "./button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./collapsible";
 import { cn } from "../../lib/utils";
 import { t } from "../../i18n";
 import { writeClipboard } from "../../utils/clipboard";
+import { PromptTooltip } from "./prompt-tooltip";
 
 /**
  * ApprovalCard 是 AI 人在回路交互的通用外壳。
@@ -91,46 +92,28 @@ export function ApprovalCard(props: {
 	};
 
 	return (
-		<Collapsible
-			open={props.open}
-			onOpenChange={props.onOpenChange}
-			className={cn(
-				"ask-inline-bar ask-inline-bar--active relative flex min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-sm",
-				props.className,
-			)}
-		>
+		<Collapsible open={props.open} onOpenChange={props.onOpenChange} className={cn("ask-inline-bar ask-inline-bar--active relative flex min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-sm", props.className)}>
 			<div className="flex min-w-0 items-start gap-2 border-b border-border/70 bg-muted/25 px-3 py-1">
 				<CollapsibleTrigger asChild>
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						className="size-7 shrink-0 text-muted-foreground hover:bg-accent hover:text-foreground"
-						aria-label={optionsLabel}
-						title={optionsLabel}
-					>
-						<ChevronDown
-							className={cn("size-3.5 shrink-0 transition-transform duration-200", !props.open && "-rotate-90")}
-							aria-hidden="true"
-						/>
+					<Button variant="ghost" size="icon-sm" className="size-7 shrink-0 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label={optionsLabel} title={optionsLabel}>
+						<ChevronDown className={cn("size-3.5 shrink-0 transition-transform duration-base", !props.open && "-rotate-90")} aria-hidden="true" />
 					</Button>
 				</CollapsibleTrigger>
-				<ClipboardCheck className="mt-1.5 size-3.5 shrink-0 text-primary" aria-hidden="true" />
+				<CircleHelp className="mt-1.5 size-3.5 shrink-0 text-primary" aria-hidden="true" />
 				<div className="min-w-0 flex-1 py-0.5">
-					<div className="whitespace-pre-wrap break-words text-caption font-semibold leading-relaxed text-foreground select-text">
-						{props.title}
-					</div>
-					{props.description ? (
-						// 有 previewLines 时默认 line-clamp-2 折叠为摘要（plan 草案等超长列表）；
-						// title 兜底悬停看全文，眼睛按钮显式切换全文/摘要。文本本身可划选复制。
-						<div
-							className={cn(
-								"whitespace-pre-wrap break-words text-micro font-normal leading-relaxed text-muted-foreground select-text",
-								descriptionClamped && "line-clamp-2",
-							)}
-							title={descriptionClamped ? props.description : undefined}
-						>
-							{props.description}
+					<PromptTooltip text={props.title}>
+						<div tabIndex={0} className="whitespace-pre-wrap [overflow-wrap:anywhere] text-caption font-semibold leading-relaxed text-foreground select-text">
+							{props.title}
 						</div>
+					</PromptTooltip>
+					{props.description ? (
+						// 单题/计划摘要保留眼睛展开；悬停走同一全文提示，不能再依赖会截断的原生 title。
+						// 文本仍是非按钮节点，划选与全文提示都不触发选项区折叠。
+						<PromptTooltip text={props.description}>
+							<div tabIndex={0} className={cn("whitespace-pre-wrap [overflow-wrap:anywhere] text-micro font-normal leading-relaxed text-muted-foreground select-text", descriptionClamped && "line-clamp-2")}>
+								{props.description}
+							</div>
+						</PromptTooltip>
 					) : null}
 				</div>
 				<div className="flex shrink-0 items-start gap-0.5">
@@ -152,26 +135,11 @@ export function ApprovalCard(props: {
 							{descExpanded ? <EyeOff size={14} aria-hidden="true" /> : <Eye size={14} aria-hidden="true" />}
 						</Button>
 					) : null}
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						className="size-7 shrink-0 text-muted-foreground hover:bg-accent hover:text-foreground"
-						title={copyLabel}
-						aria-label={copyLabel}
-						onClick={() => copyPrompt()}
-					>
+					<Button variant="ghost" size="icon-sm" className="size-7 shrink-0 text-muted-foreground hover:bg-accent hover:text-foreground" title={copyLabel} aria-label={copyLabel} onClick={() => copyPrompt()}>
 						{copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
 					</Button>
 					{props.onCancel ? (
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							className="size-7 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-							aria-label={props.cancelLabel}
-							title={props.cancelLabel}
-							disabled={props.cancelDisabled}
-							onClick={props.onCancel}
-						>
+						<Button variant="ghost" size="icon-sm" className="size-7 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" aria-label={props.cancelLabel} title={props.cancelLabel} disabled={props.cancelDisabled} onClick={props.onCancel}>
 							<X aria-hidden="true" />
 						</Button>
 					) : null}

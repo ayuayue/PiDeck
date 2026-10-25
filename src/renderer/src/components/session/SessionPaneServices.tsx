@@ -1,21 +1,20 @@
-import {
-  createContext,
-  useContext,
-  useMemo,
-  type MutableRefObject,
-  type ReactNode,
-  type RefObject,
-} from "react";
-import type { AgentTab, AgentUiResponse, ChatMessage, GitBranchInfo, ImageContent, Project } from "../../../../shared/types";
+import { createContext, useContext, useMemo, type MutableRefObject, type ReactNode, type RefObject } from "react";
+import type { AgentTab, AgentUiResponse, ChatMessage, GitBranchInfo, ImageContent, Project, TerminalThemeId } from "../../../../shared/types";
+import type { HideableComposerFeatureId } from "../../../../shared/composerFeatures";
 import type { QueuedPrompt } from "../../hooks/useQueuedPrompt";
-import type { NoticeId } from "../../utils/notice";
+import type { NoticeId, NoticeKind } from "../../utils/notice";
+import type { SessionRunAction, SessionRunCapabilities } from "../../utils/sessionCommands";
+import type { SessionMenuModel } from "./SessionActionsMenu";
 import type { TerminalDockStateByOwner } from "../../terminalDockState";
+import type { TerminalDockSettings } from "../terminal/TerminalDock";
 
 /** 打开会话文件时由栏级 injector 绑定的解析与授权上下文。 */
 export type SessionFileOpenContext = {
-  baseDir?: string;
-  projectId?: string;
-  projectRoot?: string;
+	baseDir?: string;
+	projectId?: string;
+	projectRoot?: string;
+	/** 本栏会话身份：项目外路径的安全等级判定按「本栏会话的覆盖等级」走（分屏两栏可能不同） */
+	sessionId?: string;
 };
 
 /**
@@ -23,109 +22,116 @@ export type SessionFileOpenContext = {
  * 身份（sessionId / focused）不进这里，避免大 props 袋透传。
  */
 export type SessionPaneServices = {
-  /** 把某会话从预览 Tab 晋升为常驻 Tab（发消息等主动交互时调用；非预览时幂等） */
-  promoteSessionToPermanent: (sessionId: string) => void;
-  isLanWeb: boolean;
-  showToast: (msg: string, dur?: number) => void;
-  onOpenFile: (path: string, line?: number, context?: SessionFileOpenContext) => void;
-  onDiffFile: (path: string) => void;
-  onPreviewImage: (img: ImageContent | null) => void;
-  abortAgent: (agentId?: string) => Promise<void>;
-  restartActiveAgent: (agentId?: string) => Promise<void>;
-  runCreateSessionDraft: () => Promise<void>;
-  enqueueSessionPrompt: (
-    sessionId: string,
-    snapshot: {
-      displayText: string;
-      message: string;
-      images?: ImageContent[];
-      agentMode: string;
-      behavior?: "steer" | "followUp";
-    },
-  ) => boolean;
-  insertQuickPrompt: (sessionId: string, message: string) => void;
-  ensureSessionId?: (sessionId: string) => Promise<string>;
-  resendUserMessage?: (message: ChatMessage) => void;
-  editMessage?: (messageId: string, newText: string, entryId?: string) => void;
-  deleteMessage?: (messageId: string, entryId?: string) => void;
-  forkFromUserMessage?: (message: ChatMessage) => void;
-  forkingMessageId?: string | null;
-  openSidebarSessionById?: (projectId: string, sessionId: string) => Promise<void>;
-  /** 后台 Ask toast「前往会话」：按 sessionId 聚焦目标会话并登记常驻 Tab（App 级实现） */
-  focusAskSessionById?: (sessionId: string) => void;
-  agents: AgentTab[];
-  queuedPromptsBySession: Record<string, QueuedPrompt[]>;
-  queueRetract: (sessionId: string, prompt: QueuedPrompt) => void;
-  queueDiscard: (sessionId: string, promptId: string) => void;
-  queueChangeBehavior: (sessionId: string, promptId: string, behavior: "steer" | "followUp") => void;
-  queueFlushBySessionRef: MutableRefObject<Set<string>>;
-  restartingAgentId: string | null;
-  sessionDurationByAgent: Record<string, number>;
-  activeProjectId: string | undefined;
-  gitInfo: GitBranchInfo;
-  /** 底栏分支下拉的切换回调（owner 为 App 级 switchBranch，保持 Git 面板同步） */
-  onSwitchBranch: (branch: string) => void;
-  showThinking: boolean;
-  validCommandNames: Set<string>;
-  validFilePaths: Set<string>;
-  terminalStatesByOwner: TerminalDockStateByOwner;
-  availableTerminalHeight: number;
-  /** App 级激活 owner 键（agent:<id> / project:<id>）：分屏去重参照 + 大纲按钮状态） */
-  activeTerminalOwnerKey?: string;
-  /** 按 owner key 开关终端（分屏各栏用自己的 owner 调，不再只写「当前激活 owner」） */
-  setTerminalOpenByOwnerKey: (ownerKey: string, open: boolean) => void;
-  setTerminalCollapsedByOwnerKey: (ownerKey: string, collapsed: boolean) => void;
-  /** 回写终端分屏高度（全局单份，useTerminalDock 内部持久化） */
-  setTerminalHeight: (height: number) => void;
-  environmentDialog: boolean;
-  /** 修改内置对话区（Chat）的聊天记录保存目录（弹选择器 + 主进程写入 + 重扫会话） */
-  changeChatPath: (project: Project) => Promise<void>;
-  showNotice: (
-    msg: string,
-    dur?: number,
-    kind?: "info" | "warning" | "error",
-  ) => NoticeId | undefined;
-  api: {
-    sessions: {
-      sendUiResponse: (input: {
-        sessionId: string;
-        requestId: string;
-        agentId: string;
-        runtimeGeneration: number;
-        response: AgentUiResponse;
-      }) => Promise<void>;
-    };
-  };
-  jumpToMessageRef: MutableRefObject<((messageId: string) => void) | null>;
-  layoutRefs: {
-    chatHeaderRef: RefObject<HTMLDivElement | null>;
-    composerRef: RefObject<HTMLElement | null>;
-    composerOffsetHeight: number;
-    terminalRowHeight: number;
-  };
-  /** 面板级退出分屏（全屏按钮）：该会话从布局移除，同组兄弟合并占据其位置 */
-  exitSessionSplit: (sessionId: string) => void;
+	simpleNavigation?: boolean;
+	/** 把某会话从预览 Tab 晋升为常驻 Tab（发消息等主动交互时调用；非预览时幂等） */
+	promoteSessionToPermanent: (sessionId: string) => void;
+	isLanWeb: boolean;
+	showToast: (msg: string, dur?: number) => void;
+	onOpenFile: (path: string, line?: number, context?: SessionFileOpenContext) => void;
+	onDiffFile: (path: string) => void;
+	onPreviewImage: (img: ImageContent | null) => void;
+	abortAgent: (agentId?: string) => Promise<void>;
+	restartActiveAgent: (agentId?: string) => Promise<void>;
+	/** 本栏会话运行控制：悬停工具条/菜单按 sessionId 取能力与动作（分屏各栏隔离）。 */
+	getSessionRunCapabilities: (sessionId: string | undefined) => SessionRunCapabilities | undefined;
+	runSessionControl: (sessionId: string, action: SessionRunAction) => Promise<void>;
+	/** 关闭 Agent（杀进程 + 解绑）：会话头部「⋯」菜单项与侧栏/Tab 右键同源。 */
+	requestCloseAgentForSession?: (sessionId: string) => void;
+	/** 会话头部「⋯」菜单（原 Tab 栏「⋯」）：会话操作 / 代理 / 工具开关，按 sessionId 现算。 */
+	getSessionMenu?: (sessionId: string) => SessionMenuModel | undefined;
+	stoppingAgentId?: string | null;
+	activatingSessionId?: string | null;
+	reloadingSessionId?: string | null;
+	runCreateSessionDraft: () => Promise<void>;
+	/** 输入框 `/login`：打开登录供应商弹框（App 级装配，弹框订阅 atom 自己渲染） */
+	openProviderLogin?: (providerId?: string) => void;
+	enqueueSessionPrompt: (
+		sessionId: string,
+		snapshot: {
+			displayText: string;
+			message: string;
+			images?: ImageContent[];
+			agentMode: string;
+			behavior?: "steer" | "followUp";
+		},
+	) => boolean;
+	/** 「停止响应」时抑制排队消息自动投递；App 注入 queue.suppressSessionQueueAutoDrain。 */
+	queueSuppressAutoDrain?: (sessionId: string) => void;
+	insertQuickPrompt: (sessionId: string, message: string) => void;
+	ensureSessionId?: (sessionId: string) => Promise<string>;
+	resendUserMessage?: (message: ChatMessage) => void;
+	editMessage?: (message: ChatMessage, newText: string) => void;
+	deleteMessage?: (messageId: string, entryId?: string) => void;
+	/** 所属 pane 明确传身份；不能使用聚焦会话替非聚焦栏删除图片。 */
+	removeMessageImage?: (sessionId: string, message: ChatMessage, index: number) => void;
+	forkFromUserMessage?: (message: ChatMessage) => void;
+	forkingMessageId?: string | null;
+	openSidebarSessionById?: (projectId: string, sessionId: string) => Promise<void>;
+	/** 后台 Ask toast「前往会话」：按 sessionId 聚焦目标会话并登记常驻 Tab（App 级实现） */
+	focusAskSessionById?: (sessionId: string) => void;
+	agents: AgentTab[];
+	queuedPromptsBySession: Record<string, QueuedPrompt[]>;
+	queueRetract: (sessionId: string, prompt: QueuedPrompt) => void;
+	queueDiscard: (sessionId: string, promptId: string) => void;
+	queueChangeBehavior: (sessionId: string, promptId: string, behavior: "steer" | "followUp") => void;
+	queueFlushBySessionRef: MutableRefObject<Set<string>>;
+	restartingAgentId: string | null;
+	sessionDurationByAgent: Record<string, number>;
+	activeProjectId: string | undefined;
+	/** 分屏栏分支变化（切换成功/失败回读）后的回写通知：App 只在 projectId 为当前聚焦项目时采纳，避免非聚焦栏污染全局 Git 抽屉 */
+	onProjectGitChanged?: (projectId: string, info: GitBranchInfo) => void;
+	showThinking: boolean;
+	validFilePaths: Set<string>;
+	terminalStatesByOwner: TerminalDockStateByOwner;
+	availableTerminalHeight: number;
+	/** App 级激活 owner 键（agent:<id> / project:<id>）：分屏去重参照 + 大纲按钮状态） */
+	activeTerminalOwnerKey?: string;
+	/** 按 owner key 开关终端（分屏各栏用自己的 owner 调，不再只写「当前激活 owner」） */
+	setTerminalOpenByOwnerKey: (ownerKey: string, open: boolean) => void;
+	setTerminalCollapsedByOwnerKey: (ownerKey: string, collapsed: boolean) => void;
+	/** 回写终端分屏高度（全局单份，useTerminalDock 内部持久化） */
+	setTerminalHeight: (height: number) => void;
+	/** 终端外观设置（App 级单份，随 AppSettings 持久化） */
+	terminalSettings: TerminalDockSettings;
+	/**
+	 * 输入框功能入口隐藏清单（外观设置「输入框功能显示」，App 级单份随 AppSettings 持久化）。
+	 * 只隐藏底栏入口，不停功能与快捷键；成员语义见 shared/composerFeatures.ts。
+	 */
+	hiddenComposerFeatures: readonly (HideableComposerFeatureId | string)[];
+	/** dock 内主题菜单写回设置（单一数据源落点） */
+	onTerminalThemeChange: (themeId: TerminalThemeId) => void;
+	environmentDialog: boolean;
+	/** 修改内置对话区（Chat）的聊天记录保存目录（弹选择器 + 主进程写入 + 重扫会话） */
+	changeChatPath: (project: Project) => Promise<void>;
+	showNotice: (msg: string, dur?: number, kind?: NoticeKind) => NoticeId | undefined;
+	api: {
+		sessions: {
+			sendUiResponse: (input: { sessionId: string; requestId: string; agentId: string; runtimeGeneration: number; response: AgentUiResponse }) => Promise<void>;
+		};
+	};
+	jumpToMessageRef: MutableRefObject<((messageId: string) => void) | null>;
+	layoutRefs: {
+		chatHeaderRef: RefObject<HTMLDivElement | null>;
+		composerRef: RefObject<HTMLElement | null>;
+		composerOffsetHeight: number;
+		terminalRowHeight: number;
+	};
+	/** 面板级退出分屏（全屏按钮）：该会话从布局移除，同组兄弟合并占据其位置 */
+	exitSessionSplit: (sessionId: string) => void;
 };
 
 const SessionPaneServicesContext = createContext<SessionPaneServices | null>(null);
 
-export function SessionPaneServicesProvider(props: {
-  value: SessionPaneServices;
-  children: ReactNode;
-}) {
-  // 调用方应尽量 memo value；此处再包一层避免无意义的 Provider identity 抖动误导
-  const value = useMemo(() => props.value, [props.value]);
-  return (
-    <SessionPaneServicesContext.Provider value={value}>
-      {props.children}
-    </SessionPaneServicesContext.Provider>
-  );
+export function SessionPaneServicesProvider(props: { value: SessionPaneServices; children: ReactNode }) {
+	// 调用方应尽量 memo value；此处再包一层避免无意义的 Provider identity 抖动误导
+	const value = useMemo(() => props.value, [props.value]);
+	return <SessionPaneServicesContext.Provider value={value}>{props.children}</SessionPaneServicesContext.Provider>;
 }
 
 export function useSessionPaneServices(): SessionPaneServices {
-  const value = useContext(SessionPaneServicesContext);
-  if (!value) {
-    throw new Error("useSessionPaneServices must be used under SessionPaneServicesProvider");
-  }
-  return value;
+	const value = useContext(SessionPaneServicesContext);
+	if (!value) {
+		throw new Error("useSessionPaneServices must be used under SessionPaneServicesProvider");
+	}
+	return value;
 }

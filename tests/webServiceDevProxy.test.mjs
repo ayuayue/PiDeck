@@ -64,9 +64,7 @@ test("dev 代理：模块请求遇 vite 504（deps 重新优化）→ 透传 504
 	});
 	try {
 		await withManager(vite.url, async (baseUrl) => {
-			const res = await fetch(
-				`${baseUrl}/@fs/C:/proj/node_modules/.vite/deps/@ai-sdk_react.js?v=stale-hash`,
-			);
+			const res = await fetch(`${baseUrl}/@fs/C:/proj/node_modules/.vite/deps/@ai-sdk_react.js?v=stale-hash`);
 			assert.equal(res.status, 504, "应透传上游 504");
 			const type = res.headers.get("content-type") ?? "";
 			assert.ok(!type.includes("text/html"), "模块请求绝不能拿到 HTML（MIME 白屏根因）");

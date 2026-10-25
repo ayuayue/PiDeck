@@ -9,10 +9,7 @@ import { basename, join } from "node:path";
  *
  * 注意：不要用 --no-extensions 白名单方案——会误伤 npm packages 扩展。
  */
-export const DESKTOP_BLOCKED_EXTENSION_PATTERNS: RegExp[] = [
-	/^codeisland(\.ts|\.js)?$/i,
-	/codeisland/i,
-];
+export const DESKTOP_BLOCKED_EXTENSION_PATTERNS: RegExp[] = [/^codeisland(\.ts|\.js)?$/i, /codeisland/i];
 
 /** 停放后缀：不以 .ts/.js 结尾，pi 自动发现不会加载 */
 export const DESKTOP_PARK_SUFFIX = ".pideck-disabled";
@@ -100,9 +97,7 @@ export function scanExtensionDir(extensionsDir: string): ExtensionFilterResult {
 }
 
 /** 合并多目录扫描结果（用户级 + 项目级）。 */
-export function mergeExtensionFilters(
-	...results: ExtensionFilterResult[]
-): ExtensionFilterResult {
+export function mergeExtensionFilters(...results: ExtensionFilterResult[]): ExtensionFilterResult {
 	const blockedSet = new Set<string>();
 	const pathSet = new Set<string>();
 	for (const result of results) {
@@ -181,10 +176,7 @@ export function parkBlockedExtensionsInDir(extensionsDir: string): ParkedExtensi
 			continue;
 		}
 
-		const looksLikeExt =
-			(isFile && (entry.endsWith(".ts") || entry.endsWith(".js"))) ||
-			(isDir &&
-				(existsSync(join(fullPath, "index.ts")) || existsSync(join(fullPath, "index.js"))));
+		const looksLikeExt = (isFile && (entry.endsWith(".ts") || entry.endsWith(".js"))) || (isDir && (existsSync(join(fullPath, "index.ts")) || existsSync(join(fullPath, "index.js"))));
 		if (!looksLikeExt) continue;
 		if (!isDesktopBlockedExtension(entry)) continue;
 
@@ -222,11 +214,7 @@ export function parkBlockedExtensionsInDir(extensionsDir: string): ParkedExtensi
 				originalPath: fullPath,
 			});
 		} catch (error) {
-			console.error(
-				"[piExtensionFilter] Failed to park extension:",
-				entry,
-				error instanceof Error ? error.message : error,
-			);
+			console.error("[piExtensionFilter] Failed to park extension:", entry, error instanceof Error ? error.message : error);
 		}
 	}
 
@@ -252,11 +240,7 @@ export function unparkBlockedExtensions(parked: ParkedExtension[]): void {
 				renameSync(item.parkedPath, item.originalPath);
 			}
 		} catch (error) {
-			console.error(
-				"[piExtensionFilter] Failed to unpark extension:",
-				item.name,
-				error instanceof Error ? error.message : error,
-			);
+			console.error("[piExtensionFilter] Failed to unpark extension:", item.name, error instanceof Error ? error.message : error);
 		}
 	}
 }
@@ -287,11 +271,7 @@ export function restoreAllParkedExtensions(extensionsDirs: string[]): string[] {
 					restored.push(original);
 				}
 			} catch (error) {
-				console.error(
-					"[piExtensionFilter] Failed to restore parked extension on startup:",
-					entry,
-					error instanceof Error ? error.message : error,
-				);
+				console.error("[piExtensionFilter] Failed to restore parked extension on startup:", entry, error instanceof Error ? error.message : error);
 			}
 		}
 	}
@@ -302,9 +282,6 @@ export function restoreAllParkedExtensions(extensionsDirs: string[]): string[] {
 /**
  * @deprecated 保留空实现以免旧调用方编译失败；不再使用 --no-extensions 白名单。
  */
-export function buildBlockedExtensionCliArgs(
-	_filter: ExtensionFilterResult,
-	_options?: { alreadyNoExtensions?: boolean },
-): string[] {
+export function buildBlockedExtensionCliArgs(_filter: ExtensionFilterResult, _options?: { alreadyNoExtensions?: boolean }): string[] {
 	return [];
 }

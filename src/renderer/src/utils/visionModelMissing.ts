@@ -5,10 +5,12 @@
  * 关闭状态（enabled:false）允许空 provider/model——「关掉视觉桥」本身就是要保存的目标，
  * 拒绝会导致用户关不掉（与主进程 visionBridgeConfig.ts 的 sanitizeConfig 语义一致）。
  */
-export function visionModelMissing(config: {
-	enabled?: boolean;
-	provider?: string;
-	model?: string;
-} | null): boolean {
+export function visionModelMissing(
+	config: {
+		enabled?: boolean;
+		provider?: string;
+		model?: string;
+	} | null,
+): boolean {
 	return Boolean(config?.enabled && !config.provider && !config.model);
 }

@@ -9,16 +9,8 @@ const MANIFEST_RESOURCE = "pi-ai-catalog.manifest.json";
 
 test("PiDeck 将主进程 pi-ai catalog 作为构建期资源分发", () => {
 	const pkg = JSON.parse(readFileSync("package.json", "utf8"));
-	assert.equal(
-		pkg.dependencies?.["@earendil-works/pi-ai"],
-		undefined,
-		"主进程不应以 production dependency 携带完整 pi-ai SDK",
-	);
-	assert.equal(
-		pkg.devDependencies?.["@earendil-works/pi-ai"],
-		"0.85.0",
-		"构建期输入必须精确锁定，避免 catalog 静默漂移",
-	);
+	assert.equal(pkg.dependencies?.["@earendil-works/pi-ai"], undefined, "主进程不应以 production dependency 携带完整 pi-ai SDK");
+	assert.equal(pkg.devDependencies?.["@earendil-works/pi-ai"], "1.4.0", "构建期输入必须精确锁定（不允许 ^/~ 范围），避免 catalog 静默漂移");
 	assert.match(pkg.scripts?.build ?? "", /generate:pi-ai-catalog/);
 	assert.match(pkg.scripts?.["build:fast"] ?? "", /generate:pi-ai-catalog/);
 
@@ -27,11 +19,7 @@ test("PiDeck 将主进程 pi-ai catalog 作为构建期资源分发", () => {
 	assert.equal(resourceTargets.has(MANIFEST_RESOURCE), true);
 	assert.equal(existsSync(join("resources", CATALOG_RESOURCE)), true);
 	assert.equal(existsSync(join("resources", MANIFEST_RESOURCE)), true);
-	assert.equal(
-		generatePiAiCatalog({ check: true }).ok,
-		true,
-		"提交的 artifact 必须与精确锁定的 pi-ai 输入一致",
-	);
+	assert.equal(generatePiAiCatalog({ check: true }).ok, true, "提交的 artifact 必须与精确锁定的 pi-ai 输入一致");
 });
 
 test("主进程 catalog loader 不再从 node_modules 探测 pi-ai 数据", () => {

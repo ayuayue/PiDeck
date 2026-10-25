@@ -3,14 +3,14 @@ import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const mainSource = () => readFileSync("src/main/index.ts", "utf8");
+// 飞书 IPC 处理器已随主进程拆分迁入 ipc/feishuIpc.ts（2027-02），契约同步改读新模块。
+const feishuIpcSource = () => readFileSync("src/main/ipc/feishuIpc.ts", "utf8");
 const bridgeSource = () => readFileSync("src/main/feishu/FeishuBridge.ts", "utf8");
 const connectionSource = () => readFileSync("src/main/feishu/FeishuConnection.ts", "utf8");
 const configSource = () => readFileSync("src/main/feishu/FeishuConfig.ts", "utf8");
 
 function promptIntegrationSource(source) {
-	return source.match(
-		/async function sendAgentPromptWithIntegrations\([\s\S]*?\n\}\n\nfunction registerIpc/,
-	)?.[0] ?? "";
+	return source.match(/async function sendAgentPromptWithIntegrations\([\s\S]*?\n\}\n\nfunction registerIpc/)?.[0] ?? "";
 }
 
 test("FeishuBridge.start propagates startup failure to IPC callers", () => {
@@ -25,23 +25,20 @@ test("FeishuBridge.start propagates startup failure to IPC callers", () => {
 });
 
 test("updating a saved bot only hot-updates the active bridge for that bot", () => {
-	const source = mainSource();
+	const source = feishuIpcSource();
 	const handler = source.match(/ipcMain\.handle\(ipcChannels\.feishuBotConfig,[\s\S]*?\n\t\}\);/)?.[0] ?? "";
-	assert.match(handler, /feishuBridge\.getStatus\(\)\.botId === botId/);
+	assert.match(handler, /feishuBridgeRef\.current\.getStatus\(\)\.botId === botId/);
 });
 
 test("assigning a Session bot is stable-ID addressed and reports rejected bindings", () => {
-	const source = mainSource();
+	const source = feishuIpcSource();
 	const handler = source.match(/ipcMain\.handle\(ipcChannels\.feishuSessionBotSet,[\s\S]*?\n\t\}\);/)?.[0] ?? "";
 	assert.match(handler, /sessionId: string, botId: string \| null/);
-	assert.match(handler, /sessionRuntimeCoordinator\.getTarget\(sessionId\)/);
+	assert.match(handler, /deps\.sessionRuntimeCoordinator\.getTarget\(sessionId\)/);
 	assert.match(handler, /status\.botId !== botId/);
-	assert.match(handler, /return \{ success: false, message: feishuT\(currentFeishuLocale\(\), "session\.botMismatch"\) \}/);
+	assert.match(handler, /return \{ success: false, message: feishuT\(deps\.getCurrentLocale\(\), "session\.botMismatch"\) \}/);
 	assert.match(handler, /ensureSessionMirrorForSession\([\s\S]*?sessionId,[\s\S]*?target\.agentId/);
-	assert.ok(
-		handler.indexOf("setSessionBotId(sessionId, botId)") > handler.indexOf("if (!chatId)"),
-		"persistent assignment must happen only after the bridge confirms a chat binding",
-	);
+	assert.ok(handler.indexOf("setSessionBotId(sessionId, botId)") > handler.indexOf("if (!chatId)"), "persistent assignment must happen only after the bridge confirms a chat binding");
 });
 
 test("renderer bot list never receives stored app secrets", () => {
@@ -121,7 +118,9 @@ test("FeishuBridge can send a file through the current session binding without a
 
 test("FeishuBridge only executes agent SEND_FILE markers after explicit user send intent", () => {
 	const source = bridgeSource();
-	const method = source.match(/private async processFeishuActions\(chatId: string, sessionId: string\): Promise<void> \{[\s\S]*?\n\t\}/)?.[0] ?? "";
+	// 签名随网关改造改为（chatId, messages）：消息快照由调用方按后端取好，这里只看显式发送意图。
+	const method = source.match(/private async processFeishuActions\([\s\S]*?\n\t\}/)?.[0] ?? "";
+	assert.ok(method, "processFeishuActions 应存在");
 	assert.match(source, /hasExplicitFeishuFileSendIntent/);
 	assert.match(method, /hasExplicitFeishuFileSendIntent\(userText\)/);
 	assert.match(method, /忽略 SEND_FILE/);

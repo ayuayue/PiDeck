@@ -21,6 +21,33 @@ const fail = (message) => {
 	app.exit(1);
 };
 
+/**
+ * 加载纯常量/纯函数的 .ts 模块（Electron 内置 Node 不支持 type stripping，
+ * 普通 node 24 可以；与 PetWindow 同样用 transpile+vm）。沙箱内 require 一律
+ * 抛错：进到这里的前提就是模块无运行时依赖。
+ */
+const loadPureTsModule = (sourcePath) => {
+	const src = fs.readFileSync(sourcePath, "utf8");
+	const { outputText } = ts.transpileModule(src, {
+		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+	});
+	const mod = { exports: {} };
+	vm.runInNewContext(
+		outputText,
+		{
+			module: mod,
+			exports: mod.exports,
+			// 纯模块的函数默认参数可能取 process.env（如 v8HeapLimits），透传真实 process
+			process,
+			require: (id) => {
+				throw new Error(`pure module ${path.basename(sourcePath)} must not require(${id})`);
+			},
+		},
+		{ filename: path.basename(sourcePath) },
+	);
+	return mod.exports;
+};
+
 app.whenReady().then(async () => {
 	try {
 		// ── 加载 PetWindow.ts（与 tests/petWindowCaps.test.mjs 相同手法，但 electron 用真模块）──
@@ -49,6 +76,22 @@ app.whenReady().then(async () => {
 				if (id === "../settings/SettingsStore") {
 					return { readElectronChromiumSandboxPreference: () => false };
 				}
+				// PetWindow 新增依赖（shared 纯几何常量；v8HeapLimits 纯常量/纯函数，
+				// #213 渲染堆档位——两者均无运行时依赖，用 loadPureTsModule 加载真实源码，
+				// stub 会与实现漂移）
+				if (id === "../../shared/petNotificationLayout") {
+					return loadPureTsModule(path.join(__dirname, "../src/shared/petNotificationLayout.ts"));
+				}
+				if (id === "../v8HeapLimits") {
+					return loadPureTsModule(path.join(__dirname, "../src/main/v8HeapLimits.ts"));
+				}
+				// 渲染层噪音判定/聚合（#376 让 PetWindow 的 console-message 与主窗口共用同一口径）：
+				// 纯函数 + type-only import，无运行时依赖，同样加载真实源码而不是 stub。
+				if (id === "../../shared/rendererNoise") {
+					return loadPureTsModule(path.join(__dirname, "../src/shared/rendererNoise.ts"));
+				}
+				if (id === "../logging/sharedLogger") return { getAppLogger: () => undefined };
+				if (id === "./petSpriteProtocol") return { PET_WINDOW_PARTITION: "persist:pet" };
 				throw new Error(`pet-smoke: unexpected require(${id})`);
 			},
 		};

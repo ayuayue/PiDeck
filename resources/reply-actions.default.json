@@ -1,0 +1,13 @@
+{
+	"version": 1,
+	"items": [
+		{ "text": "继续", "triggers": [{ "kind": "onStop" }] },
+		{ "text": "再确认一下", "triggers": [{ "kind": "onStop" }, { "kind": "textMatch", "patterns": ["需要确认", "请确认", "待确认", "请审阅", "是否需要", "要不要", "需不需要", "需要我", "不确定", "可能有风险", "需要注意"] }] },
+		{ "text": "提交", "triggers": [{ "kind": "onStop" }, { "kind": "textMatch", "patterns": ["完成", "搞定", "已实现", "已修复", "已支持", "已处理", "已更新", "已新增", "已完成", "改完", "写完", "做完", "测试通过", "全部通过", "验证通过", "全绿", "收尾", "可以提交", "可提交", "待提交"] }] },
+		{ "text": "提交并推送", "triggers": [{ "kind": "onStop" }, { "kind": "textMatch", "patterns": ["完成", "搞定", "已实现", "已修复", "已支持", "已处理", "已更新", "已新增", "已完成", "改完", "写完", "做完", "测试通过", "全部通过", "验证通过", "全绿", "收尾", "可以提交", "可提交", "待提交"] }] },
+		{ "text": "运行测试看看结果", "triggers": [{ "kind": "onStop" }, { "kind": "textMatch", "patterns": ["测试", "单测", "回归", "spec", "test", "npm run", "全绿"] }] },
+		{ "text": "重新排查", "triggers": [{ "kind": "onFailure" }] },
+		{ "text": "检查报错并修复", "triggers": [{ "kind": "onFailure" }] },
+		{ "text": "重试一次", "triggers": [{ "kind": "onFailure" }] }
+	]
+}

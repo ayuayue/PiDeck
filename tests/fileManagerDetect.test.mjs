@@ -56,19 +56,11 @@ test("macOS returns Finder via open command", () => {
 test("Linux picks the first file manager found on PATH in priority order", () => {
 	const { detectFileManagerForPlatform } = loadFileManager();
 	// 只装 Dolphin：命中，name 用其专名
-	const dolphin = detectFileManagerForPlatform(
-		"linux",
-		"/usr/bin",
-		(cmd) => cmd === "dolphin",
-	);
+	const dolphin = detectFileManagerForPlatform("linux", "/usr/bin", (cmd) => cmd === "dolphin");
 	assert.deepEqual(plain(dolphin), { id: "dolphin", name: "Dolphin", command: "dolphin" });
 
 	// GNOME Files（nautilus）优先于 Dolphin：优先级决定选择
-	const nautilus = detectFileManagerForPlatform(
-		"linux",
-		"/usr/bin",
-		(cmd) => cmd === "nautilus" || cmd === "dolphin",
-	);
+	const nautilus = detectFileManagerForPlatform("linux", "/usr/bin", (cmd) => cmd === "nautilus" || cmd === "dolphin");
 	assert.deepEqual(plain(nautilus), { id: "nautilus", name: "Files", command: "nautilus" });
 
 	// 全部未装：返回 null（调用方回退系统默认）
@@ -78,11 +70,7 @@ test("Linux picks the first file manager found on PATH in priority order", () =>
 
 test("findOnPath checks PATH entries with platform extension rules", () => {
 	// 路径感知 stub：只有具体文件存在
-	const existingPaths = new Set([
-		"/usr/bin/dolphin",
-		"C:\\Windows\\System32\\explorer.exe",
-		"C:\\tools\\code.cmd",
-	]);
+	const existingPaths = new Set(["/usr/bin/dolphin", "C:\\Windows\\System32\\explorer.exe", "C:\\tools\\code.cmd"]);
 	const { findOnPath } = loadFileManager((p) => existingPaths.has(p));
 	// Linux：无扩展名匹配
 	assert.equal(findOnPath("dolphin", "/usr/bin:/opt/bin", "linux"), true);

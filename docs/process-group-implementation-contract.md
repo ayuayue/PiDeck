@@ -1,0 +1,316 @@
+# 过程组实现契约（冻结版）
+
+- **状态**：**已实现并通过验证**（T1–T5 全部完成；`typecheck` 0 错误、针对性测试全绿、全仓 biome 格式干净）。接口在实现期间冻结；后续要改先改本文件再改代码。
+- **分支**：`research/dsh-process-display`
+- **关联文档**：[timeline-process-display-research.md](./timeline-process-display-research.md) §9（设计稿）、[process-group-scroll.html](./mockups/process-group-scroll.html)（视觉效果稿）
+- **已定产品决策**：组头不带步数；大折叠栏文案不动；中间回复不加视觉标记（保持正文样式）；重试/错误 = 与中间回复同级的一级行 + 截断组；组体限高 + 内部滚轮；行内容一律照抄现状。
+
+---
+
+## 0. 全局硬性规则（违反即返工）
+
+1. **复用现有行组件**：`ThinkingBlock` / `ToolCard` 保留现有内容、状态与开合语义；允许通过共享 hook/图标入口接入 §4b 的组内标题吸顶。`TimelineMarker` / `InterimAnswer` / `FinalAnswer` / `RetryStep` / `ErrorStep` 不改。
+2. **样式只用 Tailwind utility**（AGENTS.md 硬性）：禁止新增手写 CSS class。语义 token 用现有变量（`--color-*` / `--radius-md` / `--font-size-caption` 等），不写死色值。
+3. **i18n 必须 zh-CN / en-US 同步**：JSX 里禁止硬编码中英文。
+4. **用户可见文案一律走 `t()`**；新键必须两个 locale 都加。
+5. **测试**：单测用 `tests/helpers/loadTsCommonJs.mjs`（**不要手写 vm 加载器**）。跨 realm 断言必须先 `JSON.parse(JSON.stringify(x))` 归一化，再做 `assert.deepEqual`（仓库既有惯例，否则 `deepStrictEqual` 会因原型不同判不等）。
+6. **不碰他人写作用域**。写作用域清单见各自任务描述。
+7. 任何改动后必须自跑：`node --test tests/<你的测试>.test.mjs`（node 在 `D:\nodejs\node.exe`，bash 里用 `/mnt/d/nodejs/node.exe`，路径要传 **Windows 形式** 如 `F:\PiDeck\tests\x.test.mjs`）。
+
+---
+
+## 1. 已冻结的纯函数（**已完成，勿改**）
+
+### `src/renderer/src/components/session/timeline/toolCategory.ts`
+
+```ts
+export type ToolActivityCategory = "read" | "readImage" | "search" | "write" | "edit" | "commands" | "code" | "webSearch" | "webFetch" | "subagents" | "plan" | "questions" | "tools";
+export interface ActivityCount { kind: ToolActivityCategory; count: number }
+export function toolActivityCategory(toolName: string): ToolActivityCategory;
+export function activityCountsFromToolNames(toolNames: readonly string[]): ActivityCount[];
+export function rankActivityCounts(counts: readonly ActivityCount[]): ActivityCount[];
+export function topActivityKinds(counts: readonly ActivityCount[], max?: number): ToolActivityCategory[];
+export function activityCategoryLabelKey(kind: ToolActivityCategory, phase: "running" | "done"): string;
+```
+
+### `src/renderer/src/components/session/timeline/groupTurnProcess.ts`
+
+```ts
+export type TurnProcessNode =
+  | { kind: "interim"; id: string; message: ChatMessage }
+  | { kind: "group"; id: string; members: TurnProcessEntry[]; counts: ActivityCount[]; toolCount: number; hasThinking: boolean }
+  | { kind: "entry"; id: string; entry: TurnProcessEntry };   // retry / error：一级行 + 组边界
+
+export function toolNamesOfEntry(entry: TurnProcessEntry): string[];
+export function groupTurnProcess(items: readonly TurnDisplayItem[]): TurnProcessNode[];
+export function lastProcessGroup(nodes: readonly TurnProcessNode[]): Extract<TurnProcessNode, { kind: "group" }> | undefined;
+export function lastProcessGroupIndex(nodes: readonly TurnProcessNode[]): number;
+```
+
+**分组语义**（写 UI 时按这个理解，不要自己重新分组）：
+- `final-answer` 不参与分组（由 `FinalAnswer` 在大折叠栏外渲染）。
+- 有文本的 `interim-answer` → 先关掉当前组，再产出一条一级 `interim` 节点。
+- **空文本 `interim-answer` 既不作边界也不产出**（live 骨架 / 空 error 占位；把它当边界会凭空多出空组头）。
+- `retry-entry` / `error-entry` → 先关掉当前组，再产出一条一级 `entry` 节点（与中间回复同级）。
+- 其余（`thinking-entry` / `tool-entry`）→ 并入当前组；**工具类别变化不拆组**。
+- 组 id = `grp:${首成员 id}`，只要该组内容不变就稳定（组开合状态、React key、滚动锚点都挂在它上面）。
+
+---
+
+## 2. 冻结的 i18n 键（zh-CN 与 en-US 必须都有）
+
+| 键 | zh-CN | en-US |
+|---|---|---|
+| `timeline.processGroup.running.read` | 正在读取文件 | Reading files |
+| `timeline.processGroup.running.readImage` | 正在读取图片 | Reading images |
+| `timeline.processGroup.running.search` | 正在搜索代码 | Searching the code |
+| `timeline.processGroup.running.write` | 正在写入文件 | Writing files |
+| `timeline.processGroup.running.edit` | 正在编辑文件 | Editing files |
+| `timeline.processGroup.running.commands` | 正在运行命令 | Running commands |
+| `timeline.processGroup.running.code` | 正在运行代码 | Running code |
+| `timeline.processGroup.running.webSearch` | 正在搜索网页 | Searching the web |
+| `timeline.processGroup.running.webFetch` | 正在访问网页 | Fetching pages |
+| `timeline.processGroup.running.subagents` | 正在协调子代理 | Coordinating subagents |
+| `timeline.processGroup.running.plan` | 正在更新计划 | Updating the plan |
+| `timeline.processGroup.running.questions` | 等待你的操作 | Waiting for you |
+| `timeline.processGroup.running.tools` | 正在调用工具 | Calling tools |
+| `timeline.processGroup.done.read` | 已读取文件 | Read files |
+| `timeline.processGroup.done.readImage` | 已读取图片 | Read images |
+| `timeline.processGroup.done.search` | 已搜索代码 | Searched the code |
+| `timeline.processGroup.done.write` | 已写入文件 | Wrote files |
+| `timeline.processGroup.done.edit` | 修改了文件 | Edited files |
+| `timeline.processGroup.done.commands` | 执行了命令 | Ran commands |
+| `timeline.processGroup.done.code` | 运行了代码 | Ran code |
+| `timeline.processGroup.done.webSearch` | 已搜索网页 | Searched the web |
+| `timeline.processGroup.done.webFetch` | 已访问网页 | Fetched pages |
+| `timeline.processGroup.done.subagents` | 已协调子代理 | Coordinated subagents |
+| `timeline.processGroup.done.plan` | 更新了计划 | Updated the plan |
+| `timeline.processGroup.done.questions` | 向用户提出了问题 | Asked you a question |
+| `timeline.processGroup.done.tools` | 已调用工具 | Called tools |
+| `timeline.processGroup.analyzing` | 正在分析请求 | Analyzing the request |
+| `timeline.processGroup.analyzed` | 已完成分析 | Finished analyzing |
+| `timeline.processGroup.separator` | `·` | `·` |
+| `timeline.processGroup.joinTwo` | `{first}并{second}` | `{first} and {second}` |
+| `timeline.processGroup.joinList` | `{items}` | `{items}` |
+| `timeline.processGroup.listSeparator` | `、` | `, ` |
+| `timeline.processGroup.more` | `{title} 等` | `{title}, and more` |
+
+### 2b. 设置开关的 i18n 键（同样 zh-CN + en-US 都要有）
+
+| 键 | zh-CN | en-US |
+|---|---|---|
+| `settings.processGroupDisplay` | 过程组显示 | Grouped process display |
+| `settings.processGroupDisplayDesc` | 一轮内的连续思考与工具调用合并为「过程组」，点开组头展开明细。 | Merges consecutive reasoning and tool calls in a turn into process groups; expand a group header for details. |
+
+**默认值：开启（2026-11 起过程组转正为默认显示，设置里可关回平铺）**。
+
+---
+
+## 3. 冻结的组开合状态接口（手风琴）
+
+`src/renderer/src/components/session/turn/useProcessGroupState.ts`
+
+```ts
+export interface ProcessGroupOpenState {
+  /** 自动通道：只有一个槽位，永远指向「最新的组」。新组出现时推进到新组，旧自动组因此关闭。 */
+  readonly autoGroupId: string | undefined;
+  /** 手动通道：用户亲手点开的组，互不干扰；新内容不影响它们。 */
+  readonly manualGroupIds: readonly string[];
+}
+
+export const EMPTY_PROCESS_GROUP_STATE: ProcessGroupOpenState;
+
+export function isGroupOpen(state: ProcessGroupOpenState, groupId: string): boolean;
+/** 最新组变化时推进自动槽（同值返回原引用，便于 memo）。 */
+export function advanceAutoGroup(state: ProcessGroupOpenState, latestGroupId: string | undefined): ProcessGroupOpenState;
+/** 用户点击组头。open=true：加入手动集合，并清空占着该组的自动槽；open=false：从手动集合移除，若占着自动槽也一并清空。 */
+export function toggleGroupByUser(state: ProcessGroupOpenState, groupId: string, open: boolean): ProcessGroupOpenState;
+/** 大折叠栏关闭时调用：两个通道一起清空。 */
+export function resetProcessGroupState(): ProcessGroupOpenState;
+```
+
+`src/renderer/src/atoms/session-atoms.ts`（只加这一处 + 清理一处）
+```ts
+/** 过程组手风琴状态，按 sessionId → runId 两级记忆（内存级，不持久化，与 runStepsVisibleMemory 同规约）。 */
+export const processGroupOpenBySessionIdAtomFamily = atomFamily((sessionId: string) => atom<Record<string, ProcessGroupOpenState>>({}));
+```
+并在既有的「删除会话」清理路径（`runStepsVisibleMemoryBySessionIdAtomFamily.remove(sessionId)` 那一组附近）补 `processGroupOpenBySessionIdAtomFamily.remove(sessionId)`。
+
+### 3b. 冻结的窄 hook（集成层直接用，名字与签名不许改）
+
+```ts
+export function useProcessGroupOpenState(
+  sessionId: string | undefined,
+  runId: string | undefined,
+): {
+  /** 本轮的组开合状态；无会话/无 run 时返回 EMPTY_PROCESS_GROUP_STATE */
+  groupState: ProcessGroupOpenState;
+  /** 用户点某个组头：走 toggleGroupByUser 并写回 atom */
+  toggleGroup: (groupId: string, open: boolean) => void;
+  /** 最新组变化时推进自动槽（内部同值短路，避免无谓写 atom） */
+  syncLatestGroup: (latestGroupId: string | undefined) => void;
+  /** 大折叠栏关闭时调用：两通道一起清空并写回 */
+  reset: () => void;
+};
+```
+
+- `sessionId` / `runId` 为空 → `groupState` 返回 `EMPTY_PROCESS_GROUP_STATE`，三个命令退化为安全 no-op（不抛错）。
+- `syncLatestGroup` 必须同值短路；`advanceAutoGroup` 值没变时返回原引用 —— 两者都要有测试。
+- 三个命令必须 `useCallback` 稳定引用（集成层会把它们放进 memo 组件的 props）。
+
+**语义要点（产品已确认）**：
+- 大折叠栏展开时 → 自动槽指向**最新**的过程组。
+- 出现**新组** → 自动槽换到新组，**上一个自动展开的组自动关闭**；手动打开的组不受影响。
+- 用户手动点开的组 → 一直开着，直到 (a) 用户自己点关，或 (b) 大折叠栏关闭。
+- 大折叠栏关闭 → 组状态全部清空。**组内卡片的展开态不需要额外代码**：Radix 折叠时子树整体卸载（`children: isOpen && children`），组件内部 state 随之销毁。
+
+---
+
+## 4. 冻结的组件接口
+
+### `src/renderer/src/components/session/turn/ProcessGroupStep.tsx`（T3 负责）
+
+```ts
+export type ProcessGroupStepProps = {
+  group: Extract<TurnProcessNode, { kind: "group" }>;
+  /** 该组是否「最新组且在跑」→ 组头走「正在…」文案 + shimmer */
+  running: boolean;
+  /** 该组当前是否展开 */
+  open: boolean;
+  onToggle: (open: boolean) => void;
+  showThinking?: boolean;
+  sessionId?: string;
+  onOpenFile?: (path: string) => void;
+  onOpenExternal: (url: string) => void;
+};
+export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGroupStepProps) { ... });
+```
+
+渲染要求：
+- **组头是一个 `<button>`，宽度必须 `w-full`**（占满内容列，与流式输出同宽），悬停底色也随之铺满整行 —— **不要出现「文字多宽、框就多宽」**。内部布局与现有过程行同构：左起 22px 类别图标方块（图标 14px）→ 类别文案 → chevron。
+- **组头尺寸不得小于组体里的行**（2026 用户反馈修正）：成员行是 `text-control`(13px) / `min-h-7`(28px) / 图标 16px，所以组头取 `text-control` + `h-7` + `font-semibold`。**禁止退回 `text-caption`(12px) + `h-6`(24px)**——那会造成「容器比内容小」的倒置层级，用户一眼就觉得组头偏小。层级改由**字重（600 vs 400）与颜色（`text-secondary` vs `text-faint`）**承担，而不是缩小容器。回归守卫：`tests/processGroupRendering.test.mjs` 的「组头不得小于组体里的行」。
+- 组头文案：
+  - `running === true`：`t(activityCategoryLabelKey(topKind, "running"))` + 若有实时详情则追加 `t("timeline.processGroup.separator")` + 详情；文案走 `<ShimmerText>`（复用 `src/renderer/src/components/session/ShimmerText.tsx`）。
+  - 已结束：`topActivityKinds(group.counts, 3)` → 分别取 `done` 文案，按 `joinTwo` / `joinList` + `listSeparator` 组装；超过 3 类用 `more` 包裹；**`counts` 为空且有思考时**用 `t("timeline.processGroup.analyzed")`。
+  - 实时详情仅在**最后一个成员是 `tool-entry`** 时取其工具名 + 参数 → 复用 `timeline/toolPhrase.ts` 的 `getToolPhraseFromArgs(toolName, args).loadingLabel`；切回思考或取不到时不显示详情。
+- **组体**：`max-h-[min(320px,30vh)] overflow-y-auto overscroll-behavior-contain`，外层 `ml-5 border-l-2 border-border-subtle pl-3`（沿用现有「思考展开正文」的缩进语言）。限高 flex 列里的子项必须 `shrink-0`（AGENTS.md 记录过的塌陷事故）。
+- **组体内部跟底（2026-08 用户报修）**：组体复用外层时间线同一套跟底引擎 `lib/stick-to-bottom`（`useStickToBottom`），不另造阈值/意图判定。要点：
+  - `scrollRef` 绑组体滚动容器，`contentRef` 绑内层内容包装盒：限高后的滚动容器不随成员增长，必须观察内容盒才能收到 `ResizeObserver` 通知；
+  - 展开时调用 `scrollToBottom({ animation: "instant" })`；后续增高由内容观察器在锁底状态下跟随，手动上滚则解锁内层跟随；
+  - 组体的 `noteWheel` 只改变内层跟随态；不向外层 controller 上报组内用户意图（组内滚动不改变时间线跟随态）。
+- **组内手势不得幽灵影响外层（同次审计修复）**：组体到边后滚轮/键盘一律不外溢（`overscroll-contain`），所以引擎必须按「手势到底滚了谁」判定归属 —— 详见 §7 已知限制与 `followState.ts` 的 `resolveGestureOwner`。
+- **组体内容 = 复用现有组件**：`thinking-entry` → `<ThinkingStep hidden={false} .../>`；`tool-entry` → `<ToolStep stopped={!running} hidden={false} .../>`。
+- **扩展输出成员（2026-10 新增）**：appendEntry 投影卡（`meta.type === "customEntry"`）按用户决策折进过程组、不再单独成块：`groupToolMessages` 吸为 run 内 `extension-entries` 组员（连续条目合并且不拆组，run 未开始时保持独立卡兑底），`groupTurnProcess` 里与思考/工具同层入组（不截断、不计入 toolCount），组节点新增 `extensionCount` 字段。组头已结束文案追加扩展段 `t("timeline.processGroup.extension", { count })`（与工具段用 `joinTwo` 连接；纯扩展组只报扩展段、图标用 Puzzle）；组员行渲染 `turn/ExtensionEntryStep.tsx`（折叠行 + 展开看 data 字段）。`customMessage`（子代理完成通知）不受影响：仍是回合边界 + 独立通知卡。
+- **组内挂载预算（必须做，否则会 OOM 回归）**：一个组可能有几百个成员，全挂进 DOM 就是当年 `turnMountBudget` 要治的事故（2026-08 渲染进程 OOM）。所以组体必须对 `group.members` 套 `boundMountedSteps(group.members, TIMELINE_MOUNTED_STEP_LIMIT)`（`timeline/turnMountBudget.ts`，limit=120，从尾部保留）；`hiddenCount > 0` 时在**组体顶部**渲染与 TurnRow 同款的 ghost 入口按钮，文案用现有键 `t("timeline.showEarlierSteps", { count })`；点击后本地 `showAll` 全量挂载（用 `useState`，随组 id 变化重置，写法参照 `TurnRow.tsx` 里 `expandedStepsRunId` 的既有模式）。
+- `aria-expanded` / `aria-controls` 必须有；组体 `id` 用 `useId()`。
+
+### 4b. 组内展开项标题吸顶
+
+- 仅对过程组内已展开、且总高度超过组体视口的工具/思考项生效；标题在本项范围内使用原生 `position: sticky`，离开本项后退场，不复制标题、不叠层、不固定到应用窗口。
+- 吸顶时只增加一个「回到本项开头」图标；无图钉/「吸顶」提示、无右侧收起按钮、无常驻文字。悬停或键盘聚焦时显示 Tooltip，图标保留可访问名称；标题行仍负责开合，思考正文已有的底部收起入口保留。
+- 回到开头与从吸顶标题收起都经组体既有跟底引擎的 `restoreAt` 定位，不直接写 `scrollTop`，以同时解除锁底并取消在途跟随动画；不改变外层时间线跟随态。
+- 组体统一拥有滚动/尺寸通知，组内行只订阅几何变化；listener、ResizeObserver、requestAnimationFrame 必须在组体关闭/卸载时配对清理。不新增滚动容器或持久化设置。
+- 工具组与思考项的祖先仅在组内让出 `overflow:hidden`，否则原生 sticky 会绑定到错误的滚动容器；组外保留原布局。扫光裁切下放标题行，不让动画外溢。
+
+### `src/renderer/src/components/session/turn/ProcessFold.tsx`（Lead 负责）
+
+```ts
+export type ProcessFoldProps = {
+  nodes: readonly TurnProcessNode[];
+  stepsVisible: boolean;
+  agentRunning?: boolean;
+  isStreaming?: boolean;
+  showThinking?: boolean;
+  sessionId?: string;
+  /** 当前 live 中间回复 id（容器外渲染，这里跳过避免双份） */
+  liveInterimId?: string;
+  groupState: ProcessGroupOpenState;
+  onToggleGroup: (groupId: string, open: boolean) => void;
+  onOpenFile?: (path: string) => void;
+  onOpenExternal: (url: string) => void;
+  onCollapse: () => void;
+};
+```
+
+---
+
+## 5. 设置开关：过程组显示 / 现在的平铺显示（T4 负责）
+
+新增一个 boolean 设置，**默认 `false`**（= 保持现在的平铺显示）。TurnRow 据它二选一渲染：
+`true` → `<ProcessFold/>`（过程组）；`false` → **现有的扁平渲染循环原样保留**（一条都不能删）。
+
+遵循项目既有的 boolean 设置通路（**不新增 IPC**），需同步改这 7 处（**按符号定位，不要按行号**）：
+
+| 文件 | 要改什么 |
+|---|---|
+| `src/shared/types/settings.ts` | 在 `Settings` 里加 `processGroupDisplay: boolean;`（紧邻 `expandInterimDuringStream`） |
+| `src/main/settings/SettingsStore.ts` | 默认值加 `processGroupDisplay: false`（与 `expandInterimDuringStream: true` 同一处对象）；2026-11 起默认值改为 `true`（过程组转正为默认显示，可在设置中关回平铺） |
+| `src/renderer/src/atoms/app-ui-atoms.ts` | ① `TurnFlowSettings` 类型加 `processGroupDisplay: boolean`；② `turnFlowSettingsAtom` 初值加 `processGroupDisplay: false` |
+| `src/renderer/src/previewApi.ts` | 默认设置里加 `processGroupDisplay: false`（与另两处默认值同源） |
+| `src/renderer/src/App.tsx` | ① 草稿默认值加 `processGroupDisplay: false`；② 把 `settings.processGroupDisplay` 同步进 `turnFlowSettingsAtom`（与 `expandInterimDuringStream` 同一个 `useEffect`，并把新字段加进依赖数组） |
+| `src/renderer/src/components/app/settings/CommonTab.tsx` | 紧挨 `common-expand-interim-during-stream` 加一行 `SettingSwitchRow`，`anchor="common-process-group-display"` |
+| `src/renderer/src/utils/settingsFieldAnchors.ts` | 加锚点 `common-process-group-display`（与另两个时间线设置同组） |
+
+i18n 键见 §2b（由 T1 负责加，T4 只管引用，**不要自己动 locale 文件**）。
+
+**验收**：
+- 默认（未改设置）行为与改动前**完全一致**：设置页看不到差别、时间线仍是平铺。
+- 打开开关后走过程组渲染；关掉再切回平铺，不需要重启、不需要刷新会话。
+- 设置项在刷新后保持（走既有持久化通路）。
+
+---
+
+## 6. 验收与合并门禁（Lead 最终执行）
+
+1. `npm run typecheck` 全绿。
+2. 针对性测试：`tests/groupTurnProcess.test.mjs`、`tests/toolCategory.test.mjs`、`tests/processGroupState.test.mjs`、`tests/processGroupCopy.test.mjs`、`tests/turnDisplayStructure.test.mjs`、`tests/turnRowExecutionProcess.test.mjs`、`tests/timelineContentVisibility.test.mjs`、`tests/turnCollapsePolicy.test.mjs`、`tests/turnMountBudget.test.mjs`、`tests/selectionToolbarPolicy.test.mjs`、`tests/appSettingsDefaults.test.mjs`（若不存在则新建，断言 3 处默认值同源）全绿。
+3. **开关两条路径都要能跑**：默认关闭 = 与改动前逐像素同款；打开 = 过程组渲染。
+4. 视觉零回归：思考行 / 工具行 / 中间回复 / 最终回复 / 重试错误行**与改动前同款**（只有外层多了缩进与竖线）。
+5. `TurnRow.tsx` 体量不得因本次改动继续膨胀（目标 ≤ 600 行；折叠区内容已抽到 `ProcessFold.tsx`）。
+6. **~~已知限制（v1 接受，需在文档中记录）~~ 已修（2026-08 审计）**：原文担心的「组体内部滚动不会产生用户意图」保持**不变且是刻意的** —— 组内滚动不改时间线跟随态（组体自己跟底，见 §4）。真正被审计揪出的相邻缺陷不是这个，而是「组内滚轮/键盘在到边后**既没滚组体也没滚时间线**，事件却照旧冒泡到时间线」，导致跟随态被静默改掉：上滚 → 弹回底按钮 + 流式不再跟随；下滚 → 提前回锁。现由引擎在手势归属层面拦掉（`followState.ts` 的 `resolveGestureOwner` + `collectScrollChain` + `isScrollChainCut`），e2e 守卫见 `e2e/process-group-display.spec.ts` 的「组内滚轮不得幽灵解锁外层」。
+
+---
+
+## 7. 实现结果与已知限制
+
+### 落地清单
+
+| 件 | 文件 |
+|---|---|
+| 工具活动归类（13 类） | `timeline/toolCategory.ts`（含 `ActivityCategoryLabelKey` 模板字面量联合，调用方零 `as`） |
+| 分组纯函数 | `timeline/groupTurnProcess.ts`（含 `TurnStandaloneEntry`：把「一级行只有重试/错误」这条不变量写进类型） |
+| 两级挂载预算 | `timeline/turnMountBudget.ts` 新增 `PROCESS_GROUP_MEMBER_LIMIT` / `PROCESS_FOLD_NODE_LIMIT` |
+| 手风琴状态机 | `turn/useProcessGroupState.ts`（纯函数 + `useProcessGroupOpenState` 窄 hook） |
+| 状态归属 | `atoms/session-atoms.ts`（`ProcessGroupOpenState` 定义在此 + family + 删会话清理） |
+| 组组件 | `turn/ProcessGroupStep.tsx`（组头 `flex w-full`、组体限高滚轮、组内预算） |
+| 大折叠栏内容 | `turn/ProcessFold.tsx` |
+| 二选一分支 | `turn/TurnRow.tsx`（`flowSettings.processGroupDisplay ? <ProcessFold/> : 原扁平渲染`） |
+| 设置开关 | `processGroupDisplay`，默认 `false`（2026-11 起改为 `true`），7 处默认值/同步 + 设置页开关行 + 未保存变更目录 |
+| i18n | 35 键 × 2 locale |
+| 测试 | `groupTurnProcess` / `toolCategory` / `processGroupState` / `processGroupCopy` / `appSettingsDefaults` / **`processGroupRendering`（结构契约）** |
+
+### 设计上刻意做的三件事
+
+1. **依赖方向**：`ProcessGroupOpenState` 定义在 `atoms`（atom 拥有该值），hook 从 atoms 取类型并 re-export —— 不是 atoms 反向 import components（那会层级倒置）。与 `RunStepsVisibleMemoryEntry` 的既有归属一致。
+2. **不变量写进类型**：一级行只可能是重试/错误，用 `TurnStandaloneEntry` 表达，下游因此不需要「不可能分支」的兜底。
+3. **不用 `as` 绕类型**：类别文案 key 返回模板字面量联合（26 个真实键），本身就是 `TranslationKey` 子集。
+
+### 二次审计补丁（2026-08，用户报「组体不跟底」后同轮揪出）
+
+| 缺陷 | 现象 | 修法 | 守卫 |
+|---|---|---|---|
+| 组体不跟底 | 组体内容增长，滚珠停在上面 | 组体接入 `lib/stick-to-bottom` 引擎 | e2e「组体内部滚轮自己跟底」 |
+| 滚轮幽灵解锁（D1） | 组内滚轮到边，时间线没动却解锁跟随 | `resolveGestureOwner` + `collectScrollChain`（`followState.ts`） | e2e「组内滚轮不得幽灵解锁外层」 |
+| 键入手势被截胡（D2） | 焦点在组体时 PageUp 把跟随态改掉而画面没动 | `handleKeyDown` 同样走 `resolveGestureOwner` 判定归属 | `tests/stickToBottomUserIntent.test.mjs` |
+| running 判定过宽（D1'） | 尾部已追加中间回复，旧组仍转 shimmer 报「正在…」 | `running` 改为「最后一个节点就是这个组」 | `tests/groupTurnProcess.test.mjs` |
+| 运行中组头类别滞后（D2'） | 组头写「正在搜索代码」，右侧详情却是「正在读取 xx」；工具后接思考时仍报旧工具 | `lastToolCategory()` 与详情只看最后一个成员：工具取当前类别，思考退回分析中 | `tests/groupTurnProcess.test.mjs` |
+
+### 已知限制（v1）
+
+1. **组内滚动不解锁外层跟随（刻意行为，非缺陷）**：组体内部滚动不产生「用户意图」，时间线仍保持贴底跟随。
+   - 注意与「幽灵解锁」区分：组体到边后（`overscroll-contain` 切断滚动链）滚轮/键盘**谁都不滚**，这类输入曾经照旧冒泡给引擎、被误当成「用户在滚时间线」，从而静默解锁或回锁跟随态。现由 `followState.ts` 的 `resolveGestureOwner`（配合 `collectScrollChain` 收集向外的完整滚动链）在归属层拦掉：**从手势起点沿祖先链继续往外走**，第一个「用户可滚且该方向真有余量」的环认领手势（`overflow:hidden` 不能接收滚轮，但仍可用 `overscroll-behavior` 断链）；中途遇到「已到边且 `overscroll-behavior-y: contain | none`」的环直接断链（`nobody`）；链走完没人认领才归时间线。因此「代码块到边后继续滚时间线」的既有行为保留，而嵌套容器到边的手势既不滚任何一像素、也不改跟随态。
+     - 不用「第一个 overflow 容器」代替的原因：代码块到顶时若外层组体还有余量，浏览器滚的是**组体**，只看第一环会把这次手势误判成时间线手势。
+   - 键盘同理：`handleKeyDown` 现在忽略「起点在嵌套滚动容器里」的 PageUp/PageDown/Home/End/方向键（这些键会先滚内层，而引擎看不到内层的 `scrollTop` 变化）。
+2. **组体限高用 `vh`**：`min(320px, 30vh)` 量的是窗口高度，不是阅读区高度（阅读区约为窗口的 60~70%，即实际约占 45%）。更准需给滚动容器加 `container-type: size` 用 `cqh`，但要回归一次滚动/跟随。
+3. **`TurnRow.tsx` 变长**：两条渲染路径并存，文件已接近 AGENTS.md 的体量评估阈值。若后续要加第三种模式，应先把扁平路径也抽成独立组件。
+4. **`hidden={!stepsVisible}` 分支是历史遗留**：Radix 折叠时子树整体卸载，该分支在当前结构下不可达（审计已确认），保留是为了不改变既有契约测试的语义。

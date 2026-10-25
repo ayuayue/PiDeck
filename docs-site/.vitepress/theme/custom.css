@@ -32,17 +32,21 @@
 
 :root {
   --pideck-color-brand-green: #0f766e;
-  --pideck-color-brand-blue: #2563eb;
-  --pideck-color-brand-amber: #b45309;
+  --pideck-color-brand-teal: #14b8a6;
+  /* 品牌渐变收敛为青绿双色：琥珀色与 teal 主色冲突，已从 hero 移除 */
   --pideck-hero-gradient: linear-gradient(
     120deg,
-    var(--pideck-color-brand-green) 0%,
-    var(--pideck-color-brand-blue) 54%,
-    var(--pideck-color-brand-amber) 100%
+    var(--pideck-color-brand-green) 10%,
+    var(--pideck-color-brand-teal) 90%
   );
+  /* 阴影双轨：浅色/深色在下方 .dark 覆写 */
+  --pideck-shadow-card: 0 12px 30px rgba(20, 33, 31, 0.05);
+  --pideck-shadow-shot: 0 22px 60px rgba(20, 33, 31, 0.16);
+  --pideck-shadow-qr: 0 12px 30px rgba(20, 33, 31, 0.08);
+  --pideck-radius: 8px;
   --vp-c-brand-1: var(--pideck-color-brand-green);
   --vp-c-brand-2: #0d9488;
-  --vp-c-brand-3: #14b8a6;
+  --vp-c-brand-3: var(--pideck-color-brand-teal);
   --vp-c-brand-soft: rgba(20, 184, 166, 0.14);
   --vp-c-bg: #f7faf9;
   --vp-c-bg-alt: #eef5f3;
@@ -64,14 +68,25 @@
   --vp-c-text-1: #ecf4f2;
   --vp-c-text-2: #afbfbb;
   --vp-c-brand-soft: rgba(20, 184, 166, 0.18);
+  --pideck-shadow-card: 0 12px 30px rgba(0, 0, 0, 0.35);
+  --pideck-shadow-shot: 0 22px 60px rgba(0, 0, 0, 0.5);
+  --pideck-shadow-qr: 0 12px 30px rgba(0, 0, 0, 0.4);
 }
 
+/* 首页顶部光晕：浅/深各一组，避免深色下灰脏 */
 .VPHome {
   background:
     linear-gradient(180deg, rgba(15, 118, 110, 0.08), transparent 360px),
-    radial-gradient(circle at 100% 0%, rgba(180, 83, 9, 0.08), transparent 340px);
+    radial-gradient(circle at 100% 0%, rgba(20, 184, 166, 0.1), transparent 340px);
 }
 
+.dark .VPHome {
+  background:
+    linear-gradient(180deg, rgba(20, 184, 166, 0.1), transparent 360px),
+    radial-gradient(circle at 100% 0%, rgba(20, 184, 166, 0.07), transparent 340px);
+}
+
+/* 品牌字只用于品牌位（hero 名、导航标题）；正文标题保持无衬线保证中西混排一致 */
 .VPHero .name,
 .VPHero .text {
   letter-spacing: 0;
@@ -80,18 +95,18 @@
 .VPHero .name {
   font-family: var(--pideck-font-brand);
   font-style: italic;
-  font-weight: 760;
+  font-weight: 700;
 }
 
 .VPHero .text {
   font-family: var(--pideck-font-brand);
-  font-weight: 560;
+  font-weight: 600;
 }
 
 .VPNavBarTitle .title {
   font-family: var(--pideck-font-brand);
   font-style: italic;
-  font-weight: 680;
+  font-weight: 700;
   letter-spacing: 0;
 }
 
@@ -100,18 +115,37 @@
   line-height: 1.75;
 }
 
+/* hero 标题里的整词保护：防止「桌面工作台」被从中断开 */
+.keep-together {
+  display: inline-block;
+}
+
 .VPButton {
-  border-radius: 8px !important;
+  border-radius: var(--pideck-radius);
 }
 
 .VPFeature {
-  border-radius: 8px !important;
-  border-color: rgba(15, 118, 110, 0.16) !important;
-  box-shadow: 0 12px 30px rgba(20, 33, 31, 0.05);
+  border-radius: var(--pideck-radius);
+  border-color: rgba(15, 118, 110, 0.16);
+  box-shadow: var(--pideck-shadow-card);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.VPFeature:hover {
+  transform: translateY(-2px);
+  border-color: rgba(15, 118, 110, 0.32);
+  box-shadow: var(--pideck-shadow-qr);
+}
+
+.VPFeature .title {
+  font-style: normal;
 }
 
 .home-showcase {
-  margin: 24px auto 56px;
+  margin: 24px auto 16px;
   max-width: 1120px;
   padding: 0 24px;
 }
@@ -122,8 +156,8 @@
   display: block;
   width: 100%;
   border: 1px solid var(--vp-c-divider);
-  border-radius: 8px;
-  box-shadow: 0 22px 60px rgba(20, 33, 31, 0.16);
+  border-radius: var(--pideck-radius);
+  box-shadow: var(--pideck-shadow-shot);
 }
 
 .home-showcase figcaption {
@@ -131,6 +165,26 @@
   color: var(--vp-c-text-2);
   font-size: 14px;
   text-align: center;
+}
+
+/* 版本徽章：紧跟主截图，给出当前版本与下载/更新日志入口 */
+.version-badge {
+  margin: 0 auto 40px;
+  max-width: 1120px;
+  padding: 0 24px;
+  text-align: center;
+  color: var(--vp-c-text-2);
+  font-size: 14px;
+}
+
+.version-badge a {
+  color: var(--vp-c-brand-1);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.version-badge a:hover {
+  text-decoration: underline;
 }
 
 .screenshot-grid {
@@ -145,12 +199,27 @@
   text-decoration: none;
 }
 
+.screenshot-card img {
+  /* 统一 16/10 裁切：源截图宽高比不一致，object-fit 保网格文字对齐 */
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  object-position: top center;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.screenshot-card:hover img {
+  transform: translateY(-3px);
+  box-shadow: var(--pideck-shadow-qr);
+}
+
 .screenshot-card strong {
   display: block;
   margin-top: 10px;
   letter-spacing: 0;
   font-family: var(--pideck-font-brand);
-  font-weight: 620;
+  font-weight: 600;
 }
 
 .screenshot-card span {
@@ -161,16 +230,17 @@
   line-height: 1.6;
 }
 
+/* info-strip：与 screenshot-grid 同款自适应，中间档（760-1000px）不再挤三栏 */
 .info-strip {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 14px;
   margin: 28px 0;
 }
 
 .info-strip > div {
   border: 1px solid var(--vp-c-divider);
-  border-radius: 8px;
+  border-radius: var(--pideck-radius);
   padding: 16px;
   background: var(--vp-c-bg-soft);
 }
@@ -179,19 +249,7 @@
   display: block;
   margin-bottom: 6px;
   font-family: var(--pideck-font-brand);
-  font-weight: 620;
-}
-
-.VPFeature .title,
-.content h1,
-.content h2 {
-  font-family: var(--pideck-font-brand);
-  font-weight: 620;
-  letter-spacing: 0;
-}
-
-.VPFeature .title {
-  font-style: italic;
+  font-weight: 600;
 }
 
 .VPDoc code,
@@ -206,30 +264,84 @@
   font-family: var(--pideck-font-display-mono);
 }
 
+/* 联系方式表格里的复制按钮：宽度不撑表格，对齐 code 字号 */
+.copy-text-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 6px;
+  background: var(--vp-c-bg-soft);
+  color: var(--vp-c-text-2);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  vertical-align: middle;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.copy-text-btn:hover {
+  color: var(--vp-c-brand-1);
+  border-color: var(--vp-c-brand-1);
+}
+
+.copy-text-btn.copied {
+  color: var(--vp-c-brand-1);
+  border-color: var(--vp-c-brand-1);
+}
+
+.copy-text-btn.failed {
+  color: #dc2626;
+  border-color: #dc2626;
+}
+
 /* 赞赏码单独约束宽度，避免套用截图 100% 拉满 */
 .sponsor-block {
   margin: 24px 0 48px;
   text-align: center;
 }
 
+/* 微信群二维码：与赞赏码同款视觉，但下方还有内容，所以不留大下边距 */
+.community-block {
+  margin: 24px 0 32px;
+  text-align: center;
+}
+
+.community-qr,
 .sponsor-qr {
   display: inline-block;
   width: 280px;
   max-width: 100%;
   height: auto;
   border: 1px solid var(--vp-c-divider);
-  border-radius: 16px;
-  box-shadow: 0 12px 30px rgba(20, 33, 31, 0.08);
+  border-radius: var(--pideck-radius);
+  box-shadow: var(--pideck-shadow-qr);
+}
+
+/* 作者小店的价目表：与赞赏码同款边界/圆角，但价目表是竖版海报（6:7），
+   宽度得比二维码大才读得清价格，否则缩到 280px 后数字变成一坨 */
+.shop-block {
+  margin: 24px 0 40px;
+  text-align: center;
+}
+
+.shop-price {
+  display: inline-block;
+  width: 420px;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: var(--pideck-radius);
+  box-shadow: var(--pideck-shadow-qr);
 }
 
 @media (max-width: 760px) {
   .home-showcase {
     margin-top: 8px;
     padding: 0 18px;
-  }
-
-  .screenshot-grid,
-  .info-strip {
-    grid-template-columns: 1fr;
   }
 }

@@ -13,9 +13,13 @@ function loadLayout() {
 		},
 	});
 	const module = { exports: {} };
-	vm.runInNewContext(outputText, { module, exports: module.exports }, {
-		filename: "petNotificationLayout.ts",
-	});
+	vm.runInNewContext(
+		outputText,
+		{ module, exports: module.exports },
+		{
+			filename: "petNotificationLayout.ts",
+		},
+	);
 	return module.exports;
 }
 
@@ -28,10 +32,7 @@ test("effectiveUIFontSize falls back to global fontSize when uiFontSize is null"
 });
 
 test("font size mapping matches foundation --font-size-control presets", () => {
-	assert.equal(
-		JSON.stringify(L.NOTIFICATION_FONT_SIZE_PX),
-		JSON.stringify({ compact: 12, default: 13, medium: 14, large: 15, xlarge: 16 }),
-	);
+	assert.equal(JSON.stringify(L.NOTIFICATION_FONT_SIZE_PX), JSON.stringify({ compact: 12, medium: 14, large: 15, xlarge: 16 }));
 });
 
 test("notification font size is independent of petScale", () => {
@@ -76,20 +77,10 @@ test("toNormalLayoutPosition converts any layout position back to normal layout"
 	const notif = L.petLayout({ scale: 0.8, fontMode: "medium", notificationVisible: true });
 	const normal = L.petLayout({ scale: 0.8, fontMode: "medium", notificationVisible: false });
 	// 通知布局左上 (50, 300)，脚底中心 = (50 + notif.windowW/2, 300 + notif.windowH)
-	const converted = L.toNormalLayoutPosition(
-		{ x: 50, y: 300 },
-		{ width: notif.windowW, height: notif.windowH },
-		{ width: normal.windowW, height: normal.windowH },
-	);
+	const converted = L.toNormalLayoutPosition({ x: 50, y: 300 }, { width: notif.windowW, height: notif.windowH }, { width: normal.windowW, height: normal.windowH });
 	// 换算后的普通布局脚底中心必须相同（允许 ±1px 取整误差）
-	assert.ok(
-		Math.abs(converted.x + normal.windowW / 2 - (50 + notif.windowW / 2)) <= 1,
-		`feet x drift: ${converted.x + normal.windowW / 2}`,
-	);
-	assert.ok(
-		Math.abs(converted.y + normal.windowH - (300 + notif.windowH)) <= 1,
-		`feet y drift: ${converted.y + normal.windowH}`,
-	);
+	assert.ok(Math.abs(converted.x + normal.windowW / 2 - (50 + notif.windowW / 2)) <= 1, `feet x drift: ${converted.x + normal.windowW / 2}`);
+	assert.ok(Math.abs(converted.y + normal.windowH - (300 + notif.windowH)) <= 1, `feet y drift: ${converted.y + normal.windowH}`);
 });
 
 test("clampToWorkArea keeps the whole window inside the work area", () => {

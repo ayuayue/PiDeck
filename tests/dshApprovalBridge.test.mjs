@@ -125,3 +125,31 @@ test("question 应答：损坏 JSON / 缺 answers 返回 undefined", () => {
 	assert.equal(bridge.buildDshRespondValue(frame, { value: JSON.stringify({ foo: 1 }) }), undefined);
 	assert.equal(bridge.buildDshRespondValue(frame, { value: "" }), undefined);
 });
+
+test("multiSelect 提问映射为 multi_select（不降级成 select，避免勾一项就提交）", () => {
+	const request = bridge.questionUiRequest(
+		bridge.parseDshQuestionFrame({
+			rpcId: "rpc-question-2",
+			payload: {
+				sessionId: "session-1",
+				questions: [{ id: "q1", question: "选哪些？", multiSelect: true, options: [{ label: "A" }, { label: "B" }] }],
+			},
+		}),
+		"dsh:session-1",
+	);
+	assert.equal(request.batchQuestions[0].type, "multi_select");
+});
+
+test("question 应答：multi_select 的数组值整组透传到 selected", () => {
+	const frame = bridge.parseDshQuestionFrame({
+		rpcId: "rpc-question-2",
+		payload: { sessionId: "session-1", questions: [{ id: "q1", question: "选哪些？", multiSelect: true, options: [{ label: "A" }, { label: "B" }] }] },
+	});
+	const envelope = JSON.stringify({ answers: [{ id: "q1", type: "multi_select", value: ["A", "B"], label: "A、B", wasCustom: false }] });
+	const value = bridge.buildDshRespondValue(frame, { value: envelope });
+	const answers = value.answer.answers;
+	// 沙箱加载的模块对象原型不同，逐字段断言（不用 deepEqual）
+	assert.equal(answers.length, 1);
+	assert.equal(answers[0].id, "q1");
+	assert.deepEqual([...answers[0].selected], ["A", "B"]);
+});

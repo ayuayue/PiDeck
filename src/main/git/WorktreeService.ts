@@ -1,17 +1,13 @@
-import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { promisify } from "node:util";
 import { trashPath } from "../fs/trash";
+import { execGit } from "./gitRun";
+import { resolveWslGitTarget, toHostGitOutputPath, type WslGitTarget } from "./gitWsl";
 import { worktreeSlugify } from "../../shared/worktreeSlug";
 import type { WorktreeEntry } from "../../shared/types";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 
-const execFileAsync = promisify(execFile);
-type WorktreeCopy = (
-	key: MainProcessTranslationKey,
-	params?: Record<string, string | number>,
-) => string;
+type WorktreeCopy = (key: MainProcessTranslationKey, params?: Record<string, string | number>) => string;
 
 /**
  * 管理 git worktree 的创建、查询、删除。
@@ -21,9 +17,7 @@ type WorktreeCopy = (
  * 用户可以直接在文件管理器中找到 worktree 文件。
  */
 export class WorktreeService {
-	constructor(
-		private readonly translate: WorktreeCopy = () => "Worktree operation failed.",
-	) {}
+	constructor(private readonly translate: WorktreeCopy = () => "Worktree operation failed.") {}
 
 	/**
 	 * 获取指定项目仓库的所有 worktree（排除主工作区）。
@@ -36,13 +30,11 @@ export class WorktreeService {
 	 */
 	async list(projectPath: string): Promise<WorktreeEntry[]> {
 		try {
-			const { stdout } = await execFileAsync(
-				"git",
-				["worktree", "list", "--porcelain"],
-				{ cwd: projectPath },
-			);
+			// WSL 项目：git 在发行版内执行，porcelain 里的路径是 Linux 形态 → 回译成宿主形态。
+			const target = resolveWslGitTarget(projectPath);
+			const { stdout } = await execGit(["worktree", "list", "--porcelain"], { cwd: projectPath });
 			const mainWorktree = await this.getMainWorktree(projectPath);
-			return this.parseWorktreeList(stdout, mainWorktree ?? projectPath);
+			return this.parseWorktreeList(stdout, mainWorktree ?? projectPath, target);
 		} catch {
 			// 非 git 目录或 git 未安装
 			return [];
@@ -53,11 +45,7 @@ export class WorktreeService {
 	 * 基于当前 HEAD 创建新的 worktree。
 	 * 使用 OpenCode 的方式：--no-checkout -b {branch} 创建分支，再 git reset --hard 填充。
 	 */
-	async create(
-		projectPath: string,
-		projectId: string,
-		branchName: string,
-	): Promise<{ path: string; branch: string }> {
+	async create(projectPath: string, projectId: string, branchName: string): Promise<{ path: string; branch: string }> {
 		const baseSlug = worktreeSlugify(branchName);
 		// worktree 放在项目目录的同级位置：{dirname(projectPath)}/{slug}
 		// 这样用户可以在项目同级目录下直接找到 worktree 文件，符合标准 git worktree 习惯。
@@ -66,19 +54,16 @@ export class WorktreeService {
 		const { worktreeDir, branch } = await this.allocateWorktreeTarget(projectPath, parentDir, baseSlug);
 
 		// 创建 worktree（仅创建目录结构，不 checkout），再 reset --hard 填充内容。
+		// 目录路径是可移植的位置参数：`--` 显式结束选项，WSL 分支才能按路径位置把它转成 Linux 路径。
 		try {
-			await execFileAsync(
-				"git",
-				["worktree", "add", "--no-checkout", "-b", branch, worktreeDir],
-				{ cwd: projectPath },
-			);
+			await execGit(["worktree", "add", "--no-checkout", "-b", branch, "--", worktreeDir], { cwd: projectPath });
 		} catch (error) {
 			console.error("[WorktreeService] git worktree add failed", error);
 			throw new Error(this.translate("mainWorktree.createFailed"));
 		}
 
 		try {
-			await execFileAsync("git", ["reset", "--hard"], { cwd: worktreeDir });
+			await execGit(["reset", "--hard"], { cwd: worktreeDir });
 		} catch (error) {
 			// reset 失败时清理刚创建的 worktree，避免残留半初始化目录。
 			await this.remove(worktreeDir, projectPath).catch(() => false);
@@ -106,7 +91,7 @@ export class WorktreeService {
 		// 此前 canonical（realpath 长名）与 samePath（resolve 空间）混用，
 		// Windows 短路径下 entry 永远匹配不上 → 删除按钮静默失效。
 		const normalizedTarget = this.canonicalSync(worktreePath);
-		const entry = entries.find(asyncEntry => this.samePath(asyncEntry.path, normalizedTarget));
+		const entry = entries.find((asyncEntry) => this.samePath(asyncEntry.path, normalizedTarget));
 		if (!entry) return false;
 
 		// 硬性防护：目标与仓库主工作区相同时拒绝删除（realpath 比较，兼容 junction/8.3 短路径）。
@@ -116,7 +101,7 @@ export class WorktreeService {
 		}
 
 		try {
-			await execFileAsync("git", ["worktree", "remove", "--force", worktreePath], { cwd: projectPath });
+			await execGit(["worktree", "remove", "--force", "--", worktreePath], { cwd: projectPath });
 		} catch {
 			// git 拒绝移除：目录仍存在 → 拒绝物理删除（安全优先，删不掉也比删错强）；
 			// 目录已不存在 → 残留记录清理场景，无需回收站（无内容可删），继续视为成功。
@@ -133,7 +118,7 @@ export class WorktreeService {
 		// 对外部 worktree 尽量保守，只在“分支名等于目录名”时认为是 PiDeck 创建的同名工作区。
 		const worktreeDirName = basename(worktreePath);
 		if (entry.branch?.startsWith("pideck/") || entry.branch === worktreeDirName) {
-			await execFileAsync("git", ["branch", "-D", entry.branch], { cwd: projectPath }).catch(() => undefined);
+			await execGit(["branch", "-D", entry.branch], { cwd: projectPath }).catch(() => undefined);
 		}
 
 		return true;
@@ -151,7 +136,7 @@ export class WorktreeService {
 		if (existsSync(worktreeDir)) {
 			throw new Error(this.translate("mainWorktree.folderExists"));
 		}
-		const ref = await execFileAsync("git", ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], { cwd: projectPath })
+		const ref = await execGit(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], { cwd: projectPath })
 			.then(() => true)
 			.catch(() => false);
 		if (ref) {
@@ -159,7 +144,6 @@ export class WorktreeService {
 		}
 		return { worktreeDir, branch };
 	}
-
 
 	/**
 	 * 推导仓库主工作区目录（git 仓库根 checkout）。
@@ -169,12 +153,11 @@ export class WorktreeService {
 	 */
 	private async getMainWorktree(projectPath: string): Promise<string | null> {
 		try {
-			const { stdout } = await execFileAsync(
-				"git",
-				["rev-parse", "--git-common-dir"],
-				{ cwd: projectPath },
-			);
-			const commonDir = stdout.trim();
+			const { stdout } = await execGit(["rev-parse", "--git-common-dir"], { cwd: projectPath });
+			// WSL 项目下是发行版内的绝对路径，必须先回译再 resolve：否则
+			// path.resolve(projectPath, "/home/…/.git") 会被绝对路径顶掉 projectPath，
+			// 主工作区比对整片错位（把主工作区当可删项）。
+			const commonDir = toHostGitOutputPath(stdout.trim(), resolveWslGitTarget(projectPath));
 			if (!commonDir) return null;
 			return dirname(resolve(projectPath, commonDir));
 		} catch {
@@ -185,8 +168,9 @@ export class WorktreeService {
 	/**
 	 * 解析 git worktree list --porcelain 输出。
 	 * 过滤掉主工作区（rootPath，由 getMainWorktree 推导的仓库根），只返回其他 worktree。
+	 * WSL 项目下 porcelain 里的路径是发行版内的 Linux 路径，先回译成宿主形态再比较/返回。
 	 */
-	private parseWorktreeList(stdout: string, rootPath: string): WorktreeEntry[] {
+	private parseWorktreeList(stdout: string, rootPath: string, target: WslGitTarget | null): WorktreeEntry[] {
 		const entries: WorktreeEntry[] = [];
 		// 规范化路径用于比较（Windows 忽略大小写）
 		const normalizedRoot = this.canonicalSync(rootPath);
@@ -212,7 +196,7 @@ export class WorktreeService {
 			}
 
 			if (trimmed.startsWith("worktree ")) {
-				current = { path: trimmed.slice("worktree ".length).trim() };
+				current = { path: toHostGitOutputPath(trimmed.slice("worktree ".length).trim(), target) };
 				continue;
 			}
 

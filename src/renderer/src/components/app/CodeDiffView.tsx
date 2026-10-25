@@ -1,10 +1,5 @@
 import { memo, useMemo } from "react";
-import {
-	MultiFileDiff,
-	Virtualizer,
-	WorkerPoolContextProvider,
-	type FileContents,
-} from "@pierre/diffs/react";
+import { MultiFileDiff, Virtualizer, WorkerPoolContextProvider, type FileContents } from "@pierre/diffs/react";
 import DiffWorker from "@pierre/diffs/worker/worker.js?worker";
 import { t } from "../../i18n";
 import { getDiffRenderPlan } from "../../utils/diffRenderPlan";
@@ -43,56 +38,54 @@ const COLLAPSED_CONTEXT_THRESHOLD = 0;
 /** worker 池大小：1 个足以串行处理，2 个兼顾并发分屏，避免默认 8 个占内存。 */
 const WORKER_POOL_SIZE = 2;
 
-export const CodeDiffView = memo(function CodeDiffView(props: {
-	oldContent: string;
-	newContent: string;
-	filePath: string;
-	viewMode: CodeDiffViewMode;
-	theme?: "light" | "dark";
-}) {
-	const theme = props.theme ?? (typeof document !== "undefined"
-		? (document.documentElement.dataset.theme === "dark" ? "dark" : "light")
-		: "light");
+export const CodeDiffView = memo(function CodeDiffView(props: { oldContent: string; newContent: string; filePath: string; viewMode: CodeDiffViewMode; theme?: "light" | "dark" }) {
+	const theme = props.theme ?? (typeof document !== "undefined" ? (document.documentElement.dataset.theme === "dark" ? "dark" : "light") : "light");
 
 	const oldLines = useMemo(() => countLines(props.oldContent), [props.oldContent]);
 	const newLines = useMemo(() => countLines(props.newContent), [props.newContent]);
 	// 档位只依赖行数（纯函数），diff 计算量由 worker 承载，不在此预估
 	const plan = useMemo(() => getDiffRenderPlan(oldLines, newLines), [oldLines, newLines]);
 
-	const oldFile: FileContents = useMemo(() => ({
-		name: props.filePath,
-		contents: props.oldContent,
-	}), [props.filePath, props.oldContent]);
+	const oldFile: FileContents = useMemo(
+		() => ({
+			name: props.filePath,
+			contents: props.oldContent,
+		}),
+		[props.filePath, props.oldContent],
+	);
 
-	const newFile: FileContents = useMemo(() => ({
-		name: props.filePath,
-		contents: props.newContent,
-	}), [props.filePath, props.newContent]);
+	const newFile: FileContents = useMemo(
+		() => ({
+			name: props.filePath,
+			contents: props.newContent,
+		}),
+		[props.filePath, props.newContent],
+	);
 
 	const options = useMemo(() => {
 		// fallback 已在下方提前 return，此处仅为类型收窄（hunk 两档都带这些字段）
 		if (plan.mode === "fallback") return null;
 		return {
 			diffStyle: props.viewMode,
-		theme: { dark: "one-dark-pro" as const, light: "one-light" as const },
-		disableFileHeader: true,
-		diffIndicators: "bars" as const,
-		hunkSeparators: "line-info" as const,
-		overflow: "scroll" as const,
-		themeType: theme as "light" | "dark" | "system",
-		// GitHub 式折叠：未变化段超阈值折叠，点击展开（每次最多 expansionLineCount 行）
-		collapsedContextThreshold: COLLAPSED_CONTEXT_THRESHOLD,
-		// 紧凑模式：关闭全量展开（旧值 true 会让所有未变化行强制展示，折叠形同虚设）
-		expandUnchanged: false,
-		// hunk 内上下文 0 行：jsdiff 默认 context=3，传 0 让变更块之间即使相隔 1 行也拆成独立 hunk
-		parseDiffOptions: { context: 0 },
-		expansionLineCount: plan.expansionLineCount,
-		// 行内 diff 保持关闭（word 级）：实测收益有限且增加额外对比计算，
-		// 当前纯行级红绿标注足够直观（GitHub 式折叠/展开不受影响）
-		lineDiffType: "none" as const,
-		tokenizeMaxLength: plan.tokenizeMaxLength,
-		// 颜色全部引用应用 token（明暗随 data-theme 自动切换），不写死色值
-		unsafeCSS: `
+			theme: { dark: "one-dark-pro" as const, light: "one-light" as const },
+			disableFileHeader: true,
+			diffIndicators: "bars" as const,
+			hunkSeparators: "line-info" as const,
+			overflow: "scroll" as const,
+			themeType: theme as "light" | "dark" | "system",
+			// GitHub 式折叠：未变化段超阈值折叠，点击展开（每次最多 expansionLineCount 行）
+			collapsedContextThreshold: COLLAPSED_CONTEXT_THRESHOLD,
+			// 紧凑模式：关闭全量展开（旧值 true 会让所有未变化行强制展示，折叠形同虚设）
+			expandUnchanged: false,
+			// hunk 内上下文 0 行：jsdiff 默认 context=3，传 0 让变更块之间即使相隔 1 行也拆成独立 hunk
+			parseDiffOptions: { context: 0 },
+			expansionLineCount: plan.expansionLineCount,
+			// 行内 diff 保持关闭（word 级）：实测收益有限且增加额外对比计算，
+			// 当前纯行级红绿标注足够直观（GitHub 式折叠/展开不受影响）
+			lineDiffType: "none" as const,
+			tokenizeMaxLength: plan.tokenizeMaxLength,
+			// 颜色全部引用应用 token（明暗随 data-theme 自动切换），不写死色值
+			unsafeCSS: `
 			:root, :host {
 				--diffs-bg: transparent;
 				--diffs-addition-base: var(--color-success);
@@ -137,8 +130,8 @@ export const CodeDiffView = memo(function CodeDiffView(props: {
 		return (
 			<div className="flex h-full items-center justify-center overflow-auto bg-[var(--color-bg-panel)]">
 				<div className="px-4 text-center text-[var(--color-text-secondary)]">
-					<p className="mb-1 text-[13px] font-medium">{t("editor.diffTooLarge")}</p>
-					<p className="text-[12px]">
+					<p className="mb-1 text-control font-medium">{t("editor.diffTooLarge")}</p>
+					<p className="text-caption">
 						{t("editor.diffTooLargeDetail", {
 							old: oldLines.toLocaleString(),
 							new: newLines.toLocaleString(),
@@ -162,16 +155,7 @@ export const CodeDiffView = memo(function CodeDiffView(props: {
 				theme: { dark: "one-dark-pro" as const, light: "one-light" as const },
 			}}
 		>
-			<Virtualizer className="code-diff-view h-full overflow-auto bg-[var(--color-bg-panel)]">
-				{options !== null && (
-					<MultiFileDiff
-						oldFile={oldFile}
-						newFile={newFile}
-						options={options}
-						className="h-full"
-					/>
-				)}
-			</Virtualizer>
+			<Virtualizer className="code-diff-view h-full overflow-auto bg-[var(--color-bg-panel)]">{options !== null && <MultiFileDiff oldFile={oldFile} newFile={newFile} options={options} className="h-full" />}</Virtualizer>
 		</WorkerPoolContextProvider>
 	);
 });

@@ -1,52 +1,55 @@
 import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAtomValue } from "jotai";
-import {
-ArchiveRestore,
-ChevronDown,
-Cpu,
-FileCode2,
-FolderOpen,
-LayoutDashboard,
-LoaderCircle,
-Puzzle,
-RefreshCw,
-ShieldCheck,
-Trash2,
-} from "lucide-react";
+import { Loader2, ArchiveRestore, ChevronDown, Cpu, FileCode2, FolderOpen, LayoutDashboard, LoaderCircle, Power, PowerOff, Puzzle, RefreshCw, ShieldCheck } from "lucide-react";
 import { desktopApi } from "../desktopApi";
 import { t, type TranslationKey } from "../i18n";
 import { showNotice } from "../utils/notice";
+import { refreshDshAgentPresets } from "../utils/dshAgentPresets";
 import { Button } from "../components/ui-shadcn/button";
 import { Input } from "../components/ui-shadcn/input";
 import { Switch } from "../components/ui-shadcn/switch";
-import {
-Select,
-SelectContent,
-SelectItem,
-SelectTrigger,
-SelectValue,
-} from "../components/ui-shadcn/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui-shadcn/select";
 import { AgentPresetLogo, DshLogo } from "../components/session/SessionSourceBadge";
 import { DSH_PERMISSION_PRESETS } from "../components/session/DshPermissionMenu";
+import { ConfirmDialog } from "../components/ui-shadcn/ConfirmDialog";
+import { Collapsible, CollapsibleContent } from "../components/ui-shadcn/collapsible";
 import { CodeMirrorEditor } from "../components/app/CodeMirrorEditor";
 import { useSaveRegistry } from "../hooks/useSaveRegistry";
 import { DshSchemaForm, type DshNamespaceView } from "./DshSchemaForm";
 import { DshRuntimeSection } from "./DshRuntimeSection";
+import { DshHomeSharingNotice } from "./DshHomeSharingNotice";
 import { dshRuntimeStatusAtom } from "../atoms/dsh-atoms";
 import { isDshPluginNamespace, dshPluginNamespaceTitleKey, dshPluginNamespaceDescriptionKey } from "./dshPluginNamespaces";
 import { DshPluginSection, PluginInventoryView } from "./DshPluginSection";
+import { DshPluginMarketSection } from "./DshPluginMarketSection";
 import { DeepseekRouteCard, PiAiProvidersCard } from "./DshProviderCards";
 import { collectCredentialRefsWithValue, normalizeDshSchema, type DshSectionApi } from "./dshSchema";
 import { presetDisplayDescription, presetDisplayName } from "./dshPresetDisplay";
 import { credentialRefFor } from "./dshCredentialRef";
 import { managerArchivedDshLabel } from "../sessionManagerModel";
 import type { ArchivedDshSession } from "../../../shared/types";
+import type { DshHomeSharingState } from "../../../shared/types/dshHome";
+import { isDshManuallyStoppedErrorMessage } from "../../../shared/dshManualStop";
+
+/**
+ * DSH IPC 错误 → 展示文案：host 被手动停止时主进程以内部 sentinel reject，Electron
+ * 包装后会把 "Error invoking remote method 'dsh:...': ..." 原样漏到 banner；命中 sentinel
+ * 就映射成 i18n 引导文案（该状态不会自愈，报原始错误对用户没有诊断价值）。
+ */
+function dshConfigErrorMessage(error: unknown): string {
+	const raw = error instanceof Error ? error.message : String(error);
+	return isDshManuallyStoppedErrorMessage(raw) ? t("config.dsh.manuallyStoppedDesc") : raw;
+}
 
 type DshStatus = {
 	started: boolean;
 	homeDir: string;
 	/** 最近一次 host boot 失败的真实原因（host-error 详情/stderr 尾部）；无失败为 null。 */
 	bootError?: string | null;
+	/** DSH_HOME 共享/冲突状态（issue #189）；旧主进程未回传时缺省。 */
+	sharing?: DshHomeSharingState;
+	/** 用户是否手动停止了 host（true 时不会自动启动）；旧主进程未回传时缺省。 */
+	manuallyStopped?: boolean;
 };
 type CredentialState = {
 	configured: boolean;
@@ -73,8 +76,8 @@ const NAV_ITEMS: Array<{ id: string; labelKey: TranslationKey; icon: ReactNode }
 	{ id: "models", labelKey: "config.dsh.tab.models", icon: <Cpu className="size-3.5" aria-hidden="true" /> },
 	{ id: "presets", labelKey: "config.dsh.tab.presets", icon: <AgentPresetLogo className="size-3.5" aria-hidden="true" /> },
 	{ id: "plugins", labelKey: "config.dsh.tab.plugins", icon: <Puzzle className="size-3.5" aria-hidden="true" /> },
-{ id: "security", labelKey: "config.dsh.tab.security", icon: <ShieldCheck className="size-3.5" aria-hidden="true" /> },
-{ id: "raw", labelKey: "config.dsh.tab.raw", icon: <FileCode2 className="size-3.5" aria-hidden="true" /> },
+	{ id: "security", labelKey: "config.dsh.tab.security", icon: <ShieldCheck className="size-3.5" aria-hidden="true" /> },
+	{ id: "raw", labelKey: "config.dsh.tab.raw", icon: <FileCode2 className="size-3.5" aria-hidden="true" /> },
 ];
 
 /** localStorage 键：DSH 配置页上次打开的导航子页（重开配置弹窗/应用重启后恢复位置，与 Pi 管理页同款记忆）。 */
@@ -116,13 +119,24 @@ export type DshConfigTabHandle = {
  * 保存语义与 Pi 管理页一致：各分区不再自带保存按钮，草稿变化上报脏状态，
  * 统一由 ConfigModal 顶部保存按钮保存；关闭弹框时有未保存修改会弹确认。
  */
-export const DshConfigTab = forwardRef<DshConfigTabHandle, {
-	onDirtyChange: (dirty: boolean, keys?: string[]) => void;
-	/** 有未保存更改的导航 id 集合（dsh:<nav>），用于左侧导航打黄点。 */
-	dirtyNavIds?: Set<string>;
-	/** 打开用量查询配置弹窗（与 Pi 模型页共用同一个 per-provider 弹窗）。 */
-	onOpenUsageProbeDialog: (provider: string) => void;
-}>(function DshConfigTab(props, ref) {
+export const DshConfigTab = forwardRef<
+	DshConfigTabHandle,
+	{
+		onDirtyChange: (dirty: boolean, keys?: string[]) => void;
+		/** 有未保存更改的导航 id 集合（dsh:<nav>），用于左侧导航打黄点。 */
+		dirtyNavIds?: Set<string>;
+		/** 打开用量查询配置弹窗（与 Pi 模型页共用同一个 per-provider 弹窗）。 */
+		onOpenUsageProbeDialog: (provider: string) => void;
+		/** DSH 供应商卡片自定义顺序（AppSettings.dshProviderOrder）。 */
+		providerOrder?: string[];
+		/** 排序作用域：与「模型」「认证」两页共享的并集顺序（父级传入）。 */
+		providerOrderScope?: string[];
+		/** 卡片重排回调（ConfigModal 持有并持久化）。 */
+		onReorderProviders?: (nextOrder: string[]) => void;
+		/** 清空自定义顺序（列表上方的「恢复默认顺序」）。 */
+		onResetProviders?: () => void;
+	}
+>(function DshConfigTab(props, ref) {
 	const [status, setStatus] = useState<DshStatus | null>(null);
 	const [namespaces, setNamespaces] = useState<DshNamespaceView[]>([]);
 	const [writable, setWritable] = useState(false);
@@ -132,12 +146,14 @@ export const DshConfigTab = forwardRef<DshConfigTabHandle, {
 	/** 适配器内置模型目录（llm.models 按 provider 分组；行头模型数/继承模型用）。 */
 	const [modelCatalog, setModelCatalog] = useState<Record<string, Array<{ id: string; name?: string }>>>({});
 	/** 可配置提供方目录（llm.providers）：模型页「添加 provider」的内置候选。 */
-	const [providerDirectory, setProviderDirectory] = useState<Array<{
-		provider: string;
-		displayName: string;
-		active: boolean;
-		declared?: boolean;
-	}>>([]);
+	const [providerDirectory, setProviderDirectory] = useState<
+		Array<{
+			provider: string;
+			displayName: string;
+			active: boolean;
+			declared?: boolean;
+		}>
+	>([]);
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
 	/** runtime 安装态（全局同步）：未安装时跳过配置加载，概览页由 DshRuntimeSection 承担安装引导。 */
@@ -169,41 +185,48 @@ export const DshConfigTab = forwardRef<DshConfigTabHandle, {
 
 	/** 子分区保存注册表（C22：公共 hook，instanceId → save；顶部保存按钮统一遍历调用）。
 	 *  脏状态同步维护（isDirty 立即可读），state 仅驱动 UI。 */
-	const {
-		register: registryRegister,
-		unregister: registryUnregister,
-		markDirty: registryMarkDirty,
-		isDirty: registryIsDirty,
-		listDirtyKeys: registryListDirtyKeys,
-		saveAll: registrySaveAll,
-	} = useSaveRegistry();
+	const { register: registryRegister, unregister: registryUnregister, markDirty: registryMarkDirty, isDirty: registryIsDirty, listDirtyKeys: registryListDirtyKeys, saveAll: registrySaveAll } = useSaveRegistry();
 
-	const registerSave = useCallback((instanceId: string, save: () => Promise<boolean>) => {
-		registryRegister(instanceId, save);
-	}, [registryRegister]);
+	const registerSave = useCallback(
+		(instanceId: string, save: () => Promise<boolean>) => {
+			registryRegister(instanceId, save);
+		},
+		[registryRegister],
+	);
 
-	const unregisterSave = useCallback((instanceId: string) => {
-		registryUnregister(instanceId);
-	}, [registryUnregister]);
+	const unregisterSave = useCallback(
+		(instanceId: string) => {
+			registryUnregister(instanceId);
+		},
+		[registryUnregister],
+	);
 
-	const onDirtyChange = useCallback((instanceId: string, dirty: boolean) => {
-		registryMarkDirty(instanceId, dirty);
-		// 把子分区 instanceId（dsh:models:llm-pi-ai）归并成导航 id（dsh:models），侧栏才能打黄点。
-		const navKeys = [...new Set(
-			registryListDirtyKeys().map((key) => {
-				if (!key.startsWith("dsh:")) return key;
-				const nav = key.slice("dsh:".length).split(":")[0] ?? "";
-				return nav ? `dsh:${nav}` : key;
-			}),
-		)];
-		props.onDirtyChange(registryIsDirty(), navKeys);
-	}, [props.onDirtyChange, registryIsDirty, registryListDirtyKeys, registryMarkDirty]);
+	const onDirtyChange = useCallback(
+		(instanceId: string, dirty: boolean) => {
+			registryMarkDirty(instanceId, dirty);
+			// 把子分区 instanceId（dsh:models:llm-pi-ai）归并成导航 id（dsh:models），侧栏才能打黄点。
+			const navKeys = [
+				...new Set(
+					registryListDirtyKeys().map((key) => {
+						if (!key.startsWith("dsh:")) return key;
+						const nav = key.slice("dsh:".length).split(":")[0] ?? "";
+						return nav ? `dsh:${nav}` : key;
+					}),
+				),
+			];
+			props.onDirtyChange(registryIsDirty(), navKeys);
+		},
+		[props.onDirtyChange, registryIsDirty, registryListDirtyKeys, registryMarkDirty],
+	);
 
-	const sectionApi: DshSectionApi = useMemo(() => ({
-		onDirtyChange,
-		registerSave,
-		unregisterSave,
-	}), [onDirtyChange, registerSave, unregisterSave]);
+	const sectionApi: DshSectionApi = useMemo(
+		() => ({
+			onDirtyChange,
+			registerSave,
+			unregisterSave,
+		}),
+		[onDirtyChange, registerSave, unregisterSave],
+	);
 
 	/** 统一保存：遍历所有注册的子分区保存函数；全部成功返回 true。
 	 *  成功后清除脏标记（含卸载/收起分区的残留）并上报上层。 */
@@ -213,73 +236,78 @@ export const DshConfigTab = forwardRef<DshConfigTabHandle, {
 		return ok;
 	}, [props.onDirtyChange, registrySaveAll]);
 
-	const load = useCallback(async () => {
-		setLoading(true);
-		try {
-			// runtime 未安装时 host 起不来，describe 必然失败：跳过配置加载，
-			// 概览页由 DshRuntimeSection 展示安装引导；装好后 status-changed 触发重载。
-			if (!runtimeInstalled) {
-				setNamespaces([]);
-				setWritable(false);
-				setHasDocument(false);
-				setModelCatalog({});
-				setProviderDirectory([]);
-				setError(null);
-				return [];
-			}
-			const settingsResult = await desktopApi.sessions.describeDshSettings();
-			setNamespaces(settingsResult.namespaces);
-			setWritable(settingsResult.writable);
-			setHasDocument(settingsResult.hasDocument);
-			const refs = new Set<string>();
-			for (const ns of settingsResult.namespaces) {
-				const schema = normalizeDshSchema(ns.schema);
-				// 同时收集 schema 静态 default 与 value 动态值（llm-pi-ai providers 的 env 名只存在 value 里）
-				if (schema) collectCredentialRefsWithValue(schema, schema.refs[schema.uid], ns.value, refs);
-				// 模型命名空间补派生 ref（对齐 dsh-web：未显式 apiKeyEnv 时按 <ROUTE>_API_KEY 派生），
-				// 否则行头/认证页会漏掉只有派生名的 provider（如 llm-pi-ai 未写 apiKeyEnv 的配置）
-				if (ns.ns === "llm-deepseek") {
-					refs.add(credentialRefFor((ns.value ?? {}) as Record<string, unknown>, "deepseek"));
-				} else if (ns.ns === "llm-pi-ai") {
-					const providers = (ns.value as { providers?: Record<string, unknown> } | undefined)?.providers ?? {};
-					for (const [key, provider] of Object.entries(providers)) {
-						refs.add(credentialRefFor((provider ?? {}) as Record<string, unknown>, key));
+	const load = useCallback(
+		async (background = false) => {
+			// 保存刷新不能卸载表单，否则冲突重试/校验失败会丢掉尚未提交的草稿。
+			if (!background) setLoading(true);
+			try {
+				// runtime 未安装时 host 起不来，describe 必然失败：跳过配置加载，
+				// 概览页由 DshRuntimeSection 展示安装引导；装好后 status-changed 触发重载。
+				if (!runtimeInstalled) {
+					setNamespaces([]);
+					setWritable(false);
+					setHasDocument(false);
+					setModelCatalog({});
+					setProviderDirectory([]);
+					setError(null);
+					return [];
+				}
+				const settingsResult = await desktopApi.sessions.describeDshSettings();
+				setNamespaces(settingsResult.namespaces);
+				setWritable(settingsResult.writable);
+				setHasDocument(settingsResult.hasDocument);
+				const refs = new Set<string>();
+				for (const ns of settingsResult.namespaces) {
+					const schema = normalizeDshSchema(ns.schema);
+					// 同时收集 schema 静态 default 与 value 动态值（llm-pi-ai providers 的 env 名只存在 value 里）
+					if (schema) collectCredentialRefsWithValue(schema, schema.refs[schema.uid], ns.value, refs);
+					// 模型命名空间补派生 ref（对齐 dsh-web：未显式 apiKeyEnv 时按 <ROUTE>_API_KEY 派生），
+					// 否则行头/认证页会漏掉只有派生名的 provider（如 llm-pi-ai 未写 apiKeyEnv 的配置）
+					if (ns.ns === "llm-deepseek") {
+						refs.add(credentialRefFor((ns.value ?? {}) as Record<string, unknown>, "deepseek"));
+					} else if (ns.ns === "llm-pi-ai") {
+						const providers = (ns.value as { providers?: Record<string, unknown> } | undefined)?.providers ?? {};
+						for (const [key, provider] of Object.entries(providers)) {
+							refs.add(credentialRefFor((provider ?? {}) as Record<string, unknown>, key));
+						}
 					}
 				}
-			}
-			setCredentialRefs([...refs]);
-			// host 级模型目录：模型 tab 行头显示生效模型数、未自定义时展示内置目录（dsh-web 继承模型行）
-			try {
-				const models = await desktopApi.sessions.listDshModels();
-				const byProvider: Record<string, Array<{ id: string; name?: string }>> = {};
-				for (const model of models) {
-					const group = (byProvider[model.provider] ??= []);
-					group.push({ id: model.id, ...(typeof model.name === "string" && model.name ? { name: model.name } : {}) });
+				setCredentialRefs([...refs]);
+				// host 级模型目录：模型 tab 行头显示生效模型数、未自定义时展示内置目录（dsh-web 继承模型行）
+				try {
+					const models = await desktopApi.sessions.listDshModels();
+					const byProvider: Record<string, Array<{ id: string; name?: string }>> = {};
+					for (const model of models) {
+						const group = (byProvider[model.provider] ??= []);
+						group.push({ id: model.id, ...(typeof model.name === "string" && model.name ? { name: model.name } : {}) });
+					}
+					setModelCatalog(byProvider);
+				} catch {
+					setModelCatalog({});
 				}
-				setModelCatalog(byProvider);
-			} catch {
-				setModelCatalog({});
+				// 可配置提供方目录：模型页「添加 provider」的内置候选（失败不阻塞页面）
+				try {
+					const directory = await desktopApi.sessions.listDshProviders();
+					setProviderDirectory(directory);
+				} catch {
+					setProviderDirectory([]);
+				}
+				setError(null);
+				// 返回本次拉到的 namespace 列表（saveNamespace 冲突重试要用最新 revision）
+				return settingsResult.namespaces;
+			} catch (err) {
+				if (background) throw err;
+				setError(dshConfigErrorMessage(err));
+				// describe 失败说明 host boot 刚失败：同步刷新一次状态，让 bootError 详情
+				// （getStatus().bootError）尽早到位，错误 banner 能展示真实原因而不是只有笼统 IPC 消息。
+				void loadStatus();
+				return undefined;
+			} finally {
+				if (!background) setLoading(false);
 			}
-			// 可配置提供方目录：模型页「添加 provider」的内置候选（失败不阻塞页面）
-			try {
-				const directory = await desktopApi.sessions.listDshProviders();
-				setProviderDirectory(directory);
-			} catch {
-				setProviderDirectory([]);
-			}
-			setError(null);
-			// 返回本次拉到的 namespace 列表（saveNamespace 冲突重试要用最新 revision）
-			return settingsResult.namespaces;
-		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err));
-			// describe 失败说明 host boot 刚失败：同步刷新一次状态，让 bootError 详情
-			// （getStatus().bootError）尽早到位，错误 banner 能展示真实原因而不是只有笼统 IPC 消息。
-			void loadStatus();
-			return undefined;
-		} finally {
-			setLoading(false);
-		}
-	}, [runtimeInstalled]);
+		},
+		[runtimeInstalled],
+	);
 
 	// 句柄依赖 load（声明在其后）：reload 供外部直写 settings 后刷新（如 TokenDance 一键安装）。
 	useImperativeHandle(
@@ -311,10 +339,7 @@ export const DshConfigTab = forwardRef<DshConfigTabHandle, {
 	const restartHostFromBanner = useCallback(async () => {
 		try {
 			const restarted = await desktopApi.sessions.restartDshHost();
-			showNotice(
-				restarted ? t("config.dsh.hostRestarted") : t("config.dsh.hostRestartFailed"),
-				restarted ? 4000 : 6000,
-			);
+			showNotice(restarted ? t("config.dsh.hostRestarted") : t("config.dsh.hostRestartFailed"), restarted ? 4000 : 6000);
 		} catch (err) {
 			showNotice(err instanceof Error ? err.message : String(err), 4000);
 		} finally {
@@ -324,16 +349,22 @@ export const DshConfigTab = forwardRef<DshConfigTabHandle, {
 	}, [load, loadStatus]);
 
 	/** 写密钥（credentials.set）+ 刷新认证状态；供模型页/认证页共用。 */
-	const setDshKey = useCallback(async (ref: string, value: string) => {
-		await desktopApi.sessions.setDshCredential(ref, value);
-		await load();
-	}, [load]);
+	const setDshKey = useCallback(
+		async (ref: string, value: string) => {
+			await desktopApi.sessions.setDshCredential(ref, value);
+			await load();
+		},
+		[load],
+	);
 
 	/** 删密钥（credentials.unset）+ 刷新认证状态。 */
-	const unsetDshKey = useCallback(async (ref: string) => {
-		await desktopApi.sessions.unsetDshCredential(ref);
-		await load();
-	}, [load]);
+	const unsetDshKey = useCallback(
+		async (ref: string) => {
+			await desktopApi.sessions.unsetDshCredential(ref);
+			await load();
+		},
+		[load],
+	);
 
 	useEffect(() => {
 		void load();
@@ -357,47 +388,43 @@ export const DshConfigTab = forwardRef<DshConfigTabHandle, {
 
 	useEffect(() => {
 		if (credentialRefs.length === 0) return;
-		void desktopApi.sessions.describeDshCredentials(credentialRefs).then(setCredentials).catch(() => undefined);
+		void desktopApi.sessions
+			.describeDshCredentials(credentialRefs)
+			.then(setCredentials)
+			.catch(() => undefined);
 	}, [credentialRefs]);
 
-	const modelNamespaces = useMemo(
-		() => namespaces.filter((ns) => MODEL_NS.has(ns.ns)),
-		[namespaces],
-	);
+	const modelNamespaces = useMemo(() => namespaces.filter((ns) => MODEL_NS.has(ns.ns)), [namespaces]);
 	// G13：插件分区动态化——DSH 的 settings namespace 即插件短名（dsh-settings 契约），
 	// 除 PiDeck 独占管理的保留命名空间（模型/安全/预设）外，host 注册的命名空间全部按插件呈现。
-	const pluginNamespaces = useMemo(
-		() => namespaces.filter((ns) => isDshPluginNamespace(ns.ns)),
-		[namespaces],
-	);
-	const permissionNamespace = useMemo(
-		() => namespaces.find((ns) => ns.ns === "permission"),
-		[namespaces],
-	);
+	const pluginNamespaces = useMemo(() => namespaces.filter((ns) => isDshPluginNamespace(ns.ns)), [namespaces]);
+	const permissionNamespace = useMemo(() => namespaces.find((ns) => ns.ns === "permission"), [namespaces]);
 
 	const openFolder = (path: string) => {
 		if (path) void desktopApi.files.showInFolder(path).catch(() => undefined);
 	};
 
-	const saveNamespace = useCallback(async (ns: string, patch: Record<string, unknown>) => {
-		const view = namespaces.find((item) => item.ns === ns);
-		try {
-			await desktopApi.sessions.updateDshSettings(ns, patch, view?.revision);
-		} catch (error) {
-			// SETTINGS_CONFLICT：并发写入（host 预设/dsh-web/另一 tab）使本页 revision
-			// 过期，host 拒绝本次写入。若沿用旧 revision 重试会被永久拒绝——刷新
-			// namespace（拿最新 revision 与现值）后重试一次，patch 是部分合并仍安全。
-			// 其它错误（schema 拒绝等）原样上抛，由子卡片展示错误并保留草稿。
-			const isConflict = error instanceof Error &&
-				(error.message.includes("SETTINGS_CONFLICT") || error.message.includes("changed since it was read"));
-			if (!isConflict) throw error;
-			const fresh = await load();
-			const freshView = fresh?.find((item) => item.ns === ns);
-			await desktopApi.sessions.updateDshSettings(ns, patch, freshView?.revision);
-		}
-		// 保存后刷新（revision / 脱敏值更新）
-		await load();
-	}, [namespaces, load]);
+	const saveNamespace = useCallback(
+		async (ns: string, patch: Record<string, unknown>) => {
+			const view = namespaces.find((item) => item.ns === ns);
+			try {
+				await desktopApi.sessions.updateDshSettings(ns, patch, view?.revision);
+			} catch (error) {
+				// SETTINGS_CONFLICT：并发写入（host 预设/dsh-web/另一 tab）使本页 revision
+				// 过期，host 拒绝本次写入。若沿用旧 revision 重试会被永久拒绝——刷新
+				// namespace（拿最新 revision 与现值）后重试一次，patch 是部分合并仍安全。
+				// 其它错误（schema 拒绝等）原样上抛，由子卡片展示错误并保留草稿。
+				const isConflict = error instanceof Error && (error.message.includes("SETTINGS_CONFLICT") || error.message.includes("changed since it was read"));
+				if (!isConflict) throw error;
+				const fresh = await load(true);
+				const freshView = fresh?.find((item) => item.ns === ns);
+				await desktopApi.sessions.updateDshSettings(ns, patch, freshView?.revision);
+			}
+			// 保存后刷新（revision / 脱敏值更新），保持页内表单挂载。
+			await load(true);
+		},
+		[namespaces, load],
+	);
 
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1">
@@ -428,22 +455,18 @@ export const DshConfigTab = forwardRef<DshConfigTabHandle, {
 						{t("common.loading")}
 					</div>
 				)}
-				{!loading && error && (
+				{!loading && error && status?.manuallyStopped !== true && (
 					<div className="m-4 rounded-sm border border-danger/20 bg-danger-soft px-3.5 py-2.5">
 						<p className="text-control font-medium text-danger">{t("config.dsh.bootFailedTitle")}</p>
 						<p className="mt-1 text-caption leading-relaxed text-danger/90">{t("config.dsh.bootFailedHint")}</p>
 						{/* 真实失败原因：优先 host boot 详情（getStatus().bootError），退回 IPC 错误原文；
 						    失败是确定性的（runtime 损坏/依赖缺失等），重试前先让用户看到原因。 */}
-						{(status?.bootError || error) && (
-							<pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap rounded-sm border border-danger/20 bg-bg-panel/60 px-2.5 py-2 text-micro leading-relaxed text-danger/90">
-								{status?.bootError || stripIpcErrorPrefix(error)}
-							</pre>
-						)}
+						{(status?.bootError || error) && <pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap rounded-sm border border-danger/20 bg-bg-panel/60 px-2.5 py-2 text-micro leading-relaxed text-danger/90">{status?.bootError || stripIpcErrorPrefix(error)}</pre>}
 						<div className="mt-2.5 flex gap-2">
 							<Button type="button" variant="secondary" size="sm" className="h-7" onClick={() => void load()}>
 								{t("config.dsh.retry")}
 							</Button>
-							{/* 一键恢复入口：重启 host 常能解决瞬时失败；下方概览区也有同款按钮 */}
+							{/* 一键恢复入口：重启 host 常能解决瞬时失败；下方概览区也有同款按钮。 */}
 							<Button type="button" variant="secondary" size="sm" className="h-7" onClick={() => void restartHostFromBanner()}>
 								<RefreshCw className="size-3.5" aria-hidden="true" />
 								{t("config.dsh.restartHost")}
@@ -451,130 +474,149 @@ export const DshConfigTab = forwardRef<DshConfigTabHandle, {
 						</div>
 					</div>
 				)}
+				{/* 手动停止态：describe 失败是预期（host 已被用户停掉），不报错；
+				    概览区的「已手动停止」徽标 + 「启动」按钮负责状态表达与恢复入口。 */}
+				{!loading && error && status?.manuallyStopped === true && (
+					<div className="m-4 rounded-sm border border-border-subtle bg-bg-panel px-3.5 py-2.5">
+						<p className="text-control text-muted-foreground">{t("config.dsh.manuallyStoppedDesc")}</p>
+					</div>
+				)}
 				{!loading && (
 					<>
 						{/* tab 切换用 hidden 而非卸载：子分区草稿跨 tab 保留（统一保存语义） */}
 						<div hidden={activeTab !== "overview"}>
-							<Overview status={status} hasDocument={hasDocument} onOpenFolder={openFolder} onOpenDocument={openDocument} onChanged={() => { void load(); void loadStatus(); }} />
+							<Overview
+								status={status}
+								hasDocument={hasDocument}
+								onOpenFolder={openFolder}
+								onOpenDocument={openDocument}
+								onChanged={() => {
+									void load();
+									void loadStatus();
+								}}
+							/>
 						</div>
 						{/* 配置分区依赖 namespaces：describe 失败时无数据可渲染，留在概览页即可（错误 banner 已解释原因） */}
 						{!error && (
 							<>
-							<div hidden={activeTab !== "models"}>
-							<div className="p-4">
-								<p className="mb-3 text-micro text-muted-foreground">{t("config.dsh.modelsHint")}</p>
-								{modelNamespaces.length === 0 ? (
-									<Empty text={t("config.dsh.namespacesEmpty")} />
-								) : (
-									<div className="grid gap-4">
-										{modelNamespaces.map((ns) => (
-											<section key={ns.ns} className="rounded-md border border-border-subtle bg-bg-panel">
-												{ns.ns === "llm-pi-ai" ? (
-													<PiAiProvidersCard
-														namespace={ns}
-														writable={writable}
-														ops={{ credentials, setKey: setDshKey, unsetKey: unsetDshKey }}
-														catalog={modelCatalog}
-														directory={providerDirectory}
-														onSave={(patch) => saveNamespace(ns.ns, patch)}
-														sectionApi={sectionApi}
-														onMigrated={() => { void load(); }}
-															instanceKey={`dsh:models:${ns.ns}`}
-														onOpenUsageProbeDialog={props.onOpenUsageProbeDialog}
-													/>
-												) : (
-													<DeepseekRouteCard
-														namespace={ns}
-														writable={writable}
-														ops={{ credentials, setKey: setDshKey, unsetKey: unsetDshKey }}
-														catalog={modelCatalog["deepseek-official"]}
-														onSave={(patch) => saveNamespace(ns.ns, patch)}
-														onRefresh={load}
-														sectionApi={sectionApi}
-															instanceKey={`dsh:models:${ns.ns}`}
-														onMigrated={() => { void load(); }}
-														onOpenUsageProbeDialog={props.onOpenUsageProbeDialog}
-													/>
-												)}
-											</section>
-										))}
-									</div>
-								)}
-							</div>
-						</div>
-						<div hidden={activeTab !== "presets"}>
-							<div className="p-4">
-								<PresetsTab
-									writable={writable}
-									namespace={namespaces.find((ns) => ns.ns === "agent-presets")}
-									onSave={async (id) => {
-										const view = namespaces.find((ns) => ns.ns === "agent-presets");
-										await desktopApi.sessions.updateDshSettings("agent-presets", { default: id }, view?.revision);
-										await load();
-									}}
-									sectionApi={sectionApi}
-										instanceKey="dsh:presets"
-								/>
-							</div>
-						</div>
-						<div hidden={activeTab !== "plugins"}>
-							<div className="grid gap-4 p-4">
-								{/* 子 tab 栏（对齐 dsh-web 插件页）：插件配置 / 插件列表 */}
-								<div className="flex items-center gap-4 border-b border-border/60 px-1">
-									{(
-										[
-											{ id: "config", labelKey: "config.dsh.tab.pluginConfig" },
-											{ id: "list", labelKey: "config.dsh.tab.pluginList" },
-										] as const
-									).map((pane) => (
-										<button
-											key={pane.id}
-											type="button"
-											className={`-mb-px border-b-2 pb-2 pt-1 text-caption font-medium transition-colors ${
-												pluginPane === pane.id
-													? "border-foreground text-foreground"
-													: "border-transparent text-muted-foreground hover:text-foreground"
-											}`}
-											onClick={() => selectPluginPane(pane.id)}
-										>
-											{t(pane.labelKey)}
-										</button>
-									))}
-								</div>
-								<div hidden={pluginPane !== "config"}>
-									<div className="grid gap-2">
-										<p className="text-micro text-muted-foreground">{t("config.dsh.pluginsHint")}</p>
-										{pluginNamespaces.length === 0 ? (
+								<div hidden={activeTab !== "models"}>
+									<div className="p-4">
+										<p className="mb-3 text-micro text-muted-foreground">{t("config.dsh.modelsHint")}</p>
+										{modelNamespaces.length === 0 ? (
 											<Empty text={t("config.dsh.namespacesEmpty")} />
 										) : (
-											<div className="grid gap-2">
-												{pluginNamespaces.map((ns) => (
-													<PluginCard key={ns.ns} ns={ns} writable={writable} onSave={(patch) => saveNamespace(ns.ns, patch)} sectionApi={sectionApi} instanceKey={`dsh:plugins:${ns.ns}`} />
+											<div className="grid gap-4">
+												{modelNamespaces.map((ns) => (
+													<section key={ns.ns} className="rounded-md border border-border-subtle bg-bg-panel">
+														{ns.ns === "llm-pi-ai" ? (
+															<PiAiProvidersCard
+																namespace={ns}
+																writable={writable}
+																ops={{ credentials, setKey: setDshKey, unsetKey: unsetDshKey }}
+																catalog={modelCatalog}
+																directory={providerDirectory}
+																onSave={(patch) => saveNamespace(ns.ns, patch)}
+																sectionApi={sectionApi}
+																onMigrated={() => {
+																	void load();
+																}}
+																instanceKey={`dsh:models:${ns.ns}`}
+																onOpenUsageProbeDialog={props.onOpenUsageProbeDialog}
+																providerOrder={props.providerOrder}
+																providerOrderScope={props.providerOrderScope}
+																onReorderProviders={props.onReorderProviders}
+																onResetProviders={props.onResetProviders}
+															/>
+														) : (
+															<DeepseekRouteCard
+																namespace={ns}
+																writable={writable}
+																ops={{ credentials, setKey: setDshKey, unsetKey: unsetDshKey }}
+																catalog={modelCatalog["deepseek-official"]}
+																onSave={(patch) => saveNamespace(ns.ns, patch)}
+																onRefresh={load}
+																sectionApi={sectionApi}
+																instanceKey={`dsh:models:${ns.ns}`}
+																onMigrated={() => {
+																	void load();
+																}}
+																onOpenUsageProbeDialog={props.onOpenUsageProbeDialog}
+															/>
+														)}
+													</section>
 												))}
 											</div>
 										)}
 									</div>
-									{/* G13 深化：动态 Cordis 插件管理（define/run/stop/undefine），PiDeck 独有能力保留在配置页。
-									    与上方静态插件配置卡片分区：横线 + 间距隔开，避免两区视觉粘连。 */}
-									<div className="mt-6 border-t border-border/60 pt-4">
-										<DshPluginSection />
+								</div>
+								<div hidden={activeTab !== "presets"}>
+									<div className="p-4">
+										<PresetsTab
+											writable={writable}
+											namespace={namespaces.find((ns) => ns.ns === "agent-preset-registry")}
+											onSave={async (id) => {
+												const view = namespaces.find((ns) => ns.ns === "agent-preset-registry");
+												await desktopApi.sessions.updateDshSettings("agent-preset-registry", { selectedDefault: id }, view?.revision);
+												await load();
+											}}
+											sectionApi={sectionApi}
+											instanceKey="dsh:presets"
+										/>
 									</div>
 								</div>
-								<div hidden={pluginPane !== "list"}>
-									<PluginInventoryView />
+								<div hidden={activeTab !== "plugins"}>
+									<div className="grid gap-4 p-4">
+										{/* 子 tab 栏（对齐 dsh-web 插件页）：插件配置 / 插件列表 */}
+										<div className="flex items-center gap-4 border-b border-border/60 px-1">
+											{(
+												[
+													{ id: "config", labelKey: "config.dsh.tab.pluginConfig" },
+													{ id: "list", labelKey: "config.dsh.tab.pluginList" },
+												] as const
+											).map((pane) => (
+												<button key={pane.id} type="button" className={`-mb-px border-b-2 pb-2 pt-1 text-caption font-medium transition-colors ${pluginPane === pane.id ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`} onClick={() => selectPluginPane(pane.id)}>
+													{t(pane.labelKey)}
+												</button>
+											))}
+										</div>
+										<div hidden={pluginPane !== "config"}>
+											<div className="grid gap-2">
+												<p className="text-micro text-muted-foreground">{t("config.dsh.pluginsHint")}</p>
+												{pluginNamespaces.length === 0 ? (
+													<Empty text={t("config.dsh.namespacesEmpty")} />
+												) : (
+													<div className="grid gap-2">
+														{pluginNamespaces.map((ns) => (
+															<PluginCard key={ns.ns} ns={ns} writable={writable} onSave={(patch) => saveNamespace(ns.ns, patch)} sectionApi={sectionApi} instanceKey={`dsh:plugins:${ns.ns}`} />
+														))}
+													</div>
+												)}
+											</div>
+											{/* G13 深化：动态 Cordis 插件管理（define/run/stop/undefine），PiDeck 独有能力保留在配置页。
+									    与上方静态插件配置卡片分区：横线 + 间距隔开，避免两区视觉粘连。 */}
+											<div className="mt-6 border-t border-border/60 pt-4">
+												<DshPluginSection />
+											</div>
+											{/* 插件市场（搜索/安装/已安装列表）：与上方插件管理分区，同用横线隔开。 */}
+											<div className="mt-6 border-t border-border/60 pt-4">
+												<DshPluginMarketSection />
+											</div>
+										</div>
+										<div hidden={pluginPane !== "list"}>
+											<PluginInventoryView />
+										</div>
+									</div>
 								</div>
-							</div>
-						</div>
-						<div hidden={activeTab !== "security"}>
-							<div className="p-4">
-								<SecurityTab namespace={permissionNamespace} writable={writable} onSave={(patch) => saveNamespace("permission", patch)} onChanged={() => void load()} sectionApi={sectionApi} instanceKey="dsh:security" />
-							</div>
-						</div>
-						<div hidden={activeTab !== "raw"} className="flex min-h-0 flex-1 flex-col">
-							<div className="flex min-h-0 flex-1 flex-col p-4">
-								<RawTab homeDir={status?.homeDir ?? ""} sectionApi={sectionApi} instanceKey="dsh:raw" />
-							</div>
-						</div>
+								<div hidden={activeTab !== "security"}>
+									<div className="p-4">
+										<SecurityTab namespace={permissionNamespace} writable={writable} onSave={(patch) => saveNamespace("permission", patch)} onChanged={() => void load()} sectionApi={sectionApi} instanceKey="dsh:security" />
+									</div>
+								</div>
+								<div hidden={activeTab !== "raw"} className="flex min-h-0 flex-1 flex-col">
+									<div className="flex min-h-0 flex-1 flex-col p-4">
+										<RawTab homeDir={status?.homeDir ?? ""} sectionApi={sectionApi} instanceKey="dsh:raw" />
+									</div>
+								</div>
 							</>
 						)}
 					</>
@@ -584,14 +626,7 @@ export const DshConfigTab = forwardRef<DshConfigTabHandle, {
 	);
 });
 
-
-function Overview(props: {
-	status: DshStatus | null;
-	hasDocument: boolean;
-	onOpenFolder: (path: string) => void;
-	onOpenDocument: () => void;
-	onChanged: () => void;
-}) {
+function Overview(props: { status: DshStatus | null; hasDocument: boolean; onOpenFolder: (path: string) => void; onOpenDocument: () => void; onChanged: () => void }) {
 	const { status } = props;
 	const [picking, setPicking] = useState(false);
 	const [switching, setSwitching] = useState(false);
@@ -607,17 +642,23 @@ function Overview(props: {
 
 	useEffect(() => {
 		let cancelled = false;
-		void desktopApi.sessions.listArchivedDshSessions().then((items) => {
-			if (!cancelled) setArchived(items);
-		}).catch(() => undefined);
-		void desktopApi.settings.get().then((settings) => {
-			if (!cancelled) {
-				setAutoImport(settings.dshAutoImportSessions !== false);
-				setAutoImportLoaded(true);
-			}
-		}).catch(() => {
-			if (!cancelled) setAutoImportLoaded(true);
-		});
+		void desktopApi.sessions
+			.listArchivedDshSessions()
+			.then((items) => {
+				if (!cancelled) setArchived(items);
+			})
+			.catch(() => undefined);
+		void desktopApi.settings
+			.get()
+			.then((settings) => {
+				if (!cancelled) {
+					setAutoImport(settings.dshAutoImportSessions !== false);
+					setAutoImportLoaded(true);
+				}
+			})
+			.catch(() => {
+				if (!cancelled) setAutoImportLoaded(true);
+			});
 		return () => {
 			cancelled = true;
 		};
@@ -692,9 +733,7 @@ function Overview(props: {
 			await desktopApi.settings.update({ dshHomeDir: "" });
 			if (status?.started) {
 				const restarted = await desktopApi.sessions.restartDshHost();
-				showNotice(restarted
-					? t("config.dsh.homeResetApplied")
-					: t("config.dsh.homeChangeFailed"), restarted ? 4000 : 6000);
+				showNotice(restarted ? t("config.dsh.homeResetApplied") : t("config.dsh.homeChangeFailed"), restarted ? 4000 : 6000);
 			} else {
 				showNotice(t("config.dsh.homeReset"), 4000);
 			}
@@ -715,12 +754,44 @@ function Overview(props: {
 		setSwitching(true);
 		try {
 			const restarted = await desktopApi.sessions.restartDshHost();
-			showNotice(
-				restarted ? t("config.dsh.hostRestarted") : t("config.dsh.hostRestartFailed"),
-				restarted ? 4000 : 6000,
-			);
+			showNotice(restarted ? t("config.dsh.hostRestarted") : t("config.dsh.hostRestartFailed"), restarted ? 4000 : 6000);
 		} catch (error) {
 			showNotice(error instanceof Error ? error.message : String(error), 4000);
+		} finally {
+			setSwitching(false);
+			props.onChanged();
+		}
+	};
+
+	/**
+	 * 手动停止 host（用户不想让它运行）：主进程先停活跃 DSH 会话，再 dispose host，
+	 * 并持久化 dshManualStopped=true——之后预热/按需兕底/崩溃自动重启都不会再拉起，
+	 * 只有点「启动」才恢复。停止后配置读写（settings.describe 等）也会失败——这是
+	 * 预期行为，概览页会显示「已手动停止」徽标而不是错误态。
+	 */
+	const stopHost = async () => {
+		if (switching) return;
+		setSwitching(true);
+		try {
+			const stopped = await desktopApi.sessions.stopDshHost();
+			showNotice(stopped ? t("config.dsh.hostStopped") : t("config.dsh.hostStopFailed"), stopped ? 4000 : 6000);
+		} catch (error) {
+			showNotice(error instanceof Error ? error.message : String(error), 6000);
+		} finally {
+			setSwitching(false);
+			props.onChanged();
+		}
+	};
+
+	/** 手动启动 host（唯一能恢复运行的方式）：主进程清停止标记后 boot。 */
+	const startHost = async () => {
+		if (switching) return;
+		setSwitching(true);
+		try {
+			const started = await desktopApi.sessions.startDshHost();
+			showNotice(started ? t("config.dsh.hostStarted") : t("config.dsh.hostStartFailed"), started ? 4000 : 6000);
+		} catch (error) {
+			showNotice(error instanceof Error ? error.message : String(error), 6000);
 		} finally {
 			setSwitching(false);
 			props.onChanged();
@@ -738,25 +809,31 @@ function Overview(props: {
 				</h3>
 				<div className="flex items-center gap-2">
 					{status?.started ? (
-						<span className="rounded-full border border-emerald-300/70 bg-emerald-500/10 px-2 py-0.5 text-micro font-medium text-emerald-700 dark:border-emerald-700/70 dark:text-emerald-300">
-							{t("config.dsh.started")}
-						</span>
+						<span className="rounded-full border border-emerald-300/70 bg-emerald-500/10 px-2 py-0.5 text-micro font-medium text-emerald-700 dark:border-emerald-700/70 dark:text-emerald-300">{t("config.dsh.started")}</span>
+					) : status?.manuallyStopped ? (
+						// 手动停止是用户的主动选择，用中性徽标而非错误红：区别于 boot 失败。
+						<span className="rounded-full border border-border-subtle bg-bg-panel px-2 py-0.5 text-micro text-muted-foreground">{t("config.dsh.manuallyStopped")}</span>
 					) : (
-						<span className="rounded-full border border-border-subtle px-2 py-0.5 text-micro text-muted-foreground">
-							{t("config.dsh.notStarted")}
-						</span>
+						<span className="rounded-full border border-border-subtle px-2 py-0.5 text-micro text-muted-foreground">{t("config.dsh.notStarted")}</span>
 					)}
-					<Button
-						type="button"
-						variant="secondary"
-						size="sm"
-						className="h-7 gap-1"
-						disabled={switching}
-						onClick={() => void restartHost()}
-					>
-						{switching ? <LoaderCircle className="size-3.5 animate-pideck-spin" aria-hidden="true" /> : <RefreshCw className="size-3.5" aria-hidden="true" />}
-						{t("config.dsh.restartHost")}
-					</Button>
+					{/* 停止/启动互斥：运行中→停止；已手动停止→启动（唯一恢复入口）。重启仅在运行中可用。 */}
+					{status?.started ? (
+						<Button type="button" variant="secondary" size="sm" className="h-7 gap-1" disabled={switching} onClick={() => void stopHost()}>
+							{switching ? <LoaderCircle className="size-3.5 animate-pideck-spin" aria-hidden="true" /> : <PowerOff className="size-3.5" aria-hidden="true" />}
+							{t("config.dsh.stopHost")}
+						</Button>
+					) : (
+						<Button type="button" variant="secondary" size="sm" className="h-7 gap-1" disabled={switching} onClick={() => void startHost()}>
+							{switching ? <LoaderCircle className="size-3.5 animate-pideck-spin" aria-hidden="true" /> : <Power className="size-3.5" aria-hidden="true" />}
+							{t("config.dsh.startHost")}
+						</Button>
+					)}
+					{status?.started ? (
+						<Button type="button" variant="secondary" size="sm" className="h-7 gap-1" disabled={switching} onClick={() => void restartHost()}>
+							<RefreshCw className="size-3.5" aria-hidden="true" />
+							{t("config.dsh.restartHost")}
+						</Button>
+					) : null}
 				</div>
 			</section>
 			{/* 跨工具兼容只留开关：开=启动只读扫盘入侧栏；关=不收录。不提供手动导入。 */}
@@ -771,28 +848,17 @@ function Overview(props: {
 			</section>
 			<section className="grid gap-2">
 				<h3 className="text-caption font-semibold text-muted-foreground">{t("config.dsh.directories")}</h3>
+				{/* 共享/并发冲突提示（issue #189）：默认 ~/.dsh 与 dsh CLI 共用（中性说明），
+				    或锁文件里有另一个存活的 PiDeck host（升级为警告）。显式覆盖过目录时不提示。 */}
+				<DshHomeSharingNotice sharing={status?.sharing} />
 				{/* DSH_HOME 即唯一配置目录：settings.yaml / .credentials.yaml / sessions / storages 全在同一目录 */}
 				<DirRow label={t("config.dsh.homeDir")} path={status?.homeDir ?? ""} onOpen={props.onOpenFolder} />
 				<div className="flex items-center gap-2">
-					<Button
-						type="button"
-						variant="secondary"
-						size="sm"
-						className="h-7"
-						disabled={picking || switching}
-						onClick={() => void pickHomeDir()}
-					>
+					<Button type="button" variant="secondary" size="sm" className="h-7" disabled={picking || switching} onClick={() => void pickHomeDir()}>
 						{picking ? <LoaderCircle className="size-3.5 animate-pideck-spin" aria-hidden="true" /> : <FolderOpen className="size-3.5" aria-hidden="true" />}
 						{t("config.dsh.changeHome")}
 					</Button>
-					<Button
-						type="button"
-						variant="ghost"
-						size="sm"
-						className="h-7 text-muted-foreground"
-						disabled={switching}
-						onClick={() => void resetHomeDir()}
-					>
+					<Button type="button" variant="ghost" size="sm" className="h-7 text-muted-foreground" disabled={switching} onClick={() => void resetHomeDir()}>
 						{t("config.dsh.resetHome")}
 					</Button>
 				</div>
@@ -806,26 +872,14 @@ function Overview(props: {
 				) : (
 					<div className="grid gap-1.5">
 						{archived.map((item) => (
-							<div
-								key={item.dshSessionId}
-								className="flex items-center gap-2 rounded-md border border-border-subtle bg-bg-panel px-2 py-1.5"
-							>
+							<div key={item.dshSessionId} className="flex items-center gap-2 rounded-md border border-border-subtle bg-bg-panel px-2 py-1.5">
 								<span className="min-w-0 flex-1 truncate text-control text-foreground" title={item.cwd || item.dshSessionId}>
 									{/* 标题（manifest/日志折叠）> cwd 末段 > host id：与会话管理弹窗归档视图同一策略 */}
 									<span className="font-medium">{managerArchivedDshLabel({ kind: "dsh", item })}</span>
 									<span className="ml-2 text-caption text-text-secondary">{item.cwd}</span>
 								</span>
-								<Button
-									type="button"
-									variant="secondary"
-									size="sm"
-									className="h-6 shrink-0"
-									disabled={restoring === item.dshSessionId}
-									onClick={() => void restoreArchived(item.dshSessionId)}
-								>
-									{restoring === item.dshSessionId
-										? <LoaderCircle className="size-3.5 animate-pideck-spin" aria-hidden="true" />
-										: <ArchiveRestore className="size-3.5" aria-hidden="true" />}
+								<Button type="button" variant="secondary" size="sm" className="h-6 shrink-0" disabled={restoring === item.dshSessionId} onClick={() => void restoreArchived(item.dshSessionId)}>
+									{restoring === item.dshSessionId ? <LoaderCircle className="size-3.5 animate-pideck-spin" aria-hidden="true" /> : <ArchiveRestore className="size-3.5" aria-hidden="true" />}
 									{t("config.dsh.restore")}
 								</Button>
 							</div>
@@ -854,7 +908,6 @@ function openDocument() {
 
 type DshAgentPreset = {
 	id: string;
-	trust: "system" | "user";
 	isDefault: boolean;
 	name?: string;
 	description?: string;
@@ -880,48 +933,33 @@ function PluginCard(props: {
 	const descriptionKey = dshPluginNamespaceDescriptionKey(props.ns.ns);
 	return (
 		<div className="rounded-xl border border-border-subtle bg-bg-panel transition-colors hover:border-border">
-			<button
-				type="button"
-				className="flex w-full items-center gap-3 px-4 py-3.5 text-left"
-				onClick={() => setOpen((prev) => !prev)}
-			>
+			<button type="button" className="flex w-full items-center gap-3 px-4 py-3.5 text-left" onClick={() => setOpen((prev) => !prev)}>
 				<span className="min-w-0 flex-1">
 					<span className="block truncate text-sm font-semibold text-foreground">{titleKey ? t(titleKey) : props.ns.ns}</span>
-					{descriptionKey && (
-						<span className="mt-0.5 block truncate text-caption text-muted-foreground">{t(descriptionKey)}</span>
-					)}
+					{descriptionKey && <span className="mt-0.5 block truncate text-caption text-muted-foreground">{t(descriptionKey)}</span>}
 				</span>
-				<span className="shrink-0 rounded-full border border-border-subtle px-2 py-0.5 text-micro text-muted-foreground">
-					{props.ns.applies === "live" ? t("config.dsh.appliesLive") : t("config.dsh.appliesRestart")}
-				</span>
-				<ChevronDown
-					className={`size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ${open ? "rotate-180" : ""}`}
-					aria-hidden="true"
-				/>
+				<span className="shrink-0 rounded-full border border-border-subtle px-2 py-0.5 text-micro text-muted-foreground">{props.ns.applies === "live" ? t("config.dsh.appliesLive") : t("config.dsh.appliesRestart")}</span>
+				<ChevronDown className={`size-3.5 shrink-0 text-muted-foreground transition-transform duration-fast ${open ? "rotate-180" : ""}`} aria-hidden="true" />
 			</button>
-			{open && (
-				<div className="border-t border-border/40">
+			{/* 折叠体走共享折叠原语（真高度渐变 + exit 后卸载 + reduced-motion 回退）；
+			    display:contents 让根不生成盒子，折叠态零空档。 */}
+			<Collapsible open={open} className="contents">
+				<CollapsibleContent className="border-t border-border/40">
 					<DshSchemaForm namespace={props.ns} writable={props.writable} onSave={props.onSave} sectionApi={props.sectionApi} instanceKey={props.instanceKey} />
-				</div>
-			)}
+				</CollapsibleContent>
+			</Collapsible>
 		</div>
 	);
 }
 
 /**
  * 预设设置 tab（对齐 dsh-web 的 agent preset 选择/管理）：列出 host 可组合的会话
- * Agent 预设（standard/code/minimal/cordis 等），标记当前默认，并支持把任一预设
- * 设为新会话默认（写入 settings 文档的 agent-presets.default，与 dsh-web 的
+ * Agent 预设（standard/ptc/minimal/cordis 等），标记当前默认，并支持把任一预设
+ * 设为新会话默认（profile 中 agent-preset-registry.selectedDefault，与 dsh-web 的
  * General 设置行同一写入目标；仅对之后新建的会话生效，运行中会话保持原组合）。
  * 保存语义与 Pi 管理页一致：点击「设为默认」只暂存选择，由顶部统一保存提交。
  */
-function PresetsTab(props: {
-	writable: boolean;
-	namespace?: DshNamespaceView;
-	onSave: (id: string) => Promise<void>;
-	sectionApi?: DshSectionApi;
-	instanceKey?: string;
-}) {
+function PresetsTab(props: { writable: boolean; namespace?: DshNamespaceView; onSave: (id: string) => Promise<void>; sectionApi?: DshSectionApi; instanceKey?: string }) {
 	const generatedId = useId();
 	const instanceId = props.instanceKey ?? generatedId;
 	const [presets, setPresets] = useState<DshAgentPreset[]>([]);
@@ -929,6 +967,33 @@ function PresetsTab(props: {
 	/** 暂存的新默认预设 id（未保存；顶部统一保存时提交）。 */
 	const [pendingDefault, setPendingDefault] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
+	/** agent-team 实验预设（PiDeck 侧设置项，默认关）：即时写入不入统一保存；
+	 *  变更只影响之后 fork 的 host，运行中的 DSH 会话需重启才换到新组合。 */
+	const [agentTeam, setAgentTeam] = useState(false);
+	const [agentTeamLoaded, setAgentTeamLoaded] = useState(false);
+
+	useEffect(() => {
+		void desktopApi.settings
+			.get()
+			.then((settings) => {
+				setAgentTeam(settings.dshAgentTeamPreset === true);
+				setAgentTeamLoaded(true);
+			})
+			.catch(() => setAgentTeamLoaded(true));
+	}, []);
+
+	/** 切换 agent-team 预设：乐观更新 UI，写设置失败回滚；重启 host 后生效。 */
+	const toggleAgentTeam = async (checked: boolean) => {
+		const prev = agentTeam;
+		setAgentTeam(checked);
+		try {
+			await desktopApi.settings.update({ dshAgentTeamPreset: checked });
+			showNotice(t(checked ? "config.dsh.agentTeamPresetOn" : "config.dsh.agentTeamPresetOff"), 4000);
+		} catch (saveError) {
+			setAgentTeam(prev);
+			showNotice(saveError instanceof Error ? saveError.message : String(saveError), 4000);
+		}
+	};
 
 	const reload = useCallback(async () => {
 		try {
@@ -942,14 +1007,17 @@ function PresetsTab(props: {
 
 	useEffect(() => {
 		let cancelled = false;
-		void desktopApi.sessions.listDshAgentPresets().then((list) => {
-			if (!cancelled) {
-				setPresets(list);
-				setLoading(false);
-			}
-		}).catch(() => {
-			if (!cancelled) setLoading(false);
-		});
+		void desktopApi.sessions
+			.listDshAgentPresets()
+			.then((list) => {
+				if (!cancelled) {
+					setPresets(list);
+					setLoading(false);
+				}
+			})
+			.catch(() => {
+				if (!cancelled) setLoading(false);
+			});
 		return () => {
 			cancelled = true;
 		};
@@ -958,6 +1026,7 @@ function PresetsTab(props: {
 	/** 当前默认预设 id：点选「当前默认」不算修改（与改回原值同语义）。 */
 	const currentDefaultId = presets.find((preset) => preset.isDefault)?.id;
 	const dirty = pendingDefault !== null;
+
 	useEffect(() => {
 		props.sectionApi?.onDirtyChange(instanceId, dirty);
 		// 卸载时清掉本实例的脏来源，避免收起/切换后残留黄点
@@ -972,6 +1041,10 @@ function PresetsTab(props: {
 			await props.onSave(pendingDefault);
 			setPendingDefault(null);
 			await reload();
+			// 会话头胶囊读的是共享目录缓存（utils/dshAgentPresets）：不主动刷新的话，
+			// 改完默认预设后新建会话仍显示旧默认，发出去才变成新组合。这里 force 重拉，
+			// 让已挂载的胶囊立即同步（失败不影响保存结果，胶囊侧保留重试）。
+			void refreshDshAgentPresets();
 			return true;
 		} catch (error) {
 			showNotice(error instanceof Error ? error.message : t("config.dsh.presetSetDefaultFailed"), 4000);
@@ -997,6 +1070,16 @@ function PresetsTab(props: {
 	return (
 		<div className="grid gap-4">
 			<p className="text-micro text-muted-foreground">{t("config.dsh.presetsHint")}</p>
+			{/* agent-team 实验预设（默认关）：PiDeck 侧开关，即时写入；组合变更需重启 host 生效 */}
+			<section className="rounded-md border border-border-subtle bg-bg-panel px-3.5 py-2.5">
+				<div className="flex items-center justify-between gap-4">
+					<div className="grid gap-0.5">
+						<span className="text-caption font-semibold text-foreground">{t("config.dsh.agentTeamPreset")}</span>
+						<p className="text-micro text-muted-foreground">{t("config.dsh.agentTeamPresetHint")}</p>
+					</div>
+					<Switch checked={agentTeam} disabled={!agentTeamLoaded} onCheckedChange={(checked) => void toggleAgentTeam(checked)} />
+				</div>
+			</section>
 			{presets.length === 0 ? (
 				<Empty text={t("config.dsh.presetsEmpty")} />
 			) : (
@@ -1010,14 +1093,7 @@ function PresetsTab(props: {
 						<section key={preset.id} className="rounded-md border border-border-subtle bg-bg-panel px-3.5 py-2.5">
 							<div className="flex items-center gap-2">
 								<span className="min-w-0 flex-1 truncate font-mono text-control font-semibold text-foreground">{name}</span>
-								{isDefault && (
-									<span className="rounded-full border border-emerald-300/70 bg-emerald-500/10 px-2 py-0.5 text-micro font-medium text-emerald-700 dark:border-emerald-700/70 dark:text-emerald-300">
-										{t("config.dsh.presetDefault")}
-									</span>
-								)}
-								<span className={`rounded-full border border-border-subtle px-2 py-0.5 text-micro ${preset.trust === "user" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
-									{t(preset.trust === "user" ? "config.dsh.presetUser" : "config.dsh.presetSystem")}
-								</span>
+								{isDefault && <span className="rounded-full border border-emerald-300/70 bg-emerald-500/10 px-2 py-0.5 text-micro font-medium text-emerald-700 dark:border-emerald-700/70 dark:text-emerald-300">{t("config.dsh.presetDefault")}</span>}
 								{canSetDefault && (
 									<Button
 										type="button"
@@ -1037,9 +1113,7 @@ function PresetsTab(props: {
 							</div>
 							{description && <p className="mt-1 text-micro text-muted-foreground">{description}</p>}
 							{preset.broken && <p className="mt-1 text-micro text-danger">{t("config.dsh.presetBroken", { reason: preset.broken })}</p>}
-							{!props.writable && !preset.isDefault && (
-								<p className="mt-1 text-micro text-muted-foreground">{t("config.dsh.presetNotWritable")}</p>
-							)}
+							{!props.writable && !preset.isDefault && <p className="mt-1 text-micro text-muted-foreground">{t("config.dsh.presetNotWritable")}</p>}
 						</section>
 					);
 				})
@@ -1055,14 +1129,7 @@ function PresetsTab(props: {
  * 默认预设保存与 Pi 管理页一致：草稿暂存，顶部统一保存提交；
  * autoAllow 是 PiDeck 运行时开关，即时生效不入统一保存。
  */
-function SecurityTab(props: {
-	namespace?: DshNamespaceView;
-	writable: boolean;
-	onSave: (patch: Record<string, unknown>) => Promise<void>;
-	onChanged: () => void;
-	sectionApi?: DshSectionApi;
-	instanceKey?: string;
-}) {
+function SecurityTab(props: { namespace?: DshNamespaceView; writable: boolean; onSave: (patch: Record<string, unknown>) => Promise<void>; onChanged: () => void; sectionApi?: DshSectionApi; instanceKey?: string }) {
 	const generatedId = useId();
 	const instanceId = props.instanceKey ?? generatedId;
 	const [draft, setDraft] = useState<string | null>(null);
@@ -1116,7 +1183,7 @@ function SecurityTab(props: {
 			props.onChanged();
 			return true;
 		} catch (saveError) {
-			setError(saveError instanceof Error ? saveError.message : String(saveError));
+			setError(dshConfigErrorMessage(saveError));
 			return false;
 		} finally {
 			setSaving(false);
@@ -1134,13 +1201,21 @@ function SecurityTab(props: {
 			<section className="rounded-md border border-border-subtle bg-bg-panel">
 				<div className="flex items-center gap-2 border-b border-border/40 px-4 py-2">
 					<span className="text-caption font-semibold text-foreground">{t("config.dsh.securityDefaultPreset")}</span>
-					{error && <span className="max-w-64 truncate text-micro text-danger" title={error}>{error}</span>}
-					{dirty && <span className="ml-auto text-micro text-amber-500" title={t("config.dirtyTooltip")}>●</span>}
+					{error && (
+						<span className="max-w-64 truncate text-micro text-danger" title={error}>
+							{error}
+						</span>
+					)}
+					{dirty && (
+						<span className="ml-auto text-micro text-amber-500" title={t("config.dirtyTooltip")}>
+							●
+						</span>
+					)}
 					{saving && <span className="ml-auto text-micro text-muted-foreground">{t("common.saving")}</span>}
 				</div>
 				<div className="grid gap-3 p-4">
 					<Select value={selected ?? ""} disabled={!props.writable} onValueChange={(next) => setDraft(next === currentDefault ? null : next)}>
-						<SelectTrigger size="sm" className="h-8 w-72">
+						<SelectTrigger size="sm" className="w-72">
 							<SelectValue placeholder={t("config.dsh.selectPlaceholder")} />
 						</SelectTrigger>
 						<SelectContent>
@@ -1174,10 +1249,6 @@ function SecurityTab(props: {
 		</div>
 	);
 }
-
-
-
-
 
 const RAW_FILES = ["settings.yaml", ".credentials.yaml"];
 
@@ -1232,7 +1303,8 @@ function RawTab(props: { homeDir: string; sectionApi?: DshSectionApi; instanceKe
 		setLoaded(false);
 		setDirty(false);
 		const filePath = joinConfigPath(props.homeDir, fileName);
-		void desktopApi.files.readContent(filePath)
+		void desktopApi.files
+			.readContent(filePath)
 			.then((next) => {
 				if (!cancelled) {
 					setContent(next);
@@ -1257,12 +1329,14 @@ function RawTab(props: { homeDir: string; sectionApi?: DshSectionApi; instanceKe
 		<div className="flex min-h-0 flex-1 flex-col gap-3">
 			<div className="flex shrink-0 items-center gap-2">
 				<Select value={fileName} onValueChange={setFileName}>
-					<SelectTrigger size="sm" className="h-8 w-48 font-mono">
+					<SelectTrigger size="sm" className="w-48 font-mono">
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
 						{RAW_FILES.map((name) => (
-							<SelectItem key={name} value={name} className="font-mono">{name}</SelectItem>
+							<SelectItem key={name} value={name} className="font-mono">
+								{name}
+							</SelectItem>
 						))}
 					</SelectContent>
 				</Select>
@@ -1281,7 +1355,8 @@ function RawTab(props: { homeDir: string; sectionApi?: DshSectionApi; instanceKe
 					}}
 				/>
 			) : (
-				<div className="flex h-72 items-center justify-center text-control text-muted-foreground">
+				<div className="flex h-72 items-center justify-center gap-2 text-control text-muted-foreground">
+					<LoaderCircle size={14} className="animate-pideck-spin" aria-hidden="true" />
 					{t("common.loading")}
 				</div>
 			)}
@@ -1307,13 +1382,7 @@ function DirRow(props: { label: string; path: string; onOpen: (path: string) => 
 				{props.path || "—"}
 			</span>
 			{props.path && (
-				<Button
-					type="button"
-					variant="ghost"
-					size="sm"
-					className="h-7 shrink-0 rounded-md px-2 text-control"
-					onClick={() => props.onOpen(props.path)}
-				>
+				<Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 rounded-md px-2 text-control" onClick={() => props.onOpen(props.path)}>
 					{t("config.dsh.openFolder")}
 				</Button>
 			)}
@@ -1322,9 +1391,5 @@ function DirRow(props: { label: string; path: string; onOpen: (path: string) => 
 }
 
 function Empty(props: { text: string }) {
-	return (
-		<div className="rounded-sm border border-border-subtle bg-bg-panel px-3.5 py-8 text-center text-control text-muted-foreground">
-			{props.text}
-		</div>
-	);
+	return <div className="rounded-sm border border-border-subtle bg-bg-panel px-3.5 py-8 text-center text-control text-muted-foreground">{props.text}</div>;
 }

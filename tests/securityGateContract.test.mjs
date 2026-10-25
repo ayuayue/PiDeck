@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import test from "node:test";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createRequire } from "node:module";
+import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const require = createRequire(import.meta.url);
+const nodeRequire = createRequire(import.meta.url);
 
 /**
  * 安全门集成契约测试：
@@ -15,14 +18,14 @@ const require = createRequire(import.meta.url);
  * - PIDECK_* 环境变量在 PiProcess 启动路径中注入
  */
 
+let builtInExtensionsModule = null;
+
+/** 统一走 loadTsCommonJs：模块已拆出 ./builtInExtensionsManifest，裸 require 解析不了无扩展名的 .ts。 */
 function loadBuiltInExtensionsModule() {
-	const source = readFileSync("src/main/extensions/builtInExtensions.ts", "utf8");
-	const { outputText } = ts.transpileModule(source, {
-		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-	});
-	const sandbox = { exports: {}, require, console };
-	vm.runInNewContext(outputText, sandbox, { filename: "builtInExtensions.ts" });
-	return sandbox.exports;
+	if (!builtInExtensionsModule) {
+		builtInExtensionsModule = loadTsCommonJs("src/main/extensions/builtInExtensions.ts");
+	}
+	return builtInExtensionsModule;
 }
 
 test("BUILT_IN_EXTENSIONS includes pi-deck-security-gate.ts", () => {
@@ -39,10 +42,7 @@ test("security gate extension is self-contained (no PiDeck src imports)", () => 
 	// 只允许 @earendil-works 与 node 内置模块
 	const imports = [...source.matchAll(/^\s*import[^"']*["']([^"']+)["']/gm)].map((m) => m[1]);
 	for (const spec of imports) {
-		assert.ok(
-			spec.startsWith("@earendil-works/") || spec.startsWith("node:") || spec.startsWith("node/"),
-			`不允许的扩展依赖: ${spec}`,
-		);
+		assert.ok(spec.startsWith("@earendil-works/") || spec.startsWith("node:") || spec.startsWith("node/"), `不允许的扩展依赖: ${spec}`);
 	}
 });
 
@@ -115,4 +115,133 @@ test("default settings: security gate on with off level (zero-intervention)", ()
 	assert.match(securityTypes, /defaultLevelId:\s*"off"/);
 	// 快照 schemaVersion 与扩展侧常量一致
 	assert.match(securityTypes, /schemaVersion:\s*1/);
+});
+
+test("安全管理 tab 必须 forceMount：切 tab 不能卸载草稿（allow/ask/deny 会静默丢失）", () => {
+	// 回归契约（2026-09 用户反馈「ask 的选中切个 tab 就没了」）：
+	// SecuritySection 的草稿（enabled / defaultLevelId / 各等级 toolActions 等）只存在组件内部 state，
+	// Radix Tabs 默认卸载非激活 TabsContent → 切走再回来草稿归零；
+	// 更隐蔽的是它卸载时会上抛 onDirtyChange(false)，把父级黄点清掉，连关闭时的保存确认也不弹。
+	const configModal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
+	const securityTabTag = configModal.match(/<TabsContent value="security"[^>]*>/);
+	assert.ok(securityTabTag, "ConfigModal 必须直接用 TabsContent 承载安全管理页");
+	assert.match(securityTabTag[0], /forceMount/, "安全管理 TabsContent 必须 forceMount 常挂");
+	assert.match(securityTabTag[0], /data-\[state=inactive\]:hidden/, "inactive 必须 hidden，否则会叠在别的 tab 上");
+
+	// 面板确实带着脏状态上报（forceMount 挂的是自管草稿的面板，而不是把它接到别处）
+	assert.match(configModal, /<SecuritySection ref=\{securitySectionRef\} onDirtyChange=\{handleSecurityDirtyChange\}/);
+	// 脏标记必须能被保存流程消费（saveByKey 的 security 分支）
+	assert.match(configModal, /case "security":\s*\n\s*return securitySectionRef\.current\?\.save\(\) \?\? false;/);
+});
+
+/**
+ * 行为回归（issue #357-04）：before_agent_start 的系统提示注入只能「追加」。
+ *
+ * pi 的 extension 契约（docs/extensions.md:104）：返回 systemPrompt / 设 forceSystemPrompt
+ * 的语义是「整体替换本轮系统提示」。旧写法 `(ctx.getSystemPrompt?.() ?? "") + "\n\n" + hint`
+ * 在拿不到基准（ctx 无该方法或返回空）时，会把整条系统提示覆盖成「只剩安全提示」。
+ * 修复后的验收：拿不到非空基准 → 放弃注入（返回 undefined），绝不返回空底替换。
+ */
+function loadSecurityGateHarness(snapshotPath, sessionId) {
+	const source = readFileSync("resources/extensions/pi-deck-security-gate.ts", "utf8");
+	const output = ts.transpileModule(source, {
+		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
+		fileName: "pi-deck-security-gate.ts",
+	}).outputText;
+	const module2 = { exports: {} };
+	vm.runInNewContext(
+		output,
+		{
+			module: module2,
+			exports: module2.exports,
+			// type-only import 编译后消失：运行时不需要 pi 模块，其余走真实 node 内置模块
+			require: (specifier) => (specifier === "@earendil-works/pi-coding-agent" ? {} : nodeRequire(specifier)),
+			process: { ...process, env: { ...process.env, PIDECK_SECURITY_CONFIG: snapshotPath, PIDECK_SESSION_ID: sessionId } },
+			console,
+			Buffer,
+			setTimeout,
+			clearTimeout,
+		},
+		{ filename: "pi-deck-security-gate.ts" },
+	);
+	const handlers = new Map();
+	module2.exports.default({ on: (event, handler) => handlers.set(event, handler), appendEntry() {} });
+	return handlers.get("before_agent_start");
+}
+
+function writeSnapshotFile(dir, levelDefaults = {}) {
+	const snapshotPath = join(dir, "security-policy.json");
+	writeFileSync(
+		snapshotPath,
+		JSON.stringify({
+			schemaVersion: 1,
+			enabled: true,
+			defaultLevelId: "standard",
+			levels: [
+				{
+					id: "standard",
+					name: "标准",
+					description: "",
+					toolActions: {},
+					denyBashPatterns: ["rm -rf"],
+					pathPolicy: "workspace",
+					customAllowDirs: [],
+					denyDirs: [],
+					protectSensitivePaths: true,
+					defaultAction: "allow",
+					...levelDefaults,
+				},
+			],
+			sessionLevels: {},
+		}),
+	);
+	return snapshotPath;
+}
+
+test("before_agent_start: 有基准时追加安全提示（不丢原文）", () => {
+	const dir = mkdtempSync(join(tmpdir(), "security-gate-prompt-"));
+	try {
+		const handler = loadSecurityGateHarness(writeSnapshotFile(dir), "sess-1");
+		const result = handler({}, { getSystemPrompt: () => "BASE PROMPT" });
+		assert.ok(result && typeof result.systemPrompt === "string");
+		assert.ok(result.systemPrompt.startsWith("BASE PROMPT\n\n"), "必须保留原系统提示");
+		assert.match(result.systemPrompt, /当前会话启用了桌面端安全管理（等级: 标准）/);
+		assert.match(result.systemPrompt, /文件读写仅限工作目录/);
+		assert.match(result.systemPrompt, /rm -rf/);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("before_agent_start: 写系统提示 section，而不是 force 整块替换（issue #365-08）", () => {
+	const dir = mkdtempSync(join(tmpdir(), "security-gate-prompt-"));
+	try {
+		const handler = loadSecurityGateHarness(writeSnapshotFile(dir), "sess-1");
+		const sections = { pi_deck_earlier: "keep me" };
+		const result = handler({ systemPromptOptions: { sections } }, { getSystemPrompt: () => "BASE PROMPT" });
+
+		// 返回 systemPrompt 是 force 语义：会把本轮提示定死成整块字符串，
+		// 后续扩展对 sections 的写入全部丢弃。
+		assert.equal(result, undefined);
+		assert.match(sections.pi_deck_security, /当前会话启用了桌面端安全管理（等级: 标准）/);
+		assert.match(sections.pi_deck_security, /rm -rf/);
+		assert.equal(sections.pi_deck_earlier, "keep me", "前序扩展写入的 section 必须保留");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("before_agent_start: 拿不到非空基准时放弃注入（不能用空串覆盖系统提示）", () => {
+	const dir = mkdtempSync(join(tmpdir(), "security-gate-prompt-"));
+	try {
+		const handler = loadSecurityGateHarness(writeSnapshotFile(dir), "sess-1");
+		// ctx 没有 getSystemPrompt（老版本 pi / 替身实现）→ 之前会返回 systemPrompt = "\n\n" + hint
+		assert.equal(handler({}, {}), undefined);
+		// 返回空串同样视为「拿不到基准」（空串会整体替换掉系统提示）
+		assert.equal(handler({}, { getSystemPrompt: () => "" }), undefined);
+		// 有基准的正常路径不受影响（对照，避免上面两条靠「永远 undefined」蒙过）
+		assert.equal(typeof handler({}, { getSystemPrompt: () => "BASE" })?.systemPrompt, "string");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });

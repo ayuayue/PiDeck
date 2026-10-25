@@ -11,13 +11,13 @@
  * 必须按引号字段提取。输入为空 / 字段不足 / 非 " K" 结尾时返回 null。
  */
 export function parseTasklistMemoryKb(line: string): number | null {
-  const quoted = line.match(/"([^"]*)"/g) ?? [];
-  if (quoted.length < 5) return null;
-  const memField = quoted[4].replace(/"/g, "").trim();
-  const match = /^([\d,]+)\s*K$/.exec(memField);
-  if (!match) return null;
-  const kb = Number(match[1].replace(/,/g, ""));
-  return Number.isFinite(kb) ? kb : null;
+	const quoted = line.match(/"([^"]*)"/g) ?? [];
+	if (quoted.length < 5) return null;
+	const memField = quoted[4].replace(/"/g, "").trim();
+	const match = /^([\d,]+)\s*K$/.exec(memField);
+	if (!match) return null;
+	const kb = Number(match[1].replace(/,/g, ""));
+	return Number.isFinite(kb) ? kb : null;
 }
 
 /**
@@ -25,10 +25,10 @@ export function parseTasklistMemoryKb(line: string): number | null {
  * 输出形如 `  123456\n`。空/非数字内容返回 null。
  */
 export function parsePsRssKb(output: string): number | null {
-  const trimmed = output.trim();
-  if (!trimmed) return null;
-  const kb = Number(trimmed);
-  return Number.isFinite(kb) && kb >= 0 ? kb : null;
+	const trimmed = output.trim();
+	if (!trimmed) return null;
+	const kb = Number(trimmed);
+	return Number.isFinite(kb) && kb >= 0 ? kb : null;
 }
 
 /**

@@ -1,29 +1,18 @@
 /**
- * 供应商名称校验（跨进程纯契约：renderer 新增/重命名入口 + main 迁移兜底共用）。
+ * 供应商名是配置键，不是环境变量名；Pi 与 DSH 均允许中文、数字开头和空格。
+ * DSH 凭据引用由 credentialRefFor 单独生成，不能反过来限制 Pi 名称。
  *
- * 为什么需要严格白名单：provider name 经 DSH `credentialRefFor` 转成
- * `<NAME 大写>-→_>_API_KEY` 作为环境变量名注入 host 进程。
- * POSIX 环境变量名必须匹配 `[A-Za-z_][A-Za-z0-9_]*`，因此 provider name
- * 只能含字母数字/下划线/连字符且字母开头——否则 DSH 读不到密钥、配置 key
- * 在 shell 场景也易被转义。该规则仅用于「新增/重命名」入口，历史数据
- * 迁移走 main 侧更宽松的 isSafeProviderName（仅防路径穿越），不互相卡。
+ * 唯一的例外是 `%`：Windows 下 pi 常经 cmd.exe shim 启动（PiLocator 的 windowsVerbatimArguments
+ * 通道），cmd 的 %VAR% 展开不受引号影响（实测 `"a%PATH%b"` 照样展开），供应商名又会被原样送进
+ * `--provider`，成对 `%` 会让 pi 收到与配置不符的值。启动层修不了，只能在这里拒绝。
  */
-
-/** 名称长度上限（与 main 侧 isSafeProviderName 一致）。 */
 export const PROVIDER_NAME_MAX_LENGTH = 80;
 
-/**
- * 合法 provider name 规则：
- * - 字母开头（保证 credentialRefFor 后环境变量名不以数字开头）
- * - 仅含字母数字 / 下划线 / 连字符
- * - 长度 1–80
- */
-const PROVIDER_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,79}$/;
-
-/** 判断是否为合法的新建/重命名 provider name（已 trim）。 */
+/** 与主进程的配置安全边界一致：拒绝路径、控制字符、`%` 和超长名称。 */
 export function isValidProviderName(name: string): boolean {
-	return typeof name === "string" && PROVIDER_NAME_PATTERN.test(name.trim());
+	if (typeof name !== "string") return false;
+	const trimmed = name.trim();
+	return trimmed.length > 0 && trimmed.length <= PROVIDER_NAME_MAX_LENGTH && trimmed !== "__proto__" && !/[\\/\u0000-\u001f\u007f%]/.test(name) && !trimmed.includes("..");
 }
 
-/** 校验提示文案的 i18n key（renderer 侧 inline 提示用）。 */
 export const PROVIDER_NAME_RULE_I18N_KEY = "config.providerNameRule";

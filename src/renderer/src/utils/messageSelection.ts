@@ -5,10 +5,7 @@
  * 勾选集即导出集。工具/思考消息只读展示、不参与选择，避免「勾了却导不出」的歧义。
  * 零运行时依赖（仅 import type），便于 tests/*.test.mjs 直接 transpile 验证。
  */
-import type {
-	AgentRunItem,
-	RenderMessage,
-} from "../components/app/AppUtils";
+import type { AgentRunItem, RenderMessage } from "../components/app/AppUtils";
 
 /** 收集全部可勾选消息 id：顶层 user/assistant 消息 + run 内 assistant 消息。 */
 export function getSelectableMessageIds(items: RenderMessage[]): string[] {
@@ -37,10 +34,7 @@ export function getRunAssistantIds(run: AgentRunItem): string[] {
 }
 
 /** 切换单条消息的勾选态，返回新集合（不可变风格）。 */
-export function toggleMessage(
-	selectedIds: ReadonlySet<string>,
-	id: string,
-): Set<string> {
+export function toggleMessage(selectedIds: ReadonlySet<string>, id: string): Set<string> {
 	const next = new Set(selectedIds);
 	if (next.has(id)) next.delete(id);
 	else next.add(id);
@@ -48,10 +42,7 @@ export function toggleMessage(
 }
 
 /** 整组切换一个 run：全部已选则清空，否则全选。 */
-export function toggleRun(
-	selectedIds: ReadonlySet<string>,
-	run: AgentRunItem,
-): Set<string> {
+export function toggleRun(selectedIds: ReadonlySet<string>, run: AgentRunItem): Set<string> {
 	const ids = getRunAssistantIds(run);
 	if (ids.length === 0) return new Set(selectedIds);
 	const allSelected = ids.every((id) => selectedIds.has(id));
@@ -66,25 +57,16 @@ export function toggleRun(
 /** run 头部三态：全选 / 部分选中 / 未选。 */
 export type RunSelectionState = "checked" | "indeterminate" | "unchecked";
 
-export function getRunSelectionState(
-	selectedIds: ReadonlySet<string>,
-	run: AgentRunItem,
-): RunSelectionState {
+export function getRunSelectionState(selectedIds: ReadonlySet<string>, run: AgentRunItem): RunSelectionState {
 	const ids = getRunAssistantIds(run);
 	if (ids.length === 0) return "unchecked";
-	const selectedCount = ids.reduce(
-		(count, id) => count + (selectedIds.has(id) ? 1 : 0),
-		0,
-	);
+	const selectedCount = ids.reduce((count, id) => count + (selectedIds.has(id) ? 1 : 0), 0);
 	if (selectedCount === 0) return "unchecked";
 	return selectedCount === ids.length ? "checked" : "indeterminate";
 }
 
 /** 全选/清空：selectedIds.size === allIds.length 时清空，否则全选。 */
-export function toggleAll(
-	selectedIds: ReadonlySet<string>,
-	allIds: ReadonlyArray<string>,
-): Set<string> {
+export function toggleAll(selectedIds: ReadonlySet<string>, allIds: ReadonlyArray<string>): Set<string> {
 	if (allIds.length > 0 && selectedIds.size === allIds.length) {
 		return new Set();
 	}
@@ -117,17 +99,11 @@ const LEADING_STATUS_RE = /^[\u25b6\u2713\u2717]\s*/u;
  * 提取工具显示名：meta.toolName 优先；
  * 回退剥 ANSI 与行首状态符号（▶/✓/✗）后的文本首词。
  */
-export function extractToolName(message: {
-	meta?: unknown;
-	text: string;
-}): string {
+export function extractToolName(message: { meta?: unknown; text: string }): string {
 	const meta = message.meta as { toolName?: unknown } | undefined;
 	if (typeof meta?.toolName === "string" && meta.toolName.trim()) {
 		return meta.toolName;
 	}
-	const cleaned = message.text
-		.replace(ANSI_ESCAPE_RE, "")
-		.replace(LEADING_STATUS_RE, "")
-		.trim();
+	const cleaned = message.text.replace(ANSI_ESCAPE_RE, "").replace(LEADING_STATUS_RE, "").trim();
 	return cleaned.split(/\s+/)[0] || "tool";
 }

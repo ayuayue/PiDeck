@@ -1,0 +1,17 @@
+{
+	"schemaVersion": 1,
+	"apiVersion": 1,
+	"id": "example.network",
+	"name": "Network API Demo",
+	"version": "1.0.0",
+	"description": "HTTPS / 已启动本地服务示例。只在点击时请求，不读取会话、不启动服务。",
+	"permissions": ["network.https", "network.local"],
+	"network": {
+		"httpsOrigins": ["https://api.example.com"],
+		"localPorts": [4187]
+	},
+	"contributes": {
+		"panels": [{ "id": "main", "title": "Network API Demo", "entry": "app.html", "icon": "globe", "presentation": "page" }],
+		"commands": [{ "id": "open", "title": "Open Network API Demo", "panelId": "main" }]
+	}
+}

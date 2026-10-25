@@ -1,15 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
   <defs>
-    <!-- 与打包标 build/icon.svg 同一枚银白 π 字标：官网 favicon / 顶栏 logo 保持品牌一致。 -->
+    <!-- 容器与 build/icon-pi-tui.svg 同规格（深色渐变底 + 上半 shine + 圆角），
+         但按站点 120×120 视口重算：圆角 26 ≈ 打包标 228/1024，字模 76px ≈ classic 字标在
+         120 视口里的占地（63%），使换标前后顶栏视觉重量一致。 -->
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop stop-color="#161719"/>
       <stop offset="0.58" stop-color="#050506"/>
       <stop offset="1" stop-color="#000000"/>
-    </linearGradient>
-    <linearGradient id="logo" x1="0.2" y1="0" x2="0.8" y2="1">
-      <stop stop-color="#ffffff"/>
-      <stop offset="0.48" stop-color="#f4f4f5"/>
-      <stop offset="1" stop-color="#a7a8ab"/>
     </linearGradient>
     <linearGradient id="shine" x1="0.3" y1="0" x2="0.7" y2="1">
       <stop stop-color="#ffffff" stop-opacity="0.18" offset="0"/>
@@ -17,10 +14,22 @@
     </linearGradient>
   </defs>
   <rect width="120" height="120" rx="26" fill="url(#bg)"/>
-  <rect width="120" height="58" rx="26" fill="url(#shine)"/>
-  <!-- π 字标原始 bbox 165.29–634.72，中心约 (400,400)；按 0.1619 缩放后宽约 76px，平移居中于 120×120。 -->
-  <g fill="url(#logo)" transform="translate(-4.76, -4.76) scale(0.1619)">
-    <path fill-rule="evenodd" d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"/>
-    <path d="M517.36 400H634.72V634.72H517.36Z"/>
+  <rect width="120" height="60" rx="26" fill="url(#shine)"/>
+  <!-- pi 官方 TUI logo 位图：coral #E48A7A / blue #4F8EB3 / yellow #EAB65D，
+       10 格与 src/renderer/src/components/app/piTuiLogoData.ts 逐格一致；
+       76px 居中（x=y=(120-76)/2=22），每格 19px。 -->
+  <g transform="translate(22, 22)">
+    <svg viewBox="0 0 4 4" width="76" height="76" shape-rendering="crispEdges">
+      <rect x="0" y="0" width="1" height="1" fill="#E48A7A"/>
+      <rect x="1" y="0" width="1" height="1" fill="#E48A7A"/>
+      <rect x="2" y="0" width="1" height="1" fill="#E48A7A"/>
+      <rect x="0" y="1" width="1" height="1" fill="#4F8EB3"/>
+      <rect x="2" y="1" width="1" height="1" fill="#E48A7A"/>
+      <rect x="0" y="2" width="1" height="1" fill="#4F8EB3"/>
+      <rect x="1" y="2" width="1" height="1" fill="#4F8EB3"/>
+      <rect x="3" y="2" width="1" height="1" fill="#EAB65D"/>
+      <rect x="0" y="3" width="1" height="1" fill="#4F8EB3"/>
+      <rect x="3" y="3" width="1" height="1" fill="#EAB65D"/>
+    </svg>
   </g>
 </svg>

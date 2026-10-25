@@ -1,17 +1,14 @@
 import { useEffect, useRef } from "react";
 import type { PetAggregateState } from "@shared/types";
-import {
-	type PetDragDirection,
-	type PetDragMode,
-	updatePetDragDirection,
-} from "./PetDragDirection";
+import { type PetDragDirection, type PetDragMode, updatePetDragDirection } from "./PetDragDirection";
 
 /**
  * PetInteraction —— 拖拽 / 单击跳转 Agent / 双击逗弄。
  * 位移 < 3px 视为点击；两次 click 间隔 < 300ms 视为双击。
  */
 
-const CLICK = 3, DBL_MS = 300;
+const CLICK = 3,
+	DBL_MS = 300;
 
 type Props = {
 	state: PetAggregateState;
@@ -31,9 +28,12 @@ export function PetInteraction({ state, onDragModeChange, canMove = true }: Prop
 	const lastTap = useRef(0);
 	const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-	useEffect(() => () => {
-		if (tapTimer.current) clearTimeout(tapTimer.current);
-	}, []);
+	useEffect(
+		() => () => {
+			if (tapTimer.current) clearTimeout(tapTimer.current);
+		},
+		[],
+	);
 
 	const menu = (e: React.MouseEvent) => {
 		e.preventDefault();
@@ -90,24 +90,20 @@ export function PetInteraction({ state, onDragModeChange, canMove = true }: Prop
 		const now = Date.now();
 		if (now - lastTap.current < DBL_MS) {
 			lastTap.current = 0;
-			if (tapTimer.current) { clearTimeout(tapTimer.current); tapTimer.current = null; }
+			if (tapTimer.current) {
+				clearTimeout(tapTimer.current);
+				tapTimer.current = null;
+			}
 			void window.piDesktop.pet.tease();
 			return;
 		}
 		lastTap.current = now;
 		if (tapTimer.current) clearTimeout(tapTimer.current);
-		tapTimer.current = setTimeout(() => { tapTimer.current = null; void window.piDesktop.pet.focusAgent(); }, DBL_MS);
+		tapTimer.current = setTimeout(() => {
+			tapTimer.current = null;
+			void window.piDesktop.pet.focusAgent();
+		}, DBL_MS);
 	};
 
-	return (
-		<div
-			style={{ position: "absolute", inset: 0, cursor: "grab", touchAction: "none" }}
-			onPointerDown={down}
-			onPointerMove={move}
-			onPointerUp={(e) => finish(e, true)}
-			onPointerCancel={(e) => finish(e, false)}
-			onLostPointerCapture={(e) => finish(e, false)}
-			onContextMenu={menu}
-		/>
-	);
+	return <div style={{ position: "absolute", inset: 0, cursor: "grab", touchAction: "none" }} onPointerDown={down} onPointerMove={move} onPointerUp={(e) => finish(e, true)} onPointerCancel={(e) => finish(e, false)} onLostPointerCapture={(e) => finish(e, false)} onContextMenu={menu} />;
 }

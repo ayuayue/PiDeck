@@ -14,9 +14,5 @@ test("DSH slash bridge consumes known permission commands before model dispatch"
 	assert.match(hostEntry, /commandCtx\.commands\.execute\(agent, line, \[\], signal\)/);
 	assert.match(hostEntry, /if \(result === undefined\) return next\(\);/);
 	assert.match(hostEntry, /return \{ kind: 'reject' \};/);
-	assert.doesNotMatch(
-		hostEntry,
-		/catch \(error\) \{[\s\S]*?return next\(\);/,
-		"known command failures must not fall through as ordinary prompts",
-	);
+	assert.doesNotMatch(hostEntry, /catch \(error\) \{\s*return next\(\);/, "known command failures must not fall through as ordinary prompts");
 });

@@ -40,10 +40,16 @@ function kindTie(kind: TrajectoryRecordKind): number {
 /**
  * 账本顺序 = dsh-web layoutEntryOrder：初始系统提示最先，其余按 seq；
  * 无 seq 时退回墙钟。JS sort 稳定，同键保留折叠时的相对顺序。
+ *
+ * 只有 **初始** 提示词固定最先：中途的提示词/工具更新（system/message 追加）
+ * 是就地发生的记录，必须留在它真实发生的位置（否则「什么时候改了提示词」
+ * 会被抹成「会话开头就改了」）。
  */
 export function compareTrajectoryRecords(left: TrajectoryRecord, right: TrajectoryRecord): number {
-	if (left.kind === "systemPrompt" && right.kind !== "systemPrompt") return -1;
-	if (right.kind === "systemPrompt" && left.kind !== "systemPrompt") return 1;
+	const leftInitial = left.kind === "systemPrompt" && left.promptKind === "initial";
+	const rightInitial = right.kind === "systemPrompt" && right.promptKind === "initial";
+	if (leftInitial && !rightInitial) return -1;
+	if (rightInitial && !leftInitial) return 1;
 	const leftSeq = left.seq;
 	const rightSeq = right.seq;
 	if (leftSeq !== undefined && rightSeq !== undefined && leftSeq !== rightSeq) {

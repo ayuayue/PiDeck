@@ -1,12 +1,5 @@
 import { t } from "../../i18n";
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "../ui-shadcn/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui-shadcn/dialog";
 import { Button } from "../ui-shadcn/button";
 
 /**
@@ -25,19 +18,15 @@ import { Button } from "../ui-shadcn/button";
  * #115 U5 起改用 shadcn Dialog；刻意屏蔽 ESC/遮罩/关闭按钮，强制用户做出
  * 明确选择，避免误关后 Agent 卡在等待信任决策的状态。
  */
-export function TrustConfirmModal(props: {
-	cwd: string;
-	projectName: string;
-	onChoose: (choice: "trust-remember" | "trust-session" | "deny") => void;
-}) {
+export function TrustConfirmModal(props: { cwd: string; projectName: string; onChoose: (choice: "trust-remember" | "trust-session" | "deny") => void }) {
 	return (
-		<Dialog open onOpenChange={() => { /* 强制三选一，不允许被动关闭 */ }}>
-			<DialogContent
-				className="sm:max-w-md"
-				showCloseButton={false}
-				onEscapeKeyDown={(e) => e.preventDefault()}
-				onInteractOutside={(e) => e.preventDefault()}
-			>
+		<Dialog
+			open
+			onOpenChange={() => {
+				/* 强制三选一，不允许被动关闭 */
+			}}
+		>
+			<DialogContent className="sm:max-w-md" showCloseButton={false} onEscapeKeyDown={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
 				<DialogHeader>
 					<DialogTitle>{t("agent.trust.title")}</DialogTitle>
 					<DialogDescription>{t("agent.trust.message")}</DialogDescription>

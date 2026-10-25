@@ -10,6 +10,28 @@
  * - 本模块不依赖 React / 编辑器，可被 node:test 直接加载单测。
  */
 
+import { escapeXmlAttribute, parseExpandedRefBlocks, replaceExpandedRefBlocksWithLabels, sanitizeBlockClosingTag } from "./referenceBlocks";
+import type { ExpandedRefBlock } from "./referenceBlocks";
+
+// 自包含块的解析/折叠已下沉到 shared/expandedRefBlocks（主进程 preview、Web 端共用一份实现）；
+// 这里保留既有导出名，调用方与单测无需改 import 路径。
+export type {
+	ExpandedQuoteBlock,
+	ExpandedRefBlock,
+	ExpandedSessionBlock,
+} from "./referenceBlocks";
+export {
+	decodeXmlAttribute,
+	escapeXmlAttribute,
+	formatPromptTemplateBlock,
+	parseExpandedPromptTemplateBlocks,
+	parseExpandedQuoteBlocks,
+	parseExpandedRefBlocks,
+	parseExpandedSessionBlocks,
+	parseExpandedSkillBlocks,
+	replaceExpandedRefBlocksWithLabels,
+} from "./referenceBlocks";
+
 /** 引用快照：创建时捕获的文本 + 来源消息 id（时间线节点的 data-message-id）。 */
 export type QuoteSnippet = {
 	/** 形如 "q3f2a1b0c"（不含 # 前缀），与 token 正则的捕获体一致。 */
@@ -79,17 +101,12 @@ export function stripQuoteTokens(text: string): string {
 }
 
 /**
- * 把草稿中的引用 token 按原位置展开为 markdown 引用块（发送前唯一咽喉点调用）。
+ * 把草稿中的引用 token 按原位置展开为自包含 `<quoted_context>` 块（发送前唯一咽喉点调用）。
  *
  * 输出形态：
- *   > 引文行1
- *   > 引文行2
+ *   <quoted_context label="…" message_id="…">完整引文</quoted_context>
  *
  *   与第一段引文对应的问题…
- *
- *   > 第二段引文
- *
- *   与第二段引文对应的问题…
  *
  * 规则：
  * - 无 token 时返回 null，调用方沿用原文（零开销快速路径）；
@@ -98,10 +115,7 @@ export function stripQuoteTokens(text: string): string {
  * - resolve 未命中的孤儿 token 直接丢弃（自愈，不阻断发送）；
  * - 展开后若用户正文为空则只留引用块。
  */
-export function expandQuoteTokens(
-	text: string,
-	resolve: (id: string) => QuoteSnippet | undefined,
-): string | null {
+export function expandQuoteTokens(text: string, resolve: (id: string) => QuoteSnippet | undefined): string | null {
 	const occurrences = extractQuoteTokens(text);
 	if (occurrences.length === 0) return null;
 
@@ -115,7 +129,14 @@ export function expandQuoteTokens(
 		if (!seen.has(occurrence.id)) {
 			seen.add(occurrence.id);
 			const snippet = resolve(occurrence.id);
-			if (snippet) parts.push(formatQuoteBlock(snippet.text));
+			if (snippet) {
+				parts.push(
+					formatQuoteBlock(snippet.text, {
+						label: truncateQuoteLabel(snippet.text),
+						messageId: snippet.messageId,
+					}),
+				);
+			}
 		}
 		cursor = occurrence.end;
 	}
@@ -125,19 +146,98 @@ export function expandQuoteTokens(
 	return parts.join("\n\n") || null;
 }
 
-/** 快照文本 → markdown 引用块：逐行加 "> "，空行用 ">" 占位以保持段落结构。 */
-function formatQuoteBlock(text: string): string {
-	const lines = text
-		.split("\n")
-		.map((line) => line.trim())
-		// 去掉首尾空行（划选跨块时常带出），中间空行保留结构
-		.join("\n")
-		.replace(/^(\n)+/, "")
-		.replace(/(\n)+$/, "");
-	return lines
-		.split("\n")
-		.map((line) => (line.length > 0 ? `> ${line}` : ">"))
-		.join("\n");
+/**
+ * 快照文本 → 自包含引用块（发送/存储形态，对齐 Proma `<quoted_context>` 方案）：
+ *
+ *   <quoted_context label="…" message_id="…">\n引用全文\n</quoted_context>
+ *
+ * 为什么不是 markdown 引用块（旧 `> 行` 形态）：消息文本必须自带解析所需的全部信息
+ * （label/messageId/全文），气泡渲染时直接解析出 chip，不依赖运行时 quoteMap——
+ * 切会话、重启、disk 加载后依然能还原 chip（旧方案依赖运行时快照，发送后即失效）。
+ */
+export function formatQuoteBlock(text: string, meta: { label: string; messageId: string }): string {
+	const safeText = sanitizeBlockClosingTag(text.trim(), "quoted_context");
+	const safeLabel = escapeXmlAttribute(meta.label);
+	const safeMessageId = escapeXmlAttribute(meta.messageId);
+	return `<quoted_context label="${safeLabel}" message_id="${safeMessageId}">\n${safeText}\n</quoted_context>`;
+}
+
+/** 气泡渲染片段：正文或已折叠的 chip（保持原文顺序）。 */
+export type BubbleRefSegment = { kind: "text"; value: string } | { kind: "chip"; block: ExpandedRefBlock };
+
+/**
+ * 把消息文本切成「正文 / chip」片段，并把紧贴块的空白压缩掉。
+ *
+ * 为什么要在渲染期压：块的 `\n\n` 分隔是写给模型看的上下文结构（保留在存储文本里），
+ * 但气泡里照搬会让每个 chip 独占一行、看起来像一堆小块而不是行内引用。这里只裁掉
+ * 紧邻块的空白，正文内部的段落换行原样保留。
+ */
+export function buildBubbleRefSegments(text: string): BubbleRefSegment[] {
+	const blocks = parseExpandedRefBlocks(text);
+	if (blocks.length === 0) return [{ kind: "text", value: text }];
+
+	const segments: BubbleRefSegment[] = [];
+	let cursor = 0;
+	for (const block of blocks) {
+		// 块两侧的 \n\n 是写给模型看的上下文分隔；气泡里压成片段间的单个空格。
+		// 必须首尾都裁：只裁尾空白会让「块 A → 正文 → 块 B」中间那段带上 \n\n，
+		// 在 whitespace-pre-wrap 里多出一个空行（曾漏裁首空白）。
+		const before = text.slice(cursor, block.start).replace(/^\s+/, "").replace(/\s+$/, "");
+		if (before) segments.push({ kind: "text", value: before });
+		segments.push({ kind: "chip", block });
+		cursor = block.end;
+	}
+	const after = text.slice(cursor).replace(/^\s+/, "");
+	if (after) segments.push({ kind: "text", value: after });
+	return segments;
+}
+
+/** 编辑重发/重放草稿的还原结果：draft 回填输入框，quotes 需调用方登记到会话快照 atom。 */
+export type RehydratedDraft = {
+	draft: string;
+	quotes: QuoteSnippet[];
+};
+
+/**
+ * 把消息文本里的自包含块还原成 composer 的 chip 形态（编辑重发 / fork 重放）。
+ *
+ * 直接回填 message.text 会把 `<quoted_context …>` / `<referenced_session …>` /
+ * `<skill …>` / `<prompt_template …>` 原文塞进输入框；这里还原成 chip 形态：
+ * - quote → 新 `#q<id>` token + 快照（全文/出处不丢，重发时 expandQuoteTokens 会再展开）
+ * - session/skill/template → 原始 mention 文本（`&名称` / `/skill:名称` / `/模板名`），
+ *   由 composer 的白名单解析重新渲染成 chip
+ * 块两侧的 `\n\n` 是写给模型看的上下文分隔，回输入框时压成单个空格；
+ * 正文自身的段落换行保持不动。
+ */
+export function rehydrateDraftFromMessage(text: string, createId: () => string = createQuoteId): RehydratedDraft {
+	const blocks = parseExpandedRefBlocks(text);
+	if (blocks.length === 0) return { draft: text, quotes: [] };
+
+	const quotes: QuoteSnippet[] = [];
+	const parts: string[] = [];
+	let cursor = 0;
+	for (const block of blocks) {
+		const before = text.slice(cursor, block.start).replace(/\s+$/, "");
+		if (before) parts.push(before);
+		if (block.kind === "quote") {
+			const snippet: QuoteSnippet = {
+				id: createId(),
+				text: block.text,
+				messageId: block.messageId,
+				createdAt: Date.now(),
+			};
+			quotes.push(snippet);
+			parts.push(buildQuoteToken(snippet.id));
+		} else if (block.kind === "session") {
+			parts.push(`&${block.name}`);
+		} else {
+			parts.push(`/${block.label}`);
+		}
+		cursor = block.end;
+	}
+	const after = text.slice(cursor).replace(/^\s+/, "");
+	if (after) parts.push(after);
+	return { draft: parts.join(" ").trim(), quotes };
 }
 
 /**
@@ -170,10 +270,7 @@ export function buildDraftWithAppendedQuote(draft: string, token: string): strin
  * 孤儿清理：剔除仓里草稿已不再引用的快照（用户删了 chip）。
  * 纯函数便于单测；调用方在每次登记新快照时顺带执行，避免无限堆积。
  */
-export function pruneUnreferencedQuotes<T extends { id: string }>(
-	map: Record<string, T>,
-	keepIds: ReadonlySet<string>,
-): Record<string, T> {
+export function pruneUnreferencedQuotes<T extends { id: string }>(map: Record<string, T>, keepIds: ReadonlySet<string>): Record<string, T> {
 	const next: Record<string, T> = {};
 	for (const [id, snippet] of Object.entries(map)) {
 		if (keepIds.has(id)) next[id] = snippet;

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FoldVertical } from "lucide-react";
-import { useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
+import { tpsDisplayModeAtom } from "../../atoms/tps-atoms";
 import { t } from "../../i18n";
 import type { AgentRuntimeState } from "../../../../shared/types";
 import type { UsageProbeBackend } from "../../../../shared/types/providerUsage";
 import { compactUiState, resolveCompactUsagePercent } from "../../../../shared/compactFeedback";
+import type { SessionRuntimeTarget } from "../../../../shared/types";
 import { openSettingsAtom } from "../../atoms/app-ui-atoms";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui-shadcn/tooltip";
 import { ProviderUsageDetails } from "../app/ProviderUsageDetails";
@@ -18,16 +20,18 @@ import { formatPercent } from "./TimelineFormat";
  * 形态：14px 圆环（2px 描边，strokeDasharray 按占用比例填充，从 12 点方向起笔），
  * 28px 圆形点击区；点击弹出占用面板：
  * - 标题「上下文已用 45%」+ ~used/window 数字 + 4px 占用条；
- * - 两段占比图例「对话 / 系统 + 工具」：pi 不返回 prompt 构成，对话按会话文件
- *   消息字符 ÷ 4 估算（contextMessageTokens，主进程算好），系统+工具为反推值
- *   （contextTokens − 对话），缺估算数据时退化单段条（dsh 自身 breakdown 也是
- *   heuristic，缺失时回退成单段 total）；
+ * - 占用构成：三段（系统 / 工具 / 对话）。系统与工具是会话文件重放出的提示词装载
+ *   （pi）或 host 构成投影（DSH）的实测估算；对话优先取「总占用 − 系统 − 工具」
+ *   差值（同源上报的 prompt 就是三段之和，差值自动包含 thinking/图片等），无数据时
+ *   退回消息文本估算（contextMessageTokens，主进程算好）。两段都没有时退化成单段
+ *   总占用条（旧会话/无装载测量值）。
  * - 完整会话详情：复用会话头部 SessionStatus 的明细构建器（buildSessionStatusDetail），
  *   包含上下文/输入输出/缓存读写/命中率/费用，以及「最近一次回复」的性能组
  *   （TTFT 首字、总耗时、tps）——圆环面板与会话头部共用同一份明细，语义一致；
- * - 压缩上下文按钮：从原右上角紧凑徽章移入面板。占用未达
- *   COMPACT_READY_PERCENT（30%）时禁用并说明「未到建议门槛」，避免空 RPC；
- *   达标后可点，urgency 色阶 ≥90 红 / ≥70 黄；压缩中禁用并显示进度态。
+ * - 压缩上下文按钮：从原右上角紧凑徽章移入面板。无上下文数据（会话未运行/
+ *   尚未上报）时禁用并说明「暂不可用」；数据可用随时可压（不再设占用门槛，
+ *   占用很低时由 pi 自行判定 nothing-to-do/too-small）；压缩中禁用并显示进度态。
+ *   urgency 色阶 ≥90 红 / ≥70 黄仅作视觉提示。
  *
  * 边界：
  * - 圆环常驻：percent 或 window 缺失（会话未运行/模型切换瞬间）时渲染 0% 占位环，
@@ -54,8 +58,7 @@ const PANEL_WIDTH = 320;
 /** token 数紧凑格式化（dsh StatsLine 同款）：<1K 原样，<1M 用 K，之后用 M；
  *  ≥100 取整，其余保留一位小数。 */
 export function formatTokens(n: number): string {
-	const scaled = (v: number): string =>
-		v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10);
+	const scaled = (v: number): string => (v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10));
 	if (n < 1_000) return String(n);
 	if (n < 1_000_000) return `${scaled(n / 1_000)}K`;
 	return `${scaled(n / 1_000_000)}M`;
@@ -98,9 +101,7 @@ function formatBalance(balance: { value: number; currency?: string }): string {
  *  （pi/dsh 可上报 >100%，如缓存超窗；pi CLI footer 同口径显示原始值）。
  *  当上报 percent ≤ 0 而 tokens 非 0（pi/dsh 取整成 0 或尚未随 tokens 刷新）时，
  *  按 tokens/window 重算，避免「占用 0% 但 ~408 / 1M」这类自相矛盾的展示。 */
-export function contextOccupancy(
-	state: Pick<AgentRuntimeState, "contextPercent" | "contextTokens" | "contextWindow"> | undefined,
-): { percent: number; usedTokens?: number; contextWindow?: number } | null {
+export function contextOccupancy(state: Pick<AgentRuntimeState, "contextPercent" | "contextTokens" | "contextWindow"> | undefined): { percent: number; usedTokens?: number; contextWindow?: number } | null {
 	const usedTokens = state?.contextTokens ?? undefined;
 	const contextWindow = state?.contextWindow ?? undefined;
 	// 百分比与 /compact 共用 resolveCompactUsagePercent，避免圆环和斜杠门槛分叉。
@@ -117,16 +118,9 @@ export function contextOccupancy(
  *  - breakdown：host contextBreakdown 投影（dsh），系统/工具/对话三段直接可用（0 也是有效值）；
  *  - estimate：无投影时的反推两段（对话 = 消息估算，系统+工具 = total − 对话，pi 路径）。
  *  返回 null 表示无估算数据（渲染单段条）。 */
-export type ContextSegments =
-	| { kind: "breakdown"; system: number; tools: number; conversation: number }
-	| { kind: "estimate"; conversation: number; systemTools: number };
+export type ContextSegments = { kind: "breakdown"; system: number; tools: number; conversation: number } | { kind: "estimate"; conversation: number; systemTools: number };
 
-export function contextSegments(
-	state: Pick<
-		AgentRuntimeState,
-		"contextTokens" | "contextMessageTokens" | "contextSystemTokens" | "contextToolsTokens"
-	> | undefined,
-): ContextSegments | null {
+export function contextSegments(state: Pick<AgentRuntimeState, "contextTokens" | "contextMessageTokens" | "contextSystemTokens" | "contextToolsTokens"> | undefined): ContextSegments | null {
 	// DSH host contextBreakdown 投影优先：三段数值就是 token-meter 的构成估算（dsh-web 同源）
 	if (state?.contextSystemTokens != null && state?.contextToolsTokens != null) {
 		return {
@@ -146,16 +140,33 @@ export function contextSegments(
 export function SessionContextMeter(props: {
 	state?: Pick<
 		AgentRuntimeState,
-		| "contextPercent" | "contextTokens" | "contextWindow"
+		| "contextPercent"
+		| "contextTokens"
+		| "contextWindow"
+		| "contextOverflow"
 		| "contextMessageTokens"
-		| "cacheHitPercent" | "cacheHitAveragePercent" | "cacheHitSampleCount"
-		| "inputTokens" | "outputTokens" | "isCompacting"
-		| "cost" | "ttftMs" | "totalMs" | "tps"
-		| "cacheRead" | "cacheWrite" | "cacheTotal"
+		| "cacheHitPercent"
+		| "cacheHitAveragePercent"
+		| "cacheHitSampleCount"
+		| "inputTokens"
+		| "outputTokens"
+		| "isCompacting"
+		| "cost"
+		| "ttftMs"
+		| "totalMs"
+		| "tps"
+		| "endToEndTps"
+		| "dshSessionStats"
+		| "cacheRead"
+		| "cacheWrite"
+		| "cacheTotal"
 		| "provider"
 	>;
 	/** 压缩上下文（原右上角紧凑徽章动作，迁入面板底部） */
 	onCompact?: () => void;
+	/** 超限错误时的恢复动作：压缩入口必须能在占用快照缺失时直接触发。 */
+	overflowRecoveryTarget?: SessionRuntimeTarget;
+	onOverflowRecovery?: (target: SessionRuntimeTarget) => void;
 	/**
 	 * 运行时缺省时的 provider 兜底（由会话记录/默认 model 推导）：用量查询只依赖
 	 * provider 配置解析端点、不依赖 agent 运行，未激活/未启动会话也可查用量。
@@ -168,6 +179,7 @@ export function SessionContextMeter(props: {
 	 */
 	backend?: UsageProbeBackend;
 }) {
+	const tpsMode = useAtomValue(tpsDisplayModeAtom);
 	const [open, setOpen] = useState(false);
 	const rootRef = useRef<HTMLSpanElement | null>(null);
 	/** 面板 fixed 定位：相对 viewport 的 {left, top}；null = 尚未定位（首帧隐藏） */
@@ -180,19 +192,13 @@ export function SessionContextMeter(props: {
 	const compacting = props.state?.isCompacting === true;
 	// 完整详情复用会话头部 SessionStatus 的构建器：平均命中率以主进程
 	// 文件统计为准（缓存快照历史均值仅作降级，头部同款语义）
-	const detail = buildSessionStatusDetail(
-		props.state,
-		props.state?.cacheHitAveragePercent ?? undefined,
-		props.state?.cacheHitSampleCount ?? 0,
-	);
-	// 输入/输出 token 与最新缓存命中率已常驻输入框下方（ComposerStatsLine），
-	// 圆环面板不再重复这两行；会话头部（SessionStatus）共用同一构建器不受影响。
-	const panelDetailRows = detail.detailRows.filter(
-		(row) => row.label !== t("ctx.detail.tokens") && row.label !== t("ctx.detail.hitLatest"),
-	);
+	const detail = buildSessionStatusDetail(props.state, props.state?.cacheHitAveragePercent ?? undefined, props.state?.cacheHitSampleCount ?? 0, tpsMode);
+	// 统计圆环已移动到输入框底栏，但点击后的详情仍需完整展示 token 与缓存数据。
+	// 这里保留完整明细，避免用户必须从一行截断文本里猜测具体数值。
+	const panelDetailRows = detail.detailRows;
 
 	// ── 面板内 provider 用量/余额区块 ─────────────────────────────
-	// 数据源与展示统一收敛到 ProviderUsageDetails（模型卡片/选择器徽标同一份
+	// 数据源与展示统一收敛到 ProviderUsageDetails（与模型选择器展开区共享同一份
 	// provider-usage-atoms 缓存，本组件只决定「是否渲染」与「失败跳转」）。
 	// 用量查询不依赖 agent 运行：未激活/未启动会话用会话记录/默认 model 推导的
 	// provider 兜底（ComposerComponents 已按 liveState → record → defaultModel 顺序解析）。
@@ -226,9 +232,7 @@ export function SessionContextMeter(props: {
 		if (top < 8) top = rect.bottom + 8; // 上方放不下：翻转到 trigger 下方
 		// 位置未变不重复 setState：流式渲染追底滚动期间每帧都有 scroll 事件，
 		// trigger 固定在底部栏（不随消息滚动），位置不变时避免每帧 re-render
-		setPlacement((prev) =>
-			prev !== null && prev.left === left && prev.top === top ? prev : { left, top },
-		);
+		setPlacement((prev) => (prev !== null && prev.left === left && prev.top === top ? prev : { left, top }));
 	}, []);
 
 	useLayoutEffect(() => {
@@ -242,10 +246,7 @@ export function SessionContextMeter(props: {
 	useEffect(() => {
 		if (!open) return;
 		const onPointerDown = (e: PointerEvent): void => {
-			const inside =
-				e.target instanceof Node &&
-				(rootRef.current?.contains(e.target) === true ||
-					panelRef.current?.contains(e.target) === true);
+			const inside = e.target instanceof Node && (rootRef.current?.contains(e.target) === true || panelRef.current?.contains(e.target) === true);
 			if (inside) return;
 			setOpen(false);
 		};
@@ -283,37 +284,40 @@ export function SessionContextMeter(props: {
 	// 无 capacity 数据（会话未运行/模型切换瞬间）也渲染占位环：0% 空环 +「暂不可用」提示，
 	// 保证底部栏圆环常驻。contextOccupancy 语义不变（仍返回 null 供面板内部判断）。
 	const percent = context?.percent ?? 0;
+	// 上下文超限失败后，Pi 仍可能没有可用的 get_session_stats 百分比（错误回合没有
+	// 成功 assistant usage）。此时不能把唯一恢复入口锁死：主进程已明确标记 overflow，
+	// 手动压缩由 pi 自己决定是否有可压内容。
+	const overflowRecovery = props.state?.contextOverflow === true;
 	// 低占用保留有效数字（1M 窗口下 408 tokens ≈ 0.04%，不显示成「0%」）
-	const reading = context !== null
-		? t("sessionContext.used", { percent: formatPercent(percent) })
-		: t("sessionContext.unavailable");
-	const figures =
-		context !== null && [context.usedTokens, context.contextWindow].every((v) => v != null)
-			? `~${formatTokens(context.usedTokens!)} / ${formatTokens(context.contextWindow!)}`
-			: undefined;
+	const reading = context !== null ? t("sessionContext.used", { percent: formatPercent(percent) }) : overflowRecovery ? t("sessionContext.overflow") : t("sessionContext.unavailable");
+	const figures = context !== null && [context.usedTokens, context.contextWindow].every((v) => v != null) ? `~${formatTokens(context.usedTokens!)} / ${formatTokens(context.contextWindow!)}` : undefined;
 	// host contextBreakdown 三段占用条（dsh-web 同宽算法：各自占 breakdownTotal 份额 × percent）
-	const breakdownSegments = segments?.kind === "breakdown"
-		? (() => {
-			const breakdownTotal = segments.system + segments.tools + segments.conversation;
-			if (breakdownTotal <= 0) return [];
-			const parts = [
-				{ key: "system", tokens: segments.system, color: COLOR_SYSTEM },
-				{ key: "tools", tokens: segments.tools, color: COLOR_TOOLS },
-				{ key: "conversation", tokens: segments.conversation, color: COLOR_CONVERSATION },
-			];
-			return parts
-				.filter((part) => part.tokens > 0)
-				.map((part) => ({ key: part.key, color: part.color, width: Math.min(100, (percent * part.tokens) / breakdownTotal) }));
-		})()
-		: undefined;
-	const showCompact = props.onCompact !== undefined;
-	// 压缩按钮态走共享策略：未达 30% 禁用（点了也不会发 RPC）；压缩中禁用。
-	const compactUi = compactUiState(percent, compacting);
-	const compactDisabled = compactUi.compacting || !compactUi.ready;
-	const compactUrgency =
-		compactUi.urgency === "danger" ? "text-destructive border-destructive/40 hover:bg-destructive/10" :
-		compactUi.urgency === "warn" ? "text-amber-500 border-amber-500/40 hover:bg-amber-500/10" :
-		"border-border hover:bg-muted/60";
+	const breakdownSegments =
+		segments?.kind === "breakdown"
+			? (() => {
+					const breakdownTotal = segments.system + segments.tools + segments.conversation;
+					if (breakdownTotal <= 0) return [];
+					const parts = [
+						{ key: "system", tokens: segments.system, color: COLOR_SYSTEM },
+						{ key: "tools", tokens: segments.tools, color: COLOR_TOOLS },
+						{ key: "conversation", tokens: segments.conversation, color: COLOR_CONVERSATION },
+					];
+					return parts.filter((part) => part.tokens > 0).map((part) => ({ key: part.key, color: part.color, width: Math.min(100, (percent * part.tokens) / breakdownTotal) }));
+				})()
+			: undefined;
+	const showCompact = props.onCompact !== undefined || (overflowRecovery && props.overflowRecoveryTarget !== undefined && props.onOverflowRecovery !== undefined);
+	// 压缩按钮态走共享策略：无占用数据（percent 未上报）禁用；压缩中禁用。
+	// 传 context?.percent 而非 ?? 0 后的 percent：占位环需要 0，但未就绪判定
+	// 必须以「是否有真实数据」为准（percent=0 的真实数据也允许压缩）。
+	const compactUi = compactUiState(context?.percent, compacting);
+	const compactDisabled = compactUi.compacting || (!compactUi.ready && !overflowRecovery);
+	const compactUrgency = overflowRecovery
+		? "text-destructive border-destructive/40 bg-destructive/5 hover:bg-destructive/10"
+		: compactUi.urgency === "danger"
+			? "text-destructive border-destructive/40 hover:bg-destructive/10"
+			: compactUi.urgency === "warn"
+				? "text-amber-500 border-amber-500/40 hover:bg-amber-500/10"
+				: "border-border hover:bg-muted/60";
 
 	return (
 		<span ref={rootRef} className="relative inline-flex" data-testid="session-context-meter">
@@ -326,19 +330,13 @@ export function SessionContextMeter(props: {
 						aria-label={reading}
 						aria-haspopup="dialog"
 						aria-expanded={open}
-						onClick={() => { setOpen((value) => !value); }}
+						onClick={() => {
+							setOpen((value) => !value);
+						}}
 					>
 						<svg viewBox="0 0 14 14" width="14" height="14" aria-hidden="true">
-							<circle
-								className="fill-none stroke-[var(--color-border)]"
-								cx="7" cy="7" r={RADIUS} strokeWidth={2}
-							/>
-							<circle
-								className="fill-none stroke-[var(--color-text-tertiary)] [stroke-linecap:round]"
-								cx="7" cy="7" r={RADIUS} strokeWidth={2}
-								strokeDasharray={`${CIRCUMFERENCE * percent / 100} ${CIRCUMFERENCE}`}
-								transform="rotate(-90 7 7)"
-							/>
+							<circle className="fill-none stroke-[var(--color-border)]" cx="7" cy="7" r={RADIUS} strokeWidth={2} />
+							<circle className="fill-none stroke-[var(--color-text-tertiary)] [stroke-linecap:round]" cx="7" cy="7" r={RADIUS} strokeWidth={2} strokeDasharray={`${(CIRCUMFERENCE * percent) / 100} ${CIRCUMFERENCE}`} transform="rotate(-90 7 7)" />
 						</svg>
 					</button>
 				</TooltipTrigger>
@@ -350,7 +348,7 @@ export function SessionContextMeter(props: {
 						ref={panelRef}
 						role="dialog"
 						aria-label={reading}
-						className="fixed z-[100] cursor-default rounded-xl border border-border bg-popover p-3 text-xs leading-5 text-text-secondary shadow-lg"
+						className="fixed z-[100] cursor-default rounded-xl border border-border bg-popover p-3 text-xs leading-5 text-text-secondary shadow-[var(--shadow-popover)]"
 						style={{
 							left: placement?.left,
 							top: placement?.top,
@@ -358,193 +356,139 @@ export function SessionContextMeter(props: {
 							visibility: placement === null ? "hidden" : "visible",
 						}}
 					>
-					<div className="flex items-center gap-1.5">
-						<span className="text-text-tertiary">{reading}</span>
-						{available && figures !== undefined && (
-							<span className="ml-auto font-medium tabular-nums text-foreground">
-								{figures}
+						<div className="flex items-center gap-1.5">
+							<span className="text-text-tertiary" title={t("sessionContext.usageHint")}>
+								{reading}
 							</span>
-						)}
-					</div>
-					<div className="mt-2.5 h-1 overflow-hidden rounded-full bg-muted">
-						{segments === null ? (
-							// 无估算数据：单段总占用条（dsh breakdown 缺失时的退化路径）
-							<div
-								className="h-full rounded-full bg-text-tertiary"
-								style={{ width: `${percent}%` }}
-							/>
-						) : segments.kind === "breakdown" ? (
-							// host contextBreakdown 三段（dsh-web 同宽算法：各自占 breakdownTotal 份额 × percent）
-							<div className="flex h-full overflow-hidden rounded-full">
-								{breakdownSegments?.map((part) => (
-									<div
-										key={part.key}
-										className="h-full"
-										style={{ width: `${part.width}%`, backgroundColor: part.color }}
-									/>
-								))}
-							</div>
-						) : (
-							// 两段：对话（蓝）在前、系统+工具（紫）在后，宽度按占 contextTokens 比例
-							<div className="flex h-full overflow-hidden rounded-full">
-								<div
-									className="h-full"
-									style={{
-										width: `${Math.min(100, (segments.conversation / (context?.contextWindow ?? 1)) * 100)}%`,
-										backgroundColor: COLOR_CONVERSATION,
-									}}
-								/>
-								<div
-									className="h-full"
-									style={{
-										width: `${Math.min(100, (segments.systemTools / (context?.contextWindow ?? 1)) * 100)}%`,
-										backgroundColor: COLOR_SYSTEM_TOOLS,
-									}}
-								/>
-							</div>
-						)}
-					</div>
-					{available && segments !== null && (
-						<div className="mt-2 space-y-0.5">
-							{segments.kind === "breakdown" ? (
-								// host breakdown 三段图例（dsh-web ROWS 同序）：系统 / 工具 / 对话
-								<>
-									<div className="flex items-center gap-1.5">
-										<span
-											className="size-2 flex-none rounded-[2px]"
-											style={{ backgroundColor: COLOR_SYSTEM }}
-										/>
-										<span>{t("sessionContext.system")}</span>
-										<span className="ml-auto tabular-nums text-text-tertiary">
-											~{formatTokens(segments.system)}
-										</span>
-									</div>
-									<div className="flex items-center gap-1.5">
-										<span
-											className="size-2 flex-none rounded-[2px]"
-											style={{ backgroundColor: COLOR_TOOLS }}
-										/>
-										<span>{t("sessionContext.tools")}</span>
-										<span className="ml-auto tabular-nums text-text-tertiary">
-											~{formatTokens(segments.tools)}
-										</span>
-									</div>
-									<div className="flex items-center gap-1.5">
-										<span
-											className="size-2 flex-none rounded-[2px]"
-											style={{ backgroundColor: COLOR_CONVERSATION }}
-										/>
-										<span>{t("sessionContext.conversation")}</span>
-										<span className="ml-auto tabular-nums text-text-tertiary">
-											~{formatTokens(segments.conversation)}
-										</span>
-									</div>
-								</>
+							{available && figures !== undefined && <span className="ml-auto font-medium tabular-nums text-foreground">{figures}</span>}
+						</div>
+						<div className="mt-2.5 h-1 overflow-hidden rounded-full bg-muted">
+							{segments === null ? (
+								// 无估算数据：单段总占用条（dsh breakdown 缺失时的退化路径）
+								<div className="h-full rounded-full bg-text-tertiary" style={{ width: `${percent}%` }} />
+							) : segments.kind === "breakdown" ? (
+								// host contextBreakdown 三段（dsh-web 同宽算法：各自占 breakdownTotal 份额 × percent）
+								<div className="flex h-full overflow-hidden rounded-full">
+									{breakdownSegments?.map((part) => (
+										<div key={part.key} className="h-full" style={{ width: `${part.width}%`, backgroundColor: part.color }} />
+									))}
+								</div>
 							) : (
-								<>
-									<div className="flex items-center gap-1.5">
-										<span
-											className="size-2 flex-none rounded-[2px]"
-											style={{ backgroundColor: COLOR_CONVERSATION }}
-										/>
-										<span>{t("sessionContext.conversation")}</span>
-										<span className="ml-auto tabular-nums text-text-tertiary">
-											~{formatTokens(segments.conversation)}
-										</span>
-									</div>
-									<div className="flex items-center gap-1.5">
-										<span
-											className="size-2 flex-none rounded-[2px]"
-											style={{ backgroundColor: COLOR_SYSTEM_TOOLS }}
-										/>
-										<span>{t("sessionContext.systemTools")}</span>
-										<span className="ml-auto tabular-nums text-text-tertiary">
-											~{formatTokens(segments.systemTools)}
-										</span>
-									</div>
-								</>
+								// 两段：对话（蓝）在前、系统+工具（紫）在后，宽度按占 contextTokens 比例
+								<div className="flex h-full overflow-hidden rounded-full">
+									<div
+										className="h-full"
+										style={{
+											width: `${Math.min(100, (segments.conversation / (context?.contextWindow ?? 1)) * 100)}%`,
+											backgroundColor: COLOR_CONVERSATION,
+										}}
+									/>
+									<div
+										className="h-full"
+										style={{
+											width: `${Math.min(100, (segments.systemTools / (context?.contextWindow ?? 1)) * 100)}%`,
+											backgroundColor: COLOR_SYSTEM_TOOLS,
+										}}
+									/>
+								</div>
 							)}
 						</div>
-					)}
-					{(panelDetailRows.length > 0 || detail.replyPerfRows.length > 0 || detail.sessionStatRows.length > 0) && (
-						<div className="mt-2 space-y-0.5 border-t border-border pt-2">
-							{panelDetailRows.map((row) => (
-								<div
-									key={row.label}
-									className={`flex items-baseline justify-between gap-4 px-0.5 py-0.5 text-caption leading-5${row.emphasis ? " mt-1 border-t border-border/70 pt-1.5" : ""}`}
-								>
-									<span className="shrink-0 text-text-secondary">{row.label}</span>
-									<span className="min-w-0 whitespace-nowrap text-right font-mono font-semibold tabular-nums text-foreground">{row.value}</span>
-								</div>
-							))}
-						</div>
-					)}
-					{detail.replyPerfRows.length > 0 && (
-						<div className="mt-2.5 space-y-0.5 border-t border-border pt-2">
-							<div className="px-0.5 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
-								{t("ctx.detail.lastReply")}
+						{available && segments !== null && (
+							<div className="mt-2 space-y-0.5">
+								{segments.kind === "breakdown" ? (
+									// host breakdown 三段图例（dsh-web ROWS 同序）：系统 / 工具 / 对话
+									<>
+										<div className="flex items-center gap-1.5">
+											<span className="size-2 flex-none rounded-[2px]" style={{ backgroundColor: COLOR_SYSTEM }} />
+											<span title={t("sessionContext.systemHint")}>{t("sessionContext.system")}</span>
+											<span className="ml-auto tabular-nums text-text-tertiary">~{formatTokens(segments.system)}</span>
+										</div>
+										<div className="flex items-center gap-1.5">
+											<span className="size-2 flex-none rounded-[2px]" style={{ backgroundColor: COLOR_TOOLS }} />
+											<span title={t("sessionContext.toolsHint")}>{t("sessionContext.tools")}</span>
+											<span className="ml-auto tabular-nums text-text-tertiary">~{formatTokens(segments.tools)}</span>
+										</div>
+										<div className="flex items-center gap-1.5">
+											<span className="size-2 flex-none rounded-[2px]" style={{ backgroundColor: COLOR_CONVERSATION }} />
+											<span title={t("sessionContext.conversationHint")}>{t("sessionContext.conversation")}</span>
+											<span className="ml-auto tabular-nums text-text-tertiary">~{formatTokens(segments.conversation)}</span>
+										</div>
+									</>
+								) : (
+									<>
+										<div className="flex items-center gap-1.5">
+											<span className="size-2 flex-none rounded-[2px]" style={{ backgroundColor: COLOR_CONVERSATION }} />
+											<span title={t("sessionContext.conversationEstimateHint")}>{t("sessionContext.conversation")}</span>
+											<span className="ml-auto tabular-nums text-text-tertiary">~{formatTokens(segments.conversation)}</span>
+										</div>
+										<div className="flex items-center gap-1.5">
+											<span className="size-2 flex-none rounded-[2px]" style={{ backgroundColor: COLOR_SYSTEM_TOOLS }} />
+											<span title={t("sessionContext.systemToolsEstimateHint")}>{t("sessionContext.systemTools")}</span>
+											<span className="ml-auto tabular-nums text-text-tertiary">~{formatTokens(segments.systemTools)}</span>
+										</div>
+									</>
+								)}
 							</div>
-							{detail.replyPerfRows.map((row) => (
-								<div
-									key={row.label}
-									className="flex items-baseline justify-between gap-4 px-0.5 py-0.5 text-caption leading-5"
-								>
-									<span className="shrink-0 text-text-secondary">{row.label}</span>
-									<span className="min-w-0 whitespace-nowrap text-right font-mono font-semibold tabular-nums text-foreground">{row.value}</span>
-								</div>
-							))}
-						</div>
-					)}
-					{detail.sessionStatRows.length > 0 && (
-						<div className="mt-2.5 space-y-0.5 border-t border-border pt-2">
-							<div className="px-0.5 text-micro font-semibold uppercase tracking-wide text-text-tertiary">
-								{t("ctx.detail.sessionStats")}
+						)}
+						{(panelDetailRows.length > 0 || detail.replyPerfRows.length > 0 || detail.sessionStatRows.length > 0) && (
+							<div className="mt-2 space-y-0.5 border-t border-border pt-2">
+								{panelDetailRows.map((row) => (
+									<div key={row.label} title={row.hint} className={`flex items-baseline justify-between gap-4 px-0.5 py-0.5 text-caption leading-5${row.emphasis ? " mt-1 border-t border-border/70 pt-1.5" : ""}`}>
+										<span className="shrink-0 text-text-secondary">{row.label}</span>
+										<span className="min-w-0 whitespace-nowrap text-right font-mono font-semibold tabular-nums text-foreground">{row.value}</span>
+									</div>
+								))}
 							</div>
-							{detail.sessionStatRows.map((row) => (
-								<div
-									key={row.label}
-									className="flex items-baseline justify-between gap-4 px-0.5 py-0.5 text-caption leading-5"
-								>
-									<span className="shrink-0 text-text-secondary">{row.label}</span>
-									<span className="min-w-0 whitespace-nowrap text-right font-mono font-semibold tabular-nums text-foreground">{row.value}</span>
-								</div>
-							))}
-						</div>
-					)}
-					{provider && showUsage && (
-						// 用量区块：与模型卡片/选择器徽标共享 ProviderUsageDetails（同数据源同视觉）；
-						// backend 按会话后端透传（DSH 会话走 dsh 链路，pi 会话走 pi 链路）；
-						// 失败态「配置用量查询」按钮跳设置模型页并定位供应商。
-						<div className="mt-2.5" data-testid="session-context-usage">
-							<ProviderUsageDetails provider={provider} backend={props.backend} onConfigureUsage={onConfigureUsage} />
-						</div>
-					)}
-					{showCompact && (
-						<button
-							type="button"
-							data-testid="session-context-compact"
-							disabled={compactDisabled}
-							title={
-								compactUi.compacting
-									? t("sessionContext.compacting")
-									: compactUi.ready
-										? t("sessionContext.compact")
-										: t("sessionContext.compactNotReadyHint")
-							}
-							onClick={props.onCompact}
-							className={`mt-2 flex h-7 w-full items-center justify-center gap-1.5 rounded-md border bg-transparent text-xs font-medium transition-colors disabled:cursor-default disabled:opacity-60 ${compactUrgency}`}
-						>
-							<FoldVertical
-								size={13}
-								className={compactUi.compacting ? "animate-pideck-spin" : undefined}
-							/>
-							{compactUi.compacting
-								? t("sessionContext.compacting")
-								: compactUi.ready
-									? t("sessionContext.compact")
-									: t("sessionContext.compactNotReady")}
-						</button>
-					)}
+						)}
+						{detail.replyPerfRows.length > 0 && (
+							<div className="mt-2.5 space-y-0.5 border-t border-border pt-2">
+								<div className="px-0.5 text-micro font-semibold uppercase tracking-wide text-text-tertiary">{t("ctx.detail.lastReply")}</div>
+								{detail.replyPerfRows.map((row) => (
+									<div key={row.label} title={row.hint} className="flex items-baseline justify-between gap-4 px-0.5 py-0.5 text-caption leading-5">
+										<span className="shrink-0 text-text-secondary">{row.label}</span>
+										<span className="min-w-0 whitespace-nowrap text-right font-mono font-semibold tabular-nums text-foreground">{row.value}</span>
+									</div>
+								))}
+							</div>
+						)}
+						{detail.sessionStatRows.length > 0 && (
+							<div className="mt-2.5 space-y-0.5 border-t border-border pt-2">
+								<div className="px-0.5 text-micro font-semibold uppercase tracking-wide text-text-tertiary">{t("ctx.detail.sessionStats")}</div>
+								{detail.sessionStatRows.map((row) => (
+									<div key={row.label} title={row.hint} className="flex items-baseline justify-between gap-4 px-0.5 py-0.5 text-caption leading-5">
+										<span className="shrink-0 text-text-secondary">{row.label}</span>
+										<span className="min-w-0 whitespace-nowrap text-right font-mono font-semibold tabular-nums text-foreground">{row.value}</span>
+									</div>
+								))}
+							</div>
+						)}
+						{provider && showUsage && (
+							// 用量区块：与模型选择器展开区共享 ProviderUsageDetails（同数据源同视觉）；
+							// backend 按会话后端透传（DSH 会话走 dsh 链路，pi 会话走 pi 链路）；
+							// 失败态「配置用量查询」按钮跳设置模型页并定位供应商。
+							<div className="mt-2.5" data-testid="session-context-usage">
+								<ProviderUsageDetails provider={provider} backend={props.backend} onConfigureUsage={onConfigureUsage} />
+							</div>
+						)}
+						{showCompact && (
+							<button
+								type="button"
+								data-testid="session-context-compact"
+								disabled={compactDisabled}
+								title={compactUi.compacting ? t("sessionContext.compacting") : overflowRecovery ? t("sessionContext.compactOverflowHint") : compactUi.ready ? t("sessionContext.compact") : t("sessionContext.compactNotReadyHint")}
+								onClick={() => {
+									if (overflowRecovery && props.overflowRecoveryTarget && props.onOverflowRecovery) {
+										props.onOverflowRecovery(props.overflowRecoveryTarget);
+										return;
+									}
+									props.onCompact?.();
+								}}
+								className={`mt-2 flex h-7 w-full items-center justify-center gap-1.5 rounded-md border bg-transparent text-xs font-medium transition-colors disabled:cursor-default disabled:opacity-60 ${compactUrgency}`}
+							>
+								<FoldVertical size={13} className={compactUi.compacting ? "animate-pideck-spin" : undefined} />
+								{compactUi.compacting ? t("sessionContext.compacting") : overflowRecovery ? t("sessionContext.compactOverflow") : compactUi.ready ? t("sessionContext.compact") : t("sessionContext.compactNotReady")}
+							</button>
+						)}
 					</div>,
 					document.body,
 				)}

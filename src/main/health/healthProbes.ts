@@ -1,7 +1,4 @@
-import type {
-	ConfigFileDiagnostic,
-	PiInstallStatus,
-} from "../../shared/types";
+import type { ConfigFileDiagnostic, PiInstallStatus } from "../../shared/types";
 import type { AppSettings } from "../../shared/types";
 import type { HealthCheckItem, HealthStatus } from "../../shared/types";
 import { truncateText } from "./redact";
@@ -49,9 +46,7 @@ export function checkPiInstalled(pi: PiInstallStatus | null): HealthCheckItem {
 }
 
 /** pi 配置（models.json / auth.json / settings.json）是否可解析。 */
-export function checkConfigParsable(
-	diagnostics: Array<{ fileName: string; message: string }>,
-): HealthCheckItem {
+export function checkConfigParsable(diagnostics: Array<{ fileName: string; message: string }>): HealthCheckItem {
 	if (diagnostics.length === 0) {
 		return { id: "config.parsable", status: "ok", detail: "" };
 	}
@@ -59,10 +54,7 @@ export function checkConfigParsable(
 	return {
 		id: "config.parsable",
 		status: "error",
-		detail: truncateText(
-			diagnostics.map((item) => `${item.fileName}: ${item.message}`).join("; "),
-			200,
-		),
+		detail: truncateText(diagnostics.map((item) => `${item.fileName}: ${item.message}`).join("; "), 200),
 	};
 }
 
@@ -129,11 +121,7 @@ export function checkProxyConfig(settings: AppSettings): HealthCheckItem {
  * WSL 兜底配置是否自洽。
  * 只在 Windows 上有意义（其他平台标 skipped）；pi 已装时不关心 WSL 配置。
  */
-export function checkWslConfig(
-	settings: AppSettings,
-	platform: NodeJS.Platform,
-	piInstalled: boolean,
-): HealthCheckItem {
+export function checkWslConfig(settings: AppSettings, platform: NodeJS.Platform, piInstalled: boolean): HealthCheckItem {
 	if (platform !== "win32") {
 		return { id: "wsl.config", status: "skipped", detail: "" };
 	}
@@ -147,10 +135,55 @@ export function checkWslConfig(
 	return { id: "wsl.config", status: "ok", detail: settings.wslDistro.trim() || "default" };
 }
 
+/**
+ * 实例锁快照项。state 由 instanceLockFile 的进程身份判定映射而来：
+ * live = 主人还活着；stale = 死进程/僵尸/PID 复用留下的残留锁；corrupt = 文件半截或非本格式。
+ */
+export type InstanceLockState = "live" | "stale" | "corrupt";
+export type InstanceLockSummary = { version: string; pid: number; state: InstanceLockState };
+
+type InstanceLockCheckOptions = {
+	/** 当前主进程 pid；用于识别「单实例开启但本进程没拿到锁」（锁目录不可写等降级场景） */
+	ownPid: number;
+	singleInstanceEnabled: boolean;
+};
+
+/**
+ * 实例锁文件是否健康。
+ *
+ * 为什么不只是「锦上添花」：0.7.5 及以前，升级时被中断留下的锁文件会让
+ * 再次启动「双击图标没反应」（无窗口、无报错、退出码 0），只能靠手删文件恢复。
+ * 把「锁目录里有什么」变成体检项后，这类反馈不再依赖用户自己会看日志。
+ */
+export function checkInstanceLocks(locks: InstanceLockSummary[] | null, options: InstanceLockCheckOptions): HealthCheckItem {
+	if (locks === null) {
+		// 锁目录读不到（权限/不存在）：采集失败，不作为故障上报
+		return { id: "instance.locks", status: "skipped", detail: "" };
+	}
+	const stale = locks.filter((item) => item.state === "stale");
+	const corrupt = locks.filter((item) => item.state === "corrupt");
+	const summary = (items: InstanceLockSummary[]) => truncateText(items.map((item) => `${item.version}(pid ${item.pid})`).join(", "), 160);
+
+	if (stale.length > 0) {
+		// 残留锁说明上一次退出不是干净退出（崩溃/被 kill/升级中断），值得提醒
+		return { id: "instance.locks", status: "warn", detail: summary(stale) };
+	}
+	if (corrupt.length > 0) {
+		return { id: "instance.locks", status: "warn", detail: summary(corrupt) };
+	}
+	if (options.singleInstanceEnabled && options.ownPid > 0) {
+		const own = locks.find((item) => item.pid === options.ownPid);
+		if (!own) {
+			// 单实例开着却没有自己的锁：写锁失败（只读盘/权限）已降级为无锁启动，
+			// 表现是「同版本能开两个窗口、会话被抢」，这是必须看见的诊断结论。
+			return { id: "instance.locks", status: "warn", detail: "no lock for current process" };
+		}
+	}
+	return { id: "instance.locks", status: "ok", detail: `${locks.length} lock file(s)` };
+}
+
 /** 把 ConfigManager 的诊断结果压成检查项需要的形状（不含路径，只留文件名与信息）。 */
-export function toConfigDiagnostics(
-	results: Array<{ diagnostic?: ConfigFileDiagnostic | null }>,
-): Array<{ fileName: string; message: string }> {
+export function toConfigDiagnostics(results: Array<{ diagnostic?: ConfigFileDiagnostic | null }>): Array<{ fileName: string; message: string }> {
 	return results
 		.map((result) => result.diagnostic)
 		.filter((item): item is ConfigFileDiagnostic => Boolean(item?.fileName))
@@ -178,10 +211,7 @@ export function tallyChecks(checks: HealthCheckItem[]): HealthTally {
 	const evaluated = tally.ok + tally.warn + tally.error;
 	if (evaluated === 0) return tally;
 	// error 全额扣分，warn 半额扣分：警告不应把一个还能用的环境打成 0 分。
-	tally.score = Math.max(
-		0,
-		Math.round(((tally.ok + tally.warn * 0.5) / evaluated) * 100),
-	);
+	tally.score = Math.max(0, Math.round(((tally.ok + tally.warn * 0.5) / evaluated) * 100));
 	return tally;
 }
 
@@ -189,7 +219,5 @@ const SEVERITY: Record<HealthStatus, number> = { error: 0, warn: 1, ok: 2, skipp
 
 /** 按严重度排序（error → warn → ok → skipped），让最该看的问题排在最前。 */
 export function sortChecksBySeverity(checks: HealthCheckItem[]): HealthCheckItem[] {
-	return [...checks].sort(
-		(a, b) => SEVERITY[a.status] - SEVERITY[b.status] || a.id.localeCompare(b.id),
-	);
+	return [...checks].sort((a, b) => SEVERITY[a.status] - SEVERITY[b.status] || a.id.localeCompare(b.id));
 }

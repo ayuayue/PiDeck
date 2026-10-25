@@ -121,3 +121,24 @@ test("openPermanentSessionTab: already-open resident tab keeps the same array", 
 	assert.equal(next.tabs, tabs);
 	assert.equal(next.previewId, null);
 });
+
+test("cycleSessionTab: 按顺序循环切换，到头回绕", () => {
+	const { cycleSessionTab } = loadSessionTabs();
+	const tabs = ["a", "b", "c"];
+	assert.equal(cycleSessionTab(tabs, "a", 1), "b");
+	assert.equal(cycleSessionTab(tabs, "c", 1), "a"); // 末尾回绕到首个
+	assert.equal(cycleSessionTab(tabs, "b", -1), "a");
+	assert.equal(cycleSessionTab(tabs, "a", -1), "c"); // 首个回绕到末尾
+});
+
+test("cycleSessionTab: 当前会话不在 Tab 列表时从端点切入；不足 2 个不切", () => {
+	const { cycleSessionTab } = loadSessionTabs();
+	const tabs = ["a", "b", "c"];
+	// 分屏聚焦外会话/无 Tab 场景：正向切到首个、反向切到末个
+	assert.equal(cycleSessionTab(tabs, undefined, 1), "a");
+	assert.equal(cycleSessionTab(tabs, "not-in-tabs", -1), "c");
+	assert.equal(cycleSessionTab(tabs, undefined, -1), "c");
+	// 0/1 个 Tab 无处可切，交回空让订阅静默忽略
+	assert.equal(cycleSessionTab([], undefined, 1), null);
+	assert.equal(cycleSessionTab(["only"], "only", 1), null);
+});

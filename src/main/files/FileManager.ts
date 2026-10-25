@@ -57,11 +57,7 @@ function joinPath(dir: string, name: string): string {
  * 检测当前平台可用的文件管理器（纯函数：platform + PATH + which 探针注入）。
  * returns null 表示未检测到（调用方回退系统默认打开）。
  */
-export function detectFileManagerForPlatform(
-	platform: string,
-	pathEnv: string,
-	which: (command: string) => boolean,
-): FileManagerInfo | null {
+export function detectFileManagerForPlatform(platform: string, pathEnv: string, which: (command: string) => boolean): FileManagerInfo | null {
 	if (platform === "win32") {
 		return { id: "windows-explorer", name: "explorer", command: "explorer.exe" };
 	}
@@ -79,9 +75,7 @@ export function detectFileManagerForPlatform(
 
 /** 当前平台的默认检测（生产调用点） */
 export function detectFileManager(): FileManagerInfo | null {
-	return detectFileManagerForPlatform(process.platform, process.env.PATH ?? "", (command) =>
-		findOnPath(command, process.env.PATH ?? "", process.platform),
-	);
+	return detectFileManagerForPlatform(process.platform, process.env.PATH ?? "", (command) => findOnPath(command, process.env.PATH ?? "", process.platform));
 }
 
 /**
@@ -97,17 +91,19 @@ export function openFileManagerAt(path: string): Promise<void> {
 			return;
 		}
 		if (process.platform === "darwin") {
-			spawn("open", [path], { detached: true, stdio: "ignore" }).unref();
-			resolve();
+			const macChild = spawn("open", [path], { detached: true, stdio: "ignore" });
+			// fire-and-forget 也必须有 error 兜底：未处理的 error 事件会直接炸主进程。
+			macChild.once("error", (error) => reject(error));
+			macChild.once("spawn", () => {
+				macChild.unref();
+				resolve();
+			});
 			return;
 		}
 		if (process.platform === "win32") {
 			// explorer.exe 是 GUI 子系统程序：SystemRoot 未必在 PATH 里，裸命令
 			// spawn 会 ENOENT 静默失败（表现就是「点了没反应」）；用绝对路径启动。
-			const explorer = joinPath(
-				process.env.SystemRoot ?? "C:\\Windows",
-				"explorer.exe",
-			);
+			const explorer = joinPath(process.env.SystemRoot ?? "C:\\Windows", "explorer.exe");
 			const winChild = spawn(explorer, [path], {
 				detached: true,
 				stdio: "ignore",

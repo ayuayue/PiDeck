@@ -1,4 +1,5 @@
 import { test, expect, type Locator } from "./fixtures";
+import { openSettings, openConfigPane } from "./open-session";
 
 /**
  * 设置/配置弹窗「未保存变更」确认链路回归：
@@ -17,7 +18,7 @@ function switchInRow(scope: Locator, label: string): Locator {
 
 test("改回原值后关闭不弹未保存确认", async ({ window }) => {
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
-	await window.locator(".settings-icon").click();
+	await openSettings(window);
 	const modal = window.locator(".settings-modal");
 	await expect(modal).toBeVisible();
 
@@ -35,7 +36,7 @@ test("改回原值后关闭不弹未保存确认", async ({ window }) => {
 
 test("单项变更时关闭弹确认并点名变更项", async ({ window }) => {
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
-	await window.locator(".settings-icon").click();
+	await openSettings(window);
 	const modal = window.locator(".settings-modal");
 	await expect(modal).toBeVisible();
 
@@ -58,7 +59,7 @@ test("单项变更时关闭弹确认并点名变更项", async ({ window }) => {
 
 test("配置管理：修改后关闭弹确认并点名变更项", async ({ window }) => {
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
-	await window.locator(".config-icon").click();
+	await openConfigPane(window);
 	const modal = window.locator(".config-modal");
 	await expect(modal).toBeVisible();
 
@@ -81,7 +82,7 @@ test("配置管理：修改后关闭弹确认并点名变更项", async ({ windo
 
 test("多项变更时关闭确认列出全部变更项", async ({ window }) => {
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
-	await window.locator(".settings-icon").click();
+	await openSettings(window);
 	const modal = window.locator(".settings-modal");
 	await expect(modal).toBeVisible();
 

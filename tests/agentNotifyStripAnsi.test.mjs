@@ -30,7 +30,7 @@ test("extension notify strips ANSI escapes before delivering to renderer", () =>
 	const off = manager.onOutput((channel, payload) => {
 		if (channel === "agents:ui-request") received.push(payload);
 	});
-	manager.handleUIRequest("agent-1", {
+	manager.uiGate.handleUIRequest("agent-1", {
 		type: "extension_ui_request",
 		method: "notify",
 		id: "req-1",
@@ -50,7 +50,7 @@ test("extension notify without ANSI escapes passes through unchanged", () => {
 	const off = manager.onOutput((channel, payload) => {
 		if (channel === "agents:ui-request") received.push(payload);
 	});
-	manager.handleUIRequest("agent-1", {
+	manager.uiGate.handleUIRequest("agent-1", {
 		type: "extension_ui_request",
 		method: "notify",
 		id: "req-2",

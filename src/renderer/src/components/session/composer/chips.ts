@@ -14,6 +14,57 @@ export type ComposerChip = {
 	label: string;
 };
 
+/** 展示前缀：渲染层拼在 label 前的触发符（与旧字符 icon 一致，构成区分信号之一）。
+ * 发送/解析仍用 raw，此常量只影响展示；parseHTML/readChipFromDom 重建节点时
+ * 需按同一映射剥前缀，避免 attrs.label 污染导致双前缀。 */
+export const CHIP_PREFIX: Record<ComposerChip["kind"], string> = {
+	file: "@",
+	skill: "/",
+	session: "&",
+	quote: "❝",
+};
+
+/**
+ * chip 的展示文本。
+ *
+ * 对齐 Proma：只有文件引用保留 `@`（用户敲进去的引用语法），`/`、`&`、`❝` 一律交给图标
+ * 表达，避免图标与字符双前缀；pi 的 `/skill:名称` 是 wire 细节，展示层只留技能名。
+ */
+export function formatChipDisplayLabel(kind: ComposerChip["kind"], label: string): string {
+	if (kind === "file") return `@${label}`;
+	if (kind === "skill") return label.replace(/^skill:/, "");
+	return label;
+}
+
+/**
+ * 从 DOM 展示文本还原 chip label（parseHTML / readChipFromDom 用）。
+ *
+ * 必须按类型剥：展示层只有 file 带 `@`，skill 的旧版 wire 前缀是 `/skill:`（技能名本身不可能以 `/` 开头）。
+ * session/quote 的 label 可能本身就以 `&`、`/`、`@`、`❝` 开头（例如引用一段 `/src/foo` 路径），
+ * 旧实现统一 `replace(/^[@/&❝]/)` 会把 label 的首字符吃掉。
+ */
+export function stripChipDisplayPrefix(kind: ComposerChip["kind"], text: string): string {
+	if (kind === "file") return text.replace(/^@/, "");
+	if (kind === "skill") return text.replace(/^\/(?:skill:)?/, "");
+	return text;
+}
+
+/**
+ * 文件 chip 的展示文本：只显示文件名（对齐 Proma FilePathChip 的 `truncate max-w-[240px]`
+ * + tooltip 全路径），完整路径仍保留在 raw 里用于打开文件与悬浮查看。
+ */
+export function formatFileChipLabel(path: string): string {
+	const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
+	const segments = normalized.split("/").filter(Boolean);
+	return segments.at(-1) ?? normalized;
+}
+
+/** raw 是否为目录引用（`@src/` 或 `@"my docs/"`）：据此换成文件夹图标。 */
+export function isDirectoryFileChip(raw: string): boolean {
+	const body = raw.replace(/^@/, "").replace(/^"|"$/g, "");
+	return /[/\\]$/.test(body);
+}
+
 /** @deprecated 兼容旧名；新代码用 ComposerChip */
 export type RichInputChip = ComposerChip;
 
@@ -29,11 +80,7 @@ function findUrlSpans(text: string): { start: number; end: number }[] {
 }
 
 /** 判断区间是否与任一 URL 区间重叠（含部分重叠）。 */
-function overlapsUrl(
-	start: number,
-	end: number,
-	urlSpans: { start: number; end: number }[],
-): boolean {
+function overlapsUrl(start: number, end: number, urlSpans: { start: number; end: number }[]): boolean {
 	return urlSpans.some((s) => start < s.end && end > s.start);
 }
 
@@ -44,10 +91,7 @@ function overlapsUrl(
  */
 export function unwrapFileChipPath(raw: string): string {
 	const body = raw.startsWith("@") ? raw.slice(1) : raw;
-	let path =
-		body.length >= 2 && body.startsWith('"') && body.endsWith('"')
-			? body.slice(1, -1)
-			: body;
+	let path = body.length >= 2 && body.startsWith('"') && body.endsWith('"') ? body.slice(1, -1) : body;
 	// 统一去掉目录标记尾斜杠（含 Windows 反斜杠），避免 FS API 拿到 "src/"
 	path = path.replace(/[/\\]+$/, "");
 	return path;
@@ -58,10 +102,7 @@ export function unwrapFileChipPath(raw: string): string {
  * 目录必须带尾斜杠（@src/），否则 chip 规则要求路径含 /\. 时，
  * 裸名 @src 不会渲染为文件 chip，模型也容易当成「智能体/人」mention。
  */
-export function formatFilePathRef(
-	path: string,
-	options?: { isDirectory?: boolean },
-): string {
+export function formatFilePathRef(path: string, options?: { isDirectory?: boolean }): string {
 	// 先规范化：去掉已有尾分隔符，再按 isDirectory 统一追加 /
 	let normalized = path.replace(/[/\\]+$/, "");
 	if (options?.isDirectory) {
@@ -120,20 +161,13 @@ function isAbsoluteLocalPath(body: string): boolean {
  *
  * URL 中的路径段（如 https://example.com/foo）不会被识别为 chip。
  */
-export function parseRichInputChips(
-	text: string,
-	validCommandNames?: Set<string>,
-	validFilePaths?: Set<string>,
-	validSessionRefs?: Set<string>,
-	validQuotes?: Map<string, string>,
-): ComposerChip[] {
+export function parseRichInputChips(text: string, validCommandNames?: Set<string>, validFilePaths?: Set<string>, validSessionRefs?: Set<string>, validQuotes?: Map<string, string>): ComposerChip[] {
 	const chips: ComposerChip[] = [];
 	const urlSpans = findUrlSpans(text);
 
 	// /skill：前置排除 : / 和 \w；slash 命令 = 命令名 + 可选 :参数名。
 	// 后一字符若为 /，说明是路径（如 /usr/bin），不当作 skill。
-	const slashRe =
-		/(?<![:/.\w#!~])(\/[\p{L}][\p{L}\p{N}_-]*(?::[\p{L}][\p{L}\p{N}_-]*)?)/gu;
+	const slashRe = /(?<![:/.\w#!~])(\/[\p{L}][\p{L}\p{N}_-]*(?::[\p{L}][\p{L}\p{N}_-]*)?)/gu;
 	let m: RegExpExecArray | null;
 	while ((m = slashRe.exec(text)) !== null) {
 		const start = m.index;
@@ -141,7 +175,12 @@ export function parseRichInputChips(
 		if (text[end] === "/") continue;
 		if (!overlapsUrl(start, end, urlSpans)) {
 			const label = m[1].slice(1);
-			if (!validCommandNames || validCommandNames.has(label)) {
+			// pi 的技能调用 wire token 是 /skill:名称；运行时命令清单未必把每个已安装
+			// skill 枚举为独立命令，因此除精确白名单外也认这一确定语法。这样 disk 重载后
+			// /skill:foo 仍能还原为 chip，而未知普通 /command 继续保持纯文本。
+			const isPiSkillInvocation = /^skill:[\p{L}\p{N}_-]+$/u.test(label);
+			const baseCommand = label.split(":", 1)[0] ?? label;
+			if (!validCommandNames || validCommandNames.has(label) || validCommandNames.has(baseCommand) || isPiSkillInvocation) {
 				chips.push({ start, end, raw: m[1], kind: "skill", label });
 			}
 		}
@@ -182,13 +221,12 @@ export function parseRichInputChips(
 			const seg = unwrapFileChipPath(rawToken);
 			const normalized = seg.replace(/\\/g, "/");
 			const pathKey = normalized.startsWith("./") ? normalized.slice(2) : normalized;
-			const isAbsPath =
-				/^[a-zA-Z]:[\\/]/.test(pathKey) || /^\/[^/]+\//.test(pathKey);
+			const isAbsPath = /^[a-zA-Z]:[\\/]/.test(pathKey) || /^\/[^/]+\//.test(pathKey);
 			if (!isAbsPath && validFilePaths && !validFilePaths.has(pathKey)) continue;
 			const baseLabel = pathKey || normalized || seg;
-			const label = isDirectoryRef
-				? `${baseLabel.replace(/[/\\]+$/, "")}/`
-				: baseLabel;
+			const fullLabel = isDirectoryRef ? `${baseLabel.replace(/[/\\]+$/, "")}/` : baseLabel;
+			// 只展示文件名（Proma 同款），全路径仍在 raw 里，不影响偏移、打开或发送内容。
+			const label = formatFileChipLabel(fullLabel);
 			// 保留用户实际输入的 raw，不在解析阶段改写成 @"…"：原始 token 的
 			// 字符区间必须与 ProseMirror 的纯文本偏移一致，否则 atom 节点长度
 			// 与 caret 映射不一致，后续输入可能落到 chip 内部或把文字插入错误位置。
@@ -201,7 +239,9 @@ export function parseRichInputChips(
 
 	// &session：逐个 & 起点匹配，命中后把 lastIndex 推到 chip 末尾，
 	// 避免旧版 (&[^\n]+) 贪婪吃掉整行导致一行只能出一个 session chip。
-	const ampStartRe = /(?<![:/.#!~?=&])&/gu;
+	// && / &> 等 Shell 控制符不是会话引用；时间线缺少白名单时若把它们回退成 session
+	// chip，会在用户发出命令后把每个 && 渲染成一枚“乱码”徽标。
+	const ampStartRe = /(?<![:/.#!~?=&])&(?![&|;>])/gu;
 	while ((m = ampStartRe.exec(text)) !== null) {
 		const start = m.index;
 		const captured = text.slice(start + 1);

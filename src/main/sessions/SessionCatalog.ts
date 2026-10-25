@@ -1,20 +1,8 @@
 import { randomUUID } from "node:crypto";
-import {
-	copyFile,
-	mkdir,
-	open,
-	readFile,
-	unlink,
-} from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { copyFile, mkdir, open, readFile, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
-import type {
-	AgentBackend,
-	AgentTab,
-	SessionEnvironment,
-	SessionRecord,
-	SessionSource,
-	SessionSummary,
-} from "../../shared/types";
+import type { AgentBackend, AgentTab, SessionChannel, SessionEnvironment, SessionModelPreference, SessionRecord, SessionSource, SessionSummary } from "../../shared/types";
 import type { SessionProxyOverride } from "../../shared/types/session";
 import { getAppLogger } from "../logging/sharedLogger";
 import { renameWithRetry } from "../utils/fsRetry";
@@ -26,18 +14,51 @@ import {
 	getImportedSessionSourceId,
 	getSessionEnvironment,
 	isInSubagentArtifactsDir,
+	isUnambiguousAbsoluteSessionPath,
+	looksLikeCodexSessionFileStem,
 	looksLikePiSessionFileStem,
+	looksLikeToolMarkerTitle,
 } from "../../shared/sessionIdentity";
+import { looksLikeExpandedRefBlockTitle } from "../../shared/expandedRefBlocks";
+import { createSessionModelPreference } from "../../shared/modelDisplayName";
+import { buildSessionIdAliasMap } from "../../shared/sessionIdAliases";
+import { arbitrateRuntimeMergeTitle, isFileSession, mergeSourceGroupInto, repairSessionCatalogIdentities } from "./sessionCatalogIdentityRepair";
+
+/**
+ * 会话标题所有权来源（#266 时序抽奖修复）：
+ * - undefined：未确认，仍可被第一个自动/补名结果领取一次；
+ * - "fallback"：内容派生兜底名（首条消息 / 扫描弱回退），可被 "auto" 升级覆盖；
+ * - "auto"：内置扩展经 marker 校验的模型自动命名，终态；
+ * - "manual"：用户改名 / 导入 / claimTitleOwnership 预留，终态；
+ * - "legacy"：旧 catalog 迁移来的存量条目（titleLocked=true 而来源无法区分，或压根没写 titleLocked）。
+ *   授权语义同 manual（一律挡住自动写入），额外允许一次指纹修复：命中 #266 误锁时改用
+ *   JSONL 权威名（见 repairedLegacyFallbackTitle）。读过一次盘（无论命中与否）即转 manual 终态，
+ *   不再重复读盘；读盘失败保持 legacy 等下次扫描再试。
+ */
+export type SessionTitleOrigin = "fallback" | "auto" | "manual" | "legacy";
 
 export type SessionCatalogEntry = {
 	id: string;
 	projectId: string;
 	originKey?: string;
 	title: string;
+	/**
+	 * PiDeck owns the display title once this is true. Only an unclaimed fresh
+	 * provisional title may accept one automatic or initial JSONL title; pi JSONL/TUI
+	 * changes never overwrite an owned catalog title.
+	 * titleOrigin 存在时它才是所有权来源的权威，本字段仅作镜像（旧读取路径兼容）。
+	 */
+	titleLocked?: boolean;
+	/** 标题所有权来源；见 SessionTitleOrigin。 */
+	titleOrigin?: SessionTitleOrigin;
 	/** Anonymous entries are in-memory only and are never written to session-catalog.json. */
 	noSession?: boolean;
 	source: SessionSource;
 	environment: SessionEnvironment;
+	/** 外部连接渠道（微信/飞书桥建的会话）；缺省 = 桌面端创建，列表据此显示渠道标志。 */
+	channel?: SessionChannel;
+	/** 侧边任务会话标记（右侧抽屉面板持有，不登记主区常驻 Tab）；缺省 = 普通会话，旧存档无需迁移。 */
+	sideTask?: boolean;
 	/** 运行时后端；缺省 "pi"（旧 catalog 数据兼容）。 */
 	backend?: AgentBackend;
 	filePath?: string;
@@ -53,17 +74,36 @@ export type SessionCatalogEntry = {
 	 * (fork) 标题后缀由 fork 完成时物理写入会话名（sessionForkTitle.ts），不靠该标记拼装。
 	 */
 	forked?: boolean;
-	model?: { provider: string; modelId: string };
+	/** 重发/编辑 fork 化替换标记：本会话已被 fork 出的子会话接替（值=子会话稳定 id），列表默认过滤。 */
+	supersededBy?: string;
+	/**
+	 * #354 身份归并别名：启动期修复把历史重复身份记录并入本条目时，被吸收记录的历史稳定 ID。
+	 * settings 置顶与渲染层持久化的 Tab 置顶/最近活动仍按旧 ID 存引用，靠本字段迁移到存活 id
+	 * （shared/sessionIdAliases.ts）。缺省 = 无归并历史，旧 catalog 数据无需迁移。
+	 */
+	mergedSessionIds?: string[];
+	model?: SessionModelPreference;
 	thinkingLevel?: string;
 	piSessionId?: string;
 	/** DSH 会话身份（DSH host 的 sessionId）；backend=dsh 时由 DshAgentManager 创建/attach 维护。 */
 	dshSessionId?: string;
+	/** ACP 会话身份（agent 侧 sessionId）；backend=acp 时由 AcpAgentManager attach 回写，重启后 session/load 恢复。 */
+	acpSessionId?: string;
 	/** DSH 权限预设（read-only/workspace-write/danger-full-access）：草稿期预选，激活时应用。 */
 	permissionPreset?: string;
 	/** DSH agent 预设（会话「模式」）：草稿期预选；激活新建时随 sessions.create 应用，attach 时从 host 回写。 */
 	agentPreset?: string;
+	/** ACP 工具预选（AcpToolConfig.id）：backend=acp 草稿期选哪个 CLI；激活时由 AcpAgentManager 消费。 */
+	acpToolId?: string;
 	/** 会话级代理覆盖（缺省 = 跟随全局）。DSH 会话的设置在 host 启动时被聚合应用。 */
 	proxy?: SessionProxyOverride;
+	/**
+	 * 手动导入钉住的项目归属（外置目录导入）：置位后自动扫描不得把该会话改回原目录对应的项目。
+	 * 场景：项目目录被移动/改名后，用户手动把旧路径下的会话导入到新项目；
+	 * 旧项目若仍留在侧栏，它的常规扫描会把属于旧 encoded 目录的会话抢回去，
+	 * 表现为「导入后刷新一下又不见了」。置位后该条目只由用户操作改归属（重新导入/删除）。
+	 */
+	manualProjectAssignment?: boolean;
 	createdAt: number;
 	updatedAt: number;
 };
@@ -86,28 +126,38 @@ type SessionCatalogContext = {
  * 与扫描器发现的绝对路径 originKey 不同，会造成同文件双记录（侧栏重复显示）。
  * 注入后 catalog 在加载与写入边界统一修正；实现见 main/index.ts。
  */
-export type SessionFilePathResolver = (
-	projectId: string,
-	filePath: string,
-	environment: SessionEnvironment,
-) => string;
+export type SessionFilePathResolver = (projectId: string, filePath: string, environment: SessionEnvironment) => string;
 
-/** 会话标题读取与有效性校验的合并结果：name 缺省时保留 catalog 标题；valid:false 表示
- *  文件非有效 Pi 会话（如 pi-subagents transcript 转储，首条记录用 recordType 而无 type 头），
- *  mergeScanned 应拒绝索引该文件（#168）；parentSessionPath 仅供平铺子代理形态
+/** 会话标题读取与有效性校验的合并结果：name 仅用于首次索引或未确认的 provisional 标题；
+ * valid:false 表示文件非有效 Pi 会话（如 pi-subagents transcript 转储，首条记录用 recordType 而无 type 头），
+ * mergeScanned 应拒绝索引该文件（#168）；parentSessionPath 仅供平铺子代理形态
  * （@tintinweb/pi-subagents：parentSession header + 会话名 <agent>#<8hex>）回填父关系，
- *  用户 fork / 普通会话 / nicobailon 嵌套形态不返回该值。
- *  forked 为 pi fork/branch 探测结果（parentSession header + 非 tintinweb 形态）：
- *  只做列表 (fork) 标记，不影响 parentSessionPath 的折叠语义。
- *  nameFromSessionInfo 标记 name 是否直接取自 session_info（权威）：
- *  - true/缺省 = 权威来源，允许覆盖 catalog 已有真实标题（pi-tui /name 外部改名同步）；
- *  - false = 首条消息回退的弱信号（session_info 落在头/尾窗口盲区），只用于占位标题补名，
- *    不得覆盖已有真实标题（2026-09 自动命名被第二轮消息挤出窗口后被回退覆盖的现场）。 */
-export type SessionTitleFetchResult = { name?: string; nameFromSessionInfo?: boolean; valid?: boolean; parentSessionPath?: string; forked?: boolean };
+ * 用户 fork / 普通会话 / nicobailon 嵌套形态不返回该值。
+ * forked 为 pi fork/branch 探测结果（parentSession header + 非 tintinweb 形态）：
+ * 只做列表 (fork) 标记，不影响 parentSessionPath 的折叠语义。 */
+export type SessionTitleFetchResult = { name?: string; nameFromSessionInfo?: boolean; valid?: boolean; parentSessionPath?: string; forked?: boolean; fallbackName?: string; firstUserText?: string };
+
+/** collectScannedTitles 收集的补名结果：fromSessionInfo=false 表示首条消息弱回退，所有权只算 fallback（#266）。
+ *  fallbackName 是本文件的弱兜底候选（首条 user/assistant 文本），与最终 name 取谁无关：
+ *  #266 存量自愈要用它比对「catalog 里存的这一行是不是当年被误锁的首句兜底」。 */
+type ScannedTitleFetch = { name: string; fromSessionInfo: boolean; fallbackName?: string };
+
+/** legacy 存量条目的一次性探测结果：authoritative 只在真读到权威 session_info 名时才有值。
+ *  firstUserText 是「文件内真首句」（可选，按需读取）：头/尾窗口兜底在系统提示很大的会话里会
+ *  退化成尾部消息，指纹比对需要它才能命中当年写进 catalog 的真首句（#266）。 */
+type LegacyTitleProbe = { authoritative?: string; fallback?: string; firstUserText?: string };
+
+export type SessionTitleFetchOptions = {
+	/** false = only inspect the bounded header for structural metadata; do not read name windows. */
+	includeTitle?: boolean;
+	/** true = 额外有界读取「文件内首条 user 文本」（legacy 存量自愈的第二指纹基准，见 #266）。 */
+	includeFirstUserText?: boolean;
+};
 
 /** 标题刷新 + 会话头有效性校验：装配层注入（实现为 SessionScanner.inferSessionNameAndValidity，
- *  见 main/index.ts）。文件版本变化时有界读取头尾，既补占位标题，也同步 pi-tui 外部改名。 */
-export type SessionTitleFetcher = (filePath: string) => Promise<SessionTitleFetchResult>;
+ * 见 main/index.ts）。读取结果为首次发现和未确认 provisional 标题提供初始化值；已有 catalog 标题
+ * 不再跟随 pi-tui /name 或 JSONL 的后续变化。 */
+export type SessionTitleFetcher = (filePath: string, options?: SessionTitleFetchOptions) => Promise<SessionTitleFetchResult>;
 
 /** 扫描未读正文时没有 session_info。pi JSONL 文件名是时间戳，不能当标题，否则侧栏全是日期。 */
 function scannedFileStemTitle(filePath: string): string {
@@ -118,10 +168,30 @@ function scannedFileStemTitle(filePath: string): string {
 	return stem;
 }
 
+/**
+ * 外部删除判定的锚点：从 filePath 父目录逐级向上，返回第一个真实存在的祖先目录；
+ * 一路到文件系统根都不存在（或超过爬升上限）返回 undefined。
+ * 爬升上限 6：嵌套子代理会话最深结构为 <encoded>/<父会话目录>/<agentId>/run-N/session.jsonl，
+ * 从 run-N 爬到 encoded 需 4 层，留 2 层余量；网络盘/移动盘掉线时 2-3 层内即到根停下。
+ */
+function findExistingAncestorDir(filePath: string, maxDepth = 6): string | undefined {
+	let dir = dirname(filePath);
+	for (let depth = 0; depth < maxDepth; depth += 1) {
+		if (existsSync(dir)) return dir;
+		const parent = dirname(dir);
+		if (parent === dir) return undefined;
+		dir = parent;
+	}
+	return undefined;
+}
+
 /** 侧栏/Tab 展示用：pi 文件名时间戳不是会话名。 */
 function catalogDisplayTitle(title: string | undefined): string | undefined {
 	if (!title) return undefined;
-	return looksLikePiSessionFileStem(title) ? undefined : title;
+	// 工具/上下文代理的确认标记行（`[ACP] acp_status result`）不是任何人起的名字：
+	// 展示层一律当没有名字（Untitled），等权威名/自动标题来替换。
+	if (looksLikePiSessionFileStem(title) || looksLikeToolMarkerTitle(title)) return undefined;
+	return title;
 }
 
 /** 占位标题判定：catalog 无真实名称时落成 Untitled（pi 时间戳 stem 加载时也被清成它），
@@ -129,36 +199,126 @@ function catalogDisplayTitle(title: string | undefined): string | undefined {
 function isPlaceholderCatalogTitle(title: string | undefined): boolean {
 	if (!title) return true;
 	if (looksLikePiSessionFileStem(title)) return true;
-	return /^untitled(?: session)?$/i.test(title);
+	// 标记脏名同样是占位名：值得再读一次头部，让权威名/首句兜底把它换掉。
+	if (looksLikeToolMarkerTitle(title)) return true;
+	// 未折叠的块原文标题（`<prompt_template …>` 等历史脏数据）同样是占位名：
+	// 允许首次补名把它换成用户可识别的标题，否则它会一直留在侧栏。
+	if (looksLikeExpandedRefBlockTitle(title)) return true;
+	return /^(?:untitled(?: session)?|new session|新会话)$/i.test(title);
+}
+
+/**
+ * 解析条目的所有权来源。新字段优先；旧 catalog 只有 titleLocked 时惰性推导为 legacy——
+ * true 无法区分「手动」与「扩展自动」，行为按 manual（绝不把已有标题降级成可覆盖），
+ * 但保留一次指纹修复机会（#266 存量被误锁的首句兜底，见 repairedLegacyFallbackTitle）。
+ */
+function resolveTitleOrigin(entry: Pick<SessionCatalogEntry, "title" | "titleLocked" | "titleOrigin">): SessionTitleOrigin | undefined {
+	// 标记形态的脏名永远不算所有权：现场（2026-10-14）是扩展的旁路补全被第三方上下文代理接管，
+	// 一段 `[ACP] acp_status result` 被当成权威 session_info 名锁成 manual 终态，此后自动命名再也
+	// 修不掉，用户看到的就是「标题老是被插件改掉」。放在最前面（覆盖已持久化的 origin），
+	// 一次性放开 claimAutomaticTitle / isTitleLocked / scannedTitleOrigin 三条判定。
+	if (looksLikeToolMarkerTitle(entry.title)) return undefined;
+	if (entry.titleOrigin === "fallback" || entry.titleOrigin === "auto" || entry.titleOrigin === "manual" || entry.titleOrigin === "legacy") return entry.titleOrigin;
+	if (entry.titleLocked === false) return undefined;
+	// 缺 titleOrigin 只有 locked=true：存量条目来源未知，标成 legacy 等一次指纹修复机会（#266）。
+	if (entry.titleLocked === true) return "legacy";
+	return isPlaceholderCatalogTitle(entry.title) ? undefined : "legacy";
+}
+
+/** 缺省是旧 catalog：真实标题默认已由 PiDeck 确认；仅占位标题保留一次初始化机会。 */
+function isTitleLocked(entry: Pick<SessionCatalogEntry, "title" | "titleLocked" | "titleOrigin">): boolean {
+	// 历史 Codex rollout 文件名标题（旧导入器拿不到会话名时的兑底产物）永远不算锁定：
+	// 即使旧 catalog 曾把它写成 locked=true，也要允许重导入后的真实标题覆盖，
+	// 否则存量脏标题（看起来就是一串会话 ID）永久无法修复。
+	if (looksLikeCodexSessionFileStem(entry.title)) return false;
+	return resolveTitleOrigin(entry) !== undefined;
+}
+
+/** 一次性写入所有权字段：titleLocked 始终是 titleOrigin 的镜像，旧读取路径不会看到半截状态。 */
+function assignTitleOrigin(entry: SessionCatalogEntry, origin: SessionTitleOrigin | undefined): void {
+	if (origin) {
+		entry.titleOrigin = origin;
+		entry.titleLocked = true;
+		return;
+	}
+	delete entry.titleOrigin;
+	entry.titleLocked = false;
+}
+
+/**
+ * #266 存量自愈的指纹判定（纯函数，可直接单测）。
+ *
+ * 为什么需要指纹：旧 catalog 的 titleLocked=true 条目来源不可区分——既可能是用户改名，
+ * 也可能是被缺陷版本 `titleLocked: !isPlaceholderCatalogTitle(initialTitle)` 误锁的首句兜底。
+ * 三条指纹同时成立才判定为后者，把误丢的权威名拿回来：
+ * 1. 条目来源是 legacy（只有旧 catalog 迁移来的条目走这条路；auto/manual 不参与）；
+ * 2. catalog 现存标题逐字等于本次扫描读到的弱兜底候选（首条 user/assistant 文本，或文件内真首句）——
+ *    用户手动改成与首句一字不差的标题几乎不可能；
+ * 3. JSONL 里存在不同的权威 session_info 名，即当年被 applyAutomaticTitle 丢弃的那个名字。
+ *
+ * 为什么候选有两条：头/尾窗口的兜底在系统提示很大的会话里会落到尾部消息上（真首句落在 64KB
+ * 头窗口之外），只比它会让这类 #266 存量永远修不了；firstUserText 是文件内真首句（有界读取）。
+ *
+ * @returns 要写回的权威标题；不命中返回 undefined（保持原标题，并转终态不再探测）。
+ */
+function repairedLegacyFallbackTitle(entry: Pick<SessionCatalogEntry, "title">, probe: { authoritative?: string; fallback?: string; firstUserText?: string }): string | undefined {
+	const authoritative = catalogDisplayTitle(probe.authoritative);
+	if (!authoritative) return undefined;
+	const title = normalizeFingerprintTitle(entry.title);
+	if (!title) return undefined;
+	const candidates = [probe.fallback, probe.firstUserText].map(normalizeFingerprintTitle).filter(Boolean);
+	if (!candidates.some((candidate) => candidate === title)) return undefined;
+	if (authoritative === entry.title) return undefined;
+	return authoritative;
+}
+
+/** 指纹比对前的归一化：折叠空白并去首尾空白，避免换行/多空格造成的假阴性。 */
+function normalizeFingerprintTitle(value: string | undefined): string {
+	return (value ?? "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * 自动标题领取规则（#266）：只有未确认（undefined）或内容派生的 fallback 能被领取。
+ * 扩展模型标题 "auto" 可以升级 fallback；反向（fallback 抢占已有 fallback 或终态）不可以；
+ * "auto"/"manual"/"legacy" 是终态（legacy 只能被指纹修复改写），第二个自动结果一律丢弃。
+ */
+function claimAutomaticTitle(entry: SessionCatalogEntry, nextTitle: string, source: "auto" | "fallback"): boolean {
+	const origin = resolveTitleOrigin(entry);
+	if (source === "fallback" ? origin !== undefined : origin !== undefined && origin !== "fallback") return false;
+	entry.title = nextTitle;
+	assignTitleOrigin(entry, source);
+	return true;
+}
+
+/**
+ * 扫描初始化标题的所有权：占位名与历史脏名保持未锁定（留一次初始化机会）；
+ * 权威 session_info 名直接终态（manual）；首条消息弱回退只算 fallback，可被扩展自动命名覆盖（#266）。
+ */
+function scannedTitleOrigin(title: string, authoritative: boolean): SessionTitleOrigin | undefined {
+	if (isPlaceholderCatalogTitle(title) || looksLikeCodexSessionFileStem(title)) return undefined;
+	return authoritative ? "manual" : "fallback";
+}
+
+function cloneModelPreference(model: SessionModelPreference | undefined): SessionModelPreference | undefined {
+	return model ? createSessionModelPreference(model.provider, model.modelId, model.modelName) : undefined;
 }
 
 function cloneEntry(entry: SessionCatalogEntry): SessionCatalogEntry {
 	return {
 		...entry,
-		model: entry.model ? { ...entry.model } : undefined,
+		model: cloneModelPreference(entry.model),
 	};
 }
 
-function equalModel(
-	left?: { provider: string; modelId: string },
-	right?: { provider: string; modelId: string },
-): boolean {
+function equalModel(left?: SessionModelPreference, right?: SessionModelPreference): boolean {
 	return left?.provider === right?.provider && left?.modelId === right?.modelId;
 }
 
 function isMissingFileError(error: unknown): boolean {
-	return Boolean(
-		error &&
-		typeof error === "object" &&
-		"code" in error &&
-		(error as { code?: unknown }).code === "ENOENT",
-	);
+	return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "ENOENT");
 }
 
-export function canAttachRuntimeMetadata(
-	entry: SessionCatalogEntry | undefined,
-	tab: Partial<AgentTab>,
-): boolean {
+export function canAttachRuntimeMetadata(entry: SessionCatalogEntry | undefined, tab: Partial<AgentTab>): boolean {
 	if (!entry || !tab.sessionPath) return false;
 	// DSH 的 sessionPath 是 host zstd 日志，不是 pi JSONL。走文件配对会把 zstd
 	// 写进 filePath，渲染层当成有历史去读，空会话输入时整页抽成「正在加载历史」。
@@ -166,25 +326,30 @@ export function canAttachRuntimeMetadata(
 	if (entry.status === "draft" && !entry.filePath) return true;
 	if (!entry.filePath) return false;
 	const environment = tab.sessionEnvironment ?? entry.environment;
-	return buildSessionOriginKey({
-		source: entry.source,
-		environment: entry.environment,
-		filePath: entry.filePath,
-		wslDistro: entry.wslDistro,
-		wslUser: entry.wslUser,
-		importedSourceId: entry.importedSourceId,
-	}) === buildSessionOriginKey({
-		source: tab.sessionSource ?? entry.source,
-		environment,
-		filePath: tab.sessionPath,
-		wslDistro: tab.wslDistro ?? entry.wslDistro,
-		wslUser: tab.wslUser ?? entry.wslUser,
-		importedSourceId: tab.importedSourceId ?? entry.importedSourceId,
-	});
+	return (
+		buildSessionOriginKey({
+			source: entry.source,
+			environment: entry.environment,
+			filePath: entry.filePath,
+			wslDistro: entry.wslDistro,
+			wslUser: entry.wslUser,
+			importedSourceId: entry.importedSourceId,
+		}) ===
+		buildSessionOriginKey({
+			source: tab.sessionSource ?? entry.source,
+			environment,
+			filePath: tab.sessionPath,
+			wslDistro: tab.wslDistro ?? entry.wslDistro,
+			wslUser: tab.wslUser ?? entry.wslUser,
+			importedSourceId: tab.importedSourceId ?? entry.importedSourceId,
+		})
+	);
 }
 
 export class SessionCatalog {
 	private entries: SessionCatalogEntry[] = [];
+	/** #354 归并别名（被吸收的历史稳定 ID → 现存 ID）：随 catalog 快照一起落盘，重启后重建。 */
+	private mergedIdAliases = new Map<string, string>();
 	/** Runtime-only records share the catalog lookup contract without durable storage. */
 	private transientEntries = new Map<string, SessionCatalogEntry>();
 	/** 侧栏删除过的 DSH host 会话：刷新/自动导入跳过；手动导入会清掉墓碑。 */
@@ -194,6 +359,10 @@ export class SessionCatalog {
 	private skipNextBackup = false;
 
 	private identityContext: SessionCatalogContext;
+
+	/** 会话活性探针（由 SessionRuntimeCoordinator 注入）：有活跃运行时绑定的会话，
+	 *  其 filePath 指向的 jsonl 可能尚未由 pi 落盘，外部删除清理不得误剔。 */
+	private sessionLivenessProbe?: (sessionId: string) => boolean;
 
 	constructor(
 		private readonly filePath: string,
@@ -206,6 +375,11 @@ export class SessionCatalog {
 
 	setIdentityContext(context: SessionCatalogContext): void {
 		this.identityContext = { ...context };
+	}
+
+	/** 注入活性探针（main 装配时一次性接线）；传 undefined 解除。 */
+	setSessionLivenessProbe(probe: ((sessionId: string) => boolean) | undefined): void {
+		this.sessionLivenessProbe = probe;
 	}
 
 	async load(): Promise<void> {
@@ -245,13 +419,11 @@ export class SessionCatalog {
 		// catalog 只是 id 映射；即使“创建后激活链路未走完”（attachRuntime 未把
 		// status 置 active），重启后用户仍应在侧栏看到并重新激活它。若在此清掉，
 		// host 侧会话会变成孤儿且无法从侧栏访问。带 dshSessionId 的异常中间态同样保留。
-		const staleDrafts = this.entries.filter(
-			(entry) => entry.status === "draft" && entry.backend !== "dsh",
-		);
+		// ACP 同理（StaleDraftReaper 的 acp 豁免、Coordinator 激活失败兑底的
+		// draft+acpSessionId 中间态都依赖该保留语义，清单除即 agent 侧孤儿化）。
+		const staleDrafts = this.entries.filter((entry) => entry.status === "draft" && entry.backend !== "dsh" && entry.backend !== "acp");
 		if (staleDrafts.length > 0) {
-			this.entries = this.entries.filter(
-				(entry) => entry.status !== "draft" || entry.backend === "dsh",
-			);
+			this.entries = this.entries.filter((entry) => entry.status !== "draft" || entry.backend === "dsh" || entry.backend === "acp");
 			try {
 				await this.writeSnapshot(this.entries);
 			} catch {
@@ -271,17 +443,37 @@ export class SessionCatalog {
 			}
 		}
 
-		// 兼容旧数据：早期版本可能存有相对 filePath（pi 返回相对 cwd 的 sessionFile，
-		// 如 sessionDir 配置为 ".pi/sessions"）。相对路径与扫描器绝对路径的 originKey
-		// 不同 → 同一文件出现两条记录（侧栏重复显示），且文件操作落到错误位置。
-		// 加载时用注入的 resolver 统一修正为绝对路径并重算 originKey。
-		const repaired = this.repairRelativeFilePaths(this.entries);
+		// 旧 catalog 没有 titleLocked/titleOrigin：已有真实标题视为 PiDeck 已确认，避免升级后被
+		// 扫描或 TUI 写入反向覆盖；只有占位标题保留一次初始化/自动命名机会。
+		// titleLocked=true 的存量条目无法区分手动/扩展自动，一律迁成 legacy：
+		// 行为同 manual（挡住自动写入），另加一次指纹修复机会修 #266 被误锁的首句兜底。
+		const missingTitleOwnership = this.entries.filter((entry) => typeof entry.titleLocked !== "boolean" || (entry.titleOrigin === undefined && entry.titleLocked === true));
+		if (missingTitleOwnership.length > 0) {
+			for (const entry of missingTitleOwnership) {
+				if (typeof entry.titleLocked !== "boolean") entry.titleLocked = !isPlaceholderCatalogTitle(entry.title);
+				if (entry.titleOrigin === undefined && entry.titleLocked === true) entry.titleOrigin = "legacy";
+			}
+			try {
+				await this.writeSnapshot(this.entries);
+			} catch {
+				// 迁移失败不影响内存中的所有权规则；下次启动会继续写回。
+			}
+		}
+
+		// 路径与派生身份键一起修复：#354 的旧 POSIX 键是全小写，即使绝对路径
+		// 本身没变也需要重算。启动时归并已产生的重复索引，保留原始会话 ID；
+		// 标题冲突用注入的会话名读取做有界权威证据仲裁（无证据则整组保留），
+		// 被吸收的历史 ID 记入 mergedSessionIds，供持久化引用迁移。
+		const repaired = await repairSessionCatalogIdentities(this.entries, this.resolveFilePath, (entry) => this.originKeyForEntry(entry), this.fetchTitle);
 		if (repaired) {
 			this.entries = repaired;
 			try {
 				await this.writeSnapshot(this.entries);
-			} catch {
-				// 修复是 best-effort；内存已生效，下一次启动仍会重试。
+			} catch (error) {
+				// 内存修复仍生效，写盘失败不阻断启动；原索引保持完整，下次启动重试。
+				void getAppLogger()?.warn("session-catalog", "Identity repair snapshot write failed on startup", {
+					cause: error instanceof Error ? error.message : String(error),
+				});
 			}
 		}
 
@@ -289,9 +481,7 @@ export class SessionCatalog {
 		// dshSessionId 缺失）——标题同步（findByDshSessionId）与重启后 attach 恢复
 		// 旧会话都依赖 dshSessionId。加载时把 backend=dsh 且缺 dshSessionId 的
 		// 记录用 piSessionId（当时存的就是 host 会话 id）补齐。
-		const migratedDsh = this.entries.some((entry) => (
-			entry.backend === "dsh" && !entry.dshSessionId && entry.piSessionId
-		));
+		const migratedDsh = this.entries.some((entry) => entry.backend === "dsh" && !entry.dshSessionId && entry.piSessionId);
 		if (migratedDsh) {
 			for (const entry of this.entries) {
 				if (entry.backend === "dsh" && !entry.dshSessionId && entry.piSessionId) {
@@ -309,9 +499,7 @@ export class SessionCatalog {
 		// piSessionId=host 会话 id 落盘）。pi 侧逻辑会把 zstd 文件当 pi 会话文件
 		// 处理（启动 pi exited code=1、导出/删除误判等）。dsh 条目只保留 dshSessionId，
 		// filePath/piSessionId 一律清除（dshSessionId 已在上方迁移补齐）。
-		const pollutedDsh = this.entries.some((entry) => (
-			entry.backend === "dsh" && (Boolean(entry.filePath) || Boolean(entry.piSessionId))
-		));
+		const pollutedDsh = this.entries.some((entry) => entry.backend === "dsh" && (Boolean(entry.filePath) || Boolean(entry.piSessionId)));
 		if (pollutedDsh) {
 			for (const entry of this.entries) {
 				if (entry.backend !== "dsh") continue;
@@ -325,24 +513,65 @@ export class SessionCatalog {
 				// 迁移是 best-effort；内存已生效，下一次启动仍会重试。
 			}
 		}
+		// 兼容旧数据：ACP 会话曾被 pi 分支 attach（filePath/piSessionId 落盘）时同理污染；
+		// ACP 历史在 agent 侧，PiDeck 无本地会话文件，一律清除。
+		const pollutedAcp = this.entries.some((entry) => entry.backend === "acp" && (Boolean(entry.filePath) || Boolean(entry.piSessionId)));
+		if (pollutedAcp) {
+			for (const entry of this.entries) {
+				if (entry.backend !== "acp") continue;
+				delete entry.filePath;
+				delete entry.piSessionId;
+				entry.originKey = undefined;
+			}
+			try {
+				await this.writeSnapshot(this.entries);
+			} catch {
+				// 迁移是 best-effort；内存已生效，下一次启动仍会重试。
+			}
+		}
 		this.loaded = true;
+		// 归并别名索引在 load 末尾统一重建：修复与各项存量迁移都已落定，
+		// get/update/remove/runtime attach 从此统一按现存 ID 归一化。
+		this.rebuildMergedIdAliases();
 		if (this.skipNextBackup) {
-			await this.writeSnapshot(this.entries);
+			// 备份自愈补写也是 best-effort：磁盘满/只读时失败只意味着下次启动重试，
+			// 内存已生效；裸 await 抛错会让 whenReady 中断、窗口永不出现（同上方
+			// catalog 损坏兑底声明的失败模式）。
+			try {
+				await this.writeSnapshot(this.entries);
+			} catch (error) {
+				void getAppLogger()?.warn("session-catalog", "Backup-restore snapshot write failed on startup", {
+					cause: error instanceof Error ? error.message : String(error),
+				});
+			}
 		}
 	}
 
 	listEntries(): SessionCatalogEntry[] {
 		this.assertLoaded();
-		return [
-			...this.entries.map(cloneEntry),
-			...Array.from(this.transientEntries.values(), cloneEntry),
-		];
+		return [...this.entries.map(cloneEntry), ...Array.from(this.transientEntries.values(), cloneEntry)];
 	}
 
 	get(id: string): SessionCatalogEntry | undefined {
 		this.assertLoaded();
-		const entry = this.transientEntries.get(id) ?? this.entries.find((candidate) => candidate.id === id);
+		const transient = this.transientEntries.get(id);
+		if (transient) return cloneEntry(transient);
+		const canonical = this.resolveSessionId(id);
+		const entry = this.entries.find((candidate) => candidate.id === canonical);
 		return entry ? cloneEntry(entry) : undefined;
+	}
+
+	/** 把已归并的历史稳定 ID 归一化为现存会话 ID；未知 ID 原样返回。
+	 *  持久化引用（settings 置顶 / 渲染层 Tab 置顶）在迁移完成前的迟到请求也走这里，
+	 *  不能因为拿到旧 ID 就报「会话不存在」或在旧 ID 上另起一个 runtime。 */
+	resolveSessionId(id: string): string {
+		this.assertLoaded();
+		return this.mergedIdAliases.get(id) ?? id;
+	}
+
+	/** 重建归并别名索引（条目集合变化后调用；别名只在启动修复时新增，但删除会让旧目标失效）。 */
+	private rebuildMergedIdAliases(): void {
+		this.mergedIdAliases = buildSessionIdAliasMap(this.entries);
 	}
 
 	/** 按 DSH host 会话 id 反查 catalog 记录（会话标题同步用；只读查询，不排队写）。
@@ -373,26 +602,22 @@ export class SessionCatalog {
 		});
 	}
 
-	createAnonymous(input: {
-		projectId: string;
-		title: string;
-		environment: SessionEnvironment;
-		model?: { provider: string; modelId: string };
-		thinkingLevel?: string;
-	}): SessionRecord {
+	createAnonymous(input: { projectId: string; title: string; environment: SessionEnvironment; model?: SessionModelPreference; thinkingLevel?: string }): SessionRecord {
 		this.assertLoaded();
 		const now = Date.now();
 		const entry: SessionCatalogEntry = {
 			id: randomUUID(),
 			projectId: input.projectId,
 			title: input.title,
+			titleLocked: true,
+			titleOrigin: "manual",
 			noSession: true,
 			source: "pi",
 			environment: input.environment,
 			wslDistro: input.environment === "wsl" ? this.identityContext.wslDistro : undefined,
 			wslUser: input.environment === "wsl" ? this.identityContext.wslUser : undefined,
 			status: "active",
-			model: input.model,
+			model: cloneModelPreference(input.model),
 			thinkingLevel: input.thinkingLevel,
 			createdAt: now,
 			updatedAt: now,
@@ -411,17 +636,10 @@ export class SessionCatalog {
 		return entry ? this.recordFromEntry(entry) : undefined;
 	}
 
-	findByFilePath(
-		filePath: string,
-		environment: SessionEnvironment,
-	): SessionCatalogEntry | undefined {
+	findByFilePath(filePath: string, environment: SessionEnvironment): SessionCatalogEntry | undefined {
 		this.assertLoaded();
 		const target = canonicalizeSessionPath(filePath, environment);
-		const entry = this.entries.find((candidate) => (
-			candidate.filePath &&
-			candidate.environment === environment &&
-			canonicalizeSessionPath(candidate.filePath, environment) === target
-		));
+		const entry = this.entries.find((candidate) => candidate.filePath && candidate.environment === environment && canonicalizeSessionPath(candidate.filePath, environment) === target);
 		return entry ? cloneEntry(entry) : undefined;
 	}
 
@@ -435,14 +653,22 @@ export class SessionCatalog {
 		wslUser?: string;
 		importedSourceId?: string;
 		piSessionId?: string;
+		/** 会话来源渠道（微信/飞书等外部连接）：由 IM 桥在注册会话时写入，落库后侧栏显示渠道标志。 */
+		channel?: SessionChannel;
+		/**
+		 * 命令层权威标题（fork/clone/copy 专用）：命令刚把 (fork) 后缀名物理写进会话文件，
+		 * 授权本次注册把标题当作权威名落库（见下方覆盖规则）。
+		 */
+		titleAuthority?: "command";
 		/** fork/clone 产物注册时直接标记（parentSession 链接已由 pi 写入文件头，此处同源标记）。 */
 		forked?: boolean;
+		/** fork/clone 产物继承源会话的模型偏好与思考档位：子会话 JSONL 里没有新的 model_change，扫描回读拿不到，重启后模型选择器会空。 */
+		model?: SessionModelPreference;
+		thinkingLevel?: string;
 	}): Promise<SessionCatalogEntry> {
 		this.assertLoaded();
 		// 与 attachRuntime 同口径：进入 catalog 前归一化为绝对路径，保证 originKey 去重一致。
-		const filePath = this.resolveFilePath
-			? this.resolveFilePath(input.projectId, input.filePath, input.environment)
-			: input.filePath;
+		const filePath = this.resolveFilePath ? this.resolveFilePath(input.projectId, input.filePath, input.environment) : input.filePath;
 		return this.enqueueMutation((entries) => {
 			const originKey = buildSessionOriginKey({
 				source: input.source,
@@ -455,14 +681,16 @@ export class SessionCatalog {
 			let entry = entries.find((candidate) => {
 				if (candidate.originKey === originKey) return true;
 				if (!candidate.filePath) return false;
-				return buildSessionOriginKey({
-					source: candidate.source,
-					environment: candidate.environment,
-					filePath: candidate.filePath,
-					wslDistro: candidate.wslDistro,
-					wslUser: candidate.wslUser,
-					importedSourceId: candidate.importedSourceId,
-				}) === originKey;
+				return (
+					buildSessionOriginKey({
+						source: candidate.source,
+						environment: candidate.environment,
+						filePath: candidate.filePath,
+						wslDistro: candidate.wslDistro,
+						wslUser: candidate.wslUser,
+						importedSourceId: candidate.importedSourceId,
+					}) === originKey
+				);
 			});
 			const now = Date.now();
 			if (!entry) {
@@ -471,6 +699,8 @@ export class SessionCatalog {
 					projectId: input.projectId,
 					originKey,
 					title: input.title,
+					titleLocked: true,
+					titleOrigin: "manual",
 					source: input.source,
 					environment: input.environment,
 					filePath,
@@ -478,7 +708,10 @@ export class SessionCatalog {
 					wslUser: input.wslUser,
 					importedSourceId: input.importedSourceId,
 					piSessionId: input.piSessionId,
+					channel: input.channel,
 					forked: input.forked,
+					model: cloneModelPreference(input.model),
+					thinkingLevel: input.thinkingLevel,
 					status: "active",
 					createdAt: now,
 					updatedAt: now,
@@ -487,7 +720,6 @@ export class SessionCatalog {
 			} else {
 				entry.projectId = input.projectId;
 				entry.originKey = originKey;
-				entry.title = input.title;
 				entry.source = input.source;
 				entry.environment = input.environment;
 				entry.filePath = filePath;
@@ -495,8 +727,33 @@ export class SessionCatalog {
 				entry.wslUser = input.wslUser;
 				entry.importedSourceId = input.importedSourceId;
 				entry.piSessionId = input.piSessionId;
+				// 渠道标志只增补不清空：同一文件后续被普通扫描命中时不带渠道信息，
+				// 直接覆盖会让微信/飞书会话的标志在下次扫描后消失。
+				if (input.channel) entry.channel = input.channel;
+				// 命令层标题覆盖规则（fork/clone/copy）：命令刚刚把 (fork) 名写进会话文件，但扫描
+				// 可能抢在改名落盘前先索引了新文件，用正文兜底（首条消息，或复制进来的父会话名）
+				// 把标题锁成 fallback —— 而大文件只读头/尾窗口，rename 追加的 session_info 很快被
+				// 后续消息推出尾窗，fallback→权威名的升级再也触发不了，侧栏就永久停在首条消息
+				// 正文上、也看不到 (fork)（2026-10-11 复现）。
+				// 写入范围：未确认（undefined）或内容派生的猜测（fallback）才允许覆盖；用户改名
+				// （manual）/扩展自动名（auto）/存量 legacy 一律不动；占位名（Untitled/时间戳
+				// stem）不往条目里写。
+				if (input.titleAuthority === "command") {
+					const commandTitle = catalogDisplayTitle(input.title);
+					const currentOrigin = resolveTitleOrigin(entry);
+					if (commandTitle && !isPlaceholderCatalogTitle(commandTitle) && commandTitle !== entry.title && (currentOrigin === undefined || currentOrigin === "fallback")) {
+						entry.title = commandTitle;
+						assignTitleOrigin(entry, "manual");
+					}
+				}
 				// fork 标记只增补不清空：同一文件可能先以普通扫描注册、后经 fork 注册逻辑走到这里。
 				if (input.forked) entry.forked = true;
+				// 模型/思考档位继承同样只补空值：fork 产物常被后台扫描抢先登记（扫描只能从 JSONL 回读，
+				// 子会话没有新的 model_change 就是空的），命令层带来的源会话选择必须补进去，否则
+				// 子会话没有 model → 底栏显示「-」、激活不重放模型，pi fork 的静默回落就成了用户
+				// 看不见的另一个模型（issue #370）。已有显式选择（用户选择器/扫描回读）不覆盖。
+				if (!entry.model && input.model) entry.model = cloneModelPreference(input.model);
+				if (!entry.thinkingLevel && input.thinkingLevel) entry.thinkingLevel = input.thinkingLevel;
 				entry.status = "active";
 				entry.updatedAt = now;
 			}
@@ -510,13 +767,34 @@ export class SessionCatalog {
 		environment: SessionEnvironment;
 		source?: SessionSource;
 		backend?: AgentBackend;
-		model?: { provider: string; modelId: string };
+		model?: SessionModelPreference;
 		thinkingLevel?: string;
 		permissionPreset?: string;
+		/**
+		 * Fresh drafts remain eligible for their first PiDeck automatic or JSONL title,
+		 * even when the provisional UI label is not literally "Untitled". Callers that
+		 * import an already named external session must opt in to final ownership with
+		 * titleOrigin: "manual".
+		 */
+		titleOrigin?: SessionTitleOrigin;
 		/** DSH agent 预设（会话「模式」）草稿期预选；外部会话导入时来自 host 会话 header。 */
 		agentPreset?: string;
+		/** ACP 工具预选（AcpToolConfig.id）：backend=acp 草稿期选哪个 CLI。 */
+		acpToolId?: string;
+		/**
+		 * 外部连接渠道（微信/飞书桥建的会话）。与 titleOrigin 独立：渠道只决定标志，
+		 * 标题所有权由 titleOrigin 决定（IM 桥想要自动命名就不要传 titleOrigin）。
+		 */
+		channel?: SessionChannel;
+		/** 侧边任务会话（右侧抽屉「侧边任务」面板持有）：与 channel 一样只是归属标志，不改变会话身份与运行时语义。 */
+		sideTask?: boolean;
 		/** 外部（dsh-web 等）会话导入：host 会话已存在，条目直接置 active（重启不清理）。 */
 		dshSessionId?: string;
+		/**
+		 * fork 产物标记（DSH fork/clone 新建条目的身份元数据；pi 侧同名标记来自文件头探测）。
+		 * (fork) 标题后缀已写进标题本身，这里只保留「是不是 fork 出来的会话」供列表/导航判断。
+		 */
+		forked?: boolean;
 		/**
 		 * DSH 外部会话的真实活跃时间（磁盘日志文件 mtime）。自动同步每轮全量重导，
 		 * 不带这个就用 Date.now()，会话每次重启被顶到启动时刻、永远排在 pi 会话上面。
@@ -540,34 +818,33 @@ export class SessionCatalog {
 			// 且删除其一后另一条仍可加载同一 host 数据（「重复导入」用户问题）。
 			if (input.dshSessionId) {
 				const dismissed = this.dismissedDshSessionIds.has(input.dshSessionId);
-				const existing = entries.find((candidate) => (
-					candidate.dshSessionId === input.dshSessionId
-				));
+				const existing = entries.find((candidate) => candidate.dshSessionId === input.dshSessionId);
 				// 用户已删映射、host 目录还在：自动同步不得再建条目。手动找回才允许。
 				if (dismissed && !input.restoreDismissed && !existing) {
 					throw new Error("DISMISSED_DSH_SESSION");
 				}
-				const forgotten = input.restoreDismissed
-					? this.dismissedDshSessionIds.delete(input.dshSessionId)
-					: false;
+				const forgotten = input.restoreDismissed ? this.dismissedDshSessionIds.delete(input.dshSessionId) : false;
 				if (existing) {
 					const nextTitle = input.keepExistingTitle ? existing.title : input.title;
 					const agentPresetChanged = input.agentPreset !== undefined && existing.agentPreset !== input.agentPreset;
-					const changed = forgotten || (
+					const changed =
+						forgotten ||
 						existing.projectId !== input.projectId ||
 						existing.title !== nextTitle ||
 						existing.backend !== input.backend ||
 						agentPresetChanged ||
+						(input.forked === true && existing.forked !== true) ||
 						existing.status !== "active" ||
 						// mtime 变化也落盘：修正历史被顶高的 updatedAt，否则排序永远错
-						existing.updatedAt !== (input.updatedAt ?? now)
-					);
+						existing.updatedAt !== (input.updatedAt ?? now);
 					existing.projectId = input.projectId;
 					existing.title = nextTitle;
 					existing.backend = input.backend;
 					existing.status = "active";
 					// 外部会话 header 携带的 preset 变化（host 会话 header 是权威）随导入同步
 					if (input.agentPreset !== undefined) existing.agentPreset = input.agentPreset;
+					// fork 产物可能是外部同步先导入、fork 命令后到：标记只增补不清空。
+					if (input.forked) existing.forked = true;
 					// 排序语义：用磁盘日志文件 mtime（真实活跃时间），不再顶到导入时刻
 					existing.updatedAt = input.updatedAt ?? now;
 					return { value: cloneEntry(existing), changed };
@@ -577,22 +854,26 @@ export class SessionCatalog {
 				id: randomUUID(),
 				projectId: input.projectId,
 				title: input.title,
+				// 导入已有 host 会话（带 dshSessionId）标题已由 host 确认；纯草稿留一次领取机会。
+				titleLocked: (input.titleOrigin ?? (input.dshSessionId ? "manual" : undefined)) !== undefined,
+				titleOrigin: input.titleOrigin ?? (input.dshSessionId ? "manual" : undefined),
 				source: input.source ?? "pi",
 				environment: input.environment,
+				channel: input.channel,
+				// 只落 true：false 与缺省同义，不写进存档省得 JSON 里堆噪声字段
+				sideTask: input.sideTask ? true : undefined,
+				forked: input.forked ? true : undefined,
 				backend: input.backend,
-				wslDistro: input.environment === "wsl"
-					? this.identityContext.wslDistro
-					: undefined,
-				wslUser: input.environment === "wsl"
-					? this.identityContext.wslUser
-					: undefined,
+				wslDistro: input.environment === "wsl" ? this.identityContext.wslDistro : undefined,
+				wslUser: input.environment === "wsl" ? this.identityContext.wslUser : undefined,
 				// 带 dshSessionId = 导入已有 host 会话（数据在 $DSH_HOME），
 				// 不是「尚未发送」的草稿：置 active，重启清理/重新打开都按真实会话处理。
 				status: input.dshSessionId ? "active" : "draft",
-				model: input.model,
+				model: cloneModelPreference(input.model),
 				thinkingLevel: input.thinkingLevel,
 				permissionPreset: input.permissionPreset,
 				agentPreset: input.agentPreset,
+				acpToolId: input.acpToolId,
 				dshSessionId: input.dshSessionId,
 				createdAt: now,
 				// 外部会话导入带 mtime（真实活跃时间）；pi 草稿没有该字段，仍用当前时刻
@@ -606,55 +887,156 @@ export class SessionCatalog {
 
 	async update(
 		id: string,
-		patch: Partial<Pick<
-			SessionCatalogEntry,
-			"title" | "backend" | "updatedAt"
-		>> & {
-			model?: { provider: string; modelId: string } | null;
+		patch: Partial<Pick<SessionCatalogEntry, "title" | "backend" | "updatedAt">> & {
+			model?: SessionModelPreference | null;
 			thinkingLevel?: string | null;
 			permissionPreset?: string | null;
 			/** DSH agent 预设（会话「模式」）：草稿期预选；null = 清除预选。 */
 			agentPreset?: string | null;
+			/** ACP 工具预选（AcpToolConfig.id）：草稿期切换；null = 清除预选。 */
+			acpToolId?: string | null;
+			/** ACP 会话身份：激活回写/清理（null = 清空）。 */
+			acpSessionId?: string | null;
 			proxy?: SessionProxyOverride | null;
 			/** 切到生图后端时甩开 pi 会话文件引用（null = 清空）。 */
 			filePath?: string | null;
 			piSessionId?: string | null;
 			/** fork 标记：仅显式 true 时置位（fork 身份元数据；(fork) 后缀已物理写入标题）。 */
 			forked?: boolean | null;
+			/** 侧边任务标记：true = 收进侧边任务面板，null = 释放回普通会话（会话本身保留）。 */
+			sideTask?: boolean | null;
 		},
 	): Promise<SessionRecord> {
 		this.assertLoaded();
-		const transient = this.transientEntries.get(id);
+		const sessionId = this.resolveSessionId(id);
+		const transient = this.transientEntries.get(sessionId);
 		if (transient) {
-			if (patch.title !== undefined) transient.title = patch.title;
-			if (patch.model !== undefined) transient.model = patch.model ?? undefined;
+			if (patch.title !== undefined) {
+				transient.title = patch.title;
+				assignTitleOrigin(transient, "manual");
+			}
+			if (patch.model !== undefined) transient.model = cloneModelPreference(patch.model ?? undefined);
 			if (patch.thinkingLevel !== undefined) transient.thinkingLevel = patch.thinkingLevel ?? undefined;
 			if (patch.permissionPreset !== undefined) transient.permissionPreset = patch.permissionPreset ?? undefined;
 			if (patch.agentPreset !== undefined) transient.agentPreset = patch.agentPreset ?? undefined;
+			if (patch.acpToolId !== undefined) transient.acpToolId = patch.acpToolId ?? undefined;
 			if (patch.backend !== undefined) transient.backend = patch.backend;
 			// 切到生图后端时需甩开 pi 会话文件（filePath/piSessionId 置空），否则残留文件引用
 			if (patch.filePath !== undefined) transient.filePath = patch.filePath ?? undefined;
 			if (patch.piSessionId !== undefined) transient.piSessionId = patch.piSessionId ?? undefined;
 			if (patch.forked === true) transient.forked = true;
+			if (patch.sideTask !== undefined) transient.sideTask = patch.sideTask ? true : undefined;
 			// null = 清除覆盖恢复跟随全局
 			if (patch.proxy !== undefined) transient.proxy = patch.proxy ?? undefined;
 			transient.updatedAt = patch.updatedAt ?? Date.now();
 			return this.recordFromEntry(transient);
 		}
 		const entry = await this.enqueueMutation((entries) => {
-			const nextEntry = this.requireEntry(entries, id);
-			if (patch.title !== undefined) nextEntry.title = patch.title;
-			if (patch.model !== undefined) nextEntry.model = patch.model ?? undefined;
+			const nextEntry = this.requireEntry(entries, sessionId);
+			if (patch.title !== undefined) {
+				nextEntry.title = patch.title;
+				assignTitleOrigin(nextEntry, "manual");
+			}
+			if (patch.model !== undefined) nextEntry.model = cloneModelPreference(patch.model ?? undefined);
 			if (patch.thinkingLevel !== undefined) nextEntry.thinkingLevel = patch.thinkingLevel ?? undefined;
 			if (patch.permissionPreset !== undefined) nextEntry.permissionPreset = patch.permissionPreset ?? undefined;
 			if (patch.agentPreset !== undefined) nextEntry.agentPreset = patch.agentPreset ?? undefined;
+			if (patch.acpToolId !== undefined) nextEntry.acpToolId = patch.acpToolId ?? undefined;
+			if (patch.acpSessionId !== undefined) nextEntry.acpSessionId = patch.acpSessionId ?? undefined;
 			if (patch.backend !== undefined) nextEntry.backend = patch.backend;
 			if (patch.filePath !== undefined) nextEntry.filePath = patch.filePath ?? undefined;
 			if (patch.piSessionId !== undefined) nextEntry.piSessionId = patch.piSessionId ?? undefined;
 			if (patch.forked === true) nextEntry.forked = true;
+			if (patch.sideTask !== undefined) nextEntry.sideTask = patch.sideTask ? true : undefined;
 			// null = 清除覆盖恢复跟随全局
 			if (patch.proxy !== undefined) nextEntry.proxy = patch.proxy ?? undefined;
 			nextEntry.updatedAt = patch.updatedAt ?? Date.now();
+			return { value: cloneEntry(nextEntry), changed: true };
+		});
+		return this.recordFromEntry(entry);
+	}
+
+	/**
+	 * 领取 PiDeck 自动标题。与通用 update() 分离：迟到的自动结果不得覆盖先到的用户改名。
+	 * source 区分来源（#266）：扩展模型标题 "auto" 可升级首条消息/扫描派生的 "fallback"，
+	 * 反向不可；"auto" 与 "manual" 都是终态，第二个自动结果一律丢弃。
+	 */
+	async applyAutomaticTitle(id: string, title: string, source: "auto" | "fallback"): Promise<SessionRecord> {
+		this.assertLoaded();
+		const nextTitle = title.replace(/\s+/g, " ").trim();
+		if (!nextTitle) throw new Error("Automatic session title is required");
+		const sessionId = this.resolveSessionId(id);
+		const transient = this.transientEntries.get(sessionId);
+		if (transient) {
+			if (claimAutomaticTitle(transient, nextTitle, source)) transient.updatedAt = Date.now();
+			return this.recordFromEntry(transient);
+		}
+		const entry = await this.enqueueMutation((entries) => {
+			const nextEntry = this.requireEntry(entries, sessionId);
+			const claimed = claimAutomaticTitle(nextEntry, nextTitle, source);
+			if (claimed) nextEntry.updatedAt = Date.now();
+			return { value: cloneEntry(nextEntry), changed: claimed };
+		});
+		return this.recordFromEntry(entry);
+	}
+
+	/**
+	 * ACP CLI（session_info_update）标题回写：agent 侧来源，last-wins。
+	 *
+	 * 与 applyAutomaticTitle 的差异：CLI 每回合末会持续精修标题（codex 首个标题常是 prompt 原文），
+	 * 锁一次会丢掉后续更好的名字，所以同源可重复领取；唯一硬边界是 manual（用户确认名）——
+	 * 用户改名的会话绝不被 CLI 拉回（对齐 pi/DSH 侧「自动结果不得覆盖用户改名」语义）。
+	 * 标记形态脏名（上下文代理确认行）任何来源都不写。
+	 * 存量注意：旧版本曾把 CLI 标题当 manual 写入，这类条目无法与真用户改名区分，
+	 * 保守按 manual 处理（CLI 后续标题被拒），直到用户再次手动改名。
+	 */
+	async applyAgentTitle(id: string, title: string): Promise<SessionRecord | undefined> {
+		this.assertLoaded();
+		const nextTitle = title.replace(/\s+/g, " ").trim();
+		if (!nextTitle || looksLikeToolMarkerTitle(nextTitle)) return undefined;
+		const sessionId = this.resolveSessionId(id);
+		const transient = this.transientEntries.get(sessionId);
+		if (transient) {
+			if (resolveTitleOrigin(transient) === "manual" || transient.title === nextTitle) return undefined;
+			transient.title = nextTitle;
+			assignTitleOrigin(transient, "auto");
+			transient.updatedAt = Date.now();
+			return this.recordFromEntry(transient);
+		}
+		let claimed = false;
+		const entry = await this.enqueueMutation((entries) => {
+			const nextEntry = this.requireEntry(entries, sessionId);
+			if (resolveTitleOrigin(nextEntry) === "manual" || nextEntry.title === nextTitle) return { value: cloneEntry(nextEntry), changed: false };
+			nextEntry.title = nextTitle;
+			assignTitleOrigin(nextEntry, "auto");
+			nextEntry.updatedAt = Date.now();
+			claimed = true;
+			return { value: cloneEntry(nextEntry), changed: true };
+		});
+		return claimed ? this.recordFromEntry(entry) : undefined;
+	}
+
+	/**
+	 * Reserves catalog title ownership before a manual rename reaches pi. The rename
+	 * RPC is asynchronous, so this closes the window where a pending auto-title
+	 * result could otherwise claim the still-provisional record first.
+	 */
+	async claimTitleOwnership(id: string): Promise<SessionRecord> {
+		this.assertLoaded();
+		const sessionId = this.resolveSessionId(id);
+		const transient = this.transientEntries.get(sessionId);
+		if (transient) {
+			if (!isTitleLocked(transient)) {
+				assignTitleOrigin(transient, "manual");
+				transient.updatedAt = Date.now();
+			}
+			return this.recordFromEntry(transient);
+		}
+		const entry = await this.enqueueMutation((entries) => {
+			const nextEntry = this.requireEntry(entries, sessionId);
+			if (isTitleLocked(nextEntry)) return { value: cloneEntry(nextEntry), changed: false };
+			assignTitleOrigin(nextEntry, "manual");
+			nextEntry.updatedAt = Date.now();
 			return { value: cloneEntry(nextEntry), changed: true };
 		});
 		return this.recordFromEntry(entry);
@@ -665,6 +1047,8 @@ export class SessionCatalog {
 		filePath?: string;
 		piSessionId?: string;
 		dshSessionId?: string;
+		/** ACP 会话身份：backend=acp 激活后回写，重启恢复用。 */
+		acpSessionId?: string;
 		/** DSH agent 预设（会话「模式」）：attach/新建后 host 回写（host 会话 header 是权威）。 */
 		agentPreset?: string;
 		/** 真正开聊后再把 DSH 草稿抬成 active；预热只绑 host id，不抬。 */
@@ -673,28 +1057,42 @@ export class SessionCatalog {
 		restoreDismissed?: boolean;
 	}): Promise<SessionCatalogEntry> {
 		this.assertLoaded();
-		return this.enqueueMutation((entries) => {
-			const entry = this.requireEntry(entries, input.sessionId);
+		return this.enqueueMutation(async (entries) => {
+			let entry = this.requireEntry(entries, this.resolveSessionId(input.sessionId));
+			// #314 幂等基线：runtime 事件风暴会反复 attach 同一会话的相同路径/ID。
+			// 先记录 mutation 前快照，无实际变化不得刷新 updatedAt——活动区排序与
+			// 时间戳都取 updatedAt，重复刷新会让已停止/空闲会话被顶到最前、时间跳动。
+			const before = {
+				filePath: entry.filePath,
+				piSessionId: entry.piSessionId,
+				dshSessionId: entry.dshSessionId,
+				acpSessionId: entry.acpSessionId,
+				agentPreset: entry.agentPreset,
+				status: entry.status,
+				originKey: entry.originKey,
+				createdAt: entry.createdAt,
+				model: entry.model,
+				thinkingLevel: entry.thinkingLevel,
+				importedSourceId: entry.importedSourceId,
+			};
 			// pi 可能上报相对 cwd 的 sessionFile：写入 catalog 前归一化为绝对路径，
 			// 否则与扫描器绝对路径 originKey 不一致，同一文件会出现两条记录。
-			const filePath =
-				input.filePath && this.resolveFilePath
-					? this.resolveFilePath(
-							entry.projectId,
-							input.filePath,
-							entry.environment,
-						)
-					: input.filePath;
-			const previousFilePath = entry.filePath;
+			const filePath = input.filePath && this.resolveFilePath ? this.resolveFilePath(entry.projectId, input.filePath, entry.environment) : input.filePath;
 			// DSH 的 sessionPath 是 host zstd，不是 pi JSONL；写进 filePath 会让渲染层
-			// 把空会话当成有磁盘历史（起始页 / 骨架来回抽）。
-			if (filePath && entry.backend !== "dsh") entry.filePath = filePath;
+			// 把空会话当成有磁盘历史（起始页 / 骨架来回抽）。ACP 同理：历史在 agent 侧，
+			// PiDeck 无本地会话文件。
+			if (filePath && entry.backend !== "dsh" && entry.backend !== "acp") entry.filePath = filePath;
 			if (input.piSessionId) entry.piSessionId = input.piSessionId;
+			if (input.acpSessionId) entry.acpSessionId = input.acpSessionId;
+			let restoredDismissed = false;
 			if (input.dshSessionId) {
 				entry.dshSessionId = input.dshSessionId;
 				// 只有明确找回才清墓碑。激活回写同一 host id 时如果清掉，
 				// 用户删映射后迟到的 attach 会让下次自动同步再导回来。
-				if (input.restoreDismissed) {
+				if (input.restoreDismissed && this.dismissedDshSessionIds.has(input.dshSessionId)) {
+					// 墓碑集合随 writeSnapshot 落盘：delete 已发生在回调内，必须计入
+					// changed，否则 changed:false 时内存已删但快照不落盘，重启后墓碑复活。
+					restoredDismissed = true;
 					this.dismissedDshSessionIds.delete(input.dshSessionId);
 				}
 			}
@@ -704,40 +1102,69 @@ export class SessionCatalog {
 			// 不能把草稿抬成 active：渲染层会把「active + dshSessionId」当成有历史，
 			// 输入一半整页换成「正在加载历史」骨架。导入路径 createDraft({dshSessionId})
 			// 已经是 active；真正开聊后由 prompt dispatch 再 promoteToActive。
-			if (
-				input.promoteToActive &&
-				input.dshSessionId &&
-				!entry.filePath &&
-				entry.status === "draft"
-			) {
+			if (input.promoteToActive && input.dshSessionId && !entry.filePath && entry.status === "draft") {
 				entry.status = "active";
 			}
-			if (entry.filePath) {
-				const pathUnchanged = Boolean(
-					previousFilePath &&
-					canonicalizeSessionPath(previousFilePath, entry.environment) ===
-						canonicalizeSessionPath(entry.filePath, entry.environment),
-				);
-				const nextOriginKey = pathUnchanged && entry.originKey
-					? entry.originKey
-					: this.originKeyForEntry(entry);
-				entry.originKey = nextOriginKey;
+			// ACP 同语义：无本地文件，真正开聊（prompt dispatch）后才抬 active。
+			if (input.promoteToActive && input.acpSessionId && entry.status === "draft") {
 				entry.status = "active";
-
-				const duplicateIndex = nextOriginKey
-					? entries.findIndex((candidate) => (
-						candidate.id !== entry.id && candidate.originKey === nextOriginKey
-					))
-					: -1;
-				if (duplicateIndex >= 0) {
-					const duplicate = entries[duplicateIndex];
-					entry.model ??= duplicate.model;
-					entry.thinkingLevel ??= duplicate.thinkingLevel;
-					entry.importedSourceId ??= duplicate.importedSourceId;
-					entry.createdAt = Math.min(entry.createdAt, duplicate.createdAt);
-					entries.splice(duplicateIndex, 1);
+			}
+			let mergedDuplicate = false;
+			if (entry.filePath) {
+				// #354 复审：运行时归并不是「找到一条就删」。破坏性归并前必须过与启动修复同一道
+				// **物理文件确认**（confirmedOriginKey）：survivor 与候选都必须是 pi 文件会话，
+				// 路径经 resolver 确定为无歧义绝对路径，再按完整 source/env/wsl/importedSource
+				// 现场重算身份键。只比持久化键——或比相对路径派生出的键——会把两个项目各自的
+				// `.pi/sessions/x.jsonl` 算成同一个物理会话，把其中一条记录连标题一起删掉。
+				const nextOriginKey = this.confirmedOriginKey(entry);
+				// 无法确认物理位置的条目保守保留：不归并、也不改写身份键（改写会把「这曾是小写
+				// 旧键」的证据洗掉，下次启动就会按 createdAt 错选存活 ID）；运行时绑定与 attach
+				// 元数据照常落库。
+				// 同源组还要过与启动修复同一套标题优先级/权威证据仲裁：启动时因无证据而保守保留的
+				// 冲突组，在这里同样不得归并，否则用户激活其中一条就会静默丢掉另一条的标题与稳定 ID。
+				const group = nextOriginKey ? [entry, ...entries.filter((candidate) => candidate.id !== entry.id && this.confirmedOriginKey(candidate) === nextOriginKey)] : [];
+				let canMerge = Boolean(nextOriginKey);
+				let titleOwner: SessionCatalogEntry | undefined;
+				if (group.length > 1) {
+					const arbitration = await arbitrateRuntimeMergeTitle(group, this.fetchTitle);
+					canMerge = arbitration.merge;
+					titleOwner = arbitration.titleOwner;
+				}
+				entry.status = "active";
+				if (canMerge && nextOriginKey) {
+					entry.originKey = nextOriginKey;
+					if (group.length > 1) {
+						// 存活 ID 必须是本次 attach 的会话：runtime / 渲染层正持有它，其余同源条目全部吸收。
+						const absorbedIds = new Set(group.filter((candidate) => candidate.id !== entry.id).map((candidate) => candidate.id));
+						const merged = mergeSourceGroupInto(entry.id, group, titleOwner);
+						const survivorIndex = entries.findIndex((candidate) => candidate.id === entry.id);
+						entries[survivorIndex] = merged;
+						entry = merged;
+						for (let index = entries.length - 1; index >= 0; index -= 1) {
+							if (absorbedIds.has(entries[index].id)) entries.splice(index, 1);
+						}
+						mergedDuplicate = true;
+					}
 				}
 			}
+			// 快照对比逐字段判定真实变化；路径按 canonical 形态比较，隔离分隔符/大小写差异。
+			const touched =
+				restoredDismissed ||
+				mergedDuplicate ||
+				canonicalizeSessionPath(before.filePath ?? "", entry.environment) !== canonicalizeSessionPath(entry.filePath ?? "", entry.environment) ||
+				before.piSessionId !== entry.piSessionId ||
+				before.dshSessionId !== entry.dshSessionId ||
+				before.acpSessionId !== entry.acpSessionId ||
+				before.agentPreset !== entry.agentPreset ||
+				before.status !== entry.status ||
+				before.originKey !== entry.originKey ||
+				before.createdAt !== entry.createdAt ||
+				before.model !== entry.model ||
+				before.thinkingLevel !== entry.thinkingLevel ||
+				before.importedSourceId !== entry.importedSourceId;
+			// 无实际变化：不刷新 updatedAt、不落盘（enqueueMutation changed:false 跳过快照），
+			// 让 runtime 事件风暴里的重复 attach 成为廉价 no-op。
+			if (!touched) return { value: cloneEntry(entry), changed: false };
 			entry.updatedAt = Date.now();
 			return { value: cloneEntry(entry), changed: true };
 		});
@@ -745,11 +1172,13 @@ export class SessionCatalog {
 
 	async remove(id: string): Promise<boolean> {
 		this.assertLoaded();
-		if (this.transientEntries.delete(id)) return true;
+		const requestedId = this.resolveSessionId(id);
+		if (this.transientEntries.delete(requestedId)) return true;
 		return this.enqueueMutation((entries) => {
-			const index = entries.findIndex((entry) => entry.id === id);
-			if (index < 0) return { value: false, changed: false };
-			entries.splice(index, 1);
+			// 执行时解析：排队期间同源归并可能已把旧 ID 吸收进存活条目。
+			const entry = this.findEntryInTransaction(entries, requestedId);
+			if (!entry) return { value: false, changed: false };
+			entries.splice(entries.indexOf(entry), 1);
 			return { value: true, changed: true };
 		});
 	}
@@ -764,7 +1193,8 @@ export class SessionCatalog {
 	 */
 	async removeWithDescendants(id: string): Promise<string[]> {
 		this.assertLoaded();
-		const parent = this.transientEntries.get(id) ?? this.entries.find((entry) => entry.id === id);
+		const requestedId = this.resolveSessionId(id);
+		const parent = this.transientEntries.get(requestedId) ?? this.entries.find((entry) => entry.id === requestedId);
 		if (!parent) return [];
 		const projectEntries = this.listEntries().filter((entry) => entry.projectId === parent.projectId);
 		const ids = collectSessionSubtreeIds(projectEntries, parent);
@@ -777,7 +1207,8 @@ export class SessionCatalog {
 		if (persistedIds.length === 0) return removed;
 
 		const persistedRemoved = await this.enqueueMutation((entries) => {
-			const idSet = new Set(persistedIds);
+			// 执行时解析：排队期间被同源归并吸收的 ID 指向存活条目，删除必须落在真正存活的记录上。
+			const idSet = new Set(persistedIds.map((sessionId) => this.canonicalIdInTransaction(sessionId)));
 			const next = entries.filter((entry) => !idSet.has(entry.id));
 			const actuallyRemoved = entries.filter((entry) => idSet.has(entry.id)).map((entry) => entry.id);
 			if (actuallyRemoved.length === 0) return { value: [] as string[], changed: false };
@@ -794,14 +1225,15 @@ export class SessionCatalog {
 	 */
 	async promoteToActive(sessionId: string): Promise<SessionRecord | undefined> {
 		this.assertLoaded();
-		const transient = this.transientEntries.get(sessionId);
+		const requestedId = this.resolveSessionId(sessionId);
+		const transient = this.transientEntries.get(requestedId);
 		if (transient) {
 			if (transient.status === "draft") transient.status = "active";
 			transient.updatedAt = Date.now();
 			return this.recordFromEntry(transient);
 		}
 		const entry = await this.enqueueMutation((entries) => {
-			const nextEntry = this.requireEntry(entries, sessionId);
+			const nextEntry = this.requireEntry(entries, requestedId);
 			if (nextEntry.status === "draft") nextEntry.status = "active";
 			nextEntry.updatedAt = Date.now();
 			return { value: cloneEntry(nextEntry), changed: true };
@@ -827,18 +1259,11 @@ export class SessionCatalog {
 		});
 	}
 
-	async removeByFilePath(
-		filePath: string,
-		environment: SessionEnvironment,
-	): Promise<boolean> {
+	async removeByFilePath(filePath: string, environment: SessionEnvironment): Promise<boolean> {
 		this.assertLoaded();
 		const target = canonicalizeSessionPath(filePath, environment);
 		return this.enqueueMutation((entries) => {
-			const index = entries.findIndex((entry) => (
-				entry.filePath &&
-				entry.environment === environment &&
-				canonicalizeSessionPath(entry.filePath, environment) === target
-			));
+			const index = entries.findIndex((entry) => entry.filePath && entry.environment === environment && canonicalizeSessionPath(entry.filePath, environment) === target);
 			if (index < 0) return { value: false, changed: false };
 			entries.splice(index, 1);
 			return { value: true, changed: true };
@@ -849,17 +1274,61 @@ export class SessionCatalog {
 		projectId: string,
 		summaries: SessionSummary[],
 		context: SessionCatalogContext = this.identityContext,
+		options: {
+			/**
+			 * 本次并入来自用户手动导入（外置目录导入）：命中条目打上 manualProjectAssignment，
+			 * 之后别的项目扫描不得把归属改回去。
+			 */
+			manualAssignment?: boolean;
+		} = {},
 	): Promise<SessionRecord[]> {
 		this.assertLoaded();
-		// 轻量列表扫描的 summary 不带 name（listPathSummary 只 stat，见 SessionScanner）；
-		// 新文件/占位标题需要补名，已有标题的文件若 mtime 变化也需有界回读——pi-tui `/name`
-		// 会在 JSONL 末尾追加 session_info，否则项目刷新和重启 Session 都只会继续使用旧 catalog 标题。
-		// 同一次读头部顺带校验会话头有效性：invalidOrigins 收集被判定为非有效会话
-		// 的 originKey（transcript 等无 type 头的产物，#168），下面据此清洗与拒绝。
-		const { names: fetchedNames, authoritative: fetchedAuthoritativeByOrigin, invalid: invalidOrigins, parents: fetchedParents, forked: fetchedForked } =
-			await this.collectScannedTitles(summaries, context);
+		// 新发现文件用 pi JSONL 标题初始化 catalog；一旦 catalog 已有记录，后续扫描
+		// 只更新文件身份、预览和结构元数据，不能用 pi/TUI 的标题覆盖 PiDeck 名称。
+		// 同一次读取仍校验会话头：invalidOrigins 收集非有效会话文件，下面据此清洗与拒绝。
+		const { titles: fetchedTitles, legacyProbes: fetchedLegacyProbes, invalid: invalidOrigins, parents: fetchedParents, forked: fetchedForked } = await this.collectScannedTitles(summaries, context);
+
+		// 外部删除清理（在入锁前完成磁盘探测）：mergeScanned 历史上只增改不删，
+		// pi 会话文件被外部删除（pi 回收站、用户手工 rm、脚本清理）后条目会永远
+		// 残留在侧栏。安全闸（缺一不可）：
+		// - 仅本项目 + source=pi + backend≠dsh：dsh 会话文件由 $DSH_HOME 托管；
+		// - environment=native：WSL 条目跳过——发行版未运行时 UNC existsSync 恒
+		//   false，会把正常会话误删；
+		// - 必须真实 existsSync 缺失（而非「不在本轮 summaries 里」），部分扫描/
+		//   手动导入调用不会误判；
+		// - 必须有存在的祖先目录锚点：从父目录逐级向上找第一个存在的目录，找到
+		//   即「磁盘可达而文件不在」= 确定的外部删除；一路到根都不存在（磁盘/
+		//   网络盘整体离线、路径临时不可达）才跳过。只看直接父目录会把嵌套子
+		//   代理会话（<encoded>/<父会话目录>/<agentId>/run-N/session.jsonl）漏掉——
+		//   父会话目录被整体删除后多级父目录都不在，记录永远残留并会在小窗
+		//   报 ENOENT（2027-02 事故）。
+		const externallyMissingIds = new Set<string>();
+		for (const entry of this.entries) {
+			if (entry.projectId !== projectId) continue;
+			if (entry.source !== "pi" || entry.backend === "dsh") continue;
+			if (entry.environment !== "native") continue;
+			if (!entry.filePath) continue;
+			// 活跃运行时的文件可能尚未落盘：pi 首条消息才创建 jsonl，预热激活后空闲
+			// 进程甚至长期不写。有活绑定的会话「文件暂时不在」不是外部删除，跳过；
+			// 运行终结后下一轮扫描按真实缺失清理（2026-10-05 事故：预热 attach 同秒
+			// 扫描剔掉记录 → 闪回引导页、输入草稿丢失、发送另起新进程）。
+			if (this.sessionLivenessProbe?.(entry.id)) continue;
+			if (existsSync(entry.filePath)) continue;
+			if (!findExistingAncestorDir(entry.filePath)) continue;
+			externallyMissingIds.add(entry.id);
+		}
+
 		return this.enqueueMutation((entries) => {
 			let changed = false;
+
+			// 剔除磁盘已消失的 pi 原生条目（探测结果在入锁前算好）。
+			if (externallyMissingIds.size > 0) {
+				for (let index = entries.length - 1; index >= 0; index -= 1) {
+					if (!externallyMissingIds.has(entries[index]!.id)) continue;
+					entries.splice(index, 1);
+					changed = true;
+				}
+			}
 
 			// 清洗存量脏数据：pi-subagents artifactDir="session"（默认）的产物转储
 			// 曾被旧版扫描误注册成 active 条目，导致每个子代理在侧栏「嵌套 + 顶层平铺」
@@ -893,18 +1362,14 @@ export class SessionCatalog {
 				return true;
 			});
 
-			const byOrigin = new Map(
-				entries
-					.filter((entry) => entry.originKey)
-					.map((entry) => [entry.originKey!, entry]),
-			);
+			const byOrigin = new Map(entries.filter((entry) => entry.originKey).map((entry) => [entry.originKey!, entry]));
 			const summaryById = new Map<string, SessionSummary>();
 
 			// Restore model/thinking from the session file when the catalog lacks them.
 			// (Explicit user picks are already stored on the entry and are preserved.)
 			function inheritSessionMeta(entry: SessionCatalogEntry, summary: SessionSummary) {
 				if (!entry.model && summary.model) {
-					entry.model = { ...summary.model };
+					entry.model = createSessionModelPreference(summary.model.provider, summary.model.modelId, undefined);
 					changed = true;
 				}
 				if (!entry.thinkingLevel && summary.thinkingLevel) {
@@ -915,11 +1380,12 @@ export class SessionCatalog {
 
 			for (const summary of acceptedSummaries) {
 				const originKey = buildSummaryOriginKey(summary, context);
-				const fetchedTitle = fetchedNames.get(originKey);
-				// 权威性：命中 session_info（或显式 name 行）才允许覆盖 catalog 已有真实标题。
-				// 首条消息回退（nameFromSessionInfo === false）是弱信号——会话文件变大后
-				// session_info 可能落在扫描器头/尾窗口的盲区，弱回退不得把用户/自动命名冲掉。
-				const fetchedAuthoritative = fetchedAuthoritativeByOrigin.get(originKey) ?? true;
+				// 标题来源优先级：summary.name（readSummary 全量路径）先于读头补名。
+				// nameFromSessionInfo=false 表示首条消息弱回退，所有权只算 fallback（#266）。
+				const summaryTitle = catalogDisplayTitle(summary.name);
+				const fetched = fetchedTitles.get(originKey);
+				const fetchedTitle = catalogDisplayTitle(fetched?.name);
+				const initialAuthoritative = summaryTitle ? summary.nameFromSessionInfo !== false : fetched?.fromSessionInfo === true;
 				// 平铺子代理（tintinweb 形态）父关系回补：轻量扫描不带 parentSessionPath，
 				// 标题回读时若探测到父（<agent>#<8hex> + parentSession header）则用拾取值；
 				// 普通会话/用户 fork 不探测到该值，保持 summary/旧值原样。
@@ -931,15 +1397,18 @@ export class SessionCatalog {
 				let entry = byOrigin.get(originKey);
 				if (!entry) {
 					const now = summary.updatedAt || Date.now();
+					const initialTitle = summaryTitle || fetchedTitle || scannedFileStemTitle(summary.filePath);
+					const initialOrigin = scannedTitleOrigin(initialTitle, initialAuthoritative);
 					entry = {
 						id: randomUUID(),
 						projectId,
 						originKey,
 						// listPathSummary 没有 name；readSummary 若仍带回时间戳文件名，也不能当标题。
-						// summary.name（全量解析）优先，头部补名次之，最后才回退文件名 stem。
-						title: catalogDisplayTitle(summary.name)
-							|| catalogDisplayTitle(fetchedTitle)
-							|| scannedFileStemTitle(summary.filePath),
+						// 发现时读取到的名称是初始化值；纯占位名留给一次自动/补名领取，
+						// 首条消息弱回退只算 fallback（等待扩展模型标题升级）。
+						title: initialTitle,
+						titleLocked: initialOrigin !== undefined,
+						titleOrigin: initialOrigin,
 						source: summary.source ?? "pi",
 						environment: getSessionEnvironment(summary),
 						filePath: summary.filePath,
@@ -955,26 +1424,47 @@ export class SessionCatalog {
 					entries.push(entry);
 					byOrigin.set(originKey, entry);
 					changed = true;
+					if (options?.manualAssignment) entry.manualProjectAssignment = true;
 				} else {
-					// 旧 catalog 可能已经保存了时间戳文件名；不能在清洗失败时用 entry.title 回退，
-					// 否则每次扫描都会把这个错误标题原样保留下来，重启后仍显示时间戳。
-					// 已存在真实标题时，弱回退（首条消息文本）不得覆盖（2026-09 现场：
-					// 自动命名 session_info 被第二轮消息挤出窗口盲区后被消息文本冲掉）；
-					// 权威回读（session_info 命中）与占位标题升级不受此限。
-					const nextTitle = catalogDisplayTitle(summary.name)
-						|| (fetchedAuthoritative || isPlaceholderCatalogTitle(entry.title)
-							? catalogDisplayTitle(fetchedTitle)
-							: undefined)
-						|| catalogDisplayTitle(entry.title)
-						|| scannedFileStemTitle(summary.filePath);
+					// Catalog is the display-title authority. An explicitly unlocked entry is a
+					// fresh provisional session, even if its UI label is "<project> agent";
+					// it may absorb exactly one initial JSONL title before becoming owned.
+					const canInitializeTitle = !isTitleLocked(entry);
+					const initialTitle = summaryTitle || fetchedTitle;
+					// fork/copy 现场（2026-10-08）：扫描在 pi 写入 session_info 名之前的几百毫秒
+					// 窗口里先索引了新文件，从首条/尾部窗口兜底猜出一个标题并锁成 fallback；
+					// 随后权威名落盘，但 canInitializeTitle 把它拒之门外 → 侧栏永久停在猜出
+					// 的正文上。所有权语义上 fallback 是「内容派生的猜测」，权威 session_info
+					// 名是「pi/用户写下的名字」——后者必须能升级前者（fallback → manual）。
+					// auto/manual/legacy 终态不动（无命中时走 ?? 兑底保持原 origin）。
+					const authoritativeUpgrade = initialAuthoritative && resolveTitleOrigin(entry) === "fallback";
+					const canAbsorbTitle = canInitializeTitle || authoritativeUpgrade;
+					// #266 存量自愈：legacy 条目读盘探测过一次。指纹命中（catalog 存的正是弱兜底名、
+					// JSONL 另有权威名）才改写标题；探测过但没命中就消费掉这一次机会，落 manual 终态，
+					// 避免每次扫描都为一个不可能自愈的条目读盘。读盘失败则保持 legacy 下次再试。
+					const legacyProbe = fetchedLegacyProbes.get(originKey);
+					const legacyRepair = legacyProbe ? repairedLegacyFallbackTitle(entry, summaryTitle && summary.nameFromSessionInfo === true ? { ...legacyProbe, authoritative: summaryTitle } : legacyProbe) : undefined;
+					const nextTitle = legacyRepair || (canAbsorbTitle ? initialTitle : undefined) || catalogDisplayTitle(entry.title) || scannedFileStemTitle(summary.filePath);
+					// rollout 文件名标题（历史导入兑底）不锁定：留一次被真实标题覆盖的机会；
+					// 真实标题一旦落库即锁定，后续 pi /name 或 JSONL 变化不再反向改写。
+					// 未锁定条目吸收的新标题按来源升级：权威 session_info → manual，首条消息弱回退 → fallback。
+					const nextOrigin = legacyProbe ? "manual" : ((canAbsorbTitle && initialTitle ? scannedTitleOrigin(nextTitle, initialAuthoritative) : undefined) ?? resolveTitleOrigin(entry));
+					const nextTitleLocked = nextOrigin !== undefined;
 					// 父关系最终值：新探测值优先，缺失时保留旧值（轻量扫描恒缺省，不能清掉已持久化的父）。
 					const nextParent = summary.parentSessionPath ?? fetchedParent ?? entry.parentSessionPath;
 					// fork 标记同样只增补、不清空：未探测到（轻量扫描/普通会话）保留持久化值。
-					const nextForked = nextParent ? entry.forked : (fetchedForkedFlag || entry.forked);
+					const nextForked = nextParent ? entry.forked : fetchedForkedFlag || entry.forked;
+					// 手动导入钉住的归属：别的项目扫描不得改回去（见 SessionCatalogEntry 注释）；
+					// 用户再一次手动导入（manualAssignment）表示明确改主意，允许迁移到新项目。
+					const nextProjectId = entry.manualProjectAssignment && !options?.manualAssignment && entry.projectId !== projectId ? entry.projectId : projectId;
+					// 扫描快照可能早于排队期间完成的改名或新一轮活动；保留较新时间，但不因标题锁定挡住后续文件活动。
+					const nextUpdatedAt = Math.max(entry.updatedAt, summary.updatedAt);
 					if (
-						entry.projectId !== projectId ||
+						entry.projectId !== nextProjectId ||
 						entry.filePath !== summary.filePath ||
 						entry.title !== nextTitle ||
+						entry.titleLocked !== nextTitleLocked ||
+						entry.titleOrigin !== nextOrigin ||
 						entry.source !== (summary.source ?? "pi") ||
 						entry.environment !== getSessionEnvironment(summary) ||
 						entry.wslDistro !== (summary.wsl ? context.wslDistro : undefined) ||
@@ -983,11 +1473,13 @@ export class SessionCatalog {
 						entry.status !== "active" ||
 						entry.parentSessionPath !== nextParent ||
 						entry.forked !== nextForked ||
-						entry.updatedAt !== summary.updatedAt
+						entry.updatedAt !== nextUpdatedAt
 					) {
-						entry.projectId = projectId;
+						entry.projectId = nextProjectId;
 						entry.filePath = summary.filePath;
 						entry.title = nextTitle;
+						entry.titleLocked = nextTitleLocked;
+						entry.titleOrigin = nextOrigin;
 						entry.source = summary.source ?? "pi";
 						entry.environment = getSessionEnvironment(summary);
 						entry.wslDistro = summary.wsl ? context.wslDistro : undefined;
@@ -1002,7 +1494,12 @@ export class SessionCatalog {
 						// 故此处只增补、不清空——新值优先，其次保留旧值。
 						entry.parentSessionPath = summary.parentSessionPath ?? fetchedParent ?? entry.parentSessionPath;
 						entry.forked = nextForked;
-						entry.updatedAt = summary.updatedAt;
+						entry.updatedAt = nextUpdatedAt;
+						changed = true;
+					}
+					// 只有本次是手动导入才置位（自动扫描不得清除既有置位，否则归属又会被抢走）。
+					if (options?.manualAssignment && !entry.manualProjectAssignment) {
+						entry.manualProjectAssignment = true;
 						changed = true;
 					}
 				}
@@ -1010,74 +1507,67 @@ export class SessionCatalog {
 				inheritSessionMeta(entry, summary);
 			}
 
-			const records = entries
-				.filter((entry) => entry.projectId === projectId)
-				.map((entry) => this.recordFromEntry(entry, summaryById.get(entry.id)));
+			const records = entries.filter((entry) => entry.projectId === projectId).map((entry) => this.recordFromEntry(entry, summaryById.get(entry.id)));
 			const idByPath = new Map<string, string>();
 			for (const record of records) {
 				if (!record.filePath) continue;
-				idByPath.set(
-					canonicalizeSessionPath(record.filePath, record.environment),
-					record.id,
-				);
+				idByPath.set(canonicalizeSessionPath(record.filePath, record.environment), record.id);
 			}
 			for (const record of records) {
 				if (!record.parentSessionPath) continue;
-				record.parentSessionId = idByPath.get(
-					canonicalizeSessionPath(record.parentSessionPath, record.environment),
-				);
+				record.parentSessionId = idByPath.get(canonicalizeSessionPath(record.parentSessionPath, record.environment));
 			}
 			return {
 				value: records.sort((left, right) => right.updatedAt - left.updatedAt),
 				changed,
 			};
-		}).then((records) => [
-			...Array.from(this.transientEntries.values())
-				.filter((entry) => entry.projectId === projectId)
-				.map((entry) => this.recordFromEntry(entry)),
-			...records,
-		].sort((left, right) => right.updatedAt - left.updatedAt));
+		}).then((records) =>
+			[
+				...Array.from(this.transientEntries.values())
+					.filter((entry) => entry.projectId === projectId)
+					.map((entry) => this.recordFromEntry(entry)),
+				...records,
+			].sort((left, right) => right.updatedAt - left.updatedAt),
+		);
 	}
 
-	/** 对新文件/占位标题，或文件版本相对 catalog 发生变化的条目读取标题。
-	 *  unchanged 的真实标题不读盘，避免周期扫描重复 I/O；mtime 变化则回读头尾以同步
-	 *  pi-tui `/name` 追加的 session_info。同一次读取顺带校验会话头有效性（#168）：transcript 等无 type 头的产物
-	 *  被标记 invalid，mergeScanned 据此拒绝索引并清洗存量条目。
-	 *  tintinweb 平铺子代理（@tintinweb/pi-subagents）会话名固定 <agent>#<8hex>：
-	 *  一旦标题回填该形态而条目仍无父关系，说明它是历史扫描遗留的孤儿（旧版 catalog
-	 *  不含 parentSessionPath），需要重新读头部回补（见 fetchTitle 返回的 parentSessionPath）。
-	 *  用户 fork 的名字由用户命名、通常不匹配该模式，不会被额外唤醒读盘。 */
-	private async collectScannedTitles(
-		summaries: SessionSummary[],
-		context: SessionCatalogContext,
-	): Promise<{ names: Map<string, string>; authoritative: Map<string, boolean>; invalid: Set<string>; parents: Map<string, string>; forked: Map<string, boolean> }> {
-		const names = new Map<string, string>();
-		const authoritative = new Map<string, boolean>();
+	/** 对新文件、未确认 provisional 标题，或需要一次性回填旧子代理父关系的条目读取会话头。
+	 * 已锁定 catalog 标题不会因为文件 mtime 变化而补读：PiDeck 已持久化显示名，
+	 * 也不再关心 JSONL 中段或尾部追加的 session_info。标题读取仍顺带校验会话头、
+	 * 补平铺子代理父关系和 fork 标记。 */
+	private async collectScannedTitles(summaries: SessionSummary[], context: SessionCatalogContext): Promise<{ titles: Map<string, ScannedTitleFetch>; legacyProbes: Map<string, LegacyTitleProbe>; invalid: Set<string>; parents: Map<string, string>; forked: Map<string, boolean> }> {
+		const titles = new Map<string, ScannedTitleFetch>();
+		// 只收录**读取成功**的 legacy 探测：读不到（权限/锁定/WSL 抖动）时条目保持 legacy，下次扫描再试，
+		// 否则一次瞬时失败就会把唯一的一次自愈机会消费掉。
+		const legacyProbes = new Map<string, LegacyTitleProbe>();
 		const invalid = new Set<string>();
 		const parents = new Map<string, string>();
 		const forked = new Map<string, boolean>();
-		if (!this.fetchTitle) return { names, authoritative, invalid, parents, forked };
-		const byOrigin = new Map(
-			this.entries.filter((entry) => entry.originKey).map((entry) => [entry.originKey!, entry]),
-		);
-		const wanted: Array<{ originKey: string; filePath: string }> = [];
+		if (!this.fetchTitle) return { titles, legacyProbes, invalid, parents, forked };
+		const byOrigin = new Map(this.entries.filter((entry) => entry.originKey).map((entry) => [entry.originKey!, entry]));
+		const wanted: Array<{ originKey: string; filePath: string; includeTitle: boolean; legacyProbe?: boolean; lockedTitle?: string }> = [];
 		for (const summary of summaries) {
 			const originKey = buildSummaryOriginKey(summary, context);
-			// readSummary 全量路径已携带权威标题，无需再次读盘。
-			if (catalogDisplayTitle(summary.name)) continue;
 			const existing = byOrigin.get(originKey);
-			if (existing) {
-				const tintinwebOrphan = existing.source === "pi"
-					&& !existing.parentSessionPath
-					&& /^[^#]+#[0-9a-f]{8}$/i.test(existing.title);
-				const fileVersionChanged = existing.updatedAt !== summary.updatedAt;
-				// 已有真实标题且文件版本未变时跳过；变化通常意味着 pi 追加消息/改名，
-				// 头尾窗口读取会用最后一条 session_info 更新标题，成本仍受 128KB 上限约束。
-				if (!isPlaceholderCatalogTitle(existing.title) && !tintinwebOrphan && !fileVersionChanged) continue;
+			if (existing && isTitleLocked(existing)) {
+				// Existing PiDeck-owned sessions do not need title freshness. The only
+				// retained disk probe repairs a legacy flat subagent's missing parent link,
+				// and requests header-only metadata rather than a full title scan.
+				// 例外：legacy 存量条目（#266 可能被误锁）读一次标题窗口，用「权威名 + 弱兜底候选」做指纹判定；
+				// 命中即修、不命中转终态，一次读取收口，之后与其他锁定条目一样不再读盘。
+				const legacy = existing.source === "pi" && resolveTitleOrigin(existing) === "legacy";
+				const tintinwebOrphan = existing.source === "pi" && !existing.parentSessionPath && /^[^#]+#[0-9a-f]{8}$/i.test(existing.title);
+				if (legacy) wanted.push({ originKey, filePath: summary.filePath, includeTitle: true, legacyProbe: true, lockedTitle: existing.title });
+				else if (tintinwebOrphan) wanted.push({ originKey, filePath: summary.filePath, includeTitle: false });
+				continue;
 			}
-			wanted.push({ originKey, filePath: summary.filePath });
+			// readSummary 全量路径已携带初始名称，无需再次读盘。
+			if (catalogDisplayTitle(summary.name)) continue;
+			// New files and explicitly unlocked provisional records need one exact title
+			// read; every other locked record remains entirely out of this path.
+			wanted.push({ originKey, filePath: summary.filePath, includeTitle: true });
 		}
-		if (wanted.length === 0) return { names, authoritative, invalid, parents, forked };
+		if (wanted.length === 0) return { titles, legacyProbes, invalid, parents, forked };
 		// 有界并行读头部；限制并发避免 WSL 环境一次拉起过多 wsl.exe。
 		// 单个失败降级为无标题/不拒绝，不影响扫描结果。
 		const CONCURRENCY = 8;
@@ -1085,11 +1575,34 @@ export class SessionCatalog {
 		const workers = Array.from({ length: Math.min(CONCURRENCY, wanted.length) }, async () => {
 			while (cursor < wanted.length) {
 				const item = wanted[cursor++];
-				const result = await this.fetchTitle!(item.filePath).catch(() => undefined);
+				const result = await this.fetchTitle!(item.filePath, { includeTitle: item.includeTitle }).catch(() => undefined);
 				if (!result) continue;
-				if (result.name) {
-					names.set(item.originKey, result.name);
-					authoritative.set(item.originKey, result.nameFromSessionInfo !== false);
+				if (item.includeTitle && result.name) {
+					// fromSessionInfo=false 是首条消息弱回退（#266）：所有权只能算 fallback，
+					// 缺省（旧 fetcher/未标记）按权威名处理，保持既有行为。
+					// 权威名本身是标记脏行（第三方上下文代理把它写进了 session_info）时不采信：
+					// 有弱兜底就用弱兜底（侧栏显示首句而不是日志，所有权仍算 fallback，可被扩展升级）；
+					// 连弱兜底都没有就干脆不登记，让条目保持占位标题等后续命名。
+					const junkMarkerName = result.nameFromSessionInfo !== false && looksLikeToolMarkerTitle(result.name);
+					const scannedName = junkMarkerName ? result.fallbackName : result.name;
+					if (scannedName) {
+						titles.set(item.originKey, { name: scannedName, fromSessionInfo: junkMarkerName ? false : result.nameFromSessionInfo !== false, fallbackName: result.fallbackName });
+					}
+				}
+				if (item.legacyProbe) {
+					// 只有真读到 session_info 才算权威名：另一个弱兜底不能用来「修复」弱兜底。
+					const authoritative = result.nameFromSessionInfo === true ? result.name : undefined;
+					// #266：窗口兜底对不上目录标题时才多读一次有界前缀，取「文件内真首句」当第二指纹基准
+					// （系统提示很大时窗口兜底会退化成尾部消息，只有真首句与当年写进 catalog 的标题一致）。
+					const needsFirstUserText = Boolean(authoritative) && normalizeFingerprintTitle(result.fallbackName) !== normalizeFingerprintTitle(item.lockedTitle);
+					// 深读失败（WSL 超时/文件被占）只降级回「窗口兜底比对」并消费掉这一次机会，不像读盘失败那样保持可重试：
+					// 一条修不了的存量条目不值得每次扫描都再读 8MB。方向是安全的——最多保持原标题，不会写错。
+					const firstUserText = needsFirstUserText
+						? await this.fetchTitle!(item.filePath, { includeTitle: false, includeFirstUserText: true })
+								.then((extra) => extra?.firstUserText)
+								.catch(() => undefined)
+						: undefined;
+					legacyProbes.set(item.originKey, { authoritative, fallback: result.fallbackName, firstUserText });
 				}
 				// valid 显式为 false 才拒绝；缺省（读不到/未校验）保留原行为
 				if (result.valid === false) invalid.add(item.originKey);
@@ -1102,29 +1615,28 @@ export class SessionCatalog {
 			}
 		});
 		await Promise.all(workers);
-		return { names, authoritative, invalid, parents, forked };
+		return { titles, legacyProbes, invalid, parents, forked };
 	}
 
-	private recordFromEntry(
-		entry: SessionCatalogEntry,
-		summary?: SessionSummary,
-	): SessionRecord {
+	private recordFromEntry(entry: SessionCatalogEntry, summary?: SessionSummary): SessionRecord {
 		return {
 			id: entry.id,
 			projectId: entry.projectId,
-			title: catalogDisplayTitle(summary?.name) || catalogDisplayTitle(entry.title) || "Untitled",
+			title: catalogDisplayTitle(entry.title) || "Untitled",
 			noSession: entry.noSession,
 			source: summary?.source ?? entry.source,
 			environment: summary ? getSessionEnvironment(summary) : entry.environment,
+			channel: entry.channel,
 			backend: entry.backend,
+			sideTask: entry.sideTask,
 			filePath: summary?.filePath ?? entry.filePath,
 			wslDistro: entry.wslDistro,
 			wslUser: entry.wslUser,
-			importedSourceId: summary
-				? getImportedSessionSourceId(summary)
-				: entry.importedSourceId,
+			importedSourceId: summary ? getImportedSessionSourceId(summary) : entry.importedSourceId,
 			parentSessionPath: summary?.parentSessionPath ?? entry.parentSessionPath,
 			forked: entry.forked,
+			supersededBy: entry.supersededBy,
+			mergedSessionIds: entry.mergedSessionIds ? [...entry.mergedSessionIds] : undefined,
 			projectPath: summary?.projectPath,
 			preview: summary?.preview ?? "",
 			messageCount: summary?.messageCount ?? 0,
@@ -1133,10 +1645,13 @@ export class SessionCatalog {
 			thinkingLevel: entry.thinkingLevel,
 			permissionPreset: entry.permissionPreset,
 			agentPreset: entry.agentPreset,
+			acpToolId: entry.acpToolId,
 			dshSessionId: entry.dshSessionId,
+			acpSessionId: entry.acpSessionId,
 			proxy: entry.proxy ? { ...entry.proxy } : undefined,
 			createdAt: entry.createdAt,
-			updatedAt: summary?.updatedAt ?? entry.updatedAt,
+			// 返回记录与持久化活动时间同口径，不能让旧扫描摘要把刚保住的排序时间又投影回去。
+			updatedAt: Math.max(entry.updatedAt, summary?.updatedAt ?? entry.updatedAt),
 			wsl: summary?.wsl,
 			codexSessionId: summary?.codexSessionId,
 			codexThreadSource: summary?.codexThreadSource,
@@ -1159,56 +1674,80 @@ export class SessionCatalog {
 	}
 
 	/**
-	 * 把条目中的相对 filePath 修正为绝对路径（通过注入的 resolver）。
-	 * 返回新数组表示有变更；未注入 resolver 或无需修正时返回 undefined。
+	 * 破坏性同源归并前必须完成的**物理文件确认**（#354 复审）：与启动修复
+	 * （repairSessionCatalogIdentities）同一道闸——条目是 pi 文件会话、路径经 resolver
+	 * 确定为无歧义绝对路径，然后按完整 source/environment/wsl/importedSource 现场重算身份键。
+	 *
+	 * 为什么不看持久化的 `originKey`：项目解析不出来时 resolver 按契约原样返回入参，
+	 * 两个项目各自的 `.pi/sessions/x.jsonl` 会算出同一个相对路径键；拿它当「已确认位置」
+	 * 做归并就是跨项目删记录。无法确认时返回 undefined，调用方必须保守保留。
 	 */
-	private repairRelativeFilePaths(
-		entries: SessionCatalogEntry[],
-	): SessionCatalogEntry[] | undefined {
-		const resolve = this.resolveFilePath;
-		if (!resolve) return undefined;
-		let changed = false;
-		const next = entries.map((entry) => {
-			if (!entry.filePath) return entry;
-			const resolved = resolve(
-				entry.projectId,
-				entry.filePath,
-				entry.environment,
-			);
-			if (!resolved || resolved === entry.filePath) return entry;
-			changed = true;
-			const repaired = { ...entry, filePath: resolved };
-			// originKey 随路径变化重算，否则后续 mergeScanned/attachRuntime 仍按旧 key 去重
-			if (repaired.originKey) repaired.originKey = this.originKeyForEntry(repaired);
-			return repaired;
-		});
-		return changed ? next : undefined;
+	private confirmedOriginKey(entry: SessionCatalogEntry): string | undefined {
+		if (!isFileSession(entry) || !entry.filePath) return undefined;
+		const resolved = this.resolveFilePath ? this.resolveFilePath(entry.projectId, entry.filePath, entry.environment) : entry.filePath;
+		if (!resolved || !isUnambiguousAbsoluteSessionPath(resolved)) return undefined;
+		return this.originKeyForEntry(resolved === entry.filePath ? entry : { ...entry, filePath: resolved });
 	}
 
-	private requireEntry(
-		entries: SessionCatalogEntry[],
-		id: string,
-	): SessionCatalogEntry {
-		const entry = entries.find((candidate) => candidate.id === id);
+	private requireEntry(entries: SessionCatalogEntry[], id: string): SessionCatalogEntry {
+		const entry = this.findEntryInTransaction(entries, id);
 		if (!entry) throw new Error(`Session not found: ${id}`);
 		return entry;
+	}
+
+	/**
+	 * 事务内身份归一（#354 复审）：写队列里排在前面的 mutation 可能已经把入队时存在的 ID 吸收进
+	 * 同源存活条目（attach 折叠重复记录），所以 queued operation 必须在**执行时**按最新别名表
+	 * 解析身份。只靠入队时的 `resolveSessionId` 快照会指向已被吸收的旧 ID，操作一到执行就变成
+	 * 「Session not found」/静默不命中（真实的「先 attach 再改名」顺序）。
+	 *
+	 * 别名索引在每次成功 mutation 后重建，事务内读到的一定是最近一次已提交状态；每轮归并把吸收的
+	 * ID 与它自己的历史别名全量累计进 `mergedSessionIds`，因此一步解析即收敛，不会成链。
+	 */
+	private canonicalIdInTransaction(id: string): string {
+		return this.mergedIdAliases.get(id) ?? id;
+	}
+
+	private findEntryInTransaction(entries: SessionCatalogEntry[], id: string): SessionCatalogEntry | undefined {
+		const canonical = this.canonicalIdInTransaction(id);
+		return entries.find((candidate) => candidate.id === canonical);
+	}
+
+	/**
+	 * 标记重发/编辑 fork 化替换：origin 会话被 fork 出的子会话接替（supersededBy=子会话 id）。
+	 * 只打标记不删文件——旧 JSONL 留在磁盘可恢复，会话列表按该标记过滤（sessionsCatalogList）。
+	 * 幂等：同值重复标记不产生写入；id 未知（fork 成功但记录已被并发删除的竞态）静默返回 undefined。
+	 */
+	async markSuperseded(id: string, supersededBy: string): Promise<SessionCatalogEntry | undefined> {
+		this.assertLoaded();
+		const sessionId = this.resolveSessionId(id);
+		return this.enqueueMutation((entries) => {
+			// 执行时解析：排队期间同源归并可能已把旧 ID 吸收进存活条目。
+			const entry = this.findEntryInTransaction(entries, sessionId);
+			if (!entry) return { value: undefined, changed: false };
+			if (entry.supersededBy === supersededBy) {
+				return { value: cloneEntry(entry), changed: false };
+			}
+			entry.supersededBy = supersededBy;
+			entry.updatedAt = Date.now();
+			return { value: cloneEntry(entry), changed: true };
+		});
 	}
 
 	private assertLoaded(): void {
 		if (!this.loaded) throw new Error("SessionCatalog.load() must complete before use");
 	}
 
-	private enqueueMutation<T>(
-		mutate: (entries: SessionCatalogEntry[]) => { value: T; changed: boolean },
-	): Promise<T> {
+	private enqueueMutation<T>(mutate: (entries: SessionCatalogEntry[]) => { value: T; changed: boolean } | Promise<{ value: T; changed: boolean }>): Promise<T> {
 		const operation = this.writeQueue
 			.catch(() => undefined)
 			.then(async () => {
 				const nextEntries = this.entries.map(cloneEntry);
-				const result = mutate(nextEntries);
+				const result = await mutate(nextEntries);
 				if (result.changed) {
 					await this.writeSnapshot(nextEntries);
 					this.entries = nextEntries;
+					this.rebuildMergedIdAliases();
 				}
 				return result.value;
 			});
@@ -1231,21 +1770,16 @@ export class SessionCatalog {
 		if (!Array.isArray(parsed.sessions)) {
 			throw new Error(`Invalid Session catalog: ${filePath}`);
 		}
-		const entries = parsed.sessions.filter((entry): entry is SessionCatalogEntry => (
-			typeof entry?.id === "string" &&
-			typeof entry.projectId === "string" &&
-			typeof entry.title === "string" &&
-			(entry.environment === "native" || entry.environment === "wsl") &&
-			(entry.status === "draft" || entry.status === "active")
-		));
+		const entries = parsed.sessions.filter((entry): entry is SessionCatalogEntry => typeof entry?.id === "string" && typeof entry.projectId === "string" && typeof entry.title === "string" && (entry.environment === "native" || entry.environment === "wsl") && (entry.status === "draft" || entry.status === "active"));
 		if (entries.length !== parsed.sessions.length) {
 			throw new Error(`Session catalog contains invalid records: ${filePath}`);
 		}
-		const dismissed = Array.isArray(parsed.dismissedDshSessionIds)
-			? parsed.dismissedDshSessionIds.filter((id): id is string => (
-				typeof id === "string" && id.trim().length > 0
-			))
-			: [];
+		// 渠道标志是渲染层显示标志的依据：只认白名单值，手改/未来版本的未知值按「无渠道」
+		// 处理，不把未知字符串传给 UI（与 titleOrigin 等字段的读盘清洗同一口径）。
+		for (const entry of entries) {
+			if (entry.channel !== "wechat" && entry.channel !== "feishu") delete entry.channel;
+		}
+		const dismissed = Array.isArray(parsed.dismissedDshSessionIds) ? parsed.dismissedDshSessionIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0) : [];
 		return {
 			entries: entries.map(cloneEntry),
 			dismissedDshSessionIds: new Set(dismissed),
@@ -1299,9 +1833,6 @@ export class SessionCatalog {
 	}
 }
 
-export function didSessionPreferencesChange(
-	entry: SessionCatalogEntry,
-	patch: Pick<SessionCatalogEntry, "model" | "thinkingLevel">,
-): boolean {
+export function didSessionPreferencesChange(entry: SessionCatalogEntry, patch: Pick<SessionCatalogEntry, "model" | "thinkingLevel">): boolean {
 	return !equalModel(entry.model, patch.model) || entry.thinkingLevel !== patch.thinkingLevel;
 }

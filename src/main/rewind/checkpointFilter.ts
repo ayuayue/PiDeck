@@ -6,60 +6,19 @@
  * 让过滤规则（忽略目录、大文件/大目录阈值、路径归属）可以离开 git 单独测绿。
  */
 
-import { statSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-	IGNORED_DIR_NAMES,
-	MAX_UNTRACKED_DIR_FILES,
-	MAX_UNTRACKED_FILE_SIZE,
-} from "./checkpointConstants.ts";
+import { IGNORED_DIR_NAMES } from "./checkpointConstants.ts";
 
 /** 路径任意段命中忽略目录名即忽略（跨平台匹配 / 与 \）。 */
 export function shouldIgnoreForSnapshot(path: string): boolean {
 	return path.split(/[/\\]/).some((c) => IGNORED_DIR_NAMES.has(c));
 }
 
-/** 文件超过 MAX_UNTRACKED_FILE_SIZE 判定；读不到（已删除等）按非大文件处理。 */
-export function isLargeFile(root: string, rel: string): boolean {
-	try {
-		const s = statSync(join(root, rel));
-		return s.isFile() && s.size > MAX_UNTRACKED_FILE_SIZE;
-	} catch {
-		return false;
-	}
-}
-
-/** 目录内（递归）文件数 >= MAX_UNTRACKED_DIR_FILES 判定。 */
-export function isLargeDirectory(root: string, rel: string): boolean {
-	try {
-		const full = join(root, rel);
-		const s = statSync(full);
-		if (!s.isDirectory()) return false;
-		return countFiles(full, MAX_UNTRACKED_DIR_FILES) >= MAX_UNTRACKED_DIR_FILES;
-	} catch {
-		return false;
-	}
-}
-
-/** 递归统计目录内文件数，超过 max 提前截断（避免遍历巨型目录）。 */
-function countFiles(dir: string, max: number): number {
-	let n = 0;
-	const walk = (d: string) => {
-		if (n > max) return;
-		try {
-			for (const e of readdirSync(d, { withFileTypes: true })) {
-				if (n > max) return;
-				if (e.isDirectory()) walk(join(d, e.name));
-				else if (e.isFile()) n++;
-			}
-		} catch {
-			// 无权限子目录跳过（与 pi-rewind 一致）。
-		}
-	};
-	walk(dir);
-	return n;
-}
+// 2027-02 移除 isLargeFile / isLargeDirectory（statSync/readdirSync 同步版）：
+// 大小/大目录判定已由 captureStatusSnapshot 的异步 stat + detectLargeDirs（纯函数，
+// 基于快照数据）承担，这两个同步版无人调用——留着只会被当成「可用的便捷判定」
+// 复用回热路径（checkpoint 打点每 ≥8s 一次，同步 stat 在 WSL/UNC 下是主线程阻塞源）。
 
 /** 统一 git 路径表示：反斜杠→正斜杠、去 ./ 前缀、去尾部斜杠。 */
 export function normalizeGitPath(p: string): string {
@@ -87,11 +46,7 @@ export function isPathWithinAny(path: string, dirs: ReadonlySet<string>): boolea
  * 文件按「最具体（最深）的所在目录」分桶计数；不在任何未跟踪目录下的文件
  * 记到其父目录桶（根目录 "." 不计为大目录——根下文件多不代表该忽略）。
  */
-export function detectLargeDirs(
-	files: string[],
-	dirs: string[],
-	threshold: number,
-): string[] {
+export function detectLargeDirs(files: string[], dirs: string[], threshold: number): string[] {
 	if (threshold <= 0 || files.length === 0) return [];
 	const counts = new Map<string, number>();
 
@@ -132,10 +87,7 @@ export function sanitizeForRef(s: string): string {
 }
 
 /** 找时间戳最接近 targetTs 的 checkpoint（同毫秒时稳定保持先到者）。 */
-export function findClosestCheckpoint<T extends { timestamp: number }>(
-	checkpoints: T[],
-	targetTs: number,
-): T | undefined {
+export function findClosestCheckpoint<T extends { timestamp: number }>(checkpoints: T[], targetTs: number): T | undefined {
 	if (checkpoints.length === 0) return undefined;
 	return checkpoints.reduce((best, cp) => {
 		const bd = Math.abs(best.timestamp - targetTs);

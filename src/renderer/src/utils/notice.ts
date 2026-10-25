@@ -10,13 +10,57 @@
 
 import { createElement } from "react";
 import { toast } from "sonner";
-import { NoticeToastCard, writeClipboardText } from "../components/ui-shadcn/notice-toast";
+import { DEFAULT_TOAST_DURATION_MS, TOAST_DURATION_STICKY_MS } from "../../../shared/types";
+import type { NoticeHistoryKind as SharedNoticeHistoryKind } from "../../../shared/types/noticeHistory";
+import { NoticeToastCard } from "../components/ui-shadcn/notice-toast";
+import { writeClipboard } from "./clipboard";
+import { addActiveNotice, removeActiveNotice } from "./noticeCountStore";
+import { recordNoticeHistory } from "./noticeHistory";
+import type { NoticeHistoryEntry } from "./noticeHistory";
 import { t } from "../i18n";
+
+/**
+ * 通知语义档位：从共享通知历史档位派生（neutral 是无 kind 调用的展示档，不属于语义档）。
+ * `question` 专供 Ask 等待回答：「需要你操作」而非「出错」，不用 warning 黄三角
+ * 以免被误读成失败。
+ */
+export type NoticeKind = Exclude<SharedNoticeHistoryKind, "neutral">;
+
+/**
+ * 全局 toast 展示时长（ms），Number.POSITIVE_INFINITY = 常驻。
+ * 由设置项 `toastDurationMs` 经 configureNoticeDefaults 同步（App 装配层 effect），
+ * 出厂值取 shared 的 DEFAULT_TOAST_DURATION_MS，与主进程 defaultSettings 同源。
+ * 口径是「全局统一」：调用方显式传入的时长不再被尊重，只有常驻（Infinity）保留——
+ * 扩展 ctx.ui.notify 等提示过去硬编码 1500ms，用户普遍反馈「烧一下就没了」。
+ */
+let noticeDefaultDurationMs: number = DEFAULT_TOAST_DURATION_MS;
+
+/**
+ * 同步 toast 展示时长（来自设置项 toastDurationMs）。
+ * 设置层用有限哨兵 TOAST_DURATION_STICKY_MS(-1) 表示常驻——settings.json 存不了
+ * Infinity（JSON 序列化成 null）——这里映射回 sonner 需要的 Number.POSITIVE_INFINITY。
+ * 其余非法值（NaN/负数/0）忽略。
+ */
+export function configureNoticeDefaults(input: { toastDurationMs?: number }): void {
+	const value = input.toastDurationMs;
+	if (typeof value !== "number") return;
+	if (value === TOAST_DURATION_STICKY_MS) {
+		noticeDefaultDurationMs = Number.POSITIVE_INFINITY;
+		return;
+	}
+	if (!Number.isFinite(value) || value <= 0) return;
+	noticeDefaultDurationMs = value;
+}
+
+/** 当前生效的全局展示时长（测试与调试用）。 */
+export function getNoticeDefaultDurationMs(): number {
+	return noticeDefaultDurationMs;
+}
 
 type NoticeData = {
 	message: string;
 	duration: number;
-	kind?: "info" | "error" | "warning";
+	kind?: NoticeKind;
 };
 
 /** toast 上的可点击按钮（对应 sonner 的 action/cancel）。 */
@@ -40,12 +84,14 @@ export type NoticeId = string | number;
 // ── DOM 兜底 toast 的图标源（与 NoticeToastCard 的 KIND_ICON 同款 lucide path）──
 // 正常路径走 React 组件（lucide-react）；这里只能用纯 DOM 重建卡片，直接内嵌同款
 // path 保证两套渲染（sonner 自定义卡片 / Toaster 未挂载时的 DOM 兜底）视觉完全一致。
-type FallbackIconKey = "neutral" | "info" | "warning" | "error" | "copy" | "check" | "close";
+type FallbackIconKey = "neutral" | "info" | "warning" | "error" | "question" | "copy" | "check" | "close";
 const KIND_ICON_PATHS: Record<FallbackIconKey, string> = {
 	neutral: "<path d='M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9'/><path d='M10.3 21a1.94 1.94 0 0 0 3.4 0'/>",
 	info: "<circle cx='12' cy='12' r='10'/><path d='M12 16v-4'/><path d='M12 8h.01'/>",
 	warning: "<path d='m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 20h16a2 2 0 0 0 1.73-2Z'/><path d='M12 9v4'/><path d='M12 17h.01'/>",
 	error: "<circle cx='12' cy='12' r='10'/><line x1='12' y1='8' x2='12' y2='12'/><line x1='12' y1='16' x2='12.01' y2='16'/>",
+	// 与 NoticeToastCard 的 MessageCircleQuestion 同款 path（lucide message-circle-question-mark）
+	question: "<path d='M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719'/><path d='M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3'/><path d='M12 17h.01'/>",
 	copy: "<rect width='14' height='14' x='8' y='8' rx='2' ry='2'/><path d='M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2'/>",
 	check: "<path d='M20 6 9 17l-5-5'/>",
 	close: "<path d='M18 6 6 18'/><path d='m6 6 12 12'/>",
@@ -69,11 +115,13 @@ function svgIcon(key: FallbackIconKey, size = 14): SVGSVGElement {
 }
 
 /** 图标块的 kind 对应颜色（与 NoticeToastCard 的 KIND_ICON className 语义一致）。 */
-const KIND_ICON_COLORS: Record<"neutral" | "info" | "warning" | "error", string> = {
+const KIND_ICON_COLORS: Record<"neutral" | "info" | "warning" | "error" | "question", string> = {
 	neutral: "var(--color-text-tertiary)",
 	info: "var(--color-info)",
 	warning: "var(--color-warning)",
 	error: "var(--color-danger)",
+	// 提问档跟会话内 ask 工具卡同色：不是出错，也不占用 warning 语义
+	question: "var(--color-tool)",
 };
 
 // sonner 2.x 在没有可见 toast 时不会渲染任何 DOM（源码里 `if (!filteredToasts.length) return null`），
@@ -98,20 +146,9 @@ function ensureFallbackHost() {
 	const host = document.createElement("div");
 	host.id = "app-notice-fallback-host";
 	host.setAttribute("aria-live", "polite");
-	// 与 sonner 的 top-right 位置保持一致，并让开标题栏拖拽区，避免兑底与正式 toast 位置跳动
-	host.style.cssText = [
-		"position:fixed",
-		"top:calc(var(--window-drag-height, 0px) + 12px)",
-		"right:16px",
-		"z-index:2147483000",
-		"display:flex",
-		"flex-direction:column",
-		"align-items:flex-end",
-		"gap:8px",
-		"pointer-events:none",
-		"max-width:min(520px, calc(100vw - 32px))",
-		"-webkit-app-region:no-drag"
-	].join(";");
+	// 与 sonner 的 top-right 位置和宽度保持一致；兜底只在 Toaster 尚未挂载时短暂使用，
+	// 也必须限制超长标题，否则首屏异常提示会再次撑成横条。
+	host.style.cssText = ["position:fixed", "top:calc(var(--window-drag-height, 0px) + 12px)", "right:16px", "z-index:2147483000", "display:flex", "flex-direction:column", "align-items:flex-end", "gap:8px", "pointer-events:none", "width:min(420px, calc(100vw - 32px))", "-webkit-app-region:no-drag"].join(";");
 	document.body.appendChild(host);
 	fallbackHost = host;
 	return host;
@@ -119,6 +156,8 @@ function ensureFallbackHost() {
 
 /** 关闭兜底通知并回收宿主节点；持久 Ask 通知只能通过这个按钮结束。 */
 function dismissFallbackNotice(item: HTMLDivElement, host: HTMLDivElement) {
+	// noticeId 已 String 化（showFallbackNotice），Set 按 id 幂等，重复关闭不减穿
+	if (item.dataset.noticeId) removeActiveNotice(item.dataset.noticeId);
 	item.remove();
 	if (host.childElementCount === 0) {
 		host.remove();
@@ -127,7 +166,7 @@ function dismissFallbackNotice(item: HTMLDivElement, host: HTMLDivElement) {
 }
 
 /** Toaster 未挂载时的 DOM 兜底 toast，避免全局异常完全静默。 */
-function showFallbackNotice(message: string, duration: number, kind: NoticeData["kind"] = "info", title?: string, actions?: NoticeActions, id?: NoticeId): NoticeId | undefined {
+function showFallbackNotice(message: string, duration: number, kind: NoticeKind = "info", title?: string, actions?: NoticeActions, id?: NoticeId): NoticeId | undefined {
 	if (typeof document === "undefined") return;
 	// 同稳定 id 再弹：先撤掉上一条，避免自动重试连发堆一排。
 	if (id !== undefined && fallbackHost) {
@@ -151,25 +190,15 @@ function showFallbackNotice(message: string, duration: number, kind: NoticeData[
 		"box-shadow:var(--shadow-popover, 0 4px 12px rgba(0,0,0,0.12))",
 		"font:500 13px/1.5 var(--font-family-base, system-ui,-apple-system,Segoe UI,sans-serif)",
 		"word-break:break-word",
-		"width:min(360px, calc(100vw - 32px))",
+		// 兜底宿主已经限定最大宽度，子项填满宿主即可与 sonner 卡片同宽并正常换行。
+		"width:100%",
 	].join(";");
 	item.setAttribute("role", kind === "error" ? "alert" : "status");
 	item.dataset.noticeId = noticeId;
 
 	// 图标块：24×24 圆角背景 + 14px 线性图标（与 NoticeToastCard 同规格）
 	const iconBlock = document.createElement("div");
-	iconBlock.style.cssText = [
-		"display:flex",
-		"align-items:center",
-		"justify-content:center",
-		"width:24px",
-		"height:24px",
-		"flex:none",
-		"margin-top:1px",
-		"border-radius:var(--radius-md, 8px)",
-		"background:var(--color-bg-muted, rgba(0,0,0,0.05))",
-		"color:" + KIND_ICON_COLORS[kind],
-	].join(";");
+	iconBlock.style.cssText = ["display:flex", "align-items:center", "justify-content:center", "width:24px", "height:24px", "flex:none", "margin-top:1px", "border-radius:var(--radius-md, 8px)", "background:var(--color-bg-muted, rgba(0,0,0,0.05))", "color:" + KIND_ICON_COLORS[kind]].join(";");
 	iconBlock.appendChild(svgIcon(kind));
 	item.appendChild(iconBlock);
 
@@ -178,25 +207,13 @@ function showFallbackNotice(message: string, duration: number, kind: NoticeData[
 	content.style.cssText = ["flex:1", "min-width:0", "display:flex", "flex-direction:column"].join(";");
 	if (title) {
 		const titleEl = document.createElement("div");
-		titleEl.style.cssText = [
-			"font-weight:500",
-			"font-size:13px",
-			"line-height:20px",
-			"color:var(--color-text-primary, #1f2328)",
-		].join(";");
+		titleEl.style.cssText = ["font-weight:500", "font-size:13px", "line-height:20px", "color:var(--color-text-primary, #1f2328)"].join(";");
 		titleEl.textContent = title;
 		content.appendChild(titleEl);
 	}
 	const msgEl = document.createElement("div");
 	// 有标题时正文是描述（12px 次级色）；无标题时整段作为主文案（13px 主色）
-	msgEl.style.cssText = title
-		? [
-			"margin-top:2px",
-			"font-size:12px",
-			"line-height:16px",
-			"color:var(--color-text-secondary, #57606a)",
-		].join(";")
-		: ["font-size:13px", "line-height:20px", "color:var(--color-text-primary, #1f2328)"].join(";");
+	msgEl.style.cssText = title ? ["margin-top:2px", "font-size:12px", "line-height:16px", "color:var(--color-text-secondary, #57606a)"].join(";") : ["font-size:13px", "line-height:20px", "color:var(--color-text-primary, #1f2328)"].join(";");
 	msgEl.textContent = message;
 	content.appendChild(msgEl);
 
@@ -211,27 +228,11 @@ function showFallbackNotice(message: string, duration: number, kind: NoticeData[
 			button.type = "button";
 			// 与 NoticeToastCard 按钮一致：主按钮带「→」强化前往语义
 			button.textContent = key === "action" ? `${action.label} →` : action.label;
-			button.style.cssText = [
-				"display:inline-flex",
-				"align-items:center",
-				"height:28px",
-				"border:0",
-				"border-radius:var(--radius-md, 8px)",
-				"padding:0 10px",
-				"font:500 12px/1.4 system-ui,sans-serif",
-				"cursor:pointer",
-			].join(";");
+			button.style.cssText = ["display:inline-flex", "align-items:center", "height:28px", "border:0", "border-radius:var(--radius-md, 8px)", "padding:0 10px", "font:500 12px/1.4 system-ui,sans-serif", "cursor:pointer"].join(";");
 			if (key === "action") {
-				button.style.cssText += [
-					"background:var(--color-primary, var(--color-accent, #3b82f6))",
-					"color:var(--color-primary-foreground, #fff)",
-				].join(";");
+				button.style.cssText += ["background:var(--color-primary, var(--color-accent, #3b82f6))", "color:var(--color-primary-foreground, #fff)"].join(";");
 			} else {
-				button.style.cssText += [
-					"border:1px solid var(--color-border-subtle, rgba(0,0,0,0.12))",
-					"background:var(--color-bg-muted, rgba(0,0,0,0.04))",
-					"color:var(--color-text-secondary, #57606a)",
-				].join(";");
+				button.style.cssText += ["border:1px solid var(--color-border-subtle, rgba(0,0,0,0.12))", "background:var(--color-bg-muted, rgba(0,0,0,0.04))", "color:var(--color-text-secondary, #57606a)"].join(";");
 			}
 			button.addEventListener("click", () => {
 				action.onClick?.();
@@ -253,7 +254,7 @@ function showFallbackNotice(message: string, duration: number, kind: NoticeData[
 	copyBtn.style.cssText = iconButtonCss;
 	copyBtn.appendChild(svgIcon("copy"));
 	copyBtn.addEventListener("click", () => {
-		void writeClipboardText(title ? `${title}\n${message}` : message).then((ok) => {
+		void writeClipboard(title ? `${title}\n${message}` : message).then((ok) => {
 			if (!ok) return;
 			// 复制成功后短暂切换成勾号（与 NoticeToastCard 一致），再还原
 			copyBtn.replaceChildren(svgIcon("check"));
@@ -276,6 +277,8 @@ function showFallbackNotice(message: string, duration: number, kind: NoticeData[
 	item.appendChild(actionGroup);
 
 	host.appendChild(item);
+	// 计入活跃 toast 集合（收纳条数据源），关闭经 dismissFallbackNotice 按 id 移除
+	addActiveNotice(noticeId);
 	if (Number.isFinite(duration)) {
 		window.setTimeout(() => dismissFallbackNotice(item, host), Math.max(1200, duration));
 	}
@@ -283,37 +286,40 @@ function showFallbackNotice(message: string, duration: number, kind: NoticeData[
 }
 
 /** 兜底 toast 右上角图标钮的共享样式（24px 方钮，与 NoticeToastCard 的 copy/close 一致）。 */
-const iconButtonCss = [
-	"display:inline-flex",
-	"align-items:center",
-	"justify-content:center",
-	"width:24px",
-	"height:24px",
-	"flex:none",
-	"border:0",
-	"border-radius:var(--radius-md, 6px)",
-	"background:transparent",
-	"color:var(--color-text-tertiary, #8b8f94)",
-	"cursor:pointer",
-].join(";");
+const iconButtonCss = ["display:inline-flex", "align-items:center", "justify-content:center", "width:24px", "height:24px", "flex:none", "border:0", "border-radius:var(--radius-md, 6px)", "background:transparent", "color:var(--color-text-tertiary, #8b8f94)", "cursor:pointer"].join(";");
 
 /**
- * 弹出全局 toast。duration 省略时 info=1500ms、error/warning=3000ms。
+ * 弹出全局 toast。展示时长由设置项 toastDurationMs 统一决定（全局口径）：
+ * 除调用方显式传 Number.POSITIVE_INFINITY（常驻，需手动关闭）外，
+ * 传入的 duration 与 error/warning/question 的内部默认档都被配置档覆盖。
  * 粘性提示必须传 Number.POSITIVE_INFINITY：sonner 把 duration: 0 当成立刻关闭，
  * 看起来就像“闪一下就没了”。空 message 会直接丢弃，调用方需保证有正文。
+ * 每次弹出都会记进 noticeHistory 环形缓冲（历史面板回看/复制/重放的唯一数据源）。
  */
 export function showNotice(
 	message: string,
 	duration?: number,
-	kind?: NoticeData["kind"],
+	kind?: NoticeKind,
 	title?: string,
 	actions?: NoticeActions,
 	/** 稳定 id：同 id 再次弹出时顶掉上一条，避免自动重试等连发场景堆一排 toast。 */
 	id?: NoticeId,
 ): NoticeId | undefined {
-	const resolvedDuration = duration ?? (kind === "error" || kind === "warning" ? 3000 : 1500);
+	// 常驻是唯一例外：只有调用方明确要求「手动关闭」时才跳过配置档。
+	const resolvedDuration = duration === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : noticeDefaultDurationMs;
 	const text = String(message ?? "").trim();
 	if (!text) return;
+	// 单点记录历史：卡片主文案=标题（无标题时整段正文），描述只在有标题时存在。
+	// 兜底分支同样经过这里，保证 Toaster 未挂载期间的 toast 也留痕。
+	// 同一份数据推送主进程落盘（fire-and-forget，失败静默——历史永不阻断/打断 toast）。
+	const historyInput = {
+		title: title ? title : text,
+		description: title ? text : undefined,
+		kind: kind ?? "neutral",
+		duration: resolvedDuration,
+	} as const;
+	recordNoticeHistory(historyInput);
+	void window?.piDesktop?.noticeHistory?.record(historyInput)?.catch(() => undefined);
 	if (!toasterMounted()) {
 		return showFallbackNotice(text, resolvedDuration, kind, title, actions, id);
 	}
@@ -324,6 +330,7 @@ export function showNotice(
 	const noticeId = id !== undefined ? id : `notice-${++nextSonnerNoticeId}`;
 	const cardTitle = title ? title : text;
 	const cardDescription = title ? text : undefined;
+	addActiveNotice(noticeId);
 	toast.custom(
 		(toastId) =>
 			createElement(NoticeToastCard, {
@@ -333,7 +340,14 @@ export function showNotice(
 				description: cardDescription,
 				actions,
 			}),
-		{ id: noticeId, duration: resolvedDuration },
+		{
+			id: noticeId,
+			duration: resolvedDuration,
+			// sonner 的超时/手动/外部 dismiss 最终都走 delete → onDismiss（见其源码
+			// toast.delete 分支），是唯一可靠的「消失」信号。同 id 顶掉时 sonner 合并选项、
+			// 生效的仍是首弹闭包，但 remove 按 id 幂等，先后触发也只减一次。
+			onDismiss: () => removeActiveNotice(noticeId),
+		},
 	);
 	return noticeId;
 }
@@ -347,4 +361,15 @@ export function dismissNotice(id: NoticeId | undefined) {
 	}
 	const item = fallbackHost?.querySelector<HTMLDivElement>(`[data-notice-id="${CSS.escape(String(id))}"]`);
 	if (item && fallbackHost) dismissFallbackNotice(item, fallbackHost);
+}
+
+/**
+ * 把一条历史记录重新弹成 toast（通知历史面板的「重放」）。
+ * 刻意不还原 action 按钮：回调不在历史里持久化，重放只用于「再看一眼内容」，
+ * 若原提示带操作，用户可循原路径（设置/会话）再触发。时长沿用记录时的生效值。
+ */
+export function replayNoticeEntry(entry: NoticeHistoryEntry): NoticeId | undefined {
+	const kind: NoticeKind | undefined = entry.kind === "neutral" ? undefined : entry.kind;
+	if (entry.description) return showNotice(entry.description, entry.duration, kind, entry.title);
+	return showNotice(entry.title, entry.duration, kind);
 }

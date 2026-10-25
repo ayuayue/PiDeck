@@ -14,14 +14,31 @@ import { dirname, join } from "node:path";
 import type { FetchedModel } from "../../shared/types/fetchedModel";
 import { parseThinkingLevelMap } from "./modelCapabilityMatch";
 
-/** 目录里一条模型的补全字段（比 FetchedModel 多 provider，供同名歧义消解） */
+/** 官方 pi-ai 模型类型：chat 可缺省（缺省即 chat），image / classifier 显式声明。 */
+export type PiAiModelType = "chat" | "image" | "classifier";
+
+/**
+ * 目录里一条模型的可信条目。
+ *
+ * 字段从「官方原始 JSON」取值，但只声明 PiDeck 实际消费的部分；未声明的官方字段
+ * 仍保留在 artifact 文件里（后续需要时再声明即可，不用重新生成目录）。
+ * 注意 `type` 参与查询身份：同一 provider + id 可能存在 chat 与 image 两种条目（如
+ * openrouter/openrouter/auto），丢弃类型就会互相覆盖。
+ */
 export type PiAiCatalogEntry = FetchedModel & {
 	provider?: string;
+	/** 官方模型类型；缺省视为 chat（pi-ai 的 `type?: "chat"` 语义）。 */
+	type?: PiAiModelType;
 	/** pi-ai 内置 provider 的 API 协议（如 "openai-completions"）与默认端点；
 	 *  迁移反向（pi→DSH）时用来补全内置 provider 的 profile。仅在 catalog 条目提供时存在。 */
 	api?: string;
 	baseUrl?: string;
 };
+
+/** 条目类型归一化：官方仅显式标注 image / classifier，其余（含缺省）均为 chat。 */
+export function piAiCatalogEntryType(entry: Pick<PiAiCatalogEntry, "type">): PiAiModelType {
+	return entry.type === "image" || entry.type === "classifier" ? entry.type : "chat";
+}
 
 export type PiAiCatalogIndex = {
 	/** 保留扁平可信条目，供第三方别名匹配和能力卡片候选使用。 */
@@ -36,9 +53,7 @@ export type PiAiCatalogIndex = {
 
 /** 正整数容量；listing / catalog 里 0、小数、非数字一律视为未提供 */
 export function positiveInt(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isInteger(value) && value > 0
-		? value
-		: undefined;
+	return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 function pushIndex(map: Map<string, PiAiCatalogEntry[]>, key: string, entry: PiAiCatalogEntry): void {
@@ -49,6 +64,9 @@ function pushIndex(map: Map<string, PiAiCatalogEntry[]>, key: string, entry: PiA
 
 /**
  * 从扁平条目构建内存索引。条目通常来自 pi-ai `dist/providers/data/*.json`。
+ * 类型不参与查表键（PiDeck 的查询入口都是「按 provider+id 找一个模型」），但同一
+ * provider+id 同时存在 chat 与 image 时（官方有 3 例，如 openrouter/auto），
+ * 以 chat 为准——所有这些入口服务的都是聊天/聊天 provider 语义。
  */
 export function buildPiAiCatalogIndex(entries: readonly PiAiCatalogEntry[]): PiAiCatalogIndex {
 	const byId = new Map<string, PiAiCatalogEntry[]>();
@@ -66,8 +84,12 @@ export function buildPiAiCatalogIndex(entries: readonly PiAiCatalogEntry[]): PiA
 			inner = new Map();
 			byProviderId.set(provider, inner);
 		}
-		// 同一 provider 重复 id 保留第一条（生成 catalog 按 id 唯一）
-		if (!inner.has(id)) inner.set(id, entry);
+		// 同一 provider 重复 id：chat 覆盖非 chat（否则 image 条目会把聊天模型挤掉）；
+		// 同类型重复保留第一条（生成 catalog 按 provider+id+type 唯一）。
+		const existing = inner.get(id);
+		if (!existing || (piAiCatalogEntryType(entry) === "chat" && piAiCatalogEntryType(existing) !== "chat")) {
+			inner.set(id, entry);
+		}
 	}
 	return { entries: [...entries], byId, byIdLower, byProviderId };
 }
@@ -87,16 +109,14 @@ export function modelIdTail(modelId: string): string {
 /**
  * 同 id 多条时优先本 provider，其次带 contextWindow 的条目。
  * 网关（opencode / copilot）会复用官方 id，容量通常一致。
+ * 所有这些候选都服务聊天语义，因此 chat 优先于 image / classifier。
  */
-function pickEntry(
-	candidates: readonly PiAiCatalogEntry[] | undefined,
-	providerName: string,
-): PiAiCatalogEntry | undefined {
+function pickEntry(candidates: readonly PiAiCatalogEntry[] | undefined, providerName: string): PiAiCatalogEntry | undefined {
 	if (!candidates || candidates.length === 0) return undefined;
 	if (candidates.length === 1) return candidates[0];
-	const named = candidates.find((entry) => entry.provider === providerName);
-	if (named) return named;
-	return candidates.find((entry) => entry.contextWindow != null) ?? candidates[0];
+	const named = candidates.filter((entry) => entry.provider === providerName);
+	const pool = named.length > 0 ? named : candidates;
+	return pool.find((entry) => piAiCatalogEntryType(entry) === "chat") ?? pool.find((entry) => entry.contextWindow != null) ?? pool[0];
 }
 
 function lookupExact(index: PiAiCatalogIndex, providerName: string, modelId: string): PiAiCatalogEntry | undefined {
@@ -111,11 +131,7 @@ function lookupExact(index: PiAiCatalogIndex, providerName: string, modelId: str
  * 按模型 id 查 pi-ai 目录。顺序：本 provider 精确 → 全局精确 → 大小写 → 路径尾段。
  * 不做子串/前缀模糊匹配。
  */
-export function lookupPiAiCatalogEntry(
-	index: PiAiCatalogIndex,
-	providerName: string,
-	modelId: string,
-): PiAiCatalogEntry | undefined {
+export function lookupPiAiCatalogEntry(index: PiAiCatalogIndex, providerName: string, modelId: string): PiAiCatalogEntry | undefined {
 	const id = modelId.trim();
 	if (!id) return undefined;
 	const direct = lookupExact(index, providerName, id);
@@ -125,7 +141,7 @@ export function lookupPiAiCatalogEntry(
 	return undefined;
 }
 
-export const PI_AI_CATALOG_SCHEMA_VERSION = 1;
+export const PI_AI_CATALOG_SCHEMA_VERSION = 2;
 export const PI_AI_CATALOG_FILE_NAME = "pi-ai-catalog.json";
 export const PI_AI_CATALOG_MANIFEST_FILE_NAME = "pi-ai-catalog.manifest.json";
 
@@ -148,7 +164,13 @@ function normalizedModelId(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-/** artifact 中一条原始模型记录 → 主进程可信条目；防御损坏资源或手工编辑。 */
+/**
+ * artifact 中一条原始模型记录 → 主进程可信条目；防御损坏资源或手工编辑。
+ *
+ * 只校验和归一化 PiDeck 实际消费的字段；官方其余字段（cost / inputLimits / compat
+ * 等）留在 artifact 里不动，需要时再在这里声明。类型作为身份的一部分保留，
+ * 非法值归为缺省（即 chat），不让坏数据伪造出第三种类型。
+ */
 function catalogEntryFromArtifact(model: Record<string, unknown>): PiAiCatalogEntry | undefined {
 	const id = normalizedModelId(model.id);
 	if (!id) return undefined;
@@ -157,16 +179,16 @@ function catalogEntryFromArtifact(model: Record<string, unknown>): PiAiCatalogEn
 	const contextWindow = positiveInt(model.contextWindow);
 	const maxTokens = positiveInt(model.maxTokens);
 	const reasoning = typeof model.reasoning === "boolean" ? model.reasoning : undefined;
-	const input = Array.isArray(model.input)
-		? model.input.filter((item): item is "text" | "image" => item === "text" || item === "image")
-		: undefined;
+	const input = Array.isArray(model.input) ? model.input.filter((item): item is "text" | "image" => item === "text" || item === "image") : undefined;
 	const thinkingLevelMap = parseThinkingLevelMap(model.thinkingLevelMap);
 	const api = nonEmptyString(model.api);
 	const baseUrl = nonEmptyString(model.baseUrl);
+	const type = model.type === "image" || model.type === "classifier" ? model.type : model.type === "chat" ? "chat" : undefined;
 	return {
 		id,
 		...(name ? { name } : {}),
 		...(provider ? { provider } : {}),
+		...(type ? { type } : {}),
 		...(contextWindow != null ? { contextWindow } : {}),
 		...(maxTokens != null ? { maxTokens } : {}),
 		...(reasoning !== undefined ? { reasoning } : {}),
@@ -186,14 +208,9 @@ function isValidCatalogManifest(manifest: unknown, catalogRaw: string, entryCoun
 	if (manifest.catalogSha256 !== catalogSha256(catalogRaw) || manifest.entryCount !== entryCount) return false;
 	const source = manifest.source;
 	if (!isRecord(source)) return false;
-	return source.packageName === "@earendil-works/pi-ai"
-		&& typeof source.packageVersion === "string"
-		&& source.packageVersion.length > 0
-		&& typeof source.dataSha256 === "string"
-		&& /^[a-f0-9]{64}$/.test(source.dataSha256)
-		&& typeof source.fileCount === "number"
-		&& Number.isInteger(source.fileCount)
-		&& source.fileCount > 0;
+	return (
+		source.packageName === "@earendil-works/pi-ai" && typeof source.packageVersion === "string" && source.packageVersion.length > 0 && typeof source.dataSha256 === "string" && /^[a-f0-9]{64}$/.test(source.dataSha256) && typeof source.fileCount === "number" && Number.isInteger(source.fileCount) && source.fileCount > 0
+	);
 }
 
 /**
@@ -250,6 +267,25 @@ export function resolveBuiltinPiAiCatalogArtifactPaths(): PiAiCatalogArtifactPat
 }
 
 /**
+ * 读取内置 pi-ai 目录清单的打包源版本（source.packageVersion），供「关于」面板展示。
+ * 仅内置 artifact，不含 overlay；manifest 缺失或解析失败返回 undefined（UI 显示 —）。
+ */
+export function readBuiltinPiAiCatalogVersion(): string | undefined {
+	const builtin = resolveBuiltinPiAiCatalogArtifactPaths();
+	if (!builtin) return undefined;
+	try {
+		const manifest: unknown = JSON.parse(readFileSync(builtin.manifestPath, "utf8"));
+		if (typeof manifest === "object" && manifest !== null && "source" in manifest && typeof (manifest as { source?: unknown }).source === "object" && (manifest as { source?: unknown }).source !== null) {
+			const packageVersion = (manifest as { source?: { packageVersion?: unknown } }).source?.packageVersion;
+			return typeof packageVersion === "string" ? packageVersion : undefined;
+		}
+		return undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
  * 解析全部候选路径（优先级从高到低）：userData 覆盖层 → 打包/项目内置。
  * 覆盖层文件存在性决定是否入列；有效性由 loadPiAiCatalogEntries 逐一校验，
  * 损坏的覆盖层会自动落回内置（覆盖层坏数据不会遮蔽内置目录）。
@@ -268,9 +304,7 @@ export function resolvePiAiCatalogArtifactPaths(): PiAiCatalogArtifactPaths | un
 	return resolvePiAiCatalogArtifactCandidates()[0];
 }
 
-export function loadPiAiCatalogEntries(
-	paths: PiAiCatalogArtifactPaths | undefined | readonly PiAiCatalogArtifactPaths[] = resolvePiAiCatalogArtifactCandidates(),
-): PiAiCatalogEntry[] {
+export function loadPiAiCatalogEntries(paths: PiAiCatalogArtifactPaths | undefined | readonly PiAiCatalogArtifactPaths[] = resolvePiAiCatalogArtifactCandidates()): PiAiCatalogEntry[] {
 	const list = paths ? (Array.isArray(paths) ? paths : [paths]) : [];
 	if (list.length === 0) {
 		console.error("[pi-ai-catalog] generated artifact not found");
@@ -279,10 +313,7 @@ export function loadPiAiCatalogEntries(
 	for (let index = 0; index < list.length; index += 1) {
 		const artifact = list[index];
 		try {
-			const entries = parsePiAiCatalogArtifact(
-				readFileSync(artifact.catalogPath, "utf8"),
-				readFileSync(artifact.manifestPath, "utf8"),
-			);
+			const entries = parsePiAiCatalogArtifact(readFileSync(artifact.catalogPath, "utf8"), readFileSync(artifact.manifestPath, "utf8"));
 			if (entries.length > 0) return entries;
 			if (index === 0) console.warn("[pi-ai-catalog] artifact candidate invalid, trying next", artifact.catalogPath);
 		} catch (error) {

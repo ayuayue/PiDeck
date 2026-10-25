@@ -1,1995 +1,2633 @@
 import { useAtomValue, useSetAtom, useStore } from "jotai";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-} from "react";
-import type {
-  AgentBackend,
-  ChatMessage,
-  ComposerAgentMode,
-  FileTreeNode,
-  ImageContent,
-  PiCommand,
-  ResolvedLaunchDefaults,
-  SessionSummary,
-} from "../../../shared/types";
-import {
-  DEFAULT_IMAGE_GEN_OUTPUT_FORMAT,
-  DEFAULT_IMAGE_GEN_SIZE,
-  DEFAULT_IMAGE_GEN_WATERMARK,
-  parseImageGenOutputFormat,
-  parseImageGenSize,
-  parseImageGenWatermark,
-} from "../../../shared/imageGenParams";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import type { AgentBackend, ChatMessage, ComposerAgentMode, FileTreeNode, ImageContent, PiCommand, ResolvedLaunchDefaults, SessionRuntimeTarget, SessionSummary } from "../../../shared/types";
+import { DEFAULT_IMAGE_GEN_OUTPUT_FORMAT, DEFAULT_IMAGE_GEN_SIZE, DEFAULT_IMAGE_GEN_WATERMARK, parseImageGenOutputFormat, parseImageGenSize, parseImageGenWatermark } from "../../../shared/imageGenParams";
 import { resolveBusySendDelivery } from "../../../shared/busySendDelivery";
 import { FILE_TREE_ABSOLUTE_MAX_DEPTH } from "../../../shared/fileTree";
-import {
-  classifyCompactError,
-  resolveCompactUsagePercent,
-  shouldSkipCompactForLowUsage,
-  type CompactNoticeKind,
-} from "../../../shared/compactFeedback";
+import { classifyCompactError, compactOwnerReason, compactRoutedCommand, type CompactNoticeKind } from "../../../shared/compactFeedback";
 import { findImageGenProvider } from "../../../shared/imageGenConfig";
+import { findVideoGenProvider } from "../../../shared/videoGenConfig";
+import { resolveEnhanceTargetModel } from "../../../shared/enhanceModelPreference";
+import { collectPromptEnhanceContext } from "../utils/promptEnhanceContext";
+import { sessionCommandsRefreshTickAtom } from "../atoms/session-commands-atoms";
 import type { ImageGenMeta } from "../../../shared/types/imagegen";
+import type { VideoGenMeta } from "../../../shared/types/videogen";
 import {
-  busySendDeliveryAtom,
-  cacheSessionMessagesAtom,
-  effectiveAgentBackendAtom,
-  imageGenConfigAtom,
-  projectByIdAtomFamily,
-  sessionAttachmentsByIdAtom,
-  sessionComposerModeByIdAtom,
-  sessionDraftByIdAtom,
-  sessionMessagesCacheAtom,
-  sessionPasteFilesByIdAtom,
-  sessionRecordByIdAtomFamily,
-  sessionRuntimeBySessionIdAtomFamily,
-  sessionRuntimeUiBySessionIdAtomFamily,
-  sessionQuotesByIdAtom,
-  sessionSendStateByIdAtom,
-  sessionSummariesByProjectIdAtomFamily,
-  setSessionAttachmentsAtom,
-  setSessionComposerModeAtom,
-  setSessionDraftAtom,
-  setSessionPasteFilesAtom,
-  setSessionSendStateAtom,
-  upsertSessionAtom,
-  type PastedTextFile,
+	busySendDeliveryAtom,
+	cacheSessionMessagesAtom,
+	effectiveAgentBackendAtom,
+	enhanceModelAtom,
+	enhanceIncludeContextAtom,
+	promptSuggestionEnabledAtom,
+	promptSuggestionModelAtom,
+	imageGenConfigAtom,
+	projectByIdAtomFamily,
+	sessionAttachmentsBySessionIdAtomFamily,
+	sessionComposerModeBySessionIdAtomFamily,
+	sessionDraftByIdAtom,
+	sessionDraftBySessionIdAtomFamily,
+	sessionMessageCacheBySessionIdAtomFamily,
+	sessionMessagesCacheAtom,
+	sessionPasteFilesBySessionIdAtomFamily,
+	sessionRecordByIdAtomFamily,
+	sessionRecordsAtom,
+	sessionRuntimeBySessionIdAtomFamily,
+	sessionRuntimeUiBySessionIdAtomFamily,
+	sessionQuotesBySessionIdAtomFamily,
+	sessionSendStateBySessionIdAtomFamily,
+	sessionSummariesByProjectIdAtomFamily,
+	setSessionAttachmentsAtom,
+	setSessionComposerModeAtom,
+	setSessionDraftAtom,
+	setSessionPasteFilesAtom,
+	setSessionSendStateAtom,
+	videoGenConfigAtom,
+	upsertSessionAtom,
+	promoteSessionComposerStateAtom,
+	removeSessionStateAtom,
+	currentSessionIdAtom,
+	acpToolsAtom,
+	type PastedTextFile,
 } from "../atoms";
 import {
-  appendContentToDraft,
-  appendSlashCommandToDraft,
-  stripMarkdownFrontmatter,
-  toSkillInvocationToken,
-  getComposerEnterIntent,
-  isComposingKeyboardEvent,
-  isPlanModeSendKey,
-  parseArgumentHint,
-  translateBuiltinPromptDescription,
-  extractUserPrompts,
-  mergePromptHistory,
-  deriveComposerAgentMode,
-  type PromptTemplateInfo,
+	appendContentToDraft,
+	appendSlashCommandToDraft,
+	stripMarkdownFrontmatter,
+	toSkillInvocationToken,
+	getComposerEnterIntent,
+	resolveComposerHistoryIntent,
+	isComposingKeyboardEvent,
+	isPlanModeSendKey,
+	parseArgumentHint,
+	translateBuiltinPromptDescription,
+	extractUserPrompts,
+	mergePromptHistory,
+	deriveComposerAgentMode,
+	type PromptTemplateInfo,
 } from "../composerBehavior";
-import {
-  applySuggestion,
-  buildSuggestionItems,
-  clearSuggestionTrigger,
-  detectTrigger,
-  DSH_COMMAND_SUGGESTIONS,
-  fileNodeDragPayloadToRef,
-  flattenFiles,
-  mergeCommands,
-  PI_FILE_NODE_DRAG_MIME,
-  PI_FILE_PATH_DRAG_MIME,
-  readFileNodeDragPayload,
-  type SuggestionItem,
-} from "../components/app/AppUtils";
+import { applySuggestion, buildSuggestionItems, clearSuggestionTrigger, detectTrigger, DSH_COMMAND_SUGGESTIONS, fileNodeDragPayloadToRef, flattenFiles, mergeCommands, PI_FILE_NODE_DRAG_MIME, PI_FILE_PATH_DRAG_MIME, readFileNodeDragPayload, type SuggestionItem } from "../components/app/AppUtils";
 import { SESSION_TAB_DRAG_MIME } from "../utils/sessionSplitEdge";
-import {
-  mergeFileTreeChildren,
-  resolveAtDrillDirectory,
-  shouldLoadFullTreeForAtSearch,
-} from "../utils/fileTreeLazy";
-import {
-  formatFilePathRef,
-  type ComposerChip,
-} from "../components/session/composer/chips";
+import { mergeFileTreeChildren, resolveAtDrillDirectory, shouldLoadFullTreeForAtSearch } from "../utils/fileTreeLazy";
+import { formatFilePathRef, type ComposerChip } from "../components/session/composer/chips";
 import type { ComposerCaretRequest } from "../components/session/composer/types";
-import {
-  getComposerCaretCoords,
-  getComposerCaretOffset,
-} from "../components/session/composer/caretCoords";
+import { getComposerCaretCoords, getComposerCaretOffset, getComposerCaretBlockEdge, getComposerSelectionRange, isComposerAtVisualEdge } from "../components/session/composer/caretCoords";
 import { desktopApi } from "../desktopApi";
+import { useAskPanel } from "./useAskPanel";
 import { formatBytes } from "../../../shared/formatBytes";
 import { t } from "../i18n";
-import {
-  COMPOSER_IMAGE_MAX_BYTES,
-  ComposerImageError,
-  dataUrlToFile,
-  getClipboardImageFiles,
-  getDroppedImageFiles,
-  imageMimeTypeFromPath,
-  isImageFilePath,
-  processComposerImageFile,
-} from "../utils/composerImages";
+import { COMPOSER_ATTACHMENT_BUDGET_BYTES, COMPOSER_IMAGE_MAX_BYTES, ComposerImageError, attachmentBytes, base64DataBytes, dataUrlToFile, getClipboardImageFiles, getDroppedImageFiles, imageMimeTypeFromPath, isImageFilePath, processComposerImageFile } from "../utils/composerImages";
 import { PASTE_TO_FILE_MIN_CHARS } from "../rendererUtils";
 import { resolveBackendSwitchDefaults } from "../utils/backendSwitchDefaults";
+import { GUIDE_BOOTSTRAP_SESSION_ID, readWelcomeAcpToolPreference, readWelcomeBackendPreference, readWelcomeDshModelPreference, readWelcomeModelPreference, resolveGuidePageBackend, WELCOME_BACKEND_KEY } from "../utils/chatSessionBootstrap";
+import { expandSessionReferences } from "../sending/outgoingExpansion";
 import { showNotice } from "../utils/notice";
-import {
-  requireSessionCommand,
-  toSessionRuntimeTarget,
-} from "../utils/sessionCommands";
+import { requireSessionCommand, toSessionRuntimeTarget } from "../utils/sessionCommands";
+import { collectReservedCommandNames, needsTemplateRefetch } from "../utils/reservedCommandNames";
+import { assembleTemplates, mergeRuntimeTemplates } from "../utils/templateCatalog";
+import { buildDraftResourceCommands, draftResourceCommandsForProject, selectComposerSuggestionCommands, standbyPreviewCommandsForProject, type DraftResourceCommandSnapshot, type StandbyPreviewCommandSnapshot } from "../utils/draftResourceCommands";
 import { isSessionRuntimeBusy, isUserFacingSessionStart } from "./useSessionTimelineController";
 import { truncateQuoteLabel } from "../components/session/composer/quoteChip";
 import { useSessionSend, type EnqueuePromptSnapshot } from "./useSessionSend";
 
-/** 统一压缩结果 → 用户可见文案；silent 不弹 toast。 */
+/** 粘贴文件折叠进草稿时的单文件读取上限：主进程 stat 预检拦截超大文件，
+ * 避免全量读入主进程再经 IPC 传输压垮两侧内存（超限/读失败走既有 catch → 内容不并入）。 */
+const PASTE_FILE_CONTENT_MAX_BYTES = 2 * 1024 * 1024;
+import { useVoiceTranscription } from "./useVoiceTranscription";
+import { usePromptEnhance, type PromptEnhanceRequest } from "./usePromptEnhance";
+import { usePromptSuggestion } from "./usePromptSuggestion";
+import { isSessionTurnRunning } from "../utils/sessionActivityClock";
+import { resolveVoiceTranscriptionInsertion, type VoiceTranscriptionTarget } from "../utils/voiceTranscriptionInsert";
+
+/** 统一压缩结果 → 用户可见文案；所有分支都给文案（取消也要可见，见 classifyCompactError）。 */
 function compactNotice(kind: CompactNoticeKind, detail?: string): string | null {
-  switch (kind) {
-    case "done":
-      return t("app.compactDone");
-    case "nothingToDo":
-      return t("app.compactNothingToDo");
-    case "tooSmall":
-      return t("app.compactSessionTooSmall");
-    case "inProgress":
-      return t("app.compactInProgress");
-    case "silent":
-      return null;
-    case "failed":
-      return detail
-        ? t("app.compactFailedWithReason", { error: detail })
-        : t("app.compactFailed");
-  }
+	switch (kind) {
+		case "done":
+			return t("app.compactDone");
+		case "nothingToDo":
+			return t("app.compactNothingToDo");
+		case "tooSmall":
+			return t("app.compactSessionTooSmall");
+		case "inProgress":
+			return t("app.compactInProgress");
+		case "routedToOwner": {
+			// 接管者有自己的入口：主进程已把请求改写成它的扩展命令（标记后跟命令名）。
+			const command = compactRoutedCommand(detail ?? "");
+			return command ? t("app.compactRoutedToOwner", { command }) : t("app.compactDone");
+		}
+		case "cancelledByOwner": {
+			const reason = compactOwnerReason(detail ?? "");
+			return reason ? t("app.compactCancelledByOwnerWithReason", { reason }) : t("app.compactCancelledByOwner");
+		}
+		case "interrupted":
+			return t("app.compactInterrupted");
+		case "timeout":
+			// 等待超时≠失败：pi 仍在后台压，最终结果由 compaction_end 补发系统消息（#303）。
+			// 长停留：用户需要看清「现在没失败，稍后有结局」这件事本身。
+			return t("app.compactWaitTimeout");
+		case "cancelled":
+			return t("app.compactCancelled");
+		case "failed":
+			return detail ? t("app.compactFailedWithReason", { error: detail }) : t("app.compactFailed");
+	}
 }
 
 /**
  * compact 错误友好文案：requireSessionCommand 的 message 是 i18n 通用失败，
  * pi 原错在 debugDetails。分类走 shared/compactFeedback（按钮 / /compact 共用）。
- * silent：压缩被取消（自动压缩撞车 / 新消息打断）不弹 toast——取消响应可能
- * 延迟到正常对话后返回（RPC 最长 120s），表现为「没点压缩却弹提示」。
+ *
+ * 取消类（cancelled / cancelledByOwner / interrupted）必须弹提示：手动压缩是用户
+ * 主动点的，静默会让「压缩被扩展接管」表现为「点了没反应」。延迟到达的取消响应
+ * 也不会误导——文案本身就是「已取消」，不再依赖「不提示」掩盖。
  */
-function friendlyCompactError(error: unknown): string | null {
-  const debugDetails =
-    error && typeof error === "object" && "debugDetails" in error
-      ? String((error as { debugDetails?: unknown }).debugDetails ?? "").trim()
-      : "";
-  const rawMessage = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
-  const raw = debugDetails || rawMessage;
-  const detail = raw
-    .replace(/^Error invoking remote method ['"][^'"]+['"]:\s*/i, "")
-    .replace(/^Error:\s*/i, "")
-    .trim();
-  return compactNotice(classifyCompactError(detail), detail);
+function friendlyCompactError(error: unknown): { text: string; durationMs: number } | null {
+	const debugDetails = error && typeof error === "object" && "debugDetails" in error ? String((error as { debugDetails?: unknown }).debugDetails ?? "").trim() : "";
+	const rawMessage = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
+	const raw = debugDetails || rawMessage;
+	const detail = raw
+		.replace(/^Error invoking remote method ['"][^'"]+['"]:\s*/i, "")
+		.replace(/^Error:\s*/i, "")
+		.trim();
+	const kind = classifyCompactError(detail);
+	const text = compactNotice(kind, detail);
+	if (!text) return null;
+	// 取消 / 改写 / 超时类提示要用户看清「压缩现在是什么状态、为什么换了个方式」，停留时间长于普通完成提示。
+	const durationMs = kind === "done" ? 4000 : kind === "cancelledByOwner" || kind === "routedToOwner" || kind === "timeout" ? 10000 : 7000;
+	return { text, durationMs };
 }
 
 export type ComposerPickerKind = "model" | "thinking" | "template" | "skill";
 
 export type UseSessionComposerControllerOptions = {
-  sessionId: string;
-  /**
-   * 引导页等无 record 虚拟会话的项目上下文（ProjectEmptyState 经
-   * SessionStartSurface 传选中的 activeProject.id）。有 record 时一律以
-   * record.projectId 为准；仅给 @ 文件引用/默认偏好提供项目来源，不参与
-   * 会话创建（发送仍由 App.ensureSessionForSend 落地）。
-   */
-  bootstrapProjectId?: string;
-  ensureSessionId?: (sessionId: string) => Promise<string>;
-  /** 用户主动发消息时回调（预览 Tab 晋升常驻）；来自 SessionPaneServices 装配。 */
-  onPromoteSession?: (sessionId: string) => void;
-  /** `/new` 拦截后新建会话（与侧栏 + 同源）；来自 SessionPaneServices。 */
-  onCreateSession?: () => Promise<void>;
-  /** Passed through to useSessionSend.enqueue. */
-  enqueue?: (sessionId: string, snapshot: EnqueuePromptSnapshot) => boolean;
+	sessionId: string;
+	/**
+	 * 引导页等无 record 虚拟会话的项目上下文（ProjectEmptyState 经
+	 * SessionStartSurface 传选中的 activeProject.id）。有 record 时一律以
+	 * record.projectId 为准；仅给 @ 文件引用/默认偏好提供项目来源，不参与
+	 * 会话创建（发送仍由 App.ensureSessionForSend 落地）。
+	 */
+	bootstrapProjectId?: string;
+	ensureSessionId?: (sessionId: string) => Promise<string>;
+	/** 用户主动发消息时回调（预览 Tab 晋升常驻）；来自 SessionPaneServices 装配。 */
+	onPromoteSession?: (sessionId: string) => void;
+	/** `/new` 拦截后新建会话（与侧栏 + 同源）；来自 SessionPaneServices。 */
+	onCreateSession?: () => Promise<void>;
+	/** `/login` 拦截后打开登录供应商弹框；来自 SessionPaneServices。 */
+	onProviderLogin?: (providerId?: string) => void;
+	/** `/reload` 拦截后热重载 pi 资源（不写用户气泡）；来自 SessionPaneServices。 */
+	onReloadResources?: (target: SessionRuntimeTarget) => Promise<void>;
+	/** Passed through to useSessionSend.enqueue. */
+	enqueue?: (sessionId: string, snapshot: EnqueuePromptSnapshot) => boolean;
+	/** 「停止响应」时抑制排队消息自动投递；由 SessionPaneServices 注入 queue.suppressSessionQueueAutoDrain。 */
+	suppressQueuedDrain?: (sessionId: string) => void;
 };
 
 export type ComposerDraftGuard = {
-  sessionId: string;
-  agentId?: string;
-  runtimeGeneration: number;
-  baselineDraft: string;
-  version: number;
-  pristine: boolean;
+	sessionId: string;
+	agentId?: string;
+	runtimeGeneration: number;
+	baselineDraft: string;
+	version: number;
+	pristine: boolean;
 };
 
-export function createComposerDraftGuard(input: {
-  sessionId: string;
-  agentId?: string;
-  runtimeGeneration?: number;
-  draft: string;
-}): ComposerDraftGuard {
-  return {
-    sessionId: input.sessionId,
-    agentId: input.agentId,
-    runtimeGeneration: input.runtimeGeneration ?? 0,
-    baselineDraft: input.draft,
-    version: 0,
-    pristine: input.draft.length === 0,
-  };
+export function createComposerDraftGuard(input: { sessionId: string; agentId?: string; runtimeGeneration?: number; draft: string }): ComposerDraftGuard {
+	return {
+		sessionId: input.sessionId,
+		agentId: input.agentId,
+		runtimeGeneration: input.runtimeGeneration ?? 0,
+		baselineDraft: input.draft,
+		version: 0,
+		pristine: input.draft.length === 0,
+	};
 }
 
-export function markComposerDraftMutation(
-  guard: ComposerDraftGuard,
-): ComposerDraftGuard {
-  return { ...guard, version: guard.version + 1, pristine: false };
+export function markComposerDraftMutation(guard: ComposerDraftGuard): ComposerDraftGuard {
+	return { ...guard, version: guard.version + 1, pristine: false };
 }
 
 export function canApplyRuntimeEditorText(
-  guard: ComposerDraftGuard,
-  input: {
-    sessionId: string;
-    agentId: string;
-    runtimeGeneration: number;
-    currentDraft: string;
-  },
+	guard: ComposerDraftGuard,
+	input: {
+		sessionId: string;
+		agentId: string;
+		runtimeGeneration: number;
+		currentDraft: string;
+	},
 ): boolean {
-  return guard.sessionId === input.sessionId &&
-    guard.agentId === input.agentId &&
-    guard.runtimeGeneration === input.runtimeGeneration &&
-    guard.pristine &&
-    guard.baselineDraft === input.currentDraft;
+	return guard.sessionId === input.sessionId && guard.agentId === input.agentId && guard.runtimeGeneration === input.runtimeGeneration && guard.pristine && guard.baselineDraft === input.currentDraft;
 }
 
 export type LatestRequestToken = { key: string; sequence: number };
 
 export function createLatestRequestGate() {
-  let current = { key: "", sequence: 0 };
-  return {
-    begin(key: string): LatestRequestToken {
-      current = { key, sequence: current.sequence + 1 };
-      return current;
-    },
-    invalidate(key: string) {
-      current = { key, sequence: current.sequence + 1 };
-    },
-    isCurrent(token: LatestRequestToken) {
-      return token.key === current.key && token.sequence === current.sequence;
-    },
-  };
+	let current = { key: "", sequence: 0 };
+	return {
+		begin(key: string): LatestRequestToken {
+			current = { key, sequence: current.sequence + 1 };
+			return current;
+		},
+		invalidate(key: string) {
+			current = { key, sequence: current.sequence + 1 };
+		},
+		isCurrent(token: LatestRequestToken) {
+			return token.key === current.key && token.sequence === current.sequence;
+		},
+	};
 }
 
 type SessionReferenceMessage = {
-  role: string;
-  content: string;
-  timestamp: number;
+	role: string;
+	content: string;
+	timestamp: number;
 };
 
-export type SessionReferenceSelection = {
-  selectedIndices: number[];
-  entries: Array<{ index: number; message: SessionReferenceMessage }>;
-};
-
-export function createSessionReferenceSelection(
-  selectedIndices: number[],
-  selectedMessages: SessionReferenceMessage[],
-): SessionReferenceSelection {
-  const entries = selectedIndices
-    .map((index, position) => ({ index, message: selectedMessages[position] }))
-    .filter((entry): entry is { index: number; message: SessionReferenceMessage } =>
-      Boolean(entry.message),
-    );
-  return { selectedIndices: entries.map((entry) => entry.index), entries };
+/** 发送历史会话级 LRU 上限：每会话条目已有 50 条 slice 上限，但会话键（含已删除
+ *  的草稿/临时会话）无人清理，桌面进程长运行无界增长；与 stickyEmptySessionIds /
+ *  latestLoadBySession 同构，超限淘汰最早访问的会话键。访问序在模块级 Map 里，
+ *  history 数据本体仍是调用方（hook ref）单一 owner。 */
+const PROMPT_HISTORY_SESSION_LRU_LIMIT = 50;
+const promptHistorySessionOrder = new Map<string, true>();
+function markPromptHistorySessionAccess(history: Record<string, string[]>, sessionId: string) {
+	// delete+set 把本次访问的键移到 Map 尾部（迭代序 = 访问序）
+	promptHistorySessionOrder.delete(sessionId);
+	promptHistorySessionOrder.set(sessionId, true);
+	if (promptHistorySessionOrder.size <= PROMPT_HISTORY_SESSION_LRU_LIMIT) return;
+	const oldest = promptHistorySessionOrder.keys().next().value;
+	if (oldest !== undefined && oldest !== sessionId) {
+		promptHistorySessionOrder.delete(oldest);
+		// 键可能不属于本挂载的 history 对象（多栏各自 ref）：delete 不存在键无害
+		delete history[oldest];
+	}
 }
 
-export function selectedSessionReferenceMessages(
-  selection: SessionReferenceSelection,
-): SessionReferenceMessage[] {
-  return [...selection.entries]
-    .sort((left, right) => left.index - right.index)
-    .map((entry) => entry.message);
+export type SessionReferenceSelection = {
+	selectedIndices: number[];
+	entries: Array<{ index: number; message: SessionReferenceMessage }>;
+};
+
+export function createSessionReferenceSelection(selectedIndices: number[], selectedMessages: SessionReferenceMessage[]): SessionReferenceSelection {
+	const entries = selectedIndices.map((index, position) => ({ index, message: selectedMessages[position] })).filter((entry): entry is { index: number; message: SessionReferenceMessage } => Boolean(entry.message));
+	return { selectedIndices: entries.map((entry) => entry.index), entries };
+}
+
+export function selectedSessionReferenceMessages(selection: SessionReferenceSelection): SessionReferenceMessage[] {
+	return [...selection.entries].sort((left, right) => left.index - right.index).map((entry) => entry.message);
 }
 
 function getBangMode(text: string): "none" | "bang" | "bang-bang" {
-  if (text.startsWith("!!")) return "bang-bang";
-  if (text.startsWith("!")) return "bang";
-  return "none";
+	if (text.startsWith("!!")) return "bang-bang";
+	if (text.startsWith("!")) return "bang";
+	return "none";
 }
 
 function composerImageNotice(error: unknown): string {
-  if (error instanceof ComposerImageError) {
-    if (error.code === "too-large") return t("app.imageTooLarge");
-    if (error.code === "unsupported") return t("app.imageUnsupported");
-  }
-  return error instanceof Error ? error.message : String(error);
+	if (error instanceof ComposerImageError) {
+		if (error.code === "too-large") return t("app.imageTooLarge");
+		if (error.code === "unsupported") return t("app.imageUnsupported");
+	}
+	return error instanceof Error ? error.message : String(error);
 }
 
-export function useSessionComposerController(
-  options: UseSessionComposerControllerOptions,
-) {
-  const { sessionId, enqueue, ensureSessionId } = options;
-  const store = useStore();
-  const record = useAtomValue(sessionRecordByIdAtomFamily(sessionId));
-  // 引导页虚拟会话没有 record：文件树/@ 引用回退到引导页选中的项目，
-  // 否则 files 恒为空、@ 输入永远匹配不到任何文件。
-  const effectiveProjectId = record?.projectId ?? options.bootstrapProjectId;
-  // 粘贴转文件/@ 引用的项目路径来源：catalog 会话 record 不一定携带 projectPath
-  // （主进程扫描只在会话文件位于项目内时才推断，旧数据/独立目录会话恒缺省），
-  // 统一经 projectId 反查项目清单，拿到已登记的项目根路径，避免把有项目会话
-  // 误当成匿名会话（用户反馈：粘贴大文本发送后消息里被展开成普通文本）。
-  const composerProject = useAtomValue(
-    projectByIdAtomFamily(effectiveProjectId ?? ""),
-  );
-  const runtime = useAtomValue(sessionRuntimeBySessionIdAtomFamily(sessionId));
-  const runtimeUi = useAtomValue(sessionRuntimeUiBySessionIdAtomFamily(sessionId));
-  const projectSessions = useAtomValue(
-    sessionSummariesByProjectIdAtomFamily(effectiveProjectId ?? ""),
-  );
-  const drafts = useAtomValue(sessionDraftByIdAtom);
-  const attachmentsBySession = useAtomValue(sessionAttachmentsByIdAtom);
-  const pasteFilesBySession = useAtomValue(sessionPasteFilesByIdAtom);
-  const modes = useAtomValue(sessionComposerModeByIdAtom);
-  const sendStates = useAtomValue(sessionSendStateByIdAtom);
-  const messageCache = useAtomValue(sessionMessagesCacheAtom);
-  const imageGenConfig = useAtomValue(imageGenConfigAtom);
-  const setImageGenConfig = useSetAtom(imageGenConfigAtom);
-  const setDraftAtom = useSetAtom(setSessionDraftAtom);
-  const setAttachmentsAtom = useSetAtom(setSessionAttachmentsAtom);
-  const setPasteFilesAtom = useSetAtom(setSessionPasteFilesAtom);
-  const setModeAtom = useSetAtom(setSessionComposerModeAtom);
-  const setSendStateAtom = useSetAtom(setSessionSendStateAtom);
-  const setCacheMessages = useSetAtom(cacheSessionMessagesAtom);
-
-  const draft = drafts[sessionId] ?? "";
-  const attachments = attachmentsBySession[sessionId] ?? [];
-  const pasteFiles = pasteFilesBySession[sessionId] ?? [];
-  // DSH：plan 由 host 持有；goal 由本地选择或进行中/阻塞的目标驱动（切回普通会 pause）。
-  // 生图为独立供应商配置，不属于 pi/dsh 任一后端，两种后端均可用。
-  const isDshBackend = record?.backend === "dsh" || runtime?.backend === "dsh";
-  const hasImageGenHistory = (messageCache[sessionId]?.messages ?? []).some(
-    (message) => Boolean(message.meta?.imageGen),
-  );
-  // 生图供应商/模型来自独立 imagegen.json，与会话 LLM 模型无关。
-  const activeImageGenProviderId = imageGenConfig.activeProviderId;
-  const activeImageGenModelId = imageGenConfig.activeModel;
-  const mode: ComposerAgentMode = record?.backend === "imagegen" || hasImageGenHistory
-    ? "imagegen"
-    : deriveComposerAgentMode({
-    backend: isDshBackend ? "dsh" : "pi",
-    localMode: modes[sessionId],
-    planModeActive: runtime?.state?.planModeActive === true,
-    goalPhase: runtime?.state?.goal?.phase,
-  });
-  const sendState = sendStates[sessionId] ?? { status: "idle" as const };
-  // DSH 部署默认模型选择（settings.yaml agent-default-model）：草稿/未激活会话
-  // 的底栏与选择器用它展示默认模型/思考档位（host 会话创建前没有 runtime state）。
-  // settings.yaml 未配 reasoningEffort 时，回退到默认模型自身的 defaultEffort
-  // （DSH 官方语义：每个模型都有 reasoning.defaultEffort）。
-  const [dshDefault, setDshDefault] = useState<{
-    provider: string;
-    model: string;
-    reasoningEffort?: string;
-    defaultEffort?: string;
-  } | undefined>(undefined);
-  useEffect(() => {
-    if (!isDshBackend) {
-      // 离开 dsh 后端（切回 pi/生图）时清掉残留的 DSH 部署默认模型：
-      // 底栏 defaultModel = dshDefaultModel ?? bootstrapDefaultModel，
-      // 残留会让 pi 会话误显示 DSH 的默认模型（用户反馈「切回 pi 默认模型变了」）。
-      setDshDefault(undefined);
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const next = await desktopApi.sessions.getDshDefaultModel();
-        if (!next || cancelled) {
-          if (!cancelled) setDshDefault(next);
-          return;
-        }
-        let defaultEffort = next.reasoningEffort;
-        if (!defaultEffort) {
-          try {
-            const models = await desktopApi.sessions.listDshModels();
-            const defaultModel = models.find(
-              (model) => model.provider === next.provider && model.id === next.model,
-            );
-            defaultEffort = defaultModel?.defaultEffort;
-          } catch {
-            // 目录读取失败不影响 settings.yaml 的默认模型展示。
-          }
-        }
-        if (!cancelled) setDshDefault({ ...next, defaultEffort });
-      } catch {
-        if (!cancelled) setDshDefault(undefined);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isDshBackend]);
-  // 引导页虚拟会话（无 record）：预取主进程解析的启动默认（与 createDraft 缺省
-  // 同一解析器 launchDefaults），让底栏/选择器在用户从未设置欢迎页偏好时也能
-  // 显示当前默认模型/思考档位。真实会话的默认值写在 record 里走原链路，
-  // 不需要这里重复解析。
-  // 读「有效」后端（经 DSH runtime 安装态钳制）：引导页预取的启动默认不会指向不可用后端。
-  const defaultAgentBackend = useAtomValue(effectiveAgentBackendAtom);
-  const [bootstrapDefaults, setBootstrapDefaults] = useState<ResolvedLaunchDefaults | undefined>(undefined);
-  useEffect(() => {
-    if (record) return;
-    let cancelled = false;
-    void desktopApi.sessions.resolveLaunchDefaults({ backend: defaultAgentBackend })
-      .then((next) => {
-        if (!cancelled) setBootstrapDefaults(next);
-      })
-      .catch(() => {
-        // 解析失败退回“无预选”形态：底栏不显示默认模型，但不影响发送。
-        if (!cancelled) setBootstrapDefaults(undefined);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [defaultAgentBackend, record]);
-  const editorRef = useRef<HTMLDivElement | null>(null);
-  // 程序化光标请求（带归属 forValue，见 composer/types.ts 的 ComposerCaretRequest）；
-  // 编辑器只在内容同步到 forValue 的同一趟 layout pass 配对消费，过期请求会被丢弃。
-  const caretRef = useRef<ComposerCaretRequest | null>(null);
-  const liveDomDraftRef = useRef({ sessionId, value: draft });
-  const draftGuardRef = useRef(createComposerDraftGuard({
-    sessionId,
-    agentId: runtime?.agentId,
-    runtimeGeneration: runtime?.runtimeGeneration,
-    draft,
-  }));
-  const templateRequestGateRef = useRef(createLatestRequestGate());
-  const promptHistoryRef = useRef<Record<string, string[]>>({});
-  /**
-   * 当前会话可导航的输入历史 = 本次运行发送记录（promptHistoryRef，最新在前）
-   * + 会话已有消息里的用户输入（从 sessionMessagesCacheAtom 懒读取，零订阅零重渲染）。
-   * 未启动的 Agent 没有发送记录，但 timeline 加载会话时已把 disk 消息写入缓存，
-   * 因此激活前后上下键历史行为一致（issue-139）。
-   */
-  const getPromptHistory = useCallback(() => {
-    const runtimeHistory = promptHistoryRef.current[sessionId] ?? [];
-    const sessionHistory = extractUserPrompts(
-      store.get(sessionMessagesCacheAtom)[sessionId]?.messages ?? [],
-    );
-    return mergePromptHistory(runtimeHistory, sessionHistory);
-  }, [sessionId, store]);
-  const lastEditorTextEnvelopeRef = useRef("");
-  const [cursor, setCursor] = useState(0);
-  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
-  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const [savedDraft, setSavedDraft] = useState("");
-  const [busyDraftLocked, setBusyDraftLocked] = useState(false);
-  const [previewImage, setPreviewImage] = useState<ImageContent | null>(null);
-  // 生图进行中：置 true 时发送按钮禁用（避免并发多次生图），完成后图片进附件栏
-  const [generatingImage, setGeneratingImage] = useState(false);
-  // 生图尺寸/水印记在 AppSettings，跨会话复用；非法磁盘值回落到默认。
-  const [imageGenSize, setImageGenSizeState] = useState<string>(DEFAULT_IMAGE_GEN_SIZE);
-  const [imageGenWatermark, setImageGenWatermarkState] = useState(DEFAULT_IMAGE_GEN_WATERMARK);
-  const [imageGenOutputFormat, setImageGenOutputFormatState] = useState(DEFAULT_IMAGE_GEN_OUTPUT_FORMAT);
-  const [picker, setPicker] = useState<ComposerPickerKind | null>(null);
-  const [commands, setCommands] = useState<PiCommand[]>([]);
-  const [files, setFiles] = useState<FileTreeNode[]>([]);
-  // @ 引用懒加载状态：已按 maxDepth 0 拉过子项的目录绝对路径（防重复请求），
-  // 与在途加载集合成对出现；目录不在任一集合才能发新请求。
-  const loadedDirPathsRef = useRef<Set<string>>(new Set());
-  const loadingDirPathsRef = useRef<Set<string>>(new Set());
-  // @ 纯文件名搜索的整树后台加载：按 projectId 隔离的单个状态，每项目最多触发
-  // 一次（成功或失败都算尝试过），避免用户每敲一个新关键词都重扫整棵目录树。
-  const deepTreeStateRef = useRef<{ projectId: string; loaded: boolean; loading: boolean }>({
-    projectId: "",
-    loaded: false,
-    loading: false,
-  });
-  const templateKey = `${sessionId}:${record?.projectPath ?? ""}`;
-  const [templateState, setTemplateState] = useState<{
-    key: string;
-    items: PromptTemplateInfo[];
-  }>({ key: templateKey, items: [] });
-  const templates = templateState.key === templateKey ? templateState.items : [];
-  const [sendShortcut, setSendShortcut] = useState<
-    "enter-send" | "ctrl-enter-send" | "shift-enter-send"
-  >("enter-send");
-  const [sessionReference, setSessionReference] = useState<SessionSummary | null>(null);
-  const [sessionReferenceSelections, setSessionReferenceSelections] = useState<
-    Record<string, SessionReferenceSelection>
-  >({});
-
-  const markDraftMutation = useCallback((targetSessionId = sessionId) => {
-    if (targetSessionId !== sessionId) return;
-    draftGuardRef.current = markComposerDraftMutation(draftGuardRef.current);
-  }, [sessionId]);
-
-  const setDraft = useCallback((value: string | ((current: string) => string)) => {
-    markDraftMutation();
-    setDraftAtom({ sessionId, value });
-  }, [markDraftMutation, sessionId, setDraftAtom]);
-
-  const setAttachments = useCallback((
-    value: ImageContent[] | ((current: ImageContent[]) => ImageContent[]),
-  ) => {
-    setAttachmentsAtom({ sessionId, value });
-  }, [sessionId, setAttachmentsAtom]);
-
-  const setPasteFiles = useCallback((
-    value: PastedTextFile[] | ((current: PastedTextFile[]) => PastedTextFile[]),
-  ) => {
-    setPasteFilesAtom({ sessionId, value });
-  }, [sessionId, setPasteFilesAtom]);
-
-  const setMode = useCallback((nextMode: ComposerAgentMode) => {
-    // 生图历史是独立消息协议，普通/计划/目标模式的命令语义不适用；
-    // 同一会话一旦产生生图记录（或本身是 imagegen 后端），必须保持生图模式，避免误发普通请求。
-    if ((hasImageGenHistory || record?.backend === "imagegen") && nextMode !== "imagegen") return;
-    // DSH：plan 走 host /plan；goal 走 create/resume/pause IPC（切回普通暂停，不清除）。
-    // 本地 atom 仍写入 goal，让选择器立刻切到目标模式；首条用户消息再 /goal 创建。
-    if (isDshBackend) {
-      const currentPhase = runtime?.state?.goal?.phase;
-      const agentId = runtime?.agentId;
-      if (nextMode === "plan" || (nextMode === "normal" && mode === "plan")) {
-        const command = nextMode === "plan" ? "/plan" : "/plan off";
-        void desktopApi.sessions.sendPrompt({
-          sessionId,
-          requestId: crypto.randomUUID(),
-          message: command,
-        }).then((result) => {
-          if (!result.accepted) {
-            showNotice(result.error ?? t("dshPlan.switchFailed"), 4000);
-          } else if (nextMode === "plan") {
-            showNotice(t("dshPlan.pendingNotice"), 3000);
-          }
-        }).catch((error) => {
-          showNotice(error instanceof Error ? error.message : String(error), 4000);
-        });
-        if (nextMode === "plan") {
-          setModeAtom({ sessionId, mode: "normal" });
-          // 模式选择器互斥：进 plan 时暂停进行中的 goal，不清除。
-          if (agentId && (currentPhase === "active" || currentPhase === "blocked")) {
-            void desktopApi.sessions.runDshGoalAction(agentId, "pause").catch((error) => {
-              showNotice(error instanceof Error ? error.message : String(error), 4000);
-            });
-          }
-        }
-        return;
-      }
-      if (nextMode === "goal") {
-        if (mode === "plan") {
-          void desktopApi.sessions.sendPrompt({
-            sessionId,
-            requestId: crypto.randomUUID(),
-            message: "/plan off",
-          }).catch((error) => {
-            showNotice(error instanceof Error ? error.message : String(error), 4000);
-          });
-        }
-        setModeAtom({ sessionId, mode: "goal" });
-        if (agentId && (currentPhase === "paused" || currentPhase === "blocked")) {
-          void desktopApi.sessions.runDshGoalAction(agentId, "resume").catch((error) => {
-            showNotice(error instanceof Error ? error.message : String(error), 4000);
-          });
-        } else if (!currentPhase || currentPhase === "complete") {
-          showNotice(t("dshGoal.pendingNotice"), 3000);
-        }
-        return;
-      }
-      if (nextMode === "normal" && mode === "goal") {
-        setModeAtom({ sessionId, mode: "normal" });
-        if (agentId && (currentPhase === "active" || currentPhase === "blocked")) {
-          void desktopApi.sessions.runDshGoalAction(agentId, "pause").catch((error) => {
-            showNotice(error instanceof Error ? error.message : String(error), 4000);
-          });
-        }
-        return;
-      }
-    }
-    // pi：切回普通立刻发 /goal pause，不要等下一条无标记消息才停。
-    if (!isDshBackend && nextMode === "normal" && mode === "goal") {
-      setModeAtom({ sessionId, mode: "normal" });
-      void desktopApi.sessions.sendPrompt({
-        sessionId,
-        requestId: crypto.randomUUID(),
-        message: "/goal pause",
-      }).catch((error) => {
-        showNotice(error instanceof Error ? error.message : String(error), 4000);
-      });
-      return;
-    }
-    setModeAtom({ sessionId, mode: nextMode });
-  }, [hasImageGenHistory, isDshBackend, mode, runtime?.agentId, runtime?.state?.goal?.phase, sessionId, setModeAtom]);
-
-  const loadTemplates = useCallback(async () => {
-    const token = templateRequestGateRef.current.begin(templateKey);
-    const next: PromptTemplateInfo[] = [];
-    try {
-      const globalResult = await desktopApi.prompts.list();
-      next.push(...globalResult.templates.map((template) => ({
-        ...template,
-        description: translateBuiltinPromptDescription(template),
-        argumentHint: parseArgumentHint(template.content),
-      })));
-    } catch {
-      // Project templates remain usable when the global store is unavailable.
-    }
-    if (record?.projectPath) {
-      try {
-        const projectResult = await desktopApi.prompts.listByProject(record.projectPath);
-        next.push(...projectResult.templates.map((template) => ({
-          ...template,
-          argumentHint: parseArgumentHint(template.content),
-        })));
-      } catch {
-        // A project does not have to provide .pi/prompts.
-      }
-    }
-    if (templateRequestGateRef.current.isCurrent(token)) {
-      setTemplateState({ key: templateKey, items: next });
-    }
-    return next;
-  }, [record?.projectPath, sessionId, templateKey]);
-
-  useEffect(() => {
-    liveDomDraftRef.current = { sessionId, value: draft };
-    setCursor(draft.length);
-    setSuggestionsOpen(false);
-    setSelectedSuggestionIndex(0);
-    setHistoryIndex(-1);
-    setSavedDraft("");
-    setBusyDraftLocked(false);
-    // 注意：这里不再写 caretRef。该写入发生在编辑器 layout effect 之后、且 layout
-    // effect 只在 value 变化时重跑，会留下一条过期待消费光标——首次输入（打字/
-    // 粘贴/语音）时把选区重置回 0。恢复光标到文末由编辑器在内容同步（setContent）
-    // 时兜底完成，见 useTipTapComposerEditor 同步 effect。
-    draftGuardRef.current = createComposerDraftGuard({
-      sessionId,
-      agentId: runtime?.agentId,
-      runtimeGeneration: runtime?.runtimeGeneration,
-      draft,
-    });
-    lastEditorTextEnvelopeRef.current = "";
-  }, [sessionId]);
-
-  useEffect(() => {
-    const currentDraft = store.get(sessionDraftByIdAtom)[sessionId] ?? "";
-    draftGuardRef.current = createComposerDraftGuard({
-      sessionId,
-      agentId: runtime?.agentId,
-      runtimeGeneration: runtime?.runtimeGeneration,
-      draft: currentDraft,
-    });
-    lastEditorTextEnvelopeRef.current = "";
-  }, [runtime?.agentId, runtime?.runtimeGeneration, sessionId, store]);
-
-  useEffect(() => {
-    if (
-      liveDomDraftRef.current.sessionId === sessionId &&
-      liveDomDraftRef.current.value !== draft
-    ) {
-      liveDomDraftRef.current = { sessionId, value: draft };
-    }
-  }, [draft, sessionId]);
-
-  useEffect(() => {
-    const editorText = runtimeUi?.editorText;
-    if (
-      !runtime?.agentId ||
-      !editorText ||
-      runtimeUi.agentId !== runtime.agentId ||
-      runtimeUi.runtimeGeneration !== runtime.runtimeGeneration
-    ) {
-      return;
-    }
-    const envelope = `${sessionId}:${runtime.runtimeGeneration}:${editorText.revision}`;
-    if (lastEditorTextEnvelopeRef.current === envelope) return;
-    lastEditorTextEnvelopeRef.current = envelope;
-    const currentDraft = store.get(sessionDraftByIdAtom)[sessionId] ?? "";
-    if (!canApplyRuntimeEditorText(draftGuardRef.current, {
-      sessionId,
-      agentId: runtime.agentId,
-      runtimeGeneration: runtime.runtimeGeneration,
-      currentDraft,
-    })) {
-      return;
-    }
-    liveDomDraftRef.current = { sessionId, value: editorText.text };
-    setDraft(editorText.text);
-    setCursor(editorText.text.length);
-    caretRef.current = { pos: editorText.text.length, forValue: editorText.text };
-  }, [runtime, runtimeUi, sessionId, setDraft, store]);
-
-  useEffect(() => {
-    void desktopApi.settings.get().then((settings) => {
-      setSendShortcut(settings.sendShortcut);
-      setImageGenSizeState(parseImageGenSize(settings.imageGenSize) ?? DEFAULT_IMAGE_GEN_SIZE);
-      setImageGenWatermarkState(parseImageGenWatermark(settings.imageGenWatermark));
-      setImageGenOutputFormatState(
-        parseImageGenOutputFormat(settings.imageGenOutputFormat) ?? DEFAULT_IMAGE_GEN_OUTPUT_FORMAT,
-      );
-    }).catch(() => undefined);
-  }, []);
-
-  // 单栏会话复用同一 Composer 实例：切 tab 必须清掉 picker/建议/预览等本地 UI，
-  // 草稿和附件走 per-session atom，这里只重置不属于 atom 的瞬时状态。
-  useEffect(() => {
-    setCursor(0);
-    setSuggestionsOpen(false);
-    setSelectedSuggestionIndex(0);
-    setHistoryIndex(-1);
-    setSavedDraft("");
-    setBusyDraftLocked(false);
-    setPreviewImage(null);
-    setGeneratingImage(false);
-    setPicker(null);
-    setSessionReference(null);
-    setSessionReferenceSelections({});
-  }, [sessionId]);
-
-  useEffect(() => {
-    if (!effectiveProjectId) {
-      setFiles([]);
-      return;
-    }
-    let current = true;
-    // @ 引用跟文件抽屉同一套懒加载：maxDepth 0 只扫根层，展开再补子目录。
-    // 旧实现扫 8 层会在切项目时把主进程/渲染都拖死（大会话项目尤其明显）。
-    // 引导页虚拟会话没有 record，靠 bootstrapProjectId 兑底加载文件树。
-    void desktopApi.files.list(effectiveProjectId, { maxDepth: 0 }).then((next) => {
-      if (current) setFiles(next);
-    }).catch(() => {
-      if (current) setFiles([]);
-    });
-    return () => {
-      current = false;
-    };
-  }, [effectiveProjectId]);
-
-  // 切项目时清掉懒加载进度：老项目的目录缓存/在途请求不能让新项目复用。
-  // （真实请求仍受主进程 isPathInsideProject 拦截，这里双保险。）
-  useEffect(() => {
-    loadedDirPathsRef.current = new Set();
-    loadingDirPathsRef.current = new Set();
-  }, [effectiveProjectId]);
-
-  useEffect(() => {
-    // D15：DSH 会话的命令补全优先走 live 注册表（host 侧 ctx.commands.list，
-    // 含用户/插件注册的命令）；会话未激活（无 live Agent）或桥失败时降级为
-    // 已知命令建议集（与 dsh-web 命名空间一致；slash 桥未命中会放行给模型）。
-    if (isDshBackend) {
-      const staticCommands = DSH_COMMAND_SUGGESTIONS.map((command) => ({
-        name: command.name,
-        description: t(command.descriptionKey),
-        source: command.source,
-      }));
-      const dshTarget = toSessionRuntimeTarget(sessionId, runtime);
-      if (!dshTarget) {
-        setCommands(staticCommands);
-        return;
-      }
-      let current = true;
-      void desktopApi.sessions.listRuntimeCommands(dshTarget).then((result) => {
-        if (current) {
-          const live = requireSessionCommand(result).value;
-          // live 清单可能不含 help 等基础命令（部分命令仅桌面侧存在）：
-          // 与静态建议集合并去重，优先 live 描述。
-          const names = new Set(live.map((command) => command.name));
-          setCommands([...live, ...staticCommands.filter((command) => !names.has(command.name))]);
-        }
-      }).catch(() => {
-        if (current) setCommands(staticCommands);
-      });
-      return () => {
-        current = false;
-      };
-    }
-    const target = toSessionRuntimeTarget(sessionId, runtime);
-    if (!target) {
-      setCommands([]);
-      return;
-    }
-    let current = true;
-    void desktopApi.sessions.listRuntimeCommands(target).then((result) => {
-      if (current) setCommands(requireSessionCommand(result).value);
-    }).catch(() => {
-      if (current) setCommands([]);
-    });
-    return () => {
-      current = false;
-    };
-  }, [isDshBackend, runtime?.agentId, runtime?.runtimeGeneration, sessionId]);
-
-  useEffect(() => {
-    templateRequestGateRef.current.invalidate(templateKey);
-    setTemplateState({ key: templateKey, items: [] });
-    void loadTemplates();
-  }, [loadTemplates, templateKey]);
-
-  const flatFiles = useMemo(() => flattenFiles(files), [files]);
-  const mergedCommands = useMemo(() => mergeCommands(commands), [commands]);
-  const validCommandNames = useMemo(() => new Set([
-    ...mergedCommands.map((command) => command.name),
-    ...templates.map((template) => template.name),
-  ]), [mergedCommands, templates]);
-  const validFilePaths = useMemo(
-    () => new Set(flatFiles.map((file) => file.relativePath)),
-    [flatFiles],
-  );
-  const validSessionRefs = useMemo(
-    () => new Set(projectSessions.map((session) => session.name ?? session.filePath)),
-    [projectSessions],
-  );
-  // 引用 chip 白名单：id → 截断后的快照预览 label；无快照时返回 undefined，
-  // 解析器直接跳过引用分支（零开销快速路径）
-  const sessionQuotes = useAtomValue(sessionQuotesByIdAtom);
-  const validQuotes = useMemo(() => {
-    const map = sessionQuotes[sessionId];
-    if (!map) return undefined;
-    const entries = Object.entries(map);
-    if (entries.length === 0) return undefined;
-    return new Map(entries.map(([id, snippet]) => [id, truncateQuoteLabel(snippet.text)]));
-  }, [sessionQuotes, sessionId]);
-  const suggestionItems = useMemo(
-    () => suggestionsOpen
-      ? buildSuggestionItems(draft, cursor, commands, flatFiles, projectSessions)
-      : [],
-    [commands, cursor, draft, flatFiles, projectSessions, suggestionsOpen],
-  );
-
-  // @ 引用向下钻取：随输入懒加载子目录（maxDepth 0 只拉一层，与文件抽屉同语义）。
-  // 修复 maxDepth 0 化后只能引用到项目根一层（71d27ed1 为保主进程响应把 8 层递归改成
-  // 根层，但没补抽屉那套展开逻辑，导致 @src/xxx 永远匹配不到深层文件）。
-  useEffect(() => {
-    if (!effectiveProjectId) return;
-    const trigger = detectTrigger(draft, cursor, validSessionRefs);
-    if (!trigger || trigger.char !== "@") return;
-    const dirNode = resolveAtDrillDirectory(trigger.query, files);
-    if (!dirNode) return;
-    // 已有 children 数组 = 子项已加载（含空目录），不重复请求
-    if (Array.isArray(dirNode.children) || loadingDirPathsRef.current.has(dirNode.path)) {
-      return;
-    }
-    let current = true;
-    loadingDirPathsRef.current.add(dirNode.path);
-    void desktopApi.files.list(effectiveProjectId, { maxDepth: 0, directory: dirNode.path })
-      .then((children) => {
-        if (!current) return;
-        setFiles((prev) => mergeFileTreeChildren(prev, dirNode.path, children));
-        loadedDirPathsRef.current.add(dirNode.path);
-      })
-      .catch(() => {
-        // 目录被删/权限不足：保留已加载部分，下次输入自然重试
-      })
-      .finally(() => {
-        loadingDirPathsRef.current.delete(dirNode.path);
-      });
-    return () => {
-      current = false;
-    };
-  }, [cursor, draft, effectiveProjectId, files, validSessionRefs]);
-
-  // @ 纯文件名搜索（无 /，如 @index）：懒加载缺少锚点目录，必须一次性拿到整树
-  // 才能让模糊搜索覆盖深层文件（恢复 71d27ed1 之前的深度搜索能力）。
-  // 只在用户确实在搜索（长度 ≥2）且每项目只触发一次；整树合并后所有目录
-  // 都有 children 数组，下钻 effect 的 Array.isArray 门自然短路，不会重复拉。
-  useEffect(() => {
-    if (!effectiveProjectId) return;
-    // 切到新项目：重建状态（不 return，继续按新状态评估是否触发）
-    const state = deepTreeStateRef.current;
-    if (state.projectId !== effectiveProjectId) {
-      deepTreeStateRef.current = { projectId: effectiveProjectId, loaded: false, loading: false };
-    }
-    if (deepTreeStateRef.current.loaded || deepTreeStateRef.current.loading) return;
-    const trigger = detectTrigger(draft, cursor, validSessionRefs);
-    if (!trigger || trigger.char !== "@" || !shouldLoadFullTreeForAtSearch(trigger.query)) {
-      return;
-    }
-    // 标记在途后即便本 effect 因继续输入被重新评估，loading 门也会挡住重复请求
-    deepTreeStateRef.current.loading = true;
-    void desktopApi.files.list(effectiveProjectId, { maxDepth: FILE_TREE_ABSOLUTE_MAX_DEPTH })
-      .then((next) => {
-        // 用项目比对而非 current 标志：输入过程中的每个按键都会触发本 effect
-        // 重新评估并清理旧闭包，但请求仍属于当前项目——数据不该被丢弃，
-        // 否则快速打字会连续浪费整树扫描（重扫风暴）。只有切走项目才丢弃。
-        if (deepTreeStateRef.current.projectId !== effectiveProjectId) return;
-        // 整树是根层清单的超集且目录均带 children，整体替换最省事：
-        // 已下钻目录的数据都在里面（幂等），无需再逐目录 merge。
-        setFiles(next);
-      })
-      .catch(() => {
-        // 超大目录（FILE_TREE_DIRECTORY_TOO_LARGE）/权限问题：保留已加载部分；
-        // 同样标记为已尝试，避免每个关键词都重扫整个项目。
-      })
-      .finally(() => {
-        // 只有请求仍属于当前项目才写状态：切走后的旧闭包不能污染新项目标记。
-        if (deepTreeStateRef.current.projectId === effectiveProjectId) {
-          deepTreeStateRef.current.loading = false;
-          deepTreeStateRef.current.loaded = true;
-        }
-      });
-  }, [cursor, draft, effectiveProjectId, validSessionRefs]);
-  const suggestionAnchorStyle = useMemo<CSSProperties | undefined>(() => {
-    if (!suggestionsOpen) return undefined;
-    const menuWidth = Math.min(520, window.innerWidth - 120);
-    const menuHeight = 380;
-    const gap = 8;
-    // 兜底定位（原 CSS .command-palette 的「默认居中 + 底部 160px」语义收进 JS）：
-    // 拿不到编辑器/光标坐标时，面板仍然有确定位置，CSS 不再承载任何定位假设。
-    const fallback: CSSProperties = {
-      top: "auto",
-      bottom: 160,
-      left: Math.max(16, (window.innerWidth - menuWidth) / 2),
-    };
-    const root = editorRef.current;
-    if (!root) return fallback;
-    const coordinates = getComposerCaretCoords(root, cursor);
-    if (!coordinates) return fallback;
-    let left = coordinates.left;
-    if (left + menuWidth > window.innerWidth - 16) {
-      left = Math.max(16, window.innerWidth - menuWidth - 16);
-    }
-    const below = coordinates.top + gap;
-    if (below + menuHeight <= window.innerHeight - 16) {
-      return { top: below, left, bottom: "auto" };
-    }
-    const above = coordinates.top - gap;
-    if (above - menuHeight >= 0) {
-      return {
-        top: "auto",
-        bottom: window.innerHeight - above,
-        left,
-      };
-    }
-    return { top: "auto", bottom: 16, left };
-  }, [cursor, suggestionsOpen]);
-
-  const isBusy = isSessionRuntimeBusy(runtime?.status, runtime?.state);
-  // 预热只创建进程，不能把编辑器 setEditable(false)：contenteditable 关掉会失焦，输入一半就断。
-  const isStarting = isUserFacingSessionStart(sendState.status);
-  const hasContent = Boolean(draft.trim() || attachments.length || pasteFiles.length);
-
-  const resetEphemeralUi = useCallback(() => {
-    setHistoryIndex(-1);
-    setSavedDraft("");
-    setSuggestionsOpen(false);
-    setBusyDraftLocked(false);
-    liveDomDraftRef.current = { sessionId, value: "" };
-  }, [sessionId]);
-
-  const resolveSessionReferences = useCallback(async (message: string) => {
-    let resolved = message;
-    const sessionsByLongestName = [...projectSessions].sort(
-      (left, right) =>
-        (right.name ?? right.filePath).length - (left.name ?? left.filePath).length,
-    );
-    for (const referencedSession of sessionsByLongestName) {
-      const sessionName = referencedSession.name ?? referencedSession.filePath;
-      const raw = `&${sessionName}`;
-      if (!resolved.toLowerCase().includes(raw.toLowerCase())) continue;
-      const escaped = raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const pattern = new RegExp(escaped, "gi");
-      const saved = sessionReferenceSelections[raw];
-      const selectedMessages = saved
-        ? selectedSessionReferenceMessages(saved)
-        : await desktopApi.sessions.readReferenceMessages(referencedSession.id);
-      const context = selectedMessages
-        .map((item) => `[${item.role === "user" ? "User" : "Assistant"}]: ${item.content}`)
-        .join("\n");
-      resolved = resolved.replace(
-        pattern,
-        context
-          ? `<referenced_session name="${sessionName}">\n${context}\n</referenced_session>`
-          : "",
-      );
-    }
-    return resolved;
-  }, [projectSessions, sessionReferenceSelections]);
-
-  /**
-   * 手动压缩唯一入口：圆环按钮与 /compact 共用。
-   * 未达 30% 门槛不打 RPC（友好 toast）；压缩中拒绝重复点击；成功弹完成。
-   */
-  const runManualCompact = useCallback(async (
-    target: { sessionId: string; agentId: string; runtimeGeneration: number },
-    prompt?: string,
-  ) => {
-    const live = store.get(sessionRuntimeBySessionIdAtomFamily(sessionId));
-    // 与圆环 occupancy 同一套占用数字：percent=0 但 tokens 非 0 时按 tokens/window 重算。
-    const percent = resolveCompactUsagePercent(live?.state);
-    const compacting = live?.state?.isCompacting === true;
-    if (compacting) {
-      showNotice(t("app.compactInProgress"), 4000);
-      return;
-    }
-    if (shouldSkipCompactForLowUsage(percent, compacting)) {
-      showNotice(t("app.compactSessionTooSmall"), 6000);
-      return;
-    }
-    try {
-      requireSessionCommand(await desktopApi.sessions.compactRuntime(target, prompt));
-      showNotice(t("app.compactDone"), 4000);
-    } catch (error) {
-      const message = friendlyCompactError(error);
-      if (message) showNotice(message, 6000);
-    }
-  }, [sessionId, store]);
-
-  const send = useSessionSend({
-    sessionId,
-    sendPrompt: (input) => desktopApi.sessions.sendPrompt(input),
-    ensureSessionId,
-    templates,
-    prepareMessage: async (message) => {
-      const resolved = await resolveSessionReferences(message);
-      // 条上暂停后 composer 仍可能停在目标模式：发送前先 resume，否则 host 不会续轮。
-      if (isDshBackend && mode === "goal") {
-        const phase = runtime?.state?.goal?.phase;
-        if (runtime?.agentId && (phase === "paused" || phase === "blocked")) {
-          try {
-            await desktopApi.sessions.runDshGoalAction(runtime.agentId, "resume");
-          } catch (error) {
-            showNotice(error instanceof Error ? error.message : String(error), 4000);
-          }
-        }
-      }
-      return resolved;
-    },
-    onDraftMutation: markDraftMutation,
-    createNewSession: options.onCreateSession,
-    compact: async (target, prompt) => {
-      await runManualCompact(target, prompt);
-    },
-    resetComposerUi: resetEphemeralUi,
-    recordPromptHistory: (targetSessionId, message) => {
-      if (!message.trim() || message.startsWith("!")) return;
-      const normalized = message.trim();
-      const previous = promptHistoryRef.current[targetSessionId] ?? [];
-      promptHistoryRef.current[targetSessionId] = [
-        normalized,
-        ...previous.filter((item) => item !== normalized),
-      ].slice(0, 50);
-    },
-    showError: (message, duration) => showNotice(message, duration),
-    showUnknown: () => showNotice(t("app.queuedUnknown"), 6000),
-    enqueue,
-  });
-
-  // 生图：凭据来自独立 imagegen.json（供应商 + 模型），不读会话 LLM。
-  // 结果按「消息」语义上屏（与 useSessionSend 乐观提交同一约定：写时间线缓存、source=runtime）：
-  // 提示词作为 user 消息立即上屏；随后追加一条 assistant「生图占位」消息（meta.imageGen=generating），
-  // 生成期间由 FinalAnswer 渲染 beUI ImageGeneration 点阵动画，完成后原地更新为 complete（图片清晰过渡），
-  // 失败原地更新为 error。不调用 send、不进附件栏（无运行中 Agent 也能用）。
-  const persistImageGenSelection = useCallback((providerId: string, modelId: string) => {
-    const next = {
-      ...imageGenConfig,
-      activeProviderId: providerId,
-      activeModel: modelId,
-    };
-    setImageGenConfig(next);
-    void desktopApi.imagegen.saveConfig(next).catch(() => undefined);
-  }, [imageGenConfig, setImageGenConfig]);
-
-  const generateImage = useCallback(async () => {
-    const prompt = draft.trim();
-    if (!prompt || generatingImage) return;
-    const provider = findImageGenProvider(imageGenConfig, activeImageGenProviderId)
-      ?? imageGenConfig.providers[0];
-    const modelId = provider && provider.models.includes(activeImageGenModelId)
-      ? activeImageGenModelId
-      : (provider?.models[0] ?? "");
-    if (!provider?.id || !modelId || !provider.baseUrl.trim() || !provider.apiKey.trim()) {
-      showNotice(t("imagegen.error.notConfigured"), 5000);
-      return;
-    }
-    // 参考图前置门禁：供应商未声明带图输入时直接提示，不发无效请求（主进程也会拦截兑底）
-    if (attachments.length > 0 && (provider.referenceMode ?? "none") === "none") {
-      showNotice(t("imagegen.error.referenceUnsupported"), 5000);
-      return;
-    }
-    // 仅「启动即匿名」的会话提示（noSession=true，经匿名开聊创建，pi 以 --no-session 启动）：
-    // 生图不落盘、重启即失。普通新建 draft 会话 filePath 同样为空（生图不启动 agent），
-    // 但用户视角它是正式会话，不弹匿名提示打扰（2026 反馈）。
-    if (record?.noSession === true) {
-      showNotice(t("imagegen.transientHint"), 6000);
-    }
-    setGeneratingImage(true);
-
-    // 把本地生图消息追加进时间线缓存（整体替换 messages 数组，source=runtime 沿用乐观提交约定）。
-    const appendTimelineMessage = (message: ChatMessage) => {
-      const previous = store.get(sessionMessagesCacheAtom)?.[sessionId]?.messages ?? [];
-      setCacheMessages({ sessionId, messages: [...previous, message], source: "runtime" });
-    };
-    // 按 id 原地更新已上屏消息（生图占位 → complete/error 复用同一条，避免时间线多出一条）。
-    const updateTimelineMessage = (id: string, patch: (m: ChatMessage) => ChatMessage) => {
-      const previous = store.get(sessionMessagesCacheAtom)?.[sessionId]?.messages ?? [];
-      setCacheMessages({
-        sessionId,
-        messages: previous.map((m) => (m.id === id ? patch(m) : m)),
-        source: "runtime",
-      });
-    };
-
-    appendTimelineMessage({
-      id: crypto.randomUUID(),
-      agentId: "",
-      role: "user",
-      text: prompt,
-      timestamp: Date.now(),
-      // 参考图随 user 消息上屏：发送后附件栏清空，图片要留在时间线气泡里回显
-      images: attachments.length > 0 ? attachments : undefined,
-    });
-    const imageMessageId = crypto.randomUUID();
-    appendTimelineMessage({
-      id: imageMessageId,
-      agentId: "",
-      role: "assistant",
-      text: "",
-      stopReason: "stop",
-      timestamp: Date.now(),
-      meta: {
-        imageGen: { status: "generating", prompt, size: imageGenSize } satisfies ImageGenMeta,
-      },
-    });
-    setDraft("");
-    // 乐观清空附件栏：参考图已随 user 消息上屏回显，输入框不再占用
-    // （与普通消息发送同惯例 useSessionSend.clearSnapshot）；
-    // 生成失败时下方失败分支会把附件前插恢复，支持改词重试。
-    if (attachments.length > 0) {
-      setAttachmentsAtom({ sessionId, value: [] });
-    }
-
-    try {
-      const result = await desktopApi.imagegen.generate({
-        provider: provider.id,
-        model: modelId,
-        prompt,
-        size: imageGenSize,
-        watermark: imageGenWatermark,
-        outputFormat: imageGenOutputFormat,
-        // 参考图：附件栏图片作为参考图传给主进程；是否可用由供应商 referenceMode 决定
-        referenceImages: attachments.length > 0 ? attachments : undefined,
-        // 生图记录落盘：主进程成功后把 user+assistant 消息写入当前会话的 pi 文件
-        sessionId,
-      });
-      if (result.ok) {
-        // 参考图发送时已乐观清空，此处只原地更新结果消息
-        updateTimelineMessage(imageMessageId, (m) => ({
-          ...m,
-          images: [result.image],
-          meta: {
-            imageGen: { status: "complete", prompt, size: imageGenSize } satisfies ImageGenMeta,
-          },
-        }));
-        showNotice(t("imagegen.done"), 4000);
-      } else {
-        // 失败恢复附件：参考图放回输入框便于改词重试；前插不覆盖期间新粘贴的图
-        if (attachments.length > 0) {
-          setAttachmentsAtom({ sessionId, value: (current) => [...attachments, ...current] });
-        }
-        updateTimelineMessage(imageMessageId, (m) => ({
-          ...m,
-          meta: {
-            imageGen: {
-              status: "error",
-              prompt,
-              size: imageGenSize,
-              errorDetail: mapImageGenError(result.error, result.detail),
-            } satisfies ImageGenMeta,
-          },
-        }));
-      }
-    } catch {
-      // 网络/超时类失败同样恢复附件，便于原地重试
-      if (attachments.length > 0) {
-        setAttachmentsAtom({ sessionId, value: (current) => [...attachments, ...current] });
-      }
-      updateTimelineMessage(imageMessageId, (m) => ({
-        ...m,
-        meta: {
-          imageGen: {
-            status: "error",
-            prompt,
-            errorDetail: t("imagegen.error.network"),
-          } satisfies ImageGenMeta,
-        },
-      }));
-    } finally {
-      setGeneratingImage(false);
-    }
-  }, [activeImageGenModelId, activeImageGenProviderId, attachments, draft, generatingImage, imageGenConfig, imageGenOutputFormat, imageGenSize, imageGenWatermark, record?.noSession, sessionId, setAttachmentsAtom, setCacheMessages, setDraft, store]);
-
-  // 统一发送入口：先晋升预览 Tab 再投递（幂等，非预览无副作用）。
-  // 发送按钮 / 追问按钮 / Enter 键 / 无 Agent 时的 /compact 直发都会走这里，
-  // 避免新增发送路径时漏掉 promote 导致预览 Tab 不常驻（曾因此回归）。
-  // 生图模式：所有发送入口统一转生图（不晋升预览 Tab、不发消息），避免各入口分支不一致。
-  const promoteAndSend = useCallback(
-    async (behavior?: "steer" | "followUp") => {
-      if (mode === "imagegen") {
-        void generateImage();
-        return;
-      }
-      // 粘贴文件折叠：把 chip 里的文件引用/内容并进草稿再发送。
-      // 项目内文件（inProject）走 @\"path\" 引用——pi 展开读取，消息体保持轻量；
-      // 匿名会话（文件在 userData，pi 无法读取）折叠原样文本内联，保证内容送达。
-      if (pasteFiles.length) {
-        const refs: string[] = [];
-        for (const file of pasteFiles) {
-          if (file.inProject) {
-            refs.push(formatFilePathRef(file.path));
-          } else {
-            const content = await desktopApi.files.readContent(file.path).catch(() => "");
-            if (content) refs.push(content);
-          }
-        }
-        const liveDraft = liveDomDraftRef.current.sessionId === sessionId
-          ? liveDomDraftRef.current.value
-          : draft;
-        const joined = [liveDraft.trim(), refs.join("\n\n")].filter(Boolean).join("\n\n");
-        liveDomDraftRef.current = { sessionId, value: joined };
-        setDraft(joined);
-        // 已折叠进草稿：立即移除 chip（发送成功/失败都会在 clearSnapshot 兜底清空）
-        setPasteFiles([]);
-      }
-      options.onPromoteSession?.(sessionId);
-      return send(behavior);
-    },
-    [draft, mode, generateImage, options.onPromoteSession, pasteFiles, send, sessionId, setDraft, setPasteFiles],
-  );
-
-  const selectSuggestion = useCallback((item: SuggestionItem) => {
-    const liveDraft = liveDomDraftRef.current.sessionId === sessionId
-      ? liveDomDraftRef.current.value
-      : draft;
-    const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
-    // 目录引用（isDirectory）不带尾随空格：@src/ 之后继续敲路径段时建议框会
-    // 随按键重新打开（onChange → detectTrigger），实现连续的目录下钻引用；
-    // 带空格会让建议框立刻关闭，用户必须回删空格才能继续，容易误以为只能选一层。
-    const result = applySuggestion(liveDraft, liveCursor, item.value, validSessionRefs, {
-      noTrailingSpace: item.isDirectory === true,
-    });
-    liveDomDraftRef.current = { sessionId, value: result.text };
-    setDraft(result.text);
-    setCursor(result.cursor);
-    caretRef.current = { pos: result.cursor, forValue: result.text };
-    setSuggestionsOpen(false);
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, [cursor, draft, sessionId, setDraft, validSessionRefs]);
-
-  const closeSuggestions = useCallback(() => {
-    const liveDraft = liveDomDraftRef.current.sessionId === sessionId
-      ? liveDomDraftRef.current.value
-      : draft;
-    const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
-    const result = clearSuggestionTrigger(liveDraft, liveCursor, validSessionRefs);
-    liveDomDraftRef.current = { sessionId, value: result.text };
-    setDraft(result.text);
-    setCursor(result.cursor);
-    caretRef.current = { pos: result.cursor, forValue: result.text };
-    setSuggestionsOpen(false);
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, [cursor, draft, sessionId, setDraft, validSessionRefs]);
-
-  const onChange = useCallback((value: string, nextCursor: number) => {
-    liveDomDraftRef.current = { sessionId, value };
-    setDraft(value);
-    setCursor(nextCursor);
-    setSuggestionsOpen(detectTrigger(value, nextCursor, validSessionRefs) !== null);
-    if (historyIndex >= 0) {
-      const history = getPromptHistory();
-      if (value !== history[historyIndex]) {
-        setHistoryIndex(-1);
-        setSavedDraft("");
-      }
-    }
-  }, [getPromptHistory, historyIndex, sessionId, setDraft, validSessionRefs]);
-
-  const onKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (suggestionsOpen && suggestionItems.length > 0) {
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        setSelectedSuggestionIndex((index) => Math.min(index + 1, suggestionItems.length - 1));
-        return;
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        setSelectedSuggestionIndex((index) => Math.max(index - 1, 0));
-        return;
-      }
-      if (event.key === "Enter") {
-        // IME 合成中的回车属于输入法确认候选，不能拿去选建议项
-        if (isComposingKeyboardEvent(event)) return;
-        event.preventDefault();
-        const selected = suggestionItems[
-          Math.min(selectedSuggestionIndex, suggestionItems.length - 1)
-        ];
-        if (selected) selectSuggestion(selected);
-        return;
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeSuggestions();
-        return;
-      }
-    }
-
-    const liveDraft = liveDomDraftRef.current.sessionId === sessionId
-      ? liveDomDraftRef.current.value
-      : draft;
-    const liveCursor = editorRef.current
-      ? getComposerCaretOffset(editorRef.current)
-      : cursor;
-    const firstLine = !liveDraft.slice(0, liveCursor).includes("\n");
-    const lastLine = !liveDraft.slice(liveCursor).includes("\n");
-    const history = getPromptHistory();
-
-    if (event.key === "ArrowUp" && firstLine && history.length > 0) {
-      event.preventDefault();
-      const nextIndex = historyIndex < 0
-        ? 0
-        : Math.min(historyIndex + 1, history.length - 1);
-      if (historyIndex < 0) setSavedDraft(liveDraft);
-      setHistoryIndex(nextIndex);
-      liveDomDraftRef.current = { sessionId, value: history[nextIndex] };
-      setDraft(history[nextIndex]);
-      caretRef.current = { pos: history[nextIndex].length, forValue: history[nextIndex] };
-      return;
-    }
-    if (event.key === "ArrowDown" && lastLine && historyIndex >= 0) {
-      event.preventDefault();
-      const nextIndex = historyIndex - 1;
-      const nextDraft = nextIndex >= 0 ? history[nextIndex] : savedDraft;
-      setHistoryIndex(nextIndex);
-      if (nextIndex < 0) setSavedDraft("");
-      liveDomDraftRef.current = { sessionId, value: nextDraft };
-      setDraft(nextDraft);
-      caretRef.current = { pos: nextDraft.length, forValue: nextDraft };
-      return;
-    }
-    if (event.key === "Escape" && historyIndex >= 0) {
-      liveDomDraftRef.current = { sessionId, value: savedDraft };
-      setDraft(savedDraft);
-      setHistoryIndex(-1);
-      setSavedDraft("");
-      return;
-    }
-
-    const intent =
-      mode === "plan" && isPlanModeSendKey(event)
-        ? "send"
-        : getComposerEnterIntent(event, sendShortcut);
-    if (intent === "send") {
-      event.preventDefault();
-      // Enter 发送也晋升预览 Tab（promoteAndSend 内部统一处理）。
-      // 忙碌时按「忙碌时投递行为」设置决定语义（pi/dsh 统一，不再按后端分叉）；
-      // 空闲直发（undefined）。设置在常用设置→会话，改后即时生效（App 同步 atom）。
-      void promoteAndSend(resolveBusySendDelivery(isBusy, store.get(busySendDeliveryAtom)));
-    }
-  }, [
-    closeSuggestions,
-    draft,
-    getPromptHistory,
-    historyIndex,
-    isBusy,
-    mode,
-    promoteAndSend,
-    savedDraft,
-    selectedSuggestionIndex,
-    selectSuggestion,
-    sendShortcut,
-    sessionId,
-    setDraft,
-    store,
-    suggestionItems,
-    suggestionsOpen,
-  ]);
-
-  const addImageFiles = useCallback(async (imageFiles: File[]) => {
-    // G2：DSH 图片附件已支持（经 host attachment 服务上传，sendPrompt 带 image 块），
-    // 与 pi 共用附件流程，不再按 backend 拦截。
-    for (const file of imageFiles) {
-      try {
-        const image = await processComposerImageFile(file);
-        setAttachments((current) => [...current, image]);
-      } catch (error) {
-        showNotice(composerImageNotice(error), 3000);
-      }
-    }
-  }, [setAttachments]);
-
-  /**
-   * 把已格式化的引用文本（@path、@"a b/" 等）插入输入框当前光标处。
-   * 文件树拖拽、OS 文件拖入/粘贴、「加入对话引用」按钮共用同一插入规则：
-   * 只引用路径，不上传内容；与前字符之间按需补空格。
-   */
-  const insertRefTexts = useCallback((refTexts: string[]) => {
-    if (refTexts.length === 0) return;
-    const liveDraft = liveDomDraftRef.current.sessionId === sessionId
-      ? liveDomDraftRef.current.value
-      : draft;
-    const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
-    const refText = refTexts.join(" ");
-    const previous = liveDraft[liveCursor - 1];
-    const spacer = liveCursor > 0 && previous !== " " && previous !== "\n" ? " " : "";
-    const next = liveDraft.slice(0, liveCursor) + spacer + refText + liveDraft.slice(liveCursor);
-    const nextCursor = liveCursor + spacer.length + refText.length;
-    liveDomDraftRef.current = { sessionId, value: next };
-    setDraft(next);
-    setCursor(nextCursor);
-    caretRef.current = { pos: nextCursor, forValue: next };
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, [cursor, draft, sessionId, setDraft]);
-
-  /** 本地路径以 @path 引用插入（OS 文件拖入/粘贴/文件选择器共用）；含空格路径自动加引号 */
-  const insertFilePathRefs = useCallback((paths: string[]) => {
-    insertRefTexts(
-      paths.map((path) =>
-        formatFilePathRef(path, { isDirectory: /[\\/]$/.test(path) }),
-      ),
-    );
-  }, [insertRefTexts]);
-
-  /**
-   * 把纯文本插入输入框当前光标处（不带 @ 引用包装）。
-   * 与 insertRefTexts 同一套光标/草稿同步协议；仅用于「转文件失败回退原样粘贴」
-   * 这类需要绕过 TipTap 默认粘贴路径的场景（onPaste 已同步 preventDefault）。
-   */
-  const insertPlainTextAtCursor = useCallback((text: string) => {
-    if (!text) return;
-    const liveDraft = liveDomDraftRef.current.sessionId === sessionId
-      ? liveDomDraftRef.current.value
-      : draft;
-    const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
-    const next = liveDraft.slice(0, liveCursor) + text + liveDraft.slice(liveCursor);
-    const nextCursor = liveCursor + text.length;
-    liveDomDraftRef.current = { sessionId, value: next };
-    setDraft(next);
-    setCursor(nextCursor);
-    caretRef.current = { pos: nextCursor, forValue: next };
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, [cursor, draft, sessionId, setDraft]);
-
-  /**
-   * 大段粘贴文本 → 落盘受管文件 + 附件栏 chip。
-   * 触发条件：粘贴纯文本达到 PASTE_TO_FILE_MIN_CHARS（复制长日志/代码/文章是主要场景）。
-   * 有项目：写入 `<project>/.pideck-paste/`，发送时折叠 @"path" 引用（pi 可展开读取）；
-   * 匿名会话：写入 userData/paste-files/，发送时折叠原样文本内联。
-   * 写盘失败（权限/路径异常）回退原样插入，保证粘贴内容不丢。
-   */
-  const pasteTextToFile = useCallback(async (text: string) => {
-    try {
-      const result = await desktopApi.pasteFiles.write({
-        // 项目根经 projectId 反查项目清单（不依赖可能缺失的 record.projectPath）；
-        // 有项目（含引导页选中项目）→ 写 <project>/.pideck-paste/ 并在发送时折叠为
-        // @"path" 引用（消息端渲染文件 chip）；无项目 → userData 兜底、折叠原样文本内联。
-        projectPath: composerProject?.path ?? "",
-        content: text,
-      });
-      setPasteFiles((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          path: result.path,
-          fileName: result.fileName,
-          bytes: result.bytes,
-          inProject: result.inProject,
-        },
-      ]);
-      showNotice(
-        t("app.pasteConvertedToFile", { name: result.fileName, size: formatBytes(result.bytes) }),
-        4000,
-      );
-    } catch {
-      showNotice(t("app.pasteConvertFailed"), 3000);
-      insertPlainTextAtCursor(text);
-    }
-  }, [composerProject?.path, insertPlainTextAtCursor, setPasteFiles]);
-
-  /** 从 File 列表解析本地路径（Electron 32+ 必须走 webUtils，不能用已移除的 File.path） */
-  const resolveLocalPathsFromFiles = useCallback((files: File[]) => {
-    const getPath = desktopApi.files.getPathForFile;
-    if (!getPath) return [];
-    const paths: string[] = [];
-    for (const file of files) {
-      try {
-        const path = getPath(file);
-        if (path) paths.push(path);
-      } catch {
-        // 非本地文件或路径不可用时跳过
-      }
-    }
-    return paths;
-  }, []);
-
-  /**
-   * 剪贴板里的图片文件 → 附加为图片预览（对齐微信/QQ 粘贴习惯）。
-   * 经 files.readBase64 读原文件（比剪贴板位图缩略图清晰），构造 File 走统一附件流程；
-   * 任一文件读取失败或超出合成器大小上限（主进程 stat 预检拦截）时：
-   * 先兜底剪贴板位图——截图工具/网页复制常同时写路径+位图，而路径文件可能已被删除
-   * 或过大，位图仍在（否则粘贴会退化成无用的 @path 引用）；实在没有位图才整体回退
-   * @path 引用，保证「复制图片」粘贴始终有可用结果。
-   */
-  const pasteClipboardImages = useCallback(async (paths: string[], dataTransfer: DataTransfer | null) => {
-    try {
-      const files: File[] = [];
-      for (const path of paths) {
-        const dataUrl = await desktopApi.files.readBase64(path, COMPOSER_IMAGE_MAX_BYTES);
-        if (!dataUrl) throw new Error(`Cannot read image: ${path}`);
-        const fileName = path.split(/[\\/]/).pop() || path;
-        files.push(dataUrlToFile(dataUrl, imageMimeTypeFromPath(path), fileName));
-      }
-      await addImageFiles(files);
-    } catch {
-      // 位图兜底：事件粘贴优先取 clipboardData 的 image 项；右键粘贴无事件，走 Electron 剪贴板位图
-      const imageFiles = dataTransfer ? getClipboardImageFiles(dataTransfer) : [];
-      if (imageFiles.length) {
-        await addImageFiles(imageFiles);
-        return;
-      }
-      const imageDataUrl = desktopApi.clipboard.readImage();
-      if (imageDataUrl) {
-        await addImageFiles([dataUrlToFile(imageDataUrl, "image/png", "clipboard-image.png")]);
-        return;
-      }
-      insertFilePathRefs(paths);
-    }
-  }, [addImageFiles, insertFilePathRefs]);
-
-  /**
-   * 右键「粘贴」（无 ClipboardEvent）：从 Electron 剪贴板同步读取。
-   * 优先级同 onPaste：文件路径 → 位图 → 大段文本转文件；纯文本返回 false，交给编辑器本地插入。
-   */
-  const pasteFromClipboard = useCallback(async (): Promise<boolean> => {
-    const clipboardPaths = desktopApi.files.getClipboardPaths?.() ?? [];
-    if (clipboardPaths.length > 0) {
-      if (clipboardPaths.every(isImageFilePath)) {
-        await pasteClipboardImages(clipboardPaths, null);
-      } else {
-        insertFilePathRefs(clipboardPaths);
-      }
-      return true;
-    }
-    const imageDataUrl = desktopApi.clipboard.readImage();
-    if (imageDataUrl) {
-      await addImageFiles([dataUrlToFile(imageDataUrl, "image/png", "clipboard-image.png")]);
-      return true;
-    }
-    // 大段文本（右键粘贴菜单无 ClipboardEvent）：同样转文件，避免塞进 ProseMirror 变卡
-    const text = desktopApi.clipboard.readText();
-    if (text.length >= PASTE_TO_FILE_MIN_CHARS) {
-      void pasteTextToFile(text);
-      return true;
-    }
-    return false;
-  }, [addImageFiles, insertFilePathRefs, pasteClipboardImages, pasteTextToFile]);
-
-  /**
-   * 粘贴：系统文件路径以 @path 引用插入，位图/截图附加为图片。
-   * 未处理时不 preventDefault，交给 RichInput 做纯文本粘贴。
-   * preventDefault 必须在任何 await 之前同步调用，否则浏览器会先插入默认内容。
-   *
-   * 顺序说明：资源管理器复制图片文件时，剪贴板常同时带路径 + 缩略图；
-   * 路径为受支持图片时优先附加预览，否则仍按路径引用处理，避免被误当成截图。
-   */
-  const onPaste = useCallback((event: React.ClipboardEvent<HTMLDivElement>) => {
-    // 1) 资源管理器复制/剪切的文件：浏览器 ClipboardEvent 通常没有 kind=file，
-    //    需通过 preload 同步读取 Electron clipboard（FileNameW / CF_HDROP 等）
-    const clipboardPaths = desktopApi.files.getClipboardPaths?.() ?? [];
-    if (clipboardPaths.length > 0) {
-      event.preventDefault();
-      // 复制的全是受支持图片 → 附加预览；混合/其他文件 → 维持 @path 引用
-      if (clipboardPaths.every(isImageFilePath)) {
-        void pasteClipboardImages(clipboardPaths, event.clipboardData);
-      } else {
-        insertFilePathRefs(clipboardPaths);
-      }
-      return;
-    }
-
-    // 2) 兜底：剪贴板里若有 File 对象（部分场景），用 webUtils 解析路径
-    const fileItems = Array.from(event.clipboardData.items).filter((item) => item.kind === "file");
-    if (fileItems.length > 0) {
-      const files = fileItems
-        .map((item) => item.getAsFile())
-        .filter((file): file is File => Boolean(file));
-      const paths = resolveLocalPathsFromFiles(files);
-      if (paths.length > 0) {
-        event.preventDefault();
-        // 与第 1 步同规则：全是图片 → 附加预览（失败位图兜底），混合 → @path
-        if (paths.every(isImageFilePath)) {
-          void pasteClipboardImages(paths, event.clipboardData);
-        } else {
-          insertFilePathRefs(paths);
-        }
-        return;
-      }
-    }
-
-    // 3) 剪贴板位图（截图/微信QQ/网页复制图片）：必须优先于纯文本——
-    //    这类复制常同时写位图 + text 槽（微信写图片缓存路径、网页写图片 URL），
-    //    位图才是用户要的内容；文件路径场景已在前两步处理，这里只剩纯位图。
-    const imageFiles = getClipboardImageFiles(event.clipboardData);
-    if (imageFiles.length) {
-      event.preventDefault();
-      void addImageFiles(imageFiles);
-      return;
-    }
-    // 4) 大段纯文本粘贴（复制日志/代码/长文是主要来源）：直接插入 ProseMirror
-    //    会随文本量级变卡（文档模型 + 逐键建议扫描），改为落盘成文件并在附件栏
-    //    显示文件 chip（与图片粘贴同款形态），发送时自动折叠 @引用/原样文本。
-    const plainText = event.clipboardData.getData("text/plain");
-    if (plainText.length >= PASTE_TO_FILE_MIN_CHARS) {
-      event.preventDefault();
-      void pasteTextToFile(plainText);
-      return;
-    }
-    // 5) 其余纯文本一律交给编辑器原样插入：不做自动路径识别——
-    //    粘贴 /foo/bar、//注释 这类文本时，若自动补 @ 并转成引用 chip，
-    //    文本变成原子节点无法再编辑移动光标（用户反馈的痛点）；
-    //    需要引用文件时走资源管理器复制文件（步骤 1/2）或手动输入 @ 触发补全。
-  }, [addImageFiles, insertFilePathRefs, pasteClipboardImages, pasteTextToFile, resolveLocalPathsFromFiles]);
-
-  /**
-   * 拖拽：
-   * 1) 文件树节点（含目录）→ 按节点信息生成 @ 引用；
-   * 2) OS 本地文件/目录 → 以 @path 引用插入（含图片文件，不上传内容）；
-   * 3) 仅当无法解析本地路径且类型为 image/* 时，才退回附加图片（极少见）。
-   */
-  const onDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const nodePayload = readFileNodeDragPayload(event.dataTransfer);
-    if (nodePayload) {
-      insertRefTexts([fileNodeDragPayloadToRef(nodePayload)]);
-      return;
-    }
-    const files = Array.from(event.dataTransfer.files);
-    if (files.length === 0) return;
-    const paths = resolveLocalPathsFromFiles(files);
-    if (paths.length > 0) {
-      insertFilePathRefs(paths);
-      return;
-    }
-    void addImageFiles(getDroppedImageFiles(event.dataTransfer));
-  }, [addImageFiles, insertFilePathRefs, insertRefTexts, resolveLocalPathsFromFiles]);
-
-  /** 「加入对话引用」按钮：系统选择器选中的文件/目录以 @path 插入 */
-  const attachFile = useCallback(async () => {
-    try {
-      const paths = await desktopApi.dialog.pickFiles({ title: t("menu.attachFile") });
-      insertFilePathRefs(paths);
-    } catch {
-      // 用户取消或出错时不作处理
-    }
-  }, [insertFilePathRefs]);
-
-  /** 移除粘贴文件 chip：同步删除落盘文件（粘贴产物，不留孤儿文件）。 */
-  const removePasteFile = useCallback((index: number) => {
-    const target = pasteFiles[index];
-    setPasteFiles((current) => current.filter((_, item) => item !== index));
-    if (target) void desktopApi.pasteFiles.delete(target.path).catch(() => undefined);
-  }, [pasteFiles, setPasteFiles]);
-
-  /** 清空全部粘贴文件 chip（附件栏「清空」按钮）：逐个删除落盘文件。 */
-  const clearPasteFiles = useCallback(() => {
-    for (const file of pasteFiles) {
-      void desktopApi.pasteFiles.delete(file.path).catch(() => undefined);
-    }
-    setPasteFiles([]);
-  }, [pasteFiles, setPasteFiles]);
-
-  const onChipClick = useCallback((chip: ComposerChip) => {
-    // 文件引用点击不再打开文件/分屏（用户要求阻止点击打开事件）：
-    // 引用 chip 只是一段文本标记，打开文件走时间线链接或文件树等显式入口。
-    if (chip.kind === "session") {
-      const selected = projectSessions.find(
-        (session) => (session.name ?? session.filePath) === chip.label,
-      );
-      if (selected) setSessionReference(selected);
-    }
-  }, [projectSessions]);
-
-  useEffect(() => {
-    if (!hasContent) {
-      setBusyDraftLocked(false);
-    } else if (isBusy) {
-      setBusyDraftLocked(true);
-    }
-  }, [hasContent, isBusy, sessionId]);
-
-  const abort = useCallback(async () => {
-    const target = toSessionRuntimeTarget(sessionId, runtime);
-    if (!target) {
-      // 运行时信息缺失（如 agent 尚未绑定）：停止无意义，但不应静默——
-      // 提示用户当前会话没有可停止的 Agent，避免「点了停止没反应」的困惑。
-      showNotice(t("sessionCommand.runtimeUnavailable"), 4000);
-      return;
-    }
-    try {
-      requireSessionCommand(await desktopApi.sessions.abortRuntime(target));
-    } catch (error) {
-      // abort 失败必须可见：之前这里直接 throw 变成未处理 rejection，
-      // 用户点停止后毫无反馈、agent 继续运行，表现为「停止不了」。
-      // 异常常驻提示，直到用户手动关闭。
-      showNotice(error instanceof Error ? error.message : String(error), Number.POSITIVE_INFINITY);
-    }
-  }, [runtime?.agentId, runtime?.runtimeGeneration, sessionId]);
-
-  const acknowledgeUnknownDelivery = useCallback(() => {
-    setSendStateAtom({ sessionId, state: { status: "idle" } });
-  }, [sessionId, setSendStateAtom]);
-
-  const upsertSession = useSetAtom(upsertSessionAtom);
-
-  /**
-   * 切换后端（pi ↔ dsh）：仅草稿期可用。
-   * 会话一旦激活（有 runtime 或 record 已 active）即锁定后端——pi 会话文件（JSONL）
-   * 与 DSH 会话（host session log）格式不同，中途切换会导致时间线消息来源混乱、
-   * 同步渲染不可靠。激活后 UI 不再渲染切换器（changeBackend 返回 undefined）。
-   * imagegen 后端同样锁定：生图会话不可切回 pi/dsh（互不影响）。
-   */
-  const backendLocked = Boolean(runtime?.agentId) || record?.status === "active" || record?.backend === "imagegen";
-  const changeBackend = useCallback(async (next: AgentBackend) => {
-    if (backendLocked) return;
-    try {
-      // 切回 pi 时按 pi 配置重新解析默认模型/思考档位（与 createDraft 缺省填充
-      // 同一解析器 launchDefaults），而不是直接清空——否则用户 pi 配置里的
-      // defaultProvider/defaultModel 不会出现在切回后的会话（底栏回退残留 DSH 默认）。
-      // dsh/imagegen 后端模型由各自部署默认决定，record 保持清空。
-      const resolved = next === "pi"
-        ? await desktopApi.sessions.resolveLaunchDefaults({ backend: "pi" }).catch(() => undefined)
-        : undefined;
-      const defaults = resolveBackendSwitchDefaults(next, resolved);
-      const updated = await desktopApi.sessions.updateRecord(sessionId, {
-        backend: next,
-        model: defaults.model,
-        thinkingLevel: defaults.thinkingLevel,
-      });
-      upsertSession(updated);
-    } catch (error) {
-      showNotice(error instanceof Error ? error.message : String(error), 4000);
-    }
-  }, [backendLocked, sessionId, upsertSession]);
-
-  const compact = useCallback(async () => {
-    const target = toSessionRuntimeTarget(sessionId, runtime);
-    if (!target) {
-      // No Agent yet: write /compact to draft and send → starts Agent + compacts
-      setDraft("/compact");
-      caretRef.current = { pos: "/compact".length, forValue: "/compact" };
-      void promoteAndSend();
-      return;
-    }
-    await runManualCompact(target);
-  }, [runtime?.agentId, runtime?.runtimeGeneration, sessionId, setDraft, promoteAndSend, runManualCompact]);
-
-  const openPicker = useCallback((kind: ComposerPickerKind) => {
-    if (kind === "template") void loadTemplates();
-    setPicker(kind);
-  }, [loadTemplates]);
-
-  const insertTemplate = useCallback((template: PromptTemplateInfo) => {
-    const next = appendSlashCommandToDraft(draft, template.name);
-    liveDomDraftRef.current = { sessionId, value: next };
-    setDraft(next);
-    caretRef.current = { pos: next.length, forValue: next };
-    setPicker(null);
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, [draft, sessionId, setDraft]);
-
-  // 技能选择器选中后插入技能斜杠命令到草稿尾（与 insertTemplate 同构）：
-  // pi 用 /skill:名称（裸 /名称 pi 当未知命令拒绝——斜线命令与技能冲突的根因），
-  // DSH 由宿主把裸 /名称注册成技能命令；插入后光标落末尾，回车即可发送。
-  const insertSkillInvocation = useCallback((name: string) => {
-    const token = toSkillInvocationToken(isDshBackend ? "dsh" : "pi", name);
-    const next = appendSlashCommandToDraft(draft, token);
-    liveDomDraftRef.current = { sessionId, value: next };
-    setDraft(next);
-    caretRef.current = { pos: next.length, forValue: next };
-    setPicker(null);
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, [draft, isDshBackend, sessionId, setDraft]);
-
-  // 「一键插入全文」：选择器条目上的插入按钮把提示词/技能正文整段塞进草稿
-  // （不是斜线命令形态），便于用户直接编辑或原文发送；与斜线插入是并列入口。
-  // 插入内容先剥离 YAML frontmatter「描述头」（name/description 元数据是给选择器用的，
-  // 不该出现在输入框里）——预览详情仍显示原文件，只有插入动作做剥离。
-  const insertTemplateContent = useCallback((template: PromptTemplateInfo) => {
-    const next = appendContentToDraft(draft, stripMarkdownFrontmatter(template.content));
-    liveDomDraftRef.current = { sessionId, value: next };
-    setDraft(next);
-    caretRef.current = { pos: next.length, forValue: next };
-    setPicker(null);
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, [draft, sessionId, setDraft]);
-
-  const insertSkillContent = useCallback((content: string) => {
-    const next = appendContentToDraft(draft, stripMarkdownFrontmatter(content));
-    liveDomDraftRef.current = { sessionId, value: next };
-    setDraft(next);
-    caretRef.current = { pos: next.length, forValue: next };
-    setPicker(null);
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, [draft, sessionId, setDraft]);
-
-  return {
-    sessionId,
-    record,
-    runtime,
-    backend: record?.backend ?? "pi",
-    /** 草稿期可切换后端；激活后锁定（undefined → UI 隐藏切换器）。 */
-    changeBackend: backendLocked ? undefined : changeBackend,
-    /** DSH 部署默认模型（settings.yaml agent-default-model）；仅 dsh 后端时展示，
-     *  离开 dsh 时清空（否则残留值会随 defaultModel 泄漏到 pi 会话底栏）。 */
-    dshDefaultModel: isDshBackend && dshDefault
-      ? { provider: dshDefault.provider, modelId: dshDefault.model, modelName: dshDefault.model }
-      : undefined,
-    /** DSH 部署默认思考档位：settings.yaml 的 reasoningEffort 优先，缺省用模型自身 defaultEffort。 */
-    dshDefaultThinkingLevel: isDshBackend
-      ? (dshDefault?.reasoningEffort ?? dshDefault?.defaultEffort)
-      : undefined,
-    /** 引导页（无 record）启动默认：主进程按 pi 配置/模型目录解析（显式默认 > 偏好 > 上次使用 > 空），展示用。 */
-    bootstrapDefaultModel: bootstrapDefaults?.model,
-    bootstrapDefaultThinkingLevel: bootstrapDefaults?.thinkingLevel,
-    /** 解析结果是否来自用户显式配置的默认模型：True 时欢迎页偏好不参与展示回退（与创建同规则）。 */
-    bootstrapDefaultModelConfigured: bootstrapDefaults?.defaultModelConfigured === true,
-    draft,
-    attachments,
-    mode,
-    sendState,
-    templates,
-    picker,
-    previewImage,
-    sessionReference,
-    sessionReferenceSelection: sessionReference
-      ? sessionReferenceSelections[`&${sessionReference.name ?? sessionReference.filePath}`]
-      : undefined,
-    bangMode: getBangMode(draft),
-    isBusy,
-    isStarting,
-    hasContent,
-    busyDraftLocked,
-    editor: {
-      ref: editorRef,
-      caretRef,
-      cursor,
-      validCommandNames,
-      validFilePaths,
-      validSessionRefs,
-      validQuotes,
-      onChange,
-      onCursorChange: setCursor,
-      onKeyDown,
-      onPaste,
-      onPasteClipboard: pasteFromClipboard,
-      onDrop,
-      onDragOver: (event: React.DragEvent<HTMLDivElement>) => {
-        // 会话 Tab / 侧栏分屏拖拽交给 SessionSplitStage（capture），composer 不抢落点
-        if (event.dataTransfer.types.includes(SESSION_TAB_DRAG_MIME)) return;
-        event.preventDefault();
-        // 文件树拖拽的 effectAllowed 含 move（内部移动语义），拖入 composer 时
-        // 显式声明 copy，避免光标显示为“移动”，实际行为是插入引用
-        if (
-          event.dataTransfer.types.includes(PI_FILE_NODE_DRAG_MIME) ||
-          event.dataTransfer.types.includes(PI_FILE_PATH_DRAG_MIME)
-        ) {
-          event.dataTransfer.dropEffect = "copy";
-        }
-      },
-      onFocus: () => setSuggestionsOpen(detectTrigger(draft, cursor, validSessionRefs) !== null),
-      onBlur: () => setSuggestionsOpen(false),
-      onChipClick,
-      attachFile,
-    },
-    suggestions: {
-      open: suggestionsOpen,
-      items: suggestionItems,
-      selectedIndex: selectedSuggestionIndex,
-      anchorStyle: suggestionAnchorStyle,
-      setSelectedIndex: setSelectedSuggestionIndex,
-      close: closeSuggestions,
-      pick: selectSuggestion,
-    },
-    images: {
-      preview: setPreviewImage,
-      add: (image: ImageContent) => setAttachments((current) => [...current, image]),
-      remove: (index: number) => setAttachments((current) => current.filter((_, item) => item !== index)),
-      clear: () => setAttachments([]),
-    },
-    pasteFiles: {
-      files: pasteFiles,
-      remove: removePasteFile,
-      clear: clearPasteFiles,
-    },
-    delivery: {
-      // 发送/追问都算主动交互：先把预览 Tab 晋升常驻，再投递（幂等，非预览无副作用）。
-      // 忙碌时按「忙碌时投递行为」设置决定语义（pi/dsh 统一，不再按后端分叉）；
-      // 空闲直发。排队项的插入/排队切换走输入框上方队列面板的行内按钮。
-      send: () => {
-        void promoteAndSend(resolveBusySendDelivery(isBusy, store.get(busySendDeliveryAtom)));
-      },
-      abort: () => void abort(),
-      compact: () => void compact(),
-      imageGenConfig,
-      imageGenProviderId: activeImageGenProviderId,
-      imageGenModelId: activeImageGenModelId,
-      imageGenSize,
-      imageGenWatermark,
-      imageGenOutputFormat,
-      imageGenModeLocked: hasImageGenHistory || record?.backend === "imagegen",
-      setImageGenSelection: (providerId: string, modelId: string) => {
-        const nextProvider = findImageGenProvider(imageGenConfig, providerId);
-        if (!nextProvider?.models.includes(modelId)) return;
-        persistImageGenSelection(nextProvider.id, modelId);
-      },
-      setImageGenSize: (size: string) => {
-        const parsed = parseImageGenSize(size);
-        if (!parsed) return;
-        setImageGenSizeState(parsed);
-        void desktopApi.settings.update({ imageGenSize: parsed }).catch(() => undefined);
-      },
-      setImageGenWatermark: (watermark: boolean) => {
-        setImageGenWatermarkState(watermark);
-        void desktopApi.settings.update({ imageGenWatermark: watermark }).catch(() => undefined);
-      },
-      setImageGenOutputFormat: (format: string) => {
-        const parsed = parseImageGenOutputFormat(format, null);
-        if (!parsed) return;
-        setImageGenOutputFormatState(parsed);
-        void desktopApi.settings.update({ imageGenOutputFormat: parsed }).catch(() => undefined);
-      },
-      unknown: sendState.status === "unknown",
-      unknownError: sendState.error,
-      acknowledgeUnknown: acknowledgeUnknownDelivery,
-      // DSH 只在 host 明确报告 routable=false 时锁住发送；undefined 代表尚未确认或目录加载失败。
-      canSend: hasContent && !isStarting && !generatingImage && (!isDshBackend || runtime?.state?.modelRoutable !== false),
-      generatingImage,
-    },
-    pickers: {
-      open: openPicker,
-      close: () => setPicker(null),
-      setMode,
-      insertTemplate,
-      insertTemplateContent,
-      insertSkillInvocation,
-      insertSkillContent,
-    },
-    modals: {
-      closePreview: () => setPreviewImage(null),
-      closeSessionReference: () => setSessionReference(null),
-      confirmSessionReference: (
-        sessionName: string,
-        messages: Array<{ role: string; content: string; timestamp: number }>,
-        selectedIndices: number[],
-      ) => {
-        setSessionReferenceSelections((current) => ({
-          ...current,
-          [`&${sessionName}`]: createSessionReferenceSelection(
-            selectedIndices,
-            messages,
-          ),
-        }));
-        setSessionReference(null);
-      },
-    },
-  };
+export function useSessionComposerController(options: UseSessionComposerControllerOptions) {
+	const { sessionId, enqueue, ensureSessionId, suppressQueuedDrain } = options;
+	const store = useStore();
+	const record = useAtomValue(sessionRecordByIdAtomFamily(sessionId));
+	const enhanceModelConfig = useAtomValue(enhanceModelAtom);
+	const enhanceIncludeContext = useAtomValue(enhanceIncludeContextAtom);
+	// 引导页虚拟会话没有 record：文件树/@ 引用回退到引导页选中的项目，
+	// 否则 files 恒为空、@ 输入永远匹配不到任何文件。
+	const effectiveProjectId = record?.projectId ?? options.bootstrapProjectId;
+	// 粘贴转文件/@ 引用的项目路径来源：catalog 会话 record 不一定携带 projectPath
+	// （主进程扫描只在会话文件位于项目内时才推断，旧数据/独立目录会话恒缺省），
+	// 统一经 projectId 反查项目清单，拿到已登记的项目根路径，避免把有项目会话
+	// 误当成匿名会话（用户反馈：粘贴大文本发送后消息里被展开成普通文本）。
+	const composerProject = useAtomValue(projectByIdAtomFamily(effectiveProjectId ?? ""));
+	const runtime = useAtomValue(sessionRuntimeBySessionIdAtomFamily(sessionId));
+	const runtimeUi = useAtomValue(sessionRuntimeUiBySessionIdAtomFamily(sessionId));
+	const projectSessions = useAtomValue(sessionSummariesByProjectIdAtomFamily(effectiveProjectId ?? ""));
+	// H6：按 sessionId 隔离订阅——分屏时一栏打字/流式不再牵连其他栏重渲染。
+	// atomFamily 本身按 sessionId 记忆化，useMemo 再固定一次引用。
+	const draftAtom = useMemo(() => sessionDraftBySessionIdAtomFamily(sessionId), [sessionId]);
+	const attachmentsAtom = useMemo(() => sessionAttachmentsBySessionIdAtomFamily(sessionId), [sessionId]);
+	const pasteFilesAtom = useMemo(() => sessionPasteFilesBySessionIdAtomFamily(sessionId), [sessionId]);
+	const modeAtom = useMemo(() => sessionComposerModeBySessionIdAtomFamily(sessionId), [sessionId]);
+	const sendStateAtom = useMemo(() => sessionSendStateBySessionIdAtomFamily(sessionId), [sessionId]);
+	const messageCacheAtom = useMemo(() => sessionMessageCacheBySessionIdAtomFamily(sessionId), [sessionId]);
+	const quotesAtom = useMemo(() => sessionQuotesBySessionIdAtomFamily(sessionId), [sessionId]);
+	const draft = useAtomValue(draftAtom);
+	const attachments = useAtomValue(attachmentsAtom);
+	const pasteFiles = useAtomValue(pasteFilesAtom);
+	const localMode = useAtomValue(modeAtom);
+	const sendState = useAtomValue(sendStateAtom);
+	const messageCache = useAtomValue(messageCacheAtom);
+	const imageGenConfig = useAtomValue(imageGenConfigAtom);
+	const setImageGenConfig = useSetAtom(imageGenConfigAtom);
+	// 生视频配置独立落盘（videogen.json），与生图同构：composer 只读这份，不碰会话 LLM 模型。
+	const videoGenConfig = useAtomValue(videoGenConfigAtom);
+	const setVideoGenConfig = useSetAtom(videoGenConfigAtom);
+	const setDraftAtom = useSetAtom(setSessionDraftAtom);
+	const setAttachmentsAtom = useSetAtom(setSessionAttachmentsAtom);
+	const setPasteFilesAtom = useSetAtom(setSessionPasteFilesAtom);
+	const setModeAtom = useSetAtom(setSessionComposerModeAtom);
+	const setSendStateAtom = useSetAtom(setSessionSendStateAtom);
+	const setCacheMessages = useSetAtom(cacheSessionMessagesAtom);
+
+	// DSH：plan 由 host 持有；goal 由本地选择或进行中/阻塞的目标驱动（切回普通会 pause）。
+	// 生图为独立供应商配置，不属于 pi/dsh 任一后端，两种后端均可用。
+	// 引导页虚拟会话的后端显式选择：无 record、不落 catalog，后端切换走
+	// localStorage 偏好（与 pickModel/pickThinking 的引导页分支同构），首次发送
+	// 由 App.ensureSessionForSend 读取同一份偏好创建真实会话。仅在引导页初始化，
+	// 真实会话（record 短暂未就绪）不受 localStorage 残留影响。
+	const isGuideBootstrapSession = sessionId === GUIDE_BOOTSTRAP_SESSION_ID;
+	const [guideBackendOverride, setGuideBackendOverride] = useState<AgentBackend | undefined>(() => (isGuideBootstrapSession ? readWelcomeBackendPreference() : undefined));
+	// 引导页 ACP 工具预选单独入 state：acp→acp 换工具时后端名不变，
+	// setGuideBackendOverride("acp") 同值不触发重渲染，trigger 回显会停在旧工具；
+	// 工具 id 必须自己有 state 才能让受控 Select 刷新。
+	const [guideAcpToolOverride, setGuideAcpToolOverride] = useState<string | undefined>(() => (isGuideBootstrapSession ? readWelcomeAcpToolPreference() : undefined));
+	const isDshBackend = record?.backend === "dsh" || runtime?.backend === "dsh" || (isGuideBootstrapSession && guideBackendOverride === "dsh");
+	// ACP 后端：忙碌投递恒收敛为 followUp（协议无 steer 通道，插队必被 manager 拒收），
+	// 拆分菜单的「插入当前回合」项也整体隐藏。
+	const isAcpBackend = record?.backend === "acp" || runtime?.backend === "acp" || (isGuideBootstrapSession && guideBackendOverride === "acp");
+	const hasImageGenHistory = (messageCache?.messages ?? []).some((message) => Boolean(message.meta?.imageGen));
+	// 生视频不存在 legacy 混排（videogen 是新后端，只有它自己会写 meta.videoGen），不需要历史锁。
+	const isVideoGenBackend = record?.backend === "videogen";
+	// 生图供应商/模型来自独立 imagegen.json，与会话 LLM 模型无关。
+	const activeImageGenProviderId = imageGenConfig.activeProviderId;
+	const activeImageGenModelId = imageGenConfig.activeModel;
+	const mode: ComposerAgentMode =
+		record?.backend === "imagegen" || hasImageGenHistory
+			? "imagegen"
+			: isVideoGenBackend
+				? "videogen"
+				: deriveComposerAgentMode({
+						backend: isDshBackend ? "dsh" : isAcpBackend ? "acp" : "pi",
+						localMode: localMode,
+						planModeActive: runtime?.state?.planModeActive === true,
+						goalPhase: runtime?.state?.goal?.phase,
+					});
+	// DSH 部署默认模型选择（settings.yaml agent-default-model）：草稿/未激活会话
+	// 的底栏与选择器用它展示默认模型/思考档位（host 会话创建前没有 runtime state）。
+	// settings.yaml 未配 reasoningEffort 时，回退到默认模型自身的 defaultEffort
+	// （DSH 官方语义：每个模型都有 reasoning.defaultEffort）。
+	const [dshDefault, setDshDefault] = useState<
+		| {
+				provider: string;
+				model: string;
+				reasoningEffort?: string;
+				defaultEffort?: string;
+		  }
+		| undefined
+	>(undefined);
+	useEffect(() => {
+		if (!isDshBackend) {
+			// 离开 dsh 后端（切回 pi/生图）时清掉残留的 DSH 部署默认模型：
+			// 底栏 defaultModel = dshDefaultModel ?? bootstrapDefaultModel，
+			// 残留会让 pi 会话误显示 DSH 的默认模型（用户反馈「切回 pi 默认模型变了」）。
+			setDshDefault(undefined);
+			return;
+		}
+		let cancelled = false;
+		void (async () => {
+			try {
+				const next = await desktopApi.sessions.getDshDefaultModel();
+				if (!next || cancelled) {
+					if (!cancelled) setDshDefault(next);
+					return;
+				}
+				let defaultEffort = next.reasoningEffort;
+				if (!defaultEffort) {
+					try {
+						const models = await desktopApi.sessions.listDshModels();
+						const defaultModel = models.find((model) => model.provider === next.provider && model.id === next.model);
+						defaultEffort = defaultModel?.defaultEffort;
+					} catch {
+						// 目录读取失败不影响 settings.yaml 的默认模型展示。
+					}
+				}
+				if (!cancelled) setDshDefault({ ...next, defaultEffort });
+			} catch {
+				if (!cancelled) setDshDefault(undefined);
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [isDshBackend]);
+	// 引导页虚拟会话（无 record）：预取主进程解析的启动默认（与 createDraft 缺省
+	// 同一解析器 launchDefaults），让底栏/选择器在用户从未设置欢迎页偏好时也能
+	// 显示当前默认模型/思考档位。真实会话的默认值写在 record 里走原链路，
+	// 不需要这里重复解析。
+	// 后端必须取「引导页实际展示的后端」（用户显式切换优先），不能只看设置项
+	// （issue #253）：引导页切到 DSH 后若仍按 pi 解析，launchDefaults 会返回 pi 的
+	// 默认模型，底栏就显示一个 DSH 下永远不会用的模型（用户报告的
+	// 「切到 dsh 后底栏显示 pi 模型」）。按 dsh 解析时该 IPC 不返回模型（模型归属
+	// host settings），底栏自然回落到 dshDefaultModel。
+	// 仍然经 effectiveAgentBackendAtom 取默认值（DSH runtime 安装态钳制）。
+	const defaultAgentBackend = useAtomValue(effectiveAgentBackendAtom);
+	const guidePageBackend: AgentBackend = isGuideBootstrapSession ? resolveGuidePageBackend({ override: guideBackendOverride, effectiveDefault: defaultAgentBackend }) : defaultAgentBackend;
+	const [bootstrapDefaults, setBootstrapDefaults] = useState<ResolvedLaunchDefaults | undefined>(undefined);
+	useEffect(() => {
+		if (record) return;
+		let cancelled = false;
+		void desktopApi.sessions
+			.resolveLaunchDefaults({ backend: guidePageBackend })
+			.then((next) => {
+				if (!cancelled) setBootstrapDefaults(next);
+			})
+			.catch(() => {
+				// 解析失败退回“无预选”形态：底栏不显示默认模型，但不影响发送。
+				if (!cancelled) setBootstrapDefaults(undefined);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [guidePageBackend, record]);
+	const editorRef = useRef<HTMLDivElement | null>(null);
+	// 程序化光标请求（带归属 forValue，见 composer/types.ts 的 ComposerCaretRequest）；
+	// 编辑器只在内容同步到 forValue 的同一趟 layout pass 配对消费，过期请求会被丢弃。
+	const caretRef = useRef<ComposerCaretRequest | null>(null);
+	const liveDomDraftRef = useRef({ sessionId, value: draft });
+	const draftGuardRef = useRef(
+		createComposerDraftGuard({
+			sessionId,
+			agentId: runtime?.agentId,
+			runtimeGeneration: runtime?.runtimeGeneration,
+			draft,
+		}),
+	);
+	const templateRequestGateRef = useRef(createLatestRequestGate());
+	const promptHistoryRef = useRef<Record<string, string[]>>({});
+	/**
+	 * 当前会话可导航的输入历史 = 本次运行发送记录（promptHistoryRef，最新在前）
+	 * + 会话已有消息里的用户输入（从 sessionMessagesCacheAtom 懒读取，零订阅零重渲染）。
+	 * 未启动的 Agent 没有发送记录，但 timeline 加载会话时已把 disk 消息写入缓存，
+	 * 因此激活前后上下键历史行为一致（issue-139）。
+	 */
+	const getPromptHistory = useCallback(() => {
+		markPromptHistorySessionAccess(promptHistoryRef.current, sessionId);
+		const runtimeHistory = promptHistoryRef.current[sessionId] ?? [];
+		const sessionHistory = extractUserPrompts(store.get(sessionMessagesCacheAtom)[sessionId]?.messages ?? []);
+		return mergePromptHistory(runtimeHistory, sessionHistory);
+	}, [sessionId, store]);
+	const lastEditorTextEnvelopeRef = useRef("");
+	const [cursor, setCursor] = useState(0);
+	const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+	const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
+	const [historyIndex, setHistoryIndex] = useState(-1);
+	const [savedDraft, setSavedDraft] = useState("");
+	const [busyDraftLocked, setBusyDraftLocked] = useState(false);
+	const [previewImage, setPreviewImage] = useState<ImageContent | null>(null);
+	// 生图进行中：置 true 时发送按钮禁用（避免并发多次生图），完成后图片进附件栏
+	const [generatingImage, setGeneratingImage] = useState(false);
+	// 生视频「提交中」门禁：submit 受理即复位（异步任务终态由 videogen:event 事件驱动，不占用发送按钮）。
+	const [submittingVideo, setSubmittingVideo] = useState(false);
+	// 成本确认闸（默认开）：首次提交只完起待确认态，ComposerArea 渲染确认弹层，确认后才真正发请求。
+	// 放在 controller 而不是按钮里：Enter/发送按钮/追问入口全部经 submitVideo，只有这里能统一拦住。
+	const [videoConfirmPending, setVideoConfirmPending] = useState(false);
+	// 生图尺寸/水印记在 AppSettings，跨会话复用；非法磁盘值回落到默认。
+	const [imageGenSize, setImageGenSizeState] = useState<string>(DEFAULT_IMAGE_GEN_SIZE);
+	const [imageGenWatermark, setImageGenWatermarkState] = useState(DEFAULT_IMAGE_GEN_WATERMARK);
+	const [imageGenOutputFormat, setImageGenOutputFormatState] = useState(DEFAULT_IMAGE_GEN_OUTPUT_FORMAT);
+	const [picker, setPicker] = useState<ComposerPickerKind | null>(null);
+	const [commands, setCommands] = useState<PiCommand[]>([]);
+	// 热重载后扩展/技能/提示词可能变化，但 runtime 身份不变；tick 强制重拉命令表。
+	const commandsRefreshTick = useAtomValue(sessionCommandsRefreshTickAtom);
+	const [draftResourceCommandSnapshot, setDraftResourceCommandSnapshot] = useState<DraftResourceCommandSnapshot>({ projectId: undefined, commands: [] });
+	const [standbyPreviewCommandSnapshot, setStandbyPreviewCommandSnapshot] = useState<StandbyPreviewCommandSnapshot>({ projectId: undefined, commands: [] });
+	const [files, setFiles] = useState<FileTreeNode[]>([]);
+	// @ 引用懒加载状态：已按 maxDepth 0 拉过子项的目录绝对路径（防重复请求），
+	// 与在途加载集合成对出现；目录不在任一集合才能发新请求。
+	const loadedDirPathsRef = useRef<Set<string>>(new Set());
+	const loadingDirPathsRef = useRef<Set<string>>(new Set());
+	// @ 纯文件名搜索的整树后台加载：按 projectId 隔离的单个状态，每项目最多触发
+	// 一次（成功或失败都算尝试过），避免用户每敲一个新关键词都重扫整棵目录树。
+	const deepTreeStateRef = useRef<{ projectId: string; loaded: boolean; loading: boolean }>({
+		projectId: "",
+		loaded: false,
+		loading: false,
+	});
+	// 运行时模板正文按「agentId:generation」缓存键刷新：runtime 对象本身每次状态变更都会换
+	// 引用，直接进依赖会让模板表随每次流式状态变化重拉。
+	const runtimeTargetKey = runtime?.agentId && runtime.runtimeGeneration !== undefined ? `${runtime.agentId}:${runtime.runtimeGeneration}` : "";
+	const templateKey = `${sessionId}:${record?.projectPath ?? ""}`;
+	const [templateState, setTemplateState] = useState<{
+		key: string;
+		items: PromptTemplateInfo[];
+	}>({ key: templateKey, items: [] });
+	const templates = templateState.key === templateKey ? templateState.items : [];
+	/**
+	 * 发送期读取的模板清单（同步引用）。
+	 *
+	 * 为什么不能用 state：`loadTemplates` 内部 `setTemplateState` 之后要等下一次渲染，而
+	 * 「打开会话立刻发 /模板名」这一拍里发送路径读到的还是旧数组——展开器认不出模板名，
+	 * 消息原样发给 pi，模板名就丢了（2026-10 e2e 抓到的竞态）。这里由 `loadTemplates`
+	 * 同步写入，发送路径用 `getTemplates()` 读它。
+	 */
+	const templatesRef = useRef<PromptTemplateInfo[]>(templates);
+	/** 模板加载写入序列：并发加载时只让「最后发起」的那份写进 templatesRef。 */
+	const templateWriteSeqRef = useRef(0);
+	const templateWrittenSeqRef = useRef(0);
+	const [sendShortcut, setSendShortcut] = useState<"enter-send" | "ctrl-enter-send" | "shift-enter-send">("enter-send");
+	const [sessionReference, setSessionReference] = useState<SessionSummary | null>(null);
+	const [sessionReferenceSelections, setSessionReferenceSelections] = useState<Record<string, SessionReferenceSelection>>({});
+
+	const markDraftMutation = useCallback(
+		(targetSessionId = sessionId) => {
+			if (targetSessionId !== sessionId) return;
+			draftGuardRef.current = markComposerDraftMutation(draftGuardRef.current);
+		},
+		[sessionId],
+	);
+
+	const setDraft = useCallback(
+		(value: string | ((current: string) => string)) => {
+			markDraftMutation();
+			setDraftAtom({ sessionId, value });
+		},
+		[markDraftMutation, sessionId, setDraftAtom],
+	);
+
+	const setAttachments = useCallback(
+		(value: ImageContent[] | ((current: ImageContent[]) => ImageContent[])) => {
+			setAttachmentsAtom({ sessionId, value });
+		},
+		[sessionId, setAttachmentsAtom],
+	);
+
+	const setPasteFiles = useCallback(
+		(value: PastedTextFile[] | ((current: PastedTextFile[]) => PastedTextFile[])) => {
+			setPasteFilesAtom({ sessionId, value });
+		},
+		[sessionId, setPasteFilesAtom],
+	);
+
+	const setMode = useCallback(
+		(nextMode: ComposerAgentMode) => {
+			// 生图历史是独立消息协议，普通/计划/目标模式的命令语义不适用；
+			// 同一会话一旦产生生图记录（或本身是 imagegen 后端），必须保持生图模式，避免误发普通请求。
+			if ((hasImageGenHistory || record?.backend === "imagegen") && nextMode !== "imagegen") return;
+			// videogen 同为独立后端：会话一旦是生视频后端，不允许切回普通/计划/目标（命令语义不适用）。
+			if (record?.backend === "videogen" && nextMode !== "videogen") return;
+			// DSH：plan 走 host /plan；goal 走 create/resume/pause IPC（切回普通暂停，不清除）。
+			// 本地 atom 仍写入 goal，让选择器立刻切到目标模式；首条用户消息再 /goal 创建。
+			if (isDshBackend) {
+				const currentPhase = runtime?.state?.goal?.phase;
+				const agentId = runtime?.agentId;
+				if (nextMode === "plan" || (nextMode === "normal" && mode === "plan")) {
+					const command = nextMode === "plan" ? "/plan" : "/plan off";
+					void desktopApi.sessions
+						.sendPrompt({
+							sessionId,
+							requestId: crypto.randomUUID(),
+							message: command,
+						})
+						.then((result) => {
+							if (!result.accepted) {
+								showNotice(result.error ?? t("dshPlan.switchFailed"), 4000);
+							} else if (nextMode === "plan") {
+								showNotice(t("dshPlan.pendingNotice"), 3000);
+							}
+						})
+						.catch((error) => {
+							showNotice(error instanceof Error ? error.message : String(error), 4000);
+						});
+					if (nextMode === "plan") {
+						setModeAtom({ sessionId, mode: "normal" });
+						// 模式选择器互斥：进 plan 时暂停进行中的 goal，不清除。
+						if (agentId && (currentPhase === "active" || currentPhase === "blocked")) {
+							void desktopApi.sessions.runDshGoalAction(agentId, "pause").catch((error) => {
+								showNotice(error instanceof Error ? error.message : String(error), 4000);
+							});
+						}
+					}
+					return;
+				}
+				if (nextMode === "goal") {
+					if (mode === "plan") {
+						void desktopApi.sessions
+							.sendPrompt({
+								sessionId,
+								requestId: crypto.randomUUID(),
+								message: "/plan off",
+							})
+							.catch((error) => {
+								showNotice(error instanceof Error ? error.message : String(error), 4000);
+							});
+					}
+					setModeAtom({ sessionId, mode: "goal" });
+					if (agentId && (currentPhase === "paused" || currentPhase === "blocked")) {
+						void desktopApi.sessions.runDshGoalAction(agentId, "resume").catch((error) => {
+							showNotice(error instanceof Error ? error.message : String(error), 4000);
+						});
+					} else if (!currentPhase || currentPhase === "complete") {
+						showNotice(t("dshGoal.pendingNotice"), 3000);
+					}
+					return;
+				}
+				if (nextMode === "normal" && mode === "goal") {
+					setModeAtom({ sessionId, mode: "normal" });
+					if (agentId && (currentPhase === "active" || currentPhase === "blocked")) {
+						void desktopApi.sessions.runDshGoalAction(agentId, "pause").catch((error) => {
+							showNotice(error instanceof Error ? error.message : String(error), 4000);
+						});
+					}
+					return;
+				}
+			}
+			// pi：切回普通立刻发 /goal pause，不要等下一条无标记消息才停。
+			if (!isDshBackend && nextMode === "normal" && mode === "goal") {
+				setModeAtom({ sessionId, mode: "normal" });
+				void desktopApi.sessions
+					.sendPrompt({
+						sessionId,
+						requestId: crypto.randomUUID(),
+						message: "/goal pause",
+					})
+					.catch((error) => {
+						showNotice(error instanceof Error ? error.message : String(error), 4000);
+					});
+				return;
+			}
+			setModeAtom({ sessionId, mode: nextMode });
+		},
+		[hasImageGenHistory, isDshBackend, mode, runtime?.agentId, runtime?.state?.goal?.phase, sessionId, setModeAtom],
+	);
+
+	const loadTemplates = useCallback(async () => {
+		const token = templateRequestGateRef.current.begin(templateKey);
+		// 写入序号在**发起时**分配（不是在结束时）：结束时分配会让「切走前发起、切走后完成」
+		// 的加载拿到更大的序号，把上一个会话的模板表写进 templatesRef，随后该会话的发送会用
+		// 错项目的模板正文展开（跨会话污染）。发起顺序才代表新旧。
+		const sequence = ++templateWriteSeqRef.current;
+		let globalTemplates: PromptTemplateInfo[] = [];
+		let projectTemplates: PromptTemplateInfo[] = [];
+		try {
+			const globalResult = await desktopApi.prompts.list();
+			globalTemplates = globalResult.templates.map((template) => ({
+				...template,
+				description: translateBuiltinPromptDescription(template),
+				argumentHint: parseArgumentHint(template.content),
+			}));
+		} catch {
+			// Project templates remain usable when the global store is unavailable.
+		}
+		if (record?.projectId) {
+			try {
+				const projectResult = await desktopApi.prompts.listByProject(record.projectId);
+				projectTemplates = projectResult.templates.map((template) => ({
+					...template,
+					argumentHint: parseArgumentHint(template.content),
+				}));
+			} catch {
+				// A project does not have to provide .pi/prompts.
+			}
+		}
+		// 同名以项目为准、禁用不进表——与 pi 的 rank + 去重规则一致（见 assembleTemplates）
+		let next: PromptTemplateInfo[] = assembleTemplates({ project: projectTemplates, global: globalTemplates });
+		// 来源 B：pi 实际加载的全部模板（含 npm 包声明的 pi.prompts）。缺了它，
+		// `/parallel-review` 这类包带模板只能交给 pi 展开，模板名不进会话文件，
+		// 时间线就还原不出 chip（2026-10 现场：运行中有 chip、暂停后变全文）。
+		const target = toSessionRuntimeTarget(sessionId, store.get(sessionRuntimeBySessionIdAtomFamily(sessionId)));
+		if (target) {
+			try {
+				const result = await desktopApi.sessions.listRuntimePromptTemplates(target);
+				if (result.ok) next = mergeRuntimeTemplates(next, result.value.value);
+			} catch {
+				// 读正文失败/进程换代：保留来源 A，行为退回「交给 pi 展开」
+			}
+		} else if (record?.projectId) {
+			// 草稿会话（还没绑定 runtime）没有 target：借 standby 池的命令表读同一份正文，
+			// 否则「打开会话立刻发 /模板名」这条消息只能交给 pi 展开，chip 当场丢失。
+			// 池未就绪/关闭时返回 null，行为退回来源 A。
+			try {
+				const templates = await desktopApi.sessions.draftPromptTemplates(record.projectId);
+				if (templates?.length) next = mergeRuntimeTemplates(next, templates);
+			} catch {
+				// 同上：预览失败不影响模板 A 与发送
+			}
+		}
+		// 发送期引用（templatesRef）不看 gate 的 current：并发加载时 gate 会作废较早的 token，
+		// 但那一份数据往往正是这次发送要的——按发起顺序，只让更新的那份覆盖已有的。
+		if (sequence >= templateWrittenSeqRef.current) {
+			templateWrittenSeqRef.current = sequence;
+			templatesRef.current = next;
+		}
+		if (templateRequestGateRef.current.isCurrent(token)) {
+			setTemplateState({ key: templateKey, items: next });
+		}
+		return next;
+	}, [record?.projectId, sessionId, store, templateKey, runtimeTargetKey]);
+
+	useEffect(() => {
+		liveDomDraftRef.current = { sessionId, value: draft };
+		setCursor(draft.length);
+		setSuggestionsOpen(false);
+		setSelectedSuggestionIndex(0);
+		setHistoryIndex(-1);
+		setSavedDraft("");
+		setBusyDraftLocked(false);
+		// 注意：这里不再写 caretRef。该写入发生在编辑器 layout effect 之后、且 layout
+		// effect 只在 value 变化时重跑，会留下一条过期待消费光标——首次输入（打字/
+		// 粘贴/语音）时把选区重置回 0。恢复光标到文末由编辑器在内容同步（setContent）
+		// 时兜底完成，见 useTipTapComposerEditor 同步 effect。
+		draftGuardRef.current = createComposerDraftGuard({
+			sessionId,
+			agentId: runtime?.agentId,
+			runtimeGeneration: runtime?.runtimeGeneration,
+			draft,
+		});
+		lastEditorTextEnvelopeRef.current = "";
+	}, [sessionId]);
+
+	useEffect(() => {
+		const currentDraft = store.get(sessionDraftByIdAtom)[sessionId] ?? "";
+		draftGuardRef.current = createComposerDraftGuard({
+			sessionId,
+			agentId: runtime?.agentId,
+			runtimeGeneration: runtime?.runtimeGeneration,
+			draft: currentDraft,
+		});
+		lastEditorTextEnvelopeRef.current = "";
+	}, [runtime?.agentId, runtime?.runtimeGeneration, sessionId, store]);
+
+	useEffect(() => {
+		if (liveDomDraftRef.current.sessionId === sessionId && liveDomDraftRef.current.value !== draft) {
+			liveDomDraftRef.current = { sessionId, value: draft };
+		}
+	}, [draft, sessionId]);
+
+	useEffect(() => {
+		const editorText = runtimeUi?.editorText;
+		if (!runtime?.agentId || !editorText || runtimeUi.agentId !== runtime.agentId || runtimeUi.runtimeGeneration !== runtime.runtimeGeneration) {
+			return;
+		}
+		const envelope = `${sessionId}:${runtime.runtimeGeneration}:${editorText.revision}`;
+		if (lastEditorTextEnvelopeRef.current === envelope) return;
+		lastEditorTextEnvelopeRef.current = envelope;
+		const currentDraft = store.get(sessionDraftByIdAtom)[sessionId] ?? "";
+		if (
+			!canApplyRuntimeEditorText(draftGuardRef.current, {
+				sessionId,
+				agentId: runtime.agentId,
+				runtimeGeneration: runtime.runtimeGeneration,
+				currentDraft,
+			})
+		) {
+			return;
+		}
+		liveDomDraftRef.current = { sessionId, value: editorText.text };
+		setDraft(editorText.text);
+		setCursor(editorText.text.length);
+		caretRef.current = { pos: editorText.text.length, forValue: editorText.text };
+	}, [runtime, runtimeUi, sessionId, setDraft, store]);
+
+	useEffect(() => {
+		void desktopApi.settings
+			.get()
+			.then((settings) => {
+				setSendShortcut(settings.sendShortcut);
+				setImageGenSizeState(parseImageGenSize(settings.imageGenSize) ?? DEFAULT_IMAGE_GEN_SIZE);
+				setImageGenWatermarkState(parseImageGenWatermark(settings.imageGenWatermark));
+				setImageGenOutputFormatState(parseImageGenOutputFormat(settings.imageGenOutputFormat) ?? DEFAULT_IMAGE_GEN_OUTPUT_FORMAT);
+			})
+			.catch(() => undefined);
+	}, []);
+
+	// 单栏会话复用同一 Composer 实例：切 tab 必须清掉 picker/建议/预览等本地 UI，
+	// 草稿和附件走 per-session atom，这里只重置不属于 atom 的瞬时状态。
+	useEffect(() => {
+		setCursor(0);
+		setSuggestionsOpen(false);
+		setSelectedSuggestionIndex(0);
+		setHistoryIndex(-1);
+		setSavedDraft("");
+		setBusyDraftLocked(false);
+		setPreviewImage(null);
+		setGeneratingImage(false);
+		setPicker(null);
+		setSessionReference(null);
+		setSessionReferenceSelections({});
+	}, [sessionId]);
+
+	useEffect(() => {
+		if (!effectiveProjectId) {
+			setFiles([]);
+			return;
+		}
+		let current = true;
+		// @ 引用跟文件抽屉同一套懒加载：maxDepth 0 只扫根层，展开再补子目录。
+		// 旧实现扫 8 层会在切项目时把主进程/渲染都拖死（大会话项目尤其明显）。
+		// 引导页虚拟会话没有 record，靠 bootstrapProjectId 兑底加载文件树。
+		void desktopApi.files
+			.list(effectiveProjectId, { maxDepth: 0, skipGeneratedDirs: true })
+			.then((next) => {
+				if (current) setFiles(next);
+			})
+			.catch(() => {
+				if (current) setFiles([]);
+			});
+		return () => {
+			current = false;
+		};
+	}, [effectiveProjectId]);
+
+	// 切项目时清掉懒加载进度：老项目的目录缓存/在途请求不能让新项目复用。
+	// （真实请求仍受主进程 isPathInsideProject 拦截，这里双保险。）
+	useEffect(() => {
+		loadedDirPathsRef.current = new Set();
+		loadingDirPathsRef.current = new Set();
+	}, [effectiveProjectId]);
+
+	useEffect(() => {
+		// D15：DSH 会话的命令补全优先走 live 注册表（host 侧 ctx.commands.list，
+		// 含用户/插件注册的命令）；会话未激活（无 live Agent）或桥失败时降级为
+		// 已知命令建议集（与 dsh-web 命名空间一致；slash 桥未命中会放行给模型）。
+		if (isDshBackend) {
+			const staticCommands = DSH_COMMAND_SUGGESTIONS.map((command) => ({
+				name: command.name,
+				description: t(command.descriptionKey),
+				source: command.source,
+			}));
+			const dshTarget = toSessionRuntimeTarget(sessionId, runtime);
+			if (!dshTarget) {
+				setCommands(staticCommands);
+				return;
+			}
+			let current = true;
+			void desktopApi.sessions
+				.listRuntimeCommands(dshTarget)
+				.then((result) => {
+					if (current) {
+						const live = requireSessionCommand(result).value;
+						// live 清单可能不含 help 等基础命令（部分命令仅桌面侧存在）：
+						// 与静态建议集合并去重，优先 live 描述。
+						const names = new Set(live.map((command) => command.name));
+						setCommands([...live, ...staticCommands.filter((command) => !names.has(command.name))]);
+					}
+				})
+				.catch(() => {
+					if (current) setCommands(staticCommands);
+				});
+			return () => {
+				current = false;
+			};
+		}
+		const target = toSessionRuntimeTarget(sessionId, runtime);
+		if (!target) {
+			setCommands([]);
+			return;
+		}
+		let current = true;
+		void desktopApi.sessions
+			.listRuntimeCommands(target)
+			.then((result) => {
+				if (current) setCommands(requireSessionCommand(result).value);
+			})
+			.catch(() => {
+				if (current) setCommands([]);
+			});
+		return () => {
+			current = false;
+		};
+	}, [isDshBackend, runtime?.agentId, runtime?.runtimeGeneration, sessionId, commandsRefreshTick]);
+
+	// Draft sessions have no Pi process to ask for get_commands. Discover the same local
+	// skills/prompts Pi will load; as soon as a runtime exists, its RPC list is authoritative.
+	// ACP 草稿除外：这些 /skill:*、/prompt 命令是 pi 进程的，ACP CLI 不认识，
+	// 列进建议只会发出无效文本（keep snapshot empty）。
+	useEffect(() => {
+		if (isDshBackend || isAcpBackend || runtime?.agentId) {
+			setDraftResourceCommandSnapshot({ projectId: effectiveProjectId, commands: [] });
+			return;
+		}
+		let current = true;
+		setDraftResourceCommandSnapshot({ projectId: effectiveProjectId, commands: [] });
+		const globalSkills = desktopApi.skills
+			.list()
+			.then((result) => result.skills)
+			.catch(() => []);
+		const projectSkills = effectiveProjectId ? desktopApi.projectResources.list(effectiveProjectId).catch(() => undefined) : Promise.resolve(undefined);
+		const discovered = desktopApi.projectResources.discovery(effectiveProjectId ?? undefined).catch(() => ({ projectResourcesAllowed: false, overrides: { disabledGlobalExtensions: [], disabledGlobalSkills: [], disabledGlobalPrompts: [] }, skills: [], prompts: [], extensions: [] }));
+		void Promise.all([globalSkills, projectSkills, discovered]).then(([global, project, resources]) => {
+			if (!current) return;
+			const skills = [...(project?.skills ?? []), ...global, ...resources.skills];
+			const prompts = [...templates, ...resources.prompts];
+			setDraftResourceCommandSnapshot({
+				projectId: effectiveProjectId,
+				commands: buildDraftResourceCommands(skills, prompts, {
+					projectResourcesAllowed: resources.projectResourcesAllowed,
+					disabledGlobalSkillKeys: resources.overrides.disabledGlobalSkills,
+					disabledGlobalPromptNames: resources.overrides.disabledGlobalPrompts,
+				}),
+			});
+		});
+		return () => {
+			current = false;
+		};
+	}, [effectiveProjectId, isAcpBackend, isDshBackend, runtime?.agentId, templates]);
+
+	// Issue #316：草稿会话在 standby 池里有同项目已握手进程时，只读借用其 get_commands
+	// 预览扩展注册的命令（本地技能/提示词发现覆盖不到）。拿不到预览就保持空快照，
+	// 建议列表回退上面的本地发现；runtime 建立后上面 RPC 拉取的命令表重新成为唯一来源。
+	// ACP 草稿除外：standby 池是 pi 进程，预览出的命令对 ACP CLI 无效。
+	useEffect(() => {
+		if (isDshBackend || isAcpBackend || runtime?.agentId || !effectiveProjectId) {
+			setStandbyPreviewCommandSnapshot({ projectId: effectiveProjectId, commands: [] });
+			return;
+		}
+		let current = true;
+		setStandbyPreviewCommandSnapshot({ projectId: effectiveProjectId, commands: [] });
+		void desktopApi.sessions
+			.draftCommands(effectiveProjectId)
+			.then((preview) => {
+				if (current && preview) setStandbyPreviewCommandSnapshot({ projectId: effectiveProjectId, commands: preview });
+			})
+			.catch(() => undefined);
+		return () => {
+			current = false;
+		};
+	}, [effectiveProjectId, isAcpBackend, isDshBackend, runtime?.agentId]);
+
+	useEffect(() => {
+		templateRequestGateRef.current.invalidate(templateKey);
+		templatesRef.current = [];
+		templateWrittenSeqRef.current = ++templateWriteSeqRef.current;
+		setTemplateState({ key: templateKey, items: [] });
+		void loadTemplates();
+	}, [loadTemplates, templateKey]);
+
+	const flatFiles = useMemo(() => flattenFiles(files), [files]);
+	const mergedCommands = useMemo(() => mergeCommands(commands), [commands]);
+	/**
+	 * 后端已接管的命令名（本地展开要避让）。用 ref 让发送路径读最新值：
+	 * 命令表是异步加载的，state 在「打开会话立刻发」这一拍还是空的。
+	 */
+	const reservedCommandNames = useMemo(() => collectReservedCommandNames(commands), [commands]);
+	const reservedCommandNamesRef = useRef<ReadonlySet<string>>(reservedCommandNames);
+	reservedCommandNamesRef.current = reservedCommandNames;
+	const validCommandNames = useMemo(() => new Set([...mergedCommands.map((command) => command.name), ...templates.map((template) => template.name)]), [mergedCommands, templates]);
+	const validFilePaths = useMemo(() => new Set(flatFiles.map((file) => file.relativePath)), [flatFiles]);
+	const validSessionRefs = useMemo(() => new Set(projectSessions.map((session) => session.name ?? session.filePath)), [projectSessions]);
+	// 引用 chip 白名单：id → 截断后的快照预览 label；无快照时返回 undefined，
+	// 解析器直接跳过引用分支（零开销快速路径）
+	const sessionQuotes = useAtomValue(quotesAtom);
+	const validQuotes = useMemo(() => {
+		if (!sessionQuotes) return undefined;
+		const entries = Object.entries(sessionQuotes);
+		if (entries.length === 0) return undefined;
+		return new Map(entries.map(([id, snippet]) => [id, truncateQuoteLabel(snippet.text)]));
+	}, [sessionQuotes]);
+	const draftResourceCommands = draftResourceCommandsForProject(draftResourceCommandSnapshot, effectiveProjectId);
+	const standbyPreviewCommands = standbyPreviewCommandsForProject(standbyPreviewCommandSnapshot, effectiveProjectId);
+	const suggestionCommands = selectComposerSuggestionCommands(isDshBackend, Boolean(runtime?.agentId), commands, draftResourceCommands, standbyPreviewCommands);
+	const suggestionItems = useMemo(() => (suggestionsOpen ? buildSuggestionItems(draft, cursor, suggestionCommands, flatFiles, projectSessions) : []), [cursor, draft, flatFiles, projectSessions, suggestionCommands, suggestionsOpen]);
+
+	// @ 引用向下钻取：随输入懒加载子目录（maxDepth 0 只拉一层，与文件抽屉同语义）。
+	// 修复 maxDepth 0 化后只能引用到项目根一层（71d27ed1 为保主进程响应把 8 层递归改成
+	// 根层，但没补抽屉那套展开逻辑，导致 @src/xxx 永远匹配不到深层文件）。
+	useEffect(() => {
+		if (!effectiveProjectId) return;
+		const trigger = detectTrigger(draft, cursor, validSessionRefs);
+		if (!trigger || trigger.char !== "@") return;
+		const dirNode = resolveAtDrillDirectory(trigger.query, files);
+		if (!dirNode) return;
+		// 已有 children 数组 = 子项已加载（含空目录），不重复请求
+		if (Array.isArray(dirNode.children) || loadingDirPathsRef.current.has(dirNode.path)) {
+			return;
+		}
+		let current = true;
+		loadingDirPathsRef.current.add(dirNode.path);
+		void desktopApi.files
+			.list(effectiveProjectId, { maxDepth: 0, directory: dirNode.path, skipGeneratedDirs: true })
+			.then((children) => {
+				if (!current) return;
+				setFiles((prev) => mergeFileTreeChildren(prev, dirNode.path, children));
+				loadedDirPathsRef.current.add(dirNode.path);
+			})
+			.catch(() => {
+				// 目录被删/权限不足：保留已加载部分，下次输入自然重试
+			})
+			.finally(() => {
+				loadingDirPathsRef.current.delete(dirNode.path);
+			});
+		return () => {
+			current = false;
+		};
+	}, [cursor, draft, effectiveProjectId, files, validSessionRefs]);
+
+	// @ 纯文件名搜索（无 /，如 @index）：懒加载缺少锚点目录，必须一次性拿到整树
+	// 才能让模糊搜索覆盖深层文件（恢复 71d27ed1 之前的深度搜索能力）。
+	// 只在用户确实在搜索（长度 ≥2）且每项目只触发一次；整树合并后所有目录
+	// 都有 children 数组，下钻 effect 的 Array.isArray 门自然短路，不会重复拉。
+	useEffect(() => {
+		if (!effectiveProjectId) return;
+		// 切到新项目：重建状态（不 return，继续按新状态评估是否触发）
+		const state = deepTreeStateRef.current;
+		if (state.projectId !== effectiveProjectId) {
+			deepTreeStateRef.current = { projectId: effectiveProjectId, loaded: false, loading: false };
+		}
+		if (deepTreeStateRef.current.loaded || deepTreeStateRef.current.loading) return;
+		const trigger = detectTrigger(draft, cursor, validSessionRefs);
+		if (!trigger || trigger.char !== "@" || !shouldLoadFullTreeForAtSearch(trigger.query)) {
+			return;
+		}
+		// 标记在途后即便本 effect 因继续输入被重新评估，loading 门也会挡住重复请求
+		deepTreeStateRef.current.loading = true;
+		void desktopApi.files
+			.list(effectiveProjectId, { maxDepth: FILE_TREE_ABSOLUTE_MAX_DEPTH, skipGeneratedDirs: true })
+			.then((next) => {
+				// 用项目比对而非 current 标志：输入过程中的每个按键都会触发本 effect
+				// 重新评估并清理旧闭包，但请求仍属于当前项目——数据不该被丢弃，
+				// 否则快速打字会连续浪费整树扫描（重扫风暴）。只有切走项目才丢弃。
+				if (deepTreeStateRef.current.projectId !== effectiveProjectId) return;
+				// 整树是根层清单的超集且目录均带 children，整体替换最省事：
+				// 已下钻目录的数据都在里面（幂等），无需再逐目录 merge。
+				setFiles(next);
+			})
+			.catch(() => {
+				// 超大目录（FILE_TREE_DIRECTORY_TOO_LARGE）/权限问题：保留已加载部分；
+				// 同样标记为已尝试，避免每个关键词都重扫整个项目。
+			})
+			.finally(() => {
+				// 只有请求仍属于当前项目才写状态：切走后的旧闭包不能污染新项目标记。
+				if (deepTreeStateRef.current.projectId === effectiveProjectId) {
+					deepTreeStateRef.current.loading = false;
+					deepTreeStateRef.current.loaded = true;
+				}
+			});
+	}, [cursor, draft, effectiveProjectId, validSessionRefs]);
+	const suggestionAnchorStyle = useMemo<CSSProperties | undefined>(() => {
+		if (!suggestionsOpen) return undefined;
+		const menuWidth = Math.min(520, window.innerWidth - 120);
+		const menuHeight = 380;
+		const gap = 8;
+		// 兜底定位（原 CSS .command-palette 的「默认居中 + 底部 160px」语义收进 JS）：
+		// 拿不到编辑器/光标坐标时，面板仍然有确定位置，CSS 不再承载任何定位假设。
+		const fallback: CSSProperties = {
+			top: "auto",
+			bottom: 160,
+			left: Math.max(16, (window.innerWidth - menuWidth) / 2),
+		};
+		const root = editorRef.current;
+		if (!root) return fallback;
+		const coordinates = getComposerCaretCoords(root, cursor);
+		if (!coordinates) return fallback;
+		let left = coordinates.left;
+		if (left + menuWidth > window.innerWidth - 16) {
+			left = Math.max(16, window.innerWidth - menuWidth - 16);
+		}
+		const below = coordinates.top + gap;
+		if (below + menuHeight <= window.innerHeight - 16) {
+			return { top: below, left, bottom: "auto" };
+		}
+		const above = coordinates.top - gap;
+		if (above - menuHeight >= 0) {
+			return {
+				top: "auto",
+				bottom: window.innerHeight - above,
+				left,
+			};
+		}
+		return { top: "auto", bottom: 16, left };
+	}, [cursor, suggestionsOpen]);
+
+	const isBusy = isSessionRuntimeBusy(runtime?.status, runtime?.state);
+	// 预热只创建进程，不能把编辑器 setEditable(false)：contenteditable 关掉会失焦，输入一半就断。
+	const isStarting = isUserFacingSessionStart(sendState.status);
+	const hasContent = Boolean(draft.trim() || attachments.length || pasteFiles.length);
+
+	const resetEphemeralUi = useCallback(() => {
+		setHistoryIndex(-1);
+		setSavedDraft("");
+		setSuggestionsOpen(false);
+		setBusyDraftLocked(false);
+		liveDomDraftRef.current = { sessionId, value: "" };
+	}, [sessionId]);
+
+	/**
+	 * 发送前补齐模板表：`/名称` 命中未知模板时补拉一次。
+	 *
+	 * 兜两类时机：runtime 刚绑定（模板表还没拉回来），以及**草稿会话的第一条消息**
+	 * （此刻还没有 runtime target，但项目的 standby 池能给出同一份清单）。
+	 * 两处都没有时保持原样，交给 pi 兜底展开。
+	 */
+	const ensureTemplatesForMessage = useCallback(
+		async (message: string) => {
+			const match = /^\/([^\s]+)/.exec(message.trim());
+			if (!match) return;
+			const name = match[1];
+			// 后端接管的命令（DSH host / pi 扩展 / 技能）永远不在模板表里：补拉只会白跑三趟
+			// IPC，而且它本来就不该被展开。
+			if (!needsTemplateRefetch(name, templatesRef.current, reservedCommandNamesRef.current)) return;
+			// 两条来源都在 loadTemplates 里：有 runtime 走运行时清单，草稿会话走 standby 预览。
+			// 两个都没有（无项目、池关闭）时重拉也没有意义。
+			const hasRuntime = Boolean(toSessionRuntimeTarget(sessionId, store.get(sessionRuntimeBySessionIdAtomFamily(sessionId))));
+			if (!hasRuntime && !record?.projectId) return;
+			// 补齐失败不影响发送本身（loadTemplates 内部各来源已各自兜错，这里再兜一层）
+			await loadTemplates().catch(() => undefined);
+		},
+		[loadTemplates, record?.projectId, sessionId, store],
+	);
+
+	const resolveSessionReferences = useCallback(
+		async (message: string) => {
+			// 展开与保护区判定收口在 sending/outgoingExpansion（纯函数、可单测）：
+			// 引用块内的 `&会话名` 属于被引述的原文，不能当成真引用展开。
+			const targets = projectSessions.map((session) => ({ id: session.id, name: session.name ?? session.filePath }));
+			return await expandSessionReferences(message, targets, async (session) => {
+				const saved = sessionReferenceSelections[`&${session.name}`];
+				const selectedMessages = saved ? selectedSessionReferenceMessages(saved) : await desktopApi.sessions.readReferenceMessages(session.id);
+				return selectedMessages.map((item) => `[${item.role === "user" ? "User" : "Assistant"}]: ${item.content}`).join("\n");
+			});
+		},
+		[projectSessions, sessionReferenceSelections],
+	);
+
+	/**
+	 * 手动压缩唯一入口：圆环按钮与 /compact 共用。
+	 * 不再设占用门槛（数据可用即可压，低占用时 pi 自行判定 nothing-to-do/too-small）；
+	 * 压缩中拒绝重复点击；成功弹完成。
+	 */
+	const runManualCompact = useCallback(
+		async (target: { sessionId: string; agentId: string; runtimeGeneration: number }, prompt?: string) => {
+			const live = store.get(sessionRuntimeBySessionIdAtomFamily(sessionId));
+			const compacting = live?.state?.isCompacting === true;
+			if (compacting) {
+				showNotice(t("app.compactInProgress"), 4000);
+				return;
+			}
+			try {
+				requireSessionCommand(await desktopApi.sessions.compactRuntime(target, prompt));
+				showNotice(t("app.compactDone"), 4000);
+			} catch (error) {
+				const notice = friendlyCompactError(error);
+				if (notice) showNotice(notice.text, notice.durationMs);
+			}
+		},
+		[sessionId, store],
+	);
+
+	const send = useSessionSend({
+		sessionId,
+		sendPrompt: (input) => desktopApi.sessions.sendPrompt(input),
+		ensureSessionId,
+		getTemplates: () => templatesRef.current,
+		getReservedCommandNames: () => reservedCommandNamesRef.current,
+		ensureTemplates: ensureTemplatesForMessage,
+		prepareMessage: async (message) => {
+			// 模板表可能在 runtime 刚绑定/首次加载完成前是空的：命中未知 `/名称` 时补拉一次，
+			// 否则这条消息会退回「交给 pi 展开」，模板名不进会话文件（chip 随之丢失）。
+			await ensureTemplatesForMessage(message);
+			const resolved = await resolveSessionReferences(message);
+			// 条上暂停后 composer 仍可能停在目标模式：发送前先 resume，否则 host 不会续轮。
+			if (isDshBackend && mode === "goal") {
+				const phase = runtime?.state?.goal?.phase;
+				if (runtime?.agentId && (phase === "paused" || phase === "blocked")) {
+					try {
+						await desktopApi.sessions.runDshGoalAction(runtime.agentId, "resume");
+					} catch (error) {
+						showNotice(error instanceof Error ? error.message : String(error), 4000);
+					}
+				}
+			}
+			return resolved;
+		},
+		onDraftMutation: markDraftMutation,
+		createNewSession: options.onCreateSession,
+		openProviderLogin: options.onProviderLogin,
+		reloadResources: options.onReloadResources,
+		compact: async (target, prompt) => {
+			await runManualCompact(target, prompt);
+		},
+		resetComposerUi: resetEphemeralUi,
+		recordPromptHistory: (targetSessionId, message) => {
+			if (!message.trim() || message.startsWith("!")) return;
+			const normalized = message.trim();
+			const previous = promptHistoryRef.current[targetSessionId] ?? [];
+			promptHistoryRef.current[targetSessionId] = [normalized, ...previous.filter((item) => item !== normalized)].slice(0, 50);
+			markPromptHistorySessionAccess(promptHistoryRef.current, targetSessionId);
+		},
+		showError: (message, duration) => showNotice(message, duration),
+		showUnknown: () => showNotice(t("app.queuedUnknown"), 6000),
+		// ACP 首启失败回收：激活从未成功（draft + 拒收）的 acp 会话没有任何可恢复内容
+		// （agent 侧会话未建、无消息），删除后把回填的草稿搬回引导页，不留在历史列表。
+		pruneFailedAcpDraft: async (failedSessionId) => {
+			const failed = store.get(sessionRecordsAtom)[failedSessionId];
+			if (!failed || failed.backend !== "acp" || failed.status !== "draft") return false;
+			// 先搬草稿（restoreRejectedPrompt 已把输入回填到该会话 composer），再删会话——
+			// 反序会让 promote 读不到源会话状态，用户输入丢失。
+			store.set(promoteSessionComposerStateAtom, { fromSessionId: failedSessionId, toSessionId: GUIDE_BOOTSTRAP_SESSION_ID });
+			await desktopApi.sessions.deleteRecord(failedSessionId).catch(() => undefined);
+			// 先清空选中再删会话：被回收的会话记录消失后，仍指向它的 currentSessionId
+			// 会让 App 给一个查不到记录的会话挂真实面板（面板里 session=undefined →
+			// 渲染「开始新的 Session」空态）。目标状态必须是「没有当前会话」——引导页
+			// 就是 currentSessionId 为 undefined，不能写 GUIDE_BOOTSTRAP_SESSION_ID：
+			// 它只是引导页输入框的虚拟会话 id，同样没有 catalog 记录，写进去看到的
+			// 依旧是那个空态面板、回填的草稿也不可见（2026-10 用户反馈：acp 首启
+			// 失败后「跳到了这个页面」）。先设好再 remove：removeSessionStateAtom
+			// 发现删的不是当前会话就不会二次改写，不会闪。
+			if (store.get(currentSessionIdAtom) === failedSessionId) {
+				store.set(currentSessionIdAtom, undefined);
+			}
+			store.set(removeSessionStateAtom, failedSessionId);
+			return true;
+		},
+		enqueue,
+	});
+
+	// 并行发送（拆分菜单「并行发送」）：把当前草稿文本送进独立 Ask 会话后台处理，不打断当前会话。
+	// useAskPanel 内部用全局 atom 管会话/胶囊状态，会话各处共享同一实例，重复调用安全。
+	const askPanel = useAskPanel();
+	// 结果按「消息」语义上屏（与 useSessionSend 乐观提交同一约定：写时间线缓存、source=runtime）：
+	// 提示词作为 user 消息立即上屏；随后追加一条 assistant「生图占位」消息（meta.imageGen=generating），
+	// 生成期间由 FinalAnswer 渲染 beUI ImageGeneration 点阵动画，完成后原地更新为 complete（图片清晰过渡），
+	// 失败原地更新为 error。不调用 send、不进附件栏（无运行中 Agent 也能用）。
+	const persistImageGenSelection = useCallback(
+		(providerId: string, modelId: string) => {
+			const next = {
+				...imageGenConfig,
+				activeProviderId: providerId,
+				activeModel: modelId,
+			};
+			setImageGenConfig(next);
+			void desktopApi.imagegen.saveConfig(next).catch(() => undefined);
+		},
+		[imageGenConfig, setImageGenConfig],
+	);
+
+	const generateImage = useCallback(async () => {
+		const prompt = draft.trim();
+		if (!prompt || generatingImage) return;
+		const provider = findImageGenProvider(imageGenConfig, activeImageGenProviderId);
+		const modelId = provider?.models.includes(activeImageGenModelId) ? activeImageGenModelId : "";
+		if (!provider?.id || !modelId || !provider.baseUrl.trim() || !provider.apiKey.trim()) {
+			showNotice(t("imagegen.error.notConfigured"), 5000);
+			return;
+		}
+		// 参考图前置门禁：供应商未声明带图输入时直接提示，不发无效请求（主进程也会拦截兑底）
+		if (attachments.length > 0 && (provider.referenceMode ?? "none") === "none") {
+			showNotice(t("imagegen.error.referenceUnsupported"), 5000);
+			return;
+		}
+		// 仅「启动即匿名」的会话提示（noSession=true，经匿名开聊创建，pi 以 --no-session 启动）：
+		// 生图不落盘、重启即失。普通新建 draft 会话 filePath 同样为空（生图不启动 agent），
+		// 但用户视角它是正式会话，不弹匿名提示打扰（2026 反馈）。
+		if (record?.noSession === true) {
+			showNotice(t("imagegen.transientHint"), 6000);
+		}
+		setGeneratingImage(true);
+
+		// 把本地生图消息追加进时间线缓存（整体替换 messages 数组，source=runtime 沿用乐观提交约定）。
+		const appendTimelineMessage = (message: ChatMessage) => {
+			const previous = store.get(sessionMessagesCacheAtom)?.[sessionId]?.messages ?? [];
+			setCacheMessages({ sessionId, messages: [...previous, message], source: "runtime" });
+		};
+		// 按 id 原地更新已上屏消息（生图占位 → complete/error 复用同一条，避免时间线多出一条）。
+		const updateTimelineMessage = (id: string, patch: (m: ChatMessage) => ChatMessage) => {
+			const previous = store.get(sessionMessagesCacheAtom)?.[sessionId]?.messages ?? [];
+			setCacheMessages({
+				sessionId,
+				messages: previous.map((m) => (m.id === id ? patch(m) : m)),
+				source: "runtime",
+			});
+		};
+
+		appendTimelineMessage({
+			id: crypto.randomUUID(),
+			agentId: "",
+			role: "user",
+			text: prompt,
+			timestamp: Date.now(),
+			// 参考图随 user 消息上屏：发送后附件栏清空，图片要留在时间线气泡里回显
+			images: attachments.length > 0 ? attachments : undefined,
+		});
+		const imageMessageId = crypto.randomUUID();
+		appendTimelineMessage({
+			id: imageMessageId,
+			agentId: "",
+			role: "assistant",
+			text: "",
+			stopReason: "stop",
+			timestamp: Date.now(),
+			meta: {
+				imageGen: { status: "generating", prompt, size: imageGenSize } satisfies ImageGenMeta,
+			},
+		});
+		setDraft("");
+		// 乐观清空附件栏：参考图已随 user 消息上屏回显，输入框不再占用
+		// （与普通消息发送同惯例 useSessionSend.clearSnapshot）；
+		// 生成失败时下方失败分支会把附件前插恢复，支持改词重试。
+		if (attachments.length > 0) {
+			setAttachmentsAtom({ sessionId, value: [] });
+		}
+
+		try {
+			const result = await desktopApi.imagegen.generate({
+				provider: provider.id,
+				model: modelId,
+				prompt,
+				size: imageGenSize,
+				watermark: imageGenWatermark,
+				outputFormat: imageGenOutputFormat,
+				// 参考图：附件栏图片作为参考图传给主进程；是否可用由供应商 referenceMode 决定
+				referenceImages: attachments.length > 0 ? attachments : undefined,
+				// 生图记录落盘：主进程成功后把 user+assistant 消息写入当前会话的 pi 文件
+				sessionId,
+			});
+			if (result.ok) {
+				// 参考图发送时已乐观清空，此处只原地更新结果消息
+				updateTimelineMessage(imageMessageId, (m) => ({
+					...m,
+					images: [result.image],
+					meta: {
+						imageGen: { status: "complete", prompt, size: imageGenSize } satisfies ImageGenMeta,
+					},
+				}));
+				showNotice(t("imagegen.done"), 4000);
+			} else {
+				// 失败恢复附件：参考图放回输入框便于改词重试；前插不覆盖期间新粘贴的图
+				if (attachments.length > 0) {
+					setAttachmentsAtom({ sessionId, value: (current) => [...attachments, ...current] });
+				}
+				updateTimelineMessage(imageMessageId, (m) => ({
+					...m,
+					meta: {
+						imageGen: {
+							status: "error",
+							prompt,
+							size: imageGenSize,
+							errorDetail: mapImageGenError(result.error, result.detail),
+						} satisfies ImageGenMeta,
+					},
+				}));
+			}
+		} catch {
+			// 网络/超时类失败同样恢复附件，便于原地重试
+			if (attachments.length > 0) {
+				setAttachmentsAtom({ sessionId, value: (current) => [...attachments, ...current] });
+			}
+			updateTimelineMessage(imageMessageId, (m) => ({
+				...m,
+				meta: {
+					imageGen: {
+						status: "error",
+						prompt,
+						errorDetail: t("imagegen.error.network"),
+					} satisfies ImageGenMeta,
+				},
+			}));
+		} finally {
+			setGeneratingImage(false);
+		}
+	}, [activeImageGenModelId, activeImageGenProviderId, attachments, draft, generatingImage, imageGenConfig, imageGenOutputFormat, imageGenSize, imageGenWatermark, record?.noSession, sessionId, setAttachmentsAtom, setCacheMessages, setDraft, store]);
+
+	// 生视频提交：与生图的同步等待不同，submit 受理即返回，占位消息由 videogen:event
+	// 事件原地推进（useVideoGenEvents 按 messageId 命中）；本地只负责门禁、上屏与受理回填。
+	const submitVideo = useCallback(
+		async (confirmed = false) => {
+			const prompt = draft.trim();
+			if (!prompt || submittingVideo) return;
+			const provider = findVideoGenProvider(videoGenConfig, videoGenConfig.activeProviderId);
+			const modelId = provider?.models.includes(videoGenConfig.activeModel) ? videoGenConfig.activeModel : "";
+			if (!provider?.id || !modelId || !provider.baseUrl.trim() || !provider.apiKey.trim()) {
+				showNotice(t("videogen.error.notConfigured"), 5000);
+				return;
+			}
+			// 一期纯文生视频：附件不支持作为参考素材，显式拦下而不是静默丢弃用户已贴的内容。
+			if (attachments.length > 0) {
+				showNotice(t("videogen.error.attachmentsUnsupported"), 5000);
+				return;
+			}
+			// 成本确认闸：未确认且开关开启时只完起弹层，不发请求；确认后走同一条函数提交。
+			if (videoGenConfig.costConfirm && !confirmed) {
+				setVideoConfirmPending(true);
+				return;
+			}
+			setVideoConfirmPending(false);
+			if (record?.noSession === true) {
+				showNotice(t("videogen.transientHint"), 6000);
+			}
+			setSubmittingVideo(true);
+			const appendTimelineMessage = (message: ChatMessage) => {
+				const previous = store.get(sessionMessagesCacheAtom)?.[sessionId]?.messages ?? [];
+				setCacheMessages({ sessionId, messages: [...previous, message], source: "runtime" });
+			};
+			const updateTimelineMessage = (id: string, patch: (m: ChatMessage) => ChatMessage) => {
+				const previous = store.get(sessionMessagesCacheAtom)?.[sessionId]?.messages ?? [];
+				setCacheMessages({ sessionId, messages: previous.map((m) => (m.id === id ? patch(m) : m)), source: "runtime" });
+			};
+			const params = videoGenConfig.activeParams;
+			// 参数回退链：用户改过的 activeParams → 供应商 defaults（切供应商时底栏预填）
+			const resolution = params.resolution ?? provider.defaults?.resolution;
+			const duration = params.duration ?? provider.defaults?.duration;
+			const ratio = params.ratio ?? provider.defaults?.ratio;
+			appendTimelineMessage({
+				id: crypto.randomUUID(),
+				agentId: "",
+				role: "user",
+				text: prompt,
+				timestamp: Date.now(),
+			});
+			// 占位 messageId 由本地生成并随请求带给主进程：事件快照沿用同一 id 才能原地命中本条。
+			const videoMessageId = crypto.randomUUID();
+			const placeholderMeta: VideoGenMeta = { status: "queued", prompt, resolution, duration, ratio };
+			appendTimelineMessage({
+				id: videoMessageId,
+				agentId: "",
+				role: "assistant",
+				text: "",
+				stopReason: "stop",
+				timestamp: Date.now(),
+				meta: { videoGen: placeholderMeta },
+			});
+			setDraft("");
+			try {
+				const result = await desktopApi.videogen.submit({
+					provider: provider.id,
+					model: modelId,
+					prompt,
+					sessionId,
+					messageId: videoMessageId,
+					resolution,
+					duration,
+					ratio,
+				});
+				if (result.ok) {
+					// 受理回填 jobId：事件到达前取消入口/按钮态即可用；后续状态由事件原地推进。
+					updateTimelineMessage(videoMessageId, (m) => ({
+						...m,
+						meta: { ...m.meta, videoGen: { ...placeholderMeta, jobId: result.jobId } },
+					}));
+					showNotice(t("videogen.submitted"), 4000);
+				} else {
+					updateTimelineMessage(videoMessageId, (m) => ({
+						...m,
+						meta: { ...m.meta, videoGen: { ...placeholderMeta, status: "error", errorDetail: mapVideoGenError(result.error, result.detail) } },
+					}));
+				}
+			} catch {
+				updateTimelineMessage(videoMessageId, (m) => ({
+					...m,
+					meta: { ...m.meta, videoGen: { ...placeholderMeta, status: "error", errorDetail: t("videogen.error.network") } },
+				}));
+			} finally {
+				setSubmittingVideo(false);
+			}
+		},
+		[attachments.length, draft, record?.noSession, sessionId, setCacheMessages, setDraft, store, submittingVideo, videoGenConfig],
+	);
+	// 确认/取消成本弹层：确认后携 confirmed 直发（绕过闸门）；取消只清待确认态，草稿不动。
+	const confirmVideoGen = useCallback(() => {
+		void submitVideo(true);
+	}, [submitVideo]);
+	const cancelVideoGen = useCallback(() => setVideoConfirmPending(false), []);
+
+	// 统一发送入口：先晋升预览 Tab 再投递（幂等，非预览无副作用）。
+	// 发送按钮 / 追问按钮 / Enter 键 / 无 Agent 时的 /compact 直发都会走这里，
+	// 避免新增发送路径时漏掉 promote 导致预览 Tab 不常驻（曾因此回归）。
+	// 生图模式：所有发送入口统一转生图（不晋升预览 Tab、不发消息），避免各入口分支不一致。
+	const promoteAndSend = useCallback(
+		async (behavior?: "steer" | "followUp", overrideText?: string) => {
+			if (mode === "imagegen") {
+				void generateImage();
+				return;
+			}
+			// 生视频模式：所有发送入口统一转生视频提交（不晋升预览 Tab、不发普通消息）。
+			if (mode === "videogen") {
+				void submitVideo();
+				return;
+			}
+			// 粘贴文件折叠：把 chip 里的文件引用/内容并进草稿再发送。
+			// 新写入一律在 userData（inProject=false）：折叠原样文本内联，pi 读不到 userData；
+			// 遗留项目内 chip（inProject=true）仍走 @"path" 引用——pi 展开读取。
+			// 快捷消息直发（overrideText 有值）不走这段：那条路径发送的是清单原文，
+			// 把用户的粘贴内容并进去既违背「直发」语义，也会连带清掉他手里的 chip。
+			if (overrideText === undefined && pasteFiles.length) {
+				const refs: string[] = [];
+				for (const file of pasteFiles) {
+					if (file.inProject) {
+						refs.push(formatFilePathRef(file.path));
+					} else {
+						const content = await desktopApi.files.readContent(file.path, PASTE_FILE_CONTENT_MAX_BYTES).catch(() => "");
+						if (content) refs.push(content);
+					}
+				}
+				const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
+				const joined = [liveDraft.trim(), refs.join("\n\n")].filter(Boolean).join("\n\n");
+				liveDomDraftRef.current = { sessionId, value: joined };
+				setDraft(joined);
+				// 已折叠进草稿：立即移除 chip（发送成功/失败都会在 clearSnapshot 兜底清空）
+				setPasteFiles([]);
+			}
+			options.onPromoteSession?.(sessionId);
+			return send(behavior, overrideText);
+		},
+		[draft, mode, generateImage, submitVideo, options.onPromoteSession, pasteFiles, send, sessionId, setDraft, setPasteFiles],
+	);
+
+	const selectSuggestion = useCallback(
+		(item: SuggestionItem) => {
+			const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
+			const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
+			// 目录引用（isDirectory）不带尾随空格：@src/ 之后继续敲路径段时建议框会
+			// 随按键重新打开（onChange → detectTrigger），实现连续的目录下钻引用；
+			// 带空格会让建议框立刻关闭，用户必须回删空格才能继续，容易误以为只能选一层。
+			const result = applySuggestion(liveDraft, liveCursor, item.value, validSessionRefs, {
+				noTrailingSpace: item.isDirectory === true,
+			});
+			liveDomDraftRef.current = { sessionId, value: result.text };
+			setDraft(result.text);
+			setCursor(result.cursor);
+			caretRef.current = { pos: result.cursor, forValue: result.text };
+			setSuggestionsOpen(false);
+			requestAnimationFrame(() => editorRef.current?.focus());
+		},
+		[cursor, draft, sessionId, setDraft, validSessionRefs],
+	);
+
+	const closeSuggestions = useCallback(() => {
+		const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
+		const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
+		const result = clearSuggestionTrigger(liveDraft, liveCursor, validSessionRefs);
+		liveDomDraftRef.current = { sessionId, value: result.text };
+		setDraft(result.text);
+		setCursor(result.cursor);
+		caretRef.current = { pos: result.cursor, forValue: result.text };
+		setSuggestionsOpen(false);
+		requestAnimationFrame(() => editorRef.current?.focus());
+	}, [cursor, draft, sessionId, setDraft, validSessionRefs]);
+
+	const onChange = useCallback(
+		(value: string, nextCursor: number) => {
+			liveDomDraftRef.current = { sessionId, value };
+			setDraft(value);
+			setCursor(nextCursor);
+			setSuggestionsOpen(detectTrigger(value, nextCursor, validSessionRefs) !== null);
+			if (historyIndex >= 0) {
+				const history = getPromptHistory();
+				if (value !== history[historyIndex]) {
+					setHistoryIndex(-1);
+					setSavedDraft("");
+				}
+			}
+		},
+		[getPromptHistory, historyIndex, sessionId, setDraft, validSessionRefs],
+	);
+
+	// 输入预测的当前快照（声明在 onKeyDown 之前，但在下方预测 hook 之后赋值）：
+	// keydown 只读 ref，避免把「钩子返回值」塞进 useCallback 依赖造成每次渲染重建回调。
+	const suggestionRef = useRef<{ visible: boolean; accept: () => void; dismiss: () => void; acceptKey: (event: React.KeyboardEvent<HTMLDivElement>) => boolean } | null>(null);
+
+	const onKeyDown = useCallback(
+		(event: React.KeyboardEvent<HTMLDivElement>) => {
+			// IME 合成中一律不抢键：↑/↓ 是输入法选词、Esc 是取消合成、Enter 是确认候选。
+			// 放在候选菜单之前，保证菜单分支也走同一判定（TipTap 的 DOM 事件桥接没有
+			// nativeEvent，必须用共享判定口，不能只看 event.nativeEvent?.isComposing）。
+			if (isComposingKeyboardEvent(event)) return;
+
+			// 输入预测（ghost 文案）：Tab / → 采纳，Esc 忽略。只在空草稿可见，因此不会
+			// 与历史回溯、补全菜单、发送键冲突；先于其它分支拦截，避免 Tab 被默认焦点切换吃掉。
+			const ghost = suggestionRef.current;
+			if (ghost?.visible) {
+				if (ghost.acceptKey(event)) {
+					event.preventDefault();
+					ghost.accept();
+					return;
+				}
+				if (event.key === "Escape") {
+					event.preventDefault();
+					ghost.dismiss();
+					return;
+				}
+			}
+
+			if (suggestionsOpen && suggestionItems.length > 0) {
+				if (event.key === "ArrowDown") {
+					event.preventDefault();
+					setSelectedSuggestionIndex((index) => Math.min(index + 1, suggestionItems.length - 1));
+					return;
+				}
+				if (event.key === "ArrowUp") {
+					event.preventDefault();
+					setSelectedSuggestionIndex((index) => Math.max(index - 1, 0));
+					return;
+				}
+				if (event.key === "Enter") {
+					// IME 合成中的回车属于输入法确认候选，不能拿去选建议项
+					if (isComposingKeyboardEvent(event)) return;
+					event.preventDefault();
+					const selected = suggestionItems[Math.min(selectedSuggestionIndex, suggestionItems.length - 1)];
+					if (selected) selectSuggestion(selected);
+					return;
+				}
+				if (event.key === "Escape") {
+					event.preventDefault();
+					closeSuggestions();
+					return;
+				}
+			}
+
+			const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
+			// 一次取选区：from 即光标偏移（折叠时 from === to），同时回答「是否选中了文本」。
+			const liveSelection = editorRef.current ? getComposerSelectionRange(editorRef.current) : { from: cursor, to: cursor };
+			// 块边界取自 ProseMirror state（权威）：不用草稿字符串判「是不是首/末块」，
+			// 因为草稿 atom 在 IME 合成结束后的一帧内可能还没同步上。
+			const blockEdge = getComposerCaretBlockEdge(editorRef.current);
+			const history = getPromptHistory();
+			// 只在方向键上量视觉行盒：endOfTextblock 要遍历段落内的行盒，
+			// 不能让普通输入（每次 keydown 都会走这里）也付这个成本。
+			// 两个方向必须都量：PM 的 endOfTextblock 按 (state, dir) 缓存上一次结果，
+			// 若只量当前方向，窗口缩放/重新换行后同一 state 可能拿到过期的布局结论。
+			const measureEdge = event.key === "ArrowUp" || event.key === "ArrowDown";
+			const atVisualTop = measureEdge && isComposerAtVisualEdge(editorRef.current, "up");
+			const atVisualBottom = measureEdge && isComposerAtVisualEdge(editorRef.current, "down");
+			// 接管判定（含修饰键/选区守卫）全在纯函数里，便于单测。
+			const navIntent = resolveComposerHistoryIntent({
+				key: event.key,
+				atFirstBlock: blockEdge.atFirstBlock,
+				atLastBlock: blockEdge.atLastBlock,
+				atVisualTop,
+				atVisualBottom,
+				historyIndex,
+				historyLength: history.length,
+				modifier: event.shiftKey || event.ctrlKey || event.altKey || event.metaKey,
+				hasSelection: liveSelection.from !== liveSelection.to,
+			});
+
+			if (navIntent === "recall-older") {
+				event.preventDefault();
+				const nextIndex = historyIndex < 0 ? 0 : Math.min(historyIndex + 1, history.length - 1);
+				if (historyIndex < 0) setSavedDraft(liveDraft);
+				setHistoryIndex(nextIndex);
+				liveDomDraftRef.current = { sessionId, value: history[nextIndex] };
+				setDraft(history[nextIndex]);
+				caretRef.current = { pos: history[nextIndex].length, forValue: history[nextIndex] };
+				return;
+			}
+			if (navIntent === "recall-newer") {
+				event.preventDefault();
+				const nextIndex = historyIndex - 1;
+				const nextDraft = nextIndex >= 0 ? history[nextIndex] : savedDraft;
+				setHistoryIndex(nextIndex);
+				if (nextIndex < 0) setSavedDraft("");
+				liveDomDraftRef.current = { sessionId, value: nextDraft };
+				setDraft(nextDraft);
+				caretRef.current = { pos: nextDraft.length, forValue: nextDraft };
+				return;
+			}
+			if (navIntent === "restore-draft") {
+				liveDomDraftRef.current = { sessionId, value: savedDraft };
+				setDraft(savedDraft);
+				setHistoryIndex(-1);
+				setSavedDraft("");
+				return;
+			}
+
+			const intent = mode === "plan" && isPlanModeSendKey(event) ? "send" : getComposerEnterIntent(event, sendShortcut);
+			if (intent === "send") {
+				event.preventDefault();
+				// Enter 发送也晋升预览 Tab（promoteAndSend 内部统一处理）。
+				// 忙碌时按「忙碌时投递行为」设置决定语义；ACP 后端恒收敛 followUp（协议无 steer）。
+				// 空闲直发（undefined）。设置在常用设置→会话，改后即时生效（App 同步 atom）。
+				void promoteAndSend(resolveBusySendDelivery(isBusy, store.get(busySendDeliveryAtom), isAcpBackend ? "acp" : undefined));
+			}
+		},
+		[closeSuggestions, cursor, draft, getPromptHistory, historyIndex, isBusy, mode, promoteAndSend, savedDraft, selectedSuggestionIndex, selectSuggestion, sendShortcut, sessionId, setDraft, store, suggestionItems, suggestionsOpen],
+	);
+
+	const addImageFiles = useCallback(
+		async (imageFiles: File[]) => {
+			// G2：DSH 图片附件已支持（经 host attachment 服务上传，sendPrompt 带 image 块），
+			// 与 pi 共用附件流程，不再按 backend 拦截。
+			for (const file of imageFiles) {
+				try {
+					const image = await processComposerImageFile(file);
+					// 附件预算（内存优化 2026-12）：单会话 base64 总量封顶，拒绝发生在入口并提示，
+					// 不静默截断；重发恢复/队列回填不经此处，不受影响。逐张判定：小图仍可补进。
+					const currentBytes = attachmentBytes(store.get(sessionAttachmentsBySessionIdAtomFamily(sessionId)));
+					if (currentBytes + base64DataBytes(image.data) > COMPOSER_ATTACHMENT_BUDGET_BYTES) {
+						showNotice(t("app.imageBudgetExceeded", { size: formatBytes(COMPOSER_ATTACHMENT_BUDGET_BYTES) }), 3000);
+						continue;
+					}
+					setAttachments((current) => [...current, image]);
+				} catch (error) {
+					showNotice(composerImageNotice(error), 3000);
+				}
+			}
+		},
+		[sessionId, setAttachments, store],
+	);
+
+	/**
+	 * 把已格式化的引用文本（@path、@"a b/" 等）插入输入框当前光标处。
+	 * 文件树拖拽、OS 文件拖入/粘贴、「加入对话引用」按钮共用同一插入规则：
+	 * 只引用路径，不上传内容；与前字符之间按需补空格。
+	 */
+	const insertRefTexts = useCallback(
+		(refTexts: string[]) => {
+			if (refTexts.length === 0) return;
+			const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
+			const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
+			const refText = refTexts.join(" ");
+			const previous = liveDraft[liveCursor - 1];
+			const spacer = liveCursor > 0 && previous !== " " && previous !== "\n" ? " " : "";
+			const next = liveDraft.slice(0, liveCursor) + spacer + refText + liveDraft.slice(liveCursor);
+			const nextCursor = liveCursor + spacer.length + refText.length;
+			liveDomDraftRef.current = { sessionId, value: next };
+			setDraft(next);
+			setCursor(nextCursor);
+			caretRef.current = { pos: nextCursor, forValue: next };
+			requestAnimationFrame(() => editorRef.current?.focus());
+		},
+		[cursor, draft, sessionId, setDraft],
+	);
+
+	/** 本地路径以 @path 引用插入（OS 文件拖入/粘贴/文件选择器共用）；含空格路径自动加引号 */
+	const insertFilePathRefs = useCallback(
+		(paths: string[]) => {
+			insertRefTexts(paths.map((path) => formatFilePathRef(path, { isDirectory: /[\\/]$/.test(path) })));
+		},
+		[insertRefTexts],
+	);
+
+	/**
+	 * 把纯文本插入输入框当前光标处（不带 @ 引用包装）。
+	 * 与 insertRefTexts 同一套光标/草稿同步协议；仅用于「转文件失败回退原样粘贴」
+	 * 这类需要绕过 TipTap 默认粘贴路径的场景（onPaste 已同步 preventDefault）。
+	 */
+	const insertPlainTextAtCursor = useCallback(
+		(text: string) => {
+			if (!text) return;
+			const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
+			const liveCursor = editorRef.current ? getComposerCaretOffset(editorRef.current) : cursor;
+			const next = liveDraft.slice(0, liveCursor) + text + liveDraft.slice(liveCursor);
+			const nextCursor = liveCursor + text.length;
+			liveDomDraftRef.current = { sessionId, value: next };
+			setDraft(next);
+			setCursor(nextCursor);
+			caretRef.current = { pos: nextCursor, forValue: next };
+			requestAnimationFrame(() => editorRef.current?.focus());
+		},
+		[cursor, draft, sessionId, setDraft],
+	);
+
+	const captureVoiceTarget = useCallback((): VoiceTranscriptionTarget => {
+		const liveDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
+		const selection = editorRef.current ? getComposerSelectionRange(editorRef.current) : { from: cursor, to: cursor };
+		return { sessionId, draft: liveDraft, ...selection };
+	}, [cursor, draft, sessionId]);
+
+	const applyVoiceText = useCallback(
+		(target: VoiceTranscriptionTarget, text: string) => {
+			const currentDraft = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : (store.get(sessionDraftByIdAtom)[sessionId] ?? "");
+			const result = resolveVoiceTranscriptionInsertion({
+				target,
+				currentSessionId: sessionId,
+				currentDraft,
+				text,
+			});
+			if (!result.ok) return false;
+			liveDomDraftRef.current = { sessionId, value: result.value };
+			setDraft(result.value);
+			setCursor(result.caret);
+			caretRef.current = { pos: result.caret, forValue: result.value };
+			requestAnimationFrame(() => editorRef.current?.focus());
+			return true;
+		},
+		[sessionId, setDraft, store],
+	);
+
+	const voice = useVoiceTranscription({
+		scopeKey: sessionId,
+		captureTarget: captureVoiceTarget,
+		applyText: applyVoiceText,
+	});
+
+	// ===== 提示词增强（✦ 按钮）：当前模型 + 当前草稿 → 一次性改写 → 回填 =====
+	// 目标模型优先级（resolveEnhanceTargetModel）：设置页指定的固定增强模型 >
+	// 会话记录 > 引导页点选 > 部署/主进程默认；引导页的 welcomeModel 存 localStorage，
+	// 这里不走 catalog 存在性校验——模型被删的边缘情况由主进程报 model-not-found，toast 可见。
+	// 增强与输入预测共用同一条优先级链，但各自的「固定模型」是独立设置项（enhanceModel /
+	// promptSuggestionModel）——预测每轮都发一次后台调用，常被单独指定成便宜的小模型。
+	const targetModelChain = {
+		recordModel: record?.model,
+		welcomeModel: (isDshBackend ? readWelcomeDshModelPreference() : readWelcomeModelPreference())?.model,
+		fallback: isDshBackend && dshDefault ? { provider: dshDefault.provider, modelId: dshDefault.model } : bootstrapDefaults?.model,
+	};
+	const enhanceTarget = resolveEnhanceTargetModel({ ...targetModelChain, configured: enhanceModelConfig });
+	const captureEnhanceRequest = useCallback((): PromptEnhanceRequest | null => {
+		if (!enhanceTarget) return null;
+		const draftSnapshot = liveDomDraftRef.current.sessionId === sessionId ? liveDomDraftRef.current.value : draft;
+		// 按发起会话读取已加载快照，既不跨分屏取 currentSession，也不为增强额外加载历史。
+		const context = enhanceIncludeContext ? collectPromptEnhanceContext(store.get(sessionMessageCacheBySessionIdAtomFamily(sessionId))?.messages ?? []) : [];
+		return { ...enhanceTarget, draft: draftSnapshot, ...(context.length ? { context } : {}) };
+	}, [draft, enhanceTarget, enhanceIncludeContext, sessionId, store]);
+
+	// 回填 = 整体替换草稿（与语音插入不同：增强是对全文的改写，没有「插入位置」语义）。
+	const applyEnhancedText = useCallback(
+		(text: string) => {
+			liveDomDraftRef.current = { sessionId, value: text };
+			setDraft(text);
+			setCursor(text.length);
+			caretRef.current = { pos: text.length, forValue: text };
+			requestAnimationFrame(() => editorRef.current?.focus());
+		},
+		[sessionId, setDraft],
+	);
+
+	const enhance = usePromptEnhance({
+		scopeKey: sessionId,
+		modelLabel: enhanceTarget ? `${enhanceTarget.provider}/${enhanceTarget.modelId}` : undefined,
+		captureRequest: captureEnhanceRequest,
+		applyText: applyEnhancedText,
+	});
+
+	// ===== 输入预测（回合结束后预测下一句输入，空输入框 ghost 展示）=====
+	// 与增强共用同一条优先级链（设置固定模型 > 会话模型 > 默认），但读的是独立的
+	// promptSuggestionModel 设置，并走独立侧车实例；
+	// 回合边界取 runtime 的权威 isTurnActive（agent_end），不用 isBusy（还含 compact 等中间态）。
+	// 采纳回填与增强同一条路径（applyEnhancedText：整体替换草稿 + 光标置尾 + 聚焦）。
+	const promptSuggestionEnabled = useAtomValue(promptSuggestionEnabledAtom);
+	const promptSuggestionModelConfig = useAtomValue(promptSuggestionModelAtom);
+	const suggestionTarget = resolveEnhanceTargetModel({ ...targetModelChain, configured: promptSuggestionModelConfig });
+	const suggestion = usePromptSuggestion({
+		scopeKey: sessionId,
+		enabled: promptSuggestionEnabled,
+		target: suggestionTarget,
+		turnRunning: isSessionTurnRunning(runtime?.state, runtime?.status),
+		// 用 hasContent 而不是 draft.length：纯空白、附件/粘贴文件也属于「有内容」，
+		// 否则预测会盖在已经放好附件的输入框上，Tab 还会把附件留下却把 ghost 当草稿采纳。
+		draftEmpty: !hasContent,
+		applyText: applyEnhancedText,
+	});
+	suggestionRef.current = suggestion;
+
+	/**
+	 * 大段粘贴文本 → 落盘 userData/paste-files + 附件栏 chip。
+	 * 触发条件：粘贴纯文本达到 PASTE_TO_FILE_MIN_CHARS（复制长日志/代码/文章是主要场景）。
+	 * 新写入一律落应用数据目录（与日志同属），发送时折叠原样文本内联；
+	 * projectPath 仍会传给主进程做已登记项目校验，但不再决定落盘目录。
+	 * 写盘失败（权限/路径异常）回退原样插入，保证粘贴内容不丢。
+	 */
+	const pasteTextToFile = useCallback(
+		async (text: string) => {
+			try {
+				const result = await desktopApi.pasteFiles.write({
+					// 项目根经 projectId 反查项目清单（不依赖可能缺失的 record.projectPath）；
+					// 非空时主进程只做已登记项目校验，新写入一律落 userData/paste-files/。
+					projectPath: composerProject?.path ?? "",
+					content: text,
+				});
+				setPasteFiles((current) => [
+					...current,
+					{
+						id: crypto.randomUUID(),
+						path: result.path,
+						fileName: result.fileName,
+						bytes: result.bytes,
+						inProject: result.inProject,
+					},
+				]);
+				showNotice(t("app.pasteConvertedToFile", { name: result.fileName, size: formatBytes(result.bytes) }), 4000);
+			} catch {
+				showNotice(t("app.pasteConvertFailed"), 3000);
+				insertPlainTextAtCursor(text);
+			}
+		},
+		[composerProject?.path, insertPlainTextAtCursor, setPasteFiles],
+	);
+
+	/** 从 File 列表解析本地路径（Electron 32+ 必须走 webUtils，不能用已移除的 File.path） */
+	const resolveLocalPathsFromFiles = useCallback((files: File[]) => {
+		const getPath = desktopApi.files.getPathForFile;
+		if (!getPath) return [];
+		const paths: string[] = [];
+		for (const file of files) {
+			try {
+				const path = getPath(file);
+				if (path) paths.push(path);
+			} catch {
+				// 非本地文件或路径不可用时跳过
+			}
+		}
+		return paths;
+	}, []);
+
+	/**
+	 * 剪贴板里的图片文件 → 附加为图片预览（对齐微信/QQ 粘贴习惯）。
+	 * 经 files.readBase64 读原文件（比剪贴板位图缩略图清晰），构造 File 走统一附件流程；
+	 * 任一文件读取失败或超出合成器大小上限（主进程 stat 预检拦截）时：
+	 * 先兜底剪贴板位图——截图工具/网页复制常同时写路径+位图，而路径文件可能已被删除
+	 * 或过大，位图仍在（否则粘贴会退化成无用的 @path 引用）；实在没有位图才整体回退
+	 * @path 引用，保证「复制图片」粘贴始终有可用结果。
+	 */
+	const pasteClipboardImages = useCallback(
+		async (paths: string[], dataTransfer: DataTransfer | null) => {
+			try {
+				const files: File[] = [];
+				for (const path of paths) {
+					const dataUrl = await desktopApi.files.readBase64(path, COMPOSER_IMAGE_MAX_BYTES);
+					if (!dataUrl) throw new Error(`Cannot read image: ${path}`);
+					const fileName = path.split(/[\\/]/).pop() || path;
+					files.push(dataUrlToFile(dataUrl, imageMimeTypeFromPath(path), fileName));
+				}
+				await addImageFiles(files);
+			} catch {
+				// 位图兜底：事件粘贴优先取 clipboardData 的 image 项；右键粘贴无事件，走 Electron 剪贴板位图
+				const imageFiles = dataTransfer ? getClipboardImageFiles(dataTransfer) : [];
+				if (imageFiles.length) {
+					await addImageFiles(imageFiles);
+					return;
+				}
+				const imageDataUrl = desktopApi.clipboard.readImage();
+				if (imageDataUrl) {
+					await addImageFiles([dataUrlToFile(imageDataUrl, "image/png", "clipboard-image.png")]);
+					return;
+				}
+				insertFilePathRefs(paths);
+			}
+		},
+		[addImageFiles, insertFilePathRefs],
+	);
+
+	/**
+	 * 右键「粘贴」（无 ClipboardEvent）：从 Electron 剪贴板同步读取。
+	 * 优先级同 onPaste：文件路径 → 位图 → 大段文本转文件；纯文本返回 false，交给编辑器本地插入。
+	 */
+	const pasteFromClipboard = useCallback(async (): Promise<boolean> => {
+		const clipboardPaths = desktopApi.files.getClipboardPaths?.() ?? [];
+		if (clipboardPaths.length > 0) {
+			if (clipboardPaths.every(isImageFilePath)) {
+				await pasteClipboardImages(clipboardPaths, null);
+			} else {
+				insertFilePathRefs(clipboardPaths);
+			}
+			return true;
+		}
+		const imageDataUrl = desktopApi.clipboard.readImage();
+		if (imageDataUrl) {
+			await addImageFiles([dataUrlToFile(imageDataUrl, "image/png", "clipboard-image.png")]);
+			return true;
+		}
+		// 大段文本（右键粘贴菜单无 ClipboardEvent）：同样转文件，避免塞进 ProseMirror 变卡
+		const text = desktopApi.clipboard.readText();
+		if (text.length >= PASTE_TO_FILE_MIN_CHARS) {
+			void pasteTextToFile(text);
+			return true;
+		}
+		return false;
+	}, [addImageFiles, insertFilePathRefs, pasteClipboardImages, pasteTextToFile]);
+
+	/**
+	 * 粘贴：系统文件路径以 @path 引用插入，位图/截图附加为图片。
+	 * 未处理时不 preventDefault，交给 RichInput 做纯文本粘贴。
+	 * preventDefault 必须在任何 await 之前同步调用，否则浏览器会先插入默认内容。
+	 *
+	 * 顺序说明：资源管理器复制图片文件时，剪贴板常同时带路径 + 缩略图；
+	 * 路径为受支持图片时优先附加预览，否则仍按路径引用处理，避免被误当成截图。
+	 */
+	const onPaste = useCallback(
+		(event: React.ClipboardEvent<HTMLDivElement>) => {
+			// 1) 资源管理器复制/剪切的文件：浏览器 ClipboardEvent 通常没有 kind=file，
+			//    需通过 preload 同步读取 Electron clipboard（FileNameW / CF_HDROP 等）
+			const clipboardPaths = desktopApi.files.getClipboardPaths?.() ?? [];
+			if (clipboardPaths.length > 0) {
+				event.preventDefault();
+				// 复制的全是受支持图片 → 附加预览；混合/其他文件 → 维持 @path 引用
+				if (clipboardPaths.every(isImageFilePath)) {
+					void pasteClipboardImages(clipboardPaths, event.clipboardData);
+				} else {
+					insertFilePathRefs(clipboardPaths);
+				}
+				return;
+			}
+
+			// 2) 兜底：剪贴板里若有 File 对象（部分场景），用 webUtils 解析路径
+			const fileItems = Array.from(event.clipboardData.items).filter((item) => item.kind === "file");
+			if (fileItems.length > 0) {
+				const files = fileItems.map((item) => item.getAsFile()).filter((file): file is File => Boolean(file));
+				const paths = resolveLocalPathsFromFiles(files);
+				if (paths.length > 0) {
+					event.preventDefault();
+					// 与第 1 步同规则：全是图片 → 附加预览（失败位图兜底），混合 → @path
+					if (paths.every(isImageFilePath)) {
+						void pasteClipboardImages(paths, event.clipboardData);
+					} else {
+						insertFilePathRefs(paths);
+					}
+					return;
+				}
+			}
+
+			// 3) 剪贴板位图（截图/微信QQ/网页复制图片）：必须优先于纯文本——
+			//    这类复制常同时写位图 + text 槽（微信写图片缓存路径、网页写图片 URL），
+			//    位图才是用户要的内容；文件路径场景已在前两步处理，这里只剩纯位图。
+			const imageFiles = getClipboardImageFiles(event.clipboardData);
+			if (imageFiles.length) {
+				event.preventDefault();
+				void addImageFiles(imageFiles);
+				return;
+			}
+			// 4) 大段纯文本粘贴（复制日志/代码/长文是主要来源）：直接插入 ProseMirror
+			//    会随文本量级变卡（文档模型 + 逐键建议扫描），改为落盘成文件并在附件栏
+			//    显示文件 chip（与图片粘贴同款形态），发送时自动折叠 @引用/原样文本。
+			const plainText = event.clipboardData.getData("text/plain");
+			if (plainText.length >= PASTE_TO_FILE_MIN_CHARS) {
+				event.preventDefault();
+				void pasteTextToFile(plainText);
+				return;
+			}
+			// 5) 其余纯文本一律交给编辑器原样插入：不做自动路径识别——
+			//    粘贴 /foo/bar、//注释 这类文本时，若自动补 @ 并转成引用 chip，
+			//    文本变成原子节点无法再编辑移动光标（用户反馈的痛点）；
+			//    需要引用文件时走资源管理器复制文件（步骤 1/2）或手动输入 @ 触发补全。
+		},
+		[addImageFiles, insertFilePathRefs, pasteClipboardImages, pasteTextToFile, resolveLocalPathsFromFiles],
+	);
+
+	/**
+	 * 拖拽：
+	 * 1) 文件树节点（含目录）→ 按节点信息生成 @ 引用；
+	 * 2) OS 本地文件/目录 → 以 @path 引用插入（含图片文件，不上传内容）；
+	 * 3) 仅当无法解析本地路径且类型为 image/* 时，才退回附加图片（极少见）。
+	 */
+	const onDrop = useCallback(
+		(event: React.DragEvent<HTMLDivElement>) => {
+			event.preventDefault();
+			const nodePayload = readFileNodeDragPayload(event.dataTransfer);
+			if (nodePayload) {
+				insertRefTexts([fileNodeDragPayloadToRef(nodePayload)]);
+				return;
+			}
+			const files = Array.from(event.dataTransfer.files);
+			if (files.length === 0) return;
+			const paths = resolveLocalPathsFromFiles(files);
+			if (paths.length > 0) {
+				insertFilePathRefs(paths);
+				return;
+			}
+			void addImageFiles(getDroppedImageFiles(event.dataTransfer));
+		},
+		[addImageFiles, insertFilePathRefs, insertRefTexts, resolveLocalPathsFromFiles],
+	);
+
+	/** 「加入对话引用」按钮：系统选择器选中的文件/目录以 @path 插入 */
+	const attachFile = useCallback(async () => {
+		try {
+			const paths = await desktopApi.dialog.pickFiles({ title: t("menu.attachFile") });
+			insertFilePathRefs(paths);
+		} catch {
+			// 用户取消或出错时不作处理
+		}
+	}, [insertFilePathRefs]);
+
+	/** 移除粘贴文件 chip：同步删除落盘文件（粘贴产物，不留孤儿文件）。 */
+	const removePasteFile = useCallback(
+		(index: number) => {
+			const target = pasteFiles[index];
+			setPasteFiles((current) => current.filter((_, item) => item !== index));
+			if (target) void desktopApi.pasteFiles.delete(target.path).catch(() => undefined);
+		},
+		[pasteFiles, setPasteFiles],
+	);
+
+	/** 清空全部粘贴文件 chip（附件栏「清空」按钮）：逐个删除落盘文件。 */
+	const clearPasteFiles = useCallback(() => {
+		for (const file of pasteFiles) {
+			void desktopApi.pasteFiles.delete(file.path).catch(() => undefined);
+		}
+		setPasteFiles([]);
+	}, [pasteFiles, setPasteFiles]);
+
+	const onChipClick = useCallback(
+		(chip: ComposerChip) => {
+			// 文件引用点击不再打开文件/分屏（用户要求阻止点击打开事件）：
+			// 引用 chip 只是一段文本标记，打开文件走时间线链接或文件树等显式入口。
+			if (chip.kind === "session") {
+				const selected = projectSessions.find((session) => (session.name ?? session.filePath) === chip.label);
+				if (selected) setSessionReference(selected);
+			}
+		},
+		[projectSessions],
+	);
+
+	useEffect(() => {
+		if (!hasContent) {
+			setBusyDraftLocked(false);
+		} else if (isBusy) {
+			setBusyDraftLocked(true);
+		}
+	}, [hasContent, isBusy, sessionId]);
+
+	const abort = useCallback(async () => {
+		const target = toSessionRuntimeTarget(sessionId, runtime);
+		if (!target) {
+			// 运行时信息缺失（如 agent 尚未绑定）：停止无意义，但不应静默——
+			// 提示用户当前会话没有可停止的 Agent，避免「点了停止没反应」的困惑。
+			showNotice(t("sessionCommand.runtimeUnavailable"), 4000);
+			return;
+		}
+		try {
+			// 用户意图先落地（先于 IPC）：与 useSessionRunControl.abortAgent 同口径——
+			// abort 结算后队列不得自动续发；会话再次变忙时由 useQueuedPrompt 自动解除。
+			suppressQueuedDrain?.(sessionId);
+			requireSessionCommand(await desktopApi.sessions.abortRuntime(target));
+		} catch (error) {
+			// abort 失败必须可见：之前这里直接 throw 变成未处理 rejection，
+			// 用户点停止后毫无反馈、agent 继续运行，表现为「停止不了」。
+			// 异常常驻提示，直到用户手动关闭。
+			showNotice(error instanceof Error ? error.message : String(error), Number.POSITIVE_INFINITY);
+		}
+	}, [runtime?.agentId, runtime?.runtimeGeneration, sessionId, suppressQueuedDrain]);
+
+	const acknowledgeUnknownDelivery = useCallback(() => {
+		setSendStateAtom({ sessionId, state: { status: "idle" } });
+	}, [sessionId, setSendStateAtom]);
+
+	const upsertSession = useSetAtom(upsertSessionAtom);
+
+	/**
+	 * 切换后端（pi ↔ dsh ↔ imagegen/videogen/acp）：仅「未开始对话」期可用。
+	 * 锁定判据是「会话已有真实内容」——catalog 抬 active（= 已发出第一条消息并落盘，
+	 * dsh/acp 由 prompt dispatch 显式 promoteToActive，pi/imagegen 由首次落盘触发）
+	 * 或消息缓存里已出现用户消息（覆盖落盘前的窗口）。
+	 * 一旦有内容即锁定：pi 会话文件（JSONL）、DSH host session log、生图/生视频历史
+	 * 格式互不相同，中途切换会导致时间线消息来源混乱、同步渲染不可靠。
+	 * 不再看 runtime 绑定：预热/认领出来的进程还没产生任何消息，此时切换是安全的
+	 * （旧实现把「Agent 已启动」当锁定条件，导致新建会话一切到生图/生视频就永久锁死，
+	 * 连生视频模式都无法退出）。
+	 */
+	const hasUserMessage = (messageCache?.messages ?? []).some((message) => message.role === "user");
+	const backendLocked = record?.status === "active" || hasUserMessage;
+	const changeBackend = useCallback(
+		async (next: AgentBackend, explicitAcpToolId?: string) => {
+			if (backendLocked) return;
+			// 引导页虚拟会话（无 catalog record）：与 pickModel/pickThinking 的引导页
+			// 分支同构——显式选择写 localStorage 偏好并本地即时回显，不走 IPC。
+			// 直接 updateRecord("renderer:guide-bootstrap") 在主进程必然查不到会话，
+			// 报「会话不存在，请刷新会话列表后重试」（2026-09 用户反馈的新建页切 DSH 报错）。
+			// 首次发送时 App.ensureSessionForSend 读取同一份偏好创建真实会话，选择不丢失。
+			if (isGuideBootstrapSession) {
+				// acp 偏好携带工具 id（"acp:<toolId>"）；工具表为空/未选时不切也不存
+				let stored: string = next;
+				let guideToolId: string | undefined;
+				if (next === "acp") {
+					const tools = store.get(acpToolsAtom);
+					const toolId = explicitAcpToolId ?? tools[0]?.id;
+					if (!toolId) {
+						showNotice(t("app.acpNoTools"), 4000);
+						return;
+					}
+					stored = `acp:${toolId}`;
+					guideToolId = toolId;
+				}
+				setGuideBackendOverride(next);
+				// acp→acp 换工具：后端同值不触发重渲染，工具 id 单独 set（见 state 声明处注释）
+				if (guideToolId) setGuideAcpToolOverride(guideToolId);
+				try {
+					localStorage.setItem(WELCOME_BACKEND_KEY, stored);
+				} catch {
+					// localStorage 不可用时静默；本次页面内仍由 guideBackendOverride 即时生效
+				}
+				return;
+			}
+			// 未开始对话的会话允许换后端：先把预热/认领出来的 runtime 停掉再改 record。
+			// 主进程边界防御要求「无绑定 runtime」才接受 backend 变更
+			// （sessionIpc 的 sessionsCatalogUpdate 守卫），且停掉没人用的进程正是用户诉求
+			// ——否则预热出来的 pi 进程会一直挂到会话被删。
+			// 停不掉不拦：交给主进程守卫给出与旧行为一致的报错。
+			const boundAgentId = runtime?.agentId;
+			if (boundAgentId) {
+				try {
+					await desktopApi.system.stopAgent(boundAgentId);
+				} catch {
+					// 忽略：主进程仍会以「后端已锁定」拒绝本次变更，用户能看到明确原因
+				}
+			}
+			try {
+				// ACP：切换时必须带上工具预选（激活链 spawn 按工具表取命令行），
+				// 默认沿用会话已选或登记表第一项；工具表为空（开关刚被关）不切换。
+				let acpToolId: string | undefined;
+				if (next === "acp") {
+					const tools = store.get(acpToolsAtom);
+					// picker 两页式弹层内选定的工具优先；否则沿用会话已选 ?? 登记表第一项
+					acpToolId = explicitAcpToolId ?? record?.acpToolId ?? tools[0]?.id;
+					if (!acpToolId) {
+						showNotice(t("app.acpNoTools"), 4000);
+						return;
+					}
+				}
+				// 切回 pi 时按 pi 配置重新解析默认模型/思考档位（与 createDraft 缺省填充
+				// 同一解析器 launchDefaults），而不是直接清空——否则用户 pi 配置里的
+				// defaultProvider/defaultModel 不会出现在切回后的会话（底栏回退残留 DSH 默认）。
+				// dsh/imagegen/acp 后端模型由各自部署默认决定，record 保持清空。
+				const resolved = next === "pi" ? await desktopApi.sessions.resolveLaunchDefaults({ backend: "pi" }).catch(() => undefined) : undefined;
+				const defaults = resolveBackendSwitchDefaults(next, resolved);
+				const updated = await desktopApi.sessions.updateRecord(sessionId, {
+					backend: next,
+					model: defaults.model,
+					thinkingLevel: defaults.thinkingLevel,
+					...(next === "acp" && acpToolId ? { acpToolId } : {}),
+				});
+				upsertSession(updated);
+			} catch (error) {
+				showNotice(error instanceof Error ? error.message : String(error), 4000);
+			}
+		},
+		[backendLocked, isGuideBootstrapSession, record, runtime?.agentId, sessionId, store, upsertSession],
+	);
+
+	/**
+	 * ACP 工具二级选择（仅草稿期；激活后工具即固定，UI 不再渲染选择器）：
+	 * 写 record.acpToolId，激活链据此从工具表取命令行 spawn。
+	 */
+	const changeAcpTool = useCallback(
+		async (toolId: string) => {
+			if (backendLocked || record?.backend !== "acp") return;
+			try {
+				const updated = await desktopApi.sessions.updateRecord(sessionId, { acpToolId: toolId });
+				upsertSession(updated);
+			} catch (error) {
+				showNotice(error instanceof Error ? error.message : String(error), 4000);
+			}
+		},
+		[backendLocked, record?.backend, sessionId, upsertSession],
+	);
+
+	const compact = useCallback(async () => {
+		const target = toSessionRuntimeTarget(sessionId, runtime);
+		if (!target) {
+			// No Agent yet: write /compact to draft and send → starts Agent + compacts
+			setDraft("/compact");
+			caretRef.current = { pos: "/compact".length, forValue: "/compact" };
+			void promoteAndSend();
+			return;
+		}
+		await runManualCompact(target);
+	}, [runtime?.agentId, runtime?.runtimeGeneration, sessionId, setDraft, promoteAndSend, runManualCompact]);
+
+	const openPicker = useCallback(
+		(kind: ComposerPickerKind) => {
+			if (kind === "template") void loadTemplates();
+			setPicker(kind);
+		},
+		[loadTemplates],
+	);
+
+	const insertTemplate = useCallback(
+		(template: PromptTemplateInfo) => {
+			const next = appendSlashCommandToDraft(draft, template.name);
+			liveDomDraftRef.current = { sessionId, value: next };
+			setDraft(next);
+			caretRef.current = { pos: next.length, forValue: next };
+			setPicker(null);
+			requestAnimationFrame(() => editorRef.current?.focus());
+		},
+		[draft, sessionId, setDraft],
+	);
+
+	// 技能选择器选中后插入技能斜杠命令到草稿尾（与 insertTemplate 同构）：
+	// pi 用 /skill:名称（裸 /名称 pi 当未知命令拒绝——斜线命令与技能冲突的根因），
+	// DSH 由宿主把裸 /名称注册成技能命令；插入后光标落末尾，回车即可发送。
+	const insertSkillInvocation = useCallback(
+		(name: string) => {
+			const token = toSkillInvocationToken(isDshBackend ? "dsh" : "pi", name);
+			const next = appendSlashCommandToDraft(draft, token);
+			liveDomDraftRef.current = { sessionId, value: next };
+			setDraft(next);
+			caretRef.current = { pos: next.length, forValue: next };
+			setPicker(null);
+			requestAnimationFrame(() => editorRef.current?.focus());
+		},
+		[draft, isDshBackend, sessionId, setDraft],
+	);
+
+	// 「一键插入全文」：选择器条目上的插入按钮把提示词/技能正文整段塞进草稿
+	// （不是斜线命令形态），便于用户直接编辑或原文发送；与斜线插入是并列入口。
+	// 插入内容先剥离 YAML frontmatter「描述头」（name/description 元数据是给选择器用的，
+	// 不该出现在输入框里）——预览详情仍显示原文件，只有插入动作做剥离。
+	const insertTemplateContent = useCallback(
+		(template: PromptTemplateInfo) => {
+			const next = appendContentToDraft(draft, stripMarkdownFrontmatter(template.content));
+			liveDomDraftRef.current = { sessionId, value: next };
+			setDraft(next);
+			caretRef.current = { pos: next.length, forValue: next };
+			setPicker(null);
+			requestAnimationFrame(() => editorRef.current?.focus());
+		},
+		[draft, sessionId, setDraft],
+	);
+
+	const insertSkillContent = useCallback(
+		(content: string) => {
+			const next = appendContentToDraft(draft, stripMarkdownFrontmatter(content));
+			liveDomDraftRef.current = { sessionId, value: next };
+			setDraft(next);
+			caretRef.current = { pos: next.length, forValue: next };
+			setPicker(null);
+			requestAnimationFrame(() => editorRef.current?.focus());
+		},
+		[draft, sessionId, setDraft],
+	);
+
+	// 快捷消息插入：把条目原文追加到草稿尾（与 insertSkillContent 同构），
+	// 但刻意不剥 frontmatter——用户写下的条目正文就该原样进输入框，
+	// 不能被当成「提示词模板头」处理（否则以 --- 开头的条目会被吃掉一段）。
+	const insertQuickMessage = useCallback(
+		(text: string) => {
+			const next = appendContentToDraft(draft, text.trim());
+			liveDomDraftRef.current = { sessionId, value: next };
+			setDraft(next);
+			caretRef.current = { pos: next.length, forValue: next };
+			setPicker(null);
+			requestAnimationFrame(() => editorRef.current?.focus());
+		},
+		[draft, sessionId, setDraft],
+	);
+
+	return {
+		sessionId,
+		record,
+		runtime,
+		// 引导页优先回显显式切换（guideBackendOverride），否则退回上次偏好/默认 pi；
+		// 真实会话以 record 为准。
+		backend: record?.backend ?? (isGuideBootstrapSession ? guideBackendOverride : undefined) ?? "pi",
+		/** 草稿期可切换后端；激活后锁定（undefined → UI 隐藏切换器）。 */
+		changeBackend: backendLocked ? undefined : changeBackend,
+		// ACP 工具二级选择（草稿期；激活后 UI 不再渲染选择器）
+		acpTool:
+			record?.backend === "acp"
+				? { toolId: record.acpToolId, onChange: backendLocked ? undefined : changeAcpTool }
+				: // 引导页（无 record）：工具 id 从 localStorage 偏好读，picker 组内高亮当前工具
+					isGuideBootstrapSession && guideBackendOverride === "acp"
+					? { toolId: guideAcpToolOverride, onChange: backendLocked ? undefined : changeAcpTool }
+					: undefined,
+		// ACP 会话的 composer 占位符展示工具名（「发送给 Codex CLI…」）：激活后取 runtime 的
+		// modelName（即工具名），草稿期用 record.acpToolId 在已登记工具表里查；非 ACP 为空。
+		acpToolName:
+			record?.backend === "acp" && record.acpToolId
+				? (store.get(acpToolsAtom).find((candidate) => candidate.id === record.acpToolId)?.name ?? runtime?.state?.modelName)
+				: isGuideBootstrapSession && guideBackendOverride === "acp" && guideAcpToolOverride
+					? store.get(acpToolsAtom).find((candidate) => candidate.id === guideAcpToolOverride)?.name
+					: undefined,
+		/** DSH 部署默认模型（settings.yaml agent-default-model）；仅 dsh 后端时展示，
+		 *  离开 dsh 时清空（否则残留值会随 defaultModel 泄漏到 pi 会话底栏）。 */
+		dshDefaultModel: isDshBackend && dshDefault ? { provider: dshDefault.provider, modelId: dshDefault.model, modelName: dshDefault.model } : undefined,
+		/** DSH 部署默认思考档位：settings.yaml 的 reasoningEffort 优先，缺省用模型自身 defaultEffort。 */
+		dshDefaultThinkingLevel: isDshBackend ? (dshDefault?.reasoningEffort ?? dshDefault?.defaultEffort) : undefined,
+		/** 引导页（无 record）预选默认：主进程按 pi 配置/模型目录解析（显式默认 > 切换列表 > 上次使用），展示用。
+		 *  注：该 IPC 不传 welcomeModel（偏好只存在于渲染层 localStorage），引导页点选由
+		 *  resolveGuideDisplayModel 在本值之上叠加，次序与主进程 resolveLaunchDefaultOptions 一致。 */
+		bootstrapDefaultModel: bootstrapDefaults?.model,
+		bootstrapDefaultThinkingLevel: bootstrapDefaults?.thinkingLevel,
+		/** 每模型默认思考档位表（pi settings.modelThinkingLevels）：引导页改选模型后，
+		 *  底栏/选择器按当前展示的模型反查，与 createDraft 按最终模型查表同序。
+		 *  非 DSH 后端才会带上（主进程已按后端裁剪）。 */
+		bootstrapModelThinkingLevels: bootstrapDefaults?.modelThinkingLevels,
+		draft,
+		attachments,
+		mode,
+		sendState,
+		templates,
+		picker,
+		previewImage,
+		sessionReference,
+		sessionReferenceSelection: sessionReference ? sessionReferenceSelections[`&${sessionReference.name ?? sessionReference.filePath}`] : undefined,
+		bangMode: getBangMode(draft),
+		isBusy,
+		isStarting,
+		hasContent,
+		busyDraftLocked,
+		voice,
+		enhance,
+		// 输入预测只对外暴露渲染所需的两个字段：文本与可见性（采纳/忽略走 keydown 内部）。
+		suggestion: { text: suggestion.text, visible: suggestion.visible },
+		editor: {
+			ref: editorRef,
+			caretRef,
+			cursor,
+			validCommandNames,
+			validFilePaths,
+			validSessionRefs,
+			validQuotes,
+			onChange,
+			onCursorChange: setCursor,
+			onKeyDown,
+			onPaste,
+			onPasteClipboard: pasteFromClipboard,
+			onDrop,
+			onDragOver: (event: React.DragEvent<HTMLDivElement>) => {
+				// 会话 Tab / 侧栏分屏拖拽交给 SessionSplitStage（capture），composer 不抢落点
+				if (event.dataTransfer.types.includes(SESSION_TAB_DRAG_MIME)) return;
+				event.preventDefault();
+				// 文件树拖拽的 effectAllowed 含 move（内部移动语义），拖入 composer 时
+				// 显式声明 copy，避免光标显示为“移动”，实际行为是插入引用
+				if (event.dataTransfer.types.includes(PI_FILE_NODE_DRAG_MIME) || event.dataTransfer.types.includes(PI_FILE_PATH_DRAG_MIME)) {
+					event.dataTransfer.dropEffect = "copy";
+				}
+			},
+			onFocus: () => setSuggestionsOpen(detectTrigger(draft, cursor, validSessionRefs) !== null),
+			onBlur: () => setSuggestionsOpen(false),
+			onChipClick,
+			attachFile,
+		},
+		suggestions: {
+			open: suggestionsOpen,
+			items: suggestionItems,
+			selectedIndex: selectedSuggestionIndex,
+			anchorStyle: suggestionAnchorStyle,
+			setSelectedIndex: setSelectedSuggestionIndex,
+			close: closeSuggestions,
+			pick: selectSuggestion,
+		},
+		images: {
+			preview: setPreviewImage,
+			add: (image: ImageContent) => setAttachments((current) => [...current, image]),
+			remove: (index: number) => setAttachments((current) => current.filter((_, item) => item !== index)),
+			clear: () => setAttachments([]),
+		},
+		pasteFiles: {
+			files: pasteFiles,
+			remove: removePasteFile,
+			clear: clearPasteFiles,
+		},
+		delivery: {
+			// 发送/追问都算主动交互：先把预览 Tab 晋升常驻，再投递（幂等，非预览无副作用）。
+			// 忙碌时按「忙碌时投递行为」设置决定语义（pi/dsh 统一，不再按后端分叉）；
+			// 空闲直发。排队项的插入/排队切换走输入框上方队列面板的行内按钮。
+			send: () => {
+				void promoteAndSend(resolveBusySendDelivery(isBusy, store.get(busySendDeliveryAtom), isAcpBackend ? "acp" : undefined));
+			},
+			// 拆分菜单（发送钮右侧 caret）：把「加入当前回合 / 排队到下一轮 / 并行发送」前置到发送现场。
+			// 主钮仍走「忙碌时投递行为」设置；这三项是显式覆盖，不受设置影响。
+			// steer = 立刻插队进当前回合（仅忙碌时有意义）；followUp = 排队到下一轮再排空。
+			// ACP 无 steer 通道：置 undefined → 菜单项隐藏（ComposerPanels 按 truthy 渲染该项）。
+			sendSteer: isAcpBackend
+				? undefined
+				: () => {
+						void promoteAndSend("steer");
+					},
+			sendFollowUp: () => {
+				void promoteAndSend("followUp");
+			},
+			/**
+			 * 快捷消息直发：正文来自弹框清单而非草稿，其余语义与普通发送一致
+			 * （预览 Tab 晋升、忙碌时按「忙碌时投递行为」设置决定 steer / 排队）。
+			 * 草稿与附件的隔离由 useSessionSend 的 overrideText 契约保证。
+			 */
+			sendQuickMessage: (text: string) => {
+				const trimmed = text.trim();
+				if (!trimmed) return;
+				void promoteAndSend(resolveBusySendDelivery(isBusy, store.get(busySendDeliveryAtom), isAcpBackend ? "acp" : undefined), trimmed);
+			},
+			/**
+			 * 快捷消息直发可用性：与 canSend 同源，但去掉「草稿非空」这一项——
+			 * 快捷消息的正文来自清单，发它的时候输入框通常是空的。
+			 */
+			canSendQuickMessage: !isStarting && !generatingImage && (!isDshBackend || runtime?.state?.modelRoutable !== false),
+			// 并行发送（拆分菜单）：当前草稿文本进独立 Ask 会话后台处理，成功后清空草稿。
+			// 上下文由 useAskPanel 按 originSessionId 自动生成（与队列面板共用同一口径），
+			// 这里只负责把来源会话传下去；不要在本入口另建一份 context，否则会再次分叉。
+			// 仅投递纯文本：并行问询不支持图片附件（与队列面板 onSendAsk 的 canAsk 判据一致），
+			// 带图时 ComposerSendControls 端按 canSendParallel=false 置灰。
+			canSendParallel: Boolean(draft.trim()) && attachments.length === 0 && !isStarting && !generatingImage && Boolean(effectiveProjectId),
+			sendParallel: () => {
+				const text = draft.trim();
+				if (!text || !effectiveProjectId) return;
+				void askPanel.sendToAsk(effectiveProjectId, text, { originSessionId: sessionId }).then((ok) => {
+					// 并行会话已接管这条问题：成功后清空当前草稿，避免用户重复发送同一句。
+					if (ok) setDraft("");
+				});
+			},
+			abort: () => void abort(),
+			compact: () => void compact(),
+			// 上下文超限失败时，即使 contextPercent 缺失，仍保留当前绑定作为压缩恢复目标。
+			overflowRecoveryTarget: runtime?.state?.contextOverflow ? toSessionRuntimeTarget(sessionId, runtime) : undefined,
+			onOverflowRecovery: (target: SessionRuntimeTarget) => void runManualCompact(target),
+			imageGenConfig,
+			imageGenProviderId: activeImageGenProviderId,
+			imageGenModelId: activeImageGenModelId,
+			imageGenSize,
+			imageGenWatermark,
+			imageGenOutputFormat,
+			imageGenModeLocked: hasImageGenHistory || record?.backend === "imagegen",
+			videoGenConfig,
+			videoGenModeLocked: isVideoGenBackend,
+			submittingVideo,
+			submitVideo,
+			videoConfirmPending,
+			confirmVideoGen,
+			cancelVideoGen,
+			setVideoGenSelection: (providerId: string, modelId: string) => {
+				const nextProvider = findVideoGenProvider(videoGenConfig, providerId);
+				if (!nextProvider?.models.includes(modelId)) return;
+				const next = { ...videoGenConfig, activeProviderId: nextProvider.id, activeModel: modelId, activeParams: { ...nextProvider.defaults } };
+				setVideoGenConfig(next);
+				void desktopApi.videogen.saveConfig(next).catch(() => undefined);
+			},
+			setVideoGenParam: (key: "resolution" | "duration" | "ratio", value: string | undefined) => {
+				const next = { ...videoGenConfig, activeParams: { ...videoGenConfig.activeParams, [key]: value } };
+				setVideoGenConfig(next);
+				void desktopApi.videogen.saveConfig(next).catch(() => undefined);
+			},
+			setImageGenSelection: (providerId: string, modelId: string) => {
+				const nextProvider = findImageGenProvider(imageGenConfig, providerId);
+				if (!nextProvider?.models.includes(modelId)) return;
+				persistImageGenSelection(nextProvider.id, modelId);
+			},
+			setImageGenSize: (size: string) => {
+				const parsed = parseImageGenSize(size);
+				if (!parsed) return;
+				setImageGenSizeState(parsed);
+				void desktopApi.settings.update({ imageGenSize: parsed }).catch(() => undefined);
+			},
+			setImageGenWatermark: (watermark: boolean) => {
+				setImageGenWatermarkState(watermark);
+				void desktopApi.settings.update({ imageGenWatermark: watermark }).catch(() => undefined);
+			},
+			setImageGenOutputFormat: (format: string) => {
+				const parsed = parseImageGenOutputFormat(format, null);
+				if (!parsed) return;
+				setImageGenOutputFormatState(parsed);
+				void desktopApi.settings.update({ imageGenOutputFormat: parsed }).catch(() => undefined);
+			},
+			unknown: sendState.status === "unknown",
+			unknownError: sendState.error,
+			acknowledgeUnknown: acknowledgeUnknownDelivery,
+			// DSH 只在 host 明确报告 routable=false 时锁住发送；undefined 代表尚未确认或目录加载失败。
+			canSend: hasContent && !isStarting && !generatingImage && !submittingVideo && (!isDshBackend || runtime?.state?.modelRoutable !== false),
+			generatingImage,
+		},
+		pickers: {
+			open: openPicker,
+			close: () => setPicker(null),
+			setMode,
+			insertTemplate,
+			insertTemplateContent,
+			insertSkillInvocation,
+			insertSkillContent,
+			insertQuickMessage,
+		},
+		modals: {
+			closePreview: () => setPreviewImage(null),
+			closeSessionReference: () => setSessionReference(null),
+			confirmSessionReference: (sessionName: string, messages: Array<{ role: string; content: string; timestamp: number }>, selectedIndices: number[]) => {
+				setSessionReferenceSelections((current) => ({
+					...current,
+					[`&${sessionName}`]: createSessionReferenceSelection(selectedIndices, messages),
+				}));
+				setSessionReference(null);
+			},
+		},
+	};
 }
 
 export type SessionComposerController = ReturnType<typeof useSessionComposerController>;
 
 /** 生图错误码 → 用户可见文案。http/鉴权类错误尽量附上厂商 detail（已脱敏）。 */
 function mapImageGenError(error: string, detail?: string): string {
-  const extra = detail?.trim() ?? "";
-  switch (error) {
-    case "notConfigured":
-      return t("imagegen.error.notConfigured");
-    case "invalidKey":
-      return extra
-        ? t("imagegen.error.invalidKeyDetail", { detail: extra })
-        : t("imagegen.error.invalidKey");
-    case "badBaseUrl":
-      return extra
-        ? t("imagegen.error.badBaseUrlDetail", { detail: extra })
-        : t("imagegen.error.badBaseUrl");
-    case "empty":
-      return t("imagegen.error.empty");
-    case "http":
-      return extra
-        ? t("imagegen.error.http", { detail: extra })
-        : t("imagegen.status.error");
-    default:
-      return t("imagegen.error.network");
-  }
+	const extra = detail?.trim() ?? "";
+	switch (error) {
+		case "notConfigured":
+			return t("imagegen.error.notConfigured");
+		case "invalidKey":
+			return extra ? t("imagegen.error.invalidKeyDetail", { detail: extra }) : t("imagegen.error.invalidKey");
+		case "badBaseUrl":
+			return extra ? t("imagegen.error.badBaseUrlDetail", { detail: extra }) : t("imagegen.error.badBaseUrl");
+		case "empty":
+			return t("imagegen.error.empty");
+		case "http":
+			return extra ? t("imagegen.error.http", { detail: extra }) : t("imagegen.status.error");
+		case "responseTooLarge":
+			return t("imagegen.error.responseTooLarge");
+		default:
+			return t("imagegen.error.network");
+	}
+}
+
+/** 生视频错误码 → 用户可见文案（与 mapImageGenError 同构，多出轮询/下载/取消三段）。 */
+function mapVideoGenError(error: string, detail?: string): string {
+	const extra = detail?.trim() ?? "";
+	switch (error) {
+		case "notConfigured":
+			return t("videogen.error.notConfigured");
+		case "invalidKey":
+			return extra ? t("videogen.error.invalidKeyDetail", { detail: extra }) : t("videogen.error.invalidKey");
+		case "badBaseUrl":
+			return extra ? t("videogen.error.badBaseUrlDetail", { detail: extra }) : t("videogen.error.badBaseUrl");
+		case "empty":
+			return t("videogen.error.empty");
+		case "timeout":
+			return t("videogen.error.timeout");
+		case "downloadFailed":
+			return t("videogen.error.downloadFailed");
+		case "generationFailed":
+			return extra ? t("videogen.error.generationFailedDetail", { detail: extra }) : t("videogen.error.generationFailed");
+		case "cancelled":
+			return t("videogen.error.cancelled");
+		case "http":
+			return extra ? t("videogen.error.http", { detail: extra }) : t("videogen.status.error");
+		default:
+			return t("videogen.error.network");
+	}
 }

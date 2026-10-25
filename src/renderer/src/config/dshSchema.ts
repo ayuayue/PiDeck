@@ -101,11 +101,7 @@ export function dictEntries(value: unknown): Array<{ key: string; value: unknown
 
 /** secret 槽位是否已配置（secrets 列表里 path 匹配）。 */
 export function isSecretSet(secrets: Array<{ path: string[]; set: boolean }>, path: string[]): boolean {
-	return secrets.some((secret) => (
-		secret.set &&
-		secret.path.length === path.length &&
-		secret.path.every((segment, index) => segment === path[index])
-	));
+	return secrets.some((secret) => secret.set && secret.path.length === path.length && secret.path.every((segment, index) => segment === path[index]));
 }
 
 /** 从 schema 收集所有 credential-ref 字段的 env 名（认证 tab 用）。 */
@@ -141,12 +137,7 @@ export function collectCredentialRefs(schema: DshSchema, ref: DshSchemaRef, out:
  * - 用户配置的动态值：如 llm-pi-ai.providers[*].apiKeyEnv 的 schema 只有 role 标注、
  *   没有 default，env 名存在 value 里——不读 value 会漏掉用户已配置的凭证。
  */
-export function collectCredentialRefsWithValue(
-	schema: DshSchema,
-	ref: DshSchemaRef,
-	value: unknown,
-	out: Set<string>,
-): void {
+export function collectCredentialRefsWithValue(schema: DshSchema, ref: DshSchemaRef, value: unknown, out: Set<string>): void {
 	const meta = ref.meta ?? {};
 	if (meta.role === "credential-ref") {
 		if (typeof meta.default === "string" && meta.default) out.add(meta.default);
@@ -223,11 +214,7 @@ export function hasDshDraftChanges(draft: Record<string, unknown>, saved: unknow
  * - number 叶子：trim 后为空/非法 → 返回 undefined（patch 删除该键，host 保持已保存值）；
  * - object/dict/array：按字段/元素递归，容器叶子之外原样保留。
  */
-export function normalizeDshNumberDraft(
-	schema: DshSchema,
-	ref: DshSchemaRef,
-	draft: unknown,
-): unknown {
+export function normalizeDshNumberDraft(schema: DshSchema, ref: DshSchemaRef, draft: unknown): unknown {
 	if (ref.type === "number" && typeof draft === "string") {
 		const trimmed = draft.trim();
 		if (trimmed === "") return undefined;
@@ -276,12 +263,7 @@ export function readPath(value: unknown, path: string[]): unknown {
  * 不能只沿草稿路径逐段取：新增 provider / 编辑 models 后草稿里往往只有部分字段，
  * 如果中途遇到 undefined 就返回，会把已保存的 baseURL/api/displayName 全部“吞掉”。
  */
-export function readDshEntryValue(
-	draft: unknown,
-	saved: unknown,
-	key: string,
-	path: string[],
-): unknown {
+export function readDshEntryValue(draft: unknown, saved: unknown, key: string, path: string[]): unknown {
 	const draftValue = readPath(draft, ["providers", key, ...path]);
 	if (draftValue !== undefined) return draftValue;
 	return readPath(saved, ["providers", key, ...path]);
@@ -348,14 +330,8 @@ export function readDshRetryPolicy(value: unknown): DshRetryPolicyView {
 	}
 	const rec = value as Record<string, unknown>;
 	const mode = rec.mode === "always" ? "always" : "normal";
-	const maxRetries =
-		typeof rec.maxRetries === "number" && Number.isFinite(rec.maxRetries) && rec.maxRetries >= 0
-			? rec.maxRetries
-			: undefined;
-	const backoff =
-		rec.backoff && typeof rec.backoff === "object" && !Array.isArray(rec.backoff)
-			? (rec.backoff as Record<string, unknown>)
-			: undefined;
+	const maxRetries = typeof rec.maxRetries === "number" && Number.isFinite(rec.maxRetries) && rec.maxRetries >= 0 ? rec.maxRetries : undefined;
+	const backoff = rec.backoff && typeof rec.backoff === "object" && !Array.isArray(rec.backoff) ? (rec.backoff as Record<string, unknown>) : undefined;
 	return { mode, ...(maxRetries !== undefined ? { maxRetries } : {}), ...(backoff ? { backoff } : {}) };
 }
 

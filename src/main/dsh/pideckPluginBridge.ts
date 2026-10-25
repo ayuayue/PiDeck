@@ -16,13 +16,7 @@
  * fiberPhase），不做写入（cordis.yml 写回会 bake patch 行，见 gap 文档）。
  */
 
-import type {
-	DshPluginBridgeResponse,
-	DshPluginInstallInput,
-	DshPluginLifecycleInput,
-	DshPluginView,
-	DshStaticPluginView,
-} from "../../shared/types";
+import type { DshPluginBridgeResponse, DshPluginInstallInput, DshPluginLifecycleInput, DshPluginView, DshStaticPluginView } from "../../shared/types";
 
 /** 桥服务键（hostEntry 路由与主进程协议共用）。 */
 export const PIDECK_PLUGIN_BRIDGE_SERVICE = "pideckPluginBridge";
@@ -78,8 +72,7 @@ export function validatePluginInstallInput(input: unknown): PluginBridgeResult<P
 	if (typeof purpose !== "string" || !purpose.trim()) {
 		return { ok: false, error: "purpose is required" };
 	}
-	const clean = (value: unknown): string | undefined =>
-		typeof value === "string" && value.length > 0 ? value : undefined;
+	const clean = (value: unknown): string | undefined => (typeof value === "string" && value.length > 0 ? value : undefined);
 	const host = clean(hostCode);
 	const client = clean(clientCode);
 	if (!host && !client) {
@@ -131,19 +124,19 @@ export function toDynamicPluginView(row: unknown): DynamicPluginView | undefined
 	if (typeof pluginId !== "string" || typeof agentId !== "string") return undefined;
 	const packages = Array.isArray(record.packages)
 		? record.packages
-			.map((pkg): DynamicPluginView["packages"][number] | undefined => {
-				if (typeof pkg !== "object" || pkg === null) return undefined;
-				const p = pkg as Record<string, unknown>;
-				if (typeof p.packageId !== "string") return undefined;
-				return {
-					packageId: p.packageId,
-					name: typeof p.name === "string" ? p.name : "",
-					purpose: typeof p.purpose === "string" ? p.purpose : "",
-					hasHostHalf: p.hasHostHalf === true,
-					hasClientHalf: p.hasClientHalf === true,
-				};
-			})
-			.filter((pkg): pkg is DynamicPluginView["packages"][number] => Boolean(pkg))
+				.map((pkg): DynamicPluginView["packages"][number] | undefined => {
+					if (typeof pkg !== "object" || pkg === null) return undefined;
+					const p = pkg as Record<string, unknown>;
+					if (typeof p.packageId !== "string") return undefined;
+					return {
+						packageId: p.packageId,
+						name: typeof p.name === "string" ? p.name : "",
+						purpose: typeof p.purpose === "string" ? p.purpose : "",
+						hasHostHalf: p.hasHostHalf === true,
+						hasClientHalf: p.hasClientHalf === true,
+					};
+				})
+				.filter((pkg): pkg is DynamicPluginView["packages"][number] => Boolean(pkg))
 		: [];
 	const activeRun = record.activeRun;
 	const latestRun = record.latestRun;
@@ -155,33 +148,21 @@ export function toDynamicPluginView(row: unknown): DynamicPluginView | undefined
 		...(typeof record.nextPackageId === "string" ? { nextPackageId: record.nextPackageId } : {}),
 		...(typeof activeRun === "object" && activeRun !== null
 			? {
-				activeRun: {
-					pluginRunId: typeof (activeRun as Record<string, unknown>).pluginRunId === "string"
-						? (activeRun as Record<string, unknown>).pluginRunId as string
-						: "",
-					packageId: typeof (activeRun as Record<string, unknown>).packageId === "string"
-						? (activeRun as Record<string, unknown>).packageId as string
-						: "",
-				},
-			}
+					activeRun: {
+						pluginRunId: typeof (activeRun as Record<string, unknown>).pluginRunId === "string" ? ((activeRun as Record<string, unknown>).pluginRunId as string) : "",
+						packageId: typeof (activeRun as Record<string, unknown>).packageId === "string" ? ((activeRun as Record<string, unknown>).packageId as string) : "",
+					},
+				}
 			: {}),
 		...(typeof latestRun === "object" && latestRun !== null
 			? {
-				status: typeof (latestRun as Record<string, unknown>).status === "string"
-					? (latestRun as Record<string, unknown>).status as string
-					: undefined,
-				mode: typeof (latestRun as Record<string, unknown>).mode === "string"
-					? (latestRun as Record<string, unknown>).mode as string
-					: undefined,
-				error: (() => {
-					const error = (latestRun as Record<string, unknown>).error;
-					return typeof error === "object" && error !== null
-						? typeof (error as Record<string, unknown>).message === "string"
-							? (error as Record<string, unknown>).message as string
-							: undefined
-						: undefined;
-				})(),
-			}
+					status: typeof (latestRun as Record<string, unknown>).status === "string" ? ((latestRun as Record<string, unknown>).status as string) : undefined,
+					mode: typeof (latestRun as Record<string, unknown>).mode === "string" ? ((latestRun as Record<string, unknown>).mode as string) : undefined,
+					error: (() => {
+						const error = (latestRun as Record<string, unknown>).error;
+						return typeof error === "object" && error !== null ? (typeof (error as Record<string, unknown>).message === "string" ? ((error as Record<string, unknown>).message as string) : undefined) : undefined;
+					})(),
+				}
 			: {}),
 	};
 	return view;
@@ -238,10 +219,7 @@ export function mergeStaticPluginViews(views: StaticPluginView[]): StaticPluginV
 }
 
 /** 按 sessionId 解析 live Agent（运行器全部生命周期方法要求会话归属）。 */
-export function resolveBridgeAgent(
-	ctx: PluginBridgeCtx,
-	sessionId: string,
-): PluginBridgeResult<{ agent: unknown }> {
+export function resolveBridgeAgent(ctx: PluginBridgeCtx, sessionId: string): PluginBridgeResult<{ agent: unknown }> {
 	const agents = ctx.get?.("agents") as { get?(id: string): unknown } | undefined;
 	const agent = agents?.get?.(sessionId);
 	if (!agent) {
@@ -253,7 +231,10 @@ export function resolveBridgeAgent(
 /** 桥服务方法签名（结构类型；host 侧由 DynamicCordisRunnerService 提供）。 */
 export type PluginBridgeService = {
 	inventory(): PluginBridgeResult<unknown>;
-	staticInventory(): PluginBridgeResult<unknown>;
+	/** 静态清单读取是异步的：dsh-host-plugin-inventory 的 list() 为 async（还要聚合
+	 *  各 preset 的 compositionInventory），漏 await 会让快照变成 Promise，
+	 *  entries 取不到 → UI 显示「暂无静态条目」（0 条）而不是报错。 */
+	staticInventory(): PluginBridgeResult<unknown> | Promise<PluginBridgeResult<unknown>>;
 	install(input: unknown): PluginBridgeResult<unknown>;
 	run(input: unknown): PluginBridgeResult<unknown> | Promise<PluginBridgeResult<unknown>>;
 	stop(input: unknown): PluginBridgeResult<unknown> | Promise<PluginBridgeResult<unknown>>;
@@ -265,11 +246,7 @@ export type PluginBridgeService = {
  * 供 hostEntry 的 fetch 路由与单测共用。服务方法统一返回 PluginBridgeResult，
  * 分发器原样透传；未知方法返回结构化错误。
  */
-export async function pluginBridgeRpc(
-	service: PluginBridgeService | undefined,
-	method: unknown,
-	params: unknown,
-): Promise<PluginBridgeResult<unknown>> {
+export async function pluginBridgeRpc(service: PluginBridgeService | undefined, method: unknown, params: unknown): Promise<PluginBridgeResult<unknown>> {
 	if (!service) return { ok: false, error: "plugin bridge service is not available" };
 	switch (method) {
 		case "inventory":
@@ -293,11 +270,8 @@ export async function pluginBridgeRpc(
  * hostEntry fetch 路由的桥请求处理：POST JSON { method, params } → 结构化 JSON 响应。
  * 与主进程 DshHost 的 rawFetch 协议对齐；错误返回 400 + { ok: false, error }。
  */
-export async function handlePluginBridgeFetch(
-	ctx: PluginBridgeCtx,
-	init?: { method?: string; headers?: Record<string, string>; body?: string },
-): Promise<Response> {
-	const result = (await (async (): Promise<PluginBridgeResult<unknown>> => {
+export async function handlePluginBridgeFetch(ctx: PluginBridgeCtx, init?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<Response> {
+	const result = await (async (): Promise<PluginBridgeResult<unknown>> => {
 		if ((init?.method ?? "GET").toUpperCase() !== "POST") {
 			return { ok: false, error: "plugin bridge requires POST" };
 		}
@@ -315,7 +289,7 @@ export async function handlePluginBridgeFetch(
 		}
 		const service = ctx.get?.(PIDECK_PLUGIN_BRIDGE_SERVICE) as PluginBridgeService | undefined;
 		return pluginBridgeRpc(service, payload?.method, payload?.params);
-	})());
+	})();
 	return new Response(JSON.stringify(result), {
 		status: result.ok ? 200 : 400,
 		headers: { "content-type": "application/json" },
@@ -331,19 +305,16 @@ export function apply(ctx: PluginBridgeCtx): void {
 			const runner = ctx.get?.("dynamicCordisRunner") as { inventory?(): unknown } | undefined;
 			if (!runner?.inventory) return { ok: false, error: "dynamicCordisRunner is not mounted" };
 			const rows = runner.inventory();
-			const views = Array.isArray(rows)
-				? rows.map(toDynamicPluginView).filter((view): view is DynamicPluginView => Boolean(view))
-				: [];
+			const views = Array.isArray(rows) ? rows.map(toDynamicPluginView).filter((view): view is DynamicPluginView => Boolean(view)) : [];
 			return { ok: true, value: views };
 		},
-		staticInventory() {
-			const inventory = ctx.get?.("pluginInventory") as { list?(): { entries?: unknown } } | undefined;
+		async staticInventory() {
+			const inventory = ctx.get?.("pluginInventory") as { list?(): Promise<{ entries?: unknown }> | { entries?: unknown } } | undefined;
 			if (!inventory?.list) return { ok: false, error: "pluginInventory is not mounted" };
-			const snapshot = inventory.list();
+			// 必须 await：该服务的 list() 是 async（见 runtime dsh-host-plugin-inventory）。
+			const snapshot = await inventory.list();
 			const entries = snapshot?.entries;
-			const views = Array.isArray(entries)
-				? entries.map(toStaticPluginView).filter((view): view is StaticPluginView => Boolean(view))
-				: [];
+			const views = Array.isArray(entries) ? entries.map(toStaticPluginView).filter((view): view is StaticPluginView => Boolean(view)) : [];
 			// 同模块的多条 Loader 条目（不同 group/fiber 各一条）合并成一行，
 			// 桌面配置页与 dsh-web 面板拿到的都是去重后的模块清单。
 			return { ok: true, value: mergeStaticPluginViews(views) };
@@ -351,15 +322,11 @@ export function apply(ctx: PluginBridgeCtx): void {
 		install(input) {
 			const validated = validatePluginInstallInput(input);
 			if (!validated.ok) return validated;
-			const runner = ctx.get?.("dynamicCordisRunner") as {
-				define?(request: {
-					sessionId: string;
-					plugin: { kind: "new"; idPrefix: string };
-					name: string;
-					purpose: string;
-					code: { host?: string; client?: string };
-				}): unknown;
-			} | undefined;
+			const runner = ctx.get?.("dynamicCordisRunner") as
+				| {
+						define?(request: { sessionId: string; plugin: { kind: "new"; idPrefix: string }; name: string; purpose: string; code: { host?: string; client?: string } }): unknown;
+				  }
+				| undefined;
 			if (!runner?.define) return { ok: false, error: "dynamicCordisRunner is not mounted" };
 			const receipt = runner.define({
 				sessionId: validated.value.sessionId,
@@ -380,19 +347,15 @@ export function apply(ctx: PluginBridgeCtx): void {
 			if (!packageId) return { ok: false, error: "packageId is required to run a plugin" };
 			const agentResult = resolveBridgeAgent(ctx, sessionId);
 			if (!agentResult.ok) return agentResult;
-			const runner = ctx.get?.("dynamicCordisRunner") as {
-				runHostHalf?(
-					agent: unknown,
-					pluginId: string,
-					packageId: string,
-					mode: "run" | "update",
-					requestId: null,
-					approveFutureVersions: boolean,
-				): Promise<unknown>;
-			} | undefined;
+			const runner = ctx.get?.("dynamicCordisRunner") as
+				| {
+						runHostHalf?(agent: unknown, pluginId: string, packageId: string, mode: "run" | "update", requestId: null, approveFutureVersions: boolean): Promise<unknown>;
+				  }
+				| undefined;
 			if (!runner?.runHostHalf) return { ok: false, error: "dynamicCordisRunner is not mounted" };
 			// 面板手势：requestId=null（direct gesture，无需审批），不预授权未来版本。
-			return runner.runHostHalf(agentResult.value.agent, pluginId, packageId, mode ?? "run", null, false)
+			return runner
+				.runHostHalf(agentResult.value.agent, pluginId, packageId, mode ?? "run", null, false)
 				.then((value) => ({ ok: true as const, value }))
 				.catch((error: unknown) => ({
 					ok: false as const,
@@ -404,11 +367,14 @@ export function apply(ctx: PluginBridgeCtx): void {
 			if (!validated.ok) return validated;
 			const agentResult = resolveBridgeAgent(ctx, validated.value.sessionId);
 			if (!agentResult.ok) return agentResult;
-			const runner = ctx.get?.("dynamicCordisRunner") as {
-				stop?(agent: unknown, pluginId: string): Promise<unknown>;
-			} | undefined;
+			const runner = ctx.get?.("dynamicCordisRunner") as
+				| {
+						stop?(agent: unknown, pluginId: string): Promise<unknown>;
+				  }
+				| undefined;
 			if (!runner?.stop) return { ok: false, error: "dynamicCordisRunner is not mounted" };
-			return runner.stop(agentResult.value.agent, validated.value.pluginId)
+			return runner
+				.stop(agentResult.value.agent, validated.value.pluginId)
 				.then((value) => ({ ok: true as const, value }))
 				.catch((error: unknown) => ({
 					ok: false as const,
@@ -420,11 +386,14 @@ export function apply(ctx: PluginBridgeCtx): void {
 			if (!validated.ok) return validated;
 			const agentResult = resolveBridgeAgent(ctx, validated.value.sessionId);
 			if (!agentResult.ok) return agentResult;
-			const runner = ctx.get?.("dynamicCordisRunner") as {
-				undefine?(agent: unknown, pluginId: string): Promise<unknown>;
-			} | undefined;
+			const runner = ctx.get?.("dynamicCordisRunner") as
+				| {
+						undefine?(agent: unknown, pluginId: string): Promise<unknown>;
+				  }
+				| undefined;
 			if (!runner?.undefine) return { ok: false, error: "dynamicCordisRunner is not mounted" };
-			return runner.undefine(agentResult.value.agent, validated.value.pluginId)
+			return runner
+				.undefine(agentResult.value.agent, validated.value.pluginId)
 				.then((value) => ({ ok: true as const, value }))
 				.catch((error: unknown) => ({
 					ok: false as const,

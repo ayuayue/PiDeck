@@ -43,9 +43,7 @@ function atEnd(text, refs = sessions) {
 
 test("file suggestion shows basename in label and parent dir as description", () => {
 	// 无关键词：只展平第一层；根级文件 label 是文件名，description 为 "."
-	const files = [
-		{ name: "main.ts", path: "/p/main.ts", relativePath: "main.ts", type: "file" },
-	];
+	const files = [{ name: "main.ts", path: "/p/main.ts", relativePath: "main.ts", type: "file" }];
 	const items = buildSuggestionItems("看 @", 3, [], files);
 	assertJsonEqual(
 		items.map((i) => ({ label: i.label, description: i.description, value: i.value })),
@@ -69,9 +67,7 @@ test("file suggestion with keyword shows parent dir, root level uses dot", () =>
 		[{ label: "@readme.md", description: "." }],
 	);
 	// 深层目录项：description 是父目录（非自身全路径）
-	const deepFiles = [
-		{ name: "constants", path: "/p/src/app/constants", relativePath: "src/app/constants", type: "directory" },
-	];
+	const deepFiles = [{ name: "constants", path: "/p/src/app/constants", relativePath: "src/app/constants", type: "directory" }];
 	const deepItems = buildSuggestionItems("看 @con", 6, [], deepFiles);
 	assertJsonEqual(
 		deepItems.map((i) => ({ label: i.label, description: i.description })),
@@ -165,4 +161,12 @@ test("/new is visible in slash suggestions and hidden CLI commands stay out", ()
 	assert.equal(names.includes("model"), false);
 	assert.equal(names.includes("resume"), false);
 	assert.equal(names.includes("fork"), false);
+	// pi 的 builtin 斜杠命令只在交互式 TUI 里执行（RPC 的 prompt 路径只跑 extension/模板/技能），
+	// 桌面已有等价入口的几个必须不进菜单，否则点了只会得到「命令被模型回答」。
+	for (const dead of ["copy", "export", "share", "session", "settings", "clone", "tree", "reload"]) {
+		assert.equal(names.includes(dead), false, `${dead} 不应出现在 / 菜单：它在 RPC 模式下不会执行`);
+	}
+	// hotkeys 相反：菜单里保留供发现，发送时由桌面接管到设置里的快捷键页。
+	assert.equal(names.includes("hotkeys"), true);
+	assert.equal(names.includes("compact"), true);
 });

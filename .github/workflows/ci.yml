@@ -29,8 +29,37 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check generated artifacts drift
+        # check:* 守卫（--check 模式只校验不写盘）：改了 announcements-md / 扩展 /
+        # 提示词 / 技能 / pi-ai 目录源但忘跑对应 generate/build 时红灯，挡住漂移直入
+        # main（AGENTS.md「CI 防漂移」承诺的实际执行点）。
+        # 必须放在 Build 之前：npm run build 链会静默再生成清单，mask 已提交漂移；
+        # check:xueprompts 已内联在 npm run build 脚本链里，不重复接入。
+        run: npm run check:announcements && npm run check:pi-ai-catalog && npm run check:extensions-manifest && npm run check:prompts-manifest && npm run check:skills-manifest
+
+      - name: Check pi-ai catalog version drift
+        # 模型目录更新有两条源：仓库分支预生成件（主源）与 npm latest 生成源（回退）。
+        # 仓库件跟着 devDependencies 走，npm 跟着上游发布走，长期两条线就会让用户
+        # 反复看到「提示可更新，点了又写不进去」（发行分支 1.3.0 / npm 1.4.0）。
+        # check:pi-ai-catalog 只比本地 node_modules ↔ 仓库文件，发现不了这一层。
+        # 需要联网：registry 不可达时脚本自行放行，不把网络抖动当成数据漂移。
+        run: npm run check:pi-ai-catalog-drift -- --allow-unknown
+
+      - name: Check formatting
+        # biome 格式门禁（chore/formatter-baseline）：与上面的 check:* 同一职责——
+        # 防止未格式化的代码直入 main 造成格式漂移。本地等价命令 npm run check:format，
+        # 修复用 npm run format（或编辑器装 Biome 插件保存即格式化）。
+        run: npm run check:format
+
       - name: Test
-        run: npm test
+        # 串行执行：并发模式（--test-concurrency=4）下测试文件共享进程全局状态，
+        # Windows runner 偶发死锁挂起（二分定位：546 文件串行全过、并发偶发挂）；
+        # --test-timeout/--test-force-exit 兜底单测超时与 open handle。
+        # 2026-10：串行模式也出现间歇性整文件挂起（sessionScannerSubagents 在 CI 上
+        # 单文件 47 分钟无输出，本地同文件 2.3s；10-01 曾 6h 空烧）——绿套件约 20-25 分钟，
+        # 45 分钟上限兜底：挂起快速红灯重跑，不再占用 runner 六小时。
+        timeout-minutes: 45
+        run: npm run test:serial -- --test-timeout=120000 --test-force-exit
 
       - name: Generate app icon
         run: npm run make-icon
@@ -40,6 +69,14 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Markdown image layout e2e
+        # 图片渲染链路的几何守卫：同段多图 = 96×96 瓷砖并排、单图 640×360 上限、
+        # src 走 pideck-file://、点击开预览。这条链路的三类回归（hast 的 %5C 编码、
+        # rehype-sanitize 剥非白名单属性、Windows 8.3 短名）单测都抓不到，
+        # 只有真实 Electron 能发现。Windows runner 自带桌面会话，不需要 xvfb。
+        timeout-minutes: 10
+        run: npx playwright test e2e/markdown-image-layout.spec.ts
 
       - name: Verify packaging config
         run: npm run pack
@@ -74,4 +111,6 @@ jobs:
         run: npm run build
 
       - name: Pet window smoke test
-        run: xvfb-run -a npx electron scripts/pet-smoke.cjs
+        # CI 容器无法给 chrome-sandbox 设置 SUID 4755（需 root），Electron 直接拒绝启动；
+        # 加 --no-sandbox 仅作用于测试脚本，不影响产品沙箱设置（由 electronChromiumSandbox 控制）。
+        run: xvfb-run -a npx electron --no-sandbox scripts/pet-smoke.cjs

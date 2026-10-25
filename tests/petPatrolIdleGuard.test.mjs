@@ -23,7 +23,9 @@ function createClock() {
 	let nextId = 1;
 	const tasks = new Map();
 	return {
-		get now() { return now; },
+		get now() {
+			return now;
+		},
 		Date: { now: () => now },
 		Math: Object.assign(Object.create(Math), { random: () => 0.5 }),
 		timers: {
@@ -32,22 +34,24 @@ function createClock() {
 				tasks.set(id, { fn, at: now + ms, interval: false });
 				return id;
 			},
-			clearTimeout: (id) => { tasks.delete(id); },
+			clearTimeout: (id) => {
+				tasks.delete(id);
+			},
 			setInterval: (fn, ms) => {
 				const id = nextId++;
 				tasks.set(id, { fn, at: now + ms, interval: true, ms });
 				return id;
 			},
-			clearInterval: (id) => { tasks.delete(id); },
+			clearInterval: (id) => {
+				tasks.delete(id);
+			},
 		},
 		advance(ms) {
 			const target = now + ms;
 			// 时钟按任务到期时刻逐条推进：回调中新排的 timer/interval 以当前任务时间
 			// 为基准（否则一次性跳到 target 会让新 interval 落在窗口外，永远不触发）
 			for (let pass = 0; pass < 10000; pass++) {
-				const due = [...tasks.entries()]
-					.filter(([, t]) => t.at <= target)
-					.sort((a, b) => a[1].at - b[1].at);
+				const due = [...tasks.entries()].filter(([, t]) => t.at <= target).sort((a, b) => a[1].at - b[1].at);
 				if (due.length === 0) break;
 				const [id, t] = due[0];
 				now = t.at;
@@ -95,24 +99,44 @@ function createScenario() {
 	const { PetPatrol } = loadPatrol(clock);
 	// 起始 x 落在 workArea 内（leftEdge=16 之内会触发 clampX 首帧跳变 → 被巡游自身的
 	// 「异常跳变」守卫误判为外部搬动而 halt；从 100 起步模拟真实场景）
-	let x = 100, y = 400;
+	let x = 100,
+		y = 400;
 	const states = [];
 	const moves = [];
 	const win = {
 		getPosition: () => [x, y],
 		getSize: () => [192, 208],
-		setPosition: (nx, ny) => { x = nx; y = ny; },
+		setPosition: (nx, ny) => {
+			x = nx;
+			y = ny;
+		},
 		isDestroyed: () => false,
-		webContents: { send: (ch, p) => { if (ch === "pet:state") states.push(p); } },
+		webContents: {
+			send: (ch, p) => {
+				if (ch === "pet:state") states.push(p);
+			},
+		},
 	};
 	let businessIdle = true;
 	const patrol = new PetPatrol(
 		() => win,
 		() => 1, // 停顿 1 分钟（random=0.5 → 恰好 60000ms）
-		(nx, ny) => { moves.push([nx, ny]); win.setPosition(nx, ny); },
+		(nx, ny) => {
+			moves.push([nx, ny]);
+			win.setPosition(nx, ny);
+		},
 	);
 	patrol.setBusinessIdleCheck(() => businessIdle);
-	return { clock, patrol, states, moves, getX: () => x, setBusinessIdle: (v) => { businessIdle = v; } };
+	return {
+		clock,
+		patrol,
+		states,
+		moves,
+		getX: () => x,
+		setBusinessIdle: (v) => {
+			businessIdle = v;
+		},
+	};
 }
 
 test("正常巡游：停顿结束后开始行走，走到边界返回 idle", () => {

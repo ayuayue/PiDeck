@@ -32,6 +32,8 @@ export type AutoUpdaterLike = {
 	 * null → 恢复 app-update.yml 原生 GitHub provider（官方源）。
 	 */
 	setFeedUrl: (url: string | null) => void;
+	/** 是否接受预发布版本（dev 通道恒 true；stable 恒 false 显式重置，防 electron-updater 按当前版本段推断的残留）。 */
+	setAllowPrerelease: (enabled: boolean) => void;
 	/** 检查更新。autoDownload=true 时检测到新版本内部自动开始下载（事件驱动）。 */
 	checkForUpdates: () => Promise<void>;
 	/** 手动下载已检测到的新版本（autoDownload=false 时用）。 */

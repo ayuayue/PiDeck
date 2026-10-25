@@ -3,23 +3,20 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "nod
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { createRequire } from "node:module";
-import ts from "typescript";
-import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const require = createRequire(import.meta.url);
+let builtInExtensionsModule = null;
 
+/**
+ * 统一走 loadTsCommonJs：builtInExtensions.ts 现已依赖 ./builtInExtensionsManifest
+ * （覆盖层清单校验），裸 require 解析不了无扩展名的 .ts 相对导入。
+ * 模块级缓存保证多次调用共享同一实例（覆盖层可用性缓存住在模块内）。
+ */
 function loadBuiltInExtensionsModule() {
-	const source = readFileSync("src/main/extensions/builtInExtensions.ts", "utf8");
-	const { outputText } = ts.transpileModule(source, {
-		compilerOptions: {
-			module: ts.ModuleKind.CommonJS,
-			target: ts.ScriptTarget.ES2022,
-		},
-	});
-	const sandbox = { exports: {}, require, console };
-	vm.runInNewContext(outputText, sandbox, { filename: "builtInExtensions.ts" });
-	return sandbox.exports;
+	if (!builtInExtensionsModule) {
+		builtInExtensionsModule = loadTsCommonJs("src/main/extensions/builtInExtensions.ts");
+	}
+	return builtInExtensionsModule;
 }
 
 function sameArgs(actual, expected) {
@@ -29,25 +26,13 @@ function sameArgs(actual, expected) {
 
 test("appendBuiltInExtensionArgs adds repeated --extension flags", () => {
 	const { appendBuiltInExtensionArgs } = loadBuiltInExtensionsModule();
-	const next = appendBuiltInExtensionArgs(["--mode", "rpc"], [
-		"C:\\app\\resources\\extensions\\pi-deck-todo.ts",
-		"C:\\app\\resources\\extensions\\pi-deck-plan-mode.ts",
-	]);
-	sameArgs(next, [
-		"--mode",
-		"rpc",
-		"--extension",
-		"C:\\app\\resources\\extensions\\pi-deck-todo.ts",
-		"--extension",
-		"C:\\app\\resources\\extensions\\pi-deck-plan-mode.ts",
-	]);
+	const next = appendBuiltInExtensionArgs(["--mode", "rpc"], ["C:\\app\\resources\\extensions\\pi-deck-todo.ts", "C:\\app\\resources\\extensions\\pi-deck-plan-mode.ts"]);
+	sameArgs(next, ["--mode", "rpc", "--extension", "C:\\app\\resources\\extensions\\pi-deck-todo.ts", "--extension", "C:\\app\\resources\\extensions\\pi-deck-plan-mode.ts"]);
 });
 
 test("appendBuiltInExtensionArgs skips when noExtensions is true", () => {
 	const { appendBuiltInExtensionArgs } = loadBuiltInExtensionsModule();
-	const next = appendBuiltInExtensionArgs(["--mode", "rpc", "--no-extensions"], [
-		"/tmp/pi-deck-todo.ts",
-	], { noExtensions: true });
+	const next = appendBuiltInExtensionArgs(["--mode", "rpc", "--no-extensions"], ["/tmp/pi-deck-todo.ts"], { noExtensions: true });
 	sameArgs(next, ["--mode", "rpc", "--no-extensions"]);
 });
 
@@ -61,16 +46,35 @@ test("listActiveBuiltInExtensionPaths respects removedBuiltIn and missing files"
 	writeFileSync(join(extDir, "pi-deck-todo.ts"), "// todo\n", "utf8");
 
 	try {
-		const paths = listActiveBuiltInExtensionPaths(
-			{ appPath: root, resourcesPath: root, isDev: true },
-			["pi-deck-todo.ts"],
-		);
+		const paths = listActiveBuiltInExtensionPaths({ appPath: root, resourcesPath: root, isDev: true }, ["pi-deck-todo.ts"]);
 		assert.equal(paths.length, 1);
 		assert.ok(String(paths[0]).endsWith("pi-deck-ask-question.ts"));
-		// 内置扩展清单随版本增长：ask/goal/nul-redirect/plan-mode/retry-no-body/security-gate/session-title/subagents/todo/vision
-		assert.equal(BUILT_IN_EXTENSIONS.length, 10);
+		// 内置扩展清单随版本增长：ask/goal/model-trace/nul-redirect/plan-mode/request-size-recovery/retry-no-body/security-gate/session-title/subagents/todo/trash-guard/vision
+		assert.equal(BUILT_IN_EXTENSIONS.length, 13);
 		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-goal-mode.ts"));
 		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-session-title.ts"));
+		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-trash-guard.ts"));
+		// 辅助模块**不得**进 -e 注入表（它们不是扩展入口，只是被 import 的模块）；
+		// 但它们必须仍在 extensions-manifest.json 里，否则热更新覆盖层会缺依赖。
+		assert.ok(!BUILT_IN_EXTENSIONS.includes("pi-deck-todo-state.ts"));
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("internal adapters are always injected even if user-facing built-ins are removed", () => {
+	const { listActiveBuiltInExtensionPaths, INTERNAL_BUILT_IN_EXTENSIONS } = loadBuiltInExtensionsModule();
+	const root = mkdtempSync(join(tmpdir(), "pideck-internal-ext-"));
+	const extDir = join(root, "resources", "extensions");
+	mkdirSync(extDir, { recursive: true });
+	writeFileSync(join(extDir, "pi-deck-shell-proxy.ts"), "// shell proxy\n", "utf8");
+	writeFileSync(join(extDir, "pi-deck-runtime.ts"), "// runtime control\n", "utf8");
+	try {
+		const paths = listActiveBuiltInExtensionPaths({ appPath: root, resourcesPath: root, isDev: true }, [...INTERNAL_BUILT_IN_EXTENSIONS]);
+		assert.equal(paths.length, 2);
+		const names = paths.map((path) => String(path).replace(/^.*[/\\]/, ""));
+		assert.ok(names.includes("pi-deck-shell-proxy.ts"));
+		assert.ok(names.includes("pi-deck-runtime.ts"));
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

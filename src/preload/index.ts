@@ -1,11 +1,52 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { ipcChannels } from "../shared/ipc";
+import type { TokendanceAuthMode, TokendancePaymentSessionResult } from "../shared/tokendance";
+import type { SkillHubSearchOptions } from "../shared/types/skills";
+import type { AcpToolConfig, AcpToolInput, AcpToolValidation } from "../shared/types/acp";
+import type { AnnouncementState } from "../shared/types/announcement";
+import type { HostPluginContext, HostPluginDesktopApi } from "../shared/types/hostPlugin";
+import type { PiDeckMcpDesktopApi } from "../shared/types/piDeckMcp";
 import type { RpcLogBatch, RpcLogEntry } from "../shared/types/rpcLog";
+import type { ModelTraceRecord } from "../shared/types/modelTrace";
 import type { DshRuntimeStatus, DshRuntimeInstallProgress } from "../shared/types/dshRuntime";
-import type { ImageGenConfigFile, ImageGenRequest, ImageGenResult, ImageGenSaveResult } from "../shared/types/imagegen";
+import type { DshHomeSharingState } from "../shared/types/dshHome";
+import type { UserDataNameMigrationNotice } from "../shared/types/userDataMigration";
+import type { DataEnvChoiceFailure, DataEnvChoiceResult, DataEnvInfo, DataEnvMode, ImportPreviewResult, ImportProgress, ImportStartResult } from "../shared/types/dataEnv";
+import type { GitExecutableInfo } from "../shared/types/git";
+import type { DshRunnerNodeInfo, DshRunnerNodeInstallResult } from "../shared/types/dshRunnerNode";
+import type { LocalImageBytes } from "../shared/localImage";
+import type { ImageBlobPayload, ImageGenConfigFile, ImageGenRequest, ImageGenResult, ImageGenSaveResult } from "../shared/types/imagegen";
+import type { VideoGenConfigFile, VideoGenRequest, VideoGenSaveResult, VideoGenSubmitResult, VideoGenJobSnapshot } from "../shared/types/videogen";
+import type { CustomThemeListItem } from "../shared/customThemes";
 import type { CatalogCheckResult, CatalogUpdateResult, CatalogUpdateStatus } from "../shared/types/catalog";
+import type { WallpaperEngineItem, WallpaperEngineListResult } from "../shared/wallpaperEngine";
+import type { BuiltInExtensionsCheckResult, BuiltInExtensionsUpdateResult, BuiltInExtensionsUpdateStatus } from "../shared/types/extensionsUpdate";
+import type { BuiltinContentCheckResult, BuiltinContentUpdateResult, BuiltinContentUpdateStatus } from "../shared/types/contentUpdate";
+import type {
+	VoiceTranscriptionPublicConfig,
+	VoiceTranscriptionRequest,
+	VoiceTranscriptionResult,
+	VoiceTranscriptionSaveInput,
+	VoiceTranscriptionSaveResult,
+	VoiceTranscriptionSecretField,
+	VoiceTranscriptionStreamFrame,
+	VoiceTranscriptionStreamPartial,
+	VoiceTranscriptionStreamStartInput,
+	VoiceTranscriptionStreamStartResult,
+	VoiceTranscriptionTestResult,
+} from "../shared/types/voiceTranscription";
+import type { WhisperInstallProgress, WhisperInstallResult, WhisperRuntimeStatus } from "../shared/types/whisperRuntime";
+import type { EnhanceEventPayload, EnhanceRunInput, EnhanceRunResult } from "../shared/types/enhance";
+import type { PromptSuggestionRunInput, PromptSuggestionRunResult } from "../shared/types/promptSuggestion";
+import type { AgentChangedEvent, AgentInvokeEventPayload, AgentInvokeInput, AgentInvokeResult, AgentMarketSettings, AgentProfile, AgentProfileSnapshot, BindAgentSessionInput, CreateAgentProfileInput, UpdateAgentMarketSettingsInput, UpdateAgentProfileInput } from "../shared/types/agentProfile";
+import type { SelectionToolInsertInput, SelectionToolResizeInput, SelectionToolShowPayload, SelectionToolWindowState } from "../shared/types/selectionTool";
+import type { QuickMessagesSaveResult, QuickMessagesSnapshot } from "../shared/types/quickMessages";
+import type { AddFavoriteInput, FavoriteEntry } from "../shared/types/favorites";
+import type { NoticeHistoryFileEntry, NoticeHistoryRecordInput } from "../shared/types/noticeHistory";
+import type { ReplyActionRule, ReplyActionsSaveResult, ReplyActionsSnapshot } from "../shared/types/replyActions";
 import type {
 	YaoPromptListResult,
+	YaoPromptDbSnapshot,
 	YaoPromptDetailResult,
 	AgentRuntimeState,
 	AppInfo,
@@ -15,13 +56,16 @@ import type {
 	AppLogQuery,
 	ProcessMetricsSnapshot,
 	DiagnosticsSnapshot,
+	ArchStatus,
 	AppSettings,
 	AppUpdateStatusSnapshot,
+	UpdateChannelInfo,
 	MirrorHealthResult,
 	AvailableModel,
 	DshModelDiscoveryInput,
 	ModelListFailReason,
 	ModelListReport,
+	ModelsVerifyResult,
 	ChatMessage,
 	FetchedModel,
 	ModelSpec,
@@ -29,30 +73,70 @@ import type {
 	CodexSessionSummary,
 	ClaudeImportReport,
 	ClaudeSessionSummary,
+	QoderImportReport,
+	QoderSessionSummary,
 	OpenCodeImportReport,
 	OpenCodeSessionSummary,
+	ZCodeImportReport,
+	ZCodeSessionSummary,
+	WorkBuddyImportReport,
+	WorkBuddySessionSummary,
+	CursorImportReport,
+	CursorSessionSummary,
+	KimiImportReport,
+	KimiSessionSummary,
+	KimiWorkShareRootInfo,
+	KimiWorkSessionSummary,
+	KimiWorkImportReport,
+	MinimaxImportReport,
+	MinimaxSessionSummary,
+	DirectoryImportReport,
+	DirectorySessionScanResult,
+	DirectorySessionSourceDir,
 	ConfigFileDiagnostic,
 	DraftMeta,
 	CreateSessionDraftInput,
+	AutomationSnapshot,
+	AutomationTask,
+	AutomationRun,
+	AutomationSettings,
+	AutomationCronPreview,
+	AutomationChangedEvent,
+	CreateAutomationTaskInput,
+	UpdateAutomationTaskInput,
+	UpdateAutomationSettingsInput,
 	ResolveLaunchDefaultsInput,
 	ResolvedLaunchDefaults,
 	CreateAnonymousSessionInput,
 	CreateAnonymousSessionResult,
 	UpdateSessionRecordInput,
 	SessionRecord,
+	SessionFactsResult,
+	SessionOutlineSnapshot,
 	SessionProcessEvent,
 	VisionBridgeConfig,
-	CreatePiSkillInput,
+	ProjectInheritedResourceToggleInput,
+	ProjectResourceDirectoryKind,
 	CreateProjectSkillInput,
 	ProjectResourceListResult,
+	ProjectResourceDiscoveryResult,
+	ProjectResourceOverrides,
+	ResourceImportScanInput,
+	ResourceImportApplyInput,
+	ResourceImportScanResponse,
+	ResourceImportApplyResponse,
 	PetAggregateState,
 	PetManifest,
 	PetNotification,
 	PetWindowCaps,
+	SoundAlertPlayEvent,
+	CustomSoundInfo,
+	SoundImportResult,
 	ExternalEditor,
 	ExternalEditorId,
 	ExternalEditorSetting,
 	FileManagerInfo,
+	FocusTargetPayload,
 	FeedbackEnvironment,
 	FeedbackProjectContext,
 	FeishuBotConfig,
@@ -62,6 +146,8 @@ import type {
 	FeishuConnectInput,
 	FeishuSessionBotResult,
 	FeishuTestResult,
+	FileContentSearchResult,
+	FileSearchResult,
 	FileTreeNode,
 	GitBranchInfo,
 	GitDiscardResource,
@@ -76,15 +162,22 @@ import type {
 	BranchDiffResult,
 	WorktreeEntry,
 	PiCliUpdateResult,
+	PiReleaseNotesPayload,
 	PiCommand,
+	RuntimePromptTemplate,
 	RewindCheckpointPage,
 	RewindCheckpointPageParams,
 	RewindRestoreResult,
+	SessionBranchTree,
 	RewindRestoreScope,
 	PiExtensionListResult,
 	PiInstallStatus,
+	PiInstallation,
 	PiInstallExecResult,
+	WslConnectionValidation,
 	NpmAvailabilityResult,
+	PiRuntimeNodeStatus,
+	PiRuntimeNodeInstallResult,
 	PasteFileWriteInput,
 	PasteFileWriteResult,
 	PiPromptTemplateListResult,
@@ -93,6 +186,7 @@ import type {
 	PiProxyTestResult,
 	PiUpdateCheckResult,
 	PiSkillListResult,
+	CreatePiSkillInput,
 	PiSkillSummary,
 	SkillContentResult,
 	Project,
@@ -106,8 +200,10 @@ import type {
 	SessionCommandResult,
 	SessionRuntimeEvent,
 	SessionRuntimeInfo,
+	SessionRuntimeModelSelection,
 	SessionRuntimeReplacement,
 	SessionRuntimeTarget,
+	SessionSearchResult,
 	SessionTargetedValue,
 	SessionUiResponseInput,
 	SessionSummary,
@@ -117,6 +213,7 @@ import type {
 	TerminalTab,
 	TerminalTarget,
 	WebNetworkAddress,
+	WebServiceStatusInfo,
 	HealthExportResult,
 	HealthReport,
 	HealthReportContext,
@@ -133,14 +230,15 @@ import type {
 	CloudSyncSelectionUpdate,
 	CloudSyncProviderConfigInput,
 	ProviderAccount,
+	WeChatAccountInfo,
+	WeChatBindingView,
+	WeChatBridgeStatus,
+	WeChatIpcResult,
+	WeChatLoginState,
+	WeChatSettings,
+	WeChatSettingsSnapshot,
 } from "../shared/types";
-import type {
-	ProviderUsageResult,
-	UsageProbeSaveInput,
-	UsageProbeSaveResult,
-	UsageProbeSettingsResult,
-	UsageProbeTestInput,
-} from "../shared/types/providerUsage";
+import type { ProviderUsageResult, UsageProbeSaveInput, UsageProbeSaveResult, UsageProbeSettingsResult, UsageProbeStatesResult, UsageProbeTestInput } from "../shared/types/providerUsage";
 
 function clipboardSync<T>(channel: string, fallback: T): T {
 	try {
@@ -150,156 +248,208 @@ function clipboardSync<T>(channel: string, fallback: T): T {
 	}
 }
 
+const hostPlugins: HostPluginDesktopApi = {
+	list: () => ipcRenderer.invoke(ipcChannels.hostPluginsList),
+	rescan: () => ipcRenderer.invoke(ipcChannels.hostPluginsRescan),
+	setEnabled: (id, enabled, fingerprint) => ipcRenderer.invoke(ipcChannels.hostPluginsSetEnabled, id, enabled, fingerprint),
+	openDirectory: () => ipcRenderer.invoke(ipcChannels.hostPluginsOpenDirectory),
+	install: () => ipcRenderer.invoke(ipcChannels.hostPluginsInstall),
+	installDirectory: () => ipcRenderer.invoke(ipcChannels.hostPluginsInstallDirectory),
+	installGitHub: (url: string) => ipcRenderer.invoke(ipcChannels.hostPluginsInstallGitHub, url),
+	scaffold: (input) => ipcRenderer.invoke(ipcChannels.hostPluginsScaffold, input),
+	mount: (input) => ipcRenderer.invoke(ipcChannels.hostPluginsMount, input),
+	update: (instanceId: string, context: HostPluginContext) => ipcRenderer.invoke(ipcChannels.hostPluginsUpdate, instanceId, context),
+	unmount: (id) => ipcRenderer.invoke(ipcChannels.hostPluginsUnmount, id),
+	remove: (id) => ipcRenderer.invoke(ipcChannels.hostPluginsRemove, id),
+	onChanged: (callback) => subscribe(ipcChannels.hostPluginsChanged, callback),
+	onNavigate: (callback) => subscribe(ipcChannels.hostPluginNavigate, callback),
+	onOpenBrowser: (callback) => subscribe(ipcChannels.hostPluginOpenBrowser, callback),
+};
+
+const piDeckMcp: PiDeckMcpDesktopApi = {
+	getState: () => ipcRenderer.invoke(ipcChannels.piDeckMcpState),
+	setAccess: (input) => ipcRenderer.invoke(ipcChannels.piDeckMcpSetAccess, input),
+	connection: () => ipcRenderer.invoke(ipcChannels.piDeckMcpConnection),
+};
+
 const api = {
+	piDeckMcp,
+	hostPlugins,
 	clipboard: {
 		// 同步读取必须走主进程 sendSync：Electron 38 已废弃渲染进程/preload 直连 clipboard。
 		readText: () => clipboardSync(ipcChannels.clipboardReadText, ""),
 		readHtml: () => clipboardSync(ipcChannels.clipboardReadHtml, ""),
 		readImage: () => clipboardSync(ipcChannels.clipboardReadImage, ""),
 		/** 异步写入图片：data URL 可能较大，不能走 sendSync。 */
-		writeImage: (dataUrl: string) =>
-			ipcRenderer.invoke(ipcChannels.clipboardWriteImage, dataUrl) as Promise<boolean>,
+		writeImage: (dataUrl: string) => ipcRenderer.invoke(ipcChannels.clipboardWriteImage, dataUrl) as Promise<boolean>,
 		/** 异步写入纯文本：诊断报告/AI 提示词可达数十 KB，直连 clipboard 在 Electron 38 已废弃。 */
-		writeText: (value: string) =>
-			ipcRenderer.invoke(ipcChannels.clipboardWriteText, value) as Promise<boolean>,
+		writeText: (value: string) => ipcRenderer.invoke(ipcChannels.clipboardWriteText, value) as Promise<boolean>,
+	},
+	quickTask: {
+		getState: () => ipcRenderer.invoke(ipcChannels.quickTaskGetState) as Promise<import("../shared/types/quickTask").QuickTaskState>,
+		onChanged: (callback: (state: import("../shared/types/quickTask").QuickTaskState) => void) => subscribe(ipcChannels.quickTaskChanged, callback),
+		exit: () => ipcRenderer.invoke(ipcChannels.quickTaskExit) as Promise<void>,
+		/** 任务模式 → 小窗：退出 quick-task 并展开极简浮窗。 */
+		switchToMiniOverlay: () => ipcRenderer.invoke(ipcChannels.quickTaskSwitchToMiniOverlay) as Promise<void>,
+	},
+	floatingBall: {
+		getState: () => ipcRenderer.invoke(ipcChannels.floatingBallGetState) as Promise<import("../main/floating/FloatingController").FloatingBallState>,
+		onStateChanged: (callback: (state: import("../main/floating/FloatingController").FloatingBallState) => void) => subscribe(ipcChannels.floatingBallState, callback),
+		enter: () => ipcRenderer.invoke(ipcChannels.floatingBallEnter) as Promise<void>,
+		exit: () => ipcRenderer.invoke(ipcChannels.floatingBallExit) as Promise<void>,
+		setEnabled: (enabled: boolean) => ipcRenderer.invoke(ipcChannels.floatingBallSetEnabled, enabled) as Promise<void>,
+		setExpandTarget: (target: "mini" | "compact") => ipcRenderer.invoke(ipcChannels.floatingBallSetExpandTarget, target) as Promise<void>,
+		dragStart: () => ipcRenderer.invoke(ipcChannels.floatingBallDragStart) as Promise<void>,
+		dragMove: (x: number, y: number) => ipcRenderer.invoke(ipcChannels.floatingBallDragMove, x, y) as Promise<void>,
+		dragEnd: () => ipcRenderer.invoke(ipcChannels.floatingBallDragEnd) as Promise<void>,
+		contextMenu: () => ipcRenderer.invoke(ipcChannels.floatingBallContextMenu) as Promise<void>,
+	},
+
+	miniOverlay: {
+		getState: () => ipcRenderer.invoke(ipcChannels.miniOverlayGetState) as Promise<import("../main/floating/MiniOverlayWindow").MiniOverlayState | null>,
+		onStateChanged: (callback: (state: import("../main/floating/MiniOverlayWindow").MiniOverlayState) => void) => subscribe(ipcChannels.miniOverlayState, callback),
+		jumpToSession: (sessionId: string, projectId: string) => ipcRenderer.invoke(ipcChannels.miniOverlayJumpToSession, sessionId, projectId) as Promise<void>,
+		quickPrompt: (projectId: string, text: string) => ipcRenderer.invoke(ipcChannels.miniOverlayQuickPrompt, projectId, text) as Promise<{ ok: boolean; message?: string }>,
+		close: () => ipcRenderer.invoke(ipcChannels.miniOverlayClose) as Promise<void>,
+		collapse: () => ipcRenderer.invoke(ipcChannels.miniOverlayCollapse) as Promise<void>,
+		/** 小窗 → 任务模式：隐藏小窗，主窗口以 quick-task 紧凑形态打开（projectPath 缺省用桌面）。 */
+		switchToQuickTask: (projectPath?: string) => ipcRenderer.invoke(ipcChannels.miniOverlaySwitchToQuickTask, projectPath) as Promise<void>,
+	} /**
+	 * pi 供应商认证（`/login`）：pi 的登录只在它的 CLI 交互层存在，应用内登录走
+	 * 这条例外通道（见 AGENTS.md「认证例外通道」）。调用方就是登录弹框。
+	 */,
+	piAuth: {
+		listProviders: () => ipcRenderer.invoke(ipcChannels.piAuthListProviders) as Promise<{ ok: true; list: import("../shared/types/piAuth").PiAuthProviderList } | { ok: false; errorKind: import("../shared/types/piAuth").PiAuthErrorKind; error: string }>,
+		login: (request: import("../shared/types/piAuth").PiAuthLoginRequest) => ipcRenderer.invoke(ipcChannels.piAuthLogin, request) as Promise<import("../shared/types/piAuth").PiAuthLoginResult>,
+		/** 回填 pi 的提问（授权码/API key 等）；false = 提问已失效（取消或超时后迟到） */
+		answerPrompt: (promptId: string, value: string) => ipcRenderer.invoke(ipcChannels.piAuthAnswerPrompt, { promptId, value }) as Promise<boolean>,
+		cancel: () => ipcRenderer.invoke(ipcChannels.piAuthCancel) as Promise<boolean>,
+		logout: (providerId: string) => ipcRenderer.invoke(ipcChannels.piAuthLogout, providerId) as Promise<import("../shared/types/piAuth").PiAuthLogoutResult>,
+		onFlowUpdate: (callback: (update: import("../shared/types/piAuth").PiAuthFlowUpdate) => void) => subscribe(ipcChannels.piAuthFlowUpdate, callback),
+	},
+	// 数据环境（数据模式决策 / 目录归属校验）：chooseMode 只写决策指针，重启后 setPath 分流才生效。
+	dataEnv: {
+		getInfo: () => ipcRenderer.invoke(ipcChannels.dataEnvGetInfo) as Promise<DataEnvInfo>,
+		chooseMode: (mode: DataEnvMode) => ipcRenderer.invoke(ipcChannels.dataEnvChooseMode, mode) as Promise<DataEnvChoiceResult | DataEnvChoiceFailure>,
+		restart: () => ipcRenderer.invoke(ipcChannels.dataEnvRestart) as Promise<void>,
+		confirmMismatch: (action: "continue" | "quit") => ipcRenderer.invoke(ipcChannels.dataEnvConfirmMismatch, action) as Promise<void>,
+		onDecisionRequired: (callback: () => void) => subscribe(ipcChannels.dataEnvDecisionRequired, callback),
+		onMismatchDetected: (callback: (payload: { dataModeInDir: DataEnvMode }) => void) => subscribe(ipcChannels.dataEnvMismatchDetected, callback),
+		/** 数据导入（规格 §6 仅首启、仅正式→dev）：进度经 dataEnvImportProgress 推送，订阅返回退订函数。 */
+		getImportPreview: () => ipcRenderer.invoke(ipcChannels.dataEnvGetImportPreview) as Promise<ImportPreviewResult>,
+		importStart: () => ipcRenderer.invoke(ipcChannels.dataEnvImportStart) as Promise<ImportStartResult>,
+		importCancel: () => ipcRenderer.invoke(ipcChannels.dataEnvImportCancel) as Promise<void>,
+		onImportProgress: (callback: (progress: ImportProgress) => void) => subscribe(ipcChannels.dataEnvImportProgress, callback),
+	},
+	// 频道切换（跨通道查版本 → 下载 → 引导安装，规格 §3）：业务在 ChannelSwitchService，快照经 channelSwitchStateChanged 推送。
+	channelSwitch: {
+		query: () => ipcRenderer.invoke(ipcChannels.channelSwitchQuery) as Promise<import("../shared/types/app").ChannelSwitchActionResult>,
+		download: (asset: import("../shared/types/app").TargetChannelRelease) => ipcRenderer.invoke(ipcChannels.channelSwitchDownload, asset) as Promise<import("../shared/types/app").ChannelSwitchActionResult>,
+		launch: (installerPath: string) => ipcRenderer.invoke(ipcChannels.channelSwitchLaunch, installerPath) as Promise<import("../shared/types/app").ChannelSwitchActionResult>,
+		getStatus: () => ipcRenderer.invoke(ipcChannels.channelSwitchGetStatus) as Promise<import("../shared/types/app").ChannelSwitchSnapshot>,
+		onStateChanged: (callback: (snapshot: import("../shared/types/app").ChannelSwitchSnapshot) => void) => subscribe(ipcChannels.channelSwitchStateChanged, callback),
+	},
+	shellMenu: {
+		getQuickTaskState: () => ipcRenderer.invoke(ipcChannels.shellMenuQuickTaskGetState) as Promise<{ supported: boolean; registered: boolean }>,
+		setQuickTaskEnabled: (enabled: boolean) => ipcRenderer.invoke(ipcChannels.shellMenuQuickTaskSetEnabled, enabled) as Promise<{ supported: boolean; registered: boolean }>,
+		/** 查询资源管理器右键菜单注册状态（非 Windows 返回 supported=false） */
+		getState: () =>
+			ipcRenderer.invoke(ipcChannels.shellMenuGetState) as Promise<{
+				supported: boolean;
+				registered: boolean;
+			}>,
+		/** 启用/取消「用 PiDeck 打开」右键菜单（HKCU 写入，portable 亦可用） */
+		setEnabled: (enabled: boolean) =>
+			ipcRenderer.invoke(ipcChannels.shellMenuSetEnabled, enabled) as Promise<{
+				supported: boolean;
+				registered: boolean;
+			}>,
 	},
 	editors: {
 		list: () => ipcRenderer.invoke(ipcChannels.editorsList) as Promise<ExternalEditor[]>,
-		redetect: () =>
-			ipcRenderer.invoke(ipcChannels.editorsRedetect) as Promise<AppSettings>,
-		update: (editorId: ExternalEditorId, patch: Partial<ExternalEditorSetting>) =>
-			ipcRenderer.invoke(
-				ipcChannels.editorsUpdate,
-				editorId,
-				patch,
-			) as Promise<AppSettings>,
-		chooseExecutable: () =>
-			ipcRenderer.invoke(ipcChannels.editorsChooseExecutable) as Promise<string | null>,
-		openProject: (editor: ExternalEditor, projectPath: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.editorsOpenProject,
-				editor,
-				projectPath,
-			) as Promise<void>,
+		redetect: () => ipcRenderer.invoke(ipcChannels.editorsRedetect) as Promise<AppSettings>,
+		update: (editorId: ExternalEditorId, patch: Partial<ExternalEditorSetting>) => ipcRenderer.invoke(ipcChannels.editorsUpdate, editorId, patch) as Promise<AppSettings>,
+		chooseExecutable: () => ipcRenderer.invoke(ipcChannels.editorsChooseExecutable) as Promise<string | null>,
+		openProject: (editor: ExternalEditor, projectPath: string) => ipcRenderer.invoke(ipcChannels.editorsOpenProject, editor, projectPath) as Promise<void>,
 	},
 	projects: {
-		list: () =>
-			ipcRenderer.invoke(ipcChannels.projectsList) as Promise<Project[]>,
-		add: () =>
-			ipcRenderer.invoke(ipcChannels.projectsAdd) as Promise<Project | null>,
-		remove: (id: string) =>
-			ipcRenderer.invoke(ipcChannels.projectsRemove, id) as Promise<Project[]>,
-		reorder: (projectIds: string[]) =>
-			ipcRenderer.invoke(
-				ipcChannels.projectsReorder,
-				projectIds,
-			) as Promise<Project[]>,
+		list: () => ipcRenderer.invoke(ipcChannels.projectsList) as Promise<Project[]>,
+		add: () => ipcRenderer.invoke(ipcChannels.projectsAdd) as Promise<Project | null>,
+		/** 文件夹右键菜单直达：给定路径必须是已存在的目录，主进程校验后入库 */
+		addByPath: (path: string) => ipcRenderer.invoke(ipcChannels.projectsAddByPath, path) as Promise<Project>,
+		remove: (id: string) => ipcRenderer.invoke(ipcChannels.projectsRemove, id) as Promise<Project[]>,
+		reorder: (projectIds: string[]) => ipcRenderer.invoke(ipcChannels.projectsReorder, projectIds) as Promise<Project[]>,
+		// 置顶/取消置顶普通项目；返回更新后的项目列表
+		setPinned: (projectId: string, pinned: boolean) => ipcRenderer.invoke(ipcChannels.projectsSetPinned, projectId, pinned) as Promise<Project[]>,
 		// 重命名项目显示名（仅改 label，不动磁盘目录）；返回更新后的项目列表
-		rename: (id: string, name: string) =>
-			ipcRenderer.invoke(ipcChannels.projectsRename, id, name) as Promise<Project[]>,
-		onChanged: (callback: (projects: Project[]) => void) =>
-			subscribe(ipcChannels.projectsChanged, callback),
+		rename: (id: string, name: string) => ipcRenderer.invoke(ipcChannels.projectsRename, id, name) as Promise<Project[]>,
+		onChanged: (callback: (projects: Project[]) => void) => subscribe(ipcChannels.projectsChanged, callback),
 		// 仅返回顶级项目（不含 worktree 子项目）
-		listRoot: () =>
-			ipcRenderer.invoke(ipcChannels.projectsListRoot) as Promise<Project[]>,
+		listRoot: () => ipcRenderer.invoke(ipcChannels.projectsListRoot) as Promise<Project[]>,
 		// 获取指定父项目的所有 worktree 子项目
-		listWorktreeChildren: (parentId: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.projectsListWorktreeChildren,
-				parentId,
-			) as Promise<Project[]>,
+		listWorktreeChildren: (parentId: string) => ipcRenderer.invoke(ipcChannels.projectsListWorktreeChildren, parentId) as Promise<Project[]>,
 		// 切换 worktree 模式开关
-		toggleWorktreeEnabled: (projectId: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.projectsToggleWorktreeEnabled,
-				projectId,
-			) as Promise<Project | null>,
+		toggleWorktreeEnabled: (projectId: string) => ipcRenderer.invoke(ipcChannels.projectsToggleWorktreeEnabled, projectId) as Promise<Project | null>,
 		// 选择聊天记录目录（系统文件选择器，默认当前目录）
-		chooseChatPath: () =>
-			ipcRenderer.invoke(ipcChannels.projectsChooseChatPath) as Promise<string | null>,
+		chooseChatPath: () => ipcRenderer.invoke(ipcChannels.projectsChooseChatPath) as Promise<string | null>,
 		// 设置聊天记录目录
-		setChatPath: (path: string) =>
-			ipcRenderer.invoke(ipcChannels.projectsSetChatPath, path) as Promise<Project | null>,
+		setChatPath: (path: string) => ipcRenderer.invoke(ipcChannels.projectsSetChatPath, path) as Promise<Project | null>,
+		// 领取 userData 更名（pi-desktop → PiDeck）的一次性迁移提示（消费式，只返回一次）
+		consumeMigrationNotice: () => ipcRenderer.invoke(ipcChannels.userDataMigrationConsumeNotice) as Promise<UserDataNameMigrationNotice | null>,
 		// 通过 pi --list-models 获取可用模型列表（无需启动 agent）
-		listModels: (projectId?: string) =>
-			ipcRenderer.invoke(ipcChannels.projectsListModels, projectId) as Promise<
-				AvailableModel[]
-			>,
+		listModels: (projectId?: string) => ipcRenderer.invoke(ipcChannels.projectsListModels, projectId) as Promise<AvailableModel[]>,
 		// 模型列表诊断报告：模型 + 失败原因分类（版本过低/配置损坏/pi 未安装），
 		// 供选择器在空列表时给出引导；force=true 绕过缓存重新 fork（手动刷新）。
-		listModelsReport: (projectId?: string, force?: boolean) =>
-			ipcRenderer.invoke(ipcChannels.projectsListModelsReport, projectId, force) as Promise<
-				ModelListReport
-			>,
+		listModelsReport: (projectId?: string, force?: boolean) => ipcRenderer.invoke(ipcChannels.projectsListModelsReport, projectId, force) as Promise<ModelListReport>,
 		// 查询模型规格：优先匹配当前 Pi 目录，第三方中转按 model id/显示名识别模型本体。
-		getModelSpec: (providerName: string, modelId: string, modelName?: string) =>
-			ipcRenderer.invoke(ipcChannels.projectsGetModelSpec, providerName, modelId, modelName) as Promise<
-				ModelSpec | null
-			>,
-		onTrustRequest: (callback: (request: {
-			requestId: string;
-			cwd: string;
-			projectName: string;
-		}) => void) => subscribe(ipcChannels.projectsTrustRequest, callback),
-		respondTrustRequest: (
-			requestId: string,
-			choice: "trust-remember" | "trust-session" | "deny",
-		) => ipcRenderer.invoke(ipcChannels.projectsTrustResponse, requestId, choice) as Promise<void>,
+		getModelSpec: (providerName: string, modelId: string, modelName?: string) => ipcRenderer.invoke(ipcChannels.projectsGetModelSpec, providerName, modelId, modelName) as Promise<ModelSpec | null>,
+		onTrustRequest: (callback: (request: { requestId: string; cwd: string; projectName: string }) => void) => subscribe(ipcChannels.projectsTrustRequest, callback),
+		respondTrustRequest: (requestId: string, choice: "trust-remember" | "trust-session" | "deny") => ipcRenderer.invoke(ipcChannels.projectsTrustResponse, requestId, choice) as Promise<void>,
 	},
 	projectResources: {
-		list: (projectId: string) =>
-			ipcRenderer.invoke(ipcChannels.projectResourcesList, projectId) as Promise<ProjectResourceListResult>,
-		createSkill: (input: CreateProjectSkillInput) =>
-			ipcRenderer.invoke(ipcChannels.projectResourcesCreateSkill, input) as Promise<PiSkillSummary>,
-		deleteSkill: (projectId: string, skillPath: string) =>
-			ipcRenderer.invoke(ipcChannels.projectResourcesDeleteSkill, projectId, skillPath) as Promise<void>,
-		deleteExtension: (projectId: string, extensionPath: string) =>
-			ipcRenderer.invoke(ipcChannels.projectResourcesDeleteExtension, projectId, extensionPath) as Promise<void>,
-		toggleExtension: (projectId: string, extensionPath: string, enabled: boolean) =>
-			ipcRenderer.invoke(ipcChannels.projectResourcesToggleExtension, projectId, extensionPath, enabled) as Promise<void>,
-		toggleSkill: (projectId: string, skillPath: string, enabled: boolean) =>
-			ipcRenderer.invoke(ipcChannels.projectResourcesToggleSkill, projectId, skillPath, enabled) as Promise<PiSkillSummary>,
-		renameSkill: (projectId: string, skillPath: string, newName: string) =>
-			ipcRenderer.invoke(ipcChannels.projectResourcesRenameSkill, projectId, skillPath, newName) as Promise<PiSkillSummary>,
+		list: (projectId: string) => ipcRenderer.invoke(ipcChannels.projectResourcesList, projectId) as Promise<ProjectResourceListResult>,
+		openDirectory: (projectId: string, kind: ProjectResourceDirectoryKind) => ipcRenderer.invoke(ipcChannels.projectResourcesOpenDirectory, projectId, kind) as Promise<void>,
+		createSkill: (input: CreateProjectSkillInput) => ipcRenderer.invoke(ipcChannels.projectResourcesCreateSkill, input) as Promise<PiSkillSummary>,
+		deleteSkill: (projectId: string, skillPath: string) => ipcRenderer.invoke(ipcChannels.projectResourcesDeleteSkill, projectId, skillPath) as Promise<void>,
+		deleteExtension: (projectId: string, extensionPath: string) => ipcRenderer.invoke(ipcChannels.projectResourcesDeleteExtension, projectId, extensionPath) as Promise<void>,
+		toggleExtension: (projectId: string, extensionPath: string, enabled: boolean) => ipcRenderer.invoke(ipcChannels.projectResourcesToggleExtension, projectId, extensionPath, enabled) as Promise<void>,
+		toggleInherited: (input: ProjectInheritedResourceToggleInput) => ipcRenderer.invoke(ipcChannels.projectResourcesToggleInherited, input) as Promise<ProjectResourceOverrides>,
+		toggleSkill: (projectId: string, skillPath: string, enabled: boolean) => ipcRenderer.invoke(ipcChannels.projectResourcesToggleSkill, projectId, skillPath, enabled) as Promise<PiSkillSummary>,
+		renameSkill: (projectId: string, skillPath: string, newName: string) => ipcRenderer.invoke(ipcChannels.projectResourcesRenameSkill, projectId, skillPath, newName) as Promise<PiSkillSummary>,
+		discovery: (projectId?: string) => ipcRenderer.invoke(ipcChannels.projectResourcesDiscovery, projectId) as Promise<ProjectResourceDiscoveryResult>,
 	},
 	files: {
-		list: (projectId: string, options?: { maxDepth?: number; directory?: string }) =>
-			ipcRenderer.invoke(ipcChannels.filesList, projectId, options) as Promise<
-				FileTreeNode[]
-			>,
-		open: (path: string) =>
-			ipcRenderer.invoke(ipcChannels.filesOpen, path) as Promise<void>,
-		showInFolder: (path: string) =>
-			ipcRenderer.invoke(ipcChannels.filesShowInFolder, path) as Promise<void>,
+		list: (projectId: string, options?: { maxDepth?: number; directory?: string; skipGeneratedDirs?: boolean }) => ipcRenderer.invoke(ipcChannels.filesList, projectId, options) as Promise<FileTreeNode[]>,
+		/** 工作区文件名搜索（issue #215）：主进程全盘扫描，忽略规则与文件抽屉的文件树同档（只跳 .git/node_modules） */
+		search: (projectId: string, query: string) => ipcRenderer.invoke(ipcChannels.filesSearch, projectId, query) as Promise<FileSearchResult[]>,
+		/** 工作区文件内容检索（Go file-index sidecar）：未就绪/不可用时回 null，渲染层不展示内容分区 */
+		searchContent: (projectId: string, query: string) => ipcRenderer.invoke(ipcChannels.filesSearchContent, projectId, query) as Promise<FileContentSearchResult | null>,
+		open: (path: string, scope?: ProjectFileAccessScope) => ipcRenderer.invoke(ipcChannels.filesOpen, path, scope) as Promise<void>,
+		showInFolder: (path: string, scope?: ProjectFileAccessScope) => ipcRenderer.invoke(ipcChannels.filesShowInFolder, path, scope) as Promise<void>,
 		/** 检测系统可用的文件管理器（打开方式下拉补充入口） */
-		detectFileManager: () =>
-			ipcRenderer.invoke(ipcChannels.filesDetectFileManager) as Promise<FileManagerInfo | null>,
+		detectFileManager: () => ipcRenderer.invoke(ipcChannels.filesDetectFileManager) as Promise<FileManagerInfo | null>,
 		/** 在系统文件管理器中打开目录 */
-		openFileManager: (path: string) =>
-			ipcRenderer.invoke(ipcChannels.filesOpenFileManager, path) as Promise<void>,
-		readContent: (path: string, maxBytes?: number, scope?: ProjectFileAccessScope) =>
-			ipcRenderer.invoke(ipcChannels.filesReadContent, path, maxBytes, scope) as Promise<string>,
+		openFileManager: (path: string) => ipcRenderer.invoke(ipcChannels.filesOpenFileManager, path) as Promise<void>,
+		readContent: (path: string, maxBytes?: number, scope?: ProjectFileAccessScope) => ipcRenderer.invoke(ipcChannels.filesReadContent, path, maxBytes, scope) as Promise<string>,
 		/** 批量校验路径是否存在（返回与入参等长的 boolean[]；单路径失败按 false 计） */
-		pathsExist: (paths: string[], scope?: ProjectFileAccessScope) =>
-			ipcRenderer.invoke(ipcChannels.filesPathsExist, paths, scope) as Promise<boolean[]>,
+		pathsExist: (paths: string[], scope?: ProjectFileAccessScope) => ipcRenderer.invoke(ipcChannels.filesPathsExist, paths, scope) as Promise<boolean[]>,
+		/** 单路径 stat（存在性 + 是否目录）：会话内文件链接点击路由用（目录 → 资源管理器打开） */
+		stat: (path: string, scope?: ProjectFileAccessScope) =>
+			ipcRenderer.invoke(ipcChannels.filesStat, path, scope) as Promise<{
+				exists: boolean;
+				isDirectory: boolean;
+			}>,
 		/** 读取二进制文件为 base64；scope 存在时主进程限制到对应 ProjectStore 根目录。 */
-		readBase64: (path: string, maxBytes?: number, scope?: ProjectFileAccessScope) =>
-			ipcRenderer.invoke(ipcChannels.filesReadBase64, path, maxBytes, scope) as Promise<string>,
+		readBase64: (path: string, maxBytes?: number, scope?: ProjectFileAccessScope) => ipcRenderer.invoke(ipcChannels.filesReadBase64, path, maxBytes, scope) as Promise<string>,
 		/** 保存项目来源文件时复用读取 scope，主进程据此校验真实写入路径。 */
-		writeContent: (path: string, content: string, scope?: ProjectFileAccessScope) =>
-			ipcRenderer.invoke(ipcChannels.filesWriteContent, path, content, scope) as Promise<void>,
-		delete: (path: string, recursive?: boolean) =>
-			ipcRenderer.invoke(ipcChannels.filesDelete, path, recursive) as Promise<void>,
+		writeContent: (path: string, content: string, scope?: ProjectFileAccessScope) => ipcRenderer.invoke(ipcChannels.filesWriteContent, path, content, scope) as Promise<void>,
+		delete: (path: string, recursive?: boolean) => ipcRenderer.invoke(ipcChannels.filesDelete, path, recursive) as Promise<void>,
 		/** 复制来源路径到目标目录（支持文件和目录递归），返回目标路径列表 */
-		copy: (sourcePaths: string[], targetDir: string) =>
-			ipcRenderer.invoke(ipcChannels.filesCopy, sourcePaths, targetDir) as Promise<string[]>,
+		copy: (sourcePaths: string[], targetDir: string) => ipcRenderer.invoke(ipcChannels.filesCopy, sourcePaths, targetDir) as Promise<string[]>,
 		/** 移动来源路径到目标目录（同设备 rename，跨设备 cp+rm） */
-		move: (sourcePaths: string[], targetDir: string) =>
-			ipcRenderer.invoke(ipcChannels.filesMove, sourcePaths, targetDir) as Promise<string[]>,
-		create: (parentDir: string, name: string, type: "file" | "directory") =>
-			ipcRenderer.invoke(ipcChannels.filesCreate, parentDir, name, type) as Promise<string>,
-		rename: (path: string, newName: string) =>
-			ipcRenderer.invoke(ipcChannels.filesRename, path, newName) as Promise<string>,
+		move: (sourcePaths: string[], targetDir: string) => ipcRenderer.invoke(ipcChannels.filesMove, sourcePaths, targetDir) as Promise<string[]>,
+		create: (parentDir: string, name: string, type: "file" | "directory") => ipcRenderer.invoke(ipcChannels.filesCreate, parentDir, name, type) as Promise<string>,
+		rename: (path: string, newName: string) => ipcRenderer.invoke(ipcChannels.filesRename, path, newName) as Promise<string>,
 		/**
 		 * Electron 32+ 已移除 File.path，拖拽/粘贴得到的 File 必须经 webUtils 解析本地路径。
 		 * 同步返回，可在 drop/paste 事件中立即使用。
@@ -318,38 +468,61 @@ const api = {
 		getClipboardPaths: () => clipboardSync<string[]>(ipcChannels.clipboardReadFilePaths, []),
 	},
 	pasteFiles: {
-		/** 粘贴大文本 → 落盘受管文件，返回路径元数据供 chip 展示与发送引用。 */
-		write: (input: PasteFileWriteInput) =>
-			ipcRenderer.invoke(ipcChannels.pasteFilesWrite, input) as Promise<PasteFileWriteResult>,
+		/** 粘贴大文本 → 落盘 userData/paste-files，返回路径元数据供 chip 展示与发送内联。 */
+		write: (input: PasteFileWriteInput) => ipcRenderer.invoke(ipcChannels.pasteFilesWrite, input) as Promise<PasteFileWriteResult>,
 		/** 移除 chip 时同步删除落盘文件（仅限受管目录内路径）。 */
-		delete: (path: string) =>
-			ipcRenderer.invoke(ipcChannels.pasteFilesDelete, path) as Promise<void>,
+		delete: (path: string) => ipcRenderer.invoke(ipcChannels.pasteFilesDelete, path) as Promise<void>,
 		/** 启动清理过期粘贴文件（渲染层一般不调用）。 */
 		cleanup: () => ipcRenderer.invoke(ipcChannels.pasteFilesCleanup) as Promise<number>,
+		/** 设置页占用统计：userData 新文件 + 各项目遗留 .pideck-paste。 */
+		getSize: () => ipcRenderer.invoke(ipcChannels.pasteFilesGetSize) as Promise<number>,
+		/** 设置页一键清空两个受管根下的 paste-* 文件。 */
+		clearAll: () => ipcRenderer.invoke(ipcChannels.pasteFilesClearAll) as Promise<number>,
+	},
+	noticeHistory: {
+		/** 读取落盘通知历史（启动回灌环形缓冲用）。 */
+		get: () => ipcRenderer.invoke(ipcChannels.noticeHistoryGet) as Promise<NoticeHistoryFileEntry[]>,
+		/** 追加一条记录（showNotice 单点记录后 fire-and-forget，失败静默——历史永不阻断 toast）。 */
+		record: (input: NoticeHistoryRecordInput) => ipcRenderer.invoke(ipcChannels.noticeHistoryRecord, input) as Promise<void>,
+		/** 清空并删除落盘文件（历史面板「清空记录」与设置页清理共用）。 */
+		clear: () => ipcRenderer.invoke(ipcChannels.noticeHistoryClear) as Promise<void>,
+		/** 文件占用统计（设置页「缓存与日志」）。 */
+		getSize: () => ipcRenderer.invoke(ipcChannels.noticeHistoryGetSize) as Promise<number>,
 	},
 	dialog: {
 		/**
 		 * 打开系统原生文件选择器（默认仅文件；includeDirectories 时文件+目录），支持多选。
 		 * 返回选中路径列表，取消时返回空数组。
 		 */
-		pickFiles: (options?: { title?: string; includeDirectories?: boolean }) =>
-			ipcRenderer.invoke(ipcChannels.dialogPickFiles, options) as Promise<string[]>,
+		pickFiles: (options?: { title?: string; includeDirectories?: boolean }) => ipcRenderer.invoke(ipcChannels.dialogPickFiles, options) as Promise<string[]>,
 		/** 换肤背景图：选图并复制到 userData/backgrounds/，返回文件名（空串=取消） */
-		pickBackgroundImage: () =>
-			ipcRenderer.invoke(ipcChannels.pickBackgroundImage) as Promise<string>,
+		pickBackgroundImage: () => ipcRenderer.invoke(ipcChannels.pickBackgroundImage) as Promise<string>,
 		/** 删除背景图文件（清空背景设置时调用） */
-		removeBackgroundImage: (name: string) =>
-			ipcRenderer.invoke(ipcChannels.removeBackgroundImage, name) as Promise<void>,
+		removeBackgroundImage: (name: string) => ipcRenderer.invoke(ipcChannels.removeBackgroundImage, name) as Promise<void>,
+		/** Wallpaper Engine 视频壁纸：选工坊目录 / 列出视频条目 / 校验选中条目（视频字节只走 pideck-we:// 协议） */
+		pickWallpaperEngineDir: () => ipcRenderer.invoke(ipcChannels.wallpaperEnginePickDir) as Promise<string>,
+		listWallpaperEngine: (dir?: string) => ipcRenderer.invoke(ipcChannels.wallpaperEngineList, dir) as Promise<WallpaperEngineListResult>,
+		selectWallpaperEngine: (dir: string, id: string) => ipcRenderer.invoke(ipcChannels.wallpaperEngineSelect, dir, id) as Promise<WallpaperEngineItem | null>,
+	},
+	customThemes: {
+		/** 列出自定义主题（内置示例 + 用户目录；dir 为存放目录，供指南/提示展示） */
+		list: () => ipcRenderer.invoke(ipcChannels.listCustomThemes) as Promise<{ dir: string; themes: CustomThemeListItem[] }>,
+		/** 读取主题原始 JSON 文本（编辑器用；不存在返回 null） */
+		read: (id: string) => ipcRenderer.invoke(ipcChannels.readCustomTheme, id) as Promise<string | null>,
+		/** 校验并保存主题包；失败返回面向用户的错误清单 */
+		save: (raw: string) => ipcRenderer.invoke(ipcChannels.saveCustomTheme, raw) as Promise<{ ok: true; id: string } | { ok: false; errors: string[] }>,
+		/** 删除用户主题文件（回收站） */
+		remove: (id: string) => ipcRenderer.invoke(ipcChannels.deleteCustomTheme, id) as Promise<void>,
+		/** 把 AI 主题开发指南写入主题目录并在资源管理器定位，返回文件路径 */
+		writeGuide: (locale: "zh-CN" | "en-US") => ipcRenderer.invoke(ipcChannels.writeCustomThemeGuide, locale) as Promise<string>,
 	},
 	sessions: {
-		list: (projectId?: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsList, projectId) as Promise<
-				SessionSummary[]
-			>,
-		listCatalog: (projectId: string, options?: { scan?: boolean }) =>
-			ipcRenderer.invoke(ipcChannels.sessionsCatalogList, projectId, options) as Promise<
-				SessionRecord[]
-			>,
+		list: (projectId?: string) => ipcRenderer.invoke(ipcChannels.sessionsList, projectId) as Promise<SessionSummary[]>,
+		/** 跨会话正文搜索（Go sidecar）；null = 不可用（未构建/boot 中/失败），调用方回退标题过滤。 */
+		searchContent: (query: string) => ipcRenderer.invoke(ipcChannels.sessionsSearchContent, query) as Promise<SessionSearchResult | null>,
+		/** 会话内查找（Ctrl/Cmd+Shift+F）：sessionId = SessionRecord.id，主进程按后端分派（pi 走索引 / DSH 走 host 历史）。 */
+		searchInSession: (sessionId: string, query: string) => ipcRenderer.invoke(ipcChannels.sessionsSearchInSession, sessionId, query) as Promise<SessionSearchResult | null>,
+		listCatalog: (projectId: string, options?: { scan?: boolean }) => ipcRenderer.invoke(ipcChannels.sessionsCatalogList, projectId, options) as Promise<SessionRecord[]>,
 		/** 后台扫描完成推送：目录缓存已合并，监听方应以 scan:false 重新拉取。返回退订函数。 */
 		onCatalogRefreshed: (listener: (input: { projectId: string }) => void) => {
 			const handler = (_event: unknown, payload: { projectId: string }) => listener(payload);
@@ -358,66 +531,70 @@ const api = {
 				ipcRenderer.removeListener(ipcChannels.sessionsCatalogRefreshed, handler);
 			};
 		},
-		createDraft: (input: CreateSessionDraftInput) =>
-			ipcRenderer.invoke(ipcChannels.sessionsCatalogCreateDraft, input) as Promise<SessionRecord>,
+		createDraft: (input: CreateSessionDraftInput) => ipcRenderer.invoke(ipcChannels.sessionsCatalogCreateDraft, input) as Promise<SessionRecord>,
 		/** 按当前 pi 配置解析默认启动偏好（引导页预选展示用，与 createDraft 缺省同源）。 */
-		resolveLaunchDefaults: (input: ResolveLaunchDefaultsInput = {}) =>
-			ipcRenderer.invoke(ipcChannels.sessionsResolveLaunchDefaults, input) as Promise<ResolvedLaunchDefaults>,
-		createAnonymous: (input: CreateAnonymousSessionInput) =>
-			ipcRenderer.invoke(ipcChannels.sessionsCreateAnonymous, input) as Promise<CreateAnonymousSessionResult>,
-		updateRecord: (sessionId: string, patch: UpdateSessionRecordInput) =>
-			ipcRenderer.invoke(
-				ipcChannels.sessionsCatalogUpdate,
-				sessionId,
-				patch,
-			) as Promise<SessionRecord>,
+		resolveLaunchDefaults: (input: ResolveLaunchDefaultsInput = {}) => ipcRenderer.invoke(ipcChannels.sessionsResolveLaunchDefaults, input) as Promise<ResolvedLaunchDefaults>,
+		createAnonymous: (input: CreateAnonymousSessionInput) => ipcRenderer.invoke(ipcChannels.sessionsCreateAnonymous, input) as Promise<CreateAnonymousSessionResult>,
+		updateRecord: (sessionId: string, patch: UpdateSessionRecordInput) => ipcRenderer.invoke(ipcChannels.sessionsCatalogUpdate, sessionId, patch) as Promise<SessionRecord>,
 		/** DSH host 级模型目录（llm.models），未装配时返回空列表。 */
-		listDshModels: () =>
-			ipcRenderer.invoke(ipcChannels.dshListModels) as Promise<AvailableModel[]>,
+		listDshModels: () => ipcRenderer.invoke(ipcChannels.dshListModels) as Promise<AvailableModel[]>,
 		/** DSH 配置页模型发现：只返回候选，apiKey 仅本次探测使用。 */
-		discoverDshModels: (input: DshModelDiscoveryInput) =>
-			ipcRenderer.invoke(ipcChannels.dshDiscoverModels, input) as Promise<FetchedModel[]>,
+		discoverDshModels: (input: DshModelDiscoveryInput) => ipcRenderer.invoke(ipcChannels.dshDiscoverModels, input) as Promise<FetchedModel[]>,
 		/** DSH 可配置提供方目录（llm.providers：内置 catalog + 已注册路由）。 */
 		listDshProviders: () =>
-			ipcRenderer.invoke(ipcChannels.dshListProviders) as Promise<Array<{
-				provider: string;
-				displayName: string;
-				active: boolean;
-				declared?: boolean;
-			}>>,
+			ipcRenderer.invoke(ipcChannels.dshListProviders) as Promise<
+				Array<{
+					provider: string;
+					displayName: string;
+					active: boolean;
+					declared?: boolean;
+				}>
+			>,
 		/** DSH agent 预设目录（agentPreset.list），未装配时返回空列表。 */
 		listDshAgentPresets: () =>
-			ipcRenderer.invoke(ipcChannels.dshAgentPresets) as Promise<Array<{
-				id: string;
-				trust: "system" | "user";
-				isDefault: boolean;
-				name?: string;
-				description?: string;
-				broken?: string;
-			}>>,
+			ipcRenderer.invoke(ipcChannels.dshAgentPresets) as Promise<
+				Array<{
+					id: string;
+					isDefault: boolean;
+					name?: string;
+					description?: string;
+					broken?: string;
+				}>
+			>,
 		/** DSH 部署默认模型选择（settings.yaml agent-default-model），未装配/不可读时 undefined。 */
 		getDshDefaultModel: () =>
-			ipcRenderer.invoke(ipcChannels.dshDefaultModel) as Promise<{
-				provider: string;
-				model: string;
-				reasoningEffort?: string;
-			} | undefined>,
-		/** DSH 配置管理页状态（host 启动状态 + DSH_HOME 目录 + 最近 boot 失败原因）。 */
+			ipcRenderer.invoke(ipcChannels.dshDefaultModel) as Promise<
+				| {
+						provider: string;
+						model: string;
+						reasoningEffort?: string;
+				  }
+				| undefined
+			>,
+		/** DSH 配置管理页状态（host 启动状态 + DSH_HOME 目录 + 最近 boot 失败原因 + 共享状态）。 */
 		getDshStatus: () =>
 			ipcRenderer.invoke(ipcChannels.dshGetStatus) as Promise<{
 				started: boolean;
 				homeDir: string;
 				bootError?: string | null;
+				/** 共享/冲突状态（issue #189）；旧主进程未回传时缺省。 */
+				sharing?: DshHomeSharingState;
+				/** 用户是否手动停止了 host（true 时不会自动启动）；旧主进程未回传时缺省。 */
+				manuallyStopped?: boolean;
 			}>,
+		/** 探测本机 CUI node（DSH 沙箱 runner）。传草稿路径可在保存前预览。 */
+		detectDshRunnerNode: (configuredPath?: string) => ipcRenderer.invoke(ipcChannels.dshDetectRunnerNode, configuredPath) as Promise<DshRunnerNodeInfo>,
+		/** 打开文件选择框挑 node.exe；取消返回 null。 */
+		chooseDshRunnerNode: () => ipcRenderer.invoke(ipcChannels.dshChooseRunnerNode) as Promise<string | null>,
+		/** 下载 Node 24 到应用数据目录（不改系统 PATH）。 */
+		installDshRunnerNode: () => ipcRenderer.invoke(ipcChannels.dshInstallRunnerNode) as Promise<DshRunnerNodeInstallResult>,
 		/**
 		 * DSH runtime 安装态（AgentRuntimeProvider 阶段 1）：notInstalled/broken 时
 		 * DSH UI 整体降级为安装引导，新建 dsh 会话被拒。
 		 */
-		getDshRuntimeStatus: () =>
-			ipcRenderer.invoke(ipcChannels.dshRuntimeGetStatus) as Promise<DshRuntimeStatus>,
+		getDshRuntimeStatus: () => ipcRenderer.invoke(ipcChannels.dshRuntimeGetStatus) as Promise<DshRuntimeStatus>,
 		/** DSH runtime 安装态变更推送（阶段 2 安装/卸载时广播）；返回退订函数。 */
-		onDshRuntimeStatusChanged: (callback: (status: DshRuntimeStatus) => void) =>
-			subscribe(ipcChannels.dshRuntimeStatusChanged, callback),
+		onDshRuntimeStatusChanged: (callback: (status: DshRuntimeStatus) => void) => subscribe(ipcChannels.dshRuntimeStatusChanged, callback),
 		/**
 		 * 按需安装 DSH runtime（阶段 2）。进度不在这里返回——下载可能持续数十秒，
 		 * 走 onDshRuntimeInstallProgress 推送。
@@ -427,9 +604,15 @@ const api = {
 				ok: boolean;
 				error?: string;
 			}>,
-		/** 从本地导入 runtime（.tgz 归档或已解压目录；主进程弹文件对话框；离线/镜像不可达时的兜底）。 */
+		/** 从本地导入 runtime 归档（.tgz；主进程弹文件对话框；离线/镜像不可达时的兜底）。 */
 		importDshRuntimeFile: () =>
 			ipcRenderer.invoke(ipcChannels.dshRuntimeInstallLocal) as Promise<{
+				ok: boolean;
+				error?: string;
+			}>,
+		/** 从本地导入「已解压」的 runtime 目录（主进程弹目录对话框；与归档入口分开，见 shared/ipc.ts）。 */
+		importDshRuntimeDir: () =>
+			ipcRenderer.invoke(ipcChannels.dshRuntimeInstallLocalDir) as Promise<{
 				ok: boolean;
 				error?: string;
 			}>,
@@ -440,8 +623,7 @@ const api = {
 				error?: string;
 			}>,
 		/** 安装进度推送（阶段 2）；返回退订函数。 */
-		onDshRuntimeInstallProgress: (callback: (progress: DshRuntimeInstallProgress) => void) =>
-			subscribe(ipcChannels.dshRuntimeInstallProgress, callback),
+		onDshRuntimeInstallProgress: (callback: (progress: DshRuntimeInstallProgress) => void) => subscribe(ipcChannels.dshRuntimeInstallProgress, callback),
 		/** DSH settings.describe（脱敏 namespace 视图 + schema）。 */
 		describeDshSettings: () =>
 			ipcRenderer.invoke(ipcChannels.dshConfigDescribe) as Promise<{
@@ -459,121 +641,62 @@ const api = {
 				}>;
 			}>,
 		/** DSH settings.update。 */
-		updateDshSettings: (ns: string, patch: Record<string, unknown>, expectedRevision?: number) =>
-			ipcRenderer.invoke(ipcChannels.dshConfigUpdate, ns, patch, expectedRevision) as Promise<unknown>,
+		updateDshSettings: (ns: string, patch: Record<string, unknown>, expectedRevision?: number) => ipcRenderer.invoke(ipcChannels.dshConfigUpdate, ns, patch, expectedRevision) as Promise<unknown>,
 		/** DSH settings.mutate（路径级操作；删除 provider/字段用 unset op）。 */
-		mutateDshSettings: (
-			ns: string,
-			ops: Array<
-				| { op: "set"; path: string[]; value: unknown }
-				| { op: "unset"; path: string[] }
-			>,
-			expectedRevision?: number,
-		) =>
-			ipcRenderer.invoke(ipcChannels.dshConfigMutate, ns, ops, expectedRevision) as Promise<unknown>,
+		mutateDshSettings: (ns: string, ops: Array<{ op: "set"; path: string[]; value: unknown } | { op: "unset"; path: string[] }>, expectedRevision?: number) => ipcRenderer.invoke(ipcChannels.dshConfigMutate, ns, ops, expectedRevision) as Promise<unknown>,
 		/** DSH credentials.describe。 */
 		describeDshCredentials: (refs: string[]) =>
-			ipcRenderer.invoke(ipcChannels.dshCredentialDescribe, refs) as Promise<Record<string, {
-				configured: boolean;
-				source?: string;
-				writable: boolean;
-			}>>,
+			ipcRenderer.invoke(ipcChannels.dshCredentialDescribe, refs) as Promise<
+				Record<
+					string,
+					{
+						configured: boolean;
+						source?: string;
+						writable: boolean;
+					}
+				>
+			>,
 		/** DSH credentials.set。 */
-		setDshCredential: (ref: string, value: string) =>
-			ipcRenderer.invoke(ipcChannels.dshCredentialSet, ref, value) as Promise<void>,
+		setDshCredential: (ref: string, value: string) => ipcRenderer.invoke(ipcChannels.dshCredentialSet, ref, value) as Promise<void>,
 		/** DSH credentials.unset。 */
-		unsetDshCredential: (ref: string) =>
-			ipcRenderer.invoke(ipcChannels.dshCredentialUnset, ref) as Promise<void>,
+		unsetDshCredential: (ref: string) => ipcRenderer.invoke(ipcChannels.dshCredentialUnset, ref) as Promise<void>,
 		/** DSH 凭证明文读取（渲染层点「眼睛」时按 ref 取一次；无值返回 undefined）。 */
-		readDshCredential: (ref: string) =>
-			ipcRenderer.invoke(ipcChannels.dshCredentialRead, ref) as Promise<string | undefined>,
+		readDshCredential: (ref: string) => ipcRenderer.invoke(ipcChannels.dshCredentialRead, ref) as Promise<string | undefined>,
 		/** DSH settings.openDocument（平台打开配置文档）。 */
-		openDshDocument: () =>
-			ipcRenderer.invoke(ipcChannels.dshOpenDocument) as Promise<void>,
+		openDshDocument: () => ipcRenderer.invoke(ipcChannels.dshOpenDocument) as Promise<void>,
 		/** DSH host 重启（DSH_HOME 切换后立即生效；有活跃 DSH 会话时返回 false）。 */
-		restartDshHost: () =>
-			ipcRenderer.invoke(ipcChannels.dshRestartHost) as Promise<boolean>,
-		deleteRecord: (sessionId: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsCatalogDelete, sessionId) as Promise<boolean>,
+		restartDshHost: () => ipcRenderer.invoke(ipcChannels.dshRestartHost) as Promise<boolean>,
+		/** DSH host 手动停止（停活跃 DSH 会话 + dispose + 持久化停止标记，跨重启不自动启动）。 */
+		stopDshHost: () => ipcRenderer.invoke(ipcChannels.dshStopHost) as Promise<boolean>,
+		/** DSH host 显式启动（清除手动停止标记并 boot；返回 host 是否就绪）。 */
+		startDshHost: () => ipcRenderer.invoke(ipcChannels.dshStartHost) as Promise<boolean>,
+		deleteRecord: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogDelete, sessionId) as Promise<boolean>,
 		/** 归档会话（移入 .pideck-archive/ 并从目录移除）；运行中的会话会抛错 */
-		archiveRecord: (sessionId: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsCatalogArchive, sessionId) as Promise<boolean>,
+		archiveRecord: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogArchive, sessionId) as Promise<boolean>,
 		/** 恢复归档会话（移回原路径并重新入目录） */
-		unarchiveRecord: (archivedPath: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsCatalogUnarchive, archivedPath) as Promise<boolean>,
+		unarchiveRecord: (archivedPath: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogUnarchive, archivedPath) as Promise<boolean>,
 		/** 列出已归档会话（恢复 UI 用；带归档前原始路径供按项目归属过滤） */
-		listArchived: () =>
-			ipcRenderer.invoke(ipcChannels.sessionsCatalogListArchived) as Promise<import("../shared/types").ArchivedPiSession[]>,
+		listArchived: () => ipcRenderer.invoke(ipcChannels.sessionsCatalogListArchived) as Promise<import("../shared/types").ArchivedPiSession[]>,
 		/** 永久删除已归档会话（归档文件移入系统回收站并移出索引；不可恢复） */
-		deleteArchivedRecord: (archivedPath: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsCatalogDeleteArchived, archivedPath) as Promise<boolean>,
-		readRecordMessages: (sessionId: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsCatalogReadMessages, sessionId) as Promise<
-				import("../shared/types").ChatMessage[]
-			>,
-		readRecordMessagePage: (sessionId: string, before?: number, pageSize?: number, options?: { beforeEntryId?: string }) =>
-			ipcRenderer.invoke(
-				ipcChannels.sessionsCatalogReadMessagePage,
-				sessionId,
-				before,
-				pageSize,
-				options,
-			) as Promise<import("../shared/types").SessionMessagePage>,
+		deleteArchivedRecord: (archivedPath: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogDeleteArchived, archivedPath) as Promise<boolean>,
+		readRecordMessages: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogReadMessages, sessionId) as Promise<import("../shared/types").ChatMessage[]>,
+		readRecordMessagePage: (sessionId: string, before?: number, pageSize?: number, options?: { beforeEntryId?: string }) => ipcRenderer.invoke(ipcChannels.sessionsCatalogReadMessagePage, sessionId, before, pageSize, options) as Promise<import("../shared/types").SessionMessagePage>,
 		/** 无 runtime 时直接改 JSONL（编辑）。运行中必须先停 Agent。 */
-		editCatalogMessage: (sessionId: string, messageId: string, newText: string, entryId?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.sessionsCatalogEditMessage,
-				sessionId,
-				messageId,
-				newText,
-				entryId,
-			) as Promise<SessionCommandResult<void>>,
+		editCatalogMessage: (sessionId: string, messageId: string, newText: string, entryId?: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogEditMessage, sessionId, messageId, newText, entryId) as Promise<SessionCommandResult<void>>,
+		/** 原地移除单图：只传快照，main 在文件锁内校验目标；运行中必须先停。 */
+		removeCatalogMessageImage: (sessionId: string, messageId: string, imageTarget: import("../shared/types").SessionMessageImageTarget, entryId?: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogRemoveMessageImage, sessionId, messageId, imageTarget, entryId) as Promise<SessionCommandResult<void>>,
 		/** 无 runtime 时直接改 JSONL（删除）。运行中必须先停 Agent。 */
-		deleteCatalogMessage: (sessionId: string, messageId: string, entryId?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.sessionsCatalogDeleteMessage,
-				sessionId,
-				messageId,
-				entryId,
-			) as Promise<SessionCommandResult<void>>,
+		deleteCatalogMessage: (sessionId: string, messageId: string, entryId?: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogDeleteMessage, sessionId, messageId, entryId) as Promise<SessionCommandResult<void>>,
 		/** 无 runtime 时截断 JSONL 供重发。运行中必须先停 Agent。 */
-		prepareCatalogResend: (sessionId: string, messageId: string, entryId?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.sessionsCatalogPrepareResend,
-				sessionId,
-				messageId,
-				entryId,
-			) as Promise<SessionCommandResult<{ text: string; images?: ImageContent[] }>>,
+		prepareCatalogResend: (sessionId: string, messageId: string, entryId?: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogPrepareResend, sessionId, messageId, entryId) as Promise<SessionCommandResult<{ text: string; images?: ImageContent[] }>>,
 		/** 会话 JSONL 过程事件（session/model/thinking/custom），轨迹复盘用。 */
-		readProcessEvents: (sessionId: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsCatalogReadProcessEvents, sessionId) as Promise<
-				SessionProcessEvent[]
-			>,
+		readProcessEvents: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogReadProcessEvents, sessionId) as Promise<SessionFactsResult>,
+		readOutline: (sessionId: string, limit?: number) => ipcRenderer.invoke(ipcChannels.sessionsCatalogReadOutline, sessionId, limit) as Promise<SessionOutlineSnapshot>,
 		/** DSH 会话轨迹系统提示（request/header 的 EpochHeader.system；非 DSH/无数据返回 undefined）。 */
-		readDshSystemPrompt: (sessionId: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsCatalogReadDshSystemPrompt, sessionId) as Promise<
-				string | undefined
-			>,
 		/** 按需读取单条消息完整文本（工具结果截断后的「查看完整输出」）。
 		 *  sessionId 用于运行期绑定不可用时的历史会话文件回退（_viewer 投影）。 */
-		readMessageFullText: (
-			sessionId: string | undefined,
-			agentId: string,
-			messageId: string,
-			entryId?: string,
-		) =>
-			ipcRenderer.invoke(
-				ipcChannels.sessionsCatalogReadMessageFullText,
-				sessionId,
-				agentId,
-				messageId,
-				entryId,
-			) as Promise<{ text: string }>,
-		readReferenceMessages: (sessionId: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.sessionsCatalogReadReferenceMessages,
-				sessionId,
-			) as Promise<Array<{ role: string; content: string; timestamp: number }>>,
+		readMessageFullText: (sessionId: string | undefined, agentId: string, messageId: string, entryId?: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogReadMessageFullText, sessionId, agentId, messageId, entryId) as Promise<{ text: string }>,
+		readReferenceMessages: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsCatalogReadReferenceMessages, sessionId) as Promise<Array<{ role: string; content: string; timestamp: number }>>,
 		copyRecord: (sessionId: string) =>
 			ipcRenderer.invoke(ipcChannels.sessionsCatalogCopy, sessionId) as Promise<{
 				cancelled?: boolean;
@@ -584,21 +707,15 @@ const api = {
 				path: string;
 			}>,
 		/** DSH 会话文件路径推导（右键「复制会话文件路径」；非 DSH/不可推导返回 undefined）。 */
-		getDshSessionPath: (sessionId: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsGetDshSessionPath, sessionId) as Promise<
-				string | undefined
-			>,
+		getDshSessionPath: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsGetDshSessionPath, sessionId) as Promise<string | undefined>,
 		/** DSH 会话内容搜索（侧栏搜索框全文搜索；结果含 dshSessionId + snippet）。 */
-		searchDshSessions: (query: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsSearchDsh, query) as Promise<
-				Array<{ sessionId: string; snippet: string }>
-			>,
+		searchDshSessions: (query: string) => ipcRenderer.invoke(ipcChannels.sessionsSearchDsh, query) as Promise<Array<{ sessionId: string; snippet: string }>>,
 		/** DSH 创建目标（goal.create）。 */
-		createDshGoal: (agentId: string, objective: string, maxGoalRounds?: number) =>
-			ipcRenderer.invoke(ipcChannels.dshCreateGoal, agentId, objective, maxGoalRounds) as Promise<void>,
+		createDshGoal: (agentId: string, objective: string, maxGoalRounds?: number) => ipcRenderer.invoke(ipcChannels.dshCreateGoal, agentId, objective, maxGoalRounds) as Promise<void>,
 		/** DSH 目标操作（pause/resume/complete/clear）。 */
-		runDshGoalAction: (agentId: string, action: "pause" | "resume" | "complete" | "clear") =>
-			ipcRenderer.invoke(ipcChannels.dshGoalAction, agentId, action) as Promise<void>,
+		runDshGoalAction: (agentId: string, action: "pause" | "resume" | "complete" | "clear") => ipcRenderer.invoke(ipcChannels.dshGoalAction, agentId, action) as Promise<void>,
+		/** DSH 取消 host 侧排队消息（session/updateQueue remove；幂等：已消费也成功）。 */
+		cancelDshQueuedMessage: (agentId: string, itemId: string) => ipcRenderer.invoke(ipcChannels.dshCancelQueuedMessage, agentId, itemId) as Promise<void>,
 		/** DSH 子代理列表（subagent.list）。 */
 		listDshSubagents: (agentId: string) =>
 			ipcRenderer.invoke(ipcChannels.dshListSubagents, agentId) as Promise<
@@ -612,192 +729,105 @@ const api = {
 				}>
 			>,
 		/** DSH 子代理历史（subagent.history 只读 transcript）。 */
-		readDshSubagentHistory: (
-			agentId: string,
-			childSessionId: string,
-			beforeSeq?: number,
-			maxMessages?: number,
-		) =>
+		readDshSubagentHistory: (agentId: string, childSessionId: string, beforeSeq?: number, maxMessages?: number) =>
 			ipcRenderer.invoke(ipcChannels.dshSubagentHistory, agentId, childSessionId, beforeSeq, maxMessages) as Promise<{
 				messages: import("../shared/types").ChatMessage[];
 				hasMore: boolean;
 			}>,
 		/** pi-subagents 扩展子代理列表（record + 子会话回填）。 */
-		listSessionSubagents: (sessionId: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsListSubagents, sessionId) as Promise<
-				import("../shared/types").PiSubagentEntry[]
-			>,
-		/** 会话级文件修改汇总（write/edit/create/patch 聚合，历史/活会话通用）。 */
-		listSessionFileChanges: (sessionId: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsListFileChanges, sessionId) as Promise<
-				import("../shared/types").SessionFileChange[]
-			>,
+		listSessionSubagents: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsListSubagents, sessionId) as Promise<import("../shared/types").PiSubagentEntry[]>,
 		/** 会话级 todo 快照（pi-deck-todo custom 条目重建，历史会话任务 tab）。 */
-		listSessionTodo: (sessionId: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsListSessionTodo, sessionId) as Promise<
-				import("../shared/types").SessionTodoSnapshot | undefined
-			>,
-		/** DSH 技能目录（skill.list 只读；/name 斜杠调用，G7）。 */
-		listDshSkills: (agentId: string) =>
-			ipcRenderer.invoke(ipcChannels.dshListSkills, agentId) as Promise<import("../shared/types").DshSkillView[]>,
+		listSessionTodo: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsListSessionTodo, sessionId) as Promise<import("../shared/types").SessionTodoSnapshot | undefined>,
+		/**
+		 * DSH 技能目录（skill.list 只读；/name 斜杠调用，G7）。
+		 * 运行中会话传 agentId；草稿会话传 { sessionId }：主进程懒建/复用 host 会话后读取
+		 * （不启动 agent），会话启动前也能看到技能列表。
+		 */
+		listDshSkills: (target: string | { sessionId: string }) => ipcRenderer.invoke(ipcChannels.dshListSkills, target) as Promise<import("../shared/types").DshSkillView[]>,
 		/** DSH 孤儿会话 id 列表（host 有但 catalog 无映射；G3/D11 清理提示用）。 */
-		listDshOrphans: () =>
-			ipcRenderer.invoke(ipcChannels.dshListOrphans) as Promise<string[]>,
+		listDshOrphans: () => ipcRenderer.invoke(ipcChannels.dshListOrphans) as Promise<string[]>,
 		/** DSH 外部会话清单（dsh-web 等其他工具创建的 host 根会话，跨工具导入用）。 */
 		listDshForeignSessions: () =>
-			ipcRenderer.invoke(ipcChannels.dshListForeignSessions) as Promise<Array<{
-				dshSessionId: string;
-				title?: string;
-				cwd?: string;
-				updatedAt?: number;
-			}>>,
+			ipcRenderer.invoke(ipcChannels.dshListForeignSessions) as Promise<
+				Array<{
+					dshSessionId: string;
+					title?: string;
+					cwd?: string;
+					updatedAt?: number;
+				}>
+			>,
 		/** DSH 外部会话导入（把 host 会话映射进 catalog，侧栏可见可加载）。 */
-		importDshForeignSession: (dshSessionId: string) =>
-			ipcRenderer.invoke(ipcChannels.dshImportForeignSession, dshSessionId) as Promise<import("../shared/types").SessionRecord>,
+		importDshForeignSession: (dshSessionId: string) => ipcRenderer.invoke(ipcChannels.dshImportForeignSession, dshSessionId) as Promise<import("../shared/types").SessionRecord>,
 		/** DSH 外部会话全量同步（自动发现：catalog 未映射的 host 根会话全部导入）。 */
-		syncDshForeignSessions: () =>
-			ipcRenderer.invoke(ipcChannels.dshSyncForeignSessions) as Promise<{ imported: number; skipped: number }>,
+		syncDshForeignSessions: () => ipcRenderer.invoke(ipcChannels.dshSyncForeignSessions) as Promise<{ imported: number; skipped: number }>,
 		/** DSH 归档区会话清单（G14：恢复入口用；目录已移入 .pideck-archive 的 host 会话，含标题）。 */
-		listArchivedDshSessions: () =>
-			ipcRenderer.invoke(ipcChannels.dshListArchived) as Promise<import("../shared/types").ArchivedDshSession[]>,
+		listArchivedDshSessions: () => ipcRenderer.invoke(ipcChannels.dshListArchived) as Promise<import("../shared/types").ArchivedDshSession[]>,
 		/** DSH 会话恢复（G14：目录按 manifest 移回 sessions 树并重建 catalog 记录）。 */
-		unarchiveDshSession: (dshSessionId: string) =>
-			ipcRenderer.invoke(ipcChannels.dshUnarchive, dshSessionId) as Promise<boolean>,
+		unarchiveDshSession: (dshSessionId: string) => ipcRenderer.invoke(ipcChannels.dshUnarchive, dshSessionId) as Promise<boolean>,
 		/** 永久删除已归档 DSH 会话（归档目录移入系统回收站；不可恢复） */
-		deleteArchivedDshSession: (dshSessionId: string) =>
-			ipcRenderer.invoke(ipcChannels.dshDeleteArchived, dshSessionId) as Promise<boolean>,
+		deleteArchivedDshSession: (dshSessionId: string) => ipcRenderer.invoke(ipcChannels.dshDeleteArchived, dshSessionId) as Promise<boolean>,
 		/** DSH 动态插件清单（G13 深化：进程内临时扩展，重启即失；按会话归属）。 */
-		listDshDynamicPlugins: () =>
-			ipcRenderer.invoke(ipcChannels.dshPluginList) as Promise<import("../shared/types").DshPluginView[]>,
-		/** DSH 静态 Loader 条目清单（只读：moduleName/enabled/fiberPhase）。 */
-		listDshStaticPlugins: () =>
-			ipcRenderer.invoke(ipcChannels.dshPluginStaticList) as Promise<import("../shared/types").DshStaticPluginView[]>,
+		listDshDynamicPlugins: () => ipcRenderer.invoke(ipcChannels.dshPluginList) as Promise<import("../shared/types").DshPluginView[]>,
+		/** DSH 静态 Loader 条目清单（origin 标注 user/builtin 来源）。 */
+		listDshStaticPlugins: () => ipcRenderer.invoke(ipcChannels.dshPluginStaticList) as Promise<import("../shared/types").DshStaticPluginView[]>,
+		/** DSH 用户自装静态插件卸载（移除用户补丁层行 + 可选回收插件目录；host 重启后生效）。 */
+		uninstallDshUserPlugin: (input: import("../shared/types").DshUserPluginUninstallInput) => ipcRenderer.invoke(ipcChannels.dshPluginUserUninstall, input) as Promise<import("../shared/types").DshUserPluginUninstallResult>,
+		/** DSH 插件市场搜索（官方目录 + npm 双源；单源失败降级 warnings）。 */
+		searchDshPluginMarket: (keyword: string) => ipcRenderer.invoke(ipcChannels.dshPluginMarketSearch, keyword) as Promise<import("../shared/types").DshPluginMarketSearchResult>,
+		/** DSH 用户自装静态插件安装（npm pack → 受管目录 → 用户补丁层行；幂等）。 */
+		installDshUserPlugin: (spec: string) => ipcRenderer.invoke(ipcChannels.dshPluginUserInstall, { spec }) as Promise<import("../shared/types").DshUserPluginInstallResult>,
+		/** DSH 用户补丁层清单（安装服务视角：受管目录内的行补全包名/版本/uiOnly）。 */
+		listDshUserPlugins: () => ipcRenderer.invoke(ipcChannels.dshPluginUserList) as Promise<import("../shared/types").DshUserPluginListEntry[]>,
 		/** DSH 动态插件安装（define：定义源码包，不运行）。 */
-		installDshPlugin: (input: import("../shared/types").DshPluginInstallInput) =>
-			ipcRenderer.invoke(ipcChannels.dshPluginInstall, input) as Promise<unknown>,
+		installDshPlugin: (input: import("../shared/types").DshPluginInstallInput) => ipcRenderer.invoke(ipcChannels.dshPluginInstall, input) as Promise<unknown>,
 		/** DSH 动态插件运行（面板手势，无需审批）。 */
-		runDshPlugin: (input: import("../shared/types").DshPluginLifecycleInput) =>
-			ipcRenderer.invoke(ipcChannels.dshPluginRun, input) as Promise<unknown>,
+		runDshPlugin: (input: import("../shared/types").DshPluginLifecycleInput) => ipcRenderer.invoke(ipcChannels.dshPluginRun, input) as Promise<unknown>,
 		/** DSH 动态插件停止（保留全部包版本）。 */
-		stopDshPlugin: (input: import("../shared/types").DshPluginLifecycleInput) =>
-			ipcRenderer.invoke(ipcChannels.dshPluginStop, input) as Promise<unknown>,
+		stopDshPlugin: (input: import("../shared/types").DshPluginLifecycleInput) => ipcRenderer.invoke(ipcChannels.dshPluginStop, input) as Promise<unknown>,
 		/** DSH 动态插件卸载（undefine：删除插件与全部包版本）。 */
-		uninstallDshPlugin: (input: import("../shared/types").DshPluginLifecycleInput) =>
-			ipcRenderer.invoke(ipcChannels.dshPluginUninstall, input) as Promise<unknown>,
-		sendPrompt: (input: SendSessionPromptInput) =>
-			ipcRenderer.invoke(ipcChannels.sessionsSendPrompt, input) as Promise<SendSessionPromptResult>,
-		sendUiResponse: (input: SessionUiResponseInput) =>
-			ipcRenderer.invoke(ipcChannels.sessionsUiResponse, input) as Promise<void>,
-		onRuntimeEvent: (callback: (event: SessionRuntimeEvent) => void) =>
-			subscribe(ipcChannels.sessionsRuntimeEvent, callback),
-		listRuntimes: () =>
-			ipcRenderer.invoke(ipcChannels.sessionsRuntimeList) as Promise<SessionRuntimeInfo[]>,
-		activateRuntime: (sessionId: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsRuntimeActivate, sessionId) as Promise<
-				SessionCommandResult<SessionRuntimeInfo>
-			>,		/** 汇报当前聚焦的会话（主进程据此决定非聚焦会话的 Ask 桌面通知） */
-		setFocusedSession: (sessionId?: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsSetFocusedSession, sessionId) as Promise<void>,
-		stopRuntime: (target: SessionRuntimeTarget) =>
-			ipcRenderer.invoke(ipcChannels.sessionsRuntimeStop, target) as Promise<
-				SessionCommandResult<SessionRuntimeTarget>
-			>,
-		abortRuntime: (target: SessionRuntimeTarget) =>
-			ipcRenderer.invoke(ipcChannels.sessionsRuntimeAbort, target) as Promise<
-				SessionCommandResult<SessionTargetedValue<void>>
-			>,
-		restartRuntime: (target: SessionRuntimeTarget) =>
-			ipcRenderer.invoke(ipcChannels.sessionsRuntimeRestart, target) as Promise<
-				SessionCommandResult<SessionRuntimeReplacement>
-			>,
-		compactRuntime: (target: SessionRuntimeTarget, prompt?: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsRuntimeCompact, target, prompt) as Promise<
-				SessionCommandResult<SessionTargetedValue<AgentRuntimeState>>
-			>,
-		getRuntimeState: (target: SessionRuntimeTarget) =>
-			ipcRenderer.invoke(ipcChannels.sessionsRuntimeState, target) as Promise<
-				SessionCommandResult<SessionTargetedValue<AgentRuntimeState>>
-			>,
-		listRuntimeCommands: (target: SessionRuntimeTarget) =>
-			ipcRenderer.invoke(ipcChannels.sessionsRuntimeCommands, target) as Promise<
-				SessionCommandResult<SessionTargetedValue<PiCommand[]>>
-			>,
+		uninstallDshPlugin: (input: import("../shared/types").DshPluginLifecycleInput) => ipcRenderer.invoke(ipcChannels.dshPluginUninstall, input) as Promise<unknown>,
+		sendPrompt: (input: SendSessionPromptInput) => ipcRenderer.invoke(ipcChannels.sessionsSendPrompt, input) as Promise<SendSessionPromptResult>,
+		sendUiResponse: (input: SessionUiResponseInput) => ipcRenderer.invoke(ipcChannels.sessionsUiResponse, input) as Promise<void>,
+		onRuntimeEvent: (callback: (event: SessionRuntimeEvent) => void) => subscribe(ipcChannels.sessionsRuntimeEvent, callback),
+		listRuntimes: () => ipcRenderer.invoke(ipcChannels.sessionsRuntimeList) as Promise<SessionRuntimeInfo[]>,
+		activateRuntime: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeActivate, sessionId) as Promise<SessionCommandResult<SessionRuntimeInfo>> /** 汇报当前聚焦的会话（主进程据此决定非聚焦会话的 Ask 桌面通知） */,
+		setFocusedSession: (sessionId?: string) => ipcRenderer.invoke(ipcChannels.sessionsSetFocusedSession, sessionId) as Promise<void>,
+		stopRuntime: (target: SessionRuntimeTarget) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeStop, target) as Promise<SessionCommandResult<SessionRuntimeTarget>>,
+		abortRuntime: (target: SessionRuntimeTarget) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeAbort, target) as Promise<SessionCommandResult<SessionTargetedValue<void>>>,
+		restartRuntime: (target: SessionRuntimeTarget) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeRestart, target) as Promise<SessionCommandResult<SessionRuntimeReplacement>>,
+		compactRuntime: (target: SessionRuntimeTarget, prompt?: string) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeCompact, target, prompt) as Promise<SessionCommandResult<SessionTargetedValue<AgentRuntimeState>>>,
+		getRuntimeState: (target: SessionRuntimeTarget) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeState, target) as Promise<SessionCommandResult<SessionTargetedValue<AgentRuntimeState>>>,
+		listRuntimeCommands: (target: SessionRuntimeTarget) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeCommands, target) as Promise<SessionCommandResult<SessionTargetedValue<PiCommand[]>>>,
+		listRuntimePromptTemplates: (target: SessionRuntimeTarget) => ipcRenderer.invoke(ipcChannels.sessionsRuntimePromptTemplates, target) as Promise<SessionCommandResult<SessionTargetedValue<RuntimePromptTemplate[]>>>,
+		/** 热重载 pi 扩展/技能/提示词；返回刷新后的命令表。 */
+		reloadResources: (target: SessionRuntimeTarget) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeReloadResources, target) as Promise<SessionCommandResult<SessionTargetedValue<PiCommand[]>>>,
+		/** 草稿会话命令预览（pi standby 进程只读查询；不可用/非 pi 返回 null）。 */
+		draftCommands: (projectId: string) => ipcRenderer.invoke(ipcChannels.sessionsDraftCommands, projectId) as Promise<PiCommand[] | null>,
+		draftPromptTemplates: (projectId: string) => ipcRenderer.invoke(ipcChannels.sessionsDraftPromptTemplates, projectId) as Promise<RuntimePromptTemplate[] | null>,
 		/** 运行中 Agent 快照里的模型；不在此列表 = 新加配置，切过去要重启。 */
-		listRuntimeModels: (target: SessionRuntimeTarget) =>
-			ipcRenderer.invoke(ipcChannels.sessionsRuntimeListModels, target) as Promise<
-				SessionCommandResult<SessionTargetedValue<AvailableModel[]>>
-			>,
+		listRuntimeModels: (target: SessionRuntimeTarget) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeListModels, target) as Promise<SessionCommandResult<SessionTargetedValue<AvailableModel[]>>>,
 		/** Pi 当前模型支持的 thinking levels；旧 Pi/非 Pi 后端返回 undefined，渲染层回退静态列表。 */
-		listRuntimeThinkingLevels: (target: SessionRuntimeTarget) =>
-			ipcRenderer.invoke(ipcChannels.sessionsRuntimeThinkingLevels, target) as Promise<
-				SessionCommandResult<SessionTargetedValue<string[] | undefined>>
-			>,
-		exportRuntimeHtml: (target: SessionRuntimeTarget) =>
-			ipcRenderer.invoke(ipcChannels.sessionsRuntimeExportHtml, target) as Promise<
-				SessionCommandResult<SessionTargetedValue<unknown>>
-			>,
-		editRuntimeMessage: (target: SessionRuntimeTarget, messageId: string, newText: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.sessionsRuntimeEditMessage,
-				target,
-				messageId,
-				newText,
-			) as Promise<SessionCommandResult<SessionTargetedValue<void>>>,
-		deleteRuntimeMessage: (target: SessionRuntimeTarget, messageId: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.sessionsRuntimeDeleteMessage,
-				target,
-				messageId,
-			) as Promise<SessionCommandResult<SessionTargetedValue<void>>>,
-		listRewindCheckpoints: (target: SessionRuntimeTarget, params?: RewindCheckpointPageParams) =>
-			ipcRenderer.invoke(ipcChannels.sessionsRewindList, target, params) as Promise<
-				SessionCommandResult<SessionTargetedValue<RewindCheckpointPage>>
-			>,
-		getRewindCheckpointDiff: (target: SessionRuntimeTarget, checkpointId: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.sessionsRewindDiff,
-				target,
-				checkpointId,
-			) as Promise<SessionCommandResult<SessionTargetedValue<string>>>,
-		restoreRewindCheckpoint: (
-			target: SessionRuntimeTarget,
-			checkpointId: string,
-			scope: RewindRestoreScope,
-		) =>
-			ipcRenderer.invoke(
-				ipcChannels.sessionsRewindRestore,
-				target,
-				checkpointId,
-				scope,
-			) as Promise<SessionCommandResult<SessionTargetedValue<RewindRestoreResult>>>,
+		listRuntimeThinkingLevels: (target: SessionRuntimeTarget) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeThinkingLevels, target) as Promise<SessionCommandResult<SessionTargetedValue<string[] | undefined>>>,
+		exportRuntimeHtml: (target: SessionRuntimeTarget) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeExportHtml, target) as Promise<SessionCommandResult<SessionTargetedValue<unknown>>>,
+		editRuntimeMessage: (target: SessionRuntimeTarget, messageId: string, newText: string) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeEditMessage, target, messageId, newText) as Promise<SessionCommandResult<SessionTargetedValue<void>>>,
+		deleteRuntimeMessage: (target: SessionRuntimeTarget, messageId: string) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeDeleteMessage, target, messageId) as Promise<SessionCommandResult<SessionTargetedValue<void>>>,
+		listRewindCheckpoints: (target: SessionRuntimeTarget, params?: RewindCheckpointPageParams) => ipcRenderer.invoke(ipcChannels.sessionsRewindList, target, params) as Promise<SessionCommandResult<SessionTargetedValue<RewindCheckpointPage>>>,
+		getRewindCheckpointDiff: (target: SessionRuntimeTarget, checkpointId: string) => ipcRenderer.invoke(ipcChannels.sessionsRewindDiff, target, checkpointId) as Promise<SessionCommandResult<SessionTargetedValue<string>>>,
+		restoreRewindCheckpoint: (target: SessionRuntimeTarget, checkpointId: string, scope: RewindRestoreScope) => ipcRenderer.invoke(ipcChannels.sessionsRewindRestore, target, checkpointId, scope) as Promise<SessionCommandResult<SessionTargetedValue<RewindRestoreResult>>>,
+		/** 会话分支树（只读文件索引；非 pi 后端返回 null）。 */
+		getBranchTree: (sessionId: string) => ipcRenderer.invoke(ipcChannels.sessionsGetBranchTree, sessionId) as Promise<SessionBranchTree | null>,
 		prepareRuntimeResend: (target: SessionRuntimeTarget, messageId: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.sessionsRuntimePrepareResend,
-				target,
-				messageId,
-			) as Promise<SessionCommandResult<SessionTargetedValue<{
-				text: string;
-				images?: ImageContent[];
-			}>>>,
-		setRuntimeModel: (target: SessionRuntimeTarget, provider: string, modelId: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.sessionsRuntimeSetModel,
-				target,
-				provider,
-				modelId,
-			) as Promise<SessionCommandResult<SessionTargetedValue<AgentRuntimeState>>>,
-		setRuntimeThinking: (target: SessionRuntimeTarget, level: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.sessionsRuntimeSetThinking,
-				target,
-				level,
-			) as Promise<SessionCommandResult<SessionTargetedValue<AgentRuntimeState>>>,
-		setRuntimePermission: (target: SessionRuntimeTarget, preset: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.sessionsRuntimeSetPermission,
-				target,
-				preset,
-			) as Promise<SessionCommandResult<SessionTargetedValue<AgentRuntimeState>>>,
+			ipcRenderer.invoke(ipcChannels.sessionsRuntimePrepareResend, target, messageId) as Promise<
+				SessionCommandResult<
+					SessionTargetedValue<{
+						text: string;
+						images?: ImageContent[];
+					}>
+				>
+			>,
+		setRuntimeModel: (target: SessionRuntimeTarget, provider: string, modelId: string, modelName?: string) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeSetModel, target, provider, modelId, modelName) as Promise<SessionCommandResult<SessionTargetedValue<SessionRuntimeModelSelection>>>,
+		setRuntimeThinking: (target: SessionRuntimeTarget, level: string) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeSetThinking, target, level) as Promise<SessionCommandResult<SessionTargetedValue<{ thinkingLevel: string }>>>,
+		setRuntimePermission: (target: SessionRuntimeTarget, preset: string) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeSetPermission, target, preset) as Promise<SessionCommandResult<SessionTargetedValue<AgentRuntimeState>>>,
 		cloneRuntime: (target: SessionRuntimeTarget) =>
 			ipcRenderer.invoke(ipcChannels.sessionsRuntimeClone, target) as Promise<
 				SessionCommandResult<{
@@ -807,15 +837,11 @@ const api = {
 				}>
 			>,
 		/** 列出可 fork 的用户消息 entryId，用于 meta.entryId 缺失时的正文回退匹配。 */
-		getRuntimeForkMessages: (target: SessionRuntimeTarget) =>
-			ipcRenderer.invoke(ipcChannels.sessionsRuntimeGetForkMessages, target) as Promise<
-				SessionCommandResult<
-					SessionTargetedValue<Array<{ entryId: string; text: string }>>
-				>
-			>,
-		/** 从指定 entryId fork 新会话（pi /fork），成功后会替换当前 runtime 绑定。 */
-		forkRuntimeSession: (target: SessionRuntimeTarget, entryId: string) =>
-			ipcRenderer.invoke(ipcChannels.sessionsRuntimeFork, target, entryId) as Promise<
+		getRuntimeForkMessages: (target: SessionRuntimeTarget) => ipcRenderer.invoke(ipcChannels.sessionsRuntimeGetForkMessages, target) as Promise<SessionCommandResult<SessionTargetedValue<Array<{ entryId: string; text: string }>>>>,
+		/** 从指定 entryId fork 新会话（pi /fork），成功后会替换当前 runtime 绑定。
+		 *  options.mutationFork：重发/编辑 fork 化重试——子会话继承原标题且旧会话打 supersededBy 从列表隐藏。 */
+		forkRuntimeSession: (target: SessionRuntimeTarget, entryId: string, options?: { mutationFork?: boolean; branchMode?: boolean }) =>
+			ipcRenderer.invoke(ipcChannels.sessionsRuntimeFork, target, entryId, options) as Promise<
 				SessionCommandResult<{
 					cancelled?: boolean;
 					text?: string;
@@ -825,610 +851,417 @@ const api = {
 			>,
 	},
 	usageStats: {
-		detect: () =>
-			ipcRenderer.invoke(ipcChannels.usageStatsDetect) as Promise<
-				import("../shared/types").UsageStatsDetectResult
-			>,
-		refresh: () =>
-			ipcRenderer.invoke(ipcChannels.usageStatsRefresh) as Promise<
-				import("../shared/types").UsageStatsRefreshResult
-			>,
-		get: () =>
-			ipcRenderer.invoke(ipcChannels.usageStatsGet) as Promise<
-				import("../shared/types").UsageAggregated
-			>,
+		detect: () => ipcRenderer.invoke(ipcChannels.usageStatsDetect) as Promise<import("../shared/types").UsageStatsDetectResult>,
+		refresh: () => ipcRenderer.invoke(ipcChannels.usageStatsRefresh) as Promise<import("../shared/types").UsageStatsRefreshResult>,
+		get: () => ipcRenderer.invoke(ipcChannels.usageStatsGet) as Promise<import("../shared/types").UsageAggregated>,
 	},
 	codexSessions: {
-		scan: (projectId: string) =>
-			ipcRenderer.invoke(ipcChannels.codexSessionsScan, projectId) as Promise<
-				CodexSessionSummary[]
-			>,
-		import: (projectId: string, sourcePaths: string[]) =>
-			ipcRenderer.invoke(
-				ipcChannels.codexSessionsImport,
-				projectId,
-				sourcePaths,
-			) as Promise<CodexImportReport>,
+		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.codexSessionsScan, projectId) as Promise<CodexSessionSummary[]>,
+		import: (projectId: string, sourcePaths: string[]) => ipcRenderer.invoke(ipcChannels.codexSessionsImport, projectId, sourcePaths) as Promise<CodexImportReport>,
 	},
 	claudeSessions: {
-		scan: (projectId: string) =>
-			ipcRenderer.invoke(ipcChannels.claudeSessionsScan, projectId) as Promise<
-				ClaudeSessionSummary[]
-			>,
-		import: (projectId: string, sourcePaths: string[]) =>
-			ipcRenderer.invoke(
-				ipcChannels.claudeSessionsImport,
-				projectId,
-				sourcePaths,
-			) as Promise<ClaudeImportReport>,
+		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.claudeSessionsScan, projectId) as Promise<ClaudeSessionSummary[]>,
+		import: (projectId: string, sourcePaths: string[]) => ipcRenderer.invoke(ipcChannels.claudeSessionsImport, projectId, sourcePaths) as Promise<ClaudeImportReport>,
+	},
+	qoderSessions: {
+		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.qoderSessionsScan, projectId) as Promise<QoderSessionSummary[]>,
+		import: (projectId: string, sourcePaths: string[]) => ipcRenderer.invoke(ipcChannels.qoderSessionsImport, projectId, sourcePaths) as Promise<QoderImportReport>,
 	},
 	openCodeSessions: {
-		scan: (projectId: string) =>
-			ipcRenderer.invoke(ipcChannels.openCodeSessionsScan, projectId) as Promise<
-				OpenCodeSessionSummary[]
-			>,
-		import: (projectId: string, sourcePaths: string[]) =>
-			ipcRenderer.invoke(
-				ipcChannels.openCodeSessionsImport,
-				projectId,
-				sourcePaths,
-			) as Promise<OpenCodeImportReport>,
+		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.openCodeSessionsScan, projectId) as Promise<OpenCodeSessionSummary[]>,
+		import: (projectId: string, sourcePaths: string[]) => ipcRenderer.invoke(ipcChannels.openCodeSessionsImport, projectId, sourcePaths) as Promise<OpenCodeImportReport>,
+	},
+	zcodeSessions: {
+		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.zcodeSessionsScan, projectId) as Promise<ZCodeSessionSummary[]>,
+		import: (projectId: string, sourcePaths: string[]) => ipcRenderer.invoke(ipcChannels.zcodeSessionsImport, projectId, sourcePaths) as Promise<ZCodeImportReport>,
+	},
+	workbuddySessions: {
+		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.workbuddySessionsScan, projectId) as Promise<WorkBuddySessionSummary[]>,
+		import: (projectId: string, sourcePaths: string[]) => ipcRenderer.invoke(ipcChannels.workbuddySessionsImport, projectId, sourcePaths) as Promise<WorkBuddyImportReport>,
+	},
+	cursorSessions: {
+		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.cursorSessionsScan, projectId) as Promise<CursorSessionSummary[]>,
+		import: (projectId: string, sourcePaths: string[]) => ipcRenderer.invoke(ipcChannels.cursorSessionsImport, projectId, sourcePaths) as Promise<CursorImportReport>,
+	},
+	kimiSessions: {
+		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.kimiSessionsScan, projectId) as Promise<KimiSessionSummary[]>,
+		import: (projectId: string, sourcePaths: string[]) => ipcRenderer.invoke(ipcChannels.kimiSessionsImport, projectId, sourcePaths) as Promise<KimiImportReport>,
+	},
+	/** Kimi Work（kimi-desktop 桌面版）会话导入；数据目录位置由探测链决定（见 kimiWorkSource）。 */
+	kimiWorkSessions: {
+		describe: () => ipcRenderer.invoke(ipcChannels.kimiWorkSessionsDescribe) as Promise<KimiWorkShareRootInfo>,
+		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.kimiWorkSessionsScan, projectId) as Promise<KimiWorkSessionSummary[]>,
+		import: (projectId: string, sourcePaths: string[]) => ipcRenderer.invoke(ipcChannels.kimiWorkSessionsImport, projectId, sourcePaths) as Promise<KimiWorkImportReport>,
+	},
+	/** MinimaxCode（CLI）会话导入；数据目录固定 ~/.minimax/v2/sessions，按 cwd 归属项目。 */
+	minimaxSessions: {
+		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.minimaxSessionsScan, projectId) as Promise<MinimaxSessionSummary[]>,
+		import: (projectId: string, sourcePaths: string[]) => ipcRenderer.invoke(ipcChannels.minimaxSessionsImport, projectId, sourcePaths) as Promise<MinimaxImportReport>,
+	},
+	/**
+	 * 外置目录会话导入：源目录由用户现选（从「现有会话目录」列表点选，或手选任意目录），
+	 * 导入 = 把会话挂到当前项目（catalog 归属改写），原文件不移动、不复制。
+	 */
+	directorySessions: {
+		scan: (projectId: string, dir: string) => ipcRenderer.invoke(ipcChannels.directorySessionsScan, projectId, dir) as Promise<DirectorySessionScanResult>,
+		listSources: () => ipcRenderer.invoke(ipcChannels.directorySessionsListSources) as Promise<DirectorySessionSourceDir[]>,
+		import: (projectId: string, dir: string, sourcePaths: string[]) => ipcRenderer.invoke(ipcChannels.directorySessionsImport, projectId, dir, sourcePaths) as Promise<DirectoryImportReport>,
 	},
 	git: {
 		/** 扫描项目内独立仓库；单仓项目通常只返回根仓库 */
-		listRepos: (projectId: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitListRepos,
-				projectId,
-			) as Promise<GitRepoInfo[]>,
-		branches: (projectId: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitBranches,
-				projectId,
-				repoPath,
-			) as Promise<GitBranchInfo>,
-		checkout: (projectId: string, branch: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitCheckout,
-				projectId,
-				branch,
-				repoPath,
-			) as Promise<GitBranchInfo>,
-		createBranch: (projectId: string, branchName: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitCreateBranch,
-				projectId,
-				branchName,
-				repoPath,
-			) as Promise<GitBranchInfo>,
+		listRepos: (projectId: string) => ipcRenderer.invoke(ipcChannels.gitListRepos, projectId) as Promise<GitRepoInfo[]>,
+		branches: (projectId: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitBranches, projectId, repoPath) as Promise<GitBranchInfo>,
+		checkout: (projectId: string, branch: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitCheckout, projectId, branch, repoPath) as Promise<GitBranchInfo>,
+		createBranch: (projectId: string, branchName: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitCreateBranch, projectId, branchName, repoPath) as Promise<GitBranchInfo>,
 		// 读取文件的 Git HEAD 原始内容，供差异编辑器左侧基准列使用。
-		originalContent: (filePath: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitOriginalContent,
-				filePath,
-			) as Promise<string>,
+		originalContent: (filePath: string) => ipcRenderer.invoke(ipcChannels.gitOriginalContent, filePath) as Promise<string>,
 		// 列出项目的 git worktree（排除主工作区）
-		worktreeList: (projectId: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitWorktreeList,
-				projectId,
-			) as Promise<WorktreeEntry[]>,
+		worktreeList: (projectId: string) => ipcRenderer.invoke(ipcChannels.gitWorktreeList, projectId) as Promise<WorktreeEntry[]>,
 		// 创建新的 worktree
-		worktreeCreate: (projectId: string, branchName: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitWorktreeCreate,
-				projectId,
-				branchName,
-			) as Promise<{ path: string; branch: string }>,
+		worktreeCreate: (projectId: string, branchName: string) => ipcRenderer.invoke(ipcChannels.gitWorktreeCreate, projectId, branchName) as Promise<{ path: string; branch: string }>,
 		// 删除 worktree
-		worktreeRemove: (projectId: string, worktreePath: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitWorktreeRemove,
-				projectId,
-				worktreePath,
-			) as Promise<boolean>,
+		worktreeRemove: (projectId: string, worktreePath: string) => ipcRenderer.invoke(ipcChannels.gitWorktreeRemove, projectId, worktreePath) as Promise<boolean>,
 		// Git 增强：提交历史、分支对比、Graph
-		commitLog: (projectId: string, options?: { maxEntries?: number; ref?: string; path?: string; allBranches?: boolean }, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitCommitLog,
-				projectId,
-				options,
-				repoPath,
-			) as Promise<CommitEntry[]>,
+		commitLog: (projectId: string, options?: { maxEntries?: number; ref?: string; path?: string; allBranches?: boolean }, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitCommitLog, projectId, options, repoPath) as Promise<CommitEntry[]>,
+		// 与当前图谱过滤一致的提交总数（不分页），供源代码管理图标题徽章使用。
+		commitCount: (projectId: string, options?: { ref?: string; path?: string; allBranches?: boolean }, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitCommitCount, projectId, options, repoPath) as Promise<number>,
 		// Git 引用（分支 / 远程分支 / Tag）
-		refs: (projectId: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitRefs,
-				projectId,
-				repoPath,
-			) as Promise<GitRef[]>,
+		refs: (projectId: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitRefs, projectId, repoPath) as Promise<GitRef[]>,
 		// 分支对比概要（变更文件 + ahead/behind）
-		branchCompare: (projectId: string, base: string, target: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitBranchCompare,
-				projectId,
-				base,
-				target,
-				repoPath,
-			) as Promise<BranchDiffResult>,
+		branchCompare: (projectId: string, base: string, target: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitBranchCompare, projectId, base, target, repoPath) as Promise<BranchDiffResult>,
 		// 单个 commit 详情
-		commitDetail: (projectId: string, ref: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitCommitDetail,
-				projectId,
-				ref,
-				repoPath,
-			) as Promise<CommitDetail | null>,
+		commitDetail: (projectId: string, ref: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitCommitDetail, projectId, ref, repoPath) as Promise<CommitDetail | null>,
 		// 提交历史中单个文件相对第一父提交的两侧内容
-		commitFileDiff: (projectId: string, ref: string, filePath: string, originalPath?: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitCommitFileDiff,
-				projectId,
-				ref,
-				filePath,
-				originalPath,
-				repoPath,
-			) as Promise<GitCommitFileDiff | null>,
+		commitFileDiff: (projectId: string, ref: string, filePath: string, originalPath?: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitCommitFileDiff, projectId, ref, filePath, originalPath, repoPath) as Promise<GitCommitFileDiff | null>,
 		// 两个 ref 间单个文件的 diff
-		diffFileBetween: (projectId: string, ref1: string, ref2: string, filePath: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitDiffFileBetween,
-				projectId,
-				ref1,
-				ref2,
-				filePath,
-				repoPath,
-			) as Promise<string>,
+		diffFileBetween: (projectId: string, ref1: string, ref2: string, filePath: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitDiffFileBetween, projectId, ref1, ref2, filePath, repoPath) as Promise<string>,
 		// Git 工作区状态（VS Code 风格分组：Staged/Unstaged/Untracked/Merge）
-		status: (projectId: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitStatus,
-				projectId,
-				repoPath,
-			) as Promise<import("../shared/types").GitResourceGroups>,
+		status: (projectId: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitStatus, projectId, repoPath) as Promise<import("../shared/types").GitResourceGroups>,
 		// Git Changes 中单个文件的两侧快照（按点击惰性读取）
-		workspaceFileDiff: (projectId: string, group: GitWorkspaceDiffGroup, filePath: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitWorkspaceFileDiff,
-				projectId,
-				group,
-				filePath,
-				repoPath,
-			) as Promise<GitWorkspaceFileDiff | null>,
+		workspaceFileDiff: (projectId: string, group: GitWorkspaceDiffGroup, filePath: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitWorkspaceFileDiff, projectId, group, filePath, repoPath) as Promise<GitWorkspaceFileDiff | null>,
 		// Stage 文件
-		stage: (projectId: string, paths: string[], repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitStage,
-				projectId,
-				paths,
-				repoPath,
-			) as Promise<void>,
+		stage: (projectId: string, paths: string[], repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitStage, projectId, paths, repoPath) as Promise<void>,
 		// Unstage 文件
-		unstage: (projectId: string, paths: string[], repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitUnstage,
-				projectId,
-				paths,
-				repoPath,
-			) as Promise<void>,
+		unstage: (projectId: string, paths: string[], repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitUnstage, projectId, paths, repoPath) as Promise<void>,
 		// 丢弃单个未暂存文件；主进程会按最新 status 再次验证 group 与路径。
-		discard: (projectId: string, group: "workingTree" | "untracked", filePath: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitDiscard,
-				projectId,
-				group,
-				filePath,
-				repoPath,
-			) as Promise<void>,
+		discard: (projectId: string, group: "workingTree" | "untracked", filePath: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitDiscard, projectId, group, filePath, repoPath) as Promise<void>,
 		// 按目录批量回滚：资源组随路径传入，主进程会重新校验最新状态。
-		discardFiles: (projectId: string, resources: GitDiscardResource[], repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitDiscardFiles,
-				projectId,
-				resources,
-				repoPath,
-			) as Promise<void>,
+		discardFiles: (projectId: string, resources: GitDiscardResource[], repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitDiscardFiles, projectId, resources, repoPath) as Promise<void>,
 		// Commit
-		commit: (projectId: string, message: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitCommit,
-				projectId,
-				message,
-				repoPath,
-			) as Promise<void>,
-		cherryPick: (projectId: string, hash: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitCherryPick,
-				projectId,
-				hash,
-				repoPath,
-			) as Promise<void>,
-		revert: (projectId: string, hash: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitRevert,
-				projectId,
-				hash,
-				repoPath,
-			) as Promise<void>,
-		reset: (projectId: string, hash: string, mode: "soft" | "mixed" | "hard", repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitReset,
-				projectId,
-				hash,
-				mode,
-				repoPath,
-			) as Promise<void>,
-		dropCommit: (projectId: string, hash: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitDropCommit,
-				projectId,
-				hash,
-				repoPath,
-			) as Promise<void>,
+		commit: (projectId: string, message: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitCommit, projectId, message, repoPath) as Promise<void>,
+		cherryPick: (projectId: string, hash: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitCherryPick, projectId, hash, repoPath) as Promise<void>,
+		revert: (projectId: string, hash: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitRevert, projectId, hash, repoPath) as Promise<void>,
+		reset: (projectId: string, hash: string, mode: "soft" | "mixed" | "hard", repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitReset, projectId, hash, mode, repoPath) as Promise<void>,
+		dropCommit: (projectId: string, hash: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitDropCommit, projectId, hash, repoPath) as Promise<void>,
 		/** AI 生成提交摘要 */
-		generateCommitMessage: (projectId: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitGenerateCommitMessage,
-				projectId,
-				repoPath,
-			) as Promise<import("../shared/types").GitGenerateCommitMessageResult>,
+		generateCommitMessage: (projectId: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitGenerateCommitMessage, projectId, repoPath) as Promise<import("../shared/types").GitGenerateCommitMessageResult>,
 		/** 初始化 Git 仓库（始终作用于项目根，不跟随嵌套仓库切换） */
-		init: (projectId: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitInit,
-				projectId,
-			) as Promise<void>,
+		init: (projectId: string) => ipcRenderer.invoke(ipcChannels.gitInit, projectId) as Promise<void>,
 		/** Push：将当前分支推送到远程 */
-		push: (projectId: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitPush,
-				projectId,
-				repoPath,
-			) as Promise<void>,
+		push: (projectId: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitPush, projectId, repoPath) as Promise<void>,
 		/** Pull：从远程拉取并合并到当前分支 */
-		pull: (projectId: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitPull,
-				projectId,
-				repoPath,
-			) as Promise<void>,
+		pull: (projectId: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitPull, projectId, repoPath) as Promise<void>,
 		/** Fetch：从远程获取最新数据但不合并 */
-		fetch: (projectId: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitFetch,
-				projectId,
-				repoPath,
-			) as Promise<void>,
+		fetch: (projectId: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitFetch, projectId, repoPath) as Promise<void>,
 		/** 当前分支相对上游的提交差距（ahead/behind），驱动 push/pull 角标 */
-		aheadBehind: (projectId: string, repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitAheadBehind,
-				projectId,
-				repoPath,
-			) as Promise<import("../shared/types").GitAheadBehind | null>,
+		aheadBehind: (projectId: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitAheadBehind, projectId, repoPath) as Promise<import("../shared/types").GitAheadBehind | null>,
+		/**
+		 * 订阅仓库 refs 变化（commit/push/fetch/切分支），返回 watchId。
+		 * 与 unwatchRefs 成对使用：组件卸载时必须退订，否则监听句柄会留到应用退出。
+		 */
+		watchRefs: (projectId: string, repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitWatchRefs, projectId, repoPath) as Promise<string>,
+		/** 退订 refs 监听；未知 watchId 由主进程静默忽略（重复退订安全） */
+		unwatchRefs: (watchId: string) => ipcRenderer.invoke(ipcChannels.gitUnwatchRefs, watchId) as Promise<void>,
+		/** refs 变化推送：payload 为 watchId，调用方只处理自己订阅的那一份。返回退订函数。 */
+		onRefsChanged: (listener: (watchId: string) => void) => {
+			const handler = (_event: unknown, watchId: string) => listener(watchId);
+			ipcRenderer.on(ipcChannels.gitRefsChanged, handler);
+			return () => {
+				ipcRenderer.removeListener(ipcChannels.gitRefsChanged, handler);
+			};
+		},
 		/** 从磁盘删除变更文件（移入回收站，可恢复） */
-		deleteFiles: (projectId: string, paths: string[], repoPath?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.gitDeleteFiles,
-				projectId,
-				paths,
-				repoPath,
-			) as Promise<void>,
+		deleteFiles: (projectId: string, paths: string[], repoPath?: string) => ipcRenderer.invoke(ipcChannels.gitDeleteFiles, projectId, paths, repoPath) as Promise<void>,
+		/**
+		 * 探测 git 可执行文件。传 configuredPath 可在保存前预览「这样配置能不能用」；
+		 * 不传则用设置里已持久化的值，返回当前实际生效的路径与版本。
+		 */
+		detectExecutable: (configuredPath?: string) => ipcRenderer.invoke(ipcChannels.gitDetectExecutable, configuredPath) as Promise<GitExecutableInfo>,
+		/** 打开文件选择框挑一个 git 可执行文件；取消返回 null */
+		chooseExecutable: () => ipcRenderer.invoke(ipcChannels.gitChooseExecutable) as Promise<string | null>,
 	},
 	pi: {
-		check: () =>
-			ipcRenderer.invoke(ipcChannels.piCheck) as Promise<PiInstallStatus>,
+		/**
+		 * 检测 pi 环境。`force` = 忽略 WSL 探测缓存重新扫描，
+		 * 用于用户显式点「检测环境」或刚改过 WSL 配置（否则负缓存 TTL 内看不到新装好的 pi）。
+		 */
+		check: (force?: boolean) => ipcRenderer.invoke(ipcChannels.piCheck, force === true) as Promise<PiInstallStatus>,
 		/** 验证用户手动输入的 pi 路径，通过后主进程会自动保存到 settings.customPiPath */
-		checkCustom: (customPath: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.piCheckCustom,
-				customPath,
-			) as Promise<PiInstallStatus>,
-		checkUpdate: () =>
-			ipcRenderer.invoke(ipcChannels.piUpdateCheck) as Promise<PiUpdateCheckResult>,
-		update: () =>
-			ipcRenderer.invoke(ipcChannels.piUpdate) as Promise<PiCliUpdateResult>,
+		/**
+		 * 验证用户手动输入的 pi 路径，通过后主进程会自动保存到 settings.customPiPath。
+		 * `activate=false`：只校验不改「当前使用」（编辑备选路径时用）。
+		 */
+		checkCustom: (customPath: string, activate?: boolean) => ipcRenderer.invoke(ipcChannels.piCheckCustom, customPath, activate !== false) as Promise<PiInstallStatus>,
+		/**
+		 * 列出系统上探测到的全部 pi 安装（含官方安装器的 managed 安装）。
+		 * `forceShellProbe` = 额外跑一次交互式登录 shell 反查（用户显式点「从终端再找一次」）。
+		 */
+		listInstallations: (forceShellProbe?: boolean) => ipcRenderer.invoke(ipcChannels.piInstallations, forceShellProbe === true) as Promise<PiInstallation[]>,
+		/** 打开文件选择器挑一个 pi 可执行文件（稀有/自定义安装）；取消返回 null */
+		chooseExecutable: () => ipcRenderer.invoke(ipcChannels.piChooseExecutable) as Promise<string | null>,
+		/** 保存用户自加的 pi 候选路径列表；返回落盘后的列表与「当前使用是否被一并清空」 */
+		setCustomPaths: (paths: readonly string[]) => ipcRenderer.invoke(ipcChannels.piSetCustomPaths, [...paths]) as Promise<{ paths: string[]; clearedActive: boolean }>,
+		checkUpdate: () => ipcRenderer.invoke(ipcChannels.piUpdateCheck) as Promise<PiUpdateCheckResult>,
+		update: () => ipcRenderer.invoke(ipcChannels.piUpdate) as Promise<PiCliUpdateResult>,
+		/** pi CLI 更新日志：点「更新详情」时按需拉取 (current, latest] 区间的 changelog 条目。 */
+		releaseNotes: (options: { latestVersion: string; currentVersion?: string }) => ipcRenderer.invoke(ipcChannels.piReleaseNotes, options) as Promise<PiReleaseNotesPayload>,
 		/** 执行安装命令（如 npm install -g pi）并返回执行结果 */
-		execInstall: (command: string) =>
-			ipcRenderer.invoke(ipcChannels.piExecInstall, command) as Promise<PiInstallExecResult>,
+		execInstall: (command: string) => ipcRenderer.invoke(ipcChannels.piExecInstall, command) as Promise<PiInstallExecResult>,
 		/** 检查 npm 是否可用 */
-		checkNpm: () =>
-			ipcRenderer.invoke(ipcChannels.piCheckNpm) as Promise<NpmAvailabilityResult>,
+		checkNpm: () => ipcRenderer.invoke(ipcChannels.piCheckNpm) as Promise<NpmAvailabilityResult>,
+		/** 环境引导：检测便携 Node 副本 + 系统 node 状态 */
+		runtimeNodeCheck: () => ipcRenderer.invoke(ipcChannels.piRuntimeNodeCheck) as Promise<PiRuntimeNodeStatus>,
+		/** 环境引导：安装便携 Node 到 userData（镜像回退 + sha256 校验，主进程内完成） */
+		runtimeNodeInstall: () => ipcRenderer.invoke(ipcChannels.piRuntimeNodeInstall) as Promise<PiRuntimeNodeInstallResult>,
+		/** 环境引导：全局安装 pi（收紧通道：只传镜像布尔意图，命令由主进程拼接） */
+		runtimePiInstall: (useMirror: boolean) => ipcRenderer.invoke(ipcChannels.piRuntimePiInstall, useMirror === true) as Promise<PiInstallExecResult>,
 	},
 	/** WSL 相关操作（仅 Windows 有效） */
 	wsl: {
 		/** 获取已安装的 WSL 发行版列表 */
-		listDistros: () =>
-			ipcRenderer.invoke(ipcChannels.wslListDistros) as Promise<string[]>,
+		listDistros: () => ipcRenderer.invoke(ipcChannels.wslListDistros) as Promise<string[]>,
 		/** 验证 WSL 连接：检查 distro + user 是否可达，以及 pi 是否已安装 */
-		validateConnection: (distro: string, user: string) =>
-			ipcRenderer.invoke(ipcChannels.wslValidateConnection, distro, user) as Promise<{
-				ok: boolean;
-				whoami: string;
-				piVersion: string;
-				error: string;
-			}>,
+		validateConnection: (distro: string, user: string) => ipcRenderer.invoke(ipcChannels.wslValidateConnection, distro, user) as Promise<WslConnectionValidation>,
 	},
 	system: {
 		/** 进程监控：拉取 Electron 各进程 + pi agent 子进程内存/CPU 快照 */
-		getProcessMetrics: () =>
-			ipcRenderer.invoke(ipcChannels.processMetrics) as Promise<ProcessMetricsSnapshot>,
+		getProcessMetrics: () => ipcRenderer.invoke(ipcChannels.processMetrics) as Promise<ProcessMetricsSnapshot>,
 		/** 停止指定 pi agent（按 agentId），成功后刷新进程快照即可看到消失 */
-		stopAgent: (agentId: string) =>
-			ipcRenderer.invoke(ipcChannels.stopAgent, agentId) as Promise<void>,
+		stopAgent: (agentId: string) => ipcRenderer.invoke(ipcChannels.stopAgent, agentId) as Promise<void>,
 		/** 开发诊断快照：内存 / 事件循环延迟 / 最近关键耗时 */
-		getDiagnosticsSnapshot: () =>
-			ipcRenderer.invoke(ipcChannels.diagnosticsSnapshot) as Promise<DiagnosticsSnapshot>,
-		openDiagnosticsFolder: () =>
-			ipcRenderer.invoke(ipcChannels.diagnosticsOpenFolder) as Promise<void>,
+		getDiagnosticsSnapshot: () => ipcRenderer.invoke(ipcChannels.diagnosticsSnapshot) as Promise<DiagnosticsSnapshot>,
+		/** 运行架构检测：判断是否在 ARM 芯片上跑 x64 转译包（Rosetta），用于提示换原生包 */
+		getArchStatus: () => ipcRenderer.invoke(ipcChannels.archStatus) as Promise<ArchStatus>,
+		openDiagnosticsFolder: () => ipcRenderer.invoke(ipcChannels.diagnosticsOpenFolder) as Promise<void>,
 		/** 环境体检：跑一次完整检查并返回脱敏报告。 */
 		healthCheck: () => ipcRenderer.invoke(ipcChannels.healthCheck) as Promise<HealthReport>,
 		/** 把 Markdown 报告保存到用户选择的路径。 */
-		healthExportReport: (markdown: string, reportJson?: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.healthExportReport,
-				markdown,
-				reportJson,
-			) as Promise<HealthExportResult>,
+		healthExportReport: (markdown: string, reportJson?: string) => ipcRenderer.invoke(ipcChannels.healthExportReport, markdown, reportJson) as Promise<HealthExportResult>,
 		/** 把脱敏日志 + 报告 + 环境 JSON 打成 zip 保存到用户选择的路径。 */
-		healthExportBundle: (markdown: string, reportJson: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.healthExportBundle,
-				markdown,
-				reportJson,
-			) as Promise<HealthExportResult>,
+		healthExportBundle: (markdown: string, reportJson: string) => ipcRenderer.invoke(ipcChannels.healthExportBundle, markdown, reportJson) as Promise<HealthExportResult>,
 	},
 	logs: {
-		list: (query?: AppLogQuery) =>
-			ipcRenderer.invoke(ipcChannels.logsList, query ?? {}) as Promise<AppLogEntry[]>,
-		listPage: (query?: AppLogQuery) =>
-			ipcRenderer.invoke(ipcChannels.logsListPage, query ?? {}) as Promise<AppLogPage>,
+		list: (query?: AppLogQuery) => ipcRenderer.invoke(ipcChannels.logsList, query ?? {}) as Promise<AppLogEntry[]>,
+		listPage: (query?: AppLogQuery) => ipcRenderer.invoke(ipcChannels.logsListPage, query ?? {}) as Promise<AppLogPage>,
 		clear: () => ipcRenderer.invoke(ipcChannels.logsClear) as Promise<void>,
 		openFolder: () => ipcRenderer.invoke(ipcChannels.logsOpenFolder) as Promise<void>,
-		getSize: () =>
-			ipcRenderer.invoke(ipcChannels.logsSize) as Promise<number>,
+		getSize: () => ipcRenderer.invoke(ipcChannels.logsSize) as Promise<number>,
 	},
 	rpcLogs: {
-		getSize: (target?: SessionRuntimeTarget) =>
-			ipcRenderer.invoke(ipcChannels.rpcLogsGetSize, target) as Promise<number>,
-		get: (options?: { target?: SessionRuntimeTarget; days?: number; limit?: number }) =>
-			ipcRenderer.invoke(ipcChannels.rpcLogsGet, options) as Promise<RpcLogEntry[]>,
+		getSize: (target?: SessionRuntimeTarget) => ipcRenderer.invoke(ipcChannels.rpcLogsGetSize, target) as Promise<number>,
+		get: (options?: { target?: SessionRuntimeTarget; days?: number; limit?: number }) => ipcRenderer.invoke(ipcChannels.rpcLogsGet, options) as Promise<RpcLogEntry[]>,
 		/** 实时查看弹窗初始历史：主进程环形缓冲（按 agentId 过滤） */
-		getLive: (agentId?: string) =>
-			ipcRenderer.invoke(ipcChannels.rpcLogsGetLive, agentId) as Promise<RpcLogEntry[]>,
+		getLive: (agentId?: string) => ipcRenderer.invoke(ipcChannels.rpcLogsGetLive, agentId) as Promise<RpcLogEntry[]>,
+		/** 模型请求快照的完整请求体（面板展开模型行时按 traceId 回读；缺失返回 null） */
+		getModelTrace: (options: { agentId: string; traceId: string }) => ipcRenderer.invoke(ipcChannels.rpcLogsGetModelTrace, options) as Promise<ModelTraceRecord | null>,
 		/** 把弹窗中的日志条目合并写入该 agent 的自动日志文件（按 id 去重），返回写入的文件路径列表 */
-		save: (options: { entries: RpcLogEntry[] }) =>
-			ipcRenderer.invoke(ipcChannels.rpcLogsSave, options) as Promise<string[]>,
+		save: (options: { entries: RpcLogEntry[] }) => ipcRenderer.invoke(ipcChannels.rpcLogsSave, options) as Promise<string[]>,
 		/** 订阅主进程批量推送的实时日志（按 agent 聚合，~80ms 一次），返回退订函数 */
-		onLog: (callback: (batch: RpcLogBatch) => void) =>
-			subscribe<{ agentId: string; entries: RpcLogEntry[] }>(ipcChannels.agentsRpcLog, callback),
-		clear: (target?: SessionRuntimeTarget) =>
-			ipcRenderer.invoke(ipcChannels.rpcLogsClear, target) as Promise<void>,
-		setLogging: (target: SessionRuntimeTarget, enabled: boolean) =>
-			ipcRenderer.invoke(ipcChannels.rpcLoggingSet, target, enabled) as Promise<boolean>,
-		getLogging: (target: SessionRuntimeTarget) =>
-			ipcRenderer.invoke(ipcChannels.rpcLoggingGet, target) as Promise<boolean>,
+		onLog: (callback: (batch: RpcLogBatch) => void) => subscribe<{ agentId: string; entries: RpcLogEntry[] }>(ipcChannels.agentsRpcLog, callback),
+		clear: (target?: SessionRuntimeTarget) => ipcRenderer.invoke(ipcChannels.rpcLogsClear, target) as Promise<void>,
+		setLogging: (target: SessionRuntimeTarget, enabled: boolean) => ipcRenderer.invoke(ipcChannels.rpcLoggingSet, target, enabled) as Promise<boolean>,
+		getLogging: (target: SessionRuntimeTarget) => ipcRenderer.invoke(ipcChannels.rpcLoggingGet, target) as Promise<boolean>,
+		/** 登记「该 agent 的实时日志面板是否在看」：主进程据此决定是否广播（面板挂载 true / 卸载 false） */
+		setWatching: (agentId: string, watching: boolean) => ipcRenderer.invoke(ipcChannels.rpcLogsSetWatching, agentId, watching) as Promise<boolean>,
 	},
 	app: {
 		info: () => ipcRenderer.invoke(ipcChannels.appInfo) as Promise<AppInfo>,
-		networkAddresses: () =>
-			ipcRenderer.invoke(ipcChannels.appNetworkAddresses) as Promise<WebNetworkAddress[]>,
-		preferredSystemLanguages: () =>
-			ipcRenderer.invoke(ipcChannels.appPreferredSystemLanguages) as Promise<string[]>,
+		networkAddresses: () => ipcRenderer.invoke(ipcChannels.appNetworkAddresses) as Promise<WebNetworkAddress[]>,
+		preferredSystemLanguages: () => ipcRenderer.invoke(ipcChannels.appPreferredSystemLanguages) as Promise<string[]>,
 		/** 手动触发一次更新检查（检测结果经 onUpdateStatus 快照推送；不弹窗）。 */
-		checkUpdate: () =>
-			ipcRenderer.invoke(ipcChannels.appCheckUpdate) as Promise<void>,
+		checkUpdate: () => ipcRenderer.invoke(ipcChannels.appCheckUpdate) as Promise<void>,
+		/** 当前构建所属更新通道（stable/dev，编译期判定）与应用版本。 */
+		getChannel: () => ipcRenderer.invoke(ipcChannels.appGetChannel) as Promise<UpdateChannelInfo>,
 		/** 手动下载已检测到的新版本（自动下载关闭时用）。 */
-		downloadUpdate: () =>
-			ipcRenderer.invoke(ipcChannels.appDownloadUpdate) as Promise<void>,
+		downloadUpdate: () => ipcRenderer.invoke(ipcChannels.appDownloadUpdate) as Promise<void>,
 		/** 重启并安装已下载的更新（退出 → 静默替换 → 自动重启新版）。 */
-		installUpdate: () =>
-			ipcRenderer.invoke(ipcChannels.appInstallUpdate) as Promise<void>,
+		installUpdate: () => ipcRenderer.invoke(ipcChannels.appInstallUpdate) as Promise<void>,
 		/** 订阅后台更新检查快照（角标 + toast + 设置页卡片）。 */
-		onUpdateStatus: (callback: (snapshot: AppUpdateStatusSnapshot) => void) =>
-			subscribe(ipcChannels.appUpdateStatusChanged, callback),
+		onUpdateStatus: (callback: (snapshot: AppUpdateStatusSnapshot) => void) => subscribe(ipcChannels.appUpdateStatusChanged, callback),
 		/** 获取当前更新状态快照（手动检测完成后刷新角标用）。 */
-		getUpdateStatus: () =>
-			ipcRenderer.invoke(ipcChannels.appUpdateStatusChanged) as Promise<AppUpdateStatusSnapshot | null>,
+		getUpdateStatus: () => ipcRenderer.invoke(ipcChannels.appUpdateStatusChanged) as Promise<AppUpdateStatusSnapshot | null>,
 		/** 记录已提示过的版本（每版本只提示一次）。 */
-		notifyUpdateSeen: (kind: "app" | "pi", version: string) =>
-			ipcRenderer.invoke(ipcChannels.appUpdateNotifySeen, kind, version) as Promise<void>,
+		notifyUpdateSeen: (kind: "app" | "pi", version: string) => ipcRenderer.invoke(ipcChannels.appUpdateNotifySeen, kind, version) as Promise<void>,
 		/** 跳过某版本（该版本不再主动提示）。 */
-		skipUpdateVersion: (version: string) =>
-			ipcRenderer.invoke(ipcChannels.appUpdateSkipVersion, version) as Promise<void>,
+		skipUpdateVersion: (version: string) => ipcRenderer.invoke(ipcChannels.appUpdateSkipVersion, version) as Promise<void>,
 		/** 探测内置更新镜像可用性与速度（设置页「更新源」）。 */
-		checkUpdateMirrors: () =>
-			ipcRenderer.invoke(ipcChannels.appCheckUpdateMirrors) as Promise<MirrorHealthResult[]>,
-		feedbackEnvironment: () =>
-			ipcRenderer.invoke(
-				ipcChannels.appFeedbackEnvironment,
-			) as Promise<FeedbackEnvironment>,
+		checkUpdateMirrors: () => ipcRenderer.invoke(ipcChannels.appCheckUpdateMirrors) as Promise<MirrorHealthResult[]>,
+		feedbackEnvironment: () => ipcRenderer.invoke(ipcChannels.appFeedbackEnvironment) as Promise<FeedbackEnvironment>,
 		/** 问题反馈「新建会话分析」：读取项目根 AGENTS.md（截断）与项目级技能列表。 */
-		getFeedbackProjectContext: (projectId: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.appFeedbackProjectContext,
-				projectId,
-			) as Promise<FeedbackProjectContext>,
-		openExternal: (url: string, forceSystem?: boolean) =>
-			ipcRenderer.invoke(ipcChannels.appOpenExternal, url, forceSystem) as Promise<void>,
-		onOpenInBrowser: (callback: (url: string) => void) =>
-			subscribe(ipcChannels.appOpenInBrowser, callback),
+		getFeedbackProjectContext: (projectId: string) => ipcRenderer.invoke(ipcChannels.appFeedbackProjectContext, projectId) as Promise<FeedbackProjectContext>,
+		openExternal: (url: string, forceSystem?: boolean) => ipcRenderer.invoke(ipcChannels.appOpenExternal, url, forceSystem) as Promise<void>,
+		/** 拉取更新日志正文（带本地缓存）；markdown=null 时用 pageUrl 降级为浏览器打开。
+		 *  forceRefresh=true 跳过缓存 TTL 强制拉最新（「刷新」按钮）。 */
+		getChangelog: (language?: "zh" | "en", forceRefresh?: boolean) => ipcRenderer.invoke(ipcChannels.appGetChangelog, language, forceRefresh) as Promise<import("../shared/types").ChangelogPayload>,
+		onOpenInBrowser: (callback: (url: string) => void) => subscribe(ipcChannels.appOpenInBrowser, callback),
+		onOpenSettings: (callback: () => void) => subscribe(ipcChannels.appOpenSettings, callback),
+		/** 全局快捷键命中广播（新建会话/搜索会话）；回调收到 ShortcutId，渲染层自行判断是否执行 */
+		onShortcutTriggered: (callback: (id: import("../shared/shortcuts").ShortcutId) => void) => subscribe(ipcChannels.appShortcutTriggered, callback),
 		restart: () => ipcRenderer.invoke(ipcChannels.appRestart) as Promise<void>,
 		quit: () => ipcRenderer.invoke(ipcChannels.appQuit) as Promise<void>,
 		// 打开 PiDeck 数据目录（配置/会话/诊断），文件管理器由主进程按平台选择
-		openDataDir: () =>
-			ipcRenderer.invoke(
-				ipcChannels.appOpenDataDir,
-			) as Promise<{ ok: boolean; error?: string }>,
-		rendererLog: (
-			level: AppLogLevel,
-			scope: string,
-			message: string,
-			detail?: unknown,
-		) =>
-			ipcRenderer.invoke(
-				ipcChannels.rendererLog,
-				level,
-				scope,
-				message,
-				detail,
-			) as Promise<void>,
-		minimizeWindow: () =>
-			ipcRenderer.invoke(ipcChannels.appWindowMinimize) as Promise<void>,
-		toggleMaximizeWindow: () =>
-			ipcRenderer.invoke(ipcChannels.appWindowToggleMaximize) as Promise<boolean>,
-		isWindowMaximized: () =>
-			ipcRenderer.invoke(ipcChannels.appWindowIsMaximized) as Promise<boolean>,
-		onWindowMaximizedChange: (callback: (maximized: boolean) => void) =>
-			subscribe(ipcChannels.appWindowMaximizedChanged, callback),
-		toggleAlwaysOnTopWindow: () =>
-			ipcRenderer.invoke(
-				ipcChannels.appWindowToggleAlwaysOnTop,
-			) as Promise<boolean>,
-		isWindowAlwaysOnTop: () =>
-			ipcRenderer.invoke(ipcChannels.appWindowIsAlwaysOnTop) as Promise<boolean>,
-		closeWindow: () =>
-			ipcRenderer.invoke(ipcChannels.appWindowClose) as Promise<void>,
-		toggleDevTools: () =>
-			ipcRenderer.invoke(ipcChannels.appToggleDevTools) as Promise<boolean>,
+		openDataDir: () => ipcRenderer.invoke(ipcChannels.appOpenDataDir) as Promise<{ ok: boolean; error?: string }>,
+		rendererLog: (level: AppLogLevel, scope: string, message: string, detail?: unknown) => ipcRenderer.invoke(ipcChannels.rendererLog, level, scope, message, detail) as Promise<void>,
+		minimizeWindow: () => ipcRenderer.invoke(ipcChannels.appWindowMinimize) as Promise<void>,
+		toggleMaximizeWindow: () => ipcRenderer.invoke(ipcChannels.appWindowToggleMaximize) as Promise<boolean>,
+		isWindowMaximized: () => ipcRenderer.invoke(ipcChannels.appWindowIsMaximized) as Promise<boolean>,
+		onWindowMaximizedChange: (callback: (maximized: boolean) => void) => subscribe(ipcChannels.appWindowMaximizedChanged, callback),
+		// 缩放快捷键在主进程改 zoomFactor 后推送新比例，渲染层据此同步设置态
+		onZoomFactorChange: (callback: (zoomFactor: number) => void) => subscribe(ipcChannels.appZoomFactorChanged, callback),
+		toggleAlwaysOnTopWindow: () => ipcRenderer.invoke(ipcChannels.appWindowToggleAlwaysOnTop) as Promise<boolean>,
+		isWindowAlwaysOnTop: () => ipcRenderer.invoke(ipcChannels.appWindowIsAlwaysOnTop) as Promise<boolean>,
+		closeWindow: () => ipcRenderer.invoke(ipcChannels.appWindowClose) as Promise<void>,
+		toggleDevTools: () => ipcRenderer.invoke(ipcChannels.appToggleDevTools) as Promise<boolean>,
 	},
 	skills: {
-		list: () =>
-			ipcRenderer.invoke(ipcChannels.skillsList) as Promise<PiSkillListResult>,
+		list: () => ipcRenderer.invoke(ipcChannels.skillsList) as Promise<PiSkillListResult>,
 		// 读技能 SKILL.md 正文（白名单校验在主进程完成），技能选择器详情/全文插入用。
-		readContent: (path: string) =>
-			ipcRenderer.invoke(ipcChannels.skillsReadContent, path) as Promise<SkillContentResult>,
-		create: (input: CreatePiSkillInput) =>
-			ipcRenderer.invoke(ipcChannels.skillsCreate, input) as Promise<PiSkillSummary>,
-		toggle: (path: string, enabled: boolean) =>
-			ipcRenderer.invoke(
-				ipcChannels.skillsToggle,
-				path,
-				enabled,
-			) as Promise<PiSkillSummary>,
-		delete: (path: string) =>
-			ipcRenderer.invoke(ipcChannels.skillsDelete, path) as Promise<void>,
-		openFolder: (path?: string) =>
-			ipcRenderer.invoke(ipcChannels.skillsOpenFolder, path) as Promise<void>,
-		rename: (skillPath: string, newName: string) =>
-			ipcRenderer.invoke(ipcChannels.skillsRename, skillPath, newName) as Promise<PiSkillSummary>,
+		readContent: (path: string) => ipcRenderer.invoke(ipcChannels.skillsReadContent, path) as Promise<SkillContentResult>,
+		create: (input: CreatePiSkillInput) => ipcRenderer.invoke(ipcChannels.skillsCreate, input) as Promise<PiSkillSummary>,
+		toggle: (path: string, enabled: boolean) => ipcRenderer.invoke(ipcChannels.skillsToggle, path, enabled) as Promise<PiSkillSummary>,
+		delete: (path: string) => ipcRenderer.invoke(ipcChannels.skillsDelete, path) as Promise<void>,
+		openFolder: (path?: string) => ipcRenderer.invoke(ipcChannels.skillsOpenFolder, path) as Promise<void>,
+		rename: (skillPath: string, newName: string) => ipcRenderer.invoke(ipcChannels.skillsRename, skillPath, newName) as Promise<PiSkillSummary>,
+	},
+	resourceImport: {
+		scan: (input: ResourceImportScanInput) => ipcRenderer.invoke(ipcChannels.resourceImportScan, input) as Promise<ResourceImportScanResponse>,
+		apply: (input: ResourceImportApplyInput) => ipcRenderer.invoke(ipcChannels.resourceImportApply, input) as Promise<ResourceImportApplyResponse>,
 	},
 	prompts: {
-		list: () =>
-			ipcRenderer.invoke(ipcChannels.promptsList) as Promise<PiPromptTemplateListResult>,
-		create: (input: CreatePiPromptTemplateInput) =>
-			ipcRenderer.invoke(ipcChannels.promptsCreate, input) as Promise<PiPromptTemplateSummary>,
-		delete: (filePath: string) =>
-			ipcRenderer.invoke(ipcChannels.promptsDelete, filePath) as Promise<void>,
-		openFolder: () =>
-			ipcRenderer.invoke(ipcChannels.promptsOpenFolder) as Promise<void>,
-		edit: (filePath: string, content?: string) =>
-			ipcRenderer.invoke(ipcChannels.promptsEdit, filePath, content) as Promise<string | void>,
-		listByProject: (projectPath: string) =>
-			ipcRenderer.invoke(ipcChannels.promptsListByProject, projectPath) as Promise<PiPromptTemplateListResult>,
-		createInProject: (projectPath: string, input: CreatePiPromptTemplateInput) =>
-			ipcRenderer.invoke(ipcChannels.promptsCreateInProject, projectPath, input) as Promise<PiPromptTemplateSummary>,
-		deleteFromProject: (projectPath: string, fileName: string) =>
-			ipcRenderer.invoke(ipcChannels.promptsDeleteInProject, projectPath, fileName) as Promise<void>,
-		rename: (oldName: string, newName: string) =>
-			ipcRenderer.invoke(ipcChannels.promptsRename, oldName, newName) as Promise<PiPromptTemplateSummary>,
-		renameInProject: (projectPath: string, oldName: string, newName: string) =>
-			ipcRenderer.invoke(ipcChannels.promptsRenameInProject, projectPath, oldName, newName) as Promise<PiPromptTemplateSummary>,
+		list: () => ipcRenderer.invoke(ipcChannels.promptsList) as Promise<PiPromptTemplateListResult>,
+		create: (input: CreatePiPromptTemplateInput) => ipcRenderer.invoke(ipcChannels.promptsCreate, input) as Promise<PiPromptTemplateSummary>,
+		delete: (filePath: string) => ipcRenderer.invoke(ipcChannels.promptsDelete, filePath) as Promise<void>,
+		openFolder: () => ipcRenderer.invoke(ipcChannels.promptsOpenFolder) as Promise<void>,
+		edit: (filePath: string, content?: string) => ipcRenderer.invoke(ipcChannels.promptsEdit, filePath, content) as Promise<string | void>,
+		listByProject: (projectId: string) => ipcRenderer.invoke(ipcChannels.promptsListByProject, projectId) as Promise<PiPromptTemplateListResult>,
+		createInProject: (projectId: string, input: CreatePiPromptTemplateInput) => ipcRenderer.invoke(ipcChannels.promptsCreateInProject, projectId, input) as Promise<PiPromptTemplateSummary>,
+		deleteFromProject: (projectId: string, name: string) => ipcRenderer.invoke(ipcChannels.promptsDeleteInProject, projectId, name) as Promise<void>,
+		rename: (oldName: string, newName: string) => ipcRenderer.invoke(ipcChannels.promptsRename, oldName, newName) as Promise<PiPromptTemplateSummary>,
+		renameInProject: (projectId: string, oldName: string, newName: string) => ipcRenderer.invoke(ipcChannels.promptsRenameInProject, projectId, oldName, newName) as Promise<PiPromptTemplateSummary>,
+		toggle: (filePath: string, enabled: boolean) => ipcRenderer.invoke(ipcChannels.promptsToggle, filePath, enabled) as Promise<PiPromptTemplateSummary>,
+		toggleInProject: (projectId: string, name: string, enabled: boolean) => ipcRenderer.invoke(ipcChannels.promptsToggleInProject, projectId, name, enabled) as Promise<PiPromptTemplateSummary>,
 	},
 	promptStore: {
-		search: (query: string, options?: { limit?: number; type?: string; category?: string; tag?: string }) =>
-			ipcRenderer.invoke(ipcChannels.promptStoreSearch, query, options) as Promise<PromptStoreSearchResult>,
-		get: (id: string) =>
-			ipcRenderer.invoke(ipcChannels.promptStoreGet, id) as Promise<PromptStoreItem>,
-		import: (data: { title: string; description: string; content: string }) =>
-			ipcRenderer.invoke(ipcChannels.promptStoreImport, data) as Promise<PiPromptTemplateSummary>,
+		search: (query: string, options?: { limit?: number; type?: string; category?: string; tag?: string }) => ipcRenderer.invoke(ipcChannels.promptStoreSearch, query, options) as Promise<PromptStoreSearchResult>,
+		get: (id: string) => ipcRenderer.invoke(ipcChannels.promptStoreGet, id) as Promise<PromptStoreItem>,
+		import: (data: { title: string; description: string; content: string; projectId?: string }) => ipcRenderer.invoke(ipcChannels.promptStoreImport, data) as Promise<PiPromptTemplateSummary>,
 	},
 	skillStore: {
-		search: (query: string) =>
-			ipcRenderer.invoke(ipcChannels.skillStoreSearch, query) as Promise<PromptStoreSearchResult>,
-		import: (item: PromptStoreItem, locationId?: string) =>
-			ipcRenderer.invoke(ipcChannels.skillStoreImport, item, locationId) as Promise<PiSkillSummary>,
+		search: (query: string) => ipcRenderer.invoke(ipcChannels.skillStoreSearch, query) as Promise<PromptStoreSearchResult>,
+		import: (item: PromptStoreItem, locationId?: string, projectId?: string) => ipcRenderer.invoke(ipcChannels.skillStoreImport, item, locationId, projectId) as Promise<PiSkillSummary>,
 	},
 	skillHub: {
-		search: (query: string, page?: number, pageSize?: number, sortBy?: string, order?: string) =>
-			ipcRenderer.invoke(ipcChannels.skillHubSearch, { query, page, pageSize, sortBy, order }) as Promise<import("../shared/types").SkillHubSearchResult>,
-		detail: (slug: string) =>
-			ipcRenderer.invoke(ipcChannels.skillHubDetail, slug) as Promise<import("../shared/types").SkillHubDetail | null>,
-		install: (slug: string, installDir: string) =>
-			ipcRenderer.invoke(ipcChannels.skillHubInstall, slug, installDir) as Promise<import("../shared/types").SkillHubInstallResult>,
+		// 与主进程 handler 共用 SkillHubSearchOptions（query/limit）；旧 page/pageSize/sortBy/order 是
+		// api.skillhub.cn 时代遗留参数，主进程从未读取——继续透传会让第二个参数被静默丢弃。
+		search: (query: string, limit?: number) => ipcRenderer.invoke(ipcChannels.skillHubSearch, { query, limit } satisfies SkillHubSearchOptions) as Promise<import("../shared/types").SkillHubSearchResult>,
+		detail: (slug: string) => ipcRenderer.invoke(ipcChannels.skillHubDetail, slug) as Promise<import("../shared/types").SkillHubDetail | null>,
+		install: (slug: string, projectId?: string) => ipcRenderer.invoke(ipcChannels.skillHubInstall, slug, projectId) as Promise<import("../shared/types").SkillHubInstallResult>,
+		// 安装进度：主进程节流推送，返回退订函数（渲染层卸载必须退订）
+		onInstallProgress: (callback: (progress: import("../shared/types").SkillHubInstallProgress) => void) => subscribe(ipcChannels.skillHubInstallProgress, callback),
 	},
 	yaoPrompts: {
-		list: (opts?: { category?: string; search?: string; page?: number; pageSize?: number }) =>
-			ipcRenderer.invoke(ipcChannels.yaoPromptsList, opts) as Promise<YaoPromptListResult>,
-		detail: (slug: string, category: string) =>
-			ipcRenderer.invoke(ipcChannels.yaoPromptsDetail, slug, category) as Promise<YaoPromptDetailResult>,
-		import: (slug: string, category: string) =>
-			ipcRenderer.invoke(ipcChannels.yaoPromptsImport, slug, category) as Promise<PiPromptTemplateSummary>,
+		list: (opts?: { category?: string; search?: string; page?: number; pageSize?: number; categoriesOnly?: boolean }) => ipcRenderer.invoke(ipcChannels.yaoPromptsList, opts) as Promise<YaoPromptListResult>,
+		detail: (slug: string, category: string) => ipcRenderer.invoke(ipcChannels.yaoPromptsDetail, slug, category) as Promise<YaoPromptDetailResult>,
+		import: (slug: string, category: string, projectId?: string) => ipcRenderer.invoke(ipcChannels.yaoPromptsImport, slug, category, projectId) as Promise<PiPromptTemplateSummary>,
+		onDbStateChange: (callback: (state: YaoPromptDbSnapshot) => void) => subscribe(ipcChannels.yaoPromptsDbState, callback),
+		retryDb: () => ipcRenderer.invoke(ipcChannels.yaoPromptsDbRetry) as Promise<YaoPromptDbSnapshot>,
 	},
 	extensions: {
-		list: (forceRefresh?: boolean) =>
-			ipcRenderer.invoke(ipcChannels.extensionsList, forceRefresh) as Promise<PiExtensionListResult>,
-		uninstall: (source: string, scope?: "user" | "project" | "unknown") =>
-			ipcRenderer.invoke(ipcChannels.extensionsUninstall, source, scope) as Promise<void>,
-		install: (source: string) =>
-			ipcRenderer.invoke(ipcChannels.extensionsInstall, source) as Promise<string>,
-		toggle: (source: string, enabled: boolean, scope?: "user" | "project" | "unknown") =>
-			ipcRenderer.invoke(ipcChannels.extensionsToggle, source, enabled, scope) as Promise<void>,
-		setWhitelistDisabled: (enabled: boolean) =>
-			ipcRenderer.invoke(ipcChannels.extensionsSetWhitelistDisabled, enabled) as Promise<void>,
-		removeBuiltIn: (source: string) =>
-			ipcRenderer.invoke(ipcChannels.extensionsRemoveBuiltIn, source) as Promise<void>,
-		restoreBuiltIn: (source: string) =>
-			ipcRenderer.invoke(ipcChannels.extensionsRestoreBuiltIn, source) as Promise<void>,
-		update: () =>
-			ipcRenderer.invoke(ipcChannels.extensionsUpdate) as Promise<PiCliUpdateResult>,
-		updateOne: (source: string) =>
-			ipcRenderer.invoke(ipcChannels.extensionsUpdateOne, source) as Promise<PiCliUpdateResult>,
+		list: (forceRefresh?: boolean) => ipcRenderer.invoke(ipcChannels.extensionsList, forceRefresh) as Promise<PiExtensionListResult>,
+		uninstall: (source: string, scope?: "user" | "project" | "unknown", projectId?: string) => ipcRenderer.invoke(ipcChannels.extensionsUninstall, source, scope, projectId) as Promise<void>,
+		install: (source: string, projectId?: string) => ipcRenderer.invoke(ipcChannels.extensionsInstall, source, projectId) as Promise<string>,
+		toggle: (source: string, enabled: boolean, scope?: "user" | "project" | "unknown", path?: string, projectId?: string) => ipcRenderer.invoke(ipcChannels.extensionsToggle, source, enabled, scope, path, projectId) as Promise<void>,
+		removeBuiltIn: (source: string) => ipcRenderer.invoke(ipcChannels.extensionsRemoveBuiltIn, source) as Promise<void>,
+		restoreBuiltIn: (source: string) => ipcRenderer.invoke(ipcChannels.extensionsRestoreBuiltIn, source) as Promise<void>,
+		update: () => ipcRenderer.invoke(ipcChannels.extensionsUpdate) as Promise<PiCliUpdateResult>,
+		updateOne: (source: string) => ipcRenderer.invoke(ipcChannels.extensionsUpdateOne, source) as Promise<PiCliUpdateResult>,
+		catalog: (query: import("../shared/types").PiPackageCatalogQuery) => ipcRenderer.invoke(ipcChannels.extensionsCatalog, query) as Promise<import("../shared/types").PiPackageCatalog>,
+		// ── 内置扩展热更新（版本号不跟应用版本走；检测走 AtomGit，更新写 userData 覆盖层）──
+		builtInStatus: () => ipcRenderer.invoke(ipcChannels.extensionsBuiltInUpdateStatus) as Promise<BuiltInExtensionsUpdateStatus>,
+		builtInCheck: (branch?: "main" | "dev") => ipcRenderer.invoke(ipcChannels.extensionsBuiltInUpdateCheck, branch) as Promise<BuiltInExtensionsCheckResult>,
+		builtInUpdate: (branch?: "main" | "dev") => ipcRenderer.invoke(ipcChannels.extensionsBuiltInUpdateApply, branch) as Promise<BuiltInExtensionsUpdateResult>,
+		builtInRestore: () => ipcRenderer.invoke(ipcChannels.extensionsBuiltInUpdateRestore) as Promise<BuiltInExtensionsUpdateResult>,
+		builtInRestorePrevious: () => ipcRenderer.invoke(ipcChannels.extensionsBuiltInUpdateRestorePrevious) as Promise<BuiltInExtensionsUpdateResult>,
+		/** 用系统默认程序打开当前生效的内置扩展目录（覆盖层优先，否则随包目录） */
+		builtInOpenDir: () => ipcRenderer.invoke(ipcChannels.extensionsBuiltInOpenDir) as Promise<void>,
+	},
+	// ── 提示词商店官方模板 / 内置技能热更新（与内置扩展同构：sha256 比对 + userData 覆盖层）──
+	contentStore: {
+		promptsStatus: () => ipcRenderer.invoke(ipcChannels.promptsStoreUpdateStatus) as Promise<BuiltinContentUpdateStatus>,
+		promptsCheck: (branch?: "main" | "dev") => ipcRenderer.invoke(ipcChannels.promptsStoreUpdateCheck, branch) as Promise<BuiltinContentCheckResult>,
+		promptsUpdate: (branch?: "main" | "dev") => ipcRenderer.invoke(ipcChannels.promptsStoreUpdateApply, branch) as Promise<BuiltinContentUpdateResult>,
+		promptsRestore: () => ipcRenderer.invoke(ipcChannels.promptsStoreUpdateRestore) as Promise<BuiltinContentUpdateResult>,
+		promptsRestorePrevious: () => ipcRenderer.invoke(ipcChannels.promptsStoreUpdateRestorePrevious) as Promise<BuiltinContentUpdateResult>,
+		/** 用系统默认程序打开当前生效的官方模板目录（覆盖层优先，否则随包目录） */
+		promptsOpenDir: () => ipcRenderer.invoke(ipcChannels.promptsStoreOpenDir) as Promise<void>,
+		skillsStatus: () => ipcRenderer.invoke(ipcChannels.skillsStoreUpdateStatus) as Promise<BuiltinContentUpdateStatus>,
+		skillsCheck: (branch?: "main" | "dev") => ipcRenderer.invoke(ipcChannels.skillsStoreUpdateCheck, branch) as Promise<BuiltinContentCheckResult>,
+		skillsUpdate: (branch?: "main" | "dev") => ipcRenderer.invoke(ipcChannels.skillsStoreUpdateApply, branch) as Promise<BuiltinContentUpdateResult>,
+		skillsRestore: () => ipcRenderer.invoke(ipcChannels.skillsStoreUpdateRestore) as Promise<BuiltinContentUpdateResult>,
+		skillsRestorePrevious: () => ipcRenderer.invoke(ipcChannels.skillsStoreUpdateRestorePrevious) as Promise<BuiltinContentUpdateResult>,
+		/** 用系统默认程序打开当前生效的内置技能目录（覆盖层优先，否则随包目录） */
+		skillsOpenDir: () => ipcRenderer.invoke(ipcChannels.skillsStoreOpenDir) as Promise<void>,
+	},
+	acp: {
+		/** ACP agent CLI 工具登记表（settings.acpTools 只读快照）。 */
+		listTools: () => ipcRenderer.invoke(ipcChannels.acpToolsList) as Promise<AcpToolConfig[]>,
+		/** 保存整表（逐条消毒后落盘），返回服务端规范化后的表。 */
+		saveTools: (tools: AcpToolInput[]) => ipcRenderer.invoke(ipcChannels.acpToolsSave, tools) as Promise<AcpToolConfig[]>,
+		/** 单条表单校验（不落盘；渲染层即时反馈）。 */
+		validateTool: (input: AcpToolInput) => ipcRenderer.invoke(ipcChannels.acpToolValidate, input) as Promise<AcpToolValidation>,
+		/** 检测预设工具安装状态/版本（只读）。 */
+		detectTool: (presetId: import("../shared/acpToolPresets").AcpToolPresetId) => ipcRenderer.invoke(ipcChannels.acpToolDetect, presetId) as Promise<import("../shared/types/acp").AcpToolStatus>,
+		/** npm 全局安装（进度经 onLifecycleEvent 推送）；manual 形态会 reject，渲染层引导官网。 */
+		installTool: (presetId: import("../shared/acpToolPresets").AcpToolPresetId) => ipcRenderer.invoke(ipcChannels.acpToolInstall, presetId) as Promise<{ ok: boolean; output: string }>,
+		/** npm 全局卸载。 */
+		uninstallTool: (presetId: import("../shared/acpToolPresets").AcpToolPresetId) => ipcRenderer.invoke(ipcChannels.acpToolUninstall, presetId) as Promise<{ ok: boolean; output: string }>,
+		/** 安装/卸载进度行与结算推送；返回退订函数。 */
+		onLifecycleEvent: (callback: (event: import("../shared/types/acp").AcpLifecycleEvent) => void) => subscribe(ipcChannels.acpLifecycleEvent, callback),
+		/** 查询 acp 会话的配置枚举（模型/思考档/模式；agent 未提供时 null）。 */
+		getSessionConfig: (agentId: string) => ipcRenderer.invoke(ipcChannels.acpSessionConfigGet, agentId) as Promise<import("../shared/types/acp").AcpSessionConfigOption[] | null>,
+		/** 下发 session/set_config_option，返回 agent 回传的整表。 */
+		setSessionConfig: (agentId: string, optionId: string, value: string | boolean) => ipcRenderer.invoke(ipcChannels.acpSessionConfigSet, { agentId, optionId, value }) as Promise<import("../shared/types/acp").AcpSessionConfigOption[]>,
+		/** configOptions 变更推送（按 agentId 隔离）；返回退订函数。 */
+		onSessionConfigChanged: (callback: (event: import("../shared/types/acp").AcpSessionConfigChangedEvent) => void) => subscribe(ipcChannels.acpSessionConfigChanged, callback),
 	},
 	settings: {
-		get: () =>
-			ipcRenderer.invoke(ipcChannels.settingsGet) as Promise<AppSettings>,
-		update: (patch: Partial<AppSettings>) =>
-			ipcRenderer.invoke(
-				ipcChannels.settingsUpdate,
-				patch,
-			) as Promise<AppSettings>,
-		restartWebService: () =>
-			ipcRenderer.invoke(ipcChannels.settingsRestartWebService) as Promise<void>,
-		testPiProxy: () =>
-			ipcRenderer.invoke(
-				ipcChannels.settingsTestPiProxy,
-			) as Promise<PiProxyTestResult>,
-		onApplyWindow: (callback: (settings: AppSettings) => void) =>
-			subscribe(ipcChannels.settingsApplyWindow, callback),
+		get: () => ipcRenderer.invoke(ipcChannels.settingsGet) as Promise<AppSettings>,
+		update: (patch: Partial<AppSettings>) => ipcRenderer.invoke(ipcChannels.settingsUpdate, patch) as Promise<AppSettings>,
+		restartWebService: () => ipcRenderer.invoke(ipcChannels.settingsRestartWebService) as Promise<void>,
+		webServiceStatus: () => ipcRenderer.invoke(ipcChannels.webServiceStatus) as Promise<WebServiceStatusInfo>,
+		rotateWebToken: () => ipcRenderer.invoke(ipcChannels.webServiceRotateToken) as Promise<WebServiceStatusInfo>,
+		setWebToken: (input: { token?: string; expiresIn?: number }) => ipcRenderer.invoke(ipcChannels.webServiceSetToken, input) as Promise<WebServiceStatusInfo>,
+		/** 外网访问：聚合状态（cloudflare 隧道 + tailscale） */
+		webRemoteAccessState: () => ipcRenderer.invoke(ipcChannels.webRemoteAccessState) as Promise<import("../shared/types/remoteAccess").RemoteAccessState>,
+		/** 启动外网访问渠道（cloudflare | tailscale） */
+		webRemoteAccessStart: (channel: import("../shared/types/remoteAccess").RemoteAccessChannelId) => ipcRenderer.invoke(ipcChannels.webRemoteAccessStart, channel) as Promise<{ ok: true; state: import("../shared/types/remoteAccess").RemoteAccessState } | { ok: false; error: string }>,
+		/** 停用外网访问渠道 */
+		webRemoteAccessStop: (channel: import("../shared/types/remoteAccess").RemoteAccessChannelId) => ipcRenderer.invoke(ipcChannels.webRemoteAccessStop, channel) as Promise<{ ok: true; state: import("../shared/types/remoteAccess").RemoteAccessState } | { ok: false; error: string }>,
+		/** 重新探测外网访问环境（二进制/登录态/serve 指向） */
+		webRemoteAccessRefresh: () => ipcRenderer.invoke(ipcChannels.webRemoteAccessRefresh) as Promise<import("../shared/types/remoteAccess").RemoteAccessState>,
+		/** 外网访问状态变化推送；返回退订函数 */
+		onWebRemoteAccessChanged: (callback: (state: import("../shared/types/remoteAccess").RemoteAccessState) => void) => subscribe(ipcChannels.webRemoteAccessChanged, callback),
+		testPiProxy: () => ipcRenderer.invoke(ipcChannels.settingsTestPiProxy) as Promise<PiProxyTestResult>,
+		onApplyWindow: (callback: (settings: AppSettings) => void) => subscribe(ipcChannels.settingsApplyWindow, callback),
 	},
 	security: {
-		getConfig: () =>
-			ipcRenderer.invoke(ipcChannels.securityGetConfig) as Promise<SecurityConfig>,
-		updateConfig: (patch: Partial<SecurityConfig>) =>
-			ipcRenderer.invoke(
-				ipcChannels.securityUpdateConfig,
-				patch,
-			) as Promise<{ ok: true; config: SecurityConfig } | { ok: false; error: string }>,
-		setSessionLevel: (sessionId: string, levelId: string | null) =>
-			ipcRenderer.invoke(
-				ipcChannels.securitySetSessionLevel,
-				sessionId,
-				levelId,
-			) as Promise<{ ok: true; config: SecurityConfig } | { ok: false; error: string }>,
+		getConfig: () => ipcRenderer.invoke(ipcChannels.securityGetConfig) as Promise<SecurityConfig>,
+		updateConfig: (patch: Partial<SecurityConfig>) => ipcRenderer.invoke(ipcChannels.securityUpdateConfig, patch) as Promise<{ ok: true; config: SecurityConfig } | { ok: false; error: string }>,
+		setSessionLevel: (sessionId: string, levelId: string | null) => ipcRenderer.invoke(ipcChannels.securitySetSessionLevel, sessionId, levelId) as Promise<{ ok: true; config: SecurityConfig } | { ok: false; error: string }>,
 	},
 	config: {
-		previewProviderMigration: (direction: import("../shared/types/providerMigration").ProviderMigrationDirection) =>
-			ipcRenderer.invoke(ipcChannels.configPreviewProviderMigration, direction) as Promise<
-				import("../shared/types/providerMigration").ProviderMigrationPreview
-			>,
-		applyProviderMigration: (
-			direction: import("../shared/types/providerMigration").ProviderMigrationDirection,
-			provider: string,
-		) =>
-			ipcRenderer.invoke(ipcChannels.configApplyProviderMigration, direction, provider) as Promise<
-				import("../shared/types/providerMigration").ProviderMigrationResult
-			>,
+		previewProviderMigration: (direction: import("../shared/types/providerMigration").ProviderMigrationDirection) => ipcRenderer.invoke(ipcChannels.configPreviewProviderMigration, direction) as Promise<import("../shared/types/providerMigration").ProviderMigrationPreview>,
+		applyProviderMigration: (direction: import("../shared/types/providerMigration").ProviderMigrationDirection, provider: string) => ipcRenderer.invoke(ipcChannels.configApplyProviderMigration, direction, provider) as Promise<import("../shared/types/providerMigration").ProviderMigrationResult>,
 		getModels: () =>
 			ipcRenderer.invoke(ipcChannels.configGetModels) as Promise<{
 				raw: string;
@@ -1453,32 +1286,43 @@ const api = {
 				parsed: Record<string, unknown>;
 				diagnostic?: ConfigFileDiagnostic;
 			}>,
-		getMcp: (projectPath?: string) =>
-			ipcRenderer.invoke(ipcChannels.configGetMcp, projectPath) as Promise<
-				import("../shared/types/mcp").McpConfigSnapshot
-			>,
-		saveMcp: (data: import("../shared/types/mcp").McpConfigFile) =>
-			ipcRenderer.invoke(ipcChannels.configSaveMcp, data) as Promise<{
+		getMcp: (scope?: import("../shared/types/mcp").McpConfigScope) => ipcRenderer.invoke(ipcChannels.configGetMcp, scope) as Promise<import("../shared/types/mcp").McpConfigSnapshot>,
+		saveMcp: (data: import("../shared/types/mcp").McpConfigFile, scope?: import("../shared/types/mcp").McpConfigScope, expectedRevision?: string) =>
+			ipcRenderer.invoke(ipcChannels.configSaveMcp, data, scope, expectedRevision) as Promise<{
 				valid: boolean;
 				error?: string;
+				conflict?: boolean;
 			}>,
-		probeMcp: (definition: import("../shared/types/mcp").McpServerDefinition) =>
-			ipcRenderer.invoke(ipcChannels.configProbeMcp, definition) as Promise<
-				import("../shared/types/mcp").McpProbeResult
-			>,
+		probeMcp: (definition: import("../shared/types/mcp").McpServerDefinition) => ipcRenderer.invoke(ipcChannels.configProbeMcp, definition) as Promise<import("../shared/types/mcp").McpProbeResult>,
+		// pi mcp CLI：真实连接检测 + OAuth 登录/登出（仅命令路线；登录授权 URL 经 onMcpLoginUrl 推送）。
+		mcpListStatus: (scope?: import("../shared/types/mcp").McpConfigScope) => ipcRenderer.invoke(ipcChannels.mcpListStatus, scope) as Promise<import("../shared/types/mcp").McpCliListResult>,
+		mcpLogin: (server: string, timeoutSec?: number, scope?: import("../shared/types/mcp").McpConfigScope, operationId?: string) => ipcRenderer.invoke(ipcChannels.mcpLogin, server, timeoutSec, scope, operationId) as Promise<{ ok: boolean; output: string }>,
+		mcpLogout: (server: string, scope?: import("../shared/types/mcp").McpConfigScope) => ipcRenderer.invoke(ipcChannels.mcpLogout, server, scope) as Promise<{ ok: boolean; output: string }>,
+		onMcpLoginUrl: (callback: (payload: { server: string; scope?: import("../shared/types/mcp").McpConfigScope; operationId?: string; url: string }) => void) => {
+			const listener = (_event: Electron.IpcRendererEvent, payload: { server: string; scope?: import("../shared/types/mcp").McpConfigScope; operationId?: string; url: string }) => callback(payload);
+			ipcRenderer.on(ipcChannels.mcpLoginUrl, listener);
+			return () => {
+				ipcRenderer.removeListener(ipcChannels.mcpLoginUrl, listener);
+			};
+		},
 		// 只读：pi 全局配置目录（源文件编辑页标注实际路径用）。
-		getConfigDir: () =>
-			ipcRenderer.invoke(ipcChannels.configGetDir) as Promise<string>,
+		getConfigDir: () => ipcRenderer.invoke(ipcChannels.configGetDir) as Promise<string>,
+		// pi 原生资源配置（内置扩展开关 + 四类资源数组原文）；作用域同 MCP：全局页/项目页。
+		piResourcesSummary: (scope?: import("../shared/types/mcp").McpConfigScope) => ipcRenderer.invoke(ipcChannels.piResourcesSummary, scope) as Promise<import("../shared/types/piResources").PiResourceConfigSummary>,
+		piResourcesSetBuiltin: (input: { scope?: import("../shared/types/mcp").McpConfigScope; name: import("../shared/types/piResources").PiBuiltinExtension; enabled: boolean; expectedRevision?: string }) =>
+			ipcRenderer.invoke(ipcChannels.piResourcesSetBuiltin, input) as Promise<import("../shared/types/piResources").PiResourceToggleResult>,
 		saveModels: (data: unknown) =>
 			ipcRenderer.invoke(ipcChannels.configSaveModels, data) as Promise<{
 				valid: boolean;
 				error?: string;
-				/** 保存后用真实 pi 验证：配置是否能正常加载出模型 */
+				/** 即时验证：刚写入的 models.json 解析出的模型数（不含 pi fork 验证） */
 				modelLoadOk?: boolean;
 				modelCount?: number;
 				modelLoadReason?: string | null;
 				modelLoadDetail?: string;
 			}>,
+		// 保存 models 后的后台 pi 验证结果（fork 真实 pi ~17s，仅失败时推送）。
+		onModelsVerifyResult: (callback: (payload: ModelsVerifyResult) => void) => subscribe<ModelsVerifyResult>(ipcChannels.configModelsVerifyResult, callback),
 		saveAuth: (data: unknown) =>
 			ipcRenderer.invoke(ipcChannels.configSaveAuth, data) as Promise<{
 				valid: boolean;
@@ -1489,31 +1333,16 @@ const api = {
 				valid: boolean;
 				error?: string;
 			}>,
-		saveRaw: (fileName: string, rawJson: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.configSaveRaw,
-				fileName,
-				rawJson,
-			) as Promise<{ valid: boolean; error?: string }>,
-		export: () =>
-			ipcRenderer.invoke(ipcChannels.configExport) as Promise<string>,
-		import: (packageJson: string) =>
-			ipcRenderer.invoke(
-				ipcChannels.configImport,
-				packageJson,
-			) as Promise<{ valid: boolean; error?: string }>,
+		saveRaw: (fileName: string, rawJson: string) => ipcRenderer.invoke(ipcChannels.configSaveRaw, fileName, rawJson) as Promise<{ valid: boolean; error?: string }>,
+		export: () => ipcRenderer.invoke(ipcChannels.configExport) as Promise<string>,
+		import: (packageJson: string) => ipcRenderer.invoke(ipcChannels.configImport, packageJson) as Promise<{ valid: boolean; error?: string }>,
+		/** 只读扫描本机其他 agent（Claude Code/Codex/OpenCode/Gemini CLI）的供应商配置；API key 只以掩码返回 */
+		discoverExternalAgents: () => ipcRenderer.invoke(ipcChannels.configDiscoverExternalAgents) as Promise<import("../shared/types/externalAgentDiscovery").ExternalAgentDiscoveryResult>,
+		/** 外部 agent 导入确认后按 sourceId 取真实 API key（一次性响应；渲染层立即写进未保存草稿） */
+		resolveExternalAgentKey: (sourceId: string) => ipcRenderer.invoke(ipcChannels.configResolveExternalAgentKey, sourceId) as Promise<{ ok: true; apiKey?: string } | { ok: false; error: string }>,
 		/** 从 provider 的 baseUrl + apiKey 拉取可用模型列表；headers 允许 provider 自定义（含 User-Agent）；proxyMode=follow 跟随全局 / pi 走 PI 代理 / desktop 走桌面代理 / off 强制直连 */
-		fetchModels: (
-			baseUrl: string,
-			apiKey: string,
-			apiType?: string,
-			headers?: Record<string, string>,
-			proxyMode?: "follow" | "pi" | "desktop" | "off",
-		) =>
-			ipcRenderer.invoke(
-				ipcChannels.configFetchModels,
-				{ baseUrl, apiKey, apiType, headers, proxyMode },
-			) as Promise<{
+		fetchModels: (baseUrl: string, apiKey: string, apiType?: string, headers?: Record<string, string>, proxyMode?: "follow" | "pi" | "desktop" | "off") =>
+			ipcRenderer.invoke(ipcChannels.configFetchModels, { baseUrl, apiKey, apiType, headers, proxyMode }) as Promise<{
 				success: boolean;
 				models?: FetchedModel[];
 				error?: string;
@@ -1526,16 +1355,26 @@ const api = {
 				fromCache: boolean;
 				at: number;
 			}>,
-		/** 启动 TokenDance OAuth 授权（PKCE S256 headless）：返回授权 URL + flowId（verifier 仅主进程持有）。 */
-		tokendanceAuthStart: () =>
-			ipcRenderer.invoke(ipcChannels.configTokendanceAuthStart) as Promise<
-				{ ok: true; flowId: string; authUrl: string } | { ok: false; error: string }
-			>,
+		/**
+		 * 启动 TokenDance OAuth 授权（PKCE S256）：返回授权 URL + flowId（verifier 仅主进程持有）。
+		 * mode 默认 callback（本地回环自动收 code）；主进程绑定失败会降级成 headless 并回 fallbackReason。
+		 */
+		tokendanceAuthStart: (mode?: TokendanceAuthMode) => ipcRenderer.invoke(ipcChannels.configTokendanceAuthStart, { mode }) as Promise<{ ok: true; flowId: string; authUrl: string; mode: TokendanceAuthMode; fallbackReason?: string } | { ok: false; error: string }>,
+		/** 等回环回调自动送达的 code 并交换成 Key（callback 模式免粘贴主路径；超时/失败返回 error）。 */
+		tokendanceAuthAwait: (flowId: string) => ipcRenderer.invoke(ipcChannels.configTokendanceAuthAwait, { flowId }) as Promise<{ ok: true; key: string } | { ok: false; error: string }>,
+		/** 放弃授权：释放本地回环端口并丢弃 verifier（弹窗关闭/取消时必调）。 */
+		tokendanceAuthCancel: (flowId: string) => ipcRenderer.invoke(ipcChannels.configTokendanceAuthCancel, { flowId }) as Promise<{ ok: boolean; error?: string }>,
 		/** 用一次性授权 code 交换 TokenDance API Key；成功后 key 只在本次响应出现，须立即写入配置。 */
-		tokendanceAuthExchange: (flowId: string, code: string) =>
-			ipcRenderer.invoke(ipcChannels.configTokendanceAuthExchange, { flowId, code }) as Promise<
-				{ ok: true; key: string } | { ok: false; error: string }
-			>,
+		tokendanceAuthExchange: (flowId: string, code: string) => ipcRenderer.invoke(ipcChannels.configTokendanceAuthExchange, { flowId, code }) as Promise<{ ok: true; key: string } | { ok: false; error: string }>,
+		/**
+		 * 创建 TokenDance 充值会话（amount 为整数元，1–100000）。
+		 * 成功回 paymentUrl（PC 渲染二维码）/ alipayUrl（移动端深链，可能缺失）/ statusUrl。
+		 */
+		tokendanceTopUpCreate: (amount: number) => ipcRenderer.invoke(ipcChannels.configTokendanceTopUpCreate, { amount }) as Promise<TokendancePaymentSessionResult>,
+		/** 查询充值会话状态（只接受主进程校验过的 status_url；3 秒轮询，expired_at 后停）。 */
+		tokendanceTopUpStatus: (statusUrl: string) => ipcRenderer.invoke(ipcChannels.configTokendanceTopUpStatus, { statusUrl }) as Promise<TokendancePaymentSessionResult>,
+		/** 在用户点击后唤起支付宝 App（仅 alipays:// 深链；移动端链路，PC 扫码不需要）。 */
+		tokendanceTopUpOpenAlipay: (url: string) => ipcRenderer.invoke(ipcChannels.configTokendanceTopUpOpenAlipay, { url }) as Promise<{ ok: boolean; error?: string }>,
 		/** 一键安装 TokenDance：供应商信息 + 目录模型写入 pi models.json 与 DSH llm-pi-ai；apiKey 可选（OAuth 后已持有）。 */
 		installTokendance: (apiKey?: string) =>
 			ipcRenderer.invoke(ipcChannels.configInstallTokendance, { apiKey }) as Promise<{
@@ -1567,8 +1406,7 @@ const api = {
 				truncated: boolean;
 			}>,
 		/** 视觉桥：清空运行日志 */
-		visionClearLog: () =>
-			ipcRenderer.invoke(ipcChannels.visionClearLog) as Promise<{ ok: boolean }>,
+		visionClearLog: () => ipcRenderer.invoke(ipcChannels.visionClearLog) as Promise<{ ok: boolean }>,
 		/** 视觉桥：读取结构化转换事件（会话渲染层展示「请求详情」，不含敏感字段） */
 		visionGetEvents: () =>
 			ipcRenderer.invoke(ipcChannels.visionGetEvents) as Promise<{
@@ -1595,148 +1433,120 @@ const api = {
 				truncated: boolean;
 			}>,
 		/** 视觉桥：清空事件文件 */
-		visionClearEvents: () =>
-			ipcRenderer.invoke(ipcChannels.visionClearEvents) as Promise<{ ok: boolean }>,
-		/** 测试 provider 连接：先保存配置，再用真实 pi 做一次最小调用验证是否可用；proxyMode 控制探针进程代理（同 fetchModels 语义，pi 侧走 PI 代理配置） */
-		testProvider: (
-			providerName: string,
-			modelId: string,
-			models: unknown,
-			proxyMode?: "follow" | "pi" | "desktop" | "off",
-		) =>
-			ipcRenderer.invoke(
-				ipcChannels.configTestProvider,
-				{ providerName, modelId, models, proxyMode },
-			) as Promise<import("../shared/types/fetchedModel").PiModelProbeResult>,
+		visionClearEvents: () => ipcRenderer.invoke(ipcChannels.visionClearEvents) as Promise<{ ok: boolean }>,
+		/** 测试 provider 连接（隔离探针）：临时 agent 目录 + PI_CODING_AGENT_DIR 跑真实 pi，测当前表单值且不落盘；proxyMode 控制探针进程代理（同 fetchModels 语义，pi 侧走 PI 代理配置） */
+		testProvider: (providerName: string, modelId: string, provider: unknown, apiKey: string, proxyMode?: "follow" | "pi" | "desktop" | "off") =>
+			ipcRenderer.invoke(ipcChannels.configTestProvider, { providerName, modelId, provider, apiKey, proxyMode }) as Promise<import("../shared/types/fetchedModel").PiModelProbeResult>,
 		/** 查询 provider 用量/余额（主进程按 provider 名 + backend 路由；backend=dsh 走 $DSH_HOME 链路） */
-		fetchUsage: (provider: string, backend?: "pi" | "dsh") =>
-			ipcRenderer.invoke(
-				ipcChannels.configFetchUsage,
-				{ provider, backend },
-			) as Promise<ProviderUsageResult>,
+		fetchUsage: (provider: string, backend?: "pi" | "dsh") => ipcRenderer.invoke(ipcChannels.configFetchUsage, { provider, backend }) as Promise<ProviderUsageResult>,
 		/** 安装内置「用量查询自定义」技能模板到 ~/.pi/agent/skills/usage-probe */
-		installUsageSkill: () =>
-			ipcRenderer.invoke(
-				ipcChannels.configInstallUsageSkill,
-			) as Promise<{ success: boolean; path?: string; error?: string }>,
+		installUsageSkill: () => ipcRenderer.invoke(ipcChannels.configInstallUsageSkill) as Promise<{ success: boolean; path?: string; error?: string }>,
 		/** 读取该 provider 的用量查询配置 + 内置模板自动识别（探针配置弹窗数据源；backend=dsh 走 DSH 链路） */
-		getUsageProbes: (provider: string, backend?: "pi" | "dsh") =>
-			ipcRenderer.invoke(
-				ipcChannels.configGetUsageProbes,
-				{ provider, backend },
-			) as Promise<UsageProbeSettingsResult>,
-		/** 轻量内置识别（渲染层隐藏「用量查询」按钮用）：命中内置候选返回 true，不读配置文件 */
-		usageRecognized: (provider: string, backend?: "pi" | "dsh") =>
-			ipcRenderer.invoke(
-				ipcChannels.configUsageRecognized,
-				{ provider, backend },
-			) as Promise<{ recognized: boolean }>,
+		getUsageProbes: (provider: string, backend?: "pi" | "dsh") => ipcRenderer.invoke(ipcChannels.configGetUsageProbes, { provider, backend }) as Promise<UsageProbeSettingsResult>,
 		/** 按 provider 合并保存用量查询配置（主进程校验后落盘，保留其它 providers 与旧 probes） */
-		saveUsageProbes: (payload: UsageProbeSaveInput) =>
-			ipcRenderer.invoke(
-				ipcChannels.configSaveUsageProbes,
-				payload,
-			) as Promise<UsageProbeSaveResult>,
+		saveUsageProbes: (payload: UsageProbeSaveInput) => ipcRenderer.invoke(ipcChannels.configSaveUsageProbes, payload) as Promise<UsageProbeSaveResult>,
+		/** 批量读取各 provider 用量查询状态（徽章开关 / 启动预热选源；只回开关/模板/间隔，不含密钥） */
+		listUsageProbeStates: (payload: { providers?: string[]; backend?: "pi" | "dsh" } = {}) => ipcRenderer.invoke(ipcChannels.configListUsageProbeStates, payload) as Promise<UsageProbeStatesResult>,
 		/** 单条模板测试（模板 id + 覆盖字段；provider 端点与密钥由主进程解析，不回传渲染层） */
-		testUsageProbe: (payload: UsageProbeTestInput) =>
-			ipcRenderer.invoke(
-				ipcChannels.configTestUsageProbe,
-				payload,
-			) as Promise<ProviderUsageResult>,
+		testUsageProbe: (payload: UsageProbeTestInput) => ipcRenderer.invoke(ipcChannels.configTestUsageProbe, payload) as Promise<ProviderUsageResult>,
 		/** 安装内置「图片生成」技能模板到 ~/.pi/agent/skills/image-gen */
-		installImageGenSkill: () =>
-			ipcRenderer.invoke(
-				ipcChannels.configInstallImageGenSkill,
-			) as Promise<{ success: boolean; path?: string; error?: string }>,
+		installImageGenSkill: () => ipcRenderer.invoke(ipcChannels.configInstallImageGenSkill) as Promise<{ success: boolean; path?: string; error?: string }>,
+		/** 安装内置「MCP 配置助手」技能模板到 ~/.pi/agent/skills/mcp-setup */
+		installMcpSetupSkill: () => ipcRenderer.invoke(ipcChannels.configInstallMcpSetupSkill) as Promise<{ success: boolean; path?: string; error?: string }>,
+	},
+	configBackups: {
+		/** 列出全部配置备份（仅元数据）。 */
+		list: () => ipcRenderer.invoke(ipcChannels.configBackupList) as Promise<import("../shared/types/backup").ConfigBackupListResult>,
+		/** 立即创建一份配置备份（reason 只接受 manual；其余原因由主进程内部触发）。 */
+		create: (reason?: import("../shared/types/backup").ConfigBackupReason) => ipcRenderer.invoke(ipcChannels.configBackupCreate, reason ?? "manual") as Promise<import("../shared/types/backup").ConfigBackupActionResult>,
+		/** 读取备份详情（文件内容已脱敏）。 */
+		read: (id: string) => ipcRenderer.invoke(ipcChannels.configBackupRead, id) as Promise<import("../shared/types/backup").ConfigBackupDetail | null>,
+		/** 恢复备份（恢复前主进程自动为当前配置建 pre-restore 保护备份）。
+		 *  @param files 要恢复的文件 key 白名单（如 ["pi/models.json"]）；缺省 = 恢复全部。 */
+		restore: (id: string, files?: string[]) => ipcRenderer.invoke(ipcChannels.configBackupRestore, id, files) as Promise<import("../shared/types/backup").ConfigBackupActionResult>,
+		/** 删除单个备份。 */
+		delete: (id: string) => ipcRenderer.invoke(ipcChannels.configBackupDelete, id) as Promise<import("../shared/types/backup").ConfigBackupActionResult>,
+		/** 批量删除多个备份，返回实际删除数量。 */
+		deleteMany: (ids: string[]) => ipcRenderer.invoke(ipcChannels.configBackupDeleteMany, ids) as Promise<import("../shared/types/backup").ConfigBackupDeleteManyResult>,
+		/** 清空全部备份。 */
+		deleteAll: () => ipcRenderer.invoke(ipcChannels.configBackupDeleteAll) as Promise<import("../shared/types/backup").ConfigBackupActionResult>,
 	},
 	pet: {
 		/** 宠物窗监听主进程推送的聚合状态 */
-		onState: (callback: (state: PetAggregateState) => void) =>
-			subscribe(ipcChannels.petState, callback),
+		onState: (callback: (state: PetAggregateState) => void) => subscribe(ipcChannels.petState, callback),
 		/** 列出可用宠物包（内置 + petdex） */
-		list: () =>
-			ipcRenderer.invoke(ipcChannels.petList) as Promise<PetManifest[]>,
+		list: () => ipcRenderer.invoke(ipcChannels.petList) as Promise<PetManifest[]>,
 		/** 开关宠物 */
-		setEnabled: (value: boolean) =>
-			ipcRenderer.invoke(ipcChannels.petSetEnabled, value) as Promise<void>,
+		setEnabled: (value: boolean) => ipcRenderer.invoke(ipcChannels.petSetEnabled, value) as Promise<void>,
 		/** 切换当前宠物 */
-		setId: (id: string) =>
-			ipcRenderer.invoke(ipcChannels.petSetId, id) as Promise<void>,
+		setId: (id: string) => ipcRenderer.invoke(ipcChannels.petSetId, id) as Promise<void>,
 		/** 拖拽移动宠物窗 */
-		moveWindow: (pos: { x: number; y: number }) =>
-			ipcRenderer.invoke(ipcChannels.petMoveWindow, pos) as Promise<void>,
+		moveWindow: (pos: { x: number; y: number }) => ipcRenderer.invoke(ipcChannels.petMoveWindow, pos) as Promise<void>,
 		/** 点击宠物跳转活跃 Agent */
-		focusAgent: () =>
-			ipcRenderer.invoke(ipcChannels.petFocusAgent) as Promise<void>,
-		onFocusTarget: (callback: (target: { sessionId: string }) => void) =>
-			subscribe(ipcChannels.petFocusAgentTarget, callback),
-		/** 冷启动/页面加载期间点击通知的跳转目标：挂载后主动拉取（一次性） */
-		getPendingFocusTarget: () =>
-			ipcRenderer.invoke(ipcChannels.petGetFocusTargetPending) as Promise<{ sessionId: string } | null>,
+		focusAgent: () => ipcRenderer.invoke(ipcChannels.petFocusAgent) as Promise<void>,
+		onFocusTarget: (callback: (target: FocusTargetPayload) => void) => subscribe(ipcChannels.petFocusAgentTarget, callback),
+		/** 冷启动/页面加载期间点击通知或右键菜单的跳转目标：挂载后主动拉取（一次性） */
+		getPendingFocusTarget: () => ipcRenderer.invoke(ipcChannels.petGetFocusTargetPending) as Promise<FocusTargetPayload | null>,
 		/** 主进程推送当前选中宠物的 manifest，据此加载 spritesheet */
-		onSprite: (callback: (manifest: PetManifest) => void) =>
-			subscribe(ipcChannels.petCurrentSprite, callback),
+		onSprite: (callback: (manifest: PetManifest) => void) => subscribe(ipcChannels.petCurrentSprite, callback),
 		/** 挂载时主动拉取当前选中宠物 manifest（避免推送竞态） */
-		getCurrent: () =>
-			ipcRenderer.invoke(ipcChannels.petGetCurrent) as Promise<PetManifest | null>,
+		getCurrent: () => ipcRenderer.invoke(ipcChannels.petGetCurrent) as Promise<PetManifest | null>,
 		/** 主进程推送通知气泡（出错/完成/等待操作；null 表示清空当前提醒） */
-		onNotify: (callback: (n: PetNotification | null) => void) =>
-			subscribe(ipcChannels.petNotify, callback),
-		setPreviewMode: (mode: string) =>
-			ipcRenderer.invoke(ipcChannels.petPreviewMode, mode) as Promise<void>,
-		onPreviewMode: (callback: (mode: string) => void) =>
-			subscribe(ipcChannels.petPreviewMode, callback),
-		onCaps: (callback: (caps: PetWindowCaps) => void) =>
-			subscribe(ipcChannels.petCaps, callback),
+		onNotify: (callback: (n: PetNotification | null) => void) => subscribe(ipcChannels.petNotify, callback),
+		setPreviewMode: (mode: string) => ipcRenderer.invoke(ipcChannels.petPreviewMode, mode) as Promise<void>,
+		onPreviewMode: (callback: (mode: string) => void) => subscribe(ipcChannels.petPreviewMode, callback),
+		onCaps: (callback: (caps: PetWindowCaps) => void) => subscribe(ipcChannels.petCaps, callback),
 		/** 调试：发送测试通知弹窗 */
-		testNotify: (type: "error" | "done") =>
-			ipcRenderer.invoke(ipcChannels.petTestNotify, type) as Promise<void>,
+		testNotify: (type: "error" | "done") => ipcRenderer.invoke(ipcChannels.petTestNotify, type) as Promise<void>,
 		/** 双击宠物触发逗弄：主进程注入一次 jumping 后恢复真实聚合态 */
-		tease: () =>
-			ipcRenderer.invoke(ipcChannels.petTease) as Promise<void>,
+		tease: () => ipcRenderer.invoke(ipcChannels.petTease) as Promise<void>,
 		/** 通知主进程拖拽起止：开始时暂停巡游，结束时若处于 idle 则恢复巡游 */
-		setDragging: (dragging: boolean) =>
-			ipcRenderer.invoke(ipcChannels.petDragState, dragging) as Promise<void>,
+		setDragging: (dragging: boolean) => ipcRenderer.invoke(ipcChannels.petDragState, dragging) as Promise<void>,
 		/** 拖拽相对位移（连续 screenX 差值），主进程读取当前窗口位置 + 增量 */
-		moveBy: (delta: { dx: number; dy: number }) =>
-			ipcRenderer.invoke(ipcChannels.petMoveBy, delta) as Promise<void>,
+		moveBy: (delta: { dx: number; dy: number }) => ipcRenderer.invoke(ipcChannels.petMoveBy, delta) as Promise<void>,
 		/** 通知主进程：宠物窗 React 已挂载，IPC 监听器已注册，可以安全推送初始状态 */
 		ready: () => ipcRenderer.send(ipcChannels.petReady),
 		/** 右键上下文菜单 */
 		contextMenu: () => ipcRenderer.invoke(ipcChannels.petContextMenu) as Promise<void>,
 	},
+	sounds: {
+		/** 订阅主进程推送的声音提醒播放事件（完成/出错/等待输入） */
+		onPlay: (callback: (event: SoundAlertPlayEvent) => void) => subscribe(ipcChannels.soundsPlay, callback),
+		/** 列出自定义音频（userData/sounds/），设置页下拉选项用 */
+		listCustom: () => ipcRenderer.invoke(ipcChannels.soundsListCustom) as Promise<CustomSoundInfo[]>,
+		/** 弹选择框导入自定义音频；取消/非法/超限返回结构化错误 */
+		importCustom: () => ipcRenderer.invoke(ipcChannels.soundsImportCustom) as Promise<SoundImportResult>,
+		/** 删除自定义音频文件 */
+		removeCustom: (name: string) => ipcRenderer.invoke(ipcChannels.soundsRemoveCustom, name) as Promise<boolean>,
+	},
+	announcements: {
+		/** 拉取当前公告快照（主进程返回缓存态，不触发网络请求） */
+		list: () => ipcRenderer.invoke(ipcChannels.announcementList) as Promise<AnnouncementState>,
+		/** 手动刷新公告（设置页/入口按钮；主进程防重入，并发调用安全） */
+		refresh: () => ipcRenderer.invoke(ipcChannels.announcementRefresh) as Promise<AnnouncementState>,
+		/** 标记单条公告已读（幂等） */
+		markRead: (id: string) => ipcRenderer.invoke(ipcChannels.announcementMarkRead, id) as Promise<boolean>,
+		/** 全部已读 */
+		markAllRead: () => ipcRenderer.invoke(ipcChannels.announcementMarkAllRead) as Promise<boolean>,
+		/**
+		 * 记录已弹过提醒的公告 id（批量幂等）。与 markRead 分离：关掉 toast 不等于已读。
+		 * 持久化在主进程，保证「每条公告只弹一次」跨重启/崩溃重载成立。
+		 */
+		markNotified: (ids: readonly string[]) => ipcRenderer.invoke(ipcChannels.announcementMarkNotified, ids) as Promise<boolean>,
+		/** 订阅公告快照推送（定时拉取/已读变更后触发）；返回退订函数，组件卸载必须调用 */
+		onChanged: (callback: (state: AnnouncementState) => void) => subscribe(ipcChannels.announcementChanged, callback),
+	},
 	terminal: {
-		list: (target: TerminalTarget) =>
-			ipcRenderer.invoke(ipcChannels.terminalList, target) as Promise<
-				TerminalTab[]
-			>,
-		ensure: (target: TerminalTarget) =>
-			ipcRenderer.invoke(ipcChannels.terminalEnsure, target) as Promise<
-				TerminalTab[]
-			>,
-		create: (target: TerminalTarget, shell?: TerminalShell) =>
-			ipcRenderer.invoke(ipcChannels.terminalCreate, target, shell) as Promise<
-				TerminalTab
-			>,
-		input: (tabId: string, data: string) =>
-			ipcRenderer.invoke(ipcChannels.terminalInput, tabId, data) as Promise<void>,
-		resize: (tabId: string, cols: number, rows: number) =>
-			ipcRenderer.invoke(
-				ipcChannels.terminalResize,
-				tabId,
-				cols,
-				rows,
-			) as Promise<void>,
-		close: (tabId: string) =>
-			ipcRenderer.invoke(ipcChannels.terminalClose, tabId) as Promise<void>,
-		shells: () =>
-			ipcRenderer.invoke(ipcChannels.terminalShells) as Promise<
-				{ shell: string; label: string; available: boolean }[]
-			>,
-		onData: (callback: (payload: TerminalDataEvent) => void) =>
-			subscribe(ipcChannels.terminalData, callback),
-		onExit: (callback: (payload: TerminalExitEvent) => void) =>
-			subscribe(ipcChannels.terminalExit, callback),
+		list: (target: TerminalTarget) => ipcRenderer.invoke(ipcChannels.terminalList, target) as Promise<TerminalTab[]>,
+		ensure: (target: TerminalTarget) => ipcRenderer.invoke(ipcChannels.terminalEnsure, target) as Promise<TerminalTab[]>,
+		create: (target: TerminalTarget, shell?: TerminalShell) => ipcRenderer.invoke(ipcChannels.terminalCreate, target, shell) as Promise<TerminalTab>,
+		input: (tabId: string, data: string) => ipcRenderer.invoke(ipcChannels.terminalInput, tabId, data) as Promise<void>,
+		resize: (tabId: string, cols: number, rows: number) => ipcRenderer.invoke(ipcChannels.terminalResize, tabId, cols, rows) as Promise<void>,
+		close: (tabId: string) => ipcRenderer.invoke(ipcChannels.terminalClose, tabId) as Promise<void>,
+		shells: () => ipcRenderer.invoke(ipcChannels.terminalShells) as Promise<{ shell: string; label: string; available: boolean }[]>,
+		fonts: () => ipcRenderer.invoke(ipcChannels.terminalFonts) as Promise<string[]>,
+		onData: (callback: (payload: TerminalDataEvent) => void) => subscribe(ipcChannels.terminalData, callback),
+		onExit: (callback: (payload: TerminalExitEvent) => void) => subscribe(ipcChannels.terminalExit, callback),
 	},
 
 	// ===== 飞书桥接 =====
@@ -1754,99 +1564,151 @@ const api = {
 				detail?: string;
 				botInfo?: { id: string; name: string };
 			}>,
-		disconnect: () =>
-			ipcRenderer.invoke(ipcChannels.feishuDisconnect) as Promise<{ success: boolean }>,
+		disconnect: () => ipcRenderer.invoke(ipcChannels.feishuDisconnect) as Promise<{ success: boolean }>,
 		connectByBot: (botId: string) =>
 			ipcRenderer.invoke(ipcChannels.feishuConnectByBot, botId) as Promise<{
 				success: boolean;
 				message: string;
 				detail?: string;
 			}>,
-		statusRequest: () =>
-			ipcRenderer.invoke(ipcChannels.feishuStatusRequest) as Promise<FeishuBridgeStatus>,
-		onStatus: (callback: (status: FeishuBridgeStatus) => void) =>
-			subscribe(ipcChannels.feishuStatus, callback),
-		botsList: () =>
-			ipcRenderer.invoke(ipcChannels.feishuBotsList) as Promise<FeishuBotConfig[]>,
+		statusRequest: () => ipcRenderer.invoke(ipcChannels.feishuStatusRequest) as Promise<FeishuBridgeStatus>,
+		onStatus: (callback: (status: FeishuBridgeStatus) => void) => subscribe(ipcChannels.feishuStatus, callback),
+		botsList: () => ipcRenderer.invoke(ipcChannels.feishuBotsList) as Promise<FeishuBotConfig[]>,
 		botAdd: (input: FeishuConnectInput) =>
 			ipcRenderer.invoke(ipcChannels.feishuBotAdd, input) as Promise<{
 				success: boolean;
 				bot?: FeishuBotConfig;
 				error?: string;
 			}>,
-		botRemove: (botId: string) =>
-			ipcRenderer.invoke(ipcChannels.feishuBotRemove, botId) as Promise<boolean>,
-		botConfig: (botId: string, patch: Partial<FeishuBotConfig>) =>
-			ipcRenderer.invoke(ipcChannels.feishuBotConfig, botId, patch) as Promise<FeishuBotConfig | undefined>,
-		botSecret: (botId: string) =>
-			ipcRenderer.invoke(ipcChannels.feishuBotSecret, botId) as Promise<string>,
-		testConnection: (appId: string, appSecret: string) =>
-			ipcRenderer.invoke(ipcChannels.feishuTestConnection, appId, appSecret) as Promise<FeishuTestResult>,
-		bindingsList: () =>
-			ipcRenderer.invoke(ipcChannels.feishuBindingsList) as Promise<FeishuChatBinding[]>,
-		bindingRemove: (chatId: string) =>
-			ipcRenderer.invoke(ipcChannels.feishuBindingRemove, chatId) as Promise<boolean>,
-		bindingUpdate: (chatId: string, patch: Partial<FeishuChatBinding>) =>
-			ipcRenderer.invoke(ipcChannels.feishuBindingUpdate, chatId, patch) as Promise<FeishuChatBinding | undefined>,
-		onMessages: (callback: (message: FeishuChatMessage) => void) =>
-			subscribe(ipcChannels.feishuMessages, callback),
-		onBindingsChanged: (callback: (bindings: FeishuChatBinding[]) => void) =>
-			subscribe(ipcChannels.feishuBindingsChanged, callback),
-		onWhoamiResult: (callback: (openId: string) => void) =>
-			subscribe(ipcChannels.feishuWhoamiResult, callback),
-		onBotsChanged: (callback: (bots: FeishuBotConfig[]) => void) =>
-			subscribe(ipcChannels.feishuBotsChanged, callback),
-		sessionBotGet: (sessionId: string) =>
-			ipcRenderer.invoke(ipcChannels.feishuSessionBotGet, sessionId) as Promise<string | null>,
-		sessionBotSet: (sessionId: string, botId: string | null) =>
-			ipcRenderer.invoke(ipcChannels.feishuSessionBotSet, sessionId, botId) as Promise<FeishuSessionBotResult>,
+		botRemove: (botId: string) => ipcRenderer.invoke(ipcChannels.feishuBotRemove, botId) as Promise<boolean>,
+		botConfig: (botId: string, patch: Partial<FeishuBotConfig>) => ipcRenderer.invoke(ipcChannels.feishuBotConfig, botId, patch) as Promise<FeishuBotConfig | undefined>,
+		botSecret: (botId: string) => ipcRenderer.invoke(ipcChannels.feishuBotSecret, botId) as Promise<string>,
+		testConnection: (appId: string, appSecret: string) => ipcRenderer.invoke(ipcChannels.feishuTestConnection, appId, appSecret) as Promise<FeishuTestResult>,
+		bindingsList: () => ipcRenderer.invoke(ipcChannels.feishuBindingsList) as Promise<FeishuChatBinding[]>,
+		bindingRemove: (chatId: string) => ipcRenderer.invoke(ipcChannels.feishuBindingRemove, chatId) as Promise<boolean>,
+		bindingUpdate: (chatId: string, patch: Partial<FeishuChatBinding>) => ipcRenderer.invoke(ipcChannels.feishuBindingUpdate, chatId, patch) as Promise<FeishuChatBinding | undefined>,
+		onMessages: (callback: (message: FeishuChatMessage) => void) => subscribe(ipcChannels.feishuMessages, callback),
+		onBindingsChanged: (callback: (bindings: FeishuChatBinding[]) => void) => subscribe(ipcChannels.feishuBindingsChanged, callback),
+		onWhoamiResult: (callback: (openId: string) => void) => subscribe(ipcChannels.feishuWhoamiResult, callback),
+		onBotsChanged: (callback: (bots: FeishuBotConfig[]) => void) => subscribe(ipcChannels.feishuBotsChanged, callback),
+		sessionBotGet: (sessionId: string) => ipcRenderer.invoke(ipcChannels.feishuSessionBotGet, sessionId) as Promise<string | null>,
+		sessionBotSet: (sessionId: string, botId: string | null) => ipcRenderer.invoke(ipcChannels.feishuSessionBotSet, sessionId, botId) as Promise<FeishuSessionBotResult>,
+	},
+
+	// ===== 微信 iLink 桥接 =====
+	wechat: {
+		/** 设置页一次拉齐：设置 + 状态 + 绑定 + 可选工作区。 */
+		snapshot: () => ipcRenderer.invoke(ipcChannels.wechatGetSettings) as Promise<WeChatIpcResult<WeChatSettingsSnapshot>>,
+		setEnabled: (enabled: boolean) => ipcRenderer.invoke(ipcChannels.wechatSetEnabled, enabled) as Promise<WeChatIpcResult<{ settings: WeChatSettings }>>,
+		updateSettings: (patch: { defaultWorkspaceId?: string; defaultModelId?: string; backend?: "pi" | "dsh"; modelChain?: { provider: string; modelId: string; modelName?: string }[] }) => ipcRenderer.invoke(ipcChannels.wechatUpdateSettings, patch) as Promise<WeChatIpcResult<{ settings: WeChatSettings }>>,
+		renameAccount: (displayName: string) => ipcRenderer.invoke(ipcChannels.wechatRenameAccount, displayName) as Promise<WeChatIpcResult<{ settings: WeChatSettings }>>,
+		logout: () => ipcRenderer.invoke(ipcChannels.wechatLogout) as Promise<WeChatIpcResult<{ settings: WeChatSettings }>>,
+		/** 取二维码并开始轮询；返回的状态已带 qrcodeContent，界面可直接渲染。 */
+		beginLogin: () => ipcRenderer.invoke(ipcChannels.wechatBeginLogin) as Promise<WeChatIpcResult<{ state: WeChatLoginState }>>,
+		cancelLogin: () => ipcRenderer.invoke(ipcChannels.wechatCancelLogin) as Promise<WeChatIpcResult<{ state: WeChatLoginState }>>,
+		submitVerifyCode: (code: string) => ipcRenderer.invoke(ipcChannels.wechatSubmitVerifyCode, code) as Promise<WeChatIpcResult<{ state: WeChatLoginState }>>,
+		getLoginState: () => ipcRenderer.invoke(ipcChannels.wechatGetLoginState) as Promise<WeChatLoginState>,
+		getStatus: () => ipcRenderer.invoke(ipcChannels.wechatGetStatus) as Promise<WeChatBridgeStatus>,
+		getBindings: () => ipcRenderer.invoke(ipcChannels.wechatGetBindings) as Promise<WeChatBindingView[]>,
+		unbindChat: (chatId: string) => ipcRenderer.invoke(ipcChannels.wechatUnbindChat, chatId) as Promise<WeChatIpcResult<{ removed: boolean; bindings: WeChatBindingView[] }>>,
+		onStatus: (callback: (status: WeChatBridgeStatus) => void) => subscribe(ipcChannels.wechatStatus, callback),
+		onLoginState: (callback: (state: WeChatLoginState) => void) => subscribe(ipcChannels.wechatLoginState, callback),
+		onBindingsChanged: (callback: (bindings: WeChatBindingView[]) => void) => subscribe(ipcChannels.wechatBindingsChanged, callback),
 	},
 
 	// ===== 内置浏览器 =====
 	browser: {
 		/** 在系统默认浏览器中打开外部链接。
 		 *  用于 webview 不支持或需要另开浏览器查看的场景。 */
-		openExternal: (url: string, forceSystem?: boolean) =>
-			ipcRenderer.invoke(ipcChannels.browserOpenExternal, url) as Promise<void>,
+		openExternal: (url: string, forceSystem?: boolean) => ipcRenderer.invoke(ipcChannels.browserOpenExternal, url) as Promise<void>,
 	},
 
 	scratchPad: {
-		list: () =>
-			ipcRenderer.invoke(ipcChannels.scratchPadList) as Promise<DraftMeta[]>,
-		create: () =>
-			ipcRenderer.invoke(ipcChannels.scratchPadCreate) as Promise<DraftMeta>,
-		delete: (draftPath: string) =>
-			ipcRenderer.invoke(ipcChannels.scratchPadDelete, draftPath) as Promise<void>,
-		load: (draftPath?: string) =>
-			ipcRenderer.invoke(ipcChannels.scratchPadLoad, draftPath) as Promise<ScratchPadData>,
-		save: (draftPath: string, content: string, cursorPosition: number) =>
-			ipcRenderer.invoke(ipcChannels.scratchPadSave, draftPath, content, cursorPosition) as Promise<void>,
-		export: (draftPath: string) =>
-			ipcRenderer.invoke(ipcChannels.scratchPadExport, draftPath) as Promise<boolean>,
+		list: () => ipcRenderer.invoke(ipcChannels.scratchPadList) as Promise<DraftMeta[]>,
+		create: () => ipcRenderer.invoke(ipcChannels.scratchPadCreate) as Promise<DraftMeta>,
+		delete: (draftPath: string) => ipcRenderer.invoke(ipcChannels.scratchPadDelete, draftPath) as Promise<void>,
+		load: (draftPath?: string) => ipcRenderer.invoke(ipcChannels.scratchPadLoad, draftPath) as Promise<ScratchPadData>,
+		save: (draftPath: string, content: string, cursorPosition: number) => ipcRenderer.invoke(ipcChannels.scratchPadSave, draftPath, content, cursorPosition) as Promise<void>,
+		export: (draftPath: string) => ipcRenderer.invoke(ipcChannels.scratchPadExport, draftPath) as Promise<boolean>,
 	},
 
 	// ── 生图：独立 imagegen.json 凭据 + OpenAI 兼容 /images/generations ──
 	imagegen: {
-		generate: (request: ImageGenRequest) =>
-			ipcRenderer.invoke(ipcChannels.imagegenGenerate, request) as Promise<ImageGenResult>,
-		getConfig: () =>
-			ipcRenderer.invoke(ipcChannels.imagegenGetConfig) as Promise<ImageGenConfigFile>,
-		saveConfig: (config: ImageGenConfigFile) =>
-			ipcRenderer.invoke(ipcChannels.imagegenSaveConfig, config) as Promise<ImageGenSaveResult>,
+		generate: (request: ImageGenRequest) => ipcRenderer.invoke(ipcChannels.imagegenGenerate, request) as Promise<ImageGenResult>,
+		getConfig: () => ipcRenderer.invoke(ipcChannels.imagegenGetConfig) as Promise<ImageGenConfigFile>,
+		saveConfig: (config: ImageGenConfigFile) => ipcRenderer.invoke(ipcChannels.imagegenSaveConfig, config) as Promise<ImageGenSaveResult>,
+		/** 按 blob 引用名取回落盘图片 base64（历史消息只带 ref，展示走 pideck-img://） */
+		readImageBlob: (ref: string) => ipcRenderer.invoke(ipcChannels.imagegenReadImageBlob, ref) as Promise<ImageBlobPayload | null>,
 	},
 
+	// ── 对话内本地图片：保存/复制按需取字节（展示走 pideck-file://，不经这里） ──
+	localImage: {
+		/** 按绝对路径读取白名单内的图片字节；主进程拒绝（越界/超限/非图片）时返回 null */
+		readBytes: (path: string) => ipcRenderer.invoke(ipcChannels.localImageReadBytes, path) as Promise<LocalImageBytes | null>,
+	},
+
+	// ── 生视频：独立 videogen.json 凭据 + 提交/轮询异步协议（与生图同域不同生命周期） ──
+	videogen: {
+		submit: (request: VideoGenRequest) => ipcRenderer.invoke(ipcChannels.videogenSubmit, request) as Promise<VideoGenSubmitResult>,
+		cancel: (jobId: string) => ipcRenderer.invoke(ipcChannels.videogenCancel, jobId) as Promise<{ ok: boolean }>,
+		getConfig: () => ipcRenderer.invoke(ipcChannels.videogenGetConfig) as Promise<VideoGenConfigFile>,
+		saveConfig: (config: VideoGenConfigFile) => ipcRenderer.invoke(ipcChannels.videogenSaveConfig, config) as Promise<VideoGenSaveResult>,
+		/** 重启后恢复：某会话全部任务快照（渲染层重建进行中占位） */
+		listJobs: (sessionId: string) => ipcRenderer.invoke(ipcChannels.videogenListJobs, sessionId) as Promise<VideoGenJobSnapshot[]>,
+		/** 任务状态推送（主进程 → 渲染层；组件卸载必须退订） */
+		onEvent: (callback: (snapshot: VideoGenJobSnapshot) => void) => subscribe(ipcChannels.videogenEvent, callback),
+	},
+
+	// ── 提示词增强：独立 sidecar 复用用户那套 pi 的 ModelRuntime，流式事件按 runId 推送 ──
+	enhance: {
+		run: (input: EnhanceRunInput) => ipcRenderer.invoke(ipcChannels.enhanceRun, input) as Promise<EnhanceRunResult>,
+		cancel: () => ipcRenderer.invoke(ipcChannels.enhanceCancel) as Promise<{ ok: boolean }>,
+		onEvent: (callback: (payload: EnhanceEventPayload) => void) => subscribe(ipcChannels.enhanceEvent, callback),
+	},
+
+	// ── 输入预测：回合结束后预测下一句输入（与提示词增强同一条侧车协议、独立实例）──
+	suggestion: {
+		run: (input: PromptSuggestionRunInput) => ipcRenderer.invoke(ipcChannels.suggestRun, input) as Promise<PromptSuggestionRunResult>,
+		cancel: () => ipcRenderer.invoke(ipcChannels.suggestCancel) as Promise<{ ok: boolean }>,
+		onEvent: (callback: (payload: EnhanceEventPayload) => void) => subscribe(ipcChannels.suggestEvent, callback),
+	},
+
+	voiceTranscription: {
+		getConfig: () => ipcRenderer.invoke(ipcChannels.voiceTranscriptionGetConfig) as Promise<VoiceTranscriptionPublicConfig>,
+		saveConfig: (config: VoiceTranscriptionSaveInput) => ipcRenderer.invoke(ipcChannels.voiceTranscriptionSaveConfig, config) as Promise<VoiceTranscriptionSaveResult>,
+		transcribe: (request: VoiceTranscriptionRequest) => ipcRenderer.invoke(ipcChannels.voiceTranscriptionTranscribe, request) as Promise<VoiceTranscriptionResult>,
+		cancel: (requestId: string) => ipcRenderer.invoke(ipcChannels.voiceTranscriptionCancel, requestId) as Promise<void>,
+		/**
+		 * 流式识别（豆包流式 2.0）：开流 → 逐帧 send → 收尾拿终值，中间结果走 onStreamPartial 订阅。
+		 * 帧刻意用 `send` 而非 `invoke`：200ms 一帧的单向数据不该每条都等一次往返。
+		 */
+		startStream: (input: VoiceTranscriptionStreamStartInput) => ipcRenderer.invoke(ipcChannels.voiceTranscriptionStreamStart, input) as Promise<VoiceTranscriptionStreamStartResult>,
+		sendStreamFrame: (frame: VoiceTranscriptionStreamFrame) => ipcRenderer.send(ipcChannels.voiceTranscriptionStreamFrame, frame),
+		finishStream: (requestId: string) => ipcRenderer.invoke(ipcChannels.voiceTranscriptionStreamFinish, requestId) as Promise<VoiceTranscriptionResult>,
+		onStreamPartial: (callback: (partial: VoiceTranscriptionStreamPartial) => void) => subscribe(ipcChannels.voiceTranscriptionStreamPartial, callback),
+		/** 用静音探针检测当前配置是否真的能转写（密钥留在主进程，渲染层只拿结论）。 */
+		test: () => ipcRenderer.invoke(ipcChannels.voiceTranscriptionTest) as Promise<VoiceTranscriptionTestResult>,
+		/** 点「显示」时按需取回某一格明文；null = 该格没配置或系统安全存储不可用。 */
+		revealSecret: (field: VoiceTranscriptionSecretField) => ipcRenderer.invoke(ipcChannels.voiceTranscriptionRevealSecret, field) as Promise<string | null>,
+		/** 本地 whisper 运行时/模型安装状态（含自定义 CLI 路径生效判定）。 */
+		runtimeStatus: () => ipcRenderer.invoke(ipcChannels.voiceTranscriptionRuntimeStatus) as Promise<WhisperRuntimeStatus>,
+		/** 按需下载 whisper-cli 二进制（进度走 onRuntimeProgress）。 */
+		installRuntime: () => ipcRenderer.invoke(ipcChannels.voiceTranscriptionRuntimeInstall) as Promise<WhisperInstallResult>,
+		/** 按需下载指定 ggml 模型（入参为共享目录里的 modelId）。 */
+		installModel: (modelId: string) => ipcRenderer.invoke(ipcChannels.voiceTranscriptionModelInstall, modelId) as Promise<WhisperInstallResult>,
+		deleteModel: (modelId: string) => ipcRenderer.invoke(ipcChannels.voiceTranscriptionModelDelete, modelId) as Promise<WhisperInstallResult>,
+		/** 安装进度推送；返回退订函数。 */
+		onRuntimeProgress: (callback: (progress: WhisperInstallProgress) => void) => subscribe(ipcChannels.voiceTranscriptionRuntimeProgress, callback),
+		/** 取消进行中的下载（运行时与模型同一时刻只有一个任务）；false = 当前没有在跑的任务。 */
+		abortInstall: () => ipcRenderer.invoke(ipcChannels.voiceTranscriptionInstallCancel) as Promise<boolean>,
+	},
 	// ── 模型目录（pi-ai-catalog）：查询状态 / 检查更新 / 从 GitHub 更新 / 还原 / 恢复备份 ──
 	catalog: {
-		status: () =>
-			ipcRenderer.invoke(ipcChannels.catalogUpdateStatus) as Promise<CatalogUpdateStatus>,
-		check: (branch: "main" | "dev") =>
-			ipcRenderer.invoke(ipcChannels.catalogUpdateCheck, branch) as Promise<CatalogCheckResult>,
-		updateFromGithub: (branch: "main" | "dev") =>
-			ipcRenderer.invoke(ipcChannels.catalogUpdateFromGithub, branch) as Promise<CatalogUpdateResult>,
-		restore: () =>
-			ipcRenderer.invoke(ipcChannels.catalogUpdateRestore) as Promise<CatalogUpdateResult>,
-		restorePrevious: () =>
-			ipcRenderer.invoke(ipcChannels.catalogUpdateRestorePrevious) as Promise<CatalogUpdateResult>,
+		status: () => ipcRenderer.invoke(ipcChannels.catalogUpdateStatus) as Promise<CatalogUpdateStatus>,
+		check: (branch: "main" | "dev") => ipcRenderer.invoke(ipcChannels.catalogUpdateCheck, branch) as Promise<CatalogCheckResult>,
+		updateFromGithub: (branch: "main" | "dev") => ipcRenderer.invoke(ipcChannels.catalogUpdateFromGithub, branch) as Promise<CatalogUpdateResult>,
+		restore: () => ipcRenderer.invoke(ipcChannels.catalogUpdateRestore) as Promise<CatalogUpdateResult>,
+		restorePrevious: () => ipcRenderer.invoke(ipcChannels.catalogUpdateRestorePrevious) as Promise<CatalogUpdateResult>,
 		/** 用系统默认程序打开当前生效的目录文件（覆盖层优先，否则内置） */
 		openFile: () => ipcRenderer.invoke(ipcChannels.catalogOpenFile) as Promise<void>,
 	},
@@ -1932,11 +1794,103 @@ const api = {
 		pickCustomPath: () => ipcRenderer.invoke(ipcChannels.cloudSyncPickCustomPath) as Promise<CloudSyncStateSnapshot>,
 		pickMountDirectory: () => ipcRenderer.invoke(ipcChannels.cloudSyncPickMountDirectory) as Promise<string | null>,
 	},
+
+	// ── 快捷消息（独立配置文件 userData/quick-messages.json，可直接编辑） ──
+	quickMessages: {
+		get: () => ipcRenderer.invoke(ipcChannels.quickMessagesGet) as Promise<QuickMessagesSnapshot>,
+		/** 整体保存条目数组（顺序即弹框顺序，空数组 = 清空） */
+		save: (items: string[]) => ipcRenderer.invoke(ipcChannels.quickMessagesSave, items) as Promise<QuickMessagesSaveResult>,
+		/** 用系统默认程序打开配置文件（路径由主进程解析，文件不存在时会先生成） */
+		openFile: () => ipcRenderer.invoke(ipcChannels.quickMessagesOpenFile) as Promise<void>,
+	},
+
+	// ── 回复快捷操作（规则文件 userData/reply-actions.json，结构与快捷消息同构） ──
+	replyActions: {
+		get: () => ipcRenderer.invoke(ipcChannels.replyActionsGet) as Promise<ReplyActionsSnapshot>,
+		/** 整体保存规则数组（顺序即展示顺序，空数组 = 清空） */
+		save: (items: ReplyActionRule[]) => ipcRenderer.invoke(ipcChannels.replyActionsSave, items) as Promise<ReplyActionsSaveResult>,
+		/** 用系统默认程序打开规则文件（路径由主进程解析，文件不存在时会先生成） */
+		openFile: () => ipcRenderer.invoke(ipcChannels.replyActionsOpenFile) as Promise<void>,
+	},
+
+	// ── 定时任务与自动化 ──
+	automation: {
+		getSnapshot: () => ipcRenderer.invoke(ipcChannels.automationGetSnapshot) as Promise<AutomationSnapshot>,
+		createTask: (input: CreateAutomationTaskInput) => ipcRenderer.invoke(ipcChannels.automationCreateTask, input) as Promise<AutomationTask>,
+		updateTask: (taskId: string, patch: UpdateAutomationTaskInput) => ipcRenderer.invoke(ipcChannels.automationUpdateTask, taskId, patch) as Promise<AutomationTask>,
+		deleteTask: (taskId: string) => ipcRenderer.invoke(ipcChannels.automationDeleteTask, taskId) as Promise<boolean>,
+		runNow: (taskId: string) => ipcRenderer.invoke(ipcChannels.automationRunNow, taskId) as Promise<AutomationRun>,
+		abortRun: (runId: string) => ipcRenderer.invoke(ipcChannels.automationAbortRun, runId) as Promise<boolean>,
+		deleteRuns: (runIds: string[]) => ipcRenderer.invoke(ipcChannels.automationDeleteRuns, runIds) as Promise<number>,
+		clearRuns: () => ipcRenderer.invoke(ipcChannels.automationClearRuns) as Promise<number>,
+		updateSettings: (patch: UpdateAutomationSettingsInput) => ipcRenderer.invoke(ipcChannels.automationUpdateSettings, patch) as Promise<AutomationSettings>,
+		previewCron: (expression: string, count?: number) => ipcRenderer.invoke(ipcChannels.automationPreviewCron, expression, count) as Promise<AutomationCronPreview>,
+		onChanged: (callback: (event: AutomationChangedEvent) => void) => subscribe<AutomationChangedEvent>(ipcChannels.automationChanged, callback),
+	},
+
+	// ── 智能体（Agent Market）：配置 CRUD + 一次性调用（划词工具共用同一协议） ──
+	agentProfiles: {
+		getSnapshot: () => ipcRenderer.invoke(ipcChannels.agentProfilesGetSnapshot) as Promise<AgentProfileSnapshot>,
+		create: (input: CreateAgentProfileInput) => ipcRenderer.invoke(ipcChannels.agentProfilesCreate, input) as Promise<AgentProfile>,
+		update: (agentId: string, patch: UpdateAgentProfileInput) => ipcRenderer.invoke(ipcChannels.agentProfilesUpdate, agentId, patch) as Promise<AgentProfile>,
+		/** 删除自定义智能体；内置智能体返回 false（不抛错，UI 用同一路径提示不可删）。 */
+		remove: (agentId: string) => ipcRenderer.invoke(ipcChannels.agentProfilesDelete, agentId) as Promise<boolean>,
+		/** 把内置智能体恢复到内置原文（用户改坏了可一键回退）。 */
+		resetBuiltin: (agentId: string) => ipcRenderer.invoke(ipcChannels.agentProfilesResetBuiltin, agentId) as Promise<AgentProfile>,
+		duplicate: (agentId: string) => ipcRenderer.invoke(ipcChannels.agentProfilesDuplicate, agentId) as Promise<AgentProfile>,
+		updateSettings: (patch: UpdateAgentMarketSettingsInput) => ipcRenderer.invoke(ipcChannels.agentProfilesUpdateSettings, patch) as Promise<AgentMarketSettings>,
+		onChanged: (callback: (event: AgentChangedEvent) => void) => subscribe<AgentChangedEvent>(ipcChannels.agentProfilesChanged, callback),
+		/** 一次性调用：受理后流式事件经 onInvokeEvent 推送（与提示词增强同一协议形态）。 */
+		invoke: (input: AgentInvokeInput) => ipcRenderer.invoke(ipcChannels.agentProfilesInvoke, input) as Promise<AgentInvokeResult>,
+		cancelInvoke: () => ipcRenderer.invoke(ipcChannels.agentProfilesInvokeCancel) as Promise<{ ok: boolean }>,
+		onInvokeEvent: (callback: (payload: AgentInvokeEventPayload) => void) => subscribe<AgentInvokeEventPayload>(ipcChannels.agentProfilesInvokeEvent, callback),
+		/** 绑定/解绑会话与智能体：绑定后该会话每次发送由主进程注入隐藏角色设定。 */
+		bindSession: (input: BindAgentSessionInput) => ipcRenderer.invoke(ipcChannels.agentProfilesBindSession, input) as Promise<AgentMarketSettings>,
+		/** 保存拖拽出的展示顺序（完整 id 数组）；主进程剔除未知 id 后落盘并返回生效的顺序。 */
+		reorder: (agentIds: string[]) => ipcRenderer.invoke(ipcChannels.agentProfilesReorder, agentIds) as Promise<string[]>,
+	},
+
+	// ── 收藏（整条回复 / 划选片段的本地快照；不写入会话文件） ──
+	favorites: {
+		list: () => ipcRenderer.invoke(ipcChannels.favoritesList) as Promise<FavoriteEntry[]>,
+		add: (input: AddFavoriteInput) => ipcRenderer.invoke(ipcChannels.favoritesAdd, input) as Promise<FavoriteEntry>,
+		remove: (favoriteId: string) => ipcRenderer.invoke(ipcChannels.favoritesRemove, favoriteId) as Promise<boolean>,
+		/** 批量删除：一次写盘，返回实际删除条数（未知 id 忽略）。 */
+		removeMany: (favoriteIds: string[]) => ipcRenderer.invoke(ipcChannels.favoritesRemoveMany, favoriteIds) as Promise<number>,
+		/** 保存拖拽出的顺序（完整 id 数组）；返回主进程落地后的列表。 */
+		reorder: (favoriteIds: string[]) => ipcRenderer.invoke(ipcChannels.favoritesReorder, favoriteIds) as Promise<FavoriteEntry[]>,
+	},
+
+	// ── 系统级划词浮窗（全局快捷键触发的独立窗口；与主窗口共用同一份 preload） ──
+	selectionTool: {
+		getState: () => ipcRenderer.invoke(ipcChannels.selectionToolGetState) as Promise<SelectionToolWindowState>,
+		hide: () => ipcRenderer.invoke(ipcChannels.selectionToolHide) as Promise<void>,
+		/** 折叠浮条 ↔ 展开结果面板：渲染层按内容请求窗口尺寸。 */
+		resize: (input: SelectionToolResizeInput) => ipcRenderer.invoke(ipcChannels.selectionToolResize, input) as Promise<void>,
+		/** 浮窗「发送到 PiDeck」：把文本插入主窗口当前会话输入框。 */
+		insertToMain: (input: SelectionToolInsertInput) => ipcRenderer.invoke(ipcChannels.selectionToolInsertToMain, input) as Promise<boolean>,
+		/** 浮窗显示时主进程推送的捕获文本（空串 = 没读到，让用户手输）。 */
+		onCaptured: (callback: (payload: SelectionToolShowPayload) => void) => subscribe<SelectionToolShowPayload>(ipcChannels.selectionToolCaptured, callback),
+		onStateChanged: (callback: (state: SelectionToolWindowState) => void) => subscribe<SelectionToolWindowState>(ipcChannels.selectionToolStateChanged, callback),
+		/** 主窗口侧：系统浮窗点「发送到 PiDeck」时收到文本（插入当前会话输入框）。 */
+		onInserted: (callback: (payload: SelectionToolInsertInput) => void) => subscribe<SelectionToolInsertInput>(ipcChannels.selectionToolInserted, callback),
+	},
+
+	// ── CUA 审批门 ──
+	cua: {
+		/** 监听审批请求（主进程 → 渲染层）。 */
+		onApprovalRequest: (callback: (request: { requestId: string; action: string; sessionId: string; detail: unknown; timestampMs: number }) => void) => subscribe(ipcChannels.cuaApprovalRequest, callback),
+		/** 回传审批结果（渲染层 → 主进程）。 */
+		sendApprovalResponse: (requestId: string, response: { allowed: boolean; reason?: string }) => ipcRenderer.invoke(ipcChannels.cuaApprovalResponse, requestId, response) as Promise<void>,
+		/** 拉取 CUA 开关状态。 */
+		getState: () => ipcRenderer.invoke(ipcChannels.cuaGetState) as Promise<{ enabled: boolean; sessionOverrides: Record<string, boolean> }>,
+		/** 设置 CUA 开关。 */
+		setState: (patch: { enabled?: boolean; sessionOverride?: { sessionId: string; enabled: boolean | null } }) => ipcRenderer.invoke(ipcChannels.cuaSetState, patch) as Promise<{ enabled: boolean; sessionOverrides: Record<string, boolean> }>,
+	},
 };
 
 function subscribe<T>(channel: string, callback: (payload: T) => void) {
-	const listener = (_event: Electron.IpcRendererEvent, payload: T) =>
-		callback(payload);
+	const listener = (_event: Electron.IpcRendererEvent, payload: T) => callback(payload);
 	ipcRenderer.on(channel, listener);
 	return () => {
 		ipcRenderer.removeListener(channel, listener);
@@ -1947,10 +1901,7 @@ try {
 	contextBridge.exposeInMainWorld("piDesktop", api);
 	ipcRenderer.send(ipcChannels.preloadReady);
 } catch (error) {
-	const detail =
-		error instanceof Error
-			? { message: error.message, stack: error.stack }
-			: { message: String(error) };
+	const detail = error instanceof Error ? { message: error.message, stack: error.stack } : { message: String(error) };
 	console.error("[PiDeck preload] Failed to expose desktop API", detail);
 	ipcRenderer.send(ipcChannels.preloadError, detail);
 }

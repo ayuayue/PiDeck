@@ -43,15 +43,15 @@ export type ImageGenErrorCode =
 	| "network"
 	/** 服务端返回其他错误（detail 携带状态码 + 厂商错误正文） */
 	| "http"
+	/** 响应体超过 32MB 上限（主进程流式读取提前中止，防内存放大） */
+	| "responseTooLarge"
 	/** 响应里没有图片数据 */
 	| "empty"
 	/** 供应商声明为不支持参考图（referenceMode=none）却附了参考图 */
 	| "referenceUnsupported";
 
 /** 生图结果：ok=true 时 image 为可直接进附件栏的 base64 图片 */
-export type ImageGenResult =
-	| { ok: true; image: ImageContent }
-	| { ok: false; error: ImageGenErrorCode; detail?: string };
+export type ImageGenResult = { ok: true; image: ImageContent } | { ok: false; error: ImageGenErrorCode; detail?: string };
 
 /**
  * 生图消息的渲染元数据（存在 ChatMessage.meta.imageGen）：
@@ -68,6 +68,15 @@ export type ImageGenMeta = {
 	errorDetail?: string;
 };
 
-export type ImageGenSaveResult =
-	| { ok: true; config: ImageGenConfigFile }
-	| { ok: false; error: string };
+export type ImageGenSaveResult = { ok: true; config: ImageGenConfigFile } | { ok: false; error: string };
+
+/**
+ * 按需取回的落盘图片字节（imagegen:read-image-blob）。
+ * 历史生图消息只带 ref 引用，展示交给 pideck-img:// 协议流式加载；
+ * 只有「复制 / 保存 / 重发带回参考图」这类确需字节的路径才走这个通道。
+ */
+export type ImageBlobPayload = {
+	/** base64 图片数据（不含 data URL 前缀） */
+	data: string;
+	mimeType: string;
+};

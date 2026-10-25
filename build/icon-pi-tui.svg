@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <!-- 容器与 build/icon.svg 同规格（深色渐变底 + 上半 shine + rx 228），仅把中心字标换成 pi 官方 TUI 4×4 三色位图。 -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#161719"/>
+      <stop offset="0.58" stop-color="#050506"/>
+      <stop offset="1" stop-color="#000000"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0.3" y1="0" x2="0.7" y2="1">
+      <stop stop-color="#ffffff" stop-opacity="0.18" offset="0"/>
+      <stop stop-color="#ffffff" stop-opacity="0" offset="0.52"/>
+    </linearGradient>
+    <filter id="logo-shadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.48"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <rect width="1024" height="512" rx="228" fill="url(#shine)"/>
+  <!-- pi 官方 TUI logo 位图：coral #E48A7A / blue #4F8EB3 / yellow #EAB65D，
+       10 格与 src/renderer/src/components/app/piTuiLogoData.ts 逐格一致；
+       高度 520 与 classic 字标等高，4:3 位图宽 693 居中。
+       垂直：viewBox 4:4 在 693×520 视口内内容恰为 520×520，y=(1024-520)/2=252
+       使字模视觉中心落在画布中心 (512, 512)——旧值 170 让字模偏上 82px。 -->
+  <g transform="translate(166, 252)" filter="url(#logo-shadow)">
+    <svg viewBox="0 0 4 4" width="693" height="520" shape-rendering="crispEdges">
+      <rect x="0" y="0" width="1" height="1" fill="#E48A7A"/>
+      <rect x="1" y="0" width="1" height="1" fill="#E48A7A"/>
+      <rect x="2" y="0" width="1" height="1" fill="#E48A7A"/>
+      <rect x="0" y="1" width="1" height="1" fill="#4F8EB3"/>
+      <rect x="2" y="1" width="1" height="1" fill="#E48A7A"/>
+      <rect x="0" y="2" width="1" height="1" fill="#4F8EB3"/>
+      <rect x="1" y="2" width="1" height="1" fill="#4F8EB3"/>
+      <rect x="3" y="2" width="1" height="1" fill="#EAB65D"/>
+      <rect x="0" y="3" width="1" height="1" fill="#4F8EB3"/>
+      <rect x="3" y="3" width="1" height="1" fill="#EAB65D"/>
+    </svg>
+  </g>
+</svg>

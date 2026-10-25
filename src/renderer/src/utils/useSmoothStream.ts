@@ -49,9 +49,7 @@ interface UseSmoothStreamReturn {
 }
 
 /** ????????????????????????? */
-const segmenter = new Intl.Segmenter([
-	"en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "de-DE", "fr-FR", "es-ES", "pt-PT", "ru-RU",
-]);
+const segmenter = new Intl.Segmenter(["en-US", "zh-CN", "zh-TW", "ja-JP", "ko-KR", "de-DE", "fr-FR", "es-ES", "pt-PT", "ru-RU"]);
 
 /**
  * 流式空转停帧阈值（ms）：队列空且超过该时长没有新 delta（流式通道卡死/中断、
@@ -64,16 +62,7 @@ function segmentText(text: string): string[] {
 	return Array.from(segmenter.segment(text)).map((s) => s.segment);
 }
 
-export function useSmoothStream({
-	content,
-	isStreaming,
-	disabled = false,
-	minDelay = 16,
-	streamingDivisor = 5,
-	drainDivisor = 3,
-	maxStepPerFrame = 10,
-	maxDrainStepPerFrame = 12,
-}: UseSmoothStreamOptions): UseSmoothStreamReturn {
+export function useSmoothStream({ content, isStreaming, disabled = false, minDelay = 16, streamingDivisor = 5, drainDivisor = 3, maxStepPerFrame = 10, maxDrainStepPerFrame = 12 }: UseSmoothStreamOptions): UseSmoothStreamReturn {
 	const [displayedContent, setDisplayedContent] = useState(content);
 
 	// 长文本降频（2026-08 内存/CPU 治理）：每帧 DOM 更新（文本节点替换 → layout）
@@ -82,10 +71,7 @@ export function useSmoothStream({
 	// （~37fps）；64K+ 降到 33ms（~30fps）。步进上限同步放大，保证排空速率
 	// （step×fps）始终高于 LLM 输出速率（100-300 字/s），队列不会越积越长。
 	// 调用方显式传入的参数仍是下限之上的覆盖（Math.max 取大）。
-	const effectiveMinDelay = Math.max(
-		minDelay,
-		content.length > 64_000 ? 33 : content.length > 8_000 ? 16 : 8,
-	);
+	const effectiveMinDelay = Math.max(minDelay, content.length > 64_000 ? 33 : content.length > 8_000 ? 16 : 8);
 	const effectiveMaxStepPerFrame = Math.max(maxStepPerFrame, content.length > 8_000 ? 12 : 6);
 
 	// ????????
@@ -121,11 +107,7 @@ export function useSmoothStream({
 			return;
 		}
 
-		const change = classifySmoothStreamChange(
-			prevContent,
-			displayedRef.current,
-			newContent,
-		);
+		const change = classifySmoothStreamChange(prevContent, displayedRef.current, newContent);
 		if (change.kind === "append") {
 			const chars = segmentText(change.delta);
 			chunkQueueRef.current.push(...chars);

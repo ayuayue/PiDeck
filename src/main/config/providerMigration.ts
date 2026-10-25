@@ -34,6 +34,7 @@ export type DshProviderProfile = {
 	api?: string;
 	apiKeyEnv?: string;
 	headers?: Record<string, string>;
+	compat?: ProviderCompatFlags;
 	models?: Array<{
 		id: string;
 		name?: string;
@@ -48,12 +49,68 @@ export type DshProviderProfile = {
 	}>;
 };
 
+/**
+ * pi ↔ DSH 双向迁移的 compat 白名单（两边都认、且由 PiDeck 配置弹窗拥有的字段）。
+ *
+ * - supportsDeveloperRole：上游不认 OpenAI 新增的 developer 角色（DeepSeek 官方网关就是）
+ *   时置 false，客户端改发 system 角色，否则 400 unknown variant `developer`；
+ * - requiresReasoningContentOnAssistantMessages：DeepSeek 系网关要求带 tool_calls 的
+ *   历史回合回放 reasoning_content，缺字段直接 400；true 时 pi 会补空串。
+ *
+ * 为什么用白名单而不是整体透传：DSH 的 dsh-llm-pi-ai 会校验 compat 字段是否被协议提供
+ * （openRouterRouting / vercelGatewayRouting 等必须由环境变量显式开启），写进 settings.yaml
+ * 一个未经提供的键就会 "compat field ... is not offered" → 整条 settings.update 被拒；
+ * pi 侧的 thinkingFormat 等值 DSH 也不一定认。
+ *
+ * supportsStrictMode 刻意不进这个白名单：它是 pi 0.86 才有的键，DSH 协议没有提供，
+ * 写进 settings.yaml 同样会被整条拒绝。pi 侧手写的值不会因此丢失——回写 models.json
+ * 走 mergePiProvider，那边以 asCompatRecord 保留原 compat 全部子键（见该函数注释）。
+ */
+export type ProviderCompatFlags = {
+	supportsDeveloperRole?: boolean;
+	requiresReasoningContentOnAssistantMessages?: boolean;
+};
+
+/** compat 只对 openai-completions 协议族生效；anthropic-messages 等适配器的 compat 由 DSH 自己决定。 */
+function carriesCompatFlags(api: string | undefined): boolean {
+	const apiType = api?.trim();
+	return !apiType || apiType === "openai-completions";
+}
+
+/**
+ * compat 对象原样取出（保留 pi 侧自定义键，如 thinkingFormat）；非法值退化为空对象。
+ * 与 asProviderCompatFlags 的区别：那个是「收窄出可迁移的两个键」，这个是「合并时要保留的底」。
+ */
+function asCompatRecord(value: unknown): Record<string, unknown> {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+	return { ...(value as Record<string, unknown>) };
+}
+
+/**
+ * 从任意来源（models.json / settings.yaml 的 compat 对象）收窄出 PiDeck 管理的两个布尔；
+ * 无有效键时返回 undefined（= 不携带，调用方保留原有值）。
+ */
+export function asProviderCompatFlags(value: unknown): ProviderCompatFlags | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+	const rec = value as Record<string, unknown>;
+	const flags: ProviderCompatFlags = {};
+	if (typeof rec.supportsDeveloperRole === "boolean") {
+		flags.supportsDeveloperRole = rec.supportsDeveloperRole;
+	}
+	if (typeof rec.requiresReasoningContentOnAssistantMessages === "boolean") {
+		flags.requiresReasoningContentOnAssistantMessages = rec.requiresReasoningContentOnAssistantMessages;
+	}
+	return Object.keys(flags).length > 0 ? flags : undefined;
+}
+
 export type PiProviderSnapshot = {
 	name: string;
 	baseUrl?: string;
 	api?: string;
 	apiKey?: string;
 	headers?: Record<string, string>;
+	/** models.json 里该 provider 的 compat（已收窄为两边都认的白名单子集）。 */
+	compat?: ProviderCompatFlags;
 	models: PiModelItem[];
 	/**
 	 * Snapshot was synthesized from pi-ai's built-in catalog because Pi only had
@@ -74,11 +131,7 @@ const DEEPSEEK_OFFICIAL_HOST = "api.deepseek.com";
 const DEEPSEEK_DEFAULT_BASE = "https://api.deepseek.com";
 
 export function isSafeProviderName(name: unknown): name is string {
-	return typeof name === "string"
-		&& name.trim().length > 0
-		&& name.trim().length <= 80
-		&& !/[\\/]/.test(name)
-		&& !name.includes("..");
+	return typeof name === "string" && name.trim().length > 0 && name.trim().length <= 80 && !/[\\/]/.test(name) && !name.includes("..");
 }
 
 function asStringRecord(value: unknown): Record<string, string> | undefined {
@@ -150,9 +203,7 @@ export function dshModelsFromPi(models: PiModelItem[] | undefined): DshProviderP
 			// {off:null}）的模型按官网指引 set false 声明为非思考模型，否则 settings.update
 			// 直接 settings-rejected（用户迁移 tokendance 时实报：model "minimax-m2.5"
 			// reasoningEfforts offers no level beyond "off"）。
-			const hasNonOffLevel = Object.entries(expanded).some(
-				([level, wire]) => level !== "off" && wire !== null,
-			);
+			const hasNonOffLevel = Object.entries(expanded).some(([level, wire]) => level !== "off" && wire !== null);
 			row.reasoningEfforts = hasNonOffLevel ? expanded : false;
 		} else if (model.reasoning === false) row.reasoningEfforts = false;
 		rows.push(row);
@@ -191,16 +242,22 @@ export function piModelsFromDsh(models: DshProviderProfile["models"]): PiModelIt
  * 只取迁移构造 snapshot 需要的字段。
  */
 export type PiBuiltinCatalogView = {
-	byProviderId: Map<string, Map<string, {
-		id: string;
-		name?: string;
-		contextWindow?: number;
-		maxTokens?: number;
-		reasoning?: boolean;
-		input?: string[];
-		api?: string;
-		baseUrl?: string;
-	}>>;
+	byProviderId: Map<
+		string,
+		Map<
+			string,
+			{
+				id: string;
+				name?: string;
+				contextWindow?: number;
+				maxTokens?: number;
+				reasoning?: boolean;
+				input?: string[];
+				api?: string;
+				baseUrl?: string;
+			}
+		>
+	>;
 };
 
 /**
@@ -209,11 +266,7 @@ export type PiBuiltinCatalogView = {
  * 端点/api 取首个条目的值（catalog 内同 provider 模型条目通常一致）。
  * catalog 无该 provider / 无可用模型时返回 undefined。
  */
-export function piBuiltinSnapshotFromCatalog(
-	name: string,
-	apiKey: string | undefined,
-	catalog: PiBuiltinCatalogView,
-): PiProviderSnapshot | undefined {
+export function piBuiltinSnapshotFromCatalog(name: string, apiKey: string | undefined, catalog: PiBuiltinCatalogView): PiProviderSnapshot | undefined {
 	const inner = catalog.byProviderId.get(name);
 	if (!inner || inner.size === 0) return undefined;
 	const entries = [...inner.values()];
@@ -265,10 +318,7 @@ function isDeepseekCompositionBaseUrl(baseUrl: string | undefined): boolean {
 function shouldUseDirectDeepseekAdapter(source: PiProviderSnapshot): boolean {
 	const api = source.api?.trim();
 	const hasCustomHeaders = Boolean(source.headers && Object.keys(source.headers).length > 0);
-	return source.name.trim() === "deepseek"
-		&& looksLikeOfficialDeepseek(source.baseUrl)
-		&& (api === undefined || api === "" || api === "openai-completions")
-		&& !hasCustomHeaders;
+	return source.name.trim() === "deepseek" && looksLikeOfficialDeepseek(source.baseUrl) && (api === undefined || api === "" || api === "openai-completions") && !hasCustomHeaders;
 }
 
 /**
@@ -321,6 +371,10 @@ export function piToDshSnapshot(source: PiProviderSnapshot): DshProviderSnapshot
 	if (source.baseUrl?.trim()) profile.baseURL = source.baseUrl.trim();
 	if (source.api?.trim()) profile.api = source.api.trim();
 	if (source.headers) profile.headers = source.headers;
+	// compat：只在 openai-completions 协议下搬。不搬 thinkingFormat 等 DSH 未提供/
+	// 由 DSH 自行推断的字段，避免 settings.update 被整条拒绝（见 ProviderCompatFlags）。
+	const compat = carriesCompatFlags(source.api) ? asProviderCompatFlags(source.compat) : undefined;
+	if (compat) profile.compat = compat;
 	const models = dshModelsFromPi(source.models);
 	if (models) profile.models = models;
 	profile.displayName = name;
@@ -335,15 +389,16 @@ export function piToDshSnapshot(source: PiProviderSnapshot): DshProviderSnapshot
 
 export function dshToPiSnapshot(source: DshProviderSnapshot): PiProviderSnapshot {
 	const profile = source.profile;
-	const baseUrl = source.namespace === "llm-deepseek"
-		? (profile.baseURL?.trim() || DEEPSEEK_DEFAULT_BASE)
-		: profile.baseURL?.trim();
+	const baseUrl = source.namespace === "llm-deepseek" ? profile.baseURL?.trim() || DEEPSEEK_DEFAULT_BASE : profile.baseURL?.trim();
+	// 官方 llm-deepseek 是直连适配器：compat 由适配器自己的 schema 决定，不往 pi 侧搬。
+	const compat = source.namespace === "llm-pi-ai" ? asProviderCompatFlags(profile.compat) : undefined;
 	return {
 		name: source.name.trim(),
 		baseUrl,
 		api: profile.api?.trim() || "openai-completions",
 		apiKey: source.apiKey?.trim() || undefined,
 		headers: profile.headers,
+		compat,
 		models: piModelsFromDsh(profile.models),
 	};
 }
@@ -357,9 +412,7 @@ export function parseDshSettingsDocument(raw: unknown): {
 	}
 	const root = raw as Record<string, unknown>;
 	const piAiRoot = root["llm-pi-ai"];
-	const providers = piAiRoot && typeof piAiRoot === "object" && !Array.isArray(piAiRoot)
-		? (piAiRoot as { providers?: unknown }).providers
-		: undefined;
+	const providers = piAiRoot && typeof piAiRoot === "object" && !Array.isArray(piAiRoot) ? (piAiRoot as { providers?: unknown }).providers : undefined;
 	const piAi: Record<string, DshProviderProfile> = {};
 	if (providers && typeof providers === "object" && !Array.isArray(providers)) {
 		for (const [name, value] of Object.entries(providers)) {
@@ -370,9 +423,7 @@ export function parseDshSettingsDocument(raw: unknown): {
 	const deepseekRaw = root["llm-deepseek"];
 	return {
 		piAi,
-		deepseek: deepseekRaw && typeof deepseekRaw === "object" && !Array.isArray(deepseekRaw)
-			? normalizeDshProfile(deepseekRaw)
-			: undefined,
+		deepseek: deepseekRaw && typeof deepseekRaw === "object" && !Array.isArray(deepseekRaw) ? normalizeDshProfile(deepseekRaw) : undefined,
 	};
 }
 
@@ -414,6 +465,8 @@ function normalizeDshProfile(value: unknown): DshProviderProfile {
 	if (typeof rec.apiKeyEnv === "string" && rec.apiKeyEnv.trim()) profile.apiKeyEnv = rec.apiKeyEnv.trim();
 	const headers = asStringRecord(rec.headers);
 	if (headers) profile.headers = headers;
+	const compat = asProviderCompatFlags(rec.compat);
+	if (compat) profile.compat = compat;
 	const models = normalizeDshModels(rec.models);
 	if (models) profile.models = models;
 	return profile;
@@ -423,30 +476,19 @@ function normalizeDshProfile(value: unknown): DshProviderProfile {
  * 把单个 DSH provider 写回 settings 文档对象（只改这一个 key / 官方 DeepSeek 段）。
  * 返回新对象，不原地改入参。
  */
-export function mergeDshProviderIntoSettings(
-	raw: unknown,
-	snapshot: DshProviderSnapshot,
-): Record<string, unknown> {
-	const root = raw && typeof raw === "object" && !Array.isArray(raw)
-		? { ...(raw as Record<string, unknown>) }
-		: {};
+export function mergeDshProviderIntoSettings(raw: unknown, snapshot: DshProviderSnapshot): Record<string, unknown> {
+	const root = raw && typeof raw === "object" && !Array.isArray(raw) ? { ...(raw as Record<string, unknown>) } : {};
 	if (snapshot.namespace === "llm-deepseek") {
 		// The direct adapter already has a composition profile. An empty snapshot
 		// means Pi supplied only its built-in catalog/key, so do not create a user
 		// settings section merely to repeat DSH defaults.
 		if (Object.keys(snapshot.profile).length === 0) return root;
-		const current = root["llm-deepseek"] && typeof root["llm-deepseek"] === "object" && !Array.isArray(root["llm-deepseek"])
-			? { ...(root["llm-deepseek"] as Record<string, unknown>) }
-			: {};
+		const current = root["llm-deepseek"] && typeof root["llm-deepseek"] === "object" && !Array.isArray(root["llm-deepseek"]) ? { ...(root["llm-deepseek"] as Record<string, unknown>) } : {};
 		root["llm-deepseek"] = { ...current, ...snapshot.profile };
 		return root;
 	}
-	const ns = root["llm-pi-ai"] && typeof root["llm-pi-ai"] === "object" && !Array.isArray(root["llm-pi-ai"])
-		? { ...(root["llm-pi-ai"] as Record<string, unknown>) }
-		: {};
-	const providers = ns.providers && typeof ns.providers === "object" && !Array.isArray(ns.providers)
-		? { ...(ns.providers as Record<string, unknown>) }
-		: {};
+	const ns = root["llm-pi-ai"] && typeof root["llm-pi-ai"] === "object" && !Array.isArray(root["llm-pi-ai"]) ? { ...(root["llm-pi-ai"] as Record<string, unknown>) } : {};
+	const providers = ns.providers && typeof ns.providers === "object" && !Array.isArray(ns.providers) ? { ...(ns.providers as Record<string, unknown>) } : {};
 	providers[snapshot.name] = { ...snapshot.profile };
 	ns.providers = providers;
 	root["llm-pi-ai"] = ns;
@@ -467,7 +509,7 @@ export function dumpYamlObject(value: unknown): string {
 	return dump(value ?? {}, {
 		lineWidth: -1,
 		noRefs: true,
-		quotingType: "\"",
+		quotingType: '"',
 		sortKeys: false,
 	});
 }
@@ -500,10 +542,7 @@ export function mergeCredentialDocument(text: string, ref: string, value: string
 	return dumpYamlObject({ version: 1, refs: flat });
 }
 
-export function resolvePiApiKey(
-	provider: PiProviderConfig | undefined,
-	auth: PiAuthItem | undefined,
-): string | undefined {
+export function resolvePiApiKey(provider: PiProviderConfig | undefined, auth: PiAuthItem | undefined): string | undefined {
 	const inline = typeof provider?.apiKey === "string" ? provider.apiKey.trim() : "";
 	if (inline) return inline;
 	const fromAuth = typeof auth?.key === "string" ? auth.key.trim() : "";
@@ -526,15 +565,21 @@ export function mergePiProvider(
 	models: { providers: Record<string, PiProviderConfig> };
 	auth: Record<string, PiAuthItem>;
 } {
+	const existing = models.providers[snapshot.name];
+	// compat 逐键合并：迁移只覆盖白名单里的两个键，保留 pi 侧手写的其它 compat
+	// （thinkingFormat / openRouterRouting 等 DSH 表达不了的字段不该被一次迁移抹掉）；
+	// 对方没给 compat 时整套保留原值。
+	const mergedCompat = snapshot.compat ? { ...asCompatRecord(existing?.compat), ...snapshot.compat } : undefined;
 	const nextModels = {
 		providers: {
 			...models.providers,
 			[snapshot.name]: {
-				...(models.providers[snapshot.name] ?? { models: [] }),
+				...(existing ?? { models: [] }),
 				baseUrl: snapshot.baseUrl,
 				api: snapshot.api,
 				models: snapshot.models,
 				...(snapshot.headers ? { headers: snapshot.headers } : {}),
+				...(mergedCompat ? { compat: mergedCompat } : {}),
 			},
 		},
 	};

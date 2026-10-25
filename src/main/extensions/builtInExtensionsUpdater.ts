@@ -1,0 +1,530 @@
+/**
+ * PiDeck 内置扩展热更新器（扩展设置页的「内置扩展」更新入口）。
+ *
+ * 背景：内置扩展（resources/extensions/*.ts）随应用分发，RPC 启动时经 `-e <绝对路径>`
+ * 注入 pi。打包态 resources 目录不可写（Program Files 权限 / 签名校验），扩展出 bug 只能
+ * 等下一次应用发版，紧急补丁的反馈闭环太长。
+ *
+ * 机制（对齐 PiAiCatalogUpdater）：
+ * 1. 仓库 main 分支提交 resources/extensions/extensions-manifest.json（包版本 + 每文件 sha256）；
+ * 2. 客户端拉远端清单，与本地生效版本逐文件比对 sha，把有差异的文件写进 userData 覆盖层
+ *    `<userData>/builtin-extensions/`；
+ * 3. 覆盖层是**完整自洽快照**（未变化的文件从当前生效源复制），因为扩展之间存在相对
+ *    import（如 pi-deck-todo.ts → ./pi-deck-todo-state.ts），只放差量文件会让 pi 解析不到依赖；
+ * 4. 覆盖层同时**自带 vendored 运行时依赖**（node_modules/undici 等）：pi 按扩展文件所在目录
+ *    向上查 node_modules，覆盖层上层没有 node_modules，缺了就是 `Cannot find module 'undici'`
+ *    → pi 启动失败 → 全部扩展被禁用。更新时随 tmp 复制，旧覆盖层由 ensureOverlayVendorDependencies
+ *    启动自愈；
+ * 5. builtInExtensions.resolveBuiltInExtensionPath 覆盖层优先，重启会话即生效。
+ *
+ * 安全底线：先下载校验、后原子替换。任一环节失败（网络/sha 不符/写盘异常）都保持当前
+ * 生效版本不变；替换前把现有覆盖层整体转为 `.bak`，支持「恢复上一个覆盖版」。
+ *
+ * 边界（刻意）：只更新**本地已知文件名**（内置清单声明的那些）。远端清单里多出的新文件名
+ * 会被忽略——扩展的注入清单 BUILT_IN_EXTENSIONS 编译在应用代码里，热更新不应该也无法
+ * 让远端数据凭空往 pi 里塞新代码。
+ */
+
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { decodeAtomGitContentsBuffer, repoFileSourceEntries, type RepoFileSourceEntry } from "../update/atomGitContents";
+import type { UpdateSourceId } from "../../shared/types/settings";
+import type { BuiltInExtensionsCheckResult, BuiltInExtensionsUpdateResult, BuiltInExtensionsUpdateStatus } from "../../shared/types/extensionsUpdate";
+import { BUILT_IN_EXTENSIONS_OVERLAY_BACKUP_DIR_NAME, BUILT_IN_EXTENSIONS_OVERLAY_DIR_NAME, EXTENSIONS_MANIFEST_FILE_NAME, listExtensionFileNames, readManifestFromDir, readVerifiedArtifact, sha256Of, parseBuiltInExtensionsManifest, type BuiltInExtensionsManifest } from "./builtInExtensionsManifest";
+// 覆盖层可用性在路径解析侧按目录缓存（校验要读全部文件），写盘后必须显式失效，
+// 否则本次更新要等重启才参与 -e 注入。
+import { invalidateBuiltInExtensionsOverlayCache } from "./builtInExtensions";
+
+/** 清单所在分支：main（发行分支，与模型目录更新一致）。 */
+export const BUILT_IN_EXTENSIONS_UPDATE_DEFAULT_BRANCH = "main";
+/** IPC 边界白名单：只接受 main/dev，防 URL 注入。 */
+export const BUILT_IN_EXTENSIONS_UPDATE_ALLOWED_BRANCHES = ["main", "dev"] as const;
+
+/** 扩展目录在仓库中的相对路径（与 resources/extensions 一致）。 */
+const EXTENSIONS_REPO_DIR = "resources/extensions";
+
+/**
+ * 扩展运行时依赖的 vendored 包名清单（与 package.json extraResources 的
+ * `extensions/node_modules/<pkg>` 映射保持同集合，extensionPackagingDeps.test.mjs 双向把关）。
+ *
+ * 背景（2026-09-15 线上事故）：pi 扩展加载器按扩展文件所在目录向上查 node_modules。
+ * 随包目录有 extraResources 复制进来的 `extensions/node_modules/undici` 兜底，覆盖层
+ * `<userData>/builtin-extensions/` 上层却没有 node_modules——pi-deck-vision.ts 顶部
+ * `import "undici"` 直接 MODULE_NOT_FOUND → pi 启动失败 → PiDeck 禁用全部扩展重启
+ * （Magic Context 等一并失效）。因此覆盖层必须自带同一份 vendored 依赖。
+ */
+export const VENDOR_DEP_PACKAGE_NAMES = ["undici"] as const;
+
+/** 源候选（atomgit OpenAPI / github raw）；形态与 update/atomGitContents 共用，避免两处各定义一份。 */
+type SourceEntry = RepoFileSourceEntry;
+
+/** 最小响应形状：支持流式 body（undici/Node fetch 必有）或整体 arrayBuffer（测试替身）。 */
+type ResponseBodyLike = {
+	getReader(): {
+		read(): Promise<{ done?: boolean; value?: Uint8Array }>;
+		cancel(): Promise<void>;
+	};
+};
+type ResponseLike = {
+	body?: ResponseBodyLike | null;
+	arrayBuffer?(): Promise<ArrayBuffer>;
+};
+
+/**
+ * 逐包复制 vendored 依赖到 `<target>/node_modules/<pkg>`（覆盖层 tmp 组装与自愈共用）。
+ * 源缺包时跳过（旧安装包可能没有该 vendored 目录，跳过不比现状更糟）；
+ * 目标已有该包时幂等跳过；复制失败上抛（fail-closed：宁可不更新，也不写半截覆盖层）。
+ */
+function copyVendorPackages(targetDir: string, vendorNodeModulesDir: string): boolean {
+	let wrote = false;
+	for (const pkg of VENDOR_DEP_PACKAGE_NAMES) {
+		const source = join(vendorNodeModulesDir, pkg);
+		const target = join(targetDir, "node_modules", pkg);
+		if (!existsSync(join(source, "package.json"))) continue;
+		if (existsSync(join(target, "package.json"))) continue;
+		cpSync(source, target, { recursive: true });
+		wrote = true;
+	}
+	return wrote;
+}
+
+export type BuiltInExtensionsUpdaterOptions = {
+	/** 应用 userData 目录：覆盖层落在它下面（打包态可写）。 */
+	userDataDir: string;
+	/** 随包分发的内置扩展目录（dev 与打包态由调用方用同一 roots 解析）。 */
+	builtinExtensionsDir: string;
+	/**
+	 * 扩展运行时依赖的 vendored node_modules 源目录（dev = 仓库顶层，打包态 =
+	 * `resources/extensions/node_modules`，见 resolveVendorNodeModulesDir）。
+	 * 写覆盖层/自愈旧覆盖层时把其中的 vendored 包复制进去；缺省（测试/旧调用方）跳过复制。
+	 */
+	vendorNodeModulesDir?: string;
+	/** 网络实现注入（单测）；默认 globalThis.fetch。 */
+	fetchImpl?: typeof fetch;
+	timeoutMs?: number;
+	maxManifestBytes?: number;
+	maxFileBytes?: number;
+	/** 默认分支，默认 main。 */
+	branch?: string;
+	/** 更新源：github 时 GitHub raw 直连优先，否则 AtomGit OpenAPI 优先。 */
+	source?: () => UpdateSourceId;
+};
+
+export class BuiltInExtensionsUpdater {
+	private readonly userDataDir: string;
+	private readonly builtinExtensionsDir: string;
+	private readonly vendorNodeModulesDir: string | undefined;
+	private readonly fetchImpl: typeof fetch;
+	private readonly timeoutMs: number;
+	private readonly maxManifestBytes: number;
+	private readonly maxFileBytes: number;
+	private readonly branch: string;
+	private readonly source: () => UpdateSourceId;
+
+	constructor(options: BuiltInExtensionsUpdaterOptions) {
+		this.userDataDir = options.userDataDir;
+		this.builtinExtensionsDir = options.builtinExtensionsDir;
+		this.vendorNodeModulesDir = options.vendorNodeModulesDir;
+		this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
+		this.timeoutMs = options.timeoutMs ?? 15_000;
+		this.maxManifestBytes = options.maxManifestBytes ?? 256 * 1024;
+		this.maxFileBytes = options.maxFileBytes ?? 2 * 1024 * 1024;
+		this.branch = options.branch ?? BUILT_IN_EXTENSIONS_UPDATE_DEFAULT_BRANCH;
+		this.source = options.source ?? (() => "atomgit");
+	}
+
+	/** 覆盖层目录绝对路径（无论是否存在）。 */
+	resolveOverlayDir(): string {
+		return join(this.userDataDir, BUILT_IN_EXTENSIONS_OVERLAY_DIR_NAME);
+	}
+
+	/** 覆盖层有效则返回它，否则 null（供启动链路决定是否覆盖内置路径）。 */
+	resolveEffectiveOverlayDir(): string | null {
+		const overlayDir = this.resolveOverlayDir();
+		return readVerifiedArtifact(overlayDir) ? overlayDir : null;
+	}
+
+	/** 当前生效版本号：覆盖层优先，否则内置；都无效为 null。 */
+	effectiveVersion(): string | null {
+		return this.effectiveManifest()?.version ?? null;
+	}
+
+	/**
+	 * 当前生效的扩展目录：覆盖层校验通过则指向它，否则随包内置目录。
+	 * 供「打开目录」使用——路径由主进程解析，渲染层只发意图。
+	 */
+	resolveEffectiveExtensionsDir(): string {
+		return this.effectiveDir();
+	}
+
+	getStatus(): BuiltInExtensionsUpdateStatus {
+		const builtin = readVerifiedArtifact(this.builtinExtensionsDir);
+		const overlayDir = this.resolveOverlayDir();
+		const overlay = readVerifiedArtifact(overlayDir);
+		return {
+			builtin: builtin ? { version: builtin.version, fileCount: builtin.fileCount } : null,
+			overlay: overlay ? { version: overlay.version, fileCount: overlay.fileCount } : null,
+			hasOverlayFiles: existsSync(overlayDir),
+			hasBackup: existsSync(this.backupDir()),
+			effectiveVersion: overlay?.version ?? builtin?.version ?? null,
+			overlayDir: existsSync(overlayDir) ? overlayDir : null,
+		};
+	}
+
+	/** 检查远端是否有更新：以**逐文件 sha256** 判定，不依赖版本号是否被 bump。 */
+	async checkRemote(branch?: string): Promise<BuiltInExtensionsCheckResult> {
+		const manifestText = await this.downloadManifest(branch ?? this.branch);
+		if (!manifestText.ok) {
+			return { ok: false, code: "network", message: manifestText.message, hasUpdate: false };
+		}
+		const remote = parseBuiltInExtensionsManifest(manifestText.text);
+		if (!remote) {
+			return { ok: false, code: "validation", message: "remote extensions manifest is invalid", hasUpdate: false };
+		}
+		const changedFiles = this.diffAgainstLocal(remote);
+		return {
+			ok: true,
+			remoteVersion: remote.version,
+			localVersion: this.effectiveManifest()?.version ?? null,
+			hasUpdate: changedFiles.length > 0,
+			changedFiles,
+		};
+	}
+
+	/**
+	 * 更新到远端最新：拉清单 → 比对 sha → 只下载有差异的文件（其余从当前生效源复制）
+	 * → 整体校验 → 原子替换覆盖层。已是最新时不写盘。
+	 */
+	async update(branch?: string): Promise<BuiltInExtensionsUpdateResult> {
+		const resolvedBranch = branch ?? this.branch;
+		const manifestText = await this.downloadManifest(resolvedBranch);
+		if (!manifestText.ok) {
+			return { ok: false, code: "network", message: manifestText.message, updated: false };
+		}
+		const remote = parseBuiltInExtensionsManifest(manifestText.text);
+		if (!remote) {
+			return { ok: false, code: "validation", message: "remote extensions manifest is invalid", updated: false };
+		}
+		const changedFiles = this.diffAgainstLocal(remote);
+		if (changedFiles.length === 0) {
+			return { ok: true, updated: false, version: remote.version };
+		}
+		try {
+			const filesWritten = await this.writeOverlay(remote, changedFiles, resolvedBranch);
+			invalidateBuiltInExtensionsOverlayCache();
+			return { ok: true, updated: true, version: remote.version, filesWritten };
+		} catch (error) {
+			return {
+				ok: false,
+				code: "write",
+				message: `failed to write extensions overlay: ${error instanceof Error ? error.message : String(error)}`,
+				updated: false,
+			};
+		}
+	}
+
+	/** 一键还原：把覆盖层整体转存 `.bak`，回到随包分发的内置版本。 */
+	restoreBuiltin(): BuiltInExtensionsUpdateResult {
+		const overlayDir = this.resolveOverlayDir();
+		if (!existsSync(overlayDir)) return { ok: true, updated: false };
+		try {
+			const backupDir = this.backupDir();
+			rmSync(backupDir, { recursive: true, force: true });
+			renameSync(overlayDir, backupDir);
+			invalidateBuiltInExtensionsOverlayCache();
+			return { ok: true, updated: true, version: this.effectiveVersion() ?? undefined };
+		} catch (error) {
+			return {
+				ok: false,
+				code: "write",
+				message: `failed to restore built-in extensions: ${error instanceof Error ? error.message : String(error)}`,
+				updated: false,
+			};
+		}
+	}
+
+	/** 恢复上一个覆盖版（`.bak` 校验通过才写回）。 */
+	restorePrevious(): BuiltInExtensionsUpdateResult {
+		const backupDir = this.backupDir();
+		if (!existsSync(backupDir)) {
+			return { ok: false, code: "validation", message: "no previous extensions overlay found", updated: false };
+		}
+		if (!readVerifiedArtifact(backupDir)) {
+			return { ok: false, code: "validation", message: "backup overlay failed verification", updated: false };
+		}
+		try {
+			const overlayDir = this.resolveOverlayDir();
+			rmSync(overlayDir, { recursive: true, force: true });
+			renameSync(backupDir, overlayDir);
+			invalidateBuiltInExtensionsOverlayCache();
+			return { ok: true, updated: true, version: readManifestFromDir(overlayDir)?.version ?? undefined };
+		} catch (error) {
+			return {
+				ok: false,
+				code: "write",
+				message: `failed to restore previous overlay: ${error instanceof Error ? error.message : String(error)}`,
+				updated: false,
+			};
+		}
+	}
+
+	private backupDir(): string {
+		return join(this.userDataDir, BUILT_IN_EXTENSIONS_OVERLAY_BACKUP_DIR_NAME);
+	}
+
+	/** 当前生效的 artifact 清单（覆盖层有效优先，否则内置）。 */
+	private effectiveManifest(): BuiltInExtensionsManifest | null {
+		const overlay = readVerifiedArtifact(this.resolveOverlayDir());
+		if (overlay) return overlay;
+		return readVerifiedArtifact(this.builtinExtensionsDir);
+	}
+
+	/** 当前生效源目录（用于复制未变化的文件）。 */
+	private effectiveDir(): string {
+		return readVerifiedArtifact(this.resolveOverlayDir()) ? this.resolveOverlayDir() : this.builtinExtensionsDir;
+	}
+
+	/**
+	 * 本地生效文件 → sha256 映射。
+	 * 清单不可用时退回扫目录现算，保证「内置清单缺失」的旧安装包也能更新。
+	 */
+	private localFileShas(): Map<string, string> {
+		const manifest = this.effectiveManifest();
+		if (manifest) return new Map(manifest.files.map((file) => [file.name, file.sha256]));
+		const shas = new Map<string, string>();
+		for (const name of listExtensionFileNames(this.builtinExtensionsDir)) {
+			try {
+				shas.set(name, sha256Of(readFileSync(join(this.builtinExtensionsDir, name))));
+			} catch {
+				// 读不到就当作不在集合里（该文件本次不参与比对，也就不会被更新）
+			}
+		}
+		return shas;
+	}
+
+	/** 远端清单里「本地认识且内容不同」的文件名。本地不认识的新文件名一律忽略。 */
+	private diffAgainstLocal(remote: BuiltInExtensionsManifest): string[] {
+		const local = this.localFileShas();
+		const changed: string[] = [];
+		for (const file of remote.files) {
+			if (!local.has(file.name)) continue;
+			if (local.get(file.name) !== file.sha256) changed.push(file.name);
+		}
+		return changed;
+	}
+
+	/**
+	 * 写覆盖层：tmp 目录组装 → 整体校验 → 原子替换。
+	 * 覆盖层清单只声明实际落盘的文件（本地认识的子集），保证 readVerifiedArtifact 能通过。
+	 */
+	private async writeOverlay(remote: BuiltInExtensionsManifest, changedFiles: string[], branch: string): Promise<number> {
+		const overlayDir = this.resolveOverlayDir();
+		const tmpDir = `${overlayDir}.tmp`;
+		const localShas = this.localFileShas();
+		const changed = new Set(changedFiles);
+		const sourceDir = this.effectiveDir();
+		const written: { name: string; sha256: string; bytes: number }[] = [];
+
+		rmSync(tmpDir, { recursive: true, force: true });
+		mkdirSync(tmpDir, { recursive: true });
+		try {
+			for (const file of remote.files) {
+				// 本地不认识的文件名不落盘：注入清单编译在应用里，热更新不该引入新代码
+				if (!localShas.has(file.name)) continue;
+				const target = join(tmpDir, file.name);
+				if (changed.has(file.name)) {
+					const buffer = await this.downloadFileBuffer(file.name, branch);
+					const actualSha = sha256Of(buffer);
+					if (actualSha !== file.sha256) {
+						throw new Error(`downloaded ${file.name} failed sha256 verification`);
+					}
+					writeFileSync(target, buffer);
+				} else {
+					// 未变化：从当前生效源复制，保证覆盖层自洽（扩展间相对 import 可解析）
+					copyFileSync(join(sourceDir, file.name), target);
+				}
+				written.push({ name: file.name, sha256: file.sha256, bytes: file.bytes });
+			}
+			if (written.length === 0) throw new Error("no updatable file found in remote manifest");
+
+			// vendored 运行时依赖随覆盖层落盘（undici 等），否则覆盖层路径解析不到裸导入
+			this.copyVendorDependencies(tmpDir);
+
+			const overlayManifest: BuiltInExtensionsManifest = {
+				schemaVersion: remote.schemaVersion,
+				version: remote.version,
+				// 来源标识：本快照取自该远端版本（本地完整性由逐文件 sha256 保证，不依赖此字段）
+				bundleSha256: remote.bundleSha256,
+				fileCount: written.length,
+				files: written,
+			};
+			writeFileSync(join(tmpDir, EXTENSIONS_MANIFEST_FILE_NAME), `${JSON.stringify(overlayManifest, null, 2)}\n`, "utf8");
+			if (!readVerifiedArtifact(tmpDir)) throw new Error("overlay failed verification after write");
+			this.swapOverlay(tmpDir);
+			return written.length;
+		} catch (error) {
+			rmSync(tmpDir, { recursive: true, force: true });
+			throw error;
+		}
+	}
+
+	/**
+	 * 自愈：给「旧版热更新器写出的」覆盖层补拷 vendored 运行时依赖（node_modules/<pkg>）。
+	 *
+	 * 已存在的覆盖层目录是旧代码写的、没有 node_modules，pi 会因 `Cannot find module 'undici'`
+	 * 启动失败——不能要求用户先点一次「更新」才能修好。启动装配时调用一次：
+	 * 覆盖层有效且缺包、源目录有该包时整目录复制；幂等，无操作返回 false。
+	 */
+	ensureOverlayVendorDependencies(): boolean {
+		if (!this.vendorNodeModulesDir) return false;
+		const overlayDir = this.resolveOverlayDir();
+		// 只对通过整体校验的覆盖层动手；无效覆盖层本就不参与注入，不必补
+		if (!readVerifiedArtifact(overlayDir)) return false;
+		const wrote = copyVendorPackages(overlayDir, this.vendorNodeModulesDir);
+		// 补写虽然不影响清单校验结果，但让路径解析重新校验一次最稳
+		if (wrote) invalidateBuiltInExtensionsOverlayCache();
+		return wrote;
+	}
+
+	/** 把 vendored 依赖复制进目标目录（覆盖层 tmp 组装与自愈共用）。 */
+	private copyVendorDependencies(targetDir: string): void {
+		if (!this.vendorNodeModulesDir) return;
+		copyVendorPackages(targetDir, this.vendorNodeModulesDir);
+	}
+
+	/**
+	 * 原子替换：现有覆盖层转 `.bak` → tmp 顶上。
+	 * 第二步失败时尝试把 `.bak` 还原为覆盖层，避免「更新失败反而丢掉当前生效版本」。
+	 */
+	private swapOverlay(tmpDir: string): void {
+		const overlayDir = this.resolveOverlayDir();
+		const backupDir = this.backupDir();
+		if (existsSync(overlayDir)) {
+			rmSync(backupDir, { recursive: true, force: true });
+			renameSync(overlayDir, backupDir);
+		}
+		try {
+			renameSync(tmpDir, overlayDir);
+		} catch (error) {
+			if (existsSync(backupDir) && !existsSync(overlayDir)) {
+				try {
+					renameSync(backupDir, overlayDir);
+				} catch {
+					// 回滚也失败：退回内置版本（功能可用，只是丢了上次覆盖版），错误继续上抛
+				}
+			}
+			throw error;
+		}
+	}
+
+	/**
+	 * 源顺序：GitHub 源时 raw 直连优先，否则 AtomGit OpenAPI 优先（国内直连更稳）。
+	 * URL 构造与 base64 解码统一在 update/atomGitContents.ts——AtomGit 不能走
+	 * `/<owner>/<repo>/raw/<ref>/<path>`（已被 GitCode 前端接管，返回 SPA HTML）。
+	 */
+	private sourceEntries(relPath: string, branch: string): SourceEntry[] {
+		return repoFileSourceEntries(relPath, branch, this.source());
+	}
+
+	private async downloadManifest(branch: string): Promise<{ ok: true; text: string } | { ok: false; message: string }> {
+		let lastError: unknown;
+		for (const entry of this.sourceEntries(`${EXTENSIONS_REPO_DIR}/${EXTENSIONS_MANIFEST_FILE_NAME}`, branch)) {
+			try {
+				return { ok: true, text: await this.downloadText(entry, this.maxManifestBytes) };
+			} catch (error) {
+				lastError = error;
+			}
+		}
+		return {
+			ok: false,
+			message: `extensions manifest download failed from all sources: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+		};
+	}
+
+	private async downloadFileBuffer(name: string, branch: string): Promise<Buffer> {
+		let lastError: unknown;
+		for (const entry of this.sourceEntries(`${EXTENSIONS_REPO_DIR}/${name}`, branch)) {
+			try {
+				const buffer = await this.downloadBinary(entry.url, this.maxFileBytes);
+				if (entry.id === "atomgit") {
+					const decoded = decodeAtomGitContentsBuffer(buffer.toString("utf8"));
+					if (!decoded) throw new Error("atomgit contents response has an unexpected shape");
+					return decoded;
+				}
+				return buffer;
+			} catch (error) {
+				lastError = error;
+			}
+		}
+		throw lastError ?? new Error(`no download sources configured for ${name}`);
+	}
+
+	private async downloadText(entry: SourceEntry, maxBytes: number): Promise<string> {
+		const buffer = await this.downloadBinary(entry.url, maxBytes);
+		if (entry.id === "atomgit") {
+			const decoded = decodeAtomGitContentsBuffer(buffer.toString("utf8"));
+			if (!decoded) throw new Error("atomgit contents response has an unexpected shape");
+			return decoded.toString("utf8");
+		}
+		return buffer.toString("utf8");
+	}
+
+	private async downloadBinary(url: string, maxBytes: number): Promise<Buffer> {
+		const controller = new AbortController();
+		// 超时中止同样覆盖 DNS/连接挂起阶段，避免设置页长时间转圈
+		const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+		try {
+			const response = await this.fetchImpl(url, {
+				signal: controller.signal,
+				redirect: "follow",
+				headers: { "user-agent": "PiDeck-extensions-updater" },
+			});
+			if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+			return await this.readBodyWithCap(response, maxBytes, controller, url);
+		} finally {
+			clearTimeout(timer);
+		}
+	}
+
+	/**
+	 * 流式读取响应体并按 maxBytes 提前中止：
+	 * - 有 body（undici ReadableStream）：增量累计，超限立刻 controller.abort() 断开连接 + reader.cancel()。
+	 * - 无 body（测试替身 / 受限运行时）：回落 arrayBuffer() 整读 + 事后校验（原行为）。
+	 * 用 getReader().read() 循环而非 for-await：本模块在测试经 vm 沙箱加载时，
+	 * 沙箱与宿主的 Symbol.asyncIterator 分属不同 realm，for-await 跨 realm 会静默失败。
+	 */
+	private async readBodyWithCap(response: ResponseLike, maxBytes: number, controller: AbortController, url: string): Promise<Buffer> {
+		const body = response.body;
+		if (body && typeof body.getReader === "function") {
+			const reader = body.getReader();
+			const chunks: Buffer[] = [];
+			let total = 0;
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				if (!value || typeof value.byteLength !== "number" || value.byteLength === 0) continue;
+				total += value.byteLength;
+				if (total > maxBytes) {
+					// 先 abort 断网再 cancel reader：宁可连接复位，也不把剩余字节拉进内存
+					controller.abort();
+					try {
+						await reader.cancel();
+					} catch {
+						// 连接已随 abort 关闭
+					}
+					throw new Error(`response too large (over ${maxBytes} bytes) for ${url}`);
+				}
+				chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+			}
+			return Buffer.concat(chunks);
+		}
+		if (typeof response.arrayBuffer !== "function") {
+			throw new Error(`response without readable body for ${url}`);
+		}
+		const buffer = Buffer.from(await response.arrayBuffer());
+		if (buffer.byteLength > maxBytes) {
+			throw new Error(`response too large (${buffer.byteLength} bytes) for ${url}`);
+		}
+		return buffer;
+	}
+}

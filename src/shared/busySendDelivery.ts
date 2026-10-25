@@ -24,12 +24,13 @@ export function parseBusySendDelivery(value: unknown): BusySendDelivery {
  * 忙碌时发送的统一决策入口：
  * - 空闲 → undefined（直发，无需队列语义）；
  * - 忙碌 → 按设置返回 "steer" | "followUp"。
+ * - 例外：ACP 后端忙碌恒 followUp——ACP v1 没有 steer 协议通道（agent 回合中
+ *   只有 session/cancel），忙碌时直发只会被 AcpAgentManager 拒收成失败队列项；
+ *   收敛为排队到下一轮（Zed 同款队列体验），设置项对它失效。
  * 渲染层的入队快捷路径与 flush 投递都消费该结果。
  */
-export function resolveBusySendDelivery(
-	busy: boolean,
-	configured: unknown,
-): BusySendDelivery | undefined {
+export function resolveBusySendDelivery(busy: boolean, configured: unknown, backend?: string): BusySendDelivery | undefined {
 	if (!busy) return undefined;
+	if (backend === "acp") return "followUp";
 	return parseBusySendDelivery(configured);
 }

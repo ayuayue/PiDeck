@@ -1,21 +1,4 @@
-/* ── 飞书面板（侧边栏内嵌） ───────────────────── */
-.feishu-panel-header .feishu-status-dot.connected {
-  background: var(--color-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 14%, transparent);
-}
-.feishu-panel-header .feishu-status-dot.connecting {
-  background: var(--color-warning);
-  box-shadow: 0 0 0 3px
-    color-mix(in srgb, var(--color-warning) 14%, transparent);
-  animation: feishu-pulse 1.3s ease-in-out infinite;
-}
-.feishu-panel-header .feishu-status-dot.disconnected {
-  background: var(--color-text-tertiary);
-}
-.feishu-panel-header .feishu-status-dot.error {
-  background: var(--color-danger);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 14%, transparent);
-}
+
 @keyframes feishu-pulse {
   0%,
   100% {
@@ -39,14 +22,6 @@
 /* 空状态 */
 
 /* ── 飞书连接弹窗 ─────────────────────────────── */
-@keyframes feishu-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
 @keyframes feishu-slide-up {
   from {
     opacity: 0;
@@ -56,31 +31,6 @@
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-/* 模式切换标签 */
-.feishu-mode-tab.active {
-  color: var(--color-accent);
-  border-bottom-color: var(--color-accent);
-  font-weight: 600;
-}
-
-/* 表单字段 */
-
-/* 输入框 */
-
-/* 分隔线 */
-
-/* 按钮行 */
-
-/* 测试结果提示 */
-.feishu-test-result.success {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-}
-.feishu-test-result.warning {
-  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
-  color: var(--color-warning);
 }
 
 /* 二维码区域 */
@@ -99,18 +49,23 @@
 }
 
 /* 与 composer 底栏的紧凑控件保持同一高度；透明底、无文字 label——入口用飞书三色 Logo（main 对齐项）。 */
+/* 底栏图标按钮统一规格（2027-02）：与 composer-bar-btn 一致——28×28 盒子、圆角 --radius-md、
+   无横向内边距；否则同样是图标按钮却宽 30px，与邻居的视觉间隙就大一圈。飞书已连接/未连接只改
+   图标透明度，不改盒子尺寸。 */
 .composer-bottom-left .feishu-link-trigger {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   min-width: 0;
   max-width: min(156px, 100%);
-  height: var(--control-height-xs);
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
   border: 0;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--color-text-secondary);
-  padding: 0 8px;
+  padding: 0;
   font-size: var(--font-size-caption);
   font-weight: 600;
   cursor: pointer;
@@ -125,7 +80,7 @@
   background: var(--color-bg-hover);
 }
 .composer-bottom-left .feishu-link-trigger:focus-visible {
-  outline: var(--focus-ring);
+  outline: 2px solid var(--focus-ring-color);
   outline-offset: 1px;
 }
 .composer-bottom-left .feishu-link-trigger:active {
@@ -147,8 +102,8 @@
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   line-height: 0;
   opacity: 0.5;
   transition: opacity 0.15s ease;
@@ -180,7 +135,7 @@
   border-radius: var(--radius-lg);
   background: var(--color-bg-panel);
   box-shadow: var(--shadow-popover);
-  animation: picker-check-in 0.16s ease-out;
+  animation: feishu-slide-up 0.16s ease-out;
 }
 
 .feishu-link-popover-header {
@@ -233,7 +188,7 @@
   color: var(--color-text-primary);
 }
 .feishu-link-popover .feishu-link-popover-action:focus-visible {
-  outline: var(--focus-ring);
+  outline: 2px solid var(--focus-ring-color);
   outline-offset: 1px;
 }
 .feishu-link-popover .feishu-link-popover-action:disabled {
@@ -288,7 +243,7 @@
   transform: translateY(1px);
 }
 .feishu-link-popover .feishu-link-bot-item:focus-visible {
-  outline: var(--focus-ring);
+  outline: 2px solid var(--focus-ring-color);
   outline-offset: -1px;
 }
 .feishu-link-popover .feishu-link-bot-item:disabled {
@@ -327,14 +282,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.feishu-link-bot-badge.active {
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
-  color: var(--color-accent);
-}
-.feishu-link-bot-badge.pinned {
-  background: var(--color-bg-muted);
-  color: var(--color-text-secondary);
 }
 .feishu-link-bot-check {
   flex: 0 0 auto;
@@ -396,6 +343,7 @@
   height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
+  transition: background-color var(--transition-base) ease, box-shadow var(--transition-base) ease;
 }
 .config-im-status-dot.connected {
   background: var(--color-accent);
@@ -501,7 +449,6 @@
   font-weight: 400;
   color: var(--color-text-tertiary);
 }
-
 
 .config-input {
   width: 100%;
@@ -693,22 +640,6 @@
   font-weight: 700;
   color: var(--color-text-primary);
 }
-.config-im-guide-modal-header .config-icon-btn {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  background: transparent;
-  color: var(--color-text-tertiary);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: background 0.1s;
-}
-.config-im-guide-modal-header .config-icon-btn:hover {
-  background: var(--color-bg-hover);
-}
 .config-im-guide-modal-body {
   overflow-y: auto;
   padding: var(--space-4) var(--space-5);
@@ -804,13 +735,6 @@
   padding-top: 2px;
 }
 
-/* 推荐与已安装之间的分隔线 */
-.extensions-divider {
-  border: none;
-  border-top: 1px solid var(--color-border-subtle);
-  margin: 24px -8px 20px;
-}
-
 /* 已安装扩展标题：默认跟随 text-sm 语义；保留类名兼容组件 Tailwind 覆盖 */
 .extensions-installed-title {
   font-size: var(--font-size-body);
@@ -842,12 +766,6 @@
     var(--color-accent) 32%,
     var(--color-border-subtle)
   );
-}
-
-.config-im-bot-header .config-card-name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .config-im-expand-caret {
@@ -986,83 +904,6 @@
   .config-im-credential-grid {
     flex-direction: column;
   }
-}
-/* 日志列表已迁移 UI 2.0（LogViewer 内 Table + Tailwind），旧规则删除 */
-
-.editors-tab {
-  display: grid;
-  gap: var(--space-3);
-}
-
-.editors-list {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.editor-config-row {
-  display: grid;
-  grid-template-columns: minmax(140px, 180px) auto minmax(220px, 1fr) auto;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-panel);
-}
-
-.editor-config-meta {
-  display: grid;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-.editor-config-meta strong {
-  color: var(--color-text-primary);
-  font-size: var(--font-size-control);
-}
-
-.editor-config-meta small {
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-caption);
-}
-
-.editor-config-enabled,
-.editor-config-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.editor-config-enabled {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-control);
-  white-space: nowrap;
-}
-
-.editor-config-path-control {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.editor-config-path {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: var(--control-height-md);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-panel);
-  color: var(--color-text-primary);
-  padding: 7px 9px;
-  font-family: var(--font-family-mono);
-  font-size: var(--font-size-caption);
-}
-
-.editor-config-path:focus-visible {
-  border-color: var(--color-accent);
-  box-shadow: var(--focus-ring);
-  outline: 0;
 }
 
 @media (max-width: 980px) {

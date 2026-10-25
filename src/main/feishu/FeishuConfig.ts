@@ -2,14 +2,16 @@
  * 飞书配置管理
  *
  * 多 Bot CRUD + App Secret 加密存储。
- * 数据持久化到 ~/.pi-desktop/feishu.json
+ * 数据持久化到 userData/feishu/；历史 pi-desktop 子目录首读时整体迁移。
  */
 
 import { randomUUID } from "node:crypto";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
-import { app } from "electron";
+import { app, safeStorage } from "electron";
 import type { FeishuBotConfig } from "../../shared/types";
+import { parseImChannelBackend } from "../../shared/types";
+import { getAppLogger } from "../logging/sharedLogger";
 
 let defaultBotName = "Feishu bot";
 
@@ -21,7 +23,18 @@ export function setFeishuConfigDefaultBotName(name: string): void {
 // ===== 配置文件路径 =====
 
 function getConfigDir(): string {
-	const dir = join(app.getPath("userData"), "pi-desktop");
+	const userData = app.getPath("userData");
+	const dir = join(userData, "feishu");
+	const legacy = join(userData, "pi-desktop");
+	// 保留密文与绑定的原始字节；两代目录并存时不覆盖，改名失败继续读旧配置。
+	if (!existsSync(dir) && existsSync(legacy)) {
+		try {
+			renameSync(legacy, dir);
+		} catch {
+			void getAppLogger()?.warn("migration", "Feishu directory rename failed; continuing on legacy directory");
+			return legacy;
+		}
+	}
 	if (!existsSync(dir)) {
 		mkdirSync(dir, { recursive: true });
 	}
@@ -72,7 +85,12 @@ function readConfig(): FeishuMultiBotConfig {
 			};
 		}
 
-		return parsed as FeishuMultiBotConfig;
+		const config = parsed as FeishuMultiBotConfig;
+		// 手改配置文件时可能写入任意值；非法后端在下游只会表现为「不可用」，这里统一洗成不指定。
+		for (const bot of config.bots ?? []) {
+			if (bot.backend !== undefined && parseImChannelBackend(bot.backend) === undefined) delete bot.backend;
+		}
+		return config;
 	} catch {
 		return { version: 2, bots: [], deletedBotIdsByAppId: {} };
 	}
@@ -96,21 +114,14 @@ export function getBot(botId: string): FeishuBotConfig | undefined {
 }
 
 /** 添加 Bot */
-export function addBot(input: {
-	name: string;
-	appId: string;
-	appSecret: string;
-	defaultWorkspaceId?: string;
-	defaultUserOpenId?: string;
-	requireMention?: boolean;
-}): FeishuBotConfig {
+export function addBot(input: { name: string; appId: string; appSecret: string; defaultWorkspaceId?: string; defaultUserOpenId?: string; requireMention?: boolean }): FeishuBotConfig {
 	const config = readConfig();
 	const appId = input.appId.trim();
 	const existingIndex = config.bots.findIndex((b) => b.appId === appId);
 	const reusedId = config.deletedBotIdsByAppId?.[appId];
 	const bot: FeishuBotConfig = {
 		// 同一飞书应用重新添加时复用旧 botId，旧绑定文件才能继续按 sessionPath/chatId 复用。
-		id: existingIndex >= 0 ? config.bots[existingIndex].id : (reusedId || randomUUID()),
+		id: existingIndex >= 0 ? config.bots[existingIndex].id : reusedId || randomUUID(),
 		name: input.name,
 		enabled: true,
 		appId,
@@ -135,9 +146,17 @@ export function updateBot(botId: string, patch: Partial<FeishuBotConfig>): Feish
 	const index = config.bots.findIndex((b) => b.id === botId);
 	if (index === -1) return undefined;
 
-	// 如果 patch.appSecret 是明文（不是 base64），加密后存储
-	if (patch.appSecret && !isBase64(patch.appSecret)) {
-		patch.appSecret = encryptSecret(patch.appSecret);
+	// App Secret 只接受明文：非空一律重加密入库（列表查询返回的 secret 恒为空串，
+	// 渲染层不可能回传密文）。旧实现用 isBase64 启发式跳过「已加密」值，但飞书
+	// Secret 恰好多为 32 位纯字母数字（长度 %4==0 且落入 base64 字符集），会被
+	// 误判成已加密而明文入库，重启后又被误解码成垃圾导致认证失败。
+	if (patch.appSecret) {
+		patch = { ...patch, appSecret: encryptSecret(patch.appSecret) };
+	}
+
+	// 后端只认 pi/dsh：非法值归一化成「不指定」（跟随默认后端），不透传进配置文件。
+	if (patch.backend !== undefined) {
+		patch = { ...patch, backend: parseImChannelBackend(patch.backend) };
 	}
 
 	config.bots[index] = { ...config.bots[index], ...patch };
@@ -175,19 +194,23 @@ export function getDecryptedBotAppSecret(botId: string): string {
  * removeBinding 不会删除此映射，确保断开重连后能复用已有群组、不重复创建。
  * key 为会话文件路径（sessionPath），value 为飞书群 chatId。
  */
-const SESSION_CHAT_MAP_PATH = join(getConfigDir(), "feishu-session-chat.json");
+// 不能在模块求值时缓存路径：此时主进程可能尚未迁移/setPath，必须在读写边界解析。
+function getSessionChatMapPath(): string {
+	return join(getConfigDir(), "feishu-session-chat.json");
+}
 
 function readSessionChatMap(): Record<string, string> {
 	try {
-		if (!existsSync(SESSION_CHAT_MAP_PATH)) return {};
-		return JSON.parse(readFileSync(SESSION_CHAT_MAP_PATH, "utf-8"));
+		const path = getSessionChatMapPath();
+		if (!existsSync(path)) return {};
+		return JSON.parse(readFileSync(path, "utf-8"));
 	} catch {
 		return {};
 	}
 }
 
 function writeSessionChatMap(map: Record<string, string>): void {
-	writeFileSync(SESSION_CHAT_MAP_PATH, JSON.stringify(map, null, 2), "utf-8");
+	writeFileSync(getSessionChatMapPath(), JSON.stringify(map, null, 2), "utf-8");
 }
 
 /** 根据 sessionPath 查找已有群组 chatId（不受 removeBinding 影响） */
@@ -211,19 +234,22 @@ export function setPersistentChatId(sessionPath: string, chatId: string): void {
  * 为每个稳定 Session 分配一个指定的飞书 Bot。
  * 如果未分配，默认使用连接中的 Bot。
  */
-const SESSION_BOT_MAP_PATH = join(getConfigDir(), "feishu-session-bot.json");
+function getSessionBotMapPath(): string {
+	return join(getConfigDir(), "feishu-session-bot.json");
+}
 
 function readSessionBotMap(): Record<string, string> {
 	try {
-		if (!existsSync(SESSION_BOT_MAP_PATH)) return {};
-		return JSON.parse(readFileSync(SESSION_BOT_MAP_PATH, "utf-8"));
+		const path = getSessionBotMapPath();
+		if (!existsSync(path)) return {};
+		return JSON.parse(readFileSync(path, "utf-8"));
 	} catch {
 		return {};
 	}
 }
 
 function writeSessionBotMap(map: Record<string, string>): void {
-	writeFileSync(SESSION_BOT_MAP_PATH, JSON.stringify(map, null, 2), "utf-8");
+	writeFileSync(getSessionBotMapPath(), JSON.stringify(map, null, 2), "utf-8");
 }
 
 /** 获取某个稳定 Session 指定的 Bot ID，如果未指定返回 undefined。 */
@@ -277,24 +303,53 @@ export function saveBindings(botId: string, bindings: FeishuChatBindingPersist[]
 	writeFileSync(path, JSON.stringify(bindings, null, 2), "utf-8");
 }
 
-// ===== 加密/解密（简化版，用 Electron safeStorage） =====
+// ===== 加密/解密 =====
+// 历史包袖：Phase 1 用 base64「加密」——只是混淆，拿到配置文件即可还原。
+// v2 起 App Secret 用 Electron safeStorage（Windows DPAPI / macOS Keychain /
+// Linux libsecret）加密，带 "v2:" 前缀标记；旧数据（纯 base64，无前缀）读取时
+// 走 legacy 分支保持兼容。safeStorage 不可用（部分 Linux 无 keyring）时新写入
+// 仍落 legacy base64，功能不阻断。
+// 注意：v2 解密失败必须返回 ""（触发配置缺失错误），不能把密文当明文外发。
+
+/** safeStorage 可用性探测结果缓存（每会话只探测一次） */
+let safeStorageAvailable: boolean | null = null;
+
+function isSafeStorageUsable(): boolean {
+	if (safeStorageAvailable === null) {
+		try {
+			safeStorageAvailable = safeStorage.isEncryptionAvailable();
+		} catch {
+			safeStorageAvailable = false;
+		}
+	}
+	return safeStorageAvailable;
+}
 
 function encryptSecret(plainSecret: string): string {
-	// Phase 1: 简单 base64，后续可升级为 Electron safeStorage
-	return Buffer.from(plainSecret, "utf-8").toString("base64");
-}
-
-function decryptSecret(encryptedSecret: string): string {
-	if (!encryptedSecret) return "";
-	try {
-		return Buffer.from(encryptedSecret, "base64").toString("utf-8");
-	} catch {
-		return encryptedSecret; // 降级：返回原始值
+	const trimmed = plainSecret.trim();
+	if (!trimmed) return "";
+	if (isSafeStorageUsable()) {
+		try {
+			const encrypted = safeStorage.encryptString(trimmed);
+			return `v2:${Buffer.from(encrypted).toString("base64")}`;
+		} catch {
+			// 加密失败不阻断配置保存：落到 legacy 分支
+		}
 	}
+	return Buffer.from(trimmed, "utf-8").toString("base64");
 }
 
-function isBase64(str: string): boolean {
-	// Base64 只包含 A-Za-z0-9+/= 字符，且长度是 4 的倍数
-	if (!str || str.length % 4 !== 0) return false;
-	return /^[A-Za-z0-9+/]*={0,2}$/.test(str);
+function decryptSecret(stored: string): string {
+	if (!stored) return "";
+	if (stored.startsWith("v2:")) {
+		try {
+			return safeStorage.decryptString(Buffer.from(stored.slice(3), "base64"));
+		} catch {
+			// v2 解密失败（换机器/系统凭据变化）：宁可判定配置缺失，也不把密文当明文外发
+			return "";
+		}
+	}
+	// legacy base64（Phase 1 数据）：原样兼容。老数据全部由 encryptSecret 写入，
+	// 必为合法 base64；此处不再回退返回原文（那等于把垃圾当密钥外发）。
+	return Buffer.from(stored, "base64").toString("utf-8");
 }

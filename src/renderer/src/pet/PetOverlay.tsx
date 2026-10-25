@@ -1,22 +1,16 @@
 import { useEffect, useRef } from "react";
 import type { AppFontSizeMode, PetAggregateState, PetManifest, PetMode, PetNotification } from "@shared/types";
-import {
-	NOTIFICATION_GAP,
-	NOTIFICATION_MAX_LINES,
-	NOTIFICATION_MAX_WIDTH,
-	NOTIFICATION_PAD_X,
-	NOTIFICATION_PAD_Y,
-	NOTIFICATION_STROKE,
-	NOTIFICATION_FONT_SIZE_PX,
-	PET_BASE_H,
-	PET_BASE_W,
-	layoutNotificationSegments,
-} from "@shared/petNotificationLayout";
+import { NOTIFICATION_GAP, NOTIFICATION_MAX_LINES, NOTIFICATION_MAX_WIDTH, NOTIFICATION_PAD_X, NOTIFICATION_PAD_Y, NOTIFICATION_STROKE, NOTIFICATION_FONT_SIZE_PX, PET_BASE_H, PET_BASE_W, layoutNotificationSegments } from "@shared/petNotificationLayout";
 import { type SpriteSheet, MODE_ROW, MODE_FRAMES, CELL_W, CELL_H } from "./PetSpriteSheet";
 
 /**
- * Canvas + requestAnimationFrame 精灵动画，GPU 绘制零 React re-render 开销。
+ * Canvas + 按需调度精灵动画，GPU 绘制零 React re-render 开销。
  * 统一帧率 12fps / 8fps(idle)。
+ *
+ * 性能约束（2026-09）：原实现 rAF 60fps 常驻空转，idle 静止期也每帧重绘
+ * （读 clientWidth 强制布局 + 整窗 canvas 重绘 + 透明窗口合成）。现改为
+ * 事件/时间驱动：动画帧推进期按帧间隔调度；暂停/通知稳定期零绘制，仅
+ * 100ms 低频兜底检查（通知到达、淡出期开始、窗口 resize/DPI 变化）。
  *
  * 布局约定（与主进程 PetWindow 共享同一套几何）：
  * - 精灵按 192×scale × 208×scale 绘制在窗口底部居中，与 spritesheet 单格同比例。
@@ -79,11 +73,12 @@ export function PetOverlay({ sprite, state, notification, scale, fontMode, fontS
 			const pixelHeight = Math.round(cssHeight * dpr);
 			// Canvas 的 width/height 是整数像素；这里统一取整，避免高 DPI 下 float 对比
 			// 每帧都判定“尺寸变化”并重置 buffer，拖拽/点击时看起来会不断变大。
-			if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+			const changed = canvas.width !== pixelWidth || canvas.height !== pixelHeight;
+			if (changed) {
 				canvas.width = pixelWidth;
 				canvas.height = pixelHeight;
 			}
-			return { dpr, cssWidth, cssHeight };
+			return { dpr, cssWidth, cssHeight, changed };
 		};
 
 		syncCanvasSize();
@@ -102,15 +97,22 @@ export function PetOverlay({ sprite, state, notification, scale, fontMode, fontS
 		const row = MODE_ROW[mode] ?? 0;
 		const totalFrames = MODE_FRAMES[mode] ?? 8;
 		const fps = mode === "idle" ? IDLE_FPS : DEFAULT_FPS;
-		const frameMs = 1000 / fps;
+		// 系统偏好减少动态（prefers-reduced-motion）时降到约 1/4 帧率，接近定格：
+		// 宠物动画纯装饰，尊重偏好并省电；通知气泡是低频功能提示，不参与降帧。
+		const reducedMotion = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+		const frameMs = reducedMotion ? 1000 / (fps / 4) : 1000 / fps;
 		const pauseMs = PAUSE_MS[mode] ?? 0;
 
-		let col = 0, nextCol = 1;
+		let col = 0,
+			nextCol = 1;
 		let lastT = performance.now();
 		let acc = 0;
-		let paused = false, pauseAcc = 0;
+		let paused = false,
+			pauseAcc = 0;
 		let alive = true;
-		let rafId = 0;
+		let timerId: number | undefined;
+		let notifAnimating = false;
+		let lastDrawnNotif = notifRef.current;
 
 		const draw = (c: number) => {
 			const { dpr } = syncCanvasSize();
@@ -119,17 +121,7 @@ export function PetOverlay({ sprite, state, notification, scale, fontMode, fontS
 			const sy = canvas.height - spriteH * dpr;
 			ctx.imageSmoothingEnabled = true;
 			ctx.imageSmoothingQuality = "high";
-			ctx.drawImage(
-				sprite.image,
-				c * CELL_W,
-				row * CELL_H,
-				CELL_W,
-				CELL_H,
-				sx,
-				sy,
-				spriteW * dpr,
-				spriteH * dpr,
-			);
+			ctx.drawImage(sprite.image, c * CELL_W, row * CELL_H, CELL_W, CELL_H, sx, sy, spriteW * dpr, spriteH * dpr);
 		};
 
 		const drawNotif = () => {
@@ -154,9 +146,7 @@ export function PetOverlay({ sprite, state, notification, scale, fontMode, fontS
 
 			// 分段着色：标题加中文引号（黑色）+ 状态词状态色；缺省 title/status 时退化为整行状态色
 			const displayTitle = n.title?.trim() ? `“${n.title}”` : (n.title ?? "");
-			const rows = n.title && n.status
-				? layoutNotificationSegments(measure, displayTitle, n.status, maxW - padX * 2 * dpr - stroke * 2 * dpr, NOTIFICATION_MAX_LINES)
-				: [[{ text: n.text, kind: "status" as const }]];
+			const rows = n.title && n.status ? layoutNotificationSegments(measure, displayTitle, n.status, maxW - padX * 2 * dpr - stroke * 2 * dpr, NOTIFICATION_MAX_LINES) : [[{ text: n.text, kind: "status" as const }]];
 			const lineH = fontSize * 1.5;
 			const lineMaxW = Math.max(...rows.map((segments) => segments.reduce((w, s) => w + measure(s.text), 0)));
 			const bw = Math.min(lineMaxW, maxW) + padX * 2 * dpr + stroke * 2 * dpr;
@@ -206,36 +196,85 @@ export function PetOverlay({ sprite, state, notification, scale, fontMode, fontS
 			drawNotif();
 		};
 
-		const loop = (now: number) => {
+		// —— 按需调度（替代常驻 rAF）：只在「画面会变化」的时刻重绘 ——
+		// 需要连续绘制的阶段只有通知淡入/淡出（16ms 逐帧）；动画帧推进按帧间隔；
+		// 其余静止期（idle/failed 暂停、通知稳定显示）零绘制，100ms 低频兜底检查。
+		const check = () => {
 			if (!alive) return;
-			rafId = requestAnimationFrame(loop);
-			// 每帧同步真实 CSS 尺寸，避免窗口或 DPI 变化后 buffer 留在旧比例。
-			syncCanvasSize();
-			const delta = now - lastT;
+			// 用真实流逝时间而非固定步长：setTimeout 在后台窗口会被节流，
+			// 恢复后 delta 大跳由 acc 上限兜底（防跳帧），不会补播动画。
+			// 注意：本循环由 setTimeout 驱动（替代常驻 rAF），回调不携带时间戳，
+			// 必须自取 performance.now()——写成 now 形参会得到 undefined→NaN，
+			// 帧号永不推进（定格第一帧）且延迟 NaN 被 setTimeout 强转为 0 空转。
+			const now = performance.now();
+			const delta = Math.max(0, now - lastT);
 			lastT = now;
 
+			let needDraw = false;
+			let nextDelay: number;
+
 			if (paused) {
+				// 暂停期画面完全静止：只计时，不重绘
 				pauseAcc += delta;
-				if (pauseAcc >= pauseMs) { paused = false; pauseAcc = 0; nextCol = 1; col = 0; acc = 0; }
-				tick();
-				return;
+				if (pauseAcc >= pauseMs) {
+					paused = false;
+					pauseAcc = 0;
+					nextCol = 1;
+					col = 0;
+					acc = 0;
+					needDraw = true;
+					nextDelay = frameMs;
+				} else {
+					nextDelay = Math.min(100, Math.max(1, pauseMs - pauseAcc));
+				}
+			} else {
+				acc += delta;
+				if (acc > frameMs * totalFrames) acc = frameMs * totalFrames; // 防跳帧
+				const prevCol = col;
+				while (acc >= frameMs) {
+					acc -= frameMs;
+					col = nextCol;
+					nextCol = (nextCol + 1) % totalFrames;
+					if (nextCol === 0 && pauseMs > 0) {
+						paused = true;
+						pauseAcc = 0;
+						break;
+					}
+				}
+				needDraw = col !== prevCol;
+				nextDelay = Math.max(1, frameMs - (acc % frameMs));
 			}
 
-			acc += delta;
-			if (acc > frameMs * totalFrames) acc = frameMs * totalFrames; // 防跳帧
-
-			while (acc >= frameMs) {
-				acc -= frameMs;
-				col = nextCol;
-				nextCol = (nextCol + 1) % totalFrames;
-				if (nextCol === 0 && pauseMs > 0) { paused = true; pauseAcc = 0; break; }
+			// 通知：对象变化（到达/消失/替换）需立即重绘一帧；淡入淡出期逐帧重绘。
+			// 稳定显示期画面静止（alpha 恒定），不需要绘制。
+			const n = notifRef.current;
+			if (n && n !== lastDrawnNotif) {
+				lastDrawnNotif = n;
+				needDraw = true;
 			}
-			tick();
+			notifAnimating = false;
+			if (n) {
+				const elapsed = now - n.timestamp;
+				notifAnimating = !n.persistent && elapsed >= 0 && (elapsed < FADE_IN_MS || elapsed > TOTAL_MS - FADE_OUT_MS);
+				if (notifAnimating) needDraw = true;
+			}
+
+			// 窗口/DPI 尺寸变化必须重绘，否则 canvas buffer 停留在旧比例
+			needDraw = needDraw || syncCanvasSize().changed;
+
+			if (needDraw) tick();
+
+			timerId = window.setTimeout(check, notifAnimating ? 16 : nextDelay);
 		};
 
+		syncCanvasSize();
 		tick();
-		rafId = requestAnimationFrame(loop);
-		return () => { alive = false; cancelAnimationFrame(rafId); };
+		lastDrawnNotif = notifRef.current;
+		timerId = window.setTimeout(check, frameMs);
+		return () => {
+			alive = false;
+			if (timerId !== undefined) window.clearTimeout(timerId);
+		};
 	}, [sprite, mode, scale, fontMode, fontStack]);
 
 	if (mode === "hidden") return <div style={{ width: "100%", height: "100%", background: "transparent" }} />;
@@ -250,11 +289,16 @@ export function PetOverlay({ sprite, state, notification, scale, fontMode, fontS
 // ═══ 工具函数 ═══
 
 function rndRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-	ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
-	ctx.arcTo(x + w, y, x + w, y + r, r); ctx.lineTo(x + w, y + h - r);
-	ctx.arcTo(x + w, y + h, x + w - r, y + h, r); ctx.lineTo(x + r, y + h);
-	ctx.arcTo(x, y + h, x, y + h - r, r); ctx.lineTo(x, y + r);
-	ctx.arcTo(x, y, x + r, y, r); ctx.closePath();
+	ctx.moveTo(x + r, y);
+	ctx.lineTo(x + w - r, y);
+	ctx.arcTo(x + w, y, x + w, y + r, r);
+	ctx.lineTo(x + w, y + h - r);
+	ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+	ctx.lineTo(x + r, y + h);
+	ctx.arcTo(x, y + h, x, y + h - r, r);
+	ctx.lineTo(x, y + r);
+	ctx.arcTo(x, y, x + r, y, r);
+	ctx.closePath();
 }
 
 // ═══ 降级（无素材时） ═══
@@ -281,30 +325,65 @@ function FallbackCanvas({ mode }: { mode: PetMode }) {
 		if (!c) return;
 		const ctx = c.getContext("2d");
 		if (!ctx) return;
-		const dpr = window.devicePixelRatio || 1;
-		const W = (c.width = c.clientWidth * dpr), H = (c.height = c.clientHeight * dpr);
 		const fb = FALLBACK[mode] ?? FALLBACK.idle;
+		// 有意义的动画态才持续 rAF；idle/waiting/review 静止（原实现这些模式
+		// 也只是 ±3% 幅度的慢脉动，视觉可忽略，却常驻 60fps 重绘）
+		const animated = mode === "running" || mode === "failed" || mode === "waving" || mode === "jumping" || mode === "running-right" || mode === "running-left";
+		let alive = true;
 		let raf = 0;
-		const loop = () => {
-			raf = requestAnimationFrame(loop);
-			const f = ++frame.current;
-			const cx = W / 2, cy = H / 2, r = Math.min(W, H) * 0.36;
-			const pulse = mode === "running" || mode === "failed" ? 1 + 0.06 * Math.sin(f * 0.8) : 1 + 0.03 * Math.sin(f * 0.5);
+		let ro: ResizeObserver | undefined;
+
+		// 绘制前同步像素尺寸，跟随窗口 resize/DPI 变化（原实现只在挂载时量一次）
+		const draw = (f: number) => {
+			const dpr = window.devicePixelRatio || 1;
+			const W = Math.round(c.clientWidth * dpr),
+				H = Math.round(c.clientHeight * dpr);
+			if (c.width !== W || c.height !== H) {
+				c.width = W;
+				c.height = H;
+			}
+			if (W === 0 || H === 0) return;
+			const cx = W / 2,
+				cy = H / 2,
+				r = Math.min(W, H) * 0.36;
+			const pulse = animated ? 1 + 0.06 * Math.sin(f * 0.8) : 1;
 			ctx.clearRect(0, 0, W, H);
 			ctx.beginPath();
 			ctx.arc(cx, cy, r * pulse, 0, Math.PI * 2);
 			ctx.fillStyle = fb.color;
-			ctx.globalAlpha = mode === "failed" ? (f % 2 === 0 ? 0.95 : 0.6) : 0.92;
+			ctx.globalAlpha = animated && mode === "failed" ? (f % 2 === 0 ? 0.95 : 0.6) : 0.92;
 			ctx.fill();
 			ctx.globalAlpha = 1;
 			if (fb.emoji) {
 				ctx.font = `${Math.round(r * 0.9)}px system-ui, sans-serif`;
-				ctx.textAlign = "center"; ctx.textBaseline = "middle";
+				ctx.textAlign = "center";
+				ctx.textBaseline = "middle";
 				ctx.fillText(fb.emoji, cx, cy);
 			}
 		};
-		raf = requestAnimationFrame(loop);
-		return () => cancelAnimationFrame(raf);
+
+		if (animated) {
+			const loop = () => {
+				if (!alive) return;
+				draw(++frame.current);
+				raf = requestAnimationFrame(loop);
+			};
+			raf = requestAnimationFrame(loop);
+		} else {
+			// 静止模式：只画一帧；尺寸变化时重画（mode 变化会重启本 effect）
+			draw(0);
+			if (typeof ResizeObserver !== "undefined") {
+				ro = new ResizeObserver(() => {
+					if (alive) draw(++frame.current);
+				});
+				ro.observe(c);
+			}
+		}
+		return () => {
+			alive = false;
+			ro?.disconnect();
+			cancelAnimationFrame(raf);
+		};
 	}, [mode]);
 
 	return <canvas ref={ref} style={{ width: "100%", height: "100%", display: "block" }} />;

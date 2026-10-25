@@ -7,13 +7,7 @@
 export function BrandMarkSvg(props: { className?: string; size?: number }) {
 	const size = props.size ?? 120;
 	return (
-		<svg
-			viewBox="0 0 120 120"
-			width={size}
-			height={size}
-			className={props.className}
-			aria-hidden="true"
-		>
+		<svg viewBox="0 0 120 120" width={size} height={size} className={props.className} aria-hidden="true">
 			<defs>
 				<linearGradient id="brand-mark-svg-bg" x1="0" y1="0" x2="1" y2="1">
 					<stop stopColor="#161719" />

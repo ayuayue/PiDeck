@@ -16,19 +16,14 @@ test("streaming signal: text_delta sets isStreaming locally, flush pushes lightw
 
 	// 1) 本地流式标志集合存在，并在 getRuntimeState 里并入（轮询兜底）
 	assert.match(agentManager, /private readonly streamingAgents = new Set<string>\(\)/);
-	assert.match(
-		agentManager,
-		/isStreaming: state\?\.isStreaming \|\| this\.streamingAgents\.has\(agentId\)/,
-	);
+	// 2027-02 拆分后写法显式 === true 收窄类型（state?.isStreaming 可为 undefined）
+	assert.match(agentManager, /isStreaming: state\?\.isStreaming === true \|\| this\.streamingAgents\.has\(agentId\)/);
 
 	// 2) message_start / text_delta / thinking_delta 置位流式标志
 	assert.match(agentManager, /this\.streamingAgents\.add\(agentId\)/);
 
 	// 3) message_end / done / error 清除（回答结束不再误报流式中）
-	assert.match(
-		agentManager,
-		/eventType === "message_end" \|\| eventType === "done" \|\| eventType === "error"/,
-	);
+	assert.match(agentManager, /eventType === "message_end" \|\| eventType === "done" \|\| eventType === "error"/);
 	assert.match(agentManager, /this\.streamingAgents\.delete\(agentId\)/);
 
 	// 4) agent_end / agent_settled / abort 清除（run 生命周期终点）
@@ -46,16 +41,13 @@ test("streaming signal: text_delta sets isStreaming locally, flush pushes lightw
 });
 
 test("renderer uses Controls isStreaming for live run marking", () => {
-	const timeline = readFileSync(
-		"src/renderer/src/components/session/SessionMessageTimeline.tsx",
-		"utf8",
-	);
-  // 2026-08 perf：接线从位置判定（isLatestTimelineRunBusy(index)）改为身份判定
-  // （run id 对比 lastDisplayedItemId），流式信号 isRunStreaming 语义保持不变。
-  assert.match(timeline, /const isRunStreaming = isTurnRunning && item\.id === lastDisplayedItemId;/);
-  assert.match(timeline, /lastDisplayedItemId/);
-  assert.match(timeline, /liveThinkingId=\{liveThinkingId\}/);
-  assert.match(timeline, /liveThinkingIdBySessionIdAtomFamily/);
-  assert.doesNotMatch(timeline, /streamingThinking=\{isRunStreaming \? activeThinking : undefined\}/);
-  assert.doesNotMatch(timeline, /streamingMessageId/);
+	const timeline = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
+	// 2026-08 perf：接线从位置判定（isLatestTimelineRunBusy(index)）改为身份判定
+	// （run id 对比 lastDisplayedItemId），流式信号 isRunStreaming 语义保持不变。
+	assert.match(timeline, /const isRunStreaming = isTurnRunning && item\.id === lastDisplayedItemId;/);
+	assert.match(timeline, /lastDisplayedItemId/);
+	assert.match(timeline, /liveThinkingId=\{liveThinkingId\}/);
+	assert.match(timeline, /liveThinkingIdBySessionIdAtomFamily/);
+	assert.doesNotMatch(timeline, /streamingThinking=\{isRunStreaming \? activeThinking : undefined\}/);
+	assert.doesNotMatch(timeline, /streamingMessageId/);
 });

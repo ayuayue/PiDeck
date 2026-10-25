@@ -25,7 +25,8 @@ export function useGitModels() {
 	const load = useCallback((force = false) => {
 		const sequence = ++sequenceRef.current;
 		if (force) setRefreshing(true);
-		void desktopApi.projects.listModelsReport(undefined, force)
+		void desktopApi.projects
+			.listModelsReport(undefined, force)
 			.then((next) => {
 				if (sequence !== sequenceRef.current) return;
 				setGitModels(next.models);

@@ -14,82 +14,60 @@ import type { ProjectFileAccessScope } from "../../../shared/types";
 export type EditorTabOpenMode = "preview" | "permanent";
 
 export type EditorTabIdentity = {
-  id: string;
-  filePath: string;
-  tabKey?: string;
-  fileAccessScope?: ProjectFileAccessScope;
+	id: string;
+	filePath: string;
+	tabKey?: string;
+	fileAccessScope?: ProjectFileAccessScope;
 };
 
 function sameFile(a: EditorTabIdentity, b: EditorTabIdentity): boolean {
-  return (
-    a.filePath === b.filePath &&
-    a.tabKey === b.tabKey &&
-    a.fileAccessScope?.projectId === b.fileAccessScope?.projectId
-  );
+	return a.filePath === b.filePath && a.tabKey === b.tabKey && a.fileAccessScope?.projectId === b.fileAccessScope?.projectId;
 }
 
 /**
  * 预览打开：已有常驻同文件则只回传其 id（不改列表）；
  * 否则替换旧预览 Tab，登记新预览。
  */
-export function openPreviewEditorTab<T extends EditorTabIdentity>(
-  tabs: readonly T[],
-  previewId: string | null,
-  nextTab: T,
-): { tabs: T[]; previewId: string | null; activeId: string } {
-  const resident = tabs.find(
-    (tab) => sameFile(tab, nextTab) && tab.id !== previewId,
-  );
-  if (resident) {
-    return { tabs: [...tabs], previewId, activeId: resident.id };
-  }
-  const existingPreview = previewId
-    ? tabs.find((tab) => tab.id === previewId)
-    : undefined;
-  if (
-    existingPreview &&
-    sameFile(existingPreview, nextTab)
-  ) {
-    return { tabs: [...tabs], previewId, activeId: existingPreview.id };
-  }
+export function openPreviewEditorTab<T extends EditorTabIdentity>(tabs: readonly T[], previewId: string | null, nextTab: T): { tabs: T[]; previewId: string | null; activeId: string } {
+	const resident = tabs.find((tab) => sameFile(tab, nextTab) && tab.id !== previewId);
+	if (resident) {
+		return { tabs: [...tabs], previewId, activeId: resident.id };
+	}
+	const existingPreview = previewId ? tabs.find((tab) => tab.id === previewId) : undefined;
+	if (existingPreview && sameFile(existingPreview, nextTab)) {
+		return { tabs: [...tabs], previewId, activeId: existingPreview.id };
+	}
 
-  let next = tabs.filter((tab) => tab.id !== previewId);
-  const already = next.find((tab) => sameFile(tab, nextTab));
-  if (already) {
-    return { tabs: next, previewId: already.id, activeId: already.id };
-  }
-  next = [...next, nextTab];
-  return { tabs: next, previewId: nextTab.id, activeId: nextTab.id };
+	let next = tabs.filter((tab) => tab.id !== previewId);
+	const already = next.find((tab) => sameFile(tab, nextTab));
+	if (already) {
+		return { tabs: next, previewId: already.id, activeId: already.id };
+	}
+	next = [...next, nextTab];
+	return { tabs: next, previewId: nextTab.id, activeId: nextTab.id };
 }
 
 /**
  * 常驻打开：同文件已在列表则聚焦并取消其预览标记；
  * 否则追加，且若当前有其它预览保持不变。
  */
-export function openPermanentEditorTab<T extends EditorTabIdentity>(
-  tabs: readonly T[],
-  previewId: string | null,
-  nextTab: T,
-): { tabs: T[]; previewId: string | null; activeId: string } {
-  const existing = tabs.find((tab) => sameFile(tab, nextTab));
-  if (existing) {
-    return {
-      tabs: [...tabs],
-      previewId: previewId === existing.id ? null : previewId,
-      activeId: existing.id,
-    };
-  }
-  return {
-    tabs: [...tabs, nextTab],
-    previewId,
-    activeId: nextTab.id,
-  };
+export function openPermanentEditorTab<T extends EditorTabIdentity>(tabs: readonly T[], previewId: string | null, nextTab: T): { tabs: T[]; previewId: string | null; activeId: string } {
+	const existing = tabs.find((tab) => sameFile(tab, nextTab));
+	if (existing) {
+		return {
+			tabs: [...tabs],
+			previewId: previewId === existing.id ? null : previewId,
+			activeId: existing.id,
+		};
+	}
+	return {
+		tabs: [...tabs, nextTab],
+		previewId,
+		activeId: nextTab.id,
+	};
 }
 
 /** 双击预览 Tab → 常驻 */
-export function promotePreviewEditorTab(
-  previewId: string | null,
-  tabId: string,
-): string | null {
-  return previewId === tabId ? null : previewId;
+export function promotePreviewEditorTab(previewId: string | null, tabId: string): string | null {
+	return previewId === tabId ? null : previewId;
 }

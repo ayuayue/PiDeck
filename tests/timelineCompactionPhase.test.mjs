@@ -13,23 +13,28 @@ test("context compaction keeps the runtime busy but closes the preceding model t
 
 	assert.equal(activity.isCompacting, true);
 	assert.equal(activity.isTurnRunning, false);
-	const displayItems = buildTurnDisplay({
-		kind: "agent-run",
-		id: "run-1",
-		startedAt: 1,
-		endedAt: 2,
-		items: [{
-			kind: "message",
-			message: {
-				id: "assistant-1",
-				agentId: "agent-1",
-				role: "assistant",
-				text: "The completed answer",
-				stopReason: "stop",
-				timestamp: 2,
-			},
-		}],
-	}, { isComplete: !activity.isTurnRunning });
+	const displayItems = buildTurnDisplay(
+		{
+			kind: "agent-run",
+			id: "run-1",
+			startedAt: 1,
+			endedAt: 2,
+			items: [
+				{
+					kind: "message",
+					message: {
+						id: "assistant-1",
+						agentId: "agent-1",
+						role: "assistant",
+						text: "The completed answer",
+						stopReason: "stop",
+						timestamp: 2,
+					},
+				},
+			],
+		},
+		{ isComplete: !activity.isTurnRunning },
+	);
 	assert.equal(displayItems[0]?.kind, "final-answer");
 	assert.equal(
 		deriveRespondingKind({
@@ -42,22 +47,10 @@ test("context compaction keeps the runtime busy but closes the preceding model t
 });
 
 test("timeline uses turn activity for folding while retaining the compression status", () => {
-	const timeline = readFileSync(
-		"src/renderer/src/components/session/SessionMessageTimeline.tsx",
-		"utf8",
-	);
-	const cards = readFileSync(
-		"src/renderer/src/components/session/TimelineEventCards.tsx",
-		"utf8",
-	);
-	const turnRow = readFileSync(
-		"src/renderer/src/components/session/turn/TurnRow.tsx",
-		"utf8",
-	);
-	const agentManager = readFileSync(
-		"src/main/pi/AgentManager.ts",
-		"utf8",
-	);
+	const timeline = readFileSync("src/renderer/src/components/session/SessionMessageTimeline.tsx", "utf8");
+	const cards = readFileSync("src/renderer/src/components/session/TimelineEventCards.tsx", "utf8");
+	const turnRow = readFileSync("src/renderer/src/components/session/turn/TurnRow.tsx", "utf8");
+	const agentManager = readFileSync("src/main/pi/AgentManager.ts", "utf8");
 
 	assert.match(timeline, /deriveTimelineRunActivity/);
 	// 2026-08 perf：接线改身份判定，语义保留——isTurnRunning 参与 isRunStreaming
@@ -69,21 +62,12 @@ test("timeline uses turn activity for folding while retaining the compression st
 	assert.match(turnRow, /isRuntimeBusy\?: boolean/);
 	assert.match(turnRow, /!props\.isRuntimeBusy/);
 	assert.match(agentManager, /private readonly agentTurnActiveById = new Map<string, boolean>\(\)/);
-	assert.match(
-		agentManager,
-		/if \(typed\.type === "agent_start" && runtime\) \{[\s\S]*?setAgentTurnActive\(agentId, true\)/,
-	);
-	assert.match(
-		agentManager,
-		/if \(typed\.type === "agent_end"\) \{[\s\S]*?setAgentTurnActive\(agentId, false\)/,
-	);
+	assert.match(agentManager, /if \(typed\.type === "agent_start" && runtime\) \{[\s\S]*?setAgentTurnActive\(agentId, true\)/);
+	assert.match(agentManager, /if \(typed\.type === "agent_end"\) \{[\s\S]*?setAgentTurnActive\(agentId, false\)/);
 });
 
 test("an active model turn remains active outside the compaction phase", () => {
-	assert.equal(
-		deriveTimelineRunActivity({ isRuntimeBusy: true, isCompacting: false }).isTurnRunning,
-		true,
-	);
+	assert.equal(deriveTimelineRunActivity({ isRuntimeBusy: true, isCompacting: false }).isTurnRunning, true);
 	assert.equal(
 		deriveTimelineRunActivity({
 			isRuntimeBusy: true,
@@ -92,8 +76,5 @@ test("an active model turn remains active outside the compaction phase", () => {
 		}).isTurnRunning,
 		false,
 	);
-	assert.equal(
-		deriveTimelineRunActivity({ isRuntimeBusy: false, isCompacting: false }).isTurnRunning,
-		false,
-	);
+	assert.equal(deriveTimelineRunActivity({ isRuntimeBusy: false, isCompacting: false }).isTurnRunning, false);
 });

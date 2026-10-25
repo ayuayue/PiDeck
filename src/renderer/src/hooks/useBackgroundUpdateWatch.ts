@@ -17,6 +17,7 @@ export type BackgroundUpdateWatchOptions = {
  * 通知规则（对齐 Netcatty 语义）：
  *   - 自动下载开启：下载完成后 toast 引导至设置页；设置页在确认草稿安全后才允许安装；
  *   - 下载失败或安装器未能启动：toast 错误并跳转设置页重试；
+ *   - 检查失败（含 macOS 只查不装）：toast「检查更新失败」，不说成下载失败；
  *   - Pi CLI：hasUpdate 且未提示过 → toast 一次并立即 notifySeen（入口在设置页）。
  * 本地 ref 兜一层去重，防快照重发/异步标记竞态导致重复 toast。
  */
@@ -48,48 +49,36 @@ export function useBackgroundUpdateWatch(options: BackgroundUpdateWatchOptions):
 				const errorKey = `${appStatus.latestVersion ?? ""}:${download.error}`;
 				if (notifiedRef.current.error !== errorKey) {
 					notifiedRef.current.error = errorKey;
-					showNotice(
-						t("update.installFailedDetail", { error: download.error }),
-						0,
-						"error",
-						t("update.installFailedTitle"),
-						settingsAction,
-					);
+					showNotice(t("update.installFailedDetail", { error: download.error }), 0, "error", t("update.installFailedTitle"), settingsAction);
 				}
 				return;
 			}
 
 			if (appStatus?.hasUpdate && download?.phase === "ready") {
-				// 下载完成后只跳转设置页：设置页负责未保存草稿确认，再由用户明确安装。
+				// 下载完成后只跳转设置页：设置页负责未保存草稿确认，再由用户明确安装/打开。
+				// 不复用 notifiedVersion：manual 模式下「发现新版本」已标记过，下载完成仍需提示一次。
 				const version = download.version ?? appStatus.latestVersion ?? "";
-				if (
-					version &&
-					appStatus.notifiedVersion !== version &&
-					notifiedRef.current.ready !== version
-				) {
+				if (version && notifiedRef.current.ready !== version) {
 					notifiedRef.current.ready = version;
 					void api.app.notifyUpdateSeen("app", version);
-					showNotice(
-						t("update.readyToInstall", { version }),
-						0,
-						"info",
-						t("update.readyToInstallTitle"),
-						settingsAction,
-					);
+					showNotice(t(isManualDelivery ? "update.manualReadyToast" : "update.readyToInstall", { version }), 0, "info", t("update.readyToInstallTitle"), settingsAction);
 				}
 				return;
 			}
 
 			if (download?.phase === "error") {
-				// 下载/检查失败：toast 错误 + 去设置页（错误信息变化时提示一次）。
-				const errorKey = `${appStatus?.latestVersion ?? ""}:${download.error ?? ""}`;
-				if (notifiedRef.current.error !== errorKey && errorKey !== ":") {
+				// 检查失败和下载失败文案分开：macOS 只查不装，不能说成「下载失败」。
+				const isDownloadError = download.errorKind === "download";
+				const errorKey = `${appStatus?.latestVersion ?? ""}:${download.errorKind ?? "check"}:${download.error ?? ""}`;
+				if (notifiedRef.current.error !== errorKey && !errorKey.endsWith(":")) {
 					notifiedRef.current.error = errorKey;
 					showNotice(
-						t("update.downloadFailedDetail", { error: download.error ?? "" }),
+						t(isDownloadError ? "update.downloadFailedDetail" : "update.checkFailedDetail", {
+							error: download.error ?? "",
+						}),
 						0,
 						"error",
-						t("update.downloadFailedTitle"),
+						t(isDownloadError ? "update.downloadFailedTitle" : "update.checkFailedTitle"),
 						settingsAction,
 					);
 				}
@@ -99,34 +88,16 @@ export function useBackgroundUpdateWatch(options: BackgroundUpdateWatchOptions):
 			if (download?.phase === "available" && (isManualDelivery || !autoDownload)) {
 				// macOS 无签名发行物和关闭自动下载时均提示新版本；前者只提供 Release 手动安装。
 				const version = download.version ?? "";
-				if (
-					version &&
-					appStatus?.skippedVersion !== version &&
-					appStatus?.notifiedVersion !== version &&
-					notifiedRef.current.app !== version
-				) {
+				if (version && appStatus?.skippedVersion !== version && appStatus?.notifiedVersion !== version && notifiedRef.current.app !== version) {
 					notifiedRef.current.app = version;
 					void api.app.notifyUpdateSeen("app", version);
-					showNotice(
-						isManualDelivery
-							? t("update.availableManualToast", { version })
-							: t("update.availableToast", { version }),
-						8000,
-						"info",
-						t("update.availableToastTitle"),
-						settingsAction,
-					);
+					showNotice(isManualDelivery ? t("update.availableManualToast", { version }) : t("update.availableToast", { version }), 8000, "info", t("update.availableToastTitle"), settingsAction);
 				}
 				return;
 			}
 
 			const piStatus = snapshot?.piCli;
-			if (
-				piStatus?.hasUpdate &&
-				piStatus.latestVersion &&
-				piStatus.latestVersion !== piStatus.notifiedVersion &&
-				notifiedRef.current.pi !== piStatus.latestVersion
-			) {
+			if (piStatus?.hasUpdate && piStatus.latestVersion && piStatus.latestVersion !== piStatus.notifiedVersion && notifiedRef.current.pi !== piStatus.latestVersion) {
 				notifiedRef.current.pi = piStatus.latestVersion;
 				// 立即标记已提示（主进程持久化），重启后同一版本不再打扰。
 				void api.app.notifyUpdateSeen("pi", piStatus.latestVersion);

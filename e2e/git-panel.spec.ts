@@ -58,8 +58,8 @@ test("git panel: status -> diff -> stage -> commit", async ({ window }) => {
 
 	// 制造一处工作区改动并刷新状态
 	appendFileSync(join(repoDir, "a.txt"), "changed by e2e\n");
-	// 刷新按钮在 changes 面板 PaneHeader 的 changeToolbar 里（aria-label="刷新"），
-	// 旧的 #git-pane-changes id 已改为 useId 动态 id（git-pane-:rN:-changes），无法硬编码。
+	// 刷新按钮在顶部仓库/分支栏的「同步组」里（aria-label="刷新"）；旧的 #git-pane-changes id
+	// 已改为 useId 动态 id（git-pane-:rN:-changes），无法硬编码，按可访问名定位。
 	await panel.getByRole("button", { name: "刷新" }).first().click();
 	const changedFile = panel.locator(".git-resource-name", { hasText: "a.txt" }).first();
 	await expect(changedFile).toBeVisible({ timeout: 15_000 });

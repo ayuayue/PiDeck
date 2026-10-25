@@ -50,10 +50,7 @@ function toDosDateTime(input: Date | undefined): { time: number; date: number } 
 	const value = input ?? new Date();
 	const year = Math.max(1980, value.getFullYear());
 	return {
-		time:
-			((value.getHours() & 0x1f) << 11) |
-			((value.getMinutes() & 0x3f) << 5) |
-			(Math.floor(value.getSeconds() / 2) & 0x1f),
+		time: ((value.getHours() & 0x1f) << 11) | ((value.getMinutes() & 0x3f) << 5) | (Math.floor(value.getSeconds() / 2) & 0x1f),
 		date: (((year - 1980) & 0x7f) << 9) | (((value.getMonth() + 1) & 0x0f) << 5) | (value.getDate() & 0x1f),
 	};
 }

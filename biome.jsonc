@@ -1,0 +1,62 @@
+{
+	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+	// 格式化基线（chore/formatter-baseline）：
+	// - indentStyle "tab"：仓库现状 tab 缩进行（19.5w）远多于 2 空格行（4.5w），取多数派最小化 diff；
+	// - lineWidth 320（biome 上限）：仓库 >80 字符的行占 54%，激进折行会把多行结构
+	//   合并/拆散，打破大量「源码正则扫描」契约测试（PR #231 曾因此放宽 35+ 个测试文件）。
+	//   取上限只统一缩进/空格/标点，不做实际折行，破坏面最小。
+	// - 其余（双引号 / LF / 尾逗号 / 分号）与现有代码风格一致。
+	// 范围只覆盖 src / tests / scripts / e2e；docs-site 与 resources/extensions
+	// （随包分发的 pi 扩展，会被 -e 注入且有自己的格式基线）不参与。
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "tab",
+		"lineWidth": 320,
+		"lineEnding": "lf"
+	},
+	"javascript": {
+		"formatter": {
+			"quoteStyle": "double",
+			"jsxQuoteStyle": "double",
+			"semicolons": "always",
+			"trailingCommas": "all",
+			"bracketSpacing": true,
+			"bracketSameLine": false,
+			"arrowParentheses": "always"
+		}
+	},
+	"json": {
+		"formatter": {
+			// announcements.json / manifests 由脚本生成并有 check:* 守卫，
+			// 不允许 formatter 重排导致漂移红灯。
+			"enabled": false
+		}
+	},
+	"assist": {
+		"actions": {
+			"source": {
+				"organizeImports": "off"
+			}
+		}
+	},
+	"files": {
+		"includes": [
+			"src/**",
+			"tests/**",
+			"scripts/**",
+			"e2e/**",
+			// Tailwind v4 语法（@custom-variant/@theme）css formatter 尚不支持；
+			// 且项目 CSS 有精确匹配的契约测试与双轨迁移纪律（AGENTS.md），
+			// 全量重排 foundation/surfaces 等手写样式文件风险远超收益——CSS 整体不参与格式化。
+			"!**/*.css",
+			"!**/node_modules/**",
+			"!**/out/**",
+			"!**/dist-runtime/**",
+			"!**/dist/**"
+		]
+	},
+	"linter": {
+		// 本次只建立格式基线；lint 规则后续按触达面增量启用，避免一次性引入海量告警。
+		"enabled": false
+	}
+}

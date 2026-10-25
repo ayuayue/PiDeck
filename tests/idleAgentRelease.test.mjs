@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-	IdleAgentReleaser,
-	planIdleAgentRelease,
-} from "../src/main/sessions/IdleAgentReleaser.ts";
+import { IdleAgentReleaser, planIdleAgentRelease } from "../src/main/sessions/IdleAgentReleaser.ts";
 
 /** 构造最小 AgentTab（按 shared/types/agent.ts 必填字段）。 */
 function tab(id, status, extra = {}) {
@@ -35,12 +32,7 @@ test("开关关闭：不释放且清空计时（重新开启从零计时）", ()
 });
 
 test("无 idle agent：不释放、不产生计时", () => {
-	const plan = planIdleAgentRelease(
-		[tab("a", "running"), tab("b", "starting"), tab("c", "error")],
-		new Map(),
-		NOW,
-		{ autoRelease: true, keepCount: 5, timeoutMs: MIN },
-	);
+	const plan = planIdleAgentRelease([tab("a", "running"), tab("b", "starting"), tab("c", "error")], new Map(), NOW, { autoRelease: true, keepCount: 5, timeoutMs: MIN });
 	assert.deepEqual([...plan.toRelease], []);
 	assert.equal(plan.idleSinceById.size, 0);
 });
@@ -85,12 +77,7 @@ test("超保留数：按闲置最久优先释放超出部分", () => {
 		["mid", NOW - 15 * MIN],
 		["recent", NOW - 8 * MIN],
 	]);
-	const plan = planIdleAgentRelease(
-		[tab("oldest", "idle"), tab("old", "idle"), tab("mid", "idle"), tab("recent", "idle")],
-		prev,
-		NOW,
-		{ autoRelease: true, keepCount: 2, timeoutMs: MIN },
-	);
+	const plan = planIdleAgentRelease([tab("oldest", "idle"), tab("old", "idle"), tab("mid", "idle"), tab("recent", "idle")], prev, NOW, { autoRelease: true, keepCount: 2, timeoutMs: MIN });
 	// 保留最「新」闲置的 2 个（recent/mid），释放最久的 2 个，顺序即闲置时长倒序
 	assert.deepEqual([...plan.toRelease], ["oldest", "old"]);
 });
@@ -101,12 +88,7 @@ test("聚焦会话豁免：即使闲置超时也不释放，且不占保留名�
 		["other1", NOW - 50 * MIN],
 		["other2", NOW - 40 * MIN],
 	]);
-	const plan = planIdleAgentRelease(
-		[tab("focus", "idle"), tab("other1", "idle"), tab("other2", "idle")],
-		prev,
-		NOW,
-		{ autoRelease: true, keepCount: 1, timeoutMs: MIN, focusedAgentId: "focus" },
-	);
+	const plan = planIdleAgentRelease([tab("focus", "idle"), tab("other1", "idle"), tab("other2", "idle")], prev, NOW, { autoRelease: true, keepCount: 1, timeoutMs: MIN, focusedAgentId: "focus" });
 	// focus 豁免；候选 = other1/other2，keepCount=1 → 释放闲置最久的 other1
 	assert.deepEqual([...plan.toRelease], ["other1"]);
 });
@@ -170,19 +152,7 @@ test("坏配置兜底：0/负数/NaN 被钳制，不会误释放或崩溃", () =
 		["e", NOW - MIN],
 		["f", NOW - MIN],
 	]);
-	const plan2 = planIdleAgentRelease(
-		[
-			tab("a", "idle"),
-			tab("b", "idle"),
-			tab("c", "idle"),
-			tab("d", "idle"),
-			tab("e", "idle"),
-			tab("f", "idle"),
-		],
-		prev,
-		NOW,
-		{ autoRelease: true, keepCount: NaN, timeoutMs: 0 },
-	);
+	const plan2 = planIdleAgentRelease([tab("a", "idle"), tab("b", "idle"), tab("c", "idle"), tab("d", "idle"), tab("e", "idle"), tab("f", "idle")], prev, NOW, { autoRelease: true, keepCount: NaN, timeoutMs: 0 });
 	assert.deepEqual([...plan2.toRelease], ["a"]);
 });
 
@@ -243,12 +213,7 @@ test("releaser.sweep：聚焦会话豁免释放", async (t) => {
 	const { releaser, state } = makeReleaser();
 	state.settings.idleAgentKeepCount = 1;
 	state.focusedSessionId = "s1";
-	state.tabs = [
-		tab("agent-focus", "idle"),
-		tab("agent-other", "idle"),
-		tab("agent-x", "idle"),
-		tab("agent-y", "idle"),
-	];
+	state.tabs = [tab("agent-focus", "idle"), tab("agent-other", "idle"), tab("agent-x", "idle"), tab("agent-y", "idle")];
 	await releaser.sweep();
 	t.mock.timers.tick(2 * MIN);
 	await releaser.sweep();

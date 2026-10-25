@@ -6,21 +6,7 @@ import { t, type TranslationKey } from "../../../i18n";
  * 用户可能先改外观再改语言，但「常用设置」里的项更容易对上导航。
  */
 
-export type SettingsUnsavedTabId =
-	| "common"
-	| "appearance"
-	| "proxy"
-	| "web"
-	| "editors"
-	| "git"
-	| "dev"
-	| "im"
-	| "pet"
-	| "storage"
-	| "usage"
-	| "process"
-	| "vision"
-	| "imagegen";
+export type SettingsUnsavedTabId = "common" | "shortcuts" | "appearance" | "proxy" | "web" | "editors" | "git" | "dev" | "im" | "pet" | "notification" | "storage" | "usage" | "process" | "vision" | "imagegen" | "acp";
 
 /** 单条变更项：tab 名 + 字段名（均为 i18n key，渲染时再翻译）。 */
 export type SettingsUnsavedItem = {
@@ -43,6 +29,7 @@ type FieldCatalogEntry = {
 
 const TAB_LABEL_KEYS: Record<SettingsUnsavedTabId, TranslationKey> = {
 	common: "settings.tabs.common",
+	shortcuts: "settings.tabs.shortcuts",
 	appearance: "settings.tabs.appearance",
 	proxy: "settings.tabs.proxy",
 	web: "settings.tabs.web",
@@ -51,11 +38,13 @@ const TAB_LABEL_KEYS: Record<SettingsUnsavedTabId, TranslationKey> = {
 	dev: "settings.tabs.dev",
 	im: "settings.tabs.im",
 	pet: "settings.tabs.pet",
+	notification: "settings.tabs.notification",
 	storage: "settings.tabs.storage",
 	usage: "settings.tabs.usage",
 	process: "settings.tabs.process",
 	vision: "settings.tabs.vision",
 	imagegen: "settings.tabs.imagegen",
+	acp: "settings.tabs.acp",
 };
 
 /**
@@ -63,21 +52,27 @@ const TAB_LABEL_KEYS: Record<SettingsUnsavedTabId, TranslationKey> = {
  */
 const FIELD_CATALOG: readonly FieldCatalogEntry[] = [
 	{ field: "language", tab: "common", itemKey: "settings.language" },
+	{ field: "shortcuts", tab: "shortcuts", itemKey: "settings.tabs.shortcuts" },
 	{ field: "sessionTabOpenMode", tab: "common", itemKey: "settings.sessionTabOpenMode" },
 	{ field: "autoSessionTitle", tab: "common", itemKey: "settings.autoSessionTitle" },
+	{ field: "tpsDisplayMode", tab: "common", itemKey: "settings.tpsDisplayMode" },
 	{ field: "sendShortcut", tab: "common", itemKey: "settings.inputShortcut" },
 	{ field: "defaultAgentBackend", tab: "common", itemKey: "settings.defaultAgentBackend" },
 	{ field: "busySendDelivery", tab: "common", itemKey: "settings.busySendDelivery" },
 	{ field: "linkOpenMode", tab: "common", itemKey: "settings.linkOpenMode" },
 	{ field: "workspaceContentOpenMode", tab: "common", itemKey: "settings.workspaceContentOpenMode" },
 	{ field: "expandInterimDuringStream", tab: "common", itemKey: "settings.expandInterimDuringStream" },
-	{ field: "collapsePrevRunsOnNewTurn", tab: "common", itemKey: "settings.collapsePrevRunsOnNewTurn" },
+	{ field: "processGroupDisplay", tab: "common", itemKey: "settings.processGroupDisplay" },
+	// 快捷消息不在这里：它存在独立配置文件、改完即时落盘，不属于本弹框的草案（见 QuickMessagesSetting）
 	{ field: "idleAgentAutoRelease", tab: "common", itemKey: "settings.idleAgentAutoRelease" },
 	{ field: "idleAgentKeepCount", tab: "common", itemKey: "settings.idleAgentKeepCount" },
 	{ field: "idleAgentTimeoutMin", tab: "common", itemKey: "settings.idleAgentTimeoutMin" },
-	{ field: "enableNotifications", tab: "common", itemKey: "settings.enableNotifications" },
-	{ field: "askNotificationEnabled", tab: "common", itemKey: "settings.askNotification" },
-	{ field: "agentCountReminderEnabled", tab: "common", itemKey: "settings.agentCountReminder" },
+	{ field: "enableNotifications", tab: "notification", itemKey: "settings.enableNotifications" },
+	{ field: "askNotificationEnabled", tab: "notification", itemKey: "settings.askNotification" },
+	{ field: "alertOnlyWhenUnfocused", tab: "notification", itemKey: "settings.alertOnlyWhenUnfocused" },
+	{ field: "agentCountReminderEnabled", tab: "notification", itemKey: "settings.agentCountReminder" },
+	{ field: "announcementNotificationEnabled", tab: "notification", itemKey: "settings.announcementNotification" },
+	{ field: "toastDurationMs", tab: "notification", itemKey: "settings.toastDuration" },
 	{ field: "startupWindowMode", tab: "common", itemKey: "settings.startupWindowMode" },
 	{ field: "closeToTray", tab: "common", itemKey: "settings.closeToTray" },
 	{ field: "singleInstance", tab: "common", itemKey: "settings.singleInstance" },
@@ -88,11 +83,18 @@ const FIELD_CATALOG: readonly FieldCatalogEntry[] = [
 	{ field: "accent", tab: "appearance", itemKey: "settings.accent" },
 	// 外观主题选择器同时改 themeSkin + accent（主题自带主色），两项归并到同一摘要
 	{ field: "themeSkin", tab: "appearance", itemKey: "settings.accent" },
+	// 自定义主题包快照与 themeSkin 联动（应用即切 custom + 写快照），归并到同一摘要
+	{ field: "customTheme", tab: "appearance", itemKey: "settings.sectionCustomThemes" },
 	{ field: "backgroundImage", tab: "appearance", itemKey: "settings.backgroundImage" },
 	{ field: "backgroundImageOpacity", tab: "appearance", itemKey: "settings.backgroundImage" },
+	// 品牌自定义三项：都紧跟「主题与背景」里的 Logo 行（自定义图与风格联动，但不合并——图与风格各自可单独改）
+	{ field: "logoStyle", tab: "appearance", itemKey: "settings.logoStyle" },
+	{ field: "logoCustomImage", tab: "appearance", itemKey: "settings.logoCustomImage" },
+	{ field: "appDisplayName", tab: "appearance", itemKey: "settings.appDisplayName" },
 	{ field: "zoomFactor", tab: "appearance", itemKey: "settings.zoomFactor" },
 	{ field: "fontSize", tab: "appearance", itemKey: "settings.fontSize" },
 	{ field: "uiFontSize", tab: "appearance", itemKey: "settings.uiFontSize" },
+	{ field: "tabBarFontSize", tab: "appearance", itemKey: "settings.tabBarFontSize" },
 	{ field: "chatFontSize", tab: "appearance", itemKey: "settings.chatFontSize" },
 	{ field: "inputFontSize", tab: "appearance", itemKey: "settings.inputFontSize" },
 	{ field: "fontFamilyBase", tab: "appearance", itemKey: "settings.fontFamilyBase" },
@@ -100,9 +102,17 @@ const FIELD_CATALOG: readonly FieldCatalogEntry[] = [
 	{ field: "fontFamilyMono", tab: "appearance", itemKey: "settings.fontFamilyMono" },
 	{ field: "fontFamilyMonoCustom", tab: "appearance", itemKey: "settings.fontFamilyMonoCustomField" },
 	{ field: "chatContentWidthPct", tab: "appearance", itemKey: "settings.contentWidthPct" },
+	{ field: "sessionStatusPlacement", tab: "appearance", itemKey: "settings.sessionStatusPlacement" },
+	{ field: "scrollToLatestOnSend", tab: "appearance", itemKey: "settings.scrollToLatestOnSend" },
 	{ field: "contentMaxWidth", tab: "appearance", itemKey: "settings.contentWidthPct" },
+	{ field: "navigationMode", tab: "appearance", itemKey: "settings.navigationMode" },
+	{ field: "sessionTabMaxWidth", tab: "appearance", itemKey: "settings.sessionTabMaxWidth" },
 	{ field: "useNativeTitleBar", tab: "appearance", itemKey: "settings.nativeTitleBar" },
 	{ field: "showNativeMenu", tab: "appearance", itemKey: "settings.nativeMenu" },
+	// 功能模块开关组共用一个数组字段，关闭确认里合成一项
+	{ field: "hiddenModules", tab: "appearance", itemKey: "settings.modules.title" },
+	// 输入框功能显示同理共用 hiddenComposerFeatures，合成一项
+	{ field: "hiddenComposerFeatures", tab: "appearance", itemKey: "settings.composer.title" },
 
 	{ field: "piProxyEnabled", tab: "proxy", itemKey: "settings.enablePiProxy" },
 	{ field: "piProxyUrl", tab: "proxy", itemKey: "settings.proxyUrl" },
@@ -122,20 +132,27 @@ const FIELD_CATALOG: readonly FieldCatalogEntry[] = [
 	{ field: "petScale", tab: "pet", itemKey: "settings.pet.scale" },
 	{ field: "petId", tab: "pet", itemKey: "settings.pet.choose" },
 
+	// 通知设置 tab：系统通知三开关 + 声音提醒整块 soundAlert（目录顺序与 settingsTabLayout 一致）
+	{ field: "soundAlert", tab: "notification", itemKey: "settings.sound.title" },
+
 	{ field: "wslEnabled", tab: "dev", itemKey: "settings.piSource.label" },
 	{ field: "wslDistro", tab: "dev", itemKey: "settings.wsl.distro" },
 	{ field: "wslUser", tab: "dev", itemKey: "settings.wsl.user" },
 	{ field: "customPiPath", tab: "dev", itemKey: "settings.customPiPath" },
+	{ field: "dshRunnerNodePath", tab: "dev", itemKey: "settings.dshRunnerNode" },
 	{ field: "autoDownloadUpdates", tab: "dev", itemKey: "settings.autoDownloadUpdates" },
+	{ field: "catalogAutoUpdate", tab: "dev", itemKey: "settings.catalogAutoUpdate" },
 	{ field: "rpcTimeout", tab: "dev", itemKey: "settings.rpcTimeout" },
 	{ field: "maxEditorFileSizeMB", tab: "dev", itemKey: "settings.maxEditorFileSize" },
 	{ field: "electronChromiumSandbox", tab: "dev", itemKey: "settings.electronSandbox" },
 	{ field: "piRpcOffline", tab: "dev", itemKey: "settings.piRpcOffline" },
 	{ field: "piRpcNoExtensions", tab: "dev", itemKey: "settings.piRpcNoExtensions" },
 	{ field: "piRpcNoSkills", tab: "dev", itemKey: "settings.piRpcNoSkills" },
+	{ field: "standbyRuntimeEnabled", tab: "dev", itemKey: "settings.standbyRuntimeEnabled" },
 	{ field: "webServiceEnabled", tab: "web", itemKey: "settings.enableWebService" },
 	{ field: "webServiceHost", tab: "web", itemKey: "settings.webServiceHost" },
 	{ field: "webServicePort", tab: "web", itemKey: "settings.webServicePort" },
+	{ field: "webServiceRequiresAuth", tab: "web", itemKey: "settings.webUseTokenAuth" },
 	{ field: "externalEditors", tab: "editors", itemKey: "settings.sectionEditors" },
 	// Git 区块原在常用设置，随独立 tab 挪到「开发者」簇（web/editors 之后、dev 之前）
 	{ field: "enableGitManagement", tab: "git", itemKey: "settings.gitManagement" },
@@ -161,11 +178,7 @@ function itemIdentity(tab: SettingsUnsavedTabId, itemKey: TranslationKey): strin
  * 把 dirty 字段收成关闭确认要用的一条摘要。
  * visionDirty 不是 AppSettings 字段（写 pi-deck-vision.json），单独挂到视觉桥 tab。
  */
-export function summarizeSettingsUnsavedChanges(input: {
-	dirtyFields: Iterable<string>;
-	visionDirty?: boolean;
-	imageGenDirty?: boolean;
-}): SettingsUnsavedSummary | null {
+export function summarizeSettingsUnsavedChanges(input: { dirtyFields: Iterable<string>; visionDirty?: boolean; imageGenDirty?: boolean; acpDirty?: boolean }): SettingsUnsavedSummary | null {
 	const dirty = new Set(input.dirtyFields);
 	const seen = new Set<string>();
 	const items: Array<{ tab: SettingsUnsavedTabId; itemKey: TranslationKey }> = [];
@@ -196,6 +209,10 @@ export function summarizeSettingsUnsavedChanges(input: {
 		push("imagegen", "settings.tabs.imagegen");
 	}
 
+	if (input.acpDirty) {
+		push("acp", "settings.tabs.acp");
+	}
+
 	if (items.length === 0) return null;
 	return {
 		items: items.map((item) => ({
@@ -207,11 +224,7 @@ export function summarizeSettingsUnsavedChanges(input: {
 }
 
 /** 左侧导航要打黄点的 tab：按字段目录归并，视觉桥草稿单独算 vision。 */
-export function dirtySettingsTabIds(input: {
-	dirtyFields: Iterable<string>;
-	visionDirty?: boolean;
-	imageGenDirty?: boolean;
-}): Set<SettingsUnsavedTabId> {
+export function dirtySettingsTabIds(input: { dirtyFields: Iterable<string>; visionDirty?: boolean; imageGenDirty?: boolean; acpDirty?: boolean }): Set<SettingsUnsavedTabId> {
 	const dirty = new Set(input.dirtyFields);
 	const tabs = new Set<SettingsUnsavedTabId>();
 	for (const entry of FIELD_CATALOG) {
@@ -219,13 +232,11 @@ export function dirtySettingsTabIds(input: {
 	}
 	if (input.visionDirty) tabs.add("vision");
 	if (input.imageGenDirty) tabs.add("imagegen");
+	if (input.acpDirty) tabs.add("acp");
 	return tabs;
 }
 
-export function formatSettingsUnsavedMessage(
-	summary: SettingsUnsavedSummary | null,
-	translate: typeof t = t,
-): string {
+export function formatSettingsUnsavedMessage(summary: SettingsUnsavedSummary | null, translate: typeof t = t): string {
 	if (!summary || summary.items.length === 0) return translate("settings.unsavedMessage");
 	const first = summary.items[0];
 	const tab = translate(first.tabKey);

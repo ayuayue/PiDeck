@@ -4,9 +4,7 @@ import assert from "node:assert/strict";
 import { parseDiffStatSummary } from "../src/renderer/src/utils/rewindDiffStat.ts";
 
 test("解析完整汇总行：文件数 + 增删", () => {
-	const stat = parseDiffStatSummary(
-		" a.txt | 2 +-\n b.txt | 2 +-\n 2 files changed, 2 insertions(+), 2 deletions(-)",
-	);
+	const stat = parseDiffStatSummary(" a.txt | 2 +-\n b.txt | 2 +-\n 2 files changed, 2 insertions(+), 2 deletions(-)");
 	assert.deepEqual(stat, { files: 2, insertions: 2, deletions: 2 });
 });
 
@@ -34,8 +32,6 @@ test("非 stat 文本（异常内容）返回 null", () => {
 });
 
 test("忽略逐文件行，只取末尾汇总行", () => {
-	const stat = parseDiffStatSummary(
-		" src/a.ts | 10 ++++++++--\n src/b.ts | 3 ---\n 2 files changed, 10 insertions(+), 3 deletions(-)",
-	);
+	const stat = parseDiffStatSummary(" src/a.ts | 10 ++++++++--\n src/b.ts | 3 ---\n 2 files changed, 10 insertions(+), 3 deletions(-)");
 	assert.deepEqual(stat, { files: 2, insertions: 10, deletions: 3 });
 });

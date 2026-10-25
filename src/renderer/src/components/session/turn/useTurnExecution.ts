@@ -39,10 +39,10 @@ export function useTurnExecution(opts: {
 	isLatestRun?: boolean;
 	/** 设置①：流式对话时展开中间过程。默认关。 */
 	expandInterimDuringStream?: boolean;
-	/** 设置②：新一轮开始时收起上一轮。默认开。 */
-	collapsePrevRunsOnNewTurn?: boolean;
 	/** 新一轮开始信号（session 级单调递增）。变化时非最新轮被强制收起。 */
 	newTurnCollapseTick?: number;
+	/** 发送置顶滚动动画进行中：新一轮折叠必须等它结束（见下 effect 注释）。 */
+	sendPinAnimating?: boolean;
 	/** 最新轮结束后的自动收起信号（timeline 侧 1.5s idle 计时）。 */
 	autoCollapseTick?: number;
 	/** 自动收起真正发生后回调（timeline 据此做「拉到中上方」定位）。 */
@@ -64,11 +64,7 @@ export function useTurnExecution(opts: {
 		}
 		// 新一轮已发生且本轮非最新：一律折叠（含手动展开过的，含本轮刚刚失去
 		// 最新位 & tick 已 bump 的「卸载期间新消息」场景），旧记忆作废。
-		if (
-			opts.collapsePrevRunsOnNewTurn !== false &&
-			opts.isLatestRun === false &&
-			currentTick > 0
-		) {
+		if (opts.isLatestRun === false && currentTick > 0) {
 			return false;
 		}
 		// 非 live（agentRunning=false：只看历史/会话空闲）一律折叠。
@@ -108,12 +104,7 @@ export function useTurnExecution(opts: {
 	// 轮次重新撑开；下降沿不再自动展开（旧「结束展开」已由 1.5s 自动收起取代）。
 	useEffect(() => {
 		const running = Boolean(opts.agentRunning);
-		if (
-			running &&
-			!wasRunningRef.current &&
-			!userOverrideRef.current &&
-			opts.expandInterimDuringStream
-		) {
+		if (running && !wasRunningRef.current && !userOverrideRef.current && opts.expandInterimDuringStream) {
 			setStepsVisible(true);
 			opts.onStepsVisibleMemoryChange?.(true, opts.newTurnCollapseTick ?? 0);
 		}
@@ -125,22 +116,22 @@ export function useTurnExecution(opts: {
 	// 消费式处理：仅在“挂载后新发生的新一轮”时动作，挂载时已有的 tick 由初始态
 	// 裁定（记忆 atTick >= tick 时恢复，否则按新一轮折叠），effect 不重复清空。
 	useEffect(() => {
-		if (!opts.collapsePrevRunsOnNewTurn) return;
 		const tick = opts.newTurnCollapseTick ?? 0;
 		if (tick <= 0 || tick === lastNewTurnCollapseTickRef.current) return;
 		// tick 已推进但本轮仍是最新（新一轮属于本轮的后续渲染）：等 isLatestRun
 		// 翻转后再消费，避免新 tick 被吞掉导致“最新轮失去最新位后不再折叠”。
 		if (opts.isLatestRun !== false) return;
+		// 发送置顶动画仍在跑：此刻收起上一轮，其执行过程（数百到上千 px）会从新消息
+		// 上方瞬间消失，动画中的视口补偿只能把 scrollTop 往回带——用户看到
+		// 「先向上再向下」的来回滚动（2026-10 反馈）。动画结束后再消费同一个 tick
+		// （本 effect 依赖 sendPinAnimating，标记落回 false 会重跑）。
+		// 置顶完成后上一轮已在新消息上方、处于视口外，此时再收不会引起可见位移。
+		if (opts.sendPinAnimating) return;
 		lastNewTurnCollapseTickRef.current = tick;
 		userOverrideRef.current = false;
 		setStepsVisible(false);
 		opts.onStepsVisibleMemoryChange?.(undefined, tick);
-	}, [
-		opts.collapsePrevRunsOnNewTurn,
-		opts.isLatestRun,
-		opts.newTurnCollapseTick,
-		opts.onStepsVisibleMemoryChange,
-	]);
+	}, [opts.isLatestRun, opts.newTurnCollapseTick, opts.sendPinAnimating, opts.onStepsVisibleMemoryChange]);
 
 	// timeline 侧 1.5s idle 后发来的自动收起信号。仅最新轮、仍有最终回答且执行过程
 	// 当前可见时收起；已经手动折叠/从未展开的轮次不回调，timeline 不会错误滚动。
@@ -155,19 +146,16 @@ export function useTurnExecution(opts: {
 		setStepsVisible(false);
 		opts.onStepsVisibleMemoryChange?.(undefined, tick);
 		opts.onAutoCollapsed?.();
-	}, [
-		opts.autoCollapseTick,
-		opts.hasFinalAnswer,
-		opts.isLatestRun,
-		opts.onAutoCollapsed,
-		opts.onStepsVisibleMemoryChange,
-	]);
+	}, [opts.autoCollapseTick, opts.hasFinalAnswer, opts.isLatestRun, opts.onAutoCollapsed, opts.onStepsVisibleMemoryChange]);
 
-	const setStepsVisibleFromUser = useCallback((open: boolean) => {
-		userOverrideRef.current = true;
-		setStepsVisible(open);
-		opts.onStepsVisibleMemoryChange?.(open, opts.newTurnCollapseTick ?? 0);
-	}, [opts.onStepsVisibleMemoryChange, opts.newTurnCollapseTick]);
+	const setStepsVisibleFromUser = useCallback(
+		(open: boolean) => {
+			userOverrideRef.current = true;
+			setStepsVisible(open);
+			opts.onStepsVisibleMemoryChange?.(open, opts.newTurnCollapseTick ?? 0);
+		},
+		[opts.onStepsVisibleMemoryChange, opts.newTurnCollapseTick],
+	);
 
 	const toggleSteps = useCallback(() => {
 		userOverrideRef.current = true;

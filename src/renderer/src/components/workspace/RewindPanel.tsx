@@ -23,7 +23,7 @@ export function RewindPanel() {
 			<div className="flex shrink-0 items-center gap-1.5 px-3 pb-1 pt-2 text-xs font-semibold text-foreground">
 				<History size={13} strokeWidth={1.8} aria-hidden="true" />
 				{t("rewind.title")}
-				<span className="ml-auto text-[10px] font-normal text-text-tertiary">{t("rewind.panelHint")}</span>
+				<span className="ml-auto text-micro font-normal text-text-tertiary">{t("rewind.panelHint")}</span>
 			</div>
 			<div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain px-2 pb-2">
 				{!sessionId ? (

@@ -4,24 +4,11 @@ import { freemem, release, totalmem } from "node:os";
 import type { ConfigManager } from "../config/ConfigManager";
 import type { AppLogger } from "../logging/AppLogger";
 import type { PiLocator } from "../pi/PiLocator";
+import { readSingleInstancePreference } from "../settings/SettingsStore";
 import type { SettingsStore } from "../settings/SettingsStore";
-import type {
-	HealthEnvironment,
-	HealthLogFile,
-	HealthLogLine,
-	HealthReport,
-} from "../../shared/types";
-import {
-	checkAppMemory,
-	checkConfigParsable,
-	checkDiskSpace,
-	checkLogErrors,
-	checkPiInstalled,
-	checkProxyConfig,
-	checkWslConfig,
-	sortChecksBySeverity,
-	toConfigDiagnostics,
-} from "./healthProbes";
+import { inspectInstanceLocks, locksDirIn } from "../instanceLockFile";
+import type { HealthEnvironment, HealthLogFile, HealthLogLine, HealthReport } from "../../shared/types";
+import { checkAppMemory, checkConfigParsable, checkDiskSpace, checkInstanceLocks, checkLogErrors, checkPiInstalled, checkProxyConfig, checkWslConfig, sortChecksBySeverity, toConfigDiagnostics, type InstanceLockSummary } from "./healthProbes";
 import { createPathMasker, redactSecrets, truncateText } from "./redact";
 
 /** 日志统计窗口：只看最近 7 天，更早的日志对「现在出问题」几乎没有诊断价值。 */
@@ -53,11 +40,7 @@ export class EnvironmentDoctor {
 	/** 跑一次完整体检。任一项采集失败都降级为「该项 skipped」，不让整体失败。 */
 	async run(): Promise<HealthReport> {
 		const generatedAt = Date.now();
-		const [environment, logSummary, logFiles] = await Promise.all([
-			this.collectEnvironment(),
-			this.collectLogSummary(),
-			this.collectLogFiles(),
-		]);
+		const [environment, logSummary, logFiles] = await Promise.all([this.collectEnvironment(), this.collectLogSummary(), this.collectLogFiles()]);
 		const checks = sortChecksBySeverity([
 			checkPiInstalled(environment.pi),
 			checkConfigParsable(await this.collectConfigDiagnostics()),
@@ -65,11 +48,11 @@ export class EnvironmentDoctor {
 			checkDiskSpace(environment.dataDirFreeBytes),
 			checkAppMemory(environment.appRssBytes),
 			checkProxyConfig(this.deps.settingsStore.get()),
-			checkWslConfig(
-				this.deps.settingsStore.get(),
-				environment.platform,
-				Boolean(environment.pi?.installed),
-			),
+			checkWslConfig(this.deps.settingsStore.get(), environment.platform, Boolean(environment.pi?.installed)),
+			checkInstanceLocks(this.collectInstanceLocks(), {
+				ownPid: process.pid,
+				singleInstanceEnabled: readSingleInstancePreference(),
+			}),
 		]);
 		return { generatedAt, environment, checks, logSummary, logFiles };
 	}
@@ -81,9 +64,7 @@ export class EnvironmentDoctor {
 		const maskPath = createPathMasker(home);
 		const userDataDir = app.getPath("userData");
 		const memory = process.memoryUsage();
-		const pi = await piLocator
-			.check(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser)
-			.catch(() => null);
+		const pi = await piLocator.check(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser).catch(() => null);
 		return {
 			appVersion: app.getVersion(),
 			platform: process.platform,
@@ -118,6 +99,8 @@ export class EnvironmentDoctor {
 						...pi,
 						// pi 命令/搜索目录可能含 home 路径，统一脱敏；version 是版本号，不含隐私但同样过长时截断
 						command: pi.command ? maskPath(pi.command) : pi.command,
+						// WSL 解析出的 Linux 绝对路径带用户名，与 command 同级处理
+						piPath: pi.piPath ? maskPath(pi.piPath) : pi.piPath,
 						version: pi.version ? truncateText(pi.version, 80) : pi.version,
 						error: pi.error ? redactSecrets(maskPath(pi.error)) : pi.error,
 						searchedDirs: pi.searchedDirs.map((dir) => maskPath(dir)),
@@ -152,14 +135,12 @@ export class EnvironmentDoctor {
 	private async collectConfigDiagnostics(): Promise<Array<{ fileName: string; message: string }>> {
 		const { configManager } = this.deps;
 		try {
-			const [models, auth, piSettings] = await Promise.all([
-				configManager.getModelsConfig().catch(() => null),
-				configManager.getAuthConfig().catch(() => null),
-				configManager.getSettingsConfig().catch(() => null),
-			]);
-			return toConfigDiagnostics([models, auth, piSettings].filter(Boolean) as Array<{
-				diagnostic?: import("../../shared/types").ConfigFileDiagnostic | null;
-			}>);
+			const [models, auth, piSettings] = await Promise.all([configManager.getModelsConfig().catch(() => null), configManager.getAuthConfig().catch(() => null), configManager.getSettingsConfig().catch(() => null)]);
+			return toConfigDiagnostics(
+				[models, auth, piSettings].filter(Boolean) as Array<{
+					diagnostic?: import("../../shared/types").ConfigFileDiagnostic | null;
+				}>,
+			);
 		} catch {
 			return [];
 		}
@@ -185,16 +166,15 @@ export class EnvironmentDoctor {
 			recent: [] as HealthLogLine[],
 		};
 		try {
-			const [all, errors, warns, todayErrors, todayWarns, recentErrors, recentWarns] =
-				await Promise.all([
-					appLogger.listPage({ level: "all", from, page: 0, pageSize: 1 }),
-					appLogger.listPage({ level: "error", from, page: 0, pageSize: 1 }),
-					appLogger.listPage({ level: "warn", from, page: 0, pageSize: 1 }),
-					appLogger.listPage({ level: "error", from: todayFrom, page: 0, pageSize: 1 }),
-					appLogger.listPage({ level: "warn", from: todayFrom, page: 0, pageSize: 1 }),
-					appLogger.listPage({ level: "error", from, page: 0, pageSize: MAX_RECENT_PER_LEVEL }),
-					appLogger.listPage({ level: "warn", from, page: 0, pageSize: MAX_RECENT_PER_LEVEL }),
-				]);
+			const [all, errors, warns, todayErrors, todayWarns, recentErrors, recentWarns] = await Promise.all([
+				appLogger.listPage({ level: "all", from, page: 0, pageSize: 1 }),
+				appLogger.listPage({ level: "error", from, page: 0, pageSize: 1 }),
+				appLogger.listPage({ level: "warn", from, page: 0, pageSize: 1 }),
+				appLogger.listPage({ level: "error", from: todayFrom, page: 0, pageSize: 1 }),
+				appLogger.listPage({ level: "warn", from: todayFrom, page: 0, pageSize: 1 }),
+				appLogger.listPage({ level: "error", from, page: 0, pageSize: MAX_RECENT_PER_LEVEL }),
+				appLogger.listPage({ level: "warn", from, page: 0, pageSize: MAX_RECENT_PER_LEVEL }),
+			]);
 			// 只保留 time/level/scope/message：detail 里可能含完整路径或用户内容，一律不带出。
 			const recent = [...recentErrors.entries, ...recentWarns.entries]
 				.map((entry) => ({
@@ -215,6 +195,25 @@ export class EnvironmentDoctor {
 			};
 		} catch {
 			return empty;
+		}
+	}
+
+	/**
+	 * 实例锁快照。
+	 * 只带版本号/pid/状态，不带锁文件路径：报告会对 home 路径脱敏，
+	 * 但锁目录本身没有必要出现在用户可分享的报告里。
+	 * 返回 null 表示采集失败（体检项降级为 skipped，而不是误报 ok）。
+	 */
+	private collectInstanceLocks(): InstanceLockSummary[] | null {
+		try {
+			const { locks } = inspectInstanceLocks(locksDirIn(app.getPath("userData")));
+			return locks.map((lock) => ({
+				version: lock.version,
+				pid: lock.payload?.pid ?? 0,
+				state: lock.payload === null ? "corrupt" : lock.stale ? "stale" : "live",
+			}));
+		} catch {
+			return null;
 		}
 	}
 

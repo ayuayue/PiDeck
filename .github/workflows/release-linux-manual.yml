@@ -1,0 +1,105 @@
+# 手动构建指定架构的 Linux 产物并追加到已存在的 GitHub Release。
+#
+# 适用场景：正式发布流水线 release.yml 遗漏了某架构（如 v0.7.5 缺 Linux arm64），
+# 或希望给历史版本补发对应架构安装包。用法：仓库 Actions 页面 → 本 workflow →
+# 填 tag（如 v0.7.5）与架构 → Run workflow，产物会直接追加到该 Release 资产列表。
+#
+# 注意事项：
+# - 不生成/上传 latest-linux.yml：该文件是 electron-updater 的升级描述（单架构），
+#   追加的 arm64 yml 会覆盖 x64 job 的 yml，导致 x64 用户升级时按文件名匹配拉到
+#   arm64 包。arm64 用户暂以手动下载为准。
+# - 追加资产只产生 `release: edited` 事件，不会自动触发 sync-atomgit
+#   （它监听 `release: published`），需要同步 AtomGit 时手动重跑该 sync workflow
+#   （scripts/sync-release-to-atomgit.mjs 按文件名+大小增量去重，幂等）。
+# - 架构选择：arm64 用原生 arm64 runner（ubuntu-24.04-arm），保证 node-pty 等
+#   原生模块按 arm64 编译；x64 用 ubuntu-latest。ref 留空时用 tag 指向的提交构建。
+name: Linux 手动补发产物
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        # 下拉（choice）选项为静态列表，无法动态读取 Release；列表外的旧版本
+        # （补发 v0.7.6 以前的历史版本）用下面的 tag_custom 手填。
+        # 本输入 required: true，不能用「auto = latest」兜底，必须真选一个。
+        description: '目标 Release tag（产物追加到该 Release；列表外的旧版本填下面的 tag_custom）'
+        required: true
+        type: choice
+        default: v0.7.6
+        options:
+          - v0.9.6
+          - v0.9.5
+          - v0.9.1
+          - v0.9.0
+          - v0.8.0
+          - v0.7.9
+          - v0.7.8
+          - v0.7.7
+          - v0.7.6
+          - v0.7.5
+      tag_custom:
+        description: '自定义 tag（填了则覆盖上面的下拉选择；用于列表外的旧版本）'
+        required: false
+        type: string
+        default: ''
+      arch:
+        description: '目标架构'
+        required: true
+        type: choice
+        default: arm64
+        options:
+          - arm64
+          - x64
+      ref:
+        description: '构建用提交 ref（留空 = 使用 tag 指向的代码）'
+        required: false
+        type: string
+
+jobs:
+  build-and-attach:
+    name: Build Linux ${{ inputs.arch }} for ${{ inputs.tag_custom || inputs.tag }}
+    runs-on: ${{ inputs.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # 同样优先 tag_custom：checkout 时需要用真实 tag 名，不能用下拉里的占位选择
+          ref: ${{ inputs.ref || inputs.tag_custom || inputs.tag }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate app icon
+        run: npm run make-icon
+
+      - name: Build Linux ${{ inputs.arch }} packages
+        run: npm run build && npx electron-builder --linux AppImage deb tar.gz --${{ inputs.arch }} --publish never
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 与 release.yml 一致：CI 下载 Electron 二进制走 npmmirror，避免 GitHub
+          # Releases 偶发 504；发布目标仍是 GitHub Releases。
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
+
+      - name: Attach assets to release
+        uses: softprops/action-gh-release@v2
+        with:
+          # 与 release.yml 保持一致用 PAT：权限足、事件语义统一；
+          # 追加资产是 edited 事件，不会误触发 sync-atomgit。
+          token: ${{ secrets.RELEASE_PAT }}
+          tag_name: ${{ inputs.tag_custom || inputs.tag }}
+          # 只追加安装包与增量块，不动已存在的 latest*.yml（原因见文件头注释）
+          files: |
+            release/*.AppImage
+            release/*.deb
+            release/*.tar.gz
+            release/*.blockmap
+          fail_on_unmatched_files: false
+          draft: false

@@ -23,7 +23,8 @@ test("卸载失败 toast 附带手动卸载命令（含 project scope 的 -l）"
 	assert.match(source, /label: t\("config\.copyUninstallCmd"\)/);
 	assert.match(source, /navigator\.clipboard\.writeText\(uninstallCmd\)/);
 	// 给足复制时间（原 4500 → 6000）
-	assert.match(source, /\n\t\t\t\t6000,\n\t\t\t\t"error",/);
+	// 实参被格式化到不同行/带尾逗号：只锁 6000 与 error 档的组合。
+	assert.match(source, /6000,\s*"error",?/);
 });
 
 test("sonner Toaster 拦截 toast 非按钮区的 pointerdown（防拖选文本触发 swipe 取消）", () => {
@@ -43,11 +44,7 @@ test("sonner Toaster 拦截 toast 非按钮区的 pointerdown（防拖选文本�
 test("卸载命令提示与复制按钮 i18n 双语文案齐全", () => {
 	const zh = read("src/renderer/src/i18n/rendererCopy.zh-CN.ts");
 	const en = read("src/renderer/src/i18n/rendererCopy.en-US.ts");
-	for (const key of [
-		"config.extensionUninstallFailed",
-		"config.extensionUninstallManual",
-		"config.copyUninstallCmd",
-	]) {
+	for (const key of ["config.extensionUninstallFailed", "config.extensionUninstallManual", "config.copyUninstallCmd"]) {
 		assert.ok(zh.includes(`"${key}"`), `zh-CN missing ${key}`);
 		assert.ok(en.includes(`"${key}"`), `en-US missing ${key}`);
 	}

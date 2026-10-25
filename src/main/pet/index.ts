@@ -64,15 +64,12 @@ export class PetSystem {
 	}
 
 	private isPatrolEnabled() {
-		return (this.deps.settingsStore.get().petPatrolEnabled ?? true)
-			&& detectPetWindowCaps().freePosition;
+		return (this.deps.settingsStore.get().petPatrolEnabled ?? true) && detectPetWindowCaps().freePosition;
 	}
 
 	private translate(key: PetCopyKey, params: Record<string, string | number> = {}): string {
 		const translated = this.deps.translate?.(key, params) ?? defaultPetCopy[key];
-		return translated.replace(/\{([A-Za-z0-9_]+)\}/g, (match, name) => (
-			Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match
-		));
+		return translated.replace(/\{([A-Za-z0-9_]+)\}/g, (match, name) => (Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match));
 	}
 
 	async start() {
@@ -111,8 +108,10 @@ export class PetSystem {
 	stop() {
 		this.clearNotifTimer();
 		this.notifQueue = EMPTY_NOTIFICATION_QUEUE;
-		this.offOutput?.(); this.offOutput = null;
-		this.offSettled?.(); this.offSettled = null;
+		this.offOutput?.();
+		this.offOutput = null;
+		this.offSettled?.();
+		this.offSettled = null;
 		this.bridge.detach();
 		this.petWindow.destroy();
 	}
@@ -171,7 +170,10 @@ export class PetSystem {
 	}
 
 	private clearNotifTimer() {
-		if (this.notifTimer) { clearTimeout(this.notifTimer); this.notifTimer = null; }
+		if (this.notifTimer) {
+			clearTimeout(this.notifTimer);
+			this.notifTimer = null;
+		}
 	}
 
 	// ── IPC ──
@@ -194,14 +196,21 @@ export class PetSystem {
 			const prev = settingsStore.get();
 			await this.reactToSettings(prev, await settingsStore.update({ petId: id }));
 		});
-		ipcMain.handle(C.petMoveWindow, async (_e, pos: { x: number; y: number }) => this.petWindow.moveTo(pos.x, pos.y));
+		// 渲染层入参一律不可信：NaN/缺字段会让 setBounds 抛 TypeError（unhandledRejection），边界处拦掉
+		ipcMain.handle(C.petMoveWindow, async (_e, pos: { x: number; y: number }) => {
+			if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return;
+			this.petWindow.moveTo(pos.x, pos.y);
+		});
 		ipcMain.handle(C.petMoveBy, async (_e, delta: { dx: number; dy: number }) => {
+			if (!delta || !Number.isFinite(delta.dx) || !Number.isFinite(delta.dy)) return;
 			if (!this.petWindow.exists) return;
 			const [x, y] = this.petWindow.window!.getPosition();
 			// ipcMain.handle 对同一通道是串行执行的，setPosition 是同步的，不会产生增量竞争
 			this.petWindow.moveTo(x + delta.dx, y + delta.dy);
 		});
 		ipcMain.handle(C.petPreviewMode, async (_e, mode: string) => {
+			// 预览模式是渲染层内部枚举，只做形态校验白名单不做：新增预览模式不改主进程
+			if (typeof mode !== "string" || mode.length === 0 || mode.length > 64) return;
 			const win = this.petWindow.window;
 			if (win && !win.isDestroyed()) win.webContents.send(C.petPreviewMode, mode);
 		});
@@ -345,17 +354,11 @@ export class PetSystem {
 		}
 		// 缩放 / 字号 / 字体栈都会改宠物窗外观。窗口尺寸由 PetWindow 改，
 		// 绘制比例必须同步推给 renderer，否则会出现「窗大图小」或精灵被裁切。
-		if (
-			next.petScale !== prev.petScale
-			|| next.fontSize !== prev.fontSize
-			|| next.uiFontSize !== prev.uiFontSize
-			|| next.fontFamilyBase !== prev.fontFamilyBase
-			|| next.fontFamilyBaseCustom !== prev.fontFamilyBaseCustom
-		) {
+		if (next.petScale !== prev.petScale || next.fontSize !== prev.fontSize || next.uiFontSize !== prev.uiFontSize || next.fontFamilyBase !== prev.fontFamilyBase || next.fontFamilyBaseCustom !== prev.fontFamilyBaseCustom) {
 			this.pushAppearance(next);
 		}
 		if (next.petPatrolEnabled !== prev.petPatrolEnabled) {
-			(this.isPatrolEnabled() && this.bridge.currentState?.mode === "idle") ? this.patrol.start() : this.patrol.stop();
+			this.isPatrolEnabled() && this.bridge.currentState?.mode === "idle" ? this.patrol.start() : this.patrol.stop();
 		}
 	}
 

@@ -20,14 +20,10 @@ export async function pickBackgroundImage(win?: Electron.BrowserWindow): Promise
 	await mkdir(dir, { recursive: true });
 	const options: Electron.OpenDialogOptions = {
 		title: "选择背景图",
-		filters: [
-			{ name: "图片", extensions: ["png", "jpg", "jpeg", "webp", "gif", "avif"] },
-		],
+		filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "webp", "gif", "avif"] }],
 		properties: ["openFile"],
 	};
-	const result = win
-		? await dialog.showOpenDialog(win, options)
-		: await dialog.showOpenDialog(options);
+	const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
 	const picked = result.filePaths[0];
 	if (!picked) return "";
 	try {
@@ -85,10 +81,6 @@ export function registerBackgroundImageProtocol(): void {
 
 /** 注册背景图 IPC（settings: 域由 storeIpc 覆盖，这里只挂背景图专用通道） */
 export function registerBackgroundsIpc(): void {
-	ipcMain.handle(ipcChannels.pickBackgroundImage, (event) =>
-		pickBackgroundImage(event.sender as unknown as Electron.BrowserWindow),
-	);
-	ipcMain.handle(ipcChannels.removeBackgroundImage, (_event, name: string) =>
-		removeBackgroundImage(name),
-	);
+	ipcMain.handle(ipcChannels.pickBackgroundImage, (event) => pickBackgroundImage(event.sender as unknown as Electron.BrowserWindow));
+	ipcMain.handle(ipcChannels.removeBackgroundImage, (_event, name: string) => removeBackgroundImage(name));
 }

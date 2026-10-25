@@ -7,9 +7,7 @@ export type ComposerDomKeyboardEvent = KeyboardEvent & {
 	nativeEvent: KeyboardEvent;
 };
 
-export function toComposerDomKeyboardEvent(
-	event: KeyboardEvent,
-): ComposerDomKeyboardEvent {
+export function toComposerDomKeyboardEvent(event: KeyboardEvent): ComposerDomKeyboardEvent {
 	const patched = event as ComposerDomKeyboardEvent;
 	if (!patched.nativeEvent) {
 		Object.defineProperty(patched, "nativeEvent", {

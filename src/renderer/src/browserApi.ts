@@ -1,12 +1,5 @@
 import type { PiDesktopApi } from "../../preload";
-import type {
-	ChatMessage,
-	SessionCommandResult,
-	SessionRecord,
-	SessionRuntimeEvent,
-	SessionRuntimeInfo,
-	SessionRuntimeTarget,
-} from "../../shared/types";
+import type { ChatMessage, SessionCommandResult, SessionRecord, SessionRuntimeEvent, SessionRuntimeInfo, SessionRuntimeTarget } from "../../shared/types";
 import { t } from "./i18n";
 import { createPreviewApi } from "./previewApi";
 
@@ -14,22 +7,28 @@ type WebState = {
 	projects: Awaited<ReturnType<PiDesktopApi["projects"]["list"]>>;
 	sessions: SessionRecord[];
 	runtimes: SessionRuntimeInfo[];
-	messagesBySession: Record<string, ChatMessage[]>;
 };
 
 const base = createPreviewApi();
+
+// Web 服务令牌：从二维码/分享链接的 ?token= 读取一次并持久化到 localStorage，
+// 之后所有 /api 请求统一带 Authorization: Bearer。环回绑定服务端不校验，无令牌时照常工作。
+const WEB_TOKEN_STORAGE_KEY = "pideck-web-token";
+const tokenFromUrl = new URLSearchParams(window.location.search).get("token");
+if (tokenFromUrl) window.localStorage.setItem(WEB_TOKEN_STORAGE_KEY, tokenFromUrl);
+const webToken = window.localStorage.getItem(WEB_TOKEN_STORAGE_KEY);
+
 let state: WebState = {
 	projects: [],
 	sessions: [],
 	runtimes: [],
-	messagesBySession: {},
 };
 let connected = false;
 let polling = false;
 let pollTimer: number | undefined;
 const runtimeListeners = new Set<(event: SessionRuntimeEvent) => void>();
 let lastRuntimeBySession = new Map<string, SessionRuntimeInfo>();
-let lastSessionMessages = new Map<string, string>();
+const lastSessionMessages = new Map<string, string>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -38,17 +37,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // Vite dev 会把未知 /api/* 回退到 index.html，写入状态前必须确认是真正的 Web 服务载荷。
 function isWebState(value: unknown): value is WebState {
 	if (!isRecord(value)) return false;
-	return (
-		Array.isArray(value.projects) &&
-		Array.isArray(value.sessions) &&
-		Array.isArray(value.runtimes) &&
-		isRecord(value.messagesBySession)
-	);
+	return Array.isArray(value.projects) && Array.isArray(value.sessions) && Array.isArray(value.runtimes);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	const response = await fetch(path, {
-		headers: { "content-type": "application/json" },
+		headers: {
+			"content-type": "application/json",
+			...(webToken ? { authorization: `Bearer ${webToken}` } : {}),
+		},
 		...init,
 	});
 	let data: unknown;
@@ -75,9 +72,7 @@ async function refreshState() {
 	}
 	state = nextState;
 	connected = true;
-	const nextRuntimeBySession = new Map(
-		state.runtimes.map((runtime) => [runtime.sessionId, runtime]),
-	);
+	const nextRuntimeBySession = new Map(state.runtimes.map((runtime) => [runtime.sessionId, runtime]));
 	for (const [sessionId, previous] of lastRuntimeBySession) {
 		if (nextRuntimeBySession.has(sessionId)) continue;
 		lastSessionMessages.delete(sessionId);
@@ -105,7 +100,9 @@ async function refreshState() {
 				});
 			}
 		}
-		const messages = state.messagesBySession[runtime.sessionId] ?? [];
+		// P0 轮询瘦身：/api/state 不再内嵌全量消息，按会话拉有界窗口；失败跳过不阻断其它会话。
+		const messages = await fetchRuntimeMessages(runtime.sessionId);
+		if (!messages) continue;
 		const messageKey = `${runtime.agentId}:${runtime.runtimeGeneration}:${JSON.stringify(messages)}`;
 		if (lastSessionMessages.get(runtime.sessionId) !== messageKey) {
 			lastSessionMessages.set(runtime.sessionId, messageKey);
@@ -124,6 +121,15 @@ async function refreshState() {
 	return state;
 }
 
+async function fetchRuntimeMessages(sessionId: string): Promise<ChatMessage[] | undefined> {
+	try {
+		const result = await request<{ messages: ChatMessage[] }>(`/api/sessions/${encodeURIComponent(sessionId)}/messages`);
+		return Array.isArray(result.messages) ? result.messages : [];
+	} catch {
+		return undefined;
+	}
+}
+
 function ensurePolling() {
 	if (polling) return;
 	polling = true;
@@ -138,10 +144,7 @@ function subscribe<T>(set: Set<(payload: T) => void>, callback: (payload: T) => 
 	set.add(callback);
 	return () => {
 		set.delete(callback);
-		if (
-			runtimeListeners.size === 0 &&
-			pollTimer
-		) {
+		if (runtimeListeners.size === 0 && pollTimer) {
 			window.clearInterval(pollTimer);
 			pollTimer = undefined;
 			polling = false;
@@ -149,24 +152,19 @@ function subscribe<T>(set: Set<(payload: T) => void>, callback: (payload: T) => 
 	};
 }
 
-async function sessionRuntimeCommand<T>(
-	target: SessionRuntimeTarget,
-	action: string,
-	payload: Record<string, unknown> = {},
-): Promise<SessionCommandResult<T>> {
-	const response = await request<{ result: SessionCommandResult<T> }>(
-		`/api/sessions/${encodeURIComponent(target.sessionId)}/runtime/${action}`,
-		{
-			method: "POST",
-			body: JSON.stringify({ target, ...payload }),
-		},
-	);
+async function sessionRuntimeCommand<T>(target: SessionRuntimeTarget, action: string, payload: Record<string, unknown> = {}): Promise<SessionCommandResult<T>> {
+	const response = await request<{ result: SessionCommandResult<T> }>(`/api/sessions/${encodeURIComponent(target.sessionId)}/runtime/${action}`, {
+		method: "POST",
+		body: JSON.stringify({ target, ...payload }),
+	});
 	return response.result;
 }
 
 export function createBrowserApi(): PiDesktopApi {
 	return {
 		...base,
+		// Browser/Web builds cannot capture or upload audio through the desktop-only IPC domain.
+		voiceTranscription: base.voiceTranscription,
 		projects: {
 			...base.projects,
 			list: async () => {
@@ -181,15 +179,11 @@ export function createBrowserApi(): PiDesktopApi {
 			...base.sessions,
 			list: async (projectId) => {
 				if (!projectId) return [];
-				const result = await request<{ sessions: Awaited<ReturnType<PiDesktopApi["sessions"]["list"]>> }>(
-					`/api/projects/${encodeURIComponent(projectId)}/sessions`,
-				);
+				const result = await request<{ sessions: Awaited<ReturnType<PiDesktopApi["sessions"]["list"]>> }>(`/api/projects/${encodeURIComponent(projectId)}/sessions`);
 				return result.sessions;
 			},
 			listCatalog: async (projectId) => {
-				const result = await request<{ sessions: SessionRecord[] }>(
-					`/api/projects/${encodeURIComponent(projectId)}/sessions/catalog`,
-				);
+				const result = await request<{ sessions: SessionRecord[] }>(`/api/projects/${encodeURIComponent(projectId)}/sessions/catalog`);
 				return result.sessions;
 			},
 			createDraft: async (input) => {
@@ -212,18 +206,12 @@ export function createBrowserApi(): PiDesktopApi {
 				return result;
 			},
 			updateRecord: async (sessionId, patch) => {
-				const result = await request<{ session: SessionRecord }>(
-					`/api/sessions/${encodeURIComponent(sessionId)}/update`,
-					{ method: "POST", body: JSON.stringify(patch) },
-				);
+				const result = await request<{ session: SessionRecord }>(`/api/sessions/${encodeURIComponent(sessionId)}/update`, { method: "POST", body: JSON.stringify(patch) });
 				void refreshState().catch(() => undefined);
 				return result.session;
 			},
 			deleteRecord: async (sessionId) => {
-				const result = await request<{ deleted: boolean }>(
-					`/api/sessions/${encodeURIComponent(sessionId)}/delete`,
-					{ method: "POST", body: "{}" },
-				);
+				const result = await request<{ deleted: boolean }>(`/api/sessions/${encodeURIComponent(sessionId)}/delete`, { method: "POST", body: "{}" });
 				void refreshState().catch(() => undefined);
 				return result.deleted;
 			},
@@ -247,9 +235,7 @@ export function createBrowserApi(): PiDesktopApi {
 				return response.result;
 			},
 			readRecordMessages: async (sessionId) => {
-				const result = await request<{ messages: ChatMessage[] }>(
-					`/api/sessions/${encodeURIComponent(sessionId)}/messages`,
-				);
+				const result = await request<{ messages: ChatMessage[] }>(`/api/sessions/${encodeURIComponent(sessionId)}/messages`);
 				return result.messages;
 			},
 			readRecordMessagePage: async (sessionId, before, pageSize) => {
@@ -257,14 +243,16 @@ export function createBrowserApi(): PiDesktopApi {
 				if (before !== undefined) params.set("before", String(before));
 				if (pageSize !== undefined) params.set("pageSize", String(pageSize));
 				const suffix = params.size ? `?${params}` : "";
-				return request<Awaited<ReturnType<PiDesktopApi["sessions"]["readRecordMessagePage"]>>>(
-					`/api/sessions/${encodeURIComponent(sessionId)}/messages/page${suffix}`,
-				);
+				return request<Awaited<ReturnType<PiDesktopApi["sessions"]["readRecordMessagePage"]>>>(`/api/sessions/${encodeURIComponent(sessionId)}/messages/page${suffix}`);
 			},
 			// Web 端没有 catalog 文件改写通道；编辑/删除/重发仍走 runtime 命令。
 			editCatalogMessage: async () => ({
 				ok: false as const,
 				error: { code: "SESSION_COMMAND_FAILED" as const, debugDetails: "catalog message mutation is desktop-only" },
+			}),
+			removeCatalogMessageImage: async () => ({
+				ok: false as const,
+				error: { code: "SESSION_COMMAND_FAILED" as const, debugDetails: "catalog image mutation is desktop-only" },
 			}),
 			deleteCatalogMessage: async () => ({
 				ok: false as const,
@@ -274,7 +262,8 @@ export function createBrowserApi(): PiDesktopApi {
 				ok: false as const,
 				error: { code: "SESSION_COMMAND_FAILED" as const, debugDetails: "catalog message mutation is desktop-only" },
 			}),
-			readProcessEvents: async () => [],
+			readProcessEvents: async () => ({ events: [], version: "", coverage: { fromStart: true, chainComplete: true, readComplete: true, eventsTrimmed: false, reason: "unsupported" } }),
+			readOutline: async () => ({ entries: [], total: 0, truncated: false }),
 			readReferenceMessages: async (sessionId) => {
 				const result = await request<{
 					messages: Awaited<ReturnType<PiDesktopApi["sessions"]["readReferenceMessages"]>>;
@@ -293,9 +282,7 @@ export function createBrowserApi(): PiDesktopApi {
 			},
 			onRuntimeEvent: (callback) => subscribe(runtimeListeners, callback),
 			listRuntimes: async () => {
-				const result = await request<{ runtimes: SessionRuntimeInfo[] }>(
-					"/api/sessions/runtimes",
-				);
+				const result = await request<{ runtimes: SessionRuntimeInfo[] }>("/api/sessions/runtimes");
 				return result.runtimes;
 			},
 			activateRuntime: async (sessionId) => {
@@ -310,56 +297,60 @@ export function createBrowserApi(): PiDesktopApi {
 			},
 			abortRuntime: (target) => sessionRuntimeCommand(target, "abort"),
 			restartRuntime: async (target) => {
-				const result = await sessionRuntimeCommand<
-					Awaited<ReturnType<PiDesktopApi["sessions"]["restartRuntime"]>> extends SessionCommandResult<infer T>
-						? T
-						: never
-				>(target, "restart");
+				const result = await sessionRuntimeCommand<Awaited<ReturnType<PiDesktopApi["sessions"]["restartRuntime"]>> extends SessionCommandResult<infer T> ? T : never>(target, "restart");
 				void refreshState().catch(() => undefined);
 				return result;
 			},
-			compactRuntime: (target, prompt) =>
-				sessionRuntimeCommand(target, "compact", { prompt }),
+			compactRuntime: (target, prompt) => sessionRuntimeCommand(target, "compact", { prompt }),
 			getRuntimeState: (target) => sessionRuntimeCommand(target, "state"),
 			listRuntimeCommands: (target) => sessionRuntimeCommand(target, "commands"),
+			// LAN Web 没有桌面端的内部 reload 扩展注入链路；入口按 backend/能力隐藏。
+			reloadResources: async () => ({
+				ok: false,
+				error: { code: "SESSION_COMMAND_FAILED", debugDetails: "reload resources is not supported over LAN Web" },
+			}),
+			// 浏览器模式无 standby 池访问能力，草稿命令预览回退本地发现。
+			draftCommands: async () => null,
 			listRuntimeModels: (target) => sessionRuntimeCommand(target, "models"),
 			exportRuntimeHtml: (target) => sessionRuntimeCommand(target, "export-html"),
-			editRuntimeMessage: (target, messageId, newText) =>
-				sessionRuntimeCommand(target, "edit-message", { messageId, newText }),
-			deleteRuntimeMessage: (target, messageId) =>
-				sessionRuntimeCommand(target, "delete-message", { messageId }),
-			listRewindCheckpoints: (target) =>
-				sessionRuntimeCommand(target, "rewind-list"),
-			getRewindCheckpointDiff: (target, checkpointId) =>
-				sessionRuntimeCommand(target, "rewind-diff", { checkpointId }),
-			restoreRewindCheckpoint: (target, checkpointId, scope) =>
-				sessionRuntimeCommand(target, "rewind-restore", { checkpointId, scope }),
-			prepareRuntimeResend: (target, messageId) =>
-				sessionRuntimeCommand(target, "prepare-resend", { messageId }),
-			setRuntimeModel: (target, provider, modelId) =>
-				sessionRuntimeCommand(target, "model", { provider, modelId }),
-			setRuntimeThinking: (target, level) =>
-				sessionRuntimeCommand(target, "thinking", { level }),
-			setRuntimePermission: (target, preset) =>
-				sessionRuntimeCommand(target, "permission", { preset }),
+			editRuntimeMessage: (target, messageId, newText) => sessionRuntimeCommand(target, "edit-message", { messageId, newText }),
+			deleteRuntimeMessage: (target, messageId) => sessionRuntimeCommand(target, "delete-message", { messageId }),
+			listRewindCheckpoints: (target) => sessionRuntimeCommand(target, "rewind-list"),
+			getRewindCheckpointDiff: (target, checkpointId) => sessionRuntimeCommand(target, "rewind-diff", { checkpointId }),
+			restoreRewindCheckpoint: (target, checkpointId, scope) => sessionRuntimeCommand(target, "rewind-restore", { checkpointId, scope }),
+			prepareRuntimeResend: (target, messageId) => sessionRuntimeCommand(target, "prepare-resend", { messageId }),
+			setRuntimeModel: (target, provider, modelId) => sessionRuntimeCommand(target, "model", { provider, modelId }),
+			setRuntimeThinking: (target, level) => sessionRuntimeCommand(target, "thinking", { level }),
+			setRuntimePermission: (target, preset) => sessionRuntimeCommand(target, "permission", { preset }),
 			cloneRuntime: (target) => sessionRuntimeCommand(target, "clone"),
-			getRuntimeForkMessages: (target) =>
-				sessionRuntimeCommand(target, "get-fork-messages"),
-			forkRuntimeSession: (target, entryId) =>
-				sessionRuntimeCommand(target, "fork", { entryId }),
+			getRuntimeForkMessages: (target) => sessionRuntimeCommand(target, "get-fork-messages"),
+			forkRuntimeSession: (target, entryId) => sessionRuntimeCommand(target, "fork", { entryId }),
 			listDshModels: async () => [],
 			discoverDshModels: async () => [],
 			listDshProviders: async () => [],
+			listDshAgentPresets: async () => [],
 			getDshStatus: async () => ({
 				started: false,
 				homeDir: "",
 				bootError: null,
 			}),
+			detectDshRunnerNode: async () => ({
+				source: "not-found" as const,
+				executable: "",
+				resolvedPath: "",
+				version: "",
+				error: null,
+				compatible: false,
+				system: null,
+			}),
+			chooseDshRunnerNode: async () => null,
+			installDshRunnerNode: async () => ({ ok: false, error: "unavailable in browser" }),
 			// 浏览器/预览环境无 DSH 后端：按未安装处理（UI 走安装引导，不裸报错）。
 			getDshRuntimeStatus: async () => ({ state: "notInstalled" as const }),
 			onDshRuntimeStatusChanged: () => () => {},
 			installDshRuntime: async () => ({ ok: false, error: "unavailable in browser" }),
 			importDshRuntimeFile: async () => ({ ok: false, error: "unavailable in browser" }),
+			importDshRuntimeDir: async () => ({ ok: false, error: "unavailable in browser" }),
 			uninstallDshRuntime: async () => ({ ok: false, error: "unavailable in browser" }),
 			onDshRuntimeInstallProgress: () => () => {},
 			describeDshSettings: async () => ({ writable: false, hasDocument: false, namespaces: [] }),
@@ -370,6 +361,7 @@ export function createBrowserApi(): PiDesktopApi {
 			unsetDshCredential: async () => undefined,
 			readDshCredential: async () => undefined,
 			openDshDocument: async () => undefined,
+			startDshHost: async () => false,
 			restartDshHost: async () => true,
 		},
 		settings: {

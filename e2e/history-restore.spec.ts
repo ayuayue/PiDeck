@@ -2,6 +2,7 @@ import { test as base, expect, _electron as electron, type ElectronApplication, 
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { openFirstSession } from "./open-session";
 
 /**
  * 历史会话恢复（#113 3.2-9）：
@@ -14,19 +15,9 @@ import { join, resolve } from "node:path";
 
 const repoRoot = resolve(__dirname, "..");
 
+/** 打开第一个会话（合成器可用）；UI 2.0 起欢迎页已无「启动 Agent」按钮。 */
 async function startAgent(window: Page) {
-	const startButton = window.getByRole("button", { name: "启动 Agent" });
-	const composer = window.locator(".composer .rich-input");
-	for (let attempt = 0; attempt < 4; attempt += 1) {
-		await startButton.click();
-		const gone = await startButton
-			.waitFor({ state: "hidden", timeout: 5000 })
-			.then(() => true)
-			.catch(() => false);
-		if (gone) break;
-	}
-	await expect(composer).toHaveAttribute("contenteditable", "true", { timeout: 30_000 });
-	return composer;
+	return openFirstSession(window);
 }
 
 async function launchApp(userDataRoot: string): Promise<ElectronApplication> {
@@ -34,12 +25,11 @@ async function launchApp(userDataRoot: string): Promise<ElectronApplication> {
 	// 会话落盘走项目 cwd 的 .pi/sessions（mock 写 sessionDir），扫描不依赖全局 ~/.pi。
 	const env = {
 		...process.env,
+		// 自管双次 launch 也走 E2E 静默模式（屏幕外窗口），否则窗口会弹到用户桌面最前。
+		PIDECK_E2E: "1",
+		PIDECK_E2E_WINDOW_MODE: "quiet",
 		CI: "1",
-		...(process.platform === "win32"
-			? { APPDATA: userDataRoot }
-			: process.platform === "darwin"
-				? { HOME: userDataRoot }
-				: { XDG_CONFIG_HOME: userDataRoot, HOME: userDataRoot }),
+		...(process.platform === "win32" ? { APPDATA: userDataRoot } : process.platform === "darwin" ? { HOME: userDataRoot } : { XDG_CONFIG_HOME: userDataRoot, HOME: userDataRoot }),
 	};
 	delete env.ELECTRON_RENDERER_URL;
 	return electron.launch({
@@ -57,10 +47,7 @@ test("history restore: close app and reopen recovers prior session", async () =>
 	const scriptPath = join(repoRoot, "e2e", "mock-pi.cjs");
 	writeFileSync(shimPath, `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`);
 	mkdirSync(join(userDataRoot, "profile"), { recursive: true });
-	writeFileSync(
-		join(userDataRoot, "profile", "settings.json"),
-		JSON.stringify({ customPiPath: shimPath, piEnvironmentChecked: true }),
-	);
+	writeFileSync(join(userDataRoot, "profile", "settings.json"), JSON.stringify({ customPiPath: shimPath, piEnvironmentChecked: true }));
 
 	let app1: ElectronApplication | undefined;
 	let app2: ElectronApplication | undefined;
@@ -75,8 +62,7 @@ test("history restore: close app and reopen recovers prior session", async () =>
 		await composer.click();
 		await window1.keyboard.type("历史恢复锚点");
 		await window1.keyboard.press("Enter");
-		await expect(window1.locator(".message-timeline"))
-			.toContainText("Mock 回复：「历史恢复锚点」流式渲染验证完成", { timeout: 20_000 });
+		await expect(window1.locator(".message-timeline")).toContainText("Mock 回复：「历史恢复锚点」流式渲染验证完成", { timeout: 20_000 });
 
 		await app1.close();
 		app1 = undefined;
@@ -93,15 +79,25 @@ test("history restore: close app and reopen recovers prior session", async () =>
 		await historyRow.click();
 
 		// 点开后时间线恢复原文（不依赖再 spawn agent 也能读历史 JSONL）
-		await expect(window2.locator(".message-timeline"))
-			.toContainText("历史恢复锚点", { timeout: 20_000 });
-		await expect(window2.locator(".message-timeline"))
-			.toContainText("Mock 回复：「历史恢复锚点」流式渲染验证完成", { timeout: 20_000 });
+		await expect(window2.locator(".message-timeline")).toContainText("历史恢复锚点", { timeout: 20_000 });
+		await expect(window2.locator(".message-timeline")).toContainText("Mock 回复：「历史恢复锚点」流式渲染验证完成", { timeout: 20_000 });
 	} finally {
-		try { await app1?.close(); } catch { /* ignore */ }
-		try { await app2?.close(); } catch { /* ignore */ }
+		try {
+			await app1?.close();
+		} catch {
+			/* ignore */
+		}
+		try {
+			await app2?.close();
+		} catch {
+			/* ignore */
+		}
 		if (!process.env.PIDECK_E2E_KEEP) {
-			try { rmSync(userDataRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+			try {
+				rmSync(userDataRoot, { recursive: true, force: true });
+			} catch {
+				/* ignore */
+			}
 		} else {
 			console.log("[history-restore] kept userDataRoot:", userDataRoot);
 		}

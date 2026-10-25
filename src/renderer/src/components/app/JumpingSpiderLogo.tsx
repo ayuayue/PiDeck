@@ -8,13 +8,5 @@
 import { brandMarkSrc } from "./brandMark";
 
 export function JumpingSpiderLogo(props: { className?: string }) {
-	return (
-		<img
-			src={brandMarkSrc}
-			alt=""
-			className={props.className}
-			aria-hidden="true"
-			draggable={false}
-		/>
-	);
+	return <img src={brandMarkSrc} alt="" className={props.className} aria-hidden="true" draggable={false} />;
 }

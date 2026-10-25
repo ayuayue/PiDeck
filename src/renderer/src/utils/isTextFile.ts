@@ -5,15 +5,56 @@
  */
 
 const BINARY_EXTENSIONS = new Set([
-	"png", "jpg", "jpeg", "gif", "webp", "bmp", "ico",
-	"mp3", "wav", "ogg", "flac", "m4a",
-	"mp4", "avi", "mkv", "mov", "webm",
-	"zip", "tar", "gz", "bz2", "7z", "rar",
-	"exe", "dll", "so", "dylib", "wasm",
-	"pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-	"ttf", "otf", "woff", "woff2", "eot",
-	"o", "a", "lib", "obj", "class", "pyc", "pyo",
-	"db", "sqlite", "sqlite3",
+	"png",
+	"jpg",
+	"jpeg",
+	"gif",
+	"webp",
+	"bmp",
+	"ico",
+	"mp3",
+	"wav",
+	"ogg",
+	"flac",
+	"m4a",
+	"mp4",
+	"avi",
+	"mkv",
+	"mov",
+	"webm",
+	"zip",
+	"tar",
+	"gz",
+	"bz2",
+	"7z",
+	"rar",
+	"exe",
+	"dll",
+	"so",
+	"dylib",
+	"wasm",
+	"pdf",
+	"doc",
+	"docx",
+	"xls",
+	"xlsx",
+	"ppt",
+	"pptx",
+	"ttf",
+	"otf",
+	"woff",
+	"woff2",
+	"eot",
+	"o",
+	"a",
+	"lib",
+	"obj",
+	"class",
+	"pyc",
+	"pyo",
+	"db",
+	"sqlite",
+	"sqlite3",
 ]);
 
 /** 根据扩展名判断文件是否二进制（不可在编辑器中编辑）。 */
@@ -24,9 +65,7 @@ export function isBinaryExtension(path: string): boolean {
 }
 
 /** 内置预览支持的图片扩展名（Chromium img 原生解码，无需转码） */
-const IMAGE_EXTENSIONS = new Set([
-	"png", "jpg", "jpeg", "gif", "webp", "bmp", "ico",
-]);
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico"]);
 
 /** 判断是否为可内联预览的图片文件 */
 export function isImageFile(path: string): boolean {

@@ -1,16 +1,12 @@
 import { useCallback } from "react";
 import { useAtom, useAtomValue, useStore } from "jotai";
-import {
-	askPanelCreatingAtom,
-	askPanelOpenAtom,
-	askPanelOriginSessionIdAtom,
-	askPanelSessionIdAtom,
-} from "../atoms/ask-panel-atoms";
+import { askPanelCreatingAtom, askPanelOpenAtom, askPanelOriginSessionIdAtom, askPanelSessionIdAtom } from "../atoms/ask-panel-atoms";
 import { effectiveAgentBackendAtom } from "../atoms/app-ui-atoms";
 import { sessionRecordsAtom } from "../atoms/session-atoms";
 import { sessionRuntimeBySessionIdAtomFamily } from "../atoms/session-selectors";
 import { desktopApi } from "../desktopApi";
 import { t } from "../i18n";
+import { buildAskContextForSession } from "../utils/askPanelContextSource";
 import { showNotice } from "../utils/notice";
 
 /**
@@ -19,7 +15,8 @@ import { showNotice } from "../utils/notice";
  *   匿名会话是独立子进程（noSession 不落盘），与当前会话并行，不打断其输出。
  *   options.context：主会话上下文块（见 utils/askPanelContext.ts）。pi RPC 无跨进程上下文注入通道，
  *   改为经 SendPromptInput.agentMessage 传给模型（agentMessage 模型可见、UI 时间线不可见），
- *   因此首条 user 消息仍是用户原文，胶囊时间线不被上下文污染。
+ *   因此首条 user 消息仍是用户原文，胶囊时间线不被上下文污染。调用方未显式传 context 时，
+ *   本 hook 会按 originSessionId 从消息缓存现取一份，避免「输入框并行发送」这类入口漏传。
  *   options.originSessionId：发起并行问询的主会话 id，「带回主线（插入主会话 composer）」的落点。
  * - sendFollowUp(text)：向已就绪的匿名会话继续追问（复用 sessionId，不重建 runtime）。
  * - close()：停止匿名 runtime（主进程随后回收 transient 内存）并收起胶囊，同时清空 origin 记录。
@@ -109,11 +106,10 @@ export function useAskPanel() {
 	);
 
 	const sendToAsk = useCallback(
-		async (
-			projectId: string,
-			text: string,
-			options?: { context?: string; originSessionId?: string },
-		): Promise<boolean> => {
+		async (projectId: string, text: string, options?: { context?: string; originSessionId?: string }): Promise<boolean> => {
+			// 上下文在创建/等待 runtime 前取快照：等 runtime 就绪期间主会话可能继续流式输出，
+			// 用户点「并行发送」时看到的那一屏才是应该继承的上下文。
+			const context = options?.context ?? buildAskContextForSession(store, options?.originSessionId) ?? undefined;
 			const id = await ensureSession(projectId);
 			if (!id) return false;
 			// 胶囊先显示：会话创建/启动需要数秒，先给用户即时反馈（创建中/等待响应状态）
@@ -122,13 +118,13 @@ export function useAskPanel() {
 			// 记录来源主会话，供「带回主线：插入主会话 composer」定位落点
 			if (options?.originSessionId) setOriginSessionId(options.originSessionId);
 			try {
-				const ok = await dispatchPrompt(id, text, options?.context);
+				const ok = await dispatchPrompt(id, text, context);
 				return ok;
 			} finally {
 				setCreating(false);
 			}
 		},
-		[dispatchPrompt, ensureSession, setCreating, setOpen, setOriginSessionId],
+		[dispatchPrompt, ensureSession, setCreating, setOpen, setOriginSessionId, store],
 	);
 
 	// 追问：复用已创建的匿名会话继续对话（不再走 ensureSession/setCreating，避免胶囊闪烁）

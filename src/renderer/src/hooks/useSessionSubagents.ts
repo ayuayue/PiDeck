@@ -13,9 +13,8 @@ import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useState } from "react";
 import type { PiSubagentEntry, PiSubagentStatus } from "../../../shared/types";
 import { desktopApi } from "../desktopApi";
-import {
-	sessionRuntimeUiBySessionIdAtomFamily,
-} from "../atoms";
+import { sessionRuntimeUiBySessionIdAtomFamily } from "../atoms";
+import { isTerminalSubagentStatus } from "../components/session/subagentStatus";
 
 /* ------------------------------------------------------------------ */
 /* 纯函数合并逻辑（可单测）                                              */
@@ -41,9 +40,7 @@ interface BridgeSnapshot {
 	}>;
 }
 
-const VALID_STATUSES = new Set([
-	"queued", "running", "completed", "steered", "aborted", "stopped", "error",
-]);
+const VALID_STATUSES = new Set(["queued", "running", "completed", "steered", "aborted", "stopped", "error"]);
 
 function parseBridgeSnapshot(lines: readonly string[] | undefined): {
 	pluginActive: boolean | undefined;
@@ -80,10 +77,7 @@ function parseBridgeSnapshot(lines: readonly string[] | undefined): {
 	}
 }
 
-export function mergeSubagentEntries(
-	records: PiSubagentEntry[],
-	bridgeLines: readonly string[] | undefined,
-): { merged: PiSubagentEntry[]; pluginActive: boolean | undefined } {
+export function mergeSubagentEntries(records: PiSubagentEntry[], bridgeLines: readonly string[] | undefined): { merged: PiSubagentEntry[]; pluginActive: boolean | undefined } {
 	const bridge = parseBridgeSnapshot(bridgeLines);
 	const byId = new Map<string, PiSubagentEntry>();
 
@@ -148,15 +142,12 @@ const SNAPSHOT_STATE_TO_STATUS: Record<string, PiSubagentStatus> = {
 /**
  * 解析 subagent-async widget 行（首行 PI_SUBAGENT_ASYNC_JSON:{...}，rpc 模式由
  * nicobailon pi-subagents 插件推送）为子代理条目。快照无 task 文本（label 为
- * agent 名），description 留空；id 为插件 asyncId，与 record/推导条目 id 空间
- * 不相交。损坏载荷返回 []（fail-soft，不影响其他源）。
+ * agent 名），description 留空，由 applyAsyncSnapshotEntries 从同 id 的推导条目
+ * 补充；id 为插件 asyncId，与主进程派发回执推导的条目 id 同源。损坏载荷返回
+ * []（fail-soft，不影响其他源）。
  */
-export function parseSubagentAsyncSnapshot(
-	lines: readonly string[] | undefined,
-): PiSubagentEntry[] {
-	const line = lines?.find((candidate) =>
-		typeof candidate === "string" && candidate.startsWith(SUBAGENT_ASYNC_LINE_PREFIX),
-	);
+export function parseSubagentAsyncSnapshot(lines: readonly string[] | undefined): PiSubagentEntry[] {
+	const line = lines?.find((candidate) => typeof candidate === "string" && candidate.startsWith(SUBAGENT_ASYNC_LINE_PREFIX));
 	if (!line) return [];
 	try {
 		const snapshot = JSON.parse(line.slice(SUBAGENT_ASYNC_LINE_PREFIX.length)) as {
@@ -188,13 +179,45 @@ export function parseSubagentAsyncSnapshot(
 	}
 }
 
+/**
+ * 将 subagent-async widget 快照条目叠加进合并结果：快照是运行态实时真源，
+ * 同 id 时以快照为准（状态更新）；快照条目无 task 文本（description 为空），
+ * 已存在同 id 条目时保留其 description（主进程从派发 args.task 推导）。
+ *
+ * 唯一的反向约束：**终态不可被复活**。主进程已按 runtime 换代/无活 runtime
+ * 对账把条目降级为 stopped（权威判定），而插件内存快照在 runner 进程已死时会
+ * 一直停在 running——无条件覆盖会让僵尸条目永远「运行中」，时长无限增长
+ * （用户实测「几千分钟」）。
+ */
+export function applyAsyncSnapshotEntries(existing: PiSubagentEntry[], asyncEntries: PiSubagentEntry[]): PiSubagentEntry[] {
+	if (asyncEntries.length === 0) return existing;
+	const byId = new Map(existing.map((entry) => [entry.id, entry]));
+	for (const entry of asyncEntries) {
+		const prev = byId.get(entry.id);
+		if (prev && isTerminalSubagentStatus(prev.status) && !isTerminalSubagentStatus(entry.status)) {
+			continue;
+		}
+		byId.set(entry.id, {
+			// 快照缺字段时沿用已有值：description/toolUses/tokens/childSessionId/
+			// result 由主进程推导或 record 携带，快照（label + 运行态）不携带这些信息，
+			// 整体替换会让「打开子会话 / 完整结果」入口凭空消失。
+			...prev,
+			...entry,
+			description: entry.description || prev?.description || "",
+			startedAt: entry.startedAt ?? prev?.startedAt,
+			completedAt: entry.completedAt ?? prev?.completedAt,
+			toolUses: entry.toolUses ?? prev?.toolUses,
+			tokens: entry.tokens ?? prev?.tokens,
+		});
+	}
+	return [...byId.values()];
+}
+
 /* ------------------------------------------------------------------ */
 /* Hook                                                               */
 /* ------------------------------------------------------------------ */
 
-export function useSessionSubagents(
-	sessionId: string,
-): {
+export function useSessionSubagents(sessionId: string): {
 	entries: PiSubagentEntry[];
 	pluginActive: boolean | undefined;
 	loading: boolean;
@@ -206,17 +229,17 @@ export function useSessionSubagents(
 	// widgets["subagent-async"]（nicobailon pi-subagents 的 async 运行快照）。
 	// atom family 按 Record 索引取值，无 runtime UI 记录的会话（如起始页未启动会话）
 	// 运行时为 undefined，必须可选链防护，否则整卡渲染崩溃。
-	const widgets = useAtomValue(
-		sessionRuntimeUiBySessionIdAtomFamily(sessionId),
-	)?.widgets;
-	const bridgeLines = widgets?.["pi-deck-subagents"] as
-		| readonly string[]
-		| undefined;
-	const subagentAsyncLines = widgets?.["subagent-async"] as
-		| readonly string[]
-		| undefined;
+	const runtimeUi = useAtomValue(sessionRuntimeUiBySessionIdAtomFamily(sessionId));
+	const widgets = runtimeUi?.widgets;
+	const bridgeLines = widgets?.["pi-deck-subagents"] as readonly string[] | undefined;
+	const subagentAsyncLines = widgets?.["subagent-async"] as readonly string[] | undefined;
 
-	// 主进程 IPC：拉取 record（初次 / 会话切换时）
+	// 主进程 IPC：拉取 record（初次 / 会话切换时）。
+	// runtime 绑定出现（agentId 从 undefined 变为实例，或重启换代）时重拉：
+	// 激活前面板可能带着上一代 runtime 的 stale running 记录，主进程的对账降级
+	// （downgradeRunningStartedBefore，按本代 runtime 启动时间）只有在绑定后
+	// 才有阈值可用——绑定即重拉，激活完成后立即看到对账结果
+	//（2026-09-14 用户环境实测：真实活动子代理 0，历史投影仍显示 33 个 running）。
 	useEffect(() => {
 		let cancelled = false;
 		setLoading(true);
@@ -234,23 +257,11 @@ export function useSessionSubagents(
 		return () => {
 			cancelled = true;
 		};
-	}, [sessionId]);
+	}, [sessionId, runtimeUi?.agentId]);
 
 	// 合并：record（主进程侧已含工具推导）+ tintinweb 桥接 → 叠加 nicobailon async 条目
-	const { merged, pluginActive } = useMemo(
-		() => mergeSubagentEntries(records, bridgeLines),
-		[records, bridgeLines],
-	);
-	const entries = useMemo(() => {
-		const asyncEntries = parseSubagentAsyncSnapshot(subagentAsyncLines);
-		if (asyncEntries.length === 0) return merged;
-		const byId = new Map(merged.map((entry) => [entry.id, entry]));
-		for (const entry of asyncEntries) {
-			// async 快照是运行态唯一实时真源；已存在同 id 时以快照为准（状态更新）
-			byId.set(entry.id, entry);
-		}
-		return [...byId.values()];
-	}, [merged, subagentAsyncLines]);
+	const { merged, pluginActive } = useMemo(() => mergeSubagentEntries(records, bridgeLines), [records, bridgeLines]);
+	const entries = useMemo(() => applyAsyncSnapshotEntries(merged, parseSubagentAsyncSnapshot(subagentAsyncLines)), [merged, subagentAsyncLines]);
 
 	return { entries, pluginActive, loading };
 }

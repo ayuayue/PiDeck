@@ -11,29 +11,30 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, RotateCcw, Shield, ShieldAlert, ShieldCheck, ShieldOff } from "lucide-react";
+import { Check, RotateCcw } from "lucide-react";
 import type { SecurityConfig, SecurityLevelConfig } from "../../../../shared/types";
 import { Button } from "../ui-shadcn/button";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from "../ui-shadcn/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
 import { t } from "../../i18n";
+import { permissionStrengthIcon } from "../../utils/permissionLevelIcon";
 
-const api = (window as unknown as { piDesktop: { security: {
-	getConfig: () => Promise<SecurityConfig>;
-	setSessionLevel: (sessionId: string, levelId: string | null) => Promise<{ ok: true; config: SecurityConfig } | { ok: false; error: string }>;
-} } }).piDesktop;
+const api = (
+	window as unknown as {
+		piDesktop: {
+			security: {
+				getConfig: () => Promise<SecurityConfig>;
+				setSessionLevel: (sessionId: string, levelId: string | null) => Promise<{ ok: true; config: SecurityConfig } | { ok: false; error: string }>;
+			};
+		};
+	}
+).piDesktop;
 
-/** 等级图标：内置三档各用专属盾牌语义，自定义等级用通用盾牌 */
+/** 等级图标：按统一保护强度语义取（utils/permissionLevelIcon，#214 与 DSH 权限预设同源） */
 function levelIcon(level: SecurityLevelConfig) {
-	if (level.id === "off") return ShieldOff;
-	if (level.id === "strict") return ShieldAlert;
-	if (level.id === "standard") return ShieldCheck;
-	return Shield;
+	if (level.id === "off") return permissionStrengthIcon("relaxed");
+	if (level.id === "strict") return permissionStrengthIcon("strict");
+	if (level.id === "standard") return permissionStrengthIcon("standard");
+	return permissionStrengthIcon("unknown");
 }
 
 export function SecurityLevelMenu(props: { sessionId: string; disabled?: boolean }) {
@@ -43,11 +44,14 @@ export function SecurityLevelMenu(props: { sessionId: string; disabled?: boolean
 
 	useEffect(() => {
 		mountedRef.current = true;
-		api.security.getConfig().then((loaded) => {
-			if (mountedRef.current) setConfig(loaded);
-		}).catch(() => {
-			// 配置拉取失败：菜单置灰即可，不打扰输入
-		});
+		api.security
+			.getConfig()
+			.then((loaded) => {
+				if (mountedRef.current) setConfig(loaded);
+			})
+			.catch(() => {
+				// 配置拉取失败：菜单置灰即可，不打扰输入
+			});
 		return () => {
 			mountedRef.current = false;
 		};
@@ -88,48 +92,30 @@ export function SecurityLevelMenu(props: { sessionId: string; disabled?: boolean
 
 	const enabled = config.enabled;
 	const levelName = effectiveLevel?.name ?? t("security.levelUnknown");
-	const hasSessionOverride =
-		effectiveLevelId != null && effectiveLevelId !== config.defaultLevelId;
+	const hasSessionOverride = effectiveLevelId != null && effectiveLevelId !== config.defaultLevelId;
 
 	// 触发器图标反映当前安全状态：停用显示关闭盾，启用时按等级换专属盾
-	const Icon = !enabled ? ShieldOff : levelIcon(effectiveLevel ?? config.levels[0]);
+	const Icon = !enabled ? permissionStrengthIcon("relaxed") : levelIcon(effectiveLevel ?? config.levels[0]);
 
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
-				<Button
-					variant="ghost"
-					size="icon"
-					className={`composer-bar-btn security size-7 rounded-md text-foreground hover:bg-muted/60 ${enabled ? "security-active" : "opacity-60"}`}
-					disabled={props.disabled || saving}
-					aria-label={t("security.menuTitle")}
-					title={`${t("security.menuTitle")}: ${levelName}`}
-				>
+				<Button variant="ghost" size="icon" className={`composer-bar-btn security size-7 rounded-md text-foreground hover:bg-muted/60 ${enabled ? "security-active" : "opacity-60"}`} disabled={props.disabled || saving} aria-label={t("security.menuTitle")} title={`${t("security.menuTitle")}: ${levelName}`}>
 					<Icon size={15} strokeWidth={2} aria-hidden="true" />
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" sideOffset={4} className="min-w-56">
 				{/* 顶部状态提示行：启用时说明生效方式，停用时给出开启入口指引 */}
-				<div className="border-b border-border/60 px-2.5 py-2 text-caption leading-relaxed text-muted-foreground">
-					{enabled ? t("security.menuHint") : t("security.menuDisabledHint")}
-				</div>
+				<div className="border-b border-border/60 px-2.5 py-2 text-caption leading-relaxed text-muted-foreground">{enabled ? t("security.menuHint") : t("security.menuDisabledHint")}</div>
 				{config.levels.map((level) => {
 					const selected = effectiveLevelId === level.id;
 					const ItemIcon = levelIcon(level);
 					return (
-						<DropdownMenuItem
-							key={level.id}
-							disabled={!enabled || props.disabled || saving}
-							onSelect={() => void handlePick(level.id)}
-							title={level.description}
-							className="min-h-9 gap-2 px-2.5 py-1"
-						>
+						<DropdownMenuItem key={level.id} disabled={!enabled || props.disabled || saving} onSelect={() => void handlePick(level.id)} title={level.description} className="min-h-9 gap-2 px-2.5 py-1">
 							<span className={`grid size-6 shrink-0 place-items-center rounded-md ${selected ? "bg-primary/12 text-primary" : "bg-muted text-muted-foreground"}`}>
 								<ItemIcon size={14} strokeWidth={2} aria-hidden="true" />
 							</span>
-							<span className="min-w-0 flex-1 truncate text-control font-semibold text-foreground">
-								{level.name}
-							</span>
+							<span className="min-w-0 flex-1 truncate text-control font-semibold text-foreground">{level.name}</span>
 							{selected ? <Check size={14} strokeWidth={2} className="shrink-0 text-primary" aria-hidden="true" /> : null}
 						</DropdownMenuItem>
 					);
@@ -138,17 +124,11 @@ export function SecurityLevelMenu(props: { sessionId: string; disabled?: boolean
 					<>
 						<DropdownMenuSeparator />
 						{/* 清除会话覆盖：跟随全局默认（RotateCcw 语义：回退到全局策略） */}
-						<DropdownMenuItem
-							disabled={props.disabled || saving}
-							onSelect={() => void handlePick(null)}
-							className="min-h-9 gap-2 px-2.5 py-1"
-						>
+						<DropdownMenuItem disabled={props.disabled || saving} onSelect={() => void handlePick(null)} className="min-h-9 gap-2 px-2.5 py-1">
 							<span className="grid size-6 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
 								<RotateCcw size={14} strokeWidth={2} aria-hidden="true" />
 							</span>
-							<span className="min-w-0 flex-1 truncate text-control font-semibold text-foreground">
-								{t("security.followDefault")}
-							</span>
+							<span className="min-w-0 flex-1 truncate text-control font-semibold text-foreground">{t("security.followDefault")}</span>
 						</DropdownMenuItem>
 					</>
 				)}

@@ -26,18 +26,22 @@ function compile(filePath) {
 		if (specifier === "undici") return { Agent: class {}, fetch: () => {} };
 		return {};
 	};
-	vm.runInNewContext(output, {
-		module,
-		exports: module.exports,
-		require: localRequire,
-		console,
-		process,
-		Buffer,
-		setTimeout,
-		clearTimeout,
-		fetch: () => {},
-		AbortController,
-	}, { filename: filePath });
+	vm.runInNewContext(
+		output,
+		{
+			module,
+			exports: module.exports,
+			require: localRequire,
+			console,
+			process,
+			Buffer,
+			setTimeout,
+			clearTimeout,
+			fetch: () => {},
+			AbortController,
+		},
+		{ filename: filePath },
+	);
 	return module.exports;
 }
 const ext = compile(EXT_PATH);
@@ -53,11 +57,7 @@ const rendererOutput = ts.transpileModule(rendererSource, {
 	fileName: "visionImageHash.ts",
 }).outputText;
 const hashModule = { exports: {} };
-vm.runInNewContext(
-	rendererOutput,
-	{ module: hashModule, exports: hashModule.exports, TextEncoder, crypto },
-	{ filename: "visionImageHash.ts" },
-);
+vm.runInNewContext(rendererOutput, { module: hashModule, exports: hashModule.exports, TextEncoder, crypto }, { filename: "visionImageHash.ts" });
 const { visionImageHash } = hashModule.exports;
 
 test("visionImageHash 与扩展 imageHash 输出一致（同图同哈希）", async () => {

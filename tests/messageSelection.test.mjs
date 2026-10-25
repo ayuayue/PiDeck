@@ -12,10 +12,7 @@ import vm from "node:vm";
  */
 
 function loadSelectionModule() {
-	const source = readFileSync(
-		"src/renderer/src/utils/messageSelection.ts",
-		"utf8",
-	);
+	const source = readFileSync("src/renderer/src/utils/messageSelection.ts", "utf8");
 	const output = ts.transpileModule(source, {
 		compilerOptions: {
 			module: ts.ModuleKind.CommonJS,
@@ -61,19 +58,9 @@ function makeThinkingGroup(id) {
 
 const sampleTree = [
 	makeMessage("u1", "user", "第一个问题"),
-	makeRun("r1", [
-		makeMessage("a1", "assistant", "回答一"),
-		makeMessage("a2", "assistant", "回答二"),
-		makeToolGroup("t1", [
-			makeToolMessage("tool1", "▶ read", { toolName: "read" }),
-			makeToolMessage("tool2", "✓ edit", { toolName: "edit" }),
-		]),
-	]),
+	makeRun("r1", [makeMessage("a1", "assistant", "回答一"), makeMessage("a2", "assistant", "回答二"), makeToolGroup("t1", [makeToolMessage("tool1", "▶ read", { toolName: "read" }), makeToolMessage("tool2", "✓ edit", { toolName: "edit" })])]),
 	makeMessage("u2", "user", "第二个问题"),
-	makeRun("r2", [
-		makeThinkingGroup("th1"),
-		makeMessage("a3", "assistant", "回答三"),
-	]),
+	makeRun("r2", [makeThinkingGroup("th1"), makeMessage("a3", "assistant", "回答三")]),
 	makeMessage("sys1", "system", "压缩摘要"),
 ];
 
@@ -119,22 +106,10 @@ test("toggleRun：run 无 assistant 消息时原样返回", () => {
 
 test("getRunSelectionState：三态（checked/indeterminate/unchecked）", () => {
 	const run = sampleTree[1]; // a1 + a2
-	assert.equal(
-		selection.getRunSelectionState(new Set(["a1", "a2"]), run),
-		"checked",
-	);
-	assert.equal(
-		selection.getRunSelectionState(new Set(["a1"]), run),
-		"indeterminate",
-	);
-	assert.equal(
-		selection.getRunSelectionState(new Set(["u1"]), run),
-		"unchecked",
-	);
-	assert.equal(
-		selection.getRunSelectionState(new Set(), makeRun("r0", [])),
-		"unchecked",
-	);
+	assert.equal(selection.getRunSelectionState(new Set(["a1", "a2"]), run), "checked");
+	assert.equal(selection.getRunSelectionState(new Set(["a1"]), run), "indeterminate");
+	assert.equal(selection.getRunSelectionState(new Set(["u1"]), run), "unchecked");
+	assert.equal(selection.getRunSelectionState(new Set(), makeRun("r0", [])), "unchecked");
 });
 
 test("toggleAll：全选 / 清空 / 空列表", () => {
@@ -145,19 +120,15 @@ test("toggleAll：全选 / 清空 / 空列表", () => {
 });
 
 test("getToolSummaries：按工具名聚合次数，meta.toolName 优先", () => {
-	const run = makeRun("r1", [
-		makeMessage("a1", "assistant", "回答"),
-		makeToolGroup("t1", [
-			makeToolMessage("tool1", "▶ read", { toolName: "read" }),
-			makeToolMessage("tool2", "✓ read", { toolName: "read" }),
-			makeToolMessage("tool3", "✓ edit", { toolName: "edit" }),
-		]),
-	]);
+	const run = makeRun("r1", [makeMessage("a1", "assistant", "回答"), makeToolGroup("t1", [makeToolMessage("tool1", "▶ read", { toolName: "read" }), makeToolMessage("tool2", "✓ read", { toolName: "read" }), makeToolMessage("tool3", "✓ edit", { toolName: "edit" })])]);
 	const summaries = selection.getToolSummaries(run);
-	assert.equal(json(summaries), json([
-		{ name: "read", count: 2 },
-		{ name: "edit", count: 1 },
-	]));
+	assert.equal(
+		json(summaries),
+		json([
+			{ name: "read", count: 2 },
+			{ name: "edit", count: 1 },
+		]),
+	);
 });
 
 test("getToolSummaries：无工具调用的 run 返回空数组", () => {
@@ -166,10 +137,7 @@ test("getToolSummaries：无工具调用的 run 返回空数组", () => {
 });
 
 test("extractToolName：meta.toolName 优先", () => {
-	assert.equal(
-		selection.extractToolName({ meta: { toolName: "bash" }, text: "▶ bash ls" }),
-		"bash",
-	);
+	assert.equal(selection.extractToolName({ meta: { toolName: "bash" }, text: "▶ bash ls" }), "bash");
 });
 
 test("extractToolName：无 meta 时剥 ANSI/状态符号取首词", () => {

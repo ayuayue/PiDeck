@@ -39,7 +39,7 @@ export const SUPPORTED_EXTERNAL_EDITORS = [
 	{ id: "pycharm", name: "PyCharm" },
 ] as const;
 
-export type ExternalEditorId = typeof SUPPORTED_EXTERNAL_EDITORS[number]["id"];
+export type ExternalEditorId = (typeof SUPPORTED_EXTERNAL_EDITORS)[number]["id"];
 
 export type ExternalEditorDetectedFrom = "path" | "common-path" | "manual";
 
@@ -53,12 +53,7 @@ export type ExternalEditorSetting = {
 export type ExternalEditorSettings = Record<ExternalEditorId, ExternalEditorSetting>;
 
 export function createDefaultExternalEditorSettings(): ExternalEditorSettings {
-	return Object.fromEntries(
-		SUPPORTED_EXTERNAL_EDITORS.map((editor) => [
-			editor.id,
-			{ enabled: false, command: "" },
-		]),
-	) as ExternalEditorSettings;
+	return Object.fromEntries(SUPPORTED_EXTERNAL_EDITORS.map((editor) => [editor.id, { enabled: false, command: "" }])) as ExternalEditorSettings;
 }
 
 export type ExternalEditor = {
@@ -75,15 +70,7 @@ export type ExternalEditor = {
  * name 为 Linux 文件管理器本名（Dolphin/Files/Thunar 等专名不翻译）。
  */
 export type FileManagerInfo = {
-	id:
-		| "windows-explorer"
-		| "finder"
-		| "nautilus"
-		| "dolphin"
-		| "nemo"
-		| "thunar"
-		| "pcmanfm"
-		| "konqueror";
+	id: "windows-explorer" | "finder" | "nautilus" | "dolphin" | "nemo" | "thunar" | "pcmanfm" | "konqueror";
 	name: string;
 	command: string;
 	/** 系统图标 data URL（Windows 取 explorer.exe 真实图标；其余平台缺省走内联 SVG） */

@@ -59,10 +59,7 @@ export type QueryResult = {
  * - 不截断历史：过滤发生在分页之前，任意时间范围的旧日志都能翻到；
  * - limit 兼容旧调用：不传 page 时取最近 limit 条（默认 500）。
  */
-export function queryLogLines(
-	lines: string[],
-	query: AppLogQuery,
-): QueryResult {
+export function queryLogLines(lines: string[], query: AppLogQuery): QueryResult {
 	const search = query.search?.trim().toLowerCase();
 	const matches = (entry: AppLogEntry) => {
 		if (query.from !== undefined && entry.time < query.from) return false;
@@ -84,8 +81,7 @@ export function queryLogLines(
 	matched.reverse();
 
 	// 分页模式：page 与 pageSize 同时为数字才走分页；否则兼容旧调用取最近 limit 条
-	const pageSize =
-		typeof query.pageSize === "number" ? Math.max(1, Math.min(query.pageSize, 200)) : 0;
+	const pageSize = typeof query.pageSize === "number" ? Math.max(1, Math.min(query.pageSize, 200)) : 0;
 	if (pageSize === 0) {
 		const limit = Math.max(1, Math.min(query.limit ?? 500, 2000));
 		return { total: matched.length, entries: matched.slice(0, limit) };

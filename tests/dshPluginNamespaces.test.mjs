@@ -2,11 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const {
-	isDshPluginNamespace,
-	dshPluginNamespaceTitleKey,
-	KNOWN_PLUGIN_NAMESPACE_TITLES,
-} = loadTsCommonJs("src/renderer/src/config/dshPluginNamespaces.ts");
+const { isDshPluginNamespace, dshPluginNamespaceTitleKey, KNOWN_PLUGIN_NAMESPACE_TITLES } = loadTsCommonJs("src/renderer/src/config/dshPluginNamespaces.ts");
 
 test("isDshPluginNamespace：已知插件命名空间属于插件区", () => {
 	assert.equal(isDshPluginNamespace("agent-loop"), true);
@@ -23,7 +19,7 @@ test("isDshPluginNamespace：PiDeck 独占管理的保留命名空间不属于�
 	assert.equal(isDshPluginNamespace("llm-deepseek"), false);
 	assert.equal(isDshPluginNamespace("llm-pi-ai"), false);
 	assert.equal(isDshPluginNamespace("permission"), false);
-	assert.equal(isDshPluginNamespace("agent-presets"), false);
+	assert.equal(isDshPluginNamespace("agent-preset-registry"), false);
 });
 
 test("dshPluginNamespaceTitleKey：已知插件返回 i18n 标题 key", () => {

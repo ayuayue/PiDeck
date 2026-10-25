@@ -162,8 +162,7 @@ test("net.request 路径超时归为 timeout", async () => {
 
 test("net.request 路径网络错误归为 network", async () => {
 	const fakeNet = {
-		request: () =>
-			fakeClientRequest({}, { statusCode: 0, error: new Error("ERR_CONNECTION_REFUSED") }),
+		request: () => fakeClientRequest({}, { statusCode: 0, error: new Error("ERR_CONNECTION_REFUSED") }),
 		fetch: async () => {
 			throw new Error("不应走 net.fetch");
 		},
@@ -179,8 +178,7 @@ test("net.request 路径网络错误归为 network", async () => {
 
 test("net.request 路径响应体超限截断到 maxBytes", async () => {
 	const fakeNet = {
-		request: () =>
-			fakeClientRequest({}, { statusCode: 200, body: "0123456789" }),
+		request: () => fakeClientRequest({}, { statusCode: 200, body: "0123456789" }),
 		fetch: async () => {
 			throw new Error("不应走 net.fetch");
 		},
@@ -197,8 +195,7 @@ test("net.request 路径响应体超限截断到 maxBytes", async () => {
 
 test("net.request 路径 3xx 原样返回状态（fail-closed 不跟随重定向）", async () => {
 	const fakeNet = {
-		request: () =>
-			fakeClientRequest({}, { statusCode: 302, body: "" }),
+		request: () => fakeClientRequest({}, { statusCode: 302, body: "" }),
 		fetch: async () => {
 			throw new Error("不应走 net.fetch");
 		},

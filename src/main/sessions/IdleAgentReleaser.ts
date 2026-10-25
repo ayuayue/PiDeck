@@ -1,9 +1,6 @@
 import type { AgentTab, SessionRuntimeTarget } from "../../shared/types";
 import type { AppSettings } from "../../shared/types/settings";
-import type {
-	SessionAgentGateway,
-	SessionRuntimeLogger,
-} from "./SessionRuntimeCoordinator";
+import type { SessionAgentGateway, SessionRuntimeLogger } from "./SessionRuntimeCoordinator";
 import type { SessionRuntimeCoordinator } from "./SessionRuntimeCoordinator";
 
 /**
@@ -41,32 +38,20 @@ export interface IdleReleasePlan {
 }
 
 /** 释放成功后的收尾回调（由装配层注入：关终端 + detach 推送），本模块保持可单测。 */
-export type IdleAgentReleasedHandler = (
-	agentId: string,
-	target: SessionRuntimeTarget | undefined,
-) => void;
+export type IdleAgentReleasedHandler = (agentId: string, target: SessionRuntimeTarget | undefined) => void;
 
 /**
  * 纯策略：给定当前 tabs、上一轮 idleSince 快照和配置，产出本轮决策。
  * 不做任何副作用（不停止进程、不写状态），便于 node --test 直接验证。
  */
-export function planIdleAgentRelease(
-	tabs: AgentTab[],
-	prevIdleSinceById: ReadonlyMap<string, number>,
-	now: number,
-	options: IdleReleaseOptions,
-): IdleReleasePlan {
+export function planIdleAgentRelease(tabs: AgentTab[], prevIdleSinceById: ReadonlyMap<string, number>, now: number, options: IdleReleaseOptions): IdleReleasePlan {
 	// 开关关闭：清空计时快照，重新开启后所有 agent 从零计时
 	if (!options.autoRelease) {
 		return { idleSinceById: new Map(), toRelease: [] };
 	}
 	// 坏配置兜底（防止旧版本/手改的非法持久化值进来）：钳制到默认语义范围
-	const timeoutMs = Number.isFinite(options.timeoutMs)
-		? Math.max(1, Math.floor(options.timeoutMs))
-		: 60 * 60_000;
-	const keepCount = Number.isFinite(options.keepCount)
-		? Math.max(1, Math.floor(options.keepCount))
-		: 5;
+	const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(1, Math.floor(options.timeoutMs)) : 60 * 60_000;
+	const keepCount = Number.isFinite(options.keepCount) ? Math.max(1, Math.floor(options.keepCount)) : 5;
 
 	// 1. 剔除已退出/消失的 agent 的计时
 	const liveIds = new Set(tabs.map((tab) => tab.id));
@@ -97,12 +82,8 @@ export function planIdleAgentRelease(
 	}
 
 	// 4. 按闲置最久优先释放超出 keepCount 的部分
-	const sorted = [...candidates].sort(
-		(a, b) => (idleSinceById.get(a.id) ?? 0) - (idleSinceById.get(b.id) ?? 0),
-	);
-	const toRelease = sorted
-		.slice(0, candidates.length - keepCount)
-		.map((tab) => tab.id);
+	const sorted = [...candidates].sort((a, b) => (idleSinceById.get(a.id) ?? 0) - (idleSinceById.get(b.id) ?? 0));
+	const toRelease = sorted.slice(0, candidates.length - keepCount).map((tab) => tab.id);
 	return { idleSinceById, toRelease };
 }
 
@@ -121,14 +102,7 @@ export class IdleAgentReleaser {
 	private readonly onAgentReleased?: IdleAgentReleasedHandler;
 	private timer: NodeJS.Timeout | undefined;
 
-	constructor(
-		coordinator: SessionRuntimeCoordinator,
-		agents: SessionAgentGateway,
-		getSettings: () => AppSettings,
-		logger?: SessionRuntimeLogger,
-		sweepIntervalMs = 60_000,
-		onAgentReleased?: IdleAgentReleasedHandler,
-	) {
+	constructor(coordinator: SessionRuntimeCoordinator, agents: SessionAgentGateway, getSettings: () => AppSettings, logger?: SessionRuntimeLogger, sweepIntervalMs = 60_000, onAgentReleased?: IdleAgentReleasedHandler) {
 		this.coordinator = coordinator;
 		this.agents = agents;
 		this.getSettings = getSettings;
@@ -159,17 +133,12 @@ export class IdleAgentReleaser {
 	/** 立即执行一轮扫描（测试入口/设置变更后可手动触发）。 */
 	async sweep(): Promise<void> {
 		const settings = this.getSettings();
-		const plan = planIdleAgentRelease(
-			this.agents.list(),
-			this.idleSinceById,
-			Date.now(),
-			{
-				autoRelease: settings.idleAgentAutoRelease,
-				keepCount: settings.idleAgentKeepCount,
-				timeoutMs: settings.idleAgentTimeoutMin * 60_000,
-				focusedAgentId: this.resolveFocusedAgentId(),
-			},
-		);
+		const plan = planIdleAgentRelease(this.agents.list(), this.idleSinceById, Date.now(), {
+			autoRelease: settings.idleAgentAutoRelease,
+			keepCount: settings.idleAgentKeepCount,
+			timeoutMs: settings.idleAgentTimeoutMin * 60_000,
+			focusedAgentId: this.resolveFocusedAgentId(),
+		});
 		// 用本轮快照替换旧计时
 		this.idleSinceById.clear();
 		for (const [id, since] of plan.idleSinceById) {

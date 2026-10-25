@@ -59,7 +59,7 @@ export const SYNCABLE_DESKTOP_SETTING_KEYS = [
 	"imageGenOutputFormat",
 	"removedBuiltInExtensions",
 	"disabledExtensions",
-	"disableExtensionWhitelist",
+	"piRpcNoExtensions",
 	"defaultAgentBackend",
 	"dshApprovalAutoAllow",
 	"dshAutoImportSessions",

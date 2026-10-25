@@ -18,12 +18,7 @@ export const ToolStep = memo(function ToolStep(props: {
 }) {
 	return (
 		<div style={{ display: props.hidden ? "none" : undefined }}>
-			<ToolGroupCard
-				group={props.group}
-				stopped={props.stopped}
-				sessionId={props.sessionId}
-				onOpenFile={props.onOpenFile}
-			/>
+			<ToolGroupCard group={props.group} stopped={props.stopped} sessionId={props.sessionId} onOpenFile={props.onOpenFile} />
 		</div>
 	);
 });

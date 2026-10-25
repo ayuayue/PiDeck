@@ -2,27 +2,9 @@
 
 import { createHash } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
-import {
-	access,
-	mkdir,
-	readFile,
-	readdir,
-	realpath,
-	rm,
-	stat,
-	utimes,
-	writeFile,
-} from "node:fs/promises";
+import { access, mkdir, readFile, readdir, realpath, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import {
-	basename,
-	dirname,
-	isAbsolute,
-	join,
-	relative,
-	resolve,
-	posix as posixPath,
-} from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, posix as posixPath } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
@@ -168,7 +150,9 @@ export function isAllowedWslFixtureDir(directory, home) {
 
 export function parseWslProbe(stdout) {
 	const fields = {};
-	for (const line of String(stdout ?? "").trim().split(/\r?\n/)) {
+	for (const line of String(stdout ?? "")
+		.trim()
+		.split(/\r?\n/)) {
 		const separator = line.indexOf("=");
 		if (separator > 0) fields[line.slice(0, separator)] = line.slice(separator + 1);
 	}
@@ -179,15 +163,15 @@ export function buildWslProbeScript(user) {
 	return [
 		"set -eu",
 		"raw_home=$HOME",
-		"home=$(realpath -- \"$raw_home\")",
-		"test \"$raw_home\" = \"$home\"",
+		'home=$(realpath -- "$raw_home")',
+		'test "$raw_home" = "$home"',
 		"actual_user=$(whoami)",
-		"fstype=$(findmnt -T \"$home\" -n -o FSTYPE)",
+		'fstype=$(findmnt -T "$home" -n -o FSTYPE)',
 		"command -v pi >/dev/null",
 		`test \"$actual_user\" = ${shellQuote(user)}`,
-		"test \"$fstype\" = ext4",
-		"case \"$home\" in /|/mnt|/mnt/*|*/*/../*|*/./*) exit 1 ;; esac",
-		"printf 'RAW_HOME=%s\\nHOME=%s\\nUSER=%s\\nFSTYPE=%s\\n' \"$raw_home\" \"$home\" \"$actual_user\" \"$fstype\"",
+		'test "$fstype" = ext4',
+		'case "$home" in /|/mnt|/mnt/*|*/*/../*|*/./*) exit 1 ;; esac',
+		'printf \'RAW_HOME=%s\\nHOME=%s\\nUSER=%s\\nFSTYPE=%s\\n\' "$raw_home" "$home" "$actual_user" "$fstype"',
 	].join("; ");
 }
 
@@ -199,11 +183,11 @@ export function buildWslResetScript({ home, sha }) {
 	return [
 		"set -eu",
 		"raw_home=$HOME",
-		"home=$(realpath -- \"$raw_home\")",
-		"test \"$raw_home\" = \"$home\"",
+		'home=$(realpath -- "$raw_home")',
+		'test "$raw_home" = "$home"',
 		`test \"$home\" = ${shellQuote(canonicalHome)}`,
-		"case \"$home\" in /|/mnt|/mnt/*) exit 1 ;; esac",
-		"test \"$(findmnt -T \"$home\" -n -o FSTYPE)\" = ext4",
+		'case "$home" in /|/mnt|/mnt/*) exit 1 ;; esac',
+		'test "$(findmnt -T "$home" -n -o FSTYPE)" = ext4',
 		`parent=\"$home/.pi/agent/sessions\"; test \"$(realpath -m -- \"$parent\")\" = ${shellQuote(`${canonicalHome}/.pi/agent/sessions`)}`,
 		`target=\"$parent/pideck-validation-${sha}\"; test \"$(realpath -m -- \"$target\")\" = ${shellQuote(expectedTarget)}`,
 		`if test -e \"$target\" || test -L \"$target\"; then test \"$(realpath -- \"$target\")\" = ${shellQuote(expectedTarget)}; fi`,
@@ -257,15 +241,7 @@ export async function assertSafeOutputDir(outputDir, options = {}) {
 	const home = resolve(options.homeDir ?? homedir());
 	const repoRoot = resolve(options.repoRoot ?? SCRIPT_REPO_ROOT);
 	const userProfile = options.userProfile ?? process.env.USERPROFILE;
-	const forbiddenRoots = [
-		repoRoot,
-		home,
-		userProfile,
-		options.appDataDir ?? process.env.APPDATA,
-		options.localAppDataDir ?? process.env.LOCALAPPDATA,
-		options.userDataDir,
-		...(options.forbiddenRoots ?? []),
-	].filter(Boolean).map((root) => resolve(root));
+	const forbiddenRoots = [repoRoot, home, userProfile, options.appDataDir ?? process.env.APPDATA, options.localAppDataDir ?? process.env.LOCALAPPDATA, options.userDataDir, ...(options.forbiddenRoots ?? [])].filter(Boolean).map((root) => resolve(root));
 	if (resolve(output, "..") === output) throw new Error(`Refusing to use filesystem root: ${output}`);
 	const outputReal = await resolvePathBoundary(output, options);
 	const homeReal = await resolvePathBoundary(home, options).catch(() => home);
@@ -319,7 +295,10 @@ async function writeWslIdentityFixtures({ distro, user, home, sha, runner }) {
 	await runner(reset.command, reset.args, reset.options);
 	const upper = createSessionJsonl({ label: "wsl-identity-upper", messageCount: 2, cwd: projectCwd });
 	const lower = createSessionJsonl({ label: "wsl-identity-lower", messageCount: 2, cwd: projectCwd });
-	for (const [name, content] of [["Case.jsonl", upper], ["case.jsonl", lower]]) {
+	for (const [name, content] of [
+		["Case.jsonl", upper],
+		["case.jsonl", lower],
+	]) {
 		const filePath = `${directory}/${name}`;
 		const write = buildWslInvocation({
 			distro,
@@ -332,23 +311,45 @@ async function writeWslIdentityFixtures({ distro, user, home, sha, runner }) {
 }
 
 function buildCodexSource({ projectCwd, importedSourceId }) {
-	return [
-		{ type: "session_meta", payload: { id: importedSourceId, cwd: projectCwd, timestamp: FIXED_TIME, model_provider: "openai", model: "codex-validation", thread_source: "user" } },
-		{ type: "event_msg", timestamp: FIXED_TIME, payload: { type: "user_message", message: "Validate imported session identity" } },
-		{ type: "response_item", timestamp: stableTimestamp(1), payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Imported fixture response" }] } },
-	].map((entry) => JSON.stringify(entry)).join("\n") + "\n";
+	return (
+		[
+			{ type: "session_meta", payload: { id: importedSourceId, cwd: projectCwd, timestamp: FIXED_TIME, model_provider: "openai", model: "codex-validation", thread_source: "user" } },
+			{ type: "event_msg", timestamp: FIXED_TIME, payload: { type: "user_message", message: "Validate imported session identity" } },
+			{ type: "response_item", timestamp: stableTimestamp(1), payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Imported fixture response" }] } },
+		]
+			.map((entry) => JSON.stringify(entry))
+			.join("\n") + "\n"
+	);
 }
 
 function buildCodexTarget({ sourcePath, sourceMtime, sourceSize, projectCwd, importedSourceId }) {
 	const id = (sequence) => createHash("sha1").update(`${importedSourceId}:${sequence}`).digest("hex").slice(0, 8);
-	return [
-		{ type: "session", version: 3, id: importedSourceId, timestamp: FIXED_TIME, cwd: projectCwd },
-		{ sessionName: "Validate imported session identity", cwd: projectCwd },
-		{ type: "codex_import", version: 1, codexSessionId: importedSourceId, sourcePath, sourceMtime, sourceSize, importedAt: FIXED_TIME, threadSource: "user", parentThreadId: null, agentRole: null, agentNickname: null },
-		{ type: "model_change", id: id(1), parentId: null, timestamp: FIXED_TIME, provider: "openai", modelId: "codex-validation" },
-		{ type: "message", id: id(2), parentId: id(1), timestamp: stableTimestamp(1), message: { role: "user", content: [{ type: "text", text: "Validate imported session identity" }] } },
-		{ type: "message", id: id(3), parentId: id(2), timestamp: stableTimestamp(2), message: { role: "assistant", content: [{ type: "text", text: "Imported fixture response" }], api: "codex-import", provider: "openai", model: "codex-validation", stopReason: "stop", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } } },
-	].map((entry) => JSON.stringify(entry)).join("\n") + "\n";
+	return (
+		[
+			{ type: "session", version: 3, id: importedSourceId, timestamp: FIXED_TIME, cwd: projectCwd },
+			{ sessionName: "Validate imported session identity", cwd: projectCwd },
+			{ type: "codex_import", version: 1, codexSessionId: importedSourceId, sourcePath, sourceMtime, sourceSize, importedAt: FIXED_TIME, threadSource: "user", parentThreadId: null, agentRole: null, agentNickname: null },
+			{ type: "model_change", id: id(1), parentId: null, timestamp: FIXED_TIME, provider: "openai", modelId: "codex-validation" },
+			{ type: "message", id: id(2), parentId: id(1), timestamp: stableTimestamp(1), message: { role: "user", content: [{ type: "text", text: "Validate imported session identity" }] } },
+			{
+				type: "message",
+				id: id(3),
+				parentId: id(2),
+				timestamp: stableTimestamp(2),
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "Imported fixture response" }],
+					api: "codex-import",
+					provider: "openai",
+					model: "codex-validation",
+					stopReason: "stop",
+					usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+				},
+			},
+		]
+			.map((entry) => JSON.stringify(entry))
+			.join("\n") + "\n"
+	);
 }
 
 function catalogEntry({ id, projectId, title, source, environment, filePath, messageCount, originKey: key, importedSourceId, wslDistro, wslUser }) {
@@ -436,16 +437,39 @@ export async function generateSessionFixtures({ outputDir, sha, wslDistro, wslUs
 	const nativeCaseOrigin = originKey({ source: "pi", environment: "native", filePath: nativeUpperPath });
 	const importedOrigin = originKey({ source: "codex", environment: "native", filePath: importedTargetPath, importedSourceId });
 	const nativeSessions = [
-		...Object.entries(scaleFiles).map(([count, filePath]) => catalogEntry({ id: `fixture-native-${count}`, projectId: "fixture-project-native", title: `Native ${count} messages`, source: "pi", environment: "native", filePath, messageCount: Number(count), originKey: originKey({ source: "pi", environment: "native", filePath }) })),
+		...Object.entries(scaleFiles).map(([count, filePath]) =>
+			catalogEntry({ id: `fixture-native-${count}`, projectId: "fixture-project-native", title: `Native ${count} messages`, source: "pi", environment: "native", filePath, messageCount: Number(count), originKey: originKey({ source: "pi", environment: "native", filePath }) }),
+		),
 		catalogEntry({ id: "fixture-native-50mb", projectId: "fixture-project-native", title: "Native 50 MiB session", source: "pi", environment: "native", filePath: largeFile, messageCount: 1, originKey: originKey({ source: "pi", environment: "native", filePath: largeFile }) }),
 		catalogEntry({ id: "fixture-native-case-folded", projectId: "fixture-project-native", title: "Native case identity", source: "pi", environment: "native", filePath: nativeUpperPath, messageCount: 2, originKey: nativeCaseOrigin }),
 		catalogEntry({ id: "fixture-codex-import", projectId: "fixture-project-native", title: "Imported source identity", source: "codex", environment: "native", filePath: importedTargetPath, messageCount: 2, originKey: importedOrigin, importedSourceId }),
 	];
-	const nativeUserData = await writeUserDataTemplate(join(output, "user-data", "native"), { settings: { language: "en", wslEnabled: false, wslDistro: "Ubuntu", wslUser: "root", telemetryEnabled: false, showDevTools: false }, projects: [{ id: "fixture-project-native", name: "PiDeck validation native", path: nativeProject, lastOpenedAt: Date.parse(FIXED_TIME), sortOrder: 0, environment: "windows" }], sessions: nativeSessions });
+	const nativeUserData = await writeUserDataTemplate(join(output, "user-data", "native"), {
+		settings: { language: "en", wslEnabled: false, wslDistro: "Ubuntu", wslUser: "root", telemetryEnabled: false, showDevTools: false },
+		projects: [{ id: "fixture-project-native", name: "PiDeck validation native", path: nativeProject, lastOpenedAt: Date.parse(FIXED_TIME), sortOrder: 0, environment: "windows" }],
+		sessions: nativeSessions,
+	});
 	let wslUserData = null;
 	if (wslIdentity) {
-		const wslSessions = wslIdentity.paths.map((filePath, index) => catalogEntry({ id: `fixture-wsl-${index ? "lower" : "upper"}`, projectId: "fixture-project-wsl", title: `WSL ${index ? "case" : "Case"}.jsonl`, source: "pi", environment: "wsl", filePath, messageCount: 2, originKey: originKey({ source: "pi", environment: "wsl", filePath, distro: wslDistro, user: wslUser }), wslDistro, wslUser }));
-		wslUserData = await writeUserDataTemplate(join(output, "user-data", "wsl"), { settings: { language: "en", wslEnabled: true, wslDistro, wslUser, telemetryEnabled: false, showDevTools: false }, projects: [{ id: "fixture-project-wsl", name: "PiDeck validation WSL", path: wslIdentity.projectCwd, lastOpenedAt: Date.parse(FIXED_TIME), sortOrder: 0, environment: "wsl" }], sessions: wslSessions });
+		const wslSessions = wslIdentity.paths.map((filePath, index) =>
+			catalogEntry({
+				id: `fixture-wsl-${index ? "lower" : "upper"}`,
+				projectId: "fixture-project-wsl",
+				title: `WSL ${index ? "case" : "Case"}.jsonl`,
+				source: "pi",
+				environment: "wsl",
+				filePath,
+				messageCount: 2,
+				originKey: originKey({ source: "pi", environment: "wsl", filePath, distro: wslDistro, user: wslUser }),
+				wslDistro,
+				wslUser,
+			}),
+		);
+		wslUserData = await writeUserDataTemplate(join(output, "user-data", "wsl"), {
+			settings: { language: "en", wslEnabled: true, wslDistro, wslUser, telemetryEnabled: false, showDevTools: false },
+			projects: [{ id: "fixture-project-wsl", name: "PiDeck validation WSL", path: wslIdentity.projectCwd, lastOpenedAt: Date.parse(FIXED_TIME), sortOrder: 0, environment: "wsl" }],
+			sessions: wslSessions,
+		});
 	}
 	const largeStats = await stat(largeFile);
 	const manifest = {
@@ -478,18 +502,20 @@ export async function generateSessionFixtures({ outputDir, sha, wslDistro, wslUs
 			sourceSize: sourceStats.size,
 			expectedIndependentSessionCount: 1,
 		},
-		wslIdentity: wslIdentity ? {
-			distro: wslDistro,
-			user: wslUser,
-			home: wslHome,
-			directory: wslIdentity.directory,
-			projectCwd: wslIdentity.projectCwd,
-			paths: wslIdentity.paths,
-			source: "pi",
-			importedSourceId: null,
-			expectedOriginKeys: wslIdentity.paths.map((filePath) => originKey({ source: "pi", environment: "wsl", filePath, distro: wslDistro, user: wslUser })),
-			expectedIndependentSessionCount: 2,
-		} : null,
+		wslIdentity: wslIdentity
+			? {
+					distro: wslDistro,
+					user: wslUser,
+					home: wslHome,
+					directory: wslIdentity.directory,
+					projectCwd: wslIdentity.projectCwd,
+					paths: wslIdentity.paths,
+					source: "pi",
+					importedSourceId: null,
+					expectedOriginKeys: wslIdentity.paths.map((filePath) => originKey({ source: "pi", environment: "wsl", filePath, distro: wslDistro, user: wslUser })),
+					expectedIndependentSessionCount: 2,
+				}
+			: null,
 		scenarios: {
 			A3: { userDataTemplate: "native", sessionPath: scaleFiles["100"] },
 			A4: { userDataTemplate: "native", sessionPath: scaleFiles["1000"] },
@@ -507,7 +533,15 @@ export async function generateSessionFixtures({ outputDir, sha, wslDistro, wslUs
 }
 
 function helpText() {
-	return ["Usage: node scripts/generate-session-fixtures.mjs --output <absolute-dir> --sha <commit> [options]", "", "Options:", "  --wsl-distro <name>  Target distro (requires --wsl-user)", "  --wsl-user <name>    Target WSL user (requires --wsl-distro)", "  --wsl-root <path>    Expected canonical ext4 $HOME; rejects traversal and /mnt/*", "  --dry-run            Print the bounded write plan without changing files"].join("\n");
+	return [
+		"Usage: node scripts/generate-session-fixtures.mjs --output <absolute-dir> --sha <commit> [options]",
+		"",
+		"Options:",
+		"  --wsl-distro <name>  Target distro (requires --wsl-user)",
+		"  --wsl-user <name>    Target WSL user (requires --wsl-distro)",
+		"  --wsl-root <path>    Expected canonical ext4 $HOME; rejects traversal and /mnt/*",
+		"  --dry-run            Print the bounded write plan without changing files",
+	].join("\n");
 }
 
 const isMain = process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));

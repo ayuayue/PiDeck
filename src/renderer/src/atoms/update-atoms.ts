@@ -20,3 +20,14 @@ export const pendingPiUpdateAtom = atom<boolean>((get) => {
 	const snapshot = get(updateStatusAtom);
 	return Boolean(snapshot?.piCli?.hasUpdate);
 });
+
+/** 是否有「可提示」的内置模型目录更新（设置页高亮依据；不弹 toast，仅角标/页面提示）。 */
+export const pendingCatalogUpdateAtom = atom<boolean>((get) => {
+	const snapshot = get(updateStatusAtom);
+	return Boolean(snapshot?.catalog?.hasUpdate);
+});
+
+/** 是否有任一「可提示」更新（侧栏设置按钮角标依据：app / pi CLI / 模型目录）。 */
+export const hasPendingUpdateAtom = atom<boolean>((get) => {
+	return get(pendingAppUpdateAtom) || get(pendingPiUpdateAtom) || get(pendingCatalogUpdateAtom);
+});

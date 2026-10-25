@@ -37,9 +37,11 @@ test("App extracts changeChatPath once and injects it into the sidebar action", 
 	// 独立函数（含注释说明两处共用，避免逻辑漂移）
 	assert.match(source, /async function changeChatPath\(project: Project\)/);
 	// 侧边栏 projects action 引用同一实现
-	assert.match(source, /changeChatPath,\n    \},/);
+	// 对象属性可跨行且缩进为 tab：容忍属性名与闭合括号之间的任意空白。
+	assert.match(source, /changeChatPath,\s*\},/);
 	// sessionPaneServices 注入 + 依赖数组包含（闭包不陈旧）
-	assert.match(source, /changeChatPath,\n      jumpToMessageRef,/);
+	// 依赖数组可跨行（tab 缩进）：只要求两个标识符按序出现。
+	assert.match(source, /changeChatPath,\s*jumpToMessageRef,/);
 	assert.match(source, /changeChatPath,\n/);
 });
 

@@ -1,3 +1,4 @@
+import { hasPiProxyListFilter } from "../../shared/piProxyList";
 import type { AppSettings } from "../../shared/types";
 import type { SessionProxyMode, SessionProxyOverride } from "../../shared/types/session";
 
@@ -13,14 +14,7 @@ import type { SessionProxyMode, SessionProxyOverride } from "../../shared/types/
  */
 
 /** 标准 HTTP(S)/ALL 代理环境变量（大小写双份，覆盖 linux/mac/windows 工具链）。 */
-export const PROXY_ENV_KEYS = [
-	"HTTP_PROXY",
-	"HTTPS_PROXY",
-	"ALL_PROXY",
-	"http_proxy",
-	"https_proxy",
-	"all_proxy",
-] as const;
+export const PROXY_ENV_KEYS = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"] as const;
 
 /** 代理绕过（NO_PROXY）环境变量。 */
 export const PROXY_BYPASS_ENV_KEYS = ["NO_PROXY", "no_proxy"] as const;
@@ -33,28 +27,23 @@ export const PROXY_BYPASS_ENV_KEYS = ["NO_PROXY", "no_proxy"] as const;
  * LLM 客户端用 globalThis.fetch，因此不设此开关时，PiDeck 注入的代理 env 对 DSH 完全无效。
  */
 export const NODE_USE_ENV_PROXY = "NODE_USE_ENV_PROXY";
+/** 标记当前 pi 进程的代理 env 由 PiDeck 注入；内置 shell 隔离扩展据此只剥离 agent 命令的代理。 */
+export const PIDECK_PI_PROXY_SCOPE = "PIDECK_PI_PROXY_SCOPE";
+export const PIDECK_PI_PROXY_SCOPE_MODEL_ONLY = "model-only";
 
 /**
  * DSH host fork env patch：set 为注入键值，unset 为从继承环境剥离的键。
  * set/unset 除了标准代理键，还包括 NODE_USE_ENV_PROXY（undici env 代理开关，见常量注释）。
  */
 export type HostProxyEnvPatch = {
-	set: Partial<Record<
-		(typeof PROXY_ENV_KEYS)[number] | (typeof PROXY_BYPASS_ENV_KEYS)[number] | typeof NODE_USE_ENV_PROXY,
-		string
-	>>;
-	unset: Array<
-		(typeof PROXY_ENV_KEYS)[number] | (typeof PROXY_BYPASS_ENV_KEYS)[number] | typeof NODE_USE_ENV_PROXY
-	>;
+	set: Partial<Record<(typeof PROXY_ENV_KEYS)[number] | (typeof PROXY_BYPASS_ENV_KEYS)[number] | typeof NODE_USE_ENV_PROXY, string>>;
+	unset: Array<(typeof PROXY_ENV_KEYS)[number] | (typeof PROXY_BYPASS_ENV_KEYS)[number] | typeof NODE_USE_ENV_PROXY>;
 };
 
 export type PiProxyModeSettings = Pick<AppSettings, "piProxyEnabled" | "piProxyUrl">;
 
 /** 按模型/供应商过滤所需的全局设置子集（代理 URL + 两级白名单；供应商名单为旧版兼容字段）。 */
-export type PiProxyProviderSettings = Pick<
-	AppSettings,
-	"piProxyEnabled" | "piProxyUrl" | "piProxyBypass" | "piProxyProviders" | "piProxyModels"
->;
+export type PiProxyProviderSettings = Pick<AppSettings, "piProxyEnabled" | "piProxyUrl" | "piProxyBypass" | "piProxyProviders" | "piProxyModels">;
 
 /**
  * 把会话级覆盖应用到 pi 子进程设置。仅调整 piProxyEnabled 开关：
@@ -62,10 +51,7 @@ export type PiProxyProviderSettings = Pick<
  * 不返回新对象时（follow/无设置），调用方应直接复用原 settings。
  * 泛型保留 settings 的完整类型（如 PiProcessSettings），调用方无需收窄。
  */
-export function applyPiProxyMode<T extends PiProxyModeSettings>(
-	settings: T | undefined,
-	mode: SessionProxyMode | undefined,
-): T | undefined {
+export function applyPiProxyMode<T extends PiProxyModeSettings>(settings: T | undefined, mode: SessionProxyMode | undefined): T | undefined {
 	if (!settings || mode === undefined || mode === "follow") return settings;
 	if (mode === "on") {
 		// on 但全局 URL 为空时保留开启位：applyPiProxyEnv 会因空 URL 直接放行（直连），
@@ -81,10 +67,7 @@ export function applyPiProxyMode<T extends PiProxyModeSettings>(
  * 但升级前已配置的旧数据仍需兼容读取——名单内 → 强制 on（即使全局关闭也复用全局 URL），
  * 名单外 → 强制 off。返回 undefined 表示无需覆盖（跟随全局）。
  */
-export function resolveProviderProxyMode(
-	provider: string | undefined,
-	piProxyProviders: ReadonlyArray<string> | undefined,
-): SessionProxyMode | undefined {
+export function resolveProviderProxyMode(provider: string | undefined, piProxyProviders: ReadonlyArray<string> | undefined): SessionProxyMode | undefined {
 	if (!piProxyProviders || piProxyProviders.length === 0) return undefined;
 	if (!provider || !provider.trim()) return undefined;
 	const normalized = provider.trim();
@@ -99,11 +82,7 @@ export function resolveProviderProxyMode(
  * 下同名模型（如 deepseek-r1 同时在多个网关出现）互相误伤。
  * 名单空或会话无 model 时返回 undefined（不按模型过滤）；命中 → on，未命中 → off。
  */
-export function resolveModelProxyMode(
-	provider: string | undefined,
-	modelId: string | undefined,
-	piProxyModels: ReadonlyArray<string> | undefined,
-): SessionProxyMode | undefined {
+export function resolveModelProxyMode(provider: string | undefined, modelId: string | undefined, piProxyModels: ReadonlyArray<string> | undefined): SessionProxyMode | undefined {
 	if (!piProxyModels || piProxyModels.length === 0) return undefined;
 	if (!provider || !provider.trim() || !modelId || !modelId.trim()) return undefined;
 	const key = `${provider.trim()}/${modelId.trim()}`;
@@ -121,15 +100,10 @@ export function resolveModelProxyMode(
  * 4. 两级名单都为空 → undefined（不按名单过滤，跟随全局/会话设置）。
  * 兼容性：只配置供应商名单（piProxyModels 为空）时行为与旧版完全一致。
  */
-export function resolveListedProxyMode(
-	provider: string | undefined,
-	modelId: string | undefined,
-	piProxyProviders: ReadonlyArray<string> | undefined,
-	piProxyModels: ReadonlyArray<string> | undefined,
-): SessionProxyMode | undefined {
-	const providersEnabled = (piProxyProviders?.length ?? 0) > 0;
-	const modelsEnabled = (piProxyModels?.length ?? 0) > 0;
-	if (!providersEnabled && !modelsEnabled) return undefined;
+export function resolveListedProxyMode(provider: string | undefined, modelId: string | undefined, piProxyProviders: ReadonlyArray<string> | undefined, piProxyModels: ReadonlyArray<string> | undefined): SessionProxyMode | undefined {
+	// 名单是否启用的判断与设置页共用同一实现：名单非空时主开关完全失效（设置页据此置灰），
+	// 两边各写一份会在策略调整后静默失真。
+	if (!hasPiProxyListFilter(piProxyProviders, piProxyModels)) return undefined;
 	// 模型名单粒度更细，先于供应商名单判定（同模型不同 provider 的场景交给供应商名单兜底）。
 	const modelMode = resolveModelProxyMode(provider, modelId, piProxyModels);
 	if (modelMode === "on") return "on";
@@ -146,22 +120,12 @@ export function resolveListedProxyMode(
  * - 否则按模型名单（唯一 UI 入口）→ 旧版供应商名单（兼容读取）决定 on/off；
  * - 名单未启用或未命中则返回原 settings（跟随全局）。
  */
-export function applyPiProxyModeWithProvider<T extends PiProxyProviderSettings>(
-	settings: T | undefined,
-	mode: SessionProxyMode | undefined,
-	provider: string | undefined,
-	modelId: string | undefined,
-): T | undefined {
+export function applyPiProxyModeWithProvider<T extends PiProxyProviderSettings>(settings: T | undefined, mode: SessionProxyMode | undefined, provider: string | undefined, modelId: string | undefined): T | undefined {
 	if (!settings) return settings;
 	// 1. 会话显式覆盖最高优（用户手动在会话菜单指定的 on/off）。
 	if (mode === "on" || mode === "off") return applyPiProxyMode(settings, mode);
 	// 2. 按白名单（模型 → 供应商）：名单命中强制 on，名单未命中强制 off。
-	const listedMode = resolveListedProxyMode(
-		provider,
-		modelId,
-		settings.piProxyProviders,
-		settings.piProxyModels,
-	);
+	const listedMode = resolveListedProxyMode(provider, modelId, settings.piProxyProviders, settings.piProxyModels);
 	if (listedMode) return applyPiProxyMode(settings, listedMode);
 	// 3. 无覆盖、无白名单启用 → 跟随全局（原样返回，避免创建新对象）。
 	return settings;
@@ -175,13 +139,7 @@ export function applyPiProxyModeWithProvider<T extends PiProxyProviderSettings>(
  * - 否则按模型名单（UI 唯一入口）→ 旧版供应商名单（兼容读取）映射为 on/off；
  * - 两级白名单都未启用或无 provider/model 时返回 follow（沿用全局）。
  */
-export function resolveEffectiveSessionProxyMode(
-	sessionMode: SessionProxyMode | undefined,
-	provider: string | undefined,
-	modelId: string | undefined,
-	piProxyProviders: ReadonlyArray<string> | undefined,
-	piProxyModels: ReadonlyArray<string> | undefined,
-): SessionProxyMode {
+export function resolveEffectiveSessionProxyMode(sessionMode: SessionProxyMode | undefined, provider: string | undefined, modelId: string | undefined, piProxyProviders: ReadonlyArray<string> | undefined, piProxyModels: ReadonlyArray<string> | undefined): SessionProxyMode {
 	if (sessionMode === "on" || sessionMode === "off") return sessionMode;
 	const listedMode = resolveListedProxyMode(provider, modelId, piProxyProviders, piProxyModels);
 	if (listedMode) return listedMode;
@@ -194,9 +152,7 @@ export function resolveEffectiveSessionProxyMode(
  * 显式「直连」表达了用户的最强意图；任一 off → host 剥离代理 env；无 off 但任一
  * on → host 注入全局代理；全部 follow/无覆盖 → 沿用当前行为（不动）。
  */
-export function aggregateDshProxyMode(
-	overrides: ReadonlyArray<SessionProxyOverride | undefined>,
-): SessionProxyMode {
+export function aggregateDshProxyMode(overrides: ReadonlyArray<SessionProxyOverride | undefined>): SessionProxyMode {
 	let forcedOn = false;
 	for (const override of overrides) {
 		if (!override) continue;
@@ -216,10 +172,7 @@ export function aggregateDshProxyMode(
  *   resolveEffectiveSessionProxyMode 层按名单换算成 on/off，follow 即「名单未命中」，
  *   保持直连（同 pi 名单外直连语义），避免全局开关把名单破坏。
  */
-export function resolveDshHostProxyMode(
-	sessionBasedMode: SessionProxyMode,
-	global: { piProxyEnabled: boolean; hasList: boolean },
-): SessionProxyMode {
+export function resolveDshHostProxyMode(sessionBasedMode: SessionProxyMode, global: { piProxyEnabled: boolean; hasList: boolean }): SessionProxyMode {
 	if (sessionBasedMode !== "follow") return sessionBasedMode;
 	if (global.piProxyEnabled && !global.hasList) return "on";
 	return "follow";
@@ -233,10 +186,7 @@ export function resolveDshHostProxyMode(
  * - off：剥离标准代理环境变量（含 NO_PROXY）与 NODE_USE_ENV_PROXY（避免残留配置互相干扰）；
  * - follow：undefined（不动，保持 dsh host 现有行为）。
  */
-export function buildHostProxyEnvPatch(
-	mode: SessionProxyMode,
-	global: { url: string; bypass: string },
-): HostProxyEnvPatch | undefined {
+export function buildHostProxyEnvPatch(mode: SessionProxyMode, global: { url: string; bypass: string }): HostProxyEnvPatch | undefined {
 	if (mode === "off") {
 		return {
 			set: {},
@@ -263,10 +213,7 @@ export function buildHostProxyEnvPatch(
 
 /**
  * 把 patch 应用到已构建的 fork env（原地修改）：先剥离后注入，顺序固定。 */
-export function applyProxyEnvPatch(
-	env: Record<string, string>,
-	patch: HostProxyEnvPatch,
-): void {
+export function applyProxyEnvPatch(env: Record<string, string>, patch: HostProxyEnvPatch): void {
 	for (const key of patch.unset) delete env[key];
 	for (const [key, value] of Object.entries(patch.set)) {
 		if (value !== undefined) env[key] = value;
@@ -283,20 +230,14 @@ import type { ConfigProxyMode } from "../../shared/types/fetchedModel";
  * - on：强制走 url（bypass 为同源代理配置的绕过列表）；
  * - off：强制直连。
  */
-export type ConfigProxyTarget =
-	| { mode: "follow" }
-	| { mode: "on"; url: string; bypass: string }
-	| { mode: "off" };
+export type ConfigProxyTarget = { mode: "follow" } | { mode: "on"; url: string; bypass: string } | { mode: "off" };
 
 /**
  * 把渲染层代理选择解析成主进程可执行的代理目标（纯函数，可单测）。
  * 复用设置中的代理地址：pi / desktop 两个模式各自取对应 URL 字段；
  * 所选代理 URL 为空时降级为 off（与全局开关注释一致：没配地址就无法代理）。
  */
-export function resolveConfigProxyTarget(
-	settings: { piProxyUrl: string; piProxyBypass: string; desktopProxyUrl: string; desktopProxyBypass: string },
-	proxyMode: ConfigProxyMode | undefined,
-): ConfigProxyTarget {
+export function resolveConfigProxyTarget(settings: { piProxyUrl: string; piProxyBypass: string; desktopProxyUrl: string; desktopProxyBypass: string }, proxyMode: ConfigProxyMode | undefined): ConfigProxyTarget {
 	switch (proxyMode) {
 		case "pi": {
 			const url = settings.piProxyUrl.trim();
@@ -321,11 +262,7 @@ export function resolveConfigProxyTarget(
  * 持久化进程的 HTTP_PROXY 等环境变量在 spawn 时定格，代理设置或名单命中变化后
  * 必须依据指纹判断是否需要重建进程（否则旧进程永远沿用旧代理状态）。
  */
-export function computeGenProxyKey(
-	settings: PiProxyProviderSettings,
-	provider: string | undefined,
-	modelId: string | undefined,
-): string {
+export function computeGenProxyKey(settings: PiProxyProviderSettings, provider: string | undefined, modelId: string | undefined): string {
 	const effective = applyPiProxyModeWithProvider(settings, undefined, provider, modelId);
 	if (effective?.piProxyEnabled !== true) return "off";
 	// 开启时 URL/绕过列表参与指纹：改地址或 bypass 需要重建持久化进程
@@ -338,11 +275,41 @@ export function computeGenProxyKey(
  * on → 强制开启并覆盖 URL（即使全局 piProxyEnabled 为关）；off → 强制关闭（含名单外剥离）。
  * follow 返回原对象（调用方沿用引用，不产生新对象开销）。
  */
-export function applyConfigProxyTarget<T extends { piProxyEnabled: boolean; piProxyUrl: string; piProxyBypass: string }>(
-	settings: T,
-	target: ConfigProxyTarget | undefined,
-): T {
+export function applyConfigProxyTarget<T extends { piProxyEnabled: boolean; piProxyUrl: string; piProxyBypass: string }>(settings: T, target: ConfigProxyTarget | undefined): T {
 	if (!target || target.mode === "follow") return settings;
 	if (target.mode === "off") return { ...settings, piProxyEnabled: false };
 	return { ...settings, piProxyEnabled: true, piProxyUrl: target.url, piProxyBypass: target.bypass };
+}
+
+/**
+ * pi 子进程的代理环境变量集合（纯函数，可单测）。
+ * 返回 undefined 表示「不注入代理 env」（开关关闭 / URL 为空）。
+ *
+ * 为什么必须带 NODE_USE_ENV_PROXY（2026-09 真实故障）：
+ * pi 的 LLM 调用链是 openai SDK → globalThis.fetch（undici），而 undici **默认完全不读**
+ * HTTP_PROXY/HTTPS_PROXY —— 只注入代理 URL 等于没配：用户以为挂了代理，请求实际仍直连。
+ * 表现为需要代理才能通的第三方中转站「拉不到模型 / 手填模型也用不了 / Connection error」。
+ * 实测对照（Node 24，向需代理的网关调 models.list）：
+ *   仅 HTTPS_PROXY         → FAIL Connection error
+ *   HTTPS_PROXY + 本开关   → OK models=15
+ * 该开关只在**进程启动时**被 undici 读取，运行时改 env 无效，所以必须进 spawn env。
+ * DSH host 侧早有同一开关（见 buildHostProxyEnvPatch），此处补齐 pi 子进程的对应项。
+ */
+export function buildPiProxyEnvPatch(settings: (PiProxyModeSettings & { piProxyBypass: string }) | undefined): Record<string, string> | undefined {
+	if (!settings?.piProxyEnabled) return undefined;
+	const proxyUrl = settings.piProxyUrl.trim();
+	// URL 为空时无法代理：返回 undefined 让调用方保持原 env（直连），而不是注入半个配置。
+	if (!proxyUrl) return undefined;
+
+	const patch: Record<string, string> = {};
+	for (const key of PROXY_ENV_KEYS) patch[key] = proxyUrl;
+	const bypass = settings.piProxyBypass.trim();
+	if (bypass) {
+		for (const key of PROXY_BYPASS_ENV_KEYS) patch[key] = bypass;
+	}
+	patch[NODE_USE_ENV_PROXY] = "1";
+	// 代理只为 pi 自身的模型/API 请求服务；内置 shell 隔离扩展用该标记
+	// 在每次 bash/PowerShell 工具执行时剥离代理，避免 agent 命令共用代理出口配额。
+	patch[PIDECK_PI_PROXY_SCOPE] = PIDECK_PI_PROXY_SCOPE_MODEL_ONLY;
+	return patch;
 }

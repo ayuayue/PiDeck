@@ -1,372 +1,350 @@
 import React from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import {
-	resolvePaneTerminal,
-	terminalOwnerKey,
-	shouldMountPaneTerminalDock,
-} from "../../terminalDockState";
+import { resolvePaneTerminal, terminalOwnerKey, shouldMountPaneTerminalDock } from "../../terminalDockState";
 import { settingsOpenAtom } from "../../atoms";
-import {
-  claimSessionRuntimeUiResponseAtom,
-  rollbackSessionRuntimeUiResponseAtom,
-} from "../../atoms/session-atoms";
-import {
-  sessionRecordByIdAtomFamily,
-  sessionRuntimeBySessionIdAtomFamily,
-  sessionRuntimeUiBySessionIdAtomFamily,
-} from "../../atoms/session-selectors";
+import { claimSessionRuntimeUiResponseAtom, rollbackSessionRuntimeUiResponseAtom } from "../../atoms/session-atoms";
+import { recordAskEchoAtom } from "../../atoms/ask-echo-atoms";
+import { sessionRecordByIdAtomFamily, sessionRuntimeBySessionIdAtomFamily, sessionRuntimeUiBySessionIdAtomFamily } from "../../atoms/session-selectors";
 import { projectByIdAtomFamily } from "../../atoms/project-atoms";
 import { useSessionRuntimeController } from "../../hooks/useSessionRuntimeController";
-import {
-  createSessionRuntimeUiResponder,
-  SessionRuntimeUiOverlay,
-} from "../overlays/SessionRuntimeUiOverlay";
+import { createSessionRuntimeUiResponder, SessionRuntimeUiOverlay } from "../overlays/SessionRuntimeUiOverlay";
 import type { QueuedPrompt } from "../../hooks/useQueuedPrompt";
 import type { SessionTimelineController } from "../../hooks/useSessionTimelineController";
 import { QueuedPromptPanel } from "./ComposerPanels";
 import { FileLinkBaseProvider } from "./FileLinkBase";
 import { SessionView } from "./SessionView";
 import { useSessionPaneServices } from "./SessionPaneServices";
+import { usePaneGitInfo } from "../../hooks/usePaneGitInfo";
+import { useSessionCommandNames } from "../../hooks/useSessionCommandNames";
 import { desktopApi } from "../../desktopApi";
 import { t } from "../../i18n";
-import {
-	requireSessionCommand,
-	sessionCommandFailureToast,
-	toSessionRuntimeTarget,
-} from "../../utils/sessionCommands";
+import { requireSessionCommand, resolveSessionReloadMode, sessionCommandFailureToast, toSessionRuntimeTarget } from "../../utils/sessionCommands";
+import type { SessionMenuModel, SessionMenuRunControl } from "./SessionActionsMenu";
+import { resolveActiveAskRequest } from "../../utils/askUi";
 import { formatRelativeTime } from "../../utils/relativeTime";
 import { ConfirmDialog } from "../ui-shadcn/ConfirmDialog";
 import type { ChatMessage, RewindCheckpointSummary } from "../../../../shared/types";
 
 export type SessionRuntimeInjectorProps = {
-  currentSessionId: string;
-  sessionTitle: string;
-  sessionTimeline: SessionTimelineController;
-  /** 分屏栏加聚焦边框；单栏 Tab 已外置，同样只渲染本栏 Header */
-  splitPane?: boolean;
-  focused?: boolean;
-  onFocusPane?: () => void;
-  chatHeaderRef: React.RefObject<HTMLDivElement | null>;
-  composerRef: React.RefObject<HTMLElement | null>;
-  composerOffsetHeight: number;
-  terminalRowHeight: number;
-  activeQueuedPrompts: QueuedPrompt[];
-  queuedTrackRef: React.MutableRefObject<HTMLElement | null>;
+	currentSessionId: string;
+	sessionTitle: string;
+	sessionTimeline: SessionTimelineController;
+	/** 分屏栏加聚焦边框；单栏 Tab 已外置，同样只渲染本栏 Header */
+	splitPane?: boolean;
+	focused?: boolean;
+	onFocusPane?: () => void;
+	chatHeaderRef: React.RefObject<HTMLDivElement | null>;
+	composerRef: React.RefObject<HTMLElement | null>;
+	composerOffsetHeight: number;
+	terminalRowHeight: number;
+	activeQueuedPrompts: QueuedPrompt[];
+	queuedTrackRef: React.MutableRefObject<HTMLElement | null>;
 };
 
 /**
  * 绑定本栏 runtime 订阅与 UI overlay，再交给 SessionView。
  * 共享服务从 SessionPaneServices 读取，避免 App 大 props 袋。
  */
-export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector(
-  props: SessionRuntimeInjectorProps,
-) {
-  const {
-    currentSessionId,
-    sessionTitle,
-    sessionTimeline,
-    splitPane = false,
-    focused = true,
-    onFocusPane,
-    chatHeaderRef,
-    composerRef,
-    composerOffsetHeight,
-    terminalRowHeight,
-    activeQueuedPrompts,
-    queuedTrackRef,
-  } = props;
+export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector(props: SessionRuntimeInjectorProps) {
+	const { currentSessionId, sessionTitle, sessionTimeline, splitPane = false, focused = true, onFocusPane, chatHeaderRef, composerRef, composerOffsetHeight, terminalRowHeight, activeQueuedPrompts, queuedTrackRef } = props;
 
-  const services = useSessionPaneServices();
-  const settingsOpen = useAtomValue(settingsOpenAtom);
-  const sessionRecord = useAtomValue(sessionRecordByIdAtomFamily(currentSessionId));
-  const currentSessionRuntime = useAtomValue(sessionRuntimeBySessionIdAtomFamily(currentSessionId));
-  const currentSessionRuntimeUi = useAtomValue(sessionRuntimeUiBySessionIdAtomFamily(currentSessionId));
-  const claimSessionUiResponse = useSetAtom(claimSessionRuntimeUiResponseAtom);
-  const rollbackSessionUiResponse = useSetAtom(rollbackSessionRuntimeUiResponseAtom);
-  const runtimeRef = React.useRef(currentSessionRuntime);
-  runtimeRef.current = currentSessionRuntime;
+	const services = useSessionPaneServices();
+	const settingsOpen = useAtomValue(settingsOpenAtom);
+	const sessionRecord = useAtomValue(sessionRecordByIdAtomFamily(currentSessionId));
+	const currentSessionRuntime = useAtomValue(sessionRuntimeBySessionIdAtomFamily(currentSessionId));
+	const currentSessionRuntimeUi = useAtomValue(sessionRuntimeUiBySessionIdAtomFamily(currentSessionId));
+	const claimSessionUiResponse = useSetAtom(claimSessionRuntimeUiResponseAtom);
+	const rollbackSessionUiResponse = useSetAtom(rollbackSessionRuntimeUiResponseAtom);
+	const setRecordAskEcho = useSetAtom(recordAskEchoAtom);
+	const runtimeRef = React.useRef(currentSessionRuntime);
+	runtimeRef.current = currentSessionRuntime;
 
-  // 本栏终端归属：从本会话自身的 runtime/record 解析（分屏各栏独立，不再跟随 App 聚焦态）；
-  // owner 解析失败或目标不可落地时该栏不挂 dock。
-  const paneProjectId = currentSessionRuntime?.projectId ?? sessionRecord?.projectId ?? "";
-  const paneProject = useAtomValue(
-    projectByIdAtomFamily(paneProjectId),
-  );
-  const paneFileContext = React.useMemo(
-    () => ({
-      // runtime cwd 是该会话真正执行工具的目录；未启动时回退 catalog 项目根。
-      baseDir: currentSessionRuntime?.cwd ?? paneProject?.path,
-      projectId: paneProjectId || undefined,
-      projectRoot: paneProject?.path,
-    }),
-    [currentSessionRuntime?.cwd, paneProject?.path, paneProjectId],
-  );
-  const openPaneFile = React.useCallback(
-    (path: string, line?: number) => services.onOpenFile(path, line, paneFileContext),
-    [paneFileContext, services.onOpenFile],
-  );
-  const paneTerminal = React.useMemo(
-    () =>
-      resolvePaneTerminal({
-        sessionId: currentSessionId,
-        runtime: currentSessionRuntime,
-        projectId: paneProjectId || undefined,
-        project: paneProject,
-      }),
-    [currentSessionId, currentSessionRuntime, paneProjectId, paneProject],
-  );
-  const paneOwnerKey = paneTerminal ? terminalOwnerKey(paneTerminal.owner) : undefined;
-  const paneTerminalState = paneOwnerKey
-    ? services.terminalStatesByOwner[paneOwnerKey]
-    : undefined;
-  const paneTerminalOpen = Boolean(paneTerminalState?.open) && Boolean(paneTerminal);
-  const paneTerminalCollapsed = Boolean(paneTerminalState?.collapsed);
-  const paneTerminalDockVisible = shouldMountPaneTerminalDock({
-    ownerKey: paneOwnerKey,
-    activeOwnerKey: services.activeTerminalOwnerKey,
-    focused,
-    open: paneTerminalOpen,
-  });
-  // 本栏 dock 的开关回调绑定本栏自己的 owner key：非聚焦栏也能关自己的终端，
-  // 不会写到当前聚焦会话的桶里（分屏双栏状态互不串台）。
-  const setPaneTerminalOpen = React.useCallback(
-    (open: boolean) => {
-      if (paneOwnerKey) services.setTerminalOpenByOwnerKey(paneOwnerKey, open);
-    },
-    [paneOwnerKey, services.setTerminalOpenByOwnerKey],
-  );
-  const setPaneTerminalCollapsed = React.useCallback(
-    (collapsed: boolean) => {
-      if (paneOwnerKey) services.setTerminalCollapsedByOwnerKey(paneOwnerKey, collapsed);
-    },
-    [paneOwnerKey, services.setTerminalCollapsedByOwnerKey],
-  );
+	// 本栏终端归属：从本会话自身的 runtime/record 解析（分屏各栏独立，不再跟随 App 聚焦态）；
+	// owner 解析失败或目标不可落地时该栏不挂 dock。
+	const paneProjectId = currentSessionRuntime?.projectId ?? sessionRecord?.projectId ?? "";
+	const paneProject = useAtomValue(projectByIdAtomFamily(paneProjectId));
+	const paneFileContext = React.useMemo(
+		() => ({
+			// runtime cwd 是该会话真正执行工具的目录；未启动时回退 catalog 项目根。
+			baseDir: currentSessionRuntime?.cwd ?? paneProject?.path,
+			projectId: paneProjectId || undefined,
+			projectRoot: paneProject?.path,
+			// 项目外路径的安全等级判定按本栏会话走，分屏两栏各自的安全等级互不干扰。
+			sessionId: currentSessionId,
+		}),
+		[currentSessionId, currentSessionRuntime?.cwd, paneProject?.path, paneProjectId],
+	);
+	const openPaneFile = React.useCallback((path: string, line?: number) => services.onOpenFile(path, line, paneFileContext), [paneFileContext, services.onOpenFile]);
+	const paneTerminal = React.useMemo(
+		() =>
+			resolvePaneTerminal({
+				sessionId: currentSessionId,
+				runtime: currentSessionRuntime,
+				projectId: paneProjectId || undefined,
+				project: paneProject,
+			}),
+		[currentSessionId, currentSessionRuntime, paneProjectId, paneProject],
+	);
+	const paneOwnerKey = paneTerminal ? terminalOwnerKey(paneTerminal.owner) : undefined;
+	const paneTerminalState = paneOwnerKey ? services.terminalStatesByOwner[paneOwnerKey] : undefined;
+	const paneTerminalOpen = Boolean(paneTerminalState?.open) && Boolean(paneTerminal);
+	const paneTerminalCollapsed = Boolean(paneTerminalState?.collapsed);
+	const paneTerminalDockVisible = shouldMountPaneTerminalDock({
+		ownerKey: paneOwnerKey,
+		activeOwnerKey: services.activeTerminalOwnerKey,
+		focused,
+		open: paneTerminalOpen,
+	});
+	// 本栏 dock 的开关回调绑定本栏自己的 owner key：非聚焦栏也能关自己的终端，
+	// 不会写到当前聚焦会话的桶里（分屏双栏状态互不串台）。
+	const setPaneTerminalOpen = React.useCallback(
+		(open: boolean) => {
+			if (paneOwnerKey) services.setTerminalOpenByOwnerKey(paneOwnerKey, open);
+		},
+		[paneOwnerKey, services.setTerminalOpenByOwnerKey],
+	);
+	const setPaneTerminalCollapsed = React.useCallback(
+		(collapsed: boolean) => {
+			if (paneOwnerKey) services.setTerminalCollapsedByOwnerKey(paneOwnerKey, collapsed);
+		},
+		[paneOwnerKey, services.setTerminalCollapsedByOwnerKey],
+	);
 
-  const runtimeUiResponder = React.useMemo(() => {
-    if (!currentSessionRuntime?.agentId) return undefined;
-    const binding = {
-      sessionId: currentSessionId,
-      agentId: currentSessionRuntime.agentId,
-      runtimeGeneration: currentSessionRuntime.runtimeGeneration,
-    };
+	// 本栏命令白名单：历史消息 /命令 chip 按本会话的 runtime 命令表渲染。
+	// 历史缺陷：白名单挂在 App 全局 state（跟随聚焦会话），分屏时另一栏的命令 chip 会
+	// 拿错白名单；改为栏级 hook 后各栏独立加载自己会话的命令表。
+	const paneValidCommandNames = useSessionCommandNames(currentSessionId);
 
-    return createSessionRuntimeUiResponder({
-      binding,
-      readBinding: () => {
-        const latest = runtimeRef.current;
-        return latest?.agentId
-          ? {
-              sessionId: currentSessionId,
-              agentId: latest.agentId,
-              runtimeGeneration: latest.runtimeGeneration,
-            }
-          : undefined;
-      },
-      claim: claimSessionUiResponse,
-      rollback: rollbackSessionUiResponse,
-      send: services.api.sessions.sendUiResponse,
-      onError: (error) =>
-        services.showToast(error instanceof Error ? error.message : String(error), 4000),
-    });
-  }, [
-    claimSessionUiResponse,
-    currentSessionId,
-    currentSessionRuntime?.agentId,
-    currentSessionRuntime?.runtimeGeneration,
-    rollbackSessionUiResponse,
-    services.api.sessions.sendUiResponse,
-    services.showToast,
-  ]);
+	// 本栏 Git 分支状态：按本会话项目（paneProjectId，即所属 worktree）加载/轮询/切换。
+	// 历史缺陷：分屏双栏共用 App 聚焦项目的 services.gitInfo——点击任一栏，所有栏的
+	// 分支 chip 和切换目标会一起切到该栏项目；改为栏级 usePaneGitInfo 后各栏独立。
+	// onChanged 回写给 App（仅当本栏项目恰为聚焦项目时才被采纳，见 App 的 handleProjectGitChanged），
+	// 保证右侧 Git 抽屉与刚切换的栏尽快同步；切换失败 toast 走 services.showToast。
+	const paneGit = usePaneGitInfo(paneProjectId, {
+		onChanged: services.onProjectGitChanged,
+		onSwitchError: (error) =>
+			services.showToast(
+				t("app.branchSwitchFailed", {
+					error: error instanceof Error ? error.message : String(error),
+				}),
+			),
+	});
 
-  const runtime = useSessionRuntimeController({
-    sessionId: currentSessionId,
-    agents: services.agents,
-    queueFlushBySessionRef: services.queueFlushBySessionRef,
-    activeQueuedPrompts,
-    restartingAgentId: services.restartingAgentId,
-    sessionDurationByAgent: services.sessionDurationByAgent,
-    activeProjectId: services.activeProjectId,
-    showNotice: services.showNotice,
-    // 后台 Ask toast 的「前往会话」：由 App 级 focusAskSessionById 解析 record 并登记 Tab
-    onFocusSession: services.focusAskSessionById,
-  });
+	const runtimeUiResponder = React.useMemo(() => {
+		if (!currentSessionRuntime?.agentId) return undefined;
+		const binding = {
+			sessionId: currentSessionId,
+			agentId: currentSessionRuntime.agentId,
+			runtimeGeneration: currentSessionRuntime.runtimeGeneration,
+		};
 
-  const activeAgent = runtime.activeAgentId
-    ? services.agents.find((a) => a.id === runtime.activeAgentId)
-    : undefined;
-  const canMutateActiveMessages = runtime.canMutateActiveMessages;
-  // 未启动时 activeAgent 为空，必须看 catalog backend，不能只看 live tab。
-  // DSH 本轮不做编辑/删除/重发（无 JSONL 离线改写）；
-  // fork 对 pi/DSH 都始终提供入口：DSH 未激活时由 forkFromUserMessage 内部
-  // 先 activateRuntime 再 fork，不再用 canMutateActiveMessages 门控——否则打开
-  // 历史 DSH 会话（runtime 懒启动）时 fork 入口时有时无。
-  const isDshBackend = sessionRecord?.backend === "dsh" || activeAgent?.backend === "dsh";
-  const canEditOrDeleteMessages = !isDshBackend;
-  const canResend = !isDshBackend;
+		return createSessionRuntimeUiResponder({
+			binding,
+			readBinding: () => {
+				const latest = runtimeRef.current;
+				return latest?.agentId
+					? {
+							sessionId: currentSessionId,
+							agentId: latest.agentId,
+							runtimeGeneration: latest.runtimeGeneration,
+						}
+					: undefined;
+			},
+			claim: claimSessionUiResponse,
+			rollback: rollbackSessionUiResponse,
+			send: services.api.sessions.sendUiResponse,
+			// 应答成功后捕获回显（recordAskEchoAtom 内部按 backend 门控：pi 的回显由 _askCard 工具卡承担）
+			onAccepted: (request, response) => setRecordAskEcho({ sessionId: currentSessionId, request, response }),
+			onError: (error) => services.showToast(error instanceof Error ? error.message : String(error), 4000),
+		});
+	}, [claimSessionUiResponse, currentSessionId, currentSessionRuntime?.agentId, currentSessionRuntime?.runtimeGeneration, rollbackSessionUiResponse, setRecordAskEcho, services.api.sessions.sendUiResponse, services.showToast]);
 
-  // ── 回退到此消息：解析最近检查点 + 确认回退（仅 pi 后端注入入口）──
-  const [rewindConfirm, setRewindConfirm] = React.useState<RewindCheckpointSummary | null>(null);
-  const [rewinding, setRewinding] = React.useState(false);
-  const handleRewindToMessage = React.useCallback(
-    async (message: ChatMessage) => {
-      const target = toSessionRuntimeTarget(currentSessionId, currentSessionRuntime);
-      if (!target) {
-        services.showToast(t("rewind.unavailable"));
-        return;
-      }
-      let list: RewindCheckpointSummary[];
-      try {
-        // rewind-to-message 需要全量最近检查点（无 limit → 后端返回全部）。
-        list = requireSessionCommand(
-          await desktopApi.sessions.listRewindCheckpoints(target),
-        ).value.items;
-      } catch (error) {
-        services.showToast(
-          sessionCommandFailureToast(error, (raw) => t("rewind.loadFailed", { error: raw })),
-          4000,
-        );
-        return;
-      }
-      // 最近的、时刻不晚于该消息的检查点 ≈ 该消息开始动文件之前的状态；
-      // 该轮没有文件类工具时自然落到上一轮的检查点，语义仍成立（撤销本消息起的改动）。
-      const nearest = [...list]
-        .sort((a, b) => b.timestamp - a.timestamp)
-        .find((cp) => cp.timestamp <= message.timestamp);
-      if (!nearest) {
-        services.showToast(t("rewind.empty"), 3000);
-        return;
-      }
-      setRewindConfirm(nearest);
-    },
-    [currentSessionId, currentSessionRuntime, services],
-  );
-  const performRewindRestore = React.useCallback(async () => {
-    if (!rewindConfirm) return;
-    const target = toSessionRuntimeTarget(currentSessionId, currentSessionRuntime);
-    if (!target) return;
-    setRewinding(true);
-    try {
-      await requireSessionCommand(
-        await desktopApi.sessions.restoreRewindCheckpoint(target, rewindConfirm.id, "files"),
-      );
-      services.showToast(t("rewind.restoreDone", { id: rewindConfirm.id }));
-    } catch (error) {
-      services.showToast(
-        sessionCommandFailureToast(error, (raw) => t("rewind.restoreFailed", { error: raw })),
-        4000,
-      );
-    } finally {
-      setRewinding(false);
-      setRewindConfirm(null);
-    }
-  }, [currentSessionId, currentSessionRuntime, rewindConfirm, services]);
+	const runtime = useSessionRuntimeController({
+		sessionId: currentSessionId,
+		agents: services.agents,
+		queueFlushBySessionRef: services.queueFlushBySessionRef,
+		activeQueuedPrompts,
+		restartingAgentId: services.restartingAgentId,
+		sessionDurationByAgent: services.sessionDurationByAgent,
+		activeProjectId: services.activeProjectId,
+		showNotice: services.showNotice,
+	});
 
-  return (
-    <FileLinkBaseProvider
-      baseDir={paneFileContext.baseDir}
-      projectId={paneFileContext.projectId}
-      projectRoot={paneFileContext.projectRoot}
-    >
-    <>
-    <SessionView
-      sessionId={currentSessionId}
-      sessionTitle={sessionTitle}
-      sessionTimeline={sessionTimeline}
-      splitPane={splitPane}
-      focused={focused}
-      onFocusPane={onFocusPane}
-      activeAgentId={runtime.activeAgentId ?? undefined}
-      activeAgent={activeAgent}
-      hasActiveConversation={runtime.hasActiveConversation}
-      hasProject={runtime.sessionHasProject}
-      chatHeaderRef={chatHeaderRef}
-      composerRef={composerRef}
-      composerOffsetHeight={composerOffsetHeight}
-      terminalRowHeight={terminalRowHeight}
-      isAgentStarting={runtime.isAgentStarting}
-      isRestarting={runtime.isRestartingThisAgent}
-      sessionDuration={runtime.sessionDuration}
-      showThinking={services.showThinking}
-      validCommandNames={services.validCommandNames}
-      validFilePaths={services.validFilePaths}
-      onPreviewImage={services.onPreviewImage}
-      onOpenFile={openPaneFile}
-      onDiffFile={services.onDiffFile}
-      onResendUserMessage={canResend ? services.resendUserMessage : undefined}
-      onEditMessage={canEditOrDeleteMessages ? services.editMessage : undefined}
-      onDeleteMessage={canEditOrDeleteMessages ? services.deleteMessage : undefined}
-      onForkMessage={services.forkFromUserMessage}
-      onRewindToMessage={isDshBackend ? undefined : handleRewindToMessage}
-      forkingMessageId={services.forkingMessageId}
-      onToast={(message: string) => services.showToast(message)}
-      onQuickPrompt={(message) => services.insertQuickPrompt(currentSessionId, message)}
-      canMutateActiveMessages={canMutateActiveMessages}
-      onOpenBranchSession={
-        services.activeProjectId && services.openSidebarSessionById
-          ? (sessionId: string) => {
-              void services.openSidebarSessionById?.(services.activeProjectId!, sessionId);
-            }
-          : undefined
-      }
-      enqueueSessionPrompt={services.enqueueSessionPrompt}
-      gitInfo={services.gitInfo}
-      onSwitchBranch={services.onSwitchBranch}
-      ensureSessionId={services.ensureSessionId}
-      runtimeUi={
-        runtimeUiResponder ? (
-          <SessionRuntimeUiOverlay
-            sessionId={currentSessionId}
-            runtime={currentSessionRuntime}
-            ui={currentSessionRuntimeUi}
-            responder={runtimeUiResponder}
-            // 展开工具/思考卡片不应抢夺用户当前滚动位置；只有新消息进入时由时间线控制自动贴底。
-            onExpandedChange={() => undefined}
-          />
-        ) : null
-      }
-      queuePanel={
-        currentSessionId ? (
-          <QueuedPromptPanel
-            trackRef={queuedTrackRef}
-            sessionId={currentSessionId}
-            prompts={activeQueuedPrompts}
-            visiblePrompts={activeQueuedPrompts}
-            onRetract={services.queueRetract}
-            onDiscard={services.queueDiscard}
-            onChangeBehavior={services.queueChangeBehavior}
-          />
-        ) : undefined
-      }
-      terminalDockVisible={paneTerminalDockVisible}
-      terminalOpen={paneTerminalOpen}
-      // 本栏 dock 卸载不播关闭动画（面板随 open 立即卸载，closing 只在 App 级空态路径有意义）
-      terminalDockClosing={false}
-      terminalCollapsed={paneTerminalCollapsed}
-      availableTerminalHeight={services.availableTerminalHeight ?? 120}
-      terminalOwnerKey={paneOwnerKey}
-      terminalTarget={paneTerminal?.target}
-      setTerminalOpenForOwner={setPaneTerminalOpen}
-      setTerminalCollapsedForOwner={setPaneTerminalCollapsed}
-      setTerminalHeight={services.setTerminalHeight}
-      settingsOpen={settingsOpen}
-      environmentDialog={services.environmentDialog}
-      runCreateSessionDraft={services.runCreateSessionDraft}
-      abortAgent={services.abortAgent}
-    />
-    {rewindConfirm && (
-      <ConfirmDialog
-        title={t("rewind.restoreConfirmTitle")}
-        message={t("rewind.restoreConfirmMessage", {
-          id: rewindConfirm.id,
-          time: formatRelativeTime(rewindConfirm.timestamp),
-        })}
-        confirmLabel={t("rewind.restoreConfirmRestore")}
-        danger
-        onConfirm={() => void performRewindRestore()}
-        onCancel={() => setRewindConfirm(null)}
-      />
-    )}
-  </>
-    </FileLinkBaseProvider>
-  );
+	// 底栏 ask 是否占位：必须与 SessionRuntimeUiOverlay 用同一份同代判据（askUi.resolveActiveAskRequest），
+	// 否则 stale runtime 的残留 pending 请求会让 composer 白让一块高度。
+	const askPanelVisible = React.useMemo(() => Boolean(resolveActiveAskRequest(currentSessionRuntime, currentSessionRuntimeUi)), [currentSessionRuntime, currentSessionRuntimeUi]);
+
+	const activeAgent = runtime.activeAgentId ? services.agents.find((a) => a.id === runtime.activeAgentId) : undefined;
+	const canMutateActiveMessages = runtime.canMutateActiveMessages;
+	// 未启动时 activeAgent 为空，必须看 catalog backend，不能只看 live tab。
+	// DSH 本轮不做编辑/删除/重发（无 JSONL 离线改写）；ACP 历史存 agent 侧，
+	// PiDeck 无法重写（editMessage/deleteMessage/重发/fork/rewind 主进程均抛不支持），
+	// 入口不隐藏只会变成死胡同 toast。
+	// fork 对 pi/DSH 都始终提供入口：DSH 未激活时由 forkFromUserMessage 内部
+	// 先 activateRuntime 再 fork，不再用 canMutateActiveMessages 门控——否则打开
+	// 历史 DSH 会话（runtime 懒启动）时 fork 入口时有时无。
+	const isDshBackend = sessionRecord?.backend === "dsh" || activeAgent?.backend === "dsh";
+	const isAcpBackend = sessionRecord?.backend === "acp" || activeAgent?.backend === "acp";
+	const canEditOrDeleteMessages = !isDshBackend && !isAcpBackend;
+	const canResend = !isDshBackend && !isAcpBackend;
+
+	// 本栏运行控制快照：会话头部快捷钮按本会话 runtime 能力渲染，分屏两栏各算各的。
+	// 重载只有 pi 有（DSH/ACP reloadMode=none，头部不显示运行快捷钮）；LAN Web 无对应链路。
+	const paneRunCapabilities = services.getSessionRunCapabilities(currentSessionId);
+	const paneAgentId = currentSessionRuntime?.agentId;
+	const paneRunControl: SessionMenuRunControl | undefined = paneRunCapabilities
+		? {
+				capabilities: paneRunCapabilities,
+				isStopping: Boolean(services.stoppingAgentId && services.stoppingAgentId === paneAgentId),
+				isRestarting: runtime.isRestartingThisAgent || services.activatingSessionId === currentSessionId,
+				isReloading: services.reloadingSessionId === currentSessionId,
+				reloadMode: services.isLanWeb ? "none" : resolveSessionReloadMode(sessionRecord?.backend),
+				agentId: paneAgentId,
+				onCloseAgent: paneAgentId && services.requestCloseAgentForSession ? () => services.requestCloseAgentForSession?.(currentSessionId) : undefined,
+				onAction: (action) => void services.runSessionControl(currentSessionId, action),
+			}
+		: undefined;
+	// 会话操作菜单（原 Tab 栏「⋯」）：会话操作 / 代理 / 工具开关，按本栏会话现算。
+	const paneMenu: SessionMenuModel | undefined = services.getSessionMenu?.(currentSessionId);
+
+	// ── 回退到此消息：解析最近检查点 + 确认回退（仅 pi 后端注入入口）──
+	const [rewindConfirm, setRewindConfirm] = React.useState<RewindCheckpointSummary | null>(null);
+	const [rewinding, setRewinding] = React.useState(false);
+	const handleRewindToMessage = React.useCallback(
+		async (message: ChatMessage) => {
+			const target = toSessionRuntimeTarget(currentSessionId, currentSessionRuntime);
+			if (!target) {
+				services.showToast(t("rewind.unavailable"));
+				return;
+			}
+			let list: RewindCheckpointSummary[];
+			try {
+				// rewind-to-message 需要全量最近检查点（无 limit → 后端返回全部）。
+				list = requireSessionCommand(await desktopApi.sessions.listRewindCheckpoints(target)).value.items;
+			} catch (error) {
+				services.showToast(
+					sessionCommandFailureToast(error, (raw) => t("rewind.loadFailed", { error: raw })),
+					4000,
+				);
+				return;
+			}
+			// 最近的、时刻不晚于该消息的检查点 ≈ 该消息开始动文件之前的状态；
+			// 该轮没有文件类工具时自然落到上一轮的检查点，语义仍成立（撤销本消息起的改动）。
+			const nearest = [...list].sort((a, b) => b.timestamp - a.timestamp).find((cp) => cp.timestamp <= message.timestamp);
+			if (!nearest) {
+				services.showToast(t("rewind.empty"), 3000);
+				return;
+			}
+			setRewindConfirm(nearest);
+		},
+		[currentSessionId, currentSessionRuntime, services],
+	);
+	const performRewindRestore = React.useCallback(async () => {
+		if (!rewindConfirm) return;
+		const target = toSessionRuntimeTarget(currentSessionId, currentSessionRuntime);
+		if (!target) return;
+		setRewinding(true);
+		try {
+			await requireSessionCommand(await desktopApi.sessions.restoreRewindCheckpoint(target, rewindConfirm.id, "files"));
+			services.showToast(t("rewind.restoreDone", { id: rewindConfirm.id }));
+		} catch (error) {
+			services.showToast(
+				sessionCommandFailureToast(error, (raw) => t("rewind.restoreFailed", { error: raw })),
+				4000,
+			);
+		} finally {
+			setRewinding(false);
+			setRewindConfirm(null);
+		}
+	}, [currentSessionId, currentSessionRuntime, rewindConfirm, services]);
+
+	return (
+		<FileLinkBaseProvider baseDir={paneFileContext.baseDir} projectId={paneFileContext.projectId} projectRoot={paneFileContext.projectRoot} sessionId={currentSessionId}>
+			<>
+				<SessionView
+					sessionId={currentSessionId}
+					sessionTitle={sessionTitle}
+					sessionTimeline={sessionTimeline}
+					splitPane={splitPane}
+					focused={focused}
+					onFocusPane={onFocusPane}
+					activeAgentId={runtime.activeAgentId ?? undefined}
+					activeAgent={activeAgent}
+					hasActiveConversation={runtime.hasActiveConversation}
+					hasProject={runtime.sessionHasProject}
+					chatHeaderRef={chatHeaderRef}
+					composerRef={composerRef}
+					composerOffsetHeight={composerOffsetHeight}
+					terminalRowHeight={terminalRowHeight}
+					isAgentStarting={runtime.isAgentStarting}
+					isRestarting={runtime.isRestartingThisAgent}
+					runControl={paneRunControl}
+					menu={paneMenu}
+					sessionDuration={runtime.sessionDuration}
+					showThinking={services.showThinking}
+					validCommandNames={paneValidCommandNames}
+					validFilePaths={services.validFilePaths}
+					onPreviewImage={services.onPreviewImage}
+					onOpenFile={openPaneFile}
+					onDiffFile={services.onDiffFile}
+					onResendUserMessage={canResend ? services.resendUserMessage : undefined}
+					onEditMessage={canEditOrDeleteMessages ? services.editMessage : undefined}
+					onDeleteMessage={canEditOrDeleteMessages ? services.deleteMessage : undefined}
+					onRemoveMessageImage={!services.isLanWeb && (!sessionRecord?.backend || sessionRecord.backend === "pi") && sessionRecord?.filePath && services.removeMessageImage ? (message, index) => services.removeMessageImage?.(currentSessionId, message, index) : undefined}
+					onForkMessage={isAcpBackend ? undefined : services.forkFromUserMessage}
+					onRewindToMessage={isDshBackend || isAcpBackend ? undefined : handleRewindToMessage}
+					forkingMessageId={services.forkingMessageId}
+					onToast={(message: string) => services.showToast(message)}
+					onQuickPrompt={(message) => services.insertQuickPrompt(currentSessionId, message)}
+					canMutateActiveMessages={canMutateActiveMessages}
+					onOpenBranchSession={
+						services.activeProjectId && services.openSidebarSessionById
+							? (sessionId: string) => {
+									void services.openSidebarSessionById?.(services.activeProjectId!, sessionId);
+								}
+							: undefined
+					}
+					enqueueSessionPrompt={services.enqueueSessionPrompt}
+					gitInfo={paneGit.gitInfo}
+					onSwitchBranch={paneGit.switchBranch}
+					ensureSessionId={services.ensureSessionId}
+					// Ask 现由 SessionView 钉在时间线列底部（与输入框同级），不再进时间线滚动内容。
+					// askPanelVisible 决定底栏是否占位 + composer 高度预留；overlay 自己也用同一份判据。
+					askPanelVisible={askPanelVisible}
+					runtimeUi={runtimeUiResponder ? <SessionRuntimeUiOverlay sessionId={currentSessionId} runtime={currentSessionRuntime} ui={currentSessionRuntimeUi} responder={runtimeUiResponder} onExpandedChange={() => undefined} /> : null}
+					queuePanel={currentSessionId ? <QueuedPromptPanel trackRef={queuedTrackRef} sessionId={currentSessionId} prompts={activeQueuedPrompts} visiblePrompts={activeQueuedPrompts} onRetract={services.queueRetract} onDiscard={services.queueDiscard} onChangeBehavior={services.queueChangeBehavior} /> : undefined}
+					terminalDockVisible={paneTerminalDockVisible}
+					terminalOpen={paneTerminalOpen}
+					// 本栏 dock 卸载不播关闭动画（面板随 open 立即卸载，closing 只在 App 级空态路径有意义）
+					terminalDockClosing={false}
+					terminalCollapsed={paneTerminalCollapsed}
+					availableTerminalHeight={services.availableTerminalHeight ?? 120}
+					terminalOwnerKey={paneOwnerKey}
+					terminalTarget={paneTerminal?.target}
+					setTerminalOpenForOwner={setPaneTerminalOpen}
+					setTerminalCollapsedForOwner={setPaneTerminalCollapsed}
+					setTerminalHeight={services.setTerminalHeight}
+					terminalSettings={services.terminalSettings}
+					onTerminalThemeChange={services.onTerminalThemeChange}
+					settingsOpen={settingsOpen}
+					environmentDialog={services.environmentDialog}
+					runCreateSessionDraft={services.runCreateSessionDraft}
+					abortAgent={services.abortAgent}
+				/>
+				{rewindConfirm && (
+					<ConfirmDialog
+						title={t("rewind.restoreConfirmTitle")}
+						message={t("rewind.restoreConfirmMessage", {
+							id: rewindConfirm.id,
+							time: formatRelativeTime(rewindConfirm.timestamp),
+						})}
+						confirmLabel={t("rewind.restoreConfirmRestore")}
+						danger
+						onConfirm={() => void performRewindRestore()}
+						onCancel={() => setRewindConfirm(null)}
+					/>
+				)}
+			</>
+		</FileLinkBaseProvider>
+	);
 });

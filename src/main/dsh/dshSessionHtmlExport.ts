@@ -23,12 +23,7 @@ export const EXPORT_IMAGE_MAX_DATA_URL_CHARS = 8_000_000;
 
 /** HTML 转义（所有用户/模型文本必经，防注入与破坏布局）。 */
 export function escapeHtml(value: string): string {
-	return value
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;")
-		.replace(/'/g, "&#39;");
+	return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 /** 导出文件名安全化：去掉路径分隔符与文件系统非法字符，限长；空则用 fallback。 */
@@ -80,6 +75,8 @@ export function renderExportText(value: string): string {
 
 /** 用户消息图片（base64 data → 内联 data URL；超限跳过并注明，防超大 HTML）。 */
 function renderExportImage(image: ImageContent): string {
+	// DSH 会话图片始终带内联字节；缺字节（异常数据）时跳过而不是导出半截 URL
+	if (!image.data) return "";
 	const dataUrl = `data:${image.mimeType};base64,${image.data}`;
 	if (dataUrl.length > EXPORT_IMAGE_MAX_DATA_URL_CHARS) {
 		return `<div class="image-skipped">(image omitted: too large for export)</div>`;
@@ -94,14 +91,8 @@ function renderToolMessage(message: ChatMessage): string {
 	const status = meta?.status === "running" ? "running" : "done";
 	const durationMs = typeof meta?.durationMs === "number" ? meta.durationMs : undefined;
 	const args = meta?.args;
-	const argsHtml = args !== undefined
-		? `<details class="tool-args"><summary>arguments</summary><pre>${escapeHtml(
-			typeof args === "string" ? args : JSON.stringify(args, null, 2),
-		)}</pre></details>`
-		: "";
-	const resultText = message.text.includes(": ")
-		? message.text.slice(message.text.indexOf(": ") + 2)
-		: "";
+	const argsHtml = args !== undefined ? `<details class="tool-args"><summary>arguments</summary><pre>${escapeHtml(typeof args === "string" ? args : JSON.stringify(args, null, 2))}</pre></details>` : "";
+	const resultText = message.text.includes(": ") ? message.text.slice(message.text.indexOf(": ") + 2) : "";
 	return `<div class="tool-card ${status}">
   <div class="tool-header">
     <span class="tool-name">${escapeHtml(toolName)}</span>
@@ -128,9 +119,7 @@ function renderMessage(message: ChatMessage): string {
 		case "assistant":
 			return `<div class="msg assistant">
   <div class="msg-meta"><span class="role-badge assistant">assistant</span><span class="time">${escapeHtml(time)}</span></div>
-  ${message.thinking
-		? `<details class="thinking"><summary>thinking</summary><div class="thinking-body">${renderExportText(message.thinking)}</div></details>`
-		: ""}
+  ${message.thinking ? `<details class="thinking"><summary>thinking</summary><div class="thinking-body">${renderExportText(message.thinking)}</div></details>` : ""}
   <div class="msg-body">${renderExportText(message.text)}</div>
 </div>`;
 		default:
@@ -213,11 +202,7 @@ pre.code-block {
 /** 全量渲染：messages → 自包含 HTML 文档。 */
 export function renderDshSessionHtml(messages: ChatMessage[], meta: DshSessionExportMeta): string {
 	const exportedAt = new Date(meta.exportedAt ?? Date.now()).toLocaleString();
-	const subItems = [
-		meta.dshSessionId ? `session ${escapeHtml(meta.dshSessionId)}` : "",
-		meta.cwd ? `workspace ${escapeHtml(meta.cwd)}` : "",
-		`exported ${escapeHtml(exportedAt)}`,
-	].filter(Boolean);
+	const subItems = [meta.dshSessionId ? `session ${escapeHtml(meta.dshSessionId)}` : "", meta.cwd ? `workspace ${escapeHtml(meta.cwd)}` : "", `exported ${escapeHtml(exportedAt)}`].filter(Boolean);
 	return `<!doctype html>
 <html lang="zh-CN">
 <head>

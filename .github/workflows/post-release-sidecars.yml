@@ -1,0 +1,53 @@
+name: Post-release sidecars
+
+# 发版收尾链路（2026-09 起简化）：应用 Release 发布后触发 AtomGit 镜像同步。
+#
+# 历史职责变更：本 workflow 原本还要「原生补齐 win32-arm64 / darwin-x64 两份
+# runtime tgz」（release.yml 的 5 个构建 job 只能产出本机平台 runtime，macOS x64
+# 构建 job 跑在 arm64 runner 上、Windows 没有 arm64 构建 job，这两个平台天然缺口，
+# 且原生 prebuild 不能交叉打包）。runtime 打包改为 lock 驱动的交叉解析后（
+# scripts/pack-dsh-runtime 脚本的 --target-os/--target-arch 模式，WSL 真机 boot 验证见
+# docs/dsh-runtime-cross-pack.md），release.yml 内的交叉打包 job 在一个
+# ubuntu runner 上即可产出全部 6 份归档，本 workflow 的补发职责移除，只保留
+# sync-atomgit 触发兜底。
+#
+# 事件模型：release.yml 用 RELEASE_PAT 发布 Release（GITHUB_TOKEN 发布不广播
+# release: published，防递归），因此本 workflow 能被触发。release 事件使用「默认分支」
+# 上的 workflow 文件——本文件必须先合入 main，才会对之后的发布生效。
+# 交叉打包 job 也用 PAT 上传资产，但它不触发本 workflow（上传只产生
+# release: edited 事件），因此这里保留 release: published 直接触发 sync-atomgit。
+# 上传目标限定 v*（禁止 sidecar tag 抢 /releases/latest，同 ^v[0-9] 契约）。
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+# 同一 Release 的同步不并发（与 release: published 直接触发的 sync-atomgit
+# 互不冲突：同名同大小资产自动跳过；这里防同事件重复排队）。
+concurrency:
+  group: post-release-sidecars-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  trigger-atomgit-sync:
+    name: Trigger sync-atomgit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger sync-atomgit for this release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          # 必须走 tags_custom（自由字符串）而不是下拉的 tags：
+          # `type: choice` 的输入在 dispatch 时会被服务端校验，值不在静态 options 列表里
+          # 直接 422 拒绝。本步骤是无人值守的自动链，万一发版时忘了跑
+          # scripts/sync-workflow-choices.js 把新 tag 插进列表，整条 AtomGit 同步就会静默断掉。
+          # tags_custom 无列表校验，从根上解耦（beta / 补发历史版本场景同样安全）。
+          gh workflow run sync-atomgit.yml \
+            --repo "${{ github.repository }}" \
+            -f "tags_custom=${TAG}"
+          echo "已触发 sync-atomgit.yml，目标 tag：${TAG}"

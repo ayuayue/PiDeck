@@ -34,7 +34,11 @@ type PetDexManifest = { id: string; displayName?: string; description?: string; 
 export { petSpriteUrl, spriteMimeOf } from "./petSpriteUrl.ts";
 
 async function fileExists(p: string): Promise<boolean> {
-	try { return (await stat(p)).isFile(); } catch { return false; }
+	try {
+		return (await stat(p)).isFile();
+	} catch {
+		return false;
+	}
 }
 
 /** 文件指纹（mtimeMs + size）；不存在/不可读时标记 missing（出现或恢复会触发失效）。 */
@@ -99,8 +103,15 @@ export class PetPackageScanner {
 			parts.push(await fileFingerprint(m.spritePath));
 		}
 		let entries: Dirent[] = [];
-		try { entries = await readdir(this.petsRoot, { withFileTypes: true }); } catch { /* 目录不存在 */ }
-		const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
+		try {
+			entries = await readdir(this.petsRoot, { withFileTypes: true });
+		} catch {
+			/* 目录不存在 */
+		}
+		const dirs = entries
+			.filter((e) => e.isDirectory())
+			.map((e) => e.name)
+			.sort();
 		parts.push(`dirs:${dirs.join(",")}`);
 		for (const name of dirs) {
 			parts.push(`pet:${await fileFingerprint(join(this.petsRoot, name, "pet.json"))}`);
@@ -122,7 +133,11 @@ export class PetPackageScanner {
 		// petdex 社区包：<petsRoot>/<name>/pet.json
 		const root = resolve(this.petsRoot) + sep;
 		let entries: Dirent[] = [];
-		try { entries = await readdir(this.petsRoot, { withFileTypes: true }); } catch { /* 目录不存在 */ }
+		try {
+			entries = await readdir(this.petsRoot, { withFileTypes: true });
+		} catch {
+			/* 目录不存在 */
+		}
 
 		for (const entry of entries) {
 			if (!entry.isDirectory()) continue;
@@ -139,7 +154,9 @@ export class PetPackageScanner {
 				if (!(await fileExists(spriteAbs))) continue;
 				byId.set(json.id, { id: json.id, displayName: json.displayName ?? json.id, description: json.description, source: "petdex", spritesheetUrl: petSpriteUrl(json.id) });
 				idToPath.set(json.id, spriteAbs);
-			} catch { /* 单个包失败不影响整体 */ }
+			} catch {
+				/* 单个包失败不影响整体 */
+			}
 		}
 
 		this.idToPath = idToPath;

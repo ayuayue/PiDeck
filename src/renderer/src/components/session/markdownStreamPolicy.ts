@@ -43,3 +43,29 @@ export function shouldRenderStreamPlain(input: {
 export function shouldKeepLightOnSettle(textLength: number): boolean {
 	return textLength > SETTLE_FULL_MAX_CHARS;
 }
+
+/** settle 后默认折叠的超长正文阈值：超过后正文只渲染预览前缀 + 「展开全文」，
+ * 展开前不构建完整 markdown DOM。
+ * 背景（2026-10 DSH 长回合卡顿）：单个 turn 可持续数十分钟、产出 100-200KB 的
+ * 单条 assistant 正文（数千段落 + 数十个代码围栏）。settle 后全量渲染会把
+ * 数万~数十万 DOM 节点永久留在时间线里（turn 级窗口按轮折叠，帮不上单轮内的
+ * 巨型消息），滚动/布局全程卡顿、内存压力拖慢整机。该阈值把常驻 DOM 封顶在
+ * 预览长度量级；用户点「展开全文」才付出全量渲染成本（展开后仍受
+ * SETTLE_FULL_MAX_CHARS 轻量插件上限约束）。正常回复远小于该值，不受影响。 */
+export const SETTLED_COLLAPSE_MIN_CHARS = 30_000;
+
+/** 折叠态预览前缀长度：预览足够读清结论，又保证渲染/布局成本可忽略。 */
+export const SETTLED_COLLAPSE_PREVIEW_CHARS = 6_000;
+
+/** settle 正文是否默认折叠（流式路径不受影响——流式已有 >40K 纯文本兜底）。 */
+export function shouldCollapseSettledText(textLength: number): boolean {
+	return textLength > SETTLED_COLLAPSE_MIN_CHARS;
+}
+
+/** 折叠态预览切片：优先回退到段落边界（避免半个代码围栏/表格进预览），
+ * 前半找不到空行（超长单段）就原样截断——纯展示副本，不改写消息原文。 */
+export function settledCollapsePreview(text: string): string {
+	const raw = text.slice(0, SETTLED_COLLAPSE_PREVIEW_CHARS);
+	const cut = raw.lastIndexOf("\n\n");
+	return cut >= SETTLED_COLLAPSE_PREVIEW_CHARS / 2 ? raw.slice(0, cut) : raw;
+}

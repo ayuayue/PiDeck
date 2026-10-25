@@ -17,31 +17,31 @@ import { useSessionPaneServices } from "./SessionPaneServices";
  * - title 带出当前目录路径，用户不点也知道聊天记录存在哪。
  */
 export function ChatDirectoryButton(props: { sessionId: string }) {
-  const session = useAtomValue(sessionRecordByIdAtomFamily(props.sessionId));
-  const project = useAtomValue(projectByIdAtomFamily(session?.projectId ?? ""));
-  const { changeChatPath, showNotice } = useSessionPaneServices();
+	const session = useAtomValue(sessionRecordByIdAtomFamily(props.sessionId));
+	const project = useAtomValue(projectByIdAtomFamily(session?.projectId ?? ""));
+	const { changeChatPath, showNotice } = useSessionPaneServices();
 
-  // 非内置聊天会话（普通项目/匿名）不渲染：普通项目有自己更完整的目录管理入口
-  if (!session || !isChatProject(project)) return null;
+	// 非内置聊天会话（普通项目/匿名）不渲染：普通项目有自己更完整的目录管理入口
+	if (!session || !isChatProject(project)) return null;
 
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-sm"
-      className="chat-directory-button size-7 shrink-0 text-muted-foreground hover:text-foreground"
-      title={`${t("app.chatProjectSettings")}\n${project.path}`}
-      aria-label={t("app.chatProjectSettings")}
-      onClick={() => {
-        // changeChatPath 内部已处理「取消选择 / 路径未变」的静默返回；
-        // 只有真正的写入/重扫失败会走到这里，用 notice 兜底提示。
-        void changeChatPath(project).catch((error: unknown) => {
-          const message = error instanceof Error ? error.message : String(error);
-          showNotice(message, 5000, "error");
-        });
-      }}
-    >
-      <FolderCog className="size-3.5" aria-hidden="true" />
-    </Button>
-  );
+	return (
+		<Button
+			type="button"
+			variant="ghost"
+			size="icon-sm"
+			className="chat-directory-button size-7 shrink-0 text-muted-foreground hover:text-foreground"
+			title={`${t("app.chatProjectSettings")}\n${project.path}`}
+			aria-label={t("app.chatProjectSettings")}
+			onClick={() => {
+				// changeChatPath 内部已处理「取消选择 / 路径未变」的静默返回；
+				// 只有真正的写入/重扫失败会走到这里，用 notice 兜底提示。
+				void changeChatPath(project).catch((error: unknown) => {
+					const message = error instanceof Error ? error.message : String(error);
+					showNotice(message, 5000, "error");
+				});
+			}}
+		>
+			<FolderCog className="size-3.5" aria-hidden="true" />
+		</Button>
+	);
 }

@@ -2,20 +2,9 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { ChevronsDownUp, ChevronsUpDown, ChevronDown, ChevronRight, X } from "lucide-react";
 import { t } from "../../i18n";
 import { Button } from "./button";
-import {
-	Command,
-	CommandEmpty,
-	CommandGroup,
-	CommandInput,
-	CommandList,
-} from "./command";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandList } from "./command";
 import { cn } from "../../lib/utils";
-import {
-	INITIAL_PICKER_GROUP_SELECTION,
-	applyPickerGroupAction,
-	resolveGroupExpanded,
-	type PickerGroupSelection,
-} from "./commandPickerExpansion";
+import { INITIAL_PICKER_GROUP_SELECTION, applyPickerGroupAction, resolveGroupExpanded, type PickerGroupSelection } from "./commandPickerExpansion";
 
 type CommandPickerContextValue = {
 	searchActive: boolean;
@@ -23,6 +12,9 @@ type CommandPickerContextValue = {
 	defaultExpandedIds: ReadonlySet<string> | null;
 	toggleGroup: (id: string) => void;
 };
+
+/** cmdk 过滤函数签名（value/keywords 参与匹配，返回分数，>0 显示）。 */
+export type CommandPickerFilter = (value: string, search: string, keywords: string[] | undefined) => number;
 
 const CommandPickerContext = createContext<CommandPickerContextValue>({
 	searchActive: false,
@@ -67,12 +59,12 @@ export function CommandPickerGroup(props: {
 				onClick={() => toggleGroup(props.id)}
 			>
 				{expanded ? <ChevronDown className="size-3.5 flex-none" aria-hidden="true" /> : <ChevronRight className="size-3.5 flex-none" aria-hidden="true" />}
-				<span className="max-w-[45%] flex-none truncate">{props.label}</span>
-				{props.count != null && (
-					<span className="flex-none font-mono text-caption text-muted-foreground/70">
-						{props.countText ?? props.count}
-					</span>
-				)}
+				{/* label/count 用 self-baseline 而不是让容器 items-baseline：名称是 text-control(13px/20px)、数量是
+				    text-caption(12px/18px)，items-center 只对齐行盒中心，两条基线会差约 2px（数量看起来悬在名称上方）。
+				    箭头与 trailing 无文字基线需保持居中，故只在有文字的这两个元素上覆盖对齐方式。 */}
+				<span className="max-w-[45%] flex-none self-baseline truncate">{props.label}</span>
+				{/* 数量不用 font-mono：串内含中文必然回退到 CJK 字体，等宽只对「数字列」有意义，此处混排徒增一套字形。 */}
+				{props.count != null && <span className="flex-none self-baseline text-caption text-muted-foreground/70">{props.countText ?? props.count}</span>}
 				{/* 弹性空隙：把 trailing（用量等）推到行最右，与名称/数量分开，避免挤在一起 */}
 				<span className="min-w-4 flex-1" />
 				{props.trailing}
@@ -99,6 +91,12 @@ export function CommandPickerPanel(props: {
 	headerAction?: ReactNode;
 	/** 默认展开的分组 id 集合；null（缺省）= 默认全展开。未覆盖的分组始终跟随该集合（数据异步到达后自动生效）。 */
 	defaultExpandedIds?: ReadonlySet<string> | null;
+	/**
+	 * 过滤函数（缺省用 cmdk 内置 fuzzy 匹配）。模型选择器等长列表需要
+	 * 精确子串过滤：内置 fuzzy 对任意子序列都返回 >0，供应商名（如
+	 * "tokendance"）在 keywords 里会让 1-2 字符搜索词命中全部模型。
+	 */
+	filter?: CommandPickerFilter;
 	children: ReactNode;
 	className?: string;
 }) {
@@ -127,9 +125,7 @@ export function CommandPickerPanel(props: {
 		if (!value) return;
 		const frame = window.requestAnimationFrame(() => {
 			const items = listHostRef.current?.querySelectorAll<HTMLElement>("[data-picker-value]");
-			const selected = Array.from(items ?? []).find(
-				(item) => item.getAttribute("data-picker-value")?.toLowerCase() === value,
-			);
+			const selected = Array.from(items ?? []).find((item) => item.getAttribute("data-picker-value")?.toLowerCase() === value);
 			selected?.scrollIntoView({ block: "center" });
 		});
 		return () => window.cancelAnimationFrame(frame);
@@ -184,31 +180,18 @@ export function CommandPickerPanel(props: {
 					)}
 					{props.headerAction}
 					{props.onClose && (
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							className="text-muted-foreground hover:text-foreground"
-							aria-label={t("common.close")}
-							title={t("common.close")}
-							onClick={props.onClose}
-						>
+						<Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-foreground" aria-label={t("common.close")} title={t("common.close")} onClick={props.onClose}>
 							<X size={16} strokeWidth={2} aria-hidden="true" />
 						</Button>
 					)}
 				</div>
 			</header>
-			<Command defaultValue={props.value} onValueChange={props.onValueChange} className="min-h-0 rounded-none">
-				<CommandInput
-					onValueChange={setSearch}
-					placeholder={props.searchPlaceholder}
-					autoFocus
-				/>
+			<Command defaultValue={props.value} onValueChange={props.onValueChange} filter={props.filter} className="min-h-0 rounded-none">
+				<CommandInput onValueChange={setSearch} placeholder={props.searchPlaceholder} autoFocus />
 				<div ref={listHostRef} className="min-h-0">
 					<CommandList className="max-h-[min(440px,55vh)] min-h-0">
 						{search.trim() ? <CommandEmpty>{props.emptyLabel}</CommandEmpty> : null}
-						<CommandPickerContext.Provider value={{ searchActive: search.trim().length > 0, selection, defaultExpandedIds, toggleGroup }}>
-							{props.children}
-						</CommandPickerContext.Provider>
+						<CommandPickerContext.Provider value={{ searchActive: search.trim().length > 0, selection, defaultExpandedIds, toggleGroup }}>{props.children}</CommandPickerContext.Provider>
 					</CommandList>
 				</div>
 			</Command>

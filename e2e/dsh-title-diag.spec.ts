@@ -18,8 +18,7 @@ test("DSH 标题同步诊断", async ({ window, userDataRoot }) => {
 	const realSettings = join(homedir(), ".dsh", "settings.yaml");
 	if (existsSync(realSettings)) copyFileSync(realSettings, join(dshHome, "settings.yaml"));
 	await window.evaluate(async (dir) => {
-		await (window as unknown as { piDesktop: { settings: { update: (patch: { dshHomeDir?: string }) => Promise<unknown> } } })
-			.piDesktop.settings.update({ dshHomeDir: dir });
+		await (window as unknown as { piDesktop: { settings: { update: (patch: { dshHomeDir?: string }) => Promise<unknown> } } }).piDesktop.settings.update({ dshHomeDir: dir });
 	}, dshHome);
 
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });

@@ -1,9 +1,13 @@
 ---
 layout: home
+# 首页 title/description：面向「pi desktop / pi 桌面客户端 / AI 编码助手桌面」等核心搜索词，
+# 覆盖全局默认值（VitePress home 布局不会从正文提取描述）。
+title: PiDeck - pi desktop 桌面工作台 | 多项目 pi Agent 客户端
+description: PiDeck 是开源的 pi desktop 桌面工作台（pi 桌面客户端），在统一窗口管理多个 pi AI 编码助手会话、Git、终端与模型配置，支持导入 Codex/Claude 会话，覆盖 Windows、macOS、Linux。
 
 hero:
   name: PiDeck
-  text: 多项目 pi Agent 桌面工作台
+  text: 多项目 pi Agent <span class="keep-together">桌面工作台</span>
   tagline: 在统一的桌面工作区中管理本地 pi 编码助手会话、配置、Git 和终端，支持 Windows、macOS、Linux，让本地 AI 编码工作流更稳定高效。
   actions:
     - theme: brand
@@ -13,27 +17,40 @@ hero:
       text: 快速开始
       link: /guide/getting-started
     - theme: alt
-      text: 查看 GitHub
-      link: https://github.com/ayuayue/PiDeck
+      text: 源码仓库
+      items:
+        - text: GitHub 仓库（海外）
+          link: https://github.com/ayuayue/PiDeck
+        - text: AtomGit 仓库（国内镜像）
+          link: https://atomgit.com/ayuayue/PiDeck
 
 features:
-  - title: 多项目工作区
+  - icon: 🗂️
+    title: 多项目工作区
     details: 添加、搜索、拖动排序和切换本地项目目录，每个 Agent 会话都保持项目级隔离，同时运行多个 pi Agent。
-  - title: 会话历史与恢复
+  - icon: 🕘
+    title: 会话历史与恢复
     details: 恢复历史会话，按时间线查看工具调用和回答细节，并回放历史会话中的修改内容，支持 Codex 和 Claude 会话导入。
-  - title: Git 集成
+  - icon: 🌿
+    title: Git 集成
     details: 实时分支显示和切换，文件树展示 Git 状态，VS Code 风格三面板（变更/历史/比较），AI 提交摘要生成，branch graph 可视化，cherry-pick/revert/reset/drop 操作，worktree 工作区支持。
-  - title: 对话 & 引用
+  - icon: 💬
+    title: 对话 & 引用
     details: "& 会话引用快捷输入，跨会话上下文注入。消息队列在 Agent 忙碌时排队发送。会话大纲面板快速跳转。"
-  - title: 文件编辑器
+  - icon: 📝
+    title: 文件编辑器
     details: 多 Tab 文件编辑器，弹框/侧栏双模式，Diff 差异对比，Markdown 预览，Monaco 编辑器支持。
-  - title: 内置工具
+  - icon: 🧰
+    title: 内置工具
     details: 内置浏览器（多标签/全屏/设备预设）、草稿本、外部编辑器集成、浮动快捷操作栏、内置终端。
-  - title: 内嵌终端 Dock
+  - icon: 🖥️
+    title: 内嵌终端 Dock
     details: 当前 Agent 绑定独立终端 tab，支持 PowerShell/cmd/sh fallback、多 tab、主题切换、拖拽高度、右键复制。
-  - title: 配置与插件管理
+  - icon: ⚙️
+    title: 配置与插件管理
     details: 可视化编辑 Models、Auth、Settings，全局和项目级 Skills 与 Extension 管理，斜线命令和模板快速插入。
-  - title: 跨平台下载
+  - icon: 🌐
+    title: 跨平台下载
     details: Windows、macOS、Linux 安装包通过 GitHub Releases 发布，源码开发支持 npm 命令，内置浏览器预览。
 ---
 
@@ -41,6 +58,8 @@ features:
   <img src="/images/overview.png" alt="PiDeck 工作区与对话界面截图">
   <figcaption>工作区、会话、文件抽屉、Git 分支和工具调用集中在同一个桌面窗口中。</figcaption>
 </figure>
+
+<p class="version-badge"><a href="/changelog">v0.7.8</a> 已发布 · <a href="/guide/getting-started#下载安装">下载安装</a> · <a href="/changelog">查看更新日志</a></p>
 
 ## 面向本地开发的桌面控制台
 
@@ -88,9 +107,17 @@ features:
 
 ## 社区交流
 
-加入 PiDeck QQ 群进行交流、反馈和讨论：
+加入 PiDeck 社区群进行交流、反馈和讨论：
 
-**1026218644**
+| 渠道 | 入口 |
+|---|---|
+| **QQ 交流群** | `1026218644`（点右侧按钮复制） <CopyText text="1026218644" /> |
+| **微信群** | 扫描下方二维码（群二维码 7 天有效，过期请加作者微信） |
+| **作者微信** | `caoayu97`（加好友请备注「PiDeck」） <CopyText text="caoayu97" /> |
+
+<p class="community-block">
+  <img class="community-qr" src="/images/wechat-qrcode.png" alt="PiDeck 微信群二维码" />
+</p>
 
 ---
 
@@ -99,6 +126,16 @@ features:
 - 想直接使用：前往 [下载安装](/guide/getting-started#下载安装)。
 - 想从源码运行：查看 [快速开始](/guide/getting-started#从源码运行)。
 - 想了解功能边界：查看 [功能介绍](/guide/features)。
+
+---
+
+## 🛒 作者的小店
+
+顺手打个广告：需要充值 ChatGPT Plus / Pro、Claude 的同学可以找我 —— 官网直充、保订阅，成品号质保订阅，可开发票（加 6% 税点）。
+
+<p class="shop-block">
+  <a href="/images/gpt-recharge-price.png"><img class="shop-price" src="/images/gpt-recharge-price.png" alt="GPT 充值价目表" /></a>
+</p>
 
 ---
 

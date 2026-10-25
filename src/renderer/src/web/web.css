@@ -61,6 +61,11 @@
   --color-warning: #f59e0b;       /* amber-500 */
   --color-info: #3b82f6;          /* blue-500 */
 
+  /* 身份色（与状态色解耦）：工具走 info 蓝、思考走靛紫，与桌面 foundation 同语义。
+     web.css 覆盖 :root 时必须带上，否则过程行图标掉回灰字。 */
+  --color-tool: var(--color-info);
+  --color-thinking: #6366f1;      /* indigo-500 */
+
   /* 代码面（--dsl-code-block-*） */
   --color-code-bg: #171a26;
   --color-code-text: #d1d5db;
@@ -99,11 +104,27 @@
   --color-warning: #fbbf24;
   --color-info: #60a5fa;
 
+  /* 身份色暗色档：蓝/靛紫提亮一档保证近黑底上的辨识度 */
+  --color-tool: var(--color-info);
+  --color-thinking: #818cf8;      /* indigo-400 */
+
   --color-code-bg: #171a26;
   --color-code-text: #d1d5db;
 }
 
 /* ── dsh-web 结构精修（仅 Web 页）─────────────────────────────────────── */
+
+/* 键盘焦点环：Web 页大量交互是「图标按钮 + 自定义会话行」（原生 button 的
+   outline 被 shadcn button 的 outline-none 清掉，会话行又不是 button），
+   走查 14 实测图标按钮 focus 后 outlineStyle: none 且 boxShadow 透明，键盘用户
+   完全看不到落点。这里统一补一层 ring，视觉与桌面端 foundation 的中性环一致。 */
+.web-app button:focus-visible,
+.web-app [role="button"]:focus-visible,
+.web-app a:focus-visible,
+.web-app [tabindex]:focus-visible {
+  outline: 2px solid var(--color-text-primary);
+  outline-offset: 2px;
+}
 
 /* 侧栏：layer-2 表面 + 细边框；会话行 hover 用 interactive hover 面 */
 .web-app .chat-list-pane {
@@ -124,7 +145,7 @@
 }
 
 /* 头部：细底边框 + 半透明毛玻璃（dsh-web 的浮层头部观感） */
-.web-app .chat-header {
+.web-app .web-header {
   background: color-mix(in srgb, var(--color-bg-app) 86%, transparent);
   backdrop-filter: blur(10px);
   border-bottom-color: var(--color-border-subtle);
@@ -135,6 +156,22 @@
   max-width: 860px;
   margin: 0 auto;
   width: 100%;
+}
+
+/* 空态：web 入口不加载桌面 foundation.css 的 empty-state 样式，这里自带居中，
+ 否则 Logo 按 block 默认靠左（WebTimeline .empty-state 内 .empty-logo）。 */
+.web-app .message-timeline .empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 56vh;
+  text-align: center;
+}
+.web-app .message-timeline .empty-state .empty-hint {
+  margin: 0;
+  color: var(--color-text-secondary);
 }
 
 /* 用户气泡：dsh-web 风格（layer-2 面 + 细边框 + 14px 圆角） */
@@ -183,13 +220,59 @@
   background-clip: content-box;
 }
 
-/* 工具卡/思考卡：统一细边框 + 圆角（dsw alias 边框层级） */
-.web-app .tool-card,
-.web-app .thinking-block {
-  border-color: var(--color-border-default);
-  border-radius: 10px;
-  background: var(--color-bg-panel);
+/* 代码块复制按钮：桌面 28px 在触屏上误触率高，触屏（pointer:coarse）放大到 36px
+   （移动走查 #5；类来自 timeline.css 的 .code-copy，只在 Web 作用域放大）。 */
+@media (pointer: coarse) {
+  .web-app .code-copy {
+    min-width: 36px;
+    min-height: 36px;
+  }
+  /* markdown 正文内渲染器自带的图标钮（streamdown 表格复制/下载/全屏、mermaid 工具条）：
+     库内按钮 26px 无触屏变体，统一在此放大。sanitize 保证正文里不会出现用户注入的
+     原生 button，命中面只有渲染器 chrome。 */
+  .web-app .markdown-body button {
+    min-width: 36px;
+    min-height: 36px;
+  }
 }
+
+/* 工具卡/思考块：对齐桌面「无框过程行」视觉（timeline.css 的原始意图）——
+   身份靠图标色/状态色/扫光，展开靠左竖线，不画外框、不铺面板底。
+   早期版本曾给它们加边框+面板底做成「卡片」，在窄屏上显得笨重松散，此处回收。 */
+.web-app .tool-card {
+  border: 0;
+  background: transparent;
+}
+/* 工具图标身份色：running 时转警告色并呼吸（桌面 tool-icon-breathe 同效，keyframes 已在 timeline.css） */
+.web-app .tool-card .tool-card-icon {
+  color: var(--color-tool);
+}
+.web-app .tool-card.tone-running .tool-card-icon,
+.web-app .tool-card[data-status="running"] .tool-card-icon {
+  color: var(--color-warning);
+  animation: tool-icon-breathe 1.6s ease-in-out infinite;
+}
+.web-app .tool-card.tone-error .tool-card-icon,
+.web-app .tool-card[data-status="error"] .tool-card-icon {
+  color: var(--color-danger);
+}
+
+/* 过程组（回合折叠容器）：对齐桌面 process-summary 的左导轨结构。
+   摘要条常驻；展开后明细区以细竖线缩进，把工具/思考/中间回复串成一条执行流。
+   间距收紧：组内明细行距 4px、思考/工具行自带 pb-1，避免桌面默认 pb-2 叠加出的空隙。 */
+.web-app .execution-fold {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.web-app .execution-fold-details {
+  margin-left: 7px;
+  padding-left: 10px;
+  gap: 4px;
+  border-left: 1px solid color-mix(in srgb, var(--color-border-default) 70%, transparent);
+}
+/* 思考行图标走靛紫身份色（thinking-row-icon 类在 timeline.css 已定义 color，
+   这里仅确保 web 覆盖后变量可用，无需重复声明）。 */
 
 /* 桌面遗留的「整行按压缩放」反馈（foundation.css 的
    .project-group > .conversation:first-child:active 会 scale(0.985)）：
@@ -213,6 +296,19 @@
   flex: 1 1 0;
   min-width: 0;
   min-height: 0;
+}
+
+/* ── 移动端长内容换行（Web 走查 #4）─────────────────────────────────────
+   390px 视口下 .markdown-body 的有序/无序列表实测 scrollWidth 溢出容器（373 > 358）：
+   timeline.css 只给 .assistant-text 等节点声明了 overflow-wrap/word-break，列表项
+   自身仍是默认的 normal，长英文串/路径会把行盒顶宽。这里按 .web-app 作用域补齐，
+   不影响桌面端（桌面端列表宽裕，保持原排版）。 */
+.web-app .markdown-body ul,
+.web-app .markdown-body ol,
+.web-app .markdown-body li {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
 }
 
 /* Mobile starts with chat full-screen; the project tree is a temporary drawer. */
@@ -270,13 +366,6 @@
     opacity: 1;
     pointer-events: auto;
   }
-  .app.wechat-shell .chat-header {
-    align-items: flex-start;
-  }
-  .app.wechat-shell .chat-header-actions {
-    width: 100%;
-    justify-content: flex-start;
-  }
   .app.wechat-shell .project-row-actions .project-action {
     min-width: 32px;
     min-height: 32px;
@@ -290,7 +379,36 @@
     padding-bottom: 8px;
   }
   .app.wechat-shell .composer-box {
-    min-height: 6rem;
+    min-height: 0;
     border-radius: 12px;
   }
+}
+
+/* ── 消息编辑/删除反馈动画 ──────────────────────────────────────────────
+   runtime 编辑/删除要走「停 agent → 改文件 → pi 重载」全链路（数秒），乐观更新
+   先落地，这里补两段过渡：删除淡出上移后移除；编辑保存成功后气泡闪一拍品牌色环。 */
+@keyframes web-msg-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@keyframes web-msg-flash-ring {
+  0% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-info) 40%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(0 0 0 / 0%);
+  }
+}
+.web-app .web-msg-exiting {
+  animation: web-msg-exit 180ms ease-in forwards;
+  pointer-events: none;
+}
+.web-app .web-msg-flash-ring {
+  animation: web-msg-flash-ring 1.1s ease-out;
 }

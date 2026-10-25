@@ -24,9 +24,7 @@ export interface ToolEntry {
 	output?: string;
 }
 
-export type Block =
-	| { kind: "text"; content: string; streaming: boolean }
-	| { kind: "tool"; tool: ToolEntry };
+export type Block = { kind: "text"; content: string; streaming: boolean } | { kind: "tool"; tool: ToolEntry };
 
 export type FooterStatus = "thinking" | "tool_running" | "streaming" | null;
 
@@ -60,7 +58,9 @@ export interface RunState {
 }
 
 let _trailSeq = 0;
-function nextTrailId(): string { return `trail_${Date.now()}_${++_trailSeq}`; }
+function nextTrailId(): string {
+	return `trail_${Date.now()}_${++_trailSeq}`;
+}
 
 export function createInitialState(): RunState {
 	return {
@@ -104,24 +104,17 @@ function updateLastTrailByText(state: RunState, text: string, status: TrailEntry
 }
 
 function finalizeAllTrail(state: RunState): RunState {
-	const trail = state.trail.map((t) => t.status === "running" ? { ...t, status: "done" as const } : t);
+	const trail = state.trail.map((t) => (t.status === "running" ? { ...t, status: "done" as const } : t));
 	return { ...state, trail };
 }
 
 // ===== 主 reducer =====
 
 /** 从 AgentManager 事件 reduce 状态 */
-export function reduceFromPiEvent(
-	state: RunState,
-	event: Record<string, unknown>,
-	locale: FeishuLocale = "zh-CN",
-): RunState {
+export function reduceFromPiEvent(state: RunState, event: Record<string, unknown>, locale: FeishuLocale = "zh-CN"): RunState {
 	switch (event.type) {
 		case "agent_start":
-			return addTrail(
-				{ ...state, footer: "thinking" },
-				"agent", feishuT(locale, "run.agentStarted"), "done",
-			);
+			return addTrail({ ...state, footer: "thinking" }, "agent", feishuT(locale, "run.agentStarted"), "done");
 
 		// turn_start 已移除，轮次信息对用户感知价值不大，且计数容易不准
 
@@ -174,9 +167,7 @@ export function reduceFromPiEvent(
 		case "tool_execution_end": {
 			const toolName = typeof event.toolName === "string" ? event.toolName : "tool";
 			// 找到最近的同名 running tool
-			const toolBlock = [...state.blocks].reverse().find(
-				(b) => b.kind === "tool" && b.tool.name === toolName && b.tool.status === "running",
-			);
+			const toolBlock = [...state.blocks].reverse().find((b) => b.kind === "tool" && b.tool.name === toolName && b.tool.status === "running");
 			if (toolBlock && toolBlock.kind === "tool") {
 				return completeToolInState(state, toolBlock.tool.id, event.isError === true, locale);
 			}
@@ -212,9 +203,7 @@ export function reduceFromPiEvent(
 // ===== 内部 reducer =====
 
 function closeStreamingText(blocks: Block[]): Block[] {
-	return blocks.map((b) =>
-		b.kind === "text" && b.streaming ? { ...b, streaming: false } : b,
-	);
+	return blocks.map((b) => (b.kind === "text" && b.streaming ? { ...b, streaming: false } : b));
 }
 
 function appendText(state: RunState, delta: string, locale: FeishuLocale): RunState {
@@ -246,12 +235,7 @@ function appendText(state: RunState, delta: string, locale: FeishuLocale): RunSt
 	if (isFirstOutput) {
 		next = addTrail(next, "agent", feishuT(locale, "run.startOutput"), "running");
 		// 标记上一个"开始思考"为完成
-		next = updateLastTrailByText(
-			next,
-			feishuT(locale, "run.startThinking"),
-			"done",
-			feishuT(locale, "run.thinkingDone"),
-		);
+		next = updateLastTrailByText(next, feishuT(locale, "run.startThinking"), "done", feishuT(locale, "run.thinkingDone"));
 	}
 	return next;
 }
@@ -270,13 +254,7 @@ function appendThinking(state: RunState, delta: string, locale: FeishuLocale): R
 	return next;
 }
 
-function startToolInState(
-	state: RunState,
-	id: string,
-	name: string,
-	input: Record<string, unknown> | undefined,
-	locale: FeishuLocale,
-): RunState {
+function startToolInState(state: RunState, id: string, name: string, input: Record<string, unknown> | undefined, locale: FeishuLocale): RunState {
 	const detail = toolInputSummary(name, input);
 	const tool: ToolEntry = { id, name, input, status: "running" };
 	return addTrail(
@@ -298,7 +276,7 @@ function completeToolInState(state: RunState, id: string, isError: boolean, loca
 		if (b.kind !== "tool" || b.tool.id !== id) return b;
 		return {
 			...b,
-			tool: { ...b.tool, status: isError ? ("error" as const) : ("done" as const) as ToolStatus },
+			tool: { ...b.tool, status: isError ? ("error" as const) : ("done" as const as ToolStatus) },
 		};
 	});
 	// 也更新 trail 中最后一个对应状态的 tool

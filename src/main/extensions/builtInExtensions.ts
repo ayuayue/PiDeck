@@ -1,13 +1,23 @@
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
+import { BUILT_IN_EXTENSIONS_OVERLAY_DIR_NAME, invalidateVerifiedArtifactFileHashCache, readVerifiedArtifact, type BuiltInExtensionsManifest } from "./builtInExtensionsManifest";
 
 /**
  * PiDeck 内置扩展（随应用 resources 分发，不再复制到 ~/.pi/agent/extensions）。
  * 启动 RPC 时通过可重复的 `--extension/-e` 注入，避免污染用户全局 pi。
+ *
+ * ⚠️ **只列「入口」扩展文件**：被扩展 import 的辅助模块（如 `pi-deck-todo-state.ts`）
+ * **不在**本表 —— 它们不通过 `-e` 注入，但仍必须进 `extensions-manifest.json`
+ * （清单按目录扫描全部 `.ts`），否则热更新覆盖层会缺少依赖、pi 报模块找不到。
+ *
+ * ⚠️ 列表顺序即 `-e` 注入顺序；目前入口扩展之间没有强制的先后依赖，
+ * 但保持列表稳定可减少热更新覆盖层的无谓变动。
  */
 export const BUILT_IN_EXTENSIONS = [
+	"pi-deck-request-size-recovery.ts",
 	"pi-deck-ask-question.ts",
 	"pi-deck-goal-mode.ts",
+	"pi-deck-model-trace.ts",
 	"pi-deck-nul-redirect-fix.ts",
 	"pi-deck-plan-mode.ts",
 	"pi-deck-retry-no-body.ts",
@@ -15,10 +25,23 @@ export const BUILT_IN_EXTENSIONS = [
 	"pi-deck-session-title.ts",
 	"pi-deck-subagents.ts",
 	"pi-deck-todo.ts",
+	"pi-deck-trash-guard.ts",
 	"pi-deck-vision.ts",
 ] as const;
 
-export type BuiltInExtensionName = (typeof BUILT_IN_EXTENSIONS)[number];
+/**
+ * Internal adapters loaded after user-facing tool policies; not listed in settings UI.
+ *
+ * - `pi-deck-runtime.ts`：RPC 模式没有原生 `/reload`，该扩展只注册一个 `reload`
+ *   命令并调用 pi 的 `ctx.reload()`；宿主经专用 IPC 发送，不写会话消息。
+ * - `pi-deck-shell-proxy.ts`：把模型代理与 agent shell 命令的代理作用域隔开。
+ *
+ * 内部适配器始终随 RPC 注入（除非 `piRpcNoExtensions`），不受用户移除列表影响。
+ */
+export const INTERNAL_BUILT_IN_EXTENSIONS = ["pi-deck-runtime.ts", "pi-deck-shell-proxy.ts"] as const;
+const ALL_BUILT_IN_EXTENSIONS = [...BUILT_IN_EXTENSIONS, ...INTERNAL_BUILT_IN_EXTENSIONS] as const;
+
+export type BuiltInExtensionName = (typeof BUILT_IN_EXTENSIONS | typeof INTERNAL_BUILT_IN_EXTENSIONS)[number];
 
 export type BuiltInExtensionPathRoots = {
 	/** 开发态 app 根（含 resources/extensions） */
@@ -26,47 +49,117 @@ export type BuiltInExtensionPathRoots = {
 	/** 打包态 process.resourcesPath（extraResources 的 extensions/） */
 	resourcesPath: string;
 	isDev: boolean;
+	/**
+	 * 覆盖层目录（`<userData>/builtin-extensions`，内置扩展热更新的落点）。
+	 * 目录内存在同名文件时优先返回它，`-e` 注入路径随之指向覆盖层，重启会话即生效。
+	 * 缺省（测试/探针）表示不使用覆盖层，行为与引入热更新前一致。
+	 */
+	overlayDir?: string;
 };
 
 /** 校验 source 是否为允许的内置扩展 basename（防路径穿越）。 */
 export function isBuiltInExtensionName(source: string): source is BuiltInExtensionName {
 	const name = basename(source.trim());
-	return (BUILT_IN_EXTENSIONS as readonly string[]).includes(name) && name === source.trim();
+	return (ALL_BUILT_IN_EXTENSIONS as readonly string[]).includes(name) && name === source.trim();
+}
+
+/**
+ * 覆盖层目录：`<userData>/builtin-extensions`。
+ * 传 userData 而不是直接读 electron，保持纯函数、可被 node --test 直接加载。
+ */
+export function resolveBuiltInExtensionsOverlayDir(userDataDir: string): string {
+	return join(userDataDir, BUILT_IN_EXTENSIONS_OVERLAY_DIR_NAME);
+}
+
+/**
+ * 覆盖层可用性缓存（单个目录，进程内）。
+ *
+ * 覆盖层是**完整快照**：扩展之间存在相对 import（pi-deck-todo.ts → ./pi-deck-todo-state.ts），
+ * 只判断「同名文件存在」不够——缺一个文件就会让 pi 解析不到依赖。因此必须整份校验
+ * （清单可解析 + 每个声明的文件 bytes/sha256 吻合），校验不过一律当没有覆盖层。
+ *
+ * 校验要读全部十几个文件，而路径解析会对每个扩展名各调一次，故按目录缓存结果；
+ * 热更新器写完/还原覆盖层后调用 invalidate 失效。
+ */
+let overlayArtifactCache: { dir: string; manifest: BuiltInExtensionsManifest | null } | null = null;
+
+/** 供热更新器在写盘/还原后调用，让下一次路径解析重新校验。 */
+export function invalidateBuiltInExtensionsOverlayCache(): void {
+	overlayArtifactCache = null;
+	// 逐文件哈希 memo 住在 manifest 模块：不清的话写盘后的新内容会被旧 stat 判据命中，
+	// 让刚更新的覆盖层仍按旧哈希通过校验。
+	invalidateVerifiedArtifactFileHashCache();
+}
+
+/** 覆盖层的有效清单（校验通过才有值；结果按目录缓存）。 */
+function overlayArtifact(overlayDir: string): BuiltInExtensionsManifest | null {
+	if (overlayArtifactCache?.dir === overlayDir) return overlayArtifactCache.manifest;
+	const manifest = readVerifiedArtifact(overlayDir);
+	overlayArtifactCache = { dir: overlayDir, manifest };
+	return manifest;
+}
+
+/**
+ * 当前生效的内置扩展包版本（覆盖层优先，否则随包内置）。
+ * 版本号由 resources/extensions/extensions-manifest.json 维护，**不跟 PiDeck 应用版本走**。
+ * 清单缺失（旧安装包）返回 null，此时扩展列表版本列回退「-」。
+ */
+export function readEffectiveBuiltInExtensionsVersion(roots: BuiltInExtensionPathRoots): string | null {
+	if (roots.overlayDir) {
+		const overlay = overlayArtifact(roots.overlayDir);
+		if (overlay) return overlay.version;
+	}
+	return readVerifiedArtifact(resolveBuiltInExtensionsDir(roots))?.version ?? null;
+}
+
+/** 内置扩展目录绝对路径（不含文件名）——覆盖层比对与热更新读取内置清单时使用。 */
+export function resolveBuiltInExtensionsDir(roots: BuiltInExtensionPathRoots): string {
+	return roots.isDev ? join(roots.appPath, "resources", "extensions") : join(roots.resourcesPath, "extensions");
+}
+
+/**
+ * 扩展运行时依赖的 vendored node_modules 源目录（供覆盖层复制，见 builtInExtensionsUpdater）。
+ *
+ * 打包态：extraResources 把 `node_modules/<pkg>` 复制到 `extensions/node_modules/<pkg>`；
+ * 开发态：直接用仓库顶层 node_modules（extensionPackagingDeps.test.mjs 保证它有这些包）。
+ */
+export function resolveVendorNodeModulesDir(roots: BuiltInExtensionPathRoots): string {
+	return roots.isDev ? join(roots.appPath, "node_modules") : join(roots.resourcesPath, "extensions", "node_modules");
 }
 
 /**
  * 解析单个内置扩展在本机磁盘上的绝对路径。
- * 开发态读 appPath/resources/extensions；打包态读 resourcesPath/extensions。
+ * 覆盖层（热更新）优先 → 开发态 appPath/resources/extensions → 打包态 resourcesPath/extensions。
  */
-export function resolveBuiltInExtensionPath(
-	extensionName: string,
-	roots: BuiltInExtensionPathRoots,
-): string {
+export function resolveBuiltInExtensionPath(extensionName: string, roots: BuiltInExtensionPathRoots): string {
 	const name = basename(extensionName.trim());
 	if (!isBuiltInExtensionName(name)) {
 		throw new Error(`非法内置扩展名: ${extensionName}`);
 	}
-	return roots.isDev
-		? join(roots.appPath, "resources", "extensions", name)
-		: join(roots.resourcesPath, "extensions", name);
+	// 覆盖层优先：热更新写入的版本必须真正参与 -e 注入，否则「更新成功」只是自欺。
+	// 但要整份校验通过才认——半截覆盖层（缺文件/被外部改动）会让 pi 解析不到相对 import。
+	if (roots.overlayDir && overlayArtifact(roots.overlayDir)) {
+		const overlayPath = join(roots.overlayDir, name);
+		// 老版本覆盖层可能没有后来新增的内部适配器；回落到随包文件，
+		// 不让一个仍然有效的旧快照把新版本的代理隔离保护静默关掉。
+		if (existsSync(overlayPath)) return overlayPath;
+	}
+	return join(resolveBuiltInExtensionsDir(roots), name);
 }
 
 /**
  * 返回当前应注入到 pi RPC 的内置扩展绝对路径列表。
- * - removedBuiltInExtensions 中的跳过
+ * - removedBuiltInExtensions 中的用户扩展跳过；内部适配器始终保留
  * - 源文件缺失的跳过（打日志由调用方处理）
  * - piRpcNoExtensions 由调用方决定是否整段跳过
  */
-export function listActiveBuiltInExtensionPaths(
-	roots: BuiltInExtensionPathRoots,
-	removedBuiltInExtensions: readonly string[] = [],
-): string[] {
-	const removed = new Set(
-		removedBuiltInExtensions.map((item) => basename(item.trim())).filter(Boolean),
-	);
+export function listActiveBuiltInExtensionPaths(roots: BuiltInExtensionPathRoots, removedBuiltInExtensions: readonly string[] = []): string[] {
+	const removed = new Set(removedBuiltInExtensions.map((item) => basename(item.trim())).filter(Boolean));
 	const paths: string[] = [];
-	for (const name of BUILT_IN_EXTENSIONS) {
-		if (removed.has(name)) continue;
+	for (const name of ALL_BUILT_IN_EXTENSIONS) {
+		const isInternal = (INTERNAL_BUILT_IN_EXTENSIONS as readonly string[]).includes(name);
+		// 内部适配器不是用户可见扩展：始终注入，不参与 removedBuiltInExtensions。
+		if (!isInternal && removed.has(name)) continue;
 		const fullPath = resolveBuiltInExtensionPath(name, roots);
 		if (!existsSync(fullPath)) continue;
 		paths.push(fullPath);
@@ -79,11 +172,7 @@ export function listActiveBuiltInExtensionPaths(
  * pi 文档：`--no-extensions` 只关自动发现，显式 -e 仍有效；
  * 但 PiDeck 约定 piRpcNoExtensions 时连内置也不注入（诊断干净）。
  */
-export function appendBuiltInExtensionArgs(
-	args: readonly string[],
-	extensionPaths: readonly string[],
-	options: { noExtensions?: boolean } = {},
-): string[] {
+export function appendBuiltInExtensionArgs(args: readonly string[], extensionPaths: readonly string[], options: { noExtensions?: boolean } = {}): string[] {
 	if (options.noExtensions || extensionPaths.length === 0) return [...args];
 	const next = [...args];
 	for (const extensionPath of extensionPaths) {

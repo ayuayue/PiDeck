@@ -18,11 +18,7 @@ import test from "node:test";
 test("electron-vite main externalizes the whole @deepseek-ai scope", () => {
 	const src = readFileSync("electron.vite.config.ts", "utf8");
 	assert.match(src, /externalizeDepsPlugin/);
-	assert.match(
-		src,
-		/external:\s*\[[\s\S]*\/\^@deepseek-ai\\\//,
-		"main.build.rollupOptions.external 必须包含 /^@deepseek-ai\\//，否则 dsh 子包会被打进 out/main",
-	);
+	assert.match(src, /external:\s*\[[\s\S]*\/\^@deepseek-ai\\\//, "main.build.rollupOptions.external 必须包含 /^@deepseek-ai\\//，否则 dsh 子包会被打进 out/main");
 });
 
 test("built main chunks do not embed dsh package.json lookups", () => {
@@ -35,10 +31,6 @@ test("built main chunks do not embed dsh package.json lookups", () => {
 	assert.ok(files.length > 0, "out/main 应有主进程产物");
 	for (const name of files) {
 		const src = readFileSync(join(mainDir, name), "utf8");
-		assert.doesNotMatch(
-			src,
-			/createRequire\([\s\S]{0,160}\)\("\.\.\/package\.json"\)/,
-			`${name} 把 DSH 的 createRequire(import.meta.url)("../package.json") 打进了产物；发送 DSH 消息会找不到 ../package.json`,
-		);
+		assert.doesNotMatch(src, /createRequire\([\s\S]{0,160}\)\("\.\.\/package\.json"\)/, `${name} 把 DSH 的 createRequire(import.meta.url)("../package.json") 打进了产物；发送 DSH 消息会找不到 ../package.json`);
 	}
 });

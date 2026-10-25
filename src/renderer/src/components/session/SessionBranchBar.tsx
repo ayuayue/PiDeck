@@ -22,15 +22,9 @@ function displayName(record: SessionRecord): string {
  * - 下游子分支列表（Popover）。
  * 无分支关系时 deriveBranchFamily 返回 undefined，整条不渲染。
  */
-export function SessionBranchBar(props: {
-	sessionId: string;
-	onOpenSession?: (sessionId: string) => void;
-}) {
+export function SessionBranchBar(props: { sessionId: string; onOpenSession?: (sessionId: string) => void }) {
 	const records = useAtomValue(sessionRecordsAtom);
-	const family = useMemo(
-		() => deriveBranchFamily(records, props.sessionId),
-		[records, props.sessionId],
-	);
+	const family = useMemo(() => deriveBranchFamily(records, props.sessionId), [records, props.sessionId]);
 	if (!family || !props.onOpenSession) return null;
 	const { parent, siblings, currentIndex, children } = family;
 	const open = props.onOpenSession;
@@ -38,12 +32,7 @@ export function SessionBranchBar(props: {
 	return (
 		<div className="flex min-w-0 items-center gap-2 border-b border-border-subtle px-3 py-1 text-xs text-muted-foreground">
 			{parent && (
-				<button
-					type="button"
-					className="inline-flex min-w-0 items-center gap-1 rounded-sm px-1 py-0.5 transition-colors hover:bg-accent hover:text-foreground"
-					title={displayName(parent)}
-					onClick={() => open(parent.id)}
-				>
+				<button type="button" className="inline-flex min-w-0 items-center gap-1 rounded-sm px-1 py-0.5 transition-colors hover:bg-accent hover:text-foreground" title={displayName(parent)} onClick={() => open(parent.id)}>
 					<CornerUpLeft size={12} className="shrink-0" aria-hidden="true" />
 					<span className="truncate">{t("branch.parent", { title: parent.title })}</span>
 				</button>
@@ -60,9 +49,7 @@ export function SessionBranchBar(props: {
 					>
 						<ChevronLeft size={13} aria-hidden="true" />
 					</button>
-					<span className="min-w-8 text-center tabular-nums">
-						{t("branch.pager", { index: currentIndex + 1, total: siblings.length })}
-					</span>
+					<span className="min-w-8 text-center tabular-nums">{t("branch.pager", { index: currentIndex + 1, total: siblings.length })}</span>
 					<button
 						type="button"
 						className="inline-flex size-5 items-center justify-center rounded-sm transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent"
@@ -78,24 +65,14 @@ export function SessionBranchBar(props: {
 			{children.length > 0 && (
 				<Popover>
 					<PopoverTrigger asChild>
-						<button
-							type="button"
-							className="inline-flex shrink-0 items-center gap-1 rounded-sm px-1 py-0.5 transition-colors hover:bg-accent hover:text-foreground"
-							title={t("branch.childrenTitle")}
-						>
+						<button type="button" className="inline-flex shrink-0 items-center gap-1 rounded-sm px-1 py-0.5 transition-colors hover:bg-accent hover:text-foreground" title={t("branch.childrenTitle")}>
 							<GitFork size={12} aria-hidden="true" />
 							<span className="tabular-nums">{t("branch.children", { count: children.length })}</span>
 						</button>
 					</PopoverTrigger>
 					<PopoverContent align="start" className="w-64 p-1">
 						{children.map((child) => (
-							<button
-								key={child.id}
-								type="button"
-								className="flex w-full min-w-0 items-center rounded-sm px-2 py-1.5 text-left text-body text-foreground transition-colors hover:bg-accent"
-								title={child.title}
-								onClick={() => open(child.id)}
-							>
+							<button key={child.id} type="button" className="flex w-full min-w-0 items-center rounded-sm px-2 py-1.5 text-left text-body text-foreground transition-colors hover:bg-accent" title={child.title} onClick={() => open(child.id)}>
 								<span className="truncate">{displayName(child)}</span>
 							</button>
 						))}

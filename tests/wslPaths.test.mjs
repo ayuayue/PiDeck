@@ -26,7 +26,7 @@ function loadWslEnvironment(paths) {
 	const sandbox = {
 		exports: {},
 		process,
-		require: (id) => id === "./WslPaths" ? paths : require(id),
+		require: (id) => (id === "./WslPaths" ? paths : require(id)),
 	};
 	vm.runInNewContext(transpile("src/main/wsl/WslEnvironment.ts"), sandbox, { filename: "WslEnvironment.ts" });
 	return sandbox.exports;
@@ -44,11 +44,7 @@ function loadProjectStore(paths, dialog) {
 				// 并行提交给 ProjectStore 新增的路径策略纯函数：宿主 require 相对测试
 				// 文件解析不到（vm filename 是 ProjectStore.ts），显式注入真实编译版
 				const policyModule = { exports: {} };
-				vm.runInNewContext(
-					transpile("src/main/projects/projectPathPolicy.ts"),
-					{ module: policyModule, exports: policyModule.exports },
-					{ filename: "projectPathPolicy.ts" },
-				);
+				vm.runInNewContext(transpile("src/main/projects/projectPathPolicy.ts"), { module: policyModule, exports: policyModule.exports }, { filename: "projectPathPolicy.ts" });
 				return policyModule.exports;
 			}
 			return require(id);
@@ -79,10 +75,7 @@ test("converts drive, mounted-drive, Linux, and UNC paths across host boundaries
 	assert.equal(paths.toWslLinuxPath("C:\\repo\\space dir", rootEnvironment), "/mnt/c/repo/space dir");
 	assert.equal(paths.toWslLinuxPath("C:/repo", rootEnvironment), "/mnt/c/repo");
 	assert.equal(paths.toWslLinuxPath("/mnt/d/repo", rootEnvironment), "/mnt/d/repo");
-	assert.equal(
-		paths.toWslLinuxPath("\\\\wsl.localhost\\Ubuntu-24.04\\root\\repo", rootEnvironment),
-		"/root/repo",
-	);
+	assert.equal(paths.toWslLinuxPath("\\\\wsl.localhost\\Ubuntu-24.04\\root\\repo", rootEnvironment), "/root/repo");
 	assert.equal(paths.toWindowsHostPath("/mnt/d/repo", rootEnvironment), "D:\\repo");
 	assert.equal(paths.toWindowsHostPath("/root/repo", rootEnvironment), "\\\\wsl.localhost\\Ubuntu-24.04\\root\\repo");
 	assert.equal(paths.toWindowsHostPath("c:/repo", rootEnvironment), "C:\\repo");
@@ -93,10 +86,7 @@ test("converts drive, mounted-drive, Linux, and UNC paths across host boundaries
 
 test("normalizes selected projects without changing the existing mounted-drive convention", () => {
 	assert.equal(paths.normalizeSelectedWslProjectPath("D:\\repo", rootEnvironment), "/mnt/d/repo");
-	assert.equal(
-		paths.normalizeSelectedWslProjectPath("//wsl$/ubuntu-24.04/root/repo/", rootEnvironment),
-		"\\\\wsl.localhost\\Ubuntu-24.04\\root\\repo",
-	);
+	assert.equal(paths.normalizeSelectedWslProjectPath("//wsl$/ubuntu-24.04/root/repo/", rootEnvironment), "\\\\wsl.localhost\\Ubuntu-24.04\\root\\repo");
 });
 
 test("rejects another distribution and unrelated network shares", () => {
@@ -111,19 +101,13 @@ test("rejects another distribution and unrelated network shares", () => {
 });
 
 test("builds root, regular-user, and custom HOME contexts", () => {
-	assert.deepEqual(
-		JSON.parse(JSON.stringify(rootEnvironment)),
-		{
-			distro: "Ubuntu-24.04",
-			user: "root",
-			linuxHome: "/root",
-			windowsHome: "\\\\wsl.localhost\\Ubuntu-24.04\\root",
-		},
-	);
-	assert.equal(
-		paths.createWslEnvironment("Debian", "dev", "/srv/users/dev").windowsHome,
-		"\\\\wsl.localhost\\Debian\\srv\\users\\dev",
-	);
+	assert.deepEqual(JSON.parse(JSON.stringify(rootEnvironment)), {
+		distro: "Ubuntu-24.04",
+		user: "root",
+		linuxHome: "/root",
+		windowsHome: "\\\\wsl.localhost\\Ubuntu-24.04\\root",
+	});
+	assert.equal(paths.createWslEnvironment("Debian", "dev", "/srv/users/dev").windowsHome, "\\\\wsl.localhost\\Debian\\srv\\users\\dev");
 	assert.throws(
 		() => paths.createWslEnvironment("Debian", "dev", ""),
 		(error) => error.code === "INVALID_WSL_PATH",
@@ -146,10 +130,7 @@ test("resolves HOME once and exposes an observable compatibility fallback", asyn
 	});
 	assert.equal(resolved.linuxHome, "/srv/dev home");
 	assert.equal(resolved.windowsHome, "\\\\wsl.localhost\\Ubuntu-24.04\\srv\\dev home");
-	assert.deepEqual(
-		Array.from(calls[0].args),
-		["-d", "Ubuntu-24.04", "-u", "dev", "--exec", "printenv", "HOME"],
-	);
+	assert.deepEqual(Array.from(calls[0].args), ["-d", "Ubuntu-24.04", "-u", "dev", "--exec", "printenv", "HOME"]);
 
 	const warnings = [];
 	const fallback = await resolveWslEnvironment("Ubuntu-24.04", "root", {
@@ -203,10 +184,7 @@ test("rejects a project from another distro before adding it", async () => {
 		addCalled = true;
 	};
 
-	await assert.rejects(
-		store.chooseAndAdd("wsl", rootEnvironment),
-		(error) => error.code === "WSL_DISTRO_MISMATCH",
-	);
+	await assert.rejects(store.chooseAndAdd("wsl", rootEnvironment), (error) => error.code === "WSL_DISTRO_MISMATCH");
 	assert.equal(addCalled, false);
 });
 
@@ -214,18 +192,6 @@ test("matches WSL UNC aliases without folding Linux path case", () => {
 	const { ProjectStore } = loadProjectStore(paths, {});
 	const store = new ProjectStore();
 
-	assert.equal(
-		store.sameProjectPath(
-			"//wsl$/ubuntu-24.04/root/Repo",
-			"\\\\wsl.localhost\\Ubuntu-24.04\\root\\Repo",
-		),
-		true,
-	);
-	assert.equal(
-		store.sameProjectPath(
-			"//wsl$/Ubuntu-24.04/root/Repo",
-			"\\\\wsl.localhost\\Ubuntu-24.04\\root\\repo",
-		),
-		false,
-	);
+	assert.equal(store.sameProjectPath("//wsl$/ubuntu-24.04/root/Repo", "\\\\wsl.localhost\\Ubuntu-24.04\\root\\Repo"), true);
+	assert.equal(store.sameProjectPath("//wsl$/Ubuntu-24.04/root/Repo", "\\\\wsl.localhost\\Ubuntu-24.04\\root\\repo"), false);
 });

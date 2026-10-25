@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: blob: pideck-bg: pideck-pet: https://cloudcache.tencent-cloud.com https://skillhub-1388575217.cos.accelerate.myqcloud.com; font-src 'self' data:; frame-src 'self' file: blob:; connect-src 'self' ws://127.0.0.1:* ws://localhost:* http://127.0.0.1:* http://localhost:* https://api.skillhub.cn"
+      content="default-src 'self'; script-src 'self' 'unsafe-eval' blob: 'sha256-rRGbHEobIatmlMTzr9WoG7OJvU/ToLa78GcHbuDq5eM='; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: blob: pideck-bg: pideck-we: pideck-pet: pideck-img: pideck-file: https://cloudcache.tencent-cloud.com https://skillhub-1388575217.cos.accelerate.myqcloud.com; font-src 'self' data:; frame-src 'self' file: blob: pideck-html:; media-src 'self' pideck-sound: pideck-video: pideck-we:; connect-src 'self' pideck-video: ws://127.0.0.1:* ws://localhost:* http://127.0.0.1:* http://localhost:* https://api.skillhub.cn"
     />
     <title></title>
     <style>
@@ -34,6 +34,8 @@
         transition: opacity 420ms cubic-bezier(0.22, 1, 0.36, 1), transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
         will-change: opacity, transform;
       }
+      /* 小窗是模式切换，不是应用冷启动；在 React 下载前就去掉开屏动画。 */
+      html.skip-boot-overlay #boot-overlay { display: none; }
       #boot-overlay.fade-out {
         opacity: 0;
         transform: scale(1.02);
@@ -75,6 +77,41 @@
         width: 48px;
         height: 48px;
       }
+      /* logo 风格切换（与渲染层 piTuiLogo.ts 同源）：默认 pi-tui（官方三色像素标），显式选 classic 时切回拼图标 */
+      .boot-logo .boot-logo-pi-tui {
+        display: none;
+        /* 4×4 位图为 1:1 正方形（官方半块字符每格上下两个正方形像素），与 classic 同尺寸 */
+        width: 48px;
+        height: 48px;
+      }
+      html.logo-pi-tui .boot-logo .boot-logo-classic {
+        display: none;
+      }
+      html.logo-pi-tui .boot-logo .boot-logo-pi-tui {
+        display: block;
+      }
+      /* 自定义品牌图（用户上传，缓存为 data URL）：直接铺满不套黑底 plate，与 LogoMark 自定义分支一致；
+         外圈呼吸环跟着 plate 一起去掉，否则图片周围会悬着一个无来源的圆角描边。 */
+      .boot-logo .boot-logo-custom {
+        display: none;
+        width: 80px;
+        height: 80px;
+        object-fit: contain;
+      }
+      html.logo-custom .boot-logo {
+        background: none;
+        box-shadow: none;
+      }
+      html.logo-custom .boot-logo::after {
+        display: none;
+      }
+      html.logo-custom .boot-logo .boot-logo-classic,
+      html.logo-custom .boot-logo .boot-logo-pi-tui {
+        display: none;
+      }
+      html.logo-custom .boot-logo .boot-logo-custom {
+        display: block;
+      }
 
       .boot-title {
         color: #111827;
@@ -83,6 +120,10 @@
         letter-spacing: 0.06em;
         font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
         line-height: 1.1;
+        /* 显示名称最长 24 字：窄窗口下允许折行，否则会被 html/body 的 overflow:hidden 直接裁掉 */
+        max-width: 86vw;
+        overflow-wrap: anywhere;
+        text-align: center;
       }
       .boot-subtitle {
         color: #4b5563;
@@ -177,11 +218,44 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- 下方内联脚本靠 CSP `script-src` 的内容哈希白名单放行（hash 见 <head> 的 CSP）：
+         脚本按内容哈希授权，不是 'unsafe-inline'；改动脚本文本后必须重算 sha256 并同步 CSP ——
+         否则会被默默拦截、开屏永远回落经典标（tests/piTuiLogo.test.mjs 会重算哈希兜底）。 -->
+    <!-- 同步读品牌缓存（App.tsx 写入：piTuiLogoData.ts 的 LOGO_STYLE_STORAGE_KEY + bootBrandCache.ts 的两个键）：
+         启动画面在 React 挂载前渲染，logo 风格用 html class 切换；默认 pi-tui，仅显式选 classic 才不挂 class；
+         custom 风格且缓存里有图时才用用户图，缺图回落 pi-tui（与 shared 的 resolveLogoStyle 一致）。
+         键名带版本后缀（v2）：缓存值就是上次启动时的 logoStyle，无法区分「旧默认遗留」与「用户显式选择」，
+         翻默认值时必须同步升版本号，否则开屏会沿用上一版默认标。
+         自定义图与显示名称要写进 DOM，必须等覆盖层标记解析完 —— DOMContentLoaded 在首帧前触发。 -->
+    <script>
+      var bootStyle = null;
+      var bootCustomLogo = null;
+      var bootAppName = null;
+      try {
+        bootStyle = localStorage.getItem("pideck:logo-style:v2");
+        bootCustomLogo = localStorage.getItem("pideck:custom-logo:v1");
+        bootAppName = localStorage.getItem("pideck:app-name:v1");
+      } catch (e) {}
+      if (new URLSearchParams(location.search).get("mini-overlay") === "1") {
+        document.documentElement.classList.add("skip-boot-overlay");
+      }
+      if (bootStyle === "custom" && bootCustomLogo) {
+        document.documentElement.classList.add("logo-custom");
+      } else if (bootStyle !== "classic") {
+        document.documentElement.classList.add("logo-pi-tui");
+      }
+      document.addEventListener("DOMContentLoaded", function () {
+        var bootTitle = bootAppName ? document.querySelector(".boot-title") : null;
+        if (bootTitle) bootTitle.textContent = bootAppName;
+        var bootLogoImage = bootStyle === "custom" && bootCustomLogo ? document.querySelector(".boot-logo-custom") : null;
+        if (bootLogoImage) bootLogoImage.src = bootCustomLogo;
+      });
+    </script>
     <!-- 启动画面覆盖层：React 挂载后通过 fade-out 动画淡出再移除 -->
     <div id="boot-overlay">
       <div class="boot-brand">
         <div class="boot-logo">
-          <svg viewBox="140 140 520 520" aria-hidden="true">
+          <svg class="boot-logo-classic" viewBox="140 140 520 520" aria-hidden="true">
             <defs>
               <linearGradient id="boot-logo-silver" x1="0.2" y1="0" x2="0.8" y2="1">
                 <stop stop-color="#ffffff"/>
@@ -192,6 +266,21 @@
             <path fill="url(#boot-logo-silver)" fill-rule="evenodd" d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"/>
             <path fill="url(#boot-logo-silver)" d="M517.36 400H634.72V634.72H517.36Z"/>
           </svg>
+          <!-- pi 官方 TUI logo：4×4 像素位图（coral/blue/yellow），与 piTuiLogo.ts 逐格一致 -->
+          <svg class="boot-logo-pi-tui" viewBox="0 0 4 4" aria-hidden="true" shape-rendering="crispEdges">
+            <rect x="0" y="0" width="1" height="1" fill="#E48A7A"/>
+            <rect x="1" y="0" width="1" height="1" fill="#E48A7A"/>
+            <rect x="2" y="0" width="1" height="1" fill="#E48A7A"/>
+            <rect x="0" y="1" width="1" height="1" fill="#4F8EB3"/>
+            <rect x="2" y="1" width="1" height="1" fill="#E48A7A"/>
+            <rect x="0" y="2" width="1" height="1" fill="#4F8EB3"/>
+            <rect x="1" y="2" width="1" height="1" fill="#4F8EB3"/>
+            <rect x="3" y="2" width="1" height="1" fill="#EAB65D"/>
+            <rect x="0" y="3" width="1" height="1" fill="#4F8EB3"/>
+            <rect x="3" y="3" width="1" height="1" fill="#EAB65D"/>
+          </svg>
+          <!-- 自定义品牌图：src 由上方内联脚本从 localStorage 缓存填入（data URL，缓存键见 bootBrandCache.ts） -->
+          <img class="boot-logo-custom" alt="" />
         </div>
         <strong class="boot-title">PiDeck</strong>
         <span class="boot-subtitle">正在启动工作台…</span>

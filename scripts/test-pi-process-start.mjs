@@ -42,7 +42,9 @@ const piProcessModule = await loadTsModule("src/main/pi/PiProcess.ts", {
 
 const { PiProcess } = piProcessModule;
 const scriptPath = join(tmpdir(), `fake-pi-${Date.now()}.mjs`);
-writeFileSync(scriptPath, `
+writeFileSync(
+	scriptPath,
+	`
 const mode = process.argv[2];
 if (mode === '--version') {
   setTimeout(() => { console.log('0.80.6'); }, 1500);
@@ -56,7 +58,8 @@ if (mode === '--version') {
     }
   });
 }
-`);
+`,
+);
 chmodSync(scriptPath, 0o755);
 
 class FakeLocator {
@@ -76,10 +79,7 @@ const proc = new PiProcess(join(tmpdir(), "pideck-pi-process-test"), {}, new Fak
 const startedAt = performance.now();
 const clientPromise = proc.start(undefined, "no-approve");
 const startElapsed = performance.now() - startedAt;
-assert.ok(
-	startElapsed < 500,
-	`PiProcess.start should not wait for slow pi --version, took ${startElapsed.toFixed(0)}ms`,
-);
+assert.ok(startElapsed < 500, `PiProcess.start should not wait for slow pi --version, took ${startElapsed.toFixed(0)}ms`);
 const client = await clientPromise;
 const response = await client.request({ type: "get_state" }, 2_000);
 assert.equal(response.success, true);

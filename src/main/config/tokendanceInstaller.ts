@@ -13,6 +13,8 @@
  *   且 DSH settings schema 白名单字段可能拒绝 headers，落点保持最小。
  */
 import { TOKENDANCE_APP_URL, TOKENDANCE_APP_URL_HEADER, TOKENDANCE_BASE_URL, TOKENDANCE_PROVIDER } from "../../shared/tokendance";
+// 落盘前统一排序：目录/缓存旧数据可能仍是平台返回顺序，写入 models.json 必须与下拉列表一致。
+import { sortModelRows } from "../../shared/modelOrder";
 import type { AvailableModel } from "../../shared/types";
 import { credentialRefFor, dshModelsFromPi, mergePiProvider, type DshProviderSnapshot, type PiProviderSnapshot } from "./providerMigration";
 import type { PiModelItem } from "./ConfigManager";
@@ -55,10 +57,7 @@ export type TokendanceInstallDeps = ProviderMigrationDeps & {
  * settings API，否则磁盘直写）。任一写盘失败即返回 ok=false（错误信息原样上抛，
  * 由 IPC 边界转结构化结果，不泄露 Key）。
  */
-export async function installTokendanceProvider(
-	deps: TokendanceInstallDeps,
-	options: { apiKey?: string } = {},
-): Promise<TokendanceInstallResult> {
+export async function installTokendanceProvider(deps: TokendanceInstallDeps, options: { apiKey?: string } = {}): Promise<TokendanceInstallResult> {
 	// 安装前强制刷新目录：旧缓存可能含已废弃的行（如 2026-09 曾写入 context_length=0
 	// 的模型导致 pi 拒绝整个 provider）；刷新失败（断网/超时）降级用旧缓存，不让目录消失。
 	let catalogResult;
@@ -78,7 +77,7 @@ export async function installTokendanceProvider(
 	}
 
 	const apiKey = typeof options.apiKey === "string" && options.apiKey.trim() ? options.apiKey.trim() : undefined;
-	const piModels: PiModelItem[] = catalogResult.models.map((model: AvailableModel) => {
+	const rawPiModels: PiModelItem[] = catalogResult.models.map((model: AvailableModel) => {
 		const row: PiModelItem = { id: model.id };
 		// 目录条目是网络数据，逐字段收窄后落盘（name/contextWindow 缺失时省略）；
 		// contextWindow 必须正整数：pi 报 invalid contextWindow 会拒绝整个 provider。
@@ -99,6 +98,8 @@ export async function installTokendanceProvider(
 	});
 
 	// pi 侧：merge upsert，保留用户已有条目（apiKey 等），模型以目录为准覆盖。
+	// 排序放在写盘前：refresh 失败降级用旧缓存时（缓存可能存的是未排序的旧版本）也能拿到有序列表。
+	const piModels = sortModelRows(rawPiModels);
 	const piSnapshot: PiProviderSnapshot = {
 		name: TOKENDANCE_PROVIDER,
 		baseUrl: TOKENDANCE_BASE_URL,
@@ -108,15 +109,8 @@ export async function installTokendanceProvider(
 		models: piModels,
 		apiKey,
 	};
-	const [modelsConfig, authConfig] = await Promise.all([
-		deps.configManager.getModelsConfig(),
-		deps.configManager.getAuthConfig(),
-	]);
-	const merged = mergePiProvider(
-		{ providers: modelsConfig.parsed.providers ?? {} },
-		authConfig.parsed,
-		piSnapshot,
-	);
+	const [modelsConfig, authConfig] = await Promise.all([deps.configManager.getModelsConfig(), deps.configManager.getAuthConfig()]);
+	const merged = mergePiProvider({ providers: modelsConfig.parsed.providers ?? {} }, authConfig.parsed, piSnapshot);
 	const saveResult = await deps.configManager.saveModelsConfig(merged.models as never);
 	if (!saveResult.valid) {
 		return {
@@ -158,10 +152,7 @@ export async function installTokendanceProvider(
 		};
 	} catch (error) {
 		// 跨 realm（测试 vm 加载）时 instanceof Error 不可靠，用结构提取 message
-		const dshError =
-			error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string"
-				? (error as { message: string }).message
-				: String(error);
+		const dshError = error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string" ? (error as { message: string }).message : String(error);
 		return {
 			ok: true,
 			modelCount: piModels.length,

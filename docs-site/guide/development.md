@@ -1,3 +1,8 @@
+---
+title: 开发与打包 | PiDeck pi desktop 源码构建指南
+description: PiDeck 源码开发与打包指南：环境准备、npm 脚本、Electron 构建流程、扩展热更新机制与发布流程，参与 pi desktop 开源项目贡献的第一步。
+---
+
 # 开发与打包
 
 ## 常用命令

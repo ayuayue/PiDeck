@@ -27,6 +27,16 @@ test("main window records renderer load diagnostics", () => {
 	assert.match(source, /mainWindow\.webContents\.on\(\s*"console-message"/);
 	assert.match(source, /event\.level/);
 	assert.match(source, /Main window renderer console error/);
+	// 渲染层 console 镜像降档（issue 357 类）：error→warn、warning→info，
+	// 不让第三方/框架噪音进 EnvironmentDoctor 的「最近 7 天报错」统计；
+	// 真正的渲染层故障仍由 rendererLog（uncaught error）按 error 上报
+	assert.match(source, /const level: AppLogLevel = event\.level === "error" \? "warn" : "info"/);
+	assert.doesNotMatch(source, /appLogger\.log\(event\.level === "error" \? "warn" : "info", "app", "Main window renderer console error"/);
+	// issue #376：console-message 镜像必须跳过良性噪音（ResizeObserver loop），
+	// 否则它与 renderer 的 window.onerror 双写，500+ 行/天顶掉真实报错统计
+	assert.match(source, /classifyRendererNoise\(event\.message\)\.benign/);
+	assert.match(source, /new RendererNoiseAggregator\(\)/);
+	assert.match(source, /toRendererNoiseLog\(flush\)/);
 });
 
 test("linux display workaround opens the main window without hidden pre-map", () => {
@@ -39,37 +49,31 @@ test("linux display workaround opens the main window without hidden pre-map", ()
 });
 
 test("file editor: openEditorTab updater is pure (StrictMode double-invoke safe)", () => {
-  // 首次点击文件空白根因：openEditorTab 的 updater 内含 crypto.randomUUID + setActiveTabId，
-  // StrictMode 双调用产生两个不同 tab id → activeTabId 与 editorTabs 不一致 → activeTab null。
-  // 修复：闭包内读同步 ref 计算 next，setState 传值。
-  const source = readFileSync("src/renderer/src/hooks/useFileEditor.ts", "utf8");
-  assert.match(source, /editorTabsRef\.current = editorTabs;/);
-  assert.match(source, /updater 纯化：StrictMode 双调用下/);
-  assert.match(source, /const prev = editorTabsRef\.current;/);
-  assert.doesNotMatch(
-    source,
-    /setEditorTabs\(\(prev\) => \{[\s\S]{0,200}?crypto\.randomUUID/,
-  );
-  // 渲染层 StrictMode 开启（双调用条件存在）
-  const mainSource = readFileSync("src/renderer/src/main.tsx", "utf8");
-  assert.match(mainSource, /<React\.StrictMode>/);
+	// 首次点击文件空白根因：openEditorTab 的 updater 内含 crypto.randomUUID + setActiveTabId，
+	// StrictMode 双调用产生两个不同 tab id → activeTabId 与 editorTabs 不一致 → activeTab null。
+	// 修复：闭包内读同步 ref 计算 next，setState 传值。
+	const source = readFileSync("src/renderer/src/hooks/useFileEditor.ts", "utf8");
+	assert.match(source, /editorTabsRef\.current = editorTabs;/);
+	assert.match(source, /updater 纯化：StrictMode 双调用下/);
+	assert.match(source, /const prev = editorTabsRef\.current;/);
+	assert.doesNotMatch(source, /setEditorTabs\(\(prev\) => \{[\s\S]{0,200}?crypto\.randomUUID/);
+	// 渲染层 StrictMode 开启（双调用条件存在）
+	const mainSource = readFileSync("src/renderer/src/main.tsx", "utf8");
+	assert.match(mainSource, /<React\.StrictMode>/);
 });
 
 test("workbench viewer: editor mode toggles split/maximize; CodeMirror stays sync-loaded", () => {
-  const source = readFileSync("src/renderer/src/hooks/useFileEditor.ts", "utf8");
-  // 阅读面已迁中间栏：toggle 只在 split ↔ maximize，不再有 drawer modal 收起抽屉逻辑
-  assert.match(source, /editorModeRef\.current = next;/);
-  assert.match(
-    source,
-    /editorModeRef\.current === "maximize" \? "split" : "maximize"/,
-  );
-  assert.doesNotMatch(source, /展开到 modal：必须收起抽屉/);
-  // 打开文件进中间栏，抽屉保持文件树
-  assert.match(source, /阅读面进中间栏/);
-  // 编辑器（CodeMirror 6）同步加载，无 Monaco 首帧空白问题；
-  // 加载态仍保留给文件内容异步读取（loading state → file-diff-loading）
-  const viewer = readFileSync("src/renderer/src/components/app/FileDiffViewer.tsx", "utf8");
-  assert.match(viewer, /\{loading && <div className="file-diff-loading">/);
-  assert.match(viewer, /<CodeMirrorEditor/);
-  assert.match(viewer, /<CodeDiffView/);
+	const source = readFileSync("src/renderer/src/hooks/useFileEditor.ts", "utf8");
+	// 阅读面已迁中间栏：toggle 只在 split ↔ maximize，不再有 drawer modal 收起抽屉逻辑
+	assert.match(source, /editorModeRef\.current = next;/);
+	assert.match(source, /editorModeRef\.current === "maximize" \? "split" : "maximize"/);
+	assert.doesNotMatch(source, /展开到 modal：必须收起抽屉/);
+	// 打开文件进中间栏，抽屉保持文件树
+	assert.match(source, /阅读面进中间栏/);
+	// 编辑器（CodeMirror 6）同步加载，无 Monaco 首帧空白问题；
+	// 加载态仍保留给文件内容异步读取（loading state → file-diff-loading，内含 Loader2 spinner）
+	const viewer = readFileSync("src/renderer/src/components/app/FileDiffViewer.tsx", "utf8");
+	assert.match(viewer, /\{loading && \(\n\t*\t*<div className="file-diff-loading">/);
+	assert.match(viewer, /<CodeMirrorEditor/);
+	assert.match(viewer, /<CodeDiffView/);
 });

@@ -14,9 +14,7 @@
  */
 import { net } from "electron";
 
-export type UsageProbeHttpResult =
-	| { status: number; raw: string }
-	| { error: "timeout" | "network" };
+export type UsageProbeHttpResult = { status: number; raw: string } | { error: "timeout" | "network" };
 
 /** headers 里是否含 Cookie 头（大小写不敏感）——决定走 net.request 还是 net.fetch。 */
 export function hasCookieHeader(headers: Record<string, string> | undefined): boolean {
@@ -35,10 +33,7 @@ export type UsageProbeRequestInit = {
  * 发送一次用量探针请求：带 Cookie 头走 net.request（见文件头注释），
  * 否则走 net.fetch（保持既有代理/行为）。返回统一结果结构。
  */
-export function usageProbeRequest(
-	url: string,
-	init: UsageProbeRequestInit,
-): Promise<UsageProbeHttpResult> {
+export function usageProbeRequest(url: string, init: UsageProbeRequestInit): Promise<UsageProbeHttpResult> {
 	const headers = init.headers ?? {};
 	if (hasCookieHeader(headers)) {
 		return netRequestProbe(url, init);
@@ -47,10 +42,7 @@ export function usageProbeRequest(
 }
 
 /** net.fetch 路径：与既有探测逻辑一致（redirect 拒绝、响应体截断由调用方处理）。 */
-async function netFetchProbe(
-	url: string,
-	init: UsageProbeRequestInit,
-): Promise<UsageProbeHttpResult> {
+async function netFetchProbe(url: string, init: UsageProbeRequestInit): Promise<UsageProbeHttpResult> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), init.timeoutMs);
 	try {
@@ -64,9 +56,7 @@ async function netFetchProbe(
 		});
 		return { status: res.status, raw: await readBoundedText(res, init.maxBytes) };
 	} catch (error) {
-		const isTimeout =
-			error instanceof Error &&
-			(error.name === "AbortError" || error.name === "TimeoutError");
+		const isTimeout = error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");
 		return { error: isTimeout ? "timeout" : "network" };
 	} finally {
 		clearTimeout(timeout);
@@ -74,10 +64,7 @@ async function netFetchProbe(
 }
 
 /** net.request（ClientRequest）路径：支持 Cookie 头，事件流手动收集响应体。 */
-function netRequestProbe(
-	url: string,
-	init: UsageProbeRequestInit,
-): Promise<UsageProbeHttpResult> {
+function netRequestProbe(url: string, init: UsageProbeRequestInit): Promise<UsageProbeHttpResult> {
 	return new Promise((resolve) => {
 		const request = net.request({
 			method: init.method ?? "GET",

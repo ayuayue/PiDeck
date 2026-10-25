@@ -11,23 +11,19 @@
  * - 「测试」成功即写缓存（三处展示立刻热更）；「保存」按 provider 合并写 usage-probes.json。
  * - 无字段级自定义：脚本/JSON 编辑不开放（用户和我们都不需要）。
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { Bot, Eye, EyeOff } from "lucide-react";
+import { AlertCircle, Bot, Eye, EyeOff, Loader2 } from "lucide-react";
 import { t } from "../i18n";
 import type { TranslationKey } from "../i18n";
-import type {
-	ProviderUsageResult,
-	UsageProbeProviderConfig,
-	UsageProbeTemplateCategory,
-} from "../../../shared/types/providerUsage";
+import type { ProviderUsageResult, UsageProbeProviderConfig, UsageProbeTemplateCategory } from "../../../shared/types/providerUsage";
 import { desktopApi } from "../desktopApi";
 import { showNotice } from "../utils/notice";
 import { invalidateAllProviderUsageAtom, resolveProviderUsageAtom } from "../atoms/provider-usage-atoms";
 import { currentSessionIdAtom } from "../atoms/session-atoms";
 import { setSessionDraftAtom } from "../atoms/composer-atoms";
 import { appendContentToDraft } from "../composerBehavior";
-import { usageCacheKey } from "../hooks/useProviderUsage";
+import { usageCacheKey, useRefreshProviderUsageState } from "../hooks/useProviderUsage";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui-shadcn/dialog";
 import { Button } from "../components/ui-shadcn/button";
 import { Input } from "../components/ui-shadcn/input";
@@ -45,6 +41,8 @@ const CATEGORY_LABEL_KEY: Record<UsageProbeTemplateCategory, TranslationKey> = {
 	general: "config.usageProbe.category.general",
 	newapi: "config.usageProbe.category.newapi",
 	cookie: "config.usageProbe.category.cookie",
+	volcengine: "config.usageProbe.category.volcengine",
+	sub2api: "config.usageProbe.category.sub2api",
 };
 
 /** 类别 → 说明文案 i18n key（内置/套餐/订阅无字段，说明即全部）。 */
@@ -55,36 +53,34 @@ const CATEGORY_HINT_KEY: Record<UsageProbeTemplateCategory, TranslationKey> = {
 	general: "config.usageProbe.generalHint",
 	newapi: "config.usageProbe.newapiHint",
 	cookie: "config.usageProbe.cookieHint",
+	volcengine: "config.usageProbe.volcengineHint",
+	sub2api: "config.usageProbe.sub2apiHint",
 };
 
-/** 模板 id → 类别（内置 templateId 由主进程识别结果给出；声明式三个固定）。 */
+/** 模板 id → 类别（内置 templateId 由主进程识别结果给出；声明式固定五个）。 */
 const DECLARATIVE_TEMPLATE_CATEGORY: Record<string, UsageProbeTemplateCategory> = {
 	general: "general",
 	newapi: "newapi",
 	cookie: "cookie",
+	// 火山方舟：凭据是 AK/SK（不是 apiKey），归入自己的类别，说明文案走 volcengineHint。
+	volcengine: "volcengine",
+	// Sub2API：凭据就是供应商 apiKey（可选覆盖），零必填字段，说明文案走 sub2apiHint。
+	sub2api: "sub2api",
 };
 
 /** 「无模板」哨兵：供应商既不适用通用也不适用 New API 时，明确不选任何预设模板。 */
 const NONE_TEMPLATE = "none";
 
-/** cc-switch pill 同款样式：选中实心、未选描边灰字。 */
+/** cc-switch pill 同款样式：选中实心、未选描边灰字。
+ * 文字色必须用 --color-text-inverse（亮色白/暗色黑），不能写死 text-white：
+ * 暗色模式 accent 反转为浅色（默认 #fafafa、blue/amber 等均为亮色），
+ * 白字会直接盖在浅底上看不见（与 ComposerPanels 发送按钮同一规则）。 */
 function pillClass(selected: boolean): string {
-	return cn(
-		"h-7 rounded-lg border px-2.5 text-caption",
-		selected
-			? "border-transparent bg-[color:var(--color-accent)] font-medium text-white shadow-sm hover:opacity-90"
-			: "border-border bg-transparent text-text-secondary hover:bg-bg-hover hover:text-foreground",
-	);
+	return cn("h-7 rounded-lg border px-2.5 text-caption", selected ? "border-transparent bg-[color:var(--color-accent)] font-medium text-[var(--color-text-inverse)] shadow-sm hover:opacity-90" : "border-border bg-transparent text-text-secondary hover:bg-bg-hover hover:text-foreground");
 }
 
 /** 数字输入（超时/间隔）：非法值回退默认，不阻塞保存。 */
-function NumberField(props: {
-	label: string;
-	value: number;
-	onChange: (value: number) => void;
-	min: number;
-	max: number;
-}) {
+function NumberField(props: { label: string; value: number; onChange: (value: number) => void; min: number; max: number }) {
 	return (
 		<div className="space-y-1.5">
 			<Label className="text-xs font-medium text-foreground">{props.label}</Label>
@@ -106,23 +102,11 @@ function NumberField(props: {
 }
 
 /** 凭证覆盖输入（通用模板 API Key / 请求地址；可选覆盖，留空用供应商配置）。 */
-function OptionalField(props: {
-	label: string;
-	placeholder: string;
-	value: string;
-	onChange: (value: string) => void;
-	type?: "text" | "password";
-}) {
+function OptionalField(props: { label: string; placeholder: string; value: string; onChange: (value: string) => void; type?: "text" | "password" }) {
 	return (
 		<div className="space-y-1.5">
 			<Label className="text-xs font-medium text-foreground">{props.label}</Label>
-			<Input
-				type={props.type ?? "text"}
-				value={props.value}
-				onChange={(event) => props.onChange(event.target.value)}
-				placeholder={props.placeholder}
-				className="h-9"
-			/>
+			<Input type={props.type ?? "text"} value={props.value} onChange={(event) => props.onChange(event.target.value)} placeholder={props.placeholder} className="h-9" />
 		</div>
 	);
 }
@@ -141,6 +125,8 @@ export function UsageProbeConfigDialog(props: {
 	onCloseHost?: () => void;
 }) {
 	const invalidateAll = useSetAtom(invalidateAllProviderUsageAtom);
+	// 保存后回读状态表（徽章开关态/间隔的唯一来源），避免徽章停在「未启用」。
+	const refreshProviderState = useRefreshProviderUsageState();
 	const resolveUsage = useSetAtom(resolveProviderUsageAtom);
 	// 「让 AI 帮我查」：把提示词写进当前会话的 composer 草稿（无活动会话则回退剪贴板）。
 	const currentSessionId = useAtomValue(currentSessionIdAtom);
@@ -164,6 +150,13 @@ export function UsageProbeConfigDialog(props: {
 	const [cookiePath, setCookiePath] = useState("");
 	const [valuePath, setValuePath] = useState("");
 	const [currencyPath, setCurrencyPath] = useState("");
+	// 火山方舟 AK/SK：SK 默认掩码（与 Cookie/访问令牌同一套显隐切换）。
+	const [accessKeyId, setAccessKeyId] = useState("");
+	const [secretAccessKey, setSecretAccessKey] = useState("");
+	// Sub2API 面板 JWT：默认掩码（同一套显隐切换）；可选字段，填了才追加查账户钱包余额。
+	const [panelJwt, setPanelJwt] = useState("");
+	// 面板 refresh token（可选）：填了才能在 JWT 过期时自动续期；上游轮转后会回写新值。
+	const [panelRefreshToken, setPanelRefreshToken] = useState("");
 	const [showToken, setShowToken] = useState(false);
 	const [timeoutSecs, setTimeoutSecs] = useState(10);
 	const [intervalMinutes, setIntervalMinutes] = useState(5);
@@ -182,14 +175,15 @@ export function UsageProbeConfigDialog(props: {
 		setLoaded(false);
 		setLoadErrors([]);
 		setLegacyNotice("");
-		// 主进程侧默认值：内置命中 → enabled 默认 true；未命中 → false（用户显式开启才保存）。
+		// 默认关闭（与主进程一致）：内置识别/已配模板只表示「有可查询路径」，
+		// 真正查询必须用户在本弹窗（或卡片徽章）里显式打开。
 		desktopApi.config
 			.getUsageProbes(props.provider, props.backend)
 			.then((result) => {
 				if (cancelled) return;
 				const config = result.config;
 				setRecognized(result.recognized);
-				setEnabled(config?.enabled ?? result.recognized != null);
+				setEnabled(config?.enabled ?? false);
 				setTemplate(config?.template ?? result.recognized?.templateId ?? NONE_TEMPLATE);
 				setApiKey(config?.apiKey ?? "");
 				setBaseUrl(config?.baseUrl ?? "");
@@ -199,6 +193,10 @@ export function UsageProbeConfigDialog(props: {
 				setCookiePath(config?.cookiePath ?? "");
 				setValuePath(config?.valuePath ?? "");
 				setCurrencyPath(config?.currencyPath ?? "");
+				setAccessKeyId(config?.accessKeyId ?? "");
+				setSecretAccessKey(config?.secretAccessKey ?? "");
+				setPanelJwt(config?.panelJwt ?? "");
+				setPanelRefreshToken(config?.panelRefreshToken ?? "");
 				setTimeoutSecs(config?.timeoutSecs ?? 10);
 				setIntervalMinutes(config?.intervalMinutes ?? 5);
 				setLoadErrors(result.errors);
@@ -237,6 +235,18 @@ export function UsageProbeConfigDialog(props: {
 		};
 	}, [props.open, props.provider, props.backend]);
 
+	// 「保存成功 → 600ms 后自动关闭」的待执行 timer（卸载/手动关闭必须撤销）。
+	const closeTimerRef = useRef<number | null>(null);
+	useEffect(
+		() => () => {
+			if (closeTimerRef.current !== null) {
+				window.clearTimeout(closeTimerRef.current);
+				closeTimerRef.current = null;
+			}
+		},
+		[],
+	);
+
 	// 关闭时重置瞬时状态（每次打开重新加载，弹窗不跨会话保留草稿）。
 	const resetInstant = useCallback(() => {
 		setTestState("idle");
@@ -248,6 +258,11 @@ export function UsageProbeConfigDialog(props: {
 		setShowToken(false);
 	}, []);
 	const handleClose = useCallback(() => {
+		// 手动关闭要先撤掉「保存成功后自动关闭」的待执行 timer（见保存分支）
+		if (closeTimerRef.current !== null) {
+			window.clearTimeout(closeTimerRef.current);
+			closeTimerRef.current = null;
+		}
 		resetInstant();
 		props.onClose();
 	}, [props.onClose, resetInstant]);
@@ -257,7 +272,8 @@ export function UsageProbeConfigDialog(props: {
 	 * 保存时只写开关/超时/间隔，查询走内置候选 + 旧探针自动匹配。 */
 	const currentTemplate = useMemo((): { id: string; category: UsageProbeTemplateCategory } | null => {
 		if (template === NONE_TEMPLATE) return null;
-		if (template === "general" || template === "newapi" || template === "cookie") {
+		// 声明式模板：hasOwnProperty 防 "toString" 等原型链键误命中。
+		if (Object.prototype.hasOwnProperty.call(DECLARATIVE_TEMPLATE_CATEGORY, template)) {
 			return { id: template, category: DECLARATIVE_TEMPLATE_CATEGORY[template] };
 		}
 		if (recognized && recognized.templateId === template) {
@@ -292,6 +308,10 @@ export function UsageProbeConfigDialog(props: {
 				...(cookiePath.trim() ? { cookiePath: cookiePath.trim() } : {}),
 				...(valuePath.trim() ? { valuePath: valuePath.trim() } : {}),
 				...(currencyPath.trim() ? { currencyPath: currencyPath.trim() } : {}),
+				...(accessKeyId.trim() ? { accessKeyId: accessKeyId.trim() } : {}),
+				...(secretAccessKey.trim() ? { secretAccessKey: secretAccessKey.trim() } : {}),
+				...(panelJwt.trim() ? { panelJwt: panelJwt.trim() } : {}),
+				...(panelRefreshToken.trim() ? { panelRefreshToken: panelRefreshToken.trim() } : {}),
 				...(timeoutSecs !== 10 ? { timeoutSecs } : {}),
 			});
 			setTestResult(result);
@@ -301,13 +321,7 @@ export function UsageProbeConfigDialog(props: {
 				// 圆环/卡片/选择器三处立刻显示这次测试到的真实数值。
 				resolveUsage(cacheKey, result);
 				const summary = formatUsageBadgeText(result);
-				showNotice(
-					summary
-						? t("config.usageProbe.testSuccessWith", { value: summary })
-						: t("config.usageProbe.testSuccess"),
-					3000,
-					"info",
-				);
+				showNotice(summary ? t("config.usageProbe.testSuccessWith", { value: summary }) : t("config.usageProbe.testSuccess"), 3000, "info");
 			} else {
 				setTestError(result.error ?? t("config.usageProbe.testFailed"));
 				// 主进程带上的排查明细（尝试过的 URL + 状态 + 提示），多行展示方便定位问题。
@@ -336,41 +350,49 @@ export function UsageProbeConfigDialog(props: {
 			intervalMinutes,
 		};
 		// 内置识别命中 / 无模板：不写 template（自动路由）；声明式：写模板 id + 模板字段。
-		if (!isNone && current && (current.id === "general" || current.id === "newapi" || current.id === "cookie")) {
+		if (!isNone && current && Object.prototype.hasOwnProperty.call(DECLARATIVE_TEMPLATE_CATEGORY, current.id)) {
 			config.template = current.id;
-			if (current.id === "general") {
-				if (apiKey.trim()) config.apiKey = apiKey.trim();
+			// 通用/Sub2API：apiKey 与 baseUrl 都可选（默认取供应商条目；Sub2API 的 /v1/usage
+			// 与推理端点同 base 同 key，通常两项都留空）。
+			if (current.id === "general" || current.id === "sub2api") {
+				// Sub2API 不暴露 API Key 覆盖：凭据直接取供应商配置（界面无输入框，存盘也不回写旧值）。
+				if (current.id === "general" && apiKey.trim()) config.apiKey = apiKey.trim();
 				if (baseUrl.trim()) config.baseUrl = baseUrl.trim();
+				// Sub2API 面板 JWT（可选）：填了才写，清空即回到纯 /v1/usage 模式。
+				if (current.id === "sub2api" && panelJwt.trim()) config.panelJwt = panelJwt.trim();
+				// refresh token（可选）：过期自动续期靠它；清空即取消自动续期（余额段过期后不再自动恢复）。
+				if (current.id === "sub2api" && panelRefreshToken.trim()) config.panelRefreshToken = panelRefreshToken.trim();
 			} else if (current.id === "newapi") {
 				if (baseUrl.trim()) config.baseUrl = baseUrl.trim();
 				if (!accessToken.trim() || !userId.trim()) {
 					setSaveState("error");
-					setSaveError(
-						accessToken.trim()
-							? t("config.usageProbe.newApiUserIdRequired")
-							: t("config.usageProbe.newApiTokenRequired"),
-					);
+					setSaveError(accessToken.trim() ? t("config.usageProbe.newApiUserIdRequired") : t("config.usageProbe.newApiTokenRequired"));
 					return;
 				}
 				config.accessToken = accessToken.trim();
 				config.userId = userId.trim();
-			} else {
+			} else if (current.id === "cookie") {
 				if (baseUrl.trim()) config.baseUrl = baseUrl.trim();
 				if (!cookie.trim() || !cookiePath.trim() || !valuePath.trim()) {
 					setSaveState("error");
-					setSaveError(
-						!cookie.trim()
-							? t("config.usageProbe.cookieRequired")
-							: !cookiePath.trim()
-								? t("config.usageProbe.cookiePathRequired")
-								: t("config.usageProbe.cookieValuePathRequired"),
-					);
+					setSaveError(!cookie.trim() ? t("config.usageProbe.cookieRequired") : !cookiePath.trim() ? t("config.usageProbe.cookiePathRequired") : t("config.usageProbe.cookieValuePathRequired"));
 					return;
 				}
 				config.cookie = cookie.trim();
 				config.cookiePath = cookiePath.trim();
 				config.valuePath = valuePath.trim();
 				if (currencyPath.trim()) config.currencyPath = currencyPath.trim();
+			} else if (current.id === "volcengine") {
+				// 火山方舟：AK/SK 两项必填（缺任一项主进程模板构建就会失败，这里提前拦下人话提示）。
+				// baseUrl 可选覆盖，通常留空——控制面 Host 是固定网关，Region 已从推理域名推断。
+				if (baseUrl.trim()) config.baseUrl = baseUrl.trim();
+				if (!accessKeyId.trim() || !secretAccessKey.trim()) {
+					setSaveState("error");
+					setSaveError(!accessKeyId.trim() ? t("config.usageProbe.volcengineAccessKeyIdRequired") : t("config.usageProbe.volcengineSecretKeyRequired"));
+					return;
+				}
+				config.accessKeyId = accessKeyId.trim();
+				config.secretAccessKey = secretAccessKey.trim();
 			}
 		}
 		setSaveState("loading");
@@ -382,9 +404,18 @@ export function UsageProbeConfigDialog(props: {
 			});
 			if (result.ok) {
 				setSaveState("success");
-				// 保存成功 → 清全部用量缓存，三处随即重查出新配置的效果。
+				// 保存成功 → 清全部用量缓存 + 回读该 provider 状态表（徽章的开关态/间隔来自状态表，
+				// 不回读会停在「未启用」直到重开应用）；三处消费随即重查出新配置的效果。
 				invalidateAll();
-				window.setTimeout(handleClose, 600);
+				void refreshProviderState(props.provider, props.backend);
+				// 600ms 后自动关闭只是「保存成功」的视觉收尾（2027-02）：timer 必须可取消，
+				// 否则用户在窗口期内自行关闭/宿主窗口先关，回调仍会再跑一次 resetInstant + onClose，
+				// 造成重复关闭（可能连带关掉宿主设置窗口）。
+				if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+				closeTimerRef.current = window.setTimeout(() => {
+					closeTimerRef.current = null;
+					handleClose();
+				}, 600);
 			} else {
 				setSaveState("error");
 				setSaveError(result.error ?? t("config.usageProbe.saveFailed"));
@@ -445,19 +476,15 @@ export function UsageProbeConfigDialog(props: {
 				</DialogHeader>
 				<div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 pb-3">
 					{!loaded ? (
-						<div className="py-4 text-center text-caption text-text-tertiary">{t("common.loading")}</div>
+						<div className="flex items-center justify-center gap-2 py-4 text-caption text-text-tertiary">
+							<Loader2 size={14} className="animate-pideck-spin" aria-hidden="true" />
+							{t("common.loading")}
+						</div>
 					) : (
 						<>
-							{loadErrors.length > 0 && (
-								<div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-caption leading-relaxed text-amber-600 dark:text-amber-400">
-									{loadErrors.join("\n")}
-								</div>
-							)}
+							{loadErrors.length > 0 && <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-caption leading-relaxed text-amber-600 dark:text-amber-400">{loadErrors.join("\n")}</div>}
 							{legacyNotice && (
-								<div
-									className="rounded-md border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-caption leading-relaxed text-sky-600 dark:text-sky-400"
-									data-testid="usage-probe-legacy-notice"
-								>
+								<div className="rounded-md border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-caption leading-relaxed text-sky-600 dark:text-sky-400" data-testid="usage-probe-legacy-notice">
 									{legacyNotice}
 								</div>
 							)}
@@ -468,51 +495,32 @@ export function UsageProbeConfigDialog(props: {
 								<Switch checked={enabled} onCheckedChange={setEnabled} data-testid="usage-probe-enable" />
 							</div>
 
-							{/* 预设模板：识别命中只显示「已内置」+ 通用 + NewAPI；未识别只显示通用 + NewAPI */}
+							{/* 预设模板：固定五个声明式（通用/NewAPI/Cookie/火山方舟/Sub2API）+ 无模板；识别命中额外追加「已内置」pill */}
 							<section className="space-y-1.5">
 								<p className="text-sm font-medium text-foreground">{t("config.usageProbe.templatesTitle")}</p>
 								<div className="flex flex-wrap gap-1.5">
-									<button
-										type="button"
-										className={pillClass(template === NONE_TEMPLATE)}
-										onClick={() => setTemplate(NONE_TEMPLATE)}
-										data-testid="usage-probe-template-none"
-									>
+									<button type="button" className={pillClass(template === NONE_TEMPLATE)} onClick={() => setTemplate(NONE_TEMPLATE)} data-testid="usage-probe-template-none">
 										{t("config.usageProbe.category.none")}
 									</button>
 									{recognized && (
-										<button
-											type="button"
-											className={pillClass(template === recognized.templateId)}
-											onClick={() => setTemplate(recognized.templateId)}
-											data-testid="usage-probe-template-builtin"
-										>
+										<button type="button" className={pillClass(template === recognized.templateId)} onClick={() => setTemplate(recognized.templateId)} data-testid="usage-probe-template-builtin">
 											{t("config.usageProbe.builtin", { label: t(CATEGORY_LABEL_KEY[recognized.category]) })}
 										</button>
 									)}
-									<button
-										type="button"
-										className={pillClass(template === "general")}
-										onClick={() => setTemplate("general")}
-										data-testid="usage-probe-template-general"
-									>
+									<button type="button" className={pillClass(template === "general")} onClick={() => setTemplate("general")} data-testid="usage-probe-template-general">
 										{t("config.usageProbe.category.general")}
 									</button>
-									<button
-										type="button"
-										className={pillClass(template === "newapi")}
-										onClick={() => setTemplate("newapi")}
-										data-testid="usage-probe-template-newapi"
-									>
+									<button type="button" className={pillClass(template === "newapi")} onClick={() => setTemplate("newapi")} data-testid="usage-probe-template-newapi">
 										{t("config.usageProbe.category.newapi")}
 									</button>
-									<button
-										type="button"
-										className={pillClass(template === "cookie")}
-										onClick={() => setTemplate("cookie")}
-										data-testid="usage-probe-template-cookie"
-									>
+									<button type="button" className={pillClass(template === "cookie")} onClick={() => setTemplate("cookie")} data-testid="usage-probe-template-cookie">
 										{t("config.usageProbe.category.cookie")}
+									</button>
+									<button type="button" className={pillClass(template === "volcengine")} onClick={() => setTemplate("volcengine")} data-testid="usage-probe-template-volcengine">
+										{t("config.usageProbe.category.volcengine")}
+									</button>
+									<button type="button" className={pillClass(template === "sub2api")} onClick={() => setTemplate("sub2api")} data-testid="usage-probe-template-sub2api">
+										{t("config.usageProbe.category.sub2api")}
 									</button>
 								</div>
 								{template === NONE_TEMPLATE && (
@@ -521,22 +529,17 @@ export function UsageProbeConfigDialog(props: {
 									</p>
 								)}
 								{hintKey && (
-									<div className="flex flex-col gap-2">
+									/* 徽标与说明同行：父容器若用 flex-col，徽标会被 cross-axis stretch 拉成整行宽（表现为一条大灰杠），
+									   因此用水平 flex + shrink-0，徽标保持内容宽，说明文字在剩余空间内换行 */
+									<div className="flex items-center gap-2 px-0.5">
 										{recognized && template === recognized.templateId && (
 											/* 已识别供应商徽标（学 cc-switch DeepSeek 蓝标）：明确「预制的是你」，
 											   让「内置模板」与「需要填字段的模板」一眼区分开 */
-											<span
-												className="inline-flex flex-none items-center rounded border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-1.5 py-0.5 font-mono text-micro leading-none tracking-wide text-[var(--color-accent)]"
-												data-testid="usage-probe-recognized-badge"
-											>
+											<span className="inline-flex shrink-0 items-center rounded border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-1.5 py-0.5 font-mono text-micro leading-none tracking-wide text-[var(--color-accent)]" data-testid="usage-probe-recognized-badge">
 												{props.provider}
 											</span>
 										)}
-										<p className="px-0.5 text-caption text-text-tertiary">
-											{recognized && template === recognized.templateId
-												? t("config.usageProbe.builtinHint")
-												: t(hintKey)}
-										</p>
+										<p className="min-w-0 flex-1 text-caption text-text-tertiary">{recognized && template === recognized.templateId ? t("config.usageProbe.builtinHint") : t(hintKey)}</p>
 									</div>
 								)}
 							</section>
@@ -545,60 +548,53 @@ export function UsageProbeConfigDialog(props: {
 							{currentTemplate?.id === "general" && (
 								<section className="space-y-3">
 									<div className="grid grid-cols-2 gap-3">
-										<OptionalField
-											label={t("config.usageProbe.credentialApiKey")}
-											placeholder={t("config.usageProbe.credentialApiKeyPlaceholder")}
-											value={apiKey}
-											onChange={setApiKey}
-										/>
-										<OptionalField
-											label={t("config.usageProbe.credentialBaseUrl")}
-											placeholder={t("config.usageProbe.credentialBaseUrlPlaceholder")}
-											value={baseUrl}
-											onChange={setBaseUrl}
-										/>
+										<OptionalField label={t("config.usageProbe.credentialApiKey")} placeholder={t("config.usageProbe.credentialApiKeyPlaceholder")} value={apiKey} onChange={setApiKey} />
+										<OptionalField label={t("config.usageProbe.credentialBaseUrl")} placeholder={t("config.usageProbe.credentialBaseUrlPlaceholder")} value={baseUrl} onChange={setBaseUrl} />
+									</div>
+								</section>
+							)}
+							{/* Sub2API：凭据直接取供应商 apiKey（不暴露覆盖输入框），只有端点覆盖 + 面板 JWT + refresh token 三个字段 */}
+							{currentTemplate?.id === "sub2api" && (
+								<section className="space-y-3">
+									<OptionalField label={t("config.usageProbe.credentialBaseUrl")} placeholder={t("config.usageProbe.credentialBaseUrlPlaceholder")} value={baseUrl} onChange={setBaseUrl} />
+									<div className="space-y-1.5">
+										<div className="flex items-center justify-between">
+											<Label className="text-xs font-medium text-foreground">{t("config.usageProbe.sub2apiPanelJwt")}</Label>
+											<button type="button" className="inline-flex items-center gap-1 text-micro text-text-tertiary transition-colors hover:text-foreground" onClick={() => setShowToken((value) => !value)}>
+												{showToken ? <EyeOff size={12} /> : <Eye size={12} />}
+												{showToken ? t("config.usageProbe.hideKey") : t("config.usageProbe.showKey")}
+											</button>
+										</div>
+										{/* JWT 默认掩码（防截图泄密）；过期后余额段消失，重新粘贴新令牌即可 */}
+										<Input type={showToken ? "text" : "password"} value={panelJwt} onChange={(event) => setPanelJwt(event.target.value)} placeholder={t("config.usageProbe.sub2apiPanelJwtPlaceholder")} className="h-9" data-testid="usage-probe-sub2api-jwt" />
+										<p className="text-caption leading-relaxed text-text-tertiary">{t("config.usageProbe.sub2apiPanelJwtHint")}</p>
+									</div>
+									<div className="space-y-1.5">
+										<Label className="text-xs font-medium text-foreground">{t("config.usageProbe.sub2apiPanelRefreshToken")}</Label>
+										{/* 可选字段：留空则 JWT 过期后只能手动重贴；填了主进程会在过期或 401 时就地续期并回写轮转后的新值 */}
+										<Input type={showToken ? "text" : "password"} value={panelRefreshToken} onChange={(event) => setPanelRefreshToken(event.target.value)} placeholder={t("config.usageProbe.sub2apiPanelRefreshTokenPlaceholder")} className="h-9" data-testid="usage-probe-sub2api-refresh-token" />
+										<p className="text-caption leading-relaxed text-text-tertiary">{t("config.usageProbe.sub2apiPanelRefreshTokenHint")}</p>
 									</div>
 								</section>
 							)}
 							{currentTemplate?.id === "newapi" && (
 								<section className="space-y-3">
 									<div className="grid grid-cols-2 gap-3">
-										<OptionalField
-											label={t("config.usageProbe.credentialBaseUrl")}
-											placeholder={t("config.usageProbe.credentialBaseUrlPlaceholder")}
-											value={baseUrl}
-											onChange={setBaseUrl}
-										/>
+										<OptionalField label={t("config.usageProbe.credentialBaseUrl")} placeholder={t("config.usageProbe.credentialBaseUrlPlaceholder")} value={baseUrl} onChange={setBaseUrl} />
 										<div className="space-y-1.5">
 											<div className="flex items-center justify-between">
 												<Label className="text-xs font-medium text-foreground">{t("config.usageProbe.newApiToken")}</Label>
-												<button
-													type="button"
-													className="inline-flex items-center gap-1 text-micro text-text-tertiary transition-colors hover:text-foreground"
-													onClick={() => setShowToken((value) => !value)}
-												>
+												<button type="button" className="inline-flex items-center gap-1 text-micro text-text-tertiary transition-colors hover:text-foreground" onClick={() => setShowToken((value) => !value)}>
 													{showToken ? <EyeOff size={12} /> : <Eye size={12} />}
 													{showToken ? t("config.usageProbe.hideKey") : t("config.usageProbe.showKey")}
 												</button>
 											</div>
-											<Input
-												type={showToken ? "text" : "password"}
-												value={accessToken}
-												onChange={(event) => setAccessToken(event.target.value)}
-												placeholder={t("config.usageProbe.newApiTokenPlaceholder")}
-												className="h-9"
-											/>
+											<Input type={showToken ? "text" : "password"} value={accessToken} onChange={(event) => setAccessToken(event.target.value)} placeholder={t("config.usageProbe.newApiTokenPlaceholder")} className="h-9" />
 										</div>
 									</div>
-									<OptionalField
-										label={t("config.usageProbe.newApiUserId")}
-										placeholder={t("config.usageProbe.newApiUserIdPlaceholder")}
-										value={userId}
-										onChange={setUserId}
-									/>
+									<OptionalField label={t("config.usageProbe.newApiUserId")} placeholder={t("config.usageProbe.newApiUserIdPlaceholder")} value={userId} onChange={setUserId} />
 								</section>
 							)}
-
 
 							{currentTemplate?.id === "cookie" && (
 								<section className="space-y-3">
@@ -606,68 +602,49 @@ export function UsageProbeConfigDialog(props: {
 										<div className="space-y-1.5">
 											<div className="flex items-center justify-between">
 												<Label className="text-xs font-medium text-foreground">{t("config.usageProbe.cookieLabel")}</Label>
-												<button
-													type="button"
-													className="inline-flex items-center gap-1 text-micro text-text-tertiary transition-colors hover:text-foreground"
-													onClick={() => setShowToken((value) => !value)}
-												>
+												<button type="button" className="inline-flex items-center gap-1 text-micro text-text-tertiary transition-colors hover:text-foreground" onClick={() => setShowToken((value) => !value)}>
 													{showToken ? <EyeOff size={12} /> : <Eye size={12} />}
 													{showToken ? t("config.usageProbe.hideKey") : t("config.usageProbe.showKey")}
 												</button>
 											</div>
-											<Input
-												type={showToken ? "text" : "password"}
-												value={cookie}
-												onChange={(event) => setCookie(event.target.value)}
-												placeholder={t("config.usageProbe.cookiePlaceholder")}
-												className="h-9"
-											/>
+											<Input type={showToken ? "text" : "password"} value={cookie} onChange={(event) => setCookie(event.target.value)} placeholder={t("config.usageProbe.cookiePlaceholder")} className="h-9" />
 										</div>
-										<OptionalField
-											label={t("config.usageProbe.credentialBaseUrl")}
-											placeholder={t("config.usageProbe.credentialBaseUrlPlaceholder")}
-											value={baseUrl}
-											onChange={setBaseUrl}
-										/>
+										<OptionalField label={t("config.usageProbe.credentialBaseUrl")} placeholder={t("config.usageProbe.credentialBaseUrlPlaceholder")} value={baseUrl} onChange={setBaseUrl} />
 									</div>
-									<OptionalField
-										label={t("config.usageProbe.cookiePathLabel")}
-										placeholder={t("config.usageProbe.cookiePathPlaceholder")}
-										value={cookiePath}
-										onChange={setCookiePath}
-									/>
+									<OptionalField label={t("config.usageProbe.cookiePathLabel")} placeholder={t("config.usageProbe.cookiePathPlaceholder")} value={cookiePath} onChange={setCookiePath} />
 									<div className="grid grid-cols-2 gap-3">
-										<OptionalField
-											label={t("config.usageProbe.cookieValuePathLabel")}
-											placeholder={t("config.usageProbe.cookieValuePathPlaceholder")}
-											value={valuePath}
-											onChange={setValuePath}
-										/>
-										<OptionalField
-											label={t("config.usageProbe.cookieCurrencyPathLabel")}
-											placeholder={t("config.usageProbe.cookieCurrencyPathPlaceholder")}
-											value={currencyPath}
-											onChange={setCurrencyPath}
-										/>
+										<OptionalField label={t("config.usageProbe.cookieValuePathLabel")} placeholder={t("config.usageProbe.cookieValuePathPlaceholder")} value={valuePath} onChange={setValuePath} />
+										<OptionalField label={t("config.usageProbe.cookieCurrencyPathLabel")} placeholder={t("config.usageProbe.cookieCurrencyPathPlaceholder")} value={currencyPath} onChange={setCurrencyPath} />
 									</div>
+								</section>
+							)}
+							{currentTemplate?.id === "volcengine" && (
+								<section className="space-y-3">
+									<div className="grid grid-cols-2 gap-3">
+										<div className="space-y-1.5">
+											<Label className="text-xs font-medium text-foreground">{t("config.usageProbe.volcengineAccessKeyId")}</Label>
+											<Input value={accessKeyId} onChange={(event) => setAccessKeyId(event.target.value)} placeholder={t("config.usageProbe.volcengineAccessKeyIdPlaceholder")} className="h-9" />
+										</div>
+										<div className="space-y-1.5">
+											<div className="flex items-center justify-between">
+												<Label className="text-xs font-medium text-foreground">{t("config.usageProbe.volcengineSecretKey")}</Label>
+												<button type="button" className="inline-flex items-center gap-1 text-micro text-text-tertiary transition-colors hover:text-foreground" onClick={() => setShowToken((value) => !value)}>
+													{showToken ? <EyeOff size={12} /> : <Eye size={12} />}
+													{showToken ? t("config.usageProbe.hideKey") : t("config.usageProbe.showKey")}
+												</button>
+											</div>
+											{/* SK 默认掩码，与 Cookie / 访问令牌共用同一套显隐切换，防截图泄密 */}
+											<Input type={showToken ? "text" : "password"} value={secretAccessKey} onChange={(event) => setSecretAccessKey(event.target.value)} placeholder={t("config.usageProbe.volcengineSecretKeyPlaceholder")} className="h-9" />
+										</div>
+									</div>
+									{/* baseUrl 可选：控制面 Host 是固定网关，Region 已从推理域名推断，一般留空 */}
+									<OptionalField label={t("config.usageProbe.credentialBaseUrl")} placeholder={t("config.usageProbe.credentialBaseUrlPlaceholder")} value={baseUrl} onChange={setBaseUrl} />
 								</section>
 							)}
 							{/* 超时 / 自动查询间隔（cc-switch 同款两列） */}
 							<div className="grid grid-cols-2 gap-3">
-								<NumberField
-									label={t("config.usageProbe.timeout")}
-									value={timeoutSecs}
-									onChange={setTimeoutSecs}
-									min={1}
-									max={300}
-								/>
-								<NumberField
-									label={t("config.usageProbe.interval")}
-									value={intervalMinutes}
-									onChange={setIntervalMinutes}
-									min={0}
-									max={1440}
-								/>
+								<NumberField label={t("config.usageProbe.timeout")} value={timeoutSecs} onChange={setTimeoutSecs} min={1} max={300} />
+								<NumberField label={t("config.usageProbe.interval")} value={intervalMinutes} onChange={setIntervalMinutes} min={0} max={1440} />
 							</div>
 
 							{/* 测试（cc-switch 测试按钮 + 内联结果）：成功即写缓存热更三处 */}
@@ -699,11 +676,17 @@ export function UsageProbeConfigDialog(props: {
 								{testState === "error" && testDetail && (
 									// 失败明细：URL/状态/提示多行列表（已脱敏），平铺展示便于排查地址与鉴权问题。
 									<div className="w-full overflow-hidden rounded-md border border-border/60 bg-background/60 px-2 py-1.5" data-testid="usage-probe-test-detail">
-										<pre className="max-h-44 overflow-auto whitespace-pre-wrap break-all font-mono text-micro leading-relaxed text-text-secondary">
-											{testDetail}
-										</pre>
+										<pre className="max-h-44 overflow-auto whitespace-pre-wrap break-all font-mono text-micro leading-relaxed text-text-secondary">{testDetail}</pre>
 									</div>
 								)}
+								{testState === "success" && testResult?.panelBalanceError ? (
+									// Sub2API 面板 JWT 失效：主查询成功但余额段被丢弃（401=过期最常见），
+									// 显式提示原因而不是无感消失，用户才知道要重贴新令牌。
+									<div className="flex items-center gap-1.5 text-caption leading-5 text-amber-600 dark:text-amber-400" data-testid="usage-probe-panel-jwt-warning">
+										<AlertCircle size={12} aria-hidden="true" />
+										<span>{testResult.panelBalanceError === "unauthorized" ? t("config.usageProbe.sub2apiPanelJwtExpired") : t("config.usageProbe.sub2apiPanelJwtFailed")}</span>
+									</div>
+								) : null}
 							</section>
 						</>
 					)}

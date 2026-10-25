@@ -3,6 +3,7 @@
 // 其它任意路径必须拒绝；正文超长时截断（防止渲染进程拿全量大文件）。
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -63,4 +64,10 @@ test("超长正文截断：超过 64KB 只返回前 64KB", async (t) => {
 	await writeFile(skillPath, "x".repeat(80 * 1024), "utf8");
 	const result = await readSkillContent(skillPath, { globalSkillPaths: [globalSkills], projectRootPaths: [] });
 	assert.equal(result.content.length, 64 * 1024);
+});
+
+test("截断必须发生在读盘阶段（句柄定位读，不整文件进内存）", async () => {
+	const source = readFileSync(new URL("../src/main/skills/readSkillContent.ts", import.meta.url), "utf8");
+	assert.match(source, /handle\.read\(buf, 0, MAX_SKILL_CONTENT_BYTES, 0\)/, "应用句柄定位读读取文件头");
+	assert.ok(!source.includes("readFile(skillPath"), "禁止全量 readFile 后再截断（截断前整文件已在内存）");
 });

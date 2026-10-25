@@ -3,20 +3,21 @@ import { execFileSync } from "node:child_process";
 /**
  * 开发态多 worktree / 多分支并行隔离。
  *
- * 所有 `npm run dev` 默认共用 %APPDATA%/pi-desktop-dev 和 Vite :5181，
+ * 所有 `npm run dev` 默认共用 %APPDATA%/PiDeck-dev 和 Vite :5181，
  * 同版本单实例锁会把第二个窗口杀掉。按 git 分支拆目录和端口后，
- * feat/* 与 dev 可同时开；main/master/dev 仍走历史目录，不打散已有配置。
+ * feat/* 与 dev 可同时开；历史目录由启动迁移器接管，不打散已有配置。
  *
  * 正式包 / dist:win:dev 不走分支后缀（没有可靠的 checkout 身份）。
  * `--user-data-dir=` 仍优先（e2e）。
  */
 
-export const DEFAULT_DEV_USER_DATA_NAME = "pi-desktop-dev";
+export const DEFAULT_DEV_USER_DATA_NAME = "PiDeck-dev";
+export const LEGACY_DEV_USER_DATA_NAME = "pi-desktop-dev";
 export const DEFAULT_DEV_VITE_PORT = 5181;
 export const DEV_BRANCH_ENV = "PIDECK_DEV_BRANCH";
 export const DEV_VITE_PORT_ENV = "PIDECK_DEV_VITE_PORT";
 
-/** 这些分支继续用历史 `pi-desktop-dev` + 5181，避免每个人的日常 dev 突然空配置。 */
+/** 这些分支共用 `PiDeck-dev` + 5181，旧数据首启迁移，功能分支仍独立。 */
 const SHARED_DEV_BRANCHES = new Set(["main", "master", "dev", "develop"]);
 
 export function sanitizeDevBranchSegment(branch: string): string {
@@ -34,7 +35,7 @@ export function isSharedDevBranch(branch: string | undefined): boolean {
 	return SHARED_DEV_BRANCHES.has(sanitizeDevBranchSegment(branch));
 }
 
-/** `%APPDATA%/<返回值>`：共享分支为 `pi-desktop-dev`，其余带分支后缀。 */
+/** `%APPDATA%/<返回值>`：共享分支为 `PiDeck-dev`，其余带分支后缀。 */
 export function resolveDevUserDataDirName(branch: string | undefined): string {
 	if (isSharedDevBranch(branch)) return DEFAULT_DEV_USER_DATA_NAME;
 	return `${DEFAULT_DEV_USER_DATA_NAME}-${sanitizeDevBranchSegment(branch ?? "")}`;
@@ -52,14 +53,10 @@ export function resolveDevVitePort(branch: string | undefined): number {
 		hash ^= segment.charCodeAt(i);
 		hash = Math.imul(hash, 16777619);
 	}
-	return 5182 + (hash >>> 0) % 100;
+	return 5182 + ((hash >>> 0) % 100);
 }
 
-export function readDevGitBranch(input: {
-	env?: NodeJS.ProcessEnv;
-	cwd?: string;
-	execGit?: (cwd: string) => string | undefined;
-} = {}): string | undefined {
+export function readDevGitBranch(input: { env?: NodeJS.ProcessEnv; cwd?: string; execGit?: (cwd: string) => string | undefined } = {}): string | undefined {
 	const env = input.env ?? process.env;
 	const fromEnv = env[DEV_BRANCH_ENV]?.trim();
 	if (fromEnv) return fromEnv;

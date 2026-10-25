@@ -1,3 +1,8 @@
+---
+title: Feature Reference | PiDeck pi desktop manual
+description: "Complete feature reference for PiDeck: multi-project workspace, session timeline, Git panel, built-in terminal, model configuration, skills and extensions — the pi desktop quick manual."
+---
+
 # Feature Reference
 
 > This handbook walks through every feature of PiDeck by UI area: where each button, menu, context menu, and shortcut lives, how to use it, and what it does.
@@ -157,7 +162,7 @@ Three pills switch the sidebar view; the selection is remembered:
 **Bottom bar of the composer**
 
 - **`+` menu**: attachment (hidden in imagegen), skills, prompt templates, mode switch (normal / goal / plan / imagegen; a `×` appears when a special mode is active).
-- **Model / thinking chip** (center): shows `model · thinking level`. Click for the model picker (search, grouped by provider, favorites, usage badges, refresh) or the thinking picker (off → max). Switching models mid-run applies after the current round ("old → new"); switches that need a restart prompt for confirmation.
+- **Model / thinking chip** (center): shows `model · thinking level`. Click for the model picker (search, grouped by provider, favorites, usage badges, refresh) or the thinking picker (off → max). Switching models mid-run applies after the current round ("old → new"); switches that need a restart prompt for confirmation. You can also cycle with shortcuts: `Ctrl+M` through favorite models, `Ctrl+T` through the levels the current model supports (both rebindable in Settings → Shortcuts). If the catalog or favorites are still loading, the shortcut runs only while the original pane, backend, and runtime binding remain valid and focus has not left the pane. Changing panes, runtime bindings, or backends cancels the pending shortcut; returning does not replay it.
 - **Backend switcher** (bottom-left logo): pi / DSH / imagegen. Locked once the session is active.
 - **Safety level** (bottom-left): security gate levels (off/standard/strict) for pi; permission presets for DSH.
 - **Context ring** (next to send): context usage; click to expand: two-segment usage, cache hits, token details, reply performance, usage query, compaction entry.
@@ -203,7 +208,7 @@ Triggered by `⑂` on a queued message. It:
 
 ### Other panels & entries
 
-- **Scratch pad**: `Ctrl/Cmd+Shift+S` (also a tool-rail button). Create/delete notes, Markdown mode, task checkboxes, export to file. Notes follow the session.
+- **Scratch pad**: click the session tool-rail button or press `Ctrl/Cmd+Shift+S` to open/close it in the right sidebar, sharing panel switching and width adjustment with other sidebar tools. Select notes from the top dropdown; create/delete notes, edit/preview Markdown, toggle task checkboxes, and export to file. Content is saved automatically.
 - **Trace panel**: drawer "Trace" tab — per-round lanes of input/model/tool events.
 - **Checkpoints (Rewind)**: drawer "Checkpoints" tab — see below.
 - **Session start page**: no messages yet — a large centered composer plus a project switcher.
@@ -297,6 +302,8 @@ Shows the current session's run trace (message/tool events in per-round lanes). 
 | `Ctrl/Cmd+N` | New session | Global (skipped while an input is focused) |
 | `Ctrl/Cmd+F` | Global search | Global (in-editor find while an editor is focused) |
 | `Ctrl/Cmd+Shift+S` | Toggle scratch pad | Global |
+| `Ctrl+M` | Cycle through favorite models (`⌘⌥M` on macOS) | Global |
+| `Ctrl+T` | Cycle the current model's thinking level (`⌘⌥T` on macOS) | Global |
 | `Ctrl/Cmd+S` | Save current file | File/config editors |
 | `Ctrl/Cmd+Enter` | Commit Git message / send message (per settings) | Git panel / composer |
 | `Enter` | Send or newline (per send-shortcut setting) | Composer |

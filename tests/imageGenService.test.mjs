@@ -34,11 +34,7 @@ let fetchStubRef = null;
 /** 加载 ImageGenService 类（运行时依赖 shared/imageGenParams，需注入 require） */
 function loadServiceClass() {
 	const configModule = { exports: {} };
-	vm.runInNewContext(
-		transpile(readFileSync("src/shared/imageGenConfig.ts", "utf8")),
-		{ module: configModule, exports: configModule.exports },
-		{ filename: "imageGenConfig.ts" },
-	);
+	vm.runInNewContext(transpile(readFileSync("src/shared/imageGenConfig.ts", "utf8")), { module: configModule, exports: configModule.exports }, { filename: "imageGenConfig.ts" });
 	const paramsModule = { exports: {} };
 	vm.runInNewContext(
 		transpile(readFileSync("src/shared/imageGenParams.ts", "utf8")),
@@ -272,16 +268,17 @@ test("其他非 2xx → http（detail 带状态码）", async () => {
 test("非 2xx 时 detail 带厂商错误正文，并脱敏 key", async () => {
 	const { service, restore } = createService({
 		credentials: CREDENTIALS,
-		fetchStub: () => fakeResponse({
-			ok: false,
-			status: 400,
-			json: async () => ({
-				error: {
-					message: "Your prompt was rejected. Use sk-abcdefghijklmnopqrstuvwxyz instead.",
-					code: "content_policy",
-				},
+		fetchStub: () =>
+			fakeResponse({
+				ok: false,
+				status: 400,
+				json: async () => ({
+					error: {
+						message: "Your prompt was rejected. Use sk-abcdefghijklmnopqrstuvwxyz instead.",
+						code: "content_policy",
+					},
+				}),
 			}),
-		}),
 	});
 	const result = await service.generate({ provider: "p", model: "m", prompt: "x" });
 	assert.equal(result.error, "http");
@@ -296,10 +293,11 @@ test("非 2xx 时 detail 带厂商错误正文，并脱敏 key", async () => {
 test("b64_json 优先返回 base64 图片", async () => {
 	const { service, restore } = createService({
 		credentials: CREDENTIALS,
-		fetchStub: () => fakeResponse({
-			ok: true,
-			json: async () => ({ data: [{ b64_json: "iVBORw0KGgo=", url: "https://x/y.png" }] }),
-		}),
+		fetchStub: () =>
+			fakeResponse({
+				ok: true,
+				json: async () => ({ data: [{ b64_json: "iVBORw0KGgo=", url: "https://x/y.png" }] }),
+			}),
 	});
 	const result = await service.generate({ provider: "p", model: "m", prompt: "x" });
 	assert.equal(result.image.type, "image");
@@ -458,12 +456,12 @@ test("apiStyle=siliconflow：size→image_size、单图参考、images[].url 兜
 	let downloads = 0;
 	const { service, restore } = createService({
 		credentials: {
-		...CREDENTIALS,
-		// 硅基用户勾选了 size：image_size 才随请求发出（与 openai 分支的 size 同一开关）
-		extraParams: { size: true, output_format: false, watermark: false },
-		apiStyle: "siliconflow",
-		referenceMode: "image-field",
-	},
+			...CREDENTIALS,
+			// 硅基用户勾选了 size：image_size 才随请求发出（与 openai 分支的 size 同一开关）
+			extraParams: { size: true, output_format: false, watermark: false },
+			apiStyle: "siliconflow",
+			referenceMode: "image-field",
+		},
 		fetchStub: (input, init) => {
 			if (String(input).endsWith("/images/generations")) {
 				capturedBody = JSON.parse(String(init.body));
@@ -545,5 +543,59 @@ test("referenceMode=edits：走 /images/edits multipart 接口", async () => {
 	// normalizeImagesUrl 追加了 /v1/images/generations，edits 需替换成 /images/edits
 	assert.equal(captured.input, "https://api.example.com/v1/images/edits");
 	assert.ok(captured.init.body instanceof FormData);
+	restore();
+});
+
+test("JSON 响应体超限 → responseTooLarge（流式读取提前中止）", async () => {
+	let cancelled = false;
+	const response = {
+		ok: true,
+		status: 200,
+		body: {
+			getReader: () => ({
+				async read() {
+					return { done: false, value: new Uint8Array(33 * 1024 * 1024) };
+				},
+				async cancel() {
+					cancelled = true;
+				},
+			}),
+		},
+	};
+	const { service, restore } = createService({ credentials: CREDENTIALS, fetchStub: () => response });
+	const result = await service.generate({ provider: "p", model: "m", prompt: "x" });
+	assert.equal(result.ok, false);
+	assert.equal(result.error, "responseTooLarge");
+	assert.ok(cancelled, "超限后必须 cancel reader 断开连接");
+	restore();
+});
+
+test("图片下载超限 → responseTooLarge", async () => {
+	let call = 0;
+	const { service, restore } = createService({
+		credentials: CREDENTIALS,
+		fetchStub: () => {
+			call += 1;
+			if (call === 1) {
+				return fakeResponse({ ok: true, json: async () => ({ data: [{ url: "https://img.example.com/x.png" }] }) });
+			}
+			return {
+				ok: true,
+				status: 200,
+				headers: { get: () => "image/png" },
+				body: {
+					getReader: () => ({
+						async read() {
+							return { done: false, value: new Uint8Array(33 * 1024 * 1024) };
+						},
+						cancel: async () => {},
+					}),
+				},
+			};
+		},
+	});
+	const result = await service.generate({ provider: "p", model: "m", prompt: "x" });
+	assert.equal(result.ok, false);
+	assert.equal(result.error, "responseTooLarge");
 	restore();
 });

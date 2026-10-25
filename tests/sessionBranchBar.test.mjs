@@ -35,25 +35,26 @@ test("父 + 兄弟 + 子分支完整分支族", () => {
 	const older = record({ id: "b1", parentSessionId: "parent", createdAt: 10 });
 	const current = record({ id: "b2", parentSessionId: "parent", createdAt: 20 });
 	const child = record({ id: "c1", parentSessionId: "b2", createdAt: 30 });
-	const records = Object.fromEntries(
-		[parent, older, current, child].map((r) => [r.id, r]),
-	);
+	const records = Object.fromEntries([parent, older, current, child].map((r) => [r.id, r]));
 	const family = deriveBranchFamily(records, "b2");
 	assert.ok(family);
 	assert.equal(family.parent?.id, "parent");
 	// 兄弟分支含自身，按 createdAt 升序，分页器 index 指向自身
-	assert.deepEqual(family.siblings.map((r) => r.id), ["b1", "b2"]);
+	assert.deepEqual(
+		family.siblings.map((r) => r.id),
+		["b1", "b2"],
+	);
 	assert.equal(family.currentIndex, 1);
-	assert.deepEqual(family.children.map((r) => r.id), ["c1"]);
+	assert.deepEqual(
+		family.children.map((r) => r.id),
+		["c1"],
+	);
 });
 
 test("无分支关系的会话返回 undefined（导航条隐藏）", () => {
 	const solo = record({ id: "solo" });
 	const other = record({ id: "other" });
-	const family = deriveBranchFamily(
-		{ solo, other },
-		"solo",
-	);
+	const family = deriveBranchFamily({ solo, other }, "solo");
 	assert.equal(family, undefined);
 });
 
@@ -63,7 +64,10 @@ test("父会话记录缺失（已删除）时兄弟分页仍可用、父链接�
 	const family = deriveBranchFamily({ b1, b2 }, "b1");
 	assert.ok(family);
 	assert.equal(family.parent, undefined);
-	assert.deepEqual(family.siblings.map((r) => r.id), ["b1", "b2"]);
+	assert.deepEqual(
+		family.siblings.map((r) => r.id),
+		["b1", "b2"],
+	);
 	assert.equal(family.currentIndex, 0);
 });
 
@@ -83,10 +87,7 @@ test("匿名运行时会话（noSession）不参与分支关系", () => {
 	const parent = record({ id: "parent", createdAt: 1 });
 	const anon = record({ id: "anon", parentSessionId: "parent", noSession: true, createdAt: 10 });
 	const current = record({ id: "parent2", createdAt: 20 });
-	const family = deriveBranchFamily(
-		{ parent, anon, parent2: current },
-		"parent",
-	);
+	const family = deriveBranchFamily({ parent, anon, parent2: current }, "parent");
 	// parent 只有一个匿名子分支（被排除）→ 无分支关系
 	assert.equal(family, undefined);
 });
@@ -97,19 +98,16 @@ test("跨项目的同 parentSessionId 记录不混入兄弟分支", () => {
 	const alien = record({ id: "alien", projectId: "p2", parentSessionId: "parent", createdAt: 20 });
 	const family = deriveBranchFamily({ parent, b1, alien }, "b1");
 	assert.ok(family);
-	assert.deepEqual(family.siblings.map((r) => r.id), ["b1"]);
+	assert.deepEqual(
+		family.siblings.map((r) => r.id),
+		["b1"],
+	);
 });
 
 /* ── 集成断言：分支条装配在会话头部下方，数据走 sessionRecordsAtom ── */
 
-const barSource = readFileSync(
-	"src/renderer/src/components/session/SessionBranchBar.tsx",
-	"utf8",
-);
-const viewSource = readFileSync(
-	"src/renderer/src/components/session/SessionView.tsx",
-	"utf8",
-);
+const barSource = readFileSync("src/renderer/src/components/session/SessionBranchBar.tsx", "utf8");
+const viewSource = readFileSync("src/renderer/src/components/session/SessionView.tsx", "utf8");
 const zhCN = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const enUS = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 
@@ -133,14 +131,7 @@ test("分支条渲染在 SessionHeader 之下、时间线之上", () => {
 });
 
 test("分支导航 i18n 键中英同步", () => {
-	for (const key of [
-		"branch.parent",
-		"branch.pager",
-		"branch.prev",
-		"branch.next",
-		"branch.children",
-		"branch.childrenTitle",
-	]) {
+	for (const key of ["branch.parent", "branch.pager", "branch.prev", "branch.next", "branch.children", "branch.childrenTitle"]) {
 		assert.ok(zhCN.includes(`"${key}"`), `zh-CN missing ${key}`);
 		assert.ok(enUS.includes(`"${key}"`), `en-US missing ${key}`);
 	}

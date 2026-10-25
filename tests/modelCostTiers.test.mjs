@@ -29,22 +29,13 @@ test("normalizeTiers: keeps valid rows and sorts by threshold ascending", () => 
 });
 
 test("normalizeTiers: drops rows with missing rates (half-typed rows)", () => {
-	const result = normalizeTiers([
-		fullDraft,
-		{ ...fullDraft, output: "" },
-		{ ...emptyTierDraft(), inputTokensAbove: "100000" },
-	]);
+	const result = normalizeTiers([fullDraft, { ...fullDraft, output: "" }, { ...emptyTierDraft(), inputTokensAbove: "100000" }]);
 	assert.equal(result.length, 1);
 	assert.equal(result[0].inputTokensAbove, 272000);
 });
 
 test("normalizeTiers: drops rows with non-finite or negative numbers", () => {
-	const result = normalizeTiers([
-		fullDraft,
-		{ ...fullDraft, inputTokensAbove: "abc" },
-		{ ...fullDraft, input: "-1" },
-		{ ...fullDraft, cacheRead: "Infinity" },
-	]);
+	const result = normalizeTiers([fullDraft, { ...fullDraft, inputTokensAbove: "abc" }, { ...fullDraft, input: "-1" }, { ...fullDraft, cacheRead: "Infinity" }]);
 	assert.equal(result.length, 1);
 	assert.equal(result[0].inputTokensAbove, 272000);
 });
@@ -55,13 +46,14 @@ test("normalizeTiers: empty input yields empty list", () => {
 
 test("toTierDrafts: undefined tiers yields empty drafts; numbers become strings", () => {
 	assert.deepEqual(plain(toTierDrafts(undefined)), []);
-	assert.deepEqual(plain(toTierDrafts([{ inputTokensAbove: 272000, input: 2.5, output: 10, cacheRead: 0.25, cacheWrite: 2.5 }])), [
-		fullDraft,
-	]);
+	assert.deepEqual(plain(toTierDrafts([{ inputTokensAbove: 272000, input: 2.5, output: 10, cacheRead: 0.25, cacheWrite: 2.5 }])), [fullDraft]);
 });
 
-test("ModelsTab renders tiered pricing UI in the cost dialog (Table + add button + threshold column)", () => {
-	const source = readFileSync("src/renderer/src/config/ModelsTab.tsx", "utf8");
+test("ModelsTable renders tiered pricing UI in the cost dialog (Table + add button + threshold column)", () => {
+	// 计费弹框随模型表格一起内聚到共享组件 ModelsTable（ModelsTab 与编辑页共用）
+	const table = readFileSync("src/renderer/src/config/ModelsTable.tsx", "utf8");
+	const tab = readFileSync("src/renderer/src/config/ModelsTab.tsx", "utf8");
+	const source = table + "\n" + tab;
 	// 梯度用 shadcn Table 呈现，阈值列带 > 前缀，添加按钮 + 删除按钮
 	assert.match(source, /config\.costTiersTitle/);
 	assert.match(source, /config\.costTiersHint/);

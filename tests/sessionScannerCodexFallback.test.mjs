@@ -20,8 +20,10 @@ function loadTranspiledModule(filePath, overrides = new Map()) {
 	const sandbox = {
 		clearTimeout,
 		exports: {},
+		// jsonlLineStream（会话 JSONL 流式扫描）运行时需要 Buffer
+		Buffer,
 		process,
-		require: (id) => overrides.has(id) ? overrides.get(id) : require(id),
+		require: (id) => (overrides.has(id) ? overrides.get(id) : require(id)),
 		setTimeout,
 	};
 	vm.runInNewContext(outputText, sandbox, { filename: filePath });
@@ -49,11 +51,7 @@ function loadMessageContentModule() {
 		target: ts.ScriptTarget.ES2022,
 	};
 	const docActions = { exports: {} };
-	vm.runInNewContext(
-		ts.transpileModule(readFileSync("src/main/feishu/docActions.ts", "utf8"), { compilerOptions }).outputText,
-		docActions,
-		{ filename: "docActions.ts" },
-	);
+	vm.runInNewContext(ts.transpileModule(readFileSync("src/main/feishu/docActions.ts", "utf8"), { compilerOptions }).outputText, docActions, { filename: "docActions.ts" });
 	const messageContent = {
 		exports: {},
 		require: (id) => {
@@ -61,11 +59,7 @@ function loadMessageContentModule() {
 			throw new Error(`Unexpected messageContent import: ${id}`);
 		},
 	};
-	vm.runInNewContext(
-		ts.transpileModule(readFileSync("src/main/pi/messageContent.ts", "utf8"), { compilerOptions }).outputText,
-		messageContent,
-		{ filename: "messageContent.ts" },
-	);
+	vm.runInNewContext(ts.transpileModule(readFileSync("src/main/pi/messageContent.ts", "utf8"), { compilerOptions }).outputText, messageContent, { filename: "messageContent.ts" });
 	return messageContent.exports;
 }
 
@@ -123,7 +117,7 @@ function loadSessionSummaryCacheModule(homePath) {
 			if (id === "electron") {
 				return {
 					app: {
-						getPath: (name) => name === "userData" ? join(homePath, "user-data") : homePath,
+						getPath: (name) => (name === "userData" ? join(homePath, "user-data") : homePath),
 					},
 				};
 			}
@@ -163,6 +157,10 @@ function loadSessionScanner(homePath) {
 	const sessionSummaryCache = loadSessionSummaryCacheModule(homePath);
 	const wslPaths = loadWslPathsModule();
 	const sessionIdentity = loadTranspiledModule("src/shared/sessionIdentity.ts");
+	// SessionScanner 新增的自包含块折叠（无依赖纯函数）
+	const expandedRefBlocks = loadTranspiledModule("src/shared/expandedRefBlocks.ts");
+	// 会话 JSONL 流式行扫描器（只依赖 node:fs/promises，测试注入真实实现）
+	const jsonlLineStream = loadTranspiledModule("src/main/sessions/jsonlLineStream.ts");
 	const sandbox = {
 		AbortController,
 		AbortSignal,
@@ -175,12 +173,15 @@ function loadSessionScanner(homePath) {
 				return { app: { getPath: () => homePath }, shell: {} };
 			}
 			if (id === "../../shared/codexSessionMeta") return codexMeta;
+			if (id === "../pi/sessionEntryIds") return loadTranspiledModule("src/main/pi/sessionEntryIds.ts");
 			if (id === "../pi/messageContent") return messageContent;
 			if (id === "../wsl/WslPaths") return wslPaths;
 			if (id === "./sessionSummaryCache") return sessionSummaryCache;
 			// sessionNameLine 为无依赖纯函数模块，直接编译加载真实实现，保证清理口径一致
 			if (id === "./sessionNameLine") return loadSessionNameLineModule();
 			if (id === "../../shared/sessionIdentity") return sessionIdentity;
+			if (id === "../../shared/expandedRefBlocks") return expandedRefBlocks;
+			if (id === "./jsonlLineStream") return jsonlLineStream;
 			// sharedLogger 未注册时 getAppLogger 返回 null，SessionScanner 埋点静默跳过
 			if (id === "../logging/sharedLogger") return { getAppLogger: () => null };
 			return require(id);

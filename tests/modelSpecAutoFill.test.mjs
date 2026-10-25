@@ -30,7 +30,7 @@ function compileModule(filePath) {
 }
 
 const mod = compileModule("src/renderer/src/utils/modelSpecAutoFill.ts");
-const { computeModelSpecPatches, collectModelSpecPatches, deriveProviderCompat } = mod;
+const { computeModelSpecPatches, collectModelSpecPatches, deriveProviderCompat, looksDeepSeekBacked } = mod;
 
 function assertUpdates(updates, expected) {
 	assert.equal(updates.length, expected.length);
@@ -76,10 +76,7 @@ test("computeModelSpecPatches: 全空字段填满", () => {
 });
 
 test("computeModelSpecPatches: 手填值不覆盖（未填思考档位时补默认开放）", () => {
-	const updates = computeModelSpecPatches(
-		{ id: "gpt-4o", contextWindow: 999, maxTokens: 111, input: ["text"] },
-		fullSpec(),
-	);
+	const updates = computeModelSpecPatches({ id: "gpt-4o", contextWindow: 999, maxTokens: 111, input: ["text"] }, fullSpec());
 	assertUpdates(updates, [
 		["reasoning", true],
 		["thinkingLevelMap", DEFAULT_MAP],
@@ -96,10 +93,7 @@ test("computeModelSpecPatches: 用户明确关掉的 reasoning=false 不覆盖",
 });
 
 test("computeModelSpecPatches: 规格缺 context/maxTokens → 留空，不填默认值", () => {
-	const updates = computeModelSpecPatches(
-		{ id: "sensenova-6.7-flash-lite" },
-		fullSpec({ contextWindow: undefined, maxTokens: undefined }),
-	);
+	const updates = computeModelSpecPatches({ id: "sensenova-6.7-flash-lite" }, fullSpec({ contextWindow: undefined, maxTokens: undefined }));
 	assertUpdates(updates, [
 		["input", ["text", "image"]],
 		["reasoning", true],
@@ -112,13 +106,10 @@ test("computeModelSpecPatches: 规格完全未命中 → 默认开放思考档�
 		["reasoning", true],
 		["thinkingLevelMap", DEFAULT_MAP],
 	]);
-	assertUpdates(
-		computeModelSpecPatches({ id: "my-custom-model" }, { source: "pi-ai", matchedId: "my-custom-model" }),
-		[
-			["reasoning", true],
-			["thinkingLevelMap", DEFAULT_MAP],
-		],
-	);
+	assertUpdates(computeModelSpecPatches({ id: "my-custom-model" }, { source: "pi-ai", matchedId: "my-custom-model" }), [
+		["reasoning", true],
+		["thinkingLevelMap", DEFAULT_MAP],
+	]);
 });
 
 test("computeModelSpecPatches: 目录未收录的视觉 ID 补图片能力", () => {
@@ -135,13 +126,16 @@ test("computeModelSpecPatches: 目录未收录的视觉 ID 补图片能力", () 
 
 test("computeModelSpecPatches: 非视觉 ID 不触发图片猜测，已有 input 不覆盖", () => {
 	// 普通 ID 未命中目录：不猜 input（保持旧行为）
-	assert.equal(computeModelSpecPatches({ id: "my-deepseek-r1" }, null).some(([field]) => field === "input"), false);
-	// 已手填 input 时目录声明 image 也不覆盖（填空语义；覆盖走「重置为自适应」）
-	const protectedUpdates = computeModelSpecPatches(
-		{ id: "gpt-4o-vision", input: ["text"] },
-		fullSpec({ input: ["text", "image"] }),
+	assert.equal(
+		computeModelSpecPatches({ id: "my-deepseek-r1" }, null).some(([field]) => field === "input"),
+		false,
 	);
-	assert.equal(protectedUpdates.some(([field]) => field === "input"), false);
+	// 已手填 input 时目录声明 image 也不覆盖（填空语义；覆盖走「重置为自适应」）
+	const protectedUpdates = computeModelSpecPatches({ id: "gpt-4o-vision", input: ["text"] }, fullSpec({ input: ["text", "image"] }));
+	assert.equal(
+		protectedUpdates.some(([field]) => field === "input"),
+		false,
+	);
 });
 
 test("isVisionModelId: 只认独立视觉 token，避免子串误判", () => {
@@ -166,22 +160,28 @@ test("computeModelSpecPatches: 纯文本规格不填 input", () => {
 
 test("computeModelSpecPatches: 规格未声明推理 → 默认支持思考并开放档位", () => {
 	const updates = computeModelSpecPatches({ id: "x" }, fullSpec({ reasoning: undefined }));
-	assert.equal(updates.some(([field, value]) => field === "reasoning" && value === true), true);
-	assert.equal(updates.some(([field]) => field === "thinkingLevelMap"), true);
+	assert.equal(
+		updates.some(([field, value]) => field === "reasoning" && value === true),
+		true,
+	);
+	assert.equal(
+		updates.some(([field]) => field === "thinkingLevelMap"),
+		true,
+	);
 });
 
 test("computeModelSpecPatches: 规格明确非推理 → reasoning:false 且不开放档位", () => {
 	const updates = computeModelSpecPatches({ id: "x" }, fullSpec({ reasoning: false }));
-	assert.equal(updates.some(([field]) => field === "thinkingLevelMap"), false);
+	assert.equal(
+		updates.some(([field]) => field === "thinkingLevelMap"),
+		false,
+	);
 	assert.equal(updates.find(([field]) => field === "reasoning")?.[1], false);
 });
 
 test("computeModelSpecPatches: 完整 thinkingLevelMap 与输入模态只补空字段", () => {
 	const thinkingLevelMap = { off: null, high: "high", xhigh: "xhigh", max: "max" };
-	const updates = computeModelSpecPatches(
-		{ id: "gpt-5.6-luna" },
-		fullSpec({ input: ["text", "image"], thinkingLevelMap }),
-	);
+	const updates = computeModelSpecPatches({ id: "gpt-5.6-luna" }, fullSpec({ input: ["text", "image"], thinkingLevelMap }));
 	assertUpdates(updates, [
 		["contextWindow", 128000],
 		["maxTokens", 16384],
@@ -189,11 +189,11 @@ test("computeModelSpecPatches: 完整 thinkingLevelMap 与输入模态只补空�
 		["reasoning", true],
 		["thinkingLevelMap", thinkingLevelMap],
 	]);
-	const protectedUpdates = computeModelSpecPatches(
-		{ id: "gpt-5.6-luna", reasoning: false, thinkingLevelMap: { off: null }, input: ["text"] },
-		fullSpec({ input: ["text", "image"], thinkingLevelMap }),
+	const protectedUpdates = computeModelSpecPatches({ id: "gpt-5.6-luna", reasoning: false, thinkingLevelMap: { off: null }, input: ["text"] }, fullSpec({ input: ["text", "image"], thinkingLevelMap }));
+	assert.equal(
+		protectedUpdates.some(([field]) => field === "thinkingLevelMap" || field === "input"),
+		false,
 	);
-	assert.equal(protectedUpdates.some(([field]) => field === "thinkingLevelMap" || field === "input"), false);
 });
 
 test("deriveProviderCompat: 有档位映射的 provider 自动开启 reasoning_effort", () => {
@@ -212,22 +212,9 @@ test("deriveProviderCompat: 有档位映射的 provider 自动开启 reasoning_e
 });
 
 test("deriveProviderCompat: 无映射或明确非推理时不开启", () => {
-	assert.equal(
-		deduceSupportsReasoningEffort(deriveProviderCompat({ models: [{ id: "m" }] })),
-		false,
-	);
-	assert.equal(
-		deduceSupportsReasoningEffort(
-			deriveProviderCompat({ models: [{ id: "m", reasoning: false, thinkingLevelMap: { xhigh: "xhigh" } }] }),
-		),
-		false,
-	);
-	assert.equal(
-		deduceSupportsReasoningEffort(
-			deriveProviderCompat({ models: [{ id: "m", thinkingLevelMap: {} }] }),
-		),
-		false,
-	);
+	assert.equal(deduceSupportsReasoningEffort(deriveProviderCompat({ models: [{ id: "m" }] })), false);
+	assert.equal(deduceSupportsReasoningEffort(deriveProviderCompat({ models: [{ id: "m", reasoning: false, thinkingLevelMap: { xhigh: "xhigh" } }] })), false);
+	assert.equal(deduceSupportsReasoningEffort(deriveProviderCompat({ models: [{ id: "m", thinkingLevelMap: {} }] })), false);
 });
 
 test("deriveProviderCompat: 旧保存写入的陈旧 false 被联动覆盖，显式 true 保留", () => {
@@ -259,6 +246,45 @@ test("deriveProviderCompat: 旧保存写入的陈旧 false 被联动覆盖，显
 	assert.equal(compat.customFlag, "keep");
 });
 
+test("deriveProviderCompat: DeepSeek 系 provider 自动开启 reasoning_content 回传（未表态时才写）", () => {
+	// 中转站域名不含 deepseek.com，pi 自带的 detectCompat 判不出来，靠模型 ID 认出来
+	const byModelId = deriveProviderCompat({ baseUrl: "https://88api.ai/v1", models: [{ id: "deepseek-v4.1-flash" }] }, "ai88");
+	assert.equal(byModelId.requiresReasoningContentOnAssistantMessages, true);
+	// 按 provider 名 / baseUrl 也能认出来
+	assert.equal(deriveProviderCompat({ models: [] }, "deepseek").requiresReasoningContentOnAssistantMessages, true);
+	assert.equal(deriveProviderCompat({ baseUrl: "https://api.deepseek.com/v1", models: [] }).requiresReasoningContentOnAssistantMessages, true);
+	// 非 DeepSeek 后端不写该键（不往 models.json 甩无意义的 false）
+	const unrelated = deriveProviderCompat({ baseUrl: "https://api.openai.com/v1", models: [{ id: "gpt-5.6" }] });
+	assert.equal(unrelated.requiresReasoningContentOnAssistantMessages, undefined);
+	assert.ok(!("requiresReasoningContentOnAssistantMessages" in unrelated));
+});
+
+test("deriveProviderCompat: reasoning_content 回传的显式表态优先于自动判定", () => {
+	// 显式 false = 用户否决，即使看着是 DeepSeek 后端也不能重新打开
+	const optedOut = deriveProviderCompat({
+		models: [{ id: "deepseek-v4.1-flash" }],
+		compat: { requiresReasoningContentOnAssistantMessages: false },
+	});
+	assert.equal(optedOut.requiresReasoningContentOnAssistantMessages, false);
+	// 显式 true 在非 DeepSeek 后端也保留（用户可能知道中转站背后的真实上游）
+	const optedIn = deriveProviderCompat({
+		models: [{ id: "gpt-5.6" }],
+		compat: { requiresReasoningContentOnAssistantMessages: true },
+	});
+	assert.equal(optedIn.requiresReasoningContentOnAssistantMessages, true);
+});
+
+test("looksDeepSeekBacked: 名/地址/模型 ID 任一命中即视为 DeepSeek 系后端", () => {
+	assert.equal(looksDeepSeekBacked({ models: [] }, "my-deepseek-relay"), true);
+	assert.equal(looksDeepSeekBacked({ baseUrl: "https://x.dev/deepseek/v1", models: [] }), true);
+	assert.equal(looksDeepSeekBacked({ models: [{ id: "DeepSeek-V3.2" }] }), true);
+	assert.equal(looksDeepSeekBacked({ models: [{ id: "deepseek-r1" }], baseUrl: "https://a.dev/v1" }, "relay"), true);
+	assert.equal(looksDeepSeekBacked({ models: [{ id: "gpt-5.6" }, { id: "claude-opus-4" }] }, "relay"), false);
+	assert.equal(looksDeepSeekBacked({ models: [] }), false);
+	// 不含 ID 的行（空列表/手填遗漏）不应抛错
+	assert.equal(looksDeepSeekBacked({ models: [{}] }), false);
+});
+
 function deduceSupportsReasoningEffort(compat) {
 	return compat.supportsReasoningEffort === true;
 }
@@ -268,11 +294,7 @@ test("collectModelSpecPatches: 批量补全、计数、不修改入参、未命�
 		providers: {
 			relay: {
 				baseUrl: "https://relay.example",
-				models: [
-					{ id: "gpt-4o" },
-					{ id: "filled", contextWindow: 999, reasoning: false },
-					{ id: "" },
-				],
+				models: [{ id: "gpt-4o" }, { id: "filled", contextWindow: 999, reasoning: false }, { id: "" }],
 			},
 			other: {
 				models: [{ id: "glm-5" }],

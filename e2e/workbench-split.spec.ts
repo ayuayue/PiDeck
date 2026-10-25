@@ -24,8 +24,10 @@ test.use({
 test("workbench: split → maximize → split 恢复会话面板宽度", async ({ window }) => {
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 
+	// 侧栏默认停在「聊天」分段，工作区项目行在「项目」分段下
+	await window.getByRole("tab", { name: "项目" }).click();
 	// 进入预置项目，打开右侧抽屉文件树
-	const projectItem = window.locator(".conversation", { hasText: "pideck-seed-wb-" }).first();
+	const projectItem = window.locator(".conversation", { hasText: "workbench" }).first();
 	await expect(projectItem).toBeVisible({ timeout: 20_000 });
 	await projectItem.click();
 	const toggle = window.locator(".header-drawer-toggle").first();
@@ -71,7 +73,9 @@ test("workbench: split → maximize → split 恢复会话面板宽度", async (
 test("workbench: 文件预览右上角始终有关闭按钮", async ({ window }) => {
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 
-	const projectItem = window.locator(".conversation", { hasText: "pideck-seed-wb-" }).first();
+	// 侧栏默认停在「聊天」分段，工作区项目行在「项目」分段下
+	await window.getByRole("tab", { name: "项目" }).click();
+	const projectItem = window.locator(".conversation", { hasText: "workbench" }).first();
 	await expect(projectItem).toBeVisible({ timeout: 20_000 });
 	await projectItem.click();
 	const toggle = window.locator(".header-drawer-toggle").first();
@@ -86,9 +90,12 @@ test("workbench: 文件预览右上角始终有关闭按钮", async ({ window })
 	await fileRow.click();
 
 	// 右上角关闭按钮存在（修复前 chromeTabsExternal 会隐藏它）
-	const closeBtn = window.locator(".file-diff-header-actions").getByRole("button", {
-		name: "关闭",
-	}).first();
+	const closeBtn = window
+		.locator(".file-diff-header-actions")
+		.getByRole("button", {
+			name: "关闭",
+		})
+		.first();
 	await expect(closeBtn).toBeVisible({ timeout: 15_000 });
 
 	// 点击后关闭整个阅读面（回到无内容状态）

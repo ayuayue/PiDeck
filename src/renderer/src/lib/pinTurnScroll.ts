@@ -11,18 +11,11 @@ export type PinTurnMessage = {
 };
 
 /** 尾部新增消息 id（入场动画用）。历史首帧不闪；只有发送当下才给当前尾一条入场。 */
-export function resolveFreshTailIds(
-	messages: readonly PinTurnMessage[],
-	previousTail: string | undefined,
-	nextTail: string,
-	pendingRequestId?: string,
-): string[] {
+export function resolveFreshTailIds(messages: readonly PinTurnMessage[], previousTail: string | undefined, nextTail: string, pendingRequestId?: string): string[] {
 	if (!previousTail) return pendingRequestId ? [nextTail] : [];
 	if (nextTail === previousTail) return [];
 	const baselineIndex = messages.findIndex((message) => message.id === previousTail);
-	return baselineIndex < 0
-		? [nextTail]
-		: messages.slice(baselineIndex + 1).map((message) => message.id);
+	return baselineIndex < 0 ? [nextTail] : messages.slice(baselineIndex + 1).map((message) => message.id);
 }
 
 /** 按滚动距离估算时长：短距离干脆，长距离封顶，避免整页滚太久。 */
@@ -31,14 +24,16 @@ export function pinScrollDurationMs(distancePx: number): number {
 	return Math.round(Math.min(720, Math.max(320, 240 + distance * 0.28)));
 }
 
-/** ease-out quart：快起慢收、无回弹。 */
+/** ease-in-out cubic：起步与收尾速度连续，长距离不在首帧猛跳。 */
 export function pinScrollEase(progress: number): number {
 	const t = Math.min(1, Math.max(0, progress));
-	return 1 - (1 - t) ** 4;
+	return t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2;
 }
 
 export type AnimateScrollTopOptions = {
 	reduceMotion?: boolean;
+	/** Re-read the target while layout grows, without restarting the easing clock. */
+	getTargetTop?: () => number;
 	isCancelled?: () => boolean;
 	onComplete?: () => void;
 };
@@ -48,11 +43,7 @@ export type AnimateScrollTopOptions = {
  * 不用 CSS scroll-behavior:smooth：时长/曲线不可控，且无法在用户介入时同步清理
  * 程序化滚动抑制标记。
  */
-export function animateScrollTop(
-	element: HTMLElement,
-	targetTop: number,
-	options: AnimateScrollTopOptions = {},
-): () => void {
+export function animateScrollTop(element: HTMLElement, targetTop: number, options: AnimateScrollTopOptions = {}): () => void {
 	const reduceMotion = options.reduceMotion ?? false;
 	const isCancelled = options.isCancelled ?? (() => false);
 	const target = Math.max(0, targetTop);
@@ -63,6 +54,7 @@ export function animateScrollTop(
 	}
 
 	const startTop = element.scrollTop;
+	let currentTarget = target;
 	const distance = target - startTop;
 	const duration = pinScrollDurationMs(distance);
 	const startedAt = performance.now();
@@ -80,8 +72,9 @@ export function animateScrollTop(
 			stop();
 			return;
 		}
+		currentTarget = Math.max(0, options.getTargetTop?.() ?? currentTarget);
 		const progress = pinScrollEase((performance.now() - startedAt) / duration);
-		element.scrollTop = startTop + distance * progress;
+		element.scrollTop = startTop + (currentTarget - startTop) * progress;
 		if (progress >= 1) {
 			stop();
 			options.onComplete?.();

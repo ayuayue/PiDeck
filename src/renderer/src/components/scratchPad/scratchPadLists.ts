@@ -84,6 +84,6 @@ export function toggleTaskCheckbox(value: string, lineIndex: number): string {
 	if (lineIndex < 0 || lineIndex >= lines.length) return value;
 	const line = lines[lineIndex];
 	if (!/^\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\]/.test(line)) return value;
-	lines[lineIndex] = line.replace(/\[([ xX])\]/, (_, mark: string) => mark.trim() ? "[ ]" : "[x]");
+	lines[lineIndex] = line.replace(/\[([ xX])\]/, (_, mark: string) => (mark.trim() ? "[ ]" : "[x]"));
 	return lines.join("\n");
 }

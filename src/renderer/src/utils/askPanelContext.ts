@@ -40,24 +40,14 @@ const SINGLE_LINE_CHARS = 200;
  * - 总量超过 maxChars 时从最早消息起丢弃，最后一条仍超长则就地截断。
  * - 无可携带内容（空列表/全是空消息）返回 null，调用方应跳过上下文注入。
  */
-export function buildAskContextBlock(
-	messages: readonly AskContextMessage[] | null | undefined,
-	options?: BuildAskContextOptions,
-): string | null {
+export function buildAskContextBlock(messages: readonly AskContextMessage[] | null | undefined, options?: BuildAskContextOptions): string | null {
 	const maxMessages = options?.maxMessages ?? DEFAULT_MAX_MESSAGES;
 	const maxChars = options?.maxChars ?? DEFAULT_MAX_CHARS;
 	const userLabel = options?.userLabel ?? "用户";
 	const assistantLabel = options?.assistantLabel ?? "助手";
 
 	// 收集候选消息：只保留有正文的用户/助手消息，最近 maxMessages 条
-	const candidates = (messages ?? [])
-		.filter(
-			(m) =>
-				(m.role === "user" || m.role === "assistant") &&
-				typeof m.text === "string" &&
-				m.text.trim().length > 0,
-		)
-		.slice(-maxMessages);
+	const candidates = (messages ?? []).filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.text === "string" && m.text.trim().length > 0).slice(-maxMessages);
 
 	if (candidates.length === 0) return null;
 

@@ -1,14 +1,8 @@
 import type { ChatMessage } from "../../../../shared/types";
 // 文件修改/工具名解析已迁往 shared/fileChanges（main 的 AgentManager 与渲染层共用同一份聚合口径）；
 // 此处 import 供本文件保留函数使用，并 re-export 保持既有 import 路径兼容。
-import {
-	collectSessionFileChanges,
-	getToolDiffTarget,
-	getToolFilePath,
-	getToolName,
-	stripAnsi,
-} from "../../../../shared/fileChanges.ts";
-export { collectSessionFileChanges, getToolDiffTarget, getToolName, stripAnsi };
+import { collectSessionFileChanges, getToolDiffTarget, getToolFilePath, getToolName, stripAnsi } from "../../../../shared/fileChanges.ts";
+export { getToolDiffTarget, getToolName, stripAnsi };
 import type { AgentRunItem } from "../app/AppUtils";
 
 /* stripThinkingTags 与 AppUtils 同逻辑的内联副本（此文件被 node 单测直接加载，改动需同步） */
@@ -16,13 +10,11 @@ export function stripThinkingTags(text: string): string {
 	return text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim();
 }
 
-export function getToolStatus(
-  message: ChatMessage,
-): "running" | "done" | "error" {
-  const status = String(message.meta?.status ?? "");
-  if (status === "running") return "running";
-  if (status === "error" || message.role === "error") return "error";
-  return "done";
+export function getToolStatus(message: ChatMessage): "running" | "done" | "error" {
+	const status = String(message.meta?.status ?? "");
+	if (status === "running") return "running";
+	if (status === "error" || message.role === "error") return "error";
+	return "done";
 }
 
 /**
@@ -37,10 +29,8 @@ export function getToolStatus(
  * （其 timestamp 本身随事件固定，不会中途刷新）。
  */
 export function getToolLiveStartTimestamp(message: ChatMessage): number {
-  const startedAt = message.meta?.startedAt;
-  return typeof startedAt === "number" && startedAt > 0
-    ? startedAt
-    : message.timestamp;
+	const startedAt = message.meta?.startedAt;
+	return typeof startedAt === "number" && startedAt > 0 ? startedAt : message.timestamp;
 }
 
 /** 从工具参数中提取文件路径（write/edit/create/patch 等文件工具） */
@@ -62,10 +52,12 @@ export type TurnFileDiffLine = {
  * 收集一轮 agent-run 内修改的文件：展开 run.items 的全部消息后复用
  * collectSessionFileChanges。run 完成后其内容不再变化，因此每轮底部展示天然固定，
  * 不会被后续消息清掉。
+ *
+ * 额外合并 `hiddenFileMessages`：DSH PTC 模式下文件修改是 run_code 内部的子调用，
+ * 被投影成隐藏消息（meta.ptcNested）不进入 items（时间线只显示外层 run_code 卡），
+ * 但它们是这类会话「改了哪些文件」的唯一数据源——漏了它们 PTC 会话的轮末清单恒为空。
  */
-export function collectRunFileChanges(
-	run: AgentRunItem,
-): Array<{ path: string; count: number; originalContent: string; content: string }> {
+export function collectRunFileChanges(run: AgentRunItem): Array<{ path: string; count: number; originalContent: string; content: string }> {
 	const msgs: ChatMessage[] = [];
 	for (const item of run.items) {
 		if (item.kind === "message") {
@@ -74,6 +66,7 @@ export function collectRunFileChanges(
 			msgs.push(...item.messages);
 		}
 	}
+	if (run.hiddenFileMessages) msgs.push(...run.hiddenFileMessages);
 	return collectSessionFileChanges(msgs);
 }
 
@@ -82,10 +75,7 @@ export function collectRunFileChanges(
  * edit/patch 展示变动区域（removed 旧行 + added 新行）；
  * write/create 无旧内容，整文件视为新增（全 added）。
  */
-export function fileChangeToDiffLines(entry: {
-	originalContent: string;
-	content: string;
-}): TurnFileDiffLine[] {
+export function fileChangeToDiffLines(entry: { originalContent: string; content: string }): TurnFileDiffLine[] {
 	const hasOld = entry.originalContent.length > 0;
 	const lines: TurnFileDiffLine[] = [];
 	entry.originalContent.split("\n").forEach((content, index) => {
@@ -97,41 +87,72 @@ export function fileChangeToDiffLines(entry: {
 	return lines;
 }
 
+/**
+ * 单文件修改的增/删行数（轮末 chip 上的 +N / −N）。
+ *
+ * 口径（与 getToolDiffTarget 的 changedLines 解耦，因为后者是「最大行数」估算，
+ * 适合抽屉里的「约 N 行」，不能拆成加/减）：
+ * - write/create（originalContent 为空）：整文件视为新增，增 = 内容行数，减 = 0；
+ * - edit/patch：originalContent 是变动区域的旧文本、content 是新文本，
+ *   两者行数分别就是 −N / +N。
+ * 末尾换行会多算一个空行：需要跨行数比较，多算 1 比少算 1 更符合读感。
+ */
+export function fileChangeDelta(entry: { originalContent: string; content: string }): { added: number; removed: number } {
+	const countLines = (value: string) => (value.length === 0 ? 0 : value.split(/\r\n|\r|\n/).length);
+	return {
+		added: countLines(entry.content),
+		removed: countLines(entry.originalContent),
+	};
+}
+
 export function getToolDetailText(message: ChatMessage): string {
-  if (typeof message.meta?.detailText === "string") {
-    return stripAnsi(message.meta.detailText);
-  }
-  return stripAnsi(JSON.stringify(message.meta ?? {}, null, 2));
+	if (typeof message.meta?.detailText === "string") {
+		return stripAnsi(message.meta.detailText);
+	}
+	return stripAnsi(JSON.stringify(message.meta ?? {}, null, 2));
 }
 
 export function getToolExitCode(message: ChatMessage): number | undefined {
-  const result = message.meta?.result;
-  if (!result || typeof result !== "object") return undefined;
-  const value = (result as { exitCode?: unknown }).exitCode;
-  if (typeof value === "number") return value;
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-  return undefined;
+	const result = message.meta?.result;
+	if (!result || typeof result !== "object") return undefined;
+	const value = (result as { exitCode?: unknown }).exitCode;
+	if (typeof value === "number") return value;
+	if (typeof value === "string" && value.trim()) {
+		const parsed = Number(value);
+		return Number.isFinite(parsed) ? parsed : undefined;
+	}
+	return undefined;
 }
 
+/**
+ * 时长格式化（时间线实时秒表 / 工具卡片 / 思考卡片 / 统计口径共用）。
+ *
+ * 档位：<1s 毫秒、<1m 秒（带十分位）、≥1m 分秒、≥1h 小时档。
+ * 各档位值为 0 时省略，既有写法保持不变（「2m」「1m4s」）。
+ * 必须有小时档：挂机跑长任务时只到分钟档会显示成「3120m」这种读不出来的数字。
+ */
 export function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}.${Math.floor((ms % 1000) / 100)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remaining = seconds % 60;
-  return remaining > 0 ? `${minutes}m${remaining}s` : `${minutes}m`;
+	if (ms < 1000) return `${ms}ms`;
+	const totalSeconds = Math.floor(ms / 1000);
+	if (totalSeconds < 60) return `${totalSeconds}.${Math.floor((ms % 1000) / 100)}s`;
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	const seconds = totalSeconds % 60;
+	// 实时秒表保留秒档：长任务里秒在跳才说明「还在跑」，否则看着像卡死。
+	let text = "";
+	if (hours > 0) text += `${hours}h`;
+	if (minutes > 0) text += `${minutes}m`;
+	if (seconds > 0) text += `${seconds}s`;
+	return text;
 }
 
 export function formatTime(timestamp: number): string {
-  return new Date(timestamp).toLocaleString(undefined, {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+	return new Date(timestamp).toLocaleString(undefined, {
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+	});
 }
 
 /**
@@ -140,7 +161,7 @@ export function formatTime(timestamp: number): string {
  * 与「~408 / 1M」并列时看起来像算错了——低占用必须保留有效数字。
  */
 export function formatPercent(value: number): string {
-  if (value >= 10) return String(Math.round(value));
-  if (value >= 1) return String(Math.round(value * 10) / 10);
-  return String(Math.round(value * 100) / 100);
+	if (value >= 10) return String(Math.round(value));
+	if (value >= 1) return String(Math.round(value * 10) / 10);
+	return String(Math.round(value * 100) / 100);
 }

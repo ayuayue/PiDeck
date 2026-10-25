@@ -7,5 +7,5 @@ const css = readRendererStyles();
 const titleRowRule = css.match(/\.chat-title-row \{([\s\S]*?)\n\}/)?.[1];
 
 test("agent ID card is 28px tall and remains vertically centered with the title", () => {
-  assert.match(titleRowRule ?? "", /align-items:\s*center;/);
+	assert.match(titleRowRule ?? "", /align-items:\s*center;/);
 });

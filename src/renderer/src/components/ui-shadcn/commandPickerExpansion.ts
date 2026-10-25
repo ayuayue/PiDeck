@@ -15,34 +15,29 @@
 export type PickerGroupMode = "default" | "allExpanded" | "allCollapsed";
 
 export type PickerGroupSelection = {
-  mode: PickerGroupMode;
-  /** 用户显式切换过的分组 → 目标状态（展开 true / 折叠 false） */
-  overrides: ReadonlyMap<string, boolean>;
+	mode: PickerGroupMode;
+	/** 用户显式切换过的分组 → 目标状态（展开 true / 折叠 false） */
+	overrides: ReadonlyMap<string, boolean>;
 };
 
 export const INITIAL_PICKER_GROUP_SELECTION: PickerGroupSelection = {
-  mode: "default",
-  overrides: new Map(),
+	mode: "default",
+	overrides: new Map(),
 };
 
 /**
  * 计算某分组当前是否展开。
  * defaultExpandedIds 为 null 表示「默认全展开」（非模型类选择器的历史行为）。
  */
-export function resolveGroupExpanded(params: {
-  selection: PickerGroupSelection;
-  defaultExpandedIds: ReadonlySet<string> | null;
-  searchActive: boolean;
-  groupId: string;
-}): boolean {
-  const { selection, defaultExpandedIds, searchActive, groupId } = params;
-  // 搜索期间强制展开，避免用户搜到隐藏分组中的项目却看不到结果。
-  if (searchActive) return true;
-  const override = selection.overrides.get(groupId);
-  if (override !== undefined) return override;
-  if (selection.mode === "allExpanded") return true;
-  if (selection.mode === "allCollapsed") return false;
-  return defaultExpandedIds === null || defaultExpandedIds.has(groupId);
+export function resolveGroupExpanded(params: { selection: PickerGroupSelection; defaultExpandedIds: ReadonlySet<string> | null; searchActive: boolean; groupId: string }): boolean {
+	const { selection, defaultExpandedIds, searchActive, groupId } = params;
+	// 搜索期间强制展开，避免用户搜到隐藏分组中的项目却看不到结果。
+	if (searchActive) return true;
+	const override = selection.overrides.get(groupId);
+	if (override !== undefined) return override;
+	if (selection.mode === "allExpanded") return true;
+	if (selection.mode === "allCollapsed") return false;
+	return defaultExpandedIds === null || defaultExpandedIds.has(groupId);
 }
 
 /**
@@ -52,26 +47,19 @@ export function resolveGroupExpanded(params: {
  * - toggle：翻转某组当前（非搜索态）展开状态，写入覆盖。搜索态点击同样记录，
  *   清空搜索后按覆盖生效——与旧 collapsedGroups/expandedGroups 表现一致。
  */
-export function applyPickerGroupAction(params: {
-  selection: PickerGroupSelection;
-  defaultExpandedIds: ReadonlySet<string> | null;
-  action:
-    | { kind: "expandAll" }
-    | { kind: "collapseAll" }
-    | { kind: "toggle"; groupId: string };
-}): PickerGroupSelection {
-  const { selection, defaultExpandedIds, action } = params;
-  if (action.kind === "expandAll") return { mode: "allExpanded", overrides: new Map() };
-  if (action.kind === "collapseAll") return { mode: "allCollapsed", overrides: new Map() };
+export function applyPickerGroupAction(params: { selection: PickerGroupSelection; defaultExpandedIds: ReadonlySet<string> | null; action: { kind: "expandAll" } | { kind: "collapseAll" } | { kind: "toggle"; groupId: string } }): PickerGroupSelection {
+	const { selection, defaultExpandedIds, action } = params;
+	if (action.kind === "expandAll") return { mode: "allExpanded", overrides: new Map() };
+	if (action.kind === "collapseAll") return { mode: "allCollapsed", overrides: new Map() };
 
-  const { groupId } = action;
-  const currentlyExpanded = resolveGroupExpanded({
-    selection,
-    defaultExpandedIds,
-    searchActive: false,
-    groupId,
-  });
-  const overrides = new Map(selection.overrides);
-  overrides.set(groupId, !currentlyExpanded);
-  return { mode: selection.mode, overrides };
+	const { groupId } = action;
+	const currentlyExpanded = resolveGroupExpanded({
+		selection,
+		defaultExpandedIds,
+		searchActive: false,
+		groupId,
+	});
+	const overrides = new Map(selection.overrides);
+	overrides.set(groupId, !currentlyExpanded);
+	return { mode: selection.mode, overrides };
 }

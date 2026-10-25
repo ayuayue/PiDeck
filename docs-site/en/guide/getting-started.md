@@ -1,3 +1,8 @@
+---
+title: Quick Start | Install PiDeck pi desktop
+description: "Get started with PiDeck (pi desktop): download installers for Windows/macOS/Linux, first-launch environment check, one-click Node and pi CLI install, and create your first agent session."
+---
+
 # Quick Start
 
 There are two ways to use PiDeck: download a pre-built installer or run from source.

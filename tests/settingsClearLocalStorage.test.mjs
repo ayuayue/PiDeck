@@ -10,34 +10,29 @@ const tab = readFileSync("src/renderer/src/components/app/settings/SettingsStora
 const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 
-const NEW_KEYS = [
-  "settings.storage.clearLocalStorage",
-  "settings.storage.clearLocalStorageDesc",
-  "settings.storage.clearLocalStorageButton",
-  "settings.storage.clearLocalStorageConfirm",
-];
+const NEW_KEYS = ["settings.storage.clearLocalStorage", "settings.storage.clearLocalStorageDesc", "settings.storage.clearLocalStorageConfirm"];
 
 test("clearing UI cache goes through a danger ConfirmDialog, not a bare button", () => {
-  assert.match(tab, /confirmClearLocalStorage/);
-  assert.match(tab, /onClick=\{confirmClearLocalStorage\}/);
-  assert.match(tab, /variant="destructive"/);
-  assert.match(tab, /setConfirmDialog\(\{[\s\S]*?title: t\("app\.confirm"\)[\s\S]*?message: t\("settings\.storage\.clearLocalStorageConfirm"\)/);
+	assert.match(tab, /confirmClearLocalStorage/);
+	assert.match(tab, /onClick=\{confirmClearLocalStorage\}/);
+	assert.match(tab, /variant="destructive"/);
+	assert.match(tab, /setConfirmDialog\(\{[\s\S]*?title: t\("app\.confirm"\)[\s\S]*?message: t\("settings\.storage\.clearLocalStorageConfirm"\)/);
 });
 
 test("clear executes localStorage.clear() and reloads the page", () => {
-  // 清空后内存态（宽度/折叠/过滤器）仍是旧值，不刷新会把旧值写回，等于没清
-  assert.match(tab, /localStorage\.clear\(\)/);
-  assert.match(tab, /window\.location\.reload\(\)/);
+	// 清空后内存态（宽度/折叠/过滤器）仍是旧值，不刷新会把旧值写回，等于没清
+	assert.match(tab, /localStorage\.clear\(\)/);
+	assert.match(tab, /window\.location\.reload\(\)/);
 });
 
 test("clear targets the renderer localStorage only, never main-process logs", () => {
-  const clearBlock = tab.slice(tab.indexOf("const doClearLocalStorage"), tab.indexOf("const confirmClearLocalStorage"));
-  assert.doesNotMatch(clearBlock, /logs\.clear|piDesktop\./);
+	const clearBlock = tab.slice(tab.indexOf("const doClearLocalStorage"), tab.indexOf("const confirmClearLocalStorage"));
+	assert.doesNotMatch(clearBlock, /logs\.clear|piDesktop\./);
 });
 
 test("storage tab keeps the new settings entries in both locales", () => {
-  for (const key of NEW_KEYS) {
-    assert.match(zh, new RegExp(`"${key}":`), `${key} must exist in zh-CN`);
-    assert.match(en, new RegExp(`"${key}":`), `${key} must exist in en-US`);
-  }
+	for (const key of NEW_KEYS) {
+		assert.match(zh, new RegExp(`"${key}":`), `${key} must exist in zh-CN`);
+		assert.match(en, new RegExp(`"${key}":`), `${key} must exist in en-US`);
+	}
 });

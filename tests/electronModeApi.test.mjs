@@ -18,14 +18,8 @@ test("Electron renderer does not fall back to preview browser API when preload i
 	assert.match(desktopApiSource, /function createUnavailableDesktopApi\(/);
 	assert.match(desktopApiSource, /missingElectronPreload\s*\?\s*createUnavailableDesktopApi\(\)/);
 	assert.match(appSource, /missingElectronPreload/);
-	assert.doesNotMatch(
-		desktopApiSource,
-		/window\.piDesktop\s*\?\?\s*\(isLanWeb\s*\?\s*createBrowserApi\(\)\s*:\s*createPreviewApi\(\)\)/,
-	);
-	assert.doesNotMatch(
-		desktopApiSource,
-		/missingElectronPreload\s*\|\|\s*!isLanWeb\s*\?\s*createPreviewApi\(\)/,
-	);
+	assert.doesNotMatch(desktopApiSource, /window\.piDesktop\s*\?\?\s*\(isLanWeb\s*\?\s*createBrowserApi\(\)\s*:\s*createPreviewApi\(\)\)/);
+	assert.doesNotMatch(desktopApiSource, /missingElectronPreload\s*\|\|\s*!isLanWeb\s*\?\s*createPreviewApi\(\)/);
 });
 
 test("packaged main and pet windows never load the dev server URL", () => {
@@ -33,10 +27,7 @@ test("packaged main and pet windows never load the dev server URL", () => {
 	assert.match(mainSource, /is\.dev/);
 	assert.match(mainSource, /!app\.isPackaged/);
 	assert.match(mainSource, /mainWindow\.loadURL\(devRendererUrl\)/);
-	assert.doesNotMatch(
-		mainSource,
-		/is\.dev\s*&&\s*process\.env\.ELECTRON_RENDERER_URL[\s\S]*mainWindow\.loadURL/,
-	);
+	assert.doesNotMatch(mainSource, /is\.dev\s*&&\s*process\.env\.ELECTRON_RENDERER_URL[\s\S]*mainWindow\.loadURL/);
 	assert.match(petWindowSource, /shouldUseDevRendererUrl\(/);
 	assert.match(petWindowSource, /!app\.isPackaged/);
 });

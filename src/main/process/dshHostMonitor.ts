@@ -7,19 +7,14 @@
  */
 export const DSH_HOST_MONITOR_ROW_ID = "dsh-host";
 
-export function buildDshHostMonitorRow(input: {
-	pid: number;
-	sessions: ReadonlyArray<{ title?: string }>;
-}): {
+export function buildDshHostMonitorRow(input: { pid: number; sessions: ReadonlyArray<{ title?: string }> }): {
 	agentId: string;
 	kind: "dsh-host";
 	pid: number;
 	sessionTitle?: string;
 	sessionTitles?: string[];
 } {
-	const titles = input.sessions
-		.map((session) => session.title?.trim())
-		.filter((title): title is string => Boolean(title));
+	const titles = input.sessions.map((session) => session.title?.trim()).filter((title): title is string => Boolean(title));
 	// 单元格只放摘要（首个标题），完整列表留给 sessionTitles 做悬停，避免一长串被截断
 	return {
 		agentId: DSH_HOST_MONITOR_ROW_ID,

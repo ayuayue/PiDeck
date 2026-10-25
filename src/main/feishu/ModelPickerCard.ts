@@ -26,9 +26,7 @@ type CardButton = {
 export function buildModelPickerCard({ current, models, locale = "zh-CN" }: ModelPickerInput) {
 	const shown = models.slice(0, MAX_MODEL_BUTTONS);
 	const hidden = Math.max(0, models.length - shown.length);
-	const elements: object[] = [
-		{ tag: "markdown", content: feishuT(locale, "model.current", { model: current }) },
-	];
+	const elements: object[] = [{ tag: "markdown", content: feishuT(locale, "model.current", { model: current }) }];
 
 	for (const [provider, providerModels] of groupByProvider(shown)) {
 		elements.push({ tag: "markdown", content: `**${provider}**` });
@@ -41,9 +39,7 @@ export function buildModelPickerCard({ current, models, locale = "zh-CN" }: Mode
 		}
 	}
 
-	const note = hidden > 0
-		? feishuT(locale, "model.hiddenNote", { shown: shown.length, hidden })
-		: feishuT(locale, "model.readyNote");
+	const note = hidden > 0 ? feishuT(locale, "model.hiddenNote", { shown: shown.length, hidden }) : feishuT(locale, "model.readyNote");
 	elements.push({ tag: "note", elements: [{ tag: "plain_text", content: note }] });
 
 	return {

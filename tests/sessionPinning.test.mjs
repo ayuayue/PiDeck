@@ -50,31 +50,19 @@ function session(id, updatedAt) {
 }
 
 function childSessionIds(display) {
-	return display.children.map((child) =>
-		child.type === "session" ? child.session.id : `agent:${child.agent.id}`,
-	);
+	return display.children.map((child) => (child.type === "session" ? child.session.id : `agent:${child.agent.id}`));
 }
 
 test("pinned sessions lead only their project list while both partitions keep time order", () => {
 	const { getProjectAgentSessionDisplay } = loadAgentListDisplay();
 	const display = getProjectAgentSessionDisplay({
 		agents: [],
-		sessions: [
-			session("new-unpinned", 40),
-			session("older-pinned", 10),
-			session("newer-pinned", 20),
-			session("old-unpinned", 5),
-		],
+		sessions: [session("new-unpinned", 40), session("older-pinned", 10), session("newer-pinned", 20), session("old-unpinned", 5)],
 		pinnedSessionIds: new Set(["older-pinned", "newer-pinned"]),
 		visibleChildCount: 3,
 	});
 
-	assert.deepEqual(Array.from(childSessionIds(display)), [
-		"newer-pinned",
-		"older-pinned",
-		"new-unpinned",
-		"old-unpinned",
-	]);
+	assert.deepEqual(Array.from(childSessionIds(display)), ["newer-pinned", "older-pinned", "new-unpinned", "old-unpinned"]);
 	assert.deepEqual(
 		Array.from(display.visibleChildren, (child) => child.type === "session" && child.session.id),
 		["newer-pinned", "older-pinned", "new-unpinned"],
@@ -85,15 +73,17 @@ test("a pinned catalog session stays pinned when decorated by a running agent", 
 	const { getProjectAgentSessionDisplay } = loadAgentListDisplay();
 	const pinned = session("pinned-running", 1);
 	const display = getProjectAgentSessionDisplay({
-		agents: [{
-			id: "runtime-1",
-			projectId: "project-a",
-			cwd: "C:/project-a",
-			title: "Running",
-			status: "running",
-			sessionPath: pinned.filePath,
-			createdAt: 100,
-		}],
+		agents: [
+			{
+				id: "runtime-1",
+				projectId: "project-a",
+				cwd: "C:/project-a",
+				title: "Running",
+				status: "running",
+				sessionPath: pinned.filePath,
+				createdAt: 100,
+			},
+		],
 		sessions: [session("new-history", 50), pinned],
 		pinnedSessionIds: new Set([pinned.id]),
 		visibleChildCount: 5,
@@ -116,9 +106,6 @@ test("unknown persisted ids are ignored without changing chronological order", (
 
 test("persisted pin ids drop invalid values and duplicates", () => {
 	const { normalizePinnedSessionIds } = loadPinnedSettingsPolicy();
-	assert.deepEqual(
-		Array.from(normalizePinnedSessionIds([" session-a ", "", null, "session-a", "session-b", 7])),
-		["session-a", "session-b"],
-	);
+	assert.deepEqual(Array.from(normalizePinnedSessionIds([" session-a ", "", null, "session-a", "session-b", 7])), ["session-a", "session-b"]);
 	assert.deepEqual(Array.from(normalizePinnedSessionIds("session-a")), []);
 });

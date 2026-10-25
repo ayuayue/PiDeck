@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from "react";
-import type { MouseEvent } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { Check, Copy, Eye, EyeOff } from "lucide-react";
 import { t } from "../i18n";
 import { writeClipboard } from "../utils/clipboard";
-import { PROVIDER_API_OPTIONS, API_TYPE_LABELS, getApiTypeDescription } from "./providerHeaders";
+import { PROVIDER_API_OPTIONS, DSH_PROVIDER_API_OPTIONS, API_TYPE_LABELS, getApiTypeDescription } from "./providerHeaders";
 import { Button } from "../components/ui-shadcn/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui-shadcn/select";
 import { Input } from "../components/ui-shadcn/input";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui-shadcn/popover";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "../components/ui-shadcn/command";
-import { filterComboboxOptions, isKnownComboboxValue } from "./comboboxOptions";
+import { filterComboboxOptions, groupComboboxOptions, isKnownComboboxValue } from "./comboboxOptions";
+import { cn } from "../lib/utils";
 
 // ── 复制到剪贴板工具 ──────────────────────────────────
 
@@ -28,9 +29,12 @@ export function openDocsInSystemBrowser(url: string) {
 export function CopyButton(props: { text: string }) {
 	const [copied, setCopied] = useState(false);
 	const resetTimer = useRef<number | null>(null);
-	useEffect(() => () => {
-		if (resetTimer.current !== null) window.clearTimeout(resetTimer.current);
-	}, []);
+	useEffect(
+		() => () => {
+			if (resetTimer.current !== null) window.clearTimeout(resetTimer.current);
+		},
+		[],
+	);
 	const handleCopy = async (e: MouseEvent) => {
 		e.stopPropagation();
 		await writeClipboard(props.text);
@@ -42,45 +46,27 @@ export function CopyButton(props: { text: string }) {
 		}, 1500);
 	};
 	return (
-		<Button
-			type="button"
-			variant="ghost"
-			size="icon-sm"
-			className="size-7"
-			onClick={handleCopy}
-			title={copied ? t("common.copied") : t("common.copy")}
-			aria-label={copied ? t("common.copied") : t("common.copy")}
-		>
+		<Button type="button" variant="ghost" size="icon-sm" className="size-7" onClick={handleCopy} title={copied ? t("common.copied") : t("common.copy")} aria-label={copied ? t("common.copied") : t("common.copy")}>
 			{copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
 		</Button>
 	);
 }
 
 /** 密码输入框：支持显示/隐藏 + 复制 */
-export function SecretInput(props: {
-	value: string;
-	onChange: (v: string) => void;
-	placeholder?: string;
-}) {
+export function SecretInput(props: { value: string; onChange: (v: string) => void; placeholder?: string; ariaLabel?: string; disabled?: boolean }) {
 	const [visible, setVisible] = useState(false);
 	return (
 		<div className="flex w-full items-center gap-1.5">
 			<Input
 				type={visible ? "text" : "password"}
+				aria-label={props.ariaLabel}
+				disabled={props.disabled}
 				value={props.value}
 				onChange={(e) => props.onChange(e.target.value)}
 				placeholder={props.placeholder ?? t("config.apiKeyPlaceholder")}
-				className="h-8 min-w-0 flex-1 rounded-sm border border-border-subtle bg-bg-panel px-3 font-mono text-control text-text-primary outline-none transition-[border-color,box-shadow,background-color] duration-150 focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
+				className="h-8 min-w-0 flex-1 rounded-sm border border-border-subtle bg-bg-panel px-3 font-mono text-control text-text-primary outline-none transition-[border-color,box-shadow,background-color] duration-fast focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
 			/>
-			<Button
-				type="button"
-				variant="ghost"
-				size="icon-sm"
-				className="size-7"
-				onClick={() => setVisible(!visible)}
-				title={visible ? t("common.hide") : t("common.show")}
-				aria-label={visible ? t("common.hide") : t("common.show")}
-			>
+			<Button type="button" variant="ghost" size="icon-sm" className="size-7" onClick={() => setVisible(!visible)} title={visible ? t("common.hide") : t("common.show")} aria-label={visible ? t("common.hide") : t("common.show")} disabled={props.disabled}>
 				{visible ? <EyeOff size={14} aria-hidden="true" /> : <Eye size={14} aria-hidden="true" />}
 			</Button>
 			<CopyButton text={props.value} />
@@ -98,21 +84,23 @@ export function ConfigSelect(props: {
 	options: Array<{ value: string; label: string }>;
 	onChange: (value: string) => void;
 	placeholder?: string;
-	/** 外层 ClearableSettingsInput 的 ✕ 清除按钮位于 right-[38px]，
-	 *  给 trigger 加右内边距，避免已选文字被清除按钮盖住 */
-	clearSpace?: boolean;
+	/**
+	 * 触发器宽度类，默认 `w-full`（表单里占满右列的控件）。
+	 * 内联场景（如兼容性组的「严格工具采样」与复选框并排）传 `w-auto` 按内容定宽。
+	 */
+	triggerClassName?: string;
+	/** 只读展示当前值（如 Pi 权威回答「该模型无可用档位」时不允许编辑默认档位）。 */
+	disabled?: boolean;
 }) {
 	// 老 settings.json 可能残留枚举外的取值（如自定义传输协议）；此时补一条「自定义」
 	// item 兜底，否则 Radix Select 因 value 无匹配 item 而显示空白、且无法回选。
 	const hasCustom = props.value !== "" && !isKnownComboboxValue(props.options, props.value);
 	return (
-		<Select
-			value={props.value === "" ? SENTINEL : props.value}
-			onValueChange={(value) => props.onChange(value === SENTINEL ? "" : value)}
-		>
+		<Select value={props.value === "" ? SENTINEL : props.value} onValueChange={(value) => props.onChange(value === SENTINEL ? "" : value)} disabled={props.disabled}>
 			{/* trigger 必须带 w-full：shadcn 基础类自带 w-fit（utilities 层）会压过 legacy 的
-			    .config-select-trigger{width:100%}，不加则下拉收缩成内容宽度（值多的行长条很丑） */}
-			<SelectTrigger className={`config-select-trigger w-full${props.clearSpace ? " pr-[38px]" : ""}`}>
+			    .config-select-trigger{width:100%}，不加则下拉收缩成内容宽度（值多的行长条很丑）。
+			    内联场景由调用方用 triggerClassName 传 w-auto 覆盖（cn 走 twMerge，后者胜出）。 */}
+			<SelectTrigger className={cn("config-select-trigger w-full", props.triggerClassName)}>
 				<SelectValue placeholder={props.placeholder ?? props.options.find((o) => o.value === props.value)?.label ?? props.value} />
 			</SelectTrigger>
 			<SelectContent>
@@ -122,8 +110,10 @@ export function ConfigSelect(props: {
 				{hasCustom && (
 					<SelectItem value={props.value}>
 						<span className="flex flex-col items-start gap-0.5">
-							<span className="text-control font-semibold">{t("config.apiTypeCustom")}: {props.value}</span>
-							<small className="text-[11px] leading-[1.4] text-text-tertiary">{props.value}</small>
+							<span className="text-control font-semibold">
+								{t("config.apiTypeCustom")}: {props.value}
+							</span>
+							<small className="text-micro leading-[1.4] text-text-tertiary">{props.value}</small>
 						</span>
 					</SelectItem>
 				)}
@@ -148,18 +138,14 @@ export function ConfigSelect(props: {
  * 3. 交互/动画与全局 shadcn 下拉一致。
  * 浮层滚动由 ui-shadcn/popover.tsx 内置的 floatingWheelGuard 兜底（见 lib/floatingWheelGuard）。
  */
-export function ConfigComboboxInput(props: {
-	value: string;
-	options: Array<{ value: string; label?: string }>;
-	onChange: (value: string) => void;
-	placeholder?: string;
-	/** 右侧额外预留清除按钮空间（defaultProvider/defaultModel 清空场景），
-	 *  避免输入文字被清除按钮盖住 */
-	clearSpace?: boolean;
-}) {
+export function ConfigComboboxInput(props: { value: string; options: Array<{ value: string; label?: string; group?: string }>; onChange: (value: string) => void; placeholder?: string }) {
 	const [open, setOpen] = useState(false);
 	const [filter, setFilter] = useState("");
 	const filtered = filterComboboxOptions(props.options, filter);
+
+	// 按 group 分段展示（如 User-Agent 的「官方 CLI / SDK / 通用客户端」）。
+	// 分段规则在 comboboxOptions 里做纯函数，过滤后自然合并空组，不额外排空。
+	const grouped = groupComboboxOptions(filtered);
 
 	// 提交即关闭：选中选项（鼠标/键盘回车命中选项）与无匹配时按 Enter 走同一条路。
 	const commit = (value: string) => {
@@ -181,7 +167,7 @@ export function ConfigComboboxInput(props: {
 					readOnly
 					value={props.value}
 					placeholder={props.placeholder}
-					className={`h-8 min-w-0 w-full flex-1 cursor-pointer rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]${props.clearSpace ? " pr-[62px]" : ""}`}
+					className="h-8 min-w-0 w-full flex-1 cursor-pointer rounded-sm border border-border-subtle bg-bg-panel px-3 text-control text-text-primary outline-none focus:border-[var(--color-accent)] focus:shadow-[var(--focus-ring)]"
 					onKeyDown={(event) => {
 						// readOnly 的 input 不响应键盘激活（不会触发 click），补上 Enter/Space/
 						// ArrowDown 打开下拉，保持与原生 select/combobox 一致的键盘可达性。
@@ -210,20 +196,22 @@ export function ConfigComboboxInput(props: {
 						}}
 					/>
 					<CommandList>
-						{filtered.length === 0 && (
-							<CommandEmpty>{t("config.comboboxNoMatchCommitHint")}</CommandEmpty>
-						)}
-						{filtered.map((option) => (
-							<CommandItem
-								key={option.value}
-								value={option.value}
-								onSelect={() => commit(option.value)}
-							>
-								<span className="flex min-w-0 flex-1 items-center gap-2 truncate">
-									<span className="truncate">{option.label ?? option.value}</span>
-								</span>
-								{option.value === props.value && <Check className="size-3.5 shrink-0" aria-hidden="true" />}
-							</CommandItem>
+						{filtered.length === 0 && <CommandEmpty>{t("config.comboboxNoMatchCommitHint")}</CommandEmpty>}
+						{grouped.map((section, sectionIndex) => (
+							<Fragment key={section.group ?? `__ungrouped_${sectionIndex}`}>
+								{section.group && (
+									// 分组标题不可选中：cmdk 会把 CommandItem 当选项，标题用 div 避免干扰键盘导航。
+									<div className="px-2 pt-2 pb-1 text-micro font-medium text-text-tertiary">{section.group}</div>
+								)}
+								{section.items.map((option) => (
+									<CommandItem key={option.value} value={option.value} onSelect={() => commit(option.value)}>
+										<span className="flex min-w-0 flex-1 items-center gap-2 truncate">
+											<span className="truncate">{option.label ?? option.value}</span>
+										</span>
+										{option.value === props.value && <Check className="size-3.5 shrink-0" aria-hidden="true" />}
+									</CommandItem>
+								))}
+							</Fragment>
 						))}
 					</CommandList>
 				</Command>
@@ -233,25 +221,17 @@ export function ConfigComboboxInput(props: {
 }
 
 /** API 类型选择：shadcn Select（与全局下拉交互/动画一致）。
- *  预定义选项 + 描述；当前值为自定义值时动态追加「自定义」选项保留可读性。 */
-export function ApiTypeInput(props: {
-	value: string;
-	onChange: (value: string) => void;
-}) {
-	const isCustom = Boolean(props.value) && !PROVIDER_API_OPTIONS.includes(props.value);
+ *  预定义选项 + 描述；当前值为自定义值时动态追加「自定义」选项保留可读性。
+ *  backend="dsh" 时只列 DSH 适配器实际注册的三种协议（见 DSH_PROVIDER_API_OPTIONS）。 */
+export function ApiTypeInput(props: { value: string; onChange: (value: string) => void; backend?: "pi" | "dsh" }) {
+	const options = props.backend === "dsh" ? DSH_PROVIDER_API_OPTIONS : PROVIDER_API_OPTIONS;
+	const isCustom = Boolean(props.value) && !options.includes(props.value);
 	return (
-		<Select
-			value={props.value || SENTINEL}
-			onValueChange={(value) => props.onChange(value === SENTINEL ? "" : value)}
-		>
+		<Select value={props.value || SENTINEL} onValueChange={(value) => props.onChange(value === SENTINEL ? "" : value)}>
 			<SelectTrigger className="config-select-trigger w-full">
 				{/* 选中后只显示名称（title），描述仅在下拉选项里展示：
 				   不用 SelectValue 的自动文本（会连描述一起显示） */}
-				<span className="flex min-w-0 flex-1 items-center truncate">
-					{props.value
-						? (API_TYPE_LABELS[props.value] || props.value)
-						: <span className="text-muted-foreground">{t("config.apiTypePlaceholder")}</span>}
-				</span>
+				<span className="flex min-w-0 flex-1 items-center truncate">{props.value ? API_TYPE_LABELS[props.value] || props.value : <span className="text-muted-foreground">{t("config.apiTypePlaceholder")}</span>}</span>
 			</SelectTrigger>
 			<SelectContent>
 				{/* 空值（无 API 类型）时补隐藏哨兵 item，保证下拉可展开 */}
@@ -259,16 +239,18 @@ export function ApiTypeInput(props: {
 				{isCustom && (
 					<SelectItem value={props.value}>
 						<span className="flex flex-col items-start gap-0.5">
-							<span className="text-control font-semibold">{t("config.apiTypeCustom")}: {props.value}</span>
-							<small className="text-[11px] leading-[1.4] text-text-tertiary">{props.value}</small>
+							<span className="text-control font-semibold">
+								{t("config.apiTypeCustom")}: {props.value}
+							</span>
+							<small className="text-micro leading-[1.4] text-text-tertiary">{props.value}</small>
 						</span>
 					</SelectItem>
 				)}
-				{PROVIDER_API_OPTIONS.map((option) => (
+				{options.map((option) => (
 					<SelectItem key={option} value={option}>
 						<span className="flex flex-col items-start gap-0.5">
 							<span className="text-control font-semibold">{API_TYPE_LABELS[option] || option}</span>
-							<small className="text-[11px] leading-[1.4] text-text-tertiary">{getApiTypeDescription(option)}</small>
+							<small className="text-micro leading-[1.4] text-text-tertiary">{getApiTypeDescription(option)}</small>
 						</span>
 					</SelectItem>
 				))}
@@ -277,3 +259,34 @@ export function ApiTypeInput(props: {
 	);
 }
 
+/**
+ * 资源新建卡片外壳（提示词 / 技能等「新建」区共用，保证各处长相一致）。
+ * 表单区固定收窄到 max-w-3xl：配置页内容区在宽窗口下可达 1000px+，
+ * 输入框铺满整行会显得松散且难扫读；收窄后名称/位置/描述在任何窗口宽度下都是可读的字段宽度。
+ */
+export function CreateResourceCard(props: { title: string; submit: ReactNode; children: ReactNode }) {
+	return (
+		<section className="grid gap-3 rounded-lg border border-border-subtle bg-bg-muted p-3.5">
+			<strong className="text-control font-semibold text-foreground">{props.title}</strong>
+			<div className="grid max-w-3xl gap-2.5">
+				{props.children}
+				{/* 提交按钮靠右收尾：与字段左对齐同一条轴线，不再孤零零贴在卡片左下角 */}
+				<div className="flex justify-end">{props.submit}</div>
+			</div>
+		</section>
+	);
+}
+
+/**
+ * 新建卡片的字段结构：标签一行、控件一行。
+ * 刻意用原生 <label> + Tailwind，不用 shadcn Label 原语：Label 自带 flex + gap-2，
+ * 会把「名称 / 描述」这类两字中文标签挤成一字一行的竖排（原生 label 同时保留包裹控件的关联语义）。
+ */
+export function CreateResourceField(props: { label: string; children: ReactNode }) {
+	return (
+		<label className="grid gap-1">
+			<span className="text-caption text-text-secondary">{props.label}</span>
+			{props.children}
+		</label>
+	);
+}

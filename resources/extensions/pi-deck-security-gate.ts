@@ -313,6 +313,17 @@ function buildSecurityHint(level: SecurityLevelConfig): string | undefined {
 	return lines.join("\n");
 }
 
+type SystemPromptSections = Record<string, string>;
+
+/**
+ * pi 1.x 的 before_agent_start 事件带可变 systemPromptOptions.sections（后续 handler 能看见前面
+ * 写入的内容）；旧宿主没有该字段，调用方要保留自己的回退路径。
+ */
+function readSystemPromptSections(event: { systemPromptOptions?: { sections?: SystemPromptSections } }): SystemPromptSections | undefined {
+	const sections = event.systemPromptOptions?.sections;
+	return sections && typeof sections === "object" ? sections : undefined;
+}
+
 // ── 入口 ──
 
 export default async function securityGateExtension(pi: ExtensionAPI) {
@@ -324,7 +335,7 @@ export default async function securityGateExtension(pi: ExtensionAPI) {
 		return;
 	}
 
-	pi.on("before_agent_start", (_event, ctx) => {
+	pi.on("before_agent_start", (event, ctx) => {
 		const config = loadSnapshot();
 		if (!config?.enabled) return undefined;
 		const levelId = config.sessionLevels[sessionId] ?? config.defaultLevelId;
@@ -332,7 +343,19 @@ export default async function securityGateExtension(pi: ExtensionAPI) {
 		if (!level) return undefined;
 		const hint = buildSecurityHint(level);
 		if (!hint) return undefined;
-		return { systemPrompt: (ctx.getSystemPrompt?.() ?? "") + "\n\n" + hint };
+		// 写系统提示 section：返回 systemPrompt 是 force 语义（整体替换本轮提示），会把提示定死成
+		// 一整块字符串，排在后面的扩展（caveman / ptc-meter 等）对 sections 的写入全部丢失
+		// （issue #365-08）。section 只在本次运行生效，等级关闭后自动消失，无需清理。
+		const sections = readSystemPromptSections(event);
+		if (sections) {
+			sections["pi_deck_security"] = hint;
+			return undefined;
+		}
+		// 旧宿主没有 sections：退回 force 追加。基准必须非空，否则会把整条系统提示覆盖成
+		// 「只剩安全提示」（issue #357-04）。宁可不注入这条边界提示，也不能毁掉系统提示。
+		const base = ctx.getSystemPrompt?.();
+		if (!base) return undefined;
+		return { systemPrompt: base + "\n\n" + hint };
 	});
 
 	pi.on("tool_call", async (event: ToolCallEvent, ctx: ExtensionContext) => {

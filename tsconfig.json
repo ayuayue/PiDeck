@@ -1,6 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2022",
+    // 与 tsconfig.main.json 对齐：主进程代码用了 findLast/findLastIndex（ES2023），
+    // 而 npm run typecheck 走的是本文件；不声明 lib 时 lib 默认跟 target（ES2022）→ 误报 TS2550。
+    // DOM/DOM.Iterable 是 target 未声明 lib 时的默认值，显式写回以免降级。
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
@@ -26,7 +30,12 @@
   },
   "include": [
     "electron.vite.config.ts",
+    "docs-site/.vitepress/*.ts",
+    "docs-site/.vitepress/*.mts",
     "src/**/*.ts",
     "src/**/*.tsx"
   ]
+  // 注意：e2e/**/*.ts 不在 typecheck 内（64 个 spec 零覆盖，约 43 处存量类型债务，
+  // 多为 evaluate 回调隐式 any / page 自定义属性无类型 / env 联合缺键——运行时正确但静态不理解）。
+  // 纳入前需先清零存量；新写 e2e 时别再积累（playwright esbuild 剥类型不查错）。
 }

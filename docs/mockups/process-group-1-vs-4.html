@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="zh-CN">
+	<head>
+		<meta charset="utf-8" />
+		<title>方案 1 vs 方案 4 · 放大对照</title>
+		<style>
+			:root {
+				--font-family-base: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "HarmonyOS Sans SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
+				--font-family-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", monospace;
+				--font-size-caption: 12px;
+				--line-height-caption: 18px;
+				--radius-md: 8px;
+				--bg-app: #ffffff;
+				--text-primary: #202124;
+				--text-secondary: #4b5563;
+				--text-tertiary: #6b7280;
+				--text-faint: #9fa3ac;
+				--border-subtle: #e5e5e5;
+				--border-strong: #d7d7d7;
+				--bg-hover: #e5e7eb;
+				--card-bg: #fafafa;
+				--muted-bg: #f4f4f5;
+				--tool: #2563eb;
+			}
+			* { box-sizing: border-box; }
+			body { margin: 0; padding: 28px 26px 44px; background: #ececee; color: var(--text-primary); font-family: var(--font-family-base); font-size: 13px; line-height: 1.6; }
+			h1 { margin: 0 0 4px; font-size: 19px; font-weight: 650; }
+			.sub { margin: 0 0 22px; color: #6b7280; font-size: 12.5px; }
+
+			.grid { display: flex; gap: 18px; align-items: flex-start; }
+			.col { flex: 1 1 0; background: #fff; border: 1px solid #dcdce0; border-radius: 12px; padding: 16px 18px 18px; }
+			.colhead { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+			.colnum { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; background: #202124; color: #fff; font-size: 12px; font-weight: 700; }
+			.colname { font-weight: 640; font-size: 13.5px; }
+			.colsub { color: #6b7280; font-size: 12px; margin-bottom: 14px; }
+
+			.surface { background: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 14px 16px; }
+			.stagelabel { color: #9fa3ac; font-size: 10.5px; letter-spacing: .04em; margin-bottom: 6px; }
+
+			/* 3x 放大盒 */
+			.zoombox { position: relative; height: 86px; overflow: hidden; background: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: 10px; margin-top: 14px; }
+			.zoombox .inner { position: absolute; top: 22px; left: 16px; transform: scale(3); transform-origin: 0 0; }
+			.zoombox .zoombox-tag { position: absolute; top: 5px; left: 10px; color: #9fa3ac; font-size: 10.5px; letter-spacing: .04em; }
+
+			/* ═══ 方案 1：极简幽灵行 ═══ */
+			.opt1 { display: inline-flex; align-items: center; gap: 8px; height: 24px; padding: 0 7px; margin-left: -7px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--font-size-caption); font-weight: 500; cursor: pointer; }
+			.opt1 .ico { display: inline-flex; color: var(--text-tertiary); }
+			.opt1 .chev { display: inline-flex; color: var(--text-faint); }
+			.opt1.hover { background: var(--bg-hover); color: var(--text-primary); }
+
+			/* ═══ 方案 4：图标徽章 ═══ */
+			.opt4 { display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px 0 3px; border: 0; border-radius: 7px; background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--font-size-caption); font-weight: 500; cursor: pointer; }
+			.opt4 .chip { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; background: color-mix(in srgb, var(--tool) 12%, transparent); color: var(--tool); }
+			.opt4 .chev { display: inline-flex; color: var(--text-faint); }
+			.opt4.hover { background: var(--muted-bg); color: var(--text-primary); }
+
+			table { border-collapse: collapse; width: 100%; margin-top: 22px; background: #fff; border-radius: 10px; overflow: hidden; font-size: 12.5px; }
+			th, td { padding: 8px 12px; border-bottom: 1px solid #e6e6e9; text-align: left; vertical-align: top; }
+			th { background: #f7f7f9; font-weight: 620; }
+			td.mid { background: #fcfcfd; }
+			code { font-family: var(--font-family-mono); font-size: 11.5px; background: #f0f0f3; padding: 1px 4px; border-radius: 4px; }
+			.swatch { display: inline-block; width: 13px; height: 13px; border-radius: 3px; vertical-align: -2px; margin-right: 5px; border: 1px solid rgba(0,0,0,.08); }
+			.callout { margin-top: 20px; background: #fff; border: 1px solid #dcdce0; border-left: 3px solid #202124; border-radius: 10px; padding: 14px 18px; }
+			.callout b { display: block; margin-bottom: 4px; }
+		</style>
+	</head>
+	<body>
+		<h1>方案 1 vs 方案 4</h1>
+		<p class="sub">结构是同一个物种：都是「无边框行 + 图标 + 文本 + 右侧 chevron」。<b>唯一实质差别在图标那一格</b>——下面把两个组头放大 3 倍，差别就藏不住了。</p>
+
+		<div class="grid">
+			<div class="col">
+				<div class="colhead"><span class="colnum">1</span><span class="colname">极简幽灵行</span></div>
+				<div class="colsub">重量 ★☆☆ · 图标裸放，全中性灰</div>
+				<div class="surface">
+					<div class="stagelabel">实际尺寸</div>
+					<button class="opt1">
+						<span class="ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5" /></svg></span>
+						<span>已读取文件并搜索代码</span>
+						<span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+					</button>
+					<div class="stagelabel" style="margin: 12px 0 6px">悬停态</div>
+					<button class="opt1 hover">
+						<span class="ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5" /></svg></span>
+						<span>已读取文件并搜索代码</span>
+						<span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+					</button>
+				</div>
+				<div class="zoombox">
+					<span class="zoombox-tag">放大 3×</span>
+					<div class="inner">
+						<button class="opt1">
+							<span class="ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5" /></svg></span>
+							<span>已读取文件</span>
+							<span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+						</button>
+					</div>
+				</div>
+			</div>
+
+			<div class="col">
+				<div class="colhead"><span class="colnum">4</span><span class="colname">图标徽章</span></div>
+				<div class="colsub">重量 ★★☆ · 图标住在 20px 淡色方块里，用工具身份色</div>
+				<div class="surface">
+					<div class="stagelabel">实际尺寸</div>
+					<button class="opt4">
+						<span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5" /></svg></span>
+						<span>已读取文件并搜索代码</span>
+						<span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+					</button>
+					<div class="stagelabel" style="margin: 12px 0 6px">悬停态</div>
+					<button class="opt4 hover">
+						<span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5" /></svg></span>
+						<span>已读取文件并搜索代码</span>
+						<span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+					</button>
+				</div>
+				<div class="zoombox">
+					<span class="zoombox-tag">放大 3×</span>
+					<div class="inner">
+						<button class="opt4">
+							<span class="chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5" /></svg></span>
+							<span>已读取文件</span>
+							<span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<table>
+			<tr><th style="width: 150px">差异点</th><th>方案 1</th><th>方案 4</th></tr>
+			<tr><td>图标那一格</td><td class="mid">13px 裸图标，直接飘在文本旁边</td><td>20px 圆角方块（<code>6px</code>）做底，图标坐在里面</td></tr>
+			<tr><td>图标颜色</td><td class="mid"><span class="swatch" style="background:#6b7280"></span><code>--color-text-tertiary</code> 中性灰</td><td><span class="swatch" style="background:#2563eb"></span><code>--color-tool</code> 工具身份色（底色是同色 12% 透明）</td></tr>
+			<tr><td>行高</td><td class="mid"><code>24px</code></td><td><code>26px</code>（为放下 20px 方块）</td></tr>
+			<tr><td>悬停底色</td><td class="mid"><span class="swatch" style="background:#e5e7eb"></span><code>--color-bg-hover</code>（较明显）</td><td><span class="swatch" style="background:#f4f4f5"></span><code>--color-muted-bg</code>（几乎看不出）</td></tr>
+			<tr><td>左端对齐</td><td class="mid"><code>margin-left: -7px</code>：图标外缘与正文左边缘齐平</td><td><code>padding-left: 3px</code>：方块外缘与正文左边缘齐平</td></tr>
+			<tr><td>与组体内工具行的关系</td><td class="mid">图标 13px ≈ 组体内 12px 图标，尺寸同族但无容器</td><td>方块 20px 比组体内图标大一圈 → 形成"父–子"层级暗示</td></tr>
+			<tr><td>视觉重量</td><td class="mid">几乎退到背景，像一句说明文字</td><td>有一块色，视线会先落在这里</td></tr>
+		</table>
+
+		<div class="callout">
+			<b>所以到底选哪个？</b>
+			它俩不是两种物种，是<b>同一条轴的两档重量</b>。真正的"另一种物种"是方案 2（左侧色条）、3（分隔线标签）、5（小节标题）。<br />
+			我的建议：<b>用方案 4 的图标色块 + 方案 1 的行高和悬停观感</b>——即 24px 高、悬停用 <code>bg-hover</code>，但保留 20px 淡色方块和工具身份色。这样既能一眼认出"这是个过程组"，又不会比大折叠那个胶囊更抢眼。
+		</div>
+	</body>
+</html>

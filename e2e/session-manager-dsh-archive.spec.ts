@@ -30,11 +30,7 @@ test.use({
 });
 
 /** 预置一个 DSH 归档目录（manifest + 可选日志；返回目录路径）。 */
-function seedArchivedDshSession(
-	sessionId: string,
-	cwd: string,
-	opts: { title?: string; logWithTitle?: string } = {},
-): string {
+function seedArchivedDshSession(sessionId: string, cwd: string, opts: { title?: string; logWithTitle?: string } = {}): string {
 	const dir = join(dshHome, ".pideck-archive", sessionId);
 	mkdirSync(dir, { recursive: true });
 	writeFileSync(
@@ -50,14 +46,7 @@ function seedArchivedDshSession(
 	if (opts.logWithTitle) {
 		// 未压缩 session.jsonl：header 行 + session/title 事件（foldSessionTitleFromDir 只读折叠）。
 		// 必须走 JSON.stringify：Windows 路径含反斜杠，模板字符串拼 JSON 会产生非法转义。
-		writeFileSync(
-			join(dir, "session.jsonl"),
-			[
-				JSON.stringify({ type: "session", id: sessionId, cwd }),
-				JSON.stringify({ type: "session/title", seq: 1, data: { title: opts.logWithTitle } }),
-			].join("\n"),
-			"utf8",
-		);
+		writeFileSync(join(dir, "session.jsonl"), [JSON.stringify({ type: "session", id: sessionId, cwd }), JSON.stringify({ type: "session/title", seq: 1, data: { title: opts.logWithTitle } })].join("\n"), "utf8");
 	}
 	return dir;
 }

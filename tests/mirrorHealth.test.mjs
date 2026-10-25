@@ -25,7 +25,11 @@ function loadTsModule(filePath, deps) {
 		{
 			module,
 			exports: module.exports,
-			require: (name) => deps[name] ?? (() => { throw new Error(`unexpected require: ${name}`); })(),
+			require: (name) =>
+				deps[name] ??
+				(() => {
+					throw new Error(`unexpected require: ${name}`);
+				})(),
 			console,
 			AbortSignal, // vm 沙箱默认无 AbortSignal，probeMirrorHealth 用 AbortSignal.timeout
 		},
@@ -38,25 +42,16 @@ const shared = loadTsModule("src/shared/updateSources.ts", {});
 const mirrorHealth = loadTsModule("src/main/update/mirrorHealth.ts", {
 	"../../shared/updateSources": shared,
 });
-const { probeMirrorHealth, probeAllMirrors, SLOW_THRESHOLD_KBPS, PROBE_RANGE_BYTES, PROBE_TIMEOUT_MS } =
-	mirrorHealth;
+const { probeMirrorHealth, probeAllMirrors, resolveProbeFileName, SLOW_THRESHOLD_KBPS, PROBE_RANGE_BYTES, PROBE_TIMEOUT_MS } = mirrorHealth;
 
-const MIRROR = { id: "ghfast", host: "https://ghfast.top" };
+const MIRROR = { id: "atomgit", host: "https://atomgit.com" };
 
 /**
  * 构造 fake fetch：按 URL 尾部分发 yml / 分片请求，用可控延时推进模拟时钟。
  * 返回 { fetchImpl, clock }；clock.now 记录「当前时刻」，测速 = 分片字节数 / 分片耗时。
  */
 function makeFetch(options = {}) {
-	const {
-		ymlStatus = 200,
-		ymlBody = "version: 0.7.3\nreleaseDate: 2026-09-03T16:04:00.000Z\n",
-		dlStatus = 206,
-		dlBytes = PROBE_RANGE_BYTES,
-		ymlDelay = 100,
-		dlDelay = 500,
-		throwError = null,
-	} = options;
+	const { ymlStatus = 200, ymlBody = "version: 0.7.3\nreleaseDate: 2026-09-03T16:04:00.000Z\n", dlStatus = 206, dlBytes = PROBE_RANGE_BYTES, ymlDelay = 100, dlDelay = 500, throwError = null } = options;
 	const clock = { now: 0 };
 	const fetchImpl = async (url, _opts) => {
 		if (throwError) {
@@ -79,7 +74,7 @@ test("探测协议：latest.yml 200 + Range 206 且速度达标 → ok，速度�
 	assert.equal(result.status, "ok");
 	assert.equal(result.speedKBps, 524);
 	assert.equal(result.latencyMs, 100);
-	assert.equal(result.id, "ghfast");
+	assert.equal(result.id, "atomgit");
 	assert.equal(result.error, undefined);
 });
 
@@ -137,23 +132,62 @@ test("fetch 网络错误 → broken，原因「连接失败」（不向外抛）
 	assert.equal(result.error, "连接失败");
 });
 
-test("probeAllMirrors：并行探测全部内置镜像，失败互不影响", async () => {
-	// 按 URL 中的镜像 host 分发：ghproxy-net 返回 500（broken），其余正常
+test("probeAllMirrors：并行探测全部内置更新源，失败互不影响", async () => {
+	// 真实延迟 + 默认 Date.now：同步 fake fetch 会让测速在 0/1ms 间随机
+	// （dlMs=0 → speed=0 → slow），偶发 flaky（2026-09 CI 实测）；
+	// 注入共享 fake clock 也会被 Promise.all 并行交错污染，同样不可靠。
+	const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 	const fetchImpl = async (url, _opts) => {
-		if (url.includes("ghproxy.net/")) return new Response("boom", { status: 500 });
-		if (url.endsWith("/latest.yml")) return new Response("version: 0.7.3\n", { status: 200 });
+		if (url.endsWith("/latest.yml")) {
+			await sleep(10);
+			return new Response("version: 0.7.4\n", { status: 200 });
+		}
+		await sleep(200); // 256KB/200ms = 1310KB/s，稳定高于 300 阈值
 		return new Response(new Uint8Array(PROBE_RANGE_BYTES), { status: 206 });
 	};
 	const results = await probeAllMirrors(fetchImpl);
 	const byId = {};
 	for (const r of results) byId[r.id] = r;
-	assert.equal(Object.keys(byId).length, 3, "应涵盖全部内置镜像");
-	assert.equal(byId.ghfast.status, "ok");
-	assert.equal(byId["ghproxy-net"].status, "broken");
-	assert.equal(byId["ghproxy-cxkpro"].status, "ok");
+	assert.equal(Object.keys(byId).length, 1, "应涵盖内置 AtomGit 更新源");
+	assert.equal(byId.atomgit.status, "ok");
 });
 
 test("探测加超时保护：单请求最坏耗时不超过 PROBE_TIMEOUT_MS", () => {
 	assert.equal(PROBE_TIMEOUT_MS, 10_000);
 	assert.ok(PROBE_RANGE_BYTES >= 256 * 1024, "分片应至少 256KB 才有测速意义");
+});
+
+test("resolveProbeFileName：优先从 files[].url 提取 setup.exe 文件名", () => {
+	const yml = `version: 0.8.0
+files:
+  - url: PiDeck-0.8.0-setup.exe
+    sha512: abc
+  - url: PiDeck-0.8.0-portable.exe
+    sha512: def
+path: PiDeck-0.8.0-setup.exe
+`;
+	assert.equal(resolveProbeFileName(yml), "PiDeck-0.8.0-setup.exe");
+});
+
+test("resolveProbeFileName：支持带路径与查询串的 URL，清洗非法字符", () => {
+	const ymlWithPath = `version: 0.8.1
+files:
+  - url: releases/download/v0.8.1/PiDeck-0.8.1-setup.exe?token=xyz
+`;
+	assert.equal(resolveProbeFileName(ymlWithPath), "PiDeck-0.8.1-setup.exe");
+
+	// 包含路径穿越字符应触发回退
+	const ymlEvil = `version: 0.8.2
+files:
+  - url: ../../etc/passwd
+`;
+	assert.equal(resolveProbeFileName(ymlEvil), "PiDeck-0.8.2-setup.exe");
+});
+
+test("resolveProbeFileName：无 url 列表时按 version 规范回退", () => {
+	const ymlSimple = `version: 0.9.0\nreleaseDate: 2026-09-03\n`;
+	assert.equal(resolveProbeFileName(ymlSimple), "PiDeck-0.9.0-setup.exe");
+
+	const ymlEmpty = ``;
+	assert.equal(resolveProbeFileName(ymlEmpty), "PiDeck-setup.exe");
 });

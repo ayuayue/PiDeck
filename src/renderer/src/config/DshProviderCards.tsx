@@ -7,36 +7,35 @@
 
  */
 
-import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, Plus, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowUpDown, ChevronDown, ChevronRight, Copy, Eye, EyeOff, GripVertical, Plus, Trash2 } from "lucide-react";
 import { t } from "../i18n";
 import { desktopApi } from "../desktopApi";
 import { showNotice } from "../utils/notice";
 import { writeClipboard } from "../utils/clipboard";
-import { ProviderUsageInline } from "../components/app/ProviderUsageInline";
 import { UsageQueryEntryButton } from "../components/app/UsageQueryEntryButton";
+import { ProviderUsageInline } from "../components/app/ProviderUsageInline";
 import { Button } from "../components/ui-shadcn/button";
+import { Collapsible, CollapsibleContent } from "../components/ui-shadcn/collapsible";
 import { Input } from "../components/ui-shadcn/input";
 import { isDshDeepseekProfileVisibleField, isDshPiAiCustomRoute, isDshPiAiProfileVisibleField } from "./dshFieldLabels";
 import { DshSchemaField, type DshNamespaceView } from "./DshSchemaForm";
-import {
-	deletePath,
-	dictEntries,
-	normalizeDshSchema,
-	objectFields,
-	pruneEmptyObjects,
-	readDshEntryValue,
-	readPath,
-	setPath,
-	type DshSectionApi,
-} from "./dshSchema";
+import { deletePath, dictEntries, normalizeDshSchema, objectFields, pruneEmptyObjects, readDshEntryValue, readPath, setPath, type DshSectionApi } from "./dshSchema";
 import { credentialRefFor } from "./dshCredentialRef";
 import { DshModelsEditor } from "./DshModelsEditor";
 import { validateDshDeepseekModels, type DshDeepseekModelValidationFailure } from "./dshModels";
 import type { DshModelRow } from "./DshModelsTable";
 import { ProviderMigrationButton } from "./ProviderMigrationButton";
 import { ConfirmDialog } from "../components/ui-shadcn/ConfirmDialog";
-import { isValidProviderName } from "../../../shared/providerName";
+import { AddDshProviderDialog } from "./AddDshProviderDialog";
+import { buildDshProviderFromDraft, type DshProviderDraft } from "./dshProviderDraft";
+import { DshHeadersEditor } from "./DshHeadersEditor";
+import { useDshProviderHeaders } from "./useDshProviderHeaders";
+import { applyProviderOrder } from "../utils/providerOrder";
+import { useProviderReorder } from "../hooks/useProviderReorder";
+
+/** 未提供重排回调时的空实现：保持 hook 调用参数稳定，同时让只读页面照常渲染。 */
+const noopReorder = (): void => undefined;
 
 export type DshCredentialState = {
 	configured: boolean;
@@ -51,33 +50,31 @@ export type DshCredentialOps = {
 	unsetKey: (ref: string) => Promise<void>;
 };
 
-/** 收起行头通用布局：chevron + 模型数 + 状态点 + 右侧操作（折叠时不显示名称/URL/协议）。 */
+/** 收起行头通用布局：[排序手柄] chevron + 模型数 + 状态点 + 右侧操作（折叠时不显示名称/URL/协议）。 */
 function ProviderRowHead(props: {
 	title?: string;
 	subtitle?: string;
 	keyRef?: string;
 	keyDot?: ReactNode;
 	badges?: ReactNode[];
-	/** 用量/余额条（标题行右侧常驻，渲染在折叠按钮与操作按钮之间）。 */
-	usage?: ReactNode;
 	isOpen: boolean;
 	onToggle: () => void;
 	onRemove?: () => void;
 	removeDisabled?: boolean;
 	removeTitle?: string;
 	extraActions?: ReactNode;
+	/** 行头左侧插槽（供应商排序的拖拽手柄）。 */
+	leading?: ReactNode;
 }) {
 	return (
-		<div className="flex items-center gap-2 px-3 py-2">
-			<button
-				type="button"
-				className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-				onClick={props.onToggle}
-			>
+		// data-provider-head：拖拽落点按标题行中线判定（展开态卡片很高，拿整张卡中线会偏到折叠区），
+		// 也是拖拽影像克隆的根（拖起来拿着的是整条卡头）
+		<div data-provider-head="" className="flex items-center gap-2 px-3 py-2">
+			{props.leading}
+			<button type="button" className="flex min-w-0 flex-1 items-center gap-1.5 text-left" onClick={props.onToggle}>
 				{props.isOpen ? <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" /> : <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
 				{props.title && <span className="truncate font-mono text-control font-semibold text-foreground">{props.title}</span>}
 				{props.subtitle && <span className="truncate text-micro text-muted-foreground">{props.subtitle}</span>}
-
 
 				{props.badges?.map((badge, index) => (
 					<span key={index} className="shrink-0 rounded-full border border-border-subtle px-1.5 py-px font-mono text-micro text-muted-foreground">
@@ -91,20 +88,9 @@ function ProviderRowHead(props: {
 				</span>
 			)}
 			{props.keyDot}
-			{/* 用量/余额（标题行常驻）；位于折叠按钮外，点击不误触展开/收起 */}
-			{props.usage}
 			{props.extraActions}
 			{props.onRemove && (
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon-sm"
-					className="size-7 shrink-0 text-muted-foreground hover:text-danger"
-					title={props.removeTitle}
-					aria-label={props.removeTitle}
-					disabled={props.removeDisabled}
-					onClick={props.onRemove}
-				>
+				<Button type="button" variant="ghost" size="icon-sm" className="size-7 shrink-0 text-muted-foreground hover:text-danger" title={props.removeTitle} aria-label={props.removeTitle} disabled={props.removeDisabled} onClick={props.onRemove}>
 					<Trash2 className="size-3.5" aria-hidden="true" />
 				</Button>
 			)}
@@ -116,18 +102,12 @@ function ProviderRowHead(props: {
 function KeyStatusDot(props: { state: DshCredentialState | undefined }) {
 	const { state } = props;
 	if (!state) {
-		return (
-			<span className="size-2 shrink-0 rounded-full bg-muted-foreground/30" title={t("config.dsh.keyUnknown")} aria-label={t("config.dsh.keyUnknown")} />
-		);
+		return <span className="size-2 shrink-0 rounded-full bg-muted-foreground/30" title={t("config.dsh.keyUnknown")} aria-label={t("config.dsh.keyUnknown")} />;
 	}
 	if (state.configured) {
-		return (
-			<span className="size-2 shrink-0 rounded-full bg-emerald-500" title={t("config.dsh.keyConfigured")} aria-label={t("config.dsh.keyConfigured")} />
-		);
+		return <span className="size-2 shrink-0 rounded-full bg-emerald-500" title={t("config.dsh.keyConfigured")} aria-label={t("config.dsh.keyConfigured")} />;
 	}
-	return (
-		<span className="size-2 shrink-0 rounded-full bg-red-500" title={t("config.dsh.keyMissing")} aria-label={t("config.dsh.keyMissing")} />
-	);
+	return <span className="size-2 shrink-0 rounded-full bg-red-500" title={t("config.dsh.keyMissing")} aria-label={t("config.dsh.keyMissing")} />;
 }
 
 /**
@@ -195,58 +175,22 @@ function ApiKeyField(props: {
 			<span className="flex items-center gap-1.5 text-caption font-medium text-foreground">
 				{t("config.dsh.apiKey")}
 				<span className="truncate font-mono text-micro text-muted-foreground">{ref}</span>
-				{configured && (
-					<span className="rounded-full border border-emerald-300/70 bg-emerald-500/10 px-1.5 py-px text-micro text-emerald-700 dark:border-emerald-700/70 dark:text-emerald-300">
-						{t("config.dsh.keyConfigured")}
-					</span>
-				)}
+				{configured && <span className="rounded-full border border-emerald-300/70 bg-emerald-500/10 px-1.5 py-px text-micro text-emerald-700 dark:border-emerald-700/70 dark:text-emerald-300">{t("config.dsh.keyConfigured")}</span>}
 			</span>
 			<div className="flex items-center gap-2">
 				<div className="relative max-w-sm flex-1">
-					<Input
-						className="h-8 w-full pr-16 font-mono"
-						type={revealed ? "text" : "password"}
-						placeholder={configured ? t("config.dsh.keyStored") : t("config.dsh.keyPlaceholder")}
-						value={value}
-						disabled={!writable || busy}
-						onChange={(event) => onChange(event.target.value)}
-					/>
+					<Input size="sm" className="w-full pr-16 font-mono" type={revealed ? "text" : "password"} placeholder={configured ? t("config.dsh.keyStored") : t("config.dsh.keyPlaceholder")} value={value} disabled={!writable || busy} onChange={(event) => onChange(event.target.value)} />
 					<div className="absolute inset-y-0 right-0.5 my-auto flex items-center gap-0.5">
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-sm"
-							className="size-7 text-muted-foreground"
-							title={t("config.dsh.keyCopy")}
-							aria-label={t("config.dsh.keyCopy")}
-							disabled={!configured || busy}
-							onClick={() => void copyValue()}
-						>
+						<Button type="button" variant="ghost" size="icon-sm" className="size-7 text-muted-foreground" title={t("config.dsh.keyCopy")} aria-label={t("config.dsh.keyCopy")} disabled={!configured || busy} onClick={() => void copyValue()}>
 							<Copy className="size-3.5" aria-hidden="true" />
 						</Button>
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-sm"
-							className="size-7 text-muted-foreground"
-							title={revealed ? t("config.dsh.keyHide") : t("config.dsh.keyReveal")}
-							aria-label={revealed ? t("config.dsh.keyHide") : t("config.dsh.keyReveal")}
-							disabled={!configured || busy}
-							onClick={() => void toggleReveal()}
-						>
+						<Button type="button" variant="ghost" size="icon-sm" className="size-7 text-muted-foreground" title={revealed ? t("config.dsh.keyHide") : t("config.dsh.keyReveal")} aria-label={revealed ? t("config.dsh.keyHide") : t("config.dsh.keyReveal")} disabled={!configured || busy} onClick={() => void toggleReveal()}>
 							{revealed ? <EyeOff className="size-3.5" aria-hidden="true" /> : <Eye className="size-3.5" aria-hidden="true" />}
 						</Button>
 					</div>
 				</div>
 				{configured && (
-					<Button
-						type="button"
-						variant="ghost"
-						size="sm"
-						className="h-8 shrink-0 text-muted-foreground hover:text-danger"
-						disabled={!writable || busy}
-						onClick={() => void ops.unsetKey(ref)}
-					>
+					<Button type="button" variant="ghost" size="sm" className="h-8 shrink-0 text-muted-foreground hover:text-danger" disabled={!writable || busy} onClick={() => void ops.unsetKey(ref)}>
 						{t("config.dsh.keyUnset")}
 					</Button>
 				)}
@@ -260,11 +204,16 @@ function ApiKeyField(props: {
 function deepseekModelValidationMessage(failure: DshDeepseekModelValidationFailure): string {
 	const index = failure.index + 1;
 	switch (failure.issue) {
-		case "idRequired": return t("config.dsh.modelError.idRequired", { index });
-		case "idDuplicate": return t("config.dsh.modelError.idDuplicate", { index });
-		case "nameInvalid": return t("config.dsh.modelError.nameInvalid", { index });
-		case "contextInvalid": return t("config.dsh.modelError.contextInvalid", { index });
-		case "maxTokensInvalid": return t("config.dsh.modelError.maxTokensInvalid", { index });
+		case "idRequired":
+			return t("config.dsh.modelError.idRequired", { index });
+		case "idDuplicate":
+			return t("config.dsh.modelError.idDuplicate", { index });
+		case "nameInvalid":
+			return t("config.dsh.modelError.nameInvalid", { index });
+		case "contextInvalid":
+			return t("config.dsh.modelError.contextInvalid", { index });
+		case "maxTokensInvalid":
+			return t("config.dsh.modelError.maxTokensInvalid", { index });
 	}
 }
 
@@ -284,22 +233,19 @@ function dshModelRows(value: unknown): DshModelRow[] | undefined {
 }
 
 /** 「自定义设置」折叠区：仅收容 dsh-web 也公开的精选字段。 */
-function CustomSettings(props: {
-	label: ReactNode;
-	children: ReactNode;
-}) {
+function CustomSettings(props: { label: ReactNode; children: ReactNode }) {
 	const [open, setOpen] = useState(false);
 	return (
 		<div className="rounded-sm border border-border-subtle">
-			<button
-				type="button"
-				className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-caption font-medium text-foreground"
-				onClick={() => setOpen((prev) => !prev)}
-			>
+			<button type="button" className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-caption font-medium text-foreground" onClick={() => setOpen((prev) => !prev)}>
 				{open ? <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" /> : <ChevronRight className="size-3.5 text-muted-foreground" aria-hidden="true" />}
 				{props.label}
 			</button>
-			{open && <div className="grid gap-2.5 border-t border-border/40 px-3 py-2.5">{props.children}</div>}
+			{/* 折叠体走共享折叠原语（真高度渐变 + exit 后卸载 + reduced-motion 回退）；
+			    display:contents 让根不生成盒子，折叠态零空档。 */}
+			<Collapsible open={open} className="contents">
+				<CollapsibleContent className="grid gap-2.5 border-t border-border/40 px-3 py-2.5">{props.children}</CollapsibleContent>
+			</Collapsible>
 		</div>
 	);
 }
@@ -326,6 +272,14 @@ export function PiAiProvidersCard(props: {
 	onMigrated?: () => void;
 	/** 打开用量查询配置弹窗（与 Pi 模型页共用；provider=DSH route 名）。 */
 	onOpenUsageProbeDialog: (provider: string) => void;
+	/** 供应商卡片自定义顺序（AppSettings.dshProviderOrder，仅展示用）。 */
+	providerOrder?: string[];
+	/** 排序作用域：DSH 页在「添加 provider」后可能多出未保存的行，父级传入完整集合以保证落点正确。 */
+	providerOrderScope?: string[];
+	/** 卡片重排回调（父级持久化到 AppSettings）。 */
+	onReorderProviders?: (nextOrder: string[]) => void;
+	/** 清空自定义顺序（列表上方的「恢复默认顺序」）。 */
+	onResetProviders?: () => void;
 }) {
 	const { namespace, writable, ops, sectionApi } = props;
 	const generatedId = useId();
@@ -339,10 +293,11 @@ export function PiAiProvidersCard(props: {
 
 	const [draft, setDraft] = useState<Record<string, unknown>>({});
 	const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-	const [newProviderKey, setNewProviderKey] = useState("");
 	const [addingProvider, setAddingProvider] = useState(false);
+	const [addPageDirty, setAddPageDirty] = useState(false);
 	/** 密钥草稿：providerKey → 输入的新密钥（保存时统一 credentials.set）。 */
 	const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
+	const { headersDirty, readHeaders, updateHeaders, removeHeaderDraft, clearHeaderDrafts, headerMutations } = useDshProviderHeaders();
 	/**
 	 * 待删除的 provider 路由（点删除后本地隐藏，保存时才真正删除）。
 	 * 必须单独记录：settings.update 是 merge，patch 里删 key 不会让 host 删掉
@@ -354,8 +309,8 @@ export function PiAiProvidersCard(props: {
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
-	/** 脏状态：settings 草稿、任一密钥草稿或待删除 provider 非空。 */
-	const dirty = Object.keys(draft).length > 0 || Object.values(keyDrafts).some((value) => value.trim()) || pendingRemovals.length > 0;
+	/** 请求头整表草稿独立于 merge patch，否则改名/清空无法落盘。 */
+	const dirty = Object.keys(draft).length > 0 || headersDirty || Object.values(keyDrafts).some((value) => value.trim()) || pendingRemovals.length > 0 || addPageDirty;
 	useEffect(() => {
 		sectionApi?.onDirtyChange(instanceId, dirty);
 		// 卸载时清掉本实例的脏来源，避免收起/切换后残留黄点
@@ -364,97 +319,119 @@ export function PiAiProvidersCard(props: {
 
 	/** 统一保存：先删待移除 provider（凭证 + 配置，对齐 dsh-web removeProviderProfile），
 	 *  再写密钥草稿、提交 settings patch。 */
-	const save = useCallback(async (): Promise<boolean> => {
-		if (!dirty) return true;
-		setSaving(true);
-		setError(null);
-		try {
-			// 删除顺序与 dsh-web 一致：先删凭证、再删 provider 配置——第二步失败时
-			// provider 行仍可见，整个操作可安全重试（两个 unset 都是幂等的）。
-			// 凭证仅当它是「页面管理的派生引用」时联动删除（dsh-web targetOf 语义：
-			// apiKeyEnv 恰好等于派生 ref 且已配置且可写）；显式配置的 apiKeyEnv
-			// 可能被其他 provider 复用，不删。删除配置走 settings.mutate unset，
-			// 因为 settings.update 是 merge，patch 删 key 不会让 host 删掉现有 provider。
-			if (pendingRemovals.length > 0) {
-				for (const key of pendingRemovals) {
-					const currentProfile = (namespace.value as { providers?: Record<string, unknown> } | undefined)?.providers?.[key];
-					const meta = (currentProfile ?? {}) as Record<string, unknown>;
-					const managedRef = credentialRefFor(undefined, key);
-					const explicitRef = typeof meta.apiKeyEnv === "string" && meta.apiKeyEnv.trim() ? meta.apiKeyEnv.trim() : undefined;
-					const ref = explicitRef ?? managedRef;
-					const state = ops.credentials[ref];
-					if (ref === managedRef && state?.configured === true && state.writable) {
-						// 静默删凭证（不带 load）：本函数末尾 onSave→saveNamespace 已统一刷新一次，
-						// 若走 ops.unsetKey（内部自带 load）会触发第二次全页重渲染（删除保存闪两下）。
-						await desktopApi.sessions.unsetDshCredential(ref);
+	const save = useCallback(
+		async (addition?: DshProviderDraft): Promise<boolean> => {
+			if (!dirty && !addition) return true;
+			const added = addition ? buildDshProviderFromDraft(addition) : undefined;
+			const saveDraft = added ? { ...draft, providers: { ...(draft.providers && typeof draft.providers === "object" ? draft.providers : {}), [added.name]: added.profile } } : draft;
+			const saveKeys = added?.apiKey ? { ...keyDrafts, [added.name]: added.apiKey } : keyDrafts;
+			setSaving(true);
+			setError(null);
+			try {
+				// 删除顺序与 dsh-web 一致：先删凭证、再删 provider 配置——第二步失败时
+				// provider 行仍可见，整个操作可安全重试（两个 unset 都是幂等的）。
+				// 凭证仅当它是「页面管理的派生引用」时联动删除（dsh-web targetOf 语义：
+				// apiKeyEnv 恰好等于派生 ref 且已配置且可写）；显式配置的 apiKeyEnv
+				// 可能被其他 provider 复用，不删。删除配置走 settings.mutate unset，
+				// 因为 settings.update 是 merge，patch 删 key 不会让 host 删掉现有 provider。
+				if (pendingRemovals.length > 0) {
+					for (const key of pendingRemovals) {
+						const currentProfile = (namespace.value as { providers?: Record<string, unknown> } | undefined)?.providers?.[key];
+						const meta = (currentProfile ?? {}) as Record<string, unknown>;
+						const managedRef = credentialRefFor(undefined, key);
+						const explicitRef = typeof meta.apiKeyEnv === "string" && meta.apiKeyEnv.trim() ? meta.apiKeyEnv.trim() : undefined;
+						const ref = explicitRef ?? managedRef;
+						const state = ops.credentials[ref];
+						if (ref === managedRef && state?.configured === true && state.writable) {
+							// 静默删凭证（不带 load）：本函数末尾 onSave→saveNamespace 已统一刷新一次，
+							// 若走 ops.unsetKey（内部自带 load）会触发第二次全页重渲染（删除保存闪两下）。
+							await desktopApi.sessions.unsetDshCredential(ref);
+						}
+						await desktopApi.sessions.mutateDshSettings(namespace.ns, [{ op: "unset", path: ["providers", key] }], namespace.revision);
 					}
-					await desktopApi.sessions.mutateDshSettings(
-						namespace.ns,
-						[{ op: "unset", path: ["providers", key] }],
-						namespace.revision,
-					);
 				}
+				for (const [key, keyValue] of Object.entries(saveKeys)) {
+					const trimmed = keyValue.trim();
+					if (!trimmed) continue;
+					const draftProfile = (saveDraft.providers as Record<string, unknown> | undefined)?.[key];
+					const currentProfile = (namespace.value as { providers?: Record<string, unknown> } | undefined)?.providers?.[key];
+					const meta = (draftProfile ?? currentProfile) as Record<string, unknown> | undefined;
+					const ref = credentialRefFor(meta, key);
+					// 同删除路径：静默写凭证，避免与末尾 onSave 的刷新叠加（保存闪两下）。
+					await desktopApi.sessions.setDshCredential(ref, trimmed);
+				}
+				if (headerMutations.length > 0) {
+					await desktopApi.sessions.mutateDshSettings(namespace.ns, headerMutations, namespace.revision);
+				}
+				// mutate-only 也刷新 namespace；失败时保留全部草稿，重试 set/unset 是幂等的。
+				await props.onSave(pruneEmptyObjects(saveDraft) as Record<string, unknown>);
+				clearHeaderDrafts();
+				setDraft({});
+				setKeyDrafts({});
+				setPendingRemovals([]);
+				if (added) {
+					setExpanded((previous) => ({ ...previous, [added.name]: true }));
+					setAddingProvider(false);
+					setAddPageDirty(false);
+				}
+				return true;
+			} catch (err) {
+				setError(err instanceof Error ? err.message : String(err));
+				return false;
+			} finally {
+				setSaving(false);
 			}
-			for (const [key, keyValue] of Object.entries(keyDrafts)) {
-				const trimmed = keyValue.trim();
-				if (!trimmed) continue;
-				const draftProfile = (draft.providers as Record<string, unknown> | undefined)?.[key];
-				const currentProfile = (namespace.value as { providers?: Record<string, unknown> } | undefined)?.providers?.[key];
-				const meta = (draftProfile ?? currentProfile) as Record<string, unknown> | undefined;
-				const ref = credentialRefFor(meta, key);
-				// 同删除路径：静默写凭证，避免与末尾 onSave 的刷新叠加（保存闪两下）。
-				await desktopApi.sessions.setDshCredential(ref, trimmed);
-			}
-			await props.onSave(pruneEmptyObjects(draft) as Record<string, unknown>);
-			setDraft({});
-			setKeyDrafts({});
-			setPendingRemovals([]);
-			return true;
-		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err));
-			return false;
-		} finally {
-			setSaving(false);
-		}
-	}, [dirty, keyDrafts, draft, pendingRemovals, namespace.ns, namespace.revision, namespace.value, ops, props]);
+		},
+		[dirty, keyDrafts, draft, pendingRemovals, headerMutations, clearHeaderDrafts, namespace.ns, namespace.revision, namespace.value, ops.credentials, props.onSave],
+	);
+	const addPageSaveRef = useRef<(() => Promise<boolean>) | null>(null);
+	const registerAddPageSave = useCallback((save: (() => Promise<boolean>) | null) => {
+		addPageSaveRef.current = save;
+	}, []);
+	const saveRef = useRef(save);
+	saveRef.current = save;
 	useEffect(() => {
 		if (!sectionApi) return;
-		sectionApi.registerSave(instanceId, save);
+		// 注册项不随草稿/页切换反复删除插入，否则 saveAll 的 Map 迭代会再次保存同一项。
+		sectionApi.registerSave(instanceId, () => (addPageSaveRef.current ? addPageSaveRef.current() : saveRef.current()));
 		return () => sectionApi.unregisterSave(instanceId);
-	}, [sectionApi, instanceId, save]);
+	}, [sectionApi, instanceId]);
+
+	// 注意：下面的顺序计算 + 排序 hook 必须放在任何提前 return 之前——
+	// schema/字段未就绪时组件会早退，若 hook 落在早退之后，schema 异步到达时 hook 数量变化，React 直接报错。
+	const providersValue = (namespace.value as { providers?: unknown } | undefined)?.providers;
+	// 按 key 深合并：draft 往往只带 models，浅合并会盖掉已保存的 displayName/baseURL
+	const mergedProvidersValue = mergeProviderMaps((providersValue ?? {}) as Record<string, unknown>, (draft.providers ?? {}) as Record<string, unknown>);
+	const entries = dictEntries(mergedProvidersValue)
+		// 待删除的 provider 立即从列表隐藏（host 侧删除在保存时经 mutate unset 提交）
+		.filter((entry) => !pendingRemovals.includes(entry.key));
+	// 自定义顺序只作用于展示：DSH 配置里的 providers 是 dict，写回是 merge 语义的 patch，无法表达键顺序，
+	// 所以排序偏好存在 PiDeck 本地设置（AppSettings.dshProviderOrder），不去改 DSH 配置。
+	const orderedEntries = useMemo(() => {
+		const byKey = new Map(entries.map((entry) => [entry.key, entry]));
+		return applyProviderOrder(
+			entries.map((entry) => entry.key),
+			props.providerOrder,
+		)
+			.map((key) => byKey.get(key))
+			.filter((entry): entry is (typeof entries)[number] => Boolean(entry));
+	}, [entries, props.providerOrder]);
+	// 排序输入用有序键列表；DSH 页无隐藏供应商概念，完整列表即可见列表。
+	const orderedKeys = useMemo(() => orderedEntries.map((entry) => entry.key), [orderedEntries]);
+	const providerReorder = useProviderReorder({ names: props.providerOrderScope?.length ? props.providerOrderScope : orderedKeys, visibleNames: orderedKeys, onReorder: props.onReorderProviders ?? noopReorder });
 
 	if (!schema || !root || !providersField) {
 		return <div className="py-6 text-center text-control text-muted-foreground">{t("config.dsh.schemaUnavailable")}</div>;
 	}
 
-	const providersValue = (namespace.value as { providers?: unknown } | undefined)?.providers;
-	// 按 key 深合并：draft 往往只带 models，浅合并会盖掉已保存的 displayName/baseURL
-	const mergedProvidersValue = mergeProviderMaps(
-		(providersValue ?? {}) as Record<string, unknown>,
-		(draft.providers ?? {}) as Record<string, unknown>,
-	);
-	const entries = dictEntries(mergedProvidersValue)
-		// 待删除的 provider 立即从列表隐藏（host 侧删除在保存时经 mutate unset 提交）
-		.filter((entry) => !pendingRemovals.includes(entry.key));
 	const innerRefId = providersField.ref.inner;
 	if (innerRefId === undefined) {
 		return <div className="py-6 text-center text-control text-muted-foreground">{t("config.dsh.schemaUnavailable")}</div>;
 	}
 	const inner = schema.refs[innerRefId];
 
-	/** 内置目录候选：未激活（尚未配置）且不在当前列表中的行；已配置的 provider 不重复推荐。
-	 *  注意 dsh-llm-pi-ai 的 declared 语义：内置 catalog 行 declared=false，
-	 *  用户自定义行 declared=true——候选不看 declared，只看 active。 */
-	const directoryCandidates = useMemo(() => {
-		const configured = new Set(entries.map((entry) => entry.key));
-		return (props.directory ?? [])
-			.filter((entry) => !entry.active && !configured.has(entry.provider))
-			.sort((left, right) => left.displayName.localeCompare(right.displayName));
-	}, [props.directory, entries]);
-
 	/** 草稿覆盖读取：draft 优先，否则用现值（缺失草稿路径必须回退，不能吞已保存值）。 */
-	const entryValue = (key: string, path: string[]) =>
-		readDshEntryValue(draft, namespace.value, key, path);
+	const entryValue = (key: string, path: string[]) => readDshEntryValue(draft, namespace.value, key, path);
 
 	const updateEntry = (key: string, path: string[], next: unknown) => {
 		const nextDraft = structuredClone(draft) as Record<string, unknown>;
@@ -477,36 +454,6 @@ export function PiAiProvidersCard(props: {
 		setDraft(nextDraft);
 	};
 
-	/** 添加 provider：优先从内置目录（llm.providers declared 行）带出 displayName/apiKeyEnv。 */
-	const addProvider = (directoryEntry?: { provider: string; displayName: string }) => {
-		const key = directoryEntry?.provider ?? newProviderKey.trim();
-		// DSH 兼容性：provider name 经 credentialRefFor 转成 <NAME>_API_KEY 环境变量名，
-		// 含特殊字符/空格/点号会生成非法环境变量名 → host 进程读不到密钥。
-		// 目录候选已预置合规名，仅校验自定义输入；非法时提示规则、不写入。
-		if (!key) return;
-		if (entries.some((entry) => entry.key === key)) return;
-		if (!isValidProviderName(key)) {
-			showNotice(t("config.providerNameRule"));
-			return;
-		}
-		setDraft((prev) => {
-			const next = structuredClone(prev) as Record<string, unknown>;
-			const providers = (next.providers ?? {}) as Record<string, unknown>;
-			const profile: Record<string, unknown> = {};
-			if (directoryEntry && directoryEntry.displayName && directoryEntry.displayName !== key) {
-				profile.displayName = directoryEntry.displayName;
-			}
-			// 内置目录带出派生密钥引用（dsh-web 同规则：profile 未声明 apiKeyEnv 时派生 <ROUTE>_API_KEY）
-			profile.apiKeyEnv = credentialRefFor(undefined, key);
-			providers[key] = profile;
-			next.providers = providers;
-			return next;
-		});
-		setExpanded((prev) => ({ ...prev, [key]: true }));
-		setNewProviderKey("");
-		setAddingProvider(false);
-	};
-
 	/** 点删除：先弹确认（与 Pi 管理页同款 ConfirmDialog，danger 样式）。 */
 	const removeProvider = (key: string) => {
 		setRemovingKey(key);
@@ -518,6 +465,7 @@ export function PiAiProvidersCard(props: {
 		const key = removingKey;
 		if (!key) return;
 		setRemovingKey(null);
+		removeHeaderDraft(key);
 		setPendingRemovals((prev) => (prev.includes(key) ? prev : [...prev, key]));
 		setDraft((prev) => {
 			const next = structuredClone(prev) as Record<string, unknown>;
@@ -553,111 +501,70 @@ export function PiAiProvidersCard(props: {
 
 	// API 密钥在「自定义设置」折叠区内填写；profile 默认值/高级字段隐藏——
 	// 折叠区只露 dsh-web pi-ai 家族白名单（baseURL / baseUrl / api / displayName），其余归源文件。
-	const providerProfileFields = objectFields(schema, inner).filter(
-		(field) => isDshPiAiProfileVisibleField(field.name),
-	);
+	const providerProfileFields = objectFields(schema, inner).filter((field) => isDshPiAiProfileVisibleField(field.name));
 
 	// 展开区直接平铺的固定顺序：显示名称 → Base URL → 结果协议，其余白名单字段随后。
 	// 不依赖折叠、不依赖 objectFields 顺序：打开卡片即显示具体字段的值。
 	const PROFILE_FIELD_ORDER = ["displayName", "baseURL", "baseUrl", "api"] as const;
-	const orderedProfileFields = [
-		...PROFILE_FIELD_ORDER
-			.map((name) => providerProfileFields.find((field) => field.name === name))
-			.filter((field): field is NonNullable<typeof field> => Boolean(field)),
-		...providerProfileFields.filter((field) => !(PROFILE_FIELD_ORDER as readonly string[]).includes(field.name)),
-	];
+	const orderedProfileFields = [...PROFILE_FIELD_ORDER.map((name) => providerProfileFields.find((field) => field.name === name)).filter((field): field is NonNullable<typeof field> => Boolean(field)), ...providerProfileFields.filter((field) => !(PROFILE_FIELD_ORDER as readonly string[]).includes(field.name))];
+
+	if (addingProvider) {
+		return <AddDshProviderDialog existingNames={orderedKeys} directory={props.directory} settingsNs={namespace.ns} writable={writable} onRegisterSave={registerAddPageSave} onDirtyChange={setAddPageDirty} onConfirm={save} error={error} onBack={() => setAddingProvider(false)} />;
+	}
 
 	return (
 		<div className="flex min-w-0 flex-col">
 			<div className="flex shrink-0 items-center gap-2 border-b border-border/40 px-4 py-2">
 				<span className="text-caption font-semibold text-foreground">{namespace.ns}</span>
-				<span className="rounded-full border border-border-subtle px-2 py-0.5 text-micro text-muted-foreground">
-					{t("config.dsh.providersCount", { count: entries.length })}
-				</span>
-				{error && <span className="max-w-64 truncate text-micro text-danger" title={error}>{error}</span>}
-				{dirty && <span className="ml-auto text-micro text-amber-500" title={t("config.dirtyTooltip")}>●</span>}
+				<span className="rounded-full border border-border-subtle px-2 py-0.5 text-micro text-muted-foreground">{t("config.dsh.providersCount", { count: orderedEntries.length })}</span>
+				{error && (
+					<span className="max-w-64 truncate text-micro text-danger" title={error} data-testid="dsh-save-error">
+						{error}
+					</span>
+				)}
+				{dirty && (
+					<span className="ml-auto text-micro text-amber-500" title={t("config.dirtyTooltip")}>
+						●
+					</span>
+				)}
 				{saving && <span className="ml-auto text-micro text-muted-foreground">{t("common.saving")}</span>}
 			</div>
 
 			<div className="grid gap-2 p-4">
-				{/* 添加 provider（对齐 dsh-web 的休眠目录选择 + 自定义输入）：目录行点击即带出 displayName/密钥引用 */}
-				<div className="flex flex-wrap items-center gap-2">
-					{addingProvider ? (
-						<>
-							<Input
-								className="h-7 w-56 font-mono"
-								placeholder={t("config.dsh.providerKeyPlaceholder")}
-								value={newProviderKey}
-								autoFocus
-								disabled={!writable}
-								onChange={(event) => setNewProviderKey(event.target.value)}
-								onKeyDown={(event) => {
-									if (event.key === "Enter") addProvider();
-								}}
-							/>
-							<Button type="button" variant="default" size="sm" className="h-7" disabled={!isValidProviderName(newProviderKey)} onClick={() => addProvider()}>
-								{t("common.confirm")}
+				<Button type="button" variant="secondary" size="sm" className="h-7 justify-self-start" disabled={!writable} onClick={() => setAddingProvider(true)}>
+					<Plus className="size-3.5" aria-hidden="true" />
+					{t("config.dsh.addProvider")}
+				</Button>
+
+				{/* 排序说明：顺序是 PiDeck 本地偏好（AppSettings.dshProviderOrder），不写回 DSH 配置文件 */}
+				{orderedKeys.length > 1 && (
+					<div className="mt-2 mb-2.5 flex items-start gap-2 text-micro leading-relaxed text-text-tertiary">
+						<ArrowUpDown className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
+						<span className="min-w-0 flex-1">{t("config.dsh.providerOrderHint")}</span>
+						{(props.providerOrder?.length ?? 0) > 0 && props.onResetProviders && (
+							<Button type="button" variant="ghost" size="sm" className="h-5 shrink-0 px-1.5 text-micro font-normal text-text-tertiary hover:text-text-primary" onClick={props.onResetProviders}>
+								{t("config.providerOrderReset")}
 							</Button>
-							<Button type="button" variant="ghost" size="icon-sm" className="size-7" onClick={() => setAddingProvider(false)}>
-								<X className="size-3.5" aria-hidden="true" />
-							</Button>
-							{newProviderKey.trim() && !isValidProviderName(newProviderKey) ? (
-								<p className="text-micro text-destructive">{t("config.providerNameRule")}</p>
-							) : null}
-						</>
-					) : (
-						<Button
-							type="button"
-							variant="secondary"
-							size="sm"
-							className="h-7"
-							disabled={!writable}
-							onClick={() => setAddingProvider(true)}
-						>
-							<Plus className="size-3.5" aria-hidden="true" />
-							{t("config.dsh.addProvider")}
-						</Button>
-					)}
-					{/* 内置目录候选（declared 未激活行；与 dsh-web 的休眠目录同一数据源） */}
-					{directoryCandidates.length > 0 && (
-						<div className="flex flex-wrap items-center gap-1.5">
-							<span className="text-micro text-muted-foreground">{t("config.dsh.directoryLabel")}</span>
-							{directoryCandidates.map((entry) => (
-								<Button
-									key={entry.provider}
-									type="button"
-									variant="outline"
-									size="sm"
-									className="h-7 gap-1 font-mono"
-									disabled={!writable}
-									onClick={() => addProvider(entry)}
-								>
-									<Plus className="size-3" aria-hidden="true" />
-									{entry.displayName !== entry.provider ? `${entry.displayName} (${entry.provider})` : entry.provider}
-								</Button>
-							))}
-						</div>
-					)}
-				</div>
+						)}
+					</div>
+				)}
 
 				{/* provider 行列表 */}
-				{entries.map((entry) => {
+				{orderedEntries.map((entry) => {
 					const isOpen = expanded[entry.key] ?? false;
 					// 模型列表：draft 覆盖优先（新增/删除行即时反映），否则用现值
 					const draftModels = entryValue(entry.key, ["models"]);
 					// 已保存列表必须读 namespace，不能读 entry.value：后者可能是未合并的 draft 碎片
 					const persisted = (namespace.value as { providers?: Record<string, { models?: unknown }> } | undefined)?.providers?.[entry.key]?.models;
-					const savedModels = Array.isArray(persisted) ? persisted as DshModelRow[] : [];
-					const models = Array.isArray(draftModels) ? draftModels as DshModelRow[] : savedModels;
+					const savedModels = Array.isArray(persisted) ? (persisted as DshModelRow[]) : [];
+					const models = Array.isArray(draftModels) ? (draftModels as DshModelRow[]) : savedModels;
 					const providerMeta = (entry.value ?? {}) as Record<string, unknown>;
 					const directoryEntry = props.directory?.find((candidate) => candidate.provider === entry.key);
 					// `declared` means pi-ai knows this key only because settings named it.
 					// Catalog routes own their display name/protocol; an absent directory entry
 					// is treated as custom so a new route remains completable before refresh.
 					const isCustomRoute = isDshPiAiCustomRoute(directoryEntry);
-					const visibleProfileFields = isCustomRoute
-						? orderedProfileFields
-						: orderedProfileFields.filter((field) => field.name === "baseURL" || field.name === "baseUrl");
+					const visibleProfileFields = isCustomRoute ? orderedProfileFields : orderedProfileFields.filter((field) => field.name === "baseURL" || field.name === "baseUrl");
 					const baseURLValue = entryValue(entry.key, ["baseURL"]);
 					const apiValue = entryValue(entry.key, ["api"]);
 					const baseURL = typeof baseURLValue === "string" ? baseURLValue : "";
@@ -667,88 +574,62 @@ export function PiAiProvidersCard(props: {
 					// 生效模型数：自定义 models 非空取自定义数，否则取内置目录数（dsh-web 同语义）
 					const modelCount = models.length > 0 ? models.length : (providerCatalog?.length ?? 0);
 					return (
-						<div key={entry.key} className="rounded-md border border-border-subtle bg-bg-panel">
-							<ProviderRowHead
-								title={entry.key}
-								badges={[t("config.dsh.modelsCount", { count: modelCount })]}
-								keyDot={<KeyStatusDot state={ops.credentials[keyRef]} />}
-								usage={<ProviderUsageInline provider={entry.key} backend="dsh" variant="card" />}
-								extraActions={
-									<>
-										{/* 用量查询配置（内置支持的供应商零配置自动生效，不渲染；DSH 链路 backend=dsh） */}
-										<UsageQueryEntryButton
-											provider={entry.key}
-											backend="dsh"
-											className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
-											onOpen={() => props.onOpenUsageProbeDialog(entry.key)}
-										/>
-										<ProviderMigrationButton
-											direction="dsh-to-pi"
-											provider={entry.key}
-											onMigrated={props.onMigrated}
-										/>
-									</>
-								}
-								isOpen={isOpen}
-								onToggle={() => setExpanded((prev) => ({ ...prev, [entry.key]: !prev[entry.key] }))}
-								onRemove={() => removeProvider(entry.key)}
-								removeDisabled={!writable}
-								removeTitle={t("config.dsh.removeProvider")}
-							/>
+						<div key={entry.key} ref={(element) => providerReorder.registerCard(entry.key, element)} className={`relative rounded-md border border-border-subtle bg-bg-panel${providerReorder.draggingName === entry.key ? " opacity-40 border-dashed" : ""}`} {...providerReorder.cardProps(entry.key)}>
+							{/* 折叠体走共享折叠原语；display:contents 不生成盒子，折叠态零空档。 */}
+							<Collapsible open={isOpen} className="contents">
+								{/* 拖拽插入指示线：贴卡片内缘；加粗 + 发光，落点一眼可见 */}
+								{providerReorder.dropTarget?.name === entry.key && <span className={`absolute ${providerReorder.dropTarget.position === "before" ? "top-0" : "bottom-0"} right-0 left-0 z-10 h-[3px] rounded-full bg-[color:var(--color-accent)] shadow-[0_0_8px_color-mix(in_srgb,var(--color-accent)_55%,transparent)]`} />}
+								<ProviderRowHead
+									leading={
+										<>
+											{/* 拖拽手柄：只有按住手柄才能拖动，避免与行内点击折叠抢手势；聚焦手柄后 ↑/↓ 也可微调（键盘接线在 hook 的 gripProps 里） */}
+											<Button type="button" variant="ghost" size="icon-sm" className="size-6 shrink-0 cursor-grab text-muted-foreground active:cursor-grabbing" title={t("config.dragProvider")} {...providerReorder.gripProps(entry.key)}>
+												<GripVertical className="size-3.5" aria-hidden="true" />
+											</Button>
+										</>
+									}
+									title={entry.key}
+									badges={[t("config.dsh.modelsCount", { count: modelCount })]}
+									keyDot={<KeyStatusDot state={ops.credentials[keyRef]} />}
+									extraActions={
+										<>
+											{/* 用量徽章常驻（DSH 链路 backend=dsh）：与模型/认证页同款，开关即「是否启用用量查询」 */}
+											<span className="shrink-0" onClick={(event) => event.stopPropagation()}>
+												<ProviderUsageInline provider={entry.key} variant="card" backend="dsh" />
+											</span>
+											{/* 用量查询配置（内置支持的供应商零配置自动生效，不渲染；DSH 链路 backend=dsh） */}
+											<UsageQueryEntryButton provider={entry.key} backend="dsh" className="size-7 shrink-0 text-muted-foreground hover:text-foreground" onOpen={() => props.onOpenUsageProbeDialog(entry.key)} />
+											<ProviderMigrationButton direction="dsh-to-pi" provider={entry.key} onMigrated={props.onMigrated} />
+										</>
+									}
+									isOpen={isOpen}
+									onToggle={() => setExpanded((prev) => ({ ...prev, [entry.key]: !prev[entry.key] }))}
+									onRemove={() => removeProvider(entry.key)}
+									removeDisabled={!writable}
+									removeTitle={t("config.dsh.removeProvider")}
+								/>
 
-							{isOpen && (
-								<div className="grid gap-3 border-t border-border/40 px-3 py-3">
-									<ApiKeyField
-										ref={keyRef}
-										value={keyDrafts[entry.key] ?? ""}
-										onChange={(next) => setKeyDrafts((prev) => ({ ...prev, [entry.key]: next }))}
-										ops={ops}
-									/>
+								{/* 不再挂 animate-in/fade-in：twMerge 会把 animate-* 判同组，保留会盖掉高度动画。 */}
+								<CollapsibleContent className="grid gap-3 border-t border-border/40 px-3 py-3">
+									<ApiKeyField ref={keyRef} value={keyDrafts[entry.key] ?? ""} onChange={(next) => setKeyDrafts((prev) => ({ ...prev, [entry.key]: next }))} ops={ops} />
 									<CustomSettings label={t("config.dsh.customSettings")}>
 										<p className="text-micro text-muted-foreground">{t("config.dsh.customSettingsHint")}</p>
 										{/* A catalog route owns its display name/protocol; hand-declared routes own both. */}
 										{visibleProfileFields.map((field) => (
-											<DshSchemaField
-												key={field.name}
-												schema={schema}
-												ref={field.ref}
-												path={[field.name]}
-												value={entryValue(entry.key, [field.name])}
-												secrets={namespace.secrets}
-												onChange={(path, next) => updateEntry(entry.key, path, next)}
-												writable={writable}
-											/>
+											<DshSchemaField key={field.name} schema={schema} ref={field.ref} path={[field.name]} value={entryValue(entry.key, [field.name])} secrets={namespace.secrets} onChange={(path, next) => updateEntry(entry.key, path, next)} writable={writable} />
 										))}
+										{/* 整表覆盖单独保存，不能走 updateEntry 的 merge 语义。 */}
+										<DshHeadersEditor value={readHeaders(entry.key, entryValue(entry.key, ["headers"]))} writable={writable && !saving} onChange={(next) => updateHeaders(entry.key, next)} />
 									</CustomSettings>
-									<DshModelsEditor
-										models={models}
-										savedModels={savedModels}
-										catalog={providerCatalog}
-										writable={writable}
-										providerKey={entry.key}
-										settingsNs={namespace.ns}
-										baseURL={baseURL}
-										api={api}
-										apiKeyDraft={keyDrafts[entry.key]}
-										onChange={(nextModels) => setProviderModels(entry.key, nextModels)}
-									/>
-								</div>
-							)}
+									<DshModelsEditor models={models} savedModels={savedModels} catalog={providerCatalog} writable={writable} providerKey={entry.key} settingsNs={namespace.ns} baseURL={baseURL} api={api} apiKeyDraft={keyDrafts[entry.key]} onChange={(nextModels) => setProviderModels(entry.key, nextModels)} />
+								</CollapsibleContent>
+							</Collapsible>
 						</div>
 					);
 				})}
-				{entries.length === 0 && <Empty text={t("config.dsh.providersEmpty")} />}
+				{orderedEntries.length === 0 && <Empty text={t("config.dsh.providersEmpty")} />}
 			</div>
-			{removingKey && (
-				<ConfirmDialog
-					title={t("common.deleteConfirm")}
-					message={t("common.deleteConfirmMsg", { name: removingKey })}
-					confirmLabel={t("common.delete")}
-					danger
-					onConfirm={confirmRemoveProvider}
-					onCancel={() => setRemovingKey(null)}
-				/>
-			)}
+			{removingKey && <ConfirmDialog title={t("common.deleteConfirm")} message={t("common.deleteConfirmMsg", { name: removingKey })} confirmLabel={t("common.delete")} danger onConfirm={confirmRemoveProvider} onCancel={() => setRemovingKey(null)} />}
 		</div>
 	);
 }
@@ -805,7 +686,7 @@ export function DeepseekRouteCard(props: {
 	};
 
 	// 密钥 ref 需在保存回调之前计算（save useCallback 依赖它）
-	const apiKeyEnv = typeof value(["apiKeyEnv"]) === "string" ? value(["apiKeyEnv"]) as string : "";
+	const apiKeyEnv = typeof value(["apiKeyEnv"]) === "string" ? (value(["apiKeyEnv"]) as string) : "";
 	const keyRef = credentialRefFor({ apiKeyEnv }, "deepseek");
 
 	/** 脏状态：settings 草稿、密钥草稿或待提交的模型/字段 reset。 */
@@ -832,16 +713,9 @@ export function DeepseekRouteCard(props: {
 				return false;
 			}
 			const patch = pruneEmptyObjects(draft) as Record<string, unknown>;
-			const unsetOps = [
-				...(pendingModelReset ? [{ op: "unset" as const, path: ["models"] }] : []),
-				...pendingFieldUnsets.map((path) => ({ op: "unset" as const, path })),
-			];
+			const unsetOps = [...(pendingModelReset ? [{ op: "unset" as const, path: ["models"] }] : []), ...pendingFieldUnsets.map((path) => ({ op: "unset" as const, path }))];
 			if (unsetOps.length > 0) {
-				await desktopApi.sessions.mutateDshSettings(
-					namespace.ns,
-					unsetOps,
-					namespace.revision,
-				);
+				await desktopApi.sessions.mutateDshSettings(namespace.ns, unsetOps, namespace.revision);
 			}
 			if (Object.keys(patch).length > 0) {
 				await props.onSave(patch);
@@ -881,15 +755,11 @@ export function DeepseekRouteCard(props: {
 			setPendingFieldUnsets((previous) => {
 				const alreadyPending = previous.some((candidate) => candidate.join("\u0000") === path.join("\u0000"));
 				if (hasUserValue) return alreadyPending ? previous : [...previous, path];
-				return alreadyPending
-					? previous.filter((candidate) => candidate.join("\u0000") !== path.join("\u0000"))
-					: previous;
+				return alreadyPending ? previous.filter((candidate) => candidate.join("\u0000") !== path.join("\u0000")) : previous;
 			});
 		} else {
 			setPath(nextDraft, path, next);
-			setPendingFieldUnsets((previous) => previous.filter(
-				(candidate) => candidate.join("\u0000") !== path.join("\u0000"),
-			));
+			setPendingFieldUnsets((previous) => previous.filter((candidate) => candidate.join("\u0000") !== path.join("\u0000")));
 		}
 		setDraft(nextDraft);
 	};
@@ -900,15 +770,9 @@ export function DeepseekRouteCard(props: {
 	const draftModels = dshModelRows(readPath(draft, ["models"]));
 	const userModels = dshModelRows(readPath(namespace.user, ["models"]));
 	const baseModels = dshModelRows(readPath(namespace.base, ["models"]));
-	const schemaDefaultModels = dshModelRows(
-		objectFields(schema, root).find((field) => field.name === "models")?.ref.meta?.default,
-	);
+	const schemaDefaultModels = dshModelRows(objectFields(schema, root).find((field) => field.name === "models")?.ref.meta?.default);
 	const effectiveModels = dshModelRows(readPath(namespace.value, ["models"]));
-	const inheritedModels = baseModels
-		?? schemaDefaultModels
-		?? (userModels === undefined ? effectiveModels : undefined)
-		?? dshModelRows(props.catalog)
-		?? [];
+	const inheritedModels = baseModels ?? schemaDefaultModels ?? (userModels === undefined ? effectiveModels : undefined) ?? dshModelRows(props.catalog) ?? [];
 	const modelOverride = !pendingModelReset && (draftModels !== undefined || userModels !== undefined);
 	const models = draftModels ?? (modelOverride ? (effectiveModels ?? userModels ?? []) : inheritedModels);
 	const savedModels = models;
@@ -921,9 +785,7 @@ export function DeepseekRouteCard(props: {
 	const defaultMaxTokensValue = value(["maxTokens"]);
 	const defaultContextWindow = typeof defaultContextWindowValue === "number" ? defaultContextWindowValue : undefined;
 	const defaultMaxTokens = typeof defaultMaxTokensValue === "number" ? defaultMaxTokensValue : undefined;
-	const baseFields = objectFields(schema, root).filter(
-		(field) => isDshDeepseekProfileVisibleField(field.name),
-	);
+	const baseFields = objectFields(schema, root).filter((field) => isDshDeepseekProfileVisibleField(field.name));
 
 	const setModels = (nextModels: DshModelRow[]) => {
 		setPendingModelReset(false);
@@ -947,58 +809,49 @@ export function DeepseekRouteCard(props: {
 		<div className="flex min-w-0 flex-col">
 			<div className="flex shrink-0 items-center gap-2 border-b border-border/40 px-4 py-2">
 				<span className="text-caption font-semibold text-foreground">{namespace.ns}</span>
-				<span className="rounded-full border border-border-subtle px-2 py-0.5 text-micro text-muted-foreground">
-					{namespace.applies === "live" ? t("config.dsh.appliesLive") : t("config.dsh.appliesRestart")}
-				</span>
-				{error && <span className="max-w-64 truncate text-micro text-danger" title={error}>{error}</span>}
-				{dirty && <span className="ml-auto text-micro text-amber-500" title={t("config.dirtyTooltip")}>●</span>}
+				<span className="rounded-full border border-border-subtle px-2 py-0.5 text-micro text-muted-foreground">{namespace.applies === "live" ? t("config.dsh.appliesLive") : t("config.dsh.appliesRestart")}</span>
+				{error && (
+					<span className="max-w-64 truncate text-micro text-danger" title={error}>
+						{error}
+					</span>
+				)}
+				{dirty && (
+					<span className="ml-auto text-micro text-amber-500" title={t("config.dirtyTooltip")}>
+						●
+					</span>
+				)}
 				{saving && <span className="ml-auto text-micro text-muted-foreground">{t("common.saving")}</span>}
 			</div>
 			<div className="grid gap-2 p-4">
 				<div className="rounded-md border border-border-subtle bg-bg-panel">
-					<ProviderRowHead
-						title={namespace.ns === "llm-deepseek" ? t("config.dsh.deepseekOfficial") : namespace.ns}
-						badges={[t("config.dsh.modelsCount", { count: modelOverride ? models.length : directCatalog.length })]}
-						keyDot={<KeyStatusDot state={ops.credentials[keyRef]} />}
-						usage={<ProviderUsageInline provider="deepseek" backend="dsh" variant="card" />}
-						extraActions={
-							<>
-								{/* 用量查询配置（内置支持的供应商零配置自动生效，不渲染；DSH 官方 DeepSeek） */}
-								<UsageQueryEntryButton
-									provider="deepseek"
-									backend="dsh"
-									className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
-									onOpen={() => props.onOpenUsageProbeDialog("deepseek")}
-								/>
-								<ProviderMigrationButton
-									direction="dsh-to-pi"
-									provider="deepseek"
-									onMigrated={props.onMigrated}
-								/>
-							</>
-						}
-						isOpen={open}
-						onToggle={() => setOpen((prev) => !prev)}
-					/>
+					{/* 折叠体走共享折叠原语；display:contents 不生成盒子，折叠态零空档。 */}
+					<Collapsible open={open} className="contents">
+						<ProviderRowHead
+							title={namespace.ns === "llm-deepseek" ? t("config.dsh.deepseekOfficial") : namespace.ns}
+							badges={[t("config.dsh.modelsCount", { count: modelOverride ? models.length : directCatalog.length })]}
+							keyDot={<KeyStatusDot state={ops.credentials[keyRef]} />}
+							extraActions={
+								<>
+									{/* 用量徽章常驻（DSH 官方 DeepSeek）：provider 名归一为 deepseek，与卡片/选择器同缓存 key */}
+									<span className="shrink-0" onClick={(event) => event.stopPropagation()}>
+										<ProviderUsageInline provider="deepseek" variant="card" backend="dsh" />
+									</span>
+									{/* 用量查询配置（内置支持的供应商零配置自动生效，不渲染；DSH 官方 DeepSeek） */}
+									<UsageQueryEntryButton provider="deepseek" backend="dsh" className="size-7 shrink-0 text-muted-foreground hover:text-foreground" onOpen={() => props.onOpenUsageProbeDialog("deepseek")} />
+									<ProviderMigrationButton direction="dsh-to-pi" provider="deepseek" onMigrated={props.onMigrated} />
+								</>
+							}
+							isOpen={open}
+							onToggle={() => setOpen((prev) => !prev)}
+						/>
 
-
-					{open && (
-						<div className="grid gap-3 border-t border-border/40 px-3 py-3">
+						{/* 不再挂 animate-in/fade-in：twMerge 会把 animate-* 判同组，保留会盖掉高度动画。 */}
+						<CollapsibleContent className="grid gap-3 border-t border-border/40 px-3 py-3">
 							<ApiKeyField ref={keyRef} value={keyDraft} onChange={setKeyDraft} ops={ops} />
 							<CustomSettings label={t("config.dsh.customSettings")}>
 								<p className="text-micro text-muted-foreground">{t("config.dsh.customSettingsHint")}</p>
 								{baseFields.map((field) => (
-									<DshSchemaField
-										key={field.name}
-										schema={schema}
-										ref={field.ref}
-										path={[field.name]}
-										value={editableValue([field.name])}
-										placeholder={t("config.dsh.deepseekBaseUrlPlaceholder")}
-										secrets={namespace.secrets}
-										onChange={update}
-										writable={writable}
-									/>
+									<DshSchemaField key={field.name} schema={schema} ref={field.ref} path={[field.name]} value={editableValue([field.name])} placeholder={t("config.dsh.deepseekBaseUrlPlaceholder")} secrets={namespace.secrets} onChange={update} writable={writable} />
 								))}
 							</CustomSettings>
 							<DshModelsEditor
@@ -1018,8 +871,8 @@ export function DeepseekRouteCard(props: {
 								defaultMaxTokens={defaultMaxTokens}
 								onChange={setModels}
 							/>
-						</div>
-					)}
+						</CollapsibleContent>
+					</Collapsible>
 				</div>
 			</div>
 		</div>
@@ -1027,17 +880,11 @@ export function DeepseekRouteCard(props: {
 }
 
 /** 现值与草稿按 provider key 合并；同一 key 下对象字段再浅合并一层。 */
-function mergeProviderMaps(
-	saved: Record<string, unknown>,
-	draft: Record<string, unknown>,
-): Record<string, unknown> {
+function mergeProviderMaps(saved: Record<string, unknown>, draft: Record<string, unknown>): Record<string, unknown> {
 	const next: Record<string, unknown> = { ...saved };
 	for (const [key, draftEntry] of Object.entries(draft)) {
 		const savedEntry = saved[key];
-		if (
-			savedEntry && typeof savedEntry === "object" && !Array.isArray(savedEntry)
-			&& draftEntry && typeof draftEntry === "object" && !Array.isArray(draftEntry)
-		) {
+		if (savedEntry && typeof savedEntry === "object" && !Array.isArray(savedEntry) && draftEntry && typeof draftEntry === "object" && !Array.isArray(draftEntry)) {
 			next[key] = { ...(savedEntry as Record<string, unknown>), ...(draftEntry as Record<string, unknown>) };
 		} else {
 			next[key] = draftEntry;
@@ -1047,9 +894,5 @@ function mergeProviderMaps(
 }
 
 function Empty(props: { text: string }) {
-	return (
-		<div className="rounded-sm border border-border-subtle bg-bg-panel px-3.5 py-8 text-center text-control text-muted-foreground">
-			{props.text}
-		</div>
-	);
+	return <div className="rounded-sm border border-border-subtle bg-bg-panel px-3.5 py-8 text-center text-control text-muted-foreground">{props.text}</div>;
 }

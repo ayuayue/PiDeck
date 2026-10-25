@@ -32,10 +32,7 @@ test("openGitFileInEditor: 先 dismiss Git Diff，再以 view/permanent 打开",
 
 	openGitFileInEditor(dismiss, openTab, "/repo/docs-site/changelog.md");
 
-	assert.deepEqual(calls, [
-		"dismiss",
-		["open", "/repo/docs-site/changelog.md", "view", undefined, undefined, true, undefined, undefined, undefined, "permanent"],
-	]);
+	assert.deepEqual(calls, ["dismiss", ["open", "/repo/docs-site/changelog.md", "view", undefined, undefined, true, undefined, undefined, undefined, "permanent"]]);
 });
 
 test("openGitFileInEditor: 无 Git Diff 打开也保持 dismiss→open 顺序（幂等清理）", () => {

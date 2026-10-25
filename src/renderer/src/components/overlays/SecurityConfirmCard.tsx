@@ -1,7 +1,7 @@
 import { ShieldAlert } from "lucide-react";
 import type { AgentUiRequest } from "../../../../shared/types";
 import { t, type TranslationKey } from "../../i18n";
-import { hasTextSelection, parseSecurityConfirmTitle } from "../../utils/askUi";
+import { parseSecurityConfirmTitle, shouldSuppressAskClick } from "../../utils/askUi";
 import { Button } from "../ui-shadcn/button";
 import { ApprovalCard } from "../ui-shadcn/approval-card";
 
@@ -33,14 +33,7 @@ function toolLabel(tool: string): string {
  * 拆成独立区块，命令或文件路径用等宽块完整展示（超长滚动），
  * 允许/拒绝按钮响应值直接回传扩展下发的原始选项字符串，保持契约一致。
  */
-export function SecurityConfirmCard(props: {
-	request: AgentUiRequest;
-	responding: boolean;
-	open: boolean;
-	onOpenChange: (open: boolean) => void;
-	onRespond: (value: string) => void;
-	onCancel: () => void;
-}) {
+export function SecurityConfirmCard(props: { request: AgentUiRequest; responding: boolean; open: boolean; onOpenChange: (open: boolean) => void; onRespond: (value: string) => void; onCancel: () => void }) {
 	const info = parseSecurityConfirmTitle(props.request.title);
 	// 本组件只应在解析出安全确认时渲染；兜底保护避免异常数据白屏
 	if (!info) return null;
@@ -83,13 +76,7 @@ export function SecurityConfirmCard(props: {
 				{/* 详情区：命令/文件路径用等宽块完整展示，超长滚动，不再被两行摘要截断 */}
 				<div className="rounded-md border border-border-subtle bg-bg-muted px-2.5 py-2">
 					<div className="mb-1 text-micro font-semibold text-text-tertiary">{t("security.confirmDetailLabel")}</div>
-					{info.detail ? (
-						<pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-micro leading-relaxed text-text-primary">
-							{info.detail}
-						</pre>
-					) : (
-						<div className="text-micro text-text-tertiary">{t("security.confirmDetailEmpty")}</div>
-					)}
+					{info.detail ? <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-micro leading-relaxed text-text-primary">{info.detail}</pre> : <div className="text-micro text-text-tertiary">{t("security.confirmDetailEmpty")}</div>}
 				</div>
 
 				{/* 允许/拒绝：主次分明，说明文案挂 title 供悬停查看 */}
@@ -100,10 +87,10 @@ export function SecurityConfirmCard(props: {
 						disabled={props.responding}
 						title={t("security.confirmAllowHint")}
 						onClick={() => {
-						// 划选详情的 mouseup 落在允许/拒绝上会冒充 click；有选区时不提交。
-						if (hasTextSelection()) return;
-						props.onRespond(allowValue);
-					}}
+							// 划选详情的 mouseup 落在允许/拒绝上会冒充 click；本次按压新拖出的选区不提交。
+							if (shouldSuppressAskClick()) return;
+							props.onRespond(allowValue);
+						}}
 					>
 						{t("security.confirmAllow")}
 					</Button>
@@ -113,9 +100,9 @@ export function SecurityConfirmCard(props: {
 						disabled={props.responding}
 						title={t("security.confirmDenyHint")}
 						onClick={() => {
-						if (hasTextSelection()) return;
-						props.onRespond(denyValue);
-					}}
+							if (shouldSuppressAskClick()) return;
+							props.onRespond(denyValue);
+						}}
 					>
 						{t("security.confirmDeny")}
 					</Button>

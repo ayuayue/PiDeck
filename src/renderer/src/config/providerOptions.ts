@@ -10,11 +10,7 @@
  */
 import type { AuthFile, ModelsFile } from "./configTypes";
 
-export function collectProviderOptions(
-	modelsData?: ModelsFile,
-	authData?: AuthFile,
-	discoveredModels?: Record<string, Array<{ id: string; name?: string }>>,
-): Array<{ value: string }> {
+export function collectProviderOptions(modelsData?: ModelsFile, authData?: AuthFile, discoveredModels?: Record<string, Array<{ id: string; name?: string }>>): Array<{ value: string }> {
 	// 三源合并：Set 迭代序 = 首次加入序（models 优先，auth 次之，discovered 最后），重复幂等。
 	const providerSet = new Set<string>();
 	if (modelsData) {

@@ -1,17 +1,15 @@
 import { createContext, useContext, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import type { ProjectFileAccessScope } from "../../../../shared/types";
-import {
-	getFilePathVerdict,
-	requestFilePathVerdicts,
-	subscribeFilePathVerdicts,
-} from "../../utils/filePathVerdictStore";
+import { getFilePathVerdict, requestFilePathVerdicts, subscribeFilePathVerdicts } from "../../utils/filePathVerdictStore";
 import { resolveFileLinkPath } from "../../utils/filePathLinks";
 
 type FileLinkBase = {
 	baseDir?: string;
 	projectRoot?: string;
 	scope?: ProjectFileAccessScope;
+	/** 会话身份：右键菜单里的系统动作要与左键点击走同一道安全等级门（会话级覆盖优先于全局默认） */
+	sessionId?: string;
 };
 
 /**
@@ -22,29 +20,30 @@ type FileLinkBase = {
  */
 const FileLinkBaseContext = createContext<FileLinkBase>({});
 
-export function FileLinkBaseProvider(props: {
-	baseDir: string | undefined;
-	projectRoot?: string;
-	projectId?: string;
-	children: ReactNode;
-}) {
+export function FileLinkBaseProvider(props: { baseDir: string | undefined; projectRoot?: string; projectId?: string; sessionId?: string; children: ReactNode }) {
 	const value = useMemo<FileLinkBase>(
 		() => ({
 			baseDir: props.baseDir,
 			projectRoot: props.projectRoot,
 			scope: props.projectId ? { projectId: props.projectId } : undefined,
+			sessionId: props.sessionId,
 		}),
-		[props.baseDir, props.projectId, props.projectRoot],
+		[props.baseDir, props.projectId, props.projectRoot, props.sessionId],
 	);
-	return (
-		<FileLinkBaseContext.Provider value={value}>
-			{props.children}
-		</FileLinkBaseContext.Provider>
-	);
+	return <FileLinkBaseContext.Provider value={value}>{props.children}</FileLinkBaseContext.Provider>;
 }
 
 export function useFileLinkBaseDir(): string | undefined {
 	return useContext(FileLinkBaseContext).baseDir;
+}
+
+/**
+ * 文件链接右键菜单等场景需要完整的解析上下文（baseDir/projectRoot/scope/sessionId），
+ * 与存在性校验共用同一份基准，保证「菜单里复制的路径」=「点击打开的路径」，
+ * 且菜单里的系统动作（默认应用 / 文件管理器）按同一会话的安全等级求值。
+ */
+export function useFileLinkContext(): FileLinkBase {
+	return useContext(FileLinkBaseContext);
 }
 
 /**
@@ -56,16 +55,11 @@ export function useFilePathExists(rawPath: string | undefined): boolean | undefi
 	const { baseDir, projectRoot, scope } = useContext(FileLinkBaseContext);
 	// resolveFileLinkPath 返回 null = 无法解析或越出本栏项目边界：
 	// 不发 stat，更不能让主进程按进程 cwd 猜测相对路径。
-	const absPath = rawPath === undefined
-		? undefined
-		: resolveFileLinkPath(rawPath, baseDir, projectRoot);
+	const absPath = rawPath === undefined ? undefined : resolveFileLinkPath(rawPath, baseDir, projectRoot);
 	const resolvable = typeof absPath === "string";
 	useEffect(() => {
 		if (!rawPath || !resolvable || absPath === undefined) return;
 		requestFilePathVerdicts([absPath], scope);
 	}, [absPath, rawPath, resolvable, scope]);
-	return useSyncExternalStore(
-		subscribeFilePathVerdicts,
-		() => (resolvable ? getFilePathVerdict(absPath, scope) : undefined),
-	);
+	return useSyncExternalStore(subscribeFilePathVerdicts, () => (resolvable ? getFilePathVerdict(absPath, scope) : undefined));
 }

@@ -13,12 +13,7 @@ export type FileSortMode = "name" | "mtime" | "ctime" | "size";
 export type FileSortDirection = "asc" | "desc";
 
 /** 目录永远排在文件前；维度+方向只决定同类型内的次序。 */
-function compareNodes(
-	a: FileTreeNode,
-	b: FileTreeNode,
-	mode: FileSortMode,
-	direction: FileSortDirection,
-): number {
+function compareNodes(a: FileTreeNode, b: FileTreeNode, mode: FileSortMode, direction: FileSortDirection): number {
 	if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
 	let result: number;
 	switch (mode) {
@@ -43,18 +38,8 @@ function compareNodes(
 }
 
 /** 递归按维度+方向排序文件树（每层子节点独立排序，不改变树结构引用）。 */
-export function sortFileNodes(
-	nodes: FileTreeNode[],
-	mode: FileSortMode,
-	direction: FileSortDirection,
-): FileTreeNode[] {
-	return nodes
-		.map((node) =>
-			node.children && node.children.length > 0
-				? { ...node, children: sortFileNodes(node.children, mode, direction) }
-				: node,
-		)
-		.sort((a, b) => compareNodes(a, b, mode, direction));
+export function sortFileNodes(nodes: FileTreeNode[], mode: FileSortMode, direction: FileSortDirection): FileTreeNode[] {
+	return nodes.map((node) => (node.children && node.children.length > 0 ? { ...node, children: sortFileNodes(node.children, mode, direction) } : node)).sort((a, b) => compareNodes(a, b, mode, direction));
 }
 
 /** 各维度默认方向：名称升序；时间/大小倒序（最新/最大在前）。 */

@@ -43,17 +43,9 @@ export type DisplayArea = { x: number; y: number; width: number; height: number 
  * 纯函数：bounds 是否与任一显示器 workArea 相交。
  * 完全不相交 = 窗口整个落在屏幕外（可见区域为空）。
  */
-export function intersectsAnyDisplay(
-	bounds: DisplayArea,
-	displays: readonly DisplayArea[],
-): boolean {
+export function intersectsAnyDisplay(bounds: DisplayArea, displays: readonly DisplayArea[]): boolean {
 	return displays.some((area) => {
-		return (
-			bounds.x < area.x + area.width &&
-			bounds.x + bounds.width > area.x &&
-			bounds.y < area.y + area.height &&
-			bounds.y + bounds.height > area.y
-		);
+		return bounds.x < area.x + area.width && bounds.x + bounds.width > area.x && bounds.y < area.y + area.height && bounds.y + bounds.height > area.y;
 	});
 }
 

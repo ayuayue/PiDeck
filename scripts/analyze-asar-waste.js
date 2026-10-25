@@ -57,6 +57,17 @@ const roots = [...inAsar]
 		"dsh-bill",
 		// PiDeck 主进程改读 extraResources catalog；DSH 的 pi-ai 由 @deepseek-ai 闭包追踪。
 		"undici",
+		// out/main 静态 require 的运行时库（2026-10 实测 grep 逐一验证；漏任何一个都会被误报
+		// 为可排除，照抄进 build.files 会运行时 MODULE_NOT_FOUND：
+		// zod+@modelcontextprotocol/sdk = CUA/MCP 默认关闭但 require 链存在；tar/smol-toml/
+		// minimatch/ignore = DSH/扩展运行时解析；electron-updater = 自动更新）。
+		"zod",
+		"@modelcontextprotocol/sdk",
+		"tar",
+		"electron-updater",
+		"minimatch",
+		"smol-toml",
+		"ignore",
 	]);
 
 const closure = new Set();
@@ -90,9 +101,7 @@ function nodeSize(node) {
 }
 
 const waste = [...inAsar].filter((n) => !closure.has(n));
-const rows = waste
-	.map((n) => [n, nodeSize(findPkgNode(n) || {})])
-	.sort((a, b) => b[1] - a[1]);
+const rows = waste.map((n) => [n, nodeSize(findPkgNode(n) || {})]).sort((a, b) => b[1] - a[1]);
 
 console.log("=== 可安全排除（未被运行时闭包引用）Top 40 ===");
 for (const [n, s] of rows.slice(0, 40)) console.log((s / 1024 / 1024).toFixed(1).padStart(8), "MB", n);
@@ -106,7 +115,13 @@ console.log("=== 保留闭包包数:", closure.size, "===");
 const wasteList = waste.slice().sort();
 const groups = [];
 for (let i = 0; i < wasteList.length; i += 4) {
-	groups.push("\t\t\t" + wasteList.slice(i, i + 4).map((w) => JSON.stringify("!node_modules/" + w)).join(", "));
+	groups.push(
+		"\t\t\t" +
+			wasteList
+				.slice(i, i + 4)
+				.map((w) => JSON.stringify("!node_modules/" + w))
+				.join(", "),
+	);
 }
 console.log("\n=== electron-builder files 排除模式（", wasteList.length, "个包）===");
 console.log(groups.join(",\n"));

@@ -94,8 +94,5 @@ export function noteAbortSettled(state: StreamGateState): StreamGateState {
 
 /** 当前 generation 是否仍被封印（应丢弃所有流式事件）。 */
 export function isStreamGateSealed(state: StreamGateState): boolean {
-	return (
-		state.sealedGeneration != null &&
-		state.currentGeneration <= state.sealedGeneration
-	);
+	return state.sealedGeneration != null && state.currentGeneration <= state.sealedGeneration;
 }

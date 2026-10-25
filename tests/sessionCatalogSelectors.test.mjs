@@ -10,199 +10,214 @@ const nodeRequire = createRequire(import.meta.url);
 const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
 
 function compileModule(filePath, imports = {}) {
-  const output = ts.transpileModule(readFileSync(filePath, "utf8"), {
-    compilerOptions: {
-      module: ts.ModuleKind.CommonJS,
-      target: ts.ScriptTarget.ES2022,
-      esModuleInterop: true,
-    },
-    fileName: filePath,
-  }).outputText;
-  const module = { exports: {} };
-  vm.runInNewContext(output, {
-    module,
-    exports: module.exports,
-    require: (specifier) => imports[specifier] ?? nodeRequire(specifier),
-    Date,
-    Set,
-  }, { filename: filePath });
-  return module.exports;
+	const output = ts.transpileModule(readFileSync(filePath, "utf8"), {
+		compilerOptions: {
+			module: ts.ModuleKind.CommonJS,
+			target: ts.ScriptTarget.ES2022,
+			esModuleInterop: true,
+		},
+		fileName: filePath,
+	}).outputText;
+	const module = { exports: {} };
+	vm.runInNewContext(
+		output,
+		{
+			module,
+			exports: module.exports,
+			require: (specifier) => imports[specifier] ?? nodeRequire(specifier),
+			Date,
+			Set,
+		},
+		{ filename: filePath },
+	);
+	return module.exports;
 }
 
 function loadAtoms() {
-  const sessions = compileModule("src/renderer/src/atoms/session-atoms.ts", {
-    "../utils/agentRuntimeState": compileModule(
-      "src/renderer/src/utils/agentRuntimeState.ts",
-    ),
-    "../utils/sessionRecordIdentity": compileModule(
-      "src/renderer/src/utils/sessionRecordIdentity.ts",
-    ),
-    "../utils/liveTextHandoff": compileModule(
-      "src/renderer/src/utils/liveTextHandoff.ts",
-    ),
-    "./outlineRevision": compileModule(
-      "src/renderer/src/atoms/outlineRevision.ts",
-    ),
-    "./outlineProjectionCache": compileModule(
-      "src/renderer/src/atoms/outlineProjectionCache.ts",
-    ),
-  });
-  const selectors = compileModule("src/renderer/src/atoms/session-selectors.ts", {
-    "./session-atoms": sessions,
-    // 展示名拼装与 fork 标记相关，测试不关心文案，直接透传即可。
-    "../utils/sessionDisplayName": { sessionDisplayName: (title) => title },
-  });
-  return { ...sessions, ...selectors };
+	// session-atoms ⇄ composer-atoms 是模块级循环：双方都只在惰性 action 体内用对方导出。
+	// 先给 session-atoms 一个可后填的桥对象，两模块都编译完后再回填真实导出。
+	const composerExports = {};
+	// 会话级 atomFamily 释放登记表（2027-02）：各 atoms 模块都 import 它，
+	// 这个手写映射必须显式提供，否则 require 会以 tests/ 为基准解析失败。
+	const familyRegistry = compileModule("src/renderer/src/atoms/session-family-registry.ts");
+	// 侧栏计时点：session-atoms 在回合边界推进它（见 utils/sessionActivityClock.ts）。
+	const sessionActivityClock = compileModule("src/renderer/src/utils/sessionActivityClock.ts");
+	const sessionActivityAtoms = compileModule("src/renderer/src/atoms/sessionActivityAtoms.ts", {
+		"../utils/sessionActivityClock": sessionActivityClock,
+	});
+	const sessions = compileModule("src/renderer/src/atoms/session-atoms.ts", {
+		"./recent-session-atoms": compileModule("src/renderer/src/atoms/recent-session-atoms.ts"),
+		"./composer-atoms": composerExports,
+		"../utils/agentRuntimeState": compileModule("src/renderer/src/utils/agentRuntimeState.ts"),
+		"../utils/sessionRecordIdentity": compileModule("src/renderer/src/utils/sessionRecordIdentity.ts"),
+		"../utils/liveTextHandoff": compileModule("src/renderer/src/utils/liveTextHandoff.ts"),
+		"./outlineRevision": compileModule("src/renderer/src/atoms/outlineRevision.ts"),
+		"./outlineProjectionCache": compileModule("src/renderer/src/atoms/outlineProjectionCache.ts"),
+		"./sessionActivityAtoms": sessionActivityAtoms,
+		"../utils/sessionActivityClock": sessionActivityClock,
+		"./session-family-registry": familyRegistry,
+	});
+	const composer = compileModule("src/renderer/src/atoms/composer-atoms.ts", {
+		"./session-atoms": sessions,
+		"./session-family-registry": familyRegistry,
+	});
+	Object.assign(composerExports, composer);
+	const selectors = compileModule("src/renderer/src/atoms/session-selectors.ts", {
+		"./session-atoms": sessions,
+		// 展示名拼装与 fork 标记相关，测试不关心文案，直接透传即可。
+		"../utils/sessionDisplayName": { sessionDisplayName: (title) => title },
+		// 可显示判据与显示管线同源（纯函数，无依赖），按真实实现加载。
+		"../utils/sessionRecordDisplay": compileModule("src/renderer/src/utils/sessionRecordDisplay.ts"),
+		"./session-family-registry": familyRegistry,
+	});
+	return { ...sessions, ...selectors };
 }
 
 function session(id, projectId, updatedAt = 1) {
-  return {
-    id,
-    projectId,
-    title: id,
-    source: "pi",
-    environment: "native",
-    filePath: `C:/sessions/${id}.jsonl`,
-    preview: id,
-    messageCount: 1,
-    status: "active",
-    createdAt: 1,
-    updatedAt,
-  };
+	return {
+		id,
+		projectId,
+		title: id,
+		source: "pi",
+		environment: "native",
+		filePath: `C:/sessions/${id}.jsonl`,
+		preview: id,
+		messageCount: 1,
+		status: "active",
+		createdAt: 1,
+		updatedAt,
+	};
 }
 
 test("catalog selectors expose read-only project summaries from the single record owner", () => {
-  const atoms = loadAtoms();
-  const store = createStore();
-  store.set(atoms.replaceProjectSessionsAtom, {
-    projectId: "project-a",
-    sessions: [session("session-a", "project-a")],
-  });
-  const summaries = store.get(atoms.sessionSummariesByProjectIdAtomFamily("project-a"));
-  assert.equal(summaries[0].id, "session-a");
-  assert.equal(summaries[0].name, "session-a");
+	const atoms = loadAtoms();
+	const store = createStore();
+	store.set(atoms.replaceProjectSessionsAtom, {
+		projectId: "project-a",
+		sessions: [session("session-a", "project-a")],
+	});
+	const summaries = store.get(atoms.sessionSummariesByProjectIdAtomFamily("project-a"));
+	assert.equal(summaries[0].id, "session-a");
+	assert.equal(summaries[0].name, "session-a");
 });
 
 test("background Session patches do not update current Timeline/runtime selector values", () => {
-  const atoms = loadAtoms();
-  const store = createStore();
-  store.set(atoms.replaceProjectSessionsAtom, {
-    projectId: "project-a",
-    sessions: [session("session-a", "project-a")],
-  });
-  store.set(atoms.replaceProjectSessionsAtom, {
-    projectId: "project-b",
-    sessions: [session("session-b", "project-b")],
-  });
-  store.set(atoms.currentSessionIdAtom, "session-a");
-  store.set(atoms.cacheSessionMessagesAtom, {
-    sessionId: "session-a",
-    messages: [{ id: "m-a", role: "assistant", text: "stable" }],
-    source: "disk",
-  });
+	const atoms = loadAtoms();
+	const store = createStore();
+	store.set(atoms.replaceProjectSessionsAtom, {
+		projectId: "project-a",
+		sessions: [session("session-a", "project-a")],
+	});
+	store.set(atoms.replaceProjectSessionsAtom, {
+		projectId: "project-b",
+		sessions: [session("session-b", "project-b")],
+	});
+	store.set(atoms.currentSessionIdAtom, "session-a");
+	store.set(atoms.cacheSessionMessagesAtom, {
+		sessionId: "session-a",
+		messages: [{ id: "m-a", role: "assistant", text: "stable" }],
+		source: "disk",
+	});
 
-  const messagesBefore = store.get(atoms.currentSessionMessagesAtom);
-  const runtimeBefore = store.get(atoms.currentSessionRuntimeAtom);
-  let messageNotifications = 0;
-  let runtimeNotifications = 0;
-  const offMessages = store.sub(atoms.currentSessionMessagesAtom, () => {
-    messageNotifications += 1;
-  });
-  const offRuntime = store.sub(atoms.currentSessionRuntimeAtom, () => {
-    runtimeNotifications += 1;
-  });
+	const messagesBefore = store.get(atoms.currentSessionMessagesAtom);
+	const runtimeBefore = store.get(atoms.currentSessionRuntimeAtom);
+	let messageNotifications = 0;
+	let runtimeNotifications = 0;
+	const offMessages = store.sub(atoms.currentSessionMessagesAtom, () => {
+		messageNotifications += 1;
+	});
+	const offRuntime = store.sub(atoms.currentSessionRuntimeAtom, () => {
+		runtimeNotifications += 1;
+	});
 
-  store.set(atoms.replaceProjectSessionsAtom, {
-    projectId: "project-b",
-    sessions: [session("session-b", "project-b", 2)],
-  });
-  store.set(atoms.applySessionRuntimeEventAtom, {
-    sessionId: "session-b",
-    agentId: "agent-b",
-    runtimeGeneration: 1,
-    sourceChannel: "agents:state",
-    payload: { id: "agent-b", status: "running" },
-  });
+	store.set(atoms.replaceProjectSessionsAtom, {
+		projectId: "project-b",
+		sessions: [session("session-b", "project-b", 2)],
+	});
+	store.set(atoms.applySessionRuntimeEventAtom, {
+		sessionId: "session-b",
+		agentId: "agent-b",
+		runtimeGeneration: 1,
+		sourceChannel: "agents:state",
+		payload: { id: "agent-b", status: "running" },
+	});
 
-  assert.equal(store.get(atoms.currentSessionMessagesAtom), messagesBefore);
-  assert.equal(store.get(atoms.currentSessionRuntimeAtom), runtimeBefore);
-  assert.equal(messageNotifications, 0);
-  assert.equal(runtimeNotifications, 0);
-  offMessages();
-  offRuntime();
+	assert.equal(store.get(atoms.currentSessionMessagesAtom), messagesBefore);
+	assert.equal(store.get(atoms.currentSessionRuntimeAtom), runtimeBefore);
+	assert.equal(messageNotifications, 0);
+	assert.equal(runtimeNotifications, 0);
+	offMessages();
+	offRuntime();
 });
 
 test("runtime agent binding selects the authoritative Session despite path identity collisions", () => {
-  const atoms = loadAtoms();
-  const store = createStore();
-  const sharedPath = "C:/sessions/shared.jsonl";
-  store.set(atoms.replaceProjectSessionsAtom, {
-    projectId: "project-a",
-    sessions: [
-      {
-        ...session("session-native", "project-a"),
-        filePath: sharedPath,
-        source: "pi",
-        environment: "native",
-      },
-      {
-        ...session("session-wsl", "project-a"),
-        filePath: sharedPath,
-        source: "codex",
-        environment: "wsl",
-        wslDistro: "Ubuntu-24.04",
-      },
-    ],
-  });
-  store.set(atoms.bindSessionRuntimeAtom, {
-    sessionId: "session-native",
-    agentId: "agent-bound",
-    runtimeGeneration: 3,
-  });
-  store.set(atoms.bindSessionRuntimeAtom, {
-    sessionId: "session-wsl",
-    agentId: "agent-bound",
-    runtimeGeneration: 4,
-  });
+	const atoms = loadAtoms();
+	const store = createStore();
+	const sharedPath = "C:/sessions/shared.jsonl";
+	store.set(atoms.replaceProjectSessionsAtom, {
+		projectId: "project-a",
+		sessions: [
+			{
+				...session("session-native", "project-a"),
+				filePath: sharedPath,
+				source: "pi",
+				environment: "native",
+			},
+			{
+				...session("session-wsl", "project-a"),
+				filePath: sharedPath,
+				source: "codex",
+				environment: "wsl",
+				wslDistro: "Ubuntu-24.04",
+			},
+		],
+	});
+	store.set(atoms.bindSessionRuntimeAtom, {
+		sessionId: "session-native",
+		agentId: "agent-bound",
+		runtimeGeneration: 3,
+	});
+	store.set(atoms.bindSessionRuntimeAtom, {
+		sessionId: "session-wsl",
+		agentId: "agent-bound",
+		runtimeGeneration: 4,
+	});
 
-  assert.equal(
-    store.get(atoms.sessionIdByRuntimeAgentIdAtomFamily("agent-bound")),
-    "session-wsl",
-  );
-  assert.equal(
-    store.get(atoms.sessionIdByRuntimeAgentIdAtomFamily("agent-unbound")),
-    undefined,
-  );
+	assert.equal(store.get(atoms.sessionIdByRuntimeAgentIdAtomFamily("agent-bound")), "session-wsl");
+	assert.equal(store.get(atoms.sessionIdByRuntimeAgentIdAtomFamily("agent-unbound")), undefined);
 });
 
 test("focus selection is synchronous so rapid targets cannot be overwritten by stale catalog work", () => {
-  const atoms = loadAtoms();
-  const store = createStore();
-  store.set(atoms.bindSessionRuntimeAtom, {
-    sessionId: "session-a",
-    agentId: "agent-a",
-    runtimeGeneration: 1,
-  });
-  store.set(atoms.bindSessionRuntimeAtom, {
-    sessionId: "session-b",
-    agentId: "agent-b",
-    runtimeGeneration: 1,
-  });
+	const atoms = loadAtoms();
+	const store = createStore();
+	store.set(atoms.bindSessionRuntimeAtom, {
+		sessionId: "session-a",
+		agentId: "agent-a",
+		runtimeGeneration: 1,
+	});
+	store.set(atoms.bindSessionRuntimeAtom, {
+		sessionId: "session-b",
+		agentId: "agent-b",
+		runtimeGeneration: 1,
+	});
 
-  let currentSessionId;
-  const focus = (agentId) => {
-    currentSessionId = store.get(atoms.sessionIdByRuntimeAgentIdAtomFamily(agentId));
-  };
-  focus("agent-a");
-  focus("agent-b");
-  assert.equal(currentSessionId, "session-b");
-  focus("agent-external");
-  assert.equal(currentSessionId, undefined);
+	let currentSessionId;
+	const focus = (agentId) => {
+		currentSessionId = store.get(atoms.sessionIdByRuntimeAgentIdAtomFamily(agentId));
+	};
+	focus("agent-a");
+	focus("agent-b");
+	assert.equal(currentSessionId, "session-b");
+	focus("agent-external");
+	assert.equal(currentSessionId, undefined);
 
-  const focusStart = appSource.indexOf("onFocusTarget: (target: { sessionId: string }) => {");
-  const focusEnd = appSource.indexOf("\n    },", focusStart);
-  const focusSource = appSource.slice(focusStart, focusEnd);
-  assert.match(focusSource, /store\.get\(sessionRecordByIdAtomFamily\(target\.sessionId\)\)/);
-  assert.doesNotMatch(focusSource, /sessionIdByRuntimeAgentIdAtomFamily|target\.agentId/);
-  assert.doesNotMatch(focusSource, /listCatalog|isSameSessionPath|async|\.then\(/);
+	const focusStart = appSource.indexOf("onFocusTarget: (target: FocusTargetPayload) => {");
+	// 代码块结束边界不能假设缩进宽度：formatter 统一为 tab 后，
+	// 原先写死的 "\n    },"（4 空格）会失配并把切片截成空串。
+	const focusEndMatch = /^[\t ]*\},/m.exec(appSource.slice(focusStart));
+	const focusEnd = focusEndMatch ? focusStart + focusEndMatch.index : appSource.length;
+	const focusSource = appSource.slice(focusStart, focusEnd);
+	assert.match(focusSource, /store\.get\(sessionRecordByIdAtomFamily\(target\.sessionId\)\)/);
+	assert.doesNotMatch(focusSource, /sessionIdByRuntimeAgentIdAtomFamily|target\.agentId/);
+	assert.doesNotMatch(focusSource, /listCatalog|isSameSessionPath|async|\.then\(/);
 });

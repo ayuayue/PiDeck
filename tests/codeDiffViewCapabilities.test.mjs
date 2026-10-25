@@ -10,10 +10,7 @@ import test from "node:test";
  * 通过源码断言防止未来重构时被静默移除。
  */
 
-const source = readFileSync(
-	"src/renderer/src/components/app/CodeDiffView.tsx",
-	"utf8",
-);
+const source = readFileSync("src/renderer/src/components/app/CodeDiffView.tsx", "utf8");
 
 test("renders diff computation and highlighting in a worker pool", () => {
 	// WorkerPoolContextProvider：diff 计算 + Shiki tokenize 不占主线程；

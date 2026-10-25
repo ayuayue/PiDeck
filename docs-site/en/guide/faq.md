@@ -1,3 +1,8 @@
+---
+title: FAQ | PiDeck pi desktop workbench
+description: "Frequently asked questions about PiDeck (pi desktop): installation issues, pi not detected, session restore failures, model config errors, proxy setup, and their fixes."
+---
+
 # Frequently Asked Questions
 
 ## General
@@ -48,7 +53,7 @@ No. PiDeck does not collect any usage data or telemetry. All data stays on your 
 
 ### How do I update PiDeck?
 
-When a new version is released on GitHub, PiDeck will show an in-app notification. You can download the latest version from the notification or from the GitHub Releases page.
+When a new version is released on GitHub, PiDeck shows an in-app notification. On platforms that support in-app updates, Settings offers **Restart and install** after the download. On macOS (unsigned builds), Linux arm64, and deb/tar.gz installs, Settings recommends the installer that matches this device for one-click download, so you do not need to pick from the Release asset list.
 
 ## Troubleshooting
 
@@ -76,4 +81,4 @@ PiDeck tries PowerShell, cmd, and sh in order. If none are available, the termin
 
 - Check the [Troubleshooting guide](/en/guide/troubleshooting) for symptom-based paths
 - Browse [GitHub Issues](https://github.com/ayuayue/PiDeck/issues)
-- Join the **QQ group: 1026218644**
+- Join the **QQ group: 1026218644**, or add the author's **WeChat: caoayu97** to be added to the WeChat group

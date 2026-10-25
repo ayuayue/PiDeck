@@ -14,6 +14,8 @@ import { dirname } from "node:path";
 import type { AvailableModel } from "../../shared/types";
 // 端点/供应商名等常量收敛到 shared 层，主进程与渲染层共用一套值（防归因漂移）。
 import { TOKENDANCE_BASE_URL, TOKENDANCE_PROVIDER } from "../../shared/tokendance";
+// 排序键与配置页/模型下拉共用 shared 比较器：目录顺序即落盘顺序，不再随 API 返回乱序。
+import { sortModelRows } from "../../shared/modelOrder";
 
 // 兼容导出：既有调用方（systemIpc/main/index/tests）仍按原名 import。
 export { TOKENDANCE_BASE_URL, TOKENDANCE_PROVIDER };
@@ -57,12 +59,12 @@ export function parseTokenDanceCatalog(data: unknown): AvailableModel[] {
 				// pi 的 models 校验要求 contextWindow 为正整数：视频/语音/搜索/嵌入类模型
 				// context_length=0（无上下文概念），写入 0 会让 pi 报 “invalid contextWindow”
 				// 并拒绝加载整个 provider（2026-09 实测 seedream-5.0-lite 导致 tokendance 全列表丢失）。
-				typeof entry.context_length === "number" && Number.isInteger(entry.context_length) && entry.context_length > 0
-					? entry.context_length
-					: undefined,
+				typeof entry.context_length === "number" && Number.isInteger(entry.context_length) && entry.context_length > 0 ? entry.context_length : undefined,
 		});
 	}
-	return models;
+	// 平台 /models 返回顺序不保证（实测按上架时间乱序），这里按展示名排好再缓存/落盘，
+	// 使「一键配置」写入 models.json 的顺序与模型下拉列表一致。
+	return sortModelRows(models);
 }
 
 export type TokendanceCatalogStoreDeps = {
@@ -84,12 +86,7 @@ export class TokendanceCatalogStore {
 		// 默认走 electron net.fetch：走 Chromium 网络栈（defaultSession 代理生效），
 		// 与 ConfigManager 的 provider 探测同一网络路径，避免 Node fetch 不读系统代理。
 		// Response 结构上满足最小接口（ok/status/json），无需强转。
-		this.fetchFn =
-			deps.fetchFn ??
-			((url) =>
-				import("electron").then(({ net }) =>
-					net.fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }),
-				));
+		this.fetchFn = deps.fetchFn ?? ((url) => import("electron").then(({ net }) => net.fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })));
 		this.now = deps.now ?? Date.now;
 	}
 

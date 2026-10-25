@@ -16,8 +16,7 @@ export interface DiffStatSummary {
 	deletions?: number;
 }
 
-const SUMMARY_RE =
-	/(\d+)\s+files? changed(?:, (\d+)\s+insertions?\(\+\))?(?:, (\d+)\s+deletions?\(-\))?/;
+const SUMMARY_RE = /(\d+)\s+files? changed(?:, (\d+)\s+insertions?\(\+\))?(?:, (\d+)\s+deletions?\(-\))?/;
 
 /** 从 diff --stat 文本提取汇总；无汇总行（空输出/异常文本）返回 null。 */
 export function parseDiffStatSummary(text: string): DiffStatSummary | null {

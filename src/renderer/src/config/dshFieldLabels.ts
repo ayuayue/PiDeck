@@ -5,12 +5,15 @@ import { t, type TranslationKey } from "../i18n";
  * schemastery 通常不带 title，自定义设置里若只用 path 末段或空 path，
  * 会显示 raw key / "(root)"，用户不知道密钥和 Base URL 该怎么填。
  */
-const FIELD_COPY: Record<string, {
-	/** 可读标签；缺省时回退 schema 原始字段名（与 provider/model 等英文原名对齐）。 */
-	label?: TranslationKey;
-	hint?: TranslationKey;
-	placeholder?: TranslationKey;
-}> = {
+const FIELD_COPY: Record<
+	string,
+	{
+		/** 可读标签；缺省时回退 schema 原始字段名（与 provider/model 等英文原名对齐）。 */
+		label?: TranslationKey;
+		hint?: TranslationKey;
+		placeholder?: TranslationKey;
+	}
+> = {
 	baseURL: {
 		label: "config.dsh.field.baseURL",
 		hint: "config.dsh.field.baseURLHint",

@@ -6,9 +6,9 @@ import { DirtyMarker } from "./SettingRows";
 import { ExternalEditorsSection } from "./ExternalEditorsSection";
 
 type EditorsTabProps = {
-  draft: AppSettings;
-  updateDraft: (patch: Partial<AppSettings>) => void;
-  isDirty: (field: keyof AppSettings) => boolean;
+	draft: AppSettings;
+	updateDraft: (patch: Partial<AppSettings>) => void;
+	isDirty: (field: keyof AppSettings) => boolean;
 };
 
 /**
@@ -16,20 +16,17 @@ type EditorsTabProps = {
  * 编辑器列表直接写入全局设置草稿 externalEditors，由弹框统一提交。
  */
 export const EditorsTab = memo(function EditorsTab(props: EditorsTabProps) {
-  const { draft, updateDraft, isDirty } = props;
-  return (
-    <SettingsSection
-      title={
-        <>
-          <span>{t("settings.sectionEditors")}</span>
-          <DirtyMarker dirty={isDirty("externalEditors")} label={t("settings.sectionEditors")} />
-        </>
-      }
-    >
-      <ExternalEditorsSection
-        editors={draft.externalEditors}
-        onChange={updateDraft}
-      />
-    </SettingsSection>
-  );
+	const { draft, updateDraft, isDirty } = props;
+	return (
+		<SettingsSection
+			title={
+				<>
+					<span>{t("settings.sectionEditors")}</span>
+					<DirtyMarker dirty={isDirty("externalEditors")} label={t("settings.sectionEditors")} />
+				</>
+			}
+		>
+			<ExternalEditorsSection editors={draft.externalEditors} onChange={updateDraft} />
+		</SettingsSection>
+	);
 });

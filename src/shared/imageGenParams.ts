@@ -10,17 +10,7 @@ import type { ImageContent } from "./types/session";
  * output_format 是文件编码（png/jpeg），与运输层 response_format=b64_json（本服务写死）不是一回事。
  */
 
-export const IMAGE_GEN_SIZE_PRESETS = [
-	"1024x1024",
-	"1024x1536",
-	"1536x1024",
-	"1024x1792",
-	"1792x1024",
-	"2048x2048",
-	"1K",
-	"2K",
-	"4K",
-] as const;
+export const IMAGE_GEN_SIZE_PRESETS = ["1024x1024", "1024x1536", "1536x1024", "1024x1792", "1792x1024", "2048x2048", "1K", "2K", "4K"] as const;
 
 export type ImageGenSizePreset = (typeof IMAGE_GEN_SIZE_PRESETS)[number];
 
@@ -57,17 +47,11 @@ export function resolveImageGenApiSize(value: unknown): string | undefined {
 	return parsed;
 }
 
-export function parseImageGenWatermark(
-	value: unknown,
-	fallback = DEFAULT_IMAGE_GEN_WATERMARK,
-): boolean {
+export function parseImageGenWatermark(value: unknown, fallback = DEFAULT_IMAGE_GEN_WATERMARK): boolean {
 	return typeof value === "boolean" ? value : fallback;
 }
 
-export function parseImageGenOutputFormat(
-	value: unknown,
-	fallback: ImageGenOutputFormat | null = DEFAULT_IMAGE_GEN_OUTPUT_FORMAT,
-): ImageGenOutputFormat | null {
+export function parseImageGenOutputFormat(value: unknown, fallback: ImageGenOutputFormat | null = DEFAULT_IMAGE_GEN_OUTPUT_FORMAT): ImageGenOutputFormat | null {
 	if (typeof value !== "string") return fallback;
 	const normalized = value.trim().toLowerCase();
 	const jpg = normalized === "jpg" ? "jpeg" : normalized;
@@ -108,9 +92,7 @@ export function parseImageGenReferenceImages(value: unknown): ImageContent[] | n
 }
 
 /** image-field 模式：参考图转 dataURI 数组（方舟 seedream 官方格式）。 */
-export function buildImageGenImageField(
-	images: Array<{ data: string; mimeType: string }>,
-): string[] {
+export function buildImageGenImageField(images: Array<{ data: string; mimeType: string }>): string[] {
 	return images.map((image) => `data:${image.mimeType};base64,${image.data}`);
 }
 
@@ -118,13 +100,7 @@ export function buildImageGenImageField(
  * edits 模式请求体：OpenAI /images/edits 只收 multipart form。
  * gpt-image-1 支持多张 image[]；size 仅在勾选 extraParams.size 时发送。
  */
-export function buildImageGenEditsForm(input: {
-	model: string;
-	prompt: string;
-	images: Array<{ data: string; mimeType: string }>;
-	extraParams?: Partial<ImageGenProviderExtraParams> | null;
-	size?: string;
-}): FormData {
+export function buildImageGenEditsForm(input: { model: string; prompt: string; images: Array<{ data: string; mimeType: string }>; extraParams?: Partial<ImageGenProviderExtraParams> | null; size?: string }): FormData {
 	const form = new FormData();
 	form.append("model", input.model.trim());
 	form.append("prompt", input.prompt);
@@ -141,9 +117,7 @@ export function buildImageGenEditsForm(input: {
 	return form;
 }
 
-function resolveExtraParams(
-	extraParams?: Partial<ImageGenProviderExtraParams> | null,
-): ImageGenProviderExtraParams {
+function resolveExtraParams(extraParams?: Partial<ImageGenProviderExtraParams> | null): ImageGenProviderExtraParams {
 	return {
 		size: extraParams?.size === true,
 		output_format: extraParams?.output_format === true,
@@ -157,16 +131,7 @@ function resolveExtraParams(
  * 字段名/参考图形态/响应结构不同（见 imageGenConfig.ts 的 IMAGE_GEN_API_STYLES 注释），
  * 不按 URL 猜测，全部由用户配置驱动。
  */
-export function buildImageGenApiBody(input: {
-	model: string;
-	prompt: string;
-	extraParams?: Partial<ImageGenProviderExtraParams> | null;
-	size?: string;
-	watermark?: boolean;
-	outputFormat?: string;
-	apiStyle?: ImageGenApiStyle;
-	referenceImages?: Array<{ data: string; mimeType: string }>;
-}): Record<string, unknown> {
+export function buildImageGenApiBody(input: { model: string; prompt: string; extraParams?: Partial<ImageGenProviderExtraParams> | null; size?: string; watermark?: boolean; outputFormat?: string; apiStyle?: ImageGenApiStyle; referenceImages?: Array<{ data: string; mimeType: string }> }): Record<string, unknown> {
 	if ((input.apiStyle ?? "openai") === "siliconflow") {
 		return buildSiliconFlowApiBody(input);
 	}
@@ -204,13 +169,7 @@ export function buildImageGenApiBody(input: {
  * - 无 watermark / output_format / response_format 概念，一律不发；
  * - 批量默认 1（官方 batch_size 默认值），不额外发送。
  */
-function buildSiliconFlowApiBody(input: {
-	model: string;
-	prompt: string;
-	extraParams?: Partial<ImageGenProviderExtraParams> | null;
-	size?: string;
-	referenceImages?: Array<{ data: string; mimeType: string }>;
-}): Record<string, unknown> {
+function buildSiliconFlowApiBody(input: { model: string; prompt: string; extraParams?: Partial<ImageGenProviderExtraParams> | null; size?: string; referenceImages?: Array<{ data: string; mimeType: string }> }): Record<string, unknown> {
 	const body: Record<string, unknown> = {
 		model: input.model.trim(),
 		prompt: input.prompt,

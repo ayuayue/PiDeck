@@ -6,16 +6,9 @@ import { once } from "node:events";
 import { test, expect } from "./fixtures";
 
 function readAppUnderTestVersion(): string {
-	const packagePath = process.env.PIDEK_E2E_EXECUTABLE_PATH
-		? join(process.cwd(), "package.json")
-		: join(process.cwd(), "node_modules", "electron", "package.json");
+	const packagePath = process.env.PIDEK_E2E_EXECUTABLE_PATH ? join(process.cwd(), "package.json") : join(process.cwd(), "node_modules", "electron", "package.json");
 	const packageJson: unknown = JSON.parse(readFileSync(packagePath, "utf8"));
-	if (
-		typeof packageJson !== "object" ||
-		packageJson === null ||
-		!("version" in packageJson) ||
-		typeof packageJson.version !== "string"
-	) {
+	if (typeof packageJson !== "object" || packageJson === null || !("version" in packageJson) || typeof packageJson.version !== "string") {
 		throw new Error(`Unable to read the tested app version from ${packagePath}.`);
 	}
 	return packageJson.version;
@@ -84,17 +77,7 @@ function createFeedServer(): Server {
 		const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
 		feedRequests.push(pathname);
 		if (pathname === "/latest.yml") {
-			const manifest = [
-				`version: ${UPDATE_VERSION}`,
-				"files:",
-				`  - url: ${UPDATE_FILE}`,
-				`    sha512: ${UPDATE_SHA512}`,
-				`    size: ${UPDATE_BYTES.length}`,
-				`path: ${UPDATE_FILE}`,
-				`sha512: ${UPDATE_SHA512}`,
-				`releaseDate: \"2026-09-04T00:00:00.000Z\"`,
-				"",
-			].join("\n");
+			const manifest = [`version: ${UPDATE_VERSION}`, "files:", `  - url: ${UPDATE_FILE}`, `    sha512: ${UPDATE_SHA512}`, `    size: ${UPDATE_BYTES.length}`, `path: ${UPDATE_FILE}`, `sha512: ${UPDATE_SHA512}`, `releaseDate: \"2026-09-04T00:00:00.000Z\"`, ""].join("\n");
 			writeResponse(response, 200, manifest, { "Content-Type": "text/yaml; charset=utf-8" });
 			return;
 		}
@@ -154,14 +137,16 @@ test("background update downloads a verified local installer and becomes ready",
 	await expect.poll(() => feedRequests.includes("/latest.yml"), { timeout: 10_000 }).toBe(true);
 	await expect.poll(() => feedRequests.includes(`/${UPDATE_FILE}`), { timeout: 10_000 }).toBe(true);
 
-	await expect.poll(
-		async () =>
-			window.evaluate(async () => {
-				const snapshot = await window.piDesktop.app.getUpdateStatus();
-				return snapshot?.app?.download.phase ?? null;
-			}),
-		{ timeout: 30_000 },
-	).toBe("ready");
+	await expect
+		.poll(
+			async () =>
+				window.evaluate(async () => {
+					const snapshot = await window.piDesktop.app.getUpdateStatus();
+					return snapshot?.app?.download.phase ?? null;
+				}),
+			{ timeout: 30_000 },
+		)
+		.toBe("ready");
 
 	const status = await window.evaluate(async () => window.piDesktop.app.getUpdateStatus());
 	expect(status).toMatchObject({

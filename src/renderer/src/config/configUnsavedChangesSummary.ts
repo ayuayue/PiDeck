@@ -85,10 +85,7 @@ export function summarizeConfigUnsavedChanges(dirtyTabs: Iterable<string>): Conf
 	};
 }
 
-export function formatConfigUnsavedMessage(
-	summary: ConfigUnsavedSummary | null,
-	translate: typeof t = t,
-): string {
+export function formatConfigUnsavedMessage(summary: ConfigUnsavedSummary | null, translate: typeof t = t): string {
 	if (!summary || summary.items.length === 0) return translate("config.unsavedMessage");
 	const first = summary.items[0];
 	const tab = translate(first.tabKey);

@@ -1,0 +1,692 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PiDeck 资源作用域管理原型</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --app: #f3f4f6;
+      --panel: #fff;
+      --muted: #f4f4f5;
+      --hover: #e9ebee;
+      --popover: #fff;
+      --text: #202124;
+      --secondary: #4b5563;
+      --tertiary: #6b7280;
+      --border: #e5e5e5;
+      --border-strong: #d4d4d8;
+      --accent: #18181b;
+      --accent-fg: #fff;
+      --accent-soft: #e5e7eb;
+      --success: #15803d;
+      --success-soft: #dcfce7;
+      --warning: #a16207;
+      --warning-soft: #fef3c7;
+      --danger: #b42318;
+      --danger-soft: #fdecea;
+      --info: #2563eb;
+      --info-soft: #eff6ff;
+      --overlay: rgba(9, 9, 11, .42);
+      --shadow-modal: 0 24px 70px rgba(9, 9, 11, .22), 0 2px 8px rgba(9, 9, 11, .12);
+      --shadow-popover: 0 14px 34px rgba(9, 9, 11, .15), 0 2px 6px rgba(9, 9, 11, .08);
+      --focus: 0 0 0 3px rgba(24, 24, 27, .14);
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Microsoft YaHei UI", monospace;
+    }
+
+    body.dark {
+      color-scheme: dark;
+      --app: #101113;
+      --panel: #18191c;
+      --muted: #222328;
+      --hover: #2b2d32;
+      --popover: #202125;
+      --text: #f4f4f5;
+      --secondary: #d1d5db;
+      --tertiary: #9ca3af;
+      --border: #303238;
+      --border-strong: #44464e;
+      --accent: #fafafa;
+      --accent-fg: #18181b;
+      --accent-soft: #34363c;
+      --success: #4ade80;
+      --success-soft: rgba(34, 197, 94, .14);
+      --warning: #facc15;
+      --warning-soft: rgba(250, 204, 21, .12);
+      --danger: #f87171;
+      --danger-soft: rgba(248, 113, 113, .12);
+      --info: #60a5fa;
+      --info-soft: rgba(96, 165, 250, .13);
+      --overlay: rgba(0, 0, 0, .62);
+      --shadow-modal: 0 24px 70px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .04);
+      --shadow-popover: 0 16px 36px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .04);
+      --focus: 0 0 0 3px rgba(250, 250, 250, .14);
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { width: 100%; height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--app); color: var(--text); font-family: var(--font); font-size: 13px; letter-spacing: 0; }
+    button, input { font: inherit; letter-spacing: 0; }
+    button { color: inherit; }
+    svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+    .workspace { position: fixed; inset: 0; display: grid; grid-template-columns: 230px minmax(0, 1fr) 300px; opacity: .72; background: var(--app); }
+    .workspace aside { border-right: 1px solid var(--border); background: var(--panel); padding: 18px 14px; }
+    .workspace aside:last-child { border: 0; border-left: 1px solid var(--border); }
+    .workspace-center { display: grid; grid-template-rows: 48px 1fr 120px; }
+    .workspace-top, .workspace-bottom { border-bottom: 1px solid var(--border); background: var(--panel); }
+    .workspace-bottom { border-top: 1px solid var(--border); border-bottom: 0; }
+    .workspace-brand { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700; }
+    .workspace-block { height: 34px; margin-top: 17px; border-radius: 6px; background: var(--muted); }
+    .workspace-block.short { width: 72%; margin-top: 8px; }
+    .workspace-lines { width: min(700px, 72%); margin: 70px auto; display: grid; gap: 18px; }
+    .workspace-lines span { height: 11px; border-radius: 4px; background: var(--muted); }
+    .workspace-lines span:nth-child(2) { width: 84%; }
+    .workspace-lines span:nth-child(3) { width: 62%; }
+
+    .pi-mark { display: grid; place-items: center; flex: 0 0 auto; width: 27px; height: 27px; border-radius: 7px; background: #18181b; color: #fff; font-family: Georgia, serif; font-size: 17px; font-weight: 700; }
+    .backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; background: var(--overlay); }
+    .dialog { width: min(1300px, 88vw); height: min(820px, 88vh); min-width: 790px; min-height: 570px; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); box-shadow: var(--shadow-modal); }
+    .dialog-header { min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 14px 10px 17px; border-bottom: 1px solid var(--border); }
+    .dialog-title { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 650; }
+    .dialog-title .pi-mark { width: 25px; height: 25px; border-radius: 6px; font-size: 16px; }
+    .dialog-actions, .toolbar-left, .toolbar-right { display: flex; align-items: center; gap: 7px; }
+
+    .btn { height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 11px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--panel); color: var(--secondary); font-size: 12px; font-weight: 550; cursor: pointer; transition: background 120ms, color 120ms, transform 80ms; }
+    .btn:hover { background: var(--hover); color: var(--text); }
+    .btn:active { transform: translateY(1px); }
+    .btn.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-fg); }
+    .btn.primary:hover { opacity: .9; }
+    .btn.ghost { border-color: transparent; background: transparent; }
+    .btn.icon { width: 32px; padding: 0; }
+    .btn.compact { height: 30px; padding: 0 9px; }
+
+    .pane-tabs { align-self: flex-start; display: flex; gap: 2px; margin: 10px 12px 8px; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--muted); }
+    .pane-tab { height: 30px; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--secondary); cursor: pointer; }
+    .pane-tab.active { border-color: var(--border); background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(9, 9, 11, .06); }
+    .backend-tabs { min-height: 39px; display: flex; align-items: flex-end; gap: 4px; padding: 0 16px; border-bottom: 1px solid var(--border); }
+    .backend-tab { height: 38px; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--secondary); cursor: pointer; }
+    .backend-tab.active { border-bottom-color: var(--accent); color: var(--text); font-weight: 600; }
+    .backend-tab .pi-mark { width: 18px; height: 18px; border-radius: 4px; font-size: 12px; }
+
+    .config-shell { min-height: 0; flex: 1; display: grid; grid-template-columns: 168px minmax(0, 1fr); }
+    .config-nav { min-height: 0; overflow: auto; padding: 10px; border-right: 1px solid var(--border); background: var(--panel); }
+    .nav-group { display: grid; gap: 3px; }
+    .nav-group + .nav-group { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--border); }
+    .nav-label { padding: 0 8px 4px; color: var(--tertiary); font-size: 11px; font-weight: 650; }
+    .nav-item { width: 100%; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 9px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--secondary); font-size: 13px; text-align: left; cursor: pointer; }
+    .nav-item:hover { background: var(--muted); color: var(--text); }
+    .nav-item.active { border-color: var(--border); background: var(--muted); color: var(--text); font-weight: 600; }
+    .nav-item.active svg { color: var(--accent); }
+    .nav-item.passive { cursor: default; }
+
+    .main { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--panel); }
+    .scroll { min-height: 0; flex: 1; overflow: auto; scrollbar-color: var(--border-strong) transparent; }
+    .content { width: 100%; max-width: 980px; margin: 0 auto; padding: 21px 24px 30px; }
+    .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding-bottom: 17px; }
+    .heading-copy { min-width: 0; padding-top: 2px; }
+    .heading-copy h1 { margin: 0; font-size: 18px; line-height: 24px; font-weight: 680; }
+    .heading-copy p { margin: 5px 0 0; color: var(--tertiary); font-size: 12px; line-height: 18px; }
+
+    .scope-field { position: relative; width: 286px; flex: 0 0 auto; }
+    .scope-label { display: block; margin: 0 0 5px 2px; color: var(--tertiary); font-size: 11px; font-weight: 650; }
+    .scope-trigger { width: 100%; min-height: 42px; display: grid; grid-template-columns: 28px minmax(0, 1fr) 16px; align-items: center; gap: 9px; padding: 5px 10px 5px 7px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--panel); color: var(--text); text-align: left; cursor: pointer; box-shadow: 0 1px 2px rgba(9, 9, 11, .04); }
+    .scope-trigger:hover { background: var(--muted); }
+    .scope-trigger:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
+    .scope-trigger > svg { color: var(--tertiary); transition: transform 140ms; }
+    .scope-trigger[aria-expanded="true"] > svg { transform: rotate(180deg); }
+    .scope-icon { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; background: var(--muted); color: var(--secondary); }
+    .scope-icon.project { background: var(--info-soft); color: var(--info); }
+    .scope-copy { min-width: 0; display: grid; gap: 1px; }
+    .scope-copy strong, .scope-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .scope-copy strong { font-size: 12px; font-weight: 650; }
+    .scope-copy small { color: var(--tertiary); font-family: var(--mono); font-size: 10px; }
+
+    .scope-menu { position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; width: 320px; display: none; padding: 5px; border: 1px solid var(--border); border-radius: 8px; background: var(--popover); box-shadow: var(--shadow-popover); }
+    .scope-menu.open { display: block; animation: menu-in 130ms ease-out; }
+    @keyframes menu-in { from { opacity: 0; transform: translateY(-4px) scale(.985); } to { opacity: 1; transform: none; } }
+    .scope-menu-label { padding: 7px 9px 4px; color: var(--tertiary); font-size: 10px; font-weight: 700; }
+    .scope-separator { height: 1px; margin: 5px 4px; background: var(--border); }
+    .scope-option { width: 100%; min-height: 48px; display: grid; grid-template-columns: 30px minmax(0, 1fr) 18px; align-items: center; gap: 9px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+    .scope-option:hover, .scope-option.selected { background: var(--muted); }
+    .scope-option .scope-icon { width: 30px; height: 30px; }
+    .scope-option-copy { min-width: 0; display: grid; gap: 2px; }
+    .scope-option-title { min-width: 0; display: flex; align-items: center; gap: 6px; }
+    .scope-option-title strong, .scope-option small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .scope-option-title strong { font-size: 12px; }
+    .scope-option small { color: var(--tertiary); font-family: var(--mono); font-size: 10px; }
+    .live-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--success); }
+    .scope-option > .check { color: var(--accent); opacity: 0; }
+    .scope-option.selected > .check { opacity: 1; }
+
+    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .toolbar[hidden] { display: none; }
+    .extension-toolbar-copy { min-width: 0; display: grid; gap: 2px; }
+    .extension-toolbar-copy strong { color: var(--secondary); font-family: var(--mono); font-size: 12px; font-weight: 500; }
+    .extension-toolbar-copy small { color: var(--tertiary); font-size: 11px; }
+    .filter-tabs { display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 6px; background: var(--muted); }
+    .filter-btn { height: 27px; padding: 0 9px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--tertiary); font-size: 11px; cursor: pointer; }
+    .filter-btn.active { border-color: var(--border); background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(9, 9, 11, .05); }
+    .search { position: relative; width: 198px; }
+    .search svg { position: absolute; top: 8px; left: 9px; width: 14px; height: 14px; color: var(--tertiary); pointer-events: none; }
+    .search input { width: 100%; height: 32px; padding: 0 9px 0 30px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--panel); color: var(--text); font-size: 12px; outline: none; }
+    .search input::placeholder { color: var(--tertiary); }
+    .search input:focus { border-color: var(--accent); box-shadow: var(--focus); }
+
+    .groups { display: grid; gap: 18px; margin-top: 18px; }
+    .group { min-width: 0; }
+    .group-header { min-height: 29px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+    .group-title { min-width: 0; display: flex; align-items: center; gap: 8px; }
+    .group-title h2 { margin: 0; font-size: 13px; font-weight: 680; }
+    .count { min-width: 21px; height: 20px; display: inline-grid; place-items: center; padding: 0 6px; border-radius: 999px; background: var(--muted); color: var(--tertiary); font-family: var(--mono); font-size: 10px; }
+    .group-path { max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--tertiary); font-family: var(--mono); font-size: 10px; line-height: 18px; }
+
+    .groups.extension-mode { margin-top: 0; }
+    .extension-table { margin-top: 16px; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+    .extension-table-grid { min-width: 680px; }
+    .extension-head, .extension-row { display: grid; grid-template-columns: minmax(280px, 1fr) 280px 112px; align-items: center; column-gap: 16px; }
+    .extension-head { min-height: 42px; padding: 0 12px; border-bottom: 1px solid var(--border); color: var(--secondary); font-size: 12px; font-weight: 600; }
+    .extension-head span:last-child { text-align: right; }
+    .extension-group-row { min-height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--muted); }
+    .extension-group-row strong { font-size: 11px; font-weight: 650; }
+    .extension-row { min-height: 62px; padding: 9px 12px; border-bottom: 1px solid var(--border); transition: background 110ms; }
+    .extension-row:last-child { border-bottom: 0; }
+    .extension-row:hover { background: color-mix(in srgb, var(--muted) 68%, transparent); }
+    .extension-row.disabled { background: color-mix(in srgb, var(--muted) 45%, transparent); }
+    .extension-row.disabled .extension-name strong { color: var(--secondary); }
+    .extension-name { min-width: 0; display: grid; gap: 4px; }
+    .extension-name-line { min-width: 0; display: flex; align-items: center; gap: 6px; }
+    .extension-name-line strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 650; }
+    .extension-name small, .extension-version { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--secondary); font-size: 11px; }
+    .extension-name small { color: var(--tertiary); font-family: var(--mono); }
+    .extension-version-error { color: var(--danger); font-size: 10px; }
+    .extension-actions { display: flex; justify-content: flex-end; gap: 3px; }
+    .extension-action { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--secondary); cursor: pointer; }
+    .extension-action:hover { border-color: var(--border); background: var(--hover); color: var(--text); }
+    .extension-action.active { color: var(--accent); }
+    .extension-action.danger { color: var(--danger); }
+    .extension-action.danger:hover { background: var(--danger-soft); color: var(--danger); }
+    .extension-action:disabled { opacity: .38; cursor: not-allowed; }
+
+    .list { overflow: visible; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+    .row { position: relative; min-height: 63px; display: grid; grid-template-columns: minmax(220px, 1.35fr) minmax(180px, 1fr) 154px; align-items: center; gap: 16px; padding: 10px 10px 10px 12px; border-bottom: 1px solid var(--border); transition: background 110ms; }
+    .row:last-child { border-bottom: 0; }
+    .row:hover { background: color-mix(in srgb, var(--muted) 68%, transparent); }
+    .row.globally-disabled { background: color-mix(in srgb, var(--muted) 52%, transparent); }
+    .row.disabled .resource-name strong, .row.globally-disabled .resource-name strong { color: var(--secondary); }
+    .resource-name { min-width: 0; display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: center; gap: 10px; }
+    .resource-icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 6px; background: var(--muted); color: var(--secondary); }
+    .resource-copy { min-width: 0; display: grid; gap: 3px; }
+    .name-line { min-width: 0; display: flex; align-items: center; gap: 6px; }
+    .name-line strong, .resource-copy small, .detail span, .detail small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .name-line strong { font-size: 12px; font-weight: 650; }
+    .resource-copy small { color: var(--tertiary); font-family: var(--mono); font-size: 10px; }
+    .badge { flex: 0 0 auto; height: 18px; display: inline-flex; align-items: center; padding: 0 6px; border-radius: 999px; background: var(--muted); color: var(--tertiary); font-size: 9px; font-weight: 650; }
+    .badge.project { background: var(--info-soft); color: var(--info); }
+    .badge.builtin { background: var(--accent-soft); color: var(--secondary); }
+    .detail { min-width: 0; display: grid; gap: 3px; }
+    .detail span { color: var(--secondary); font-size: 11px; }
+    .detail small { color: var(--tertiary); font-size: 10px; }
+    .row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+    .state-copy { min-width: 79px; display: grid; justify-items: end; gap: 2px; }
+    .state-copy strong { display: flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 650; color: var(--secondary); }
+    .state-copy strong svg { width: 10px; height: 10px; }
+    .state-copy small { color: var(--tertiary); font-size: 9px; white-space: nowrap; }
+    .state-copy .success { color: var(--success); }
+    .state-copy .warning { color: var(--warning); }
+
+    .switch { position: relative; width: 32px; height: 18px; flex: 0 0 auto; padding: 0; border: 0; border-radius: 999px; background: var(--border-strong); cursor: pointer; transition: background 130ms; }
+    .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .2); transition: transform 130ms; }
+    .switch.on { background: var(--accent); }
+    .switch.on::after { transform: translateX(14px); background: var(--accent-fg); }
+    .switch:focus-visible { outline: none; box-shadow: var(--focus); }
+    .switch:disabled { opacity: .42; cursor: not-allowed; }
+    .more { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--tertiary); cursor: pointer; }
+    .more:hover { border-color: var(--border); background: var(--hover); color: var(--text); }
+    .row-menu { position: absolute; z-index: 20; top: 45px; right: 8px; width: 164px; display: grid; gap: 2px; padding: 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--popover); box-shadow: var(--shadow-popover); }
+    .row-menu button { height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; color: var(--secondary); font-size: 11px; text-align: left; cursor: pointer; }
+    .row-menu button:hover { background: var(--muted); color: var(--text); }
+    .row-menu button.danger { color: var(--danger); }
+    .empty { min-height: 108px; display: grid; place-items: center; color: var(--tertiary); font-size: 12px; }
+
+    .confirm-layer { position: fixed; z-index: 70; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(9, 9, 11, .38); }
+    .confirm-layer[hidden] { display: none; }
+    .confirm-dialog { width: min(390px, calc(100vw - 40px)); padding: 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--popover); box-shadow: var(--shadow-popover); }
+    .confirm-dialog h2 { margin: 0; font-size: 15px; }
+    .confirm-dialog p { margin: 8px 0 18px; color: var(--secondary); font-size: 12px; line-height: 1.6; }
+    .confirm-actions { display: flex; justify-content: flex-end; gap: 7px; }
+    .btn.danger { border-color: var(--danger); background: var(--danger); color: #fff; }
+
+    .toast { position: fixed; z-index: 80; left: 50%; bottom: 28px; max-width: min(520px, calc(100vw - 32px)); display: flex; align-items: center; gap: 8px; padding: 9px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--popover); box-shadow: var(--shadow-popover); font-size: 12px; opacity: 0; transform: translate(-50%, 10px); pointer-events: none; transition: opacity 140ms, transform 140ms; }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+    .toast svg { color: var(--success); }
+    .reopen { position: fixed; z-index: 2; top: 50%; left: 50%; display: none; transform: translate(-50%, -50%); }
+    .reopen.show { display: inline-flex; }
+
+    @media (max-width: 1000px) {
+      .dialog { width: calc(100vw - 32px); height: calc(100vh - 32px); }
+      .row { grid-template-columns: minmax(210px, 1.2fr) minmax(130px, .8fr) 142px; gap: 10px; }
+      .search { width: 160px; }
+    }
+    @media (max-width: 820px) {
+      .backdrop { padding: 12px; }
+      .dialog { min-width: 0; min-height: 0; width: 100%; height: 100%; border-radius: 8px; }
+      .config-shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+      .config-nav { display: flex; gap: 4px; overflow-x: auto; padding: 8px; border-right: 0; border-bottom: 1px solid var(--border); }
+      .nav-group { display: flex; gap: 3px; }
+      .nav-group + .nav-group { margin: 0 0 0 5px; padding: 0 0 0 8px; border-top: 0; border-left: 1px solid var(--border); }
+      .nav-label, .nav-item.passive { display: none; }
+      .nav-item { width: auto; white-space: nowrap; }
+      .page-header { align-items: stretch; flex-direction: column; gap: 12px; }
+      .scope-field { width: 100%; }
+      .scope-menu { left: 0; right: auto; width: min(100%, 360px); }
+      .toolbar { align-items: stretch; flex-direction: column; }
+      .toolbar-left, .toolbar-right { justify-content: space-between; }
+      #extension-toolbar .toolbar-right { justify-content: flex-end; flex-wrap: wrap; }
+      .search { flex: 1; width: auto; }
+      .extension-table { margin-top: 14px; }
+      .row { grid-template-columns: minmax(0, 1fr) 140px; }
+      .detail { grid-column: 1; padding-left: 40px; }
+      .row-actions { grid-column: 2; grid-row: 1 / span 2; }
+    }
+  </style>
+</head>
+<body>
+  <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+    <defs>
+      <symbol id="x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+      <symbol id="monitor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8m-4-4v4"/></symbol>
+      <symbol id="sliders" viewBox="0 0 24 24"><path d="M4 21v-7m0-4V3m8 18v-9m0-4V3m8 18v-5m0-4V3M1 14h6m2-6h6m2 8h6"/></symbol>
+      <symbol id="box" viewBox="0 0 24 24"><path d="m21 8-9 5-9-5m9 13V13M19 5l-7-4-7 4-2 3v8l9 5 9-5V8Z"/></symbol>
+      <symbol id="key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15 6l3 3"/></symbol>
+      <symbol id="code" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5Z"/><path d="M14 2v6h6m-10 5-2 2 2 2m4-4 2 2-2 2"/></symbol>
+      <symbol id="shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3Z"/><path d="m9 12 2 2 4-4"/></symbol>
+      <symbol id="plug" viewBox="0 0 24 24"><path d="M12 22v-5m-5-7V7m10 3V7M5 10h14v2a7 7 0 0 1-14 0Z"/></symbol>
+      <symbol id="puzzle" viewBox="0 0 24 24"><path d="M19 13h-3.2a1.8 1.8 0 1 0-3.6 0H9V9H5a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h3a1.8 1.8 0 1 0 3.6 0H15a2 2 0 0 1 2 2v3h2a2 2 0 0 1 2 2v2a1.8 1.8 0 1 0 0 3.6V19a2 2 0 0 1-2 2h-4v-3.2a1.8 1.8 0 1 0-3.6 0V21H9v-4H5a2 2 0 0 1-2-2v-2"/></symbol>
+      <symbol id="sparkles" viewBox="0 0 24 24"><path d="m12 3-1.4 3.6L7 8l3.6 1.4L12 13l1.4-3.6L17 8l-3.6-1.4ZM5 15l-.8 2.2L2 18l2.2.8L5 21l.8-2.2L8 18l-2.2-.8ZM19 14l-.9 2.1L16 17l2.1.9L19 20l.9-2.1L22 17l-2.1-.9Z"/></symbol>
+      <symbol id="file" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5Z"/><path d="M14 2v6h6M8 13h8m-8 4h8"/></symbol>
+      <symbol id="globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></symbol>
+      <symbol id="folder" viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+      <symbol id="chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+      <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+      <symbol id="refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5"/><path d="M18.5 9A7 7 0 0 0 6 6.5L4 11m2 4a7 7 0 0 0 12 2.5l2-4.5"/></symbol>
+      <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="power" viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></symbol>
+      <symbol id="more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="check" viewBox="0 0 24 24"><path d="m20 6-11 11-5-5"/></symbol>
+      <symbol id="lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+      <symbol id="moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></symbol>
+      <symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+      <symbol id="edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></symbol>
+      <symbol id="trash" viewBox="0 0 24 24"><path d="M3 6h18m-2 0-1 14H6L5 6m3 0V3h8v3m-6 4v6m4-6v6"/></symbol>
+      <symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="workspace" aria-hidden="true">
+    <aside><div class="workspace-brand"><span class="pi-mark">π</span>PiDeck</div><div class="workspace-block"></div><div class="workspace-block short"></div><div class="workspace-block"></div><div class="workspace-block short"></div></aside>
+    <section class="workspace-center"><div class="workspace-top"></div><div class="workspace-lines"><span></span><span></span><span></span></div><div class="workspace-bottom"></div></section>
+    <aside></aside>
+  </div>
+
+  <button class="btn primary reopen" id="reopen">重新打开设置</button>
+
+  <div class="backdrop" id="backdrop">
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+      <header class="dialog-header">
+        <div class="dialog-title" id="dialog-title"><span class="pi-mark">π</span>设置</div>
+        <div class="dialog-actions">
+          <button class="btn primary" id="save">保存</button><button class="btn">导出</button><button class="btn">导入</button>
+          <button class="btn ghost icon" id="theme" title="切换主题" aria-label="切换主题"><svg><use href="#moon"/></svg></button>
+          <button class="btn ghost icon" id="close" title="关闭" aria-label="关闭"><svg><use href="#x"/></svg></button>
+        </div>
+      </header>
+
+      <div class="pane-tabs"><button class="pane-tab"><svg><use href="#monitor"/></svg>系统设置</button><button class="pane-tab active"><svg><use href="#sliders"/></svg>配置管理</button></div>
+      <div class="backend-tabs"><button class="backend-tab active"><span class="pi-mark">π</span>Pi</button><button class="backend-tab"><svg><use href="#box"/></svg>DSH</button></div>
+
+      <div class="config-shell">
+        <nav class="config-nav" aria-label="Pi 配置导航">
+          <div class="nav-group">
+            <div class="nav-label">配置</div>
+            <button class="nav-item passive"><svg><use href="#box"/></svg>模型</button><button class="nav-item passive"><svg><use href="#key"/></svg>认证</button><button class="nav-item passive"><svg><use href="#code"/></svg>常规</button><button class="nav-item passive"><svg><use href="#shield"/></svg>信任</button>
+            <button class="nav-item resource-nav" data-resource="mcp"><svg><use href="#plug"/></svg>MCP</button>
+          </div>
+          <div class="nav-group">
+            <div class="nav-label">Agent</div>
+            <button class="nav-item passive"><svg><use href="#shield"/></svg>安全</button><button class="nav-item resource-nav active" data-resource="extensions"><svg><use href="#puzzle"/></svg>扩展</button><button class="nav-item resource-nav" data-resource="skills"><svg><use href="#sparkles"/></svg>技能</button><button class="nav-item resource-nav" data-resource="prompts"><svg><use href="#file"/></svg>提示词</button>
+          </div>
+        </nav>
+
+        <main class="main">
+          <div class="scroll"><div class="content">
+            <header class="page-header">
+              <div class="heading-copy"><h1 id="resource-title">扩展</h1><p id="resource-hint"></p></div>
+              <div class="scope-field" id="scope-field">
+                <span class="scope-label">查看范围</span>
+                <button class="scope-trigger" id="scope-trigger" aria-haspopup="listbox" aria-expanded="false">
+                  <span class="scope-icon project" id="scope-icon"><svg><use href="#folder"/></svg></span>
+                  <span class="scope-copy"><strong id="scope-title">PiDeck</strong><small id="scope-path">F:\PiDeck</small></span><svg><use href="#chevron"/></svg>
+                </button>
+                <div class="scope-menu" id="scope-menu" role="listbox" aria-label="选择资源范围"></div>
+              </div>
+            </header>
+
+            <div class="toolbar" id="extension-toolbar">
+              <div class="extension-toolbar-copy"><strong id="extension-count"></strong><small>卸载后需要新建或重启 agent 才会生效</small></div>
+              <div class="toolbar-right"><button class="btn compact" id="whitelist-btn"><svg><use href="#power"/></svg>禁用 -e 参数</button><button class="btn compact" id="update-extensions-btn">更新全部扩展</button><button class="btn compact" id="extension-refresh-btn"><svg><use href="#refresh"/></svg>刷新</button></div>
+            </div>
+            <div class="toolbar" id="generic-toolbar" hidden>
+              <div class="toolbar-left">
+                <div class="filter-tabs"><button class="filter-btn active" data-filter="all">全部</button><button class="filter-btn" data-filter="enabled">已启用</button><button class="filter-btn" data-filter="disabled">已停用</button></div>
+                <label class="search"><svg><use href="#search"/></svg><input id="search-input" type="search" autocomplete="off" /></label>
+              </div>
+              <div class="toolbar-right"><button class="btn compact" id="refresh-btn"><svg><use href="#refresh"/></svg>刷新</button><button class="btn primary compact" id="add-btn"><svg><use href="#plus"/></svg><span></span></button></div>
+            </div>
+            <div class="groups" id="groups"></div>
+          </div></div>
+        </main>
+      </div>
+    </section>
+  </div>
+
+  <div class="confirm-layer" id="confirm-layer" hidden>
+    <div class="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title">
+      <h2 id="confirm-title">卸载扩展</h2><p id="confirm-message"></p>
+      <div class="confirm-actions"><button class="btn" id="confirm-cancel">取消</button><button class="btn danger" id="confirm-remove">卸载</button></div>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status"><svg><use href="#check"/></svg><span></span></div>
+
+  <script>
+    const meta = {
+      extensions: { title: "扩展", unit: "扩展", icon: "puzzle", hint: "管理 pi 启动时实际加载的扩展", search: "搜索扩展", action: "安装", globalPath: "~/.pi/agent/extensions", projectPath: ".pi/extensions" },
+      skills: { title: "技能", unit: "技能", icon: "sparkles", hint: "管理模型可发现与调用的技能", search: "搜索技能", action: "新建", globalPath: "~/.pi/agent/skills · ~/.agents/skills", projectPath: ".pi/skills · .agents/skills" },
+      prompts: { title: "提示词", unit: "提示词", icon: "file", hint: "管理斜杠命令使用的提示词模板", search: "搜索提示词", action: "新建", globalPath: "~/.pi/agent/prompts", projectPath: ".pi/prompts" },
+      mcp: { title: "MCP", unit: "服务", icon: "plug", hint: "管理 pi-mcp-adapter 连接的 MCP 服务", search: "搜索 MCP 服务", action: "添加", globalPath: "~/.pi/agent/mcp.json", projectPath: ".pi/mcp.json · .mcp.json" }
+    };
+
+    const projects = [
+      { id: "pideck", name: "PiDeck", path: "F:\\PiDeck", live: true },
+      { id: "proma", name: "Proma", path: "F:\\Proma", live: true },
+      { id: "web-lab", name: "web-lab", path: "D:\\work\\web-lab", live: false }
+    ];
+
+    const globals = {
+      extensions: [
+        { id: "todo", name: "pi-deck-todo", source: "builtin:pi-deck-todo.ts", path: "C:\\Users\\Administrator\\.pi\\agent\\extensions\\pi-deck-todo.ts", enabled: true, builtin: true },
+        { id: "web-access", name: "pi-web-access", source: "npm:pi-web-access", path: "C:\\Users\\Administrator\\.pi\\agent\\npm\\node_modules\\pi-web-access", currentVersion: "0.27.0", latestVersion: "0.27.0", enabled: true },
+        { id: "subagents", name: "pi-subagents", source: "npm:pi-subagents", path: "C:\\Users\\Administrator\\.pi\\agent\\npm\\node_modules\\pi-subagents", currentVersion: "0.65.0", latestVersion: "0.65.0", enabled: true }
+      ],
+      skills: [
+        { id: "council", name: "council-mode", source: "~/.pi/agent/skills/council-mode", detail: "召集多个顾问交叉评审决策", note: "Pi 全局技能", enabled: true },
+        { id: "doctor", name: "pideck-doctor", source: "~/.pi/agent/skills/pideck-doctor", detail: "诊断 PiDeck 环境与运行问题", note: "Pi 全局技能", enabled: true },
+        { id: "image", name: "image-gen", source: "~/.pi/agent/skills/image-gen", detail: "生成图片与视觉素材", note: "Pi 全局技能", enabled: true },
+        { id: "usage", name: "usage-probe", source: "~/.agents/skills/usage-probe", detail: "扩展供应商用量查询能力", note: "Agents 全局技能", enabled: false }
+      ],
+      prompts: [
+        { id: "review", name: "/code-review", source: "~/.pi/agent/prompts/code-review.md", detail: "按风险级别审查当前改动", note: "Prompt 模板", enabled: true },
+        { id: "commit", name: "/commit-message", source: "~/.pi/agent/prompts/commit-message.md", detail: "根据变更生成提交说明", note: "Prompt 模板", enabled: true },
+        { id: "explain", name: "/explain-code", source: "~/.pi/agent/prompts/explain-code.md", detail: "解释选中代码与执行路径", note: "Prompt 模板", enabled: false }
+      ],
+      mcp: [
+        { id: "github", name: "github", source: "~/.pi/agent/mcp.json", detail: "GitHub 仓库、Issue 与 Pull Request", note: "HTTP · lazy", enabled: true },
+        { id: "filesystem", name: "filesystem", source: "~/.agents/mcp.json", detail: "受限目录文件系统访问", note: "stdio · keep-alive", enabled: true },
+        { id: "context7", name: "context7", source: "~/.config/mcp/mcp.json", detail: "技术文档与代码示例检索", note: "HTTP · lazy", enabled: false }
+      ]
+    };
+
+    const projectRows = {
+      pideck: {
+        extensions: [
+          { id: "request-recovery", name: "pi-deck-request-size-recovery", source: ".pi/extensions/request-size-recovery.ts", path: "F:\\PiDeck\\.pi\\extensions\\request-size-recovery.ts", enabled: true },
+          { id: "release-guard", name: "release-guard", source: ".pi/extensions/release-guard.ts", path: "F:\\PiDeck\\.pi\\extensions\\release-guard.ts", enabled: true }
+        ],
+        skills: [{ id: "electron-review", name: "electron-security-review", source: ".pi/skills/electron-security-review", detail: "检查 Electron IPC 与进程边界", note: "项目技能", enabled: true }, { id: "release-check", name: "release-check", source: ".agents/skills/release-check", detail: "执行 PiDeck 发版核对流程", note: "项目 Agents 技能", enabled: true }],
+        prompts: [{ id: "issue-triage", name: "/issue-triage", source: ".pi/prompts/issue-triage.md", detail: "按 PiDeck 规范分析并定位 Issue", note: "项目模板", enabled: true }, { id: "release-notes", name: "/release-notes", source: ".pi/prompts/release-notes.md", detail: "生成中英文发版说明", note: "项目模板", enabled: true }],
+        mcp: [{ id: "local-docs", name: "local-docs", source: ".pi/mcp.json", detail: "索引当前项目的开发文档", note: "stdio · lazy", enabled: true }]
+      },
+      proma: {
+        extensions: [{ id: "theme-sync", name: "theme-sync", source: ".pi/extensions/theme-sync.ts", path: "F:\\Proma\\.pi\\extensions\\theme-sync.ts", enabled: true }],
+        skills: [{ id: "design-review", name: "design-review", source: ".pi/skills/design-review", detail: "检查界面视觉与交互一致性", note: "项目技能", enabled: true }],
+        prompts: [{ id: "ui-copy", name: "/ui-copy", source: ".pi/prompts/ui-copy.md", detail: "生成产品界面文案", note: "项目模板", enabled: true }],
+        mcp: [{ id: "design-library", name: "design-library", source: ".mcp.json", detail: "访问内部设计资产库", note: "HTTP · lazy", enabled: true }]
+      },
+      "web-lab": { extensions: [], skills: [], prompts: [], mcp: [] }
+    };
+
+    const projectDisabled = {
+      pideck: { extensions: new Set(["web-access"]), skills: new Set(), prompts: new Set(["commit"]), mcp: new Set() },
+      proma: { extensions: new Set(["subagents"]), skills: new Set(["image"]), prompts: new Set(), mcp: new Set(["filesystem"]) },
+      "web-lab": { extensions: new Set(), skills: new Set(), prompts: new Set(), mcp: new Set() }
+    };
+
+    const state = { resource: "extensions", scope: "pideck", filter: "all", query: "", scopeOpen: false, rowMenu: null, pendingRemoval: null };
+    const $ = (selector) => document.querySelector(selector);
+    const $$ = (selector) => [...document.querySelectorAll(selector)];
+    const icon = (id, className = "") => `<svg${className ? ` class="${className}"` : ""}><use href="#${id}"/></svg>`;
+    const esc = (value) => String(value).replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[char]));
+    const selectedProject = () => projects.find((project) => project.id === state.scope) || null;
+    const scopeName = () => selectedProject()?.name || "全局";
+    let toastTimer;
+
+    function toast(message) {
+      $("#toast span").textContent = message;
+      $("#toast").classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => $("#toast").classList.remove("show"), 2200);
+    }
+
+    function requestExtensionRemoval(id, origin) {
+      const scope = state.scope;
+      const rows = origin === "global" ? globals.extensions : projectRows[scope].extensions;
+      const row = rows.find((item) => item.id === id);
+      if (!row) return;
+      state.pendingRemoval = { id, origin, scope };
+      $("#confirm-title").textContent = row.builtin ? "移除内置扩展" : "卸载扩展";
+      $("#confirm-message").textContent = `确定要${row.builtin ? "移除" : "卸载"} ${row.name} 吗？此操作将在新建或重启 agent 后生效。`;
+      $("#confirm-remove").textContent = row.builtin ? "移除" : "卸载";
+      $("#confirm-layer").hidden = false;
+    }
+
+    function closeExtensionRemoval() {
+      state.pendingRemoval = null;
+      $("#confirm-layer").hidden = true;
+    }
+
+    function confirmExtensionRemoval() {
+      const pending = state.pendingRemoval;
+      if (!pending) return;
+      const rows = pending.origin === "global" ? globals.extensions : projectRows[pending.scope].extensions;
+      const index = rows.findIndex((item) => item.id === pending.id);
+      const name = index >= 0 ? rows[index].name : "扩展";
+      if (index >= 0) rows.splice(index, 1);
+      closeExtensionRemoval();
+      render();
+      toast(`${name} 已从原型列表中移除`);
+    }
+
+    function renderScopeMenu() {
+      const globalSelected = state.scope === "global";
+      const globalOption = `<button class="scope-option${globalSelected ? " selected" : ""}" role="option" aria-selected="${globalSelected}" data-scope="global"><span class="scope-icon">${icon("globe")}</span><span class="scope-option-copy"><span class="scope-option-title"><strong>全局</strong></span><small>所有项目的默认资源</small></span>${icon("check", "check")}</button>`;
+      const options = projects.map((project) => {
+        const selected = project.id === state.scope;
+        return `<button class="scope-option${selected ? " selected" : ""}" role="option" aria-selected="${selected}" data-scope="${project.id}"><span class="scope-icon project">${icon("folder")}</span><span class="scope-option-copy"><span class="scope-option-title"><strong>${esc(project.name)}</strong>${project.live ? '<span class="live-dot" title="当前有会话"></span>' : ""}</span><small>${esc(project.path)}</small></span>${icon("check", "check")}</button>`;
+      }).join("");
+      $("#scope-menu").innerHTML = `${globalOption}<div class="scope-separator"></div><div class="scope-menu-label">已加载项目</div>${options}`;
+      $("#scope-menu").classList.toggle("open", state.scopeOpen);
+      $("#scope-trigger").setAttribute("aria-expanded", String(state.scopeOpen));
+    }
+
+    function rowStatus(row, origin) {
+      if (origin === "global" && state.scope !== "global") {
+        if (!row.enabled) return { enabled: false, locked: true, title: "全局已停用", subtitle: "需在全局恢复", tone: "warning" };
+        const disabledHere = projectDisabled[state.scope][state.resource].has(row.id);
+        return disabledHere ? { enabled: false, locked: false, title: "仅此项目停用", subtitle: "全局仍启用", tone: "warning" } : { enabled: true, locked: false, title: "继承启用", subtitle: "来自全局", tone: "success" };
+      }
+      return row.enabled ? { enabled: true, locked: false, title: "已启用", subtitle: origin === "global" ? "所有项目" : "当前项目", tone: "success" } : { enabled: false, locked: false, title: "已停用", subtitle: origin === "global" ? "所有项目" : "当前项目", tone: "warning" };
+    }
+
+    function matches(row, origin) {
+      const status = rowStatus(row, origin);
+      if (state.filter === "enabled" && !status.enabled) return false;
+      if (state.filter === "disabled" && status.enabled) return false;
+      const query = state.query.trim().toLocaleLowerCase();
+      return !query || [row.name, row.source, row.detail || "", row.note || ""].some((value) => value.toLocaleLowerCase().includes(query));
+    }
+
+    function renderRow(row, origin) {
+      const status = rowStatus(row, origin);
+      const data = meta[state.resource];
+      const key = `${origin}:${row.id}`;
+      const badge = origin === "project" ? '<span class="badge project">项目</span>' : `<span class="badge">${state.scope === "global" ? "全局" : "继承"}</span>`;
+      const menu = state.rowMenu === key ? `<div class="row-menu"><button data-action="open">${icon("folder")} 打开所在位置</button><button data-action="edit">${icon("edit")} 编辑</button>${origin === "project" || state.scope === "global" ? `<button class="danger" data-action="remove">${icon("trash")} 删除</button>` : ""}</div>` : "";
+      return `<article class="row${status.locked ? " globally-disabled" : status.enabled ? "" : " disabled"}"><div class="resource-name"><span class="resource-icon">${icon(data.icon)}</span><span class="resource-copy"><span class="name-line"><strong>${esc(row.name)}</strong>${badge}</span><small title="${esc(row.source)}">${esc(row.source)}</small></span></div><div class="detail"><span>${esc(row.detail)}</span><small>${esc(row.note)}</small></div><div class="row-actions"><span class="state-copy"><strong class="${status.tone}">${status.locked ? icon("lock") : ""}${esc(status.title)}</strong><small>${esc(status.subtitle)}</small></span><button class="switch${status.enabled ? " on" : ""}" data-toggle-id="${esc(row.id)}" data-origin="${origin}" aria-label="${status.enabled ? "停用" : "启用"}${esc(row.name)}" aria-pressed="${status.enabled}" ${status.locked ? "disabled" : ""}></button><button class="more" data-menu="${esc(key)}" title="更多操作" aria-label="更多操作">${icon("more")}</button></div>${menu}</article>`;
+    }
+
+    function renderGroup(title, path, rows, origin) {
+      const visible = rows.filter((row) => matches(row, origin));
+      return `<section class="group"><header class="group-header"><div class="group-title"><h2>${esc(title)}</h2><span class="count">${visible.length}</span></div><span class="group-path" title="${esc(path)}">${esc(path)}</span></header><div class="list">${visible.length ? visible.map((row) => renderRow(row, origin)).join("") : '<div class="empty">没有符合条件的资源</div>'}</div></section>`;
+    }
+
+    function extensionVersion(row) {
+      if (row.builtIn) return "-";
+      if (!row.currentVersion && !row.latestVersion) return "-";
+      return `当前：${row.currentVersion || "-"} · 最新：${row.latestVersion || "-"}`;
+    }
+
+    function renderExtensionRow(row, origin) {
+      const status = rowStatus(row, origin);
+      const scopeBadge = state.scope === "global" ? "" : origin === "project" ? '<span class="badge project">项目</span>' : '<span class="badge">全局</span>';
+      const builtinBadge = row.builtin ? '<span class="badge builtin">内置</span>' : "";
+      const disabledBadge = status.enabled ? "" : `<span class="badge">${status.locked ? "全局停用" : origin === "global" && state.scope !== "global" ? "仅此项目停用" : "停用"}</span>`;
+      const toggleTitle = status.locked ? "需在全局范围中启用" : origin === "global" && state.scope !== "global" ? status.enabled ? `仅在 ${scopeName()} 中停用` : `在 ${scopeName()} 中启用` : status.enabled ? "停用扩展" : "启用扩展";
+      const canRemove = origin === "project" || state.scope === "global";
+      return `<div class="extension-row${status.enabled ? "" : " disabled"}"><div class="extension-name"><div class="extension-name-line"><strong>${esc(row.name)}</strong>${scopeBadge}${builtinBadge}${disabledBadge}</div><small>${esc(row.source)}</small></div><div class="extension-version">${esc(extensionVersion(row))}${row.updateError ? `<div class="extension-version-error">${esc(row.updateError)}</div>` : ""}</div><div class="extension-actions"><button class="extension-action" data-open-path="${esc(row.path || "")}" title="打开文件位置" aria-label="打开 ${esc(row.name)} 的文件位置" ${row.path ? "" : "disabled"}>${icon("folder")}</button><button class="extension-action${status.enabled ? " active" : ""}" data-toggle-id="${esc(row.id)}" data-origin="${origin}" title="${esc(toggleTitle)}" aria-label="${esc(toggleTitle)}" ${status.locked ? "disabled" : ""}>${icon("power")}</button>${canRemove ? `<button class="extension-action danger" data-remove-id="${esc(row.id)}" data-origin="${origin}" title="${row.builtin ? "移除内置扩展" : "卸载扩展"}" aria-label="${row.builtin ? "移除" : "卸载"} ${esc(row.name)}">${icon("trash")}</button>` : ""}</div></div>`;
+    }
+
+    function renderExtensionSection(title, rows, origin) {
+      const body = rows.length ? rows.map((row) => renderExtensionRow(row, origin)).join("") : '<div class="extension-group-row"><span>暂无扩展</span></div>';
+      return `<div class="extension-group-row"><strong>${esc(title)}</strong><span class="count">${rows.length}</span></div>${body}`;
+    }
+
+    function renderExtensionTable() {
+      const header = '<div class="extension-head"><span>扩展</span><span>版本</span><span>操作</span></div>';
+      const body = state.scope === "global"
+        ? globals.extensions.map((row) => renderExtensionRow(row, "global")).join("")
+        : renderExtensionSection("项目扩展", projectRows[state.scope].extensions, "project") + renderExtensionSection("全局扩展", globals.extensions, "global");
+      return `<section class="extension-table"><div class="extension-table-grid">${header}${body || '<div class="empty">暂无扩展</div>'}</div></section>`;
+    }
+
+    function renderGroups() {
+      const groups = $("#groups");
+      if (state.resource === "extensions") {
+        groups.classList.add("extension-mode");
+        groups.innerHTML = renderExtensionTable();
+        return;
+      }
+      groups.classList.remove("extension-mode");
+      const data = meta[state.resource];
+      if (state.scope === "global") {
+        groups.innerHTML = renderGroup(`全局${data.unit}`, data.globalPath, globals[state.resource], "global");
+      } else {
+        groups.innerHTML = renderGroup(`项目${data.unit}`, data.projectPath, projectRows[state.scope][state.resource], "project") + renderGroup(`全局${data.unit}`, data.globalPath, globals[state.resource], "global");
+      }
+    }
+
+    function renderHeader() {
+      const data = meta[state.resource];
+      const project = selectedProject();
+      const extensionPage = state.resource === "extensions";
+      $("#resource-title").textContent = data.title;
+      $("#resource-hint").textContent = data.hint;
+      $("#search-input").placeholder = data.search;
+      $("#search-input").value = state.query;
+      $("#extension-toolbar").hidden = !extensionPage;
+      $("#generic-toolbar").hidden = extensionPage;
+      if (project) {
+        $("#scope-title").textContent = project.name;
+        $("#scope-path").textContent = project.path;
+        $("#scope-icon").className = "scope-icon project";
+        $("#scope-icon").innerHTML = icon("folder");
+        $("#add-btn span").textContent = `${data.action}到 ${project.name}`;
+      } else {
+        $("#scope-title").textContent = "全局";
+        $("#scope-path").textContent = "所有项目的默认资源";
+        $("#scope-icon").className = "scope-icon";
+        $("#scope-icon").innerHTML = icon("globe");
+        $("#add-btn span").textContent = `${data.action}到全局`;
+      }
+      if (extensionPage) {
+        const count = globals.extensions.length + (project ? projectRows[state.scope].extensions.length : 0);
+        $("#extension-count").textContent = `${count} 个扩展`;
+        $("#whitelist-btn").hidden = Boolean(project);
+      }
+    }
+
+    function render() {
+      $$(".resource-nav").forEach((button) => button.classList.toggle("active", button.dataset.resource === state.resource));
+      $$(".filter-btn").forEach((button) => button.classList.toggle("active", button.dataset.filter === state.filter));
+      renderScopeMenu(); renderHeader(); renderGroups();
+    }
+
+    document.addEventListener("click", (event) => {
+      const target = event.target;
+      const nav = target.closest(".resource-nav");
+      if (nav) { state.resource = nav.dataset.resource; state.query = ""; state.filter = "all"; state.rowMenu = null; render(); return; }
+      if (target.closest("#scope-trigger")) { state.scopeOpen = !state.scopeOpen; state.rowMenu = null; renderScopeMenu(); return; }
+      const option = target.closest(".scope-option");
+      if (option) { state.scope = option.dataset.scope; state.scopeOpen = false; state.rowMenu = null; render(); return; }
+      const filter = target.closest(".filter-btn");
+      if (filter) { state.filter = filter.dataset.filter; render(); return; }
+      const openPath = target.closest("[data-open-path]");
+      if (openPath) { toast(`已定位扩展文件：${openPath.dataset.openPath}`); return; }
+      const removeExtension = target.closest("[data-remove-id]");
+      if (removeExtension) { requestExtensionRemoval(removeExtension.dataset.removeId, removeExtension.dataset.origin); return; }
+      const toggle = target.closest("[data-toggle-id]");
+      if (toggle) {
+        const id = toggle.dataset.toggleId, origin = toggle.dataset.origin;
+        if (origin === "global" && state.scope !== "global") {
+          const disabled = projectDisabled[state.scope][state.resource]; disabled.has(id) ? disabled.delete(id) : disabled.add(id); toast(`${scopeName()} 的覆盖设置已更新，全局配置未改变`);
+        } else {
+          const rows = origin === "global" ? globals[state.resource] : projectRows[state.scope][state.resource]; const row = rows.find((item) => item.id === id); if (row) row.enabled = !row.enabled; toast(`${row?.name || "资源"} 已${row?.enabled ? "启用" : "停用"}`);
+        }
+        state.rowMenu = null; render(); return;
+      }
+      const more = target.closest("[data-menu]");
+      if (more) { state.rowMenu = state.rowMenu === more.dataset.menu ? null : more.dataset.menu; state.scopeOpen = false; render(); return; }
+      const action = target.closest("[data-action]");
+      if (action) { toast({ open: "已定位资源来源", edit: "已打开编辑器预览", remove: "原型中未执行删除" }[action.dataset.action]); state.rowMenu = null; render(); return; }
+      if (!target.closest("#scope-field")) { state.scopeOpen = false; $("#scope-menu").classList.remove("open"); $("#scope-trigger").setAttribute("aria-expanded", "false"); }
+      if (!target.closest(".row-menu") && !target.closest("[data-menu]") && state.rowMenu) { state.rowMenu = null; render(); }
+    });
+
+    $("#search-input").addEventListener("input", (event) => { state.query = event.target.value; renderGroups(); });
+    $("#refresh-btn").addEventListener("click", () => toast(`${scopeName()} 的${meta[state.resource].unit}列表已刷新`));
+    $("#add-btn").addEventListener("click", () => toast(`${meta[state.resource].action}${meta[state.resource].unit} · 目标：${scopeName()}`));
+    $("#extension-refresh-btn").addEventListener("click", () => toast(`${scopeName()} 的扩展列表已刷新`));
+    $("#update-extensions-btn").addEventListener("click", () => toast("已开始检查全部扩展更新"));
+    $("#whitelist-btn").addEventListener("click", () => toast("-e 参数设置将在新建或重启 agent 后生效"));
+    $("#confirm-cancel").addEventListener("click", closeExtensionRemoval);
+    $("#confirm-remove").addEventListener("click", confirmExtensionRemoval);
+    $("#save").addEventListener("click", () => toast("配置已保存"));
+    $("#theme").addEventListener("click", () => { document.body.classList.toggle("dark"); $("#theme").innerHTML = icon(document.body.classList.contains("dark") ? "sun" : "moon"); });
+    $("#close").addEventListener("click", () => { $("#backdrop").style.display = "none"; $("#reopen").classList.add("show"); });
+    $("#reopen").addEventListener("click", () => { $("#backdrop").style.display = "grid"; $("#reopen").classList.remove("show"); });
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      if (!$("#confirm-layer").hidden) {
+        closeExtensionRemoval();
+        return;
+      }
+      state.scopeOpen = false;
+      state.rowMenu = null;
+      render();
+    });
+    render();
+  </script>
+</body>
+</html>

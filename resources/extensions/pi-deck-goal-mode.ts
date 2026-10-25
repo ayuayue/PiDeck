@@ -20,6 +20,24 @@ const GOAL_ENTRY_TYPE = "pi-deck-goal-mode";
 const GOAL_CONTEXT_TYPE = "pi-deck-goal-context";
 const DEFAULT_MAX_ROUNDS = 32;
 
+// 静态规则：pi 1.x 走系统提示 section，旧宿主仍随 before_agent_start 消息注入。
+const GOAL_MODE_RULES = [
+	"Rules:",
+	"- Work toward the objective. Prefer concrete tool use over asking the user.",
+	"- If the objective is fully achieved, end with the exact token GOAL_COMPLETE.",
+	"- If you are blocked (missing info, failed approach, or need a user decision), end with GOAL_BLOCKED: <short reason>.",
+	"- Do not wait for extra confirmation once the next step is clear.",
+].join("\n");
+
+/**
+ * pi 1.x 的 before_agent_start 事件带可变 systemPromptOptions.sections；旧宿主没有该字段。
+ * 扩展必须自包含，所以这里与 security-gate/plan-mode 各自保留一份（不跨文件 import）。
+ */
+function readSystemPromptSections(event: { systemPromptOptions?: { sections?: Record<string, string> } }): Record<string, string> | undefined {
+	const sections = event.systemPromptOptions?.sections;
+	return sections && typeof sections === "object" ? sections : undefined;
+}
+
 type GoalPhase = "active" | "paused" | "blocked" | "complete";
 
 interface GoalModeState {
@@ -57,10 +75,21 @@ export default function piDeckGoalModeExtension(pi: ExtensionAPI): void {
 		roundsStarted: 0,
 		maxGoalRounds: DEFAULT_MAX_ROUNDS,
 	};
-	let continuing = false;
 
-	function persistState(): void {
-		pi.appendEntry(GOAL_ENTRY_TYPE, { ...state });
+	/** 宿主是否提供系统提示 section（pi 1.x）；决定续轮指令还要不要带目标全文。 */
+	let sectionsAvailable = false;
+	/** 上一次落盘的目标全文：目标在 run 内不变，每轮只追加轮次（issue #366）。 */
+	let persistedObjective = "";
+
+	function persistState(force = false): void {
+		// 32 轮上限，若每轮都写完整 state，历史里会堆 32 份目标原文（本机实测每条约 2000 字）。
+		// 目标只在变化时落盘，其余轮次省略 objective 字段；session_start 回溯最近一条带目标的记录。
+		// force：清除目标时必须落 objective:""，否则回溯会穿透到旧目标、重启后复活（issue #395）。
+		const objectiveChanged = force || state.objective !== persistedObjective;
+		persistedObjective = state.objective;
+		const entry: Partial<GoalModeState> = { ...state };
+		if (!objectiveChanged) delete entry.objective;
+		pi.appendEntry(GOAL_ENTRY_TYPE, entry);
 	}
 
 	function updateWidget(ctx: ExtensionContext): void {
@@ -79,7 +108,6 @@ export default function piDeckGoalModeExtension(pi: ExtensionAPI): void {
 	function setPaused(ctx: ExtensionContext, notify: boolean): void {
 		if (!state.enabled) return;
 		state = { ...state, enabled: true, phase: "paused" };
-		continuing = false;
 		updateWidget(ctx);
 		persistState();
 		if (notify) ctx.ui.notify("PiDeck 目标模式已暂停。切回目标模式后会从当前进度继续。", "info");
@@ -110,7 +138,6 @@ export default function piDeckGoalModeExtension(pi: ExtensionAPI): void {
 
 	function setComplete(ctx: ExtensionContext): void {
 		state = { ...state, enabled: false, phase: "complete" };
-		continuing = false;
 		updateWidget(ctx);
 		persistState();
 		ctx.ui.notify("PiDeck 目标已完成。", "info");
@@ -118,7 +145,6 @@ export default function piDeckGoalModeExtension(pi: ExtensionAPI): void {
 
 	function setBlocked(ctx: ExtensionContext, reason: string): void {
 		state = { ...state, enabled: true, phase: "blocked", blockReason: reason };
-		continuing = false;
 		updateWidget(ctx);
 		persistState();
 		ctx.ui.notify(`PiDeck 目标已阻塞：${reason}`, "warning");
@@ -130,10 +156,13 @@ export default function piDeckGoalModeExtension(pi: ExtensionAPI): void {
 	 * 让「恢复」真正驱动一轮模型，而不是只把 phase 标回 active 后空转。
 	 */
 	function kickOffContinuation(): void {
+		// 目标全文已经在系统提示 section 里（issue #366）：续轮指令不再重复一遍，
+		// 否则每轮都会把 2000 字目标写进会话历史。旧宿主没有 section，仍然随消息带上。
+		const objectiveLine = sectionsAvailable ? "" : `Objective: ${state.objective}\n`;
 		pi.sendMessage(
 			{
 				customType: "pi-deck-goal-continue",
-				content: `Continue the current goal.\nObjective: ${state.objective}\nRounds used: ${state.roundsStarted}/${state.maxGoalRounds}\nIf done, write GOAL_COMPLETE. If blocked, write GOAL_BLOCKED: <reason>.`,
+				content: `Continue the current goal.\n${objectiveLine}Rounds used: ${state.roundsStarted}/${state.maxGoalRounds}\nIf done, write GOAL_COMPLETE. If blocked, write GOAL_BLOCKED: <reason>.`,
 				display: false,
 			},
 			{ triggerTurn: true, deliverAs: "followUp" },
@@ -157,9 +186,10 @@ export default function piDeckGoalModeExtension(pi: ExtensionAPI): void {
 					roundsStarted: 0,
 					maxGoalRounds: DEFAULT_MAX_ROUNDS,
 				};
-				continuing = false;
 				updateWidget(ctx);
-				persistState();
+				// 清空的 objective 也必须落盘：否则「目标没变」判据会让这条记录省略 objective，
+				// 会话里读不出「已清除」，重启回溯时穿透到更早的目标（issue #395）。
+				persistState(true);
 				ctx.ui.notify("PiDeck 目标已清除。", "info");
 				return;
 			}
@@ -221,22 +251,29 @@ export default function piDeckGoalModeExtension(pi: ExtensionAPI): void {
 		};
 	});
 
-	pi.on("before_agent_start", async () => {
+	pi.on("before_agent_start", async (event) => {
 		if (!state.enabled || state.phase !== "active" || !state.objective) return;
+		const roundLine = `[GOAL MODE ACTIVE] Round: ${state.roundsStarted + 1}/${state.maxGoalRounds}`;
+		// 静态规则 + 目标全文进系统提示 section：目标在一次 run 内不变，section 字节稳定，
+		// 前缀缓存不失效；每轮真正变化的只有 Round，消息里只留这一行（issue #365-10 / #366）。
+		// 旧宿主无 sections 时保留整块旧文案。
+		const sections = readSystemPromptSections(event);
+		if (sections) {
+			sectionsAvailable = true;
+			sections["pi_deck_goal_mode"] = `${GOAL_MODE_RULES}\n\nObjective: ${state.objective}`;
+			return {
+				message: {
+					customType: GOAL_CONTEXT_TYPE,
+					content: roundLine,
+					display: false,
+				},
+			};
+		}
+		const headline = ["[GOAL MODE ACTIVE]", `Objective: ${state.objective}`, `Round: ${state.roundsStarted + 1}/${state.maxGoalRounds}`].join("\n");
 		return {
 			message: {
 				customType: GOAL_CONTEXT_TYPE,
-				content: [
-					"[GOAL MODE ACTIVE]",
-					`Objective: ${state.objective}`,
-					`Round: ${state.roundsStarted + 1}/${state.maxGoalRounds}`,
-					"",
-					"Rules:",
-					"- Work toward the objective. Prefer concrete tool use over asking the user.",
-					"- If the objective is fully achieved, end with the exact token GOAL_COMPLETE.",
-					"- If you are blocked (missing info, failed approach, or need a user decision), end with GOAL_BLOCKED: <short reason>.",
-					"- Do not wait for extra confirmation once the next step is clear.",
-				].join("\n"),
+				content: [headline, GOAL_MODE_RULES].join("\n\n"),
 				display: false,
 			},
 		};
@@ -254,9 +291,6 @@ export default function piDeckGoalModeExtension(pi: ExtensionAPI): void {
 
 	pi.on("agent_end", async (event, ctx) => {
 		if (!state.enabled || state.phase !== "active") return;
-		if (continuing) {
-			continuing = false;
-		}
 
 		const lastAssistant = Array.isArray(event?.messages)
 			? [...event.messages].reverse().find(isAssistantMessage)
@@ -296,26 +330,40 @@ export default function piDeckGoalModeExtension(pi: ExtensionAPI): void {
 		persistState();
 
 		// 同一会话自动续轮：不把续轮指令显示在时间线，避免刷屏。
-		continuing = true;
 		kickOffContinuation();
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
 		const entries = ctx.sessionManager.getEntries();
-		const latest = entries
-			.filter((entry: { type: string; customType?: string }) =>
-				entry.type === "custom" && entry.customType === GOAL_ENTRY_TYPE)
-			.pop() as { data?: GoalModeState } | undefined;
-		if (latest?.data?.objective) {
+		const goalEntries = entries.filter((entry: { type: string; customType?: string }) =>
+			entry.type === "custom" && entry.customType === GOAL_ENTRY_TYPE) as Array<{ data?: Partial<GoalModeState> }>;
+		const latest = goalEntries[goalEntries.length - 1];
+		// 目标全文只在变化时落盘（issue #366），从尾部往回找最近一条带 objective 的记录。
+		// 遇 enabled:false 立即截断：那是 clear / 完成留下的记录，语义是「到此为止」。
+		// 不截断就会穿透到更早的目标——历史里旧版 clear 不写 objective 字段，
+		// 表现为「清除后重启旧目标复活」（issue #395）。
+		let objective = "";
+		for (let i = goalEntries.length - 1; i >= 0; i--) {
+			const entry = goalEntries[i];
+			if (entry.data?.enabled === false) break;
+			if (typeof entry.data?.objective === "string") {
+				objective = entry.data.objective;
+				break;
+			}
+		}
+		if (objective) {
 			// 跨会话不自动续轮：恢复为 paused，避免打开历史会话就立刻烧一轮模型。
 			state = {
 				enabled: true,
 				phase: "paused",
-				objective: latest.data.objective,
+				objective,
 				roundsStarted: latest.data.roundsStarted ?? 0,
 				maxGoalRounds: latest.data.maxGoalRounds || DEFAULT_MAX_ROUNDS,
 				blockReason: latest.data.blockReason,
 			};
+			// 恢复出来的目标必须同步 persistedObjective：否则下一次 clear 会误判「目标没变」
+			// 而省略 objective，清除记不下来，再重启又回溯到旧目标（issue #395）。
+			persistedObjective = objective;
 		} else {
 			state = {
 				enabled: false,
@@ -325,7 +373,6 @@ export default function piDeckGoalModeExtension(pi: ExtensionAPI): void {
 				maxGoalRounds: DEFAULT_MAX_ROUNDS,
 			};
 		}
-		continuing = false;
 		updateWidget(ctx);
 	});
 }

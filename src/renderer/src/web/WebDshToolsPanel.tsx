@@ -16,70 +16,39 @@ import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { showNotice } from "@/utils/notice";
 import { Button } from "@/components/ui-shadcn/button";
+import { Collapsible, CollapsibleContent } from "@/components/ui-shadcn/collapsible";
 import { Dialog, DialogContent } from "@/components/ui-shadcn/dialog";
 import { Input } from "@/components/ui-shadcn/input";
 import { Textarea } from "@/components/ui-shadcn/textarea";
-import {
-	dshPluginAction,
-	fetchDshGoal,
-	fetchDshPlugins,
-	fetchDshSkills,
-	fetchDshSubagentHistory,
-	fetchDshSubagents,
-	installDshPlugin,
-	type WebDshGoal,
-	type WebDshPlugin,
-	type WebDshSkill,
-	type WebDshSubagent,
-} from "./webApi";
+import { dshPluginAction, fetchDshGoal, fetchDshPlugins, fetchDshSkills, fetchDshSubagentHistory, fetchDshSubagents, installDshPlugin, type WebDshGoal, type WebDshPlugin, type WebDshSkill, type WebDshSubagent } from "./webApi";
 
-export function WebDshToolsPanel(props: {
-	sessionId: string;
-	onClose: () => void;
-}) {
+export function WebDshToolsPanel(props: { sessionId: string; onClose: () => void }) {
 	const [tab, setTab] = useState<"goals" | "subagents" | "skills" | "plugins">("goals");
 	return (
 		<Dialog open onOpenChange={(next) => !next && props.onClose()}>
-			<DialogContent showCloseButton className="sm:max-w-lg">
-				<div className="flex gap-1 border-b border-border-subtle pb-2">
-					<Button
-						variant={tab === "goals" ? "secondary" : "ghost"}
-						size="sm"
-						className="gap-1.5"
-						onClick={() => setTab("goals")}
-					>
+			<DialogContent showCloseButton className="sm:max-w-lg [&>*]:min-w-0">
+				{/* tab 条横向可滚：4 个 tab 在窄屏放不下会溢出裁切（最后一个 tab 被裁掉），滚动保完整。 */}
+				<div className="flex gap-1 overflow-x-auto border-b border-border-subtle pb-2">
+					<Button variant={tab === "goals" ? "secondary" : "ghost"} size="sm" className="shrink-0 gap-1.5" onClick={() => setTab("goals")}>
 						<Target size={14} aria-hidden="true" />
 						{t("dshTools.goals")}
 					</Button>
-					<Button
-						variant={tab === "subagents" ? "secondary" : "ghost"}
-						size="sm"
-						className="gap-1.5"
-						onClick={() => setTab("subagents")}
-					>
+					<Button variant={tab === "subagents" ? "secondary" : "ghost"} size="sm" className="shrink-0 gap-1.5" onClick={() => setTab("subagents")}>
 						<Users size={14} aria-hidden="true" />
 						{t("dshTools.subagents")}
 					</Button>
-					<Button
-						variant={tab === "skills" ? "secondary" : "ghost"}
-						size="sm"
-						className="gap-1.5"
-						onClick={() => setTab("skills")}
-					>
+					<Button variant={tab === "skills" ? "secondary" : "ghost"} size="sm" className="shrink-0 gap-1.5" onClick={() => setTab("skills")}>
 						<Sparkles size={14} aria-hidden="true" />
 						{t("dshTools.skills")}
 					</Button>
-					<Button
-						variant={tab === "plugins" ? "secondary" : "ghost"}
-						size="sm"
-						className="gap-1.5"
-						onClick={() => setTab("plugins")}
-					>
+					<Button variant={tab === "plugins" ? "secondary" : "ghost"} size="sm" className="shrink-0 gap-1.5" onClick={() => setTab("plugins")}>
 						<Boxes size={14} aria-hidden="true" />
 						{t("config.dsh.dynamicPlugins")}
 					</Button>
 				</div>
-				<div className="min-h-40 overflow-y-auto">
+				{/* 内容限高：静态插件清单可达 30+ 条，不限高会把 Dialog 撑出屏幕；
+					60vh 上限 + 内部滚动，tab 条与关闭钮始终在视口内。 */}
+				<div className="max-h-[60vh] min-h-40 overflow-y-auto">
 					{tab === "goals" && <GoalsTab sessionId={props.sessionId} />}
 					{tab === "subagents" && <SubagentsTab sessionId={props.sessionId} />}
 					{tab === "skills" && <SkillsTab sessionId={props.sessionId} />}
@@ -104,11 +73,13 @@ function GoalsTab(props: { sessionId: string }) {
 	const [goal, setGoal] = useState<WebDshGoal | null | undefined>(undefined);
 	useEffect(() => {
 		let cancelled = false;
-		void fetchDshGoal(props.sessionId).then((result) => {
-			if (!cancelled) setGoal(result.goal);
-		}).catch(() => {
-			if (!cancelled) setGoal(null);
-		});
+		void fetchDshGoal(props.sessionId)
+			.then((result) => {
+				if (!cancelled) setGoal(result.goal);
+			})
+			.catch(() => {
+				if (!cancelled) setGoal(null);
+			});
 		return () => {
 			cancelled = true;
 		};
@@ -140,9 +111,7 @@ function GoalsTab(props: { sessionId: string }) {
 					>
 						{phaseLabel[goal.phase]}
 					</span>
-					<span className="ml-auto shrink-0 text-micro text-text-tertiary">
-						{t("dshTools.goalRounds", { rounds: goal.roundsStarted, cap: goal.maxGoalRounds })}
-					</span>
+					<span className="ml-auto shrink-0 text-micro text-text-tertiary">{t("dshTools.goalRounds", { rounds: goal.roundsStarted, cap: goal.maxGoalRounds })}</span>
 				</div>
 				<p className="text-caption text-foreground [overflow-wrap:anywhere]">{goal.objective}</p>
 			</div>
@@ -160,11 +129,13 @@ function SubagentsTab(props: { sessionId: string }) {
 
 	useEffect(() => {
 		let cancelled = false;
-		void fetchDshSubagents(props.sessionId).then((result) => {
-			if (!cancelled) setEntries(result.subagents);
-		}).catch(() => {
-			if (!cancelled) setEntries([]);
-		});
+		void fetchDshSubagents(props.sessionId)
+			.then((result) => {
+				if (!cancelled) setEntries(result.subagents);
+			})
+			.catch(() => {
+				if (!cancelled) setEntries([]);
+			});
 		return () => {
 			cancelled = true;
 		};
@@ -198,15 +169,9 @@ function SubagentsTab(props: { sessionId: string }) {
 		<div className="flex flex-col gap-1.5 p-1">
 			{entries.map((entry) => (
 				<div key={entry.id} className="flex flex-col rounded-lg border border-border-subtle bg-bg-panel/60">
-					<button
-						type="button"
-						className="flex min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/40"
-						onClick={() => void toggle(entry.id)}
-					>
+					<button type="button" className="flex min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/40" onClick={() => void toggle(entry.id)}>
 						<Users size={13} className="shrink-0 text-muted-foreground" aria-hidden="true" />
-						<span className="min-w-0 flex-1 truncate text-control font-medium text-foreground">
-							{entry.label ?? entry.id}
-						</span>
+						<span className="min-w-0 flex-1 truncate text-control font-medium text-foreground">{entry.label ?? entry.id}</span>
 						{entry.activity === "running" ? (
 							<span className="inline-flex shrink-0 items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 text-micro font-medium text-primary">
 								<Loader2 size={11} className="animate-pideck-spin" aria-hidden="true" />
@@ -218,11 +183,7 @@ function SubagentsTab(props: { sessionId: string }) {
 								{t("dshTools.subagentInactive")}
 							</span>
 						)}
-						{entry.kind === "diagnostic" && (
-							<span className="inline-flex shrink-0 items-center rounded bg-amber-500/15 px-1.5 py-0.5 text-micro text-amber-600 dark:text-amber-400">
-								{t("dshTools.subagentDiagnostic")}
-							</span>
-						)}
+						{entry.kind === "diagnostic" && <span className="inline-flex shrink-0 items-center rounded bg-amber-500/15 px-1.5 py-0.5 text-micro text-amber-600 dark:text-amber-400">{t("dshTools.subagentDiagnostic")}</span>}
 					</button>
 					{expanded === entry.id && (
 						<div className="flex max-h-56 flex-col gap-1 overflow-y-auto border-t border-border-subtle p-2">
@@ -232,20 +193,15 @@ function SubagentsTab(props: { sessionId: string }) {
 									{t("dshTools.loading")}
 								</p>
 							)}
-							{!transcriptLoading && transcriptError && (
-								<p className="px-1 text-caption text-destructive">{t("dshTools.subagentTranscriptError")}</p>
-							)}
-							{!transcriptLoading && !transcriptError && transcript.length === 0 && (
-								<p className="px-1 text-caption text-text-tertiary">{t("dshTools.subagentTranscriptEmpty")}</p>
-							)}
-							{!transcriptLoading && transcript.map((message, index) => (
-								<div key={index} className={cn("flex flex-col gap-0.5 rounded-md px-2 py-1", message.role === "user" ? "bg-accent/30" : "bg-bg-panel")}>
-									<span className="text-micro text-text-tertiary">
-										{message.role === "user" ? t("dshTools.roleUser") : t("dshTools.roleAssistant")}
-									</span>
-									<span className="whitespace-pre-wrap break-words text-caption text-foreground">{message.text || "…"}</span>
-								</div>
-							))}
+							{!transcriptLoading && transcriptError && <p className="px-1 text-caption text-destructive">{t("dshTools.subagentTranscriptError")}</p>}
+							{!transcriptLoading && !transcriptError && transcript.length === 0 && <p className="px-1 text-caption text-text-tertiary">{t("dshTools.subagentTranscriptEmpty")}</p>}
+							{!transcriptLoading &&
+								transcript.map((message, index) => (
+									<div key={index} className={cn("flex flex-col gap-0.5 rounded-md px-2 py-1", message.role === "user" ? "bg-accent/30" : "bg-bg-panel")}>
+										<span className="text-micro text-text-tertiary">{message.role === "user" ? t("dshTools.roleUser") : t("dshTools.roleAssistant")}</span>
+										<span className="whitespace-pre-wrap break-words text-caption text-foreground">{message.text || "…"}</span>
+									</div>
+								))}
 						</div>
 					)}
 				</div>
@@ -259,11 +215,13 @@ function SkillsTab(props: { sessionId: string }) {
 	const [entries, setEntries] = useState<WebDshSkill[] | undefined>(undefined);
 	useEffect(() => {
 		let cancelled = false;
-		void fetchDshSkills(props.sessionId).then((result) => {
-			if (!cancelled) setEntries(result.skills);
-		}).catch(() => {
-			if (!cancelled) setEntries([]);
-		});
+		void fetchDshSkills(props.sessionId)
+			.then((result) => {
+				if (!cancelled) setEntries(result.skills);
+			})
+			.catch(() => {
+				if (!cancelled) setEntries([]);
+			});
 		return () => {
 			cancelled = true;
 		};
@@ -280,11 +238,7 @@ function SkillsTab(props: { sessionId: string }) {
 					<div className="flex min-w-0 items-center gap-2">
 						<Sparkles size={13} className="shrink-0 text-muted-foreground" aria-hidden="true" />
 						<code className="min-w-0 flex-1 truncate text-control font-medium text-foreground">/{entry.name}</code>
-						{!entry.modelInvocable && (
-							<span className="inline-flex shrink-0 items-center rounded bg-amber-500/15 px-1.5 py-0.5 text-micro font-medium text-amber-600 dark:text-amber-400">
-								{t("dshTools.skillUserOnly")}
-							</span>
-						)}
+						{!entry.modelInvocable && <span className="inline-flex shrink-0 items-center rounded bg-amber-500/15 px-1.5 py-0.5 text-micro font-medium text-amber-600 dark:text-amber-400">{t("dshTools.skillUserOnly")}</span>}
 					</div>
 					<p className="text-caption text-text-secondary">{entry.description}</p>
 					{entry.whenToUse && <p className="text-micro text-text-tertiary">{entry.whenToUse}</p>}
@@ -309,35 +263,36 @@ function PluginsTab(props: { sessionId: string }) {
 	const [form, setForm] = useState({ idPrefix: "", name: "", purpose: "", hostCode: "" });
 
 	const refresh = useCallback(() => {
-		void fetchDshPlugins().then((result) => {
-			setDynamic(result.dynamic);
-			setStaticEntries(result.static);
-		}).catch(() => {
-			setDynamic([]);
-		});
+		void fetchDshPlugins()
+			.then((result) => {
+				setDynamic(result.dynamic);
+				setStaticEntries(result.static);
+			})
+			.catch(() => {
+				setDynamic([]);
+			});
 	}, []);
 
 	useEffect(() => {
 		refresh();
 	}, [refresh]);
 
-	const run = useCallback(async (
-		fn: () => Promise<unknown>,
-		successKey?: "config.dsh.pluginInstalled" | "config.dsh.pluginRunStarted"
-			| "config.dsh.pluginStoppedToast" | "config.dsh.pluginUninstalled",
-	) => {
-		if (busy) return;
-		setBusy(true);
-		try {
-			await fn();
-			refresh();
-			if (successKey) showNotice(t(successKey), 3000);
-		} catch (error) {
-			showNotice(error instanceof Error ? error.message : String(error), 4000);
-		} finally {
-			setBusy(false);
-		}
-	}, [busy, refresh]);
+	const run = useCallback(
+		async (fn: () => Promise<unknown>, successKey?: "config.dsh.pluginInstalled" | "config.dsh.pluginRunStarted" | "config.dsh.pluginStoppedToast" | "config.dsh.pluginUninstalled") => {
+			if (busy) return;
+			setBusy(true);
+			try {
+				await fn();
+				refresh();
+				if (successKey) showNotice(t(successKey), 3000);
+			} catch (error) {
+				showNotice(error instanceof Error ? error.message : String(error), 4000);
+			} finally {
+				setBusy(false);
+			}
+		},
+		[busy, refresh],
+	);
 
 	const submitInstall = () => {
 		const idPrefix = form.idPrefix.trim();
@@ -368,52 +323,27 @@ function PluginsTab(props: { sessionId: string }) {
 					{t("config.dsh.installPlugin")}
 				</Button>
 			</div>
-			{showInstall && (
-				<div className="flex flex-col gap-1.5 rounded-lg border border-border-subtle bg-bg-panel/60 p-2">
-					<Input
-						value={form.idPrefix}
-						onChange={(event) => setForm({ ...form, idPrefix: event.target.value })}
-						placeholder={t("config.dsh.pluginIdPrefix")}
-						className="h-8 text-caption"
-					/>
-					<Input
-						value={form.name}
-						onChange={(event) => setForm({ ...form, name: event.target.value })}
-						placeholder={t("config.dsh.pluginName")}
-						className="h-8 text-caption"
-					/>
-					<Input
-						value={form.purpose}
-						onChange={(event) => setForm({ ...form, purpose: event.target.value })}
-						placeholder={t("config.dsh.pluginPurpose")}
-						className="h-8 text-caption"
-					/>
-					<Textarea
-						value={form.hostCode}
-						onChange={(event) => setForm({ ...form, hostCode: event.target.value })}
-						placeholder={t("config.dsh.pluginHostCode")}
-						className="min-h-20 font-mono text-caption"
-					/>
+			{/* 安装表单开合走共享折叠原语：高度渐变而非瞬时挂载把插件列表瞬间顶开；
+			    display:contents 根不生成盒子，容器 gap 布局保持原样（与桌面端 DshPluginSection 同一套）。 */}
+			<Collapsible open={showInstall} className="contents">
+				<CollapsibleContent className="flex flex-col gap-1.5 rounded-lg border border-border-subtle bg-bg-panel/60 p-2">
+					<Input value={form.idPrefix} onChange={(event) => setForm({ ...form, idPrefix: event.target.value })} placeholder={t("config.dsh.pluginIdPrefix")} className="h-8 text-caption" />
+					<Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder={t("config.dsh.pluginName")} className="h-8 text-caption" />
+					<Input value={form.purpose} onChange={(event) => setForm({ ...form, purpose: event.target.value })} placeholder={t("config.dsh.pluginPurpose")} className="h-8 text-caption" />
+					<Textarea value={form.hostCode} onChange={(event) => setForm({ ...form, hostCode: event.target.value })} placeholder={t("config.dsh.pluginHostCode")} className="min-h-20 font-mono text-caption" />
 					<p className="text-micro text-text-tertiary">{t("config.dsh.pluginClientCodeHint")}</p>
 					<Button type="button" size="sm" className="self-end" disabled={busy} onClick={submitInstall}>
 						{t("config.dsh.installPlugin")}
 					</Button>
-				</div>
-			)}
-			{dynamic.length === 0 && (
-				<p className="px-1 text-caption text-text-secondary">{t("config.dsh.dynamicPluginsEmpty")}</p>
-			)}
+				</CollapsibleContent>
+			</Collapsible>
+			{dynamic.length === 0 && <p className="px-1 text-caption text-text-secondary">{t("config.dsh.dynamicPluginsEmpty")}</p>}
 			{dynamic.map((plugin) => (
 				<div key={plugin.pluginId} className="flex flex-col gap-1 rounded-lg border border-border-subtle bg-bg-panel/60 px-3 py-2">
 					<div className="flex min-w-0 items-center gap-2">
 						<Boxes size={13} className="shrink-0 text-muted-foreground" aria-hidden="true" />
 						<code className="min-w-0 flex-1 truncate text-control font-medium text-foreground">{plugin.pluginId}</code>
-						<span className={cn(
-							"shrink-0 rounded px-1.5 py-0.5 text-micro font-medium",
-							plugin.activeRun ? "bg-primary/15 text-primary" : "bg-accent/50 text-text-secondary",
-						)}>
-							{plugin.activeRun ? t("config.dsh.pluginRunning") : t("config.dsh.pluginStopped")}
-						</span>
+						<span className={cn("shrink-0 rounded px-1.5 py-0.5 text-micro font-medium", plugin.activeRun ? "bg-primary/15 text-primary" : "bg-accent/50 text-text-secondary")}>{plugin.activeRun ? t("config.dsh.pluginRunning") : t("config.dsh.pluginStopped")}</span>
 					</div>
 					{plugin.packages.map((pkg) => (
 						<div key={pkg.packageId} className="flex min-w-0 items-center gap-2">
@@ -424,27 +354,20 @@ function PluginsTab(props: { sessionId: string }) {
 								size="sm"
 								className="h-6 shrink-0 px-2 text-micro"
 								disabled={busy || Boolean(plugin.activeRun)}
-								onClick={() => void run(
-									() => dshPluginAction(plugin.pluginId, "run", {
-										sessionId: props.sessionId,
-										packageId: pkg.packageId,
-									}),
-									"config.dsh.pluginRunStarted",
-								)}
+								onClick={() =>
+									void run(
+										() =>
+											dshPluginAction(plugin.pluginId, "run", {
+												sessionId: props.sessionId,
+												packageId: pkg.packageId,
+											}),
+										"config.dsh.pluginRunStarted",
+									)
+								}
 							>
 								{t("config.dsh.pluginRun")}
 							</Button>
-							<Button
-								type="button"
-								variant="ghost"
-								size="sm"
-								className="h-6 shrink-0 px-2 text-micro"
-								disabled={busy || !plugin.activeRun}
-								onClick={() => void run(
-									() => dshPluginAction(plugin.pluginId, "stop", { sessionId: props.sessionId }),
-									"config.dsh.pluginStoppedToast",
-								)}
-							>
+							<Button type="button" variant="ghost" size="sm" className="h-6 shrink-0 px-2 text-micro" disabled={busy || !plugin.activeRun} onClick={() => void run(() => dshPluginAction(plugin.pluginId, "stop", { sessionId: props.sessionId }), "config.dsh.pluginStoppedToast")}>
 								{t("config.dsh.pluginStop")}
 							</Button>
 							<Button
@@ -459,10 +382,7 @@ function PluginsTab(props: { sessionId: string }) {
 										return;
 									}
 									setConfirmUninstallId(null);
-									void run(
-										() => dshPluginAction(plugin.pluginId, "uninstall", { sessionId: props.sessionId }),
-										"config.dsh.pluginUninstalled",
-									);
+									void run(() => dshPluginAction(plugin.pluginId, "uninstall", { sessionId: props.sessionId }), "config.dsh.pluginUninstalled");
 								}}
 							>
 								{confirmUninstallId === plugin.pluginId ? t("common.confirm") : t("config.dsh.pluginUninstall")}
@@ -479,9 +399,7 @@ function PluginsTab(props: { sessionId: string }) {
 						{staticEntries.map((entry) => (
 							<div key={entry.entryId} className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1">
 								<code className="min-w-0 flex-1 truncate text-caption text-text-secondary">{entry.moduleName}</code>
-								<span className="shrink-0 text-micro text-text-tertiary">
-									{entry.enabled ? t("config.dsh.pluginEnabled") : t("config.dsh.pluginDisabled")}
-								</span>
+								<span className="shrink-0 text-micro text-text-tertiary">{entry.enabled ? t("config.dsh.pluginEnabled") : t("config.dsh.pluginDisabled")}</span>
 							</div>
 						))}
 					</div>

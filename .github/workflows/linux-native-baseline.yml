@@ -1,0 +1,110 @@
+name: Linux Native Baseline
+
+# 验证 Linux 原生模块（node-pty）落在 glibc 2.28 基线上。
+#
+# 背景：ubuntu-24.04(-arm) 自带 glibc 2.39，`npm ci` 现编的 pty.node 会记录 GLIBC_2.34
+# （openpty/forkpty 自 glibc 2.34 起从 libutil.so.1 并入 libc.so.6），在统信 UOS 20 /
+# 麒麟 V10（glibc 2.28）上 dlopen 失败；而 node-pty 的 loader 会把真实错误覆盖成
+# "Cannot find module './prebuilds/linux-arm64//pty.node'"，看起来像打包漏了原生模块。
+# 修法与判定标准见 scripts/linux-native-baseline.js。
+#
+# push 触发是给「尚未进入默认分支」的阶段用的：workflow_dispatch 只对默认分支上已有的
+# workflow 生效，分支上新增的 workflow 只能靠 push 事件首次注册。
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ci/linux-native-baseline
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    name: Linux ${{ matrix.arch }} baseline + packaged artifact
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 证据一：npm ci 在 runner 的 glibc 上编出来的 pty.node 超出 2.28 基线（预期 FAIL）
+      - name: Report native module requirements (before rebuild)
+        run: node scripts/linux-native-baseline.js scan --root node_modules
+
+      - name: Rebuild node-pty on the glibc 2.28 baseline (Debian 10 container)
+        run: node scripts/linux-native-baseline.js rebuild --platform linux-${{ matrix.arch }}
+
+      # 证据二：重建后 node-pty 全部副本都回到 2.28 基线内（门禁，超限即失败）
+      - name: Verify node-pty artifacts stay within the baseline
+        run: node scripts/linux-native-baseline.js verify-node-pty --platform linux-${{ matrix.arch }}
+
+      # 证据三：真的能加载并 spawn（只验版本号无法排除「能解析但跑不起来」）
+      - name: Smoke test on Debian 10 (glibc 2.28)
+        run: docker run --rm -v "$PWD:/w" -w /w node:18-buster-slim node /w/scripts/linux-native-baseline.js smoke --module-dir /w/node_modules/node-pty
+
+      - name: Smoke test on Debian 12 (glibc 2.36)
+        run: docker run --rm -v "$PWD:/w" -w /w node:18-bookworm-slim node /w/scripts/linux-native-baseline.js smoke --module-dir /w/node_modules/node-pty
+
+      - name: Smoke test on the runner toolchain
+        run: node scripts/linux-native-baseline.js smoke --module-dir node_modules/node-pty
+
+      - name: Generate app icon
+        run: npm run make-icon
+
+      - name: Build renderer and main bundles
+        run: npm run build
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+
+      - name: Package Linux ${{ matrix.arch }} deb
+        run: npx electron-builder --linux deb --${{ matrix.arch }} --publish never
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 证据四：跟 release.yml 同一条命令——打进安装包的 pty.node 必须落在基线内
+      - name: Extract packaged deb and locate app.asar.unpacked
+        run: |
+          set -euo pipefail
+          extract="$RUNNER_TEMP/pideck-deb"
+          rm -rf "$extract"
+          mkdir -p "$extract"
+          dpkg-deb -x release/*.deb "$extract"
+          unpacked="$(find "$extract" -maxdepth 4 -type d -name app.asar.unpacked | head -n 1)"
+          if [ -z "$unpacked" ]; then
+            echo "找不到 app.asar.unpacked"
+            exit 1
+          fi
+          ls -l "$unpacked/node_modules/node-pty/build/Release/pty.node"
+          echo "PIDECK_UNPACKED=$unpacked" >> "$GITHUB_ENV"
+
+      - name: Verify packaged native modules against the glibc 2.28 baseline
+        run: node scripts/linux-native-baseline.js scan --root "$PIDECK_UNPACKED" --fail
+
+      - name: Smoke test packaged pty.node on Debian 10 (glibc 2.28)
+        run: docker run --rm -v "$PIDECK_UNPACKED:/pkg" -v "$PWD:/repo" -w /pkg node:18-buster-slim node /repo/scripts/linux-native-baseline.js smoke --module-dir /pkg/node_modules/node-pty
+
+      - name: Upload rebuilt artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pty-node-linux-${{ matrix.arch }}
+          if-no-files-found: error
+          path: node_modules/node-pty/build/Release/pty.node

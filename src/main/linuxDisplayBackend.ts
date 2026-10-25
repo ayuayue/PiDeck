@@ -43,9 +43,7 @@ function shouldDisableGpuForXWayland(env: NodeJS.ProcessEnv) {
  * 未设置时仅当桌面宠物已启用（petEnabled）才应用，未启用宠物的用户走原生
  * Wayland，宠物按 PetWindowCaps 探测结果降级为圆角小窗。
  */
-export function getLinuxDisplayBackendSwitches(
-	input: DisplayBackendInput = {},
-): CommandLineSwitch[] {
+export function getLinuxDisplayBackendSwitches(input: DisplayBackendInput = {}): CommandLineSwitch[] {
 	const platform = input.platform ?? process.platform;
 	const env = input.env ?? process.env;
 	const argv = input.argv ?? process.argv;
@@ -60,9 +58,7 @@ export function getLinuxDisplayBackendSwitches(
 	// 默认仅宠物启用时才强制 XWayland；显式 =x11 视为无条件开启。
 	if (requestedBackend !== "x11" && input.petEnabled !== true) return [];
 
-	const isWaylandSession =
-		normalizeBackend(env.XDG_SESSION_TYPE) === "wayland" ||
-		Boolean(env.WAYLAND_DISPLAY);
+	const isWaylandSession = normalizeBackend(env.XDG_SESSION_TYPE) === "wayland" || Boolean(env.WAYLAND_DISPLAY);
 	const hasXWaylandDisplay = Boolean(env.DISPLAY);
 	if (!isWaylandSession || !hasXWaylandDisplay) return [];
 
@@ -75,12 +71,7 @@ export function getLinuxDisplayBackendSwitches(
 
 export function applyLinuxDisplayBackendWorkaround(petEnabled?: boolean) {
 	const switches = getLinuxDisplayBackendSwitches({ petEnabled });
-	if (
-		switches.some(
-			(item) => item.name === "ozone-platform" && item.value === "x11",
-		) &&
-		shouldDisableGpuForXWayland(process.env)
-	) {
+	if (switches.some((item) => item.name === "ozone-platform" && item.value === "x11") && shouldDisableGpuForXWayland(process.env)) {
 		app.disableHardwareAcceleration();
 	}
 	for (const item of switches) {
@@ -90,7 +81,5 @@ export function applyLinuxDisplayBackendWorkaround(petEnabled?: boolean) {
 }
 
 export function isUsingLinuxXWaylandWorkaround(petEnabled?: boolean) {
-	return getLinuxDisplayBackendSwitches({ petEnabled }).some(
-		(item) => item.name === "ozone-platform" && item.value === "x11",
-	);
+	return getLinuxDisplayBackendSwitches({ petEnabled }).some((item) => item.name === "ozone-platform" && item.value === "x11");
 }

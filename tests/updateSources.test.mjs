@@ -25,7 +25,11 @@ function loadTsModule(filePath, deps) {
 		{
 			module,
 			exports: module.exports,
-			require: (name) => deps[name] ?? (() => { throw new Error(`unexpected require: ${name}`); })(),
+			require: (name) =>
+				deps[name] ??
+				(() => {
+					throw new Error(`unexpected require: ${name}`);
+				})(),
 			console,
 			URL, // vm 沙箱默认无 URL 全局，normalizeCustomMirrorHost 依赖它校验协议
 		},
@@ -42,73 +46,37 @@ const mainModule = loadTsModule("src/main/update/updateSources.ts", {
 });
 
 const { normalizeUpdateSource, updateSourceFeedUrl, updateSourceLatestReleaseUrl } = mainModule;
-const { normalizeCustomMirrorHost } = shared;
+const { gitHubLatestDownloadBase, atomGitFeedUrl, atomGitLatestReleaseApiUrl, normalizeCustomMirrorHost } = shared;
 
 test("normalizeUpdateSource: 已知 id 原样保留", () => {
+	assert.equal(normalizeUpdateSource("atomgit"), "atomgit");
 	assert.equal(normalizeUpdateSource("github"), "github");
-	assert.equal(normalizeUpdateSource("ghfast"), "ghfast");
-	assert.equal(normalizeUpdateSource("ghproxy-net"), "ghproxy-net");
-	assert.equal(normalizeUpdateSource("ghproxy-cxkpro"), "ghproxy-cxkpro");
-	assert.equal(normalizeUpdateSource("custom"), "custom");
 });
 
-test("normalizeUpdateSource: 未知/非字符串回退 github", () => {
-	assert.equal(normalizeUpdateSource("hacked-source"), "github");
-	assert.equal(normalizeUpdateSource(undefined), "github");
-	assert.equal(normalizeUpdateSource(null), "github");
-	assert.equal(normalizeUpdateSource(42), "github");
-	assert.equal(normalizeUpdateSource(""), "github");
+test("normalizeUpdateSource: 未知/非字符串回退 atomgit（默认首选）", () => {
+	assert.equal(normalizeUpdateSource("ghfast"), "atomgit");
+	assert.equal(normalizeUpdateSource("custom"), "atomgit");
+	assert.equal(normalizeUpdateSource("hacked-source"), "atomgit");
+	assert.equal(normalizeUpdateSource(undefined), "atomgit");
+	assert.equal(normalizeUpdateSource(null), "atomgit");
+	assert.equal(normalizeUpdateSource(42), "atomgit");
+	assert.equal(normalizeUpdateSource(""), "atomgit");
 });
 
 test("updateSourceFeedUrl: github 源返回 null（走内置 app-update.yml 通道）", () => {
 	assert.equal(updateSourceFeedUrl("github", null), null);
-	// 传了自定义 host 也不影响 github 源
 	assert.equal(updateSourceFeedUrl("github", "https://custom.example.com"), null);
 });
 
-test("updateSourceFeedUrl: 预设镜像生成 generic feed baseUrl", () => {
-	assert.equal(
-		updateSourceFeedUrl("ghfast"),
-		"https://ghfast.top/https://github.com/ayuayue/PiDeck/releases/latest/download",
-	);
-	assert.equal(
-		updateSourceFeedUrl("ghproxy-net"),
-		"https://ghproxy.net/https://github.com/ayuayue/PiDeck/releases/latest/download",
-	);
-	assert.equal(
-		updateSourceFeedUrl("ghproxy-cxkpro"),
-		"https://ghproxy.cxkpro.top/https://github.com/ayuayue/PiDeck/releases/latest/download",
-	);
+test("updateSourceFeedUrl: atomgit 源生成 AtomGit generic feed baseUrl", () => {
+	assert.equal(updateSourceFeedUrl("atomgit"), "https://atomgit.com/ayuayue/PiDeck/releases/download/latest");
+	assert.equal(atomGitFeedUrl(), "https://atomgit.com/ayuayue/PiDeck/releases/download/latest");
+	assert.equal(gitHubLatestDownloadBase(), "https://github.com/ayuayue/PiDeck/releases/latest/download");
 });
 
-test("updateSourceFeedUrl: custom 源用自定义前缀拼接", () => {
-	assert.equal(
-		updateSourceFeedUrl("custom", "https://mirror.example.com"),
-		"https://mirror.example.com/https://github.com/ayuayue/PiDeck/releases/latest/download",
-	);
-	// 自定义前缀尾斜杠由 normalize 去掉后再拼接
-	assert.equal(
-		updateSourceFeedUrl("custom", normalizeCustomMirrorHost("https://mirror.example.com/")),
-		"https://mirror.example.com/https://github.com/ayuayue/PiDeck/releases/latest/download",
-	);
-});
-
-test("updateSourceFeedUrl: custom 源无合法前缀回退 null（走官方通道）", () => {
-	assert.equal(updateSourceFeedUrl("custom", null), null);
-	assert.equal(updateSourceFeedUrl("custom", ""), null);
-	// 非 http(s) 前缀视为非法 → null
-	assert.equal(updateSourceFeedUrl("custom", "ftp://mirror.example.com"), null);
-});
-
-test("updateSourceLatestReleaseUrl: macOS manual 检查的镜像页 URL", () => {
-	assert.equal(
-		updateSourceLatestReleaseUrl("ghfast"),
-		"https://ghfast.top/https://github.com/ayuayue/PiDeck/releases/latest",
-	);
-	assert.equal(
-		updateSourceLatestReleaseUrl("custom", "https://mirror.example.com"),
-		"https://mirror.example.com/https://github.com/ayuayue/PiDeck/releases/latest",
-	);
+test("updateSourceLatestReleaseUrl: macOS manual 检查走 AtomGit OpenAPI latest", () => {
+	assert.equal(updateSourceLatestReleaseUrl("atomgit"), "https://api.atomgit.com/api/v5/repos/ayuayue/PiDeck/releases/latest");
+	assert.equal(updateSourceLatestReleaseUrl("atomgit"), atomGitLatestReleaseApiUrl());
 	assert.equal(updateSourceLatestReleaseUrl("github"), null);
 });
 

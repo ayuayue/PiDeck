@@ -31,9 +31,7 @@ function compileModule(filePath, requireOverride) {
 		fileName: filePath,
 	}).outputText;
 	const module = { exports: {} };
-	const localRequire = requireOverride
-		? (specifier) => requireOverride(specifier) ?? nodeRequire(specifier)
-		: nodeRequire;
+	const localRequire = requireOverride ? (specifier) => requireOverride(specifier) ?? nodeRequire(specifier) : nodeRequire;
 	// 生产默认 fetchImpl 用到 fetch/AbortController/setTimeout：单测总是注入 fetchImpl 所以
 	// 不需要这些全局；探查脚本走真实 fetch 路径，必须注入宿主全局。
 	vm.runInNewContext(
@@ -75,7 +73,9 @@ async function probeUrl(url) {
 	try {
 		const response = await fetch(url, { method: "HEAD", headers: { "User-Agent": UA }, redirect: "follow" });
 		if (response.ok) return { ok: true, status: response.status, size: response.headers.get("content-length") };
-	} catch { /* 落到 GET 重试 */ }
+	} catch {
+		/* 落到 GET 重试 */
+	}
 	try {
 		const response = await fetch(url, { headers: { "User-Agent": UA, Range: "bytes=0-0" }, redirect: "follow" });
 		return { ok: response.status === 206 || response.status === 200, status: response.status };
@@ -90,9 +90,20 @@ function runCommand(command, args, timeoutMs = 30_000) {
 		const child = spawn(command, args, { shell: process.platform === "win32", windowsHide: true });
 		let stdout = "";
 		let settled = false;
-		const done = (value) => { if (!settled) { settled = true; clearTimeout(timer); resolve(value); } };
-		const timer = setTimeout(() => { child.kill(); done(null); }, timeoutMs);
-		child.stdout?.on("data", (chunk) => { stdout += chunk; });
+		const done = (value) => {
+			if (!settled) {
+				settled = true;
+				clearTimeout(timer);
+				resolve(value);
+			}
+		};
+		const timer = setTimeout(() => {
+			child.kill();
+			done(null);
+		}, timeoutMs);
+		child.stdout?.on("data", (chunk) => {
+			stdout += chunk;
+		});
 		child.on("error", () => done(null));
 		child.on("close", (code) => done(code === 0 ? stdout.trim() : null));
 	});
@@ -117,57 +128,34 @@ try {
 	process.exit(1);
 }
 
-record(
-	upgrade.hasUpdate === true,
-	"旧客户端判定 hasUpdate=true",
-	`latest=${upgrade.latestVersion}`,
-);
-record(
-	/\/PiDeck\/releases/.test(upgrade.releaseUrl ?? ""),
-	"release 指向 PiDeck 仓库（非旧名 pi-desktop）",
-	upgrade.releaseUrl ?? "(missing)",
-);
-record(
-	(upgrade.assets?.length ?? 0) > 0,
-	"latest.yml 解析出资产清单",
-	`${upgrade.assets?.length ?? 0} 个资产`,
-);
+record(upgrade.hasUpdate === true, "旧客户端判定 hasUpdate=true", `latest=${upgrade.latestVersion}`);
+record(/\/PiDeck\/releases/.test(upgrade.releaseUrl ?? ""), "release 指向 PiDeck 仓库（非旧名 pi-desktop）", upgrade.releaseUrl ?? "(missing)");
+record((upgrade.assets?.length ?? 0) > 0, "latest.yml 解析出资产清单", `${upgrade.assets?.length ?? 0} 个资产`);
 
 const recommended = upgrade.recommendedAsset;
 record(Boolean(recommended), "为本平台选出推荐资产", recommended ? recommended.name : "(none)");
 
 if (recommended) {
 	const head = await probeUrl(recommended.url);
-	record(
-		head.ok,
-		"推荐资产 URL 真实可下载",
-		`${head.status}${head.size ? ` / ${Math.round(Number(head.size) / 1024 / 1024)}MB` : ""}`,
-	);
+	record(head.ok, "推荐资产 URL 真实可下载", `${head.status}${head.size ? ` / ${Math.round(Number(head.size) / 1024 / 1024)}MB` : ""}`);
 }
 
 // 三个平台的 channel 元数据都在（mac/linux 缺失只降级不致命 → 警告不计失败）。
 const tagVersion = upgrade.latestVersion;
 for (const platformName of ["win32", "darwin", "linux"]) {
-	const channel = getChannelFilename(
-		platformName === "darwin" ? "darwin" : platformName === "linux" ? "linux" : "win32",
-	);
+	const channel = getChannelFilename(platformName === "darwin" ? "darwin" : platformName === "linux" ? "linux" : "win32");
 	const url = `https://github.com/${UPDATE_REPO_OWNER}/${UPDATE_REPO}/releases/download/v${tagVersion}/${channel}`;
 	const probe = await probeUrl(url);
-	record(
-		probe.ok || platformName !== "win32",
-		`${platformName} channel 元数据（${channel}）存在`,
-		probe.ok ? "HTTP ok" : `HTTP ${probe.status}${platformName !== "win32" ? "（非本平台，降级路径可兜底，仅警告）" : ""}`,
-	);
+	record(probe.ok || platformName !== "win32", `${platformName} channel 元数据（${channel}）存在`, probe.ok ? "HTTP ok" : `HTTP ${probe.status}${platformName !== "win32" ? "（非本平台，降级路径可兜底，仅警告）" : ""}`);
 }
 
 // REST 兜底端点（仅降级路径使用）：附带你配额受限时的现状，不算失败。
 try {
-	const api = await fetch(
-		`https://api.github.com/repos/${UPDATE_REPO_OWNER}/${UPDATE_REPO}/releases/tags/v${tagVersion}`,
-		{ headers: { Accept: "application/vnd.github+json", "User-Agent": UA } },
-	);
+	const api = await fetch(`https://api.github.com/repos/${UPDATE_REPO_OWNER}/${UPDATE_REPO}/releases/tags/v${tagVersion}`, { headers: { Accept: "application/vnd.github+json", "User-Agent": UA } });
 	console.log(`ℹ REST 兜底端点 HTTP ${api.status}${api.status === 403 ? "（限流，不影响主路径）" : ""}`);
-} catch { console.log("ℹ REST 兜底端点不可达（不影响主路径）"); }
+} catch {
+	console.log("ℹ REST 兜底端点不可达（不影响主路径）");
+}
 
 // ── 场景 A：真实当前版本跑一遍（应无抛错；顺带验证 atom 一致性）──
 console.log(`\n== 场景 A：当前开发版本（${currentVersion}）真实探查 ==`);
@@ -179,11 +167,7 @@ try {
 		installationType: process.platform === "win32" ? "installed" : undefined,
 	});
 	record(true, "当前版本探查完成", `latest=${live.latestVersion}, hasUpdate=${live.hasUpdate}`);
-	record(
-		compareVersions(live.latestVersion, currentVersion) > 0 ? !live.hasUpdate : true,
-		"hasUpdate 与版本比较语义一致",
-		`compareVersions(${live.latestVersion}, ${currentVersion})`,
-	);
+	record(compareVersions(live.latestVersion, currentVersion) > 0 ? !live.hasUpdate : true, "hasUpdate 与版本比较语义一致", `compareVersions(${live.latestVersion}, ${currentVersion})`);
 } catch (error) {
 	record(false, "当前版本探查完成", error instanceof Error ? error.message : String(error));
 }
@@ -195,10 +179,7 @@ for (const client of ["0.6.6", "0.7.0", "0.7.1", "0.7.2-beta", currentVersion]) 
 	console.log(`  客户端 ${client.padEnd(10)} → ${willPrompt ? "提示更新" : "不提示"}`);
 }
 // 预发布语义（semver 对齐）：同版本号下 正式版 > beta，beta 测试客户端会收到正式版提示。
-record(
-	compareVersions("0.7.2", "0.7.2-beta") > 0,
-	"预发布语义：同号正式版高于 beta（beta 客户端能收到正式版提示）",
-);
+record(compareVersions("0.7.2", "0.7.2-beta") > 0, "预发布语义：同号正式版高于 beta（beta 客户端能收到正式版提示）");
 
 // ── Pi CLI 探查（npm registry + 本机 pi，附带信息）──
 console.log(`\n== Pi CLI 探查（npm registry / 本机）==`);

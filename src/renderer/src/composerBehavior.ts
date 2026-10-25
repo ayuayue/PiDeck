@@ -1,11 +1,12 @@
-export type SendShortcut =
-	| "enter-send"
-	| "ctrl-enter-send"
-	| "shift-enter-send";
+export type SendShortcut = "enter-send" | "ctrl-enter-send" | "shift-enter-send";
 
 export type ComposerEnterIntent = "ignore" | "newline" | "send";
 
 import type { AgentBackend, ComposerAgentMode } from "@shared/types";
+import { formatPromptTemplateBlock } from "./components/session/composer/referenceBlocks";
+import { extractFrontmatter, stripFrontmatter } from "./utils/frontmatter";
+import { computeProtectedRanges, overlapsProtected } from "./utils/protectedText";
+import { parseCommandArgs, substituteArgs } from "./utils/templateArgs";
 
 export const PI_DECK_PLAN_MODE_MARKER = "__PI_DECK_PLAN_MODE__";
 export const PI_DECK_GOAL_MODE_MARKER = "__PI_DECK_GOAL_MODE__";
@@ -31,6 +32,8 @@ export type PromptTemplateInfo = {
 	description: string;
 	content: string;
 	argumentHint?: string;
+	scope?: "global" | "project";
+	enabled?: boolean;
 };
 
 /** 从 frontmatter 中提取 argument-hint 元数据 */
@@ -63,9 +66,13 @@ export function toSkillInvocationToken(backend: AgentBackend, name: string): str
  * 无 frontmatter 的纯正文原样返回；frontmatter 后的首个空行不保留。
  */
 export function stripMarkdownFrontmatter(content: string): string {
-	const match = content.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/);
-	if (!match) return content;
-	return content.slice(match[0].length).replace(/^\r?\n/, "");
+	// 「一键插入全文」路径要保留文件原本的换行风格（CRLF 就还是 CRLF），所以不做 pi 那样的
+	// 换行归一；但要容忍 Windows 编辑器常见的两件事：BOM 开头、结束标记写成 `--- `（尾空格）。
+	// 模型侧走的是 utils/frontmatter 的严格版本（pi 对齐）。
+	const withoutBom = content.replace(/^\uFEFF/, "");
+	const match = withoutBom.match(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/);
+	if (!match) return withoutBom;
+	return withoutBom.slice(match[0].length).replace(/^(?:\r?\n)+/, "");
 }
 
 /**
@@ -79,14 +86,19 @@ export function appendContentToDraft(draft: string, content: string): string {
 }
 
 export function parseArgumentHint(content: string): string | undefined {
-	const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-	if (!match) return undefined;
-	for (const line of match[1].split(/\r?\n/)) {
+	// 与 pi 的 frontmatter 提取同一套边界（BOM / 换行归一）：否则会出现
+	// 「模板能展开但菜单里看不到 argument-hint」的古怪现象。
+	const yaml = extractFrontmatter(content).yaml;
+	if (yaml === null) return undefined;
+	for (const line of yaml.split("\n")) {
 		const idx = line.indexOf(":");
 		if (idx === -1) continue;
 		const key = line.slice(0, idx).trim();
 		if (key === "argument-hint") {
-			return line.slice(idx + 1).trim().replace(/^['"]|['"]$/g, "");
+			return line
+				.slice(idx + 1)
+				.trim()
+				.replace(/^['"]|['"]$/g, "");
 		}
 	}
 	// 兜底：从内容正文中扫描 ${name} / ${name:default} 模式，按首次出现顺序推断提示
@@ -129,7 +141,7 @@ const BUILTIN_PROMPT_DESC_CN: Record<string, string> = {
 	fix: "调试并修复问题，包含根因分析",
 	refactor: "重构代码以提升可读性和可维护性",
 	doc: "添加或改进文档和注释",
-explain: "用简洁的语言解释代码或架构",
+	explain: "用简洁的语言解释代码或架构",
 	commit: "根据暂存更改生成约定式提交信息",
 	"commit-own": "只提交自己修改的文件和代码（跳过无关改动）",
 	"commit-split": "提交所有改动，按功能拆分为多个 commit",
@@ -156,23 +168,12 @@ const BUILTIN_PROMPT_DESC_EN: Record<string, string> = {
  * 翻译内置 prompt 模板的 description（UI 展示用）。
  * 非内置模板保持原样。
  */
-export function translateBuiltinPromptDescription(
-	template: PromptTemplateInfo,
-): string {
+export function translateBuiltinPromptDescription(template: PromptTemplateInfo): string {
 	if (!template.path.startsWith("builtin://")) return template.description;
 	// 根据 html[data-theme] 判断语言环境——中文用 CN 映射，其余用 EN
-	const isChinese =
-		typeof document !== "undefined" &&
-		document.documentElement.lang?.startsWith("zh");
+	const isChinese = typeof document !== "undefined" && document.documentElement.lang?.startsWith("zh");
 	const map = isChinese ? BUILTIN_PROMPT_DESC_CN : BUILTIN_PROMPT_DESC_EN;
 	return map[template.name] ?? template.description;
-}
-
-/** 移除 markdown frontmatter 块（--- 包裹的元数据），仅返回正文。
- *  prompt 模板的 content 包含完整原始内容（含 frontmatter），
- *  展开时需剥离 frontmatter，避免 `---\ndescription: xxx\n---` 污染对话消息。 */
-function stripFrontmatter(raw: string): string {
-	return raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
 }
 
 /**
@@ -192,12 +193,15 @@ function stripFrontmatter(raw: string): string {
  *   保持 /name 原样并返回 emptyTemplateName，调用方据此给出明确提示，
  *   避免展开成空白导致主进程“消息不能为空”的误导性拒绝
  * - 展开时剥离 content 中的 frontmatter，避免元数据泄漏到对话消息中
+ * - 展开结果写成自包含 `<prompt_template>` 块：模型仍读完整模板正文，气泡可在重启、
+ *   模板改名或删除后稳定还原为 `/模板名` chip（不依赖当前模板列表）
  */
-export function expandPromptTemplates(
-	message: string,
-	templates: PromptTemplateInfo[],
-): { message: string; description?: string; emptyTemplateName?: string } {
+export function expandPromptTemplates(message: string, templates: PromptTemplateInfo[], options?: { reservedNames?: ReadonlySet<string> }): { message: string; description?: string; emptyTemplateName?: string } {
 	if (!templates.length || !message.includes("/")) return { message };
+	// 后台已经拥有这个名字（pi 扩展命令 / 技能、DSH host 命令）：不能由本地展开抢走。
+	// DSH 的 slash 桥只认「消息以 / 开头」才会 `ctx.commands.execute`，一旦我们把它换成
+	// `<prompt_template>` 块，host 命令就永远不会执行；pi 侧同理（扩展命令在 prompt 前处理）。
+	const reserved = options?.reservedNames;
 
 	// 按 name 长度降序排序，确保正则交替时最长匹配优先
 	const sorted = [...templates].sort((a, b) => b.name.length - a.name.length);
@@ -209,39 +213,71 @@ export function expandPromptTemplates(
 	// 记录展开时发现正文为空的模板名（可能多个，取最后一个即可用于提示）
 	let emptyTemplateName: string | undefined;
 
-	// 构建 /name1|/name2|/name3 的单一正则，捕获命令前后的空白分隔符
-	const escapedNames = sorted.map((t) =>
-		t.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-	);
-	const regex = new RegExp(
-		`(^|\\s)/(${escapedNames.join("|")})(\\s|$)`,
-		"g",
-	);
+	// 命令前边界用**后顾**（`(?<=^|\s)`）、后边界用**前瞻**（`(?=(\s|$))`）：
+	// 两边都不吃掉分隔符，相邻命令 `/a /b` 才能在同一遍扫描里各自被看到（2026-10 复核发现）。
+	const escapedNames = sorted.map((t) => t.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+	const regex = new RegExp(`(?<=^|\\s)/(${escapedNames.join("|")})(?=(\\s|$))`, "g");
 
-	const expanded = message.replace(regex, (_match, prefix, name, suffix) => {
-		matchedName = name;
-		const rawContent = nameToContent.get(name) ?? "/" + name;
+	// 已展开的自包含块（引用 / 会话引用 / 技能 / 模板）是只读区：块内的 `/模板名`
+	// 属于被引用或被引述的原文，替换它会篡改引用内容（2026-10 实测：引用里提到
+	// /commit，落盘后引用正文变成了整份提交模板）。
+	const ranges = computeProtectedRanges(message);
+
+	// 第一遍只收集边界：可展开的命令、要原样保留的命令（后端接管）、保护区起点。
+	// 边界决定「这条命令的参数到哪里结束」——参数不能跨过下一个命令、也不能跨进引用块。
+	const boundaries: number[] = ranges.map((range) => range.start);
+	const expandable: Array<{ start: number; end: number; name: string }> = [];
+	for (let match = regex.exec(message); match !== null; match = regex.exec(message)) {
+		const start = match.index;
+		const end = start + match[0].length;
+		boundaries.push(start);
+		const name = match[1] ?? "";
+		if (!name || reserved?.has(name)) continue;
+		if (overlapsProtected(start, end, ranges)) continue;
+		expandable.push({ start, end, name });
+	}
+	if (expandable.length === 0) return { message };
+	boundaries.sort((left, right) => left - right);
+	/** 本命令参数区间的终点：下一个边界（别的命令 / 引用块起点）或消息末尾。 */
+	const nextBoundary = (from: number) => boundaries.find((position) => position >= from) ?? message.length;
+
+	// 单次遍历（不做级联展开）：模板正文里若恰好出现 `/另一个模板名`，不应被二次展开。
+	let expanded = "";
+	let cursor = 0;
+	for (const command of expandable) {
+		const segmentEnd = nextBoundary(command.end);
+		expanded += message.slice(cursor, command.start);
+		cursor = segmentEnd;
+		const rawContent = nameToContent.get(command.name) ?? "/" + command.name;
 		// 剥离 content 中的 frontmatter 元数据，只保留正文，
 		// 避免 `---\ndescription: xxx\n---` 泄漏到 pi agent 的对话消息中。
 		const content = stripFrontmatter(rawContent);
 		// 正文为空时（如 UI 新建模板只有 frontmatter）不展开，保留 /name 原文：
 		// 直接展开会产出空白/仅分隔符消息，被主进程拒为“消息不能为空”。
 		if (!content.trim()) {
-			emptyTemplateName = name;
-			return _match;
+			emptyTemplateName = command.name;
+			expanded += message.slice(command.start, segmentEnd);
+			continue;
 		}
-		// 命令后有用户输入时用两个换行分隔模板内容和用户输入，提升可读性
-		const separator = suffix && /\s/.test(suffix) ? "\n\n" : "";
-		return prefix + content + separator;
-	});
-
+		matchedName = command.name;
+		// 参数 = 命令之后、下一个边界之前的文本（与 pi 一致地按 bash 规则切词）
+		const rest = message.slice(command.end, segmentEnd).trim();
+		const args = parseCommandArgs(rest);
+		const substituted = substituteArgs(content, args);
+		// 参数替换照 pi：占位符位置填进参数（模型看到原位插入）。
+		// 但**块外仍留一份可见副本**：气泡会把整段模板正文折成 chip，只放在正文里的话，
+		// 用户自己写的话会跟着一起消失（2026-10-22 用户实测：发完看不到自己的指令）。
+		// 代价是模型侧多一次重复（用户参数通常很短），换来“我发的话一直看得见”。
+		expanded += formatPromptTemplateBlock(command.name, substituted);
+		if (rest) expanded += "\n\n" + rest;
+	}
+	expanded += message.slice(cursor);
 	return {
 		message: expanded,
 		description: matchedName ? nameToDescription.get(matchedName) : undefined,
 		emptyTemplateName,
 	};
 }
-
 
 /** DSH 当前目标投影（只取派生模式/首轮 /goal 需要的字段）。 */
 export type DshGoalModeSnapshot = {
@@ -252,17 +288,17 @@ export type DshGoalModeSnapshot = {
  * 桌面端派生 composer 模式。DSH：plan 由 host 持有；goal 由本地选择或进行中/阻塞的目标驱动。
  * 切回普通会把本地 mode 写成 normal，因此 paused 目标不会把选择器锁在目标模式。
  */
-export function deriveComposerAgentMode(input: {
-	backend?: AgentBackend;
-	localMode?: ComposerAgentMode;
-	planModeActive?: boolean;
-	goalPhase?: DshGoalModeSnapshot["phase"];
-}): ComposerAgentMode {
+export function deriveComposerAgentMode(input: { backend?: AgentBackend; localMode?: ComposerAgentMode; planModeActive?: boolean; goalPhase?: DshGoalModeSnapshot["phase"] }): ComposerAgentMode {
 	const localMode = input.localMode;
 	// imagegen 是独立后端：会话为生图后端时恒为生图模式（无 LLM mode 概念）
 	if (input.backend === "imagegen") return "imagegen";
+	// videogen 同理：生视频后端恒为生视频模式（异步任务协议，无 LLM mode 概念）。
+	if (input.backend === "videogen") return "videogen";
 	// 遗留兼容：legacy 生图消息在 pi 会话上，localMode 仍可能是 imagegen，保留
 	if (localMode === "imagegen") return "imagegen";
+	// ACP 无隐藏 agentMessage 通道（plan/goal 的实现载体），恒普通模式；
+	// 不回退 localMode 是防止残留的 pi 会话模式选择误带入发送。
+	if (input.backend === "acp") return "normal";
 	if (input.backend !== "dsh") return localMode ?? "normal";
 	if (input.planModeActive) return "plan";
 	// 用户刚切回普通时 localMode 为 "normal"：即使 pause IPC 尚未落地，也不要把选择器弹回目标。
@@ -277,11 +313,7 @@ export function deriveComposerAgentMode(input: {
  * DSH 没有 pi 的隐藏 agentMessage。首次进入目标且还没有 goal 时，把用户原文改写成 host `/goal`。
  * 已有未完成目标时保持原文，由 resume IPC + 普通 prompt 推进。
  */
-export function applyDshGoalSendTransform(input: {
-	message: string;
-	mode: ComposerAgentMode;
-	goal?: DshGoalModeSnapshot;
-}): string {
+export function applyDshGoalSendTransform(input: { message: string; mode: ComposerAgentMode; goal?: DshGoalModeSnapshot }): string {
 	if (input.mode !== "goal") return input.message;
 	const trimmed = input.message.trim();
 	if (!trimmed || trimmed.startsWith("/")) return input.message;
@@ -291,13 +323,15 @@ export function applyDshGoalSendTransform(input: {
 }
 
 /** 解析 pi-deck-goal-mode widget 行：`phase · rounds/max` + 目标 + 可选阻塞原因。 */
-export function parsePiGoalWidget(lines: readonly string[] | undefined): {
-	phase: "active" | "paused" | "blocked" | "complete";
-	objective: string;
-	roundsStarted: number;
-	maxGoalRounds: number;
-	blockReason?: string;
-} | undefined {
+export function parsePiGoalWidget(lines: readonly string[] | undefined):
+	| {
+			phase: "active" | "paused" | "blocked" | "complete";
+			objective: string;
+			roundsStarted: number;
+			maxGoalRounds: number;
+			blockReason?: string;
+	  }
+	| undefined {
 	if (!lines || lines.length < 2) return undefined;
 	const header = lines[0]?.trim() ?? "";
 	const match = header.match(/^(active|paused|blocked|complete)\s*·\s*(\d+)\s*\/\s*(\d+)\s*$/);
@@ -305,12 +339,7 @@ export function parsePiGoalWidget(lines: readonly string[] | undefined): {
 	const objective = lines[1]?.trim() ?? "";
 	if (!objective) return undefined;
 	const phaseToken = match[1];
-	if (
-		phaseToken !== "active" &&
-		phaseToken !== "paused" &&
-		phaseToken !== "blocked" &&
-		phaseToken !== "complete"
-	) {
+	if (phaseToken !== "active" && phaseToken !== "paused" && phaseToken !== "blocked" && phaseToken !== "complete") {
 		return undefined;
 	}
 	return {
@@ -322,10 +351,7 @@ export function parsePiGoalWidget(lines: readonly string[] | undefined): {
 	};
 }
 
-export function buildComposerPromptSubmission(
-	message: string,
-	mode: ComposerAgentMode,
-): ComposerPromptSubmission {
+export function buildComposerPromptSubmission(message: string, mode: ComposerAgentMode): ComposerPromptSubmission {
 	const trimmed = message.trim();
 	// 斜线命令原样发送，让 pi 解析执行——plan/goal 模式下也能用 /plan off、/goal pause。
 	// 否则隐藏标记前缀会把命令变成普通消息发给 LLM。
@@ -335,15 +361,7 @@ export function buildComposerPromptSubmission(
 		const visibleInstruction = trimmed || "请根据已附加的图片或上下文先制定实施计划。";
 		return {
 			message,
-			agentMessage: [
-				PI_DECK_PLAN_MODE_MARKER,
-				visibleInstruction,
-				"",
-				"请先只做只读分析，不要修改文件。最后必须输出以 `Plan:` 开头的编号计划，格式如下：",
-				"Plan:",
-				"1. 第一步",
-				"2. 第二步",
-			].join("\n"),
+			agentMessage: [PI_DECK_PLAN_MODE_MARKER, visibleInstruction, "", "请先只做只读分析，不要修改文件。最后必须输出以 `Plan:` 开头的编号计划，格式如下：", "Plan:", "1. 第一步", "2. 第二步"].join("\n"),
 		};
 	}
 
@@ -378,19 +396,11 @@ type ComposerKeyboardState = {
  * IME 回车确认会先发出 composing 状态的 Enter，这时必须交给输入法处理，
  * 否则中文输入法里选择英文候选也会被误判为发送消息。
  */
-export function getComposerEnterIntent(
-	event: ComposerKeyboardState,
-	sendShortcut: SendShortcut,
-): ComposerEnterIntent {
+export function getComposerEnterIntent(event: ComposerKeyboardState, sendShortcut: SendShortcut): ComposerEnterIntent {
 	if (event.key !== "Enter") return "ignore";
 	if (isComposingKeyboardEvent(event)) return "ignore";
 
-	const shouldSend =
-		sendShortcut === "enter-send"
-			? !event.ctrlKey && !event.metaKey && !event.shiftKey
-			: sendShortcut === "ctrl-enter-send"
-				? event.ctrlKey || event.metaKey
-				: event.shiftKey;
+	const shouldSend = sendShortcut === "enter-send" ? !event.ctrlKey && !event.metaKey && !event.shiftKey : sendShortcut === "ctrl-enter-send" ? event.ctrlKey || event.metaKey : event.shiftKey;
 
 	if (shouldSend) return "send";
 	return "newline";
@@ -424,15 +434,7 @@ export function isComposingKeyboardEvent(event: ComposerKeyboardState) {
 	// Shift+Enter 不可能是 IME 合成，直接跳过检测
 	if (event.shiftKey) return false;
 	// keyCode/which=229 是部分 Chromium/macOS 输入法在 composition 期间的兼容信号。
-	return Boolean(
-		event.isComposing ||
-			event.nativeEvent?.isComposing ||
-			event.key === "Process" ||
-			event.keyCode === 229 ||
-			event.which === 229 ||
-			event.nativeEvent?.keyCode === 229 ||
-			event.nativeEvent?.which === 229,
-	);
+	return Boolean(event.isComposing || event.nativeEvent?.isComposing || event.key === "Process" || event.keyCode === 229 || event.which === 229 || event.nativeEvent?.keyCode === 229 || event.nativeEvent?.which === 229);
 }
 
 /**
@@ -442,31 +444,72 @@ export function isComposingKeyboardEvent(event: ComposerKeyboardState) {
  * 因此 ArrowUp 闭包里的 renderedPrompt 可能停留在上次 chips/空状态翻转时。
  * 必须优先读 live ref，否则按上键再按下键时会丢掉中间继续输入的部分。
  */
-export function resolveComposerHistoryDraft(params: {
-	activeAgentId: string | null | undefined;
-	livePromptByAgent: Record<string, string>;
-	renderedPrompt: string;
-}): string {
+export function resolveComposerHistoryDraft(params: { activeAgentId: string | null | undefined; livePromptByAgent: Record<string, string>; renderedPrompt: string }): string {
 	const { activeAgentId, livePromptByAgent, renderedPrompt } = params;
 	if (!activeAgentId) return renderedPrompt;
 	return livePromptByAgent[activeAgentId] ?? renderedPrompt;
 }
 
+/** 历史导航按键的处置结果：三种接管方式 + 放行。 */
+export type ComposerHistoryNavIntent = "recall-older" | "recall-newer" | "restore-draft" | "release";
+
+export type ComposerHistoryKeyState = {
+	/** KeyboardEvent.key。 */
+	key: string;
+	/** 光标所在顶层块就是文档第一个块（取自 ProseMirror state，不受软换行影响）。 */
+	atFirstBlock: boolean;
+	/** 光标所在顶层块就是文档最后一个块。 */
+	atLastBlock: boolean;
+	/** 光标上方没有视觉行（软换行后的首视觉行也算）。 */
+	atVisualTop: boolean;
+	/** 光标下方没有视觉行。 */
+	atVisualBottom: boolean;
+	/** -1 表示未在浏览历史。 */
+	historyIndex: number;
+	historyLength: number;
+	/** Shift/Ctrl/Alt/Meta 任意组合。 */
+	modifier: boolean;
+	/** 非折叠选区（选中了文本）。 */
+	hasSelection: boolean;
+};
+
 /**
- * 判断光标是否在第一行/最后一行。
- * 历史导航只在单行边界触发，避免多行编辑时 ArrowUp/Down 抢走光标移动。
+ * 决定 ↑/↓/Esc 是否由 composer 接管，以及接管成什么动作。
+ *
+ * 业务规则（对齐 Claude Code 与同类产品的既定行为）：
+ * - 边界是**视觉行**，不是逻辑行：输入框跨多个视觉行时，↑/↓ 先移动光标；
+ *   光标已在首/末视觉行且确实无路可走时，才走历史。
+ *   只判逻辑行会让软换行后的视觉第 2 行被当成首行，一按 ↑ 就把草稿换成历史消息。
+ * - 两段判定必须相与：atVisual* 只看光标所在块内部的行盒（块内判定），
+ *   atFirstBlock/atLastBlock 才能回答「是不是文档首/末块」——合起来才是
+ *   「整个编辑器里光标上方/下方没有任何视觉行」。
+ * - 方向键上的修饰键一律放行：Shift+↑ 是扩选，Ctrl/Alt/Meta+↑ 是词/段跳转，抢走会让用户没法选词与选择。
+ * - 有选区时方向键一律放行：选中文本时的方向键属于选区调整，拿去回填会连选区一起丢掉。
+ * - 无历史 / 未在浏览时的 ↓ 一律放行（纯光标移动）。
+ * - Esc 不参与上述守卫：它在浏览态的唯一语义就是「放弃回填、还原草稿」，输入框里
+ *   Shift/Alt+Esc 没有竞争语义，把它归入放行反而会让用户困在浏览态。
+ *
+ * IME 合成态不在这里判断：它必须在 keydown 入口统一拦截（那里还要覆盖候选菜单分支），
+ * 调用方保证传进来的按键已经过 isComposingKeyboardEvent 过滤。
  */
-export function getComposerHistoryLineBounds(
-	text: string,
-	cursorPos: number,
-): { isFirstLine: boolean; isLastLine: boolean } {
-	const safePos = Math.max(0, Math.min(cursorPos, text.length));
-	const textBeforeCursor = text.substring(0, safePos);
-	const textAfterCursor = text.substring(safePos);
-	return {
-		isFirstLine: !textBeforeCursor.includes("\n"),
-		isLastLine: !textAfterCursor.includes("\n"),
-	};
+export function resolveComposerHistoryIntent(state: ComposerHistoryKeyState): ComposerHistoryNavIntent {
+	if (state.key === "Escape") return state.historyIndex >= 0 ? "restore-draft" : "release";
+
+	if (state.modifier || state.hasSelection) return "release";
+
+	if (state.key === "ArrowUp") {
+		if (!state.atFirstBlock || !state.atVisualTop) return "release";
+		return state.historyLength > 0 ? "recall-older" : "release";
+	}
+
+	if (state.key === "ArrowDown") {
+		// 未在浏览时 ↓ 永远只是光标下移，不回填。
+		if (state.historyIndex < 0) return "release";
+		if (!state.atLastBlock || !state.atVisualBottom) return "release";
+		return "recall-newer";
+	}
+
+	return "release";
 }
 
 /**
@@ -476,24 +519,17 @@ export function getComposerHistoryLineBounds(
  * 以区分「点叉取消」与「选否」。桌面端若按普通 select 渲染，会误加自定义输入框。
  * 规则：恰好两项，且归一化后恰好覆盖 {yes,no}，不含其它文案。
  */
-export function isYesNoConfirmOptions(
-	options: Array<string | { label?: string; value?: string }> | undefined | null,
-): boolean {
+export function isYesNoConfirmOptions(options: Array<string | { label?: string; value?: string }> | undefined | null): boolean {
 	if (!Array.isArray(options) || options.length !== 2) return false;
 	const labels = options.map((opt) => {
-		const raw =
-			typeof opt === "string"
-				? opt
-				: String(opt?.label ?? opt?.value ?? "");
+		const raw = typeof opt === "string" ? opt : String(opt?.label ?? opt?.value ?? "");
 		return raw.trim().toLowerCase();
 	});
 	// 过滤自定义入口标记，防止异常数据混入后仍被当 confirm
 	if (labels.some((l) => l.startsWith("✎") || l === "__other__")) return false;
 	const yesSet = new Set(["是", "yes", "y", "true", "确认", "ok", "okay"]);
 	const noSet = new Set(["否", "no", "n", "false", "取消"]);
-	const kinds = labels.map((l) =>
-		yesSet.has(l) ? "yes" : noSet.has(l) ? "no" : "other",
-	);
+	const kinds = labels.map((l) => (yesSet.has(l) ? "yes" : noSet.has(l) ? "no" : "other"));
 	return kinds.includes("yes") && kinds.includes("no") && !kinds.includes("other");
 }
 
@@ -506,10 +542,7 @@ export function isYesNoConfirmOptions(
  * 规则：只取 user 角色且有实质文本的消息；跳过空文本与 "!" 开头命令（与
  * recordPromptHistory 的过滤一致）；截断到 limit 条（默认 50，与发送历史一致）。
  */
-export function extractUserPrompts(
-	messages: ReadonlyArray<{ role: string; text: string }>,
-	limit = 50,
-): string[] {
+export function extractUserPrompts(messages: ReadonlyArray<{ role: string; text: string }>, limit = 50): string[] {
 	const prompts: string[] = [];
 	// 消息按时间正序，从后往前取保证最新在前
 	for (let i = messages.length - 1; i >= 0 && prompts.length < limit; i--) {
@@ -523,21 +556,22 @@ export function extractUserPrompts(
 /**
  * 合并「本次运行发送的」与「会话历史已有的」用户输入，供上下键历史导航。
  *
+ * 输出顺序 = 历史导航顺序：索引 0 最新，索引递增越旧（↑ 从 0 往下走）。
+ * 调用方（getPromptHistory）两个来源都已是最近在前：runtimePrompts 由
+ * recordPromptHistory 前置插入，sessionPrompts 来自 extractUserPrompts（同样最新在前）。
+ * 这里**不能再反转 sessionPrompts**：反转会把整段会话历史变成最旧在前，
+ * 表现为 ↑ 跳过最近消息直接回到会话第一条（2026-10 用户反馈）。
+ *
  * 规则：
- * - runtimePrompts 最新在前（recordPromptHistory 的存储顺序）；
- *   sessionPrompts 按时间正序传入，内部反转成最新在前；
+ * - 两段都按「最新在前」直接接续（runtime 段在前，即最近发送优先）；
  * - 全局去重：runtime 优先保留，session 中与已出现条目重复的跳过
  *   （激活前后重复发送同一条时不出现两条）；
  * - 截断到 limit 条（默认 50，与 recordPromptHistory 一致）。
  */
-export function mergePromptHistory(
-	runtimePrompts: readonly string[],
-	sessionPrompts: readonly string[],
-	limit = 50,
-): string[] {
+export function mergePromptHistory(runtimePrompts: readonly string[], sessionPrompts: readonly string[], limit = 50): string[] {
 	const seen = new Set<string>();
 	const merged: string[] = [];
-	for (const prompt of [...runtimePrompts, ...[...sessionPrompts].reverse()]) {
+	for (const prompt of [...runtimePrompts, ...sessionPrompts]) {
 		if (seen.has(prompt)) continue;
 		seen.add(prompt);
 		merged.push(prompt);

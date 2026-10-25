@@ -15,23 +15,22 @@ import initSqlJs from "sql.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 
-const INPUT_JSON =
-  "C:\\Users\\14012\\AppData\\Roaming\\pi-desktop\\chat-workspace\\xueprompt-data\\xueprompt-prompts.json";
+const INPUT_JSON = "C:\\Users\\14012\\AppData\\Roaming\\pi-desktop\\chat-workspace\\xueprompt-data\\xueprompt-prompts.json";
 const OUTPUT_DB = join(ROOT, "resources", "xueprompts.db");
 
 async function main() {
-  if (!existsSync(INPUT_JSON)) {
-    console.error(`输入文件不存在: ${INPUT_JSON}`);
-    process.exit(1);
-  }
-  const raw = readFileSync(INPUT_JSON, "utf8");
-  const records = JSON.parse(raw);
-  console.log(`读取到 ${records.length} 条记录`);
+	if (!existsSync(INPUT_JSON)) {
+		console.error(`输入文件不存在: ${INPUT_JSON}`);
+		process.exit(1);
+	}
+	const raw = readFileSync(INPUT_JSON, "utf8");
+	const records = JSON.parse(raw);
+	console.log(`读取到 ${records.length} 条记录`);
 
-  const SQL = await initSqlJs();
-  const db = new SQL.Database();
+	const SQL = await initSqlJs();
+	const db = new SQL.Database();
 
-  db.run(`
+	db.run(`
     CREATE TABLE IF NOT EXISTS xueprompts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       slug TEXT UNIQUE NOT NULL,
@@ -43,7 +42,7 @@ async function main() {
     )
   `);
 
-  db.run(`
+	db.run(`
     CREATE TABLE IF NOT EXISTS xueprompt_categories (
       slug TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -51,59 +50,48 @@ async function main() {
     )
   `);
 
-  const insertStmt = db.prepare(
-    `INSERT OR REPLACE INTO xueprompts (slug, url, title, category, content, description)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  );
+	const insertStmt = db.prepare(
+		`INSERT OR REPLACE INTO xueprompts (slug, url, title, category, content, description)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+	);
 
-  const catCount = {};
-  db.run("BEGIN TRANSACTION");
+	const catCount = {};
+	db.run("BEGIN TRANSACTION");
 
-  for (const item of records) {
-    const slug =
-      (item.url ?? "").split("/").filter(Boolean).pop() ||
-      `prompt-${Math.random().toString(36).slice(2, 8)}`;
+	for (const item of records) {
+		const slug = (item.url ?? "").split("/").filter(Boolean).pop() || `prompt-${Math.random().toString(36).slice(2, 8)}`;
 
-    insertStmt.run([
-      slug,
-      item.url ?? "",
-      item.title ?? "",
-      item.category ?? "",
-      item.content ?? "",
-      item.description ?? "",
-    ]);
+		insertStmt.run([slug, item.url ?? "", item.title ?? "", item.category ?? "", item.content ?? "", item.description ?? ""]);
 
-    const cat = item.category || "未分类";
-    catCount[cat] = (catCount[cat] || 0) + 1;
-  }
-  insertStmt.free();
+		const cat = item.category || "未分类";
+		catCount[cat] = (catCount[cat] || 0) + 1;
+	}
+	insertStmt.free();
 
-  const catInsertStmt = db.prepare(
-    `INSERT OR REPLACE INTO xueprompt_categories (slug, name, count) VALUES (?, ?, ?)`
-  );
-  for (const [name, count] of Object.entries(catCount)) {
-    const slug = name
-      .replace(/[^\w\u4e00-\u9fff]/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "")
-      .toLowerCase();
-    catInsertStmt.run([slug, name, count]);
-  }
-  catInsertStmt.free();
-  db.run("COMMIT");
+	const catInsertStmt = db.prepare(`INSERT OR REPLACE INTO xueprompt_categories (slug, name, count) VALUES (?, ?, ?)`);
+	for (const [name, count] of Object.entries(catCount)) {
+		const slug = name
+			.replace(/[^\w\u4e00-\u9fff]/g, "-")
+			.replace(/-+/g, "-")
+			.replace(/^-|-$/g, "")
+			.toLowerCase();
+		catInsertStmt.run([slug, name, count]);
+	}
+	catInsertStmt.free();
+	db.run("COMMIT");
 
-  const data = db.export();
-  writeFileSync(OUTPUT_DB, Buffer.from(data));
-  console.log(`数据库已写入: ${OUTPUT_DB}`);
-  console.log(`大小: ${(data.length / 1024).toFixed(1)} KB`);
-  console.log(`分类数: ${Object.keys(catCount).length}`);
-  console.log(`提示词数: ${records.length}`);
+	const data = db.export();
+	writeFileSync(OUTPUT_DB, Buffer.from(data));
+	console.log(`数据库已写入: ${OUTPUT_DB}`);
+	console.log(`大小: ${(data.length / 1024).toFixed(1)} KB`);
+	console.log(`分类数: ${Object.keys(catCount).length}`);
+	console.log(`提示词数: ${records.length}`);
 
-  db.close();
-  console.log("\n提示: 可运行 node scripts/compact-xueprompts.mjs 做进一步瘦身");
+	db.close();
+	console.log("\n提示: 可运行 node scripts/compact-xueprompts.mjs 做进一步瘦身");
 }
 
 main().catch((err) => {
-  console.error("转换失败:", err);
-  process.exit(1);
+	console.error("转换失败:", err);
+	process.exit(1);
 });

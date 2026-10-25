@@ -9,33 +9,11 @@ import { cn } from "../../lib/utils";
  * titleClassName / descriptionClassName 用于面板级视觉变体（如设置页的弱化分区标题），
  * 缺省时使用通用默认样式。
  */
-export function SectionHeading(props: {
-	title: ReactNode;
-	description?: ReactNode;
-	className?: string;
-	titleClassName?: string;
-	descriptionClassName?: string;
-}) {
+export function SectionHeading(props: { title: ReactNode; description?: ReactNode; className?: string; titleClassName?: string; descriptionClassName?: string }) {
 	return (
 		<div className={cn("flex flex-col gap-1", props.className)}>
-			<strong
-				className={
-					props.titleClassName ??
-					"text-sm font-semibold leading-5 text-foreground"
-				}
-			>
-				{props.title}
-			</strong>
-			{props.description && (
-				<small
-					className={
-						props.descriptionClassName ??
-						"text-xs font-normal leading-4 text-muted-foreground"
-					}
-				>
-					{props.description}
-				</small>
-			)}
+			<strong className={props.titleClassName ?? "text-control font-semibold leading-5 text-foreground"}>{props.title}</strong>
+			{props.description && <small className={props.descriptionClassName ?? "text-caption font-normal leading-4 text-muted-foreground"}>{props.description}</small>}
 		</div>
 	);
 }

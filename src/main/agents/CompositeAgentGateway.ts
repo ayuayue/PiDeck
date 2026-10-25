@@ -7,12 +7,15 @@ import type {
 	ChatMessage,
 	CreateAgentInput,
 	ImageContent,
+	SessionMessageImageTarget,
+	PiCommand,
 	RewindCheckpointPage,
 	RewindCheckpointPageParams,
 	RewindRestoreResult,
 	RewindRestoreScope,
 	SendPromptInput,
 	SendPromptResult,
+	SessionRuntimeModelSelection,
 	SessionUiResponseInput,
 } from "../../shared/types";
 import type { SessionAgentGateway } from "../sessions/SessionRuntimeCoordinator";
@@ -80,11 +83,7 @@ export class CompositeAgentGateway implements SessionAgentGateway {
 	}
 
 	/** 可选能力存在性检查（不抽方法，避免丢 this）；缺失时抛与旧行为一致的错误，由 Coordinator 转 SESSION_COMMAND_FAILED。 */
-	private requireCapability(
-		gateway: SessionAgentGateway,
-		method: "getCommands" | "exportHtml" | "editMessage" | "deleteMessage" | "setPermission"
-			| "listCheckpoints" | "getCheckpointDiff" | "restoreCheckpoint",
-	): void {
+	private requireCapability(gateway: SessionAgentGateway, method: "getCommands" | "reloadResources" | "exportHtml" | "editMessage" | "deleteMessage" | "setPermission" | "listCheckpoints" | "getCheckpointDiff" | "restoreCheckpoint"): void {
 		if (typeof gateway[method] !== "function") {
 			throw new Error(`CompositeAgentGateway: backend "${gateway.backend}" does not support ${method}`);
 		}
@@ -92,6 +91,27 @@ export class CompositeAgentGateway implements SessionAgentGateway {
 
 	list(): AgentTab[] {
 		return this.gateways.flatMap((gateway) => gateway.list());
+	}
+
+	/**
+	 * 激活/重启/换绑后的状态+消息窗口重下发（index.ts emitReplacementState 消费）。
+	 * pi 网关实现窗口协议（窗口段 + windowStart/totalLength/fileVersion）；其余后端
+	 * 没有 getMessageWindow，回退全量消息（ACP/DSH 的 live 列表本身有界，全量即窗口）。
+	 * 此前 emitReplacementState 只查 pi AgentManager，ACP/DSH 的 tab 查不到直接 return，
+	 * 重启/换绑后的状态与消息窗口重下发全部静默失效（2027-03 审计发现 B）。
+	 */
+	getMessageWindow(agentId: string): {
+		messages: ChatMessage[];
+		windowStart?: number;
+		totalLength: number;
+		fileVersion?: string;
+		windowStartFilePos?: number;
+	} {
+		const gateway = this.owner(agentId);
+		const ownerWindow = (gateway as { getMessageWindow?: (id: string) => { messages: ChatMessage[]; windowStart?: number; totalLength: number; fileVersion?: string; windowStartFilePos?: number } }).getMessageWindow;
+		if (typeof ownerWindow === "function") return ownerWindow.call(gateway, agentId);
+		const messages = gateway.getMessages(agentId);
+		return { messages, totalLength: messages.length };
 	}
 
 	async sendPrompt(input: SendPromptInput): Promise<SendPromptResult> {
@@ -107,6 +127,27 @@ export class CompositeAgentGateway implements SessionAgentGateway {
 		const tab = await gateway.create(input);
 		this.ownerByAgent.set(tab.id, gateway);
 		return tab;
+	}
+
+	/** standby 认领只路由 pi 网关（dsh 无进程池概念）；命中后登记归属供后续 owner() 定位。 */
+	async claimStandbyAgent(input: { projectId: string; sessionId: string; noSession?: boolean }): Promise<AgentTab | null> {
+		const gateway = this.byBackend.get("pi");
+		if (typeof gateway?.claimStandbyAgent !== "function") return null;
+		const tab = await gateway.claimStandbyAgent(input);
+		if (tab) this.ownerByAgent.set(tab.id, gateway);
+		return tab;
+	}
+
+	/** standby 补热只路由 pi 网关；dsh-only 部署不会因此多 spawn pi 进程。 */
+	ensureStandbyAgent(projectId: string): void {
+		this.byBackend.get("pi")?.ensureStandbyAgent?.(projectId);
+	}
+
+	/** 草稿命令预览只路由 pi 网关（dsh 无 standby 池）；网关缺失/失败返回 null。 */
+	async draftCommands(projectId: string): Promise<PiCommand[] | null> {
+		const gateway = this.byBackend.get("pi");
+		if (typeof gateway?.draftCommands !== "function") return null;
+		return gateway.draftCommands(projectId);
 	}
 
 	async restart(agentId: string): Promise<AgentTab> {
@@ -136,10 +177,23 @@ export class CompositeAgentGateway implements SessionAgentGateway {
 		return this.owner(agentId).getRuntimeState(agentId);
 	}
 
+	/** 可选能力转发：error 终态但进程仍存活时的原进程复活（pi 实现；dsh 未实现返回 false）。 */
+	reviveIfProcessAlive(agentId: string): boolean {
+		const gateway = this.owner(agentId);
+		if (typeof gateway.reviveIfProcessAlive !== "function") return false;
+		return gateway.reviveIfProcessAlive(agentId);
+	}
+
 	async getCommands(agentId: string): Promise<unknown[]> {
 		const gateway = this.owner(agentId);
 		this.requireCapability(gateway, "getCommands");
 		return gateway.getCommands!(agentId);
+	}
+
+	async reloadResources(agentId: string): Promise<PiCommand[]> {
+		const gateway = this.owner(agentId);
+		this.requireCapability(gateway, "reloadResources");
+		return gateway.reloadResources!(agentId);
 	}
 
 	async getAvailableModels(agentId: string): Promise<AvailableModel[]> {
@@ -170,10 +224,7 @@ export class CompositeAgentGateway implements SessionAgentGateway {
 		await gateway.deleteMessage?.(agentId, messageId);
 	}
 
-	async listCheckpoints(
-		agentId: string,
-		params?: RewindCheckpointPageParams,
-	): Promise<RewindCheckpointPage> {
+	async listCheckpoints(agentId: string, params?: RewindCheckpointPageParams): Promise<RewindCheckpointPage> {
 		const gateway = this.owner(agentId);
 		this.requireCapability(gateway, "listCheckpoints");
 		return gateway.listCheckpoints!(agentId, params);
@@ -185,11 +236,7 @@ export class CompositeAgentGateway implements SessionAgentGateway {
 		return gateway.getCheckpointDiff!(agentId, checkpointId);
 	}
 
-	async restoreCheckpoint(
-		agentId: string,
-		checkpointId: string,
-		scope: RewindRestoreScope,
-	): Promise<RewindRestoreResult> {
+	async restoreCheckpoint(agentId: string, checkpointId: string, scope: RewindRestoreScope): Promise<RewindRestoreResult> {
 		const gateway = this.owner(agentId);
 		this.requireCapability(gateway, "restoreCheckpoint");
 		return gateway.restoreCheckpoint!(agentId, checkpointId, scope);
@@ -202,35 +249,35 @@ export class CompositeAgentGateway implements SessionAgentGateway {
 	async mutatePersistedSessionMessage(
 		sessionPath: string,
 		messageId: string,
-		operation: "edit" | "delete" | "resend",
+		operation: "edit" | "delete" | "resend" | "remove-image",
 		options?: {
 			newText?: string;
 			environment?: import("../../shared/types").SessionEnvironment;
 			wslDistro?: string;
 			/** 渲染层消息的文件条目 id（meta.entryId），live randomUUID 的文件定位锚点。 */
 			entryId?: string;
+			imageTarget?: SessionMessageImageTarget;
 		},
 	): Promise<{ text: string; images?: ImageContent[] } | undefined> {
 		const gateway = this.resolveBackend("pi");
 		// 必须对象调用：抽成 const mutate = gateway.mutatePersistedSessionMessage 会丢 this，
 		// AgentManager 内部读 this.toSessionHostPath 直接崩（「会话操作失败，请重试」）。
 		if (typeof gateway.mutatePersistedSessionMessage !== "function") {
-			throw new Error(
-				`CompositeAgentGateway: backend "${gateway.backend}" does not support persisted session message mutation`,
-			);
+			throw new Error(`CompositeAgentGateway: backend "${gateway.backend}" does not support persisted session message mutation`);
 		}
 		return gateway.mutatePersistedSessionMessage(sessionPath, messageId, operation, options);
 	}
 
-	async prepareResendFromMessage(
-		agentId: string,
-		messageId: string,
-	): Promise<{ text: string; images?: ImageContent[] }> {
+	async prepareResendFromMessage(agentId: string, messageId: string): Promise<{ text: string; images?: ImageContent[] }> {
 		return this.owner(agentId).prepareResendFromMessage(agentId, messageId);
 	}
 
 	async setModel(agentId: string, provider: string, modelId: string): Promise<unknown> {
 		return this.owner(agentId).setModel(agentId, provider, modelId);
+	}
+
+	async getRuntimeModelThinkingState(agentId: string): Promise<SessionRuntimeModelSelection | undefined> {
+		return this.owner(agentId).getRuntimeModelThinkingState?.(agentId);
 	}
 
 	async setThinking(agentId: string, level: string): Promise<unknown> {
@@ -241,6 +288,12 @@ export class CompositeAgentGateway implements SessionAgentGateway {
 		const gateway = this.owner(agentId);
 		this.requireCapability(gateway, "setPermission");
 		return gateway.setPermission!(agentId, preset);
+	}
+
+	/** 可选能力透传：pi 网关在会话时间线落系统提示；DSH 网关未实现则静默跳过。 */
+	notifyModelPreferenceIgnored(agentId: string, provider: string, modelId: string): void {
+		const gateway = this.owner(agentId);
+		gateway.notifyModelPreferenceIgnored?.(agentId, provider, modelId);
 	}
 
 	async publishRuntimeState(agentId: string): Promise<void> {
@@ -255,20 +308,11 @@ export class CompositeAgentGateway implements SessionAgentGateway {
 		return this.owner(agentId).forkSession(agentId, entryId);
 	}
 
-	async sendUIResponse(
-		agentId: string,
-		requestId: string,
-		response: SessionUiResponseInput["response"],
-	): Promise<unknown> {
+	async sendUIResponse(agentId: string, requestId: string, response: SessionUiResponseInput["response"]): Promise<unknown> {
 		return this.owner(agentId).sendUIResponse(agentId, requestId, response);
 	}
 
-	notifyAskPending(
-		agentId: string,
-		sessionId: string,
-		sessionTitle: string,
-		question: string,
-	): void {
+	notifyAskPending(agentId: string, sessionId: string, sessionTitle: string, question: string): void {
 		for (const gateway of this.gateways) {
 			if (gateway.list().some((tab) => tab.id === agentId)) {
 				gateway.notifyAskPending(agentId, sessionId, sessionTitle, question);

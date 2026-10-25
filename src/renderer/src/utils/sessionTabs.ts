@@ -17,12 +17,7 @@ export type SessionTabOpenMode = "preview" | "permanent";
  * - 已是当前预览：不变；
  * - 否则：替换旧预览 Tab，并登记为新预览。
  */
-export function openPreviewSessionTab(
-	tabs: string[],
-	pinned: readonly string[],
-	previewId: string | null,
-	sessionId: string,
-): { tabs: string[]; previewId: string | null } {
+export function openPreviewSessionTab(tabs: string[], pinned: readonly string[], previewId: string | null, sessionId: string): { tabs: string[]; previewId: string | null } {
 	if (!sessionId) return { tabs: [...tabs], previewId };
 	const isResident = tabs.includes(sessionId) && sessionId !== previewId;
 	// 已在列表且无需改 preview 时复用原数组，避免侧栏重复打开把 jotai Tab 列表打成每帧新引用。
@@ -45,12 +40,7 @@ export function openPreviewSessionTab(
  * - 不在列表则追加到普通区末尾；
  * - 若正是预览 Tab，则清除 preview 标记（斜体 → 正体）。
  */
-export function openPermanentSessionTab(
-	tabs: string[],
-	pinned: readonly string[],
-	previewId: string | null,
-	sessionId: string,
-): { tabs: string[]; previewId: string | null } {
+export function openPermanentSessionTab(tabs: string[], pinned: readonly string[], previewId: string | null, sessionId: string): { tabs: string[]; previewId: string | null } {
 	if (!sessionId) return { tabs: [...tabs], previewId };
 	const alreadyOpen = tabs.includes(sessionId);
 	const nextPreview = previewId === sessionId ? null : previewId;
@@ -68,22 +58,11 @@ export function openPermanentSessionTab(
 }
 
 /** 切换固定状态：pin 后移入固定区末尾；unpin 后移入普通区开头（紧跟固定区）。 */
-export function togglePinSessionTab(
-	tabs: readonly string[],
-	pinned: readonly string[],
-	sessionId: string,
-): { tabs: string[]; pinned: string[] } {
+export function togglePinSessionTab(tabs: readonly string[], pinned: readonly string[], sessionId: string): { tabs: string[]; pinned: string[] } {
 	const isPinned = pinned.includes(sessionId);
-	const nextPinned = isPinned
-		? pinned.filter((id) => id !== sessionId)
-		: [...pinned, sessionId];
+	const nextPinned = isPinned ? pinned.filter((id) => id !== sessionId) : [...pinned, sessionId];
 	const rest = tabs.filter((id) => id !== sessionId);
-	const nextTabs = [
-		...rest.filter((id) => nextPinned.includes(id)),
-		...(isPinned ? [] : [sessionId]),
-		...rest.filter((id) => !nextPinned.includes(id)),
-		...(isPinned ? [sessionId] : []),
-	];
+	const nextTabs = [...rest.filter((id) => nextPinned.includes(id)), ...(isPinned ? [] : [sessionId]), ...rest.filter((id) => !nextPinned.includes(id)), ...(isPinned ? [sessionId] : [])];
 	return { tabs: nextTabs, pinned: nextPinned };
 }
 
@@ -93,22 +72,12 @@ export function togglePinSessionTab(
  * - 交叉拖动（固定 ↔ 普通）：自动转换 source 的固定状态（与 VS Code/浏览器一致），
  *   插入目标区间对应位置。
  */
-export function reorderSessionTabs(
-	tabs: readonly string[],
-	pinned: readonly string[],
-	sourceId: string,
-	targetId: string,
-	position: "before" | "after",
-): { tabs: string[]; pinned: string[] } {
+export function reorderSessionTabs(tabs: readonly string[], pinned: readonly string[], sourceId: string, targetId: string, position: "before" | "after"): { tabs: string[]; pinned: string[] } {
 	if (sourceId === targetId) return { tabs: [...tabs], pinned: [...pinned] };
 	const sourcePinned = pinned.includes(sourceId);
 	const targetPinned = pinned.includes(targetId);
 	// 交叉拖放：源进入目标区域，同步固定集合
-	const nextPinned = sourcePinned === targetPinned
-		? [...pinned]
-		: sourcePinned
-			? pinned.filter((id) => id !== sourceId)
-			: [...pinned, sourceId];
+	const nextPinned = sourcePinned === targetPinned ? [...pinned] : sourcePinned ? pinned.filter((id) => id !== sourceId) : [...pinned, sourceId];
 
 	const rest = tabs.filter((id) => id !== sourceId);
 	const pinnedList = rest.filter((id) => nextPinned.includes(id));
@@ -118,11 +87,19 @@ export function reorderSessionTabs(
 		const at = index === -1 ? list.length : index + (pos === "after" ? 1 : 0);
 		return [...list.slice(0, at), sourceId, ...list.slice(at)];
 	};
-	const nextPinnedList = targetPinned
-		? insert(pinnedList, targetId, position)
-		: pinnedList;
-	const nextNormalList = targetPinned
-		? normalList
-		: insert(normalList, targetId, position);
+	const nextPinnedList = targetPinned ? insert(pinnedList, targetId, position) : pinnedList;
+	const nextNormalList = targetPinned ? normalList : insert(normalList, targetId, position);
 	return { tabs: [...nextPinnedList, ...nextNormalList], pinned: nextPinned };
+}
+
+/**
+ * Ctrl+Tab 循环切换：按 Tab 栏顺序返回目标会话 id（到头回绕）。
+ * 当前会话不在 Tab 列表（分屏聚焦外会话/无 Tab）时，正向切到首个、反向切到末个；
+ * 不足 2 个 Tab 无处可切，返回 null。
+ */
+export function cycleSessionTab(tabs: readonly string[], currentSessionId: string | undefined, direction: 1 | -1): string | null {
+	if (tabs.length < 2) return null;
+	const index = currentSessionId ? tabs.indexOf(currentSessionId) : -1;
+	if (index === -1) return direction === 1 ? tabs[0] : (tabs[tabs.length - 1] ?? null);
+	return tabs[(index + direction + tabs.length) % tabs.length] ?? null;
 }

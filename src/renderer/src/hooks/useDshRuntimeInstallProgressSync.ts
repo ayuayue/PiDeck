@@ -33,11 +33,7 @@ export function useDshRuntimeInstallProgressSync(): void {
 			if (progress.phase === "done") {
 				showNotice(t("dsh.runtime.installed"), 4000);
 			} else if (progress.phase === "error" && progress.error !== "cancelled") {
-				showNotice(
-					t("dsh.runtime.installFailed", { error: progress.error ?? "" }),
-					6000,
-					"error",
-				);
+				showNotice(t("dsh.runtime.installFailed", { error: progress.error ?? "" }), 6000, "error");
 			}
 		});
 	}, [setProgress]);

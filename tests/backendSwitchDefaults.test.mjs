@@ -20,11 +20,15 @@ function loadResolver() {
 		fileName: "backendSwitchDefaults.ts",
 	}).outputText;
 	const module = { exports: {} };
-	vm.runInNewContext(output, {
-		module,
-		exports: module.exports,
-		require: () => ({}),
-	}, { filename: "backendSwitchDefaults.ts" });
+	vm.runInNewContext(
+		output,
+		{
+			module,
+			exports: module.exports,
+			require: () => ({}),
+		},
+		{ filename: "backendSwitchDefaults.ts" },
+	);
 	return module.exports.resolveBackendSwitchDefaults;
 }
 
@@ -33,32 +37,54 @@ const resolve = loadResolver();
 // vm 独立 realm 里创建的对象原型不同，deepEqual 会误报；JSON 往返归一到宿主 realm。
 const plain = (value) => (value && typeof value === "object" ? JSON.parse(JSON.stringify(value)) : value);
 
-	test("dsh→pi 切换：写入 pi 配置解析出的默认模型与思考档位", () => {
-		const result = resolve("pi", {
-			model: { provider: "thetoken", modelId: "deepseek-v4-flash-0731" },
-			thinkingLevel: "max",
-		});
-		assert.deepEqual(plain(result), {
-			model: { provider: "thetoken", modelId: "deepseek-v4-flash-0731" },
-			thinkingLevel: "max",
-		});
+test("dsh→pi 切换：写入 pi 配置解析出的默认模型与思考档位", () => {
+	const result = resolve("pi", {
+		model: { provider: "thetoken", modelId: "deepseek-v4-flash-0731" },
+		thinkingLevel: "max",
 	});
+	assert.deepEqual(plain(result), {
+		model: { provider: "thetoken", modelId: "deepseek-v4-flash-0731" },
+		thinkingLevel: "max",
+	});
+});
 
-	test("dsh→pi 切换：解析结果为空时清空（updateRecord null 语义）", () => {
-		assert.deepEqual(plain(resolve("pi", undefined)), { model: null, thinkingLevel: null });
-		assert.deepEqual(plain(resolve("pi", {})), { model: null, thinkingLevel: null });
-	});
+test("dsh→pi 切换：解析结果为空时清空（updateRecord null 语义）", () => {
+	assert.deepEqual(plain(resolve("pi", undefined)), { model: null, thinkingLevel: null });
+	assert.deepEqual(plain(resolve("pi", {})), { model: null, thinkingLevel: null });
+});
 
-	test("pi→dsh 切换：模型由 DSH 部署默认决定，record 清空", () => {
-		assert.deepEqual(plain(resolve("dsh", {
-			model: { provider: "thetoken", modelId: "deepseek-v4-flash-0731" },
-			thinkingLevel: "max",
-		})), { model: null, thinkingLevel: null });
-	});
+test("pi→dsh 切换：模型由 DSH 部署默认决定，record 清空", () => {
+	assert.deepEqual(
+		plain(
+			resolve("dsh", {
+				model: { provider: "thetoken", modelId: "deepseek-v4-flash-0731" },
+				thinkingLevel: "max",
+			}),
+		),
+		{ model: null, thinkingLevel: null },
+	);
+});
 
-	test("切到 imagegen：独立生图配置，record 同样清空", () => {
-		assert.deepEqual(plain(resolve("imagegen", {
-			model: { provider: "thetoken", modelId: "deepseek-v4-flash-0731" },
-			thinkingLevel: "max",
-		})), { model: null, thinkingLevel: null });
-	});
+test("切到 imagegen：独立生图配置，record 同样清空", () => {
+	assert.deepEqual(
+		plain(
+			resolve("imagegen", {
+				model: { provider: "thetoken", modelId: "deepseek-v4-flash-0731" },
+				thinkingLevel: "max",
+			}),
+		),
+		{ model: null, thinkingLevel: null },
+	);
+});
+
+test("切到 acp：模型由 agent CLI 自决（ACP session/config options），record 清空", () => {
+	assert.deepEqual(
+		plain(
+			resolve("acp", {
+				model: { provider: "thetoken", modelId: "deepseek-v4-flash-0731" },
+				thinkingLevel: "max",
+			}),
+		),
+		{ model: null, thinkingLevel: null },
+	);
+});

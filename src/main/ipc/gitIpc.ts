@@ -1,9 +1,12 @@
-import { ipcMain } from "electron";
+import { dialog, ipcMain, type BrowserWindow } from "electron";
 import { resolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { ipcChannels } from "../../shared/ipc";
 import type { GitDiscardResource, GitGenerateCommitMessageResult, GitWorkspaceDiffGroup } from "../../shared/types";
 import type { GitService } from "../git/GitService";
+import type { GitRefsWatcher } from "../git/GitRefsWatcher";
+import { detectGitExecutable } from "../git/gitExecutable";
+import { execGit } from "../git/gitRun";
 import { listGitRepos, resolveGitCwd } from "../git/gitRepoScope";
 import type { AppLogger } from "../logging/AppLogger";
 import type { PiLocator } from "../pi/PiLocator";
@@ -11,21 +14,17 @@ import { PiRpcClient } from "../pi/PiRpcClient";
 import type { ProjectStore } from "../projects/ProjectStore";
 import type { SettingsStore } from "../settings/SettingsStore";
 import type { WorktreeService } from "../git/WorktreeService";
-import {
-	normalizeSelectedWslProjectPath,
-	parseWslUncPath,
-	toWindowsHostPath,
-	toWslLinuxPath,
-} from "../wsl/WslPaths";
-import {
-	applyPiProxyModeWithProvider,
-	computeGenProxyKey,
-} from "../sessions/sessionProxyPolicy";
+import { normalizeSelectedWslProjectPath, parseWslUncPath, toWindowsHostPath, toWslLinuxPath } from "../wsl/WslPaths";
+import { applyPiProxyModeWithProvider, computeGenProxyKey } from "../sessions/sessionProxyPolicy";
 
 export type GitIpcDeps = {
 	appLogger: Pick<AppLogger, "warn" | "info" | "error">;
 	mainCopy: (key: string, params?: Record<string, string | number>) => string;
 	gitService: GitService;
+	/** refs 变化监听：面板订阅后由主进程推送，push/commit 后角标秒级跟平 */
+	gitRefsWatcher: GitRefsWatcher;
+	/** refs 变化推送需要发往主窗口（宠物窗等其它窗口不订阅） */
+	getMainWindow: () => BrowserWindow | null;
 	piLocator: PiLocator;
 	projectStore: ProjectStore;
 	settingsStore: SettingsStore;
@@ -54,7 +53,11 @@ function stopGenProcess() {
 	genRpcClient?.close();
 	genRpcClient = null;
 	if (genProcess && genProcess.exitCode === null) {
-		try { genProcess.kill(); } catch { /* ignore */ }
+		try {
+			genProcess.kill();
+		} catch {
+			/* ignore */
+		}
 	}
 	genProcess = null;
 	genProcessCwd = "";
@@ -71,14 +74,7 @@ function resetGenIdleTimer() {
 }
 
 /** 确保有一个轻量 pi RPC 进程在运行，跨项目复用 */
-async function ensureGenProcess(
-	projectPath: string,
-	command: string,
-	piLocator: PiLocator,
-	settingsStore: SettingsStore,
-	model: { provider: string; modelId: string },
-	appLogger: Pick<AppLogger, "warn">,
-): Promise<PiRpcClient> {
+async function ensureGenProcess(projectPath: string, command: string, piLocator: PiLocator, settingsStore: SettingsStore, model: { provider: string; modelId: string }, appLogger: Pick<AppLogger, "warn">): Promise<PiRpcClient> {
 	// provider/model 变化时必须重启轻量进程，避免旧进程继续持有上一组选中的模型。
 	// 代理指纹同理：HTTP_PROXY 等环境变量在 spawn 时定格，设置页改代理/名单后不重建
 	// 旧进程会一直直连（或沿用旧代理），表现为「配置了代理但生成摘要没走代理」。
@@ -101,71 +97,35 @@ async function ensureGenProcess(
 		// 贡献的模型（issue #181），进程必须能解析它们，与运行时会话保持一致。
 		// 用户开启「禁用扩展启动」诊断开关（piRpcNoExtensions）时首次也直接不带扩展。
 		const firstWithExtensions = !settingsStore.get().piRpcNoExtensions;
-		return await trySpawnGenProcess(
-			firstWithExtensions,
-			projectPath, command, piLocator, settingsStore, model, appLogger,
-		);
+		return await trySpawnGenProcess(firstWithExtensions, projectPath, command, piLocator, settingsStore, model, appLogger);
 	} catch {
 		// 带扩展启动失败（坏扩展导致崩溃/启动挂起/RPC 未就绪）：
 		// 降级为无扩展重试一次；仍失败则抛出第二轮错误（无扩展基线，更能反映真实状态）。
-		return await trySpawnGenProcess(
-			false,
-			projectPath, command, piLocator, settingsStore, model, appLogger,
-		);
+		return await trySpawnGenProcess(false, projectPath, command, piLocator, settingsStore, model, appLogger);
 	}
 }
 
 /** 生成进程基础参数：默认【加载扩展】（issue #181）；withExtensions=false 时追加
  * --no-extensions 作为坏扩展场景的降级集。 */
 function buildGenArgs(withExtensions: boolean): string[] {
-	return [
-		"--mode", "rpc",
-		"--no-session",
-		"--no-tools",
-		...(withExtensions ? [] : ["--no-extensions"]),
-		"--no-skills",
-		"--no-prompt-templates",
-		"--no-context-files",
-		"--no-themes",
-		"--thinking", "off",
-	];
+	return ["--mode", "rpc", "--no-session", "--no-tools", ...(withExtensions ? [] : ["--no-extensions"]), "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-themes", "--thinking", "off"];
 }
 
 /** 启动轻量 pi RPC 生成进程并完成 set_model；withExtensions 决定是否加载扩展。
  * 失败时清理进程与全局状态并抛错，由 ensureGenProcess 决定是否降级重试。 */
-async function trySpawnGenProcess(
-	withExtensions: boolean,
-	projectPath: string,
-	command: string,
-	piLocator: PiLocator,
-	settingsStore: SettingsStore,
-	model: { provider: string; modelId: string },
-	appLogger: Pick<AppLogger, "warn">,
-): Promise<PiRpcClient> {
+async function trySpawnGenProcess(withExtensions: boolean, projectPath: string, command: string, piLocator: PiLocator, settingsStore: SettingsStore, model: { provider: string; modelId: string }, appLogger: Pick<AppLogger, "warn">): Promise<PiRpcClient> {
 	const modelKey = `${model.provider}\0${model.modelId}`;
 	const settings = settingsStore.get();
 	// WSL pi 需要 Linux cwd（--cd）；Windows spawn 本身仍必须落在主机路径上。
-	const wslCwd = settings.wslEnabled && settings.wslDistro && command.startsWith("wsl://")
-		? toWslLinuxPath(projectPath, { distro: settings.wslDistro })
-		: undefined;
-	const invocation = piLocator.createInvocation(
-		command,
-		buildGenArgs(withExtensions),
-		wslCwd ? { wslCwd } : {},
-	);
-	const spawnCwd = wslCwd && settings.wslDistro
-		? toWindowsHostPath(projectPath, { distro: settings.wslDistro })
-		: projectPath;
+	const wslCwd = settings.wslEnabled && settings.wslDistro && command.startsWith("wsl://") ? toWslLinuxPath(projectPath, { distro: settings.wslDistro }) : undefined;
+	const invocation = piLocator.createInvocation(command, buildGenArgs(withExtensions), wslCwd ? { wslCwd } : {});
+	const spawnCwd = wslCwd && settings.wslDistro ? toWindowsHostPath(projectPath, { distro: settings.wslDistro }) : projectPath;
 
 	const childProcess = spawn(invocation.command, invocation.args, {
 		cwd: spawnCwd,
 		// 与运行时会话同策略：会话 on/off 覆盖 > 模型名单命中强制走代理 > 跟随全局。
 		// 之前只按 piProxyEnabled 全局开关注入，名单内模型（全局关）生成摘要会直连失败。
-		env: piLocator.createProcessEnv(
-			applyPiProxyModeWithProvider(settings, undefined, model.provider, model.modelId),
-			invocation.pathPrefix,
-			invocation.wsl,
-		),
+		env: piLocator.createProcessEnv(applyPiProxyModeWithProvider(settings, undefined, model.provider, model.modelId), invocation.pathPrefix, invocation.wsl),
 		stdio: ["pipe", "pipe", "pipe"],
 		shell: invocation.shell,
 		windowsHide: true,
@@ -174,6 +134,13 @@ async function trySpawnGenProcess(
 	genProcess = childProcess;
 	genProcessCwd = spawnCwd;
 	genProxyKey = computeGenProxyKey(settings, model.provider, model.modelId);
+
+	// spawn 失败（ENOENT/自定义 pi 路径失效/EACCES）时 'error' 事件无监听会直接崩掉主进程（AGENTS.md spawn 纪律）；
+	// 这里只做日志与清理：挂起的 set_model 由 stopGenProcess→rpcClient.close() 统一拒绝，genBusy 由 quickGenerate 的 finally 复位。
+	childProcess.on("error", (error) => {
+		void appLogger.warn("git", "QuickGen process spawn error", { message: error.message });
+		if (genProcess === childProcess) stopGenProcess();
+	});
 
 	genRpcClient = new PiRpcClient(childProcess.stdin!, childProcess.stdout!);
 
@@ -208,14 +175,7 @@ async function trySpawnGenProcess(
 }
 
 /** 通过持久化 RPC 进程快速生成文本，避免每次 fork 新进程 */
-async function quickGenerate(
-	projectPath: string,
-	prompt: string,
-	piLocator: PiLocator,
-	settingsStore: SettingsStore,
-	model: { provider: string; modelId: string },
-	appLogger: Pick<AppLogger, "warn">,
-): Promise<string> {
+async function quickGenerate(projectPath: string, prompt: string, piLocator: PiLocator, settingsStore: SettingsStore, model: { provider: string; modelId: string }, appLogger: Pick<AppLogger, "warn">): Promise<string> {
 	// 复用进程同时只能跑一个生成；并发（连点/跨项目）直接拒绝，由 handler 转友好提示
 	if (genBusy) {
 		throw new Error("Agent is already processing");
@@ -227,12 +187,7 @@ async function quickGenerate(
 	if (settings.wslEnabled && settings.wslDistro && settings.wslUser) {
 		await piLocator.warmWslCommand(settings.wslDistro, settings.wslUser);
 	}
-	const command = piLocator.resolveCommand(
-		settings.customPiPath,
-		settings.wslEnabled,
-		settings.wslDistro,
-		settings.wslUser,
-	);
+	const command = piLocator.resolveCommand(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser);
 
 	try {
 		const rpc = await ensureGenProcess(projectPath, command, piLocator, settingsStore, model, appLogger);
@@ -268,17 +223,20 @@ async function quickGenerate(
 
 			rpc.on("event", onEvent);
 
-			rpc.request({ type: "prompt", message: prompt }).then((response) => {
-				if (!response.success) {
+			rpc
+				.request({ type: "prompt", message: prompt })
+				.then((response) => {
+					if (!response.success) {
+						clearTimeout(timeout);
+						rpc.off("event", onEvent);
+						reject(new Error(response.error ?? "Prompt rejected"));
+					}
+				})
+				.catch((err) => {
 					clearTimeout(timeout);
 					rpc.off("event", onEvent);
-					reject(new Error(response.error ?? "Prompt rejected"));
-				}
-			}).catch((err) => {
-				clearTimeout(timeout);
-				rpc.off("event", onEvent);
-				reject(err);
-			});
+					reject(err);
+				});
 		});
 	} finally {
 		genBusy = false;
@@ -287,23 +245,10 @@ async function quickGenerate(
 
 // ── IPC 注册 ────────────────────────────────────────────────────────
 
-export function registerGitIpc({
-	appLogger,
-	mainCopy,
-	gitService,
-	piLocator,
-	projectStore,
-	settingsStore,
-	worktreeService,
-}: GitIpcDeps): void {
+export function registerGitIpc({ appLogger, mainCopy, gitService, gitRefsWatcher, getMainWindow, piLocator, projectStore, settingsStore, worktreeService }: GitIpcDeps): void {
 	const hostPath = (path: string): string => {
 		const settings = settingsStore.get();
-		if (
-			process.platform !== "win32" ||
-			!settings.wslEnabled ||
-			!settings.wslDistro ||
-			(!path.startsWith("/") && !parseWslUncPath(path))
-		) {
+		if (process.platform !== "win32" || !settings.wslEnabled || !settings.wslDistro || (!path.startsWith("/") && !parseWslUncPath(path))) {
 			return path;
 		}
 		return toWindowsHostPath(path, { distro: settings.wslDistro });
@@ -312,12 +257,7 @@ export function registerGitIpc({
 	const projectHostPath = (project: { path: string }) => hostPath(project.path);
 	const projectStoredPath = (path: string, project: { environment?: string }) => {
 		const settings = settingsStore.get();
-		if (
-			process.platform !== "win32" ||
-			project.environment !== "wsl" ||
-			!settings.wslEnabled ||
-			!settings.wslDistro
-		) {
+		if (process.platform !== "win32" || project.environment !== "wsl" || !settings.wslEnabled || !settings.wslDistro) {
 			return path;
 		}
 		return normalizeSelectedWslProjectPath(path, { distro: settings.wslDistro });
@@ -347,414 +287,371 @@ export function registerGitIpc({
 		return gitService.getBranches(requireGitCwd(projectId, repoPath));
 	});
 
-	ipcMain.handle(
-		ipcChannels.gitCheckout,
-		async (_event, projectId: string, branch: string, repoPath?: string) => {
-			const cwd = requireGitCwd(projectId, repoPath);
-			const result = await gitService.checkout(cwd, branch);
-			// 切换分支可能覆盖未提交的工作区改动：记 warn 审计日志，排查"文件消失"时能定位到切换动作。
-			void appLogger.warn("git", "Branch checked out", { projectId, branch, repoPath: cwd, changed: result });
-			return result;
-		},
-	);
+	ipcMain.handle(ipcChannels.gitCheckout, async (_event, projectId: string, branch: string, repoPath?: string) => {
+		const cwd = requireGitCwd(projectId, repoPath);
+		const result = await gitService.checkout(cwd, branch);
+		// 切换分支可能覆盖未提交的工作区改动：记 warn 审计日志，排查"文件消失"时能定位到切换动作。
+		void appLogger.warn("git", "Branch checked out", { projectId, branch, repoPath: cwd, changed: result });
+		return result;
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitCreateBranch,
-		async (_event, projectId: string, branchName: string, repoPath?: string) => {
-			return gitService.createBranch(requireGitCwd(projectId, repoPath), branchName);
-		},
-	);
+	ipcMain.handle(ipcChannels.gitCreateBranch, async (_event, projectId: string, branchName: string, repoPath?: string) => {
+		return gitService.createBranch(requireGitCwd(projectId, repoPath), branchName);
+	});
 
 	// 差异查看需要文件的 Git HEAD 原始内容作为对比基准；参数是绝对文件路径，后端自行定位仓库根。
-	ipcMain.handle(
-		ipcChannels.gitOriginalContent,
-		async (_event, filePath: string) => {
-			const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
-			return gitService.getOriginalContent(hostPath(filePath), maxBytes);
-		},
-	);
+	ipcMain.handle(ipcChannels.gitOriginalContent, async (_event, filePath: string) => {
+		const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
+		return gitService.getOriginalContent(hostPath(filePath), maxBytes);
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitWorktreeList,
-		async (_event, projectId: string) => {
-			const project = projectStore.get(projectId);
-			if (!project) throw new Error(`Project not found: ${projectId}`);
-			const entries = await worktreeService.list(projectHostPath(project));
-			const storedEntries = entries.map((entry) => ({
-				...entry,
-				path: projectStoredPath(entry.path, project),
-			}));
-			// 每次扫描都同步注册外部新增 worktree，保证侧栏数据和 git 状态一致。
-			for (const wt of storedEntries) {
-				await projectStore.add(wt.path, projectId, project.environment === "wsl" ? "wsl" : "windows");
-			}
-			return storedEntries;
-		},
-	);
+	ipcMain.handle(ipcChannels.gitWorktreeList, async (_event, projectId: string) => {
+		const project = projectStore.get(projectId);
+		if (!project) throw new Error(`Project not found: ${projectId}`);
+		const entries = await worktreeService.list(projectHostPath(project));
+		const storedEntries = entries.map((entry) => ({
+			...entry,
+			path: projectStoredPath(entry.path, project),
+		}));
+		// 每次扫描都同步注册外部新增 worktree，保证侧栏数据和 git 状态一致。
+		for (const wt of storedEntries) {
+			await projectStore.add(wt.path, projectId, project.environment === "wsl" ? "wsl" : "windows");
+		}
+		return storedEntries;
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitWorktreeCreate,
-		async (_event, projectId: string, branchName: string) => {
-			const project = projectStore.get(projectId);
-			if (!project) throw new Error(`Project not found: ${projectId}`);
-			const info = await worktreeService.create(projectHostPath(project), projectId, branchName);
-			const storedPath = projectStoredPath(info.path, project);
-			await projectStore.add(storedPath, projectId, project.environment === "wsl" ? "wsl" : "windows");
-			return { ...info, path: storedPath };
-		},
-	);
+	ipcMain.handle(ipcChannels.gitWorktreeCreate, async (_event, projectId: string, branchName: string) => {
+		const project = projectStore.get(projectId);
+		if (!project) throw new Error(`Project not found: ${projectId}`);
+		const info = await worktreeService.create(projectHostPath(project), projectId, branchName);
+		const storedPath = projectStoredPath(info.path, project);
+		await projectStore.add(storedPath, projectId, project.environment === "wsl" ? "wsl" : "windows");
+		return { ...info, path: storedPath };
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitWorktreeRemove,
-		async (_event, projectId: string, worktreePath: string) => {
-			const project = projectStore.get(projectId);
-			if (!project) throw new Error(`Project not found: ${projectId}`);
-			try {
-				const hostWorktreePath = hostPath(worktreePath);
-				const hostProjectPath = projectHostPath(project);
-				const ok = await worktreeService.remove(hostWorktreePath, hostProjectPath);
-				const normalizeForCompare = (value: string) => {
-					const resolved = resolve(value);
-					return process.platform === "win32" ? resolved.toLowerCase() : resolved;
-				};
-				const normalizedTarget = normalizeForCompare(hostWorktreePath);
-				const stillInGit = (await worktreeService.list(hostProjectPath)).some(
-					(entry) => normalizeForCompare(entry.path) === normalizedTarget,
-				);
-				// 如果 git 已经没有该 worktree（包括用户在外部删过导致 remove 返回 false），
-				// 也要清理 PiDeck 项目记录，否则重启后会从 projects.json 恢复成"删不掉"。
-				if (ok || !stillInGit) {
-					const child = projectStore.findByPath(projectStoredPath(hostWorktreePath, project));
-					if (child) await projectStore.remove(child.id);
-					// worktree 删除 = 物理目录删除（走回收站），记审计日志便于追踪。
-					void appLogger.info("git", "Worktree removed", {
-						projectId,
-						worktreePath,
-						projectRecordRemoved: Boolean(child),
-					});
-					return true;
-				}
-				void appLogger.info("git", "Worktree removal skipped", {
+	ipcMain.handle(ipcChannels.gitWorktreeRemove, async (_event, projectId: string, worktreePath: string) => {
+		const project = projectStore.get(projectId);
+		if (!project) throw new Error(`Project not found: ${projectId}`);
+		try {
+			const hostWorktreePath = hostPath(worktreePath);
+			const hostProjectPath = projectHostPath(project);
+			const ok = await worktreeService.remove(hostWorktreePath, hostProjectPath);
+			const normalizeForCompare = (value: string) => {
+				const resolved = resolve(value);
+				return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+			};
+			const normalizedTarget = normalizeForCompare(hostWorktreePath);
+			const stillInGit = (await worktreeService.list(hostProjectPath)).some((entry) => normalizeForCompare(entry.path) === normalizedTarget);
+			// 如果 git 已经没有该 worktree（包括用户在外部删过导致 remove 返回 false），
+			// 也要清理 PiDeck 项目记录，否则重启后会从 projects.json 恢复成"删不掉"。
+			if (ok || !stillInGit) {
+				const child = projectStore.findByPath(projectStoredPath(hostWorktreePath, project));
+				if (child) await projectStore.remove(child.id);
+				// worktree 删除 = 物理目录删除（走回收站），记审计日志便于追踪。
+				void appLogger.info("git", "Worktree removed", {
 					projectId,
 					worktreePath,
-					reason: "worktree still tracked by git",
+					projectRecordRemoved: Boolean(child),
 				});
-				return false;
-			} catch (error) {
-				void appLogger.error("git", "Worktree remove failed", {
-					projectId,
-					worktreePath,
-					error: error instanceof Error ? error.message : String(error),
-				});
-				throw error;
+				return true;
 			}
-		},
-	);
+			void appLogger.info("git", "Worktree removal skipped", {
+				projectId,
+				worktreePath,
+				reason: "worktree still tracked by git",
+			});
+			return false;
+		} catch (error) {
+			void appLogger.error("git", "Worktree remove failed", {
+				projectId,
+				worktreePath,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			throw error;
+		}
+	});
 
 	// -- Git 增强：提交历史 / 分支对比 / Graph
-	ipcMain.handle(
-		ipcChannels.gitCommitLog,
-		async (_event, projectId: string, options?: { maxEntries?: number; ref?: string; path?: string; allBranches?: boolean }, repoPath?: string) => {
-			const cwd = findGitCwd(projectId, repoPath);
-			if (!cwd) return [];
-			const hostOptions = options?.path ? { ...options, path: hostPath(options.path) } : options;
-			return gitService.getCommitLog(cwd, hostOptions);
-		},
-	);
+	ipcMain.handle(ipcChannels.gitCommitLog, async (_event, projectId: string, options?: { maxEntries?: number; ref?: string; path?: string; allBranches?: boolean }, repoPath?: string) => {
+		const cwd = findGitCwd(projectId, repoPath);
+		if (!cwd) return [];
+		const hostOptions = options?.path ? { ...options, path: hostPath(options.path) } : options;
+		return gitService.getCommitLog(cwd, hostOptions);
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitRefs,
-		async (_event, projectId: string, repoPath?: string) => {
-			const cwd = findGitCwd(projectId, repoPath);
-			if (!cwd) return [];
-			return gitService.getRefs(cwd);
-		},
-	);
+	ipcMain.handle(ipcChannels.gitCommitCount, async (_event, projectId: string, options?: { ref?: string; path?: string; allBranches?: boolean }, repoPath?: string) => {
+		const cwd = findGitCwd(projectId, repoPath);
+		// 找不到仓库时返回 0：徽章在 count<=0 时隐藏，避免把「无仓库」渲染成 NaN。
+		if (!cwd) return 0;
+		const hostOptions = options?.path ? { ...options, path: hostPath(options.path) } : options;
+		return gitService.getCommitCount(cwd, hostOptions);
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitBranchCompare,
-		async (_event, projectId: string, base: string, target: string, repoPath?: string) => {
-			return gitService.compareBranches(requireGitCwd(projectId, repoPath), base, target);
-		},
-	);
+	ipcMain.handle(ipcChannels.gitRefs, async (_event, projectId: string, repoPath?: string) => {
+		const cwd = findGitCwd(projectId, repoPath);
+		if (!cwd) return [];
+		return gitService.getRefs(cwd);
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitCommitDetail,
-		async (_event, projectId: string, ref: string, repoPath?: string) => {
-			const cwd = findGitCwd(projectId, repoPath);
-			if (!cwd) return null;
-			return gitService.getCommitDetail(cwd, ref);
-		},
-	);
+	ipcMain.handle(ipcChannels.gitBranchCompare, async (_event, projectId: string, base: string, target: string, repoPath?: string) => {
+		return gitService.compareBranches(requireGitCwd(projectId, repoPath), base, target);
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitCommitFileDiff,
-		async (_event, projectId: string, ref: string, filePath: string, originalPath?: string, repoPath?: string) => {
-			const cwd = findGitCwd(projectId, repoPath);
-			if (!cwd) return null;
-			const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
-			return gitService.getCommitFileDiff(
-				cwd,
-				ref,
-				hostPath(filePath),
-				originalPath ? hostPath(originalPath) : originalPath,
-				maxBytes,
-			);
-		},
-	);
+	ipcMain.handle(ipcChannels.gitCommitDetail, async (_event, projectId: string, ref: string, repoPath?: string) => {
+		const cwd = findGitCwd(projectId, repoPath);
+		if (!cwd) return null;
+		return gitService.getCommitDetail(cwd, ref);
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitDiffFileBetween,
-		async (_event, projectId: string, ref1: string, ref2: string, filePath: string, repoPath?: string) => {
-			const cwd = findGitCwd(projectId, repoPath);
-			if (!cwd) return "";
-			return gitService.diffFileBetweenRefs(cwd, ref1, ref2, hostPath(filePath));
-		},
-	);
+	ipcMain.handle(ipcChannels.gitCommitFileDiff, async (_event, projectId: string, ref: string, filePath: string, originalPath?: string, repoPath?: string) => {
+		const cwd = findGitCwd(projectId, repoPath);
+		if (!cwd) return null;
+		const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
+		return gitService.getCommitFileDiff(cwd, ref, hostPath(filePath), originalPath ? hostPath(originalPath) : originalPath, maxBytes);
+	});
 
+	ipcMain.handle(ipcChannels.gitDiffFileBetween, async (_event, projectId: string, ref1: string, ref2: string, filePath: string, repoPath?: string) => {
+		const cwd = findGitCwd(projectId, repoPath);
+		if (!cwd) return "";
+		// 与 gitCommitFileDiff 同源上限：分支对比 diff 受 maxEditorFileSizeMB 约束
+		const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
+		return gitService.diffFileBetweenRefs(cwd, ref1, ref2, hostPath(filePath), maxBytes);
+	});
 
 	// Git 工作区状态 + Stage/Unstage
-	ipcMain.handle(
-		ipcChannels.gitStatus,
-		async (_event, projectId: string, repoPath?: string) => {
-			const cwd = findGitCwd(projectId, repoPath);
-			if (!cwd) return { merge: [], index: [], workingTree: [], untracked: [] };
-			return gitService.getStatus(cwd);
-		},
-	);
+	ipcMain.handle(ipcChannels.gitStatus, async (_event, projectId: string, repoPath?: string) => {
+		const cwd = findGitCwd(projectId, repoPath);
+		if (!cwd) return { merge: [], index: [], workingTree: [], untracked: [] };
+		return gitService.getStatus(cwd);
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitWorkspaceFileDiff,
-		async (_event, projectId: string, group: GitWorkspaceDiffGroup, filePath: string, repoPath?: string) => {
-			const cwd = findGitCwd(projectId, repoPath);
-			if (!cwd) return null;
-			const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
-			return gitService.getWorkspaceFileDiff(cwd, group, hostPath(filePath), maxBytes);
-		},
-	);
+	ipcMain.handle(ipcChannels.gitWorkspaceFileDiff, async (_event, projectId: string, group: GitWorkspaceDiffGroup, filePath: string, repoPath?: string) => {
+		const cwd = findGitCwd(projectId, repoPath);
+		if (!cwd) return null;
+		const maxBytes = Math.max(1, settingsStore.get().maxEditorFileSizeMB) * 1024 * 1024;
+		return gitService.getWorkspaceFileDiff(cwd, group, hostPath(filePath), maxBytes);
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitStage,
-		async (_event, projectId: string, paths: string[], repoPath?: string) => {
-			await gitService.stageFiles(requireGitCwd(projectId, repoPath), paths.map(hostPath));
-		},
-	);
+	ipcMain.handle(ipcChannels.gitStage, async (_event, projectId: string, paths: string[], repoPath?: string) => {
+		await gitService.stageFiles(requireGitCwd(projectId, repoPath), paths.map(hostPath));
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitUnstage,
-		async (_event, projectId: string, paths: string[], repoPath?: string) => {
-			await gitService.unstageFiles(requireGitCwd(projectId, repoPath), paths.map(hostPath));
-		},
-	);
+	ipcMain.handle(ipcChannels.gitUnstage, async (_event, projectId: string, paths: string[], repoPath?: string) => {
+		await gitService.unstageFiles(requireGitCwd(projectId, repoPath), paths.map(hostPath));
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitDiscard,
-		async (_event, projectId: string, group: "workingTree" | "untracked", filePath: string, repoPath?: string) => {
-			const cwd = requireGitCwd(projectId, repoPath);
-			try {
-				await gitService.discardFile(cwd, group, hostPath(filePath));
-				// untracked 丢弃 = 删除用户文件（走回收站），记审计日志便于追踪。
-				void appLogger.info("git", "Changes discarded", { projectId, group, filePath, repoPath: cwd });
-			} catch (error) {
-				void appLogger.error("git", "Discard changes failed", {
-					projectId,
-					group,
-					filePath,
-					repoPath: cwd,
-					error: error instanceof Error ? error.message : String(error),
-				});
-				throw error;
-			}
-		},
-	);
-
-	ipcMain.handle(
-		ipcChannels.gitDiscardFiles,
-		async (_event, projectId: string, resources: GitDiscardResource[], repoPath?: string) => {
-			if (
-				!Array.isArray(resources) ||
-				resources.length > 1000 ||
-				resources.some((resource) =>
-					!resource ||
-					(resource.group !== "workingTree" && resource.group !== "untracked") ||
-					typeof resource.path !== "string" ||
-					resource.path.length === 0,
-				)
-			) {
-				throw new Error("Invalid Git discard resources");
-			}
-			const cwd = requireGitCwd(projectId, repoPath);
-			await gitService.discardFiles(
-				cwd,
-				resources.map((resource) => ({ ...resource, path: hostPath(resource.path) })),
-			);
-			void appLogger.info("git", "Changes discarded in batch", {
+	ipcMain.handle(ipcChannels.gitDiscard, async (_event, projectId: string, group: "workingTree" | "untracked", filePath: string, repoPath?: string) => {
+		const cwd = requireGitCwd(projectId, repoPath);
+		try {
+			await gitService.discardFile(cwd, group, hostPath(filePath));
+			// untracked 丢弃 = 删除用户文件（走回收站），记审计日志便于追踪。
+			void appLogger.info("git", "Changes discarded", { projectId, group, filePath, repoPath: cwd });
+		} catch (error) {
+			void appLogger.error("git", "Discard changes failed", {
 				projectId,
-				count: resources.length,
+				group,
+				filePath,
 				repoPath: cwd,
+				error: error instanceof Error ? error.message : String(error),
 			});
-		},
-	);
+			throw error;
+		}
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitCommit,
-		async (_event, projectId: string, message: string, repoPath?: string) => {
-			const cwd = requireGitCwd(projectId, repoPath);
-			await gitService.commit(cwd, message);
-			void appLogger.info("git", "Commit created", { projectId, message, repoPath: cwd });
-		},
-	);
+	ipcMain.handle(ipcChannels.gitDiscardFiles, async (_event, projectId: string, resources: GitDiscardResource[], repoPath?: string) => {
+		if (!Array.isArray(resources) || resources.length > 1000 || resources.some((resource) => !resource || (resource.group !== "workingTree" && resource.group !== "untracked") || typeof resource.path !== "string" || resource.path.length === 0)) {
+			throw new Error("Invalid Git discard resources");
+		}
+		const cwd = requireGitCwd(projectId, repoPath);
+		await gitService.discardFiles(
+			cwd,
+			resources.map((resource) => ({ ...resource, path: hostPath(resource.path) })),
+		);
+		void appLogger.info("git", "Changes discarded in batch", {
+			projectId,
+			count: resources.length,
+			repoPath: cwd,
+		});
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitCherryPick,
-		async (_event, projectId: string, hash: string, repoPath?: string) => {
-			const cwd = requireGitCwd(projectId, repoPath);
-			await gitService.cherryPick(cwd, hash);
-			void appLogger.info("git", "Commit cherry-picked", { projectId, hash, repoPath: cwd });
-		},
-	);
+	ipcMain.handle(ipcChannels.gitCommit, async (_event, projectId: string, message: string, repoPath?: string) => {
+		const cwd = requireGitCwd(projectId, repoPath);
+		await gitService.commit(cwd, message);
+		void appLogger.info("git", "Commit created", { projectId, message, repoPath: cwd });
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitRevert,
-		async (_event, projectId: string, hash: string, repoPath?: string) => {
-			const cwd = requireGitCwd(projectId, repoPath);
-			await gitService.revertCommit(cwd, hash);
-			void appLogger.info("git", "Commit reverted", { projectId, hash, repoPath: cwd });
-		},
-	);
+	ipcMain.handle(ipcChannels.gitCherryPick, async (_event, projectId: string, hash: string, repoPath?: string) => {
+		const cwd = requireGitCwd(projectId, repoPath);
+		await gitService.cherryPick(cwd, hash);
+		void appLogger.info("git", "Commit cherry-picked", { projectId, hash, repoPath: cwd });
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitPush,
-		async (_event, projectId: string, repoPath?: string) => {
-			const cwd = requireGitCwd(projectId, repoPath);
-			await gitService.push(cwd);
-			void appLogger.info("git", "Pushed", { projectId, repoPath: cwd });
-		},
-	);
+	ipcMain.handle(ipcChannels.gitRevert, async (_event, projectId: string, hash: string, repoPath?: string) => {
+		const cwd = requireGitCwd(projectId, repoPath);
+		await gitService.revertCommit(cwd, hash);
+		void appLogger.info("git", "Commit reverted", { projectId, hash, repoPath: cwd });
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitPull,
-		async (_event, projectId: string, repoPath?: string) => {
-			const cwd = requireGitCwd(projectId, repoPath);
-			await gitService.pull(cwd);
-			void appLogger.info("git", "Pulled", { projectId, repoPath: cwd });
-		},
-	);
+	ipcMain.handle(ipcChannels.gitPush, async (_event, projectId: string, repoPath?: string) => {
+		const cwd = requireGitCwd(projectId, repoPath);
+		await gitService.push(cwd);
+		void appLogger.info("git", "Pushed", { projectId, repoPath: cwd });
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitReset,
-		async (_event, projectId: string, hash: string, mode: "soft" | "mixed" | "hard", repoPath?: string) => {
-			const cwd = requireGitCwd(projectId, repoPath);
-			await gitService.resetToCommit(cwd, hash, mode);
-			// hard reset 会丢工作区/暂存区改动（reflog 外的不可恢复路径），warn 级突出显示。
-			void appLogger.warn("git", "Reset to commit", { projectId, hash, mode, repoPath: cwd });
-		},
-	);
+	ipcMain.handle(ipcChannels.gitPull, async (_event, projectId: string, repoPath?: string) => {
+		const cwd = requireGitCwd(projectId, repoPath);
+		await gitService.pull(cwd);
+		void appLogger.info("git", "Pulled", { projectId, repoPath: cwd });
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitDropCommit,
-		async (_event, projectId: string, hash: string, repoPath?: string) => {
-			const cwd = requireGitCwd(projectId, repoPath);
-			await gitService.dropCommit(cwd, hash);
-			void appLogger.warn("git", "Commit dropped", { projectId, hash, repoPath: cwd });
-		},
-	);
+	ipcMain.handle(ipcChannels.gitReset, async (_event, projectId: string, hash: string, mode: "soft" | "mixed" | "hard", repoPath?: string) => {
+		const cwd = requireGitCwd(projectId, repoPath);
+		await gitService.resetToCommit(cwd, hash, mode);
+		// hard reset 会丢工作区/暂存区改动（reflog 外的不可恢复路径），warn 级突出显示。
+		void appLogger.warn("git", "Reset to commit", { projectId, hash, mode, repoPath: cwd });
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitGenerateCommitMessage,
-		async (_event, projectId: string, repoPath?: string): Promise<GitGenerateCommitMessageResult> => {
-			const cwd = findGitCwd(projectId, repoPath);
-			if (!cwd) return { ok: true, message: "" };
+	ipcMain.handle(ipcChannels.gitDropCommit, async (_event, projectId: string, hash: string, repoPath?: string) => {
+		const cwd = requireGitCwd(projectId, repoPath);
+		await gitService.dropCommit(cwd, hash);
+		void appLogger.warn("git", "Commit dropped", { projectId, hash, repoPath: cwd });
+	});
 
-			const diff = await gitService.getStagedDiff(cwd);
-			if (!diff.trim()) return { ok: true, message: "" };
+	ipcMain.handle(ipcChannels.gitGenerateCommitMessage, async (_event, projectId: string, repoPath?: string): Promise<GitGenerateCommitMessageResult> => {
+		const cwd = findGitCwd(projectId, repoPath);
+		if (!cwd) {
+			// 仓库目录没解析出来不等于「模型没返回摘要」：面板刚打开/刚 init/工作树被删时都会走到这里，
+			// 误报会把用户引去查模型设置（issue #338）。
+			void appLogger.warn("git", "Generate commit message failed: repository path unresolved", { projectId, repoPath });
+			return { ok: false, code: "GIT_COMMIT_NO_REPO", message: mainCopy("git.commitMessageNoRepo") };
+		}
 
-			const settings = settingsStore.get();
-			const provider = settings.gitCommitMessageProvider.trim();
-			const modelId = settings.gitCommitMessageModel.trim();
-			if (!provider || !modelId) {
-				// 结构化错误码：渲染层识别后提供“去设置”引导，而不是只显示一行文案
-				return {
-					ok: false,
-					code: "GIT_COMMIT_MODEL_REQUIRED",
-					message: mainCopy("git.commitMessageModelRequired"),
-				};
+		let diff: string;
+		try {
+			diff = await gitService.getStagedDiff(cwd);
+		} catch (err) {
+			// 读 diff 失败（cwd 失效/仓库损坏/git 超时）不能当成「空暂存区」，更不能吞成空串：
+			// 两者文案与后续动作完全不同——空 → 引导先暂存；失败 → 报 git 原始报错。
+			const msg = err instanceof Error ? err.message : String(err);
+			void appLogger.warn("git", "Read staged diff for commit message failed", { error: msg, projectId, repoPath: cwd });
+			return { ok: false, code: "GIT_COMMIT_DIFF_FAILED", message: msg };
+		}
+		if (!diff.trim()) {
+			// 以真实暂存区为准：渲染层分组可能是旧快照（issue #338 的误报场景），必须给它可判别的码
+			void appLogger.info("git", "Generate commit message skipped: nothing staged", { projectId, repoPath: cwd });
+			return { ok: false, code: "GIT_COMMIT_EMPTY_DIFF", message: mainCopy("git.commitMessageEmptyDiff") };
+		}
+
+		const settings = settingsStore.get();
+		const provider = settings.gitCommitMessageProvider.trim();
+		const modelId = settings.gitCommitMessageModel.trim();
+		if (!provider || !modelId) {
+			// 结构化错误码：渲染层识别后提供“去设置”引导，而不是只显示一行文案
+			return {
+				ok: false,
+				code: "GIT_COMMIT_MODEL_REQUIRED",
+				message: mainCopy("git.commitMessageModelRequired"),
+			};
+		}
+
+		// 从设置中读取提示词模板，替换 {diff} 为实际 diff 内容
+		const promptTemplate = settings.gitCommitMessagePrompt || "请根据以下 git diff 生成一条中文 git commit message。\n\n{diff}\n\n直接输出 commit 消息。";
+		const prompt = promptTemplate.replace("{diff}", diff.slice(0, 8000));
+
+		try {
+			const result = await quickGenerate(cwd, prompt, piLocator, settingsStore, { provider, modelId }, appLogger);
+			void appLogger.warn("git", "Generate commit message result", { length: result.length });
+			return { ok: true, message: result.trim() };
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			void appLogger.warn("git", "Generate commit message failed", { error: msg });
+			// pi 的 busy 拒绝是技术性英文，统一转成本地化提示；其余错误保留原文便于排查
+			if (/Agent is already processing/i.test(msg)) {
+				return { ok: false, code: "GIT_COMMIT_BUSY", message: mainCopy("git.commitMessageBusy") };
 			}
-
-			// 从设置中读取提示词模板，替换 {diff} 为实际 diff 内容
-			const promptTemplate = settings.gitCommitMessagePrompt ||
-				"请根据以下 git diff 生成一条中文 git commit message。\n\n{diff}\n\n直接输出 commit 消息。";
-			const prompt = promptTemplate.replace("{diff}", diff.slice(0, 8000));
-
-			try {
-				const result = await quickGenerate(
-					cwd,
-					prompt,
-					piLocator,
-					settingsStore,
-					{ provider, modelId },
-					appLogger,
-				);
-				void appLogger.warn("git", "Generate commit message result", { length: result.length });
-				return { ok: true, message: result.trim() };
-			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
-				void appLogger.warn("git", "Generate commit message failed", { error: msg });
-				// pi 的 busy 拒绝是技术性英文，统一转成本地化提示；其余错误保留原文便于排查
-				if (/Agent is already processing/i.test(msg)) {
-					return { ok: false, code: "GIT_COMMIT_BUSY", message: mainCopy("git.commitMessageBusy") };
-				}
-				if (/timed out/i.test(msg)) {
-					return { ok: false, code: "GIT_COMMIT_TIMEOUT", message: mainCopy("git.commitMessageTimeout") };
-				}
-				return { ok: false, code: "GIT_COMMIT_GENERATE_FAILED", message: msg };
+			if (/timed out/i.test(msg)) {
+				return { ok: false, code: "GIT_COMMIT_TIMEOUT", message: mainCopy("git.commitMessageTimeout") };
 			}
-		},
-	);
+			return { ok: false, code: "GIT_COMMIT_GENERATE_FAILED", message: msg };
+		}
+	});
 
-	ipcMain.handle(
-		ipcChannels.gitInit,
-		async (_event, projectId: string) => {
-			const project = projectStore.get(projectId);
-			if (!project) throw new Error(`Project not found: ${projectId}`);
-			const { execFile } = await import("node:child_process");
-			await execFile("git", ["init"], { cwd: projectHostPath(project) });
-			void appLogger.info("git", "Repository initialized", { projectId, path: project.path });
-		},
-	);
+	ipcMain.handle(ipcChannels.gitInit, async (_event, projectId: string) => {
+		const project = projectStore.get(projectId);
+		if (!project) throw new Error(`Project not found: ${projectId}`);
+		await execGit(["init"], { cwd: projectHostPath(project) });
+		void appLogger.info("git", "Repository initialized", { projectId, path: project.path });
+	});
 
 	// Fetch：刷新远程跟踪引用（定时轮询 ahead/behind 的前置步骤）。
 	// 非仓库直接跳过：面板首次挂载时 status 与 fetch 会并行，不能等 UI 标记。
-	ipcMain.handle(
-		ipcChannels.gitFetch,
-		async (_event, projectId: string, repoPath?: string) => {
-			const cwd = requireGitCwd(projectId, repoPath);
-			if (!(await gitService.isGitRepo(cwd))) return;
-			await gitService.fetch(cwd);
-		},
-	);
+	ipcMain.handle(ipcChannels.gitFetch, async (_event, projectId: string, repoPath?: string) => {
+		const cwd = requireGitCwd(projectId, repoPath);
+		if (!(await gitService.isGitRepo(cwd))) return;
+		await gitService.fetch(cwd);
+	});
 
 	// ahead/behind：驱动 push/pull 角标；无上游返回 null（不显示角标）
-	ipcMain.handle(
-		ipcChannels.gitAheadBehind,
-		async (_event, projectId: string, repoPath?: string) => {
-			return gitService.getAheadBehind(requireGitCwd(projectId, repoPath));
-		},
-	);
+	ipcMain.handle(ipcChannels.gitAheadBehind, async (_event, projectId: string, repoPath?: string) => {
+		return gitService.getAheadBehind(requireGitCwd(projectId, repoPath));
+	});
+
+	// refs 变化监听：面板挂载时订阅、卸载时退订。commit/push/fetch/切分支会改写 refs 签名，
+	// 主进程检出后立即推送，渲染层重读（延迟上限 = watcher 的轮询间隔 1.5 秒）。
+	// 订阅是加速手段而非正确性前提：非 git 目录、读不到文件时 watcher 静默降级，渲染层仍有轮询兜底。
+	// 传下去的是项目内仓库根（可能只是仓库的子目录），watcher 内部再向上解析 toplevel，
+	// 按解析后的仓库去重复用轮询——同一仓库被多个项目根订阅时只跑一份。
+	ipcMain.handle(ipcChannels.gitWatchRefs, (_event, projectId: string, repoPath?: string) => {
+		return gitRefsWatcher.acquire(projectId, requireGitCwd(projectId, repoPath));
+	});
+
+	ipcMain.handle(ipcChannels.gitUnwatchRefs, (_event, watchId: string) => {
+		// 入参不可信：只接受非空字符串；未知 watchId 由 watcher 静默忽略
+		if (typeof watchId !== "string" || watchId === "") return;
+		gitRefsWatcher.release(watchId);
+	});
+
+	// 事件桥：watcher → 渲染层推送。payload 用 watchId 而不是仓库路径，
+	// 多仓项目里 N 个面板共用这条通道，各自比对自己的 id 即可，无需再规范化路径。
+	// 退订由 watcher.disposeAll() 在退出清理时统一清空，无需单独登记。
+	gitRefsWatcher.on((watchId) => {
+		const window = getMainWindow();
+		// 窗口已销毁时 send 会抛：这里只推送，不影响监听本身
+		if (!window || window.isDestroyed()) return;
+		window.webContents.send(ipcChannels.gitRefsChanged, watchId);
+	});
 
 	// 删除变更文件（移入回收站）：路径由 GitService 按 status 白名单校验
-	ipcMain.handle(
-		ipcChannels.gitDeleteFiles,
-		async (_event, projectId: string, paths: string[], repoPath?: string) => {
-			const cwd = requireGitCwd(projectId, repoPath);
-			// 入参不可信：必须是非空字符串数组，防注入
-			if (!Array.isArray(paths) || paths.length === 0 || paths.some((p) => typeof p !== "string" || !p)) {
-				throw new Error("Invalid paths");
-			}
-			await gitService.deleteFiles(cwd, paths.map(hostPath));
-			// 批量删除文件：最高风险操作之一，完整记录路径清单（含数量）便于误删回溯。
-			void appLogger.warn("git", "Files deleted (recycle bin)", { projectId, count: paths.length, paths, repoPath: cwd });
-		},
-	);
+	ipcMain.handle(ipcChannels.gitDeleteFiles, async (_event, projectId: string, paths: string[], repoPath?: string) => {
+		const cwd = requireGitCwd(projectId, repoPath);
+		// 入参不可信：必须是非空字符串数组，防注入
+		if (!Array.isArray(paths) || paths.length === 0 || paths.some((p) => typeof p !== "string" || !p)) {
+			throw new Error("Invalid paths");
+		}
+		await gitService.deleteFiles(cwd, paths.map(hostPath));
+		// 批量删除文件：最高风险操作之一，完整记录路径清单（含数量）便于误删回溯。
+		void appLogger.warn("git", "Files deleted (recycle bin)", { projectId, count: paths.length, paths, repoPath: cwd });
+	});
 
+	ipcMain.handle(ipcChannels.gitDetectExecutable, async (_event, configuredPath?: unknown) => {
+		// 入参不可信：非字符串（含 undefined）一律回落到设置里已持久化的值；
+		// 渲染层传草稿值进来即可在保存前预览「这样配置能不能用」。
+		const configured = typeof configuredPath === "string" ? configuredPath : settingsStore.get().gitExecutablePath;
+		return detectGitExecutable(configured);
+	});
+
+	ipcMain.handle(ipcChannels.gitChooseExecutable, async () => {
+		const options = {
+			properties: ["openFile"],
+			filters:
+				process.platform === "win32"
+					? [
+							{ name: "Executables", extensions: ["exe", "cmd", "bat"] },
+							{ name: "All Files", extensions: ["*"] },
+						]
+					: [{ name: "All Files", extensions: ["*"] }],
+		} satisfies Electron.OpenDialogOptions;
+		const result = await dialog.showOpenDialog(options);
+		return result.canceled ? null : (result.filePaths[0] ?? null);
+	});
 }

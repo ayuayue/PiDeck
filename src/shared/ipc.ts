@@ -1,18 +1,25 @@
 export const ipcChannels = {
 	projectsList: "projects:list",
 	projectsAdd: "projects:add",
+	// 文件夹右键菜单直达：按路径添加项目（渲染层确认后调用；projectsAdd 走系统目录选择框）
+	projectsAddByPath: "projects:add-by-path",
 	projectsRemove: "projects:remove",
 	projectsReorder: "projects:reorder",
 	// 重命名项目显示名（仅改侧栏/标题 label，不改磁盘目录；聊天项目与 worktree 子项目拒绝）
 	projectsRename: "projects:rename",
+	// 项目置顶：置顶项目固定排在普通项目之前（聊天项目恒置顶，主进程拒绝对其置顶）
+	projectsSetPinned: "projects:set-pinned",
 	projectsChanged: "projects:changed",
 	projectResourcesList: "project-resources:list",
+	projectResourcesOpenDirectory: "project-resources:open-directory",
 	projectResourcesCreateSkill: "project-resources:create-skill",
 	projectResourcesDeleteSkill: "project-resources:delete-skill",
 	projectResourcesToggleSkill: "project-resources:toggle-skill",
 	projectResourcesDeleteExtension: "project-resources:delete-extension",
 	projectResourcesToggleExtension: "project-resources:toggle-extension",
+	projectResourcesToggleInherited: "project-resources:toggle-inherited",
 	projectResourcesRenameSkill: "project-resources:rename-skill",
+	projectResourcesDiscovery: "project-resources:discovery",
 	projectsListRoot: "projects:list-root",
 	projectsListWorktreeChildren: "projects:list-worktree-children",
 	projectsToggleWorktreeEnabled: "projects:toggle-worktree-enabled",
@@ -20,12 +27,18 @@ export const ipcChannels = {
 	projectsChooseChatPath: "projects:choose-chat-path",
 	// 设置聊天记录目录并持久化
 	projectsSetChatPath: "projects:set-chat-path",
+	/** 领取 userData 更名（pi-desktop → PiDeck）的一次性迁移提示（消费式：领取后不再返回） */
+	userDataMigrationConsumeNotice: "user-data-migration:consume-notice",
 	editorsList: "editors:list",
 	editorsRedetect: "editors:redetect",
 	editorsUpdate: "editors:update",
 	editorsChooseExecutable: "editors:choose-executable",
 	editorsOpenProject: "editors:open-project",
 	filesList: "files:list",
+	/** 工作区文件名搜索（issue #215）：主进程全盘扫描，不受抽屉懒加载深度限制 */
+	filesSearch: "files:search",
+	/** 工作区文件内容检索（Go file-index sidecar）：未就绪/不可用时回 null，渲染层不展示内容分区 */
+	filesSearchContent: "files:search-content",
 	filesOpen: "files:open",
 	filesShowInFolder: "files:show-in-folder",
 	/** 检测系统可用的文件管理器（打开方式下拉补充入口） */
@@ -35,6 +48,8 @@ export const ipcChannels = {
 	filesReadContent: "files:read-content",
 	/** 批量校验路径是否存在（fs.stat）：AI 回复内文件链接的存在性判定用 */
 	filesPathsExist: "files:paths-exist",
+	/** 单路径 stat（存在性 + 是否目录）：会话内文件链接点击路由用（目录 → 资源管理器打开） */
+	filesStat: "files:stat",
 	filesWriteContent: "files:write-content",
 	filesCreate: "files:create",
 	filesDelete: "files:delete",
@@ -45,12 +60,24 @@ export const ipcChannels = {
 	filesMove: "files:move",
 	/** 读取文件返回 base64 编码的数据 URL，用于图片等二进制文件 */
 	filesReadBase64: "files:read-base64",
-	/** 粘贴大文本转文件：写入受管 paste 目录（项目 .pideck-paste/ 或 userData/paste-files/） */
+	/** 粘贴大文本转文件：新写入一律落 userData/paste-files/（项目路径仅做登记校验） */
 	pasteFilesWrite: "paste-files:write",
 	/** 移除粘贴文件 chip 时同步删除落盘文件（仅限 paste 目录内路径） */
 	pasteFilesDelete: "paste-files:delete",
 	/** 启动清理：删除超过保留期的粘贴文件（默认 7 天） */
 	pasteFilesCleanup: "paste-files:cleanup",
+	/** 设置页占用统计：userData/paste-files + 各项目遗留 .pideck-paste */
+	pasteFilesGetSize: "paste-files:get-size",
+	/** 设置页一键清空两个受管根下的 paste-* 文件 */
+	pasteFilesClearAll: "paste-files:clear-all",
+	/** 通知历史：读取落盘历史（渲染层启动回灌环形缓冲；文件是唯一持久事实，不缓存） */
+	noticeHistoryGet: "notice-history:get",
+	/** 通知历史：追加一条（showNotice 单点记录后 fire-and-forget，坏载荷主进程丢弃并记日志） */
+	noticeHistoryRecord: "notice-history:record",
+	/** 通知历史：清空内存数组并删除落盘文件 */
+	noticeHistoryClear: "notice-history:clear",
+	/** 通知历史：文件占用统计（设置页「缓存与日志」） */
+	noticeHistoryGetSize: "notice-history:get-size",
 	/** 模型目录（pi-ai-catalog）更新：查询内置/覆盖层状态 */
 	catalogUpdateStatus: "catalog:update-status",
 	/** 模型目录更新：检查远端（GitHub main 分支 manifest）是否有新版本 */
@@ -63,6 +90,18 @@ export const ipcChannels = {
 	catalogUpdateRestorePrevious: "catalog:update-restore-previous",
 	/** 模型目录打开文件：用系统默认程序打开当前生效目录文件（覆盖层优先，否则内置） */
 	catalogOpenFile: "catalog:open-file",
+	/** 快捷消息：读取 userData/quick-messages.json（文件缺失时用随包资源清单种子化） */
+	quickMessagesGet: "quick-messages:get",
+	/** 快捷消息：整体保存条目数组（顺序即弹框顺序，空数组代表用户清空） */
+	quickMessagesSave: "quick-messages:save",
+	/** 快捷消息：用系统默认程序打开配置文件（路径由主进程解析，渲染层不传路径） */
+	quickMessagesOpenFile: "quick-messages:open-file",
+	/** 回复快捷操作：读取 userData/reply-actions.json（文件缺失时用随包出厂规则种子化） */
+	replyActionsGet: "reply-actions:get",
+	/** 回复快捷操作：整体保存规则数组（顺序即展示顺序，空数组代表用户清空） */
+	replyActionsSave: "reply-actions:save",
+	/** 回复快捷操作：用系统默认程序打开规则文件（路径由主进程解析，渲染层不传路径） */
+	replyActionsOpenFile: "reply-actions:open-file",
 	sessionsList: "sessions:list",
 	/** Session-first catalog APIs. */
 	sessionsCatalogList: "sessions:catalog-list",
@@ -87,14 +126,13 @@ export const ipcChannels = {
 	sessionsCatalogReadMessagePage: "sessions:catalog-read-message-page",
 	/** 会话 JSONL 过程事件（session/model/thinking/custom/compaction），供轨迹复盘，不进聊天时间线。 */
 	sessionsCatalogReadProcessEvents: "sessions:catalog-read-process-events",
+	sessionsCatalogReadOutline: "sessions:catalog-read-outline",
 	/** pi-subagents 扩展子代理列表：合成 record、桥接快照、工具调用推导。 */
 	sessionsListSubagents: "sessions:list-subagents",
 	/** 会话级文件修改汇总：从会话文件全量显示消息聚合 write/edit/create/patch。 */
-	sessionsListFileChanges: "sessions:list-file-changes",
 	/** 会话级 todo 快照：从会话文件 pi-deck-todo custom 条目重建最新计划。 */
 	sessionsListSessionTodo: "sessions:list-session-todo",
 	/** DSH 会话轨迹系统提示（request/header 事件的 EpochHeader.system；非 DSH/无数据返回 undefined）。 */
-	sessionsCatalogReadDshSystemPrompt: "sessions:catalog-read-dsh-system-prompt",
 	sessionsCatalogReadReferenceMessages: "sessions:catalog-read-reference-messages",
 	/** 按需读取单条消息完整文本（工具结果截断后的「查看完整输出」入口）。 */
 	sessionsCatalogReadMessageFullText: "sessions:catalog-read-message-full-text",
@@ -102,6 +140,8 @@ export const ipcChannels = {
 	sessionsCatalogExportHtml: "sessions:catalog-export-html",
 	/** 无 runtime 时直接改 pi JSONL（编辑消息）。运行中必须先停 Agent。 */
 	sessionsCatalogEditMessage: "sessions:catalog-edit-message",
+	/** 只移除 user 消息中的选中图片；运行中必须先停 Agent。 */
+	sessionsCatalogRemoveMessageImage: "sessions:catalog-remove-message-image",
 	/** 无 runtime 时直接改 pi JSONL（删除消息）。运行中必须先停 Agent。 */
 	sessionsCatalogDeleteMessage: "sessions:catalog-delete-message",
 	/** 无 runtime 时截断 pi JSONL 供重发。运行中必须先停 Agent。 */
@@ -117,6 +157,12 @@ export const ipcChannels = {
 	sessionsRuntimeCompact: "sessions:runtime-compact",
 	sessionsRuntimeState: "sessions:runtime-state",
 	sessionsRuntimeCommands: "sessions:runtime-commands",
+	sessionsRuntimePromptTemplates: "sessions:runtime-prompt-templates",
+	sessionsDraftPromptTemplates: "sessions:draft-prompt-templates",
+	/** 热重载 pi 扩展/技能/提示词（内部 reload 扩展命令；返回刷新后的命令表）。 */
+	sessionsRuntimeReloadResources: "sessions:runtime-reload-resources",
+	/** 草稿会话斜杠命令预览（只读借用 pi standby 进程；不可用返回 null）。 */
+	sessionsDraftCommands: "sessions:draft-commands",
 	/** rewind checkpoint（refs/pi-checkpoints，纯 git，跨后端）。 */
 	sessionsRewindList: "sessions:rewind-list",
 	sessionsRewindDiff: "sessions:rewind-diff",
@@ -125,6 +171,8 @@ export const ipcChannels = {
 	sessionsRuntimeListModels: "sessions:runtime-list-models",
 	/** Pi 当前模型支持的 thinking levels（get_available_thinking_levels）；旧 Pi 返回 undefined 由 UI 回退。 */
 	sessionsRuntimeThinkingLevels: "sessions:runtime-thinking-levels",
+	/** 会话分支树（pi get_tree，只读）：右侧抽屉「分支」面板数据源。 */
+	sessionsGetBranchTree: "sessions:get-branch-tree",
 	sessionsRuntimeExportHtml: "sessions:runtime-export-html",
 	sessionsRuntimeEditMessage: "sessions:runtime-edit-message",
 	sessionsRuntimeDeleteMessage: "sessions:runtime-delete-message",
@@ -140,6 +188,9 @@ export const ipcChannels = {
 	sessionsSetFocusedSession: "sessions:set-focused-session",
 	/** DSH 会话文件路径推导（渲染层右键「复制会话文件路径」；按 dshSessionId + cwd 计算 host 持久化路径）。 */
 	sessionsGetDshSessionPath: "sessions:get-dsh-session-path",
+	sessionsSearchContent: "sessions:search-content",
+	/** 会话内查找（入参 = SessionRecord.id：pi 走 session-index 单文件检索，DSH 走 host 历史投影；命中按时间线返回）。 */
+	sessionsSearchInSession: "sessions:search-in-session",
 	/** DSH 会话内容搜索（session.search；结果最多 20 会话，返回 sessionId + snippet）。 */
 	sessionsSearchDsh: "sessions:search-dsh",
 	/** DSH 创建目标（goal.create；objective 必填，maxGoalRounds 可选）。 */
@@ -148,6 +199,7 @@ export const ipcChannels = {
 	dshGoalAction: "dsh:goal-action",
 	/** DSH 子代理列表（subagent.list 直接子代目录）。 */
 	dshListSubagents: "dsh:list-subagents",
+	dshCancelQueuedMessage: "dsh:cancel-queued-message",
 	/** DSH 子代理历史（subagent.history 只读 transcript）。 */
 	dshSubagentHistory: "dsh:subagent-history",
 	/** DSH 技能目录（skill.list 只读；/name 斜杠调用，G7）。 */
@@ -166,10 +218,62 @@ export const ipcChannels = {
 	dshUnarchive: "dsh:unarchive",
 	/** DSH 永久删除已归档会话：归档目录移入系统回收站（区别于恢复）。 */
 	dshDeleteArchived: "dsh:delete-archived",
+	/** 定时任务与自动化 */
+	automationGetSnapshot: "automation:get-snapshot",
+	automationCreateTask: "automation:create-task",
+	automationUpdateTask: "automation:update-task",
+	automationDeleteTask: "automation:delete-task",
+	automationRunNow: "automation:run-now",
+	automationAbortRun: "automation:abort-run",
+	automationDeleteRuns: "automation:delete-runs",
+	automationClearRuns: "automation:clear-runs",
+	automationUpdateSettings: "automation:update-settings",
+	automationPreviewCron: "automation:preview-cron",
+	automationChanged: "automation:changed",
+	/** 智能体（Agent Market）：配置 CRUD + 一次性调用（与划词工具同一域） */
+	agentProfilesGetSnapshot: "agent-profiles:get-snapshot",
+	agentProfilesCreate: "agent-profiles:create",
+	agentProfilesUpdate: "agent-profiles:update",
+	agentProfilesDelete: "agent-profiles:delete",
+	agentProfilesResetBuiltin: "agent-profiles:reset-builtin",
+	agentProfilesDuplicate: "agent-profiles:duplicate",
+	agentProfilesUpdateSettings: "agent-profiles:update-settings",
+	agentProfilesChanged: "agent-profiles:changed",
+	/** 一次性调用（划词翻译 / 市场面板）：事件按 runId 走 agentProfilesInvokeEvent。 */
+	agentProfilesInvoke: "agent-profiles:invoke",
+	agentProfilesInvokeCancel: "agent-profiles:invoke-cancel",
+	agentProfilesInvokeEvent: "agent-profiles:invoke-event",
+	/** 会话 ↔ 智能体绑定（「使用」新建会话时写入；解绑传 agentId=null）。 */
+	agentProfilesBindSession: "agent-profiles:bind-session",
+	/** 拖拽排序：入参是完整 id 顺序，主进程剔除未知 id 后落盘。 */
+	agentProfilesReorder: "agent-profiles:reorder",
+	/** 收藏（整条回复 / 划选片段快照）：本地 favorites.json，不写入会话文件。 */
+	favoritesList: "favorites:list",
+	favoritesAdd: "favorites:add",
+	favoritesRemove: "favorites:remove",
+	favoritesRemoveMany: "favorites:remove-many",
+	favoritesReorder: "favorites:reorder",
+	/** 系统级划词浮窗（全局快捷键触发）：可见性/隐藏/发送回主窗口/捕获推流。 */
+	selectionToolGetState: "selection-tool:get-state",
+	selectionToolHide: "selection-tool:hide",
+	selectionToolResize: "selection-tool:resize",
+	selectionToolInsertToMain: "selection-tool:insert-to-main",
+	selectionToolCaptured: "selection-tool:captured",
+	selectionToolStateChanged: "selection-tool:state-changed",
+	/** 主进程 → 主窗口：把系统级划词结果插入当前会话输入框。 */
+	selectionToolInserted: "selection-tool:inserted",
 	/** DSH 动态插件清单（G13 深化：进程内临时扩展，重启即失；按会话归属）。 */
 	dshPluginList: "dsh:plugin-list",
-	/** DSH 静态 Loader 条目清单（只读：moduleName/enabled/fiberPhase）。 */
+	/** DSH 静态 Loader 条目清单（origin 标注 user/builtin 来源）。 */
 	dshPluginStaticList: "dsh:plugin-static-list",
+	/** DSH 用户自装静态插件卸载（从 $DSH_HOME/cordis.patch.yml 移除行，可选回收插件目录）。 */
+	dshPluginUserUninstall: "dsh:plugin-user-uninstall",
+	/** DSH 插件市场搜索（官方目录 + npm 双源，单源失败降级 warnings）。 */
+	dshPluginMarketSearch: "dsh:plugin-market-search",
+	/** DSH 用户自装静态插件安装（npm pack → 受管目录 → 用户补丁层行；幂等）。 */
+	dshPluginUserInstall: "dsh:plugin-user-install",
+	/** DSH 用户补丁层清单（安装服务视角：受管目录内的行补全包名/版本/uiOnly）。 */
+	dshPluginUserList: "dsh:plugin-user-list",
 	/** DSH 动态插件安装（define：定义源码包，不运行）。 */
 	dshPluginInstall: "dsh:plugin-install",
 	/** DSH 动态插件运行（面板手势，requestId=null 无需审批）。 */
@@ -186,6 +290,12 @@ export const ipcChannels = {
 	dshListProviders: "dsh:list-providers",
 	/** DSH 配置管理页状态（host 启动状态 + 目录 + providers + 模型目录）。 */
 	dshGetStatus: "dsh:get-status",
+	/** 探测本机 CUI node（DSH 沙箱 runner）；传草稿路径可在保存前预览。 */
+	dshDetectRunnerNode: "dsh:detect-runner-node",
+	/** 打开文件选择框挑 node.exe；取消返回 null。 */
+	dshChooseRunnerNode: "dsh:choose-runner-node",
+	/** 从 AtomGit/GitHub latest 应用 Release 下载 Node 24 到 userData（不改 PATH、不进安装包）。 */
+	dshInstallRunnerNode: "dsh:install-runner-node",
 	/** DSH settings.describe（脱敏 namespace 视图 + schema，渲染配置表单）。 */
 	dshConfigDescribe: "dsh:config-describe",
 	/** DSH settings.update（合并 patch 到 namespace 用户层）。 */
@@ -196,6 +306,14 @@ export const ipcChannels = {
 	dshOpenDocument: "dsh:open-document",
 	/** DSH host 重启（DSH_HOME 切换后立即生效；有活跃 DSH 会话时拒绝）。 */
 	dshRestartHost: "dsh:restart-host",
+	/**
+	 * DSH host 手动停止（用户不想让它运行）：停所有 DSH 会话 + dispose host，
+	 * 并把 dshManualStopped 持久化为 true——之后所有自动拉起路径都被门控，
+	 * 只有 dshStartHost（显式启动）才能恢复。
+	 */
+	dshStopHost: "dsh:stop-host",
+	/** DSH host 显式启动：清除手动停止标记并 boot；返回 host 是否就绪。 */
+	dshStartHost: "dsh:start-host",
 	/** DSH credentials.describe（configured/source/writable，无值）。 */
 	dshCredentialDescribe: "dsh:credential-describe",
 	/** DSH credentials.set（写凭证值）。 */
@@ -214,8 +332,14 @@ export const ipcChannels = {
 	dshRuntimeStatusChanged: "dsh-runtime:status-changed",
 	/** 按需安装 DSH runtime（从下载源索引挑兼容版本；进度走 dsh-runtime:install-progress）。 */
 	dshRuntimeInstall: "dsh-runtime:install",
-	/** 从本地导入 runtime（.tgz 归档或已解压目录；离线 / 镜像不可达时的兜底）。 */
+	/** 从本地导入 runtime 归档（.tgz；离线 / 镜像不可达时的兜底）。只开文件选择框。 */
 	dshRuntimeInstallLocal: "dsh-runtime:install-local",
+	/**
+	 * 从本地导入「已解压」的 runtime 目录。与上一条分开：Windows 上
+	 * showOpenDialog 同时给 openFile + openDirectory 会退化成只能选目录，
+	 * .tgz 反而选不到（2026-10 用户报「本地导入选不了归档」）。
+	 */
+	dshRuntimeInstallLocalDir: "dsh-runtime:install-local-dir",
 	/** 卸载已安装的 DSH runtime。 */
 	dshRuntimeUninstall: "dsh-runtime:uninstall",
 	/** 安装进度推送（订阅式）。 */
@@ -224,12 +348,64 @@ export const ipcChannels = {
 	codexSessionsImport: "codex-sessions:import",
 	claudeSessionsScan: "claude-sessions:scan",
 	claudeSessionsImport: "claude-sessions:import",
+	qoderSessionsScan: "qoder-sessions:scan",
+	qoderSessionsImport: "qoder-sessions:import",
 	openCodeSessionsScan: "opencode-sessions:scan",
 	openCodeSessionsImport: "opencode-sessions:import",
+	zcodeSessionsScan: "zcode-sessions:scan",
+	zcodeSessionsImport: "zcode-sessions:import",
+	workbuddySessionsScan: "workbuddy-sessions:scan",
+	workbuddySessionsImport: "workbuddy-sessions:import",
+	cursorSessionsScan: "cursor-sessions:scan",
+	cursorSessionsImport: "cursor-sessions:import",
+	kimiSessionsScan: "kimi-sessions:scan",
+	kimiSessionsImport: "kimi-sessions:import",
+	/**
+	 * Kimi Work（kimi-desktop 桌面版）会话导入：数据目录位置不固定（默认安装位置
+	 * / daimon-storage.json 自定义位置 / PiDeck settings 手动指定），describe 返回探测结果。
+	 */
+	kimiWorkSessionsDescribe: "kimi-work-sessions:describe",
+	kimiWorkSessionsScan: "kimi-work-sessions:scan",
+	kimiWorkSessionsImport: "kimi-work-sessions:import",
+	/**
+	 * MinimaxCode（CLI）会话导入：数据目录固定在 ~/.minimax/v2/sessions，
+	 * 扫描返回按 cwd 归属项目的会话列表（cwd 取自 llm-call.json 的 working directory）。
+	 */
+	minimaxSessionsScan: "minimax-sessions:scan",
+	minimaxSessionsImport: "minimax-sessions:import",
+	/**
+	 * 外置目录会话导入（项目目录移动/改名后找回历史）：扫描用户选定的目录
+	 * （旧项目目录 / 某个 encoded 分组目录 / pi sessions 根）里的会话。
+	 * 返回 { sessions, kind }；kind=ancestor 表示用户选到了 ~/.pi 这类会话树的祖先目录。
+	 */
+	directorySessionsScan: "directory-sessions:scan",
+	/**
+	 * 列出 pi 现有的会话目录（按会话文件所在分组目录聚合，带原工作目录/会话数/最后使用）。
+	 * 弹窗首屏点选入口：只列真的有会话的目录，避免用户手选到没有意义的层级。
+	 */
+	directorySessionsListSources: "directory-sessions:list-sources",
+	/** 把选定目录里的会话挂到当前项目（只建 catalog 引用，不复制原文件）。 */
+	directorySessionsImport: "directory-sessions:import",
 	settingsGet: "settings:get",
 	settingsUpdate: "settings:update",
 	/** 重启当前已启用的 Web 服务，不修改 Web 设置 */
 	settingsRestartWebService: "settings:restart-web-service",
+	/** 查询 Web 服务运行状态（端口 / 本次启动的访问令牌 / 是否要求鉴权） */
+	webServiceStatus: "web:status",
+	/** 轮换 Web 服务访问令牌：旧令牌立即失效（泄露自救），返回新状态 */
+	webServiceRotateToken: "web:rotate-token",
+	/** 手动设置 Web 服务令牌/过期策略（热生效不重启），返回新状态 */
+	webServiceSetToken: "web:set-token",
+	/** 外网访问：查询 cloudflare 隧道 + tailscale 组网聚合状态 */
+	webRemoteAccessState: "web:remote-access-state",
+	/** 外网访问状态变化推送（主进程 → 渲染层） */
+	webRemoteAccessChanged: "web:remote-access-changed",
+	/** 外网访问：启动指定渠道（cloudflare 隧道 / tailscale serve） */
+	webRemoteAccessStart: "web:remote-access-start",
+	/** 外网访问：停用指定渠道 */
+	webRemoteAccessStop: "web:remote-access-stop",
+	/** 外网访问：重新检测本机 cloudflared / tailscale 安装与登录状态 */
+	webRemoteAccessRefresh: "web:remote-access-refresh",
 	settingsTestPiProxy: "settings:test-pi-proxy",
 	settingsApplyWindow: "settings:apply-window",
 	skillsList: "skills:list",
@@ -249,28 +425,71 @@ export const ipcChannels = {
 	promptsDeleteInProject: "prompts:delete-in-project",
 	promptsRename: "prompts:rename",
 	promptsRenameInProject: "prompts:rename-in-project",
+	promptsToggle: "prompts:toggle",
+	promptsToggleInProject: "prompts:toggle-in-project",
 	promptStoreSearch: "prompt-store:search",
 	promptStoreGet: "prompt-store:get",
 	promptStoreImport: "prompt-store:import",
 	yaoPromptsList: "yao-prompts:list",
 	yaoPromptsDetail: "yao-prompts:detail",
 	yaoPromptsImport: "yao-prompts:import",
+	/** 提示词库 db 就绪状态推送（main→renderer；db 远程拉取进度/完成/失败） */
+	yaoPromptsDbState: "yao-prompts:db-state",
+	/** 用户点击重试：强制重新检查远程 db（绕过 TTL） */
+	yaoPromptsDbRetry: "yao-prompts:db-retry",
 	skillStoreSearch: "skill-store:search",
-	skillStoreGet: "skill-store:get",
 	skillStoreImport: "skill-store:import",
 	// SkillHub（api.skillhub.cn）
 	skillHubSearch: "skill-hub:search",
 	skillHubDetail: "skill-hub:detail",
 	skillHubInstall: "skill-hub:install",
+	/** 安装进度（主进程 → 渲染层推送；状态丝流程用，不用轮询） */
+	skillHubInstallProgress: "skill-hub:install-progress",
 	extensionsList: "extensions:list",
 	extensionsUninstall: "extensions:uninstall",
 	extensionsInstall: "extensions:install",
 	extensionsToggle: "extensions:toggle",
-	extensionsSetWhitelistDisabled: "extensions:set-whitelist-disabled",
 	extensionsRemoveBuiltIn: "extensions:remove-built-in",
 	extensionsRestoreBuiltIn: "extensions:restore-built-in",
 	extensionsUpdate: "extensions:update",
 	extensionsUpdateOne: "extensions:update-one",
+	extensionsCatalog: "extensions:catalog",
+	/** 内置扩展热更新：查询内置/覆盖层版本状态（不联网） */
+	extensionsBuiltInUpdateStatus: "extensions:builtin-update-status",
+	/** 内置扩展热更新：检查 AtomGit/GitHub 远端清单是否有更新（联网，逐文件 sha256 比对） */
+	extensionsBuiltInUpdateCheck: "extensions:builtin-update-check",
+	/** 内置扩展热更新：拉取远端最新版写入 userData 覆盖层（重启会话生效） */
+	extensionsBuiltInUpdateApply: "extensions:builtin-update-apply",
+	/** 内置扩展热更新：还原为随包分发的内置版本（当前覆盖层转 .bak） */
+	extensionsBuiltInUpdateRestore: "extensions:builtin-update-restore",
+	/** 内置扩展热更新：恢复上一个覆盖版（.bak 校验通过才写回） */
+	extensionsBuiltInUpdateRestorePrevious: "extensions:builtin-update-restore-previous",
+	/** 内置扩展热更新：打开当前生效的扩展目录 */
+	extensionsBuiltInOpenDir: "extensions:builtin-open-dir",
+	/** 提示词商店官方模板热更新：查询内置/覆盖层版本状态（不联网）。与扩展热更新同一套交互模型。 */
+	promptsStoreUpdateStatus: "prompts-store:update-status",
+	/** 提示词商店官方模板热更新：检查远端清单是否有更新（联网，逐文件 sha256 比对） */
+	promptsStoreUpdateCheck: "prompts-store:update-check",
+	/** 提示词商店官方模板热更新：拉取远端最新版写入 userData 覆盖层 */
+	promptsStoreUpdateApply: "prompts-store:update-apply",
+	/** 提示词商店官方模板热更新：还原为随包分发版本（当前覆盖层转 .bak） */
+	promptsStoreUpdateRestore: "prompts-store:update-restore",
+	/** 提示词商店官方模板热更新：恢复上一个覆盖版（.bak 校验通过才写回） */
+	promptsStoreUpdateRestorePrevious: "prompts-store:update-restore-previous",
+	/** 提示词商店官方模板热更新：打开当前生效的模板目录 */
+	promptsStoreOpenDir: "prompts-store:open-dir",
+	/** 内置技能热更新：查询内置/覆盖层版本状态（不联网） */
+	skillsStoreUpdateStatus: "skills-store:update-status",
+	/** 内置技能热更新：检查远端清单是否有更新（联网，逐文件 sha256 比对） */
+	skillsStoreUpdateCheck: "skills-store:update-check",
+	/** 内置技能热更新：拉取远端最新版写入 userData 覆盖层 */
+	skillsStoreUpdateApply: "skills-store:update-apply",
+	/** 内置技能热更新：还原为随包分发版本（当前覆盖层转 .bak） */
+	skillsStoreUpdateRestore: "skills-store:update-restore",
+	/** 内置技能热更新：恢复上一个覆盖版（.bak 校验通过才写回） */
+	skillsStoreUpdateRestorePrevious: "skills-store:update-restore-previous",
+	/** 内置技能热更新：打开当前生效的技能目录 */
+	skillsStoreOpenDir: "skills-store:open-dir",
 	/** 扫描项目目录内的独立 Git 仓库（根 + 嵌套），供侧栏切换 */
 	gitListRepos: "git:list-repos",
 	gitBranches: "git:branches",
@@ -281,6 +500,8 @@ export const ipcChannels = {
 	gitWorktreeCreate: "git:worktree-create",
 	gitWorktreeRemove: "git:worktree-remove",
 	gitCommitLog: "git:commit-log",
+	/** 与当前图谱过滤一致的提交总数（不分页），供源代码管理图标题徽章使用。 */
+	gitCommitCount: "git:commit-count",
 	gitRefs: "git:refs",
 	gitBranchCompare: "git:branch-compare",
 	gitCommitDetail: "git:commit-detail",
@@ -305,25 +526,60 @@ export const ipcChannels = {
 	gitFetch: "git:fetch",
 	/** 当前分支相对上游的提交差距（ahead/behind），驱动 push/pull 角标 */
 	gitAheadBehind: "git:ahead-behind",
+	/**
+	 * 订阅某个仓库的 refs 变化（commit/push/fetch/切分支），返回 watchId。
+	 * 主进程按 (projectId, repoPath) 复用一份 1.5 秒签名轮询（零句柄），与 gitUnwatchRefs 成对使用。
+	 */
+	gitWatchRefs: "git:watch-refs",
+	/** 退订 refs 监听：计数归零时主进程才停掉该仓库的轮询（面板卸载 / 切仓库时调用） */
+	gitUnwatchRefs: "git:unwatch-refs",
+	/**
+	 * refs 变化推送（主进程 → 渲染层，订阅式）：payload 为 watchId，
+	 * 每个面板只处理自己订阅的那一份（多仓项目共用同一条通道）。
+	 */
+	gitRefsChanged: "git:refs-changed",
 	/** 从磁盘删除变更文件（移入回收站，可恢复） */
 	gitDeleteFiles: "git:delete-files",
+	/**
+	 * 探测 git 可执行文件：返回当前实际生效的路径/版本/来源，
+	 * 以及系统自动探测结果（供设置页展示「已识别到」与一键填入）。
+	 */
+	gitDetectExecutable: "git:detect-executable",
+	/** 打开文件选择框挑一个 git 可执行文件，返回绝对路径；取消返回 null */
+	gitChooseExecutable: "git:choose-executable",
 	piCheck: "pi:check",
 	piCheckCustom: "pi:check-custom",
+	/** 列出系统上探测到的全部 pi 安装（含官方 managed 安装），供「多个安装时让用户自己选」；
+	 *  传 true 表示额外跑一次交互式登录 shell 反查（用户显式点「从终端再找一次」）。 */
+	piInstallations: "pi:installations",
+	/** 打开文件选择器挑一个 pi 可执行文件（用户手边有稀有/自定义安装时用），放弃返回 null */
+	piChooseExecutable: "pi:choose-executable",
+	/** 保存用户自加的 pi 候选路径列表（设置页「我添加的」分组） */
+	piSetCustomPaths: "pi:set-custom-paths",
 	/** 获取已安装的 WSL 发行版列表（仅 Windows） */
 	wslListDistros: "wsl:list-distros",
 	/** 验证 WSL 连接：检查 distro + user 是否可达，以及 pi 是否已安装 */
 	wslValidateConnection: "wsl:validate-connection",
 	piUpdateCheck: "pi:update-check",
+	piReleaseNotes: "pi:release-notes",
 	piUpdate: "pi:update",
 	/** 在系统终端中执行安装命令（npm install）并返回结果 */
 	piExecInstall: "pi:exec-install",
 	/** 检查 npm 是否可用 */
 	piCheckNpm: "pi:check-npm",
+	/** 环境引导：检测便携 Node 副本 + 系统 node 状态 */
+	piRuntimeNodeCheck: "pi:runtime-node-check",
+	/** 环境引导：安装便携 Node（镜像回退 + sha256 校验）到 userData */
+	piRuntimeNodeInstall: "pi:runtime-node-install",
+	/** 环境引导：用便携/系统 npm 全局安装 pi（--prefix 指向 pi-runtime，收紧通道由主进程拼命令） */
+	piRuntimePiInstall: "pi:runtime-pi-install",
 	appInfo: "app:info",
 	/** 获取当前机器的非回环 IPv4 网卡，供局域网 Web 服务二维码使用 */
 	appNetworkAddresses: "app:network-addresses",
 	appPreferredSystemLanguages: "app:preferred-system-languages",
 	appCheckUpdate: "app:check-update",
+	/** 查询当前构建所属更新通道（stable/dev，编译期判定）。 */
+	appGetChannel: "update:get-channel",
 	/** 手动下载已检测到的新版本（autoDownload 关闭时使用）。 */
 	appDownloadUpdate: "app:download-update",
 	/** 重启并安装已下载的更新（quitAndInstall）。 */
@@ -340,7 +596,13 @@ export const ipcChannels = {
 	/** 问题反馈「新建会话分析」：读取项目根 AGENTS.md（截断）与项目级技能列表。 */
 	appFeedbackProjectContext: "app:feedback-project-context",
 	appOpenExternal: "app:open-external",
+	/** 拉取 CHANGELOG 正文（atomgit 优先，GitHub 回退；失败时 markdown=null 由 UI 降级打开浏览器）。 */
+	appGetChangelog: "app:get-changelog",
 	appOpenInBrowser: "app:open-in-browser",
+	/** 全局快捷键（macOS Cmd+, / Windows·Linux Ctrl+Alt+S）命中后由主进程广播，渲染层打开设置页。 */
+	appOpenSettings: "app:open-settings",
+	/** 全局快捷键（新建会话/搜索会话）命中后广播快捷键 id，渲染层决定是否执行（输入框聚焦时忽略）。 */
+	appShortcutTriggered: "app:shortcut-triggered",
 	appRestart: "app:restart",
 	/** 真正退出应用（置 isQuitting 后 app.quit）。异常页不能走 window-close：closeToTray 会把关窗吞成隐藏。 */
 	appQuit: "app:quit",
@@ -350,6 +612,8 @@ export const ipcChannels = {
 	processMetrics: "system:process-metrics",
 	/** 开发诊断快照（内存 / 事件循环延迟 / 最近关键耗时） */
 	diagnosticsSnapshot: "system:diagnostics-snapshot",
+	/** 运行架构状态：检测 x64 包在 ARM 芯片转译层下运行（Rosetta），提示换装原生包 */
+	archStatus: "system:arch-status",
 	/** 打开 userData/diagnostics 目录 */
 	diagnosticsOpenFolder: "system:diagnostics-open-folder",
 	/** 进程监控里手动停止某个 pi agent（按 agentId 走 AgentManager 正常停止流程） */
@@ -378,18 +642,25 @@ export const ipcChannels = {
 	rpcLogsGet: "rpc-logs:get",
 	/** 读取主进程实时环形缓冲（最近 N 条） */
 	rpcLogsGetLive: "rpc-logs:get-live",
+	/** 回读一条模型请求快照的完整请求体（面板展开模型行时按需拉取） */
+	rpcLogsGetModelTrace: "rpc-logs:get-model-trace",
 	/** 将弹窗条目合并写入自动日志文件（按 id 去重） */
 	rpcLogsSave: "rpc-logs:save",
 	/** 清空 RPC 日志 */
 	rpcLogsClear: "rpc-logs:clear",
 	rpcLoggingSet: "rpc-logs:logging-set",
 	rpcLoggingGet: "rpc-logs:logging-get",
+	/** 登记「实时日志面板是否在看」：主进程据此决定是否广播（落盘不受影响） */
+	rpcLogsSetWatching: "rpc-logs:set-watching",
 
 	appWindowMinimize: "app:window-minimize",
 	appWindowToggleMaximize: "app:window-toggle-maximize",
 	appWindowIsMaximized: "app:window-is-maximized",
 	/** 主进程 → 渲染：最大化状态变化（含双击标题栏等非按钮路径） */
 	appWindowMaximizedChanged: "app:window-maximized-changed",
+	/** 主进程 → 渲染：窗口缩放比例变化。缩放快捷键在主进程直接改 zoomFactor
+	 * （见 main/windowZoom.ts），推给渲染层仅为同步设置态（设置页百分比显示）。 */
+	appZoomFactorChanged: "app:zoom-factor-changed",
 	appWindowToggleAlwaysOnTop: "app:window-toggle-always-on-top",
 	/** 读取主窗口当前是否置顶（渲染层初始化置顶按钮态用，避免硬编码 false） */
 	appWindowIsAlwaysOnTop: "app:window-is-always-on-top",
@@ -402,7 +673,6 @@ export const ipcChannels = {
 	projectsListModelsReport: "projects:list-models-report",
 	/** 模型规格查询：pi-ai 内置目录按模型 id 精确匹配，中转站通用 */
 	projectsGetModelSpec: "projects:get-model-spec",
-	agentsEvent: "agents:event",
 	agentsMessage: "agents:message",
 	agentsLog: "agents:log",
 
@@ -433,45 +703,93 @@ export const ipcChannels = {
 	configGetAuth: "config:get-auth",
 	configGetSettings: "config:get-settings",
 	configGetTrust: "config:get-trust",
-	/** 读取合并后的 MCP 服务列表 + Pi 可写层（pi-mcp-adapter mcp.json）。 */
+	/** 读取合并后的 MCP 服务列表 + Pi 可写层（pi 内置 MCP 0.99+ 读取的 mcp.json）。 */
 	configGetMcp: "config:get-mcp",
 	/** 整份写入 ~/.pi/agent/mcp.json（可视化保存）。 */
 	configSaveMcp: "config:save-mcp",
 	/** 轻量探测：stdio 命令是否在 PATH、HTTP URL 是否可达；不 spawn MCP SDK。 */
 	configProbeMcp: "config:probe-mcp",
+	/** 真实连接检测：spawn `pi mcp list --json`，返回每台 server 的 state/tools/errors。 */
+	mcpListStatus: "mcp:list-status",
+	/** OAuth 登录：spawn `pi mcp login <server>`；授权 URL 经 mcpLoginUrl 事件推送。 */
+	mcpLogin: "mcp:login",
+	/** OAuth 登出：spawn `pi mcp logout <server>`。 */
+	mcpLogout: "mcp:logout",
+	/** OAuth 登录过程中捕获的授权 URL（{ server, url }），供 UI 内嵌兑底链接。 */
+	mcpLoginUrl: "mcp:login-url",
+	resourceImportScan: "resource-import:scan",
+	resourceImportApply: "resource-import:apply",
+	/** pi 原生资源配置摘要（内置扩展开关 + 四类资源数组原文）。 */
+	piResourcesSummary: "pi-resources:summary",
+	/** 切换 pi 原生内置扩展（mcp / llama.cpp / codemode / tool-search）。 */
+	piResourcesSetBuiltin: "pi-resources:set-builtin",
 	/** 只读返回 pi 全局配置目录（渲染层展示源文件实际编辑位置）。 */
 	configGetDir: "config:get-dir",
 	configSaveModels: "config:save-models",
+	/** 保存 models 后的后台 pi 验证结果：fork 真实 pi 确认配置可加载（~17s），完成后推送；
+	 *  保存动作本身即时返回（解析刚写入的配置），渲染层仅在该事件失败时提示。 */
+	configModelsVerifyResult: "config:models-verify-result",
 	configSaveAuth: "config:save-auth",
 	configSaveSettings: "config:save-settings",
 	configSaveRaw: "config:save-raw",
 	configExport: "config:export",
 	configImport: "config:import",
+	/** 只读扫描本机其他 agent（Claude Code/Codex/OpenCode/Gemini CLI）的供应商配置，返回掩码候选 */
+	configDiscoverExternalAgents: "config:discover-external-agents",
+	/** 外部 agent 导入确认后按 sourceId 取真实 API key（一次性响应，不落日志） */
+	configResolveExternalAgentKey: "config:resolve-external-agent-key",
 	/** 从 provider 的 baseUrl + apiKey 拉取可用模型列表 */
 	configFetchModels: "config:fetch-models",
 	/** 取内置 TokenDance 模型目录（live fetch + userData 缓存；force=true 强制刷新） */
 	configGetTokendanceModels: "config:get-tokendance-models",
 	configInstallTokendance: "config:install-tokendance",
-	/** 启动 TokenDance OAuth 授权流程（PKCE S256 headless；返回授权 URL + flowId） */
+	/** 启动 TokenDance OAuth 授权流程（PKCE S256；mode=callback 走本地回环自动收 code，headless 需用户粘贴） */
 	configTokendanceAuthStart: "config:tokendance-auth-start",
+	/** 等待回环回调自动送达的 code 并交换成 API Key（callback 模式专用，一次点击完成授权） */
+	configTokendanceAuthAwait: "config:tokendance-auth-await",
+	/** 放弃授权流程：释放本地回环端口并丢弃 verifier（弹窗关闭/用户取消时调用） */
+	configTokendanceAuthCancel: "config:tokendance-auth-cancel",
 	/** 提交一次性授权 code 交换 TokenDance API Key（成功返回完整 key） */
 	configTokendanceAuthExchange: "config:tokendance-auth-exchange",
-	/** 快速测试 provider 连接：发送一条最小请求验证 baseUrl/apiKey/模型 是否正常 */
+	/** 创建 TokenDance 充值会话（整数元；返回聚合码内容/支付宝深链/status_url） */
+	configTokendanceTopUpCreate: "config:tokendance-topup-create",
+	/** 查询充值会话状态（只接受服务端下发且通过白名单校验的 status_url） */
+	configTokendanceTopUpStatus: "config:tokendance-topup-status",
+	/** 由用户点击浏览器支付宝 App 深链（仅允许 alipays://；不得自动跳转） */
+	configTokendanceTopUpOpenAlipay: "config:tokendance-topup-open-alipay",
+	/** 测试 provider 连接（隔离探针）：临时 agent 目录 + PI_CODING_AGENT_DIR 跑真实 pi，测当前表单值且不落盘正式配置 */
 	configTestProvider: "config:test-provider",
 	/** 查询 provider 用量/余额（主进程按 provider 名路由：门控 → 端点解析 → 模板探测） */
 	configFetchUsage: "config:fetch-usage",
 	/** 读取单个 provider 的用量查询配置（usage-probes.json）+ 内置模板自动识别 */
 	configGetUsageProbes: "config:get-usage-probes",
-	/** 轻量判断 provider 是否命中内置用量模板（零配置自动生效；渲染层据此隐藏「用量查询」配置按钮） */
-	configUsageRecognized: "config:usage-recognized",
 	/** 按 provider 合并保存用量查询配置（校验后落盘，保留其它 providers 与旧 probes） */
 	configSaveUsageProbes: "config:save-usage-probes",
+	/** 批量读取各 provider 用量查询状态（徽章开关/启动预热选源；不读密钥、不回传密钥） */
+	configListUsageProbeStates: "config:list-usage-probe-states",
 	/** 单条模板测试（模板 id + 覆盖字段；配置弹窗「测试」按钮，key 不出主进程） */
 	configTestUsageProbe: "config:test-usage-probe",
 	/** 安装内置「用量查询自定义」技能模板到 ~/.pi/agent/skills/usage-probe */
 	configInstallUsageSkill: "config:install-usage-skill",
 	/** 安装内置「图片生成」技能模板到 ~/.pi/agent/skills/image-gen */
 	configInstallImageGenSkill: "config:install-image-gen-skill",
+	/** 安装内置「MCP 配置助手」技能模板到 ~/.pi/agent/skills/mcp-setup */
+	configInstallMcpSetupSkill: "config:install-mcp-setup-skill",
+	// ===== 配置备份（config-backup） =====
+	/** 列出全部配置备份（仅元数据，不读文件内容）。 */
+	configBackupList: "config-backup:list",
+	/** 立即创建一份配置备份（manual / first-run / upgrade / on-save / pre-restore）。 */
+	configBackupCreate: "config-backup:create",
+	/** 读取备份详情（文件内容已脱敏）。 */
+	configBackupRead: "config-backup:read",
+	/** 恢复备份：恢复前自动为当前配置建一份 pre-restore 保护备份。 */
+	configBackupRestore: "config-backup:restore",
+	/** 删除单个备份。 */
+	configBackupDelete: "config-backup:delete",
+	/** 批量删除多个备份（按 id 列表，非法 id 由主进程跳过）。 */
+	configBackupDeleteMany: "config-backup:delete-many",
+	/** 清空全部备份。 */
+	configBackupDeleteAll: "config-backup:delete-all",
 
 	// ===== 安全管理（SecurityStore + pi-deck-security-gate 扩展） =====
 	/** 拉取完整安全配置（等级/默认等级/会话覆盖） */
@@ -509,6 +827,7 @@ export const ipcChannels = {
 	terminalData: "terminal:data",
 	terminalExit: "terminal:exit",
 	terminalShells: "terminal:shells",
+	terminalFonts: "terminal:fonts",
 
 	// ===== 飞书桥接 =====
 	feishuConnect: "feishu:connect",
@@ -529,16 +848,34 @@ export const ipcChannels = {
 	feishuBindingsChanged: "feishu:bindings-changed",
 	feishuBotsChanged: "feishu:bots-changed",
 	feishuMessages: "feishu:messages",
-	feishuQrCode: "feishu:qr-code",
 	feishuConnectByBot: "feishu:connect-by-bot",
-	/** Pi 创建会话时触发飞书自动拉群 */
-	feishuAutoGroup: "feishu:auto-group",
 	/** 获取指定稳定 Session 绑定的飞书 Bot ID */
 	feishuSessionBotGet: "feishu:session-bot-get",
 	/** 设置指定稳定 Session 使用的飞书 Bot ID */
 	feishuSessionBotSet: "feishu:session-bot-set",
 	/** 飞书 /whoami 结果推回前端 */
 	feishuWhoamiResult: "feishu:whoami-result",
+
+	// ===== 微信 iLink 桥接 =====
+	wechatGetSettings: "wechat:get-settings",
+	wechatSetEnabled: "wechat:set-enabled",
+	wechatUpdateSettings: "wechat:update-settings",
+	wechatRenameAccount: "wechat:rename-account",
+	wechatLogout: "wechat:logout",
+	/** 取二维码并开始轮询；返回的状态已带 qrcodeContent */
+	wechatBeginLogin: "wechat:begin-login",
+	wechatCancelLogin: "wechat:cancel-login",
+	wechatSubmitVerifyCode: "wechat:submit-verify-code",
+	wechatGetLoginState: "wechat:get-login-state",
+	wechatGetStatus: "wechat:get-status",
+	wechatGetBindings: "wechat:get-bindings",
+	wechatUnbindChat: "wechat:unbind-chat",
+	/** 主进程 → 渲染层：桥接连接状态变化 */
+	wechatStatus: "wechat:status",
+	/** 主进程 → 渲染层：扫码登录阶段变化（含二维码内容） */
+	wechatLoginState: "wechat:login-state",
+	/** 主进程 → 渲染层：聊天绑定变化 */
+	wechatBindingsChanged: "wechat:bindings-changed",
 
 	// ===== 桌面宠物（全局聚合单宠） =====
 	/** 主进程 → 宠物窗：推送聚合状态 */
@@ -579,6 +916,16 @@ export const ipcChannels = {
 	/** 宠物窗 → 主进程：请求显示右键上下文菜单 */
 	petContextMenu: "pet:context-menu",
 
+	// ===== 声音提醒 =====
+	/** 主进程 → 渲染层：推送声音提醒播放事件（完成/出错/等待输入） */
+	soundsPlay: "sounds:play",
+	/** 设置页 → 主进程：列出自定义音频（userData/sounds/） */
+	soundsListCustom: "sounds:list-custom",
+	/** 设置页 → 主进程：弹选择框导入自定义音频，返回 { ok, info | error } */
+	soundsImportCustom: "sounds:import-custom",
+	/** 设置页 → 主进程：删除自定义音频文件 */
+	soundsRemoveCustom: "sounds:remove-custom",
+
 	// ===== Scratch Pad（草稿本/多草稿） =====
 	scratchPadList: "scratch-pad:list",
 	scratchPadCreate: "scratch-pad:create",
@@ -597,6 +944,61 @@ export const ipcChannels = {
 	pickBackgroundImage: "backgrounds:pick",
 	/** 删除背景图文件 */
 	removeBackgroundImage: "backgrounds:remove",
+	/** Wallpaper Engine 视频壁纸：选择工坊目录（返回路径，空串=取消） */
+	wallpaperEnginePickDir: "wallpaper-engine:pick-dir",
+	/** 列出工坊目录下的视频壁纸（只回元数据） */
+	wallpaperEngineList: "wallpaper-engine:list",
+	/** 校验并返回选中条目（非 video/不存在返回 null） */
+	wallpaperEngineSelect: "wallpaper-engine:select",
+
+	// ===== 自定义主题（userData/custom-themes/ 目录） =====
+	/** 列出主题：内置示例 + 用户目录（含解析失败条目的 parseError） */
+	listCustomThemes: "themes:list",
+	/** 读取主题原始 JSON（内置示例返回序列化 demo；不存在返回 null） */
+	readCustomTheme: "themes:read",
+	/** 校验并保存主题包（id 即文件名 <id>.json），失败返回错误清单 */
+	saveCustomTheme: "themes:save",
+	/** 删除用户主题文件（回收站，内置示例不可删） */
+	deleteCustomTheme: "themes:delete",
+	/** 把 AI 主题开发指南写入主题目录并在资源管理器定位 */
+	writeCustomThemeGuide: "themes:write-guide",
+
+	// ===== 插件开发（~/.pi/agent/extensions/ 目录） =====
+	/** 插件开发支持状态：目录路径 + demo/指南是否已就位 */
+	// Independent desktop plugins use their own capability broker, never pi RPC.
+	piDeckMcpState: "pideck-mcp:state",
+	piDeckMcpSetAccess: "pideck-mcp:set-access",
+	piDeckMcpConnection: "pideck-mcp:connection",
+	hostPluginsList: "host-plugins:list",
+	hostPluginsRescan: "host-plugins:rescan",
+	hostPluginsInstall: "host-plugins:install",
+	/**
+	 * 从本地「已解压」的插件目录安装。与上一条分开：Windows 上 showOpenDialog 同时给
+	 * openFile + openDirectory 会退化成只能选目录，.pideck-plugin 反而选不到
+	 * （2026-10，同 dshRuntimeInstallLocalDir）。
+	 */
+	hostPluginsInstallDirectory: "host-plugins:install-directory",
+	/**
+	 * 从 GitHub 仓库安装：渲染层只给一个 https://github.com/... 链接，主进程下载源码 tar.gz、
+	 * 定位 pideck-plugin.json 所在包根后走与归档/目录一致的重扫描与授权门（不执行仓库内任何代码）。
+	 */
+	hostPluginsInstallGitHub: "host-plugins:install-github",
+	/** 脚手架：在插件目录里生成 <id>/ 模板（已存在就拒经，不覆盖作者代码）。 */
+	hostPluginsScaffold: "host-plugins:scaffold",
+	hostPluginsSetEnabled: "host-plugins:set-enabled",
+	hostPluginsOpenDirectory: "host-plugins:open-directory",
+	hostPluginsMount: "host-plugins:mount",
+	hostPluginsUpdate: "host-plugins:update",
+	hostPluginsUnmount: "host-plugins:unmount",
+	/** 卸载：删掉 userData 里的插件目录并清掉授权（内置示例不可卸载，见 HostPluginManager.remove）。 */
+	hostPluginsRemove: "host-plugins:remove",
+	hostPluginsChanged: "host-plugins:changed",
+	hostPluginRequest: "host-plugin:request",
+	hostPluginEvent: "host-plugin:event",
+	/** 插件发起的会话导航：broker 校验后推给桌面渲染层执行，插件页自身无权打开会话 */
+	hostPluginNavigate: "host-plugin:navigate",
+	/** 插件要求打开本地服务的 Web UI：地址由主进程适配器给，渲染层只负责开内置浏览器 */
+	hostPluginOpenBrowser: "host-plugin:open-browser",
 
 	// ===== 内置浏览器 =====
 	browserOpenExternal: "browser:open-external",
@@ -613,6 +1015,93 @@ export const ipcChannels = {
 	imagegenGetConfig: "imagegen:get-config",
 	/** 保存独立生图配置（白名单校验后落盘） */
 	imagegenSaveConfig: "imagegen:save-config",
+	/**
+	 * 按需取回落盘生图图片的 base64（入参为 blob 引用名）。
+	 * 展示走 pideck-img:// 协议流式加载，这个通道只服务「复制 / 保存 / 重发带回参考图」。
+	 */
+	imagegenReadImageBlob: "imagegen:read-image-blob",
+
+	// ===== 对话内本地图片（pideck-file:// 的按需读取） =====
+	/**
+	 * 按绝对路径读取白名单内的本地图片字节（保存 / 复制用）。
+	 * 展示走 pideck-file:// 协议；渲染层 fetch 该 scheme 会被拦，所以字节从主进程拿。
+	 */
+	localImageReadBytes: "local-image:read-bytes",
+
+	// ===== 生视频（VideoGen）：提交-轮询-下载异步协议 =====
+	/** 提交生视频任务：受理后返回 jobId，产物经轮询事件推送 */
+	videogenSubmit: "videogen:submit",
+	/** 取消进行中的任务（停止轮询并标记 cancelled；上游可能继续执行与计费） */
+	videogenCancel: "videogen:cancel",
+	/** 读取独立生视频配置（userData/videogen.json） */
+	videogenGetConfig: "videogen:get-config",
+	/** 保存独立生视频配置（白名单校验后落盘） */
+	videogenSaveConfig: "videogen:save-config",
+	/** 某会话的全部任务快照（重启后渲染层恢复进行中占位用） */
+	videogenListJobs: "videogen:list-jobs",
+	/** 任务状态事件（主进程 → 渲染层单通道推送，按 sessionId 过滤消费） */
+	videogenEvent: "videogen:event",
+
+	// ===== 提示词增强（输入框草稿 → 模型改写 → 回填） =====
+	/** 发起增强：受理后流式事件经 enhance:event 推送（按 runId 配对） */
+	enhanceRun: "enhance:run",
+	/** 取消进行中的增强 */
+	enhanceCancel: "enhance:cancel",
+	/** 增强过程事件（started/delta/done/aborted/error，单通道带 runId） */
+	enhanceEvent: "enhance:event",
+
+	// ===== 输入预测（回合结束后预测下一句输入，空输入框 ghost 展示） =====
+	/** 发起预测：受理后事件经 suggest:event 推送（形状与 enhance:event 一致） */
+	suggestRun: "suggest:run",
+	/** 取消进行中的预测（发新消息 / 切会话 / 关开关） */
+	suggestCancel: "suggest:cancel",
+	/** 预测过程事件（按 runId 配对） */
+	suggestEvent: "suggest:event",
+
+	// ===== Composer voice transcription =====
+	voiceTranscriptionGetConfig: "voice-transcription:get-config",
+	voiceTranscriptionSaveConfig: "voice-transcription:save-config",
+	voiceTranscriptionTranscribe: "voice-transcription:transcribe",
+	/** 用一小段静音走一遍当前配置的真实链路，把「凭据/权限/额度」问题在设置页就说清楚。 */
+	voiceTranscriptionTest: "voice-transcription:test",
+	/** 设置页点「显示」时按需取回某一格的明文（入参是密钥字段名，不写日志）。 */
+	voiceTranscriptionRevealSecret: "voice-transcription:reveal-secret",
+	voiceTranscriptionCancel: "voice-transcription:cancel",
+	/**
+	 * 流式识别（豆包流式 2.0）三段式：开流 → 逐帧上推 PCM → 收尾拿终值。
+	 * 帧走 send/on 而非 invoke：200ms 一帧的单向数据不值得每条都等一次 IPC 往返。
+	 */
+	voiceTranscriptionStreamStart: "voice-transcription:stream-start",
+	voiceTranscriptionStreamFrame: "voice-transcription:stream-frame",
+	voiceTranscriptionStreamFinish: "voice-transcription:stream-finish",
+	/** 中间结果推送（订阅式，返回退订）；文本是整段累积值，渲染层整段替换。 */
+	voiceTranscriptionStreamPartial: "voice-transcription:stream-partial",
+	/** 本地 whisper 运行时/模型安装状态（主进程 stat + 哈希锁记录）。 */
+	voiceTranscriptionRuntimeStatus: "voice-transcription:runtime-status",
+	/** 按需下载 whisper-cli 二进制归档（不进安装包）。 */
+	voiceTranscriptionRuntimeInstall: "voice-transcription:runtime-install",
+	/** 按需下载指定 ggml 模型（入参 modelId）。 */
+	voiceTranscriptionModelInstall: "voice-transcription:model-install",
+	/** 删除已下载模型（释放磁盘）。 */
+	voiceTranscriptionModelDelete: "voice-transcription:model-delete",
+	/** 安装进度推送（订阅式，返回退订）。 */
+	voiceTranscriptionRuntimeProgress: "voice-transcription:runtime-progress",
+	/** 取消进行中的运行时/模型下载（同一时刻只有一个安装任务）。 */
+	voiceTranscriptionInstallCancel: "voice-transcription:install-cancel",
+
+	// ===== 应用公告（无服务器拉取） =====
+	/** 渲染层 → 主进程：拉取当前公告快照（主进程返回缓存，不做网络请求） */
+	announcementList: "announcement:list",
+	/** 渲染层 → 主进程：立即刷新公告（设置页/手动刷新入口；带随机抖动防集中打源） */
+	announcementRefresh: "announcement:refresh",
+	/** 渲染层 → 主进程：标记公告已读（存储持久化到 userData） */
+	announcementMarkRead: "announcement:mark-read",
+	/** 渲染层 → 主进程：标记全部公告已读 */
+	announcementMarkAllRead: "announcement:mark-all-read",
+	/** 渲染层 → 主进程：记录已弹过提醒的公告（持久化，保证每条公告只弹一次） */
+	announcementMarkNotified: "announcement:mark-notified",
+	/** 主进程 → 渲染层：推送公告快照（定时拉取成功/缓存加载完成后广播） */
+	announcementChanged: "announcement:changed",
 
 	// ===== 系统剪贴板（必须走主进程；Electron 38 废弃渲染进程/preload 直连 clipboard） =====
 	clipboardReadText: "clipboard:read-text",
@@ -673,4 +1162,114 @@ export const ipcChannels = {
 	/** M9：弹目录选择器，供云端项目挂载选本地目录 */
 	cloudSyncPickMountDirectory: "cloud-sync:pick-mount-directory",
 
+	// ===== 资源管理器右键菜单（HKCU 注册/查询，portable 亦可用） =====
+	/** 渲染层 → 主进程：查询「用 PiDeck 打开」右键菜单是否已注册 */
+	shellMenuGetState: "shell-menu:get-state",
+	quickTaskGetState: "quick-task:get-state",
+	quickTaskChanged: "quick-task:changed",
+	quickTaskExit: "quick-task:exit",
+	shellMenuQuickTaskGetState: "shell-menu:quick-task-get-state",
+	shellMenuQuickTaskSetEnabled: "shell-menu:quick-task-set-enabled",
+	// ===== 悬浮球（floater）：主窗口隐藏后的常驻小圆点 =====
+	floatingBallGetState: "floating-ball:get-state",
+	floatingBallState: "floating-ball:state",
+	floatingBallEnter: "floating-ball:enter",
+	floatingBallExit: "floating-ball:exit",
+	floatingBallDragStart: "floating-ball:drag-start",
+	floatingBallDragMove: "floating-ball:drag-move",
+	floatingBallDragEnd: "floating-ball:drag-end",
+	floatingBallContextMenu: "floating-ball:context-menu",
+	floatingBallSetExpandTarget: "floating-ball:set-expand-target",
+	// ===== 极简浮窗（mini overlay）：悬浮球点击展开的状态总览+快捷输入窗 =====
+	miniOverlayState: "mini-overlay:state",
+	miniOverlayGetState: "mini-overlay:get-state",
+	miniOverlayJumpToSession: "mini-overlay:jump-to-session",
+	miniOverlayQuickPrompt: "mini-overlay:quick-prompt",
+	miniOverlayClose: "mini-overlay:close",
+	miniOverlayCollapse: "mini-overlay:collapse",
+	/** 小窗 → 任务模式：隐藏小窗与悬浮球，主窗口以 quick-task 紧凑形态打开。 */
+	miniOverlaySwitchToQuickTask: "mini-overlay:switch-to-quick-task",
+	/** 任务模式 → 小窗：退出 quick-task 恢复主窗口尺寸后隐藏，展开极简浮窗。 */
+	quickTaskSwitchToMiniOverlay: "quick-task:switch-to-mini-overlay",
+	floatingBallSetEnabled: "floating-ball:set-enabled",
+	/** 渲染层 → 主进程：启用/取消资源管理器右键菜单注册 */
+	shellMenuSetEnabled: "shell-menu:set-enabled",
+
+	// ===== pi 供应商认证（登录/登出）=====
+	// 这是 PiDeck 访问 pi 内部能力的唯一例外通道：pi 的供应商登录只在它的 CLI 里，
+	// 没有 RPC 与扩展入口，所以由 PiDeck 拉起认证助手进程调用 pi 官方认证 API。
+	// 边界与纪律见仓库根 AGENTS.md「认证例外通道」，禁止在此通道上扩展非认证能力。
+	piAuthListProviders: "pi-auth:list-providers",
+	piAuthLogin: "pi-auth:login",
+	piAuthAnswerPrompt: "pi-auth:answer-prompt",
+	piAuthCancel: "pi-auth:cancel",
+	piAuthLogout: "pi-auth:logout",
+	/** 主进程 → 渲染层：登录流程的事件/提问推送 */
+	piAuthFlowUpdate: "pi-auth:flow-update",
+
+	// ===== 数据环境（stable 共用目录 / dev 独立目录的决策与切换，规格 §6） =====
+	/** 渲染层 → 主进程：查询数据环境状态（决策指针 + 当前生效目录）。 */
+	dataEnvGetInfo: "data-env:get-info",
+	/** 渲染层 → 主进程：写入数据模式决策（只写指针，须重启应用才切换实际数据目录）。 */
+	dataEnvChooseMode: "data-env:choose-mode",
+	/** 渲染层 → 主进程：重启应用（决策生效 / 切换流程收尾）。 */
+	dataEnvRestart: "data-env:restart",
+	/** 渲染层 → 主进程：启动期数据环境不匹配的确认结果（continue / quit）。 */
+	dataEnvConfirmMismatch: "data-env:confirm-mismatch",
+	/** 主进程 → 渲染层：dev 首启未决策，请求数据模式选择。 */
+	dataEnvDecisionRequired: "data-env:decision-required",
+	/** 主进程 → 渲染层：目录标记与当前通道不匹配，请求用户确认。 */
+	dataEnvMismatchDetected: "data-env:mismatch-detected",
+	/** 渲染层 → 主进程：开始从共用目录复制到独立目录（进行中重复调用返回 busy）。 */
+	dataEnvImportStart: "data-env:import-start",
+	/** 渲染层 → 主进程：请求取消进行中的导入（已复制内容保留）。 */
+	dataEnvImportCancel: "data-env:import-cancel",
+	/** 主进程 → 渲染层：导入进度推送（phase: copying/done/cancelled/error）。 */
+	dataEnvImportProgress: "data-env:import-progress",
+	/** 渲染层 → 主进程：读取共用目录的导入预览（迁移清单 + 体积预估）。 */
+	dataEnvGetImportPreview: "data-env:get-import-preview",
+
+	// ===== 通道切换（跨通道查版本 → 下载 → 引导安装，规格 §3） =====
+	/** 渲染层 → 主进程：查询反向通道最新发布（dev↔stable，匿名 GitHub API）。 */
+	channelSwitchQuery: "channel-switch:query",
+	/** 渲染层 → 主进程：下载目标发布安装包到临时目录（进度经 state-changed 推送）。 */
+	channelSwitchDownload: "channel-switch:download",
+	/** 渲染层 → 主进程：启动安装器并退出应用（用户确认后调用；仅限本服务临时目录内路径）。 */
+	channelSwitchLaunch: "channel-switch:launch",
+	/** 渲染层 → 主进程：拉取当前通道切换状态快照（页面挂载/重启用）。 */
+	channelSwitchGetStatus: "channel-switch:get-status",
+	/** 主进程 → 渲染层：通道切换状态机快照推送（querying/available/downloading/ready/error）。 */
+	channelSwitchStateChanged: "channel-switch:state-changed",
+
+	// ===== CUA 审批门（Plan A：MCP 主进程内托管，审批直连 IPC） =====
+	/** 主进程 → 渲染层：推审批请求（action/sessionId/detail/timestampMs）。 */
+	cuaApprovalRequest: "cua:approval-request",
+	/** 渲染层 → 主进程：回传审批结果（allowed/reason）。 */
+	cuaApprovalResponse: "cua:approval-response",
+	/** 渲染层 → 主进程：拉取 CUA 全局/会话开关状态。 */
+	cuaGetState: "cua:get-state",
+	/** 渲染层 → 主进程：设置 CUA 全局/会话开关。 */
+	cuaSetState: "cua:set-state",
+
+	// ===== ACP 后端（agent CLI 工具登记表） =====
+	/** ACP 工具列表（settings.acpTools 只读快照）。 */
+	acpToolsList: "acp:tools-list",
+	/** 保存整张工具表（逐条消毒；非法条目丢弃而非拒绝整表）。 */
+	acpToolsSave: "acp:tools-save",
+	/** 单条表单校验（不含落盘；渲染层新增/编辑即时反馈）。 */
+	acpToolValidate: "acp:tool-validate",
+	/** 检测预设工具安装状态/版本（只读；presetId 枚举收口）。 */
+	acpToolDetect: "acp:tool-detect",
+	/** npm 全局安装预设工具（进度经 acpLifecycleEvent 推送）。 */
+	acpToolInstall: "acp:tool-install",
+	/** npm 全局卸载预设工具。 */
+	acpToolUninstall: "acp:tool-uninstall",
+	/** 主→渲染：安装/卸载进度行与结算（webContents 推送）。 */
+	acpLifecycleEvent: "acp:lifecycle-event",
+	/** 查询 acp 会话的配置枚举（模型/思考档/模式；agent 未提供时 null）。 */
+	acpSessionConfigGet: "acp:session-config-get",
+	/** 下发 session/set_config_option 并返回 agent 回传的整表。 */
+	acpSessionConfigSet: "acp:session-config-set",
+	/** 主→渲染：configOptions 变更（set 响应/config_option_update 通知）。 */
+	acpSessionConfigChanged: "acp:session-config-changed",
 } as const;

@@ -4,86 +4,98 @@ import test from "node:test";
 
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { computeThinkingDisplay, resolveComposerThinkingLevel } = loadTsCommonJs(
-  "src/renderer/src/utils/thinkingDisplay.ts",
-);
+const { computeThinkingDisplay, resolveComposerThinkingLevel, clampThinkingLevelToAllowed } = loadTsCommonJs("src/renderer/src/utils/thinkingDisplay.ts");
 
 // vm realm 对象原型与测试 realm 不同，deepStrictEqual 会误判，改用 JSON 比较
 function assertDisplay(actual, expected) {
-  assert.equal(JSON.stringify(actual), JSON.stringify(expected));
+	assert.equal(JSON.stringify(actual), JSON.stringify(expected));
 }
 
 /**
- * 运行中切换思考强度：renderer 不预设“下一轮”语义，
- * 只展示后端返回的最新 runtime state；是否作用于当前回合由后端决定。
+ * 思考档位的展示与模型选择同源：会话/引导页偏好是唯一权威，运行态只负责执行。
  */
 test("computeThinkingDisplay: 有当前档位时展示当前档位", () => {
-  assertDisplay(computeThinkingDisplay("xhigh"), {
-    levels: ["xhigh"],
-    pending: false,
-  });
+	assertDisplay(computeThinkingDisplay("xhigh"), {
+		levels: ["xhigh"],
+		pending: false,
+	});
 });
 
 test("computeThinkingDisplay: 无任何档位信息时返回空序列", () => {
-  assertDisplay(computeThinkingDisplay(undefined), {
-    levels: [],
-    pending: false,
-  });
+	assertDisplay(computeThinkingDisplay(undefined), {
+		levels: [],
+		pending: false,
+	});
 });
 
-test("resolveComposerThinkingLevel: live 时优先 runtime state", () => {
-  assert.equal(
-    resolveComposerThinkingLevel({
-      state: "xhigh",
-      record: "max",
-      fallback: "off",
-      isLive: true,
-    }),
-    "xhigh",
-  );
+test("resolveComposerThinkingLevel: 会话保存的选择优先于 runtime 和 fallback", () => {
+	assert.equal(
+		resolveComposerThinkingLevel({
+			state: "xhigh",
+			record: "max",
+			fallback: "off",
+			isLive: true,
+		}),
+		"max",
+	);
 });
 
-test("resolveComposerThinkingLevel: 非 live 时忽略残留 state，展示 catalog", () => {
-  assert.equal(
-    resolveComposerThinkingLevel({
-      state: "xhigh",
-      record: "max",
-      fallback: "off",
-      isLive: false,
-    }),
-    "max",
-  );
+test("resolveComposerThinkingLevel: 无会话记录时只使用引导页 fallback", () => {
+	assert.equal(
+		resolveComposerThinkingLevel({
+			state: "xhigh",
+			fallback: "off",
+			isLive: true,
+		}),
+		"off",
+	);
+});
+
+test("clampThinkingLevelToAllowed: 档位超限时对齐 pi-ai 优先向上就近 clamp，向上无可退则向下", () => {
+	const allowed = ["low", "medium", "high"];
+	assert.equal(clampThinkingLevelToAllowed("max", allowed), "high");
+	assert.equal(clampThinkingLevelToAllowed("xhigh", allowed), "high");
+	assert.equal(clampThinkingLevelToAllowed("medium", allowed), "medium");
+	assert.equal(clampThinkingLevelToAllowed("off", allowed), "low");
+	// 缺失 medium 且仅有 low/high 时，优先向上命中 high
+	assert.equal(clampThinkingLevelToAllowed("medium", ["low", "high"]), "high");
+	// 仅有低档时，向下就近命中 minimal
+	assert.equal(clampThinkingLevelToAllowed("medium", ["off", "minimal"]), "minimal");
+});
+
+test("resolveComposerThinkingLevel: 传入 allowedLevels 时自动 clamp", () => {
+	assert.equal(
+		resolveComposerThinkingLevel({
+			fallback: "max",
+			allowedLevels: [{ value: "low" }, { value: "medium" }, { value: "high" }],
+		}),
+		"high",
+	);
 });
 
 test("契约: thinking 按钮运行中可点，启动中禁用", () => {
-  const components = readFileSync(
-    "src/renderer/src/components/session/ComposerComponents.tsx",
-    "utf8",
-  );
-  // 模板/模式仍随 disabled 禁用；thinking / 模型按钮有独立禁用位
-  assert.match(components, /disabled=\{props\.disabled\}/);
-  assert.match(components, /disabled=\{props\.thinkingDisabled\}/);
-  assert.match(components, /disabled=\{props\.modelDisabled \?\? props\.disabled\}/);
-  assert.doesNotMatch(components, /thinkingPending|ThinkingLevelPending|thinkingDisplay\.levels\.map/);
+	const components = readFileSync("src/renderer/src/components/session/ComposerComponents.tsx", "utf8");
+	const host = readFileSync("src/renderer/src/components/session/ComposerPickerHost.tsx", "utf8");
+	const chip = readFileSync("src/renderer/src/components/session/ModelThinkingChip.tsx", "utf8");
+	// 模板/模式仍随 disabled 禁用；思考下拉由宿主传入独立启动状态。
+	assert.match(components, /disabled=\{props\.disabled\}/);
+	assert.match(host, /disabled=\{props\.thinkingDisabled\}/);
+	assert.match(chip, /disabled=\{props\.disabled\}/);
+	assert.match(components, /disabled=\{props\.modelDisabled \?\? props\.disabled\}/);
+	assert.doesNotMatch(components, /thinkingPending|ThinkingLevelPending|thinkingDisplay\.levels\.map/);
 });
 
 test("契约: ComposerArea 不预先限制运行中的思考强度修改", () => {
-  const area = readFileSync(
-    "src/renderer/src/components/session/ComposerArea.tsx",
-    "utf8",
-  );
-  // Pi/DSH 是否支持当前回合由后端决定，renderer 只在启动中禁用入口。
-  assert.match(area, /disabled=\{composer\.isBusy \|\| composer\.isStarting\}/);
-  assert.match(area, /thinkingDisabled=\{composer\.isStarting\}/);
-  assert.match(area, /modelDisabled=\{composer\.isStarting\}/);
+	const area = readFileSync("src/renderer/src/components/session/ComposerArea.tsx", "utf8");
+	// Pi/DSH 是否支持当前回合由后端决定，renderer 只在启动中禁用入口。
+	assert.match(area, /disabled=\{composer\.isStarting\}/);
+	assert.match(area, /thinkingDisabled=\{composer\.isStarting\}/);
+	assert.match(area, /modelDisabled=\{composer\.isStarting\}/);
 });
 
-test("契约: runtime 返回的思考档位用于同步 SessionRecord", () => {
-  const picker = readFileSync(
-    "src/renderer/src/components/session/ComposerPickerHost.tsx",
-    "utf8",
-  );
-  assert.match(picker, /const appliedThinkingLevel = agentState\.thinkingLevel \?\? level/);
-  assert.match(picker, /thinkingLevel: appliedThinkingLevel/);
-  assert.doesNotMatch(picker, /thinkingPending|setThinkingPending/);
+test("契约: 活动 Pi 会话将 get_state 返回的有效档位写入会话记录", () => {
+	const picker = readFileSync("src/renderer/src/hooks/useSessionPreferenceController.ts", "utf8");
+	assert.match(picker, /applied\.value\.thinkingLevel/);
+	assert.doesNotMatch(picker, /appliedThinkingLevel/);
+	assert.doesNotMatch(picker, /thinkingPending|setThinkingPending/);
 });

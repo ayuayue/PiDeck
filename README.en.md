@@ -2,14 +2,16 @@
 
 [中文文档](README.md) · [English](README.en.md) · [LinuxDO 友链](https://linux.do)
 
-**An open-source desktop workbench for managing multiple [Pi](https://pi.dev) and [DSH](https://github.com/deepseek-ai/deepseek-harness) coding-agent sessions.**
+**An open-source desktop workbench ("pi desktop") for managing multiple [Pi](https://pi.dev) and [DSH](https://github.com/deepseek-ai/deepseek-harness) coding-agent sessions.**
+
+> PiDeck = **pi desktop**: the pi coding agent, in a desktop app. If you searched GitHub for "pi desktop", "pi GUI", or "pi client" — this is it.
 
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.7.4-beta-blue)
+![Version](https://img.shields.io/badge/version-0.9.6-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -40,7 +42,7 @@
   - [📑 Table of Contents](#-table-of-contents)
   - [✨ Highlights](#-highlights)
   - [📋 Changelog](#-changelog)
-    - [v0.7.4-beta Release Highlights](#v074-beta-release-highlights)
+    - [v0.7.8 Release Highlights](#v078-release-highlights)
   - [🧩 Features](#-features)
     - [Workspace & Projects](#workspace--projects)
     - [Sessions & Conversation](#sessions--conversation)
@@ -79,16 +81,25 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.7.4-beta** (2026-09-04)
+> **Latest: v0.9.6** (2026-10-24)
 
-### v0.7.4-beta Release Highlights
-- 🚀 **Command Code usage query support**
-- 🚀 **Application update lifecycle hardening**
-- 🚀 **Update source mirrors with auto health checks**
-- ✨ **Tool stopwatch no longer resets mid-stream**
-- ✨ **Vision-bridge model picker fits extra-long model names**
-- ✨ **Unified session turn counting**
-- ✨ **Fork titles persist and long sidebar names scroll**
+### v0.9.6 Release Highlights
+- 🚀 **Built-in browser agent: pi can drive the built-in browser**
+- 🚀 **Wallpaper Engine video wallpapers**
+- 🚀 **Favorites: whole replies and selected snippets**
+- 🚀 **PiDeck data over MCP**
+- 🚀 **Environment setup page rebuilt**
+- 🚀 **One-click model config import**
+- 🚀 **Settings sidebar search**
+- 🚀 **Session outline rail rebuilt**
+- 🚀 **DSH auto-retries made visible**
+- 🚀 **Web: in-turn queued sends and in-session search**
+- 🚀 **Synced with pi 1.4.0**
+- 🚀 **Figma MCP OAuth direct connect**
+- ✨ **Timeline virtualization: long sessions stop rescanning the whole list**
+- ✨ **A full pass of memory work**
+- ✨ **Streaming and RPC hot paths**
+- ✨ **Faster prompt library and skill store**
 
 [View Full Changelog →](CHANGELOG.md)
 
@@ -159,8 +170,8 @@
 | **System Tray** | Closing the window minimizes to tray by default; tray context menu; double-click to restore. |
 | **Desktop Pet** | Turn multi-agent status into a little companion on your desktop: aggregated states, always-on-top, scaling, petdex community pets. |
 | **Themes & Appearance** | One-click cycle through light / dark / follow-system (sidebar footer); semantic design tokens with natural dark-mode support. |
-| **Notifications** | Global notifications as card toasts; a dedicated Ask system-notification toggle keeps background queries silent. |
-| **Application Updates** | App-update checks always run in the background and `autoDownloadUpdates` defaults to enabled; after download, the user confirms **Restart and install** in Settings. Windows/Linux use the bundled updater, while macOS opens the GitHub Release for manual installation; Pi CLI checks run independently. |
+| **Notifications** | Global notifications as card toasts; a dedicated Ask system-notification toggle keeps background queries silent, and "notify only when unfocused" stays quiet while the window is in front. |
+| **Application Updates** | App-update checks always run in the background and `autoDownloadUpdates` defaults to enabled; after download, the user confirms **Restart and install** in Settings. Windows installers / Linux x64 AppImage use the bundled updater; unsigned macOS builds, Linux arm64, and deb/tar.gz installs recommend a matching installer for one-click download instead of sending users to pick one from the Release list; Pi CLI checks run independently. |
 | **Feishu Bot** | Bind a session to a Feishu bot to sync messages and status into a Feishu group. |
 | **LAN Web Service** | Start a local web service from Settings and open the web edition from any device on the LAN, with dual-backend session browsing and the DSH tool panel. |
 | **Process Monitor / Log Management** | Built-in process monitoring and cache/log management in Settings — no more digging through directories. |
@@ -224,6 +235,15 @@ Prebuilt packages for **Windows**, **macOS**, and **Linux** are published on Git
 
 > PiDeck requires the `pi` CLI to be installed separately and available in your system `PATH`.
 
+### Dev Edition (PiDeck Dev)
+
+Besides the stable edition (PiDeck), the project also publishes **dev edition (PiDeck Dev)** packages for trying out pre-release features:
+
+- **Where to get it**: versions marked as *Pre-release* on [GitHub Releases](https://github.com/ayuayue/PiDeck/releases) (version numbers carry a `-beta` or `-beta.N` suffix, e.g. `v0.7.8-beta` or `v0.8.0-beta.1`).
+- **Side-by-side install**: PiDeck Dev uses its own app identity (appId), install directory and shortcuts, so it can be installed alongside the stable edition without interference.
+- **Data mode (choose one)**: on first launch PiDeck Dev asks whether to share data with the stable edition or use a separate data directory; you can switch later in-app and follow the guided migration.
+- **Protocol difference**: the dev edition registers the `pideck-dev://` deep-link protocol, which does not collide with the stable edition's `pideck://`.
+
 Requirements:
 
 - `pi` command available in system `PATH`
@@ -235,6 +255,16 @@ Verify pi is available:
 pi --version
 pi --mode rpc
 ```
+
+Build the dev edition from source:
+
+```bash
+npm run dist:win:dev   # Windows (NSIS + portable + zip)
+npm run dist:mac:dev   # macOS (DMG + zip)
+npm run dist:linux:dev # Linux (AppImage + deb + tar.gz)
+```
+
+Artifacts carry the `PiDeck-Dev-` prefix and can be installed alongside stable packages. Note that stable packaging commands such as `npm run dist:win` do **not** inject the dev channel marker — a `-beta` version number does not change the channel either (the channel is decided by the build command, not the version number).
 
 ---
 
@@ -276,7 +306,7 @@ A: The app sends an anonymous, low-frequency `app_heartbeat` usage statistic by 
 
 **Q: How do I report issues?**
 
-A: Join the QQ group at the bottom of this page, or file an issue on [GitHub Issues](https://github.com/ayuayue/PiDeck/issues); you can export logs from Settings when troubleshooting.
+A: Join the QQ / WeChat group at the bottom of this page (or add the author's WeChat `caoayu97`), or file an issue on [GitHub Issues](https://github.com/ayuayue/PiDeck/issues); you can export logs from Settings when troubleshooting.
 
 ---
 
@@ -293,6 +323,9 @@ A: Join the QQ group at the bottom of this page, or file an issue on [GitHub Iss
 | `npm run dist:win` | Package for Windows (NSIS + portable + zip) |
 | `npm run dist:mac` | Package for macOS (DMG + zip) |
 | `npm run dist:linux` | Package for Linux (AppImage + deb + tar.gz) |
+| `npm run dist:win:dev` | Package dev edition for Windows (PiDeck Dev, dev channel + separate app identity) |
+| `npm run dist:mac:dev` | Package dev edition for macOS (PiDeck Dev, dev channel + separate app identity) |
+| `npm run dist:linux:dev` | Package dev edition for Linux (PiDeck Dev, dev channel + separate app identity) |
 | `npm run test:e2e` | Run Playwright end-to-end tests |
 | `npm run docs:dev` | Preview the docs-site locally |
 | `npm run make-icon` | Generate icon assets to `build/icon.svg` |
@@ -350,9 +383,17 @@ Thank you to everyone who has contributed to PiDeck! See the full list in [CONTR
 
 ## 💬 Community
 
-Join the PiDeck QQ group for discussion and feedback:
+Join the PiDeck community for discussion and feedback:
 
-**1026218644**
+| Channel | Entry |
+|---|---|
+| **QQ group** | `1026218644` |
+| **WeChat group** | Scan the QR code below (group links expire after 7 days — add the author's WeChat instead if it no longer works) |
+| **Author's WeChat** | `caoayu97` (mention "PiDeck" when adding) |
+
+<p align="center">
+  <img src="docs/images/wechat-qrcode.png" alt="PiDeck WeChat group QR code" width="280" />
+</p>
 
 ---
 

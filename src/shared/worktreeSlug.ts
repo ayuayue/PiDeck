@@ -37,6 +37,6 @@ export function worktreeSlugify(input: string): string {
 			// git 保留后缀 .lock 改为 -lock，避免整个分支名被拒
 			.replace(/\.lock$/, "-lock")
 			// 去点/折叠后可能再次让首尾出现 -，最后清一次
-			.replace(/^-+|-+$/g, "")
-	) || "workspace";
+			.replace(/^-+|-+$/g, "") || "workspace"
+	);
 }

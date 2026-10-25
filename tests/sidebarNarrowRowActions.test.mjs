@@ -27,17 +27,20 @@ test("sidebar host needs no container query anchor", () => {
 
 test("project row text yields to the hover action buttons at any width", () => {
 	const src = read("src/renderer/src/components/sidebar/ProjectTree.tsx");
-	// 项目名 conversation-body：hover 压出 64px 留白——浮层 right-1(4) + pr-1(4) +
-	// 两个 size-6 按钮(52) + 4px 余量，刚好比 + / ⋯ 宽一点，不浪费文字空间；
+	// 项目名 conversation-body：基础让位 28px（常显的「+ 新建会话」right-1(4) + size-6(24)），
+	// hover 再压到 88px——常显加号(28) + 末尾 pr-1(4) + 浮动层 2 个 size-6 按钮（筛选 / ⋯，52px）；
 	// 聚焦态（键盘导航）同样让位；transition 只动画 padding-right。
-	// 所有宽度统一让位，不能只依赖窄侧栏断点，否则中等宽度下 + / ⋯ 会叠在长项目名上。
-	assert.match(
-		src,
-		/conversation-body min-w-0 flex-1 transition-\[padding-right\] group-hover:pr-16 group-focus-within:pr-16/,
-	);
-	// 筛选按钮存在时（sourceFilter）共 3 个按钮，让位加宽到 88px
-	assert.match(src, /sourceFilter !== null && "group-hover:pr-\[88px\] group-focus-within:pr-\[88px\]"/);
-	// 旧的 116px/窄侧栏断点不得回退
+	// 所有宽度统一让位，不能只依赖窄侧栏断点，否则中等宽度下按钮会叠在长项目名上。
+	assert.match(src, /conversation-body min-w-0 flex-1 pr-7 transition-\[padding-right\] group-hover:pr-\[88px\] group-focus-within:pr-\[88px\]/);
+	// 「+ 新建会话」必须脱离 hover 浮层常显（用户反馈：只在 hover 出现时容易点错到分组栏的「+ 添加项目」）
+	assert.match(src, /<div className="absolute top-1\/2 right-1 flex -translate-y-1\/2 items-center">\s*<Button[\s\S]{0,500}?newNormalSession/);
+	// 剩余筛选/⋯ 浮层左栻 32px 让开常显加号
+	assert.match(src, /dimmedActionsClass, "right-8 pr-1"/);
+	// 过滤历史记录按钮 hover 常驻（不再只在筛选激活时出现），筛选激活时高亮
+	assert.match(src, /openSourceFilter\(project\.id, event\.clientX, event\.clientY\)/);
+	assert.match(src, /sourceFilter !== null\s*\?\s*"text-primary"/);
+	// 旧的 64px（两按钮时代）与 116px/窄侧栏断点不得回退
+	assert.doesNotMatch(src, /group-hover:pr-16/);
 	assert.doesNotMatch(src, /pr-29/);
 	assert.doesNotMatch(src, prVariant);
 	// 新建 DSH 会话入口已收敛到会话内的后端选择器，项目行不再提供独立机器人按钮
@@ -49,13 +52,18 @@ test("project row text yields to the hover action buttons at any width", () => {
 	assert.doesNotMatch(src, /conversation-body[^\n]*opacity-0/);
 });
 
+test("project menu pins text clearance with the same state that keeps its actions visible", () => {
+	const src = read("src/renderer/src/components/sidebar/ProjectTree.tsx");
+	assert.match(src, /const\s+menuOpen\s*=\s*props\.controller\.menu\?\.kind\s*===\s*"project"\s*&&\s*props\.controller\.menu\.projectId\s*===\s*project\.id/);
+	assert.match(src, /menuOpen\s*&&\s*"pr-\[88px\]"/);
+	assert.match(src, /menuOpen\s*&&\s*"pointer-events-auto opacity-100"/);
+});
+
 test("session rows yield to hover actions on narrow sidebar", () => {
 	const src = read("src/renderer/src/components/sidebar/SessionTree.tsx");
 	// agent 行、运行中会话行、历史会话行、普通会话行共 4 处 conversation-body 全部接入
 	// （一个 size-6 更多按钮 → 28px 留白）
-	const matches = src.match(
-		/conversation-body min-w-0 flex-1 transition-\[padding-right\] group-hover\/row:pr-7 group-focus-within\/row:pr-7/g,
-	);
+	const matches = src.match(/conversation-body min-w-0 flex-1 transition-\[padding-right\] group-hover\/row:pr-7 group-focus-within\/row:pr-7/g);
 	assert.ok(matches && matches.length === 4, `expected 4 row bodies, got ${matches?.length ?? 0}`);
 	// 浮层模式不变
 	assert.match(src, /row-more-actions pointer-events-none absolute top-1\/2 right-1/);
@@ -66,10 +74,7 @@ test("worktree rows yield to hover actions on narrow sidebar", () => {
 	const src = read("src/renderer/src/components/sidebar/WorktreeTree.tsx");
 	// 主工作区行与子行共用同一让位变量：2 按钮（pi/匿名）→ 52px 留白。
 	// 改版后用命名组 /workspace-row，不再用 @max-[255px] 容器查询门控（与子行保持一致）。
-	assert.match(
-		src,
-		/workspaceActionPaddingClass =\s*\n\s*"group-hover\/workspace-row:pr-\[52px\] group-focus-within\/workspace-row:pr-\[52px\]"/,
-	);
+	assert.match(src, /workspaceActionPaddingClass =\s*"group-hover\/workspace-row:pr-\[52px\] group-focus-within\/workspace-row:pr-\[52px\]"/);
 	assert.match(src, /conversation-body min-w-0 flex-1 transition-\[padding-right\]/);
 	// 子行按钮同样接入让位变量（workspaceSelectClass 带 transition-[…,padding-right]）
 	assert.match(src, /workspaceActionPaddingClass,[\s\S]*?childActionsOpen && "pr-\[52px\]"/);
@@ -89,24 +94,33 @@ test("worktree rows yield to hover actions on narrow sidebar", () => {
 test("hover yield classes survive tailwind-merge", () => {
 	// 防回归：cn() 的 tailwind-merge 不得吞掉 group-hover/group-focus-within 的 pr 让位类
 	// （不同修饰键的 pr 互不冲突，均应保留）
-	const merged = twMerge(
-		"min-w-0 flex-1 truncate transition-[padding-right] group-hover:pr-16 group-focus-within:pr-16",
-	);
+	const merged = twMerge("min-w-0 flex-1 truncate transition-[padding-right] group-hover:pr-16 group-focus-within:pr-16");
 	assert.match(merged, /group-hover:pr-16/);
 	assert.match(merged, /group-focus-within:pr-16/);
 	assert.match(merged, /transition-\[padding-right\]/);
 	// 项目行筛选按钮出现时：同修饰键同组冲突，88px 版本应胜出（让位加宽）
-	const filtered = twMerge(
-		"transition-[padding-right] group-hover:pr-16 group-focus-within:pr-16",
-		"group-hover:pr-[88px] group-focus-within:pr-[88px]",
-	);
+	const filtered = twMerge("transition-[padding-right] group-hover:pr-16 group-focus-within:pr-16", "group-hover:pr-[88px] group-focus-within:pr-[88px]");
 	assert.match(filtered, /group-hover:pr-\[88px\]/);
 	assert.match(filtered, /group-focus-within:pr-\[88px\]/);
 	assert.doesNotMatch(filtered, /pr-16/);
 	// 子行同一规则：与 52px 让位类合并时同样保留
-	const rowMerged = twMerge(
-		"min-w-0 flex-1 truncate transition-[padding-right] group-hover/workspace-row:pr-[52px] group-focus-within/workspace-row:pr-[52px]",
-	);
+	const rowMerged = twMerge("min-w-0 flex-1 truncate transition-[padding-right] group-hover/workspace-row:pr-[52px] group-focus-within/workspace-row:pr-[52px]");
 	assert.match(rowMerged, /group-hover\/workspace-row:pr-\[52px\]/);
 	assert.match(rowMerged, /group-focus-within\/workspace-row:pr-\[52px\]/);
+});
+
+test("subagent pill never lands on the row ⋯ while the timestamp yields", () => {
+	const src = read("src/renderer/src/components/sidebar/SessionTree.tsx");
+	// 2027-02 用户反馈：胶囊右移到时间戳旁边后，hover 时行尾的「⋯」看不到/被压住。
+	// 实测成因（真实 Chromium + 编译后 CSS 量测）：时间戳 display:none 是瞬时生效的，
+	// 而 hover 让位 padding 要走 150ms，中间那段胶囊正落在「⋯」的 28px 槽位上（重叠 19px，
+	// 「⋯」字符被压在胶囊盒内）。修复两半，缺一不可：
+	//   ① 胶囊后面没有时间戳时（运行中 Agent 行）由胶囊自己 last:mr-7 预留槽位——它本来就是行内最后一个元素；
+	//   ② 有时间戳时把「消失」换成与 padding 同步的宽度收拢，胶囊缓慢滑过去而不是跳过去。
+	// 量测结论：会话行全程胶囊右缘 ≤ 1360（「⋯」盒左缘 1372），Agent 行恒 ≥ 9px 间距，任意帧都不重叠。
+	assert.match(src, /subagent-inline-toggle\s+px-1\s+py-0\.5\s+last:mr-7/);
+	assert.match(src, /w-max\s+shrink-0\s+overflow-hidden\s+whitespace-nowrap[^"]*transition-\[width,opacity\][^"]*\[interpolate-size:allow-keywords\]/);
+	assert.match(src, /group-hover\/row:w-0[^"]*group-hover\/row:opacity-0/);
+	// 时间戳不得回退成 display:none：瞬时消失 = 胶囊一步跳到行尾压在「⋯」上
+	assert.doesNotMatch(src, /text-muted-foreground group-hover\/row:hidden/);
 });

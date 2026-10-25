@@ -1,14 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toggleTaskCheckbox as toggleTaskLine } from "../components/scratchPad/scratchPadLists";
-import type { DraftMeta, ScratchPadData } from "../../../shared/types";
+import type { DraftMeta } from "../../../shared/types";
+import type { WorkspaceDrawerPanel } from "./useWorkspacePanels";
 
 const AUTOSAVE_DELAY = 1500;
 
 type UseScratchPadMode = "edit" | "preview";
 
+type ScratchPadDrawerControls = {
+	drawer: WorkspaceDrawerPanel | null;
+	drawerCollapsed: boolean;
+	openDrawerForce: (panel: WorkspaceDrawerPanel) => void;
+	closeDrawer: () => void;
+};
+
 type UseScratchPadResult = {
 	isOpen: boolean;
-	isClosing: boolean;
 	drafts: DraftMeta[];
 	currentDraftPath: string | null;
 	content: string;
@@ -31,9 +38,9 @@ type UseScratchPadResult = {
 	deleteDraft: (draftPath: string) => Promise<void>;
 };
 
-export function useScratchPad(): UseScratchPadResult {
-	const [isOpen, setIsOpen] = useState(false);
-	const [isClosing, setIsClosing] = useState(false);
+/** 草稿内容常驻 App；可见性、切换与关闭动画由工作区抽屉单一管理。 */
+export function useScratchPad({ drawer, drawerCollapsed, openDrawerForce, closeDrawer }: ScratchPadDrawerControls): UseScratchPadResult {
+	const isOpen = drawer === "scratchPad" && !drawerCollapsed;
 	const [drafts, setDrafts] = useState<DraftMeta[]>([]);
 	const [currentDraftPath, setCurrentDraftPath] = useState<string | null>(null);
 	const [content, setContentState] = useState("");
@@ -62,7 +69,7 @@ export function useScratchPad(): UseScratchPadResult {
 			}
 			// 如果当前选中的草稿不存在了（已被删除），切换到第一个
 			if (list.length > 0 && currentDraftPathRef.current) {
-				const stillExists = list.some(d => d.path === currentDraftPathRef.current);
+				const stillExists = list.some((d) => d.path === currentDraftPathRef.current);
 				if (!stillExists) {
 					const first = list[0];
 					setCurrentDraftPath(first.path);
@@ -97,23 +104,27 @@ export function useScratchPad(): UseScratchPadResult {
 	}, [loadDrafts, loadContent]);
 
 	/** 立即保存指定草稿 */
-	const flushSave = useCallback(async (draftPath: string, value: string) => {
-		if (!window.piDesktop?.scratchPad || !draftPath) return;
-		setIsSaving(true);
-		setHasError(false);
-		try {
-			await window.piDesktop.scratchPad.save(draftPath, value, 0);
-			// 保存后刷新列表以更新 updatedAt 时间
-			void loadDrafts();
-		} catch {
-			setHasError(true);
-		} finally {
-			setIsSaving(false);
-		}
-	}, [loadDrafts]);
+	const flushSave = useCallback(
+		async (draftPath: string, value: string) => {
+			if (!window.piDesktop?.scratchPad || !draftPath) return;
+			setIsSaving(true);
+			setHasError(false);
+			try {
+				await window.piDesktop.scratchPad.save(draftPath, value, 0);
+				// 保存后刷新列表以更新 updatedAt 时间
+				void loadDrafts();
+			} catch {
+				setHasError(true);
+			} finally {
+				setIsSaving(false);
+			}
+		},
+		[loadDrafts],
+	);
 
 	const setContent = useCallback(
 		(value: string) => {
+			contentRef.current = value;
 			setContentState(value);
 			setHasError(false);
 			if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -127,24 +138,10 @@ export function useScratchPad(): UseScratchPadResult {
 	);
 
 	const close = useCallback(() => {
-		if (isClosing) return;
-		setIsClosing(true);
-		if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-		const path = currentDraftPathRef.current;
-		const value = contentRef.current;
-		if (path) {
-			void flushSave(path, value);
-		}
-		setTimeout(() => {
-			setIsOpen(false);
-			setIsClosing(false);
-		}, 200);
-	}, [contentRef, flushSave, isClosing]);
+		if (drawer === "scratchPad") closeDrawer();
+	}, [drawer, closeDrawer]);
 
-	const open = useCallback(() => {
-		setIsClosing(false);
-		setIsOpen(true);
-	}, []);
+	const open = useCallback(() => openDrawerForce("scratchPad"), [openDrawerForce]);
 
 	const toggle = useCallback(() => {
 		if (isOpen) {
@@ -155,11 +152,44 @@ export function useScratchPad(): UseScratchPadResult {
 	}, [isOpen, open, close]);
 
 	const saveNow = useCallback(() => {
-		if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+		if (saveTimerRef.current) {
+			clearTimeout(saveTimerRef.current);
+			saveTimerRef.current = null;
+		}
 		const path = currentDraftPathRef.current;
 		if (!path) return Promise.resolve();
 		return flushSave(path, contentRef.current);
 	}, [flushSave]);
+
+	// 侧栏关闭、切到其他面板或切换项目都走同一可见性边界，不能只在 X 按钮保存。
+	const wasOpenRef = useRef(isOpen);
+	useEffect(() => {
+		if (wasOpenRef.current && !isOpen) void saveNow();
+		wasOpenRef.current = isOpen;
+	}, [isOpen, saveNow]);
+
+	// 快捷键常驻，不依赖草稿面板挂载；菜单已消费的 Escape 不再关闭整个侧栏。
+	useEffect(() => {
+		const handler = (event: KeyboardEvent) => {
+			if (event.defaultPrevented) return;
+			if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "s") {
+				event.preventDefault();
+				toggle();
+			} else if (event.key === "Escape" && isOpen) {
+				event.stopPropagation();
+				close();
+			}
+		};
+		window.addEventListener("keydown", handler);
+		return () => window.removeEventListener("keydown", handler);
+	}, [close, isOpen, toggle]);
+
+	useEffect(
+		() => () => {
+			if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+		},
+		[],
+	);
 
 	const exportFile = useCallback(async () => {
 		await saveNow();
@@ -170,17 +200,20 @@ export function useScratchPad(): UseScratchPadResult {
 	}, [saveNow]);
 
 	/** 切换草稿：先保存当前，再加载新草稿 */
-	const selectDraft = useCallback(async (draftPath: string) => {
-		if (draftPath === currentDraftPathRef.current) return;
-		// 先保存当前草稿
-		const currentPath = currentDraftPathRef.current;
-		const currentValue = contentRef.current;
-		if (currentPath && currentValue) {
-			await flushSave(currentPath, currentValue);
-		}
-		setCurrentDraftPath(draftPath);
-		await loadContent(draftPath);
-	}, [flushSave, loadContent]);
+	const selectDraft = useCallback(
+		async (draftPath: string) => {
+			if (draftPath === currentDraftPathRef.current) return;
+			// 先保存当前草稿
+			const currentPath = currentDraftPathRef.current;
+			const currentValue = contentRef.current;
+			if (currentPath && currentValue) {
+				await flushSave(currentPath, currentValue);
+			}
+			setCurrentDraftPath(draftPath);
+			await loadContent(draftPath);
+		},
+		[flushSave, loadContent],
+	);
 
 	/** 创建新草稿 */
 	const createDraft = useCallback(async () => {
@@ -193,31 +226,34 @@ export function useScratchPad(): UseScratchPadResult {
 			await flushSave(currentPath, currentValue);
 		}
 		const newDraft = await window.piDesktop.scratchPad.create();
-		setDrafts(prev => [newDraft, ...prev]);
+		setDrafts((prev) => [newDraft, ...prev]);
 		setCurrentDraftPath(newDraft.path);
 		setContentState("");
 	}, [flushSave]);
 
 	/** 删除草稿 */
-	const deleteDraft = useCallback(async (draftPath: string) => {
-		if (!window.piDesktop?.scratchPad) return;
-		await window.piDesktop.scratchPad.delete(draftPath);
-		// 本地更新列表
-		setDrafts(prev => prev.filter(d => d.path !== draftPath));
-		// 如果删除的是当前草稿，切换到第一个可用草稿
-		if (draftPath === currentDraftPathRef.current) {
-			// 读取最新状态中的列表
-			const updatedList = drafts.filter(d => d.path !== draftPath);
-			if (updatedList.length > 0) {
-				const first = updatedList[0];
-				setCurrentDraftPath(first.path);
-				await loadContent(first.path);
-			} else {
-				setCurrentDraftPath(null);
-				setContentState("");
+	const deleteDraft = useCallback(
+		async (draftPath: string) => {
+			if (!window.piDesktop?.scratchPad) return;
+			await window.piDesktop.scratchPad.delete(draftPath);
+			// 本地更新列表
+			setDrafts((prev) => prev.filter((d) => d.path !== draftPath));
+			// 如果删除的是当前草稿，切换到第一个可用草稿
+			if (draftPath === currentDraftPathRef.current) {
+				// 读取最新状态中的列表
+				const updatedList = drafts.filter((d) => d.path !== draftPath);
+				if (updatedList.length > 0) {
+					const first = updatedList[0];
+					setCurrentDraftPath(first.path);
+					await loadContent(first.path);
+				} else {
+					setCurrentDraftPath(null);
+					setContentState("");
+				}
 			}
-		}
-	}, [drafts, loadContent]);
+		},
+		[drafts, loadContent],
+	);
 
 	// 应用退出前保存
 	useEffect(() => {
@@ -235,13 +271,15 @@ export function useScratchPad(): UseScratchPadResult {
 	const setModeValue = useCallback((m: UseScratchPadMode) => setMode(m), []);
 
 	/* 切换指定行（task list 项）的选中状态：直接根据源 markdown 行号反转 */
-	const toggleTaskCheckbox = useCallback((lineIndex: number) => {
-		setContent(toggleTaskLine(content, lineIndex));
-	}, [content, setContent]);
+	const toggleTaskCheckbox = useCallback(
+		(lineIndex: number) => {
+			setContent(toggleTaskLine(content, lineIndex));
+		},
+		[content, setContent],
+	);
 
 	return {
 		isOpen,
-		isClosing,
 		drafts,
 		currentDraftPath,
 		content,

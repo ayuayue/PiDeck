@@ -37,9 +37,5 @@ test("agent_end keeps the logical turn closed while runtime bookkeeping continue
 
 	manager.handlePiEvent("agent-1", { type: "agent_end", messages: [] });
 	assert.equal(manager.agents.get("agent-1")?.tab.status, "running");
-	assert.equal(
-		(await manager.getRuntimeState("agent-1")).isTurnActive,
-		false,
-		"a later compaction/idle check must not reopen the completed answer turn",
-	);
+	assert.equal((await manager.getRuntimeState("agent-1")).isTurnActive, false, "a later compaction/idle check must not reopen the completed answer turn");
 });

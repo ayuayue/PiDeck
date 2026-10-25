@@ -23,10 +23,7 @@ export const EMPTY_NOTIFICATION_QUEUE: NotificationQueueState = { active: null, 
  * 处理一条新通知（null = waiting 清空信号）。
  * 返回新状态；调用方按 active 变化决定窗口扩展/收缩与 IPC 推送。
  */
-export function nextNotificationQueueState(
-	state: NotificationQueueState,
-	incoming: PetNotification | null,
-): NotificationQueueState {
+export function nextNotificationQueueState(state: NotificationQueueState, incoming: PetNotification | null): NotificationQueueState {
 	// waiting 清空信号：仅正展示 persistent 提醒时收起；非持久化展示中忽略（计时器到点统一收缩）
 	if (!incoming) {
 		return {

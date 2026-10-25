@@ -1,15 +1,6 @@
-import type {
-  Project,
-  SessionSummary,
-  SessionEnvironment,
-  AgentTab,
-} from "../../shared/types";
+import type { Project, SessionSummary, SessionEnvironment, AgentTab } from "../../shared/types";
 import { isSameSessionPath } from "./agentListDisplay";
-import {
-  parseSessionFilterState,
-  serializeSessionFilterState,
-  type SessionFilterPill,
-} from "./sessionFilterPills";
+import { parseSessionFilterState, serializeSessionFilterState, type SessionFilterPill } from "./sessionFilterPills";
 
 // 输入卡本身的最小高度：输入区 + 模式/模型底栏。footer 的 8px 底 padding 由内容撑开。
 export const COMPOSER_DEFAULT_HEIGHT = 160;
@@ -44,11 +35,7 @@ export type SessionPanelSet = {
  * 起始页（空会话且磁盘已就绪）在 timeline 内居中挂同一 ComposerArea，底部栏不重复。
  * 加载中即使 messages 仍为空也要挂底部栏，避免历史会话首帧闪一下居中起始页。
  */
-export function shouldMountBottomComposer(input: {
-	hasActiveConversation: boolean;
-	messageCount: number;
-	isConversationLoading: boolean;
-}): boolean {
+export function shouldMountBottomComposer(input: { hasActiveConversation: boolean; messageCount: number; isConversationLoading: boolean }): boolean {
 	if (!input.hasActiveConversation) return false;
 	if (input.messageCount > 0) return true;
 	return input.isConversationLoading;
@@ -64,10 +51,7 @@ export function sessionResizableGroupKey(panels: SessionPanelSet): string {
  * `Invalid N panel layout: a%, b%`。关终端后 getLayout 仍可能带旧键。
  * 差额全部还给 timeline。
  */
-export function sanitizeSessionPanelLayout(
-	layout: Record<string, number>,
-	panels: SessionPanelSet,
-): Record<string, number> {
+export function sanitizeSessionPanelLayout(layout: Record<string, number>, panels: SessionPanelSet): Record<string, number> {
 	const terminal = panels.terminal ? layout.terminal : undefined;
 	const timeline = Math.max(0, 100 - (terminal ?? 0));
 	const next: Record<string, number> = {};
@@ -85,15 +69,9 @@ export function sanitizeSessionPanelLayout(
  * Group 首帧 defaultLayout（百分比，键序 = DOM：timeline → terminal）。
  * 不传时库 He() 在 groupSize=0 会均分。
  */
-export function sessionGroupDefaultLayout(
-	panels: SessionPanelSet,
-	terminalPx: number,
-	groupPx: number,
-): Record<string, number> {
+export function sessionGroupDefaultLayout(panels: SessionPanelSet, terminalPx: number, groupPx: number): Record<string, number> {
 	const safeGroup = Math.max(groupPx, 1);
-	const terminalPct = panels.terminal
-		? Math.min(50, Math.max(0, (Math.max(terminalPx, 0) / safeGroup) * 100))
-		: 0;
+	const terminalPct = panels.terminal ? Math.min(50, Math.max(0, (Math.max(terminalPx, 0) / safeGroup) * 100)) : 0;
 	const next: Record<string, number> = {
 		timeline: Math.max(0, 100 - terminalPct),
 	};
@@ -105,11 +83,7 @@ export function sessionGroupDefaultLayout(
  * 折叠/展开终端后重排：差额全部由 timeline 承担。
  * 输入栏在列内固有高度，不占 Group 百分比，因此这里不再锁 composer。
  */
-export function redistributeTerminalAgainstTimeline(
-	layout: Record<string, number>,
-	terminalPct: number,
-	timelineMinPct = 0,
-): Record<string, number> | null {
+export function redistributeTerminalAgainstTimeline(layout: Record<string, number>, terminalPct: number, timelineMinPct = 0): Record<string, number> | null {
 	if (layout.timeline === undefined || layout.terminal === undefined) return null;
 	let terminal = Math.max(0, terminalPct);
 	let timeline = 100 - terminal;
@@ -133,82 +107,76 @@ export const ASK_MAX_HEIGHT = 280;
 export const ASK_STEP_PX = 8;
 
 export function displayProjectDirectoryName(project: Project) {
-  if (isChatProject(project)) return "Chat";
-  const normalizedPath = project.path.replace(/\\/g, "/").replace(/\/+$/, "");
-  const dirName = normalizedPath.split("/").pop() || "";
-  // 用户重命名过（name 与目录名不同）时优先展示自定义名，否则回退目录名：
-  // 未重命名的项目 name 就是目录 basename，展示行为与旧版完全一致。
-  if (!dirName) return project.name || project.path;
-  return project.name && project.name !== dirName ? project.name : dirName;
+	if (isChatProject(project)) return "Chat";
+	const normalizedPath = project.path.replace(/\\/g, "/").replace(/\/+$/, "");
+	const dirName = normalizedPath.split("/").pop() || "";
+	// 用户重命名过（name 与目录名不同）时优先展示自定义名，否则回退目录名：
+	// 未重命名的项目 name 就是目录 basename，展示行为与旧版完全一致。
+	if (!dirName) return project.name || project.path;
+	return project.name && project.name !== dirName ? project.name : dirName;
 }
 
 export function isChatProject(project?: Project) {
-  return project?.kind === "chat";
+	return project?.kind === "chat";
 }
 
 export function formatCodexSubagentName(session: SessionSummary) {
-  const label = [session.codexAgentNickname, session.codexAgentRole]
-    .filter(Boolean)
-    .join(" · ");
-  return label || session.name || "Codex Subagent";
+	const label = [session.codexAgentNickname, session.codexAgentRole].filter(Boolean).join(" · ");
+	return label || session.name || "Codex Subagent";
 }
 
 /** pi 原生子会话名称：优先使用会话名，回退到 "子会话" */
 export function formatPiSubagentName(session: SessionSummary) {
-  return session.name || "Pi Subagent";
+	return session.name || "Pi Subagent";
 }
 
 /** 从 localStorage 恢复会话来源过滤配置（v2 格式，含旧版迁移，见 sessionFilterPills） */
 export function loadSessionSourceFilter(): Record<string, Set<SessionFilterPill> | null> {
-  try {
-    return parseSessionFilterState(localStorage.getItem("pideck-session-source-filter"));
-  } catch {
-    return {};
-  }
+	try {
+		return parseSessionFilterState(localStorage.getItem("pideck-session-source-filter"));
+	} catch {
+		return {};
+	}
 }
 
 /** 将会话来源过滤持久化到 localStorage（与侧栏过滤菜单共用同一份配置） */
 export function saveSessionSourceFilter(filter: Record<string, Set<SessionFilterPill> | null>) {
-  try {
-    localStorage.setItem("pideck-session-source-filter", serializeSessionFilterState(filter));
-  } catch {
-    // 静默失败
-  }
+	try {
+		localStorage.setItem("pideck-session-source-filter", serializeSessionFilterState(filter));
+	} catch {
+		// 静默失败
+	}
 }
 
 export function inferSessionEnvironment(filePath?: string): SessionEnvironment {
-  return filePath?.startsWith("/") ? "wsl" : "native";
+	return filePath?.startsWith("/") ? "wsl" : "native";
 }
 
 export type PendingAgentTab = AgentTab & {
-  pendingKind?: "create" | "restart";
-  pendingStartedAt?: number;
+	pendingKind?: "create" | "restart";
+	pendingStartedAt?: number;
 };
 
 export function isReplacementForPendingAgent(agent: AgentTab, pending: PendingAgentTab) {
-  if (agent.projectId !== pending.projectId || agent.cwd !== pending.cwd)
-    return false;
+	if (agent.projectId !== pending.projectId || agent.cwd !== pending.cwd) return false;
 
-  const environment = inferSessionEnvironment(pending.sessionPath);
-  if (pending.pendingKind === "restart") {
-    const startedAt = pending.pendingStartedAt ?? pending.createdAt;
-    // 重启占位只匹配本次重启之后出现的新进程，避免误选同项目下已有的同名 Agent。
-    if (agent.createdAt < startedAt - 1000) return false;
-    if (isSameSessionPath(agent.sessionPath, pending.sessionPath)) return true;
-    return !pending.sessionPath && agent.title === pending.title;
-  }
+	const environment = inferSessionEnvironment(pending.sessionPath);
+	if (pending.pendingKind === "restart") {
+		const startedAt = pending.pendingStartedAt ?? pending.createdAt;
+		// 重启占位只匹配本次重启之后出现的新进程，避免误选同项目下已有的同名 Agent。
+		if (agent.createdAt < startedAt - 1000) return false;
+		if (isSameSessionPath(agent.sessionPath, pending.sessionPath)) return true;
+		return !pending.sessionPath && agent.title === pending.title;
+	}
 
-  if (!pending.id.startsWith("pending-")) return false;
-  if (isSameSessionPath(agent.sessionPath, pending.sessionPath)) return true;
-  if (pending.sessionPath && agent.createdAt >= pending.createdAt - 1000)
-    return true;
-  return (
-    agent.title === pending.title && agent.createdAt >= pending.createdAt - 1000
-  );
+	if (!pending.id.startsWith("pending-")) return false;
+	if (isSameSessionPath(agent.sessionPath, pending.sessionPath)) return true;
+	if (pending.sessionPath && agent.createdAt >= pending.createdAt - 1000) return true;
+	return agent.title === pending.title && agent.createdAt >= pending.createdAt - 1000;
 }
 
 export function isPendingAgentId(agentId?: string) {
-  return Boolean(agentId?.startsWith("pending-"));
+	return Boolean(agentId?.startsWith("pending-"));
 }
 
 /**
@@ -216,37 +184,28 @@ export function isPendingAgentId(agentId?: string) {
  * 旧实现只要 status===idle 且还有 start 就 Date.now() setState；displayAgents
  * 每帧换新引用时会把 React 更新深度打满（设置/关窗点不动）。
  */
-export function stampIdleSessionDuration(input: {
-  previousStatus: AgentTab["status"] | undefined;
-  status: AgentTab["status"];
-  startedAt: number | undefined;
-  now: number;
-}): { startedAt?: number; durationMs?: number; clearStart?: boolean } {
-  if (input.status === "running") {
-    if (input.previousStatus !== "running") {
-      return { startedAt: input.now };
-    }
-    return { startedAt: input.startedAt };
-  }
-  if (input.status === "idle" && input.previousStatus === "running" && input.startedAt) {
-    return {
-      startedAt: input.startedAt,
-      durationMs: input.now - input.startedAt,
-      clearStart: true,
-    };
-  }
-  return { startedAt: input.startedAt };
+export function stampIdleSessionDuration(input: { previousStatus: AgentTab["status"] | undefined; status: AgentTab["status"]; startedAt: number | undefined; now: number }): { startedAt?: number; durationMs?: number; clearStart?: boolean } {
+	if (input.status === "running") {
+		if (input.previousStatus !== "running") {
+			return { startedAt: input.now };
+		}
+		return { startedAt: input.startedAt };
+	}
+	if (input.status === "idle" && input.previousStatus === "running" && input.startedAt) {
+		return {
+			startedAt: input.startedAt,
+			durationMs: input.now - input.startedAt,
+			clearStart: true,
+		};
+	}
+	return { startedAt: input.startedAt };
 }
 
-export function migrateAgentRecord<T>(
-  current: Record<string, T>,
-  replacementById: Map<string, string>,
-  liveIds: Set<string>,
-) {
-  const next: Record<string, T> = {};
-  for (const [agentId, value] of Object.entries(current)) {
-    const nextAgentId = replacementById.get(agentId) ?? agentId;
-    if (liveIds.has(nextAgentId)) next[nextAgentId] = value;
-  }
-  return next;
+export function migrateAgentRecord<T>(current: Record<string, T>, replacementById: Map<string, string>, liveIds: Set<string>) {
+	const next: Record<string, T> = {};
+	for (const [agentId, value] of Object.entries(current)) {
+		const nextAgentId = replacementById.get(agentId) ?? agentId;
+		if (liveIds.has(nextAgentId)) next[nextAgentId] = value;
+	}
+	return next;
 }

@@ -3,46 +3,15 @@
  * 视图层（TipTapComposer）只负责挂载 EditorContent。
  */
 
-import {
-	useEffect,
-	useLayoutEffect,
-	useMemo,
-	useRef,
-	type RefObject,
-} from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from "react";
 import { useEditor, type Editor } from "@tiptap/react";
 import type { ComposerEditorProps } from "./types";
 import { createComposerExtensions } from "./tiptap/createComposerExtensions";
 import { buildComposerEditorProps } from "./tiptap/buildComposerEditorProps";
-import {
-	plainTextToComposerDoc,
-	serializeComposerEditorJson,
-} from "./tiptap/plainTextCodec";
-import {
-	plainOffsetToPos,
-	posToPlainOffset,
-	registerComposerTipTapEditor,
-} from "./tiptap/caretBridge";
+import { plainTextToComposerDoc, serializeComposerEditorJson } from "./tiptap/plainTextCodec";
+import { plainOffsetToPos, posToPlainOffset, registerComposerTipTapEditor } from "./tiptap/caretBridge";
 
-export type UseTipTapComposerEditorArgs = Pick<
-	ComposerEditorProps,
-	| "value"
-	| "onChange"
-	| "onCursorChange"
-	| "onKeyDown"
-	| "onPaste"
-	| "onDrop"
-	| "onDragOver"
-	| "onChipClick"
-	| "disabled"
-	| "placeholder"
-	| "className"
-	| "caretRef"
-	| "validCommandNames"
-	| "validFilePaths"
-	| "validSessionRefs"
-	| "validQuotes"
-> & {
+export type UseTipTapComposerEditorArgs = Pick<ComposerEditorProps, "value" | "onChange" | "onCursorChange" | "onKeyDown" | "onPaste" | "onDrop" | "onDragOver" | "onChipClick" | "disabled" | "placeholder" | "className" | "caretRef" | "validCommandNames" | "validFilePaths" | "validSessionRefs" | "validQuotes"> & {
 	hostRef: RefObject<HTMLDivElement | null>;
 };
 
@@ -50,33 +19,10 @@ function syncEmptyClass(editor: Editor): void {
 	editor.view.dom.classList.toggle("is-editor-empty", editor.isEmpty);
 }
 
-export function useTipTapComposerEditor(
-	args: UseTipTapComposerEditorArgs,
-): Editor | null {
-	const {
-		value,
-		onChange,
-		onCursorChange,
-		onKeyDown,
-		onPaste,
-		onDrop,
-		onDragOver,
-		onChipClick,
-		disabled,
-		placeholder,
-		className,
-		caretRef,
-		validCommandNames,
-		validFilePaths,
-		validSessionRefs,
-		validQuotes,
-		hostRef,
-	} = args;
+export function useTipTapComposerEditor(args: UseTipTapComposerEditorArgs): Editor | null {
+	const { value, onChange, onCursorChange, onKeyDown, onPaste, onDrop, onDragOver, onChipClick, disabled, placeholder, className, caretRef, validCommandNames, validFilePaths, validSessionRefs, validQuotes, hostRef } = args;
 
-	const whitelist = useMemo(
-		() => ({ validCommandNames, validFilePaths, validSessionRefs, validQuotes }),
-		[validCommandNames, validFilePaths, validSessionRefs, validQuotes],
-	);
+	const whitelist = useMemo(() => ({ validCommandNames, validFilePaths, validSessionRefs, validQuotes }), [validCommandNames, validFilePaths, validSessionRefs, validQuotes]);
 	const whitelistRef = useRef(whitelist);
 	whitelistRef.current = whitelist;
 
@@ -114,24 +60,16 @@ export function useTipTapComposerEditor(
 			{
 				composingRef,
 				onKeyDown: (event) => {
-					onKeyDownRef.current?.(
-						event as unknown as React.KeyboardEvent<HTMLDivElement>,
-					);
+					onKeyDownRef.current?.(event as unknown as React.KeyboardEvent<HTMLDivElement>);
 				},
 				onPaste: (event) => {
-					onPasteRef.current?.(
-						event as unknown as React.ClipboardEvent<HTMLDivElement>,
-					);
+					onPasteRef.current?.(event as unknown as React.ClipboardEvent<HTMLDivElement>);
 				},
 				onDrop: (event) => {
-					onDropRef.current?.(
-						event as unknown as React.DragEvent<HTMLDivElement>,
-					);
+					onDropRef.current?.(event as unknown as React.DragEvent<HTMLDivElement>);
 				},
 				onDragOver: (event) => {
-					onDragOverRef.current?.(
-						event as unknown as React.DragEvent<HTMLDivElement>,
-					);
+					onDragOverRef.current?.(event as unknown as React.DragEvent<HTMLDivElement>);
 				},
 				onChipClick: (chip) => onChipClickRef.current?.(chip),
 			},
@@ -171,24 +109,16 @@ export function useTipTapComposerEditor(
 				{
 					composingRef,
 					onKeyDown: (event) => {
-						onKeyDownRef.current?.(
-							event as unknown as React.KeyboardEvent<HTMLDivElement>,
-						);
+						onKeyDownRef.current?.(event as unknown as React.KeyboardEvent<HTMLDivElement>);
 					},
 					onPaste: (event) => {
-						onPasteRef.current?.(
-							event as unknown as React.ClipboardEvent<HTMLDivElement>,
-						);
+						onPasteRef.current?.(event as unknown as React.ClipboardEvent<HTMLDivElement>);
 					},
 					onDrop: (event) => {
-						onDropRef.current?.(
-							event as unknown as React.DragEvent<HTMLDivElement>,
-						);
+						onDropRef.current?.(event as unknown as React.DragEvent<HTMLDivElement>);
 					},
 					onDragOver: (event) => {
-						onDragOverRef.current?.(
-							event as unknown as React.DragEvent<HTMLDivElement>,
-						);
+						onDragOverRef.current?.(event as unknown as React.DragEvent<HTMLDivElement>);
 					},
 					onChipClick: (chip) => onChipClickRef.current?.(chip),
 				},
@@ -243,16 +173,12 @@ export function useTipTapComposerEditor(
 		const caret = pending && pending.forValue === value ? pending.pos : null;
 		if (typeof caret === "number" && caretRef) {
 			// 程序化改动（引用插入/历史回填/运行时 editorText 恢复等）配对消费。
-			editor.commands.setTextSelection(
-				plainOffsetToPos(editor, Math.min(caret, value.length)),
-			);
+			editor.commands.setTextSelection(plainOffsetToPos(editor, Math.min(caret, value.length)));
 			caretRef.current = null;
 		} else if (needsContentSync) {
 			// 外部同步（切换会话/草稿回填/发送清空）没有配对光标请求时，
 			// setContent 会把选区映射到旧文档的任意位置；兜底恢复到文末。
-			editor.commands.setTextSelection(
-				plainOffsetToPos(editor, value.length),
-			);
+			editor.commands.setTextSelection(plainOffsetToPos(editor, value.length));
 		}
 		if (pending && caretRef && pending.forValue !== value) {
 			// 过期请求：随它所属的 value 已不可能再渲染，丢弃而非保留。

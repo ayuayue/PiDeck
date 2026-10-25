@@ -5,8 +5,10 @@
 
 import type { ReactNode } from "react";
 import type { ChatMessage, FileTreeNode, PiCommand } from "../../../../shared/types";
-import type { TranslationKey } from "../../i18n";
+import { isRetryStatusMessage } from "../session/timelineFailureNotice";
+import { t, type TranslationKey } from "../../i18n";
 import { formatFilePathRef } from "../session/composer/chips";
+import { replaceExpandedRefBlocksWithLabels } from "../session/composer/quoteChip";
 
 /* ── 文件树拖拽负载 ── */
 
@@ -109,10 +111,7 @@ export function summarizeMessage(text: string) {
 /* ── 路径与匹配 ── */
 
 export function matches(value: string, keyword: string) {
-	return (
-		!keyword.trim() ||
-		value.toLowerCase().includes(keyword.trim().toLowerCase())
-	);
+	return !keyword.trim() || value.toLowerCase().includes(keyword.trim().toLowerCase());
 }
 
 function getHomePathPrefix() {
@@ -124,10 +123,7 @@ export function displayPath(path?: string) {
 	if (!path) return "";
 	const home = getHomePathPrefix();
 	const normalized = path.replace(/\\/g, "/");
-	const friendly =
-		home && normalized.toLowerCase().startsWith(home.toLowerCase())
-			? `~${normalized.slice(home.length)}`
-			: normalized;
+	const friendly = home && normalized.toLowerCase().startsWith(home.toLowerCase()) ? `~${normalized.slice(home.length)}` : normalized;
 	return friendly.length > 36 ? `...${friendly.slice(-35)}` : friendly;
 }
 
@@ -136,11 +132,7 @@ export function displayPath(path?: string) {
  * 目录节点一并保留，供 @ 引用搜索与 chip 白名单使用（空目录也能被引用）。
  */
 export function flattenFiles(nodes: FileTreeNode[]): FileTreeNode[] {
-	return nodes.flatMap((node) =>
-		node.type === "file"
-			? [node]
-			: [node, ...flattenFiles(node.children ?? [])],
-	);
+	return nodes.flatMap((node) => (node.type === "file" ? [node] : [node, ...flattenFiles(node.children ?? [])]));
 }
 
 /* ── 消息分组类型 ── */
@@ -152,6 +144,31 @@ export type ToolGroupItem = {
 };
 
 export type MessageItem = { kind: "message"; message: ChatMessage };
+
+/**
+ * 重试过程条目：一轮 run 内的自动重试状态消息（正在重试/成功/最终失败）。
+ * 与工具/思考同层，作为 run 的过程步骤参与折叠，不再渲染成时间线独立大卡片
+ * ——旧形态与工具时间线割裂且顺序错乱（卡片插在工具调用与后续回答之间）。
+ */
+export type RetryGroupItem = {
+	kind: "retry-group";
+	/** 与消息 id 一致，保证 Live upsert（同 id 原地改写）映射稳定 */
+	id: string;
+	message: ChatMessage;
+};
+
+/**
+ * 错误诊断过程条目（用户反馈：429 等错误卡并入工具调用，像重试一样）。
+ * agent 忙碌中的 error 诊断消息（请求失败/扩展错误）收进当前 run 的过程序列：
+ * 与工具/思考/重试同层展示，可点开查看 debugDetails 里的具体错误。
+ * run 尚未开始（首轮请求立即失败）时仍保持独立条目（见 groupToolMessages error 分支）。
+ */
+export type ErrorGroupItem = {
+	kind: "error-group";
+	/** 与消息 id 一致，保证 Live upsert（同 id 原地改写）映射稳定 */
+	id: string;
+	message: ChatMessage;
+};
 
 export type ThinkingGroupItem = {
 	kind: "thinking-group";
@@ -165,12 +182,36 @@ export type ThinkingGroupItem = {
 export type AgentRunItem = {
 	kind: "agent-run";
 	id: string;
-	items: Array<MessageItem | ToolGroupItem | ThinkingGroupItem>;
+	items: Array<MessageItem | ToolGroupItem | ThinkingGroupItem | RetryGroupItem | ErrorGroupItem | ExtensionEntryGroupItem>;
 	startedAt: number;
 	endedAt: number;
+	/** 本轮内 ask_question 的用户等待总时长（ms）：由已完成的 ask 工具消息推导，
+	 *  回复耗时（endedAt - startedAt）需扣除这部分，等待段不计入 agent 处理时间。 */
+	askWaitMs: number;
+	/** 本轮是否阻塞在提问上（最后一条 ask 工具仍在等待回答）：尾部耗时应冻结而非持续跳动。 */
+	askPending: boolean;
+	/** 阻塞中的提问弹起时刻（ask 工具 beganAt），用于把尾部耗时冻结在该时刻。 */
+	askPendingAt?: number;
+	/**
+	 * 本轮内被时间线隐藏、但必须参与「修改的文件」汇总的工具消息。
+	 *
+	 * 目前唯一来源：DSH PTC 模式（preset 走 run_code 单工具）的文件类子调用。它们由
+	 * dshEventProjector 投影成 meta.ptcNested=true 的隐藏消息——时间线只显示外层 run_code 卡，
+	 * 但如果直接丢弃，轮末 chip 行就完全拿不到本轮改了哪些文件（2027-02 实测 PTC 会话恒为空）。
+	 *
+	 * 因此这些消息**不进 items**（不渲染），而是存在这里专供 collectRunFileChanges 聚合。
+	 */
+	hiddenFileMessages?: ChatMessage[];
 };
 
-export type RenderMessage = MessageItem | ToolGroupItem | ThinkingGroupItem | AgentRunItem;
+/** 扩展输出条目组：同一 run 内连续到达的 appendEntry 投影卡合为一个过程组成员（用户决策 2026-10：不单独成块，折进过程组）。 */
+export type ExtensionEntryGroupItem = {
+	kind: "extension-entries";
+	id: string;
+	messages: ChatMessage[];
+};
+
+export type RenderMessage = MessageItem | ToolGroupItem | ThinkingGroupItem | RetryGroupItem | ErrorGroupItem | ExtensionEntryGroupItem | AgentRunItem;
 
 /**
  * 生图占位消息的渲染身份：generating → error 往往只改 meta.imageGen，
@@ -183,12 +224,7 @@ function sameImageGenMetaForRender(previous: unknown, next: unknown): boolean {
 	const nxt = readImageGenRenderFields(next);
 	if (!prev && !nxt) return true;
 	if (!prev || !nxt) return false;
-	return (
-		prev.status === nxt.status &&
-		prev.prompt === nxt.prompt &&
-		prev.size === nxt.size &&
-		prev.errorDetail === nxt.errorDetail
-	);
+	return prev.status === nxt.status && prev.prompt === nxt.prompt && prev.size === nxt.size && prev.errorDetail === nxt.errorDetail;
 }
 
 function readImageGenRenderFields(value: unknown): {
@@ -203,8 +239,7 @@ function readImageGenRenderFields(value: unknown): {
 	const prompt = value.prompt;
 	if (typeof status !== "string" || typeof prompt !== "string") return null;
 	const size = "size" in value && typeof value.size === "string" ? value.size : "";
-	const errorDetail =
-		"errorDetail" in value && typeof value.errorDetail === "string" ? value.errorDetail : "";
+	const errorDetail = "errorDetail" in value && typeof value.errorDetail === "string" ? value.errorDetail : "";
 	return { status, prompt, size, errorDetail };
 }
 
@@ -218,6 +253,10 @@ export function sameChatMessageForRender(previous: ChatMessage, next: ChatMessag
 		// 空文本消息（纯工具回合骨架）的 stopReason 可能是唯一变化（pending→stop/toolUse），
 		// 漏比较会导致 reconcileRuns 复用旧引用、最终/中间分类不更新。
 		previous.stopReason !== next.stopReason ||
+		// 模型可能在同一消息上后补（思考骨架先建、message_end 才带 provider/model），
+		// 漏比较会让 reconcileRuns 复用旧引用，行头一直不显示模型。
+		previous.model?.provider !== next.model?.provider ||
+		previous.model?.modelId !== next.model?.modelId ||
 		!sameImageGenMetaForRender(previous.meta?.imageGen, next.meta?.imageGen)
 	) {
 		return false;
@@ -229,6 +268,9 @@ export function sameChatMessageForRender(previous: ChatMessage, next: ChatMessag
 		previousImages.every(
 			(image, index) =>
 				image.mimeType === nextImages[index]?.mimeType &&
+				// 历史生图图片只有 ref 引用（没有 data）：两个不同的 ref 也必须判为不等，
+				// 否则换图后复用旧引用会导致时间线不刷新。
+				image.ref === nextImages[index]?.ref &&
 				image.data === nextImages[index]?.data,
 		)
 	);
@@ -237,12 +279,7 @@ export function sameChatMessageForRender(previous: ChatMessage, next: ChatMessag
 export function sameAgentRunForRender(previous: AgentRunItem, next: AgentRunItem): boolean {
 	// 引用相同即内容相同（阶段0补强：历史 run 复用旧对象引用后，此处 O(1) 快速路径）
 	if (previous === next) return true;
-	if (
-		previous.id !== next.id ||
-		previous.startedAt !== next.startedAt ||
-		previous.endedAt !== next.endedAt ||
-		previous.items.length !== next.items.length
-	) {
+	if (previous.id !== next.id || previous.startedAt !== next.startedAt || previous.endedAt !== next.endedAt || previous.askWaitMs !== next.askWaitMs || previous.askPending !== next.askPending || previous.askPendingAt !== next.askPendingAt || previous.items.length !== next.items.length) {
 		return false;
 	}
 	return previous.items.every((item, index) => {
@@ -251,31 +288,30 @@ export function sameAgentRunForRender(previous: AgentRunItem, next: AgentRunItem
 		if (item.kind === "message" && other.kind === "message") {
 			return sameChatMessageForRender(item.message, other.message);
 		}
+		if (item.kind === "retry-group" && other.kind === "retry-group") {
+			// 重试条目是同 id 原地 upsert（running→success/error 只改 meta/text），
+			// 必须按消息本体比较，否则运行中→收敛的状态变化不会触发重绘。
+			return item.id === other.id && sameChatMessageForRender(item.message, other.message);
+		}
+		if (item.kind === "error-group" && other.kind === "error-group") {
+			// 错误诊断条目同样可能同 id 原地 upsert（见重试注释），按消息本体比较。
+			return item.id === other.id && sameChatMessageForRender(item.message, other.message);
+		}
 		if (item.kind === "thinking-group" && other.kind === "thinking-group") {
-			return (
-				item.id === other.id &&
-				item.text === other.text &&
-				item.startedAt === other.startedAt &&
-				item.endedAt === other.endedAt
-			);
+			return item.id === other.id && item.text === other.text && item.startedAt === other.startedAt && item.endedAt === other.endedAt;
 		}
 		if (item.kind === "tool-group" && other.kind === "tool-group") {
-			return (
-				item.id === other.id &&
-				item.messages.length === other.messages.length &&
-				item.messages.every((message, messageIndex) =>
-					sameChatMessageForRender(message, other.messages[messageIndex]),
-				)
-			);
+			return item.id === other.id && item.messages.length === other.messages.length && item.messages.every((message, messageIndex) => sameChatMessageForRender(message, other.messages[messageIndex]));
+		}
+		if (item.kind === "extension-entries" && other.kind === "extension-entries") {
+			// 扩展输出组员同样按消息本体比较（appendEntry 只会追加，但合并/降级可能改写 text/meta）。
+			return item.id === other.id && item.messages.length === other.messages.length && item.messages.every((message, messageIndex) => sameChatMessageForRender(message, other.messages[messageIndex]));
 		}
 		return false;
 	});
 }
 
-export function getMultiSelectImageCaptureIds(
-	items: RenderMessage[],
-	selectedIds: Set<string>,
-): Set<string> {
+export function getMultiSelectImageCaptureIds(items: RenderMessage[], selectedIds: Set<string>): Set<string> {
 	const ids = new Set<string>();
 	for (const item of items) {
 		if (item.kind === "message") {
@@ -283,12 +319,7 @@ export function getMultiSelectImageCaptureIds(
 			continue;
 		}
 		if (item.kind === "agent-run") {
-			const hasSelectedAssistant = item.items.some(
-				(sub) =>
-					sub.kind === "message" &&
-					sub.message.role === "assistant" &&
-					selectedIds.has(sub.message.id),
-			);
+			const hasSelectedAssistant = item.items.some((sub) => sub.kind === "message" && sub.message.role === "assistant" && selectedIds.has(sub.message.id));
 			if (hasSelectedAssistant) ids.add(item.id);
 		}
 	}
@@ -297,27 +328,22 @@ export function getMultiSelectImageCaptureIds(
 
 /* ── 消息分组 ── */
 
-export function groupToolMessages(
-	messages: ChatMessage[],
-	options: { agentBusy?: boolean } = {},
-): RenderMessage[] {
+export function groupToolMessages(messages: ChatMessage[], options: { agentBusy?: boolean } = {}): RenderMessage[] {
 	// agentBusy 决定 error 诊断卡是否打断当前 run（见下方 error 分支）
 	const { agentBusy = false } = options;
 	const result: RenderMessage[] = [];
 	let currentTools: ChatMessage[] = [];
 	let currentThinking: ChatMessage[] = [];
-	let currentRun: Array<MessageItem | ToolGroupItem | ThinkingGroupItem> = [];
+	let currentRun: Array<MessageItem | ToolGroupItem | ThinkingGroupItem | RetryGroupItem | ErrorGroupItem | ExtensionEntryGroupItem> = [];
 	let runStartedAt = 0;
 	let runEndedAt = 0;
+	/** 当前 run 内被时间线隐藏、但需参与文件汇总的工具消息（见 AgentRunItem.hiddenFileMessages）。 */
+	let currentHiddenFileMessages: ChatMessage[] = [];
 	/** 当前回合的触发用户消息时间戳，用于替代 assistant/tool 时间戳作为回合起点 */
 	let lastUserTimestamp = 0;
 
 	function isThinkingOnly(message: ChatMessage) {
-		return (
-			message.role === "assistant" &&
-			Boolean(message.thinking?.trim()) &&
-			!stripThinkingTags(stripAnsi(message.text)).trim()
-		);
+		return message.role === "assistant" && Boolean(message.thinking?.trim()) && !stripThinkingTags(stripAnsi(message.text)).trim();
 	}
 
 	function flushThinking() {
@@ -357,13 +383,41 @@ export function groupToolMessages(
 	function flushRun() {
 		flushTools();
 		flushThinking();
-		if (currentRun.length === 0) return;
+		// 只有隐藏文件消息的轮也要成组：PTC 会话常见「agent 静默改文件、本轮没有任何可见
+		// 文本或工具」——若在这里提前返回，轮末 chip 行会整个消失（用户看不到本轮改了什么）。
+		// 这种 run 的 items 为空，时间线不渲染任何内容，仅提供 chip 行数据。
+		if (currentRun.length === 0 && currentHiddenFileMessages.length === 0) return;
 
 		// 不再合并连续 assistant 消息：issue #130 要求多段回答原位平铺，
 		// 合并会把后段的 thinking 串接到前段消息上，导致思考被上移到两段文本之前。
-		const runStableId = currentRun[0]
-			? (currentRun[0].kind === "message" ? currentRun[0].message.id : currentRun[0].id)
-			: "";
+		const runStableId = currentRun.length > 0 ? (currentRun[0].kind === "message" ? currentRun[0].message.id : currentRun[0].id) : `hidden-files:${currentHiddenFileMessages[0]?.id ?? "run"}`;
+		// 汇总本轮 ask_question 的用户等待时长：等待段不计入「回复耗时」。
+		// ask_question 工具结束时主进程已把等待从 durationMs 中扣除（见 AgentManager
+		// settleAskWait / upsertToolMessage），因此每笔等待量可反推：
+		//   等待 = (工具结束时间戳 - meta.startedAt) - durationMs
+		// 只有结束时间戳 / startedAt / durationMs 三者齐备才能反推（历史消息缺 durationMs
+		// 时按 0 处理，退化为旧行为）。运行中的 ask（meta.status === "running"，结果未落地
+		// 所以没有 _askCard）意味着整轮阻塞在提问上，尾部耗时需冻结在提问时刻。
+		let askWaitMs = 0;
+		let askPending = false;
+		let askPendingAt: number | undefined;
+		for (const item of currentRun) {
+			if (item.kind !== "tool-group") continue;
+			for (const message of item.messages) {
+				if (message.role !== "tool") continue;
+				const meta = message.meta;
+				if (typeof meta?.toolName !== "string" || meta.toolName.toLowerCase() !== "ask_question") continue;
+				if (meta.status === "running") {
+					askPending = true;
+					if (typeof meta.startedAt === "number") askPendingAt = meta.startedAt;
+					continue;
+				}
+				const { startedAt, durationMs } = meta;
+				if (typeof startedAt === "number" && typeof durationMs === "number") {
+					askWaitMs += Math.max(0, message.timestamp - startedAt - durationMs);
+				}
+			}
+		}
 		result.push({
 			kind: "agent-run",
 			id: runStableId,
@@ -371,8 +425,13 @@ export function groupToolMessages(
 			// 回合起点优先用触发它的用户消息时间戳，无用户消息时回退到 run 内首条消息时间戳
 			startedAt: lastUserTimestamp || runStartedAt,
 			endedAt: runEndedAt || runStartedAt,
+			askWaitMs,
+			askPending,
+			...(askPendingAt !== undefined ? { askPendingAt } : {}),
+			...(currentHiddenFileMessages.length > 0 ? { hiddenFileMessages: currentHiddenFileMessages } : {}),
 		});
 		currentRun = [];
+		currentHiddenFileMessages = [];
 		runStartedAt = 0;
 		runEndedAt = 0;
 		lastUserTimestamp = 0;
@@ -386,14 +445,58 @@ export function groupToolMessages(
 		currentRun.push({ kind: "message", message });
 	}
 
+	/**
+	 * 当前 run 里是否已包含上一个回合的「最终回答」（assistant 带 stopReason="stop"）。
+	 *
+	 * 用途：无触发消息的回合边界。pi 每轮最后一条 assistant 带 stopReason="stop"
+	 * （中间消息为 toolUse，见 AgentMessageProjector 的 provider 归一化），所以 run 末尾
+	 * 已出现 stop 又来了新的 assistant/tool/thinking/扩展输出，就说明新回合已经开始。
+	 *
+	 * 典型场景：父回合已结束，后台子代理完成时 pi 用 sendCustomMessage(triggerTurn)
+	 * 唤醒父会话；（a）唤醒消息是 role="custom"，旧实现整条丢弃 —— 既不可见也没有
+	 * 边界；（b）两个回合于是合并成一个 run，于是上一轮最终回答退化为「中间回答」被
+	 * 折叠，新回合内容变成时间线末尾的最终回答——用户反馈的「输出被折叠、后面的变成
+	 * 最后」。这里按 stopReason 断开，即使唤醒消息没进消息列表也不会串轮。
+	 * 只看 run 内最后一条 assistant：它才是「本轮是否已收尾」的判据。
+	 */
+	function hasFinishedTurnInRun() {
+		for (let i = currentRun.length - 1; i >= 0; i -= 1) {
+			const item = currentRun[i];
+			if (item.kind !== "message" || item.message.role !== "assistant") continue;
+			return item.message.stopReason === "stop";
+		}
+		return false;
+	}
+
+	/** 回合边界收口：把暂存 run 并在当前 run 后整体 flush（无副作用，无内容时不做事）。 */
+	function flushRunForTurnBoundary() {
+		if (pendingRun) {
+			currentRun.push(...pendingRun);
+			pendingRun = null;
+			restorePendingHidden();
+		}
+		if (hasFinishedTurnInRun()) flushRun();
+	}
+
 	// 暂存区：仅用于 ask_question 续答——system 卡片后用户回复时，把卡片前的工具/思考
 	// 暂存起来，等下一条 assistant 到来后合并为同一 agent-run。
 	// 普通「上一轮只有工具/思考、用户又发新问题」场景不得使用此暂存，否则会串轮。
-	let pendingRun: (MessageItem | ToolGroupItem | ThinkingGroupItem)[] | null = null;
+	let pendingRun: (MessageItem | ToolGroupItem | ThinkingGroupItem | RetryGroupItem | ErrorGroupItem | ExtensionEntryGroupItem)[] | null = null;
+	/** pendingRun 的隐藏文件消息伙伴：跟随 currentRun 一同暂存/回填，避免跨段落错位。 */
+	let pendingHiddenFileMessages: ChatMessage[] | null = null;
+
+	/** 把暂存的隐藏文件消息回填到当前 run（必须紧跟每次 pendingRun 回填，否则跨段串数据）。 */
+	function restorePendingHidden() {
+		if (!pendingHiddenFileMessages) return;
+		currentHiddenFileMessages.push(...pendingHiddenFileMessages);
+		pendingHiddenFileMessages = null;
+	}
 
 	for (const message of messages) {
 		if (isThinkingOnly(message)) {
 			flushTools();
+			// 上一回合已收尾（末尾 assistant 带 stop）：这个 thinking 属于新回合，先断开
+			flushRunForTurnBoundary();
 			if (currentRun.length === 0 && currentThinking.length === 0) {
 				runStartedAt = message.timestamp;
 			}
@@ -402,65 +505,148 @@ export function groupToolMessages(
 			// 立即成组：禁止多条 thinking-only 积压后 join 成一张卡。
 			flushThinking();
 		} else if (message.role === "assistant") {
+			// 无触发消息的新回合（如后台子代理唤醒）先断开，避免上一轮最终回答被折叠
+			flushRunForTurnBoundary();
 			// 有暂存 run 时先合并到当前 run
 			if (pendingRun) {
 				currentRun.push(...pendingRun);
 				pendingRun = null;
+				restorePendingHidden();
 			}
 			appendRunMessage(message);
 		} else if (message.role === "tool") {
+			// PTC 子调用（meta.ptcNested）：DSH run_code 程序内部的文件类子调用（write/edit…）
+			// 时间线仍只展示外层 run_code 卡——否则一轮 PTC 会凭空冒出几十张嵌套工具卡。
+			// 但**不能直接丢弃**：这类消息是 PTC 会话「修改的文件」的唯一数据源（run_code 永远
+			// 命中不到 write/edit 工具名）。直接丢弃会让轮末 chip 行对 PTC 会话恒为空。
+			// 因此收进 hiddenFileMessages（不进 items，不渲染），供 collectRunFileChanges 聚合。
+			// 必须在任何分组动作（flushRunForTurnBoundary/flushThinking）之前处理：
+			// 隐藏消息不应制造回合边界，也不能把思考组打散。
+			if (message.meta?.ptcNested === true) {
+				currentHiddenFileMessages.push(message);
+				// 隐藏消息也要撑起轮内时间轴：若本轮没有任何可见内容，
+				// startedAt/endedAt 只能靠它们推导（否则 chip 行所属轮的时间为 0）。
+				if (currentRun.length === 0 && runStartedAt === 0) runStartedAt = message.timestamp;
+				runEndedAt = message.timestamp;
+				continue;
+			}
+			// 新回合可能直接从工具开始（唤醒后先调用工具），同样需要先断开
+			flushRunForTurnBoundary();
 			flushThinking();
 			if (currentRun.length === 0) runStartedAt = message.timestamp;
 			currentTools.push(message);
+		} else if (isRetryStatusMessage(message)) {
+			// 自动重试状态消息（正在重试/成功/最终失败）收进当前 run 的过程序列：
+			// 它是本轮请求生命周期的一部分，应与工具/思考同层展示（折叠行），而不是
+			// 独立大卡片插在工具与后续回答之间（旧形态的割裂/错序根因）。
+			// 先冲刷未成组的工具/思考（flushTools 内含 flushThinking），保证重试行
+			// 在 run 内严格晚于它之前的工具——否则工具会在 retry 之后才成组、顺序颠倒。
+			// 边界：run 尚未开始（如首轮请求立即失败、无任何工具/思考/回答）时保持
+			// 独立条目不硬塞——否则会凭空造出一个只有重试行的空 run。
+			flushTools();
+			if (pendingRun && currentRun.length === 0) {
+				currentRun.push(...pendingRun);
+				pendingRun = null;
+				restorePendingHidden();
+			}
+			if (currentRun.length === 0) {
+				result.push({ kind: "message", message });
+			} else {
+				currentRun.push({ kind: "retry-group", id: message.id, message });
+				runEndedAt = message.timestamp;
+			}
+		} else if (message.role === "system" && message.meta?.type === "customEntry") {
+			// 扩展输出条目（appendEntry 投影卡）：与重试/错误同策略收进当前 run 的过程序列，
+			// 折进过程组（用户决策 2026-10：不单独成块）。先冲刷未成组的工具/思考保证时序；
+			// 连续到达的条目合进同一个组员（时间线里渲染为一组可展开行）。
+			// 已收尾回合（最后一条 assistant 带 stop）之后才到的扩展输出不属于该回合：
+			// 继续吸收会让它成为 run 的收尾条目，前面的最终回答因此被降级成中间回答折叠
+			// （bili 的 acp-nudge 等尾随通知的实际表现，2026-10 用户反馈）。先按回合边界
+			// 冲刷，随后 currentRun 为空 → 走下面的独立条目兜底，输出卡排在回答之后。
+			// 边界：run 尚未开始（会话开头/两回合之间的条目）保持独立条目兜底，不硬造空 run。
+			flushRunForTurnBoundary();
+			flushTools();
+			if (pendingRun && currentRun.length === 0) {
+				currentRun.push(...pendingRun);
+				pendingRun = null;
+				restorePendingHidden();
+			}
+			if (currentRun.length === 0) {
+				result.push({ kind: "message", message });
+			} else {
+				const last = currentRun[currentRun.length - 1];
+				if (last.kind === "extension-entries") {
+					last.messages.push(message);
+				} else {
+					currentRun.push({ kind: "extension-entries", id: message.id, messages: [message] });
+				}
+				runEndedAt = message.timestamp;
+			}
 		} else if (message.role === "system") {
 			// System 消息（如 askQuestion 卡片）不应中断当前 agent run。
 			// 工具、thinking 和后续 assistant 消息应合并为同一轮回答，
 			// 否则会被拆成两个独立的折叠区域。
 			// 若已有暂存 run（前一次 ask_question 未合并），先 flush 掉。
-			if (pendingRun) {
+			//
+			// 例外：扩展 custom 消息（meta.type === "customMessage"）本身是回合边界
+			// ——pi 在回合之间写入 custom_message 条目（如后台子代理完成唤醒），
+			// 卡片要正好落在两轮之间，否则后续回合会与上一轮合并、最终回答被折叠。
+			// 未渲染的 custom（display:false 的上下文注入）同样断开：不可见但边界真实。
+			const isCustomMessage = message.meta?.type === "customMessage";
+			if (isCustomMessage) {
+				flushRunForTurnBoundary();
+			} else if (pendingRun) {
 				currentRun.push(...pendingRun);
 				pendingRun = null;
+				restorePendingHidden();
 				flushRun();
 			}
 			result.push({ kind: "message", message });
 		} else if (message.role === "error" && agentBusy) {
-			// agent 忙碌中的 error 诊断卡（如扩展执行错误）：不中断当前 run。
-			// 旧实现把 error 当用户消息处理（flush 当前 run），一段回答会被拆成
-			// 两个 agent-run、错误卡夹在中间——用户体感「错误提示跑上旧卡片」。
-			// 忙碌中的诊断卡作为独立条目先落盘，回答整体保持一个 run（卡在回答上方）。
-			// 注意：空闲态（agentBusy=false）的 error 仍走 else 分支先 flush——
-			// 此时 run 已结束，诊断卡应排在回答之后而不是之前。
-			if (pendingRun) {
+			// agent 忙碌中的 error 诊断消息（请求失败 429 / 扩展执行错误等）：收进当前 run
+			// 的过程序列（与自动重试同策略，用户反馈：429 错误卡应并入工具调用、可点开看详情）。
+			// 旧实现把 error 当独立卡片：位于工具与后续回答之间，与工具时间线割裂且顺序错乱。
+			// 边界：run 尚未开始（如首轮请求立即失败、无任何工具/思考/回答）时保持独立条目
+			// 不硬塞——否则会凭空造出一个只有错误行的空 run；此时后续重试/回答自成新 run。
+			flushTools();
+			if (pendingRun && currentRun.length === 0) {
 				currentRun.push(...pendingRun);
 				pendingRun = null;
-				flushRun();
+				restorePendingHidden();
 			}
-			result.push({ kind: "message", message });
+			if (currentRun.length === 0) {
+				result.push({ kind: "message", message });
+			} else {
+				currentRun.push({ kind: "error-group", id: message.id, message });
+				runEndedAt = message.timestamp;
+			}
 		} else {
 			// 若已有暂存 run（前一次 ask_question 未合并），先 flush 掉
 			if (pendingRun) {
 				currentRun.push(...pendingRun);
 				pendingRun = null;
+				restorePendingHidden();
 				flushRun();
 			}
 			// 用户消息到来时，当前 run 可能只有工具/思考、没有最终回答文本。
 			// 仅在「回答 ask_question」场景下暂存合并：上一条 result 是 system 消息。
 			// 普通新提问（上一轮未完成回答就发下一条）必须 flush 成独立 agent-run，
 			// 否则上一轮的工具/思考会混进下一轮回答块。
-			const hasToolsWithoutAssistant =
-				currentRun.length > 0 &&
-				currentRun.every((i) => i.kind !== "message" || i.message.role !== "assistant");
+			const hasToolsWithoutAssistant = currentRun.length > 0 && currentRun.every((i) => i.kind !== "message" || i.message.role !== "assistant");
 			const lastResult = result[result.length - 1];
 			// error 诊断卡也可能插在 ask 卡片之后（非 busy 路径），
 			// 用户回复时同样视为回答 ask，避免工具/思考串轮。
-			const isAnsweringAskQuestion =
-				lastResult?.kind === "message" &&
-				(lastResult.message.role === "system" || lastResult.message.role === "error");
+			const isAnsweringAskQuestion = lastResult?.kind === "message" && (lastResult.message.role === "system" || lastResult.message.role === "error");
 			if (hasToolsWithoutAssistant && isAnsweringAskQuestion) {
 				flushTools();
 				flushThinking();
 				pendingRun = [...currentRun];
 				currentRun = [];
+				// 隐藏文件消息跟随暂存：它们属于刚结束的这一段，不能潦到续答后的新段。
+				if (currentHiddenFileMessages.length > 0) {
+					pendingHiddenFileMessages = [...currentHiddenFileMessages];
+					currentHiddenFileMessages = [];
+				}
 				runStartedAt = 0;
 				runEndedAt = 0;
 			} else {
@@ -475,6 +661,7 @@ export function groupToolMessages(
 	if (pendingRun) {
 		currentRun.push(...pendingRun);
 		pendingRun = null;
+		restorePendingHidden();
 	}
 	flushRun();
 
@@ -492,10 +679,7 @@ export function groupToolMessages(
  * 规则：按 run.id 配对，内容相同（sameAgentRunForRender）则取旧引用；
  * 新增/删除/内容变化的 run 用新对象。列表结构（顺序、条目数）以 next 为准。
  */
-export function reconcileRuns(
-	previous: RenderMessage[] | undefined,
-	next: RenderMessage[],
-): RenderMessage[] {
+export function reconcileRuns(previous: RenderMessage[] | undefined, next: RenderMessage[]): RenderMessage[] {
 	if (!previous) return next;
 	// 只对 agent-run 做引用复用；message/tool-group/thinking-group 顶层条目按需更新
 	const prevRuns = new Map<string, AgentRunItem>();
@@ -523,8 +707,11 @@ export function buildOutline(messages: ChatMessage[]) {
 		.filter((message) => message.role === "user")
 		.map((message) => ({
 			id: message.id,
+			// 导轨目录用 entryId 对齐未加载检查点；缺 meta.entryId 的 live 消息退回 id。
+			entryId: typeof message.meta?.entryId === "string" ? message.meta.entryId : undefined,
 			role: message.role,
-			title: summarizeMessage(message.text),
+			// 定位轴标题是纯文本出口：先折叠自包含引用块，否则标题就是 <quoted_context …>
+			title: summarizeMessage(replaceExpandedRefBlocksWithLabels(message.text)),
 			time: formatTime(message.timestamp),
 		}))
 		.filter((item) => item.title);
@@ -574,11 +761,7 @@ function isSessionTriggerQuery(query: string, validSessionRefs: Set<string>): bo
 	return false;
 }
 
-export function detectTrigger(
-	text: string,
-	cursor: number,
-	validSessionRefs?: Set<string>,
-): ComposerTrigger | null {
+export function detectTrigger(text: string, cursor: number, validSessionRefs?: Set<string>): ComposerTrigger | null {
 	if (cursor < 0 || cursor > text.length) cursor = text.length;
 	const before = text.slice(0, cursor);
 	const atIdx = before.lastIndexOf("@");
@@ -620,13 +803,7 @@ export function detectTrigger(
 	return { start, char, query: segment };
 }
 
-export function applySuggestion(
-	current: string,
-	cursor: number,
-	value: string,
-	validSessionRefs?: Set<string>,
-	options?: { noTrailingSpace?: boolean },
-): ComposerSuggestionResult {
+export function applySuggestion(current: string, cursor: number, value: string, validSessionRefs?: Set<string>, options?: { noTrailingSpace?: boolean }): ComposerSuggestionResult {
 	const trigger = detectTrigger(current, cursor, validSessionRefs);
 	// 目录引用（@dir/）不带尾随空格：插入后用户继续输入路径段时，
 	// 建议框会随每次按键重新评估打开，形成连续向下钻取；
@@ -648,11 +825,7 @@ export function applySuggestion(
  * 若删掉从触发符到光标的整段，会把正文一起清掉（Esc 全没了）。
  * 仅当「触发后还没有任何有效查询」时（刚输入 @ / &）才去掉触发符本身，避免残留孤立符号。
  */
-export function clearSuggestionTrigger(
-	current: string,
-	cursor: number,
-	validSessionRefs?: Set<string>,
-): ComposerSuggestionResult {
+export function clearSuggestionTrigger(current: string, cursor: number, validSessionRefs?: Set<string>): ComposerSuggestionResult {
 	const trigger = detectTrigger(current, cursor, validSessionRefs);
 	if (!trigger) return { text: current, cursor };
 	// 已有查询内容：保留全文，只表示关闭菜单
@@ -683,26 +856,35 @@ export type SuggestionItem = {
 const PINNED_COMMAND_NAMES = new Set<string>();
 // 桌面端已有独立 UI 的 pi 内置命令不进 `/` 菜单，避免点进去却落到 CLI 语义。
 // `/new` 例外：发送时由桌面拦截，走新建 Agent 会话（与侧栏 + 同源），不再藏起来。
-const HIDDEN_DESKTOP_BUILTIN_COMMAND_NAMES = new Set([
-	"model",
-	"resume",
-	"fork",
-	"name",
-	"logout",
-	"goal",
-	"tree",
-	"reload",
-]);
+//
+// copy/export/session/settings/clone 与 tree/reload 是两类不同原因，但都要藏：
+// pi 的 builtin 斜杠命令只在交互式 TUI 里处理（`dist/core/slash-commands.js` 只被
+// modes/interactive 引用，RPC 的 get_commands 只返回 extension/prompt/skill），发下去
+// 不会执行、只会被模型当成普通文本回答。这些命令桌面都已有等价入口（消息复制、
+// 会话菜单导出 HTML、圆环/打开会话文件、设置页、复制会话），所以直接不列；
+// `/hotkeys` 无等价按钮，靠 classifyComposerSlashCommand 接管到设置里的快捷键页。
+const HIDDEN_DESKTOP_BUILTIN_COMMAND_NAMES = new Set(["model", "resume", "fork", "name", "logout", "goal", "tree", "reload", "copy", "export", "share", "session", "settings", "clone"]);
+
+/**
+ * 内置扩展命令的菜单描述：pi 进程没有渲染层词典，扩展只能给英文 fallback；
+ * 渲染层对这些已知命令补 i18n 描述（不覆盖用户扩展自带 description）。
+ */
+const COMMAND_DESCRIPTION_KEYS: Record<string, TranslationKey> = {
+	reload: "prompt.command.reload.description",
+};
+
+function localizedCommandDescription(command: PiCommand): string {
+	const key = COMMAND_DESCRIPTION_KEYS[command.name];
+	if (key) return t(key);
+	return command.description ?? "";
+}
 
 function isBuiltinDesktopCommand(command: PiCommand) {
 	return command.source == null || command.source === "builtin";
 }
 
 function isVisibleDesktopCommand(command: PiCommand) {
-	return !(
-		isBuiltinDesktopCommand(command) &&
-		HIDDEN_DESKTOP_BUILTIN_COMMAND_NAMES.has(command.name.toLowerCase())
-	);
+	return !(isBuiltinDesktopCommand(command) && HIDDEN_DESKTOP_BUILTIN_COMMAND_NAMES.has(command.name.toLowerCase()));
 }
 
 function getBuiltinCommands(): PiCommand[] {
@@ -742,9 +924,7 @@ export const DSH_COMMAND_SUGGESTIONS: Array<{ name: string; descriptionKey: Tran
 export function mergeCommands(commands: PiCommand[]) {
 	const visibleCommands = commands.filter(isVisibleDesktopCommand);
 	const names = new Set(visibleCommands.map((command) => command.name));
-	const extras = getBuiltinCommands().filter(
-		(command) => !names.has(command.name) && isVisibleDesktopCommand(command),
-	);
+	const extras = getBuiltinCommands().filter((command) => !names.has(command.name) && isVisibleDesktopCommand(command));
 	return [...visibleCommands, ...extras];
 }
 
@@ -855,18 +1035,10 @@ function buildFileTreeItems(entries: FileTreeNode[]): SuggestionItem[] {
 	return result;
 }
 
-export function buildSuggestionItems(
-	prompt: string,
-	cursor: number,
-	commands: PiCommand[],
-	files: FileTreeNode[],
-	sessions?: { id: string; filePath: string; projectPath?: string; name?: string; preview: string; updatedAt: number }[],
-): SuggestionItem[] {
+export function buildSuggestionItems(prompt: string, cursor: number, commands: PiCommand[], files: FileTreeNode[], sessions?: { id: string; filePath: string; projectPath?: string; name?: string; preview: string; updatedAt: number }[]): SuggestionItem[] {
 	const allCommands = mergeCommands(commands);
 	// 与 onChange 同一套白名单：& 只有仍是已知会话名前缀时才开建议
-	const sessionRefs = sessions
-		? new Set(sessions.map((session) => session.name ?? session.filePath))
-		: undefined;
+	const sessionRefs = sessions ? new Set(sessions.map((session) => session.name ?? session.filePath)) : undefined;
 	const trigger = detectTrigger(prompt, cursor, sessionRefs);
 	if (!trigger) return [];
 	const keyword = trigger.query.toLowerCase();
@@ -883,7 +1055,7 @@ export function buildSuggestionItems(
 			.map(({ command }) => ({
 				key: command.name,
 				label: `/${command.name}`,
-				description: command.description ?? "",
+				description: localizedCommandDescription(command),
 				value: `/${command.name}`,
 			}));
 	}
@@ -896,10 +1068,7 @@ export function buildSuggestionItems(
 		return files
 			.map((file) => ({
 				file,
-				score:
-					fuzzyScore(file.relativePath, keyword) +
-					fuzzyScore(file.name, keyword) * 2 +
-					(file.type === "directory" ? 4 : 0),
+				score: fuzzyScore(file.relativePath, keyword) + fuzzyScore(file.name, keyword) * 2 + (file.type === "directory" ? 4 : 0),
 			}))
 			.filter((item) => item.score > 0)
 			.sort((a, b) => b.score - a.score)
@@ -941,7 +1110,11 @@ export function parseToolArgs(value: unknown): Record<string, unknown> | undefin
 	try {
 		let parsed = JSON.parse(value) as unknown;
 		if (typeof parsed === "string" && parsed.trim()) {
-			try { parsed = JSON.parse(parsed); } catch { return undefined; }
+			try {
+				parsed = JSON.parse(parsed);
+			} catch {
+				return undefined;
+			}
 		}
 		return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined;
 	} catch {
@@ -949,24 +1122,38 @@ export function parseToolArgs(value: unknown): Record<string, unknown> | undefin
 	}
 }
 
-export function getToolFilePath(args: any): string | undefined {
+export function getToolFilePath(args: unknown): string | undefined {
 	if (!args) return undefined;
 	if (typeof args === "string" && args.trim()) {
-		try { args = JSON.parse(args); } catch { return undefined; }
+		try {
+			args = JSON.parse(args);
+		} catch {
+			return undefined;
+		}
 	}
 	if (typeof args !== "object") return undefined;
 	const a = args as Record<string, unknown>;
-	return typeof a.filePath === "string" && a.filePath ? a.filePath
-		: typeof a.file_path === "string" && a.file_path ? a.file_path
-		: typeof a.path === "string" && a.path ? a.path
-		: typeof a.targetPath === "string" && a.targetPath ? a.targetPath
-		: typeof a.target_path === "string" && a.target_path ? a.target_path
-		: typeof a.outputPath === "string" && a.outputPath ? a.outputPath
-		: typeof a.output_path === "string" && a.output_path ? a.output_path
-		: typeof a.file === "string" && a.file ? a.file
-		: typeof a.fileName === "string" && a.fileName ? a.fileName
-		: typeof a.filename === "string" && a.filename ? a.filename
-		: undefined;
+	return typeof a.filePath === "string" && a.filePath
+		? a.filePath
+		: typeof a.file_path === "string" && a.file_path
+			? a.file_path
+			: typeof a.path === "string" && a.path
+				? a.path
+				: typeof a.targetPath === "string" && a.targetPath
+					? a.targetPath
+					: typeof a.target_path === "string" && a.target_path
+						? a.target_path
+						: typeof a.outputPath === "string" && a.outputPath
+							? a.outputPath
+							: typeof a.output_path === "string" && a.output_path
+								? a.output_path
+								: typeof a.file === "string" && a.file
+									? a.file
+									: typeof a.fileName === "string" && a.fileName
+										? a.fileName
+										: typeof a.filename === "string" && a.filename
+											? a.filename
+											: undefined;
 }
 
 export function countTextLines(value: string): number {
@@ -976,17 +1163,19 @@ export function countTextLines(value: string): number {
 export function getToolEditDiff(args: Record<string, unknown>): { oldText: string; newText: string } | undefined {
 	const edits = Array.isArray(args.edits) ? args.edits : undefined;
 	if (edits) {
-		const parts = edits.map((edit: unknown) => {
-			if (!edit || typeof edit !== "object") return null;
-			const e = edit as Record<string, unknown>;
-			const oldText = String(e.oldText ?? e.old_text ?? e.old_string ?? "");
-			const newText = String(e.newText ?? e.new_text ?? e.new_string ?? "");
-			return { oldText, newText };
-		}).filter((p): p is { oldText: string; newText: string } => p !== null);
+		const parts = edits
+			.map((edit: unknown) => {
+				if (!edit || typeof edit !== "object") return null;
+				const e = edit as Record<string, unknown>;
+				const oldText = String(e.oldText ?? e.old_text ?? e.old_string ?? "");
+				const newText = String(e.newText ?? e.new_text ?? e.new_string ?? "");
+				return { oldText, newText };
+			})
+			.filter((p): p is { oldText: string; newText: string } => p !== null);
 		if (parts.length === 0) return undefined;
 		return {
-			oldText: parts.map(p => p.oldText).join("\n"),
-			newText: parts.map(p => p.newText).join("\n"),
+			oldText: parts.map((p) => p.oldText).join("\n"),
+			newText: parts.map((p) => p.newText).join("\n"),
 		};
 	}
 	const oldText = typeof args.oldText === "string" ? args.oldText : typeof args.old_text === "string" ? args.old_text : typeof args.old_string === "string" ? args.old_string : undefined;
@@ -995,12 +1184,18 @@ export function getToolEditDiff(args: Record<string, unknown>): { oldText: strin
 	return { oldText, newText };
 }
 
-export function getToolNewContent(toolName: string, args: any): string | undefined {
+export function getToolNewContent(toolName: string, args: string | Record<string, unknown>): string | undefined {
 	if (!args) return undefined;
 	if (typeof args === "string" && args.trim()) {
-		try { args = JSON.parse(args); } catch { return undefined; }
+		try {
+			// JSON.parse 返回 any；这里立刻收窄为参数对象，后续按字段 typeof 判定
+			args = JSON.parse(args) as Record<string, unknown>;
+		} catch {
+			return undefined;
+		}
 	}
 	if (!toolName) return undefined;
+	if (typeof args !== "object") return undefined;
 	if (/write|create/i.test(toolName)) {
 		const a = args as Record<string, unknown>;
 		return typeof a.content === "string" ? a.content : typeof a.text === "string" ? a.text : typeof a.data === "string" ? a.data : typeof a.body === "string" ? a.body : undefined;
@@ -1012,15 +1207,20 @@ export function getToolNewContent(toolName: string, args: any): string | undefin
 	return undefined;
 }
 
-export function getToolChangedLineCount(toolName: string, args: any): number {
+export function getToolChangedLineCount(toolName: string, args: string | Record<string, unknown>): number {
 	if (typeof args === "string" && args.trim()) {
-		try { args = JSON.parse(args); } catch { return 0; }
+		try {
+			args = JSON.parse(args) as Record<string, unknown>;
+		} catch {
+			return 0;
+		}
 	}
 	if (!toolName) return 0;
+	if (typeof args !== "object") return 0; // 空串入参：无内容可数，与原 String(undefined ?? "") 等价
 	if (/edit|patch/i.test(toolName)) {
-		const edits = Array.isArray(args?.edits) ? args.edits : undefined;
+		const edits = Array.isArray(args?.edits) ? (args.edits as Array<Record<string, unknown>>) : undefined;
 		if (edits) {
-			return edits.reduce((total: number, edit: any) => {
+			return edits.reduce((total: number, edit) => {
 				const oldLines = countTextLines(String(edit?.oldText ?? edit?.old_text ?? ""));
 				const newLines = countTextLines(String(edit?.newText ?? edit?.new_text ?? ""));
 				return total + Math.max(oldLines, newLines);
@@ -1033,4 +1233,3 @@ export function getToolChangedLineCount(toolName: string, args: any): number {
 	}
 	return 0;
 }
-

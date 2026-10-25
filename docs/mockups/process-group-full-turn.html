@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="zh-CN">
+	<head>
+		<meta charset="utf-8" />
+		<title>过程组 · 完整一轮（真实上下文）</title>
+		<style>
+			:root {
+				--font-family-base: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "HarmonyOS Sans SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
+				--font-family-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", monospace;
+				--font-size-caption: 12px;
+				--line-height-caption: 18px;
+				--font-size-chat: 15px;
+				--line-height-chat: 1.6;
+				--radius-md: 8px;
+				--space-2: 8px;
+				--space-3: 12px;
+			}
+			.light {
+				--bg-app: #ffffff;
+				--text-primary: #202124;
+				--text-secondary: #4b5563;
+				--text-tertiary: #6b7280;
+				--text-faint: #9fa3ac;
+				--border-subtle: #e5e5e5;
+				--border-strong: #d7d7d7;
+				--bg-hover: #e5e7eb;
+				--card-bg: #fafafa;
+				--muted-bg: #f4f4f5;
+				--thinking: #6366f1;
+				--tool: #2563eb;
+				--warning: #b7791f;
+				--danger: #b42318;
+				--chrome: #f7f7f8;
+			}
+			.dark {
+				--bg-app: #121212;
+				--text-primary: #ecece7;
+				--text-secondary: #b8b8b2;
+				--text-tertiary: #8a8a84;
+				--text-faint: #a0a09a;
+				--border-subtle: #262626;
+				--border-strong: #3a3a3a;
+				--bg-hover: #262626;
+				--card-bg: #171717;
+				--muted-bg: #202020;
+				--thinking: #818cf8;
+				--tool: #60a5fa;
+				--warning: #e0b050;
+				--danger: #ef4444;
+				--chrome: #0d0d0d;
+			}
+			* { box-sizing: border-box; }
+			body { margin: 0; padding: 26px 22px 48px; background: #e9e9eb; font-family: var(--font-family-base); font-size: 13px; line-height: 1.6; color: #202124; }
+			h1 { margin: 0 0 4px; font-size: 18px; font-weight: 650; }
+			.sub { margin: 0 0 20px; color: #6b7280; font-size: 12.5px; }
+			h2 { margin: 26px 0 4px; font-size: 14px; font-weight: 640; }
+			.h2note { margin: 0 0 12px; color: #6b7280; font-size: 12px; }
+
+			/* 会话面板：模拟真实时间线（内容列 820px 居中） */
+			.pane { background: var(--chrome); border: 1px solid #d8d8dc; border-radius: 12px; padding: 20px 0 26px; }
+			.pane.dark { border-color: #2b2b2b; }
+			.col { width: 820px; max-width: 100%; margin: 0 auto; background: var(--bg-app); padding: 18px 24px 20px; border-radius: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+
+			/* ── 行头 ── */
+			.author { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+			.avatar { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; background: var(--muted-bg); color: var(--text-secondary); font-size: 10px; font-weight: 700; }
+			.author-name { color: var(--text-secondary); font-size: 12.5px; font-weight: 560; }
+			.author-time { color: var(--text-faint); font-size: 11.5px; }
+
+			/* ── 大折叠栏（保持不变） ── */
+			.fold-pill {
+				display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 12px;
+				border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--card-bg);
+				color: var(--text-secondary); font-size: var(--font-size-caption); font-weight: 500; line-height: var(--line-height-caption);
+			}
+			.fold-pill .fold-ico { display: inline-flex; color: var(--text-tertiary); }
+
+			/* ── 大折叠栏内容容器 ── */
+			.fold-body { display: flex; flex-direction: column; gap: 14px; margin-top: 12px; }
+
+			/* ── 过程组组头：4 的方块 + 1 的重量 ── */
+			.group { display: flex; flex-direction: column; }
+			.g-head {
+				display: inline-flex; align-items: center; gap: 8px; align-self: flex-start;
+				height: 24px; padding: 0 7px 0 2px; border: 0; border-radius: 6px; background: transparent;
+				color: var(--text-secondary); font: inherit; font-size: var(--font-size-caption); font-weight: 500; line-height: var(--line-height-caption);
+				cursor: pointer; transition: background-color .14s ease, color .14s ease;
+			}
+			.g-head:hover { background: color-mix(in srgb, var(--text-primary) 4.5%, transparent); color: var(--text-primary); }
+			.g-head:hover .g-label { color: var(--text-primary); }
+			.g-chip { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; background: color-mix(in srgb, var(--tool) 12%, transparent); color: var(--tool); }
+			.g-head[data-done] .g-chip { background: color-mix(in srgb, var(--text-tertiary) 13%, transparent); color: var(--text-tertiary); }
+			.g-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+			.g-chev { flex: none; display: inline-flex; margin-left: 1px; color: var(--text-faint); }
+			.g-sep { flex: none; color: var(--text-faint); }
+			.g-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-tertiary); font-family: var(--font-family-mono); font-size: 11.5px; font-weight: 400; }
+			.g-count { flex: none; color: var(--text-faint); font-weight: 400; }
+
+			@keyframes sweep { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+			.shimmer { background-image: linear-gradient(110deg, var(--text-tertiary) 40%, var(--text-primary) 50%, var(--text-tertiary) 60%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent !important; animation: sweep 2.2s linear infinite; }
+
+			/* ── 组体：归属竖线从方块中心垂下 ── */
+			.g-body { margin: 4px 0 0 11px; padding-left: 13px; border-left: 2px solid var(--border-subtle); display: flex; flex-direction: column; }
+			.g-row { display: flex; align-items: center; gap: 8px; min-height: 23px; padding: 1px 0; }
+			.g-row-ico { flex: none; display: inline-flex; color: var(--text-tertiary); }
+			.g-row-title { flex: none; color: var(--text-secondary); font-size: var(--font-size-caption); }
+			.g-row-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px; border-radius: 6px; background: var(--muted-bg); color: var(--text-tertiary); font-family: var(--font-family-mono); font-size: 11px; }
+			.g-row-meta { margin-left: auto; flex: none; color: var(--text-faint); font-size: 11px; }
+			.g-row--think .g-row-ico { color: var(--thinking); }
+			.g-row--warn .g-row-ico, .g-row--warn .g-row-title { color: var(--warning); }
+			.g-row--err .g-row-ico, .g-row--err .g-row-title { color: var(--danger); }
+
+			/* 组体限高：方案 B（渐隐 + 展开全部，无内部滚动） */
+			.capped { position: relative; }
+			.capped .clip { max-height: 116px; overflow: hidden; }
+			.capped::after { content: ""; position: absolute; left: 0; right: 0; bottom: 26px; height: 40px; background: linear-gradient(to bottom, transparent, var(--bg-app)); pointer-events: none; }
+			.more {
+				margin-top: 3px; display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
+				height: 24px; padding: 0 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md);
+				background: var(--card-bg); color: var(--text-secondary); font: inherit; font-size: var(--font-size-caption); font-weight: 500; cursor: pointer;
+			}
+			.more:hover { color: var(--text-primary); border-color: var(--border-strong); background: var(--bg-hover); }
+
+			/* ── 中间回复（一级，正文样式，不加标记） ── */
+			.interim { color: var(--text-primary); font-size: var(--font-size-chat); line-height: var(--line-height-chat); }
+			.interim code { font-family: var(--font-family-mono); font-size: 13px; background: var(--muted-bg); padding: 1px 5px; border-radius: 5px; }
+
+			/* ── 收起 ── */
+			.collapse { display: inline-flex; align-items: center; gap: 2px; align-self: flex-start; padding: 0; border: 0; background: transparent; color: var(--text-tertiary); font: inherit; font-size: var(--font-size-caption); cursor: pointer; opacity: .55; }
+
+			/* ── 最终回复 + 操作栏 ── */
+			.final { margin-top: 14px; color: var(--text-primary); font-size: var(--font-size-chat); line-height: var(--line-height-chat); }
+			.final ul { margin: 8px 0 0; padding-left: 20px; }
+			.final li { margin-bottom: 3px; }
+			.actions { display: flex; align-items: center; gap: 4px; margin-top: 10px; color: var(--text-secondary); opacity: .55; }
+			.act { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; }
+			.dur { display: flex; align-items: center; gap: 6px; margin-left: 0; padding-left: 7px; color: var(--text-secondary); }
+			.dur-num { font-size: 13px; font-variant-numeric: tabular-nums; }
+
+			/* 标注 */
+			.callout { margin: 12px auto 0; width: 820px; max-width: 100%; color: #6b7280; font-size: 12px; }
+			.callout b { color: #202124; }
+			.legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 8px; }
+			.legend span { display: inline-flex; align-items: center; gap: 6px; }
+			.dot { width: 8px; height: 8px; border-radius: 3px; }
+			.spec { margin: 18px auto 0; width: 820px; max-width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; font-size: 12px; }
+			.spec th, .spec td { padding: 6px 11px; border-bottom: 1px solid #e6e6e9; text-align: left; }
+			.spec th { background: #f7f7f9; font-weight: 620; }
+			.spec code { font-family: var(--font-family-mono); font-size: 11px; background: #f0f0f3; padding: 1px 4px; border-radius: 4px; }
+		</style>
+	</head>
+	<body>
+		<h1>过程组 · 完整一轮（真实上下文）</h1>
+		<p class="sub">
+			组头 = <b>方案 4 的 20px 图标方块 + 方案 1 的 24px 行高与克制悬停</b>。内容列 820px（PiDeck 的 <code>min(80%, 100%-48px)</code> 单栏常见宽度）。
+			组体限高用<b>方案 B（渐隐 + 展开全部）</b>，不做内部滚动。
+		</p>
+
+		<h2>A · 回看态：大折叠栏展开，两个过程组 + 一段中间回复 + 最终回复</h2>
+		<p class="h2note">最新那个过程组（G2）自动展开；G1 保持折叠。最终回复在大折叠栏<b>外面</b>，永不折叠。</p>
+
+		<div class="pane light">
+			<div class="col">
+				<div class="author">
+					<span class="avatar">Pi</span><span class="author-name">Pi</span><span class="author-time">14:32</span>
+				</div>
+
+				<!-- 大折叠栏（展开） -->
+				<button class="fold-pill">
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+					<span class="fold-ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12h-8" /><path d="M21 6h-8" /><path d="M21 18h-8" /><path d="M3 6v4c0 1.1.9 2 2 2h4" /><path d="M3 10v6c0 1.1.9 2 2 2h4" /></svg></span>
+					<span>执行过程: 5个工具 3次思考 1段中间回复</span>
+				</button>
+
+				<div class="fold-body">
+					<!-- G1：折叠 -->
+					<div class="group">
+						<button class="g-head" data-done>
+							<span class="g-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5" /></svg></span>
+							<span class="g-label">已读取文件并搜索代码</span>
+							<span class="g-chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+						</button>
+					</div>
+
+					<!-- 中间回复：一级，正文样式 -->
+					<div class="interim">先看了一下现在的实现——折叠区是「无限长平铺」，<code>execution-summary-details</code> 没有任何限高，所以长任务一路铺开就乱了。真正缺的是中间那层「过程组」。</div>
+
+					<!-- G2：自动展开的最新组 -->
+					<div class="group">
+						<button class="g-head" data-done>
+							<span class="g-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6" /><path d="M12 19h8" /></svg></span>
+							<span class="g-label">已运行代码</span>
+							<span class="g-chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg></span>
+						</button>
+						<div class="g-body capped">
+							<div class="clip">
+								<div class="g-row g-row--think">
+									<span class="g-row-ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z" /></svg></span>
+									<span class="g-row-title">思考了 3s</span>
+									<span class="g-row-detail">需要先确认折叠区的挂载预算…</span>
+								</div>
+								<div class="g-row">
+									<span class="g-row-ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5" /></svg></span>
+									<span class="g-row-title">read</span><span class="g-row-detail">TurnRow.tsx</span><span class="g-row-meta">0.2s</span>
+								</div>
+								<div class="g-row">
+									<span class="g-row-ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.3-4.3" /></svg></span>
+									<span class="g-row-title">grep</span><span class="g-row-detail">showEarlierSteps</span><span class="g-row-meta">0.1s</span>
+								</div>
+								<div class="g-row">
+									<span class="g-row-ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6" /><path d="M12 19h8" /></svg></span>
+									<span class="g-row-title">bash</span><span class="g-row-detail">pnpm run typecheck</span><span class="g-row-meta">12.4s</span>
+								</div>
+							</div>
+							<button class="more">
+								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+								展开全部 8 步
+							</button>
+						</div>
+					</div>
+
+					<button class="collapse">
+						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6" /></svg>
+						<span>收起</span>
+					</button>
+				</div>
+
+				<!-- 最终回复（大折叠栏外常驻） -->
+				<div class="final">
+					结论：问题是「缺中间层」而不是缺折叠。建议在现有扁平序列上加一个纯函数分组层，把连续思考/工具合并成过程组，组头给类别摘要，组体默认收起。
+					<ul>
+						<li>叶子渲染器（思考行 / 工具卡）零改动复用</li>
+						<li>组体限高用「渐隐 + 展开全部」，不引内部滚动，绕开滚动意图被吞的问题</li>
+						<li>重试 / 错误行与中间回复同级，同时截断过程组</li>
+					</ul>
+				</div>
+
+				<div class="actions">
+					<span class="act"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg></span>
+					<span class="act"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" /></svg></span>
+					<span class="act"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.4 2.6a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4Z" /></svg></span>
+					<span class="dur"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg><span class="dur-num">38.6s</span></span>
+				</div>
+			</div>
+		</div>
+		<div class="callout">
+			<b>一眼看过去剩下什么：</b>大折叠栏一行、G1 一行、结论前的中间回复一段、G2 一行 + 4 行组体、最终回复。对比现在的实现——同样的轮次会平铺出 <b>8 行步骤</b>。
+			<div class="legend">
+				<span><span class="dot" style="background:#2563eb"></span>过程组（可点开）</span>
+				<span><span class="dot" style="background:#6b7280"></span>已结束的过程组（图标转中性灰）</span>
+				<span><span class="dot" style="background:#b7791f"></span>重试（与中间回复同级）</span>
+				<span>中间回复 = 正文样式，无额外标记</span>
+			</div>
+		</div>
+
+		<h2>B · 运行中：最新组自动展开，头部走 shimmer + 参数详情</h2>
+		<p class="h2note">运行中的组只渲染<b>尾部若干行</b>（保证最新那条可见），不显示"展开全部"——因为此时限高会挡住正在产出的内容。</p>
+
+		<div class="pane light">
+			<div class="col">
+				<div class="author"><span class="avatar">Pi</span><span class="author-name">Pi</span><span class="author-time">14:41</span></div>
+				<button class="fold-pill">
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+					<span class="fold-ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12h-8" /><path d="M21 6h-8" /><path d="M21 18h-8" /><path d="M3 6v4c0 1.1.9 2 2 2h4" /><path d="M3 10v6c0 1.1.9 2 2 2h4" /></svg></span>
+					<span>执行过程: 3个工具 2次思考 1次重试</span>
+				</button>
+
+				<div class="fold-body">
+					<div class="group">
+						<button class="g-head" data-done>
+							<span class="g-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5" /></svg></span>
+							<span class="g-label">已读取文件</span>
+							<span class="g-chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+						</button>
+					</div>
+
+					<!-- 重试：与中间回复同级的一级行（状态色沿用现状） -->
+					<div class="g-body" style="margin-left: 0; padding-left: 0; border-left: 0">
+						<div class="g-row g-row--warn">
+							<span class="g-row-ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9" /><path d="M3 3v6h6" /></svg></span>
+							<span class="g-row-title">正在重试（1/3）</span>
+							<span class="g-row-meta">429</span>
+						</div>
+					</div>
+
+					<!-- 最新组：运行中，自动展开 -->
+					<div class="group">
+						<button class="g-head">
+							<span class="g-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6" /><path d="M12 19h8" /></svg></span>
+							<span class="g-label shimmer">正在运行命令</span>
+							<span class="g-sep">·</span>
+							<span class="g-detail">pnpm test --filter timeline</span>
+							<span class="g-chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg></span>
+						</button>
+						<div class="g-body">
+							<div class="g-row g-row--think">
+								<span class="g-row-ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z" /></svg></span>
+								<span class="g-row-title">思考了 2s</span>
+								<span class="g-row-detail">先跑一遍针对性单测确认基线…</span>
+							</div>
+							<div class="g-row">
+								<span class="g-row-ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6" /><path d="M12 19h8" /></svg></span>
+								<span class="g-row-title">bash</span><span class="g-row-detail">pnpm test --filter timeline</span><span class="g-row-meta">运行中</span>
+							</div>
+						</div>
+					</div>
+					<button class="collapse">
+						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6" /></svg>
+						<span>收起</span>
+					</button>
+				</div>
+			</div>
+		</div>
+
+		<h2>C · 暗色（同一套 token）</h2>
+		<div class="pane dark">
+			<div class="col" style="box-shadow:none">
+				<div class="author"><span class="avatar">Pi</span><span class="author-name">Pi</span><span class="author-time">14:32</span></div>
+				<button class="fold-pill">
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+					<span class="fold-ico"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12h-8" /><path d="M21 6h-8" /><path d="M21 18h-8" /><path d="M3 6v4c0 1.1.9 2 2 2h4" /><path d="M3 10v6c0 1.1.9 2 2 2h4" /></svg></span>
+					<span>执行过程: 5个工具 3次思考 1段中间回复</span>
+				</button>
+				<div class="fold-body">
+					<div class="group">
+						<button class="g-head" data-done>
+							<span class="g-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5" /></svg></span>
+							<span class="g-label">已读取文件并搜索代码</span>
+							<span class="g-chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg></span>
+						</button>
+					</div>
+					<div class="group">
+						<button class="g-head">
+							<span class="g-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6" /><path d="M12 19h8" /></svg></span>
+							<span class="g-label shimmer">正在运行命令</span>
+							<span class="g-sep">·</span>
+							<span class="g-detail">pnpm run typecheck</span>
+							<span class="g-chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg></span>
+						</button>
+						<div class="g-body">
+							<div class="g-row">
+								<span class="g-row-ico"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5" /></svg></span>
+								<span class="g-row-title">read</span><span class="g-row-detail">TurnRow.tsx</span><span class="g-row-meta">0.2s</span>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="final">暗色下组头方块用同色 12% 透明底 + 工具色图标，对比度与浅色一致。</div>
+			</div>
+		</div>
+
+		<table class="spec">
+			<tr><th style="width:170px">项</th><th>值</th></tr>
+			<tr><td>组头行高 / 圆角</td><td><code>24px</code> / <code>6px</code>（比大折叠的 26px 略矮一档）</td></tr>
+			<tr><td>图标方块</td><td><code>20px</code>，圆角 <code>5px</code>，底 = 工具色 12%，图标 = 工具色；已结束组转中性灰</td></tr>
+			<tr><td>悬停</td><td>仅 <code>4.5%</code> 黑底 + 文字转主色 —— <b>不再是胶囊</b></td></tr>
+			<tr><td>组体归属线</td><td><code>2px</code>，左移 <code>11px</code> 对齐方块中心，<code>13px</code> 内缩</td></tr>
+			<tr><td>组体限高</td><td><code>116px</code>（约 5 行）+ 底部渐隐 + 「展开全部 N 步」，<b>无内部滚动</b></td></tr>
+			<tr><td>中间回复</td><td>原样：<code>15px / 1.6 / --color-text-primary</code>，无标记</td></tr>
+			<tr><td>重试 / 错误</td><td>原样：琥珀 / 红，作为与中间回复同级的一级行</td></tr>
+		</table>
+	</body>
+</html>

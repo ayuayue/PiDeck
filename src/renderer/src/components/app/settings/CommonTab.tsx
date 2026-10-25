@@ -1,414 +1,544 @@
-import { memo } from "react";
+import { memo, useEffect, useState } from "react";
 import { useAtomValue } from "jotai";
 import type { AppSettings } from "../../../../../shared/types";
 import { dshUiVisibilityFor } from "../../../../../shared/types/dshRuntime";
+import { normalizeTpsDisplayMode } from "../../../../../shared/tps";
 import { dshRuntimeStatusAtom } from "../../../atoms";
 import { t } from "../../../i18n";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../../ui-shadcn/select";
+import { desktopApi } from "../../../desktopApi";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
 import { Input } from "../../ui-shadcn/input";
 import { SettingsSection } from "./SettingsStorageTab";
+import { PromptEnhanceSettingsSection } from "./PromptEnhanceSettingsSection";
+import { PromptSuggestionSettingsSection } from "./PromptSuggestionSettingsSection";
+import { SelectionToolSettingsSection } from "./SelectionToolSettingsSection";
 import { DirtyMarker, SettingBox, SettingRow, SettingSwitchRow } from "./SettingRows";
+import { VoiceTranscriptionSettingsSection } from "./VoiceTranscriptionSettingsSection";
+import { QuickTaskMenuSetting } from "./QuickTaskMenuSetting";
+import { QuickMessagesSetting } from "./QuickMessagesSetting";
+import { ReplyActionsSetting } from "./ReplyActionsSetting";
 
 type CommonTabProps = {
-  draft: AppSettings;
-  updateDraft: (patch: Partial<AppSettings>) => void;
-  isDirty: (field: keyof AppSettings) => boolean;
+	draft: AppSettings;
+	updateDraft: (patch: Partial<AppSettings>) => void;
+	isDirty: (field: keyof AppSettings) => boolean;
 };
 
 /** 下拉选项：disabled 可选（SelectItem 透传） */
 type SelectOption = { value: string; label: string; disabled?: boolean };
 
 /**
- * 设置弹框「常用设置」tab：语言/会话/通知/窗口（Git 分区已拆为独立 tab）。
+ * 设置弹框「常用设置」tab：语言/会话/窗口（Git 分区已拆为独立 tab，通知已拆为独立「通知设置」tab）。
  * 独立组件 + memo：切换 tab 或壳层无关状态变化时不重渲染本 tab。
  */
 export const CommonTab = memo(function CommonTab(props: CommonTabProps) {
-  const { draft, updateDraft, isDirty } = props;
-  // DSH runtime 安装态：runtime 不可用时 dsh 选项禁选，
-  // 否则用户能选到一个「保存成功但新建会话必失败」的后端。
-  const dshRuntimeStatus = useAtomValue(dshRuntimeStatusAtom);
-  const dshAvailable = dshUiVisibilityFor(dshRuntimeStatus.state).canCreateDshSession;
-  const languageOptions: SelectOption[] = [
-    { value: "system", label: t("settings.languageSystem") },
-    { value: "zh-CN", label: t("settings.languageZh") },
-    { value: "en-US", label: t("settings.languageEn") },
-    { value: "pseudo", label: t("settings.languagePseudo") },
-  ];
-  const sendShortcutOptions: SelectOption[] = [
-    { value: "enter-send", label: t("settings.sendShortcut.enter") },
-    { value: "ctrl-enter-send", label: t("settings.sendShortcut.ctrl") },
-    { value: "shift-enter-send", label: t("settings.sendShortcut.shift") },
-  ];
-  const linkOpenModeOptions: SelectOption[] = [
-    { value: "external", label: t("settings.linkOpenMode.external") },
-    { value: "internal", label: t("settings.linkOpenMode.internal") },
-  ];
-  const workspaceContentOpenModeOptions: SelectOption[] = [
-    { value: "split", label: t("settings.workspaceContentOpenMode.split") },
-    { value: "maximize", label: t("settings.workspaceContentOpenMode.maximize") },
-  ];
-  const busySendDeliveryOptions: SelectOption[] = [
-    { value: "steer", label: t("settings.busySendDeliverySteer") },
-    { value: "followUp", label: t("settings.busySendDeliveryFollowUp") },
-  ];
-  const startupWindowModeOptions: SelectOption[] = [
-    { value: "last", label: t("settings.startupWindow.last") },
-    { value: "maximized", label: t("settings.startupWindow.maximized") },
-    { value: "normal-large", label: t("settings.startupWindow.large") },
-    { value: "normal-medium", label: t("settings.startupWindow.medium") },
-    { value: "normal-compact", label: t("settings.startupWindow.compact") },
-    { value: "fullscreen", label: t("settings.startupWindow.fullscreen") },
-  ];
+	const { draft, updateDraft, isDirty } = props;
+	// DSH runtime 安装态：runtime 不可用时 dsh 选项禁选，
+	// 否则用户能选到一个「保存成功但新建会话必失败」的后端。
+	const dshRuntimeStatus = useAtomValue(dshRuntimeStatusAtom);
+	const dshAvailable = dshUiVisibilityFor(dshRuntimeStatus.state).canCreateDshSession;
+	const languageOptions: SelectOption[] = [
+		{ value: "system", label: t("settings.languageSystem") },
+		{ value: "zh-CN", label: t("settings.languageZh") },
+		{ value: "zh-TW", label: t("settings.languageZhTW") },
+		{ value: "en-US", label: t("settings.languageEn") },
+		{ value: "pseudo", label: t("settings.languagePseudo") },
+	];
+	const sendShortcutOptions: SelectOption[] = [
+		{ value: "enter-send", label: t("settings.sendShortcut.enter") },
+		{ value: "ctrl-enter-send", label: t("settings.sendShortcut.ctrl") },
+		{ value: "shift-enter-send", label: t("settings.sendShortcut.shift") },
+	];
+	const linkOpenModeOptions: SelectOption[] = [
+		{ value: "external", label: t("settings.linkOpenMode.external") },
+		{ value: "internal", label: t("settings.linkOpenMode.internal") },
+	];
+	const workspaceContentOpenModeOptions: SelectOption[] = [
+		{ value: "split", label: t("settings.workspaceContentOpenMode.split") },
+		{ value: "maximize", label: t("settings.workspaceContentOpenMode.maximize") },
+	];
+	const busySendDeliveryOptions: SelectOption[] = [
+		{ value: "steer", label: t("settings.busySendDeliverySteer") },
+		{ value: "followUp", label: t("settings.busySendDeliveryFollowUp") },
+	];
+	const startupWindowModeOptions: SelectOption[] = [
+		{ value: "last", label: t("settings.startupWindow.last") },
+		{ value: "maximized", label: t("settings.startupWindow.maximized") },
+		{ value: "normal-large", label: t("settings.startupWindow.large") },
+		{ value: "normal-medium", label: t("settings.startupWindow.medium") },
+		{ value: "normal-compact", label: t("settings.startupWindow.compact") },
+		{ value: "fullscreen", label: t("settings.startupWindow.fullscreen") },
+	];
 
-  return (
-    <>
-      {/* 语言（单行分区：行标题即一级标题，内容行入淡色框） */}
-      <SettingBox>
-        <SettingRow
-          level={1}
-          title={
-            <>
-              <span>{t("settings.language")}</span>
-              <DirtyMarker dirty={isDirty("language")} label={t("settings.language")} />
-            </>
-          }
-          alignEnd={false}
-        >
-          <Select value={draft.language} onValueChange={(value) =>
-              updateDraft({ language: value as AppSettings["language"] })
-            }>
-            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {languageOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </SettingRow>
-      </SettingBox>
+	const [shellMenuState, setShellMenuState] = useState<{
+		supported: boolean;
+		registered: boolean;
+	} | null>(null);
+	// 右键菜单是系统级即时副作用：不走 draft 保存（注册表 = 真相源），
+	// 挂载时查询一次，切换时直接写 HKCU 并回查真实状态，失败时保留原状态。
+	const [shellMenuBusy, setShellMenuBusy] = useState(false);
+	const [shellMenuError, setShellMenuError] = useState<string | null>(null);
+	useEffect(() => {
+		let cancelled = false;
+		void desktopApi.shellMenu
+			.getState()
+			.then((state) => {
+				if (!cancelled) {
+					setShellMenuState(state);
+					setShellMenuError(null);
+				}
+			})
+			.catch((error) => {
+				if (!cancelled) {
+					setShellMenuState(null);
+					setShellMenuError(error instanceof Error ? error.message : String(error));
+				}
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+	const toggleShellMenu = (enabled: boolean) => {
+		if (shellMenuBusy) return;
+		setShellMenuBusy(true);
+		setShellMenuError(null);
+		void desktopApi.shellMenu
+			.setEnabled(enabled)
+			.then((state) => setShellMenuState(state))
+			.catch((error: unknown) => {
+				// 回查一次真实状态，避免开关显示与注册表不一致（如写失败）
+				void desktopApi.shellMenu
+					.getState()
+					.then(setShellMenuState)
+					.catch(() => undefined);
+				setShellMenuError(error instanceof Error ? error.message : String(error));
+			})
+			.finally(() => setShellMenuBusy(false));
+	};
 
-      {/* 会话 */}
-      <SettingsSection title={t("settings.sectionSession")}>
-        <SettingRow
-          title={
-            <>
-              <span>{t("settings.sessionTabOpenMode")}</span>
-              <DirtyMarker dirty={isDirty("sessionTabOpenMode")} label={t("settings.sessionTabOpenMode")} />
-            </>
-          }
-          alignEnd={false}
-        >
-          <Select value={draft.sessionTabOpenMode} onValueChange={(value) =>
-              updateDraft({ sessionTabOpenMode: value as AppSettings["sessionTabOpenMode"] })
-            }>
-            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="preview">{t("settings.sessionTabOpenModePreview")}</SelectItem>
-              <SelectItem value="permanent">{t("settings.sessionTabOpenModePermanent")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </SettingRow>
-        <SettingSwitchRow
-          title={t("settings.autoSessionTitle")}
-          description={t("settings.autoSessionTitleDesc")}
-          checked={draft.autoSessionTitle ?? true}
-          dirty={isDirty("autoSessionTitle")}
-          onChange={(checked) => updateDraft({ autoSessionTitle: checked })}
-        />
-        <SettingRow
-          title={
-            <>
-              <span>{t("settings.inputShortcut")}</span>
-              <DirtyMarker dirty={isDirty("sendShortcut")} label={t("settings.inputShortcut")} />
-            </>
-          }
-          alignEnd={false}
-        >
-          <Select value={draft.sendShortcut} onValueChange={(value) =>
-              updateDraft({ sendShortcut: value as AppSettings["sendShortcut"] })
-            }>
-            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {sendShortcutOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </SettingRow>
-        <SettingRow
-          title={
-            <>
-              <span>{t("settings.defaultAgentBackend")}</span>
-              <DirtyMarker dirty={isDirty("defaultAgentBackend")} label={t("settings.defaultAgentBackend")} />
-            </>
-          }
-          description={t("settings.defaultAgentBackendDesc")}
-          alignEnd={false}
-        >
-          <Select
-            value={draft.defaultAgentBackend}
-            onValueChange={(value) =>
-              updateDraft({ defaultAgentBackend: value as AppSettings["defaultAgentBackend"] })
-            }
-          >
-            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="pi">{t("settings.defaultAgentBackendPi")}</SelectItem>
-              <SelectItem value="dsh" disabled={!dshAvailable}>
-                {dshAvailable
-                  ? t("settings.defaultAgentBackendDsh")
-                  : t("settings.defaultAgentBackendDshUnavailable")}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </SettingRow>
-        {/* DSH runtime 管理已迁至 DSH 配置 → 概览页（DshRuntimeSection 区块：
+	return (
+		<>
+			{/* 语言（单行分区：行标题即一级标题，内容行入淡色框） */}
+			<SettingBox>
+				<SettingRow
+					level={1}
+					title={
+						<>
+							<span>{t("settings.language")}</span>
+							<DirtyMarker dirty={isDirty("language")} label={t("settings.language")} />
+						</>
+					}
+					alignEnd={false}
+				>
+					<Select value={draft.language} onValueChange={(value) => updateDraft({ language: value as AppSettings["language"] })}>
+						<SelectTrigger className="w-full">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{languageOptions.map((option) => (
+								<SelectItem key={option.value} value={option.value} disabled={option.disabled}>
+									{option.label}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</SettingRow>
+			</SettingBox>
+
+			<VoiceTranscriptionSettingsSection />
+
+			{/* 提示词增强：固定模型（默认跟随会话模型） */}
+			<PromptEnhanceSettingsSection />
+
+			{/* 划词工具：应用内/系统级开关、默认智能体（数据在 agent-profiles.json，自持即时保存） */}
+			<PromptSuggestionSettingsSection />
+			<SelectionToolSettingsSection />
+
+			{/* 会话 */}
+			<SettingsSection id="settings-section-common-session" title={t("settings.sectionSession")}>
+				<SettingRow
+					anchor="common-session-tab-open-mode"
+					title={
+						<>
+							<span>{t("settings.sessionTabOpenMode")}</span>
+							<DirtyMarker dirty={isDirty("sessionTabOpenMode")} label={t("settings.sessionTabOpenMode")} />
+						</>
+					}
+					alignEnd={false}
+				>
+					<Select value={draft.sessionTabOpenMode} onValueChange={(value) => updateDraft({ sessionTabOpenMode: value as AppSettings["sessionTabOpenMode"] })}>
+						<SelectTrigger className="w-full">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="preview">{t("settings.sessionTabOpenModePreview")}</SelectItem>
+							<SelectItem value="permanent">{t("settings.sessionTabOpenModePermanent")}</SelectItem>
+						</SelectContent>
+					</Select>
+				</SettingRow>
+				<SettingSwitchRow anchor="common-auto-session-title" title={t("settings.autoSessionTitle")} description={t("settings.autoSessionTitleDesc")} checked={draft.autoSessionTitle ?? false} dirty={isDirty("autoSessionTitle")} onChange={(checked) => updateDraft({ autoSessionTitle: checked })} />
+				<SettingRow
+					anchor="common-tps-display-mode"
+					title={
+						<>
+							<span>{t("settings.tpsDisplayMode")}</span>
+							<DirtyMarker dirty={isDirty("tpsDisplayMode")} label={t("settings.tpsDisplayMode")} />
+						</>
+					}
+					description={t("settings.tpsDisplayModeDesc")}
+					alignEnd={false}
+				>
+					<Select value={normalizeTpsDisplayMode(draft.tpsDisplayMode)} onValueChange={(value) => updateDraft({ tpsDisplayMode: normalizeTpsDisplayMode(value) })}>
+						<SelectTrigger className="w-full">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="streaming">{t("settings.tpsDisplayModeStreaming")}</SelectItem>
+							<SelectItem value="endToEnd">{t("settings.tpsDisplayModeEndToEnd")}</SelectItem>
+						</SelectContent>
+					</Select>
+				</SettingRow>
+				<SettingRow
+					anchor="common-send-shortcut"
+					title={
+						<>
+							<span>{t("settings.inputShortcut")}</span>
+							<DirtyMarker dirty={isDirty("sendShortcut")} label={t("settings.inputShortcut")} />
+						</>
+					}
+					alignEnd={false}
+				>
+					<Select value={draft.sendShortcut} onValueChange={(value) => updateDraft({ sendShortcut: value as AppSettings["sendShortcut"] })}>
+						<SelectTrigger className="w-full">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{sendShortcutOptions.map((option) => (
+								<SelectItem key={option.value} value={option.value} disabled={option.disabled}>
+									{option.label}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</SettingRow>
+				<SettingRow
+					anchor="common-default-agent-backend"
+					title={
+						<>
+							<span>{t("settings.defaultAgentBackend")}</span>
+							<DirtyMarker dirty={isDirty("defaultAgentBackend")} label={t("settings.defaultAgentBackend")} />
+						</>
+					}
+					description={t("settings.defaultAgentBackendDesc")}
+					alignEnd={false}
+				>
+					<Select
+						value={draft.defaultAgentBackend}
+						onValueChange={(value) =>
+							// 手动选择即接管：置 manual 后自动选择（只有 DSH 时默认 dsh）不再改写用户的选择。
+							updateDraft({ defaultAgentBackend: value as AppSettings["defaultAgentBackend"], defaultAgentBackendManual: true })
+						}
+					>
+						<SelectTrigger className="w-full">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="pi">{t("settings.defaultAgentBackendPi")}</SelectItem>
+							<SelectItem value="dsh" disabled={!dshAvailable}>
+								{dshAvailable ? t("settings.defaultAgentBackendDsh") : t("settings.defaultAgentBackendDshUnavailable")}
+							</SelectItem>
+						</SelectContent>
+					</Select>
+				</SettingRow>
+				{/* DSH runtime 管理已迁至 DSH 配置 → 概览页（DshRuntimeSection 区块：
             未装→安装引导，已装→版本/目录/卸载/导入），这里不再重复放状态行。 */}
-        {/* 忙碌时投递行为：Agent 回复期间发送消息的默认语义（pi/dsh 统一）。 */}
-        <SettingRow
-          title={
-            <>
-              <span>{t("settings.busySendDelivery")}</span>
-              <DirtyMarker dirty={isDirty("busySendDelivery")} label={t("settings.busySendDelivery")} />
-            </>
-          }
-          description={t("settings.busySendDeliveryDesc")}
-          alignEnd={false}
-        >
-          <Select
-            value={draft.busySendDelivery}
-            onValueChange={(value) =>
-              updateDraft({ busySendDelivery: value as AppSettings["busySendDelivery"] })
-            }
-          >
-            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {busySendDeliveryOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </SettingRow>
-        <SettingRow
-          title={
-            <>
-              <span>{t("settings.linkOpenMode")}</span>
-              <DirtyMarker dirty={isDirty("linkOpenMode")} label={t("settings.linkOpenMode")} />
-            </>
-          }
-          alignEnd={false}
-        >
-          <Select value={draft.linkOpenMode} onValueChange={(value) =>
-              updateDraft({ linkOpenMode: value as AppSettings["linkOpenMode"] })
-            }>
-            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {linkOpenModeOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </SettingRow>
-        <SettingRow
-          title={
-            <>
-              <span>{t("settings.workspaceContentOpenMode")}</span>
-              <DirtyMarker dirty={isDirty("workspaceContentOpenMode")} label={t("settings.workspaceContentOpenMode")} />
-            </>
-          }
-          description={t("settings.workspaceContentOpenModeDesc")}
-          alignEnd={false}
-        >
-          <Select
-            value={draft.workspaceContentOpenMode ?? "split"}
-            onValueChange={(value) =>
-              updateDraft({
-                workspaceContentOpenMode: value as AppSettings["workspaceContentOpenMode"],
-              })
-            }
-          >
-            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {workspaceContentOpenModeOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </SettingRow>
-        {/* 流式对话设置：中间过程与本轮修改文件的默认展示行为。 */}
-        <SettingSwitchRow
-          title={t("settings.expandInterimDuringStream")}
-          description={t("settings.expandInterimDuringStreamDesc")}
-          checked={draft.expandInterimDuringStream}
-          onChange={(checked) => updateDraft({ expandInterimDuringStream: checked })}
-        />
-        <SettingSwitchRow
-          title={t("settings.collapsePrevRunsOnNewTurn")}
-          description={t("settings.collapsePrevRunsOnNewTurnDesc")}
-          checked={draft.collapsePrevRunsOnNewTurn}
-          onChange={(checked) => updateDraft({ collapsePrevRunsOnNewTurn: checked })}
-        />
-      </SettingsSection>
+				{/* 忙碌时投递行为：Agent 回复期间发送消息的默认语义（pi/dsh 统一）。 */}
+				<SettingRow
+					title={
+						<>
+							<span>{t("settings.busySendDelivery")}</span>
+							<DirtyMarker dirty={isDirty("busySendDelivery")} label={t("settings.busySendDelivery")} />
+						</>
+					}
+					description={t("settings.busySendDeliveryDesc")}
+					alignEnd={false}
+				>
+					<Select value={draft.busySendDelivery} onValueChange={(value) => updateDraft({ busySendDelivery: value as AppSettings["busySendDelivery"] })}>
+						<SelectTrigger className="w-full">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{busySendDeliveryOptions.map((option) => (
+								<SelectItem key={option.value} value={option.value}>
+									{option.label}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</SettingRow>
+				<SettingRow
+					title={
+						<>
+							<span>{t("settings.linkOpenMode")}</span>
+							<DirtyMarker dirty={isDirty("linkOpenMode")} label={t("settings.linkOpenMode")} />
+						</>
+					}
+					alignEnd={false}
+				>
+					<Select value={draft.linkOpenMode} onValueChange={(value) => updateDraft({ linkOpenMode: value as AppSettings["linkOpenMode"] })}>
+						<SelectTrigger className="w-full">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{linkOpenModeOptions.map((option) => (
+								<SelectItem key={option.value} value={option.value} disabled={option.disabled}>
+									{option.label}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</SettingRow>
+				<SettingRow
+					title={
+						<>
+							<span>{t("settings.workspaceContentOpenMode")}</span>
+							<DirtyMarker dirty={isDirty("workspaceContentOpenMode")} label={t("settings.workspaceContentOpenMode")} />
+						</>
+					}
+					description={t("settings.workspaceContentOpenModeDesc")}
+					alignEnd={false}
+				>
+					<Select
+						value={draft.workspaceContentOpenMode ?? "split"}
+						onValueChange={(value) =>
+							updateDraft({
+								workspaceContentOpenMode: value as AppSettings["workspaceContentOpenMode"],
+							})
+						}
+					>
+						<SelectTrigger className="w-full">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{workspaceContentOpenModeOptions.map((option) => (
+								<SelectItem key={option.value} value={option.value}>
+									{option.label}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</SettingRow>
+				{/* 流式对话设置：中间过程与本轮修改文件的默认展示行为。 */}
+				<SettingSwitchRow anchor="common-expand-interim-during-stream" title={t("settings.expandInterimDuringStream")} description={t("settings.expandInterimDuringStreamDesc")} checked={draft.expandInterimDuringStream} onChange={(checked) => updateDraft({ expandInterimDuringStream: checked })} />
+				{/* 过程组显示：开启后连续思考/工具调用合并成过程组，关闭则保持平铺显示 */}
+				<SettingSwitchRow anchor="common-process-group-display" title={t("settings.processGroupDisplay")} description={t("settings.processGroupDisplayDesc")} checked={draft.processGroupDisplay} onChange={(checked) => updateDraft({ processGroupDisplay: checked })} />
+			</SettingsSection>
 
-      {/* 闲置 Agent 内存优化：自动释放长时间闲置的 agent 进程，降低多会话内存占用 */}
-      <SettingsSection
-        title={t("settings.idleAgentSection")}
-        description={t("settings.idleAgentSectionDesc")}
-      >
-        <SettingSwitchRow
-          title={t("settings.idleAgentAutoRelease")}
-          description={t("settings.idleAgentAutoReleaseDesc")}
-          checked={draft.idleAgentAutoRelease ?? true}
-          dirty={isDirty("idleAgentAutoRelease")}
-          onChange={(checked) => updateDraft({ idleAgentAutoRelease: checked })}
-        />
-        <SettingRow
-          title={
-            <span className="inline-flex items-center gap-1.5">
-              <DirtyMarker dirty={isDirty("idleAgentKeepCount")} label={t("settings.idleAgentKeepCount")} />
-              {t("settings.idleAgentKeepCount")}
-            </span>
-          }
-          description={t("settings.idleAgentKeepCountDesc")}
-        >
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={1}
-              max={20}
-              step={1}
-              className="w-24"
-              value={String(draft.idleAgentKeepCount ?? 5)}
-              onChange={(event) => {
-                const n = parseInt(event.target.value, 10);
-                updateDraft({ idleAgentKeepCount: Number.isFinite(n) ? n : 5 });
-              }}
-              aria-label={t("settings.idleAgentKeepCount")}
-            />
-            <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
-              {t("settings.idleAgentCountUnit")}
-            </span>
-          </div>
-        </SettingRow>
-        <SettingRow
-          title={
-            <span className="inline-flex items-center gap-1.5">
-              <DirtyMarker dirty={isDirty("idleAgentTimeoutMin")} label={t("settings.idleAgentTimeoutMin")} />
-              {t("settings.idleAgentTimeoutMin")}
-            </span>
-          }
-          description={t("settings.idleAgentTimeoutMinDesc")}
-        >
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={1}
-              max={1440}
-              step={5}
-              className="w-24"
-              value={String(draft.idleAgentTimeoutMin ?? 60)}
-              onChange={(event) => {
-                const n = parseInt(event.target.value, 10);
-                updateDraft({ idleAgentTimeoutMin: Number.isFinite(n) ? n : 60 });
-              }}
-              aria-label={t("settings.idleAgentTimeoutMin")}
-            />
-            <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
-              {t("settings.idleAgentTimeoutUnit")}
-            </span>
-          </div>
-        </SettingRow>
-      </SettingsSection>
+			{/* 快捷消息：数据在 userData/quick-messages.json，本区自持编辑状态并即时落盘（不参与全局草案/取消）。 */}
+			<SettingsSection id="settings-section-common-quick-messages-section" title={t("settings.quickMessagesSection")} description={t("settings.quickMessagesSectionDesc")}>
+				<QuickMessagesSetting />
+			</SettingsSection>
 
-      {/* 通知 */}
-      <SettingsSection title={t("settings.notificationSection")}>
-        <SettingSwitchRow
-          title={t("settings.enableNotifications")}
-          checked={draft.enableNotifications}
-          onChange={(checked) =>
-            updateDraft({ enableNotifications: checked })
-          }
-        />
-        <SettingSwitchRow
-          title={t("settings.askNotification")}
-          description={t("settings.askNotificationDesc")}
-          checked={draft.askNotificationEnabled}
-          onChange={(checked) =>
-            updateDraft({ askNotificationEnabled: checked })
-          }
-        />
-        <SettingSwitchRow
-          title={t("settings.agentCountReminder")}
-          description={t("settings.agentCountReminderDesc")}
-          checked={draft.agentCountReminderEnabled}
-          onChange={(checked) =>
-            updateDraft({ agentCountReminderEnabled: checked })
-          }
-        />
-      </SettingsSection>
+			{/* 回复快捷操作：规则在 userData/reply-actions.json，同样即时落盘（不参与全局草案/取消）。 */}
+			<SettingsSection id="settings-section-common-reply-actions-section" title={t("settings.replyActionsSection")} description={t("settings.replyActionsSectionDesc")}>
+				<ReplyActionsSetting />
+			</SettingsSection>
 
-      {/* 窗口 */}
-      <SettingsSection title={t("settings.sectionWindow")}>
-        <SettingRow
-          title={
-            <>
-              <span>{t("settings.startupWindowMode")}</span>
-              <DirtyMarker
-                dirty={isDirty("startupWindowMode")}
-                label={t("settings.startupWindowMode")}
-              />
-            </>
-          }
-          description={t("settings.startupWindowModeDesc")}
-          alignEnd={false}
-        >
-          <Select value={draft.startupWindowMode} onValueChange={(value) =>
-              updateDraft({
-                startupWindowMode: value as AppSettings["startupWindowMode"],
-              })
-            }>
-            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {startupWindowModeOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </SettingRow>
-        <SettingSwitchRow
-          title={t("settings.closeToTray")}
-          checked={draft.closeToTray}
-          onChange={(checked) =>
-            updateDraft({ closeToTray: checked })
-          }
-        />
-        <SettingSwitchRow
-          title={t("settings.singleInstance")}
-          description={t("settings.singleInstanceDesc")}
-          checked={draft.singleInstance}
-          onChange={(checked) =>
-            updateDraft({ singleInstance: checked })
-          }
-        />
-      </SettingsSection>
-    </>
-  );
+			{/* 闲置 Agent 内存优化：自动释放长时间闲置的 agent 进程，降低多会话内存占用 */}
+			<SettingsSection id="settings-section-common-idle-agent" title={t("settings.idleAgentSection")} description={t("settings.idleAgentSectionDesc")}>
+				<SettingSwitchRow anchor="common-idle-agent-auto-release" title={t("settings.idleAgentAutoRelease")} description={t("settings.idleAgentAutoReleaseDesc")} checked={draft.idleAgentAutoRelease ?? true} dirty={isDirty("idleAgentAutoRelease")} onChange={(checked) => updateDraft({ idleAgentAutoRelease: checked })} />
+				<SettingSwitchRow
+					anchor="common-standby-runtime-enabled"
+					title={t("settings.standbyRuntimeEnabled")}
+					description={t("settings.standbyRuntimeEnabledDesc")}
+					checked={draft.standbyRuntimeEnabled ?? true}
+					dirty={isDirty("standbyRuntimeEnabled")}
+					onChange={(checked) => updateDraft({ standbyRuntimeEnabled: checked })}
+				/>
+				<SettingRow
+					anchor="common-idle-agent-keep-count"
+					title={
+						<span className="inline-flex items-center gap-1.5">
+							<DirtyMarker dirty={isDirty("idleAgentKeepCount")} label={t("settings.idleAgentKeepCount")} />
+							{t("settings.idleAgentKeepCount")}
+						</span>
+					}
+					description={t("settings.idleAgentKeepCountDesc")}
+				>
+					<div className="flex items-center gap-2">
+						<Input
+							type="number"
+							min={1}
+							max={20}
+							step={1}
+							className="w-24"
+							value={String(draft.idleAgentKeepCount ?? 5)}
+							onChange={(event) => {
+								const n = parseInt(event.target.value, 10);
+								updateDraft({ idleAgentKeepCount: Number.isFinite(n) ? n : 5 });
+							}}
+							aria-label={t("settings.idleAgentKeepCount")}
+						/>
+						<span className="shrink-0 text-sm text-muted-foreground tabular-nums">{t("settings.idleAgentCountUnit")}</span>
+					</div>
+				</SettingRow>
+				<SettingRow
+					anchor="common-idle-agent-timeout"
+					title={
+						<span className="inline-flex items-center gap-1.5">
+							<DirtyMarker dirty={isDirty("idleAgentTimeoutMin")} label={t("settings.idleAgentTimeoutMin")} />
+							{t("settings.idleAgentTimeoutMin")}
+						</span>
+					}
+					description={t("settings.idleAgentTimeoutMinDesc")}
+				>
+					<div className="flex items-center gap-2">
+						<Input
+							type="number"
+							min={1}
+							max={1440}
+							step={5}
+							className="w-24"
+							value={String(draft.idleAgentTimeoutMin ?? 60)}
+							onChange={(event) => {
+								const n = parseInt(event.target.value, 10);
+								updateDraft({ idleAgentTimeoutMin: Number.isFinite(n) ? n : 60 });
+							}}
+							aria-label={t("settings.idleAgentTimeoutMin")}
+						/>
+						<span className="shrink-0 text-sm text-muted-foreground tabular-nums">{t("settings.idleAgentTimeoutUnit")}</span>
+					</div>
+				</SettingRow>
+			</SettingsSection>
+
+			{/* 悬浮球：主窗口可隐藏为屏幕角落的 64px 常驻小圆点，点开展开小任务浮窗/工作台 */}
+			<SettingsSection id="settings-section-common-floating-ball" title={t("settings.floatingBallSection")} description={t("settings.floatingBallSectionDesc")}>
+				<SettingSwitchRow
+					anchor="common-floating-ball-enabled"
+					title={t("settings.floatingBallEnabled")}
+					description={t("settings.floatingBallEnabledDesc")}
+					checked={draft.floatingBallEnabled ?? false}
+					dirty={isDirty("floatingBallEnabled")}
+					onChange={(checked) => {
+						updateDraft({ floatingBallEnabled: checked });
+						void desktopApi.floatingBall.setEnabled(checked);
+					}}
+				/>
+				<SettingSwitchRow
+					anchor="common-floating-ball-always-on-top"
+					title={t("settings.floatingBallAlwaysOnTop")}
+					description={t("settings.floatingBallAlwaysOnTopDesc")}
+					checked={draft.floatingBallAlwaysOnTop ?? true}
+					disabled={!draft.floatingBallEnabled}
+					dirty={isDirty("floatingBallAlwaysOnTop")}
+					onChange={(checked) => updateDraft({ floatingBallAlwaysOnTop: checked })}
+				/>
+				<SettingSwitchRow
+					anchor="common-floating-ball-show-running-badge"
+					title={t("settings.floatingBallShowRunningBadge")}
+					description={t("settings.floatingBallShowRunningBadgeDesc")}
+					checked={draft.floatingBallShowRunningBadge ?? true}
+					disabled={!draft.floatingBallEnabled}
+					dirty={isDirty("floatingBallShowRunningBadge")}
+					onChange={(checked) => updateDraft({ floatingBallShowRunningBadge: checked })}
+				/>
+				<SettingSwitchRow
+					anchor="common-floating-ball-snap-to-edge"
+					title={t("settings.floatingBallSnapToEdge")}
+					description={t("settings.floatingBallSnapToEdgeDesc")}
+					checked={draft.floatingBallSnapToEdge ?? true}
+					disabled={!draft.floatingBallEnabled}
+					dirty={isDirty("floatingBallSnapToEdge")}
+					onChange={(checked) => updateDraft({ floatingBallSnapToEdge: checked })}
+				/>
+				<SettingRow
+					anchor="common-floating-ball-expand-target"
+					title={
+						<span className="inline-flex items-center gap-1.5">
+							<DirtyMarker dirty={isDirty("floatingBallExpandTarget")} label={t("settings.floatingBallExpandTarget")} />
+							{t("settings.floatingBallExpandTarget")}
+						</span>
+					}
+					description={t("settings.floatingBallExpandTargetDesc")}
+				>
+					<Select value={draft.floatingBallExpandTarget ?? "mini"} onValueChange={(value) => updateDraft({ floatingBallExpandTarget: value as "mini" | "compact" })} disabled={!draft.floatingBallEnabled}>
+						<SelectTrigger className="w-40">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="mini">{t("settings.floatingBallExpandMini")}</SelectItem>
+							<SelectItem value="compact">{t("settings.floatingBallExpandCompact")}</SelectItem>
+						</SelectContent>
+					</Select>
+				</SettingRow>
+			</SettingsSection>
+
+			{/* CUA 桌面操作（实验性）：开启后才监听回环 MCP 端点并注册给 pi；自动审批默认开启，关闭后逐次确认。 */}
+			<SettingsSection id="settings-section-common-cua" title={t("settings.cuaSection")} description={t("settings.cuaSectionDesc")}>
+				<SettingSwitchRow anchor="common-cua-enabled" title={t("settings.cuaEnabled")} description={t("settings.cuaEnabledDesc")} checked={draft.cuaEnabled ?? false} dirty={isDirty("cuaEnabled")} onChange={(checked) => updateDraft({ cuaEnabled: checked })} />
+				{/* 免审批：依赖 CUA 主开关，主开关关闭时置灰；只绕过审批对话框，杀开关仍生效 */}
+				<SettingSwitchRow anchor="common-cua-auto-approve" title={t("settings.cuaAutoApprove")} description={t("settings.cuaAutoApproveDesc")} checked={draft.cuaAutoApprove ?? true} disabled={!draft.cuaEnabled} dirty={isDirty("cuaAutoApprove")} onChange={(checked) => updateDraft({ cuaAutoApprove: checked })} />
+			</SettingsSection>
+
+			{/* 浏览器 Agent（实验性）：与 CUA 共用本地 MCP 端点，向 pi 暴露 browser_* 工具；写操作默认自动放行，可关闭免审批改为逐次确认（内置浏览器带真实登录态，风险自担）。 */}
+			<SettingsSection id="settings-section-common-browser-agent" title={t("settings.browserAgentSection")} description={t("settings.browserAgentSectionDesc")}>
+				<SettingSwitchRow anchor="common-browser-agent-enabled" title={t("settings.browserAgentEnabled")} description={t("settings.browserAgentEnabledDesc")} checked={draft.browserAgentEnabled ?? false} dirty={isDirty("browserAgentEnabled")} onChange={(checked) => updateDraft({ browserAgentEnabled: checked })} />
+				{/* 免审批：依赖浏览器 Agent 主开关，主开关关闭时置灰；全局/会话审批门仍生效 */}
+				<SettingSwitchRow
+					anchor="common-browser-agent-auto-approve"
+					title={t("settings.browserAgentAutoApprove")}
+					description={t("settings.browserAgentAutoApproveDesc")}
+					checked={draft.browserAgentAutoApprove ?? true}
+					disabled={!draft.browserAgentEnabled}
+					dirty={isDirty("browserAgentAutoApprove")}
+					onChange={(checked) => updateDraft({ browserAgentAutoApprove: checked })}
+				/>
+			</SettingsSection>
+
+			{/* 文件资源管理器集成：注册「用 PiDeck 打开」右键菜单（目录与空白处），
+          HKCU 写入即时生效；非 Windows 平台开关置灰并提示。 */}
+			<SettingsSection id="settings-section-common-shell-integration" title={t("settings.shellContextMenuSection")} description={t("settings.shellContextMenuSectionDesc")}>
+				<SettingSwitchRow anchor="common-shell-context-menu" title={t("settings.shellContextMenu")} description={t("settings.shellContextMenuDesc")} checked={shellMenuState?.registered ?? false} disabled={!shellMenuState?.supported || shellMenuBusy} onChange={toggleShellMenu} />
+				<QuickTaskMenuSetting />
+				{!shellMenuState?.supported && <p className="px-4 pb-2 text-xs text-destructive">{t("settings.shellContextMenuUnsupported")}</p>}
+				{shellMenuError && <p className="px-4 pb-2 text-xs text-destructive">{shellMenuError}</p>}
+			</SettingsSection>
+
+			{/* 窗口 */}
+			<SettingsSection id="settings-section-common-window" title={t("settings.sectionWindow")}>
+				<SettingRow
+					title={
+						<>
+							<span>{t("settings.startupWindowMode")}</span>
+							<DirtyMarker dirty={isDirty("startupWindowMode")} label={t("settings.startupWindowMode")} />
+						</>
+					}
+					description={t("settings.startupWindowModeDesc")}
+					alignEnd={false}
+				>
+					<Select
+						value={draft.startupWindowMode}
+						onValueChange={(value) =>
+							updateDraft({
+								startupWindowMode: value as AppSettings["startupWindowMode"],
+							})
+						}
+					>
+						<SelectTrigger className="w-full">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{startupWindowModeOptions.map((option) => (
+								<SelectItem key={option.value} value={option.value} disabled={option.disabled}>
+									{option.label}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</SettingRow>
+				<SettingSwitchRow anchor="common-close-to-tray" title={t("settings.closeToTray")} checked={draft.closeToTray} onChange={(checked) => updateDraft({ closeToTray: checked })} />
+				<SettingSwitchRow anchor="common-single-instance" title={t("settings.singleInstance")} description={t("settings.singleInstanceDesc")} checked={draft.singleInstance} onChange={(checked) => updateDraft({ singleInstance: checked })} />
+			</SettingsSection>
+		</>
+	);
 });

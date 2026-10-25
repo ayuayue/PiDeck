@@ -12,14 +12,7 @@ import { readFile, writeFile, mkdir, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { getAppLogger } from "../logging/sharedLogger";
-import type {
-	VisionBridgeConfig,
-	VisionBridgeEvent,
-	VisionBridgeState,
-	VisionEventsInfo,
-	VisionLogInfo,
-	VisionSaveResult,
-} from "../../shared/types";
+import type { VisionBridgeConfig, VisionBridgeEvent, VisionBridgeState, VisionEventsInfo, VisionLogInfo, VisionSaveResult } from "../../shared/types";
 import type { ConfigManager } from "../config/ConfigManager";
 
 const CONFIG_FILE_NAME = "pi-deck-vision.json";
@@ -44,8 +37,7 @@ export const KNOWN_PROVIDER_BASE_URLS: Record<string, string> = {
 /** 视觉桥默认值（与扩展 DEFAULT_CONFIG 保持一致）。 */
 /** 与扩展 pi-deck-vision.ts 的 DEFAULT_PROMPT 完全一致；
  *  保存配置时若无自定义模板则写入此默认值，保证配置文件里永远有模板（用户可直接改文件）。 */
-export const VISION_DEFAULT_PROMPT =
-	"请详细描述这张图片的内容。如果图片中有文字（代码、报错、UI 文案、文档等），请完整准确地转录所有可见文字；如果是图表，请说明类型、坐标轴含义和关键数值；如果涉及界面，请描述布局与元素。输出使用中文。";
+export const VISION_DEFAULT_PROMPT = "请详细描述这张图片的内容。如果图片中有文字（代码、报错、UI 文案、文档等），请完整准确地转录所有可见文字；如果是图表，请说明类型、坐标轴含义和关键数值；如果涉及界面，请描述布局与元素。输出使用中文。";
 
 export const VISION_DEFAULT_CONFIG: VisionBridgeConfig = {
 	enabled: true,
@@ -163,8 +155,7 @@ export class VisionBridgeConfigManager {
 		if (!next.apiKey || !next.baseUrl) {
 			try {
 				const modelsResult = await this.configManager.getModelsConfig();
-				const provider = (modelsResult.parsed as { providers?: Record<string, { apiKey?: string; baseUrl?: string }> } | undefined)
-					?.providers?.[next.provider];
+				const provider = (modelsResult.parsed as { providers?: Record<string, { apiKey?: string; baseUrl?: string }> } | undefined)?.providers?.[next.provider];
 				if (provider) {
 					if (!next.apiKey && provider.apiKey) next.apiKey = provider.apiKey;
 					if (!next.baseUrl && provider.baseUrl) next.baseUrl = provider.baseUrl;

@@ -6,10 +6,7 @@ import { ipcMain } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import type { VisionBridgeConfigManager } from "../settings/visionBridgeConfig";
 
-export function registerVisionIpc(deps: {
-	visionBridge: VisionBridgeConfigManager;
-	log: (message: string, ...args: unknown[]) => void;
-}) {
+export function registerVisionIpc(deps: { visionBridge: VisionBridgeConfigManager; log: (message: string, ...args: unknown[]) => void }) {
 	const { visionBridge, log } = deps;
 
 	ipcMain.handle(ipcChannels.visionGetConfig, () => visionBridge.getState());

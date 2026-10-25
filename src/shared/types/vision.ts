@@ -9,10 +9,7 @@
  */
 
 /** 视觉模型 API 格式（与 pi models.json 的 provider.api 约定一致）。 */
-export type VisionApiKind =
-	| "openai-completions"
-	| "anthropic-messages"
-	| "google-generative-ai";
+export type VisionApiKind = "openai-completions" | "anthropic-messages" | "google-generative-ai";
 
 /** 视觉桥配置（写入 ~/.pi/agent/pi-deck-vision.json，与扩展读取的字段一一对应）。 */
 export type VisionBridgeConfig = {

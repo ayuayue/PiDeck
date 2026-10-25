@@ -15,267 +15,10 @@
   image-rendering: auto;
 }
 
-/* ── 项目资源管理弹框 ────────────────────────────
- * 尺寸由 DialogContent 的响应式 utility 统一控制；这里仅保留内容容器的背景，
- * 避免旧 CSS 与 shadcn Dialog 的 max-width/height 变体互相争抢。 */
-.project-resources-dialog {
-  background: var(--color-bg-panel);
-  box-shadow: var(--shadow-xl);
-}
-
-/* 内容区：两列栅格，左表单右列表 */
-.project-resources-body {
-  min-height: 100%;
-  padding: 24px;
-  display: grid;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 12px 24px;
-  align-content: start;
-  background: var(--color-bg-muted);
-}
-
-/* 创建表单卡片 */
-.project-skill-create {
-  display: grid;
-  gap: 14px;
-  padding: 20px;
-  min-height: 0;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-panel);
-  align-content: start;
-  align-self: start;
-  grid-row: 1 / span 2;
-}
-/* 创建表单字段 */
-.project-resources-name-field {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-caption);
-  font-weight: 500;
-}
-.project-resources-name-field input {
-  width: 100%;
-  height: var(--control-height-lg);
-  padding: 0 10px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-panel);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-control);
-  transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
-}
-.project-resources-name-field input:focus {
-  outline: none;
-  border-color: var(--color-accent);
-  box-shadow: var(--focus-ring);
-}
-.project-resources-desc-field {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-caption);
-  font-weight: 500;
-}
-.project-resources-desc-field textarea {
-  width: 100%;
-  min-height: 60px;
-  max-height: 120px;
-  padding: 8px 10px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-panel);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-control);
-  resize: vertical;
-  font-family: inherit;
-  transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
-}
-.project-resources-desc-field textarea:focus {
-  outline: none;
-  border-color: var(--color-accent);
-  box-shadow: var(--focus-ring);
-}
-
-/* 资源列表区 */
-.project-resources-list-section {
-  display: grid;
-  grid-column: 2;
-  grid-row: 2;
-  gap: 8px;
-  align-content: start;
-}
-
-/* 窄窗口时创建区和资源列表上下排列，避免第二列被压缩到不可读。 */
-@media (max-width: 820px) {
-  .project-resources-body {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .project-skill-create {
-    grid-row: auto;
-  }
-  .project-resources-list-header.col-span-2,
-  .project-resources-list-section {
-    grid-column: 1;
-    grid-row: auto;
-  }
-}
-.project-resources-list-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 28px;
-}
-.project-resources-list-header strong {
-  font-size: var(--font-size-body);
-  color: var(--color-text-primary);
-  font-weight: 600;
-}
-.project-resources-list-header span {
-  font-size: var(--font-size-caption);
-  color: var(--color-text-tertiary);
-  font-family: var(--font-family-business);
-}
-
-/* 资源卡片 */
-.project-resource-card {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 64px;
-  padding: 10px 12px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-panel);
-  transition: all 0.12s ease;
-}
-.project-resource-card:hover {
-  border-color: var(--color-border-strong);
-}
-.project-resource-card > .project-resource-info {
-  /* 名称、状态、描述和路径是同一资源的层级信息，必须纵向排列；
-   * 横向 flex 会在窄列表中把所有内容压成一行。 */
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  flex: 1;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  padding: 0;
-  color: inherit;
-  font: inherit;
-}
-.project-resource-title {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-  min-width: 0;
-}
-.project-resource-title strong {
-  font-size: var(--font-size-control);
-  color: var(--color-text-primary);
-  font-weight: 600;
-  white-space: nowrap;
-}
-.project-resource-title > span {
-  padding: 0 6px;
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
-  color: var(--color-warning);
-  font-family: var(--font-family-business);
-  font-size: var(--font-size-micro);
-  font-weight: 500;
-  white-space: nowrap;
-}
-.project-resource-card small {
-  max-width: 100%;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-caption);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.project-resource-card small + small {
-  max-width: 100%;
-}
-
-/* 操作按钮组：删除和编辑必须在静止状态可发现，不能依赖 hover 才出现。 */
-.project-resource-actions {
-  display: flex;
-  flex-shrink: 0;
-  gap: 2px;
-  align-items: center;
-  opacity: 1;
-}
-.project-resource-actions .config-icon-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-}
-.project-resource-actions .config-icon-btn:hover {
-  border-color: var(--color-border-subtle);
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-.project-resource-actions .config-icon-btn.danger:hover {
-  border-color: color-mix(in srgb, var(--color-danger) 22%, transparent);
-  background: var(--color-danger-soft);
-  color: var(--color-danger);
-}
-
-/* 项目资源内嵌确认弹框 */
-.project-resources-confirm-dialog .rename-dialog-actions button.danger {
-  background: var(--color-danger);
-  color: var(--color-bg-panel);
-}
-.project-resources-confirm-dialog
-  .rename-dialog-actions
-
-/* 项目资源内嵌编辑器 */
-
-/* 设置页 Skills 内嵌编辑器 */
-.config-skills-editor-header .config-icon-btn {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  font-size: 16px;
-}
-.config-skills-editor-header .config-icon-btn:hover {
-  background: var(--color-bg-active);
-  color: var(--color-text-primary);
-}
-
 /* ── Prompt Templates ── */
 .prompts-tab {
   display: grid;
   gap: var(--space-3);
-}
-.prompts-tab .config-toolbar > div:first-child {
-  display: grid;
-  gap: 4px;
-}
-.prompts-restart-hint {
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-caption);
-}
-.prompts-toolbar-actions {
-  display: flex;
-  gap: 8px;
 }
 .prompts-list {
   display: grid;
@@ -310,30 +53,6 @@
   font-size: var(--font-size-control);
   color: var(--color-accent);
 }
-.prompts-list-item-desc {
-  font-size: var(--font-size-caption);
-  color: var(--color-text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.prompts-list-item-actions {
-  display: flex;
-  gap: 4px;
-  flex-shrink: 0;
-}
-.prompts-list-item-actions .config-icon-btn {
-  font-size: 14px;
-  padding: 4px;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-tertiary);
-}
-.prompts-list-item-actions .config-icon-btn.danger {
-  color: var(--color-danger);
-}
-.prompts-list-item-actions .config-icon-btn.danger:hover {
-  background: var(--color-danger-soft);
-}
 /* 内联编辑器卡片 */
 /* 编辑器弹框 */
 .prompts-editor-backdrop {
@@ -346,6 +65,13 @@
   background: var(--overlay-backdrop);
   backdrop-filter: blur(3px);
   transform: translateZ(0);
+  /* 与 shadcn Dialog 遮罩同节奏的淡入；退场仍是卸载硬切，但遮罩消失不显突兀 */
+  animation: prompts-editor-backdrop-in 150ms ease-out;
+}
+@keyframes prompts-editor-backdrop-in {
+  from {
+    opacity: 0;
+  }
 }
 .prompts-editor-modal {
   width: min(800px, calc(100vw - 80px));
@@ -353,9 +79,30 @@
   display: grid;
   grid-template-rows: auto 1fr auto;
   background: var(--color-bg-panel);
+  /* 边框对齐 DialogContent（rounded-lg border）：此前只有阴影无边框，亮色下像悬浮的裸块 */
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xl);
   overflow: hidden;
+  /* 进场对齐全局 Dialog 的 scale+fade 节奏（180ms cubic-bezier(0.22,1,0.36,1)），此前零动画硬切 */
+  animation: prompts-editor-modal-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes prompts-editor-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98) translateY(6px);
+  }
+  to {
+    /* transform: none 收尾避免 fill-mode 保留非 none transform 创建 stacking context */
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .prompts-editor-backdrop,
+  .prompts-editor-modal {
+    animation: none;
+  }
 }
 /* 壁纸模式下编辑弹框是「弹框内嵌弹框」，需要独立稳定实底：
    config-modal 等把 --color-bg-panel/--color-bg-muted 覆盖为 transparent（避免内容
@@ -384,70 +131,10 @@
   height: 100%;
 }
 
-/* ── Prompt 商店（prompts.chat） ── */
-.prompts-tab-btn.active {
-  color: var(--color-accent);
-  border-bottom-color: var(--color-accent);
-}
-
 .prompt-store-tab {
   display: grid;
   gap: 14px;
 }
-.prompt-store-search-bar {
-  display: grid;
-  gap: 10px;
-}
-.prompt-store-search-input-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-lg);
-  padding: 4px 4px 4px 12px;
-  background: var(--color-bg-panel);
-}
-.prompt-store-search-input-wrap:focus-within {
-  border-color: var(--color-accent);
-  box-shadow: var(--focus-ring);
-}
-.prompt-store-search-icon {
-  flex-shrink: 0;
-  color: var(--color-text-tertiary);
-}
-.prompt-store-search-input-wrap input {
-  flex: 1;
-  border: none;
-  background: none;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-control);
-  outline: none;
-  padding: 6px 0;
-}
-.prompt-store-search-input-wrap input::placeholder {
-  color: var(--color-text-tertiary);
-}
-.prompt-store-suggestions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.prompt-store-suggestion-chip {
-  padding: 4px 10px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-full);
-  background: var(--color-bg-muted);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-caption);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.prompt-store-suggestion-chip:hover {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  background: var(--color-accent-soft);
-}
-
 .prompt-store-results {
   display: grid;
   gap: 8px;
@@ -539,8 +226,8 @@
   margin-left: 8px;
   padding: 1px 6px;
   border-radius: var(--radius-full);
-  background: var(--color-success-soft, color-mix(in srgb, #22c55e 12%, transparent));
-  color: var(--color-success, #22c55e);
+  background: var(--color-success-soft);
+  color: var(--color-success);
   font-size: 11px;
   font-weight: 500;
   vertical-align: middle;
@@ -585,12 +272,6 @@
   font-size: var(--font-size-caption);
   line-height: 1.5;
   color: var(--color-text-primary);
-}
-
-.prompt-store-tab .config-empty {
-  padding: 40px 0;
-  text-align: center;
-  color: var(--color-text-tertiary);
 }
 
 /* ── Yao Open Prompts（中文精选） ── */
@@ -638,101 +319,7 @@
   gap: 4px;
   margin-top: 4px;
 }
-/* ── 重试配置 ── */
-.config-retry-group {
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-.config-retry-group .config-settings-row {
-  border: none;
-  border-radius: 0;
-}
-.config-retry-group .config-settings-row:hover {
-  border-color: transparent;
-}
-.config-retry-group .config-retry-subsection-header {
-  border-top: 1px solid var(--color-border-subtle);
-}
-.config-settings-section-title {
-  font-size: var(--font-size-control);
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-.config-settings-section-hint {
-  font-size: var(--font-size-micro);
-  color: var(--color-text-tertiary);
-  line-height: var(--line-height-caption);
-}
-.config-retry-subsection-header .config-settings-key {
-  font-size: var(--font-size-caption);
-  font-weight: 500;
-  color: var(--color-text-secondary);
-}
-
-/* ---------- Scratch Pad（草稿本） ---------- */
-/* 2026-12：不再全屏遮罩——草稿本是悬浮便签而非模态弹层。
-   overlay 只负责承载面板（pointer-events:none 不拦截其余 UI 点击），
-   关闭走面板右上角 X / Escape / ⌘⇧S，点击外部不再关闭。 */
-.scratch-pad-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 100;
-  pointer-events: none;
-}
-
-.scratch-pad-panel {
-  position: absolute;
-  right: 18px;
-  top: 20vh;
-  z-index: 101;
-  width: 640px;
-  max-width: calc(100vw - 36px);
-  height: min(640px, 68vh);
-  display: flex;
-  flex-direction: column;
-  background: var(--color-bg-panel);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-modal);
-  overflow: hidden;
-  transform-origin: top right;
-  pointer-events: auto;
-  animation: scratch-pad-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-}
-
-.scratch-pad-panel.closing {
-  animation: scratch-pad-exit 150ms ease-in forwards;
-}
-
-@keyframes scratch-pad-enter {
-  from {
-    opacity: 0;
-    transform: translate3d(10px, -8px, 0) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    /* 动画结束后必须回归 transform: none，否则 forwards 填充的
-       translate3d 会让面板永久停留 GPU 合成层，圆角+边框在合成层
-       上光栅化不准确，顶部两角出现方形黑角伪影 */
-    transform: none;
-  }
-}
-
-@keyframes scratch-pad-exit {
-  from {
-    opacity: 1;
-    transform: none;
-  }
-  to {
-    opacity: 0;
-    transform: translate3d(6px, -4px, 0) scale(0.99);
-  }
-}
-
+/* ---------- Scratch Pad（草稿本）：布局与动画复用右侧抽屉 ---------- */
 /* ---------- Markdown 渲染 ---------- */
 .scratch-pad-md {
   color: var(--color-text-primary);
@@ -894,7 +481,7 @@
 }
 
 .scratch-pad-md li[role="button"]:focus-visible {
-  outline: var(--focus-ring);
+  outline: 2px solid var(--focus-ring-color);
   outline-offset: 2px;
 }
 
@@ -994,12 +581,7 @@ html[data-theme="dark"] .scratch-pad-md mark {
 .chat-list-pane.v3-braun .sidebar-body .agent-row,
 .chat-list-pane.v3-braun .sidebar-body .session-row {
   margin: 0;
-}
-
-.chat-list-pane.v3-braun .sidebar-body .project-group > .conversation:first-child.active::before,
-.chat-list-pane.v3-braun .sidebar-body .agent-row.active::before,
-.chat-list-pane.v3-braun .sidebar-body .session-row.active::before,
-.chat-list-pane.v3-braun .sidebar-body .worktree-row.active::before {
+}.chat-list-pane.v3-braun .sidebar-body .project-group > .conversation:first-child.active::before, .chat-list-pane.v3-braun .sidebar-body .agent-row.active::before, .chat-list-pane.v3-braun .sidebar-body .session-row.active::before{
   display: none;
 }
 
@@ -1036,24 +618,11 @@ html[data-theme="dark"] .scratch-pad-md mark {
 .chat-list-pane.v3-braun .sidebar-body .draft-session-delete:focus-visible {
   background: var(--color-danger-soft);
   color: var(--color-danger);
-}
-
-.chat-list-pane.v3-braun .sidebar-body .worktree-row {
-  margin-left: 1.25rem;
-}
-
-.chat-list-pane.v3-braun .sidebar-body .agent-row .conversation-title strong,
-.chat-list-pane.v3-braun .sidebar-body .session-row .conversation-title strong,
-.chat-list-pane.v3-braun
+}.chat-list-pane.v3-braun .sidebar-body .agent-row .conversation-title strong, .chat-list-pane.v3-braun .sidebar-body .session-row .conversation-title strong, .chat-list-pane.v3-braun
   .sidebar-body
   .codex-subagent-sidebar-row
   .conversation-title
-  strong,
-.chat-list-pane.v3-braun
-  .sidebar-body
-  .worktree-row
-  .conversation-title
-  strong {
+  strong{
   flex: 1;
   font-size: var(--font-size-control);
   font-weight: 500;
@@ -1063,28 +632,19 @@ html[data-theme="dark"] .scratch-pad-md mark {
   white-space: nowrap;
   -webkit-mask-image: none;
   mask-image: none;
-}
-
-.chat-list-pane.v3-braun
+}.chat-list-pane.v3-braun
   .sidebar-body
   .agent-row.active
   .conversation-title
-  strong,
-.chat-list-pane.v3-braun
+  strong, .chat-list-pane.v3-braun
   .sidebar-body
   .session-row.active
   .conversation-title
-  strong,
-.chat-list-pane.v3-braun
+  strong, .chat-list-pane.v3-braun
   .sidebar-body
   .codex-subagent-sidebar-row.active
   .conversation-title
-  strong,
-.chat-list-pane.v3-braun
-  .sidebar-body
-  .worktree-row.active
-  .conversation-title
-  strong {
+  strong{
   color: var(--color-text-primary);
   font-weight: 600;
 }
@@ -1092,7 +652,11 @@ html[data-theme="dark"] .scratch-pad-md mark {
 .chat-list-pane.v3-braun .sidebar-body .session-more-row,
 .chat-list-pane.v3-braun .sidebar-body .agent-more-row {
   margin: 2px 0;
-  padding: 6px 8px;
+  /* 「查看更多 / 收起 / 加载更多」统一紧凑行高：26px（文字 16px + 上下 2px）。
+     用户要求分页行比会话行矮一档，且项目页与活动页两处同一个功能的行高一致；
+     旧值 padding 6px 得到 32px，与会话行齐平。横向留白交给 JSX 的 px-2。 */
+  padding: 2px 8px;
+  min-height: 26px;
   justify-content: center;
   text-align: center;
   color: var(--color-text-tertiary);
@@ -1103,7 +667,8 @@ html[data-theme="dark"] .scratch-pad-md mark {
 
 .chat-list-pane.v3-braun .sidebar-body .worktree-sessions-more {
   margin: 2px 0;
-  padding: 6px 8px;
+  padding: 2px 8px;
+  min-height: 26px;
   justify-content: center;
   text-align: center;
   color: var(--color-text-tertiary);
@@ -1125,18 +690,12 @@ html[data-theme="dark"] .scratch-pad-md mark {
   display: flex;
   flex-direction: column;
   gap: 0;
-}
-
-.chat-list-pane.v3-braun .sidebar-body .codex-subagent-sidebar-toggle,
-.chat-list-pane.v3-braun .sidebar-body .codex-subagent-sidebar-row {
+}.chat-list-pane.v3-braun .sidebar-body .codex-subagent-sidebar-row{
   margin: 0;
   padding: 6px 8px 6px 20px;
   border-radius: var(--radius-sm);
   background: var(--color-bg-panel);
-}
-
-.chat-list-pane.v3-braun .sidebar-body .codex-subagent-sidebar-toggle:hover,
-.chat-list-pane.v3-braun .sidebar-body .codex-subagent-sidebar-row:hover {
+}.chat-list-pane.v3-braun .sidebar-body .codex-subagent-sidebar-row:hover{
   background: var(--color-bg-hover);
 }
 
@@ -1145,21 +704,11 @@ html[data-theme="dark"] .scratch-pad-md mark {
   border-left: 0;
   padding: 0;
   background: transparent;
-}
-
-.chat-list-pane.v3-braun .sidebar-body .worktree-children .worktree-row,
-.chat-list-pane.v3-braun .sidebar-body .worktree-children .agent-row,
-.chat-list-pane.v3-braun .sidebar-body .worktree-children .session-row,
-.chat-list-pane.v3-braun
+}.chat-list-pane.v3-braun .sidebar-body .worktree-children .agent-row, .chat-list-pane.v3-braun .sidebar-body .worktree-children .session-row, .chat-list-pane.v3-braun
   .sidebar-body
   .worktree-children
-  .codex-subagent-sidebar-row {
+  .codex-subagent-sidebar-row{
   margin-left: 0;
-}
-
-.chat-list-pane.v3-braun .sidebar-body .worktree-sandbox-toolbar {
-  margin-left: 0;
-  padding: var(--space-1) 0;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1205,6 +754,13 @@ html[data-theme="dark"] .scratch-pad-md mark {
   font-weight: 400;
   line-height: var(--line-height-body);
 }
+
+/* 分区（changes/graph/compare）开合动画：高度是 h-[32px] ↔ h-[calc(var(--git-pane-height)+32px)]
+   的 class 切换，过渡只挂在 togglePane 后的 180ms 窗口（data-pane-animating）内——
+   sash 拖拽经 --git-pane-height 改高时窗口不在，避免拖拽橡皮筋。 */
+.git-panel[data-pane-animating="true"] section[id^="git-pane-"] {
+  transition: height 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
 .git-drawer-stack {
   position: relative;
   display: flex;
@@ -1246,8 +802,7 @@ html[data-theme="dark"] .scratch-pad-md mark {
 .git-pane.collapsed { height: 26px; }
 .git-pane:last-child { border-bottom: 0; }
 
-.git-pane-header:hover { background: var(--git-panel-hover); }.git-pane-body { min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }.git-resource-list { min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
-.git-graph-body, .git-compare-body { display: flex; flex-direction: column; }
+.git-pane-header:hover { background: var(--git-panel-hover); }
 
 .git-pane-sash {
   position: relative;
@@ -1279,28 +834,11 @@ body.is-git-pane-resizing .git-pane-sash::before {
 body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !important; user-select: none !important; }
 
 .git-twistie::before { content: "\25B6"; display: block; transform: rotate(-90deg); }
-.git-twistie.open::before { transform: rotate(0deg); }
-/* pure official：git-action 默认中性 ghost 按钮感；具体色由 hover 状态提供 */
-.git-action-btn:hover, .git-action-btn.active { background: var(--git-panel-hover); color: var(--git-panel-fg); }.git-action-btn:focus-visible, .git-compare-btn:focus-visible, .git-scm-input:focus-visible { outline: none; box-shadow: var(--focus-ring); }/* 提交输入区：固定不滚动，底部有分隔线 */
-/* 文本框不要撑满侧边栏宽度，避免在窄侧边栏中显得臃肿 */
-.git-scm-input::placeholder { color: var(--git-desc-fg); }
-.git-compare-btn { min-width: 64px; min-height: 24px; padding: 0 7px; }
-.git-compare-btn:disabled { opacity: .45; cursor: not-allowed; }
-
-.git-smart-commit-dialog strong { font-size: var(--font-size-title); line-height: var(--line-height-title); }
-.git-smart-commit-dialog p { margin: var(--space-3) 0 var(--space-4); color: var(--color-text-secondary); font-size: var(--font-size-body); line-height: var(--line-height-body); white-space: pre-line; }
-.git-smart-commit-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
-.git-smart-commit-actions button:hover { background: var(--color-bg-hover); }
-.git-smart-commit-actions button:active { background: var(--color-bg-active); }
-.git-smart-commit-actions button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.git-smart-commit-actions button.primary { border-color: var(--git-action-bg); background: var(--git-action-bg); color: var(--git-action-fg); }
-.git-smart-commit-actions button.primary:hover { background: var(--color-accent-strong); }
+.git-twistie.open::before { transform: rotate(0deg); }.git-scm-input:focus-visible{ outline: none; box-shadow: var(--focus-ring); }/* 提交输入区：固定不滚动，底部有分隔线 */
 
 .git-resource-group { border-bottom: 1px solid var(--git-panel-border); }
 /* 最后一个分组不要底部边框，避免在列表末尾残留一条横线 */
-.git-resource-group:last-child { border-bottom: none; }.git-resource-group-header:hover .git-resource-group-actions,
-.git-resource-group-header:focus-within .git-resource-group-actions,
-.git-resource-group.open .git-resource-group-actions { display: flex; }/* 变更文件树目录头 —— 点击折叠/展开 + 显示每个目录下的文件计数 */
+.git-resource-group:last-child { border-bottom: none; }.git-resource-group.open .git-resource-group-actions{ display: flex; }/* 变更文件树目录头 —— 点击折叠/展开 + 显示每个目录下的文件计数 */
 
 .git-resource-row {
   display: flex;
@@ -1316,49 +854,26 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
 .git-resource-open.static { cursor: default; }
 .git-resource-open:disabled { cursor: progress; opacity: 0.72; }
 .git-resource-open:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }.git-resource-name { min-width: 0; flex: 0 1 auto; overflow: hidden; color: var(--git-panel-fg); text-overflow: ellipsis; white-space: nowrap; }
-.git-resource-actions { display: flex; flex: 0 0 auto; gap: 1px; margin-right: var(--space-1); visibility: hidden; }.git-resource-row:hover .git-resource-actions, .git-resource-row:focus-within .git-resource-actions { visibility: visible; }
 .git-decoration { width: 16px; flex: 0 0 16px; margin-left: 5px; color: var(--git-desc-fg); font-family: var(--git-ui-font); font-size: 12px; font-weight: 600; text-align: right; }
 .git-resource-row.status-modified .git-decoration { color: var(--git-modified); }
 .git-resource-row.status-added .git-decoration { color: var(--git-added); }
 .git-resource-row.status-deleted .git-decoration { color: var(--git-deleted); }
 .git-resource-row.status-renamed .git-decoration { color: var(--git-renamed); }
 .git-resource-row.status-conflicting .git-decoration { color: var(--git-conflict); }
-
-.git-graph-cell { display: block; height: 28px; flex: 0 0 auto; overflow: hidden; }
-.git-graph-svg { display: block; max-width: none; }
-.git-graph-svg path, .git-graph-svg circle { vector-effect: non-scaling-stroke; }
 .git-history-row:hover, .git-history-row.expanded { background: var(--git-panel-hover); }
 .git-history-row:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
-.git-history-row.current .git-history-msg { font-weight: 600; }
-.git-history-label { display: flex; min-width: 0; align-items: baseline; gap: 10px; overflow: hidden; }
-.git-history-msg { display: flex; min-width: 0; flex: 1 1 auto; align-items: center; overflow: hidden; color: var(--git-panel-fg); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
-.git-history-msg .git-twistie { width: 13px; height: 28px; flex: 0 0 13px; margin-left: -3px; }
-.git-ref { max-width: 108px; overflow: hidden; padding: 0 7px; border: 1px solid currentColor; border-radius: var(--radius-pill); font-family: var(--git-ui-font); font-size: var(--font-size-caption); font-weight: 500; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }.git-history-author { min-width: 48px; flex: 0 1 78px; overflow: hidden; color: var(--git-desc-fg); font-family: var(--git-ui-font); font-size: var(--font-size-caption); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
-.git-history-children { min-width: 0; }
+.git-ref { max-width: 108px; overflow: hidden; padding: 0 7px; border: 1px solid currentColor; border-radius: var(--radius-pill); font-family: var(--git-ui-font); font-size: var(--font-size-caption); font-weight: 500; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
 .git-history-file-row:disabled { cursor: progress; opacity: 0.72; }
 .git-history-file-row:hover:not(:disabled) { background: var(--git-panel-hover); }
 .git-history-file-row:active:not(:disabled) { background: var(--git-panel-selection); }
 .git-history-file-row:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
-.git-history-file-content { display: flex; min-width: 0; align-items: center; overflow: hidden; }
-.git-history-file-name { min-width: 0; flex: 0 1 auto; overflow: hidden; color: var(--git-panel-fg); text-overflow: ellipsis; white-space: nowrap; }
-.git-history-file-path { min-width: 0; flex: 1; overflow: hidden; padding-left: 7px; color: var(--git-desc-fg); font-size: var(--font-size-caption); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .git-history-file-row.status-modified .git-decoration { color: var(--git-modified); }
 .git-history-file-row.status-added .git-decoration { color: var(--git-added); }
 .git-history-file-row.status-deleted .git-decoration { color: var(--git-deleted); }
-.git-history-file-row.status-renamed .git-decoration { color: var(--git-renamed); }.git-history-detail-status.error { color: var(--color-danger); }
-.git-graph-continuation { height: 26px; }
+.git-history-file-row.status-renamed .git-decoration { color: var(--git-renamed); }
 
 .git-commit-hover-author { display: flex; min-width: 0; align-items: flex-start; gap: 8px; }
-.git-commit-hover-avatar { display: inline-flex; width: 24px; height: 24px; flex: 0 0 24px; align-items: center; justify-content: center; border-radius: var(--radius-sm); background: var(--color-bg-muted); color: var(--git-panel-fg); font-family: var(--git-ui-font); font-size: var(--font-size-caption); font-weight: 600; }.git-commit-hover-message { margin-top: 10px; padding: 9px 0; border-top: 1px solid var(--git-panel-border); border-bottom: 1px solid var(--git-panel-border); white-space: pre-wrap; word-break: break-word; }
-.git-commit-hover-identity { margin-top: 8px; }
-.git-commit-hover-identity code { display: block; overflow: hidden; color: var(--git-desc-fg); font-family: var(--font-family-mono); font-size: var(--font-size-caption); text-overflow: ellipsis; white-space: nowrap; }
-.git-commit-hover-refs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-.git-commit-hover-refs span { max-width: 100%; overflow: hidden; padding: 1px 6px; border: 1px solid var(--git-panel-border); border-radius: var(--radius-sm); color: var(--git-desc-fg); font-size: var(--font-size-caption); text-overflow: ellipsis; white-space: nowrap; }
-.git-commit-hover-status,
-.git-commit-hover-stat { display: flex; align-items: center; gap: 7px; margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--git-panel-border); color: var(--git-desc-fg); }
-.git-commit-hover-status.error { color: var(--color-danger); }
-.git-commit-hover-stat .added { margin-left: auto; color: var(--git-added); }
-.git-commit-hover-stat .deleted { color: var(--git-deleted); }
+.git-commit-hover-avatar { display: inline-flex; width: 24px; height: 24px; flex: 0 0 24px; align-items: center; justify-content: center; border-radius: var(--radius-sm); background: var(--color-bg-muted); color: var(--git-panel-fg); font-family: var(--git-ui-font); font-size: var(--font-size-caption); font-weight: 600; }
 
 .git-compare-controls { display: flex; flex: 0 0 auto; align-items: end; gap: 5px; padding: 7px 10px; }
 .git-compare-controls label { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; color: var(--git-desc-fg); font-family: var(--git-ui-font); font-size: 11px; }
@@ -1390,11 +905,4 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
 }
 .detail-drawer:has(.drawer-activity-rail) .drawer-content-frame {
   min-width: 0;
-}
-
-/* WebContentsView 占位矩形（#115 U4）：实际页面由主进程视图叠加渲染 */
-.browser-view-placeholder {
-  flex: 1;
-  min-height: 0;
-  background: var(--color-bg-panel);
 }

@@ -1,0 +1,4 @@
+/* 悬浮球复用工作台的主题 token 与 utilities，不维护另一套颜色/尺寸 class。 */
+@layer theme, base, components, vendor, legacy, utilities;
+@import "../styles/foundation.css" layer(legacy);
+@import "../styles/tailwind.css";

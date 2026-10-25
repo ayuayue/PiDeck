@@ -1,0 +1,174 @@
+<!doctype html>
+<!--
+  Ask 选择框「点击被吞」反馈循环夹具（diagnosing-bugs Phase 1）。
+  目的：在真实 Chromium（Electron）里复刻 ask 选项按钮的 DOM 类名链、
+  关键 CSS 规则（verbatim 抄自 src/renderer/src/styles/timeline.css:985-1018,1105-1110,1134-1138）
+  与 SessionRuntimeUiOverlay.tsx:426-434 的守卫+切换逻辑，用 sendInputEvent
+  走真实输入管线测量「点击被 hasTextSelection() 守卫吞掉」的条件。
+  边界说明：色值 token 为近似兜底（仅影响外观，不影响事件/选区语义）；
+  Tailwind utility（flex/grid 类）未编译，布局用最小 shim 复刻两列网格。
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  /* ── token 兜底（近似值，仅布局外观用） ── */
+  :root {
+    --color-border-subtle: #d4d4d8;
+    --color-border-strong: #a1a1aa;
+    --color-bg-hover: #f4f4f5;
+    --color-bg-active: #e4e4e7;
+    --color-bg-panel: #ffffff;
+    --color-chat-control-bg: #fafafa;
+    --color-accent: #2563eb;
+    --color-success: #16a34a;
+    --color-text-primary: #18181b;
+    --color-text-secondary: #52525b;
+    --color-text-tertiary: #71717a;
+    --color-focus-ring: #2563eb;
+    --radius-xs: 2px;
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --font-size-caption: 12px;
+    --font-size-control: 13px;
+    --line-height-caption: 1.45;
+    --line-height-body: 1.5;
+    --font-family-base: system-ui, sans-serif;
+  }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: var(--font-family-base); background: #fff; color: var(--color-text-primary); }
+  /* 留出空白边缘供「点其他位置」场景使用 */
+  #stage { padding: 60px 40px; width: 560px; box-sizing: border-box; }
+
+  /* ── 最小 layout shim（对应组件里的 tailwind utility） ── */
+  .grid { display: grid; gap: 6px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .flex { display: flex; }
+  .items-center { align-items: center; }
+  .gap-1 { gap: 4px; }
+  .min-w-0 { min-width: 0; }
+
+  /* ── verbatim 抄自 timeline.css 的规则（未经 @layer 包装；行为语义与线上等价，
+        因为这些选择器在夹具内无竞争规则） ── */
+  .ask-inline-bar-option {
+    display: inline-flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    min-height: 30px;
+    padding: 6px 14px;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--color-chat-control-bg);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-control);
+    font-weight: 500;
+    line-height: var(--line-height-body);
+    cursor: pointer;
+    transition: all 0.12s ease;
+    font-family: var(--font-family-base);
+  }
+  .ask-inline-bar-option:hover { color: var(--color-text-primary); border-color: var(--color-border-strong); background: var(--color-bg-hover); }
+  .ask-inline-bar-option:active { background: var(--color-bg-active); }
+  .ask-inline-bar-option:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }
+  .ask-inline-bar-option.selected {
+    border-color: var(--color-accent);
+    background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-panel));
+    color: var(--color-text-primary);
+  }
+  .ask-inline-bar .ask-inline-bar-option { transition: transform 150ms cubic-bezier(0.22, 1, 0.36, 1), border-color 150ms ease, background-color 150ms ease; }
+  .ask-inline-bar .ask-inline-bar-option:hover:not(:disabled) { transform: translateY(-1px); }
+  .ask-inline-bar .ask-inline-bar-option { min-height: 26px; padding: 4px 10px; font-size: var(--font-size-caption); line-height: var(--line-height-caption); }
+
+  /* 标题：对应 ApprovalCard 里 select-text 的 title div */
+  #question-title { font-size: var(--font-size-control); font-weight: 600; padding: 8px 0; user-select: text; }
+
+  /* ── 埋点输出 ── */
+  #log { margin-top: 24px; font: 11px/1.5 monospace; color: #888; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <!-- 复刻 ApprovalCard > 选项网格 > 选项按钮 的 DOM 链（类名与
+         SessionRuntimeUiOverlay.tsx:441-452 / approval-card.tsx 保持一致语义） -->
+    <div class="ask-inline-bar ask-inline-bar--active" id="ask-card">
+      <div id="question-title">问题标题文本用于划选测问</div>
+      <div class="grid" id="options">
+        <button type="button" id="opt-0" class="ask-inline-bar-option">
+          <span class="flex items-center gap-1 min-w-0">
+            <span class="min-w-0" id="opt-0-label">方案 A</span>
+          </span>
+        </button>
+        <button type="button" id="opt-1" class="ask-inline-bar-option">
+          <span class="flex items-center gap-1 min-w-0">
+            <span class="min-w-0" id="opt-1-label">方案 B</span>
+          </span>
+        </button>
+      </div>
+    </div>
+    <div id="log"></div>
+  </div>
+
+<script>
+  /**
+   * 按压感知划选守卫 -- 与 src/renderer/src/utils/askUi.ts 修复后实现逐字一致：
+   * mousedown 捕获记录按压时选区快照；click 时只有「选区非空且与快照不一致」才吞。
+   * 旧选区（划选复制/双击选词残留）放行 -- 旧守卫误吞它们即本次修复的 bug。
+   */
+  let pressSelectionSnapshot = null;
+  document.addEventListener(
+    "mousedown",
+    () => {
+      pressSelectionSnapshot = window.getSelection()?.toString() ?? "";
+    },
+    true,
+  );
+  function shouldSuppressAskClickSnapshot(pressSnapshot, currentSelection) {
+    if (!currentSelection.trim()) return false;
+    if (pressSnapshot === null) return true;
+    return pressSnapshot !== currentSelection;
+  }
+  function shouldSuppressAskClick() {
+    return shouldSuppressAskClickSnapshot(pressSelectionSnapshot, window.getSelection()?.toString() ?? "");
+  }
+
+  window.__state = {
+    checked: { "opt-0": false, "opt-1": false },
+    swallowed: { "opt-0": 0, "opt-1": 0 },
+    toggled: { "opt-0": 0, "opt-1": 0 },
+    events: [],   // 时序埋点：type, selection@事件时刻, target
+    selectionSnapshot: "",
+  };
+
+  function logEvent(type, target) {
+    const selection = window.getSelection()?.toString() ?? "";
+    window.__state.events.push({ type, target, selection, t: performance.now() | 0 });
+    window.__state.selectionSnapshot = selection;
+  }
+
+  // 与 SessionRuntimeUiOverlay.tsx:426-434 multi_select onClick 相同的守卫+切换语义
+  for (const id of ["opt-0", "opt-1"]) {
+    const btn = document.getElementById(id);
+    btn.addEventListener("click", () => {
+      logEvent("click", id);
+      if (shouldSuppressAskClick()) { window.__state.swallowed[id]++; return; }
+      window.__state.checked[id] = !window.__state.checked[id];
+      window.__state.toggled[id]++;
+      btn.classList.toggle("selected", window.__state.checked[id]);
+    });
+    btn.addEventListener("mousedown", (e) => logEvent("mousedown", id));
+    btn.addEventListener("mouseup", (e) => logEvent("mouseup", id));
+  }
+  document.addEventListener("selectionchange", () => logEvent("selectionchange", "document"));
+
+  // 驱动侧查询接口：元素几何 + 当前选区/状态快照
+  window.__query = (expr) => {
+    const el = document.querySelector(expr);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2),
+             left: Math.round(r.x), top: Math.round(r.y),
+             w: Math.round(r.width), h: Math.round(r.height) };
+  };
+  window.__dump = () => JSON.parse(JSON.stringify(window.__state));
+</script>
+</body>
+</html>

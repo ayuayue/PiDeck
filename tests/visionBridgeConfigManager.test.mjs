@@ -35,13 +35,17 @@ function compile(filePath) {
 		if (specifier === "../logging/sharedLogger") return { getAppLogger: () => null };
 		return {};
 	};
-	vm.runInNewContext(output, {
-		module,
-		exports: module.exports,
-		require: localRequire,
-		console,
-		process,
-	}, { filename: filePath });
+	vm.runInNewContext(
+		output,
+		{
+			module,
+			exports: module.exports,
+			require: localRequire,
+			console,
+			process,
+		},
+		{ filename: filePath },
+	);
 	return module.exports;
 }
 
@@ -161,11 +165,7 @@ test("saveConfig: disabled state keeps previously configured model", async () =>
 
 test("getConfig: reads disabled state back without model (not forced-on)", async () => {
 	const { dir, manager } = makeManager();
-	writeFileSync(
-		join(dir, "pi-deck-vision.json"),
-		JSON.stringify({ enabled: false, provider: "", model: "" }, null, 2),
-		"utf8",
-	);
+	writeFileSync(join(dir, "pi-deck-vision.json"), JSON.stringify({ enabled: false, provider: "", model: "" }, null, 2), "utf8");
 	const config = await manager.getConfig();
 	assert.notEqual(config, null, "关闭状态是合法配置，必须能读回");
 	assert.equal(config.enabled, false);

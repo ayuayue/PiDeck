@@ -21,9 +21,7 @@ test("layout: sidebar collapse/expand", async ({ window }) => {
 	// 折叠后点 SessionTabsBar 那个（chat 面板内，始终可见）。
 	const listPanel = window.getByTestId("list");
 	await listPanel.getByRole("button", { name: "折叠列表" }).click();
-	const expandButton = window
-		.locator(".shell-panel-chat")
-		.getByRole("button", { name: "展开列表" });
+	const expandButton = window.locator(".shell-panel-chat").getByRole("button", { name: "展开列表" });
 	await expect(expandButton).toBeVisible({ timeout: 3000 });
 	const widthCollapsed = (await sidebar.boundingBox())!.width;
 	expect(widthCollapsed).toBeLessThan(widthBefore);
@@ -49,9 +47,7 @@ test("layout: drawer open/switch", async ({ window }) => {
 	const tabs = rail.locator("[role='tab']");
 	const count = await tabs.count();
 	expect(count).toBeGreaterThanOrEqual(2);
-	const activeIndex = await tabs.evaluateAll(
-		(list) => list.findIndex((el) => el.getAttribute("aria-selected") === "true"),
-	);
+	const activeIndex = await tabs.evaluateAll((list) => list.findIndex((el) => el.getAttribute("aria-selected") === "true"));
 	const nextIndex = activeIndex === 0 ? 1 : 0;
 	await tabs.nth(nextIndex).click();
 	await expect(tabs.nth(nextIndex)).toHaveAttribute("aria-selected", "true", { timeout: 3000 });
@@ -62,7 +58,5 @@ test("layout: project present in sidebar hides the add-directory guide", async (
 	// （空态引导只出现在仅内置 Chat 的新用户场景，见 sidebar-empty-state.spec.ts）
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 	await expect(window.getByText("添加你的项目目录")).toHaveCount(0, { timeout: 10_000 });
-	await expect(
-		window.locator(".conversation", { hasText: "pideck-seed-layoute2e-" }).first(),
-	).toBeVisible({ timeout: 20_000 });
+	await expect(window.locator(".conversation", { hasText: "pideck-seed-layoute2e-" }).first()).toBeVisible({ timeout: 20_000 });
 });

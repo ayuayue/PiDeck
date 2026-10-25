@@ -39,49 +39,39 @@ function sanitizePatch(value: unknown): Partial<SecurityConfig> | null {
 export function registerSecurityIpc({ securityStore, log }: SecurityIpcDeps): void {
 	ipcMain.handle(ipcChannels.securityGetConfig, () => securityStore.getConfig());
 
-	ipcMain.handle(
-		ipcChannels.securityUpdateConfig,
-		async (_event, value: unknown): Promise<{ ok: true; config: SecurityConfig } | { ok: false; error: string }> => {
-			const patch = sanitizePatch(value);
-			if (!patch) {
-				return { ok: false, error: "安全配置补丁格式非法" };
-			}
-			try {
-				const config = await securityStore.updateConfig(patch);
-				return { ok: true, config };
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				log("security", "update-config failed", { error: message });
-				return { ok: false, error: message };
-			}
-		},
-	);
+	ipcMain.handle(ipcChannels.securityUpdateConfig, async (_event, value: unknown): Promise<{ ok: true; config: SecurityConfig } | { ok: false; error: string }> => {
+		const patch = sanitizePatch(value);
+		if (!patch) {
+			return { ok: false, error: "安全配置补丁格式非法" };
+		}
+		try {
+			const config = await securityStore.updateConfig(patch);
+			return { ok: true, config };
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			log("security", "update-config failed", { error: message });
+			return { ok: false, error: message };
+		}
+	});
 
-	ipcMain.handle(
-		ipcChannels.securitySetSessionLevel,
-		async (
-			_event,
-			sessionId: unknown,
-			levelId: unknown,
-		): Promise<{ ok: true; config: SecurityConfig } | { ok: false; error: string }> => {
-			if (typeof sessionId !== "string" || !sessionId.trim()) {
-				return { ok: false, error: "会话 id 非法" };
+	ipcMain.handle(ipcChannels.securitySetSessionLevel, async (_event, sessionId: unknown, levelId: unknown): Promise<{ ok: true; config: SecurityConfig } | { ok: false; error: string }> => {
+		if (typeof sessionId !== "string" || !sessionId.trim()) {
+			return { ok: false, error: "会话 id 非法" };
+		}
+		// levelId 允许为空字符串/null（清除覆盖）；非空时必须存在于配置
+		if (levelId !== null && levelId !== undefined && levelId !== "") {
+			const current = securityStore.getConfig();
+			if (!sanitizeLevelId(current, levelId)) {
+				return { ok: false, error: "等级 id 不存在" };
 			}
-			// levelId 允许为空字符串/null（清除覆盖）；非空时必须存在于配置
-			if (levelId !== null && levelId !== undefined && levelId !== "") {
-				const current = securityStore.getConfig();
-				if (!sanitizeLevelId(current, levelId)) {
-					return { ok: false, error: "等级 id 不存在" };
-				}
-			}
-			try {
-				const config = await securityStore.setSessionLevel(sessionId, levelId ? String(levelId) : null);
-				return { ok: true, config };
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				log("security", "set-session-level failed", { error: message });
-				return { ok: false, error: message };
-			}
-		},
-	);
+		}
+		try {
+			const config = await securityStore.setSessionLevel(sessionId, levelId ? String(levelId) : null);
+			return { ok: true, config };
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			log("security", "set-session-level failed", { error: message });
+			return { ok: false, error: message };
+		}
+	});
 }

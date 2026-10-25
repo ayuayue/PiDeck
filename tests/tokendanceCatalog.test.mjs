@@ -3,49 +3,15 @@
  * 全部走依赖注入（fetchFn / now / getCachePath），不触真实网络。
  */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRequire } from "node:module";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const nodeRequire = createRequire(import.meta.url);
-
-function loadModule() {
-	const output = ts.transpileModule(
-		readFileSync("src/main/config/tokendanceCatalog.ts", "utf8"),
-		{
-			compilerOptions: {
-				module: ts.ModuleKind.CommonJS,
-				target: ts.ScriptTarget.ES2022,
-				esModuleInterop: true,
-			},
-			fileName: "tokendanceCatalog.ts",
-		},
-	).outputText;
-	const module = { exports: {} };
-	vm.runInNewContext(output, {
-		module,
-		exports: module.exports,
-		require: (specifier) => {
-			// node: 内置模块透传给真实 require（fs/path 测试需要读写临时文件）；
-			// 其余（electron 动态 import 等）不执行：默认 fetchFn 注入后不会走到。
-			if (specifier.startsWith("node:")) return nodeRequire(specifier);
-			return {};
-		},
-	});
-	return module.exports;
-}
-
-const {
-	parseTokenDanceCatalog,
-	TokendanceCatalogStore,
-	TOKENDANCE_CATALOG_TTL_MS,
-	TOKENDANCE_PROVIDER,
-} = loadModule();
+// 用真实依赖图加载：本模块需要 shared/tokendance 常量与 shared/modelOrder 排序器，
+// 旧的“非 node: 一律返回 {}”内联 loader 会把这些依赖静默掏空（常量变 undefined 也不报错）。
+const { parseTokenDanceCatalog, TokendanceCatalogStore, TOKENDANCE_CATALOG_TTL_MS, TOKENDANCE_PROVIDER } = loadTsCommonJs("src/main/config/tokendanceCatalog.ts");
 
 const SAMPLE_PAYLOAD = {
 	data: [
@@ -74,16 +40,28 @@ function makeStore({ now, cachePath, fetchFn, failFetch = false, fetchedPayload 
 	return { store, fetchCount: () => fetchCount, logs };
 }
 
+/** 按 id 取模型行：解析结果已按名称排序，断言不再依赖入参顺序。 */
+function byId(models, id) {
+	const found = models.find((model) => model.id === id);
+	assert.ok(found, `model ${id} missing from ${JSON.stringify([...models].map((m) => m.id))}`);
+	return found;
+}
+
 test("parseTokenDanceCatalog 解析 OpenAI /v1/models 形状，坏条目丢弃", () => {
 	const models = parseTokenDanceCatalog(SAMPLE_PAYLOAD);
 	assert.equal(models.length, 2);
-	assert.equal(models[0].id, "glm-4.7");
-	assert.equal(models[0].provider, TOKENDANCE_PROVIDER);
-	assert.equal(models[0].name, "Z.ai: GLM 4.7");
-	assert.equal(models[0].contextWindow, 262144);
+	// 解析结果按展示名正序：无 name 的条目用 id 参与比较，deepseek-v3.1 排在 "Z.ai: GLM 4.7" 前
+	assert.deepEqual(
+		[...models].map((model) => model.id),
+		["deepseek-v3.1", "glm-4.7"],
+	);
+	const glm = byId(models, "glm-4.7");
+	assert.equal(glm.provider, TOKENDANCE_PROVIDER);
+	assert.equal(glm.name, "Z.ai: GLM 4.7");
+	assert.equal(glm.contextWindow, 262144);
 	// context_length 缺失不报错，contextWindow 留空
-	assert.equal(models[1].contextWindow, 163840);
-	assert.equal(models[1].name, undefined);
+	assert.equal(byId(models, "deepseek-v3.1").contextWindow, 163840);
+	assert.equal(byId(models, "deepseek-v3.1").name, undefined);
 });
 
 test("parseTokenDanceCatalog 非对象/无 data 数组返回空", () => {
@@ -104,12 +82,12 @@ test("parseTokenDanceCatalog context_length 为 0/负数/非整数时省略 cont
 		],
 	});
 	assert.equal(models.length, 4);
-	assert.equal(models[0].contextWindow, undefined);
-	assert.equal(models[1].contextWindow, undefined);
-	assert.equal(models[2].contextWindow, undefined);
-	assert.equal(models[3].contextWindow, 200000);
+	// 排序后下标不再对应入参顺序：坏值逐条按 id 断言，ok 值仍保留 200000
+	assert.equal(byId(models, "seedream-5.0-lite").contextWindow, undefined);
+	assert.equal(byId(models, "video-edit").contextWindow, undefined);
+	assert.equal(byId(models, "fractional").contextWindow, undefined);
+	assert.equal(byId(models, "ok-model").contextWindow, 200000);
 });
-
 
 test("缓存新鲜时直接读缓存（TTL 内不再发请求）", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "tokendance-test-"));

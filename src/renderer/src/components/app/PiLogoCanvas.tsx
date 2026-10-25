@@ -6,7 +6,8 @@ import { useCallback, useEffect, useRef } from "react";
  * - 8×9 棋盘上的 FINAL_LOGO 点阵
  * - 彩色方块带 bevel 立体边
  * - 四块 tetromino 下落拼装 → 消行闪烁 → 定格为单色 logo
- * - 点击可重播（尊重 prefers-reduced-motion）
+ * - 默认定格静态，点击才播拼装动画（尊重 prefers-reduced-motion）
+ * - 不再挂载/会话启动自动播：常驻侧栏重播会抢注意力
  */
 
 type ColorKey = "cyan" | "red" | "green" | "orange" | "flash" | "white" | "ink" | "logoGreen";
@@ -64,7 +65,12 @@ function resolveLogoGreen(): { fill: string; deep: string } {
 
 const TOP: Piece = {
 	color: "cyan",
-	cells: [[0, 0], [0, 1], [0, 2], [1, 2]],
+	cells: [
+		[0, 0],
+		[0, 1],
+		[0, 2],
+		[1, 2],
+	],
 	startX: 2,
 	startY: -2,
 	targetX: 2,
@@ -73,7 +79,12 @@ const TOP: Piece = {
 
 const LEFT: Piece = {
 	color: "red",
-	cells: [[0, 0], [1, 0], [1, 1], [2, 0]],
+	cells: [
+		[0, 0],
+		[1, 0],
+		[1, 1],
+		[2, 0],
+	],
 	startX: 0,
 	startY: -3,
 	targetX: 2,
@@ -82,7 +93,12 @@ const LEFT: Piece = {
 
 const RIGHT: Piece = {
 	color: "green",
-	cells: [[0, 0], [1, 0], [2, 0], [2, 1]],
+	cells: [
+		[0, 0],
+		[1, 0],
+		[2, 0],
+		[2, 1],
+	],
 	startX: 5,
 	startY: -3,
 	targetX: 5,
@@ -91,7 +107,12 @@ const RIGHT: Piece = {
 
 const BASE: Piece = {
 	color: "orange",
-	cells: [[0, 0], [0, 1], [0, 2], [0, 3]],
+	cells: [
+		[0, 0],
+		[0, 1],
+		[0, 2],
+		[0, 3],
+	],
 	startX: 1,
 	startY: -2,
 	targetX: 1,
@@ -198,15 +219,7 @@ function finalLogoCells(color: ColorKey): Cells {
 	return cells;
 }
 
-function drawBlock(
-	ctx: CanvasRenderingContext2D,
-	left: number,
-	top: number,
-	width: number,
-	height: number,
-	color: ColorKey,
-	neighbors: { top?: string; right?: string; bottom?: string; left?: string },
-) {
+function drawBlock(ctx: CanvasRenderingContext2D, left: number, top: number, width: number, height: number, color: ColorKey, neighbors: { top?: string; right?: string; bottom?: string; left?: string }) {
 	const fillColor = color === "logoGreen" ? resolveLogoGreen().fill : (COLORS[color] ?? COLORS.white);
 	const borderColor = color === "logoGreen" ? resolveLogoGreen().deep : (BORDER_COLORS[color] ?? fillColor);
 	const sameTop = neighbors.top === color;
@@ -310,21 +323,16 @@ function paintCells(canvas: HTMLCanvasElement, cells: Cells, cssSize: number) {
 export type PiLogoCanvasProps = {
 	/** 画布 CSS 边长（正方形：宽=高=size） */
 	size?: number;
-	/** 挂载后是否自动播放一次 intro */
+	/** 挂载后是否自动播放一次 intro；默认 false。侧栏/关于弹窗都不传，避免一进来就播。 */
 	autoPlay?: boolean;
-	/** 点击是否重播 */
+	/** 点击是否重播；默认 true，这是侧栏品牌位的唯一触发 */
 	playOnClick?: boolean;
-	/**
-	 * 外部重播令牌：数值变化时强制重播拼装动画。
-	 * 用于 agent 启动/关闭等业务事件反馈；0/undefined 不触发。
-	 */
-	replayToken?: number;
 	className?: string;
 };
 
 /**
  * 官方 pi 风格 canvas logo。
- * 侧栏品牌位：挂载 autoPlay、点击重播、业务事件 via replayToken。
+ * 侧栏品牌位：默认定格静态，点击才播 tetromino 拼装动画。
  */
 export function PiLogoCanvas(props: PiLogoCanvasProps) {
 	const size = props.size ?? 32;
@@ -338,7 +346,6 @@ export function PiLogoCanvas(props: PiLogoCanvasProps) {
 	const playGenRef = useRef(0);
 	/** 播放中又来了重播请求：当前轮结束后只再播一次，合并连点/连触发 */
 	const pendingReplayRef = useRef(false);
-	const lastReplayTokenRef = useRef<number | undefined>(undefined);
 
 	const showStatic = useCallback(() => {
 		const canvas = canvasRef.current;
@@ -457,7 +464,8 @@ export function PiLogoCanvas(props: PiLogoCanvasProps) {
 
 	useEffect(() => {
 		showStatic();
-		if (props.autoPlay !== false) {
+		// 侧栏默认不自动播；只有显式 autoPlay 才挂载播一次。
+		if (props.autoPlay) {
 			void playIntro();
 		}
 
@@ -478,19 +486,10 @@ export function PiLogoCanvas(props: PiLogoCanvasProps) {
 		};
 	}, [playIntro, props.autoPlay, showStatic]);
 
-	// agent 启停等外部事件通过递增 replayToken 触发；0/undefined 初始值不触发，避免与 autoPlay 叠播。
-	useEffect(() => {
-		const token = props.replayToken;
-		if (token == null || token === 0) return;
-		if (lastReplayTokenRef.current === token) return;
-		lastReplayTokenRef.current = token;
-		// 播放中则合并 pending，播完再来一次；空闲则立即开播——不并行双轨
-		void playIntro();
-	}, [playIntro, props.replayToken]);
-
-	const handleActivate = () => {
+	const handleActivate = (event?: { stopPropagation: () => void }) => {
 		if (props.playOnClick === false) return;
-		// 点击与业务事件同一套串行队列，不并行
+		// 侧栏 logo 在 AboutPopover 触发器里：点击只播拼装动画，不冒泡打开「关于」。
+		event?.stopPropagation();
 		void playIntro();
 	};
 
@@ -500,20 +499,15 @@ export function PiLogoCanvas(props: PiLogoCanvasProps) {
 			className={props.className ?? "pi-logo-canvas-stage"}
 			style={{ width: size, height: size }}
 			aria-label="Play Pi logo animation"
-			onClick={handleActivate}
+			onClick={(e) => handleActivate(e)}
 			onKeyDown={(e) => {
 				if (e.key === "Enter" || e.key === " ") {
 					e.preventDefault();
-					handleActivate();
+					handleActivate(e);
 				}
 			}}
 		>
-			<canvas
-				ref={canvasRef}
-				className="pi-logo-canvas"
-				style={{ width: size, height: size }}
-				aria-hidden="true"
-			/>
+			<canvas ref={canvasRef} className="pi-logo-canvas" style={{ width: size, height: size }} aria-hidden="true" />
 		</button>
 	);
 }
@@ -686,11 +680,5 @@ export function PiDeckWordmarkCanvas(props: PiDeckWordmarkCanvasProps) {
 		return () => observer.disconnect();
 	}, [paint]);
 
-	return (
-		<canvas
-			ref={canvasRef}
-			className={props.className ?? "pi-deck-wordmark-canvas"}
-			aria-hidden="true"
-		/>
-	);
+	return <canvas ref={canvasRef} className={props.className ?? "pi-deck-wordmark-canvas"} aria-hidden="true" />;
 }

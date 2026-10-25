@@ -104,9 +104,7 @@ function uniqueModels(values: unknown): string[] {
  */
 export function sanitizeImageGenReferenceMode(value: unknown): ImageGenReferenceMode | undefined {
 	if (typeof value !== "string") return undefined;
-	return (IMAGE_GEN_REFERENCE_MODES as readonly string[]).includes(value)
-		? (value as ImageGenReferenceMode)
-		: undefined;
+	return (IMAGE_GEN_REFERENCE_MODES as readonly string[]).includes(value) ? (value as ImageGenReferenceMode) : undefined;
 }
 
 /**
@@ -114,19 +112,14 @@ export function sanitizeImageGenReferenceMode(value: unknown): ImageGenReference
  */
 export function sanitizeImageGenApiStyle(value: unknown): ImageGenApiStyle | undefined {
 	if (typeof value !== "string") return undefined;
-	return (IMAGE_GEN_API_STYLES as readonly string[]).includes(value)
-		? (value as ImageGenApiStyle)
-		: undefined;
+	return (IMAGE_GEN_API_STYLES as readonly string[]).includes(value) ? (value as ImageGenApiStyle) : undefined;
 }
 
 /**
  * 解析 extraParams。旧文件只有 kind=ark、没有 extraParams 时，默认打开火山三项，
  * 避免升级后底栏参数突然消失。
  */
-export function sanitizeImageGenExtraParams(
-	value: unknown,
-	legacyKind?: unknown,
-): ImageGenProviderExtraParams {
+export function sanitizeImageGenExtraParams(value: unknown, legacyKind?: unknown): ImageGenProviderExtraParams {
 	if (value && typeof value === "object" && !Array.isArray(value)) {
 		const raw = value as Record<string, unknown>;
 		return {
@@ -162,14 +155,8 @@ export function sanitizeImageGenConfig(input: unknown): ImageGenConfigFile {
 		const id = sanitizeId(row.id, fallbackId);
 		if (seenIds.has(id)) continue;
 		seenIds.add(id);
-		const name =
-			typeof row.name === "string" && row.name.trim()
-				? row.name.trim().slice(0, MAX_NAME)
-				: "Image";
-		const baseUrl =
-			typeof row.baseUrl === "string" && /^https?:\/\/[^\s]+$/i.test(row.baseUrl.trim())
-				? row.baseUrl.trim().replace(/\/+$/, "").slice(0, MAX_URL)
-				: "";
+		const name = typeof row.name === "string" && row.name.trim() ? row.name.trim().slice(0, MAX_NAME) : "Image";
+		const baseUrl = typeof row.baseUrl === "string" && /^https?:\/\/[^\s]+$/i.test(row.baseUrl.trim()) ? row.baseUrl.trim().replace(/\/+$/, "").slice(0, MAX_URL) : "";
 		const apiKey = typeof row.apiKey === "string" ? row.apiKey.trim().slice(0, MAX_KEY) : "";
 		providers.push({
 			id,
@@ -184,16 +171,11 @@ export function sanitizeImageGenConfig(input: unknown): ImageGenConfigFile {
 			apiStyle: sanitizeImageGenApiStyle(row.apiStyle),
 		});
 	}
-	const requestedProvider =
-		typeof raw.activeProviderId === "string" ? raw.activeProviderId.trim() : "";
-	const activeProvider =
-		providers.find((provider) => provider.id === requestedProvider) ?? providers[0];
+	const requestedProvider = typeof raw.activeProviderId === "string" ? raw.activeProviderId.trim() : "";
+	// 空值和失效 id 都表示“尚未选择”：不能因为供应商数组非空就静默选第一个。
+	const activeProvider = requestedProvider ? providers.find((provider) => provider.id === requestedProvider) : undefined;
 	const requestedModel = typeof raw.activeModel === "string" ? raw.activeModel.trim().slice(0, MAX_MODEL_ID) : "";
-	const activeModel = activeProvider
-		? activeProvider.models.includes(requestedModel)
-			? requestedModel
-			: (activeProvider.models[0] ?? "")
-		: "";
+	const activeModel = activeProvider?.models.includes(requestedModel) ? requestedModel : "";
 	return {
 		providers,
 		activeProviderId: activeProvider?.id ?? "",
@@ -201,10 +183,7 @@ export function sanitizeImageGenConfig(input: unknown): ImageGenConfigFile {
 	};
 }
 
-export function findImageGenProvider(
-	config: ImageGenConfigFile,
-	providerId: string,
-): ImageGenProviderConfig | undefined {
+export function findImageGenProvider(config: ImageGenConfigFile, providerId: string): ImageGenProviderConfig | undefined {
 	return config.providers.find((provider) => provider.id === providerId);
 }
 

@@ -20,11 +20,7 @@ function transpile(filePath) {
 
 function loadModule() {
 	const sandbox = { exports: {} };
-	vm.runInNewContext(
-		transpile("src/renderer/src/utils/diffRenderPlan.ts"),
-		sandbox,
-		{ filename: "diffRenderPlan.ts" },
-	);
+	vm.runInNewContext(transpile("src/renderer/src/utils/diffRenderPlan.ts"), sandbox, { filename: "diffRenderPlan.ts" });
 	return sandbox.exports;
 }
 

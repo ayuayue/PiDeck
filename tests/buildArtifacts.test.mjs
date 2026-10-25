@@ -3,10 +3,7 @@ import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
-import {
-	extractHtmlResourceReferences,
-	verifyBuildArtifacts,
-} from "../scripts/verify-build-artifacts.mjs";
+import { extractHtmlResourceReferences, verifyBuildArtifacts } from "../scripts/verify-build-artifacts.mjs";
 
 async function withTempRepo(run) {
 	const repo = await mkdtemp(join(tmpdir(), "pideck-artifacts-test-"));
@@ -23,22 +20,9 @@ async function put(path, content = "content") {
 }
 
 async function createBuildFixture(repo) {
-	const sourceFiles = [
-		join(repo, "src", "main", "index.ts"),
-		join(repo, "src", "preload", "index.ts"),
-		join(repo, "src", "renderer", "src", "main.tsx"),
-		join(repo, "electron.vite.config.ts"),
-		join(repo, "package.json"),
-	];
+	const sourceFiles = [join(repo, "src", "main", "index.ts"), join(repo, "src", "preload", "index.ts"), join(repo, "src", "renderer", "src", "main.tsx"), join(repo, "electron.vite.config.ts"), join(repo, "package.json")];
 	for (const source of sourceFiles) await put(source, "source");
-	const artifactFiles = [
-		join(repo, "out", "main", "index.js"),
-		join(repo, "out", "preload", "index.js"),
-		join(repo, "out", "renderer", "assets", "app.js"),
-		join(repo, "out", "renderer", "assets", "pet.js"),
-		join(repo, "out", "renderer", "assets", "web.js"),
-		join(repo, "out", "renderer", "assets", "style.css"),
-	];
+	const artifactFiles = [join(repo, "out", "main", "index.js"), join(repo, "out", "preload", "index.js"), join(repo, "out", "renderer", "assets", "app.js"), join(repo, "out", "renderer", "assets", "pet.js"), join(repo, "out", "renderer", "assets", "web.js"), join(repo, "out", "renderer", "assets", "style.css")];
 	for (const artifact of artifactFiles) await put(artifact, "artifact");
 	const indexHtml = join(repo, "out", "renderer", "index.html");
 	const petHtml = join(repo, "out", "renderer", "pet.html");
@@ -115,10 +99,13 @@ test("artifacts older than relevant source inputs are reported as stale", async 
 });
 
 test("HTML reference extraction ignores remote, data, and fragment URLs", () => {
-	assert.deepEqual(extractHtmlResourceReferences(`
+	assert.deepEqual(
+		extractHtmlResourceReferences(`
 		<script src="/assets/app.js"></script>
 		<link href="https://example.test/style.css">
 		<img src="data:image/png;base64,abc">
 		<a href="#section">section</a>
-	`), ["/assets/app.js"]);
+	`),
+		["/assets/app.js"],
+	);
 });

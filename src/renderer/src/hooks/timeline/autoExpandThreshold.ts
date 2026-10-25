@@ -18,8 +18,5 @@ const AUTO_EXPAND_VIEWPORT_RATIO = 0.4;
 
 /** 计算自动扩展/翻页的实际触发阈值（px）：视口高度 × 比例，下限 120px 兜底。 */
 export function resolveAutoExpandThreshold(viewportHeight: number): number {
-	return Math.max(
-		TURN_WINDOW_AUTO_EXPAND_THRESHOLD,
-		Math.round(viewportHeight * AUTO_EXPAND_VIEWPORT_RATIO),
-	);
+	return Math.max(TURN_WINDOW_AUTO_EXPAND_THRESHOLD, Math.round(viewportHeight * AUTO_EXPAND_VIEWPORT_RATIO));
 }

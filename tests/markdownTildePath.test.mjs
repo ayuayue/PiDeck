@@ -14,15 +14,11 @@ import { remarkLinkifyPaths } from "../src/renderer/src/components/session/Markd
  * 修复：会话 markdown 统一 singleTilde:false（GitHub 行为，`~~` 删除线不受影响）。
  */
 
-const SRC =
-	"反斜杠 C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\proj\\docs\\a.md 正斜杠 C:/Users/ADMINI~1/AppData/Local/Temp/proj/docs/b.md";
+const SRC = "反斜杠 C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\proj\\docs\\a.md 正斜杠 C:/Users/ADMINI~1/AppData/Local/Temp/proj/docs/b.md";
 
 /** 与 MarkdownStream 相同的插件顺序跑一次 unified 管线（remark-parse → gfm → linkify） */
 function runPipeline(text, gfmOptions) {
-	const processor = unified()
-		.use(remarkParse)
-		.use(remarkGfm, gfmOptions)
-		.use(remarkLinkifyPaths);
+	const processor = unified().use(remarkParse).use(remarkGfm, gfmOptions).use(remarkLinkifyPaths);
 	return processor.runSync(processor.parse(text));
 }
 
@@ -71,7 +67,6 @@ test("default singleTilde:true reproduces the bug (path gets split at ~)", () =>
 	collect(tree, out);
 	assert.ok(out.deletes.length > 0, "默认 gfm 会把 ~ 路径误判为删除线");
 	// 且链接指向残缺路径（\\AppData 起头 / /AppData 起头）
-	const mangled = out.links.some((url) =>
-		url.includes("file://%5CAppData") || url.includes("file:///AppData"));
+	const mangled = out.links.some((url) => url.includes("file://%5CAppData") || url.includes("file:///AppData"));
 	assert.ok(mangled, `默认 gfm 下链接指向残缺路径：${out.links}`);
 });

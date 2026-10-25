@@ -45,10 +45,7 @@ const UPDATE_FILE = `PiDeck-${UPDATE_VERSION}-setup.exe`;
 // ---- 假安装包：固定内容 + 真实 sha512 -------------------------------------
 // 内容不必是有效安装器——electron-updater 只校验 sha512 与 size；E2E 验证过
 // 下载到 ready 不需要真实安装器（真正点「重启并安装」才会执行它，冒烟测到 ready 即止）。
-const UPDATE_BYTES = Buffer.from(
-	`PiDeck fake update payload for local smoke test\n${UPDATE_VERSION}\n` + "x".repeat(64 * 1024),
-	"utf8",
-);
+const UPDATE_BYTES = Buffer.from(`PiDeck fake update payload for local smoke test\n${UPDATE_VERSION}\n` + "x".repeat(64 * 1024), "utf8");
 const UPDATE_SHA512 = createHash("sha512").update(UPDATE_BYTES).digest("base64");
 
 // ---- HTTP server（latest.yml + 带 Range 的安装包下载）---------------------
@@ -93,17 +90,7 @@ const server = createServer((request, response) => {
 	const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
 	console.log(`[feed] ${request.method} ${pathname}`);
 	if (pathname === "/latest.yml") {
-		const manifest = [
-			`version: ${UPDATE_VERSION}`,
-			"files:",
-			`  - url: ${UPDATE_FILE}`,
-			`    sha512: ${UPDATE_SHA512}`,
-			`    size: ${UPDATE_BYTES.length}`,
-			`path: ${UPDATE_FILE}`,
-			`sha512: ${UPDATE_SHA512}`,
-			`releaseDate: "${new Date().toISOString()}"`,
-			"",
-		].join("\n");
+		const manifest = [`version: ${UPDATE_VERSION}`, "files:", `  - url: ${UPDATE_FILE}`, `    sha512: ${UPDATE_SHA512}`, `    size: ${UPDATE_BYTES.length}`, `path: ${UPDATE_FILE}`, `sha512: ${UPDATE_SHA512}`, `releaseDate: "${new Date().toISOString()}"`, ""].join("\n");
 		writeResponse(response, 200, manifest, { "Content-Type": "text/yaml; charset=utf-8" });
 		return;
 	}
@@ -129,8 +116,7 @@ server.listen(port, "127.0.0.1", () => {
 	console.log("  set PIDECK_E2E=1");
 	console.log("  release/win-unpacked/PiDeck.exe   ← electron-builder 输出在 release/，不是 out/");
 	console.log("---------------------------------------------------------------");
-	console.log("然后设置页 → 开发设置 → 点「检测更新」，看到 v" + UPDATE_VERSION +
-		" 已下载即可（不要点「重启并安装」，会真执行假安装器）。");
+	console.log("然后设置页 → 开发设置 → 点「检测更新」，看到 v" + UPDATE_VERSION + " 已下载即可（不要点「重启并安装」，会真执行假安装器）。");
 	console.log("---------------------------------------------------------------");
 	console.log("更省事的方式：直接 `node scripts/serve-fake-update-feed.mjs --launch`——");
 	console.log("脚本会带 PIDEK_UPDATE_FEED_URL + PIDECK_E2E=1 环境变量自动启动 exe，");

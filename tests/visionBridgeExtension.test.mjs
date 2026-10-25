@@ -42,18 +42,22 @@ function compile(filePath) {
 		return {};
 	};
 	// fetch 由测试注入，describeImage 测试前必须替换 fetchStub
-	vm.runInNewContext(output, {
-		module,
-		exports: module.exports,
-		require: localRequire,
-		console,
-		process,
-		Buffer,
-		setTimeout,
-		clearTimeout,
-		fetch: (...args) => fetchStub(...args),
-		AbortController,
-	}, { filename: filePath });
+	vm.runInNewContext(
+		output,
+		{
+			module,
+			exports: module.exports,
+			require: localRequire,
+			console,
+			process,
+			Buffer,
+			setTimeout,
+			clearTimeout,
+			fetch: (...args) => fetchStub(...args),
+			AbortController,
+		},
+		{ filename: filePath },
+	);
 	return module.exports;
 }
 
@@ -68,6 +72,38 @@ function makeConfigDir(partial) {
 
 const imageA = { type: "image", data: "AAAA", mimeType: "image/png" };
 const imageB = { type: "image", data: "BBBB", mimeType: "image/jpeg" };
+
+// ── input hook 测试脚手架 ───────────────────────────────
+
+/** 捕获扩展注册的 hook：pi.on 的处理函数按事件名存起来，测试里手动调用 */
+function createHookHarness() {
+	const handlers = new Map();
+	ext.default({ on: (name, handler) => handlers.set(name, handler) });
+	return handlers;
+}
+
+/** 只声明文本输入的模型 ctx（扩展只读 ctx.model 的 provider/id/input） */
+const textOnlyCtx = { model: { provider: "ai88", id: "deepseek-v4-flash", input: ["text"] } };
+/** 已声明图片输入的模型 ctx */
+const visionModelCtx = { model: { provider: "ai88", id: "deepseek-v4-flash", input: ["text", "image"] } };
+
+/**
+ * 临时把视觉桥配置目录指向新的临时目录（可预置文件），返回恢复函数。
+ * 该目录同时是 resolveAgentDir() 的回落目标，所以能一并控制 models.json 是否可见；
+ * 不做这个隔离，resolveAgentDir 会读到开发者真实的 ~/.pi/agent，测试结论取决于本机配置。
+ */
+function withVisionDir(files = {}) {
+	const dir = mkdtempSync(join(tmpdir(), "vision-input-"));
+	for (const [name, content] of Object.entries(files)) {
+		writeFileSync(join(dir, name), typeof content === "string" ? content : JSON.stringify(content));
+	}
+	const prev = process.env.PIDECK_VISION_CONFIG_DIR;
+	process.env.PIDECK_VISION_CONFIG_DIR = dir;
+	return () => {
+		if (prev === undefined) delete process.env.PIDECK_VISION_CONFIG_DIR;
+		else process.env.PIDECK_VISION_CONFIG_DIR = prev;
+	};
+}
 
 // ── 配置读取 ─────────────────────────────────────────────
 
@@ -147,50 +183,139 @@ test("buildOmittedImagesText: placeholder matches renderer failed-mark parser", 
 	assert.ok(!text.includes("BBBB"));
 });
 
+// ── 图片未发送（桥未就绪）：中性标记 + 可执行原因 ──────────────
+
+test("buildSkippedImagesText: 未发送标记可被渲染层解析，且不含原图数据", () => {
+	const text = ext.buildSkippedImagesText([imageA, imageB], "视觉桥未启用");
+	const skippedMark = /\[图片 #(\d+)\s+未发送给模型：([\s\S]*?)\]/g;
+	const matches = [...text.matchAll(skippedMark)];
+	assert.equal(matches.length, 2, "两张图各生成一条未发送标记");
+	assert.equal(matches[0][1], "1");
+	assert.equal(matches[1][1], "2");
+	assert.equal(matches[0][2], "视觉桥未启用");
+	// 不能命中失败标记正则：否则渲染层又画成红色「视觉桥转换失败」
+	const failedMark = /\[图片 #(\d+)\s+视觉桥转换失败：([\s\S]*?)。请检查视觉桥设置[\s\S]*?此图片内容不可见\]/g;
+	assert.equal([...text.matchAll(failedMark)].length, 0);
+	assert.ok(!text.includes("AAAA") && !text.includes("BBBB"));
+});
+
+test("modelsJsonDeclaresImageInput: 兼容只写 images 布尔的手写配置", async () => {
+	const restore = withVisionDir({
+		"models.json": { providers: { ai88: { models: [{ id: "deepseek-v4-flash", images: true }] } } },
+	});
+	try {
+		assert.equal(await ext.modelsJsonDeclaresImageInput(textOnlyCtx), true);
+	} finally {
+		restore();
+	}
+});
+
+test("buildNotConvertedReason: 桥未启用且模型未声明图片 → 指向模型/视觉桥配置", async () => {
+	const restore = withVisionDir();
+	try {
+		const reason = await ext.buildNotConvertedReason(textOnlyCtx, null);
+		assert.match(reason, /视觉桥未启用/);
+		assert.match(reason, /ai88\/deepseek-v4-flash 未声明图片输入能力/);
+		assert.match(reason, /配置 → 模型/);
+		assert.match(reason, /设置 → 视觉桥/);
+		assert.ok(!reason.includes("转换失败"), "桥没开不是故障，不能沿用失败措辞");
+	} finally {
+		restore();
+	}
+});
+
+test("buildNotConvertedReason: models.json 已勾选图片 → 提示模型目录过期需重启会话", async () => {
+	// 模型目录是 pi 进程启动时读入的，改完 models.json 对已在跑的会话不生效：
+	// 这种「明明勾了图片还是提示不支持」必须指向重启，而不是让用户继续在配置里找问题
+	const restore = withVisionDir({
+		"models.json": { providers: { ai88: { models: [{ id: "deepseek-v4-flash", input: ["text", "image"] }] } } },
+	});
+	try {
+		const reason = await ext.buildNotConvertedReason(textOnlyCtx, null);
+		assert.match(reason, /重启会话/);
+		assert.match(reason, /已勾选「图片」/);
+	} finally {
+		restore();
+	}
+});
+
+test("buildNotConvertedReason: 桥已启用但没选视觉模型 → 指向视觉桥设置", async () => {
+	const reason = await ext.buildNotConvertedReason(textOnlyCtx, { enabled: true });
+	assert.match(reason, /视觉桥已启用但没有选择视觉模型/);
+	assert.match(reason, /设置 → 视觉桥/);
+});
+
+test("input hook: 桥未启用时写「未发送给模型」，不再误报转换失败", async () => {
+	// 回归：用户没开视觉桥、模型支持图片，却被红色「视觉桥转换失败」误导（2026-09 反馈）
+	const restore = withVisionDir();
+	try {
+		const input = createHookHarness().get("input");
+		const result = await input({ text: "看看这张图", images: [imageA] }, textOnlyCtx);
+		assert.equal(result.action, "transform");
+		assert.equal(result.images.length, 0, "图片不进消息，模型只看到文字");
+		assert.match(result.text, /看看这张图/);
+		assert.match(result.text, /\[图片 #1 未发送给模型：/);
+		assert.ok(!result.text.includes("视觉桥转换失败"), "桥没开不是故障，不能用失败标记");
+		assert.ok(!result.text.includes("AAAA"), "不泄漏原图数据");
+	} finally {
+		restore();
+	}
+});
+
+test("input hook: 模型已声明图片输入 → 原样放行，不插入任何标记", async () => {
+	const restore = withVisionDir();
+	try {
+		const input = createHookHarness().get("input");
+		assert.equal(await input({ text: "看看这张图", images: [imageA] }, visionModelCtx), undefined);
+	} finally {
+		restore();
+	}
+});
+
 // ── 图片收集 ─────────────────────────────────────────────
 
 // ── 图片提取与 note 替换 ──────────────────────────────────────
 
 test("extractImageFromDataUrl: parses valid data url", () => {
-	const image = ext.extractImageFromDataUrl('data:image/png;base64,QUFBQQ==');
-	assert.equal(image.type, 'image');
-	assert.equal(image.data, 'QUFBQQ==');
-	assert.equal(image.mimeType, 'image/png');
+	const image = ext.extractImageFromDataUrl("data:image/png;base64,QUFBQQ==");
+	assert.equal(image.type, "image");
+	assert.equal(image.data, "QUFBQQ==");
+	assert.equal(image.mimeType, "image/png");
 });
 
 test("extractImageFromDataUrl: rejects invalid urls", () => {
-	assert.equal(ext.extractImageFromDataUrl('https://example.com/a.png'), null);
-	assert.equal(ext.extractImageFromDataUrl('data:image/png;base64,!!not-base64!!'), null);
-	assert.equal(ext.extractImageFromDataUrl(''), null);
+	assert.equal(ext.extractImageFromDataUrl("https://example.com/a.png"), null);
+	assert.equal(ext.extractImageFromDataUrl("data:image/png;base64,!!not-base64!!"), null);
+	assert.equal(ext.extractImageFromDataUrl(""), null);
 });
 
 test("replaceNoteInToolContent: replaces non-vision note with description", () => {
-	const content = 'Read image file [image/png]\n[Current model does not support images. The image will be omitted from this request.]';
-	const next = ext.replaceNoteInToolContent(content, '[图片 #1（视觉桥已查看，以下为图片实际内容）]\n一只猫');
-	assert.ok(next.startsWith('Read image file [image/png]'), '保留 read 前缀');
-	assert.ok(next.includes('一只猫'));
-	assert.ok(!next.includes('does not support images'), '误导性 note 已删除');
-	assert.ok(next.includes('视觉桥已查看'));
+	const content = "Read image file [image/png]\n[Current model does not support images. The image will be omitted from this request.]";
+	const next = ext.replaceNoteInToolContent(content, "[图片 #1（视觉桥已查看，以下为图片实际内容）]\n一只猫");
+	assert.ok(next.startsWith("Read image file [image/png]"), "保留 read 前缀");
+	assert.ok(next.includes("一只猫"));
+	assert.ok(!next.includes("does not support images"), "误导性 note 已删除");
+	assert.ok(next.includes("视觉桥已查看"));
 });
 
 test("replaceNoteInToolContent: keeps trailing content (acp tags) after note", () => {
 	const content = 'Read image file [image/png]\n[Current model does not support images. The image will be omitted from this request.]\n\n<acp tokens="29" type="read">m00003</acp>';
-	const next = ext.replaceNoteInToolContent(content, '一只猫');
-	assert.ok(next.includes('一只猫'));
-	assert.ok(next.includes('<acp tokens'), 'note 之后的附加内容原样保留');
-	assert.ok(!next.includes('does not support images'));
+	const next = ext.replaceNoteInToolContent(content, "一只猫");
+	assert.ok(next.includes("一只猫"));
+	assert.ok(next.includes("<acp tokens"), "note 之后的附加内容原样保留");
+	assert.ok(!next.includes("does not support images"));
 });
 
 test("replaceNoteInToolContent: unrelated text stays untouched", () => {
-	const content = 'Read image file [image/png]\n尺寸 512x512';
-	assert.equal(ext.replaceNoteInToolContent(content, '一只猫'), content);
+	const content = "Read image file [image/png]\n尺寸 512x512";
+	assert.equal(ext.replaceNoteInToolContent(content, "一只猫"), content);
 });
 
 test("replaceNoteInToolContent: bare note form also replaced", () => {
-	const content = 'Read image file [image/png]\nCurrent model does not support images. The image will be omitted from this request.';
-	const next = ext.replaceNoteInToolContent(content, '一只猫');
-	assert.ok(next.includes('一只猫'));
-	assert.ok(!next.includes('does not support images'));
+	const content = "Read image file [image/png]\nCurrent model does not support images. The image will be omitted from this request.";
+	const next = ext.replaceNoteInToolContent(content, "一只猫");
+	assert.ok(next.includes("一只猫"));
+	assert.ok(!next.includes("does not support images"));
 });
 
 // ── 端点解析 ─────────────────────────────────────────────
@@ -205,7 +330,6 @@ function mockRegistry({ auth = {}, keys = {}, providers = {} } = {}) {
 		},
 	};
 }
-
 
 test("resolveEndpoint: explicit config wins without registry", async () => {
 	const config = {
@@ -351,17 +475,23 @@ test("buildVisionRequest: google-generative-ai shape", () => {
 // ── 响应解析 ─────────────────────────────────────────────
 
 test("extractVisionText: openai-completions", () => {
-	assert.equal(
-		ext.extractVisionText("openai-completions", { choices: [{ message: { content: "猫" } }] }),
-		"猫",
-	);
+	assert.equal(ext.extractVisionText("openai-completions", { choices: [{ message: { content: "猫" } }] }), "猫");
 	assert.equal(ext.extractVisionText("openai-completions", {}), "[empty response]");
 });
 
 test("extractVisionText: content array form (reasoning gateways)", () => {
 	assert.equal(
 		ext.extractVisionText("openai-completions", {
-			choices: [{ message: { content: [{ type: "text", text: "A" }, { type: "text", text: "B" }] } }],
+			choices: [
+				{
+					message: {
+						content: [
+							{ type: "text", text: "A" },
+							{ type: "text", text: "B" },
+						],
+					},
+				},
+			],
 		}),
 		"A\nB",
 	);
@@ -370,15 +500,16 @@ test("extractVisionText: content array form (reasoning gateways)", () => {
 test("extractVisionText: reasoning fallback only when enabled", () => {
 	const payload = { choices: [{ message: { content: "", reasoning: "图片里是一只猫" } }] };
 	assert.equal(ext.extractVisionText("openai-completions", payload), "[empty response]", "默认不回退 reasoning");
-	assert.equal(
-		ext.extractVisionText("openai-completions", payload, { fallbackToReasoning: true }),
-		"图片里是一只猫",
-		"显式开启后回退 reasoning",
-	);
+	assert.equal(ext.extractVisionText("openai-completions", payload, { fallbackToReasoning: true }), "图片里是一只猫", "显式开启后回退 reasoning");
 });
 
 test("extractVisionText: anthropic-messages", () => {
-	const payload = { content: [{ type: "text", text: "猫" }, { type: "text", text: "狗" }] };
+	const payload = {
+		content: [
+			{ type: "text", text: "猫" },
+			{ type: "text", text: "狗" },
+		],
+	};
 	assert.equal(ext.extractVisionText("anthropic-messages", payload), "猫\n狗");
 	assert.equal(ext.extractVisionText("anthropic-messages", {}), "[empty response]");
 });
@@ -410,12 +541,12 @@ function makeFetchStub(sequence) {
 			status: 200,
 			statusText: "OK",
 			json: async () => ({
-				choices: [{
-					message: next.includeReasoning
-						? { content: "", reasoning: next.reasoning }
-						: { content: next.content },
-					...(next.finishReason ? { finish_reason: next.finishReason } : {}),
-				}],
+				choices: [
+					{
+						message: next.includeReasoning ? { content: "", reasoning: next.reasoning } : { content: next.content },
+						...(next.finishReason ? { finish_reason: next.finishReason } : {}),
+					},
+				],
 			}),
 		};
 	};
@@ -423,10 +554,7 @@ function makeFetchStub(sequence) {
 }
 
 test("describeImage: retries with reasoning_effort none when content empty", async () => {
-	const calls = makeFetchStub([
-		{ content: "" },
-		{ content: "图片里是一个绿色图标" },
-	]);
+	const calls = makeFetchStub([{ content: "" }, { content: "图片里是一个绿色图标" }]);
 	const result = await ext.describeImage(endpointOpenAI, imageA, "描述", { maxTokens: 1024, timeoutMs: 5000 });
 	assert.equal(result.ok, true);
 	assert.equal(result.text, "图片里是一个绿色图标");
@@ -445,10 +573,7 @@ test("describeImage: non-empty content makes single call", async () => {
 });
 
 test("describeImage: retry falls back to reasoning when still no content", async () => {
-	const calls = makeFetchStub([
-		{ content: "" },
-		{ content: "", includeReasoning: true, reasoning: "图片里是一只猫（推理兜底）" },
-	]);
+	const calls = makeFetchStub([{ content: "" }, { content: "", includeReasoning: true, reasoning: "图片里是一只猫（推理兜底）" }]);
 	const result = await ext.describeImage(endpointOpenAI, imageA, "描述", { maxTokens: 1024, timeoutMs: 5000 });
 	assert.equal(result.ok, true);
 	assert.equal(result.text, "图片里是一只猫（推理兜底）");
@@ -517,8 +642,7 @@ test("describeImage: retries without max_tokens on 400 (low max_tokens limit gat
 
 test("replaceNoteInToolContent: new paren placeholder form (pi 0.8x)", () => {
 	// pi 0.8x 的 tool 消息占位符是圆括号形式，旧正则不匹配会"走了但没换"
-	const content =
-		'Read image file [image/png]\n(tool image omitted: model does not support images)\n\n<acp tokens="29" type="read">m00003</acp>';
+	const content = 'Read image file [image/png]\n(tool image omitted: model does not support images)\n\n<acp tokens="29" type="read">m00003</acp>';
 	const next = ext.replaceNoteInToolContent(content, "一只猫");
 	assert.ok(next.startsWith("Read image file [image/png]"), "保留 read 前缀");
 	assert.ok(next.includes("一只猫"));
@@ -665,15 +789,9 @@ test("describeImages: onBatch reports per-image timing and results", async () =>
 		return { ok: false, status: 500, statusText: "Server Error", json: async () => ({}) };
 	};
 	let batch = null;
-	const desc = await ext.describeImages(
-		endpointOpenAI,
-		[imageC, imageD],
-		"描述",
-		{ enabled: true, provider: "zhipu", model: "glm-4v-flash" },
-		undefined,
-		undefined,
-		(b) => { batch = b; },
-	);
+	const desc = await ext.describeImages(endpointOpenAI, [imageC, imageD], "描述", { enabled: true, provider: "zhipu", model: "glm-4v-flash" }, undefined, undefined, (b) => {
+		batch = b;
+	});
 	assert.ok(desc.includes("视觉桥已查看"));
 	assert.ok(batch, "onBatch 必须被调用");
 	assert.equal(batch.items.length, 2);

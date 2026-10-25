@@ -1,22 +1,24 @@
 import { test, expect } from "./fixtures";
+import { openSettings } from "./open-session";
 
 /**
- * 设置弹窗：能从侧栏打开，开发设置 tab 含 Web 服务配置区。
+ * 设置弹窗：能从侧栏打开，且「Web 服务」tab 渲染局域网 Web 服务配置区。
  * 注：Streamdown 开关与「内置浏览器 WebContentsView 管线（实验）」开关
- * 已随 UI 2.0 设置弹窗重构移除（实验开关无字段/无文案残留），
- * 这里改断言仍保留的「Web 服务」配置区（含启用开关）。
+ * 已随 UI 2.0 设置弹窗重构移除（实验开关无字段/无文案残留）；
+ * 「局域网 Web 服务」也已从开发设置 tab 拆成独立的 Web 服务 tab（原断言依托旧位置，已失效）。
  */
-test("settings modal opens with web service dev section", async ({ window }) => {
+test("settings modal opens with web service tab", async ({ window }) => {
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 
-	await window.locator(".settings-icon").click();
+	await openSettings(window);
 	const modal = window.locator(".settings-modal");
 	await expect(modal).toBeVisible();
 
-	// 实验开关在「开发设置」tab
-	await modal.getByText("开发设置").click();
+	// 独立 tab（不是开发设置内的区块）；tab 名与区块标题都含「Web 服务」字样，用 role 定位 tab
+	await modal.getByRole("tab", { name: "Web 服务" }).click();
 
-	// Web 服务配置区在开发设置内；文案走 i18n，默认 zh-CN
+	// 文案走 i18n，默认 zh-CN
+	await expect(modal.locator("#settings-section-web-local-service")).toBeVisible();
 	await expect(modal.getByText("局域网 Web 服务")).toBeVisible();
 	await expect(modal.getByText("启用 Web 服务")).toBeVisible();
 
@@ -37,7 +39,7 @@ test("appearance theme switch applies data-appearance and bundled accent", async
 	await expect(window.locator("html")).toHaveAttribute("data-accent", "default");
 	await expect(window.locator("html")).toHaveAttribute("data-appearance", "classic-green");
 
-	await window.locator(".settings-icon").click();
+	await openSettings(window);
 	const modal = window.locator(".settings-modal");
 	await expect(modal).toBeVisible();
 

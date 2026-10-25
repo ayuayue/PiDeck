@@ -8,6 +8,7 @@
  */
 
 import type { TerminalTarget } from "../../shared/types";
+import type { TerminalConfirmCloseMode } from "../../shared/types/settings";
 
 export type TerminalDockOwnerKind = "agent" | "project";
 
@@ -27,6 +28,38 @@ export type TerminalDockStateByOwner = Record<string, TerminalDockState>;
 export const TERMINAL_HEIGHT_STORAGE_KEY = "pid:terminal-dock-height";
 export const TERMINAL_HEIGHT_MIN = 120;
 
+/**
+ * 渲染层回放缓冲上界（字符数）：与主进程 MAX_TERMINAL_REPLAY_BUFFER
+ * （TerminalSessionManager.ts，200_000）对齐——主进程回放缓冲已按此截尾，
+ * 渲染层若不截尾，长跑终端会把整段历史在 buffersRef 里无限常驻。
+ * 同步修改时两侧必须一起改（tests/terminalDataBatching.test.mjs 有守卫）。
+ */
+export const TERMINAL_REPLAY_MAX_CHARS = 200_000;
+
+/**
+ * 截断滞回窗口（字符数）：超过「上限 + 窗口」才真正截尾。
+ *
+ * 为什么不贴线截尾：slice 会把 V8 的 cons-string 整段扁平化 + 拷贝，缓冲一旦
+ * 超过 200K，**每个**数据事件（合批后最快 ~60/s）都要拷一次 200K——高吞吐终端
+ * 输出时每秒十几 MB 的拷贝全部压在渲染线程上，表现为盯着终端看大输出时整窗掉帧。
+ * 留出滞回窗口后截尾频率降为「每凑满窗口宽度的新数据一次」，常驻内存上界只多
+ * 一个窗口宽度（200K + 128K ≈ 328K 字符，对目的只是封顶内存的上限无实质影响）。
+ */
+export const TERMINAL_REPLAY_TRIM_HYSTERESIS = 128_000;
+
+/**
+ * 渲染层回放缓冲追加（纯函数，可单测）：xterm 实例在切 tab / 折叠 / 主题切换时
+ * 销毁重建，buffersRef 是重建时的回放源。按字符上限截尾——重建后回放最近
+ * 200K 字符（约 2500 行，xterm scrollback 5000 行本来就装不下更早的内容，
+ * 且主进程 ensure() 快照同样只给最近 200K，行为两侧一致）。
+ * 截尾带滞回窗口（见 TERMINAL_REPLAY_TRIM_HYSTERESIS），未超「上限 + 窗口」时
+ * 直接返回拼接结果（cons-string，O(1)，不触发扁平化）。
+ */
+export function appendTerminalReplayBuffer(current: string, data: string): string {
+	const next = current + data;
+	return next.length > TERMINAL_REPLAY_MAX_CHARS + TERMINAL_REPLAY_TRIM_HYSTERESIS ? next.slice(next.length - TERMINAL_REPLAY_MAX_CHARS) : next;
+}
+
 export function terminalOwnerKey(owner: TerminalDockOwner): string {
 	return `${owner.kind}:${owner.id}`;
 }
@@ -35,10 +68,7 @@ export function terminalOwnerKey(owner: TerminalDockOwner): string {
  * 单按钮双作用域：有 agent 优先挂 agent，否则挂当前项目。
  * 与「项目空引导页也能开终端」的产品规则对齐。
  */
-export function resolveTerminalOwner(
-	activeAgentId: string | undefined,
-	activeProjectId: string | undefined,
-): TerminalDockOwner | undefined {
+export function resolveTerminalOwner(activeAgentId: string | undefined, activeProjectId: string | undefined): TerminalDockOwner | undefined {
 	// pending-* 只是渲染层占位 id，主进程 agents map 里还不存在。
 	// 若把 Dock 挂到 pending owner 上，ensure/create 会立刻抛 Agent not found。
 	if (activeAgentId && !activeAgentId.startsWith("pending-")) {
@@ -48,9 +78,7 @@ export function resolveTerminalOwner(
 	return undefined;
 }
 
-export function parseTerminalOwnerKey(
-	key: string,
-): TerminalDockOwner | undefined {
+export function parseTerminalOwnerKey(key: string): TerminalDockOwner | undefined {
 	const agentPrefix = "agent:";
 	const projectPrefix = "project:";
 	if (key.startsWith(agentPrefix)) {
@@ -64,11 +92,7 @@ export function parseTerminalOwnerKey(
 	return undefined;
 }
 
-export function setTerminalDockOpen(
-	current: TerminalDockStateByOwner,
-	ownerKey: string,
-	open: boolean,
-): TerminalDockStateByOwner {
+export function setTerminalDockOpen(current: TerminalDockStateByOwner, ownerKey: string, open: boolean): TerminalDockStateByOwner {
 	return {
 		...current,
 		[ownerKey]: {
@@ -78,11 +102,7 @@ export function setTerminalDockOpen(
 	};
 }
 
-export function setTerminalDockCollapsed(
-	current: TerminalDockStateByOwner,
-	ownerKey: string,
-	collapsed: boolean,
-): TerminalDockStateByOwner {
+export function setTerminalDockCollapsed(current: TerminalDockStateByOwner, ownerKey: string, collapsed: boolean): TerminalDockStateByOwner {
 	return {
 		...current,
 		[ownerKey]: {
@@ -98,11 +118,7 @@ export function setTerminalDockCollapsed(
  * 旧版 hook 曾把 agentId 直接作为 key 写入；遇到仍存活的旧 key 时原地迁成
  * `agent:<id>`，避免热更新或升级中的流式事件把已打开终端直接清掉。
  */
-export function pruneTerminalDockState(
-	current: TerminalDockStateByOwner,
-	liveAgentIds: Set<string>,
-	liveProjectIds: Set<string>,
-): TerminalDockStateByOwner {
+export function pruneTerminalDockState(current: TerminalDockStateByOwner, liveAgentIds: Set<string>, liveProjectIds: Set<string>): TerminalDockStateByOwner {
 	let next: TerminalDockStateByOwner | undefined;
 	for (const [key, value] of Object.entries(current)) {
 		const owner = parseTerminalOwnerKey(key);
@@ -118,9 +134,7 @@ export function pruneTerminalDockState(
 			delete next[key];
 			continue;
 		}
-		const live = owner.kind === "agent"
-			? liveAgentIds.has(owner.id)
-			: liveProjectIds.has(owner.id);
+		const live = owner.kind === "agent" ? liveAgentIds.has(owner.id) : liveProjectIds.has(owner.id);
 		if (!live) {
 			next ??= { ...current };
 			delete next[key];
@@ -130,11 +144,7 @@ export function pruneTerminalDockState(
 }
 
 /** pending agent → 真实 agent 时，把 UI 状态迁到新 id（与其它 agent 记录迁移一致） */
-export function migrateTerminalDockAgentState(
-	current: TerminalDockStateByOwner,
-	replacementById: Map<string, string>,
-	liveAgentIds: Set<string>,
-): TerminalDockStateByOwner {
+export function migrateTerminalDockAgentState(current: TerminalDockStateByOwner, replacementById: Map<string, string>, liveAgentIds: Set<string>): TerminalDockStateByOwner {
 	const next: TerminalDockStateByOwner = {};
 	for (const [key, value] of Object.entries(current)) {
 		const owner = parseTerminalOwnerKey(key);
@@ -166,12 +176,7 @@ export const TERMINAL_COLLAPSE_THRESHOLD_PX = 35;
  * - owner 与当前激活 owner 相同 → 仅聚焦栏挂载（随焦点走，仍是同一份终端）
  * - owner 与激活 owner 不同（分屏双栏各有自己的 agent）→ 不随焦点消失，持续显示
  */
-export function shouldMountPaneTerminalDock(input: {
-	ownerKey: string | undefined;
-	activeOwnerKey: string | undefined;
-	focused: boolean;
-	open: boolean;
-}): boolean {
+export function shouldMountPaneTerminalDock(input: { ownerKey: string | undefined; activeOwnerKey: string | undefined; focused: boolean; open: boolean }): boolean {
 	if (!input.ownerKey || !input.open) return false;
 	if (input.ownerKey === input.activeOwnerKey) return input.focused;
 	return true;
@@ -187,11 +192,13 @@ export function shouldMountPaneTerminalDock(input: {
  */
 export function resolvePaneTerminal(input: {
 	sessionId: string;
-	runtime: {
-		agentId?: string;
-		runtimeGeneration?: number;
-		status?: string | null;
-	} | undefined;
+	runtime:
+		| {
+				agentId?: string;
+				runtimeGeneration?: number;
+				status?: string | null;
+		  }
+		| undefined;
 	projectId?: string;
 	project?: { id: string; path: string; kind?: string } | undefined;
 }): { owner: TerminalDockOwner; target: TerminalTarget } | undefined {
@@ -238,18 +245,11 @@ export function resolvePaneTerminal(input: {
  * 注意：程序化 setLayout 触发的 onResize 是否抑制折叠/展开转换，由调用方
  * （SessionView 有 composer 联动保护窗口）自行判断，本函数只做几何裁决。
  */
-export function applyTerminalPanelResize(input: {
-	px: number;
-	collapsed: boolean;
-	maxHeight: number;
-}): { collapsed?: boolean; height?: number } {
+export function applyTerminalPanelResize(input: { px: number; collapsed: boolean; maxHeight: number }): { collapsed?: boolean; height?: number } {
 	if (input.px <= TERMINAL_COLLAPSE_THRESHOLD_PX) {
 		return input.collapsed ? {} : { collapsed: true };
 	}
-	const height = Math.max(
-		TERMINAL_HEIGHT_MIN,
-		Math.min(Math.round(input.px), Math.round(input.maxHeight)),
-	);
+	const height = Math.max(TERMINAL_HEIGHT_MIN, Math.min(Math.round(input.px), Math.round(input.maxHeight)));
 	return input.collapsed ? { collapsed: false, height } : { height };
 }
 
@@ -277,11 +277,46 @@ export function loadTerminalHeight(fallback: number): number {
 
 export function saveTerminalHeight(height: number): void {
 	try {
-		localStorage.setItem(
-			TERMINAL_HEIGHT_STORAGE_KEY,
-			String(Math.max(TERMINAL_HEIGHT_MIN, Math.round(height))),
-		);
+		localStorage.setItem(TERMINAL_HEIGHT_STORAGE_KEY, String(Math.max(TERMINAL_HEIGHT_MIN, Math.round(height))));
 	} catch {
 		// 配额/隐私模式失败时静默忽略；高度仍在本会话内存中有效
 	}
+}
+
+/** 各 shell 的默认前台进程名：node-pty 的 process 在空闲提示符下返回 shell 自己 */
+export const SHELL_DEFAULT_PROCESS: Record<string, string> = {
+	pwsh: "pwsh",
+	powershell: "powershell",
+	cmd: "cmd",
+	zsh: "zsh",
+	bash: "bash",
+	fish: "fish",
+	sh: "sh",
+	"git-bash": "bash",
+	wsl: "wsl",
+};
+
+/** 取进程名 basename 并小写、去 Windows 可执行后缀：兼容 `C:\Windows\System32\cmd.exe` 与 `/bin/zsh` 两种上报格式。 */
+function normalizeProcessName(value: string | undefined): string {
+	const name = (value ?? "").trim().toLowerCase();
+	if (!name) return "";
+	const base = name.split(/[\\/]/).pop() ?? name;
+	return base.replace(/\.(exe|cmd|bat|com)$/, "");
+}
+
+/**
+ * 关闭终端标签是否需要确认（纯函数，可单测）。
+ *
+ * - never：从不确认（用户明确要求不打断）；
+ * - always：总是确认；
+ * - running：仅「前台进程不是该 shell 自己」时确认。判定刻意宽松——
+ *   node-pty 的 process 在不同 shell/平台格式不一，宁可漏弹（不打断）也不要
+ *   在空闲提示符上误弹；空进程名同样不弹（拿不到证据就不拦）。
+ */
+export function shouldConfirmTerminalClose(mode: TerminalConfirmCloseMode, frontProcess: string | undefined, shell: string): boolean {
+	if (mode === "never") return false;
+	if (mode === "always") return true;
+	const name = normalizeProcessName(frontProcess);
+	if (!name) return false;
+	return name !== normalizeProcessName(SHELL_DEFAULT_PROCESS[shell] ?? shell);
 }

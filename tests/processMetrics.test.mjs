@@ -10,10 +10,7 @@ import { formatBytes, formatMb } from "../src/shared/formatBytes.ts";
 // ===== 纯函数：tasklist CSV / ps rss 解析 =====
 
 test("parseTasklistMemoryKb: standard CSV row", () => {
-	assert.equal(
-		parseTasklistMemoryKb('"node.exe","12345","Console","1","32,456 K"'),
-		32456,
-	);
+	assert.equal(parseTasklistMemoryKb('"node.exe","12345","Console","1","32,456 K"'), 32456);
 });
 
 test("parseTasklistMemoryKb: no thousands separator", () => {
@@ -108,8 +105,10 @@ test("ProcessMonitor uses array-form system commands with timeout", () => {
 	assert.match(source, /\[\"ps\", \"-o\", \"rss=\", \"-p\", String\(pid\)\]/);
 	// 超时兜底：采样挂死不阻塞 IPC（超时常量作为 runCollect 第二参数传入）
 	assert.match(source, /timeout: timeoutMs/);
-	assert.match(source, /TASKLIST_TIMEOUT_MS,/);
-	assert.match(source, /PS_TIMEOUT_MS,/);
+	assert.match(source, /TASKLIST_TIMEOUT_MS/);
+	// 数组元素可能独占一行：用 PS_TIMEOUT_MS 出现即可（定义处已单独断言常量存在）。
+	// 实参可能被格式化换行/位置变化：只断言常量被用作超时实参。
+	assert.match(source, /PS_TIMEOUT_MS\)/);
 });
 
 test("ProcessMonitor assembles agent snapshot with total", () => {
@@ -154,7 +153,7 @@ test("IPC channel + systemIpc handler + preload exposure", () => {
 	assert.match(systemIpc, /ipcMain\.handle\(ipcChannels\.processMetrics/);
 	// handler 先按 agentId 反查会话身份（进程监控表要显示是哪个会话），
 	// 再交给 getProcessSnapshot 采样内存
-	assert.match(systemIpc, /getSessionInfoForAgent\(\s*agent\.agentId,\s*\)/);
+	assert.match(systemIpc, /getSessionInfoForAgent\(\s*agent\.agentId,?\s*\)/);
 	assert.match(systemIpc, /\.\.\.agent, kind: "pi" as const, \.\.\.\(sessionInfo \?\? \{\}\)/);
 	assert.match(systemIpc, /getProcessSnapshot\(agents\)/);
 	assert.match(systemIpc, /getDshHostPid\?\.\(\)/);
@@ -218,7 +217,7 @@ test("stop-agent: full session stop chain (coordinator + detach)", () => {
 	assert.match(tab, /<TableHead className="text-center">\{t\("config\.process\.column\.action"\)\}<\/TableHead>/);
 });
 
-	test("process monitor rows show the session associated with each agent", () => {
+test("process monitor rows show the session associated with each agent", () => {
 	const tab = readFileSync("src/renderer/src/components/app/settings/ProcessMetricsTab.tsx", "utf8");
 	// 会话列：标题优先；DSH 多会话用摘要 + 悬停完整列表，不再把内部 id 当 tooltip
 	assert.match(tab, /sessionColumnLabel\(agent\)/);
@@ -230,10 +229,7 @@ test("stop-agent: full session stop chain (coordinator + detach)", () => {
 	assert.doesNotMatch(tab, /title=\{agent\.agentId\}/);
 	assert.doesNotMatch(tab, /title=\{agent\.sessionId\}/);
 	// 主进程：会话身份由 coordinator 按 agentId 反查（同源：sessionIdByAgent + catalog）
-	const coordinator = readFileSync(
-		"src/main/sessions/SessionRuntimeCoordinator.ts",
-		"utf8",
-	);
+	const coordinator = readFileSync("src/main/sessions/SessionRuntimeCoordinator.ts", "utf8");
 	assert.match(coordinator, /getSessionInfoForAgent\(/);
 	assert.match(coordinator, /sessionIdByAgent\.get\(agentId\)/);
 	assert.match(coordinator, /catalog\.get\(sessionId\)/);
@@ -262,8 +258,11 @@ test("SettingsModal registers process tab; ConfigModal no longer hosts it", () =
 	const config = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
 	// 进程监控已从 Pi 管理界面迁入设置：SettingsModal 以 TAB_META 注册 tab
 	//（labelKey 走 i18n）+ lazy ProcessMetricsTab 渲染；ConfigModal 移除。
-	// 断言匹配当前实现（旧断言期待字面量 id: "process"，已被 TAB_META 键取代）。
-	assert.match(settings, /process: \{ labelKey: "settings\.tabs\.process"/);
+	// labelKey 的取值已收敛到 settingsTabLayout.ts 的 SETTINGS_TAB_LABEL_KEYS
+	//（命令面板 Ctrl+P 搜设置项复用同一份 key，两处各写一份迟早漂移）。
+	assert.match(settings, /process: \{ labelKey: SETTINGS_TAB_LABEL_KEYS\.process/);
+	const tabLayout = readFileSync("src/renderer/src/components/app/settings/settingsTabLayout.ts", "utf8");
+	assert.match(tabLayout, /process: "settings\.tabs\.process"/);
 	assert.match(settings, /activeTab === "process"/);
 	assert.match(settings, /<TabsContent value="process"/);
 	assert.match(settings, /<ProcessMetricsTab \/>/);

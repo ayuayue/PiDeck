@@ -57,7 +57,7 @@ test("composer shows Feishu logo entry in project session; menu lists bot", asyn
 			const el = document.elementFromPoint(x, y);
 			return el !== null && el.closest(".feishu-link-popover") !== null;
 		},
-		[popoverBox!.x + popoverBox!.width / 2, popoverBox!.y + popoverBox!.height / 2]
+		[popoverBox!.x + popoverBox!.width / 2, popoverBox!.y + popoverBox!.height / 2],
 	);
 	expect(hitPopup).toBe(true);
 });

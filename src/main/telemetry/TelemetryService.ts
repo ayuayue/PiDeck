@@ -1,4 +1,5 @@
 import type { AppSettings } from "../../shared/types";
+import type { TelemetrySnapshot } from "./telemetrySnapshot";
 
 type TelemetrySettingsStore = {
 	get: () => AppSettings;
@@ -17,25 +18,23 @@ type TelemetryConfig = {
 	host?: string;
 };
 
+type HeartbeatProperties = {
+	app_version: string;
+	platform: NodeJS.Platform;
+	arch: NodeJS.Architecture;
+	packaged: boolean;
+	install_id: string;
+	$set: Record<string, string | number | boolean | string[]>;
+};
+
 type CaptureRequest = {
 	url: string;
 	body: {
 		api_key: string;
 		event: "app_heartbeat";
 		distinct_id: string;
-		properties: {
-			app_version: string;
-			platform: NodeJS.Platform;
-			arch: NodeJS.Architecture;
-			packaged: boolean;
-			install_id: string;
-			$set: {
-				app_version: string;
-				platform: NodeJS.Platform;
-				arch: NodeJS.Architecture;
-				packaged: boolean;
-			};
-		};
+		// unknown 索引容纳快照标量/数组与嵌套的 $set 对象，固定字段仍保有精确类型
+		properties: HeartbeatProperties & Record<string, unknown>;
 	};
 };
 
@@ -46,6 +45,9 @@ export type TelemetryServiceOptions = {
 	capture: TelemetryCapture;
 	config: TelemetryConfig;
 	metadata: TelemetryMetadata;
+	/** 心跳附带的匿名快照（功能开关/规模计数/平台环境），在全部发送门禁通过后才调用，
+	 *  合并进 event properties 与 person $set；固定字段后写，快照无法覆盖。 */
+	snapshot?: () => TelemetrySnapshot;
 	now?: () => Date;
 	createInstallId?: () => string;
 };
@@ -63,12 +65,7 @@ export class TelemetryService {
 		const settings = this.options.settingsStore.get();
 		const projectKey = this.options.config.projectKey?.trim();
 		const host = normalizePostHogHost(this.options.config.host);
-		if (
-			!settings.telemetryEnabled ||
-			!this.options.metadata.packaged ||
-			!projectKey ||
-			!host
-		) {
+		if (!settings.telemetryEnabled || !this.options.metadata.packaged || !projectKey || !host) {
 			return;
 		}
 
@@ -76,6 +73,7 @@ export class TelemetryService {
 		if (settings.telemetryLastHeartbeatDate === today) return;
 
 		const installId = settings.telemetryInstallId || this.createInstallId();
+		const snapshot = this.options.snapshot?.() ?? {};
 		await this.options.capture({
 			url: `${host}/capture/`,
 			body: {
@@ -83,12 +81,14 @@ export class TelemetryService {
 				event: "app_heartbeat",
 				distinct_id: installId,
 				properties: {
+					...snapshot,
 					app_version: this.options.metadata.appVersion,
 					platform: this.options.metadata.platform,
 					arch: this.options.metadata.arch,
 					packaged: this.options.metadata.packaged,
 					install_id: installId,
 					$set: {
+						...snapshot,
 						app_version: this.options.metadata.appVersion,
 						platform: this.options.metadata.platform,
 						arch: this.options.metadata.arch,

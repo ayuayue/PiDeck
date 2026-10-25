@@ -1,17 +1,18 @@
 import { app } from "electron";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, readdir, rm, stat, utimes } from "node:fs/promises";
 import { basename, join } from "node:path";
-import type {
-	ClaudeImportReport,
-	ClaudeImportResult,
-	ClaudeImportStatus,
-	ClaudeSessionSummary,
-} from "../../shared/types";
-import {
-	defaultSessionImportCopy,
-	type SessionImportCopy,
-} from "./SessionImportCopy";
+import type { ClaudeImportReport, ClaudeImportResult, ClaudeImportStatus, ClaudeSessionSummary } from "../../shared/types";
+import { defaultSessionImportCopy, type SessionImportCopy } from "./SessionImportCopy";
+import { normalizeImportedToolArguments } from "./importToolArguments";
+import { assertSourceWithinRoot } from "./importPathGuard";
+import { readImportMetaHead } from "./importMetaHead";
+import { createBufferedLineSink, mapWithConcurrency, readJsonlObjects, readSessionSourceHead, renameWithRetry, SESSION_SCAN_CONCURRENCY } from "./sessionSourceHead";
+import { importedContentHasToolCall, importedUnknownBlockAsText, normalizeImportedStopReason, tryImportedImageBlock } from "./importNormalize";
+
+// 活链重建索引的条目上界（≈行数）：真实会话分支树远小于此；超限视为文件异常巨大，
+// 返回 null 走「全保留」退化而非逼近堆上限（见 collectLiveChainIds）
+const MAX_CHAIN_INDEX_ENTRIES = 1_000_000;
 
 type ParsedClaudeSession = {
 	meta: {
@@ -26,26 +27,63 @@ type ParsedClaudeSession = {
 	sourceMtime: number;
 };
 
+/** 向 pi 会话写一条消息（返回 Promise：流式导入要尊重写盘背压）。 */
+type ClaudePushMessage = (role: "user" | "assistant" | "toolResult", content: unknown[], extra?: Record<string, unknown>, timestampValue?: string) => Promise<void>;
+
+/**
+ * 转换器版本：写进 import 标记。转换逻辑影响**产物有效性**时 bump——
+ * 旧版本产物在扫描列表里显示 outdated，引导用户重导修复。
+ * v2：活链重建 + 孤儿 toolResult 降级（修复 rewind/中断续聊的废弃分支导致的
+ * 「tool 消息前无 tool_calls」400）。
+ * v3：并行 toolCall 合并（Qoder 把一轮并行调用写成连续单 call assistant 条目，
+ * 逐条写出同样产生孤儿 toolResult）。
+ */
+export const CLAUDE_IMPORT_CONVERTER_VERSION = 3;
+
+/**
+ * Claude Code（~/.claude/projects）会话导入器。
+ *
+ * 同时作为「Claude 同构 transcript」家族的基类：Qoder 等工具的 JSONL 与本类的
+ * 解析/转换管线逐字段兼容（user/assistant 行 + text/thinking/tool_use/tool_result 块，
+ * 顶层带 cwd/sessionId），子类只需覆盖 sourceRoot/sourceKey 等保护字段与目录扫描方式。
+ */
 export class ClaudeSessionImporter {
-	private readonly claudeRoot = join(app.getPath("home"), ".claude", "projects");
+	/** 源会话库根目录；子类导入器（如 Qoder）改指向自己的工具目录。 */
+	protected sourceRoot = join(app.getPath("home"), ".claude", "projects");
+	/** 来源标识：决定产物文件名 `<key>_<id>.jsonl`、导入标记行 `<key>_import` 与 api 标签。 */
+	protected sourceKey = "claude";
+	/** 来源展示名（标题/预览兜底文案与扫描错误信息用）。 */
+	protected sourceLabel = "Claude";
+	/** 源 transcript 不带可辨识模型时的占位标签（model_change 行 / assistant provider）。 */
+	protected defaultProvider = "anthropic";
+	protected defaultModelId = "claude-sonnet-4";
 	private readonly piRoot = join(app.getPath("home"), ".pi", "agent", "sessions");
 
 	constructor(private readonly translate: SessionImportCopy = defaultSessionImportCopy) {}
 
+	/**
+	 * 扫描可导入会话（列表摘要）。
+	 *
+	 * **只读头部**（见 sessionSourceHead）：源 transcript 常达几十 MB~GB，整读会让主进程
+	 * 384MB 堆 abort（应用闪退，无堆栈）；并发整读更是乘数灾难（12×60MB 即可复现）。
+	 * 摘要所需元数据（sessionId / cwd）都在文件前部；头部找不到元数据的文件不进列表，
+	 * 真实导入仍走全量流式，不会少消息。
+	 */
 	async scan(projectPath: string): Promise<ClaudeSessionSummary[]> {
 		const projectDir = this.getClaudeProjectDir(projectPath);
 		const files = await this.collectJsonl(projectDir).catch(() => []);
-		const sessions = await Promise.all(
-			files.map((file) => this.readClaudeSession(file).catch(() => null)),
-		);
+		// 有界并发：内存峰值 = 并发数 × 头部缓冲（见 SESSION_SCAN_CONCURRENCY）
+		const sessions = await mapWithConcurrency(files, SESSION_SCAN_CONCURRENCY, (file) => this.readClaudeSessionHead(file).catch(() => null));
 
 		const summaries = await Promise.all(
 			sessions
 				.filter((session): session is ParsedClaudeSession => Boolean(session))
-				.map((session) => this.toSummary(session, projectPath)),
+				// 逐会话兑底：单条畸形数据（null content 元素/非字符串 sessionId/极端时间戳等）
+				// 只降级自己那条，不再炸整张列表（旧实现一条 reject → 整个 scan 裸错误过 IPC）
+				.map((session) => this.toSummary(session, projectPath).catch(() => null)),
 		);
 
-		return summaries.sort((a, b) => b.updatedAt - a.updatedAt);
+		return summaries.filter((s): s is ClaudeSessionSummary => Boolean(s)).sort((a, b) => b.updatedAt - a.updatedAt);
 	}
 
 	async import(projectPath: string, sourcePaths: string[]): Promise<ClaudeImportReport> {
@@ -60,17 +98,34 @@ export class ClaudeSessionImporter {
 		};
 	}
 
-	private async importOne(
-		projectPath: string,
-		sourcePath: string,
-	): Promise<ClaudeImportResult> {
+	private async importOne(projectPath: string, sourcePath: string): Promise<ClaudeImportResult> {
+		const tempPath = `${join(this.getProjectSessionDir(projectPath), `${randomUUID().slice(0, 8)}.importing`)}`;
+		let handle: Awaited<ReturnType<typeof open>> | undefined;
 		try {
-			const parsed = await this.readClaudeSession(sourcePath);
+			const parsed = await this.readClaudeSessionHead(sourcePath);
 			const targetPath = this.getTargetPath(projectPath, parsed);
 			const existing = await this.readImportMeta(targetPath);
-			const converted = this.convertToPiSession(projectPath, parsed);
 			await mkdir(this.getProjectSessionDir(projectPath), { recursive: true });
-			await writeFile(targetPath, converted.raw, "utf8");
+
+			// 第一遍流式扫描重建活链（只留存 uuid→parent，内存 O(行数)，不 materialize 记录）
+			const chainIds = await this.collectLiveChainIds(readJsonlObjects(sourcePath));
+
+			// 先写临时文件再原子改名：中途失败不会留下半截会话文件污染列表
+			handle = await open(tempPath, "w");
+			const buffered = createBufferedLineSink(handle);
+
+			const converted = await this.convertToPiSessionTo(projectPath, parsed, readJsonlObjects(sourcePath), buffered.sink, chainIds);
+			await buffered.flush();
+			await handle.close();
+			handle = undefined;
+			await renameWithRetry(tempPath, targetPath);
+
+			// 侧栏列表时间取文件 mtime：写入后回调为会话真实最后时间，避免导入会话
+			// 全部显示为「刚刚导入」并排序置顶（与 ZCode/OpenCode 导入器同口径）。
+			if (parsed.meta.lastTimestamp > 0) {
+				const stamp = new Date(parsed.meta.lastTimestamp);
+				await utimes(targetPath, stamp, stamp);
+			}
 
 			return {
 				id: parsed.meta.sessionId,
@@ -82,6 +137,9 @@ export class ClaudeSessionImporter {
 				messageCount: converted.messageCount,
 			};
 		} catch (error) {
+			await handle?.close().catch(() => undefined);
+			// 半截临时文件不可用：清掉再上报，避免残留
+			await rm(tempPath, { force: true }).catch(() => undefined);
 			return {
 				id: sourcePath,
 				sourcePath,
@@ -91,19 +149,13 @@ export class ClaudeSessionImporter {
 		}
 	}
 
-	private async toSummary(
-		session: ParsedClaudeSession,
-		projectPath: string,
-	): Promise<ClaudeSessionSummary> {
+	private async toSummary(session: ParsedClaudeSession, projectPath: string): Promise<ClaudeSessionSummary> {
 		const targetPath = this.getTargetPath(projectPath, session);
 		const importMeta = await this.readImportMeta(targetPath);
-		const converted = this.convertToPiSession(projectPath, session);
-		const status: ClaudeImportStatus = !importMeta
-			? "new"
-			: importMeta.sourceMtime === session.sourceMtime &&
-			  importMeta.sourceSize === session.sourceSize
-			? "current"
-			: "outdated";
+		// 扫描路径：entries 只是头部小数组，直接内存转换（体积有上界）
+		const converted = await this.convertToPiSession(projectPath, session);
+		// 转换器版本不一致也按 outdated：旧转换产物可能含孤儿 toolResult（400 根因），引导重导
+		const status: ClaudeImportStatus = !importMeta ? "new" : importMeta.version !== CLAUDE_IMPORT_CONVERTER_VERSION || importMeta.sourceMtime !== session.sourceMtime || importMeta.sourceSize !== session.sourceSize ? "outdated" : "current";
 
 		return {
 			id: session.meta.sessionId,
@@ -121,29 +173,36 @@ export class ClaudeSessionImporter {
 		};
 	}
 
-	private convertToPiSession(projectPath: string, session: ParsedClaudeSession) {
+	/**
+	 * 把源记录折叠为 pi 会话行，输出交给 `sink`。
+	 *
+	 * `entries` 是**可迭代的源记录序列**而不是数组：
+	 * - 导入（importOne）传逐行流式读取的迭代器 → 内存 O(单行)，巨型会话可导入；
+	 * - 扫描（toSummary）传头部已解析的小数组 → 体积有上界。
+	 * 两路共用同一份转换逻辑，避免像 Codex 那样维护两份实现而漂移（改一处漏一处）。
+	 *
+	 * `chainIds`：活链 uuid 集合（见 collectLiveChainIds，仅导入路径传入）；
+	 * 扫描路径的头部数组不知道文件尾是谁，传 null 不做过滤。
+	 */
+	private async convertToPiSessionTo(projectPath: string, session: ParsedClaudeSession, entries: Iterable<Record<string, any>> | AsyncIterable<Record<string, any>>, sink: (line: string) => Promise<void> | void, chainIds: Set<string> | null = null): Promise<{ title: string; preview: string; messageCount: number }> {
 		const sessionId = session.meta.sessionId;
 		const timestamp = new Date(session.meta.firstTimestamp).toISOString();
 		const titleState = { title: "", preview: "" };
-		const lines: string[] = [];
 		let parentId: string | null = null;
 		let sequence = 0;
 		let messageCount = 0;
+		// 当前挂起的 toolCall id 集（配对跟踪，见 pushMessage）
+		const pendingToolCalls = new Set<string>();
 
-		const pushEntry = (entry: Record<string, unknown>) => {
-			lines.push(JSON.stringify(entry));
+		const pushEntry = async (entry: Record<string, unknown>) => {
+			await sink(JSON.stringify(entry));
 		};
 
-		const pushMessage = (
-			role: "user" | "assistant" | "toolResult",
-			content: unknown[],
-			extra: Record<string, unknown> = {},
-			timestampValue?: string,
-		) => {
+		const emitMessage = async (role: "user" | "assistant" | "toolResult", content: unknown[], extra: Record<string, unknown> = {}, timestampValue?: string) => {
 			if (content.length === 0) return;
 			const id = this.makeId(sessionId, sequence++);
 			const ts = timestampValue || new Date().toISOString();
-			pushEntry({
+			await pushEntry({
 				type: "message",
 				id,
 				parentId,
@@ -166,8 +225,55 @@ export class ClaudeSessionImporter {
 			}
 		};
 
+		// assistant 运行合并缓冲：Claude Code 把同一轮响应拆成多个连续 assistant 条目
+		// （Qoder 并行调用的 call_00_/call_01_ 拆分、长文本/思考分片、call 与结果之间的
+		// 穿插评论）。只要 user/toolResult 不出现就仍属同一轮——并为一条 assistant 写出
+		// （OpenAI 多 tool_calls 语义），否则 pi transformMessages 在每个新 assistant 边界
+		// 重置挂起集，靠前 call 的 toolResult 变孤儿（严格供应商 400）。
+		// 任何非 assistant 消息到来或转换结束时先冲刷；运行期间 toolCall id 持续累积进 pendingToolCalls。
+		let mergeBuffer: { content: unknown[]; extra: Record<string, unknown>; timestampValue?: string } | null = null;
+		const flushMergeBuffer = async () => {
+			if (!mergeBuffer) return;
+			const buffered = mergeBuffer;
+			mergeBuffer = null;
+			await emitMessage("assistant", buffered.content, buffered.extra, buffered.timestampValue);
+		};
+
+		const pushMessage = async (role: "user" | "assistant" | "toolResult", content: unknown[], extra: Record<string, unknown> = {}, timestampValue?: string) => {
+			if (content.length === 0) return;
+			if (role === "assistant") {
+				if (mergeBuffer) mergeBuffer.content.push(...content);
+				else {
+					// 新运行开启 = pi 语义的新 assistant 边界：关闭上一段挂起集
+					pendingToolCalls.clear();
+					mergeBuffer = { content: [...content], extra, timestampValue };
+				}
+				for (const item of content) {
+					const block = item as Record<string, unknown>;
+					if (block?.type === "toolCall" && typeof block.id === "string") pendingToolCalls.add(block.id);
+				}
+				return;
+			}
+			await flushMergeBuffer();
+			// 与 pi transformMessages 同口径的 tool 配对跟踪：任一 user 消息出现即关闭挂起
+			// （pi 请求时会为未应答的 toolCall 补占位结果，不会 400）。挂起集之外的 toolResult
+			// 在 OpenAI completions 请求里是「前面没有 tool_calls 的 tool 消息」→ 严格供应商
+			// 400，降级为用户文本保留内容。
+			if (role === "user") {
+				pendingToolCalls.clear();
+			} else if (role === "toolResult") {
+				const toolCallId = String(extra.toolCallId ?? "");
+				if (!pendingToolCalls.delete(toolCallId)) {
+					const text = this.extractPiText(content).trim();
+					if (!text) return;
+					return pushMessage("user", [{ type: "text", text: this.translate("session.importedOrphanToolResult", { tool: String(extra.toolName ?? "tool"), text }) }], {}, timestampValue);
+				}
+			}
+			await emitMessage(role, content, extra, timestampValue);
+		};
+
 		// 写入会话头
-		pushEntry({
+		await pushEntry({
 			type: "session",
 			version: 3,
 			id: sessionId,
@@ -175,45 +281,42 @@ export class ClaudeSessionImporter {
 			cwd: projectPath,
 		});
 
-		pushEntry({
-			type: "claude_import",
-			version: 1,
-			claudeSessionId: sessionId,
+		await pushEntry({
+			type: `${this.sourceKey}_import`,
+			version: CLAUDE_IMPORT_CONVERTER_VERSION,
+			sourceSessionId: sessionId,
 			sourcePath: session.sourcePath,
 			sourceMtime: session.sourceMtime,
 			sourceSize: session.sourceSize,
 			importedAt: new Date().toISOString(),
 		});
 
-		// 假设使用 Claude 模型
+		// 源未声明模型时回退占位标签（Qoder 等子类可覆盖）
 		const modelChangeId = this.makeId(sessionId, sequence++);
-		pushEntry({
+		await pushEntry({
 			type: "model_change",
 			id: modelChangeId,
 			parentId,
 			timestamp,
-			provider: "anthropic",
-			modelId: "claude-sonnet-4",
+			provider: this.defaultProvider,
+			modelId: this.defaultModelId,
 		});
 		parentId = modelChangeId;
 
 		// 转换消息
-		for (const entry of session.entries) {
+		for await (const entry of entries) {
+			// 只转换活链上的记录（见 collectLiveChainIds）；无 uuid 的记录不属于任何分支，保留
+			if (chainIds) {
+				const uuid = entry.uuid;
+				if (typeof uuid === "string" && uuid && !chainIds.has(uuid)) continue;
+			}
 			// 跳过非消息类型
 			if (entry.type === "file-history-snapshot") continue;
 			if (entry.type === "system" && entry.subtype === "turn_duration") continue;
 			if (entry.type === "system" && entry.subtype === "api_error") continue;
 
 			if (entry.type === "user") {
-				const text = String(entry.message?.content ?? "").trim();
-				if (text) {
-					pushMessage(
-						"user",
-						[{ type: "text", text }],
-						{},
-						entry.timestamp,
-					);
-				}
+				await this.pushClaudeUserEntry(entry, pushMessage);
 				continue;
 			}
 
@@ -221,11 +324,14 @@ export class ClaudeSessionImporter {
 				const message = entry.message;
 				if (!message) continue;
 
-				const content: any[] = [];
+				const content: Array<Record<string, unknown>> = [];
 
-				// 处理内容
-				if (Array.isArray(message.content)) {
+				if (typeof message.content === "string") {
+					if (message.content.trim()) content.push({ type: "text", text: message.content });
+				} else if (Array.isArray(message.content)) {
 					for (const item of message.content) {
+						// null/非对象元素是合法 JSON（畸形导出产物）：跳过而非 TypeError（2026-03 导入器审计）
+						if (!item || typeof item !== "object") continue;
 						if (item.type === "text") {
 							content.push({ type: "text", text: item.text });
 						} else if (item.type === "thinking") {
@@ -239,21 +345,27 @@ export class ClaudeSessionImporter {
 								type: "toolCall",
 								id: item.id,
 								name: item.name,
-								arguments: item.input,
+								arguments: normalizeImportedToolArguments(item.input),
 							});
+						} else {
+							const image = tryImportedImageBlock(item);
+							content.push(image ?? importedUnknownBlockAsText(item));
 						}
 					}
 				}
 
 				if (content.length > 0) {
-					pushMessage(
+					await pushMessage(
 						"assistant",
 						content,
 						{
-							api: "claude-import",
-							provider: "anthropic",
-							model: message.model || "claude-sonnet-4",
-							stopReason: message.stop_reason || "stop",
+							api: `${this.sourceKey}-import`,
+							provider: this.defaultProvider,
+							model: message.model || this.defaultModelId,
+							stopReason: normalizeImportedStopReason({
+								raw: message.stop_reason,
+								hasToolCall: importedContentHasToolCall(content),
+							}),
 						},
 						entry.timestamp,
 					);
@@ -261,45 +373,137 @@ export class ClaudeSessionImporter {
 				continue;
 			}
 
-			// 处理工具结果
+			// 兼容少数顶层 type=tool_result 的导出；主流 Claude Code 写在 user.content 里。
 			if (entry.type === "tool_result") {
-				const toolCallId = String(entry.tool_use_id ?? "");
-				const output = this.extractToolOutput(entry);
-				pushMessage(
-					"toolResult",
-					[{ type: "text", text: output }],
-					{
-						toolCallId,
-						toolName: "tool",
-						isError: Boolean(entry.is_error),
-					},
-					entry.timestamp,
-				);
+				await this.pushClaudeToolResult(entry, entry, pushMessage);
 			}
 		}
 
-		const title =
-			titleState.title ||
-			this.cleanTitle(basename(session.sourcePath)) ||
-			this.translate("session.importedTitle", { source: "Claude" });
+		// 尾部冲刷：文件以并行调用结尾时缓冲里的 toolCall 不能丢
+		await flushMergeBuffer();
+
+		const title = titleState.title || this.cleanTitle(basename(session.sourcePath)) || this.translate("session.importedTitle", { source: this.sourceLabel });
 		// 使用 pi 原生 session_info 格式追加在末尾，避免旧版 sessionName 行（无 type 字段）
 		// 在文件头破坏 pi 的首行校验导致会话无法加载（见 #114）。
-		const sessionInfoId = randomUUID().slice(0, 8);
-		lines.push(JSON.stringify({
+		await pushEntry({
 			type: "session_info",
-			id: sessionInfoId,
+			id: randomUUID().slice(0, 8),
 			parentId,
 			timestamp: new Date().toISOString(),
 			name: title,
 			cwd: projectPath,
-		}));
+		});
 
 		return {
-			raw: `${lines.join("\n")}\n`,
 			title,
-			preview: titleState.preview || this.translate("session.importedPreview", { source: "Claude" }),
+			preview: titleState.preview || this.translate("session.importedPreview", { source: this.sourceLabel }),
 			messageCount,
 		};
+	}
+
+	/** 内存版转换（仅供**扫描**：entries 是头部小数组，体积有上界）。导入请走 convertToPiSessionTo。 */
+	private async convertToPiSession(projectPath: string, session: ParsedClaudeSession) {
+		const lines: string[] = [];
+		const result = await this.convertToPiSessionTo(projectPath, session, session.entries, (line) => {
+			lines.push(line);
+		});
+		return { ...result, raw: `${lines.join("\n")}\n` };
+	}
+
+	/**
+	 * 重建「活链」uuid 集合：源 transcript 是 uuid/parentUuid **树**——rewind、
+	 * 中断后续聊都从旧节点分叉，废弃分支仍按时间混在文件里。线性转换会把废弃
+	 * 分支插进 tool_use ↔ tool_result 之间，产物必然含孤儿 toolResult（严格供应商 400）。
+	 *
+	 * 以文件中**最后一条**带 uuid 的非 sidechain 记录为活链尖端，沿 parentUuid 回溯到根；
+	 * sidechain（Task 子代理）记录是支线转录，绝不作为尖端——否则文件恰好以子代理
+	 * 记录结尾时主链会被整体丢弃。整份文件都是 sidechain 时（独立的 subagents/*.jsonl
+	 * 也会作为会话导入）退化为以最后一条记录为尖端。无 uuid 信息时返回 null
+	 * （兼容无 uuid 的第三方同构文件）。
+	 */
+	private async collectLiveChainIds(entries: AsyncIterable<Record<string, any>>): Promise<Set<string> | null> {
+		const parentById = new Map<string, string | null>();
+		let tipId: string | null = null;
+		let anyTipId: string | null = null;
+		for await (const entry of entries) {
+			const uuid = typeof entry.uuid === "string" && entry.uuid ? entry.uuid : null;
+			if (!uuid) continue;
+			parentById.set(uuid, typeof entry.parentUuid === "string" && entry.parentUuid ? entry.parentUuid : null);
+			// 索引上界：真实会话分支树远小于此；超限说明文件异常巨大，继续收会逼近堆上限。
+			// 返回 null（全保留退化）比 OOM abort 更安全，注释见上
+			if (parentById.size > MAX_CHAIN_INDEX_ENTRIES) return null;
+			if (entry.isSidechain) {
+				anyTipId = uuid;
+			} else {
+				tipId = uuid;
+			}
+		}
+		const effectiveTip = tipId ?? anyTipId;
+		if (!effectiveTip) return null;
+		const chain = new Set<string>();
+		let cursor: string | null = effectiveTip;
+		// has(cursor) 防环：损坏文件的循环引用不会死循环，已收集的部分链仍是有效活链
+		while (cursor && !chain.has(cursor)) {
+			chain.add(cursor);
+			cursor = parentById.get(cursor) ?? null;
+		}
+		return chain;
+	}
+
+	/**
+	 * Claude Code 的 user 行可能是纯文本，也可能是 content[]：
+	 * tool_result 块（喂回模型的工具输出）必须写成 pi toolResult，不能 String(数组) 变成用户气泡。
+	 */
+	private async pushClaudeUserEntry(entry: Record<string, any>, pushMessage: ClaudePushMessage) {
+		const raw = entry.message?.content;
+		if (typeof raw === "string") {
+			const text = raw.trim();
+			if (text) await pushMessage("user", [{ type: "text", text }], {}, entry.timestamp);
+			return;
+		}
+		if (!Array.isArray(raw)) return;
+		const userContent: Array<Record<string, unknown>> = [];
+		const toolResults: Array<Record<string, unknown>> = [];
+		for (const item of raw) {
+			if (typeof item === "string") {
+				if (item.trim()) userContent.push({ type: "text", text: item });
+				continue;
+			}
+			if (!item || typeof item !== "object") continue;
+			const record = item as Record<string, unknown>;
+			if (record.type === "tool_result") {
+				toolResults.push(record);
+				continue;
+			}
+			if (record.type === "text") {
+				const text = String(record.text ?? "");
+				if (text) userContent.push({ type: "text", text });
+				continue;
+			}
+			const image = tryImportedImageBlock(record);
+			userContent.push(image ?? importedUnknownBlockAsText(record));
+		}
+		// tool_result 必须先于本 entry 的文本写出：OpenAI completions 里 tool 消息只能
+		// 紧跟带 tool_calls 的 assistant，user 文本插在前面会把结果挤成孤儿（严格供应商 400）。
+		for (const record of toolResults) {
+			await this.pushClaudeToolResult(record, entry, pushMessage);
+		}
+		if (userContent.length > 0) {
+			await pushMessage("user", userContent, {}, entry.timestamp);
+		}
+	}
+
+	private async pushClaudeToolResult(payload: Record<string, any>, entry: Record<string, any>, pushMessage: ClaudePushMessage) {
+		await pushMessage(
+			"toolResult",
+			[{ type: "text", text: this.extractToolOutput(payload) }],
+			{
+				toolCallId: String(payload.tool_use_id ?? payload.toolCallId ?? ""),
+				toolName: String(payload.name ?? "tool"),
+				isError: Boolean(payload.is_error ?? payload.isError),
+			},
+			entry.timestamp,
+		);
 	}
 
 	private zeroUsage() {
@@ -313,65 +517,77 @@ export class ClaudeSessionImporter {
 		};
 	}
 
-	private async readClaudeSession(filePath: string): Promise<ParsedClaudeSession> {
+	/**
+	 * 只读头部解析 Claude 会话元数据（scan 用）。
+	 *
+	 * 与 readClaudeSessionHead 的关键差异：不把整文件读成字符串，内存与文件体积解耦。
+	 * entries 只含**头部区间**的记录，所以 title/preview/messageCount 是该区间的近似值
+	 * （与 Codex 导入器的 head-only 扫描同口径：摘要允许近似，真实导入仍跑全量流式）。
+	 *
+	 * 时间：firstTimestamp 取头部最早（会话开头就在头部，准确）；
+	 * lastTimestamp 用源文件 mtime——头部看不到文件尾，mtime 比头部最大值更接近真实末次活动。
+	 */
+	private async readClaudeSessionHead(filePath: string): Promise<ParsedClaudeSession> {
 		this.assertClaudeSourcePath(filePath);
-		const [raw, info] = await Promise.all([readFile(filePath, "utf8"), stat(filePath)]);
-		const entries = raw
-			.split(/\r?\n/)
-			.filter(Boolean)
-			.map((line) => JSON.parse(line) as Record<string, any>);
+		const { head, size, mtimeMs, truncated } = await readSessionSourceHead(filePath);
 
-		// 从第一个 user 消息中提取元数据
-		const firstUserEntry = entries.find((e) => e.type === "user");
-		if (!firstUserEntry?.sessionId || !firstUserEntry?.cwd) {
-			throw new Error("Missing Claude session metadata");
+		const entries: Array<Record<string, any>> = [];
+		let firstUserEntry: Record<string, any> | undefined;
+		let firstTimestamp = 0;
+		let lastTimestamp = 0;
+		// 头部可能切在多字节字符/行中间：坏行跳过（与既有 head-only 解析同策略）
+		for (const line of head.split(/\r?\n/)) {
+			if (!line.trim()) continue;
+			let entry: Record<string, any>;
+			try {
+				entry = JSON.parse(line) as Record<string, any>;
+			} catch {
+				continue;
+			}
+			entries.push(entry);
+			if (!firstUserEntry && entry.type === "user" && entry.sessionId && entry.cwd) {
+				firstUserEntry = entry;
+			}
+			const ts = entry.timestamp ? new Date(entry.timestamp).getTime() : NaN;
+			if (Number.isFinite(ts)) {
+				if (firstTimestamp === 0 || ts < firstTimestamp) firstTimestamp = ts;
+				if (ts > lastTimestamp) lastTimestamp = ts;
+			}
 		}
 
-		const timestamps = entries
-			.filter((e) => e.timestamp)
-			.map((e) => new Date(e.timestamp).getTime());
+		// 非字符串 sessionId/cwd 是畸形源（数字 id 能过 truthy 检查但下游 .replace/join 炸 TypeError）
+		if (typeof firstUserEntry?.sessionId !== "string" || !firstUserEntry.sessionId || typeof firstUserEntry.cwd !== "string" || !firstUserEntry.cwd) {
+			throw new Error(`Missing ${this.sourceLabel} session metadata`);
+		}
 
 		return {
 			meta: {
 				sessionId: firstUserEntry.sessionId,
 				cwd: firstUserEntry.cwd,
-				firstTimestamp: Math.min(...timestamps),
-				lastTimestamp: Math.max(...timestamps),
+				firstTimestamp: firstTimestamp || mtimeMs,
+				// 未截断（头部即全文件）时用真实末次时间戳，列表排序靠它；
+				// 截断时头部看不到文件尾，退化用 mtime。
+				lastTimestamp: truncated ? mtimeMs : lastTimestamp || mtimeMs,
 			},
 			entries,
 			sourcePath: filePath,
-			sourceSize: info.size,
-			sourceMtime: info.mtimeMs,
+			sourceSize: size,
+			sourceMtime: mtimeMs,
 		};
 	}
 
 	private assertClaudeSourcePath(filePath: string) {
-		const root = this.normalize(this.claudeRoot);
-		const target = this.normalize(filePath);
-		if (target !== root && !target.startsWith(`${root}/`)) {
-			throw new Error("Claude session path is outside ~/.claude/projects");
-		}
+		// 语义校验（resolve 后比较）：词法 startsWith 不解析 `..`，曾可被
+		// `<root>/../../任意文件` 绕过（2026-03 导入器安全审计）
+		assertSourceWithinRoot(this.sourceRoot, filePath, this.sourceLabel);
 	}
 
+	/** 读取导入产物头部的 import 标记（有界读头部，不再整读会话文件——见 importMetaHead）。 */
 	private async readImportMeta(targetPath: string) {
-		try {
-			const raw = await readFile(targetPath, "utf8");
-			for (const line of raw.split(/\r?\n/).filter(Boolean).slice(0, 8)) {
-				const entry = JSON.parse(line) as any;
-				if (entry.type === "claude_import") {
-					return {
-						sourceMtime: Number(entry.sourceMtime),
-						sourceSize: Number(entry.sourceSize),
-					};
-				}
-			}
-		} catch {
-			return undefined;
-		}
-		return undefined;
+		return readImportMetaHead(targetPath, `${this.sourceKey}_import`);
 	}
 
-	private async collectJsonl(dir: string): Promise<string[]> {
+	protected async collectJsonl(dir: string): Promise<string[]> {
 		try {
 			const entries = await readdir(dir, { withFileTypes: true });
 			const files: string[] = [];
@@ -390,21 +606,21 @@ export class ClaudeSessionImporter {
 	}
 
 	private getClaudeProjectDir(projectPath: string): string {
-		// 将项目路径转换为 Claude 的目录名格式
+		// 将项目路径转换为 Claude 的目录名格式（Qoder 等衍生工具沿用同一 slug 约定）
 		// 例如：C:\Users\14012\pi-desktop -> C--Users-14012-pi-desktop
 		const normalized = projectPath.replace(/\\/g, "/");
 		const win = normalized.match(/^([A-Za-z]):\/(.+)$/);
 		if (win) {
 			const dirName = `${win[1]}--${win[2].replace(/\//g, "-")}`;
-			return join(this.claudeRoot, dirName);
+			return join(this.sourceRoot, dirName);
 		}
 		const dirName = normalized.replace(/^\//, "").replace(/\//g, "-");
-		return join(this.claudeRoot, dirName);
+		return join(this.sourceRoot, dirName);
 	}
 
 	private getTargetPath(projectPath: string, session: ParsedClaudeSession) {
 		const id = session.meta.sessionId.replace(/[^a-zA-Z0-9_-]/g, "-");
-		return join(this.getProjectSessionDir(projectPath), `claude_${id}.jsonl`);
+		return join(this.getProjectSessionDir(projectPath), `${this.sourceKey}_${id}.jsonl`);
 	}
 
 	private getProjectSessionDir(projectPath: string) {
@@ -413,7 +629,8 @@ export class ClaudeSessionImporter {
 
 	private safePathToken(path: string) {
 		const normalized = path.replace(/\\/g, "/");
-		const win = normalized.match(/^([A-Za-z]):\/(.+)$/);
+		// 盘符根（D:\）也要命中本分支：(.+) 时盘根落到 fallback 产出含 ":" 的非法目录名，导入必败
+		const win = normalized.match(/^([A-Za-z]):\/(.*)$/);
 		if (win) return `--${win[1]}--${win[2].replace(/\//g, "-")}--`;
 		return `--${normalized.replace(/^\//, "").replace(/\//g, "-")}--`;
 	}
@@ -439,7 +656,7 @@ export class ClaudeSessionImporter {
 
 	private extractPiText(content: unknown[]) {
 		return content
-			.map((item: any) => item?.text ?? item?.thinking ?? item?.name ?? "")
+			.map((item) => (typeof item === "string" ? item : item && typeof item === "object" ? String((item as Record<string, unknown>).text ?? (item as Record<string, unknown>).thinking ?? (item as Record<string, unknown>).name ?? "") : ""))
 			.filter(Boolean)
 			.join(" ");
 	}

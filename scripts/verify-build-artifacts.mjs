@@ -29,7 +29,7 @@ async function walkFiles(root) {
 	const files = [];
 	for (const entry of await readdir(root, { withFileTypes: true })) {
 		const path = join(root, entry.name);
-		if (entry.isDirectory()) files.push(...await walkFiles(path));
+		if (entry.isDirectory()) files.push(...(await walkFiles(path)));
 		else if (entry.isFile()) files.push(path);
 	}
 	return files;
@@ -54,9 +54,7 @@ export function extractHtmlResourceReferences(html) {
 
 function resolveRendererReference(rendererRoot, htmlPath, reference) {
 	const clean = decodeURIComponent(reference.split(/[?#]/, 1)[0]);
-	return clean.startsWith("/")
-		? resolve(rendererRoot, `.${clean}`)
-		: resolve(htmlPath, "..", clean);
+	return clean.startsWith("/") ? resolve(rendererRoot, `.${clean}`) : resolve(htmlPath, "..", clean);
 }
 
 async function latestMtime(paths) {
@@ -78,9 +76,7 @@ export async function verifyBuildArtifacts({ repoRoot = process.cwd(), outDir } 
 	const output = resolve(outDir ?? join(root, "out"));
 	const errors = [];
 	const checked = [];
-	const entryPaths = Object.fromEntries(
-		Object.entries(EXPECTED_ENTRIES).map(([name, path]) => [name, join(output, path)]),
-	);
+	const entryPaths = Object.fromEntries(Object.entries(EXPECTED_ENTRIES).map(([name, path]) => [name, join(output, path)]));
 
 	if (!(await exists(output))) {
 		return { ok: false, repoRoot: root, outDir: output, checked, errors: [`Build output directory is missing: ${output}`] };

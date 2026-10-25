@@ -179,12 +179,7 @@ test("readDshEntryValue 草稿缺中间路径时仍回退已保存值", () => {
 	assert.equal(readDshEntryValue(draft, saved, "my-gateway", ["api"]), "openai-completions");
 	assert.equal(readDshEntryValue(draft, saved, "my-gateway", ["displayName"]), "My Gateway");
 	// 草稿显式覆盖时仍以草稿为准
-	assert.equal(readDshEntryValue(
-		{ providers: { "my-gateway": { baseURL: "https://draft.example/v1" } } },
-		saved,
-		"my-gateway",
-		["baseURL"],
-	), "https://draft.example/v1");
+	assert.equal(readDshEntryValue({ providers: { "my-gateway": { baseURL: "https://draft.example/v1" } } }, saved, "my-gateway", ["baseURL"]), "https://draft.example/v1");
 });
 
 test("readDshRetryPolicy 省略时按 normal 默认，always 不捏造次数", () => {
@@ -256,24 +251,12 @@ test("normalizeDshNumberDraft 保存前把字符串草稿转回数值（非法/�
 	// vm 编译模块构造的对象与测试进程跨 realm，经 JSON 归一化后比较
 	const toJson = (value) => JSON.parse(JSON.stringify(value));
 	// 数值转 number；字符串字段原样保留
-	assert.deepEqual(
-		toJson(normalizeDshNumberDraft(schema, root, { retries: "5", note: "hello" })),
-		{ retries: 5, note: "hello" },
-	);
+	assert.deepEqual(toJson(normalizeDshNumberDraft(schema, root, { retries: "5", note: "hello" })), { retries: 5, note: "hello" });
 	// 清空/非法输入删键（patch 省略该字段，host 保持已保存值）
-	assert.deepEqual(
-		toJson(normalizeDshNumberDraft(schema, root, { retries: "", note: "x" })),
-		{ note: "x" },
-	);
-	assert.deepEqual(
-		toJson(normalizeDshNumberDraft(schema, root, { retries: "abc", note: "x" })),
-		{ note: "x" },
-	);
+	assert.deepEqual(toJson(normalizeDshNumberDraft(schema, root, { retries: "", note: "x" })), { note: "x" });
+	assert.deepEqual(toJson(normalizeDshNumberDraft(schema, root, { retries: "abc", note: "x" })), { note: "x" });
 	// 嵌套 dict 条目：内部 number 字段同样转换
-	assert.deepEqual(
-		toJson(normalizeDshNumberDraft(schema, root, { providers: { gw: { maxRetries: "8" } } })),
-		{ providers: { gw: { maxRetries: 8 } } },
-	);
+	assert.deepEqual(toJson(normalizeDshNumberDraft(schema, root, { providers: { gw: { maxRetries: "8" } } })), { providers: { gw: { maxRetries: 8 } } });
 	// 已是数值的不动
 	assert.deepEqual(toJson(normalizeDshNumberDraft(schema, root, { retries: 3 })), { retries: 3 });
 });

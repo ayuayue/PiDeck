@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
@@ -12,475 +12,538 @@ const repositoryDir = mkdtempSync(join(tmpdir(), "pideck-git-diff-"));
 let GitService;
 
 function git(...args) {
-  return execFileSync("git", args, {
-    cwd: repositoryDir,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
+	return execFileSync("git", args, {
+		cwd: repositoryDir,
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "pipe"],
+	}).trim();
 }
 
 function write(relativePath, content) {
-  writeFileSync(join(repositoryDir, relativePath), content);
+	writeFileSync(join(repositoryDir, relativePath), content);
 }
 
 before(() => {
-  // Compile only the service and its shared types so the integration test exercises
-  // the real implementation without requiring a complete Electron build first.
-  execFileSync(
-    process.execPath,
-    [
-      resolve("node_modules/typescript/bin/tsc"),
-      "src/main/git/GitService.ts",
-      "src/shared/types.ts",
-      "--module",
-      "commonjs",
-      "--target",
-      "es2022",
-      "--moduleResolution",
-      "node",
-      "--esModuleInterop",
-      "--skipLibCheck",
-      "--outDir",
-      buildDir,
-    ],
-    { cwd: resolve("."), stdio: "pipe" },
-  );
-  // GitService 依赖 ../fs/trash（懒加载 electron.shell.trashItem）。
-  // 纯 Node 集成测试环境没有 electron，注入 stub：模拟回收站 = 删除源文件，
-  // 使 discard untracked 的真实删除语义在测试中成立。
-  const stubElectronDir = join(buildDir, "node_modules", "electron");
-  mkdirSync(stubElectronDir, { recursive: true });
-  writeFileSync(join(stubElectronDir, "package.json"), JSON.stringify({ name: "electron", main: "index.js" }));
-  writeFileSync(
-    join(stubElectronDir, "index.js"),
-    `exports.shell = { trashItem: async (p) => { await require("node:fs/promises").rm(p, { recursive: true, force: true }); } };`,
-  );
-  ({ GitService } = require(join(buildDir, "main/git/GitService.js")));
+	// Compile only the service and its shared types so the integration test exercises
+	// the real implementation without requiring a complete Electron build first.
+	// --rewriteRelativeImportExtensions：GitService 的依赖链（gitRun/gitWsl）本地 import
+	// 带 .ts 扩展名（Node type stripping 直跑测试的约定），CLI tsc 需在 emit 时重写为 .js。
+	execFileSync(process.execPath, [resolve("node_modules/typescript/bin/tsc"), "src/main/git/GitService.ts", "src/shared/types.ts", "--module", "commonjs", "--target", "es2022", "--moduleResolution", "node", "--esModuleInterop", "--skipLibCheck", "--rewriteRelativeImportExtensions", "--outDir", buildDir], {
+		cwd: resolve("."),
+		stdio: "pipe",
+	});
+	// GitService 依赖 ../fs/trash（懒加载 electron.shell.trashItem）。
+	// 纯 Node 集成测试环境没有 electron，注入 stub：模拟回收站 = 删除源文件，
+	// 使 discard untracked 的真实删除语义在测试中成立。
+	const stubElectronDir = join(buildDir, "node_modules", "electron");
+	mkdirSync(stubElectronDir, { recursive: true });
+	writeFileSync(join(stubElectronDir, "package.json"), JSON.stringify({ name: "electron", main: "index.js" }));
+	writeFileSync(join(stubElectronDir, "index.js"), `exports.shell = { trashItem: async (p) => { await require("node:fs/promises").rm(p, { recursive: true, force: true }); } };`);
+	({ GitService } = require(join(buildDir, "main/git/GitService.js")));
 
-  git("init");
-  // Windows 开发机常配 core.autocrlf=true，会把 checkout 内容转成 CRLF，
-  // 使基于 `\n` 的内容断言在 Windows 上偶发失败；测试仓库强制关闭。
-  git("config", "core.autocrlf", "false");
-  git("config", "user.name", "PiDeck Test");
-  git("config", "user.email", "test@example.com");
+	git("init");
+	// Windows 开发机常配 core.autocrlf=true，会把 checkout 内容转成 CRLF，
+	// 使基于 `\n` 的内容断言在 Windows 上偶发失败；测试仓库强制关闭。
+	git("config", "core.autocrlf", "false");
+	git("config", "user.name", "PiDeck Test");
+	git("config", "user.email", "test@example.com");
 });
 
 after(() => {
-  rmSync(buildDir, { recursive: true, force: true });
-  rmSync(repositoryDir, { recursive: true, force: true });
+	rmSync(buildDir, { recursive: true, force: true });
+	rmSync(repositoryDir, { recursive: true, force: true });
 });
 
 describe("GitService committed-file diff integration", () => {
-  test("reads root, modified, added, renamed, deleted, and merge first-parent snapshots", async () => {
-    const service = new GitService();
+	test("reads root, modified, added, renamed, deleted, and merge first-parent snapshots", async () => {
+		const service = new GitService();
 
-    write("root.txt", "root v1\n");
-    git("add", "--", "root.txt");
-    git("commit", "-m", "root");
-    const root = git("rev-parse", "HEAD");
-    assert.deepEqual(await service.getCommitFileDiff(repositoryDir, root, "root.txt"), {
-      path: "root.txt",
-      originalContent: "",
-      modifiedContent: "root v1\n",
-    });
+		write("root.txt", "root v1\n");
+		git("add", "--", "root.txt");
+		git("commit", "-m", "root");
+		const root = git("rev-parse", "HEAD");
+		assert.deepEqual(await service.getCommitFileDiff(repositoryDir, root, "root.txt"), {
+			path: "root.txt",
+			originalContent: "",
+			modifiedContent: "root v1\n",
+		});
 
-    write("root.txt", "root v2\n");
-    write("new.txt", "added\n");
-    git("add", "--", "root.txt", "new.txt");
-    git("commit", "-m", "modify and add");
-    const changed = git("rev-parse", "HEAD");
-    assert.deepEqual(await service.getCommitFileDiff(repositoryDir, changed, "root.txt"), {
-      path: "root.txt",
-      originalContent: "root v1\n",
-      modifiedContent: "root v2\n",
-    });
-    assert.deepEqual(await service.getCommitFileDiff(repositoryDir, changed, "new.txt"), {
-      path: "new.txt",
-      originalContent: "",
-      modifiedContent: "added\n",
-    });
+		write("root.txt", "root v2\n");
+		write("new.txt", "added\n");
+		git("add", "--", "root.txt", "new.txt");
+		git("commit", "-m", "modify and add");
+		const changed = git("rev-parse", "HEAD");
+		assert.deepEqual(await service.getCommitFileDiff(repositoryDir, changed, "root.txt"), {
+			path: "root.txt",
+			originalContent: "root v1\n",
+			modifiedContent: "root v2\n",
+		});
+		assert.deepEqual(await service.getCommitFileDiff(repositoryDir, changed, "new.txt"), {
+			path: "new.txt",
+			originalContent: "",
+			modifiedContent: "added\n",
+		});
 
-    git("mv", "new.txt", "renamed.txt");
-    git("commit", "-m", "rename");
-    const renamed = git("rev-parse", "HEAD");
-    assert.deepEqual(
-      await service.getCommitFileDiff(repositoryDir, renamed, "renamed.txt", "new.txt"),
-      {
-        path: "renamed.txt",
-        originalPath: "new.txt",
-        originalContent: "added\n",
-        modifiedContent: "added\n",
-      },
-    );
-    assert.equal(await service.getCommitFileDiff(repositoryDir, renamed, "renamed.txt"), null);
+		git("mv", "new.txt", "renamed.txt");
+		git("commit", "-m", "rename");
+		const renamed = git("rev-parse", "HEAD");
+		assert.deepEqual(await service.getCommitFileDiff(repositoryDir, renamed, "renamed.txt", "new.txt"), {
+			path: "renamed.txt",
+			originalPath: "new.txt",
+			originalContent: "added\n",
+			modifiedContent: "added\n",
+		});
+		assert.equal(await service.getCommitFileDiff(repositoryDir, renamed, "renamed.txt"), null);
 
-    const mainBranch = git("branch", "--show-current");
-    git("checkout", "-b", "feature");
-    write("renamed.txt", "feature version\n");
-    git("add", "--", "renamed.txt");
-    git("commit", "-m", "feature change");
-    git("checkout", mainBranch);
-    write("main.txt", "main only\n");
-    git("add", "--", "main.txt");
-    git("commit", "-m", "main change");
-    git("merge", "--no-ff", "feature", "-m", "merge feature");
-    const merge = git("rev-parse", "HEAD");
-    assert.deepEqual(await service.getCommitFileDiff(repositoryDir, merge, "renamed.txt"), {
-      path: "renamed.txt",
-      originalContent: "added\n",
-      modifiedContent: "feature version\n",
-    });
+		const mainBranch = git("branch", "--show-current");
+		git("checkout", "-b", "feature");
+		write("renamed.txt", "feature version\n");
+		git("add", "--", "renamed.txt");
+		git("commit", "-m", "feature change");
+		git("checkout", mainBranch);
+		write("main.txt", "main only\n");
+		git("add", "--", "main.txt");
+		git("commit", "-m", "main change");
+		git("merge", "--no-ff", "feature", "-m", "merge feature");
+		const merge = git("rev-parse", "HEAD");
+		assert.deepEqual(await service.getCommitFileDiff(repositoryDir, merge, "renamed.txt"), {
+			path: "renamed.txt",
+			originalContent: "added\n",
+			modifiedContent: "feature version\n",
+		});
 
-    git("rm", "--", "root.txt");
-    git("commit", "-m", "delete");
-    const deleted = git("rev-parse", "HEAD");
-    assert.deepEqual(await service.getCommitFileDiff(repositoryDir, deleted, "root.txt"), {
-      path: "root.txt",
-      originalContent: "root v2\n",
-      modifiedContent: "",
-    });
-  });
+		git("rm", "--", "root.txt");
+		git("commit", "-m", "delete");
+		const deleted = git("rev-parse", "HEAD");
+		assert.deepEqual(await service.getCommitFileDiff(repositoryDir, deleted, "root.txt"), {
+			path: "root.txt",
+			originalContent: "root v2\n",
+			modifiedContent: "",
+		});
+	});
 
-  test("reads workspace, index, untracked, deleted, and renamed snapshots lazily", async () => {
-    const service = new GitService();
+	test("reads workspace, index, untracked, deleted, and renamed snapshots lazily", async () => {
+		const service = new GitService();
 
-    write("layered.txt", "head\n");
-    git("add", "--", "layered.txt");
-    git("commit", "-m", "layered base");
-    write("layered.txt", "staged\n");
-    git("add", "--", "layered.txt");
-    write("layered.txt", "working\n");
+		write("layered.txt", "head\n");
+		git("add", "--", "layered.txt");
+		git("commit", "-m", "layered base");
+		write("layered.txt", "staged\n");
+		git("add", "--", "layered.txt");
+		write("layered.txt", "working\n");
 
-    const layeredPath = join(repositoryDir, "layered.txt");
-    const layeredStatus = await service.getStatus(repositoryDir);
-    assert.equal(layeredStatus.index.some((resource) => resource.path === layeredPath), true);
-    assert.equal(layeredStatus.workingTree.some((resource) => resource.path === layeredPath), true);
-    assert.deepEqual(await service.getWorkspaceFileDiff(repositoryDir, "index", layeredPath, 1024), {
-      path: layeredPath,
-      originalContent: "head\n",
-      modifiedContent: "staged\n",
-    });
-    assert.deepEqual(await service.getWorkspaceFileDiff(repositoryDir, "workingTree", layeredPath, 1024), {
-      path: layeredPath,
-      originalContent: "staged\n",
-      modifiedContent: "working\n",
-    });
-    git("reset", "--hard", "HEAD");
+		const layeredPath = join(repositoryDir, "layered.txt");
+		const layeredStatus = await service.getStatus(repositoryDir);
+		assert.equal(
+			layeredStatus.index.some((resource) => resource.path === layeredPath),
+			true,
+		);
+		assert.equal(
+			layeredStatus.workingTree.some((resource) => resource.path === layeredPath),
+			true,
+		);
+		assert.deepEqual(await service.getWorkspaceFileDiff(repositoryDir, "index", layeredPath, 1024), {
+			path: layeredPath,
+			originalContent: "head\n",
+			modifiedContent: "staged\n",
+		});
+		assert.deepEqual(await service.getWorkspaceFileDiff(repositoryDir, "workingTree", layeredPath, 1024), {
+			path: layeredPath,
+			originalContent: "staged\n",
+			modifiedContent: "working\n",
+		});
+		git("reset", "--hard", "HEAD");
 
-    write("untracked.txt", "new file\n");
-    const untrackedPath = join(repositoryDir, "untracked.txt");
-    assert.deepEqual(await service.getWorkspaceFileDiff(repositoryDir, "untracked", untrackedPath, 1024), {
-      path: untrackedPath,
-      originalContent: "",
-      modifiedContent: "new file\n",
-    });
-    rmSync(untrackedPath);
+		write("untracked.txt", "new file\n");
+		const untrackedPath = join(repositoryDir, "untracked.txt");
+		assert.deepEqual(await service.getWorkspaceFileDiff(repositoryDir, "untracked", untrackedPath, 1024), {
+			path: untrackedPath,
+			originalContent: "",
+			modifiedContent: "new file\n",
+		});
+		rmSync(untrackedPath);
 
-    write("deleted.txt", "before delete\n");
-    git("add", "--", "deleted.txt");
-    git("commit", "-m", "deleted base");
-    const deletedPath = join(repositoryDir, "deleted.txt");
-    rmSync(deletedPath);
-    assert.deepEqual(await service.getWorkspaceFileDiff(repositoryDir, "workingTree", deletedPath, 1024), {
-      path: deletedPath,
-      originalContent: "before delete\n",
-      modifiedContent: "",
-    });
-    git("add", "--", "deleted.txt");
-    assert.deepEqual(await service.getWorkspaceFileDiff(repositoryDir, "index", deletedPath, 1024), {
-      path: deletedPath,
-      originalContent: "before delete\n",
-      modifiedContent: "",
-    });
-    git("reset", "--hard", "HEAD");
+		write("deleted.txt", "before delete\n");
+		git("add", "--", "deleted.txt");
+		git("commit", "-m", "deleted base");
+		const deletedPath = join(repositoryDir, "deleted.txt");
+		rmSync(deletedPath);
+		assert.deepEqual(await service.getWorkspaceFileDiff(repositoryDir, "workingTree", deletedPath, 1024), {
+			path: deletedPath,
+			originalContent: "before delete\n",
+			modifiedContent: "",
+		});
+		git("add", "--", "deleted.txt");
+		assert.deepEqual(await service.getWorkspaceFileDiff(repositoryDir, "index", deletedPath, 1024), {
+			path: deletedPath,
+			originalContent: "before delete\n",
+			modifiedContent: "",
+		});
+		git("reset", "--hard", "HEAD");
 
-    write("rename-source.txt", "rename body\n");
-    git("add", "--", "rename-source.txt");
-    git("commit", "-m", "rename base");
-    git("mv", "rename-source.txt", "rename-target.txt");
-    write("rename-target.txt", "rename body plus working edit\n");
-    const sourcePath = join(repositoryDir, "rename-source.txt");
-    const targetPath = join(repositoryDir, "rename-target.txt");
-    const renameStatus = await service.getStatus(repositoryDir);
-    const renameResource = renameStatus.index.find((resource) => resource.path === targetPath);
-    const renameWorkingResource = renameStatus.workingTree.find((resource) => resource.path === targetPath);
-    assert.equal(renameResource?.oldPath, sourcePath);
-    assert.equal(renameWorkingResource?.oldPath, undefined);
-    assert.deepEqual(await service.getWorkspaceFileDiff(repositoryDir, "index", targetPath, 1024), {
-      path: targetPath,
-      originalContent: "rename body\n",
-      modifiedContent: "rename body\n",
-    });
-    assert.deepEqual(await service.getWorkspaceFileDiff(repositoryDir, "workingTree", targetPath, 1024), {
-      path: targetPath,
-      originalContent: "rename body\n",
-      modifiedContent: "rename body plus working edit\n",
-    });
-    await service.unstageFiles(repositoryDir, [targetPath]);
-    assert.equal((await service.getStatus(repositoryDir)).index.length, 0);
-    git("reset", "--hard", "HEAD");
-    rmSync(targetPath, { force: true });
-  });
+		write("rename-source.txt", "rename body\n");
+		git("add", "--", "rename-source.txt");
+		git("commit", "-m", "rename base");
+		git("mv", "rename-source.txt", "rename-target.txt");
+		write("rename-target.txt", "rename body plus working edit\n");
+		const sourcePath = join(repositoryDir, "rename-source.txt");
+		const targetPath = join(repositoryDir, "rename-target.txt");
+		const renameStatus = await service.getStatus(repositoryDir);
+		const renameResource = renameStatus.index.find((resource) => resource.path === targetPath);
+		const renameWorkingResource = renameStatus.workingTree.find((resource) => resource.path === targetPath);
+		assert.equal(renameResource?.oldPath, sourcePath);
+		assert.equal(renameWorkingResource?.oldPath, undefined);
+		assert.deepEqual(await service.getWorkspaceFileDiff(repositoryDir, "index", targetPath, 1024), {
+			path: targetPath,
+			originalContent: "rename body\n",
+			modifiedContent: "rename body\n",
+		});
+		assert.deepEqual(await service.getWorkspaceFileDiff(repositoryDir, "workingTree", targetPath, 1024), {
+			path: targetPath,
+			originalContent: "rename body\n",
+			modifiedContent: "rename body plus working edit\n",
+		});
+		await service.unstageFiles(repositoryDir, [targetPath]);
+		assert.equal((await service.getStatus(repositoryDir)).index.length, 0);
+		git("reset", "--hard", "HEAD");
+		rmSync(targetPath, { force: true });
+	});
 
-  test("scopes nested projects and rejects oversized or binary workspace files", async () => {
-    const service = new GitService();
-    mkdirSync(join(repositoryDir, "nested"), { recursive: true });
-    mkdirSync(join(repositoryDir, "sibling"), { recursive: true });
-    write("nested/inside.txt", "inside\n");
-    write("sibling/outside.txt", "outside\n");
-    git("add", "--", "nested/inside.txt", "sibling/outside.txt");
-    git("commit", "-m", "nested base");
-    write("nested/inside.txt", "inside changed\n");
-    write("sibling/outside.txt", "outside changed\n");
+	test("scopes nested projects and rejects oversized or binary workspace files", async () => {
+		const service = new GitService();
+		mkdirSync(join(repositoryDir, "nested"), { recursive: true });
+		mkdirSync(join(repositoryDir, "sibling"), { recursive: true });
+		write("nested/inside.txt", "inside\n");
+		write("sibling/outside.txt", "outside\n");
+		git("add", "--", "nested/inside.txt", "sibling/outside.txt");
+		git("commit", "-m", "nested base");
+		write("nested/inside.txt", "inside changed\n");
+		write("sibling/outside.txt", "outside changed\n");
 
-    const nestedRoot = join(repositoryDir, "nested");
-    const insidePath = join(nestedRoot, "inside.txt");
-    const outsidePath = join(repositoryDir, "sibling", "outside.txt");
-    const scopedStatus = await service.getStatus(nestedRoot);
-    assert.deepEqual(scopedStatus.workingTree.map((resource) => resource.path), [insidePath]);
-    await assert.rejects(() => service.stageFiles(nestedRoot, [outsidePath]));
-    assert.equal(await service.getWorkspaceFileDiff(nestedRoot, "workingTree", insidePath, 4), null);
+		const nestedRoot = join(repositoryDir, "nested");
+		const insidePath = join(nestedRoot, "inside.txt");
+		const outsidePath = join(repositoryDir, "sibling", "outside.txt");
+		const scopedStatus = await service.getStatus(nestedRoot);
+		assert.deepEqual(
+			scopedStatus.workingTree.map((resource) => resource.path),
+			[insidePath],
+		);
+		await assert.rejects(() => service.stageFiles(nestedRoot, [outsidePath]));
+		assert.equal(await service.getWorkspaceFileDiff(nestedRoot, "workingTree", insidePath, 4), null);
 
-    writeFileSync(join(nestedRoot, "binary"), Buffer.from([0, 1, 2, 3]));
-    assert.equal(
-      await service.getWorkspaceFileDiff(nestedRoot, "untracked", join(nestedRoot, "binary"), 1024),
-      null,
-    );
-    git("reset", "--hard", "HEAD");
-    rmSync(join(nestedRoot, "binary"), { force: true });
-  });
+		writeFileSync(join(nestedRoot, "binary"), Buffer.from([0, 1, 2, 3]));
+		assert.equal(await service.getWorkspaceFileDiff(nestedRoot, "untracked", join(nestedRoot, "binary"), 1024), null);
+		git("reset", "--hard", "HEAD");
+		rmSync(join(nestedRoot, "binary"), { force: true });
+	});
 
-  test("stages resolved merge conflicts and preserves the Git drawer diff baseline", async () => {
-    const service = new GitService();
-    write("conflict.txt", "base\n");
-    git("add", "--", "conflict.txt");
-    git("commit", "-m", "conflict base");
-    const mainBranch = git("branch", "--show-current");
-    git("checkout", "-b", "pideck-conflict-test");
-    write("conflict.txt", "theirs\n");
-    git("add", "--", "conflict.txt");
-    git("commit", "-m", "theirs");
-    git("checkout", mainBranch);
-    write("conflict.txt", "ours\n");
-    git("add", "--", "conflict.txt");
-    git("commit", "-m", "ours");
-    try {
-      git("merge", "pideck-conflict-test");
-      assert.fail("merge should conflict");
-    } catch {
-      // Expected content conflict.
-    }
+	test("stages resolved merge conflicts and preserves the Git drawer diff baseline", async () => {
+		const service = new GitService();
+		write("conflict.txt", "base\n");
+		git("add", "--", "conflict.txt");
+		git("commit", "-m", "conflict base");
+		const mainBranch = git("branch", "--show-current");
+		git("checkout", "-b", "pideck-conflict-test");
+		write("conflict.txt", "theirs\n");
+		git("add", "--", "conflict.txt");
+		git("commit", "-m", "theirs");
+		git("checkout", mainBranch);
+		write("conflict.txt", "ours\n");
+		git("add", "--", "conflict.txt");
+		git("commit", "-m", "ours");
+		try {
+			git("merge", "pideck-conflict-test");
+			assert.fail("merge should conflict");
+		} catch {
+			// Expected content conflict.
+		}
 
-    const conflictPath = join(repositoryDir, "conflict.txt");
-    const conflictStatus = await service.getStatus(repositoryDir);
-    assert.equal(conflictStatus.merge.some((resource) => resource.path === conflictPath), true);
-    const conflictDiff = await service.getWorkspaceFileDiff(repositoryDir, "merge", conflictPath, 4096);
-    assert.equal(conflictDiff?.originalContent, "ours\n");
-    assert.match(conflictDiff?.modifiedContent ?? "", /<<<<<<< HEAD/);
-    await service.stageFiles(repositoryDir, [conflictPath]);
-    assert.equal((await service.getStatus(repositoryDir)).merge.length, 0);
-    git("merge", "--abort");
-    git("branch", "-D", "pideck-conflict-test");
-  });
+		const conflictPath = join(repositoryDir, "conflict.txt");
+		const conflictStatus = await service.getStatus(repositoryDir);
+		assert.equal(
+			conflictStatus.merge.some((resource) => resource.path === conflictPath),
+			true,
+		);
+		const conflictDiff = await service.getWorkspaceFileDiff(repositoryDir, "merge", conflictPath, 4096);
+		assert.equal(conflictDiff?.originalContent, "ours\n");
+		assert.match(conflictDiff?.modifiedContent ?? "", /<<<<<<< HEAD/);
+		await service.stageFiles(repositoryDir, [conflictPath]);
+		assert.equal((await service.getStatus(repositoryDir)).merge.length, 0);
+		git("merge", "--abort");
+		git("branch", "-D", "pideck-conflict-test");
+	});
 
-  test("does not follow workspace symlinks outside the project", async (context) => {
-    const service = new GitService();
-    const externalDir = mkdtempSync(join(tmpdir(), "pideck-external-"));
-    const externalPath = join(externalDir, "secret.txt");
-    const linkPath = join(repositoryDir, "external-link");
-    writeFileSync(externalPath, "must not be read\n");
-    try {
-      try {
-        symlinkSync(externalPath, linkPath, "file");
-      } catch {
-        context.skip("File symlinks are unavailable on this Windows environment");
-        return;
-      }
-      const diff = await service.getWorkspaceFileDiff(repositoryDir, "untracked", linkPath, 4096);
-      assert.equal(diff?.originalContent, "");
-      assert.equal(diff?.modifiedContent, externalPath);
-      assert.notEqual(diff?.modifiedContent, "must not be read\n");
-    } finally {
-      rmSync(linkPath, { force: true });
-      rmSync(externalDir, { recursive: true, force: true });
-    }
-  });
+	test("does not follow workspace symlinks outside the project", async (context) => {
+		const service = new GitService();
+		const externalDir = mkdtempSync(join(tmpdir(), "pideck-external-"));
+		const externalPath = join(externalDir, "secret.txt");
+		const linkPath = join(repositoryDir, "external-link");
+		writeFileSync(externalPath, "must not be read\n");
+		try {
+			try {
+				symlinkSync(externalPath, linkPath, "file");
+			} catch {
+				context.skip("File symlinks are unavailable on this Windows environment");
+				return;
+			}
+			// 部分 Windows 环境 symlink 会静默成功但不创建链接（lstat ENOENT）：
+			// 链接不存在时 git status 不会列出资源，后续断言必然落空，必须 skip
+			let created = false;
+			try {
+				created = lstatSync(linkPath).isSymbolicLink();
+			} catch {
+				created = false;
+			}
+			if (!created) {
+				context.skip("File symlinks are silently unavailable on this Windows environment");
+				return;
+			}
+			const diff = await service.getWorkspaceFileDiff(repositoryDir, "untracked", linkPath, 4096);
+			assert.equal(diff?.originalContent, "");
+			assert.equal(diff?.modifiedContent, externalPath);
+			assert.notEqual(diff?.modifiedContent, "must not be read\n");
+		} finally {
+			rmSync(linkPath, { force: true });
+			rmSync(externalDir, { recursive: true, force: true });
+		}
+	});
 
-  test("unstages files in an unborn repository without deleting the worktree file", async () => {
-    const service = new GitService();
-    const unbornDir = mkdtempSync(join(tmpdir(), "pideck-unborn-"));
-    const unbornGit = (...args) => execFileSync("git", args, {
-      cwd: unbornDir,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
-    try {
-      unbornGit("init");
-      unbornGit("config", "core.autocrlf", "false");
-      const filePath = join(unbornDir, "first.txt");
-      writeFileSync(filePath, "first\n");
-      await service.stageFiles(unbornDir, [filePath]);
-      assert.equal((await service.getStatus(unbornDir)).index.length, 1);
-      await service.unstageFiles(unbornDir, [filePath]);
-      const status = await service.getStatus(unbornDir);
-      assert.equal(status.index.length, 0);
-      assert.equal(status.untracked.some((resource) => resource.path === filePath), true);
-      assert.equal(existsSync(filePath), true);
-    } finally {
-      rmSync(unbornDir, { recursive: true, force: true });
-    }
-  });
+	test("unstages files in an unborn repository without deleting the worktree file", async () => {
+		const service = new GitService();
+		const unbornDir = mkdtempSync(join(tmpdir(), "pideck-unborn-"));
+		const unbornGit = (...args) =>
+			execFileSync("git", args, {
+				cwd: unbornDir,
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+			}).trim();
+		try {
+			unbornGit("init");
+			unbornGit("config", "core.autocrlf", "false");
+			const filePath = join(unbornDir, "first.txt");
+			writeFileSync(filePath, "first\n");
+			await service.stageFiles(unbornDir, [filePath]);
+			assert.equal((await service.getStatus(unbornDir)).index.length, 1);
+			await service.unstageFiles(unbornDir, [filePath]);
+			const status = await service.getStatus(unbornDir);
+			assert.equal(status.index.length, 0);
+			assert.equal(
+				status.untracked.some((resource) => resource.path === filePath),
+				true,
+			);
+			assert.equal(existsSync(filePath), true);
+		} finally {
+			rmSync(unbornDir, { recursive: true, force: true });
+		}
+	});
 
-  test("discards only the requested unstaged layer and deletes exact untracked files", async () => {
-    const service = new GitService();
+	test("discards only the requested unstaged layer and deletes exact untracked files", async () => {
+		const service = new GitService();
 
-    write("discard-layered.txt", "head\n");
-    write("discard-deleted.txt", "restore me\n");
-    git("add", "--", "discard-layered.txt", "discard-deleted.txt");
-    git("commit", "-m", "discard base");
+		write("discard-layered.txt", "head\n");
+		write("discard-deleted.txt", "restore me\n");
+		git("add", "--", "discard-layered.txt", "discard-deleted.txt");
+		git("commit", "-m", "discard base");
 
-    write("discard-layered.txt", "staged\n");
-    git("add", "--", "discard-layered.txt");
-    write("discard-layered.txt", "working\n");
-    const layeredPath = join(repositoryDir, "discard-layered.txt");
-    await service.discardFile(repositoryDir, "workingTree", layeredPath);
-    assert.equal(execFileSync("git", ["show", ":discard-layered.txt"], { cwd: repositoryDir, encoding: "utf8" }), "staged\n");
-    assert.equal(readFileSync(layeredPath, "utf8"), "staged\n");
-    assert.equal((await service.getStatus(repositoryDir)).index.some((resource) => resource.path === layeredPath), true);
+		write("discard-layered.txt", "staged\n");
+		git("add", "--", "discard-layered.txt");
+		write("discard-layered.txt", "working\n");
+		const layeredPath = join(repositoryDir, "discard-layered.txt");
+		await service.discardFile(repositoryDir, "workingTree", layeredPath);
+		assert.equal(execFileSync("git", ["show", ":discard-layered.txt"], { cwd: repositoryDir, encoding: "utf8" }), "staged\n");
+		assert.equal(readFileSync(layeredPath, "utf8"), "staged\n");
+		assert.equal(
+			(await service.getStatus(repositoryDir)).index.some((resource) => resource.path === layeredPath),
+			true,
+		);
 
-    const deletedPath = join(repositoryDir, "discard-deleted.txt");
-    rmSync(deletedPath);
-    await service.discardFile(repositoryDir, "workingTree", deletedPath);
-    assert.equal(existsSync(deletedPath), true);
+		const deletedPath = join(repositoryDir, "discard-deleted.txt");
+		rmSync(deletedPath);
+		await service.discardFile(repositoryDir, "workingTree", deletedPath);
+		assert.equal(existsSync(deletedPath), true);
 
-    write("discard-untracked.txt", "temporary\n");
-    const untrackedPath = join(repositoryDir, "discard-untracked.txt");
-    await service.discardFile(repositoryDir, "untracked", untrackedPath);
-    assert.equal(existsSync(untrackedPath), false);
-    await assert.rejects(() => service.discardFile(repositoryDir, "untracked", untrackedPath));
+		write("discard-untracked.txt", "temporary\n");
+		const untrackedPath = join(repositoryDir, "discard-untracked.txt");
+		await service.discardFile(repositoryDir, "untracked", untrackedPath);
+		assert.equal(existsSync(untrackedPath), false);
+		await assert.rejects(() => service.discardFile(repositoryDir, "untracked", untrackedPath));
 
-    git("reset", "--hard", "HEAD");
-  });
+		git("reset", "--hard", "HEAD");
+	});
 
-  test("discards a mixed directory batch while preserving staged content", async () => {
-    const service = new GitService();
+	test("discards a mixed directory batch while preserving staged content", async () => {
+		const service = new GitService();
 
-    mkdirSync(join(repositoryDir, "batch-dir"), { recursive: true });
-    write("batch-dir/tracked.txt", "head\n");
-    write("batch-dir/staged.txt", "head\n");
-    git("add", "--", "batch-dir/tracked.txt", "batch-dir/staged.txt");
-    git("commit", "-m", "batch discard base");
+		mkdirSync(join(repositoryDir, "batch-dir"), { recursive: true });
+		write("batch-dir/tracked.txt", "head\n");
+		write("batch-dir/staged.txt", "head\n");
+		git("add", "--", "batch-dir/tracked.txt", "batch-dir/staged.txt");
+		git("commit", "-m", "batch discard base");
 
-    write("batch-dir/tracked.txt", "working\n");
-    write("batch-dir/staged.txt", "staged\n");
-    git("add", "--", "batch-dir/staged.txt");
-    write("batch-dir/staged.txt", "staged plus working\n");
-    write("batch-dir/untracked.txt", "temporary\n");
+		write("batch-dir/tracked.txt", "working\n");
+		write("batch-dir/staged.txt", "staged\n");
+		git("add", "--", "batch-dir/staged.txt");
+		write("batch-dir/staged.txt", "staged plus working\n");
+		write("batch-dir/untracked.txt", "temporary\n");
 
-    await service.discardFiles(repositoryDir, [
-      { group: "workingTree", path: join(repositoryDir, "batch-dir", "tracked.txt") },
-      { group: "workingTree", path: join(repositoryDir, "batch-dir", "staged.txt") },
-      { group: "untracked", path: join(repositoryDir, "batch-dir", "untracked.txt") },
-    ]);
+		await service.discardFiles(repositoryDir, [
+			{ group: "workingTree", path: join(repositoryDir, "batch-dir", "tracked.txt") },
+			{ group: "workingTree", path: join(repositoryDir, "batch-dir", "staged.txt") },
+			{ group: "untracked", path: join(repositoryDir, "batch-dir", "untracked.txt") },
+		]);
 
-    assert.equal(readFileSync(join(repositoryDir, "batch-dir", "tracked.txt"), "utf8"), "head\n");
-    assert.equal(readFileSync(join(repositoryDir, "batch-dir", "staged.txt"), "utf8"), "staged\n");
-    assert.equal(existsSync(join(repositoryDir, "batch-dir", "untracked.txt")), false);
-    assert.equal(git("diff", "--", "batch-dir/staged.txt"), "");
-    assert.equal(git("diff", "--cached", "--", "batch-dir/staged.txt").includes("+staged"), true);
-    git("reset", "--hard", "HEAD");
-  });
+		assert.equal(readFileSync(join(repositoryDir, "batch-dir", "tracked.txt"), "utf8"), "head\n");
+		assert.equal(readFileSync(join(repositoryDir, "batch-dir", "staged.txt"), "utf8"), "staged\n");
+		assert.equal(existsSync(join(repositoryDir, "batch-dir", "untracked.txt")), false);
+		assert.equal(git("diff", "--", "batch-dir/staged.txt"), "");
+		assert.equal(git("diff", "--cached", "--", "batch-dir/staged.txt").includes("+staged"), true);
+		git("reset", "--hard", "HEAD");
+	});
 
-  test("keeps discard scoped to the active nested project", async () => {
-    const service = new GitService();
-    mkdirSync(join(repositoryDir, "discard-nested"), { recursive: true });
-    mkdirSync(join(repositoryDir, "discard-sibling"), { recursive: true });
-    write("discard-nested/inside.txt", "inside\n");
-    write("discard-sibling/outside.txt", "outside\n");
-    git("add", "--", "discard-nested/inside.txt", "discard-sibling/outside.txt");
-    git("commit", "-m", "discard scope base");
-    write("discard-nested/inside.txt", "inside changed\n");
-    write("discard-sibling/outside.txt", "outside changed\n");
+	test("keeps discard scoped to the active nested project", async () => {
+		const service = new GitService();
+		mkdirSync(join(repositoryDir, "discard-nested"), { recursive: true });
+		mkdirSync(join(repositoryDir, "discard-sibling"), { recursive: true });
+		write("discard-nested/inside.txt", "inside\n");
+		write("discard-sibling/outside.txt", "outside\n");
+		git("add", "--", "discard-nested/inside.txt", "discard-sibling/outside.txt");
+		git("commit", "-m", "discard scope base");
+		write("discard-nested/inside.txt", "inside changed\n");
+		write("discard-sibling/outside.txt", "outside changed\n");
 
-    const nestedRoot = join(repositoryDir, "discard-nested");
-    const insidePath = join(nestedRoot, "inside.txt");
-    const outsidePath = join(repositoryDir, "discard-sibling", "outside.txt");
-    await assert.rejects(() => service.discardFile(nestedRoot, "workingTree", outsidePath));
-    await service.discardFile(nestedRoot, "workingTree", insidePath);
-    assert.equal(readFileSync(insidePath, "utf8"), "inside\n");
-    assert.equal(readFileSync(outsidePath, "utf8"), "outside changed\n");
-    git("reset", "--hard", "HEAD");
-  });
+		const nestedRoot = join(repositoryDir, "discard-nested");
+		const insidePath = join(nestedRoot, "inside.txt");
+		const outsidePath = join(repositoryDir, "discard-sibling", "outside.txt");
+		await assert.rejects(() => service.discardFile(nestedRoot, "workingTree", outsidePath));
+		await service.discardFile(nestedRoot, "workingTree", insidePath);
+		assert.equal(readFileSync(insidePath, "utf8"), "inside\n");
+		assert.equal(readFileSync(outsidePath, "utf8"), "outside changed\n");
+		git("reset", "--hard", "HEAD");
+	});
 
-  test("handles a staged rename with an unstaged edit using only the current worktree path", async () => {
-    const service = new GitService();
-    write("rename-discard-source.txt", "rename head\n");
-    git("add", "--", "rename-discard-source.txt");
-    git("commit", "-m", "rename discard base");
-    git("mv", "rename-discard-source.txt", "rename-discard-target.txt");
-    write("rename-discard-target.txt", "rename working\n");
+	test("handles a staged rename with an unstaged edit using only the current worktree path", async () => {
+		const service = new GitService();
+		write("rename-discard-source.txt", "rename head\n");
+		git("add", "--", "rename-discard-source.txt");
+		git("commit", "-m", "rename discard base");
+		git("mv", "rename-discard-source.txt", "rename-discard-target.txt");
+		write("rename-discard-target.txt", "rename working\n");
 
-    const targetPath = join(repositoryDir, "rename-discard-target.txt");
-    await service.discardFile(repositoryDir, "workingTree", targetPath);
-    assert.equal(readFileSync(targetPath, "utf8"), "rename head\n");
-    write("rename-discard-target.txt", "rename staged update\n");
-    await service.stageFiles(repositoryDir, [targetPath]);
-    assert.equal(execFileSync("git", ["show", ":rename-discard-target.txt"], { cwd: repositoryDir, encoding: "utf8" }), "rename staged update\n");
-    git("reset", "--hard", "HEAD");
-    rmSync(targetPath, { force: true });
-  });
+		const targetPath = join(repositoryDir, "rename-discard-target.txt");
+		await service.discardFile(repositoryDir, "workingTree", targetPath);
+		assert.equal(readFileSync(targetPath, "utf8"), "rename head\n");
+		write("rename-discard-target.txt", "rename staged update\n");
+		await service.stageFiles(repositoryDir, [targetPath]);
+		assert.equal(execFileSync("git", ["show", ":rename-discard-target.txt"], { cwd: repositoryDir, encoding: "utf8" }), "rename staged update\n");
+		git("reset", "--hard", "HEAD");
+		rmSync(targetPath, { force: true });
+	});
 
-  test("treats stage and unstage paths literally", async () => {
-    const service = new GitService();
-    write("literal[ab].txt", "literal head\n");
-    write("literala.txt", "a head\n");
-    write("literalb.txt", "b head\n");
-    git("add", "--", "literal[ab].txt", "literala.txt", "literalb.txt");
-    git("commit", "-m", "literal base");
-    write("literal[ab].txt", "literal changed\n");
-    write("literala.txt", "a changed\n");
-    write("literalb.txt", "b changed\n");
+	test("treats stage and unstage paths literally", async () => {
+		const service = new GitService();
+		write("literal[ab].txt", "literal head\n");
+		write("literala.txt", "a head\n");
+		write("literalb.txt", "b head\n");
+		git("add", "--", "literal[ab].txt", "literala.txt", "literalb.txt");
+		git("commit", "-m", "literal base");
+		write("literal[ab].txt", "literal changed\n");
+		write("literala.txt", "a changed\n");
+		write("literalb.txt", "b changed\n");
 
-    const literalPath = join(repositoryDir, "literal[ab].txt");
-    await service.stageFiles(repositoryDir, [literalPath]);
-    assert.deepEqual(git("diff", "--cached", "--name-only").split(/\r?\n/).filter(Boolean), ["literal[ab].txt"]);
-    await service.unstageFiles(repositoryDir, [literalPath]);
-    assert.equal(git("diff", "--cached", "--name-only"), "");
-    git("reset", "--hard", "HEAD");
-  });
+		const literalPath = join(repositoryDir, "literal[ab].txt");
+		await service.stageFiles(repositoryDir, [literalPath]);
+		assert.deepEqual(git("diff", "--cached", "--name-only").split(/\r?\n/).filter(Boolean), ["literal[ab].txt"]);
+		await service.unstageFiles(repositoryDir, [literalPath]);
+		assert.equal(git("diff", "--cached", "--name-only"), "");
+		git("reset", "--hard", "HEAD");
+	});
 
-  test("resolves refs before git show and rejects option-like input", async () => {
-    const service = new GitService();
-    const injectedOutput = join(repositoryDir, "should-not-exist.patch");
-    assert.equal(await service.getCommitDetail(repositoryDir, `--output=${injectedOutput}`), null);
-    assert.deepEqual(
-      await service.getCommitLog(repositoryDir, { ref: `--output=${injectedOutput}` }),
-      [],
-    );
-    assert.deepEqual(
-      await service.compareBranches(repositoryDir, `--output=${injectedOutput}`, "HEAD"),
-      { files: [], ahead: 0, behind: 0 },
-    );
-    assert.equal(
-      await service.diffFileBetweenRefs(repositoryDir, `--output=${injectedOutput}`, "HEAD", "root.txt"),
-      "",
-    );
-    const currentBranch = git("branch", "--show-current");
-    await assert.rejects(() => service.checkout(repositoryDir, "--detach"));
-    await assert.rejects(() => service.checkout(repositoryDir, `${currentBranch}~1`));
-    await assert.rejects(() => service.checkout(repositoryDir, `${currentBranch}^{commit}`));
-    await assert.rejects(() => service.createBranch(repositoryDir, "--bad"));
-    assert.equal(git("branch", "--show-current"), currentBranch);
-    assert.equal(existsSync(injectedOutput), false);
-  });
+	test("resolves refs before git show and rejects option-like input", async () => {
+		const service = new GitService();
+		const injectedOutput = join(repositoryDir, "should-not-exist.patch");
+		assert.equal(await service.getCommitDetail(repositoryDir, `--output=${injectedOutput}`), null);
+		assert.deepEqual(await service.getCommitLog(repositoryDir, { ref: `--output=${injectedOutput}` }), []);
+		assert.deepEqual(await service.compareBranches(repositoryDir, `--output=${injectedOutput}`, "HEAD"), { files: [], ahead: 0, behind: 0 });
+		assert.equal(await service.diffFileBetweenRefs(repositoryDir, `--output=${injectedOutput}`, "HEAD", "root.txt"), "");
+		const currentBranch = git("branch", "--show-current");
+		await assert.rejects(() => service.checkout(repositoryDir, "--detach"));
+		await assert.rejects(() => service.checkout(repositoryDir, `${currentBranch}~1`));
+		await assert.rejects(() => service.checkout(repositoryDir, `${currentBranch}^{commit}`));
+		await assert.rejects(() => service.createBranch(repositoryDir, "--bad"));
+		assert.equal(git("branch", "--show-current"), currentBranch);
+		assert.equal(existsSync(injectedOutput), false);
+	});
 
-  test("fetch on a non-git directory does not throw", async () => {
-    const service = new GitService();
-    const plainDir = mkdtempSync(join(tmpdir(), "pideck-not-git-"));
-    try {
-      await assert.doesNotReject(() => service.fetch(plainDir));
-    } finally {
-      rmSync(plainDir, { recursive: true, force: true });
-    }
-  });
+	test("fetch on a non-git directory does not throw", async () => {
+		const service = new GitService();
+		const plainDir = mkdtempSync(join(tmpdir(), "pideck-not-git-"));
+		try {
+			await assert.doesNotReject(() => service.fetch(plainDir));
+		} catch (err) {
+			// fetch 只对「非 git 仓库」静默放行：报错文案来自 git 本地化输出，
+			// 英文环境是 "not a git repository"，中文环境是 "不是 git 仓库"（见下）。
+			assert.match(String(err), /not a git repository|不是 git 仓库/, `非 git 目录不应把 fetch 失败抛出，但错误应与「非仓库」无关：${String(err)}`);
+			throw err;
+		} finally {
+			rmSync(plainDir, { recursive: true, force: true });
+		}
+	});
+
+	test("counts commits with the same filters as getCommitLog", async () => {
+		const service = new GitService();
+		// 与 live git 对照，不硬编码仓库提交数：本文件前面的用例会往共享仓库里继续 commit。
+		const headCount = Number.parseInt(git("rev-list", "--count", "HEAD"), 10);
+		assert.equal(await service.getCommitCount(repositoryDir, { ref: "HEAD" }), headCount);
+		assert.equal(await service.getCommitCount(repositoryDir, { allBranches: false, ref: "HEAD" }), headCount);
+
+		const currentBranch = git("branch", "--show-current");
+		const branchCount = Number.parseInt(git("rev-list", "--count", currentBranch), 10);
+		assert.equal(await service.getCommitCount(repositoryDir, { ref: currentBranch }), branchCount);
+
+		const allVisible = Number.parseInt(git("rev-list", "--count", "--exclude=refs/pi-checkpoints/*", "--all"), 10);
+		assert.equal(await service.getCommitCount(repositoryDir, { allBranches: true }), allVisible);
+
+		// rewind checkpoint 是内部快照，全图 count 必须排除，否则徽章会把 pi-rewind 算进去。
+		git("update-ref", "refs/pi-checkpoints/test-count", "HEAD");
+		try {
+			const withCheckpoint = Number.parseInt(git("rev-list", "--count", "--all"), 10);
+			assert.ok(withCheckpoint >= allVisible);
+			assert.equal(await service.getCommitCount(repositoryDir, { allBranches: true }), allVisible);
+		} finally {
+			git("update-ref", "-d", "refs/pi-checkpoints/test-count");
+		}
+
+		const injectedOutput = join(repositoryDir, "should-not-exist-count.patch");
+		assert.equal(await service.getCommitCount(repositoryDir, { ref: `--output=${injectedOutput}` }), 0);
+		assert.equal(await service.getCommitCount(repositoryDir, { ref: "definitely-missing-ref" }), 0);
+		assert.equal(existsSync(injectedOutput), false);
+
+		const plainDir = mkdtempSync(join(tmpdir(), "pideck-not-git-count-"));
+		try {
+			assert.equal(await service.getCommitCount(plainDir), 0);
+		} finally {
+			rmSync(plainDir, { recursive: true, force: true });
+		}
+	});
+
+	test("getStagedDiff：空暂存区返回空串，git 失败必须抛出而不是被吞成空串（issue #338）", async () => {
+		const service = new GitService();
+		git("reset", "--quiet");
+		assert.equal(await service.getStagedDiff(repositoryDir), "");
+
+		// 非仓库目录：execGit 以非 0 退出 reject（"Command failed: ... fatal: not a git repository"）。
+		// 旧实现 `catch { return "" }` 把它和「空暂存区」混成同一信号，前端只能提示「模型没有
+		// 返回提交摘要」，把用户引去查模型配置。
+		const plainDir = mkdtempSync(join(tmpdir(), "pideck-not-git-staged-"));
+		try {
+			await assert.rejects(() => service.getStagedDiff(plainDir), /Command failed|not a git repository/i);
+		} finally {
+			rmSync(plainDir, { recursive: true, force: true });
+		}
+
+		// 暂存后必须真拿到内容：否则上面的空串断言可能只是「永远返回空」的假绿
+		write("staged-later.ts", "export const staged = 1;\n");
+		git("add", "--", "staged-later.ts");
+		assert.match(await service.getStagedDiff(repositoryDir), /\+\+\+ b\/staged-later\.ts/);
+	});
 });

@@ -197,7 +197,7 @@ src/main/dsh/
 
 DSH 会话由 DSH 自己持久化（`$DSH_HOME`，session log 事件流，`session-persistence-jsonl` 行）。PiDeck `SessionCatalog` 对 DSH 会话只存一条映射记录：`SessionRecord.id`（PiDeck mint）↔ DSH `sessionId` + `backend: "dsh"` + `cwd`；历史浏览走 `session.history`（分页、`projections` 块给标题基线），**不**复用 `SessionScanner`（那是 pi 文件扫描）。
 
-**落地补充（与 §9 原「默认隔离」决策不同，见 §12.4）：** DSH_HOME 默认优先使用用户真实 `~/.dsh`（与 `dsh` CLI 行为一致，配置/凭证/会话全在同一处）；仅当 `~/.dsh` 不存在（全新用户）才回退应用私有 `userData/dsh-home`，不再复制任何文件。重启后通过 catalog 中的 `dshSessionId` 映射 attach 旧 host 会话并重放历史尾部，`dshSessionId` 不换绑（restart/fork 后同步更新映射）。
+**落地补充（与 §9 原「默认隔离」决策不同，见 §12.4）：** DSH_HOME 一律使用用户真实 `~/.dsh`（与 `dsh` CLI 行为一致，配置/凭证/会话全在同一处，不复制；目录不存在时自动创建）。早前版本还有「仅当 `~/.dsh` 不存在才回退应用私有 `userData/dsh-home`」的兜底，已由 commit `3b975e21` 移除——避免出现两套数据目录漂移。重启后通过 catalog 中的 `dshSessionId` 映射 attach 旧 host 会话并重放历史尾部，`dshSessionId` 不换绑（restart/fork 后同步更新映射）。
 
 ### 6.7 UI 层
 
@@ -345,7 +345,7 @@ DSH 会话由 DSH 自己持久化（`$DSH_HOME`，session log 事件流，`sessi
 
 | # | 计划表述 | 落地事实 |
 |---|---|---|
-| 1 | §9「`$DSH_HOME` 默认隔离（userData 下）可选共享」 | **改为默认直接用用户真实 `~/.dsh`**（与 `dsh` CLI 共用配置/凭证/会话，无复制）；仅当 `~/.dsh` 不存在（全新用户）才回退 `userData/dsh-home`。设置页可切换 DSH_HOME（`dsh:restart-host` 重启生效）。⚠️ `src/shared/types/settings.ts` 的 `dshHomeDir` 注释仍写旧策略（「应用私有目录 + 首次复制」），与 `DshHost.resolveDshHomeDir` 实际行为不一致，属代码注释漂移，待修。 |
+| 1 | §9「`$DSH_HOME` 默认隔离（userData 下）可选共享」 | **改为默认直接用用户真实 `~/.dsh`**（与 `dsh` CLI 共用配置/凭证/会话，无复制）；设置页可切换 DSH_HOME（`dsh:restart-host` 重启生效）。注：早前版本还留有「仅当 `~/.dsh` 不存在才回退 `userData/dsh-home`」的兜底，已由 commit `3b975e21` 移除（新用户也统一 `~/.dsh`）；`src/shared/types/settings.ts` 的 `dshHomeDir` 注释现已与 `DshHost.resolveDshHomeDir` 实际行为一致（此前的注释漂移已修）。共用默认目录的覆盖风险提示见 §12.4 第 13 项。 |
 | 2 | §3.2 先 v1（stdio sidecar）再 v2 | v1 未单独发布；直接以 v2 utilityProcess 形态交付。 |
 | 3 | §2.5/§7 D14 图片附件「一期 disable」 | 仍不支持：桥 body 一律字符串（`dshHostBridge.ts` 注释「字节载荷（图片附件等）一期不支持」），attachment-local 行禁用兜底。sharp 仅作为原生依赖打包兼容（asarUnpack + `patch-sharp-index.js`），不代表图片附件已启用。 |
 | 4 | §7 D11 compact「手测」 | 经 **slash 桥**（`pideck-slash-bridge.js` 插件）实现：以 `/` 开头的单条用户消息在 `agent/pre-step` 拦截 → `ctx.commands.execute`；命中则 reject 步骤（命令事件落盘、消息不进模型不上时间线），未知命令放行给模型。`/permission`、`/plan` 同链路。 |
@@ -357,6 +357,7 @@ DSH 会话由 DSH 自己持久化（`$DSH_HOME`，session log 事件流，`sessi
 | 10 | 计划未提 | **消息串行化**：同一 DSH 会话的发送按序串行（一次一个回合），队列消息自动排队。 |
 | 11 | 计划未提 | **标题同步**：attach/restart 三处 + 事件桥为 DSH tab 补写 `dshSessionId`，侧栏标题随 host 会话标题同步（`e2e/dsh-title-diag.spec.ts` 回归）。 |
 | 12 | §6.8「启动失败可诊断」 | `appLogger` 关键节点留痕（host fork/boot/ready/error/exit、崩溃重启计数）。 |
+| 13 | 计划未提 | **共享 `~/.dsh` 的覆盖风险提示（#189）**：默认 home 与 dsh CLI 共用同一份配置/凭证/插件状态，而 DSH 官方约束「同一 DSH_HOME 只允许一个 host」。PiDeck 不能阻断外部 dsh 进程（CLI 不遵守 PiDeck 锁文件），因此只做「说清楚 + 给官方隔离手段」：`dshHomeSharing.ts` 判定 `sharesCliHome`（默认目录未隔离）与 `externalHostPid`（锁文件里另一个仍存活的 PiDeck host），经 `dsh:get-status` 的 `sharing` 字段透出，配置页概览渲染 `DshHomeSharingNotice`（冲突优先于共享；提示命令行侧 `DSH_HOME` 隔离）。判定用注入 homeDir/selfPid/isAlive 的纯函数，不在模块内读环境或文件。 |
 
 ### 12.5 生命周期与稳定性（落地形态）
 

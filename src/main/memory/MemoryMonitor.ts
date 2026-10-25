@@ -20,6 +20,7 @@ import { app, webContents, type WebContents } from "electron";
 import { mkdir, appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { MEMORY_PROFILE_HEADER, toProfileCsvRow, type ProfileRowData } from "./memoryProfileCsv";
+import { buildDomAttributionExpression, normalizeDomAttribution, type DomAttributionEntry } from "./domAttribution";
 
 /** 环境变量开关；值非 "1" 一律视为关闭。 */
 export function isMemoryProfileEnabled(): boolean {
@@ -60,6 +61,25 @@ async function rendererDomMetrics(wc: WebContents): Promise<{
 		};
 	} catch {
 		return { jsHeapKB: null, totalJSHeapKB: null, domNodes: null, imgCount: null, imgPixels: null, canvasPixels: null };
+	}
+}
+
+/**
+ * DOM 归属探针：回答「这些节点花在哪个子树」。
+ *
+ * 为什么单独一条写盘通道：CSV 是「每进程一行」的宽表，归属是多行结构（一个回合一行），
+ * 塞进 CSV 要么破坏既有 18 列契约（parseMemoryCsv 按列数分支解构，加列会误判旧文件），
+ * 要么得编码成 JSON 字符串塞单格——两种都会让 analyze-memory.mjs 跟着改。
+ * 因此归属数据单独写 `dom-attribution.jsonl`（一行一个采样），CSV 契约零改动。
+ *
+ * 失败一律返回 null：诊断功能不能影响主采样。
+ */
+async function domAttributionMetrics(wc: WebContents): Promise<{ total: number; entries: DomAttributionEntry[] } | null> {
+	try {
+		const raw = await wc.executeJavaScript(buildDomAttributionExpression(), true);
+		return normalizeDomAttribution(raw);
+	} catch {
+		return null;
 	}
 }
 
@@ -118,7 +138,8 @@ async function workerMetrics(wc: WebContents): Promise<{
 	}
 }
 
-/** 主进程采样行：process.memoryUsage 的 heapUsed 即主进程 V8 堆。 */
+/** 主进程采样行：process.memoryUsage 的 heapUsed 即主进程 V8 堆；heapTotal/external/arrayBuffers
+ *  2026-12 内存排查补采——heapTotal 与 heapUsed 的差值是「committed 不还 OS」的直接证据。 */
 function mainProcessRow(ts: number): ProfileRowData {
 	const m = process.memoryUsage();
 	return {
@@ -140,6 +161,9 @@ function mainProcessRow(ts: number): ProfileRowData {
 		workerCount: null,
 		workerJSHeapKB: null,
 		streaming: null,
+		heapTotalKB: Math.round(m.heapTotal / 1024),
+		externalKB: Math.round(m.external / 1024),
+		arrayBuffersKB: Math.round(m.arrayBuffers / 1024),
 	};
 }
 
@@ -182,6 +206,9 @@ async function collectSnapshot(streamingProbe?: () => boolean): Promise<ProfileR
 			workerCount: null,
 			workerJSHeapKB: null,
 			streaming: null,
+			heapTotalKB: null,
+			externalKB: null,
+			arrayBuffersKB: null,
 		});
 	}
 
@@ -194,8 +221,7 @@ async function collectSnapshot(streamingProbe?: () => boolean): Promise<ProfileR
 			try {
 				const pid = wc.getOSProcessId();
 				const mem = memByPid.get(pid);
-				const { jsHeapKB, totalJSHeapKB, domNodes, imgCount, imgPixels, canvasPixels } =
-					await rendererDomMetrics(wc);
+				const { jsHeapKB, totalJSHeapKB, domNodes, imgCount, imgPixels, canvasPixels } = await rendererDomMetrics(wc);
 				const { count: workerCount, jsHeapKB: workerJSHeapKB, urls } = await workerMetrics(wc);
 				const streaming = streamingProbe?.() ? 1 : 0;
 				if (urls.length) {
@@ -235,6 +261,9 @@ async function collectSnapshot(streamingProbe?: () => boolean): Promise<ProfileR
 						workerCount,
 						workerJSHeapKB,
 						streaming,
+						heapTotalKB: null,
+						externalKB: null,
+						arrayBuffersKB: null,
 					});
 				}
 			} catch {
@@ -245,11 +274,53 @@ async function collectSnapshot(streamingProbe?: () => boolean): Promise<ProfileR
 	return [...rows.values()];
 }
 
+/**
+ * 采集并追加 DOM 归属样本。
+ *
+ * 只对渲染窗口（type === "Tab" 且非 webview）采样：归属锚点是会话时间线的
+ * data-message-id / data-process-group-id，浏览器面板里没有这些东西，采了也是空的。
+ *
+ * 失败静默：归属是诊断增强项，任何异常都不能让主采样报错或漏写 CSV。
+ */
+async function appendDomAttribution(path: string, rows: readonly ProfileRowData[]): Promise<void> {
+	try {
+		const targets = new Map(rows.filter((r) => r.type === "Tab").map((r) => [r.pid, r] as const));
+		if (targets.size === 0) return;
+		const samples: DomAttributionSample[] = [];
+		for (const wc of webContents.getAllWebContents()) {
+			if (wc.getType() === "webview") continue;
+			const row = targets.get(wc.getOSProcessId());
+			if (!row) continue;
+			const attribution = await domAttributionMetrics(wc);
+			if (!attribution) continue;
+			samples.push({ ts: Date.now(), pid: row.pid, label: row.label, total: attribution.total, entries: attribution.entries });
+		}
+		if (samples.length === 0) return;
+		await appendFile(path, samples.map((s) => JSON.stringify(s)).join("\n") + "\n");
+	} catch (error) {
+		console.error("[memory-profile] dom attribution failed:", error);
+	}
+}
+
 export interface MemoryProfileHandle {
 	stop: () => void;
 	/** 当前 CSV 文件路径（便于脚本直接分析） */
 	filePath: string;
+	/** DOM 归属数据路径（一行一个采样；无归属数据时不产生该文件） */
+	domAttributionPath: string;
 }
+
+/** 一次 DOM 归属采样的落盘形态（一行一条 JSON）。 */
+export type DomAttributionSample = {
+	ts: number;
+	/** 渲染进程 pid */
+	pid: number;
+	label: string;
+	/** 页面节点总数 */
+	total: number;
+	/** 占用最高的若干子树（已按节点数降序） */
+	entries: DomAttributionEntry[];
+};
 
 /**
  * 启动内存采样。返回句柄，app quit 时必须调用 stop()（生命周期配对）。
@@ -262,13 +333,19 @@ export async function startMemoryProfile(streamingProbe?: () => boolean): Promis
 	await mkdir(dir, { recursive: true });
 	const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
 	const filePath = join(dir, `profile-${stamp}.csv`);
+	const domAttributionPath = join(dir, `dom-attribution-${stamp}.jsonl`);
 	await appendFile(filePath, MEMORY_PROFILE_HEADER + "\n");
 
 	const interval = intervalMs();
 	let inFlight = false;
+	// DOM 归属遍历整棵树，比总量统计贵一个量级；每 6 轮采一次（5s 间隔下约 30s 一次），
+	// 与 workerProbeRound 同一节奏——定位「节点花在哪」不需要 5 秒级分辨率。
+	let attributionRound = 0;
 	const timer = setInterval(() => {
 		if (inFlight) return; // 上一轮还没采完，跳过本轮
 		inFlight = true;
+		attributionRound += 1;
+		const withAttribution = attributionRound % 6 === 0;
 		void (async () => {
 			try {
 				// 10s 超时兜底：executeJavaScript 在页面导航/忙碌时可能永不 resolve，
@@ -281,6 +358,9 @@ export async function startMemoryProfile(streamingProbe?: () => boolean): Promis
 					}),
 				]);
 				await appendFile(filePath, rows.map(toProfileCsvRow).join("\n") + "\n");
+				if (withAttribution) {
+					await appendDomAttribution(domAttributionPath, rows);
+				}
 			} catch (error) {
 				// 采样是诊断工具，失败不崩应用，只丢一轮
 				console.error("[memory-profile] sample failed:", error);
@@ -291,11 +371,10 @@ export async function startMemoryProfile(streamingProbe?: () => boolean): Promis
 	}, interval);
 	timer.unref(); // 不阻塞应用退出
 
-	console.log(
-		`[memory-profile] sampling every ${interval}ms → ${filePath} (PIDECK_MEMORY_PROFILE=1)`,
-	);
+	console.log(`[memory-profile] sampling every ${interval}ms → ${filePath} (PIDECK_MEMORY_PROFILE=1)`);
 	return {
 		stop: () => clearInterval(timer),
 		filePath,
+		domAttributionPath,
 	};
 }

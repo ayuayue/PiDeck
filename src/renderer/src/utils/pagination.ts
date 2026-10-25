@@ -13,11 +13,7 @@ export type PaginationItem = number | "ellipsis-start" | "ellipsis-end";
  * @param sibling 当前页两侧各保留的页码数（默认 2）
  * @returns 如 [1, "ellipsis-start", 5, 6, 7, "ellipsis-end", 20]
  */
-export function paginationWindow(
-	page: number,
-	totalPages: number,
-	sibling = 2,
-): PaginationItem[] {
+export function paginationWindow(page: number, totalPages: number, sibling = 2): PaginationItem[] {
 	const total = Math.max(1, Math.floor(totalPages));
 	const current = Math.min(Math.max(1, Math.floor(page)), total);
 	if (total <= sibling * 2 + 3) {

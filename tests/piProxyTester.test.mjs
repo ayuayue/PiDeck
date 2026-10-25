@@ -13,33 +13,21 @@ const DEFAULT_TEST_URL = "https://api.openai.com/v1/models";
 const translate = (key) => key;
 
 test("未启用代理且地址为空 → addressRequired（门禁已移除，走到地址校验）", async () => {
-  const result = await testPiProxy(
-    { piProxyEnabled: false, piProxyUrl: "  ", piProxyBypass: "" },
-    DEFAULT_TEST_URL,
-    translate,
-  );
-  assert.equal(result.success, false);
-  assert.equal(result.error, "mainProxy.addressRequired");
+	const result = await testPiProxy({ piProxyEnabled: false, piProxyUrl: "  ", piProxyBypass: "" }, DEFAULT_TEST_URL, translate);
+	assert.equal(result.success, false);
+	assert.equal(result.error, "mainProxy.addressRequired");
 });
 
 test("未启用代理但地址有效且目标命中 bypass → bypassed，不触网", async () => {
-  const result = await testPiProxy(
-    { piProxyEnabled: false, piProxyUrl: "http://127.0.0.1:7890", piProxyBypass: "api.openai.com" },
-    DEFAULT_TEST_URL,
-    translate,
-  );
-  assert.equal(result.success, false);
-  assert.equal(result.error, "mainProxy.bypassed");
-  assert.equal(result.bypassed, true);
+	const result = await testPiProxy({ piProxyEnabled: false, piProxyUrl: "http://127.0.0.1:7890", piProxyBypass: "api.openai.com" }, DEFAULT_TEST_URL, translate);
+	assert.equal(result.success, false);
+	assert.equal(result.error, "mainProxy.bypassed");
+	assert.equal(result.bypassed, true);
 });
 
 test("启用代理 + bypass 命中目标 → 同样 bypassed（未回归）", async () => {
-  const result = await testPiProxy(
-    { piProxyEnabled: true, piProxyUrl: "http://127.0.0.1:7890", piProxyBypass: "*.openai.com" },
-    DEFAULT_TEST_URL,
-    translate,
-  );
-  assert.equal(result.success, false);
-  assert.equal(result.error, "mainProxy.bypassed");
-  assert.equal(result.bypassed, true);
+	const result = await testPiProxy({ piProxyEnabled: true, piProxyUrl: "http://127.0.0.1:7890", piProxyBypass: "*.openai.com" }, DEFAULT_TEST_URL, translate);
+	assert.equal(result.success, false);
+	assert.equal(result.error, "mainProxy.bypassed");
+	assert.equal(result.bypassed, true);
 });

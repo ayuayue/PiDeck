@@ -23,12 +23,43 @@ export type DshPluginView = {
 	error?: string;
 };
 
-/** 静态 Loader 条目视图（pluginInventory 的安全 JSON 视图，只读）。 */
+/** 静态 Loader 条目视图（pluginInventory 的安全 JSON 视图）。 */
 export type DshStaticPluginView = {
 	entryId: string;
 	moduleName: string;
 	enabled: boolean;
 	fiberPhase: string | null;
+	/**
+	 * 条目来源：user = $DSH_HOME/cordis.patch.yml 用户补丁层声明（用户自装插件）；
+	 * builtin = dsh base / 随包预设 / PiDeck 自有组合。缺省视为 builtin
+	 * （旧 host 未带该字段时的兼容语义）。
+	 */
+	origin?: "builtin" | "user";
+};
+
+/** 卸载用户自装静态插件的入参（IPC dsh:plugin-user-uninstall）。 */
+export type DshUserPluginUninstallInput = {
+	/** 目标条目（与插件列表行一致）。 */
+	entryId: string;
+	moduleName: string;
+	/** 同时把插件目录移入回收站；仅当目录位于 userData/dsh-plugins 下才生效。 */
+	deleteFiles?: boolean;
+};
+
+/** 卸载用户自装静态插件的结果。 */
+export type DshUserPluginUninstallResult = {
+	/** 是否从 $DSH_HOME/cordis.patch.yml 移除了对应行（卸载的主体动作）。 */
+	rowRemoved: boolean;
+	/** 移除成功时的补丁文件备份路径（同目录 .bak-<时间戳>）。 */
+	backupPath?: string;
+	/** 同时移入回收站的插件目录（deleteFiles 且位于 PiDeck 管理目录时给出）。 */
+	removedPluginDir?: string;
+	/** rowRemoved=false / 删除文件失败时的原因。 */
+	reason?: string;
+	/** 文件删除失败但行已移除时的原因（不影响卸载主体动作）。 */
+	fileError?: string;
+	/** 保留了文件的插件目录（位于管理目录之外时给出，供用户手动删除）。 */
+	keptPluginDir?: string;
 };
 
 /** 安装（define）入参。 */
@@ -48,6 +79,54 @@ export type DshPluginLifecycleInput = {
 	pluginId: string;
 	packageId?: string;
 	mode?: "run" | "update";
+};
+
+/** 插件市场搜索结果条目（双源：官方 dsh 目录 / npm）。 */
+export type DshPluginMarketEntry = {
+	/** npm 包名（官方目录纯 repo 条目无 npm 包，不会出现在这里）。 */
+	name: string;
+	version?: string;
+	description?: string;
+	/** 主要提供 DSH Web 界面功能（headless host 无可见效果，安装前警示）。 */
+	uiOnly: boolean;
+	source: "market" | "npm";
+};
+
+/** 插件市场搜索结果（单源失败降级为 warnings，不阻断）。 */
+export type DshPluginMarketSearchResult = {
+	entries: DshPluginMarketEntry[];
+	warnings: string[];
+};
+
+/** 用户插件安装结果（幂等：重复安装 alreadyRegistered=true）。 */
+export type DshUserPluginInstallResult = {
+	/** 安装的 npm 包名。 */
+	name: string;
+	version?: string;
+	/** 用户补丁层行 id（<去 scope 包名>/host）。 */
+	rowId: string;
+	/** Loader 入口（file:// URL，指向受管目录内插件主入口）。 */
+	entryUrl: string;
+	/** 插件落位目录（userData/dsh-plugins 受管根内）。 */
+	destDir: string;
+	/** UI-only 插件（主要提供 DSH Web 界面功能，headless 无可见效果）。 */
+	uiOnly: boolean;
+	/** 补丁层已有同 id 行（本次跳过登记）。 */
+	alreadyRegistered: boolean;
+	/** 依赖闭包补齐后仍缺失的裸包名（插件加载可能失败，提示用）。 */
+	missingDeps: string[];
+};
+
+/** 用户补丁层清单行（安装服务视角：受管目录内的行补全包信息）。 */
+export type DshUserPluginListEntry = {
+	/** 补丁层行 id。 */
+	rowId: string;
+	/** Loader 行 name（file:// URL 或路径）。 */
+	moduleName: string;
+	/** 受管目录内时补全；手工安装行缺省。 */
+	packageName?: string;
+	version?: string;
+	uiOnly?: boolean;
 };
 
 /** 桥 RPC 响应（主进程 rawFetch 解析用；{ ok:false } 时主进程抛 error 文本）。 */

@@ -1,19 +1,20 @@
 // @ts-nocheck - SkillHub store panel, new feature
 import { Button } from "../components/ui-shadcn/button";
-import { Input } from "../components/ui-shadcn/input";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, Download, ArrowLeft, Check, AlertCircle, X, Trash2, BadgeCheck } from "lucide-react";
+import { Download, ArrowLeft, Check, AlertCircle, X, Trash2, BadgeCheck } from "lucide-react";
 import { t } from "../i18n";
+import { StoreSearchBar } from "./StoreSearchBar";
 import { showNotice } from "../utils/notice";
 import { desktopApi } from "../desktopApi";
-import type { SkillHubItem, SkillHubDetail, SkillHubSearchResult, SkillHubInstallResult, PiSkillListResult } from "../../../shared/types";
+import type { SkillHubItem, SkillHubDetail, SkillHubSearchResult, SkillHubInstallResult, SkillHubInstallProgress, PiSkillListResult } from "../../../shared/types";
 
-const STORAGE_KEY = "skillhub-installed-v1";
+const STORAGE_KEY = "skillhub-installed-v2";
 
 /** localStorage 持久化的安装记录（slug + name，用于验证删除后自动清理） */
 interface PersistedInstall {
 	slug: string;
 	name: string;
+	projectId?: string;
 }
 
 function loadPersisted(): PersistedInstall[] {
@@ -30,24 +31,26 @@ function loadPersisted(): PersistedInstall[] {
 function savePersisted(entries: PersistedInstall[]) {
 	try {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-	} catch { /* noop */ }
+	} catch {
+		/* noop */
+	}
 }
 
 /** 添加入口到持久化列表（去重） */
-function persistInstall(prev: PersistedInstall[], slug: string, name: string): PersistedInstall[] {
+function persistInstall(prev: PersistedInstall[], slug: string, name: string, projectId?: string): PersistedInstall[] {
 	if (!Array.isArray(prev)) prev = [];
-	const existing = prev.find((e) => e.slug === slug);
+	const existing = prev.find((e) => e.slug === slug && e.projectId === projectId);
 	if (existing) {
 		existing.name = name;
 		return prev;
 	}
-	return [...prev, { slug, name }];
+	return [...prev, { slug, name, projectId }];
 }
 
 /** 获取本地已安装 skill 名称集合 */
-async function getInstalledNames(): Promise<Set<string>> {
+async function getInstalledNames(projectId?: string): Promise<Set<string>> {
 	try {
-		const list: PiSkillListResult = await desktopApi.skills.list();
+		const list: PiSkillListResult = projectId ? await desktopApi.projectResources.list(projectId) : await desktopApi.skills.list();
 		return new Set(list.skills.map((s) => s.name.toLowerCase()));
 	} catch {
 		return new Set();
@@ -55,9 +58,9 @@ async function getInstalledNames(): Promise<Set<string>> {
 }
 
 /** 获取本地已安装 skill 名称 → slugs 映射（同名取唯一匹配的 skills.sh slug） */
-async function getInstalledSlugsSet(searchItems: SkillHubItem[]): Promise<Set<string>> {
+async function getInstalledSlugsSet(searchItems: SkillHubItem[], projectId?: string): Promise<Set<string>> {
 	try {
-		const installed = await getInstalledNames();
+		const installed = await getInstalledNames(projectId);
 
 		// 统计搜索结果中各 name 出现的次数
 		const nameCount = new Map<string, number>();
@@ -80,20 +83,20 @@ async function getInstalledSlugsSet(searchItems: SkillHubItem[]): Promise<Set<st
 	}
 }
 
-const api = (window as unknown as {
-	piDesktop: {
-		skillHub: {
-			search: (q: string, limit?: number) => Promise<SkillHubSearchResult>;
-			detail: (slug: string) => Promise<SkillHubDetail | null>;
-			install: (slug: string, installDir: string) => Promise<SkillHubInstallResult>;
+const api = (
+	window as unknown as {
+		piDesktop: {
+			skillHub: {
+				search: (q: string, limit?: number) => Promise<SkillHubSearchResult>;
+				detail: (slug: string) => Promise<SkillHubDetail | null>;
+				install: (slug: string, projectId?: string) => Promise<SkillHubInstallResult>;
+				onInstallProgress: (callback: (progress: SkillHubInstallProgress) => void) => () => void;
+			};
 		};
-	};
-}).piDesktop;
+	}
+).piDesktop;
 
-const SUGGESTED_SEARCHES = [
-	"pdf", "ocr", "translate", "code review", "react",
-	"python", "git", "image", "data", "writing",
-];
+const SUGGESTED_SEARCHES = ["pdf", "ocr", "translate", "code review", "react", "python", "git", "image", "data", "writing"];
 
 function fmtNum(n: number): string {
 	if (n >= 10000) return (n / 10000).toFixed(1) + "w";
@@ -101,13 +104,34 @@ function fmtNum(n: number): string {
 	return String(n);
 }
 
-export function SkillHubStorePanel() {
+/**
+ * 安装进度文案：阶段中文案 + 可能存在的真实百分比。
+ * 百分比来自 git/npm 的进度行（Receiving objects 等），不是估算值；没有百分比时只说阶段，
+ * 不编造进度条（用户反馈的「没有下载进度」正是这两者都没有）。
+ */
+function installProgressText(progress: SkillHubInstallProgress | undefined): string {
+	if (!progress) return t("config.skillHubPhaseRunning");
+	switch (progress.phase) {
+		case "preparing":
+			return t("config.skillHubPhasePreparing");
+		case "downloading":
+			return progress.percent === undefined ? t("config.skillHubPhaseDownloading") : t("config.skillHubPhaseDownloadingPercent", { percent: progress.percent });
+		case "installing":
+			return t("config.skillHubPhaseInstalling");
+		default:
+			return t("config.skillHubPhaseRunning");
+	}
+}
+
+export function SkillHubStorePanel(props: { projectId?: string }) {
 	const [query, setQuery] = useState("");
 	const [searching, setSearching] = useState(false);
 	const [installedSlugs, setInstalledSlugs] = useState<Set<string>>(new Set());
 	/** 持久化安装记录（跨组件卸载/重启），用于同名歧义时强制标记已安装 */
 	const persistedRef = useRef<PersistedInstall[]>(loadPersisted);
 	const [installingSlugs, setInstallingSlugs] = useState<Set<string>>(new Set());
+	/** 安装进度（按 slug 记录，主进程推送）：按钮旁显示「下载中 45%」这类真实进度 */
+	const [installProgress, setInstallProgress] = useState<Record<string, SkillHubInstallProgress>>({});
 	const [result, setResult] = useState<SkillHubSearchResult | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [previewSlug, setPreviewSlug] = useState<string | null>(null);
@@ -121,34 +145,45 @@ export function SkillHubStorePanel() {
 		searchInputRef.current?.focus();
 	}, []);
 
-	const handleSearch = useCallback(async (searchQuery: string) => {
-		const q = searchQuery.trim();
-		if (!q) return;
-		setResult(null);
-		setPreviewSlug(null);
-		setDetail(null);
-		setInstallResult(null);
-		setError(null);
-		setSearching(true);
-		try {
-			const data = await api.skillHub.search(q, 50);
-			// 搜索后判断已安装状态（需要搜索结果列表来消除同名歧义）
-			const installed = await getInstalledSlugsSet(data.items);
-			// 合并持久化记录 → 精确 slug 匹配，无条件信任（安装时已记录完整 slug）
-			const merged = new Set(installed);
-			const persisted = Array.isArray(persistedRef.current) ? persistedRef.current : [];
-			for (const entry of persisted) {
-				merged.add(entry.slug);
-			}
-			setResult(data);
-			setInstalledSlugs(merged);
-		} catch (err) {
-			console.error("[SkillHub] Search failed", err);
-			setError(t("config.skillHubSearchError"));
-		} finally {
-			setSearching(false);
-		}
+	// 安装进度订阅：spawn 流式输出在主进程翻译成阶段后推送，卸载/切换面板由退订函数收尾。
+	useEffect(() => {
+		const unsubscribe = api.skillHub.onInstallProgress((progress) => {
+			setInstallProgress((prev) => ({ ...prev, [progress.slug]: progress }));
+		});
+		return unsubscribe;
 	}, []);
+
+	const handleSearch = useCallback(
+		async (searchQuery: string) => {
+			const q = searchQuery.trim();
+			if (!q) return;
+			setResult(null);
+			setPreviewSlug(null);
+			setDetail(null);
+			setInstallResult(null);
+			setError(null);
+			setSearching(true);
+			try {
+				const data = await api.skillHub.search(q, 50);
+				// 搜索后判断已安装状态（需要搜索结果列表来消除同名歧义）
+				const installed = await getInstalledSlugsSet(data.items, props.projectId);
+				// 合并持久化记录 → 精确 slug 匹配，无条件信任（安装时已记录完整 slug）
+				const merged = new Set(installed);
+				const persisted = Array.isArray(persistedRef.current) ? persistedRef.current : [];
+				for (const entry of persisted) {
+					if (entry.projectId === props.projectId) merged.add(entry.slug);
+				}
+				setResult(data);
+				setInstalledSlugs(merged);
+			} catch (err) {
+				console.error("[SkillHub] Search failed", err);
+				setError(t("config.skillHubSearchError"));
+			} finally {
+				setSearching(false);
+			}
+		},
+		[props.projectId],
+	);
 
 	const handleKeyDown = (e: React.KeyboardEvent) => {
 		if (e.key === "Enter") void handleSearch(query);
@@ -174,11 +209,11 @@ export function SkillHubStorePanel() {
 	const handleInstallFromList = async (slug: string, name: string) => {
 		setInstallingSlugs((prev) => new Set(prev).add(slug));
 		try {
-			const result = await api.skillHub.install(slug, "");
+			const result = await api.skillHub.install(slug, props.projectId);
 			if (result.success) {
 				showNotice(t("app.skillsInstalled", { name }), 3000);
 				// 安装成功 → 持久化安装记录（确保跨组件卸载后仍显示已安装，删除后自动清理）
-				persistedRef.current = persistInstall(persistedRef.current, slug, name);
+				persistedRef.current = persistInstall(persistedRef.current, slug, name, props.projectId);
 				savePersisted(persistedRef.current);
 				// 刷新搜索结果（更新已安装标注）
 				void handleSearch(query);
@@ -196,6 +231,13 @@ export function SkillHubStorePanel() {
 				next.delete(slug);
 				return next;
 			});
+			// 安装结束（成功或失败）都要清掉进度：否则失败后按钮旁会残留上一次的「下载中」
+			setInstallProgress((prev) => {
+				if (!(slug in prev)) return prev;
+				const next = { ...prev };
+				delete next[slug];
+				return next;
+			});
 		}
 	};
 
@@ -204,7 +246,7 @@ export function SkillHubStorePanel() {
 		setInstalling(true);
 		setInstallResult(null);
 		try {
-			const result = await api.skillHub.install(previewSlug, "");
+			const result = await api.skillHub.install(previewSlug, props.projectId);
 			if (result.success) {
 				setInstallResult(result);
 				showNotice(t("app.skillsInstalled", { name: detail?.skill?.displayName || previewSlug }), 3000);
@@ -225,7 +267,15 @@ export function SkillHubStorePanel() {
 		return (
 			<div className="skillhub-panel">
 				<div className="skillhub-detail-toolbar">
-					<Button size="sm"  variant="outline" onClick={() => { setPreviewSlug(null); setDetail(null); setInstallResult(null); }}>
+					<Button
+						size="sm"
+						variant="outline"
+						onClick={() => {
+							setPreviewSlug(null);
+							setDetail(null);
+							setInstallResult(null);
+						}}
+					>
 						<ArrowLeft size={14} />
 						{t("config.promptStoreBack")}
 					</Button>
@@ -240,47 +290,26 @@ export function SkillHubStorePanel() {
 	// Search / List view
 	return (
 		<div className="skillhub-panel">
-			<div className="skillhub-search-bar">
-				<div className="skillhub-search-input-wrap">
-					<Search size={15} strokeWidth={1.8} className="skillhub-search-icon" />
-					<Input
-						ref={searchInputRef}
-						type="text"
-						value={query}
-						onChange={(e) => setQuery(e.target.value)}
-						onKeyDown={handleKeyDown}
-						placeholder={t("config.skillHubSearchPlaceholder")}
-						disabled={searching}
-					/>
-					<Button
-						 size="sm" variant="default"
-						onClick={() => void handleSearch(query)}
-						disabled={searching || !query.trim()}
-					>
-						{searching ? t("common.searching") + "…" : <Search size={14} />}
-					</Button>
-				</div>
-				{!result && !searching && (
-					<div className="skillhub-suggestions">
-						{SUGGESTED_SEARCHES.map((s) => (
-							<button
-								key={s}
-								className="skillhub-suggestion-chip"
-								onClick={() => { setQuery(s); void handleSearch(s); }}
-							>
-								{s}
-							</button>
-						))}
-					</div>
-				)}
-			</div>
+			<StoreSearchBar
+				ref={searchInputRef}
+				value={query}
+				onChange={setQuery}
+				onKeyDown={handleKeyDown}
+				placeholder={t("config.skillHubSearchPlaceholder")}
+				searching={searching}
+				searchDisabled={!query.trim()}
+				onSearch={() => void handleSearch(query)}
+				suggestions={!result && !searching ? SUGGESTED_SEARCHES : undefined}
+				onSuggestionClick={(s) => {
+					setQuery(s);
+					void handleSearch(s);
+				}}
+			/>
 
 			{error && <div className="mb-3.5 rounded-sm border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-control leading-relaxed text-danger whitespace-pre-line">{error}</div>}
 			{searching && <div className="py-12 text-center text-control text-text-tertiary">{t("common.searching")}…</div>}
 
-			{result && !searching && result.total === 0 && (
-				<div className="py-12 text-center text-control text-text-tertiary">{t("config.noSearchResults")}</div>
-			)}
+			{result && !searching && result.total === 0 && <div className="py-12 text-center text-control text-text-tertiary">{t("config.noSearchResults")}</div>}
 
 			{result && result.total > 0 && (
 				<div className="skillhub-results">
@@ -294,32 +323,34 @@ export function SkillHubStorePanel() {
 							onClick={() => {
 								// 弹框（ConfigModal Dialog）内链接强制系统浏览器：内置浏览器面板位于 Dialog 下层不可见，
 								// 跟随 linkOpenMode=internal 打开会被遮挡，用户看到“点了没反应”（与 openDocsInSystemBrowser 同规则）
-								window.piDesktop.app.openExternal(
-									`https://www.skills.sh/search?q=${encodeURIComponent(item.name)}`,
-									true
-								);
+								window.piDesktop.app.openExternal(`https://www.skills.sh/search?q=${encodeURIComponent(item.name)}`, true);
 							}}
 						>
 							<div className="skillhub-card-main">
 								<strong className="skillhub-card-title">
 									{item.name}
-							{installedSlugs.has(item.slug) && (
-								<span className="skillhub-installed-badge">
-									<Check size={11} /> {t("config.installed")}
-								</span>
+									{installedSlugs.has(item.slug) && (
+										<span className="skillhub-installed-badge">
+											<Check size={11} /> {t("config.installed")}
+										</span>
 									)}
 								</strong>
-							<div className="skillhub-card-meta">
-								<span className="skillhub-card-stats">
-									<Download size={12} /> {t("config.skillHubInstallCount", { count: fmtNum(item.downloads) })}
-								</span>
+								{installingSlugs.has(item.slug) && (
+									<span className="mt-0.5 block text-caption leading-snug text-text-tertiary" title={installProgress[item.slug]?.detail || undefined}>
+										{installProgressText(installProgress[item.slug])}
+									</span>
+								)}
+								<div className="skillhub-card-meta">
+									<span className="skillhub-card-stats">
+										<Download size={12} /> {t("config.skillHubInstallCount", { count: fmtNum(item.downloads) })}
+									</span>
 									<span className="skillhub-card-source">{item.ownerName}</span>
 								</div>
 							</div>
 							<div className="skillhub-card-actions">
-							<button
-								className="skillhub-card-action-btn"
-								title={t("config.skillHubCopyInstallCommand")}
+								<button
+									className="skillhub-card-action-btn"
+									title={t("config.skillHubCopyInstallCommand")}
 									onClick={(e) => {
 										e.stopPropagation();
 										const pkg = item.slug.slice(0, item.slug.lastIndexOf("/"));
@@ -327,7 +358,10 @@ export function SkillHubStorePanel() {
 										showNotice(t("app.codeCopied"), 1200);
 									}}
 								>
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+										<rect x="9" y="9" width="13" height="13" rx="2" />
+										<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+									</svg>
 								</button>
 								{!installedSlugs.has(item.slug) && (
 									<button

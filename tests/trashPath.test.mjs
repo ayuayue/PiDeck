@@ -23,12 +23,16 @@ function compile(filePath, stubs = {}) {
 	}).outputText;
 	const module = { exports: {} };
 	const localRequire = (specifier) => stubs[specifier] ?? {};
-	vm.runInNewContext(output, {
-		module,
-		exports: module.exports,
-		require: localRequire,
-		console,
-	}, { filename: filePath });
+	vm.runInNewContext(
+		output,
+		{
+			module,
+			exports: module.exports,
+			require: localRequire,
+			console,
+		},
+		{ filename: filePath },
+	);
 	return module.exports;
 }
 

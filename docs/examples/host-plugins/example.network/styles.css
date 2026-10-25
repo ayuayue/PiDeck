@@ -1,0 +1,87 @@
+:root {
+	color-scheme: light dark;
+	font-family: system-ui, sans-serif;
+	background: var(--color-bg-panel, #1b1b1f);
+	color: var(--color-text-primary, #e6e6e6);
+}
+
+body {
+	margin: 0;
+}
+
+main {
+	max-width: 880px;
+	margin: 0 auto;
+	padding: 24px;
+}
+
+h1 {
+	font-size: 22px;
+}
+
+h2 {
+	font-size: 17px;
+}
+
+p {
+	color: var(--color-text-secondary, #aaa);
+	line-height: 1.6;
+}
+
+section {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	margin-top: 20px;
+	padding: 20px;
+	border: 1px solid var(--color-border-default, #444);
+	border-radius: 8px;
+}
+
+section h2,
+section p {
+	margin: 0;
+}
+
+input {
+	box-sizing: border-box;
+	width: 100%;
+	padding: 10px;
+	border: 1px solid var(--color-border-default, #444);
+	border-radius: 6px;
+	background: var(--color-bg-input, #25252a);
+	color: var(--color-text-primary, #e6e6e6);
+	font: inherit;
+}
+
+button {
+	align-self: flex-start;
+	padding: 10px 16px;
+	border: 0;
+	border-radius: 6px;
+	background: var(--color-accent, #3b82f6);
+	color: var(--color-text-inverse, #fff);
+	font: inherit;
+	cursor: pointer;
+}
+
+button:disabled {
+	opacity: 0.6;
+	cursor: wait;
+}
+
+input:focus-visible,
+button:focus-visible {
+	outline: 2px solid var(--color-accent, #3b82f6);
+	outline-offset: 3px;
+}
+
+pre {
+	min-height: 32px;
+	max-height: 280px;
+	margin: 0;
+	overflow: auto;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font-size: 13px;
+}

@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hasBuildOutput, isExcluded, isSrcPrunable } from "../scripts/runtime-prune-rules.mjs";
+import { allEntryCandidates, hasBuildOutput, isExcluded, isNpmHashedLeftoverDir, isSrcPrunable, runtimeEntryResolvableOnDisk } from "../scripts/runtime-prune-rules.mjs";
 
 /**
  * DSH runtime 打包裁剪规则的回归测试。
@@ -127,6 +127,113 @@ test("isSrcPrunable：KEEP_SRC 白名单包（koffi）保留 src，即使入口�
 		// koffi：main 在根 index.cjs（内部 require ./src/koffi/…），lib/ 只是原生二进制
 		const pkg = makePkg(root, "koffi", { main: "./index.cjs", dirs: ["src", "lib"] });
 		assert.equal(isSrcPrunable(pkg), false);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("isNpmHashedLeftoverDir：只匹配 npm 升级残留的 .pkg-<8char> 目录", () => {
+	// 活包名不以点开头，不会误伤；.bin 也不是 hashed leftover。
+	assert.equal(isNpmHashedLeftoverDir(".dsh-base-cFJMOBFY"), true);
+	assert.equal(isNpmHashedLeftoverDir(".dsh-attachment-local-UqFAktYy"), true);
+	assert.equal(isNpmHashedLeftoverDir("dsh-base"), false);
+	assert.equal(isNpmHashedLeftoverDir(".bin"), false);
+	assert.equal(isNpmHashedLeftoverDir(".dsh-base-short"), false, "哈希段不足 8 位不是 npm leftover");
+	assert.equal(isNpmHashedLeftoverDir(undefined), false);
+});
+
+test("runtimeEntryResolvableOnDisk：入口缺失可检出（file: 本地包未构建事故回归）", () => {
+	const root = makePruneFixture();
+	try {
+		const pkg = makePkg(root, "unbuilt", {
+			main: "./lib/index.js",
+			exports: { ".": "./lib/index.js" },
+			dirs: ["src"],
+		});
+		// lib/ 未构建（全新检出常态）：磁盘上解析不到
+		assert.equal(runtimeEntryResolvableOnDisk(pkg, "./lib/index.js"), false);
+		assert.equal(runtimeEntryResolvableOnDisk(pkg, "lib/index.js"), false);
+		// 补齐编译产物后可解析（相当于自动构建成功后的复检）
+		mkdirSync(join(pkg, "lib"), { recursive: true });
+		writeFileSync(join(pkg, "lib", "index.js"), "");
+		assert.equal(runtimeEntryResolvableOnDisk(pkg, "lib/index.js"), true);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+// 子路径导出包（@modelcontextprotocol/sdk 场景）：exports["."] 指向从未发布的文件，
+// 实际运行时只走子路径导出——入口候选必须收集 exports 整树，不能只看 "."。
+test("allEntryCandidates：收集 exports 整树（含子路径），与 check-dsh-asar 同语义", () => {
+	const root = makePruneFixture();
+	try {
+		const sdkLike = makePkg(root, "sdk-like", {
+			main: undefined,
+			exports: {
+				".": {
+					types: "./dist/esm/index.d.ts",
+					import: "./dist/esm/index.js",
+					require: "./dist/cjs/index.js",
+				},
+				"./client": {
+					types: "./dist/esm/client/index.d.ts",
+					import: "./dist/esm/client/index.js",
+					require: "./dist/cjs/client/index.js",
+				},
+			},
+			dirs: ["dist/esm/client", "dist/cjs/client"],
+		});
+		// 子路径导出的产物真实存在（"dist/esm/index.js" 按事故原型不发布）
+		writeFileSync(join(sdkLike, "dist/esm/client", "index.js"), "");
+		writeFileSync(join(sdkLike, "dist/cjs/client", "index.js"), "");
+		const candidates = allEntryCandidates(sdkLike);
+		// "." 的两个条件都收集到了（虽然文件不存在）
+		assert.ok(candidates.includes("./dist/esm/index.js"));
+		assert.ok(candidates.includes("./dist/cjs/index.js"));
+		// 子路径导出条件也收集到，且可解析 → 全包不被误判为入口缺失
+		assert.ok(candidates.includes("./dist/esm/client/index.js"));
+		assert.ok(candidates.some((e) => runtimeEntryResolvableOnDisk(sdkLike, e)));
+
+		// 纯类型数据包（@octokit/openapi-types 的 main: "" 且无 exports）→ 无入口候选
+		const typesOnly = makePkg(root, "types-only", { main: "", dirs: ["types"] });
+		assert.equal(allEntryCandidates(typesOnly).length, 0);
+
+		// 2026-09 事故回归：exports 同时声明 "./package.json"（元数据导出）时，
+		// 该候选必须被过滤——否则缺 lib/ 的坏包会被 package.json 误判为可解析。
+		assert.ok(!candidates.includes("./package.json"));
+		const brokenLike = makePkg(root, "broken-like", {
+			main: "./lib/index.js",
+			exports: { ".": "./lib/index.js", "./package.json": "./package.json" },
+			dirs: ["src"],
+		});
+		assert.equal(
+			allEntryCandidates(brokenLike).some((e) => runtimeEntryResolvableOnDisk(brokenLike, e)),
+			false,
+			"只有 package.json 可解析不能算数：缺 lib/ 必须被判定为入口缺失",
+		);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+// 无扩展名入口的补全规则：与 check-dsh-asar 的 resolveEntry 同语义
+// （Node 会补 .js/.cjs/.mjs 与目录 index.*）。
+test("runtimeEntryResolvableOnDisk：无扩展名/目录入口按 Node 规则补全", () => {
+	const root = makePruneFixture();
+	try {
+		const extless = makePkg(root, "extless", { main: "dist/main", dirs: ["dist"] });
+		mkdirSync(join(extless, "dist"), { recursive: true });
+		writeFileSync(join(extless, "dist", "main.cjs"), "");
+		assert.equal(runtimeEntryResolvableOnDisk(extless, "dist/main"), true);
+
+		const indexDir = makePkg(root, "indexdir", { main: "dist", dirs: ["dist"] });
+		mkdirSync(join(indexDir, "dist"), { recursive: true });
+		writeFileSync(join(indexDir, "dist", "index.js"), "");
+		assert.equal(runtimeEntryResolvableOnDisk(indexDir, "dist"), true);
+
+		const emptyDir = makePkg(root, "emptydir", { main: "dist", dirs: ["dist"] });
+		mkdirSync(join(emptyDir, "dist"), { recursive: true });
+		assert.equal(runtimeEntryResolvableOnDisk(emptyDir, "dist"), false);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

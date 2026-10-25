@@ -1,11 +1,5 @@
 import { useCallback, useState } from "react";
-import type {
-	FeedbackProjectContext,
-	HealthExportResult,
-	HealthReport,
-	HealthReportContext,
-	HealthReportFormat,
-} from "../../../../shared/types";
+import type { FeedbackProjectContext, HealthExportResult, HealthReport, HealthReportContext, HealthReportFormat } from "../../../../shared/types";
 import { formatReport } from "./reportFormat";
 import { desktopApi } from "../../desktopApi";
 
@@ -23,9 +17,7 @@ import { desktopApi } from "../../desktopApi";
  */
 export type HealthCheckState = "idle" | "running" | "done" | "error";
 
-export function useFeedbackReport(
-	initialContext?: Partial<HealthReportContext> & { projectId?: string },
-) {
+export function useFeedbackReport(initialContext?: Partial<HealthReportContext> & { projectId?: string }) {
 	const [report, setReport] = useState<HealthReport | null>(null);
 	const [state, setState] = useState<HealthCheckState>("idle");
 	const [error, setError] = useState("");
@@ -43,14 +35,7 @@ export function useFeedbackReport(
 		setState("running");
 		setError("");
 		try {
-			const [next, ctx] = await Promise.all([
-				desktopApi.system.healthCheck(),
-				initialContext?.projectId
-					? desktopApi.app
-							.getFeedbackProjectContext(initialContext.projectId)
-							.catch(() => null)
-					: Promise.resolve(null),
-			]);
+			const [next, ctx] = await Promise.all([desktopApi.system.healthCheck(), initialContext?.projectId ? desktopApi.app.getFeedbackProjectContext(initialContext.projectId).catch(() => null) : Promise.resolve(null)]);
 			setReport(next);
 			if (ctx) setProjectContext(ctx);
 			setState("done");
@@ -64,15 +49,25 @@ export function useFeedbackReport(
 	const text = report ? formatReport(report, context, format) : "";
 
 	/** AI 分析提示词：固定 prompt 形态（不随 format 状态漂移），附带项目上下文。 */
-	const promptText = report
-		? formatReport(report, context, "prompt", projectContext ?? undefined)
-		: "";
+	const promptText = report ? formatReport(report, context, "prompt", projectContext ?? undefined) : "";
+
+	/**
+	 * 完整 Markdown 报告：不随 format 状态漂移，「打开 GitHub Issue」与导出共用同一份文本。
+	 * issue #397：这份文本不能进 URL（GitHub 拒绝超长 query），改为先落剪贴板供用户粘贴。
+	 */
+	const markdownText = report ? formatReport(report, context, "markdown") : "";
 
 	/** 复制当前报告到剪贴板（走主进程，大文本可靠）。 */
 	const copyText = useCallback(async (): Promise<boolean> => {
 		if (!text) return false;
 		return desktopApi.clipboard.writeText(text);
 	}, [text]);
+
+	/** 复制完整 Markdown 报告（GitHub Issue 粘贴用）。 */
+	const copyMarkdown = useCallback(async (): Promise<boolean> => {
+		if (!markdownText) return false;
+		return desktopApi.clipboard.writeText(markdownText);
+	}, [markdownText]);
 
 	/** 复制 AI 分析提示词（带项目上下文）。 */
 	const copyPrompt = useCallback(async (): Promise<boolean> => {
@@ -82,15 +77,13 @@ export function useFeedbackReport(
 
 	/** 导出当前报告为 .md 文件。 */
 	const exportMarkdown = useCallback(async (): Promise<HealthExportResult> => {
-		const md = report ? formatReport(report, context, "markdown") : "";
-		return desktopApi.system.healthExportReport(md, report ? JSON.stringify(report, null, 2) : undefined);
-	}, [context, report]);
+		return desktopApi.system.healthExportReport(markdownText, report ? JSON.stringify(report, null, 2) : undefined);
+	}, [markdownText, report]);
 
 	/** 导出完整日志包为 .zip。 */
 	const exportBundle = useCallback(async (): Promise<HealthExportResult> => {
-		const md = report ? formatReport(report, context, "markdown") : "";
-		return desktopApi.system.healthExportBundle(md, report ? JSON.stringify(report, null, 2) : "{}");
-	}, [context, report]);
+		return desktopApi.system.healthExportBundle(markdownText, report ? JSON.stringify(report, null, 2) : "{}");
+	}, [markdownText, report]);
 
 	return {
 		report,
@@ -102,8 +95,10 @@ export function useFeedbackReport(
 		setContext,
 		runCheck,
 		text,
+		markdownText,
 		promptText,
 		copyText,
+		copyMarkdown,
 		copyPrompt,
 		exportMarkdown,
 		exportBundle,

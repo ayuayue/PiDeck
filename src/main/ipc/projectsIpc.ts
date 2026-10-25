@@ -1,10 +1,11 @@
 import { dialog, ipcMain, type BrowserWindow } from "electron";
-import { readFile, readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { ipcChannels } from "../../shared/ipc";
 import type { FeedbackProjectContext } from "../../shared/types";
 import type { ProjectStore } from "../projects/ProjectStore";
 import type { SettingsStore } from "../settings/SettingsStore";
+import { readTextBounded } from "../fs/boundedTextRead";
 import type { GitService } from "../git/GitService";
 import type { WorktreeService } from "../git/WorktreeService";
 import type { AgentManager } from "../pi/AgentManager";
@@ -12,12 +13,9 @@ import type { AppLogger } from "../logging/AppLogger";
 import type { ProjectResourceManager } from "../projects/ProjectResourceManager";
 import type { SessionCatalog } from "../sessions/SessionCatalog";
 import { attachProjectPresence } from "../projects/projectPresence";
+import { consumeUserDataNameMigrationNotice } from "../projects/userDataNameMigration";
 import { registerProjectResourceIpc } from "./projectResourceIpc";
-import {
-	normalizeSelectedWslProjectPath,
-	toWindowsHostPath,
-	type WslEnvironment,
-} from "../wsl/WslPaths";
+import { normalizeSelectedWslProjectPath, toWindowsHostPath, type WslEnvironment } from "../wsl/WslPaths";
 
 export type ProjectsIpcDeps = {
 	projectStore: ProjectStore;
@@ -34,28 +32,11 @@ export type ProjectsIpcDeps = {
 	resolveWslEnvironment?: (distro: string, user: string) => Promise<WslEnvironment>;
 };
 
-export function registerProjectsIpc({
-	projectStore,
-	settingsStore,
-	gitService,
-	worktreeService,
-	agentManager,
-	appLogger,
-	projectResourceManager,
-	sessionCatalog,
-	mainCopy,
-	getMainWindow,
-	resolveWslEnvironment,
-}: ProjectsIpcDeps): void {
+export function registerProjectsIpc({ projectStore, settingsStore, gitService, worktreeService, agentManager, appLogger, projectResourceManager, sessionCatalog, mainCopy, getMainWindow, resolveWslEnvironment }: ProjectsIpcDeps): void {
 	// Windows Node 只能 stat/打开主机路径；WSL 项目在 store 里可能是 Linux 路径。
 	const resolveProjectHostPath = (project: { path: string; environment?: string }) => {
 		const settings = settingsStore.get();
-		if (
-			process.platform !== "win32" ||
-			project.environment !== "wsl" ||
-			!settings.wslEnabled ||
-			!settings.wslDistro
-		) {
+		if (process.platform !== "win32" || project.environment !== "wsl" || !settings.wslEnabled || !settings.wslDistro) {
 			return project.path;
 		}
 		try {
@@ -68,12 +49,7 @@ export function registerProjectsIpc({
 
 	const resolveProjectStoredPath = (path: string, project: { environment?: string }) => {
 		const settings = settingsStore.get();
-		if (
-			process.platform !== "win32" ||
-			project.environment !== "wsl" ||
-			!settings.wslEnabled ||
-			!settings.wslDistro
-		) {
+		if (process.platform !== "win32" || project.environment !== "wsl" || !settings.wslEnabled || !settings.wslDistro) {
 			return path;
 		}
 		try {
@@ -87,34 +63,50 @@ export function registerProjectsIpc({
 	const getVisibleProjects = async () => {
 		const settings = settingsStore.get();
 		const all = projectStore.list();
-		const visible = settings.wslEnabled
-			? all.filter((p) => p.kind === "chat" || p.environment === "wsl")
-			: all.filter((p) => p.kind === "chat" || !p.environment || p.environment === "windows");
+		const visible = settings.wslEnabled ? all.filter((p) => p.kind === "chat" || p.environment === "wsl") : all.filter((p) => p.kind === "chat" || !p.environment || p.environment === "windows");
 		return attachProjectPresence(visible, undefined, resolveProjectHostPath);
 	};
 
 	ipcMain.handle(ipcChannels.projectsList, async () => getVisibleProjects());
 	ipcMain.handle(ipcChannels.projectsAdd, async () => {
 		const settings = settingsStore.get();
-		const env = settings.wslEnabled ? "wsl" as const : "windows" as const;
+		const env = settings.wslEnabled ? ("wsl" as const) : ("windows" as const);
 		// #155：WSL 模式下必须带上当前发行版环境，否则 chooseAndAdd 直接抛 INVALID_WSL_PATH。
-		const wslEnvironment = env === "wsl" && settings.wslDistro && settings.wslUser && resolveWslEnvironment
-			? await resolveWslEnvironment(settings.wslDistro, settings.wslUser)
-			: null;
+		const wslEnvironment = env === "wsl" && settings.wslDistro && settings.wslUser && resolveWslEnvironment ? await resolveWslEnvironment(settings.wslDistro, settings.wslUser) : null;
 		const project = await projectStore.chooseAndAdd(env, wslEnvironment);
 		void appLogger.info("project", "Project added", { projectId: project?.id, path: project?.path, environment: env });
 		return project;
 	});
+	// 文件夹右键菜单（--open-project）直达：给定路径必须是已存在的目录，
+	// 校验通过后直接入库（与选择框添加同一 add 链路：同路径去重/聊天目录特判）。
+	ipcMain.handle(ipcChannels.projectsAddByPath, async (_event, path: unknown) => {
+		if (typeof path !== "string" || path.trim().length === 0) {
+			throw new Error("INVALID_PROJECT_PATH");
+		}
+		const stats = await stat(path).catch(() => null);
+		if (!stats || !stats.isDirectory()) {
+			throw new Error("INVALID_PROJECT_PATH");
+		}
+		const project = await projectStore.add(path.trim());
+		void appLogger.info("project", "Project added via explorer context menu", { projectId: project.id, path: project.path });
+		// 与重命名/删除一致：入库后广播可见项目清单，侧栏（含 LAN Web 端）立即刷新，否则新增项目不显示。
+		const visible = await getVisibleProjects();
+		getMainWindow()?.webContents.send(ipcChannels.projectsChanged, visible);
+		return project;
+	});
 	ipcMain.handle(ipcChannels.projectsRemove, async (_event, id: string) => {
+		const removed = projectStore.get(id);
+		const childIds = removed ? projectStore.listWorktreeChildren(removed.id).map((child) => child.id) : [];
+		// 预热进程属于本项目但 UI 不可见：不先回收，它会以「仍有运行中的 Agent」挡住删除，
+		// 而用户在界面上找不到可停止的会话（issue #360）。
+		for (const projectId of [id, ...childIds]) agentManager.releaseStandbyAgent(projectId);
 		// 删除前拦截：项目仍有运行中的 Agent（pi 子进程）时禁止删除，避免进程悬挂后台继续占用资源。
 		if (agentManager.hasAgentForProject(id)) {
 			throw new Error("PROJECT_HAS_RUNNING_AGENT");
 		}
-		const removed = projectStore.get(id);
-		const childIds = removed
-			? projectStore.listWorktreeChildren(removed.id).map((child) => child.id)
-			: [];
 		await projectStore.remove(id);
+		// 进程已退出、runtime 还留在内存里的会话随项目一起丢弃，避免删后残留幽灵会话。
+		for (const projectId of [id, ...childIds]) agentManager.discardStoppedAgentsForProject(projectId);
 		// 侧栏项目删了，catalog 映射也必须走：否则启动 DSH 自动导入按 cwd 再把项目/会话加回来。
 		if (sessionCatalog) {
 			for (const projectId of [id, ...childIds]) {
@@ -124,31 +116,36 @@ export function registerProjectsIpc({
 		void appLogger.info("project", "Project removed", { projectId: id, path: removed?.path });
 		return getVisibleProjects();
 	});
-	ipcMain.handle(
-		ipcChannels.projectsReorder,
-		async (_event, projectIds: string[]) => {
-			const result = await projectStore.reorder(projectIds);
-			void appLogger.info("project", "Projects reordered", { count: projectIds.length });
-			return getVisibleProjects();
-		},
-	);
+	ipcMain.handle(ipcChannels.projectsReorder, async (_event, projectIds: string[]) => {
+		const result = await projectStore.reorder(projectIds);
+		void appLogger.info("project", "Projects reordered", { count: projectIds.length });
+		return getVisibleProjects();
+	});
+
+	// 项目置顶/取消置顶：入参边界校验后落库，广播 projectsChanged 让其他渲染实例同步排序。
+	ipcMain.handle(ipcChannels.projectsSetPinned, async (_event, id: unknown, pinned: unknown) => {
+		if (typeof id !== "string" || !id) throw new Error("invalid projectId");
+		if (typeof pinned !== "boolean") throw new Error("invalid pinned");
+		await projectStore.setPinned(id, pinned);
+		const visible = await getVisibleProjects();
+		getMainWindow()?.webContents.send(ipcChannels.projectsChanged, visible);
+		void appLogger.info("project", "Project pin toggled", { projectId: id, pinned });
+		return visible;
+	});
 
 	// 重命名项目显示名：仅改 label 不动磁盘目录。聊天项目 / worktree 子项目由
 	// ProjectStore.rename 拒绝（PROJECT_RENAME_NOT_ALLOWED）。广播 + 返回全量列表，
 	// 让其他渲染实例（LAN Web）与当前窗口都拿到最新 name。
-	ipcMain.handle(
-		ipcChannels.projectsRename,
-		async (_event, id: unknown, name: unknown) => {
-			if (typeof id !== "string" || !id) throw new Error("invalid projectId");
-			if (typeof name !== "string") throw new Error("invalid name");
-			const project = await projectStore.rename(id, name);
-			if (!project) throw new Error(`Project not found: ${id}`);
-			const visible = await getVisibleProjects();
-			getMainWindow()?.webContents.send(ipcChannels.projectsChanged, visible);
-			void appLogger.info("project", "Project renamed", { projectId: id, name: project.name });
-			return visible;
-		},
-	);
+	ipcMain.handle(ipcChannels.projectsRename, async (_event, id: unknown, name: unknown) => {
+		if (typeof id !== "string" || !id) throw new Error("invalid projectId");
+		if (typeof name !== "string") throw new Error("invalid name");
+		const project = await projectStore.rename(id, name);
+		if (!project) throw new Error(`Project not found: ${id}`);
+		const visible = await getVisibleProjects();
+		getMainWindow()?.webContents.send(ipcChannels.projectsChanged, visible);
+		void appLogger.info("project", "Project renamed", { projectId: id, name: project.name });
+		return visible;
+	});
 
 	// ── Worktree 项目管理 ──
 
@@ -156,46 +153,40 @@ export function registerProjectsIpc({
 		return projectStore.listRoot();
 	});
 
-	ipcMain.handle(
-		ipcChannels.projectsListWorktreeChildren,
-		async (_event, parentId: string) => {
-			return projectStore.listWorktreeChildren(parentId);
-		},
-	);
+	ipcMain.handle(ipcChannels.projectsListWorktreeChildren, async (_event, parentId: string) => {
+		return projectStore.listWorktreeChildren(parentId);
+	});
 
-	ipcMain.handle(
-		ipcChannels.projectsToggleWorktreeEnabled,
-		async (_event, projectId: string) => {
-			const existing = projectStore.get(projectId);
-			if (!existing) throw new Error(`Project not found: ${projectId}`);
-			// 即将启用时先校验是否 git 仓库；非 git 项目开启工作区模式没有意义，
-			// 只会看到空列表并在创建时报错，这里提前给出明确错误让前端提示用户。
-			if (!existing.worktreeEnabled) {
-				const isRepo = await gitService.isGitRepo(resolveProjectHostPath(existing));
-				if (!isRepo) {
-					throw new Error("NOT_A_GIT_REPO");
-				}
+	ipcMain.handle(ipcChannels.projectsToggleWorktreeEnabled, async (_event, projectId: string) => {
+		const existing = projectStore.get(projectId);
+		if (!existing) throw new Error(`Project not found: ${projectId}`);
+		// 即将启用时先校验是否 git 仓库；非 git 项目开启工作区模式没有意义，
+		// 只会看到空列表并在创建时报错，这里提前给出明确错误让前端提示用户。
+		if (!existing.worktreeEnabled) {
+			const isRepo = await gitService.isGitRepo(resolveProjectHostPath(existing));
+			if (!isRepo) {
+				throw new Error("NOT_A_GIT_REPO");
 			}
-			const project = await projectStore.toggleWorktreeEnabled(projectId);
-			if (!project) throw new Error(`Project not found: ${projectId}`);
-			// 开启 worktree 模式时，自动注册已有的 git worktree
-			if (project.worktreeEnabled) {
-				try {
-					const entries = await worktreeService.list(resolveProjectHostPath(project));
-					for (const wt of entries) {
-						// findByPath 必须用 store 里的 Linux/规范化路径，不能拿 git 返回的 UNC。
-						const storedPath = resolveProjectStoredPath(wt.path, project);
-						if (!projectStore.findByPath(storedPath)) {
-							await projectStore.add(storedPath, projectId, project.environment);
-						}
+		}
+		const project = await projectStore.toggleWorktreeEnabled(projectId);
+		if (!project) throw new Error(`Project not found: ${projectId}`);
+		// 开启 worktree 模式时，自动注册已有的 git worktree
+		if (project.worktreeEnabled) {
+			try {
+				const entries = await worktreeService.list(resolveProjectHostPath(project));
+				for (const wt of entries) {
+					// findByPath 必须用 store 里的 Linux/规范化路径，不能拿 git 返回的 UNC。
+					const storedPath = resolveProjectStoredPath(wt.path, project);
+					if (!projectStore.findByPath(storedPath)) {
+						await projectStore.add(storedPath, projectId, project.environment);
 					}
-				} catch {
-					// worktree 查询失败不阻塞 toggle
 				}
+			} catch {
+				// worktree 查询失败不阻塞 toggle
 			}
-			return project;
-		},
-	);
+		}
+		return project;
+	});
 
 	// ── 聊天项目目录设置 ──
 
@@ -210,18 +201,19 @@ export function registerProjectsIpc({
 		return result.filePaths[0];
 	});
 
-	ipcMain.handle(
-		ipcChannels.projectsSetChatPath,
-		async (_event, path: string) => {
-			if (typeof path !== "string" || path.length === 0) throw new Error("Invalid chat path");
-			const project = await projectStore.setChatProjectPath(path);
-			// 路径变更后广播项目列表变化，渲染端据此刷新聊天项目的会话。
-			const mainWindow = getMainWindow();
-			mainWindow?.webContents.send(ipcChannels.projectsChanged, await getVisibleProjects());
-			void appLogger.info("project", "Chat project path updated", { path });
-			return project;
-		},
-	);
+	ipcMain.handle(ipcChannels.projectsSetChatPath, async (_event, path: string) => {
+		if (typeof path !== "string" || path.length === 0) throw new Error("Invalid chat path");
+		const project = await projectStore.setChatProjectPath(path);
+		// 路径变更后广播项目列表变化，渲染端据此刷新聊天项目的会话。
+		const mainWindow = getMainWindow();
+		mainWindow?.webContents.send(ipcChannels.projectsChanged, await getVisibleProjects());
+		void appLogger.info("project", "Chat project path updated", { path });
+		return project;
+	});
+
+	// userData 更名（pi-desktop → PiDeck）的一次性迁移提示：启动早期已同步完成迁移，
+	// 渲染层首挂载领取一次即清空（消费式），保证「只提示一次、之后不再打扰」。
+	ipcMain.handle(ipcChannels.userDataMigrationConsumeNotice, async () => consumeUserDataNameMigrationNotice());
 
 	registerProjectResourceIpc({
 		appLogger,
@@ -233,48 +225,48 @@ export function registerProjectsIpc({
 	// 只读文件内容，不写任何数据；路径来自 projectStore（用户已信任的项目），无需再次弹信任。
 
 	const FEEDBACK_AGENTS_MD_MAX_CHARS = 14_000;
-	ipcMain.handle(
-		ipcChannels.appFeedbackProjectContext,
-		async (_event, projectId: unknown): Promise<FeedbackProjectContext> => {
-			if (typeof projectId !== "string" || !projectId) {
-				throw new Error("invalid projectId");
-			}
-			const project = projectStore.get(projectId);
-			if (!project) throw new Error(`Project not found: ${projectId}`);
-			const hostPath = resolveProjectHostPath(project);
-			// AGENTS.md 缺失时返回空串而非报错：不是所有项目都写了规范文件
-			let agentsMd = "";
+	// 头部有界读：UTF-8 最坏 4B/字符，64KB 覆盖字符预算；超大 AGENTS.md 不再整读进内存
+	const FEEDBACK_AGENTS_MD_MAX_BYTES = 64 * 1024;
+	ipcMain.handle(ipcChannels.appFeedbackProjectContext, async (_event, projectId: unknown): Promise<FeedbackProjectContext> => {
+		if (typeof projectId !== "string" || !projectId) {
+			throw new Error("invalid projectId");
+		}
+		const project = projectStore.get(projectId);
+		if (!project) throw new Error(`Project not found: ${projectId}`);
+		const hostPath = resolveProjectHostPath(project);
+		// AGENTS.md 缺失时返回空串而非报错：不是所有项目都写了规范文件
+		let agentsMd = "";
+		try {
+			// head 模式自带行对齐：不会把半截代码行带给提示词
+			agentsMd = await readTextBounded(join(hostPath, "AGENTS.md"), FEEDBACK_AGENTS_MD_MAX_BYTES, "head");
+		} catch {
+			agentsMd = "";
+		}
+		const agentsMdTruncated = agentsMd.length > FEEDBACK_AGENTS_MD_MAX_CHARS;
+		if (agentsMdTruncated) {
+			// 在字符上限处往前截到行尾，避免提示词里出现半截代码行
+			const capped = agentsMd.slice(0, FEEDBACK_AGENTS_MD_MAX_CHARS);
+			const lastBreak = capped.lastIndexOf("\n");
+			agentsMd = lastBreak > 0 ? capped.slice(0, lastBreak) : capped;
+		}
+		// 项目级技能：.pi/agent/skills 与 .agents/skills 下的子目录名（读取失败视为无技能）
+		const skillNames = new Set<string>();
+		for (const skillsDir of [".pi/agent/skills", ".agents/skills"]) {
 			try {
-				agentsMd = await readFile(join(hostPath, "AGENTS.md"), "utf8");
-			} catch {
-				agentsMd = "";
-			}
-			const agentsMdTruncated = agentsMd.length > FEEDBACK_AGENTS_MD_MAX_CHARS;
-			if (agentsMdTruncated) {
-				// 在字符上限处往前截到行尾，避免提示词里出现半截代码行
-				const capped = agentsMd.slice(0, FEEDBACK_AGENTS_MD_MAX_CHARS);
-				const lastBreak = capped.lastIndexOf("\n");
-				agentsMd = lastBreak > 0 ? capped.slice(0, lastBreak) : capped;
-			}
-			// 项目级技能：.pi/agent/skills 与 .agents/skills 下的子目录名（读取失败视为无技能）
-			const skillNames = new Set<string>();
-			for (const skillsDir of [".pi/agent/skills", ".agents/skills"]) {
-				try {
-					const entries = await readdir(join(hostPath, skillsDir), { withFileTypes: true });
-					for (const entry of entries) {
-						if (entry.isDirectory()) skillNames.add(entry.name);
-					}
-				} catch {
-					// 目录不存在/不可读都视为无技能，不把项目上下文拉垮
+				const entries = await readdir(join(hostPath, skillsDir), { withFileTypes: true });
+				for (const entry of entries) {
+					if (entry.isDirectory()) skillNames.add(entry.name);
 				}
+			} catch {
+				// 目录不存在/不可读都视为无技能，不把项目上下文拉垮
 			}
-			return {
-				projectId,
-				projectName: project.name,
-				agentsMd,
-				agentsMdTruncated,
-				skills: [...skillNames].sort(),
-			};
-		},
-	);
+		}
+		return {
+			projectId,
+			projectName: project.name,
+			agentsMd,
+			agentsMdTruncated,
+			skills: [...skillNames].sort(),
+		};
+	});
 }

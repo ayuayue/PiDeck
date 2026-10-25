@@ -53,10 +53,7 @@ export function countUserTurns(messages: ReadonlyArray<{ role?: string }>): numb
  * 用户看历史就是要看完整一轮；折叠 unmount 从源头控制 DOM 量，不需要条目兜底）。
  * 不足上限时原样返回（引用不变，便于 memo）。
  */
-export function sliceLastAgentRuns<T extends { kind: string } & { items?: readonly unknown[] }>(
-	items: readonly T[],
-	maxTurns: number,
-): T[] {
+export function sliceLastAgentRuns<T extends { kind: string } & { items?: readonly unknown[] }>(items: readonly T[], maxTurns: number): T[] {
 	if (maxTurns <= 0 || items.length === 0) return items as T[];
 	let runs = 0;
 	for (let index = items.length - 1; index >= 0; index -= 1) {
@@ -78,18 +75,12 @@ export function sliceLastAgentRuns<T extends { kind: string } & { items?: readon
  * windowTurns 由调用方按跟随态决定（贴底 3 轮 / 上滚 15+展开轮）；
  * 与旧签名（following 参与判定）不同：非贴底同样裁剪，只是窗口更大。
  */
-export function shouldWindowTimelineTurns(
-	agentRunCount: number,
-	windowTurns: number,
-): boolean {
+export function shouldWindowTimelineTurns(agentRunCount: number, windowTurns: number): boolean {
 	return windowTurns > 0 && agentRunCount > windowTurns;
 }
 
 /** 按窗口轮数决定展示列表；未裁剪时返回原数组引用。 */
-export function selectTimelineTurnWindow<T extends { kind: string } & { items?: readonly unknown[] }>(
-	items: readonly T[],
-	windowTurns: number,
-): T[] {
+export function selectTimelineTurnWindow<T extends { kind: string } & { items?: readonly unknown[] }>(items: readonly T[], windowTurns: number): T[] {
 	if (!shouldWindowTimelineTurns(countAgentRunItems(items), windowTurns)) {
 		return items as T[];
 	}

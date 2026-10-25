@@ -2,13 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const {
-	escapeHtml,
-	sanitizeExportFileName,
-	renderExportText,
-	renderDshSessionHtml,
-	EXPORT_IMAGE_MAX_DATA_URL_CHARS,
-} = loadTsCommonJs("src/main/dsh/dshSessionHtmlExport.ts");
+const { escapeHtml, sanitizeExportFileName, renderExportText, renderDshSessionHtml, EXPORT_IMAGE_MAX_DATA_URL_CHARS } = loadTsCommonJs("src/main/dsh/dshSessionHtmlExport.ts");
 
 function message(overrides = {}) {
 	return {
@@ -22,13 +16,11 @@ function message(overrides = {}) {
 }
 
 test("escapeHtml：HTML 特殊字符全部转义", () => {
-	assert.equal(escapeHtml('<script>alert("x")</script> & \'y\''),
-		"&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; &#39;y&#39;");
+	assert.equal(escapeHtml("<script>alert(\"x\")</script> & 'y'"), "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; &#39;y&#39;");
 });
 
 test("sanitizeExportFileName：非法字符替换、空白收敛、限长、空回退", () => {
-	assert.equal(sanitizeExportFileName('a/b\\c:d*e?f"g<h>i|j', "fallback"),
-		"a_b_c_d_e_f_g_h_i_j.html");
+	assert.equal(sanitizeExportFileName('a/b\\c:d*e?f"g<h>i|j', "fallback"), "a_b_c_d_e_f_g_h_i_j.html");
 	assert.equal(sanitizeExportFileName("  多  个 空格  ", "fb"), "多 个 空格.html");
 	assert.equal(sanitizeExportFileName("x".repeat(100), "fb"), `${"x".repeat(60)}.html`);
 	assert.equal(sanitizeExportFileName("", "session-1"), "session-1.html");
@@ -51,7 +43,7 @@ test("renderExportText：代码围栏转 pre，行内 code 转 code，空行分�
 });
 
 test("renderExportText：注入脚本被转义", () => {
-	const html = renderExportText('</p><script>alert(1)</script>');
+	const html = renderExportText("</p><script>alert(1)</script>");
 	assert.ok(!html.includes("<script>"));
 	assert.ok(html.includes("&lt;script&gt;"));
 });
@@ -109,10 +101,7 @@ test("renderDshSessionHtml：超限图片跳过并注明，正常图片内联 da
 });
 
 test("renderDshSessionHtml：system/error 消息低调展示且文本转义", () => {
-	const messages = [
-		message({ id: "e1", role: "error", text: "<boom> & failed" }),
-		message({ id: "s1", role: "system", text: "system note" }),
-	];
+	const messages = [message({ id: "e1", role: "error", text: "<boom> & failed" }), message({ id: "s1", role: "system", text: "system note" })];
 	const html = renderDshSessionHtml(messages, { title: "t" });
 	assert.ok(html.includes("&lt;boom&gt; &amp; failed"));
 	assert.ok(html.includes("system note"));

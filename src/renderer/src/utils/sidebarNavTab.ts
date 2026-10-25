@@ -17,24 +17,24 @@ export type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 /** 只接受 active/chats/projects；其它字符串或 JSON 垃圾一律视为未设置。 */
 export function parseSidebarNavTab(raw: string | null | undefined): SidebarNavTab | null {
-  if (raw === "active" || raw === "chats" || raw === "projects") return raw;
-  return null;
+	if (raw === "active" || raw === "chats" || raw === "projects") return raw;
+	return null;
 }
 
 export function readSidebarNavTab(storage?: StorageLike): SidebarNavTab | null {
-  if (!storage) return null;
-  try {
-    return parseSidebarNavTab(storage.getItem(SIDEBAR_NAV_TAB_KEY));
-  } catch {
-    return null;
-  }
+	if (!storage) return null;
+	try {
+		return parseSidebarNavTab(storage.getItem(SIDEBAR_NAV_TAB_KEY));
+	} catch {
+		return null;
+	}
 }
 
 export function writeSidebarNavTab(storage: StorageLike | undefined, tab: SidebarNavTab) {
-  if (!storage) return;
-  try {
-    storage.setItem(SIDEBAR_NAV_TAB_KEY, tab);
-  } catch {
-    // localStorage 不可用时静默忽略；settings.json 仍会落盘
-  }
+	if (!storage) return;
+	try {
+		storage.setItem(SIDEBAR_NAV_TAB_KEY, tab);
+	} catch {
+		// localStorage 不可用时静默忽略；settings.json 仍会落盘
+	}
 }

@@ -2,23 +2,14 @@ import net from "node:net";
 import tls from "node:tls";
 import { Buffer } from "node:buffer";
 import type { AppSettings, PiProxyTestResult } from "../../shared/types";
-import {
-	mainProcessT,
-	type MainProcessTranslationKey,
-} from "../../shared/i18n/mainProcessCopy";
+import { mainProcessT, type MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 
-type PiProxySettings = Pick<
-	AppSettings,
-	"piProxyEnabled" | "piProxyUrl" | "piProxyBypass"
->;
+type PiProxySettings = Pick<AppSettings, "piProxyEnabled" | "piProxyUrl" | "piProxyBypass">;
 
 const DEFAULT_PROXY_TEST_URL = "https://api.openai.com/v1/models";
 const PROXY_TEST_TIMEOUT_MS = 8_000;
 
-type ProxyCopy = (
-	key: MainProcessTranslationKey,
-	params?: Record<string, string | number>,
-) => string;
+type ProxyCopy = (key: MainProcessTranslationKey, params?: Record<string, string | number>) => string;
 
 class ProxyTestError extends Error {
 	constructor(
@@ -29,11 +20,7 @@ class ProxyTestError extends Error {
 	}
 }
 
-export async function testPiProxy(
-	settings: PiProxySettings,
-	testUrl = DEFAULT_PROXY_TEST_URL,
-	translate: ProxyCopy = (key, params) => mainProcessT("zh-CN", key, params),
-): Promise<PiProxyTestResult> {
+export async function testPiProxy(settings: PiProxySettings, testUrl = DEFAULT_PROXY_TEST_URL, translate: ProxyCopy = (key, params) => mainProcessT("zh-CN", key, params)): Promise<PiProxyTestResult> {
 	const startedAt = Date.now();
 
 	try {
@@ -91,13 +78,7 @@ async function requestHttpsTargetThroughProxy(proxy: URL, target: URL) {
 
 	try {
 		// HTTPS 目标通过 HTTP CONNECT 建立隧道；这和大多数 Node/undici 代理客户端的实际路径一致。
-		socket.write(
-			`CONNECT ${targetAuthority} HTTP/1.1\r\n` +
-				`Host: ${targetAuthority}\r\n` +
-				`Proxy-Connection: Keep-Alive\r\n` +
-				proxyAuthHeader(proxy) +
-				`\r\n`,
-		);
+		socket.write(`CONNECT ${targetAuthority} HTTP/1.1\r\n` + `Host: ${targetAuthority}\r\n` + `Proxy-Connection: Keep-Alive\r\n` + proxyAuthHeader(proxy) + `\r\n`);
 
 		const connectHead = await readHttpHead(socket);
 		if (connectHead.statusCode !== 200) {
@@ -132,10 +113,7 @@ function connectProxySocket(proxy: URL): Promise<net.Socket | tls.TLSSocket> {
 	const host = proxy.hostname;
 
 	return new Promise((resolve, reject) => {
-		const socket =
-			proxy.protocol === "https:"
-				? tls.connect({ host, port, servername: host })
-				: net.connect({ host, port });
+		const socket = proxy.protocol === "https:" ? tls.connect({ host, port, servername: host }) : net.connect({ host, port });
 		const timer = setTimeout(() => {
 			socket.destroy();
 			reject(new ProxyTestError("mainProxy.connectTimeout"));
@@ -240,24 +218,11 @@ function readHttpHead(socket: net.Socket | tls.TLSSocket) {
 }
 
 function buildOriginGetRequest(target: URL) {
-	return (
-		`GET ${getRequestPath(target)} HTTP/1.1\r\n` +
-		`Host: ${target.host}\r\n` +
-		`User-Agent: pi-desktop-proxy-test\r\n` +
-		`Connection: close\r\n` +
-		`\r\n`
-	);
+	return `GET ${getRequestPath(target)} HTTP/1.1\r\n` + `Host: ${target.host}\r\n` + `User-Agent: pi-desktop-proxy-test\r\n` + `Connection: close\r\n` + `\r\n`;
 }
 
 function buildProxyGetRequest(target: URL, proxy: URL) {
-	return (
-		`GET ${target.href} HTTP/1.1\r\n` +
-		`Host: ${target.host}\r\n` +
-		`User-Agent: pi-desktop-proxy-test\r\n` +
-		proxyAuthHeader(proxy) +
-		`Connection: close\r\n` +
-		`\r\n`
-	);
+	return `GET ${target.href} HTTP/1.1\r\n` + `Host: ${target.host}\r\n` + `User-Agent: pi-desktop-proxy-test\r\n` + proxyAuthHeader(proxy) + `Connection: close\r\n` + `\r\n`;
 }
 
 function proxyAuthHeader(proxy: URL) {

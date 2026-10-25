@@ -67,14 +67,11 @@ export type ProviderUsageBooster = {
  * - subscription：官方订阅（登录态 OAuth：Codex / xAI，凭据来自 auth.json）；
  * - general：通用 OpenAI 兼容 /usage（端点自定义场景的可选覆盖模板）；
  * - newapi：New API / OneAPI 中转站（需要访问令牌 + 用户 ID）。
+ * - cookie：自研网关网页后台接口（需要登录态 Cookie）。
+ * - volcengine：火山方舟 AK/SK 签名查询（控制面 open.volcengineapi.com）。
+ * - sub2api：Sub2API 自部署网关 /v1/usage（钱包/订阅/Key 额度三形态自动分流）。
  */
-export type UsageProbeTemplateCategory =
-	| "balance"
-	| "plan"
-	| "subscription"
-	| "general"
-	| "newapi"
-	| "cookie";
+export type UsageProbeTemplateCategory = "balance" | "plan" | "subscription" | "general" | "newapi" | "cookie" | "volcengine" | "sub2api";
 
 /** 声明式模板元数据（渲染层 pills 数据源；纯数据、无密钥）。 */
 export type UsageProbeTemplateMeta = {
@@ -101,7 +98,7 @@ export type UsageProbeProviderConfig = {
 	/** 启动开关。不写 = 自动（内置命中即开、未命中即按未配置处理）。 */
 	enabled?: boolean;
 	/**
-	 * 模板 id："general" | "newapi" | "cookie"（声明式）；内置命中的 provider 可省略
+	 * 模板 id："general" | "newapi" | "cookie" | "volcengine" | "sub2api"；内置命中的 provider 可省略
 	 * （自动识别），识别不到时用户必须显式选一个声明式模板。
 	 */
 	template?: string;
@@ -121,10 +118,46 @@ export type UsageProbeProviderConfig = {
 	valuePath?: string;
 	/** Cookie 模板：币种字段路径（可选，如 data.currency）。 */
 	currencyPath?: string;
+	/** 火山方舟模板：Access Key ID（控制台「访问控制 → 密钥管理」的 API Key ID）。 */
+	accessKeyId?: string;
+	/** 火山方舟模板：Secret Access Key；只用于本地派生 HMAC 签名，不写日志与遥测。 */
+	secretAccessKey?: string;
+	/** Sub2API 模板：网页后台登录态 JWT（可选）；填了追加 /api/v1/auth/me 查账户钱包余额，与已用并列展示。 */
+	panelJwt?: string;
+	/**
+	 * Sub2API 模板：网页后台登录态 refresh token（可选）。配上它之后 PiDeck 会在 JWT 过期
+	 * （本地 exp 判定）或 /auth/me 返回 401 时自动调 POST /api/v1/auth/refresh 续期并把新的
+	 * token 对写回本文件——省掉过期后手动重贴 JWT。上游 refresh token 是**单次轮转**的
+	 * （用过即失效），所以拿到新对必须立刻落盘，否则下次续期必然失败。
+	 */
+	panelRefreshToken?: string;
 	/** 超时（秒），默认 10。 */
 	timeoutSecs?: number;
 	/** 自动查询间隔（分钟），默认 5；0 = 不自动。 */
 	intervalMinutes?: number;
+};
+
+/**
+ * 单 provider 的用量查询状态（渲染层徽章开关 + 启动预热选源用）。
+ * 生效开关语义：显式 enabled ?? 内置识别命中（未配置且未识别 = false）。
+ */
+export type UsageProbeProviderState = {
+	/** 生效开关：徽章里的开关就是它的 UI。 */
+	enabled: boolean;
+	/** 是否已显式保存过配置（含只写 enabled 字段的条目）。 */
+	configured: boolean;
+	/** 内置候选自动识别命中（零配置生效路径）。 */
+	recognized: boolean;
+	/** 生效模板 id（声明式 general/newapi/cookie 或内置 templateId）；无则省略。 */
+	template?: string;
+	/** 生效自动查询间隔（分钟；0 = 不轮询）。 */
+	intervalMinutes: number;
+};
+
+/** list-usage-probe-states 返回：按 provider 的状态表（含配置文件校验错误，不含密钥）。 */
+export type UsageProbeStatesResult = {
+	providers: Record<string, UsageProbeProviderState>;
+	errors: string[];
 };
 
 /** get-usage-probes 返回（按 provider 查询，弹窗打开时拉取）。 */
@@ -167,7 +200,7 @@ export type UsageProbeTestInput = {
 	provider: string;
 	/** 配置宿主（缺省 pi）；dsh = 端点走 pi-ai catalog 兜底、凭据从 $DSH_HOME/.credentials.yaml 读。 */
 	backend?: UsageProbeBackend;
-	/** "general" | "newapi" | "cookie" | 内置 templateId（省略 = 自动识别）。 */
+	/** "general" | "newapi" | "cookie" | "volcengine" | "sub2api" | 内置 templateId（省略 = 自动识别）。 */
 	template?: string;
 	apiKey?: string;
 	baseUrl?: string;
@@ -177,6 +210,13 @@ export type UsageProbeTestInput = {
 	cookiePath?: string;
 	valuePath?: string;
 	currencyPath?: string;
+	/** 火山方舟模板 AK/SK：与 apiKey 互斥（签名鉴权，不用 Bearer）。 */
+	accessKeyId?: string;
+	secretAccessKey?: string;
+	/** Sub2API 模板：网页后台 JWT（可选，追加查账户钱包余额）。 */
+	panelJwt?: string;
+	/** Sub2API 模板：refresh token（可选，用于自动续期；弹窗测试不落盘）。 */
+	panelRefreshToken?: string;
 	/** 测试用超时（秒）；缺省 10。 */
 	timeoutSecs?: number;
 };
@@ -273,6 +313,12 @@ export type ProviderUsageResult = {
 	credits?: ProviderUsageCredits;
 	/** 与主额度并存的独立货币（如 Kimi Boost 点数）；有则 UI 追加展示。 */
 	booster?: ProviderUsageBooster;
+	/**
+	 * Sub2API 面板 JWT 余额追加失败原因：unauthorized = /api/v1/auth/me 返回 401
+	 * （JWT 过期/无效且无 refresh token 或续期也被拒），failed = 网络/服务端/结构等其他错误。
+	 * 存在时余额段被丢弃（主结果照常），UI 显式提示「余额段为何消失」而不是无感隐藏。
+	 */
+	panelBalanceError?: "unauthorized" | "failed";
 	/**
 	 * 无法结构化解析时保留的原始响应体（已脱敏/截断，可安全展示）。
 	 * 也用于标记「未启用用量查询」这类结构性失败（success=false 且 error 带标识）。

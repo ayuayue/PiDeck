@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "version": "1.0.0",
+  "bundleSha256": "3190f532996bb8018de739d20ede28f796a4e4a624287533066df57ebb3b091a",
+  "fileCount": 13,
+  "files": [
+    {
+      "name": "commit-own.md",
+      "sha256": "13fb94d875b55e1ea6facc13fbcf517fca1a8a28a6b9b681358d025b7df0c186",
+      "bytes": 720
+    },
+    {
+      "name": "commit-split.md",
+      "sha256": "51b7f04afc46e96944a478cc76d9538abee5b68397dff527307b9e89c85cfba2",
+      "bytes": 813
+    },
+    {
+      "name": "commit.md",
+      "sha256": "23a7c024671e0c58b448f6ec331739412326b7cbe927136ff0a5e9de224ebde8",
+      "bytes": 265
+    },
+    {
+      "name": "doc.md",
+      "sha256": "a9a18f5e4a6de2a7bd897573554c9f28a1f9003fafd5ee7ef38ab935447da1dc",
+      "bytes": 216
+    },
+    {
+      "name": "enhance-prompt-deep.md",
+      "sha256": "8b5765dcefe1a6556b4f2cd19b56531bca6831e870840bc679f9db96a87e5b50",
+      "bytes": 4137
+    },
+    {
+      "name": "enhance-prompt.md",
+      "sha256": "e654ab1e9f689fac73acd4a44feb6532fb06bbf014bb8d33fc127607db1848f6",
+      "bytes": 1332
+    },
+    {
+      "name": "explain.md",
+      "sha256": "ba64889d4a2b796d502dc47365da94871e31cffb5d5ca74453d734f4607f4f22",
+      "bytes": 218
+    },
+    {
+      "name": "fix.md",
+      "sha256": "5ff38eff45a2b1ca85f878336cba73863421bcbed1aa2c4d2c2835172c57d3a9",
+      "bytes": 233
+    },
+    {
+      "name": "pi-system.md",
+      "sha256": "cb19ab93a8c387df4a551ce31292ba29c66830efc11b8c931a70aa1e1c033d10",
+      "bytes": 1467
+    },
+    {
+      "name": "refactor.md",
+      "sha256": "3adfef53a0d947d8a0058d26f99d01baf001a8df25affc00943186045ebaed98",
+      "bytes": 243
+    },
+    {
+      "name": "review.md",
+      "sha256": "01187a8eb9d01aa82647f7f9fc433543c6f5ef66a0495378932f495f8096b9b3",
+      "bytes": 210
+    },
+    {
+      "name": "skill-discipline.md",
+      "sha256": "76bb1a1880af5d660c4c339a3a2dfe51adad243e57fc95f4edea398a4c0fbba1",
+      "bytes": 2173
+    },
+    {
+      "name": "test.md",
+      "sha256": "71899871878d89eaa3dc36bd2be8b43a38f703304b2c0019e95ddc2d9d6bf75c",
+      "bytes": 182
+    }
+  ]
+}

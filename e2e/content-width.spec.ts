@@ -1,5 +1,5 @@
 import { test, expect } from "./mock-pi-fixture";
-import { openFirstSession, makeSeedProject } from "./open-session";
+import { openFirstSession, makeSeedProject, openSettings } from "./open-session";
 
 /**
  * 聊天内容宽度（百分比体系）E2E：
@@ -18,7 +18,7 @@ test("content width: 85% shared margin, composer aligns with message list", asyn
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 
 	// ── 打开设置，切到外观设置 tab，滑块设为 85% ──
-	await window.locator(".settings-icon").click();
+	await openSettings(window);
 	const modal = window.locator(".settings-modal");
 	await expect(modal).toBeVisible();
 	await modal.getByText("外观设置").click();
@@ -29,10 +29,7 @@ test("content width: 85% shared margin, composer aligns with message list", asyn
 	await expect(slider).toHaveAttribute("max", "100");
 	// fill() 对 range input 不触发 React onChange，用原生 value setter + 事件派发
 	await slider.evaluate((el) => {
-		const setter = Object.getOwnPropertyDescriptor(
-			window.HTMLInputElement.prototype,
-			"value",
-		)!.set!;
+		const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
 		setter.call(el, "85");
 		el.dispatchEvent(new Event("input", { bubbles: true }));
 		el.dispatchEvent(new Event("change", { bubbles: true }));
@@ -58,37 +55,37 @@ test("content width: 85% shared margin, composer aligns with message list", asyn
 	const messageList = window.locator(".message-list");
 	await expect(messageList).toBeVisible({ timeout: 20_000 });
 
-		// ── 断言：消息区与输入框同宽，且约为当前会话栏的 85% ──
-		const paneBox = await sessionPane.boundingBox();
-		const msgBox = await messageList.boundingBox();
-		const composerBox = await composer.boundingBox();
-		expect(paneBox).not.toBeNull();
-		expect(msgBox).not.toBeNull();
-		expect(composerBox).not.toBeNull();
+	// ── 断言：消息区与输入框同宽，且约为当前会话栏的 85% ──
+	const paneBox = await sessionPane.boundingBox();
+	const msgBox = await messageList.boundingBox();
+	const composerBox = await composer.boundingBox();
+	expect(paneBox).not.toBeNull();
+	expect(msgBox).not.toBeNull();
+	expect(composerBox).not.toBeNull();
 
-		const paneW = paneBox!.width;
-		const msgW = msgBox!.width;
-		const composerW = composerBox!.width;
-		// 消息区 ≈ 输入框（同在会话栏宿主的内容盒内；timeline 滚动条约 10px，容差 14px）
-		expect(Math.abs(msgW - composerW)).toBeLessThanOrEqual(14);
-		// 内容区 ≈ 85% 面板宽度（±4% 容差：含最小 12px 边距与边框）
-		expect(msgW / paneW).toBeGreaterThan(0.81);
-		expect(msgW / paneW).toBeLessThan(0.89);
+	const paneW = paneBox!.width;
+	const msgW = msgBox!.width;
+	const composerW = composerBox!.width;
+	// 消息区 ≈ 输入框（同在会话栏宿主的内容盒内；timeline 滚动条约 10px，容差 14px）
+	expect(Math.abs(msgW - composerW)).toBeLessThanOrEqual(14);
+	// 内容区 ≈ 85% 面板宽度（±4% 容差：含最小 12px 边距与边框）
+	expect(msgW / paneW).toBeGreaterThan(0.81);
+	expect(msgW / paneW).toBeLessThan(0.89);
 
-		// ── 窄栏仍按 85%，不因容器查询把滑块盖成全宽 ──
-		await sessionPane.evaluate((element) => {
-			const pane = element as HTMLElement;
-			pane.style.flex = "0 0 900px";
-			pane.style.width = "900px";
-		});
-		await window.waitForTimeout(400);
-		const narrowMsgBox = await messageList.boundingBox();
-		const narrowComposerBox = await composer.boundingBox();
-		const narrowPaneBox = await sessionPane.boundingBox();
-		expect(narrowMsgBox).not.toBeNull();
-		expect(narrowComposerBox).not.toBeNull();
-		expect(narrowPaneBox).not.toBeNull();
-		expect(Math.abs(narrowMsgBox!.width - narrowComposerBox!.width)).toBeLessThanOrEqual(14);
-		expect(narrowMsgBox!.width / narrowPaneBox!.width).toBeGreaterThan(0.81);
-		expect(narrowMsgBox!.width / narrowPaneBox!.width).toBeLessThan(0.89);
+	// ── 窄栏仍按 85%，不因容器查询把滑块盖成全宽 ──
+	await sessionPane.evaluate((element) => {
+		const pane = element as HTMLElement;
+		pane.style.flex = "0 0 900px";
+		pane.style.width = "900px";
+	});
+	await window.waitForTimeout(400);
+	const narrowMsgBox = await messageList.boundingBox();
+	const narrowComposerBox = await composer.boundingBox();
+	const narrowPaneBox = await sessionPane.boundingBox();
+	expect(narrowMsgBox).not.toBeNull();
+	expect(narrowComposerBox).not.toBeNull();
+	expect(narrowPaneBox).not.toBeNull();
+	expect(Math.abs(narrowMsgBox!.width - narrowComposerBox!.width)).toBeLessThanOrEqual(14);
+	expect(narrowMsgBox!.width / narrowPaneBox!.width).toBeGreaterThan(0.81);
+	expect(narrowMsgBox!.width / narrowPaneBox!.width).toBeLessThan(0.89);
 });

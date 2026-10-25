@@ -3,456 +3,443 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, normalize, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Project } from "../../shared/types";
-import {
-  normalizeSelectedWslProjectPath,
-  parseWslUncPath,
-  WslPathError,
-  type WslEnvironment,
-} from "../wsl/WslPaths";
+import { normalizeSelectedWslProjectPath, parseWslUncPath, WslPathError, type WslEnvironment } from "../wsl/WslPaths";
 import { isEphemeralProjectPath, projectPathKey, sanitizeProjectDisplayName } from "./projectPathPolicy";
 
 const CHAT_PROJECT_ID = "builtin-chat";
 const CHAT_PROJECT_NAME = "Chat";
 
 export class ProjectStore {
-  /** DSH 外部会话兑底项目稳定 id（无 cwd/未匹配目录的会话归属；见 ensureExternalSessionsProject）。 */
-  private static readonly EXTERNAL_PROJECT_ID = "builtin-external";
-  private readonly filePath = join(app.getPath("userData"), "projects.json");
-  private readonly chatPathFile = join(app.getPath("userData"), "chat-path.json");
-  /** 用户从侧栏移除过的目录：启动自动导入不得再按会话 cwd 把它们加回。 */
-  private readonly dismissedFilePath = join(app.getPath("userData"), "dismissed-project-paths.json");
-  // 聊天工作区目录：默认在 userData 下，用户可在侧栏聊天项目设置中改为任意目录并持久化。
-  private chatProjectPath = join(app.getPath("userData"), "chat-workspace");
-  private projects: Project[] = [];
-  private dismissedPaths: string[] = [];
+	/** DSH 外部会话兑底项目稳定 id（无 cwd/未匹配目录的会话归属；见 ensureExternalSessionsProject）。 */
+	private static readonly EXTERNAL_PROJECT_ID = "builtin-external";
+	private readonly filePath = join(app.getPath("userData"), "projects.json");
+	private readonly chatPathFile = join(app.getPath("userData"), "chat-path.json");
+	/** 用户从侧栏移除过的目录：启动自动导入不得再按会话 cwd 把它们加回。 */
+	private readonly dismissedFilePath = join(app.getPath("userData"), "dismissed-project-paths.json");
+	// 聊天工作区目录：默认在 userData 下，用户可在侧栏聊天项目设置中改为任意目录并持久化。
+	private chatProjectPath = join(app.getPath("userData"), "chat-workspace");
+	private projects: Project[] = [];
+	private dismissedPaths: string[] = [];
 
-  constructor(private readonly chooseProjectTitle: () => string = () => "Choose project folder") {}
+	constructor(private readonly chooseProjectTitle: () => string = () => "Choose project folder") {}
 
-  async load() {
-    try {
-      const raw = await readFile(this.filePath, "utf8");
-      this.projects = JSON.parse(raw) as Project[];
-    } catch {
-      this.projects = [];
-    }
-    // 先读取用户自定义的聊天目录（若存在），再据此修正内置聊天项目路径。
-    await this.loadChatProjectPath();
-    await this.loadDismissedPaths();
-    const chatChanged = this.ensureChatProject();
-    const orderChanged = this.ensureSortOrder();
-    const ephemeralRemoved = this.dropEphemeralProjects();
-    const changed = chatChanged || orderChanged || ephemeralRemoved.length > 0;
-    await mkdir(this.chatProjectPath, { recursive: true });
-    if (changed) await this.save();
-    if (ephemeralRemoved.length > 0) await this.saveDismissedPaths();
-    return this.list();
-  }
+	// 项目集变化监听（托盘菜单等主进程侧 UI 重建用）：所有 mutation 汇聚于 save()，
+	// 此处统一派发，避免在 IPC/自动导入/worktree 等散点各挂一份。
+	private changeListeners: Array<() => void> = [];
 
-  list() {
-    return [...this.projects].sort((a, b) =>
-      Number(this.isChatProject(b)) - Number(this.isChatProject(a))
-      || Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
-      || this.projectSortOrder(a) - this.projectSortOrder(b)
-      || b.lastOpenedAt - a.lastOpenedAt
-    );
-  }
+	onChanged(listener: () => void): () => void {
+		this.changeListeners.push(listener);
+		return () => {
+			this.changeListeners = this.changeListeners.filter((entry) => entry !== listener);
+		};
+	}
 
-  get(id: string) {
-    return this.projects.find(project => project.id === id);
-  }
+	private emitChanged(): void {
+		for (const listener of this.changeListeners) {
+			try {
+				listener();
+			} catch {
+				// 监听器（如托盘重建）失败不能阻断项目持久化本身
+			}
+		}
+	}
 
-  getChatProjectPath() {
-    return this.chatProjectPath;
-  }
+	async load() {
+		try {
+			const raw = await readFile(this.filePath, "utf8");
+			this.projects = JSON.parse(raw) as Project[];
+		} catch {
+			this.projects = [];
+		}
+		// 先读取用户自定义的聊天目录（若存在），再据此修正内置聊天项目路径。
+		await this.loadChatProjectPath();
+		await this.loadDismissedPaths();
+		const chatChanged = this.ensureChatProject();
+		const orderChanged = this.ensureSortOrder();
+		const ephemeralRemoved = this.dropEphemeralProjects();
+		const changed = chatChanged || orderChanged || ephemeralRemoved.length > 0;
+		await mkdir(this.chatProjectPath, { recursive: true });
+		if (changed) await this.save();
+		if (ephemeralRemoved.length > 0) await this.saveDismissedPaths();
+		return this.list();
+	}
 
-  /**
-   * 设置内置聊天项目的会话目录并持久化。
-   * 更新内存中的聊天项目路径、写入 chat-path.json，并确保目标目录存在。
-   * 返回更新后的聊天项目（便于主进程向渲染端广播 projects:changed）。
-   */
-  async setChatProjectPath(path: string) {
-    const normalized = this.normalizeProjectPath(path);
-    // 边界保护：聊天目录不允许指向已注册的普通项目目录（issue #149）。否则聊天项目与
-    // 该项目同路径并存，重启后 ensureChatProject 曾把该项目整条吸收，且「添加项目」选
-    // 同一目录只会返回 builtin-chat，项目区永远不再出现新项目。
-    const occupied = this.projects.find(
-      (project) => !this.isChatProject(project) && this.sameProjectPath(project.path, normalized),
-    );
-    if (occupied) {
-      throw new Error("CHAT_PATH_OVERLAPS_PROJECT");
-    }
-    this.chatProjectPath = normalized;
-    await writeFile(this.chatPathFile, JSON.stringify({ path: normalized }), "utf8");
-    const chat = this.projects.find(
-      (project) => this.isChatProject(project) || project.id === CHAT_PROJECT_ID,
-    );
-    if (chat) chat.path = normalized;
-    await mkdir(normalized, { recursive: true });
-    await this.save();
-    return chat ?? null;
-  }
+	list() {
+		return [...this.projects].sort((a, b) => Number(this.isChatProject(b)) - Number(this.isChatProject(a)) || Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || this.projectSortOrder(a) - this.projectSortOrder(b) || b.lastOpenedAt - a.lastOpenedAt);
+	}
 
-  private rememberDismissedPath(path: string) {
-    const key = projectPathKey(path);
-    if (!key) return;
-    if (this.dismissedPaths.some((item) => projectPathKey(item) === key)) return;
-    this.dismissedPaths.push(path);
-  }
+	get(id: string) {
+		return this.projects.find((project) => project.id === id);
+	}
 
-  private forgetDismissedPath(path: string) {
-    const key = projectPathKey(path);
-    this.dismissedPaths = this.dismissedPaths.filter((item) => projectPathKey(item) !== key);
-  }
+	getChatProjectPath() {
+		return this.chatProjectPath;
+	}
 
-  private async loadDismissedPaths() {
-    try {
-      const raw = await readFile(this.dismissedFilePath, "utf8");
-      const parsed = JSON.parse(raw) as { paths?: unknown };
-      this.dismissedPaths = Array.isArray(parsed.paths)
-        ? parsed.paths.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-        : [];
-    } catch {
-      this.dismissedPaths = [];
-    }
-  }
+	/**
+	 * 设置内置聊天项目的会话目录并持久化。
+	 * 更新内存中的聊天项目路径、写入 chat-path.json，并确保目标目录存在。
+	 * 返回更新后的聊天项目（便于主进程向渲染端广播 projects:changed）。
+	 */
+	async setChatProjectPath(path: string) {
+		const normalized = this.normalizeProjectPath(path);
+		// 边界保护：聊天目录不允许指向已注册的普通项目目录（issue #149）。否则聊天项目与
+		// 该项目同路径并存，重启后 ensureChatProject 曾把该项目整条吸收，且「添加项目」选
+		// 同一目录只会返回 builtin-chat，项目区永远不再出现新项目。
+		const occupied = this.projects.find((project) => !this.isChatProject(project) && this.sameProjectPath(project.path, normalized));
+		if (occupied) {
+			throw new Error("CHAT_PATH_OVERLAPS_PROJECT");
+		}
+		this.chatProjectPath = normalized;
+		await writeFile(this.chatPathFile, JSON.stringify({ path: normalized }), "utf8");
+		const chat = this.projects.find((project) => this.isChatProject(project) || project.id === CHAT_PROJECT_ID);
+		if (chat) chat.path = normalized;
+		await mkdir(normalized, { recursive: true });
+		await this.save();
+		return chat ?? null;
+	}
 
-  private async saveDismissedPaths() {
-    await mkdir(app.getPath("userData"), { recursive: true });
-    await writeFile(
-      this.dismissedFilePath,
-      JSON.stringify({ paths: this.dismissedPaths }, null, 2),
-      "utf8",
-    );
-  }
+	private rememberDismissedPath(path: string) {
+		const key = projectPathKey(path);
+		if (!key) return;
+		if (this.dismissedPaths.some((item) => projectPathKey(item) === key)) return;
+		this.dismissedPaths.push(path);
+	}
 
-  /** 读取用户自定义的聊天目录；不存在或解析失败时回退到默认 chat-workspace。 */
-  private async loadChatProjectPath() {
-    try {
-      const raw = await readFile(this.chatPathFile, "utf8");
-      const parsed = JSON.parse(raw) as { path?: string };
-      if (parsed.path) this.chatProjectPath = this.normalizeProjectPath(parsed.path);
-    } catch {
-      // 无自定义路径时保持默认 userData/chat-workspace
-    }
-  }
+	private forgetDismissedPath(path: string) {
+		const key = projectPathKey(path);
+		this.dismissedPaths = this.dismissedPaths.filter((item) => projectPathKey(item) !== key);
+	}
 
-  async chooseAndAdd(
-    environment?: "windows" | "wsl",
-    wslEnvironment?: WslEnvironment | null,
-  ) {
-    if (environment === "wsl" && !wslEnvironment) {
-      throw new WslPathError("INVALID_WSL_PATH", "The active WSL environment is unavailable.");
-    }
-    const result = await dialog.showOpenDialog({
-      title: this.chooseProjectTitle(),
-      ...(environment === "wsl" ? { defaultPath: wslEnvironment!.windowsHome } : {}),
-      properties: ["openDirectory"],
-    });
+	private async loadDismissedPaths() {
+		try {
+			const raw = await readFile(this.dismissedFilePath, "utf8");
+			const parsed = JSON.parse(raw) as { paths?: unknown };
+			this.dismissedPaths = Array.isArray(parsed.paths) ? parsed.paths.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+		} catch {
+			this.dismissedPaths = [];
+		}
+	}
 
-    if (result.canceled || result.filePaths.length === 0) return null;
-    let projectPath = result.filePaths[0];
+	private async saveDismissedPaths() {
+		await mkdir(app.getPath("userData"), { recursive: true });
+		await writeFile(this.dismissedFilePath, JSON.stringify({ paths: this.dismissedPaths }, null, 2), "utf8");
+	}
 
-    // WSL 盘符项目沿用 /mnt 存储格式；WSL 内部项目保留为可供 Windows 主进程访问的规范 UNC。
-    if (environment === "wsl") {
-      projectPath = normalizeSelectedWslProjectPath(projectPath, wslEnvironment!);
-    }
+	/** 读取用户自定义的聊天目录；不存在或解析失败时回退到默认 chat-workspace。 */
+	private async loadChatProjectPath() {
+		try {
+			const raw = await readFile(this.chatPathFile, "utf8");
+			const parsed = JSON.parse(raw) as { path?: string };
+			if (parsed.path) this.chatProjectPath = this.normalizeProjectPath(parsed.path);
+		} catch {
+			// 无自定义路径时保持默认 userData/chat-workspace
+		}
+	}
 
-    return this.add(projectPath, undefined, environment);
-  }
+	async chooseAndAdd(environment?: "windows" | "wsl", wslEnvironment?: WslEnvironment | null) {
+		if (environment === "wsl" && !wslEnvironment) {
+			throw new WslPathError("INVALID_WSL_PATH", "The active WSL environment is unavailable.");
+		}
+		const result = await dialog.showOpenDialog({
+			title: this.chooseProjectTitle(),
+			...(environment === "wsl" ? { defaultPath: wslEnvironment!.windowsHome } : {}),
+			properties: ["openDirectory"],
+		});
 
-  /** 添加项目，可指定所属环境（缺省 windows） */
-  async add(path: string, worktreeParentId?: string, environment?: "windows" | "wsl") {
-    const normalizedPath = this.normalizeProjectPath(path);
-    // 内置聊天项目不参与「同路径即已有项目」匹配（issue #149）：用户挑选的目录即使与
-    // 聊天目录相同，也必须创建真正的项目记录——否则 add() 永远返回 builtin-chat，
-    // 项目区不再出现新项目，侧栏只剩聊天区。
-    const existing = this.projects.find(
-      (project) => !this.isChatProject(project) && this.sameProjectPath(project.path, normalizedPath),
-    );
-    if (existing) {
-      existing.path = normalizedPath;
-      existing.lastOpenedAt = Date.now();
-      // 外部已有 worktree 可能曾经作为顶级项目加入；开启工作区后需要补上父子关系。
-      if (worktreeParentId && existing.id !== worktreeParentId) {
-        existing.worktreeParentId = worktreeParentId;
-        existing.pinned = false;
-      }
-      this.forgetDismissedPath(normalizedPath);
-      await this.save();
-      await this.saveDismissedPaths();
-      return existing;
-    }
+		if (result.canceled || result.filePaths.length === 0) return null;
+		let projectPath = result.filePaths[0];
 
-    const project: Project = {
-      id: randomUUID(),
-      name: basename(normalizedPath) || normalizedPath,
-      path: normalizedPath,
-      lastOpenedAt: Date.now(),
-      sortOrder: this.nextSortOrder(),
-      // 兼容旧数据：environment 缺省视为 windows
-      environment: environment || "windows",
-      ...(worktreeParentId ? { worktreeParentId } : {}),
-    };
+		// WSL 盘符项目沿用 /mnt 存储格式；WSL 内部项目保留为可供 Windows 主进程访问的规范 UNC。
+		if (environment === "wsl") {
+			projectPath = normalizeSelectedWslProjectPath(projectPath, wslEnvironment!);
+		}
 
-    this.projects.push(project);
-    // 用户再次手动添加同一目录：从「已移除」名单拿掉，允许以后自动导入。
-    this.forgetDismissedPath(normalizedPath);
-    await this.save();
-    await this.saveDismissedPaths();
-    return project;
-  }
+		return this.add(projectPath, undefined, environment);
+	}
 
-  async remove(id: string) {
-    const removed = this.projects.filter((project) =>
-      project.id === id || project.worktreeParentId === id,
-    );
-    // 删除父项目时同步移除子项目记录，避免留下不可见的孤儿 worktree 项目。
-    this.projects = this.projects.filter(project =>
-      (project.id !== id && project.worktreeParentId !== id) || this.isChatProject(project),
-    );
-    for (const project of removed) {
-      if (!this.isChatProject(project) && project.path) {
-        this.rememberDismissedPath(project.path);
-      }
-    }
-    await this.save();
-    await this.saveDismissedPaths();
-  }
+	/** 添加项目，可指定所属环境（缺省 windows） */
+	async add(path: string, worktreeParentId?: string, environment?: "windows" | "wsl") {
+		const normalizedPath = this.normalizeProjectPath(path);
+		// 内置聊天项目不参与「同路径即已有项目」匹配（issue #149）：用户挑选的目录即使与
+		// 聊天目录相同，也必须创建真正的项目记录——否则 add() 永远返回 builtin-chat，
+		// 项目区不再出现新项目，侧栏只剩聊天区。
+		const existing = this.projects.find((project) => !this.isChatProject(project) && this.sameProjectPath(project.path, normalizedPath));
+		if (existing) {
+			existing.path = normalizedPath;
+			existing.lastOpenedAt = Date.now();
+			// 外部已有 worktree 可能曾经作为顶级项目加入；开启工作区后需要补上父子关系。
+			if (worktreeParentId && existing.id !== worktreeParentId) {
+				existing.worktreeParentId = worktreeParentId;
+				existing.pinned = false;
+			}
+			this.forgetDismissedPath(normalizedPath);
+			await this.save();
+			await this.saveDismissedPaths();
+			return existing;
+		}
 
-  /**
-   * 重命名项目显示名（仅改侧栏/标题等展示 label，不修改磁盘目录）。
-   * 拒绝两类项目：
-   * - 内置聊天项目：name 由 ensureChatProject 固定为 "Chat"，重命名会被下次加载覆盖；
-   * - worktree 子项目：其 name 承载 git 分支名（WorktreeTree 展示 / 删除 worktree 时按 name 定位分支），
-   *   改名会导致分支关联错乱。
-   * 返回更新后的项目；id 不存在返回 null。
-   */
-  async rename(id: string, name: string): Promise<Project | null> {
-    const project = this.get(id);
-    if (!project) return null;
-    if (this.isChatProject(project) || project.worktreeParentId) {
-      throw new Error("PROJECT_RENAME_NOT_ALLOWED");
-    }
-    project.name = sanitizeProjectDisplayName(name);
-    await this.save();
-    return project;
-  }
+		const project: Project = {
+			id: randomUUID(),
+			name: basename(normalizedPath) || normalizedPath,
+			path: normalizedPath,
+			lastOpenedAt: Date.now(),
+			sortOrder: this.nextSortOrder(),
+			// 兼容旧数据：environment 缺省视为 windows
+			environment: environment || "windows",
+			...(worktreeParentId ? { worktreeParentId } : {}),
+		};
 
-  /** 用户已从侧栏移除的目录（供启动自动导入判断是否按 cwd 重建项目）。 */
-  listDismissedPaths(): string[] {
-    return [...this.dismissedPaths];
-  }
+		this.projects.push(project);
+		// 用户再次手动添加同一目录：从「已移除」名单拿掉，允许以后自动导入。
+		this.forgetDismissedPath(normalizedPath);
+		await this.save();
+		await this.saveDismissedPaths();
+		return project;
+	}
 
-  /**
-   * 丢掉 e2e/临时隔离目录项目（如 %TEMP%/pideck-mockpi-*）。
-   * 这些路径本就不该进入开发者本机侧栏；启动时清掉并记入已移除名单，
-   * 避免 DSH 自动导入按 cwd 再注册。返回被删项目 id。
-   */
-  dropEphemeralProjects(): string[] {
-    const removedIds: string[] = [];
-    const kept: Project[] = [];
-    for (const project of this.projects) {
-      if (!this.isChatProject(project) && project.path && isEphemeralProjectPath(project.path)) {
-        removedIds.push(project.id);
-        this.rememberDismissedPath(project.path);
-        continue;
-      }
-      kept.push(project);
-    }
-    if (removedIds.length === 0) return [];
-    this.projects = kept;
-    return removedIds;
-  }
+	async remove(id: string) {
+		const removed = this.projects.filter((project) => project.id === id || project.worktreeParentId === id);
+		// 删除父项目时同步移除子项目记录，避免留下不可见的孤儿 worktree 项目。
+		this.projects = this.projects.filter((project) => (project.id !== id && project.worktreeParentId !== id) || this.isChatProject(project));
+		for (const project of removed) {
+			if (!this.isChatProject(project) && project.path) {
+				this.rememberDismissedPath(project.path);
+			}
+		}
+		await this.save();
+		await this.saveDismissedPaths();
+	}
 
-  async reorder(projectIds: string[]) {
-    const movableProjectIds = projectIds.filter((id) => id !== CHAT_PROJECT_ID);
-    const orderById = new Map(movableProjectIds.map((id, index) => [id, index]));
-    const tailStart = movableProjectIds.length;
-    const currentOrder = this.list()
-      .filter((project) => !this.isChatProject(project))
-      .map((project) => project.id);
+	/**
+	 * 重命名项目显示名（仅改侧栏/标题等展示 label，不修改磁盘目录）。
+	 * 拒绝两类项目：
+	 * - 内置聊天项目：name 由 ensureChatProject 固定为 "Chat"，重命名会被下次加载覆盖；
+	 * - worktree 子项目：其 name 承载 git 分支名（WorktreeTree 展示 / 删除 worktree 时按 name 定位分支），
+	 *   改名会导致分支关联错乱。
+	 * 返回更新后的项目；id 不存在返回 null。
+	 */
+	async rename(id: string, name: string): Promise<Project | null> {
+		const project = this.get(id);
+		if (!project) return null;
+		if (this.isChatProject(project) || project.worktreeParentId) {
+			throw new Error("PROJECT_RENAME_NOT_ALLOWED");
+		}
+		project.name = sanitizeProjectDisplayName(name);
+		await this.save();
+		return project;
+	}
 
-    this.projects.forEach((project) => {
-      if (this.isChatProject(project)) {
-        project.sortOrder = -1;
-        return;
-      }
-      const explicitOrder = orderById.get(project.id);
-      project.sortOrder = explicitOrder ?? tailStart + currentOrder.indexOf(project.id);
-    });
+	/** 用户已从侧栏移除的目录（供启动自动导入判断是否按 cwd 重建项目）。 */
+	listDismissedPaths(): string[] {
+		return [...this.dismissedPaths];
+	}
 
-    await this.save();
-    return this.list();
-  }
+	/**
+	 * 丢掉 e2e/临时隔离目录项目（如 %TEMP%/pideck-mockpi-*）。
+	 * 这些路径本就不该进入开发者本机侧栏；启动时清掉并记入已移除名单，
+	 * 避免 DSH 自动导入按 cwd 再注册。返回被删项目 id。
+	 */
+	dropEphemeralProjects(): string[] {
+		const removedIds: string[] = [];
+		const kept: Project[] = [];
+		for (const project of this.projects) {
+			if (!this.isChatProject(project) && project.path && isEphemeralProjectPath(project.path)) {
+				removedIds.push(project.id);
+				this.rememberDismissedPath(project.path);
+				continue;
+			}
+			kept.push(project);
+		}
+		if (removedIds.length === 0) return [];
+		this.projects = kept;
+		return removedIds;
+	}
 
-  private ensureChatProject() {
-    // 只按身份定位聊天项目（kind/id），不按路径匹配（issue #149）：聊天目录被设为某项目
-    // 目录后，路径相同的普通项目会被误判为聊天项目，整条覆盖（id/name/kind 被改写）并
-    // 从列表中删除——用户的项目区从此只剩聊天区，重启后仍被持久化。
-    const existing = this.projects.find(
-      (project) =>
-        this.isChatProject(project) ||
-        project.id === CHAT_PROJECT_ID,
-    );
-    const nextChatProject: Project = {
-      id: CHAT_PROJECT_ID,
-      name: CHAT_PROJECT_NAME,
-      path: this.chatProjectPath,
-      lastOpenedAt: existing?.lastOpenedAt ?? Date.now(),
-      pinned: true,
-      sortOrder: -1,
-      kind: "chat",
-    };
+	async reorder(projectIds: string[]) {
+		const movableProjectIds = projectIds.filter((id) => id !== CHAT_PROJECT_ID);
+		const orderById = new Map(movableProjectIds.map((id, index) => [id, index]));
+		const tailStart = movableProjectIds.length;
+		const currentOrder = this.list()
+			.filter((project) => !this.isChatProject(project))
+			.map((project) => project.id);
 
-    if (!existing) {
-      this.projects.unshift(nextChatProject);
-      return true;
-    }
+		this.projects.forEach((project) => {
+			if (this.isChatProject(project)) {
+				project.sortOrder = -1;
+				return;
+			}
+			const explicitOrder = orderById.get(project.id);
+			project.sortOrder = explicitOrder ?? tailStart + currentOrder.indexOf(project.id);
+		});
 
-    const previousLength = this.projects.length;
-    const changed =
-      existing.id !== nextChatProject.id ||
-      existing.name !== nextChatProject.name ||
-      existing.path !== nextChatProject.path ||
-      existing.kind !== nextChatProject.kind ||
-      existing.pinned !== nextChatProject.pinned ||
-      existing.sortOrder !== nextChatProject.sortOrder;
-    Object.assign(existing, nextChatProject);
-    // 仅去重多余的聊天项目记录（kind/id 命中），普通项目即使路径与聊天目录相同也保留。
-    this.projects = this.projects.filter(
-      (project, index) =>
-        index === this.projects.indexOf(existing) ||
-        (!this.isChatProject(project) && project.id !== CHAT_PROJECT_ID),
-    );
-    return changed || this.projects.length !== previousLength;
-  }
+		await this.save();
+		return this.list();
+	}
 
-  private ensureSortOrder() {
-    const needsOrder = this.projects.some(
-      (project) => typeof project.sortOrder !== "number" || Number.isNaN(project.sortOrder),
-    );
-    if (!needsOrder) return false;
+	/**
+	 * 置顶/取消置顶普通项目：聊天项目恒置顶（list 排序里已固定第一），对其置顶无意义，
+	 * 与 rename 一样拋错让调用方在 UI 层隐藏入口。置顶只改排序权重，不动 sortOrder，
+	 * 取消置顶后项目回到拖拽顺序里的原位置。
+	 */
+	async setPinned(id: string, pinned: boolean) {
+		const project = this.projects.find((candidate) => candidate.id === id);
+		if (!project) throw new Error(`Project not found: ${id}`);
+		if (this.isChatProject(project)) throw new Error("PROJECT_PIN_NOT_ALLOWED");
+		if (Boolean(project.pinned) === pinned) return this.list();
+		project.pinned = pinned;
+		await this.save();
+		return this.list();
+	}
 
-    // 首次升级旧数据时保留原来的“置顶优先 + 最近打开”顺序，之后由用户拖拽顺序接管。
-    [...this.projects]
-      .filter((project) => !this.isChatProject(project))
-      .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.lastOpenedAt - a.lastOpenedAt)
-      .forEach((project, index) => {
-        project.sortOrder = index;
-      });
-    const chatProject = this.projects.find((project) => this.isChatProject(project));
-    if (chatProject) chatProject.sortOrder = -1;
-    return true;
-  }
+	private ensureChatProject() {
+		// 只按身份定位聊天项目（kind/id），不按路径匹配（issue #149）：聊天目录被设为某项目
+		// 目录后，路径相同的普通项目会被误判为聊天项目，整条覆盖（id/name/kind 被改写）并
+		// 从列表中删除——用户的项目区从此只剩聊天区，重启后仍被持久化。
+		const existing = this.projects.find((project) => this.isChatProject(project) || project.id === CHAT_PROJECT_ID);
+		const nextChatProject: Project = {
+			id: CHAT_PROJECT_ID,
+			name: CHAT_PROJECT_NAME,
+			path: this.chatProjectPath,
+			lastOpenedAt: existing?.lastOpenedAt ?? Date.now(),
+			pinned: true,
+			sortOrder: -1,
+			kind: "chat",
+		};
 
-  private nextSortOrder() {
-    if (this.projects.length === 0) return 0;
-    return Math.max(...this.projects.map((project) => this.projectSortOrder(project))) + 1;
-  }
+		if (!existing) {
+			this.projects.unshift(nextChatProject);
+			return true;
+		}
 
-  private projectSortOrder(project: Project) {
-    return typeof project.sortOrder === "number" && !Number.isNaN(project.sortOrder)
-      ? project.sortOrder
-      : Number.MAX_SAFE_INTEGER;
-  }
+		const previousLength = this.projects.length;
+		const changed = existing.id !== nextChatProject.id || existing.name !== nextChatProject.name || existing.path !== nextChatProject.path || existing.kind !== nextChatProject.kind || existing.pinned !== nextChatProject.pinned || existing.sortOrder !== nextChatProject.sortOrder;
+		Object.assign(existing, nextChatProject);
+		// 仅去重多余的聊天项目记录（kind/id 命中），普通项目即使路径与聊天目录相同也保留。
+		this.projects = this.projects.filter((project, index) => index === this.projects.indexOf(existing) || (!this.isChatProject(project) && project.id !== CHAT_PROJECT_ID));
+		return changed || this.projects.length !== previousLength;
+	}
 
-  /** 仅返回顶级项目（非 worktree 子项目），用于侧栏主列表 */
-  listRoot() {
-    return this.list().filter(p => !p.worktreeParentId);
-  }
+	private ensureSortOrder() {
+		const needsOrder = this.projects.some((project) => typeof project.sortOrder !== "number" || Number.isNaN(project.sortOrder));
+		if (!needsOrder) return false;
 
-  /** 获取指定父项目的所有 worktree 子项目 */
-  listWorktreeChildren(parentId: string) {
-    return this.list().filter(p => p.worktreeParentId === parentId);
-  }
+		// 首次升级旧数据时保留原来的“置顶优先 + 最近打开”顺序，之后由用户拖拽顺序接管。
+		[...this.projects]
+			.filter((project) => !this.isChatProject(project))
+			.sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.lastOpenedAt - a.lastOpenedAt)
+			.forEach((project, index) => {
+				project.sortOrder = index;
+			});
+		const chatProject = this.projects.find((project) => this.isChatProject(project));
+		if (chatProject) chatProject.sortOrder = -1;
+		return true;
+	}
 
-  /** 按路径查找项目；Windows 上忽略大小写和分隔符差异。 */
-  findByPath(path: string) {
-    const normalizedPath = this.normalizeProjectPath(path);
-    return this.projects.find(project => this.sameProjectPath(project.path, normalizedPath)) ?? null;
-  }
+	private nextSortOrder() {
+		if (this.projects.length === 0) return 0;
+		return Math.max(...this.projects.map((project) => this.projectSortOrder(project))) + 1;
+	}
 
-  /**
-   * DSH 外部会话兑底项目（稳定 id，幂等）：给「没有 cwd / cwd 未注册项目」的
-   * 外部会话一个确定归属，而不是随机挂到第一个非 chat 项目（用户不可预期）。
-   * 目录落在 userData/external-sessions（随应用数据存在，不会被标记 missing）。
-   */
-  async ensureExternalSessionsProject(name: string): Promise<Project> {
-    const existing = this.projects.find(project => project.id === ProjectStore.EXTERNAL_PROJECT_ID);
-    if (existing) {
-      // 语言切换等场景下名称可能变化：就地更新，保持 id 稳定（catalog 引用不失效）。
-      const changed = existing.name !== name || existing.pinned !== true;
-      existing.name = name;
-      existing.pinned = true;
-      if (changed) await this.save();
-      return existing;
-    }
-    const project: Project = {
-      id: ProjectStore.EXTERNAL_PROJECT_ID,
-      name,
-      path: join(app.getPath("userData"), "external-sessions"),
-      lastOpenedAt: Date.now(),
-      pinned: true,
-      sortOrder: this.nextSortOrder(),
-    };
-    await mkdir(project.path, { recursive: true });
-    this.projects.push(project);
-    await this.save();
-    return project;
-  }
+	private projectSortOrder(project: Project) {
+		return typeof project.sortOrder === "number" && !Number.isNaN(project.sortOrder) ? project.sortOrder : Number.MAX_SAFE_INTEGER;
+	}
 
-  async toggleWorktreeEnabled(id: string) {
-    const project = this.get(id);
-    if (!project) return null;
-    project.worktreeEnabled = !project.worktreeEnabled;
-    // 关闭工作区模式时，清除已注册的 worktree 子项目记录，避免侧栏不再展示它们后
-    // 仍残留在 projects.json 中成为孤儿数据。仅移除项目记录，不删除物理 worktree 目录。
-    if (!project.worktreeEnabled) {
-      this.clearWorktreeChildren(id);
-    }
-    await this.save();
-    return project;
-  }
+	/** 仅返回顶级项目（非 worktree 子项目），用于侧栏主列表 */
+	listRoot() {
+		return this.list().filter((p) => !p.worktreeParentId);
+	}
 
-  /** 移除指定父项目下的所有 worktree 子项目记录（不删除物理目录） */
-  clearWorktreeChildren(parentId: string) {
-    this.projects = this.projects.filter(
-      (project) => project.worktreeParentId !== parentId || this.isChatProject(project),
-    );
-  }
+	/** 获取指定父项目的所有 worktree 子项目 */
+	listWorktreeChildren(parentId: string) {
+		return this.list().filter((p) => p.worktreeParentId === parentId);
+	}
 
-  private isChatProject(project: Project) {
-    return project.kind === "chat" || project.id === CHAT_PROJECT_ID;
-  }
+	/** 按路径查找项目；Windows 上忽略大小写和分隔符差异。 */
+	findByPath(path: string) {
+		const normalizedPath = this.normalizeProjectPath(path);
+		return this.projects.find((project) => this.sameProjectPath(project.path, normalizedPath)) ?? null;
+	}
 
-  private normalizeProjectPath(path: string) {
-    // WSL Linux 路径（/mnt/d/xxx、/home/user/...）不能走 Windows path.resolve/normalize，
-    // 否则 /mnt/d/xxx 会被解析为 D:\mnt\d\xxx。仅去除尾部斜杠。
-    if (process.platform === "win32" && path.startsWith("/")) {
-      return path.replace(/\/+$/, "");
-    }
-    return normalize(resolve(path));
-  }
+	/**
+	 * DSH 外部会话兑底项目（稳定 id，幂等）：给「没有 cwd / cwd 未注册项目」的
+	 * 外部会话一个确定归属，而不是随机挂到第一个非 chat 项目（用户不可预期）。
+	 * 目录落在 userData/external-sessions（随应用数据存在，不会被标记 missing）。
+	 */
+	async ensureExternalSessionsProject(name: string): Promise<Project> {
+		const existing = this.projects.find((project) => project.id === ProjectStore.EXTERNAL_PROJECT_ID);
+		if (existing) {
+			// 语言切换等场景下名称可能变化：就地更新，保持 id 稳定（catalog 引用不失效）。
+			const changed = existing.name !== name || existing.pinned !== true;
+			existing.name = name;
+			existing.pinned = true;
+			if (changed) await this.save();
+			return existing;
+		}
+		const project: Project = {
+			id: ProjectStore.EXTERNAL_PROJECT_ID,
+			name,
+			path: join(app.getPath("userData"), "external-sessions"),
+			lastOpenedAt: Date.now(),
+			pinned: true,
+			sortOrder: this.nextSortOrder(),
+		};
+		await mkdir(project.path, { recursive: true });
+		this.projects.push(project);
+		await this.save();
+		return project;
+	}
 
-  private sameProjectPath(a: string, b: string) {
-    const leftWsl = parseWslUncPath(a);
-    const rightWsl = parseWslUncPath(b);
-    if (leftWsl && rightWsl) {
-      return leftWsl.distro.toLowerCase() === rightWsl.distro.toLowerCase()
-        && leftWsl.linuxPath === rightWsl.linuxPath;
-    }
-    const left = this.normalizeProjectPath(a);
-    const right = this.normalizeProjectPath(b);
-    // WSL 路径保留原始大小写（Linux 文件系统区分大小写）
-    if (process.platform === "win32" && a.startsWith("/") && b.startsWith("/")) {
-      return left === right;
-    }
-    return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
-  }
+	async toggleWorktreeEnabled(id: string) {
+		const project = this.get(id);
+		if (!project) return null;
+		project.worktreeEnabled = !project.worktreeEnabled;
+		// 关闭工作区模式时，清除已注册的 worktree 子项目记录，避免侧栏不再展示它们后
+		// 仍残留在 projects.json 中成为孤儿数据。仅移除项目记录，不删除物理 worktree 目录。
+		if (!project.worktreeEnabled) {
+			this.clearWorktreeChildren(id);
+		}
+		await this.save();
+		return project;
+	}
 
-  private async save() {
-    // 项目列表是桌面端自己的轻量状态，不写入 pi session，避免影响 pi 原生会话格式。
-    await mkdir(app.getPath("userData"), { recursive: true });
-    await writeFile(this.filePath, JSON.stringify(this.projects, null, 2), "utf8");
-  }
+	/** 移除指定父项目下的所有 worktree 子项目记录（不删除物理目录） */
+	clearWorktreeChildren(parentId: string) {
+		this.projects = this.projects.filter((project) => project.worktreeParentId !== parentId || this.isChatProject(project));
+	}
+
+	private isChatProject(project: Project) {
+		return project.kind === "chat" || project.id === CHAT_PROJECT_ID;
+	}
+
+	private normalizeProjectPath(path: string) {
+		// WSL Linux 路径（/mnt/d/xxx、/home/user/...）不能走 Windows path.resolve/normalize，
+		// 否则 /mnt/d/xxx 会被解析为 D:\mnt\d\xxx。仅去除尾部斜杠。
+		if (process.platform === "win32" && path.startsWith("/")) {
+			return path.replace(/\/+$/, "");
+		}
+		return normalize(resolve(path));
+	}
+
+	private sameProjectPath(a: string, b: string) {
+		const leftWsl = parseWslUncPath(a);
+		const rightWsl = parseWslUncPath(b);
+		if (leftWsl && rightWsl) {
+			return leftWsl.distro.toLowerCase() === rightWsl.distro.toLowerCase() && leftWsl.linuxPath === rightWsl.linuxPath;
+		}
+		const left = this.normalizeProjectPath(a);
+		const right = this.normalizeProjectPath(b);
+		// WSL 路径保留原始大小写（Linux 文件系统区分大小写）
+		if (process.platform === "win32" && a.startsWith("/") && b.startsWith("/")) {
+			return left === right;
+		}
+		return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+	}
+
+	private async save() {
+		// 项目列表是桌面端自己的轻量状态，不写入 pi session，避免影响 pi 原生会话格式。
+		await mkdir(app.getPath("userData"), { recursive: true });
+		await writeFile(this.filePath, JSON.stringify(this.projects, null, 2), "utf8");
+		this.emitChanged();
+	}
 }

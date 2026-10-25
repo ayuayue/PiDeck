@@ -10,9 +10,13 @@ function loadQueue() {
 		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 	});
 	const module = { exports: {} };
-	vm.runInNewContext(outputText, { module, exports: module.exports }, {
-		filename: "notificationQueue.ts",
-	});
+	vm.runInNewContext(
+		outputText,
+		{ module, exports: module.exports },
+		{
+			filename: "notificationQueue.ts",
+		},
+	);
 	return module.exports;
 }
 

@@ -14,30 +14,28 @@ const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 
 test("app:quit channel is defined in shared IPC contract", () => {
-  assert.match(ipc, /appQuit: "app:quit"/);
+	assert.match(ipc, /appQuit: "app:quit"/);
 });
 
 test("main handler quits the app instead of closing the window", () => {
-  assert.match(systemIpc, /ipcChannels\.appQuit/);
-  const handler = systemIpc.match(
-    /ipcMain\.handle\(ipcChannels\.appQuit,[\s\S]*?\n\t\}\);/,
-  )?.[0] ?? "";
-  assert.match(handler, /isQuitting\.value = true/);
-  assert.match(handler, /app\.quit\(\)/);
-  // 崩溃退出必须绕过 closeToTray：禁止 win.close() / hide()
-  assert.doesNotMatch(handler, /win\.close\(/);
-  assert.doesNotMatch(handler, /\.hide\(/);
-  assert.doesNotMatch(handler, /app\.relaunch\(/);
+	assert.match(systemIpc, /ipcChannels\.appQuit/);
+	const handler = systemIpc.match(/ipcMain\.handle\(ipcChannels\.appQuit,[\s\S]*?\n\t\}\);/)?.[0] ?? "";
+	assert.match(handler, /isQuitting\.value = true/);
+	assert.match(handler, /app\.quit\(\)/);
+	// 崩溃退出必须绕过 closeToTray：禁止 win.close() / hide()
+	assert.doesNotMatch(handler, /win\.close\(/);
+	assert.doesNotMatch(handler, /\.hide\(/);
+	assert.doesNotMatch(handler, /app\.relaunch\(/);
 });
 
 test("preload and preview stubs expose app.quit", () => {
-  assert.match(preload, /quit: \(\) =>\s*ipcRenderer\.invoke\(ipcChannels\.appQuit\)/);
-  assert.match(previewApi, /quit: async \(\) => undefined/);
+	assert.match(preload, /quit: \(\) =>\s*ipcRenderer\.invoke\(ipcChannels\.appQuit\)/);
+	assert.match(previewApi, /quit: async \(\) => undefined/);
 });
 
 test("error-page copy uses quit, not window-close", () => {
-  assert.match(zh, /"app\.quit": "退出应用"/);
-  assert.match(en, /"app\.quit": "Quit"/);
-  assert.match(zh, /或退出应用/);
-  assert.match(en, /or quit the app/);
+	assert.match(zh, /"app\.quit": "退出应用"/);
+	assert.match(en, /"app\.quit": "Quit"/);
+	assert.match(zh, /或退出应用/);
+	assert.match(en, /or quit the app/);
 });

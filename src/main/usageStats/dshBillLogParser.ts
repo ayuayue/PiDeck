@@ -12,11 +12,11 @@
 import type { UsageRecord } from "../../shared/types/usageStats";
 
 function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
+	return typeof value === "number" && Number.isFinite(value);
 }
 
 function nonEmptyString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+	return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 /**
@@ -24,56 +24,56 @@ function nonEmptyString(value: unknown): string | undefined {
  * 模型名已带 "/"（如 openrouter/deepseek-chat）时不再重复加 provider。
  */
 export function dshBillModelKey(provider: string | undefined, model: string): string {
-  if (!provider || provider === "unknown") return model;
-  if (model.includes("/")) return model;
-  return `${provider}/${model}`;
+	if (!provider || provider === "unknown") return model;
+	if (model.includes("/")) return model;
+	return `${provider}/${model}`;
 }
 
 /** 解析一行 dsh-bill JSON 对象；非法行返回 null（调用方计数，不中断）。 */
 export function parseDshBillLogLine(line: string): UsageRecord | null {
-  if (!line.trim()) return null;
+	if (!line.trim()) return null;
 
-  let row: unknown;
-  try {
-    row = JSON.parse(line);
-  } catch {
-    return null;
-  }
-  if (typeof row !== "object" || row === null || Array.isArray(row)) return null;
+	let row: unknown;
+	try {
+		row = JSON.parse(line);
+	} catch {
+		return null;
+	}
+	if (typeof row !== "object" || row === null || Array.isArray(row)) return null;
 
-  const rec = row as Record<string, unknown>;
-  const ts = rec.time;
-  const sid = nonEmptyString(rec.sessionId);
-  const modelName = nonEmptyString(rec.model);
-  if (!isFiniteNumber(ts) || ts <= 0) return null;
-  if (!sid || !modelName) return null;
+	const rec = row as Record<string, unknown>;
+	const ts = rec.time;
+	const sid = nonEmptyString(rec.sessionId);
+	const modelName = nonEmptyString(rec.model);
+	if (!isFiniteNumber(ts) || ts <= 0) return null;
+	if (!sid || !modelName) return null;
 
-  const input = rec.inputTokens ?? 0;
-  const output = rec.outputTokens ?? 0;
-  const cacheRead = rec.cacheReadTokens ?? 0;
-  const cacheWrite = rec.cacheWriteTokens ?? 0;
-  if (!isFiniteNumber(input) || input < 0) return null;
-  if (!isFiniteNumber(output) || output < 0) return null;
-  if (!isFiniteNumber(cacheRead) || cacheRead < 0) return null;
-  if (!isFiniteNumber(cacheWrite) || cacheWrite < 0) return null;
+	const input = rec.inputTokens ?? 0;
+	const output = rec.outputTokens ?? 0;
+	const cacheRead = rec.cacheReadTokens ?? 0;
+	const cacheWrite = rec.cacheWriteTokens ?? 0;
+	if (!isFiniteNumber(input) || input < 0) return null;
+	if (!isFiniteNumber(output) || output < 0) return null;
+	if (!isFiniteNumber(cacheRead) || cacheRead < 0) return null;
+	if (!isFiniteNumber(cacheWrite) || cacheWrite < 0) return null;
 
-  // priced=false / usd 缺失 = 目录未命中，成本未知（显示 n/a 而非 0）
-  const usd = rec.usd;
-  const priced = rec.priced === true && isFiniteNumber(usd);
-  const cost = priced ? usd : 0;
-  const provider = nonEmptyString(rec.provider);
+	// priced=false / usd 缺失 = 目录未命中，成本未知（显示 n/a 而非 0）
+	const usd = rec.usd;
+	const priced = rec.priced === true && isFiniteNumber(usd);
+	const cost = priced ? usd : 0;
+	const provider = nonEmptyString(rec.provider);
 
-  return {
-    ts,
-    sid,
-    cwd: "DSH",
-    model: dshBillModelKey(provider, modelName),
-    input,
-    output,
-    cacheRead,
-    cacheWrite,
-    totalTokens: input + output + cacheRead + cacheWrite,
-    cost,
-    costKnown: priced,
-  };
+	return {
+		ts,
+		sid,
+		cwd: "DSH",
+		model: dshBillModelKey(provider, modelName),
+		input,
+		output,
+		cacheRead,
+		cacheWrite,
+		totalTokens: input + output + cacheRead + cacheWrite,
+		cost,
+		costKnown: priced,
+	};
 }

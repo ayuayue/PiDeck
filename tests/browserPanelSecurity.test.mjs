@@ -25,11 +25,22 @@ test("BrowserPanel uses a fixed persistent partition without popup or file acces
 	assert.match(browserSecurity, /export function isAllowedBrowserPanelUrl/);
 	assert.match(main, /from "\.\/browser\/browserSecurity"/);
 	assert.match(main, /session\.fromPartition\(BROWSER_PANEL_PARTITION\)/);
-	// The renderer-driven webview sets allowfileaccess and allowpopups via attributes.
-	assert.match(browserPanel, /setAttribute\("allowfileaccess", "true"\)/);
-	assert.match(browserPanel, /allowpopups=\{"true" as any\}/);
-	assert.match(rendererTypes, /partition\?: string/);
+	// 2026-09 第五批 M8：渲染层不再设置 allowfileaccess/allowpopups——主进程
+	// will-attach-webview 兜底本来就会剥离这两个属性（index.ts configureBrowserPanelWebviewHost），
+	// 渲染层设置只会制造第二事实来源与虚假的安全感。
+	assert.doesNotMatch(browserPanel, /allowfileaccess/);
+	assert.doesNotMatch(browserPanel, /allowpopups/);
+	assert.doesNotMatch(browserPanel, /webviewRef = useRef<any>/);
+	assert.doesNotMatch(browserPanel, /MutableRefObject<any>/);
+	assert.doesNotMatch(rendererTypes, /WebviewElement[\s\S]*allowpopups/);
 	assert.doesNotMatch(rendererTypes, /allowpopups/i);
+});
+
+test("BrowserPanel starts on a blank page and Home returns to blank", () => {
+	assert.match(browserPanel, /const DEFAULT_HOME = "about:blank"/);
+	assert.match(browserPanel, /src=\{initialTab\.url\}/);
+	assert.match(browserPanel, /onClick=\{\(\) => loadUrl\(DEFAULT_HOME\)\}/);
+	assert.doesNotMatch(browserPanel, /const DEFAULT_HOME = "https:\/\/pideck\.caoayu\.top\//);
 });
 
 test("BrowserPanel navigation goes through the module-state pending-URL poll loop", () => {
@@ -81,11 +92,23 @@ test("webview hardening is installed before the main window loads renderer conte
 });
 
 test("external browser IPC shares the HTTP(S) protocol gate and Chromium sandbox stays enabled", () => {
-	const browserOpenExternal = functionBlock(filesIpc, 'ipcMain.handle(ipcChannels.browserOpenExternal', "\n\n\tipcMain.handle(");
+	const browserOpenExternal = functionBlock(filesIpc, "ipcMain.handle(ipcChannels.browserOpenExternal", "\n\n\tipcMain.handle(");
 	assert.match(browserOpenExternal, /await openExternalUrl\(url, true\)/);
 	assert.doesNotMatch(browserOpenExternal, /shell\.openExternal\(url\)/);
 	// Chromium 沙箱默认关闭是刻意的（Windows 安全软件/旧 GPU 驱动会在沙箱初始化触发原生断点），
 	// 但只能在用户未显式开启 electronChromiumSandbox 时才附带 no-sandbox；
 	// 用户开启沙箱后必须保持 Chromium 默认沙箱，不能无条件追加 no-sandbox。
 	assert.match(main, /if \(!electronChromiumSandboxEnabled\) \{\s*\/\/[^\n]*\n\s*app\.commandLine\.appendSwitch\("no-sandbox"\);/);
+});
+
+test("pending external navigation consumes via listener, not idle 50ms polling", () => {
+	// 回归（2026-10 流畅度审计）：旧实现 50ms setInterval 常驻空转检测 module 变量；
+	// 现在 navigateTo 直接触发监听器（未挂载面板时 URL 留存、挂载后补消费），
+	// webview 未就绪/加载中由消费函数自重试兑底，空转时钟归零。
+	assert.match(browserPanel, /pendingNavigateListener\?\.\(\);/, "navigateTo 应直接触发监听器");
+	const effect = browserPanel.match(/useEffect\(\(\) => \{\s*let alive = true;[\s\S]*?\}, \[applyDeviceUserAgent\]\);/);
+	assert.ok(effect, "事件驱动的消费 effect 应可被发现");
+	assert.doesNotMatch(effect[0], /setInterval/, "消费路径不得再依赖常驻轮询");
+	assert.match(effect[0], /pendingNavigateListener = consumePendingNavigate;/);
+	assert.match(effect[0], /consumePendingNavigate\(\);/, "挂载时应补消费一次留存的 URL");
 });

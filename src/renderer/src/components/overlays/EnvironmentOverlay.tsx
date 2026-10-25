@@ -11,5 +11,5 @@ export type EnvironmentOverlayProps = {
 export function EnvironmentOverlay({ open, dialog, children }: EnvironmentOverlayProps) {
 	if (!open) return null;
 	if (children) return <>{children}</>;
-	return <EnvironmentDialog {...(dialog!)} />;
+	return <EnvironmentDialog {...dialog!} />;
 }

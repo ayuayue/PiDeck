@@ -2,9 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { mergeHistoryWithPreservedMessages } = loadTsCommonJs(
-	"src/main/pi/historyMessages.ts",
-);
+const { mergeHistoryWithPreservedMessages } = loadTsCommonJs("src/main/pi/historyMessages.ts");
 
 /**
  * 双份回归（issue：中间回复在上一轮/下一轮都显现）复现测试。
@@ -59,14 +57,8 @@ function runtimeMessageAt(text, timestamp, role = "user", extra = {}) {
 test("投影与运行期同一条消息双份：merge 后只保留投影版（修复前双份）", () => {
 	// attach 后用户发消息 Q、模型流式中间回复 A，期间 get_messages 返回时两者已落盘：
 	// 投影含 Q'/A'，运行期含 Q/A → 旧逻辑双份，新逻辑以投影为准去重。
-	const history = [
-		projectedMessage("画一只猫", "e1", "user"),
-		projectedMessage("好的，我来画", "e2"),
-	];
-	const current = [
-		runtimeMessage("画一只猫", "user"),
-		runtimeMessage("好的，我来画"),
-	];
+	const history = [projectedMessage("画一只猫", "e1", "user"), projectedMessage("好的，我来画", "e2")];
+	const current = [runtimeMessage("画一只猫", "user"), runtimeMessage("好的，我来画")];
 	const merged = mergeHistoryWithPreservedMessages(history, current, 1_500_000);
 	assert.equal(merged.length, 2, "同一条 pi 消息不得出现两份");
 	assert.deepEqual(
@@ -78,15 +70,8 @@ test("投影与运行期同一条消息双份：merge 后只保留投影版（�
 
 test("投影里没有的进行中消息（未落盘）必须保留", () => {
 	// 流式中间回复 B 尚未落盘：投影只有 Q'/A'，运行期有 Q/A/B → 保留 B 在尾部
-	const history = [
-		projectedMessage("画一只猫", "e1", "user"),
-		projectedMessage("好的，我来画", "e2"),
-	];
-	const current = [
-		runtimeMessage("画一只猫", "user"),
-		runtimeMessage("好的，我来画"),
-		runtimeMessage("正在生成图片，请稍候…"),
-	];
+	const history = [projectedMessage("画一只猫", "e1", "user"), projectedMessage("好的，我来画", "e2")];
+	const current = [runtimeMessage("画一只猫", "user"), runtimeMessage("好的，我来画"), runtimeMessage("正在生成图片，请稍候…")];
 	const merged = mergeHistoryWithPreservedMessages(history, current, 1_500_000);
 	assert.equal(merged.length, 3);
 	assert.equal(merged[2].id, current[2].id, "未落盘的进行中消息保留运行期身份");
@@ -95,14 +80,8 @@ test("投影里没有的进行中消息（未落盘）必须保留", () => {
 
 test("用户连发两条相同文本：指纹一一消耗，不误删", () => {
 	// 用户连发两条「继续」都落盘：投影 2 条、运行期 2 条 → 全部以投影为准，不残留
-	const history = [
-		projectedMessage("继续", "e1", "user"),
-		projectedMessage("继续", "e2", "user"),
-	];
-	const current = [
-		runtimeMessage("继续", "user"),
-		runtimeMessage("继续", "user"),
-	];
+	const history = [projectedMessage("继续", "e1", "user"), projectedMessage("继续", "e2", "user")];
+	const current = [runtimeMessage("继续", "user"), runtimeMessage("继续", "user")];
 	const merged = mergeHistoryWithPreservedMessages(history, current, 1_500_000);
 	assert.equal(merged.length, 2);
 	assert.deepEqual(
@@ -131,22 +110,12 @@ test("tool 消息按 toolCallId 指纹匹配（text 随状态变化不可靠）"
 
 test("带图片的用户消息：指纹含图片签名，同图去重、异图保留", () => {
 	const img = (data) => [{ type: "image", mimeType: "image/png", data }];
-	const history = [
-		projectedMessage("", "e1", "user", { images: img("AAAA") }),
-	];
+	const history = [projectedMessage("", "e1", "user", { images: img("AAAA") })];
 	// 同图运行期副本 → 去重
-	const same = mergeHistoryWithPreservedMessages(
-		history,
-		[runtimeMessage("", "user", { images: img("AAAA") })],
-		1_500_000,
-	);
+	const same = mergeHistoryWithPreservedMessages(history, [runtimeMessage("", "user", { images: img("AAAA") })], 1_500_000);
 	assert.equal(same.length, 1);
 	// 异图（不同内容）→ 保留（投影没有对应消息）
-	const diff = mergeHistoryWithPreservedMessages(
-		history,
-		[runtimeMessage("", "user", { images: img("BBBB") })],
-		1_500_000,
-	);
+	const diff = mergeHistoryWithPreservedMessages(history, [runtimeMessage("", "user", { images: img("BBBB") })], 1_500_000);
 	assert.equal(diff.length, 2);
 });
 
@@ -189,11 +158,7 @@ function longProjection(withTailDup, tailTimestamp = 2_000_000) {
 test("M1: 投影中部/头部的旧同文本消息不得消耗运行期新增（修复前真实消息丢失）", () => {
 	// 加载期间新发的「继续」尚未落盘（投影里只有旧轮同文本消息）→ 必须保留运行期副本
 	const history = longProjection(false);
-	const merged = mergeHistoryWithPreservedMessages(
-		history,
-		[runtimeMessageAt("继续", 2_000_000, "user")],
-		1_500_000,
-	);
+	const merged = mergeHistoryWithPreservedMessages(history, [runtimeMessageAt("继续", 2_000_000, "user")], 1_500_000);
 	assert.equal(merged.length, 41, "真实新增消息被旧副本消耗即消息丢失");
 	assert.equal(merged[40].id.startsWith("run-"), true, "保留运行期身份");
 	assert.equal(merged[40].text, "继续");
@@ -201,11 +166,7 @@ test("M1: 投影中部/头部的旧同文本消息不得消耗运行期新增（
 
 test("M1: 尾部窗口内且时间容差内的投影副本仍被去重（双份修复语义保留）", () => {
 	const history = longProjection(true);
-	const merged = mergeHistoryWithPreservedMessages(
-		history,
-		[runtimeMessageAt("继续", 2_000_000, "user")],
-		1_500_000,
-	);
+	const merged = mergeHistoryWithPreservedMessages(history, [runtimeMessageAt("继续", 2_000_000, "user")], 1_500_000);
 	assert.equal(merged.length, 40, "尾部同时间戳副本应被消耗");
 	assert.equal(merged[39].id, "agent-1-history-e39", "保留投影版");
 });
@@ -213,11 +174,7 @@ test("M1: 尾部窗口内且时间容差内的投影副本仍被去重（双份�
 test("M1: 尾部窗口内但时间差远超容差 → 视为不同消息，不消耗", () => {
 	// 投影尾部同文本副本时间戳为 1_000_000（旧轮），运行期新增 2_000_000 → 不是同一条
 	const history = longProjection(true, 1_000_000);
-	const merged = mergeHistoryWithPreservedMessages(
-		history,
-		[runtimeMessageAt("继续", 2_000_000, "user")],
-		1_500_000,
-	);
+	const merged = mergeHistoryWithPreservedMessages(history, [runtimeMessageAt("继续", 2_000_000, "user")], 1_500_000);
 	assert.equal(merged.length, 41, "时间差远超容差不得消耗");
 });
 
@@ -225,14 +182,7 @@ test("M1: 连发多条同文本：尾部窗口内一一消耗，不误删也不�
 	// 尾部窗口内两条同文本副本（e38/e39），运行期两条 → 全部以投影为准
 	const history = longProjection(true);
 	history[38] = { ...projectedMessage("继续", "e38", "user"), timestamp: 2_000_000 };
-	const merged = mergeHistoryWithPreservedMessages(
-		history,
-		[
-			runtimeMessageAt("继续", 2_000_000, "user"),
-			runtimeMessageAt("继续", 2_000_000, "user"),
-		],
-		1_500_000,
-	);
+	const merged = mergeHistoryWithPreservedMessages(history, [runtimeMessageAt("继续", 2_000_000, "user"), runtimeMessageAt("继续", 2_000_000, "user")], 1_500_000);
 	assert.equal(merged.length, 40, "两条副本各消耗一条，不多删");
 	assert.equal(merged[38].id, "agent-1-history-e38");
 	assert.equal(merged[39].id, "agent-1-history-e39");

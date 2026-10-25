@@ -78,16 +78,16 @@ test("a single oversized message is truncated in place", () => {
 });
 
 test("title is prepended when provided", () => {
-	const block = c.buildAskContextBlock(
-		[{ role: "user", text: "hi" }],
-		{ title: "上下文" },
-	);
+	const block = c.buildAskContextBlock([{ role: "user", text: "hi" }], { title: "上下文" });
 	assert.ok(block.startsWith("上下文\n"));
 });
 
 test("custom role labels are honored", () => {
 	const block = c.buildAskContextBlock(
-		[{ role: "user", text: "hi" }, { role: "assistant", text: "yo" }],
+		[
+			{ role: "user", text: "hi" },
+			{ role: "assistant", text: "yo" },
+		],
 		{ userLabel: "U", assistantLabel: "A" },
 	);
 	assert.ok(block.includes("U：hi"));

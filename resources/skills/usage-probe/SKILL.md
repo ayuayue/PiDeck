@@ -1,6 +1,6 @@
 ---
 name: usage-probe
-description: 为 PiDeck 的「用量查询」功能排查/扩展供应商支持。当用户想显示某个供应商的用量、余额或额度点数时，先判断是否已内置支持（内置无需配置）；不在内置时引导用户使用「用量查询」弹窗里的通用模板 / New API 模板；两种模板都覆盖不了的接口，帮用户写出 usage-probes.json 的旧版探针数组。
+description: 为 PiDeck 的「用量查询」功能排查/扩展供应商支持。当用户想显示某个供应商的用量、余额或额度点数时，先判断是否已内置支持（内置无需配置）；不在内置时引导用户使用「用量查询」弹窗里的通用 / New API / Cookie / 火山方舟 AK-SK 模板；四种模板都覆盖不了的接口，帮用户写出 usage-probes.json 的旧版探针数组。
 ---
 
 # 用量查询辅助（usage-probe）
@@ -20,9 +20,13 @@ description: 为 PiDeck 的「用量查询」功能排查/扩展供应商支持�
    - 官方订阅（登录态 OAuth，凭据来自 auth.json）：Codex/ChatGPT（`/wham/usage`）、
      xAI Grok（billing 预检链）；
    - 通用 OpenAI 兼容网关兜底：实现了官方 `/v1/usage`（`{ balance, unit }`）的中转站自动显示余额。
-2. **声明式模板（弹窗内可选）**：不在内置列表时，弹窗提供两个模板——
+2. **声明式模板（弹窗内可选）**：不在内置列表时，弹窗提供四个模板——
    - **通用模板**：请求 `/usage`（OpenAI 兼容），API Key / 请求地址可覆盖（留空用供应商的）；
-   - **New API**：New API / OneAPI 中转站，填 访问令牌 + 用户 ID（积分自动换算）。
+   - **New API**：New API / OneAPI 中转站，填 访问令牌 + 用户 ID（积分自动换算）；
+   - **Cookie**：自研网关的网页后台接口（需要登录态 Cookie，不能用 API Key）；
+   - **火山方舟 AK/SK**：方舟（ark）的 Agent Plan / Coding Plan 额度，填控制台生成的
+     Access Key ID + Secret Access Key，Region 自动从推理 base_url 推断；同一个账号
+     只订阅哪一种套餐都能识别（两个 Action 依次探测，未订阅的那个返回全 0 自动跳过）。
 3. **旧版探针数组（AI 兜底）**：上面都覆盖不了的接口（如自建网关的自定义余额端点），
    由 AI 写 `~/.pi/agent/usage-probes.json` 的 `probes` 数组（见下文），运行时按
    baseUrl 关键字匹配合入探测。
@@ -48,15 +52,19 @@ description: 为 PiDeck 的「用量查询」功能排查/扩展供应商支持�
 2. **没内置 → 引导弹窗模板**：让用户在供应商卡片点「用量查询」打开弹窗：
    - OpenAI 兼容站点（有 `/usage` 端点）→ 选「通用模板」，必要时填请求地址（留空用供应商的）；
    - New API / OneAPI 中转站 → 选「New API」，填访问令牌和用户 ID；
+   - 火山方舟（ark，含 Coding Plan / Agent Plan）→ 选「火山方舟 AK/SK」，让用户到火山引擎
+     控制台「访问控制 → 密钥管理」创建 AK/SK 填进去（**不是**方舟的推理 API Key：那个是
+     Bearer 鉴权，控制面 OpenAPI 只认 AK/SK 签名）；
    - 两个模板都覆盖不了 → 继续第 3 步。
 3. **写旧版 probes 数组**：确认该供应商的「余额 / usage / balance / credits」接口
    （拿不到文档时让用户 F12 抓包，把 URL 路径和返回 JSON 发给你；记得提醒用户
    抹掉 key/token），确定「剩余额度」字段后按下面结构生成 `probes` 数组。
 4. **验证**：让用户打开供应商卡片看底部用量行。不显示就继续对齐字段路径。
-
-> 重要安全边界：配置文件里**不要**写 apiKey。鉴权统一走 `Authorization: Bearer <key>`，
+> 重要安全边界：`probes` 数组里**不要**写 apiKey。鉴权统一走 `Authorization: Bearer <key>`，
 > 主进程自动从 auth.json/models.json 取 key；只有个别接口用非标准鉴权头时才用
 > `"headers": { "X-API-Key": "{{apiKey}}" }` 占位。
+> 例外：火山方舟模板的 AK/SK 由弹窗写进顶层 `providers` 映射（不走 probes 数组），
+> 只用于本地派生请求签名，不进日志与遥测。
 
 ## 配置文件结构
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CalendarIcon } from "lucide-react";
 import { zhCN } from "date-fns/locale/zh-CN";
+import { zhTW } from "date-fns/locale/zh-TW";
 import { enUS } from "date-fns/locale/en-US";
 import { Calendar } from "../../ui-shadcn/calendar";
 import { Button } from "../../ui-shadcn/button";
@@ -53,15 +54,13 @@ function rangeLabel(from: string, to: string, localeName: string): string {
 	return "";
 }
 
-export function LogsDateRangePicker(props: {
-	from: string;
-	to: string;
-	onChange: (from: string, to: string) => void;
-}) {
+export function LogsDateRangePicker(props: { from: string; to: string; onChange: (from: string, to: string) => void }) {
 	const [open, setOpen] = useState(false);
-	// pseudo locale 走 en-US，与 formatI18nDateTime 的处理一致
-	const locale = getI18nLocale() === "zh-CN" ? zhCN : enUS;
-	const localeName = locale.code === "zh-CN" ? "zh-CN" : "en-US";
+	// pseudo locale 走 en-US，与 formatI18nDateTime 的处理一致；zh-TW 用繁中文日历（日期串也交给 zh-TW）
+	const localeMode = getI18nLocale();
+	const isEnglishCalendar = localeMode === "en-US" || localeMode === "pseudo";
+	const locale = isEnglishCalendar ? enUS : localeMode === "zh-TW" ? zhTW : zhCN;
+	const localeName = isEnglishCalendar ? "en-US" : localeMode;
 	const fromDate = parseDatePart(props.from);
 	const toDate = parseDatePart(props.to);
 	const fromTime = extractTime(props.from);
@@ -80,13 +79,7 @@ export function LogsDateRangePicker(props: {
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger asChild>
-				<Button
-					variant="outline"
-					size="sm"
-					className="justify-start font-normal"
-					title={t("logs.rangeFilter")}
-					aria-label={t("logs.rangeFilter")}
-				>
+				<Button variant="outline" size="sm" className="justify-start font-normal" title={t("logs.rangeFilter")} aria-label={t("logs.rangeFilter")}>
 					<CalendarIcon className="size-3.5 shrink-0" aria-hidden="true" />
 					<span className="max-w-56 truncate">{label}</span>
 				</Button>
@@ -95,11 +88,7 @@ export function LogsDateRangePicker(props: {
 				<Calendar
 					mode="range"
 					locale={locale}
-					selected={
-						fromDate || toDate
-							? { from: fromDate, to: toDate }
-							: undefined
-					}
+					selected={fromDate || toDate ? { from: fromDate, to: toDate } : undefined}
 					// 固定宽度：默认 w-fit 在窄弹层下表头前后翻月按钮会与内容重叠
 					classNames={{ root: "w-full" }}
 					onSelect={onSelectRange}
@@ -117,7 +106,9 @@ export function LogsDateRangePicker(props: {
 							}}
 							aria-label={t("logs.rangeFrom")}
 						/>
-						<span className="text-text-tertiary" aria-hidden="true">~</span>
+						<span className="text-text-tertiary" aria-hidden="true">
+							~
+						</span>
 						<Input
 							type="time"
 							className="w-[104px] shrink-0"
@@ -128,14 +119,7 @@ export function LogsDateRangePicker(props: {
 							}}
 							aria-label={t("logs.rangeTo")}
 						/>
-						<Button
-							variant="ghost"
-							size="sm"
-							className="ml-auto shrink-0"
-							onClick={() => props.onChange("", "")}
-							title={t("logs.clearRangeFilter")}
-							aria-label={t("logs.clearRangeFilter")}
-						>
+						<Button variant="ghost" size="sm" className="ml-auto shrink-0" onClick={() => props.onChange("", "")} title={t("logs.clearRangeFilter")} aria-label={t("logs.clearRangeFilter")}>
 							{t("common.clear")}
 						</Button>
 					</div>

@@ -2,28 +2,15 @@
 // beui.dev/components/blocks/morphing-search
 
 import { type LucideIcon, Search } from "lucide-react";
-import {
-	AnimatePresence,
-	LayoutGroup,
-	motion,
-	type Transition,
-	useReducedMotion,
-} from "motion/react";
-import {
-	type KeyboardEvent as ReactKeyboardEvent,
-	useCallback,
-	useEffect,
-	useId,
-	useLayoutEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { AnimatePresence, LayoutGroup, motion, type Transition, useReducedMotion } from "motion/react";
+import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { EASE_OUT, SPRING_LAYOUT } from "@/lib/ease";
 import { useOnOpen } from "@/lib/hooks/use-on-open";
 import { useRowCursor } from "@/lib/hooks/use-row-cursor";
 import { cn } from "@/lib/utils";
+import { MORPHING_SEARCH_HEADER_HEIGHT, isPlausibleAnchorRect, resolveMorphingSearchGeometry } from "./morphingSearchGeometry";
+import { filterSearchItems } from "./morphingSearchFilter";
 
 // Keeps the Wallet Card feel with a little more time to read the morph.
 const SEARCH_MORPH: Transition = {
@@ -44,6 +31,12 @@ export type MorphingSearchItem = {
 	title: string;
 	description?: string;
 	keywords?: string[];
+	/**
+	 * 标题的拼音键（`src/renderer/src/utils/pinyinSearch.ts`）：给了就能被首字母/
+	 * 全拼命中（"ylcx" → 用量查询）。渲染层本地过滤拿不到 sidecar 索引，所以键
+	 * 由调用方算好（自带按标题缓存）。
+	 */
+	pinyin?: import("../../utils/pinyinSearch").PinyinKeys | null;
 	icon?: LucideIcon;
 	onSelect?: () => void;
 };
@@ -75,34 +68,14 @@ type AnchorRect = {
 
 function isEditableTarget(target: EventTarget | null) {
 	if (!(target instanceof HTMLElement)) return false;
-	return (
-		target.isContentEditable ||
-		target instanceof HTMLInputElement ||
-		target instanceof HTMLTextAreaElement ||
-		target instanceof HTMLSelectElement
-	);
+	return target.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
 }
 
-export function MorphingSearch({
-	items,
-	placeholder = "Search",
-	shortcut = "f",
-	iconOnly = false,
-	maxWidth = 448,
-	maxHeight = 288,
-	emptyMessage = "No results found.",
-	open: controlledOpen,
-	defaultOpen = false,
-	onOpenChange,
-	onQueryChange,
-	onSelect,
-	className,
-}: MorphingSearchProps) {
+export function MorphingSearch({ items, placeholder = "Search", shortcut = "f", iconOnly = false, maxWidth = 448, maxHeight = 288, emptyMessage = "No results found.", open: controlledOpen, defaultOpen = false, onOpenChange, onQueryChange, onSelect, className }: MorphingSearchProps) {
 	const [internalOpen, setInternalOpen] = useState(defaultOpen);
 	const [query, setQuery] = useState("");
 	const [mounted, setMounted] = useState(false);
-	const [backgroundScrollLocked, setBackgroundScrollLocked] =
-		useState(defaultOpen);
+	const [backgroundScrollLocked, setBackgroundScrollLocked] = useState(defaultOpen);
 	const [anchorRect, setAnchorRect] = useState<AnchorRect>({
 		top: 16,
 		left: 16,
@@ -130,33 +103,23 @@ export function MorphingSearch({
 		[controlled, onOpenChange],
 	);
 
+	// 锚点落在带 transform 的祖先里时（侧栏开合入场动画），fixed 锚点的视口坐标会被
+	// 整段平移，读出的落点会把面板推到窗口外；这类不可信测量直接丢弃，保留上一次
+	// 有效值，等动画结束后的事件或面板打开时的补测再刷新。
 	const measureAnchor = useCallback(() => {
 		const rect = anchorRef.current?.getBoundingClientRect();
-		if (!rect || rect.width === 0) return;
+		if (!rect || !isPlausibleAnchorRect(rect, { width: window.innerWidth, height: window.innerHeight })) return;
 		setAnchorRect({ top: rect.top, left: rect.left, width: rect.width });
 	}, []);
 
 	const openSearch = useCallback(() => {
 		measureAnchor();
 		setBackgroundScrollLocked(true);
-		previousFocusRef.current =
-			document.activeElement instanceof HTMLElement
-				? document.activeElement
-				: null;
+		previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 		setOpen(true);
 	}, [measureAnchor, setOpen]);
 
-	const filteredItems = useMemo(() => {
-		const needle = query.trim().toLowerCase();
-		if (!needle) return items;
-
-		return items.filter((item) =>
-			[item.title, item.description ?? "", ...(item.keywords ?? [])]
-				.join(" ")
-				.toLowerCase()
-				.includes(needle),
-		);
-	}, [items, query]);
+	const filteredItems = useMemo(() => filterSearchItems(items, query), [items, query]);
 
 	const { activeIndex, moveTo, moveActive } = useRowCursor(filteredItems, query);
 
@@ -184,10 +147,7 @@ export function MorphingSearch({
 	useEffect(() => {
 		measureAnchor();
 		const anchor = anchorRef.current;
-		const observer =
-			anchor && typeof ResizeObserver !== "undefined"
-				? new ResizeObserver(measureAnchor)
-				: null;
+		const observer = anchor && typeof ResizeObserver !== "undefined" ? new ResizeObserver(measureAnchor) : null;
 		if (anchor) observer?.observe(anchor);
 		window.addEventListener("resize", measureAnchor);
 		document.addEventListener("scroll", measureAnchor, true);
@@ -201,6 +161,13 @@ export function MorphingSearch({
 			window.visualViewport?.removeEventListener("scroll", measureAnchor);
 		};
 	}, [measureAnchor]);
+
+	// 受控打开（侧栏「搜索会话」条目、Ctrl+F 广播）不走 openSearch()，落点会停在上一次
+	// 事件留下的旧值（窗口改过大小、上一次测量不可信）；这里在打开瞬间补测，layout
+	// effect 保证首帧就用新落点，不会先闪一下旧位置。
+	useLayoutEffect(() => {
+		if (open) measureAnchor();
+	}, [measureAnchor, open]);
 
 	useEffect(() => {
 		if (!backgroundScrollLocked) return;
@@ -236,17 +203,7 @@ export function MorphingSearch({
 				return;
 			}
 
-			if (
-				!open &&
-				shortcut &&
-				event.key.toLowerCase() === shortcut.toLowerCase() &&
-				!event.repeat &&
-				!event.metaKey &&
-				!event.ctrlKey &&
-				!event.altKey &&
-				!event.shiftKey &&
-				!isEditableTarget(event.target)
-			) {
+			if (!open && shortcut && event.key.toLowerCase() === shortcut.toLowerCase() && !event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !isEditableTarget(event.target)) {
 				event.preventDefault();
 				openSearch();
 			}
@@ -282,9 +239,7 @@ export function MorphingSearch({
 		if (wasOpenRef.current) {
 			const frame = requestAnimationFrame(() => {
 				const previousFocus = previousFocusRef.current;
-				const focusTarget = previousFocus?.isConnected
-					? previousFocus
-					: triggerRef.current;
+				const focusTarget = previousFocus?.isConnected ? previousFocus : triggerRef.current;
 				focusTarget?.focus();
 			});
 			return () => cancelAnimationFrame(frame);
@@ -297,9 +252,7 @@ export function MorphingSearch({
 
 	useEffect(() => {
 		if (!open) return;
-		listRef.current
-			?.querySelector<HTMLElement>(`[data-index="${activeIndex}"]`)
-			?.scrollIntoView({ block: "nearest" });
+		listRef.current?.querySelector<HTMLElement>(`[data-index="${activeIndex}"]`)?.scrollIntoView({ block: "nearest" });
 	}, [activeIndex, open]);
 
 	const selectItem = useCallback(
@@ -332,11 +285,7 @@ export function MorphingSearch({
 		}
 
 		if (event.key !== "Tab" || !dialogRef.current) return;
-		const focusable = Array.from(
-			dialogRef.current.querySelectorAll<HTMLElement>(
-				'input, button:not([disabled]), [tabindex]:not([tabindex="-1"])',
-			),
-		);
+		const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('input, button:not([disabled]), [tabindex]:not([tabindex="-1"])'));
 		const first = focusable[0];
 		const last = focusable.at(-1);
 		if (!first || !last) return;
@@ -352,19 +301,10 @@ export function MorphingSearch({
 
 	const shellLayoutId = `${uid}-shell`;
 	const listboxId = `${uid}-results`;
-	const panelWidth = mounted
-		? Math.max(
-				anchorRect.width,
-				Math.min(maxWidth, window.innerWidth - anchorRect.left - 16),
-			)
-		: anchorRect.width;
-	const resultsHeight = mounted
-		? Math.max(96, Math.min(maxHeight, window.innerHeight - anchorRect.top - 80))
-		: maxHeight;
-	const collapsedContentClip = `inset(0px ${Math.max(
-		0,
-		panelWidth - anchorRect.width,
-	)}px ${resultsHeight}px 0px round 12px)`;
+	// 落点走纯函数：宽度不小于锚点、上限 maxWidth，并保证面板整块落在窗口内
+	// （陈旧/不可信落点也不能把面板送到窗口外）。首帧（未 mounted）直接用锚点值。
+	const geometry = useMemo(() => (mounted ? resolveMorphingSearchGeometry({ anchor: anchorRect, viewport: { width: window.innerWidth, height: window.innerHeight }, maxWidth, maxHeight }) : { ...anchorRect, resultsHeight: maxHeight }), [anchorRect, maxHeight, maxWidth, mounted]);
+	const collapsedContentClip = `inset(0px ${Math.max(0, geometry.width - anchorRect.width)}px ${geometry.resultsHeight}px 0px round 12px)`;
 	const expandedContentClip = "inset(0px 0px 0px 0px round 12px)";
 
 	// Neither grouping layer carries a box: they only hold `inert`/`aria-hidden`,
@@ -374,37 +314,21 @@ export function MorphingSearch({
 	// layer either. See tests/fixed-overlay-edge-sampling.test.tsx.
 	const overlay = mounted
 		? createPortal(
-				<div
-					aria-hidden={!open}
-					inert={!open}
-					className="pointer-events-none fixed left-0 top-0 z-50 size-0"
-				>
-					<AnimatePresence
-						initial={false}
-						mode="popLayout"
-						onExitComplete={() => setBackgroundScrollLocked(false)}
-					>
+				<div aria-hidden={!open} inert={!open} className="pointer-events-none fixed left-0 top-0 z-50 size-0">
+					<AnimatePresence initial={false} mode="popLayout" onExitComplete={() => setBackgroundScrollLocked(false)}>
 						{open ? (
-							<motion.div
-								key="morphing-search-overlay"
-								className="fixed left-0 top-0 size-0"
-							>
-								<button
-									type="button"
-									aria-label="Close search"
-									className="pointer-events-auto fixed inset-0 cursor-default bg-transparent"
-									onClick={closeSearch}
-								/>
+							<motion.div key="morphing-search-overlay" className="fixed left-0 top-0 size-0">
+								<button type="button" aria-label="Close search" className="pointer-events-auto fixed inset-0 cursor-default bg-transparent" onClick={closeSearch} />
 
 								<motion.div
 									layoutId={shellLayoutId}
 									aria-hidden="true"
 									className="fixed z-10 rounded-xl bg-background/90 backdrop-blur-xl"
 									style={{
-										top: anchorRect.top,
-										left: anchorRect.left,
-										width: panelWidth,
-										height: 48 + resultsHeight,
+										top: geometry.top,
+										left: geometry.left,
+										width: geometry.width,
+										height: MORPHING_SEARCH_HEADER_HEIGHT + geometry.resultsHeight,
 										boxShadow: "inset 0 0 0 1px var(--color-border)",
 									}}
 									transition={morphTransition}
@@ -416,11 +340,7 @@ export function MorphingSearch({
 									aria-modal="true"
 									aria-label="Search"
 									onKeyDown={handleDialogKeyDown}
-									initial={
-										reduce
-											? false
-											: { opacity: 0, clipPath: collapsedContentClip }
-									}
+									initial={reduce ? false : { opacity: 0, clipPath: collapsedContentClip }}
 									animate={{ opacity: 1, clipPath: expandedContentClip }}
 									exit={{
 										opacity: 0,
@@ -442,17 +362,12 @@ export function MorphingSearch({
 									}
 									className="pointer-events-auto fixed z-20 overflow-hidden rounded-xl"
 									style={{
-										top: anchorRect.top,
-										left: anchorRect.left,
-										width: panelWidth,
+										top: geometry.top,
+										left: geometry.left,
+										width: geometry.width,
 									}}
 								>
-									<div
-										className={cn(
-											"flex h-12 items-center gap-2.5 border-b border-border",
-											iconOnly ? "px-4" : "px-3.5",
-										)}
-									>
+									<div className={cn("flex h-12 items-center gap-2.5 border-b border-border", iconOnly ? "px-4" : "px-3.5")}>
 										<span className="shrink-0">
 											<Search className="size-4 text-muted-foreground" />
 										</span>
@@ -466,18 +381,12 @@ export function MorphingSearch({
 												aria-expanded="true"
 												aria-controls={listboxId}
 												aria-autocomplete="list"
-												aria-activedescendant={
-													filteredItems.length > 0
-														? `${uid}-option-${activeIndex}`
-														: undefined
-												}
+												aria-activedescendant={filteredItems.length > 0 ? `${uid}-option-${activeIndex}` : undefined}
 												placeholder={placeholder}
 												className="size-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
 											/>
 										</div>
-										<kbd className="flex h-7 shrink-0 items-center rounded-md border border-border px-2 text-xs text-muted-foreground">
-											Esc
-										</kbd>
+										<kbd className="flex h-7 shrink-0 items-center rounded-md border border-border px-2 text-xs text-muted-foreground">Esc</kbd>
 									</div>
 
 									<motion.div
@@ -509,20 +418,12 @@ export function MorphingSearch({
 														},
 													}
 										}
-										initial={
-											reduce
-												? { opacity: 1, transform: "translateY(0px)" }
-												: "closed"
-										}
-										animate={
-											reduce
-												? { opacity: 1, transform: "translateY(0px)" }
-												: "open"
-										}
+										initial={reduce ? { opacity: 1, transform: "translateY(0px)" } : "closed"}
+										animate={reduce ? { opacity: 1, transform: "translateY(0px)" } : "open"}
 										exit={reduce ? undefined : "closed"}
 										className="overscroll-contain overflow-y-auto p-2"
 										style={{
-											maxHeight: resultsHeight,
+											maxHeight: geometry.resultsHeight,
 										}}
 									>
 										{filteredItems.length > 0 ? (
@@ -542,33 +443,17 @@ export function MorphingSearch({
 														onClick={() => selectItem(item)}
 														className="relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
 													>
-														{active ? (
-															<motion.span
-																layoutId={`${uid}-active-result`}
-																className="absolute inset-0 rounded-lg bg-foreground/5"
-																transition={transition}
-															/>
-														) : null}
-														{Icon ? (
-															<Icon className="relative size-4 shrink-0 text-muted-foreground" />
-														) : null}
+														{active ? <motion.span layoutId={`${uid}-active-result`} className="absolute inset-0 rounded-lg bg-foreground/5" transition={transition} /> : null}
+														{Icon ? <Icon className="relative size-4 shrink-0 text-muted-foreground" /> : null}
 														<span className="relative min-w-0">
-															<span className="block truncate text-sm font-medium text-foreground">
-																{item.title}
-															</span>
-															{item.description ? (
-																<span className="block truncate text-xs text-muted-foreground">
-																	{item.description}
-																</span>
-															) : null}
+															<span className="block truncate text-sm font-medium text-foreground">{item.title}</span>
+															{item.description ? <span className="block truncate text-xs text-muted-foreground">{item.description}</span> : null}
 														</span>
 													</button>
 												);
 											})
 										) : (
-											<p className="px-3 py-8 text-center text-sm text-muted-foreground">
-												{emptyMessage}
-											</p>
+											<p className="px-3 py-8 text-center text-sm text-muted-foreground">{emptyMessage}</p>
 										)}
 									</motion.div>
 								</motion.div>
@@ -582,14 +467,7 @@ export function MorphingSearch({
 
 	return (
 		<LayoutGroup id={uid}>
-			<div
-				ref={anchorRef}
-				className={cn(
-					"relative",
-					iconOnly ? "size-12" : "h-12 w-72 max-w-full",
-					className,
-				)}
-			>
+			<div ref={anchorRef} className={cn("relative", iconOnly ? "size-12" : "h-12 w-72 max-w-full", className)}>
 				{!open ? (
 					<motion.button
 						ref={triggerRef}
@@ -623,23 +501,13 @@ export function MorphingSearch({
 									ease: EASE_OUT,
 								}
 					}
-					className={cn(
-						"pointer-events-none absolute inset-0 flex items-center",
-						backgroundScrollLocked && "z-[60]",
-						iconOnly ? "justify-center" : "gap-2.5 px-3.5",
-					)}
+					className={cn("pointer-events-none absolute inset-0 flex items-center", backgroundScrollLocked && "z-[60]", iconOnly ? "justify-center" : "gap-2.5 px-3.5")}
 				>
 					<Search className="size-4 shrink-0 text-muted-foreground" />
 					{iconOnly ? null : (
 						<>
-							<span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-								{placeholder}
-							</span>
-							{shortcut ? (
-								<kbd className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md border border-border px-2 text-xs text-muted-foreground">
-									{shortcut.toUpperCase()}
-								</kbd>
-							) : null}
+							<span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{placeholder}</span>
+							{shortcut ? <kbd className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md border border-border px-2 text-xs text-muted-foreground">{shortcut.toUpperCase()}</kbd> : null}
 						</>
 					)}
 				</motion.div>

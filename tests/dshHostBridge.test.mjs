@@ -5,11 +5,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const bridge = loadTsCommonJs("src/main/dsh/dshHostBridge.ts");
 
 test("marshalFetchRequest 拆 URL 并带 method/headers/body", () => {
-	const message = bridge.marshalFetchRequest(
-		"id-1",
-		new URL("http://dsh.internal/api/session.prompt?x=1"),
-		{ method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
-	);
+	const message = bridge.marshalFetchRequest("id-1", new URL("http://dsh.internal/api/session.prompt?x=1"), { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
 	assert.equal(message.type, "fetch-request");
 	assert.equal(message.id, "id-1");
 	assert.equal(message.method, "POST");
@@ -40,7 +36,7 @@ test("parseDshFetchMessage 往返合法消息", () => {
 		type: "fetch-response",
 		id: "r1",
 		status: 200,
-		body: "{\"ok\":true}",
+		body: '{"ok":true}',
 	});
 	assert.equal(response?.type, "fetch-response");
 	assert.equal(response?.status, 200);

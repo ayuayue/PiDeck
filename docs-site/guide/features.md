@@ -1,3 +1,8 @@
+---
+title: 功能介绍 | PiDeck pi Agent 桌面工作台
+description: PiDeck 核心功能一览：多项目 pi Agent 工作区、会话历史与恢复、Git 集成、内置终端与浏览器、可视化配置管理，开源 pi desktop 桌面客户端。
+---
+
 # 功能介绍
 
 PiDeck 的核心目标是把多个本地 pi Agent 会话收拢到一个稳定的桌面工作台里。

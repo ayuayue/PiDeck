@@ -1,4 +1,5 @@
 import { test, expect } from "./mock-pi-fixture";
+import { openFirstSession } from "./open-session";
 
 /**
  * 终端 Dock（#113 3.3-12）：开合、xterm 就绪、shell 菜单。
@@ -9,16 +10,14 @@ import { test, expect } from "./mock-pi-fixture";
 test("layout: terminal dock open/shell/collapse", async ({ window }) => {
 	test.setTimeout(120_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
-	await window.getByRole("button", { name: "启动 Agent" }).click();
-	const composer = window.locator(".composer .rich-input");
-	await expect(composer).toHaveAttribute("contenteditable", "true", { timeout: 30_000 });
+	// 未激活 agent 时挂的是项目终端；UI 2.0 起欢迎页无「启动 Agent」，改用侧栏「新建会话」建草稿会话。
+	const composer = await openFirstSession(window);
 
 	// 发送一条让 agent 进程真实运行，再打开终端
 	await composer.click();
 	await window.keyboard.type("终端预热");
 	await window.keyboard.press("Enter");
-	await expect(window.locator(".message-timeline"))
-		.toContainText("Mock 回复：「终端预热」流式渲染验证完成", { timeout: 20_000 });
+	await expect(window.locator(".message-timeline")).toContainText("Mock 回复：「终端预热」流式渲染验证完成", { timeout: 20_000 });
 
 	// outline 右侧条上的终端按钮（aria-label 终端）
 	await window.getByRole("button", { name: "终端", exact: true }).first().click();
@@ -30,15 +29,17 @@ test("layout: terminal dock open/shell/collapse", async ({ window }) => {
 	// xterm 就绪（node-pty spawn 真实 shell）
 	await expect(dock.locator(".xterm").first()).toBeVisible({ timeout: 20_000 });
 
-	// shell 菜单：点击「选择 Shell」触发器，菜单出现；再点一次触发器收起
-	//（菜单的 fixed backdrop 会拦截后续点击）。
+	// shell 菜单：点击「选择 Shell」触发器，菜单出现；再点一次触发器收起。
+	// 菜单内容用 Radix Popover portal 到 body（避开 Panel overflow 裁剪），
+	// 所以不能在 dock 范围内找；用 popper wrapper + 标题文本定位。
 	// xterm 的画布层有时会盖住 header 按钮（<div> intercepts pointer events），
 	// 菜单开合属于纯渲染层状态机，用 dispatchEvent 直发规避画布层遮挡。
 	const shellTrigger = dock.getByTitle("选择 Shell");
 	await shellTrigger.dispatchEvent("click");
-	await expect(dock.locator(".terminal-shell-menu")).toBeVisible({ timeout: 5000 });
+	const shellMenu = window.locator("[data-radix-popper-content-wrapper]").filter({ hasText: "选择 Shell" });
+	await expect(shellMenu).toBeVisible({ timeout: 5000 });
 	await shellTrigger.dispatchEvent("click");
-	await expect(dock.locator(".terminal-shell-menu")).toBeHidden({ timeout: 3000 });
+	await expect(shellMenu).toBeHidden({ timeout: 3000 });
 
 	// 折叠 dock：「收起终端」按钮 → collapsed 类出现
 	await dock.getByTitle("收起终端").dispatchEvent("click");
@@ -46,9 +47,12 @@ test("layout: terminal dock open/shell/collapse", async ({ window }) => {
 
 	// 拖拽高度：react-resizable-panels 在 headless Electron 上 pointer 命中不稳定，
 	// 保留 soft check（不 fail 整用例）。硬断言仍以开合/shell 菜单为准。
-	await dock.getByTitle("展开终端").dispatchEvent("click").catch(async () => {
-		await dock.dispatchEvent("click");
-	});
+	await dock
+		.getByTitle("展开终端")
+		.dispatchEvent("click")
+		.catch(async () => {
+			await dock.dispatchEvent("click");
+		});
 	if (!(await dock.evaluate((el) => el.classList.contains("collapsed")))) {
 		const heightBefore = (await dock.boundingBox())?.height ?? 0;
 		const splitter = window.locator(".v-splitter").last();
@@ -72,16 +76,13 @@ test("layout: terminal dock open/shell/collapse", async ({ window }) => {
 test("layout: terminal stays open while the agent streams", async ({ window }) => {
 	test.setTimeout(120_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
-	await window.getByRole("button", { name: "启动 Agent" }).click();
-	const composer = window.locator(".composer .rich-input");
-	await expect(composer).toHaveAttribute("contenteditable", "true", { timeout: 30_000 });
+	const composer = await openFirstSession(window);
 
 	// 先完成一轮，确保 outline 已有 activeAgentId 和终端入口。
 	await composer.click();
 	await window.keyboard.type("终端流式预热");
 	await window.keyboard.press("Enter");
-	await expect(window.locator(".message-timeline"))
-		.toContainText("Mock 回复：「终端流式预热」流式渲染验证完成", { timeout: 20_000 });
+	await expect(window.locator(".message-timeline")).toContainText("Mock 回复：「终端流式预热」流式渲染验证完成", { timeout: 20_000 });
 
 	await window.getByRole("button", { name: "终端", exact: true }).first().click();
 	const dock = window.locator(".terminal-dock");
@@ -98,8 +99,7 @@ test("layout: terminal stays open while the agent streams", async ({ window }) =
 	await expect(dock).toBeVisible();
 	await expect(dock).not.toHaveClass(/collapsed/);
 
-	await expect(window.locator(".message-timeline"))
-		.toContainText("Mock 回复：「SLOW 保持终端展开」流式渲染验证完成", { timeout: 20_000 });
+	await expect(window.locator(".message-timeline")).toContainText("Mock 回复：「SLOW 保持终端展开」流式渲染验证完成", { timeout: 20_000 });
 	await expect(dock).toBeVisible();
 	await expect(dock).not.toHaveClass(/collapsed/);
 });

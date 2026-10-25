@@ -10,6 +10,6 @@ type OutlinePanelProps = Omit<ComponentProps<typeof ConversationOutline>, "items
  * 随消息流式更新重渲染（大纲条目只在这里消费）。
  */
 export function OutlinePanel(props: OutlinePanelProps) {
-  const items = useAtomValue(outlineItemsAtom);
-  return <ConversationOutline items={items} {...props} />;
+	const items = useAtomValue(outlineItemsAtom);
+	return <ConversationOutline items={items} {...props} />;
 }

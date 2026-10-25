@@ -9,9 +9,7 @@ test("paginationWindow: 总页数较少时返回完整序列，无省略号", ()
 
 test("paginationWindow: 中间页保留前后各 2 页，首尾常驻，缺口用省略号", () => {
 	// 当前页 10/20：窗口 8-12，前后各一个省略号
-	assert.deepEqual(paginationWindow(10, 20), [
-		1, "ellipsis-start", 8, 9, 10, 11, 12, "ellipsis-end", 20,
-	]);
+	assert.deepEqual(paginationWindow(10, 20), [1, "ellipsis-start", 8, 9, 10, 11, 12, "ellipsis-end", 20]);
 });
 
 test("paginationWindow: 靠前时仅尾部省略号，靠后时仅头部省略号", () => {

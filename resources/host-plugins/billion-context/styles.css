@@ -1,0 +1,209 @@
+/* billion-context 插件面板样式：宿主 token（--pideck-*）优先，缺失时回落到本地色板。
+   为什么不用 Tailwind：插件页面是独立文档，拿不到 PiDeck 的样式表，只能自带一份最小 CSS。 */
+:root {
+	color-scheme: light dark;
+	--fg: var(--pideck-foreground, #1f2328);
+	--muted: var(--pideck-muted-foreground, #6b7280);
+	--bg: var(--pideck-background, #ffffff);
+	--card: var(--pideck-card, #f6f7f9);
+	--line: var(--pideck-border, #e5e7eb);
+	--accent: var(--pideck-primary, #2563eb);
+	--accent-fg: var(--pideck-primary-foreground, #ffffff);
+	--ok: #16a34a;
+	--warn: #d97706;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--fg: var(--pideck-foreground, #e6e6e6);
+		--muted: var(--pideck-muted-foreground, #9aa0a6);
+		--bg: var(--pideck-background, #1c1c1e);
+		--card: var(--pideck-card, #242427);
+		--line: var(--pideck-border, #34343a);
+	}
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--fg);
+	font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.panel {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 16px;
+}
+
+.head {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.head-text {
+	flex: 1;
+	min-width: 0;
+}
+
+h1 {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 600;
+}
+
+.status {
+	margin: 0;
+	color: var(--muted);
+	font-size: 12px;
+}
+
+.dot {
+	width: 10px;
+	height: 10px;
+	flex: none;
+	border-radius: 50%;
+	background: var(--muted);
+}
+
+.dot[data-state="running"] {
+	background: var(--ok);
+}
+
+.dot[data-state="stopped"] {
+	background: var(--warn);
+}
+
+.dot[data-state="missing"] {
+	background: var(--muted);
+	opacity: 0.5;
+}
+
+/* 一次状态查询要跑 `bili doctor --json`（一到两秒）：不给反馈就像按钮没响应。
+   转圈和脉冲都只做视觉，禁用态由 JS 负责，避免“看着能点其实点不动”。 */
+body[data-busy="1"] #refresh {
+	opacity: 0.8;
+}
+
+body[data-busy="1"] #refresh .glyph {
+	display: inline-block;
+	animation: pideck-spin 900ms linear infinite;
+}
+
+body[data-busy="1"] .dot {
+	animation: pideck-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes pideck-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@keyframes pideck-pulse {
+	50% {
+		opacity: 0.35;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	body[data-busy="1"] #refresh .glyph,
+	body[data-busy="1"] .dot {
+		animation: none;
+	}
+}
+
+.facts {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin: 0;
+	padding: 10px 12px;
+	background: var(--card);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+}
+
+.facts > div {
+	display: flex;
+	gap: 10px;
+	min-width: 0;
+}
+
+dt {
+	width: 72px;
+	flex: none;
+	color: var(--muted);
+}
+
+dd {
+	margin: 0;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.mono {
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 12px;
+}
+
+.message {
+	margin: 0;
+	padding: 8px 10px;
+	border: 1px solid var(--warn);
+	border-radius: 8px;
+	color: var(--warn);
+	background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+
+.actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+button {
+	padding: 6px 12px;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: var(--card);
+	color: var(--fg);
+	font: inherit;
+	cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+	border-color: var(--accent);
+}
+
+button:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+button.primary {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: var(--accent-fg);
+}
+
+button.ghost {
+	padding: 4px 8px;
+	border-color: transparent;
+	background: transparent;
+	color: var(--muted);
+	font-size: 15px;
+	line-height: 1;
+}
+
+.note {
+	margin: 0;
+	color: var(--muted);
+	font-size: 12px;
+}

@@ -8,21 +8,12 @@ const { dshSessionFilePath } = loadTsCommonJs("src/main/dsh/dshSessionPath.ts");
 test("dshSessionFilePath：workspace 目录名编码与 DSH 内部规则一致", () => {
 	// 实测目录：cwd = C:\Users\14012\pi-desktop → "--C-Users-14012-pi-desktop--"；
 	// 盘符冒号与分隔符折叠为一个 "-"；sessionId 自带 session- 前缀（目录名 = sessionId）
-	assert.equal(
-		dshSessionFilePath("C:\\Users\\14012\\.dsh", "C:\\Users\\14012\\pi-desktop", "session-abc-123"),
-		"C:\\Users\\14012\\.dsh\\sessions\\--C-Users-14012-pi-desktop--\\session-abc-123\\session.jsonl.zstd",
-	);
+	assert.equal(dshSessionFilePath("C:\\Users\\14012\\.dsh", "C:\\Users\\14012\\pi-desktop", "session-abc-123"), "C:\\Users\\14012\\.dsh\\sessions\\--C-Users-14012-pi-desktop--\\session-abc-123\\session.jsonl.zstd");
 	// 正斜杠混合（WSL 风格 cwd）；join 分隔符随平台，归一化后比较
 	const norm = (path) => path.replace(/\\/g, "/");
-	assert.equal(
-		norm(dshSessionFilePath("/home/user/.dsh", "C:/work/project", "session-x")),
-		"/home/user/.dsh/sessions/--C-work-project--/session-x/session.jsonl.zstd",
-	);
+	assert.equal(norm(dshSessionFilePath("/home/user/.dsh", "C:/work/project", "session-x")), "/home/user/.dsh/sessions/--C-work-project--/session-x/session.jsonl.zstd");
 	// 不安全字符按 ~XXXX 转义（与 projectKey 一致）
-	assert.equal(
-		norm(dshSessionFilePath("/h", "C:\\work\\带空格 项目", "session-y")),
-		"/h/sessions/--C-work-~5E26~7A7A~683C~0020~9879~76EE--/session-y/session.jsonl.zstd",
-	);
+	assert.equal(norm(dshSessionFilePath("/h", "C:\\work\\带空格 项目", "session-y")), "/h/sessions/--C-work-~5E26~7A7A~683C~0020~9879~76EE--/session-y/session.jsonl.zstd");
 });
 
 /**
@@ -36,11 +27,15 @@ function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undef
 	const historyBySession = new Map();
 	// 可选：history 尾页的 projections baseline（官方 host 在尾页携带完整投影折叠）
 	const historyProjections = new Map();
+	const modelSelections = new Map();
 	const attachments = new Map();
 	const calls = { create: 0, list: 0, history: 0, fork: 0, prompt: 0, cancel: 0, workspaceCreate: 0, attachment: 0 };
 	const createPayloads = [];
 	const promptCalls = [];
 	const promptModes = [];
+	// session/updateQueue 调用记录 + 可注入的失败序列（每次调用消耗一个；幂等测试用）
+	const updateQueueCalls = [];
+	const updateQueueFailures = [];
 	const respondCalls = [];
 	// host 进程状态（断连自愈测试用）：triggerExit 模拟崩溃，restartHost 模拟自动重启完成。
 	const hostState = { running: true, ready: true };
@@ -50,8 +45,16 @@ function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undef
 	const frameQueue = [...muxFrames];
 	let nextBatchResolve = null;
 	let streamDone = false;
+	// session/control（投影控制流）：独立队列 + 订阅计数。
+	// 订阅计数是回归点：漏订阅这条流时投影永远停在 attach 初值，输入框底下
+	// 只剩 deriveSessionStatsFallback 的「N 轮 · M 步」。
+	const controlQueue = [];
+	const controlCalls = [];
+	let controlResolve = null;
+	let controlDone = false;
 	const client = {
-		sessions: {			async list() {
+		sessions: {
+			async list() {
 				calls.list += 1;
 				return { result: { ok: true, value: { items: [...sessions.values()] } } };
 			},
@@ -67,9 +70,7 @@ function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undef
 					return { result: { ok: false, error: { code: "ungrouped", message: "cwd-only create leaves the session Ungrouped" } } };
 				}
 				const sessionId = `session-fake-${++nextSession}`;
-				const cwd = String(payload.workspaceId).startsWith("ws:")
-					? String(payload.workspaceId).slice(3)
-					: PROJECT.path;
+				const cwd = String(payload.workspaceId).startsWith("ws:") ? String(payload.workspaceId).slice(3) : PROJECT.path;
 				// host 行为：agentPreset 随 sessions.create 提交，解析后写入会话 header
 				//（list 行返回；预选 id 无效时 host 回退部署默认并返回解析值）。
 				const summary = {
@@ -105,9 +106,7 @@ function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undef
 						value: {
 							events: log.slice(start, end).map((entry) => ({ event: entry })),
 							hasMore: start > 0,
-							...(historyProjections.has(sessionId)
-								? { projections: historyProjections.get(sessionId) }
-								: {}),
+							...(historyProjections.has(sessionId) ? { projections: historyProjections.get(sessionId) } : {}),
 						},
 					},
 				};
@@ -126,6 +125,12 @@ function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undef
 				promptModes.push(mode ?? "queue");
 				return { result: { ok: true, value: { accepted: true } } };
 			},
+			async updateQueue(request) {
+				updateQueueCalls.push(request);
+				const fail = updateQueueFailures.shift();
+				if (fail) return { result: { ok: false, error: fail } };
+				return { result: { ok: true, value: { accepted: true } } };
+			},
 			async cancel() {
 				calls.cancel += 1;
 				return { result: { ok: true, value: {} } };
@@ -134,7 +139,7 @@ function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undef
 				return { result: { ok: true, value: { title } } };
 			},
 			async models() {
-				return { result: { ok: true, value: modelsValue ?? { groups: [] } } };
+				return { result: { ok: true, value: modelsValue ?? { default: { provider: "test", model: "default" }, routableProviders: ["test"], groups: [], failures: [] } } };
 			},
 			async selectModel({ provider, model }) {
 				return { result: { ok: true, value: { selected: { provider, model } } } };
@@ -145,42 +150,55 @@ function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undef
 				const newId = `session-forked-${sessionId}-${atSeq}`;
 				sessions.set(newId, { sessionId: newId, cwd: PROJECT.path, running: false, blank: false });
 				const source = historyBySession.get(sessionId) ?? [];
-				historyBySession.set(newId, source.filter((item) => (item.seq ?? 0) <= atSeq));
+				historyBySession.set(
+					newId,
+					source.filter((item) => (item.seq ?? 0) <= atSeq),
+				);
 				return { result: { ok: true, value: { sessionId: newId } } };
 			},
 		},
-			events: {
-				async *mux(_input, signal) {
-					muxCalls.push(Date.now());
-					// 可注入帧队列：初始帧（muxFrames）先放行，之后每次 pushFrames 补一批；
-					// abortAllPending（host 崩溃）置 streamDone 结束生成器（同真实桥中断语义）。
-					// 每次订阅都是新流：重置 streamDone，否则重连后的生成器会立即结束，
-					// pump 陷入「订阅→立即结束→退避→再订阅」的无限定时器循环。
-					streamDone = false;
-					while (!streamDone) {
-						while (frameQueue.length > 0) yield frameQueue.shift();
-						if (signal?.aborted) return;
-						await new Promise((resolve) => {
-							nextBatchResolve = resolve;
-							signal?.addEventListener("abort", resolve, { once: true });
-						});
-						if (signal?.aborted) return;
-					}
-				},
+		events: {
+			async *mux(_input, signal) {
+				muxCalls.push(Date.now());
+				// 可注入帧队列：初始帧（muxFrames）先放行，之后每次 pushFrames 补一批；
+				// abortAllPending（host 崩溃）置 streamDone 结束生成器（同真实桥中断语义）。
+				// 每次订阅都是新流：重置 streamDone，否则重连后的生成器会立即结束，
+				// pump 陷入「订阅→立即结束→退避→再订阅」的无限定时器循环。
+				streamDone = false;
+				while (!streamDone) {
+					while (frameQueue.length > 0) yield frameQueue.shift();
+					if (signal?.aborted) return;
+					await new Promise((resolve) => {
+						nextBatchResolve = resolve;
+						signal?.addEventListener("abort", resolve, { once: true });
+					});
+					if (signal?.aborted) return;
+				}
 			},
-			/** 测试注入：向运行中的 mux 流补发帧（模拟 host 后续推送）。 */
-			pushFrames(...frames) {
-				frameQueue.push(...frames);
-				nextBatchResolve?.();
-				nextBatchResolve = null;
-			},
-			abortAllPending() {
-				// 同 DshApiClient.abortAllPending：中断悬挂的 mux 流（error 语义）。
-				streamDone = true;
-				nextBatchResolve?.();
-				nextBatchResolve = null;
-			},
-			async respond(input) {
+		},
+		/** 测试注入：向运行中的 mux 流补发帧（模拟 host 后续推送）。 */
+		pushFrames(...frames) {
+			frameQueue.push(...frames);
+			nextBatchResolve?.();
+			nextBatchResolve = null;
+		},
+		/** 测试注入：向 session/control 流补发投影帧（baseline / projection）。 */
+		pushControlFrames(...frames) {
+			controlQueue.push(...frames);
+			controlResolve?.();
+			controlResolve = null;
+		},
+		abortAllPending() {
+			// 同 DshApiClient.abortAllPending：中断悬挂的 mux 流（error 语义）。
+			streamDone = true;
+			nextBatchResolve?.();
+			nextBatchResolve = null;
+			// 崩溃同样中断投影流（host 侧 abortAllPending 对所有流生效）。
+			controlDone = true;
+			controlResolve?.();
+			controlResolve = null;
+		},
+		async respond(input) {
 			if (failRespond) throw new Error("host not started");
 			respondCalls.push(input);
 			return { result: { ok: true, value: {} } };
@@ -208,6 +226,87 @@ function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undef
 			},
 		},
 	};
+	// 0.1.5 适配层形状（DshRemoteClient）：manager 调扁平方法；事件走
+	// openEvents（审批/提问瀑布 + 测试注入帧）与 sessionsFollow（空流，
+	// 测试帧统一经 openEvents 派发，dispatchMuxFrame 按 payload.type 分发）。
+	Object.assign(client, {
+		// 动态委托：测试用例可在 create 后覆写 sessions.selectModel 等方法，
+		// 扁平方法每次调用时重新查 nested 槽位（bind 直接引用会让覆写失效）。
+		sessionsList(...args) {
+			return client.sessions.list(...args);
+		},
+		sessionsCreate(...args) {
+			return client.sessions.create(...args);
+		},
+		sessionsHistory(...args) {
+			return client.sessions.history(...args);
+		},
+		sessionsAttachment(...args) {
+			return client.sessions.attachment(...args);
+		},
+		sessionsPrompt(...args) {
+			return client.sessions.prompt(...args);
+		},
+		sessionUpdateQueue(...args) {
+			return client.sessions.updateQueue(...args);
+		},
+		sessionsCancel(...args) {
+			return client.sessions.cancel(...args);
+		},
+		sessionsRename(...args) {
+			return client.sessions.rename(...args);
+		},
+		sessionsModelCatalog(...args) {
+			return client.sessions.models(...args);
+		},
+		async sessionsSelectModel(...args) {
+			const response = await client.sessions.selectModel(...args);
+			if (response.result.ok) modelSelections.set(args[0].sessionId, response.result.value.selected);
+			return response;
+		},
+		async sessionsProjections({ sessionId }) {
+			return { result: { ok: true, value: { asOfSeq: historyBySession.get(sessionId)?.length ?? 0, values: { modelSelection: { lastUsed: null, next: modelSelections.get(sessionId) ?? null } } } } };
+		},
+		sessionsFork(...args) {
+			return client.sessions.fork(...args);
+		},
+		async *openEvents(signal) {
+			muxCalls.push(Date.now());
+			streamDone = false;
+			while (!streamDone) {
+				while (frameQueue.length > 0) yield frameQueue.shift();
+				if (signal?.aborted) return;
+				await new Promise((resolve) => {
+					nextBatchResolve = resolve;
+					signal?.addEventListener("abort", resolve, { once: true });
+				});
+				if (signal?.aborted) return;
+			}
+		},
+		async *sessionsFollow(_input, signal) {
+			while (!signal?.aborted) {
+				// unref：pump 的等待定时器不能阻止测试进程正常退出。
+				await new Promise((resolve) => {
+					const timer = setTimeout(resolve, 50);
+					if (typeof timer.unref === "function") timer.unref();
+					signal?.addEventListener("abort", () => resolve(), { once: true });
+				});
+			}
+		},
+		async *sessionControl(signal) {
+			controlCalls.push(Date.now());
+			controlDone = false;
+			while (!controlDone) {
+				while (controlQueue.length > 0) yield controlQueue.shift();
+				if (signal?.aborted) return;
+				await new Promise((resolve) => {
+					controlResolve = resolve;
+					signal?.addEventListener("abort", resolve, { once: true });
+				});
+				if (signal?.aborted) return;
+			}
+		},
+	});
 	const host = {
 		async ensureStarted() {},
 		getClient() {
@@ -232,6 +331,15 @@ function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undef
 		getHomeDir() {
 			return "C:\\fake-dsh-home";
 		},
+		/** 与真实 DshHost 同源：会话文件路径按 workspaceDirFor 编码（WSL 转换在 DshHost 内完成）。 */
+		sessionFilePath(cwd, sessionId) {
+			return dshSessionFilePath(this.getHomeDir(), cwd, sessionId);
+		},
+		/** 冷读会话 cursor（0.1.5 session/page 的 throughSeq 来源）：夹具按日志长度模拟。 */
+		async readSessionCursor(sessionId) {
+			const log = historyBySession.get(sessionId) ?? [];
+			return log.length - 1;
+		},
 		/** 模拟 host 进程退出（崩溃）：置位 + 中断在途 mux，同 DshHost 的 exit → abortAllPending 联动。 */
 		triggerExit() {
 			hostState.running = false;
@@ -244,7 +352,7 @@ function makeFakeHost({ muxFrames = [], failRespond = false, modelsValue = undef
 			hostState.ready = true;
 		},
 	};
-	return { host, client, sessions, historyBySession, historyProjections, attachments, calls, createPayloads, promptCalls, promptModes, respondCalls, muxCalls };
+	return { host, client, sessions, historyBySession, historyProjections, modelSelections, attachments, calls, createPayloads, promptCalls, promptModes, respondCalls, muxCalls, controlCalls, updateQueueCalls, updateQueueFailures };
 }
 
 /**
@@ -278,6 +386,14 @@ function makeColdStartHost() {
 			await this.ensureStarted();
 			return inner.host.resolveWorkspaceId(cwd);
 		},
+		sessionFilePath(cwd, sessionId) {
+			return inner.host.sessionFilePath(cwd, sessionId);
+		},
+		/** 冷读 cursor 与桥同步：真实 DshHost.bridgeRpc 先 ensureStarted，冷启动下同样要等。 */
+		async readSessionCursor(sessionId) {
+			await this.ensureStarted();
+			return inner.host.readSessionCursor(sessionId);
+		},
 	};
 	// 冷启动 host 必须最后展开：inner 里也带 host 键（fake host，getClient 恒返回 client），
 	// 若先展开 host 会被 inner 覆盖 → 测试拿到的是「温 host」，冷启动回归永远测不到。
@@ -301,6 +417,25 @@ const PROJECT = { id: "project-1", path: "C:\\work" };
 
 /** 构造与 DSH 实测一致的 SessionEvent。 */
 const event = (type, seq, data = {}) => ({ type, seq, time: 1700000000000 + seq, data });
+
+test("第二个 runtime 的 follow 泵也必须创建（共享 mux 已在跑不得提前 return）", async () => {
+	// 回归（2026-09-12）：startMux 的 ensureFollowPump 曾放在共享 mux 启动路径里，
+	// 第二个会话 startMux 时 mux 已在跑、提前 return 把 follow 泵整个吞掉——
+	// 0.1.5 会话 journal 事件只走 follow 泵，于是新会话发送后 host 正常跑完回合
+	// 但 PiDeck 收不到任何事件（无流式、无收口、无报错，页面空白）。
+	const { host, client } = makeFakeHost();
+	let followOpens = 0;
+	const innerFollow = client.sessionsFollow.bind(client);
+	client.sessionsFollow = (...args) => {
+		followOpens += 1;
+		return innerFollow(...args);
+	};
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const first = await manager.create({ projectId: "project-1", backend: "dsh" });
+	const second = await manager.create({ projectId: "project-1", backend: "dsh" });
+	assert.notEqual(first.id, second.id);
+	assert.equal(followOpens, 2, "每个 runtime 各开一条 session/follow 泵");
+});
 
 test("create 新建 DSH 会话并注册 runtime（无 dshSessionId 时）", async () => {
 	const { host, calls, createPayloads } = makeFakeHost();
@@ -361,10 +496,7 @@ test("create 在 workspace 解析失败时不得降级为 cwd-only（会进 dsh-
 	const { host } = makeFakeHost();
 	host.resolveWorkspaceId = async () => undefined;
 	const manager = new DshAgentManager(host, () => PROJECT);
-	await assert.rejects(
-		() => manager.create({ projectId: "project-1", backend: "dsh" }),
-		/workspace\.resolve failed/,
-	);
+	await assert.rejects(() => manager.create({ projectId: "project-1", backend: "dsh" }), /workspace\.resolve failed/);
 });
 
 test("create 带 dshSessionId 且 host 存在该会话：attach 不新建", async () => {
@@ -462,7 +594,7 @@ test("create attach 历史投影过滤注入上下文（source.kind=agent-instru
 	assert.equal(messages[1].role, "assistant");
 });
 
-test("readHistoryPage 对齐渲染层 disk 分页协议（seq 游标、hasMore 边界）", async () => {
+test("readHistoryPage 显式消息窗口（maxMessages）保持 disk 分页协议（seq 游标、hasMore 边界）", async () => {
 	const { host, sessions, historyBySession, calls } = makeFakeHost();
 	sessions.set("session-hist-1", { sessionId: "session-hist-1", cwd: PROJECT.path, running: false, blank: false });
 	// 4 轮对话（turn/start + user + assistant），seq 1..12：
@@ -477,25 +609,30 @@ test("readHistoryPage 对齐渲染层 disk 分页协议（seq 游标、hasMore �
 	];
 	for (const [turnSeq, userSeq, assistantSeq] of turns) {
 		history.push(event("turn/start", turnSeq));
-		history.push(event("user/message", userSeq, {
-			content: [{ type: "text", text: `问${userSeq}` }],
-			source: { kind: "user", rpcId: `rpc-${userSeq}` },
-		}));
-		history.push(event("assistant/message", assistantSeq, {
-			message: { content: [{ type: "text", text: `答${assistantSeq}` }] },
-		}));
+		history.push(
+			event("user/message", userSeq, {
+				content: [{ type: "text", text: `问${userSeq}` }],
+				source: { kind: "user", rpcId: `rpc-${userSeq}` },
+			}),
+		);
+		history.push(
+			event("assistant/message", assistantSeq, {
+				message: { content: [{ type: "text", text: `答${assistantSeq}` }] },
+			}),
+		);
 	}
 	historyBySession.set("session-hist-1", history);
 	const manager = new DshAgentManager(host, () => PROJECT);
-	// 首页：beforeSeq undefined → 尾部 4 条消息（问8 答9 问11 答12，seq 7..12）
-	const page1 = await manager.readHistoryPage("session-hist-1", undefined, 4);
+	// 首页：maxMessages=4 是显式消息窗口（Web/mobile 首屏、工具结果回读走这条）
+	// → 尾部 4 条消息（问8 答9 问11 答12，seq 7..12）
+	const page1 = await manager.readHistoryPage("session-hist-1", undefined, { maxMessages: 4 });
 	assert.equal(page1.messages.length, 4);
 	assert.equal(page1.messages[0].text, "问8");
 	assert.equal(page1.messages[3].text, "答12");
 	assert.equal(typeof page1.nextBefore, "number", "还有更早历史时 nextBefore 是数字游标");
 	assert.equal(page1.total, -1, "DSH 无总条数概念，返回 -1 占位");
 	// 翻页：beforeSeq = 本页最旧事件 seq（排除边界，seq < beforeSeq 的事件）
-	const page2 = await manager.readHistoryPage("session-hist-1", page1.nextBefore, 4);
+	const page2 = await manager.readHistoryPage("session-hist-1", page1.nextBefore, { maxMessages: 4 });
 	assert.equal(page2.messages.length, 4);
 	assert.equal(page2.messages[0].text, "问2");
 	assert.equal(page2.messages[3].text, "答6");
@@ -503,85 +640,49 @@ test("readHistoryPage 对齐渲染层 disk 分页协议（seq 游标、hasMore �
 	assert.equal(calls.history, 2);
 });
 
+test("readHistoryPage 轮分页：一次「加载更多」拿到足够多的消息（不再只前进 3 条）", async () => {
+	// 回归（2026-09 反馈「要点好多次才加载出来」）：渲染层送的是轮数（加载更多 = 3），
+	// 旧实现把它当 maxMessages 直接透传 host，一次只前进 3 条消息。现在按「轮数 × 24」
+	// 换算消息预算（3 轮 → 72 条），正常会话一轮 host 调用就能返回一大段历史。
+	const { host, sessions, historyBySession, calls } = makeFakeHost();
+	sessions.set("session-turns-1", { sessionId: "session-turns-1", cwd: PROJECT.path, running: false, blank: false });
+	// 60 轮 ×（turn/start + user + assistant）= 180 条事件、120 条消息
+	const history = [];
+	let seq = 1;
+	for (let turn = 1; turn <= 60; turn += 1) {
+		history.push(event("turn/start", seq));
+		history.push(event("user/message", seq + 1, { content: [{ type: "text", text: `问${turn}` }], source: { kind: "user", rpcId: `rpc-${turn}` } }));
+		history.push(event("assistant/message", seq + 2, { message: { content: [{ type: "text", text: `答${turn}` }] } }));
+		seq += 3;
+	}
+	historyBySession.set("session-turns-1", history);
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const page = await manager.readHistoryPage("session-turns-1", undefined, { turnCount: 3 });
+	// 每轮 2 条消息 → 72 条预算正好落在第 25 轮起点
+	assert.equal(page.messages.length, 72, "3 轮 → 72 条消息预算（旧实现只会给 3 条）");
+	assert.equal(page.messages[0].text, "问25", "页首对齐到轮起点（不会从半轮的 assistant 开始）");
+	assert.equal(page.messages[0].role, "user");
+	assert.equal(calls.history, 1, "一轮 host 调用即满足轮数需求，不做无谓补取");
+	assert.equal(typeof page.nextBefore, "number", "还有更早历史 → 数字游标");
+	// 再点一次：从游标继续向更早翻，两页不重叠且能走到会话开头
+	const page2 = await manager.readHistoryPage("session-turns-1", page.nextBefore, { turnCount: 3 });
+	assert.equal(page2.messages[0].text, "问1", "游标续取到会话开头");
+	assert.equal(page2.nextBefore, null, "已到最开头 → hasMore=false");
+	const firstPageTexts = new Set(page.messages.map((message) => message.text));
+	assert.ok(
+		page2.messages.every((message) => !firstPageTexts.has(message.text)),
+		"第二页与第一页不重叠",
+	);
+});
+
 test("readHistoryPage 空会话返回空页且 nextBefore=null", async () => {
 	const { host, sessions } = makeFakeHost();
 	sessions.set("session-empty", { sessionId: "session-empty", cwd: PROJECT.path, running: false, blank: true });
 	const manager = new DshAgentManager(host, () => PROJECT);
-	const page = await manager.readHistoryPage("session-empty", undefined, 100);
+	const page = await manager.readHistoryPage("session-empty", undefined, { maxMessages: 100 });
 	assert.equal(page.messages.length, 0);
 	assert.equal(page.nextBefore, null);
 	assert.equal(page.total, -1);
-});
-
-test("readSystemPrompt：运行时会话返回 attach 重放缓存的系统提示（request/header 折叠）", async () => {
-	const { host, sessions, historyBySession } = makeFakeHost();
-	sessions.set("session-old-9", { sessionId: "session-old-9", cwd: PROJECT.path, running: false, blank: false });
-	historyBySession.set("session-old-9", [
-		event("request/header", 1, {
-			header: { system: "你是 DSH 代理。\n## 准则\n…" },
-			reason: { kind: "steer", step: 1 },
-		}),
-		event("user/message", 2, {
-			content: [{ type: "text", text: "提问" }],
-			source: { kind: "user", rpcId: "rpc-9" },
-		}),
-		event("turn/start", 3),
-		event("assistant/message", 4, {
-			message: { content: [{ type: "text", text: "回复" }] },
-		}),
-	]);
-	const manager = new DshAgentManager(host, () => PROJECT);
-	const tab = await manager.create({ projectId: "project-1", backend: "dsh", dshSessionId: "session-old-9" });
-	// attach 重放后：运行时会话直接读 runtime 缓存（不重复拉 history）
-	const prompt = await manager.readSystemPrompt(tab.id, "session-old-9");
-	assert.equal(prompt, "你是 DSH 代理。\n## 准则\n…");
-});
-
-test("readSystemPrompt：历史会话从 host history 折叠最后一个 request/header", async () => {
-	const { host, sessions, historyBySession } = makeFakeHost();
-	sessions.set("session-hist-9", { sessionId: "session-hist-9", cwd: PROJECT.path, running: false, blank: false });
-	historyBySession.set("session-hist-9", [
-		event("request/header", 1, { header: { system: "第一版提示" } }),
-		event("user/message", 2, {
-			content: [{ type: "text", text: "提问" }],
-			source: { kind: "user", rpcId: "rpc-9" },
-		}),
-		event("assistant/message", 3, {
-			message: { content: [{ type: "text", text: "回复" }] },
-		}),
-		// 模型切换后第二次请求：last wins
-		event("request/header", 4, { header: { system: "第二版提示" } }),
-		event("user/message", 5, {
-			content: [{ type: "text", text: "追问" }],
-			source: { kind: "user", rpcId: "rpc-10" },
-		}),
-		event("assistant/message", 6, {
-			message: { content: [{ type: "text", text: "回复 2" }] },
-		}),
-	]);
-	const manager = new DshAgentManager(host, () => PROJECT);
-	// 未激活会话（agentId undefined）：走 host history 折叠
-	const prompt = await manager.readSystemPrompt(undefined, "session-hist-9");
-	assert.equal(prompt, "第二版提示");
-});
-
-test("readSystemPrompt：无 request/header / 无 host 时返回 undefined（不阻断轨迹）", async () => {
-	const { host, sessions, historyBySession } = makeFakeHost();
-	sessions.set("session-no-hdr", { sessionId: "session-no-hdr", cwd: PROJECT.path, running: false, blank: false });
-	historyBySession.set("session-no-hdr", [
-		event("user/message", 1, {
-			content: [{ type: "text", text: "提问" }],
-			source: { kind: "user", rpcId: "rpc-1" },
-		}),
-		event("assistant/message", 2, {
-			message: { content: [{ type: "text", text: "回复" }] },
-		}),
-	]);
-	const manager = new DshAgentManager(host, () => PROJECT);
-	assert.equal(await manager.readSystemPrompt(undefined, "session-no-hdr"), undefined);
-	// host 无该会话：history 返回空页 → undefined（不抛错）
-	assert.equal(await manager.readSystemPrompt(undefined, "session-missing-9"), undefined);
-	assert.equal(await manager.readSystemPrompt(undefined, undefined), undefined);
 });
 
 test("readHistoryPage host 冷启动：先 ensureStarted 等 boot，不抛「DSH host is not started」", async () => {
@@ -598,7 +699,7 @@ test("readHistoryPage host 冷启动：先 ensureStarted 等 boot，不抛「DSH
 	]);
 	const manager = new DshAgentManager(host, () => PROJECT);
 	// 冷启动打开会话：渲染层首屏拉历史页 → host 未 boot → 必须等 ensureStarted 而不是抛错
-	const page = await manager.readHistoryPage("session-cold-1", undefined, 100);
+	const page = await manager.readHistoryPage("session-cold-1", undefined, { maxMessages: 100 });
 	assert.equal(page.messages.length, 2, "冷启动历史页必须返回会话消息");
 	assert.equal(page.messages[0].text, "重启前的提问");
 	assert.equal(page.messages[1].text, "重启前的回复");
@@ -617,9 +718,14 @@ test("create attach 从 list 投影取 host 标题（侧栏显示真实标题而
 	});
 	historyBySession.set("session-old-1", []);
 	const titles = [];
-	const manager = new DshAgentManager(host, () => PROJECT, undefined, (dshSessionId, title) => {
-		titles.push([dshSessionId, title]);
-	});
+	const manager = new DshAgentManager(
+		host,
+		() => PROJECT,
+		undefined,
+		(dshSessionId, title) => {
+			titles.push([dshSessionId, title]);
+		},
+	);
 	const tab = await manager.create({
 		projectId: "project-1",
 		backend: "dsh",
@@ -632,15 +738,18 @@ test("create attach 从 list 投影取 host 标题（侧栏显示真实标题而
 
 test("mux session/title 事件实时更新 tab 标题并通知 catalog 同步", async () => {
 	const { host } = makeFakeHost({
-		muxFrames: [
-			sessionEventFrame("session-fake-1", event("session/title", 5, { title: "帮我看看这个报错" })),
-		],
+		muxFrames: [sessionEventFrame("session-fake-1", event("session/title", 5, { title: "帮我看看这个报错" }))],
 	});
 	const emitted = [];
 	const titles = [];
-	const manager = new DshAgentManager(host, () => PROJECT, undefined, (dshSessionId, title) => {
-		titles.push([dshSessionId, title]);
-	});
+	const manager = new DshAgentManager(
+		host,
+		() => PROJECT,
+		undefined,
+		(dshSessionId, title) => {
+			titles.push([dshSessionId, title]);
+		},
+	);
 	manager.onOutput((channel, payload) => emitted.push([channel, payload]));
 	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
 	await flush();
@@ -699,7 +808,7 @@ test("forkSession 在 atSeq 裁剪出新会话并换绑 runtime", async () => {
 	const tab = await manager.create({ projectId: "project-1", backend: "dsh", dshSessionId: "session-fork-src" });
 	assert.equal(tab.sessionId, "session-fork-src");
 
-	// 从「第一问」(seq:2) fork：新会话只带 seq ≤ 2 的历史
+	// 0.2 atSeq 是包含式：待编辑的第一问不能同时留在新历史里。
 	const result = await manager.forkSession(tab.id, "seq:2");
 	assert.equal(calls.fork, 1);
 	assert.equal(result.text, "第一问", "fork 返回被 fork 的用户消息文本（渲染层预填输入框）");
@@ -708,10 +817,9 @@ test("forkSession 在 atSeq 裁剪出新会话并换绑 runtime", async () => {
 	assert.ok(newTab, "fork 后 agentId 保持存在");
 	assert.notEqual(newTab.sessionId, "session-fork-src");
 	assert.match(newTab.sessionId, /^session-forked-/);
-	// 新会话历史 = fork 点前内容（seq 1..2）
+	// 新会话只含第一问之前的事件，输入框回填与历史不可重复。
 	const messages = manager.getMessages(tab.id);
-	assert.equal(messages.length, 1);
-	assert.equal(messages[0].text, "第一问");
+	assert.equal(messages.length, 0);
 	// 旧会话不再被 runtime 持有（可从 catalog 重新打开）
 	assert.equal(manager.list().length, 1);
 });
@@ -723,6 +831,9 @@ test("forkSession 拒绝非法 entryId", async () => {
 	const tab = await manager.create({ projectId: "project-1", backend: "dsh", dshSessionId: "session-fork-bad" });
 	await assert.rejects(() => manager.forkSession(tab.id, "not-a-seq"));
 	await assert.rejects(() => manager.forkSession(tab.id, "seq:abc"));
+	for (const entryId of ["seq:0", "seq:9007199254740992", "seq:12"]) {
+		await assert.rejects(() => manager.forkSession(tab.id, entryId), /Invalid dsh fork/);
+	}
 });
 
 test("compact 以 /compact 提示词触发 host 命令并返回 runtime state", async () => {
@@ -735,11 +846,7 @@ test("compact 以 /compact 提示词触发 host 命令并返回 runtime state", 
 	assert.equal(promptCalls[0], "/compact", "无参 compact 发送裸 /compact");
 	assert.equal(state.isStreaming, false);
 	assert.equal(state.isCompacting, true);
-	await assert.rejects(
-		() => manager.compact(tab.id, "keep focus on refactor"),
-		/already compacting/,
-		"压缩进行中拒绝第二次 compact，避免拼进命令回合",
-	);
+	await assert.rejects(() => manager.compact(tab.id, "keep focus on refactor"), /already compacting/, "压缩进行中拒绝第二次 compact，避免拼进命令回合");
 	assert.equal(calls.prompt, 1, "拒绝重复 compact 不得再发 prompt");
 	client.pushFrames(sessionEventFrame("session-compact", event("turn/end", 1)));
 	await flush();
@@ -762,6 +869,10 @@ test("capabilities 声明 fork/getForkMessages/compact/getCommands/exportHtml �
 	assert.ok(caps.has("exportHtml"));
 	assert.ok(!caps.has("editMessage"), "DSH 不支持编辑历史消息");
 	assert.ok(!caps.has("deleteMessage"));
+	// 声明即实现：CompositeAgentGateway 按能力名调同名方法，DSH 曾只实现 listCommands，
+	// `gateway.getCommands!(id)` 于是抛 TypeError → 命令白名单恒空（历史 `/命令` 不出 chip、
+	// `/` 菜单只剩静态建议）。fork 的网关方法名是 forkSession，故只锁 getCommands 这类同名者。
+	assert.equal(typeof manager.getCommands, "function", "声明了 getCommands 能力就必须有同名方法");
 });
 
 test("审批自动放行开启：approval 帧直接应答 allowed-once，不弹 agents:ui-request", async () => {
@@ -769,7 +880,11 @@ test("审批自动放行开启：approval 帧直接应答 allowed-once，不弹 
 		muxFrames: [approvalFrame("rpc-1", "session-fake-1", "appr-1", { toolName: "shell" })],
 	});
 	const emitted = [];
-	const manager = new DshAgentManager(host, () => PROJECT, () => true);
+	const manager = new DshAgentManager(
+		host,
+		() => PROJECT,
+		() => true,
+	);
 	manager.onOutput((channel, payload) => emitted.push([channel, payload]));
 	await manager.create({ projectId: "project-1", backend: "dsh" });
 	await flush();
@@ -813,7 +928,11 @@ test("审批自动放行失败（host 通道异常）：回退人工审批避免
 		failRespond: true,
 	});
 	const emitted = [];
-	const manager = new DshAgentManager(host, () => PROJECT, () => true);
+	const manager = new DshAgentManager(
+		host,
+		() => PROJECT,
+		() => true,
+	);
 	manager.onOutput((channel, payload) => emitted.push([channel, payload]));
 	await manager.create({ projectId: "project-1", backend: "dsh" });
 	await flush();
@@ -835,11 +954,18 @@ const projectionFrame = (sessionId, key, value, seq) => ({
 
 test("contextPressure 的零 usage 不得擦掉最后一个有效上下文值", async () => {
 	const { host, client } = makeFakeHost({
-		muxFrames: [projectionFrame("session-fake-1", "contextPressure", {
-			pressureTokens: 120_000,
-			projectedTokens: 120_000,
-			contextWindow: 1_000_000,
-		}, 10)],
+		muxFrames: [
+			projectionFrame(
+				"session-fake-1",
+				"contextPressure",
+				{
+					pressureTokens: 120_000,
+					projectedTokens: 120_000,
+					contextWindow: 1_000_000,
+				},
+				10,
+			),
+		],
 	});
 	const manager = new DshAgentManager(host, () => PROJECT);
 	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
@@ -847,11 +973,18 @@ test("contextPressure 的零 usage 不得擦掉最后一个有效上下文值", 
 	assert.equal((await manager.getRuntimeState(tab.id)).contextTokens, 120_000);
 
 	// 失败 retry 的 usage 可能把两个 pressure 字段都写成 0；这不是当前会话的真实上下文。
-	client.pushFrames(projectionFrame("session-fake-1", "contextPressure", {
-		pressureTokens: 0,
-		projectedTokens: 0,
-		contextWindow: 1_000_000,
-	}, 11));
+	client.pushFrames(
+		projectionFrame(
+			"session-fake-1",
+			"contextPressure",
+			{
+				pressureTokens: 0,
+				projectedTokens: 0,
+				contextWindow: 1_000_000,
+			},
+			11,
+		),
+	);
 	await flush();
 	assert.equal((await manager.getRuntimeState(tab.id)).contextTokens, 120_000);
 });
@@ -859,14 +992,22 @@ test("contextPressure 的零 usage 不得擦掉最后一个有效上下文值", 
 test("已有消息但首次 contextPressure 为零时使用消息估算，不显示 0", async () => {
 	const { host } = makeFakeHost({
 		muxFrames: [
-			sessionEventFrame("session-fake-1", event("user/message", 1, {
-				content: [{ type: "text", text: "x".repeat(400) }],
-			})),
-			projectionFrame("session-fake-1", "contextPressure", {
-				pressureTokens: 0,
-				projectedTokens: 0,
-				contextWindow: 1_000_000,
-			}, 2),
+			sessionEventFrame(
+				"session-fake-1",
+				event("user/message", 1, {
+					content: [{ type: "text", text: "x".repeat(400) }],
+				}),
+			),
+			projectionFrame(
+				"session-fake-1",
+				"contextPressure",
+				{
+					pressureTokens: 0,
+					projectedTokens: 0,
+					contextWindow: 1_000_000,
+				},
+				2,
+			),
 		],
 	});
 	const manager = new DshAgentManager(host, () => PROJECT);
@@ -877,39 +1018,67 @@ test("已有消息但首次 contextPressure 为零时使用消息估算，不显
 
 test("session/projection 旧 seq 不得覆盖较新的 contextPressure", async () => {
 	const { host, client } = makeFakeHost({
-		muxFrames: [projectionFrame("session-fake-1", "contextPressure", {
-			pressureTokens: 180_000,
-			projectedTokens: 180_000,
-			contextWindow: 1_000_000,
-		}, 20)],
+		muxFrames: [
+			projectionFrame(
+				"session-fake-1",
+				"contextPressure",
+				{
+					pressureTokens: 180_000,
+					projectedTokens: 180_000,
+					contextWindow: 1_000_000,
+				},
+				20,
+			),
+		],
 	});
 	const manager = new DshAgentManager(host, () => PROJECT);
 	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
 	await flush();
-	client.pushFrames(projectionFrame("session-fake-1", "contextPressure", {
-		pressureTokens: 90_000,
-		projectedTokens: 90_000,
-		contextWindow: 1_000_000,
-	}, 19));
+	client.pushFrames(
+		projectionFrame(
+			"session-fake-1",
+			"contextPressure",
+			{
+				pressureTokens: 90_000,
+				projectedTokens: 90_000,
+				contextWindow: 1_000_000,
+			},
+			19,
+		),
+	);
 	await flush();
 	assert.equal((await manager.getRuntimeState(tab.id)).contextTokens, 180_000);
 
-	client.pushFrames(projectionFrame("session-fake-1", "contextPressure", {
-		pressureTokens: 210_000,
-		projectedTokens: 210_000,
-		contextWindow: 1_000_000,
-	}, 21));
+	client.pushFrames(
+		projectionFrame(
+			"session-fake-1",
+			"contextPressure",
+			{
+				pressureTokens: 210_000,
+				projectedTokens: 210_000,
+				contextWindow: 1_000_000,
+			},
+			21,
+		),
+	);
 	await flush();
 	assert.equal((await manager.getRuntimeState(tab.id)).contextTokens, 210_000);
 });
 
 test("attach projection baseline 的 seq 不得被旧实时帧覆盖", async () => {
 	const { host, sessions, historyBySession } = makeFakeHost({
-		muxFrames: [projectionFrame("session-attached", "contextPressure", {
-			pressureTokens: 90_000,
-			projectedTokens: 90_000,
-			contextWindow: 1_000_000,
-		}, 19)],
+		muxFrames: [
+			projectionFrame(
+				"session-attached",
+				"contextPressure",
+				{
+					pressureTokens: 90_000,
+					projectedTokens: 90_000,
+					contextWindow: 1_000_000,
+				},
+				19,
+			),
+		],
 	});
 	sessions.set("session-attached", {
 		sessionId: "session-attached",
@@ -940,11 +1109,7 @@ test("attach projection baseline 的 seq 不得被旧实时帧覆盖", async () 
 
 test("流式正文按累积语义发 agents:text-stream（渲染层 streamingTextByIdAtom 按累积存储）", async () => {
 	const { host } = makeFakeHost({
-		muxFrames: [
-			sessionEventFrame("session-fake-1", event("assistant/chunk", 1, { chunk: { type: "text-delta", text: "你" } })),
-			sessionEventFrame("session-fake-1", event("assistant/chunk", 2, { chunk: { type: "text-delta", text: "好" } })),
-			sessionEventFrame("session-fake-1", event("turn/end", 3)),
-		],
+		muxFrames: [sessionEventFrame("session-fake-1", event("assistant/chunk", 1, { chunk: { type: "text-delta", text: "你" } })), sessionEventFrame("session-fake-1", event("assistant/chunk", 2, { chunk: { type: "text-delta", text: "好" } })), sessionEventFrame("session-fake-1", event("turn/end", 3))],
 	});
 	const streams = [];
 	const manager = new DshAgentManager(host, () => PROJECT);
@@ -991,19 +1156,21 @@ test("reasoning delta 走 agents:thinking 独立通道，不进正文流", async
 
 test("tool/call 帧携带 arguments 与 host view：投影进工具消息 meta（args/view）", async () => {
 	const { host } = makeFakeHost({
-		muxFrames: [{
-			payload: {
-				type: "session/event",
-				sessionId: "session-fake-1",
-				event: event("tool/call", 1, {
-					toolName: "pwsh",
-					callId: "call-1",
-					arguments: JSON.stringify({ command: "Get-Location", description: "看当前目录" }),
-				}),
-				// host 计算的工具卡片 view（dsh-web 同源数据）：透传进 meta.view
-				view: { for: "call", view: { card: "terminal", title: "Get-Location", description: "看当前目录" } },
+		muxFrames: [
+			{
+				payload: {
+					type: "session/event",
+					sessionId: "session-fake-1",
+					event: event("tool/call", 1, {
+						toolName: "pwsh",
+						callId: "call-1",
+						arguments: JSON.stringify({ command: "Get-Location", description: "看当前目录" }),
+					}),
+					// host 计算的工具卡片 view（dsh-web 同源数据）：透传进 meta.view
+					view: { for: "call", view: { card: "terminal", title: "Get-Location", description: "看当前目录" } },
+				},
 			},
-		}],
+		],
 	});
 	const messages = [];
 	const manager = new DshAgentManager(host, () => PROJECT);
@@ -1042,45 +1209,83 @@ test("host 进程退出后 mux 自动重连（流中断 → 退避 → 重新订
 });
 
 test("getAvailableModels 透传模型支持的思考档位（reasoningEfforts）", async () => {
-	// host 的 models catalog 带 reasoning.efforts：llm-deepseek 只声明 off/high/max，
-	// llm-pi-ai 按模型声明——选择器按它过滤档位，避免选不支持的档位导致回合失败。
+	// 0.2 模型目录只含 host 默认选择；不能将 default 当作会话当前选择。
 	const { host } = makeFakeHost({
 		modelsValue: {
-			current: { provider: "llm-deepseek", model: "deepseek-v4-flash" },
-			routable: true,
+			default: { provider: "llm-deepseek", model: "deepseek-v4-flash" },
+			routableProviders: ["llm-deepseek"],
 			failures: [],
-			groups: [{
-				id: "llm-deepseek",
-				name: "DeepSeek",
-				models: [{
-					id: "deepseek-v4-flash",
-					name: "DeepSeek V4 Flash",
-					reasoning: {
-						efforts: [
-							{ id: "off", name: "Off" },
-							{ id: "high", name: "High" },
-							{ id: "max", name: "Max" },
-						],
-						defaultEffort: "high",
-					},
-				}],
-			}],
+			groups: [
+				{
+					id: "llm-deepseek",
+					name: "DeepSeek",
+					models: [
+						{
+							id: "deepseek-v4-flash",
+							name: "DeepSeek V4 Flash",
+							reasoning: {
+								efforts: [
+									{ id: "off", name: "Off" },
+									{ id: "high", name: "High" },
+									{ id: "max", name: "Max" },
+								],
+								defaultEffort: "high",
+							},
+						},
+					],
+				},
+			],
 		},
 	});
 	const manager = new DshAgentManager(host, () => PROJECT);
 	await manager.create({ projectId: "project-1", backend: "dsh" });
 	const models = await manager.getAvailableModels("dsh:session-fake-1");
 	assert.equal(models.length, 1);
-	assert.deepEqual(models[0].reasoningEfforts?.map((effort) => effort.id), ["off", "high", "max"]);
+	assert.deepEqual(
+		models[0].reasoningEfforts?.map((effort) => effort.id),
+		["off", "high", "max"],
+	);
 	assert.equal(models[0].reasoningEfforts?.[1].name, "High");
 });
 
+test("0.2 目录默认值不覆盖会话 modelSelection.next；可路由但未列出的模型仍能发送", async () => {
+	const { host, client, modelSelections } = makeFakeHost({
+		modelsValue: {
+			default: { provider: "host-default", model: "default" },
+			routableProviders: ["host-default", "chosen"],
+			groups: [],
+			failures: [],
+		},
+	});
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
+	modelSelections.set("session-fake-1", { provider: "chosen", model: "private-model", reasoningEffort: "high" });
+	assert.equal((await manager.getAvailableModels(tab.id)).length, 0);
+	const state = await manager.getRuntimeState(tab.id);
+	assert.equal(state.modelId, "private-model");
+	assert.equal(state.provider, "chosen");
+	assert.equal(state.thinkingLevel, "high");
+	assert.equal(state.modelRoutable, true);
+	assert.equal((await manager.sendPrompt({ agentId: tab.id, message: "allowed" })).accepted, true);
+	client.abortAllPending();
+});
 
-test("sendPrompt rejects only when DSH sessions.models reports routable=false", async () => {
+test("0.2 模型投影不可读时不将 host 默认值覆盖已知选择", async () => {
+	const { host, client } = makeFakeHost();
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
+	await manager.setModel(tab.id, "chosen", "remembered");
+	client.sessionsProjections = async () => ({ result: { ok: false, error: { code: "session/writer-held", message: "unavailable" } } });
+	await assert.rejects(() => manager.getAvailableModels(tab.id), /unavailable/);
+	assert.equal((await manager.getRuntimeState(tab.id)).modelId, "remembered");
+	client.abortAllPending();
+});
+
+test("sendPrompt rejects a provider absent from routableProviders", async () => {
 	const { host, calls } = makeFakeHost({
 		modelsValue: {
-			current: { provider: "gone-provider", model: "gone-model" },
-			routable: false,
+			default: { provider: "gone-provider", model: "gone-model" },
+			routableProviders: [],
 			groups: [],
 			failures: [],
 		},
@@ -1094,6 +1299,32 @@ test("sendPrompt rejects only when DSH sessions.models reports routable=false", 
 	assert.equal((await manager.getRuntimeState(tab.id)).modelRoutable, false);
 });
 
+test("sendPrompt 把 session/writer-held 映射为可操作文案，其他拒绝码不受影响", async () => {
+	const { host, client } = makeFakeHost();
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
+	// 写锁被其他 DSH 客户端（DeepSeek 桌面版/dsh CLI）持有时 host 拒绝 prompt；
+	// 该错误必须映射为可操作文案键，而不是把原始 JSON 甩给用户。
+	client.sessionsPrompt = async () => ({
+		result: { ok: false, error: { code: "session/writer-held", message: "already owned by an active write handle", details: {} } },
+	});
+	const held = await manager.sendPrompt({ agentId: tab.id, message: "hi" });
+	assert.equal(held.accepted, false);
+	assert.equal(held.delivery, "rejected");
+	assert.equal(held.i18nKey, "session.sendDshWriterHeld");
+	assert.match(held.error, /writer-held/);
+
+	// 其他错误码保持原行为：不携带 i18nKey，由通用 rejected 兑底。
+	client.sessionsPrompt = async () => ({
+		result: { ok: false, error: { code: "gateway/bad-request", message: "nope", details: {} } },
+	});
+	const other = await manager.sendPrompt({ agentId: tab.id, message: "hi" });
+	assert.equal(other.accepted, false);
+	assert.equal(other.i18nKey, undefined);
+
+	client.abortAllPending();
+});
+
 test("setPermission 只在 permission/preset 事件到达后报告成功，且命令不投影为用户消息", async () => {
 	const { host, client, promptCalls } = makeFakeHost();
 	const manager = new DshAgentManager(host, () => PROJECT);
@@ -1103,13 +1334,14 @@ test("setPermission 只在 permission/preset 事件到达后报告成功，且�
 	const changing = manager.setPermission(tab.id, "workspace-write");
 	// 事件必须在 prompt 受理之后到达，模拟 host 命令桥完成 apply 后的 mux 推送。
 	await new Promise((resolve) => setTimeout(resolve, 20));
-	client.pushFrames(
-		sessionEventFrame("session-fake-1", event("permission/preset", 2, { preset: "workspace-write" })),
-	);
+	client.pushFrames(sessionEventFrame("session-fake-1", event("permission/preset", 2, { preset: "workspace-write" })));
 	await changing;
 	assert.deepEqual(promptCalls, ["/permission workspace-write"]);
 	assert.equal((await manager.getRuntimeState(tab.id)).permissionPreset, "workspace-write");
-	assert.equal(manager.getMessages(tab.id).some((message) => message.text.includes("/permission")), false);
+	assert.equal(
+		manager.getMessages(tab.id).some((message) => message.text.includes("/permission")),
+		false,
+	);
 });
 
 test("setPermission 拒绝未知预设，避免把非法值送进 DSH 命令桥", async () => {
@@ -1117,50 +1349,51 @@ test("setPermission 拒绝未知预设，避免把非法值送进 DSH 命令桥"
 	const manager = new DshAgentManager(host, () => PROJECT);
 	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
 
-	await assert.rejects(
-		() => manager.setPermission(tab.id, "project-write"),
-		/Unsupported DSH permission preset: project-write/,
-	);
+	await assert.rejects(() => manager.setPermission(tab.id, "project-write"), /Unsupported DSH permission preset: project-write/);
 	assert.equal(calls.prompt, 0);
 });
 
 test("setModel 按官方语义使用新模型默认档位，不携带旧模型的 thinkingLevel", async () => {
 	const { host, client } = makeFakeHost({
 		modelsValue: {
-			current: { provider: "llm-deepseek", model: "deepseek-v4-flash" },
-			routable: true,
+			default: { provider: "llm-deepseek", model: "deepseek-v4-flash" },
+			routableProviders: ["llm-deepseek", "jiyuan"],
 			failures: [],
 			groups: [
 				{
 					id: "llm-deepseek",
 					name: "DeepSeek",
-					models: [{
-						id: "deepseek-v4-flash",
-						name: "DeepSeek V4 Flash",
-						reasoning: {
-							efforts: [
-								{ id: "off", name: "Off" },
-								{ id: "high", name: "High" },
-								{ id: "max", name: "Max" },
-							],
-							defaultEffort: "high",
+					models: [
+						{
+							id: "deepseek-v4-flash",
+							name: "DeepSeek V4 Flash",
+							reasoning: {
+								efforts: [
+									{ id: "off", name: "Off" },
+									{ id: "high", name: "High" },
+									{ id: "max", name: "Max" },
+								],
+								defaultEffort: "high",
+							},
 						},
-					}],
+					],
 				},
 				{
 					id: "jiyuan",
 					name: "Jiyuan",
-					models: [{
-						id: "jiyuan-model",
-						name: "Jiyuan Model",
-						reasoning: {
-							efforts: [
-								{ id: "off", name: "Off" },
-								{ id: "low", name: "Low" },
-							],
-							defaultEffort: "low",
+					models: [
+						{
+							id: "jiyuan-model",
+							name: "Jiyuan Model",
+							reasoning: {
+								efforts: [
+									{ id: "off", name: "Off" },
+									{ id: "low", name: "Low" },
+								],
+								defaultEffort: "low",
+							},
 						},
-					}],
+					],
 				},
 			],
 		},
@@ -1191,25 +1424,29 @@ test("setModel 按官方语义使用新模型默认档位，不携带旧模型�
 test("setThinking 在 host 拒绝时回滚旧档位并抛出错误", async () => {
 	const { host, client } = makeFakeHost({
 		modelsValue: {
-			current: { provider: "llm-deepseek", model: "deepseek-v4-flash" },
-			routable: true,
+			default: { provider: "llm-deepseek", model: "deepseek-v4-flash" },
+			routableProviders: ["llm-deepseek"],
 			failures: [],
-			groups: [{
-				id: "llm-deepseek",
-				name: "DeepSeek",
-				models: [{
-					id: "deepseek-v4-flash",
-					name: "DeepSeek V4 Flash",
-					reasoning: {
-						efforts: [
-							{ id: "off", name: "Off" },
-							{ id: "high", name: "High" },
-							{ id: "max", name: "Max" },
-						],
-						defaultEffort: "high",
-					},
-				}],
-			}],
+			groups: [
+				{
+					id: "llm-deepseek",
+					name: "DeepSeek",
+					models: [
+						{
+							id: "deepseek-v4-flash",
+							name: "DeepSeek V4 Flash",
+							reasoning: {
+								efforts: [
+									{ id: "off", name: "Off" },
+									{ id: "high", name: "High" },
+									{ id: "max", name: "Max" },
+								],
+								defaultEffort: "high",
+							},
+						},
+					],
+				},
+			],
 		},
 	});
 	const manager = new DshAgentManager(host, () => PROJECT);
@@ -1248,7 +1485,9 @@ test("setThinking 在 host 拒绝时回滚旧档位并抛出错误", async () =>
 });
 
 test("setThinking 无当前模型时不写入 runtime.thinkingLevel，避免污染后续换模型", async () => {
-	const { host } = makeFakeHost();
+	const { host, client } = makeFakeHost();
+	// 正常目录现在会提供默认选择；用读取失败复现确实没有当前模型的边界。
+	client.sessions.models = async () => ({ result: { ok: false, error: { code: "unavailable", message: "catalog unavailable" } } });
 	const manager = new DshAgentManager(host, () => PROJECT);
 	await manager.create({ projectId: "project-1", backend: "dsh" });
 	const agentId = "dsh:session-fake-1";
@@ -1266,10 +1505,7 @@ test("abort 后旧回合的终态回答与工具事件不上屏：只留已流�
 	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
 	await flush();
 	// 回合进行中：turn/start + 一段正文已流式
-	client.pushFrames(
-		sessionEventFrame("session-fake-1", event("turn/start", 1)),
-		sessionEventFrame("session-fake-1", event("assistant/chunk", 2, { chunk: { type: "text-delta", text: "旧" } })),
-	);
+	client.pushFrames(sessionEventFrame("session-fake-1", event("turn/start", 1)), sessionEventFrame("session-fake-1", event("assistant/chunk", 2, { chunk: { type: "text-delta", text: "旧" } })));
 	await flush();
 	assert.equal(manager.getMessages(tab.id).length, 1, "chunk 已建立流式骨架");
 
@@ -1278,9 +1514,12 @@ test("abort 后旧回合的终态回答与工具事件不上屏：只留已流�
 	assert.equal(calls.cancel, 1, "abort 必须发 session.cancel");
 	// host 收尾期残留事件：完整回答、工具调用、工具结果、回合结束
 	client.pushFrames(
-		sessionEventFrame("session-fake-1", event("assistant/message", 3, {
-			message: { content: [{ type: "text", text: "旧回合的完整回答（不应出现）" }] },
-		})),
+		sessionEventFrame(
+			"session-fake-1",
+			event("assistant/message", 3, {
+				message: { content: [{ type: "text", text: "旧回合的完整回答（不应出现）" }] },
+			}),
+		),
 		sessionEventFrame("session-fake-1", event("tool/call", 4, { toolName: "pwsh", callId: "call-1", arguments: "{}" })),
 		sessionEventFrame("session-fake-1", event("tool/result", 5, { message: { content: [{ type: "text", text: "ok" }] } })),
 		sessionEventFrame("session-fake-1", event("turn/end", 6)),
@@ -1293,20 +1532,22 @@ test("abort 后旧回合的终态回答与工具事件不上屏：只留已流�
 	assert.ok(!messages.some((m) => m.role === "tool"), "abort 后工具事件不得投影");
 	// 正文流：turn/start reset 空槽 + chunk 累积 + abort/turn/end 带已出的字收口。
 	// 完整回答不得作为新的非 done 快照上屏。
-	const streams = emitted
-		.filter(([channel]) => channel === "agents:text-stream")
-		.map(([, payload]) => payload);
-	assert.ok(streams.some((item) => item.text === "旧" && item.done === false), "chunk 应推累积正文");
-	assert.ok(streams.some((item) => item.reset === true && item.done === true), "turn/start 应 reset 上一轮 live 槽");
+	const streams = emitted.filter(([channel]) => channel === "agents:text-stream").map(([, payload]) => payload);
+	assert.ok(
+		streams.some((item) => item.text === "旧" && item.done === false),
+		"chunk 应推累积正文",
+	);
+	assert.ok(
+		streams.some((item) => item.reset === true && item.done === true),
+		"turn/start 应 reset 上一轮 live 槽",
+	);
 	assert.ok(
 		streams.filter((item) => item.done).every((item) => item.text === "" || item.text === "旧"),
 		"收口不得带上 abort 后的完整回答",
 	);
 	assert.ok(!streams.some((item) => item.text.includes("完整回答")), "完整回答不得进正文流");
 	// 停止后不得重新点亮 streaming
-	const states = emitted
-		.filter(([channel]) => channel === "agents:runtime-state")
-		.map(([, payload]) => payload.state);
+	const states = emitted.filter(([channel]) => channel === "agents:runtime-state").map(([, payload]) => payload.state);
 	assert.equal(states.at(-1).isStreaming, false);
 });
 
@@ -1315,10 +1556,7 @@ test("abort 后立刻发送：必须等旧回合 turn/end 收口才真正发 pro
 	const manager = new DshAgentManager(host, () => PROJECT);
 	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
 	await flush();
-	client.pushFrames(
-		sessionEventFrame("session-fake-1", event("turn/start", 1)),
-		sessionEventFrame("session-fake-1", event("assistant/chunk", 2, { chunk: { type: "text-delta", text: "旧" } })),
-	);
+	client.pushFrames(sessionEventFrame("session-fake-1", event("turn/start", 1)), sessionEventFrame("session-fake-1", event("assistant/chunk", 2, { chunk: { type: "text-delta", text: "旧" } })));
 	await flush();
 	await manager.abort(tab.id);
 
@@ -1329,10 +1567,13 @@ test("abort 后立刻发送：必须等旧回合 turn/end 收口才真正发 pro
 
 	// 旧回合收尾：用户新消息文本仍投影（不能丢），随后 turn/end 收口 cancelled
 	client.pushFrames(
-		sessionEventFrame("session-fake-1", event("user/message", 3, {
-			content: [{ type: "text", text: "新问题" }],
-			source: { kind: "user", rpcId: "rpc-new" },
-		})),
+		sessionEventFrame(
+			"session-fake-1",
+			event("user/message", 3, {
+				content: [{ type: "text", text: "新问题" }],
+				source: { kind: "user", rpcId: "rpc-new" },
+			}),
+		),
 		sessionEventFrame("session-fake-1", event("turn/end", 4)),
 	);
 	await sendPromise;
@@ -1366,10 +1607,7 @@ test("abort 立即收口 Live 思考流（停止后思考块不再转）", async
 	});
 	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
 	await flush();
-	client.pushFrames(
-		sessionEventFrame("session-fake-1", event("turn/start", 1)),
-		sessionEventFrame("session-fake-1", event("assistant/chunk", 2, { chunk: { type: "reasoning-delta", text: "想" } })),
-	);
+	client.pushFrames(sessionEventFrame("session-fake-1", event("turn/start", 1)), sessionEventFrame("session-fake-1", event("assistant/chunk", 2, { chunk: { type: "reasoning-delta", text: "想" } })));
 	await flush();
 	assert.equal(thoughts.filter((t) => !t.done).length, 1, "思考流已点亮");
 	// 停止：思考块必须随 abort 立即收口（旧回合残留 reasoning 帧会被丢弃，
@@ -1389,8 +1627,14 @@ test("stop 先 cancel 再解绑，且不打断共享 mux", async () => {
 	assert.equal(muxCalls.length, 1, "两个 runtime 只订阅一条共享 mux");
 	await manager.stop(first.id);
 	assert.equal(calls.cancel, 1, "stop 必须先发 session.cancel");
-	assert.equal(manager.list().some((tab) => tab.id === first.id), false);
-	assert.equal(manager.list().some((tab) => tab.id === second.id), true);
+	assert.equal(
+		manager.list().some((tab) => tab.id === first.id),
+		false,
+	);
+	assert.equal(
+		manager.list().some((tab) => tab.id === second.id),
+		true,
+	);
 	assert.equal(muxCalls.length, 1, "停一个会话不得重开/掐断共享 mux");
 });
 
@@ -1432,10 +1676,7 @@ test("abort 收尾期的 steer 也要等 turn/end，避免插进已停止回合"
 	const manager = new DshAgentManager(host, () => PROJECT);
 	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
 	await flush();
-	client.pushFrames(
-		sessionEventFrame("session-fake-1", event("turn/start", 1)),
-		sessionEventFrame("session-fake-1", event("assistant/chunk", 2, { chunk: { type: "text-delta", text: "旧" } })),
-	);
+	client.pushFrames(sessionEventFrame("session-fake-1", event("turn/start", 1)), sessionEventFrame("session-fake-1", event("assistant/chunk", 2, { chunk: { type: "text-delta", text: "旧" } })));
 	await flush();
 	await manager.abort(tab.id);
 
@@ -1470,9 +1711,10 @@ test("sendPrompt 仍拒绝 DSH 不支持的宿主指令", async () => {
 test("模型与思考强度在运行中交给后端，后续 step 使用已接受的选择", async () => {
 	const { host, client } = makeFakeHost({
 		modelsValue: {
-			current: { provider: "llm-deepseek", model: "deepseek-v4-flash" },
-			routable: true,
+			default: { provider: "llm-deepseek", model: "deepseek-v4-flash" },
+			routableProviders: ["llm-deepseek"],
 			groups: [],
+			failures: [],
 		},
 	});
 	const manager = new DshAgentManager(host, () => PROJECT);
@@ -1577,12 +1819,7 @@ test("历史重放恢复 todo（todo/write + turn/start standing plan 语义）"
 	const { host, sessions, historyBySession } = makeFakeHost();
 	sessions.set("session-todo-1", { sessionId: "session-todo-1", cwd: PROJECT.path, running: false, blank: false });
 	// 上一轮写完清单、本轮 turn/start 已开（旧计划清空）；list 无 projections 兜底
-	historyBySession.set("session-todo-1", [
-		event("turn/start", 1),
-		event("todo/write", 2, { todos: [{ content: "第一轮计划", status: "completed" }] }),
-		event("turn/end", 3, { reason: { kind: "stop" } }),
-		event("turn/start", 4),
-	]);
+	historyBySession.set("session-todo-1", [event("turn/start", 1), event("todo/write", 2, { todos: [{ content: "第一轮计划", status: "completed" }] }), event("turn/end", 3, { reason: { kind: "stop" } }), event("turn/start", 4)]);
 	const manager = new DshAgentManager(host, () => PROJECT);
 	const tab = await manager.create({
 		projectId: "project-1",
@@ -1592,19 +1829,14 @@ test("历史重放恢复 todo（todo/write + turn/start standing plan 语义）"
 	assert.equal((await manager.getRuntimeState(tab.id)).todos, null, "新一轮已开 → 计划清空");
 
 	// 活跃一轮内写入清单（无后续 turn/start）→ 恢复为有效计划
-	historyBySession.set("session-todo-2", [
-		event("turn/start", 1),
-		event("todo/write", 2, { todos: [{ content: "当前计划", status: "in_progress" }] }),
-	]);
+	historyBySession.set("session-todo-2", [event("turn/start", 1), event("todo/write", 2, { todos: [{ content: "当前计划", status: "in_progress" }] })]);
 	sessions.set("session-todo-2", { sessionId: "session-todo-2", cwd: PROJECT.path, running: false, blank: false });
 	const tab2 = await manager.create({
 		projectId: "project-1",
 		backend: "dsh",
 		dshSessionId: "session-todo-2",
 	});
-	assert.deepEqual(JSON.parse(JSON.stringify((await manager.getRuntimeState(tab2.id)).todos)), [
-		{ content: "当前计划", status: "in_progress" },
-	]);
+	assert.deepEqual(JSON.parse(JSON.stringify((await manager.getRuntimeState(tab2.id)).todos)), [{ content: "当前计划", status: "in_progress" }]);
 });
 
 test("attach 用 host list projections.values.todos 兜底（历史窗口截断时仍恢复计划）", async () => {
@@ -1641,11 +1873,7 @@ test("history 尾页 projections baseline 恢复 todo（无 list projections 的
 	const { host, sessions, historyBySession, historyProjections } = makeFakeHost();
 	sessions.set("session-todo-tail", { sessionId: "session-todo-tail", cwd: PROJECT.path, running: false, blank: false });
 	// 事件窗口里没有 todo/write（计划在截断窗口之前，已被后续多轮对话挤出尾页）
-	historyBySession.set("session-todo-tail", [
-		event("turn/start", 10),
-		event("user/message", 11, { content: [{ type: "text", text: "继续" }], source: { kind: "user", rpcId: "rpc-tail" } }),
-		event("assistant/message", 12, { message: { content: [{ type: "text", text: "好的" }] } }),
-	]);
+	historyBySession.set("session-todo-tail", [event("turn/start", 10), event("user/message", 11, { content: [{ type: "text", text: "继续" }], source: { kind: "user", rpcId: "rpc-tail" } }), event("assistant/message", 12, { message: { content: [{ type: "text", text: "好的" }] } })]);
 	// 但尾页 projections baseline 携带完整折叠（官方 host 行为）
 	historyProjections.set("session-todo-tail", {
 		asOfSeq: 12,
@@ -1659,9 +1887,7 @@ test("history 尾页 projections baseline 恢复 todo（无 list projections 的
 		backend: "dsh",
 		dshSessionId: "session-todo-tail",
 	});
-	assert.deepEqual(JSON.parse(JSON.stringify((await manager.getRuntimeState(tab.id)).todos)), [
-		{ content: "尾页基线计划", status: "in_progress" },
-	]);
+	assert.deepEqual(JSON.parse(JSON.stringify((await manager.getRuntimeState(tab.id)).todos)), [{ content: "尾页基线计划", status: "in_progress" }]);
 });
 
 test("todo/write 实时事件折叠进 runtime state（mux 事件 < projection 帧优先级）", async () => {
@@ -1670,27 +1896,31 @@ test("todo/write 实时事件折叠进 runtime state（mux 事件 < projection �
 	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
 	await flush();
 
-	client.pushFrames(sessionEventFrame("session-fake-1", event("todo/write", 2, {
-		todos: [{ content: "事件源计划", status: "in_progress" }],
-	})));
+	client.pushFrames(
+		sessionEventFrame(
+			"session-fake-1",
+			event("todo/write", 2, {
+				todos: [{ content: "事件源计划", status: "in_progress" }],
+			}),
+		),
+	);
 	await flush();
-	assert.deepEqual(JSON.parse(JSON.stringify((await manager.getRuntimeState(tab.id)).todos)), [
-		{ content: "事件源计划", status: "in_progress" },
-	]);
+	assert.deepEqual(JSON.parse(JSON.stringify((await manager.getRuntimeState(tab.id)).todos)), [{ content: "事件源计划", status: "in_progress" }]);
 });
-
 
 test("create attach 混合内联图片与 durable ref 时会补齐缺失图片", async () => {
 	const { host, sessions, historyBySession, attachments, calls } = makeFakeHost();
 	sessions.set("session-img-mixed", { sessionId: "session-img-mixed", cwd: PROJECT.path, running: false, blank: false });
-	historyBySession.set("session-img-mixed", [event("user/message", 1, {
-		content: [
-			{ type: "text", text: "两张图" },
-			{ type: "image", mediaType: "image/png", data: "inline-data" },
-			{ type: "image", attachment: { attachmentId: "att-mixed", mediaType: "image/jpeg" } },
-		],
-		source: { kind: "user", rpcId: "rpc-mixed" },
-	})]);
+	historyBySession.set("session-img-mixed", [
+		event("user/message", 1, {
+			content: [
+				{ type: "text", text: "两张图" },
+				{ type: "image", mediaType: "image/png", data: "inline-data" },
+				{ type: "image", attachment: { attachmentId: "att-mixed", mediaType: "image/jpeg" } },
+			],
+			source: { kind: "user", rpcId: "rpc-mixed" },
+		}),
+	]);
 	attachments.set("session-img-mixed:att-mixed", {
 		attachment: { attachmentId: "att-mixed", mediaType: "image/jpeg" },
 		data: "durable-data",
@@ -1704,7 +1934,6 @@ test("create attach 混合内联图片与 durable ref 时会补齐缺失图片",
 	assert.equal(calls.attachment, 1);
 });
 
-
 test("运行中 mux 后续事件不会清掉已回填图片", async () => {
 	const { host, client, attachments } = makeFakeHost();
 	attachments.set("session-fake-1:att-live", {
@@ -1715,16 +1944,269 @@ test("运行中 mux 后续事件不会清掉已回填图片", async () => {
 	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
 	await flush();
 
-	client.pushFrames(sessionEventFrame("session-fake-1", event("user/message", 1, {
-		content: [{ type: "image", attachment: { attachmentId: "att-live", mediaType: "image/png" } }],
-		source: { kind: "user", rpcId: "rpc-live" },
-	})));
+	client.pushFrames(
+		sessionEventFrame(
+			"session-fake-1",
+			event("user/message", 1, {
+				content: [{ type: "image", attachment: { attachmentId: "att-live", mediaType: "image/png" } }],
+				source: { kind: "user", rpcId: "rpc-live" },
+			}),
+		),
+	);
 	await flush();
 	assert.equal(manager.getMessages(tab.id)[0].images?.[0]?.data, "runtime-data");
 
-	client.pushFrames(sessionEventFrame("session-fake-1", event("assistant/chunk", 2, {
-		chunk: { type: "text-delta", text: "正在回答" },
-	})));
+	client.pushFrames(
+		sessionEventFrame(
+			"session-fake-1",
+			event("assistant/chunk", 2, {
+				chunk: { type: "text-delta", text: "正在回答" },
+			}),
+		),
+	);
 	await flush();
 	assert.equal(manager.getMessages(tab.id)[0].images?.[0]?.data, "runtime-data");
+});
+
+// ── session/control 投影控制流 ──
+// 0.1.5 把「投影变更广播」从 events.mux 挪到 Host 级 session/control 流。
+// 漏订阅时 runtime 投影永远停在 attach 那一刻的初值，输入框底下只剩
+// deriveSessionStatsFallback 的「N 轮 · M 步」，LLM/工具墙钟、平均首字、
+// tok/s、累计 token、缓存命中率全部不显示。
+
+test("create 后必须订阅 session/control 投影流（Host 级共享，只开一条）", async () => {
+	const { host, controlCalls } = makeFakeHost();
+	const manager = new DshAgentManager(host, () => PROJECT);
+	await manager.create({ projectId: "project-1", backend: "dsh" });
+	await flush();
+	assert.equal(controlCalls.length, 1, "首条投影流订阅已建立");
+	// 投影流是 Host 级流：每个 runtime 各开一条会互相打断（同 mux 的坑）。
+	await manager.create({ projectId: "project-1", backend: "dsh" });
+	await flush();
+	assert.equal(controlCalls.length, 1, "第二个 runtime 不得再开一条投影流");
+});
+
+test("session/control baseline → 一次播种 sessionStats / tokenUsage / contextPressure", async () => {
+	const { host, client } = makeFakeHost();
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
+	await flush();
+
+	client.pushControlFrames({
+		payload: {
+			type: "session/projection-baseline",
+			sessionId: "session-fake-1",
+			block: {
+				asOfSeq: 12,
+				values: {
+					sessionStats: { turns: 3, steps: 35, llmMs: 4000, toolMs: 6000, ttftMs: 500, ttftSteps: 2, decodeMs: 1000, decodeTokens: 40 },
+					tokenUsage: { uncachedInputTokens: 1000, outputTokens: 200, cacheReadTokens: 8000, cacheWriteTokens: 500 },
+					contextPressure: { pressureTokens: 42_000, projectedTokens: 42_000, contextWindow: 1_000_000 },
+				},
+			},
+		},
+	});
+	await flush();
+
+	const state = await manager.getRuntimeState(tab.id);
+	// 指标条直接消费 dshSessionStats（渲染层 ComposerStatsLine 的 DSH 分支）。
+	// 跨 realm 对象不能 deepStrictEqual（vm 加载的生产模块原型不同），逐字段断言。
+	assert.equal(state.dshSessionStats.turns, 3);
+	assert.equal(state.dshSessionStats.steps, 35);
+	assert.equal(state.dshSessionStats.llmMs, 4000);
+	assert.equal(state.dshSessionStats.toolMs, 6000);
+	assert.equal(state.dshSessionStats.ttftAvgMs, 250, "平均首字 = ttftMs / ttftSteps");
+	assert.equal(state.dshSessionStats.tokensPerSecond, 40, "tok/s = decodeTokens / (decodeMs / 1000)");
+	assert.equal(state.inputTokens, 1000);
+	assert.equal(state.outputTokens, 200);
+	assert.equal(state.cacheRead, 8000);
+	assert.equal(state.cacheWrite, 500);
+	assert.equal(state.contextTokens, 42_000);
+	assert.equal(state.contextWindow, 1_000_000);
+});
+
+test("session/control 的 sessionStats 实时帧 → 指标条不再退回「N 轮 · M 步」", async () => {
+	const { host, client } = makeFakeHost();
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
+	await flush();
+
+	client.pushControlFrames({
+		payload: { type: "session/projection", sessionId: "session-fake-1", key: "sessionStats", value: { turns: 1, steps: 35, llmMs: 1000, toolMs: 500, ttftMs: 0, ttftSteps: 0, decodeMs: 2000, decodeTokens: 100 }, seq: 20 },
+	});
+	await flush();
+
+	const state = await manager.getRuntimeState(tab.id);
+	assert.equal(state.dshSessionStats.turns, 1);
+	assert.equal(state.dshSessionStats.steps, 35);
+	assert.equal(state.dshSessionStats.tokensPerSecond, 50);
+	// ttftSteps=0 / 无样本时不给平均值，渲染层自动省略该段。
+	assert.equal(state.dshSessionStats.ttftAvgMs, undefined);
+});
+
+test("session/control baseline 的旧 seq 不得覆盖已到达的较新实时帧", async () => {
+	const { host, client } = makeFakeHost();
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
+	await flush();
+
+	client.pushControlFrames({
+		payload: { type: "session/projection", sessionId: "session-fake-1", key: "sessionStats", value: { turns: 5, steps: 50 }, seq: 20 },
+	});
+	await flush();
+	assert.equal((await manager.getRuntimeState(tab.id)).dshSessionStats.turns, 5);
+
+	// 重连时 host 重发 baseline（asOfSeq 落后于已消费的实时帧）必须被拒绝。
+	client.pushControlFrames({
+		payload: { type: "session/projection-baseline", sessionId: "session-fake-1", block: { asOfSeq: 12, values: { sessionStats: { turns: 1, steps: 2 } } } },
+	});
+	await flush();
+	assert.equal((await manager.getRuntimeState(tab.id)).dshSessionStats.turns, 5, "baseline 不得回退实时值");
+});
+
+test("host 进程退出后 session/control 自动重连（投影流不再静默悬挂）", async () => {
+	const { host, controlCalls } = makeFakeHost();
+	const manager = new DshAgentManager(host, () => PROJECT);
+	await manager.create({ projectId: "project-1", backend: "dsh" });
+	await flush();
+	assert.equal(controlCalls.length, 1);
+	host.triggerExit();
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	assert.equal(controlCalls.length, 1, "host 未就绪前不应重复订阅");
+	host.restartHost();
+	await new Promise((resolve) => setTimeout(resolve, 500));
+	assert.ok(controlCalls.length >= 2, `应自动重连投影流（实际订阅 ${controlCalls.length} 次）`);
+});
+
+test("inbox 投影帧归一化为 queuedMessages（空数组清空；低 seq 不覆盖）", async () => {
+	const { host, client } = makeFakeHost();
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
+	await flush();
+	assert.equal((await manager.getRuntimeState(tab.id)).queuedMessages, undefined, "未推送前无排队");
+
+	// 官方 inbox 投影帧：next-turn/next-step 合并视图（seq higher-seq-wins）
+	client.pushFrames({
+		payload: {
+			type: "session/projection",
+			sessionId: "session-fake-1",
+			key: "inbox",
+			value: {
+				"next-turn": [{ id: "q1", content: [{ type: "text", text: "排队下一条" }] }],
+				"next-step": [{ id: "q2", content: [{ type: "text", text: "本轮插入" }] }],
+			},
+			seq: 2,
+		},
+	});
+	await flush();
+	assert.deepEqual(JSON.parse(JSON.stringify((await manager.getRuntimeState(tab.id)).queuedMessages)), [
+		{ id: "q1", target: "next-turn", text: "排队下一条" },
+		{ id: "q2", target: "next-step", text: "本轮插入" },
+	]);
+
+	// 低 seq 迟到帧按 higher-seq-wins 丢弃
+	client.pushFrames({
+		payload: {
+			type: "session/projection",
+			sessionId: "session-fake-1",
+			key: "inbox",
+			value: { "next-turn": [{ id: "old", content: [] }], "next-step": [] },
+			seq: 1,
+		},
+	});
+	await flush();
+	assert.equal((await manager.getRuntimeState(tab.id)).queuedMessages.length, 2, "低 seq 不得覆盖");
+
+	// 空数组 = host 消费完排队（合法清空）
+	client.pushFrames({
+		payload: {
+			type: "session/projection",
+			sessionId: "session-fake-1",
+			key: "inbox",
+			value: { "next-turn": [], "next-step": [] },
+			seq: 3,
+		},
+	});
+	await flush();
+	assert.equal((await manager.getRuntimeState(tab.id)).queuedMessages.length, 0, "空数组清空排队");
+});
+
+test("cancelQueuedMessage：remove 成功；queue-item-not-found 幂等；其他失败抛错", async () => {
+	const { host, updateQueueCalls, updateQueueFailures } = makeFakeHost();
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
+
+	// 成功路径：请求形状必须是 session/updateQueue 的 remove
+	await manager.cancelQueuedMessage(tab.id, "q1");
+	assert.equal(updateQueueCalls.length, 1);
+	assert.deepEqual(JSON.parse(JSON.stringify(updateQueueCalls[0])), {
+		sessionId: "session-fake-1",
+		itemId: "q1",
+		action: { kind: "remove" },
+	});
+
+	// 与 host 消费赛跑：项刚好不在队列 → 幂等成功（不抛错、不上报）
+	updateQueueFailures.push({ code: "session/queue-item-not-found", message: "queued item is no longer pending" });
+	await manager.cancelQueuedMessage(tab.id, "q1");
+
+	// 其他错误如实抛出（渲染层 toast）
+	updateQueueFailures.push({ code: "gateway/internal", message: "boom" });
+	await assert.rejects(() => manager.cancelQueuedMessage(tab.id, "q1"), /dsh updateQueue failed/);
+
+	// 空 itemId 是入参错误，不产生 RPC
+	await assert.rejects(() => manager.cancelQueuedMessage(tab.id, ""));
+	assert.equal(updateQueueCalls.length, 3);
+});
+
+// ── 会话模型真值冷读（catalog 补录 / Coordinator 跳过重放共用） ─────────────
+
+test("readSessionModelSelection：冷读 host 投影 next ?? lastUsed（不激活会话）", async () => {
+	const { host, client } = makeFakeHost();
+	client.sessionsProjections = async () => ({
+		result: {
+			ok: true,
+			value: { values: { modelSelection: { next: { provider: "magpie", model: "group/auto", reasoningEffort: "max" }, lastUsed: { provider: "magpie", model: "group/free" } } } },
+		},
+	});
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const selection = await manager.readSessionModelSelection("session-x");
+	assert.deepEqual(JSON.parse(JSON.stringify(selection)), { provider: "magpie", model: "group/auto", reasoningEffort: "max" }, "next 是下一次请求的选择，优先 lastUsed");
+});
+
+test("readSessionModelSelection：无 next 时取 lastUsed；都没有返回 undefined", async () => {
+	const { host, client } = makeFakeHost();
+	client.sessionsProjections = async () => ({
+		result: { ok: true, value: { values: { modelSelection: { next: null, lastUsed: { provider: "magpie", model: "group/free" } } } } },
+	});
+	const manager = new DshAgentManager(host, () => PROJECT);
+	assert.deepEqual(JSON.parse(JSON.stringify(await manager.readSessionModelSelection("session-x"))), { provider: "magpie", model: "group/free" });
+
+	client.sessionsProjections = async () => ({ result: { ok: true, value: { values: { modelSelection: { next: null, lastUsed: null } } } } });
+	assert.equal(await manager.readSessionModelSelection("session-x"), undefined);
+	client.sessionsProjections = async () => ({ result: { ok: false, error: { code: "gateway/internal", message: "boom" } } });
+	assert.equal(await manager.readSessionModelSelection("session-x"), undefined);
+});
+
+test("readSessionModelSelection：host 未就绪时不主动拉起，返回 undefined", async () => {
+	const { host, client } = makeFakeHost();
+	let projectionsRead = 0;
+	client.sessionsProjections = async () => {
+		projectionsRead += 1;
+		return { result: { ok: true, value: { values: { modelSelection: { next: null, lastUsed: { provider: "a", model: "b" } } } } } };
+	};
+	host.isHostReady = () => false;
+	const manager = new DshAgentManager(host, () => PROJECT);
+	assert.equal(await manager.readSessionModelSelection("session-x"), undefined);
+	assert.equal(projectionsRead, 0, "仅展示补录不得触发 host 冷读 RPC");
+});
+
+test("getRuntimeModelThinkingState：把 host 投影选择暴露给 Coordinator（无档位时不伪造）", async () => {
+	const { host } = makeFakeHost();
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const tab = await manager.create({ projectId: "project-1", backend: "dsh" });
+	// create 时 refreshModelDirectory 已把模型目录默认值写进 runtime；档位未知。
+	const state = await manager.getRuntimeModelThinkingState(tab.id);
+	assert.equal(state.provider, "test");
+	assert.equal(state.modelId, "default");
+	assert.equal(state.thinkingLevel, undefined);
 });

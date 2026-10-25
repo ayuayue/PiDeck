@@ -14,17 +14,9 @@ import { app } from "electron";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { renameWithRetry } from "../utils/fsRetry";
-import {
-	createDefaultSecurityConfig,
-	type SecurityConfig,
-	type SecurityPolicySnapshot,
-} from "../../shared/types/security";
+import { createDefaultSecurityConfig, type SecurityConfig, type SecurityPolicySnapshot } from "../../shared/types/security";
 import type { SettingsStore } from "../settings/SettingsStore";
-import {
-	buildSnapshot,
-	sanitizeLineList,
-	validateSecurityConfig,
-} from "./policy";
+import { buildSnapshot, sanitizeLineList, validateSecurityConfig } from "./policy";
 
 /** 快照文件名：扩展经 PIDECK_SECURITY_CONFIG 环境变量读取 */
 const SNAPSHOT_FILE = "security-policy.json";
@@ -90,10 +82,7 @@ export class SecurityStore {
 			enabled: raw.enabled === true,
 			defaultLevelId: hasDefault ? raw.defaultLevelId : def.defaultLevelId,
 			levels: mergedLevels,
-			sessionOverrides:
-				raw.sessionOverrides && typeof raw.sessionOverrides === "object"
-					? { ...raw.sessionOverrides }
-					: {},
+			sessionOverrides: raw.sessionOverrides && typeof raw.sessionOverrides === "object" ? { ...raw.sessionOverrides } : {},
 		};
 	}
 

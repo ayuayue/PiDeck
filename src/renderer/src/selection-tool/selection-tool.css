@@ -1,0 +1,4 @@
+/* 浮窗复用工作台的主题 token 与 utilities，不维护第二套视觉语言（AGENTS.md：禁止第三套视觉语言）。 */
+@layer theme, base, components, vendor, legacy, utilities;
+@import "../styles/foundation.css" layer(legacy);
+@import "../styles/tailwind.css";

@@ -36,10 +36,7 @@ export function getGitCommitComposer(scopeKey: string): GitCommitComposerState {
 	return gitCommitComposerStore().get(gitCommitComposerByScopeAtom)[scopeKey] ?? EMPTY_GIT_COMMIT_COMPOSER;
 }
 
-export function patchGitCommitComposer(
-	scopeKey: string,
-	patch: Partial<GitCommitComposerState>,
-): GitCommitComposerState {
+export function patchGitCommitComposer(scopeKey: string, patch: Partial<GitCommitComposerState>): GitCommitComposerState {
 	const store = gitCommitComposerStore();
 	const all = store.get(gitCommitComposerByScopeAtom);
 	const prev = all[scopeKey] ?? EMPTY_GIT_COMMIT_COMPOSER;

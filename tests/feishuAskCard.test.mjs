@@ -4,14 +4,13 @@ import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 
-function loadAskCardModule() {
-	const i18nSource = readFileSync("src/main/feishu/FeishuI18n.ts", "utf8");
-	const { outputText: i18nOutput } = ts.transpileModule(i18nSource, {
-		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-	});
-	const i18nSandbox = { exports: {} };
-	vm.runInNewContext(i18nOutput, i18nSandbox, { filename: "FeishuI18n.ts" });
+import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 
+// FeishuI18n 现在带运行时依赖（繁体词典 ./FeishuI18n.zh-TW + 简繁判定 shared/types/settings），
+// 交给统一加载器按源文件目录解析；手写沙箱少了 require 桥就会整片失败。
+const i18n = createTsSandbox()("src/main/feishu/FeishuI18n.ts");
+
+function loadAskCardModule() {
 	const source = readFileSync("src/main/feishu/AskCard.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
 		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -19,7 +18,7 @@ function loadAskCardModule() {
 	const sandbox = {
 		exports: {},
 		require: (name) => {
-			if (name === "./FeishuI18n") return i18nSandbox.exports;
+			if (name === "./FeishuI18n") return i18n;
 			throw new Error(`unexpected require: ${name}`);
 		},
 	};
@@ -89,7 +88,10 @@ test("select card renders option buttons, truncates long text but keeps original
 	assert.ok(longButton.text.content.startsWith("2. "), "button label should carry the option number");
 	assert.ok(longButton.text.content.length <= 18, "button label should be truncated to 18 chars");
 	// 取消按钮兜底存在
-	assert.ok(values.some((v) => v.kind === "cancel"), "cancel button missing");
+	assert.ok(
+		values.some((v) => v.kind === "cancel"),
+		"cancel button missing",
+	);
 });
 
 test("input card embeds a card input component with a reply-hint note and cancel button", () => {
@@ -104,7 +106,10 @@ test("input card embeds a card input component with a reply-hint note and cancel
 	assert.equal(input.name, "pideck_ask_answer");
 	assert.equal(input.placeholder.tag, "plain_text");
 	const notes = card.elements.filter((e) => e.tag === "note");
-	assert.ok(notes.some((n) => n.elements[0].content.includes("在上方输入框输入后点击提交")), "hint should mention the card input");
+	assert.ok(
+		notes.some((n) => n.elements[0].content.includes("在上方输入框输入后点击提交")),
+		"hint should mention the card input",
+	);
 	assert.ok(actionValueFromButtons(card).some((v) => v.kind === "cancel"));
 });
 
@@ -113,18 +118,23 @@ test("editor method also embeds the card input component", () => {
 	const card = buildAskCard({
 		request: { requestId: "req-editor", method: "editor", title: "请描述问题" },
 	});
-	assert.ok(card.elements.some((e) => e.tag === "input"), "editor ask must embed a card input component");
+	assert.ok(
+		card.elements.some((e) => e.tag === "input"),
+		"editor ask must embed a card input component",
+	);
 });
 
 test("batch card renders numbered questions and cancel-only actions", () => {
 	const { buildAskCard, tryParseBatchAskEnvelope } = loadAskCardModule();
-	const envelope = tryParseBatchAskEnvelope(JSON.stringify({
-		__piDeckBatchAsk: 1,
-		questions: [
-			{ id: "q1", question: "第一个问题？", type: "select", options: ["是", "否"] },
-			{ id: "q2", question: "第二个问题？", type: "input" },
-		],
-	}));
+	const envelope = tryParseBatchAskEnvelope(
+		JSON.stringify({
+			__piDeckBatchAsk: 1,
+			questions: [
+				{ id: "q1", question: "第一个问题？", type: "select", options: ["是", "否"] },
+				{ id: "q2", question: "第二个问题？", type: "input" },
+			],
+		}),
+	);
 	assert.ok(envelope, "envelope should decode");
 	assert.equal(envelope.questions.length, 2);
 
@@ -153,23 +163,11 @@ test("parseAskInputValue extracts input_value from the raw card callback", () =>
 test("parseAskActionValue accepts option/confirm/cancel and rejects garbage", () => {
 	const { parseAskActionValue } = loadAskCardModule();
 
-	assert.deepEqual(
-		fields(parseAskActionValue({ action: "pideck.ask", requestId: "r1", kind: "option", option: "A" })),
-		{ requestId: "r1", kind: "option", option: "A" },
-	);
-	assert.deepEqual(
-		fields(parseAskActionValue({ action: "pideck.ask", requestId: "r1", kind: "confirm", confirmed: true })),
-		{ requestId: "r1", kind: "confirm", confirmed: true },
-	);
+	assert.deepEqual(fields(parseAskActionValue({ action: "pideck.ask", requestId: "r1", kind: "option", option: "A" })), { requestId: "r1", kind: "option", option: "A" });
+	assert.deepEqual(fields(parseAskActionValue({ action: "pideck.ask", requestId: "r1", kind: "confirm", confirmed: true })), { requestId: "r1", kind: "confirm", confirmed: true });
 	// confirmed 缺省按 true 处理（确认按钮语义）
-	assert.deepEqual(
-		fields(parseAskActionValue({ action: "pideck.ask", requestId: "r1", kind: "confirm" })),
-		{ requestId: "r1", kind: "confirm", confirmed: true },
-	);
-	assert.deepEqual(
-		fields(parseAskActionValue({ action: "pideck.ask", requestId: "r1", kind: "cancel" })),
-		{ requestId: "r1", kind: "cancel" },
-	);
+	assert.deepEqual(fields(parseAskActionValue({ action: "pideck.ask", requestId: "r1", kind: "confirm" })), { requestId: "r1", kind: "confirm", confirmed: true });
+	assert.deepEqual(fields(parseAskActionValue({ action: "pideck.ask", requestId: "r1", kind: "cancel" })), { requestId: "r1", kind: "cancel" });
 	// 非法输入一律 undefined
 	assert.equal(parseAskActionValue(null), undefined);
 	assert.equal(parseAskActionValue({}), undefined);
@@ -185,9 +183,5 @@ test("tryParseBatchAskEnvelope rejects non-envelope and malformed payloads", () 
 	assert.equal(tryParseBatchAskEnvelope("普通问题文本"), undefined);
 	assert.equal(tryParseBatchAskEnvelope("{not json"), undefined);
 	assert.equal(tryParseBatchAskEnvelope(JSON.stringify({ questions: [] })), undefined, "missing marker");
-	assert.equal(
-		tryParseBatchAskEnvelope(JSON.stringify({ __piDeckBatchAsk: 1, questions: [{ id: "q", question: "x", type: "weird" }] })),
-		undefined,
-		"invalid question type should be filtered out",
-	);
+	assert.equal(tryParseBatchAskEnvelope(JSON.stringify({ __piDeckBatchAsk: 1, questions: [{ id: "q", question: "x", type: "weird" }] })), undefined, "invalid question type should be filtered out");
 });

@@ -9,11 +9,13 @@
 
 export {
 	createCheckpoint,
+	addPathsToIndex,
 	restoreCheckpoint,
 	loadCheckpointFromRef,
 	listCheckpointRefs,
 	loadAllCheckpoints,
 	deleteCheckpoint,
+	deleteCheckpoints,
 	pruneCheckpoints,
 	pruneOldSessions,
 	diffCheckpoints,
@@ -25,15 +27,17 @@ export {
 	ZEROS,
 	REF_BASE,
 	MAX_UNTRACKED_FILE_SIZE,
+	MAX_UNTRACKED_TOTAL_BYTES,
 	MAX_UNTRACKED_DIR_FILES,
+	MIN_CHECKPOINT_INTERVAL_MS,
 	DEFAULT_MAX_CHECKPOINTS,
+	PRUNE_CURRENT_MIN_INTERVAL_MS,
+	PRUNE_OLD_SESSIONS_MIN_INTERVAL_MS,
 	IGNORED_DIR_NAMES,
 	MUTATING_TOOLS,
 } from "./checkpointConstants.ts";
 export {
 	shouldIgnoreForSnapshot,
-	isLargeFile,
-	isLargeDirectory,
 	normalizeGitPath,
 	isPathWithin,
 	isPathWithinAny,

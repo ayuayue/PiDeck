@@ -26,9 +26,7 @@ export function isUnsupportedThinkingLevelsRpcError(error: string | undefined): 
  * `undefined` means "capability unavailable or malformed" and deliberately
  * differs from `[]`, which is a valid authoritative response.
  */
-export function parseAvailableThinkingLevelsResponse(
-	response: ThinkingLevelsRpcResponseLike,
-): string[] | undefined {
+export function parseAvailableThinkingLevelsResponse(response: ThinkingLevelsRpcResponseLike): string[] | undefined {
 	if (!response.success) {
 		if (isUnsupportedThinkingLevelsRpcError(response.error)) return undefined;
 		throw new Error(response.error || "get_available_thinking_levels failed");

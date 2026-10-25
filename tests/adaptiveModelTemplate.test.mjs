@@ -56,10 +56,7 @@ function plainModel(model) {
 }
 
 test("merge: endpoint 实报字段优先于 catalog 模板", () => {
-	const template = mergeAdaptiveModelTemplate(
-		listing({ contextWindow: 200000, maxTokens: 65536 }),
-		catalogSpec(),
-	);
+	const template = mergeAdaptiveModelTemplate(listing({ contextWindow: 200000, maxTokens: 65536 }), catalogSpec());
 	assert.equal(template.contextWindow, 200000);
 	assert.equal(template.maxTokens, 65536);
 	// catalog 独有的字段照常补上
@@ -105,10 +102,7 @@ test("merge: 端点明确 reasoning=false 不被默认值覆盖", () => {
 });
 
 test("merge: 端点已声明档位映射时默认映射不覆盖", () => {
-	const template = mergeAdaptiveModelTemplate(
-		listing({ reasoning: true, thinkingLevelMap: { off: null, minimal: null, low: null, medium: null } }),
-		null,
-	);
+	const template = mergeAdaptiveModelTemplate(listing({ reasoning: true, thinkingLevelMap: { off: null, minimal: null, low: null, medium: null } }), null);
 	assert.equal(template.reasoning, true);
 	// 端点的 null 禁用语义完整保留（MiniMax-M2.7 只支持 high 的场景）
 	assert.deepEqual(JSON.parse(JSON.stringify(template.thinkingLevelMap)), {
@@ -157,10 +151,7 @@ test("reset: 清空五个能力字段后写模板有值字段", () => {
 
 test("reset: 模板缺失的容量字段保留手填值，推理/档位仍按模板重置", () => {
 	const template = mergeAdaptiveModelTemplate(undefined, null);
-	const next = applyAdaptiveTemplateReset(
-		{ id: "unknown-model", contextWindow: 100, maxTokens: 200, reasoning: true, input: ["text"] },
-		template,
-	);
+	const next = applyAdaptiveTemplateReset({ id: "unknown-model", contextWindow: 100, maxTokens: 200, reasoning: true, input: ["text"] }, template);
 	// 未匹配到目录时：手填容量/模态必须保留（清空后 Pi 回退 128k，等于静默降级）；
 	// 推理默认开放（自适应未匹配的兜底策略）照常写入。
 	assert.deepEqual(plainModel(next), {
@@ -174,10 +165,7 @@ test("reset: 模板缺失的容量字段保留手填值，推理/档位仍按模
 });
 
 test("reset: 纯文本模板显式清掉图片输入与 reasoning", () => {
-	const next = applyAdaptiveTemplateReset(
-		{ id: "deepseek-chat", input: ["text", "image"], reasoning: true, thinkingLevelMap: { max: "max" } },
-		mergeAdaptiveModelTemplate(undefined, catalogSpec({ input: ["text"], reasoning: false, thinkingLevelMap: undefined })),
-	);
+	const next = applyAdaptiveTemplateReset({ id: "deepseek-chat", input: ["text", "image"], reasoning: true, thinkingLevelMap: { max: "max" } }, mergeAdaptiveModelTemplate(undefined, catalogSpec({ input: ["text"], reasoning: false, thinkingLevelMap: undefined })));
 	assert.deepEqual(JSON.parse(JSON.stringify(next.input)), ["text"]);
 	assert.equal(next.reasoning, false);
 	assert.equal(next.thinkingLevelMap, undefined);
@@ -188,10 +176,7 @@ test("reset: 目录未收录的视觉 ID 模板兜底补图片能力", () => {
 	// 否则模型保持旧值（如被 text-only 别名误写入的 [text]），图片能力无法恢复。
 	const template = mergeAdaptiveModelTemplate(undefined, null, "deepseek-v4-flash-vision-exp");
 	assert.deepEqual(JSON.parse(JSON.stringify(template.input)), ["text", "image"]);
-	const next = applyAdaptiveTemplateReset(
-		{ id: "deepseek-v4-flash-vision-exp", input: ["text"] },
-		template,
-	);
+	const next = applyAdaptiveTemplateReset({ id: "deepseek-v4-flash-vision-exp", input: ["text"] }, template);
 	assert.deepEqual(JSON.parse(JSON.stringify(next.input)), ["text", "image"]);
 	// 非视觉 ID 且目录未收录：仍不猜 input（旧行为）
 	assert.equal(mergeAdaptiveModelTemplate(undefined, null, "my-custom-model").input, undefined);

@@ -40,6 +40,20 @@ export function isVisionModelId(modelId: string): boolean {
 }
 
 /**
+ * DeepSeek 系后端启发式：provider 名 / baseUrl / 任一模型 ID 命中 deepseek 即视为直连或中转 DeepSeek。
+ *
+ * 为什么不能只靠 pi 自己判：pi 的 detectCompat 只认 `provider === "deepseek"` 或
+ * baseUrl 含 "deepseek.com"，经中转站（88api/b.ai/tokendance/tokenrhythm 等自定义域名）
+ * 访问时判不出来，requiresReasoningContentOnAssistantMessages 误落为 false，
+ * 凡是「带 tool_calls 但本轮没有思考内容」的历史回合都会被上游 400 拒掉。
+ */
+export function looksDeepSeekBacked(provider: ProviderConfig, providerName?: string): boolean {
+	if (providerName && /deepseek/i.test(providerName)) return true;
+	if (typeof provider.baseUrl === "string" && /deepseek/i.test(provider.baseUrl)) return true;
+	return (provider.models ?? []).some((model) => typeof model.id === "string" && /deepseek/i.test(model.id));
+}
+
+/**
  * 保存时的 provider compat 归一化：布尔值显式落盘（不依赖后端默认）。
  *
  * supportsReasoningEffort 联动：该 provider 任一模型存在非空档位映射且未显式
@@ -47,25 +61,32 @@ export function isVisionModelId(modelId: string): boolean {
  * 不会真正发送 reasoning_effort 参数（pi 用 provider 级 compat 覆盖模型定义）。
  * 旧版本保存会无条件写 false，配置里已存的 false 是 PiDeck 自己写的陈旧值而非
  * 用户意图，因此自动判定优先于已存在的 false；用户显式写的 true 始终保留。
+ *
+ * requiresReasoningContentOnAssistantMessages 联动：仅当该键缺省（用户未表态）且
+ * provider 看着是 DeepSeek 系后端时写 true（见 looksDeepSeekBacked）。显式 true/false
+ * 一律尊重——false 是用户「我知道不需要」的表态，不能被自动判定反复打开。
+ *
+ * supportsStrictMode **刻意不做任何推导**：它只在用户显式表态时存在，未表态就不写。
+ * 理由见 configTypes.ProviderCompat.supportsStrictMode——真实默认值随协议不同
+ * （openai-completions 默认开、responses 系默认关），PiDeck 若替他猜一个布尔写盘，
+ * 就会把 pi 的协议判定固化成配置，反而改变线上行为。函数用「原 compat 打底」的写法，
+ * 所以手写在 models.json 里的 supportsStrictMode 会被原样保留、不会被保存流程抹掉。
+ *
+ * providerName 不传时只按 baseUrl/模型 ID 判定（旧调用点的兼容路径）。
  */
-export function deriveProviderCompat(provider: ProviderConfig): ProviderCompat {
-	const anyThinking = (provider.models ?? []).some(
-		(model) =>
-			model.thinkingLevelMap != null &&
-			Object.keys(model.thinkingLevelMap).length > 0 &&
-			model.reasoning !== false,
-	);
+export function deriveProviderCompat(provider: ProviderConfig, providerName?: string): ProviderCompat {
+	const anyThinking = (provider.models ?? []).some((model) => model.thinkingLevelMap != null && Object.keys(model.thinkingLevelMap).length > 0 && model.reasoning !== false);
 	const compat: ProviderCompat = { ...(provider.compat ?? {}) };
 	if (compat.supportsDeveloperRole !== true) compat.supportsDeveloperRole = false;
 	compat.supportsReasoningEffort = compat.supportsReasoningEffort === true || anyThinking;
+	if (compat.requiresReasoningContentOnAssistantMessages === undefined && looksDeepSeekBacked(provider, providerName)) {
+		compat.requiresReasoningContentOnAssistantMessages = true;
+	}
 	return compat;
 }
 
 /** 单模型补全 patch：返回 [字段, 值] 列表，无可补字段时为空数组 */
-export function computeModelSpecPatches(
-	model: ModelItem,
-	spec: ModelSpec | null | undefined,
-): Array<[string, unknown]> {
+export function computeModelSpecPatches(model: ModelItem, spec: ModelSpec | null | undefined): Array<[string, unknown]> {
 	const updates: Array<[string, unknown]> = [];
 	if (spec) {
 		if (model.contextWindow == null && spec.contextWindow != null) {
@@ -100,55 +121,34 @@ export function computeModelSpecPatches(
 	}
 	const reasoningIsOff = model.reasoning === false || specReasoning === false;
 	if (model.thinkingLevelMap == null && !reasoningIsOff) {
-		updates.push([
-			"thinkingLevelMap",
-			spec?.thinkingLevelMap
-				? { ...spec.thinkingLevelMap }
-				: { ...DEFAULT_OPEN_THINKING_MAP },
-		]);
+		updates.push(["thinkingLevelMap", spec?.thinkingLevelMap ? { ...spec.thinkingLevelMap } : { ...DEFAULT_OPEN_THINKING_MAP }]);
 	}
 	return updates;
 }
 
-export function applyModelPatches(
-	model: ModelItem,
-	updates: Array<[string, unknown]>,
-): ModelItem {
+export function applyModelPatches(model: ModelItem, updates: Array<[string, unknown]>): ModelItem {
 	if (updates.length === 0) return model;
 	const next: ModelItem = { ...model };
 	for (const [field, value] of updates) next[field] = value;
 	return next;
 }
 
-export type ModelSpecLookup = (
-	providerName: string,
-	modelId: string,
-	modelName?: string,
-) => Promise<ModelSpec | null>;
+export type ModelSpecLookup = (providerName: string, modelId: string, modelName?: string) => Promise<ModelSpec | null>;
 
 /**
  * 批量补全整个 ModelsFile：空字段才填，未命中时仅补默认思考开放（reasoning/map），
  * 其余容量/模态字段不猜。
  * 不修改入参。
  */
-export async function collectModelSpecPatches(
-	models: ModelsFile,
-	lookup: ModelSpecLookup,
-): Promise<{ providers: Record<string, ProviderConfig>; filledCount: number }> {
+export async function collectModelSpecPatches(models: ModelsFile, lookup: ModelSpecLookup): Promise<{ providers: Record<string, ProviderConfig>; filledCount: number }> {
 	// 先浅拷贝全部 provider，避免只遍历到「有模型行」的供应商时把空列表冲掉
 	const providers: Record<string, ProviderConfig> = {};
 	for (const [providerName, provider] of Object.entries(models.providers)) {
 		providers[providerName] = { ...provider, models: [...provider.models] };
 	}
 	let filledCount = 0;
-	const entries = Object.entries(models.providers).flatMap(([providerName, provider]) =>
-		provider.models.map((model, index) => ({ providerName, provider, model, index })),
-	);
-	const results = await Promise.all(
-		entries.map(({ providerName, model }) =>
-			model.id ? lookup(providerName, model.id, model.name).catch(() => null) : Promise.resolve(null),
-		),
-	);
+	const entries = Object.entries(models.providers).flatMap(([providerName, provider]) => provider.models.map((model, index) => ({ providerName, provider, model, index })));
+	const results = await Promise.all(entries.map(({ providerName, model }) => (model.id ? lookup(providerName, model.id, model.name).catch(() => null) : Promise.resolve(null))));
 	for (let i = 0; i < entries.length; i++) {
 		const { providerName, model, index } = entries[i];
 		if (!model.id) continue;
@@ -184,11 +184,7 @@ export type AdaptiveModelTemplate = {
  * modelId 用于视觉模型 ID 兜底（目录未收录且 endpoint 未实报时）；
  * 不传时保持旧行为（不猜 input）。
  */
-export function mergeAdaptiveModelTemplate(
-	listing: FetchedModel | undefined,
-	spec: ModelSpec | null | undefined,
-	modelId?: string,
-): AdaptiveModelTemplate {
+export function mergeAdaptiveModelTemplate(listing: FetchedModel | undefined, spec: ModelSpec | null | undefined, modelId?: string): AdaptiveModelTemplate {
 	const template: AdaptiveModelTemplate = {};
 	// endpoint 实报优先
 	if (listing?.contextWindow != null) template.contextWindow = listing.contextWindow;
@@ -239,10 +235,7 @@ export function mergeAdaptiveModelTemplate(
  * - reasoning / thinkingLevelMap：模板总是有立场（未声明也默认开放思考档位），
  *   始终按模板重置，模板没有映射时清空（如 reasoning:false 的纯文本模型）。
  */
-export function applyAdaptiveTemplateReset(
-	model: ModelItem,
-	template: AdaptiveModelTemplate,
-): ModelItem {
+export function applyAdaptiveTemplateReset(model: ModelItem, template: AdaptiveModelTemplate): ModelItem {
 	const next: ModelItem = { ...model };
 	if (template.contextWindow != null) next.contextWindow = template.contextWindow;
 	if (template.maxTokens != null) next.maxTokens = template.maxTokens;

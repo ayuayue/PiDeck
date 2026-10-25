@@ -15,14 +15,8 @@ export function ShimmerText(props: {
 }) {
 	// 渐变两端暗、中间亮，扫光即亮带移动；明暗都取语义 token，暗色模式自适应，
 	// warning 档位与 responding-indicator 的琥珀色状态位保持一致。
-	const edge =
-		props.tone === "warning"
-			? "color-mix(in srgb, var(--color-warning) 55%, transparent)"
-			: "var(--color-text-tertiary)";
-	const peak =
-		props.tone === "warning"
-			? "var(--color-warning)"
-			: "var(--color-text-primary)";
+	const edge = props.tone === "warning" ? "color-mix(in srgb, var(--color-warning) 55%, transparent)" : "var(--color-text-tertiary)";
+	const peak = props.tone === "warning" ? "var(--color-warning)" : "var(--color-text-primary)";
 	return (
 		<span
 			className={`motion-safe:animate-[shimmer-sweep_2.2s_linear_infinite] bg-[length:200%_100%] bg-clip-text text-transparent ${props.className ?? ""}`}

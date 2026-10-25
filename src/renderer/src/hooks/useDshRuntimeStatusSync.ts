@@ -10,12 +10,14 @@ import { useEffect } from "react";
 import { useSetAtom } from "jotai";
 import { dshRuntimeStatusAtom } from "../atoms/dsh-atoms";
 import { desktopApi } from "../desktopApi";
+import type { DshRuntimeStatus } from "../../../shared/types/dshRuntime";
 
 export function useDshRuntimeStatusSync(): void {
 	const setStatus = useSetAtom(dshRuntimeStatusAtom);
 	useEffect(() => {
 		let disposed = false;
-		const apply = (status: { state: "installed" | "notInstalled" | "checking" | "broken"; runtimeVersion?: string }) => {
+		// 类型直接引用 shared 契约：本地内联副本会在状态枚举扩展（如新增 outdated）时漏改。
+		const apply = (status: DshRuntimeStatus) => {
 			if (!disposed) setStatus(status);
 		};
 		void desktopApi.sessions

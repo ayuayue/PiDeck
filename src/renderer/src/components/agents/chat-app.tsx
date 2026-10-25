@@ -2,11 +2,7 @@
 // beui.dev/components/agents/chat-app
 
 import { useEffect, useRef } from "react";
-import {
-  AnimatedSidebarProvider,
-  type AnimatedSidebarProviderProps,
-  useAnimatedSidebar,
-} from "@/components/motion/animated-sidebar";
+import { AnimatedSidebarProvider, type AnimatedSidebarProviderProps, useAnimatedSidebar } from "@/components/motion/animated-sidebar";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,13 +18,13 @@ import { cn } from "@/lib/utils";
 const MIN_DOCKED_WIDTH = 600;
 
 export interface ChatAppProps extends AnimatedSidebarProviderProps {
-  /** Docked sidebar width as a CSS length. Default `17rem`. */
-  sidebarWidth?: string;
-  /**
-   * Shell width in px under which the sidebar folds off-canvas. Ignored while
-   * `open` is controlled — the consumer owns the state then.
-   */
-  collapseSidebarBelow?: number;
+	/** Docked sidebar width as a CSS length. Default `17rem`. */
+	sidebarWidth?: string;
+	/**
+	 * Shell width in px under which the sidebar folds off-canvas. Ignored while
+	 * `open` is controlled — the consumer owns the state then.
+	 */
+	collapseSidebarBelow?: number;
 }
 
 /**
@@ -42,57 +38,41 @@ export interface ChatAppProps extends AnimatedSidebarProviderProps {
  * fold condition itself, so that half applies immediately.
  */
 function ShellFit({ minWidth }: { minWidth: number }) {
-  const { open, setOpen } = useAnimatedSidebar();
-  const markerRef = useRef<HTMLDivElement>(null);
-  const narrowRef = useRef<boolean | null>(null);
-  const openRef = useRef(open);
-  openRef.current = open;
+	const { open, setOpen } = useAnimatedSidebar();
+	const markerRef = useRef<HTMLDivElement>(null);
+	const narrowRef = useRef<boolean | null>(null);
+	const openRef = useRef(open);
+	openRef.current = open;
 
-  useEffect(() => {
-    const shell = markerRef.current?.parentElement;
-    if (!shell) return;
-    const observer = new ResizeObserver(([entry]) => {
-      const narrow = entry.contentRect.width < minWidth;
-      if (narrowRef.current === narrow) return;
-      const first = narrowRef.current === null;
-      narrowRef.current = narrow;
-      if (first && !narrow) return;
-      const wanted = !narrow;
-      // Already where the shell wants it — saying so again would only be an
-      // onOpenChange the caller never asked for.
-      if (openRef.current === wanted) return;
-      setOpen(wanted);
-    });
-    observer.observe(shell);
-    return () => observer.disconnect();
-  }, [minWidth, setOpen]);
+	useEffect(() => {
+		const shell = markerRef.current?.parentElement;
+		if (!shell) return;
+		const observer = new ResizeObserver(([entry]) => {
+			const narrow = entry.contentRect.width < minWidth;
+			if (narrowRef.current === narrow) return;
+			const first = narrowRef.current === null;
+			narrowRef.current = narrow;
+			if (first && !narrow) return;
+			const wanted = !narrow;
+			// Already where the shell wants it — saying so again would only be an
+			// onOpenChange the caller never asked for.
+			if (openRef.current === wanted) return;
+			setOpen(wanted);
+		});
+		observer.observe(shell);
+		return () => observer.disconnect();
+	}, [minWidth, setOpen]);
 
-  return <div ref={markerRef} className="hidden" />;
+	return <div ref={markerRef} className="hidden" />;
 }
 
-export function ChatApp({
-  children,
-  className,
-  sidebarWidth = "17rem",
-  collapseSidebarBelow = MIN_DOCKED_WIDTH,
-  style,
-  ...props
-}: ChatAppProps) {
-  return (
-    <AnimatedSidebarProvider
-      {...props}
-      style={{ ...style, "--sidebar-width": sidebarWidth }}
-      className={cn(
-        "min-h-0 w-full overflow-hidden rounded-2xl border border-border bg-background",
-        className,
-      )}
-    >
-      {/* A controlled `open` is the consumer's to change; fitting the shell
+export function ChatApp({ children, className, sidebarWidth = "17rem", collapseSidebarBelow = MIN_DOCKED_WIDTH, style, ...props }: ChatAppProps) {
+	return (
+		<AnimatedSidebarProvider {...props} style={{ ...style, "--sidebar-width": sidebarWidth }} className={cn("min-h-0 w-full overflow-hidden rounded-2xl border border-border bg-background", className)}>
+			{/* A controlled `open` is the consumer's to change; fitting the shell
           would fire an onOpenChange they never asked for. */}
-      {props.open === undefined ? (
-        <ShellFit minWidth={collapseSidebarBelow} />
-      ) : null}
-      {children}
-    </AnimatedSidebarProvider>
-  );
+			{props.open === undefined ? <ShellFit minWidth={collapseSidebarBelow} /> : null}
+			{children}
+		</AnimatedSidebarProvider>
+	);
 }

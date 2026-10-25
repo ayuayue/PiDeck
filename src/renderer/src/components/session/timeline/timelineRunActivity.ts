@@ -24,9 +24,6 @@ export function deriveTimelineRunActivity(input: {
 		isRuntimeBusy: input.isRuntimeBusy || isCompacting,
 		// Compaction is runtime work after the response turn. An explicit agent_end
 		// boundary also keeps the reply complete during post-compaction idle checks.
-		isTurnRunning:
-			input.isRuntimeBusy &&
-			!isCompacting &&
-			input.isTurnActive !== false,
+		isTurnRunning: input.isRuntimeBusy && !isCompacting && input.isTurnActive !== false,
 	};
 }

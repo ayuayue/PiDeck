@@ -1,4 +1,5 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rename, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { normalize, join, dirname } from "node:path";
 import { dirname as posixDirname, normalize as posixNormalize } from "node:path/posix";
 import { homedir } from "node:os";
@@ -6,52 +7,26 @@ import { net, session } from "electron";
 import type { Session } from "electron";
 import type { ConfigFileDiagnostic, ConfigFileReadResult } from "../../shared/types";
 import type { McpConfigFile, McpConfigSnapshot, McpProbeResult, McpServerDefinition } from "../../shared/types/mcp";
-import {
-	loadMcpConfigSnapshot,
-	mcpDocsUrl,
-	probeMcpServer,
-	validateMcpConfigFile,
-} from "./mcpConfig";
-import {
-	ensureOpenAiVersionPath,
-	needsSessionBaseUrlVersionHint,
-	suggestNormalizedBaseUrl,
-} from "./baseUrlPath";
+import { loadMcpConfigSnapshot, mcpDocsUrl, probeMcpServer, saveMcpConfigFile, validateMcpConfigFile } from "./mcpConfig";
+import { ensureOpenAiVersionPath, needsSessionBaseUrlVersionHint, suggestNormalizedBaseUrl } from "./baseUrlPath";
 import type { WslEnvironment } from "../wsl/WslPaths";
-import {
-	mainProcessT,
-	type MainProcessTranslationKey,
-} from "../../shared/i18n/mainProcessCopy";
+import { mainProcessT, type MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
 import type { FetchedModel } from "../../shared/types/fetchedModel";
-import type {
-	ProviderUsageResult,
-	UsageProbeBackend,
-	UsageProbeProviderConfig,
-	UsageProbeRecognition,
-	UsageProbeSettingsResult,
-	UsageProbeTestInput,
-} from "../../shared/types/providerUsage";
+import type { ProviderUsageResult, UsageProbeBackend, UsageProbeProviderConfig, UsageProbeRecognition, UsageProbeSettingsResult, UsageProbeProviderState, UsageProbeStatesResult, UsageProbeTestInput } from "../../shared/types/providerUsage";
 import { credentialRefFor } from "../../shared/dshCredentialRef";
 import { normalizeDshDeepseekProvider } from "../../shared/dshProviderNames";
 import { parseProviderModelsResponse } from "./parseProviderModels";
 import { isSafeProviderName, piBuiltinSnapshotFromCatalog, resolvePiApiKey } from "./providerMigration";
+import { stripBom, writePiConfigFile } from "./piConfigFileStore";
+import { mergeSettingsFormPayload } from "./settingsFormPayload";
 import { ensureTokendanceAttribution } from "./tokendanceAttribution";
-import {
-	buildProbeFailureDetail,
-	buildProbeHeaders,
-	candidateApplies,
-	getByPath,
-	parseUsageResponseBody,
-	USAGE_PROBE_CANDIDATES,
-	usageProbeUrls,
-} from "./providerUsageProbe";
+import { getAppLogger } from "../logging/sharedLogger";
+import { buildProbeFailureDetail, buildProbeHeaders, candidateApplies, getByPath, parseUsageResponseBody, USAGE_PROBE_CANDIDATES, usageProbeUrls } from "./providerUsageProbe";
+import { fetchSub2ApiPanelBalanceWithRefresh, type Sub2ApiPanelTokens } from "./sub2apiPanelSession";
 import type { UsageProbeAttempt, UsageProbeCandidate } from "./providerUsageProbe";
 import { resolveProviderUsageEndpoint } from "./providerUsageResolver";
-import {
-	buildDeclarativeUsageProbeTemplate,
-	USAGE_PROBE_CATEGORY_BY_TEMPLATE_ID,
-} from "./usageProbeTemplates";
-import { loadUsageProbeSettings, loadUserUsageProbes, loadUserUsageProbesDetailed } from "./userUsageProbes";
+import { buildDeclarativeUsageProbeTemplate, isDeclarativeTemplateId, USAGE_PROBE_CATEGORY_BY_TEMPLATE_ID } from "./usageProbeTemplates";
+import { loadUsageProbeProviderConfigs, loadUsageProbeSettings, loadUserUsageProbes, loadUserUsageProbesDetailed, updateUsageProbeSub2ApiTokens } from "./userUsageProbes";
 import type { UserUsageProbe, UsageProbeSettingsLoadResult } from "./userUsageProbes";
 import { usageProbeRequest } from "./usageProbeTransport";
 import { pideckUsageProbesDir } from "../dsh/pideckDshHome";
@@ -76,6 +51,18 @@ export type DshUsageLookup = {
 // Provider 用量/连接探测面对的是第三方网关，首包可能慢于普通模型；放宽超时避免误判。
 const PROVIDER_TEST_TIMEOUT_MS = 45_000;
 
+/**
+ * Sub2API 面板登录态的续期上下文（仅 sub2api 模板的余额段使用）。
+ * persist=true 时续期成功的新 token 对会写回 configDir 下的 usage-probes.json；
+ * 弹窗「测试」路径 persist=false（用户还没保存，不能静默改盘上的配置）。
+ */
+type Sub2ApiPanelContext = {
+	provider: string;
+	configDir: string;
+	refreshToken?: string;
+	persist: boolean;
+};
+
 // 模型列表拉取的"显式代理"专用 session。
 // 为什么不用 defaultSession + session.setProxy 全局改：桌面代理全局开关是用户
 // 手动控制的（D:\桌面代理），这里按单个拉取请求临时开启/关闭代理，改全局会
@@ -93,22 +80,19 @@ async function getModelListProxySession(): Promise<Session> {
 // - follow/undefined → net.fetch（走默认 session，受桌面代理全局开关影响，现状行为）；
 // - on/off → 独立 session，临时 setProxy 为 fixed_servers / direct 后 fetch。
 // 返回 null 表示跟随全局（调用方继续用 net.fetch）。
-async function modelListFetch(
-	url: string,
-	init: { method?: string; headers?: Record<string, string>; signal: AbortSignal },
-	proxyTarget?: ConfigProxyTarget,
-): Promise<Response | null> {
+async function modelListFetch(url: string, init: { method?: string; headers?: Record<string, string>; signal: AbortSignal }, proxyTarget?: ConfigProxyTarget): Promise<Response | null> {
 	if (proxyTarget?.mode !== "on" && proxyTarget?.mode !== "off") {
 		return null;
 	}
 	const proxySession = await getModelListProxySession();
-	const proxyMode = proxyTarget.mode === "on"
-		? ({
-			mode: "fixed_servers" as const,
-			proxyRules: proxyTarget.url,
-			proxyBypassRules: proxyTarget.bypass,
-		})
-		: ({ mode: "direct" as const });
+	const proxyMode =
+		proxyTarget.mode === "on"
+			? {
+					mode: "fixed_servers" as const,
+					proxyRules: proxyTarget.url,
+					proxyBypassRules: proxyTarget.bypass,
+				}
+			: { mode: "direct" as const };
 	await proxySession.setProxy(proxyMode);
 	return proxySession.fetch(url, init);
 }
@@ -122,15 +106,44 @@ const USAGE_PROBE_DEFAULT_INTERVAL_MINUTES = 5;
 // （而非整体丢弃），防止恶意/异常网关用超大响应体拖垮内存，同时保留诊断信息。
 const MAX_USAGE_RESPONSE_BYTES = 64 * 1024;
 
-
-
 // 模型 id 长度上限：过长 id 往往是误填，且可能撑爆某些网关/日志。
 const MODEL_ID_MAX_LENGTH = 256;
+
+/**
+ * 没有通用「列举模型/部署」端点的协议：它们的模型清单只能从各自控制台或文档手填。
+ *
+ * 为什么必须显式拦：这些协议在 pi 里是合法的聊天协议（所以能出现在 API 类型下拉），
+ * 但它们的 baseUrl 不是 OpenAI 兼容根（如 Bedrock 是 bedrock-runtime.<region>.amazonaws.com）。
+ * 若继续用 openai-completions 的形状发 /v1/models，用户看到的是 404 / TLS 类的误导性
+ * 报错，而正确动作是「手填模型 ID」。
+ */
+const NO_MODEL_LIST_APIS = new Set(["azure-openai-responses", "google-vertex", "bedrock-converse-stream", "pi-messages"]);
 
 /** 判断字符串是否含控制字符（换行/tab 等），防止配置被注入换行破坏 JSON 语义。 */
 function hasControlChar(value: string): boolean {
 	// eslint-disable-next-line no-control-regex
 	return /[\x00-\x1f\x7f]/.test(value);
+}
+
+/**
+ * 网络层失败文本 → 可操作提示。
+ *
+ * 为什么要按错误码分类，而不是统一报「获取模型失败」：
+ *  - `ERR_SSL_*` / `ERR_CERT_*` 说明链路被中间设备（防火墙 / 代理 / 运营商）改动过，
+ *    直连必然失败但**开代理能通**——实测 anyrouter.top 在国内直连就报
+ *    ERR_SSL_VERSION_OR_CIPHER_MISMATCH，经代理正常。
+ *  - `ERR_CONNECTION_*` / `ENOTFOUND` 是压根连不上，提示检查网络与代理开关。
+ * 这两类都不是「配置写错」，笼统文案会把用户引到改 baseUrl / API Key 的错方向。
+ * 没有命中已知模式时返回 undefined，由调用方用默认文案兜底。
+ */
+function describeNetworkFailure(detail: string, translate: (key: MainProcessTranslationKey) => string): string | undefined {
+	if (/ERR_SSL|ERR_CERT|SSL_ERROR/i.test(detail)) {
+		return translate("mainConfig.fetchTlsBlocked");
+	}
+	if (/ERR_CONNECTION_TIMED_OUT|ERR_TIMED_OUT|ETIMEDOUT|ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|ENOTFOUND|EAI_AGAIN|ERR_NAME_NOT_RESOLVED/i.test(detail)) {
+		return translate("mainConfig.fetchUnreachable");
+	}
+	return undefined;
 }
 
 export type PiModelItem = {
@@ -180,12 +193,13 @@ export type ConfigValidationResult = {
 	valid: boolean;
 	error?: string;
 	debugDetails?: string;
+	/** 乐观锁冲突：磁盘内容与页面快照不一致（调用方应提示重新加载）。 */
+	conflict?: boolean;
+	/** 写入成功后的新 revision；冲突时为磁盘当前 revision。 */
+	revision?: string;
 };
 
-type ConfigCopy = (
-	key: MainProcessTranslationKey,
-	params?: Record<string, string | number>,
-) => string;
+type ConfigCopy = (key: MainProcessTranslationKey, params?: Record<string, string | number>) => string;
 
 type TestRequest = {
 	url: string;
@@ -217,9 +231,7 @@ export class ConfigManager {
 
 	/** 将配置目录切换到统一解析出的 WSL HOME；null 恢复 Windows home。 */
 	configureWsl(environment: WslEnvironment | null) {
-		this.configDir = environment
-			? join(environment.windowsHome, ".pi", "agent")
-			: PI_AGENT_DIR;
+		this.configDir = environment ? join(environment.windowsHome, ".pi", "agent") : PI_AGENT_DIR;
 	}
 
 	/** 当前 pi 全局配置目录（WSL 环境为 windowsHome 映射），供渲染层展示源文件实际编辑位置。 */
@@ -246,20 +258,20 @@ export class ConfigManager {
 	}
 
 	/**
-	 * 合并 pi-mcp-adapter 各层 mcp.json；可写层固定为当前 configDir/mcp.json。
-	 * projectPath 有值时额外合并项目 `.mcp.json` / `.pi/mcp.json`（只读）。
+	 * 合并 pi 原生 MCP 两层配置（全局 agentDir + 可选项目 .pi/mcp.json）。
+	 * 默认可写层是全局 mcp.json；项目页传 writableScope:"project-pi" 让项目层成为可写目标。
 	 */
-	async getMcpConfig(projectPath?: string): Promise<McpConfigSnapshot> {
-		return loadMcpConfigSnapshot(this.configDir, projectPath);
+	async getMcpConfig(projectPath?: string, options: { writableScope?: "pi-agent" | "project-pi"; projectTrusted?: boolean } = {}): Promise<McpConfigSnapshot> {
+		return loadMcpConfigSnapshot(this.configDir, projectPath, undefined, options);
 	}
 
-	async saveMcpConfig(file: McpConfigFile): Promise<ConfigValidationResult> {
+	async saveMcpConfig(file: McpConfigFile, options: { expectedRevision?: string } = {}): Promise<ConfigValidationResult> {
 		const error = validateMcpConfigFile(file);
 		if (error) return { valid: false, error };
-		await this.writeJsonFile("mcp.json", file);
-		return { valid: true };
+		// 锁内重读 + revision 乐观锁：外部（pi/手改/其它实例）改过则拒绝覆盖，只替换 mcpServers 键。
+		const result = await saveMcpConfigFile(join(this.configDir, "mcp.json"), file, { expectedRevision: options.expectedRevision });
+		return result.ok ? { valid: true, revision: result.revision } : { valid: false, error: result.error, conflict: result.conflict };
 	}
-
 	async probeMcpServer(definition: McpServerDefinition): Promise<McpProbeResult> {
 		return probeMcpServer(definition);
 	}
@@ -269,9 +281,7 @@ export class ConfigManager {
 		const trustConfig = await this.getTrustConfig();
 		if (trustConfig.diagnostic) return;
 
-		const existingEntry = Object.entries(trustConfig.parsed).find(
-			([path]) => this.normalizeTrustPathKey(path) === this.normalizeTrustPathKey(normalizedPath),
-		);
+		const existingEntry = Object.entries(trustConfig.parsed).find(([path]) => this.normalizeTrustPathKey(path) === this.normalizeTrustPathKey(normalizedPath));
 		if (existingEntry) return;
 
 		// 若用户已用不同大小写/分隔符写过同一路径，或显式设为 false，则不覆盖，尊重用户的 trust.json 决策。
@@ -279,6 +289,8 @@ export class ConfigManager {
 			...trustConfig.parsed,
 			[normalizedPath]: true,
 		});
+		// 自动信任目录改变 pi 的工具执行边界，属安全相关决策，单独留痕以便审计
+		getAppLogger()?.info("config", "Directory auto-trusted (trust.json)", { path: normalizedPath });
 	}
 
 	/**
@@ -327,9 +339,7 @@ export class ConfigManager {
 
 	private normalizeTrustPathKey(path: string) {
 		const normalized = this.normalizeTrustPath(path).replace(/[\\/]+$/, "");
-		return process.platform === "win32" && !normalized.startsWith("/")
-			? normalized.toLowerCase()
-			: normalized;
+		return process.platform === "win32" && !normalized.startsWith("/") ? normalized.toLowerCase() : normalized;
 	}
 
 	private normalizeTrustPath(path: string) {
@@ -355,24 +365,31 @@ export class ConfigManager {
 		return { valid: true };
 	}
 
-	async saveSettingsConfig(
-		settings: PiSettings,
-	): Promise<ConfigValidationResult> {
-		await this.writeJsonFile("settings.json", settings);
+	/**
+	 * 可视化设置表单保存。
+	 *
+	 * 不再整份覆盖：资源类键（packages/extensions/skills/prompts/themes）的真值由
+	 * PiResourceConfigService 与 pi 原生规则并发维护，页面快照整份写回会静默回退它们
+	 * （实测：安装/启用扩展后被设置页保存盖回停用形态）。这里走 writePiConfigFile
+	 * （文件锁内重读 → 只按表单归属合并 → 原子替换），资源键一律以磁盘为准。
+	 * 归属规则与原因见 settingsFormPayload.ts。
+	 */
+	async saveSettingsConfig(settings: PiSettings): Promise<ConfigValidationResult> {
+		const filePath = join(this.configDir, "settings.json");
+		const result = await writePiConfigFile(filePath, (current) => mergeSettingsFormPayload(current, settings));
+		if (!result.ok) return { valid: false, error: result.error };
+		getAppLogger()?.info("config", "Config file written", { file: filePath, bytes: JSON.stringify(result.data, null, 2).length });
 		return { valid: true };
 	}
 
 	// ── 保存（源文件编辑） ────────────────────────────────
 
-	async saveRawConfig(
-		fileName: string,
-		rawJson: string,
-	): Promise<ConfigValidationResult> {
+	async saveRawConfig(fileName: string, rawJson: string): Promise<ConfigValidationResult> {
 		try {
 			JSON.parse(rawJson);
 		} catch (e) {
 			const debugDetails = e instanceof Error ? e.message : String(e);
-			console.error("[ConfigManager] Invalid JSON input", e);
+			void getAppLogger()?.error("config", "Invalid JSON input", { error: e instanceof Error ? e.message : String(e) });
 			return {
 				valid: false,
 				error: this.translate("mainConfig.invalidJson"),
@@ -447,15 +464,14 @@ export class ConfigManager {
 
 	// ── 文件 IO ───────────────────────────────────────────
 
-	private async readJsonFile<T>(
-		fileName: string,
-		fallback: T,
-	): Promise<ConfigFileReadResult<T>> {
+	private async readJsonFile<T>(fileName: string, fallback: T): Promise<ConfigFileReadResult<T>> {
 		const filePath = join(this.configDir, fileName);
 		try {
 			const raw = await readFile(filePath, "utf8");
 			try {
-				const parsed = JSON.parse(raw) as T;
+				// UTF-8 BOM 必须先剥：Windows PowerShell 5.1 保存会写 BOM，裸 JSON.parse 直接失败。
+				// 失败后 parsed 是空对象兜底，页面会显示「配置是空的」，用户一旦点保存就把真配置写没。
+				const parsed = JSON.parse(stripBom(raw)) as T;
 				return { raw, parsed };
 			} catch (error) {
 				// 配置 JSON 写错时，配置弹窗仍要能打开 Raw 页让用户修复；同时返回精确诊断用于 UI 提示。
@@ -470,11 +486,7 @@ export class ConfigManager {
 		}
 	}
 
-	private createJsonDiagnostic(
-		fileName: string,
-		raw: string,
-		error: unknown,
-	): ConfigFileDiagnostic {
+	private createJsonDiagnostic(fileName: string, raw: string, error: unknown): ConfigFileDiagnostic {
 		const message = error instanceof Error ? error.message : String(error);
 		const positionMatch = message.match(/position\s+(\d+)/i);
 		const position = positionMatch ? Number(positionMatch[1]) : undefined;
@@ -511,15 +523,28 @@ export class ConfigManager {
 		return "https://pi.dev/docs/latest/providers";
 	}
 
-	private async writeJsonFile(
-		fileName: string,
-		content: unknown,
-	): Promise<void> {
+	private async writeJsonFile(fileName: string, content: unknown): Promise<void> {
 		await mkdir(this.configDir, { recursive: true });
 		const filePath = join(this.configDir, fileName);
-		const json =
-			typeof content === "string" ? content : JSON.stringify(content, null, 2);
+		const json = typeof content === "string" ? content : JSON.stringify(content, null, 2);
 		await writeFile(filePath, json, "utf8");
+		// 配置写盘统一留痕（只记路径与字节数，绝不落内容——auth.json 含凭据）
+		getAppLogger()?.info("config", "Config file written", { file: filePath, bytes: json.length });
+	}
+
+	/** Write a validated configuration with a sibling temporary file and atomic replacement. */
+	private async writeJsonFileAtomic(fileName: string, content: unknown): Promise<void> {
+		await mkdir(this.configDir, { recursive: true });
+		const filePath = join(this.configDir, fileName);
+		const temporaryPath = join(this.configDir, `.${fileName}.${randomUUID()}.tmp`);
+		const json = typeof content === "string" ? content : JSON.stringify(content, null, 2);
+		try {
+			await writeFile(temporaryPath, json, { encoding: "utf8", flag: "wx" });
+			await rename(temporaryPath, filePath);
+			getAppLogger()?.info("config", "Config file written (atomic)", { file: filePath, bytes: json.length });
+		} finally {
+			await rm(temporaryPath, { force: true }).catch(() => undefined);
+		}
 	}
 
 	// ── 远程拉取模型列表 ─────────────────────────────────
@@ -547,6 +572,17 @@ export class ConfigManager {
 		/** 建议写入配置的 baseUrl（含 /v1 等）；UI 可自动改写 */
 		suggestedBaseUrl?: string;
 	}> {
+		// 没有通用模型列表接口的协议：Azure 部署列表只能从门户复制，Bedrock / Vertex /
+		// Pi Messages 都没有公开的「列举全部部署/模型」端点。这里直接给出可操作提示，
+		// 不用 openai-completions 的形状去试探：那会把请求打到错误路径并掩盖真实原因。
+		const requestedApi = typeof apiType === "string" ? apiType.trim() : "";
+		if (NO_MODEL_LIST_APIS.has(requestedApi)) {
+			return {
+				success: false,
+				error: this.translate("mainConfig.fetchModelsUnsupportedApi", { api: requestedApi }),
+				debugDetails: `api "${requestedApi}" has no generic model listing endpoint`,
+			};
+		}
 		const requests = this.buildModelsRequest(baseUrl, apiKey, apiType, headers);
 		let lastError: string | undefined;
 		let lastDebugDetails: string | undefined;
@@ -571,23 +607,44 @@ export class ConfigManager {
 						},
 						proxyTarget,
 					);
-					const res = response ?? (await net.fetch(request.url, {
-						method: request.method ?? "GET",
-						headers: request.headers,
-						signal: controller.signal,
-					}));
+					const res =
+						response ??
+						(await net.fetch(request.url, {
+							method: request.method ?? "GET",
+							headers: request.headers,
+							signal: controller.signal,
+						}));
 
 					if (!res.ok) {
 						lastDebugDetails = `HTTP ${res.status}: ${res.statusText}`;
-						console.warn("[ConfigManager] Provider model list request failed", {
-							status: res.status,
-							requestUrl: lastRequestUrl,
-						});
+						void getAppLogger()?.warn("config", "Provider model list request failed", { status: res.status, requestUrl: lastRequestUrl });
 						lastError = this.translate("mainConfig.fetchModelsFailed");
 						continue;
 					}
 
-					const body = (await res.json()) as Record<string, unknown>;
+					// WAF / 反爬拦截：网关（如 Cloudflare / 阿里云 WAF）会返回 HTTP 200，
+					// 但正文是 JS 挑战页 HTML 而非 JSON。若不识别，`res.json()` 报出的是
+					// `Unexpected token '<'` 这类无关堆栈，用户只会看到笼统的「获取失败」。
+					// 这里先看 content-type，再拿正文做判定，给出可操作的提示：
+					// 切换代理 / 配置能过白名单的 User-Agent（如 claude-cli/...）。
+					const contentType = res.headers?.get?.("content-type") ?? "";
+					if (/text\/html/i.test(contentType)) {
+						lastDebugDetails = `HTTP ${res.status} text/html (WAF/anti-bot page)`;
+						void getAppLogger()?.warn("config", "Provider returned an HTML page instead of JSON", { requestUrl: lastRequestUrl, contentType });
+						lastError = this.translate("mainConfig.fetchBlockedByHtml");
+						continue;
+					}
+
+					let body: Record<string, unknown>;
+					try {
+						body = (await res.json()) as Record<string, unknown>;
+					} catch {
+						// content-type 撒谎（声称 JSON 实则 HTML）或返回截断/非 JSON 正文：
+						// 同样归入「被拦截」而非笼统失败，引导用户排查网络出口与 UA。
+						lastDebugDetails = `HTTP ${res.status} non-JSON body`;
+						lastError = this.translate("mainConfig.fetchBlockedByHtml");
+						continue;
+					}
 					// listing 有容量就用；缺的再按 pi-ai 内置目录精确匹配，仍缺则空着
 					const models = this.parseModelsResponse(body, apiType);
 
@@ -598,12 +655,10 @@ export class ConfigManager {
 
 					// 成功路径若依赖检测侧自动补 /v1，而用户配置仍是根路径，
 					// 会话侧会原样用 baseUrl → 返回建议 baseUrl 供 UI 自动改写。
-					const sessionBaseUrlNeedsVersion = needsSessionBaseUrlVersionHint(
-						baseUrl,
-						request.url,
-					);
-					const suggestedBaseUrl =
-						suggestNormalizedBaseUrl(baseUrl, request.url, apiType) ?? undefined;
+					// apiType 必须传：Anthropic 系探测走 /v1/models 但会话侧 SDK 自拼 /v1/messages，
+					// 这种协议补版本段反而会让会话 404（issue #337）。
+					const sessionBaseUrlNeedsVersion = needsSessionBaseUrlVersionHint(baseUrl, request.url, apiType);
+					const suggestedBaseUrl = suggestNormalizedBaseUrl(baseUrl, request.url, apiType) ?? undefined;
 					return {
 						success: true,
 						models,
@@ -618,8 +673,15 @@ export class ConfigManager {
 				if (e instanceof Error && e.name === "AbortError") {
 					lastError = this.translate("mainConfig.fetchTimeout");
 				} else {
-					console.error("[ConfigManager] Provider model list request failed", e);
-					lastError = this.translate("mainConfig.fetchModelsFailed");
+					// 网络层异常需分类提示：这些站点常见失败形态是 TLS 被中间设备干扰
+					// （ERR_SSL_VERSION_OR_CIPHER_MISMATCH）或连不上（ERR_CONNECTION_TIMED_OUT /
+					// ENOTFOUND），分类后给出「开代理 / 换域名」的可操作文案。
+					// 注意：原始异常文本只进日志，**不得**回传渲染层——异常 message 可能裹挟
+					// 请求 URL（Gemini 的 key 在 query 上）或网关回显的正文，返回值会跨 IPC
+					// 序列化到渲染进程；可操作指引已由下面的专用文案承载，无需原始文本。
+					const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+					void getAppLogger()?.error("config", "Provider model list request failed", { error: detail });
+					lastError = describeNetworkFailure(detail, (key) => this.translate(key)) ?? this.translate("mainConfig.fetchModelsFailed");
 				}
 			}
 		}
@@ -629,13 +691,9 @@ export class ConfigManager {
 			error: lastError ?? this.translate("mainConfig.fetchModelsFailed"),
 			...(lastDebugDetails ? { debugDetails: lastDebugDetails } : {}),
 			requestUrl: lastRequestUrl,
-			sessionBaseUrlNeedsVersion: needsSessionBaseUrlVersionHint(
-				baseUrl,
-				lastRequestUrl,
-			),
+			sessionBaseUrlNeedsVersion: needsSessionBaseUrlVersionHint(baseUrl, lastRequestUrl, apiType),
 		};
 	}
-
 
 	// ── 快速测试连接 ─────────────────────────────────────
 
@@ -656,6 +714,7 @@ export class ConfigManager {
 	 * | Anthropic Messages | /v1/models | /models |
 	 * | Google Gemini | /v1beta/models | - |
 	 * | Mistral Conversations | /v1/models | /models |
+	 * | Azure / Vertex / Bedrock / Pi Messages | 无（调用方已提前拦截，见 NO_MODEL_LIST_APIS）| - |
 	 *
 	 * OpenAI 生态（Chat Completions / Responses / Codex / Mistral）统一通过
 	 * GET /v1/models 获取模型列表。
@@ -663,26 +722,22 @@ export class ConfigManager {
 	 * 第三方网关同样支持 /v1/models。优先尝试 /v1/models，再回退到 /models。
 	 * Google Gemini 使用独立的 /v1beta/models。
 	 */
-	private buildModelsRequest(
-		baseUrl: string,
-		apiKey: string,
-		apiType?: string,
-		requestHeaders?: Record<string, string>,
-	): TestRequest[] {
+	private buildModelsRequest(baseUrl: string, apiKey: string, apiType?: string, requestHeaders?: Record<string, string>): TestRequest[] {
 		const api = this.normalizeApiType(apiType);
 		// 与真实会话一致：允许 provider 配置的自定义 headers（含 User-Agent）
 		// 覆盖 SDK 默认 UA，保证「获取模型」与「真实会话」走同一套网络形象。
 		const extraHeaders = this.normalizeRequestHeaders(requestHeaders);
-
 		if (api === "google-generative-ai") {
 			// Google Gemini：使用独立的 v1beta 路径
 			const u = baseUrl.replace(/\/+$/, "");
 			const needsPrefix = !/[\/]v\d+(alpha|beta)?$/.test(u);
 			const versioned = needsPrefix ? `${u}/v1beta` : u;
-			return [{
-				url: `${versioned}/models?key=${encodeURIComponent(apiKey)}`,
-				headers: { "Content-Type": "application/json", ...extraHeaders },
-			}];
+			return [
+				{
+					url: `${versioned}/models?key=${encodeURIComponent(apiKey)}`,
+					headers: { "Content-Type": "application/json", ...extraHeaders },
+				},
+			];
 		}
 
 		if (api === "anthropic-messages") {
@@ -700,9 +755,9 @@ export class ConfigManager {
 			return primaryUrl === fallbackUrl
 				? [{ url: primaryUrl, headers }]
 				: [
-					{ url: primaryUrl, headers },
-					{ url: fallbackUrl, headers },
-				];
+						{ url: primaryUrl, headers },
+						{ url: fallbackUrl, headers },
+					];
 		}
 
 		// OpenAI 兼容 API（Chat Completions / Responses / Codex / Mistral）：
@@ -719,16 +774,12 @@ export class ConfigManager {
 		return primaryUrl === fallbackUrl
 			? [{ url: primaryUrl, headers }]
 			: [
-				{ url: primaryUrl, headers },
-				{ url: fallbackUrl, headers },
-			];
+					{ url: primaryUrl, headers },
+					{ url: fallbackUrl, headers },
+				];
 	}
 
-
-	private parseModelsResponse(
-		body: Record<string, unknown>,
-		apiType?: string,
-	): FetchedModel[] {
+	private parseModelsResponse(body: Record<string, unknown>, apiType?: string): FetchedModel[] {
 		const listing = parseProviderModelsResponse(body, this.normalizeApiType(apiType));
 		// 只返回 endpoint 实报字段，不做 bundled catalog 预填：
 		// 预填会让「拉取后新增」与「手动新增」走两套模板优先级，且用户手改字段难以区分来源。
@@ -740,32 +791,67 @@ export class ConfigManager {
 		return {
 			...data,
 			providers: Object.fromEntries(
-				Object.entries(data.providers).map(([name, provider]) => [
-					name,
-					{
-						...provider,
-						api: this.normalizeApiType(provider.api),
-						models: provider.models.map((model) => {
-							const normalized: PiModelItem = {
-								...model,
-								api: typeof model.api === "string"
-									? this.normalizeApiType(model.api)
-									: model.api,
-							};
-							// pi schema 中 name 可选但需 minLength:1，空 name 会让 pi 整文件拒绝。
-							// 与拉取供应商列表的 parseProviderModelsResponse 行为对齐：name 为空
-							// 就删掉该键（可选字段缺省反而合法），避免手动新增模型留空时写坏文件。
-							if (typeof normalized.name === "string" && normalized.name.length === 0) {
-								delete normalized.name;
-							}
-							return normalized;
-						}),
-					},
-				]),
+				Object.entries(data.providers).map(([name, provider]) => {
+					const normalizedProvider: PiProviderConfig = { ...provider };
+					// 空/纯空白 api 会让 pi 整文件校验失败（schema minLength 1），删键即回到
+					// 「继承默认」的合法形态；不发明 openai-completions，见 normalizeApiForSave。
+					const providerApi = this.normalizeApiForSave(provider.api);
+					if (providerApi !== undefined) normalizedProvider.api = providerApi;
+					else delete normalizedProvider.api;
+					normalizedProvider.models = provider.models.map((model) => {
+						const normalized: PiModelItem = { ...model };
+						const modelApi = this.normalizeApiForSave(model.api);
+						if (modelApi !== undefined) normalized.api = modelApi;
+						else delete normalized.api;
+						// pi schema 中 name 可选但需 minLength:1，空 name 会让 pi 整文件拒绝。
+						// 与拉取供应商列表的 parseProviderModelsResponse 行为对齐：name 为空
+						// 就删掉该键（可选字段缺省反而合法），避免手动新增模型留空时写坏文件。
+						if (typeof normalized.name === "string" && normalized.name.length === 0) {
+							delete normalized.name;
+						}
+						return normalized;
+					});
+					return [name, normalizedProvider];
+				}),
 			),
 		};
 	}
 
+	/**
+	 * 保存路径的 api 归一化：只把已知历史别名改写成 pi 官方 registry 名称，
+	 * **不**发明默认值。
+	 *
+	 * 为什么不能复用 normalizeApiType：那个函数服务「拉取模型列表 / 用量探针」的
+	 * 网络路径，未知值兜底成 openai-completions 是为了「用最通用的协议试一试」；
+	 * 一旦用在写盘路径，就等于把用户的 azure-openai-responses / google-vertex /
+	 * bedrock-converse-stream / pi-messages 静默改写成 openai-completions，保存一次
+	 * 即损坏配置（pi 1.0.4 registry 里这些 id 都真实存在）。
+	 *
+	 * 保留未知值的理由：pi 允许自定义 provider 扩展注册任意 api id（schema 只要求
+	 * 非空字符串），PiDeck 无法穷举；宁可原样保留，也不篡改用户配置。
+	 * 返回 undefined 表示「没有可写值」（缺省或空白），调用方据此删键。
+	 * 入参是 unknown：PiModelItem 的 api 只能经索引签名取到 unknown，在函数内一次收窄，
+	 * 避免调用方各自写 typeof 判断而漏掉一处。
+	 */
+	private normalizeApiForSave(apiType: unknown): string | undefined {
+		if (typeof apiType !== "string") return undefined;
+		const trimmed = apiType.trim();
+		if (!trimmed) return undefined;
+		switch (trimmed) {
+			case "anthropic":
+				return "anthropic-messages";
+			case "openai-chat-completions":
+				// 兼容早期 pi-desktop 暴露过的别名；pi 官方 registry 名称是 openai-completions。
+				return "openai-completions";
+			default:
+				return trimmed;
+		}
+	}
+
+	/**
+	 * 网络探测路径的 api 归一化：未知值兜底成 openai-completions（最通用的 /models 形状）。
+	 * 保存路径必须用 normalizeApiForSave，见其注释。
+	 */
 	private normalizeApiType(apiType?: string) {
 		switch (apiType) {
 			case "anthropic":
@@ -796,27 +882,18 @@ export class ConfigManager {
 
 	private normalizeRequestHeaders(headers?: Record<string, string>) {
 		if (!headers) return {};
-		return Object.fromEntries(
-			Object.entries(headers).filter(
-				([key, value]) =>
-					key.trim().length > 0 && typeof value === "string",
-			),
-		);
+		return Object.fromEntries(Object.entries(headers).filter(([key, value]) => key.trim().length > 0 && typeof value === "string"));
 	}
 
 	private withOpenAiSdkUserAgent(headers: Record<string, string>) {
-		const hasUserAgent = Object.keys(headers).some(
-			(key) => key.toLowerCase() === "user-agent",
-		);
+		const hasUserAgent = Object.keys(headers).some((key) => key.toLowerCase() === "user-agent");
 		// pi 的 openai-responses provider 走 OpenAI JS SDK。部分代理会按 SDK
 		// 默认 User-Agent 拦截请求，所以配置检测需要模拟该默认值，避免“检测通过、会话 403”。
 		return hasUserAgent ? headers : { ...headers, "User-Agent": "OpenAI/JS 6.26.0" };
 	}
 
 	private withAnthropicSdkUserAgent(headers: Record<string, string>) {
-		const hasUserAgent = Object.keys(headers).some(
-			(key) => key.toLowerCase() === "user-agent",
-		);
+		const hasUserAgent = Object.keys(headers).some((key) => key.toLowerCase() === "user-agent");
 		// pi 的 anthropic-messages provider 走 Anthropic SDK。部分服务会验证
 		// User-Agent 避免非官方客户端，所以需要模拟 SDK 的默认值。
 		return hasUserAgent ? headers : { ...headers, "User-Agent": "anthropic-sdk-typescript/0.27.3" };
@@ -831,12 +908,7 @@ export class ConfigManager {
 
 	/** 将 pi 配置文件打包为单个 JSON 对象，便于用户备份和迁移。 */
 	async exportConfig(): Promise<string> {
-		const [models, auth, settings, mcp] = await Promise.all([
-			this.readJsonFile<PiModelsFile>("models.json", { providers: {} }),
-			this.readJsonFile<PiAuthFile>("auth.json", {}),
-			this.readJsonFile<PiSettings>("settings.json", {}),
-			this.readJsonFile<McpConfigFile>("mcp.json", { mcpServers: {} }),
-		]);
+		const [models, auth, settings, mcp] = await Promise.all([this.readJsonFile<PiModelsFile>("models.json", { providers: {} }), this.readJsonFile<PiAuthFile>("auth.json", {}), this.readJsonFile<PiSettings>("settings.json", {}), this.readJsonFile<McpConfigFile>("mcp.json", { mcpServers: {} })]);
 		return JSON.stringify(
 			{
 				version: 1,
@@ -854,15 +926,13 @@ export class ConfigManager {
 	}
 
 	/** 从导出的 JSON 包恢复配置文件，返回导入结果。 */
-	async importConfig(
-		packageJson: string,
-	): Promise<ConfigValidationResult> {
+	async importConfig(packageJson: string): Promise<ConfigValidationResult> {
 		let pkg: unknown;
 		try {
 			pkg = JSON.parse(packageJson);
 		} catch (e) {
 			const debugDetails = e instanceof Error ? e.message : String(e);
-			console.error("[ConfigManager] Invalid configuration import JSON", e);
+			void getAppLogger()?.error("config", "Invalid configuration import JSON", { error: e instanceof Error ? e.message : String(e) });
 			return {
 				valid: false,
 				error: this.translate("mainConfig.invalidJson"),
@@ -896,6 +966,14 @@ export class ConfigManager {
 	}
 
 	/**
+	 * 解析 provider 端点，供主进程内其它链路复用（TokenDance 充值取 baseUrl/apiKey）。
+	 * 只在本进程内使用，API Key 不回传渲染层；未命中返回 matched=false。
+	 */
+	async resolveProviderEndpoint(provider: string, backend: UsageProbeBackend = "pi") {
+		return this.resolveUsageEndpoint(provider, backend);
+	}
+
+	/**
 	 * 查询 provider 用量/余额（学 cc-switch 的三层模型，全部按 provider 名路由）：
 	 * 1. 门控：providers[name].enabled === false → 不查（返回「未启用」结构化结果，
 	 *    UI 据此显示小按钮引导配置）；
@@ -911,13 +989,14 @@ export class ConfigManager {
 		// 配置面规范名（deepseek）不一致，不归一就读不到 DSH 卡片保存的探针配置/端点。
 		if (backend === "dsh") provider = normalizeDshDeepseekProvider(provider);
 		const settingsDir = this.usageProbeSettingsDir(backend);
-		// 1) 门控：用户显式关闭（enabled=false）→ 快速返回，不发请求。
+		// 1) 门控：未显式开启（enabled !== true）→ 快速返回，不发请求。
+		// 「默认关」是刻意设计：内置识别/已配模板只表示有可查询路径，自动查询必须用户显式开启；
 		// DSH 未单独配置时回退 Pi 同 provider 配置（display parity：Pi 已配置并显示 → DSH 卡片默认也显示）。
 		const { settings, effectiveDir } = await this.loadUsageSettingsWithFallback(backend, provider, settingsDir);
 		for (const error of settings.errors) {
-			console.warn("[ConfigManager] 用量探针配置被忽略：", error);
+			void getAppLogger()?.warn("config", "Usage probe config ignored", { error });
 		}
-		if (settings.config?.enabled === false) {
+		if (settings.config?.enabled !== true) {
 			return {
 				success: false,
 				disabled: true,
@@ -936,10 +1015,18 @@ export class ConfigManager {
 		const api = this.normalizeApiType(resolved.apiType);
 		const timeoutMs = (settings.config?.timeoutSecs ?? 10) * 1000;
 		const intervalMinutes = settings.config?.intervalMinutes ?? USAGE_PROBE_DEFAULT_INTERVAL_MINUTES;
+		// 面板登录态续期上下文：续期成功后把新 token 对写回「本次实际读取的配置目录」
+		// （回退到 Pi 侧配置时 effectiveDir 指向 Pi 目录，回来仍读同一份）。
+		const panelContext: Sub2ApiPanelContext = {
+			provider,
+			configDir: effectiveDir,
+			...(settings.config?.panelRefreshToken ? { refreshToken: settings.config.panelRefreshToken } : {}),
+			persist: true,
+		};
 
 		// 3) 模板路由：声明式模板优先（用户显式选择），否则内置 + 旧探针自动匹配。
 		const template = settings.config?.template;
-		if (template === "general" || template === "newapi" || template === "cookie") {
+		if (template !== undefined && isDeclarativeTemplateId(template)) {
 			const built = buildDeclarativeUsageProbeTemplate(template, settings.config ?? {}, {
 				baseUrl: resolvedBaseUrl,
 				apiKey: resolvedApiKey,
@@ -947,34 +1034,20 @@ export class ConfigManager {
 			if ("error" in built) {
 				return { success: false, error: built.error };
 			}
-			return this.runProviderUsageProbes(
-				built.baseUrl,
-				built.apiKey,
-				resolved.headers,
-				[built.candidate],
-				timeoutMs,
-				intervalMinutes,
-			);
+			// candidates 而不是 candidate：火山方舟是双 Action 候选（Agent Plan / Coding Plan
+			// 自动探测），其余模板 candidates 长度也是 1，走同一条执行路径。
+			return this.runProviderUsageProbes(built.baseUrl, built.apiKey, resolved.headers, built.candidates, timeoutMs, intervalMinutes, panelContext);
 		}
 
 		const userProbes = await loadUserUsageProbes(effectiveDir);
 		for (const error of userProbes.errors) {
-			console.warn("[ConfigManager] 用户用量探针配置被忽略：", error);
+			void getAppLogger()?.warn("config", "User usage probe config ignored", { error });
 		}
-		const applicable = [...USAGE_PROBE_CANDIDATES, ...userProbes.candidates].filter((c) =>
-			candidateApplies(c, resolvedBaseUrl, api),
-		);
+		const applicable = [...USAGE_PROBE_CANDIDATES, ...userProbes.candidates].filter((c) => candidateApplies(c, resolvedBaseUrl, api));
 		if (applicable.length === 0) {
 			return { success: false, error: this.translate("mainConfig.providerUsageUnsupported") };
 		}
-		return this.runProviderUsageProbes(
-			resolvedBaseUrl,
-			resolvedApiKey,
-			resolved.headers,
-			applicable,
-			timeoutMs,
-			intervalMinutes,
-		);
+		return this.runProviderUsageProbes(resolvedBaseUrl, resolvedApiKey, resolved.headers, applicable, timeoutMs, intervalMinutes, panelContext);
 	}
 
 	/**
@@ -982,17 +1055,10 @@ export class ConfigManager {
 	 * 识别 = 解析端点后按 baseUrl/apiType 匹配内置候选（带 templateId 的），
 	 * 未命中返回 null（弹窗回落到声明式模板选择）。backend 决定配置目录（pi/dsh）。
 	 */
-	async getUsageProbeSettings(
-		provider: string,
-		backend: UsageProbeBackend = "pi",
-	): Promise<UsageProbeSettingsResult> {
+	async getUsageProbeSettings(provider: string, backend: UsageProbeBackend = "pi"): Promise<UsageProbeSettingsResult> {
 		// 同 fetchProviderUsage：DSH 组 id 别名先归一，才能读回以规范名保存的配置。
 		if (backend === "dsh") provider = normalizeDshDeepseekProvider(provider);
-		const { settings: loaded, effectiveDir } = await this.loadUsageSettingsWithFallback(
-			backend,
-			provider,
-			this.usageProbeSettingsDir(backend),
-		);
+		const { settings: loaded, effectiveDir } = await this.loadUsageSettingsWithFallback(backend, provider, this.usageProbeSettingsDir(backend));
 		// 旧版 probes 数组命中回显：手写/历史探针没有声明式配置，弹窗据此预填 Cookie 模板字段迁移。
 		// 回退语义下旧版 probes 也来自 effectiveDir（Pi 目录），弹窗看到的迁移源与实际查询一致。
 		const legacyProbes = await this.matchLegacyProbesForProvider(provider, backend, effectiveDir);
@@ -1010,11 +1076,7 @@ export class ConfigManager {
 	 * 匹配规则与运行时合并探测一致（candidateApplies：baseUrlContains / apiTypes），
 	 * 保证「弹窗看到的迁移源」与「实际查询时生效的探针」是同一批。
 	 */
-	private async matchLegacyProbesForProvider(
-		provider: string,
-		backend: UsageProbeBackend = "pi",
-		dir = this.usageProbeSettingsDir(backend),
-	): Promise<UserUsageProbe[]> {
+	private async matchLegacyProbesForProvider(provider: string, backend: UsageProbeBackend = "pi", dir = this.usageProbeSettingsDir(backend)): Promise<UserUsageProbe[]> {
 		const resolved = await this.resolveUsageEndpoint(provider, backend);
 		if (!resolved.matched || !resolved.baseUrl) return [];
 		const api = this.normalizeApiType(resolved.apiType);
@@ -1031,21 +1093,85 @@ export class ConfigManager {
 	}
 
 	/** 内置模板自动识别（零配置生效路径）：命中返回 templateId + 面向用户的类别。 */
-	async recognizeUsageTemplate(
-		provider: string,
-		backend: UsageProbeBackend = "pi",
-	): Promise<UsageProbeRecognition | null> {
+	async recognizeUsageTemplate(provider: string, backend: UsageProbeBackend = "pi"): Promise<UsageProbeRecognition | null> {
 		const resolved = await this.resolveUsageEndpoint(provider, backend);
 		if (!resolved.matched || !resolved.baseUrl) return null;
-		const api = this.normalizeApiType(resolved.apiType);
+		return this.matchBuiltinRecognition(resolved.baseUrl, resolved.apiType);
+	}
+
+	/**
+	 * 由已解析的端点判定内置候选命中（recognizeUsageTemplate 与批量状态表共用同一规则，
+	 * 避免两处各自维护一份「哪些算内置」而漂移）。
+	 */
+	private matchBuiltinRecognition(baseUrl: string, apiType: string | undefined): UsageProbeRecognition | null {
+		const api = this.normalizeApiType(apiType);
 		for (const candidate of USAGE_PROBE_CANDIDATES) {
 			if (!candidate.templateId) continue;
-			if (candidateApplies(candidate, resolved.baseUrl, api)) {
+			if (candidateApplies(candidate, baseUrl, api)) {
 				const category = USAGE_PROBE_CATEGORY_BY_TEMPLATE_ID[candidate.templateId];
 				return { templateId: candidate.templateId, category: category ?? "balance" };
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * 批量读取用量查询状态表（徽章开关 + 启动预热选源）：
+	 * 每个 provider 给出「生效开关 / 是否已配置 / 是否内置识别 / 生效模板 / 生效间隔」。
+	 *
+	 * 生效开关 = 显式 enabled ?? false（默认关，显式开启才真正查询）：
+	 * - 内置识别/已配模板只说明「有可查询路径」，不代表自动开；
+	 * - 只有用户自己打开（徽章里的开关或用量查询弹窗的「是否启用」）才写 enabled=true；
+	 * - 好处：升级后不会因为内置识别命中而默默对一批网关扇出请求。
+	 * 只回状态，绝不回传 apiKey/accessToken/cookie。
+	 */
+	async listUsageProbeStates(backend: UsageProbeBackend = "pi", providers: string[] = []): Promise<UsageProbeStatesResult> {
+		const settingsDir = this.usageProbeSettingsDir(backend);
+		const [saved, modelsRes, authRes] = await Promise.all([loadUsageProbeProviderConfigs(settingsDir), this.getModelsConfig(), this.getAuthConfig()]);
+		// DSH 未单独配置时回退 Pi 侧同 provider 配置（与 loadUsageSettingsWithFallback 同语义，
+		// 否则 DSH 卡片会显示「未配置/关闭」而实际查询走 Pi 配置——两处不一致）。
+		const piSaved = backend === "dsh" ? (await loadUsageProbeProviderConfigs(this.configDir)).providers : undefined;
+
+		const names = new Set<string>();
+		if (backend === "pi") {
+			// 卡片来源 = 模型页（models.json）+ 认证页（auth.json）并集，两边都要有徽章状态。
+			for (const name of Object.keys(modelsRes.parsed?.providers ?? {})) names.add(name);
+			for (const name of Object.keys(authRes.parsed ?? {})) names.add(name);
+		}
+		for (const name of Object.keys(saved.providers)) names.add(name);
+		for (const name of providers) {
+			const trimmed = name.trim();
+			if (trimmed) names.add(trimmed);
+		}
+
+		// pi 侧一次读盘喂给全部 provider 的端点解析，避免逐条重复读 models/auth。
+		const catalog = getPiAiCatalogIndex();
+		const lookup = {
+			getModelsConfig: async () => modelsRes,
+			getAuthConfig: async () => authRes,
+			catalogProvider: (name: string) => piBuiltinSnapshotFromCatalog(name, undefined, catalog),
+		};
+
+		const states: Record<string, UsageProbeProviderState> = {};
+		for (const name of names) {
+			const config = saved.providers[name] ?? piSaved?.[name];
+			let recognized: UsageProbeRecognition | null;
+			if (backend === "pi") {
+				const resolved = await resolveProviderUsageEndpoint(lookup, name);
+				recognized = resolved.matched && resolved.baseUrl ? this.matchBuiltinRecognition(resolved.baseUrl, resolved.apiType) : null;
+			} else {
+				recognized = await this.recognizeUsageTemplate(name, backend);
+			}
+			const template = config?.template ?? recognized?.templateId;
+			states[name] = {
+				enabled: config?.enabled ?? false,
+				configured: config != null,
+				recognized: recognized != null,
+				...(template ? { template } : {}),
+				intervalMinutes: config?.intervalMinutes ?? USAGE_PROBE_DEFAULT_INTERVAL_MINUTES,
+			};
+		}
+		return { providers: states, errors: saved.errors };
 	}
 
 	/**
@@ -1066,15 +1192,13 @@ export class ConfigManager {
 
 		// 显式模板优先；否则走内置自动识别（测「识别命中」这条零配置路径）。
 		// 注意 backend 必须透传：DSH 弹窗测的是 DSH 链路的识别结果。
-		const template =
-			input.template?.trim() ||
-			(await this.recognizeUsageTemplate(input.provider, backend))?.templateId;
+		const template = input.template?.trim() || (await this.recognizeUsageTemplate(input.provider, backend))?.templateId;
 		if (!template) {
 			return { success: false, error: this.translate("mainConfig.providerUsageUnsupported") };
 		}
 
-		// 声明式模板（general/newapi/cookie）：构建候选时可携带覆盖字段。
-		if (template === "general" || template === "newapi" || template === "cookie") {
+		// 声明式模板（general/newapi/cookie/volcengine/sub2api）：构建候选时可携带覆盖字段。
+		if (template !== undefined && isDeclarativeTemplateId(template)) {
 			const built = buildDeclarativeUsageProbeTemplate(
 				template,
 				{
@@ -1086,20 +1210,26 @@ export class ConfigManager {
 					cookiePath: input.cookiePath,
 					valuePath: input.valuePath,
 					currencyPath: input.currencyPath,
+					accessKeyId: input.accessKeyId,
+					secretAccessKey: input.secretAccessKey,
+					// 面板登录态不做主用量鉴权，但弹窗测试也要能看到钱包余额段（否则测出来总比真实查少一段）。
+					// refresh token 不经过模板构建（模板只管挂 panelBalance 候选），由 panelContext 传给执行层。
+					panelJwt: input.panelJwt,
 				},
 				{ baseUrl: resolvedBaseUrl, apiKey: resolvedApiKey },
 			);
 			if ("error" in built) {
 				return { success: false, error: built.error };
 			}
-			return this.runProviderUsageProbes(
-				built.baseUrl,
-				built.apiKey,
-				resolved.headers,
-				[built.candidate],
-				timeoutMs,
-				0,
-			);
+			// candidates：火山方舟双 Action 探测（Agent Plan / Coding Plan）依次尝试。
+			// 弹窗测试也允许面板登录态就地续期，但 persist=false：用户未保存前不得静默改盘上的配置。
+			const panelContext: Sub2ApiPanelContext = {
+				provider: input.provider,
+				configDir: "",
+				...(input.panelRefreshToken ? { refreshToken: input.panelRefreshToken } : {}),
+				persist: false,
+			};
+			return this.runProviderUsageProbes(built.baseUrl, built.apiKey, resolved.headers, built.candidates, timeoutMs, 0, panelContext);
 		}
 
 		// 内置模板：按 templateId 找候选（不可改写结构，测的是零配置路径本身）。
@@ -1107,14 +1237,7 @@ export class ConfigManager {
 		if (!candidate) {
 			return { success: false, error: this.translate("mainConfig.providerUsageUnsupported") };
 		}
-		return this.runProviderUsageProbes(
-			resolvedBaseUrl,
-			resolvedApiKey,
-			resolved.headers,
-			[candidate],
-			timeoutMs,
-			0,
-		);
+		return this.runProviderUsageProbes(resolvedBaseUrl, resolvedApiKey, resolved.headers, [candidate], timeoutMs, 0);
 	}
 
 	/**
@@ -1144,11 +1267,7 @@ export class ConfigManager {
 	 * （DSH profile / 凭据库），不会拿 Pi 的 key 去查 DSH 端点。provider 名按两侧一致匹配
 	 * （deepseek 已由 normalizeDshDeepseekProvider 统一为规范名）。
 	 */
-	private async loadUsageSettingsWithFallback(
-		backend: UsageProbeBackend,
-		provider: string,
-		settingsDir: string,
-	): Promise<{ settings: UsageProbeSettingsLoadResult; effectiveDir: string }> {
+	private async loadUsageSettingsWithFallback(backend: UsageProbeBackend, provider: string, settingsDir: string): Promise<{ settings: UsageProbeSettingsLoadResult; effectiveDir: string }> {
 		const settings = await loadUsageProbeSettings(settingsDir, provider);
 		if (backend !== "dsh" || settings.config) {
 			return { settings, effectiveDir: settingsDir };
@@ -1181,20 +1300,15 @@ export class ConfigManager {
 				const profile = await loadDshUsageProviderProfile(home, provider);
 				if (profile) {
 					const catalogSnapshot = piBuiltinSnapshotFromCatalog(provider, undefined, catalog);
-					const [modelsRes, authRes] = await Promise.all([
-						this.getModelsConfig(),
-						this.getAuthConfig(),
-					]);
-					const fromDsh = this.dshUsage
-						? await this.dshUsage.readCredential(profile.credentialRef)
-						: undefined;
+					const [modelsRes, authRes] = await Promise.all([this.getModelsConfig(), this.getAuthConfig()]);
+					const fromDsh = this.dshUsage ? await this.dshUsage.readCredential(profile.credentialRef) : undefined;
 					const baseUrl = profile.baseUrl ?? catalogSnapshot?.baseUrl;
 					const piKey = resolvePiApiKey(modelsRes.parsed?.providers?.[provider], authRes.parsed?.[provider]);
 					return {
 						provider,
 						// profile 缺 baseURL/api（如 opencode route 未写）时由 pi-ai catalog 兜底。
 						...(baseUrl ? { baseUrl } : {}),
-						...(fromDsh ?? piKey ? { apiKey: fromDsh ?? piKey } : {}),
+						...((fromDsh ?? piKey) ? { apiKey: fromDsh ?? piKey } : {}),
 						apiType: profile.api ?? catalogSnapshot?.api ?? "openai-completions",
 						headers: profile.headers,
 						matched: baseUrl != null,
@@ -1218,29 +1332,15 @@ export class ConfigManager {
 	}
 
 	/** 带统一错误包装的探测执行：无 key 快速失败，其余走 runUsageProbes；成功时带上生效间隔。 */
-	private async runProviderUsageProbes(
-		baseUrl: string,
-		apiKey: string,
-		requestHeaders: Record<string, string> | undefined,
-		candidates: UsageProbeCandidate[],
-		timeoutMs: number,
-		intervalMinutes: number,
-	): Promise<ProviderUsageResult> {
+	private async runProviderUsageProbes(baseUrl: string, apiKey: string, requestHeaders: Record<string, string> | undefined, candidates: UsageProbeCandidate[], timeoutMs: number, intervalMinutes: number, panel?: Sub2ApiPanelContext): Promise<ProviderUsageResult> {
 		// 无 key 时只可能 401，快速失败并给出提示。
 		if (!apiKey) {
 			return { success: false, error: this.translate("mainConfig.providerUsageNoKey") };
 		}
-		const result =
-			(await this.runUsageProbes(
-				baseUrl,
-				apiKey,
-				this.normalizeRequestHeaders(requestHeaders),
-				candidates,
-				timeoutMs,
-			)) ?? {
-				success: false,
-				error: this.translate("mainConfig.providerUsageFailed"),
-			};
+		const result = (await this.runUsageProbes(baseUrl, apiKey, this.normalizeRequestHeaders(requestHeaders), candidates, timeoutMs, panel)) ?? {
+			success: false,
+			error: this.translate("mainConfig.providerUsageFailed"),
+		};
 		return result.success ? { ...result, intervalMinutes } : result;
 	}
 
@@ -1251,13 +1351,7 @@ export class ConfigManager {
 	 * timeoutMs 由 per-provider 配置（默认 10s）传入：用量查询首包超时按用户设定收紧，
 	 * 不再固定 45s（那只对模型连接探测合理）。
 	 */
-	private async runUsageProbes(
-		baseUrl: string,
-		apiKey: string,
-		extraHeaders: Record<string, string>,
-		candidates: UsageProbeCandidate[],
-		timeoutMs: number,
-	): Promise<ProviderUsageResult | undefined> {
+	private async runUsageProbes(baseUrl: string, apiKey: string, extraHeaders: Record<string, string>, candidates: UsageProbeCandidate[], timeoutMs: number, panel?: Sub2ApiPanelContext): Promise<ProviderUsageResult | undefined> {
 		const startedAt = Date.now();
 		// 收集每次失败尝试，全部未命中时拼进 detail（URL + 状态码 + 摘要 + 归纳提示），
 		// 让用户在弹窗里能直接排查（地址对不对 / 鉴权失效 / 接口变更）。
@@ -1268,18 +1362,12 @@ export class ConfigManager {
 			// 的字段注入主请求头（x-userid）。预检失败（不可达/非 JSON/无字段）则整个候选跳过。
 			const preflightHeaders: Record<string, string> = {};
 			if (candidate.preflight) {
-				const preflightUrls = usageProbeUrls(
-					{ path: candidate.preflight.path, absoluteUrl: candidate.preflight.absoluteUrl, rootPath: false },
-					baseUrl,
-					(url) => this.ensureVersionPath(url),
-				);
+				const preflightUrls = usageProbeUrls({ path: candidate.preflight.path, absoluteUrl: candidate.preflight.absoluteUrl, rootPath: false }, baseUrl, (url) => this.ensureVersionPath(url));
 				let captured: unknown;
 				for (const preflightUrl of preflightUrls) {
 					const preflightResult = await usageProbeRequest(preflightUrl, {
 						method: "GET",
-						headers: this.withOpenAiSdkUserAgent(
-							buildProbeHeaders(candidate.preflight.headers, apiKey),
-						),
+						headers: this.withOpenAiSdkUserAgent(buildProbeHeaders(candidate.preflight.headers, apiKey)),
 						timeoutMs,
 						maxBytes: MAX_USAGE_RESPONSE_BYTES,
 					});
@@ -1298,9 +1386,7 @@ export class ConfigManager {
 				preflightHeaders[candidate.preflight.capture.header] = captured.trim();
 			}
 
-			const urls = usageProbeUrls(candidate, baseUrl, (url) =>
-				this.ensureVersionPath(url),
-			);
+			const urls = usageProbeUrls(candidate, baseUrl, (url) => this.ensureVersionPath(url));
 			for (const requestUrl of urls) {
 				const result = await usageProbeRequest(requestUrl, {
 					method: candidate.method ?? "GET",
@@ -1313,9 +1399,7 @@ export class ConfigManager {
 						...preflightHeaders,
 						...extraHeaders,
 					}),
-					...(candidate.method === "POST" && candidate.body !== undefined
-						? { body: JSON.stringify(candidate.body) }
-						: {}),
+					...(candidate.method === "POST" && candidate.body !== undefined ? { body: JSON.stringify(candidate.body) } : {}),
 					timeoutMs,
 					maxBytes: MAX_USAGE_RESPONSE_BYTES,
 				});
@@ -1349,7 +1433,7 @@ export class ConfigManager {
 				}
 				const parsed = parseUsageResponseBody(body, safeRaw, candidate.parse);
 				if (parsed.matched) {
-					return {
+					const result: ProviderUsageResult = {
 						success: true,
 						kind: parsed.kind,
 						periods: parsed.periods,
@@ -1358,6 +1442,18 @@ export class ConfigManager {
 						booster: parsed.booster,
 						at: startedAt,
 					};
+					// Sub2API 面板余额合并：主端点 /v1/usage 解析出 credits（订阅/Key 额度形态，
+					// 无钱包余额）且候选带面板 JWT 时，追加请求 /api/v1/auth/me 把账户钱包余额
+					// 并进结果（与已用并列展示）；JWT 过期/接口异常只丢余额段，主结果照常返回，
+					// 但带上失败原因（401=过期最常见），UI 显式提示而不是无感消失。
+					if (candidate.panelBalance && parsed.kind !== "balance" && !parsed.balance) {
+						// 面板 JWT 可能在两次查询之间过期：按 exp/401 就地续期（不后台定时转 token，
+						// 上游 refresh 是单次轮转的），续期成功的新 token 对由 fetchSub2ApiPanelBalance 回写。
+						const merged = await this.fetchSub2ApiPanelBalance(baseUrl, { accessToken: candidate.panelBalance.token, ...(panel?.refreshToken ? { refreshToken: panel.refreshToken } : {}) }, timeoutMs, panel);
+						if (merged.ok) result.balance = merged.balance;
+						else result.panelBalanceError = merged.reason;
+					}
+					return result;
 				}
 				// 2xx 但结构不匹配：不是预期的 usage 端点，继续探测；记一笔供失败归因（接口变更信号）。
 				attempts.push({ url: requestUrl, method: candidate.method ?? "GET", kind: "shape" });
@@ -1374,5 +1470,49 @@ export class ConfigManager {
 			error: this.translate("mainConfig.providerUsageFailed"),
 			detail: buildProbeFailureDetail(attempts, (key) => this.translate(key)),
 		};
+	}
+
+	/**
+	 * Sub2API 面板余额：GET {origin}/api/v1/auth/me（网页后台 JWT 鉴权，上游通用路由
+	 * auth_handler.GetCurrentUser → userProfileResponse 内嵌 dto.User，余额在 data.balance）。
+	 * 管理面挂在网关 host 根而非 OpenAI 兼容 base（/v1），故 rootPath 只取 origin；
+	 * 请求头以 JWT 作为 Bearer 凭据（与 apiKey 同一形式）。
+	 *
+	 * 登录态过期由 sub2apiPanelSession 处理：本地 JWT exp 到点或 /auth/me 返 401 时，用
+	 * refresh token 调 POST /api/v1/auth/refresh 换新令牌再重试一次，成功后（只有在 persist
+	 * 上下文下）把轮转后的 token 对写回 usage-probes.json。失败时返回 { ok:false, reason }：
+	 * 401 归因为 unauthorized（续期不可用 = 登录态真失效，需用户重贴），其余归为 failed；
+	 * 面板余额是锦上添花段，绝不能拖垮主用量结果。
+	 */
+	private async fetchSub2ApiPanelBalance(baseUrl: string, tokens: Sub2ApiPanelTokens, timeoutMs: number, panel?: Sub2ApiPanelContext): Promise<{ ok: true; balance: ProviderUsageResult["balance"] } | { ok: false; reason: "unauthorized" | "failed" }> {
+		// rootPath：跳过版本化补齐与路径段拼接，只取 origin + /api/v1/...。
+		const balanceUrls = usageProbeUrls({ path: "/api/v1/auth/me", rootPath: true }, baseUrl, (url) => this.ensureVersionPath(url));
+		const refreshUrls = usageProbeUrls({ path: "/api/v1/auth/refresh", rootPath: true }, baseUrl, (url) => this.ensureVersionPath(url));
+		const outcome = await fetchSub2ApiPanelBalanceWithRefresh({
+			balanceUrls,
+			refreshUrls,
+			tokens,
+			timeoutMs,
+			maxBytes: MAX_USAGE_RESPONSE_BYTES,
+			request: usageProbeRequest,
+			// 凭据一律走 Bearer（noBearer 不适用）；UA 仍由 OpenAI SDK 伪装，避免被网关拦截。
+			buildAuthHeaders: (accessToken) => this.withOpenAiSdkUserAgent(buildProbeHeaders(undefined, accessToken)),
+			refreshHeaders: () => this.withOpenAiSdkUserAgent({}),
+			...(panel?.persist
+				? {
+						onTokensRefreshed: async (pair) => {
+							// 上游轮转：旧 refresh token 已作废，不立即落盘就会把用户的登录态彻底弄丢。
+							const saved = await updateUsageProbeSub2ApiTokens(panel.configDir, panel.provider, {
+								panelJwt: pair.accessToken,
+								...(pair.refreshToken ? { panelRefreshToken: pair.refreshToken } : {}),
+							});
+							if (!saved.ok) void getAppLogger()?.warn("config", "Sub2API panel token refresh not persisted", { provider: panel.provider, error: saved.error });
+							else void getAppLogger()?.info("config", "Sub2API panel token refreshed", { provider: panel.provider });
+						},
+					}
+				: {}),
+		});
+		if (outcome.ok) return { ok: true, balance: outcome.balance };
+		return { ok: false, reason: outcome.reason };
 	}
 }

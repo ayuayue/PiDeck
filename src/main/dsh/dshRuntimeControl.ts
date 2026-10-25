@@ -17,13 +17,7 @@ export type DshControlState = {
 	cancelled: boolean;
 };
 
-export type DshControlEventKind =
-	| "turn/start"
-	| "turn/end"
-	| "assistant/chunk"
-	| "assistant/message"
-	| "user/message"
-	| "other";
+export type DshControlEventKind = "turn/start" | "turn/end" | "assistant/chunk" | "assistant/message" | "user/message" | "other";
 
 export function classifyDshControlEvent(type: string | undefined): DshControlEventKind {
 	if (type === "turn/start") return "turn/start";
@@ -57,12 +51,7 @@ export function beginDshCancel(prev: DshControlState): DshControlState {
  * `data` 为事件 data（assistant/message 需要检查内容块：带 tool-call 的消息不是
  * 回合终点，工具执行与后续 LLM 流仍在同一回合内，不能提前回 idle）。
  */
-export function applyDshControlEvent(
-	prev: DshControlState,
-	type: string | undefined,
-	eventGeneration: number,
-	data?: unknown,
-): { next: DshControlState; ignoreStream: boolean } {
+export function applyDshControlEvent(prev: DshControlState, type: string | undefined, eventGeneration: number, data?: unknown): { next: DshControlState; ignoreStream: boolean } {
 	// 停止之后才到的旧帧：禁止重新点亮 streaming/running；turn/end 仍用来收口 cancelled。
 	if (eventGeneration !== prev.cancelGeneration) {
 		const kind = classifyDshControlEvent(type);
@@ -165,7 +154,5 @@ function isAssistantMessageWithToolCalls(data: unknown): boolean {
 	if (!message || typeof message !== "object") return false;
 	const content = (message as { content?: unknown }).content;
 	if (!Array.isArray(content)) return false;
-	return content.some(
-		(block) => block !== null && typeof block === "object" && (block as { type?: unknown }).type === "tool-call",
-	);
+	return content.some((block) => block !== null && typeof block === "object" && (block as { type?: unknown }).type === "tool-call");
 }

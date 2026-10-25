@@ -6,18 +6,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
-import {
-	assertSafeOutputDir,
-	buildWslInvocation,
-	buildWslProbeScript,
-	buildWslResetScript,
-	createSizedSessionJsonl,
-	generateSessionFixtures,
-	isAllowedWslFixtureDir,
-	parseWslProbe,
-	prepareOutputDirectory,
-	shellQuote,
-} from "../scripts/generate-session-fixtures.mjs";
+import { assertSafeOutputDir, buildWslInvocation, buildWslProbeScript, buildWslResetScript, createSizedSessionJsonl, generateSessionFixtures, isAllowedWslFixtureDir, parseWslProbe, prepareOutputDirectory, shellQuote } from "../scripts/generate-session-fixtures.mjs";
 
 const SHA = "724fe6b22020bb90e30393096f5ec2d4b42b64df";
 const execFile = promisify(execFileCallback);
@@ -71,13 +60,7 @@ test("fixture generation is deterministic across a bounded regeneration", async 
 	await withTempDir(async (root) => {
 		const outputDir = join(root, "evidence");
 		await fixture(root);
-		const paths = [
-			join(outputDir, "sessions", "scale", "messages-100.jsonl"),
-			join(outputDir, "sessions", "scale", "messages-1000.jsonl"),
-			join(outputDir, "sessions", "scale", "messages-10000.jsonl"),
-			join(outputDir, "sessions", "scale", "messages-50mb.jsonl"),
-			join(outputDir, "fixture-manifest.json"),
-		];
+		const paths = [join(outputDir, "sessions", "scale", "messages-100.jsonl"), join(outputDir, "sessions", "scale", "messages-1000.jsonl"), join(outputDir, "sessions", "scale", "messages-10000.jsonl"), join(outputDir, "sessions", "scale", "messages-50mb.jsonl"), join(outputDir, "fixture-manifest.json")];
 		const first = await Promise.all(paths.map(async (path) => digest(await readFile(path))));
 		await fixture(root);
 		const second = await Promise.all(paths.map(async (path) => digest(await readFile(path))));
@@ -100,7 +83,10 @@ test("manifest records scale reachability, separate templates, scenario mapping,
 		assert.equal(manifest.version, 2);
 		assert.equal(manifest.sha, SHA);
 		assert.equal(manifest.fixtureManifestPath, join(root, "evidence", "fixture-manifest.json"));
-		assert.deepEqual(Object.keys(manifest.scale.messages).sort((a, b) => Number(a) - Number(b)), ["100", "1000", "10000"]);
+		assert.deepEqual(
+			Object.keys(manifest.scale.messages).sort((a, b) => Number(a) - Number(b)),
+			["100", "1000", "10000"],
+		);
 		assert.equal(manifest.scale.large.bytes, 32 * 1024);
 		assert.equal(manifest.nativeIdentity.expectedIndependentSessionCount, 1);
 		assert.equal(new Set(manifest.nativeIdentity.expectedOriginKeys).size, 1);
@@ -129,9 +115,13 @@ test("manifest records scale reachability, separate templates, scenario mapping,
 		assert.equal(JSON.parse(await readFile(manifest.userData.native.catalog.primary, "utf8")).sessions.length, 6);
 		await assert.rejects(async () => JSON.parse(await readFile(manifest.userData.native.catalog.corrupt, "utf8")));
 		const source = (await readFile(manifest.importIdentity.sourcePath, "utf8"))
-			.trimEnd().split("\n").map((line) => JSON.parse(line));
+			.trimEnd()
+			.split("\n")
+			.map((line) => JSON.parse(line));
 		const target = (await readFile(manifest.importIdentity.targetPath, "utf8"))
-			.trimEnd().split("\n").map((line) => JSON.parse(line));
+			.trimEnd()
+			.split("\n")
+			.map((line) => JSON.parse(line));
 		assert.deepEqual(source[0], {
 			type: "session_meta",
 			payload: {
@@ -143,7 +133,10 @@ test("manifest records scale reachability, separate templates, scenario mapping,
 				thread_source: "user",
 			},
 		});
-		assert.deepEqual(target.slice(0, 3).map((entry) => entry.type ?? entry.sessionName), ["session", "Validate imported session identity", "codex_import"]);
+		assert.deepEqual(
+			target.slice(0, 3).map((entry) => entry.type ?? entry.sessionName),
+			["session", "Validate imported session identity", "codex_import"],
+		);
 		assert.equal(target[2].codexSessionId, manifest.importIdentity.importedSourceId);
 		assert.equal(target[2].sourcePath, manifest.importIdentity.sourcePath);
 		assert.equal(target[2].sourceMtime, manifest.importIdentity.sourceMtime);
@@ -174,7 +167,8 @@ test("WSL probe and reset reject raw, noncanonical, traversal, non-ext4, mismatc
 		["/home/dev/.pi/agent/sessions/pideck-validation-" + SHA, "/home/dev/../dev"],
 		["/home/dev/.pi/agent/sessions-other/pideck-validation-" + SHA, "/home/dev"],
 		["/home/dev/.pi/agent/sessions//pideck-validation-" + SHA, "/home/dev"],
-	]) assert.equal(isAllowedWslFixtureDir(directory, home), false);
+	])
+		assert.equal(isAllowedWslFixtureDir(directory, home), false);
 	assert.equal(isAllowedWslFixtureDir(`/home/dev/.pi/agent/sessions/pideck-validation-${SHA}`, "/home/dev"), true);
 
 	await withTempDir(async (root) => {
@@ -231,10 +225,7 @@ test("a WSL reset failure leaves an owned marker that supports a safe native reg
 			if (calls === 1) return { stdout: "RAW_HOME=/home/dev\nHOME=/home/dev\nUSER=dev\nFSTYPE=ext4\n" };
 			throw new Error("simulated WSL reset failure");
 		};
-		await assert.rejects(
-			fixture(root, { wslDistro: "Ubuntu", wslUser: "dev", wslRoot: "/home/dev", runner: resetFailureRunner }),
-			/simulated WSL reset failure/,
-		);
+		await assert.rejects(fixture(root, { wslDistro: "Ubuntu", wslUser: "dev", wslRoot: "/home/dev", runner: resetFailureRunner }), /simulated WSL reset failure/);
 		const markerPath = join(root, "evidence", ".pideck-session-fixtures.json");
 		assert.equal(JSON.parse(await readFile(markerPath, "utf8")).version, 2);
 		const recovered = await fixture(root);
@@ -251,9 +242,7 @@ test("shell quoting and WSL invocation keep shell text out of argument positions
 		script: "printf ok",
 	});
 	assert.equal(invocation.command, "wsl.exe");
-	assert.deepEqual(invocation.args, [
-		"-d", "Ubuntu;false", "-u", "dev user;false", "--", "sh", "-s",
-	]);
+	assert.deepEqual(invocation.args, ["-d", "Ubuntu;false", "-u", "dev user;false", "--", "sh", "-s"]);
 	assert.equal(invocation.args[1], "Ubuntu;false");
 	assert.equal(invocation.args[3], "dev user;false");
 	assert.equal(invocation.options.input, "printf ok");
@@ -264,15 +253,7 @@ test("shell quoting and WSL invocation keep shell text out of argument positions
 		user: "dev; touch /tmp/user-injected",
 		script: boundaryScript,
 	});
-	assert.deepEqual(boundaryInvocation.args, [
-		"-d",
-		"Ubuntu; touch /tmp/distro-injected",
-		"-u",
-		"dev; touch /tmp/user-injected",
-		"--",
-		"sh",
-		"-s",
-	]);
+	assert.deepEqual(boundaryInvocation.args, ["-d", "Ubuntu; touch /tmp/distro-injected", "-u", "dev; touch /tmp/user-injected", "--", "sh", "-s"]);
 	assert.equal(boundaryInvocation.options.input, boundaryScript);
 	assert.doesNotMatch(JSON.stringify(boundaryInvocation.args), /literal|pideck-injected|escaped/);
 
@@ -307,13 +288,7 @@ test("cleanup refuses unmarked output and protected real paths while preserving 
 		await writeFile(join(outputDir, "operator-note.txt"), "keep", "utf8");
 		await generateSessionFixtures(generationOptions);
 		assert.equal(await readFile(join(outputDir, "operator-note.txt"), "utf8"), "keep");
-		const paths = [
-			join(root, "repo", "child"),
-			join(root, "profile"),
-			join(root, "profile", "AppData"),
-			join(root, "profile", "AppData", "Roaming", "child"),
-			join(root, "profile", "AppData", "Local", "child"),
-		];
+		const paths = [join(root, "repo", "child"), join(root, "profile"), join(root, "profile", "AppData"), join(root, "profile", "AppData", "Roaming", "child"), join(root, "profile", "AppData", "Local", "child")];
 		for (const path of paths) await assert.rejects(assertSafeOutputDir(path, safety(root)), /protected|home/);
 
 		const redirectTarget = join(root, "repo");

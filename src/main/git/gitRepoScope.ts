@@ -3,20 +3,7 @@ import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { GitRepoInfo } from "../../shared/types";
 
 /** 扫描嵌套仓库时跳过的构建/依赖目录，避免把依赖里的 .git 当成用户仓库。 */
-const SKIP_DIR_NAMES = new Set([
-	"node_modules",
-	".git",
-	"dist",
-	"out",
-	"build",
-	".next",
-	"target",
-	"vendor",
-	"__pycache__",
-	".venv",
-	"venv",
-	"coverage",
-]);
+const SKIP_DIR_NAMES = new Set(["node_modules", ".git", "dist", "out", "build", ".next", "target", "vendor", "__pycache__", ".venv", "venv", "coverage"]);
 
 /** 相对项目根最多向下 4 层：覆盖 packages/* 与少量 monorepo 分组，避免扫整盘。 */
 export const GIT_REPO_SCAN_MAX_DEPTH = 4;

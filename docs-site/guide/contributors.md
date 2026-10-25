@@ -26,7 +26,7 @@ title: 贡献者
   <div class="contributor-info">
     <strong>zx3022448</strong>
     <span class="contributor-handle">@zx3022448</span>
-    <p>模型列表拉取优化及错误状态展示</p>
+    <p>模型列表拉取优化及错误状态展示、支持从 Claude Code / Codex 导入 MCP 与技能资源</p>
     <a href="https://github.com/zx3022448" target="_blank" rel="noreferrer">GitHub</a>
   </div>
 </div>
@@ -76,7 +76,7 @@ title: 贡献者
   <div class="contributor-info">
     <strong>bfzha</strong>
     <span class="contributor-handle">@bfzha</span>
-    <p>VS Code 风格 Git 面板与复杂工作流支持 (#68)</p>
+    <p>VS Code 风格 Git 面板与复杂工作流支持、会话内存瘦身与流式渲染优化、时间线查看位置保持、技能/提示词/扩展启停开关、资源作用域与 pi 0.85 解析器对齐 (#68, #145, #144, #143, #142, #141)、运行控制语义拆分、内置 Web 服务绑环回与令牌鉴权、shell 文案与状态图标修复</p>
     <a href="https://github.com/bfzha" target="_blank" rel="noreferrer">GitHub</a>
   </div>
 </div>
@@ -128,6 +128,96 @@ title: 贡献者
     <span class="contributor-handle">@clancyclaw</span>
     <p>修复 RichInput 换行被吞掉，保证多行草稿完整保留</p>
     <a href="https://github.com/clancyclaw" target="_blank" rel="noreferrer">GitHub</a>
+  </div>
+</div>
+
+<div class="contributor-card">
+  <div class="contributor-avatar">OP</div>
+  <div class="contributor-info">
+    <strong>octo-patch</strong>
+    <span class="contributor-handle">@octo-patch</span>
+    <p>MiniMax 端点认证专属模型发现 (#112)</p>
+    <a href="https://github.com/octo-patch" target="_blank" rel="noreferrer">GitHub</a>
+  </div>
+</div>
+
+<div class="contributor-card">
+  <div class="contributor-avatar">c8</div>
+  <div class="contributor-info">
+    <strong>c834292137</strong>
+    <span class="contributor-handle">@c834292137</span>
+    <p>统一会话组件卡（待办/子代理/文件修改）并聚合共享层 (#171)</p>
+    <a href="https://github.com/c834292137" target="_blank" rel="noreferrer">GitHub</a>
+  </div>
+</div>
+
+<div class="contributor-card">
+  <div class="contributor-avatar">r0</div>
+  <div class="contributor-info">
+    <strong>r0y1z2</strong>
+    <span class="contributor-handle">@r0y1z2</span>
+    <p>项目会话置顶、输入框安全语音转写 (#177, #176)</p>
+    <a href="https://github.com/r0y1z2" target="_blank" rel="noreferrer">GitHub</a>
+  </div>
+</div>
+
+<div class="contributor-card">
+  <div class="contributor-avatar">sg</div>
+  <div class="contributor-info">
+    <strong>sgafxh</strong>
+    <span class="contributor-handle">@sgafxh</span>
+    <p>请求体超限后的会话恢复、修复 Windows 启动 pi 闪 CMD 窗口 (#188, #180)</p>
+    <a href="https://github.com/sgafxh" target="_blank" rel="noreferrer">GitHub</a>
+  </div>
+</div>
+
+<div class="contributor-card">
+  <div class="contributor-avatar">jz</div>
+  <div class="contributor-info">
+    <strong>juzijun233</strong>
+    <span class="contributor-handle">@juzijun233</span>
+    <p>稳定性与安全加固系列：主进程 PATH 探测异步化（消除启动冻结）、迟到流式事件拒绝、事件三元组补齐、通道白名单、超大 diff 截断、PiRpcClient 行缓冲上限、按会话订阅隔离（分屏互不牵连）等；通道切换不再提供旧开发版的版本守卫 (#336)</p>
+    <a href="https://github.com/juzijun233" target="_blank" rel="noreferrer">GitHub</a>
+  </div>
+</div>
+
+<div class="contributor-card">
+  <div class="contributor-avatar">xy</div>
+  <div class="contributor-info">
+    <strong>xiaYuTian11</strong>
+    <span class="contributor-handle">@xiaYuTian11</span>
+    <p>侧栏项目树显示当前 Git 分支 (#232)、时间线滚动抖动与切会话跳顶跳底修复 (#224)、会话 Tab 宽度上限与字号 (#226)、技能重命名按类型分流 (#227)</p>
+    <a href="https://github.com/xiaYuTian11" target="_blank" rel="noreferrer">GitHub</a>
+  </div>
+</div>
+
+<div class="contributor-card">
+  <div class="contributor-avatar">qx</div>
+  <div class="contributor-info">
+    <strong>Q-xuan</strong>
+    <span class="contributor-handle">@Q-xuan</span>
+    <p>行内代码里的文件引用重新可点 (#228)、修复 LaTeX 括号公式渲染 (#251)</p>
+    <a href="https://github.com/Q-xuan" target="_blank" rel="noreferrer">GitHub</a>
+  </div>
+</div>
+
+<div class="contributor-card">
+  <div class="contributor-avatar">cm</div>
+  <div class="contributor-info">
+    <strong>cmyk-xing</strong>
+    <span class="contributor-handle">@cmyk-xing</span>
+    <p>外观设置新增「功能模块」显示开关 (#254)、修复引导页发送创建的新会话漏出历史旧消息 (#256)、启动时恢复上次窗口位置与最大化状态 (#259)</p>
+    <a href="https://github.com/cmyk-xing" target="_blank" rel="noreferrer">GitHub</a>
+  </div>
+</div>
+
+<div class="contributor-card">
+  <div class="contributor-avatar">EE</div>
+  <div class="contributor-info">
+    <strong>EEEEEEEEdison</strong>
+    <span class="contributor-handle">@EEEEEEEEdison</span>
+    <p>右侧边栏上下分区与常驻「会话状态」面板（可拖拽、比例跨重启保持）(#334)、TPS 测量模式（流式 / 端到端，设置页可切换）(#327)</p>
+    <a href="https://github.com/EEEEEEEEdison" target="_blank" rel="noreferrer">GitHub</a>
   </div>
 </div>
 

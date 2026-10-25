@@ -1,24 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { X } from "lucide-react";
-import {
-	Dialog,
-	DialogClose,
-	DialogContent,
-	DialogHeader,
-	DialogTitle,
-} from "../ui-shadcn/dialog";
+import { Loader2, X } from "lucide-react";
+import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "../ui-shadcn/dialog";
 import { Button } from "../ui-shadcn/button";
 import { cn } from "../../lib/utils";
 import { t } from "../../i18n";
 import type { ChatMessage, SessionSummary } from "../../../../shared/types";
 import type { AgentRunItem, RenderMessage } from "../app/AppUtils";
 import { MessageSelectionTree } from "../session/MessageSelectionTree";
-import {
-	getSelectableMessageIds,
-	toggleAll,
-	toggleMessage,
-	toggleRun,
-} from "../../utils/messageSelection";
+import { getSelectableMessageIds, toggleAll, toggleMessage, toggleRun } from "../../utils/messageSelection";
 
 type SessionMessage = { role: string; content: string; timestamp: number };
 
@@ -71,6 +60,9 @@ function buildReferenceTree(messages: SessionMessage[]): {
 				items: subItems,
 				startedAt: subItems[0]?.message.timestamp ?? 0,
 				endedAt: subItems[subItems.length - 1]?.message.timestamp ?? 0,
+				// 会话引用只用于展示所选消息列表，不参与耗时统计
+				askWaitMs: 0,
+				askPending: false,
 			});
 		} else if (msg.role === "user") {
 			const id = `${REF_ID_PREFIX}${i}`;
@@ -90,29 +82,21 @@ function buildReferenceTree(messages: SessionMessage[]): {
 	return { items, idToIndex };
 }
 
-export function SessionReferenceModal(props: {
-	session: SessionSummary;
-	onClose: () => void;
-	onConfirm: (result: SessionReferenceResult, selectedIndices: number[]) => void;
-	loadMessages: (sessionId: string) => Promise<SessionMessage[]>;
-	initialSelected?: Set<number>;
-}) {
+export function SessionReferenceModal(props: { session: SessionSummary; onClose: () => void; onConfirm: (result: SessionReferenceResult, selectedIndices: number[]) => void; loadMessages: (sessionId: string) => Promise<SessionMessage[]>; initialSelected?: Set<number> }) {
 	const [messages, setMessages] = useState<SessionMessage[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
 	const tree = useMemo(() => buildReferenceTree(messages), [messages]);
-	const selectableIds = useMemo(
-		() => getSelectableMessageIds(tree.items),
-		[tree],
-	);
+	const selectableIds = useMemo(() => getSelectableMessageIds(tree.items), [tree]);
 
 	useEffect(() => {
 		let cancelled = false;
 		setLoading(true);
 		setError(null);
-		props.loadMessages(props.session.id)
+		props
+			.loadMessages(props.session.id)
 			.then((msgs) => {
 				if (cancelled) return;
 				setMessages(msgs);
@@ -179,20 +163,12 @@ export function SessionReferenceModal(props: {
 		<Dialog open onOpenChange={(next) => !next && props.onClose()}>
 			<DialogContent
 				showCloseButton={false}
-				className={cn(
-					"flex h-[min(650px,calc(100vh-48px))] w-[min(780px,calc(100vw-48px))] max-w-[min(780px,calc(100vw-48px))] flex-col gap-0 overflow-hidden rounded-lg border border-border bg-bg-panel p-0 shadow-[var(--shadow-xl)]",
-					"animate-in fade-in-0 slide-in-from-bottom-2 duration-150",
-				)}
+				className={cn("flex h-[min(650px,calc(100vh-48px))] w-[min(780px,calc(100vw-48px))] max-w-[min(780px,calc(100vw-48px))] flex-col gap-0 overflow-hidden rounded-lg border border-border bg-bg-panel p-0 shadow-[var(--shadow-modal)]", "animate-in fade-in-0 slide-in-from-bottom-2 duration-fast")}
 			>
 				<DialogHeader className="flex-row items-center justify-between px-4 py-3">
 					<DialogTitle>{`${t("sessionRef.title")}: ${props.session.name ?? props.session.filePath}`}</DialogTitle>
 					<DialogClose asChild>
-						<Button
-							variant="ghost"
-							size="icon"
-							aria-label={t("common.close")}
-							title={t("common.close")}
-						>
+						<Button variant="ghost" size="icon" aria-label={t("common.close")} title={t("common.close")}>
 							<X size={18} strokeWidth={2.2} aria-hidden="true" />
 						</Button>
 					</DialogClose>
@@ -200,7 +176,8 @@ export function SessionReferenceModal(props: {
 
 				<div className="min-h-0 flex-1 overflow-y-auto px-3 py-2.5">
 					{loading && (
-						<div className="flex items-center justify-center px-4 py-10 text-caption text-text-tertiary">
+						<div className="flex items-center justify-center gap-2 px-4 py-10 text-caption text-text-tertiary">
+							<Loader2 size={14} className="animate-pideck-spin" aria-hidden="true" />
 							{t("common.loading")}...
 						</div>
 					)}
@@ -209,52 +186,22 @@ export function SessionReferenceModal(props: {
 							{t("sessionRef.loadError")}: {error}
 						</div>
 					)}
-					{!loading && !error && (
-						<MessageSelectionTree
-							items={tree.items}
-							selectedIds={selectedIds}
-							onToggleMessage={handleToggleMessage}
-							onToggleRun={handleToggleRun}
-						/>
-					)}
+					{!loading && !error && <MessageSelectionTree items={tree.items} selectedIds={selectedIds} onToggleMessage={handleToggleMessage} onToggleRun={handleToggleRun} />}
 				</div>
 
 				{/* 底部操作栏：与多选分享弹窗同一套视觉语言 */}
 				<footer className="flex shrink-0 flex-col gap-2.5 border-t border-border-subtle px-4 py-3">
 					<div className="flex items-center justify-between">
-						<span className="text-control font-medium text-text-secondary">
-							{allSelected
-								? t("sessionRef.messageCount", { count: messages.length })
-								: t("sessionRef.selectedCount", { count: selectedCount, total: selectableIds.length })}
-						</span>
-						<Button
-							variant="ghost"
-							size="sm"
-							className="h-auto px-2 py-1 text-caption"
-							onClick={handleToggleAll}
-							disabled={!selectableIds.length}
-						>
+						<span className="text-control font-medium text-text-secondary">{allSelected ? t("sessionRef.messageCount", { count: messages.length }) : t("sessionRef.selectedCount", { count: selectedCount, total: selectableIds.length })}</span>
+						<Button variant="ghost" size="sm" className="h-auto px-2 py-1 text-caption" onClick={handleToggleAll} disabled={!selectableIds.length}>
 							{allSelected ? t("common.deselectAll") : t("common.selectAll")}
 						</Button>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
-						<Button
-							variant="default"
-							size="sm"
-							className="h-auto px-4 py-1.5 shadow-none"
-							disabled={!canConfirm}
-							onClick={handleConfirm}
-						>
-							{allSelected
-								? t("sessionRef.insertAll", { count: messages.length })
-								: t("sessionRef.insertSelected", { count: selectedCount })}
+						<Button variant="default" size="sm" className="h-auto px-4 py-1.5 shadow-none" disabled={!canConfirm} onClick={handleConfirm}>
+							{allSelected ? t("sessionRef.insertAll", { count: messages.length }) : t("sessionRef.insertSelected", { count: selectedCount })}
 						</Button>
-						<Button
-							variant="ghost"
-							size="sm"
-							className="ml-auto h-auto px-3 py-1.5 text-caption"
-							onClick={props.onClose}
-						>
+						<Button variant="ghost" size="sm" className="ml-auto h-auto px-3 py-1.5 text-caption" onClick={props.onClose}>
 							{t("app.multiSelectCancel")}
 						</Button>
 					</div>

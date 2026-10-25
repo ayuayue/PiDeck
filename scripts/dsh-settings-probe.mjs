@@ -48,19 +48,7 @@ async function main() {
 	const configDir = mkdtempSync(join(tmpdir(), "pideck-dsh-config-"));
 	const configPath = join(configDir, "cordis.yml");
 	writeFileSync(configPath, "[]\n");
-	writeFileSync(
-		join(configDir, "pideck-directory-picker.js"),
-		[
-			"export default {",
-			"  apply(ctx) {",
-			"    ctx.provide('directoryPicker', {",
-			"      capability() { return { kind: 'none' }; },",
-			"    });",
-			"  },",
-			"};",
-			"",
-		].join("\n"),
-	);
+	writeFileSync(join(configDir, "pideck-directory-picker.js"), ["export default {", "  apply(ctx) {", "    ctx.provide('directoryPicker', {", "      capability() { return { kind: 'none' }; },", "    });", "  },", "};", ""].join("\n"));
 
 	let ctx;
 	try {
@@ -71,13 +59,15 @@ async function main() {
 			(hostCtx) => {
 				provideCmdline(hostCtx, {
 					args: [],
-					exit: (code) => { process.exitCode = code; },
+					exit: (code) => {
+						process.exitCode = code;
+					},
 				});
 			},
 			pathToFileURL(join(projectRoot, "node_modules") + "/").href,
 		);
 	} catch (error) {
-		log("boot", `FAILED: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+		log("boot", `FAILED: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
 		return 1;
 	}
 	log("boot", "OK");
@@ -131,7 +121,13 @@ async function main() {
 	log("dump", `完整 describe 已写入 ${outPath}`);
 
 	await Promise.race([
-		ctx.fiber.dispose().then(() => true, (error) => { log("dispose", `warn: ${String(error)}`); return true; }),
+		ctx.fiber.dispose().then(
+			() => true,
+			(error) => {
+				log("dispose", `warn: ${String(error)}`);
+				return true;
+			},
+		),
 		new Promise((r) => setTimeout(r, 5000)),
 	]);
 	rmSync(configDir, { recursive: true, force: true });

@@ -31,10 +31,7 @@ function encodeCfHdrop(paths) {
 	const header = Buffer.alloc(20);
 	header.writeUInt32LE(pFiles, 0);
 	header.writeUInt32LE(1, 16);
-	const encoded = paths.flatMap((path) => [
-		Buffer.from(path, "utf16le"),
-		Buffer.alloc(2),
-	]);
+	const encoded = paths.flatMap((path) => [Buffer.from(path, "utf16le"), Buffer.alloc(2)]);
 	return Buffer.concat([header, ...encoded, Buffer.alloc(2)]);
 }
 
@@ -79,10 +76,7 @@ describe("writeClipboardImageDataUrl", () => {
 		});
 		assert.equal(native.writeClipboardImageDataUrl("").reason, "empty-payload");
 		assert.equal(native.writeClipboardImageDataUrl("data:text/plain;base64,abc").reason, "invalid-data-url");
-		assert.equal(
-			native.writeClipboardImageDataUrl(`data:image/png;base64,${"a".repeat(native.CLIPBOARD_IMAGE_MAX_CHARS)}`).reason,
-			"payload-too-large",
-		);
+		assert.equal(native.writeClipboardImageDataUrl(`data:image/png;base64,${"a".repeat(native.CLIPBOARD_IMAGE_MAX_CHARS)}`).reason, "payload-too-large");
 		assert.equal(native.writeClipboardImageDataUrl("data:image/png;base64,abc").reason, "empty-native-image");
 	});
 

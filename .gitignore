@@ -10,14 +10,20 @@ electron.vite.config.*.mjs
 # 注意用 ** 匹配二级目录（dsh-runtime/manifest.json），单层 * 会漏。
 dist-runtime/**/*.tgz
 dist-runtime/**/*.json
-release/
-release-test/
-release-fix/
-# 打包验证/开发产物目录（release-verify 曾误提交 win-unpacked 二进制，见 d8d5711b）
-release-verify/
-release-dev/
+# 打包/构建产物目录：通用规则，release- 后缀的验证/开发/快速构建目录
+# （release-dev、release-verify、release-fresh-* 等）一律忽略，防止再误提交
+# win-unpacked 二进制（历史教训见 d8d5711b）。仓库无以 release 开头的源码目录，
+# 该通配不会误伤；若未来需要提交 release-notes 之类的文件目录再显式取反。
+release*/
 docs-site/.vitepress/cache/
 docs-site/.vitepress/dist/
+# Vite 加载 vitepress 配置时写出的临时模块（config.mts.timestamp-<时间戳>-<哈希>.mjs）：
+# 进程正常退出会自行清理，文件被留在工作区说明上次构建异常中断，不该进版本库。
+docs-site/.vitepress/*.timestamp-*.mjs
+# README 共用图片的生成副本：唯一数据源是 docs/images/<名>，由 docs-site 插件在
+# dev / build 时复制到这里（其余 public/images 下的图仍入库）。
+docs-site/public/images/wechat-qrcode.png
+docs-site/public/images/gpt-recharge-price.png
 *.asar
 
 # Electron/Vite
@@ -88,5 +94,40 @@ beui-todo-list.tmp.json
 # 临时编辑/测试脚本
 scratch-edit-samples/
 scripts/tmp-*
+# 一次性探针/调试脚本与产物（可能含 API key、真实账号数据，绝不能进公开仓库）
+.tmp-*.cjs
+.tmp-*.mjs
+.tmp-*/
+.tmp-el-probe/
+# 仓库根的一次性探针脚本（正式测试一律放 tests/*.test.mjs，根目录这些是排查残留；
+# 用 / 锚定根目录，避免误伤 tests/ 下的正式用例）
+/test-*.mjs
+/test-*.js
+/check-*.js
+/check-*.mjs
 # beUI 官方源码提取的临时对比目录（不应提交）
 .beui-official/
+
+# DSH host 组合文件（dev 回退到项目 node_modules 时的落盘目录）
+pideck-host/
+
+# Windows DSH 沙箱 runner 的 CUI node sidecar（prepare / pack 下载，不入库、不进安装包）
+resources/dsh-runner-node/node.exe
+resources/dsh-runner-node/node
+dist-runtime/dsh-runner-node/
+
+# Go xue-index sidecar 二进制（npm run build:xue-index 产物，按平台构建，不入库）
+resources/xue-index/bin/*
+!resources/xue-index/bin/.gitkeep
+# Go session-index sidecar 二进制（npm run build:session-index 产物，同上）
+resources/session-index/bin/*
+!resources/session-index/bin/.gitkeep
+# Go file-index sidecar 二进制（npm run build:file-index 产物，同上）
+resources/file-index/bin/*
+!resources/file-index/bin/.gitkeep
+# Go session-store sidecar 二进制（npm run build:session-store 产物，同上）
+resources/session-store/bin/*
+!resources/session-store/bin/.gitkeep
+*.log
+# 官网「宿主插件开发指南」页：由 .vitepress/sharedGuideDocs.ts 从 docs/host-plugin-dev-guide.md 生成（构建产物，勿手改）
+docs-site/guide/host-plugins.md

@@ -34,6 +34,13 @@ function loadBrowserApi(fetchImpl) {
 		window: {
 			setInterval: () => 1,
 			clearInterval: () => undefined,
+			// browserApi 启动时从 window.location.search 读 ?token= 并写 localStorage，
+			// 沙箱必须补齐这两个桩，否则真实代码在 vm 里取不到 location 直接抛错。
+			location: { search: "" },
+			localStorage: {
+				getItem: () => null,
+				setItem: () => undefined,
+			},
 		},
 		require: (specifier) => {
 			if (specifier === "./i18n") return { t: (key) => key };
@@ -83,7 +90,7 @@ function fixture(overrides = {}) {
 		status: "idle",
 		createdAt: 2,
 	};
-	const calls = { createDraft: 0, createAnonymous: 0, createAgent: 0, createProject: [], deleteProject: [], send: [], stateTargets: [], modelTargets: [], messageSessions: [], rewindTargets: [], rewindParams: [], rewindRestores: [] };
+	const calls = { createDraft: 0, createAnonymous: 0, createAgent: 0, createProject: [], deleteProject: [], send: [], stateTargets: [], modelTargets: [], rewindTargets: [], rewindParams: [], rewindRestores: [], subagents: [], todo: [] };
 	const targeted = (target, value) => ({ ok: true, value: { target, value } });
 	const deps = {
 		// SSE 流式依赖：测试环境不订阅真实 pi 事件，但必须提供可调用实现满足契约。
@@ -101,10 +108,6 @@ function fixture(overrides = {}) {
 		listModels: async () => [{ provider: "openai", id: "gpt-test", name: "GPT Test" }],
 		listAgents: () => [agent],
 		listSessions: async () => [],
-		getSessionRuntimeMessages: (sessionId) => {
-			calls.messageSessions.push(sessionId);
-			return { target: runtime, value: [{ id: "m1", role: "assistant", text: "ready", timestamp: 1 }] };
-		},
 		listCatalogSessions: async () => [session],
 		createSessionDraft: async (input) => {
 			calls.createDraft += 1;
@@ -134,10 +137,22 @@ function fixture(overrides = {}) {
 		deleteSessionRecord: async () => true,
 		copySessionRecord: async () => ({ cancelled: false, targetSessionId: "session-2" }),
 		exportSessionRecordHtml: async () => ({ path: "session.html" }),
-		readSessionReferenceMessages: async () => [
-			{ role: "user", content: "reference", timestamp: 1 },
-		],
-		readSessionMessages: async () => [],
+		readSessionReferenceMessages: async () => [{ role: "user", content: "reference", timestamp: 1 }],
+		readSessionMessages: async () => ({
+			messages: [{ id: "w1", role: "assistant", text: "window", timestamp: 1 }],
+			total: 42,
+			windowStart: 30,
+			truncated: true,
+		}),
+		listSessionSubagents: async (sessionId) => {
+			calls.subagents.push(sessionId);
+			return [{ id: "sub-1", name: "explore", status: "completed", startedAt: 1 }];
+		},
+		listSessionTodo: async (sessionId) => {
+			calls.todo.push(sessionId);
+			// 与真实实现对齐：会话无 todo 快照时返回 null（路由侧归一为 {todo:null}）
+			return sessionId === "session-1" ? { todos: [{ content: "ship it", status: "completed" }], updatedAt: 2 } : null;
+		},
 		readSessionMessagePage: async () => ({ messages: [], total: 0, nextBefore: null }),
 		sendSessionPrompt: async (input) => {
 			calls.send.push(input);
@@ -170,14 +185,16 @@ function fixture(overrides = {}) {
 			calls.rewindTargets.push(target);
 			calls.rewindParams.push(params ?? null);
 			return targeted(target, {
-				items: [{
-					id: "turn-1-1-1234",
-					sessionId: session.id,
-					trigger: "turn",
-					turnIndex: 1,
-					branch: "main",
-					timestamp: 1234,
-				}],
+				items: [
+					{
+						id: "turn-1-1-1234",
+						sessionId: session.id,
+						trigger: "turn",
+						turnIndex: 1,
+						branch: "main",
+						timestamp: 1234,
+					},
+				],
 				hasMore: false,
 			});
 		},
@@ -214,7 +231,7 @@ async function withServer(run, overrides = {}) {
 	const WebServiceManager = loadWebServiceManager();
 	const harness = fixture(overrides);
 	const manager = new WebServiceManager(harness.deps);
-	await manager.start("127.0.0.1", 0);
+	await manager.start("127.0.0.1", 0, false);
 	const baseUrl = `http://127.0.0.1:${manager.current.port}`;
 	try {
 		await run({ ...harness, baseUrl });
@@ -230,7 +247,7 @@ test("Web service restart rebinds the configured listener", async () => {
 	await manager.start("127.0.0.1", 0);
 	const port = manager.current.port;
 	try {
-		await manager.restart({ webServiceEnabled: true, webServiceHost: "127.0.0.1", webServicePort: port });
+		await manager.restart({ webServiceEnabled: true, webServiceHost: "127.0.0.1", webServicePort: port, webServiceRequiresAuth: false });
 		const response = await fetch(`http://127.0.0.1:${port}/api/health`);
 		assert.equal(response.status, 200);
 		assert.equal((await response.json()).ok, true);
@@ -283,40 +300,45 @@ test("web core routes create a project and expose the configured model list", as
 });
 
 test("web state exposes pending UI requests and ui-response writes them back", async () => {
-	const pending = [{
-		sessionId: "session-1",
-		agentId: "agent-1",
-		runtimeGeneration: 3,
-		requestId: "ask-1",
-		method: "confirm",
-		title: "Continue?",
-	}];
-	const responses = [];
-	await withServer(async ({ baseUrl }) => {
-		const stateResponse = await fetch(`${baseUrl}/api/state`);
-		const state = await stateResponse.json();
-		assert.equal(state.pendingUiRequests[0].requestId, "ask-1");
-
-		const write = await fetch(`${baseUrl}/api/ui-response`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
-				sessionId: "session-1",
-				agentId: "agent-1",
-				runtimeGeneration: 3,
-				requestId: "ask-1",
-				response: { confirmed: true },
-			}),
-		});
-		assert.equal(write.status, 200);
-		assert.equal(responses[0].requestId, "ask-1");
-		assert.equal(responses[0].response.confirmed, true);
-	}, {
-		listPendingUiRequests: () => pending,
-		respondToUi: async (input) => {
-			responses.push(input);
+	const pending = [
+		{
+			sessionId: "session-1",
+			agentId: "agent-1",
+			runtimeGeneration: 3,
+			requestId: "ask-1",
+			method: "confirm",
+			title: "Continue?",
 		},
-	});
+	];
+	const responses = [];
+	await withServer(
+		async ({ baseUrl }) => {
+			const stateResponse = await fetch(`${baseUrl}/api/state`);
+			const state = await stateResponse.json();
+			assert.equal(state.pendingUiRequests[0].requestId, "ask-1");
+
+			const write = await fetch(`${baseUrl}/api/ui-response`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					sessionId: "session-1",
+					agentId: "agent-1",
+					runtimeGeneration: 3,
+					requestId: "ask-1",
+					response: { confirmed: true },
+				}),
+			});
+			assert.equal(write.status, 200);
+			assert.equal(responses[0].requestId, "ask-1");
+			assert.equal(responses[0].response.confirmed, true);
+		},
+		{
+			listPendingUiRequests: () => pending,
+			respondToUi: async (input) => {
+				responses.push(input);
+			},
+		},
+	);
 });
 
 test("Web project route deletes a registered project but protects the built-in chat project", async () => {
@@ -395,6 +417,52 @@ test("runtime HTTP commands preserve the full generation-validated target", asyn
 	});
 });
 
+test("runtime restart streams heartbeat bytes while pending and still returns parseable JSON", async () => {
+	let releaseRestart;
+	const restartGate = new Promise((resolve) => {
+		releaseRestart = resolve;
+	});
+	await withServer(
+		async ({ baseUrl, runtime }) => {
+			const target = {
+				sessionId: runtime.sessionId,
+				agentId: runtime.agentId,
+				runtimeGeneration: runtime.runtimeGeneration,
+			};
+			const response = await fetch(`${baseUrl}/api/sessions/session-1/runtime/restart`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ target }),
+			});
+			// 响应头先行到达：pending 期间浏览器能确认请求活着，而不是转圈黑盒。
+			assert.equal(response.status, 200);
+			const reader = response.body.getReader();
+			// 第一个数据块应是心跳（JSON 前导空白），而不是最终结果——证明重启期间有持续字节。
+			const first = await reader.read();
+			assert.equal(first.done, false);
+			const firstText = new TextDecoder().decode(first.value);
+			assert.equal(firstText.trim(), "");
+			releaseRestart();
+			let rest = "";
+			for (;;) {
+				const chunk = await reader.read();
+				if (chunk.done) break;
+				rest += new TextDecoder().decode(chunk.value);
+			}
+			// 前导心跳空白不影响 JSON 解析（客户端 fetch().json() 的口径）。
+			const body = JSON.parse(firstText + rest);
+			assert.equal(body.result.ok, true);
+			assert.equal(body.result.value.restarted, true);
+		},
+		{
+			restartSessionRuntime: async () => {
+				await restartGate;
+				return { ok: true, value: { restarted: true } };
+			},
+		},
+	);
+});
+
 test("runtime rewind routes forward checkpointId/scope and keep the validated target", async () => {
 	await withServer(async ({ baseUrl, runtime, calls }) => {
 		const target = {
@@ -432,9 +500,7 @@ test("runtime rewind routes forward checkpointId/scope and keep the validated ta
 			})
 		).json();
 		assert.equal(restored.result.ok, true);
-		assert.equal(JSON.stringify(calls.rewindRestores), JSON.stringify([
-			{ target, checkpointId: "turn-1-1-1234", scope: "files" },
-		]));
+		assert.equal(JSON.stringify(calls.rewindRestores), JSON.stringify([{ target, checkpointId: "turn-1-1-1234", scope: "files" }]));
 
 		const mismatch = await fetch(`${baseUrl}/api/sessions/other/runtime/rewind-list`, {
 			method: "POST",
@@ -447,55 +513,70 @@ test("runtime rewind routes forward checkpointId/scope and keep the validated ta
 
 test("catalog Session file operations are addressed only by stable Session ID", async () => {
 	await withServer(async ({ baseUrl }) => {
-		const copied = await (await fetch(`${baseUrl}/api/sessions/session-1/copy`, {
-			method: "POST",
-			body: "{}",
-		})).json();
+		const copied = await (
+			await fetch(`${baseUrl}/api/sessions/session-1/copy`, {
+				method: "POST",
+				body: "{}",
+			})
+		).json();
 		assert.equal(copied.result.targetSessionId, "session-2");
 
-		const exported = await (await fetch(`${baseUrl}/api/sessions/session-1/export-html`, {
-			method: "POST",
-			body: "{}",
-		})).json();
+		const exported = await (
+			await fetch(`${baseUrl}/api/sessions/session-1/export-html`, {
+				method: "POST",
+				body: "{}",
+			})
+		).json();
 		assert.equal(exported.result.path, "session.html");
 
-		const references = await (
-			await fetch(`${baseUrl}/api/sessions/session-1/reference-messages`)
-		).json();
+		const references = await (await fetch(`${baseUrl}/api/sessions/session-1/reference-messages`)).json();
 		assert.equal(references.messages[0].content, "reference");
 	});
 });
 
 test("historical message pages stay Session-addressed and bounded", async () => {
+	await withServer(
+		async ({ baseUrl }) => {
+			const page = await (await fetch(`${baseUrl}/api/sessions/session-1/messages/page?before=3&pageSize=2`)).json();
+			assert.equal(page.total, 3);
+			assert.equal(page.nextBefore, 1);
+		},
+		{
+			readSessionMessagePage: async (sessionId, before, pageSize) => ({
+				messages: [{ id: sessionId, role: "assistant", text: String(pageSize), timestamp: 1 }],
+				total: 3,
+				nextBefore: before === 3 ? 1 : null,
+			}),
+		},
+	);
+});
+
+test("whole-history read endpoint returns a bounded window with truncation metadata", async () => {
+	// 大会话整量读会同时顶爆主进程与渲染层（#213）：/messages 必须是「加载窗口」，
+	// 并显式告诉客户端被截断、窗口起点在哪，翻更早历史走 /messages/page。
 	await withServer(async ({ baseUrl }) => {
-		const page = await (await fetch(`${baseUrl}/api/sessions/session-1/messages/page?before=3&pageSize=2`)).json();
-		assert.equal(page.total, 3);
-		assert.equal(page.nextBefore, 1);
-	}, {
-		readSessionMessagePage: async (sessionId, before, pageSize) => ({
-			messages: [{ id: sessionId, role: "assistant", text: String(pageSize), timestamp: 1 }],
-			total: 3,
-			nextBefore: before === 3 ? 1 : null,
-		}),
+		const body = await (await fetch(`${baseUrl}/api/sessions/session-1/messages`)).json();
+		assert.equal(body.messages[0].text, "window");
+		assert.equal(body.total, 42);
+		assert.equal(body.windowStart, 30);
+		assert.equal(body.truncated, true);
 	});
 });
 
-test("web polling state includes Session records, runtimes, and Session-keyed messages", async () => {
-	await withServer(async ({ baseUrl, calls }) => {
+test("web polling state carries sessions/runtimes but no per-session message payloads (P0 slim)", async () => {
+	await withServer(async ({ baseUrl }) => {
 		const response = await fetch(`${baseUrl}/api/state`);
 		const state = await response.json();
 		assert.equal(state.sessions[0].id, "session-1");
 		assert.equal(state.runtimes[0].runtimeGeneration, 3);
-		assert.equal(state.messagesBySession["session-1"][0].text, "ready");
-		assert.deepEqual(calls.messageSessions, ["session-1"]);
+		// P0 瘦身：/api/state 不再携带任何会话消息（历史走 /messages 与 /messages/page，运行中走 SSE）
+		assert.equal("messagesBySession" in state, false);
 	});
 });
 
 test("the browser client accepts the real Session-first web-state contract", async () => {
 	await withServer(async ({ baseUrl }) => {
-		const createBrowserApi = loadBrowserApi((path, init) =>
-			fetch(new URL(path, baseUrl), init),
-		);
+		const createBrowserApi = loadBrowserApi((path, init) => fetch(new URL(path, baseUrl), init));
 		const api = createBrowserApi();
 		const events = [];
 		const unsubscribe = api.sessions.onRuntimeEvent((event) => events.push(event));
@@ -508,30 +589,17 @@ test("the browser client accepts the real Session-first web-state contract", asy
 			assert.equal(runtimeEvent?.sessionId, "session-1");
 			assert.equal(runtimeEvent?.payload.status, "idle");
 			const messageEvent = events.find((event) => event.sourceChannel === "sessions:messages");
-			assert.equal(messageEvent?.payload.messages[0].text, "ready");
+			assert.equal(messageEvent?.payload.messages[0].text, "window");
 		} finally {
 			unsubscribe();
 		}
 	});
 });
 
-test("web polling omits a message snapshot whose runtime target no longer matches", async () => {
-	await withServer(async ({ baseUrl }) => {
-		const response = await fetch(`${baseUrl}/api/state`);
-		const state = await response.json();
-		assert.equal(state.runtimes[0].agentId, "agent-1");
-		assert.equal("session-1" in state.messagesBySession, false);
-	}, {
-		getSessionRuntimeMessages: () => ({
-			target: { sessionId: "session-1", agentId: "agent-2", runtimeGeneration: 4 },
-			value: [{ id: "stale", role: "assistant", text: "stale", timestamp: 1 }],
-		}),
-	});
-});
-
-test("web polling cannot read runtime messages directly by Agent ID", () => {
+test("web polling no longer pulls per-runtime message snapshots", () => {
 	const source = readFileSync("src/main/web/WebServiceManager.ts", "utf8");
-	assert.match(source, /getSessionRuntimeMessages\(runtime\.sessionId\)/);
+	// P0：deps 已删除 getSessionRuntimeMessages，/api/state 与 Agent 内存消息解耦
+	assert.doesNotMatch(source, /getSessionRuntimeMessages/);
 	assert.doesNotMatch(source, /getMessages\(runtime\.agentId\)/);
 });
 
@@ -569,149 +637,277 @@ test("web errors expose stable codes without leaking unknown server exceptions",
 		assert.equal("debugDetails" in body, false);
 	});
 
-	await withServer(async ({ baseUrl }) => {
-		const response = await fetch(`${baseUrl}/api/state`);
-		const body = await response.json();
-		assert.equal(response.status, 500);
-		assert.equal(body.code, "webError.internal");
-		assert.equal(body.error, "The web service encountered an internal error");
-		assert.equal("debugDetails" in body, false);
-		assert.doesNotMatch(JSON.stringify(body), /SECRET_STACK_DETAIL/);
-	}, {
-		listProjects: () => {
-			throw new Error("SECRET_STACK_DETAIL");
+	await withServer(
+		async ({ baseUrl }) => {
+			const response = await fetch(`${baseUrl}/api/state`);
+			const body = await response.json();
+			assert.equal(response.status, 500);
+			assert.equal(body.code, "webError.internal");
+			assert.equal(body.error, "The web service encountered an internal error");
+			assert.equal("debugDetails" in body, false);
+			assert.doesNotMatch(JSON.stringify(body), /SECRET_STACK_DETAIL/);
 		},
-	});
+		{
+			listProjects: () => {
+				throw new Error("SECRET_STACK_DETAIL");
+			},
+		},
+	);
 });
 
 test("web responses strip desktop diagnostics and raw prompt errors recursively", async () => {
-	await withServer(async ({ baseUrl, runtime }) => {
-		const state = await (await fetch(`${baseUrl}/api/state`)).json();
-		const serializedState = JSON.stringify(state);
-		assert.doesNotMatch(serializedState, /SECRET_MESSAGE_DIAGNOSTIC/);
-		assert.equal(
-			"debugDetails" in state.messagesBySession["session-1"][0].meta,
-			false,
-		);
+	await withServer(
+		async ({ baseUrl, runtime }) => {
+			// P0 瘦身后诊断剥离从有界消息端点断言（/api/state 已无消息负载）
+			const messagesBody = await (await fetch(`${baseUrl}/api/sessions/session-1/messages`)).json();
+			assert.doesNotMatch(JSON.stringify(messagesBody), /SECRET_MESSAGE_DIAGNOSTIC/);
+			assert.equal("debugDetails" in messagesBody.messages[0].meta, false);
 
-		const prompt = await (await fetch(`${baseUrl}/api/sessions/session-1/prompt`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ requestId: "request-raw-error", message: "hello" }),
-		})).json();
-		assert.equal(prompt.result.error, "Failed to send the message.");
-		assert.equal("debugDetails" in prompt.result, false);
-		assert.doesNotMatch(JSON.stringify(prompt), /SECRET_PROMPT_ERROR/);
+			const prompt = await (
+				await fetch(`${baseUrl}/api/sessions/session-1/prompt`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ requestId: "request-raw-error", message: "hello" }),
+				})
+			).json();
+			assert.equal(prompt.result.error, "Failed to send the message.");
+			assert.equal("debugDetails" in prompt.result, false);
+			assert.doesNotMatch(JSON.stringify(prompt), /SECRET_PROMPT_ERROR/);
 
-		const command = await (await fetch(`${baseUrl}/api/sessions/session-1/runtime/state`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ target: runtime }),
-		})).json();
-		assert.equal(command.result.error.code, "SESSION_COMMAND_FAILED");
-		assert.equal("debugDetails" in command.result.error, false);
-		assert.doesNotMatch(JSON.stringify(command), /SECRET_COMMAND_STACK/);
-	}, {
-		getSessionRuntimeMessages: (_sessionId) => ({
-			target: {
-				sessionId: "session-1",
-				agentId: "agent-1",
-				runtimeGeneration: 3,
-			},
-			value: [{
-				id: "m-secret",
-				agentId: "agent-1",
-				role: "error",
-				text: "Request failed.",
-				timestamp: 1,
-				meta: {
-					i18nKey: "diagnostic.requestFailedUnknown",
-					debugDetails: "SECRET_MESSAGE_DIAGNOSTIC",
+			const command = await (
+				await fetch(`${baseUrl}/api/sessions/session-1/runtime/state`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ target: runtime }),
+				})
+			).json();
+			assert.equal(command.result.error.code, "SESSION_COMMAND_FAILED");
+			assert.equal("debugDetails" in command.result.error, false);
+			assert.doesNotMatch(JSON.stringify(command), /SECRET_COMMAND_STACK/);
+		},
+		{
+			readSessionMessages: async () => ({
+				messages: [
+					{
+						id: "m-secret",
+						agentId: "agent-1",
+						role: "error",
+						text: "Request failed.",
+						timestamp: 1,
+						meta: {
+							i18nKey: "diagnostic.requestFailedUnknown",
+							debugDetails: "SECRET_MESSAGE_DIAGNOSTIC",
+						},
+					},
+				],
+				total: 1,
+				windowStart: 0,
+				truncated: false,
+			}),
+			sendSessionPrompt: async (input) => ({
+				accepted: false,
+				sessionId: input.sessionId,
+				requestId: input.requestId,
+				error: "SECRET_PROMPT_ERROR",
+				i18nKey: "diagnostic.promptRejected",
+				debugDetails: "SECRET_PROMPT_STACK",
+			}),
+			getSessionRuntimeState: async () => ({
+				ok: false,
+				error: {
+					code: "SESSION_COMMAND_FAILED",
+					debugDetails: "SECRET_COMMAND_STACK",
 				},
-			}],
-		}),
-		sendSessionPrompt: async (input) => ({
-			accepted: false,
-			sessionId: input.sessionId,
-			requestId: input.requestId,
-			error: "SECRET_PROMPT_ERROR",
-			i18nKey: "diagnostic.promptRejected",
-			debugDetails: "SECRET_PROMPT_STACK",
-		}),
-		getSessionRuntimeState: async () => ({
-			ok: false,
-			error: {
-				code: "SESSION_COMMAND_FAILED",
-				debugDetails: "SECRET_COMMAND_STACK",
-			},
-		}),
-	});
+			}),
+		},
+	);
 });
 
 test("SSE /stream endpoint forwards pi agent events as AI SDK UI message frames", async () => {
 	// 捕获 subscribe 的 handler，模拟主进程 pi 事件派发
 	let emitPiEvent = null;
-	await withServer(async ({ baseUrl }) => {
-		const controller = new AbortController();
-		const response = await fetch(`${baseUrl}/api/sessions/session-1/stream`, {
-			signal: controller.signal,
-			headers: { accept: "text/event-stream" },
-		});
-		assert.equal(response.status, 200);
-		assert.equal(response.headers.get("x-vercel-ai-ui-message-stream"), "v1");
-		assert.match(response.headers.get("content-type") ?? "", /text\/event-stream/);
+	await withServer(
+		async ({ baseUrl }) => {
+			const controller = new AbortController();
+			const response = await fetch(`${baseUrl}/api/sessions/session-1/stream`, {
+				signal: controller.signal,
+				headers: { accept: "text/event-stream" },
+			});
+			assert.equal(response.status, 200);
+			assert.equal(response.headers.get("x-vercel-ai-ui-message-stream"), "v1");
+			assert.match(response.headers.get("content-type") ?? "", /text\/event-stream/);
 
-		const reader = response.body.getReader();
-		const decoder = new TextDecoder();
-		let buffer = "";
-		const readUntil = async (marker) => {
-			for (;;) {
-				const at = buffer.indexOf(marker);
-				if (at !== -1) return buffer.slice(0, at + marker.length);
-				const { done, value } = await reader.read();
-				if (done) return buffer;
-				buffer += decoder.decode(value, { stream: true });
-			}
-		};
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = "";
+			const readUntil = async (marker) => {
+				for (;;) {
+					const at = buffer.indexOf(marker);
+					if (at !== -1) return buffer.slice(0, at + marker.length);
+					const { done, value } = await reader.read();
+					if (done) return buffer;
+					buffer += decoder.decode(value, { stream: true });
+				}
+			};
 
-		// 派发：消息开始 → 文本增量 → agent_settled（中间 agent_end 不再关流）
-		emitPiEvent("agent-1", { type: "message_start", message: { role: "assistant", id: "m1" } });
-		emitPiEvent("agent-1", {
-			type: "message_update",
-			assistantMessageEvent: { type: "text_delta", delta: "Hello" },
-		});
-		emitPiEvent("agent-1", {
-			type: "message_update",
-			assistantMessageEvent: { type: "text_delta", delta: " world" },
-		});
-		emitPiEvent("agent-1", { type: "agent_end", stopReason: "done" });
-		emitPiEvent("agent-1", { type: "agent_settled" });
+			// 派发：消息开始 → 文本增量 → agent_settled（中间 agent_end 不再关流）
+			emitPiEvent("agent-1", { type: "message_start", message: { role: "assistant", id: "m1" } });
+			emitPiEvent("agent-1", {
+				type: "message_update",
+				assistantMessageEvent: { type: "text_delta", delta: "Hello" },
+			});
+			emitPiEvent("agent-1", {
+				type: "message_update",
+				assistantMessageEvent: { type: "text_delta", delta: " world" },
+			});
+			emitPiEvent("agent-1", { type: "agent_end", stopReason: "done" });
+			emitPiEvent("agent-1", { type: "agent_settled" });
 
-		const wire = await readUntil("data: [DONE]");
-		const afterDone = await reader.read();
-		assert.equal(afterDone.done, true, "the SSE response must close after [DONE]");
-		const frames = wire.split("\n\n")
-			.filter((line) => line.startsWith("data: ") && line.slice(6).trim() !== "[DONE]")
-			.map((line) => JSON.parse(line.slice(6)));
-		assert.equal(frames[0].type, "start");
-		assert.equal(frames[0].messageId, "m1");
-		assert.equal(frames[1].type, "text-start");
-		assert.equal(frames[2].type, "text-delta");
-		assert.equal(frames[2].delta, "Hello");
-		assert.equal(frames[3].type, "text-delta");
-		assert.equal(frames[3].delta, " world");
-		// 同一文本块：text-delta 复用 text-start 的 id
-		assert.equal(frames[2].id, frames[1].id);
-		assert.equal(frames[3].id, frames[1].id);
-		assert.equal(frames[4].type, "text-end");
-		assert.equal(frames[5].type, "finish");
-		controller.abort();
-	}, {
-		// 用可捕获的 subscribe 覆盖默认的 no-op
-		subscribePiEvents: (handler) => {
-			emitPiEvent = handler;
-			return () => { emitPiEvent = null; };
+			const wire = await readUntil("data: [DONE]");
+			// keepAlive（W2）：/stream 是 EventSource 常驻订阅，一轮 [DONE] 后连接保留，
+			// 下一轮事件在同一连接上继续（旧语义「[DONE] 即关」导致 Ask 续答等后续轮次丢帧）。
+			// 验证法：直接发第二轮事件并读帧——若服务端已关连接，read 返回 done、读不到 Round2。
+			emitPiEvent("agent-1", { type: "message_start", message: { role: "assistant", id: "m2" } });
+			emitPiEvent("agent-1", { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Round2" } });
+			emitPiEvent("agent-1", { type: "agent_settled" });
+			const wire2 = await readUntil("Round2");
+			const frames = wire
+				.split("\n\n")
+				.filter((line) => line.startsWith("data: ") && line.slice(6).trim() !== "[DONE]")
+				.map((line) => JSON.parse(line.slice(6)));
+			assert.equal(frames[0].type, "start");
+			assert.equal(frames[0].messageId, "m1");
+			assert.equal(frames[1].type, "text-start");
+			assert.equal(frames[2].type, "text-delta");
+			assert.equal(frames[2].delta, "Hello");
+			assert.equal(frames[3].type, "text-delta");
+			assert.equal(frames[3].delta, " world");
+			// 同一文本块：text-delta 复用 text-start 的 id
+			assert.equal(frames[2].id, frames[1].id);
+			assert.equal(frames[3].id, frames[1].id);
+			assert.equal(frames[4].type, "text-end");
+			assert.equal(frames[5].type, "finish");
+			// 第二轮帧里必须出现新的 start（messageId=m2）：同连接跨轮重置生效。
+			const round2Start = wire2
+				.split("\n\n")
+				.filter((line) => line.startsWith("data: "))
+				.map((line) => line.slice(6))
+				.find(
+					(body) =>
+						body.startsWith("{") &&
+						(() => {
+							try {
+								return JSON.parse(body).type === "start" && JSON.parse(body).messageId === "m2";
+							} catch {
+								return false;
+							}
+						})(),
+				);
+			assert.ok(round2Start, "second turn must open with a fresh start frame (messageId m2) on the same connection");
+			controller.abort();
 		},
+		{
+			// 用可捕获的 subscribe 覆盖默认的 no-op
+			subscribePiEvents: (handler) => {
+				emitPiEvent = handler;
+				return () => {
+					emitPiEvent = null;
+				};
+			},
+		},
+	);
+});
+
+/**
+ * 回归：/api/chat 必须为每一轮提交生成独立的幂等键。
+ *
+ * AI SDK 的 DefaultChatTransport 把 useChat 的 chatId 放在 body.id，而 Web 端把
+ * chatId 直接设成了 sessionId（每轮都不变）。若服务端直接拿 body.id 当 requestId，
+ * SessionRuntimeCoordinator.deliveryByRequest（TTL 10 分钟）会把第二轮起的提交
+ * 当成「同一请求的重试」，直接返回上一轮缓存的 accepted 结果 —— pi 永远收不到新
+ * prompt，Web 端没有任何响应，桌面端也不落盘（用户现场：一个会话只能发第一条）。
+ */
+test("chat endpoint mints a per-turn request idempotency key instead of reusing the chat id", async () => {
+	const submit = (baseUrl, messageId, text) =>
+		fetch(`${baseUrl}/api/chat`, {
+			method: "POST",
+			headers: { "content-type": "application/json", accept: "text/event-stream" },
+			body: JSON.stringify({
+				// DefaultChatTransport 的真实报文：id = chatId = sessionId
+				id: "session-1",
+				messages: [{ id: messageId, role: "user", parts: [{ type: "text", text }] }],
+				trigger: "submit-message",
+				messageId,
+			}),
+		});
+	// SSE 响应不会自行结束（测试里没有 pi 事件源），只断言请求侧行为后立即断开。
+	const waitFor = async (predicate) => {
+		for (let attempt = 0; attempt < 200; attempt += 1) {
+			if (predicate()) return;
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
+		throw new Error("condition was not met before the timeout");
+	};
+
+	await withServer(async ({ baseUrl, calls }) => {
+		const first = await submit(baseUrl, "turn-1", "first");
+		assert.equal(first.status, 200);
+		void first.body?.cancel().catch(() => undefined);
+		await waitFor(() => calls.send.length === 1);
+
+		const second = await submit(baseUrl, "turn-2", "second");
+		assert.equal(second.status, 200);
+		void second.body?.cancel().catch(() => undefined);
+		await waitFor(() => calls.send.length === 2);
+
+		const [firstTurn, secondTurn] = calls.send;
+		assert.equal(firstTurn.message, "first");
+		assert.equal(secondTurn.message, "second");
+		// 幂等键不能复用上一轮的值，也不能退化成每轮相同的 chatId。
+		assert.notEqual(firstTurn.requestId, secondTurn.requestId);
+		assert.notEqual(firstTurn.requestId, "session-1");
+	});
+});
+
+/**
+ * 计划模式：/api/chat 必须把 body.agentMessage 原样透传给 sendSessionPrompt
+ * （隐藏指令通道，由内置扩展 pi-deck-plan-mode 识别）；未携带时不得注入空字段。
+ */
+test("chat endpoint forwards agentMessage hidden instruction when present", async () => {
+	const submit = (baseUrl, messageId, extra) =>
+		fetch(`${baseUrl}/api/chat`, {
+			method: "POST",
+			headers: { "content-type": "application/json", accept: "text/event-stream" },
+			body: JSON.stringify({
+				id: "session-1",
+				messages: [{ id: messageId, role: "user", parts: [{ type: "text", text: "帮我重构" }] }],
+				trigger: "submit-message",
+				messageId,
+				...extra,
+			}),
+		});
+	const waitFor = async (predicate) => {
+		for (let attempt = 0; attempt < 200; attempt += 1) {
+			if (predicate()) return;
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
+		throw new Error("condition was not met before the timeout");
+	};
+
+	await withServer(async ({ baseUrl, calls }) => {
+		// 隐居指令透传：内容原样到达 sendSessionPrompt
+		const planned = await submit(baseUrl, "plan-1", { agentMessage: "__PI_DECK_PLAN_MODE__\n帮我重构" });
+		assert.equal(planned.status, 200);
+		void planned.body?.cancel().catch(() => undefined);
+		await waitFor(() => calls.send.length === 1);
+		assert.equal(calls.send[0].agentMessage, "__PI_DECK_PLAN_MODE__\n帮我重构");
+
+		// 普通消息：不携带 agentMessage 字段（不注入空串，保持现有 payload 形态）
+		const plain = await submit(baseUrl, "plain-1", {});
+		assert.equal(plain.status, 200);
+		void plain.body?.cancel().catch(() => undefined);
+		await waitFor(() => calls.send.length === 2);
+		assert.equal("agentMessage" in calls.send[1], false);
 	});
 });
 
@@ -724,13 +920,13 @@ async function startMockDevServer() {
 		hits.push(request.url ?? "");
 		if (request.url === "/web.html") {
 			response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-			response.end("<div id=\"dev-web\">A2 React page</div>");
+			response.end('<div id="dev-web">A2 React page</div>');
 		} else if (request.url === "/assets/web.js") {
 			response.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
-			response.end("console.log(\"dev asset\");");
+			response.end('console.log("dev asset");');
 		} else if (request.url === "/@vite/client") {
 			response.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
-			response.end("console.log(\"vite client\");");
+			response.end('console.log("vite client");');
 		} else if (request.url?.startsWith("/src/web-main.tsx")) {
 			response.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
 			response.end(`console.log("entry with query: ${request.url}");`);
@@ -749,36 +945,57 @@ async function startMockDevServer() {
 }
 
 /** dev 模式（devRendererUrl 已注入）下，静态请求全部代理到 vite dev server。 */
+test("session activity strips routes expose subagents and todo snapshots", async () => {
+	await withServer(async ({ baseUrl }) => {
+		// 与桌面 IPC 同源的监控路由：形状 + 按 sessionId 取数
+		const subs = await (await fetch(`${baseUrl}/api/sessions/session-1/subagents`)).json();
+		assert.equal(subs.subagents[0].id, "sub-1");
+
+		const todo = await (await fetch(`${baseUrl}/api/sessions/session-1/todo`)).json();
+		assert.equal(todo.todo.todos[0].content, "ship it");
+
+		const missing = await (await fetch(`${baseUrl}/api/sessions/missing-session/todo`)).json();
+		assert.equal(missing.todo, null);
+	});
+});
+
+test("/api/sessions/:id/file-changes 已下线（2027-02）", async () => {
+	await withServer(async ({ baseUrl }) => {
+		// 会话级文件清单不再由 Web 端展示：桌面与 Web 都不再需要这条路由。
+		// 未命中路由即走兜底 404（而不是 503 或 200 空列表），确保它确实被移除。
+		const res = await fetch(`${baseUrl}/api/sessions/session-1/file-changes`);
+		assert.equal(res.status, 404);
+	});
+});
+
 test("web service dev mode proxies static assets to the renderer dev server", async () => {
 	const devServer = await startMockDevServer();
 	try {
-		await withServer(async ({ baseUrl }) => {
-			// 根路径 → 代理到 /web.html（外部端入口，而非桌面端 index.html）
-			const page = await fetch(baseUrl + "/");
-			assert.equal(page.status, 200);
-			assert.match(page.headers.get("content-type") ?? "", /text\/html/);
-			assert.match(await page.text(), /A2 React page/);
-			// 带扩展名资源 → 原样转发
-			const asset = await fetch(baseUrl + "/assets/web.js");
-			assert.equal(asset.status, 200);
-			assert.match(asset.headers.get("content-type") ?? "", /text\/javascript/);
-			assert.equal(await asset.text(), 'console.log("dev asset");');
-			// vite 内部模块（无扩展名）必须原样转发，不能被映射成 /web.html 的 HTML
-			const viteClient = await fetch(baseUrl + "/@vite/client");
-			assert.equal(viteClient.status, 200);
-			assert.match(viteClient.headers.get("content-type") ?? "", /text\/javascript/);
-			assert.equal(await viteClient.text(), 'console.log("vite client");');
-			// query 参数必须保留（vite 依赖预构建/HMR 依赖 ?v= ?t= ?import）
-			const withQuery = await fetch(baseUrl + "/src/web-main.tsx?v=abc&import");
-			assert.equal(withQuery.status, 200);
-			assert.match(await withQuery.text(), /entry with query: \/src\/web-main\.tsx\?v=abc&import/);
-			assert.deepEqual(devServer.hits, [
-				"/web.html",
-				"/assets/web.js",
-				"/@vite/client",
-				"/src/web-main.tsx?v=abc&import",
-			]);
-		}, { devRendererUrl: devServer.baseUrl });
+		await withServer(
+			async ({ baseUrl }) => {
+				// 根路径 → 代理到 /web.html（外部端入口，而非桌面端 index.html）
+				const page = await fetch(baseUrl + "/");
+				assert.equal(page.status, 200);
+				assert.match(page.headers.get("content-type") ?? "", /text\/html/);
+				assert.match(await page.text(), /A2 React page/);
+				// 带扩展名资源 → 原样转发
+				const asset = await fetch(baseUrl + "/assets/web.js");
+				assert.equal(asset.status, 200);
+				assert.match(asset.headers.get("content-type") ?? "", /text\/javascript/);
+				assert.equal(await asset.text(), 'console.log("dev asset");');
+				// vite 内部模块（无扩展名）必须原样转发，不能被映射成 /web.html 的 HTML
+				const viteClient = await fetch(baseUrl + "/@vite/client");
+				assert.equal(viteClient.status, 200);
+				assert.match(viteClient.headers.get("content-type") ?? "", /text\/javascript/);
+				assert.equal(await viteClient.text(), 'console.log("vite client");');
+				// query 参数必须保留（vite 依赖预构建/HMR 依赖 ?v= ?t= ?import）
+				const withQuery = await fetch(baseUrl + "/src/web-main.tsx?v=abc&import");
+				assert.equal(withQuery.status, 200);
+				assert.match(await withQuery.text(), /entry with query: \/src\/web-main\.tsx\?v=abc&import/);
+				assert.deepEqual(devServer.hits, ["/web.html", "/assets/web.js", "/@vite/client", "/src/web-main.tsx?v=abc&import"]);
+			},
+			{ devRendererUrl: devServer.baseUrl },
+		);
 	} finally {
 		await devServer.close();
 	}
@@ -787,9 +1004,12 @@ test("web service dev mode proxies static assets to the renderer dev server", as
 /** dev server 不可用（如只启动了主进程）时，回退 A1 内嵌页保证服务不白屏。 */
 test("web service dev mode falls back to the legacy page when dev server is down", async () => {
 	// 端口 1 通常无服务监听；fetch 连接拒绝后应回退内嵌页而非 500。
-	await withServer(async ({ baseUrl }) => {
-		const page = await fetch(baseUrl + "/");
-		assert.equal(page.status, 200);
-		assert.match(await page.text(), /PiDeck Web Service/);
-	}, { devRendererUrl: "http://127.0.0.1:1" });
+	await withServer(
+		async ({ baseUrl }) => {
+			const page = await fetch(baseUrl + "/");
+			assert.equal(page.status, 200);
+			assert.match(await page.text(), /PiDeck Web Service/);
+		},
+		{ devRendererUrl: "http://127.0.0.1:1" },
+	);
 });

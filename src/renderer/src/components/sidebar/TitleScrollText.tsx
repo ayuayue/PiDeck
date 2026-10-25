@@ -1,15 +1,11 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { cn } from "@/lib/utils";
+import { titleScrollDurationMs } from "./titleScrollTiming";
 
 type TitleScrollStyle = CSSProperties & {
 	"--title-scroll-distance"?: string;
 	"--title-scroll-duration"?: string;
 };
-
-const TITLE_SCROLL_PIXELS_PER_SECOND = 5;
-// 仅保留下限防抖：2px 最小溢出 → 400ms；不设上限（历史上 24s/300s 上限都会把
-// 超长标题（数百～数千 px）钦成 10px/s 以上的“飞滚”，违背 5px/s 恒定速度的初衷）。
-const TITLE_SCROLL_MIN_DURATION_MS = 300;
 
 /**
  * 侧栏会话标题的 hover 滚动展示。
@@ -20,9 +16,8 @@ const TITLE_SCROLL_MIN_DURATION_MS = 300;
  * 行为规则：
  * - 未溢出不滚动（scrollWidth <= clientWidth 时保持静止，避免所有行 hover 都动）；
  * - 默认静止显示开头（与现状渐隐截断一致）；hover 时滚动到末尾并停住；
- * - 离开 hover 回到开头；滚动为慢速匀速（线性 5px/s，不设时长上限：
- *   历史上 24s/300s 上限会把超长标题钳成 10px/s+ 的“飞滚”，与用户
- *   “长短都改 5px/s” 的诉求冲突；下限仅 300ms 防 2px 级抖动）；
+ * - 离开 hover 回到开头；滚动为线性 30px/s，时长按实际溢出距离精确计算，
+ *   不设上下限，确保短标题和超长标题保持相同速度；
  * - hover 事件绑定在静态窗口而不是移动文字上，避免文字滚走后触发 mouseleave；
  * - 溢出距离经 CSS 变量注入 keyframes，使用实际像素而非不稳定的视口单位。
  *
@@ -64,9 +59,15 @@ export function TitleScrollText({
 		measure();
 		// disabled 时不测溢出：不滚动的 tab 无需维持 ResizeObserver（节省常驻监听）；
 		// 激活态变化时 effect 随 disabled 重跑，切回可滚动会重新测量。
-		if (disabled) return () => { active = false; };
+		if (disabled)
+			return () => {
+				active = false;
+			};
 		// 字体加载和侧栏宽度变化都可能改变溢出量；两者统一由同一测量入口处理。
-		if (typeof ResizeObserver === "undefined") return () => { active = false; };
+		if (typeof ResizeObserver === "undefined")
+			return () => {
+				active = false;
+			};
 		const observer = new ResizeObserver(measure);
 		observer.observe(container);
 		observer.observe(content);
@@ -110,32 +111,13 @@ export function TitleScrollText({
 	const scrollStyle: TitleScrollStyle | undefined = overflowing
 		? {
 				"--title-scroll-distance": `${overflow}px`,
-				"--title-scroll-duration": `${Math.max(
-					TITLE_SCROLL_MIN_DURATION_MS,
-					Math.round((overflow / TITLE_SCROLL_PIXELS_PER_SECOND) * 1000),
-				)}ms`,
+				"--title-scroll-duration": `${titleScrollDurationMs(overflow)}ms`,
 			}
 		: undefined;
 
 	return (
-		<strong
-			ref={containerRef}
-			className={cn(
-				"block min-w-0 flex-1 overflow-hidden whitespace-nowrap",
-				overflowing && hovering && "title-scroll-mask-narrow",
-				className,
-			)}
-			onMouseEnter={handleMouseEnter}
-			onMouseLeave={handleMouseLeave}
-		>
-			<span
-				ref={textRef}
-				className={cn(
-					"title-scroll-text inline-block whitespace-nowrap",
-					overflowing && hovering && "animate-title-scroll",
-				)}
-				style={scrollStyle}
-			>
+		<strong ref={containerRef} className={cn("block min-w-0 flex-1 overflow-hidden whitespace-nowrap", overflowing && !hovering && "title-scroll-mask", overflowing && hovering && "title-scroll-mask-narrow", className)} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+			<span ref={textRef} className={cn("title-scroll-text inline-block whitespace-nowrap", overflowing && hovering && "animate-title-scroll")} style={scrollStyle}>
 				{text}
 			</span>
 		</strong>

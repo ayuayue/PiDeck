@@ -8,6 +8,7 @@ import vm from "node:vm";
 const require = createRequire(import.meta.url);
 
 function loadEditorDetector(fsStub, platform = "win32") {
+	const winPath = require("node:path").win32;
 	const source = readFileSync("src/main/editors/EditorDetector.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
 		compilerOptions: {
@@ -30,7 +31,7 @@ function loadEditorDetector(fsStub, platform = "win32") {
 		},
 		require: (name) => {
 			if (name === "node:fs/promises") return fsStub;
-			if (name === "node:path") return require("node:path");
+			if (name === "node:path") return winPath;
 			if (name === "node:child_process") {
 				return {
 					// 假 reg 进程：spawn 后立刻模拟进程结束（无输出），
@@ -47,6 +48,8 @@ function loadEditorDetector(fsStub, platform = "win32") {
 				};
 			}
 			if (name === "electron") return { shell: { openPath: async () => "" } };
+			// 打开目录统一入口（issue #396）：本测试不触达打开路径，noop stub。
+			if (name === "../fs/openPath") return { openSystemPath: async () => "" };
 			if (name === "../../shared/types") {
 				return {
 					SUPPORTED_EXTERNAL_EDITORS: [
@@ -70,40 +73,32 @@ function loadEditorDetector(fsStub, platform = "win32") {
 
 // ── matchProgramsDirName：目录名前缀匹配规则 ─────────────────────────
 
+test("editorLaunchSpawnOptions：win32 带 windowsHide，避免 cmd /c start 闪控制台", () => {
+	const { editorLaunchSpawnOptions } = loadEditorDetector({});
+	const options = editorLaunchSpawnOptions();
+	assert.equal(options.detached, true);
+	assert.equal(options.stdio, "ignore");
+	assert.equal(options.shell, false);
+	assert.equal(options.windowsHide, true);
+});
+
 test("matchProgramsDirName matches versioned and unversioned JetBrains dirs", () => {
 	const { matchProgramsDirName } = loadEditorDetector({});
 
-	assert.equal(
-		matchProgramsDirName(["IntelliJ IDEA 2026.1", "Zed"], ["IntelliJ IDEA"]),
-		"IntelliJ IDEA 2026.1",
-	);
-	assert.equal(
-		matchProgramsDirName(["IntelliJ IDEA", "Notepad++"], ["IntelliJ IDEA"]),
-		"IntelliJ IDEA",
-	);
+	assert.equal(matchProgramsDirName(["IntelliJ IDEA 2026.1", "Zed"], ["IntelliJ IDEA"]), "IntelliJ IDEA 2026.1");
+	assert.equal(matchProgramsDirName(["IntelliJ IDEA", "Notepad++"], ["IntelliJ IDEA"]), "IntelliJ IDEA");
 	// Community Edition 前缀同源也应命中
-	assert.equal(
-		matchProgramsDirName(["IntelliJ IDEA Community Edition 2026.1"], ["IntelliJ IDEA"]),
-		"IntelliJ IDEA Community Edition 2026.1",
-	);
+	assert.equal(matchProgramsDirName(["IntelliJ IDEA Community Edition 2026.1"], ["IntelliJ IDEA"]), "IntelliJ IDEA Community Edition 2026.1");
 	// 大小写不敏感（磁盘目录名可能有大小写差异）
-	assert.equal(
-		matchProgramsDirName(["pycharm 2026.1"], ["PyCharm"]),
-		"pycharm 2026.1",
-	);
-	assert.equal(
-		matchProgramsDirName(["WebStorm 2025.3", "PhpStorm 2025.1"], ["WebStorm"]),
-		"WebStorm 2025.3",
-	);
+	assert.equal(matchProgramsDirName(["pycharm 2026.1"], ["PyCharm"]), "pycharm 2026.1");
+	assert.equal(matchProgramsDirName(["WebStorm 2025.3", "PhpStorm 2025.1"], ["WebStorm"]), "WebStorm 2025.3");
 	assert.equal(matchProgramsDirName(["Zed", "VS Code"], ["IntelliJ IDEA"]), null);
 });
 
 // ── detectExternalEditors：JetBrains 版本目录通配扫描 ─────────────────
 
 test("detectExternalEditors finds IntelliJ IDEA installed in unversioned Programs dir", async () => {
-	const existing = new Set([
-		"C:\\Users\\test\\AppData\\Local\\Programs\\IntelliJ IDEA\\bin\\idea64.exe",
-	]);
+	const existing = new Set(["C:\\Users\\test\\AppData\\Local\\Programs\\IntelliJ IDEA\\bin\\idea64.exe"]);
 	const fsStub = {
 		access: async (p) => {
 			if (!existing.has(p)) throw new Error("ENOENT");
@@ -122,17 +117,12 @@ test("detectExternalEditors finds IntelliJ IDEA installed in unversioned Program
 
 	const idea = editors.find((editor) => editor.id === "idea");
 	assert.ok(idea, "IntelliJ IDEA should be detected via Programs dir scan");
-	assert.equal(
-		idea.command,
-		"C:\\Users\\test\\AppData\\Local\\Programs\\IntelliJ IDEA\\bin\\idea64.exe",
-	);
+	assert.equal(idea.command, "C:\\Users\\test\\AppData\\Local\\Programs\\IntelliJ IDEA\\bin\\idea64.exe");
 	assert.equal(idea.detectedFrom, "common-path");
 });
 
 test("detectExternalEditors scans JetBrains subdir for versioned installs", async () => {
-	const existing = new Set([
-		"C:\\Program Files\\JetBrains\\WebStorm 2026.1\\bin\\webstorm64.exe",
-	]);
+	const existing = new Set(["C:\\Program Files\\JetBrains\\WebStorm 2026.1\\bin\\webstorm64.exe"]);
 	const fsStub = {
 		access: async (p) => {
 			if (!existing.has(p)) throw new Error("ENOENT");

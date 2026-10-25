@@ -4,8 +4,9 @@ import { stripAnsi } from "./TimelineFormat";
 
 /**
  * 失败/重试提示：主进程以 role=error / role=system 消息携带这些 i18nKey（见 AgentManager）。
- * 失败类保留时间线诊断卡片（留痕可排查），同时弹 toast（即时提醒）；
- * 仅重试状态提示类保持 toast-only，见 TOAST_ONLY_FAILURE_KEYS。
+ * 失败类与自动重试状态类都保留时间线诊断卡片（留痕可排查），同时弹 toast（即时提醒）；
+ * 重试卡走专属标题/图标，见 RETRY_STATUS_KEYS。
+ * 例外：重试成功卡是瞬态卡，不进时间线（见 RETRY_SUCCEEDED_KEY / isTransientRetryCard）。
  * pi 启动失败、runtimeError，以及扩展执行错误（带 debugDetails）本就保留诊断卡片。
  */
 export const FLOATING_FAILURE_KEYS = new Set([
@@ -30,15 +31,15 @@ export const FLOATING_FAILURE_KEYS = new Set([
 export const EXTENSION_ERROR_I18N_KEY = "diagnostic.extensionError";
 
 /**
- * 只弹 toast、不渲染时间线卡片的 key：
- * 重试状态提示（已调度/成功）不是失败，每次重试都刷新同一条消息，铺到面板会反复跳动刷屏。
- * retryFailed 本身是失败，走时间线留痕。
+ * 自动重试状态卡（已调度 / 等待延迟后重试 / 重试成功 / 重试失败）：
+ * 渲染层据此把「系统状态」换成「自动重试」标题，并在进行中时给旋转图标。
+ * 这些 key 必须照常渲染时间线卡片——此前只弹 toast，用户事后完全看不出重试发生过
+ * （toast 会自己消失、也不进历史），现在 toast 负责即时提醒、卡片负责留痕。
+ * 唯一例外是「重试成功」：pi 按「一次 LLM 调用」计数，同一轮 run 内多次 5xx 会各发一次
+ * auto_retry_end(success)，成功卡留在时间线上就堆成一排（见 isTransientRetryCard）。
  */
-export const TOAST_ONLY_FAILURE_KEYS = new Set([
-	"diagnostic.retryScheduled",
-	"diagnostic.retryScheduledAfterDelay",
-	"diagnostic.retrySucceeded",
-]);
+export const RETRY_SUCCEEDED_KEY = "diagnostic.retrySucceeded";
+export const RETRY_STATUS_KEYS = new Set(["diagnostic.retryScheduled", "diagnostic.retryScheduledAfterDelay", RETRY_SUCCEEDED_KEY, "diagnostic.retryFailed"]);
 
 /** toast 里附带的 debugDetails 上限，避免整段堆栈撑爆通知。 */
 const MAX_TOAST_DETAIL_CHARS = 280;
@@ -63,9 +64,26 @@ export function isFloatingFailureMessage(message: ChatMessage): boolean {
 	return FLOATING_FAILURE_KEYS.has(messageI18nKey(message));
 }
 
-/** 判断消息是否为「只弹 toast、不渲染时间线卡片」的重试状态提示。 */
-export function isToastOnlyFailureMessage(message: ChatMessage): boolean {
-	return TOAST_ONLY_FAILURE_KEYS.has(messageI18nKey(message));
+/** 判断消息是否为自动重试状态卡（标题走「自动重试」，等待重试时图标旋转）。 */
+export function isRetryStatusMessage(message: ChatMessage): boolean {
+	return RETRY_STATUS_KEYS.has(messageI18nKey(message));
+}
+
+/**
+ * 重试成功卡是瞬态卡：不进时间线。
+ *
+ * 为什么：pi 的自动重试按「一次 LLM 调用」计数——同一轮 run 里连续多次 5xx 会各发一次
+ * auto_retry_end(success)，主进程每个周期各留一张卡；成功卡不退场就会堆成一排
+ * 「自动重试成功，共重试 N 次」（用户反馈：连续重试挂一排很难看）。重试成功由 toast
+ * 即时报告，紧接着就是正常回答，时间线不需要这张卡。
+ * 进行中的重试卡与失败卡仍照常渲染：进行中要告诉用户「当前不是最终失败」，
+ * 失败要留痕可排查。
+ *
+ * 只作用于时间线渲染：toast 扫描用完整消息列表（reduceFailureNoticePass），
+ * 成功 toast 与签名去重都不受影响。
+ */
+export function isTransientRetryCard(message: ChatMessage): boolean {
+	return messageI18nKey(message) === RETRY_SUCCEEDED_KEY;
 }
 
 /** 扩展执行错误：时间线保留诊断卡，同时对新发生的错误弹一次带详情的 toast。 */
@@ -92,10 +110,7 @@ export function failureRetrySignature(message: ChatMessage): string | undefined 
 	if (!key) return undefined;
 	const meta = message.meta as Record<string, unknown> | undefined;
 	const params = meta?.i18nParams;
-	const count =
-		typeof params === "object" && params
-			? String((params as Record<string, unknown>).count ?? meta?.attempt ?? "")
-			: String(meta?.attempt ?? "");
+	const count = typeof params === "object" && params ? String((params as Record<string, unknown>).count ?? meta?.attempt ?? "") : String(meta?.attempt ?? "");
 	return `${message.id}:${key}:${count}`;
 }
 
@@ -201,13 +216,8 @@ export function composeFailureNotice(message: ChatMessage): FailureNoticeContent
 	}
 
 	return {
-		title: t(
-			isRetry
-				? "diagnostic.retryToastTitle"
-				: isExtensionError
-					? "diagnostic.extensionErrorToastTitle"
-					: "diagnostic.failureToastTitle",
-		),
+		// toast 与时间线重试卡共用同一标题 key，避免两处文案各自漂移。
+		title: t(isRetry ? "diagnostic.retryTitle" : isExtensionError ? "diagnostic.extensionErrorToastTitle" : "diagnostic.failureToastTitle"),
 		body,
 		kind: isRetry ? "info" : "error",
 		duration: isRetry ? 2200 : 6000,

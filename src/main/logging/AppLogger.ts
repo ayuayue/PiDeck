@@ -1,15 +1,10 @@
-import { app, shell } from "electron";
+import { app } from "electron";
 import { appendFile, mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AppLogEntry, AppLogLevel, AppLogPage, AppLogQuery } from "../../shared/types";
-import {
-	DEFAULT_PAGE_SIZE,
-	LOG_FILE_PATTERN,
-	MAX_FILE_LINES,
-	filterLogFiles,
-	queryLogLines,
-	toAppLogPage,
-} from "./logQuery";
+import { readTextBounded } from "../fs/boundedTextRead";
+import { openSystemPath } from "../fs/openPath";
+import { DEFAULT_PAGE_SIZE, LOG_FILE_PATTERN, MAX_FILE_LINES, filterLogFiles, queryLogLines, toAppLogPage } from "./logQuery";
 import { LogLineCache } from "./logLineCache";
 
 const MAX_LOG_FILES = 14;
@@ -37,11 +32,7 @@ export class AppLogger {
 	private readonly dir = join(app.getPath("userData"), "logs");
 	private writeQueue: Promise<void> = Promise.resolve();
 	/** 历史日志文件行缓存：查询只重读指纹变化的文件（当天 append 文件），避免每次进设置日志 tab 全量读盘 */
-	private readonly lineCache = new LogLineCache(
-		{ readFile: (p) => readFile(p, "utf8"), stat },
-		32,
-		MAX_FILE_LINES,
-	);
+	private readonly lineCache = new LogLineCache({ readFile: (p) => readFile(p, "utf8"), readFileTail: (p, bytes) => readTextBounded(p, bytes, "tail"), stat }, 32, MAX_FILE_LINES);
 
 	log(level: AppLogLevel, scope: string, message: string, detail?: unknown) {
 		const entry: AppLogEntry = {
@@ -87,7 +78,10 @@ export class AppLogger {
 	async listPage(query: AppLogQuery = {}): Promise<AppLogPage> {
 		await mkdir(this.dir, { recursive: true });
 		const files = filterLogFiles(
-			(await readdir(this.dir)).filter((file) => LOG_FILE_PATTERN.test(file)).sort().slice(-MAX_LOG_FILES),
+			(await readdir(this.dir))
+				.filter((file) => LOG_FILE_PATTERN.test(file))
+				.sort()
+				.slice(-MAX_LOG_FILES),
 			query.from,
 			query.to,
 		);
@@ -110,9 +104,7 @@ export class AppLogger {
 		await mkdir(this.dir, { recursive: true });
 		const files = await readdir(this.dir);
 		const before = files.filter((file) => LOG_FILE_PATTERN.test(file));
-		await Promise.all(
-			before.map((file) => unlink(join(this.dir, file)).catch(() => undefined)),
-		);
+		await Promise.all(before.map((file) => unlink(join(this.dir, file)).catch(() => undefined)));
 		// 清日志后行缓存必须清空：旧行来自已删除文件，残留会导致重查时读到旧内容
 		this.lineCache.clear();
 		// 清日志属敏感操作，留痕记录清除前的文件数/大小，便于事后审计
@@ -122,11 +114,14 @@ export class AppLogger {
 	/** 计算所有应用日志文件的总字节数 */
 	async getSize(): Promise<number> {
 		await mkdir(this.dir, { recursive: true });
-		const files = (await readdir(this.dir))
-			.filter((file) => LOG_FILE_PATTERN.test(file));
+		const files = (await readdir(this.dir)).filter((file) => LOG_FILE_PATTERN.test(file));
 		let total = 0;
 		for (const file of files) {
-			try { total += (await stat(join(this.dir, file))).size; } catch { /* 单个文件统计失败不影响整体 */ }
+			try {
+				total += (await stat(join(this.dir, file))).size;
+			} catch {
+				/* 单个文件统计失败不影响整体 */
+			}
 		}
 		return total;
 	}
@@ -139,7 +134,10 @@ export class AppLogger {
 	/** 列出日志文件（名称/字节数/修改时间），按名称倒序（最新在前）。 */
 	async listFiles(): Promise<Array<{ name: string; path: string; sizeBytes: number; modifiedAt: number }>> {
 		await mkdir(this.dir, { recursive: true });
-		const names = (await readdir(this.dir)).filter((file) => LOG_FILE_PATTERN.test(file)).sort().reverse();
+		const names = (await readdir(this.dir))
+			.filter((file) => LOG_FILE_PATTERN.test(file))
+			.sort()
+			.reverse();
 		const files: Array<{ name: string; path: string; sizeBytes: number; modifiedAt: number }> = [];
 		for (const name of names) {
 			try {
@@ -150,14 +148,16 @@ export class AppLogger {
 					sizeBytes: info.size,
 					modifiedAt: info.mtimeMs,
 				});
-			} catch { /* 单个文件统计失败不影响整体 */ }
+			} catch {
+				/* 单个文件统计失败不影响整体 */
+			}
 		}
 		return files;
 	}
 
 	async openFolder() {
 		await mkdir(this.dir, { recursive: true });
-		await shell.openPath(this.dir);
+		await openSystemPath(this.dir);
 	}
 
 	private async writeEntry(entry: AppLogEntry) {
@@ -168,9 +168,7 @@ export class AppLogger {
 	}
 
 	private async cleanupOldFiles() {
-		const files = (await readdir(this.dir).catch(() => []))
-			.filter((file) => LOG_FILE_PATTERN.test(file))
-			.sort();
+		const files = (await readdir(this.dir).catch(() => [])).filter((file) => LOG_FILE_PATTERN.test(file)).sort();
 		const expired = files.slice(0, Math.max(0, files.length - MAX_LOG_FILES));
 		await Promise.all(expired.map((file) => unlink(join(this.dir, file)).catch(() => undefined)));
 	}

@@ -13,17 +13,20 @@ test("usage: picker group row and context meter panel show provider usage", asyn
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 
 	// fetch-usage stub：provider "mock" → $88.5 余额（绿）；其余 unsupported
-	await app.evaluate((electron, usageByProvider) => {
-		// app.evaluate 只序列化函数体：通道名就地字面量、函数体内解构（见 provider-usage.spec.ts 注释）
-		const { ipcMain } = electron;
-		ipcMain.removeHandler("config:fetch-usage");
-		ipcMain.handle("config:fetch-usage", (_event, payload: { provider?: string }) => {
-			const hit = payload?.provider ? usageByProvider[payload.provider] : undefined;
-			return hit ?? { success: false, error: "unsupported provider (e2e stub)" };
-		});
-	}, {
-		mock: { success: true, kind: "balance", balance: { value: 88.5, currency: "USD" }, at: Date.now() },
-	} as Record<string, unknown>);
+	await app.evaluate(
+		(electron, usageByProvider) => {
+			// app.evaluate 只序列化函数体：通道名就地字面量、函数体内解构（见 provider-usage.spec.ts 注释）
+			const { ipcMain } = electron;
+			ipcMain.removeHandler("config:fetch-usage");
+			ipcMain.handle("config:fetch-usage", (_event, payload: { provider?: string }) => {
+				const hit = payload?.provider ? usageByProvider[payload.provider] : undefined;
+				return hit ?? { success: false, error: "unsupported provider (e2e stub)" };
+			});
+		},
+		{
+			mock: { success: true, kind: "balance", balance: { value: 88.5, currency: "USD" }, at: Date.now() },
+		} as Record<string, unknown>,
+	);
 
 	// 合成器就绪（欢迎页直接可用）
 	const composer = window.locator(".composer .rich-input");

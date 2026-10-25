@@ -51,12 +51,44 @@
 .markdown-body [data-streamdown="heading-6"] {
   font-size: 0.95em;
 }
-.markdown-body [data-streamdown="ordered-list"],
 .markdown-body [data-streamdown="unordered-list"] {
   list-style-position: outside;
   /* 列表上下边距加大、缩进放宽（1.35→1.5em），多条列表更易逐条扫读（beui pl-5 + my-3）。 */
   margin: 0.55em 0 0.75em;
   padding-left: 1.5em;
+}
+/*
+ * 有序列表编号改用「li 内绝对定位计数器」，不再依赖 ::marker 的 outside 悬挂（issue #369）。
+ *
+ * outside marker 会被排到内容列左侧（宽度取决于编号位数与字体），一旦超出列表 padding 区，
+ * 就会被 .markdown-body 的 overflow-x: clip 裁掉：macOS 自定义字体下 1./2. 只剩右半边，
+ * 表现为「数字标题部分被覆盖」。计数器钉在 li 自己的左内边距里（left: 0），永远落在内容列内，
+ * 同时保持与原生 marker 相同的视觉：编号右对齐、正文/换行统一缩进 1.7em。
+ *
+ * 带 start（从非 1 开始，如 markdown 的 "3."）的列表保留原生 marker，由浏览器按 start 编号；
+ * 给这类列表多留悬挂空间，降低宽编号被裁切的概率。
+ */
+.markdown-body [data-streamdown="ordered-list"] {
+  list-style-position: outside;
+  margin: 0.55em 0 0.75em;
+  padding-left: 2.2em;
+}
+.markdown-body [data-streamdown="ordered-list"]:not([start]) {
+  list-style: none;
+  counter-reset: pideck-ol;
+  padding-left: 0;
+}
+.markdown-body [data-streamdown="ordered-list"]:not([start]) > [data-streamdown="list-item"] {
+  position: relative;
+  counter-increment: pideck-ol;
+  padding-left: 1.7em;
+}
+.markdown-body [data-streamdown="ordered-list"]:not([start]) > [data-streamdown="list-item"]::before {
+  content: counter(pideck-ol) ".";
+  position: absolute;
+  inset-inline-start: 0;
+  width: 1.35em;
+  text-align: end;
 }
 .markdown-body [data-streamdown="list-item"] {
   /* 列表项行间留白略增（0.12em→0.2em）。 */
@@ -189,7 +221,7 @@
 }
 
 [data-streamdown="code-block-actions"] button:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--focus-ring-color);
   outline-offset: 1px;
 }
 

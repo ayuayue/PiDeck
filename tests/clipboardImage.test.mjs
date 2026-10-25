@@ -26,11 +26,7 @@ function transpile(path) {
 
 function loadClipboardImageParser() {
 	const module = { exports: {} };
-	vm.runInNewContext(
-		transpile("src/shared/clipboardImage.ts"),
-		{ module, exports: module.exports },
-		{ filename: "clipboardImage.ts" },
-	);
+	vm.runInNewContext(transpile("src/shared/clipboardImage.ts"), { module, exports: module.exports }, { filename: "clipboardImage.ts" });
 	return module.exports;
 }
 
@@ -159,7 +155,10 @@ describe("writeClipboardImage", () => {
 		});
 		const ok = await writeClipboardImage("data:image/png;base64,abc");
 		assert.equal(ok, false);
-		assert.equal(logs.some((entry) => entry.scope === "clipboard"), true);
+		assert.equal(
+			logs.some((entry) => entry.scope === "clipboard"),
+			true,
+		);
 	});
 });
 

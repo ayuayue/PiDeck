@@ -14,7 +14,5 @@ export function appendSessionForkSuffix(title: string, suffix: string): string {
 	if (!title || !suffix) return title;
 	// 已带后缀（外部命名/重复调用）不再追加，避免 "xxx (fork) (fork)"。
 	// 同时兼容无空格形式（用户手动命名 "xxx(fork)"）不重复追加。
-	return title.endsWith(" " + suffix) || title.endsWith(suffix)
-		? title
-		: `${title} ${suffix}`;
+	return title.endsWith(" " + suffix) || title.endsWith(suffix) ? title : `${title} ${suffix}`;
 }
