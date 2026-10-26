@@ -60,6 +60,13 @@ type AcpManagerDeps = {
 	abortEscalationMs?: number;
 	/** 回合无输出 stall 判定阈值(默认 90s)。测试注入短值验证看门狗。 */
 	promptStallTimeoutMs?: number;
+	/**
+	 * ACP 超时口径的运行时读口（settings.acpPromptStallTimeoutMs / acpPromptTurnTimeoutMs）。
+	 * 每次布防/派发实时读：设置变更后新回合立即生效，不需要重启。静态注入字段
+	 * （promptStallTimeoutMs/promptTurnTimeoutMs，单测用）优先于本读口（#411：静态快照
+	 * 让设置够不到看门狗，长工具调用/长回合被 90s/10min 硬编码误杀）。
+	 */
+	readAcpTimeoutSettings?: () => { promptStallTimeoutMs?: number; promptTurnTimeoutMs?: number };
 };
 
 export class AcpAgentManager implements SessionAgentGateway {
@@ -87,7 +94,11 @@ export class AcpAgentManager implements SessionAgentGateway {
 			forceStop: (runtime, reason) => this.forceStopRuntime(runtime, reason),
 			logger: deps.logger,
 			abortEscalationMs: deps.abortEscalationMs,
-			promptStallTimeoutMs: deps.promptStallTimeoutMs,
+			// getter：stall 阈值每次布防时实时解析（静态测试注入优先，其次 settings 读口，
+			// 最后代码内默认 90s）。构造期静态快照会让设置变更够不到看门狗（#411 根因之一）。
+			get promptStallTimeoutMs() {
+				return deps.promptStallTimeoutMs ?? deps.readAcpTimeoutSettings?.().promptStallTimeoutMs;
+			},
 		});
 		this.updates = new AcpUpdatePipeline(
 			{
@@ -262,6 +273,7 @@ export class AcpAgentManager implements SessionAgentGateway {
 			abortEscalateTimer: null,
 			stallTimer: null,
 			lastUpdateAt: 0,
+			inFlightToolCalls: new Set<string>(),
 			escalatedStop: null,
 		};
 		this.runtimes.set(agentId, runtime);
@@ -366,7 +378,10 @@ export class AcpAgentManager implements SessionAgentGateway {
 			// 长回合请求不套默认 60s 短超时:深思模型单回合可超分钟级,超时应由 abort/stop/连接死亡驱动;
 			// 10 分钟兑底防真悬死(实测 codex-acp 思考型回合 >60s,见 scripts/acpLiveSmoke.mjs)。
 			// 可注入 deps.promptTurnTimeoutMs 供测试缩短。
-			const result = (await conn.request("session/prompt", { sessionId: runtime.acpSessionId, prompt }, this.deps.promptTurnTimeoutMs ?? PROMPT_TURN_TIMEOUT_MS)) as AcpSessionPromptResult;
+			// 回合兑底超时三段解析：静态测试注入 → settings 读口（每次派发实时读，变更后
+			// 新回合生效）→ 代码内默认 10min。
+			const turnTimeoutMs = this.deps.promptTurnTimeoutMs ?? this.deps.readAcpTimeoutSettings?.().promptTurnTimeoutMs ?? PROMPT_TURN_TIMEOUT_MS;
+			const result = (await conn.request("session/prompt", { sessionId: runtime.acpSessionId, prompt }, turnTimeoutMs)) as AcpSessionPromptResult;
 			this.turnWatchdog.clearTurnTimers(runtime);
 			// 结算前先排空 update 链:result 帧与末批 update 同为 stdout 行序分发,
 			// 但链上每步含异步物化,settle 提前会把在途流式块拆成新回合。
@@ -384,6 +399,7 @@ export class AcpAgentManager implements SessionAgentGateway {
 			runtime.projection = settleAcpTurn(runtime.projection, runtime.cancelling ? "cancelled" : "error");
 			runtime.turnActive = false;
 			runtime.permissions.cancelAll();
+			runtime.inFlightToolCalls.clear();
 			// 请求超时 ≠ agent 侧回合结束:agent 仍在跑旧回合,后续 session/prompt 会一直
 			// 排在它后面反复超时(opencode 卡死实测);abort() 也因 turnActive 已清而 no-op。
 			// 超时必须补发 session/cancel 让 agent 收口旧回合,否则会话永久卡死。
@@ -417,6 +433,7 @@ export class AcpAgentManager implements SessionAgentGateway {
 		}
 		runtime.turnActive = false;
 		runtime.permissions.cancelAll();
+		runtime.inFlightToolCalls.clear();
 		if (runtime.status === "running") {
 			runtime.status = "idle";
 			runtime.tab.status = "idle";
@@ -454,6 +471,7 @@ export class AcpAgentManager implements SessionAgentGateway {
 		runtime.cancelling = true;
 		runtime.cancelReason = "user_stop";
 		runtime.permissions.cancelAll();
+		runtime.inFlightToolCalls.clear();
 		runtime.conn.notify("session/cancel", { sessionId: runtime.acpSessionId, reason: "user_stop" });
 		// cancel 只是通知:CLI 可能既不处理也不回包(opencode 流错误后实测 wedged)。
 		// 宽限内回合自行结算则定时器被清;超时升级强杀,保证「停止」最终必然生效。
@@ -549,9 +567,10 @@ export class AcpAgentManager implements SessionAgentGateway {
 		this.emit(ipcChannels.agentsRuntimeState, { agentId, state: buildAgentRuntimeState(runtime) });
 	}
 
-	/** 连接关闭/stop 时撤销全部审批；RPC 回包与 timer 清理由权限 owner 配对。 */
+	/** 连接关闭/stop 时撤销全部审批并清在途工具集；RPC 回包与 timer 清理由权限 owner 配对。 */
 	private failPendingPermissions(runtime: AcpAgentRuntime): void {
 		runtime.permissions.cancelAll();
+		runtime.inFlightToolCalls.clear();
 	}
 
 	/**

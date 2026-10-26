@@ -48,6 +48,10 @@ export type AcpAgentRuntime = {
 	stallTimer: NodeJS.Timeout | null;
 	/** 最近一次 session/update 或回合派发的时间戳,stall 判定基准。 */
 	lastUpdateAt: number;
+	/** 在途工具调用 id 集：tool_call 开始入集，tool_call_update 终态出集（AcpUpdatePipeline 维护）。
+	 *  stall 看门狗把「有在途工具调用」视作合法等待（同挂起审批）：长命令 started→completed
+	 *  之间可长时间无流式输出，不算静默；回合各收口点清空，防跨回合泄漏成永久豁免。 */
+	inFlightToolCalls: Set<string>;
 	/** 本回合升级强杀原因;sendPrompt catch 依此定向结算(delivery=unknown + 本地化文案)。 */
 	escalatedStop: AcpAbortEscalationReason | null;
 	/** 会话标题(session_info_update / new 返回值;供 catalog 自动标题)。 */

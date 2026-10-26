@@ -10,7 +10,7 @@
  */
 import { ipcChannels } from "../../shared/ipc";
 import type { AgentTab } from "../../shared/types/agent";
-import type { AcpConfigOption, AcpRpcNotification, AcpSessionUpdate } from "./acpProtocol";
+import type { AcpConfigOption, AcpRpcNotification, AcpSessionUpdate, AcpToolCallUpdate } from "./acpProtocol";
 import type { AcpAgentRuntime } from "./acpAgentRuntime";
 import { projectAcpSessionUpdate } from "./AcpEventProjector";
 import type { AcpMessageSnapshotStore } from "./AcpMessageSnapshotStore";
@@ -66,6 +66,9 @@ export class AcpUpdatePipeline {
 		}
 		// 实时 prompt 已在本地记录完整 user 消息；echo 仅用于历史恢复，不能重复追加。
 		if (runtime.turnActive && update.sessionUpdate === "user_message_chunk") return;
+		// 在途工具调用跟踪（stall 看门狗豁免依据）：tool_call 开始入集，终态出集。
+		// 长命令 started→completed 之间常无任何流式输出，是合法静默，与挂起审批同等对待。
+		trackInFlightToolCall(runtime, update);
 		runtime.projection = projectAcpSessionUpdate(runtime.projection, update, runtime.tab.id);
 		// 图片物化:投影器产出的 base64 图在进消息缓存前落盘成 ref(同生图「base64 不进历史」契约);
 		// 失败保留 data 形态展示(ACP 不写 JSONL,内联形态只是内存开销,不违反存储约束)。
@@ -161,4 +164,22 @@ export class AcpUpdatePipeline {
 			this.snapshots.set(runtime.acpSessionId, runtime.projection.messages);
 		}
 	}
+}
+
+/**
+ * 在途工具调用集合维护（stall 看门狗的豁免依据）：tool_call 开始入集；tool_call_update
+ * 的 pending/in_progress 再入集（容忍重复帧），其余状态（completed 及未来可能的 failed）
+ * 一律按终态出集——宁可提前解除豁免（回落全静默判定），也不让脏帧把豁免永久挂住。
+ * toolCallId 非法直接忽略（同投影器口径）；幂等无副作用，回合收口点统一 clear。
+ */
+function trackInFlightToolCall(runtime: AcpAgentRuntime, update: AcpSessionUpdate): void {
+	if (update.sessionUpdate !== "tool_call" && update.sessionUpdate !== "tool_call_update") return;
+	const toolCallId = (update as AcpToolCallUpdate).toolCallId;
+	if (typeof toolCallId !== "string" || !toolCallId) return;
+	const status = (update as AcpToolCallUpdate).status;
+	if (update.sessionUpdate === "tool_call_update" && status !== "pending" && status !== "in_progress") {
+		runtime.inFlightToolCalls.delete(toolCallId);
+		return;
+	}
+	runtime.inFlightToolCalls.add(toolCallId);
 }

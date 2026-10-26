@@ -6028,6 +6028,12 @@ app
 			getProject: (projectId) => projectStore.get(projectId),
 			getTools: () => settingsStore.get().acpTools ?? [],
 			isEnabled: () => settingsStore.get().acpEnabled === true,
+			// ACP 超时口径运行时读口：每次布防/派发实时读 settings（变更后新回合生效，
+			// 不需要重启）；undefined 回落代码内默认（stall 90s / turn 10min）。
+			readAcpTimeoutSettings: () => {
+				const settings = settingsStore.get();
+				return { promptStallTimeoutMs: settings.acpPromptStallTimeoutMs, promptTurnTimeoutMs: settings.acpPromptTurnTimeoutMs };
+			},
 			// configOptions 变更推送：set_config_option 响应/config_option_update 通知都走同一事件,
 			// 渲染层按 agentId 隔离(旧 agent 迟到事件写旧 atom,不再被读)。
 			onConfigOptionsChanged: (tab, options) => {

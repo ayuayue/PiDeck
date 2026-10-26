@@ -884,6 +884,18 @@ export type AppSettings = {
 	 * 删除工具后旧会话靠 acpSessionId 只读降级。缺省 undefined = 空表（无 ACP 工具）。
 	 */
 	acpTools?: AcpToolConfig[];
+	/**
+	 * ACP 回合 stall 静默判定阈值（ms）：回合内无任何 session/update、无挂起审批且无在途
+	 * 工具调用的全静默超过该值，先补发 session/cancel 再升级强杀。缺省 undefined = 代码内
+	 * 默认 90_000（acpTurnWatchdog.PROMPT_STALL_TIMEOUT_MS）。变更后新回合生效，不需要重启。
+	 */
+	acpPromptStallTimeoutMs?: number;
+	/**
+	 * ACP session/prompt 回合兑底超时（ms）：单回合硬上限，与是否持续产出无关，超时补发
+	 * session/cancel 收口。缺省 undefined = 代码内默认 600_000（AcpAgentManager.PROMPT_TURN_TIMEOUT_MS）。
+	 * 复杂任务单回合可超 10 分钟时按需调大。变更后新回合生效，不需要重启。
+	 */
+	acpPromptTurnTimeoutMs?: number;
 };
 
 /**

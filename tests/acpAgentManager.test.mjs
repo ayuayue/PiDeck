@@ -1191,3 +1191,99 @@ test("sendPrompt 派发失败:撤回刚落的用户条目（不留没有回复�
 	const flushed = events.messages.at(-1);
 	assert.equal(flushed.messages.filter((message) => message.role === "user").length, 0, "派发失败且 agent 未产出时必须撤回");
 });
+
+test("stall 看门狗:在途工具调用期间不判静默(等待工具是合法状态),工具收口后恢复判静默", async (t) => {
+	let promptSeen = false;
+	const { manager, createAgent, lastProc } = harness(
+		t,
+		{
+			handler: (frame, { writeFromCli }) => {
+				if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: {} };
+				if (frame.method === "session/new") return { sessionId: "sess-tool-stall" };
+				if (frame.method === "session/prompt") {
+					promptSeen = true;
+					// 长命令形态(npm install/构建/测试):tool_call 开始后到 completed 之间无任何流式输出
+					writeFromCli({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "sess-tool-stall", update: { sessionUpdate: "tool_call", toolCallId: "tc-1", status: "pending" } } });
+					return undefined;
+				}
+				return {};
+			},
+		},
+		{ promptStallTimeoutMs: 80, abortEscalationMs: 50 },
+	);
+	const tab = await createAgent();
+	const sendPromise = manager.sendPrompt({ agentId: tab.id, message: "long running tool" });
+	await waitFor(() => promptSeen, "prompt dispatched");
+	await sleep(260); // 全静默远超阈值:在途工具调用豁免,不得 cancel/强杀
+	assert.equal(lastProc().methodFrames("session/cancel").length, 0, "在途工具调用期间不得发 stall cancel");
+	assert.equal(lastProc().proc.exitCode, null, "在途工具调用期间不得强杀进程");
+	// 工具收口(终态出集)后全静默:静默基准已随 update 刷新,阈值重新起算,看门狗恢复开火
+	lastProc().writeFromCli({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "sess-tool-stall", update: { sessionUpdate: "tool_call_update", toolCallId: "tc-1", status: "completed" } } });
+	await waitFor(() => lastProc().proc.exitCode === 0, "tool completed then stall force kill");
+	const stallCancels = lastProc()
+		.methodFrames("session/cancel")
+		.filter((frame) => frame.params?.reason === "stall");
+	assert.equal(stallCancels.length, 1, "工具收口后的新静默仍要被看门狗抓到");
+	const result = await sendPromise;
+	assert.equal(result.accepted, false);
+	assert.equal(result.i18nKey, "acp.stallForceStopped");
+});
+
+test("stall 看门狗:settings 读口实时生效(readAcpTimeoutSettings,变更后新回合即用,无需重启)", async (t) => {
+	let promptSeen = false;
+	const { manager, createAgent, lastProc } = harness(
+		t,
+		{
+			handler: (frame) => {
+				if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: {} };
+				if (frame.method === "session/new") return { sessionId: "sess-stall-settings" };
+				if (frame.method === "session/prompt") {
+					promptSeen = true;
+					return undefined;
+				}
+				return {};
+			},
+		},
+		// 不注入静态测试字段,只给 settings 读口:证明布防路径真的走到 settings 口径
+		{ readAcpTimeoutSettings: () => ({ promptStallTimeoutMs: 80 }) },
+	);
+	const tab = await createAgent();
+	const sendPromise = manager.sendPrompt({ agentId: tab.id, message: "silent hang" });
+	await waitFor(() => promptSeen, "prompt dispatched");
+	await waitFor(
+		() =>
+			lastProc()
+				.methodFrames("session/cancel")
+				.some((frame) => frame.params?.reason === "stall"),
+		"stall cancel via settings",
+	);
+	const result = await sendPromise;
+	assert.equal(result.accepted, false);
+	assert.equal(result.i18nKey, "acp.stallForceStopped");
+});
+
+test("session/prompt 兑底超时:settings 读口生效(readAcpTimeoutSettings.promptTurnTimeoutMs)", async (t) => {
+	let promptSeen = false;
+	const { manager, createAgent, lastProc } = harness(
+		t,
+		{
+			handler: (frame) => {
+				if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: {} };
+				if (frame.method === "session/new") return { sessionId: "sess-turn-timeout-settings" };
+				if (frame.method === "session/prompt") {
+					promptSeen = true;
+					return undefined;
+				}
+				return {};
+			},
+		},
+		{ readAcpTimeoutSettings: () => ({ promptTurnTimeoutMs: 40 }) },
+	);
+	const tab = await createAgent();
+	const result = await manager.sendPrompt({ agentId: tab.id, message: "hang" });
+	await waitFor(() => promptSeen, "prompt dispatched");
+	assert.equal(result.accepted, false);
+	assert.match(result.error, /ACP request timed out after 40ms: session\/prompt/);
+	await waitFor(() => lastProc().methodFrames("session/cancel").length === 1);
+	assert.equal(lastProc().methodFrames("session/cancel")[0].params.reason, "turn_timeout");
+});

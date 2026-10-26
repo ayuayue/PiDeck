@@ -67,7 +67,7 @@ export class AcpTurnWatchdog {
 	 * 回合 stall 看门狗：派发时布防，interval 检查 turnActive 期间是否长时间无任何
 	 * session/update。全静默超阈值 → 先补发 cancel（agent 可能只是模型侧卡住，还活着），
 	 * 再经 abort 升级宽限强杀——两级都由 host.forceStop 收口。
-	 * 挂起审批不算静默：那是 agent 合法等待用户输入。
+	 * 挂起审批与在途工具调用不算静默：那都是 agent 合法等待（用户输入/工具执行）。
 	 */
 	armStallWatchdog(runtime: AcpAgentRuntime): void {
 		this.clearStallWatchdog(runtime);
@@ -80,6 +80,13 @@ export class AcpTurnWatchdog {
 				return;
 			}
 			if (runtime.permissions.hasPending()) return;
+			// 在途工具调用不算静默：那是 agent 合法等待工具结束（npm install/构建/测试等
+			// 长命令在 tool_call started→completed 之间可长时间无流式输出），与挂起审批同等
+			// 豁免。刷新静默基准=工具收口后重新起算；真悬死由回合兑底超时收口（#411）。
+			if (runtime.inFlightToolCalls.size > 0) {
+				runtime.lastUpdateAt = Date.now();
+				return;
+			}
 			if (Date.now() - runtime.lastUpdateAt < timeoutMs) return;
 			this.clearStallWatchdog(runtime);
 			runtime.cancelling = true;

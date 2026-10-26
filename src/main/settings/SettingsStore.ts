@@ -476,6 +476,16 @@ function clampToastDurationMs(value: unknown): number {
 	return value;
 }
 
+/**
+ * ACP 超时口径清洗：只接受正整数毫秒（上限 24h）；其余（脏数据/越界/负数/浮点）返回
+ * undefined 回落代码内默认（stall 90s / turn 10min），不落盘脏值去骗看门狗。
+ */
+function sanitizeOptionalPositiveIntMs(value: unknown): number | undefined {
+	if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+	const n = Math.floor(value);
+	return n > 0 && n <= 86_400_000 ? n : undefined;
+}
+
 export class SettingsStore {
 	private readonly filePath = desktopSettingsPath();
 	private settings: AppSettings = { ...defaultSettings };
@@ -586,6 +596,9 @@ export class SettingsStore {
 			this.settings.acpEnabled = parsed.acpEnabled === true;
 			// ACP 工具登记表：手改 settings.json 的脏条目在加载边界归一，不等到首次 update。
 			this.settings.acpTools = sanitizeAcpTools(parsed.acpTools);
+			// ACP 超时口径：正整数毫秒；脏值丢弃回落代码内默认（stall 90s / turn 10min）。
+			this.settings.acpPromptStallTimeoutMs = sanitizeOptionalPositiveIntMs(parsed.acpPromptStallTimeoutMs);
+			this.settings.acpPromptTurnTimeoutMs = sanitizeOptionalPositiveIntMs(parsed.acpPromptTurnTimeoutMs);
 			// 字号档位：旧版本有 5 档（多一个已删除的 "default"），现在是 4 档（紧凑/中/大/特大）。
 			// 刻意不做迁移框架——任何不在档位表里的历史值一律落到「中」，旧用户升级后自动等于中；
 			// 同时避免 UI 下拉读到未知值时变成空白。null（跟随全局）必须保持 null。
@@ -861,6 +874,18 @@ export class SettingsStore {
 		}
 		if ("acpTools" in safePatch) {
 			safePatch.acpTools = sanitizeAcpTools(safePatch.acpTools);
+		}
+		// ACP 超时口径来自渲染层/手改，入参不可信：非法值删键不落盘（保留既有合法值或回落默认），
+		// 合法值 floor 成整数——同一口径在加载边界与写入边界都归一，避免两条路径漂移。
+		if ("acpPromptStallTimeoutMs" in safePatch) {
+			const stallMs = sanitizeOptionalPositiveIntMs(safePatch.acpPromptStallTimeoutMs);
+			if (stallMs === undefined) delete safePatch.acpPromptStallTimeoutMs;
+			else safePatch.acpPromptStallTimeoutMs = stallMs;
+		}
+		if ("acpPromptTurnTimeoutMs" in safePatch) {
+			const turnMs = sanitizeOptionalPositiveIntMs(safePatch.acpPromptTurnTimeoutMs);
+			if (turnMs === undefined) delete safePatch.acpPromptTurnTimeoutMs;
+			else safePatch.acpPromptTurnTimeoutMs = turnMs;
 		}
 		// 更新源 id 归一化（只允许已知枚举：atomgit 第一首选，github 官方；其余历史值回退 atomgit）。
 		if ("updateSource" in safePatch) {
