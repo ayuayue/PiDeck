@@ -3,7 +3,7 @@
 	"apiVersion": 1,
 	"id": "billion-context",
 	"name": "billion-context",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"description": "查看并启停 billion-context 本地代理（bili），并用 PiDeck 内置浏览器打开它的 Web 面板 /__bili/。需要自行全局安装 billion-context。",
 	"permissions": ["service.local"],
 	"services": ["billion-context"],

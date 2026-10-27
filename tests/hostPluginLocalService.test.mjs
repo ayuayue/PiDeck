@@ -164,6 +164,59 @@ test("broker: openUi forwards the adapter-derived url and refuses a stopped serv
 	broker2.dispose();
 });
 
+test("broker: openUi(pid) routes to the allowlisted instance and rejects unknown pids", async () => {
+	// 多实例服务（如 billion-context 的 lane daemon）：instances 全部来自主进程适配器报告。
+	const multi = fakeAdapter({
+		status: async () => ({
+			id: SERVICE_ID,
+			available: true,
+			running: true,
+			pid: 13436,
+			uiUrl: "http://127.0.0.1:8787/__bili/",
+			instances: [
+				{ pid: 13436, uiUrl: "http://127.0.0.1:8787/__bili/" },
+				{ pid: 20664, uiUrl: "http://127.0.0.1:18790/__bili/" },
+			],
+		}),
+	});
+	const opened = [];
+	const broker = brokerFor(["service.local"], [SERVICE_ID], new LocalServiceRegistry([multi.adapter]));
+	broker.onOpenBrowser((url) => opened.push(url));
+	broker.bind(1, "example.viewer", "f", context);
+	// 点名 lane 实例 → 打开 lane 的面板
+	assert.deepEqual(plain(await broker.request(1, true, { method: "service.openUi", id: SERVICE_ID, pid: 20664 })), { ok: true, value: null });
+	// 不带 pid → 仍然是主实例（向后兼容）
+	await broker.request(1, true, { method: "service.openUi", id: SERVICE_ID });
+	assert.deepEqual(opened, ["http://127.0.0.1:18790/__bili/", "http://127.0.0.1:8787/__bili/"]);
+
+	// 白名单外/已退出的 pid → service-not-running，什么都不开
+	const opened2 = [];
+	broker.onOpenBrowser((url) => opened2.push(url));
+	assert.deepEqual(plain(await broker.request(1, true, { method: "service.openUi", id: SERVICE_ID, pid: 1 })), { ok: false, code: "service-not-running" });
+	assert.deepEqual(opened2, []);
+
+	// 单实例服务没有 instances 字段 → 点名任何 pid 都拒
+	const single = fakeAdapter();
+	const broker3 = brokerFor(["service.local"], [SERVICE_ID], new LocalServiceRegistry([single.adapter]));
+	broker3.bind(1, "example.viewer", "f", context);
+	assert.deepEqual(plain(await broker3.request(1, true, { method: "service.openUi", id: SERVICE_ID, pid: 42 })), { ok: false, code: "service-not-running" });
+
+	broker.dispose();
+	broker3.dispose();
+});
+
+test("policy: openUi pid must be a positive integer when present", () => {
+	assert.deepEqual(plain(parsePluginRequest({ method: "service.openUi", id: SERVICE_ID, pid: 20664 })), { method: "service.openUi", id: SERVICE_ID, pid: 20664 });
+	// 省略 pid 的请求归一化为不带 pid（向后兼容）
+	assert.deepEqual(plain(parsePluginRequest({ method: "service.openUi", id: SERVICE_ID })), { method: "service.openUi", id: SERVICE_ID });
+	assert.deepEqual(plain(parsePluginRequest({ method: "service.openUi", id: SERVICE_ID, pid: undefined })), { method: "service.openUi", id: SERVICE_ID });
+	for (const bad of [0, -1, 1.5, "20664", NaN]) {
+		assert.throws(() => parsePluginRequest({ method: "service.openUi", id: SERVICE_ID, pid: bad }), /invalid-request/);
+	}
+	// pid 字段只对 openUi 有意义：其他服务方法带上也不收（能力面最小化）
+	assert.throws(() => parsePluginRequest({ method: "service.status", id: SERVICE_ID, pid: 20664 }), /invalid-request/);
+});
+
 test("broker: revoking the plugin aborts an in-flight start and voids its result", async () => {
 	let released;
 	const started = new Promise((resolve) => {
@@ -191,18 +244,71 @@ test("broker: revoking the plugin aborts an in-flight start and voids its result
 test("billion-context report: only loopback origins with a live pid count as running", () => {
 	const report = (processes, global) => JSON.stringify({ processes, global });
 	const live = { instanceId: "i", pid: 23704, port: 28800, origin: "http://127.0.0.1:28800", alive: true };
-	assert.deepEqual(plain(parseBillionContextReport(report([live], { runningVersion: "0.1.195" }))), { running: true, pid: 23704, origin: "http://127.0.0.1:28800", version: "0.1.195" });
+	assert.deepEqual(plain(parseBillionContextReport(report([live], { runningVersion: "0.1.195" }))), { running: true, pid: 23704, origin: "http://127.0.0.1:28800", version: "0.1.195", instances: [{ pid: 23704, origin: "http://127.0.0.1:28800" }] });
 	// 没有 origin 但有 pid + port：origin 由 port 推导
 	assert.equal(parseBillionContextReport(report([{ pid: 7, port: 8788, alive: true }], {})).origin, "http://127.0.0.1:8788");
 	// 报告被改写成公网地址 → 不当成可用（否则会把内置浏览器带走）
-	assert.deepEqual(plain(parseBillionContextReport(report([{ pid: 7, port: 8788, origin: "http://evil.example.com:8788", alive: true }], {}))), { running: false });
-	assert.deepEqual(plain(parseBillionContextReport(report([{ pid: 7, port: 8788, origin: "https://127.0.0.1:8788", alive: true }], {}))), { running: false });
+	assert.deepEqual(plain(parseBillionContextReport(report([{ pid: 7, port: 8788, origin: "http://evil.example.com:8788", alive: true }], {}))), { running: false, instances: [] });
+	assert.deepEqual(plain(parseBillionContextReport(report([{ pid: 7, port: 8788, origin: "https://127.0.0.1:8788", alive: true }], {}))), { running: false, instances: [] });
 	// alive:false / 缺 pid 的条目不算运行
-	assert.deepEqual(plain(parseBillionContextReport(report([{ ...live, alive: false }], {}))), { running: false });
-	assert.deepEqual(plain(parseBillionContextReport(report([{ port: 8788, alive: true }], {}))), { running: false });
+	assert.deepEqual(plain(parseBillionContextReport(report([{ ...live, alive: false }], {}))), { running: false, instances: [] });
+	assert.deepEqual(plain(parseBillionContextReport(report([{ port: 8788, alive: true }], {}))), { running: false, instances: [] });
 	// 报告本身不可解析（区别于「装了但没跑」）
 	assert.equal(parseBillionContextReport("not json"), null);
 	assert.equal(parseBillionContextReport("[]"), null);
+});
+
+test("billion-context report: collects every live instance (lane daemons included) in table order", () => {
+	const report = (processes) => JSON.stringify({ processes, global: {} });
+	const shared = { instanceId: "i", origin: "http://127.0.0.1:8787", alive: true };
+	// 进程表顺序即优先级：第一个活实例是主实例，lane daemon（如 pi 自己拉起的）跟在后面。
+	const snapshot = parseBillionContextReport(
+		report([
+			{ ...shared, pid: 13436, port: 8787 },
+			{ instanceId: "b", pid: 20664, port: 18790, alive: true },
+			{ ...shared, pid: 99999, port: 28800, alive: false },
+		]),
+	);
+	assert.deepEqual(plain(snapshot), {
+		running: true,
+		pid: 13436,
+		origin: "http://127.0.0.1:8787",
+		instances: [
+			{ pid: 13436, origin: "http://127.0.0.1:8787" },
+			{ pid: 20664, origin: "http://127.0.0.1:18790" },
+		],
+	});
+	// 非回环实例被剔除后仍不影响其余实例入列。
+	const filtered = parseBillionContextReport(
+		report([
+			{ pid: 1, port: 8788, origin: "http://10.0.0.1:8788", alive: true },
+			{ pid: 2, port: 8789, alive: true },
+		]),
+	);
+	assert.deepEqual(plain(filtered.instances), [{ pid: 2, origin: "http://127.0.0.1:8789" }]);
+});
+
+test("billion-context status: maps every live instance to a loopback uiUrl", async () => {
+	const report = JSON.stringify({
+		processes: [
+			{ instanceId: "a", pid: 13436, port: 8787, origin: "http://127.0.0.1:8787", alive: true },
+			{ instanceId: "b", pid: 20664, port: 18790, alive: true },
+		],
+		global: { runningVersion: "0.1.208" },
+	});
+	const service = new BillionContextService({ cli: { run: async () => ({ ok: true, stdout: report }), spawnDetached: async () => ({ ok: true }) }, kill: async () => true });
+	assert.deepEqual(plain(await service.status()), {
+		id: "billion-context",
+		available: true,
+		running: true,
+		pid: 13436,
+		uiUrl: "http://127.0.0.1:8787/__bili/",
+		version: "0.1.208",
+		instances: [
+			{ pid: 13436, uiUrl: "http://127.0.0.1:8787/__bili/" },
+			{ pid: 20664, uiUrl: "http://127.0.0.1:18790/__bili/" },
+		],
+	});
 });
 
 test("billion-context service: status, start and stop all go through the fixed CLI commands", async () => {
@@ -213,14 +319,14 @@ test("billion-context service: status, start and stop all go through the fixed C
 	const stopped = JSON.stringify({ processes: [], global: { runningVersion: "0.1.195" } });
 
 	const service = new BillionContextService({ cli: cli(running), kill });
-	assert.deepEqual(plain(await service.status()), { id: SERVICE_ID, available: true, running: true, pid: 23704, uiUrl: "http://127.0.0.1:28800/__bili/", version: "0.1.195" });
+	assert.deepEqual(plain(await service.status()), { id: SERVICE_ID, available: true, running: true, pid: 23704, uiUrl: "http://127.0.0.1:28800/__bili/", version: "0.1.195", instances: [{ pid: 23704, uiUrl: "http://127.0.0.1:28800/__bili/" }] });
 	assert.deepEqual(record, [["run", "doctor", "--json"]]);
 
 	// 未运行 → 先起进程，再轮询到 doctor 报告存活；命令固定为 `bili start`
 	record.length = 0;
 	let calls = 0;
 	const starting = new BillionContextService({ cli: cli(() => (++calls === 1 ? stopped : running)), kill });
-	assert.deepEqual(plain(await starting.start()), { id: SERVICE_ID, available: true, running: true, pid: 23704, uiUrl: "http://127.0.0.1:28800/__bili/", version: "0.1.195" });
+	assert.deepEqual(plain(await starting.start()), { id: SERVICE_ID, available: true, running: true, pid: 23704, uiUrl: "http://127.0.0.1:28800/__bili/", version: "0.1.195", instances: [{ pid: 23704, uiUrl: "http://127.0.0.1:28800/__bili/" }] });
 	assert.deepEqual(record, [
 		["run", "doctor", "--json"],
 		["spawn", "start"],
@@ -490,29 +596,35 @@ test("服务已在运行时三个按钮不能停在忙碌时的置灰状态", as
 	// 根因：paint() 是在忙碌期间被调用的，setBusy(false) 之后没人重算 disabled。
 	// 这里跑真脚本 + 假 DOM 断言最终可点状态（app.js 是浏览器脚本、无 import，vm 直接求值）。
 	const elements = new Map();
+	const fakeNode = () => ({
+		className: "",
+		textContent: "",
+		title: "",
+		hidden: false,
+		disabled: false,
+		dataset: {},
+		listeners: {},
+		addEventListener(type, handler) {
+			this.listeners[type] = handler;
+		},
+		setAttribute(name, value) {
+			this[name] = value;
+		},
+		replaceChildren() {},
+		append() {},
+	});
 	const element = (id) => {
 		if (!elements.has(id)) {
 			elements.set(id, {
 				id,
-				textContent: "",
-				title: "",
-				hidden: false,
-				disabled: false,
-				dataset: {},
-				listeners: {},
-				addEventListener(type, handler) {
-					this.listeners[type] = handler;
-				},
-				setAttribute(name, value) {
-					this[name] = value;
-				},
+				...fakeNode(),
 			});
 		}
 		return elements.get(id);
 	};
 	const running = { id: SERVICE_ID, available: true, running: true, pid: 23704, uiUrl: "http://127.0.0.1:28800/__bili/" };
 	const sandbox = {
-		document: { body: { dataset: {} }, documentElement: { lang: "" }, getElementById: element },
+		document: { body: { dataset: {} }, documentElement: { lang: "" }, getElementById: element, createElement: () => fakeNode(), querySelectorAll: () => [] },
 		window: { setTimeout, clearTimeout },
 		pideck: {
 			context: { get: async () => ({ locale: "zh-CN" }) },

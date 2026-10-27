@@ -43,7 +43,7 @@ const api: HostPluginApi = {
 		status: (id) => request({ method: "service.status", id }),
 		start: (id) => request({ method: "service.start", id }),
 		stop: (id) => request({ method: "service.stop", id }),
-		openUi: (id) => requestVoid({ method: "service.openUi", id }),
+		openUi: (id, pid) => requestVoid({ method: "service.openUi", id, ...(typeof pid === "number" ? { pid } : {}) }),
 	},
 	onEvent: (listener) => {
 		const handler = (_event: Electron.IpcRendererEvent, event: HostPluginEvent) => listener(event);

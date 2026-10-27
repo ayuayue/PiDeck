@@ -93,8 +93,8 @@ export type HostPluginRequest =
 	| { method: "service.status"; id: string }
 	| { method: "service.start"; id: string }
 	| { method: "service.stop"; id: string }
-	/** 打开服务自己的 Web UI（不返回地址，由 PiDeck 用内置浏览器打开，避免插件把浏览器引到别处）。 */
-	| { method: "service.openUi"; id: string }
+	/** 打开服务自己的 Web UI（不返回地址，由 PiDeck 用内置浏览器打开，避免插件把浏览器引到别处）；pid 可从 status.instances 白名单里点名多实例服务（如 lane daemon）的某个实例。 */
+	| { method: "service.openUi"; id: string; pid?: number }
 	| { method: "network.request"; request: HostPluginNetworkRequest };
 export type HostPluginResponse = HostPluginResult<unknown>;
 export type HostPluginMountInput = { pluginId: string; panelId: string; context: HostPluginContext };
@@ -172,7 +172,7 @@ export type HostPluginApi = {
 		status: (id: string) => Promise<LocalServiceStatus>;
 		start: (id: string) => Promise<LocalServiceStatus>;
 		stop: (id: string) => Promise<LocalServiceStatus>;
-		openUi: (id: string) => Promise<void>;
+		openUi: (id: string, pid?: number) => Promise<void>;
 	};
 	onEvent: (listener: (event: HostPluginEvent) => void) => () => void;
 };

@@ -103,10 +103,18 @@ export function parsePluginRequest(value: unknown): HostPluginRequest {
 		if (parsed.protocol !== "https:" || !parsed.hostname || parsed.username || parsed.password) throw new Error("invalid-request");
 		return { method: value.method, url: parsed.toString() };
 	}
-	if (value.method === "service.status" || value.method === "service.start" || value.method === "service.stop" || value.method === "service.openUi") {
+	if (value.method === "service.status" || value.method === "service.start" || value.method === "service.stop") {
 		// 服务 ID 必须命中 PiDeck 自己实现的白名单；命令、参数、端口全在主进程适配器里，插件无从传入。
 		if (!isLocalServiceId(value.id)) throw new Error("invalid-request");
+		// pid 只对 openUi 有意义；其他服务方法带上一律拒——能力面最小化，多出的字段不会被静默丢弃。
+		if (value.pid !== undefined) throw new Error("invalid-request");
 		return { method: value.method, id: value.id };
+	}
+	if (value.method === "service.openUi") {
+		if (!isLocalServiceId(value.id)) throw new Error("invalid-request");
+		// openUi 的 pid 是「从主进程报告的实例白名单里点名」：不是地址，必须是正整数；省略即主实例。
+		if (value.pid !== undefined && (typeof value.pid !== "number" || !Number.isInteger(value.pid) || value.pid <= 0 || value.pid > 2 ** 31 - 1)) throw new Error("invalid-request");
+		return { method: value.method, id: value.id, ...(typeof value.pid === "number" ? { pid: value.pid } : {}) };
 	}
 	throw new Error("unsupported-method");
 }

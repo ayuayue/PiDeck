@@ -21,7 +21,7 @@ export type BillionContextServiceDeps = {
 	timing?: { pollMs?: number; startSettleMs?: number; stopSettleMs?: number };
 };
 
-type ServiceSnapshot = { running: boolean; pid?: number; origin?: string; version?: string };
+type ServiceSnapshot = { running: boolean; pid?: number; origin?: string; version?: string; instances: { pid: number; origin: string }[] };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -64,14 +64,17 @@ export function parseBillionContextReport(stdout: string): ServiceSnapshot | nul
 	if (!isRecord(parsed)) return null;
 	const version = readVersion(parsed);
 	const processes = Array.isArray(parsed.processes) ? parsed.processes : [];
+	// 全部活实例都收（bili 支持 lane daemon，进程表可能同时有多行）；第一个仍是主实例。
+	const instances: { pid: number; origin: string }[] = [];
 	for (const entry of processes) {
 		if (!isRecord(entry) || entry.alive !== true) continue;
 		const pid = typeof entry.pid === "number" && Number.isInteger(entry.pid) && entry.pid > 0 ? entry.pid : undefined;
 		const origin = loopbackOrigin(entry);
 		if (!pid || !origin) continue;
-		return { running: true, pid, origin, ...(version ? { version } : {}) };
+		instances.push({ pid, origin });
 	}
-	return { running: false, ...(version ? { version } : {}) };
+	if (instances.length > 0) return { running: true, pid: instances[0].pid, origin: instances[0].origin, instances, ...(version ? { version } : {}) };
+	return { running: false, instances: [], ...(version ? { version } : {}) };
 }
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
@@ -117,7 +120,17 @@ export class BillionContextService implements LocalServiceAdapter {
 		const snapshot = parseBillionContextReport(report.stdout);
 		if (!snapshot) return { id: this.id, available: false, running: false, reason: "invalid-report" };
 		if (!snapshot.running) return { id: this.id, available: true, running: false, ...(snapshot.version ? { version: snapshot.version } : {}) };
-		return { id: this.id, available: true, running: true, pid: snapshot.pid, uiUrl: `${snapshot.origin}${BILI_UI_PATH}`, ...(snapshot.version ? { version: snapshot.version } : {}) };
+		const withVersion = (url: string) => ({ uiUrl: url, ...(snapshot.version ? { version: snapshot.version } : {}) });
+		return {
+			id: this.id,
+			available: true,
+			running: true,
+			pid: snapshot.pid,
+			...withVersion(`${snapshot.origin}${BILI_UI_PATH}`),
+			// lane daemon（如 pi 自己拉起的实例）也会出现在进程表里：全部带给面板，
+			// openUi(pid) 从这份白名单里点名，插件依旧拿不到「注 own 地址」的能力面。
+			instances: snapshot.instances.map((inst) => ({ pid: inst.pid, uiUrl: `${inst.origin}${BILI_UI_PATH}` })),
+		};
 	}
 
 	async start(signal?: AbortSignal): Promise<LocalServiceStatus> {

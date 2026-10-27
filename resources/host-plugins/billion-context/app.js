@@ -18,6 +18,8 @@ const COPY = {
 		installHint: "未检测到可用的 bili 命令，请先全局安装：npm i -g billion-context",
 		stoppedHint: "服务未运行。面板是代理进程自带的，不跑就没有面板。",
 		noUiHint: "服务已运行但未报告端口，无法确定面板地址。",
+		instances: "实例",
+		openInstance: "打开",
 		modalHint: "面板只监听 127.0.0.1 且无鉴权，只在本机浏览器访问；不要暴露到公网或局域网。",
 		reasons: {
 			"service-unavailable": "PiDeck 未实现该服务的适配器。",
@@ -49,6 +51,8 @@ const COPY = {
 		installHint: "No usable bili command was found. Install it globally: npm i -g billion-context",
 		stoppedHint: "The service is not running. The panel ships with the proxy process, so there is no panel without it.",
 		noUiHint: "The service is running but reported no port, so the panel URL is unknown.",
+		instances: "Instances",
+		openInstance: "Open",
 		modalHint: "The panel listens on 127.0.0.1 only and has no authentication — local browsers only. Never expose the port to a network.",
 		reasons: {
 			"service-unavailable": "PiDeck has no adapter for this service.",
@@ -90,6 +94,37 @@ function errorText(error) {
 	return reasonText(typeof error?.message === "string" ? error.message : "");
 }
 
+/** 多实例服务（如 lane daemon）：只有拿到 ≥2 个活实例时才展开列表，单实例就用主「打开面板」按钮。 */
+function paintInstances(status) {
+	const box = el("instances");
+	const list = Array.isArray(status.instances) ? status.instances : [];
+	if (!status.running || list.length < 2) {
+		box.replaceChildren();
+		box.hidden = true;
+		return;
+	}
+	const title = document.createElement("p");
+	title.className = "instances-title";
+	title.textContent = copy.instances;
+	const rows = list.map((inst) => {
+		const row = document.createElement("div");
+		row.className = "instances-row";
+		const label = document.createElement("span");
+		label.className = "mono";
+		// 文本节点而非 HTML 标记拼接：URL 是服务报告的数据，不能拼进标记里。
+		label.textContent = inst.uiUrl || `pid ${inst.pid}`;
+		const button = document.createElement("button");
+		button.type = "button";
+		button.textContent = copy.openInstance;
+		button.disabled = busy;
+		button.addEventListener("click", () => void run(copy.opening, () => pideck.services.openUi(SERVICE_ID, inst.pid)));
+		row.append(label, button);
+		return row;
+	});
+	box.replaceChildren(title, ...rows);
+	box.hidden = false;
+}
+
 function paint(status) {
 	lastStatus = status;
 	const available = status.available !== false;
@@ -102,6 +137,7 @@ function paint(status) {
 	el("note").textContent = !available ? copy.installHint : running ? (status.uiUrl ? copy.modalHint : copy.noUiHint) : copy.stoppedHint;
 	// 原因码优先：既包括「服务不可用」，也包括「停了又被拉起来」这类带状态的成功响应。
 	say(status.reason ? reasonText(status.reason) : "");
+	paintInstances(status);
 	applyControls();
 }
 
@@ -116,6 +152,8 @@ function applyControls() {
 	el("start").disabled = busy || !available || running;
 	el("stop").disabled = busy || !running;
 	el("open").disabled = busy || !running || !lastStatus.uiUrl;
+	// 实例行里的「打开」按钮跟着忙态走：忙碌时全部锁住，避免和顶层按钮状态不同步。
+	for (const button of document.querySelectorAll("#instances button")) button.disabled = busy || !running;
 }
 
 function setBusy(next, label) {

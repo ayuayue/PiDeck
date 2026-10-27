@@ -201,7 +201,7 @@ for (const session of page.sessions) {
 | `pideck.network.request(input)` | `network.https` 或 `network.local` + 对应目的地声明 | `{ url, status, ok, headers, body }` |
 | `pideck.services.status(id)` | `service.local` + `services` 点名 | `HostPluginServiceStatus` |
 | `pideck.services.start(id)` / `stop(id)` | `service.local` + `services` 点名 | 操作后的 `HostPluginServiceStatus` |
-| `pideck.services.openUi(id)` | `service.local` + `services` 点名 | 操作后的 `HostPluginServiceStatus`（由 PiDeck 开内置浏览器） |
+| `pideck.services.openUi(id, pid?)` | `service.local` + `services` 点名 | 操作后的 `HostPluginServiceStatus`（由 PiDeck 开内置浏览器；`pid` 可从 `status.instances` 白名单里点名多实例服务的某个实例） |
 | `pideck.onEvent(listener)` | — | 取消订阅函数 |
 
 > 兼容策略：新能力只做加法。老插件不受影响；想探测新方法用 `typeof pideck.sessions.search === "function"`。
@@ -453,9 +453,10 @@ type HostPluginServiceStatus = {
 	id: string; // 服务 id
 	available: boolean; // 外部 CLI 是否可用；false 时 running 恒为 false，reason 说明原因
 	running: boolean;
-	pid?: number;
+	pid?: number; // 主实例（instances 的第一个）；单实例服务就是它唯一的进程
 	version?: string;
-	uiUrl?: string; // Web 面板地址（http://127.0.0.1:<port>/...），未运行或未知时为 undefined
+	uiUrl?: string; // 主实例的 Web 面板地址（http://127.0.0.1:<port>/...），未运行或未知时为 undefined
+	instances?: { pid: number; uiUrl: string }[]; // 多实例服务（如 billion-context 的 lane daemon）的全部活实例；缺失/单实例时可忽略
 	reason?: string; // 稳定原因码：cli-missing / cli-failed / invalid-report / start-* / stop-failed / stop-restarted…
 };
 ```
@@ -468,6 +469,12 @@ if (!status.available) showInstallHint("npm i -g billion-context"); // 未装时
 await pideck.services.start("billion-context"); // 起进程，并等到 doctor 报告存活（最多约 20 秒）
 await pideck.services.stop("billion-context"); // 按 doctor 报告的 pid 终止
 await pideck.services.openUi("billion-context"); // PiDeck 内置浏览器打开 uiUrl
+
+// 多实例服务：billion-context 会有多个活实例（常驻代理 + pi 等 agent 自己拉起的 lane daemon），
+// status.instances 列出全部；openUi 的第二个参数从这份白名单里点名要打开谁的面板。
+for (const inst of status.instances ?? []) {
+	await pideck.services.openUi("billion-context", inst.pid); // 打开该实例自己的面板
+}
 ```
 
 - `start` / `stop` 比普通请求慢得多（要等进程真的起来 / 落下）；面板请自己加「进行中」态，不要连点。
@@ -519,7 +526,7 @@ await pideck.services.openUi("billion-context"); // PiDeck 内置浏览器打开
 | `network-response-too-large` / `network-headers-too-large` | 响应正文 / 响应头超预算 | 接口分页、减少返回内容 |
 | `network-response-type-denied` / `network-response-encoding-denied` | 非文本/JSON、压缩、非法 UTF-8 或非支持字符集 | 服务返回有界 UTF-8 JSON/text，禁用压缩 |
 | `service-unavailable` | 该 service id 没有 PiDeck 适配器 | 只用清单里声明过的服务 |
-| `service-not-running` | 服务未运行（`stop` / `openUi` 时） | 先 `start`，或提示用户手动启动 |
+| `service-not-running` | 服务未运行，或 `openUi` 点名的 `pid` 不在 `status.instances` 白名单里（`stop` / `openUi` 时） | 先 `start`，或提示用户手动启动；点名实例前先刷新 `status` |
 | `cli-missing` / `cli-failed` / `invalid-report` | 外部 CLI 不存在 / 执行失败 / 输出无法解析 | 让用户先安装（如 `npm i -g billion-context`） |
 | `start-failed` / `start-timeout` / `stop-failed` | 启动命令没发出去 / 20 秒内没起来 / 终止失败 | 提示用户手动排查；不要自动重试 |
 | `stop-restarted` | 终止成功但进程立刻又被拉起（pi 持有该代理时会这样） | 不是错误：如实转述，提示「要彻底停掉需先退出 pi」 |

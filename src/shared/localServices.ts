@@ -13,16 +13,27 @@ export function isLocalServiceId(value: unknown): value is LocalServiceId {
 	return typeof value === "string" && (LOCAL_SERVICE_IDS as readonly string[]).includes(value);
 }
 
+/** 单个活实例的快照：uiUrl 同样由主进程适配器收口到回环，插件只能「点名」不能「注入地址」。 */
+export type LocalServiceInstance = {
+	pid: number;
+	/** 该实例自己的 Web UI 地址（回环收口后）。 */
+	uiUrl: string;
+	version?: string;
+};
+
 /** 运行状态快照：uiUrl 由主进程适配器推导，插件不参与拼接，也就无法把浏览器引到别的地址。 */
 export type LocalServiceStatus = {
 	id: string;
 	/** 外部 CLI 是否可用；未安装时 running 恒为 false 且 reason 说明原因。 */
 	available: boolean;
 	running: boolean;
+	/** 主实例（实例列表的第一个）：单实例服务就是它唯一的进程。 */
 	pid?: number;
-	/** 运行中才有：服务自己的 Web UI 地址。 */
+	/** 运行中才有：主实例的 Web UI 地址。 */
 	uiUrl?: string;
 	version?: string;
+	/** 支持多实例的服务（如 billion-context 的 lane daemon）：全部活实例，主实例在最前；缺失表示单实例。 */
+	instances?: LocalServiceInstance[];
 	/** 稳定原因码（可用时为空）：cli-missing / cli-failed / invalid-report / start-failed / start-timeout / stop-failed / stop-restarted。 */
 	reason?: string;
 };

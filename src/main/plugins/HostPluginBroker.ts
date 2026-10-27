@@ -176,10 +176,14 @@ export class HostPluginBroker {
 				case "service.openUi": {
 					const adapter = this.services.get(request.id);
 					if (!adapter) throw new Error("service-unavailable");
-					// 地址来自主进程适配器（已收口到回环），插件拿不到也改不了，只能要求「打开」。
+					// 地址来自主进程适配器（已收口到回环），插件拿不到也改不了：pid 只能从 status.instances
+					// 白名单里点名多实例服务（如 lane daemon）的某个实例，未知 pid 一律 service-not-running。
 					const status = await adapter.status(binding.scope.signal);
-					if (!status.running || !status.uiUrl) throw new Error("service-not-running");
-					if (this.authorized(senderId, binding, generation)) for (const sink of this.openBrowserSinks) sink(status.uiUrl);
+					const target = typeof request.pid === "number" ? status.instances?.find((inst) => inst.pid === request.pid) : undefined;
+					if (typeof request.pid === "number" && !target) throw new Error("service-not-running");
+					const uiUrl = target?.uiUrl ?? status.uiUrl;
+					if (!status.running || !uiUrl) throw new Error("service-not-running");
+					if (this.authorized(senderId, binding, generation)) for (const sink of this.openBrowserSinks) sink(uiUrl);
 					value = null;
 					break;
 				}

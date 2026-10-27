@@ -162,6 +162,35 @@ dd {
 	background: color-mix(in srgb, var(--warn) 10%, transparent);
 }
 
+.instances {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 10px 12px;
+	background: var(--card);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+}
+
+.instances-title {
+	margin: 0;
+	color: var(--muted);
+	font-size: 12px;
+}
+
+.instances-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	min-width: 0;
+}
+
+.instances-row .mono {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
 .actions {
 	display: flex;
 	flex-wrap: wrap;

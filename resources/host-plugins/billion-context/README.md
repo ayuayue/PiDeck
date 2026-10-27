@@ -22,6 +22,8 @@ npm i -g billion-context
 | 打开面板 | 用 PiDeck 的内置浏览器打开 `http://127.0.0.1:<port>/__bili/` |
 | ↻ | 重新查一次服务状态（查询期间图标转圈，因为要跑一次 `bili doctor`） |
 
+多实例：billion-context 会有多个活实例（常驻代理 + pi 等 agent 自己拉起的 lane daemon，各有各的会话库）。检测到 ≥2 个实例时，面板会列出全部实例（来自 `bili doctor --json` 的进程表），每行一个「打开」按钮，开的是那个实例自己的面板。
+
 「停止」**不保证停得住**：pi 用 billion-context 时，这个代理是 pi 自己的扩展持有的，进程一死就会被立刻重新拉起（实测约 2 秒后换一个新 pid 监听同一端口）。这种情况下面板会显示「已终止，但又被自动拉起」并给出新 pid，而不是假装停成功；要彻底停掉得先退出 pi。
 
 端口不写死：以 `bili doctor --json` 的 `processes[].port` 为准（默认配置 8788，pi lane 自拉代理时常落在 28800）。
