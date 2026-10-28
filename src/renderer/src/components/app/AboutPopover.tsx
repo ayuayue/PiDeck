@@ -18,6 +18,13 @@ interface AboutPopoverProps {
 	appInfo: AppInfo;
 	/** 弹出触发区（BrandLockup 所在容器）；MorphPopoverTrigger 会为其注入点击控制。 */
 	children: ReactElement;
+	/**
+	 * 透传给 MorphPopover 根节点的布局 class。
+	 * 品牌行是 flex 容器：MorphPopover 的根默认 `inline-flex`（min-width:auto），
+	 * 作为 flex 子项不会收缩，改长应用名时会把字标与折叠按钮一起挤出标题行。
+	 * 调用方必须给 `min-w-0 flex-1` 才能让字标正常截断。
+	 */
+	className?: string;
 }
 
 /**
@@ -44,7 +51,7 @@ export function AboutPopover(props: AboutPopoverProps) {
 	const displayName = useAppDisplayName();
 
 	return (
-		<MorphPopover open={aboutOpen} onOpenChange={setAboutOpen}>
+		<MorphPopover open={aboutOpen} onOpenChange={setAboutOpen} className={props.className}>
 			<MorphPopoverTrigger>{props.children}</MorphPopoverTrigger>
 			<MorphPopoverContent side="bottom" align="start" sideOffset={10} radius={16} className="w-72 overflow-hidden">
 				<div className="flex flex-col gap-3 p-4">

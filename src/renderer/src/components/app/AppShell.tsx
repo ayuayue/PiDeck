@@ -38,7 +38,12 @@ import { shouldCommitPanelPixels } from "../../lib/shellPanelLayout";
  */
 
 export interface AppShellProps {
-	navigationChrome?: ReactNode;
+	/**
+	 * 简洁模式（导航模式=simple）：只负责外壳差异（底色/分屏圆角/分隔条样式）。
+	 * 顶部不再单独占用一条导航行——品牌区与折叠按钮统一挂在侧栏工具条，
+	 * 与标签模式同一套 40px 标题行，才能和 mac 红绿灯水平对齐。
+	 */
+	simpleShell?: boolean;
 	/** Compact mode reuses this window's session store and preserves workbench layout preferences. */
 	compactContent?: ReactNode;
 	listCollapsed: boolean;
@@ -386,8 +391,8 @@ export function AppShell(props: AppShellProps) {
 			ref={shellRef}
 			className={[
 				"wechat-shell",
-				props.navigationChrome
-					? "simple-shell bg-(--simple-shell-surface) [--simple-shell-surface:color-mix(in_srgb,var(--color-bg-sidebar)_25%,var(--color-bg-muted))] dark:[--simple-shell-surface:var(--color-bg-app)] [[data-bg-image=on]_&]:bg-transparent [[data-bg-image=on]_&]:[--simple-shell-surface:var(--color-bg-sidebar)] [&_.window-controls]:h-8 [&_.window-drag-layer]:h-8 [&_.window-drag-layer]:pointer-events-none [&_.session-tabs-bar]:mr-0 [&_.session-tabs-bar]:[-webkit-app-region:no-drag] [&.custom-titlebar-enabled_.simple-navigation-bar]:[-webkit-app-region:drag] [&.custom-titlebar-enabled_.simple-navigation-bar]:mr-[var(--window-controls-width)] [&.mac-custom-titlebar_.simple-navigation-bar]:pl-[calc(var(--traffic-lights-width)+8px)]"
+				props.simpleShell
+					? "simple-shell bg-(--simple-shell-surface) [--simple-shell-surface:color-mix(in_srgb,var(--color-bg-sidebar)_25%,var(--color-bg-muted))] dark:[--simple-shell-surface:var(--color-bg-app)] [[data-bg-image=on]_&]:bg-transparent [[data-bg-image=on]_&]:[--simple-shell-surface:var(--color-bg-sidebar)] [&_.session-tabs-bar]:mr-0"
 					: "bg-bg-app [[data-bg-image=on]_&]:bg-transparent",
 				drawer && !drawerCollapsed ? "drawer-open" : "",
 				listCollapsed ? "list-collapsed" : "",
@@ -416,7 +421,7 @@ export function AppShell(props: AppShellProps) {
 			}
 		>
 			<AppHeader
-				simple={Boolean(props.navigationChrome)}
+				simple={Boolean(props.simpleShell)}
 				useNativeTitleBar={useNativeTitleBar}
 				platform={platform}
 				toggleAlwaysOnTop={toggleAlwaysOnTop}
@@ -427,7 +432,6 @@ export function AppShell(props: AppShellProps) {
 				onWindowMaximizedChange={onWindowMaximizedChange}
 				closeWindow={closeWindow}
 			/>
-			{props.navigationChrome}
 			<ResizablePanelGroup orientation="horizontal" className="shell-panel-group" onLayoutChanged={handleLayoutChanged}>
 				<ResizablePanel id="list" panelRef={listPanelRef} collapsible collapsedSize={LIST_COLLAPSED_SIZE} minSize={LIST_WIDTH_MIN} maxSize={LIST_WIDTH_MAX} groupResizeBehavior="preserve-pixel-size" defaultSize={listCollapsed ? LIST_COLLAPSED_SIZE : listWidth} className="shell-panel-list">
 					<div
@@ -446,12 +450,12 @@ export function AppShell(props: AppShellProps) {
             重启」（2026-08 用户反馈）。左右分隔条统一 disableDoubleClick：桌面工作台
             里双击折叠不是预期手势，折叠/展开走侧栏与抽屉的专属按钮。 */}
 				{/* 简洁面板通过底色差形成边界，Separator 只保留拖拽命中。 */}
-				<ResizableHandle className={cn("splitter splitter-left", props.navigationChrome && "before:hidden")} disableDoubleClick />
+				<ResizableHandle className={cn("splitter splitter-left", props.simpleShell && "before:hidden")} disableDoubleClick />
 
 				<ResizablePanel id="chat" minSize={360} className="shell-panel-chat">
 					<main
 						ref={chatPaneRef}
-						className={cn("chat-pane bg-bg-page", props.navigationChrome && "rounded-tl-[18px]")}
+						className={cn("chat-pane bg-bg-page", props.simpleShell && "rounded-tl-[18px]")}
 						style={
 							{
 								"--terminal-row-h": `${terminalRowHeight}px`,

@@ -24,10 +24,10 @@ async function switchMode(window: Page, label: string) {
 
 fixture("simple layout: right file tabs, expand/restore, switch modes without remounting editor", async ({ window }, testInfo) => {
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
-	await expect(window.locator(".simple-navigation-bar")).toBeVisible();
-	// 简洁模式：列表折叠入口只保留顶部 simple-navigation-bar 那份，侧栏工具条内不再重复渲染。
-	await expect(window.locator(".list-toolbar .list-toggle-native")).toHaveCount(0);
-	await expect(window.locator(".simple-navigation-bar button[title='折叠列表']")).toBeVisible();
+	// 简洁模式与标签模式共用侧栏标题行：不再有独立的顶部导航条，折叠入口在品牌行右端（同屏唯一）。
+	await expect(window.locator(".simple-navigation-bar")).toHaveCount(0);
+	await expect(window.locator(".list-toolbar .list-toggle-native")).toHaveCount(1);
+	await expect(window.locator(".list-toolbar .list-toggle-native")).toBeVisible();
 	await expect(window.getByRole("tab", { name: "项目", exact: true })).toHaveCount(0);
 	const project = window.locator(".conversation").filter({ hasText: "simple-project" }).first();
 	await project
@@ -55,23 +55,48 @@ fixture("simple layout: right file tabs, expand/restore, switch modes without re
 	await window.keyboard.press("ControlOrMeta+End");
 	await window.keyboard.insertText("// preserved edit");
 	await switchMode(window, "标签模式");
+	// 两种模式同一套标题行：折叠入口始终在侧栏品牌行右端，不随导航模式增删。
 	await expect(window.locator(".simple-navigation-bar")).toHaveCount(0);
-	// 标签模式没有顶部导航条，折叠入口回到侧栏工具条。
 	await expect(window.locator(".list-toolbar .list-toggle-native")).toBeVisible();
 	await expect(editor).toHaveAttribute("data-instance-proof", "original");
 	await expect(editor).toContainText("preserved edit");
 	await switchMode(window, "简洁模式");
-	await expect(window.locator(".list-toolbar .list-toggle-native")).toHaveCount(0);
+	// 切回简洁模式：入口没有增删，编辑器实例与撤销历史仍在。
+	await expect(window.locator(".list-toolbar .list-toggle-native")).toHaveCount(1);
 	await expect(editor).toHaveAttribute("data-instance-proof", "original");
 	await editor.click();
 	await window.keyboard.press("ControlOrMeta+z");
 	await expect(editor).not.toContainText("preserved edit");
 	const geometry = await window.evaluate(() => {
-		const top = document.querySelector(".simple-navigation-bar")!.getBoundingClientRect();
-		const controls = document.querySelector(".window-controls")!.getBoundingClientRect();
-		return { topHeight: top.height, controlsHeight: controls.height, controlsTop: controls.top };
+		const bar = document.querySelector(".list-toolbar")!.getBoundingClientRect();
+		const brand = document.querySelector(".brand-wordmark")!.getBoundingClientRect();
+		const toggle = document.querySelector(".list-toolbar .list-toggle-native")!.getBoundingClientRect();
+		// mac 用系统红绿灯、不渲染右侧窗口控件条；两条路都必须以同一行高为准。
+		const controls = document.querySelector(".window-controls")?.getBoundingClientRect() ?? null;
+		const dragHeight = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--window-drag-height")) || 0;
+		const centerY = (rect: DOMRect) => rect.top + rect.height / 2;
+		return {
+			barHeight: bar.height,
+			dragHeight,
+			controlsHeight: controls?.height ?? null,
+			controlsTop: controls?.top ?? null,
+			// 字标与折叠按钮都在标题行的垂直中线上（mac 红绿灯同样居 40px 行中央）
+			brandOffsetFromCenter: Math.abs(centerY(brand) - centerY(bar)),
+			toggleOffsetFromCenter: Math.abs(centerY(toggle) - centerY(bar)),
+			// 折叠按钮贴标题行右端
+			toggleRightGap: bar.right - toggle.right,
+		};
 	});
-	expect(geometry).toEqual({ topHeight: 32, controlsHeight: 32, controlsTop: 0 });
+	// 标题行与窗口控件行同高（40px），按钮/字标居中而非贴顶。
+	expect(geometry.barHeight).toBe(40);
+	expect(geometry.barHeight).toBe(geometry.dragHeight);
+	if (geometry.controlsHeight !== null) {
+		expect(geometry.controlsHeight).toBe(geometry.barHeight);
+		expect(geometry.controlsTop).toBe(0);
+	}
+	expect(geometry.brandOffsetFromCenter).toBeLessThanOrEqual(1);
+	expect(geometry.toggleOffsetFromCenter).toBeLessThanOrEqual(1);
+	expect(geometry.toggleRightGap).toBeLessThanOrEqual(12);
 	await window.screenshot({ path: testInfo.outputPath("simple-mode.png") });
 	await window.locator(".file-diff-header-actions").getByRole("button", { name: "关闭", exact: true }).click();
 	await expect(editor).toHaveCount(0);

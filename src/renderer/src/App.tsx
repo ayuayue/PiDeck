@@ -1,8 +1,6 @@
 import { Button } from "./components/ui-shadcn/button";
 import { NoticeHistoryDialog } from "./components/ui-shadcn/notice-history-dialog";
-import { useSessionNavigation } from "./hooks/useSessionNavigation";
 import { WorkbenchFileTabs } from "./components/workspace/WorkbenchFileTabs";
-import { ArrowLeft, ArrowRight, PanelLeft } from "lucide-react";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useAtomValue, useSetAtom, useStore } from "jotai";
 import { toggleThemeMode } from "./themeAppearance";
@@ -2486,11 +2484,6 @@ export function App() {
 		[selectSessionCommand, store],
 	);
 
-	const navigation = useSessionNavigation(currentSessionId, (id) => {
-		workspaceChrome.registerOpenSession(id, "permanent");
-		focusSessionPane(id);
-	});
-
 	// 后台 Ask 通知「前往会话」：跳转的同时登记常驻 Tab——agent 开多时被询问的会话
 	// 可能根本没开 Tab（后台并行 ask 等），只切焦点的话回答完切换出去就找不到了。
 	const jumpToAskSession = useCallback(
@@ -3269,21 +3262,7 @@ export function App() {
 				<WallpaperVideoLayer settings={settings} />
 				<AppBootstrap {...bootstrapProps} />
 				<AppShell
-					navigationChrome={
-						simpleMode ? (
-							<div className="simple-navigation-bar flex h-8 shrink-0 items-center gap-0.5 bg-(--simple-shell-surface) px-2 [&_button]:[-webkit-app-region:no-drag]">
-								<Button variant="ghost" size="icon-sm" className="size-6.5" type="button" aria-label={listCollapsed ? t("app.expandList") : t("app.collapseList")} title={listCollapsed ? t("app.expandList") : t("app.collapseList")} onClick={toggleListCollapsed}>
-									<PanelLeft size={14} />
-								</Button>
-								<Button variant="ghost" size="icon-sm" className="size-6.5" type="button" aria-label={t("navigation.back")} title={t("navigation.back")} disabled={!navigation.canBack} onClick={navigation.back}>
-									<ArrowLeft size={14} />
-								</Button>
-								<Button variant="ghost" size="icon-sm" className="size-6.5" type="button" aria-label={t("navigation.forward")} title={t("navigation.forward")} disabled={!navigation.canForward} onClick={navigation.forward}>
-									<ArrowRight size={14} />
-								</Button>
-							</div>
-						) : undefined
-					}
+					simpleShell={simpleMode}
 					compactContent={
 						// 极简浮窗模式：渲染当前活跃会话（不是 quickTask）
 						new URLSearchParams(window.location.search).get("mini-overlay") === "1" ? (

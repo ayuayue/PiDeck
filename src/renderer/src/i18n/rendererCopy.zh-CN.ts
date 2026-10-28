@@ -4799,8 +4799,6 @@ export const zhCN = {
 	"settings.logoCustomImageFailed": "图片读取失败：请改用正方形、透明底的 PNG 或 SVG，文件不要超过 12MB。",
 	"settings.appDisplayName": "应用显示名称",
 	"settings.appDisplayNameDesc": "显示在左上角品牌区与「关于」面板，按输入原样呈现（不转大写）；留空用 PiDeck。",
-	"navigation.back": "后退",
-	"navigation.forward": "前进",
 	"settings.sessionTabMaxWidth": "会话 Tab 宽度上限",
 	"settings.sessionTabMaxWidthDesc": "单个会话/文件 Tab 的最大宽度（80–400px）。Tab 仍按标题内容收缩，短标题不受影响。",
 	"settings.sectionUpdates": "版本与更新",

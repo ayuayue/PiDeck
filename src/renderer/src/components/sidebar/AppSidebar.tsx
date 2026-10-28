@@ -11,6 +11,7 @@ import { settingsOpenAtom } from "../../atoms";
 import { desktopApi } from "../../desktopApi";
 import { Button } from "../ui-shadcn/button";
 import { t } from "../../i18n";
+import { cn } from "../../lib/utils";
 
 interface AppSidebarProps {
 	simple?: boolean;
@@ -111,8 +112,13 @@ export function AppSidebar(props: AppSidebarProps) {
 				onOpenNewSession={props.onOpenNewSession}
 				chrome={
 					<>
-						<div className={props.simple ? "list-toolbar flex h-12 shrink-0 items-center gap-1 px-2.5 [-webkit-app-region:no-drag]" : "list-toolbar flex h-10 shrink-0 items-center gap-1 border-b border-border/40 pr-2.5 pl-[max(0.625rem,var(--traffic-lights-width,0px))]"}>
-							<AboutPopover appInfo={props.appInfo}>
+						{/* 品牌行两种导航模式共用同一条 40px 标题行：左侧留出 mac 红绿灯宽度，
+						    右侧固定折叠按钮（垂直居中 40px → 与红绿灯中心同高）。
+						    简洁模式只去掉底边线（面板间靠底色差分区），高度/内边距/对齐与标签模式完全一致。 */}
+						<div className={cn("list-toolbar flex h-10 shrink-0 items-center gap-1 pr-2.5 pl-[max(0.625rem,var(--traffic-lights-width,0px))]", props.simple ? "border-b border-transparent" : "border-b border-border/40")}>
+							{/* min-w-0 flex-1 必须给到 MorphPopover 根：它默认 inline-flex（min-width:auto），
+							    不改就无法收缩，长应用名会把字标顶出标题行、折叠按钮被挤到栏外。 */}
+							<AboutPopover appInfo={props.appInfo} className="min-w-0 flex-1">
 								<div
 									className="app-badge flex min-w-0 flex-1 cursor-pointer items-center justify-center pl-5"
 									role="button"
@@ -130,13 +136,12 @@ export function AppSidebar(props: AppSidebarProps) {
 									<BrandLockup />
 								</div>
 							</AboutPopover>
-							{/* 简洁模式顶部 simple-navigation-bar 已有同语义的列表折叠/展开按钮
-							（面板折叠后它仍常驻），侧栏内再渲染一份就是同屏双入口；标签模式没有那条导航条，保留此处按钮。 */}
-							{!props.simple && (
-								<Button type="button" variant="ghost" size="icon-sm" className="icon-button list-toggle-native size-7" aria-label={props.listCollapsed ? t("app.expandList") : t("app.collapseList")} title={props.listCollapsed ? t("app.expandList") : t("app.collapseList")} onClick={props.toggleListCollapsed}>
-									<PanelLeft size={14} strokeWidth={2} aria-hidden="true" />
-								</Button>
-							)}
+							{/* 折叠/展开按钮两种模式同位置（标题行右端）：简洁模式不再单独占一条顶部导航行，
+							    否则按钮会浮在品牌行上方、与 mac 红绿灯错开。面板收起后本按钮随面板隐藏，
+							    恢复入口统一由会话 Tab 栏左侧提供（见 SessionTabsBar）。 */}
+							<Button type="button" variant="ghost" size="icon-sm" className="icon-button list-toggle-native size-7 shrink-0" aria-label={props.listCollapsed ? t("app.expandList") : t("app.collapseList")} title={props.listCollapsed ? t("app.expandList") : t("app.collapseList")} onClick={props.toggleListCollapsed}>
+								<PanelLeft size={14} strokeWidth={2} aria-hidden="true" />
+							</Button>
 						</div>
 					</>
 				}

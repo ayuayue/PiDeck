@@ -4818,8 +4818,6 @@ export const enUS: Record<TranslationKey, string> = {
 	"settings.logoCustomImageFailed": "Could not read that image. Use a square PNG or SVG with a transparent background, under 12 MB.",
 	"settings.appDisplayName": "App display name",
 	"settings.appDisplayNameDesc": "Shown in the top-left brand area and the About panel exactly as typed (never uppercased). Leave empty for PiDeck.",
-	"navigation.back": "Back",
-	"navigation.forward": "Forward",
 	"settings.sessionTabMaxWidth": "Session Tab Width Cap",
 	"settings.sessionTabMaxWidthDesc": "Maximum width of a single session/file tab (80–400px). Tabs still shrink to fit short titles.",
 	"settings.sectionUpdates": "Version & Updates",

@@ -37,7 +37,7 @@
 | 文件树操作 | 2679-2786 | drillCompactChain、toggleDirectory、collapseAll |
 | 侧栏归档族 | 2787-2985 | archive/unarchive/list/delete（pi+dsh）×8 |
 | sidebarActions | 2986-3111 | ~125 行对象字面量 |
-| 导航/tabs | 3112-3344 | focusSessionPane、useSessionNavigation、buildTabsSessionActions、paneLayoutRefs |
+| 导航/tabs | 3112-3344 | focusSessionPane、buildTabsSessionActions、paneLayoutRefs |
 | sessionPaneServices | 3345-3511 | ~165 行 memo（保留，装配） |
 | workbench 布局 | 3512-3620 | 主题/宽度/simple 模式、fileTabs |
 | 命令面板 | 3585-3662 | palette state + 命令 IIFE ~40 行 |

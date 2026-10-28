@@ -25,7 +25,8 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 /* 标准工作台的自定义标题栏（排除 simple 外壳与小任务窗口）：窗口控件行、抽屉列顶部让位区
    与会话 Tab 栏共用同一条标题栏底边线。小任务窗口的 list-toolbar 底边线本就铺满控件区、
-   simple 外壳没有 40px 标题栏行，二者都不能再叠一条（壁纸模式控件背景透明，叠线会加深）。 */
+   simple 外壳的标题行靠面板底色差分区（不画底边线），二者都不能再叠一条（壁纸模式控件
+   背景透明，叠线会加深）。 */
 @custom-variant workspace-titlebar (&:where(.custom-titlebar-enabled:not(.quick-task-shell):not(.simple-shell), .custom-titlebar-enabled:not(.quick-task-shell):not(.simple-shell) *));
 
 @layer base {

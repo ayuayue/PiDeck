@@ -397,7 +397,14 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
 	// --session-tab-max-*：外观设置可调的 Tab 宽度上限，徽标 Tab 额外加 28px（见 shared/sessionTabWidth.ts）。
 	return (
 		<div
-			className={cn("session-tabs-bar flex h-10 shrink-0 items-center gap-1 overflow-x-clip border-b border-border/40 bg-bg-page pl-[max(0.5rem,var(--session-tabs-left-inset,0.5rem))]", props.simple && "simple-session-header h-12 border-0 bg-transparent [--session-tabs-left-inset:16px]")}
+			className={cn(
+				"session-tabs-bar flex h-10 shrink-0 items-center gap-1 overflow-x-clip border-b border-border/40 bg-bg-page pl-[max(0.5rem,var(--session-tabs-left-inset,0.5rem))]",
+				// 简洁模式与会话栏同高（40px），去掉底边线靠底色差分区。
+				// 左内距只在侧栏展开时固定 16px：侧栏收起后本栏顶到窗口左缘，mac 上必须
+				// 让位系统红绿灯——留给 foundation.css 的 .list-collapsed 规则算
+				// calc(红绿灯宽 + 8px)，这里写死会把它盖掉（utilities 层高于 legacy）。
+				props.simple && cn("simple-session-header border-0 bg-transparent", !props.listCollapsed && "[--session-tabs-left-inset:16px]"),
+			)}
 			style={
 				{
 					"--session-tab-max-w": `${tabMaxWidth}px`,
@@ -405,7 +412,8 @@ export function SessionTabsBar(props: SessionTabsBarProps) {
 				} as CSSProperties
 			}
 		>
-			{!props.simple && props.listCollapsed && props.onToggleListCollapsed ? (
+			{/* 侧栏收起后的唯一恢复入口：简洁模式同样需要（该模式不再有独立的顶部导航行）。 */}
+			{props.listCollapsed && props.onToggleListCollapsed ? (
 				<Button type="button" variant="ghost" size="icon-sm" className="list-toggle-native size-7 shrink-0" aria-label={t("app.expandList")} title={t("app.expandList")} onClick={props.onToggleListCollapsed}>
 					<PanelLeft className="size-3.5" aria-hidden="true" />
 				</Button>
