@@ -11,6 +11,9 @@ import { areOutlineRailItemsEqual, createOutlineItemIndex, resolveVisibleRailAct
 import { useTimelineOutlineActiveId } from "./timeline/useTimelineOutlineActiveId";
 import { useLazyValue } from "../../lib/hooks/use-render-reuse";
 import { useAtomValue } from "jotai";
+import { detectRendererPlatform } from "../../lib/detectRendererPlatform";
+import { getComposerEnterIntent, sendShortcutKeyHint } from "../../composerBehavior";
+import { sendShortcutAtom } from "../../atoms/composer-atoms";
 import type { TpsDisplayMode } from "../../../../shared/types/settings";
 import { tpsDisplayModeAtom } from "../../atoms/tps-atoms";
 import { buildTpsDisplay } from "../../utils/tpsDisplay";
@@ -22,6 +25,8 @@ import "katex/dist/katex.min.css";
  * 进入视口（含 200px 提前量）才挂载 src；未加载时占位高度避免滚动跳动。
  * decoding="async" 保证解码不阻塞渲染主线程。
  */
+const IS_MAC = detectRendererPlatform() === "darwin";
+
 function MessageImage(props: {
 	src: string;
 	alt: string;
@@ -858,6 +863,9 @@ export const UserBubble = memo(function UserBubble(props: {
 	// 返回的函数引用稳定，`CopyMenu` 的 memo 不受影响。
 	const resolveMarkdown = useLazyValue(() => replaceExpandedRefBlocksWithLabels(message.text), [message.text]);
 	const resolvePlain = useLazyValue(() => stripMarkdown(replaceExpandedRefBlocksWithLabels(cleanText)), [cleanText]);
+	// 编辑框的提交键帽跟随「发送快捷键」设置（与上方 onKeyDown 的判定同源）。
+	const sendShortcut = useAtomValue(sendShortcutAtom);
+	const editSendKeyHint = sendShortcutKeyHint(sendShortcut, IS_MAC);
 	/** 原地编辑不影响输入框；先提交给确认弹窗。 */
 	const handleSaveEdit = () => {
 		if (!props.onEditMessage) return;
@@ -1042,7 +1050,9 @@ export const UserBubble = memo(function UserBubble(props: {
 						value={editText}
 						onChange={(e) => setEditText(e.target.value)}
 						onKeyDown={(e) => {
-							if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+							// 与 composer 同一套判定：编辑框的提交键跟随「发送快捷键」设置，
+							// 不再写死 Ctrl/⌘+Enter（设置成 Enter 发送却按 Enter 只换行会很割裂）。
+							if (getComposerEnterIntent(e, sendShortcut) === "send") {
 								e.preventDefault();
 								handleSaveEdit();
 							}
@@ -1051,8 +1061,9 @@ export const UserBubble = memo(function UserBubble(props: {
 						autoFocus
 					/>
 					<div className="flex justify-end gap-2">
-						<Button variant="outline" size="sm" className="h-auto border-[var(--color-accent)] px-3 py-1 text-xs text-[var(--color-accent)] shadow-none hover:text-[var(--color-accent)]" onClick={handleSaveEdit}>
-							{t("common.save")}
+						<Button variant="outline" size="sm" className="h-auto border-[var(--color-accent)] px-3 py-1 text-xs text-[var(--color-accent)] shadow-none hover:text-[var(--color-accent)]" onClick={handleSaveEdit} title={`${t("app.send")} ${editSendKeyHint}`}>
+							{t("app.send")}
+							<kbd className="ml-1 rounded border border-current/30 px-1 py-px font-sans text-micro leading-none opacity-70">{editSendKeyHint}</kbd>
 						</Button>
 						<Button variant="outline" size="sm" className="h-auto px-3 py-1 text-xs shadow-none" onClick={() => setEditing(false)}>
 							{t("common.cancel")}

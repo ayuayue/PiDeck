@@ -95,6 +95,17 @@ test("inserts newline on Ctrl+Enter when Enter-to-send is enabled", () => {
 	assert.equal(intent, "newline");
 });
 
+// 键帽必须与判定同源：设置改了而按钮还写死 ⌘↵，就是在给用户错误引导。
+test("sendShortcutKeyHint mirrors the configured send shortcut on both platforms", () => {
+	const { sendShortcutKeyHint } = loadComposerBehaviorModule();
+
+	assert.equal(sendShortcutKeyHint("enter-send", true), "↵");
+	assert.equal(sendShortcutKeyHint("enter-send", false), "↵");
+	assert.equal(sendShortcutKeyHint("ctrl-enter-send", true), "⌘↵");
+	assert.equal(sendShortcutKeyHint("ctrl-enter-send", false), "Ctrl+↵");
+	assert.equal(sendShortcutKeyHint("shift-enter-send", true), "⇧↵");
+});
+
 // plan 模式是一次性提交流：回车即发，不再受 sendShortcut（enter/ctrl-enter/shift-enter）影响。
 test("plan mode sends on plain Enter regardless of sendShortcut", () => {
 	const { isPlanModeSendKey } = loadComposerBehaviorModule();

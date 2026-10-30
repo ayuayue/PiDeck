@@ -1,4 +1,6 @@
 import { AlertTriangle, ArrowUp, ChevronDown, ChevronUp, Clock, Copy, FileText, FolderOpen, ListOrdered, LoaderCircle, Pause, Pencil, Split, Square, X, XCircle } from "lucide-react";
+
+const IS_MAC = detectRendererPlatform() === "darwin";
 import { useId, type RefObject } from "react";
 import { useAtomValue } from "jotai";
 import type { ImageContent } from "../../../../shared/types";
@@ -7,6 +9,9 @@ import { formatBytes } from "../../../../shared/formatBytes";
 import { replaceExpandedRefBlocksWithLabels } from "./composer/quoteChip";
 import type { PastedTextFile } from "../../atoms";
 import type { QueuedPromptSnapshot } from "../../utils/queuedPromptQueue";
+import { detectRendererPlatform } from "../../lib/detectRendererPlatform";
+import { sendShortcutKeyHint } from "../../composerBehavior";
+import { sendShortcutAtom } from "../../atoms/composer-atoms";
 import { resolveComposerSendButtonState } from "../../utils/composerSendButton";
 import { canChangeQueuedPromptBehavior, canDiscardQueuedPrompt, canRetractQueuedPromptToInput, discardControlHint, retractControlHint } from "../../utils/queuedPromptQueue";
 import { t } from "../../i18n";
@@ -365,6 +370,7 @@ export function ComposerSendControls(props: {
 	/** 并行发送可用性（如有图片附件则置灰）。 */
 	canSendParallel?: boolean;
 }) {
+	const sendShortcut = useAtomValue(sendShortcutAtom);
 	// 主题色圆钮（随外观主题主色：经典=近黑、森系绿=鼠尾草绿）。
 	// 空闲发送；忙碌且输入框为空时才变停止（清空输入即回到停止）；
 	// 忙碌但有内容时保持发送（走 steer/followUp 投递，见 busySendDelivery）。
@@ -378,6 +384,9 @@ export function ComposerSendControls(props: {
 	// 忙碌且有内容：主钮是发送，另起一个停止钮（见下方注释）
 	const showInlineStop = props.isAgentBusy && !primaryStops;
 	const label = primaryStops ? t("app.stop") : t("app.send");
+	// title 上的键帽跟随「发送快捷键」设置，用户才知道自己那套键怎么一键发出。
+	const keyHint = primaryStops ? "" : sendShortcutKeyHint(sendShortcut, IS_MAC);
+	const sendTitle = keyHint ? `${label} ${keyHint}` : label;
 	const disabled = primaryStops ? false : props.isAgentStarting || props.isGeneratingImage || !props.canSend;
 	// 拆分菜单：把「加入当前回合 / 排队到下一轮 / 并行发送」从「发出后的队列行」前置到发送现场，
 	// 让用户在发送前就能发现这三种投递方式（此前只能发出去之后在队列面板里逐条切换）。
@@ -403,8 +412,8 @@ export function ComposerSendControls(props: {
 				/* 停止态切 danger 红（用户约定：停止是「打断」动作，红色可打断感）；
 				   发送态维持主题色 accent。hover 同一配方（88% 混黑加深），只换基色。 */
 				className={`composer-send-primary size-7 rounded-l-md px-0 text-[var(--color-text-inverse)] shadow-none disabled:opacity-40 ${primaryStops ? "bg-[var(--color-danger)] hover:bg-[color:color-mix(in_srgb,var(--color-danger)_88%,black)]" : "bg-[var(--color-accent)] hover:bg-[color:color-mix(in_srgb,var(--color-accent)_88%,black)]"}`}
-				aria-label={label}
-				title={label}
+				aria-label={sendTitle}
+				title={sendTitle}
 				disabled={disabled}
 				onClick={primaryStops ? props.onStop : props.onSend}
 			>
