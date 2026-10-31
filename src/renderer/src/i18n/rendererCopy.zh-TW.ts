@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 7bc92bf06d253731e2c718b4e5e2e5b42b211edded2c8dfd7e74cb1733fc153f（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 93401947057d5e100ca50bf4f27ec24619b94eaf07b64cf4a5428138d00e2d92（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -89,16 +89,19 @@ export const zhTW: Record<TranslationKey, string> = {
 	"hostPlugins.marketSearchPlaceholder": "搜尋外掛名、描述、作者或標籤…",
 	"hostPlugins.marketSearch": "搜尋",
 	"hostPlugins.marketSearching": "搜尋中…",
-	"hostPlugins.marketIdle": "輸入關鍵詞後回車；留空直接搜尋可以瀏覽全部收錄與社群外掛。",
+	"hostPlugins.marketIdle": "正在拉取官方收錄與社群外掛…",
 	"hostPlugins.marketEmpty": "沒有匹配的外掛。換個關鍵詞，或用「從 GitHub 連結安裝」直接指定倉庫。",
 	"hostPlugins.marketSourceRegistry": "官方收錄",
 	"hostPlugins.marketSourceGithub": "社群 · 未審閱",
 	"hostPlugins.marketStars": "{count} 星",
+	"hostPlugins.marketSummary": "共 {count} 個 · 官方收錄 {registry} · 社群 {github}",
 	"hostPlugins.marketPermissions": "需要權限",
 	"hostPlugins.marketNoPermissions": "不需要任何權限",
 	"hostPlugins.marketInstall": "安裝",
 	"hostPlugins.marketInstalling": "安裝中…",
 	"hostPlugins.marketInstalled": "已安裝 {name}，在列表裡授權後即可啟用。",
+	"hostPlugins.marketInstalledBadge": "已安裝",
+	"hostPlugins.marketUpdateBadge": "可更新到 v{version}",
 	"hostPlugins.marketOpenRepo": "開啟倉庫",
 	"hostPlugins.marketWarning": "部分來源不可用：{warnings}",
 	"hostPlugins.marketFailed": "搜尋失敗（{code}）。請檢查網路或代理設定後重試。",

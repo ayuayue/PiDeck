@@ -4,9 +4,12 @@
  * 这个组件只做三件事：拿关键词换条目、把条目渲染成卡片、把条目的 `installUrl` 交给
  * `hostPlugins.installGitHub`。它不解析包、不落盘、不授权——安装与信任判定全在主进程，
  * 与「从 GitHub 链接安装」走的是同一条路径，所以市场本身不扩大任何能力面。
+ *
+ * 打开即拉一次全量（空关键词）：本地已装的插件（含随包分发的内置插件）同样在列表里，
+ * 只是打「已安装」标记并禁用安装按钮——否则点下去只会撞 `plugin-in-use`。
  */
-import { useState } from "react";
-import { useSetAtom } from "jotai";
+import { useEffect, useState } from "react";
+import { useAtomValue, useSetAtom } from "jotai";
 import { ExternalLink, LoaderCircle, Search, Store } from "lucide-react";
 import type { HostPluginMarketEntry, HostPluginMarketSearchResult } from "../../../shared/types/hostPlugin";
 import { hostPluginCatalogAtom } from "../atoms/host-plugin-atoms";
@@ -39,18 +42,21 @@ function permissionLabel(permission: string): string {
 }
 
 export function HostPluginMarketDialog({ open, onOpenChange, onFail }: HostPluginMarketDialogProps) {
+	const catalog = useAtomValue(hostPluginCatalogAtom).catalog;
 	const setCatalog = useSetAtom(hostPluginCatalogAtom);
 	const [keyword, setKeyword] = useState("");
 	const [searching, setSearching] = useState(false);
-	// null = 还没搜过（显示引导语），空数组 = 搜过但没有结果。
+	// null = 还没拿到结果（首帧），空数组 = 搜过但没有结果。
 	const [results, setResults] = useState<HostPluginMarketSearchResult | null>(null);
 	const [installing, setInstalling] = useState<string | null>(null);
 	const [searchError, setSearchError] = useState<string | null>(null);
-	const search = async () => {
+	// 本地已装的版本，按插件 id 索引：市场条目只带 id/version，用它判断「已安装 / 可更新」。
+	const installed = new Map<string, string>((catalog?.plugins ?? []).map((plugin) => [plugin.manifest.id, plugin.manifest.version]));
+	const search = async (value: string) => {
 		setSearching(true);
 		setSearchError(null);
 		try {
-			const result = await desktopApi.hostPlugins.searchMarket(keyword.trim());
+			const result = await desktopApi.hostPlugins.searchMarket(value.trim());
 			if (result.ok) setResults(result.value);
 			else setSearchError(result.code);
 		} catch {
@@ -59,6 +65,11 @@ export function HostPluginMarketDialog({ open, onOpenChange, onFail }: HostPlugi
 			setSearching(false);
 		}
 	};
+	useEffect(() => {
+		// 打开就拉一次全量：不这样的话弹窗里只有一个引导语，看起来像「市场是空的」。
+		// 缓存由主进程管（社区 10 分钟 / 官方索引 6 小时），反复开关不会反复打网。
+		if (open) void search("");
+	}, [open]);
 	/** 安装：市场只提供链接，下载/解包/预算校验/落位都在主进程，装完仍是禁用状态。 */
 	const install = async (entry: HostPluginMarketEntry) => {
 		setInstalling(entry.installUrl);
@@ -74,6 +85,8 @@ export function HostPluginMarketDialog({ open, onOpenChange, onFail }: HostPlugi
 			setInstalling(null);
 		}
 	};
+	const entries = results?.entries ?? [];
+	const official = entries.filter((entry) => entry.source === "registry").length;
 	return (
 		<Dialog
 			open={open}
@@ -86,7 +99,9 @@ export function HostPluginMarketDialog({ open, onOpenChange, onFail }: HostPlugi
 				}
 			}}
 		>
-			<DialogContent className="flex max-h-[calc(100vh-64px)] max-w-[min(720px,calc(100vw-48px))] flex-col gap-4">
+			{/* 尺寸走 DialogContent 的 `size="xl"`（1300×850，与设置/项目管理同档）：
+			    基线里的 `sm:max-w-lg` 是带 variant 的，直接写 `max-w-[…]` 会被它在 ≥sm 时压回去（实测只有 510px 宽）。 */}
+			<DialogContent size="xl" className="flex h-auto max-h-[min(850px,calc(100vh-48px))] flex-col gap-3">
 				<DialogHeader>
 					<DialogTitle>{t("hostPlugins.marketTitle")}</DialogTitle>
 					<DialogDescription>{t("hostPlugins.marketDescription")}</DialogDescription>
@@ -95,10 +110,10 @@ export function HostPluginMarketDialog({ open, onOpenChange, onFail }: HostPlugi
 					className="flex items-center gap-2"
 					onSubmit={(event) => {
 						event.preventDefault();
-						if (!searching) void search();
+						if (!searching) void search(keyword);
 					}}
 				>
-					<Input id="host-plugin-market-keyword" aria-label={t("hostPlugins.marketSearchPlaceholder")} spellCheck={false} placeholder={t("hostPlugins.marketSearchPlaceholder")} value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+					<Input id="host-plugin-market-keyword" autoFocus aria-label={t("hostPlugins.marketSearchPlaceholder")} spellCheck={false} placeholder={t("hostPlugins.marketSearchPlaceholder")} value={keyword} onChange={(event) => setKeyword(event.target.value)} />
 					<Button type="submit" size="sm" disabled={searching}>
 						{searching ? <LoaderCircle className="size-4 animate-pideck-spin" aria-hidden="true" /> : <Search className="size-4" aria-hidden="true" />}
 						{t("hostPlugins.marketSearch")}
@@ -114,24 +129,33 @@ export function HostPluginMarketDialog({ open, onOpenChange, onFail }: HostPlugi
 						<AlertDescription className="break-all font-mono text-xs">{t("hostPlugins.marketWarning", { warnings: results.warnings.join(" · ") })}</AlertDescription>
 					</Alert>
 				)}
+				{results && entries.length > 0 && (
+					<div className="flex flex-wrap items-center gap-x-2 text-micro tabular-nums text-muted-foreground">
+						<span>{t("hostPlugins.marketSummary", { count: entries.length, registry: official, github: entries.length - official })}</span>
+					</div>
+				)}
 				<div className="min-h-0 flex-1 overflow-y-auto">
 					{results === null ? (
 						<div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border px-4 py-10 text-center">
-							<Store size={20} className="text-muted-foreground" aria-hidden="true" />
+							<LoaderCircle size={20} className="animate-pideck-spin text-muted-foreground" aria-hidden="true" />
 							<span className="max-w-[34rem] text-xs leading-relaxed text-muted-foreground">{t("hostPlugins.marketIdle")}</span>
 						</div>
-					) : results.entries.length === 0 ? (
+					) : entries.length === 0 ? (
 						<div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border px-4 py-10 text-center">
 							<Store size={20} className="text-muted-foreground" aria-hidden="true" />
 							<span className="max-w-[34rem] text-xs leading-relaxed text-muted-foreground">{t("hostPlugins.marketEmpty")}</span>
 						</div>
 					) : (
-						<div className="grid gap-1.5">
-							{results.entries.map((entry) => {
+						<div className="grid content-start gap-2 lg:grid-cols-2">
+							{entries.map((entry) => {
 								const Icon = hostPluginPanelIcon(entry.icon);
 								const busy = installing !== null;
+								const localVersion = installed.get(entry.id);
+								const isInstalled = localVersion !== undefined;
+								// 只有版本能比较、且确实不同才算「可更新」；版本号缺失时按「已安装」处理，不去猜。
+								const upgradable = isInstalled && !!entry.version && entry.version !== localVersion;
 								return (
-									<div key={`${entry.source}:${entry.installUrl}`} className="grid gap-1.5 rounded-md border border-border-subtle bg-card p-2.5">
+									<div key={`${entry.source}:${entry.installUrl}`} className="grid content-start gap-1.5 rounded-md border border-border-subtle bg-card p-2.5">
 										<div className="flex min-w-0 flex-wrap items-center gap-2">
 											<Icon size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
 											<span className="truncate text-sm font-medium text-foreground">{entry.name}</span>
@@ -139,14 +163,24 @@ export function HostPluginMarketDialog({ open, onOpenChange, onFail }: HostPlugi
 											<Badge variant="outline" className="text-micro font-normal text-muted-foreground">
 												{entry.source === "registry" ? t("hostPlugins.marketSourceRegistry") : t("hostPlugins.marketSourceGithub")}
 											</Badge>
+											{isInstalled && !upgradable && (
+												<Badge variant="secondary" className="text-micro font-normal">
+													{t("hostPlugins.marketInstalledBadge")}
+												</Badge>
+											)}
+											{upgradable && (
+												<Badge variant="secondary" className="text-micro font-normal">
+													{t("hostPlugins.marketUpdateBadge", { version: entry.version ?? "" })}
+												</Badge>
+											)}
 											{entry.stars !== undefined && <span className="text-micro tabular-nums text-muted-foreground">{t("hostPlugins.marketStars", { count: entry.stars })}</span>}
-											<Button variant="outline" size="sm" className="ml-auto" disabled={busy} onClick={() => void install(entry)}>
+											<Button variant="outline" size="sm" className="ml-auto shrink-0" disabled={busy || (isInstalled && !upgradable)} onClick={() => void install(entry)}>
 												{busy && installing === entry.installUrl ? <LoaderCircle className="size-4 animate-pideck-spin" aria-hidden="true" /> : null}
-												{busy && installing === entry.installUrl ? t("hostPlugins.marketInstalling") : t("hostPlugins.marketInstall")}
+												{isInstalled && !upgradable ? t("hostPlugins.marketInstalledBadge") : busy && installing === entry.installUrl ? t("hostPlugins.marketInstalling") : t("hostPlugins.marketInstall")}
 											</Button>
 										</div>
 										{entry.description && (
-											<p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground" title={entry.description}>
+											<p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground" title={entry.description}>
 												{entry.description}
 											</p>
 										)}
@@ -177,7 +211,7 @@ export function HostPluginMarketDialog({ open, onOpenChange, onFail }: HostPlugi
 									</div>
 								);
 							})}
-							{results.entries.some((entry) => entry.source === "github") && <p className="px-1 pt-1 text-micro leading-relaxed text-muted-foreground">{t("hostPlugins.marketCommunityHint")}</p>}
+							{entries.some((entry) => entry.source === "github") && <p className="px-1 text-micro leading-relaxed text-muted-foreground lg:col-span-2">{t("hostPlugins.marketCommunityHint")}</p>}
 						</div>
 					)}
 				</div>
