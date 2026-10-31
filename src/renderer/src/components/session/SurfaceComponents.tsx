@@ -1315,13 +1315,13 @@ export { MultiSelectModal };
  * hover 出预览卡、点击跳转；工具开关已上收会话 Tab 栏（SessionToolAction），
  * 此处不再承载其他入口；容器沿用 .outline-hover 的定位规则（session-outline-pane 贴右缘，有测试守护）。
  *
- * 条数与取哪几条：**最多 RAIL_TICK_LIMIT（30）条，以当前阅读位置为中心的滑动窗口**
- * （windowRailItems）。底部时是「最新的 30 条」，往上翻窗口跟着上移——用户反馈
- * 「旁边横条太多」后的取舍，见 outlineRailTicks.ts 头部注释（对比 Proma 的桶 /
- * dsh 的全量可滚）。注意副作用：条数超 30 后纵向位置不再代表整段会话的进度。
+ * 条数与取哪几条：**高度放得下就全量显示**（windowRailItems 按 RAIL_TICK_MIN_SIZE 判），
+ * 刻度纵向位置才代表整段会话的进度，翻上翻下不会整列偏移（2026-11 真机反馈：
+ * 「一开始显示不全，翻到最上面再翻下来又退化」）。放不下时退回**最多 30 条的滑动窗口**，
+ * 以当前阅读位置为中心——用户反馈「旁边横条太多」后的取舍，见 outlineRailTicks.ts 头部注释。
  *
  * 高度自适应：容器被 .outline-hover 的 top/bottom 双向夹持出可用高度，间距按条数
- * 收缩（14px → 最低 6px，30 × 6 = 180px 足够放下），不做内部滚动。
+ * 收缩（14px → 最低 6px），不做内部滚动；条数超出容器能容纳的量时窗口才介入。
  * 滚轮落在刻度上会转发给时间线（导轨是滚动视口的兄弟节点，不转发就滚不动）。
  */
 type ConversationOutlineProps = {
@@ -1375,7 +1375,7 @@ function ConversationOutlineView(props: ConversationOutlineProps) {
 	// 往上翻窗口跟着上移，更早的提问进入窗口（上滑即显示更多）。
 	// 先按源下标定位 active（窗口前后都用同一套源坐标），再截窗口、再规划间距。
 	const activeSourceIndex = railActiveId === undefined ? -1 : (outlineItemIndex.get(railActiveId) ?? -1);
-	const visibleItems = useMemo(() => windowRailItems(props.items, activeSourceIndex), [props.items, activeSourceIndex]);
+	const visibleItems = useMemo(() => windowRailItems(props.items, activeSourceIndex, availableHeight), [props.items, activeSourceIndex, availableHeight]);
 	const plan = useMemo(() => planRailTicks(visibleItems, availableHeight), [visibleItems, availableHeight]);
 	const railItems = useMemo<PreviewRailItem[]>(
 		() =>

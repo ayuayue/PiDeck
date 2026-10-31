@@ -62,6 +62,32 @@ test("条数不超上限：原样返回（短会话完全不受窗口影响）",
 	}
 });
 
+test("高度放得下全部：不做窗口，刻度覆盖整段会话（2026-11 真机反馈：显示不全、翻回来退化）", () => {
+	const items = makeItems(66);
+	// 66 × 6 = 396px，700px 高的列一次放得下
+	assert.deepEqual(idsOf(railTicks.windowRailItems(items, -1, 700)), idsOf(items));
+	// 同一批条目，高度不够时才退回窗口
+	assert.equal(railTicks.windowRailItems(items, -1, 100).length, 30);
+});
+
+test("全量与窗口的分界按最小可点间距算：边界两侧各验一条", () => {
+	const items = makeItems(66);
+	assert.deepEqual(idsOf(railTicks.windowRailItems(items, -1, 66 * railTicks.RAIL_TICK_MIN_SIZE)), idsOf(items));
+	assert.equal(railTicks.windowRailItems(items, -1, 66 * railTicks.RAIL_TICK_MIN_SIZE - 1).length, 30);
+});
+
+test("高度未知（首帧）：退回窗口，不按上限间距渲染全部（否则会溢出被裁）", () => {
+	assert.equal(railTicks.windowRailItems(makeItems(66), -1).length, 30);
+});
+
+test("全量形态下翻到最上面再翻下来：刻度集合不随阅读位置变化（不退化）", () => {
+	const items = makeItems(66);
+	const atTop = idsOf(railTicks.windowRailItems(items, 0, 700));
+	const atBottom = idsOf(railTicks.windowRailItems(items, 65, 700));
+	assert.deepEqual(atTop, idsOf(items));
+	assert.deepEqual(atBottom, atTop);
+});
+
 test("当前位置未知（首帧）：取最新的 30 条", () => {
 	const windowed = railTicks.windowRailItems(makeItems(120), -1);
 	assert.equal(windowed.length, 30);

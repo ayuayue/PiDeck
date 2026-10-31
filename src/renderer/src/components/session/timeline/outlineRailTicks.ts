@@ -43,15 +43,20 @@ export type RailTickPlan<T> = {
 };
 
 /**
- * 取以 activeIndex 为中心、最多 limit 条的滑动窗口。
+ * 取要渲染的刻度条目。
  *
  * - 条数不超上限：原样返回（短会话不受影响）。
- * - 当前位置未知（activeIndex < 0）：取最近的一批（= 打开会话时的「最新 30 条」）。
- * - 其余：窗口尽量包住当前位置；贴到首尾时自然收缩，不产生空位。
+ * - **高度放得下全部**（count × RAIL_TICK_MIN_SIZE ≤ availableHeight）：全量返回。
+ *   刻度纵向位置才代表整段会话的进度，否则翻上翻下时窗口滑动会让整列刻度偏移，
+ *   看起来像「显示不全、翻回来又退化」（2026-11 真机反馈）。
+ * - 高度未知（首帧未测量）：退回滑动窗口，下一帧 ResizeObserver 测到高度后重算。
+ * - 否则取以 activeIndex 为中心、最多 limit 条的滑动窗口：
+ *   当前位置未知（activeIndex < 0）取最近的一批；贴到首尾时自然收缩，不产生空位。
  */
-export function windowRailItems<T>(items: readonly T[], activeIndex: number, limit = RAIL_TICK_LIMIT): T[] {
+export function windowRailItems<T>(items: readonly T[], activeIndex: number, availableHeight = 0, limit = RAIL_TICK_LIMIT): T[] {
 	const count = items.length;
 	if (count <= limit) return [...items];
+	if (availableHeight > 0 && count * RAIL_TICK_MIN_SIZE <= availableHeight) return [...items];
 	const half = Math.floor(limit / 2);
 	const anchor = activeIndex >= 0 && activeIndex < count ? activeIndex : count - 1;
 	const start = Math.max(0, Math.min(count - limit, anchor - half));
