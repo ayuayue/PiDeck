@@ -1621,8 +1621,20 @@ export class AgentManager {
 		const start = boundTurnWindowStart(roles, pos, turnCount, SessionHistoryReader.maxPageWindowEntries());
 		if (start >= pos) return null;
 		const page = list.slice(start, pos);
-		const oldest = page[0] ?? list[0];
-		const oldestEntryId = typeof oldest?.meta?.entryId === "string" ? oldest.meta.entryId : undefined;
+		// 窗口首条常常不是用户/助手消息，而是压缩摘要卡片或工具结果：这两类在会话文件里没有
+		// 对应 entry（摘要卡片无条目、工具结果并入上一轮），拿它的 entryId 必然为空，
+		// 于是 nextBefore 与 nextBeforeEntryId 双双缺席——渲染层据此判定「已到文件头」，
+		// 「加载更多对话」不显示、上滚也不翻页（2026-10 反馈：恢复会话后只剩 9 轮）。
+		// 这里向后扫描取第一条带 entryId 的消息当续页锚点：下一页会多回几条与窗口重叠的
+		// 消息，渲染层 prefix 合并按 entryId 去重，不会重复渲染（见 prependSessionMessagePageAtom）。
+		const pickAnchorEntryId = (items: typeof list): string | undefined => {
+			for (const item of items) {
+				const id = item?.meta?.entryId;
+				if (typeof id === "string" && id) return id;
+			}
+			return undefined;
+		};
+		const oldestEntryId = pickAnchorEntryId(page) ?? pickAnchorEntryId(list);
 		const nextBefore = oldestEntryId ? ((await this.sessionHistoryReader.resolveEntryPosition(sessionPath, oldestEntryId)) ?? null) : null;
 		const total = await this.sessionHistoryReader.getActiveEntryCount(sessionPath);
 		// 与文件路径同口径的会话文件版本：渲染层据此检测压缩/外部改写并丢弃已缓存的历史前缀
@@ -1633,6 +1645,9 @@ export class AgentManager {
 			start,
 			pos,
 			pageCount: page.length,
+			// 续页锚点打出来：「加载更多对话」不出现时，先看这两位是不是都空。
+			nextBeforeEntryId: oldestEntryId ?? null,
+			nextBefore,
 		});
 		return {
 			// 与文件路径/全量 flush 同口径瘦身：缓存页也必须剥离 meta.result，
