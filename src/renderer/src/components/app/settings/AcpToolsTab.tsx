@@ -16,16 +16,7 @@ import { Checkbox } from "../../ui-shadcn/checkbox";
 import { Input } from "../../ui-shadcn/input";
 import { Textarea } from "../../ui-shadcn/textarea";
 import { ACP_STALL_TIMEOUT_DEFAULT_MS, ACP_STALL_TIMEOUT_SECONDS, ACP_TURN_TIMEOUT_DEFAULT_MS, ACP_TURN_TIMEOUT_MINUTES, acpStallTimeoutPatch, acpStallTimeoutText, acpTurnTimeoutPatch, acpTurnTimeoutText } from "./acpTimeoutInput";
-import {
-	ACP_RETRY_BASE_DELAY_SECONDS,
-	ACP_RETRY_DEFAULT_BASE_DELAY_MS,
-	ACP_RETRY_DEFAULT_MAX_RETRIES,
-	ACP_RETRY_MAX_RETRIES_RANGE,
-	acpRetryBaseDelayPatch,
-	acpRetryBaseDelayText,
-	acpRetryMaxRetriesPatch,
-	acpRetryMaxRetriesText,
-} from "./acpRetryInput";
+import { ACP_RETRY_BASE_DELAY_SECONDS, ACP_RETRY_DEFAULT_BASE_DELAY_MS, ACP_RETRY_DEFAULT_MAX_RETRIES, ACP_RETRY_MAX_RETRIES_RANGE, acpRetryBaseDelayPatch, acpRetryBaseDelayText, acpRetryMaxRetriesPatch, acpRetryMaxRetriesText } from "./acpRetryInput";
 import { cn } from "../../../lib/utils";
 
 /** 草稿行 = IPC 输入形态:id 空表示新增行,保存时由主进程分配并返回;draftKey 是纯渲染用本地标识(React key/折叠态跟踪),不入盘。 */
@@ -566,17 +557,20 @@ function AcpRetrySettings() {
 		[baseDelaySaved],
 	);
 
-	const toggle = useCallback(async (next: boolean) => {
-		const previous = enabled;
-		setEnabled(next);
-		try {
-			await desktopApi.settings.update({ acpTurnRetryEnabled: next });
-			setError(undefined);
-		} catch (cause) {
-			setEnabled(previous);
-			setError(t("acp.timeoutSaveFailed", { message: cause instanceof Error ? cause.message : String(cause) }));
-		}
-	}, [enabled]);
+	const toggle = useCallback(
+		async (next: boolean) => {
+			const previous = enabled;
+			setEnabled(next);
+			try {
+				await desktopApi.settings.update({ acpTurnRetryEnabled: next });
+				setError(undefined);
+			} catch (cause) {
+				setEnabled(previous);
+				setError(t("acp.timeoutSaveFailed", { message: cause instanceof Error ? cause.message : String(cause) }));
+			}
+		},
+		[enabled],
+	);
 
 	return (
 		<section className="flex flex-col gap-2">

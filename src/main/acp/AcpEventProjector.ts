@@ -424,10 +424,7 @@ export function rollbackAcpUserPrompt(state: AcpProjectionState, index: number):
  * 同一回合只维护一张卡：`state.retryStatusMessageId` 指向它，running 时原地推进，
  * 收敛（success/error）后不再被后续事件改写（else 分支才新建）。
  */
-export function upsertAcpRetryStatus(
-	state: AcpProjectionState,
-	input: { agentId: string; status: "running" | "success" | "error"; attempt: number; maxAttempts: number; delayMs?: number; errorMessage?: string },
-): AcpProjectionState {
+export function upsertAcpRetryStatus(state: AcpProjectionState, input: { agentId: string; status: "running" | "success" | "error"; attempt: number; maxAttempts: number; delayMs?: number; errorMessage?: string }): AcpProjectionState {
 	const delayMs = Math.max(0, Math.floor(input.delayMs ?? 0));
 	const attempt = Math.max(1, Math.floor(input.attempt));
 	const maxAttempts = Math.max(0, Math.floor(input.maxAttempts));

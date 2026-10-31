@@ -78,10 +78,12 @@ export type AcpTurnRetryInput = {
 	status?: number;
 };
 
-export type AcpTurnRetryDecision = ({ retry: true; attempt: number; maxAttempts: number; delayMs: number; reason: string } & {
-	/** 供重试卡 debugDetails / 日志用：命中的类别。 */
-	kind: string;
-}) | { retry: false; reason: string };
+export type AcpTurnRetryDecision =
+	| ({ retry: true; attempt: number; maxAttempts: number; delayMs: number; reason: string } & {
+			/** 供重试卡 debugDetails / 日志用：命中的类别。 */
+			kind: string;
+	  })
+	| { retry: false; reason: string };
 
 /** 判定这一次失败要不要自动重发，以及退避多久。 */
 export function decideAcpTurnRetry(input: AcpTurnRetryInput): AcpTurnRetryDecision {

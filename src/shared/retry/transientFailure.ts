@@ -19,9 +19,7 @@ export type TransientFailureKind = "network" | "stream" | "gateway" | "rate-limi
 /** 终局失败的细分类别（重试也救不回来）。 */
 export type FatalFailureKind = "cancelled" | "quota" | "auth" | "context-overflow" | "invalid-request" | "tls";
 
-export type FailureVerdict =
-	| { retry: true; kind: TransientFailureKind; reason: string }
-	| { retry: false; kind: FatalFailureKind; reason: string };
+export type FailureVerdict = { retry: true; kind: TransientFailureKind; reason: string } | { retry: false; kind: FatalFailureKind; reason: string };
 
 export type ClassifyFailureInput = {
 	/** 原始错误文本（JSON-RPC error.message / Error.message / CLI 输出片段）。 */
@@ -44,26 +42,22 @@ const FATAL_RULES: Rule[] = [
 	{
 		kind: "quota",
 		label: "quota",
-		pattern:
-			/insufficient[ _-]?quota|exceeded your current quota|out of budget|available balance|billing|payment required|credit balance|top ?up|余额不足|余额|欠费|额度(?:已)?(?:用完|耗尽|不足)|配额不足|充值/,
+		pattern: /insufficient[ _-]?quota|exceeded your current quota|out of budget|available balance|billing|payment required|credit balance|top ?up|余额不足|余额|欠费|额度(?:已)?(?:用完|耗尽|不足)|配额不足|充值/,
 	},
 	{
 		kind: "auth",
 		label: "auth",
-		pattern:
-			/\b401\b|\b403\b|unauthori[sz]ed|forbidden|invalid[ _-]?api[ _-]?key|invalid[ _-]?(?:token|credential|key)|authentication (?:failed|error|required)|auth_required|not logged in|log ?in required|please (?:log ?in|authenticate)|missing (?:api )?key|未登录|登录已过期|认证失败/,
+		pattern: /\b401\b|\b403\b|unauthori[sz]ed|forbidden|invalid[ _-]?api[ _-]?key|invalid[ _-]?(?:token|credential|key)|authentication (?:failed|error|required)|auth_required|not logged in|log ?in required|please (?:log ?in|authenticate)|missing (?:api )?key|未登录|登录已过期|认证失败/,
 	},
 	{
 		kind: "context-overflow",
 		label: "context-overflow",
-		pattern:
-			/context[ _-]?(?:length|window)[ _-]?(?:exceed|limit)|maximum context|too many tokens|prompt is too long|reduce the length|context length exceeded|上下文(?:长度)?超|超出(?:模型)?上下文/,
+		pattern: /context[ _-]?(?:length|window)[ _-]?(?:exceed|limit)|maximum context|too many tokens|prompt is too long|reduce the length|context length exceeded|上下文(?:长度)?超|超出(?:模型)?上下文/,
 	},
 	{
 		kind: "invalid-request",
 		label: "invalid-request",
-		pattern:
-			/\b400\b|\b404\b|\b405\b|\b413\b|\b422\b|bad request|invalid[ _-]?request|invalid[ _-]?param|method not found|not supported|unsupported (?:model|parameter|image|content)|model[ _-]not[ _-]found|does not exist|no such model/,
+		pattern: /\b400\b|\b404\b|\b405\b|\b413\b|\b422\b|bad request|invalid[ _-]?request|invalid[ _-]?param|method not found|not supported|unsupported (?:model|parameter|image|content)|model[ _-]not[ _-]found|does not exist|no such model/,
 	},
 	{
 		kind: "tls",
@@ -78,8 +72,7 @@ const TRANSIENT_RULES: Rule[] = [
 	{
 		kind: "network",
 		label: "errno",
-		pattern:
-			/\b(?:econnreset|econnrefused|econnaborted|epipe|etimedout|esockettimedout|enetunreach|ehostunreach|enetdown|eai_again|enotfound|eproto)\b|\bund_err_[a-z_]+\b|\berr_stream_premature_close\b/,
+		pattern: /\b(?:econnreset|econnrefused|econnaborted|epipe|etimedout|esockettimedout|enetunreach|ehostunreach|enetdown|eai_again|enotfound|eproto)\b|\bund_err_[a-z_]+\b|\berr_stream_premature_close\b/,
 	},
 	{
 		kind: "stream",
@@ -91,8 +84,7 @@ const TRANSIENT_RULES: Rule[] = [
 		kind: "stream",
 		label: "body",
 		// 网关 502 时回 HTML/半截 JSON，SDK 直接 JSON.parse 报这两种；空 body 同理。
-		pattern:
-			/unexpected token|unexpected end of (?:json|input|data)|invalid json|json parse|empty (?:response|body|reply|completion)|(?:response|body|reply) (?:is )?empty|no content|zero[ _-]?byte|truncated (?:response|body)/,
+		pattern: /unexpected token|unexpected end of (?:json|input|data)|invalid json|json parse|empty (?:response|body|reply|completion)|(?:response|body|reply) (?:is )?empty|no content|zero[ _-]?byte|truncated (?:response|body)/,
 	},
 	{
 		kind: "rate-limit",
@@ -105,8 +97,7 @@ const TRANSIENT_RULES: Rule[] = [
 	{
 		kind: "gateway",
 		label: "gateway",
-		pattern:
-			/bad gateway|gateway time[ _-]?out|service unavailable|internal server error|upstream (?:request )?(?:failed|error)|unable to forward upstream|provider returned error|overloaded|server_busy|resource ?exhausted|try (?:your request )?again|please retry|retry your request|retry delay/,
+		pattern: /bad gateway|gateway time[ _-]?out|service unavailable|internal server error|upstream (?:request )?(?:failed|error)|unable to forward upstream|provider returned error|overloaded|server_busy|resource ?exhausted|try (?:your request )?again|please retry|retry your request|retry delay/,
 	},
 	{
 		kind: "timeout",

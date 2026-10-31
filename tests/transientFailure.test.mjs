@@ -34,12 +34,7 @@ const CASES = [
 	["upstream request failed", "gateway", true],
 	["overloaded_error", "gateway", true],
 	// 限流：magpie 的真实 429 文案（pi 日志里连试 50 次的那条）
-	[
-		'429: {"code":null,"message":"wb: {\\"code\\":6000,\\"msg\\":\\"您的使用量已超出频率限制，将在 2026-10-23 13:38:09 UTC+8 重置\\"}",' +
-			'"type":"rate_limit_error"}',
-		"rate-limit",
-		true,
-	],
+	['429: {"code":null,"message":"wb: {\\"code\\":6000,\\"msg\\":\\"您的使用量已超出频率限制，将在 2026-10-23 13:38:09 UTC+8 重置\\"}",' + '"type":"rate_limit_error"}', "rate-limit", true],
 	["rate limit exceeded, please retry later", "rate-limit", true],
 	["request timed out after 60000ms", "timeout", true],
 	// 终局：重试只是拖长失败
@@ -80,7 +75,7 @@ test("classifyFailure:认不出的错误默认允许重试(调用方只在无产
 	assert.equal(classifyFailure({ message: "" }).retry, true);
 });
 
-test("failureMessage:Error 取 message、null 不留 \"null\" 字面量", () => {
+test('failureMessage:Error 取 message、null 不留 "null" 字面量', () => {
 	assert.equal(failureMessage(new Error("read ECONNRESET")), "read ECONNRESET");
 	assert.equal(failureMessage("plain"), "plain");
 	assert.equal(failureMessage(null), "");

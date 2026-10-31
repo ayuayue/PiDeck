@@ -8,9 +8,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { ACP_TURN_RETRY_DEFAULTS, ACP_TURN_RETRY_LIMITS, resolveAcpTurnRetrySettings, decideAcpTurnRetry } = loadTsCommonJs(
-	"src/main/acp/acpTurnRetry.ts",
-);
+const { ACP_TURN_RETRY_DEFAULTS, ACP_TURN_RETRY_LIMITS, resolveAcpTurnRetrySettings, decideAcpTurnRetry } = loadTsCommonJs("src/main/acp/acpTurnRetry.ts");
 const ui = loadTsCommonJs("src/renderer/src/components/app/settings/acpRetryInput.ts");
 
 const SETTINGS = resolveAcpTurnRetrySettings();

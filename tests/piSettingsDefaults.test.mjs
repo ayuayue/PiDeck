@@ -121,11 +121,7 @@ test("retry 嵌套补丁落盘时深合并:用户的 maxRetries:50 与 provider 
 	const { dir, cleanup } = tempDir();
 	try {
 		const filePath = join(dir, "settings.json");
-		writeFileSync(
-			filePath,
-			JSON.stringify({ retry: { maxRetries: 50, baseDelayMs: 5_000, provider: { maxRetryDelayMs: 120_000 }, extra: "keep-me" } }),
-			"utf8",
-		);
+		writeFileSync(filePath, JSON.stringify({ retry: { maxRetries: 50, baseDelayMs: 5_000, provider: { maxRetryDelayMs: 120_000 }, extra: "keep-me" } }), "utf8");
 		await ensurePiSettingsDefaults(dir);
 		const data = JSON.parse(readFileSync(filePath, "utf8"));
 		assert.equal(data.retry.maxRetries, 50, "用户值保留");
