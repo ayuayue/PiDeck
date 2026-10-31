@@ -406,6 +406,8 @@ export type SessionTimelineController = {
 	 * 虚拟区外的行不在 DOM 里，上述场景必须整表挂载。
 	 */
 	navBlockingVirtualization: boolean;
+	/** 跳转在途：贴底跟随的窗口压缩要让位，否则流式期间目标轮挂不上。 */
+	jumpPending: boolean;
 	/** 顶部插入收尾：渲染层做完 pin 补偿后调用，解除整表渲染。 */
 	endPrependSolid: () => void;
 	/** 本栏粘住的空会话：预热写 filePath/dshSessionId 后仍不闪历史骨架。 */
@@ -870,6 +872,17 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	 * nonce 保证连续点击同一目标也会重跑。
 	 */
 	const [pendingJump, setPendingJump] = useState<Tagged<{ messageId: string; expandAttempts: number; loadAttempts: number; nonce: number }> | undefined>(undefined);
+
+	/**
+	 * 跳转在途的同步镜像。为什么需要 ref：下面两处「回底就作废扩窗」的逻辑在 effect /
+	 * rAF 回调里跑，读不到最新 state；而流式输出期间贴底引擎每帧都把 autoScroll 设回
+	 * true，于是扩窗批次刚排上就被清空、渲染窗口也被压回 3 轮——目标轮永远挂不上，
+	 * 界面表现为「吐 token 时点刻度没反应」（2026-11 真机）。
+	 */
+	const pendingJumpRef = useRef(false);
+	useLayoutEffect(() => {
+		pendingJumpRef.current = pendingJump !== undefined;
+	}, [pendingJump]);
 	const jumpNonceRef = useRef(0);
 	/**
 	 * 跳转揭示：目标消息已加载但 DOM 节点没挂载时（命中在已完成轮的执行过程折叠区里，
@@ -958,7 +971,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		// 已回底（回底按钮/手动滚回底部）：批次作废。回底会触发窗口 6→3 轮收回，
 		// 是一次大幅内容收缩；若此时继续消费批次，会把刚收回的窗口又扩回去
 		// （回底后按钮反复出现、滚到底跟着就掉开的根因之一）。
-		if (autoScrollRef.current) {
+		if (autoScrollRef.current && !pendingJumpRef.current) {
 			pendingExpandTurnsRef.current = 0;
 			return;
 		}
@@ -1071,9 +1084,11 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		},
 		[escapeAutoScroll],
 	);
-	// 回底/卸载时取消未消费的分批扩展（窗口重置回基础大小，pending 作废）
+	// 回底/卸载时取消未消费的分批扩展（窗口重置回基础大小，pending 作废）。
+	// 跳转在途时**不执行**：流式输出期间贴底引擎每帧把 autoScroll 设回 true，这里一跑就
+	// 把刚排上的扩窗清空、窗口压回 3 轮，目标轮永远挂不上——「吐 token 时点刻度没反应」。
 	useEffect(() => {
-		if (autoScroll) {
+		if (autoScroll && !pendingJumpRef.current) {
 			pendingExpandTurnsRef.current = 0;
 			browsePinRef.current = null;
 			pinnedRowElRef.current = null;
@@ -2008,6 +2023,8 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		isSurfaceLoading,
 		navBlockingVirtualization: restorePhase !== "complete" || pendingJump !== undefined || prependSolid,
 		/** 顶部插入（扩窗/翻页）收尾通知：渲染层的 pin 补偿做完后调用，解除整表渲染。 */
+		/** 跳转在途：渲染层据此暂停贴底窗口压缩（流式期间点刻度时目标轮必须能挂上）。 */
+		jumpPending: pendingJump !== undefined,
 		endPrependSolid,
 		knownEmpty,
 		reloadFromDisk,
