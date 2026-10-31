@@ -24,15 +24,17 @@ export const RAIL_TICK_MIN_SIZE = 6;
 /** 刻度条数上限：滑动窗口大小（2026-10 用户反馈「旁边横条太多」）。 */
 export const RAIL_TICK_LIMIT = 30;
 /**
- * 点未加载刻度时最多轮询几次（每次 60ms，即约 600ms 的时间盒）。
+ * 点未加载刻度时最多发起几次补页（保险丝，不是预算）。
  *
- * 注意这不是「页数」：`loadMoreMessages` 在上一页仍在飞时直接 return
- * （useSessionTimelineController 的 in-flight 守卫），所以部分轮询是空转。
- * 因此窗口内最靠前的几条仍可能补不到——渲染层对补不到的情况必须给提示，
- * 不能承诺「看得见就一定点得到」。
+ * 旧实现是「每 60ms 轮询一次、最多 10 次」：`loadMoreMessages` 在上一页仍在飞时
+ * 直接 return（in-flight 守卫），这些轮询全部空转，把 10 次预算烧在没有进展的等待上；
+ * 一页 3 轮 × 实际成功的几页，很快就连「点最上面那一条」都够不着，于是弹出
+ * 「这条提问还在更早的历史里」（2026-10 真机反馈：62 轮会话，点最上面的刻度必弹）。
+ *
+ * 现在由渲染层等 `isLoadingMoreMessages` 落地后再发下一页，本常量只做防死循环的保险丝：
+ * 60 页 × 3 轮 ≈ 180 轮深度，够覆盖单会话的极端长度。
  */
-export const RAIL_PENDING_MAX_ATTEMPTS = 10;
-
+export const RAIL_PENDING_MAX_ATTEMPTS = 60;
 export type RailTickPlan<T> = {
 	/** 实际渲染的条目（已按窗口截取）。 */
 	items: T[];
@@ -107,4 +109,33 @@ export function isPendingRailItemId(id: string): boolean {
 /** 从占位刻度 id 取回 entryId。 */
 export function pendingEntryIdOf(id: string): string | undefined {
 	return id.startsWith("outline-pending:") ? id.slice("outline-pending:".length) : undefined;
+}
+
+/**
+ * 点击「目录里有、消息还没加载」的刻度后，下一步该做什么（纯函数，可单测）。
+ *
+ * 旧实现在渲染层每 60ms 轮询一次 loadMoreMessages，而它在上一页仍在飞时直接 return
+ * （in-flight 守卫）——这些轮询全部空转，把次数预算烧在等待上，于是长会话里点最上面的
+ * 刻度必弹「这条提问还在更早的历史里」。改成「等落地再发下一页」，预算只统计真正发起的补页。
+ */
+export type RailPendingStep = "jump" | "wait" | "load" | "settle";
+
+export function planRailPendingStep(input: {
+	/** 目标条目已经出现在已加载消息里（命中即可跳）。 */
+	targetLoaded: boolean;
+	/** 上一页仍在加载：原地等，不算一次尝试。 */
+	isLoadingMore: boolean;
+	/** 还有更早的历史页可补。 */
+	hasMoreMessages: boolean;
+	/** 上一次补页失败：再补也不会前进，直接交回落位逻辑。 */
+	loadFailed: boolean;
+	/** 已经真正发起的补页次数。 */
+	attempts: number;
+	/** 防死循环的保险丝次数。 */
+	maxAttempts: number;
+}): RailPendingStep {
+	if (input.targetLoaded) return "jump";
+	if (input.isLoadingMore) return "wait";
+	if (input.hasMoreMessages && !input.loadFailed && input.attempts < input.maxAttempts) return "load";
+	return "settle";
 }

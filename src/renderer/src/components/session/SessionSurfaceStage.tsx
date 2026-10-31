@@ -7,7 +7,7 @@ import type { SessionMessageTimelineProps } from "./SessionMessageTimeline";
 import { SessionMessageTimeline } from "./SessionMessageTimeline";
 import { showNotice } from "../../utils/notice";
 import { outlineItemsBySessionIdAtomFamily, sessionHistoryMutationOverlayBySessionIdAtomFamily } from "../../atoms";
-import { isPendingRailItemId, mergeOutlineRailItems, pendingEntryIdOf, RAIL_PENDING_MAX_ATTEMPTS } from "./timeline/outlineRailTicks";
+import { isPendingRailItemId, mergeOutlineRailItems, pendingEntryIdOf, planRailPendingStep, RAIL_PENDING_MAX_ATTEMPTS } from "./timeline/outlineRailTicks";
 import { useSessionOutlineDirectory } from "../../hooks/useSessionOutlineDirectory";
 import { formatTime, summarizeMessage } from "../app/AppUtils";
 import { replaceExpandedRefBlocksWithLabels } from "../../../../shared/expandedRefBlocks";
@@ -63,27 +63,38 @@ export function SessionSurfaceStage(props: { sessionId: string; sessionTimeline:
 		},
 		[sessionTimeline],
 	);
-	// 补页循环：每轮等已加载条数变化再决定继续；到目标即停，上限覆盖整个刻度窗口。
+	// 补页循环：目标刻度还没加载时，一页一页向上补，直到命中 / 没有更早的页 / 保险丝烧断。
+	// 关键在「等上一页落地再发下一页」——旧实现每 60ms 轮询一次，而 loadMoreMessages 在上一页
+	// 仍在飞时直接 return（in-flight 守卫），这些轮询全部空转，10 次预算很快烧完，于是点最上面
+	// 的刻度必弹「继续向上翻一会儿再点」（2026-10 真机反馈：62 轮会话）。
 	useEffect(() => {
 		if (!pendingEntryId) return;
 		const loaded = outlineItems.find((item) => item.entryId === pendingEntryId);
-		if (loaded) {
+		const step = planRailPendingStep({
+			targetLoaded: Boolean(loaded),
+			isLoadingMore: sessionTimeline.isLoadingMoreMessages,
+			hasMoreMessages: sessionTimeline.hasMoreMessages,
+			loadFailed: Boolean(sessionTimeline.loadMoreError),
+			attempts: pendingAttempts,
+			maxAttempts: RAIL_PENDING_MAX_ATTEMPTS,
+		});
+		if (step === "jump" && loaded) {
 			setPendingEntryId(undefined);
 			sessionTimeline.jumpToMessage(loaded.id);
 			return;
 		}
-		if (pendingAttempts >= RAIL_PENDING_MAX_ATTEMPTS) {
-			// 补页预算用尽：必须给反馈。静默放弃会让「点了刻度没反应」变成无解释的黑洞
-			// （导轨现在最多 30 条、覆盖整个会话，靠前的刻度天然可能超出补页预算）。
-			setPendingEntryId(undefined);
-			showNotice(t("outline.jumpUnreachable"), 6000, "info");
-			return;
-		}
-		const timer = setTimeout(() => {
+		// 上一页还在飞：原地等，不消耗预算（isLoadingMoreMessages 翻转会让本 effect 重跑）。
+		if (step === "wait") return;
+		if (step === "load") {
 			setPendingAttempts((current) => current + 1);
 			sessionTimeline.loadMoreMessages("button");
-		}, 60);
-		return () => clearTimeout(timer);
+			return;
+		}
+		// 没有更早的页可补（或补页失败/保险丝烧断）：先把 entryId 交给 controller 尽力落位——
+		// 它能处理「数据里有、只是节点还没挂出」的扩窗场景；确实落不了位才给提示。
+		setPendingEntryId(undefined);
+		sessionTimeline.jumpToMessage(pendingEntryId);
+		showNotice(t("outline.jumpUnreachable"), 6000, "info");
 	}, [pendingEntryId, pendingAttempts, outlineItems, sessionTimeline]);
 	const mutationKind = useAtomValue(sessionHistoryMutationOverlayBySessionIdAtomFamily(sessionId));
 	// 热重载（扩展/技能）不重启进程、也不改会话文件，但它会重建扩展运行时；

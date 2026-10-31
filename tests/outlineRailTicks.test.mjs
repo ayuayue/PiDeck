@@ -109,8 +109,10 @@ test("窗口内条目下标严格递增、无重复、条数恒不超上限", ()
 	}
 });
 
-test("补页预算是个有限的时间盒（不是页数保证）", () => {
-	// 每次轮询 60ms；预算必须有限，否则补不到时会永远轮询下去
+test("补页次数是防死循环的保险丝，不再按 600ms 时间盒计数", () => {
+	// 渲染层现在等上一页落地再发下一页，次数只统计真正发起的补页（旧实现每 60ms 轮询，
+	// in-flight 守卫让这些轮询全部空转）。一页 3 轮：60 页 ≈ 180 轮，覆盖长会话；
+	// 旧值 10 页 ≈ 30 轮不够，62 轮会话里点最上面的刻度必弹「继续向上翻一会儿再点」。
 	assert.ok(Number.isInteger(railTicks.RAIL_PENDING_MAX_ATTEMPTS));
-	assert.ok(railTicks.RAIL_PENDING_MAX_ATTEMPTS > 0 && railTicks.RAIL_PENDING_MAX_ATTEMPTS <= 20);
+	assert.ok(railTicks.RAIL_PENDING_MAX_ATTEMPTS >= 40 && railTicks.RAIL_PENDING_MAX_ATTEMPTS <= 200);
 });
