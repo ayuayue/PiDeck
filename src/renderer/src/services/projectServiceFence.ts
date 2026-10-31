@@ -60,6 +60,7 @@ export function fenceProjectFileService(fence: ProjectServiceFence, service: Pro
 		stat: fenced(fence, service.stat),
 		createEntry: fenced(fence, service.createEntry, "unknown"),
 		renameEntry: fenced(fence, service.renameEntry, "unknown"),
+		moveEntry: fenced(fence, service.moveEntry, "unknown"),
 		deleteEntry: fenced(fence, service.deleteEntry, "unknown"),
 		openInEditor: fenced(fence, service.openInEditor),
 		showInFolder: fenced(fence, service.showInFolder),

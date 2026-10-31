@@ -21,8 +21,10 @@ const oid = (char) => char.repeat(40);
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const flush = () => new Promise((accept) => setImmediate(accept));
 
-const baseSnapshot = { head: oid("a"), branch: "main", groups: { merge: [], index: [], workingTree: [], untracked: [] } };
-const historyRow = (value, subject) => ({ oid: value, parents: [oid("2")], authorName: "A", authorEmail: "a@e.invalid", authorTimeSec: 1700000000, subject });
+const groups = { merge: [], index: [], workingTree: [], untracked: [] };
+const baseSnapshot = { head: null, branch: "main", groups };
+const branchInfo = { current: "main", branches: ["main"] };
+const historyRow = (value, subject) => ({ oid: value, parents: [oid("2")], authorName: "A", authorEmail: "a@e.invalid", authorTimeMs: 1_700_000_000_000, subject });
 const detailFor = (value) => ({ oid: value, parents: [oid("2")], authorName: "A", authorEmail: "a@e.invalid", authorTimeSec: 1700000000, committerName: "A", committerEmail: "a@e.invalid", committerTimeSec: 1700000000, subject: "s", message: "s\n", files: [{ status: "M", path: "file.txt" }] });
 const diffFor = () => ({ target, path: "file.txt", displayPath: "file.txt", originalContent: "old", modifiedContent: "new" });
 
@@ -68,11 +70,13 @@ function fixture(api = {}) {
 		"identity",
 		{
 			cancelRemoteReads: async () => {},
-			remoteSnapshot: async () => ({ ok: true, snapshot: baseSnapshot }),
+			status: async () => ({ ok: true, snapshot: baseSnapshot }),
+			refresh: async () => ({ ok: true, snapshot: baseSnapshot }),
+			branches: async () => ({ ok: true, info: branchInfo }),
 			workspaceFileDiff: async () => diffFor(),
-			remoteLog: async () => ({ ok: true, page: { commits: [historyRow(oid("1"), "first")], hasMore: false } }),
-			remoteRefs: async () => ({ ok: true, refs: { head: oid("1"), branch: "main", refs: [] } }),
-			remoteCommitDetail: async (_id, value) => ({ ok: true, detail: detailFor(value) }),
+			historyPage: async () => ({ ok: true, value: { commits: [historyRow(oid("1"), "first")], hasMore: false } }),
+			refs: async () => ({ ok: true, refs: { head: null, branch: "main", refs: [] } }),
+			commitDetail: async (value) => ({ ok: true, detail: detailFor(value) }),
 			...api,
 		},
 		(state) => states.push(state),
@@ -148,10 +152,11 @@ test("静默刷新只换 snapshot/errorCode：不置 loading、不清 diff/histo
 	let branch = "main";
 	const fetches = [];
 	const f = fixture({
-		remoteSnapshot: async () => ({ ok: true, snapshot: { ...baseSnapshot, branch } }),
-		fetchRemote: async (...args) => {
+		refresh: async () => ({ ok: true, snapshot: { ...baseSnapshot, branch } }),
+		branches: async () => ({ ok: true, info: { current: branch, branches: [branch] } }),
+		fetch: async (...args) => {
 			fetches.push(args);
-			return { ok: true, outcome: { upToDate: true, updated: [] } };
+			return { ok: true };
 		},
 	});
 	await f.reads.refresh();
@@ -165,7 +170,9 @@ test("静默刷新只换 snapshot/errorCode：不置 loading、不清 diff/histo
 	branch = "feature";
 	await f.reads.refreshStatus();
 	const after = f.current();
-	assert.equal(after.snapshot.branch, "feature", "新 status 必须落地（外部 commit/checkout 可见）");
+	// 静默 tick 只换事实（groups）：分支是展示信息，沿用上次确认值，变化由显式刷新带回。
+	assert.equal(after.snapshot.branch, "main");
+	assert.deepEqual(plain(after.snapshot.groups), plain(before.snapshot.groups));
 	assert.equal(after.loading, false, "静默刷新不置 loading");
 	assert.equal(after.diffLoading, false);
 	assert.deepEqual(plain(after.history), plain(before.history), "history 不清空");
@@ -173,13 +180,16 @@ test("静默刷新只换 snapshot/errorCode：不置 loading、不清 diff/histo
 	assert.equal(after.detailOid, oid("1"), "选中行保留");
 	assert.deepEqual(plain(after.diff), plain(before.diff), "打开的 diff 保留");
 	assert.deepEqual(fetches, [], "轮询绝不 fetch");
+	// 显式刷新才带回新的分支事实。
+	await f.reads.refresh();
+	assert.equal(f.current().snapshot.branch, "feature", "显式刷新带回新分支");
 });
 
 test("静默刷新单飞：在途时不叠加请求", async () => {
 	let resolveFirst;
 	let calls = 0;
 	const f = fixture({
-		remoteSnapshot: async () => {
+		refresh: async () => {
 			calls += 1;
 			if (calls === 1)
 				return await new Promise((accept) => {
@@ -199,7 +209,8 @@ test("静默刷新单飞：在途时不叠加请求", async () => {
 
 test("静默刷新失败只报稳定码，不抹掉现有事实；成功会解除错误码", async () => {
 	let result = { ok: true, snapshot: baseSnapshot };
-	const f = fixture({ remoteSnapshot: async () => result });
+	const read = async () => result;
+	const f = fixture({ refresh: read, status: read, branches: async () => ({ ok: true, info: { current: result.ok ? result.snapshot.branch : null, branches: [] } }) });
 	await f.reads.refresh();
 	const facts = f.current().snapshot;
 	result = { ok: false, code: "SSH_HOST_DISCONNECTED" };
@@ -209,18 +220,20 @@ test("静默刷新失败只报稳定码，不抹掉现有事实；成功会解�
 	result = { ok: true, snapshot: { ...baseSnapshot, branch: "next" } };
 	await f.reads.refreshStatus();
 	assert.equal(f.current().errorCode, undefined, "一次新事实解除错误码");
-	assert.equal(f.current().snapshot.branch, "next");
+	// 静默 tick 只读事实：分支沿用上次确认值（分支变化由下一次显式刷新带回，见下一条）。
+	assert.equal(f.current().snapshot.branch, "main");
+	await f.reads.refresh();
+	assert.equal(f.current().snapshot.branch, "next", "显式刷新带回新的分支");
 });
 
 test("连接失效后暂停自动轮询：多次 tick 不读，直到一次成功的显式刷新", async () => {
 	let result = { ok: true, snapshot: baseSnapshot };
 	let reads = 0;
-	const f = fixture({
-		remoteSnapshot: async () => {
-			reads += 1;
-			return result;
-		},
-	});
+	const read = async () => {
+		reads += 1;
+		return result;
+	};
+	const f = fixture({ refresh: read, status: read, branches: async () => ({ ok: true, info: { current: result.ok ? result.snapshot.branch : null, branches: [] } }) });
 	const timer = fakeTimer();
 	const gates = { pageVisible: true, hostReady: true, mutating: false, loading: false, diffLoading: false };
 	const stop = startRemoteGitStatusPolling({ isEnabled: () => remoteGitStatusPollingEnabled(gates), poll: () => f.reads.refreshStatus(), timer });
@@ -257,7 +270,7 @@ test("连接失效后暂停自动轮询：多次 tick 不读，直到一次成�
 test("停止轮询后，迟到的静默结果不再发布", async () => {
 	let resolve;
 	const f = fixture({
-		remoteSnapshot: async () =>
+		refresh: async () =>
 			await new Promise((accept) => {
 				resolve = accept;
 			}),
@@ -267,4 +280,38 @@ test("停止轮询后，迟到的静默结果不再发布", async () => {
 	resolve({ ok: true, snapshot: { ...baseSnapshot, branch: "late" } });
 	await pending;
 	assert.equal(f.current(), undefined, "被停止的 tick 不得发布任何状态");
+});
+
+test("静默 tick 只读事实：不再多开分支读，分支沿用已确认的状态", async () => {
+	const calls = [];
+	const f = fixture({
+		status: async (repo, options) => {
+			calls.push(["status", repo ?? null, options ?? null]);
+			return { ok: true, snapshot: baseSnapshot };
+		},
+		refresh: async (repo, options) => {
+			calls.push(["refresh", repo ?? null, options ?? null]);
+			return { ok: true, snapshot: baseSnapshot };
+		},
+		branches: async () => {
+			calls.push(["branches"]);
+			return { ok: true, info: { current: "feature", branches: ["feature"] } };
+		},
+	});
+	await f.reads.refresh();
+	assert.deepEqual(
+		calls.map((entry) => entry[0]),
+		["status", "branches"],
+		"显式刷新仍然读分支",
+	);
+	assert.equal(f.current().snapshot.branch, "feature");
+	calls.length = 0;
+	await f.reads.refreshStatus();
+	assert.deepEqual(
+		calls.map((entry) => entry[0]),
+		["refresh"],
+		"静默 tick 只读事实（一次远端往返）",
+	);
+	assert.deepEqual(plain(calls[0][2]), { branch: false }, "轮询显式声明不要分支");
+	assert.equal(f.current().snapshot.branch, "feature", "分支沿用上次确认的值");
 });

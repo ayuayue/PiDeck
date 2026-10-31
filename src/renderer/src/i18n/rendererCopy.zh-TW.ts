@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 835b62dadc3d11e4f0378747844c7d92716e32f9b8d69c752831c2bf7cb0dd69（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 2fb0d6cc6d330380b2df558d4e94255f844ca1b79f7d2bfeba48f92598a6f9de（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -7031,6 +7031,23 @@ export const zhTW: Record<TranslationKey, string> = {
 	"remoteGit.syncPushRemoteRefused": "遠端鉤子/策略拒絕了本次推送。",
 	"remoteGit.syncResultUnknown": "同步結果未確認，遠端可能已經變化。請手動重新整理或在終端核對；不會自動重試。",
 	"remoteGit.syncFailed": "同步失敗：常見原因是遠端認證或網路。互動式提示已停用，請在遠端終端完成認證（如 ssh-agent、憑據儲存）後重試。",
+	"remoteGit.capabilityTitle": "能力狀態",
+	"remoteGit.capabilityRead": "讀取",
+	"remoteGit.capabilityWrite": "暫存與提交",
+	"remoteGit.capabilityBranch": "分支",
+	"remoteGit.capabilitySync": "同步",
+	"remoteGit.capabilityRecovery": "恢復",
+	"remoteGit.capabilityHistory": "提交歷史",
+	"remoteGit.capabilityRefs": "引用",
+	"remoteGit.capabilityCompare": "分支對比",
+	"remoteGit.capabilityForceRefresh": "強制重新整理",
+	"remoteGit.capabilityInit": "初始化倉庫",
+	"remoteGit.capabilityAvailable": "可用",
+	"remoteGit.capabilityBlocked": "不可用",
+	"remoteGit.capabilityRootNeedsAttention": "專案根需要複核",
+	"remoteGit.syncFetchedDone": "已獲取遠端引用，未改動工作區",
+	"remoteGit.syncPushedDone": "已推送當前分支",
+	"remoteGit.syncPulledDone": "已拉取並更新當前分支",
 	"remoteGit.recoveryEntryNotFound": "該快照已不存在或已被替換。請重新整理恢復列表。",
 	"remoteGit.discardConfirm": "丟棄 {path} 的工作區改動？會先把它備份到倉庫內的恢復引用，可隨時取回。",
 	"remoteGit.discardConfirmDelete": "刪除未跟蹤檔案 {path}？會先把它備份到倉庫內的恢復引用，可隨時取回。",

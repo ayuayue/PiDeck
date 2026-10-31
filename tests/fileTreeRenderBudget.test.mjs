@@ -67,9 +67,10 @@ test("App 根不再订阅逐条消息数组，修改文件清单用内容稳定�
 test("Git 变更树 FileTree memo 化，行内操作回调引用稳定", () => {
 	assert.match(gitResourceTree, /export\s+const\s+FileTree\s*=\s*memo\(function\s+FileTree/);
 	assert.match(gitPanel, /const\s+actRef\s*=\s*useRef\(act\)/);
-	assert.match(gitPanel, /stageFile=\{stageFile\}/);
-	assert.match(gitPanel, /unstageFile=\{unstageFile\}/);
-	assert.match(gitPanel, /discardFile=\{discardFile\}/);
+	// 能力门禁后仍是同一份稳定引用（只是关闭时传 undefined），memo 语义不变。
+	assert.match(gitPanel, /stageFile=\{gitCapabilities\.write \? stageFile : undefined\}/);
+	assert.match(gitPanel, /unstageFile=\{gitCapabilities\.write \? unstageFile : undefined\}/);
+	assert.match(gitPanel, /discardFile=\{gitCapabilities\.write \? discardFile : undefined\}/);
 	assert.doesNotMatch(gitPanel, /stageFile=\{\(path\)\s*=>/, "行内回调每次重渲都会重建，会让 FileTree memo 失效");
 });
 

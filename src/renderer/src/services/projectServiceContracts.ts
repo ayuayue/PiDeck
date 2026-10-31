@@ -3,6 +3,7 @@ import type { HostConnectionStateLike } from "../../../shared/projectCapabilitie
 import type { GitAheadBehind, GitBranchInfo, GitCompareRefsValue, GitDiscardResource, GitHistoryPage, GitRef, GitRepositoryListing, GitResourceGroups, GitWorkspaceDiffGroup, GitWorkspaceFileDiff, WorktreeEntry } from "../../../shared/types/git";
 import type { Project, ProjectFileTarget } from "../../../shared/types";
 import type { ProjectDirectoryPage } from "../../../shared/types/projectFiles";
+import type { RemoteProjectSearchEntry } from "../../../shared/types/remoteHost";
 import type { FileContentSearchResult, FileSearchResult } from "../../../shared/types/session";
 import type { PiDesktopApi } from "../../../preload";
 
@@ -123,6 +124,11 @@ export type ProjectFileSearchResult = {
 	results: FileSearchResult[];
 	truncated?: boolean;
 	scanned?: number;
+	/**
+	 * 远端 searchProject 的原始条目：保留 `kind: "other"` 与 `bytes`（公共 FileSearchResult 装不下）。
+	 * 本机 provider/旧 provider 可缺席；F 有 entries 时优先用它重建视图，绝不把 other 伪装成 file。
+	 */
+	entries?: RemoteProjectSearchEntry[];
 };
 
 /**
@@ -164,6 +170,8 @@ export type ProjectFileService = {
 	stat(target: ProjectFileTarget): Promise<ProjectServicePathState>;
 	createEntry(parent: ProjectFileTarget, name: string, type: "file" | "directory"): Promise<ProjectEntryReceipt>;
 	renameEntry(target: ProjectFileTarget, newName: string, expectedVersion?: string): Promise<ProjectEntryReceipt>;
+	/** 移动到项目内另一个目录；destinationRelativePath 是完整目标路径（含文件名）。 */
+	moveEntry(target: ProjectFileTarget, destinationRelativePath: string): Promise<ProjectEntryReceipt>;
 	deleteEntry(target: ProjectFileTarget, expectedVersion?: string): Promise<ProjectEntryDeleteReceipt>;
 	openInEditor(target: ProjectFileTarget): Promise<void>;
 	showInFolder(target: ProjectFileTarget): Promise<void>;
@@ -192,12 +200,12 @@ export type ProjectGitRecoveryEntry = { ref: string; oid: string; path: string; 
 export type ProjectGitRecoveryListing = { entries: ProjectGitRecoveryEntry[]; truncated: boolean };
 
 /**
- * Git 面板所需动作。读面已经是公共通道（main 按位置路由）；写面在远端需要 main 所有的令牌经纪，
- * 远端 workspace diff 已由 main 的公共 git:workspace-diff 路由；Git 写/同步/恢复/强刷仍由 G 接令牌经纪。
+ * Git 面板所需动作。读面是公共通道（main 按位置路由）；写面/同步/恢复由 main 逐操作签发令牌，
+ * 远端 provider 只负责“写前取 grant、写后作废”，令牌绝不进入渲染层。
  */
 export type ProjectGitService = {
 	status(repoPath?: ProjectFileTarget): Promise<GitResourceGroups>;
-	/** 纯事实强制刷新：不得调用授权 snapshot（不撤/重签令牌）；远端当前显式 unsupported。 */
+	/** 纯事实强制刷新：越过事实缓存，但不签/不撤授权令牌（远端用 main 的 facts-only 入口，缺省回落带授权副作用的强刷）。 */
 	refresh(repoPath?: ProjectFileTarget): Promise<GitResourceGroups>;
 	history(options?: { maxCount?: number; skip?: number }, repoPath?: ProjectFileTarget): Promise<GitHistoryPage>;
 	repos(): Promise<GitRepositoryListing>;
@@ -223,7 +231,7 @@ export type ProjectGitService = {
 	worktreeList(): Promise<WorktreeEntry[]>;
 	worktreeCreate(branchName: string): Promise<WorktreeEntry>;
 	worktreeRemove(target: ProjectFileTarget): Promise<boolean>;
-	/** 当前分支相对上游的差距（本机通道；远端由 syncFacts 提供）。 */
+	/** 当前分支相对上游的差距（本机通道；远端由 provider 从 syncFacts 派生）。 */
 	aheadBehind(repoPath?: ProjectFileTarget): Promise<GitAheadBehind | null>;
 };
 
@@ -250,7 +258,7 @@ export type ProjectGitCapabilities = {
 	read: boolean;
 	/** workspace diff（本地与远端都走公共 git:workspace-diff）。 */
 	diff: boolean;
-	/** 分支列表（远端待 G 从 remoteRefs 派生）。 */
+	/** 分支列表（远端由 provider 从 remoteRefs 派生：gate helper git.refs）。 */
 	branchRead: boolean;
 	/** 历史页：gate helper git.log。 */
 	history: boolean;
@@ -258,7 +266,7 @@ export type ProjectGitCapabilities = {
 	repos: boolean;
 	/** 本地引用列表：gate helper git.refs。 */
 	refs: boolean;
-	/** index/commit/discard 等写动词（远端待令牌经纪）。 */
+	/** index/commit/discard 等写动词（远端由 main 逐操作签发令牌：gate helper git.stage/unstage/commit/discard）。 */
 	write: boolean;
 	branchWrite: boolean;
 	branchCreateMode: ProjectGitBranchCreateMode;
@@ -269,13 +277,13 @@ export type ProjectGitCapabilities = {
 	recovery: boolean;
 	worktree: boolean;
 	init: boolean;
-	/** 纯事实强刷（不签/撤令牌）；远端待 main 的 force 入口。 */
+	/** 纯事实强刷（不签/撤令牌）：远端已接 main 的 facts-only force 入口。 */
 	forceRefresh: boolean;
 	/** 允许自动触发网络写（自动 fetch）；服务本身从不自动调用。 */
 	autoFetch: boolean;
-	/** 允许后台定时 status 轮询；远端需要显式刷新/事实推送。 */
+	/** 允许后台定时 status 轮询（远端是 5s 只读轮询 + 事实推送，不 fetch）。 */
 	statusPoll: boolean;
-	/** 允许挂载 refs watcher；远端尚无该订阅。 */
+	/** 允许 refs 自动刷新（本机 watcher；远端是有界轮询）。 */
 	refsWatch: boolean;
 	deleteFiles: boolean;
 };

@@ -111,6 +111,17 @@ export function createLocalProjectFileService(projectId: string, api: ProjectSer
 			const renamed = await api.files.rename(target, newName);
 			return { target: readProjectTarget(renamed, childTarget(target, newName)) };
 		},
+		async moveEntry(target, destinationRelativePath): Promise<ProjectEntryReceipt> {
+			assertProjectTarget(projectId, target);
+			const parentPath = parentOf(destinationRelativePath);
+			const name = destinationRelativePath.slice(destinationRelativePath.lastIndexOf("/") + 1);
+			const moved = await api.files.move([target], { projectId, relativePath: parentPath });
+			const movedTarget = readProjectTarget(moved[0], { projectId, relativePath: destinationRelativePath });
+			if (movedTarget.relativePath === destinationRelativePath) return { target: movedTarget };
+			// 目标文件名与源不同：移动到位后再改名；两步都成功才返回收据，失败则抛出。
+			const renamed = await api.files.rename(movedTarget, name);
+			return { target: readProjectTarget(renamed, { projectId, relativePath: destinationRelativePath }) };
+		},
 		async deleteEntry(target): Promise<ProjectEntryDeleteReceipt> {
 			assertProjectTarget(projectId, target);
 			await api.files.delete(target);
@@ -166,6 +177,8 @@ export function createRemoteProjectFileService(projectId: string, api: ProjectSe
 				})),
 				truncated: value.truncated,
 				scanned: value.scanned,
+				// 原始条目只作为附加信息：普通 results 仍是位置无关的公共投影。
+				entries: value.entries,
 			};
 		},
 		searchContent(query) {
@@ -200,6 +213,13 @@ export function createRemoteProjectFileService(projectId: string, api: ProjectSe
 			const targetPath = joinRelative(parentOf(target.relativePath), newName);
 			const renamed = unwrapOp(await api.remoteHosts.renameProjectEntry(projectId, target.relativePath, targetPath, version), PROJECT_SERVICE_CODES.failed);
 			return { target: { projectId, relativePath: renamed.relativePath } };
+		},
+		async moveEntry(target, destinationRelativePath): Promise<ProjectEntryReceipt> {
+			assertProjectTarget(projectId, target);
+			// 跨目录移动复用 rename 的 entry 令牌（同一项目内移动）；绝不拿文本 version 冒充。
+			const version = await requireEntryVersion(api, projectId, target);
+			const moved = unwrapOp(await api.remoteHosts.renameProjectEntry(projectId, target.relativePath, destinationRelativePath, version), PROJECT_SERVICE_CODES.failed);
+			return { target: { projectId, relativePath: moved.relativePath } };
 		},
 		async deleteEntry(target, expectedVersion): Promise<ProjectEntryDeleteReceipt> {
 			assertProjectTarget(projectId, target);

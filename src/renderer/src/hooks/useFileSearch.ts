@@ -1,21 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FileContentSearchResult, FileSearchResult } from "../../../shared/types";
+import type { ProjectServices } from "../services/projectServiceContracts";
 import { filterSnapshotResults } from "../utils/fileSearchFilter";
 
 /**
- * 工作区文件搜索（issue #215）的渲染层状态域：
+ * 工作区文件搜索（issue #215）的渲染层状态域（Phase B：数据入口改为 `ProjectFileService`）。
  * 拥有查询词、防抖调度、代次防竞态、与最近一次完整请求的快照。
  * UI 只消费返回值并转发输入事件，不持有搜索状态。
+ *
+ * 位置差异（本机/远端）由服务 provider 承担；本 hook 只读 `capabilities.files.contentSearch`
+ * 决定是否发内容检索。services 换代（连接代变化）或切项目时，在途结果立即作废，迟到回包不得覆盖新状态。
  */
 export const FILE_SEARCH_DEBOUNCE_MS = 250;
 /** 内容检索的最小查询词长度：单字符几乎命中所有文件，扫盘纯噪音（与跨会话正文搜索口径一致）。 */
 export const FILE_CONTENT_SEARCH_MIN_QUERY_LENGTH = 2;
 
-export function useFileSearch(options: { projectId?: string; contentSearchSupported?: boolean }) {
-	const { projectId } = options;
-	// 内容检索能力由调用点按项目位置传入（见 utils/fileSearchCapability）：
-	// 缺省 true 保持本机项目既有行为；远端/WSL 显式 false 时不发 IPC、不进入内容 loading。
-	const contentSearchSupported = options.contentSearchSupported !== false;
+export function useFileSearch(options: { services: ProjectServices | null; projectId?: string; contentSearchSupported?: boolean }) {
+	const projectId = options.projectId ?? options.services?.projectId;
+	const services = options.services;
+	// 内容检索能力以服务能力为准（服务缺席时退回调用点的显式值；缺省 true 保持既有行为）。
+	const contentSearchSupported = services ? services.capabilities.files.contentSearch : options.contentSearchSupported !== false;
+	const servicesGeneration = services?.generation;
+	// 服务实例会随事实刷新换新；搜索回调必须用最新实例，但不能因此重建防抖计时器。
+	const servicesRef = useRef(services);
+	servicesRef.current = services;
 	const [query, setQuery] = useState("");
 	const [results, setResults] = useState<FileSearchResult[] | null>(null);
 	const [isSearching, setIsSearching] = useState(false);
@@ -42,7 +50,8 @@ export function useFileSearch(options: { projectId?: string; contentSearchSuppor
 				setIsContentSearching(false);
 				return;
 			}
-			if (!projectId) return;
+			const active = servicesRef.current;
+			if (!projectId || !active) return;
 			const seq = ++requestSeqRef.current;
 			setIsSearching(true);
 			// 内容检索与名字检索并行（同一防抖窗口、同一代次）：
@@ -53,7 +62,7 @@ export function useFileSearch(options: { projectId?: string; contentSearchSuppor
 				setContentResults(null);
 				setIsContentSearching(false);
 			}
-			void (contentEnabled ? window.piDesktop.files.searchContent(projectId, trimmed) : Promise.resolve(null))
+			void (contentEnabled ? active.files.searchContent(trimmed) : Promise.resolve(null))
 				.then((content) => {
 					if (seq === requestSeqRef.current) setContentResults(content);
 				})
@@ -64,7 +73,7 @@ export function useFileSearch(options: { projectId?: string; contentSearchSuppor
 					if (seq === requestSeqRef.current) setIsContentSearching(false);
 				});
 			try {
-				const list = await window.piDesktop.files.search(projectId, trimmed);
+				const list = (await active.files.searchFiles(trimmed)).results;
 				if (seq !== requestSeqRef.current) return; // 迟到的旧请求：静默丢弃
 				setResults(list);
 				// 查询变长时快照才更新：保证快照查询恒为当前查询的前缀，前缀过滤才有意义
@@ -73,23 +82,24 @@ export function useFileSearch(options: { projectId?: string; contentSearchSuppor
 					lastGoodRef.current = { query: trimmed, results: list };
 				}
 			} catch {
-				// 主进程错误已在日志侧记录；UI 只需停止 loading，保留上一次结果避免闪空
+				// 服务层已记录/归一失败；UI 只需停止 loading，保留上一次结果避免闪空
 				if (seq === requestSeqRef.current) setIsSearching(false);
 			} finally {
 				if (seq === requestSeqRef.current) setIsSearching(false);
 			}
 		},
-		[projectId, contentSearchSupported],
+		[projectId, contentSearchSupported, servicesGeneration],
 	);
 
-	// 能力关闭（切到远端/WSL 项目）时立刻清掉上一位置的内容态：既不能把旧命中带进
-	// 不支持的抽屉，也不能让在途内容请求的迟到回包再写回来（代次在此作废）。
+	// 切项目或连接换代：立刻作废在途结果并清掉两态，旧位置的结果不能带进新状态。
 	useEffect(() => {
-		if (contentSearchSupported) return;
 		requestSeqRef.current += 1;
+		lastGoodRef.current = null;
+		setResults(null);
 		setContentResults(null);
+		setIsSearching(false);
 		setIsContentSearching(false);
-	}, [contentSearchSupported, projectId]);
+	}, [projectId, servicesGeneration, contentSearchSupported]);
 
 	// 防抖：停止输入 250ms 才发起扫描；切项目立即清态（旧项目的查询对新项目无意义）。
 	useEffect(() => {

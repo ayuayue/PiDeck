@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useAtomValue } from "jotai";
 import { AlertTriangle, ArrowLeft, FilePlus2, FileText, Folder, FolderPlus, Link2, Loader2, Plus, RefreshCw, Search, TerminalSquare, Trash2, Upload } from "lucide-react";
 import type { FileTreeNode } from "../../../../shared/types";
 import type { RemoteEntryKind } from "../../../../shared/types/remoteFiles";
-import { desktopApi } from "../../desktopApi";
+import { isRemoteProject } from "../../../../shared/projectLocation";
+import type { RemoteProject } from "../../../../shared/types/project";
+import { projectByIdAtomFamily } from "../../atoms/project-atoms";
+import { useProjectServices } from "../../hooks/useProjectServices";
 import { useRemoteProjectEntries } from "../../hooks/useRemoteProjectEntries";
-import { useRemoteProjectSearch, REMOTE_SEARCH_UNWIRED_CODE } from "../../hooks/useRemoteProjectSearch";
-import { useRemoteContentSearch, useRemoteProjectContentSearchCapability } from "../../hooks/useRemoteContentSearch";
+import { useRemoteProjectSearch } from "../../hooks/useRemoteProjectSearch";
+import { useRemoteContentSearch } from "../../hooks/useRemoteContentSearch";
 import { RemoteContentSearchSection } from "./RemoteContentSearchSection";
 import { RemoteProjectRowMenu } from "./RemoteProjectRowMenu";
 import { RemoteDirWatchDegradedHint } from "../workspace/RemoteDirWatchDegradedHint";
@@ -27,18 +31,35 @@ import { RemoteProjectSearchBar } from "./RemoteProjectSearchBar";
 import { RemoteUploadLimitsHint } from "./RemoteUploadLimitsHint";
 
 /**
- * 远端项目目录浏览 + 文件名搜索 + 文本编辑 + 文件管理（Phase 5 文件面）。
+ * 远端项目目录浏览 + 文件名搜索 + 文本编辑 + 文件管理（Phase B：只消费 ProjectServices）。
  *
  * 与设置页的「远端工作区」不同：这个视图的根来自 ProjectStore 中该项目持有的 canonical remotePath，
  * 因此跨重启恢复；渲染层只给 projectId 与相对路径，主进程解析 host/root 并串行切换会话。
  *
+ * 数据入口统一为 useProjectServices(project).files：目录页、搜索、读/写正文、新建/改名/删除都由
+ * provider 负责位置差异；本组件只按 capabilities.files 决定入口可用性与内容检索，不再自己判断
+ * isRemoteProject 去选通道。抽屉仍只传 projectId（公共装配交 I），这里按显式 id 取 Project 建服务。
+ *
  * 文件管理（新建/重命名/移动/删除/回收站）只在远端项目面板出现：命令与状态机在
  * useRemoteProjectEntries，弹框、行菜单、回收站与 testid 在 §10.2 冻结。失败与空目录分开呈现，
  * 未知结果消息保留到用户显式刷新；本机 FileTree/右键菜单不受影响。
+ *
+ * 仍保留的远端专属薄壳（服务契约未覆盖，见交接 §8.8）：上传/下载、回收站列表/恢复/清空、图片预览，
+ * 以及跨目录移动（renameEntry 契约是同父目录改名）。
  */
-export function RemoteProjectPanel(props: { projectId: string; projectName: string; onOpenTerminal?: () => void; onCreateSession?: () => void; onBack?: () => void }) {
-	const tree = useRemoteFileTree(props.projectId);
-	const [file, setFile] = useState<{ projectId: string; path: string } | null>(null);
+type RemoteProjectPanelProps = { projectId: string; projectName: string; onOpenTerminal?: () => void; onCreateSession?: () => void; onBack?: () => void };
+
+export function RemoteProjectPanel(props: RemoteProjectPanelProps) {
+	const project = useAtomValue(projectByIdAtomFamily(props.projectId));
+	// 项目清单尚未加载时宁可不渲染，也不拿“当前项目”或空 projectId 去建服务。
+	if (project === undefined || !isRemoteProject(project)) return null;
+	return <RemoteProjectPanelBody key={JSON.stringify([project.id, project.locator.hostId, project.locator.remotePath])} project={project} {...props} />;
+}
+
+function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: RemoteProject }) {
+	const services = useProjectServices(props.project);
+	const tree = useRemoteFileTree(props.project, services);
+	const [file, setFile] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [query, setQuery] = useState("");
 	const [searchOpen, setSearchOpen] = useState(false);
@@ -53,11 +74,12 @@ export function RemoteProjectPanel(props: { projectId: string; projectName: stri
 	/** 请求代次闸门；组件卸载时作废所有在途结果。 */
 	const gateRef = useRef(createRequestGate());
 	/** 搜索状态机（自带代次闸门）；切项目由 hook 负责作废旧结果。 */
-	const { state: search, run: runSearch, reset: resetSearch } = useRemoteProjectSearch(desktopApi, props.projectId);
-	// 能力只来自连接 hello（rootStatus.helperCapabilities）；树根读完=session 已建立，此刻问才不会凭空建连。
-	// 旧 helper 的清单里没有 fs.searchContent ⇒ contentSupported=false ⇒ 继续只做文件名搜索并显示能力提示。
-	const contentSupported = useRemoteProjectContentSearchCapability(props.projectId, tree.listed);
-	const contentSearch = useRemoteContentSearch({ projectId: props.projectId, supported: contentSupported });
+	const { state: search, run: runSearch, reset: resetSearch } = useRemoteProjectSearch(services);
+	// 内容检索能力只读 S 的 capabilities.files.contentSearch（连接 hello 声明 + 位置判定已合成）。
+	const contentSupported = services.capabilities.files.contentSearch;
+	const contentSearch = useRemoteContentSearch({ services, supported: contentSupported });
+	const canWrite = services.capabilities.files.write;
+	const canTrash = services.capabilities.files.trash;
 
 	useEffect(
 		() => () => {
@@ -73,7 +95,7 @@ export function RemoteProjectPanel(props: { projectId: string; projectName: stri
 	// 搜索、写操作弹框与回收站，再塞传输就越过「单文件 ≤400 行」的目标。
 	const transfer = useRemoteProjectTransfer({ projectId: props.projectId, directory: tree.currentDir, reload: () => tree.refresh(), setError, searching });
 
-	const files = useRemoteProjectEntries({ projectId: props.projectId, reload: () => tree.refresh() });
+	const files = useRemoteProjectEntries({ services, reload: () => tree.refresh() });
 
 	// 切换项目：树由 hook 自行重置，这里只清掉面板自己的临时状态。
 	useEffect(() => {
@@ -84,10 +106,9 @@ export function RemoteProjectPanel(props: { projectId: string; projectName: stri
 		setRowMenu(null);
 	}, [props.projectId]);
 
-	/** 搜索失败文案：未接线 / 主机未连接 / 稳定码三种，分别给出用户能行动的说法。 */
+	/** 搜索失败文案：稳定码；主机未连接另给可行动提示。 */
 	const searchFailedText = (code: string | null): string => {
 		if (code === null) return t("project.remote.requestFailed");
-		if (code === REMOTE_SEARCH_UNWIRED_CODE) return t("project.remote.searchUnwired");
 		return isNotConnectedCode(code) ? t("project.remote.notConnectedHint") : t("project.remote.searchFailed", { code });
 	};
 
@@ -103,9 +124,9 @@ export function RemoteProjectPanel(props: { projectId: string; projectName: stri
 			}
 			gateRef.current.invalidate();
 			setError(null);
-			setFile({ projectId: props.projectId, path: entry.path });
+			setFile(entry.path);
 		},
-		[props.projectId, resetSearch, tree],
+		[resetSearch, tree],
 	);
 
 	const bumpTrash = useCallback(() => setTrashReloadToken((value) => value + 1), []);
@@ -230,10 +251,10 @@ export function RemoteProjectPanel(props: { projectId: string; projectName: stri
 				<span className="min-w-0 flex-1 truncate px-1 text-label text-muted-foreground">{props.projectName}</span>
 				{!searching && !searchOpen ? (
 					<>
-						<Button type="button" size="icon-sm" variant="ghost" data-testid="remote-file-create" aria-label={t("remoteFileEntry.newFile")} title={t("remoteFileEntry.newFile")} disabled={files.busy || busy} onClick={() => setEntryDialog({ kind: "new", entryKind: "file", parent: tree.currentDir })}>
+						<Button type="button" size="icon-sm" variant="ghost" data-testid="remote-file-create" aria-label={t("remoteFileEntry.newFile")} title={t("remoteFileEntry.newFile")} disabled={files.busy || busy || !canWrite} onClick={() => setEntryDialog({ kind: "new", entryKind: "file", parent: tree.currentDir })}>
 							<FilePlus2 className="size-4" />
 						</Button>
-						<Button type="button" size="icon-sm" variant="ghost" data-testid="remote-file-mkdir" aria-label={t("remoteFileEntry.newFolder")} title={t("remoteFileEntry.newFolder")} disabled={files.busy || busy} onClick={() => setEntryDialog({ kind: "new", entryKind: "directory", parent: tree.currentDir })}>
+						<Button type="button" size="icon-sm" variant="ghost" data-testid="remote-file-mkdir" aria-label={t("remoteFileEntry.newFolder")} title={t("remoteFileEntry.newFolder")} disabled={files.busy || busy || !canWrite} onClick={() => setEntryDialog({ kind: "new", entryKind: "directory", parent: tree.currentDir })}>
 							<FolderPlus className="size-4" />
 						</Button>
 						<Button type="button" size="icon-sm" variant="ghost" data-testid="remote-file-upload" aria-label={t("remoteFileEntry.uploadAction")} title={t("remoteFileEntry.uploadAction")} disabled={files.busy || busy} onClick={transfer.uploadFiles}>
@@ -260,7 +281,7 @@ export function RemoteProjectPanel(props: { projectId: string; projectName: stri
 						>
 							<Search className="size-4" />
 						</Button>
-						<Button type="button" size="icon-sm" variant="ghost" data-testid="remote-trash-toggle" aria-label={t("remoteTrash.title")} title={t("remoteTrash.title")} aria-expanded={trashOpen} disabled={files.busy} onClick={() => setTrashOpen((open) => !open)}>
+						<Button type="button" size="icon-sm" variant="ghost" data-testid="remote-trash-toggle" aria-label={t("remoteTrash.title")} title={t("remoteTrash.title")} aria-expanded={trashOpen} disabled={files.busy || !canTrash} onClick={() => setTrashOpen((open) => !open)}>
 							<Trash2 className="size-4" />
 						</Button>
 						<Button type="button" size="icon-sm" variant="ghost" aria-label={t("common.refresh")} title={t("common.refresh")} disabled={busy} onClick={() => void tree.refresh()}>
@@ -314,7 +335,7 @@ export function RemoteProjectPanel(props: { projectId: string; projectName: stri
 							depth={0}
 							expandedDirs={tree.expanded}
 							// 活跃文件用项目作用域键比：远端没有本机绝对路径，之前传裸相对路径会让两边各用一套词。
-							activeEditorFile={file === null ? null : projectFileKey({ projectId: file.projectId, relativePath: file.path })}
+							activeEditorFile={file === null ? null : projectFileKey({ projectId: props.projectId, relativePath: file })}
 							onToggleDirectory={(key) => tree.toggle(key)}
 							onFileContextMenu={(target, x, y) => setRowMenu({ node: target, x, y })}
 							onViewFile={(target) => {
@@ -323,7 +344,7 @@ export function RemoteProjectPanel(props: { projectId: string; projectName: stri
 								if (relativePath.length === 0) return;
 								gateRef.current.invalidate();
 								setError(null);
-								setFile({ projectId: props.projectId, path: relativePath });
+								setFile(relativePath);
 							}}
 							onMoveFiles={(sourcePaths, targetDirectory) => {
 								const source = sourcePaths[0];
@@ -383,7 +404,7 @@ export function RemoteProjectPanel(props: { projectId: string; projectName: stri
 							setQuery("");
 							gateRef.current.invalidate();
 							setError(null);
-							setFile({ projectId: props.projectId, path });
+							setFile(path);
 						}}
 						onHitContextMenu={(node, x, y) => setRowMenu({ node: { name: node.name, path: node.path, relativePath: node.relativePath, type: "file" }, x, y })}
 					/>
@@ -392,7 +413,7 @@ export function RemoteProjectPanel(props: { projectId: string; projectName: stri
 			{rowMenu !== null ? (
 				<RemoteProjectRowMenu
 					menu={rowMenu}
-					busy={files.busy || busy}
+					busy={files.busy || busy || !canWrite}
 					onClose={() => setRowMenu(null)}
 					onDownload={() => {
 						transfer.downloadFile(rowMenu.node.relativePath);
@@ -409,7 +430,7 @@ export function RemoteProjectPanel(props: { projectId: string; projectName: stri
 				/>
 			) : null}
 			{!searching ? <RemoteTrashPanel projectId={props.projectId} open={trashOpen} reloadToken={trashReloadToken} busy={files.busy} outcome={trashOutcomeText} onRestore={restoreTrash} onRequestPrune={(ids, count) => setEntryDialog({ kind: "prune", ids, count })} /> : null}
-			{file !== null && file.projectId === props.projectId ? <RemoteFileEditor key={JSON.stringify([file.projectId, file.path])} projectId={file.projectId} path={file.path} /> : null}
+			{file !== null ? <RemoteFileEditor key={JSON.stringify([props.projectId, file])} services={services} path={file} /> : null}
 			<RemoteProjectEntryDialogs dialog={entryDialog} busy={files.busy} errorText={dialogErrorText} onClose={() => setEntryDialog(null)} onCreate={submitNew} onRename={submitRename} onDelete={submitDelete} onPrune={submitPrune} />
 		</div>
 	);

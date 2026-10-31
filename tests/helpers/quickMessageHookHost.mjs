@@ -15,6 +15,19 @@ export function quickMessageHookHost() {
 				},
 			];
 		},
+		useReducer(reducer, initialArg, init) {
+			const index = cursor++;
+			if (!(index in slots)) slots[index] = { value: init ? init(initialArg) : initialArg };
+			return [
+				slots[index].value,
+				(action) => {
+					slots[index].value = reducer(slots[index].value, action);
+				},
+			];
+		},
+		useSyncExternalStore(_subscribe, getSnapshot) {
+			return getSnapshot();
+		},
 		useRef(value) {
 			return (slots[cursor++] ??= { current: value });
 		},

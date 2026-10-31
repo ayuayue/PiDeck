@@ -10,7 +10,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  * 不能假装完整）、错误（稳定码 / IPC reject）。
  */
 
-const { createRemoteProjectSearchController, readSearchResponse } = loadTsCommonJs("src/renderer/src/components/session/remoteProjectSearchState.ts");
+const { createRemoteProjectSearchController, readSearchResponse, remoteSearchOutcomeFromService } = loadTsCommonJs("src/renderer/src/components/session/remoteProjectSearchState.ts");
 
 // 生产模块在 vm 里加载，产出的对象原型与测试 realm 不同——deepStrictEqual 会因原型不等而失败。
 // 这里把结果复制成测试 realm 的普通对象再做严格比较（不是放宽断言：结构与类型仍然逐字段比对）。
@@ -143,4 +143,68 @@ test("readSearchResponse refuses malformed payloads instead of rendering them", 
 	}
 
 	assert.deepEqual(plain(readSearchResponse({ ok: false, code: "PATH_NOT_FOUND" })), { kind: "failed", code: "PATH_NOT_FOUND" });
+});
+test("service results are narrowed at the boundary: only safe relative paths/types survive", () => {
+	const mapped = remoteSearchOutcomeFromService({
+		results: [
+			{ name: "a.ts", relativePath: "src/a.ts", type: "file" },
+			{ name: "lib", relativePath: "src/lib", type: "directory" },
+		],
+		scanned: 12,
+		truncated: true,
+	});
+	assert.deepEqual(plain(mapped), {
+		kind: "ok",
+		entries: [
+			{ path: "src/a.ts", name: "a.ts", kind: "file" },
+			{ path: "src/lib", name: "lib", kind: "directory" },
+		],
+		scanned: 12,
+		truncated: true,
+	});
+
+	const malformed = [
+		["a non-array results", { results: null }],
+		["a traversal path", { results: [{ name: "etc", relativePath: "../etc", type: "directory" }] }],
+		["a name that does not match the path", { results: [{ name: "b.ts", relativePath: "src/a.ts", type: "file" }] }],
+		["an unknown type", { results: [{ name: "a.ts", relativePath: "a.ts", type: "symlink" }] }],
+		["a non-boolean truncated", { results: [], truncated: "yes" }],
+		["a fractional scanned", { results: [], scanned: 1.5 }],
+	];
+	for (const [label, payload] of malformed) {
+		assert.deepEqual(plain(remoteSearchOutcomeFromService(payload)), { kind: "rejected" }, label);
+	}
+	// 契约目前不携带 bytes / "other"：缺省不是 undefined 冒充，而是由 S 扩展后才会出现。
+	assert.deepEqual(plain(remoteSearchOutcomeFromService({ results: [{ name: "a.ts", relativePath: "a.ts", type: "file" }] })), {
+		kind: "ok",
+		entries: [{ path: "a.ts", name: "a.ts", kind: "file" }],
+		scanned: 0,
+		truncated: false,
+	});
+});
+test("service entries keep remote kind=other and bytes; normalized results are the fallback", () => {
+	const mapped = remoteSearchOutcomeFromService({
+		results: [
+			{ name: "a.ts", relativePath: "a.ts", type: "file" },
+			{ name: "link", relativePath: "link", type: "file" },
+		],
+		entries: [
+			{ path: "a.ts", name: "a.ts", kind: "file", bytes: 9 },
+			{ path: "link", name: "link", kind: "other" },
+		],
+		scanned: 2,
+		truncated: false,
+	});
+	assert.deepEqual(plain(mapped), {
+		kind: "ok",
+		entries: [
+			{ path: "a.ts", name: "a.ts", kind: "file", bytes: 9 },
+			{ path: "link", name: "link", kind: "other" },
+		],
+		scanned: 2,
+		truncated: false,
+	});
+
+	// 原始 entries 是外部数据：畸形条目依然整条 rejected，不降级成空结果。
+	assert.deepEqual(plain(remoteSearchOutcomeFromService({ results: [], entries: [{ path: "../escape", name: "escape", kind: "file", bytes: 1 }] })), { kind: "rejected" });
 });

@@ -5,7 +5,7 @@
  * - 读面位置无关；目录页的 truncated/revision/generation/未知 children 原样返回；
  * - 文件写返回既有收据（文本 version、删除 trashId、改名后的 target）；
  * - 文本保存只接受 readText 的 version；缺失/空串零调用拒绝，绝不取 entry 令牌或重新 open；
- * - 远端 Git 写与纯事实强刷显式 unsupported，且绝不调用授权 snapshot；
+ * - 远端 Git 写/强刷/同步/恢复走 main 的令牌经纪（provider 自持授权）；worktree 三个入口与 deleteFiles 仍显式 unsupported；
  * - 项目身份与连接代数在触达 IPC 前围栏。
  */
 import assert from "node:assert/strict";
@@ -14,6 +14,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { createProjectServices, PROJECT_SERVICE_CODES, ProjectServiceError } = loadTsCommonJs("src/renderer/src/services/projectServices.ts");
 const plain = (value) => JSON.parse(JSON.stringify(value));
+const OID = "a".repeat(40);
 
 const localProject = { id: "p1", name: "p1", lastOpenedAt: 0, path: "C:/p1", environment: "windows" };
 const remoteProject = { id: "p2", name: "p2", lastOpenedAt: 0, locator: { kind: "ssh", hostId: "h1", remotePath: "/srv/p2" } };
@@ -30,6 +31,7 @@ const FULL_HELPER = [
 	"git.stage",
 	"git.unstage",
 	"git.commit",
+	"git.discard",
 	"git.createBranch",
 	"git.switchBranch",
 	"git.fetch",
@@ -93,6 +95,10 @@ function makeApi(options = {}) {
 				record("files.rename", [target, newName]);
 				const index = target.relativePath.lastIndexOf("/");
 				return { projectId: target.projectId, relativePath: (index < 0 ? "" : target.relativePath.slice(0, index + 1)) + newName };
+			},
+			move: async (sources, targetDir) => {
+				record("files.move", [sources, targetDir]);
+				return sources;
 			},
 			delete: async (target) => {
 				record("files.delete", [target]);
@@ -184,13 +190,105 @@ function makeApi(options = {}) {
 				record("git.aheadBehind", [projectId, repoPath]);
 				return { ahead: 1, behind: 2 };
 			},
-			remoteSnapshot: async () => {
-				record("git.remoteSnapshot", []);
-				throw new Error("authorization snapshot must not be used as a force refresh");
+			// 远端 Git 的写面通道（G 接令牌经纪）：作用域由末尾 repoPath 参数承载，令牌来自快照。
+			remoteSnapshot: async (projectId, repo) => {
+				record("git.remoteSnapshot", [projectId, repo]);
+				return {
+					ok: true,
+					snapshot: {
+						groups: groups(),
+						head: OID,
+						branch: "main",
+						mutationToken: "mutation-token",
+						commitToken: "commit-token",
+						branchToken: "branch-token",
+						switchToken: "switch-token",
+						discardToken: "discard-token",
+						restoreToken: "restore-token",
+						dropToken: "drop-token",
+						fetchToken: "fetch-token",
+						pushToken: "push-token",
+						pullToken: "pull-token",
+					},
+				};
 			},
-			refreshRemoteSnapshot: async () => {
-				record("git.refreshRemoteSnapshot", []);
-				throw new Error("authorization snapshot must not be used as a force refresh");
+			refreshRemoteSnapshot: async (projectId, repo) => {
+				record("git.refreshRemoteSnapshot", [projectId, repo]);
+				// 令牌与普通快照不同：用来证明紧随其后的写复用的是强刷签出的那份授权。
+				return {
+					ok: true,
+					snapshot: {
+						groups: groups(),
+						head: OID,
+						branch: "main",
+						mutationToken: "refresh-mutation-token",
+						commitToken: "commit-token",
+						branchToken: "branch-token",
+						switchToken: "switch-token",
+						discardToken: "discard-token",
+						restoreToken: "restore-token",
+						dropToken: "drop-token",
+						fetchToken: "fetch-token",
+						pushToken: "push-token",
+						pullToken: "pull-token",
+					},
+				};
+			},
+			mutateRemoteIndex: async (...args) => {
+				record("git.mutateRemoteIndex", args);
+				return { ok: true };
+			},
+			commitRemote: async (...args) => {
+				record("git.commitRemote", args);
+				return { ok: true };
+			},
+			createRemoteBranch: async (...args) => {
+				record("git.createRemoteBranch", args);
+				return { ok: true };
+			},
+			switchRemoteBranch: async (...args) => {
+				record("git.switchRemoteBranch", args);
+				return { ok: true };
+			},
+			discardRemote: async (...args) => {
+				record("git.discardRemote", args);
+				return { ok: true, recoveryRef: "refs/pideck/recovery/r1" };
+			},
+			fetchRemote: async (...args) => {
+				record("git.fetchRemote", args);
+				return { ok: true, outcome: { upToDate: true, updated: [] } };
+			},
+			pullRemote: async (...args) => {
+				record("git.pullRemote", args);
+				return { ok: true, outcome: { mode: "up-to-date", head: OID } };
+			},
+			pushRemote: async (...args) => {
+				record("git.pushRemote", args);
+				return { ok: true, outcome: { outcome: "up-to-date", refspec: "refs/heads/main:refs/heads/main" } };
+			},
+			syncFacts: async (projectId, repo) => {
+				record("git.syncFacts", [projectId, repo]);
+				return { ok: true, facts: { branch: "main", upstream: "refs/remotes/origin/main", ahead: 0, behind: 0, remotes: ["origin"] } };
+			},
+			recoveryList: async (projectId, repo) => {
+				record("git.recoveryList", [projectId, repo]);
+				return { ok: true, entries: [], truncated: false };
+			},
+			recoveryRestore: async (...args) => {
+				record("git.recoveryRestore", args);
+				return { ok: true, path: "a.ts", bytes: 1 };
+			},
+			recoveryDrop: async (...args) => {
+				record("git.recoveryDrop", args);
+				return { ok: true };
+			},
+			remoteRefs: async (projectId, repo) => {
+				record("git.remoteRefs", [projectId, repo]);
+				return { ok: true, refs: { head: OID, branch: "main", refs: [{ fullName: "refs/heads/main", name: "main", oid: OID, kind: "branch" }] } };
+			},
+			initRemote: async (projectId) => {
+				record("git.initRemote", [projectId]);
+				return { ok: true, branch: "main" };
 			},
 		},
 		remoteHosts: {
@@ -258,6 +356,7 @@ test("目录页与搜索：本地/远端同通道，truncated/revision/generatio
 				results: [{ name: "a.ts", relativePath: "src/a.ts", displayPath: "src/a.ts", target: { projectId: "p2", relativePath: "src/a.ts" }, type: "file" }],
 				truncated: true,
 				scanned: 1,
+				entries: [{ path: "src/a.ts", name: "a.ts", kind: "file", bytes: 1 }],
 			});
 			assert.deepEqual(names(calls), ["files.directoryPage", "remoteHosts.searchProject", "files.searchContent"]);
 			assert.deepEqual(calls[1].args, ["p2", "", "calc"]);
@@ -277,9 +376,12 @@ test("本机文件写面：读正文/保存/新建/改名/删除返回收据，�
 	assert.deepEqual(plain(renamed.target), { projectId: "p1", relativePath: "src/c.ts" });
 	const deleted = await services.files.deleteEntry(target);
 	assert.deepEqual(plain(deleted), { target });
+	// 跨目录移动：先 files.move 到目标父目录；目标名不同再 rename。
+	const moved = await services.files.moveEntry(target, "src/c.ts");
+	assert.deepEqual(plain(moved.target), { projectId: "p1", relativePath: "src/c.ts" });
 	await services.files.openInEditor(target);
 	await services.files.showInFolder(target);
-	assert.deepEqual(names(calls), ["files.readContent", "files.writeContent", "files.create", "files.rename", "files.delete", "files.open", "files.showInFolder"]);
+	assert.deepEqual(names(calls), ["files.readContent", "files.writeContent", "files.create", "files.rename", "files.delete", "files.move", "files.rename", "files.open", "files.showInFolder"]);
 	assert.equal(services.capabilities.files.textVersion, "none");
 });
 
@@ -327,9 +429,12 @@ test("远端文件管理：新建按类型分流，改名/删除复用 entry 令
 	assert.deepEqual(plain(renamed.target), { projectId: "p2", relativePath: "src/c.ts" });
 	const deleted = await services.files.deleteEntry({ projectId: "p2", relativePath: "src/c.ts" });
 	assert.deepEqual(plain(deleted), { target: { projectId: "p2", relativePath: "src/c.ts" }, trashId: "trash-1" });
-	assert.deepEqual(names(calls), ["remoteHosts.createProjectFile", "remoteHosts.createProjectDirectory", "remoteHosts.statProjectEntry", "remoteHosts.renameProjectEntry", "remoteHosts.statProjectEntry", "remoteHosts.deleteProjectEntry"]);
+	const moved = await services.files.moveEntry({ projectId: "p2", relativePath: "src/a.ts" }, "lib/a.ts");
+	assert.deepEqual(plain(moved.target), { projectId: "p2", relativePath: "lib/a.ts" });
+	assert.deepEqual(names(calls), ["remoteHosts.createProjectFile", "remoteHosts.createProjectDirectory", "remoteHosts.statProjectEntry", "remoteHosts.renameProjectEntry", "remoteHosts.statProjectEntry", "remoteHosts.deleteProjectEntry", "remoteHosts.statProjectEntry", "remoteHosts.renameProjectEntry"]);
 	assert.deepEqual(calls[3].args, ["p2", "src/b.ts", "src/c.ts", "entry-v1"]);
 	assert.deepEqual(calls[5].args, ["p2", "src/c.ts", "entry-v1"]);
+	assert.deepEqual(calls[7].args, ["p2", "src/a.ts", "lib/a.ts", "entry-v1"]);
 });
 
 test("远端没有本机路径：系统打开显式 unsupported，且不调用任何通道", async () => {
@@ -476,34 +581,90 @@ test("Git 目标数组在触达 IPC 前按项目身份围栏", async () => {
 	assert.deepEqual(calls, []);
 });
 
-test("远端 Git 写与纯事实强刷：显式 unsupported、零调用，绝不使用授权 snapshot", async () => {
+test("远端 Git 写与强刷：走 main 的令牌经纪；worktree*/deleteFiles 仍显式 unsupported", async () => {
 	const { api, calls } = makeApi();
 	const services = createProjectServices(remoteProject, api, { facts: remoteFacts() });
 	const repo = { projectId: "p2", relativePath: "" };
-	const actions = [
-		() => services.git.refresh(repo),
-		() => services.git.stage([{ projectId: "p2", relativePath: "a.ts" }], repo),
-		() => services.git.commit("msg", repo),
-		() => services.git.discard([{ group: "workingTree", target: { projectId: "p2", relativePath: "a.ts" } }], repo),
-		() => services.git.createBranch("topic", "create", repo),
-		() => services.git.checkout("main", repo),
-		() => services.git.fetch(repo),
-		() => services.git.pull(repo),
-		() => services.git.push(repo),
-		() => services.git.syncFacts(repo),
-		() => services.git.recoveryList(repo),
-		() => services.git.init(),
-		() => services.git.deleteFiles([{ projectId: "p2", relativePath: "a.ts" }], repo),
-		() => services.git.worktreeList(),
-		() => services.git.worktreeCreate("topic"),
-		() => services.git.worktreeRemove({ projectId: "p2", relativePath: "wt" }),
-	];
-	for (const action of actions) {
+	const target = { projectId: "p2", relativePath: "a.ts" };
+
+	// 强刷必须越过事实缓存（refreshRemoteSnapshot），不得退化成缓存 status。
+	assert.deepEqual(plain(await services.git.refresh(repo)), plain(groups()));
+	assert.deepEqual(names(calls), ["git.refreshRemoteSnapshot"]);
+	calls.length = 0;
+
+	// 强刷签出的 grant 被紧随其后的写复用：没有第二次 snapshot，令牌就是强刷那份。
+	await services.git.stage([target], repo);
+	await services.git.commit("msg", repo);
+	await services.git.createBranch("topic", "create", repo);
+	const checkout = await services.git.checkout("main", repo);
+	await services.git.discard([{ group: "workingTree", target }], repo);
+	await services.git.fetch(repo);
+	await services.git.pull(repo);
+	await services.git.push(repo);
+	await services.git.recoveryRestore({ ref: "refs/pideck/recovery/r1", oid: OID, path: "a.ts" }, repo);
+	await services.git.recoveryDrop({ ref: "refs/pideck/recovery/r1", oid: OID }, repo);
+	assert.deepEqual(
+		names(calls),
+		[
+			// stage 复用强刷快照的 grant；commit 重新确认后用自己的令牌
+			"git.mutateRemoteIndex",
+			"git.remoteSnapshot",
+			"git.commitRemote",
+			// branch：create 只创建；checkout 切换后读回分支事实
+			"git.remoteSnapshot",
+			"git.createRemoteBranch",
+			"git.remoteSnapshot",
+			"git.switchRemoteBranch",
+			"git.remoteRefs",
+			// discard：可恢复丢弃
+			"git.remoteSnapshot",
+			"git.discardRemote",
+			// 同步：先读只读 syncFacts，再为各自动作现签 grant
+			"git.syncFacts",
+			"git.remoteSnapshot",
+			"git.fetchRemote",
+			"git.syncFacts",
+			"git.remoteSnapshot",
+			"git.pullRemote",
+			"git.syncFacts",
+			"git.remoteSnapshot",
+			"git.pushRemote",
+			// 恢复：list 只读；restore/drop 各自令牌
+			"git.remoteSnapshot",
+			"git.recoveryRestore",
+			"git.remoteSnapshot",
+			"git.recoveryDrop",
+		],
+		"远端写面必须只走 main 的远端通道，不得落到本机 git:* 写通道",
+	);
+	assert.equal(calls[0].args[4], "refresh-mutation-token", "stage 必须复用强刷快照签出的令牌");
+	assert.equal(calls[2].args[2], "commit-token");
+	assert.equal(calls[9].args[3], "discard-token");
+	assert.deepEqual(plain(checkout), { current: "main", branches: ["main"] });
+
+	const writes = calls.length;
+	for (const action of [() => services.git.deleteFiles([target], repo), () => services.git.worktreeList(), () => services.git.worktreeCreate("topic"), () => services.git.worktreeRemove({ projectId: "p2", relativePath: "wt" })]) {
 		await assert.rejects(action, (error) => error instanceof ProjectServiceError && error.code === PROJECT_SERVICE_CODES.unsupported);
 	}
-	assert.deepEqual(calls, [], "不得退化成 status，也不得调用 remoteSnapshot/refreshRemoteSnapshot");
-	assert.equal(services.capabilities.git.write, false);
-	assert.equal(services.capabilities.git.forceRefresh, false);
+	assert.equal(calls.length, writes, "worktree*/deleteFiles 必须零调用");
+	assert.equal(services.capabilities.git.write, true);
+	assert.equal(services.capabilities.git.forceRefresh, true);
+	assert.equal(services.capabilities.git.branchCreateMode, "both");
+	assert.equal(services.capabilities.git.sync, true);
+	assert.equal(services.capabilities.git.recovery, true);
+	assert.equal(services.capabilities.git.init, true);
+	assert.equal(services.capabilities.git.autoFetch, false);
+	assert.equal(services.capabilities.git.worktree, false);
+	assert.equal(services.capabilities.git.deleteFiles, false);
+});
+
+test("本机 Git：syncFacts/recovery 仍显式 unsupported（本机没有这些事实源）", async () => {
+	const { api, calls } = makeApi();
+	const services = createProjectServices(localProject, api);
+	for (const action of [() => services.git.syncFacts(), () => services.git.recoveryList(), () => services.git.recoveryRestore({ ref: "refs/pideck/recovery/r1", oid: OID, path: "a.ts" }), () => services.git.recoveryDrop({ ref: "refs/pideck/recovery/r1", oid: OID })]) {
+		await assert.rejects(action, (error) => error instanceof ProjectServiceError && error.code === PROJECT_SERVICE_CODES.unsupported);
+	}
+	assert.deepEqual(calls, []);
 });
 
 test("本机 Git 写：委派既有通道；只创建分支的显式模式不被暗中追加成创建并切换", async () => {

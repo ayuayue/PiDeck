@@ -18,8 +18,8 @@ function harness(api) {
 test("公共 compareRefs 的 trees 结果映射到面板的两端与文件", async () => {
 	const calls = [];
 	const testHarness = harness({
-		compareRefs: async (projectId, base, head, repo) => {
-			calls.push({ projectId, base, head, repo });
+		compareRefs: async (base, head, repo) => {
+			calls.push({ base, head, repo });
 			return {
 				ok: true,
 				value: {
@@ -35,7 +35,7 @@ test("公共 compareRefs 的 trees 结果映射到面板的两端与文件", asy
 		},
 	});
 	await testHarness.controller.runCompare(BASE, HEAD);
-	assert.deepEqual(plain(calls), [{ projectId: "project-1", base: BASE, head: HEAD, repo: { projectId: "project-1", relativePath: "" } }]);
+	assert.deepEqual(plain(calls), [{ base: BASE, head: HEAD, repo: "" }]);
 	const compare = testHarness.last().compare;
 	assert.deepEqual(plain(compare.base), { ref: BASE, oid: oid("a") });
 	assert.deepEqual(plain(compare.head), { ref: HEAD, oid: oid("b") });
@@ -58,15 +58,9 @@ test("回显的 ref 不是用户点的那一对时报资源已变，不展示错
 	assert.equal(testHarness.last().compareErrorCode, "GIT_RESOURCE_CHANGED");
 });
 
-test("没有 compareRefs 时继续走旧的 remoteCompare（迁移期兼容壳）", async () => {
-	const calls = [];
-	const testHarness = harness({
-		remoteCompare: async (projectId, base, head, repo) => {
-			calls.push({ projectId, base, head, repo });
-			return { ok: true, compare: { base: { ref: base, oid: oid("a") }, head: { ref: head, oid: oid("b") }, files: [] } };
-		},
-	});
+test("compare 只有公共 compareRefs 一个读法：读口缺席是稳定失败，不会换一条兼容壳重读", async () => {
+	const testHarness = harness({});
 	await testHarness.controller.runCompare(BASE, HEAD);
-	assert.deepEqual(plain(calls), [{ projectId: "project-1", base: BASE, head: HEAD, repo: "" }]);
-	assert.equal(testHarness.last().compareErrorCode, undefined);
+	assert.equal(testHarness.last().compare, undefined);
+	assert.equal(testHarness.last().compareErrorCode, "GIT_COMMAND_FAILED");
 });

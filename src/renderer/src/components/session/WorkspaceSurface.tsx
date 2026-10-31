@@ -9,11 +9,14 @@ import { sortFileNodes, FILE_SORT_OPTIONS, FILE_SORT_DEFAULT_DIRECTION, type Fil
 import { compactMiddlePackages } from "../../utils/fileTreeCompact";
 import { fileTreeNodeKey } from "../../utils/fileTreeLazy";
 import { compactMiddlePackagesAtom, activeEditorFileAtom } from "../../atoms/app-ui-atoms";
+import { projectByIdAtomFamily } from "../../atoms/project-atoms";
 import { t } from "../../i18n";
 import type { WorkspaceDrawerPanel } from "../../hooks/useWorkspacePanels";
 import type { FileTreeNode, Project, ProjectFileTarget, SessionSummary } from "../../../../shared/types";
 import { FileSearch, Search } from "lucide-react";
 import { useFileSearch } from "../../hooks/useFileSearch";
+import { useProjectServices } from "../../hooks/useProjectServices";
+import type { ProjectServices } from "../../services/projectServiceContracts";
 import { useFileTreeStickyAppearance } from "../../hooks/files/useFileTreeStickyAppearance";
 import { useLazyListWindow } from "../../hooks/useLazyListWindow";
 import { useFileTreeGitStatus } from "../../hooks/files/useFileTreeGitStatus";
@@ -123,7 +126,7 @@ export function DrawerContent(props: {
 	);
 }
 
-function FilesPanel(props: {
+type FilesPanelProps = {
 	/** 搜索用项目 id（由抽屉按当前文件树项目传入）：缺省时不渲染搜索入口、快捷键也不响应 */
 	projectId?: string;
 	/** 该位置是否支持内容检索（远端/WSL 为 false，缺省 true） */
@@ -151,7 +154,27 @@ function FilesPanel(props: {
 	onMoveFiles?: (sourcePaths: string[], targetDir: string) => void;
 	/** 目录 listing 失败后的重试入口（关-开重拉） */
 	onRetryDirectory?: (path: string) => void;
-}) {
+};
+
+/**
+ * 文件抽屉的搜索/树宿主。
+ *
+ * Phase B：数据入口是 `useProjectServices(project).files`。抽屉只传 projectId（公共装配由 I 单写），
+ * 这里按**显式 id** 从项目清单取出 Project 再建服务——不从“全局当前项目”补目标；
+ * 项目尚未进入清单时退化为“只渲染树、不提供搜索”，不伪造一个空项目去建服务。
+ */
+function FilesPanel(props: FilesPanelProps) {
+	const project = useAtomValue(projectByIdAtomFamily(props.projectId ?? ""));
+	if (project === undefined) return <FilesPanelBody {...props} services={null} />;
+	return <FilesPanelWithServices project={project} panelProps={props} />;
+}
+
+function FilesPanelWithServices(props: { project: Project; panelProps: FilesPanelProps }) {
+	const services = useProjectServices(props.project);
+	return <FilesPanelBody {...props.panelProps} projectId={props.project.id} services={services} />;
+}
+
+function FilesPanelBody(props: FilesPanelProps & { services: ProjectServices | null }) {
 	// 排序维度/方向持久化到 localStorage：文件树排序是用户偏好，跨会话保留
 	const FILE_SORT_KEY = "pi-desktop:file-sort";
 	const FILE_SORT_DIR_KEY = "pi-desktop:file-sort-dir";
@@ -176,7 +199,9 @@ function FilesPanel(props: {
 	const [compactPackages, setCompactPackages] = useAtom(compactMiddlePackagesAtom);
 	// 文件名搜索（issue #215）：状态域在 hook，面板只转发输入与关闭。
 	// 内容检索能力按项目位置下传：不支持时不发 files.searchContent、不进入内容 loading。
-	const fileSearch = useFileSearch({ projectId: props.projectId, contentSearchSupported: props.contentSearchSupported });
+	const fileSearch = useFileSearch({ services: props.services, projectId: props.projectId, contentSearchSupported: props.contentSearchSupported });
+	// 能力以服务判定为准（本机 WSL 无内容索引）；服务缺席时保留调用点传入的兼容值。
+	const contentSearchSupported = props.services ? props.services.capabilities.files.contentSearch : props.contentSearchSupported !== false;
 	// Git 状态着色（IDEA 风格：untracked 琥珀棕 / modified 蓝 / added 绿 / conflict 红）：
 	// 面板挂载（抽屉打开）与切换项目由 hook 拉取；手动刷新按钮见下方 onClick。
 	const gitStatus = useFileTreeGitStatus({ projectId: props.projectId, projectRoot: props.projectRoot });
@@ -380,7 +405,7 @@ function FilesPanel(props: {
 					isSearching={fileSearch.isSearching}
 					contentResults={fileSearch.contentResults}
 					isContentSearching={fileSearch.isContentSearching}
-					contentSearchSupported={props.contentSearchSupported}
+					contentSearchSupported={contentSearchSupported}
 					onViewFile={props.onViewFile}
 					onFileContextMenu={props.onFileContextMenu}
 					onClear={closeSearch}

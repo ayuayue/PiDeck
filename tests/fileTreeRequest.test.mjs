@@ -94,7 +94,7 @@ test("project file tree effect does not retrigger on an unstable toast helper", 
 	// 设置/关窗点不动，正是 applog 里 Maximum update depth 的根因。
 	const effectStart = app.indexOf("项目切换：先清空旧树");
 	assert.notEqual(effectStart, -1, "file-tree switch effect should still exist");
-	const deps = app.slice(effectStart, effectStart + 3000).match(/\}, \[activeProjectId[^\]]*\]\)/);
+	const deps = app.slice(effectStart).match(/\}, \[activeProjectId[^\]]*\]\)/);
 	assert.ok(deps, "file-tree effect should keep an explicit dependency list");
 	assert.doesNotMatch(deps[0], /showToast|refreshProjects/);
 	assert.match(appShell, /const showToast = useCallback\(/);

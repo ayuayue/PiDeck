@@ -89,8 +89,14 @@ export class LocalProjectFileBackend implements ProjectFileBackend {
 				relativePath: node.relativePath,
 				type: node.type,
 				hasChildren: node.type === "directory" ? (node.hasChildren ?? false) : false,
+				// 本机条目的绝对路径/元数据：文件树的 path、排序与打开文件/Git 着色都依赖它们。
+				path: node.path,
+				mtimeMs: node.mtimeMs,
+				ctimeMs: node.ctimeMs,
+				size: node.size,
 			}));
-		return { entries: mapped.slice(0, limit), truncated: page.truncated || mapped.length > limit };
+		const truncated = page.truncated || mapped.length > limit;
+		return { entries: mapped.slice(0, limit), truncated, ...(truncated ? { totalEntries: mapped.length } : {}) };
 	}
 
 	async search(target: ProjectFileTarget, query: string): Promise<FileSearchResult[]> {

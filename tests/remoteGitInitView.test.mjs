@@ -24,8 +24,10 @@ function fixture(api = {}) {
 		"identity",
 		{
 			cancelRemoteReads: async () => {},
-			remoteSnapshot: async () => ({ ok: false, code: "GIT_NOT_REPOSITORY" }),
-			initRemote: async () => ({ ok: true, branch: "master" }),
+			status: async () => ({ ok: false, code: "GIT_NOT_REPOSITORY" }),
+			refresh: async () => ({ ok: false, code: "GIT_NOT_REPOSITORY" }),
+			branches: async () => ({ ok: true, info: { current: "master", branches: ["master"] } }),
+			init: async () => ({ ok: true, branch: "master" }),
 			...api,
 		},
 		(state) => states.push(state),
@@ -43,13 +45,12 @@ function deferred() {
 test("init starts from a confirmed non-repository and only reports itself after a fresh snapshot", async () => {
 	const calls = { snapshot: 0, init: 0 };
 	const f = fixture({
-		remoteSnapshot: async () => {
+		status: async () => {
 			calls.snapshot += 1;
 			return calls.snapshot === 1 ? { ok: false, code: "GIT_NOT_REPOSITORY" } : { ok: true, snapshot: untrackedSnapshot };
 		},
-		initRemote: async (id) => {
+		init: async () => {
 			calls.init += 1;
-			assert.equal(id, projectId);
 			return { ok: true, branch: "master" };
 		},
 	});
@@ -70,8 +71,8 @@ test("init starts from a confirmed non-repository and only reports itself after 
 test("init only runs for a confirmed non-repository", async () => {
 	const calls = { init: 0 };
 	const f = fixture({
-		remoteSnapshot: async () => ({ ok: true, snapshot: untrackedSnapshot }),
-		initRemote: async () => {
+		status: async () => ({ ok: true, snapshot: untrackedSnapshot }),
+		init: async () => {
 			calls.init += 1;
 			return { ok: true, branch: "master" };
 		},
@@ -79,7 +80,7 @@ test("init only runs for a confirmed non-repository", async () => {
 	await f.reads.refresh();
 	await f.reads.initRepository();
 	assert.equal(calls.init, 0, "an ordinary repository must not offer the init write");
-	const refused = fixture({ remoteSnapshot: async () => ({ ok: false, code: "GIT_TRUST_REQUIRED" }) });
+	const refused = fixture({ status: async () => ({ ok: false, code: "GIT_TRUST_REQUIRED" }) });
 	await refused.reads.refresh();
 	await refused.reads.initRepository();
 	assert.equal(calls.init, 0, "a trust refusal is not a non-repository confirmation");
@@ -88,11 +89,11 @@ test("init only runs for a confirmed non-repository", async () => {
 test("a refusal drops the stale facts and exposes the stable code instead of refreshing", async () => {
 	const calls = { snapshot: 0, init: 0 };
 	const f = fixture({
-		remoteSnapshot: async () => {
+		status: async () => {
 			calls.snapshot += 1;
 			return { ok: false, code: "GIT_NOT_REPOSITORY" };
 		},
-		initRemote: async () => {
+		init: async () => {
 			calls.init += 1;
 			return { ok: false, code: "GIT_REPO_EXISTS" };
 		},
@@ -109,11 +110,11 @@ test("an unknown result keeps the uncertainty warning, never retries, and only a
 	const calls = { init: 0, snapshot: 0 };
 	let snapshotOk = false;
 	const f = fixture({
-		remoteSnapshot: async () => {
+		status: async () => {
 			calls.snapshot += 1;
 			return snapshotOk ? { ok: true, snapshot: untrackedSnapshot } : { ok: false, code: "GIT_NOT_REPOSITORY" };
 		},
-		initRemote: async () => {
+		init: async () => {
 			calls.init += 1;
 			throw new Error("REMOTE_CONNECTION_LOST");
 		},
@@ -140,11 +141,11 @@ test("init is single-flight: a second click while one request is in flight is ig
 	let initCalls = 0;
 	let snapshotCalls = 0;
 	const f = fixture({
-		remoteSnapshot: async () => {
+		status: async () => {
 			snapshotCalls += 1;
 			return snapshotCalls === 1 ? { ok: false, code: "GIT_NOT_REPOSITORY" } : { ok: true, snapshot: untrackedSnapshot };
 		},
-		initRemote: () => {
+		init: () => {
 			initCalls += 1;
 			return pending.promise;
 		},
@@ -162,11 +163,11 @@ test("a slow init answer arriving after a connection loss is retired, never publ
 	let initCalls = 0;
 	let snapshotCalls = 0;
 	const f = fixture({
-		remoteSnapshot: async () => {
+		status: async () => {
 			snapshotCalls += 1;
 			return { ok: false, code: "GIT_NOT_REPOSITORY" };
 		},
-		initRemote: () => {
+		init: () => {
 			initCalls += 1;
 			return pending.promise;
 		},

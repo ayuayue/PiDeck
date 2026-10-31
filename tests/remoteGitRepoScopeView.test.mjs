@@ -6,8 +6,11 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 /*
  * G5d read-only repository scope at the view layer. The controller is created per selected repository, so every read
  * call has to name it: a single missed argument would silently read the project-root repository under a nested scope.
- * The tests below assert the exact argument on every read path, that writes never carry a scope, and that a nested
- * scope never offers init. The panel/hook source scans pin the selector, the read-only note and the four-layer wiring.
+ * The tests below assert the exact argument on every read path, that writes name it too, and that a nested scope
+ * never offers init. The panel/hook source scans pin the selector, the capability entry and the four-layer wiring.
+ *
+ * G4a: the API is the project-bound panel API (no project id, no token); "" is the root scope and a nested scope is the
+ * project-relative path. The service does the target conversion.
  */
 
 const { createRemoteGitViewController } = loadTsCommonJs("src/renderer/src/utils/remoteGitViewState.ts");
@@ -15,11 +18,13 @@ const projectId = "project";
 const scoped = "packages/nested";
 const oid = (char) => char.repeat(40);
 const target = { projectId, relativePath: "tracked.txt" };
-const snapshot = { head: oid("a"), branch: "main", groups: { merge: [], index: [], workingTree: [], untracked: [] } };
-const page = { commits: [{ oid: oid("a"), parents: [], authorName: "A", authorEmail: "a@e.invalid", authorTimeSec: 1700000000, subject: "one" }], hasMore: true };
+const groups = { merge: [], index: [], workingTree: [], untracked: [] };
+const snapshot = { head: null, branch: "main", groups };
+const branchInfo = { current: "main", branches: ["main"] };
+const page = { commits: [{ oid: oid("a"), parents: [], subject: "one", authorName: "A", authorEmail: "a@e.invalid", authorTimeMs: 1_700_000_000_000 }], hasMore: true };
 const detail = { oid: oid("a"), parents: [oid("b")], authorName: "A", authorEmail: "a@e.invalid", authorTimeSec: 1700000000, committerName: "A", committerEmail: "a@e.invalid", committerTimeSec: 1700000000, subject: "s", message: "s\n", files: [{ status: "M", path: "tracked.txt" }] };
-const refs = { head: oid("a"), branch: "main", refs: [{ fullName: "refs/heads/main", name: "main", oid: oid("a"), kind: "branch" }] };
-const compare = { base: { ref: "refs/heads/main", oid: oid("a") }, head: { ref: "refs/tags/v1", oid: oid("b") }, files: [{ status: "M", path: "tracked.txt" }] };
+const refs = { head: null, branch: "main", refs: [{ fullName: "refs/heads/main", name: "main", oid: oid("a"), kind: "branch" }] };
+const compare = { mode: "trees", base: { ref: "refs/heads/main", oid: oid("a") }, head: { ref: "refs/tags/v1", oid: oid("b") }, files: [{ status: "M", path: "tracked.txt" }] };
 const recoveryEntry = { ref: "refs/pideck/recovery/20261017120000-ab12cd34", oid: oid("c"), path: "tracked.txt", bytes: 10, at: 1792138005 };
 const syncFacts = { branch: "main", upstream: null, ahead: 0, behind: 0, remotes: ["origin"] };
 const plain = (value) => JSON.parse(JSON.stringify(value));
@@ -36,33 +41,41 @@ function fixture(repoPath = scoped, api = {}) {
 		"identity",
 		{
 			cancelRemoteReads: async () => {},
-			remoteSnapshot: async (...args) => {
-				record("snapshot", args);
+			status: async (...args) => {
+				record("status", args);
 				return { ok: true, snapshot };
+			},
+			refresh: async (...args) => {
+				record("refresh", args);
+				return { ok: true, snapshot };
+			},
+			branches: async (...args) => {
+				record("branches", args);
+				return { ok: true, info: branchInfo };
 			},
 			workspaceFileDiff: async (...args) => {
 				record("workspaceDiff", args);
 				return { path: target.relativePath, target, displayPath: target.relativePath, originalContent: "old", modifiedContent: "new" };
 			},
-			remoteLog: async (...args) => {
-				record("log", args);
-				return { ok: true, page };
+			historyPage: async (...args) => {
+				record("history", args);
+				return { ok: true, value: page };
 			},
-			remoteCommitDetail: async (...args) => {
+			commitDetail: async (...args) => {
 				record("detail", args);
-				return { ok: true, detail: { ...detail, oid: args[1] } };
+				return { ok: true, detail: { ...detail, oid: args[0] } };
 			},
-			remoteRefs: async (...args) => {
+			refs: async (...args) => {
 				record("refs", args);
 				return { ok: true, refs };
 			},
-			remoteRefFileDiff: async (...args) => {
+			refFileDiff: async (...args) => {
 				record("refFileDiff", args);
-				return { ok: true, diff: { path: target.relativePath, target, displayPath: target.relativePath, base: args[1], head: args[2], originalContent: "old", modifiedContent: "new" } };
+				return { ok: true, diff: { path: target.relativePath, target, displayPath: target.relativePath, base: args[0], head: args[1], originalContent: "old", modifiedContent: "new" } };
 			},
-			remoteCompare: async (...args) => {
+			compareRefs: async (...args) => {
 				record("compare", args);
-				return { ok: true, compare };
+				return { ok: true, value: compare };
 			},
 			recoveryList: async (...args) => {
 				record("recoveryList", args);
@@ -103,48 +116,47 @@ test("every read path names the selected repository scope", async () => {
 		byName.get(name).push(args);
 	}
 	// The controller is created per scope, so it must name it on every read; a missing one silently reads the root.
-	const scopeIndex = { snapshot: 1, log: 2, detail: 2, refs: 1, compare: 3, recoveryList: 1, syncFacts: 1 };
+	const scopeIndex = { status: 0, branches: 0, history: 1, detail: 1, refs: 0, compare: 2, recoveryList: 0, syncFacts: 0 };
 	for (const [name, index] of Object.entries(scopeIndex)) {
 		assert.ok(byName.has(name), name + " must be read by the driven actions");
 		for (const args of byName.get(name)) assert.equal(args[index], scoped, name + " must carry the repository scope");
 	}
-	// The workspace diff rides the legacy local-shaped channel: its scope is the ProjectFileTarget of the repository.
-	for (const args of byName.get("workspaceDiff")) assert.deepEqual(plain(args[3]), { projectId, relativePath: scoped }, "workspaceDiff must scope the repository");
 	// The per-file revision diff names the scope right after the file target.
 	for (const args of byName.get("refFileDiff")) {
-		assert.deepEqual(plain(args[3]), target, "refFileDiff keeps the file target in place");
-		assert.equal(args[4], scoped, "refFileDiff must carry the repository scope");
+		assert.deepEqual(plain(args[2]), target, "refFileDiff keeps the file target in place");
+		assert.equal(args[3], scoped, "refFileDiff must carry the repository scope");
 	}
+	// The workspace diff names the scope as its last argument.
+	for (const args of byName.get("workspaceDiff")) assert.equal(args[2], scoped, "workspaceDiff must scope the repository");
 	// The refs reads happen at least twice (manual + quiet poll) and both are scoped.
 	assert.ok(byName.get("refs").length >= 2, "manual and polled refs reads both run");
-	// Root scope keeps the exact pre-G5d calls: an empty string is still passed by this controller, never dropped.
+	// Root scope keeps the exact pre-G4a shape: an empty string is still passed by this controller, never dropped.
 	const root = fixture("");
 	await driveAllReads(root);
 	for (const [name, ...args] of root.calls) {
-		if (name === "workspaceDiff") assert.equal(args[3], undefined, "the root workspace diff passes no repo target");
-		else if (name === "refFileDiff") assert.equal(args[4], "", "the root per-file diff passes the root scope");
-		else if (name === "log" || name === "detail") assert.equal(args[2], "", name + " must pass the root scope explicitly");
-		else if (name === "compare") assert.equal(args[3], "", "the root compare passes the root scope");
-		else assert.equal(args[1], "", name + " must pass the root scope explicitly");
+		if (name === "refFileDiff") assert.equal(args[3], "", "the root per-file diff passes the root scope");
+		else if (name === "detail" || name === "compare" || name === "workspaceDiff") assert.equal(args[name === "detail" ? 1 : name === "compare" ? 2 : 2], "", name + " must pass the root scope explicitly");
+		else if (name === "history") assert.equal(args[1], "", "the root history page passes the root scope");
+		else assert.equal(args[0], "", name + " must pass the root scope explicitly");
 	}
 });
 
 test("a nested scope still never offers the explicit init", async () => {
 	const calls = [];
 	const f = fixture(scoped, {
-		remoteSnapshot: async () => ({ ok: false, code: "GIT_NOT_REPOSITORY" }),
-		initRemote: async (...args) => {
+		status: async () => ({ ok: false, code: "GIT_NOT_REPOSITORY" }),
+		init: async (...args) => {
 			calls.push(["init", ...args]);
 			return { ok: true, branch: "main" };
 		},
 	});
 	await f.controller.refresh();
 	assert.equal(await f.controller.initRepository(), false, "a nested scope must not report a successful init");
-	assert.equal(calls.length, 0, "a nested scope must never call initRemote");
+	assert.equal(calls.length, 0, "a nested scope must never call init");
 });
 
-const writeTokens = { mutationToken: "m".repeat(32), commitToken: "c".repeat(32), branchToken: "b".repeat(32), switchToken: "s".repeat(32), discardToken: "d".repeat(32), restoreToken: "r".repeat(32), dropToken: "p".repeat(32), fetchToken: "f".repeat(32), pushToken: "u".repeat(32), pullToken: "l".repeat(32) };
-const tokenSnapshot = { ...snapshot, ...writeTokens, groups: { ...snapshot.groups, workingTree: [{ path: target.relativePath, target, displayPath: target.relativePath, status: 5, letter: "M" }] } };
+const resource = { target, path: target.relativePath, displayPath: target.relativePath, status: 5, letter: "M" };
+const writableSnapshot = { ...snapshot, groups: { ...groups, workingTree: [resource] } };
 
 /** Drive all ten write APIs through one controller and record the full argument list each fake receives. */
 async function driveWrites(repoPath) {
@@ -154,24 +166,22 @@ async function driveWrites(repoPath) {
 		async (...args) => {
 			writes.push([name, ...args]);
 			if (name === "discard") return { ok: true, recoveryRef: "refs/pideck/recovery/x" };
-			if (name === "restore") return { ok: true, path: target.relativePath, bytes: 1 };
-			if (name === "fetch") return { ok: true, outcome: { upToDate: true, updated: [] } };
-			if (name === "push") return { ok: true, outcome: { outcome: "up-to-date", refspec: "refs/heads/main:refs/heads/main" } };
-			if (name === "pull") return { ok: true, outcome: { mode: "up-to-date", head: oid("a") } };
+			if (name === "restore" || name === "drop" || name === "create" || name === "switch" || name === "mutate" || name === "commit") return { ok: true };
 			return { ok: true };
 		};
 	const f = fixture(repoPath, {
-		remoteSnapshot: async () => ({ ok: true, snapshot: tokenSnapshot }),
-		mutateRemoteIndex: record("mutate"),
-		commitRemote: record("commit"),
-		createRemoteBranch: record("create"),
-		switchRemoteBranch: record("switch"),
-		discardRemote: record("discard"),
+		status: async () => ({ ok: true, snapshot: writableSnapshot }),
+		branches: async () => ({ ok: true, info: { current: "main", branches: ["main"] } }),
+		mutateIndex: record("mutate"),
+		commit: record("commit"),
+		createBranch: record("create"),
+		switchBranch: record("switch"),
+		discard: record("discard"),
 		recoveryRestore: record("restore"),
 		recoveryDrop: record("drop"),
-		fetchRemote: record("fetch"),
-		pushRemote: record("push"),
-		pullRemote: record("pull"),
+		fetch: record("fetch"),
+		push: record("push"),
+		pull: record("pull"),
 	});
 	await f.controller.refresh();
 	await f.controller.loadSync();
@@ -200,16 +210,16 @@ async function driveWrites(repoPath) {
 /** The exact shape each write API is called with: the repository scope is always the trailing argument. */
 function expectedWriteCalls(scope) {
 	return [
-		["mutate", projectId, "stage", "workingTree", target, "m".repeat(32), scope],
-		["commit", projectId, "message", "c".repeat(32), scope],
-		["create", projectId, "feature", "b".repeat(32), scope],
-		["switch", projectId, "feature", "s".repeat(32), scope],
-		["discard", projectId, "workingTree", target, "d".repeat(32), scope],
-		["restore", projectId, recoveryEntry.ref, recoveryEntry.oid, recoveryEntry.path, "r".repeat(32), scope],
-		["drop", projectId, recoveryEntry.ref, recoveryEntry.oid, "p".repeat(32), scope],
-		["fetch", projectId, "origin", "f".repeat(32), scope],
-		["push", projectId, "origin", "main", "u".repeat(32), scope],
-		["pull", projectId, "origin", "main", "l".repeat(32), scope],
+		["mutate", "stage", "workingTree", target, scope],
+		["commit", "message", scope],
+		["create", "feature", scope],
+		["switch", "feature", scope],
+		["discard", "workingTree", target, scope],
+		["restore", recoveryEntry.ref, recoveryEntry.oid, recoveryEntry.path, scope],
+		["drop", recoveryEntry.ref, recoveryEntry.oid, scope],
+		["fetch", "origin", scope],
+		["push", "origin", "main", scope],
+		["pull", "origin", "main", scope],
 	];
 }
 
@@ -227,7 +237,7 @@ test("the panel exposes the scope selector and keeps init root-only", () => {
 	assert.ok(!panel.includes("remoteGit.repoReadOnlyNote"), "no dictionary key for a removed note may remain in the panel");
 	assert.match(panel, /useRemoteGitView\(project, repoPath\)/, "the selected scope must key the controller");
 	assert.match(panel, /repos\.length > 1[\s\S]{0,120}?!rootRepoPresent/, "the selector is shown for multi-repo projects and rootless nested ones");
-	// The write controls depend on the scope-bound grant alone; only init keeps an explicit root-only condition (G5e).
+	// The write controls depend on the scope-bound capability alone; only init keeps an explicit root-only condition.
 	for (const gate of ["canCommit", "canCreateBranch", "canSwitchBranch", "canDiscard", "canRestore", "canDrop", "canFetch", "canPush", "canPull"]) {
 		assert.match(panel, new RegExp("const " + gate + " = (?! !nested)"), gate + " exists");
 		assert.ok(!new RegExp("const " + gate + " = !nested").test(panel), gate + " must not be disabled for a nested scope");
@@ -236,12 +246,14 @@ test("the panel exposes the scope selector and keeps init root-only", () => {
 	assert.match(panel, /!nested && \(state\.errorCode === "GIT_NOT_REPOSITORY"/, "init is offered only from the root scope");
 	assert.match(panel, /void initRepository\(\)\.then/, "a successful init re-discovers the repository list");
 	const hook = readFileSync("src/renderer/src/hooks/useRemoteGitView.ts", "utf8");
-	assert.match(hook, /JSON\.stringify\(\[project\.id, project\.locator\.hostId, project\.locator\.remotePath, repoPath\]\)/, "the scope is part of the controller identity key");
-	assert.match(hook, /createRemoteGitViewController\(project\.id, projectKey, desktopApi\.git, setState, repoPath\)/);
-	assert.match(hook, /\[project\.id, project\.locator\.hostId, projectKey, repoPath\]/, "switching scope disposes the old controller");
+	assert.match(hook, /JSON\.stringify\(\[project\.id, project\.locator\.hostId, project\.locator\.remotePath, repoPath, services\.generation\]\)/, "the scope and the connection generation are part of the controller identity key");
+	assert.match(hook, /createRemoteGitViewController\(project\.id, projectKey, api, publish, repoPath, capabilities\)/, "the controller is built from the project-bound api and the service capabilities");
+	// G 追加：换代时把“在途写的未知结果”带到下一代（身份 key 不含连接代），只有成功的事实读能解除。
+	assert.match(hook, /if \(uncertainWrites\.has\(identityKey\)\) reads\.setUncertain\(\)/, "an unknown in-flight write survives the generation change");
+	assert.match(hook, /\[project\.id, project\.locator\.hostId, projectKey, repoPath, api, capabilities, blocked, identityKey, publish\]/, "switching scope/generation disposes the old controller");
 	const reposHook = readFileSync("src/renderer/src/hooks/useRemoteGitRepos.ts", "utf8");
-	assert.match(reposHook, /desktopApi\.git\.remoteRepos\(project\.id\)/, "discovery goes through the preload API");
-	assert.ok(!/remoteSnapshot|loadSync/.test(reposHook), "discovery never reads repository facts or sync facts");
+	assert.match(reposHook, /services\.git\.repos\(\)/, "discovery goes through the project service");
+	assert.ok(!/remoteSnapshot|loadSync|remoteRepos|desktopApi/.test(reposHook), "discovery never reads repository facts, sync facts or a preload channel");
 });
 
 test("the repository-scope API is wired through all four layers and the dictionaries", () => {

@@ -401,14 +401,15 @@ test("renderer 控制器的显式刷新走 force 通道；普通刷新仍走缓�
 		"identity",
 		{
 			cancelRemoteReads: async () => {},
-			remoteSnapshot: async () => {
+			status: async () => {
 				calls.push("cached");
 				return { ok: true, snapshot };
 			},
-			refreshRemoteSnapshot: async () => {
+			refresh: async () => {
 				calls.push("forced");
 				return { ok: true, snapshot: { ...snapshot, branch: "feature" } };
 			},
+			branches: async () => ({ ok: true, info: { current: "main", branches: ["main"] } }),
 		},
 		() => undefined,
 	);

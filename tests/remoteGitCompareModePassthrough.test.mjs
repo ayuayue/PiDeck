@@ -63,9 +63,9 @@ test("trees 答案只带 mode，trees-only 说明显示", async () => {
 	assert.equal(shouldShowRemoteGitCapabilityNote("compare", { compareOpen: true, compareMode: compare.mode }), true);
 });
 
-test("旧的 remoteCompare 兼容壳不编造语义：没有 mode 时仍按远端默认 trees 提示", async () => {
+test("答案没有 mode 时不编造语义：仍按 trees 提示", async () => {
 	const h = harness({
-		remoteCompare: async (_projectId, base, head) => ({ ok: true, compare: { base: { ref: base, oid: oid("a") }, head: { ref: head, oid: oid("b") }, files: [] } }),
+		compareRefs: async () => ({ ok: true, value: { base: { ref: BASE, oid: oid("a") }, head: { ref: HEAD, oid: oid("b") }, files: [] } }),
 	});
 	await h.controller.runCompare(BASE, HEAD);
 	const compare = h.last().compare;

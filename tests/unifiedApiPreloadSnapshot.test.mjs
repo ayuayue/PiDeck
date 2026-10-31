@@ -24,6 +24,8 @@
  *   （Wallpaper Engine 视频壁纸）各 +1 方法，命名空间数与数量锚点不变。
  * 2026-10-24 第四轮追赶 origin/dev（274 提交）：并入上游会话数据面/终端/文件管理器等改动，
  *   命名空间 77→78（新增上游域），sessions 118→116、config 48→50、git 59 不变。
+ * 2026-10-31 刷新：git.refreshRemoteGitFacts（纯事实强刷：越过事实缓存，但不撤/不签授权令牌）入场，
+ *   git 63→64；命名空间数与其他数量锚点不变。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -31,7 +33,7 @@ import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const NS_LIST_SHA256 = "8eddbab22c377522734e7c95aa143b2dd9cf529837c7a660e5aecec3a98ce134";
-const FULL_METHODS_SHA256 = "5798730a2d2739577522795fbc278385b3b6ea30a64da2c888410c3f8b0a7054";
+const FULL_METHODS_SHA256 = "7b61a18e43be2a5b3cbc9020259dc49606e54c043211e64eb5f59ad57dc67223";
 const NAMESPACE_COUNT = 79;
 
 /** 捕获 preload 暴露的 piDesktop；null/undefined/形态不符时显式红并给诊断（F8-6 共用）。 */
@@ -73,10 +75,10 @@ test("F8-2 每命名空间排序方法清单摘要零漂移", () => {
 	assert.equal(sha256(methodLines.join(";")), FULL_METHODS_SHA256, "方法清单摘要漂移：任一命名空间的方法暴露面发生变化（A10 红线）");
 });
 
-test("F8-3 数量锚点：sessions 117 / config 52 / git 63 / app 32", () => {
+test("F8-3 数量锚点：sessions 117 / config 52 / git 64 / app 32", () => {
 	assert.equal(Object.keys(api.sessions).length, 117, "sessions 方法数漂移");
 	assert.equal(Object.keys(api.config).length, 52, "config 方法数漂移");
-	assert.equal(Object.keys(api.git).length, 63, "git 方法数漂移");
+	assert.equal(Object.keys(api.git).length, 64, "git 方法数漂移");
 	assert.equal(Object.keys(api.app).length, 32, "app 方法数漂移");
 });
 

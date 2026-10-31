@@ -47,6 +47,11 @@ test("本地目录页：单层、目录优先、hasChildren 精确、2000/2001 �
 		);
 		assert.equal(page.truncated, false);
 		assert.deepEqual(plain(page.entries[1].target), { projectId: "p1", relativePath: "with-child" });
+		// Phase B：本机目录页必须带绝对路径与排序元数据，文件树才能无损迁到 services。
+		assert.ok(page.entries.every((entry) => typeof entry.path === "string" && entry.path.length > 0));
+		assert.equal(typeof page.entries[0].mtimeMs, "number");
+		assert.equal(typeof page.entries[2].size, "number");
+		assert.equal(Object.hasOwn(page, "totalEntries"), false, "不截断时不带 totalEntries");
 
 		// 2001 个直接子项：页只返回 2000 并显式 truncated（不是抛错，也不是假装完整）。
 		const many = Array.from({ length: 2001 }, (_, index) => ({ name: `n${index}`, relativePath: `n${index}`, type: "file", hasChildren: false }));
@@ -64,6 +69,7 @@ test("本地目录页：单层、目录优先、hasChildren 精确、2000/2001 �
 		const full = await paged.directoryPage({ projectId: "p1", relativePath: "" }, 2000);
 		assert.equal(full.entries.length, 2000);
 		assert.equal(full.truncated, true);
+		assert.equal(full.totalEntries, 2001, "截断前总数用于“目录过大”提示");
 		assert.equal(full.entries.at(-1).relativePath, "n1999");
 	} finally {
 		rmSync(root, { recursive: true, force: true });

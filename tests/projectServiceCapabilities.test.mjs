@@ -19,6 +19,7 @@ const FULL_HELPER = [
 	"git.stage",
 	"git.unstage",
 	"git.commit",
+	"git.discard",
 	"git.createBranch",
 	"git.switchBranch",
 	"git.fetch",
@@ -74,7 +75,7 @@ test("本机项目：读写/Git 全开，但回收站、恢复与同步事实不
 	assert.equal(capabilities.blocked["git.syncFacts"], PROJECT_SERVICE_CAPABILITY_REASONS.providerUnsupported);
 });
 
-test("远端 ready + trust approved + 完整 helper：文件写可用，Git 读可用，Git 写/强刷在 G 接手前不可用", () => {
+test("远端 ready + trust approved + 完整 helper：Git 读写/分支/同步/恢复/强刷/轮询可用；autoFetch/worktree/deleteFiles 保持关闭", () => {
 	const capabilities = resolve(remoteFacts(), REMOTE_PROJECT_SERVICE_METHODS);
 	assert.deepEqual(plain(capabilities.files), { read: true, search: true, write: true, trash: true, textVersion: "required", contentSearch: true, systemOpen: false, watch: "full" });
 	assert.equal(capabilities.git.read, true);
@@ -83,12 +84,49 @@ test("远端 ready + trust approved + 完整 helper：文件写可用，Git 读�
 	assert.equal(capabilities.git.history, true);
 	assert.equal(capabilities.git.repos, true);
 	assert.equal(capabilities.git.refs, true);
-	for (const key of ["branchRead", "write", "branchWrite", "sync", "syncFacts", "aheadBehind", "recovery", "worktree", "init", "forceRefresh", "autoFetch", "statusPoll", "refsWatch", "deleteFiles"]) {
-		assert.equal(capabilities.git[key], false, key);
+	// G 已实现远端写/分支/同步/恢复/强刷：provider 方法支持不再是关闭原因。
+	for (const key of ["branchRead", "write", "branchWrite", "sync", "syncFacts", "aheadBehind", "recovery", "init", "forceRefresh", "statusPoll", "refsWatch"]) {
+		assert.equal(capabilities.git[key], true, key);
 	}
-	assert.equal(capabilities.git.branchCreateMode, "none");
-	assert.equal(capabilities.blocked["git.write"], PROJECT_SERVICE_CAPABILITY_REASONS.providerUnsupported);
-	assert.equal(capabilities.blocked["git.forceRefresh"], PROJECT_SERVICE_CAPABILITY_REASONS.providerUnsupported);
+	assert.equal(capabilities.git.branchCreateMode, "both");
+	// 远端仍不得自动联网、无本机 worktree、删除走文件服务：这三项保持关闭并带 provider 原因。
+	for (const key of ["autoFetch", "worktree", "deleteFiles"]) {
+		assert.equal(capabilities.git[key], false, key);
+		assert.equal(capabilities.blocked["git." + key], PROJECT_SERVICE_CAPABILITY_REASONS.providerUnsupported, key);
+	}
+	assert.equal(capabilities.blocked["git.write"], undefined);
+	assert.equal(capabilities.blocked["git.forceRefresh"], undefined);
+});
+
+test("helper 缺 git.refs / git.syncFacts / git.discard：对应能力保守关闭（不靠试一次失败）", () => {
+	const without = (method) => remoteFacts({ helperCapabilities: FULL_HELPER.filter((entry) => entry !== method) });
+	// 分支读由 provider 从 remoteRefs 派生 → 需要 helper git.refs。
+	const noRefs = resolve(without("git.refs"), REMOTE_PROJECT_SERVICE_METHODS);
+	assert.equal(noRefs.git.refs, false);
+	assert.equal(noRefs.git.branchRead, false);
+	assert.equal(noRefs.blocked["git.branchRead"], PROJECT_SERVICE_CAPABILITY_REASONS.helperMethodMissing);
+	// ahead/behind 由 syncFacts 派生 → helper 没声明 git.syncFacts 时它必然失败。
+	const noSyncFacts = resolve(without("git.syncFacts"), REMOTE_PROJECT_SERVICE_METHODS);
+	assert.equal(noSyncFacts.git.syncFacts, false);
+	assert.equal(noSyncFacts.git.aheadBehind, false);
+	assert.equal(noSyncFacts.blocked["git.aheadBehind"], PROJECT_SERVICE_CAPABILITY_REASONS.helperMethodMissing);
+	// discard 也是写：main 只在 helper 声明 git.discard 时签令牌，缺席就关闭整个写入口。
+	const noDiscard = resolve(without("git.discard"), REMOTE_PROJECT_SERVICE_METHODS);
+	assert.equal(noDiscard.git.write, false);
+	assert.equal(noDiscard.blocked["git.write"], PROJECT_SERVICE_CAPABILITY_REASONS.helperMethodMissing);
+	// 其余不受影响的入口保持开放（不是整块 Git 关闭）。
+	assert.equal(noDiscard.git.read, true);
+	assert.equal(noDiscard.git.sync, true);
+	assert.equal(noRefs.git.write, true);
+});
+
+test("helper 未声明 Git 写动作：写能力关闭并带 helper 方法缺失原因（能力不替 main 授权）", () => {
+	const capabilities = resolve(remoteFacts({ helperCapabilities: FULL_HELPER.filter((method) => method !== "git.stage") }), REMOTE_PROJECT_SERVICE_METHODS);
+	assert.equal(capabilities.git.read, true);
+	assert.equal(capabilities.git.write, false);
+	assert.equal(capabilities.blocked["git.write"], PROJECT_SERVICE_CAPABILITY_REASONS.helperMethodMissing);
+	// 只缺 stage 不影响分支写（createBranch/switchBranch 仍在声明里）。
+	assert.equal(capabilities.git.branchWrite, true);
 });
 
 test("方法支持是能力的一层：G 实现远端写/强刷后，同一份 ready 事实立即改判", () => {

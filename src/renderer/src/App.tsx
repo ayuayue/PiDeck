@@ -119,6 +119,7 @@ import { useTpsDisplayMode } from "./hooks/settings/useTpsDisplayMode";
 import { useSessionRunControl } from "./hooks/session/useSessionRunControl";
 import { useCloseSessionTabShortcut } from "./hooks/useCloseSessionTabShortcut";
 import { useProjectFileTreeController } from "./hooks/files/useProjectFileTreeController";
+import { useProjectServices } from "./hooks/useProjectServices";
 import { useSessionDurationTracking } from "./hooks/session/useSessionDurationTracking";
 import { useSessionPromptDispatch } from "./hooks/session/useSessionPromptDispatch";
 
@@ -872,10 +873,16 @@ export function App() {
 
 	// 项目文件树域（展开持久化/自愈/下钻/切换加载）收口到 useProjectFileTreeController。
 	// 文件树是纯本机能力：远端项目没有本机 path，hook 需要据此跳过一切本地 files:list。
+	// 本地树的数据入口同样走 ProjectServices（useProjectServices 支持 Project | undefined：
+	// 没有活动项目时不建 runtime/subscription）。
+	const activeProject = projects.find((project) => project.id === activeProjectId);
+	const localFileTreeProject = activeProject !== undefined && isLocalProject(activeProject) ? activeProject : undefined;
+	const localFileTreeServices = useProjectServices(localFileTreeProject);
 	const isLocalProjectId = useCallback((projectId: string) => projects.some((project) => project.id === projectId && isLocalProject(project)), [projects]);
 	const { expandedDirs, refreshVisibleFiles, restoreExpandedDirs, drillCompactChain, toggleDirectory, collapseAllDirectories } = useProjectFileTreeController({
 		setFiles,
 		activeProjectId,
+		services: localFileTreeServices,
 		isLocalProjectId,
 		compactMiddlePackagesEnabled,
 		agentsRef,
@@ -900,7 +907,6 @@ export function App() {
 	useDshRuntimeMigrationNotice();
 
 	const activeProjectRuntimeCapabilities = useProjectRuntimeCapabilities(activeProjectId);
-	const activeProject = projects.find((project) => project.id === activeProjectId);
 	// 远端项目没有本机路径：本地文件树/Git/会话扫描一律不得对它触发（各 IPC 也已按 locator 拒绝）。
 	const activeProjectIsRemote = activeProject !== undefined && isRemoteProject(activeProject);
 	const overlays = useOverlayActions({ activeProject, appInfo, showToast });

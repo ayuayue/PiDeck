@@ -275,15 +275,21 @@ export function registerRemoteGitReadIpc(input: {
 		tokens.revoke(event.sender.id, projectId);
 		for (const [controller, read] of reads) if (read.senderId === event.sender.id && read.projectId === projectId) controller.abort();
 	});
-	ipcMain.handle(ipcChannels.gitRemoteSnapshot, async (event, projectId: unknown, repo: unknown, force?: unknown): Promise<GitReadSnapshotResult> => {
+	ipcMain.handle(ipcChannels.gitRemoteSnapshot, async (event, projectId: unknown, repo: unknown, force?: unknown, mode?: unknown): Promise<GitReadSnapshotResult> => {
 		try {
 			// 显式 refresh 是第十五个参数位置（同一通道的第四个入参）：只接受 boolean/undefined，不猜。
 			if (force !== undefined && typeof force !== "boolean") throw new Error("GIT_RESULT_INVALID");
+			// 第五个入参是显式的模式位：缺省/ "snapshot" = 今天的行为（撤旧令牌 + 现签）；
+			// "facts" = 纯事实强刷（只读事实，既不撤旧令牌也不签发新令牌）。
+			if (mode !== undefined && mode !== "facts" && mode !== "snapshot") throw new Error("GIT_RESULT_INVALID");
 			const repoPath = validateRemoteGitRepoPath(repo);
-			tokens.revoke(event.sender.id, typeof projectId === "string" ? projectId : "");
+			const factsOnly = mode === "facts";
+			if (!factsOnly) tokens.revoke(event.sender.id, typeof projectId === "string" ? projectId : "");
 			// 事实可缓存（同键并发合并成一次往返）；令牌每次现签，绑定的是这份事实的 revision。
 			const readSnapshot = (await readFacts(event, projectId, repoPath, force === true)).facts;
 			const { writeExpectation, commitExpectation, branchExpectation, switchExpectation, discardExpectation, restoreExpectation, dropExpectation, fetchExpectation, pushExpectation, pullExpectation, ...snapshot } = readSnapshot;
+			// 纯事实：事实之外什么都不带（尤其没有授权令牌），让渲染层可以“只看事实”地强刷一次。
+			if (factsOnly) return { ok: true, snapshot };
 			// Every confirmed scope mints grants bound to itself (G5e): a nested snapshot's tokens carry its repoPath, so
 			// the token layer refuses them against another repository.
 			if (typeof projectId === "string") {
