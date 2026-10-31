@@ -1,25 +1,27 @@
-/* billion-context 插件面板样式：宿主 token（--pideck-*）优先，缺失时回落到本地色板。
-   为什么不用 Tailwind：插件页面是独立文档，拿不到 PiDeck 的样式表，只能自带一份最小 CSS。 */
+/* billion-context 插件面板样式：宿主 token（`--color-*`）优先，缺失时回落到本地色板。
+   为什么不用 Tailwind：插件页面是独立文档，拿不到 PiDeck 的样式表，只能自带一份最小 CSS。
+   下面这层别名（--fg/--card/…）是唯一读宿主变量的地方：宿主注入的值总是赢，
+   所以面板会跟随 PiDeck 的亮/暗与自定义主题；`prefers-color-scheme` 只是脱离 PiDeck 预览时的兜底。 */
 :root {
 	color-scheme: light dark;
-	--fg: var(--pideck-foreground, #1f2328);
-	--muted: var(--pideck-muted-foreground, #6b7280);
-	--bg: var(--pideck-background, #ffffff);
-	--card: var(--pideck-card, #f6f7f9);
-	--line: var(--pideck-border, #e5e7eb);
-	--accent: var(--pideck-primary, #2563eb);
-	--accent-fg: var(--pideck-primary-foreground, #ffffff);
-	--ok: #16a34a;
+	--fg: var(--color-text-primary, #1f2328);
+	--muted: var(--color-text-secondary, #6b7280);
+	--bg: var(--color-bg-app, #ffffff);
+	--card: var(--color-bg-panel, #f6f7f9);
+	--line: var(--color-border-subtle, #e5e7eb);
+	--accent: var(--color-accent, #2563eb);
+	--accent-fg: var(--color-text-inverse, #ffffff);
+	--ok: var(--color-success, #16a34a);
 	--warn: #d97706;
 }
 
 @media (prefers-color-scheme: dark) {
 	:root {
-		--fg: var(--pideck-foreground, #e6e6e6);
-		--muted: var(--pideck-muted-foreground, #9aa0a6);
-		--bg: var(--pideck-background, #1c1c1e);
-		--card: var(--pideck-card, #242427);
-		--line: var(--pideck-border, #34343a);
+		--fg: var(--color-text-primary, #e6e6e6);
+		--muted: var(--color-text-secondary, #9aa0a6);
+		--bg: var(--color-bg-app, #1c1c1e);
+		--card: var(--color-bg-panel, #242427);
+		--line: var(--color-border-subtle, #34343a);
 	}
 }
 
