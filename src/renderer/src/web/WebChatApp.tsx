@@ -1305,6 +1305,8 @@ export function WebChatApp() {
 					status={headerStatus}
 					onOpenSidebar={() => setMobileSidebarOpen(true)}
 					backend={activeSession?.backend}
+					acpToolId={activeSession?.acpToolId}
+					acpTools={state.acpTools}
 					contextUsage={contextUsage}
 					// 额度用量归属：优先 runtime 直报的供应商（跟随当次实际模型），退回会话记录的模型供应商；
 					// 后端按会话后端走，DSH 会话才会用 dsh 链的用量探针。

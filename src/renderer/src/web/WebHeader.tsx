@@ -12,13 +12,13 @@ import type { UsageProbeBackend } from "../../../shared/types/providerUsage";
 import { Button } from "@/components/ui-shadcn/button";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
-import { SessionBackendMark } from "@/components/session/SessionSourceBadge";
+import { WebBackendMark } from "./WebBackendMark";
 import { DSH_PERMISSION_PRESETS } from "@/components/session/DshPermissionMenu";
 import { permissionStrengthIcon } from "@/utils/permissionLevelIcon";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui-shadcn/dropdown-menu";
 import { WebBottomSheet } from "./WebBottomSheet";
 import { WebSecurityMenu } from "./WebSecurityMenu";
-import type { WebContextUsage } from "./webTypes";
+import type { WebContextUsage, WebAcpTool } from "./webTypes";
 import { useWebProviderUsage } from "./useWebProviderUsage";
 import { formatPercent } from "../components/session/TimelineFormat";
 // 紧凑数字（K/M）复用桌面 composer 统计行同一份实现，保证两头口径一致
@@ -60,6 +60,9 @@ export function WebHeader(props: {
 	status: WebHeaderStatus;
 	onOpenSidebar: () => void;
 	backend?: AgentBackend;
+	/** ACP 会话的工具 id 与 /api/state 的工具名单：头部按显示名出品牌图标（见 WebBackendMark）。 */
+	acpToolId?: string;
+	acpTools?: WebAcpTool[];
 	/** P2：上下文用量环数据（由 WebChatApp 随轮询拉取；无 runtime 时不渲染）。 */
 	contextUsage?: WebContextUsage;
 	/**
@@ -90,7 +93,7 @@ export function WebHeader(props: {
 	onOpenAssets?: () => void;
 	headerHidden?: boolean;
 }) {
-	const { title, status, onOpenSidebar, backend, contextUsage, usageProvider, usageBackend, permissionPreset, actions, onOpenDshTools, onOpenSearch, themePreference, onCycleTheme, canInstall, onInstall, onOpenAssets } = props;
+	const { title, status, onOpenSidebar, backend, acpToolId, acpTools, contextUsage, usageProvider, usageBackend, permissionPreset, actions, onOpenDshTools, onOpenSearch, themePreference, onCycleTheme, canInstall, onInstall, onOpenAssets } = props;
 	// 上下文详情弹层：移动端无悬停 title 提示，环必须可点开详情（对齐桌面 SessionContextMeter 点开面板语义）。
 	const [contextSheetOpen, setContextSheetOpen] = useState(false);
 	// DSH 权限预设：图标按统一保护强度语义取（#214 与桌面 DshPermissionMenu 同源），
@@ -110,8 +113,8 @@ export function WebHeader(props: {
 						<div className="web-title-block flex min-w-0 flex-1 flex-col gap-0.5">
 							{/* 语义标题：整页唯一的 h1（会话名/空态文案），屏幕阅读器靠它定位主区 */}
 							<h1 className="flex min-w-0 items-center gap-1.5 truncate text-sm font-semibold tracking-tight text-foreground" title={title}>
-								{/* 后端徽标（C18 同源）：与侧栏会话行一致，头部可辨 pi/dsh */}
-								{backend && <SessionBackendMark backend={backend} className="size-4 shrink-0 rounded" />}
+								{/* 后端标记（WebBackendMark）：dsh 鲸鱼 / acp 品牌图标 / imagegen 图标，pi 不署名 */}
+								{backend && <WebBackendMark backend={backend} acpToolId={acpToolId} acpTools={acpTools} className="size-4 shrink-0" />}
 								<span className="min-w-0 truncate">{title}</span>
 							</h1>
 							{/* 运行态：紧凑小圆点+文字，不用带边框底色的大 pill（旧 agent-status-indicator

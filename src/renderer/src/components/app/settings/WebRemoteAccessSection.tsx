@@ -6,7 +6,7 @@
  * 状态全部来自主进程 RemoteAccessManager（invoke + web:remote-access-changed 推送），本组件不自持渠道状态。
  */
 import { memo, useCallback, useEffect, useState } from "react";
-import { Cloud, Copy, Check, LifeBuoy, Globe, Lock, Network, RefreshCw, Square, Loader2 } from "lucide-react";
+import { Cloud, Copy, Check, LifeBuoy, Globe, Lock, Network, RefreshCw, RotateCw, Square, Loader2 } from "lucide-react";
 import type { AppSettings, RemoteAccessChannelId, RemoteAccessState, WebNetworkAddress } from "../../../../../shared/types";
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
@@ -106,13 +106,14 @@ export const WebRemoteAccessSection = memo(function WebRemoteAccessSection(props
 	}, []);
 
 	const runChannelAction = useCallback(
-		async (channel: RemoteAccessChannelId, action: "start" | "stop") => {
+		async (channel: RemoteAccessChannelId, action: "start" | "restart" | "stop") => {
 			setBusyChannel(channel);
 			try {
 				const api = desktopApi.settings;
-				// EasyTier 用当前草稿而非已保存设置：改完配置直接点启动即可，不必先点保存
+				// EasyTier 用当前草稿而非已保存设置：改完配置直接点启动/重启即可，不必先点保存
+				const starting = action !== "stop";
 				const easyTierConfig =
-					channel === "easytier" && action === "start"
+					channel === "easytier" && starting
 						? {
 								networkName: (props.draft.webRemoteEasyTierNetworkName ?? "").trim(),
 								networkSecret: (props.draft.webRemoteEasyTierNetworkSecret ?? "").trim(),
@@ -120,7 +121,8 @@ export const WebRemoteAccessSection = memo(function WebRemoteAccessSection(props
 								bindIpv4: props.draft.webRemoteEasyTierIp ?? "",
 							}
 						: undefined;
-				const result = action === "start" ? await api.webRemoteAccessStart(channel, easyTierConfig) : await api.webRemoteAccessStop(channel);
+				// 重启复用 start 通道：主进程会先写配置，服务已在跑时先停再启（见 RemoteAccessManager.startEasyTier）
+				const result = starting ? await api.webRemoteAccessStart(channel, easyTierConfig) : await api.webRemoteAccessStop(channel);
 				if (result.ok) setState(result.state);
 			} catch {
 				// IPC 层异常不常见（业务失败走 ok:false）；忽略后由推送/重拉兜底
@@ -199,15 +201,9 @@ export const WebRemoteAccessSection = memo(function WebRemoteAccessSection(props
 				? { text: t("settings.remote.status.httpsOn"), tone: "ok" as const }
 				: { text: t("settings.remote.status.connected"), tone: "ok" as const };
 
-	const etBadge = et?.ip
-		? et.ipSource === "cli"
-			? { text: t("settings.remote.status.connected"), tone: "ok" as const }
-			: { text: t("settings.remote.status.manualIp"), tone: "warn" as const }
-		: !et?.installed
-			? { text: t("settings.remote.status.notInstalled"), tone: "warn" as const }
-			: et.running
-				? { text: t("settings.remote.status.noAddress"), tone: "warn" as const }
-				: { text: t("settings.remote.status.notRunning"), tone: "warn" as const };
+	// 徽标只回答「起没起来」：托管服务或外部客户端任一在跑就是运行中；
+	// 托管/外部的区别放在卡片里的状态行，避免用户把「已连接」误当成「已启动本机服务」。
+	const etBadge = !et?.installed ? { text: t("settings.remote.status.notInstalled"), tone: "warn" as const } : et.serviceRunning || et.running ? { text: t("settings.remote.status.running"), tone: "ok" as const } : { text: t("settings.remote.status.notRunning"), tone: "warn" as const };
 
 	return (
 		<SettingsSection id="settings-section-web-remote-access" title={t("settings.remote.title")} description={t("settings.remote.desc")}>
@@ -340,9 +336,15 @@ export const WebRemoteAccessSection = memo(function WebRemoteAccessSection(props
 				{ts?.error ? <p className="text-caption text-warning">{ts.error}</p> : null}
 			</ChannelCard>
 
-			{/* ── EasyTier（只读：网络由用户自己的客户端/服务管理）── */}
+			{/* ── EasyTier（托管：填齐网络名/密钥后由 PiDeck 启停；未配置时退回只读探测）── */}
 			<ChannelCard icon={<Network size={15} aria-hidden="true" />} title={t("settings.remote.et.title")} badge={etBadge.text} badgeTone={etBadge.tone} description={t("settings.remote.et.desc")}>
-				{etUrl ? <AccessUrlBlock url={etUrl} showQr hint={et?.ipSource === "cli" ? t("settings.remote.et.autoUrlHint") : t("settings.remote.et.manualUrlHint")} /> : <p className="text-caption text-text-secondary">{et?.installed ? t("settings.remote.et.notRunningHint") : t("settings.remote.et.noCliHint")}</p>}
+				{/* 明确区分「PiDeck 托管服务」与「外部客户端」：两者都会让徽标变成运行中，但只有前者能用下方的按钮控制 */}
+				{et?.installed ? <small className="text-micro text-text-tertiary">{et.serviceRunning ? t("settings.remote.et.statusManagedRunning") : et.running ? t("settings.remote.et.statusExternalRunning") : t("settings.remote.et.statusStopped")}</small> : null}
+				{etUrl ? (
+					<AccessUrlBlock url={etUrl} showQr hint={et?.ipSource === "cli" ? t("settings.remote.et.autoUrlHint") : t("settings.remote.et.manualUrlHint")} />
+				) : (
+					<p className="text-caption text-text-secondary">{et?.installed ? (et.serviceRunning ? t("settings.remote.et.addressPendingHint") : t("settings.remote.et.notRunningHint")) : t("settings.remote.et.noCliHint")}</p>
+				)}
 				{etConfigOpen ? (
 					<>
 						{/* CLI 路径：官方 Windows 包是「解压即用」，不在 PATH 也没卸载记录，自动检测可能找不到 */}
@@ -422,10 +424,17 @@ export const WebRemoteAccessSection = memo(function WebRemoteAccessSection(props
 						{etConfigOpen ? t("settings.remote.et.configCollapse") : t("settings.remote.et.configExpand")}
 					</Button>
 					{et?.serviceRunning ? (
-						<Button size="sm" variant="outline" disabled={busyChannel !== null} onClick={() => void runChannelAction("easytier", "stop")}>
-							<Square className="mr-1.5 size-3.5" aria-hidden="true" />
-							{t("settings.remote.et.stop")}
-						</Button>
+						<>
+							{/* 改完配置需要重启才生效：服务安装时已固定配置文件路径，重写 TOML 后停再启即可 */}
+							<Button size="sm" variant="secondary" disabled={busyChannel !== null} onClick={() => void runChannelAction("easytier", "restart")}>
+								<RotateCw className="mr-1.5 size-3.5" aria-hidden="true" />
+								{t("settings.remote.et.restart")}
+							</Button>
+							<Button size="sm" variant="outline" disabled={busyChannel !== null} onClick={() => void runChannelAction("easytier", "stop")}>
+								<Square className="mr-1.5 size-3.5" aria-hidden="true" />
+								{t("settings.remote.et.stop")}
+							</Button>
+						</>
 					) : (
 						<Button size="sm" variant="secondary" disabled={!et?.installed || busyChannel !== null} onClick={() => void runChannelAction("easytier", "start")}>
 							<Network className="mr-1.5 size-3.5" aria-hidden="true" />

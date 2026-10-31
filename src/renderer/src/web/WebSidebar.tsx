@@ -19,8 +19,8 @@ import { WebBottomSheet } from "./WebBottomSheet";
 import { WEB_SIDEBAR_INITIAL_VISIBLE, growSidebarWindow, resolveSidebarWindow } from "./webSidebarPaging";
 import { cn } from "@/lib/utils";
 import { sessionStatusDotClass } from "@/agentListDisplay";
-import { SessionBackendMark } from "@/components/session/SessionSourceBadge";
-import type { WebProject, WebRuntime, WebSession, WebState } from "./webTypes";
+import { WebBackendMark } from "./WebBackendMark";
+import type { WebAcpTool, WebProject, WebRuntime, WebSession, WebState } from "./webTypes";
 
 const projectRowClass = "conversation relative w-full min-h-9 items-center gap-1.5 rounded-lg border border-transparent bg-background px-3 py-1 text-left text-body text-foreground shadow-none transition-[background-color,border-color] duration-200 hover:border-border-subtle hover:bg-muted/60 hover:text-foreground";
 
@@ -54,8 +54,8 @@ export type WebSessionRowAction = "rename" | "duplicate" | "export" | "delete";
  * 115 条展开即 57 行），体感等同「一次性全加载」，既慢又丢掉了「先看最近一页」的信息层级。
  * 单项目 400+ 条会话若全渲染会造 4000+ DOM 节点（实测 258ms 卡顿），分页同时守住渲染成本。
  */
-function SessionRows(props: { sessions: WebSession[]; runtimeFor: (sessionId: string) => WebRuntime | undefined; activeSessionId: string; searching: boolean; onSelect: (sessionId: string) => void; onSessionAction?: (action: WebSessionRowAction, sessionId: string) => void }) {
-	const { sessions, runtimeFor, activeSessionId, searching, onSelect, onSessionAction } = props;
+function SessionRows(props: { sessions: WebSession[]; runtimeFor: (sessionId: string) => WebRuntime | undefined; activeSessionId: string; searching: boolean; acpTools?: WebAcpTool[]; onSelect: (sessionId: string) => void; onSessionAction?: (action: WebSessionRowAction, sessionId: string) => void }) {
+	const { sessions, runtimeFor, activeSessionId, searching, acpTools, onSelect, onSessionAction } = props;
 	// requested 是「用户点了几次查看更多」的累计目标条数；进入/退出搜索时回到首页。
 	const [requested, setRequested] = useState(WEB_SIDEBAR_INITIAL_VISIBLE);
 	useEffect(() => setRequested(WEB_SIDEBAR_INITIAL_VISIBLE), [searching]);
@@ -83,8 +83,8 @@ function SessionRows(props: { sessions: WebSession[]; runtimeFor: (sessionId: st
 									<strong className={cn("min-w-0 flex-1 truncate", runtime ? "font-medium" : "font-normal text-muted-foreground/90")}>{session.title || t("common.untitled")}</strong>
 									{/* P3：fork 徽标（克隆/回退产生的分支会话） */}
 									{session.forked ? <GitFork className="size-3 shrink-0 text-muted-foreground" aria-label={t("web.forkedBadge")} /> : null}
-									{/* 后端徽标（C18 同源）：dsh 会话显示鲸鱼 logo，pi 会话显示 pi logo */}
-									<SessionBackendMark backend={session.backend} className="size-4 shrink-0 rounded" />
+									{/* 后端标记（WebBackendMark）：dsh 鲸鱼 / acp 品牌图标 / imagegen 图标，pi 不署名 */}
+									<WebBackendMark backend={session.backend} acpToolId={session.acpToolId} acpTools={acpTools} className="size-4 shrink-0" />
 								</div>
 							</div>
 						</button>
@@ -327,7 +327,7 @@ export function WebSidebar(props: {
 									</div>
 									{expanded && (
 										<div className="project-children mt-2 flex flex-col gap-2 px-1 pb-1">
-											<SessionRows sessions={projectSessions} runtimeFor={runtimeFor} activeSessionId={activeSessionId} searching={searching} onSelect={props.onSelectSession} onSessionAction={props.onSessionAction} />
+											<SessionRows sessions={projectSessions} runtimeFor={runtimeFor} activeSessionId={activeSessionId} searching={searching} acpTools={state.acpTools} onSelect={props.onSelectSession} onSessionAction={props.onSessionAction} />
 											{projectSessions.length === 0 && <div className="px-6 py-1 text-caption text-muted-foreground">{t("web.noSessions")}</div>}
 										</div>
 									)}
@@ -349,7 +349,7 @@ export function WebSidebar(props: {
 									</div>
 								</div>
 								<div className="project-children mt-2 flex flex-col gap-2 px-1 pb-1">
-									<SessionRows sessions={ungroupedSessions} runtimeFor={runtimeFor} activeSessionId={activeSessionId} searching={searching} onSelect={props.onSelectSession} onSessionAction={props.onSessionAction} />
+									<SessionRows sessions={ungroupedSessions} runtimeFor={runtimeFor} activeSessionId={activeSessionId} searching={searching} acpTools={state.acpTools} onSelect={props.onSelectSession} onSessionAction={props.onSessionAction} />
 								</div>
 							</div>
 						)}

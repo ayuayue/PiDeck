@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 445de461ec6d92071f7913a0e398b93fe82b1f4c9e76caa1cb88fffee6fc6fe8（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 20dcd2b67ebdb1067bac2fec741c845765e38d556f05b7ccde071f71e23efe9b（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -5897,7 +5897,12 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.remote.et.peersPlaceholder": "tcp://1.2.3.4:11010",
 	"settings.remote.et.peersHint": "每行一個，可填多個做冗餘；留空則只能與區域網內節點互聯",
 	"settings.remote.et.start": "啟動 EasyTier",
+	"settings.remote.et.restart": "重啟 EasyTier",
 	"settings.remote.et.stop": "停止 EasyTier",
+	"settings.remote.et.statusManagedRunning": "PiDeck 託管服務：執行中",
+	"settings.remote.et.statusExternalRunning": "EasyTier 客戶端：執行中（非 PiDeck 託管，只讀取地址）",
+	"settings.remote.et.statusStopped": "EasyTier 客戶端：未執行",
+	"settings.remote.et.addressPendingHint": "服務已啟動，正在等待分配虛擬 IP；稍後點「重新檢測」",
 	"settings.remote.et.configExpand": "配置網路",
 	"settings.remote.et.configCollapse": "收起配置",
 	"settings.remote.et.shareButton": "分享給手機",
