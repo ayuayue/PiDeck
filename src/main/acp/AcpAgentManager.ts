@@ -24,7 +24,7 @@ import type { PiLocator } from "../pi/PiLocator";
 import { ACP_PROTOCOL_VERSION, type AcpConfigOption, type AcpContentBlock, type AcpRpcNotification, type AcpSessionPromptResult, type AcpStopReason } from "./acpProtocol";
 import { AcpTimeoutError } from "./AcpConnection";
 import { AcpPermissionRequests } from "./AcpPermissionRequests";
-import { acpPromptBlocks, appendAcpUserPrompt, initialAcpProjection, rollbackAcpUserPrompt, settleAcpTurn, type AcpProjectionState } from "./AcpEventProjector";
+import { acpPromptBlocks, appendAcpUserPrompt, initialAcpProjection, rollbackAcpUserPrompt, settleAcpTurn, upsertAcpRetryStatus, type AcpProjectionState } from "./AcpEventProjector";
 import { authRequiredDescriptor, localizeCreateFailure, promptTurnTimeoutDescriptor } from "./acpFailureDescriptors";
 import { buildAgentRuntimeState, type AcpAgentRuntime } from "./acpAgentRuntime";
 import { findAcpBypassModeValue, findAcpModeOption, isAcpBypassModeValue, isRememberedAcpConfigOption, planAcpConfigReplay } from "./acpToolConfig";
@@ -37,6 +37,8 @@ import type { AcpProxyEnvSettings } from "../sessions/sessionProxyPolicy";
 import { performAcpHandshake } from "./AcpHandshake";
 import { AcpUpdatePipeline } from "./AcpUpdatePipeline";
 import { describeEmptyTurn, emptyTurnRejection, escalatedStopRejection, hasTurnOutput, promptResultSnippet, resolvePromptDispatch } from "./acpTurnSettlement";
+import { decideAcpTurnRetry, resolveAcpTurnRetrySettings, type AcpTurnRetrySettings } from "./acpTurnRetry";
+import { failureMessage } from "../../shared/retry/transientFailure";
 
 /** session/prompt 回合兑底超时：口径是「无进展静默上限」——回合内每有 session/update 或挂起审批
  *  就顺延截止（见 runtime.turnDeadlineRefresh），所以这里只约束「完全没动静」的时长。
@@ -44,6 +46,8 @@ import { describeEmptyTurn, emptyTurnRejection, escalatedStopRejection, hasTurnO
  *  回合结束后等用户输入），3.4 倍余量；带在途工具的正常长任务不受这条限制（stall 已放行在途工具），
  *  本值是「工具永不返回」时的最后一道网。测试用 deps.promptTurnTimeoutMs 注入缩短。 */
 const PROMPT_TURN_TIMEOUT_MS = 15 * 60_000;
+/** 断线重连的握手上限：比冷启动 60s 短，重连失败要尽快让用户看到失败而不是干等。 */
+const RESPAWN_HANDSHAKE_TIMEOUT_MS = 20_000;
 
 type AcpManagerDeps = {
 	/** 解析命令启动形态(Windows .cmd 垫片还原、node 直启等)。 */
@@ -93,6 +97,11 @@ type AcpManagerDeps = {
 	 * 让设置够不到看门狗，长工具调用/长回合被 90s/10min 硬编码误杀）。
 	 */
 	readAcpTimeoutSettings?: () => { promptStallTimeoutMs?: number; promptTurnTimeoutMs?: number };
+	/**
+	 * 回合失败自动重试口径读口（settings.acpTurnRetry*）：每次派发实时读，改设置后新回合生效。
+	 * 缺省不注入 = 代码默认（enabled/maxRetries=2/baseDelayMs=2000），与 pi/DSH 的自动重试对齐。
+	 */
+	readAcpTurnRetrySettings?: () => AcpTurnRetrySettings | undefined;
 	/**
 	 * 桌面 Ask 通知出口（与 pi 同一份门控/toast，见 notifications/agentToast.ts）。
 	 * 返回是否真的弹出：false 时不占用「每轮只提醒一次」的去重位。缺省静默。
@@ -464,6 +473,7 @@ export class AcpAgentManager implements SessionAgentGateway {
 			turnDeadlineRefresh: null,
 			inFlightToolCalls: new Set<string>(),
 			escalatedStop: null,
+			turnSawActivity: false,
 			turnUpdateKinds: new Map<string, number>(),
 			stderrTail: [],
 		};
@@ -473,24 +483,8 @@ export class AcpAgentManager implements SessionAgentGateway {
 		// 拒收结果带进 UI，否则用户只看到「无输出」的概括（主进程日志另有全量记录）。
 		runtime.proc?.stderr?.on("data", (chunk: Buffer) => pushStderrTail(runtime, chunk.toString("utf8")));
 
-		// 归档回灌必须在 performAcpHandshake **之前**：握手的 seedMessages 读的是快照存储
-		// （load 失败回退 session/new、CLI 无 loadSession 能力这两条路径都靠它播种投影），
-		// 晚一步播种就是空数组 —— 重启/换机后历史仍然空白，正是本功能要解决的那件事。
-		await this.restoreArchivedSnapshot(input.acpSessionId);
-
 		try {
-			await performAcpHandshake(runtime, input.acpSessionId, cwd, spawnFailure, {
-				handshakeTimeoutMs: this.deps.handshakeTimeoutMs,
-				logger: this.deps.logger,
-				seedMessages: (acpSessionId) => this.messageSnapshots.get(acpSessionId) ?? [],
-				onNotification: (rt, notification) => {
-					// 非标准通知（如 session/error）留样本：空白回合的诊断要能说出 agent 是否用
-					// 协议外通道报过错，而不是一律当作没看见。
-					this.rememberTurnNotification(rt, notification);
-					this.updates.enqueueSessionUpdate(rt, notification);
-				},
-				onConfigOptionsChanged: this.deps.onConfigOptionsChanged,
-			});
+			await this.bootstrapRuntime(runtime, input.acpSessionId, spawnFailure);
 		} catch (error) {
 			this.runtimes.delete(agentId);
 			this.killProcess(runtime);
@@ -501,25 +495,6 @@ export class AcpAgentManager implements SessionAgentGateway {
 			localizeCreateFailure(thrown, tool);
 			throw thrown;
 		}
-
-		// 新建会话(含 load 失败回退 session/new)重放工具级记忆:思考档/模式/权限等跨会话继承,
-		// 模型不在记忆范围(见 acpToolConfig.isRememberedAcpConfigOption)。单条失败只跳过,
-		// 不影响开会话。session/load 成功的恢复会话交给 agent 自己恢复状态。
-		await this.replayToolConfigDefaults(runtime);
-		// 放记忆重放之后：工具级开关是「明确配置」，优先级高于学来的上次选择
-		await this.applyBypassPermissionDefault(runtime);
-
-		this.wireConnection(runtime);
-		if (runtime.title && runtime.tab.deckSessionId) this.deps.onTitleChanged?.(runtime.tab.deckSessionId, runtime.title);
-		runtime.status = "idle";
-		runtime.tab.status = "idle";
-		this.emit(agentEventTags.agentsState, this.list());
-		this.emitRuntimeState(agentId);
-		// load 重放/新建即回显:attach 会话历史立即可见。
-		this.updates.flushMessages(runtime, true);
-		// 握手成功即留一份归档副本（load 重放完成 / 归档回灌后），不必等到第一次回合结算
-		// 或 stop()。空投影不会写盘（AcpSessionArchive 的护栏），load 重放为空也不会写坏归档。
-		await this.persistArchive(runtime);
 		return { ...runtime.tab };
 	}
 
@@ -528,6 +503,8 @@ export class AcpAgentManager implements SessionAgentGateway {
 		const conn = runtime.conn;
 		if (!conn) return;
 		conn.handleRequest("session/request_permission", (params, rpcId) => {
+			// 已发出审批 = 工具已开动（可能已在写文件）：断线重连不再重跑。
+			runtime.turnSawActivity = true;
 			// 挂起审批 = agent 在等用户输入，属合法等待：顺延回合兑底截止
 			// （审批本身另有 PERMISSION_TIMEOUT_MS 到期，不会无限拖延）。
 			runtime.lastUpdateAt = Date.now();
@@ -559,6 +536,95 @@ export class AcpAgentManager implements SessionAgentGateway {
 		});
 	}
 
+	/**
+	 * runtime 就绪序列：归档回灌 → 握手（load 续历史/快照播种）→ 配置重放 → 接线 → idle。
+	 * create() 与断线重连共用同一条序列；失败原样抛出，由调用方决定丢弃 runtime 还是按失败收口。
+	 */
+	private async bootstrapRuntime(runtime: AcpAgentRuntime, acpSessionId: string | undefined, spawnFailure: Promise<never>, handshakeTimeoutMs?: number): Promise<void> {
+		// 归档回灌必须在 performAcpHandshake **之前**：握手的 seedMessages 读的是快照存储
+		// （load 失败回退 session/new、CLI 无 loadSession 能力这两条路径都靠它播种投影），
+		// 晚一步播种就是空数组 —— 重启/换机后历史仍然空白，正是本功能要解决的那件事。
+		await this.restoreArchivedSnapshot(acpSessionId);
+		await performAcpHandshake(runtime, acpSessionId, runtime.tab.cwd, spawnFailure, {
+			handshakeTimeoutMs: handshakeTimeoutMs ?? this.deps.handshakeTimeoutMs,
+			logger: this.deps.logger,
+			seedMessages: (sessionId) => this.messageSnapshots.get(sessionId) ?? [],
+			onNotification: (rt, notification) => {
+				// 有过任何通知 = agent 已经开始干活：断线后重开会重跑工具，不再自动重连。
+				rt.turnSawActivity = true;
+				// 非标准通知（如 session/error）留样本：空白回合的诊断要能说出 agent 是否用
+				// 协议外通道报过错，而不是一律当作没看见。
+				this.rememberTurnNotification(rt, notification);
+				this.updates.enqueueSessionUpdate(rt, notification);
+			},
+			onConfigOptionsChanged: this.deps.onConfigOptionsChanged,
+		});
+		// 新建会话(含 load 失败回退 session/new)重放工具级记忆:思考档/模式/权限等跨会话继承,
+		// 模型不在记忆范围(见 acpToolConfig.isRememberedAcpConfigOption)。单条失败只跳过,
+		// 不影响开会话。session/load 成功的恢复会话交给 agent 自己恢复状态。
+		await this.replayToolConfigDefaults(runtime);
+		// 放记忆重放之后：工具级开关是「明确配置」，优先级高于学来的上次选择
+		await this.applyBypassPermissionDefault(runtime);
+
+		this.wireConnection(runtime);
+		if (runtime.title && runtime.tab.deckSessionId) this.deps.onTitleChanged?.(runtime.tab.deckSessionId, runtime.title);
+		runtime.status = "idle";
+		runtime.tab.status = "idle";
+		this.emit(agentEventTags.agentsState, this.list());
+		this.emitRuntimeState(runtime.tab.id);
+		// load 重放/新建即回显:attach 会话历史立即可见。
+		this.updates.flushMessages(runtime, true);
+		// 握手成功即留一份归档副本（load 重放完成 / 归档回灌后），不必等到第一次回合结算
+		// 或 stop()。空投影不会写盘（AcpSessionArchive 的护栏），load 重放为空也不会写坏归档。
+		await this.persistArchive(runtime);
+	}
+
+	/**
+	 * 断线重连（原地、同一 agentId）：杀旧进程 → 重开 → 用原 acpSessionId 走 session/load
+	 * 续上历史 → 接线回 idle。显示层由握手重建（load 重放 / 无 loadSession 时快照播种），
+	 * 所以旧投影必须丢弃 —— 留着会和重放历史重复，这正是 restart() 当初「换新 runtime」的理由。
+	 * 返回 false 表示重连失败（进程起不来/握手超时），调用方按原失败收口。
+	 */
+	private async respawnRuntime(runtime: AcpAgentRuntime): Promise<boolean> {
+		const tool = runtime.tool;
+		const resumingSessionId = runtime.acpSessionId || undefined;
+		this.deps.logger?.warn("acp", `[${tool.name}] connection lost, respawning session`, { agentId: runtime.tab.id, sessionId: resumingSessionId ?? null });
+		this.killProcess(runtime);
+		let spawned: ReturnType<typeof spawnAcpProcess>;
+		try {
+			spawned = spawnAcpProcess(tool, runtime.tab.cwd, { piLocator: this.deps.piLocator, proxy: this.deps.getProxySettings?.(), logger: this.deps.logger });
+		} catch (error) {
+			this.deps.logger?.warn("acp", `[${tool.name}] respawn failed: ${failureMessage(error)}`, { agentId: runtime.tab.id });
+			return false;
+		}
+		const { proc, conn, spawnFailure } = spawned;
+		runtime.proc = proc;
+		runtime.conn = conn;
+		// 审批对象绑定旧连接：换连接必须换审批入口，否则弹窗回包会往死连接写。
+		runtime.permissions = new AcpPermissionRequests(conn, (event) => this.emit(agentEventTags.agentsUiRequest, { agentId: runtime.tab.id, ...event }), this.deps.permissionTimeoutMs);
+		proc?.stderr?.on("data", (chunk: Buffer) => pushStderrTail(runtime, chunk.toString("utf8")));
+		runtime.stderrTail = [];
+		// 重连失败时投影要还原（下面 catch 里做）：显示层丢了历史比「这回合失败」严重得多。
+		const previousProjection = runtime.projection;
+		runtime.projection = initialAcpProjection();
+		runtime.updateChain = Promise.resolve();
+		runtime.turnDeadlineRefresh = null;
+		runtime.loadedSession = false;
+		runtime.reloading = false;
+		runtime.status = "starting";
+		runtime.tab.status = "starting";
+		try {
+			// 重连不给人等 60s：CLI 起不来就按原失败收口，用户还能手动重启。
+			await this.bootstrapRuntime(runtime, resumingSessionId, spawnFailure, RESPAWN_HANDSHAKE_TIMEOUT_MS);
+			return true;
+		} catch (error) {
+			this.deps.logger?.warn("acp", `[${tool.name}] respawn handshake failed: ${failureMessage(error)}`, { agentId: runtime.tab.id });
+			this.killProcess(runtime);
+			runtime.projection = previousProjection;
+			return false;
+		}
+	}
+
 	async sendPrompt(input: SendPromptInput): Promise<SendPromptResult> {
 		const runtime = this.requireRuntime(input.agentId);
 		const dispatch = resolvePromptDispatch(input, runtime);
@@ -569,11 +635,16 @@ export class AcpAgentManager implements SessionAgentGateway {
 		let settledStopReason: AcpStopReason = "end_turn";
 		// session/prompt 响应原文:空白回合时把它的非 stopReason 部分带进诊断。
 		let promptResult: AcpSessionPromptResult | undefined;
+		// 自动重试口径与计数：失败收口（catch / 空白回合守卫）要用，因此声明在 try 之外。
+		// 每次 sendPrompt 只读一次设置——同一回合的重试序列用同一口径，回合中途改设置只影响新回合。
+		const retrySettings = resolveAcpTurnRetrySettings(this.deps.readAcpTurnRetrySettings?.());
+		let retryAttempts = 0;
 		// 用户消息先落投影:ACP 规范不保证 agent 回显 user_message_chunk(OpenCode 等根本不发),
 		// 而 agents:message 是全量替换语义,主进程不落条目的话渲染层乐观气泡会被第一次 flush 抹掉。
 		const messagesBeforeSeed = runtime.projection.messages.length;
 		runtime.projection = appendAcpUserPrompt(runtime.projection, input.message, input.images, runtime.tab.id);
-		const seededIndex = runtime.projection.messages.length > messagesBeforeSeed ? messagesBeforeSeed : -1;
+		// 断线重连会重建投影并重落本回合条目，索引必须可重算。
+		let seededIndex = runtime.projection.messages.length > messagesBeforeSeed ? messagesBeforeSeed : -1;
 		this.updates.applyProjectionTitle(runtime);
 		runtime.turnActive = true;
 		runtime.cancelling = false;
@@ -606,28 +677,158 @@ export class AcpAgentManager implements SessionAgentGateway {
 			// 新回合生效）→ 代码内默认 10min。截止随进展顺延（onArm 拿到 refresh 句柄，
 			// 回合内每有 session/update 就 refresh）：口径是「无进展静默上限」，长但健康的
 			// 回合不会因为总时长到点被掐断。
-			// 本回合诊断清零:update 类型计数/非标准通知只统计这一回合。
-			runtime.turnUpdateKinds.clear();
-			runtime.turnForeignNotification = undefined;
 			const turnTimeoutMs = this.deps.promptTurnTimeoutMs ?? this.deps.readAcpTimeoutSettings?.().promptTurnTimeoutMs ?? PROMPT_TURN_TIMEOUT_MS;
-			// 回合计时基准：TTFT（首个正文 chunk）与总耗时（结算）都以派发时刻为起点，
-			// 不含本地 seed/物化耗时；上一回合的残留值在这里清掉。
-			runtime.turnStartedAt = Date.now();
-			runtime.turnFirstTextAt = undefined;
-			runtime.turnFirstThoughtAt = undefined;
-			const result = (await conn.request("session/prompt", { sessionId: runtime.acpSessionId, prompt }, turnTimeoutMs, (refresh) => {
-				runtime.turnDeadlineRefresh = refresh;
-			})) as AcpSessionPromptResult;
-			promptResult = result;
+			// 自动重试：协议层兜底，与具体 CLI 无关——本轮还没任何产出、错误像瞬时故障，
+			// 就重发同一个 session/prompt（判定/退避口径见 acpTurnRetry.ts）。
+			// 已有产出绝不重发：重复的 JSON-RPC 请求可能让 agent 重复执行工具/写文件。
+			for (;;) {
+				// 每次迭代都重读连接：断线重连后 runtime.conn 已换成新对象，捕获旧值等于往死连接发。
+				const attemptConn = runtime.conn;
+				if (!attemptConn || attemptConn.isClosed()) throw new Error("ACP connection closed before prompt dispatch");
+				// 本回合诊断清零:update 类型计数/非标准通知只统计这一回合。
+				// 重试同样清零：TTFT 与总耗时以本次派发为基准，不把退避等待算进去。
+				runtime.turnSawActivity = false;
+				runtime.turnUpdateKinds.clear();
+				runtime.turnForeignNotification = undefined;
+				// 回合计时基准：TTFT（首个正文 chunk）与总耗时（结算）都以派发时刻为起点，
+				// 不含本地 seed/物化耗时；上一回合的残留值在这里清掉。
+				runtime.turnStartedAt = Date.now();
+				runtime.turnFirstTextAt = undefined;
+				runtime.turnFirstThoughtAt = undefined;
+				// 重试的每次派发都重新布防：上一轮失败后 clearTurnTimers 已撤掉旧定时器。
+				if (retryAttempts > 0) this.turnWatchdog.armStallWatchdog(runtime);
+				try {
+					const result = (await attemptConn.request("session/prompt", { sessionId: runtime.acpSessionId, prompt }, turnTimeoutMs, (refresh) => {
+						runtime.turnDeadlineRefresh = refresh;
+					})) as AcpSessionPromptResult;
+					promptResult = result;
+					break;
+				} catch (error) {
+					// 每次判定都重新算产出：失败尝试可能仍在推 update（CLI 未及时收口）。
+					// 待审批的工具请求同样算「已经开动」：CLI 已经决定要执行某个工具（可能已在写文件），
+					// 此时重发会让它再跑一遍；而且用户还在面对审批弹窗，撤回气泡只会更混乱。
+					const hasOutput = hasTurnOutput(runtime.projection.messages, seededIndex) || runtime.permissions.hasPending();
+					const connectionDead = !runtime.conn || runtime.conn.isClosed();
+					// ① 连接死亡（进程退出/stdout 断）：这不是「重发」而是「重开进程再重发」，
+					// 只有本轮无产出、未取消、未强杀且在预算内才做；连接换了必然要重派同一个 prompt。
+					if (connectionDead && !hasOutput && !runtime.turnSawActivity && !runtime.cancelling && runtime.escalatedStop === null && retrySettings.enabled && retryAttempts < retrySettings.maxRetries) {
+						// 本回合落下的用户条目（含已物化的图片 ref）：重连会重建投影，靠它把这条原样搬回去。
+						const dispatchedUserMessage = seededIndex >= 0 ? runtime.projection.messages[seededIndex] : undefined;
+						retryAttempts += 1;
+						const delayMs = Math.min(retrySettings.baseDelayMs * 2 ** (retryAttempts - 1), retrySettings.maxDelayMs);
+						this.turnWatchdog.clearTurnTimers(runtime);
+						runtime.projection = upsertAcpRetryStatus(runtime.projection, {
+							agentId: runtime.tab.id,
+							status: "running",
+							attempt: retryAttempts,
+							maxAttempts: retrySettings.maxRetries,
+							delayMs,
+							errorMessage: `connection: ${failureMessage(error)}`,
+						});
+						this.updates.flushMessages(runtime, true);
+						this.emitRuntimeState(input.agentId);
+						this.deps.logger?.warn("acp", `[${runtime.tool.name}] reconnecting after connection loss`, {
+							agentId: runtime.tab.id,
+							attempt: retryAttempts,
+							maxAttempts: retrySettings.maxRetries,
+							delayMs,
+							error: failureMessage(error),
+						});
+						await this.awaitRetryDelay(runtime, delayMs);
+						// 退避期间被停止/替换：不再重连，按原错误走统一失败收口。
+						if (runtime.cancelling || this.runtimes.get(runtime.tab.id) !== runtime) throw error;
+						if (!(await this.respawnRuntime(runtime))) throw error;
+						// 重连已按握手重放重建了投影（旧卡随之丢弃）：把本回合的用户条目与重试卡补回去再重派。
+						const resumedTail = runtime.projection.messages.at(-1);
+						if (resumedTail?.role === "user" && resumedTail.text.trim() === input.message.trim()) {
+							// agent 重放里已回显过这条（少数 CLI 会 echo user_message_chunk）：不重复落条目。
+							seededIndex = runtime.projection.messages.length - 1;
+						} else if (dispatchedUserMessage) {
+							// 原样搬回（同一个 id + 已物化的图片 ref）：换 id 会让渲染层当成新消息重新起一条，
+							// 而重新 append 原始 base64 会把大图又带回内存/归档。
+							runtime.projection = { ...runtime.projection, messages: [...runtime.projection.messages, dispatchedUserMessage], lastTouched: [runtime.projection.messages.length] };
+							seededIndex = runtime.projection.messages.length - 1;
+						}
+						this.updates.applyProjectionTitle(runtime);
+						runtime.projection = upsertAcpRetryStatus(runtime.projection, {
+							agentId: runtime.tab.id,
+							status: "running",
+							attempt: retryAttempts,
+							maxAttempts: retrySettings.maxRetries,
+							delayMs: 0,
+							errorMessage: `connection: ${failureMessage(error)}`,
+						});
+						runtime.turnActive = true;
+						runtime.status = "running";
+						runtime.tab.status = "running";
+						this.updates.flushMessages(runtime, true);
+						this.emit(agentEventTags.agentsState, this.list());
+						this.emitRuntimeState(input.agentId);
+						continue;
+					}
+					const decision = decideAcpTurnRetry({
+						error,
+						settings: retrySettings,
+						attemptsMade: retryAttempts,
+						hasOutput,
+						cancelled: runtime.cancelling,
+						escalated: runtime.escalatedStop !== null,
+						connectionAlive: !connectionDead && this.runtimes.get(runtime.tab.id) === runtime,
+						authRequired: Boolean(authRequiredDescriptor(error, runtime.tool)),
+						timedOut: error instanceof AcpTimeoutError,
+					});
+					if (!decision.retry) throw error;
+					retryAttempts = decision.attempt;
+					this.turnWatchdog.clearTurnTimers(runtime);
+					// 同一张卡原地推进（与 pi/DSH 同形），保持 running：退避期间不显示空闲，停止按钮仍有效。
+					runtime.projection = upsertAcpRetryStatus(runtime.projection, {
+						agentId: runtime.tab.id,
+						status: "running",
+						attempt: decision.attempt,
+						maxAttempts: decision.maxAttempts,
+						delayMs: decision.delayMs,
+						errorMessage: `${decision.kind}: ${failureMessage(error)}`,
+					});
+					this.updates.flushMessages(runtime, true);
+					this.emitRuntimeState(input.agentId);
+					this.deps.logger?.warn("acp", `[${runtime.tool.name}] retrying turn after transient failure`, {
+						agentId: runtime.tab.id,
+						attempt: decision.attempt,
+						maxAttempts: decision.maxAttempts,
+						delayMs: decision.delayMs,
+						reason: decision.reason,
+						error: failureMessage(error),
+					});
+					await this.awaitRetryDelay(runtime, decision.delayMs);
+					// 退避期间可能被停止/替换/连接死亡：抛回原错误走统一失败收口（不再多试一次）。
+					if (this.runtimes.get(runtime.tab.id) !== runtime || !runtime.conn || runtime.conn.isClosed()) throw error;
+					if (runtime.cancelling) throw error;
+				}
+			}
 			this.turnWatchdog.clearTurnTimers(runtime);
 			// 结算前先排空 update 链:result 帧与末批 update 同为 stdout 行序分发,
 			// 但链上每步含异步物化,settle 提前会把在途流式块拆成新回合。
 			await runtime.updateChain;
-			settledStopReason = result?.stopReason ?? "end_turn";
+			settledStopReason = promptResult?.stopReason ?? "end_turn";
 			runtime.projection = settleAcpTurn(runtime.projection, settledStopReason);
+			// 重试成功：同一张卡原地改成功态（不新建，时间线只留一条推进记录）。
+			if (retryAttempts > 0) runtime.projection = upsertAcpRetryStatus(runtime.projection, { agentId: runtime.tab.id, status: "success", attempt: retryAttempts, maxAttempts: retrySettings.maxRetries, delayMs: 0 });
 		} catch (error) {
 			await runtime.updateChain;
 			this.turnWatchdog.clearTurnTimers(runtime);
+			const message = error instanceof Error ? error.message : String(error);
+			// 重试卡先收口再撤回用户条目：卡片本身要留下（用户得看到「重试 N 次仍失败」），
+			// rollbackAcpUserPrompt 已允许用户条目后面只挂重试卡并把卡保留。
+			if (retryAttempts > 0) {
+				runtime.projection = upsertAcpRetryStatus(runtime.projection, {
+					agentId: runtime.tab.id,
+					status: "error",
+					attempt: retryAttempts,
+					maxAttempts: retrySettings.maxRetries,
+					delayMs: 0,
+					errorMessage: message,
+				});
+			}
 			// 失败/中止回合不记账，计时基准也一并清掉，避免下一次成功结算算出跨回合的超长耗时。
 			runtime.turnStartedAt = undefined;
 			runtime.turnFirstTextAt = undefined;
@@ -664,7 +865,6 @@ export class AcpAgentManager implements SessionAgentGateway {
 			// 回合结算（失败收口）后落盘：此时投影已 settle，是稳定快照；一次回合最多写一次，
 			// 不进 80ms flush。失败路径也要写 —— 已产生的部分输出同样是用户可见历史。
 			await this.persistArchive(runtime);
-			const message = error instanceof Error ? error.message : String(error);
 			const hasOutput = hasTurnOutput(runtime.projection.messages, seededIndex);
 			// 升级强杀（abort 宽限超时/二次停止/stall）：用户消息已留在时间线（cancelling 不回滚），
 			// delivery=unknown（CLI 是否已处理不可知，不回填草稿避免重发重复），文案本地化并带原因。
@@ -697,6 +897,11 @@ export class AcpAgentManager implements SessionAgentGateway {
 		// 用户主动停止(cancelling 且来源 user_stop,CLI 回 cancelled)不在此列:语义同 pi 后端
 		// abort,正常收口;看门狗 stall 代发的 cancel 不豁免——那就是本守卫要抓的异常形态。
 		if (!hasOutput && runtime.cancelReason !== "user_stop") {
+			// 重试过但仍是空白回合：卡片按失败收口（报 retrySucceeded 会与「什么都没产出」矛盾），
+			// 且必须在 rollback 之前落，rollback 只在尾巴上挂着重试卡时才保留它。
+			if (retryAttempts > 0) {
+				runtime.projection = upsertAcpRetryStatus(runtime.projection, { agentId: runtime.tab.id, status: "error", attempt: retryAttempts, maxAttempts: retrySettings.maxRetries, delayMs: 0, errorMessage: "completed the turn without any output" });
+			}
 			runtime.projection = rollbackAcpUserPrompt(runtime.projection, seededIndex);
 			this.updates.flushMessages(runtime, true);
 			const error = `ACP agent ${runtime.tool.name} completed the turn without any output`;
@@ -725,6 +930,24 @@ export class AcpAgentManager implements SessionAgentGateway {
 		// 用户主动停止不算完成，与 pi 的 agent_settled 语义一致。
 		if (runtime.cancelReason !== "user_stop") this.notifyAgentSettled(input.agentId, runtime.tab.title);
 		return { accepted: true };
+	}
+
+	/**
+	 * 重试退避等待：必须可被打断 —— 否则 2s/4s（最长 30s）的等待期间点「停止」毫无反应。
+	 *
+	 * 用 150ms 轮询而不是新增 runtime 字段 + 唤醒回调：等待只发生在失败后的退避里，
+	 * 轮询代价可以忽略；而唤醒方案要求 abort/stop/连接死亡/会话重建四条路径各自记得唤醒，
+	 * 漏一条就是「停止 2 秒后才生效」的 bug。轮询只看状态快照，天然不会漏。
+	 */
+	private async awaitRetryDelay(runtime: AcpAgentRuntime, delayMs: number): Promise<void> {
+		const deadline = Date.now() + Math.max(0, delayMs);
+		while (Date.now() < deadline) {
+			if (runtime.cancelling || runtime.status === "closed" || this.runtimes.get(runtime.tab.id) !== runtime) return;
+			await new Promise<void>((resolve) => {
+				const timer = setTimeout(resolve, Math.min(150, Math.max(0, deadline - Date.now())));
+				timer.unref?.();
+			});
+		}
 	}
 
 	async abort(agentId: string): Promise<void> {

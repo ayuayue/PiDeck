@@ -102,3 +102,39 @@ test("settings.json 不存在：建出带默认项的文件", async () => {
 		cleanup();
 	}
 });
+
+test("retry 按嵌套项补:已存在的 retry 对象只补缺失子键，保留用户值(provider 层重试默认关闭 = 断开即停)", () => {
+	// 用户机器的真实形态：只有 agent 层两项，没有 enabled / maxAgentDelayMs / provider
+	// 沙箱里造的对象原型与本地不同，deepStrictEqual 会因 realm 判定失败：统一摊平后比 JSON
+	const stable = (value) => JSON.stringify(Object.fromEntries(Object.entries(value ?? {}).sort()));
+	const patch = missingPiSettingsDefaults({ retry: { maxRetries: 50, baseDelayMs: 5_000 } });
+	assert.equal(stable(patch.retry), stable({ enabled: true, maxAgentDelayMs: 60_000, provider: { maxRetries: 4 } }), "只补缺失子键，不覆盖 maxRetries:50");
+	// 已有 provider 层但缺 maxRetries：只补这一层，provider 里的其它键原样保留
+	const partial = missingPiSettingsDefaults({ retry: { enabled: false, provider: { maxRetryDelayMs: 120_000 } } });
+	assert.equal(stable(partial.retry.provider), stable({ maxRetries: 4 }));
+	assert.equal(partial.retry.enabled, undefined, "用户显式关掉重试时不改写");
+	// 齐全后不再判定为缺失（否则每次启动都写一次盘）
+	assert.equal(missingPiSettingsDefaults({ ...PI_SETTINGS_DEFAULTS, lastChangelogVersion: "1.0.0" }, "1.0.0"), null);
+});
+
+test("retry 嵌套补丁落盘时深合并:用户的 maxRetries:50 与 provider 层的其它键都不被整键覆盖", async () => {
+	const { dir, cleanup } = tempDir();
+	try {
+		const filePath = join(dir, "settings.json");
+		writeFileSync(
+			filePath,
+			JSON.stringify({ retry: { maxRetries: 50, baseDelayMs: 5_000, provider: { maxRetryDelayMs: 120_000 }, extra: "keep-me" } }),
+			"utf8",
+		);
+		await ensurePiSettingsDefaults(dir);
+		const data = JSON.parse(readFileSync(filePath, "utf8"));
+		assert.equal(data.retry.maxRetries, 50, "用户值保留");
+		assert.equal(data.retry.baseDelayMs, 5_000);
+		assert.equal(data.retry.extra, "keep-me", "不认识的子键也不丢");
+		assert.equal(data.retry.enabled, true, "缺的补上");
+		assert.equal(data.retry.provider.maxRetryDelayMs, 120_000, "provider 层深合并");
+		assert.equal(data.retry.provider.maxRetries, 4);
+	} finally {
+		cleanup();
+	}
+});

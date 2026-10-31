@@ -980,6 +980,15 @@ export type AppSettings = {
 	 * （AcpAgentManager.PROMPT_TURN_TIMEOUT_MS，15 分钟）。变更后新回合生效，不需要重启。
 	 */
 	acpPromptTurnTimeoutMs?: number;
+	/**
+	 * ACP 回合失败自动重试：关掉后失败直接收口（行为回退到未引入自动重试的版本）。
+	 * 缺省 undefined = 代码内默认 true（与 pi 的 retry.enabled、DSH 的内置重试对齐）。
+	 */
+	acpTurnRetryEnabled?: boolean;
+	/** 自动重试次数上限（每回合）。缺省 undefined = 代码内默认 2；0 等同只试一次。 */
+	acpTurnRetryMaxRetries?: number;
+	/** 自动重试的指数退避基数（ms）。缺省 undefined = 代码内默认 2000（2s、4s…，封顶 30s）。 */
+	acpTurnRetryBaseDelayMs?: number;
 };
 
 /**

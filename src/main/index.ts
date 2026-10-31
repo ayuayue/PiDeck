@@ -7014,6 +7014,12 @@ app
 				const settings = settingsStore.get();
 				return { promptStallTimeoutMs: settings.acpPromptStallTimeoutMs, promptTurnTimeoutMs: settings.acpPromptTurnTimeoutMs };
 			},
+			// ACP 回合失败自动重试口径：与超时同源实时读，变更后新回合生效。
+			// 未设置时各项为 undefined，由 acpTurnRetry.resolveAcpTurnRetrySettings 落回代码内默认。
+			readAcpTurnRetrySettings: () => {
+				const settings = settingsStore.get();
+				return { enabled: settings.acpTurnRetryEnabled, maxRetries: settings.acpTurnRetryMaxRetries, baseDelayMs: settings.acpTurnRetryBaseDelayMs };
+			},
 			// Ask 通知：与 pi 共用同一份门控/toast；完成通知由 composite.onAgentSettled 统一补。
 			notify: { askPending: (input) => notifyAgentAskPending(agentToastDeps(), input) },
 			// configOptions 变更推送：set_config_option 响应/config_option_update 通知都走同一事件,

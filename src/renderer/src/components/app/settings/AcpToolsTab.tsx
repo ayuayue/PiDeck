@@ -16,6 +16,16 @@ import { Checkbox } from "../../ui-shadcn/checkbox";
 import { Input } from "../../ui-shadcn/input";
 import { Textarea } from "../../ui-shadcn/textarea";
 import { ACP_STALL_TIMEOUT_DEFAULT_MS, ACP_STALL_TIMEOUT_SECONDS, ACP_TURN_TIMEOUT_DEFAULT_MS, ACP_TURN_TIMEOUT_MINUTES, acpStallTimeoutPatch, acpStallTimeoutText, acpTurnTimeoutPatch, acpTurnTimeoutText } from "./acpTimeoutInput";
+import {
+	ACP_RETRY_BASE_DELAY_SECONDS,
+	ACP_RETRY_DEFAULT_BASE_DELAY_MS,
+	ACP_RETRY_DEFAULT_MAX_RETRIES,
+	ACP_RETRY_MAX_RETRIES_RANGE,
+	acpRetryBaseDelayPatch,
+	acpRetryBaseDelayText,
+	acpRetryMaxRetriesPatch,
+	acpRetryMaxRetriesText,
+} from "./acpRetryInput";
 import { cn } from "../../../lib/utils";
 
 /** 草稿行 = IPC 输入形态:id 空表示新增行,保存时由主进程分配并返回;draftKey 是纯渲染用本地标识(React key/折叠态跟踪),不入盘。 */
@@ -308,6 +318,7 @@ export const AcpToolsTab = forwardRef<AcpToolsTabHandle, { onDirtyChange?: (dirt
 						{t("acp.toolAdd")}
 					</Button>
 					<AcpTimeoutSettings />
+					<AcpRetrySettings />
 				</>
 			)}
 			{error ? <p className="text-destructive text-xs">{error}</p> : null}
@@ -451,6 +462,170 @@ function AcpTimeoutSettings() {
 							value={stallDraft}
 							onChange={(event) => setStallDraft(event.target.value)}
 							onBlur={() => void commitStall(stallDraft)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter") event.currentTarget.blur();
+							}}
+						/>
+						<span className="text-micro text-muted-foreground">{t("acp.timeoutUnitSeconds")}</span>
+					</span>
+				</label>
+			</div>
+			{error ? <p className="text-destructive text-xs">{error}</p> : null}
+		</section>
+	);
+}
+
+/**
+ * 失败自动重试：ACP 回合因瞬时故障（网络抖动 / 网关 5xx / CLI 侧流断开）失败时，
+ * 自动重发同一个 session/prompt —— 只在「本回合还没有任何输出」时重试，已有输出绝不重发。
+ *
+ * 与超时保护同一套写盘语义（即时写盘、下一回合生效）。关闭 = 回到引入自动重试前的行为：
+ * 失败立刻报错 + 回填草稿。pi 与 DSH 后端各有内置重试，这一项只管 ACP。
+ */
+function AcpRetrySettings() {
+	const [enabled, setEnabled] = useState<boolean | undefined>(undefined);
+	const [maxRetriesDraft, setMaxRetriesDraft] = useState<string>("");
+	// 已落盘的生效值：非法输入/写盘失败都回退到它，避免输入框停在用户以为生效的错值上。
+	const [maxRetriesSaved, setMaxRetriesSaved] = useState<number>(ACP_RETRY_DEFAULT_MAX_RETRIES);
+	const [baseDelayDraft, setBaseDelayDraft] = useState<string>("");
+	const [baseDelaySaved, setBaseDelaySaved] = useState<number>(ACP_RETRY_DEFAULT_BASE_DELAY_MS);
+	const [error, setError] = useState<string | undefined>();
+
+	useEffect(() => {
+		let cancelled = false;
+		void desktopApi.settings
+			.get()
+			.then((settings) => {
+				if (cancelled) return;
+				// 缺省键 = 未自定义，输入框显示生效中的代码默认值；用户不改不会写盘。
+				setEnabled(settings.acpTurnRetryEnabled ?? true);
+				setMaxRetriesSaved(settings.acpTurnRetryMaxRetries ?? ACP_RETRY_DEFAULT_MAX_RETRIES);
+				setBaseDelaySaved(settings.acpTurnRetryBaseDelayMs ?? ACP_RETRY_DEFAULT_BASE_DELAY_MS);
+				setMaxRetriesDraft(acpRetryMaxRetriesText(settings.acpTurnRetryMaxRetries));
+				setBaseDelayDraft(acpRetryBaseDelayText(settings.acpTurnRetryBaseDelayMs));
+			})
+			.catch(() => {
+				if (cancelled) return;
+				setMaxRetriesDraft(acpRetryMaxRetriesText(undefined));
+				setBaseDelayDraft(acpRetryBaseDelayText(undefined));
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	const commitMaxRetries = useCallback(
+		async (raw: string) => {
+			const patch = acpRetryMaxRetriesPatch(raw);
+			if (!patch) {
+				setMaxRetriesDraft(acpRetryMaxRetriesText(maxRetriesSaved));
+				setError(t("acp.timeoutInvalid", { min: ACP_RETRY_MAX_RETRIES_RANGE.min, max: ACP_RETRY_MAX_RETRIES_RANGE.max }));
+				return;
+			}
+			if (patch.acpTurnRetryMaxRetries === maxRetriesSaved) {
+				setMaxRetriesDraft(acpRetryMaxRetriesText(maxRetriesSaved));
+				setError(undefined);
+				return;
+			}
+			try {
+				await desktopApi.settings.update(patch);
+				setMaxRetriesSaved(patch.acpTurnRetryMaxRetries ?? ACP_RETRY_DEFAULT_MAX_RETRIES);
+				setMaxRetriesDraft(acpRetryMaxRetriesText(patch.acpTurnRetryMaxRetries));
+				setError(undefined);
+			} catch (cause) {
+				setMaxRetriesDraft(acpRetryMaxRetriesText(maxRetriesSaved));
+				setError(t("acp.timeoutSaveFailed", { message: cause instanceof Error ? cause.message : String(cause) }));
+			}
+		},
+		[maxRetriesSaved],
+	);
+
+	const commitBaseDelay = useCallback(
+		async (raw: string) => {
+			const patch = acpRetryBaseDelayPatch(raw);
+			if (!patch) {
+				setBaseDelayDraft(acpRetryBaseDelayText(baseDelaySaved));
+				setError(t("acp.timeoutInvalid", { min: ACP_RETRY_BASE_DELAY_SECONDS.min, max: ACP_RETRY_BASE_DELAY_SECONDS.max }));
+				return;
+			}
+			if (patch.acpTurnRetryBaseDelayMs === baseDelaySaved) {
+				setBaseDelayDraft(acpRetryBaseDelayText(baseDelaySaved));
+				setError(undefined);
+				return;
+			}
+			try {
+				await desktopApi.settings.update(patch);
+				setBaseDelaySaved(patch.acpTurnRetryBaseDelayMs ?? ACP_RETRY_DEFAULT_BASE_DELAY_MS);
+				setBaseDelayDraft(acpRetryBaseDelayText(patch.acpTurnRetryBaseDelayMs));
+				setError(undefined);
+			} catch (cause) {
+				setBaseDelayDraft(acpRetryBaseDelayText(baseDelaySaved));
+				setError(t("acp.timeoutSaveFailed", { message: cause instanceof Error ? cause.message : String(cause) }));
+			}
+		},
+		[baseDelaySaved],
+	);
+
+	const toggle = useCallback(async (next: boolean) => {
+		const previous = enabled;
+		setEnabled(next);
+		try {
+			await desktopApi.settings.update({ acpTurnRetryEnabled: next });
+			setError(undefined);
+		} catch (cause) {
+			setEnabled(previous);
+			setError(t("acp.timeoutSaveFailed", { message: cause instanceof Error ? cause.message : String(cause) }));
+		}
+	}, [enabled]);
+
+	return (
+		<section className="flex flex-col gap-2">
+			<SectionHeading title={t("acp.retryTitle")} description={t("acp.retryDescription")} />
+			<div className="flex flex-col gap-3">
+				<div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+					<span className="flex min-w-0 flex-col gap-0.5">
+						<span className="text-control font-medium text-foreground">{t("acp.retryEnabledLabel")}</span>
+						<span className="text-caption leading-relaxed text-muted-foreground">{t("acp.retryEnabledDescription")}</span>
+					</span>
+					<Switch checked={enabled === true} disabled={enabled === undefined} onCheckedChange={(checked) => void toggle(checked)} aria-label={t("acp.retryEnabledLabel")} />
+				</div>
+				<label className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+					<span className="flex min-w-0 flex-col gap-0.5">
+						<span className="text-control font-medium text-foreground">{t("acp.retryMaxRetriesLabel")}</span>
+						<span className="text-caption leading-relaxed text-muted-foreground">{t("acp.retryMaxRetriesDescription")}</span>
+					</span>
+					<span className="flex items-center gap-1.5">
+						<Input
+							type="number"
+							inputMode="numeric"
+							min={ACP_RETRY_MAX_RETRIES_RANGE.min}
+							max={ACP_RETRY_MAX_RETRIES_RANGE.max}
+							className="w-20 text-right"
+							value={maxRetriesDraft}
+							onChange={(event) => setMaxRetriesDraft(event.target.value)}
+							onBlur={() => void commitMaxRetries(maxRetriesDraft)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter") event.currentTarget.blur();
+							}}
+						/>
+						<span className="text-micro text-muted-foreground">{t("acp.retryUnitTimes")}</span>
+					</span>
+				</label>
+				<label className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+					<span className="flex min-w-0 flex-col gap-0.5">
+						<span className="text-control font-medium text-foreground">{t("acp.retryBaseDelayLabel")}</span>
+						<span className="text-caption leading-relaxed text-muted-foreground">{t("acp.retryBaseDelayDescription")}</span>
+					</span>
+					<span className="flex items-center gap-1.5">
+						<Input
+							type="number"
+							inputMode="numeric"
+							min={ACP_RETRY_BASE_DELAY_SECONDS.min}
+							max={ACP_RETRY_BASE_DELAY_SECONDS.max}
+							className="w-20 text-right"
+							value={baseDelayDraft}
+							onChange={(event) => setBaseDelayDraft(event.target.value)}
+							onBlur={() => void commitBaseDelay(baseDelayDraft)}
 							onKeyDown={(event) => {
 								if (event.key === "Enter") event.currentTarget.blur();
 							}}

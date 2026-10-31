@@ -64,6 +64,8 @@ export type AcpProjectionState = {
 	replayed: boolean;
 	/** 已落地的多文件隐藏 diff 消息 id（toolCallId + path）：重复 tool_call_update 不得重复追加。 */
 	hiddenDiffIds?: Set<string>;
+	/** 当前回合自动重试状态卡的 message id：一张卡原地推进（running → success/error），不堆叠。 */
+	retryStatusMessageId?: string;
 };
 
 export function initialAcpProjection(): AcpProjectionState {
@@ -394,14 +396,86 @@ export function acpPromptBlocks(text: string, images?: ReadonlyArray<{ type: str
 	return blocks;
 }
 
+export function isAcpRetryStatusMessage(message: ChatMessage | undefined): boolean {
+	return message?.role === "system" && typeof message.meta?.i18nKey === "string" && String(message.meta.i18nKey).startsWith("diagnostic.retry");
+}
+
 export function rollbackAcpUserPrompt(state: AcpProjectionState, index: number): AcpProjectionState {
-	// 撤回条件：本次 prompt 落的条目仍是最后一条，且 agent 没有在回显中途
+	// 撤回条件：本次 prompt 落的条目之后没有 agent 产出，且 agent 没有在回显中途
 	// （有回显进度说明它已经收到 prompt，撤掉本地条目会与 agent 侧会话不一致）。
-	if (index < 0 || state.messages.length !== index + 1) return state;
+	// 唯一允许跟在后面的尾巴是自动重试状态卡：它是本地诊断条目，不是 agent 产出；
+	// 撤回时**保留**它（否则用户看不到「重试 2 次仍失败」，而卡片本身也会挡住撤回条件）。
+	if (index < 0 || index >= state.messages.length) return state;
 	if (state.messages[index]?.role !== "user") return state;
+	const tail = state.messages.slice(index + 1);
+	if (tail.some((message) => !isAcpRetryStatusMessage(message))) return state;
 	const echoes = state.localUserEchoes ?? [];
 	if (echoes.some((entry) => entry.echoed > 0)) return state;
-	return { ...state, messages: state.messages.slice(0, index), localUserEchoes: echoes.slice(0, -1), lastTouched: undefined };
+	return { ...state, messages: [...state.messages.slice(0, index), ...tail], localUserEchoes: echoes.slice(0, -1), lastTouched: undefined };
+}
+
+/**
+ * 自动重试状态卡（role=system）。
+ *
+ * meta/i18nKey/文案与 pi 的 `upsertRetryStatusMessage`、DSH 的 `llm/retry` 投影**完全同形**：
+ * 渲染层的时间线分组、倒计时（useRetryCountdown 读 `timestamp + meta.delayMs`）、
+ * retryProgress 与 turn 折叠都只认这套键，换一套形状等于在三种后端各写一遍 UI。
+ *
+ * 同一回合只维护一张卡：`state.retryStatusMessageId` 指向它，running 时原地推进，
+ * 收敛（success/error）后不再被后续事件改写（else 分支才新建）。
+ */
+export function upsertAcpRetryStatus(
+	state: AcpProjectionState,
+	input: { agentId: string; status: "running" | "success" | "error"; attempt: number; maxAttempts: number; delayMs?: number; errorMessage?: string },
+): AcpProjectionState {
+	const delayMs = Math.max(0, Math.floor(input.delayMs ?? 0));
+	const attempt = Math.max(1, Math.floor(input.attempt));
+	const maxAttempts = Math.max(0, Math.floor(input.maxAttempts));
+	const reason = input.errorMessage ?? "";
+	const delaySeconds = Math.ceil(delayMs / 1000);
+	const countText = maxAttempts > 0 ? `${attempt}/${maxAttempts}` : String(attempt);
+	const delayText = delayMs > 0 ? `，${delaySeconds} 秒后重试` : "";
+	let i18nKey: string;
+	let text: string;
+	if (input.status === "running") {
+		i18nKey = delayMs > 0 ? "diagnostic.retryScheduledAfterDelay" : "diagnostic.retryScheduled";
+		text = `正在自动重试 ${countText}${delayText}`;
+	} else if (input.status === "success") {
+		i18nKey = "diagnostic.retrySucceeded";
+		text = `自动重试成功，共重试 ${attempt} 次`;
+	} else {
+		i18nKey = "diagnostic.retryFailed";
+		text = `自动重试失败，已重试 ${countText} 次`;
+	}
+	const meta = {
+		status: input.status,
+		attempt,
+		maxAttempts,
+		delayMs,
+		errorMessage: reason,
+		i18nKey,
+		i18nParams: { attempt, count: countText, delaySeconds },
+		...(reason && input.status !== "success" ? { debugDetails: reason } : {}),
+	};
+
+	const messageId = state.retryStatusMessageId;
+	const message = {
+		id: messageId ?? nextMessageId(),
+		agentId: input.agentId,
+		role: "system" as const,
+		text,
+		timestamp: Date.now(),
+		meta,
+	};
+	if (messageId) {
+		const existingIndex = state.messages.findIndex((candidate) => candidate.id === messageId);
+		if (existingIndex >= 0) {
+			const messages = [...state.messages];
+			messages[existingIndex] = message;
+			return { ...state, messages, retryStatusMessageId: messageId };
+		}
+	}
+	return { ...state, messages: [...state.messages, message], retryStatusMessageId: message.id, lastTouched: [state.messages.length], replayed: true };
 }
 
 /**
@@ -445,6 +519,8 @@ export function appendAcpUserPrompt(state: AcpProjectionState, text: string, ima
 		lastUserChunkIndex: undefined,
 		// 新回合开始：上一轮的流式指针作废，避免新回合 chunk 并回上一条 assistant 消息。
 		activeAssistantIndex: undefined,
+		// 上一回合的重试卡已收敛，本回合重试另起一张（不得原地改写历史回合的卡）。
+		retryStatusMessageId: undefined,
 		...(title ? { title } : {}),
 		lastTouched: [state.messages.length],
 		replayed: true,

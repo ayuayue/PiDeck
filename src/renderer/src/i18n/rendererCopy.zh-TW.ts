@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 835b62dadc3d11e4f0378747844c7d92716e32f9b8d69c752831c2bf7cb0dd69（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 445de461ec6d92071f7913a0e398b93fe82b1f4c9e76caa1cb88fffee6fc6fe8（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -306,6 +306,15 @@ export const zhTW: Record<TranslationKey, string> = {
 	"acp.timeoutUnitSeconds": "秒",
 	"acp.timeoutInvalid": "請輸入 {min}–{max} 之間的整數",
 	"acp.timeoutSaveFailed": "儲存失敗：{message}",
+	"acp.retryTitle": "失敗自動重試",
+	"acp.retryDescription": "ACP 回合因網路抖動、閘道器報錯或 CLI 側流斷開而失敗時，自動重發同一個請求。只在「本回合還沒有任何輸出」時重試——已經有內容就不重發，避免 agent 重複執行工具。pi 與 DSH 後端各有內建重試，這裡是 ACP 的協議層兜底。",
+	"acp.retryEnabledLabel": "自動重試",
+	"acp.retryEnabledDescription": "關閉後回合失敗直接報錯（與加入自動重試之前一致）。",
+	"acp.retryMaxRetriesLabel": "重試次數",
+	"acp.retryMaxRetriesDescription": "每個回合最多自動重試幾次。0 表示不重試；次數越多，連續失敗時等待越久。",
+	"acp.retryBaseDelayLabel": "退避基數",
+	"acp.retryBaseDelayDescription": "第 1 次重試等待的秒數，之後每次翻倍（封頂 30 秒）。",
+	"acp.retryUnitTimes": "次",
 	"acp.statusInstalled": "已安裝 v{version}",
 	"acp.statusMissing": "未安裝",
 	"acp.statusNpxReady": "npx 按需",

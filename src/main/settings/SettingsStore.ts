@@ -505,6 +505,16 @@ function sanitizeOptionalPositiveIntMs(value: unknown): number | undefined {
 	return n > 0 && n <= 86_400_000 ? n : undefined;
 }
 
+/**
+ * ACP 自动重试次数清洗：0 在这里是有意义的值（= 只试一次），因此不能复用
+ * sanitizeOptionalPositiveIntMs；上限 10（与 acpTurnRetry.ACP_TURN_RETRY_LIMITS 同口径）。
+ */
+function sanitizeOptionalRetryCount(value: unknown): number | undefined {
+	if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+	const n = Math.floor(value);
+	return n >= 0 && n <= 10 ? n : undefined;
+}
+
 export class SettingsStore {
 	private readonly filePath = desktopSettingsPath();
 	private settings: AppSettings = { ...defaultSettings };
@@ -630,6 +640,10 @@ export class SettingsStore {
 			// ACP 超时口径：正整数毫秒；脏值丢弃回落代码内默认（stall 90s / turn 10min）。
 			this.settings.acpPromptStallTimeoutMs = sanitizeOptionalPositiveIntMs(parsed.acpPromptStallTimeoutMs);
 			this.settings.acpPromptTurnTimeoutMs = sanitizeOptionalPositiveIntMs(parsed.acpPromptTurnTimeoutMs);
+			// ACP 自动重试：开关只认真布尔（缺省 undefined = 默认开启），次数/退避为整数，脏值丢弃回落默认。
+			this.settings.acpTurnRetryEnabled = typeof parsed.acpTurnRetryEnabled === "boolean" ? parsed.acpTurnRetryEnabled : undefined;
+			this.settings.acpTurnRetryMaxRetries = sanitizeOptionalRetryCount(parsed.acpTurnRetryMaxRetries);
+			this.settings.acpTurnRetryBaseDelayMs = sanitizeOptionalPositiveIntMs(parsed.acpTurnRetryBaseDelayMs);
 			// 字号档位：旧版本有 5 档（多一个已删除的 "default"），现在是 4 档（紧凑/中/大/特大）。
 			// 刻意不做迁移框架——任何不在档位表里的历史值一律落到「中」，旧用户升级后自动等于中；
 			// 同时避免 UI 下拉读到未知值时变成空白。null（跟随全局）必须保持 null。
@@ -940,6 +954,20 @@ export class SettingsStore {
 			const turnMs = sanitizeOptionalPositiveIntMs(safePatch.acpPromptTurnTimeoutMs);
 			if (turnMs === undefined) delete safePatch.acpPromptTurnTimeoutMs;
 			else safePatch.acpPromptTurnTimeoutMs = turnMs;
+		}
+		// ACP 自动重试：开关只收布尔；次数与退避是正整数毫秒，脏值删键（保留既有合法值/回落默认）。
+		if ("acpTurnRetryEnabled" in safePatch && typeof safePatch.acpTurnRetryEnabled !== "boolean") {
+			delete safePatch.acpTurnRetryEnabled;
+		}
+		if ("acpTurnRetryMaxRetries" in safePatch) {
+			const retries = sanitizeOptionalRetryCount(safePatch.acpTurnRetryMaxRetries);
+			if (retries === undefined) delete safePatch.acpTurnRetryMaxRetries;
+			else safePatch.acpTurnRetryMaxRetries = retries;
+		}
+		if ("acpTurnRetryBaseDelayMs" in safePatch) {
+			const baseDelayMs = sanitizeOptionalPositiveIntMs(safePatch.acpTurnRetryBaseDelayMs);
+			if (baseDelayMs === undefined) delete safePatch.acpTurnRetryBaseDelayMs;
+			else safePatch.acpTurnRetryBaseDelayMs = baseDelayMs;
 		}
 		// 更新源 id 归一化（只允许已知枚举：atomgit 第一首选，github 官方；其余历史值回退 atomgit）。
 		if ("updateSource" in safePatch) {

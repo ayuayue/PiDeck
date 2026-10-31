@@ -2081,3 +2081,250 @@ test("用量:session/prompt 的 usage 与本地计时进 runtime 状态（ACP �
 	assert.ok(state.tps > 0, "有 output tokens 与解码窗口即算 TPS");
 	assert.ok(state.sessionTps > 0, "会话平均 TPS 同步累计");
 });
+
+test("自动重试:本回合无产出 + 瞬时故障 → 重发同一 prompt,重试卡收敛为成功", async (t) => {
+	let attempts = 0;
+	const { manager, events, createAgent, lastProc } = harness(
+		t,
+		{
+			handler: (frame, { writeFromCli }) => {
+				if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: {} };
+				if (frame.method === "session/new") return { sessionId: "sess-retry" };
+				if (frame.method === "session/prompt") {
+					attempts += 1;
+					// 首次失败：网关/undici 断连在 pi 的白名单里认不出，ACP 里则是这一层兜住的
+					if (attempts === 1) return { __error: true, code: -32603, message: "upstream request failed: read ECONNRESET" };
+					writeFromCli({
+						jsonrpc: "2.0",
+						method: "session/update",
+						params: { sessionId: "sess-retry", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "ok" } } },
+					});
+					return { stopReason: "end_turn" };
+				}
+				return {};
+			},
+		},
+		// 退避基数取下限 200ms（生产默认 2s）：用例仍走真实 awaitRetryDelay 路径，只是等得短
+		{ readAcpTurnRetrySettings: () => ({ baseDelayMs: 200, maxRetries: 2 }) },
+	);
+	const tab = await createAgent();
+	const result = await manager.sendPrompt({ agentId: tab.id, message: "hi" });
+	assert.equal(result.accepted, true, "瞬时故障后应自动重试成功");
+	assert.equal(attempts, 2, "第一次失败后应重发一次");
+	const prompts = lastProc().methodFrames("session/prompt");
+	assert.equal(prompts.length, 2);
+	assert.deepEqual(prompts[1].params.prompt, prompts[0].params.prompt, "重发必须是同一个 prompt");
+	await waitFor(() => (events.messages.at(-1)?.messages ?? []).some((message) => message.meta?.i18nKey === "diagnostic.retrySucceeded"), "retry card settled");
+	const messages = events.messages.at(-1).messages;
+	assert.equal(messages.filter((message) => message.role === "user").length, 1, "重发不得重复落用户气泡");
+	const retryCards = messages.filter((message) => String(message.meta?.i18nKey ?? "").startsWith("diagnostic.retry"));
+	assert.equal(retryCards.length, 1, "同一回合只保留一张重试卡（原地推进）");
+	assert.equal(retryCards[0].meta.status, "success");
+	assert.equal(retryCards[0].meta.attempt, 1);
+	assert.equal(messages.filter((message) => message.role === "assistant").length, 1, "只留成功那次尝试的回复");
+});
+
+test("自动重试:本回合已产出内容时失败不重发(避免 agent 重复执行工具)", async (t) => {
+	let attempts = 0;
+	const { manager, createAgent } = harness(t, {
+		handler: (frame, { writeFromCli }) => {
+			if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: {} };
+			if (frame.method === "session/new") return { sessionId: "sess-output" };
+			if (frame.method === "session/prompt") {
+				attempts += 1;
+				writeFromCli({
+					jsonrpc: "2.0",
+					method: "session/update",
+					params: { sessionId: "sess-output", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "partial" } } },
+				});
+				return { __error: true, code: -32603, message: "read ECONNRESET" };
+			}
+			return {};
+		},
+	});
+	const tab = await createAgent();
+	const result = await manager.sendPrompt({ agentId: tab.id, message: "hi" });
+	assert.equal(result.accepted, false);
+	assert.equal(result.delivery, "unknown", "已有产出：是否被处理不可知，不回填草稿");
+	assert.equal(attempts, 1, "有产出就不允许重发");
+});
+
+test("自动重试:鉴权失败是硬终局,不浪费重试", async (t) => {
+	let attempts = 0;
+	const { manager, createAgent } = harness(t, {
+		handler: (frame) => {
+			if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: {} };
+			if (frame.method === "session/new") return { sessionId: "sess-auth" };
+			if (frame.method === "session/prompt") {
+				attempts += 1;
+				return { __error: true, code: -32603, message: "401 Unauthorized: invalid api key" };
+			}
+			return {};
+		},
+	});
+	const tab = await createAgent();
+	const result = await manager.sendPrompt({ agentId: tab.id, message: "hi" });
+	assert.equal(result.accepted, false);
+	assert.equal(attempts, 1);
+});
+
+test("自动重试:已发出审批请求的工具回合算「已开动」，失败不重发", async (t) => {
+	const { manager, events, createAgent, lastProc } = harness(t, {
+		handler: (frame) => {
+			if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: {} };
+			if (frame.method === "session/new") return { sessionId: "sess-perm-retry" };
+			if (frame.method === "session/prompt") return undefined; // 挂起：审批中途失败
+			return {};
+		},
+	});
+	const tab = await createAgent();
+	const sending = manager.sendPrompt({ agentId: tab.id, message: "run the tool" });
+	await waitFor(() => lastProc().methodFrames("session/prompt").length === 1, "prompt dispatched");
+	lastProc().writeFromCli({
+		jsonrpc: "2.0",
+		id: "approval-retry",
+		method: "session/request_permission",
+		params: { sessionId: "sess-perm-retry", toolCall: { toolCallId: "call" }, options: [{ optionId: "once", name: "Allow", kind: "allow_once" }] },
+	});
+	await waitFor(() => events.uiRequests.some((event) => event.method === "select"), "permission surfaced");
+	const promptFrame = lastProc().methodFrames("session/prompt")[0];
+	lastProc().writeFromCli({ jsonrpc: "2.0", id: promptFrame.id, error: { code: -32603, message: "read ECONNRESET" } });
+	const result = await sending;
+	assert.equal(result.accepted, false);
+	assert.equal(lastProc().methodFrames("session/prompt").length, 1, "CLI 已在等审批（可能已在执行工具），重发会重复执行");
+});
+
+test("自动重试:重试用尽后卡片收口为失败态，用户气泡撤回但卡片保留", async (t) => {
+	let attempts = 0;
+	const { manager, events, createAgent, lastProc } = harness(
+		t,
+		{
+			handler: (frame) => {
+				if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: {} };
+				if (frame.method === "session/new") return { sessionId: "sess-exhausted" };
+				if (frame.method === "session/prompt") {
+					attempts += 1;
+					return { __error: true, code: -32603, message: "read ECONNRESET" };
+				}
+				return {};
+			},
+		},
+		{ readAcpTurnRetrySettings: () => ({ maxRetries: 1, baseDelayMs: 200 }) },
+	);
+	const tab = await createAgent();
+	const result = await manager.sendPrompt({ agentId: tab.id, message: "hi" });
+	assert.equal(result.accepted, false);
+	assert.equal(result.delivery, "rejected", "全程无产出：可以安全回填草稿");
+	assert.equal(attempts, 2, "首次 + 一次重试");
+	assert.equal(lastProc().methodFrames("session/prompt").length, 2);
+	const messages = events.messages.at(-1).messages;
+	const retryCards = messages.filter((message) => String(message.meta?.i18nKey ?? "").startsWith("diagnostic.retry"));
+	assert.equal(retryCards.length, 1, "卡片保留下来（用户要知道重试过）");
+	assert.equal(retryCards[0].meta.status, "error");
+	assert.equal(retryCards[0].meta.attempt, 1);
+	assert.equal(messages.filter((message) => message.role === "user").length, 0, "孤立用户气泡已撤回，卡片不受影响");
+});
+
+test("断线重连:进程死亡 + 本回合无动静 → 原地重连(同一 agentId)、用原 session 续历史并重派同一 prompt", async (t) => {
+	let promptCalls = 0;
+	let initializeCalls = 0;
+	const { manager, events, createAgent, lastProc, procs } = harness(
+		t,
+		{
+			handler: (frame, { writeFromCli }) => {
+				if (frame.method === "initialize") {
+					initializeCalls += 1;
+					// 断线重连靠 loadSession 续 agent 侧历史，能力必须声明
+					return { protocolVersion: 1, agentCapabilities: { loadSession: true } };
+				}
+				if (frame.method === "session/load") return {};
+				if (frame.method === "session/new") return { sessionId: "sess-live" };
+				if (frame.method === "session/prompt") {
+					promptCalls += 1;
+					if (promptCalls === 1) {
+						// 派发后进程立刻死掉（CLI 崩溃/网关掐连接）：这一帧永远不会有响应
+						setImmediate(() => {
+							const cli = lastProc();
+							cli.proc.emit("exit", 1, null);
+							cli.proc.emit("close", 1, null);
+						});
+						return undefined;
+					}
+					writeFromCli({
+						jsonrpc: "2.0",
+						method: "session/update",
+						params: { sessionId: "sess-live", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "recovered" } } },
+					});
+					return { stopReason: "end_turn" };
+				}
+				return {};
+			},
+		},
+		{ readAcpTurnRetrySettings: () => ({ baseDelayMs: 200, maxRetries: 2 }) },
+	);
+	const tab = await createAgent();
+	const result = await manager.sendPrompt({ agentId: tab.id, message: "long task" });
+	assert.equal(result.accepted, true, "重连成功后应重派并完成回合");
+	assert.equal(promptCalls, 2, "第一次派发随进程死亡，重连后重派一次");
+	assert.equal(initializeCalls, 2, "重连要重新握手一次");
+	assert.equal(procs.length, 2, "重连换进程，但不换会话身份");
+	const listed = manager.list();
+	assert.equal(listed.length, 1, "原地重连：不得多出一个 agent");
+	assert.equal(listed[0].id, tab.id, "agentId 保持不变（catalog/会话绑定不需要迁移）");
+	const respawned = lastProc();
+	assert.equal(respawned.methodFrames("session/load").length, 1, "重连要用原 acpSessionId 走 session/load");
+	assert.equal(respawned.methodFrames("session/load")[0].params.sessionId, "sess-live");
+	const prompts = respawned.methodFrames("session/prompt");
+	assert.equal(prompts.length, 1);
+	assert.equal(prompts[0].params.sessionId, "sess-live", "重派必须落在同一个 agent 侧会话上");
+	await waitFor(() => (events.messages.at(-1)?.messages ?? []).some((message) => message.meta?.i18nKey === "diagnostic.retrySucceeded"), "retry card settled");
+	const messages = events.messages.at(-1).messages;
+	assert.equal(messages.filter((message) => message.role === "user").length, 1, "重连不得重复落用户气泡");
+	const retryCards = messages.filter((message) => String(message.meta?.i18nKey ?? "").startsWith("diagnostic.retry"));
+	assert.equal(retryCards.length, 1, "同一回合只保留一张重试卡");
+	assert.equal(retryCards[0].meta.status, "success");
+});
+
+test("断线重连:重连握手失败 → 按原失败收口，历史投影还原、气泡撤回、卡片留失败态", async (t) => {
+	let promptCalls = 0;
+	let initializeCalls = 0;
+	const { manager, events, createAgent, lastProc } = harness(
+		t,
+		{
+			handler: (frame) => {
+				if (frame.method === "initialize") {
+					initializeCalls += 1;
+					// 重连那次握手直接报不兼容，模拟 CLI 起不来 / 版本不对
+					if (initializeCalls > 1) return { protocolVersion: 999, agentCapabilities: {} };
+					return { protocolVersion: 1, agentCapabilities: { loadSession: true } };
+				}
+				if (frame.method === "session/load") return {};
+				if (frame.method === "session/new") return { sessionId: "sess-dead" };
+				if (frame.method === "session/prompt") {
+					promptCalls += 1;
+					if (promptCalls === 1) {
+						setImmediate(() => {
+							const cli = lastProc();
+							cli.proc.emit("exit", 1, null);
+							cli.proc.emit("close", 1, null);
+						});
+						return undefined;
+					}
+					return { stopReason: "end_turn" };
+				}
+				return {};
+			},
+		},
+		{ readAcpTurnRetrySettings: () => ({ baseDelayMs: 200, maxRetries: 2 }) },
+	);
+	const tab = await createAgent();
+	const result = await manager.sendPrompt({ agentId: tab.id, message: "hi" });
+	assert.equal(result.accepted, false);
+	assert.equal(initializeCalls, 2, "尝试过一次重连握手");
+	assert.equal(promptCalls, 1, "重连失败不得再派发");
+	const messages = events.messages.at(-1).messages;
+	assert.equal(messages.filter((message) => message.role === "user").length, 0, "失败回合的用户气泡已撤回");
+	const retryCards = messages.filter((message) => String(message.meta?.i18nKey ?? "").startsWith("diagnostic.retry"));
+	assert.equal(retryCards.length, 1, "重试卡保留并收口为失败");
+	assert.equal(retryCards[0].meta.status, "error");
+});
