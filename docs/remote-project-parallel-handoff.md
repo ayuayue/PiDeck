@@ -1,4 +1,4 @@
-Status: **Active plan** — 2026-10-31（I0 集成更新，取代原「A0 已完成、P/S/T/F/G 待实施」状态）；基线 `dev / 24529c394`。A0、P、S/T 已在集成工作区 `F:\PiDeck` 整合并通过门禁，并以四个提交落到 `dev`（`cc090cd52` / `0f1ef5deb` / `53e7dab03` / `4b4028f8f`，未 push）；S 契约已冻结（§8.2）、T 已验证（§8.5）；**F/G 可开工**；V **未核验（未找到产出物）**，不得表述为「V 已通过」。凡与源码冲突的旧表述以源码为准。
+Status: **Active plan** — 2026-10-31（I0 集成更新，取代原「A0 已完成、P/S/T/F/G 待实施」状态）；基线 `dev / 24529c394`。A0、P、S/T 已在集成工作区 `F:\PiDeck` 整合并通过门禁，并以一组提交落到 `dev`（未 push；范围 `git log --oneline 24529c394..dev`）；S 契约已冻结（§8.2）、T 已验证（§8.5）；**F/G 可开工**；V **未核验（未找到产出物）**，不得表述为「V 已通过」。凡与源码冲突的旧表述以源码为准。
 
 # 远程多项目与面板服务并行交接
 
@@ -44,7 +44,7 @@ P 的 root-scoped facts 接线完成 ───────────> G 的 ma
 ### 工作树与公共文件
 
 1. 优先两条独立 worktree；可复用合适的已有工作树，新增分支用 `codex/`。不要替别的智能体清理工作树、stash、装依赖或终止进程。
-2. **I0 基线已提交到 `dev`（最新基线提交 `4b4028f8f`）。** 从 `24529c394` 新建 worktree 不会带上 A0 和本交接；现在应从基线提交新建 worktree（§8.4），或在目标文件确认与基线一致时显式同步白名单文件。目标已有改动时停下核对，不覆盖。
+2. **I0 基线已提交到 `dev`（从 `dev` 当前 HEAD 新建工作树即可继承）。** 从 `24529c394` 新建 worktree 不会带上 A0 和本交接；现在应从 `dev` 新建 worktree（§8.4），或在目标文件确认与基线一致时显式同步白名单文件。目标已有改动时停下核对，不覆盖。
 3. 前置同步白名单：`AGENTS.md`、`docs/engineering-standards.md`、`src/renderer/src/services/projectFileService.ts`、`tests/projectServiceStatRead.test.mjs`、本文件、`docs/README.md`、`docs/project-panel-service-seam-adr.md`、`docs/remote-file-tree-and-git-unification-plan.md`、`docs/remote-host-root-pooling-adr.md`、`docs/root-pooling-handoff.md`。必须同步测试演进新规则，避免工作树继续按旧禁令执行。未提交同步要记录源/目标内容一致，任务 diff 分开列前置与本任务文件，避免重复提交。
 4. 若只能共享当前工作树，严格按下表 ownership；不运行全仓写格式化。公共文件由 I 单写，提交修改需求/补丁给 I 后继续自己独立部分。
 5. `AGENTS.md`、`package*.json`、`scripts/testShapeBaseline.json` 不在本批修改范围。`main/index.ts`、`App.tsx`、`DrawerSurface.tsx`、`src/preload/index.ts`、`src/shared/**`、i18n 由 I 单写；只读不受限。I 应及时应用必要汇聚改动再验证，不能让代码任务以未接线类型错误收尾。
@@ -203,7 +203,7 @@ node --test tests/remoteGitFactsBoundary.test.mjs tests/remoteGitSnapshotFacts.t
 
 ### 8.1 集成工作区、落点与接线
 
-- **集成工作区：`F:\PiDeck`（`dev` @ 基线提交 `4b4028f8f`，基于 `24529c394`）**。A0 与文档前置本来就在此；P 与 S/T 以显式文件同步并入，随后按来源拆成四个提交落到 `dev`（**未 push、未 merge**）；P、S/T 两个工作树的未提交成果原样保留（未 stash、未清理、未覆盖）。
+- **集成工作区：`F:\PiDeck`（`dev` @ I0 基线提交组，基于 `24529c394`）**。A0 与文档前置本来就在此；P 与 S/T 以显式文件同步并入，随后按来源拆成四个提交落到 `dev`（**未 push、未 merge**）；P、S/T 两个工作树的未提交成果原样保留（未 stash、未清理、未覆盖）。
 - 来源与文件数（逐文件 sha256 见 §8.4 的清单）：
   - **P（main 池化）**：22 个 P 专属文件 = 6 改 src + 2 新增 src（`RemoteRootSessionPool.ts`、`remoteProjectWatchKeepAlive.ts`）+ 10 改测试 + 4 新增测试。另 2 个文件与 A0 逐字节相同（`projectFileService.ts`、`projectServiceStatRead.test.mjs`），未重复写入。
   - **S/T（服务契约）**：15 个文件 = 5 改 src + 5 新增 src + 1 改测试 + 4 新增测试。其中 `projectFileService.ts` 与 `projectServiceStatRead.test.mjs` 是 A0 的**超集**（stat 语义演进为 present/unavailable），集成取 S 版；A0 的两个用例已随之演进（未被删除）。
@@ -297,7 +297,7 @@ node --test tests/remoteGitFactsBoundary.test.mjs tests/remoteGitSnapshotFacts.t
 
 ### 8.4 F/G 如何获得完全一致的基线（基线已提交；清单与工具用于校验/回退）
 
-**现状**：I0 成果已提交到 `dev`（基线提交 `4b4028f8f`）。F/G 从该提交新建 worktree 即**自动继承**全部文件，不需要手工同步。
+**现状**：I0 成果已提交到 `dev`（提交组见 §8.7）。F/G 从 `dev` 当前 HEAD 新建 worktree 即**自动继承**全部文件，不需要手工同步。
 
 **历史问题（保留作背景，也是工具的用途）**：成果最初全部未提交时，从 `24529c394` 新建 worktree **不会**继承 A0/P/S 的任何文件。清单 + 工具因此保留，用于：① 校验任意工作树是否与 I0 基线逐字节一致；② 若后续又在未提交状态下继续集成，可显式同步（先查冲突，再写入）。
 
@@ -307,9 +307,9 @@ node --test tests/remoteGitFactsBoundary.test.mjs tests/remoteGitSnapshotFacts.t
 2. 工具：`scripts/panel-baseline.mjs`（无依赖、无网络）：
 
 ~~~powershell
-# 推荐：F 或 G 直接从基线提交新建工作树（分支名自定，用 codex/ 前缀）——无需 sync，文件自动继承
-# 注意：基线提交以 §8.1 / §8.7 记录的为准（文档更新可能带来后续提交）
-git -C F:\PiDeck worktree add F:\PiDeck-f -b codex/file-drawer 4b4028f8f
+# 推荐：F 或 G 从 dev 当前 HEAD 新建工作树（分支名自定，用 codex/ 前缀）——无需 sync，文件自动继承
+# 基线由 docs/panel-service-baseline.manifest 定格；若 dev 之后又有提交，用 verify 核对代码文件是否与基线一致
+git -C F:\PiDeck worktree add F:\PiDeck-f -b codex/file-drawer dev
 # 独立复核：确认该工作树与 I0 基线逐字节一致（退出码 0 = 一致）
 node F:\PiDeck\scripts\panel-baseline.mjs verify --dir F:\PiDeck-f
 
@@ -322,7 +322,7 @@ node F:\PiDeck\scripts\panel-baseline.mjs sync --to F:\PiDeck-f
    - 未提交同步场景：目标已是清单值 → 跳过（可重入）；不存在（基线新增文件）→ 写入；**存在且有它自己的未提交改动** → 判冲突、整体中止，不覆盖别人的成果。
    - 源与清单不一致（清单过期）→ `sync` 中止；先在集成工作区重建清单，再重新 sync，禁止把半新半旧的文件带到 F/G。
    - 同步完成后 `git status` 的未提交清单应与 manifest 完全对应；不一致就是漏同步或混入额外改动，停止开工并报告。
-4. 内容一致性证据：`verify` 逐个文件比对 sha256（**当前清单 48 个文件**）。已实测两次：① 在基线提交 `4b4028f8f` 的新工作树上 `verify` 48/48 且 `git status` 干净；② 在空 `24529c394` 工作树上 `sync → verify` 48 文件逐字节一致、目标 `git status` 恰为 48 项（见 §8.7）。
+4. 内容一致性证据：`verify` 逐个文件比对 sha256（**当前清单 48 个文件**）。已实测两次：① 在基线提交组的新工作树上 `verify` 48/48 且 `git status` 干净；② 在空 `24529c394` 工作树上 `sync → verify` 48 文件逐字节一致、目标 `git status` 恰为 48 项（见 §8.7）。
 5. 依赖：新工作树没有 `node_modules`。按 AGENTS.md「并行期间不 `npm install`」，开工前由集成者统一准备（或在用户授权下安装），F/G 不自行处理。
 6. 基线变更纪律：集成者修改清单内文件时必须提交并在提交信息中注明基线变更；F/G 从新基线提交重开工作树（或按本节的未提交同步流程）。F/G 不得各自修改公共文件、不得自建第二份基线、不得用旧基线开工。
 
@@ -358,9 +358,9 @@ node F:\PiDeck\scripts\panel-baseline.mjs sync --to F:\PiDeck-f
 | P 附加（3 文件） | `remoteGitReadIpc / remoteHostIpc / remoteProjectWatchKeepAlive` | 0 | 94 / 94 pass |
 | S/T 组（7 文件） | 交接 §4 命令 | 0 | 62 / 62 pass / 0 skip（集成初跑 3 fail 为夹具问题，修正后见 §8.1） |
 | 集成附加（7 文件） | `remoteGitFactsInvalidation / remoteGitTargetBoundary / remoteProjectEntryIpc / remoteProjectFileIpc / remoteProjectTransferIpc / remoteProjectRootStatusEnvelope / remoteContentSearchCapabilityUi` | 0 | 24 / 24 pass |
-| 基线继承 | `git worktree add <新树> 4b4028f8f` + `panel-baseline.mjs verify --dir <新树>` | 0 | 48/48 逐字节一致；新工作树 `git status` 干净（无需 sync） |
+| 基线继承 | `git worktree add <新树> dev` + `panel-baseline.mjs verify --dir <新树>` | 0 | 48/48 逐字节一致；新工作树 `git status` 干净（无需 sync） |
 | 同步回退自测 | `panel-baseline.mjs sync --to <空 worktree>` + `verify --dir` | 0 | 48 个文件全部同步并逐字节一致；目标 `git status` = 48 项，与清单完全对应 |
-| 提交 | `git commit`（四个提交，未 push） | 0 | `cc090cd52` docs/前置 → `0f1ef5deb` P → `53e7dab03` S/T → `4b4028f8f` 基线清单/工具 |
+| 提交 | `git commit`（四个提交，未 push） | 0 | docs/前置 → P → S/T → 基线清单/工具，见 `git log --oneline 24529c394..dev` |
 
 **未跑（本轮禁止/无授权）**：全量 `npm run build`、`npm test`、E2E、真实 SSH 主机、Electron 启动、宿主重启、`preflight/pack`。Windows 上 Linux-only 用例的 skip 不计入通过数。
 
