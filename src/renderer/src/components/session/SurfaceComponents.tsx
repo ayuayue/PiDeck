@@ -6,7 +6,7 @@ import { MarkdownStream } from "./MarkdownStream";
 import { SettledLongAnswer } from "./SettledLongAnswer";
 import { shouldCollapseSettledText } from "./markdownStreamPolicy";
 import { PreviewRail, type PreviewRailItem } from "../motion/preview-rail";
-import { planRailTicks, railBuckets } from "./timeline/outlineRailTicks";
+import { planRailTicks, railBuckets, railCapacity } from "./timeline/outlineRailTicks";
 import { areOutlineRailItemsEqual, createOutlineItemIndex, resolveVisibleRailActiveId } from "./timeline/outlineRailActive";
 import { useTimelineOutlineActiveId } from "./timeline/useTimelineOutlineActiveId";
 import { useLazyValue } from "../../lib/hooks/use-render-reuse";
@@ -1372,12 +1372,14 @@ function ConversationOutlineView(props: ConversationOutlineProps) {
 		return () => observer.disconnect();
 	}, []);
 	const outlineItemIndex = useMemo(() => createOutlineItemIndex(props.items), [props.items]);
-	// 条数与取哪几条：railBuckets —— 最多 RAIL_TICK_LIMIT 段覆盖**整个会话**，
-	// 超过就按条数均分、每段只画段首。早先是「以阅读位置为中心的滑动窗口」，它让刻度纵向
-	// 位置不等于会话进度、翻上翻下整列平移（2026-11 真机「一开始显示不全、翻回来退化」）。
+	// 条数与取哪几条：railBuckets —— 段数按可用高度算（railCapacity），**能一条一根就
+	// 一条一根**，放不下才均分、每段只画段首。固定 30 段时一根代表好几条提问，点下去只能
+	// 落到段首，看起来就是「定位到别的地方」（2026-11 真机，85 轮会话）。
+	// 早先还试过「以阅读位置为中心的滑动窗口」：纵向位置不等于会话进度、翻上翻下整列平移。
 	// 先按源下标定位 active（高亮用），再分段、再规划间距。
 	const activeSourceIndex = railActiveId === undefined ? -1 : (outlineItemIndex.get(railActiveId) ?? -1);
-	const visibleItems = useMemo(() => railBuckets(props.items), [props.items]);
+	const railLimit = useMemo(() => railCapacity(availableHeight), [availableHeight]);
+	const visibleItems = useMemo(() => railBuckets(props.items, railLimit), [props.items, railLimit]);
 	const plan = useMemo(() => planRailTicks(visibleItems, availableHeight), [visibleItems, availableHeight]);
 	const railItems = useMemo<PreviewRailItem[]>(
 		() =>

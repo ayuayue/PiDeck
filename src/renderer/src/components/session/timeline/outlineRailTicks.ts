@@ -26,6 +26,21 @@ export const RAIL_TICK_MAX_SIZE = 14;
 export const RAIL_TICK_MIN_SIZE = 6;
 /** 刻度条数上限：整个会话按条数均分成这么多段，每段只画段首（2026-10 用户反馈「旁边横条太多」）。 */
 export const RAIL_TICK_LIMIT = 30;
+
+/**
+ * 刻度条数上限，按**可用高度**算：能一条一根就一条一根，放不下才均分。
+ *
+ * 为什么不再固定 30：固定 30 段时一根代表好几条提问，点下去只能落到段首——
+ * 用户点的是「我想要的第 87 条」，落到的却是第 85 条所在的段首，看起来就是
+ * 「定位到别的地方」（2026-11 真机，85 轮会话）。85 条 × 6px = 510px，正常窗口
+ * 装得下，没有理由为了 30 这个数字牺牲精确度。
+ *
+ * 放不下时（几百轮会话）仍按条数均分成 capacity 段，此时段内提问点段首可达。
+ */
+export function railCapacity(availableHeight: number): number {
+	if (availableHeight <= 0) return RAIL_TICK_LIMIT;
+	return Math.max(RAIL_TICK_LIMIT, Math.floor(availableHeight / RAIL_TICK_MIN_SIZE));
+}
 /**
  * 点未加载刻度时最多发起几次补页（保险丝，不是预算）。
  *

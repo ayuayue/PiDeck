@@ -1645,10 +1645,11 @@ export class AgentManager {
 			}
 			return undefined;
 		};
-		// 窗口已经贴到缓存最旧条目（start === 0）：再往前没有缓存内容，锚点会指到窗口首条自己，
-		// 下一次「加载更多」原样返回同一页——渲染层补页循环因此空转，直到 React 报 #185
-		// （2026-11 真机：点大纲最上面的刻度，界面弹「渲染异常」）。缓存线索到此为止，交给文件路径。
-		if (start === 0) return null;
+		// 窗口已经贴到缓存最旧条目（start === 0）时**不必**在这里拦：下面 pickAnchorEntryId(page)
+		// 取到的是 page 首条的 entryId，它对应文件里的真实位置，nextBefore 因此严格小于本次
+		// 锚点，下一次请求会以 pos === 0 再进来、page 为空、落到下面的 !oldestEntryId 分支交回
+		// 文件路径——推进不会原地踏步。此前这里直接 return null，把「缓存里还有一整页可用」
+		// 的请求也推给磁盘，续页白读一次文件（2026-11 真机：点刻度定位慢）。
 		const oldestEntryId = pickAnchorEntryId(page) ?? pickAnchorEntryIdBefore(start);
 		// 缓存里没有能当锚点的更早条目：缓存这条线索到此为止，交给文件路径按数值 before 继续翻。
 		if (!oldestEntryId) return null;

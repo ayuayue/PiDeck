@@ -1904,9 +1904,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		if (!matchesTimelineOwner(pendingJump.ownerKey, ownerKey)) return;
 		const timeline = timelineRef.current;
 		if (!timeline) return;
-		// 分批扩窗在途（点击时一次到位排满的批次 / 补页增长）：等批次消费完再评估，
-		// 避免目标刚挂载就落位、随后被后续批次推移。
-		if (pendingExpandTurnsRef.current > 0) return;
 		// 挂起期间每轮重新归一：目标可能是文件条目 id（会话内查找命中），补页把它
 		// 载入 combinedMessages 之后投影 id 才确定。
 		const targetIndex = resolveJumpMessageIndex(combinedMessages, pendingJump.value.messageId);
@@ -1922,6 +1919,11 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			clearTimelineReveal();
 			return;
 		}
+		// 目标还没挂上：批次在途（跳远时一次排满几十轮）就等它继续消费。
+		// 反过来的顺序很重要——**目标一旦挂载就先落位，不等整段历史挂完**：跳远时
+		// 一次推开几十轮，DOM 与布局要几百毫秒到几秒，先落位能让用户立刻到那儿；
+		// 后续批次在上方插入时，ResizeObserver 的 pinBrowseRow 维持这一行不动。
+		if (pendingExpandTurnsRef.current > 0) return;
 		// 目标未挂载：按策略兜底扩窗（指数步长）/ 跳转驱动补页 / 放弃（防呆上限）。
 		// give-up 保留旧行为兜底：目标已不在数据（压缩清理/删除）时不无限扩窗（2026-08 黑屏治理）。
 		const stillInData = targetIndex >= 0;
