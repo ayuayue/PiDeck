@@ -20,10 +20,12 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 | Linux（WSL）POSIX/Linux-only 邻接用例 | **通过**：139 pass / 1 skip（root-only chown） |
 | Linux（WSL）根池化相关 4 文件 | **通过**：51/51 |
 | Linux（WSL）remote/ssh 全扫 | **失败（7 例，全部既有，非本提交引入）** + **跳过 11 例**；基线 HEAD~1 复跑失败数一致，详见 §3.3 |
-| 真实 SSH + Electron 端到端验收 | **未执行**（0 项；目标主机与范围待授权，方案见 §4） |
-| 旧文档失效状态审计 | **完成并已同步旧文档**（manifest 未重建；见 §5） |
+| 真实 SSH + Electron 端到端验收 | **失败（R0/R1 均卡在 `e2e/remoteHostAcceptance.spec.ts:223`）**：主机 pin/连接/两个远端项目登记通过，但「浏览远端文件」入口未出现；S2/S5/S6/S7 未执行，详见 §10 |
+| Linux CI 覆盖 | **通过（仅本地新增，未触发 GitHub CI）**：新增 `linux-unit-remote` job（硬门禁 17 文件 253/252+1；全扫 continue-on-error）+ 挂账文档；见 §11 |
+| panel-service-baseline.manifest | **通过**：按 HEAD 重建，`panel-baseline.mjs verify` 48/48 rc=0；见 §11 |
+| 旧文档失效状态审计 | **完成并已同步旧文档 + 重建 manifest**（见 §5/§11） |
 
-**总体判定：默认生产构建（池化关闭）无阻断；本提交的四个修复方向中，前三个通过，第四个在池化开启场景存在条件性失败 F1。F1 已按“继续剩余工作”指示修复并以 `a905d4d7d` 提交（含生产顺序回归，§9）；池化默认开启前仍需 §4 真机验收。未修改生产池化默认值。**
+**总体判定：默认生产构建（池化关闭）无阻断；本提交的四个修复方向中，前三个通过，第四个在池化开启场景存在条件性失败 F1。F1 已按“继续剩余工作”指示修复并以 `a905d4d7d` 提交（含生产顺序回归，§9）；但真机 R0/R1 本轮在既有 UI 断言处失败（§10），池化路径尚未取得真机证据。**
 
 ## 1. 基线与工作区核对（只读）
 
@@ -32,7 +34,7 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 | 分支 / HEAD | `dev` / `55dd5b7020c7501b74986f00ecd4eac47cd5fb5d` |
 | 基线（父提交） | `09aca4203`（`docs(git): 更新 Phase C 检查点状态与剩余验证项`） |
 | 范围 | `09aca4203..55dd5b702` = 1 个提交；`git diff --stat` = 12 文件，+845/−173 |
-| 工作区 | 验收复核期间 `git status --porcelain` 为空；验收文档与 F1 修复已在 `a905d4d7d` 提交；本节旧文档同步为后续文档提交（见 §9.3） |
+| 工作区 | 验收复核期间 `git status --porcelain` 为空；F1 修复已提交 `a905d4d7d`，旧文档同步已提交 `f870d5574`；本轮 CI/清单/真机验收改动尚未提交（见 §9.3/§11） |
 | 提交内容 | 新增 `src/main/ipc/remoteProjectDirFacts.ts`；改 `remoteProjectDirectoryReads.ts`、`remoteProjectIpc.ts`、`RemoteDeepDirWatch.ts`、`RemoteDirWatchDegradedHint.tsx`、`shared/types/projectFiles.ts`；新增/改 6 个测试文件 |
 | 仓库外产物 | F1 探针 `%TEMP%\pideck-f1\f1-probe.test.mjs`；完整方案草稿 `%TEMP%\pideck-acceptance\ssh-electron-plan.md`（均未入库） |
 
@@ -149,11 +151,11 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 
 结论：**本提交在 Linux 上无回归**（7 例在 `git archive HEAD~1` 副本上失败数完全一致，且失败文件不 import 本次改动的源文件）。其中 `remoteGitStability` 是 `docs/git-panel-phase-c-plan.md:213` 自己要求“合入前须在 Linux CI 跑一次”的 Linux-only 用例，现已在 Linux 上跑出红色——该问题属于既有 Git/Phase C 债，不是本验收的修复对象，但应在池化/Git 默认开启前挂账处理。
 
-**机制性缺口**：CI 单测 job 只在 `windows-latest` 跑（`ci.yml:17` 与 `:62-70`），ubuntu job 只做 Pet 冒烟（`ci.yml:92` 起），`dev-guard.yml:12` 不跑 `npm test` ⇒ Linux-only / POSIX 分支在 CI 零覆盖。建议新增 ubuntu job 跑 `node --test --test-concurrency=1 "tests/remote*.test.mjs" "tests/ssh*.test.mjs"`（本机约 164s），先接受现有 7 个已知红并挂 issue。
+**机制性缺口（本轮已补，见 §11）**：原 CI 单测只在 `windows-latest` 跑（`ci.yml:17` 与 `:62-70`），ubuntu job 只做 Pet 冒烟（`ci.yml:92` 起），`dev-guard.yml:12` 不跑 `npm test` ⇒ Linux-only / POSIX 分支在 CI 零覆盖。本轮新增 `linux-unit-remote` job（17 文件硬门禁 + remote/ssh 全扫 `continue-on-error` 跟踪）与 `docs/ci-linux-known-failures.md`；7 个既有红挂账、不改测试不改产品。
 
-## 4. 真实 SSH + Electron 验收方案（本轮**未执行**，待授权）
+## 4. 真实 SSH + Electron 验收方案（已获授权；R0/R1 已执行并失败，见 §10）
 
-> 本节是方案摘要；完整 609 行版本在仓库外草稿 `%TEMP%\pideck-acceptance\ssh-electron-plan.md`（不入库）。所有真实连接、远端写、Electron 启动、构建均未执行。
+> 本节保留方案摘要；完整 609 行版本在仓库外草稿 `%TEMP%\pideck-acceptance\ssh-electron-plan.md`（不入库）。真实连接/构建/Electron 已按用户“全部去干”授权执行 R0/R1；S2/S5/S6/S7 未执行。
 
 ### 4.1 开关事实（必须先明确）
 
@@ -253,17 +255,17 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 
 关联但不在本轮六份重点内：`docs/remote-host-root-pooling-adr.md:3` “池化生产实现尚未落地”已过期；其正文大量 file:line 已漂移，不能当现状引用。`docs/README.md:58` 关于 root-pooling-handoff 的“离线测试通过、真机验收未做”仍基本成立，但“离线测试”未含本提交新增 6 例，开启方式应补“改 main/index.ts 构造参数”。
 
-**更新记录（2026-10-31）**：已更新 `docs/remote-project-parallel-handoff.md`（§8.1 I0 快照注记、onRootRetired 语义、P 文件/测试增量、48/48 清单过期）、`docs/root-pooling-handoff.md`（Status/基线/已实现说明）、`docs/README.md:38/:58`、`docs/git-panel-phase-c-plan.md:3`、`docs/v-review-2026-10-31.md`（范围注记）、`docs/remote-wsl-verification-log.md:337`（历史注记 + §15）、`docs/remote-host-root-pooling-adr.md:3`（默认关闭实现已落地）。`docs/panel-service-baseline.manifest` 未手改（禁止手改单条哈希），需由清单所有者用 `panel-baseline.mjs` 重建。
+**更新记录（2026-10-31）**：已更新 `docs/remote-project-parallel-handoff.md`（§8.1 I0 快照注记、onRootRetired 语义、P 文件/测试增量、48/48 清单过期）、`docs/root-pooling-handoff.md`（Status/基线/已实现说明）、`docs/README.md:38/:58`、`docs/git-panel-phase-c-plan.md:3`、`docs/v-review-2026-10-31.md`（范围注记）、`docs/remote-wsl-verification-log.md:337`（历史注记 + §15）、`docs/remote-host-root-pooling-adr.md:3`（默认关闭实现已落地）。`docs/panel-service-baseline.manifest` 已按 HEAD `f870d5574` 重建（48 条成员不变，仅刷新哈希），`panel-baseline.mjs verify` 48/48 rc=0；重建前实测 19/48 mismatch（初始 16/48 为文档更新前快照）。
 
 未审计：`docs/archive/**`、`docs/maintenance-domains.md`、`docs/unified-api.md` 等大文档；只按本检查点相关面审计。
 
 ## 6. 本轮边界与本轮未做
 
-- **验收阶段未修改被审查代码**；后续修复阶段按用户指示修改了 `src/main/ipc/remoteProjectDirFacts.ts` 与 `tests/remoteProjectLifecycle.test.mjs`（未提交，见 §9）；未新增 server/SFTP、未合并面板组件、未扩功能。
-- **未修改生产池化默认值**：`main/index.ts` 未传 `rootPooling` 的事实保持不变。
-- **未执行** `git add/commit/push/merge`；未拆分或改写 55dd5b702；未执行“准备提交”。
-- **未连接真实 SSH 主机**；未启动 Electron；未构建（未运行 `npx electron-vite build`）；未执行任何远端写、故障注入或清理。
-- 未重跑 Windows 全量（已知声明通过）；本轮只在 Windows 定向复跑 6 个测试文件并复核 typecheck 佐证。
+- **验收阶段未修改被审查代码；F1 修复已提交 `a905d4d7d`**；旧文档同步已提交 `f870d5574`；本轮 CI/基线清单/真机验收改动未提交（见 §9.3/§11）。
+- **未修改生产池化默认值**：`main/index.ts` 未传 `rootPooling` 的事实保持不变；真机 R1 用临时补丁，已逐字还原并确认 `git diff` 为空。
+- **已执行真实主机验收**：R0（池化关闭）与 R1（临时 `rootPooling: {}`）分别跑 `e2e/remoteHostAcceptance.spec.ts`，均失败于同一 UI 断言（§10）；远端测试目录由 spec 的 finally 清理，未 sudo、未改系统、未动既有部署 bundle/leases。
+- **未执行** 本轮 CI/清单/真机改动相关的 commit/push/merge；未拆分或改写 55dd5b702。
+- 未重跑 Windows 全量（已知声明通过）；真机 S2/S5/S6/S7 未执行（§10.5）。
 - 仓库外产物：F1 探针 `%TEMP%\pideck-f1\f1-probe.test.mjs`；方案草稿 `%TEMP%\pideck-acceptance\ssh-electron-plan.md`；均未入库。
 - 仓库内变更：本文件（新增）+ 2 个修复文件（修改，未提交）。当前 `git status --porcelain` = `M src/main/ipc/remoteProjectDirFacts.ts`、`M tests/remoteProjectLifecycle.test.mjs`、`?? docs/remote-acceptance-55dd5b702.md`。
 
@@ -295,7 +297,7 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 ## 8. 验收签字建议
 
 - **默认构建（池化关闭）**：可接受；本提交四个方向中 3 个通过，F1 不触发默认路径。
-- **池化默认开启**：**暂不可签收**——F1 已修复并提交 `a905d4d7d`，仍需独立复核；随后按 §4 完成 R1 真机验收（含 TTL/sweep、显式断开、监听降级、A/B/C 隔离与清理终检），并处理 §2.3 的保活计数风险与 Linux CI 缺口。
+- **池化默认开启**：**暂不可签收**——F1 已修复并提交 `a905d4d7d`，但真机 R0/R1 在 `e2e/remoteHostAcceptance.spec.ts:223` 失败（§10.1），S2/S5/S6/S7 未执行；需先定性/修复该 UI 入口失败或更新 spec，再完成 R1 真机验收，并处理 §2.3 的保活计数风险。
 - **Git Phase C / Linux-only 既有红**：`remoteGitStability` 4 例在本 Linux 环境稳定红（基线同红），需另行挂账，不应被本检查点的“Windows 全绿”掩盖。
 
 ## 9. 验收后修复（已提交 `a905d4d7d`）
@@ -321,11 +323,79 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 ### 9.3 提交与当前工作区
 
 - 修复提交：`a905d4d7d`（源码 + 回归测试 + 本验收文档）。
-- 旧文档同步：另作文档提交（见 §5“更新记录”）；不包含 `panel-service-baseline.manifest`。
+- 旧文档同步提交：`f870d5574`（§5“更新记录”）。
+- 本轮 CI/基线清单/真机验收改动尚未提交：`M .github/workflows/ci.yml`、`M docs/panel-service-baseline.manifest`、`M docs/remote-project-parallel-handoff.md`、`?? docs/ci-linux-known-failures.md`、`M docs/remote-acceptance-55dd5b702.md`。
 - 原检查点 `55dd5b702` 未被改写；未 push/merge。
 
 ### 9.4 仍未做
 
-- 旧文档 12 条已按建议同步（manifest 需所有者重建）。
-- 真实 SSH + Electron 验收（§4，未执行；需目标与范围授权）。
-- Linux CI job（`ci.yml` 仅 windows-latest 跑单测）与 `remoteGitStability` 等既有 Linux 红的挂账/修复。
+- 真机 UI 入口失败（§10.1）需定性：产品回归还是 spec/UI 契约漂移；未定性前 R0/R1 不能算通过。
+- 真机 S2/S5/S6/S7（切换不重建、TTL/sweep、显式断开、监听降级）未执行。
+- 7 个既有 Linux 红已挂账（`docs/ci-linux-known-failures.md`），未修；`remoteGitStability` 属 Git/Phase C 债。
+- 本轮 CI/清单/真机验收改动是否提交、是否 push，由用户决定。
+
+## 10. 真实 SSH + Electron 执行结果（2026-10-31，失败）
+
+### 10.1 运行与结果
+
+- 授权：用户“全部去干一下，把它干完”；主机只经本机 ssh 别名 `serve`，凭据只放进程环境变量，不写入本文。
+- 隔离：复用 `e2e/remote-fixtures.ts` 的 `remoteApp` fixture（临时 userData；不隔离 HOME/USERPROFILE，产品用系统 OpenSSH）。
+- 构建：R0 `npx electron-vite build`（2m03s）；R1 临时加 `rootPooling: {}` 后 `npm run build:main`（17.1s），跑完删除补丁并重建 `out/main`。
+- spec：`e2e/remoteHostAcceptance.spec.ts`。
+
+| 轮次 | 配置 | 结果 |
+|---|---|---|
+| R0 #1/#2/#3 | 池化关闭 | exit 1；42.3s / 34.9s / 35.1s；均卡在 spec:223 |
+| R1 #1/#2 | `rootPooling: {}` | exit 1；37.8s / 33.0s；**同一点失败** |
+
+通过：① 加主机 pin（TOFU 落盘指纹匹配）② 连接 ready（进度框 +「已连接」+「断开」）③ 两个远端项目 canonical 登记。
+失败：`e2e/remoteHostAcceptance.spec.ts:223` 断言 `getByRole("button", { name: "浏览远端文件" })` 可见 → element not found（10s）。
+失败瞬间 ARIA：侧栏两台远端项目均带「远程主机：serve · 已连接」，中栏项目选择器已是 `proj-b-<runId>`；但中栏渲染的是 SessionStartSurface 输入页（“把想法放到工作台上。”），**没有** `data-testid="remote-project-browse-files"`。
+源码对照：`ProjectEmptyState.tsx:75-90` 仍在 `isRemoteProject(activeProject)` 分支渲染该按钮；因此失败原因**尚未定性**（产品渲染状态回归 / spec 与新版起始页契约漂移）。本轮未改产品代码、未改 spec。
+
+影响：S0/S1 没有 UI 证据；S2/S5/S6/S7 未执行；池化真机路径未验证。
+
+### 10.2 采样
+
+- R0：运行中稳定 1 条 helper（`~/.nvm/versions/node/v24.11.0/bin/node ~/.pideck/remote-host/bundles/<sha>/helper.mjs`）；远端 :22 established 3→5、sshd 7→9；结束回落到 3/7，helper 归零；本机 ssh 1→3。
+- R1：14 次采样 helper=0、:22 连接 3–4；2.7s 采样分辨率不足以证明“池化未建会话”；全程**未见 2 条不同 root 的 helper**。
+- 采样口径坑：`ps -eo args` 折行会截掉 `--root`；改用 `ps -eww -o args=` 后又恰好无 helper 可采 ⇒ 本轮没有 helper `--root` 归属的直接证据。
+
+### 10.3 补丁与清理
+
+- `rootPooling: {}` 临时应用 2 次，均已删除；`git diff -- src/main/index.ts` 为空；干净源码重建 `out/main` 后其中 `rootPooling: {}` 命中 0。
+- 远端：每次结束 helper 归零、:22 回到基线；5 次运行的 runId 目录均由 spec 的 `finally` 清理；唯一残留 `~/.pideck-e2e-e2emvulqwle` 与这 5 次 runId 都不匹配（更早遗留），未动；`.pi/agent/sessions` 无 e2e 夹具残留。
+- 未 sudo、未改系统、未动既有 `~/.pideck/remote-host` 的 bundle/leases。
+
+### 10.4 结论
+
+- R0 与 R1 **同点失败**，说明不是池化开关导致的：真实主机路径在“登记两个远端项目后进入文件浏览”这一步不可达。
+- 未定性为产品回归还是 spec/UI 契约漂移；必须先定性并修复（或更新 spec），才能继续真机验收。
+- S2/S5/S6/S7 未执行，不能把本轮 R0/R1 的失败或部分步骤写成“真机通过”。
+
+## 11. CI 与基线清单同步（2026-10-31，未提交）
+
+### 11.1 Linux CI
+
+- `.github/workflows/ci.yml` 新增 `linux-unit-remote`（`ubuntu-latest`，node 24.13.0，`npm ci`）：
+  - 硬门禁：17 个远端/SSH 相关文件 = **253 tests / 252 pass + 1 root-only skip**，失败挡合并（`remoteProjectLifecycle` 已按修复后的 7 例计入）。
+  - 跟踪：`tests/remote*.test.mjs` + `tests/ssh*.test.mjs` 全扫，`continue-on-error`，只用于发现“§2 清单之外的新红”；WSL2 实测 **248 文件 / 2380 tests / 2362 pass / 7 fail / 11 skip（668s）**，7 红全部命中清单、无第 8 条。
+- 新增 `docs/ci-linux-known-failures.md`：7 条既有 Linux 红（`remoteGitStability` 4、`remoteHelperSearchNames` 1、`remoteSearchIsolation` 1、`sshClientRuntime` 1），均给出复现命令、现象、基线 HEAD~1/09aca4203 同红证据与处置=挂账；并区分 Windows-only / POSIX-only / root-only skip。
+- 状态：本地改好 `ci.yml` 与新文档，**未触发 GitHub CI**；push 后才生效。
+
+### 11.2 基线清单
+
+- `docs/panel-service-baseline.manifest`：48 条成员不变，按 HEAD `f870d5574` 重算 sha256；`panel-baseline.mjs verify` **48/48 rc=0**。
+- 重建前实测 **19/48 mismatch**（验收文档更新前的 16/48 是更早快照）；差额来自本检查点的文档更新，不是源码回归。
+- handoff §8.4 已记录重建与计数口径；manifest 由脚本整表重算，**未手改单条哈希**。
+
+### 11.3 未提交清单
+
+- `M .github/workflows/ci.yml`
+- `M docs/panel-service-baseline.manifest`
+- `M docs/remote-project-parallel-handoff.md`
+- `M docs/README.md`（索引新增 `ci-linux-known-failures.md`）
+- `?? docs/ci-linux-known-failures.md`
+- `M docs/remote-acceptance-55dd5b702.md`
+- 另有 `?? docs/remote-sftp-evaluation.md`：非本轮产出（本轮未新增 SFTP），未纳入清单/未修改。
+- 未 commit/push；是否提交由用户决定。

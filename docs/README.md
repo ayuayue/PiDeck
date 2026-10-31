@@ -38,6 +38,7 @@
 | [remote-host-root-pooling-adr.md](remote-host-root-pooling-adr.md) | 同主机多 root 池化 ADR（测量 + 方案；默认关闭的池化路径已实现，真机验收未做） |
 | [remote-wsl-verification-log.md](remote-wsl-verification-log.md) | SSH/WSL 功能收敛的验证证据（现行台账） |
 | [remote-acceptance-55dd5b702.md](remote-acceptance-55dd5b702.md) | 检查点 55dd5b702 独立验收：四焦点复核、Linux 证据、真实 SSH 方案、旧文档同步 |
+| [ci-linux-known-failures.md](ci-linux-known-failures.md) | Linux CI 既有红挂账（remote/SSH）与硬门禁/跟踪边界 |
 | [process-group-implementation-contract.md](process-group-implementation-contract.md) | 过程组冻结契约（已实现） |
 | [release-process.md](release-process.md) | 发版流程 |
 | [release-test-shape-exceptions.md](release-test-shape-exceptions.md) | `check:test-shape` 基线例外 |
