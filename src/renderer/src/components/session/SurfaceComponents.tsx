@@ -1372,8 +1372,9 @@ function ConversationOutlineView(props: ConversationOutlineProps) {
 		return () => observer.disconnect();
 	}, []);
 	const outlineItemIndex = useMemo(() => createOutlineItemIndex(props.items), [props.items]);
-	// 滑动窗口：最多 RAIL_TICK_LIMIT 条，以当前阅读位置为中心。底部时就是「最新的 30 条」，
-	// 往上翻窗口跟着上移，更早的提问进入窗口（上滑即显示更多）。
+	// 条数与取哪几条：railBuckets —— 最多 RAIL_TICK_LIMIT 段覆盖**整个会话**，
+	// 超过就按条数均分、每段只画段首。早先是「以阅读位置为中心的滑动窗口」，它让刻度纵向
+	// 位置不等于会话进度、翻上翻下整列平移（2026-11 真机「一开始显示不全、翻回来退化」）。
 	// 先按源下标定位 active（高亮用），再分段、再规划间距。
 	const activeSourceIndex = railActiveId === undefined ? -1 : (outlineItemIndex.get(railActiveId) ?? -1);
 	const visibleItems = useMemo(() => railBuckets(props.items), [props.items]);
