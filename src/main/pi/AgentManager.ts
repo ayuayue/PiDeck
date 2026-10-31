@@ -1634,7 +1634,20 @@ export class AgentManager {
 			}
 			return undefined;
 		};
-		const oldestEntryId = pickAnchorEntryId(page) ?? pickAnchorEntryId(list);
+		// 回退锚点只能在 page **之前**找，且取离 page 最近的（倒序扫）：
+		// 若回退到整个 list，一旦窗口首条无 entryId，锚点必然落到请求锚点自身（list[pos]），
+		// nextBefore 原地踏步——每次点「加载更多对话」都返回同一页，界面毫无变化
+		// （2026-10 反馈：按钮出现了但点了没反应；关掉 runtime 走文件路径就正常）。
+		const pickAnchorEntryIdBefore = (end: number): string | undefined => {
+			for (let i = end - 1; i >= 0; i -= 1) {
+				const id = list[i]?.meta?.entryId;
+				if (typeof id === "string" && id) return id;
+			}
+			return undefined;
+		};
+		const oldestEntryId = pickAnchorEntryId(page) ?? pickAnchorEntryIdBefore(start);
+		// 缓存里没有能当锚点的更早条目：缓存这条线索到此为止，交给文件路径按数值 before 继续翻。
+		if (!oldestEntryId) return null;
 		const nextBefore = oldestEntryId ? ((await this.sessionHistoryReader.resolveEntryPosition(sessionPath, oldestEntryId)) ?? null) : null;
 		const total = await this.sessionHistoryReader.getActiveEntryCount(sessionPath);
 		// 与文件路径同口径的会话文件版本：渲染层据此检测压缩/外部改写并丢弃已缓存的历史前缀
