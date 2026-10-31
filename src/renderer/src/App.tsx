@@ -116,6 +116,7 @@ import { useCommandPalette } from "./hooks/app/useCommandPalette";
 import { useSidebarArchiveActions } from "./hooks/sidebar/useSidebarArchiveActions";
 import { useSettingsUpdater } from "./hooks/settings/useSettingsUpdater";
 import { useTpsDisplayMode } from "./hooks/settings/useTpsDisplayMode";
+import { useSendShortcut } from "./hooks/settings/useSendShortcut";
 import { useSessionRunControl } from "./hooks/session/useSessionRunControl";
 import { useCloseSessionTabShortcut } from "./hooks/useCloseSessionTabShortcut";
 import { useProjectFileTreeController } from "./hooks/files/useProjectFileTreeController";
@@ -1009,6 +1010,7 @@ export function App() {
 	// 激活 Agent 数量告警：受设置 agentCountReminderEnabled 控制（默认开启），每个启动周期提示一次
 	useAgentLoadNotice(settings.agentCountReminderEnabled);
 	useTpsDisplayMode(settings.tpsDisplayMode);
+	useSendShortcut(settings.sendShortcut);
 
 	// 架构错包检测：x64 包跑在 Apple Silicon（Rosetta）下时提示换装 arm64 原生包（可永久关闭）
 	useArchMismatchNotice();
