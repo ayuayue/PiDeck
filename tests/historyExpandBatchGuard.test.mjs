@@ -18,10 +18,7 @@ const source = readFileSync(new URL("../src/renderer/src/hooks/useSessionTimelin
 
 test("待扩量超过单链上限时一次性推开", () => {
 	assert.match(source, /TURN_WINDOW_EXPAND_MAX_CHAIN_TURNS\s*=\s*\d+/);
-	assert.match(
-		source,
-		/const batch = backlog > TURN_WINDOW_EXPAND_MAX_CHAIN_TURNS \? backlog : Math\.min\(TURN_WINDOW_EXPAND_BATCH_TURNS, backlog\);/,
-	);
+	assert.match(source, /const batch = backlog > TURN_WINDOW_EXPAND_MAX_CHAIN_TURNS \? backlog : Math\.min\(TURN_WINDOW_EXPAND_BATCH_TURNS, backlog\);/);
 });
 
 test("窗口轮数不超过已加载消息数", () => {
@@ -30,10 +27,7 @@ test("窗口轮数不超过已加载消息数", () => {
 });
 
 test("补页遇到「补不出新内容」立即结算，不再空转", () => {
-	const stage = readFileSync(
-		new URL("../src/renderer/src/components/session/SessionSurfaceStage.tsx", import.meta.url),
-		"utf8",
-	);
+	const stage = readFileSync(new URL("../src/renderer/src/components/session/SessionSurfaceStage.tsx", import.meta.url), "utf8");
 	assert.match(stage, /const noProgress =/);
 	assert.match(stage, /if \(step === "load" && !noProgress\)/);
 	// 发下一页必须让出一轮：同步发会让 effect → setState → effect 连成嵌套更新链
