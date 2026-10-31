@@ -1,7 +1,7 @@
 # ADR：同主机多项目 root 池化（测量 + 方案）
 
-> 状态：**Proposed（仅测量与设计；本轮不改生产代码）**。初稿从 dev `187c96041` 起；当前 `dev` 已到 `f6f4eeaf6`，实现前请以当前 HEAD 重新核对 §2 的 file:line。本文与
-> `tests/remoteRootSwitchProbe.mjs`。任何实现都要另行批准，并且必须先合入测量门槛与回滚开关。
+> Status: **Active plan（2026-10-31 更新；池化生产实现尚未落地）**。初稿从 dev `187c96041` 起；本次核对基线 `24529c394`，实现前按当前代码复核 §2 的 file:line。
+> 测量脚本为 `tests/remoteRootSwitchProbe.mjs`；并行派工与前置同步见 [remote-project-parallel-handoff.md](remote-project-parallel-handoff.md)。先明确测量门槛与回滚边界，再实施默认关闭路径；真实远端连接与默认开启验收分别处理。
 >
 > 相关前置：`docs/archive/remote/remote-functional-optimization-plan.md` F3（切 root 仍重建会话，只复用已验证安装内容）、
 > `docs/archive/remote/remote-phase4-plan.md` B7（`--root` 每连接一个）、`docs/archive/remote/remote-development-plan.md` `7（`root.register`
@@ -27,7 +27,7 @@
 
 **建议**：选 **B（main 侧按 (hostId, root) 的 helper 会话池）**，分阶段落地；不做 A（helper 内
 `root.register` 多 root 协议）作为第一步——A 要改冻结协议/所有 fs+git 方法/安全边界，收益与 B 相同
-但风险高一个数量级。B 的默认容量先 2，空闲 TTL 淘汰，单会话路径保留为降级/回滚。
+但涉及的协议与安全改动范围更大。B 的空闲保温候选容量为 2，活跃租约与总资源预算另管，不作为可打开项目数上限；单会话路径保留为启动时回滚选项。
 
 ## 2. 现状路径（源码事实）
 
@@ -63,11 +63,11 @@
 - `setWorkspaceRoot`（`:1026-1031`）：设置页确认浏览 root 时直接 `discard`（root 是启动参数，不能热改）。
 - store revision 变化（重绑/禁用/重验）：`ensureHeld` 发现 held revision 不符则 `discard`（`:502-510`）。
 - 显式 `disconnect`/`dispose`：关 manager；`explicitlyDisconnected` 阻止后台读偷偷重连。
-- 会话扫描/配置根：`RemoteSessionScanner` 用 `remoteHomeEnsuring`；它们与项目读共享同一操作锁与
-  workspace base 机制，root 切换同样会重建会话。
+- 会话扫描/根解析：生产装配已注入一次性 command transport（`remoteSessionIpc.ts`、`remoteRuntimePort.ts`），
+  不再因常规扫描切换 helper root。兼容 helper 路径仍存在，不能把它当作生产扫描尚未迁移；title/register 等实际调用另按源码核对。
 - 测试约束：`tests/remoteHostConnectionService.test.mjs:467` 明确断言「换 workspace base ⇒ 丢弃 held、
   新 manager 使用新 root」；`remoteProjectReadIsolation` / `remoteProjectRootStatusIsolation` 钉住
-  串根/项目隔离。**池化不能删这些断言**，只能新增池化路径并在同一不变量上扩展。
+  串根/项目隔离。池化须保留旧模式的有效行为覆盖，并新增池化模式验证；测试组织或过时预期可按工程标准更新，不能丢掉仍有效的不变量。
 
 ## 3. 容量与失败模式
 
@@ -173,15 +173,17 @@
 
     RootSessionPool
       key: <hostId> | canonicalRoot        // canonical root 来自项目 locator + verifyRoot
-      entry: { manager, held, root, revision, connectionId, lastUsedAt, state, inflight }
-      容量: maxEntries 默认 2（可 1..4，设置项/实验开关），LRU by lastUsedAt
-      淘汰: 空闲 TTL 默认 10 min；显式 disconnect/rebind/disable/store-revision 变化 ⇒ 全部淘汰
-            正在执行的操作（inflight>0）不可淘汰；达到容量且全部 busy ⇒ 排队/明确降级，不静默串根
+      entry: { manager, held, root, revision, connectionId, lastUsedAt, state, inflight, leases }
+      空闲保温: 候选容量 2、TTL 10 min、LRU；不限制登记/打开项目数量
+      活跃资源: 执行 lease 不可淘汰；订阅需保活或显式暂停策略；总资源预算独立且有界
+      满载: 可取消、有超时的等待或稳定拒绝；不无限排队、不静默串根
+      主机变更: 显式 disconnect/rebind/disable/store-revision 变化使全池失效；写结果不自动重放
 
 - **获取（acquire）**：以 `(host, root)` 为键的 per-key 锁（替代/扩展当前 per-host 锁）。命中且
   `state=ready` ⇒ 直接返回 session（只做 generation/route 快速复核，不 probe、不 bootstrap）。未命中 ⇒
   在 per-key 锁内 `verifyProjectRoot` → `ensureHeld`（held 可按 host 共享 node 发现/已部署事实）→
   `manager.connect` → 放入池。**同一 host 不同 root 的 acquire 可以并行**；同 root 并发合并。
+  `requireReady` 仍允许主机在线时首次创建另一个项目的 helper；显式断开不能被后台读取复活。
 - **路由**：`RemoteProjectSession.connectionId` 继续作为事实/渲染层代数（每 root 不同）；session 的
   `request/cancel/runCommand` 绑定到池条目的 manager。旧 session 在条目被淘汰后失败关闭
   （`SSH_HOST_NOT_READY`），调用方可重新 acquire（读可重试、写不重放）。
@@ -189,29 +191,35 @@
   revision 读、node 发现、bootstrap）用更短锁或按 host 的轻量锁保护，避免 A 的 bootstrap 阻塞 B 的已
   就绪读。Host 级诊断/needs-attention 不被单 root 失败驱动（继续 per-project rootFailures）。
 - **watcher 关系**：`RemoteDirWatchRegistry` 从「host → 一代」升级为「host → sessionKey → 一代」；
-  换代只清对应 root 的登记。每 helper 仍有 4×32，因此两个项目各用自己的预算，不再互相占满。
-- **facts 关系**：`RemoteFactCache` 的 generation 已是 `connectionId`，天然按 root 隔离；`projectGenerations`
-  继续 per-project；`lazyDirTree` 只在**同一项目**的 generation 变化时重载，不因另一个项目切 root 而清树。
+  main 内 helper 事件也必须携带 session 身份，相同 watchId 不同 session 不能混用；换代只清对应 root 的登记。
+  每 helper 仍有 4×32；订阅保活/暂停和预算回收成对处理。
+- **facts 与能力来源**：缓存已有 generation 围栏，但当前目录/Git 读仍调用 host-only `connectionFacts(hostId)`，
+  搜索/rootStatus 仍调用 `helperCapabilities(hostId)`，并未天然按 root 隔离。新增 main 私有的按 root 事实查询，
+  迁移 `remoteProjectIpc`、`remoteGitReadIpc`、`remoteProjectReadIpc` 的项目消费者；查询不建连、不回退兄弟 root。
+  `projectGenerations` 继续 per-project，`lazyDirTree` 只响应自身代数变化。保留 host 管理入口供真正的主机控制使用。
 - **淘汰/清理**：manager.dispose（async）→ helper 随 stdin EOF 退出；watcher 随会话死亡（registry 换代
-  不假装退订）；待处理请求失败关闭；terminal PTY 不受影响（既有语义）；池表本身 LRU + TTL 有界。
-- **安全**：每条目仍由 `verifyProjectRoot` + hello root equality 证明边界；不能因为「池里有旧 verify」
-  跳过 root 复核（root 可在会话存活期间被替换）；ticket/route/revision 校验不跳过；root 仍是 session
-  的启动参数，不是帧内过滤器。
+  不假装退订）；root 退休发独立内部通知，不调用还会关闭全 host 终端的 `onDisconnect`；terminal PTY 不受影响。
+  有执行 lease 时不可因 TTL/LRU 拆会话；租约和队列释放/取消必须可测，不能留下预算外的 host 管理 helper。
+- **安全**：热 acquire 只做本地 manager/generation/route/revision 身份检查；冷建立/重建仍做 `verifyProjectRoot`
+  与 hello root equality；具体读写/启动操作保留既有路径与 root 边界复验。池命中不是跳过操作边界校验的理由，
+  也不要求每次命中重复整套 SSH 探测。root 仍是 session 启动参数，不是帧内过滤器。
 
 ### 5.3 迁移步骤（每步独立可回滚）
 
 1. **B0 测量基线**：把本 ADR 的 probe 纳入 `tests/` 文档流程（非默认单测）；补 `4.4 中 service 级与
-   N 目录测量；定义门槛（热命中目标 < 50 ms；N=2 远端常驻 ≤ ~120 MiB；无跨 root 读/串根）。
+   N 目录测量；定义门槛（热 acquire 本地管理开销目标 < 50 ms，不含 WAN 操作；N=2 夹具下约 120 MiB 为待复测预算；无串根）。
+   可先完成无 SSH 的基线/时序验收，真实主机测量需授权并在默认开启前完成。
 2. **B1 影子池（默认关闭）**：新增 `RemoteRootSessionPool`（main 私有），先用 feature flag/构造参数
    启用；现有单会话路径保留为默认。加指标：acquire hit/miss、创建次数、淘汰次数、每 root 的
    operation 等待时间、SSH/节点发现次数。**不改协议、不改持久化/存储**。
 3. **B2 路由与锁**：`withProjectSession` 改为 pool-backed；per-(host,root) 锁；同 root 合并；旧单会话
    行为在 flag=off 时逐字节保持。回归：现有 `remoteHostConnectionService`/`remoteProjectReadIsolation`/
-   `remoteProjectRootStatusIsolation` 全绿（不改断言，新增池化路径测试）。
-4. **B3 watcher/facts**：registry 键升级到 host+sessionKey；`RemoteDeepDirWatch` 按项目 session 登记；
-   渲染层无需改（generation 已是 per-project）。回归 `remoteDirWatch*`、`remoteFact*`、`lazyDirTree`。
+   `remoteProjectRootStatusIsolation` 全绿（保留旧模式有效覆盖，新增池化路径测试；更新过时预期时说明依据）。
+4. **B3 watcher/facts**：registry/事件键升级到 host+sessionKey；`RemoteDeepDirWatch` 按项目 session 登记；
+   目录/Git 缓存和能力查询改取 root-scoped facts。验证既有 per-project generation 通知能正确驱动 renderer，
+   不假定只改 pool 就已接全。回归 `remoteDirWatch*`、`remoteFact*`、`lazyDirTree`。
 5. **B4 默认开启**：flag 默认 on，容量/TTL 设置项与诊断（池条目、命中率、内存/连接数）；真实主机
-   e2e A/B 交替 + 目录展开计时；不满足门槛则回退 flag。
+   e2e A/B/C 三项目并发与交替 + 目录展开计时；不满足门槛则保持默认关闭。
 6. **B5（可选）**：若 B 的 SSH/进程开销仍不可接受，再评估 A（helper 多 root）或 Node/runner 共用传输；
    不在 B 落地前启动。
 
@@ -219,31 +227,32 @@
 
 - 代码回滚：每次提交独立；B1/B2/B3 都保留 flag=off 的单会话路径，回滚只需 flag=off（或 revert 对应
   提交），无数据迁移、无 schema 变化。
-- 运行期回滚：关闭池后立即 dispose 所有额外条目，保留当前活跃条目迁移为单会话（或直接断开让用户重连，
-  与今天切 root 语义一致）；watcher/facts 随之换代，不残留跨代登记。
-- 观测回滚：指标发现异常（内存增长、命中率低、root 复核失败率升高）自动降级 flag 并记录稳定码。
+- 首版开关在构造/启动时选择，不在运行期为了降级立即 dispose 在途写。切回旧路径在正常退出/用户授权重启后生效。
+- 指标异常记录诊断并保持后续启动默认关闭；如以后需要运行期切换，须单独设计停止接单、drain/取消与 unknown 结果，禁止自动重放。
 
 ## 6. 验证矩阵
 
 | 层 | 用例 | 断言 |
 | --- | --- | --- |
 | 单元 | acquire 命中/未命中/同 key 并发合并 | 命中 0 次 bootstrap/0 次 SSH；并发只建 1 个条目 |
-| 单元 | 容量 2 + 第 3 个 root | 先淘汰 idle LRU；全部 busy 时明确降级（不串根、不静默等待） |
+| 单元 | 空闲保温容量 2 + 第 3 个 root | 项目可登记/打开；按独立资源预算接纳，满载时可取消有界等待/拒绝，不串根 |
 | 单元 | TTL 淘汰 / 显式 disconnect / store revision 变化 | 条目 dispose、旧 session 请求失败关闭、无残留 watcher |
-| 行为 | A/B 两项目交替读（真实或 fake 端口） | 结果只来自各自 root；A 慢读不阻塞 B 的已就绪读 |
-| 行为 | 切 root 后旧 session 写/读 | 失败稳定码，不重放；新 acquire 成功 |
-| watcher | 两个 root 各自 fs.watch | 登记按 sessionKey 隔离；旧 watchId 事件不影响新 root |
+| 行为 | A/B/C 三项目交替与并发读（真实或 fake 端口） | 结果只来自各自 root；A 慢读不阻塞 B 的已就绪读 |
+| 行为 | 仅访问兄弟 root | 原 root 的 connectionId/session 保持有效，在途操作不因切项目失败 |
+| 行为 | 所属 root 条目退休/重建或 host 重绑后的旧 session 写/读 | 失败稳定码，不重放；新 acquire 按当前身份判定 |
+| watcher | 两个 root 各自 fs.watch，watchId 相同 | 登记和事件按 sessionKey 隔离；旧代事件不影响新 root |
+| 生命周期 | 执行/订阅 lease、TTL、root 退休 | 活跃操作不被回收；单 root 失效不关闭邻居终端或清全 host watch |
 | facts | generation 变化 | 仅该项目缓存换代；兄弟项目不丢树/不重读 |
 | 失败注入 | root drift、SSH 断链、rebind、cancel | 稳定码按项目记录；host 不被单 root 拖入 needs-attention |
 | 资源 | N=1..4 soak（1000 次读/root） | RSS/线程/SSH 连接数有界；TTL 后回落 |
 | 真机 | A/B 交替 50 次 | p50/p95 切换延迟、命中率、bootstrap 次数、失败码计数达标 |
-| 既有回归 | `remoteHostConnectionService`、`remoteProjectReadIsolation`、`remoteProjectRootStatusIsolation`、`remoteDirWatch*`、`remoteProjectIpc` | 全绿，原断言不改 |
+| 既有回归 | `remoteHostConnectionService`、`remoteProjectReadIsolation`、`remoteProjectRootStatusIsolation`、`remoteDirWatch*`、`remoteProjectIpc` | 当前契约下全绿；旧模式有效覆盖保留，测试演进有依据和覆盖说明 |
 
 ## 7. 决定
 
-- **接受 B 作为方向，但本轮不实现**：先补 `4.4 的 service 级/N 目录/失败注入测量与门槛；B0/B1 需要
-  单独批准。
+- **接受 B 作为方向，生产实现待派工**：按并行交接的 P 任务给出实施计划，先做默认关闭路径与离线门禁；
+  真实主机接入另取授权，默认开启前完成 §4.4 的关键测量与多项目验收。
 - **拒绝 A 作为第一步**：多 root 助手协议改动过大，且 watcher/并发预算共享会引入新的队头阻塞；若 B
   的进程/内存成本不可接受，再单独立项评估 A。
 - **拒绝 C**：共享 SSH 传输会削弱 pin/route 的逐次证明语义。
-- 在 B 实现前，现行单会话路径保持不动；本文与 probe 只提供测量方法与设计，不改变任何生产行为。
+- 本文修改不代表池化已经实现；后台存活、独立多端接回与常驻 server 不在本阶段范围。

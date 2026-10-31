@@ -5,15 +5,15 @@
 
 > 用途：把「同主机多项目 root 池化」的生产实现交给新会话。设计权威是
 > `docs/remote-host-root-pooling-adr.md`（已含现状 file:line、方案对比、B0–B5 迁移、回滚、验证矩阵、真机测量）。
-> 本文件只补“开工须知”，不重复 ADR 内容。
+> 并行派工先读 [remote-project-parallel-handoff.md](remote-project-parallel-handoff.md)，执行其中 P 任务；本文件保留池化专用阅读与验证入口。
 
 ## 0. 状态
 
 - 仓库：`F:\PiDeck`，主工作树在 `dev`。
-- 本任务起点：`dev` = `f6f4eeaf6`（已合入 origin/dev 商业化 UI Wave 1–7、ACP/DSH/EasyTier 与工作区面板服务缝 Phase A）。
+- 本次核对基线：`dev` = `24529c394`（已同步 origin/dev，含 Phase A 与 DSH runtime 更新）。
 - 远端：`origin` = github.com/ayuayue/PiDeck。origin/dev 已合入；若开工时 HEAD 已变化，以实际 `git log` 为准。
-- 本轮只交付了 ADR + 探针（`docs/remote-host-root-pooling-adr.md`、`tests/remoteRootSwitchProbe.mjs`），**生产代码零改动**。
-- 历史工作 worktree（w1–w4/v/ws1–ws4）已清理；只剩 `F:\PiDeck`、`F:\PiDeck-cloud-sync`、`F:\PiDeck-remote`（后两个属其他工作流，勿动）。
+- 池化仍只交付 ADR + 探针，**尚无池化生产实现**。并行交接中的 A0 是独立 renderer stat 修复，不能算池化完成。
+- 当前工作树/分支清单以开工时的只读检查为准，不清理其他工作流；未提交前置不会自动进入新 worktree，按并行交接 §2 同步。
 
 ## 1. 先读（按顺序）
 
@@ -24,21 +24,21 @@
 
 ## 2. 任务
 
-按 ADR §5.3 实现 **B0–B4**（B5 可选，不在本任务内）：
+按 ADR §5.3 分片实现 **B0–B4**（B5 不在本任务内）；P 先交付默认关闭路径与离线门禁，B4 默认开启另过真实场景验收：
 
-- **B0 测量基线**：补 ADR §4.4 的未测量项（service 级耗时、换代后 N 目录重读/4×32 rewatch、真实 drift/断链/rebind 失败注入、N>2 内存、渲染层感知；WSL/macOS 不测），把探针纳入文档流程并定门槛：**热命中 < 50 ms、N=2 远端常驻 ≤ ~120 MiB、无跨 root 串读**。
+- **B0 测量基线**：先准备离线时序/隔离基线与 ADR §4.4 的测量项；热 acquire < 50 ms 指本地管理开销，不含网络操作；N=2 约 120 MiB 是待复测预算。真实主机接入需授权，默认开启前补验收。
 - **B1 影子池（默认关闭）**：新增 main 私有 `RemoteRootSessionPool`（feature flag/构造参数），旧单会话路径保留为默认；指标：acquire hit/miss、创建/淘汰次数、每 root operation 等待、SSH/节点发现次数。**不改协议、不改持久化**。
 - **B2 路由与锁**：`withProjectSession` 改为 pool-backed；per-(host,root) 锁；同 root 合并；**flag=off 时旧行为逐字节保持**。
-- **B3 watcher/facts**：`RemoteDirWatchRegistry` 键升级为 host + sessionKey；facts 仍按 `connectionId` 换代；`lazyDirTree` 不因兄弟项目换 root 清树。
-- **B4 默认开启**：设置项/诊断（池条目、命中率、内存/连接数）+ 真机 A/B 交替验收；不达标回退 flag。
+- **B3 watcher/facts**：registry 与 helper 事件按 host + sessionKey；目录/Git/能力查询改用 root-scoped facts；root 退休不走关闭全 host 终端的回调；`lazyDirTree` 不因兄弟项目换代清树。
+- **B4 默认开启**：设置项/诊断 + 真机 A/B/C 多项目验收；不达标保持默认关闭。开关首版按启动选择，不在运行期自动拆掉在途写。
 
-**第一步只做计划**：复述 §5.2 池形状与 B0–B4，列出每步改动文件、测试、回滚点、门槛，交用户审核后再写代码。
+**实施前先给计划**：列出每片改动文件、测试、回滚点、门槛。用户按并行交接提示词明确分派 P 后，可执行其默认关闭与离线实施范围；不把派工扩大为提交/合并、外部连接或重启授权。
 
 ## 3. 硬约束
 
 - 不 push / 不 merge 到远端 / 不发布（除非用户明确要求）；不跑 `npm run build` / `preflight` / `pack`；不装依赖；不升级 Electron/pi；不改 pi 活着的会话 JSONL。
 - 不清理/暂存/重置他人未提交工作；跨目录写用 `git worktree`。
-- TDD 红→绿；**不改/放宽既有断言**（存量写法过时单独开任务）；每条通道改动的测试先红后绿。
+- TDD 红→绿；需求/契约变化可同步更新相关过时测试，说明依据与覆盖变化，保留仍有效的回归和安全边界；不为消红弱化验证。
 - 门禁：`npm run typecheck` + 针对性 `node --test` + `check:ipc-wiring` + `check:test-shape` + `check:format`；全量 `npm test` 只在阶段集成时跑（约 7–13 分钟，交叉安装可能更慢）。
 - 生成物：改 zh-CN 文案后跑 `node scripts/genZhTwCopy.mjs`，`*.zh-TW.ts` 不手改；Lead 统一重生成。
 - 团队上限 8；每个写任务用独立 worktree；公共汇聚文件（`main/index.ts`、i18n copy、`package.json`）同一时刻只许一个写者。
@@ -56,4 +56,4 @@
 
 ## 6. 与远端分叉的处理
 
-`origin/dev` 已有 48 个新提交（含 `package.json`、`src/main/index.ts`、`src/main/config/ConfigManager.ts`、`scripts/testShapeBaseline.json` 等）。**开新会话前先决定**：先把 `origin/dev` 合入 `dev`（冲突可能集中在 `main/index.ts`、`ConfigManager`、i18n、testShapeBaseline），还是从最新 `origin/dev` 起新分支做池化。不要直接 force-push `dev`。
+本次基线 `24529c394` 已同步 origin/dev；不再执行旧交接中的“先合入 48 个提交”。后续先只读检查实际分叉，不因文档指令自动 fetch/merge/force-push；并行任务的共同基线由协调人登记。
