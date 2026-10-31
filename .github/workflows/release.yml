@@ -459,3 +459,48 @@ jobs:
           done
           echo "::error::上传 ${ARCHIVE} 到 ${TAG} 失败"
           exit 1
+
+  # 发布收尾：显式把本次 tag 设为 GitHub `/releases/latest` 并断言生效。
+  #
+  # 为什么必须有这一步（2026-10-31 v0.9.9 事故）：Release 若是先作为 draft/预发布暂存
+  # 建好（如 "vX.Y.Z (runtime staging)"），再由 build 矩阵向它补资产、并把 prerelease
+  # 翻成 false，GitHub **不会**把它提升为 latest —— latest 仍停在上一版，CI 却全绿。
+  # 后果：Windows（electron-updater 读 /releases/latest）与 macOS/Linux 手动更新（读
+  # /releases/latest 的 302）全部拿到旧版本，用户完全收不到这次更新。
+  # 所以不在 publish 步骤依赖 action 的 make_latest 默认值，而是在全部资产上传完成后
+  # 用一次显式 PATCH 兜住，并把「latest 是否已指向本 tag」作为发版门禁。
+  finalize-release:
+    name: Finalize latest pointer
+    needs: [resolve-version, build-release, pack-dsh-runtime]
+    # dev 通道恒 prerelease，不抢占 latest（GitHub 也不允许 prerelease 成为 latest）。
+    if: needs.resolve-version.outputs.prerelease != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Set latest pointer and verify
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          TAG: ${{ needs.resolve-version.outputs.tag }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^v[0-9] ]]; then
+            echo "::error::目标不是应用版本 tag（got ${TAG}）"
+            exit 1
+          fi
+          # 名称对齐 tag：预发布暂存期的命名会原样留在 Release 页面上。
+          gh api -X PATCH "repos/${REPO}/releases/tags/${TAG}" -f name="$TAG" -F make_latest=true >/dev/null
+          # /releases/latest 有缓存窗口，重试到指向本 tag（最长 60s），超时按失败处理。
+          actual=""
+          for attempt in $(seq 1 12); do
+            actual="$(gh api "repos/${REPO}/releases/latest" --jq .tag_name)"
+            if [ "$actual" = "$TAG" ]; then
+              echo "✅ /releases/latest → ${TAG}"
+              exit 0
+            fi
+            echo "latest 仍为 ${actual}，等待 5s 后重试（${attempt}/12）"
+            sleep 5
+          done
+          echo "::error::/releases/latest 仍为 ${actual}（期望 ${TAG}）——本次发布后存量客户端收不到更新"
+          exit 1
