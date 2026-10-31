@@ -6247,6 +6247,8 @@ app
 				if (settings.acpEnabled !== true) return [];
 				return (settings.acpTools ?? []).filter((tool) => tool.enabled).map((tool) => ({ id: tool.id, name: tool.name }));
 			},
+			// 宿主版本号：/api/state 的 version 投影，Web 端侧栏底栏展示。
+			getAppVersion: () => app.getVersion(),
 			listProjects: () => projectStore.list().filter(isLocalProject),
 			createProject: (path) => projectStore.add(path),
 			deleteProject: async (projectId) => {

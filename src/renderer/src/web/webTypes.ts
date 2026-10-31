@@ -76,6 +76,8 @@ export type WebState = {
 	acpTools?: WebAcpTool[];
 	/** Pi 会话安全等级（全局默认 + 会话覆盖）；缺失=服务端未装配安全管理，不渲染入口 */
 	security?: WebSecurityState;
+	/** 宿主应用版本号（侧栏底栏展示）；缺失=服务端未下发，不渲染版本位 */
+	version?: string;
 };
 
 /** /api/state 下发的 ACP 工具条目（command/args/env 不外发）。 */

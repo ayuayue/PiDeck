@@ -23,7 +23,10 @@ import { sessionStatusDotClass } from "@/agentListDisplay";
 import { WebBackendMark } from "./WebBackendMark";
 import type { WebAcpTool, WebProject, WebRuntime, WebSession, WebState } from "./webTypes";
 
-const projectRowClass = "conversation relative w-full min-h-9 items-center gap-1.5 rounded-lg border border-transparent bg-background px-3 py-1 text-left text-body text-foreground shadow-none transition-[background-color,border-color] duration-200 hover:border-border-subtle hover:bg-muted/60 hover:text-foreground";
+/* 行本体透明（dsh-web 列表语言：扁平行融入 layer-2 面，hover/选中才铺填充）；
+   白卡 pill 观感来自 bg-background，2026-10 侧栏走查后回收。
+   px-2 + 16px 折叠盒收紧缩进链：窄抽屉里项目名不能被推出半屏。 */
+const projectRowClass = "conversation relative w-full min-h-9 items-center gap-1.5 rounded-lg border border-transparent px-2 py-1 text-left text-body text-foreground shadow-none transition-[background-color,border-color] duration-200 hover:border-border-subtle hover:bg-muted/60 hover:text-foreground";
 
 const sessionRowClass = "conversation agent-row relative flex min-h-7 w-full items-center gap-1.5 rounded-md border border-transparent px-2 py-0 text-left text-body text-foreground shadow-none transition-[background-color,border-color] duration-200 hover:border-border-subtle hover:bg-muted/60 hover:text-foreground";
 
@@ -309,8 +312,8 @@ export function WebSidebar(props: {
 		<>
 			<button type="button" className={cn("mobile-sidebar-backdrop", mobileOpen && "is-open")} onClick={props.onCloseMobile} aria-label={t("web.closeProjects")} />
 			<aside className={cn("chat-list-pane flex h-full min-w-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground", mobileOpen && "mobile-open")} aria-label={t("app.search")}>
-				{/* 品牌区提到 body 外，与桌面侧栏一致贴顶 */}
-				<div className="list-toolbar flex h-10 shrink-0 items-center gap-1 px-0.5">
+				{/* 品牌区提到 body 外，与桌面侧栏一致贴顶；px-2 与下方搜索框同缘对齐 */}
+				<div className="list-toolbar flex h-10 shrink-0 items-center gap-1 px-2">
 					<div className="app-badge flex min-w-0 flex-1 items-center">
 						<WebBrandLockup />
 					</div>
@@ -325,7 +328,7 @@ export function WebSidebar(props: {
 							<Search size={14} className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
 							<Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("app.search")} className="h-9 pl-8" />
 						</div>
-						<Button type="button" variant="outline" size="icon" className="size-9 shrink-0" onClick={() => setAddingProject((value) => !value)} aria-label={t("web.newProject")} title={t("web.newProject")}>
+						<Button type="button" variant="ghost" size="icon" className="size-9 shrink-0 text-muted-foreground hover:text-foreground" onClick={() => setAddingProject((value) => !value)} aria-label={t("web.newProject")} title={t("web.newProject")}>
 							<FolderPlus className="size-4" aria-hidden="true" />
 						</Button>
 					</div>
@@ -355,9 +358,9 @@ export function WebSidebar(props: {
 							const creating = creatingProjectId === project.id;
 							return (
 								<div key={project.id} className="project-group mb-2">
-									<div className="project-row flex min-w-0 items-center gap-0.5">
+									<div className="project-row group/project flex min-w-0 items-center gap-0.5">
 										<button type="button" className={cn(projectRowClass, "flex min-h-8 min-w-0 flex-1")} disabled={Boolean(creatingProjectId)} onClick={() => toggleProject(project.id)} title={project.path}>
-											<span className={cn("project-fold grid size-5 place-items-center text-muted-foreground", !expanded && "folded")} aria-hidden="true">
+											<span className={cn("project-fold grid size-4 place-items-center text-muted-foreground", !expanded && "folded")} aria-hidden="true">
 												<PlayIcon expanded={expanded} />
 											</span>
 											<div className="conversation-body min-w-0 flex-1">
@@ -368,7 +371,8 @@ export function WebSidebar(props: {
 												</div>
 											</div>
 										</button>
-										<div className="project-row-actions flex shrink-0 items-center gap-0.5">
+										{/* 动作钮悬停显隐（与桌面侧栏同范式）；触屏（hover:none）与键盘焦点常显 */}
+										<div className="project-row-actions flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/project:opacity-100 [@media(hover:none)]:opacity-100">
 											<Button type="button" variant="ghost" size="icon" className="project-action size-7 pointer-coarse:size-9" disabled={Boolean(creatingProjectId)} title={t("app.newSession")} aria-label={t("app.newSession")} onClick={() => props.onCreateSession(project.id)}>
 												{creating ? <span className="size-3 animate-pideck-spin rounded-full border border-current border-t-transparent" aria-hidden="true" /> : <Plus className="size-3.5" aria-hidden="true" />}
 											</Button>
@@ -424,11 +428,14 @@ export function WebSidebar(props: {
 						</AlertDialogContent>
 					</AlertDialog>
 				</div>
-				{/* 底栏连接状态 */}
-				<div className="toolbar-actions sidebar-bottom-actions flex shrink-0 items-center gap-0.5 border-t border-border px-1.5 py-1">
+				{/* 底栏连接状态：px-2 与侧栏主体同缘 */}
+				<div className="toolbar-actions sidebar-bottom-actions flex shrink-0 items-center gap-0.5 border-t border-border px-2 py-1">
 					<div className="flex min-w-0 flex-1 items-center gap-2 text-caption text-muted-foreground">
-						<span className={cn("size-1.5 shrink-0 rounded-full", connected ? "bg-primary" : "bg-warning")} aria-hidden="true" />
+						{/* 连接态语义色：已连接=success 绿（主色 ink 在新语义档下读不出「通」），连接中=warning */}
+						<span className={cn("size-1.5 shrink-0 rounded-full", connected ? "bg-success" : "bg-warning")} aria-hidden="true" />
 						<span className="truncate">{connected ? t("web.connected") : t("web.connecting")}</span>
+						{/* 宿主版本号：远程端排查「桌面是新版、手机看到旧版」时的第一眼线索 */}
+						{state.version ? <span className="ml-auto shrink-0 font-mono text-micro text-muted-foreground/70">v{state.version}</span> : null}
 					</div>
 				</div>
 			</aside>

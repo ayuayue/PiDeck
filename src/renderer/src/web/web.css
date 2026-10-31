@@ -147,6 +147,17 @@
   border-color: transparent;
 }
 
+/* 项目 → 会话子列表：树形左导轨 + 收紧行距（缩进语义对齐桌面 SessionTree）。
+   原先 gap-2 + px-1 的松散排布在扁平行风格下会散掉（2026-10 侧栏走查）；
+   子代理会话折叠块（ml-3 缩进）在导轨内再退一层，层级仍然可读。 */
+.web-app .project-children {
+  margin-top: 2px;
+  margin-left: 14px;
+  gap: 2px;
+  padding: 0 0 2px 10px;
+  border-left: 1px solid var(--color-border-subtle);
+}
+
 /* 头部：细底边框 + 半透明毛玻璃（dsh-web 的浮层头部观感） */
 .web-app .web-header {
   background: color-mix(in srgb, var(--color-bg-app) 86%, transparent);
