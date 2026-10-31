@@ -7,7 +7,7 @@ import type { SessionMessageTimelineProps } from "./SessionMessageTimeline";
 import { SessionMessageTimeline } from "./SessionMessageTimeline";
 import { showNotice } from "../../utils/notice";
 import { outlineItemsBySessionIdAtomFamily, sessionHistoryMutationOverlayBySessionIdAtomFamily } from "../../atoms";
-import { isPendingRailItemId, mergeOutlineRailItems, pendingEntryIdOf, planRailPendingStep, RAIL_PENDING_MAX_ATTEMPTS } from "./timeline/outlineRailTicks";
+import { isPendingRailItemId, mergeOutlineRailItems, pendingEntryIdOf, planRailJump, planRailPendingStep, RAIL_PENDING_MAX_ATTEMPTS } from "./timeline/outlineRailTicks";
 import { useSessionOutlineDirectory } from "../../hooks/useSessionOutlineDirectory";
 import { formatTime, summarizeMessage } from "../app/AppUtils";
 import { replaceExpandedRefBlocksWithLabels } from "../../../../shared/expandedRefBlocks";
@@ -58,10 +58,20 @@ export function SessionSurfaceStage(props: { sessionId: string; sessionTimeline:
 				sessionTimeline.jumpToMessage(id);
 				return;
 			}
+			// 占位刻度只说明「目录里有、已加载消息里没有」，不含方向：它可能在更早的历史里，
+			// 也可能比已加载区间还新（live 提问的 entryId 与目录还没对上）。只有前者需要
+			// 向上补页；后者一路补到会话开头后只会误报「这条提问还在更早的历史里」
+			// （2026-11 真机：从第一条点最后一条）。方向判断见 planRailJump。
+			const plan = planRailJump(railItems, id);
+			if (plan.kind === "jump") {
+				setPendingEntryId(undefined);
+				sessionTimeline.jumpToMessage(plan.id);
+				return;
+			}
 			setPendingAttempts(0);
 			setPendingEntryId(pendingEntryIdOf(id));
 		},
-		[sessionTimeline],
+		[railItems, sessionTimeline],
 	);
 	// 补页循环：目标刻度还没加载时，一页一页向上补，直到命中 / 没有更早的页 / 保险丝烧断。
 	// 关键在「等上一页落地再发下一页」——旧实现每 60ms 轮询一次，而 loadMoreMessages 在上一页

@@ -122,6 +122,35 @@ export function pendingEntryIdOf(id: string): string | undefined {
 }
 
 /**
+ * 占位刻度该往哪个方向找（纯函数，可单测）。
+ *
+ * 占位刻度只说明「目录里有、已加载消息里没有」，它本身不含方向：
+ * 可能在对上号之前的老历史里（要向上补页），也可能比已加载的最新区间还新
+ * （live 消息的 entryId 还没和目录对上，向上补页永远补不到）。
+ *
+ * 2026-11 真机：从第一条的位置点最后一条（最新提问），旧实现无条件向上补页，
+ * 一路补到会话开头，然后弹「这条提问还在更早的历史里」——方向完全反了。
+ *
+ * 判据用目录顺序（= 时间顺序）：目标排在"最老的已加载条目"之前才需要补页。
+ */
+export function planRailJump(items: readonly OutlineRailItem[], targetId: string): { kind: "fill-earlier" } | { kind: "jump"; id: string } {
+	const targetIndex = items.findIndex((item) => item.id === targetId);
+	if (targetIndex < 0) return { kind: "jump", id: targetId };
+	const firstLoadedIndex = items.findIndex((item) => item.pending !== true);
+	// 一条都没加载（冷会话）：只能靠向上补页把数据拉进来
+	if (firstLoadedIndex < 0) return { kind: "fill-earlier" };
+	if (targetIndex < firstLoadedIndex) return { kind: "fill-earlier" };
+	// 目标在已加载区间之内或之后：直接交给 controller 扩窗/落位。
+	// 占位项没有投影 id，落到最接近的已加载项（目录尾部那一条）上。
+	const anchor = items[targetIndex].pending === true ? lastLoadedItem(items) : items[targetIndex];
+	return { kind: "jump", id: anchor?.id ?? targetId };
+}
+
+function lastLoadedItem(items: readonly OutlineRailItem[]): OutlineRailItem | undefined {
+	for (let index = items.length - 1; index >= 0; index -= 1) if (items[index].pending !== true) return items[index];
+	return undefined;
+}
+/**
  * 点击「目录里有、消息还没加载」的刻度后，下一步该做什么（纯函数，可单测）。
  *
  * 旧实现在渲染层每 60ms 轮询一次 loadMoreMessages，而它在上一页仍在飞时直接 return
