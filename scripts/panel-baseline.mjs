@@ -62,10 +62,17 @@ function readManifest() {
 		});
 }
 
-function write() {
+function write(force) {
 	const files = dirtyFiles(ROOT)
 		.filter((rel) => existsSync(join(ROOT, rel)))
 		.sort();
+	// 基线提交后工作树是干净的：这时 write 只会写出 0/1 条，绝不能覆盖已冻结的 48 文件记录。
+	if (!force && existsSync(MANIFEST_PATH)) {
+		const existing = readManifest().length;
+		if (files.length < existing) {
+			throw new Error(`拒绝覆盖清单：现有 ${existing} 条，本次只有 ${files.length} 条未提交文件。基线已提交时不要重写清单；确需重建请加 --force`);
+		}
+	}
 	const lines = files.map((rel) => `${sha256(join(ROOT, rel))}  ${rel}`);
 	writeFileSync(MANIFEST_PATH, `${lines.join("\n")}\n`, "utf8");
 	console.log(`[panel-baseline] wrote ${lines.length} files -> ${MANIFEST_REL}`);
@@ -140,7 +147,7 @@ const flag = (name) => {
 };
 
 try {
-	if (command === "write") write();
+	if (command === "write") write(rest.includes("--force"));
 	else if (command === "verify") process.exitCode = verify(resolve(flag("--dir") ?? ROOT));
 	else if (command === "sync") process.exitCode = sync(flag("--to"));
 	else {
