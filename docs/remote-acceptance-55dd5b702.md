@@ -13,7 +13,7 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 | 只读复核：root 退休作用域 | **通过** |
 | 只读复核：关闭项目期间的异步读围栏 | **通过**（3 条低风险观察项，见 §2.3） |
 | 只读复核：监听失败降级与恢复 | **通过**（1 条低风险观察项） |
-| 只读复核：显式断开后不自动复活 | **验收时失败（条件性 F1，仅 rootPooling 开启时可达）→ 修复已提供（未提交）**：“不自动复活”成立，但生产顺序下“清理 × retirement”交互未闭环；默认关闭的池化路径不受影响。复现见 §2.2，修复与验证见 §9 |
+| 只读复核：显式断开后不自动复活 | **验收时失败（条件性 F1，仅 rootPooling 开启时可达）→ 已修复并提交 `a905d4d7d`**：“不自动复活”成立，但生产顺序下“清理 × retirement”交互未闭环；默认关闭的池化路径不受影响。复现见 §2.2，修复与验证见 §9 |
 | Windows 定向复跑（本提交 6 个测试文件） | **通过**：62/62，0 skip（验收时 61 + §9 修复新增 1 例） |
 | Windows 全量 / 通用门禁 | **通过（既有声明；本轮未重跑全量，仅定向复跑 + typecheck/format/ipc-wiring 佐证）** |
 | Linux（WSL）本提交 6 个测试文件 | **通过**：61/61（验收时，0 skip）；修复后 lifecycle 7/7 复跑通过 |
@@ -21,9 +21,9 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 | Linux（WSL）根池化相关 4 文件 | **通过**：51/51 |
 | Linux（WSL）remote/ssh 全扫 | **失败（7 例，全部既有，非本提交引入）** + **跳过 11 例**；基线 HEAD~1 复跑失败数一致，详见 §3.3 |
 | 真实 SSH + Electron 端到端验收 | **未执行**（0 项；目标主机与范围待授权，方案见 §4） |
-| 旧文档失效状态审计 | **完成**（只指出，不修改旧文档；见 §5） |
+| 旧文档失效状态审计 | **完成并已同步旧文档**（manifest 未重建；见 §5） |
 
-**总体判定：默认生产构建（池化关闭）无阻断；本提交的四个修复方向中，前三个通过，第四个在池化开启场景存在条件性失败 F1。F1 已按“继续剩余工作”指示提供未提交修复与生产顺序回归（§9）；提交前需复核，池化默认开启前仍需 §4 真机验收。未修改生产池化默认值。**
+**总体判定：默认生产构建（池化关闭）无阻断；本提交的四个修复方向中，前三个通过，第四个在池化开启场景存在条件性失败 F1。F1 已按“继续剩余工作”指示修复并以 `a905d4d7d` 提交（含生产顺序回归，§9）；池化默认开启前仍需 §4 真机验收。未修改生产池化默认值。**
 
 ## 1. 基线与工作区核对（只读）
 
@@ -32,7 +32,7 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 | 分支 / HEAD | `dev` / `55dd5b7020c7501b74986f00ecd4eac47cd5fb5d` |
 | 基线（父提交） | `09aca4203`（`docs(git): 更新 Phase C 检查点状态与剩余验证项`） |
 | 范围 | `09aca4203..55dd5b702` = 1 个提交；`git diff --stat` = 12 文件，+845/−173 |
-| 工作区 | 验收复核期间 `git status --porcelain` 为空；验收文档落盘后新增本文档，修复阶段再修改 2 个文件（均未提交，见 §9） |
+| 工作区 | 验收复核期间 `git status --porcelain` 为空；验收文档与 F1 修复已在 `a905d4d7d` 提交；本节旧文档同步为后续文档提交（见 §9.3） |
 | 提交内容 | 新增 `src/main/ipc/remoteProjectDirFacts.ts`；改 `remoteProjectDirectoryReads.ts`、`remoteProjectIpc.ts`、`RemoteDeepDirWatch.ts`、`RemoteDirWatchDegradedHint.tsx`、`shared/types/projectFiles.ts`；新增/改 6 个测试文件 |
 | 仓库外产物 | F1 探针 `%TEMP%\pideck-f1\f1-probe.test.mjs`；完整方案草稿 `%TEMP%\pideck-acceptance\ssh-electron-plan.md`（均未入库） |
 
@@ -70,7 +70,7 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 
 **处置建议（验收时）**：池化默认开启前，按生产顺序补回归测试，并在“断开时清除目录事实 / 调整 retirement 与 generation 改写顺序 / 让暖缓存守卫区分 stale 与 current”三者中定一个方案；F1 修复前不得把池化默认开启当验收通过。
 
-**验收后修复（未提交）**：用户指示“继续把剩余工作做完、不删东西”后，已选“暖缓存守卫区分 stale 与 current”并补生产顺序回归；改动仅 2 个文件、未改写 55dd5b702，细节与验证见 §9。
+**验收后修复（已提交 `a905d4d7d`）**：用户指示“继续把剩余工作做完、不删东西”后，已选“暖缓存守卫区分 stale 与 current”并补生产顺序回归；改动仅 2 个文件、未改写 55dd5b702，细节与验证见 §9。
 
 ### 2.3 观察项与残余风险（均非本提交阻断）
 
@@ -232,9 +232,9 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 5. S4b（关闭与在途读竞态）窗口小，无法稳定复现时记“未覆盖”，不得记通过。
 6. 现有远端 E2E 不覆盖池化；只能作 R0 基线。
 
-## 5. 旧文档失效状态（只指出，不修改）
+## 5. 旧文档失效状态（已按建议同步；历史记录保留）
 
-审计对象为 6 份重点文档 + 1 个基线清单；「失效」= 与 HEAD 代码/可复现结果矛盾，「需更新」= 计数/基线/状态行过期。可复现证据：`node scripts/panel-baseline.mjs verify` 返回 rc=1、**16/48 mismatch**；`node scripts/check-test-shape.mjs` rc=0、sourceOnly 411。
+审计对象为 6 份重点文档 + 1 个基线清单；「失效」= 与 HEAD 代码/可复现结果矛盾，「需更新」= 计数/基线/状态行过期。可复现证据：`node scripts/panel-baseline.mjs verify` 返回 rc=1、**16/48 mismatch**；`node scripts/check-test-shape.mjs` rc=0、sourceOnly 411。下表保留审计时的原始描述；2026-10-31 已按建议更新文档（见本节末“更新记录”）。
 
 | # | 文件:行 | 旧描述 | 失效原因 / 建议 |
 |---|---|---|---|
@@ -252,6 +252,8 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 | 12 | `docs/remote-wsl-verification-log.md:3、:343` | “Status: Current；最新 sweep HEAD 2c4b35e51” | 台账为现行文档，但没有任何一条覆盖 55dd5b702 行为（watch-failed/关闭生命周期/TTL 重开）；属记录缺口。建议追加一节登记本文件与未执行真机项 |
 
 关联但不在本轮六份重点内：`docs/remote-host-root-pooling-adr.md:3` “池化生产实现尚未落地”已过期；其正文大量 file:line 已漂移，不能当现状引用。`docs/README.md:58` 关于 root-pooling-handoff 的“离线测试通过、真机验收未做”仍基本成立，但“离线测试”未含本提交新增 6 例，开启方式应补“改 main/index.ts 构造参数”。
+
+**更新记录（2026-10-31）**：已更新 `docs/remote-project-parallel-handoff.md`（§8.1 I0 快照注记、onRootRetired 语义、P 文件/测试增量、48/48 清单过期）、`docs/root-pooling-handoff.md`（Status/基线/已实现说明）、`docs/README.md:38/:58`、`docs/git-panel-phase-c-plan.md:3`、`docs/v-review-2026-10-31.md`（范围注记）、`docs/remote-wsl-verification-log.md:337`（历史注记 + §15）、`docs/remote-host-root-pooling-adr.md:3`（默认关闭实现已落地）。`docs/panel-service-baseline.manifest` 未手改（禁止手改单条哈希），需由清单所有者用 `panel-baseline.mjs` 重建。
 
 未审计：`docs/archive/**`、`docs/maintenance-domains.md`、`docs/unified-api.md` 等大文档；只按本检查点相关面审计。
 
@@ -293,12 +295,12 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 ## 8. 验收签字建议
 
 - **默认构建（池化关闭）**：可接受；本提交四个方向中 3 个通过，F1 不触发默认路径。
-- **池化默认开启**：**暂不可签收**——F1 修复已提供但未提交，需复核；随后按 §4 完成 R1 真机验收（含 TTL/sweep、显式断开、监听降级、A/B/C 隔离与清理终检），并处理 §2.3 的保活计数风险与 Linux CI 缺口。
+- **池化默认开启**：**暂不可签收**——F1 已修复并提交 `a905d4d7d`，仍需独立复核；随后按 §4 完成 R1 真机验收（含 TTL/sweep、显式断开、监听降级、A/B/C 隔离与清理终检），并处理 §2.3 的保活计数风险与 Linux CI 缺口。
 - **Git Phase C / Linux-only 既有红**：`remoteGitStability` 4 例在本 Linux 环境稳定红（基线同红），需另行挂账，不应被本检查点的“Windows 全绿”掩盖。
 
-## 9. 验收后修复（未提交，待用户决定是否提交）
+## 9. 验收后修复（已提交 `a905d4d7d`）
 
-按用户“继续把剩余工作做完、不删东西”的指示，在验收结论之后对 F1 做了最小修复；**未改写 55dd5b702，未 commit/push**。
+按用户“继续把剩余工作做完、不删东西”的指示，在验收结论之后对 F1 做了最小修复并提交（`a905d4d7d`）；**未改写 55dd5b702，未 push**。
 
 ### 9.1 改动
 
@@ -316,14 +318,14 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 | `npm run check:format` | **通过**（4263 files，无差异） |
 | `npm run check:ipc-wiring` | **通过**（795 channels 齐备，无重复） |
 
-### 9.3 当前工作区状态
+### 9.3 提交与当前工作区
 
-- HEAD 仍为 `55dd5b702`；提交历史未改。
-- `git status --porcelain`：`M src/main/ipc/remoteProjectDirFacts.ts`、`M tests/remoteProjectLifecycle.test.mjs`、`?? docs/remote-acceptance-55dd5b702.md`。
-- 未执行 `git add/commit/push`；是否提交由用户决定。
+- 修复提交：`a905d4d7d`（源码 + 回归测试 + 本验收文档）。
+- 旧文档同步：另作文档提交（见 §5“更新记录”）；不包含 `panel-service-baseline.manifest`。
+- 原检查点 `55dd5b702` 未被改写；未 push/merge。
 
 ### 9.4 仍未做
 
-- 旧文档 12 条失效状态的实际更新（本轮只指出，未改旧文档）。
+- 旧文档 12 条已按建议同步（manifest 需所有者重建）。
 - 真实 SSH + Electron 验收（§4，未执行；需目标与范围授权）。
 - Linux CI job（`ci.yml` 仅 windows-latest 跑单测）与 `remoteGitStability` 等既有 Linux 红的挂账/修复。

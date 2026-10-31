@@ -199,22 +199,22 @@ node --test tests/remoteGitFactsBoundary.test.mjs tests/remoteGitSnapshotFacts.t
 
 ## 8. I0 集成结果（2026-10-31）
 
-> 本节是**当前权威状态**。本文其余小节若与本节的「待实施」字样冲突，以本节与源码为准。
+> 本节是 **I0（24529c394）历史快照**；2026-10-31 更新：后续检查点 09aca4203、55dd5b702 与修复提交 a905d4d7d 已改变文件计数、基线清单与 root 退休语义，当前验收状态见 [remote-acceptance-55dd5b702.md](remote-acceptance-55dd5b702.md)。本文其余小节若与源码冲突，以源码为准。
 
 ### 8.1 集成工作区、落点与接线
 
 - **集成工作区：`F:\PiDeck`（`dev` @ I0 基线提交组，基于 `24529c394`）**。A0 与文档前置本来就在此；P 与 S/T 以显式文件同步并入，随后按来源拆成四个提交落到 `dev`（**未 push、未 merge**）；P、S/T 两个工作树的未提交成果原样保留（未 stash、未清理、未覆盖）。
 - 来源与文件数（逐文件 sha256 见 §8.4 的清单）：
-  - **P（main 池化）**：22 个 P 专属文件 = 6 改 src + 2 新增 src（`RemoteRootSessionPool.ts`、`remoteProjectWatchKeepAlive.ts`）+ 10 改测试 + 4 新增测试。另 2 个文件与 A0 逐字节相同（`projectFileService.ts`、`projectServiceStatRead.test.mjs`），未重复写入。
+  - **P（main 池化）**：22 个 P 专属文件 = 6 改 src + 2 新增 src（`RemoteRootSessionPool.ts`、`remoteProjectWatchKeepAlive.ts`）+ 10 改测试 + 4 新增测试（I0 快照；55dd5b702 增量：+1 src `remoteProjectDirFacts.ts`、+1 测试 `remoteProjectLifecycle.test.mjs`、改 2 个测试）。另 2 个文件与 A0 逐字节相同（`projectFileService.ts`、`projectServiceStatRead.test.mjs`），未重复写入。
   - **S/T（服务契约）**：15 个文件 = 5 改 src + 5 新增 src + 1 改测试 + 4 新增测试。其中 `projectFileService.ts` 与 `projectServiceStatRead.test.mjs` 是 A0 的**超集**（stat 语义演进为 present/unavailable），集成取 S 版；A0 的两个用例已随之演进（未被删除）。
   - **A0/文档前置**：§2.3 白名单 10 个文件在三树 sha256 逐字节一致，无需重同步。
 - **公共接线（集成者单写，`src/main/index.ts` 两处）**：服务构造参数新增 `onRootRetired`；事实层端口 `onHelperEvent` 增加 `sessionKey` 并新增 `onRootRetired`。
-  - **root 退休 ≠ 主机断开**：`onDisconnect` 仍负责关闭该主机终端 + `onHostDisconnected`；`onRootRetired` 只清该 root 会话的 watch 登记与保活，**不关终端、不动邻居 root**。
+  - **root 退休 ≠ 主机断开**：`onDisconnect` 仍负责关闭该主机终端 + `onHostDisconnected`；`onRootRetired` 清该 root 会话的 watch 登记与保活，**55dd5b702 起还按 sessionKey+host+root 清该项目的 generation/host/root 与目录事实**（`remoteProjectDirFacts.ts:199-209`），但仍**不关终端、不动邻居 root**。
   - **池化保持默认关闭**：未传 `rootPooling`，生产仍走原单会话路径（开启方式见 §8.8 第 13 条，属集成者单写）。
   - p-public-wiring.md 的三条建议中，第 1、2 条为强制接线，已按代码真实签名落地；第 3 条（开启池化）按「默认关闭」未采用。
 - **集成期发现并修正的差异（透明记录）**：
   1. P 把项目事实改成 root-scoped 后，`tests/projectFileBackendConformance.test.mjs` 的假 service 只有主机级 `connectionFacts`，3 例 `TypeError`。按新契约把假 service 改为 `projectConnectionFacts`（语义仍是 ready 会话）——夹具适配新契约，不是放宽断言。
-  2. 按 p-public-wiring.md 建议，在 `tests/remoteProjectDirFacts.test.mjs` 增加 1 例「root 退休只归还该会话保活、迟到事件不再标脏」的**接线断言**（P 组 141 → 142）。
+  2. 按 p-public-wiring.md 建议，在 `tests/remoteProjectDirFacts.test.mjs` 增加 1 例「root 退休只归还该会话保活、迟到事件不再标脏」的**接线断言**（P 组 141 → 142；I0 快照，55dd5b702 后该用例已演进为“旧代目录事实失效”，且新增 `remoteProjectLifecycle.test.mjs` 6 例，当前计数以实跑为准）。
   3. 提交前把两处 CRLF 文档（`docs/engineering-standards.md`、`docs/remote-file-tree-and-git-unification-plan.md`）规范为 LF，与 `.gitattributes` 的 `eol=lf` 一致；否则 git 入库转 LF 后，清单哈希与任何新检出都对不上。
 
 ### 8.2 S 冻结契约（F/G 的唯一消费面）
@@ -322,7 +322,7 @@ node F:\PiDeck\scripts\panel-baseline.mjs sync --to F:\PiDeck-f
    - 未提交同步场景：目标已是清单值 → 跳过（可重入）；不存在（基线新增文件）→ 写入；**存在且有它自己的未提交改动** → 判冲突、整体中止，不覆盖别人的成果。
    - 源与清单不一致（清单过期）→ `sync` 中止；先在集成工作区重建清单，再重新 sync，禁止把半新半旧的文件带到 F/G。
    - 同步完成后 `git status` 的未提交清单应与 manifest 完全对应；不一致就是漏同步或混入额外改动，停止开工并报告。
-4. 内容一致性证据：`verify` 逐个文件比对 sha256（**当前清单 48 个文件**）。已实测两次：① 在基线提交组的新工作树上 `verify` 48/48 且 `git status` 干净；② 在空 `24529c394` 工作树上 `sync → verify` 48 文件逐字节一致、目标 `git status` 恰为 48 项（见 §8.7）。
+4. 内容一致性证据：`verify` 逐个文件比对 sha256（**I0 清单 48 个文件**）。已实测两次：① 在基线提交组的新工作树上 `verify` 48/48 且 `git status` 干净；② 在空 `24529c394` 工作树上 `sync → verify` 48 文件逐字节一致、目标 `git status` 恰为 48 项（见 §8.7）。**2026-10-31 实测：`node scripts/panel-baseline.mjs verify` 已 rc=1、16/48 mismatch（含本检查点改动的 4 个文件）；重建前不要把 48/48 当现状。**
 5. 依赖：新工作树没有 `node_modules`。按 AGENTS.md「并行期间不 `npm install`」，开工前由集成者统一准备（或在用户授权下安装），F/G 不自行处理。
 6. 基线变更纪律：集成者修改清单内文件时必须提交并在提交信息中注明基线变更；F/G 从新基线提交重开工作树（或按本节的未提交同步流程）。F/G 不得各自修改公共文件、不得自建第二份基线、不得用旧基线开工。
 

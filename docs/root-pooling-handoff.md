@@ -1,6 +1,6 @@
 # 会话交接：root 池化生产实现（B0–B4）
 
-> **Status: Active plan（2026-10-31 核对；执行前以当前代码与 HEAD 为准）**
+> **Status: Historical（2026-10-31 更新：B0–B4 的默认关闭实现已合入 dev，生产装配仍未开启，真机验收未做；当前验收见 [remote-acceptance-55dd5b702.md](remote-acceptance-55dd5b702.md)）**
 
 
 > 用途：把「同主机多项目 root 池化」的生产实现交给新会话。设计权威是
@@ -10,9 +10,9 @@
 ## 0. 状态
 
 - 仓库：`F:\PiDeck`，主工作树在 `dev`。
-- 本次核对基线：`dev` = `24529c394`（已同步 origin/dev，含 Phase A 与 DSH runtime 更新）。
+- 本次核对基线原为 `dev` = `24529c394`；2026-10-31 更新：池化默认关闭实现已随 `24529c394..55dd5b702` 合入 dev，当前验收基线为 `55dd5b702`（修复提交 `a905d4d7d` 见验收文档）。
 - 远端：`origin` = github.com/ayuayue/PiDeck。origin/dev 已合入；若开工时 HEAD 已变化，以实际 `git log` 为准。
-- 池化仍只交付 ADR + 探针，**尚无池化生产实现**。并行交接中的 A0 是独立 renderer stat 修复，不能算池化完成。
+- **池化已交付默认关闭的实现**（`RemoteRootSessionPool.ts`、接入 `RemoteHostConnectionService.ts:398-411`、`tests/remoteRootPooling.test.mjs`）；生产装配 `main/index.ts:3367-3388` 仍未传 `rootPooling`，真机验收未做。并行交接中的 A0 是独立 renderer stat 修复，不能算池化完成。
 - 当前工作树/分支清单以开工时的只读检查为准，不清理其他工作流；未提交前置不会自动进入新 worktree，按并行交接 §2 同步。
 
 ## 1. 先读（按顺序）
@@ -23,6 +23,8 @@
 4. `docs/remote-wsl-verification-log.md` 的 §9/§11/§14（既有全量/E2E 口径与远端基础设施）
 
 ## 2. 任务
+
+> 2026-10-31：B0–B4 的默认关闭实现已完成并合入 dev；本节保留为原始任务书，B4 默认开启仍须真实场景验收。
 
 按 ADR §5.3 分片实现 **B0–B4**（B5 不在本任务内）；P 先交付默认关闭路径与离线门禁，B4 默认开启另过真实场景验收：
 

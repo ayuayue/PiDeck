@@ -1,6 +1,6 @@
 # 任务 G：Phase C —— Git provider / 面板接入 ProjectGitService
 
-Status: **已实施，checkpoint `2d703f830`（2026-10-31），待最终验收**。基线：`dev`（I0 集成提交组，`git log --oneline 24529c394..dev`）。
+Status: **历史检查点（`2d703f830`，2026-10-31）**；后续 09aca4203、55dd5b702 已推进，HEAD 以 `git log` 为准；技术结论保留。基线：`dev`（I0 集成提交组，`git log --oneline 24529c394..dev`）。
 S 契约已冻结（[remote-project-parallel-handoff.md](remote-project-parallel-handoff.md) §8.2），`services/projectGitService.ts` 已移交 G。
 本文件只记录 G 的能力 parity、实施分片、验证与待接线项；不改变任何公共契约语义。
 

@@ -1,6 +1,6 @@
 # ADR：同主机多项目 root 池化（测量 + 方案）
 
-> Status: **Active plan（2026-10-31 更新；池化生产实现尚未落地）**。初稿从 dev `187c96041` 起；本次核对基线 `24529c394`，实现前按当前代码复核 §2 的 file:line。
+> Status: **Active plan（2026-10-31 更新；默认关闭的池化实现已落地，生产装配未开启，真机验收未做）**。初稿从 dev `187c96041` 起；核对基线 `24529c394`，后续验收基线 `55dd5b702`；引用 §2 的 file:line 前按当前代码复核。
 > 测量脚本为 `tests/remoteRootSwitchProbe.mjs`；并行派工与前置同步见 [remote-project-parallel-handoff.md](remote-project-parallel-handoff.md)。先明确测量门槛与回滚边界，再实施默认关闭路径；真实远端连接与默认开启验收分别处理。
 >
 > 相关前置：`docs/archive/remote/remote-functional-optimization-plan.md` F3（切 root 仍重建会话，只复用已验证安装内容）、

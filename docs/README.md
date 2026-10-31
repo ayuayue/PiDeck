@@ -35,8 +35,9 @@
 | [host-plugins.md](host-plugins.md) | 宿主插件机制 |
 | [host-plugin-dev-guide.md](host-plugin-dev-guide.md) | 宿主插件开发指南 |
 | [project-location-architecture.md](project-location-architecture.md) | 本地/SSH/WSL 位置模型 ADR（**Proposed**，未实现部分未定） |
-| [remote-host-root-pooling-adr.md](remote-host-root-pooling-adr.md) | 同主机多 root 池化 ADR（测量 + 方案，生产未改） |
+| [remote-host-root-pooling-adr.md](remote-host-root-pooling-adr.md) | 同主机多 root 池化 ADR（测量 + 方案；默认关闭的池化路径已实现，真机验收未做） |
 | [remote-wsl-verification-log.md](remote-wsl-verification-log.md) | SSH/WSL 功能收敛的验证证据（现行台账） |
+| [remote-acceptance-55dd5b702.md](remote-acceptance-55dd5b702.md) | 检查点 55dd5b702 独立验收：四焦点复核、Linux 证据、真实 SSH 方案、旧文档同步 |
 | [process-group-implementation-contract.md](process-group-implementation-contract.md) | 过程组冻结契约（已实现） |
 | [release-process.md](release-process.md) | 发版流程 |
 | [release-test-shape-exceptions.md](release-test-shape-exceptions.md) | `check:test-shape` 基线例外 |
@@ -55,7 +56,7 @@
 | [remote-file-tree-and-git-unification-plan.md](remote-file-tree-and-git-unification-plan.md) | T1–T9 分片已交付；当前事实/保留项见 §10.7/§10.8 |
 | [project-panel-service-seam-adr.md](project-panel-service-seam-adr.md) | Phase A 已落地、A0 纯 stat 已修；S 契约已冻结（并行交接 §8.2），B 的 UI 迁移待 F/G |
 | [remote-project-parallel-handoff.md](remote-project-parallel-handoff.md) | 远程多项目并行入口：A0/P/S/T 已整合（§8），S 契约冻结、F/G 可开工、V 未核验；含基线同步（§8.4）与可复制提示词 |
-| [root-pooling-handoff.md](root-pooling-handoff.md) | 池化专用入口；P 已交付默认关闭的池化路径（离线测试通过，真机验收未做），开启见并行交接 §8.8 第 13 条 |
+| [root-pooling-handoff.md](root-pooling-handoff.md) | 池化专用入口（已标 Historical）；P 已交付默认关闭的池化路径（离线测试通过，真机验收未做），开启=改 `main/index.ts` 构造参数 `rootPooling`（无设置项） |
 
 ## 4. 代码/测试引用与归档
 
