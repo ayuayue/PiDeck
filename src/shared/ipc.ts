@@ -1138,6 +1138,11 @@ export const ipcChannels = {
 	 * 定位 pideck-plugin.json 所在包根后走与归档/目录一致的重扫描与授权门（不执行仓库内任何代码）。
 	 */
 	hostPluginsInstallGitHub: "host-plugins:install-github",
+	/**
+	 * 插件市场搜索：官方收录（pideck-plugins 仓库的 registry.json）+ GitHub `pideck-plugin` topic
+	 * 双源合并。只回条目不回字节，安装仍走 hostPluginsInstallGitHub。
+	 */
+	hostPluginsMarketSearch: "host-plugins:market-search",
 	/** 脚手架：在插件目录里生成 <id>/ 模板（已存在就拒经，不覆盖作者代码）。 */
 	hostPluginsScaffold: "host-plugins:scaffold",
 	hostPluginsSetEnabled: "host-plugins:set-enabled",

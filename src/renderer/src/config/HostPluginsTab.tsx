@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { FolderOpen, FolderPlus, PackagePlus, RefreshCw, Puzzle, BookOpen, FilePlus2, ChevronDown, Link2, Plus, LoaderCircle } from "lucide-react";
+import { FolderOpen, FolderPlus, PackagePlus, RefreshCw, Puzzle, BookOpen, FilePlus2, ChevronDown, Link2, Plus, LoaderCircle, Store } from "lucide-react";
 import type { HostPluginCatalog, HostPluginInfo, HostPluginPermission } from "../../../shared/types/hostPlugin";
 import { LOCAL_SERVICE_IDS } from "../../../shared/localServices";
 import { hostPluginCatalogAtom, openHostPluginPanelAtom } from "../atoms/host-plugin-atoms";
@@ -18,6 +18,7 @@ import { Input } from "../components/ui-shadcn/input";
 import { Label } from "../components/ui-shadcn/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui-shadcn/select";
 import { HostPluginRow } from "./HostPluginRow";
+import { HostPluginMarketDialog } from "./HostPluginMarketDialog";
 import { HOST_PLUGIN_PERMISSION_OPTIONS, HostPluginPermissionDetails } from "./HostPluginPermissionDetails";
 import { hostPluginScaffoldInput, initialHostPluginScaffoldDraft } from "./hostPluginScaffoldDraft";
 
@@ -49,6 +50,8 @@ export function HostPluginsTab() {
 	// GitHub 安装：链接只能由用户粘贴（渲染层不能传路径），失败码单独给可执行提示。
 	const [githubOpen, setGithubOpen] = useState(false);
 	const [githubUrl, setGithubUrl] = useState("");
+	// 市场：双源搜索（官方收录 + GitHub topic），安装复用同一个 installGitHub 入口。
+	const [marketOpen, setMarketOpen] = useState(false);
 	// 默认勾上一个最常见的权限：新手生成的示例直接能看到内容，而不是一打开就报权限错误。
 	const [draft, setDraft] = useState(initialHostPluginScaffoldDraft);
 	const fail = (code: string) => {
@@ -177,6 +180,11 @@ export function HostPluginsTab() {
 				<AlertDescription>{t("hostPlugins.description")}</AlertDescription>
 			</Alert>
 			<div className="flex flex-wrap items-center gap-2">
+				{/* 市场是找插件的默认入口，单独一颗按钮：它是「发现」，与下拉里的三种「已有来源」不同。 */}
+				<Button size="sm" disabled={busy} onClick={() => setMarketOpen(true)}>
+					<Store data-icon="inline-start" />
+					{t("hostPlugins.market")}
+				</Button>
 				{/* 安装是主操作：三种来源共用一个入口，避开四个同权重按钮排成一行。 */}
 				<DropdownMenu>
 					<DropdownMenuTrigger asChild>
@@ -373,6 +381,8 @@ export function HostPluginsTab() {
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
+			{/* 市场：搜索与安装都在子组件里，这里只给入口与失败回调（文案与 GitHub 安装共用）。 */}
+			<HostPluginMarketDialog open={marketOpen} onOpenChange={setMarketOpen} onFail={fail} />
 			{/* 只生成静态页面与示例 JS，不执行生成物、不启动服务；网络目的地随后仍需显式授权。 */}
 			<Dialog open={createOpen} onOpenChange={setCreateOpen}>
 				<DialogContent className="flex max-h-[calc(100vh-64px)] max-w-[min(600px,calc(100vw-48px))] flex-col gap-4 overflow-y-auto">

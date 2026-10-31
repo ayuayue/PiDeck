@@ -248,6 +248,7 @@ const hostPlugins: HostPluginDesktopApi = {
 	install: () => ipcRenderer.invoke(ipcChannels.hostPluginsInstall),
 	installDirectory: () => ipcRenderer.invoke(ipcChannels.hostPluginsInstallDirectory),
 	installGitHub: (url: string) => ipcRenderer.invoke(ipcChannels.hostPluginsInstallGitHub, url),
+	searchMarket: (keyword: string) => ipcRenderer.invoke(ipcChannels.hostPluginsMarketSearch, keyword),
 	scaffold: (input) => ipcRenderer.invoke(ipcChannels.hostPluginsScaffold, input),
 	mount: (input) => ipcRenderer.invoke(ipcChannels.hostPluginsMount, input),
 	update: (instanceId: string, context: HostPluginContext) => ipcRenderer.invoke(ipcChannels.hostPluginsUpdate, instanceId, context),

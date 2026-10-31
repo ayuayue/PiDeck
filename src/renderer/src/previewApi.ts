@@ -301,6 +301,7 @@ export function createPreviewApi(): PiDesktopApi {
 			install: async () => ({ ok: false, code: "desktop-only" }),
 			installDirectory: async () => ({ ok: false, code: "desktop-only" }),
 			installGitHub: async () => ({ ok: false, code: "desktop-only" }),
+			searchMarket: async () => ({ ok: false, code: "desktop-only" }),
 			scaffold: async () => ({ ok: false, code: "desktop-only" }),
 			mount: async () => ({ ok: false, code: "desktop-only" }),
 			update: async () => ({ ok: false, code: "desktop-only" }),
