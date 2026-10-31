@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { DEFAULT_ATOMGIT_REMOTE, DEFAULT_ATOMGIT_URL, ZERO_SHA, parsePushRefLines, planAtomgitMirror } from "../scripts/atomgit-mirror.mjs";
+import { DEFAULT_ATOMGIT_REMOTE, DEFAULT_ATOMGIT_URL, ZERO_SHA, mirrorPushEnv, parsePushRefLines, planAtomgitMirror } from "../scripts/atomgit-mirror.mjs";
 
 /**
  * push 自动镜像 AtomGit 的契约测试。
@@ -118,4 +118,24 @@ test("atomgit URL has a single source of truth", () => {
 	assert.equal(DEFAULT_ATOMGIT_URL, "https://atomgit.com/ayuayue/PiDeck.git");
 	// README 对外声明的 AtomGit 地址必须与脚本自愈写入的地址一致
 	assert.match(readme, /https:\/\/atomgit\.com\/ayuayue\/PiDeck/);
+});
+
+test("镜像 push 的子进程环境禁止一切交互（2026-11 真机：登录框把 push 挂住 3 分 44 秒）", () => {
+	const env = mirrorPushEnv({ HOME: "/home/u", PATH: "/usr/bin" });
+	// 没凭据时必须立刻失败：三条开关缺一条，凭据助手就可能弹 GUI 等人输入
+	assert.equal(env.GIT_TERMINAL_PROMPT, "0");
+	assert.equal(env.GCM_INTERACTIVE, "never");
+	assert.equal(env.GIT_ASKPASS, "");
+	// 继承调用方环境，其余变量不动
+	assert.equal(env.HOME, "/home/u");
+	assert.equal(env.PATH, "/usr/bin");
+});
+
+test("镜像 push 的环境保留调用方显式设置的 HTTP 超时", () => {
+	const env = mirrorPushEnv({ GIT_HTTP_LOW_SPEED_LIMIT: "5000", GIT_HTTP_LOW_SPEED_TIME: "60" });
+	assert.equal(env.GIT_HTTP_LOW_SPEED_LIMIT, "5000");
+	assert.equal(env.GIT_HTTP_LOW_SPEED_TIME, "60");
+	// 未设置时给默认值：镜像源不可达要快速放弃，不拖住主 push
+	assert.equal(mirrorPushEnv({}).GIT_HTTP_LOW_SPEED_LIMIT, "1000");
+	assert.equal(mirrorPushEnv({}).GIT_HTTP_LOW_SPEED_TIME, "20");
 });

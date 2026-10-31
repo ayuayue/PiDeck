@@ -119,7 +119,25 @@ function ensureRemote(remote, env) {
 	warn(`⚠️  未能添加 ${remote} 远端，跳过镜像（可手动 git remote add ${remote} ${url}）`);
 	return false;
 }
-
+/**
+ * 镜像 push 的子进程环境（导出以便单测断言）。
+ *
+ * 三条禁交互开关一起给：缺凭据时必须**立刻失败**。只靠 HTTP 低速超时不够——
+ * 凭据助手（Windows 的 Git Credential Manager）会先弹出 GUI 登录框并一直等人输入，
+ * 子进程就停在认证那一步，「镜像失败只提示、不阻塞主 push」变成「挂住几分钟」
+ * （2026-11 真机：`git push` 卡在 AtomGit 登录框上 3 分 44 秒）。
+ */
+export function mirrorPushEnv(env) {
+	return {
+		...env,
+		GIT_TERMINAL_PROMPT: "0",
+		GIT_ASKPASS: "",
+		GCM_INTERACTIVE: "never",
+		// 镜像源不可达时快速放弃，避免一次 push 被镜像拖住
+		GIT_HTTP_LOW_SPEED_LIMIT: env.GIT_HTTP_LOW_SPEED_LIMIT || "1000",
+		GIT_HTTP_LOW_SPEED_TIME: env.GIT_HTTP_LOW_SPEED_TIME || "20",
+	};
+}
 function strictEnabled(env) {
 	return env.PI_DECK_ATOMGIT_STRICT === "1";
 }
@@ -144,12 +162,7 @@ function main() {
 	}
 
 	log(`🔁 同步到 AtomGit（${plan.remote}）：${plan.refspecs.join(" ")}`);
-	const result = runGit(args, {
-		...env,
-		// 镜像源不可达时快速放弃，避免一次 push 被镜像拖住
-		GIT_HTTP_LOW_SPEED_LIMIT: env.GIT_HTTP_LOW_SPEED_LIMIT || "1000",
-		GIT_HTTP_LOW_SPEED_TIME: env.GIT_HTTP_LOW_SPEED_TIME || "20",
-	});
+	const result = runGit(args, mirrorPushEnv(env));
 	if (result.ok) {
 		log("✅ AtomGit 同步完成");
 		process.exit(0);
