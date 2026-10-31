@@ -32,9 +32,12 @@ export type WebSession = {
 	acpToolId?: string;
 	/** 最近活动时间（毫秒时间戳），Web 端会话列表按此降序展示（最新在上） */
 	updatedAt?: number;
-	/** 分支导航（P3）：fork 自哪条会话 / 是否为 fork 产物 / 创建时间 */
+	/**
+	 * 父会话 id：子代理/嵌套子会话由服务端按目录 parentSessionPath 解析后下发，
+	 * 侧栏据此折叠到父行下（父行不在同一项目/同一搜索结果里时按顶层展示）。
+	 */
 	parentSessionId?: string;
-	parentSessionPath?: string;
+	/** 是否为 fork 产物（身份标记，不参与侧栏折叠） */
 	forked?: boolean;
 	createdAt?: number;
 	/** DSH 权限预设（P1；与 SessionRecord 同名，state 原样投影）。 */

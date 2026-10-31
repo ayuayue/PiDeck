@@ -288,7 +288,9 @@ test("Web sidebar renders session rows through an explicit paged window", () => 
 	assert.doesNotMatch(webSidebar, /const visible = showAll \? sessions : sessions\.slice\(0, 5\);/, "one-shot full render is the regression");
 	// 首页 10 条来自纯策略模块，组件不再自己存 5/50 常量
 	assert.match(webSidebar, /import \{[^}]*resolveSidebarWindow[^}]*\} from "\.\/webSidebarPaging";/);
-	assert.match(webSidebar, /const window_ = resolveSidebarWindow\(\{ total: sessions\.length, requested, searching \}\);/);
+	// 2026-10：子代理会话折叠到父行下（见 webSidebarSessions），窗口按顶层行计——子会话不占分页额度。
+	assert.match(webSidebar, /const tree = useMemo\(\(\) => groupWebSessionsByParent\(sessions\), \[sessions\]\);/);
+	assert.match(webSidebar, /const window_ = resolveSidebarWindow\(\{ total: tree\.roots\.length, requested, searching \}\);/);
 	assert.match(webSidebar, /onClick=\{\(\) => setRequested\(growSidebarWindow\(window_\.visibleCount\)\)\}/);
 	assert.match(webSidebar, /data-testid="web-sidebar-collapse-sessions"/);
 	// 自动补页是本次要修掉的行为：哨兵观察器不许再出现在侧栏会话列表里

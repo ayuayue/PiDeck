@@ -8,8 +8,8 @@
  * 交互：点击项目行 = 展开/收起；点击项目行内的 "+" = 新建会话（POST /api/sessions）；
  * 点击会话行 = 打开会话（切 activeSessionId）。
  */
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, Download, FolderPlus, GitFork, MoreVertical, Pencil, Play, Plus, Search, Trash2, X } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { Check, ChevronDown, Copy, Download, FolderPlus, GitFork, MoreVertical, Pencil, Play, Plus, Search, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui-shadcn/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui-shadcn/alert-dialog";
 import { Input } from "@/components/ui-shadcn/input";
@@ -17,6 +17,7 @@ import { t } from "@/i18n";
 import { WebBrandLockup } from "./WebBrandLockup";
 import { WebBottomSheet } from "./WebBottomSheet";
 import { WEB_SIDEBAR_INITIAL_VISIBLE, growSidebarWindow, resolveSidebarWindow } from "./webSidebarPaging";
+import { groupWebSessionsByParent } from "./webSidebarSessions";
 import { cn } from "@/lib/utils";
 import { sessionStatusDotClass } from "@/agentListDisplay";
 import { WebBackendMark } from "./WebBackendMark";
@@ -53,15 +54,37 @@ export type WebSessionRowAction = "rename" | "duplicate" | "export" | "delete";
  * 抽屉首次布局时就会命中 rootMargin，展开一个大项目会被连续补页成几十上百行（实测「聊天」
  * 115 条展开即 57 行），体感等同「一次性全加载」，既慢又丢掉了「先看最近一页」的信息层级。
  * 单项目 400+ 条会话若全渲染会造 4000+ DOM 节点（实测 258ms 卡顿），分页同时守住渲染成本。
+ *
+ * 子代理会话（parentSessionId 指向本列表里的父会话）折叠到父行下，父行右侧胶囊显示数量；
+ * 默认收起、不占分页额度——一个项目 80+ 条子会话曾把列表撑成一整屏。
  */
 function SessionRows(props: { sessions: WebSession[]; runtimeFor: (sessionId: string) => WebRuntime | undefined; activeSessionId: string; searching: boolean; acpTools?: WebAcpTool[]; onSelect: (sessionId: string) => void; onSessionAction?: (action: WebSessionRowAction, sessionId: string) => void }) {
 	const { sessions, runtimeFor, activeSessionId, searching, acpTools, onSelect, onSessionAction } = props;
 	// requested 是「用户点了几次查看更多」的累计目标条数；进入/退出搜索时回到首页。
 	const [requested, setRequested] = useState(WEB_SIDEBAR_INITIAL_VISIBLE);
 	useEffect(() => setRequested(WEB_SIDEBAR_INITIAL_VISIBLE), [searching]);
-	const window_ = resolveSidebarWindow({ total: sessions.length, requested, searching });
-	const visible = sessions.slice(0, window_.visibleCount);
+	// 子代理会话折叠到父行下（桌面 SessionTree 同一语义）：分页窗口按顶层行计，
+	// 子会话默认不占列表长度——一个项目 80+ 条子会话曾把列表撑成一整屏。
+	const tree = useMemo(() => groupWebSessionsByParent(sessions), [sessions]);
+	const window_ = resolveSidebarWindow({ total: tree.roots.length, requested, searching });
+	const visible = tree.roots.slice(0, window_.visibleCount);
 	const hiddenCount = window_.remaining;
+	/** 已手动展开的父会话分组；搜索态一律展开，否则命中的子会话藏在折叠里等于搜不到。 */
+	const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(() => new Set());
+	const activeRootId = tree.rootByChildId.get(activeSessionId);
+	useEffect(() => {
+		// 切到子会话时展开它的父分组一次，否则当前行藏起来、用户看不出自己在哪。
+		if (!activeRootId) return;
+		setExpandedGroups((current) => (current.has(activeRootId) ? current : new Set(current).add(activeRootId)));
+	}, [activeRootId]);
+	const toggleGroup = (sessionId: string) => {
+		setExpandedGroups((current) => {
+			const next = new Set(current);
+			if (next.has(sessionId)) next.delete(sessionId);
+			else next.add(sessionId);
+			return next;
+		});
+	};
 	// 会话操作面板：移动端底部滑出、桌面居中卡片（WebBottomSheet 两形态），
 	// 替代 DropdownMenu——触屏无 hover 看不见触发钮，且菜单会从侧栏右缘弹出遮挡聊天区。
 	const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
@@ -70,36 +93,67 @@ function SessionRows(props: { sessions: WebSession[]; runtimeFor: (sessionId: st
 		if (menuSessionId) onSessionAction?.(action, menuSessionId);
 		setMenuSessionId(null);
 	};
+	/**
+	 * 单行渲染：顶层行可带子会话折叠胶囊，子行缩进一层且不再有折叠胶囊。
+	 * 折叠胶囊与「更多操作」同为浮层外的行内按钮（button 不能嵌 button）。
+	 */
+	const renderRow = (session: WebSession, subagentCount: number, expanded: boolean) => {
+		const runtime = runtimeFor(session.id);
+		return (
+			<div key={session.id} className={cn(sessionRowClass, "session-row group/session", session.id === activeSessionId && selectedRowClass)} title={session.title}>
+				<button type="button" className="flex min-w-0 flex-1 items-center gap-1.5 pointer-coarse:min-h-10" onClick={() => onSelect(session.id)}>
+					{renderRuntimeStatusDot(runtime?.status)}
+					<div className="conversation-body min-w-0 flex-1">
+						<div className="conversation-title flex min-w-0 items-center gap-1.5">
+							<strong className={cn("min-w-0 flex-1 truncate", runtime ? "font-medium" : "font-normal text-muted-foreground/90")}>{session.title || t("common.untitled")}</strong>
+							{/* P3：fork 徽标（克隆/回退产生的分支会话） */}
+							{session.forked ? <GitFork className="size-3 shrink-0 text-muted-foreground" aria-label={t("web.forkedBadge")} /> : null}
+							{/* 后端标记（WebBackendMark）：dsh 鲸鱼 / acp 品牌图标 / imagegen 图标，pi 不署名 */}
+							<WebBackendMark backend={session.backend} acpToolId={session.acpToolId} acpTools={acpTools} className="size-4 shrink-0" />
+						</div>
+					</div>
+				</button>
+				{/* 子代理会话折叠胶囊：数量徽标 + 展开箭头，与桌面 SessionTree 的 subagent-inline-toggle 同语义 */}
+				{subagentCount > 0 ? (
+					<button
+						type="button"
+						className="flex h-5 shrink-0 items-center gap-0.5 rounded-full px-1.5 text-micro tabular-nums text-muted-foreground transition-colors hover:bg-muted hover:text-foreground pointer-coarse:h-8 pointer-coarse:px-2"
+						aria-expanded={expanded}
+						aria-label={t("app.piSubagentCount", { count: subagentCount })}
+						title={t("app.piSubagentCount", { count: subagentCount })}
+						onClick={(event) => {
+							event.stopPropagation();
+							toggleGroup(session.id);
+						}}
+					>
+						<ChevronDown className={cn("size-3 transition-transform", expanded && "rotate-180")} aria-hidden="true" />
+						{subagentCount}
+					</button>
+				) : null}
+				{onSessionAction ? (
+					<button
+						type="button"
+						className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted focus-visible:opacity-100 group-hover/session:opacity-100 [@media(hover:none)]:opacity-100 pointer-coarse:size-9 pointer-coarse:-my-1"
+						aria-label={t("web.sessionMenu")}
+						title={t("web.sessionMenu")}
+						onClick={() => setMenuSessionId(session.id)}
+					>
+						<MoreVertical className="size-3.5" aria-hidden="true" />
+					</button>
+				) : null}
+			</div>
+		);
+	};
 	return (
 		<>
 			{visible.map((session) => {
-				const runtime = runtimeFor(session.id);
+				const children = tree.childrenByParentId.get(session.id) ?? [];
+				const expanded = children.length > 0 && (searching || expandedGroups.has(session.id));
 				return (
-					<div key={session.id} className={cn(sessionRowClass, "session-row group/session", session.id === activeSessionId && selectedRowClass)} title={session.title}>
-						<button type="button" className="flex min-w-0 flex-1 items-center gap-1.5 pointer-coarse:min-h-10" onClick={() => onSelect(session.id)}>
-							{renderRuntimeStatusDot(runtime?.status)}
-							<div className="conversation-body min-w-0 flex-1">
-								<div className="conversation-title flex min-w-0 items-center gap-1.5">
-									<strong className={cn("min-w-0 flex-1 truncate", runtime ? "font-medium" : "font-normal text-muted-foreground/90")}>{session.title || t("common.untitled")}</strong>
-									{/* P3：fork 徽标（克隆/回退产生的分支会话） */}
-									{session.forked ? <GitFork className="size-3 shrink-0 text-muted-foreground" aria-label={t("web.forkedBadge")} /> : null}
-									{/* 后端标记（WebBackendMark）：dsh 鲸鱼 / acp 品牌图标 / imagegen 图标，pi 不署名 */}
-									<WebBackendMark backend={session.backend} acpToolId={session.acpToolId} acpTools={acpTools} className="size-4 shrink-0" />
-								</div>
-							</div>
-						</button>
-						{onSessionAction ? (
-							<button
-								type="button"
-								className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted focus-visible:opacity-100 group-hover/session:opacity-100 [@media(hover:none)]:opacity-100 pointer-coarse:size-9 pointer-coarse:-my-1"
-								aria-label={t("web.sessionMenu")}
-								title={t("web.sessionMenu")}
-								onClick={() => setMenuSessionId(session.id)}
-							>
-								<MoreVertical className="size-3.5" aria-hidden="true" />
-							</button>
-						) : null}
-					</div>
+					<Fragment key={session.id}>
+						{renderRow(session, children.length, expanded)}
+						{expanded ? <div className="ml-3 flex flex-col gap-0.5">{children.map((child) => renderRow(child, 0, false))}</div> : null}
+					</Fragment>
 				);
 			})}
 			{hiddenCount > 0 && (
