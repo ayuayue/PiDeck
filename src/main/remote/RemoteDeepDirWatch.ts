@@ -13,11 +13,13 @@
  * - **登记跟着项目会话（connectionId）走**：同一主机可以同时有多条 helper 会话（root 池），覆盖只
  *   查**本会话**（`pathsOfSession`），绝不把兄弟会话的覆盖当成自己的；同一项目在新会话里重新登记时，
  *   旧会话的登记不复用——换代表明旧 helper 已死，只清**本项目在旧会话**的订阅（别的项目/别的会话不碰）；
- * - 超过 128 条路径或 watcher 预算被占满时**明确降级**：结构化日志 + 可断言状态，不假装覆盖；
+ * - 超过 128 条路径、watcher 预算被占满或 helper 拒绝订阅时**明确降级**：结构化日志 + 可断言
+ *   状态（含真实失败码），不假装覆盖；
  * - 项目关闭/断连/退出成对收尾；迟到的 watchId 由 registry 的会话身份判断拒绝登记。
  *
  * 本模块不碰事实缓存，也不依赖 IPC：只把「期望什么、实际覆盖什么」算清楚。
  */
+import { codeOf } from "../../shared/op";
 import { getAppLogger } from "../logging/sharedLogger";
 import { DIR_WATCH_LIMITS, type DirWatchRegistry } from "./RemoteDirWatchRegistry";
 
@@ -28,17 +30,27 @@ export type DeepDirWatchSession = {
 	request(method: string, params?: unknown): Promise<unknown>;
 };
 
-/** 一次明确的降级：不是「订阅能力缺失」，而是预算不够，必须让用户/诊断看得到覆盖缺口。 */
+/** 一次明确的降级：预算不够或 helper 拒绝订阅，都必须让用户/诊断看得到覆盖缺口。 */
 export type DeepDirWatchDegraded = {
 	projectId: string;
 	hostId: string;
-	reason: "paths-over-limit" | "watcher-capacity";
+	/**
+	 * `watch-failed` is the helper refusing the subscription itself (no watchId, a thrown stable
+	 * code, or a protocol answer without one). It is not budget-related, but the outcome for the
+	 * user is the same: those directories will not update live, so it must not be silent either.
+	 */
+	reason: "paths-over-limit" | "watcher-capacity" | "watch-failed";
 	/** 期望监听的路径数。 */
 	desired: number;
 	/** 真正被 watcher 覆盖的路径数。 */
 	covered: number;
 	/** 因为预算没有覆盖到的路径数。 */
 	dropped: number;
+	/**
+	 * helper 返回的稳定失败码（例如 `METHOD_NOT_FOUND` / `PERMISSION_DENIED` /
+	 * `TOO_MANY_REQUESTS`）。订阅能力缺失时用本地 `WATCH_UNAVAILABLE`。没有失败时缺席。
+	 */
+	code?: string;
 };
 
 export type DeepDirWatchStatus = {
@@ -123,17 +135,6 @@ export function createDeepDirWatch(options: DeepDirWatchOptions): DeepDirWatch {
 	/** 每个项目一条冲刷链：冲刷不叠跑，后到的登记排在后面。 */
 	const chains = new Map<string, Promise<void>>();
 
-	const subscribe =
-		(session: DeepDirWatchSession) =>
-		async (paths: readonly string[]): Promise<string | undefined> => {
-			try {
-				const result: unknown = await session.request("fs.watch", { paths: [...paths] });
-				return typeof result === "object" && result !== null && typeof (result as { watchId?: unknown }).watchId === "string" ? (result as { watchId: string }).watchId : undefined;
-			} catch {
-				// 订阅不是读的前置条件：helper 不支持/会话已死都退回只读刷新，不向用户报错。
-				return undefined;
-			}
-		};
 	const unwatch =
 		(session: DeepDirWatchSession) =>
 		(watchId: string): Promise<unknown> =>
@@ -148,6 +149,27 @@ export function createDeepDirWatch(options: DeepDirWatchOptions): DeepDirWatch {
 		if (session === undefined) return;
 		const sessionKey = session.connectionId;
 		const target = state.desired.slice(0, maxPaths);
+		/**
+		 * 这一次冲刷里 helper 拒绝订阅的原因（按请求顺序）。`subscribe` 仍返回 undefined 让登记表
+		 * 保持「没有 watchId 就不登记」的既有语义；失败本身由这里记账，不再被吞掉。
+		 */
+		const failures: string[] = [];
+		const subscribe = async (paths: readonly string[]): Promise<string | undefined> => {
+			try {
+				const result: unknown = await session.request("fs.watch", { paths: [...paths] });
+				const watchId = typeof result === "object" && result !== null && typeof (result as { watchId?: unknown }).watchId === "string" ? (result as { watchId: string }).watchId : undefined;
+				if (watchId === undefined || watchId === "") {
+					// helper 声称成功却没有 id：这条订阅没有可路由的身份，等同失败。
+					failures.push("WATCH_UNAVAILABLE");
+					return undefined;
+				}
+				return watchId;
+			} catch (error) {
+				// 订阅不是读的前置条件（读仍然成功），但「没监听」必须成为可断言状态，而不是静默。
+				failures.push(codeOf(error, "REMOTE_WORKSPACE_WATCH_FAILED"));
+				return undefined;
+			}
+		};
 		// 换代：新 connectionId 意味着旧 helper 已经死了，但池化后旧会话的登记仍挂在 registry 上。
 		// 只清**本项目在旧会话**的订阅：同主机别的 root 的会话与别的项目都不是这一代的遗留。
 		if (state.flushedSession !== undefined && state.flushedSession !== sessionKey) await registry.releaseProjectInSession(state.hostId, state.flushedSession, projectId);
@@ -160,7 +182,7 @@ export function createDeepDirWatch(options: DeepDirWatchOptions): DeepDirWatch {
 			// 已有 watcher 的路径集不可扩展：registry 在**同一次** ensure 里先摘本项目在本会话的旧集合，
 			// 再按新全集分片。用 replaceProject 而不是先 releaseProjectInSession：后者会让会话短暂「0 个
 			// watch」，池的保活租约被还掉，正好可能被回收，rewatch 就订到一条正在关闭的 helper 上。
-			rejected = (await registry.ensure(state.hostId, sessionKey, projectId, subscribe(session), { paths: target, unwatch: unwatch(session), replaceProject: true })).rejected;
+			rejected = (await registry.ensure(state.hostId, sessionKey, projectId, subscribe, { paths: target, unwatch: unwatch(session), replaceProject: true })).rejected;
 			// 冲刷期间项目被关闭/主机断连：刚登记的订阅不属于任何活着的项目，成对收回。
 			if (projects.get(projectId) !== state) {
 				await registry.releaseProjectInSession(state.hostId, sessionKey, projectId);
@@ -170,15 +192,28 @@ export function createDeepDirWatch(options: DeepDirWatchOptions): DeepDirWatch {
 		const covered = registry.pathsOfSession(state.hostId, sessionKey, projectId);
 		const coveredSet = new Set(covered);
 		const dropped = state.desired.filter((path) => !coveredSet.has(path)).length;
+		/**
+		 * 失败优先于预算：helper 真的拒绝了订阅时，只说「预算不够」会掩盖真实原因；而预算拒绝
+		 * （`TOO_MANY_REQUESTS`）仍归到 `watcher-capacity`，与登记表预判的第 5 个 watcher 同一语义。
+		 */
+		const capacityFailure = failures.includes("TOO_MANY_REQUESTS");
+		const hardFailure = failures.find((code) => code !== "TOO_MANY_REQUESTS");
+		// 兜底：登记表没有上报 rejected、subscribe 也没有抛错，但目标路径确实没被覆盖（例如在途订阅
+		// 合并到了另一条失败结果上）。不能用「没有降级」表示「有目录没监听」。
+		const uncovered = target.some((path) => !coveredSet.has(path));
 		const degraded: DeepDirWatchDegraded | undefined =
 			state.desired.length > maxPaths
 				? { projectId, hostId: state.hostId, reason: "paths-over-limit", desired: state.desired.length, covered: covered.length, dropped }
-				: rejected > 0
-					? { projectId, hostId: state.hostId, reason: "watcher-capacity", desired: state.desired.length, covered: covered.length, dropped }
-					: undefined;
+				: hardFailure !== undefined
+					? { projectId, hostId: state.hostId, reason: "watch-failed", code: hardFailure, desired: state.desired.length, covered: covered.length, dropped }
+					: rejected > 0 || capacityFailure
+						? { projectId, hostId: state.hostId, reason: "watcher-capacity", ...(capacityFailure ? { code: "TOO_MANY_REQUESTS" } : {}), desired: state.desired.length, covered: covered.length, dropped }
+						: uncovered && target.length > 0
+							? { projectId, hostId: state.hostId, reason: "watch-failed", code: "WATCH_UNAVAILABLE", desired: state.desired.length, covered: covered.length, dropped }
+							: undefined;
 		const previous = state.degraded;
 		state.degraded = degraded;
-		if (degraded !== undefined && (previous === undefined || previous.reason !== degraded.reason || previous.covered !== degraded.covered)) log(degraded);
+		if (degraded !== undefined && (previous === undefined || previous.reason !== degraded.reason || previous.code !== degraded.code || previous.covered !== degraded.covered)) log(degraded);
 	}
 
 	function schedule(projectId: string): void {

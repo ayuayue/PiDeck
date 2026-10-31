@@ -21,7 +21,7 @@ const PROJECT_ROOT = "/srv/app";
 function harness(options = {}) {
 	const calls = { list: [], watches: [], keepAlive: [], factLookups: [], capabilityLookups: [], searchContent: 0 };
 	const handlers = new Map();
-	const state = { connectionId: "conn-1", rootUnavailable: false };
+	const state = { connectionId: "conn-1", rootUnavailable: false, watchFails: false };
 	const { registerRemoteProjectIpc } = loadTsCommonJs("src/main/ipc/remoteProjectIpc.ts", {
 		stubs: {
 			electron: { ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) } },
@@ -61,22 +61,27 @@ function harness(options = {}) {
 		enabled: true,
 		userDataDir: "/tmp/unused",
 		service: async () => ({
-			withProjectSession: async (_hostId, _root, task) => ({
-				ok: true,
-				value: await task({
-					connectionId: state.connectionId,
-					// fs.watch 走同一条 request 通道：这里回答一个稳定的 watchId，其余方法不该被调用。
-					request: async (method, params) => {
-						if (method === "fs.watch") {
-							calls.watches.push(JSON.parse(JSON.stringify(params)));
-							return { watchId: issuedWatchId };
-						}
-						if (method === "fs.unwatch") return { ok: true };
-						throw new Error("UNEXPECTED_METHOD");
-					},
-					cancel: async () => undefined,
-				}),
-			}),
+			withProjectSession: async (_hostId, _root, task) => {
+				// 真实服务在拿到会话时 root 就有活的了；测试里用这个状态区分「root 已退休」与「读会建立会话」。
+				state.rootUnavailable = false;
+				return {
+					ok: true,
+					value: await task({
+						connectionId: state.connectionId,
+						// fs.watch 走同一条 request 通道：这里回答一个稳定的 watchId，其余方法不该被调用。
+						request: async (method, params) => {
+							if (method === "fs.watch") {
+								calls.watches.push(JSON.parse(JSON.stringify(params)));
+								if (state.watchFails) throw new Error("REMOTE_WORKSPACE_UNSUPPORTED");
+								return { watchId: issuedWatchId };
+							}
+							if (method === "fs.unwatch") return { ok: true };
+							throw new Error("UNEXPECTED_METHOD");
+						},
+						cancel: async () => undefined,
+					}),
+				};
+			},
 			// 项目事实只回答「服务这个 root 的会话」：同主机的兄弟 root 或主机级状态都不能替它担保。
 			projectConnectionFacts: (hostId, root) => {
 				calls.factLookups.push([hostId, root]);
@@ -260,7 +265,7 @@ test("保活配对：目录第一次有 watch 时 retain 一次；关闭项目 r
 	);
 });
 
-test("root 会话退休：onRootRetired 只归还这一条会话的保活，不触发主机断开", async () => {
+test("root 会话退休：只归还这一条会话的保活，旧代目录事实失效但不触发主机断开", async () => {
 	const h = harness();
 	h.watchId("w-retire");
 	await h.list("");
@@ -278,10 +283,57 @@ test("root 会话退休：onRootRetired 只归还这一条会话的保活，不�
 	h.facts.onRootRetired({ hostId: HOST_ID, root: PROJECT_ROOT, sessionKey: "conn-1" });
 	assert.equal(h.calls.keepAlive.length, 2, "重复退休不重复归还保活");
 
-	// 退休会话的迟到事件不得再标脏：登记已丢，下一次读仍命中事实。
+	// 退休会话的迟到事件不得再标脏。root 会话已经不在，旧目录事实也随之作废：下一次读会重新装载，
+	// 但不会因为事件多付一次额外往返（事件本身仍然只标脏、不装载）。
 	h.facts.onHelperEvent({ hostId: HOST_ID, sessionKey: "conn-1", watchId: "w-retire", paths: [""] });
+	const reloaded = await h.list("");
+	assert.equal(reloaded.ok, true, "root 正常退休后重新打开必须能读到");
+	assert.equal(h.calls.list.length, 2, "旧代目录缓存随会话退休作废，下一次读重新装载");
+});
+
+test("fs.watch 失败：读取仍成功，但目录页必须带 watch-failed 与真实失败码；恢复后清除", async () => {
+	const h = harness();
+	h.state.watchFails = true;
+	const listed = await h.list("");
+	assert.equal(listed.ok, true, "订阅失败不是读失败");
+	const degraded = await h.facts.directoryPage(PROJECT, "", false);
+	assert.equal(degraded.ok, true);
+	assert.equal(degraded.value.dirWatch?.degraded, true);
+	assert.equal(degraded.value.dirWatch?.reason, "watch-failed");
+	assert.equal(degraded.value.dirWatch?.code, "REMOTE_WORKSPACE_UNSUPPORTED");
+	assert.equal(degraded.value.dirWatch?.covered, 0);
+	assert.equal(degraded.value.dirWatch?.dropped, 1);
+
+	// 下一次读之前让 helper 恢复：重新登记成功后，降级状态清除（不是永久贴标签）。
+	h.state.watchFails = false;
+	h.facts.afterWrite(PROJECT, ["src/a.ts"]);
 	await h.list("");
-	assert.equal(h.calls.list.length, 1, "退休会话的迟到事件被忽略");
+	const recovered = await h.facts.directoryPage(PROJECT, "", false);
+	assert.equal(recovered.ok, true);
+	assert.equal(Object.hasOwn(recovered.value, "dirWatch"), false, "恢复覆盖后不得残留旧降级");
+});
+
+test("关闭/释放项目后 root 经 TTL/LRU 退休：重新打开能重新建立会话并成功读取", async () => {
+	const h = harness();
+	const first = await h.list("");
+	assert.equal(first.ok, true);
+	assert.equal(h.calls.list.length, 1);
+	// 目录事实已经形成暖缓存，并带有这条会话的连接代。
+	const warm = await h.facts.directoryPage(PROJECT, "", false);
+	assert.equal(warm.value.generation, "conn-1");
+	assert.equal(h.calls.watches.length, 1, "根目录已经订阅");
+
+	await h.facts.closeProject(PROJECT);
+	// 池按 TTL/LRU 回收这条 root：从这一刻起它不再有活会话，下一次读必须允许新建会话。
+	h.state.rootUnavailable = true;
+	h.state.connectionId = "conn-2";
+
+	const reopened = await h.list("");
+	assert.equal(reopened.ok, true, "关闭后重新打开不能因为旧暖缓存而卡在 SSH_HOST_NOT_READY");
+	assert.equal(h.calls.list.length, 2, "旧缓存已清理，重新打开重新装载");
+	assert.equal(h.calls.watches.length, 2, "新会话重新登记目录订阅");
+	const page = await h.facts.directoryPage(PROJECT, "", false);
+	assert.equal(page.value.generation, "conn-2", "generation 属于重新建立的会话，而不是被清掉的旧代");
 });
 
 test("深层 watch 降级时目录页带 dirWatch；正常覆盖时字段缺席", async () => {

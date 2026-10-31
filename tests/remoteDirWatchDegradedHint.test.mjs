@@ -28,6 +28,17 @@ test("降级时明示覆盖缺口：desired/covered/dropped 都在文案里", ()
 	assert.match(html, /手动刷新/);
 });
 
+test("订阅失败时把 helper 的真实失败码带到用户可见提示里", () => {
+	const html = renderToStaticMarkup(
+		React.createElement(RemoteDirWatchDegradedHint, {
+			dirWatch: { degraded: true, reason: "watch-failed", desired: 1, covered: 0, dropped: 1, code: "METHOD_NOT_FOUND" },
+		}),
+	);
+	assert.match(html, /data-testid="remote-file-tree-watch-degraded"/);
+	assert.match(html, /METHOD_NOT_FOUND/, "只说降级不说原因，用户无法判断是预算还是 helper 拒绝");
+	assert.match(html, /1/, "覆盖缺口仍然要显示");
+});
+
 test("中英词典都有降级文案与三个占位符", () => {
 	for (const [dictionary, label] of [
 		[zhCN, "zh-CN"],

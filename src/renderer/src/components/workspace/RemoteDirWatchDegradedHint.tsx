@@ -10,11 +10,18 @@ import { t } from "../../i18n";
  */
 export function RemoteDirWatchDegradedHint(props: { dirWatch: ProjectDirectoryWatchDegradation | null }) {
 	if (props.dirWatch === null) return null;
-	const { desired, covered, dropped } = props.dirWatch;
+	const { desired, covered, dropped, code } = props.dirWatch;
 	return (
 		<p data-testid="remote-file-tree-watch-degraded" className="flex items-start gap-1 px-2 py-1 text-label text-muted-foreground">
 			<AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-			<span>{t("project.remote.dirWatchDegraded", { desired, covered, dropped })}</span>
+			{/*
+			 * 失败码来自 helper 的稳定码闭集（METHOD_NOT_FOUND / PERMISSION_DENIED …），是「为什么没监听」
+			 * 的真实原因；只附在已有文案后，不新增 UI 术语。计数文案本身已经说明需要手动刷新。
+			 */}
+			<span>
+				{t("project.remote.dirWatchDegraded", { desired, covered, dropped })}
+				{code === undefined ? "" : ` (${code})`}
+			</span>
 		</p>
 	);
 }

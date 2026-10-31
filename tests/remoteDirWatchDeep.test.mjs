@@ -112,6 +112,79 @@ test("第 5 个 watcher 被拒绝，并留下可断言的降级状态（不偷�
 	assert.equal(p.logs[0].desired, 1);
 });
 
+test("fs.watch 抛错：covered 为空也必须降级，真实失败码进入状态与日志；恢复后状态清除", async () => {
+	const p = planner();
+	const state = { fail: true, seq: 0 };
+	const session = {
+		connectionId: "conn-1",
+		async request(method, params) {
+			if (method === "fs.watch") {
+				p.calls.push({ kind: "watch", paths: [...params.paths] });
+				if (state.fail) throw new Error("REMOTE_WORKSPACE_UNSUPPORTED");
+				state.seq += 1;
+				return { watchId: "w-recovered-" + state.seq };
+			}
+			if (method === "fs.unwatch") return { ok: true };
+			throw new Error("UNEXPECTED_METHOD");
+		},
+	};
+
+	await p.watch.record(PROJECT, HOST, "", session);
+	const failed = p.watch.status(PROJECT);
+	assert.deepEqual(plain(failed.covered), [], "订阅失败时没有任何覆盖");
+	assert.equal(failed.degraded?.reason, "watch-failed", "covered 为空不能伪装成正常");
+	assert.equal(failed.degraded?.code, "REMOTE_WORKSPACE_UNSUPPORTED", "真实失败原因必须带出来");
+	assert.equal(failed.degraded?.desired, 1);
+	assert.equal(failed.degraded?.dropped, 1);
+	assert.deepEqual(
+		p.logs.map((entry) => [entry.reason, entry.code]),
+		[["watch-failed", "REMOTE_WORKSPACE_UNSUPPORTED"]],
+		"降级必须有结构化日志且带失败码",
+	);
+
+	// 失败条件消失后再次冲刷：覆盖恢复，降级状态必须清掉（不是永久贴标签）。
+	state.fail = false;
+	await p.watch.record(PROJECT, HOST, "", session);
+	const recovered = p.watch.status(PROJECT);
+	assert.deepEqual(plain(recovered.covered), [""]);
+	assert.equal(recovered.degraded, undefined, "恢复后不得残留旧降级");
+	assert.equal(watchesOf(p.calls).length, 2, "一次失败 + 一次成功，各自只发一次请求");
+});
+
+test("helper 以 TOO_MANY_REQUESTS 拒绝：归到 watcher-capacity 并保留真实码", async () => {
+	const p = planner();
+	const session = {
+		connectionId: "conn-1",
+		async request(method) {
+			if (method === "fs.watch") throw new Error("TOO_MANY_REQUESTS");
+			if (method === "fs.unwatch") return { ok: true };
+			throw new Error("UNEXPECTED_METHOD");
+		},
+	};
+	await p.watch.record(PROJECT, HOST, "", session);
+	const status = p.watch.status(PROJECT);
+	assert.equal(status.degraded?.reason, "watcher-capacity", "helper 的预算拒绝与登记表预判同一语义");
+	assert.equal(status.degraded?.code, "TOO_MANY_REQUESTS");
+	assert.deepEqual(plain(status.covered), []);
+});
+
+test("helper 声称成功却不给 watchId：按 watch-failed 降级，不假装覆盖", async () => {
+	const p = planner();
+	const session = {
+		connectionId: "conn-1",
+		async request(method) {
+			if (method === "fs.watch") return {};
+			if (method === "fs.unwatch") return { ok: true };
+			throw new Error("UNEXPECTED_METHOD");
+		},
+	};
+	await p.watch.record(PROJECT, HOST, "", session);
+	const status = p.watch.status(PROJECT);
+	assert.deepEqual(plain(status.covered), []);
+	assert.equal(status.degraded?.reason, "watch-failed");
+	assert.equal(status.degraded?.code, "WATCH_UNAVAILABLE");
+});
+
 test("超过 128 条路径：只覆盖上限内的路径并明确降级（paths-over-limit）", async () => {
 	const p = planner();
 	const session = p.session("conn-1");
