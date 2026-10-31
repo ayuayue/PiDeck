@@ -198,7 +198,7 @@ const result = factsOnly
 
 **unknown 跨代保留（G 追加）**：写在进行中时断线/重绑/root 失效会换控制器代。hook 以**不含连接代**的 identity key 记录"在途写/未知写"，由新代控制器 `setUncertain()` 在首次读之前发布 `GIT_WRITE_RESULT_UNCONFIRMED`；只有一次成功的事实读能解除，失败读不解。新增 `tests/remoteGitUncertainWriteCarry.test.mjs` 锁定。
 
-### 7.2 验证（本机，Windows；未提交）
+### 7.2 验证（本机，Windows；checkpoint `2d703f830`）
 
 | 门禁 | 命令 | 结果 |
 |---|---|---|
@@ -214,7 +214,7 @@ skip 构成：25 个 Linux-only helper 用例（`remoteGitDiscard` 16 / `remoteG
 
 ### 7.3 仍未完成 / 需集成者
 
-1. **DrawerSurface 接线**：远端继续挂 `RemoteGitPanel`（props 未变，无需改动）；`GitDrawerHost` 新增可选 `gitCapabilities`，需集成者在 `DrawerSurface.tsx` 从 `useProjectServices` 取值透传，共用的 `GitPanel` 才会对受限项目真正置灰（本批缺省全可用，零行为变化）。
+1. ~~DrawerSurface 接线~~ **已完成（`163d5aaf0`）**：远端继续挂 `RemoteGitPanel`；`DrawerSurface.tsx` 经 `LocalGitDrawerHost` 从 `useProjectServices(project)` 取 `capabilities.git` 透传给共用 `GitDrawerHost`。`remoteGitDrawer` 测试补了 hook 替身。
 2. ~~i18n~~ **已完成**：15 个能力 key + 3 条同步完成文案已加入 zh-CN / en-US 并重跑 `node scripts/genZhTwCopy.mjs`；能力条改为**双态**（全可用时给出可用入口清单，有阻塞时逐条列出原因），同步完成改用无参完成文案（不虚构 up-to-date / 快进 / 合并）。
 3. ~~三层同步~~ **已完成（见 §4.6）**：facts-only 强刷已按三层接全，`capabilities.git.forceRefresh` 现在名副其实；未覆盖真实远端验收。
 4. **冻结契约缺口（3 个只读/取消入口）**：`commitDetail` / `refFileDiff` / `cancelRemoteReads` 仍由 `utils/remoteGitPanelApi.ts` 直连既有 preload 并做代数围栏；扩契约后删除该段（建议扩 `ProjectGitService` 或明确这些仍属面板私有面）。
@@ -222,7 +222,7 @@ skip 构成：25 个 Linux-only helper 用例（`remoteGitDiscard` 16 / `remoteG
 6. **每次刷新多一次 branches 读（已优化）**：静默 5s 轮询现在只读事实（`{ branch: false }`），分支沿用上次确认值；显式刷新仍读 facts + branch 两跳（展示需要），契约若能给 facts+branch 同帧可再合并。
 7. **`utils/remoteGitFactsSubscription.ts` 已无生产消费者**（仅其单测引用）：建议 owner 决定删除或标注；本批不删以免影响其它并行线。
 8. **面板组件合并（ADR Phase C 第 1 步）未做**：本批把数据入口/能力/门禁统一到 provider，组件合并留待单独开片。
-9. **未跑**：真实远端、Electron、E2E、全量 `npm test`、全量 build（本任务未授权）。
+9. **验证覆盖**：全量 `npm test`、离线 E2E（git-panel/file-viewer/file-tree-dom-budget）已跑；仍未跑真实远端、远端 E2E、Linux CI。
 
 ## 7.4 集成检查点（2026-10-31）
 
