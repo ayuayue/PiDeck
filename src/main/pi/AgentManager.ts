@@ -1645,6 +1645,10 @@ export class AgentManager {
 			}
 			return undefined;
 		};
+		// 窗口已经贴到缓存最旧条目（start === 0）：再往前没有缓存内容，锚点会指到窗口首条自己，
+		// 下一次「加载更多」原样返回同一页——渲染层补页循环因此空转，直到 React 报 #185
+		// （2026-11 真机：点大纲最上面的刻度，界面弹「渲染异常」）。缓存线索到此为止，交给文件路径。
+		if (start === 0) return null;
 		const oldestEntryId = pickAnchorEntryId(page) ?? pickAnchorEntryIdBefore(start);
 		// 缓存里没有能当锚点的更早条目：缓存这条线索到此为止，交给文件路径按数值 before 继续翻。
 		if (!oldestEntryId) return null;
