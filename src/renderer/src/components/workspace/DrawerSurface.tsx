@@ -2,7 +2,8 @@ import { RemoteProjectPanel } from "../session/RemoteProjectPanel";
 import { isRemoteProject } from "../../../../shared/projectLocation";
 import { projectSupportsContentSearch } from "../../utils/fileSearchCapability";
 import { BrowserSurface } from "./BrowserSurface";
-import { GitDrawerHost, type GitDrawerApi } from "./GitDrawerHost";
+import { GitDrawerHost, type GitDrawerApi, type GitDrawerHostProps } from "./GitDrawerHost";
+import { useProjectServices } from "../../hooks/useProjectServices";
 import { RemoteGitPanel } from "./RemoteGitPanel";
 import { RewindPanel } from "./RewindPanel";
 import { RpcLogPanel } from "./RpcLogPanel";
@@ -110,6 +111,15 @@ export interface DrawerFilesPort {
 	onMoveFiles: (sourcePaths: string[], targetDir: string) => void;
 }
 
+/**
+ * 共用 GitPanel 的本地宿主：能力从 ProjectServices 取（G4b 的 gitCapabilities 透传）。
+ * 远端仍由 RemoteGitPanel 自己走 services；这里只补共用面板的本地透传，缺省能力与旧行为一致。
+ */
+function LocalGitDrawerHost({ project, ...props }: GitDrawerHostProps & { project: Project | undefined }) {
+	const services = useProjectServices(project);
+	return <GitDrawerHost {...props} gitCapabilities={services?.capabilities.git} />;
+}
+
 export interface DrawerSurfaceProps {
 	drawer: WorkspaceDrawerPanel | null;
 	drawerCollapsed: boolean;
@@ -169,7 +179,8 @@ export function DrawerSurface(props: DrawerSurfaceProps) {
 							{files.activeProject && files.activeProject.id === git.activeProjectId && isRemoteProject(files.activeProject) ? (
 								<RemoteGitPanel key={JSON.stringify([files.activeProject.id, files.activeProject.locator.hostId, files.activeProject.locator.remotePath])} project={files.activeProject} />
 							) : (
-								<GitDrawerHost
+								<LocalGitDrawerHost
+									project={files.activeProject}
 									projectId={git.activeProjectId}
 									gitApi={git.gitApi}
 									fallbackGitInfo={git.gitInfo}

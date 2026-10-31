@@ -392,3 +392,13 @@ node F:\PiDeck\scripts\panel-baseline.mjs sync --to F:\PiDeck-f
 | **池化默认开启** | **不是** F/G 开发前提（保持关闭） | 池化默认关闭且无设置项；真机验收未做（§8.8 第 2 条） |
 | **最终远端验收** | **不是** F/G 开发前提 | 未授权连接真实远端；离线门禁已过（§8.7） |
 
+---
+
+## 10. 并行 F/G 集成检查点（2026-10-31）
+
+- **checkpoint**：`2d703f830 chore: checkpoint 并行 F/G 成果（文件抽屉 + Git Phase C）`，76 个文件；未 push、未合并。
+- **F**：文件抽屉/本地树/搜索/草稿/文件操作已接入 `ProjectServices`；本地树经 `useProjectServices(project).files.listDirectory`，目录页新增本机 `path/mtimeMs/ctimeMs/size` 与 `totalEntries`；远端搜索保留原始 `entries`（bytes/other）；跨目录移动新增 `ProjectFileService.moveEntry`。
+- **G**：Git provider/面板能力门禁、令牌经纪、纯事实强刷、V 审查修复已落地；`DrawerSurface` 已透传 `capabilities.git`。
+- **门禁**：`typecheck` / `check:ipc-wiring`（795 通道）/ `check:test-shape` / `check:format` 均 0；全量 `npm test` **15475 tests / 15190 pass / 0 fail / 285 skip**。
+- **E2E**：`git-panel`、`file-viewer`、`file-tree-dom-budget` 通过；`file-tree-sticky` 行距断言在 I0 基线同样失败（既有环境/布局问题，已用临时 baseline worktree 复核并清理）。
+- **未完成/限制**：真实 SSH、远端 E2E、Linux CI、T 的文本保存真机验收；回收站/上传下载/图片预览仍是远端薄壳；`files.stat` 的 `missing` 与 `capabilities.files.watch` UI 仍待集成者。

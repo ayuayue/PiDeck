@@ -18,6 +18,7 @@ function drawer(project, collapsed = false, enabled = true) {
 			// DrawerSurface 的依赖链在合并后经 message-scroller 引入投递跟随 hook；
 			// 本测试只关心 git 抽屉挂载哪个面板，不需要真实滚动引擎。
 			"@/lib/stick-to-bottom": { useStickToBottom: () => ({}), isFollowEscapeEdge: () => false, isFollowSnapshotFresh: () => false },
+			"../../hooks/useProjectServices": { useProjectServices: () => ({ capabilities: { git: {} } }) },
 			"./GitDrawerHost": {
 				GitDrawerHost: () => {
 					mounts.push("native");

@@ -1,6 +1,6 @@
 # 任务 G：Phase C —— Git provider / 面板接入 ProjectGitService
 
-Status: **Active（G 实施中）**。基线：`dev`（I0 集成提交组，`git log --oneline 24529c394..dev`），工作树干净。
+Status: **已实施，checkpoint `2d703f830`（2026-10-31），待最终验收**。基线：`dev`（I0 集成提交组，`git log --oneline 24529c394..dev`）。
 S 契约已冻结（[remote-project-parallel-handoff.md](remote-project-parallel-handoff.md) §8.2），`services/projectGitService.ts` 已移交 G。
 本文件只记录 G 的能力 parity、实施分片、验证与待接线项；不改变任何公共契约语义。
 
@@ -223,6 +223,14 @@ skip 构成：25 个 Linux-only helper 用例（`remoteGitDiscard` 16 / `remoteG
 7. **`utils/remoteGitFactsSubscription.ts` 已无生产消费者**（仅其单测引用）：建议 owner 决定删除或标注；本批不删以免影响其它并行线。
 8. **面板组件合并（ADR Phase C 第 1 步）未做**：本批把数据入口/能力/门禁统一到 provider，组件合并留待单独开片。
 9. **未跑**：真实远端、Electron、E2E、全量 `npm test`、全量 build（本任务未授权）。
+
+## 7.4 集成检查点（2026-10-31）
+
+- 提交：`2d703f830`（与 F 一并 checkpoint；未 push、未合并）。
+- 门禁：`typecheck` / `check:ipc-wiring` / `check:test-shape` / `check:format` 全部 0；全量 `npm test` **15475 tests / 15190 pass / 0 fail / 285 skip**。
+- E2E（离线）：`git-panel.spec.ts`、`file-viewer.spec.ts`、`file-tree-dom-budget.spec.ts` 通过；`file-tree-sticky.spec.ts` 的行距断言在 **I0 基线同样失败**（环境/既有布局问题，非本批回归）。
+- 集成补线：`DrawerSurface.tsx` 已通过 `useProjectServices(project)` 把 `capabilities.git` 透传给共用 `GitDrawerHost`。
+- 未跑：真实 SSH、远端 E2E、Linux CI；远端写面仍需真机验收。
 
 ## 8. V 只读审查（2026-10-31，已按结论修复）
 
