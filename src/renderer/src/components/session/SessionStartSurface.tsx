@@ -120,7 +120,7 @@ export function SessionStartSurface(props: SessionStartSurfaceProps) {
 				<NoProjectStart onAddProject={props.onAddProject} onOpenRemote={props.onOpenRemote} />
 			</StartSurfaceShell>
 		);
-	return <SessionStartBody sessionId={props.sessionId} projectSwitcher={props.projectSwitcher} bootstrapProjectId={props.bootstrapProjectId} />;
+	return <SessionStartBody sessionId={props.sessionId} projectSwitcher={props.projectSwitcher} bootstrapProjectId={props.bootstrapProjectId} secondaryAction={props.secondaryAction} />;
 }
 
 function SessionStartBody(props: SessionStartProps) {

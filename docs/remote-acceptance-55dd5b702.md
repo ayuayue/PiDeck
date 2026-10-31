@@ -20,12 +20,12 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 | Linux（WSL）POSIX/Linux-only 邻接用例 | **通过**：139 pass / 1 skip（root-only chown） |
 | Linux（WSL）根池化相关 4 文件 | **通过**：51/51 |
 | Linux（WSL）remote/ssh 全扫 | **失败（7 例，全部既有，非本提交引入）** + **跳过 11 例**；基线 HEAD~1 复跑失败数一致，详见 §3.3 |
-| 真实 SSH + Electron 端到端验收 | **失败（R0/R1 均卡在 `e2e/remoteHostAcceptance.spec.ts:223`）**：主机 pin/连接/两个远端项目登记通过，但「浏览远端文件」入口未出现；S2/S5/S6/S7 未执行，详见 §10 |
+| 真实 SSH + Electron 端到端验收 | **部分通过（UI 入口 bug 已修复；R0 1 passed 40.7s；R1 在 step 5 失败）**：R0（池化关闭）真机通过；R1（池化开启）已越过 UI 入口，但远端会话扫描拿不到 home；S2/S5/S6/S7 未执行，详见 §10 |
 | Linux CI 覆盖 | **通过（仅本地新增，未触发 GitHub CI）**：新增 `linux-unit-remote` job（硬门禁 17 文件 253/252+1；全扫 continue-on-error）+ 挂账文档；见 §11 |
 | panel-service-baseline.manifest | **通过**：按 HEAD 重建，`panel-baseline.mjs verify` 48/48 rc=0；见 §11 |
 | 旧文档失效状态审计 | **完成并已同步旧文档 + 重建 manifest**（见 §5/§11） |
 
-**总体判定：默认生产构建（池化关闭）无阻断；本提交的四个修复方向中，前三个通过，第四个在池化开启场景存在条件性失败 F1。F1 已按“继续剩余工作”指示修复并以 `a905d4d7d` 提交（含生产顺序回归，§9）；但真机 R0/R1 本轮在既有 UI 断言处失败（§10），池化路径尚未取得真机证据。**
+**总体判定：默认生产构建（池化关闭）无阻断；本提交的四个修复方向中，前三个通过，第四个在池化开启场景存在条件性失败 F1。F1 已修复并提交 `a905d4d7d`（§9）；真机 UI 入口 bug 已定位并修复（§10.1），R0（池化关闭）真机通过；但 R1（池化开启）仍失败于远端会话扫描的 home 解析（§10.4），池化路径尚未取得真机证据。**
 
 ## 1. 基线与工作区核对（只读）
 
@@ -297,7 +297,7 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 ## 8. 验收签字建议
 
 - **默认构建（池化关闭）**：可接受；本提交四个方向中 3 个通过，F1 不触发默认路径。
-- **池化默认开启**：**暂不可签收**——F1 已修复并提交 `a905d4d7d`，但真机 R0/R1 在 `e2e/remoteHostAcceptance.spec.ts:223` 失败（§10.1），S2/S5/S6/S7 未执行；需先定性/修复该 UI 入口失败或更新 spec，再完成 R1 真机验收，并处理 §2.3 的保活计数风险。
+- **池化默认开启**：**暂不可签收**——F1 已修复并提交；真机 UI 入口 bug 已修复且 R0 通过，但 R1（池化）在 step 5 远端会话扫描 home 解析失败（§10.4），S2/S5/S6/S7 未执行；需先修复该池化缺口，再完成 R1 真机验收，并处理 §2.3 的保活计数风险。
 - **Git Phase C / Linux-only 既有红**：`remoteGitStability` 4 例在本 Linux 环境稳定红（基线同红），需另行挂账，不应被本检查点的“Windows 全绿”掩盖。
 
 ## 9. 验收后修复（已提交 `a905d4d7d`）
@@ -322,19 +322,20 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 
 ### 9.3 提交与当前工作区
 
-- 修复提交：`a905d4d7d`（源码 + 回归测试 + 本验收文档）。
-- 旧文档同步提交：`f870d5574`（§5“更新记录”）。
-- 本轮 CI/基线清单/真机验收改动尚未提交：`M .github/workflows/ci.yml`、`M docs/panel-service-baseline.manifest`、`M docs/remote-project-parallel-handoff.md`、`?? docs/ci-linux-known-failures.md`、`M docs/remote-acceptance-55dd5b702.md`。
+- 修复提交：`a905d4d7d`（F1 源码 + 回归测试 + 验收文档）。
+- 旧文档同步提交：`f870d5574`。
+- CI/基线清单/文档提交：`17cce290a`。
+- 本轮 UI 入口修复与回归测试（`SessionStartSurface.tsx`、`tests/remoteProjectComposerEntry.test.mjs`）及本验收文档的最新更新**随本次提交落库（未 push）**。
 - 原检查点 `55dd5b702` 未被改写；未 push/merge。
 
 ### 9.4 仍未做
 
-- 真机 UI 入口失败（§10.1）需定性：产品回归还是 spec/UI 契约漂移；未定性前 R0/R1 不能算通过。
+- R1 池化仍失败于远端会话扫描 home 解析（§10.4），需单独修复后才能继续 S2/S5/S6/S7。
 - 真机 S2/S5/S6/S7（切换不重建、TTL/sweep、显式断开、监听降级）未执行。
 - 7 个既有 Linux 红已挂账（`docs/ci-linux-known-failures.md`），未修；`remoteGitStability` 属 Git/Phase C 债。
-- 本轮 CI/清单/真机验收改动是否提交、是否 push，由用户决定。
+- UI 入口修复与回归测试已随本次提交落库；是否 push 由用户决定。
 
-## 10. 真实 SSH + Electron 执行结果（2026-10-31，失败）
+## 10. 真实 SSH + Electron 执行结果（2026-10-31；R0 通过，R1 失败）
 
 ### 10.1 运行与结果
 
@@ -345,17 +346,18 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 
 | 轮次 | 配置 | 结果 |
 |---|---|---|
-| R0 #1/#2/#3 | 池化关闭 | exit 1；42.3s / 34.9s / 35.1s；均卡在 spec:223 |
-| R1 #1/#2 | `rootPooling: {}` | exit 1；37.8s / 33.0s；**同一点失败** |
+| R0（修复前）#1/#2/#3 | 池化关闭 | exit 1；42.3s / 34.9s / 35.1s；均卡在 spec:223 |
+| R1（修复前）#1/#2 | `rootPooling: {}` | exit 1；37.8s / 33.0s；同一点失败 |
+| **R0（修复后）** | 池化关闭，含 UI fix | **1 passed（40.7s）** |
+| **R1（修复后）** | `rootPooling: {}`，含 UI fix | **exit 1；step 5 失败**（远端会话扫描/远端 home 解析） |
 
-通过：① 加主机 pin（TOFU 落盘指纹匹配）② 连接 ready（进度框 +「已连接」+「断开」）③ 两个远端项目 canonical 登记。
-失败：`e2e/remoteHostAcceptance.spec.ts:223` 断言 `getByRole("button", { name: "浏览远端文件" })` 可见 → element not found（10s）。
-失败瞬间 ARIA：侧栏两台远端项目均带「远程主机：serve · 已连接」，中栏项目选择器已是 `proj-b-<runId>`；但中栏渲染的是 SessionStartSurface 输入页（“把想法放到工作台上。”），**没有** `data-testid="remote-project-browse-files"`。
-源码对照：`ProjectEmptyState.tsx:75-90` 仍在 `isRemoteProject(activeProject)` 分支渲染该按钮；因此失败原因**尚未定性**（产品渲染状态回归 / spec 与新版起始页契约漂移）。本轮未改产品代码、未改 spec。
+**UI 入口失败根因（已修复）**：R0（修复前）的 ARIA 显示中栏是 `SessionStartSurface`，但按钮不存在。React fiber 对照确认：`SessionStartSurface` 收到 `secondaryAction`（Button 元素），而 `SessionStartBody` 没收到——`SessionStartSurface.tsx:123` 在重构后返回 `SessionStartBody` 时**漏转发 `secondaryAction`**，`SessionStartBody.tsx:169` 因此永远不渲染。修复：补 `secondaryAction={props.secondaryAction}`；回归断言加到 `tests/remoteProjectComposerEntry.test.mjs`（“start surface and file panel expose the two-way switch”）。R0 复跑 **1 passed (40.7s)**，证明入口恢复。
 
-影响：S0/S1 没有 UI 证据；S2/S5/S6/S7 未执行；池化真机路径未验证。
+**R1（池化）后续失败（未修复）**：R1 已越过 UI 入口，失败于 step 5「远端会话列表」：UI 文案“无法确定远端会话目录（远端 home 解析失败）”，断言位置 `e2e/remoteHostAcceptance.spec.ts:237:62`（step 5）。只读定位：池化 `connect` 只 `ensureHeldShared`、不创建 root helper（`RemoteHostConnectionService.ts:669-688`），而 `readHomeEnsuring` 在没有缓存 manager/池条目时返回 undefined（`RemoteHostConnectionService.ts:1095-1110`）——这是池化模式的真实缺口，不是 UI 入口问题；本轮未改此逻辑。
 
-### 10.2 采样
+影响：R0（池化关闭）的 S0/S1 入口与登记链路已通过；R1 池化仍不能签收；S2/S5/S6/S7 未执行。
+
+### 10.2 采样（修复前 R0/R1 记录）
 
 - R0：运行中稳定 1 条 helper（`~/.nvm/versions/node/v24.11.0/bin/node ~/.pideck/remote-host/bundles/<sha>/helper.mjs`）；远端 :22 established 3→5、sshd 7→9；结束回落到 3/7，helper 归零；本机 ssh 1→3。
 - R1：14 次采样 helper=0、:22 连接 3–4；2.7s 采样分辨率不足以证明“池化未建会话”；全程**未见 2 条不同 root 的 helper**。
@@ -363,17 +365,17 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 
 ### 10.3 补丁与清理
 
-- `rootPooling: {}` 临时应用 2 次，均已删除；`git diff -- src/main/index.ts` 为空；干净源码重建 `out/main` 后其中 `rootPooling: {}` 命中 0。
+- `rootPooling: {}` 临时应用 2 次（修复前 R1、修复后 R1），均已删除；`git diff -- src/main/index.ts` 为空；干净源码重建 `out/main` 后其中 `rootPooling: {}` 命中 0。
 - 远端：每次结束 helper 归零、:22 回到基线；5 次运行的 runId 目录均由 spec 的 `finally` 清理；唯一残留 `~/.pideck-e2e-e2emvulqwle` 与这 5 次 runId 都不匹配（更早遗留），未动；`.pi/agent/sessions` 无 e2e 夹具残留。
 - 未 sudo、未改系统、未动既有 `~/.pideck/remote-host` 的 bundle/leases。
 
 ### 10.4 结论
 
-- R0 与 R1 **同点失败**，说明不是池化开关导致的：真实主机路径在“登记两个远端项目后进入文件浏览”这一步不可达。
-- 未定性为产品回归还是 spec/UI 契约漂移；必须先定性并修复（或更新 spec），才能继续真机验收。
-- S2/S5/S6/S7 未执行，不能把本轮 R0/R1 的失败或部分步骤写成“真机通过”。
+- UI 入口 bug 是产品回归（`SessionStartSurface` 漏转发 `secondaryAction`），已修复；R0 真机复跑通过，回归测试已加。
+- R1 池化在 step 5 仍失败：远端会话扫描期间没有可用的 root helper/manager，`remoteHomeEnsuring` 拿不到 home（池化 connect 不建 helper，而 home 读取没有按需建立 root 会话）。这是池化真机验收的下一个真实阻塞点，本轮未修。
+- S2/S5/S6/S7 未执行；不能把 R0 通过写成“池化真机通过”。
 
-## 11. CI 与基线清单同步（2026-10-31，未提交）
+## 11. CI 与基线清单同步（2026-10-31，已提交 17cce290a）
 
 ### 11.1 Linux CI
 
@@ -389,13 +391,10 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 - 重建前实测 **19/48 mismatch**（验收文档更新前的 16/48 是更早快照）；差额来自本检查点的文档更新，不是源码回归。
 - handoff §8.4 已记录重建与计数口径；manifest 由脚本整表重算，**未手改单条哈希**。
 
-### 11.3 未提交清单
+### 11.3 本轮 UI 修复提交内容
 
-- `M .github/workflows/ci.yml`
-- `M docs/panel-service-baseline.manifest`
-- `M docs/remote-project-parallel-handoff.md`
-- `M docs/README.md`（索引新增 `ci-linux-known-failures.md`）
-- `?? docs/ci-linux-known-failures.md`
-- `M docs/remote-acceptance-55dd5b702.md`
-- 另有 `?? docs/remote-sftp-evaluation.md`：非本轮产出（本轮未新增 SFTP），未纳入清单/未修改。
-- 未 commit/push；是否提交由用户决定。
+- `src/renderer/src/components/session/SessionStartSurface.tsx`（补 `secondaryAction` 转发）
+- `tests/remoteProjectComposerEntry.test.mjs`（source 回归断言）
+- `docs/remote-acceptance-55dd5b702.md`（§10 更新）
+- 另有 `?? docs/remote-sftp-evaluation.md`：非本轮产出，未纳入/未修改。
+- 本次提交未 push。
