@@ -3383,6 +3383,8 @@ function registerIpc() {
 				},
 				// helper 1.24.0 的变更事件：只标脏事实，不触发装载（重读仍由读的人决定）。
 				onHelperEvent: (entry) => remoteProjectFacts?.onHelperEvent(entry),
+				// root 会话退休（TTL/LRU/latched/显式）与主机断开是两件事：只清这个 root 的登记，不关终端。
+				onRootRetired: (entry) => remoteProjectFacts?.onRootRetired(entry),
 			});
 			remoteHostService = service;
 			quitCleanup.register("remote-host", () => remoteHostService?.dispose());
@@ -3445,8 +3447,9 @@ function registerIpc() {
 	let remoteProjectFacts:
 		| {
 				afterWrite(projectId: string, paths: readonly string[]): void;
-				onHelperEvent(entry: { hostId: string; watchId: string; paths: readonly string[] }): void;
+				onHelperEvent(entry: { hostId: string; watchId: string; paths: readonly string[]; sessionKey: string }): void;
 				onHostDisconnected(hostId: string): void;
+				onRootRetired(entry: { hostId: string; root: string; sessionKey: string }): void;
 		  }
 		| undefined;
 	/** 目录与 Git 共用的事实变化通知出口（T4）：订阅按 sender + project，事件只标脏。 */

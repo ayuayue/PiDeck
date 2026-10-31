@@ -104,7 +104,8 @@ function remoteHarness(options = {}) {
 		async withProjectSession(_hostId, _root, task) {
 			return { ok: true, value: await task(session) };
 		},
-		connectionFacts: () => ({ connectionId: "conn-1", state: "ready" }),
+		// 项目级连接事实（P 的 root-scoped 面）：主机级 connectionFacts 证明不了这份缓存属于哪个 root。
+		projectConnectionFacts: () => ({ connectionId: "conn-1", state: "ready" }),
 	};
 	const facts = registerRemoteProjectIpc({
 		enabled: true,

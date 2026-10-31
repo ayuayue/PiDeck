@@ -7,19 +7,27 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  *
  * 用法与 remoteHostIpc.test.mjs 同一套：真的加载 `remoteProjectIpc`，只把 reader 换成会记账的假端口。
  * 断言的是行为（reader 被调用几次），不是实现细节——所以搬文件、改内部结构都不会让这组用例失真。
+ *
+ * 池化 B3 之后，假 service 必须提供**按项目 root 查询**的事实与能力入口
+ * （`projectConnectionFacts(hostId, root)` / `projectHelperCapabilities(hostId, root)`）以及目录 watcher
+ * 的保活计数（`retain/releaseProjectSessionWatch`）。旧的主机级 `connectionFacts(hostId)` 已不能证明
+ * 这份缓存属于哪个 root：同主机可能同时挂着另一个 root 的会话，拿它当代数就是串根。这里把
+ * 「root 不匹配返回 undefined」做成隔离守卫，并覆盖能力可用/不可用两条路径。
  */
 const HOST_ID = "6f1b7c1e-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
 const PROJECT = "project-remote-1";
+const PROJECT_ROOT = "/srv/app";
 
 function harness(options = {}) {
-	const calls = { list: [], watches: [] };
+	const calls = { list: [], watches: [], keepAlive: [], factLookups: [], capabilityLookups: [], searchContent: 0 };
 	const handlers = new Map();
+	const state = { connectionId: "conn-1", rootUnavailable: false };
 	const { registerRemoteProjectIpc } = loadTsCommonJs("src/main/ipc/remoteProjectIpc.ts", {
 		stubs: {
 			electron: { ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) } },
 			"../remote/RemoteBrowseRoot": {
 				async resolveRemoteBrowseRoot() {
-					return { canonicalPath: "/srv/app" };
+					return { canonicalPath: PROJECT_ROOT };
 				},
 			},
 			"../remote/RemoteSearchReader": {
@@ -27,6 +35,10 @@ function harness(options = {}) {
 				createRemoteSearchReader: () => ({
 					async search() {
 						return { entries: [], scanned: 0, truncated: false };
+					},
+					async searchContent() {
+						calls.searchContent += 1;
+						return { matches: [{ name: "a.ts", path: "src/a.ts", line: 1, column: 0, snippet: "const a = 1;" }], matchedFiles: 1, scannedFiles: 1, scannedBytes: 16, truncated: false };
 					},
 				}),
 			},
@@ -52,27 +64,46 @@ function harness(options = {}) {
 			withProjectSession: async (_hostId, _root, task) => ({
 				ok: true,
 				value: await task({
+					connectionId: state.connectionId,
 					// fs.watch 走同一条 request 通道：这里回答一个稳定的 watchId，其余方法不该被调用。
 					request: async (method, params) => {
 						if (method === "fs.watch") {
 							calls.watches.push(JSON.parse(JSON.stringify(params)));
 							return { watchId: issuedWatchId };
 						}
+						if (method === "fs.unwatch") return { ok: true };
 						throw new Error("UNEXPECTED_METHOD");
 					},
 					cancel: async () => undefined,
 				}),
 			}),
+			// 项目事实只回答「服务这个 root 的会话」：同主机的兄弟 root 或主机级状态都不能替它担保。
+			projectConnectionFacts: (hostId, root) => {
+				calls.factLookups.push([hostId, root]);
+				if (state.rootUnavailable || hostId !== HOST_ID || root !== PROJECT_ROOT) return undefined;
+				return { connectionId: state.connectionId, state: "ready" };
+			},
+			// 能力属于声明它的那条 helper 会话；root 不匹配同样是 undefined（未知 ≠ 可用）。
+			projectHelperCapabilities: (hostId, root) => {
+				calls.capabilityLookups.push([hostId, root]);
+				if (hostId !== HOST_ID) return undefined;
+				if (options.capabilitiesByRoot !== undefined) return options.capabilitiesByRoot[root];
+				return root === PROJECT_ROOT ? options.capabilities : undefined;
+			},
+			// 目录订阅保活：0→1 记 retain、退订清空记 release（池的 watchers 计数只是加减法）。
+			retainProjectSessionWatch: (hostId, root) => calls.keepAlive.push({ kind: "retain", hostId, root }),
+			releaseProjectSessionWatch: (hostId, root) => calls.keepAlive.push({ kind: "release", hostId, root }),
 		}),
 		projects: {
 			enroll: async () => ({ projectId: PROJECT }),
-			locator: (projectId) => (projectId === PROJECT ? { kind: "ssh", hostId: HOST_ID, remotePath: "/srv/app" } : undefined),
+			locator: (projectId) => (projectId === PROJECT ? { kind: "ssh", hostId: HOST_ID, remotePath: PROJECT_ROOT } : undefined),
 		},
 	});
 	const list = (path) => handlers.get("remote:project-list")({}, PROJECT, path);
 	const plain = (value) => JSON.parse(JSON.stringify(value));
 	return {
 		calls,
+		state,
 		list,
 		facts,
 		plain,
@@ -90,6 +121,7 @@ test("同一个目录读两次：只装载一次，两次拿到同一个 revisio
 	assert.equal(first.value.revision, second.value.revision);
 	assert.deepEqual(h.plain(first.value.entries), h.plain(second.value.entries));
 	assert.equal(h.facts.dirLoads(), 1);
+	assert.deepEqual(h.plain([...new Set(h.calls.factLookups.map(([hostId, root]) => hostId + "|" + root))]), [HOST_ID + "|" + PROJECT_ROOT], "缓存围栏按本项目自己的 root 查询");
 });
 
 test("不同目录各装载一次：事实按 (项目, 路径) 分开", async () => {
@@ -136,15 +168,40 @@ test("装载失败如实返回稳定码与 outcome，不缓存成空目录", asy
 	assert.equal(h.calls.list.length, 2);
 });
 
-test("helper 变更事件只标脏对应目录（事件 → 失效接线）", async () => {
+test("暖缓存必须由本项目 root 的会话作围栏：拿不到就拒绝，不退回旧缓存", async () => {
 	const h = harness();
-	// 根目录装载成功时订阅一次，helper 回一个 watchId；事件回来时按这个 id 找项目。
+	const first = await h.list("");
+	assert.equal(first.ok, true);
+	const loads = h.calls.list.length;
+
+	// 主机上可能还挂着另一个 root 的 helper，但本项目 root 目前没有就绪会话：这份暖缓存证明不了"现在"。
+	h.state.rootUnavailable = true;
+	const blocked = await h.list("");
+	assert.equal(blocked.ok, false);
+	assert.equal(blocked.code, "SSH_HOST_NOT_READY");
+	assert.equal(h.calls.list.length, loads, "没有本项目 root 的会话时不付远端往返，也不返回旧缓存");
+
+	h.state.rootUnavailable = false;
+	const restored = await h.list("");
+	assert.equal(restored.ok, true);
+	assert.equal(restored.value.revision, first.value.revision, "会话恢复后仍复用同一份事实");
+});
+
+test("helper 变更事件只标脏对应目录（事件 → 失效接线，按会话身份路由）", async () => {
+	const h = harness();
+	// 根目录装载成功时订阅一次，helper 回一个 watchId；事件回来时按 (host, 会话, watchId) 找项目。
 	h.watchId("w1-req-1");
 	const before = await h.list("");
 	assert.equal(h.calls.list.length, 1);
 	assert.deepEqual(h.calls.watches, [{ paths: [""] }], "根目录第一次读到就订阅（非递归，覆盖根层与 .git 变化）");
 
-	h.facts.onHelperEvent({ hostId: HOST_ID, watchId: "w1-req-1", paths: [""] });
+	// 同主机另一条会话（另一个 root 的 helper）返回同一个 watchId：它的事件不得标脏本项目。
+	h.facts.onHelperEvent({ hostId: HOST_ID, sessionKey: "conn-other", watchId: "w1-req-1", paths: [""] });
+	const blocked = await h.list("");
+	assert.equal(h.calls.list.length, 1, "别的 sessionKey 的同一 watchId 不标脏，也不装载");
+	assert.equal(blocked.value.revision, before.value.revision);
+
+	h.facts.onHelperEvent({ hostId: HOST_ID, sessionKey: "conn-1", watchId: "w1-req-1", paths: [""] });
 	assert.equal(h.calls.list.length, 1, "事件不装载，只标脏");
 
 	const after = await h.list("");
@@ -158,10 +215,73 @@ test("未注册的 watchId、别的 host、别的路径都不影响事实", asyn
 	await h.list("src");
 	assert.equal(h.calls.list.length, 1);
 	assert.deepEqual(h.calls.watches, [], "非根目录不订阅");
-	h.facts.onHelperEvent({ hostId: HOST_ID, watchId: "nope", paths: ["src"] });
-	h.facts.onHelperEvent({ hostId: "ffffffff-ffff-4fff-8fff-ffffffffffff", watchId: "w1-req-1", paths: ["src"] });
+	h.facts.onHelperEvent({ hostId: HOST_ID, sessionKey: "conn-1", watchId: "nope", paths: ["src"] });
+	h.facts.onHelperEvent({ hostId: "ffffffff-ffff-4fff-8fff-ffffffffffff", sessionKey: "conn-1", watchId: "w1-req-1", paths: ["src"] });
 	await h.list("src");
-	assert.equal(h.calls.list.length, 1, "只认登记过的 (host, watchId, 路径)");
+	assert.equal(h.calls.list.length, 1, "只认登记过的 (host, 会话, watchId, 路径)");
+});
+
+test("内容搜索能力只看本项目 root 的 helper 声明：可用 / 不可用 / 兄弟 root 不冒充", async () => {
+	const available = harness({ capabilities: ["fs.searchContent"] });
+	const hit = await available.facts.searchContent(PROJECT, "a");
+	assert.equal(hit.ok, true);
+	assert.equal(hit.value.hits.length, 1, "声明了能力就走真实内容搜索");
+	assert.equal(hit.value.truncated, false);
+	assert.deepEqual(available.plain(available.calls.capabilityLookups), [[HOST_ID, PROJECT_ROOT]], "能力按项目自己的 root 查询");
+	assert.equal(available.calls.searchContent, 1);
+
+	const unsupported = harness({ capabilities: ["fs.list"] });
+	const none = await unsupported.facts.searchContent(PROJECT, "a");
+	assert.equal(none.ok, true);
+	assert.equal(none.value, null, "未声明能力 → ok:true/value:null（渲染层回退），不是失败");
+	assert.equal(unsupported.calls.searchContent, 0, "能力缺失时不发无谓的内容搜索请求");
+
+	const unknown = harness({});
+	assert.equal((await unknown.facts.searchContent(PROJECT, "a")).value, null, "能力未知（undefined）同样回退");
+
+	const sibling = harness({ capabilitiesByRoot: { "/srv/other": ["fs.searchContent"] } });
+	assert.equal((await sibling.facts.searchContent(PROJECT, "a")).value, null, "兄弟 root 声明了能力也不能替本项目宣布可用");
+	assert.deepEqual(sibling.plain(sibling.calls.capabilityLookups), [[HOST_ID, PROJECT_ROOT]], "仍然只查本项目自己的 root");
+});
+
+test("保活配对：目录第一次有 watch 时 retain 一次；关闭项目 release 恰好一次", async () => {
+	const h = harness();
+	await h.list("");
+	assert.deepEqual(h.calls.keepAlive, [{ kind: "retain", hostId: HOST_ID, root: PROJECT_ROOT }], "0→1 retain 一次");
+	await h.list("");
+	await h.list("src");
+	assert.equal(h.calls.keepAlive.length, 1, "watcher 仍挂着：后续读取/新目录不再 retain（池计数不漂）");
+
+	await h.facts.closeProject(PROJECT);
+	assert.deepEqual(
+		h.calls.keepAlive.map((entry) => entry.kind),
+		["retain", "release"],
+		"关闭项目成对 release 一次",
+	);
+});
+
+test("root 会话退休：onRootRetired 只归还这一条会话的保活，不触发主机断开", async () => {
+	const h = harness();
+	h.watchId("w-retire");
+	await h.list("");
+	assert.deepEqual(h.calls.keepAlive, [{ kind: "retain", hostId: HOST_ID, root: PROJECT_ROOT }], "watcher 活着时该 root 保温");
+
+	// 池把一条 root 会话退休（TTL/LRU/latched/显式）：只丢这条会话的登记与保活，邻居 root 与终端不受影响。
+	h.facts.onRootRetired({ hostId: HOST_ID, root: PROJECT_ROOT, sessionKey: "conn-1" });
+	assert.deepEqual(
+		h.calls.keepAlive.map((entry) => entry.kind),
+		["retain", "release"],
+		"退休成对 release 恰好一次",
+	);
+
+	// 幂等：同一条会话再退休不得重复 release，也不得抛错。
+	h.facts.onRootRetired({ hostId: HOST_ID, root: PROJECT_ROOT, sessionKey: "conn-1" });
+	assert.equal(h.calls.keepAlive.length, 2, "重复退休不重复归还保活");
+
+	// 退休会话的迟到事件不得再标脏：登记已丢，下一次读仍命中事实。
+	h.facts.onHelperEvent({ hostId: HOST_ID, sessionKey: "conn-1", watchId: "w-retire", paths: [""] });
+	await h.list("");
+	assert.equal(h.calls.list.length, 1, "退休会话的迟到事件被忽略");
 });
 
 test("深层 watch 降级时目录页带 dirWatch；正常覆盖时字段缺席", async () => {
@@ -173,7 +293,7 @@ test("深层 watch 降级时目录页带 dirWatch；正常覆盖时字段缺席"
 	assert.equal(Object.hasOwn(healthy.value, "dirWatch"), false);
 
 	// 129 个目录 > helper 预算（4 watcher × 32 路径 = 128）：深层订阅必须如实降级，
-	// 目录页把缺口带给渲染层（否则文件树会把“没监听”显示成“没变化”）。
+	// 目录页把缺口带给渲染层（否则文件树会把"没监听"显示成"没变化"）。
 	for (let index = 0; index < 129; index += 1) {
 		const page = await h.facts.directoryPage(PROJECT, "dir-" + index, false);
 		assert.equal(page.ok, true);
