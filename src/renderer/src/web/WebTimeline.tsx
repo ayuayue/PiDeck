@@ -617,6 +617,8 @@ export function WebTimeline(props: {
 	onOpenFile?: (path: string, line?: number) => void;
 	onScrollTopChange?: (scrollTop: number, delta: number) => void;
 	onNearBottomChange?: (nearBottom: boolean) => void;
+	/** 外部「跳到最新」请求（待答横幅点击等）：nonce 递增触发一次回底滚动。 */
+	jumpToLatestNonce?: number;
 }) {
 	const { messages, hasActiveSession, hasMoreHistory, moreCount, loadingMore, streaming, error, onLoadMore } = props;
 	const timelineRef = useRef<HTMLDivElement | null>(null);
@@ -693,6 +695,15 @@ export function WebTimeline(props: {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [messages, streaming]);
 
+	// 外部「跳到最新」（composer 上方待答横幅点击）：复用 scrollToBottom 的
+	// 程序化滚动抑制，顶栏不会被这次滚动误收起。
+	const lastJumpNonceRef = useRef(0);
+	useEffect(() => {
+		if (props.jumpToLatestNonce == null || props.jumpToLatestNonce === lastJumpNonceRef.current) return;
+		lastJumpNonceRef.current = props.jumpToLatestNonce;
+		scrollToBottom();
+	}, [props.jumpToLatestNonce]);
+
 	// 回合聚合：连续 assistant 消息合并成「过程组 + 常驻正文」（桌面 TurnRow 语义）。
 	// 流式中的末尾回合不提升 final（对齐桌面 isRunTail 门控，见 groupTimelineEntries 注释）。
 	// streaming 仅指「正在收流」，与 useChat 的 status 无关，由调用方在收流期间置真。
@@ -723,7 +734,7 @@ export function WebTimeline(props: {
 
 	return (
 		<section className="message-timeline relative h-full min-h-0 flex-1 overflow-y-auto" ref={timelineRef} onScroll={updateScrollState}>
-			<div className="message-list flex flex-col gap-4 p-4 pb-2 sm:px-6">
+			<div className="message-list flex flex-col gap-4 p-4 pb-6 sm:px-6">
 				{/* 分页加载更多：历史向上前插，入口必须在消息流顶部——往上滚到顶才碰得到；
 					放底部语义反了（底部是最新消息）。前插后靠浏览器原生 scroll anchoring 稳住视口。 */}
 				{hasMoreHistory && (

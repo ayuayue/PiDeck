@@ -26,7 +26,7 @@ import { WebModelSelector } from "./WebModelSheet";
 import { WebBackendSelector } from "./WebBackendSelector";
 import { WebThinkingSelector } from "./WebThinkingSelector";
 import { WebPromptPicker } from "./WebPromptPicker";
-import { useIsMobileViewport } from "./useIsMobileViewport";
+import { useCoarsePointer, useIsMobileViewport } from "./useIsMobileViewport";
 import { resolveComposerCollapsed } from "./composerCollapse";
 
 /** 单会话图片上限（压缩后每张约 100–300KB，4 张足够多数场景且 body 可控）。 */
@@ -90,6 +90,7 @@ export function WebComposer(props: {
 	const [mode, setMode] = useState<ComposerAgentMode>("normal");
 	const [focused, setFocused] = useState(false);
 	const mobileViewport = useIsMobileViewport();
+	const coarsePointer = useCoarsePointer();
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const composerRef = useRef<HTMLDivElement | null>(null);
 	const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -235,7 +236,13 @@ export function WebComposer(props: {
 									<li key={item.id} className="flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-background/70 px-1.5 py-1">
 										<span className="min-w-0 flex-1 truncate text-micro text-foreground">{item.text || t("app.queuedImageMessage")}</span>
 										{item.imageCount > 0 ? <span className="shrink-0 text-micro text-muted-foreground">{t("app.queuedImageCount", { count: item.imageCount })}</span> : null}
-										<button type="button" className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground pointer-coarse:p-2" aria-label={t("web.queueRemove")} title={t("web.queueRemove")} onClick={() => props.onRemoveQueued?.(item.id)}>
+										<button
+											type="button"
+											className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground pointer-coarse:size-9"
+											aria-label={t("web.queueRemove")}
+											title={t("web.queueRemove")}
+											onClick={() => props.onRemoveQueued?.(item.id)}
+										>
 											<X className="size-3" aria-hidden="true" />
 										</button>
 									</li>
@@ -254,7 +261,12 @@ export function WebComposer(props: {
 								{images.map((src, index) => (
 									<span key={`${index}-${src.slice(-24)}`} className="relative inline-block size-14 overflow-hidden rounded-md border border-border">
 										<img src={src} alt={t("web.messageImage")} className="size-full object-cover" />
-										<button type="button" aria-label={t("web.removeImage")} className="absolute top-0.5 right-0.5 rounded-full bg-background/80 p-0.5 text-muted-foreground transition-colors hover:bg-background hover:text-foreground" onClick={() => setImages((prev) => prev.filter((_, position) => position !== index))}>
+										<button
+											type="button"
+											aria-label={t("web.removeImage")}
+											className="absolute top-0.5 right-0.5 flex size-6 items-center justify-center rounded-full bg-background/80 text-muted-foreground transition-colors hover:bg-background hover:text-foreground pointer-coarse:size-7"
+											onClick={() => setImages((prev) => prev.filter((_, position) => position !== index))}
+										>
 											<X className="size-3" aria-hidden="true" />
 										</button>
 									</span>
@@ -277,7 +289,13 @@ export function WebComposer(props: {
 							}}
 							placeholder={placeholder}
 							disabled={props.disabled}
+							/* 触屏虚拟键盘没有 Shift：Enter 一律保持默认换行，发送只走右下角按钮，
+							    避免「发送」与「换行」共用一键造成误发（2026-10 评审 P1）；
+							    桌面物理键盘维持 Enter 发送 / Shift+Enter 换行。enterKeyHint 让
+							    虚拟键盘回车键直接标注行为（enter=换行 / send=发送）。 */
+							enterKeyHint={coarsePointer ? "enter" : "send"}
 							onKeyDown={(event) => {
+								if (coarsePointer) return;
 								if (event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
 									event.preventDefault();
 									submit();
@@ -350,7 +368,7 @@ export function WebComposer(props: {
 											<WebThinkingSelector level={props.thinkingLevel} onChange={props.onThinkingChange} />
 										</>
 									)}
-									<span className="composer-hint ml-auto hidden min-w-0 truncate text-caption text-muted-foreground sm:inline">{mode === "plan" ? t("app.composerPlanStatus") : t("web.composerHint")}</span>
+									<span className="composer-hint ml-auto min-w-0 truncate text-caption text-muted-foreground">{coarsePointer ? t("web.composerHintTouch") : mode === "plan" ? t("app.composerPlanStatus") : t("web.composerHint")}</span>
 								</div>
 							</div>
 						</div>

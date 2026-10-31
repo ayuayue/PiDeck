@@ -49,17 +49,20 @@
   --color-border-default: rgb(0 0 0 / 9%);
   --color-border-strong: rgb(0 0 0 / 16%);
 
-  /* 动作/状态色（--dsw-alias-button-* / --dsw-alias-state-*：官方 static 值） */
+  /* 动作/状态色：除 accent 外，状态语义色（danger/success/warning/info）回归桌面
+     foundation 语义档（2026-10 用户决策「web 语义文字色回归桌面档」评审）——500 系
+     原值在白底上做 11-13px 文字色对比度只有 ≈2:1（「运行中」「已完成」读不见）；
+     其余值仍为 dsh-web dist 原值。 */
   --color-accent: #18181b;
   --color-accent-strong: #09090b;
   --color-accent-soft: #ebedf2;
-  --color-danger: #ef4444;        /* red-500 */
+  --color-danger: #b42318;        /* 桌面 foundation 语义档 */
   --color-danger-soft: #fef2f2;   /* red-50 */
-  --color-success: #22c55e;       /* green-500 */
+  --color-success: #14703a;       /* 桌面 foundation 语义档 */
   --color-success-soft: #f0fdf4;
-  --color-success-strong: #16a34a;
-  --color-warning: #f59e0b;       /* amber-500 */
-  --color-info: #3b82f6;          /* blue-500 */
+  --color-success-strong: #166534;
+  --color-warning: #854d0e;       /* 桌面 foundation 语义档 */
+  --color-info: #1d4ed8;          /* 桌面 foundation 语义档 */
 
   /* 身份色（与状态色解耦）：工具走 info 蓝、思考走靛紫，与桌面 foundation 同语义。
      web.css 覆盖 :root 时必须带上，否则过程行图标掉回灰字。 */
@@ -98,9 +101,9 @@
   --color-accent-soft: #232838;
   --color-danger: #f87171;
   --color-danger-soft: rgb(248 113 113 / 12%);
-  --color-success: #34d399;
+  --color-success: #4ade80;
   --color-success-soft: rgb(52 211 153 / 12%);
-  --color-success-strong: #6ee7b7;
+  --color-success-strong: #86efac;
   --color-warning: #fbbf24;
   --color-info: #60a5fa;
 
@@ -234,6 +237,35 @@
     min-width: 36px;
     min-height: 36px;
   }
+  /* 横滚条在触屏上渲染成代码块底部的「假分割线」且吃行高：直接隐藏，
+     手势横滑仍在（2026-10 评审 P3）。 */
+  .web-app [data-streamdown="code-block-body"] {
+    scrollbar-width: none;
+  }
+  .web-app [data-streamdown="code-block-body"]::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* 代码块正文字号：streamdownChrome 的 0.8125rem（13px）在手机上偏小，
+   Web 页提到 0.875rem（14px）——只在 .web-app 作用域，桌面端不动。 */
+.web-app [data-streamdown="code-block-body"] {
+  font-size: 0.875rem;
+}
+
+/* 空语言代码块：streamdown 的语言胶囊渲染空文本，白卡头条上只剩一粒
+   「—」样的空胶囊 + 一整条 34px 染色空条（3 行日志的头条比代码还高）。
+   胶囊隐藏、头条底色与分隔线透明化——头条退化成右侧复制/下载钮的隐形定位条
+   （按钮 absolute 挂在容器右上，仍需这 34px 占位，不能整条 display:none）。 */
+.web-app
+  [data-streamdown="code-block-header"]:is(:not([data-language]), [data-language=""])
+  > span {
+  display: none;
+}
+.web-app
+  [data-streamdown="code-block-header"]:is(:not([data-language]), [data-language=""]) {
+  background: transparent;
+  border-bottom-color: transparent;
 }
 
 /* 工具卡/思考块：对齐桌面「无框过程行」视觉（timeline.css 的原始意图）——

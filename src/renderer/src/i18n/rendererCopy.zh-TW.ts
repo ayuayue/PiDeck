@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 20dcd2b67ebdb1067bac2fec741c845765e38d556f05b7ccde071f71e23efe9b（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: cf84cc0e675b4aed6803a1bdd9a0f2e69c99e4cceee57442d67f9c2c0b7c91d0（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -6371,6 +6371,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"web.promptPlaceholder": "傳送訊息到當前會話",
 	"web.promptPlaceholderEmpty": "輸入訊息即可新建會話，或從左側選擇專案、現有會話",
 	"web.composerHint": "Enter 傳送，Shift+Enter 換行",
+	"web.composerHintTouch": "Enter 換行，點「傳送」發出",
 	"web.emptySelection": "直接輸入訊息即可自動新建會話開始對話；或從左側選擇專案、現有會話。",
 	"web.sendNoProject": "當前沒有可用專案，請先在左側新增一個專案目錄。",
 	"web.backendSheetTitle": "選擇會話後端",
@@ -6385,6 +6386,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"web.ungrouped": "未分組",
 	"web.ungroupedHint": "無法匹配到任何專案的會話（可能專案已被移除，或會話未歸屬專案）",
 	"web.scrollToBottom": "滾動到底部",
+	"web.askWaitingBanner": "Agent 正在等待你的回答",
 	"web.queueRemove": "撤回這條排隊訊息",
 	"web.queueResume": "繼續傳送",
 	"web.streamFailed": "流式連線失敗",
@@ -6415,6 +6417,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"web.promptInsert": "插入",
 	"web.promptLoadFailed": "提示詞載入失敗",
 	"web.sessionMenu": "會話操作",
+	"web.moreActions": "更多操作",
 	"web.rename": "重新命名",
 	"web.renameTitle": "重新命名會話",
 	"web.renamePlaceholder": "輸入新標題",
