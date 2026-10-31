@@ -740,7 +740,13 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	// 窗口前还有历史可加载：已加载前缀看游标（数值或 entryId），未加载看窗口起点（>0 说明激活时被截断）。
 	// slideOut 单独重建前缀时 nextBefore 可能为 null，但 nextBeforeEntryId 仍指向更早锚点，
 	// 不能把这种前缀误判为「已经到最早」。
-	const historyHasMore = controllerEnabled && cachedEntry?.source === "runtime" ? (runtimeHistory ? runtimeHistory.nextBefore !== null || Boolean(runtimeHistory.nextBeforeEntryId) : (cachedEntry.windowStart ?? 0) > 0) : false;
+	// 兜底分支（runtimeHistory 缺失）不能只看 windowStart：主进程内存窗口只驻留
+	// MAX_HISTORY_LOAD_TURNS 轮，恢复会话时 windowStart 恒为 0（getMessageWindow 只在 >0 时下发），
+	// 而文件里更早的历史仍在——「加载更多对话」因此永远不出现（长会话压缩过几轮后必现）。
+	// windowStartFilePos 是窗口首条在文件下标空间里的位置，>0 即证明文件里还有更早内容，
+	// 翻页游标也用它（见下方 anchorFilePos），两条判断从此同源。
+	const windowHasEarlier = typeof cachedEntry?.windowStartFilePos === "number" ? cachedEntry.windowStartFilePos > 0 : (cachedEntry?.windowStart ?? 0) > 0;
+	const historyHasMore = controllerEnabled && cachedEntry?.source === "runtime" ? (runtimeHistory ? runtimeHistory.nextBefore !== null || Boolean(runtimeHistory.nextBeforeEntryId) : windowHasEarlier) : false;
 	// 2026-11 轮次模型：不再按 100 条分页器切片，显示数组 = 已加载全部（历史前缀 + 运行时窗口段）。
 	// 内存预算由主进程 12 轮缓存 + 回底临时历史清理承担，渲染层不再有第二道条数窗口。
 	const visibleMessages = combinedMessages;
