@@ -142,7 +142,10 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 		// 只有暖事实才要求活的同代会话；首次打开目录必须允许正常建立会话。
 		const existing = dirs.peek(key);
 		const connection = target.service.projectConnectionFacts(target.hostId, target.remotePath);
-		if (existing !== undefined && (connection === undefined || connection.state !== "ready")) return { ok: false, code: "SSH_HOST_NOT_READY" };
+		// 只有「未被标脏」的暖事实才要求活的同代会话。断连 / 失效后的 stale 暖值如果也走这条守卫，
+		// 目录读会被永久挡在 SSH_HOST_NOT_READY（池化重连后无池会话时尤其明显），真实错误码或重连后的
+		// 新会话都进不来。stale 值放行一次装载：仍然不会把旧事实当现状返回，只是把拒绝/重载交给装载层。
+		if (existing !== undefined && existing.ok === true && existing.stale === false && (connection === undefined || connection.state !== "ready")) return { ok: false, code: "SSH_HOST_NOT_READY" };
 		const snapshot = await dirs.read(key, { ...(connection === undefined ? {} : { generation: connection.connectionId }), force });
 		return snapshot.ok ? { ok: true, snapshot } : { ok: false, code: snapshot.code };
 	}

@@ -324,6 +324,32 @@ test("关闭落在解析 target 的窗口：读不得在清理后重新开始一
 	assert.equal(h.calls.list.length, 1, "重新打开才允许装载");
 });
 
+test("显式断开按生产顺序（先 onHostDisconnected 再 retireHost）：断连报 DISCONNECTED，重连后目录读自愈", async () => {
+	const h = harness();
+	// 形成带 generation 的暖事实：首次冷读 + 第二次带会话代的读。
+	await h.list(PROJECT_B);
+	await h.list(PROJECT_B);
+	assert.equal((await h.facts.directoryPage(PROJECT_B, "", false)).ok, true);
+	const establishedBefore = h.established.length;
+
+	// disconnect() 的生产顺序：先 onDisconnect -> onHostDisconnected（generation 改写成 disconnected），
+	// 再 retireHost("explicit")；onRootRetired 此时按 sessionKey 匹配不到，负责兜底的是 stale 暖值的放行。
+	h.disconnected.value = true;
+	h.facts.onHostDisconnected(HOST);
+	await h.pool.retireHost(HOST, "explicit");
+	assert.equal(h.pool.peek(HOST, ROOT_B), undefined, "root 会话已退休");
+
+	const during = await h.list(PROJECT_B);
+	assert.equal(during.ok, false);
+	assert.equal(during.code, "SSH_HOST_DISCONNECTED", "断连后目录读要报真实断开码，而不是暖缓存挡出的 SSH_HOST_NOT_READY");
+
+	// 用户显式重连：目录读必须自己建立新会话并恢复，不能被上一轮断连留下的暖值永久挡住。
+	h.disconnected.value = false;
+	const after = await h.list(PROJECT_B);
+	assert.equal(after.ok, true, "重连后目录读必须自愈");
+	assert.equal(h.established.length, establishedBefore + 1, "重连后由目录读建立一条新池会话");
+});
+
 test("主机断连时迟到的目录读被取消，后台读不能复活已断开的会话", async () => {
 	const gate = deferred();
 	const h = harness({ listGate: gate });
