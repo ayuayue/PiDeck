@@ -6,7 +6,7 @@ import { MarkdownStream } from "./MarkdownStream";
 import { SettledLongAnswer } from "./SettledLongAnswer";
 import { shouldCollapseSettledText } from "./markdownStreamPolicy";
 import { PreviewRail, type PreviewRailItem } from "../motion/preview-rail";
-import { planRailTicks, windowRailItems } from "./timeline/outlineRailTicks";
+import { planRailTicks, railBuckets } from "./timeline/outlineRailTicks";
 import { areOutlineRailItemsEqual, createOutlineItemIndex, resolveVisibleRailActiveId } from "./timeline/outlineRailActive";
 import { useTimelineOutlineActiveId } from "./timeline/useTimelineOutlineActiveId";
 import { useLazyValue } from "../../lib/hooks/use-render-reuse";
@@ -1315,13 +1315,14 @@ export { MultiSelectModal };
  * hover 出预览卡、点击跳转；工具开关已上收会话 Tab 栏（SessionToolAction），
  * 此处不再承载其他入口；容器沿用 .outline-hover 的定位规则（session-outline-pane 贴右缘，有测试守护）。
  *
- * 条数与取哪几条：**高度放得下就全量显示**（windowRailItems 按 RAIL_TICK_MIN_SIZE 判），
- * 刻度纵向位置才代表整段会话的进度，翻上翻下不会整列偏移（2026-11 真机反馈：
- * 「一开始显示不全，翻到最上面再翻下来又退化」）。放不下时退回**最多 30 条的滑动窗口**，
- * 以当前阅读位置为中心——用户反馈「旁边横条太多」后的取舍，见 outlineRailTicks.ts 头部注释。
+ * 条数与取哪几条：**最多 RAIL_TICK_LIMIT（30）段，覆盖整个会话**（railBuckets）：
+ * 条目 ≤ 30 时一根一条；超过则按条数均分 30 段，每段只画第一根。刻度纵向位置
+ * 因此等于「整段会话的第几成」，条数恒 30、高度恒定——既不会只看得到最新一批
+ * （2026-11「显示不全、翻回来退化」），也不会随会话增长把屏幕拉满（2026-11
+ * 「越来越长，装不下」）。段内其它提问点一下即跳到段首，没有从刻度上消失。
  *
  * 高度自适应：容器被 .outline-hover 的 top/bottom 双向夹持出可用高度，间距按条数
- * 收缩（14px → 最低 6px），不做内部滚动；条数超出容器能容纳的量时窗口才介入。
+ * 收缩（14px → 最低 6px，30 × 6 = 180px 足够放下），不做内部滚动。
  * 滚轮落在刻度上会转发给时间线（导轨是滚动视口的兄弟节点，不转发就滚不动）。
  */
 type ConversationOutlineProps = {
@@ -1373,9 +1374,9 @@ function ConversationOutlineView(props: ConversationOutlineProps) {
 	const outlineItemIndex = useMemo(() => createOutlineItemIndex(props.items), [props.items]);
 	// 滑动窗口：最多 RAIL_TICK_LIMIT 条，以当前阅读位置为中心。底部时就是「最新的 30 条」，
 	// 往上翻窗口跟着上移，更早的提问进入窗口（上滑即显示更多）。
-	// 先按源下标定位 active（窗口前后都用同一套源坐标），再截窗口、再规划间距。
+	// 先按源下标定位 active（高亮用），再分段、再规划间距。
 	const activeSourceIndex = railActiveId === undefined ? -1 : (outlineItemIndex.get(railActiveId) ?? -1);
-	const visibleItems = useMemo(() => windowRailItems(props.items, activeSourceIndex, availableHeight), [props.items, activeSourceIndex, availableHeight]);
+	const visibleItems = useMemo(() => railBuckets(props.items), [props.items]);
 	const plan = useMemo(() => planRailTicks(visibleItems, availableHeight), [visibleItems, availableHeight]);
 	const railItems = useMemo<PreviewRailItem[]>(
 		() =>

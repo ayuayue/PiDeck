@@ -90,11 +90,14 @@ export function SessionSurfaceStage(props: { sessionId: string; sessionTimeline:
 			sessionTimeline.loadMoreMessages("button");
 			return;
 		}
-		// 没有更早的页可补（或补页失败/保险丝烧断）：先把 entryId 交给 controller 尽力落位——
-		// 它能处理「数据里有、只是节点还没挂出」的扩窗场景；确实落不了位才给提示。
+		// 到这里说明本轮没补成页（补页失败 / 保险丝烧断）或已经没有更早的页。
+		// 先把 entryId 交给 controller 尽力落位——它能处理「数据里有、只是节点还没挂出」的扩窗场景。
 		setPendingEntryId(undefined);
 		sessionTimeline.jumpToMessage(pendingEntryId);
-		showNotice(t("outline.jumpUnreachable"), 6000, "info");
+		// 只有「真的没有更早的页」才提示跳不到；hasMoreMessages 仍为 true 时 controller 的
+		// pendingJump 会继续补页（JUMP_MAX_LOAD_ATTEMPTS = 40），大概率落位成功——此时弹
+		// 「还在更早的历史里」是误报，用户会看到「说跳不到，人却已经在那条上」，还可能再叠一条 jumpFailed。
+		if (!sessionTimeline.hasMoreMessages) showNotice(t("outline.jumpUnreachable"), 6000, "info");
 	}, [pendingEntryId, pendingAttempts, outlineItems, sessionTimeline]);
 	const mutationKind = useAtomValue(sessionHistoryMutationOverlayBySessionIdAtomFamily(sessionId));
 	// 热重载（扩展/技能）不重启进程、也不改会话文件，但它会重建扩展运行时；

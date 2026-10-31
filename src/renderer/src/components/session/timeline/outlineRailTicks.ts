@@ -43,24 +43,29 @@ export type RailTickPlan<T> = {
 };
 
 /**
- * 取要渲染的刻度条目。
+ * 把整段会话切成最多 limit 段的刻度（每段只画第一条）。
  *
- * - 条数不超上限：原样返回（短会话不受影响）。
- * - **高度放得下全部**（count × RAIL_TICK_MIN_SIZE ≤ availableHeight）：全量返回。
- *   刻度纵向位置才代表整段会话的进度，否则翻上翻下时窗口滑动会让整列刻度偏移，
- *   看起来像「显示不全、翻回来又退化」（2026-11 真机反馈）。
- * - 高度未知（首帧未测量）：退回滑动窗口，下一帧 ResizeObserver 测到高度后重算。
- * - 否则取以 activeIndex 为中心、最多 limit 条的滑动窗口：
- *   当前位置未知（activeIndex < 0）取最近的一批；贴到首尾时自然收缩，不产生空位。
+ * 为什么不是「滑动窗口」：窗口跟着阅读位置走，底部时只有最新 30 条，刻度纵向位置
+ * 既不等于会话进度，翻上翻下还会整列平移（2026-11 真机反馈「一开始显示不全、
+ * 翻回来又退化」）。
+ *
+ * 为什么不是「全量」：条数随会话增长，73 轮就把右缘拉满（2026-11 真机反馈
+ * 「怎么越来越长，屏幕装不下」）；而且「放得下就全量、放不下就窗口」存在断崖，
+ * 阈值两侧行为突变，「纵向位置代表进度」在另一侧直接不成立。
+ *
+ * 所以按条数均分：条数 ≤ limit 时一根一条；超过则切成 limit 个连续段，每段只画
+ * 第一根。刻度纵向位置从此代表「整段会话的第几成」，条数恒定、高度恒定。
+ * 段内其它提问没有消失——点这一段就跳到段首。
  */
-export function windowRailItems<T>(items: readonly T[], activeIndex: number, availableHeight = 0, limit = RAIL_TICK_LIMIT): T[] {
+export function railBuckets<T>(items: readonly T[], limit = RAIL_TICK_LIMIT): T[] {
 	const count = items.length;
 	if (count <= limit) return [...items];
-	if (availableHeight > 0 && count * RAIL_TICK_MIN_SIZE <= availableHeight) return [...items];
-	const half = Math.floor(limit / 2);
-	const anchor = activeIndex >= 0 && activeIndex < count ? activeIndex : count - 1;
-	const start = Math.max(0, Math.min(count - limit, anchor - half));
-	return items.slice(start, start + limit);
+	const buckets: T[] = [];
+	for (let index = 0; index < limit; index += 1) {
+		// 段首取 ceil：与 railBucketIndexOf 的 floor 互为逆运算，两边算出的归属必须一致
+		buckets.push(items[Math.min(count - 1, Math.ceil((index * count) / limit))]);
+	}
+	return buckets;
 }
 
 /**
