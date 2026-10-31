@@ -27,6 +27,7 @@ import { COMPOSER_MAX_HEIGHT, COMPOSER_MIN_HEIGHT, TIMELINE_MIN_HEIGHT, displayP
 import { projectByIdAtomFamily, sessionRecordByIdAtomFamily, sessionStatusInSidebarAtomFamily } from "../../atoms";
 import type { EnqueuePromptSnapshot } from "../../hooks/useSessionSend";
 import { countUserTurns } from "./timeline/turnRenderWindow";
+import { useSessionOutlineDirectory } from "../../hooks/useSessionOutlineDirectory";
 
 // terminal 程序化布局保护窗口（ms）：setLayout 后该窗口内的 terminal
 // onResize 一律视为程序化结果，不写 collapsed 状态。
@@ -190,6 +191,11 @@ export function SessionView({
 	runCreateSessionDraft,
 	abortAgent: _abortAgent,
 }: SessionViewProps) {
+	// 轮次徽章要统计整个会话，不是当前已加载窗口：加载窗口只有尾部若干轮，
+	// 单看 sessionTimeline.messages 会把 62 轮的会话显示成 9 轮（真机反馈 2026-10-31）。
+	// 目录是主进程的索引投影，覆盖全部用户检查点；已加载消息可能比目录更多（live 轮次还没落盘），取两者较大值。
+	const outlineDirectory = useSessionOutlineDirectory(sessionId, sessionTimeline.messages.length);
+	const sessionTurnCount = useMemo(() => Math.max(countUserTurns(sessionTimeline.messages), outlineDirectory.length), [sessionTimeline.messages, outlineDirectory]);
 	const paneServices = useSessionPaneServices();
 	// 落点随本栏时间线挂载/卸载更新；发送控制器仍只有 ComposerArea 内的一份。
 	const [replyActionsTarget, setReplyActionsTarget] = useState<HTMLDivElement | null>(null);
@@ -381,7 +387,7 @@ export function SessionView({
 							<ComposerArea
 								ref={composerRef}
 								sessionId={sessionId}
-								turnCount={countUserTurns(sessionTimeline.messages)}
+								turnCount={sessionTurnCount}
 								gitInfo={gitInfo}
 								gitUnavailable={gitUnavailable}
 								onSwitchBranch={onSwitchBranch}

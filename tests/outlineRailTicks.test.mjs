@@ -53,64 +53,65 @@ test("再挤也不低于可点击下限（30 条 × 6px = 180px 覆盖极小窗�
 	assert.ok(railTicks.RAIL_TICK_LIMIT * railTicks.RAIL_TICK_MIN_SIZE <= 194);
 });
 
-test("条数不超上限：原样返回（短会话完全不受窗口影响）", () => {
+test("条数不超上限：一根一条（短会话完全不受分段影响）", () => {
 	assert.equal(railTicks.RAIL_TICK_LIMIT, 30);
 	for (const count of [0, 1, 7, 29, 30]) {
-		const items = makeItems(count);
-		assert.deepEqual(idsOf(railTicks.windowRailItems(items, -1)), idsOf(items));
-		assert.deepEqual(idsOf(railTicks.windowRailItems(items, count - 1)), idsOf(items));
+		assert.deepEqual(idsOf(railTicks.railBuckets(makeItems(count))), idsOf(makeItems(count)));
 	}
 });
 
-test("当前位置未知（首帧）：取最新的 30 条", () => {
-	const windowed = railTicks.windowRailItems(makeItems(120), -1);
-	assert.equal(windowed.length, 30);
-	assert.equal(windowed[0].id, "msg-90");
-	assert.equal(windowed[29].id, "msg-119");
-});
-
-test("停在底部：窗口就是「最新的 30 条」（用户想要的默认形态）", () => {
-	const windowed = railTicks.windowRailItems(makeItems(120), 119);
-	assert.equal(windowed[0].id, "msg-90");
-	assert.equal(windowed[29].id, "msg-119");
-});
-
-test("往上翻：窗口跟着上移，更早的提问进入窗口（上滑即显示更多）", () => {
-	const up = railTicks.windowRailItems(makeItems(120), 60);
-	assert.equal(up.length, 30);
-	// 当前位置必须落在窗口内
-	assert.ok(
-		up.some((item) => item.id === "msg-60"),
-		"窗口必须包含当前检查点",
-	);
-	// 比「底部窗口」更早的提问已经进入窗口（上翻后才有的那批）
-	assert.ok(up.some((item) => indexOfId(item.id) < 88));
-	// 底部窗口（msg-90..msg-119）里的最新几条已不在窗口内
-	assert.ok(!up.some((item) => indexOfId(item.id) >= 90));
-	// 窗口整体比底部窗口更早
-	assert.ok(indexOfId(up[0].id) < 90);
-});
-
-test("贴到会话开头：窗口不产生空位，取最早 30 条", () => {
-	const windowed = railTicks.windowRailItems(makeItems(120), 0);
-	assert.equal(windowed.length, 30);
-	assert.equal(windowed[0].id, "msg-0");
-	assert.equal(windowed[29].id, "msg-29");
-});
-
-test("窗口内条目下标严格递增、无重复、条数恒不超上限", () => {
-	for (const anchor of [0, 5, 40, 60, 100, 119]) {
-		const windowed = railTicks.windowRailItems(makeItems(300), anchor);
-		assert.ok(windowed.length <= railTicks.RAIL_TICK_LIMIT);
-		const indexes = windowed.map((item) => indexOfId(item.id));
-		assert.equal(new Set(indexes).size, indexes.length);
-		for (let i = 1; i < indexes.length; i += 1) assert.ok(indexes[i] > indexes[i - 1]);
-		assert.ok(indexes.includes(anchor), `窗口必须包含 activeIndex=${anchor}`);
+test("超过 30 条：切成 30 段覆盖整段会话，首段必是会话开头", () => {
+	for (const count of [31, 66, 73, 120, 300]) {
+		const buckets = railTicks.railBuckets(makeItems(count));
+		assert.equal(buckets.length, 30, `count=${count} 必须切成 30 段`);
+		assert.equal(buckets[0].id, "msg-0", `count=${count} 第一段必须是会话开头`);
 	}
 });
 
-test("补页预算是个有限的时间盒（不是页数保证）", () => {
-	// 每次轮询 60ms；预算必须有限，否则补不到时会永远轮询下去
+test("末段落在会话末尾附近：整个会话都在刻度覆盖范围内", () => {
+	for (const count of [31, 66, 73, 120, 300]) {
+		const buckets = railTicks.railBuckets(makeItems(count));
+		const lastIndex = indexOfId(buckets[buckets.length - 1].id);
+		const bucketWidth = Math.ceil(count / 30);
+		assert.ok(lastIndex >= count - bucketWidth, `count=${count} 末段下标 ${lastIndex} 离末尾太远`);
+		assert.ok(lastIndex <= count - 1);
+	}
+});
+
+test("段首严格递增、无重复（不会两段指向同一条）", () => {
+	const indexes = railTicks.railBuckets(makeItems(300)).map((item) => indexOfId(item.id));
+	assert.equal(new Set(indexes).size, indexes.length);
+	for (let i = 1; i < indexes.length; i += 1) {
+		assert.ok(indexes[i] > indexes[i - 1], `下标 ${indexes[i - 1]} → ${indexes[i]} 不是递增`);
+	}
+});
+
+test("条数恒定：会话再长，刻度也不涨（真机 73 轮把右缘拉满）", () => {
+	assert.equal(railTicks.railBuckets(makeItems(30)).length, 30);
+	assert.equal(railTicks.railBuckets(makeItems(500)).length, 30);
+	assert.equal(railTicks.railBuckets(makeItems(5000)).length, 30);
+});
+
+test("分段的选取与阅读位置无关（只收 items，不再按 activeIndex 滑动）", () => {
+	// 旧实现按 activeIndex 截窗口，翻上翻下整列平移（2026-11「退化」）
+	assert.equal(railTicks.railBuckets.length, 1);
+	const items = makeItems(73);
+	assert.deepEqual(idsOf(railTicks.railBuckets(items)), idsOf(railTicks.railBuckets(items)));
+});
+
+test("分段后仍需规划间距：30 段 × 6px = 180px 覆盖极小窗口", () => {
+	const buckets = railTicks.railBuckets(makeItems(200));
+	assert.equal(buckets.length, 30);
+	assert.ok(buckets.length * railTicks.RAIL_TICK_MIN_SIZE <= 194);
+	const plan = railTicks.planRailTicks(buckets, 194);
+	assert.equal(plan.items.length, 30);
+	assert.ok(plan.items.length * plan.itemSize <= 194);
+});
+
+test("补页次数是防死循环的保险丝，不再按 600ms 时间盒计数", () => {
+	// 渲染层现在等上一页落地再发下一页，次数只统计真正发起的补页（旧实现每 60ms 轮询，
+	// in-flight 守卫让这些轮询全部空转）。一页 3 轮：60 页 ≈ 180 轮，覆盖长会话；
+	// 旧值 10 页 ≈ 30 轮不够，62 轮会话里点最上面的刻度必弹「继续向上翻一会儿再点」。
 	assert.ok(Number.isInteger(railTicks.RAIL_PENDING_MAX_ATTEMPTS));
-	assert.ok(railTicks.RAIL_PENDING_MAX_ATTEMPTS > 0 && railTicks.RAIL_PENDING_MAX_ATTEMPTS <= 20);
+	assert.ok(railTicks.RAIL_PENDING_MAX_ATTEMPTS >= 40 && railTicks.RAIL_PENDING_MAX_ATTEMPTS <= 200);
 });

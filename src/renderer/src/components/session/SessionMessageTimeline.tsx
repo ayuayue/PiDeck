@@ -464,7 +464,10 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	// restoreAt 后又收回尾部窗口，文档高度收缩会把已恢复的 scrollTop 截断，造成
 	// 切回位置漂移。锚点不在已保存窗口时，controller 会逐步扩窗后重试；跳转也走
 	// 同一扩窗策略，而不是绕过窗口约束。
-	const followingForTurnWindow = controller.autoScroll;
+	// 跳转在途时不许按「贴底」压缩窗口：目标在更早的轮次，而流式输出期间贴底引擎每帧都把
+	// autoScroll 拉回 true；此时按贴底取 3 轮上限，扩窗结果立刻被忽略，目标轮永远挂不上
+	// （2026-11 真机：吐 token 时点刻度没反应）。
+	const followingForTurnWindow = controller.autoScroll && !controller.jumpPending;
 	const turnWindowTurns = followingForTurnWindow ? TIMELINE_MOUNTED_TURN_LIMIT : controller.scrolledWindowTurns;
 	const displayRuns = useMemo(() => selectTimelineTurnWindow(reconciledRuns, turnWindowTurns), [reconciledRuns, turnWindowTurns]);
 	useEffect(() => {

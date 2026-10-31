@@ -52,6 +52,10 @@ const TURN_WINDOW_AUTO_EXPAND_COOLDOWN_MS = 300;
 /** 分批扩展：每帧最多挂载的轮数。
  *  一个 3 轮 cohort 拆成 2+1 两帧，避免本地 DOM 扩展在同一帧集中渲染。 */
 const TURN_WINDOW_EXPAND_BATCH_TURNS = 2;
+/** 一条 rAF 链上允许逐帧消费的轮数上限。补页一路补到很早的历史时，每页都会排一批扩窗，
+ *  待扩量累计可达上百轮；按帧小口消费会让 setState 在一条链上连发上百次，React 抛 #185
+ *  （2026-11 真机：点大纲最上面的刻度 →「界面渲染异常」）。超过上限就一次性推开。 */
+const TURN_WINDOW_EXPAND_MAX_CHAIN_TURNS = 24;
 
 let nextLoadSequence = 0;
 /** 新建空会话的跨挂载粘性：切 Tab 时 ChatSessionPane/hook 会销毁重建，useRef 粘性会丢失导致切回闪骨架。
@@ -402,6 +406,8 @@ export type SessionTimelineController = {
 	 * 虚拟区外的行不在 DOM 里，上述场景必须整表挂载。
 	 */
 	navBlockingVirtualization: boolean;
+	/** 跳转在途：贴底跟随的窗口压缩要让位，否则流式期间目标轮挂不上。 */
+	jumpPending: boolean;
 	/** 顶部插入收尾：渲染层做完 pin 补偿后调用，解除整表渲染。 */
 	endPrependSolid: () => void;
 	/** 本栏粘住的空会话：预热写 filePath/dshSessionId 后仍不闪历史骨架。 */
@@ -866,6 +872,17 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	 * nonce 保证连续点击同一目标也会重跑。
 	 */
 	const [pendingJump, setPendingJump] = useState<Tagged<{ messageId: string; expandAttempts: number; loadAttempts: number; nonce: number }> | undefined>(undefined);
+
+	/**
+	 * 跳转在途的同步镜像。为什么需要 ref：下面两处「回底就作废扩窗」的逻辑在 effect /
+	 * rAF 回调里跑，读不到最新 state；而流式输出期间贴底引擎每帧都把 autoScroll 设回
+	 * true，于是扩窗批次刚排上就被清空、渲染窗口也被压回 3 轮——目标轮永远挂不上，
+	 * 界面表现为「吐 token 时点刻度没反应」（2026-11 真机）。
+	 */
+	const pendingJumpRef = useRef(false);
+	useLayoutEffect(() => {
+		pendingJumpRef.current = pendingJump !== undefined;
+	}, [pendingJump]);
 	const jumpNonceRef = useRef(0);
 	/**
 	 * 跳转揭示：目标消息已加载但 DOM 节点没挂载时（命中在已完成轮的执行过程折叠区里，
@@ -896,6 +913,9 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	// ── 上滚渲染窗口（2026-08 黑屏治理）──
 	// 贴底和上滚初始都只挂 3 轮；每次接近顶部最多扩一个 3 轮 cohort，
 	// 先消费 atom 已有的尾部 9 轮，再进入主进程缓存/文件分页。回底开始新的浏览周期。
+	/** 已加载消息条数（渲染期同步）：渲染窗口的轮数不可能超过它，超过就是无效膨胀。 */
+	const loadedMessageCountRef = useRef(0);
+	loadedMessageCountRef.current = combinedMessages.length;
 	const [scrolledWindowTurns, setScrolledWindowTurns] = useState(() => initialRestoreState.scrolledWindowTurns);
 	const [viewStateOwnerKey, setViewStateOwnerKey] = useState(ownerKey);
 	/**
@@ -951,13 +971,21 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		// 已回底（回底按钮/手动滚回底部）：批次作废。回底会触发窗口 6→3 轮收回，
 		// 是一次大幅内容收缩；若此时继续消费批次，会把刚收回的窗口又扩回去
 		// （回底后按钮反复出现、滚到底跟着就掉开的根因之一）。
-		if (autoScrollRef.current) {
+		if (autoScrollRef.current && !pendingJumpRef.current) {
 			pendingExpandTurnsRef.current = 0;
 			return;
 		}
-		const batch = Math.min(TURN_WINDOW_EXPAND_BATCH_TURNS, pendingExpandTurnsRef.current);
+		// 待扩量远超单帧预算：每条补页都会排一批，补到很早的历史可累计上百轮。
+		// 继续按帧小口消费，等于在一条 rAF 链上连发上百次 setState——React 的嵌套更新
+		// 上限是 50，超了直接抛 #185 把整窗打掉。这种量级一次性推开：多挂几十轮的开销
+		// 远小于崩溃。
+		const backlog = pendingExpandTurnsRef.current;
+		const batch = backlog > TURN_WINDOW_EXPAND_MAX_CHAIN_TURNS ? backlog : Math.min(TURN_WINDOW_EXPAND_BATCH_TURNS, backlog);
 		pendingExpandTurnsRef.current -= batch;
-		setScrolledWindowTurns((prev) => prev + batch);
+		// 轮数上限 = 已加载消息数：到顶就不再涨。窗口一路涨到几百轮会让每次扩窗都重挂整表，
+		// 也是 2026-11 那次整窗崩溃的温床。
+		const windowCap = Math.max(loadedMessageCountRef.current, TIMELINE_SCROLLED_TURN_LIMIT);
+		setScrolledWindowTurns((prev) => Math.min(prev + batch, Math.max(prev, windowCap)));
 		if (pendingExpandTurnsRef.current > 0) {
 			// 还有剩余：下一帧继续消费，摊平布局/渲染压力
 			expandBatchFrameRef.current = window.requestAnimationFrame(consumeExpandBatch);
@@ -1056,9 +1084,11 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		},
 		[escapeAutoScroll],
 	);
-	// 回底/卸载时取消未消费的分批扩展（窗口重置回基础大小，pending 作废）
+	// 回底/卸载时取消未消费的分批扩展（窗口重置回基础大小，pending 作废）。
+	// 跳转在途时**不执行**：流式输出期间贴底引擎每帧把 autoScroll 设回 true，这里一跑就
+	// 把刚排上的扩窗清空、窗口压回 3 轮，目标轮永远挂不上——「吐 token 时点刻度没反应」。
 	useEffect(() => {
-		if (autoScroll) {
+		if (autoScroll && !pendingJumpRef.current) {
 			pendingExpandTurnsRef.current = 0;
 			browsePinRef.current = null;
 			pinnedRowElRef.current = null;
@@ -1889,9 +1919,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		if (!matchesTimelineOwner(pendingJump.ownerKey, ownerKey)) return;
 		const timeline = timelineRef.current;
 		if (!timeline) return;
-		// 分批扩窗在途（点击时一次到位排满的批次 / 补页增长）：等批次消费完再评估，
-		// 避免目标刚挂载就落位、随后被后续批次推移。
-		if (pendingExpandTurnsRef.current > 0) return;
 		// 挂起期间每轮重新归一：目标可能是文件条目 id（会话内查找命中），补页把它
 		// 载入 combinedMessages 之后投影 id 才确定。
 		const targetIndex = resolveJumpMessageIndex(combinedMessages, pendingJump.value.messageId);
@@ -1907,6 +1934,11 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			clearTimelineReveal();
 			return;
 		}
+		// 目标还没挂上：批次在途（跳远时一次排满几十轮）就等它继续消费。
+		// 反过来的顺序很重要——**目标一旦挂载就先落位，不等整段历史挂完**：跳远时
+		// 一次推开几十轮，DOM 与布局要几百毫秒到几秒，先落位能让用户立刻到那儿；
+		// 后续批次在上方插入时，ResizeObserver 的 pinBrowseRow 维持这一行不动。
+		if (pendingExpandTurnsRef.current > 0) return;
 		// 目标未挂载：按策略兜底扩窗（指数步长）/ 跳转驱动补页 / 放弃（防呆上限）。
 		// give-up 保留旧行为兜底：目标已不在数据（压缩清理/删除）时不无限扩窗（2026-08 黑屏治理）。
 		const stillInData = targetIndex >= 0;
@@ -1991,6 +2023,8 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		isSurfaceLoading,
 		navBlockingVirtualization: restorePhase !== "complete" || pendingJump !== undefined || prependSolid,
 		/** 顶部插入（扩窗/翻页）收尾通知：渲染层的 pin 补偿做完后调用，解除整表渲染。 */
+		/** 跳转在途：渲染层据此暂停贴底窗口压缩（流式期间点刻度时目标轮必须能挂上）。 */
+		jumpPending: pendingJump !== undefined,
 		endPrependSolid,
 		knownEmpty,
 		reloadFromDisk,

@@ -1645,6 +1645,11 @@ export class AgentManager {
 			}
 			return undefined;
 		};
+		// 窗口已经贴到缓存最旧条目（start === 0）时**不必**在这里拦：下面 pickAnchorEntryId(page)
+		// 取到的是 page 首条的 entryId，它对应文件里的真实位置，nextBefore 因此严格小于本次
+		// 锚点，下一次请求会以 pos === 0 再进来、page 为空、落到下面的 !oldestEntryId 分支交回
+		// 文件路径——推进不会原地踏步。此前这里直接 return null，把「缓存里还有一整页可用」
+		// 的请求也推给磁盘，续页白读一次文件（2026-11 真机：点刻度定位慢）。
 		const oldestEntryId = pickAnchorEntryId(page) ?? pickAnchorEntryIdBefore(start);
 		// 缓存里没有能当锚点的更早条目：缓存这条线索到此为止，交给文件路径按数值 before 继续翻。
 		if (!oldestEntryId) return null;

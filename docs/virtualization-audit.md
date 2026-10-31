@@ -71,7 +71,9 @@ node tests/scrollContainerGuard.mjs --list   # 只列未判定
 node tests/scrollContainerGuard.mjs --seed   # 重新生成基线
 ```
 
-三种合法状态：**接线**（容器带一个 ref，同一个 ref 名作为 `scrollRef` 传给 `<VirtualStack>`）/ 写 `scroll-ok:` / 已登记进基线。
+四种合法状态：**接线**（容器带一个 ref，同一个 ref 名作为 `scrollRef` 传给 `<VirtualStack>`）/ **自持**（容器元素本身就是虚拟化组件，标签以 `Virtualizer`/`VirtualStack`/`VirtualList` 开头，没有外部 ref 可对）/ 写 `scroll-ok:` / 已登记进基线。
+
+「自持」这一条是 2026-11 补的：diff 视图写的是 `<Virtualizer className="… overflow-auto">`，容器与虚拟化是同一个节点，旧判据只认外部 `scrollRef` 两头对上，于是**已经虚拟化的它被当成未判定**，唯一的出路只剩写一条假豁免。
 
 「接线」是 2026-10 收紧后的判据，之前的判据是「同文件 ±80 行内出现过 `<VirtualStack>`」——那样两种真缺陷都能过关：接了但容器没 ref（虚拟器拿不到 `scrollElement`，视口恒 0、一行不渲染），以及压根没接却挨得近（永久逃出判定面）。现在判据要求同名 ref 两头都在，`props.` 开头的透传 ref 不算（透传无法静态证明调用方给了实 ref，要在组件内 `props.scrollRef ?? localRef` 兜底）。
 

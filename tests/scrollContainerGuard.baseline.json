@@ -1,5 +1,5 @@
 {
-	"count": 141,
+	"count": 140,
 	"entries": [
 		"src/renderer/src/ConfigModal.tsx :: <div className=\"grid max-h-56 gap-1.5 overflow-auto text-left\">",
 		"src/renderer/src/ConfigModal.tsx :: className=\"config-sidebar flex min-h-0 shrink-0 flex-col items-stretch gap-2.5 overflow-auto border-0 border-r border-border rounded-none bg-transparent p-2.5 d",
@@ -11,7 +11,6 @@
 		"src/renderer/src/components/agents/message-scroller.tsx :: className={cn(\"h-full overflow-y-auto overscroll-contain outline-none [overflow-anchor:none] [scrollbar-gutter:stable] focus-visible:ring-2 focus-visible:ring-i",
 		"src/renderer/src/components/agents/todo-list.tsx :: <div ref={viewportRef} className=\"overflow-y-auto px-2 pb-2 [scrollbar-width:none]\" style={{ maxHeight }}>",
 		"src/renderer/src/components/agents/tool-result.tsx :: const scrollClass = maxHeight === null ? \"\" : \"scrollbar-hide overflow-y-auto\";",
-		"src/renderer/src/components/app/CodeDiffView.tsx :: <Virtualizer className=\"code-diff-view h-full overflow-auto bg-[var(--color-bg-panel)]\">{options !== null && <MultiFileDiff oldFile={oldFile} newFile={newFile} ",
 		"src/renderer/src/components/app/CodeDiffView.tsx :: <div className=\"flex h-full items-center justify-center overflow-auto bg-[var(--color-bg-panel)]\">",
 		"src/renderer/src/components/app/DirectoryImportSourceList.tsx :: <div ref={scrollRef} className=\"min-h-0 flex-1 overflow-auto p-3\">",
 		"src/renderer/src/components/app/FileDiffViewer.tsx :: <div className=\"markdown-body markdown-preview-chrome h-full overflow-y-auto px-6 py-6 text-body text-text-primary font-sans\">",

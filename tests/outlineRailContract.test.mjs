@@ -53,8 +53,10 @@ test("滚轮在刻度上转发给时间线（导轨是滚动视口的兄弟节�
 	assert.match(outlineSource, /forward\(event\.deltaY\)/);
 });
 
-test("窗口按源下标截取后再规划间距（顺序反了会永远只显示最新一批）", () => {
-	assert.match(outlineSource, /windowRailItems\(\s*props\.items\s*,\s*activeSourceIndex\s*\)/);
+test("刻度先分段再规划间距（顺序反了会永远只显示最新一批）", () => {
+	// 段数按可用高度算（railCapacity），再分段、再规划间距：顺序写反会只剩最新一批
+	assert.match(outlineSource, /railBuckets\(\s*props\.items\s*,\s*railLimit\s*\)/);
+	assert.match(outlineSource, /railCapacity\(availableHeight\)/);
 	assert.match(outlineSource, /planRailTicks\(\s*visibleItems\s*,/);
 	assert.match(outlineSource, /outlineItemIndex\.get\(railActiveId\)/);
 });

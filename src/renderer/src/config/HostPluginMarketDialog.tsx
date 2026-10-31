@@ -8,7 +8,7 @@
  * 打开即拉一次全量（空关键词）：本地已装的插件（含随包分发的内置插件）同样在列表里，
  * 只是打「已安装」标记并禁用安装按钮——否则点下去只会撞 `plugin-in-use`。
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { ExternalLink, LoaderCircle, Search, Store } from "lucide-react";
 import type { HostPluginMarketEntry, HostPluginMarketSearchResult } from "../../../shared/types/hostPlugin";
@@ -16,6 +16,7 @@ import { hostPluginCatalogAtom } from "../atoms/host-plugin-atoms";
 import { desktopApi } from "../desktopApi";
 import { t, type TranslationKey } from "../i18n";
 import { showNotice } from "../utils/notice";
+import { VirtualStack } from "../components/ui-shadcn/virtual-stack";
 import { Alert, AlertDescription } from "../components/ui-shadcn/alert";
 import { Badge } from "../components/ui-shadcn/badge";
 import { Button } from "../components/ui-shadcn/button";
@@ -87,6 +88,14 @@ export function HostPluginMarketDialog({ open, onOpenChange, onFail }: HostPlugi
 	};
 	const entries = results?.entries ?? [];
 	const official = entries.filter((entry) => entry.source === "registry").length;
+	// 市场结果条数由远程决定（GitHub topic 搜索可能上百条），两列卡片按「行组」虚拟化：
+	// 一行两个条目，行高由 VirtualStack 实测，短列表（≤6 行）仍走原样直出。
+	const marketListRef = useRef<HTMLDivElement | null>(null);
+	const entryRows = useMemo(() => {
+		const rows: HostPluginMarketEntry[][] = [];
+		for (let index = 0; index < entries.length; index += 2) rows.push(entries.slice(index, index + 2));
+		return rows;
+	}, [entries]);
 	return (
 		<Dialog
 			open={open}
@@ -134,7 +143,7 @@ export function HostPluginMarketDialog({ open, onOpenChange, onFail }: HostPlugi
 						<span>{t("hostPlugins.marketSummary", { count: entries.length, registry: official, github: entries.length - official })}</span>
 					</div>
 				)}
-				<div className="min-h-0 flex-1 overflow-y-auto">
+				<div ref={marketListRef} className="min-h-0 flex-1 overflow-y-auto">
 					{results === null ? (
 						<div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border px-4 py-10 text-center">
 							<LoaderCircle size={20} className="animate-pideck-spin text-muted-foreground" aria-hidden="true" />
@@ -146,72 +155,84 @@ export function HostPluginMarketDialog({ open, onOpenChange, onFail }: HostPlugi
 							<span className="max-w-[34rem] text-xs leading-relaxed text-muted-foreground">{t("hostPlugins.marketEmpty")}</span>
 						</div>
 					) : (
-						<div className="grid content-start gap-2 lg:grid-cols-2">
-							{entries.map((entry) => {
-								const Icon = hostPluginPanelIcon(entry.icon);
-								const busy = installing !== null;
-								const localVersion = installed.get(entry.id);
-								const isInstalled = localVersion !== undefined;
-								// 只有版本能比较、且确实不同才算「可更新」；版本号缺失时按「已安装」处理，不去猜。
-								const upgradable = isInstalled && !!entry.version && entry.version !== localVersion;
-								return (
-									<div key={`${entry.source}:${entry.installUrl}`} className="grid content-start gap-1.5 rounded-md border border-border-subtle bg-card p-2.5">
-										<div className="flex min-w-0 flex-wrap items-center gap-2">
-											<Icon size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
-											<span className="truncate text-sm font-medium text-foreground">{entry.name}</span>
-											{entry.version && <span className="font-mono text-micro tabular-nums text-muted-foreground">v{entry.version}</span>}
-											<Badge variant="outline" className="text-micro font-normal text-muted-foreground">
-												{entry.source === "registry" ? t("hostPlugins.marketSourceRegistry") : t("hostPlugins.marketSourceGithub")}
-											</Badge>
-											{isInstalled && !upgradable && (
-												<Badge variant="secondary" className="text-micro font-normal">
-													{t("hostPlugins.marketInstalledBadge")}
-												</Badge>
-											)}
-											{upgradable && (
-												<Badge variant="secondary" className="text-micro font-normal">
-													{t("hostPlugins.marketUpdateBadge", { version: entry.version ?? "" })}
-												</Badge>
-											)}
-											{entry.stars !== undefined && <span className="text-micro tabular-nums text-muted-foreground">{t("hostPlugins.marketStars", { count: entry.stars })}</span>}
-											<Button variant="outline" size="sm" className="ml-auto shrink-0" disabled={busy || (isInstalled && !upgradable)} onClick={() => void install(entry)}>
-												{busy && installing === entry.installUrl ? <LoaderCircle className="size-4 animate-pideck-spin" aria-hidden="true" /> : null}
-												{isInstalled && !upgradable ? t("hostPlugins.marketInstalledBadge") : busy && installing === entry.installUrl ? t("hostPlugins.marketInstalling") : t("hostPlugins.marketInstall")}
-											</Button>
-										</div>
-										{entry.description && (
-											<p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground" title={entry.description}>
-												{entry.description}
-											</p>
-										)}
-										<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-micro text-muted-foreground">
-											<span className="truncate font-mono">{entry.repo}</span>
-											{entry.license && <span>{entry.license}</span>}
-											<Button
-												variant="link"
-												size="sm"
-												className="h-auto gap-1 px-0 text-micro font-normal"
-												onClick={() => {
-													void desktopApi.app.openExternal(entry.installUrl, true).catch(() => onFail("plugin-host-unavailable"));
-												}}
-											>
-												<ExternalLink size={11} aria-hidden="true" />
-												{t("hostPlugins.marketOpenRepo")}
-											</Button>
-										</div>
-										{/* 权限是「装之前就要看到」的信息：市场卡片直接摊开，别等安装后才发现要整个工作区。 */}
-										<div className="flex flex-wrap items-center gap-1">
-											<span className="text-micro text-muted-foreground">{entry.permissions.length === 0 ? t("hostPlugins.marketNoPermissions") : t("hostPlugins.marketPermissions")}</span>
-											{entry.permissions.map((permission) => (
-												<Badge key={permission} variant="secondary" className="px-1.5 py-0 text-micro font-normal text-muted-foreground">
-													{permissionLabel(permission)}
-												</Badge>
-											))}
-										</div>
+						<div>
+							<VirtualStack
+								items={entryRows}
+								scrollRef={marketListRef}
+								getKey={(row, index) => `row-${index}-${row[0]?.source}:${row[0]?.installUrl}`}
+								estimateHeight={240}
+								minRows={6}
+								rowClassName="pb-2"
+								renderItem={(row) => (
+									<div className="grid content-start gap-2 lg:grid-cols-2">
+										{row.map((entry) => {
+											const Icon = hostPluginPanelIcon(entry.icon);
+											const busy = installing !== null;
+											const localVersion = installed.get(entry.id);
+											const isInstalled = localVersion !== undefined;
+											// 只有版本能比较、且确实不同才算「可更新」；版本号缺失时按「已安装」处理，不去猜。
+											const upgradable = isInstalled && !!entry.version && entry.version !== localVersion;
+											return (
+												<div key={`${entry.source}:${entry.installUrl}`} className="grid content-start gap-1.5 rounded-md border border-border-subtle bg-card p-2.5">
+													<div className="flex min-w-0 flex-wrap items-center gap-2">
+														<Icon size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+														<span className="truncate text-sm font-medium text-foreground">{entry.name}</span>
+														{entry.version && <span className="font-mono text-micro tabular-nums text-muted-foreground">v{entry.version}</span>}
+														<Badge variant="outline" className="text-micro font-normal text-muted-foreground">
+															{entry.source === "registry" ? t("hostPlugins.marketSourceRegistry") : t("hostPlugins.marketSourceGithub")}
+														</Badge>
+														{isInstalled && !upgradable && (
+															<Badge variant="secondary" className="text-micro font-normal">
+																{t("hostPlugins.marketInstalledBadge")}
+															</Badge>
+														)}
+														{upgradable && (
+															<Badge variant="secondary" className="text-micro font-normal">
+																{t("hostPlugins.marketUpdateBadge", { version: entry.version ?? "" })}
+															</Badge>
+														)}
+														{entry.stars !== undefined && <span className="text-micro tabular-nums text-muted-foreground">{t("hostPlugins.marketStars", { count: entry.stars })}</span>}
+														<Button variant="outline" size="sm" className="ml-auto shrink-0" disabled={busy || (isInstalled && !upgradable)} onClick={() => void install(entry)}>
+															{busy && installing === entry.installUrl ? <LoaderCircle className="size-4 animate-pideck-spin" aria-hidden="true" /> : null}
+															{isInstalled && !upgradable ? t("hostPlugins.marketInstalledBadge") : busy && installing === entry.installUrl ? t("hostPlugins.marketInstalling") : t("hostPlugins.marketInstall")}
+														</Button>
+													</div>
+													{entry.description && (
+														<p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground" title={entry.description}>
+															{entry.description}
+														</p>
+													)}
+													<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-micro text-muted-foreground">
+														<span className="truncate font-mono">{entry.repo}</span>
+														{entry.license && <span>{entry.license}</span>}
+														<Button
+															variant="link"
+															size="sm"
+															className="h-auto gap-1 px-0 text-micro font-normal"
+															onClick={() => {
+																void desktopApi.app.openExternal(entry.installUrl, true).catch(() => onFail("plugin-host-unavailable"));
+															}}
+														>
+															<ExternalLink size={11} aria-hidden="true" />
+															{t("hostPlugins.marketOpenRepo")}
+														</Button>
+													</div>
+													{/* 权限是「装之前就要看到」的信息：市场卡片直接摊开，别等安装后才发现要整个工作区。 */}
+													<div className="flex flex-wrap items-center gap-1">
+														<span className="text-micro text-muted-foreground">{entry.permissions.length === 0 ? t("hostPlugins.marketNoPermissions") : t("hostPlugins.marketPermissions")}</span>
+														{entry.permissions.map((permission) => (
+															<Badge key={permission} variant="secondary" className="px-1.5 py-0 text-micro font-normal text-muted-foreground">
+																{permissionLabel(permission)}
+															</Badge>
+														))}
+													</div>
+												</div>
+											);
+										})}
 									</div>
-								);
-							})}
-							{entries.some((entry) => entry.source === "github") && <p className="px-1 text-micro leading-relaxed text-muted-foreground lg:col-span-2">{t("hostPlugins.marketCommunityHint")}</p>}
+								)}
+							/>
+							{entries.some((entry) => entry.source === "github") && <p className="px-1 pt-1 text-micro leading-relaxed text-muted-foreground">{t("hostPlugins.marketCommunityHint")}</p>}
 						</div>
 					)}
 				</div>

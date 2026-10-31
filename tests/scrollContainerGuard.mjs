@@ -52,6 +52,13 @@ const VIRTUALIZED_RE = /<VirtualStack\b/;
  */
 const CONTAINER_REF_RE = /(?:^|\s)ref=\{([\w.]+)\}/;
 const SCROLL_REF_RE = /scrollRef=\{([\w.]+)\}/;
+/**
+ * 第三种接线形状：容器元素**自己就是**虚拟化组件（diff 视图的
+ * `<Virtualizer className="... overflow-auto">`）。这类没有外部 scrollRef 可对——容器与
+ * 虚拟化是同一个节点，接没接线看标签名就够。漏掉它会让「已经虚拟化的 diff 视图」被当成
+ * 未判定，逼人去写一条假豁免。
+ */
+const SELF_VIRTUALIZED_RE = /^<(?:Virtualizer|VirtualStack|VirtualList|VirtualTimeline)\b/;
 /** 通用件自身：它自己的自建滚动窗不是接入点（没有「该不该虚拟化」这个问题），扫进来只会多一个假未判定。 */
 const SELF_FILE_SUFFIX = "components/ui-shadcn/virtual-stack.tsx";
 
@@ -131,7 +138,7 @@ function scan(options = {}) {
 					break;
 				}
 			}
-			const hasVirtualStack = refName !== undefined && scrollRefNames.has(refName);
+			const hasVirtualStack = SELF_VIRTUALIZED_RE.test(line.trim()) || (refName !== undefined && scrollRefNames.has(refName));
 			// 向上找豁免标记。三条边界（与 ref 查找同序，顺序本身是判据）：
 			// 1. 先判边界再判匹配 —— 反过来的话，「同一个元素自己的属性里写着 scroll-ok 且该行以 > 收尾」
 			//    会先命中标记、再轮不到 break，等于把这个元素的标记白送给它下方的容器（fail-open）。
