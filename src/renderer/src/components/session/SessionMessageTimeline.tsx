@@ -979,8 +979,9 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 							if (turnWindowActive) {
 								controller.expandWindow();
 							} else if (hasMoreMessages && canLoadMoreMessages) {
-								// 与滚动加载同一策略：新历史只出现在上方，视口不做「直接展示」跳动。
-								loadMoreMessages("scroll");
+								// source 必须是 button：贴底时 loadMoreMessages 要按「显式请求」处理，
+								// 先脱离跟随再翻页。传 scroll 会被迟到的 following 门整条丢弃（界面零变化）。
+								loadMoreMessages("button");
 							}
 						}}
 						disabled={isLoadingMoreMessages}
