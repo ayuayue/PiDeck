@@ -336,7 +336,7 @@ export type SessionTimelineController = {
 	/** 上一次「加载更多」失败原因（原始 IPC 文案）；null = 无错误。时间线在按钮下方出失败行并允许直接重试。 */
 	loadMoreError: string | null;
 	/** 补页后保持当前视口（新历史只出现在上方）。所有入口统一，不再有「新页直接出现」的跳动。 */
-	loadMoreMessages: (source?: "scroll" | "button") => void;
+	loadMoreMessages: (source?: "scroll" | "button" | "backfill") => void;
 	/** 标记一次程序化滚动（turn 窗口展开补偿等组件内补偿用），抑制历史意图消费。
 	 *  durationMs > 0 时按时间窗口抑制（连续 smooth scroll 会派发多个 scroll 事件）。 */
 	markProgrammaticScroll: (durationMs?: number) => void;
@@ -1351,13 +1351,13 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	);
 
 	const loadMoreMessages = useCallback(
-		(source: "scroll" | "button" = "scroll") => {
+		(source: "scroll" | "button" | "backfill" = "scroll") => {
 			const requestOwnerKey = ownerKey;
 			const timeline = timelineRef.current;
 			// 按钮点击是显式请求：先脱离贴底跟随，再抓浏览钉行。顺序不能反——captureBrowsePin
 			// 在 autoScroll 为真时直接 return（:1230），贴底点按钮会一个钉行都抓不到。
 			if (source === "button") escapeAutoScroll();
-			captureBrowsePin(true);
+			if (source !== "backfill") captureBrowsePin(true);
 			// 同上：翻页会在顶部插入，期间必须能按行测到 pin（整表渲染）。
 			beginPrependSolid();
 			if (timeline && ownerKeyRef.current === requestOwnerKey) {
@@ -1402,7 +1402,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 									following: autoScrollRef.current,
 									generationAtRequest: browseGeneration,
 									currentGeneration: historyBrowseGenerationRef.current,
-									explicit: source === "button",
+									explicit: source === "button" || source === "backfill",
 								})
 							) {
 								const growth = resolvePageWindowGrowth(page.messages);
@@ -1463,7 +1463,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 									following: autoScrollRef.current,
 									generationAtRequest: browseGeneration,
 									currentGeneration: historyBrowseGenerationRef.current,
-									explicit: source === "button",
+									explicit: source === "button" || source === "backfill",
 								})
 							) {
 								const growth = resolvePageWindowGrowth(page.messages);
@@ -1955,7 +1955,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			},
 		});
 		if (action.kind === "load-page") {
-			loadMoreMessages("button");
+			loadMoreMessages("backfill");
 			return;
 		}
 		expandWindow(action.turns);

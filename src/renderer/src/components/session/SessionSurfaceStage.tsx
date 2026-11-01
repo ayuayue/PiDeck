@@ -81,7 +81,7 @@ export function SessionSurfaceStage(props: { sessionId: string; sessionTimeline:
 		}
 		const timer = setTimeout(() => {
 			setPendingAttempts((current) => current + 1);
-			sessionTimeline.loadMoreMessages("button");
+			sessionTimeline.loadMoreMessages("backfill");
 		}, 60);
 		return () => clearTimeout(timer);
 	}, [pendingEntryId, pendingAttempts, outlineItems, sessionTimeline]);
