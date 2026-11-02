@@ -234,7 +234,7 @@ skip 构成：25 个 Linux-only helper 用例（`remoteGitDiscard` 16 / `remoteG
 
 ## 8. V 只读审查（2026-10-31，已按结论修复）
 
-审查报告与逐条处理见 [v-review-2026-10-31.md](v-review-2026-10-31.md)。结论：无阻断、无高危。
+审查报告与逐条处理见 [v-review-2026-10-31.md](archive/remote/v-review-2026-10-31.md)。结论：无阻断、无高危。
 
 | 编号 | 结论 |
 |---|---|

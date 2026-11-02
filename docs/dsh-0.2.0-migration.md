@@ -1,6 +1,6 @@
 # DSH 0.2.0 直接升级对照
 
-状态：代码适配与本机隔离验证完成，发布前跨平台与人工 smoke 待补齐（0.1.5-rc.1 → 0.2.0-rc.2；不经过中间安装版本）。
+> **Status: Current（2026-11-02 核对；0.1.5-rc.1 → 0.2.0 升级已随版本发布，运行时现为 0.2.1-rc.5）**。本文仍是 V3→V4 会话格式与回退边界的现行契约（[data-migrations.md](data-migrations.md) UP-001 引用）；0.2.1 增量见 [archive/plans/dsh-0.2.1-migration.md](archive/plans/dsh-0.2.1-migration.md)。
 
 ## 边界与验收
 

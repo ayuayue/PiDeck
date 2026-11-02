@@ -1,11 +1,11 @@
 # 会话交接：root 池化生产实现（B0–B4）
 
-> **Status: Historical（2026-10-31 更新：B0–B4 的默认关闭实现已合入 dev，生产装配仍未开启，真机验收未做；当前验收见 [remote-acceptance-55dd5b702.md](remote-acceptance-55dd5b702.md)）**
+> **Status: Historical（2026-10-31 更新：B0–B4 的默认关闭实现已合入 dev，生产装配仍未开启，真机验收未做；当前验收见 [remote-acceptance-55dd5b702.md](../../remote-acceptance-55dd5b702.md)）**
 
 
 > 用途：把「同主机多项目 root 池化」的生产实现交给新会话。设计权威是
 > `docs/remote-host-root-pooling-adr.md`（已含现状 file:line、方案对比、B0–B5 迁移、回滚、验证矩阵、真机测量）。
-> 并行派工先读 [remote-project-parallel-handoff.md](remote-project-parallel-handoff.md)，执行其中 P 任务；本文件保留池化专用阅读与验证入口。
+> 并行派工先读 [remote-project-parallel-handoff.md](../../remote-project-parallel-handoff.md)，执行其中 P 任务；本文件保留池化专用阅读与验证入口。
 
 ## 0. 状态
 

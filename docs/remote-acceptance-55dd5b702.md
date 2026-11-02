@@ -246,16 +246,16 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 | 4 | `docs/remote-project-parallel-handoff.md:325、:361` | “当前清单 48 文件”；“48/48 逐字节一致” | 清单已过期：`panel-baseline.mjs verify` rc=1、16/48 mismatch；本提交直接改了清单内 4 个文件，新增 2 个文件未登记。建议由清单所有者重建后再引用 |
 | 5 | `docs/panel-service-baseline.manifest:12、:15、:35、:44` | 4 条 sha256（remoteProjectIpc.ts、RemoteDeepDirWatch.ts、remoteDirWatchDeep.test.mjs、remoteProjectDirFacts.test.mjs） | 哈希与工作树不符，作为可校验基线已失效；不要手改单条哈希，由所有者重建 |
 | 6 | `docs/remote-wsl-verification-log.md:337` | “`REMOTE_UPLOAD_TEMP_NAME.test(` 在 remoteProjectIpc.ts + remoteProjectReadIpc.ts 里恰好 2 处” | 列表过滤已移到 `remoteProjectDirFacts.ts:123`，守卫改为读 projectIpc+dirFacts+readIpc 三个文件（`tests/remoteProjectUpload.test.mjs:297-302`）。建议更新文件归属与计数 |
-| 7 | `docs/root-pooling-handoff.md:15` | “池化仍只交付 ADR + 探针，尚无池化生产实现” | 已有默认关闭的池化实现（`RemoteRootSessionPool.ts`、接入 `RemoteHostConnectionService.ts:398-411`）；本提交又补了目录事实/生命周期修复。建议改为“已实现、生产装配默认关闭（`main/index.ts:3367-3388`）、真机验收未做” |
-| 8 | `docs/root-pooling-handoff.md:3、:13` | “Status: Active plan（2026-10-31 核对）”；“基线 dev = 24529c394” | 文档基线落后于 HEAD 55dd5b702；B1–B3 已实现而非待做，状态行与任务清单均过期。建议重写或归档 |
+| 7 | `docs/archive/remote/root-pooling-handoff.md:15` | “池化仍只交付 ADR + 探针，尚无池化生产实现” | 已有默认关闭的池化实现（`RemoteRootSessionPool.ts`、接入 `RemoteHostConnectionService.ts:398-411`）；本提交又补了目录事实/生命周期修复。建议改为“已实现、生产装配默认关闭（`main/index.ts:3367-3388`）、真机验收未做” |
+| 8 | `docs/archive/remote/root-pooling-handoff.md:3、:13` | “Status: Active plan（2026-10-31 核对）”；“基线 dev = 24529c394” | 文档基线落后于 HEAD 55dd5b702；B1–B3 已实现而非待做，状态行与任务清单均过期。建议重写或归档 |
 | 9 | `docs/README.md:38` | “remote-host-root-pooling-adr.md｜同主机多 root 池化 ADR（测量 + 方案，生产未改）” | 生产代码已有默认关闭的池化路径，“生产未改”不成立。建议改为“ADR + 已实现的默认关闭池化路径；真机验收未做” |
 | 10 | `docs/git-panel-phase-c-plan.md:3` | “Status: 已实施，checkpoint 2d703f830，待最终验收” | 后续已有 09aca4203 与 55dd5b702；状态行仍把 2d703f830 当检查点。建议改为“历史检查点；HEAD 见 git log”，技术结论保留 |
-| 11 | `docs/v-review-2026-10-31.md:3、:5、:9、:35` | “已执行并已按结论修复”“审查对象：G/F 未提交改动”“无阻断…代数围栏完整” | 审查范围只含 G/F；本提交改的是 P 域目录事实/监听生命周期，不在 V 的审查范围。作为质量背书引用时需补范围声明；`:35` 未覆盖清单应收录“P 域监听降级/关闭生命周期” |
+| 11 | `docs/archive/remote/v-review-2026-10-31.md:3、:5、:9、:35` | “已执行并已按结论修复”“审查对象：G/F 未提交改动”“无阻断…代数围栏完整” | 审查范围只含 G/F；本提交改的是 P 域目录事实/监听生命周期，不在 V 的审查范围。作为质量背书引用时需补范围声明；`:35` 未覆盖清单应收录“P 域监听降级/关闭生命周期” |
 | 12 | `docs/remote-wsl-verification-log.md:3、:343` | “Status: Current；最新 sweep HEAD 2c4b35e51” | 台账为现行文档，但没有任何一条覆盖 55dd5b702 行为（watch-failed/关闭生命周期/TTL 重开）；属记录缺口。建议追加一节登记本文件与未执行真机项 |
 
 关联但不在本轮六份重点内：`docs/remote-host-root-pooling-adr.md:3` “池化生产实现尚未落地”已过期；其正文大量 file:line 已漂移，不能当现状引用。`docs/README.md:58` 关于 root-pooling-handoff 的“离线测试通过、真机验收未做”仍基本成立，但“离线测试”未含本提交新增 6 例，开启方式应补“改 main/index.ts 构造参数”。
 
-**更新记录（2026-10-31）**：已更新 `docs/remote-project-parallel-handoff.md`（§8.1 I0 快照注记、onRootRetired 语义、P 文件/测试增量、48/48 清单过期）、`docs/root-pooling-handoff.md`（Status/基线/已实现说明）、`docs/README.md:38/:58`、`docs/git-panel-phase-c-plan.md:3`、`docs/v-review-2026-10-31.md`（范围注记）、`docs/remote-wsl-verification-log.md:337`（历史注记 + §15）、`docs/remote-host-root-pooling-adr.md:3`（默认关闭实现已落地）。`docs/panel-service-baseline.manifest` 已按 HEAD `f870d5574` 重建（48 条成员不变，仅刷新哈希），`panel-baseline.mjs verify` 48/48 rc=0；重建前实测 19/48 mismatch（初始 16/48 为文档更新前快照）。
+**更新记录（2026-10-31）**：已更新 `docs/remote-project-parallel-handoff.md`（§8.1 I0 快照注记、onRootRetired 语义、P 文件/测试增量、48/48 清单过期）、`docs/archive/remote/root-pooling-handoff.md`（Status/基线/已实现说明）、`docs/README.md:38/:58`、`docs/git-panel-phase-c-plan.md:3`、`docs/archive/remote/v-review-2026-10-31.md`（范围注记）、`docs/remote-wsl-verification-log.md:337`（历史注记 + §15）、`docs/remote-host-root-pooling-adr.md:3`（默认关闭实现已落地）。`docs/panel-service-baseline.manifest` 已按 HEAD `f870d5574` 重建（48 条成员不变，仅刷新哈希），`panel-baseline.mjs verify` 48/48 rc=0；重建前实测 19/48 mismatch（初始 16/48 为文档更新前快照）。
 
 未审计：`docs/archive/**`、`docs/maintenance-domains.md`、`docs/unified-api.md` 等大文档；只按本检查点相关面审计。
 
