@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 2eaea119fdb2f92baf4c5c5d4e2def82025d53e824d89682786f0d2e7ef38f06（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 421eb65dc0396bd7657a33c32df64e825613f3501ef0a64e37b14849962d4dab（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -5531,6 +5531,9 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.agentMemoryAutoLearnDesc": "每 12 輪對話後讓模型從最近的會話裡提煉最多 3 條記憶（用提示詞增強的模型，可用增強模型設定另行指定；單次會話不會重複提煉）。會產生模型呼叫費用，預設關閉。",
 	"settings.agentMemoryStatusDesc": "記憶檔案體積、會話索引規模與本機裝置標識。匯出/匯入與清空索引都不改變記憶內容，所以不需要點儲存。",
 	"settings.agentMemoryEntries": "記憶條目",
+	"settings.agentMemoryKindLabel": "記憶型別",
+	"settings.agentMemoryTabMemory": "記憶",
+	"settings.agentMemoryTabFailure": "教訓",
 	"settings.agentMemoryEntriesDesc": "逐條列出所有作用域的記憶檔案：全域、專案、本機裝置都在這裡。記憶是檢索式讀取——Agent 用 memory_search / memory_get 按需查，不會整份塞進上下文。刪除會留下墓碑，舊匯出包不會把它導回來。",
 	"settings.agentMemorySearchPlaceholder": "搜尋記憶內容或專案名",
 	"settings.agentMemorySearchClear": "清除搜尋",
@@ -5539,6 +5542,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.agentMemoryTableActions": "操作",
 	"settings.agentMemoryEntriesCount": "顯示 {shown} / {total} 條",
 	"settings.agentMemoryEmpty": "還沒有任何記憶。讓 Agent 用 memory_add 記下一條，或從別的裝置匯入。",
+	"settings.agentMemoryEmptyFailure": "還沒有記錄任何教訓。Agent 在失敗後會把原因和規避辦法寫進 failures.md。",
 	"settings.agentMemoryNoMatch": "沒有匹配的記憶。",
 	"settings.agentMemoryGroupBudget": "{count} 條 · {chars}/{maxChars} 字 · 上限 {maxEntries} 條",
 	"settings.agentMemoryGroupPlain": "{count} 條 · {chars} 字 · 檢索時可見",
