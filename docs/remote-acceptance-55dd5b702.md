@@ -20,12 +20,12 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 | Linux（WSL）POSIX/Linux-only 邻接用例 | **通过**：139 pass / 1 skip（root-only chown） |
 | Linux（WSL）根池化相关 4 文件 | **通过**：51/51 |
 | Linux（WSL）remote/ssh 全扫 | **失败（7 例，全部既有，非本提交引入）** + **跳过 11 例**；基线 HEAD~1 复跑失败数一致，详见 §3.3 |
-| 真实 SSH + Electron 端到端验收 | **通过（UI 入口 + 池化 home 修复后，R0/R1 均真机通过）**：R0 1 passed 40.7s；R1 连续 2 次 1 passed（41.7s / 39.3s），另有 1 次调试轮通过；S2/S5/S6/S7 未执行，详见 §10 |
+| 真实 SSH + Electron 端到端验收 | **通过**：R0/R1 UI 链路通过；S2/S5/S6/S7 另做真机验收并全部通过（S7 为 paths-over-limit 降级/恢复，watch-failed 分支仍由单测覆盖），详见 §10 |
 | Linux CI 覆盖 | **通过（仅本地新增，未触发 GitHub CI）**：新增 `linux-unit-remote` job（硬门禁 17 文件 253/252+1；全扫 continue-on-error）+ 挂账文档；见 §11 |
 | panel-service-baseline.manifest | **通过**：按 HEAD 重建，`panel-baseline.mjs verify` 48/48 rc=0；见 §11 |
 | 旧文档失效状态审计 | **完成并已同步旧文档 + 重建 manifest**（见 §5/§11） |
 
-**总体判定：默认生产构建（池化关闭）无阻断；本提交的四个修复方向中，前三个通过，第四个在池化开启场景存在条件性失败 F1。F1、UI 入口、池化 home 三处已修复并提交/验证；真机 R0（池化关闭）与 R1（池化）均通过。S2/S5/S6/S7（TTL/sweep、显式断开、监听降级等）仍未执行，池化默认开启前仍需补这些场景。**
+**总体判定：默认生产构建（池化关闭）无阻断；F1、UI 入口、池化 home 三处已修复；R0/R1 及 S2/S5/S6/S7 真机验收均通过。默认关闭的池化路径已具备真机证据；S7 的 watch-failed 分支仍只有单测（paths-over-limit 已真机验证），如需 100% 真机覆盖需另找可稳定注入 watch 失败的手段。**
 
 ## 1. 基线与工作区核对（只读）
 
@@ -297,7 +297,7 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 ## 8. 验收签字建议
 
 - **默认构建（池化关闭）**：可接受；本提交四个方向中 3 个通过，F1 不触发默认路径。
-- **池化默认开启**：**仍不能只凭本轮签收**——R0/R1 的 UI 验收已通过，但 S2/S5/S6/S7（切换不重建、TTL/sweep、显式断开、监听降级）未执行；需补这些场景，并处理 §2.3 的保活计数风险。
+- **池化默认开启**：R0/R1 + S2/S5/S6/S7 真机已通过，具备开启前的行为证据；仍需处理 §2.3 的保活计数风险。S7 的 watch-failed 分支未真机注入（paths-over-limit 已验证），默认关闭不受影响。
 - **Git Phase C / Linux-only 既有红**：`remoteGitStability` 4 例在本 Linux 环境稳定红（基线同红），需另行挂账，不应被本检查点的“Windows 全绿”掩盖。
 
 ## 9. 验收后修复（已提交 `a905d4d7d`）
@@ -327,14 +327,14 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 - CI/基线清单/文档提交：`17cce290a`。
 - UI 入口修复与回归测试已提交 `c1012918e`（未 push）。
 - 池化 HOME 探针修复已提交 `1702179e2`（含 manifest 与本文档当时版本）。
-- 本文档本轮 R1 通过结果的最新更新待提交（本次文档提交）。
+- 本文档 R1 与 S2/S5/S6/S7 结果随本次文档提交落库。
 - 原检查点 `55dd5b702` 未被改写；未 push/merge。
 
 ### 9.4 仍未做
 
-- 真机 S2/S5/S6/S7（切换不重建、TTL/sweep、显式断开、监听降级）未执行。
+- 真机 S2/S5/S6/S7 已完成（§10.5）；S7 仅覆盖 paths-over-limit 降级/恢复，watch-failed 分支仍单测。
 - 7 个既有 Linux 红已挂账（`docs/ci-linux-known-failures.md`），未修；`remoteGitStability` 属 Git/Phase C 债。
-- 池化 HOME 探针与 UI 入口修复已提交（未 push）；池化默认开启仍缺 S2/S5/S6/S7 真机证据。
+- 池化 HOME 探针与 UI 入口修复已提交（未 push）。
 
 ## 10. 真实 SSH + Electron 执行结果（2026-10-31/11-02；R0/R1 均通过）
 
@@ -367,14 +367,24 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 ### 10.3 补丁与清理
 
 - `rootPooling: {}` 临时应用多次（修复前 R1、修复后 R1、标题调试轮），均已删除；`git diff -- src/main/index.ts` 为空；干净源码重建 `out/main` 后其中 `rootPooling: {}` 命中 0。
-- 远端：每次结束 helper 归零、:22 回到基线；5 次运行的 runId 目录均由 spec 的 `finally` 清理；唯一残留 `~/.pideck-e2e-e2emvulqwle` 与这 5 次 runId 都不匹配（更早遗留），未动；`.pi/agent/sessions` 无 e2e 夹具残留。
+- 远端：每次结束 helper 归零、:22 回到基线；R0/R1 与 S2/S5/S6/S7 的 runId 目录均由 spec 的 `finally` 清理；唯一残留 `~/.pideck-e2e-e2emvulqwle` 与这些 runId 都不匹配（更早遗留），未动；`.pi/agent/sessions` 无 e2e 夹具残留。
 - 未 sudo、未改系统、未动既有 `~/.pideck/remote-host` 的 bundle/leases。
 
 ### 10.4 结论
 
 - UI 入口 bug 是产品回归（`SessionStartSurface` 漏转发 `secondaryAction`），已修复；R0 真机复跑通过，回归测试已加。
 - 池化 HOME 缺口已用 pinned 只读探针补齐并提交 `1702179e2`；R1 连续通过，UI 入口、登记、会话列表/标题/导入、项目级 root 状态链路均有真机证据。
-- 曾有一次 step 6 标题超时未复现，按 flake 记录；S2/S5/S6/S7 未执行，不能把 R0/R1 通过写成完整池化验收。
+- 曾有一次 step 6 标题超时未复现，按 flake 记录。
+- S2/S5/S6/S7 已按 §10.5 单独做真机验收并全部通过；S7 的 watch-failed 分支未真机注入，仍由单测覆盖。
+
+### 10.5 S2/S5/S6/S7 真机执行（2026-11-02，通过）
+
+- 方式：临时 `rootPooling: {}` 补丁 + `npm run build:main`，Playwright Electron 真机；通过 `window.piDesktop` 调主进程 API（真实 SSH），夹具目录在远端 HOME 下按 runId 唯一命名，`finally` 清理。S2/S5/S6 合跑 1 次（11.5m，exit 0）；S7 单跑 1 次（15.0s，exit 0）。
+- **S2 切换不重建**：登记 A/B/C 三项目，首读后 3 条 helper（PID `2225162/2225349/2225503`）；10 轮 A/B/C 交替 `listProject` 后 PID 集合完全一致 → 通过。
+- **S5 TTL/sweep**：移除全部项目后 3 条 helper 仍空闲；等 **660s**（10min TTL + 60s sweep 余量）后 helper 采集为 `[]`；重新登记并 `listProject` 成功 → 通过。
+- **S6 显式断开不复活**：`remoteHosts.disconnect` 后 `listProject` 返回 `{ok:false, code:"SSH_HOST_DISCONNECTED", outcome:"rejected"}`；3s 后 helper `[]`；`connect` 后 `listProject` 再次成功 → 通过。
+- **S7 监听降级/恢复**：项目内建 130 个深目录并逐个读；`files.directoryPage` 返回 `dirWatch {degraded:true, reason:"paths-over-limit", desired:131, covered:128, dropped:3}`；移除并重新登记项目、只读根后 `dirWatch` 消失 → 通过。**边界**：本轮验证的是 paths-over-limit 降级/恢复；`watch-failed`（helper `fs.watch` 拒绝）无法在真机稳定注入，仍由单元测试覆盖。
+- 清理：S2/S5/S6/S7 的远端夹具目录均由 `finally` 递归删除；helper 归零；临时 spec 与 `rootPooling` 补丁已删除，`out/main` 重建为池化关闭产物。
 
 ## 11. CI 与基线清单同步（2026-10-31，已提交 17cce290a）
 
