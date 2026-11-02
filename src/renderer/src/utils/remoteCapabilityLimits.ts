@@ -31,6 +31,7 @@ export function remoteUploadFailureCopy(code: string): { key: TranslationKey; wi
 		case "REMOTE_FILE_TOO_LARGE":
 			return { key: "project.remote.uploadTooLarge", withCode: false };
 		case "REMOTE_FILE_TARGET_EXISTS":
+		case "FILE_UPLOAD_TARGET_EXISTS":
 			return { key: "project.remote.uploadExists", withCode: false };
 		case "REMOTE_UPLOAD_INVALID_PATHS":
 			return { key: "project.remote.dropUnsupported", withCode: false };

@@ -277,7 +277,12 @@ export function resolveRemoteSftpBinaryPath(input: { packaged: boolean; resource
 	const platform = input.platform ?? process.platform;
 	const name = platform === "win32" ? "remote-sftp.exe" : "remote-sftp";
 	const path = platform === "win32" ? win32 : posix;
-	return input.packaged ? path.join(input.resourcesPath, "remote-sftp", name) : path.join(input.appPath, "resources", "remote-sftp", "bin", name);
+	if (input.packaged) return path.join(input.resourcesPath, "remote-sftp", name);
+	// electron-vite E2E loads out/main/index.js directly, so app.getAppPath() is
+	// <repo>/out/main rather than the repository root. Normal dev launches still
+	// expose <repo>, and both layouts must resolve the same fail-open sidecar.
+	const appRoot = path.basename(input.appPath) === "main" && path.basename(path.dirname(input.appPath)) === "out" ? path.dirname(path.dirname(input.appPath)) : input.appPath;
+	return path.join(appRoot, "resources", "remote-sftp", "bin", name);
 }
 
 /**

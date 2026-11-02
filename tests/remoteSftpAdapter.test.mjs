@@ -43,6 +43,7 @@ function fakeChild(onRequest) {
 
 test("resolves the native executor in dev and packaged layouts", () => {
 	assert.equal(resolveRemoteSftpBinaryPath({ packaged: false, appPath: "F:\\PiDeck", resourcesPath: "ignored", platform: "win32" }), "F:\\PiDeck\\resources\\remote-sftp\\bin\\remote-sftp.exe");
+	assert.equal(resolveRemoteSftpBinaryPath({ packaged: false, appPath: "F:\\PiDeck\\out\\main", resourcesPath: "ignored", platform: "win32" }), "F:\\PiDeck\\resources\\remote-sftp\\bin\\remote-sftp.exe");
 	assert.equal(resolveRemoteSftpBinaryPath({ packaged: true, appPath: "ignored", resourcesPath: "/opt/PiDeck/resources", platform: "linux" }), "/opt/PiDeck/resources/remote-sftp/remote-sftp");
 });
 

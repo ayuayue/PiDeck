@@ -75,6 +75,7 @@ test("状态卡展示上传/下载、字节进度、取消按钮与 unknown 专�
 	const items = [
 		{ id: 6, operation: "upload", phase: "running", transferred: 50, total: 100 },
 		{ id: 7, operation: "download", phase: "unknown", transferred: 20, total: 20, code: "REMOTE_DOWNLOAD_RESULT_UNCONFIRMED" },
+		{ id: 8, operation: "upload", phase: "failed", transferred: 0, total: 28, code: "FILE_UPLOAD_TARGET_EXISTS" },
 	];
 	const html = renderToStaticMarkup(React.createElement(RemoteProjectTransferStatus, { items, onCancel() {}, onDismiss() {} }));
 	assert.match(html, /data-testid="remote-transfer-status"/);
@@ -86,6 +87,8 @@ test("状态卡展示上传/下载、字节进度、取消按钮与 unknown 专�
 	assert.match(html, /下载/);
 	assert.match(html, /结果未知：REMOTE_DOWNLOAD_RESULT_UNCONFIRMED/);
 	assert.match(html, /不要直接重试/);
+	assert.match(html, /远端已有同名文件，未覆盖/);
+	assert.doesNotMatch(html, /传输失败：FILE_UPLOAD_TARGET_EXISTS/);
 });
 
 test("zh-CN/en-US 都有进度与取消文案，unknown 明确要求核对而非重试", () => {

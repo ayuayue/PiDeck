@@ -117,7 +117,7 @@ test("runtime：host 状态变化换代并收回写能力，旧 services 立即 
 	runtime.dispose();
 });
 
-test("runtime：项目事实事件采纳主进程 generation 并围栏旧代；别的项目/主机事件不影响本 runtime", async () => {
+test("runtime：首个事实事件只认领主进程连接基线，不打断同一连接上的在途任务", async () => {
 	const h = harness();
 	const runtime = createProjectServiceRuntime(project, h.api);
 	runtime.start();
@@ -132,9 +132,28 @@ test("runtime：项目事实事件采纳主进程 generation 并围栏旧代；�
 	h.emitState({ hostId: "h9", state: "offline" });
 	assert.equal(runtime.getSnapshot(), previous);
 	h.emitFacts({ projectId: "p2", generation: "main-generation-1", scopes: [{ kind: "dir", path: "" }] });
+	assert.equal(runtime.getSnapshot(), previous, "首见 connection id 是同代基线，不能重建 services");
+	assert.equal(notifications, 0);
+	runtime.dispose();
+});
+
+test("runtime：已知连接基线后出现新的主进程 generation 才换代并围栏旧 services", async () => {
+	const h = harness();
+	const runtime = createProjectServiceRuntime(project, h.api);
+	runtime.start();
+	await runtime.refresh();
+	await flush();
+	let notifications = 0;
+	runtime.subscribe(() => {
+		notifications += 1;
+	});
+	h.emitFacts({ projectId: "p2", generation: "main-generation-1", scopes: [] });
+	const baseline = runtime.getSnapshot();
+	assert.match(baseline.generation, /:local$/);
+	h.emitFacts({ projectId: "p2", generation: "main-generation-2", scopes: [{ kind: "dir", path: "" }] });
 	const next = runtime.getSnapshot();
-	assert.equal(next.generation, "ssh:h1:1:main-generation-1");
-	assert.equal(previous.isCurrent(), false);
+	assert.equal(next.generation, "ssh:h1:1:main-generation-2");
+	assert.equal(baseline.isCurrent(), false);
 	assert.equal(notifications, 1);
 	assert.equal(next.facts.hostState, "ready");
 	runtime.dispose();
@@ -147,19 +166,19 @@ test("runtime：状态事件后迟到的旧 generation 不得回退并复活旧�
 	await runtime.refresh();
 	await flush();
 	h.emitFacts({ projectId: "p2", generation: "connection-1", scopes: [] });
-	const withMainGeneration = runtime.getSnapshot();
-	assert.match(withMainGeneration.generation, /:connection-1$/);
+	const baseline = runtime.getSnapshot();
+	assert.match(baseline.generation, /:local$/);
 	h.setStates({ h1: "degraded" });
 	h.emitState({ hostId: "h1", state: "degraded" });
 	await flush();
 	await runtime.refresh();
 	const degraded = runtime.getSnapshot();
-	assert.equal(withMainGeneration.isCurrent(), false);
-	assert.notEqual(degraded.generation, withMainGeneration.generation);
+	assert.equal(baseline.isCurrent(), false);
+	assert.notEqual(degraded.generation, baseline.generation);
 	// 旧连接的 facts 事件可能晚于状态事件到达：必须被拒绝，不能把 generation 设回 connection-1。
 	h.emitFacts({ projectId: "p2", generation: "connection-1", scopes: [] });
 	assert.equal(runtime.getSnapshot(), degraded);
-	assert.equal(withMainGeneration.isCurrent(), false);
+	assert.equal(baseline.isCurrent(), false);
 	runtime.dispose();
 });
 

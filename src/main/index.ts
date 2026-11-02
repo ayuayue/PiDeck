@@ -97,6 +97,8 @@ initializeAppBrand(app, app.isPackaged && __PIDECK_DEV_BUILD__ ? "PiDeck Dev" : 
 // E2E（Playwright 驱动）静默运行：窗口显示但不抢焦点、不最大化铺满屏，
 // 避免打断用户在其他软件的输入。fixture 通过 env PIDECK_E2E=1 标识。
 const isE2E = process.env.PIDECK_E2E === "1";
+/** Real-host acceptance may exercise the default-off multi-root path without changing production defaults. */
+const e2eRemoteRootPooling = isE2E && process.env.PIDECK_E2E_REMOTE_ROOT_POOLING === "1";
 // E2E 窗口默认摆到屏幕外（见 e2eWindowMode.ts）：不遮挡、不抢焦点、不进任务栏；
 // PIDECK_E2E_WINDOW_MODE=visible 给 window-memory / quick-task 这类需要真实几何的用例回退。
 const e2eWindowPlacement = resolveE2EWindowPlacement(isE2E, process.env.PIDECK_E2E_WINDOW_MODE);
@@ -3439,6 +3441,7 @@ function registerIpc() {
 			const service = createRemoteHostConnectionService({
 				userDataDir: app.getPath("userData"),
 				client,
+				...(e2eRemoteRootPooling ? { rootPooling: {} } : {}),
 				// 内置扩展快照的来源：与本地 `-e` 注入同一份「当前生效」字节（覆盖层优先，整份校验）。
 				builtInExtensionRoots: resolveBuiltInExtensionRoots(),
 				onDisconnect: (hostId) => {

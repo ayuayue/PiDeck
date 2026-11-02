@@ -2,6 +2,7 @@ import { AlertTriangle, Check, Loader2, X } from "lucide-react";
 import { t } from "../../i18n";
 import { Button } from "../ui-shadcn/button";
 import { Progress } from "../ui-shadcn/progress";
+import { remoteUploadFailureCopy } from "../../utils/remoteCapabilityLimits";
 import { formatRemoteTransferBytes, isRemoteTransferActive, remoteTransferPercent, type RemoteTransferUiItem } from "../../utils/remoteProjectTransferState";
 
 function operationText(item: RemoteTransferUiItem): string {
@@ -18,6 +19,11 @@ function statusText(item: RemoteTransferUiItem): string {
 	if (item.phase === "partial") return t("project.remote.transferPartial", { count: item.failedCount ?? 0 });
 	if (item.phase === "cancelled") return t("project.remote.transferCancelled");
 	if (item.phase === "unknown") return t("project.remote.transferUnknown", { code: item.code ?? "REMOTE_TRANSFER_RESULT_UNKNOWN" });
+	if (item.operation === "upload") {
+		const code = item.code ?? "REMOTE_TRANSFER_FAILED";
+		const copy = remoteUploadFailureCopy(code);
+		return copy.withCode ? t(copy.key, { code }) : t(copy.key);
+	}
 	return t("project.remote.transferFailed", { code: item.code ?? "REMOTE_TRANSFER_FAILED" });
 }
 

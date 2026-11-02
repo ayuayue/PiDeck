@@ -1,7 +1,7 @@
 # 远程 SFTP Phase 1：流式传输与安全提交
 
-> 状态：离线实现已接线；真实 SSH / Electron 验收 `NOT RUN`。2026-11-02。
-> 基线：`c06d528fb`（SFTP-0 原生执行器原型）。
+> 状态：离线实现已接线；核心真实 SSH / Electron 验收已通过，剩余边界见 §11。2026-11-02。
+> 基线：`c06d528fb`（SFTP-0 原生执行器原型）；验收实现位于 `1dbb131ea`，验收脚本与收尾修复尚未提交。
 > 范围：单文件/多选上传、单文件下载、任务进度、取消、稳定错误与能力探测。
 > 不在本阶段：目录读取迁移、文本保存迁移、搜索/watch/Git/回收站、server、SFTP 递归传输、断点续传、双向同步。
 
@@ -144,13 +144,14 @@ SFTP subsystem 不能由 helper capability 推断，首次传输必须独立 pro
 - 文本保存继续走现有 version + helper 路径，不与二进制上传共用 token。
 - 本阶段不新增常驻 server，也不承诺无 Node 远端项目。
 - 当前上限为单文件 8 GiB、单批 32 个文件；首版只创建，不覆盖同名远端文件。
-- 真机 SSH、连接中断、Electron 传输 UI 和 close/rebind 交叉验收仍需授权 target 后执行。
+- 核心真机链路已在 §11 记录；8 GiB 边界、askpass / ProxyJump、commit 阶段硬断连和 Linux
+  Electron 客户端仍未验收。
 
 ## 10. 本轮离线验证（2026-11-02）
 
 - `npm run typecheck`、`npm run check:ipc-wiring`（811 通道 / 8 agentEventTags）、
   `npm run check:test-shape`（sourceOnly 395 / 1882，新增 0）与 `npm run check:format`
-  （4376 文件）均通过。
+  （4377 文件）均通过。
 - 统一接口快照与远端 E2E 定向套件 33/33 通过；传输 client、registry、job IPC、
   capability probe/cache、upload job 与 Go executor 的定向回归均通过。
 - 进度/取消 UI 接线新增纯状态机、hook 生命周期与静态渲染测试；覆盖进度单调/截断、
@@ -158,10 +159,55 @@ SFTP subsystem 不能由 helper capability 推断，首次传输必须独立 pro
 - 进度/取消相关定向回归 122/122 通过；观察者只收到
   `{ operation, transferred, total }` 投影，不接触不透明 `jobId`。
 - `go test ./...`、`go vet ./...`、`npm run build:remote-sftp`（Windows amd64）通过。
-- 全量 `npm test`：15,940 tests / 15,651 pass / 2 fail / 287 skip，退出码 1。
+- 全量 `npm test`：15,941 tests / 15,652 pass / 2 fail / 287 skip，退出码 1。
   两个失败均不在本分支改动面：`scrollContainerGuard.test.mjs` 命中的
   `AgentIconPicker.tsx`，以及 `sessionRefreshSafety.test.mjs` 读取的 `App.tsx` /
-  `useProjectSync.ts`，相对 HEAD 与 `origin/dev` 均无差异。
+  `useProjectSync.ts`，相对本分支 HEAD 均无差异，不是本轮改动引入。
 - Linux/WSL helper 上传切片此前 4/4 通过，本轮最终树未重跑。
-- 真实 SSH、断连/重连、Electron 进度/取消以及 commit unknown 真机验收仍为 `NOT RUN`；
-  不得以离线套件和 SFTP-0 原型替代。
+- 核心真实 SSH + Electron 验收已通过；尚未覆盖的边界见 §11。
+
+## 11. 真实 SSH + Electron 验收（2026-11-02）
+
+### 11.1 环境与授权范围
+
+- 主机：本机 SSH 别名 `serve`（`10.81.2.15:22`），用户 `zhadainian`。
+- 产品使用注入的 ED25519 SHA256 指纹完成 pin，落盘值在隔离 userData 中按字节断言。
+- 测试根：`/home/zhadainian/.pideck-acceptance/sftp-1-20261102/runs/<runId>`；
+  每个 run 只创建 `a/`、`b/` 与权限拒绝子目录，finally 中先恢复权限，再校验 target
+  等于该 run 根后删除。未使用 sudo、未改系统目录、未动既有 helper deploy bundle。
+- 真实 Electron 启动前清除宿主继承的 `ELECTRON_RUN_AS_NODE`；凭据只经进程环境变量注入，
+  不写入仓库或文档。
+
+### 11.2 通过项
+
+一次真实 Electron + OpenSSH + helper 验收通过，耗时约 2 分钟，覆盖：
+
+1. 主机 pin、连接、同 host 两个远端项目登记与 canonical root 复核；
+2. UI 上传空文件和中文/空格文件名，远端大小与 SHA-256 独立核对；
+3. UI 上传 32 MiB 文件，观察到 upload progress，完成后远端摘要与源文件一致；
+4. 同名上传明确失败且远端原文件摘要不变；批量上传部分失败时成功项保留、已有目标不覆盖；
+5. UI 下载 32 MiB 文件，观察到 download progress，本地大小和 SHA-256 与远端一致；
+6. 256 MiB 上传在 SFTP 分块进度后取消：目标不发布，job 结算为 cancelled，
+   upload-spool 文件数最终回落到基线；
+7. 权限拒绝目录上传失败且目标不出现；
+8. 同 host 双项目并行：A 的上传被取消不影响 B 成功；
+9. 关闭 A 项目不打断 B 的在途传输，重新登记 A 后仍能继续上传。
+
+### 11.3 池化边界与已观察限制
+
+- 上述第 8、9 项需要同 host 多 root 的 helper 会话隔离。本次真机运行通过
+  `PIDECK_E2E=1` 与 `PIDECK_E2E_REMOTE_ROOT_POOLING=1` 打开 **E2E-only** 的
+  `{ rootPooling: {} }` 装配；生产默认仍不传 `rootPooling`，所以不能把这次结果描述成
+  “生产多项目并行已经默认开启”。
+- 在默认单会话路径预跑时，观察到 A 根成功后切到 B、再切回 A，A 的新上传在 240 秒内
+  一直不可用。该限制说明“同 host 顺序多项目切换”不能靠现有单会话路径直接交付。
+  真正默认支持多项目前，必须先决定是否以验收通过的池化路径替换默认装配，并补生产开关、
+  资源上限与 60 秒级多项目验收。
+
+### 11.4 仍未运行
+
+- 8 GiB 单文件边界和 32 文件批量上限的真机压力；
+- askpass 与 ProxyJump 产品路径；
+- helper commit 请求已发出后的硬断网 / 进程崩溃 / unknown 回包；
+- Linux 原生 Electron 客户端（本轮客户端为 Windows，远端为 Linux）；
+- 生产默认开启池化后的 60 秒 sweep、RSS、多项目连续切换与长稳。

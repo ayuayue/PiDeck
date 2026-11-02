@@ -48,6 +48,11 @@ test("上传失败码映射：超限与文件夹都有明确文案，未知码�
 	const notAFile = remoteUploadFailureCopy("REMOTE_UPLOAD_NOT_A_FILE");
 	assert.equal(notAFile.key, "project.remote.uploadNotAFile");
 	assert.equal(notAFile.withCode, false);
+	for (const code of ["REMOTE_FILE_TARGET_EXISTS", "FILE_UPLOAD_TARGET_EXISTS"]) {
+		const exists = remoteUploadFailureCopy(code);
+		assert.equal(exists.key, "project.remote.uploadExists");
+		assert.equal(exists.withCode, false);
+	}
 	const unknown = remoteUploadFailureCopy("REMOTE_SOMETHING_NEW");
 	assert.equal(unknown.key, "project.remote.uploadFailed");
 	assert.equal(unknown.withCode, true);
