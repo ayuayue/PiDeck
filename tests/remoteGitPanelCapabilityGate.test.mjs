@@ -25,15 +25,9 @@ const plain = (value) => JSON.parse(JSON.stringify(value));
 const closed = { ...allOpen, read: false, write: false, branchWrite: false, sync: false, recovery: false, history: false, refs: false, compare: false, forceRefresh: false, init: false, worktree: false };
 const renderBanner = (git, blocked, items) => renderToStaticMarkup(React.createElement(RemoteGitCapabilityBanner, { git, blocked, ...(items === undefined ? {} : { items }) }));
 
-test("全可用时能力条给出一行可用入口清单（双态：缺什么/有什么）", () => {
+test("全可用时不渲染能力条（只在有入口被关闭时解释原因）", () => {
 	assert.deepEqual(plain(describeGitCapabilityBanner(allOpen)), [], "nothing is blocked");
-	const html = renderBanner(allOpen);
-	assert.match(html, /data-testid="remote-git-capabilities"/);
-	assert.match(html, /data-testid="remote-git-capabilities-available"/);
-	assert.match(html, new RegExp(zhCN["remoteGit.capabilityWrite"]));
-	assert.match(html, new RegExp(zhCN["remoteGit.capabilitySync"]));
-	assert.match(html, new RegExp(zhCN["remoteGit.capabilityAvailable"]));
-	assert.doesNotMatch(html, /data-testid="remote-git-capability-write"/, "no blocked row when the capability is open");
+	assert.equal(renderBanner(allOpen), "", "all-available must not render the banner");
 	assert.deepEqual(plain(describeGitCapabilityBanner(allOpen, { "git.write": "PROJECT_SERVICE_CAPABILITY_PROVIDER_UNSUPPORTED" })), []);
 });
 
