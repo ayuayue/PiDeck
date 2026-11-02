@@ -1,8 +1,8 @@
 import { memo, useRef } from "react";
-import { useAtomValue } from "jotai";
 import { streamingTextBySessionIdAtomFamily } from "../../atoms/session-atoms";
 import { useHoldTextWhileSelecting } from "../../hooks/useHoldTextWhileSelecting";
 import { MarkdownStream } from "./MarkdownStream";
+import { usePacedAtomValue, useSessionPaneRenderMode } from "./sessionPaneActive";
 import { RawToolCallFallback } from "./RawToolCallFallback";
 import { SettledLongAnswer } from "./SettledLongAnswer";
 import { cleanAnswerText } from "./timeline/answerText.ts";
@@ -58,6 +58,10 @@ export const AnswerOutput = memo(function AnswerOutput(props: {
 	onOpenExternal: (url: string, forceSystem?: boolean) => void;
 	onOpenFile?: (path: string) => void;
 }) {
+	// 必须无条件调用（live/settled 两个分支共用）：放在 mode 分支之后会违反 Hooks 规则。
+	// 非激活栏（未聚焦分屏 / 窗口不可见）：settled 正文也先保持轻量渲染，
+	// 不在这里做 shiki/mermaid 全量高亮；恢复后 MarkdownStream 自己补全量。
+	const renderMode = useSessionPaneRenderMode();
 	if (props.mode === "live") {
 		return <LiveAnswerBody sessionId={props.sessionId ?? ""} hidden={props.hidden} isStreaming={props.isStreaming} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />;
 	}
@@ -66,7 +70,7 @@ export const AnswerOutput = memo(function AnswerOutput(props: {
 	// 兜底（issue #315）：服务端漏出的工具调用协议原文不走 markdown，折叠展示。
 	return (
 		<div className={answerOutputClassName(props.variant ?? "process")} data-message-id={props.messageId} data-is-streaming="0" data-variant={props.variant ?? "process"} data-settle={props.settle ? "1" : undefined} style={{ display: props.hidden ? "none" : undefined }}>
-			{detectLeakedToolCallXml(cleanText) ? <RawToolCallFallback text={cleanText} messageId={props.messageId} /> : <SettledLongAnswer text={cleanText} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />}
+			{detectLeakedToolCallXml(cleanText) ? <RawToolCallFallback text={cleanText} messageId={props.messageId} /> : <SettledLongAnswer text={cleanText} paused={renderMode === "hidden"} background={renderMode === "background"} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />}
 		</div>
 	);
 });
@@ -76,7 +80,10 @@ export const AnswerOutput = memo(function AnswerOutput(props: {
  * 不再自持打字机，避免双重逐字；流式轻量渲染与思考同构）。
  */
 const LiveAnswerBody = memo(function LiveAnswerBody(props: { sessionId: string; hidden?: boolean; isStreaming?: boolean; onOpenExternal: (url: string, forceSystem?: boolean) => void; onOpenFile?: (path: string) => void }) {
-	const streaming = useAtomValue(streamingTextBySessionIdAtomFamily(props.sessionId));
+	// 按渲染模式读 atom：active 正常订阅；background 1s 粗采样（可见分屏仍能看到进度，
+	// 但不被每个 delta 驱动重渲染）；hidden 冻结。配合 useSmoothStream 的「恢复即追平」。
+	const renderMode = useSessionPaneRenderMode();
+	const streaming = usePacedAtomValue(streamingTextBySessionIdAtomFamily(props.sessionId), renderMode);
 	const sourceText = streaming?.content ?? "";
 	const text = cleanAnswerText(sourceText);
 	// 划选期间冻结正文渲染：指针按下到松开之间只要来一个新 chunk，文本节点就会重挂，
@@ -88,7 +95,7 @@ const LiveAnswerBody = memo(function LiveAnswerBody(props: { sessionId: string; 
 	return (
 		<div ref={liveRef} className={answerOutputClassName("answer")} data-live-answer="true" data-is-streaming={props.isStreaming ? "1" : "0"} data-variant="answer" style={{ display: props.hidden ? "none" : undefined }}>
 			{/* 兜底判定要求闭标记已到（见 detectLeakedToolCallXml）：流式半截 XML 仍走 markdown，落定后切换。 */}
-			{detectLeakedToolCallXml(displayText) ? <RawToolCallFallback text={displayText} /> : <MarkdownStream text={displayText} isStreaming={Boolean(props.isStreaming)} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />}
+			{detectLeakedToolCallXml(displayText) ? <RawToolCallFallback text={displayText} /> : <MarkdownStream text={displayText} isStreaming={Boolean(props.isStreaming)} paused={renderMode === "hidden"} background={renderMode === "background"} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />}
 		</div>
 	);
 });
