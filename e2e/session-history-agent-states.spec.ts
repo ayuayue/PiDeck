@@ -223,7 +223,9 @@ test("never-started session: delete confirms, edit applies directly, resend auto
 	await firstUserTurn.locator(".user-turn-actions").getByTitle("编辑", { exact: true }).click();
 	await expect(timeline.locator("textarea")).toBeVisible({ timeout: 10_000 });
 	await timeline.locator("textarea").fill("未启动编辑后的用户消息");
-	await timeline.getByRole("button", { name: "保存" }).click();
+	// user 消息的编辑提交按钮跟 composer 走同一套语义（fork + 立即重发），文案是「发送」；
+	// 键帽是 aria-hidden 的装饰，可访问名仍是「发送」，所以这里不写 ↵。
+	await timeline.getByRole("button", { name: "发送" }).click();
 	await expect(window.getByRole("alertdialog")).toHaveCount(0, { timeout: 5_000 });
 	await expect(timeline).toContainText("未启动编辑后的用户消息", { timeout: 30_000 });
 	await expect(timeline.getByText("未启动会话锚点")).toHaveCount(0, { timeout: 10_000 });
