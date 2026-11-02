@@ -137,6 +137,9 @@ resources/file-index/bin/*
 # Go session-store sidecar 二进制（npm run build:session-store 产物，同上）
 resources/session-store/bin/*
 !resources/session-store/bin/.gitkeep
+# Go remote-sftp executor（npm run build:remote-sftp 产物，按平台构建，不入库）
+resources/remote-sftp/bin/*
+!resources/remote-sftp/bin/.gitkeep
 *.log
 # 官网「宿主插件开发指南」页：由 .vitepress/sharedGuideDocs.ts 从 docs/host-plugin-dev-guide.md 生成（构建产物，勿手改）
 docs-site/guide/host-plugins.md

@@ -1,7 +1,7 @@
 # 远程文件管理与 SFTP 接入调研
 
-> 状态：调研与实施建议，未接入生产。2026-10-31。
-> 代码核对基线：`f870d5574`；并行任务的未提交改动不作为本报告的已验收结果。
+> 状态：SFTP-0 原生执行器原型已落地，**尚未接生产 IPC/UI**。2026-11-02。
+> 代码核对基线：`dev` 的 `4db671223` + 本分支 SFTP-0 改动；真实 SSH/Electron 验收尚未完成。
 > 本轮用户重新提出采用 SFTP，因此此前“本期暂不上 SFTP”不再作为后续方案的前提。
 
 ## 1. 结论
@@ -13,6 +13,29 @@
 这次不需要新建 PiDeck 常驻 server。SFTP 需要远端 SSH 服务提供 SFTP subsystem，常见实现为 `sftp-server` 或 `internal-sftp`，仍须探测是否启用。多端独立接入、桌面退出后后台继续运行的 server 决策保持独立。
 
 已核实代码和公开文档；尚未测量真实服务器的吞吐、内存、兼容性。不能承诺换协议必然更快。
+
+## 1.1 SFTP-0 原型：已落地的边界
+
+客户端选型冻结为**系统 OpenSSH + 一次性 Go 执行器**：Go 使用 `github.com/pkg/sftp v1.13.12`，经 `sftp.NewClientPipe` 消费 `ssh -T -s -- <host> sftp` 的 stdin/stdout。没有引入 Node `ssh2` 的第二套认证、跳板机和 host-key 验证链路，也没有新建常驻 server。
+
+已实现：
+
+- `SshCommandBuilder` 新增 `ssh-sftp`，保留现有 host pin、严格 host key、ProxyJump、identity/askpass、超时和连接选项；`SshVerifiedConnection` 的 `ssh -G` 复核会去掉仅传输用的 `-T -s` 与 subsystem 参数。
+- `native/remote-sftp` 是每任务一进程的执行器：严格解析有界 JSON 请求，支持 `probe/list/download/upload`，输出 NDJSON progress/result，固定错误码，不把原始远端错误带给 renderer。
+- 下载写同目录临时文件并流式复制，最终用不覆盖的 hard link 发布；上传从本地文件流式读取，远端临时文件使用 `O_EXCL`，标准 rename 后返回结果。
+- `RemoteSftpAdapter` 在宿主持有请求/响应校验、进度、超时、取消和子进程清理；取消或超时会终止该任务的执行器，不复用 SFTP 会话或可变 cwd。
+- 构建/打包链已接 `build:remote-sftp`、`extraResources`、dev 自动构建及 Windows/Linux/macOS workflow 的 Go 测试和 `REMOTE_SFTP_OS/ARCH`。
+
+证据：Go 单测与 `go vet` 通过；Windows 原生与 Linux/amd64 交叉构建产物分别为 4.4 MiB / 4.2 MiB；SFTP/SSH 定向 TS 用例 15/15 与 `sshVerifiedConnection` 16/16；`typecheck` 通过；更新后的 Linux 远端/SSH 硬门禁 24 文件退出码 0。
+
+尚未通过、因此不能宣称可投入生产：
+
+- **没有真实远端 subsystem 证据。** 当前只证明编译、协议校验、模拟客户端和宿主生命周期；尚未连接授权主机完成真实目录/传输/断网/取消验收。
+- **上传提交语义未冻结。** 标准 SFTP rename 没有可移植的 no-clobber/原子保证；结果明确返回 `atomicRename: false`。rename 回包丢失时返回 `SFTP_REMOTE_COMMIT_UNKNOWN` 且不自动重放；写入口在 SFTP-1 用版本化 helper 提交或等价方案证明前保持未接线。
+- **目录仍是整目录 materialize 后截断。** `ReadDir` 只限制输出，不限制服务端返回内存；SFTP-2 必须换有界目录读取。
+- **路径检查不是 fd 锚定。** root realpath、父链 symlink 拒绝和写前后文件属性检查仍存在路径替换竞态，不能替代 helper 的 `/proc/self/fd` 锚定。
+- **取消的进程树语义仍待真机证明。** POSIX 下执行器位于独立进程组并捕获终止信号，通过 `CommandContext` 结束 ssh；Windows 用 `taskkill /T /F` 清树并回退单进程 kill。实现已覆盖，但真实 Windows ssh/ProxyJump/超时取消仍须纳入验收。
+- 真实吞吐、峰值内存、SFTP 扩展差异和大目录行为尚未测量；IPC、capability、renderer 与真实项目服务接线均未开始。
 
 ## 2. 当前实际使用的方式
 
@@ -26,7 +49,7 @@
 | 监听、搜索、Git                  | helper 或既有专项命令                                                                    | 不是标准文件传输协议的替代对象                                        |
 | 部署 helper 等运行资源           | pinned `scp`                                                                             | OpenSSH 9.0 起 scp 默认使用 SFTP；代码按客户端版本区分路径引用方式    |
 
-因此，准确表述是：**产品文件管理尚未采用 SFTP；部署资源的 scp 链路可能已经使用 SFTP 协议。**
+因此，准确表述是：**产品文件管理尚未采用 SFTP；本轮只落地了未接线的 SFTP-0 执行器原型，部署资源的 scp 链路可能已经使用 SFTP 协议。**
 
 当前不是没有上传下载，也不是明文传输。主要改进点是传输实现、容量、内存与操作体验。base64 本身使字节表示约增加三分之一；这不是实际吞吐提升的测量值。
 
