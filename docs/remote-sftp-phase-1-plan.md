@@ -40,7 +40,7 @@ IPC 只增加 start / cancel / event 三条。`jobId` 由 main 随机生成且�
 - `uploadFiles(target, source): Promise<RemoteProjectUploadResult>`
 - `downloadFile(target): Promise<RemoteProjectDownloadResult>`
 
-`source` 只有 `picker` 或经拖放解析出的本机绝对路径数组；本地路径仍由 main 校验常规文件、大小和控制字符。renderer 的传输 client 先订阅 event、再 start，并按 `jobId + operation` 聚合终态，不把 IPC 对象泄漏给组件。main 与 event 契约已支持 progress/cancel；当前文件抽屉只消费最终 settlement，还没有进度条和取消按钮。
+`source` 只有 `picker` 或经拖放解析出的本机绝对路径数组；本地路径仍由 main 校验常规文件、大小和控制字符。renderer 的传输 client 先订阅 event、再 start，按 `jobId + operation` 过滤 progress/终态，并把取消映射到现有 cancel IPC；组件只接收受控回调与本地 UI id，不接触 IPC/jobId。文件抽屉现在消费 progress/cancel，项目代变化或卸载时会 abort 在途任务并丢弃迟到结果。
 
 ## 3. 上传提交协议
 
@@ -114,7 +114,7 @@ SFTP subsystem 不能由 helper capability 推断，首次传输必须独立 pro
 4. **helper 事务**：已完成 prepare/commit/abort、能力门禁、no-clobber/unknown/cleanup；Linux WSL 上传切片通过。
 5. **公共 contract / IPC / preload**：已完成 start/cancel/event 三通道，`check:ipc-wiring` 通过。
 6. **ProjectFileService**：已完成 local 显式 unsupported、remote jobful API 接线。
-7. **UI 接线**：已替换文件抽屉旧 private transfer 调用并保留部分失败反馈；进度与取消控件尚未接线。
+7. **UI 接线**：已完成。文件抽屉以单个 job 聚合多选上传字节，展示上传/下载进度、取消与终态；unknown 明确提示“结果未知、先核对、不要直接重试”，能力门禁为 write+upload / read+download。
 8. **删除旧直连**：待真机与 Electron 验收通过后删除 private upload/download 通道，避免两套写路径长期并存。
 
 公共汇聚文件 `src/shared/ipc.ts`、`preload/index.ts`、`ProjectFileService` 契约、i18n 与 package/build 文件同一时刻只允许一个 writer。
@@ -149,12 +149,16 @@ SFTP subsystem 不能由 helper capability 推断，首次传输必须独立 pro
 ## 10. 本轮离线验证（2026-11-02）
 
 - `npm run typecheck`、`npm run check:ipc-wiring`（811 通道 / 8 agentEventTags）、
-  `npm run check:test-shape`（sourceOnly 395 / 1880，新增 0）与 `npm run check:format`
-  （4372 文件）均通过。
+  `npm run check:test-shape`（sourceOnly 395 / 1882，新增 0）与 `npm run check:format`
+  （4376 文件）均通过。
 - 统一接口快照与远端 E2E 定向套件 33/33 通过；传输 client、registry、job IPC、
   capability probe/cache、upload job 与 Go executor 的定向回归均通过。
+- 进度/取消 UI 接线新增纯状态机、hook 生命周期与静态渲染测试；覆盖进度单调/截断、
+  错误 job/operation 丢弃、并行任务只取消当前 id、unknown 不冒充成功、项目换代/卸载后迟到结果隔离。
+- 进度/取消相关定向回归 122/122 通过；观察者只收到
+  `{ operation, transferred, total }` 投影，不接触不透明 `jobId`。
 - `go test ./...`、`go vet ./...`、`npm run build:remote-sftp`（Windows amd64）通过。
-- 全量 `npm test`：15,923 tests / 15,634 pass / 2 fail / 287 skip，退出码 1。
+- 全量 `npm test`：15,940 tests / 15,651 pass / 2 fail / 287 skip，退出码 1。
   两个失败均不在本分支改动面：`scrollContainerGuard.test.mjs` 命中的
   `AgentIconPicker.tsx`，以及 `sessionRefreshSafety.test.mjs` 读取的 `App.tsx` /
   `useProjectSync.ts`，相对 HEAD 与 `origin/dev` 均无差异。

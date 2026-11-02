@@ -104,7 +104,7 @@ function transferHarness(results) {
 	const queue = [...results];
 	const services = {
 		projectId: "p1",
-		capabilities: { files: { upload: true, download: true } },
+		capabilities: { files: { read: true, write: true, upload: true, download: true } },
 		files: {
 			uploadFiles: async (target, source) => {
 				if (source.kind === "picker") calls.push({ kind: "dialog", target });

@@ -1,25 +1,51 @@
-import { useCallback, useState, type DragEvent } from "react";
-import type { RemoteProjectUploadResult } from "../../../shared/types/remoteHost";
+import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
+import type { RemoteProjectDownloadResult, RemoteProjectUploadResult } from "../../../shared/types/remoteHost";
+import type { RemoteTransferOperation } from "../../../shared/types/remoteTransfers";
 import { desktopApi } from "../desktopApi";
 import { t } from "../i18n";
-import type { ProjectServices } from "../services/projectServiceContracts";
+import type { ProjectFileTransferOptions, ProjectServices } from "../services/projectServiceContracts";
 import { normalizeProjectServiceError } from "../services/projectServiceFence";
-import { readRemoteUploadNotice, remoteUploadFailureCopy } from "../utils/remoteCapabilityLimits";
+import { remoteUploadFailureCopy } from "../utils/remoteCapabilityLimits";
 import { REMOTE_ENTRY_DRAG_TYPE } from "../utils/remoteEntryDrag";
+import { addRemoteTransferUiItem, createRemoteTransferUiItem, dismissRemoteTransferUi, remoteTransferCancelling, remoteTransferProgress, remoteTransferStarted, settleRemoteTransferUi, type RemoteTransferTerminalPhase, type RemoteTransferUiItem } from "../utils/remoteProjectTransferState";
+
+const TRANSFER_CANCELLED = "REMOTE_TRANSFER_CANCELLED";
+
+type TransferControl = { id: number; scope: string; options: ProjectFileTransferOptions };
 
 /**
  * 远端项目面板的「本机 ↔ 远端」传输关注点（上传按钮 / 拖放上传 / 单条下载）。
  *
- * 抽出来的理由：`RemoteProjectPanel` 同时管导航、搜索、写操作弹框、回收站与传输，已经越过
- * 「单文件 ≤400 行」的目标。传输与它们没有耦合——只依赖「当前目录 + 刷新目录 + 报错」三样，
- * 所以整块搬出来，面板只保留接线。
- *
- * 失败提示的**顺序**在这里是刻意的：所有成功路径都先 `reload()`（它会清掉错误位）再写反馈，
- * 否则「传 10 个失败 9 个」的提示会被刷新抹掉，用户只能看到列表跳一下。
+ * 服务实例仍隐藏 jobId/IPC；panel 只拿到本地 UI id、进度与一个 cancel(id) 动作。
+ * 每个传输捕获创建时的 project generation，换代或卸载后迟到回调不能再改新面板。
  */
 export function useRemoteProjectTransfer(input: { services: ProjectServices; directory: string; reload: () => Promise<void>; setError: (message: string | null) => void; searching: boolean }) {
 	const { services, directory, reload, setError, searching } = input;
 	const [dragActive, setDragActive] = useState(false);
+	const [transfers, setTransfers] = useState<RemoteTransferUiItem[]>([]);
+	const nextIdRef = useRef(0);
+	const controllersRef = useRef(new Map<number, { controller: AbortController; scope: string }>());
+	const aliveRef = useRef(true);
+	const scopeKey = `${services.projectId}:${services.generation}`;
+	const scopeRef = useRef(scopeKey);
+	scopeRef.current = scopeKey;
+
+	useEffect(() => {
+		aliveRef.current = true;
+		return () => {
+			aliveRef.current = false;
+			for (const active of controllersRef.current.values()) active.controller.abort();
+			controllersRef.current.clear();
+		};
+	}, []);
+
+	useEffect(() => {
+		setTransfers([]);
+		return () => {
+			for (const active of controllersRef.current.values()) active.controller.abort();
+			controllersRef.current.clear();
+		};
+	}, [scopeKey]);
 
 	/** 上传失败码 → 人话（未知码原样展示，绝不吞掉）。 */
 	const failureText = useCallback((code: string): string => {
@@ -27,46 +53,139 @@ export function useRemoteProjectTransfer(input: { services: ProjectServices; dir
 		return copy.withCode ? t(copy.key, { code }) : t(copy.key);
 	}, []);
 
-	const finish = useCallback(
-		async (result: RemoteProjectUploadResult) => {
-			// 失败码与部分失败由纯函数分类：任何失败都不会落进 success 分支。
-			const notice = readRemoteUploadNotice(result);
-			if (notice.kind === "error") {
-				setError(failureText(notice.code));
-				return;
-			}
-			// 取消是用户的动作（现在是成功载荷的一个分支），不报错、也不当作已完成。
-			if (notice.kind === "none") return;
-			await reload();
-			if (notice.kind === "partial") setError(t("project.remote.uploadPartial", { count: notice.failedCount, message: failureText(notice.code) }));
+	const updateUi = useCallback((id: number, scope: string, reduce: (items: RemoteTransferUiItem[]) => RemoteTransferUiItem[]): boolean => {
+		const active = controllersRef.current.get(id);
+		if (!aliveRef.current || scopeRef.current !== scope || active === undefined || active.scope !== scope) return false;
+		setTransfers(reduce);
+		return true;
+	}, []);
+
+	const isCurrentTransfer = useCallback((id: number, scope: string): boolean => {
+		const active = controllersRef.current.get(id);
+		return aliveRef.current && scopeRef.current === scope && active !== undefined && active.scope === scope;
+	}, []);
+
+	const settle = useCallback(
+		(id: number, scope: string, phase: RemoteTransferTerminalPhase, detail: { code?: string; failedCount?: number } = {}): boolean => {
+			return updateUi(id, scope, (items) => settleRemoteTransferUi(items, id, phase, detail));
 		},
-		[failureText, reload, setError],
+		[updateUi],
 	);
 
-	const uploadFiles = useCallback(() => {
-		if (!services.capabilities.files.upload) {
-			setError(failureText("PROJECT_SERVICE_UNSUPPORTED"));
-			return;
-		}
-		void (async () => {
-			try {
-				await finish(await services.files.uploadFiles({ projectId: services.projectId, relativePath: directory }, { kind: "picker" }));
-			} catch (error) {
-				setError(failureText(normalizeProjectServiceError(error).code));
+	const finishUpload = useCallback(
+		async (result: RemoteProjectUploadResult, id: number, scope: string): Promise<void> => {
+			if (!result.ok) {
+				if (result.code === TRANSFER_CANCELLED) {
+					settle(id, scope, "cancelled", { code: result.code });
+					return;
+				}
+				if (!settle(id, scope, result.outcome === "unknown" ? "unknown" : "failed", { code: result.code })) return;
+				setError(result.outcome === "unknown" ? t("project.remote.transferUnknown", { code: result.code }) : failureText(result.code));
+				return;
 			}
-		})();
-	}, [finish, services, directory, failureText, setError]);
+
+			const value = result.value;
+			if (!("uploaded" in value)) {
+				settle(id, scope, "cancelled");
+				return;
+			}
+			const failedCount = value.failed.length;
+			if (!settle(id, scope, failedCount > 0 ? "partial" : "succeeded", failedCount > 0 ? { code: value.failed[0]?.code, failedCount } : {})) return;
+			try {
+				await reload();
+			} catch {
+				// Directory refresh has its own error surface; it must not rewrite a completed transfer.
+			}
+			if (!isCurrentTransfer(id, scope)) return;
+			if (failedCount > 0) setError(t("project.remote.uploadPartial", { count: failedCount, message: failureText(value.failed[0]?.code ?? "PROJECT_SERVICE_FAILED") }));
+		},
+		[failureText, isCurrentTransfer, reload, setError, settle],
+	);
+
+	const finishDownload = useCallback(
+		(result: RemoteProjectDownloadResult, id: number, scope: string): void => {
+			if (result.ok && result.value.canceled === true) {
+				settle(id, scope, "cancelled");
+				return;
+			}
+			if (!result.ok) {
+				if (result.code === TRANSFER_CANCELLED) {
+					settle(id, scope, "cancelled", { code: result.code });
+					return;
+				}
+				if (!settle(id, scope, result.outcome === "unknown" ? "unknown" : "failed", { code: result.code })) return;
+				setError(result.outcome === "unknown" ? t("project.remote.transferUnknown", { code: result.code }) : t("project.remote.downloadFailed", { code: result.code }));
+				return;
+			}
+			if (!settle(id, scope, "succeeded")) return;
+			setError(null);
+		},
+		[setError, settle],
+	);
+
+	const settleThrown = useCallback(
+		(error: unknown, operation: RemoteTransferOperation, id: number, scope: string): void => {
+			const normalized = normalizeProjectServiceError(error);
+			if (normalized.code === TRANSFER_CANCELLED) {
+				settle(id, scope, "cancelled", { code: normalized.code });
+				return;
+			}
+			if (!settle(id, scope, normalized.outcome === "unknown" ? "unknown" : "failed", { code: normalized.code })) return;
+			setError(normalized.outcome === "unknown" ? t("project.remote.transferUnknown", { code: normalized.code }) : operation === "upload" ? failureText(normalized.code) : t("project.remote.downloadFailed", { code: normalized.code }));
+		},
+		[failureText, setError, settle],
+	);
+
+	const beginTransfer = useCallback(
+		(operation: RemoteTransferOperation, run: (control: TransferControl) => Promise<void>): void => {
+			const id = nextIdRef.current++;
+			const scope = scopeRef.current;
+			const controller = new AbortController();
+			controllersRef.current.set(id, { controller, scope });
+			setTransfers((items) => addRemoteTransferUiItem(items, createRemoteTransferUiItem(id, operation)));
+			const options: ProjectFileTransferOptions = {
+				signal: controller.signal,
+				onStarted: (event) => updateUi(id, scope, (items) => remoteTransferStarted(items, id, event.total)),
+				onProgress: (event) => updateUi(id, scope, (items) => remoteTransferProgress(items, id, event.operation, event.transferred, event.total)),
+			};
+			void run({ id, scope, options })
+				.catch(() => {})
+				.finally(() => {
+					const active = controllersRef.current.get(id);
+					if (active?.controller === controller) controllersRef.current.delete(id);
+				});
+		},
+		[updateUi],
+	);
+
+	const startUpload = useCallback(
+		(source: { kind: "picker" } | { kind: "paths"; paths: readonly string[] }) => {
+			if (!services.capabilities.files.write || !services.capabilities.files.upload) {
+				setError(failureText("PROJECT_SERVICE_UNSUPPORTED"));
+				return;
+			}
+			beginTransfer("upload", async ({ id, scope, options }) => {
+				let result: RemoteProjectUploadResult;
+				try {
+					result = await services.files.uploadFiles({ projectId: services.projectId, relativePath: directory }, source, options);
+				} catch (error) {
+					settleThrown(error, "upload", id, scope);
+					return;
+				}
+				await finishUpload(result, id, scope);
+			});
+		},
+		[beginTransfer, directory, failureText, finishUpload, services, setError, settleThrown],
+	);
+
+	const uploadFiles = useCallback(() => startUpload({ kind: "picker" }), [startUpload]);
 
 	/**
-	 * 拖放上传：把拖进来的本机文件传到**当前目录**。
-	 *
-	 * Electron 32+ 的 File 没有 `path`，必须经 `webUtils.getPathForFile`（preload 暴露）解析；
-	 * 解析不出来的项跳过——但如果**一个都没有**就不能当成「成功传了 0 个」，要明确告诉用户。
-	 * 路径校验与大小门都在主进程（`parseLocalUploadPaths` + `uploadMany`）。
+	 * 拖放上传：Electron 32+ 的 File 没有 path，必须经 webUtils；路径与大小门仍在 main。
+	 * 一个都解析不出来时明确报错，不能当成“成功传了 0 个”。
 	 */
 	const dropFiles = useCallback(
 		(files: FileList | null) => {
-			// 搜索态下列表不显示目录内容，传输反馈也会被搜索状态盖掉：宁可不接受。
 			if (searching) {
 				setError(t("project.remote.dropSearching"));
 				return;
@@ -75,7 +194,7 @@ export function useRemoteProjectTransfer(input: { services: ProjectServices; dir
 				setError(t("project.remote.dropUnsupported"));
 				return;
 			}
-			if (!services.capabilities.files.upload) {
+			if (!services.capabilities.files.write || !services.capabilities.files.upload) {
 				setError(failureText("PROJECT_SERVICE_UNSUPPORTED"));
 				return;
 			}
@@ -88,47 +207,45 @@ export function useRemoteProjectTransfer(input: { services: ProjectServices; dir
 				setError(t("project.remote.dropUnsupported"));
 				return;
 			}
-			void (async () => {
-				try {
-					await finish(await services.files.uploadFiles({ projectId: services.projectId, relativePath: directory }, { kind: "paths", paths }));
-				} catch (error) {
-					setError(failureText(normalizeProjectServiceError(error).code));
-				}
-			})();
+			startUpload({ kind: "paths", paths });
 		},
-		[directory, failureText, finish, searching, services, setError],
+		[failureText, searching, services.capabilities.files.upload, services.capabilities.files.write, setError, startUpload],
 	);
 
-	/** 下载到本机：保存对话框与写盘都在主进程，这里只报失败（取消不是失败）。 */
 	const downloadFile = useCallback(
 		(relativePath: string) => {
-			if (!services.capabilities.files.download) {
+			if (!services.capabilities.files.read || !services.capabilities.files.download) {
 				setError(t("project.remote.downloadFailed", { code: "PROJECT_SERVICE_UNSUPPORTED" }));
 				return;
 			}
-			void (async () => {
+			beginTransfer("download", async ({ id, scope, options }) => {
+				let result: RemoteProjectDownloadResult;
 				try {
-					const result = await services.files.downloadFile({ projectId: services.projectId, relativePath });
-					if (!result.ok) {
-						setError(t("project.remote.downloadFailed", { code: result.code }));
-						return;
-					}
-					// 取消不是失败：用户自己关掉了保存对话框。
-					if (result.value.canceled === true) return;
-					setError(null);
+					result = await services.files.downloadFile({ projectId: services.projectId, relativePath }, options);
 				} catch (error) {
-					setError(t("project.remote.downloadFailed", { code: normalizeProjectServiceError(error).code }));
+					settleThrown(error, "download", id, scope);
+					return;
 				}
-			})();
+				finishDownload(result, id, scope);
+			});
 		},
-		[services, setError],
+		[beginTransfer, finishDownload, services, setError, settleThrown],
 	);
+
+	const cancelTransfer = useCallback((id: number): void => {
+		const active = controllersRef.current.get(id);
+		if (active === undefined || active.controller.signal.aborted) return;
+		setTransfers((items) => remoteTransferCancelling(items, id));
+		active.controller.abort();
+	}, []);
+
+	const dismissTransfer = useCallback((id: number): void => {
+		setTransfers((items) => dismissRemoteTransferUi(items, id));
+	}, []);
 
 	/** 只在真正离开面板时收起高亮：子元素之间移动也会触发 dragleave。 */
 	const onDragOver = useCallback((event: DragEvent<HTMLElement>) => {
-		// 不 preventDefault 就不会触发 drop（浏览器默认拒绝接收）。
 		if (!event.dataTransfer.types.includes("Files")) return;
-		// 内部拖动（条目→目录）也带 Files? 不带；但为稳妥起见只认真的文件拖入。
 		if (event.dataTransfer.types.includes(REMOTE_ENTRY_DRAG_TYPE)) return;
 		event.preventDefault();
 		setDragActive(true);
@@ -148,5 +265,5 @@ export function useRemoteProjectTransfer(input: { services: ProjectServices; dir
 		[dropFiles],
 	);
 
-	return { dragActive, uploadFiles, dropFiles, downloadFile, onDragOver, onDragLeave, onDrop };
+	return { dragActive, transfers, uploadFiles, dropFiles, downloadFile, cancelTransfer, dismissTransfer, onDragOver, onDragLeave, onDrop };
 }

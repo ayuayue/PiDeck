@@ -7,6 +7,7 @@ import {
 	type ProjectFileSearchResult,
 	type ProjectFileService,
 	type ProjectFileTarget,
+	type ProjectFileTransferOptions,
 	type ProjectFileUploadSource,
 	type ProjectServiceFence,
 	type ProjectServicePathState,
@@ -235,13 +236,13 @@ export function createRemoteProjectFileService(projectId: string, api: ProjectSe
 			const deleted = unwrapOp(await api.remoteHosts.deleteProjectEntry(projectId, target.relativePath, version), PROJECT_SERVICE_CODES.failed);
 			return { target, trashId: deleted.trashId };
 		},
-		async uploadFiles(target, source: ProjectFileUploadSource) {
+		async uploadFiles(target, source: ProjectFileUploadSource, options?: ProjectFileTransferOptions) {
 			assertProjectTarget(projectId, target);
-			return uploadThroughRemoteTransfer(api, projectId, target, source);
+			return uploadThroughRemoteTransfer(api, projectId, target, source, options);
 		},
-		async downloadFile(target) {
+		async downloadFile(target, options?: ProjectFileTransferOptions) {
 			assertProjectTarget(projectId, target);
-			return downloadThroughRemoteTransfer(api, projectId, target);
+			return downloadThroughRemoteTransfer(api, projectId, target, options);
 		},
 		async openInEditor() {
 			throw unsupported(UNSUPPORTED_DETAIL.fileSystemOpen);

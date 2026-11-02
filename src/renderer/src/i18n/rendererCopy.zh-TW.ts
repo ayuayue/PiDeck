@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 06f19eb9c21d58f8edc143404ca5d2563aa7539af1788d0b9ee354ef975a6c64（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: fa05382935d2cc5ba012fce4658f111ad99e9ae140d83958df601677a1a6c7a7（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -4573,6 +4573,21 @@ export const zhTW: Record<TranslationKey, string> = {
 	"project.remote.uploadNotAFile": "只支援上傳檔案：目錄請在裡面選檔案，或先打包。",
 	"project.remote.uploadTooLarge": "檔案超過 8 GiB 上限，暫不支援。",
 	"project.remote.uploadLimitHint": "上傳限制：單個檔案 ≤ 8 GiB，單批最多 32 個檔案；不支援資料夾上傳，請先打包目錄。",
+	"project.remote.transferUpload": "上傳",
+	"project.remote.transferDownload": "下載",
+	"project.remote.transferPreparing": "正在準備傳輸…",
+	"project.remote.transferProgress": "{transferred} / {total}",
+	"project.remote.transferTransferred": "已傳輸 {transferred}",
+	"project.remote.transferCancelling": "正在取消，等待任務結束…",
+	"project.remote.transferSucceeded": "傳輸完成",
+	"project.remote.transferPartial": "{count} 個檔案失敗；其餘已完成",
+	"project.remote.transferCancelled": "已取消",
+	"project.remote.transferUnknown": "結果未知：{code}。請核對目標檔案，不要直接重試。",
+	"project.remote.transferFailed": "傳輸失敗：{code}",
+	"project.remote.transferCancellingAction": "取消中…",
+	"project.remote.transferCancel": "取消",
+	"project.remote.transferDismiss": "關閉傳輸結果",
+	"project.remote.transferProgressAria": "{operation}進度",
 	"project.remote.uploadExists": "遠端已有同名檔案，未覆蓋（請先重新命名或刪除）。",
 	"project.remote.dropSearching": "搜尋狀態下不接受拖放：先清空搜尋再拖檔案。",
 	"project.remote.dropUnsupported": "拖進來的內容不是本機檔案，無法上傳（請從資源管理器拖檔案進來）。",
