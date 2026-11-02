@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { PI_PACKAGE_NAME, resolvePiAuthHostPath, resolvePiAuthHostLaunch, resolvePiSdkEntry } = loadTsCommonJs("src/main/pi/auth/piAuthHostLaunch.ts");
+const { PI_PACKAGE_NAME, resolvePiAuthHostPath, resolvePiAuthHostLaunch, resolvePiSdkEntry, resolveMiseShimSdkEntry } = loadTsCommonJs("src/main/pi/auth/piAuthHostLaunch.ts");
 const { buildPiProxyEnvPatch } = loadTsCommonJs("src/main/sessions/sessionProxyPolicy.ts");
 
 /** 造一个 pi 包目录；`withDist: false` 用来模拟「包在但入口缺失」的半损坏安装。 */
@@ -186,6 +186,62 @@ test("resolvePiAuthHostLaunch: 目录形态像 managed 但没有合法标记/包
 		assert.equal(launch.ok, false);
 		assert.equal(launch.reason, "no-pi-entry");
 	});
+});
+
+/** 造一个 mise 布局：`<data>/shims/pi[.exe]` + `<data>/installs/node/<ver>/node_modules/...`。 */
+function writeMiseLayout(dataDir, versions) {
+	mkdirSync(join(dataDir, "shims"), { recursive: true });
+	const shim = join(dataDir, "shims", process.platform === "win32" ? "pi.exe" : "pi");
+	// 真实垫片是编译产物：这里只需要「文件存在且不是 JS」这一个形态特征。
+	writeFileSync(shim, "");
+	for (const version of versions) writePiPackage(join(dataDir, "installs", "node", version, "node_modules", "@earendil-works", "pi-coding-agent"));
+	return shim;
+}
+
+/** MISE_INSTALL_PATH 会覆盖 installs 根：用例期间清掉并在结束后还原，避免开发机环境串味。 */
+function withoutMiseInstallPath(run) {
+	const saved = process.env.MISE_INSTALL_PATH;
+	delete process.env.MISE_INSTALL_PATH;
+	try {
+		return run();
+	} finally {
+		if (saved !== undefined) process.env.MISE_INSTALL_PATH = saved;
+	}
+}
+
+test("resolveMiseShimSdkEntry 识别 mise 垫片，去 installs/node/<ver> 取包（多版本取最高）", () => {
+	withTempDir((dir) =>
+		withoutMiseInstallPath(() => {
+			const dataDir = join(dir, "mise");
+			const shim = writeMiseLayout(dataDir, ["22.0.0", "24.13.0", "lts"]);
+			const expected = join(dataDir, "installs", "node", "24.13.0", "node_modules", "@earendil-works", "pi-coding-agent", "dist", "index.js");
+			assert.equal(resolveMiseShimSdkEntry(shim), expected);
+			// 别名目录（lts）不参与数值比较；非垫片路径交回 resolvePiSdkEntry，不在这里猜。
+			assert.equal(resolveMiseShimSdkEntry(join(dataDir, "installs", "node", "24.13.0", "pi.cmd")), undefined);
+		}),
+	);
+});
+
+test("resolvePiAuthHostLaunch: mise 垫片不再报 no-pi-entry，改用真实包的 SDK 入口", () => {
+	withTempDir((dir) =>
+		withoutMiseInstallPath(() => {
+			const appPath = writeAppDir(dir);
+			const dataDir = join(dir, "mise");
+			const shim = writeMiseLayout(dataDir, ["24.13.0"]);
+			const launch = resolvePiAuthHostLaunch({
+				settings: BASE_SETTINGS,
+				locator: fakeLocator({ command: shim, windowsLaunch: { channel: "cmd-shim", reason: "unrecognized" } }),
+				userDataPath: join(dir, "userData"),
+				appPath,
+				resourcesPath: join(dir, "unused"),
+				isPackaged: false,
+			});
+			// 修复前：垫片还原与向上找包根都失败 → no-pi-entry → 输入预测/提示词增强/登录全部不可用。
+			assert.equal(launch.ok, true);
+			assert.equal(launch.sdkEntry, join(dataDir, "installs", "node", "24.13.0", "node_modules", "@earendil-works", "pi-coding-agent", "dist", "index.js"));
+			assert.equal(launch.env.PIDECK_PI_SDK_ENTRY, launch.sdkEntry);
+		}),
+	);
 });
 
 test("resolvePiAuthHostLaunch: node-direct 通道直接用垫片还原出的入口与同一 node", () => {
