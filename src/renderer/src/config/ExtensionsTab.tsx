@@ -334,9 +334,9 @@ export function ExtensionsTab(props: {
 					<div className="config-section">
 						{/* 标题走共享 SectionHeading：与系统设置各页同一套字重/字号，不再靠 legacy 类名锚定 */}
 						<SectionHeading className="mb-2" title={t("config.installedExtensions")} />
-						<div className="mb-3 mt-2 flex flex-wrap items-center justify-between gap-3">
-							<div className="flex min-w-0 flex-1 flex-col gap-1">
-								<div className="flex min-w-0 items-center gap-2">
+						<div className="mb-3 mt-2 flex flex-col gap-1">
+							<div className="flex flex-wrap items-center justify-between gap-3">
+								<div className="flex min-w-0 flex-1 items-center gap-2">
 									{/* 搜索框：写法对齐 DshPluginSection / ProxyTab 的「左图标 + Input」组合 */}
 									<div className="relative min-w-0 flex-1 basis-52">
 										<Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/70" aria-hidden="true" />
@@ -345,7 +345,6 @@ export function ExtensionsTab(props: {
 									{/* 有查询词时显示「匹配数 / 总数」，否则维持原有总数计数 */}
 									<span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{extensionQuery.trim().length > 0 ? t("config.extensionListResultCount", { matched: filteredExtensions.length, count: visibleExtensions.length }) : t("config.count.extensions", { count: visibleExtensions.length })}</span>
 								</div>
-								<small className="block text-caption text-text-tertiary">{t("config.extensionRestartHint")}</small>
 							</div>
 							{/* 窄窗口下按钮换行而不是被裁掉：shrink-0 保证按钮不被压缩，
 				    flex-wrap + justify-end 让溢出部分落到第二行右对齐 */}
@@ -362,6 +361,7 @@ export function ExtensionsTab(props: {
 									{t("common.refresh")}
 								</Button>
 							</div>
+							<small className="block text-caption text-text-tertiary">{t("config.extensionRestartHint")}</small>
 						</div>
 						{/* 内置扩展版本 + 热更新：包级版本号（不跟应用版本走），检测走 AtomGit 清单。
 				    只放全局作用域——内置扩展是全局资源，项目视图里给「更新」入口会误导。 */}
