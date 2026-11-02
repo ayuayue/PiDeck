@@ -7076,6 +7076,8 @@ export const enUS: Record<TranslationKey, string> = {
 	"web.themeDark": "Dark",
 	"web.themeSystem": "System",
 	"web.themeToggle": "Toggle theme",
+	"web.themeSwitchToDark": "Switch to dark",
+	"web.themeSwitchToLight": "Switch to light",
 	"web.globalMenu": "Global menu",
 	"web.installApp": "Install app",
 	"web.streamRecovered": "Network recovered — messages synced from history",

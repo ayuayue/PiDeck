@@ -88,6 +88,8 @@ export function WebHeader(props: {
 	themePreference?: WebThemePreference;
 	resolvedTheme?: ResolvedWebTheme;
 	onCycleTheme?: () => void;
+	/** 一键明暗翻转（头部可见按钮）；与三态循环分开：一次点击必须看到变化。 */
+	onToggleTheme?: () => void;
 	canInstall?: boolean;
 	onInstall?: () => void;
 	onOpenAssets?: () => void;
@@ -101,6 +103,8 @@ export function WebHeader(props: {
 	const knownPreset = DSH_PERMISSION_PRESETS.find((item) => item.id === permissionPreset);
 	const PermissionIcon = permissionStrengthIcon(knownPreset?.strength ?? "unknown");
 	const permissionLabel = permissionPreset ? (knownPreset ? t(knownPreset.labelKey) : t("dshPermission.custom")) : t("dshPermission.unknown");
+	// 一键明暗按钮：图标=当前实际状态（亮 Sun / 暗 Moon），文案=点击后的目标态。
+	const themeToggleLabel = t(props.resolvedTheme === "dark" ? "web.themeSwitchToLight" : "web.themeSwitchToDark");
 	// 2026-10 评审：会话动作与全局入口原是两个相邻溢出菜单（横…/竖⋮），触屏没有 tooltip，
 	// 「重命名在哪个菜单里」全靠背。合并为一个 ⋮ 菜单，内部用标签分「会话/应用」两组。
 	const hasSessionMenuActions = Boolean(actions && (actions.onRename || actions.onRestart || actions.onCompact || actions.onClone || actions.onCopyMarkdown || actions.onExportHtml || actions.onDuplicate || actions.onDelete || actions.onRefreshMessages));
@@ -168,6 +172,13 @@ export function WebHeader(props: {
 							{actions?.onOpenWorkspace ? (
 								<Button type="button" variant="ghost" size="icon" className="size-8 shrink-0 text-muted-foreground hover:bg-muted/60 hover:text-foreground pointer-coarse:size-9" onClick={actions.onOpenWorkspace} aria-label={t("web.workspaceDrawer")} title={t("web.workspaceDrawer")}>
 									<PanelRight className="size-4" aria-hidden="true" />
+								</Button>
+							) : null}
+							{/* 一键明暗：桌面端在底栏 dock，Web 原来只有 ⋮ 菜单里的三态循环，触屏用户基本找不到。
+							    图标反映当前实际状态（同 VitePress），点击直接翻转；「跟随系统」仍留在 ⋮ 菜单。 */}
+							{props.onToggleTheme ? (
+								<Button type="button" variant="ghost" size="icon" className="size-8 shrink-0 text-muted-foreground hover:bg-muted/60 hover:text-foreground pointer-coarse:size-9" onClick={props.onToggleTheme} aria-label={themeToggleLabel} title={themeToggleLabel}>
+									{props.resolvedTheme === "dark" ? <Moon className="size-4" aria-hidden="true" /> : <Sun className="size-4" aria-hidden="true" />}
 								</Button>
 							) : null}
 							{/* P1/P3 + 第二批合并：会话动作与全局入口共用一个溢出菜单，标签分组。
