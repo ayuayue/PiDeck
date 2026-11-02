@@ -177,6 +177,7 @@ export function AgentMemoryEntryList(props: {
 										<span className="min-w-0 truncate font-mono opacity-70" title={group.file}>
 											{group.file}
 										</span>
+										{group.overBudget ? <span className="shrink-0 rounded-sm bg-destructive/10 px-1.5 py-0.5 text-destructive">{t("settings.agentMemoryGroupOverBudget")}</span> : null}
 										<span className="ml-auto shrink-0 tabular-nums">
 											{group.budget
 												? t("settings.agentMemoryGroupBudget", { count: String(group.entries.length), chars: String(group.chars), maxChars: String(group.budget.maxChars), maxEntries: String(group.budget.maxEntries) })

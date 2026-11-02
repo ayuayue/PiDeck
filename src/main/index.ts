@@ -324,6 +324,7 @@ import { runLearnerPass } from "./agentMemory/agentMemoryLearner";
 import { resolveEnhanceTargetModel } from "../shared/enhanceModelPreference";
 import { syncAgentMemoryRegistration } from "./agentMemory/AgentMemoryMcpRegistration";
 import { clearAgentMemoryIndex, readAgentMemoryStatus } from "./agentMemory/agentMemoryStatus";
+import { migrateAgentMemoryProjectKeys } from "./agentMemory/agentMemoryMigration";
 import { deleteAgentMemoryEntry, readAgentMemoryEntries, readStandingEntry, restoreAgentMemoryEntry, writeStandingEntry } from "./agentMemory/agentMemoryEntries";
 import { renameDevice } from "../../resources/agent-memory/sync.mjs";
 import { exportAgentMemoryBundle, importAgentMemoryBundle, previewAgentMemoryBundle } from "./agentMemory/agentMemoryBundle";
@@ -3919,6 +3920,14 @@ function registerIpc() {
 	// 智能体记忆的设置页视图：状态/清空索引/导出/导入。记忆根目录与 MCP 服务器用的是同一个
 	// （userData/memory），所以这里算出来的体积与索引规模就是 Agent 侧看到的真实值。
 	const agentMemoryRoot = () => resolveAgentMemoryDir(app.getPath("userData"));
+	// 项目键算法换过一版（slug → slug + 路径哈希）：启动时把旧的 projects/<旧键>/ 改名到新键，
+	// 否则老用户的项目记忆会失联。幂等、尽力而为；不在 PiDeck 项目列表里的路径，
+	// 会在对应会话启动时由 MCP 服务器自己补迁。
+	const memoryMigration = migrateAgentMemoryProjectKeys(
+		agentMemoryRoot(),
+		projectStore.list().map((project) => ("locator" in project ? project.locator.remotePath : project.path)),
+	);
+	if (memoryMigration.skipped.length > 0) mcpWarning(`agent-memory: 项目记忆目录迁移跳过 ${memoryMigration.skipped.length} 个：${memoryMigration.skipped.join(", ")}`);
 	const unregisterAgentMemoryIpc = registerAgentMemoryIpc({
 		getWindow: () => mainWindow,
 		readStatus: () => readAgentMemoryStatus(agentMemoryRoot()),

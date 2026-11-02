@@ -214,13 +214,22 @@ function sanitizeFtsQuery(query) {
 
 /**
  * 在记忆条目里检索。
+ *
+ * `allProjects` = 不按 projectId 过滤（`scope=all` 的跨项目检索）：项目作用域与设备作用域都会被搜到，
+ * 每条命中自带 `projectId`，调用方据此判断属于哪个项目。
  * @returns {{ ok: true, hits: Array<{content: string, target: string, scope: string, projectId: string, score: number}> } | { ok: false, reason: string }}
  */
-export function searchEntries(root, query, { limit = 10, targets = ["memory", "user", "standing", "failure", "project"], projectId = "", deviceProjectId = "" } = {}) {
+export function searchEntries(root, query, { limit = 10, targets = ["memory", "user", "standing", "failure", "project"], projectId = "", deviceProjectId = "", allProjects = false } = {}) {
 	const handle = openDatabase(root);
 	if (!handle.db) return { ok: false, reason: "index-unavailable" };
 	const db = handle.db;
 	const targetFilter = targets.map((target) => (target === "project" ? "project" : target));
+	// 项目作用域过滤：全局行 `project_id=''`，项目行是项目键，设备行是 `device:<键>`。
+	// 必须与 target 过滤**并列**而不是并进同一个 OR——否则「命中的 target」会直接放行
+	// 别的项目的同 target 行（典型表现：搜别的项目的记忆也命中）。
+	const projectFilter = (alias) =>
+		allProjects ? "1 = 1" : `(${alias}project_id = '' OR (? <> '' AND ${alias}project_id = ?) OR (? <> '' AND ${alias}project_id = ?))`;
+	const projectArgs = allProjects ? [] : [projectId, projectId, deviceProjectId, deviceProjectId];
 	const hits = [];
 	const seen = new Set();
 	const push = (row, score) => {
@@ -242,10 +251,11 @@ export function searchEntries(root, query, { limit = 10, targets = ["memory", "u
 					`SELECT e.target, e.scope, e.project_id AS projectId, e.content, bm25(entries_fts) AS score
 					 FROM entries_fts JOIN entries e ON e.id = entries_fts.rowid
 					 WHERE entries_fts MATCH ?
-					   AND (e.target IN (${targetFilter.map(() => "?").join(",")}) OR (? <> '' AND e.project_id = ?) OR (? <> '' AND e.project_id = ?))
+					   AND (e.target IN (${targetFilter.map(() => "?").join(",")}))
+					   AND ${projectFilter("e.")}
 					 ORDER BY score ASC LIMIT ?`,
 				)
-				.all(ftsQuery, ...targetFilter, projectId, projectId, deviceProjectId, deviceProjectId, limit * 4);
+				.all(ftsQuery, ...targetFilter, ...projectArgs, limit * 4);
 			for (const row of rows) push(row, Number(row.score));
 		} catch {
 			// FTS 查询语法失败时静默退到 LIKE：检索不可用不等于工具报错。
@@ -258,10 +268,11 @@ export function searchEntries(root, query, { limit = 10, targets = ["memory", "u
 		const rows = db
 			.prepare(
 				`SELECT target, scope, project_id AS projectId, content FROM entries
-				 WHERE content LIKE ? ESCAPE '\\' AND (target IN (${targetFilter.map(() => "?").join(",")}) OR (? <> '' AND project_id = ?) OR (? <> '' AND project_id = ?))
+				 WHERE content LIKE ? ESCAPE '\\' AND (target IN (${targetFilter.map(() => "?").join(",")}))
+				   AND ${projectFilter("")}
 				 ORDER BY LENGTH(content) ASC LIMIT ?`,
 			)
-			.all(pattern, ...targetFilter, projectId, projectId, deviceProjectId, deviceProjectId, limit * 4);
+			.all(pattern, ...targetFilter, ...projectArgs, limit * 4);
 		for (const row of rows) push(row, 1);
 	} catch {
 		// 同上：检索降级不阻断写入与读取。

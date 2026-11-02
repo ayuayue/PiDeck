@@ -22,21 +22,21 @@
 
 ```
 <userData>/memory/
-├── MEMORY.md              # 全局事实（预算 8000 字符 / 120 条）
-├── USER.md                # 用户画像（4000 / 60）
-├── STANDING.md            # 常驻指令（4000 / 40，暂无写入工具）
-├── failures.md            # 教训，条目带 [category] 前缀（8000 / 120）
+├── MEMORY.md              # 全局事实（预算 32000 字符 / 400 条）
+├── USER.md                # 用户画像（32000 / 400）
+├── STANDING.md            # 你自己写的常驻备注（4000 / 40，不注入会话，只能手写）
+├── failures.md            # 教训，条目带 [category] 前缀（32000 / 400）
 ├── projects/<projectKey>/MEMORY.md + failures.md
 ├── devices/<deviceKey>/MEMORY.md   # 设备专属事实（盘符、本机路径），不导出
 ├── device.json            # 本机档案 {id, name}，首次使用时生成后固定
 ├── tombstones.json        # 删除记录，让「删掉的记忆」不会因导入旧包复活
-└── memory.db              # SQLite 镜像 + 会话索引（可随时删，自愈重建）
+└── agent-memory.db        # SQLite 镜像 + 会话索引（可随时删，自愈重建）
 ```
 
 - **条目格式**：条目之间用 `\n§\n` 分隔，纯文本，用户用任意编辑器都能改。解析宽容空行/CRLF。
-- **projectKey**：由会话 `cwd` 派生（`C--Users-me-proj` 形态），跨后端共享——同一个项目在 pi 和 ACP 里看到的是同一份项目记忆。
+- **projectKey**：由会话 `cwd` 派生，`<可读前缀 80 字符>-<路径哈希 8 位>`（如 `D-project-github-pi-desktop-1a2b3c4d`），跨后端共享——同一个项目在 pi / ACP / DSH 里看到的是同一份项目记忆。哈希后缀**始终存在**：可读前缀会把路径分隔符和字面 `-` 折成同一个字符，不哈希时 `D:/a/b` 与 `D:/a-b`、`D:/项目一/T6` 与 `D:/项目二/T6` 会并成同一个键（两个项目的记忆互相串）。旧版键（无哈希）由 `resources/agent-memory/migrate.mjs` 在启动时改名迁移，幂等；只对已知 cwd 生效。
 - **Markdown 是真值**：SQLite 只是可重建的镜像。任何写入先落 Markdown，再对账索引；索引坏了不影响读写与检索（退化为子串匹配）。
-- **预算**：超预算从**最老的**条目开始丢（文件按追加顺序排列）。单条上限 2000 字符。
+- **预算**：32KB / 400 条（STANDING 4000 / 40），超预算从**最老的**条目开始丢（文件按追加顺序排列）。单条上限 2000 字符。裁剪不是静默的：写入结果带 `trimmed.{count,oldest}`，`memory_status.usage[*].overBudget` 与设置页分组头都会标出来——外部导入超过预算时不至于「下次写一条就默默没了 90 条」。
 - **去重**：折叠空白后比对，同一句话重复写不会产生第二条。
 - **原子写**：同目录临时文件 + rename，不产生半截文件。
 
@@ -47,10 +47,10 @@
 | `memory_add` | 写一条事实 | `target` ∈ memory/user/project/failure/device；project 必须有 projectId；device 只落本机 |
 | `memory_replace` | 改一条（事实变了用它，别加第二条） | 定位必须唯一，歧义报 `entry-ambiguous` |
 | `memory_remove` | 删一条 | 同上 |
-| `memory_search` | 全文检索（全局+项目+教训） | target 过滤在 FTS 与 LIKE 两条通道都生效 |
+| `memory_search` | 全文检索（全局+当前项目+设备） | `scope:"all"` 连带搜本机其它项目（每条命中带 projectId）；target 过滤在 FTS 与 LIKE 两条通道都生效 |
 | `memory_get` | 按 target 列举（旧→新） | 分页 |
 | `session_search` | 跨后端检索历史会话 | 采集源为空时报 `session-sources-empty` |
-| `memory_status` | 预算用量（含设备作用域）+ 索引规模 | 用于诊断「记忆到底有没有在工作」 |
+| `memory_status` | 预算用量（含设备作用域、`overBudget` 标记）+ 项目作用域清单 + 索引规模 | 用于诊断「记忆到底有没有在工作」与「跨项目检索能搜到哪些项目」 |
 
 业务错误走 MCP `isError: true` + `{ok:false,error:{code,detail}}`，模型能据此自我纠正；协议错误才走 JSON-RPC error。单条请求失败不会杀掉服务器（客户端会判定服务器已死）。
 
@@ -69,7 +69,7 @@
 环境变量（`AGENT_MEMORY_ENV` + 实际值）是服务器唯一的配置入口：
 
 - `PIDECK_AGENT_MEMORY_DIR`：记忆根（缺省时服务器**拒绝启动**——默认值会写到某个进程的 cwd 里，那是更坏的失败模式）
-- `PIDECK_AGENT_MEMORY_PROJECT_CWD`：会话 cwd，用于推导项目键
+- `PIDECK_AGENT_MEMORY_CWD`：会话 cwd，用于推导项目键
 - `PIDECK_AGENT_MEMORY_SOURCES`：会话采集源 JSON `[{backend:"pi"|"acp"|"dsh",dir,project?}]`，服务器自己不猜路径
 
 ## 4.5 导出 / 导入：多设备共用
@@ -102,9 +102,9 @@
 独立的设置 tab（`AgentMemoryTab.tsx`，侧栏「基础」簇，terminal 之后），不再挤在「常用设置」里。分三块，正好对应三个问题：
 
 1. **开关**：启用 / 自动学习（主开关关着时学习项置灰）。
-2. **常驻指令**（`AgentMemoryStandingEditor.tsx`）：STANDING.md 的唯一写入口——它不是 Agent 工具的 target，语义是「用户显式同意、每条会话都注入」，模型改不了这里。保存立即生效（不等设置保存），超预算（4000 字）禁用保存。
+2. **常驻备注**（`AgentMemoryStandingEditor.tsx`）：STANDING.md 的唯一写入口——它不是 Agent 工具的 target，模型改不了这里。**它不会被注入进任何会话**：三后端都没有「宿主塞常驻上下文」的合规通道（pi 的 `--append-system-prompt` 算一条新通道、ACP v1 的 `session/new` 只有 cwd+mcpServers、DSH 明确拒绝 host instructions），所以它的语义只是「你自己留的备注文件，需要时让 Agent `memory_search` 查到或手动粘给它」。保存立即生效（不等设置保存），超预算（4000 字）禁用保存。
 3. **用量与索引**：状态行（各文件体积/条目数/索引规模/本机名字）+ 导出 / 导入 / 重命名设备 / 清空索引。自动学习开着时多一行「上次学习」（学过的会话数与最近时间，来自 learn-state.json 的水位）。清空索引只删 SQLite 里的行，记忆文件不动，下一次检索自动重建。
-4. **记忆条目**（`AgentMemoryEntryList.tsx`）：按「作用域 → 文件」逐条列出，可展开看全文、可按内容/项目名过滤、可删单条（删后可**撤销**：写回内容并回收墓碑）。分组头显示作用域（全局 / 项目名 / 本机设备）、条目数、字数与预算，答的是「为什么这条 DSH 会话看不到」——它可能落在项目或设备作用域里，只参与检索不参与每轮注入。
+4. **记忆条目**（`AgentMemoryEntryList.tsx`）：按「作用域 → 文件」逐条列出，可展开看全文、可按内容/项目名过滤、可删单条（删后可**撤销**：写回内容并回收墓碑）。分组头显示作用域（全局 / 项目名 / 本机设备）、条目数、字数与预算（三种作用域同一套限额，超出时另标「已超预算」）。
 
 **能删不能改**：改写一条记忆的语义（去重键、预算裁剪、墓碑）都在工具层，设置页再放一个编辑器等于把那套规则抄第二遍；想改内容就让 Agent `memory_replace`，想改措辞就删掉再说一遍。删除与列表共用同一套内容规范化（`normalizeKey`），所以列表给的 `key` 一定能删掉它自己那一行——这条由 `tests/agentMemoryEntryList.test.mjs` 守着。全局/项目作用域的删除会写墓碑（旧导出包不会复活它），设备作用域不写（那类条目本来就不参与导出导入）。
 
@@ -158,7 +158,7 @@ node --test tests/zhTwCopy.test.mjs            # 改了 zh-CN 词典后必须重
 npm run typecheck
 ```
 
-守卫测试固定的行为（含学习循环：不白调模型、失败不推水位、写入过扫描闸门）：重复写入幂等、目标隔离、写入扫描拒绝、替换/删除歧义报错、CJK 子串检索、target 过滤不漏、会话指纹未变时跳过、追加后整份重灌不重复、`system` 消息不入库、fork 会话共享消息 id 时两边都要入索引、`cwd` 必须能派生出项目键、mcp.json 损坏时不覆盖、打包/开发两态脚本路径、导出不含设备记忆、导入幂等且坏条目不断任务、墓碑双向传播、设备记忆可检索且不进包、记忆 tab 的条目清单给的 key 正好能删掉它自己那一行、预览不写盘、按勾选裁剪导入导出（`overwrite` 让旧版本真的消失）、关掉墓碑同步就不删本地条目、删除后的撤销会回收墓碑、STANDING 保存穿透 mtime 短路且超预算拒写、设备改名只动 name 不动 id、DSH 会话（多帧 zstd）与 pi/acp 同一套索引且派生会话不采。
+守卫测试固定的行为（含学习循环：不白调模型、失败不推水位、写入过扫描闸门）：重复写入幂等、目标隔离、写入扫描拒绝、替换/删除歧义报错、CJK 子串检索、target 过滤不漏、`scope:"all"` 能跨项目检索而 `current` 不串项目、预算裁剪把被丢条目回给调用方、`memory_status` 报 `overBudget` 与项目键清单、项目键不撞且带哈希、旧键目录迁移幂等且目标已存在时不覆盖、会话指纹未变时跳过、追加后整份重灌不重复、`system` 消息不入库、fork 会话共享消息 id 时两边都要入索引、`cwd` 必须能派生出项目键、mcp.json 损坏时不覆盖、打包/开发两态脚本路径、导出不含设备记忆、导入幂等且坏条目不断任务、墓碑双向传播、设备记忆可检索且不进包、记忆 tab 的条目清单给的 key 正好能删掉它自己那一行、预览不写盘、按勾选裁剪导入导出（`overwrite` 让旧版本真的消失）、关掉墓碑同步就不删本地条目、删除后的撤销会回收墓碑、STANDING 保存穿透 mtime 短路且超预算拒写、设备改名只动 name 不动 id、DSH 会话（多帧 zstd）与 pi/acp 同一套索引且派生会话不采。
 
 ## 8. 与 hermes 的差异
 
