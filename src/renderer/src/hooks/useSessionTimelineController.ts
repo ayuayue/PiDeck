@@ -86,6 +86,12 @@ const NO_CACHE_ENTRY_ATOM = atom(undefined);
 // 用户主动向上滚超过此阈值后停止自动跟底。值设很小是为了让用户稍微滚一点就能挣脱自动滚动，
 // 避免流式消息频繁触发 ResizeObserver/MutationObserver 把用户弹回底部造成"颤抖"。
 const BOTTOM_THRESHOLD = 16;
+/** 跟底跟流时落盘阅读锚点的跳过距离。流式增长时跟随动画天然滞后（实测 SLOW 流式稳定
+ *  48–93px），这段滞后仍属于「在跟底」，不能当成用户上滚：否则切回会话时
+ *  anchor !== undefined → autoScroll=false → 正文继续输出却不再跟随、还冒出回底按钮。
+ *  取跟底引擎回底窗口（followState STICK_TO_BOTTOM_OFFSET_PX = 70）的两倍，
+ *  仍远小于真实上滚阅读的距离。 */
+const FOLLOWING_ANCHOR_SKIP_PX = 140;
 const LEGACY_OWNER_KEY = "legacy";
 
 type Tagged<T> = { ownerKey: string; value: T };
@@ -510,9 +516,12 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	const computeCurrentAnchor = useCallback((visibleRowsArg?: readonly VisibleTimelineRow[]): SessionScrollAnchor | null => {
 		const timeline = timelineRef.current;
 		if (!timeline) return null;
-		if (isTimelineAtBottom(timeline.scrollTop, timeline.scrollHeight, timeline.clientHeight)) {
-			return null;
-		}
+		// 发送定位动画期间视口是被程序挪走的，不是阅读位置。
+		if (sendScrollRef.current.isAnimating) return null;
+		const distanceFromBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight;
+		if (distanceFromBottom < BOTTOM_THRESHOLD) return null;
+		// 跟流中的动画滞后（几十 px）不是阅读位置；真实上滚阅读的距离远大于此。
+		if (autoScrollRef.current && distanceFromBottom <= FOLLOWING_ANCHOR_SKIP_PX) return null;
 		// 快路径：只对视口内的行取布局（O(视口)）。原来这里要跑两轮 querySelectorAll +
 		// 每行 getBoundingClientRect，窗口越大越慢——「越滚越慢」的直接来源。
 		const visibleRows = visibleRowsArg ?? readVisibleRowsRef.current();

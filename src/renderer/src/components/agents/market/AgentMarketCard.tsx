@@ -1,12 +1,14 @@
-import { Bot, Copy, GripVertical, Pencil, Pin, RotateCcw, Trash2 } from "lucide-react";
+import { Copy, GripVertical, Pencil, Pin, RotateCcw, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AgentProfile } from "../../../../../shared/types/agentProfile";
 import type { ListReorderItemBinding } from "../../../hooks/useListReorder";
 import { t } from "../../../i18n";
+import { AgentIcon } from "../AgentIcon";
 import { Badge } from "../../ui-shadcn/badge";
 import { Button } from "../../ui-shadcn/button";
 import { Checkbox } from "../../ui-shadcn/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../ui-shadcn/tooltip";
+import { AgentUseTargetMenu, type AgentUseTarget } from "./AgentUseTargetMenu";
 import { useAgentMarketActions } from "./useAgentMarketActions";
 
 interface AgentMarketCardProps {
@@ -16,11 +18,14 @@ interface AgentMarketCardProps {
 	/** 详情面板正在展示这张卡片（描边高亮）。 */
 	active: boolean;
 	onOpen: (agent: AgentProfile) => void;
-	onUse: (agent: AgentProfile) => void;
+	/** 「使用」选定工作目录后在所选项目新建会话。 */
+	onUse: (agent: AgentProfile, projectId: string) => void;
 	onEdit: (agent: AgentProfile) => void;
 	onRequestDelete: (agent: AgentProfile) => void;
 	/** 「使用」正在建会话：按钮显示 loading，避免连点建出多个绑定会话。 */
 	usePending: boolean;
+	/** 有任意智能体正在建会话：菜单项一并置灰，否则点别的卡片会被 workspace 的全局 guard 静默吞掉。 */
+	useBusy: boolean;
 	/** 拖拽重排接线（手柄/拖拽态/插入指示线），由 AgentMarketGrid 统一生成。 */
 	reorder: ListReorderItemBinding;
 	/** 批量删除模式：整卡变成选择目标，点哪儿都是切换选中。 */
@@ -29,6 +34,8 @@ interface AgentMarketCardProps {
 	checked: boolean;
 	/** 切换选中（内置卡片不可选，由卡片自己禁用复选框）。 */
 	onToggleSelect: (agent: AgentProfile) => void;
+	/** 「使用」的目录选择菜单上下文。 */
+	useTarget: AgentUseTarget;
 }
 
 /**
@@ -38,7 +45,7 @@ interface AgentMarketCardProps {
  * 避免 button 套 button 的非法结构；悬停行默认 opacity-0，键盘 focus 时由
  * group-focus-within 显形，保证纯键盘也能操作。
  */
-export function AgentMarketCard({ agent, selectionDefault, active, reorder, selectionMode, checked, onToggleSelect, onOpen, onUse, onEdit, onRequestDelete, usePending }: AgentMarketCardProps) {
+export function AgentMarketCard({ agent, selectionDefault, active, reorder, selectionMode, checked, onToggleSelect, onOpen, onUse, onEdit, onRequestDelete, usePending, useBusy, useTarget }: AgentMarketCardProps) {
 	const actions = useAgentMarketActions();
 	const usage = agent.usageCount > 0 ? t("agentMarket.usage", { count: agent.usageCount }) : t("agentMarket.neverUsed");
 
@@ -70,7 +77,7 @@ export function AgentMarketCard({ agent, selectionDefault, active, reorder, sele
 				onClick={() => (selectionMode ? onToggleSelect(agent) : onOpen(agent))}
 			>
 				<span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-bg-muted text-lg leading-none" aria-hidden="true">
-					{agent.icon ? agent.icon : <Bot className="size-4 text-muted-foreground" />}
+					<AgentIcon icon={agent.icon} />
 				</span>
 				<span className="flex min-w-0 flex-1 flex-col gap-1">
 					{/* 标题行不换行：徽标换到第二行会让各卡片简介起始位置参差；名称放不下时截断，靠 title 兜住全文。 */}
@@ -96,7 +103,7 @@ export function AgentMarketCard({ agent, selectionDefault, active, reorder, sele
 
 			{/* mt-auto 把使用量/操作行吸到卡片底部：简介行数不同的卡片也在同一基线上对齐。 */}
 			<div className="relative mt-auto flex h-7 shrink-0 items-center">
-				<span className={cn("absolute inset-y-0 left-0 flex max-w-full items-center truncate text-micro text-text-tertiary transition-opacity", !selectionMode && "group-hover:opacity-0 group-focus-within:opacity-0")}>{usage}</span>
+				<span className={cn("absolute inset-y-0 left-0 flex max-w-full items-center truncate text-micro text-text-tertiary transition-opacity", !selectionMode && "group-hover:opacity-0 group-focus-within:opacity-0 group-has-data-[state=open]:opacity-0")}>{usage}</span>
 				{/* 手柄与操作行同处一条底行：悬停时使用量淡出、手柄在左侧显形，标题行与正文保持干净。 */}
 				<Button
 					type="button"
@@ -110,11 +117,13 @@ export function AgentMarketCard({ agent, selectionDefault, active, reorder, sele
 				>
 					<GripVertical className="size-3.5" aria-hidden="true" />
 				</Button>
-				<div className={cn("absolute inset-y-0 right-0 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100", selectionMode && "hidden")}>
-					{/* 「使用」不再是调用面板：新建一个绑定该智能体的会话并收起市场，角色设定对时间线隐藏。title 里说明这一点。 */}
-					<Button type="button" size="xs" className="mr-0.5 h-6 px-2 text-xs" title={t("agentMarket.useInSessionHint")} loading={usePending} onClick={() => onUse(agent)}>
-						{t("agentMarket.use")}
-					</Button>
+				<div className={cn("absolute inset-y-0 right-0 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 has-data-[state=open]:opacity-100", selectionMode && "hidden")}>
+					{/* 「使用」不再是调用面板：先选工作目录，再在所选目录新建一个绑定该智能体的会话并收起市场。title 里说明这一点。 */}
+					<AgentUseTargetMenu useTarget={useTarget} pending={usePending || useBusy} onPick={(projectId) => onUse(agent, projectId)}>
+						<Button type="button" size="xs" className="mr-0.5 h-6 px-2 text-xs" title={t("agentMarket.useInSessionHint")} loading={usePending}>
+							{t("agentMarket.use")}
+						</Button>
+					</AgentUseTargetMenu>
 					<Button type="button" variant="ghost" size="icon-xs" title={t("agentMarket.setSelectionDefault")} aria-label={t("agentMarket.setSelectionDefault")} disabled={selectionDefault} onClick={() => void actions.setSelectionDefault(agent)}>
 						<Pin className="size-3" aria-hidden="true" />
 					</Button>

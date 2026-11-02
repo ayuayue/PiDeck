@@ -1,5 +1,4 @@
 import { useAtomValue, useSetAtom } from "jotai";
-import { Bot } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { agentMarketSettingsAtom, agentProfilesAtom, clearSelectionInlineAtom, quoteToolbarVisibleAtom, selectionInlineRequestAtom } from "../../atoms/agent-atoms";
@@ -7,6 +6,7 @@ import { useSelectionTool } from "../../hooks/useSelectionTool";
 import { t } from "../../i18n";
 import { clampFloatingPosition, toSelectionAnchorRect, type SelectionAnchorRect } from "../../utils/selectionToolPolicy";
 import { resolveDefaultSelectionAgent } from "../agents/agentMarketFilters";
+import { AgentIcon } from "../agents/AgentIcon";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui-shadcn/tooltip";
 import { SelectionInlineToolbar } from "./SelectionInlineToolbar";
 
@@ -127,13 +127,9 @@ export function SelectionToolHost({ onSendToSession }: SelectionToolHostProps) {
 								aria-label={toolbarTitle}
 								className="inline-flex h-[30px] items-center gap-1.5 rounded-full border border-border bg-popover px-3 text-xs font-medium text-popover-foreground shadow-md transition-colors hover:bg-accent-soft"
 							>
-								{defaultAgent?.icon ? (
-									<span className="text-sm leading-none" aria-hidden="true">
-										{defaultAgent.icon}
-									</span>
-								) : (
-									<Bot size={13} className="text-muted-foreground" aria-hidden="true" />
-								)}
+								<span className="text-sm leading-none" aria-hidden="true">
+									<AgentIcon icon={defaultAgent?.icon ?? ""} />
+								</span>
 								<span>{t("selectionTool.toolbarLabel")}</span>
 							</button>
 						</TooltipTrigger>

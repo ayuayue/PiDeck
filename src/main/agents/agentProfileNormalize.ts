@@ -352,7 +352,11 @@ function trimmedText(value: unknown): string {
 }
 
 function clampText(value: string, maxLength: number): string {
-	return value.length > maxLength ? value.slice(0, maxLength) : value;
+	if (value.length <= maxLength) return value;
+	const cut = value.slice(0, maxLength);
+	// 截断点落在代理对中间会留下孤立高代理位（渲染成 �）：退一格保住完整字形。
+	const last = cut.charCodeAt(cut.length - 1);
+	return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
 }
 
 function finiteInteger(value: unknown, fallback: number): number {

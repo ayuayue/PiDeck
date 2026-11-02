@@ -74,10 +74,17 @@ export const BUILTIN_PIDECK_HELPER_AGENT_ID = "builtin-pideck-helper";
 export const BUILTIN_PIDECK_DIAGNOSTIC_AGENT_ID = "builtin-pideck-diagnostic";
 export const BUILTIN_PIDECK_PLUGIN_DEV_AGENT_ID = "builtin-pideck-plugin-dev";
 
+/**
+ * 组件图标编码前缀：`lucide:<id>`（id 取自渲染层内置图标目录）。
+ * 不带前缀的 icon 一律按用户输入的 emoji 文本渲染，旧数据无需迁移。
+ */
+export const AGENT_ICON_LUCIDE_PREFIX = "lucide:";
+
 /** 字段上限：编辑器、IPC 边界、存储归一化共用同一组常量，避免三处漂移。 */
 export const AGENT_PROFILE_NAME_MAX_CHARS = 60;
 export const AGENT_PROFILE_DESCRIPTION_MAX_CHARS = 300;
-export const AGENT_PROFILE_ICON_MAX_CHARS = 16;
+/** 单个 emoji，或 `lucide:<id>` 组件图标编码；空串由渲染层回退为机器人图标。 */
+export const AGENT_PROFILE_ICON_MAX_CHARS = 40;
 export const AGENT_PROFILE_SYSTEM_PROMPT_MAX_CHARS = 16_000;
 export const AGENT_INVOKE_TEXT_MAX_CHARS = 16_000;
 export const AGENT_INVOKE_INSTRUCTION_MAX_CHARS = 500;

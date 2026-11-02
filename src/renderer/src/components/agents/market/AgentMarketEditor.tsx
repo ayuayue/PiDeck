@@ -1,17 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { ChevronDown, Info, X } from "lucide-react";
-import {
-	AGENT_PROFILE_BACKENDS,
-	AGENT_PROFILE_CATEGORIES,
-	AGENT_PROFILE_DESCRIPTION_MAX_CHARS,
-	AGENT_PROFILE_ICON_MAX_CHARS,
-	AGENT_PROFILE_NAME_MAX_CHARS,
-	AGENT_PROFILE_SYSTEM_PROMPT_MAX_CHARS,
-	type AgentModelRef,
-	type AgentProfile,
-	type AgentProfileBackend,
-	type AgentProfileCategory,
-} from "../../../../../shared/types/agentProfile";
+import { AGENT_PROFILE_BACKENDS, AGENT_PROFILE_CATEGORIES, AGENT_PROFILE_DESCRIPTION_MAX_CHARS, AGENT_PROFILE_NAME_MAX_CHARS, AGENT_PROFILE_SYSTEM_PROMPT_MAX_CHARS, type AgentModelRef, type AgentProfile, type AgentProfileBackend, type AgentProfileCategory } from "../../../../../shared/types/agentProfile";
 import { useBackendModelCatalog } from "../../../hooks/useBackendModelCatalog";
 import { t } from "../../../i18n";
 import { showNotice } from "../../../utils/notice";
@@ -23,6 +12,7 @@ import { Label } from "../../ui-shadcn/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
 import { Textarea } from "../../ui-shadcn/textarea";
 import { AGENT_CATEGORY_LABEL_KEYS } from "./AgentMarketCategoryChips";
+import { AgentIconPicker } from "./AgentIconPicker";
 import { AGENT_BACKEND_LABEL_KEYS, FOLLOW_DEFAULT_BACKEND_VALUE, isAgentProfileBackend } from "./agentBackendOptions";
 import { useAgentMarketActions } from "./useAgentMarketActions";
 
@@ -122,10 +112,10 @@ export function AgentMarketEditor({ agent, onSaved, onCancel }: AgentMarketEdito
 							<Input id="agent-market-name" value={name} onChange={(event) => setName(event.target.value)} placeholder={t("agentMarket.fieldNamePlaceholder")} maxLength={AGENT_PROFILE_NAME_MAX_CHARS} autoFocus />
 						</div>
 						<div className="flex flex-col gap-1.5">
-							<Label htmlFor="agent-market-icon" className="text-xs font-medium">
+							<Label htmlFor="agent-market-icon-trigger" className="text-xs font-medium">
 								{t("agentMarket.fieldIcon")}
 							</Label>
-							<Input id="agent-market-icon" value={icon} onChange={(event) => setIcon(event.target.value)} placeholder="🤖" maxLength={AGENT_PROFILE_ICON_MAX_CHARS} className="text-center" />
+							<AgentIconPicker id="agent-market-icon-trigger" value={icon} onChange={setIcon} />
 						</div>
 					</div>
 
