@@ -282,6 +282,8 @@ export class RemoteAccessManager {
 			await mkdir(dirname(configPath), { recursive: true });
 			await writeFile(configPath, buildEasyTierToml(config as EasyTierManagedConfig), "utf8");
 			if (!this.easytier.serviceInstalled) await this.serviceHost.install(configPath);
+			// 服务已在运行时 sc start 会报「已启动」；配置写在固定路径，必须停掉再启才能让新配置生效（即可重启）。
+			if (this.easytier.serviceRunning) await this.serviceHost.stop();
 			await this.serviceHost.start();
 			this.logger.info("web-remote", "easytier service started", { configPath });
 		} catch (error) {

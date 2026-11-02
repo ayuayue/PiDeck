@@ -48,7 +48,8 @@ type SessionStartProps = {
 type NoProjectStartProps = {
 	mode: "no-project";
 	onAddProject: () => void;
-	onOpenRemote: () => void;
+	/** 远端（SSH）登记入口：通道门禁关闭时调用方不传，按钮整条不渲染。 */
+	onOpenRemote?: () => void;
 };
 
 export type SessionStartSurfaceProps = SessionStartProps | NoProjectStartProps;
@@ -82,7 +83,7 @@ function StartSurfaceShell(props: { slogan?: string; children: ReactNode }) {
  * 视觉复用输入框的 20px 圆角、1px 墨线、card 底与 lifted 阴影，
  * 让「还没有项目」和「还没有消息」看起来是同一张工作台的不同阶段。
  */
-function NoProjectStart(props: { onAddProject: () => void; onOpenRemote: () => void }) {
+function NoProjectStart(props: { onAddProject: () => void; onOpenRemote?: () => void }) {
 	return (
 		<div className="w-full max-w-3xl rounded-[20px] border border-border bg-card shadow-[var(--shadow-composer-lifted)]">
 			<div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -99,10 +100,12 @@ function NoProjectStart(props: { onAddProject: () => void; onOpenRemote: () => v
 				</div>
 				{/* 主从顺序与输入框底栏一致：低频动作用 ghost，主操作用实心，落在右侧。 */}
 				<div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
-					<Button variant="ghost" size="sm" onClick={props.onOpenRemote}>
-						<Server className="size-4" aria-hidden="true" />
-						{t("project.remote.title")}
-					</Button>
+					{props.onOpenRemote === undefined ? null : (
+						<Button variant="ghost" size="sm" onClick={props.onOpenRemote}>
+							<Server className="size-4" aria-hidden="true" />
+							{t("project.remote.title")}
+						</Button>
+					)}
 					<Button size="sm" onClick={props.onAddProject}>
 						<Plus className="size-4" aria-hidden="true" />
 						{t("app.addProject")}

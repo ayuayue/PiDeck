@@ -481,6 +481,36 @@ export function findTurnPageStart(entries: ReadonlyArray<{ role?: string; byteLe
 	return start;
 }
 
+/**
+ * 空页不变量：只要有更早历史（before > 0），窗口起点就必须严格小于 before。
+ *
+ * 违反它的后果不是「少显示一条」而是死循环：slice(start, before) 得空数组，而 nextBefore
+ * 仍等于 before —— 渲染层收到空页照样 prepend、把游标设成同一个值，界面逐字不变、无限重试、
+ * 完全静默（#474 记录的第二条「点了没反应」路径，修法在 main 侧）。
+ */
+export function clampTurnWindowStart(start: number, before: number): number {
+	if (before <= 0) return 0;
+	return Math.min(start, before - 1);
+}
+
+/**
+ * 解析翻页游标，返回 null 表示「明确没有更早历史」，调用方必须回空页 + nextBefore: null。
+ *
+ * beforeEntryId 是渲染层唯一的对齐锚点（运行时窗口与 JSONL 是两个下标空间）。它解析失败
+ * 且没有数值游标时，旧写法让游标落回 total（文件尾部），表现是「点加载更多反而跳回最新」，
+ * 比原地踏步更糟（#474 记录）。这里改成显式失败，让界面停下来而不是反向跳。
+ */
+export function resolveTurnPageBefore(before: number | undefined, beforeEntryId: string | undefined, entries: ReadonlyArray<{ id: string }>, total: number): number | null {
+	let resolved = before;
+	if (beforeEntryId) {
+		const position = entries.findIndex((entry) => entry.id === beforeEntryId);
+		if (position >= 0) resolved = position;
+		else if (!Number.isSafeInteger(resolved)) return null;
+	}
+	if (!Number.isSafeInteger(resolved)) return total;
+	return Math.min(Math.max(0, resolved as number), total);
+}
+
 /** 收集 [0, before) 内的 turn 起点下标（升序），规则与 findTurnPageStart 一致。 */
 function collectTurnStartIndices(entries: ReadonlyArray<{ role?: string; byteLength: number }>, before: number): number[] {
 	const starts: number[] = [];
@@ -744,9 +774,23 @@ export class SessionHistoryReader {
 	 */
 	private readonly prefetchCache = new Map<string, SessionMessagePage>();
 	private static readonly PREFETCH_CACHE_LIMIT = 2;
-	/** 轮次分页默认/上限：默认最近一次激活带 3 轮，单页最多 10 轮（防恶意参数撑爆 IPC） */
+	/** 轮次分页默认值：最近一次激活带 3 轮。 */
 	static readonly DEFAULT_TURN_PAGE_SIZE = 3;
-	private static readonly MAX_TURN_PAGE_SIZE = 10;
+	/**
+	 * 单页轮数上限。
+	 *
+	 * 曾经是 10：那时唯一的翻页路径是滚动（一次一屏），10 轮够用。
+	 * 现在多了「点刻度从底部跳到顶部」：两次点击之间可能隔着上百轮，逐页 10 轮要补十几次，
+	 * 每次一次 IPC + 一次文件解析（本机实测约 0.5s），用户看到的是「一直在加载」
+	 * （2026-11 真机，156 轮会话）。
+	 *
+	 * 取值 200 的来历（可复算）：本机一份 156 轮会话 = 5156 条消息条目，即每轮约 33 条；
+	 * 200 轮 ≈ 6600 条 ≈ 13-26MB 单页负载，落在渲染层 DISK_HISTORY_MESSAGE_LIMIT(8000)
+	 * 之内，所以「一次读满一整份 156 轮会话」是可能的 —— 这正是用户要的「点一次就到位」。
+	 * 再大的意义在于覆盖更长的会话，但单页负载会超过渲染层预算（超了就被整页丢弃，
+	 * 反而跳不到），所以上限停在 200 轮 / PAGE_WINDOW_ENTRIES 条。
+	 */
+	private static readonly MAX_TURN_PAGE_SIZE = 200;
 	/**
 	 * 子代理 start 锚点条目类型：pi-deck-subagents 桥接扩展在 subagents:created 时
 	 * 落盘（写入侧见 resources/extensions/pi-deck-subagents.ts 的 START_ENTRY_TYPE）。
@@ -766,11 +810,13 @@ export class SessionHistoryReader {
 	 */
 	private static readonly MAX_LOAD_WINDOW_ENTRIES = 1600;
 	/**
-	 * 翻页单页的条目预算（3 轮窗口之上叠的硬上限）。
-	 * 防御「上滚翻页反而把渲染进程撑爆」——页大小本受 MAX_TURN_PAGE_SIZE 限制，
-	 * 但 3 轮 × 数百条仍可超预算；单轮自身超预算时只能整轮保留。
+	 * 翻页单页的条目预算（轮数上界之上叠的条目硬上限）。
+	 * 防御「上滚翻页反而把渲染进程撑爆」——轮数受 MAX_TURN_PAGE_SIZE 限制，但单轮可能有
+	 * 数百条工具调用，200 轮照样能超。取 8000：与渲染层 DISK_HISTORY_MESSAGE_LIMIT
+	 * 同一预算（200 轮 × 33 条 ≈ 6600 条，留约 20% 余量），页再大就会被渲染层整页丢弃；
+	 * 单轮自身超预算时只能整轮保留。
 	 */
-	private static readonly MAX_PAGE_WINDOW_ENTRIES = 600;
+	private static readonly MAX_PAGE_WINDOW_ENTRIES = 8000;
 
 	/** 启动加载窗口条目预算（供 AgentManager 对齐窗口口径）。 */
 	static maxLoadWindowEntries(): number {
@@ -1057,12 +1103,11 @@ export class SessionHistoryReader {
 		// beforeEntryId：渲染层以「运行时窗口首条消息的 entryId」作为首次补历史的游标，
 		// 解析为该 entry 在活跃分支的绝对下标（运行时窗口与 JSONL 是两个下标空间，
 		// entryId 是唯一的对齐锚点）。解析失败回退为 undefined（= 从尾部起页）。
-		let resolvedBefore = before;
-		if (beforeEntryId) {
-			const position = index.activeMessageEntries.findIndex((entry) => entry.id === beforeEntryId);
-			if (position >= 0) resolvedBefore = position;
+		const boundedBefore = resolveTurnPageBefore(before, beforeEntryId, index.activeMessageEntries, total);
+		// 锚点解析失败且没有数值游标：明确回「没有更早历史」，不能静默回退到尾部（#474）。
+		if (boundedBefore === null) {
+			return { messages: [], total, nextBefore: null, nextBeforeEntryId: undefined, indexVersion: `${index.mtimeMs}:${index.size}`, ...index.metadata };
 		}
-		const boundedBefore = Number.isSafeInteger(resolvedBefore) ? Math.min(Math.max(0, resolvedBefore!), total) : total;
 		const boundedTurnCount = Number.isFinite(turnCount) ? Math.min(Math.max(1, Math.floor(turnCount)), SessionHistoryReader.MAX_TURN_PAGE_SIZE) : SessionHistoryReader.DEFAULT_TURN_PAGE_SIZE;
 
 		// 预取命中：直接返回缓存页（键 = 文件版本 + 游标 + 页大小，版本变化即失效）。
@@ -1090,7 +1135,8 @@ export class SessionHistoryReader {
 	 */
 	private async readTurnPageCore(index: SessionDisplayIndex, agentId: string, boundedBefore: number, boundedTurnCount: number, entryRendererTypes: readonly string[]): Promise<SessionMessagePage> {
 		const total = index.activeMessageEntries.length;
-		const start = boundTurnWindowStart(index.activeMessageEntries, boundedBefore, boundedTurnCount, SessionHistoryReader.MAX_PAGE_WINDOW_ENTRIES);
+		// 起点必须严格小于 boundedBefore，否则 slice 得空页而 nextBefore 仍等于它（#474 死循环）。
+		const start = clampTurnWindowStart(boundTurnWindowStart(index.activeMessageEntries, boundedBefore, boundedTurnCount, SessionHistoryReader.MAX_PAGE_WINDOW_ENTRIES), boundedBefore);
 
 		// 与普通轮次页一致：压缩会话的归档语义未游标化前走索引切片
 		if (index.hasCompaction) {

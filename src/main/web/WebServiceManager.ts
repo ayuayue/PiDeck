@@ -96,6 +96,11 @@ export type WebServiceDependencies = {
 	 */
 	listAcpTools?: () => WebAcpToolInfo[];
 	/**
+	 * 宿主应用版本号（/api/state 的 version 投影，Web 端侧栏底栏展示）。
+	 * 未注入时不下发该字段，Web 端不渲染版本位。
+	 */
+	getAppVersion?: () => string;
+	/**
 	 * EasyTier 托管配置的 TOML 文本（手机端「导入配置」用）。
 	 * 未配置托管网络时返回空串，路由据此返回 404；文件含网络密钥，因此只在 /api/* 鉴权链之后暴露。
 	 */
@@ -587,6 +592,8 @@ export class WebServiceManager {
 			// Pi 会话安全等级（全局默认 + 会话覆盖）：Web 端据此显示当前有效等级并切换。
 			// 与桌面端共用 SecurityStore，切换后由 notifySecurityChanged 立即推送本快照。
 			...(this.deps.getSecurityConfig ? { security: toWebSecurityState(this.deps.getSecurityConfig()) } : {}),
+			// 宿主版本号：侧栏底栏展示用（常量，进 ETag 不影响命中）。
+			...(this.deps.getAppVersion ? { version: this.deps.getAppVersion() } : {}),
 		};
 	}
 

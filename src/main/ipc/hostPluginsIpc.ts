@@ -5,6 +5,7 @@ import type { HostPluginResult } from "../../shared/types/hostPlugin";
 import type { HostPluginService } from "../plugins/HostPluginService";
 import { isHostPluginId, isHostPluginPermission, isPluginRecord } from "../plugins/hostPluginManifest";
 import { downloadGitHubPlugin } from "../plugins/hostPluginGitHub";
+import { searchHostPluginMarket } from "../plugins/hostPluginMarket";
 import { isLocalServiceId } from "../../shared/localServices";
 import { createHostPluginScaffold } from "../plugins/hostPluginScaffold";
 import { parsePluginContext } from "../plugins/hostPluginPolicy";
@@ -18,6 +19,7 @@ export function registerHostPluginsIpc(service: HostPluginService, getWindow: ()
 		ipcChannels.hostPluginsInstall,
 		ipcChannels.hostPluginsInstallDirectory,
 		ipcChannels.hostPluginsInstallGitHub,
+		ipcChannels.hostPluginsMarketSearch,
 		ipcChannels.hostPluginsScaffold,
 		ipcChannels.hostPluginsSetEnabled,
 		ipcChannels.hostPluginsOpenDirectory,
@@ -93,6 +95,14 @@ export function registerHostPluginsIpc(service: HostPluginService, getWindow: ()
 			if (typeof url !== "string" || url.length === 0 || url.length > 300) throw new Error("invalid-github-url");
 			const download = await downloadGitHubPlugin(url);
 			return service.manager.installFiles(download.files);
+		}),
+	);
+	ipcMain.handle(ipcChannels.hostPluginsMarketSearch, (event, keyword: unknown) =>
+		result(async () => {
+			trustedWindow(event);
+			// 关键词只当搜索文本用：长度与控制字符在边界收窄，空字符串 = 浏览全部。
+			if (typeof keyword !== "string" || keyword.length > 80 || /[\u0000-\u001f\u007f]/.test(keyword)) throw new Error("invalid-search-keyword");
+			return searchHostPluginMarket({ keyword });
 		}),
 	);
 	ipcMain.handle(ipcChannels.hostPluginsScaffold, (event, input: unknown) =>

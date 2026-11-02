@@ -128,6 +128,7 @@ export const CodeDiffView = memo(function CodeDiffView(props: { oldContent: stri
 
 	if (plan.mode === "fallback") {
 		return (
+			// scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。
 			<div className="flex h-full items-center justify-center overflow-auto bg-[var(--color-bg-panel)]">
 				<div className="px-4 text-center text-[var(--color-text-secondary)]">
 					<p className="mb-1 text-control font-medium">{t("editor.diffTooLarge")}</p>

@@ -1,0 +1,27 @@
+{
+	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+	// React Hooks 顺序门禁。独立于 biome.json 存在，原因：主配置把 linter 整体关掉了
+	//（见那里「本次只建立格式基线」的说明），而这一条规则抓的是**运行时崩溃**类缺陷：
+	// QueuedPromptPanel 曾在 if (!visiblePrompts.length) return null 之后调 useRef，
+	// 队列由空变非空时 hook 数量变化，React 抛 #310「Rendered more hooks than during
+	// the previous render」，整棵 composer 子树卸载。格式门禁抓不到这类问题。
+	// 只启用这一条规则（recommended:false），不引入其他告警面。
+	"formatter": { "enabled": false },
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": false,
+			"correctness": { "useHookAtTopLevel": "error" }
+		}
+	},
+	"files": { "includes": ["src/**", "!**/*.css", "!**/node_modules/**"] },
+	"overrides": [
+		{
+			// missingElectronPreload 来自 desktopApi.ts，是模块初始化时算一次的常量，
+			// 整个进程内不变，因此其后的 240 个 hook 不会出现数量漂移；规则只看语法
+			// 结构。按文件显式豁免（路径可 grep），其余文件必须零违规。
+			"includes": ["src/renderer/src/App.tsx"],
+			"linter": { "rules": { "correctness": { "useHookAtTopLevel": "off" } } }
+		}
+	]
+}

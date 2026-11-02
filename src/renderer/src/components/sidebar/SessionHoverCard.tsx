@@ -149,6 +149,7 @@ export function SessionHoverCard({ children, session, title, projectName, status
 			</HoverCardTrigger>
 			<HoverCardContent ref={contentRef} side="right" align="start" sideOffset={10} className="w-84 max-w-[calc(100vw-320px)] p-3.5 shadow-[var(--shadow-popover)] select-text">
 				{/* 1. 会话正文预览区：有明确标题和独立摘要时分层展示，否则展示主体内容；两者皆空才显示占位 */}
+				{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 				<div className="max-h-48 overflow-y-auto select-text">
 					{validTitle && validPreview && !isSameContent ? (
 						<div className="flex flex-col gap-1.5">

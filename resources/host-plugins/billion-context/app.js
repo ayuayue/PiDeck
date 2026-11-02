@@ -15,7 +15,6 @@ const COPY = {
 		starting: "启动中…",
 		stopping: "停止中…",
 		refresh: "刷新服务状态",
-		installHint: "未检测到可用的 bili 命令，请先全局安装：npm i -g billion-context",
 		stoppedHint: "服务未运行。面板是代理进程自带的，不跑就没有面板。",
 		noUiHint: "服务已运行但未报告端口，无法确定面板地址。",
 		instances: "实例",
@@ -27,7 +26,7 @@ const COPY = {
 			"permission-denied": "该插件未被授权控制此服务。",
 			"plugin-revoked": "插件授权已失效，请重新启用插件。",
 			"rate-limited": "操作过于频繁，请稍后再试。",
-			"cli-missing": "未找到 bili 命令，请先全局安装 billion-context。",
+			"cli-missing": "未找到 bili 命令，请先全局安装：npm i -g billion-context。",
 			"cli-failed": "bili 命令执行失败。",
 			"invalid-report": "bili doctor 输出无法解析。",
 			"start-failed": "启动命令未能执行。",
@@ -48,7 +47,6 @@ const COPY = {
 		starting: "Starting…",
 		stopping: "Stopping…",
 		refresh: "Refresh status",
-		installHint: "No usable bili command was found. Install it globally: npm i -g billion-context",
 		stoppedHint: "The service is not running. The panel ships with the proxy process, so there is no panel without it.",
 		noUiHint: "The service is running but reported no port, so the panel URL is unknown.",
 		instances: "Instances",
@@ -60,7 +58,7 @@ const COPY = {
 			"permission-denied": "This plugin is not authorized to control that service.",
 			"plugin-revoked": "The plugin authorization is no longer valid. Re-enable the plugin.",
 			"rate-limited": "Too many requests. Try again shortly.",
-			"cli-missing": "The bili command was not found. Install billion-context globally.",
+			"cli-missing": "The bili command was not found. Install billion-context globally: npm i -g billion-context.",
 			"cli-failed": "The bili command failed.",
 			"invalid-report": "Could not parse the bili doctor output.",
 			"start-failed": "The start command could not be executed.",
@@ -131,10 +129,14 @@ function paint(status) {
 	const running = status.running === true;
 	el("dot").dataset.state = !available ? "missing" : running ? "running" : "stopped";
 	el("status").textContent = !available ? copy.notAvailable : running ? copy.running : copy.stopped;
+	// 服务不可用（未装 bili / CLI 失败）时 facts 全是占位符：整卡收起，别摆一排「—」。
+	el("facts").hidden = !available;
 	el("pid").textContent = running && status.pid ? String(status.pid) : "—";
 	el("version").textContent = status.version || "—";
 	el("ui").textContent = status.uiUrl || "—";
-	el("note").textContent = !available ? copy.installHint : running ? (status.uiUrl ? copy.modalHint : copy.noUiHint) : copy.stoppedHint;
+	// 不可用时的解释由 message（原因码）承担：note 再重复一遍安装提示是冗余，
+	// 且 service-unavailable 这类原因跟「装 bili」无关，提示反而误导。
+	el("note").textContent = !available ? "" : running ? (status.uiUrl ? copy.modalHint : copy.noUiHint) : copy.stoppedHint;
 	// 原因码优先：既包括「服务不可用」，也包括「停了又被拉起来」这类带状态的成功响应。
 	say(status.reason ? reasonText(status.reason) : "");
 	paintInstances(status);

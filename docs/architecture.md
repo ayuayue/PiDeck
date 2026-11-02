@@ -32,6 +32,8 @@ src/
 │   ├── prompts/ skills/ extensions/ settings/ plugins/   # 各领域 Manager
 │   ├── terminal/      # node-pty 终端会话
 │   ├── browser/ cua/  # 内置浏览器 / CUA 桌面输入（pideck-cua MCP 工具面）
+│   ├── memory/        # 内存剖析（MemoryMonitor / DOM 归属 / 内存画像 CSV）
+│   ├── agentMemory/   # 智能体长期记忆：stdio MCP 服务器挂载（脚本在 resources/agent-memory/）
 │   ├── feishu/ pet/ web/ ipc/ ipc/                      # IM、桌宠、Web 服务、IPC 域
 │   └── ipc/           # ★ *Ipc.ts 只做入参校验与转发
 ├── preload/           # contextBridge 暴露最小 PiDesktopApi

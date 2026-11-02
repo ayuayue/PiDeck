@@ -87,6 +87,9 @@ export function harness(t, cliOptions, depsExtra = {}) {
 		getTools: () => [{ id: "gemini", name: "Gemini CLI", command: "gemini", args: ["--experimental-acp"], enabled: true }],
 		isEnabled: () => true,
 		onTitleChanged: () => {},
+		// 有序停止宽限：生产默认 1.5s（等 CLI 自己跑 SessionEnd），单测用毫秒级避免每个
+		// 会话停止都多等一个宽限窗口；需要验证宽限行为的用例在 depsExtra 里覆盖。
+		gracefulExitMs: 5,
 		...depsExtra,
 	});
 	const unsubscribe = manager.onOutput((channel, payload) => {

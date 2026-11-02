@@ -2,7 +2,7 @@
 
 Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702）**
 验收对象：`fix(remote): 目录监听失败降级与项目关闭生命周期收尾`（55dd5b702）
-验收方式：只读代码复核 + Windows 定向复跑 + WSL Linux 测试 + 真机方案编制；**未连接真实主机、未启动 Electron、未修改被审查代码、未提交/推送**。
+验收方式：只读代码复核 + Windows 定向复跑 + WSL Linux 测试 + 真实 SSH/Electron 验收。§4/§6 保留执行前的方案与边界快照；最终结果以 §10.5 和 §11 为准。
 状态口径：**通过 / 失败 / 跳过 / 未执行**；跳过与未执行都不计通过（同 `docs/remote-wsl-verification-log.md` 的口径）。本文件是新验收记录，不修改既有文档；旧文档失效项见 §5。
 
 ## 0. 结论摘要
@@ -155,7 +155,7 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 
 ## 4. 真实 SSH + Electron 验收方案（已获授权；R0/R1 已执行并失败，见 §10）
 
-> 本节保留方案摘要；完整 609 行版本在仓库外草稿 `%TEMP%\pideck-acceptance\ssh-electron-plan.md`（不入库）。真实连接/构建/Electron 已按用户“全部去干”授权执行 R0/R1；S2/S5/S6/S7 未执行。
+> 本节保留执行前方案摘要；完整 609 行版本在仓库外草稿 `%TEMP%\pideck-acceptance\ssh-electron-plan.md`（不入库）。R0/R1 与 S2/S5/S6/S7 的最终执行结果见 §10.5。
 
 ### 4.1 开关事实（必须先明确）
 
@@ -265,7 +265,7 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 - **未修改生产池化默认值**：`main/index.ts` 未传 `rootPooling` 的事实保持不变；真机 R1 用临时补丁，已逐字还原并确认 `git diff` 为空。
 - **已执行真实主机验收**：R0（池化关闭）与 R1（临时 `rootPooling: {}`）分别跑 `e2e/remoteHostAcceptance.spec.ts`，均失败于同一 UI 断言（§10）；远端测试目录由 spec 的 finally 清理，未 sudo、未改系统、未动既有部署 bundle/leases。
 - **未执行** 本轮 CI/清单/真机改动相关的 commit/push/merge；未拆分或改写 55dd5b702。
-- 未重跑 Windows 全量（已知声明通过）；真机 S2/S5/S6/S7 未执行（§10.5）。
+- 本节记录的是执行前边界；真机 S2/S5/S6/S7 已于 2026-11-02 执行并通过（§10.5）。
 - 仓库外产物：F1 探针 `%TEMP%\pideck-f1\f1-probe.test.mjs`；方案草稿 `%TEMP%\pideck-acceptance\ssh-electron-plan.md`；均未入库。
 - 仓库内变更：本文件（新增）+ 2 个修复文件（修改，未提交）。当前 `git status --porcelain` = `M src/main/ipc/remoteProjectDirFacts.ts`、`M tests/remoteProjectLifecycle.test.mjs`、`?? docs/remote-acceptance-55dd5b702.md`。
 

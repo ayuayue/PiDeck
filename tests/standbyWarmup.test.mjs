@@ -232,6 +232,20 @@ function registerRuntime(manager, tab) {
 	manager.agents.set(tab.id, { tab, process: { isRunning: () => true, stop: () => undefined } });
 }
 
+test("create：历史会话去重不得复用 list 不可见的 standby 进程", async () => {
+	const { manager, spawns } = createStandbyManager();
+	const sessionPath = "C:/sessions/history.jsonl";
+	registerRuntime(manager, { ...standbyTab("agent-standby", "project-1"), sessionPath, sessionEnvironment: "native", sessionSource: "pi" });
+	const created = manager.create({ projectId: "project-1", sessionPath });
+	assert.equal(spawns.length, 1, "standby 只能经 claim 转正，普通 create 命中同文件也必须走正式运行时");
+	spawns[0].gate.resolve({ ...standbyTab("agent-real", "project-1"), standby: undefined, sessionPath });
+	assert.equal((await created).id, "agent-real");
+	assert.equal(
+		manager.list().some((tab) => tab.id === "agent-standby"),
+		false,
+	);
+});
+
 test("claimStandbyAgent：匹配的进行中预热存在时等待并认领，绝不再并行 spawn 第二个 pi", async () => {
 	const { manager, spawns } = createStandbyManager();
 	manager.ensureStandbyAgent("project-1");

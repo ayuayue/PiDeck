@@ -284,6 +284,7 @@ export function VisionBridgeSettingsTab(props: {
 						</small>
 					)}
 				</div>
+				{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 				<pre className="m-0 max-h-[220px] overflow-auto whitespace-pre-wrap break-all rounded-md bg-bg-muted p-3 text-caption leading-relaxed text-text-secondary">{logInfo?.exists && logInfo.content ? logInfo.content : t("settings.vision.logEmpty")}</pre>
 			</SettingsSection>
 

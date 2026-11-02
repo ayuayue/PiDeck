@@ -50,6 +50,7 @@ export function AgentMarketDetail({ agent, selectionDefault, usePending, onClose
 				</Button>
 			</header>
 
+			{/* scroll-ok: bounded —— 单个 agent 的详情面板，固定字段集（徽章 / 描述 / 模型 / 后端 / 提示词），行数不随数据增长。 */}
 			<div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-3">
 				{(agent.builtin || selectionDefault) && (
 					<div className="flex flex-wrap items-center gap-1.5">
@@ -78,6 +79,7 @@ export function AgentMarketDetail({ agent, selectionDefault, usePending, onClose
 				</div>
 				<div className="flex min-h-0 flex-col gap-1">
 					<span className="text-micro font-medium text-foreground">{t("agentMarket.detailPrompt")}</span>
+					{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 					<pre className="max-h-[300px] overflow-y-auto rounded-lg border border-border/40 bg-bg-muted/40 p-2.5 font-mono text-micro leading-relaxed break-words whitespace-pre-wrap text-foreground/90">{agent.systemPrompt}</pre>
 				</div>
 				<span className="text-micro text-text-tertiary">{usage}</span>

@@ -47,6 +47,7 @@
 | [dsh-remote-contract.md](dsh-remote-contract.md) | DSH Typert Remote 集成契约 |
 | [dsh-0.2.0-migration.md](dsh-0.2.0-migration.md) | DSH 0.2.0 增量契约（与上文叠加） |
 | [pideck-mcp.md](pideck-mcp.md) | PiDeck 本机 MCP 服务说明 |
+| [agent-memory.md](agent-memory.md) | 智能体长期记忆（stdio MCP 服务器、三后端挂载、DSH 待办） |
 
 ## 3. 活动计划（Active plan）
 

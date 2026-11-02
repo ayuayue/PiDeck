@@ -571,6 +571,20 @@ export type AppSettings = {
 	 */
 	browserAgentAutoApprove: boolean;
 
+	// ── 智能体记忆：跨后端（pi / DSH / ACP）共享的长期记忆 ──
+	/**
+	 * 是否启用智能体记忆，默认 false。
+	 * 开启后启动时把 `pideck-agent-memory`（本地 stdio MCP 服务器）写进
+	 * ~/.pi/agent/mcp.json，并作为 mcpServers 挂给 ACP 会话；关闭时只删自己那一项，
+	 * 不改动用户在 mcp.json 里的其它服务器。记忆文件在 <userData>/agent-memory/，关掉不删除。
+	 */
+	agentMemoryEnabled: boolean;
+	/**
+	 * 记忆学习循环：回合结算后按阈值让模型从会话里提炼记忆（默认关）。
+	 * 会产生模型调用与费用，因此与「启用记忆」分开一格开关。
+	 */
+	agentMemoryAutoLearnEnabled: boolean;
+
 	// ── 模型收藏：ModelPicker 中用 ☆ 标记，收藏的模型在列表中置顶 ──
 	/** 收藏的模型 ID 列表 */
 	favoriteModels: string[];
@@ -980,6 +994,15 @@ export type AppSettings = {
 	 * （AcpAgentManager.PROMPT_TURN_TIMEOUT_MS，15 分钟）。变更后新回合生效，不需要重启。
 	 */
 	acpPromptTurnTimeoutMs?: number;
+	/**
+	 * ACP 回合失败自动重试：关掉后失败直接收口（行为回退到未引入自动重试的版本）。
+	 * 缺省 undefined = 代码内默认 true（与 pi 的 retry.enabled、DSH 的内置重试对齐）。
+	 */
+	acpTurnRetryEnabled?: boolean;
+	/** 自动重试次数上限（每回合）。缺省 undefined = 代码内默认 2；0 等同只试一次。 */
+	acpTurnRetryMaxRetries?: number;
+	/** 自动重试的指数退避基数（ms）。缺省 undefined = 代码内默认 2000（2s、4s…，封顶 30s）。 */
+	acpTurnRetryBaseDelayMs?: number;
 };
 
 /**
@@ -1259,6 +1282,9 @@ export function createDefaultAppSettings(): AppSettings {
 		// 浏览器 Agent 默认关闭；开启后写动作默认免审批（与 CUA 一致），可关闭改为逐次确认。
 		browserAgentEnabled: false,
 		browserAgentAutoApprove: true,
+		// 智能体记忆默认关闭：关闭时不注册、不改动 pi 的 mcp.json，与引入前完全一致
+		agentMemoryEnabled: false,
+		agentMemoryAutoLearnEnabled: false,
 		favoriteModels: [],
 
 		// 字体配置：与 main SettingsStore 默认值保持一致，避免启动时闪烁

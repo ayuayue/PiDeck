@@ -6,19 +6,19 @@
  * 运行态来自 useChat status（submitted/streaming）与轮询的 runtime.status 兜底。
  */
 import { useState } from "react";
-import { AlertCircle, Check, ClipboardCopy, Clock, Copy, Download, EllipsisVertical, FileDown, FoldVertical, GitFork, Menu, Monitor, Moon, MoreHorizontal, PanelRight, Pencil, Puzzle, RefreshCw, RotateCw, Search, Sun, Target, Trash2 } from "lucide-react";
+import { AlertCircle, Check, ClipboardCopy, Clock, Copy, Download, EllipsisVertical, FileDown, FoldVertical, GitFork, Menu, Monitor, Moon, PanelRight, Pencil, Puzzle, RefreshCw, RotateCw, Search, Sun, Target, Trash2 } from "lucide-react";
 import type { AgentBackend, WebSecurityState } from "../../../shared/types";
 import type { UsageProbeBackend } from "../../../shared/types/providerUsage";
 import { Button } from "@/components/ui-shadcn/button";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
-import { SessionBackendMark } from "@/components/session/SessionSourceBadge";
+import { WebBackendMark } from "./WebBackendMark";
 import { DSH_PERMISSION_PRESETS } from "@/components/session/DshPermissionMenu";
 import { permissionStrengthIcon } from "@/utils/permissionLevelIcon";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui-shadcn/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui-shadcn/dropdown-menu";
 import { WebBottomSheet } from "./WebBottomSheet";
 import { WebSecurityMenu } from "./WebSecurityMenu";
-import type { WebContextUsage } from "./webTypes";
+import type { WebContextUsage, WebAcpTool } from "./webTypes";
 import { useWebProviderUsage } from "./useWebProviderUsage";
 import { formatPercent } from "../components/session/TimelineFormat";
 // 紧凑数字（K/M）复用桌面 composer 统计行同一份实现，保证两头口径一致
@@ -60,6 +60,9 @@ export function WebHeader(props: {
 	status: WebHeaderStatus;
 	onOpenSidebar: () => void;
 	backend?: AgentBackend;
+	/** ACP 会话的工具 id 与 /api/state 的工具名单：头部按显示名出品牌图标（见 WebBackendMark）。 */
+	acpToolId?: string;
+	acpTools?: WebAcpTool[];
 	/** P2：上下文用量环数据（由 WebChatApp 随轮询拉取；无 runtime 时不渲染）。 */
 	contextUsage?: WebContextUsage;
 	/**
@@ -90,7 +93,7 @@ export function WebHeader(props: {
 	onOpenAssets?: () => void;
 	headerHidden?: boolean;
 }) {
-	const { title, status, onOpenSidebar, backend, contextUsage, usageProvider, usageBackend, permissionPreset, actions, onOpenDshTools, onOpenSearch, themePreference, onCycleTheme, canInstall, onInstall, onOpenAssets } = props;
+	const { title, status, onOpenSidebar, backend, acpToolId, acpTools, contextUsage, usageProvider, usageBackend, permissionPreset, actions, onOpenDshTools, onOpenSearch, themePreference, onCycleTheme, canInstall, onInstall, onOpenAssets } = props;
 	// 上下文详情弹层：移动端无悬停 title 提示，环必须可点开详情（对齐桌面 SessionContextMeter 点开面板语义）。
 	const [contextSheetOpen, setContextSheetOpen] = useState(false);
 	// DSH 权限预设：图标按统一保护强度语义取（#214 与桌面 DshPermissionMenu 同源），
@@ -98,6 +101,10 @@ export function WebHeader(props: {
 	const knownPreset = DSH_PERMISSION_PRESETS.find((item) => item.id === permissionPreset);
 	const PermissionIcon = permissionStrengthIcon(knownPreset?.strength ?? "unknown");
 	const permissionLabel = permissionPreset ? (knownPreset ? t(knownPreset.labelKey) : t("dshPermission.custom")) : t("dshPermission.unknown");
+	// 2026-10 评审：会话动作与全局入口原是两个相邻溢出菜单（横…/竖⋮），触屏没有 tooltip，
+	// 「重命名在哪个菜单里」全靠背。合并为一个 ⋮ 菜单，内部用标签分「会话/应用」两组。
+	const hasSessionMenuActions = Boolean(actions && (actions.onRename || actions.onRestart || actions.onCompact || actions.onClone || actions.onCopyMarkdown || actions.onExportHtml || actions.onDuplicate || actions.onDelete || actions.onRefreshMessages));
+	const hasGlobalMenuEntries = Boolean(onOpenSearch || onCycleTheme || (canInstall && onInstall) || onOpenAssets);
 	// 头部固定单行：标题+状态占左侧，右侧动作收敛后窄屏不再换行错位（全局入口收进溢出菜单）。
 	return (
 		<>
@@ -110,13 +117,14 @@ export function WebHeader(props: {
 						<div className="web-title-block flex min-w-0 flex-1 flex-col gap-0.5">
 							{/* 语义标题：整页唯一的 h1（会话名/空态文案），屏幕阅读器靠它定位主区 */}
 							<h1 className="flex min-w-0 items-center gap-1.5 truncate text-sm font-semibold tracking-tight text-foreground" title={title}>
-								{/* 后端徽标（C18 同源）：与侧栏会话行一致，头部可辨 pi/dsh */}
-								{backend && <SessionBackendMark backend={backend} className="size-4 shrink-0 rounded" />}
+								{/* 后端标记（WebBackendMark）：dsh 鲸鱼 / acp 品牌图标 / imagegen 图标，pi 不署名 */}
+								{backend && <WebBackendMark backend={backend} acpToolId={acpToolId} acpTools={acpTools} className="size-4 shrink-0" />}
 								<span className="min-w-0 truncate">{title}</span>
 							</h1>
 							{/* 运行态：紧凑小圆点+文字，不用带边框底色的大 pill（旧 agent-status-indicator
-						在头部占两行高度且视觉过重；侧栏列表仍沿用该样式，此处不动它）。 */}
-							<span className="flex items-center gap-1 self-start text-micro text-muted-foreground">
+						在头部占两行高度且视觉过重；侧栏列表仍沿用该样式，此处不动它）。
+						role=status：读屏播报 空闲/运行中 翻转，不依赖视觉圆点。 */}
+							<span className="flex items-center gap-1 self-start text-micro text-muted-foreground" role="status">
 								<span
 									className={cn("size-1.5 shrink-0 rounded-full", status === "running" && "animate-pulse bg-[var(--color-accent)]", status === "starting" && "animate-pulse bg-[var(--color-warning)]", status === "error" && "bg-[var(--color-danger)]", status === "idle" && "bg-[var(--color-info)]")}
 									aria-hidden="true"
@@ -162,108 +170,109 @@ export function WebHeader(props: {
 									<PanelRight className="size-4" aria-hidden="true" />
 								</Button>
 							) : null}
-							{/* P1/P3：会话与 runtime 操作溢出菜单（任一回调存在才渲染） */}
-							{actions && (actions.onRename || actions.onRestart || actions.onCompact || actions.onClone || actions.onCopyMarkdown || actions.onExportHtml || actions.onDuplicate || actions.onDelete || actions.onRefreshMessages) ? (
+							{/* P1/P3 + 第二批合并：会话动作与全局入口共用一个溢出菜单，标签分组。
+							    窄屏头部固定单行不换行；触屏无 tooltip，分组标签代替记忆。 */}
+							{hasSessionMenuActions || hasGlobalMenuEntries ? (
 								<DropdownMenu>
 									<DropdownMenuTrigger asChild>
-										<Button type="button" variant="ghost" size="icon" className="size-8 shrink-0 text-muted-foreground hover:bg-muted/60 hover:text-foreground pointer-coarse:size-9" aria-label={t("web.sessionMenu")} title={t("web.sessionMenu")}>
-											<MoreHorizontal className="size-4" aria-hidden="true" />
-										</Button>
-									</DropdownMenuTrigger>
-									<DropdownMenuContent align="end" className="w-52">
-										{actions.onRename ? (
-											<DropdownMenuItem onClick={actions.onRename}>
-												<Pencil className="size-4" aria-hidden="true" />
-												{t("web.rename")}
-											</DropdownMenuItem>
-										) : null}
-										{actions.onDuplicate ? (
-											<DropdownMenuItem onClick={actions.onDuplicate}>
-												<Copy className="size-4" aria-hidden="true" />
-												{t("web.duplicate")}
-											</DropdownMenuItem>
-										) : null}
-										{actions.onExportHtml ? (
-											<DropdownMenuItem onClick={actions.onExportHtml}>
-												<FileDown className="size-4" aria-hidden="true" />
-												{t("web.exportHtml")}
-											</DropdownMenuItem>
-										) : null}
-										{actions.onCopyMarkdown ? (
-											<DropdownMenuItem onClick={actions.onCopyMarkdown}>
-												<ClipboardCopy className="size-4" aria-hidden="true" />
-												{t("web.copyMarkdown")}
-											</DropdownMenuItem>
-										) : null}
-										{actions.onRefreshMessages ? (
-											<DropdownMenuItem onClick={actions.onRefreshMessages}>
-												<RefreshCw className="size-4" aria-hidden="true" />
-												{t("web.refreshMessages")}
-											</DropdownMenuItem>
-										) : null}
-										{actions.onRestart || actions.onCompact || actions.onClone ? <DropdownMenuSeparator /> : null}
-										{actions.onRestart ? (
-											<DropdownMenuItem onClick={actions.onRestart}>
-												<RotateCw className="size-4" aria-hidden="true" />
-												{t("web.restartRuntime")}
-											</DropdownMenuItem>
-										) : null}
-										{actions.onCompact ? (
-											<DropdownMenuItem onClick={actions.onCompact}>
-												<FoldVertical className="size-4" aria-hidden="true" />
-												{t("web.compactContext")}
-											</DropdownMenuItem>
-										) : null}
-										{actions.onClone ? (
-											<DropdownMenuItem onClick={actions.onClone}>
-												<GitFork className="size-4" aria-hidden="true" />
-												{t("web.cloneSession")}
-											</DropdownMenuItem>
-										) : null}
-										{actions.onDelete ? (
-											<>
-												<DropdownMenuSeparator />
-												<DropdownMenuItem className="text-danger focus:text-danger" onClick={actions.onDelete}>
-													<Trash2 className="size-4" aria-hidden="true" />
-													{t("web.deleteSession")}
-												</DropdownMenuItem>
-											</>
-										) : null}
-									</DropdownMenuContent>
-								</DropdownMenu>
-							) : null}
-							{/* 第二批：全局入口（搜索/主题/安装/技能）收敛进溢出菜单——窄屏头部固定单行不换行（竖三点区分会话菜单的横三点） */}
-							{onOpenSearch || onCycleTheme || (canInstall && onInstall) || onOpenAssets ? (
-								<DropdownMenu>
-									<DropdownMenuTrigger asChild>
-										<Button type="button" variant="ghost" size="icon" className="size-8 shrink-0 text-muted-foreground hover:bg-muted/60 hover:text-foreground pointer-coarse:size-9" aria-label={t("web.globalMenu")} title={t("web.globalMenu")}>
+										<Button type="button" variant="ghost" size="icon" className="size-8 shrink-0 text-muted-foreground hover:bg-muted/60 hover:text-foreground pointer-coarse:size-9" aria-label={t("web.moreActions")} title={t("web.moreActions")}>
 											<EllipsisVertical className="size-4" aria-hidden="true" />
 										</Button>
 									</DropdownMenuTrigger>
 									<DropdownMenuContent align="end" className="w-52">
-										{onOpenSearch ? (
-											<DropdownMenuItem onClick={onOpenSearch}>
-												<Search className="size-4" aria-hidden="true" />
-												{t("web.searchTitle")}
-											</DropdownMenuItem>
+										{/* 内联条件保留 actions 的类型收窄（布尔值收窄不了 undefined） */}
+										{actions && (actions.onRename || actions.onRestart || actions.onCompact || actions.onClone || actions.onCopyMarkdown || actions.onExportHtml || actions.onDuplicate || actions.onDelete || actions.onRefreshMessages) ? (
+											<>
+												<DropdownMenuLabel className="text-micro font-medium text-muted-foreground">{t("web.sessionMenu")}</DropdownMenuLabel>
+												{actions.onRename ? (
+													<DropdownMenuItem onClick={actions.onRename}>
+														<Pencil className="size-4" aria-hidden="true" />
+														{t("web.rename")}
+													</DropdownMenuItem>
+												) : null}
+												{actions.onDuplicate ? (
+													<DropdownMenuItem onClick={actions.onDuplicate}>
+														<Copy className="size-4" aria-hidden="true" />
+														{t("web.duplicate")}
+													</DropdownMenuItem>
+												) : null}
+												{actions.onExportHtml ? (
+													<DropdownMenuItem onClick={actions.onExportHtml}>
+														<FileDown className="size-4" aria-hidden="true" />
+														{t("web.exportHtml")}
+													</DropdownMenuItem>
+												) : null}
+												{actions.onCopyMarkdown ? (
+													<DropdownMenuItem onClick={actions.onCopyMarkdown}>
+														<ClipboardCopy className="size-4" aria-hidden="true" />
+														{t("web.copyMarkdown")}
+													</DropdownMenuItem>
+												) : null}
+												{actions.onRefreshMessages ? (
+													<DropdownMenuItem onClick={actions.onRefreshMessages}>
+														<RefreshCw className="size-4" aria-hidden="true" />
+														{t("web.refreshMessages")}
+													</DropdownMenuItem>
+												) : null}
+												{actions.onRestart || actions.onCompact || actions.onClone ? <DropdownMenuSeparator /> : null}
+												{actions.onRestart ? (
+													<DropdownMenuItem onClick={actions.onRestart}>
+														<RotateCw className="size-4" aria-hidden="true" />
+														{t("web.restartRuntime")}
+													</DropdownMenuItem>
+												) : null}
+												{actions.onCompact ? (
+													<DropdownMenuItem onClick={actions.onCompact}>
+														<FoldVertical className="size-4" aria-hidden="true" />
+														{t("web.compactContext")}
+													</DropdownMenuItem>
+												) : null}
+												{actions.onClone ? (
+													<DropdownMenuItem onClick={actions.onClone}>
+														<GitFork className="size-4" aria-hidden="true" />
+														{t("web.cloneSession")}
+													</DropdownMenuItem>
+												) : null}
+												{actions.onDelete ? (
+													<>
+														<DropdownMenuSeparator />
+														<DropdownMenuItem className="text-danger focus:text-danger" onClick={actions.onDelete}>
+															<Trash2 className="size-4" aria-hidden="true" />
+															{t("web.deleteSession")}
+														</DropdownMenuItem>
+													</>
+												) : null}
+											</>
 										) : null}
-										{onCycleTheme ? (
-											<DropdownMenuItem onClick={onCycleTheme}>
-												{themePreference === "light" ? <Sun className="size-4" aria-hidden="true" /> : themePreference === "dark" ? <Moon className="size-4" aria-hidden="true" /> : <Monitor className="size-4" aria-hidden="true" />}
-												{t("web.themeToggle")} · {t(themePreference === "light" ? "web.themeLight" : themePreference === "dark" ? "web.themeDark" : "web.themeSystem")}
-											</DropdownMenuItem>
-										) : null}
-										{canInstall && onInstall ? (
-											<DropdownMenuItem onClick={onInstall}>
-												<Download className="size-4" aria-hidden="true" />
-												{t("web.installApp")}
-											</DropdownMenuItem>
-										) : null}
-										{onOpenAssets ? (
-											<DropdownMenuItem onClick={onOpenAssets}>
-												<Puzzle className="size-4" aria-hidden="true" />
-												{t("web.assetsTitle")}
-											</DropdownMenuItem>
+										{hasGlobalMenuEntries ? (
+											<>
+												{hasSessionMenuActions ? <DropdownMenuSeparator /> : null}
+												<DropdownMenuLabel className="text-micro font-medium text-muted-foreground">{t("web.globalMenu")}</DropdownMenuLabel>
+												{onOpenSearch ? (
+													<DropdownMenuItem onClick={onOpenSearch}>
+														<Search className="size-4" aria-hidden="true" />
+														{t("web.searchTitle")}
+													</DropdownMenuItem>
+												) : null}
+												{onCycleTheme ? (
+													<DropdownMenuItem onClick={onCycleTheme}>
+														{themePreference === "light" ? <Sun className="size-4" aria-hidden="true" /> : themePreference === "dark" ? <Moon className="size-4" aria-hidden="true" /> : <Monitor className="size-4" aria-hidden="true" />}
+														{t("web.themeToggle")} · {t(themePreference === "light" ? "web.themeLight" : themePreference === "dark" ? "web.themeDark" : "web.themeSystem")}
+													</DropdownMenuItem>
+												) : null}
+												{canInstall && onInstall ? (
+													<DropdownMenuItem onClick={onInstall}>
+														<Download className="size-4" aria-hidden="true" />
+														{t("web.installApp")}
+													</DropdownMenuItem>
+												) : null}
+												{onOpenAssets ? (
+													<DropdownMenuItem onClick={onOpenAssets}>
+														<Puzzle className="size-4" aria-hidden="true" />
+														{t("web.assetsTitle")}
+													</DropdownMenuItem>
+												) : null}
+											</>
 										) : null}
 									</DropdownMenuContent>
 								</DropdownMenu>

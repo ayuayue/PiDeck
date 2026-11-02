@@ -135,6 +135,7 @@ test("fork replay carries message attachments to the new session composer", asyn
 	const hook = load("src/renderer/src/hooks/useSessionHistoryMutations.ts").useSessionHistoryMutations({
 		currentSessionId: "source",
 		getRuntimeTargetForSession: () => sourceTarget,
+		isSessionRuntimeLive: () => true,
 		isAgentCurrentlyBusy: () => false,
 		resolveProjectId: () => "project-1",
 		openReplacedRuntimeSession: async (_projectId, targetSessionId) => {

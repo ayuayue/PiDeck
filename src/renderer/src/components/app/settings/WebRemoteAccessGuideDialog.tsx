@@ -60,6 +60,7 @@ function GuideStep({ index, children }: { index: number; children: React.ReactNo
 export const WebRemoteAccessGuideDialog = memo(function WebRemoteAccessGuideDialog(props: { open: boolean; onOpenChange: (open: boolean) => void; tab: RemoteAccessGuideTab; onTabChange: (tab: RemoteAccessGuideTab) => void }) {
 	return (
 		<Dialog open={props.open} onOpenChange={props.onOpenChange}>
+			{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 			<DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
 				<DialogHeader>
 					<DialogTitle>{t("settings.remote.guide.title")}</DialogTitle>

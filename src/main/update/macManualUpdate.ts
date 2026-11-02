@@ -108,6 +108,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }
 
+/** 任意错误 → 可读消息（跨 realm 的错误不满足 instanceof，仍优先保留 message）。 */
+function toErrorMessage(error: unknown): string {
+	if (error instanceof Error) return error.message;
+	if (isRecord(error) && typeof error.message === "string") return error.message;
+	return String(error);
+}
+
 /** 优先从 GitHub 风格的最终 URL 取版本；取不到再读 JSON 的 tag_name（AtomGit OpenAPI）。 */
 export function resolveLatestReleaseVersion(response: Pick<LatestReleaseResponse, "url" | "body">): string | null {
 	return parseGitHubReleaseVersion(response.url) ?? (response.body ? parseLatestReleaseTagFromJson(response.body) : null);
@@ -137,15 +144,18 @@ export function shouldReadJsonBody(url: string, contentType: string): boolean {
  * 发现新版本时再取一次资产（GitHub 走 REST latest，AtomGit 的 OpenAPI 正文已含 assets）。
  * AtomGit 源的网页 `/releases/latest` 是 SPA 壳，地址不会变成 `/releases/tag/vX.Y.Z`，
  * 必须走 OpenAPI `.../releases/latest` 读 `tag_name`（与 CHANGELOG / 扩展热更新同一原因）。
+ * Electron 的 net.fetch() 不保证回填重定向后的 response.url：GitHub 的 HTML 302 拿不到
+ * tag 时改用 REST latest 的 `tag_name` 兜底，不能因为 URL 为空就整次检查失败。
+ * 镜像源返回 429/5xx/SPA 壳时退回官方 GitHub 再查一次（更新源是优先级，不是硬失败）。
  * dev：GitHub `/releases/latest` 恒指向最新 **stable** release，dev 的 0.8.0-beta.*
- * 永不出现在那里 —— 必须拉 releases 全量列表并按 prerelease 过滤取最新
- * （复用任务 6 的通道过滤思路；镜像源无 prerelease feed，dev 不适用）。
+ * 永不出现在那里 —— 官方源必须拉 releases 全量列表并按 prerelease 过滤取最新；
+ * 镜像源没有 prerelease feed，按镜像 latest 检查（与 stable 同一路径）。
  */
 export function createManualUpdateChecker(options?: {
 	fetchLatestRelease?: LatestReleaseFetcher;
-	/** 更新通道（装配注入）；dev 走 releases 列表选 prerelease，stable 照旧 /latest。 */
+	/** 更新通道（装配注入）；dev + 官方源走 releases 列表选 prerelease，其余照旧 /latest。 */
 	channel?: UpdateChannel;
-	/** dev 通道的 releases 列表拉取（测试桩注入；真实实现走 GitHub API）。 */
+	/** dev + 官方源时的 releases 列表拉取（测试桩注入；真实实现走 GitHub API）。 */
 	fetchReleases?: ReleasesListFetcher;
 	/** 平台/架构（测试注入；默认当前进程，用于资产名匹配）。 */
 	platform?: NodeJS.Platform;
@@ -210,39 +220,91 @@ export function createManualUpdateChecker(options?: {
 		return version === "" ? null : version;
 	};
 
+	/** dev + 官方源的检查路径：拉 releases 全量列表选最新 prerelease（/latest 恒指 stable）。 */
+	const checkGithubPrereleases = async (currentVersion: string): Promise<ManualReleaseCheckResult> => {
+		const response = await fetchReleases(GITHUB_RELEASES_API);
+		if (!response.ok) {
+			throw new Error(`Dev prerelease list request failed (${response.status}).`);
+		}
+		let releases: GithubReleaseLike[];
+		try {
+			releases = toReleaseList(response.body ? JSON.parse(response.body) : []);
+		} catch {
+			throw new Error("Dev prerelease list response was not valid JSON.");
+		}
+		const newest = selectNewestRelease(releases, "dev");
+		const latestVersion = readLatestReleaseVersion(newest);
+		if (!latestVersion) {
+			throw new Error("Dev channel has no prerelease release.");
+		}
+		return {
+			latestVersion,
+			hasUpdate: compareVersions(latestVersion, currentVersion) > 0,
+			recommendedDownload: tryResolveRecommended(newest, "github"),
+		};
+	};
+
 	return async (currentVersion: string, latestReleaseUrl?: string): Promise<ManualReleaseCheckResult> => {
-		if (channel === "dev") {
-			// dev 从 releases 全量列表选最新 prerelease；不依赖 /latest 302（它恒指 stable）。
-			const response = await fetchReleases(GITHUB_RELEASES_API);
-			if (!response.ok) {
-				throw new Error(`Dev prerelease list request failed (${response.status}).`);
-			}
-			let releases: GithubReleaseLike[];
-			try {
-				releases = toReleaseList(response.body ? JSON.parse(response.body) : []);
-			} catch {
-				throw new Error("Dev prerelease list response was not valid JSON.");
-			}
-			const newest = selectNewestRelease(releases, "dev");
-			const latestVersion = readLatestReleaseVersion(newest);
-			if (!latestVersion) {
-				throw new Error("Dev channel has no prerelease release.");
-			}
-			return {
-				latestVersion,
-				hasUpdate: compareVersions(latestVersion, currentVersion) > 0,
-				recommendedDownload: tryResolveRecommended(newest, "github"),
-			};
+		// dev 通道只有官方 GitHub 源需要拉 releases 全量列表选 prerelease；镜像源没有预发布
+		// 产物，按镜像 latest 检查（与 stable 同一路径），避免 dev 用户选镜像后检查直接失败。
+		if (channel === "dev" && !latestReleaseUrl) {
+			return checkGithubPrereleases(currentVersion);
 		}
 
-		const source: UpdateSourceId = latestReleaseUrl ? "atomgit" : "github";
-		const response = await fetchLatestRelease(latestReleaseUrl ?? MAC_MANUAL_LATEST_RELEASE_URL);
-		if (!response.ok) {
-			throw new Error(`Latest release request failed (${response.status}).`);
+		let source: UpdateSourceId = latestReleaseUrl ? "atomgit" : "github";
+		let response: LatestReleaseResponse | null = null;
+		let fetchError: unknown = null;
+		try {
+			response = await fetchLatestRelease(latestReleaseUrl ?? MAC_MANUAL_LATEST_RELEASE_URL);
+		} catch (error) {
+			fetchError = error;
 		}
-		let latestVersion = resolveLatestReleaseVersion(response);
+		let latestVersion = response?.ok ? resolveLatestReleaseVersion(response) : null;
+		// 镜像失败时保留原因，最终错误里同时带上两条链路的状态。
+		const mirrorFailed = Boolean(latestReleaseUrl) && (!response || !response.ok || !latestVersion);
+		const mirrorFailure = mirrorFailed ? (response && !response.ok ? `HTTP ${response.status}` : fetchError ? toErrorMessage(fetchError) : "unresolved response") : null;
+
+		// 镜像不可用（429 限流 / 5xx / 网络失败 / SPA 壳）时退回官方 GitHub 再查一次：
+		// 更新源是「优先走哪条路」而不是硬失败，镜像挂掉不该让用户彻底看不到新版本。
+		if (source === "atomgit" && mirrorFailed) {
+			// dev 的镜像没有预发布产物；镜像不可用时优先回到 GitHub 的 prerelease 列表，
+			// 保持 dev 通道语义，而不是退化成 stable /latest。
+			if (channel === "dev") return checkGithubPrereleases(currentVersion);
+			source = "github";
+			response = null;
+			fetchError = null;
+			try {
+				response = await fetchLatestRelease(MAC_MANUAL_LATEST_RELEASE_URL);
+			} catch (error) {
+				fetchError = error;
+			}
+			latestVersion = response?.ok ? resolveLatestReleaseVersion(response) : null;
+		}
+
+		let release = response?.body ? parseLatestReleaseJson(response.body) : null;
+		// Electron 43 的 net.fetch() 不保证回填重定向后的 response.url：GitHub 的 /latest
+		// 是 HTML 302，拿不到 tag URL 时改读 REST latest 的 tag_name（正文同时带 assets，
+		// 后续推荐安装包无需再请求一次）。国内直连 GitHub HTML 超时也走这条兜底。
+		let releaseApiTried = false;
+		let apiFailure: string | null = null;
+		if (!latestVersion && source === "github") {
+			releaseApiTried = true;
+			try {
+				const apiResponse = await fetchLatestRelease(GITHUB_LATEST_RELEASE_API);
+				if (apiResponse.ok && apiResponse.body) {
+					release = parseLatestReleaseJson(apiResponse.body);
+					latestVersion = readLatestReleaseVersion(release);
+				} else if (!apiResponse.ok) {
+					apiFailure = `HTTP ${apiResponse.status}`;
+				}
+			} catch (error) {
+				apiFailure = toErrorMessage(error);
+			}
+		}
 		if (!latestVersion) {
-			throw new Error("Latest release response did not resolve to a release tag.");
+			const githubFailure = apiFailure ?? (response && !response.ok ? `HTTP ${response.status}` : fetchError ? toErrorMessage(fetchError) : "unresolved response");
+			const detail = mirrorFailure ? ` (mirror: ${mirrorFailure}; GitHub: ${githubFailure})` : ` (${githubFailure})`;
+			throw new Error(`Latest release response did not resolve to a release tag.${detail}`);
 		}
 		let hasUpdate = compareVersions(latestVersion, currentVersion) > 0;
 		if (!hasUpdate || !target) {
@@ -251,7 +313,6 @@ export function createManualUpdateChecker(options?: {
 
 		// AtomGit 的 OpenAPI latest 正文里已经带 assets；GitHub 的 /latest 是 HTML 重定向，
 		// 只有发现新版本时才补一次 REST latest（避免每次检查都吃 API 配额）。
-		let release = response.body ? parseLatestReleaseJson(response.body) : null;
 		const embeddedVersion = readLatestReleaseVersion(release);
 		if (embeddedVersion && compareVersions(embeddedVersion, latestVersion) >= 0) {
 			latestVersion = embeddedVersion;
@@ -260,7 +321,7 @@ export function createManualUpdateChecker(options?: {
 			// 正文比重定向版本旧（发布切换瞬间）：不用它做推荐，避免推荐低版本。
 			release = null;
 		}
-		if (!release && source === "github") {
+		if (!release && source === "github" && !releaseApiTried) {
 			try {
 				const assetResponse = await fetchLatestRelease(GITHUB_LATEST_RELEASE_API);
 				if (assetResponse.ok && assetResponse.body) {

@@ -8,8 +8,8 @@
  * 交互：点击项目行 = 展开/收起；点击项目行内的 "+" = 新建会话（POST /api/sessions）；
  * 点击会话行 = 打开会话（切 activeSessionId）。
  */
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, Download, FolderPlus, GitFork, MoreVertical, Pencil, Play, Plus, Search, Trash2, X } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { Check, ChevronDown, CirclePlus, Copy, Download, FolderPlus, GitFork, MoreVertical, Pencil, Play, Plus, Search, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui-shadcn/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui-shadcn/alert-dialog";
 import { Input } from "@/components/ui-shadcn/input";
@@ -17,12 +17,16 @@ import { t } from "@/i18n";
 import { WebBrandLockup } from "./WebBrandLockup";
 import { WebBottomSheet } from "./WebBottomSheet";
 import { WEB_SIDEBAR_INITIAL_VISIBLE, growSidebarWindow, resolveSidebarWindow } from "./webSidebarPaging";
+import { groupWebSessionsByParent } from "./webSidebarSessions";
 import { cn } from "@/lib/utils";
 import { sessionStatusDotClass } from "@/agentListDisplay";
-import { SessionBackendMark } from "@/components/session/SessionSourceBadge";
-import type { WebProject, WebRuntime, WebSession, WebState } from "./webTypes";
+import { WebBackendMark } from "./WebBackendMark";
+import type { WebAcpTool, WebProject, WebRuntime, WebSession, WebState } from "./webTypes";
 
-const projectRowClass = "conversation relative w-full min-h-9 items-center gap-1.5 rounded-lg border border-transparent bg-background px-3 py-1 text-left text-body text-foreground shadow-none transition-[background-color,border-color] duration-200 hover:border-border-subtle hover:bg-muted/60 hover:text-foreground";
+/* 行本体透明（dsh-web 列表语言：扁平行融入 layer-2 面，hover/选中才铺填充）；
+   白卡 pill 观感来自 bg-background，2026-10 侧栏走查后回收。
+   px-2 + 16px 折叠盒收紧缩进链：窄抽屉里项目名不能被推出半屏。 */
+const projectRowClass = "conversation relative w-full min-h-9 items-center gap-1.5 rounded-lg border border-transparent px-2 py-1 text-left text-body text-foreground shadow-none transition-[background-color,border-color] duration-200 hover:border-border-subtle hover:bg-muted/60 hover:text-foreground";
 
 const sessionRowClass = "conversation agent-row relative flex min-h-7 w-full items-center gap-1.5 rounded-md border border-transparent px-2 py-0 text-left text-body text-foreground shadow-none transition-[background-color,border-color] duration-200 hover:border-border-subtle hover:bg-muted/60 hover:text-foreground";
 
@@ -53,15 +57,37 @@ export type WebSessionRowAction = "rename" | "duplicate" | "export" | "delete";
  * 抽屉首次布局时就会命中 rootMargin，展开一个大项目会被连续补页成几十上百行（实测「聊天」
  * 115 条展开即 57 行），体感等同「一次性全加载」，既慢又丢掉了「先看最近一页」的信息层级。
  * 单项目 400+ 条会话若全渲染会造 4000+ DOM 节点（实测 258ms 卡顿），分页同时守住渲染成本。
+ *
+ * 子代理会话（parentSessionId 指向本列表里的父会话）折叠到父行下，父行右侧胶囊显示数量；
+ * 默认收起、不占分页额度——一个项目 80+ 条子会话曾把列表撑成一整屏。
  */
-function SessionRows(props: { sessions: WebSession[]; runtimeFor: (sessionId: string) => WebRuntime | undefined; activeSessionId: string; searching: boolean; onSelect: (sessionId: string) => void; onSessionAction?: (action: WebSessionRowAction, sessionId: string) => void }) {
-	const { sessions, runtimeFor, activeSessionId, searching, onSelect, onSessionAction } = props;
+function SessionRows(props: { sessions: WebSession[]; runtimeFor: (sessionId: string) => WebRuntime | undefined; activeSessionId: string; searching: boolean; acpTools?: WebAcpTool[]; onSelect: (sessionId: string) => void; onSessionAction?: (action: WebSessionRowAction, sessionId: string) => void }) {
+	const { sessions, runtimeFor, activeSessionId, searching, acpTools, onSelect, onSessionAction } = props;
 	// requested 是「用户点了几次查看更多」的累计目标条数；进入/退出搜索时回到首页。
 	const [requested, setRequested] = useState(WEB_SIDEBAR_INITIAL_VISIBLE);
 	useEffect(() => setRequested(WEB_SIDEBAR_INITIAL_VISIBLE), [searching]);
-	const window_ = resolveSidebarWindow({ total: sessions.length, requested, searching });
-	const visible = sessions.slice(0, window_.visibleCount);
+	// 子代理会话折叠到父行下（桌面 SessionTree 同一语义）：分页窗口按顶层行计，
+	// 子会话默认不占列表长度——一个项目 80+ 条子会话曾把列表撑成一整屏。
+	const tree = useMemo(() => groupWebSessionsByParent(sessions), [sessions]);
+	const window_ = resolveSidebarWindow({ total: tree.roots.length, requested, searching });
+	const visible = tree.roots.slice(0, window_.visibleCount);
 	const hiddenCount = window_.remaining;
+	/** 已手动展开的父会话分组；搜索态一律展开，否则命中的子会话藏在折叠里等于搜不到。 */
+	const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(() => new Set());
+	const activeRootId = tree.rootByChildId.get(activeSessionId);
+	useEffect(() => {
+		// 切到子会话时展开它的父分组一次，否则当前行藏起来、用户看不出自己在哪。
+		if (!activeRootId) return;
+		setExpandedGroups((current) => (current.has(activeRootId) ? current : new Set(current).add(activeRootId)));
+	}, [activeRootId]);
+	const toggleGroup = (sessionId: string) => {
+		setExpandedGroups((current) => {
+			const next = new Set(current);
+			if (next.has(sessionId)) next.delete(sessionId);
+			else next.add(sessionId);
+			return next;
+		});
+	};
 	// 会话操作面板：移动端底部滑出、桌面居中卡片（WebBottomSheet 两形态），
 	// 替代 DropdownMenu——触屏无 hover 看不见触发钮，且菜单会从侧栏右缘弹出遮挡聊天区。
 	const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
@@ -70,36 +96,67 @@ function SessionRows(props: { sessions: WebSession[]; runtimeFor: (sessionId: st
 		if (menuSessionId) onSessionAction?.(action, menuSessionId);
 		setMenuSessionId(null);
 	};
+	/**
+	 * 单行渲染：顶层行可带子会话折叠胶囊，子行缩进一层且不再有折叠胶囊。
+	 * 折叠胶囊与「更多操作」同为浮层外的行内按钮（button 不能嵌 button）。
+	 */
+	const renderRow = (session: WebSession, subagentCount: number, expanded: boolean) => {
+		const runtime = runtimeFor(session.id);
+		return (
+			<div key={session.id} className={cn(sessionRowClass, "session-row group/session", session.id === activeSessionId && selectedRowClass)} title={session.title}>
+				<button type="button" className="flex min-w-0 flex-1 items-center gap-1.5 pointer-coarse:min-h-10" onClick={() => onSelect(session.id)}>
+					{renderRuntimeStatusDot(runtime?.status)}
+					<div className="conversation-body min-w-0 flex-1">
+						<div className="conversation-title flex min-w-0 items-center gap-1.5">
+							<strong className={cn("min-w-0 flex-1 truncate", runtime ? "font-medium" : "font-normal text-muted-foreground/90")}>{session.title || t("common.untitled")}</strong>
+							{/* P3：fork 徽标（克隆/回退产生的分支会话） */}
+							{session.forked ? <GitFork className="size-3 shrink-0 text-muted-foreground" aria-label={t("web.forkedBadge")} /> : null}
+							{/* 后端标记（WebBackendMark）：dsh 鲸鱼 / acp 品牌图标 / imagegen 图标，pi 不署名 */}
+							<WebBackendMark backend={session.backend} acpToolId={session.acpToolId} acpTools={acpTools} className="size-4 shrink-0" />
+						</div>
+					</div>
+				</button>
+				{/* 子代理会话折叠胶囊：数量徽标 + 展开箭头，与桌面 SessionTree 的 subagent-inline-toggle 同语义 */}
+				{subagentCount > 0 ? (
+					<button
+						type="button"
+						className="flex h-5 shrink-0 items-center gap-0.5 rounded-full px-1.5 text-micro tabular-nums text-muted-foreground transition-colors hover:bg-muted hover:text-foreground pointer-coarse:h-8 pointer-coarse:px-2"
+						aria-expanded={expanded}
+						aria-label={t("app.piSubagentCount", { count: subagentCount })}
+						title={t("app.piSubagentCount", { count: subagentCount })}
+						onClick={(event) => {
+							event.stopPropagation();
+							toggleGroup(session.id);
+						}}
+					>
+						<ChevronDown className={cn("size-3 transition-transform", expanded && "rotate-180")} aria-hidden="true" />
+						{subagentCount}
+					</button>
+				) : null}
+				{onSessionAction ? (
+					<button
+						type="button"
+						className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted focus-visible:opacity-100 group-hover/session:opacity-100 [@media(hover:none)]:opacity-100 pointer-coarse:size-9 pointer-coarse:-my-1"
+						aria-label={t("web.sessionMenu")}
+						title={t("web.sessionMenu")}
+						onClick={() => setMenuSessionId(session.id)}
+					>
+						<MoreVertical className="size-3.5" aria-hidden="true" />
+					</button>
+				) : null}
+			</div>
+		);
+	};
 	return (
 		<>
 			{visible.map((session) => {
-				const runtime = runtimeFor(session.id);
+				const children = tree.childrenByParentId.get(session.id) ?? [];
+				const expanded = children.length > 0 && (searching || expandedGroups.has(session.id));
 				return (
-					<div key={session.id} className={cn(sessionRowClass, "session-row group/session", session.id === activeSessionId && selectedRowClass)} title={session.title}>
-						<button type="button" className="flex min-w-0 flex-1 items-center gap-1.5 pointer-coarse:min-h-10" onClick={() => onSelect(session.id)}>
-							{renderRuntimeStatusDot(runtime?.status)}
-							<div className="conversation-body min-w-0 flex-1">
-								<div className="conversation-title flex min-w-0 items-center gap-1.5">
-									<strong className={cn("min-w-0 flex-1 truncate", runtime ? "font-medium" : "font-normal text-muted-foreground/90")}>{session.title || t("common.untitled")}</strong>
-									{/* P3：fork 徽标（克隆/回退产生的分支会话） */}
-									{session.forked ? <GitFork className="size-3 shrink-0 text-muted-foreground" aria-label={t("web.forkedBadge")} /> : null}
-									{/* 后端徽标（C18 同源）：dsh 会话显示鲸鱼 logo，pi 会话显示 pi logo */}
-									<SessionBackendMark backend={session.backend} className="size-4 shrink-0 rounded" />
-								</div>
-							</div>
-						</button>
-						{onSessionAction ? (
-							<button
-								type="button"
-								className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted focus-visible:opacity-100 group-hover/session:opacity-100 [@media(hover:none)]:opacity-100 pointer-coarse:size-9 pointer-coarse:-my-1"
-								aria-label={t("web.sessionMenu")}
-								title={t("web.sessionMenu")}
-								onClick={() => setMenuSessionId(session.id)}
-							>
-								<MoreVertical className="size-3.5" aria-hidden="true" />
-							</button>
-						) : null}
-					</div>
+					<Fragment key={session.id}>
+						{renderRow(session, children.length, expanded)}
+						{expanded ? <div className="ml-3 flex flex-col gap-0.5">{children.map((child) => renderRow(child, 0, false))}</div> : null}
+					</Fragment>
 				);
 			})}
 			{hiddenCount > 0 && (
@@ -197,6 +254,7 @@ export function WebSidebar(props: {
 
 	/** 项目按最近打开时间降序（chat 项目恒置顶），与桌面端按时间感知一致 */
 	const sortedProjects = useMemo(() => [...state.projects].sort((a, b) => Number(b.kind === "chat") - Number(a.kind === "chat") || (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0)), [state.projects]);
+	const newSessionProject = state.projects.find((project) => project.kind === "chat") ?? state.projects[0];
 
 	/** 会话按最近活动时间降序（最新在上） */
 	const sortedSessions = useMemo(() => [...state.sessions].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)), [state.sessions]);
@@ -255,8 +313,8 @@ export function WebSidebar(props: {
 		<>
 			<button type="button" className={cn("mobile-sidebar-backdrop", mobileOpen && "is-open")} onClick={props.onCloseMobile} aria-label={t("web.closeProjects")} />
 			<aside className={cn("chat-list-pane flex h-full min-w-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground", mobileOpen && "mobile-open")} aria-label={t("app.search")}>
-				{/* 品牌区提到 body 外，与桌面侧栏一致贴顶 */}
-				<div className="list-toolbar flex h-10 shrink-0 items-center gap-1 px-0.5">
+				{/* 品牌区提到 body 外，与桌面侧栏一致贴顶；px-2 与下方搜索框同缘对齐 */}
+				<div className="list-toolbar flex h-10 shrink-0 items-center gap-1 px-2">
 					<div className="app-badge flex min-w-0 flex-1 items-center">
 						<WebBrandLockup />
 					</div>
@@ -264,14 +322,30 @@ export function WebSidebar(props: {
 						<X className="size-4" aria-hidden="true" />
 					</Button>
 				</div>
-				<div className="sidebar-body flex min-h-0 flex-1 flex-col gap-2 px-2 py-1">
+				<div className="sidebar-body flex min-h-0 flex-1 flex-col gap-2 px-3 py-1">
+					{/* 高频动作独立于项目树：与首页直发同取内置 chat 项目，进入后直接聚焦输入；
+					    项目行右侧的 + 仍负责「在指定项目新建」。 */}
+					{newSessionProject ? (
+						<Button
+							type="button"
+							variant="outline"
+							size="lg"
+							className="mt-3 h-10 w-full shrink-0 justify-center gap-2 rounded-full border-transparent bg-background text-control font-medium text-foreground shadow-[0_-2px_2px_rgb(72_104_178/4%),0_2px_2px_rgb(106_111_117/9%),0_1px_2px_rgb(72_104_178/8%)] hover:bg-muted/50"
+							disabled={Boolean(creatingProjectId)}
+							onClick={() => props.onCreateSession(newSessionProject.id)}
+							title={t("app.newSession")}
+						>
+							{creatingProjectId === newSessionProject.id ? <span className="size-3.5 animate-pideck-spin rounded-full border border-current border-t-transparent" aria-hidden="true" /> : <CirclePlus className="size-4" aria-hidden="true" />}
+							{t("app.newSession")}
+						</Button>
+					) : null}
 					{/* 搜索行 */}
 					<div className="search-row grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
 						<div className="search-box relative min-w-0">
 							<Search size={14} className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
 							<Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("app.search")} className="h-9 pl-8" />
 						</div>
-						<Button type="button" variant="outline" size="icon" className="size-9 shrink-0" onClick={() => setAddingProject((value) => !value)} aria-label={t("web.newProject")} title={t("web.newProject")}>
+						<Button type="button" variant="ghost" size="icon" className="size-9 shrink-0 text-muted-foreground hover:text-foreground" onClick={() => setAddingProject((value) => !value)} aria-label={t("web.newProject")} title={t("web.newProject")}>
 							<FolderPlus className="size-4" aria-hidden="true" />
 						</Button>
 					</div>
@@ -293,6 +367,7 @@ export function WebSidebar(props: {
 						</form>
 					)}
 					{/* 项目/会话树 */}
+					{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 					<div className="conversation-list min-h-0 flex-1 overflow-y-auto">
 						{sortedProjects.map((project) => {
 							const projectSessions = sortedSessions.filter((session) => session.projectId === project.id).filter((session) => matchesSearch(session.title || session.id, search.trim()));
@@ -301,9 +376,9 @@ export function WebSidebar(props: {
 							const creating = creatingProjectId === project.id;
 							return (
 								<div key={project.id} className="project-group mb-2">
-									<div className="project-row flex min-w-0 items-center gap-0.5">
+									<div className="project-row group/project flex min-w-0 items-center gap-0.5">
 										<button type="button" className={cn(projectRowClass, "flex min-h-8 min-w-0 flex-1")} disabled={Boolean(creatingProjectId)} onClick={() => toggleProject(project.id)} title={project.path}>
-											<span className={cn("project-fold grid size-5 place-items-center text-muted-foreground", !expanded && "folded")} aria-hidden="true">
+											<span className={cn("project-fold grid size-4 place-items-center text-muted-foreground", !expanded && "folded")} aria-hidden="true">
 												<PlayIcon expanded={expanded} />
 											</span>
 											<div className="conversation-body min-w-0 flex-1">
@@ -314,7 +389,8 @@ export function WebSidebar(props: {
 												</div>
 											</div>
 										</button>
-										<div className="project-row-actions flex shrink-0 items-center gap-0.5">
+										{/* 动作钮悬停显隐（与桌面侧栏同范式）；触屏（hover:none）与键盘焦点常显 */}
+										<div className="project-row-actions flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/project:opacity-100 [@media(hover:none)]:opacity-100">
 											<Button type="button" variant="ghost" size="icon" className="project-action size-7 pointer-coarse:size-9" disabled={Boolean(creatingProjectId)} title={t("app.newSession")} aria-label={t("app.newSession")} onClick={() => props.onCreateSession(project.id)}>
 												{creating ? <span className="size-3 animate-pideck-spin rounded-full border border-current border-t-transparent" aria-hidden="true" /> : <Plus className="size-3.5" aria-hidden="true" />}
 											</Button>
@@ -327,7 +403,7 @@ export function WebSidebar(props: {
 									</div>
 									{expanded && (
 										<div className="project-children mt-2 flex flex-col gap-2 px-1 pb-1">
-											<SessionRows sessions={projectSessions} runtimeFor={runtimeFor} activeSessionId={activeSessionId} searching={searching} onSelect={props.onSelectSession} onSessionAction={props.onSessionAction} />
+											<SessionRows sessions={projectSessions} runtimeFor={runtimeFor} activeSessionId={activeSessionId} searching={searching} acpTools={state.acpTools} onSelect={props.onSelectSession} onSessionAction={props.onSessionAction} />
 											{projectSessions.length === 0 && <div className="px-6 py-1 text-caption text-muted-foreground">{t("web.noSessions")}</div>}
 										</div>
 									)}
@@ -349,7 +425,7 @@ export function WebSidebar(props: {
 									</div>
 								</div>
 								<div className="project-children mt-2 flex flex-col gap-2 px-1 pb-1">
-									<SessionRows sessions={ungroupedSessions} runtimeFor={runtimeFor} activeSessionId={activeSessionId} searching={searching} onSelect={props.onSelectSession} onSessionAction={props.onSessionAction} />
+									<SessionRows sessions={ungroupedSessions} runtimeFor={runtimeFor} activeSessionId={activeSessionId} searching={searching} acpTools={state.acpTools} onSelect={props.onSelectSession} onSessionAction={props.onSessionAction} />
 								</div>
 							</div>
 						)}
@@ -370,11 +446,14 @@ export function WebSidebar(props: {
 						</AlertDialogContent>
 					</AlertDialog>
 				</div>
-				{/* 底栏连接状态 */}
-				<div className="toolbar-actions sidebar-bottom-actions flex shrink-0 items-center gap-0.5 border-t border-border px-1.5 py-1">
+				{/* 底栏连接状态：px-2 与侧栏主体同缘 */}
+				<div className="toolbar-actions sidebar-bottom-actions flex shrink-0 items-center gap-0.5 border-t border-border px-2 py-1">
 					<div className="flex min-w-0 flex-1 items-center gap-2 text-caption text-muted-foreground">
-						<span className={cn("size-1.5 shrink-0 rounded-full", connected ? "bg-primary" : "bg-warning")} aria-hidden="true" />
+						{/* 连接态语义色：已连接=success 绿（主色 ink 在新语义档下读不出「通」），连接中=warning */}
+						<span className={cn("size-1.5 shrink-0 rounded-full", connected ? "bg-success" : "bg-warning")} aria-hidden="true" />
 						<span className="truncate">{connected ? t("web.connected") : t("web.connecting")}</span>
+						{/* 宿主版本号：远程端排查「桌面是新版、手机看到旧版」时的第一眼线索 */}
+						{state.version ? <span className="ml-auto shrink-0 font-mono text-micro text-muted-foreground/70">v{state.version}</span> : null}
 					</div>
 				</div>
 			</aside>

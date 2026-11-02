@@ -139,6 +139,6 @@ test("接线：attach 截断信息进运行时窗口协议（main），渲染层
 	assert.match(manager, /dshRuntimeWindowFields\(\{\s*messageCount: runtime\.messages\.length/);
 	// 渲染层：windowStart 决定「还有更早历史」，windowStartFilePos 作为首次补页游标
 	const controller = read("src/renderer/src/hooks/useSessionTimelineController.ts");
-	assert.match(controller, /cachedEntry\.windowStart\s*\?\?\s*0\)\s*>\s*0/);
+	assert.match(controller, /cachedEntry\??\.windowStart\s*\?\?\s*0\)\s*>\s*0/);
 	assert.match(controller, /typeof cachedEntry\?\.windowStartFilePos === "number" \? cachedEntry\.windowStartFilePos : undefined/);
 });

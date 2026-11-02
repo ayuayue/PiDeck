@@ -201,6 +201,7 @@ export function ExternalEditorOverlay(props: ExternalEditorOverlayProps) {
 					<p className="mt-0.5 text-micro leading-4 text-muted-foreground">{t("app.openWithEditorNoProject")}</p>
 				)}
 			</div>
+			{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 			<div className="max-h-60 overflow-y-auto p-1">
 				{props.editors.length === 0 ? (
 					<div className="px-2 py-2 text-xs text-muted-foreground">{t("app.noExternalEditors")}</div>

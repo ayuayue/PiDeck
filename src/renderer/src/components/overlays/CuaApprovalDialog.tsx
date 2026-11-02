@@ -100,6 +100,7 @@ export function CuaApprovalDialog(props: { request: CuaApprovalPayload | null; p
 						{/* 详情区 */}
 						<div className="rounded-md border border-border-subtle bg-bg-muted px-2.5 py-2">
 							<div className="mb-1 text-micro font-semibold text-text-tertiary">{t("cua.approval.detail")}</div>
+							{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 							<pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-micro leading-relaxed text-text-primary">{formatDetail(request.detail)}</pre>
 						</div>
 

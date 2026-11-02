@@ -109,6 +109,7 @@ export function AutomationWorkspace(props: AutomationWorkspaceProps) {
 					)}
 				</TabsList>
 
+				{/* scroll-ok: nested —— 这个滚动窗里挂的是四个互斥 TabsContent（任务列表 / 编辑器 / 历史 / 设置），行由各自子组件渲染，本文件没有可交给 VirtualStack 的数组。 */}
 				<div className="min-h-0 flex-1 overflow-y-auto pr-1">
 					<TabsContent value="tasks" className="m-0 focus-visible:outline-none">
 						<AutomationTaskList projectId={props.projectId} onEditTask={openEdit} onCreateTask={openCreate} />

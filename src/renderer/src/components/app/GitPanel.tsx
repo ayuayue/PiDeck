@@ -17,7 +17,7 @@ import type { BranchDiffResult, CommitDetail, CommitEntry, GitAheadBehind, GitCh
 import { GitStatus } from "../../../../shared/types";
 import { EMPTY_GIT_COMMIT_COMPOSER, gitCommitComposerByScopeAtom, gitCommitScopeKey, openSettingsAtom, patchGitCommitComposer, type GitCommitComposerState } from "../../atoms";
 import { t } from "../../i18n";
-import { fileNameOnly, FileTree, getCollapsibleChangeDirs, ResourceGroup, ResourceRow } from "./git/GitResourceTree";
+import { fileNameOnly, ChangesGroupsStack, getCollapsibleChangeDirs, ResourceRow, type ChangesGroupSpec } from "./git/GitResourceTree";
 import { collectChangeTreeDirPaths, collectUnstagedResources, type GitChangeViewMode } from "./git/changeTree";
 import { GitCompactFilter, PaneHeader } from "./git/GitPanelControls";
 import { SourceControlGraph } from "./git/GitGraph";
@@ -76,7 +76,11 @@ function showCommitGenProgressToast(scopeKey: string) {
 function finishCommitGen(scopeKey: string, patch: Partial<GitCommitComposerState> = {}) {
 	inflightCommitGenScopes.delete(scopeKey);
 	dismissNotice(commitGenToastId(scopeKey));
-	patchGitCommitComposer(scopeKey, { generating: false, startedAt: undefined, ...patch });
+	patchGitCommitComposer(scopeKey, {
+		generating: false,
+		startedAt: undefined,
+		...patch,
+	});
 }
 
 type GitPanelProps = {
@@ -495,7 +499,10 @@ export function GitPanel(props: GitPanelProps) {
 	const aheadBehindInFlightRef = useRef<Promise<void> | null>(null);
 	// 已写入 localStorage 的角标快照：值没变就不重复写（localStorage 是渲染线程同步存储，
 	// 5 秒一次的无效写入既占主线程也没意义）。key 带上作用域，切项目/仓库时自然失效。
-	const aheadBehindPersistedRef = useRef<{ key: string; value: GitAheadBehind | null } | null>(null);
+	const aheadBehindPersistedRef = useRef<{
+		key: string;
+		value: GitAheadBehind | null;
+	} | null>(null);
 	// historyOnly 没有独立仓库标题；changesOnly 把仓库名并进分支栏，不再额外预留标题高度。
 	const panelChromeHeight = layout === "historyOnly" ? 0 : BRANCH_BAR_HEIGHT;
 	const statusRequestRef = useRef(0);
@@ -827,9 +834,6 @@ export function GitPanel(props: GitPanelProps) {
 		onRefsChanged: props.onRefsChanged,
 	});
 
-	const toggleResource = (key: keyof typeof resourceOpen) => {
-		setResourceOpen((current) => ({ ...current, [key]: !current[key] }));
-	};
 	const togglePane = (id: PaneId) => {
 		setPaneAnimSeq((v) => v + 1);
 		setPaneState((current) => {
@@ -958,6 +962,88 @@ export function GitPanel(props: GitPanelProps) {
 		setDeleteTarget(target);
 	}, []);
 
+	// 变更区三组的规格：合并后交给 ChangesGroupsStack 扁平虚拟化。
+	// 用 useMemo 稳定数组引用 —— ChangesGroupsStack 的 items memo 依赖它，每次
+	// render 新建数组会让虚拟行全量重算；批量动作走 actRef 保持引用稳定。
+	const changeGroupSpecs = useMemo<ChangesGroupSpec[]>(() => {
+		const mutatingNow = mutating || committing;
+		const specs: ChangesGroupSpec[] = [];
+		if (groups.merge.length > 0) {
+			specs.push({
+				key: "merge",
+				groupType: "merge",
+				title: t("git.mergeChanges"),
+				open: resourceOpen.merge,
+				onToggle: () => setResourceOpen((current) => ({ ...current, merge: !current.merge })),
+				resources: groups.merge,
+				readOnly: !gitCapabilities.write,
+			});
+		}
+		if (groups.index.length > 0) {
+			specs.push({
+				key: "staged",
+				groupType: "index",
+				title: t("git.stagedChanges"),
+				open: resourceOpen.staged,
+				onToggle: () =>
+					setResourceOpen((current) => ({
+						...current,
+						staged: !current.staged,
+					})),
+				resources: groups.index,
+				allAction: gitCapabilities.write
+					? () =>
+							actRef.current(() =>
+								props.unstageFiles(
+									props.projectId,
+									groups.index.map((resource) => resource.target),
+								),
+							)
+					: undefined,
+				allLabel: t("git.unstageAll"),
+				allDisabled: mutatingNow,
+				readOnly: !gitCapabilities.write,
+				unstageFile: gitCapabilities.write ? unstageFile : undefined,
+				deleteFile: props.deleteFiles && gitCapabilities.deleteFiles ? deleteFile : undefined,
+				onOpenFile: props.onOpenFile,
+			});
+		}
+		if (workingChanges.length > 0) {
+			specs.push({
+				key: "changes",
+				groupType: "workingTree",
+				title: t("git.unstagedChanges"),
+				open: resourceOpen.changes,
+				onToggle: () =>
+					setResourceOpen((current) => ({
+						...current,
+						changes: !current.changes,
+					})),
+				resources: workingChanges,
+				allAction: gitCapabilities.write
+					? () =>
+							actRef.current(() =>
+								props.stageFiles(
+									props.projectId,
+									workingChanges.map((resource) => resource.target),
+								),
+							)
+					: undefined,
+				allLabel: t("git.stageAll"),
+				allDisabled: mutatingNow,
+				readOnly: !gitCapabilities.write,
+				stageFile: gitCapabilities.write ? stageFile : undefined,
+				discardFile: gitCapabilities.write ? discardFile : undefined,
+				deleteFile: props.deleteFiles && gitCapabilities.deleteFiles ? deleteFile : undefined,
+				onOpenFile: props.onOpenFile,
+				stageDir: gitCapabilities.write ? stageFiles : undefined,
+				discardDir: gitCapabilities.write ? discardDir : undefined,
+			});
+		}
+		return specs;
+	}, [groups, workingChanges, resourceOpen, mutating, committing, gitCapabilities.write, gitCapabilities.deleteFiles, props.projectId, props.unstageFiles, props.stageFiles, props.deleteFiles, props.onOpenFile, unstageFile, deleteFile, stageFile, discardFile, stageFiles, discardDir]);
+	const changesScrollRef = useRef<HTMLDivElement | null>(null);
+
 	const runCommit = async (stageAll: boolean) => {
 		const message = commitMessage.trim();
 		if (!gitCapabilitiesRef.current.write) return;
@@ -974,7 +1060,9 @@ export function GitPanel(props: GitPanelProps) {
 			}
 			await props.commit(projectId, message);
 			// 提交成功清的是该仓库草稿，哪怕用户已经切到别的项目。
-			patchGitCommitComposer(gitCommitScopeKey(projectId, repoScopeKey), { message: "" });
+			patchGitCommitComposer(gitCommitScopeKey(projectId, repoScopeKey), {
+				message: "",
+			});
 			if (projectId !== projectIdRef.current) return;
 			await refresh();
 		} catch (caught) {
@@ -1062,7 +1150,10 @@ export function GitPanel(props: GitPanelProps) {
 		const scopeKey = gitCommitScopeKey(projectId, repoScopeKey);
 		if (inflightCommitGenScopes.has(scopeKey)) return;
 		inflightCommitGenScopes.add(scopeKey);
-		patchGitCommitComposer(scopeKey, { generating: true, startedAt: Date.now() });
+		patchGitCommitComposer(scopeKey, {
+			generating: true,
+			startedAt: Date.now(),
+		});
 		showCommitGenProgressToast(scopeKey);
 		try {
 			const result = await props.generateCommitMessage(projectId);
@@ -1131,7 +1222,10 @@ export function GitPanel(props: GitPanelProps) {
 					// 首次推送新分支：给“建立上游”引导而非裸报错；复制按钮可直接粘到终端执行。
 					const command = `git push --set-upstream origin ${props.currentBranch}`;
 					showNotice(
-						t("git.pushNoUpstreamDesc", { branch: props.currentBranch, command }),
+						t("git.pushNoUpstreamDesc", {
+							branch: props.currentBranch,
+							command,
+						}),
 						8000,
 						"error",
 						t("git.pushNoUpstreamTitle"),
@@ -1416,6 +1510,8 @@ export function GitPanel(props: GitPanelProps) {
 						)}
 						{branchOpen &&
 							createPortal(
+								// scroll-ok: transient —— 分支选择下拉：portal 里的一次性弹窗，点选即关、下次打开重建，
+								// 行的生命周期等于一次选择；虚拟器要的测量缓存与 ResizeObserver 在这类窗里没有收益。
 								<div ref={branchDropdownRef} className="z-50 max-h-[calc(100vh-16px)] max-w-[calc(100vw-16px)] overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md" style={branchDropdownStyle}>
 									{props.branches.map((branch) => (
 										<Button
@@ -1594,99 +1690,10 @@ export function GitPanel(props: GitPanelProps) {
 									</div>
 								)}
 
-								{/* scroll-ok: nested —— 里面是 FileTree（目录→文件两层嵌套，展开态决定行数）与 ResourceGroup。
-								    扁平化会破坏目录层级语义与折叠定位，需先做「树→扁平行」的通用件，未验证不改。 */}
-								<div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
-									{groups.merge.length > 0 && (
-										<ResourceGroup title={t("git.mergeChanges")} count={groups.merge.length} open={resourceOpen.merge} onToggle={() => toggleResource("merge")}>
-											<FileTree
-												resources={groups.merge}
-												groupType="merge"
-												onOpenWorkspaceFileDiff={props.onOpenWorkspaceFileDiff}
-												mutating={mutating || committing}
-												readOnly={!gitCapabilities.write}
-												projectRoot={props.projectRoot}
-												viewMode={changesViewMode}
-												collapsedDirs={collapsedChangeDirs}
-												onToggleDir={toggleChangeDir}
-											/>
-										</ResourceGroup>
-									)}
-									{groups.index.length > 0 && (
-										<ResourceGroup
-											title={t("git.stagedChanges")}
-											count={groups.index.length}
-											open={resourceOpen.staged}
-											onToggle={() => toggleResource("staged")}
-											allAction={
-												gitCapabilities.write
-													? () =>
-															act(() =>
-																props.unstageFiles(
-																	props.projectId,
-																	groups.index.map((resource) => resource.target),
-																),
-															)
-													: undefined
-											}
-											allLabel={t("git.unstageAll")}
-											allDisabled={mutating || committing}
-										>
-											<FileTree
-												resources={groups.index}
-												groupType="index"
-												onOpenWorkspaceFileDiff={props.onOpenWorkspaceFileDiff}
-												mutating={mutating || committing}
-												unstageFile={gitCapabilities.write ? unstageFile : undefined}
-												deleteFile={props.deleteFiles && gitCapabilities.deleteFiles ? deleteFile : undefined}
-												readOnly={!gitCapabilities.write}
-												onOpenFile={props.onOpenFile}
-												projectRoot={props.projectRoot}
-												viewMode={changesViewMode}
-												collapsedDirs={collapsedChangeDirs}
-												onToggleDir={toggleChangeDir}
-											/>
-										</ResourceGroup>
-									)}
-									{workingChanges.length > 0 && (
-										<ResourceGroup
-											title={t("git.unstagedChanges")}
-											count={workingChanges.length}
-											open={resourceOpen.changes}
-											onToggle={() => toggleResource("changes")}
-											allAction={
-												gitCapabilities.write
-													? () =>
-															act(() =>
-																props.stageFiles(
-																	props.projectId,
-																	workingChanges.map((resource) => resource.target),
-																),
-															)
-													: undefined
-											}
-											allLabel={t("git.stageAll")}
-											allDisabled={mutating || committing}
-										>
-											<FileTree
-												resources={workingChanges}
-												groupType="workingTree"
-												onOpenWorkspaceFileDiff={props.onOpenWorkspaceFileDiff}
-												mutating={mutating || committing}
-												stageFile={gitCapabilities.write ? stageFile : undefined}
-												discardFile={gitCapabilities.write ? discardFile : undefined}
-												deleteFile={props.deleteFiles && gitCapabilities.deleteFiles ? deleteFile : undefined}
-												readOnly={!gitCapabilities.write}
-												onOpenFile={props.onOpenFile}
-												projectRoot={props.projectRoot}
-												viewMode={changesViewMode}
-												collapsedDirs={collapsedChangeDirs}
-												onToggleDir={toggleChangeDir}
-												stageDir={gitCapabilities.write ? stageFiles : undefined}
-												discardDir={gitCapabilities.write ? discardDir : undefined}
-											/>
-										</ResourceGroup>
-									)}
+								{/* 变更区：三组折成一条扁平行列表走一个 VirtualStack（行内 Radix ContextMenu +
+					    Seti SVG 的行渲染代价随变更文件数线性增长，无虚拟化时几千文件即卡顿全应用）。 */}
+								<div ref={changesScrollRef} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+									<ChangesGroupsStack scrollRef={changesScrollRef} groups={changeGroupSpecs} viewMode={changesViewMode} collapsedDirs={collapsedChangeDirs} onToggleDir={toggleChangeDir} mutating={mutating || committing} onOpenWorkspaceFileDiff={props.onOpenWorkspaceFileDiff} projectRoot={props.projectRoot} />
 								</div>
 							</div>
 						)}

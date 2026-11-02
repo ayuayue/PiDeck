@@ -1,9 +1,10 @@
 /** Explicit local MCP consent and connection handoff, separate from ordinary remote templates. */
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Copy, Plus, RefreshCw, ShieldCheck } from "lucide-react";
 import { Button } from "../components/ui-shadcn/button";
 import { Checkbox } from "../components/ui-shadcn/checkbox";
 import { Label } from "../components/ui-shadcn/label";
+import { VirtualStack } from "../components/ui-shadcn/virtual-stack";
 import { desktopApi } from "../desktopApi";
 import { usePiDeckMcp } from "../hooks/usePiDeckMcp";
 import { t } from "../i18n";
@@ -11,6 +12,7 @@ import type { McpServerDefinition } from "../../../shared/types/mcp";
 
 export function PiDeckMcpPanel({ existingNames, disabled, onAdd }: { existingNames: ReadonlySet<string>; disabled: boolean; onAdd: (definition: McpServerDefinition) => Promise<boolean> }) {
 	const host = usePiDeckMcp();
+	const listRef = useRef<HTMLDivElement | null>(null);
 	const prefix = useId();
 	const [copied, setCopied] = useState(false);
 	const busy = disabled || host.busy;
@@ -62,13 +64,19 @@ export function PiDeckMcpPanel({ existingNames, disabled, onAdd }: { existingNam
 						{t("config.mcp.pideck.selectNone")}
 					</Button>
 				</div>
-				<div className="flex max-h-60 flex-col gap-2 overflow-y-auto">
-					{host.state?.projects.map((project, index) => (
-						<div key={project.id} className="flex shrink-0 items-center gap-2">
-							<Checkbox id={`${prefix}-${index}`} disabled={host.allProjects} checked={host.projectIds.includes(project.id)} onCheckedChange={(checked) => host.setProjectIds((ids) => (checked === true ? [...ids, project.id] : ids.filter((id) => id !== project.id)))} />
-							<Label htmlFor={`${prefix}-${index}`}>{project.name}</Label>
-						</div>
-					))}
+				<div ref={listRef} className="flex max-h-60 flex-col gap-2 overflow-y-auto">
+					<VirtualStack
+						items={host.state?.projects ?? []}
+						getKey={(project) => project.id}
+						scrollRef={listRef}
+						rowClassName="pb-2"
+						renderItem={(project, index) => (
+							<div className="flex shrink-0 items-center gap-2">
+								<Checkbox id={`${prefix}-${index}`} disabled={host.allProjects} checked={host.projectIds.includes(project.id)} onCheckedChange={(checked) => host.setProjectIds((ids) => (checked === true ? [...ids, project.id] : ids.filter((id) => id !== project.id)))} />
+								<Label htmlFor={`${prefix}-${index}`}>{project.name}</Label>
+							</div>
+						)}
+					/>
 				</div>
 			</fieldset>
 			<fieldset disabled={busy || !host.state} className="flex flex-col gap-2">

@@ -429,6 +429,7 @@ export const DshConfigTab = forwardRef<
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1">
 			{/* 左侧竖排导航：常驻（loading/error 时不隐藏），与 Pi 管理 config-sidebar 同款密度 */}
+			{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 			<nav className="flex min-h-0 w-40 shrink-0 flex-col gap-2.5 overflow-y-auto border-r border-border bg-transparent p-2.5" aria-label={t("config.dsh.title")}>
 				<div className="grid gap-0.5">
 					{NAV_ITEMS.map((item) => (
@@ -448,6 +449,7 @@ export const DshConfigTab = forwardRef<
 			</nav>
 
 			{/* 右侧内容区：loading/error 只影响内容，导航与概览保持可用 */}
+			{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 			<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
 				{loading && (
 					<div className="flex min-h-32 items-center justify-center gap-2 text-control text-muted-foreground">
@@ -461,6 +463,7 @@ export const DshConfigTab = forwardRef<
 						<p className="mt-1 text-caption leading-relaxed text-danger/90">{t("config.dsh.bootFailedHint")}</p>
 						{/* 真实失败原因：优先 host boot 详情（getStatus().bootError），退回 IPC 错误原文；
 						    失败是确定性的（runtime 损坏/依赖缺失等），重试前先让用户看到原因。 */}
+						{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 						{(status?.bootError || error) && <pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap rounded-sm border border-danger/20 bg-bg-panel/60 px-2.5 py-2 text-micro leading-relaxed text-danger/90">{status?.bootError || stripIpcErrorPrefix(error)}</pre>}
 						<div className="mt-2.5 flex gap-2">
 							<Button type="button" variant="secondary" size="sm" className="h-7" onClick={() => void load()}>

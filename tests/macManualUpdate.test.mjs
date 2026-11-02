@@ -297,3 +297,156 @@ test("dev channel reports the newest prerelease even when it has no matching ass
 	assert.equal(result.hasUpdate, true);
 	assert.equal(result.recommendedDownload, null);
 });
+
+test("manual checker falls back to REST latest when net.fetch does not expose the redirect URL", async () => {
+	// Electron 43 的 net.fetch() 跟随 302 后 response.url 为空：GitHub 的 HTML 重定向
+	// 拿不到 /releases/tag/vX.Y.Z，必须在报错前改读 REST latest 的 tag_name。
+	const requestedUrls = [];
+	const check = createManualUpdateChecker({
+		platform: "darwin",
+		arch: "arm64",
+		fetchLatestRelease: async (url) => {
+			requestedUrls.push(url);
+			if (url === MAC_MANUAL_LATEST_RELEASE_URL) {
+				return { ok: true, status: 200, url: "" };
+			}
+			assert.equal(url, GITHUB_LATEST_RELEASE_API);
+			return {
+				ok: true,
+				status: 200,
+				url,
+				body: JSON.stringify({
+					tag_name: "v0.9.2",
+					html_url: "https://github.com/ayuayue/PiDeck/releases/tag/v0.9.2",
+					assets: [{ name: "PiDeck-0.9.2-arm64.dmg", browser_download_url: "https://github.com/a/arm64.dmg" }],
+				}),
+			};
+		},
+	});
+
+	const result = await check("0.9.1");
+	assert.deepEqual(requestedUrls, [MAC_MANUAL_LATEST_RELEASE_URL, GITHUB_LATEST_RELEASE_API]);
+	assert.equal(result.latestVersion, "0.9.2");
+	assert.equal(result.hasUpdate, true);
+	assert.equal(result.recommendedDownload.assetName, "PiDeck-0.9.2-arm64.dmg");
+});
+
+test("manual checker falls back to GitHub when the AtomGit mirror is rate limited", async () => {
+	const apiUrl = "https://api.atomgit.com/api/v5/repos/ayuayue/PiDeck/releases/latest";
+	const requestedUrls = [];
+	const check = createManualUpdateChecker({
+		platform: "darwin",
+		arch: "arm64",
+		fetchLatestRelease: async (url) => {
+			requestedUrls.push(url);
+			if (url === apiUrl) return { ok: false, status: 429, url };
+			if (url === MAC_MANUAL_LATEST_RELEASE_URL) {
+				return { ok: true, status: 200, url: "https://github.com/ayuayue/PiDeck/releases/tag/v0.9.1" };
+			}
+			assert.equal(url, GITHUB_LATEST_RELEASE_API);
+			return {
+				ok: true,
+				status: 200,
+				url,
+				body: JSON.stringify({
+					tag_name: "v0.9.1",
+					assets: [{ name: "PiDeck-0.9.1-arm64.dmg", browser_download_url: "https://github.com/a/arm64.dmg" }],
+				}),
+			};
+		},
+	});
+
+	const result = await check("0.9.0", apiUrl);
+	assert.deepEqual(requestedUrls, [apiUrl, MAC_MANUAL_LATEST_RELEASE_URL, GITHUB_LATEST_RELEASE_API]);
+	assert.equal(result.latestVersion, "0.9.1");
+	assert.equal(result.hasUpdate, true);
+	assert.equal(result.recommendedDownload.assetName, "PiDeck-0.9.1-arm64.dmg");
+});
+
+test("dev channel uses the AtomGit latest release when a mirror source is configured", async () => {
+	const apiUrl = "https://api.atomgit.com/api/v5/repos/ayuayue/PiDeck/releases/latest";
+	const check = createManualUpdateChecker({
+		channel: "dev",
+		platform: "darwin",
+		arch: "arm64",
+		fetchReleases: async () => {
+			throw new Error("dev + mirror must not force the GitHub prerelease list");
+		},
+		fetchLatestRelease: async (url) => {
+			assert.equal(url, apiUrl);
+			return {
+				ok: true,
+				status: 200,
+				url: apiUrl,
+				body: JSON.stringify({
+					tag_name: "v0.9.1",
+					assets: [{ name: "PiDeck-0.9.1-arm64.dmg", browser_download_url: "https://atomgit.com/a/arm64.dmg" }],
+				}),
+			};
+		},
+	});
+
+	const result = await check("0.9.0-beta.2", apiUrl);
+	assert.equal(result.latestVersion, "0.9.1");
+	assert.equal(result.hasUpdate, true);
+	assert.equal(result.recommendedDownload.assetName, "PiDeck-0.9.1-arm64.dmg");
+});
+
+test("dev channel falls back to the GitHub prerelease list when the mirror is rate limited", async () => {
+	const apiUrl = "https://api.atomgit.com/api/v5/repos/ayuayue/PiDeck/releases/latest";
+	const requestedUrls = [];
+	const check = createManualUpdateChecker({
+		channel: "dev",
+		platform: "darwin",
+		arch: "arm64",
+		fetchLatestRelease: async (url) => {
+			assert.equal(url, apiUrl);
+			return { ok: false, status: 429, url };
+		},
+		fetchReleases: async (url) => {
+			requestedUrls.push(url);
+			return {
+				ok: true,
+				status: 200,
+				body: JSON.stringify([{ tag_name: "v0.9.1-beta.3", prerelease: true, assets: [] }]),
+			};
+		},
+	});
+
+	const result = await check("0.9.1-beta.2", apiUrl);
+	assert.deepEqual(requestedUrls, [GITHUB_RELEASES_API]);
+	assert.equal(result.latestVersion, "0.9.1-beta.3");
+	assert.equal(result.hasUpdate, true);
+});
+
+test("manual checker falls back to the REST API when the GitHub latest page is unreachable", async () => {
+	// 国内直连 github.com 的 HTML 页面可能超时，但 api.github.com 仍可用：
+	// 版本检查不能因为 /releases/latest 这一步网络失败就整体失败。
+	const requestedUrls = [];
+	const check = createManualUpdateChecker({
+		platform: "darwin",
+		arch: "arm64",
+		fetchLatestRelease: async (url) => {
+			requestedUrls.push(url);
+			if (url === MAC_MANUAL_LATEST_RELEASE_URL) {
+				throw new Error("net::ERR_CONNECTION_TIMED_OUT");
+			}
+			assert.equal(url, GITHUB_LATEST_RELEASE_API);
+			return {
+				ok: true,
+				status: 200,
+				url,
+				body: JSON.stringify({
+					tag_name: "v0.9.3",
+					assets: [{ name: "PiDeck-0.9.3-arm64.dmg", browser_download_url: "https://github.com/a/arm64.dmg" }],
+				}),
+			};
+		},
+	});
+
+	const result = await check("0.9.2");
+	assert.deepEqual(requestedUrls, [MAC_MANUAL_LATEST_RELEASE_URL, GITHUB_LATEST_RELEASE_API]);
+	assert.equal(result.latestVersion, "0.9.3");
+	assert.equal(result.hasUpdate, true);
+	assert.equal(result.recommendedDownload.assetName, "PiDeck-0.9.3-arm64.dmg");
+});

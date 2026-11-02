@@ -315,12 +315,12 @@ describe("Git panel VS Code Source Control contract", () => {
 	test("opens workspace resources into the middle workbench without drawer overlays", () => {
 		assert.match(resourceTree, /focus-visible:shadow-\[inset_var\(--focus-ring\)\]/);
 		// 未跟踪文件按实际状态传 untracked 组（否则服务端在 workingTree 组找不到而打不开）
-		assert.match(resourceTree, /props\.groupType === "workingTree" && r\.status === GitStatus\.UNTRACKED/);
+		assert.match(resourceTree, /ctx\.groupType === "workingTree" && r\.status === GitStatus\.UNTRACKED/);
 		assert.match(resourceTree, /"untracked"/);
-		assert.match(panel, /groupType="merge"/);
-		assert.match(panel, /groupType="index"/);
-		assert.match(panel, /groupType="workingTree"/);
-		assert.match(resourceTree, /groupType === "workingTree" \|\| props\.groupType === "untracked"/);
+		assert.match(panel, /groupType: "merge"/);
+		assert.match(panel, /groupType: "index"/);
+		assert.match(panel, /groupType: "workingTree"/);
+		assert.match(resourceTree, /ctx\.groupType === "workingTree" \|\| ctx\.groupType === "untracked"/);
 		assert.match(resourceTree, /kind: "stage"/);
 		assert.match(app, /api\.git\.workspaceFileDiff/);
 		assert.match(app, /setGitDrawerDiff\(\{[\s\S]*?projectId,[\s\S]*?filePath: diff\.path/);

@@ -32,6 +32,7 @@ import { pideckUsageProbesDir } from "../dsh/pideckDshHome";
 import { getPiAiCatalogIndex } from "../pi/piAiBuiltinCatalog";
 import { loadDshUsageProviderProfile } from "./dshUsageEndpoint";
 import type { ConfigProxyTarget } from "../sessions/sessionProxyPolicy";
+import type { WslEnvironment } from "../wsl/WslPaths";
 
 /** pi 全局配置目录：~/.pi/agent/ */
 const PI_AGENT_DIR = join(homedir(), ".pi", "agent");
@@ -255,6 +256,11 @@ export class ConfigManager {
 		private readonly dshUsage?: DshUsageLookup,
 	) {
 		this.configDir = configDir ?? PI_AGENT_DIR;
+	}
+
+	/** 将配置目录切换到统一解析出的 WSL HOME；null 恢复 Windows home。 */
+	configureWsl(environment: WslEnvironment | null) {
+		this.configDir = environment ? join(environment.windowsHome, ".pi", "agent") : PI_AGENT_DIR;
 	}
 
 	/** 当前 pi 全局配置目录（WSL 环境为 windowsHome 映射），供渲染层展示源文件实际编辑位置。 */

@@ -440,6 +440,7 @@ export function AddProviderDialog(props: {
 			</div>
 
 			{/* 内容区：配置字段 + 获取模型 + 模型列表（可滚动） */}
+			{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 			<div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-5 py-4">
 				<div className="config-provider-form grid min-w-0 gap-2.5">
 					<div className="config-provider-field items-start">

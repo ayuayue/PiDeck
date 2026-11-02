@@ -40,10 +40,18 @@ export function SessionStatusContent(props: { sessionId: string; stack: RightSid
 	return (
 		<>
 			<StatusTabBar badges={{ todo: todoProgressBadge(todoItems), subagentsTotal: subagents.total, subagentsRunning: subagents.running }} collapsed={stack.collapsed} autoCollapsed={stack.autoCollapsed} onToggleCollapsed={stack.toggleCollapsed} onTriggerClick={props.onTriggerClick} />
-			<TabsContent value="todo" className="min-h-0 overflow-y-auto">
+			<TabsContent
+				/* scroll-ok: nested —— 行列表在子组件里（StatusTabs 的 StatusTodoTab），本层只有滚动窗；虚拟化要先把 rows 提到这一层，属跨文件的另一批。 */
+				value="todo"
+				className="min-h-0 overflow-y-auto"
+			>
 				<StatusTodoTab items={todoItems} />
 			</TabsContent>
-			<TabsContent value="subagents" className="min-h-0 overflow-y-auto">
+			<TabsContent
+				/* scroll-ok: nested —— 同上：行列表在 StatusSubagentsTab 里，本层只有滚动窗。 */
+				value="subagents"
+				className="min-h-0 overflow-y-auto"
+			>
 				<StatusSubagentsTab sessionId={sessionId} list={subagents} onOpenChildSession={openChildSession} />
 			</TabsContent>
 		</>

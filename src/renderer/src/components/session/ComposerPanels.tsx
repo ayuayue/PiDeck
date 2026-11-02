@@ -1,5 +1,5 @@
 import { AlertTriangle, ArrowUp, ChevronDown, ChevronUp, Clock, Copy, FileText, FolderOpen, ListOrdered, LoaderCircle, Pause, Pencil, Split, Square, X, XCircle } from "lucide-react";
-import { useId, type RefObject } from "react";
+import { useId, useRef, type RefObject } from "react";
 import { useAtomValue } from "jotai";
 import type { ImageContent } from "../../../../shared/types";
 import { imageContentSrc } from "../../../../shared/imageContentSrc";
@@ -16,6 +16,7 @@ import { showNotice } from "../../utils/notice";
 import { Button } from "../ui-shadcn/button";
 import { ButtonGroup } from "../ui-shadcn/button-group";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
+import { VirtualStack, VIRTUAL_STACK_MIN_ROWS } from "../ui-shadcn/virtual-stack";
 import { sessionRecordByIdAtomFamily } from "../../atoms";
 import { sessionRuntimeBySessionIdAtomFamily } from "../../atoms/session-selectors";
 import { useAskPanel } from "../../hooks/useAskPanel";
@@ -153,7 +154,10 @@ function QueuedPromptRow(props: {
 	onDiscard: (sessionId: string, promptId: string) => void;
 	onChangeBehavior: (sessionId: string, promptId: string, behavior: "steer" | "followUp") => void;
 	onSendAsk: (prompt: QueuedPromptSnapshot) => void;
+	/** 行根标签：短列表保持 `ul > li`；虚拟化时行被套进 `<div data-index>`，`li` 的父元素不再是 `ul`（非法 HTML），改走 `div[role=listitem]`。 */
+	as?: "li" | "div";
 }) {
+	const RowTag = props.as ?? "li";
 	const status = props.prompt.status ?? "pending";
 	// displayText 可能含 quote/session/skill/template 自包含块；纯文本预览只保留其 chip label，
 	// 避免队列面板露出完整模型上下文或 XML 标签。
@@ -174,7 +178,7 @@ function QueuedPromptRow(props: {
 	const actionClass = "size-7 rounded-full text-text-tertiary hover:bg-muted/70 hover:text-foreground";
 
 	return (
-		<li className={`queued-row flex h-9 min-h-9 shrink-0 items-center gap-2.5 border-transparent px-3 transition-[border-color,background-color] duration-fast ${status} queued-behavior-${props.prompt.behavior}`} title={rowTitle}>
+		<RowTag role={RowTag === "div" ? "listitem" : undefined} className={`queued-row flex h-9 min-h-9 shrink-0 items-center gap-2.5 border-transparent px-3 transition-[border-color,background-color] duration-fast ${status} queued-behavior-${props.prompt.behavior}`} title={rowTitle}>
 			{props.showQueueGlyph ? <ListOrdered size={14} aria-hidden="true" className="shrink-0 text-text-tertiary" /> : <QueueStatusGlyph status={status} />}
 			<span className="min-w-0 flex-1 truncate text-control leading-5 text-text-secondary">{previewText}</span>
 			{props.prompt.images?.length ? <span className="shrink-0 font-mono text-micro leading-none text-text-tertiary">{t("app.queuedImageCount", { count: String(props.prompt.images.length) })}</span> : null}
@@ -228,7 +232,7 @@ function QueuedPromptRow(props: {
 					<X size={14} strokeWidth={2} aria-hidden="true" />
 				</Button>
 			</div>
-		</li>
+		</RowTag>
 	);
 }
 
@@ -261,9 +265,17 @@ export function QueuedPromptPanel(props: {
 	// 已 claim（sending）的行派发时就上屏了，不再算排队内容；ACP 的投递确认要等回合结算，
 	// 若继续展示，队首会在整轮里显示成「发送中」，看起来像队列没清空。
 	const visiblePrompts = visibleQueuedPrompts(props.prompts);
-	if (!sessionId || !visiblePrompts.length) return null;
 
 	const multiple = visiblePrompts.length > 1;
+	// 排队行数随消息增长；超过虚拟化门槛时只挂视口附近的行（通用件见 ui-shadcn/virtual-stack.tsx）。
+	const listRef = useRef<(HTMLUListElement & HTMLDivElement) | null>(null);
+	// hooks 必须全部在其他语句之前执行：队列由空变非空时提前返回会让 hook 数量变化，React 抛 #310。
+	if (!sessionId || !visiblePrompts.length) return null;
+	const virtualizeRows = visiblePrompts.length > VIRTUAL_STACK_MIN_ROWS;
+	// 虚拟化分支的行是 `<div data-index>` 的子节点，`li` 的父元素不再是 `ul/ol`（非法 HTML）；
+	// 两条路径各用合法标签：短列表保持 `ul > li`，虚拟化走 `div[role=list] > div[role=listitem]`。
+	const ListTag: "ul" | "div" = virtualizeRows ? "div" : "ul";
+	const ItemTag: "li" | "div" = virtualizeRows ? "div" : "li";
 	const listVisible = !multiple || !collapsed;
 
 	const sendAsk = (prompt: QueuedPromptSnapshot) => {
@@ -303,11 +315,17 @@ export function QueuedPromptPanel(props: {
 				</div>
 			) : null}
 			{listVisible ? (
-				<ul id={listId} className={multiple ? "mb-1 flex max-h-[180px] flex-col overflow-y-auto overscroll-contain [contain:layout_paint]" : "flex flex-col"}>
-					{visiblePrompts.map((prompt, index) => (
-						<QueuedPromptRow key={prompt.id} prompt={prompt} index={index} showQueueGlyph={!multiple} sessionId={sessionId} agentBusy={agentBusy} steerSupported={steerSupported} onRetract={props.onRetract} onDiscard={props.onDiscard} onChangeBehavior={props.onChangeBehavior} onSendAsk={sendAsk} />
-					))}
-				</ul>
+				<ListTag ref={listRef} id={listId} role={virtualizeRows ? "list" : undefined} className={multiple ? "mb-1 flex max-h-[180px] flex-col overflow-y-auto overscroll-contain [contain:layout_paint]" : "flex flex-col"}>
+					<VirtualStack
+						items={visiblePrompts}
+						getKey={(prompt) => prompt.id}
+						scrollRef={listRef}
+						estimateHeight={36}
+						renderItem={(prompt, index) => (
+							<QueuedPromptRow as={ItemTag} prompt={prompt} index={index} showQueueGlyph={!multiple} sessionId={sessionId} agentBusy={agentBusy} steerSupported={steerSupported} onRetract={props.onRetract} onDiscard={props.onDiscard} onChangeBehavior={props.onChangeBehavior} onSendAsk={sendAsk} />
+						)}
+					/>
+				</ListTag>
 			) : null}
 		</ComposerWidgetFrame>
 	);

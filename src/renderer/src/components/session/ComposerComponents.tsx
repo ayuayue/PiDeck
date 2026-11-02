@@ -159,6 +159,7 @@ export function ExtensionWidgetCard(props: {
 			    overflow-y-auto 必须补在 utility 层：原语基底的 overflow-hidden 也在 utilities 层且
 			    会赢过 legacy 层 .extension-widget-card-content 的 overflow-y:auto，不补会让内部滚动失效。 */}
 			<Collapsible open={expanded} className="contents">
+				{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 				<CollapsibleContent className="extension-widget-card-content overflow-y-auto">
 					{props.lines.map((line, index) => (
 						<div key={index} className="extension-widget-card-line">
@@ -1019,6 +1020,7 @@ function ModelListStatusGuide(props: { report: ModelListReport | null; refreshin
 				{hardFailure ? t("app.modelListLoadFailed") : t("app.modelListEmptyTitle")}
 			</div>
 			<p className="text-caption leading-relaxed text-muted-foreground">{t(textKey)}</p>
+			{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 			{report.detail && <pre className="max-h-28 w-full overflow-auto whitespace-pre-wrap break-all rounded-md border border-border/60 bg-muted/40 p-2.5 font-mono text-micro leading-relaxed text-muted-foreground">{report.detail}</pre>}
 			{props.onRefresh && (
 				<Button variant="outline" size="sm" className="mt-1" onClick={props.onRefresh} disabled={props.refreshing}>

@@ -113,6 +113,13 @@ function link(target, path, kind) {
 	symlinkSync(target, path, process.platform === "win32" ? kind : kind === "junction" ? "dir" : undefined);
 }
 
+// 文件符号链接在无特权的 Windows 上不可用（EPERM）；需要链接的用例已用 linkSearchTest 跳过，
+// fixture 里降级为不建文件链接，让 refusal 类用例仍能在这些机器上验证协议语义。
+const fileSymlinksUsable = fileSymlinkSkipReason() === undefined;
+function linkFile(target, path) {
+	if (fileSymlinksUsable) link(target, path, "file");
+}
+
 function startHelper(t, options = {}) {
 	const env = { ...process.env, HOME: HELPER_HOME };
 	const rootArgs = options.root === null ? [] : ["--root", options.root === undefined ? tempDirectory(t, "pideck-content-root-") : options.root];
@@ -288,7 +295,7 @@ function createContentFixture(t) {
 		mkdirSync(join(root, skipped), { recursive: true });
 		writeFileSync(join(root, skipped, "hidden.txt"), DECOY + " needle\n");
 	}
-	link(join(root, "alpha.txt"), join(root, "link-to-alpha"), "file");
+	linkFile(join(root, "alpha.txt"), join(root, "link-to-alpha"));
 	link(outside, join(root, "outside-link"), "junction");
 	return { base, root, outside };
 }

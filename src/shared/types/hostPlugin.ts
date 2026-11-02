@@ -141,6 +141,39 @@ export type HostPluginScaffoldInput = {
 	presentation: HostPluginPanelPresentation;
 };
 
+/** 市场来源：`registry` = 人工核对过的官方索引；`github` = 打了 topic 的第三方仓库，**未审阅**。 */
+export type HostPluginMarketSource = "registry" | "github";
+
+/**
+ * 市场条目。字段全部来自远程（registry.json 或仓库根 manifest），一律当不可信数据用：
+ * `permissions` 是 `string[]` 而不是 `HostPluginPermission[]`——真正的权限判定发生在安装时的 manifest 校验，
+ * 这里只用来提前告诉用户「装它要什么权限」。
+ */
+export type HostPluginMarketEntry = {
+	id: string;
+	name: string;
+	version?: string;
+	description?: string;
+	source: HostPluginMarketSource;
+	/** 可直接交给 `installGitHub` 的链接（github.com/owner/repo[/tree/ref/subpath]）。 */
+	installUrl: string;
+	/** 仓库全名 `owner/name`，用于去重与「打开仓库」。 */
+	repo: string;
+	author?: string;
+	license?: string;
+	permissions: string[];
+	icon?: string;
+	presentations?: string[];
+	tags?: string[];
+	homepage?: string;
+	/** 仅社区来源：星标数与最近推送时间（排序依据，也是「有多可信」的唯一参考）。 */
+	stars?: number;
+	pushedAt?: string;
+};
+
+/** 双源合并后的搜索结果；`warnings` 是单源失败的降级说明（一个源挂了不阻断另一个）。 */
+export type HostPluginMarketSearchResult = { entries: HostPluginMarketEntry[]; warnings: string[] };
+
 /** Management methods are available only to the trusted desktop renderer, never to plugin pages. */
 export type HostPluginDesktopApi = {
 	list: () => Promise<HostPluginResult<HostPluginCatalog>>;
@@ -155,6 +188,11 @@ export type HostPluginDesktopApi = {
 	installDirectory: () => Promise<HostPluginResult<HostPluginCatalog>>;
 	/** Install from a public GitHub repo URL: the main process downloads and extracts it, the renderer only passes the link. */
 	installGitHub: (url: string) => Promise<HostPluginResult<HostPluginCatalog>>;
+	/**
+	 * 插件市场搜索：官方收录（registry.json）+ GitHub `pideck-plugin` topic 双源合并。
+	 * 只返回条目，不返回字节——安装仍走 `installGitHub`。空关键词 = 浏览全部。
+	 */
+	searchMarket: (keyword: string) => Promise<HostPluginResult<HostPluginMarketSearchResult>>;
 	/** 卸载：删掉 userData 里的插件目录并清掉授权；内置示例不可卸载（返回 plugin-builtin）。 */
 	remove: (id: string) => Promise<HostPluginResult<HostPluginCatalog>>;
 	mount: (input: HostPluginMountInput) => Promise<HostPluginResult<HostPluginMount>>;

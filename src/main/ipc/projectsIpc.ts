@@ -73,9 +73,12 @@ export function registerProjectsIpc({ projectStore, settingsStore, gitService, w
 	// 可见项目 = 按环境过滤 + 目录存在性标记（missing 保留记录，见 projectPresence.ts）。
 	// 远端项目不受 WSL 模式过滤影响（它不属于本机环境），一律保留。
 	const getVisibleProjects = async () => {
+		const settings = settingsStore.get();
 		const all = projectStore.list();
-		// WSL 已是一等连接：不再按全局开关隐藏 WSL 项目；Windows 与 WSL 项目并存由用户显式添加决定。
-		const visible = all;
+		// 全局 WSL 模式（设置 → 开发 → Pi 来源）仍决定本机项目清单：关掉时只列 Windows 项目，
+		// 打开时只列 WSL 项目。连接档案（一等 WSL 目标）尚未放开，这里保持 0.9.8 的开关语义；
+		// 远端项目与聊天项目不属于本机环境，不受这条过滤影响。
+		const visible = settings.wslEnabled ? all.filter((project) => isRemoteProject(project) || project.kind === "chat" || project.environment === "wsl") : all.filter((project) => isRemoteProject(project) || project.kind === "chat" || !project.environment || project.environment === "windows");
 		return attachProjectPresence(visible, undefined, (project) => {
 			// 远端项目已在 attachProjectPresence 内跳过；走到这里说明窄化失败。
 			if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
@@ -85,9 +88,14 @@ export function registerProjectsIpc({ projectStore, settingsStore, gitService, w
 
 	ipcMain.handle(ipcChannels.projectsList, async () => getVisibleProjects());
 	ipcMain.handle(ipcChannels.projectsAdd, async () => {
-		// 第 14 步：普通「添加项目」只加本机项目；WSL 项目必须经 projects:add-wsl 选择连接档案。
-		const project = await projectStore.chooseAndAdd("windows");
-		void appLogger.info("project", "Project added", { projectId: project?.id, path: project?.path, environment: "windows" });
+		// 全局 WSL 模式：连接档案尚未放开，普通「添加项目」按设置的 Pi 来源决定环境，
+		// 与 0.9.8 一致；按档案添加仍走 projects:add-wsl（dev 通道的连接页）。
+		const settings = settingsStore.get();
+		const env = settings.wslEnabled ? ("wsl" as const) : ("windows" as const);
+		// #155：WSL 模式下必须带上当前发行版环境，否则 chooseAndAdd 直接抛 INVALID_WSL_PATH。
+		const wslEnvironment = env === "wsl" && settings.wslDistro && settings.wslUser && resolveWslEnvironment ? await resolveWslEnvironment(settings.wslDistro, settings.wslUser) : null;
+		const project = await projectStore.chooseAndAdd(env, wslEnvironment);
+		void appLogger.info("project", "Project added", { projectId: project?.id, path: project?.path, environment: env });
 		return project;
 	});
 	// 文件夹右键菜单（--open-project）直达：给定路径必须是已存在的目录，

@@ -63,6 +63,7 @@ export function MultiSelectModal(props: { renderedRuns: RenderMessage[]; onClose
 				</DialogHeader>
 
 				{/* 消息树 */}
+				{/* scroll-ok: nested —— 行列表在子组件里（本层只是滚动窗），虚拟化要先把行模型提到这一层。 */}
 				<div className="min-h-0 flex-1 overflow-y-auto px-3 py-2.5">
 					<MessageSelectionTree items={props.renderedRuns} selectedIds={selectedIds} onToggleMessage={handleToggleMessage} onToggleRun={handleToggleRun} />
 				</div>

@@ -8,6 +8,8 @@ import { GUIDE_BOOTSTRAP_SESSION_ID } from "../../utils/chatSessionBootstrap";
 import { isChatProject } from "../../rendererUtils";
 import { Button } from "../ui-shadcn/button";
 import { remoteEnrollDialogOpenAtom } from "../../atoms/remote-project-atoms";
+import { useRemoteFeatureAvailable } from "../../hooks/useRemoteFeatureAvailable";
+import { isRemoteEntryVisible } from "../../hooks/remoteFeatureVisibility";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui-shadcn/select";
 import { RemoteProjectPanel } from "./RemoteProjectPanel";
 import { SessionStartSurface } from "./SessionStartSurface";
@@ -36,7 +38,9 @@ export function ProjectEmptyState(props: {
 	onCreateSession?: (projectId: string) => void;
 }) {
 	// 远端登记弹框由 App 统一挂载，这里只打开开关（与侧栏「+」同一条路径）。
+	// 入口与侧栏「+」共用同一道通道门禁：正式包不提供远端能力，起始页也不出现这项。
 	const setRemoteEnrollOpen = useSetAtom(remoteEnrollDialogOpenAtom);
+	const remoteAvailable = useRemoteFeatureAvailable();
 	// 远端项目：输入页与文件浏览是同一个空态里的两级视图；切项目时回到输入页。
 	const [remoteFilesOpen, setRemoteFilesOpen] = useState(false);
 	useEffect(() => {
@@ -44,7 +48,7 @@ export function ProjectEmptyState(props: {
 	}, [props.activeProject?.id]);
 	// 无项目时没有任何可创建会话的项目上下文，只保留添加项目入口。
 	if (!props.activeProject) {
-		return <SessionStartSurface mode="no-project" onAddProject={props.onAddProject} onOpenRemote={() => setRemoteEnrollOpen(true)} />;
+		return <SessionStartSurface mode="no-project" onAddProject={props.onAddProject} {...(isRemoteEntryVisible(remoteAvailable) ? { onOpenRemote: () => setRemoteEnrollOpen(true) } : {})} />;
 	}
 
 	// 有项目：引导页 = 新建页面形态。虚拟会话只存在于渲染层 composer atoms，

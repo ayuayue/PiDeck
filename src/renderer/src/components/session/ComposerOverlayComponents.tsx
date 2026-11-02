@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { FileTreeNode, ProjectFileTarget } from "../../../../shared/types";
 import { t } from "../../i18n";
+import { useMenuFocusReturn } from "../../hooks/useMenuFocusReturn";
 import type { SuggestionItem } from "../app/AppUtils";
 import { Button } from "../ui-shadcn/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
@@ -45,7 +46,11 @@ export function PromptSuggestions(props: {
 					<X size={16} strokeWidth={2.2} aria-hidden="true" />
 				</Button>
 			</div>
-			<div className="flex-1 overflow-y-auto p-1.5" ref={listRef}>
+			<div
+				/* scroll-ok: bounded —— 建议框行数有硬上限：文件匹配截 15 条、会话匹配截 8 条、命令是固定枚举；且键盘上下键按 list.children[selectedIndex] 直接取行做 scrollIntoView。 */
+				className="flex-1 overflow-y-auto p-1.5"
+				ref={listRef}
+			>
 				{props.items.map((item, index) => (
 					<button key={item.key} className={`flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors${index === props.selectedIndex ? " bg-accent-soft" : " hover:bg-bg-active"}`} onMouseEnter={() => props.onSelectedIndexChange(index)} onClick={() => props.onPick(item)}>
 						{/* label 优先完整显示（文件名/命令名/会话名），description 只作父目录等辅助信息：
@@ -85,6 +90,8 @@ export function FileContextMenu(props: {
 	const node = props.menu.node;
 	const parentRelativePath = node.type === "directory" ? node.relativePath : node.relativePath.split("/").slice(0, -1).join("/");
 	const targetDir: string | ProjectFileTarget | undefined = node.target ? { projectId: node.target.projectId, relativePath: parentRelativePath } : node.path ? (node.type === "directory" ? node.path : node.path.split(/[\\/]/).slice(0, -1).join("/") || ".") : undefined;
+	// 关闭后把焦点还给打开菜单的文件树行（默认会落在下面那个 0×0 隐藏触发器上）
+	const handleCloseAutoFocus = useMenuFocusReturn();
 
 	// #115 U5：右键菜单换 Radix DropdownMenu。虚拟锚点把菜单钉在右键坐标上，
 	// 视口碰撞翻转/焦点圈定/ESC 关闭全由 Radix 负责，删掉手写的测高翻转与遮罩。
@@ -112,7 +119,7 @@ export function FileContextMenu(props: {
 					pointerEvents: "none",
 				}}
 			/>
-			<DropdownMenuContent align="start" side="bottom" className="min-w-40">
+			<DropdownMenuContent align="start" side="bottom" className="min-w-40" onCloseAutoFocus={handleCloseAutoFocus}>
 				{/* 目录同样可引用：拖拽落点与 @ 建议列表都允许目录，右键菜单不应更严。
 				    引用文本由 fileNodeDragPayloadToRef 统一补尾斜杠（@dir/），
 				    裸 @dir 过不了 chip 路径规则，模型也容易当成 mention。 */}

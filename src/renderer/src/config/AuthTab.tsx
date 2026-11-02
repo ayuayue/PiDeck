@@ -233,6 +233,7 @@ export function AuthTab(props: {
 							×
 						</Button>
 					</div>
+					{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 					<div className="grid max-h-[320px] grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-1.5 overflow-y-auto">
 						{PRESET_PROVIDERS.map((provider) => {
 							const alreadyConfigured = allProviders.includes(provider.value);

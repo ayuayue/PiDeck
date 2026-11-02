@@ -248,6 +248,7 @@ const hostPlugins: HostPluginDesktopApi = {
 	install: () => ipcRenderer.invoke(ipcChannels.hostPluginsInstall),
 	installDirectory: () => ipcRenderer.invoke(ipcChannels.hostPluginsInstallDirectory),
 	installGitHub: (url: string) => ipcRenderer.invoke(ipcChannels.hostPluginsInstallGitHub, url),
+	searchMarket: (keyword: string) => ipcRenderer.invoke(ipcChannels.hostPluginsMarketSearch, keyword),
 	scaffold: (input) => ipcRenderer.invoke(ipcChannels.hostPluginsScaffold, input),
 	mount: (input) => ipcRenderer.invoke(ipcChannels.hostPluginsMount, input),
 	update: (instanceId: string, context: HostPluginContext) => ipcRenderer.invoke(ipcChannels.hostPluginsUpdate, instanceId, context),
@@ -264,7 +265,27 @@ const piDeckMcp: PiDeckMcpDesktopApi = {
 	connection: () => ipcRenderer.invoke(ipcChannels.piDeckMcpConnection),
 };
 
+/**
+ * 智能体记忆的设置页视图。返回值统一是 `{ok,value}` / `{ok:false,code}`，
+ * 渲染层据此区分「操作失败（有稳定错误码）」和「IPC 层异常」，不需要解析错误文案。
+ */
+const agentMemory = {
+	status: () => ipcRenderer.invoke(ipcChannels.agentMemoryStatus) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<import("../shared/types/agentMemory").AgentMemoryStatus>>,
+	clearIndex: () => ipcRenderer.invoke(ipcChannels.agentMemoryClearIndex) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<{ removed: number }>>,
+	exportBundle: (selection?: string[] | null) => ipcRenderer.invoke(ipcChannels.agentMemoryExport, { selection: selection ?? null }) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<import("../shared/types/agentMemory").AgentMemoryExportOutcome>>,
+	previewBundle: (filePath?: string) => ipcRenderer.invoke(ipcChannels.agentMemoryPreview, filePath ? { filePath } : {}) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<import("../shared/types/agentMemory").AgentMemoryBundlePeekOutcome>>,
+	importBundle: (options?: import("../shared/types/agentMemory").AgentMemoryImportOptions) => ipcRenderer.invoke(ipcChannels.agentMemoryImport, options ?? {}) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<import("../shared/types/agentMemory").AgentMemoryImportResult>>,
+	list: () => ipcRenderer.invoke(ipcChannels.agentMemoryList) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<import("../shared/types/agentMemory").AgentMemoryEntryList>>,
+	deleteEntry: (input: { target: string; projectId?: string; key: string }) => ipcRenderer.invoke(ipcChannels.agentMemoryDeleteEntry, input) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<{ removed: number }>>,
+	restoreEntry: (input: { target: string; projectId?: string; content: string; category?: string }) => ipcRenderer.invoke(ipcChannels.agentMemoryRestoreEntry, input) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<{ restored: boolean }>>,
+	revealRoot: () => ipcRenderer.invoke(ipcChannels.agentMemoryRevealRoot) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<null>>,
+	standingRead: () => ipcRenderer.invoke(ipcChannels.agentMemoryStandingRead) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<string>>,
+	standingWrite: (input: { content: string }) => ipcRenderer.invoke(ipcChannels.agentMemoryStandingWrite, input) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<{ chars: number }>>,
+	renameDevice: (name: string) => ipcRenderer.invoke(ipcChannels.agentMemoryRenameDevice, name) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<{ id: string; name: string }>>,
+};
+
 const api = {
+	agentMemory,
 	piDeckMcp,
 	hostPlugins,
 	clipboard: {

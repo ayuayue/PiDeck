@@ -241,7 +241,12 @@ export function useSessionTrajectorySource(sessionId: string | undefined) {
 	const diskPage = cachedEntry?.source === "disk" ? cachedEntry.page : undefined;
 	const runtimeHistory = cachedEntry?.source === "runtime" ? cachedEntry.history : undefined;
 	// slideOut 重建前缀时 nextBefore 可能为 null；nextBeforeEntryId 仍是有效续页锚点。
-	const hasMore = diskPage ? diskPage.nextBefore !== null : Boolean(cachedEntry?.source === "runtime" && (runtimeHistory ? runtimeHistory.nextBefore !== null || Boolean(runtimeHistory.nextBeforeEntryId) : (cachedEntry.windowStart ?? 0) > 0));
+	// 兜底分支（runtimeHistory 缺失）不能只看 windowStart：主进程内存窗口只驻留最近若干轮，
+	// windowStart 常为 0，而真正还有更早历史时只有 windowStartFilePos 是正数。判据与
+	// useSessionTimelineController 的 historyHasMore 保持一致，否则轨迹面板与主时间线的
+	// 「加载更多对话」会出现与否打架。
+	const windowHasEarlier = typeof cachedEntry?.windowStartFilePos === "number" ? cachedEntry.windowStartFilePos > 0 : (cachedEntry?.windowStart ?? 0) > 0;
+	const hasMore = diskPage ? diskPage.nextBefore !== null : Boolean(cachedEntry?.source === "runtime" && (runtimeHistory ? runtimeHistory.nextBefore !== null || Boolean(runtimeHistory.nextBeforeEntryId) : windowHasEarlier));
 
 	const loadMore = useCallback(() => {
 		if (!sessionId || !cachedEntry || isLoadingMore) return;

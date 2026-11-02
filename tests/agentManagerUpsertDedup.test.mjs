@@ -105,6 +105,19 @@ test("tool_execution_end 迟到：按 toolCallId 更新已有工具消息，不 
 	assert.equal(list[0].meta.toolCallId, "tc-1");
 });
 
+test("工具结束省略 toolName：继承 start 身份，不退化为通用 tool", () => {
+	const manager = createManager();
+
+	manager.upsertToolMessage("agent-1", { toolName: "bash", toolCallId: "tc-bash", args: { command: "echo ok" } }, "running");
+	manager.upsertToolMessage("agent-1", { toolCallId: "tc-bash", result: { content: "ok" } }, "done");
+
+	const list = manager.messages.get("agent-1");
+	assert.equal(list.length, 1, "同一 toolCallId 仍只应有一条消息");
+	assert.equal(list[0].meta.toolName, "bash", "完成事件缺省名称时必须保留 start 的工具身份");
+	assert.equal(list[0].meta.status, "done");
+	assert.equal(list[0].text, "✓ bash");
+});
+
 test("finalizeThinkingIntoMessage 终态：更新投影版不 append 副本", () => {
 	const manager = createManager();
 	// 投影版 text 与终态事件 extractText 同规则（thinking 块包 <thinking> 标签）

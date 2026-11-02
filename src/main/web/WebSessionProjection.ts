@@ -12,6 +12,7 @@
  */
 import type { SessionModelPreference, SessionRecord } from "../../shared/types/session";
 import type { AgentBackend } from "../../shared/types/agent";
+import { canonicalizeSessionPath } from "../../shared/sessionIdentity";
 
 /** Web 端可见的会话形状：字段集与渲染层 `webTypes.ts` 的 `WebSession` 对齐。 */
 export type WebPublicSession = {
@@ -28,8 +29,12 @@ export type WebPublicSession = {
 	acpToolId?: string;
 	/** 最近活动时间（毫秒时间戳），会话列表按此降序 */
 	updatedAt?: number;
-	/** 分支导航：fork 自哪条会话 / 是否为 fork 产物 / 创建时间 */
+	/**
+	 * 父会话 id：子代理/嵌套子会话（目录里的 parentSessionPath）由服务端解析成 id 下发，
+	 * 渲染层据此把子会话折叠到父行下。父会话不在同一批记录里时缺省，子会话按顶层展示。
+	 */
 	parentSessionId?: string;
+	/** 是否为 fork 产物（仅身份标记，与父关系折叠无关） */
 	forked?: boolean;
 	createdAt?: number;
 	/** DSH 权限预设（与 SessionRecord 同名，原样投影） */
@@ -40,8 +45,11 @@ export type WebPublicSession = {
  * 会话记录 → Web 可见投影。
  *
  * 只挑字段、不做任何语义加工：服务端保持单一数据源，渲染层拿到的值与桌面端一致。
+ * 唯一例外是 parentSessionId：目录记录只存父会话文件路径（parentSessionPath），
+ * Web 端不下发文件路径，故用 idByPath 把它解析成 id 再下发。
  */
-export function toPublicSession(record: SessionRecord): WebPublicSession {
+export function toPublicSession(record: SessionRecord, idByPath?: ReadonlyMap<string, string>): WebPublicSession {
+	const parentSessionId = record.parentSessionId ?? (record.parentSessionPath && idByPath ? idByPath.get(canonicalizeSessionPath(record.parentSessionPath, record.environment)) : undefined);
 	return {
 		id: record.id,
 		projectId: record.projectId,
@@ -53,7 +61,7 @@ export function toPublicSession(record: SessionRecord): WebPublicSession {
 		backend: record.backend,
 		acpToolId: record.acpToolId,
 		updatedAt: record.updatedAt,
-		parentSessionId: record.parentSessionId,
+		parentSessionId,
 		forked: record.forked,
 		createdAt: record.createdAt,
 		permissionPreset: record.permissionPreset,
@@ -61,5 +69,11 @@ export function toPublicSession(record: SessionRecord): WebPublicSession {
 }
 
 export function toPublicSessions(records: readonly SessionRecord[]): WebPublicSession[] {
-	return records.map(toPublicSession);
+	// 先建一次 路径→id 索引：逐条 find 是 O(n²)，而 /api/state 每 5s 轮询一次全量目录。
+	const idByPath = new Map<string, string>();
+	for (const record of records) {
+		if (!record.filePath) continue;
+		idByPath.set(canonicalizeSessionPath(record.filePath, record.environment), record.id);
+	}
+	return records.map((record) => toPublicSession(record, idByPath));
 }

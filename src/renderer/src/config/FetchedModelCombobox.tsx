@@ -69,6 +69,7 @@ export function FetchedModelCombobox(props: { models: FetchedModel[]; value: str
 					})}
 				</span>
 			</div>
+			{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 			<div className="mt-2 flex max-h-[220px] flex-wrap gap-2 overflow-auto p-1">
 				{visibleModels.map((model) => {
 					const selected = selectedModelIdSet.has(model.id);

@@ -20,10 +20,16 @@ docs-site/.vitepress/dist/
 # Vite 加载 vitepress 配置时写出的临时模块（config.mts.timestamp-<时间戳>-<哈希>.mjs）：
 # 进程正常退出会自行清理，文件被留在工作区说明上次构建异常中断，不该进版本库。
 docs-site/.vitepress/*.timestamp-*.mjs
-# README 共用图片的生成副本：唯一数据源是 docs/images/<名>，由 docs-site 插件在
-# dev / build 时复制到这里（其余 public/images 下的图仍入库）。
+# 官网图片的生成副本：唯一数据源是 docs/images/<名>，由 docs-site 插件在
+# dev / build 时复制到这里（public/images 下的图全部是生成物，不再入库）。
 docs-site/public/images/wechat-qrcode.png
 docs-site/public/images/gpt-recharge-price.png
+docs-site/public/images/config.png
+docs-site/public/images/files.png
+docs-site/public/images/overview.png
+docs-site/public/images/slash-commands.png
+docs-site/public/images/terminal.png
+docs-site/public/images/wechat_pay.png
 *.asar
 
 # Electron/Vite
@@ -84,6 +90,9 @@ nul
 *.tsbuildinfo
 test-results/
 playwright-report/
+# E2E 截图输出（web-ref-snapshot / web-visual-snapshot 的产物，不是回归基线）
+e2e/.snapshots/*
+!e2e/.snapshots/.gitkeep
 .tmp/
 .beui-inspect
 beui-todo-list.tmp.json

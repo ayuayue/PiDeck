@@ -43,10 +43,38 @@ export interface DelayedHistoryResultGate {
 	generationAtRequest: number;
 	/** 当前浏览代数（回底/切会话会递增）。 */
 	currentGeneration: number;
+	/** 用户显式点击「加载更多对话」：贴底时也应用。
+	 *  贴底引擎每帧把 autoScroll 报回 true；沿用 following 门时，点击后数据进了缓存、
+	 *  渲染窗口不扩，界面逐字不变（2026-11 真机：点「加载更多对话」毫无反应）。 */
+	explicit?: boolean;
 }
 
 /** 迟到的历史分页结果是否仍允许驱动 DOM 扩窗：
- *  已回底（following）或浏览代数已过期时只允许写缓存，扩窗/锚点恢复一律跳过。 */
+ *  已回底（following）或浏览代数已过期时只允许写缓存，扩窗/锚点恢复一律跳过。
+ *  例外是显式点击：用户亲手点「加载更多对话」就说明他要看更早的内容，贴底态也得应用，
+ *  否则那次点击是恒等变换（数据进缓存、窗口不扩、界面不动）。 */
 export function shouldApplyDelayedHistoryResult(gate: DelayedHistoryResultGate): boolean {
-	return !gate.following && gate.generationAtRequest === gate.currentGeneration;
+	if (gate.generationAtRequest !== gate.currentGeneration) return false;
+	return gate.explicit === true || !gate.following;
+}
+
+/** 发起翻页的来源。 */
+export type LoadMoreSource = "scroll" | "button" | "backfill";
+
+/** 翻页前要先做的动作。 */
+export type LoadMorePinStep = "escapeFollow" | "capturePin";
+
+/** 翻页前置动作序列，**数组顺序就是执行顺序**。
+ *
+ *  顺序是承重结构，不是风格问题：captureBrowsePin 首行在 autoScrollRef 为真时直接 return，
+ *  而贴底态这个值一直是真（引擎每帧上报 following）。所以必须先把 autoScroll 打掉再抓钉行，
+ *  否则贴底点「加载更多对话」一个钉行都抓不到；没有钉行，引擎的 following 上报又不会被忽略，
+ *  扩窗批次会被 consumeExpandBatch 首行清掉，界面逐字不变（2026-11 真机症状）。
+ *
+ *  反过来写（先 capture 再 escape）在静态检查与旧测试下全绿，功能却是坏的 —— 这类缺陷只能靠
+ *  把顺序变成数据、再用单测钉住，所以这个函数存在。 */
+export function planLoadMorePinSteps(source: LoadMoreSource): readonly LoadMorePinStep[] {
+	if (source === "button") return ["escapeFollow", "capturePin"];
+	if (source === "scroll") return ["capturePin"];
+	return [];
 }

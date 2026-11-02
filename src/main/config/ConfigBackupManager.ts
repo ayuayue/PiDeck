@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { getAppLogger } from "../logging/sharedLogger";
 import type { ConfigBackupActionResult, ConfigBackupDetail, ConfigBackupListResult, ConfigBackupMeta, ConfigBackupReason } from "../../shared/types/backup";
@@ -40,6 +40,22 @@ const BACKUP_FILE_PREFIX = "backup-";
 export const MAX_BACKUPS = 5;
 
 const BACKUP_ID_PATTERN = /^backup-(\d+)(?:-(\d+))?\.json$/;
+
+/** 备份原文含认证凭据：POSIX 上收紧目录与普通文件权限，避免泄露到同机其他账户。 */
+function secureBackupFilePermissions(filePath: string): boolean {
+	try {
+		if (!lstatSync(filePath).isFile()) return false;
+		if (process.platform !== "win32") chmodSync(filePath, 0o600);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function secureBackupDirectory(dir: string): void {
+	if (!lstatSync(dir).isDirectory()) throw new Error("invalid backup directory");
+	if (process.platform !== "win32") chmodSync(dir, 0o700);
+}
 
 /**
  * 备份文件名比较：先比时间戳数字串（等长可比），同毫秒时再比序号。
@@ -92,6 +108,7 @@ export class ConfigBackupManager {
 		try {
 			const dir = this.backupDir();
 			if (!existsSync(dir)) return { ok: true, backups: [] };
+			secureBackupDirectory(dir);
 			const metas: ConfigBackupMeta[] = [];
 			for (const name of readdirSync(dir)) {
 				if (!name.startsWith(BACKUP_FILE_PREFIX) || !name.endsWith(".json")) continue;
@@ -120,6 +137,8 @@ export class ConfigBackupManager {
 		const filePath = this.resolveBackupPath(id);
 		if (!filePath) return null;
 		try {
+			secureBackupDirectory(this.backupDir());
+			if (!secureBackupFilePermissions(filePath)) return null;
 			const pkg = JSON.parse(readFileSync(filePath, "utf8")) as BackupPackage;
 			const files = Object.entries(pkg.files ?? {}).map(([name, raw]) => {
 				const { text, redacted } = redactSecrets(raw, name);
@@ -154,7 +173,8 @@ export class ConfigBackupManager {
 			// ISO 时间含冒号/点号，Windows 文件名非法，统一压缩为纯数字串。
 			// 同毫秒连续创建（如保留策略循环）会碰撞，加序号后缀去重。
 			const dir = this.backupDir();
-			mkdirSync(dir, { recursive: true });
+			mkdirSync(dir, { recursive: true, mode: 0o700 });
+			secureBackupDirectory(dir);
 			const stamp = createdAt.replace(/[^0-9]/g, "");
 			let id = `${BACKUP_FILE_PREFIX}${stamp}.json`;
 			let seq = 1;
@@ -170,7 +190,7 @@ export class ConfigBackupManager {
 				configDir: this.deps.getConfigDir(),
 				files,
 			};
-			writeFileSync(join(dir, id), JSON.stringify(pkg, null, 2), "utf8");
+			writeFileSync(join(dir, id), JSON.stringify(pkg, null, 2), { encoding: "utf8", mode: 0o600 });
 			// 备份含凭据原文，只记 id/reason/文件 key，不记内容
 			getAppLogger()?.info("backup", "Config backup created", { id, reason, files: Object.keys(files) });
 			this.prune();
@@ -191,6 +211,8 @@ export class ConfigBackupManager {
 		const filePath = this.resolveBackupPath(id);
 		if (!filePath) return { ok: false, error: "invalid backup id" };
 		try {
+			secureBackupDirectory(this.backupDir());
+			if (!secureBackupFilePermissions(filePath)) return { ok: false, error: "invalid backup file" };
 			const pkg = JSON.parse(readFileSync(filePath, "utf8")) as BackupPackage;
 			const guard = this.create("pre-restore");
 			// 保护备份建不出来就不恢复：宁可拒绝也不冒「恢复后无退路」的风险。
@@ -324,6 +346,7 @@ export class ConfigBackupManager {
 	/** 读取单个备份文件的元数据；损坏/结构不对返回 null（列表跳过）。 */
 	private readMeta(filePath: string): ConfigBackupMeta | null {
 		try {
+			if (!secureBackupFilePermissions(filePath)) return null;
 			const pkg = JSON.parse(readFileSync(filePath, "utf8")) as BackupPackage;
 			if (!pkg.createdAt || !pkg.files) return null;
 			return {

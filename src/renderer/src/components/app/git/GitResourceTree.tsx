@@ -1,4 +1,4 @@
-import { Fragment, memo, useState, type ReactNode } from "react";
+import { Fragment, memo, useMemo, useState, type ReactNode, type RefObject } from "react";
 import { ChevronDown, FileText, Loader2, Minus, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "../../ui-shadcn/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "../../ui-shadcn/context-menu";
@@ -6,7 +6,8 @@ import { getFileIconColor, getFileIconSeti } from "../../../fileIcons";
 import { cn } from "../../../lib/utils";
 import { t } from "../../../i18n";
 import { GitStatus, type GitDiscardResource, type GitFileStatus, type GitResource, type GitResourceGroupType, type ProjectFileTarget } from "../../../../../shared/types";
-import { buildChangeTreeRows, toRelativeChangePath, type GitChangeViewMode } from "./changeTree";
+import { buildChangeFlatRows, buildChangeTreeRows, toRelativeChangePath, type ChangeTreeRow, type GitChangeViewMode } from "./changeTree";
+import { VirtualStack } from "../../ui-shadcn/virtual-stack";
 
 /*
  * 变更列表与文件抽屉（FileTreeRows）共用的行规格：行高 28px、字号 text-body、
@@ -21,19 +22,7 @@ export function fileNameOnly(path: string): string {
 	return path.split(/[/\\]/).pop() ?? path;
 }
 
-/**
- * 缩短长目录路径，类似 Java package 包名缩写：取每段的首字母。
- * 例如 "src/main/java/com/example/service/impl" → "s/m/j/c/e/s/i"。
- * 短路径（≤3 段或总长 ≤20）保持原样。
- * 仅扁平视图使用：树形视图靠紧凑链把层级摊平，缩写会丢掉可读的目录名。
- */
-function shortenDir(dir: string): string {
-	const parts = dir.split("/");
-	if (parts.length <= 3 || dir.length <= 20) return dir;
-	return parts.map((p) => p.charAt(0) || "").join("/");
-}
-
-/** 按目录分组 Git 资源，返回 { dir -> resources[] } 映射（扁平视图；目录只到一级） */
+/** 按目录分组 Git 资源，返回 { dir -> resources[] } 映射（getCollapsibleChangeDirs 用；目录只到一级） */
 function groupByDir(
 	resources: GitResource[],
 	/** 项目根目录，传入后目录名显示为相对路径而非绝对路径 */
@@ -58,6 +47,185 @@ export function getCollapsibleChangeDirs(resources: GitResource[], projectRoot?:
 	// 与 FileTree 一致：仅一个根目录时不显示目录头，也就没有可折叠项
 	if (dirs.length === 1 && dirs[0] === "") return [];
 	return dirs;
+}
+
+/** 树形/扁平两视图共用：文件行的动作集合类型（ResourceRow 入参） */
+type ChangeRowAction = {
+	label: string;
+	kind: "stage" | "unstage" | "discard" | "open";
+	disabled?: boolean;
+	run: () => void;
+};
+
+/**
+ * 行渲染上下文：每组一套动作/折叠配置。FileTree（远端面板沿用）与
+ * ChangesGroupsStack（本地变更区）都通过它调 renderChangeDirRow/renderChangeFileRow，
+ * 两处行渲染不会漂移。
+ */
+export type ChangeRowContext = {
+	groupType: GitResourceGroupType;
+	mutating: boolean;
+	onOpenWorkspaceFileDiff: (group: GitResourceGroupType, target: ProjectFileTarget) => void | Promise<void>;
+	collapsedDirs: ReadonlySet<string>;
+	onToggleDir: (dir: string) => void;
+	readOnly?: boolean;
+	/** Managed remote index capability: no directory, discard or delete actions even if callbacks exist. */
+	indexActionsOnly?: boolean;
+	stagedPaths?: ReadonlySet<string>;
+	stageFile?: (target: ProjectFileTarget) => void;
+	unstageFile?: (target: ProjectFileTarget) => void;
+	discardFile?: (target: ProjectFileTarget, group: "workingTree" | "untracked") => void;
+	deleteFile?: (target: ProjectFileTarget) => void;
+	onOpenFile?: (target: ProjectFileTarget) => void;
+	stageDir?: (targets: ProjectFileTarget[]) => void;
+	discardDir?: (resources: GitDiscardResource[], label: string) => void;
+};
+
+/** 文件行动作集合：与旧 FileTree.renderResourceRow 同判据（远端 index-only 只给取消暂存等）。 */
+function changeRowActions(r: GitResource, ctx: ChangeRowContext): ChangeRowAction[] {
+	const actions: ChangeRowAction[] = [];
+	// 远端 index-only 能力只给「取消暂存」，不给目录/丢弃/删除动作；readOnly 连动作用都不给。
+	if (!ctx.readOnly && ctx.groupType === "index" && (!ctx.indexActionsOnly || ctx.unstageFile)) {
+		actions.push({
+			label: t("git.unstage"),
+			kind: "unstage",
+			disabled: ctx.mutating,
+			run: () => ctx.unstageFile?.(r.target),
+		});
+	} else if (!ctx.readOnly && (!ctx.indexActionsOnly || ctx.stageFile) && (ctx.groupType === "workingTree" || ctx.groupType === "untracked")) {
+		// 已暂存文件在 Changes 组仅保留打开按钮，暂存/回滚归 Staged 组（VS Code 语义）
+		if (!ctx.stagedPaths?.has(r.path)) {
+			actions.push({
+				label: t("git.stage"),
+				kind: "stage",
+				disabled: ctx.mutating,
+				run: () => ctx.stageFile?.(r.target),
+			});
+			// 回滚：tracked 走 git restore，untracked 走回收站删除
+			if (!ctx.indexActionsOnly)
+				actions.push({
+					label: t("git.discardChanges"),
+					kind: "discard",
+					disabled: ctx.mutating,
+					run: () => ctx.discardFile?.(r.target, r.status === GitStatus.UNTRACKED ? "untracked" : "workingTree"),
+				});
+		}
+	}
+	if (ctx.onOpenFile) {
+		actions.push({
+			label: t("common.open"),
+			kind: "open",
+			run: () => ctx.onOpenFile?.(r.target),
+		});
+	}
+	return actions;
+}
+
+/** 单行文件：暂存/取消暂存/回滚/打开。depth 只影响左缩进，动作与扁平视图完全一致。 */
+function renderChangeFileRow(r: GitResource, depth: number, ctx: ChangeRowContext): ReactNode {
+	return (
+		<ResourceRow
+			key={r.path}
+			status={r.status}
+			letter={r.letter}
+			path={r.displayPath || r.path}
+			target={r.target}
+			indent={depth * CHANGE_TREE_INDENT_PX}
+			onOpen={() =>
+				ctx.onOpenWorkspaceFileDiff(
+					// Changes 组只含工作区侧资源（workingTree + untracked，见 collectUnstagedResources）：
+					// 未跟踪文件按实际状态传 untracked，否则服务端在 workingTree 组找不到而打不开
+					ctx.groupType === "workingTree" && r.status === GitStatus.UNTRACKED ? "untracked" : ctx.groupType,
+					r.target,
+				)
+			}
+			actions={changeRowActions(r, ctx)}
+			deleteFile={!ctx.readOnly && !ctx.indexActionsOnly && ctx.deleteFile ? (target) => ctx.deleteFile?.(target) : undefined}
+		/>
+	);
+}
+
+/**
+ * 目录行：折叠开关 + 目录级暂存/回滚 + 计数。
+ * 目录级操作只作用于传入的资源（树形视图传整棵子树），不影响其他目录。
+ */
+function renderChangeDirRow(dir: string, label: string, dirResources: GitResource[], depth: number, ctx: ChangeRowContext): ReactNode {
+	// 已暂存文件在 Changes 组不再提供目录级暂存（VS Code 语义）：目录按钮与行内按钮同一判据。
+	const stageable = dirResources.filter((resource) => !ctx.stagedPaths?.has(resource.path));
+	const discardable = stageable
+		.filter((resource) => resource.status === GitStatus.UNTRACKED || ctx.groupType === "workingTree")
+		.map((resource) => ({
+			target: resource.target,
+			group: resource.status === GitStatus.UNTRACKED ? ("untracked" as const) : ("workingTree" as const),
+		}));
+	return (
+		<div
+			key={dir || "root"}
+			className="group/dir flex h-7 cursor-pointer items-center gap-1.5 rounded-sm pr-2 text-body select-none transition-[background-color,border-color,box-shadow] duration-base hover:bg-muted focus-visible:shadow-[inset_var(--focus-ring)] focus-visible:outline-none"
+			style={{ paddingLeft: CHANGE_ROW_BASE_PADDING + depth * CHANGE_TREE_INDENT_PX }}
+			/* 折叠是目录展开的唯一入口，键盘必须可达（GitGraph 行同款 inset 焦点环） */
+			role="button"
+			tabIndex={0}
+			aria-expanded={!ctx.collapsedDirs.has(dir)}
+			onKeyDown={(e) => {
+				if (e.key === "Enter" || e.key === " ") {
+					e.preventDefault();
+					ctx.onToggleDir(dir);
+				}
+			}}
+			onClick={() => ctx.onToggleDir(dir)}
+		>
+			{/* twistie 槽宽 16px + 3px 视觉偏移：与文件抽屉的目录行同一列 */}
+			<span aria-hidden="true" className="inline-flex h-full w-4 shrink-0 translate-x-[3px] items-center justify-center">
+				<ChevronDown size={14} strokeWidth={2} className={`shrink-0 text-text-tertiary transition-transform duration-fast${ctx.collapsedDirs.has(dir) ? " -rotate-90" : " rotate-0"}`} />
+			</span>
+			<span className="min-w-0 flex-1 truncate font-normal text-[var(--git-panel-fg)]" title={dir || "/"}>
+				{label}
+			</span>
+			<span className="ml-auto flex items-center gap-0.5">
+				{!ctx.readOnly && !ctx.indexActionsOnly && ctx.stageDir && stageable.length > 0 && (
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-sm"
+						className="invisible size-6 rounded-xs text-text-tertiary group-hover/dir:visible hover:bg-[var(--git-panel-hover)] hover:text-text-primary"
+						aria-label={t("git.stageDirectory")}
+						title={t("git.stageDirectory")}
+						disabled={ctx.mutating}
+						onClick={(event) => {
+							event.stopPropagation();
+							ctx.stageDir?.(stageable.map((resource) => resource.target));
+						}}
+					>
+						<Plus size={13} aria-hidden="true" />
+					</Button>
+				)}
+				{!ctx.readOnly && !ctx.indexActionsOnly && ctx.discardDir && discardable.length > 0 && (
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-sm"
+						className="invisible size-6 rounded-xs text-text-tertiary group-hover/dir:visible hover:bg-[var(--git-panel-hover)] hover:text-[var(--color-danger)]"
+						aria-label={t("git.discardDirectory")}
+						title={t("git.discardDirectory")}
+						disabled={ctx.mutating}
+						onClick={(event) => {
+							event.stopPropagation();
+							ctx.discardDir?.(discardable, dir || "/");
+						}}
+					>
+						<RotateCcw size={13} aria-hidden="true" />
+					</Button>
+				)}
+				<span className="px-1 text-micro tabular-nums text-text-tertiary">{dirResources.length}</span>
+			</span>
+		</div>
+	);
+}
+
+/** 把 ChangeTreeRow 序列渲染成行（tree/flat 两视图共用；折叠剪枝已在 builder 内完成）。 */
+function renderChangeRows(rows: ChangeTreeRow[], ctx: ChangeRowContext): ReactNode {
+	return <>{rows.map((row) => (row.kind === "dir" ? renderChangeDirRow(row.path, row.label, row.resources, row.depth, ctx) : renderChangeFileRow(row.resource, row.depth, ctx)))}</>;
 }
 
 /**
@@ -95,180 +263,28 @@ export const FileTree = memo(function FileTree(props: {
 	/** 视图模式：flat（默认，一级目录分组）/ tree（嵌套目录树） */
 	viewMode?: GitChangeViewMode;
 }) {
-	const byDir = groupByDir(props.resources, props.projectRoot);
-	// 按目录名排序，根目录排最前
-	const dirs = [...byDir.keys()].sort((a, b) => {
-		if (a === "") return -1;
-		if (b === "") return 1;
-		return a.localeCompare(b);
-	});
-
-	/**
-	 * 单行文件：暂存/取消暂存/回滚/打开。depth 只影响左缩进，动作与扁平视图完全一致。
-	 */
-	const renderResourceRow = (r: GitResource, depth: number) => {
-		const actions: Array<{
-			label: string;
-			kind: "stage" | "unstage" | "discard" | "open";
-			disabled?: boolean;
-			run: () => void;
-		}> = [];
-		// 远端 index-only 能力只给「取消暂存」，不给目录/丢弃/删除动作；readOnly 连动作用都不给。
-		if (!props.readOnly && props.groupType === "index" && (!props.indexActionsOnly || props.unstageFile)) {
-			actions.push({
-				label: t("git.unstage"),
-				kind: "unstage",
-				disabled: props.mutating,
-				run: () => props.unstageFile?.(r.target),
-			});
-		} else if (!props.readOnly && (!props.indexActionsOnly || props.stageFile) && (props.groupType === "workingTree" || props.groupType === "untracked")) {
-			// 已暂存文件在 Changes 组仅保留打开按钮，暂存/回滚归 Staged 组（VS Code 语义）
-			if (!props.stagedPaths?.has(r.path)) {
-				actions.push({
-					label: t("git.stage"),
-					kind: "stage",
-					disabled: props.mutating,
-					run: () => props.stageFile?.(r.target),
-				});
-				// 回滚：tracked 走 git restore，untracked 走回收站删除
-				if (!props.indexActionsOnly)
-					actions.push({
-						label: t("git.discardChanges"),
-						kind: "discard",
-						disabled: props.mutating,
-						run: () => props.discardFile?.(r.target, r.status === GitStatus.UNTRACKED ? "untracked" : "workingTree"),
-					});
-			}
-		}
-		if (props.onOpenFile) {
-			actions.push({
-				label: t("common.open"),
-				kind: "open",
-				run: () => props.onOpenFile?.(r.target),
-			});
-		}
-		return (
-			<ResourceRow
-				key={r.path}
-				status={r.status}
-				letter={r.letter}
-				path={r.displayPath || r.path}
-				target={r.target}
-				indent={depth * CHANGE_TREE_INDENT_PX}
-				onOpen={() =>
-					props.onOpenWorkspaceFileDiff(
-						// Changes 组只含工作区侧资源（workingTree + untracked，见 collectUnstagedResources）：
-						// 未跟踪文件按实际状态传 untracked，否则服务端在 workingTree 组找不到而打不开
-						props.groupType === "workingTree" && r.status === GitStatus.UNTRACKED ? "untracked" : props.groupType,
-						r.target,
-					)
-				}
-				actions={actions}
-				deleteFile={!props.readOnly && !props.indexActionsOnly && props.deleteFile ? (target) => props.deleteFile?.(target) : undefined}
-			/>
-		);
+	const ctx: ChangeRowContext = {
+		groupType: props.groupType,
+		mutating: props.mutating,
+		onOpenWorkspaceFileDiff: props.onOpenWorkspaceFileDiff,
+		collapsedDirs: props.collapsedDirs,
+		onToggleDir: props.onToggleDir,
+		readOnly: props.readOnly,
+		indexActionsOnly: props.indexActionsOnly,
+		stagedPaths: props.stagedPaths,
+		stageFile: props.stageFile,
+		unstageFile: props.unstageFile,
+		discardFile: props.discardFile,
+		deleteFile: props.deleteFile,
+		onOpenFile: props.onOpenFile,
+		stageDir: props.stageDir,
+		discardDir: props.discardDir,
 	};
 
-	/**
-	 * 目录行：折叠开关 + 目录级暂存/回滚 + 计数。
-	 * 目录级操作只作用于传入的资源（树形视图传整棵子树），不影响其他目录。
-	 */
-	const renderDirHeader = (dir: string, label: string, dirResources: GitResource[], depth: number) => {
-		// 已暂存文件在 Changes 组不再提供目录级暂存（VS Code 语义）：目录按钮与行内按钮同一判据。
-		const stageable = dirResources.filter((resource) => !props.stagedPaths?.has(resource.path));
-		const discardable = stageable
-			.filter((resource) => resource.status === GitStatus.UNTRACKED || props.groupType === "workingTree")
-			.map((resource) => ({
-				target: resource.target,
-				group: resource.status === GitStatus.UNTRACKED ? ("untracked" as const) : ("workingTree" as const),
-			}));
-		return (
-			<div
-				key={dir || "root"}
-				className="group/dir flex h-7 cursor-pointer items-center gap-1.5 rounded-sm pr-2 text-body select-none transition-[background-color,border-color,box-shadow] duration-base hover:bg-muted focus-visible:shadow-[inset_var(--focus-ring)] focus-visible:outline-none"
-				style={{ paddingLeft: CHANGE_ROW_BASE_PADDING + depth * CHANGE_TREE_INDENT_PX }}
-				/* 折叠是目录展开的唯一入口，键盘必须可达（GitGraph 行同款 inset 焦点环） */
-				role="button"
-				tabIndex={0}
-				aria-expanded={!props.collapsedDirs.has(dir)}
-				onKeyDown={(e) => {
-					if (e.key === "Enter" || e.key === " ") {
-						e.preventDefault();
-						props.onToggleDir(dir);
-					}
-				}}
-				onClick={() => props.onToggleDir(dir)}
-			>
-				{/* twistie 槽宽 16px + 3px 视觉偏移：与文件抽屉的目录行同一列 */}
-				<span aria-hidden="true" className="inline-flex h-full w-4 shrink-0 translate-x-[3px] items-center justify-center">
-					<ChevronDown size={14} strokeWidth={2} className={`shrink-0 text-text-tertiary transition-transform duration-fast${props.collapsedDirs.has(dir) ? " -rotate-90" : " rotate-0"}`} />
-				</span>
-				<span className="min-w-0 flex-1 truncate font-normal text-[var(--git-panel-fg)]" title={dir || "/"}>
-					{label}
-				</span>
-				<span className="ml-auto flex items-center gap-0.5">
-					{!props.readOnly && !props.indexActionsOnly && props.stageDir && stageable.length > 0 && (
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-sm"
-							className="invisible size-6 rounded-xs text-text-tertiary group-hover/dir:visible hover:bg-[var(--git-panel-hover)] hover:text-text-primary"
-							aria-label={t("git.stageDirectory")}
-							title={t("git.stageDirectory")}
-							disabled={props.mutating}
-							onClick={(event) => {
-								event.stopPropagation();
-								props.stageDir?.(stageable.map((resource) => resource.target));
-							}}
-						>
-							<Plus size={13} aria-hidden="true" />
-						</Button>
-					)}
-					{!props.readOnly && !props.indexActionsOnly && props.discardDir && discardable.length > 0 && (
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-sm"
-							className="invisible size-6 rounded-xs text-text-tertiary group-hover/dir:visible hover:bg-[var(--git-panel-hover)] hover:text-[var(--color-danger)]"
-							aria-label={t("git.discardDirectory")}
-							title={t("git.discardDirectory")}
-							disabled={props.mutating}
-							onClick={(event) => {
-								event.stopPropagation();
-								props.discardDir?.(discardable, dir || "/");
-							}}
-						>
-							<RotateCcw size={13} aria-hidden="true" />
-						</Button>
-					)}
-					<span className="px-1 text-micro tabular-nums text-text-tertiary">{dirResources.length}</span>
-				</span>
-			</div>
-		);
-	};
-
-	// 树形视图：嵌套目录 + 缩进；折叠项由 buildChangeTreeRows 直接剪枝，渲染层无需回溯层级
-	if (props.viewMode === "tree") {
-		return <>{buildChangeTreeRows(props.resources, props.projectRoot, props.collapsedDirs).map((row) => (row.kind === "dir" ? renderDirHeader(row.path, row.label, row.resources, row.depth) : renderResourceRow(row.resource, row.depth)))}</>;
-	}
-
-	return (
-		<>
-			{dirs.map((dir) => {
-				const resources = byDir.get(dir)!;
-				// 单目录且无嵌套时不显示目录头
-				const isSingleRoot = dirs.length === 1 && dir === "";
-				// 即使只有根目录，目录级操作仍需要一个可点击的目录头；没有批量操作时保持旧的紧凑布局。
-				const hideDirHeader = isSingleRoot && !props.stageDir && !props.discardDir;
-				return (
-					<Fragment key={dir || "root"}>
-						{!hideDirHeader && renderDirHeader(dir, shortenDir(dir) || "/", resources, 0)}
-						{(!props.collapsedDirs.has(dir) || hideDirHeader) && resources.map((r) => renderResourceRow(r, 0))}
-					</Fragment>
-				);
-			})}
-		</>
-	);
+	// 树形：嵌套目录 + 缩进（紧凑链合并单子目录）；扁平：一级目录分组（目录头缩写展示）。
+	// 两种视图的折叠剪枝都在 builder 内完成，渲染层不感知视图差异。
+	const rows = props.viewMode === "tree" ? buildChangeTreeRows(props.resources, props.projectRoot, props.collapsedDirs) : buildChangeFlatRows(props.resources, props.projectRoot, props.collapsedDirs, { includeSingleRootHeader: Boolean(props.stageDir || props.discardDir) });
+	return renderChangeRows(rows, ctx);
 });
 
 export function statusTone(status: GitStatus | GitFileStatus, isCompareContext = false): string {
@@ -458,27 +474,124 @@ export function ResourceRow(props: {
 	);
 }
 
-export function ResourceGroup(props: { title: string; count: number; open: boolean; onToggle: () => void; allAction?: () => void; allLabel?: string; allDisabled?: boolean; children: ReactNode }) {
+/**
+ * 变更区分组规格：ChangesGroupsStack 的每组输入。动作回调按组可选（merge 组
+ * 只读开 diff；staged 给 unstage；changes 给 stage/回滚/目录级操作），缺省即与
+ * FileTree 的旧行为一致（无回调 = 无按钮）。
+ */
+export type ChangesGroupSpec = {
+	/** 行 key 前缀；同文件可同时出现在 staged 与 changes 组，key 必须带组前缀 */
+	key: string;
+	groupType: GitResourceGroupType;
+	title: string;
+	open: boolean;
+	resources: GitResource[];
+	onToggle: () => void;
+	/** 组头 hover/展开常显的批量操作（全部暂存/取消暂存） */
+	allAction?: () => void;
+	allLabel?: string;
+	allDisabled?: boolean;
+	readOnly?: boolean;
+	indexActionsOnly?: boolean;
+	stagedPaths?: ReadonlySet<string>;
+	stageFile?: (target: ProjectFileTarget) => void;
+	unstageFile?: (target: ProjectFileTarget) => void;
+	discardFile?: (target: ProjectFileTarget, group: "workingTree" | "untracked") => void;
+	deleteFile?: (target: ProjectFileTarget) => void;
+	onOpenFile?: (target: ProjectFileTarget) => void;
+	stageDir?: (targets: ProjectFileTarget[]) => void;
+	discardDir?: (resources: GitDiscardResource[], label: string) => void;
+};
+
+/** 组头行：原 ResourceGroup 的头部（扁平化后分组不再有包裹层，分隔线落在每组末行的 border 上）。 */
+function GroupHeaderRow(props: { spec: ChangesGroupSpec; border: boolean }) {
 	return (
-		<div className={`group border-b border-[var(--git-panel-border)] last:border-b-0${props.open ? " open" : ""}`}>
-			<div className="flex h-7 items-center bg-transparent pr-2 pl-2 hover:bg-muted">
-				<button type="button" className="inline-flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-left text-inherit focus-visible:shadow-[inset_var(--focus-ring)] focus-visible:outline-none" aria-expanded={props.open} onClick={props.onToggle}>
-					{/* 与下方目录行的 twistie 同列（16px 槽 + 3px 偏移） */}
-					<span aria-hidden="true" className="inline-flex h-full w-4 shrink-0 translate-x-[3px] items-center justify-center">
-						<Twistie open={props.open} />
-					</span>
-					<span className="min-w-0 flex-1 truncate text-control font-semibold tracking-normal text-[var(--git-panel-fg)]">{props.title}</span>
-				</button>
-				{props.allAction && (
-					<div className="hidden items-center gap-px group-hover:flex group-focus-within:flex group-[.open]:flex">
-						<Button type="button" variant="ghost" size="icon-sm" className="size-7" aria-label={props.allLabel} title={props.allLabel} disabled={props.allDisabled} onClick={() => props.allAction?.()}>
-							<GitStageGlyph unstage={props.allLabel === t("git.unstageAll")} />
-						</Button>
-					</div>
-				)}
-				<span className="ml-1 min-w-[14px] text-right text-micro tabular-nums text-[var(--git-desc-fg)]">{props.count}</span>
-			</div>
-			{props.open && <div className="min-w-0">{props.children}</div>}
+		<div className={`group flex h-7 items-center bg-transparent pr-2 pl-2 hover:bg-muted${props.spec.open ? " open" : ""}${props.border ? " border-b border-[var(--git-panel-border)]" : ""}`}>
+			<button type="button" className="inline-flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-left text-inherit focus-visible:shadow-[inset_var(--focus-ring)] focus-visible:outline-none" aria-expanded={props.spec.open} onClick={props.spec.onToggle}>
+				{/* 与下方目录行的 twistie 同列（16px 槽 + 3px 偏移） */}
+				<span aria-hidden="true" className="inline-flex h-full w-4 shrink-0 translate-x-[3px] items-center justify-center">
+					<Twistie open={props.spec.open} />
+				</span>
+				<span className="min-w-0 flex-1 truncate text-control font-semibold tracking-normal text-[var(--git-panel-fg)]">{props.spec.title}</span>
+			</button>
+			{props.spec.allAction && (
+				<div className="hidden items-center gap-px group-hover:flex group-focus-within:flex group-[.open]:flex">
+					<Button type="button" variant="ghost" size="icon-sm" className="size-7" aria-label={props.spec.allLabel} title={props.spec.allLabel} disabled={props.spec.allDisabled} onClick={() => props.spec.allAction?.()}>
+						<GitStageGlyph unstage={props.spec.allLabel === t("git.unstageAll")} />
+					</Button>
+				</div>
+			)}
+			<span className="ml-1 min-w-[14px] text-right text-micro tabular-nums text-[var(--git-desc-fg)]">{props.spec.resources.length}</span>
 		</div>
 	);
 }
+
+type ChangesStackRow = { kind: "group"; spec: ChangesGroupSpec; border: boolean } | { kind: "dir"; spec: ChangesGroupSpec; row: Extract<ChangeTreeRow, { kind: "dir" }>; border: boolean } | { kind: "file"; spec: ChangesGroupSpec; resource: GitResource; depth: number; border: boolean };
+
+/**
+ * 本地变更区：把 merge/staged/changes 三个分组折成一条扁平行列表，走一个 VirtualStack。
+ *
+ * 为什么不用每组建一个虚拟器：三组共享同一个滚动容器，per-group virtualizer 需要
+ * scrollMargin 补组间偏移，组开合/目录折叠都会让偏移动态漂移，难验证；整区扁平化后
+ * 一个 virtualizer 天然无偏移问题。行数 ≤ VirtualStack 的 minRows 时直出 Fragment，
+ * 小列表 DOM 与旧结构一致（分组包裹层的分隔线改由每组末行的 border-b 承担）。
+ */
+export const ChangesGroupsStack = memo(function ChangesGroupsStack(props: {
+	/** 变更区自己的限高滚动容器；VirtualStack 依靠它计算可视窗口 */
+	scrollRef: RefObject<HTMLDivElement | null>;
+	groups: readonly ChangesGroupSpec[];
+	viewMode: GitChangeViewMode;
+	collapsedDirs: ReadonlySet<string>;
+	onToggleDir: (dir: string) => void;
+	mutating: boolean;
+	onOpenWorkspaceFileDiff: (group: GitResourceGroupType, target: ProjectFileTarget) => void | Promise<void>;
+	projectRoot?: string;
+}) {
+	const items = useMemo<ChangesStackRow[]>(() => {
+		const active = props.groups.filter((spec) => spec.resources.length > 0);
+		const out: ChangesStackRow[] = [];
+		active.forEach((spec, groupIndex) => {
+			const isLastGroup = groupIndex === active.length - 1;
+			out.push({ kind: "group", spec, border: !isLastGroup });
+			if (!spec.open) return;
+			const rows = props.viewMode === "tree" ? buildChangeTreeRows(spec.resources, props.projectRoot, props.collapsedDirs) : buildChangeFlatRows(spec.resources, props.projectRoot, props.collapsedDirs, { includeSingleRootHeader: Boolean(spec.stageDir || spec.discardDir) });
+			rows.forEach((row, rowIndex) => {
+				const border = !isLastGroup && rowIndex === rows.length - 1;
+				if (row.kind === "dir") out.push({ kind: "dir", spec, row, border });
+				else out.push({ kind: "file", spec, resource: row.resource, depth: row.depth, border });
+			});
+		});
+		return out;
+	}, [props.groups, props.viewMode, props.collapsedDirs, props.projectRoot]);
+
+	return (
+		<VirtualStack
+			items={items}
+			scrollRef={props.scrollRef}
+			estimateHeight={28}
+			getKey={(item) => (item.kind === "group" ? `${item.spec.key}:group` : item.kind === "dir" ? `${item.spec.key}:dir:${item.row.path}` : `${item.spec.key}:file:${item.resource.path}`)}
+			renderItem={(item) => {
+				if (item.kind === "group") return <GroupHeaderRow spec={item.spec} border={item.border} />;
+				const ctx: ChangeRowContext = {
+					groupType: item.spec.groupType,
+					mutating: props.mutating,
+					onOpenWorkspaceFileDiff: props.onOpenWorkspaceFileDiff,
+					collapsedDirs: props.collapsedDirs,
+					onToggleDir: props.onToggleDir,
+					readOnly: item.spec.readOnly,
+					indexActionsOnly: item.spec.indexActionsOnly,
+					stagedPaths: item.spec.stagedPaths,
+					stageFile: item.spec.stageFile,
+					unstageFile: item.spec.unstageFile,
+					discardFile: item.spec.discardFile,
+					deleteFile: item.spec.deleteFile,
+					onOpenFile: item.spec.onOpenFile,
+					stageDir: item.spec.stageDir,
+					discardDir: item.spec.discardDir,
+				};
+				if (item.kind === "dir") return renderChangeDirRow(item.row.path, item.row.label, item.row.resources, item.row.depth, ctx);
+				return renderChangeFileRow(item.resource, item.depth, ctx);
+			}}
+		/>
+	);
+});

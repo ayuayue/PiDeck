@@ -38,6 +38,7 @@ export function WebSearchDialog({ open, onOpenChange, sessionId, messages, onJum
 					</DialogTitle>
 				</DialogHeader>
 				<Input ref={inputRef} value={query} placeholder={t("web.searchPlaceholder")} onChange={(event) => setQuery(event.target.value)} className="h-9" />
+				{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 				<div className="max-h-[50dvh] overflow-y-auto">
 					{query.trim() && hits.length === 0 && !searching ? (
 						<p className="py-6 text-center text-sm text-text-muted">{t("web.searchEmpty")}</p>

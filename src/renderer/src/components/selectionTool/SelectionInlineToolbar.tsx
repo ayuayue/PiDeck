@@ -54,6 +54,7 @@ function TargetLanguagePicker({ value, onChange }: { value: AgentTranslateTarget
 					<ChevronDown size={11} className="shrink-0" aria-hidden="true" />
 				</button>
 			</DropdownMenuTrigger>
+			{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 			<DropdownMenuContent align="start" sideOffset={6} data-selection-tool-ui className="max-h-[min(320px,50vh)] w-[170px] overflow-y-auto">
 				<DropdownMenuLabel>{t("agentInvoke.targetLabel")}</DropdownMenuLabel>
 				<DropdownMenuSeparator />
@@ -279,6 +280,7 @@ export function SelectionInlineToolbar({ anchorRect, sourceText, initialAgentId,
 
 			{trimmedSource ? (
 				<div className="flex min-h-0 flex-1 flex-col">
+					{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 					<div className="max-h-[40vh] min-h-[52px] overflow-y-auto whitespace-pre-wrap px-2.5 py-2 text-control leading-relaxed font-mono [overflow-wrap:anywhere]">
 						{state.phase === "starting" ? (
 							<span className="inline-flex items-center gap-1.5 font-sans text-muted-foreground">

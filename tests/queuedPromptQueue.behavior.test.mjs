@@ -261,7 +261,9 @@ test("immediate unknown snapshots stay visible and acknowledgement-only", () => 
 	assert.match(composerPanelsSource, /canDiscardQueuedPrompt\(status\)/);
 	// 面板只渲染未派发的行，计数与列表同源（sending 行在 claim 时已上屏）。
 	assert.match(composerPanelsSource, /const visiblePrompts = visibleQueuedPrompts\(props\.prompts\)/);
-	assert.match(composerPanelsSource, /visiblePrompts\.map\(/);
+	// 行模型统一交给 VirtualStack（短列表走它的全量分支），判据是「items 来自 visiblePrompts」，
+	// 不是「源码里出现 visiblePrompts.map」——后者在接入虚拟化那天就失效了。
+	assert.match(composerPanelsSource, /items=\{visiblePrompts\}/);
 	assert.match(composerPanelsSource, /sessionQueue\.count", \{ n: visiblePrompts\.length \}/);
 	assert.doesNotMatch(composerPanelsSource, /props\.prompts\.map\(\(prompt, index\) =>/);
 	assert.equal(canRetractQueuedPromptToInput("pending"), true);

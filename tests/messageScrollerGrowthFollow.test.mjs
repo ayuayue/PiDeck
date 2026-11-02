@@ -156,8 +156,11 @@ test("turn-window expansion pins the visible row instead of native scrollTop", (
 	assert.match(timelineSource, /pinBrowseRow\(\)/);
 	assert.doesNotMatch(timelineSource, /restoreTimelineAnchor\(timeline\.scrollTop, nextHeight - prev\.height\)/);
 	assert.doesNotMatch(timelineSource, /timeline\.scrollTop = nextTop/);
-	assert.match(timelineSource, /endPrependSolid\(\)/);
-	assert.match(timelineSource, /\[displayRuns, endPrependSolid, followingForTurnWindow, pinBrowseRow, turnWindowActive, turnWindowTurns\]/);
+	// 2026-11 结构变更后的现役判据：解除整表渲染不再写在时间线的依赖数组里，
+	// 而是挂在 controller 的批次收尾（finally）——那里同时知道「插入是否落地」。
+	// 旧断言钉的是 timelineSource 里的 endPrependSolid() 与那串依赖，结构一改就假红。
+	assert.match(controllerSource, /if \(needsSolid && !insertionCommitted\) endPrependSolid\(\);/);
+	assert.match(timelineSource, /\[displayRuns, followingForTurnWindow, pinBrowseRow, turnWindowActive, turnWindowTurns\]/);
 	assert.match(controllerSource, /api\.restoreAt\(nextTop\)/);
 	assert.match(controllerSource, /scrollerScrollApiRef\.current\?\.stopScroll\(\)/);
 	assert.match(controllerSource, /browsePinScrollTop/);

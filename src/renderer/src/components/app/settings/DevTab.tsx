@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import type { AppInfo, AppSettings, DataEnvInfo, PiCliUpdateResult, PiInstallation, PiInstallStatus, PiUpdateCheckResult } from "../../../../../shared/types";
+import type { AppInfo, AppSettings, DataEnvInfo, PiCliUpdateResult, PiInstallation, PiInstallStatus, PiUpdateCheckResult, WslConnectionValidation } from "../../../../../shared/types";
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
 import { useAtomValue } from "jotai";
@@ -7,6 +7,7 @@ import { updateStatusAtom } from "../../../atoms/update-atoms";
 import { updateChannelInfoAtom } from "../../../atoms/channelSwitchAtoms";
 import { Button } from "../../ui-shadcn/button";
 import { Input } from "../../ui-shadcn/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
 import { SettingsSection } from "./SettingsStorageTab";
 import { AppUpdateCard } from "./AppUpdateCard";
 import { DirtyMarker, SettingApplyBadge, SettingRow, SettingSwitchRow } from "./SettingRows";
@@ -18,10 +19,18 @@ import { DshRunnerNodeRow } from "./DshRunnerNodeRow";
 import { PiCommandSourcePanel } from "../PiCommandSourcePanel";
 import { PiChangelogDialog } from "./PiChangelogDialog";
 
+type SelectOption = { value: string; label: string; disabled?: boolean };
+
 type DevTabProps = {
 	draft: AppSettings;
 	updateDraft: (patch: Partial<AppSettings>) => void;
 	isDirty: (field: keyof AppSettings) => boolean;
+	/** 检测环境前把 WSL 草稿差异先落盘；主进程读的是持久化设置，
+	 * 草稿未提交时会拿旧的 wslEnabled/distro/user 执行（Linux 路径被当 Windows 文件 → ENOENT）。
+	 * 返回 false（持久化失败）时调用方应中止操作，避免用旧配置出误导性结果。 */
+	onEnsureWslSettingsSaved: () => Promise<boolean>;
+	/** 壳层「取消」递增：本 tab 借此重置 WSL 局部输入 */
+	resetKey: number;
 	appInfo: AppInfo;
 	piStatus: PiInstallStatus | null;
 	piChecking: boolean;
@@ -128,6 +137,78 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
 			.catch(() => setDataEnvSwitchFailed(true));
 	};
 
+	// ── WSL 相关状态（仅 Windows + WSL 开启时拉取）──
+	const [wslUserInput, setWslUserInput] = useState(draft.wslUser);
+	const [wslDistros, setWslDistros] = useState<string[]>([]);
+	const [wslDistrosLoading, setWslDistrosLoading] = useState(false);
+	const [wslDistrosAttempted, setWslDistrosAttempted] = useState(false);
+	const [wslValidating, setWslValidating] = useState(false);
+	const [wslValidation, setWslValidation] = useState<WslConnectionValidation | null>(null);
+	// WSL 发行版列表懒加载（仅 Windows + WSL 开启时拉取，无论成败只拉一次）
+	useEffect(() => {
+		const isWin = props.appInfo.platform === "win32";
+		if (isWin && draft.wslEnabled && !wslDistrosAttempted && !wslDistrosLoading && window.piDesktop.wsl) {
+			setWslDistrosLoading(true);
+			window.piDesktop.wsl
+				.listDistros()
+				.then((list) => {
+					setWslDistros(list);
+					setWslDistrosAttempted(true);
+				})
+				.catch(() => {
+					setWslDistros([]);
+					setWslDistrosAttempted(true);
+				})
+				.finally(() => setWslDistrosLoading(false));
+		}
+	}, [draft.wslEnabled, wslDistrosAttempted, wslDistrosLoading, props.appInfo.platform]);
+
+	const distroOptions: SelectOption[] = wslDistros.length > 0 ? wslDistros.map((d) => ({ value: d, label: d })) : [{ value: draft.wslDistro, label: draft.wslDistro }];
+
+	const handleValidateWslUser = async () => {
+		if (!window.piDesktop.wsl) {
+			setWslValidation({ ok: false, whoami: "", piVersion: "", piPath: "", error: t("settings.wsl.apiUnavailable") });
+			return;
+		}
+		setWslValidating(true);
+		setWslValidation(null);
+		try {
+			const result = await window.piDesktop.wsl.validateConnection(draft.wslDistro, wslUserInput);
+			setWslValidation(result);
+			if (result.ok) {
+				// 验证通过后，将用户输入写入 draft
+				updateDraft({ wslUser: wslUserInput });
+			}
+		} catch (err) {
+			console.error("[Settings] WSL validation failed", err);
+			setWslValidation({ ok: false, whoami: "", piVersion: "", piPath: "", error: t("settings.wsl.validationFailed") });
+		} finally {
+			setWslValidating(false);
+		}
+	};
+
+	// 壳层「取消」：重置本 tab 局部编辑态（WSL 输入）
+	useEffect(() => {
+		setWslValidation(null);
+		setWslUserInput(draft.wslUser);
+	}, [props.resetKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+	const piSourceOptions: SelectOption[] = [
+		{ value: "windows", label: t("settings.piSource.windows") },
+		{ value: "wsl", label: t("settings.piSource.wsl") },
+	];
+
+	/**
+	 * 重新检测：先把 WSL 草稿（来源/发行版/用户名）落盘，否则主进程拿旧配置检测；
+	 * 失败（持久化失败）则中止，避免用旧配置给出误导性结果。
+	 */
+	const handleCheckEnvironment = () => {
+		void (async () => {
+			if (!(await props.onEnsureWslSettingsSaved())) return;
+			props.onCheckPi();
+		})();
+	};
+
 	return (
 		<>
 			{/* 环境 */}
@@ -186,6 +267,122 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
 					</pre>
 				)}
 
+				{/* Pi 来源：Windows 原生 / WSL（仅 Windows 可见）。
+				    分隔线由本块自己带（mt/pt + border-t）：写成独立元素的话，
+				    非 Windows 平台会凭空多出一条什么都没有的画线。 */}
+				{props.appInfo.platform === "win32" && (
+					<div id="settings-section-dev-pi-source" className="setting-pi-source-block mt-3 border-0 border-t border-border-subtle pt-3">
+						<div className="setting-pi-source-row">
+							<span>{t("settings.piSource.label")}</span>
+							<div className="grid gap-1.5">
+								<Select
+									value={draft.wslEnabled ? "wsl" : "windows"}
+									onValueChange={(value) => {
+										updateDraft({ wslEnabled: value === "wsl" });
+										setWslValidation(null);
+									}}
+								>
+									<SelectTrigger className="w-full">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{piSourceOptions.map((option) => (
+											<SelectItem key={option.value} value={option.value} disabled={option.disabled}>
+												{option.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
+						</div>
+						{draft.wslEnabled && (
+							<div id="settings-section-dev-wsl-config" className="setting-pi-wsl-config">
+								<div className="setting-wsl-fields">
+									{wslDistros.length > 0 ? (
+										<div className="grid min-w-[160px] flex-1 gap-1.5">
+											<span className="text-control font-medium text-foreground">{t("settings.wsl.distro")}</span>
+											<Select
+												value={draft.wslDistro}
+												onValueChange={(value) => {
+													updateDraft({ wslDistro: value });
+													setWslValidation(null);
+												}}
+											>
+												<SelectTrigger className="w-full">
+													<SelectValue />
+												</SelectTrigger>
+												<SelectContent>
+													{distroOptions.map((option) => (
+														<SelectItem key={option.value} value={option.value} disabled={option.disabled}>
+															{option.label}
+														</SelectItem>
+													))}
+												</SelectContent>
+											</Select>
+										</div>
+									) : (
+										<div className="grid min-w-[160px] flex-1 gap-1.5">
+											<span className="text-control font-medium text-foreground">{t("settings.wsl.distro")}</span>
+											<Input
+												type="text"
+												value={draft.wslDistro}
+												placeholder={"Ubuntu"}
+												onChange={(event) => {
+													updateDraft({ wslDistro: event.target.value });
+													setWslValidation(null);
+												}}
+											/>
+										</div>
+									)}
+									{wslDistrosLoading && <small className="setting-status info">{t("settings.wsl.detectingDistros")}</small>}
+									<div className="setting-wsl-user-row">
+										<div className="grid min-w-[160px] flex-1 gap-1.5">
+											<span className="text-control font-medium text-foreground">{t("settings.wsl.user")}</span>
+											<Input
+												type="text"
+												value={wslUserInput}
+												placeholder={"root"}
+												onChange={(event) => {
+													setWslUserInput(event.target.value);
+													setWslValidation(null);
+												}}
+											/>
+										</div>
+										<Button variant="secondary" size="sm" disabled={!wslUserInput.trim() || wslValidating} loading={wslValidating} onClick={handleValidateWslUser}>
+											{t("settings.wsl.validateUser")}
+										</Button>
+									</div>
+								</div>
+								{wslValidation && (
+									<div className={`setting-wsl-validation ${wslValidation.ok ? "success" : "error"}`}>
+										{wslValidation.ok ? (
+											<>
+												<small className="setting-status success">
+													{t("settings.wsl.validationOk", {
+														user: wslValidation.whoami,
+														distro: draft.wslDistro,
+													})}
+												</small>
+												{wslValidation.piVersion ? (
+													<>
+														<small className="setting-status success">{t("settings.wsl.piDetected", { version: wslValidation.piVersion })}</small>
+														{/* 展示解析到的 Linux 绝对路径：nvm/fnm 场景下用户需要能核对版本目录 */}
+														{wslValidation.piPath && <small className="setting-status info">{t("settings.wsl.piPath", { path: wslValidation.piPath })}</small>}
+													</>
+												) : (
+													<small className="setting-status warning">{wslValidation.error || t("settings.wsl.piNotInstalled")}</small>
+												)}
+											</>
+										) : (
+											<small className="setting-status error">{wslValidation.error}</small>
+										)}
+									</div>
+								)}
+							</div>
+						)}
+					</div>
+				)}
+
 				{/* pi 命令来源：自动检测到的安装 + 用户自己添加的路径，合并成一块（来源只是标签） */}
 				<div id="settings-section-dev-pi-installations" className="flex flex-col gap-2 py-2">
 					{/* 标题/说明：两块旧设置的职责（选哪个 pi + 手动配路径）现在全在这一块里 */}
@@ -203,7 +400,7 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
 						onRemoveCustomPath={props.onRemovePiCustomPath}
 						onBrowse={props.onBrowsePiPath}
 						browsing={props.browsingPiPath}
-						onRecheck={props.onCheckPi}
+						onRecheck={handleCheckEnvironment}
 						rechecking={props.piChecking}
 						onShellProbe={props.onShellProbePiInstallations}
 						shellProbing={props.shellProbingPiInstallations}

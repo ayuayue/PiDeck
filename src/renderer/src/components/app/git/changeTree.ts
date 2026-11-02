@@ -62,6 +62,18 @@ export type ChangeTreeFileRow = {
 
 export type ChangeTreeRow = ChangeTreeDirRow | ChangeTreeFileRow;
 
+/**
+ * 缩短长目录路径，类似 Java package 包名缩写：取每段的首字母。
+ * 例如 "src/main/java/com/example/service/impl" → "s/m/j/c/e/s/i"。
+ * 短路径（≤3 段或总长 ≤20）保持原样。
+ * 仅扁平视图使用：树形视图靠紧凑链把层级摊平，缩写会丢掉可读的目录名。
+ */
+export function shortenDir(dir: string): string {
+	const parts = dir.split("/");
+	if (parts.length <= 3 || dir.length <= 20) return dir;
+	return parts.map((p) => p.charAt(0) || "").join("/");
+}
+
 /** 变更列表视图模式：tree = 嵌套目录树（默认展示）；flat = 按目录一级分组 */
 export type GitChangeViewMode = "flat" | "tree";
 
@@ -149,4 +161,37 @@ export function collectChangeTreeDirPaths(resources: GitResource[], projectRoot?
 	return buildChangeTreeRows(resources, projectRoot)
 		.filter((row): row is ChangeTreeDirRow => row.kind === "dir")
 		.map((row) => row.path);
+}
+
+/**
+ * 把扁平变更资源折成扁平视图的行序列（一级目录分组）。
+ * 与 FileTree 原内联分支同语义：目录按名称排序、根目录排最前；单根且无批量操作时
+ * 不输出目录头（此时文件始终渲染，不受折叠影响）。
+ * `includeSingleRootHeader` = 该组是否有目录级批量操作（stageDir/discardDir），
+ * 决定唯一根目录要不要显示可操作的目录头。
+ */
+export function buildChangeFlatRows(resources: GitResource[], projectRoot?: string, collapsedDirs?: ReadonlySet<string>, opts?: { includeSingleRootHeader?: boolean }): ChangeTreeRow[] {
+	const byDir = new Map<string, GitResource[]>();
+	for (const resource of resources) {
+		const dir = changeDirOf(toRelativeChangePath(resource.path, projectRoot));
+		const bucket = byDir.get(dir);
+		if (bucket) bucket.push(resource);
+		else byDir.set(dir, [resource]);
+	}
+	const dirs = [...byDir.keys()].sort((a, b) => {
+		if (a === "") return -1;
+		if (b === "") return 1;
+		return a.localeCompare(b);
+	});
+	const isSingleRoot = dirs.length === 1 && dirs[0] === "";
+	const hideDirHeader = isSingleRoot && !opts?.includeSingleRootHeader;
+	const rows: ChangeTreeRow[] = [];
+	for (const dir of dirs) {
+		const dirResources = byDir.get(dir)!;
+		if (!hideDirHeader) rows.push({ kind: "dir", path: dir, label: shortenDir(dir) || "/", depth: 0, resources: dirResources });
+		if (hideDirHeader || !collapsedDirs?.has(dir)) {
+			for (const resource of dirResources) rows.push({ kind: "file", resource, depth: 0 });
+		}
+	}
+	return rows;
 }

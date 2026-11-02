@@ -49,17 +49,23 @@
   --color-border-default: rgb(0 0 0 / 9%);
   --color-border-strong: rgb(0 0 0 / 16%);
 
-  /* 动作/状态色（--dsw-alias-button-* / --dsw-alias-state-*：官方 static 值） */
-  --color-accent: #18181b;
-  --color-accent-strong: #09090b;
-  --color-accent-soft: #ebedf2;
-  --color-danger: #ef4444;        /* red-500 */
+  /* 动作/状态色：accent 对齐 chat.deepseek.com 品牌蓝（2026-11 视觉对齐）。
+     状态语义色（danger/success/warning/info）仍回归桌面 foundation 语义档——500 系
+     原值在白底上做 11-13px 文字色对比度只有 ≈2:1（「运行中」「已完成」读不见）。 */
+  --color-accent: #3964fe;
+  --color-accent-strong: #2b52e8;
+  --color-accent-soft: #edf3fe;
+  /* 会话行/用户气泡的 DeepSeek 淡蓝层：hover/active 取自现网会话列表观感 */
+  --color-user-bubble: #edf3fe;
+  --color-row-hover: #f1f3f6;
+  --color-row-active: #e4edfd;
+  --color-danger: #b42318;        /* 桌面 foundation 语义档 */
   --color-danger-soft: #fef2f2;   /* red-50 */
-  --color-success: #22c55e;       /* green-500 */
+  --color-success: #14703a;       /* 桌面 foundation 语义档 */
   --color-success-soft: #f0fdf4;
-  --color-success-strong: #16a34a;
-  --color-warning: #f59e0b;       /* amber-500 */
-  --color-info: #3b82f6;          /* blue-500 */
+  --color-success-strong: #166534;
+  --color-warning: #854d0e;       /* 桌面 foundation 语义档 */
+  --color-info: #1d4ed8;          /* 桌面 foundation 语义档 */
 
   /* 身份色（与状态色解耦）：工具走 info 蓝、思考走靛紫，与桌面 foundation 同语义。
      web.css 覆盖 :root 时必须带上，否则过程行图标掉回灰字。 */
@@ -93,14 +99,17 @@
   --color-border-default: rgb(255 255 255 / 10%);
   --color-border-strong: rgb(255 255 255 / 18%);
 
-  --color-accent: #e8eaf2;
-  --color-accent-strong: #ffffff;
-  --color-accent-soft: #232838;
+  --color-accent: #7d96ff;
+  --color-accent-strong: #93a9ff;
+  --color-accent-soft: #1c2748;
+  --color-user-bubble: #1c2748;
+  --color-row-hover: #171d2b;
+  --color-row-active: #1e2a4d;
   --color-danger: #f87171;
   --color-danger-soft: rgb(248 113 113 / 12%);
-  --color-success: #34d399;
+  --color-success: #4ade80;
   --color-success-soft: rgb(52 211 153 / 12%);
-  --color-success-strong: #6ee7b7;
+  --color-success-strong: #86efac;
   --color-warning: #fbbf24;
   --color-info: #60a5fa;
 
@@ -134,26 +143,44 @@
 
 .web-app .conversation.agent-row:hover,
 .web-app .conversation:hover {
-  background: var(--color-bg-hover);
+  background: var(--color-row-hover);
   border-color: transparent;
 }
 
 .web-app .conversation.agent-row.active {
-  /* 与桌面一致：选中会话只铺更深一档灰底，不要描边。 */
-  background: var(--color-bg-active);
+  /* 对齐 DeepSeek 会话列表：淡蓝底 + 品牌蓝字，大圆角行 */
+  background: var(--color-row-active);
   border-color: transparent;
+  border-radius: 12px;
+  color: var(--color-accent);
 }
 
-/* 头部：细底边框 + 半透明毛玻璃（dsh-web 的浮层头部观感） */
+/* foundation legacy 层直接把标题 strong 定成 text-primary，继承打不过直接声明，
+   这里同选择器直写覆盖（web.css 未分层，优先于 legacy 层）。 */
+.web-app .conversation.agent-row.active .conversation-title strong {
+  color: var(--color-accent);
+}
+
+/* 项目 → 会话子列表：树形左导轨 + 收紧行距（缩进语义对齐桌面 SessionTree）。
+   原先 gap-2 + px-1 的松散排布在扁平行风格下会散掉（2026-10 侧栏走查）；
+   子代理会话折叠块（ml-3 缩进）在导轨内再退一层，层级仍然可读。 */
+.web-app .project-children {
+  margin-top: 2px;
+  margin-left: 14px;
+  gap: 2px;
+  padding: 0 0 2px 10px;
+  border-left: 1px solid var(--color-border-subtle);
+}
+
+/* 头部：与聊天画布同底色，不另画一条割裂的分隔线。 */
 .web-app .web-header {
-  background: color-mix(in srgb, var(--color-bg-app) 86%, transparent);
-  backdrop-filter: blur(10px);
-  border-bottom-color: var(--color-border-subtle);
+  background: var(--color-bg-app);
+  border-bottom-color: transparent;
 }
 
-/* 时间线消息列：dsh-web 的内容列宽（大屏居中限宽） */
+/* 时间线消息列：与 DeepSeek 一致采用 776px 阅读宽，长回复不换行过宽。 */
 .web-app .message-timeline .message-list {
-  max-width: 860px;
+  max-width: 776px;
   margin: 0 auto;
   width: 100%;
 }
@@ -169,16 +196,33 @@
   min-height: 56vh;
   text-align: center;
 }
+/* 空态：DeepSeek 式问候语（Logo + 大号粗体标题），竖向堆叠居中——
+   视觉回归契约要求 logo 与下方提示列表同轴水平居中，故不用横排。 */
+.web-app .message-timeline .empty-state .empty-greeting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.web-app .message-timeline .empty-state .empty-greeting h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: var(--color-text-primary);
+}
 .web-app .message-timeline .empty-state .empty-hint {
   margin: 0;
   color: var(--color-text-secondary);
 }
 
-/* 用户气泡：dsh-web 风格（layer-2 面 + 细边框 + 14px 圆角） */
-.web-app .user-turn .rounded-\[14px\] {
-  background: var(--color-bg-muted);
-  border-color: var(--color-border-subtle);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 4%);
+/* 用户气泡：对齐 DeepSeek（淡蓝面、无描边、18px 圆角）；.user-bubble 挂在
+   WebTimeline 的正文气泡上，编辑态气泡不走这条规则。 */
+.web-app .user-turn .user-bubble {
+  background: var(--color-user-bubble);
+  border: 0;
+  border-radius: 18px;
+  box-shadow: none;
 }
 
 /* 助手正文：正文色层级 + 更宽松行高 */
@@ -186,21 +230,45 @@
   color: var(--color-text-primary);
 }
 
-/* Composer：浮起容器（layer-2 面 + 细边框 + 聚焦品牌环），dsh-web 输入区观感 */
+/* Composer：对齐 DeepSeek 输入卡——24px 大圆角白卡、0.8px 细边框、双层柔阴影；
+   列宽与消息列一致（居中限宽），聚焦只微调描边色，不铺大环。 */
 .web-app .composer {
   background: var(--color-bg-app);
 }
+.web-app .composer > * {
+  width: 100%;
+  max-width: 776px;
+  margin-inline: auto;
+}
 .web-app .composer-box {
+  border-radius: 24px;
   background: var(--color-bg-panel);
   border-color: var(--color-border-default);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 5%);
+  box-shadow:
+    0 4px 10px rgb(0 0 0 / 2%),
+    0 2px 4px rgb(0 0 0 / 4%);
   transition:
     border-color 160ms ease,
     box-shadow 160ms ease;
 }
 .web-app .composer-box:focus-within {
-  border-color: var(--color-info);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-info) 18%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 38%, transparent);
+  box-shadow:
+    0 4px 10px rgb(0 0 0 / 2%),
+    0 2px 6px rgb(0 0 0 / 5%);
+}
+
+/* 发送按钮：DeepSeek 式品牌蓝圆形箭头钮（.web-send 挂在 WebComposer 提交钮上） */
+.web-app .web-send:not(:disabled) {
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+}
+.web-app .web-send:not(:disabled):hover {
+  background: var(--color-accent-strong);
+}
+.web-app .web-send:disabled {
+  background: var(--color-bg-muted);
+  color: var(--color-text-tertiary);
 }
 
 /* 滚动条（--dsh-scrollbar-* 语义：细滚动条 + 低调 thumb） */
@@ -234,6 +302,35 @@
     min-width: 36px;
     min-height: 36px;
   }
+  /* 横滚条在触屏上渲染成代码块底部的「假分割线」且吃行高：直接隐藏，
+     手势横滑仍在（2026-10 评审 P3）。 */
+  .web-app [data-streamdown="code-block-body"] {
+    scrollbar-width: none;
+  }
+  .web-app [data-streamdown="code-block-body"]::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* 代码块正文字号：streamdownChrome 的 0.8125rem（13px）在手机上偏小，
+   Web 页提到 0.875rem（14px）——只在 .web-app 作用域，桌面端不动。 */
+.web-app [data-streamdown="code-block-body"] {
+  font-size: 0.875rem;
+}
+
+/* 空语言代码块：streamdown 的语言胶囊渲染空文本，白卡头条上只剩一粒
+   「—」样的空胶囊 + 一整条 34px 染色空条（3 行日志的头条比代码还高）。
+   胶囊隐藏、头条底色与分隔线透明化——头条退化成右侧复制/下载钮的隐形定位条
+   （按钮 absolute 挂在容器右上，仍需这 34px 占位，不能整条 display:none）。 */
+.web-app
+  [data-streamdown="code-block-header"]:is(:not([data-language]), [data-language=""])
+  > span {
+  display: none;
+}
+.web-app
+  [data-streamdown="code-block-header"]:is(:not([data-language]), [data-language=""]) {
+  background: transparent;
+  border-bottom-color: transparent;
 }
 
 /* 工具卡/思考块：对齐桌面「无框过程行」视觉（timeline.css 的原始意图）——
@@ -380,7 +477,7 @@
   }
   .app.wechat-shell .composer-box {
     min-height: 0;
-    border-radius: 12px;
+    border-radius: 20px;
   }
 }
 

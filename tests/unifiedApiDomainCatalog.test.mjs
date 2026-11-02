@@ -3,7 +3,7 @@
  *
  * 校验 src/shared/api/domainCatalog.ts（DOMAIN_CATALOG）与 importerCatalog.ts
  * （IMPORTER_CATALOG）跟仓库真实通道面（src/shared/ipc.ts）与 preload 命名空间面
- * （src/preload/index.ts 实际暴露的 74 命名空间）的对齐：
+ * （src/preload/index.ts 实际暴露的 80 命名空间）的对齐：
  * 前缀认领双向闭合、命名空间认领恰好一次（伴生行冻结例外）、红线行聚合标记、
  * 特殊裁决注释在位、坏 fixture 对校验函数有分辨力。
  */
@@ -14,7 +14,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const ipcChannelsMod = loadTsCommonJs("src/shared/ipc.ts");
 const ipcChannels = ipcChannelsMod.ipcChannels;
 
-// preload 经 electron stub 捕获 contextBridge.exposeInMainWorld("piDesktop", api) 的 74 命名空间键。
+// preload 经 electron stub 捕获 contextBridge.exposeInMainWorld("piDesktop", api) 的 80 命名空间键。
 let exposedNamespaces = [];
 {
 	let captured = null;
@@ -34,7 +34,7 @@ const importerCatalogMod = loadTsCommonJs("src/shared/api/importerCatalog.ts");
 const DOMAIN_CATALOG = domainCatalogMod.DOMAIN_CATALOG;
 const IMPORTER_CATALOG = importerCatalogMod.IMPORTER_CATALOG;
 
-// 仓库真实通道面：743 通道 → 85 前缀；preload 真实命名空间面：74 键。
+// 仓库真实通道面：808 通道 → 92 前缀；preload 真实命名空间面：80 键。
 const allChannelValues = Object.values(ipcChannels);
 const actualPrefixes = new Set(allChannelValues.map((value) => value.split(":")[0]));
 const actualNamespaces = new Set(exposedNamespaces);
@@ -78,14 +78,14 @@ test("F1-2 group 六枚举且每行必填", () => {
 	for (const row of DOMAIN_CATALOG) assert.ok(groups.has(row.group), `${row.id}: 非法 group ${row.group}`);
 });
 
-test("F1-3 每行 channelPrefix 非空且都存在于真实 85 前缀", () => {
+test("F1-3 每行 channelPrefix 非空且都存在于真实 92 前缀", () => {
 	for (const row of DOMAIN_CATALOG) {
 		assert.ok(row.channelPrefix.length > 0, `${row.id}: channelPrefix 为空`);
 		for (const prefix of row.channelPrefix) assert.ok(actualPrefixes.has(prefix), `${row.id}: 未知前缀 ${prefix}`);
 	}
 });
 
-test("F1-4 反向闭合：85 前缀被两表 channelPrefix 并集全覆盖、无孤儿", () => {
+test("F1-4 反向闭合：92 前缀被两表 channelPrefix 并集全覆盖、无孤儿", () => {
 	const claimed = new Set([...DOMAIN_CATALOG, ...IMPORTER_CATALOG].flatMap((row) => row.channelPrefix));
 	const orphans = [...actualPrefixes].filter((prefix) => !claimed.has(prefix));
 	assert.deepEqual(orphans, [], `未被认领的前缀: ${orphans.join(", ")}`);
@@ -109,14 +109,14 @@ test("F1-4 反向闭合：85 前缀被两表 channelPrefix 并集全覆盖、无
 	assert.ok(skillStoreRows[0].preloadNamespaces.includes("skillStore"), "skill-store 前缀必须由 skillStore 命名空间的行认领");
 });
 
-test("F1-5 每行 preloadNamespaces 非空且都存在于 preload 74 命名空间", () => {
+test("F1-5 每行 preloadNamespaces 非空且都存在于 preload 80 命名空间", () => {
 	for (const row of [...DOMAIN_CATALOG, ...IMPORTER_CATALOG]) {
 		assert.ok(row.preloadNamespaces.length > 0, `${row.id}: preloadNamespaces 为空`);
 		for (const ns of row.preloadNamespaces) assert.ok(actualNamespaces.has(ns), `${row.id}: 未知命名空间 ${ns}`);
 	}
 });
 
-test("F1-6 反向闭合：74 命名空间每个被恰好一行认领（冻结例外表内允许多行）", () => {
+test("F1-6 反向闭合：80 命名空间每个被恰好一行认领（冻结例外表内允许多行）", () => {
 	const claimedNs = new Set([...DOMAIN_CATALOG, ...IMPORTER_CATALOG].flatMap((row) => row.preloadNamespaces));
 	const unclaimed = [...actualNamespaces].filter((ns) => !claimedNs.has(ns));
 	assert.deepEqual(unclaimed, [], `未被认领的命名空间: ${unclaimed.join(", ")}`);

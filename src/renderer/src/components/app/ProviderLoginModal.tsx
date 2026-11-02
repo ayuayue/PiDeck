@@ -33,7 +33,8 @@ export function ProviderLoginModal() {
 }
 
 /** 阶段内容区：固定最小高度避免弹框抖动，超高走内部滚动（不放宽弹框本身）。 */
-const PHASE_BODY_CLASS = "min-h-56 max-h-[60vh] overflow-y-auto pr-1";
+// 阶段内容区的类名直接写在下方的容器行上（不抽常量）：scrollContainerGuard 只认元素行里
+// 的 overflow-* 字面量，抽成变量会让这个真实滚动窗从判定面里整条消失。
 
 function ProviderLoginBody({ preselectedProviderId }: { preselectedProviderId?: string }) {
 	const close = useSetAtom(closeProviderLoginAtom);
@@ -54,7 +55,8 @@ function ProviderLoginBody({ preselectedProviderId }: { preselectedProviderId?: 
 					<DialogTitle>{t("providerLogin.title")}</DialogTitle>
 					<DialogDescription>{state.phase === "running" ? t("providerLogin.running.title", { provider: state.providerId }) : t("providerLogin.subtitle")}</DialogDescription>
 				</DialogHeader>
-				<div className={PHASE_BODY_CLASS}>
+				{/* scroll-ok: transient —— 登录阶段内容区（loading / 表单 / 二维码轮换），随弹窗生命周期结束。 */}
+				<div className="min-h-56 max-h-[60vh] overflow-y-auto pr-1">
 					{state.phase === "loading" && (
 						<div className="flex h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
 							<Loader2 className="size-4 animate-pideck-spin" />
@@ -136,6 +138,7 @@ function FailedBody({ state }: { state: Extract<ProviderLoginPhase, { phase: "fa
 
 /** 原始报错文本块：等宽、可选中、长行换行，避免撑破弹框。 */
 function RawDetail({ text }: { text: string }) {
+	// scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。
 	return <p className="max-h-32 overflow-y-auto break-all font-mono text-xs text-muted-foreground select-text">{text}</p>;
 }
 
@@ -162,6 +165,7 @@ function RunningBody({ flow, state }: { flow: ReturnType<typeof useProviderLogin
 					{!state.prompt && <p className="text-xs text-muted-foreground">{t("providerLogin.running.proxyHint")}</p>}
 				</div>
 			)}
+			{/* scroll-ok: transient —— 登录流程的事件日志，生命周期等于一次弹窗、条数由 pi 的几步事件决定（几十条）。 */}
 			{logEvents.length > 0 && (
 				<div className="max-h-40 space-y-1 overflow-y-auto rounded-lg bg-muted/40 p-3">
 					{logEvents.map((event, index) => (

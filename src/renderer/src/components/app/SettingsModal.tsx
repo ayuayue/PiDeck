@@ -3,7 +3,7 @@ import { getDefaultStore, useAtom, useAtomValue } from "jotai";
 import { settingsFocusAtom, type SettingsPaneId, type SettingsSectionId, type SettingsTabId } from "../../atoms";
 import { hasPendingUpdateAtom, updateStatusAtom } from "../../atoms/update-atoms";
 import { useSettingsFocus } from "./settings/useSettingsFocus.ts";
-import { Settings2, Network, Plug, Wrench, PawPrint, Bell, Trash2, Brush, Eye, ChartColumnBig, Activity, MessageSquare, ImageIcon, DatabaseBackup, Globe, FileCode2, GitBranch, Loader2, SlidersHorizontal, MonitorCog, Keyboard, TerminalSquare, X, Bot, Puzzle, Clapperboard } from "lucide-react";
+import { Settings2, Network, Plug, Wrench, PawPrint, Bell, Trash2, Brush, Eye, ChartColumnBig, Activity, MessageSquare, ImageIcon, DatabaseBackup, Globe, FileCode2, GitBranch, Loader2, SlidersHorizontal, MonitorCog, Keyboard, TerminalSquare, X, Bot, Puzzle, Clapperboard, Brain } from "lucide-react";
 import { t, type TranslationKey } from "../../i18n";
 import { applyAppearanceAttributes, type AppearanceSettings } from "../../themeAppearance";
 import { applyCustomThemeTokens, applyFontSizeAttributes } from "../../hooks/appearance/useAppAppearance";
@@ -34,6 +34,7 @@ import type { AppSettings, AppInfo, AvailableModel, PiInstallation, PiInstallSta
 // ── 各 tab 内容 lazy 加载：首开只下载壳 + 当前 tab 的 chunk（qrcode/表格/日志查看器等
 //    重依赖随各自 tab 拆包），切换到某 tab 时才加载其 chunk（本地文件，秒级以内）。──
 const CommonTab = lazy(() => import("./settings/CommonTab").then((m) => ({ default: m.CommonTab })));
+const AgentMemoryTab = lazy(() => import("./settings/AgentMemoryTab").then((m) => ({ default: m.AgentMemoryTab })));
 const ShortcutsTab = lazy(() => import("./settings/ShortcutsTab").then((m) => ({ default: m.ShortcutsTab })));
 const AppearanceTab = lazy(() => import("./settings/AppearanceTab").then((m) => ({ default: m.AppearanceTab })));
 const ProxyTab = lazy(() => import("./settings/ProxyTab").then((m) => ({ default: m.ProxyTab })));
@@ -194,6 +195,7 @@ class SettingsModalErrorBoundary extends Component<{ onClose: () => void; childr
 						</DialogClose>
 					</DialogHeader>
 					{/* 不能套 .settings-layout：那是 196px 侧栏 + 内容的双列栅格，唯一子项会被挤进侧栏列（布局错位的根因） */}
+					{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 					<div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5" role="alert">
 						<div className="config-diagnostic-card">
 							<div>
@@ -271,6 +273,7 @@ const TAB_META: Record<SettingsTabId, { labelKey: TranslationKey; icon: ReactNod
 	videogen: { labelKey: SETTINGS_TAB_LABEL_KEYS.videogen, icon: <Clapperboard size={16} /> },
 	acp: { labelKey: SETTINGS_TAB_LABEL_KEYS.acp, icon: <Bot size={16} /> },
 	hostplugins: { labelKey: SETTINGS_TAB_LABEL_KEYS.hostplugins, icon: <Puzzle size={16} /> },
+	memory: { labelKey: SETTINGS_TAB_LABEL_KEYS.memory, icon: <Brain size={16} /> },
 };
 
 /**
@@ -356,9 +359,11 @@ function SettingsModalContent(props: SettingsModalProps) {
 	// 快捷键存在冲突等非法状态时禁用保存（ShortcutsTab 上报，见 saveAll 按钮）
 	const [shortcutsInvalid, setShortcutsInvalid] = useState(false);
 	const handleShortcutsInvalidChange = useCallback((invalid: boolean) => setShortcutsInvalid(invalid), []);
+	const [settingsSaving, setSettingsSaving] = useState(false);
 	// 左侧导航黄点来源：与关闭确认同一套字段目录，避免两处口径不一致
 	const dirtyTabIds = useMemo(() => dirtySettingsTabIds({ dirtyFields, visionDirty: visionDraft.dirty, imageGenDirty, videoGenDirty, acpDirty }), [dirtyFields, visionDraft.dirty, imageGenDirty, videoGenDirty, acpDirty]);
 	/** 各 tab 的局部编辑态（WSL 输入/Web 端口/宠物预览模式）在取消时通过递增信号重置 */
+	const [devTabResetKey, setDevTabResetKey] = useState(0);
 	const [webTabResetKey, setWebTabResetKey] = useState(0);
 	const [petTabResetKey, setPetTabResetKey] = useState(0);
 
@@ -366,6 +371,30 @@ function SettingsModalContent(props: SettingsModalProps) {
 	const updateDraft = useCallback((patch: Partial<AppSettings>) => {
 		setDraftSettings((prev) => ({ ...prev, ...patch }));
 	}, []);
+
+	/**
+	 * 把 WSL 相关字段的草稿差异先落盘（检测环境前必须调用）。
+	 * 主进程 piCheck 读的是持久化设置；用户刚在草稿里切了 WSL 来源/发行版/用户名还没点
+	 * 「保存」时，主进程会拿旧配置执行——wslEnabled=false 时 Linux 路径被当 Windows 文件
+	 * 启动必然 ENOENT，表现为「校验失败：无法运行 pi CLI」。
+	 * 只提交这几个字段并推进对应基准，其余草稿字段的脏标记保持原样。
+	 */
+	const commitWslDraftFields = useCallback(async (): Promise<boolean> => {
+		const wslKeys = ["wslEnabled", "wslDistro", "wslUser"] as const;
+		const patch: Partial<AppSettings> = {};
+		for (const key of wslKeys) {
+			if (dirtyFields.has(key)) {
+				(patch as Record<string, unknown>)[key] = draftSettings[key];
+			}
+		}
+		if (Object.keys(patch).length === 0) return true;
+		const ok = await props.onChange(patch).catch(() => false);
+		if (ok) {
+			baseSnapshotRef.current = { ...baseSnapshotRef.current, ...deepClone(patch) };
+			setBaselineToken((v) => v + 1);
+		}
+		return ok;
+	}, [draftSettings, dirtyFields, props.onChange]);
 
 	// 外观实时预览：草稿中明暗/外观主题/主色变化时立即写入 <html> 的 data-* 属性，
 	// 与 App.tsx 的持久化应用共用 applyAppearanceAttributes（见 themeAppearance.ts）。
@@ -408,7 +437,7 @@ function SettingsModalContent(props: SettingsModalProps) {
 	}, []);
 
 	/** 保存全部内容：全局设置差异提交（无差异也提交空 patch，触发「已保存」反馈）+ 视觉桥/生图草稿（若有改动）；返回是否全部成功 */
-	const saveAll = async (): Promise<boolean> => {
+	const saveAllDrafts = async (): Promise<boolean> => {
 		let ok = true;
 		// 无修改也支持再次保存：始终提交当前草稿差异（无差异即空 patch），
 		// updateSettings 会走 api.settings.update 并提示「设置已保存」，因此保存按钮无需因「无修改」禁用。
@@ -448,13 +477,25 @@ function SettingsModalContent(props: SettingsModalProps) {
 		return ok;
 	};
 
+	// 保存尚未结算时保持明确的忙碌态，避免重复提交和「点保存后立即关闭」误报未保存。
+	const saveAll = async (): Promise<boolean> => {
+		if (settingsSaving) return false;
+		setSettingsSaving(true);
+		try {
+			return await saveAllDrafts();
+		} finally {
+			setSettingsSaving(false);
+		}
+	};
+
 	/** 取消全部修改：将草稿回退到初始快照，丢弃所有未保存变更（含视觉桥/生图草稿与各 tab 局部编辑态） */
 	const cancelAll = () => {
 		setDraftSettings(deepClone(baseSnapshotRef.current));
 		restoreAppearanceFromSnapshot();
 		visionDraft.reset();
 		setPerAreaFontSize(baseSnapshotRef.current.uiFontSize !== null || baseSnapshotRef.current.tabBarFontSize !== null || baseSnapshotRef.current.chatFontSize !== null || baseSnapshotRef.current.inputFontSize !== null);
-		// tab 局部编辑态（Web 端口、宠物预览）由各自 tab 监听信号重置
+		// tab 局部编辑态（WSL 输入、Web 端口、宠物预览）由各自 tab 监听信号重置
+		setDevTabResetKey((k) => k + 1);
 		setWebTabResetKey((k) => k + 1);
 		setPetTabResetKey((k) => k + 1);
 	};
@@ -480,6 +521,7 @@ function SettingsModalContent(props: SettingsModalProps) {
 	 *  videoGenDirty/acpDirty 此前漏算：改了生视频供应商或 ACP 工具表后直接关弹窗不会弹确认，草稿静默丢失。 */
 	const hasIndependentDraftsDirty = visionDraft.dirty || imageGenDirty || videoGenDirty || acpDirty;
 	const handleClose = () => {
+		if (settingsSaving || configPaneState.saving) return;
 		const settingsDirty = dirtyFields.size > 0 || hasIndependentDraftsDirty;
 		if (settingsDirty || configPaneState.hasDirty) {
 			setCloseConfirmOpen(true);
@@ -701,24 +743,25 @@ function SettingsModalContent(props: SettingsModalProps) {
 									variant="default"
 									size="sm"
 									onClick={saveAll}
-									disabled={visionDraft.saving || (visionDraft.dirty && visionDraft.modelMissing) || shortcutsInvalid}
+									disabled={settingsSaving || visionDraft.saving || (visionDraft.dirty && visionDraft.modelMissing) || shortcutsInvalid}
+									aria-busy={settingsSaving}
 									// 视觉桥开启但未选模型时禁用保存：悬停说明原因（对应 visionDraft 的 modelRequired 提示）
 									title={shortcutsInvalid ? t("settings.shortcuts.saveBlocked") : visionDraft.dirty && visionDraft.modelMissing ? t("settings.vision.modelRequired") : undefined}
 								>
-									{t("common.save")}
+									{settingsSaving ? t("common.saving") : t("common.save")}
 								</Button>
 								{hasAnyDirtyChanges ? (
 									/* 放弃更改用 outline（白底描边）而非灰底 secondary：与黑色主按钮形成
 									   清晰的主次层级（shadcn dialog 的 confirm/cancel 惯例），避免一对按钮
 									   都是灰色填充分不出哪个是提交。 */
-									<Button variant="outline" size="sm" onClick={cancelAll}>
+									<Button variant="outline" size="sm" onClick={cancelAll} disabled={settingsSaving || configPaneState.saving}>
 										{t("common.cancel")}
 									</Button>
 								) : undefined}
 							</>
 						)}
 						<DialogClose asChild>
-							<Button variant="ghost" size="icon" aria-label={t("common.close")} title={t("common.close")}>
+							<Button variant="ghost" size="icon" aria-label={t("common.close")} title={settingsSaving || configPaneState.saving ? t("common.saving") : t("common.close")} disabled={settingsSaving || configPaneState.saving}>
 								<X size={18} strokeWidth={2.2} aria-hidden="true" />
 							</Button>
 						</DialogClose>
@@ -787,6 +830,7 @@ function SettingsModalContent(props: SettingsModalProps) {
 							{/* 侧栏 = 纯 tab 列表（搜索框在内容列顶部，别再塞回这 196px 窄列——提示文案与
 							    结果行在窄列里必然换行截断）；边框统一交给这层容器，.settings-tabs 自己的边框用 border-0 收掉。 */}
 							<div className="flex min-h-0 w-[196px] shrink-0 flex-col border-r border-border-subtle max-[820px]:w-full max-[820px]:border-r-0 max-[820px]:border-b">
+								{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 								<TabsList className="settings-tabs flex min-h-0 flex-1 flex-col items-stretch gap-2.5 overflow-auto border-0 rounded-none bg-transparent p-2.5" aria-label={t("settings.title")}>
 									{settingsSidebarTabs}
 								</TabsList>
@@ -799,6 +843,15 @@ function SettingsModalContent(props: SettingsModalProps) {
 									<TabsContent value="common" className="settings-panel min-w-0">
 										<Suspense fallback={<SettingsTabLoading />}>
 											<CommonTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} />
+										</Suspense>
+									</TabsContent>
+								)}
+
+								{/* ── 记忆 tab（跨 pi / DSH / ACP 的长期记忆，见 docs/agent-memory.md） ── */}
+								{activeTab === "memory" && (
+									<TabsContent value="memory" className="settings-panel min-w-0">
+										<Suspense fallback={<SettingsTabLoading />}>
+											<AgentMemoryTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} />
 										</Suspense>
 									</TabsContent>
 								)}
@@ -896,6 +949,8 @@ function SettingsModalContent(props: SettingsModalProps) {
 												draft={draftSettings}
 												updateDraft={updateDraft}
 												isDirty={isDirty}
+												onEnsureWslSettingsSaved={commitWslDraftFields}
+												resetKey={devTabResetKey}
 												appInfo={props.appInfo}
 												piStatus={props.piStatus}
 												piChecking={props.piChecking}
@@ -1038,6 +1093,7 @@ function SettingsModalContent(props: SettingsModalProps) {
 							<AlertDialogHeader>
 								<AlertDialogTitle>{t("settings.unsavedTitle")}</AlertDialogTitle>
 								<AlertDialogDescription asChild>
+									{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 									<div className="grid max-h-56 gap-1.5 overflow-auto text-left">
 										{unsavedSummary && unsavedSummary.totalCount === 1 && !configPaneState.hasDirty ? (
 											/* 单项且仅设置区：沿用带「是否在关闭前保存？」的单行提示，不需要列表 */

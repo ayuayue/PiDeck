@@ -51,3 +51,23 @@ export function followBrowsePinAfterUserScroll(pin: BrowsePin, currentViewportTo
 	if (currentViewportTop === null) return pin;
 	return { messageId: pin.messageId, expectedViewportTop: currentViewportTop };
 }
+
+/**
+ * 钉行不在 DOM（虚拟区外的行不会被渲染）时的兜底补偿量。
+ *
+ * 原实现在这种情况下直接 return —— 该补的一次都不补，视口往下掉。但「查不到行」
+ * 不能一概按高度差补：
+ * - 只有扩窗在途才关心（其它原因导致的 null 是切会话/恢复中/行被折叠，不该碰 scrollTop）；
+ * - delta 为正才补（负值是内容缩短，补了反而跳）；
+ * - delta 超过半屏多半不是顶部插入，而是内容自身长高（Markdown 异步排版、图片解码、
+ *   估算高度换成实测）—— 那些行在钉行的**下方**，补 scrollTop 会把视口推走。
+ *   按行对齐天然没有这个问题，因为它对齐的是钉行自身的位置，不看总高。
+ */
+export function resolvePinnedRowFallback(input: { expanding: boolean; previousHeight: number; nextHeight: number; viewportHeight: number }): number | null {
+	if (!input.expanding) return null;
+	if (input.previousHeight <= 0) return null;
+	const delta = input.nextHeight - input.previousHeight;
+	if (delta <= 0) return null;
+	if (input.viewportHeight > 0 && delta > input.viewportHeight / 2) return null;
+	return delta;
+}

@@ -12,12 +12,13 @@
  * 桌面侧由每轮末尾的 chip 行（turn/TurnFileChanges）承担，Web 端没有 TurnRow，
  * 因此直接不展示（原 /api/sessions/:id/file-changes 端点已随之下线）。
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, ChevronDown, Circle, ListTodo, Sparkles } from "lucide-react";
 import type { PiSubagentEntry, SessionTodoSnapshot } from "../../../shared/types";
 import { t, type TranslationKey } from "@/i18n";
 import { fetchSessionSubagents, fetchSessionTodo } from "./webApi";
 import { Collapsible, CollapsibleContent } from "@/components/ui-shadcn/collapsible";
+import { VirtualStack, VIRTUAL_STACK_MIN_ROWS } from "@/components/ui-shadcn/virtual-stack";
 
 function useSessionActivity(sessionId: string | null) {
 	const [subagents, setSubagents] = useState<PiSubagentEntry[]>([]);
@@ -99,53 +100,85 @@ function StripShell({ icon, title, count, children }: { icon: React.ReactNode; t
 
 function WebSubagentsStrip({ subagents }: { subagents: PiSubagentEntry[] }) {
 	const [expanded, setExpanded] = useState<string | null>(null);
+	// 滚动窗 ref：同一个名字必须同时挂在容器与 <VirtualStack scrollRef> 上，否则守卫认不出接线。
+	const listRef = useRef<(HTMLUListElement & HTMLDivElement) | null>(null);
 	if (subagents.length === 0) return null;
+	// 与 VirtualStack 内部同值：虚拟行是 absolute、不参与 flex 布局，原 gap-1 改由行自带 pb-1 提供。
+	const virtualizeRows = subagents.length > VIRTUAL_STACK_MIN_ROWS;
+	// 虚拟化分支的行是 div[data-index] 的子节点，ul > div 是非法 HTML（同桌面端 SessionSubagentsStrip）：
+	// 两条路径各用合法标签 —— 短列表 ul > li，虚拟化 div[role=list] > div[role=listitem]。
+	const ListTag: "ul" | "div" = virtualizeRows ? "div" : "ul";
+	const ItemTag: "li" | "div" = virtualizeRows ? "div" : "li";
 	return (
 		<StripShell icon={<Sparkles className="size-3.5" />} title={t("web.subagentsStripTitle")} count={subagents.length}>
-			<ul className="flex max-h-40 flex-col gap-1 overflow-y-auto">
-				{subagents.map((entry) => {
-					const isOpen = expanded === entry.id;
-					return (
-						<li key={entry.id} className="shrink-0 rounded border border-border-subtle bg-bg-panel px-2 py-1 text-xs">
-							<div className="flex items-center gap-1.5">
-								<span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-micro font-medium text-primary">{entry.type}</span>
-								<span className="min-w-0 flex-1 truncate text-text-tertiary" title={entry.description}>
-									{entry.description}
-								</span>
-								<span className={`shrink-0 text-micro ${SUB_STATUS_TONE[entry.status]}`}>{t(SUB_STATUS_LABEL[entry.status])}</span>
-								{(entry.result || entry.error) && (
-									<button type="button" aria-label={entry.description} onClick={() => setExpanded(isOpen ? null : entry.id)} className="shrink-0 rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary pointer-coarse:p-1.5">
-										<ChevronDown className={`size-3 transition-transform ${isOpen ? "rotate-180" : ""}`} />
-									</button>
-								)}
-							</div>
-							{/* 行详情走共享折叠原语（真高度渐变 + exit 后卸载）；与桌面端子代理行详情同一套。 */}
-							<Collapsible open={isOpen} className="contents">
-								<CollapsibleContent>
-									<pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-bg-muted p-1.5 text-micro leading-relaxed text-text-secondary">{entry.error ?? entry.result}</pre>
-								</CollapsibleContent>
-							</Collapsible>
-						</li>
-					);
-				})}
-			</ul>
+			{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
+			<ListTag ref={listRef} className="flex max-h-40 flex-col gap-1 overflow-y-auto">
+				<VirtualStack
+					items={subagents}
+					getKey={(entry) => entry.id}
+					scrollRef={listRef}
+					minRows={VIRTUAL_STACK_MIN_ROWS}
+					rowClassName="pb-1"
+					{...(virtualizeRows ? { containerProps: { role: "list" }, rowProps: () => ({ role: "listitem" }) } : {})}
+					renderItem={(entry) => {
+						const isOpen = expanded === entry.id;
+						return (
+							<ItemTag className="shrink-0 rounded border border-border-subtle bg-bg-panel px-2 py-1 text-xs">
+								<div className="flex items-center gap-1.5">
+									<span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-micro font-medium text-primary">{entry.type}</span>
+									<span className="min-w-0 flex-1 truncate text-text-tertiary" title={entry.description}>
+										{entry.description}
+									</span>
+									<span className={`shrink-0 text-micro ${SUB_STATUS_TONE[entry.status]}`}>{t(SUB_STATUS_LABEL[entry.status])}</span>
+									{(entry.result || entry.error) && (
+										<button type="button" aria-label={entry.description} onClick={() => setExpanded(isOpen ? null : entry.id)} className="shrink-0 rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary pointer-coarse:p-1.5">
+											<ChevronDown className={`size-3 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+										</button>
+									)}
+								</div>
+								{/* 行详情走共享折叠原语（真高度渐变 + exit 后卸载）；与桌面端子代理行详情同一套。 */}
+								<Collapsible open={isOpen} className="contents">
+									<CollapsibleContent>
+										{/* scroll-ok: text —— 子代理结果原文是单块 pre，没有行列表。 */}
+										<pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-bg-muted p-1.5 text-micro leading-relaxed text-text-secondary">{entry.error ?? entry.result}</pre>
+									</CollapsibleContent>
+								</Collapsible>
+							</ItemTag>
+						);
+					}}
+				/>
+			</ListTag>
 		</StripShell>
 	);
 }
 
 function WebTodoStrip({ todo }: { todo: SessionTodoSnapshot | null }) {
+	// 滚动窗 ref：同一个名字必须同时挂在容器与 <VirtualStack scrollRef> 上，否则守卫认不出接线。
+	const listRef = useRef<(HTMLUListElement & HTMLDivElement) | null>(null);
 	if (!todo || todo.todos.length === 0) return null;
+	// 与 VirtualStack 内部同值（理由同 WebSubagentsStrip）：虚拟行是 absolute，原 gap-1 改由行自带 pb-1。
+	const virtualizeRows = todo.todos.length > VIRTUAL_STACK_MIN_ROWS;
+	const ListTag: "ul" | "div" = virtualizeRows ? "div" : "ul";
+	const ItemTag: "li" | "div" = virtualizeRows ? "div" : "li";
 	return (
 		<StripShell icon={<ListTodo className="size-3.5" />} title={t("web.todoStripTitle")} count={todo.todos.length}>
 			{/* 限高滚动容器内的行必须 shrink-0（2027-01 桌面端压缩事故：overflow-hidden 行会被 flex 压扁叠字） */}
-			<ul className="flex max-h-40 flex-col gap-1 overflow-y-auto">
-				{todo.todos.map((item) => (
-					<li key={`${todo.planId}-${item.id}`} className="flex shrink-0 items-start gap-1.5 rounded border border-border-subtle bg-bg-panel px-2 py-1 text-xs">
-						{item.status === "completed" ? <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-success" /> : item.status === "in_progress" ? <Circle className="mt-0.5 size-3.5 shrink-0 animate-pulse text-[var(--color-identity-tool)]" /> : <Circle className="mt-0.5 size-3.5 shrink-0 text-text-tertiary" />}
-						<span className={item.status === "completed" ? "text-text-tertiary line-through" : ""}>{item.text}</span>
-					</li>
-				))}
-			</ul>
+			<ListTag ref={listRef} className="flex max-h-40 flex-col gap-1 overflow-y-auto">
+				<VirtualStack
+					items={todo.todos}
+					getKey={(item) => `${todo.planId}-${item.id}`}
+					scrollRef={listRef}
+					minRows={VIRTUAL_STACK_MIN_ROWS}
+					rowClassName="pb-1"
+					{...(virtualizeRows ? { containerProps: { role: "list" }, rowProps: () => ({ role: "listitem" }) } : {})}
+					renderItem={(item) => (
+						<ItemTag className="flex shrink-0 items-start gap-1.5 rounded border border-border-subtle bg-bg-panel px-2 py-1 text-xs">
+							{item.status === "completed" ? <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-success" /> : item.status === "in_progress" ? <Circle className="mt-0.5 size-3.5 shrink-0 animate-pulse text-[var(--color-identity-tool)]" /> : <Circle className="mt-0.5 size-3.5 shrink-0 text-text-tertiary" />}
+							<span className={item.status === "completed" ? "text-text-tertiary line-through" : ""}>{item.text}</span>
+						</ItemTag>
+					)}
+				/>
+			</ListTag>
 		</StripShell>
 	);
 }

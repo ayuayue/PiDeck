@@ -52,6 +52,7 @@ export function MiniOverlaySurface(props: MiniOverlayWorkspaceOptions & { onSwit
 					{props.children}
 				</div>
 			) : null}
+			{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 			{!sessionVisible ? <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5">{workspace.view === "new" ? <MiniOverlayNewSession workspace={workspace} /> : <MiniOverlayHome workspace={workspace} />}</div> : null}
 		</section>
 	);

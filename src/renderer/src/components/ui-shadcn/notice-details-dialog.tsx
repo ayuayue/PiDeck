@@ -81,6 +81,7 @@ export function NoticeDetailsDialog({ payload, onOpenChange }: { payload: Notice
 								   把「行距偏疏、标题过大」的官方皮搬进弹窗，长段落还会因缺 min-width:0 横向撑破。
 								   滚动上界：公告正文可达数千字并含代码围栏，不限高会把弹窗顶出屏幕；52vh 让标题与
 								   复制按钮始终可见，符合「先扫一眼标题再读正文」的阅读顺序。 */
+								// scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。
 								<div className="markdown-body mt-1.5 max-h-[52vh] overflow-y-auto text-xs text-text-secondary">
 									<MarkdownStream text={payload.description} isStreaming={false} light onOpenExternal={openInSystemBrowser} />
 								</div>

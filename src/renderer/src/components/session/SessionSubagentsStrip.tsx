@@ -174,6 +174,7 @@ export const PiSubagentEntryRow = (props: {
 						{lost && <p className="rounded border border-danger/30 bg-danger-soft px-2 py-1.5 text-danger">{t("sessionSubagents.lostHint")}</p>}
 						{entry.description && <p className="whitespace-pre-wrap break-words">{entry.description}</p>}
 						{entry.error && <div className="whitespace-pre-wrap break-words rounded border border-danger/30 bg-danger-soft px-2 py-1.5 text-danger">{entry.error}</div>}
+						{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 						{entry.result && <div className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded bg-muted/50 px-2 py-1.5">{entry.result}</div>}
 						{(entry.childSessionId || hasLongText) && (
 							<div className="flex flex-wrap items-center gap-2 pt-0.5">
@@ -201,7 +202,10 @@ export const PiSubagentEntryRow = (props: {
 						<DialogHeader>
 							<DialogTitle>{t("sessionSubagents.dialogTitle", { type: entry.type })}</DialogTitle>
 						</DialogHeader>
-						<div className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto overscroll-contain">
+						<div
+							/* scroll-ok: transient —— 子代理详情弹窗的正文：一次交互、一个子代理的元信息 + 结果文本，随弹窗生命周期存在。 */
+							className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto overscroll-contain"
+						>
 							<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-tertiary">
 								<span className={`rounded px-1.5 py-0.5 text-micro font-medium ${subagentStatusBadgeClass(entry.status)}`}>{t(`sessionSubagents.status.${subagentStatusLabelSuffix(entry.status)}`)}</span>
 								{entry.toolUses != null && entry.toolUses > 0 && <span>{t("sessionSubagents.detailToolUses", { count: entry.toolUses })}</span>}

@@ -105,6 +105,7 @@ export function WebBottomSheet(props: { open: boolean; onOpenChange: (open: bool
 					) : null}
 				</div>
 				{/* 内容区可滚动；大触控目标由内容行自带（h-12 行） */}
+				{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 				<div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{props.children}</div>
 			</div>
 		</div>,

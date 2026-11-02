@@ -1124,6 +1124,29 @@ export const ipcChannels = {
 	piDeckMcpState: "pideck-mcp:state",
 	piDeckMcpSetAccess: "pideck-mcp:set-access",
 	piDeckMcpConnection: "pideck-mcp:connection",
+	// ===== 智能体记忆（pideck-agent-memory）的设置页视图 =====
+	/** 记忆文件体积 + 索引规模 + 本机设备档案；只读 */
+	agentMemoryStatus: "agent-memory:status",
+	/** 清空会话/记忆索引（Markdown 真值不动，下次检索自动重建） */
+	agentMemoryClearIndex: "agent-memory:clear-index",
+	/** 导出记忆包（弹保存对话框；只含全局与项目作用域，可按勾选裁剪） */
+	agentMemoryExport: "agent-memory:export",
+	/** 选包并预览：只读，导入弹窗据此勾选条目与提示冲突 */
+	agentMemoryPreview: "agent-memory:preview",
+	/** 按预览的勾选与冲突策略导入（不传路径就先弹打开对话框） */
+	agentMemoryImport: "agent-memory:import",
+	/** 逐条列出记忆（含内容与作用域），供设置页「记忆」tab 浏览 */
+	agentMemoryList: "agent-memory:list",
+	/** 删除单条记忆（写墓碑，旧导出包不会把它导回来） */
+	agentMemoryDeleteEntry: "agent-memory:delete-entry",
+	/** 撤销刚删的条目（写回内容并回收墓碑） */
+	agentMemoryRestoreEntry: "agent-memory:restore-entry",
+	agentMemoryStandingRead: "agent-memory:standing-read",
+	agentMemoryStandingWrite: "agent-memory:standing-write",
+	/** 重命名本机设备（id 不变，只改显示名与导出包来源标注） */
+	agentMemoryRenameDevice: "agent-memory:rename-device",
+	/** 在系统文件管理器里打开记忆根目录（主进程自己拼路径，渲染层不传路径） */
+	agentMemoryRevealRoot: "agent-memory:reveal-root",
 	hostPluginsList: "host-plugins:list",
 	hostPluginsRescan: "host-plugins:rescan",
 	hostPluginsInstall: "host-plugins:install",
@@ -1138,6 +1161,11 @@ export const ipcChannels = {
 	 * 定位 pideck-plugin.json 所在包根后走与归档/目录一致的重扫描与授权门（不执行仓库内任何代码）。
 	 */
 	hostPluginsInstallGitHub: "host-plugins:install-github",
+	/**
+	 * 插件市场搜索：官方收录（pideck-plugins 仓库的 registry.json）+ GitHub `pideck-plugin` topic
+	 * 双源合并。只回条目不回字节，安装仍走 hostPluginsInstallGitHub。
+	 */
+	hostPluginsMarketSearch: "host-plugins:market-search",
 	/** 脚手架：在插件目录里生成 <id>/ 模板（已存在就拒经，不覆盖作者代码）。 */
 	hostPluginsScaffold: "host-plugins:scaffold",
 	hostPluginsSetEnabled: "host-plugins:set-enabled",

@@ -197,6 +197,7 @@ export function ResourceImportDialog(props: {
 										) : null}
 									</div>
 								</div>
+								{/* scroll-ok: nested —— 同一个滚动窗里混着三段异质节点（来源清单 · 候选卡片 · 分页器），候选还受 RESOURCE_IMPORT_PAGE_SIZE 分页，行数有硬上限。 */}
 								<div ref={listRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
 									{state.scan.sources.map((source) => (
 										<div key={`${source.source}:${source.pathLabel}`} className="text-micro text-muted-foreground">

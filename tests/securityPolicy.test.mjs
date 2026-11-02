@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createDefaultSecurityConfig, createDefaultSecurityLevels } from "../src/shared/types/security.ts";
-import { buildSnapshot, evaluatePathAction, isPathInsideRoot, matchBashDenyPatterns, matchesSensitivePath, resolveLevel, resolveLevelId, sanitizeLineList, validateSecurityConfig } from "../src/main/security/policy.ts";
+import { buildSnapshot, evaluatePathAction, evaluateUserReadAccess, isPathInsideRoot, matchBashDenyPatterns, matchesSensitivePath, resolveLevel, resolveLevelId, sanitizeLineList, validateSecurityConfig } from "../src/main/security/policy.ts";
 
 /**
  * 安全策略纯函数测试：
@@ -109,6 +109,49 @@ test("evaluatePathAction: sensitive protection when enabled", () => {
 	// 关闭保护后放行
 	standard.protectSensitivePaths = false;
 	assert.equal(evaluatePathAction(standard, "C:/proj/.env", "C:/proj"), null);
+});
+
+test("evaluateUserReadAccess: 项目外预览的用户意图门（Web 端）", () => {
+	const config = createDefaultSecurityConfig();
+	// 安全总开关关闭 → 一律放行（与桌面端点开项目外链接一致）
+	const disabled = { ...config, enabled: false };
+	assert.deepEqual(evaluateUserReadAccess(disabled, { filePath: "C:/anywhere/a.ts", cwd: "C:/proj" }), { access: "allow", reason: "security-disabled" });
+
+	// 读不到配置 → 问一次（不静默放行、不静默拒绝）
+	assert.deepEqual(evaluateUserReadAccess(null, { filePath: "C:/anywhere/a.ts", cwd: "C:/proj" }), { access: "ask", reason: "policy-unavailable" });
+
+	// standard（unrestricted）→ 项目外也直接放行
+	config.defaultLevelId = "standard";
+	assert.deepEqual(evaluateUserReadAccess(config, { filePath: "C:/anywhere/a.ts", cwd: "C:/proj" }), { access: "allow", reason: "unrestricted" });
+
+	// strict（workspace）→ 项目内放行、项目外问一次
+	config.defaultLevelId = "strict";
+	assert.deepEqual(evaluateUserReadAccess(config, { filePath: "C:/proj/src/a.ts", cwd: "C:/proj" }), { access: "allow", reason: "allowed-dir" });
+	assert.deepEqual(evaluateUserReadAccess(config, { filePath: "C:/other/b.ts", cwd: "C:/proj" }), { access: "ask", reason: "outside-allowed-dirs" });
+	// 只给了 projectRoot（无 cwd）时同样算项目内
+	assert.deepEqual(evaluateUserReadAccess(config, { filePath: "C:/proj/src/a.ts", projectRoot: "C:/proj" }), { access: "allow", reason: "allowed-dir" });
+
+	// custom → 自定义目录放行，配置里的相对目录按工作目录展开
+	const custom = { ...config, defaultLevelId: "strict", levels: config.levels.map((level) => (level.id === "strict" ? { ...level, pathPolicy: "custom", customAllowDirs: ["C:/shared-data", "vendor"] } : level)) };
+	assert.deepEqual(evaluateUserReadAccess(custom, { filePath: "C:/shared-data/x.json", cwd: "C:/proj" }), { access: "allow", reason: "allowed-dir" });
+	assert.deepEqual(evaluateUserReadAccess(custom, { filePath: "C:/proj/vendor/lib.ts", cwd: "C:/proj" }), { access: "allow", reason: "allowed-dir" });
+	assert.deepEqual(evaluateUserReadAccess(custom, { filePath: "C:/elsewhere/y.json", cwd: "C:/proj" }), { access: "ask", reason: "outside-allowed-dirs" });
+
+	// denyDirs 黑名单优先于一切 allow（哪怕等级是 unrestricted、路径在项目内）
+	const withDeny = { ...config, enabled: true, defaultLevelId: "standard", levels: config.levels.map((level) => (level.id === "standard" ? { ...level, denyDirs: ["C:/proj/secret"] } : level)) };
+	assert.deepEqual(evaluateUserReadAccess(withDeny, { filePath: "C:/proj/secret/key.txt", cwd: "C:/proj" }), { access: "deny", reason: "deny-dir" });
+
+	// 敏感文件保护开启 → 问一次（不是直接拒）
+	const standard = createDefaultSecurityConfig();
+	standard.defaultLevelId = "standard";
+	assert.deepEqual(evaluateUserReadAccess(standard, { filePath: "C:/proj/.env", cwd: "C:/proj" }), { access: "ask", reason: "sensitive" });
+
+	// 会话级覆盖优先于全局默认
+	const override = createDefaultSecurityConfig();
+	override.defaultLevelId = "standard";
+	override.sessionOverrides["s1"] = "strict";
+	assert.deepEqual(evaluateUserReadAccess(override, { filePath: "C:/other/b.ts", cwd: "C:/proj", sessionId: "s1" }), { access: "ask", reason: "outside-allowed-dirs" });
+	assert.deepEqual(evaluateUserReadAccess(override, { filePath: "C:/other/b.ts", cwd: "C:/proj", sessionId: "s2" }), { access: "allow", reason: "unrestricted" });
 });
 
 test("validateSecurityConfig: rejects duplicate ids / missing default / bad regex", () => {

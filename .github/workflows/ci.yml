@@ -45,11 +45,14 @@ jobs:
         # 需要联网：registry 不可达时脚本自行放行，不把网络抖动当成数据漂移。
         run: npm run check:pi-ai-catalog-drift -- --allow-unknown
 
-      - name: Check formatting
+      - name: Check formatting & React hooks
         # biome 格式门禁（chore/formatter-baseline）：与上面的 check:* 同一职责——
         # 防止未格式化的代码直入 main 造成格式漂移。本地等价命令 npm run check:format，
         # 修复用 npm run format（或编辑器装 Biome 插件保存即格式化）。
-        run: npm run check:format
+        # check:hooks：correctness/useHookAtTopLevel（独立配置 biome.hooks.jsonc，因为主
+        # biome.json 的 linter 整体关闭）。抓的是早退 / 条件分支里调 hook 导致的 React
+        # #310「Rendered more hooks than during the previous render」——格式门禁看不见。
+        run: npm run check:format && npm run check:hooks
 
       - name: Check structural invariants
         # 两条机械不变式（各 ~1s，不联网）：

@@ -18,7 +18,14 @@ const source = readFileSync("src/renderer/src/components/app/GitPanel.tsx", "utf
 const h = React.createElement;
 
 /** Observable stubs: the panel renders for real, its heavy children are recorded instead. */
-const calls = { buttons: [], textareas: [], inputs: [], fileTrees: [], resourceGroups: [], autoRefresh: [], graph: [] };
+const calls = {
+	buttons: [],
+	textareas: [],
+	inputs: [],
+	changeGroups: [],
+	autoRefresh: [],
+	graph: [],
+};
 const writes = [];
 function resetCalls() {
 	for (const key of Object.keys(calls)) calls[key] = [];
@@ -33,25 +40,33 @@ const StubButton = (props) => {
 };
 const StubInput = (props) => {
 	calls.inputs.push(props);
-	return h("input", { value: props.value ?? "", onChange: props.onChange, placeholder: props.placeholder, "data-testid": props["data-testid"] });
+	return h("input", {
+		value: props.value ?? "",
+		onChange: props.onChange,
+		placeholder: props.placeholder,
+		"data-testid": props["data-testid"],
+	});
 };
 const StubTextarea = (props) => {
 	calls.textareas.push(props);
-	return h("textarea", { value: props.value ?? "", onChange: props.onChange, onKeyDown: props.onKeyDown, "data-testid": props["data-testid"] });
+	return h("textarea", {
+		value: props.value ?? "",
+		onChange: props.onChange,
+		onKeyDown: props.onKeyDown,
+		"data-testid": props["data-testid"],
+	});
 };
-const StubFileTree = (props) => {
-	calls.fileTrees.push(props);
+const StubChangesGroupsStack = (props) => {
+	calls.changeGroups.push(props);
 	return null;
-};
-const StubResourceGroup = (props) => {
-	calls.resourceGroups.push(props);
-	return h("div", null, props.allAction ? h("button", { "data-all-action": props.allLabel }) : null, props.children);
 };
 const colors = new Proxy({}, { get: () => () => null });
 
 const atoms = {
 	EMPTY_GIT_COMMIT_COMPOSER: { message: "", generating: false },
-	gitCommitComposerByScopeAtom: { initialValue: { "project:project": { message: "fix: message" } } },
+	gitCommitComposerByScopeAtom: {
+		initialValue: { "project:project": { message: "fix: message" } },
+	},
 	gitCommitScopeKey: (projectId, repoScopeKey) => projectId + ":" + repoScopeKey,
 	openSettingsAtom: {},
 	patchGitCommitComposer: () => {},
@@ -68,16 +83,33 @@ const stubs = {
 	"../../i18n": { t: (key) => key },
 	"../../hooks/useAnimationWindow": { useAnimationWindow: () => false },
 	"../../hooks/git/useGitAutoRefresh": {
-		LOCAL_GIT_AUTO_REFRESH: { statusPoll: true, refsWatch: true, autoFetch: true },
+		LOCAL_GIT_AUTO_REFRESH: {
+			statusPoll: true,
+			refsWatch: true,
+			autoFetch: true,
+		},
 		useGitAutoRefresh: (options) => {
 			calls.autoRefresh.push(options);
 		},
 	},
 	"../../utils/notice": { showNotice: () => {}, dismissNotice: () => {} },
-	"../../utils/clipboard": { writeClipboard: async () => {}, htmlToPlainText: (value) => value, readClipboardHtmlConsistent: () => "", readClipboardText: () => "" },
+	"../../utils/clipboard": {
+		writeClipboard: async () => {},
+		htmlToPlainText: (value) => value,
+		readClipboardHtmlConsistent: () => "",
+		readClipboardText: () => "",
+	},
 	"./AppParts": { ConfirmDialog: () => null },
-	"./git/GitResourceTree": { fileNameOnly: (path) => String(path).split("/").pop(), FileTree: StubFileTree, getCollapsibleChangeDirs: () => [], ResourceGroup: StubResourceGroup, ResourceRow: () => null },
-	"./git/GitPanelControls": { GitCompactFilter: () => null, PaneHeader: (props) => h("div", { "data-pane-header": props.title }, props.children) },
+	"./git/GitResourceTree": {
+		fileNameOnly: (path) => String(path).split("/").pop(),
+		ChangesGroupsStack: StubChangesGroupsStack,
+		getCollapsibleChangeDirs: () => [],
+		ResourceRow: () => null,
+	},
+	"./git/GitPanelControls": {
+		GitCompactFilter: () => null,
+		PaneHeader: (props) => h("div", { "data-pane-header": props.title }, props.children),
+	},
 	"./git/GitGraph": {
 		SourceControlGraph: (props) => {
 			calls.graph.push(props);
@@ -89,15 +121,39 @@ const stubs = {
 	"../ui-shadcn/textarea": { Textarea: StubTextarea },
 	"../ui-shadcn/progress": { Progress: () => null },
 	"../ui-shadcn/virtual-stack": { VirtualStack: () => null },
-	"../ui-shadcn/alert-dialog": { AlertDialog: passthrough, AlertDialogContent: passthrough, AlertDialogHeader: passthrough, AlertDialogFooter: passthrough, AlertDialogTitle: passthrough, AlertDialogDescription: passthrough, AlertDialogCancel: StubButton, AlertDialogAction: StubButton },
-	"../ui-shadcn/context-menu": { ContextMenu: passthrough, ContextMenuContent: passthrough, ContextMenuItem: passthrough, ContextMenuTrigger: passthrough },
+	"../ui-shadcn/alert-dialog": {
+		AlertDialog: passthrough,
+		AlertDialogContent: passthrough,
+		AlertDialogHeader: passthrough,
+		AlertDialogFooter: passthrough,
+		AlertDialogTitle: passthrough,
+		AlertDialogDescription: passthrough,
+		AlertDialogCancel: StubButton,
+		AlertDialogAction: StubButton,
+	},
+	"../ui-shadcn/context-menu": {
+		ContextMenu: passthrough,
+		ContextMenuContent: passthrough,
+		ContextMenuItem: passthrough,
+		ContextMenuTrigger: passthrough,
+	},
 	"../../components/ui-shadcn/label": { Label: passthrough },
 };
 
 const { GitPanel } = loadTsCommonJs("src/renderer/src/components/app/GitPanel.tsx", { stubs });
 
-const resource = (path) => ({ path, status: 5, letter: "M", target: { projectId: "project", relativePath: path } });
-const groups = { merge: [], index: [resource("/repo/staged.txt")], workingTree: [resource("/repo/changed.txt")], untracked: [] };
+const resource = (path) => ({
+	path,
+	status: 5,
+	letter: "M",
+	target: { projectId: "project", relativePath: path },
+});
+const groups = {
+	merge: [],
+	index: [resource("/repo/staged.txt")],
+	workingTree: [resource("/repo/changed.txt")],
+	untracked: [],
+};
 
 function baseProps(overrides = {}) {
 	return {
@@ -188,7 +244,8 @@ test("缺省全可用：不渲染能力条，同步/刷新入口都可用（零�
 	assert.equal(buttonByLabel(buttons, "git.push").disabled, false);
 	assert.equal(buttonByLabel(buttons, "git.pull").disabled, false);
 	// 提交按钮此刻置灰是因为「没有可提交的变更」（SSR 不跑 effect，没有事实），不是能力：缺省写能力必须打开。
-	assert.equal(calls.fileTrees.length, 0, "no facts are published without effects; row-level entries are covered by the source contract");
+	assert.equal(calls.changeGroups.length, 1, "the virtualized changes shell mounts without effects");
+	assert.equal(calls.changeGroups[0].groups.length, 0, "no facts are published without effects; row-level entries are covered by the source contract");
 	assert.deepEqual({ ...autoRefresh.at(-1).capabilities }, { statusPoll: true, refsWatch: true, autoFetch: true });
 	assert.equal(graph.length, 1, "graph pane still mounts");
 	assert.equal(typeof graph[0].cherryPick, "function", "graph write actions default to open");
@@ -228,13 +285,23 @@ test("刷新手势里的 fetch 还要显式允许自动联网（sync 真、autoF
 });
 
 test("写能力关闭：提交按钮置灰，Ctrl/Cmd+Enter 既不提交也不插入换行", () => {
-	const { buttons, textareas, graph } = render({ gitCapabilities: { write: false } });
+	const { buttons, textareas, graph } = render({
+		gitCapabilities: { write: false },
+	});
 	assert.equal(buttonByText(buttons, "git.commit").disabled, true);
 	assert.equal(textareas.length, 1, "the commit composer stays reachable (typing a message is not a write)");
 	const composer = textareas[0];
 	let prevented = 0;
-	composer.onKeyDown({ ctrlKey: true, key: "Enter", preventDefault: () => (prevented += 1) });
-	composer.onKeyDown({ metaKey: true, key: "Enter", preventDefault: () => (prevented += 1) });
+	composer.onKeyDown({
+		ctrlKey: true,
+		key: "Enter",
+		preventDefault: () => (prevented += 1),
+	});
+	composer.onKeyDown({
+		metaKey: true,
+		key: "Enter",
+		preventDefault: () => (prevented += 1),
+	});
 	assert.equal(prevented, 2, "the shortcut still consumes the key");
 	assert.deepEqual(
 		writes.filter((entry) => entry === "commit" || entry === "stage"),
@@ -243,7 +310,9 @@ test("写能力关闭：提交按钮置灰，Ctrl/Cmd+Enter 既不提交也不�
 });
 
 test("读能力关闭：刷新按钮置灰且点击不发起 status 读", () => {
-	const { buttons, autoRefresh } = render({ gitCapabilities: { read: false, statusPoll: false } });
+	const { buttons, autoRefresh } = render({
+		gitCapabilities: { read: false, statusPoll: false },
+	});
 	const refresh = buttonByLabel(buttons, "common.refresh");
 	assert.equal(refresh.disabled, true);
 	refresh.onClick?.();
@@ -255,14 +324,19 @@ test("读能力关闭：刷新按钮置灰且点击不发起 status 读", () => 
 });
 
 test("refs watch / autoFetch 能力关闭时不再注册对应副作用（与既有 capabilities 取交集）", () => {
-	const { autoRefresh } = render({ capabilities: { refsWatch: false }, gitCapabilities: { refsWatch: true, autoFetch: false } });
+	const { autoRefresh } = render({
+		capabilities: { refsWatch: false },
+		gitCapabilities: { refsWatch: true, autoFetch: false },
+	});
 	assert.equal(autoRefresh.at(-1).capabilities.refsWatch, false, "the narrower of both capability layers wins");
 	assert.equal(autoRefresh.at(-1).capabilities.autoFetch, false);
 	assert.equal(autoRefresh.at(-1).capabilities.statusPoll, true);
 });
 
 test("传入能力且确有不可用项时顶部渲染同一条能力条（worktree 用整句说明）", () => {
-	const { html } = render({ gitCapabilities: { write: false, sync: false, worktree: false } });
+	const { html } = render({
+		gitCapabilities: { write: false, sync: false, worktree: false },
+	});
 	assert.ok(html.includes('data-testid="remote-git-capabilities"'));
 	assert.ok(html.includes("remoteGit.capabilityWrite"));
 	assert.ok(html.includes("remoteGit.capabilitySync"));
@@ -288,9 +362,9 @@ test("面板源码契约：每个门禁点都读 gitCapabilities，能力条只�
 	assert.match(source, /if \(!props\.gitInit \|\| !gitCapabilitiesRef\.current\.init\) return;/);
 	assert.match(source, /if \(!gitCapabilities\.write\) return;/);
 	// 行内动作与批量动作：能力关闭时不提供入口。
-	assert.match(source, /readOnly=\{!gitCapabilities\.write\}/);
+	assert.match(source, /readOnly: !gitCapabilities\.write/);
 	assert.match(source, /gitCapabilities\.write\s*\?\s*\(\) =>/);
-	assert.match(source, /deleteFile=\{props\.deleteFiles && gitCapabilities\.deleteFiles \? deleteFile : undefined\}/);
+	assert.match(source, /deleteFile: props\.deleteFiles && gitCapabilities\.deleteFiles \? deleteFile : undefined/);
 	assert.match(source, /cherryPick=\{gitCapabilities\.write \? props\.cherryPick : undefined\}/);
 	assert.match(source, /revert=\{gitCapabilities\.write \? props\.revert : undefined\}/);
 	assert.match(source, /reset=\{gitCapabilities\.write \? props\.reset : undefined\}/);

@@ -92,6 +92,7 @@ export function QuickMessagePicker(props: {
 				<>
 					{/* 动作分工只讲一次：行首那条说明比给每行加 tooltip 更省空间 */}
 					<p className="flex-none px-3 pt-1.5 pb-0.5 text-micro text-muted-foreground">{t("app.quickMessagesHint")}</p>
+					{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 					<div className="min-h-0 flex-1 overflow-y-auto p-1">
 						{filtered.length === 0 ? (
 							<p className="px-2 py-3 text-caption text-muted-foreground">{t("app.quickMessagesNoMatch")}</p>

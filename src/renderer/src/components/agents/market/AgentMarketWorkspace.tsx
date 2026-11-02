@@ -186,6 +186,7 @@ export function AgentMarketWorkspace({ initialEditingAgentId, onUseAgent, onClos
 						<AgentMarketCategoryChips value={filter.category} onChange={handleCategoryChange} />
 					)}
 					<div className="flex min-h-0 flex-1">
+						{/* scroll-ok: flip —— 子组件 AgentMarketGrid 是自适应多列网格（auto-fill / minmax(230px,1fr)）+ RemovalRow 淡出 + useListReorder 的 FLIP 位移动画，重排靠真实兄弟节点算位移；虚拟行是单列 absolute 定位，形状不兼容。 */}
 						<div className="min-w-0 flex-1 overflow-y-auto px-5 py-3">
 							<AgentMarketGrid
 								agents={visibleAgents}

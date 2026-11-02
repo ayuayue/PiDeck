@@ -4,7 +4,7 @@
  * 用真实临时目录驱动（依赖注入 getConfigDir/getUserDataDir/getAppVersion），不依赖 electron。
  */
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, existsSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -61,6 +61,61 @@ test("create 生成备份文件并记录元数据（files 含 pi/* 与 pideck/* 
 		assert.deepEqual([...meta.files].sort(), ["pi/auth.json", "pi/mcp.json", "pi/models.json", "pi/settings.json", "pideck/settings.json"]);
 		assert.ok(meta.size > 0);
 		assert.ok(meta.configDir.includes("pi"));
+	} finally {
+		cleanup(ctx);
+	}
+});
+
+test("备份凭据仅当前用户可读，访问旧备份时修复宽权限", () => {
+	if (process.platform === "win32") return;
+	const ctx = setup();
+	try {
+		const result = ctx.manager.create("manual");
+		assert.equal(result.ok, true);
+		const dir = join(ctx.userData, "config-backups");
+		const file = join(dir, result.id);
+		assert.equal(statSync(dir).mode & 0o777, 0o700);
+		assert.equal(statSync(file).mode & 0o777, 0o600);
+
+		chmodSync(dir, 0o755);
+		chmodSync(file, 0o644);
+		assert.equal(ctx.manager.list().ok, true);
+		assert.equal(statSync(dir).mode & 0o777, 0o700);
+		assert.equal(statSync(file).mode & 0o777, 0o600);
+	} finally {
+		cleanup(ctx);
+	}
+});
+
+test("访问备份时不跟随符号链接收紧外部文件权限", () => {
+	if (process.platform === "win32") return;
+	const ctx = setup();
+	const external = join(ctx.root, "external.json");
+	try {
+		writeFileSync(external, JSON.stringify({ createdAt: "2026-01-01T00:00:00.000Z", files: {} }));
+		chmodSync(external, 0o644);
+		const dir = join(ctx.userData, "config-backups");
+		mkdirSync(dir);
+		symlinkSync(external, join(dir, "backup-20260101000000000.json"));
+
+		assert.equal(ctx.manager.list().ok, true);
+		assert.equal(statSync(external).mode & 0o777, 0o644);
+	} finally {
+		cleanup(ctx);
+	}
+});
+
+test("备份目录为符号链接时拒绝访问且不修改目标目录权限", () => {
+	if (process.platform === "win32") return;
+	const ctx = setup();
+	const externalDir = join(ctx.root, "external-backups");
+	try {
+		mkdirSync(externalDir, { mode: 0o755 });
+		chmodSync(externalDir, 0o755);
+		symlinkSync(externalDir, join(ctx.userData, "config-backups"), "dir");
+
+		assert.equal(ctx.manager.list().ok, false);
+		assert.equal(statSync(externalDir).mode & 0o777, 0o755);
 	} finally {
 		cleanup(ctx);
 	}

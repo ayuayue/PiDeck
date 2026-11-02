@@ -472,6 +472,7 @@ export function UsageProbeConfigDialog(props: {
 						{props.backend === "dsh" ? t("config.usageProbe.dshSuffix") : null}
 					</DialogTitle>
 				</DialogHeader>
+				{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 				<div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 pb-3">
 					{!loaded ? (
 						<div className="flex items-center justify-center gap-2 py-4 text-caption text-text-tertiary">
@@ -674,6 +675,7 @@ export function UsageProbeConfigDialog(props: {
 								{testState === "error" && testDetail && (
 									// 失败明细：URL/状态/提示多行列表（已脱敏），平铺展示便于排查地址与鉴权问题。
 									<div className="w-full overflow-hidden rounded-md border border-border/60 bg-background/60 px-2 py-1.5" data-testid="usage-probe-test-detail">
+										{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 										<pre className="max-h-44 overflow-auto whitespace-pre-wrap break-all font-mono text-micro leading-relaxed text-text-secondary">{testDetail}</pre>
 									</div>
 								)}

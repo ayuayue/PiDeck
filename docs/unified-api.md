@@ -1,25 +1,26 @@
 # PiDeck 统一接口（unified API）
 
-> **Status: Current（2026-10-31 核对；以代码与测试为准）**
+> **Status: Current（2026-11-02 核对；以代码与测试为准）**
 
 
-PiDeck 桌面能力面统一门面 `piDeckApi` 的契约文档。三层结构：`src/shared/api/`（纯契约目录与组合函数）、`src/main/api/`（主进程域注册表装配）、`src/renderer/src/unifiedApi.ts`（渲染层门面入口）。叠加不替换：795 条既有 IPC 通道（`check:ipc-wiring` 2026-10-31）与 preload 暴露面一行不改，`piDeckApi` 是消费侧统一视图。
+PiDeck 桌面能力面统一门面 `piDeckApi` 的契约文档。三层结构：`src/shared/api/`（纯契约目录与组合函数）、`src/main/api/`（主进程域注册表装配）、`src/renderer/src/unifiedApi.ts`（渲染层门面入口）。叠加不替换：808 条既有 IPC 通道（`check:ipc-wiring` 2026-11-02）与 preload 暴露面一行不改，`piDeckApi` 是消费侧统一视图。
 
 ## API 总览
 
 - 组合入口：`piDeckApi = composeUnifiedApi(desktopApi)`；**piDeckApi 以 preload 齐备为消费前提**（desktopApi 由 preload 经 contextBridge 注入，测试/SSR 等无 preload 环境下门面不可用）。
 - 聚合三式：`aggregate`（引用透传恒等，`piDeckApi.git === desktopApi.git`）、`consolidate`（按组 Pick 视图收口，如 sessions 四子域 / config 十一子库）、`redline`（四例外通道只透传，禁止扩成通用桥）。
 - 主进程注册表装配：`registerAllDomains()` 在 `registerIpc()` 之后旁路调用，经 `registerDomain` / `registerImporter` 登记元数据后 `freeze()` 冻结；重复登记抛 `PIDECK_API_DUPLICATE_DOMAIN`，冻结后写路径抛 `PIDECK_API_REGISTRY_FROZEN`，非法条目抛 `PIDECK_API_INVALID_DOMAIN_ENTRY`。懒实例化，不改启动时序。
-- 快照守卫：tests/unifiedApi*.test.mjs 把 743 通道 / 85 前缀 / 74 命名空间 / sessions 115 / config 48 锚定为 sha256 快照，暴露面任何漂移显式红。
+- 快照守卫：tests/unifiedApi*.test.mjs 把 808 通道 / 92 前缀 / 80 命名空间 / sessions 117 / config 52 锚定为 sha256 快照，暴露面任何漂移显式红。
 - 2026-10-17 快照刷新：files:search-content（工作区文件内容检索，file-index sidecar）入场，通道 677→678；2026-10-18 再刷新：sessions:search-in-session（会话内查找）入场，通道 678→679，sessions 111→112；preload 方法清单摘要同步重算（命名空间/方法数锚点不变）。
 - 2026-10-18 远端合并刷新：远端开发面入场（SSH 主机/项目/文件/会话/信任/模型探测、远端 Git 读写、远端终端 ACK），通道 679→743、前缀 84→85、命名空间 70→74、sessions 112→115；目录补 `remote` 域行，现为 62 域 + 11 导入器。
 - 2026-10-16 合并刷新：随 dev 演进（ACP 全渠道、微信渠道、宿主插件、pideck-mcp、生视频、公告历史等）补 6 域行，目录现为 61 域 + 11 导入器。
 - 2026-10-24 第四轮追赶 origin/dev（274 提交）：并入上游域行与新方法，通道 768→777、前缀 88→90、命名空间 77→78、sessions 118→116（下线 readOutlineTitle / readDshSystemPrompt）、config 48→50（外部 Agent 供应商导入），目录现为 67 域 + 11 导入器。
 - 2026-10-30 合并 origin/dev：并入 session-groups 域（侧栏分组树；宿主插件按 sessionGroups.manage 写入），通道 795 / 前缀 91 / 命名空间 79。
+- 2026-11-02 合并 origin/dev：并入 agent-memory 域（PiDeck 本地记忆与索引），通道 796→808、前缀 91→92、命名空间 79→80，目录现为 68 域 + 11 导入器。
 
 ## 按域调用面
 
-域表（67 行，按 core / workspace / content / config / integration / shell 分组）：
+域表（68 行，按 core / workspace / content / config / integration / shell 分组）：
 
 | 域 | 分组 | 主进程归属 | IPC 注册文件 | preload 命名空间 | 通道前缀 | 聚合方式 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -72,6 +73,7 @@ PiDeck 桌面能力面统一门面 `piDeckApi` 的契约文档。三层结构：
 | `enhance` | integration | EnhancePromptService（常驻 sidecar pi-enhance-host.mjs） | ipc/enhanceIpc.ts | `enhance` | `enhance` | `redline`（红线：例外四，pi-enhance-host.mjs 单用途补全；禁止通用模型桥） |
 | `prompt-suggestion` | integration | EnhancePromptService（prompt-suggestion 独立实例，systemPrompt 由主进程常量注入） | ipc/promptSuggestionIpc.ts | `suggestion` | `suggest` | `redline`（红线：例外四，与 enhance 共用协议但独立实例；渲染层禁传 systemPrompt/userText） |
 | `agent-profiles` | integration | AgentProfileStore + AgentInvokeService（划词工具一次性调用，复用 pi-enhance-host sidecar 独立实例） | ipc/agentProfilesIpc.ts + ipc/agentInvokeIpc.ts | `agentProfiles` | `agent-profiles` | `aggregate`（例外四：systemPrompt 只能由主进程按 agentId 解析） |
+| `agent-memory` | integration | AgentMemoryService + AgentMemoryStore + AgentMemoryIndex（PiDeck 本地记忆与索引，不进入 pi 会话文件或通用模型桥） | ipc/agentMemoryIpc.ts | `agentMemory` | `agent-memory` | `aggregate` |
 | `selection-tool` | integration | SelectionToolService + SelectionToolWindow（全局快捷键 + 系统级划词浮窗） | ipc/selectionToolIpc.ts | `selectionTool` | `selection-tool` | `aggregate` |
 | `channel-switch` | integration | ChannelSwitchService + UpdateService（更新通道切换） | ipc/channelSwitchIpc.ts | `channelSwitch` | `channel-switch` | `aggregate` |
 | `cua` | integration | CuaEngine + CuaGate + McpHttpHost + CuaService | ipc/cuaIpc.ts | `cua` | `cua` | `aggregate` |

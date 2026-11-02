@@ -9,11 +9,15 @@
 
 import { Check, ChevronDown, Copy, FileCode2, LoaderCircle } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
-import { type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { type AgentCodeLanguage, AgentCodeLine, useAgentCodeTokens } from "@/components/agents/agent-code";
 import { AgentDisclosure } from "@/components/agents/agent-disclosure";
+import { VirtualStack } from "@/components/ui-shadcn/virtual-stack";
 import { SPRING_PRESS, SPRING_SWAP } from "@/lib/ease";
 import { cn } from "@/lib/utils";
+
+/** 超过这个行数才虚拟化：短 diff 直接全量，省掉测量与绝对定位的开销。 */
+const VIRTUALIZE_MIN_LINES = 40;
 
 export type FileDiffStatus = "streaming" | "complete";
 export type FileDiffLineType = "added" | "removed" | "context";
@@ -77,7 +81,8 @@ export function FileDiff({ file, lines, status = "streaming", open, defaultOpen 
 	// 不限高时仍保留横向滚动：diff 行可能很宽，去掉 overflow 会让宽行顶出组体、
 	// 反而给组体套出一条横向滚动条（overflow-y:auto 会让 overflow-x 计算成 auto）。
 	// 只纵轴让位——纵向轨道归外层那一条滚轮。
-	const scrollClass = maxHeight === null ? "overflow-x-auto" : "scrollbar-hide overflow-auto";
+	// 类名内联在容器行上，不抽变量：滚动容器守卫按行扫 overflow-* 字面量，
+	// 抽成 const scrollClass 后容器行就只剩 {scrollClass}，守卫看不见它（曾被误判成非容器）。
 	const additions = lines.filter((line) => line.type === "added").length;
 	const deletions = lines.filter((line) => line.type === "removed").length;
 	const canCopy = Boolean(copyText || onCopy);
@@ -123,6 +128,28 @@ export function FileDiff({ file, lines, status = "streaming", open, defaultOpen 
 		return () => cancelAnimationFrame(frame);
 	}, [currentOpen, streaming, code]);
 
+	// 单行渲染：虚拟化与全量两条路径共用，避免同一段 JSX 写两遍。
+	const renderLine = useCallback(
+		(line: FileDiffLine, index: number) => {
+			const type = line.type ?? "context";
+			return (
+				<div className={cn("grid grid-cols-[2.25rem_2.25rem_1rem_minmax(0,1fr)]", type === "added" && "bg-success/[0.07]", type === "removed" && "bg-danger/[0.07]")}>
+					<span className="select-none pr-2 text-right tabular-nums text-muted-foreground/40">{line.oldLine}</span>
+					<span className="select-none pr-2 text-right tabular-nums text-muted-foreground/40">{line.newLine}</span>
+					<span className={cn("select-none text-center text-muted-foreground/45", type === "added" && "text-success", type === "removed" && "text-danger")}>{type === "added" ? "+" : type === "removed" ? "−" : ""}</span>
+					<AgentCodeLine code={line.content} tokens={tokens?.[index]} className="min-w-0 whitespace-pre px-1.5" />
+				</div>
+			);
+		},
+		[tokens],
+	);
+	/**
+	 * 只有「有纵向滚动窗」才谈得上虚拟化：maxHeight === null 时容器只让横向、纵向由外层
+	 * 过程组承担，本组件没有自己的视口可算范围，接虚拟栈反而会按外层高度全量渲染。
+	 * 行高是固定的（leading-5 = 20px，且 whitespace-pre 不折行），所以 estimateHeight 即实测值。
+	 */
+	const virtualizeLines = maxHeight !== null && lines.length > VIRTUALIZE_MIN_LINES;
+
 	const handleCopy = useCallback(async () => {
 		if (onCopy) await onCopy();
 		else if (copyText) await navigator.clipboard?.writeText(copyText);
@@ -157,20 +184,10 @@ export function FileDiff({ file, lines, status = "streaming", open, defaultOpen 
 			<AgentDisclosure id={contentId} role="region" aria-labelledby={triggerId} open={currentOpen} transition={animateHeight ? undefined : { duration: 0 }}>
 				<div className="pl-6 pt-1.5">
 					<div className="overflow-hidden rounded-xl bg-muted/80">
-						<div ref={viewportRef} data-slot="file-diff-viewport" aria-live="polite" className={scrollClass} style={maxHeightStyle}>
+						<div ref={viewportRef} data-slot="file-diff-viewport" aria-live="polite" className={maxHeight === null ? "overflow-x-auto" : "scrollbar-hide overflow-auto"} style={maxHeightStyle}>
 							<div className="font-mono text-xs leading-5">
 								<span className="sr-only">File changes</span>
-								{lines.map((line, index) => {
-									const type = line.type ?? "context";
-									return (
-										<div key={line.id} className={cn("grid grid-cols-[2.25rem_2.25rem_1rem_minmax(0,1fr)]", type === "added" && "bg-success/[0.07]", type === "removed" && "bg-danger/[0.07]")}>
-											<span className="select-none pr-2 text-right tabular-nums text-muted-foreground/40">{line.oldLine}</span>
-											<span className="select-none pr-2 text-right tabular-nums text-muted-foreground/40">{line.newLine}</span>
-											<span className={cn("select-none text-center text-muted-foreground/45", type === "added" && "text-success", type === "removed" && "text-danger")}>{type === "added" ? "+" : type === "removed" ? "−" : ""}</span>
-											<AgentCodeLine code={line.content} tokens={tokens?.[index]} className="min-w-0 whitespace-pre px-1.5" />
-										</div>
-									);
-								})}
+								{virtualizeLines ? <VirtualStack items={lines} getKey={(line) => line.id} renderItem={renderLine} scrollRef={viewportRef} estimateHeight={20} minRows={VIRTUALIZE_MIN_LINES} rowClassName="w-max min-w-full" /> : lines.map((line, index) => <Fragment key={line.id}>{renderLine(line, index)}</Fragment>)}
 							</div>
 						</div>
 

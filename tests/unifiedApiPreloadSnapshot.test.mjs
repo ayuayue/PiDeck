@@ -2,7 +2,7 @@
  * F8 · preload 暴露面快照守卫（TEST-PLAN §F8，6 例=4 正+2 负）。
  *
  * 捕获 src/preload/index.ts 经 contextBridge 实际暴露的 piDesktop API，对
- * 78 命名空间清单与每命名空间方法清单做 sha256 快照（A10：暴露面零变化），
+ * 80 命名空间清单与每命名空间方法清单做 sha256 快照（A10：暴露面零变化），
  * 并核对数量锚点（sessions 116 / config 50 / git 59 / app 32）与订阅形态。
  * 摘要来源：T7 只读探针实测（2026-10-14；2026-10-16 合并刷新随 dev 演进重算：
  * yaoPrompts 方法与 sessions.searchContent、skillHub.onInstallProgress 入场，命名空间数不变；
@@ -26,15 +26,19 @@
  *   命名空间 77→78（新增上游域），sessions 118→116、config 48→50、git 59 不变。
  * 2026-10-31 刷新：git.refreshRemoteGitFacts（纯事实强刷：越过事实缓存，但不撤/不签授权令牌）入场，
  *   git 63→64；命名空间数与其他数量锚点不变。
+ * 2026-11-01 刷新：hostPlugins.searchMarket（插件市场双源搜索，提交 3a64d7aeb）+1 方法；
+ *   命名空间数与数量锚点不变，仅方法清单摘要变化。
+ * 2026-11-02 合并刷新：远端 agentMemory 与本地 remoteHosts 两条并行命名空间同时入场，
+ *   79→80；sessions 117 / config 52 / git 64 / app 32 不变。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const NS_LIST_SHA256 = "8eddbab22c377522734e7c95aa143b2dd9cf529837c7a660e5aecec3a98ce134";
-const FULL_METHODS_SHA256 = "7b61a18e43be2a5b3cbc9020259dc49606e54c043211e64eb5f59ad57dc67223";
-const NAMESPACE_COUNT = 79;
+const NS_LIST_SHA256 = "9af9b0ed9a94398dc768c63c5378979616347e5166b2ee866cbb31034e9350e1";
+const FULL_METHODS_SHA256 = "d3d50fa604d5b6805ed54fec9f1d28e1bba0953560b4592fd11c9dc907ac33dc";
+const NAMESPACE_COUNT = 80;
 
 /** 捕获 preload 暴露的 piDesktop；null/undefined/形态不符时显式红并给诊断（F8-6 共用）。 */
 function assertValidCapture(capture) {
@@ -50,11 +54,22 @@ function assertValidCapture(capture) {
 function capturePreloadApi() {
 	let captured = null;
 	const electronStub = {
-		contextBridge: { exposeInMainWorld: (name, api) => (captured = { name, api }) },
-		ipcRenderer: { invoke: () => Promise.resolve(undefined), on: () => () => {}, once: () => {}, removeListener: () => {}, send: () => {}, sendSync: () => ({}) },
+		contextBridge: {
+			exposeInMainWorld: (name, api) => (captured = { name, api }),
+		},
+		ipcRenderer: {
+			invoke: () => Promise.resolve(undefined),
+			on: () => () => {},
+			once: () => {},
+			removeListener: () => {},
+			send: () => {},
+			sendSync: () => ({}),
+		},
 		webUtils: { getPathForFile: () => "" },
 	};
-	const preloadMod = loadTsCommonJs("src/preload/index.ts", { stubs: { electron: electronStub } });
+	const preloadMod = loadTsCommonJs("src/preload/index.ts", {
+		stubs: { electron: electronStub },
+	});
 	captured = preloadMod.__pideckPreloadCapture ?? captured;
 	return assertValidCapture(captured).api;
 }
@@ -66,7 +81,7 @@ const api = capturePreloadApi();
 const namespaces = sortedKeys(api);
 const methodLines = namespaces.map((ns) => `${ns}=${sortedKeys(api[ns]).join(",")}`);
 
-test("F8-1 preload 顶层命名空间数 === 79 且排序清单摘要零漂移", () => {
+test("F8-1 preload 顶层命名空间数 === 80 且排序清单摘要零漂移", () => {
 	assert.equal(namespaces.length, NAMESPACE_COUNT, `命名空间数 ${namespaces.length} ≠ ${NAMESPACE_COUNT}`);
 	assert.equal(sha256(namespaces.join(",")), NS_LIST_SHA256, "命名空间清单摘要漂移：preload 暴露面发生变化（A10 红线）");
 });

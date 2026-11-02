@@ -76,6 +76,7 @@ export function SecurityConfirmCard(props: { request: AgentUiRequest; responding
 				{/* 详情区：命令/文件路径用等宽块完整展示，超长滚动，不再被两行摘要截断 */}
 				<div className="rounded-md border border-border-subtle bg-bg-muted px-2.5 py-2">
 					<div className="mb-1 text-micro font-semibold text-text-tertiary">{t("security.confirmDetailLabel")}</div>
+					{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 					{info.detail ? <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-micro leading-relaxed text-text-primary">{info.detail}</pre> : <div className="text-micro text-text-tertiary">{t("security.confirmDetailEmpty")}</div>}
 				</div>
 

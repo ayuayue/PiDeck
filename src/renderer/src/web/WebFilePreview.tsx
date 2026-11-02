@@ -6,14 +6,19 @@
  *   其余文本带行号渲染并滚动定位到引用行；二进制/超大/项目外与后端结构化标记对齐。
  * - 会话文件修改 strip 的 chip → Git diff 预览：两栏（原始/修改后）对比 untracked 整文件。
  *
- * 路径安全：后端 /api/file-content 已有项目根沙箱（越界 403、缺失 404），这里只负责把
- * 消息里可能出现的绝对路径裁成项目相对路径；裁不进项目根的（项目外/盘符不符）直接给
- * 「项目外不可读」提示，不发请求。
+ * 路径不在项目根内时不再硬拒：绝对路径 / `~/x` 直接交后端求值——主进程按当前安全等级
+ *（会话覆盖优先）给 allow / ask / deny（`src/main/security/policy.ts` 的 evaluateUserReadAccess，
+ * 与桌面端项目外文件链接同一套规则）。ask 在预览层渲染一次「只读查看」确认，确认后带
+ * `confirm=1` 重请求；deny（命中 denyDirs）永远不降级。项目内路径仍走原项目根沙箱。
+ * diff 只能来自本项目 git status，项目外路径回退成文件预览（不弹确认，由文件路径自身求值）。
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
+/** 超过这个行数才虚拟化：短文件直接全量渲染，省掉测量与绝对定位开销。 */
+const VIRTUALIZE_MIN_LINES = 40;
 import { MarkdownStream } from "@/components/session/MarkdownStream";
-import { t } from "@/i18n";
+import { VirtualStack } from "@/components/ui-shadcn/virtual-stack";
+import { t, type TranslationKey } from "@/i18n";
 import { fetchFileContent, fetchGitDiff, fetchGitStatus } from "./webApi";
 import { useDismissOnBack } from "./useDismissOnBack";
 
@@ -22,12 +27,37 @@ export type WebFilePreviewTarget = { kind: "file"; projectId: string; projectRoo
 type FileState = { content?: string; tooLarge?: boolean; truncated?: boolean; binary?: boolean };
 type DiffState = { originalContent: string; modifiedContent: string } | null;
 
-/** 把链接里的原始路径裁成项目相对路径；绝对路径按盘符大小写不敏感前缀匹配，裁不进返回 null。 */
+/** 服务端 ask/deny 的 reason → 文案键（与 useExternalPathOpenGate 同一组键；Web 包不引那个
+ *  hook，以免把 desktopApi 拖进 Web 构建）。未知 reason 一律按「不在允许目录内」解释。 */
+const ACCESS_REASON_KEYS: Record<string, TranslationKey> = {
+	sensitive: "app.fileLinkExternalReasonSensitive",
+	"outside-allowed-dirs": "app.fileLinkExternalReasonOutsideAllowedDirs",
+	"policy-unavailable": "app.fileLinkExternalReasonPolicyUnavailable",
+	"deny-dir": "app.fileLinkExternalReasonDenyDir",
+};
+
+function accessReasonText(reason: string | undefined): string {
+	return t(ACCESS_REASON_KEYS[reason ?? ""] ?? "app.fileLinkExternalReasonOutsideAllowedDirs");
+}
+
+/** 从 fetch 抛出的错误里取结构化 code/reason（不依赖 instanceof：错误可能来自另一个模块实例）。 */
+function accessErrorInfo(error: unknown): { code: string; reason?: string } | null {
+	if (typeof error !== "object" || error === null) return null;
+	const code = (error as { code?: unknown }).code;
+	if (typeof code !== "string") return null;
+	const reason = (error as { reason?: unknown }).reason;
+	return { code, reason: typeof reason === "string" ? reason : undefined };
+}
+
+/** 把链接里的原始路径裁成项目相对路径；绝对路径按盘符大小写不敏感前缀匹配。
+ * 返回 null 表示「不在本项目根内」（项目外绝对路径 / `~/x`）——调用方交后端按安全等级求值，不再硬拒。 */
 export function toProjectRelative(rawPath: string, projectRoot: string): string | null {
 	if (!rawPath) return null;
 	const normalized = rawPath.replace(/\\/g, "/");
 	const root = projectRoot.replace(/\\/g, "/").replace(/\/+$/, "");
 	if (!root) return null;
+	// `~/x` / `~\\x`：家目录不是项目目录，交给后端展开后求值
+	if (normalized.startsWith("~/") || normalized.startsWith("~\\")) return null;
 	// 相对路径：原样交给后端（其沙箱会做 `..`/越界拒绝）
 	if (!/^[a-zA-Z]:\//.test(normalized) && !normalized.startsWith("/")) {
 		return normalized.replace(/^\.\//, "");
@@ -63,60 +93,112 @@ function PreviewHeader({ path, onClose }: { path: string; onClose: () => void })
 function NumberedText({ content, line }: { content: string; line?: number }) {
 	const lines = useMemo(() => content.split("\n"), [content]);
 	const targetRef = useRef<HTMLDivElement | null>(null);
+	const virtualize = lines.length > VIRTUALIZE_MIN_LINES;
+	const viewportRef = useRef<HTMLDivElement | null>(null);
+	const virtualizerRef = useRef<{ scrollToIndex: (index: number, options?: { align?: "start" | "center" | "end" | "auto" }) => void } | null>(null);
+	// 虚拟化后目标行可能不在 DOM 里：先把它的索引滚进视口，下一帧才拿得到节点。
 	useEffect(() => {
-		// 行号在异步加载后才能定位：等目标行挂载后再滚一次（等宽字体下无需等布局完成）
+		if (line === undefined) return;
+		if (virtualize) {
+			virtualizerRef.current?.scrollToIndex(line - 1, { align: "center" });
+			const frame = requestAnimationFrame(() => targetRef.current?.scrollIntoView({ block: "center" }));
+			return () => cancelAnimationFrame(frame);
+		}
 		targetRef.current?.scrollIntoView({ block: "center" });
-	}, [line]);
+	}, [line, virtualize]);
+	const renderRow = (text: string, index: number) => {
+		const lineNumber = index + 1;
+		const highlighted = line === lineNumber;
+		return (
+			// data-line 供定位与未来扩展（跳转/复制单行）；行内容原样展示不转义 HTML（React 默认安全）
+			<div data-line={lineNumber} ref={highlighted ? targetRef : undefined} className={`flex gap-2 whitespace-pre-wrap px-1 text-micro leading-relaxed ${highlighted ? "rounded bg-primary/15 text-foreground" : "text-foreground/90"}`}>
+				<span className="w-8 shrink-0 select-none text-right tabular-nums text-muted-foreground/70">{lineNumber}</span>
+				<span className="min-w-0 flex-1 break-all">{text || " "}</span>
+			</div>
+		);
+	};
 	return (
-		<div className="min-h-0 flex-1 overflow-auto p-2">
-			{lines.map((text, index) => {
-				const lineNumber = index + 1;
-				const highlighted = line === lineNumber;
-				return (
-					// data-line 供定位与未来扩展（跳转/复制单行）；行内容原样展示不转义 HTML（React 默认安全）
-					<div key={lineNumber} data-line={lineNumber} ref={highlighted ? targetRef : undefined} className={`flex gap-2 whitespace-pre-wrap px-1 text-micro leading-relaxed ${highlighted ? "rounded bg-primary/15 text-foreground" : "text-foreground/90"}`}>
-						<span className="w-8 shrink-0 select-none text-right tabular-nums text-muted-foreground/70">{lineNumber}</span>
-						<span className="min-w-0 flex-1 break-all">{text || " "}</span>
-					</div>
-				);
-			})}
+		<div ref={viewportRef} className="min-h-0 flex-1 overflow-auto p-2">
+			{virtualize ? <VirtualStack items={lines} getKey={(_, index) => String(index)} renderItem={renderRow} scrollRef={viewportRef} estimateHeight={18} minRows={VIRTUALIZE_MIN_LINES} virtualizerRef={virtualizerRef} /> : lines.map((text, index) => <Fragment key={index}>{renderRow(text, index)}</Fragment>)}
 		</div>
 	);
 }
 
-/** 文件模式：md → MarkdownStream（外链新标签页），其余 → 行号文本。 */
+/** 一次 /api/file-content 的结果映射成的预览状态：四路分支只在这里落地（可直接纯函数测试）。 */
+export type FilePreviewView = { phase: "loading" } | { phase: "confirm"; reason?: string } | { phase: "denied"; reason?: string } | { phase: "failed" } | { phase: "ready"; data: FileState };
+
+/** 服务端应答 → 预览状态：ask（需确认）/ deny（策略禁止）从错误码识别，其余错误统一失败态。 */
+export function classifyFileContentOutcome(outcome: { ok: true; data: FileState } | { ok: false; error: unknown }): FilePreviewView {
+	if (outcome.ok) return { phase: "ready", data: outcome.data };
+	const info = accessErrorInfo(outcome.error);
+	if (info?.code === "webError.fileAccessNeedsConfirm") return { phase: "confirm", reason: info.reason };
+	if (info?.code === "webError.fileAccessDenied") return { phase: "denied", reason: info.reason };
+	return { phase: "failed" };
+}
+
+/** 文件模式：md → MarkdownStream（外链新标签页），其余 → 行号文本。
+ * 项目外路径先按安全等级求值：允许直接读，需确认则内联「只读查看」卡片，拒绝则说明原因。 */
 function FilePreviewBody({ projectId, path, line }: { projectId: string; path: string; line?: number }) {
-	const [state, setState] = useState<FileState | null>(null);
-	const [failed, setFailed] = useState(false);
+	const [view, setView] = useState<FilePreviewView>({ phase: "loading" });
+	// 已确认的目标键：随 path 变化自动失效，避免「确认了 A 就把 B 也一起放行」
+	const [confirmedKey, setConfirmedKey] = useState<string | null>(null);
+	// 每次确认都推进一帧：服务端若仍回 ask（策略刚被改严），用户还能再点一次而不是卡在空屏
+	const [confirmTick, setConfirmTick] = useState(0);
+	const targetKey = `${projectId}\u0000${path}`;
+	const confirmed = confirmedKey === targetKey;
+
 	useEffect(() => {
 		let alive = true;
-		setState(null);
-		setFailed(false);
-		fetchFileContent(projectId, path)
-			.then((result) => alive && setState(result))
-			.catch(() => alive && setFailed(true));
+		setView({ phase: "loading" });
+		fetchFileContent(projectId, path, { confirmed })
+			.then((data) => alive && setView(classifyFileContentOutcome({ ok: true, data })))
+			.catch((error) => alive && setView(classifyFileContentOutcome({ ok: false, error })));
 		return () => {
 			alive = false;
 		};
-	}, [projectId, path]);
-	if (failed) return <div className="flex flex-1 items-center justify-center px-6 text-center text-caption text-muted-foreground">{t("web.previewLoadFailed")}</div>;
-	if (!state) {
+	}, [projectId, path, confirmed, confirmTick]);
+	if (view.phase === "confirm") {
+		return (
+			<div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+				<div className="text-caption font-medium text-foreground">{t("app.fileLinkExternalOpenTitle")}</div>
+				<div className="text-micro leading-relaxed text-muted-foreground">{t("app.fileLinkExternalOpenMessage", { path, reason: accessReasonText(view.reason) })}</div>
+				<button
+					type="button"
+					className="rounded-md bg-primary px-3 py-2 text-caption font-medium text-primary-foreground transition-opacity active:opacity-80"
+					onClick={() => {
+						setConfirmedKey(targetKey);
+						setConfirmTick((tick) => tick + 1);
+					}}
+				>
+					{t("app.fileLinkExternalConfirm")}
+				</button>
+			</div>
+		);
+	}
+	if (view.phase === "denied") return <div className="flex flex-1 items-center justify-center px-6 text-center text-caption text-muted-foreground">{t("app.fileLinkExternalBlocked", { path, reason: accessReasonText(view.reason) })}</div>;
+	if (view.phase === "failed") return <div className="flex flex-1 items-center justify-center px-6 text-center text-caption text-muted-foreground">{t("web.previewLoadFailed")}</div>;
+	if (view.phase === "loading") {
 		return (
 			<div className="flex flex-1 items-center justify-center">
 				<Loader2 className="size-5 animate-pideck-spin text-muted-foreground" aria-hidden="true" />
 			</div>
 		);
 	}
-	if (state.tooLarge) return <div className="flex flex-1 items-center justify-center px-6 text-center text-caption text-warning">{t("web.fileViewerTooLarge")}</div>;
-	if (state.binary) return <div className="flex flex-1 items-center justify-center px-6 text-center text-caption text-muted-foreground">{t("web.fileViewerBinary")}</div>;
-	if (state.content == null) return <div className="flex flex-1 items-center justify-center px-6 text-center text-caption text-muted-foreground">{t("web.previewLoadFailed")}</div>;
+	const { data } = view;
+	if (data.tooLarge) return <div className="flex flex-1 items-center justify-center px-6 text-center text-caption text-warning">{t("web.fileViewerTooLarge")}</div>;
+	if (data.binary) return <div className="flex flex-1 items-center justify-center px-6 text-center text-caption text-muted-foreground">{t("web.fileViewerBinary")}</div>;
+	if (data.content == null) return <div className="flex flex-1 items-center justify-center px-6 text-center text-caption text-muted-foreground">{t("web.previewLoadFailed")}</div>;
 	// 截断预览：能看前 512KB 比完全不给强；底部提示告知完整内容请回桌面端
-	const truncatedNotice = state.truncated ? <div className="shrink-0 border-t border-border bg-warning/5 px-3 py-1.5 text-micro text-warning">{t("web.fileViewerTruncated")}</div> : null;
+	const truncatedNotice = data.truncated ? <div className="shrink-0 border-t border-border bg-warning/5 px-3 py-1.5 text-micro text-warning">{t("web.fileViewerTruncated")}</div> : null;
 	if (path.toLowerCase().endsWith(".md")) {
+		{
+			/* scroll-ok: text —— markdown 预览整篇交给 MarkdownStream 渲染，虚拟化会把标题/代码块/列表的结构切成行，语义与复制都会坏。 */
+		}
 		return (
 			<div className="flex min-h-0 flex-1 flex-col">
+				{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 				<div className="markdown-body min-h-0 flex-1 overflow-y-auto px-3 py-2">
-					<MarkdownStream text={state.content} onOpenExternal={(url: string) => window.open(url, "_blank", "noopener")} />
+					<MarkdownStream text={data.content} onOpenExternal={(url: string) => window.open(url, "_blank", "noopener")} />
 				</div>
 				{truncatedNotice}
 			</div>
@@ -124,7 +206,7 @@ function FilePreviewBody({ projectId, path, line }: { projectId: string; path: s
 	}
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
-			<NumberedText content={state.content} line={line} />
+			<NumberedText content={data.content} line={line} />
 			{truncatedNotice}
 		</div>
 	);
@@ -206,18 +288,23 @@ export function WebFilePreview(props: { target: WebFilePreviewTarget; onClose: (
 	const { target } = props;
 	// 系统返回键/手势与 Esc 关闭（移动端主路径，见 hook 注释）；X 按钮是 PWA 无手势时的兑底
 	useDismissOnBack(props.onClose, true);
-	// 绝对路径裁剪：项目外直接给提示，不发请求（后端本来也会 403）
+	// 项目内 → 裁成相对路径；项目外 → 原样交后端按安全等级求值（绝对路径 / `~/x`）
 	const relative = toProjectRelative(target.path, target.projectRoot);
+	const targetPath = relative ?? target.path;
+	const body =
+		target.kind === "diff" && relative !== null ? (
+			<DiffPreviewBody projectId={target.projectId} path={relative} />
+		) : (
+			// diff 只能来自本项目 git status：项目外路径回退成文件预览（文件自身仍要过安全策略）
+			<div className="flex min-h-0 flex-1 flex-col">
+				{target.kind === "diff" ? <div className="shrink-0 border-b border-border bg-muted/40 px-3 py-1.5 text-micro text-muted-foreground">{t("web.diffFallbackToFile")}</div> : null}
+				<FilePreviewBody projectId={target.projectId} path={targetPath} line={target.kind === "file" ? target.line : undefined} />
+			</div>
+		);
 	return (
 		<div className="fixed inset-0 z-50 flex flex-col bg-bg-base">
-			<PreviewHeader path={relative ?? target.path} onClose={props.onClose} />
-			{relative === null ? (
-				<div className="flex flex-1 items-center justify-center px-6 text-center text-caption text-muted-foreground">{t("web.previewOutsideProject")}</div>
-			) : target.kind === "file" ? (
-				<FilePreviewBody projectId={target.projectId} path={relative} line={target.line} />
-			) : (
-				<DiffPreviewBody projectId={target.projectId} path={relative} />
-			)}
+			<PreviewHeader path={targetPath} onClose={props.onClose} />
+			{body}
 		</div>
 	);
 }

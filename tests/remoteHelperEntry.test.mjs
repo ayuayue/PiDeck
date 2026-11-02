@@ -219,6 +219,9 @@ function createFsFixture(t) {
 	writeFileSync(join(outside, "blocked", "marker.txt"), DECOY);
 	if (process.platform !== "win32") chmodSync(join(outside, "blocked"), 0o000);
 	symlinkSync(outside, join(root, "escape"), process.platform === "win32" ? "junction" : "dir");
+	// 文件符号链接在无特权的 Windows 上不可用（EPERM）；需要链接的用例已用 linkHelperTest 跳过，
+	// fixture 里降级为不建文件链接，让 refusal/协议形状类用例仍能在这些机器上验证。
+	const fileSymlinksUsable = fileSymlinkSkipReason() === undefined;
 	// The links the three read-only methods have to agree about: a target that is a file, one that is a
 	// directory, one written as a relative target, one that does not exist, and targets outside the root —
 	// once pointing at something that exists and once dangling. None of them is ever followed: stat and
@@ -226,12 +229,12 @@ function createFsFixture(t) {
 	// two that point out of the root are answered by the containment check rather than by read, and even
 	// then the code differs with the target: PATH_OUTSIDE_ROOT while it exists, and read's own NOT_A_FILE
 	// while it does not, so neither answer ever depends on opening the target.
-	symlinkSync(join(outside, "secret.txt"), join(root, "outside-file"), process.platform === "win32" ? "file" : undefined);
+	if (fileSymlinksUsable) symlinkSync(join(outside, "secret.txt"), join(root, "outside-file"), process.platform === "win32" ? "file" : undefined);
 	symlinkSync(join(root, "sub"), join(root, "inside-link"), process.platform === "win32" ? "junction" : "dir");
-	symlinkSync(join(root, "alpha.txt"), join(root, "alpha-link"), process.platform === "win32" ? "file" : undefined);
-	symlinkSync(join("sub", "zeta.txt"), join(root, "rel-link"), process.platform === "win32" ? "file" : undefined);
-	symlinkSync(join(root, "nothing.txt"), join(root, "gone-link"), process.platform === "win32" ? "file" : undefined);
-	symlinkSync(join(outside, "gone.txt"), join(root, "outside-gone"), process.platform === "win32" ? "file" : undefined);
+	if (fileSymlinksUsable) symlinkSync(join(root, "alpha.txt"), join(root, "alpha-link"), process.platform === "win32" ? "file" : undefined);
+	if (fileSymlinksUsable) symlinkSync(join("sub", "zeta.txt"), join(root, "rel-link"), process.platform === "win32" ? "file" : undefined);
+	if (fileSymlinksUsable) symlinkSync(join(root, "nothing.txt"), join(root, "gone-link"), process.platform === "win32" ? "file" : undefined);
+	if (fileSymlinksUsable) symlinkSync(join(outside, "gone.txt"), join(root, "outside-gone"), process.platform === "win32" ? "file" : undefined);
 	t.after(() => {
 		// Restore what the fixture took away, otherwise the cleanup cannot traverse or delete its own tree.
 		chmodSync(join(outside, "secret.txt"), 0o600);

@@ -35,6 +35,7 @@ export function UpdateInstallUnsavedDialog(props: UpdateInstallUnsavedDialogProp
 				<AlertDialogHeader>
 					<AlertDialogTitle>{t("settings.updateInstallUnsavedTitle")}</AlertDialogTitle>
 					<AlertDialogDescription asChild>
+						{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 						<div className="grid max-h-56 gap-1.5 overflow-auto text-left">
 							<p>{t("settings.updateInstallUnsavedMessage")}</p>
 							<p>{t("settings.unsavedListIntro", { count: props.count })}</p>

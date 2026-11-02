@@ -253,6 +253,8 @@ export type SystemIpcDeps = {
 	reactToPetSettings?: (prev: AppSettings, next: AppSettings) => Promise<void>;
 	/** React to CUA enable/disable changes (start/stop the in-process MCP host). */
 	reactToCuaSettings?: (prev: AppSettings, next: AppSettings) => Promise<void>;
+	/** React to agent-memory enable/disable changes (register/unregister the stdio MCP server). */
+	reactToAgentMemorySettings?: (prev: AppSettings, next: AppSettings) => Promise<void>;
 	/** Set feishu locale */
 	setFeishuLocale?: (locale: unknown) => void;
 	/** Set default bot name */
@@ -408,6 +410,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		openExternalUrl: doOpenExternalUrl,
 		reactToPetSettings,
 		reactToCuaSettings,
+		reactToAgentMemorySettings,
 		setFeishuLocale,
 		setFeishuConfigDefaultBotName,
 		refreshTrayContextMenu,
@@ -1841,6 +1844,10 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		// CUA 开关：开启时启动进程内 MCP 端点并写入 pi 的 mcp.json，关闭时停端点并注销。
 		if (("cuaEnabled" in patch || "browserAgentEnabled" in patch) && typeof reactToCuaSettings === "function") {
 			await reactToCuaSettings(prevSettings, settings);
+		}
+		// 智能体记忆开关：开启时注册 stdio MCP 服务器，关闭时只删自己那一项。
+		if ("agentMemoryEnabled" in patch && typeof reactToAgentMemorySettings === "function") {
+			await reactToAgentMemorySettings(prevSettings, settings);
 		}
 		if ("desktopProxyEnabled" in patch || "desktopProxyUrl" in patch || "desktopProxyBypass" in patch) {
 			if (applyDesktopProxy) await applyDesktopProxy(settings);

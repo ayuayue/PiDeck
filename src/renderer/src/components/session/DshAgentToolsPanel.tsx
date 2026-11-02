@@ -1,6 +1,6 @@
 import { useAtomValue } from "jotai";
 import { CheckCircle2, Loader2, Pause, Play, Sparkles, Target, Users, XCircle } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { sessionRuntimeBySessionIdAtomFamily } from "../../atoms";
 import { desktopApi } from "../../desktopApi";
 import { t } from "../../i18n";
@@ -11,6 +11,7 @@ import { ConfirmDialog } from "../ui-shadcn/ConfirmDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui-shadcn/dialog";
 import { Input } from "../ui-shadcn/input";
 import { Progress } from "../ui-shadcn/progress";
+import { VirtualStack } from "../ui-shadcn/virtual-stack";
 
 /**
  * DSH 会话工具面板（G5/G6/G7）：目标管理 + 子代理呈现 + 技能目录。
@@ -40,6 +41,7 @@ export function DshAgentToolsPanel(props: { sessionId: string; agentId: string; 
 						{t("dshTools.skills")}
 					</Button>
 				</div>
+				{/* scroll-ok: transient —— 一次性弹窗（Dialog）本体，里面三个互斥 tab 各自渲染异质面板（goal 表单 / 子代理行 / 技能行），没有可交给 VirtualStack 的单一 rows 数组；子代理 transcript 那条真正的长列表已单独虚拟化。 */}
 				<div className="min-h-40 overflow-y-auto">
 					{tab === "goals" && <GoalsPanel sessionId={props.sessionId} agentId={props.agentId} />}
 					{tab === "subagents" && <SubagentsPanel agentId={props.agentId} />}
@@ -185,6 +187,7 @@ function SubagentsPanel(props: { agentId: string }) {
 	const [transcript, setTranscript] = useState<Array<{ role: string; text: string }>>([]);
 	const [transcriptLoading, setTranscriptLoading] = useState(false);
 	const [transcriptError, setTranscriptError] = useState(false);
+	const transcriptRef = useRef<HTMLDivElement | null>(null);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -258,7 +261,7 @@ function SubagentsPanel(props: { agentId: string }) {
 						<span className="shrink-0 text-micro text-text-tertiary">{entry.mode === "continuable" ? t("dshTools.subagentContinuable") : t("dshTools.subagentOneShot")}</span>
 					</button>
 					{expanded === entry.id && (
-						<div className="flex max-h-56 flex-col gap-1 overflow-y-auto border-t border-border-subtle p-2">
+						<div ref={transcriptRef} className="flex max-h-56 flex-col gap-1 overflow-y-auto border-t border-border-subtle p-2">
 							{transcriptLoading && (
 								<p className="flex items-center gap-1.5 px-1 text-caption text-text-tertiary">
 									<Loader2 size={13} className="animate-pideck-spin" aria-hidden="true" />
@@ -267,13 +270,20 @@ function SubagentsPanel(props: { agentId: string }) {
 							)}
 							{!transcriptLoading && transcriptError && <p className="px-1 text-caption text-[var(--color-danger)]">{t("dshTools.subagentTranscriptError")}</p>}
 							{!transcriptLoading && !transcriptError && transcript.length === 0 && <p className="px-1 text-caption text-text-tertiary">{t("dshTools.subagentTranscriptEmpty")}</p>}
-							{!transcriptLoading &&
-								transcript.map((message, index) => (
-									<div key={index} className={`flex flex-col gap-0.5 rounded-md px-2 py-1 ${message.role === "user" ? "bg-accent/30" : "bg-bg-panel"}`}>
-										<span className="text-micro text-text-tertiary">{message.role === "user" ? t("dshTools.roleUser") : t("dshTools.roleAssistant")}</span>
-										<span className="whitespace-pre-wrap break-words text-caption text-foreground">{message.text || "…"}</span>
-									</div>
-								))}
+							{!transcriptLoading && (
+								<VirtualStack
+									items={transcript}
+									getKey={(_, index) => String(index)}
+									scrollRef={transcriptRef}
+									rowClassName="pb-1"
+									renderItem={(message) => (
+										<div className={`flex flex-col gap-0.5 rounded-md px-2 py-1 ${message.role === "user" ? "bg-accent/30" : "bg-bg-panel"}`}>
+											<span className="text-micro text-text-tertiary">{message.role === "user" ? t("dshTools.roleUser") : t("dshTools.roleAssistant")}</span>
+											<span className="whitespace-pre-wrap break-words text-caption text-foreground">{message.text || "…"}</span>
+										</div>
+									)}
+								/>
+							)}
 						</div>
 					)}
 				</div>

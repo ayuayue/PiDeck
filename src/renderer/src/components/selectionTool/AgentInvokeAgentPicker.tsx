@@ -44,6 +44,7 @@ export function AgentInvokeAgentPicker({ agents, selected, onSelect, compact = f
 					<ChevronDown size={12} className="shrink-0 text-muted-foreground" aria-hidden="true" />
 				</button>
 			</DropdownMenuTrigger>
+			{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 			<DropdownMenuContent align="start" sideOffset={6} data-selection-tool-ui className="max-h-[min(320px,50vh)] w-[260px] overflow-y-auto">
 				<DropdownMenuLabel>{t("agentInvoke.agentLabel")}</DropdownMenuLabel>
 				<DropdownMenuSeparator />

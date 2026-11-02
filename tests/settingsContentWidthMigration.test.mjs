@@ -83,9 +83,9 @@ test("Appearance tab slider is 60–100 with always-visible save button", () => 
 	assert.match(appearanceTab, /step="1"/);
 	assert.match(appearanceTab, /updateDraft\(\{ chatContentWidthPct: parseInt/);
 	// 保存按钮常驻且不因「无修改」禁用（无修改也允许再次保存）；
-	// 保存中禁用防重复提交；视觉桥开启但未选模型时也禁用（无效配置不允许保存，悬停提示选模型）；
+	// 设置保存中或视觉桥保存中禁用防重复提交；视觉桥开启但未选模型时也禁用（无效配置不允许保存，悬停提示选模型）；
 	// 快捷键存在冲突时同样禁用（settingsContentWidthMigration 与快捷键注册表共用保存入口）
-	assert.match(modal, /disabled=\{\s*visionDraft\.saving\s*\|\|\s*\(visionDraft\.dirty && visionDraft\.modelMissing\)\s*\|\|\s*shortcutsInvalid\s*\}/);
+	assert.match(modal, /disabled=\{\s*settingsSaving\s*\|\|\s*visionDraft\.saving\s*\|\|\s*\(visionDraft\.dirty && visionDraft\.modelMissing\)\s*\|\|\s*shortcutsInvalid\s*\}/);
 	assert.match(modal, /t\("settings\.vision\.modelRequired"\)/);
 	// 视觉桥脏标记并入头部保存/取消按钮的判定（hasAnyDirtyChanges = hasDirtyChanges || visionDraft.dirty）
 	assert.match(modal, /hasAnyDirtyChanges = hasDirtyChanges \|\| visionDraft\.dirty/);

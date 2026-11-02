@@ -6,6 +6,7 @@ export function PromptTooltip({ text, children }: { text: string; children: Reac
 	return (
 		<Tooltip delayDuration={300}>
 			<TooltipTrigger asChild>{children}</TooltipTrigger>
+			{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 			<TooltipContent side="top" align="start" sideOffset={6} collisionPadding={12} className="max-h-[min(24rem,var(--radix-tooltip-content-available-height))] max-w-[min(36rem,calc(100vw-24px))] overflow-y-auto overscroll-contain whitespace-pre-wrap text-left text-wrap [overflow-wrap:anywhere] select-text">
 				{text}
 			</TooltipContent>

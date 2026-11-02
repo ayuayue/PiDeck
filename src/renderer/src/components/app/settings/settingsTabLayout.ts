@@ -8,7 +8,7 @@ import type { TranslationKey } from "../../../i18n";
  *
  * 14 个 tab 平铺不易扫读，按「基础 → 扩展集成 → 开发者工具 → 开发与维护」四个簇
  * 重排并在簇边界渲染一条分割线：
- * - 基础：常用 / 快捷键 / 通知 / 外观 / 代理（打开应用必看的全局项）
+ * - 基础：常用 / 快捷键 / 通知 / 外观 / 记忆 / 代理（打开应用必看的全局项）
  * - 扩展集成：外部连接（飞书/微信）/ 桌面宠物 / 视觉桥 / 生图（外部能力与增值功能）
  * - 开发者工具：局域网 Web 服务 / 外部编辑器 / Git
  * - 开发与维护：开发设置 / 用量统计 / 进程监控 / 缓存与日志 / 配置备份
@@ -28,6 +28,7 @@ export const SETTINGS_TAB_LAYOUT: readonly SettingsTabLayoutEntry[] = [
 	{ id: "notification" },
 	{ id: "appearance" },
 	{ id: "terminal" },
+	{ id: "memory" },
 	{ id: "proxy" },
 	{ id: "connections" },
 	{ id: "im", dividerBefore: true },
@@ -81,6 +82,7 @@ export const SETTINGS_TAB_LABEL_KEYS: Record<SettingsTabId, TranslationKey> = {
 	videogen: "settings.tabs.videogen",
 	acp: "settings.tabs.acp",
 	hostplugins: "settings.tabs.hostplugins",
+	memory: "settings.tabs.memory",
 };
 
 /**
@@ -110,4 +112,5 @@ export const SETTINGS_TAB_KEYWORDS: Record<SettingsTabId, readonly string[]> = {
 	videogen: ["生视频", "视频生成", "videogen", "video"],
 	acp: ["acp", "agent", "cli", "工具", "外部 agent", "gemini", "kimi", "claude code", "opencode"],
 	hostplugins: ["插件", "宿主插件", "工作台插件", "plugin", "host plugin", "扩展安装", "pideck 插件"],
+	memory: ["记忆", "长期记忆", "memory", "agent memory", "记忆条目", "记忆导出", "记忆导入", "session_search", "学习"],
 };

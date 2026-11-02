@@ -77,8 +77,9 @@ test("Git 目录头：键盘可达的折叠入口", () => {
 	const src = read("src/renderer/src/components/app/git/GitResourceTree.tsx");
 	const header = src.slice(src.indexOf("group/dir"), src.indexOf("group/dir") + 1100);
 	assertMatches(header, /role="button"/, "role=button");
-	assertMatches(header, /aria-expanded=\{!props\.collapsedDirs\.has\(dir\)\}/, "展开状态可读");
-	assertMatches(header, /onKeyDown=\{\(e\)\s*=>\s*\{[\s\S]{0,400}e\.key\s*===\s*"Enter"\s*\|\|\s*e\.key\s*===\s*" "\s*\)\s*\{[\s\S]{0,300}props\.onToggleDir\(dir\)/s, "Enter/Space 激活折叠");
+	assertMatches(header, /tabIndex=\{0\}/, "可聚焦");
+	assertMatches(header, /aria-expanded=\{!ctx\.collapsedDirs\.has\(dir\)\}/, "展开状态可读");
+	assertMatches(header, /onKeyDown=\{\(e\)\s*=>\s*\{[\s\S]{0,400}e\.key\s*===\s*"Enter"\s*\|\|\s*e\.key\s*===\s*" "\s*\)\s*\{[\s\S]{0,300}ctx\.onToggleDir\(dir\)/s, "Enter/Space 激活折叠");
 });
 
 test("RPC 日志行：键盘可达的展开入口 + 焦点环", () => {

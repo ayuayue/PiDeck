@@ -125,10 +125,12 @@ export const test = base.extend<
 		launchArgs: string[];
 		mockSessionInProject: boolean;
 		e2eWindowMode: E2EWindowMode;
+		dismissStartupOverlays: boolean;
 	}
 >({
 	seedProjects: [undefined, { option: true }],
 	e2eWindowMode: ["quiet", { option: true }],
+	dismissStartupOverlays: [true, { option: true }],
 	seedFeishuBots: [undefined, { option: true }],
 	seedFavorites: [undefined, { option: true }],
 	seedSessionFiles: [undefined, { option: true }],
@@ -297,12 +299,11 @@ export const test = base.extend<
 			}
 		}
 	},
-	window: async ({ app }, use) => {
+	window: async ({ app, dismissStartupOverlays }, use) => {
 		const window = await waitForMainWindow(app);
 		await window.waitForLoadState("domcontentloaded");
-		// 启动引导弹窗会抢焦点/遮拦点击，统一在这里挂上「出现即关」，
-		// 否则会伪装成业务失败（点击超时、打字被吞）。
-		await armStartupOverlayDismissal(window);
+		// 普通用例统一关掉启动引导；引导自身的行为测试可显式关闭这个默认值。
+		if (dismissStartupOverlays) await armStartupOverlayDismissal(window);
 		await use(window);
 	},
 });

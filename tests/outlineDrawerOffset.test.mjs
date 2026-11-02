@@ -18,7 +18,9 @@ const paneBlock = styles.match(/\.outline-hover\.session-outline-pane \{([\s\S]*
 test("会话定位轴贴消息区右缘，不得改到左缘", () => {
 	assert.ok(paneBlock, "session outline pane styles must exist");
 	// 右缘是设计基线（commit 3303200ae 曾把它挪到左缘，用户明确要求回右侧）
-	assert.match(paneBlock, /right:\s*0;/);
+	// 定位轴让开滚动条槽位（--rail-inset，默认 12px）：原来写死 right: 0 会把右缘整列
+	// （含滚动条）一起盖住，用户在边缘拖动命中的是刻度而不是滚动条。
+	assert.match(paneBlock, /right:\s*var\(--rail-inset, 12px\);/);
 	assert.doesNotMatch(paneBlock, /left:\s*0;/);
 	assert.doesNotMatch(paneBlock, /align-items:\s*flex-start/);
 });

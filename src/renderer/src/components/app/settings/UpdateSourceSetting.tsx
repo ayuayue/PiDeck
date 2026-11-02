@@ -1,12 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useAtomValue } from "jotai";
+import { useCallback, useEffect, useState } from "react";
 import type { AppSettings, MirrorHealthResult, UpdateSourceId } from "../../../../../shared/types/settings";
-import { ATOMGIT_HOST, UPDATE_SOURCE_MIRRORS, buildCustomSourceFeedUrl, normalizeCustomMirrorHost } from "../../../../../shared/updateSources";
+import { ATOMGIT_HOST, UPDATE_SOURCE_MIRRORS, buildCustomSourceFeedUrl } from "../../../../../shared/updateSources";
 import { desktopApi } from "../../../desktopApi";
 import { t } from "../../../i18n";
-import { updateChannelInfoAtom } from "../../../atoms/channelSwitchAtoms";
 import { Button } from "../../ui-shadcn/button";
-import { Input } from "../../ui-shadcn/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
 import { SettingRow } from "./SettingRows";
 
@@ -27,11 +24,6 @@ const HEALTH_DOT_CLASS: Record<MirrorHealthResult["status"], string> = {
 export function UpdateSourceSetting(props: { draft: AppSettings; updateDraft: (patch: Partial<AppSettings>) => void }) {
 	const { draft, updateDraft } = props;
 	const source: UpdateSourceId = draft.updateSource ?? "atomgit";
-	// dev 包锁定官方 GitHub 源（与 UpdateService 同款语义）：AtomGit 镜像只分发 stable 产物，
-	// dev 的 0.8.0-beta.* 仅存在于 GitHub Releases；此处仅展示层置灰+强制选中，真实强制在主进程。
-	const channelInfo = useAtomValue(updateChannelInfoAtom);
-	const devLocked = channelInfo?.channel === "dev";
-	const effectiveSource: UpdateSourceId = devLocked ? "github" : source;
 
 	// 镜像体检结果（按更新源 id 索引；null 表示尚未完成首次探测）
 	const [mirrorHealth, setMirrorHealth] = useState<Record<string, MirrorHealthResult> | null>(null);
@@ -92,14 +84,14 @@ export function UpdateSourceSetting(props: { draft: AppSettings; updateDraft: (p
 					activeFeedUrl ? t("settings.updateSourceFeedPreview", { url: activeFeedUrl }) : t("settings.updateSourceFeedOfficial")
 				}
 			>
-				<Select value={effectiveSource} onValueChange={(value) => updateDraft({ updateSource: devLocked ? "github" : (value as UpdateSourceId) })}>
+				<Select value={source} onValueChange={(value) => updateDraft({ updateSource: value as UpdateSourceId })}>
 					<SelectTrigger className="w-full">
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
-						{/* AtomGit 第一首选；dev 包置灰禁选（预发布通道固定 GitHub，见 updateSourceDevLocked 说明行） */}
+						{/* AtomGit 第一首选；所有通道都可选（dev 选镜像时只能看到 stable 版本） */}
 						{UPDATE_SOURCE_MIRRORS.map((mirror) => (
-							<SelectItem key={mirror.id} value={mirror.id} disabled={devLocked} className={devLocked ? "opacity-60" : undefined}>
+							<SelectItem key={mirror.id} value={mirror.id}>
 								<span className="flex items-center gap-2">
 									{healthDot(mirror.id)}
 									<span>{t("settings.updateSourceAtomGit")}</span>
@@ -113,11 +105,8 @@ export function UpdateSourceSetting(props: { draft: AppSettings; updateDraft: (p
 				</Select>
 			</SettingRow>
 
-			{/* dev 包锁定说明：解释为何 AtomGit 不可选（镜像无预发布产物） */}
-			{devLocked && <p className="pl-4 text-xs text-muted-foreground">{t("settings.updateSourceDevLocked")}</p>}
-
-			{/* 体检状态栏：仅 AtomGit 展示；github 官方链路不参与内置探测（dev 锁定后 effective 恒 github，一并隐藏） */}
-			{effectiveSource === "atomgit" &&
+			{/* 体检状态栏：仅 AtomGit 展示；github 官方链路不参与内置探测 */}
+			{source === "atomgit" &&
 				(() => {
 					const text = mirrorHealth?.atomgit ? healthText("atomgit") : null;
 					return (
