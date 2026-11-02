@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 58a05bab8f7d29216b6c1913ddcc24fd98c1bcc20d264e5ea689c65ebc461be1（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 89744f13da4533befd436e5b470c9c6fab5ad5fe898bbb0f2aef3dbd9f59a758（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -5567,9 +5567,11 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.agentMemoryUsage": "用量與索引",
 	"settings.agentMemoryStatus": "記憶狀態",
 	"settings.agentMemorySummaryFiles": "{size} / {count} 條",
-	"settings.agentMemorySummaryIndex": "索引 {sessions} 個會話 · {messages} 條訊息",
+	"settings.agentMemoryStatFiles": "記憶檔案",
+	"settings.agentMemoryStatIndex": "會話索引",
+	"settings.agentMemoryStatIndexValue": "{sessions} 個會話 · {messages} 條訊息",
+	"settings.agentMemoryStatDevice": "本機裝置",
 	"settings.agentMemoryIndexUnavailable": "索引未啟用",
-	"settings.agentMemorySummaryDevice": "本機：{device}",
 	"settings.agentMemoryExport": "匯出",
 	"settings.agentMemoryImport": "匯入",
 	"settings.agentMemoryClearIndex": "清空索引",
