@@ -7,7 +7,6 @@ import { Button } from "../../ui-shadcn/button";
 import { ConfirmDialog } from "../../ui-shadcn/ConfirmDialog";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../../ui-shadcn/dialog";
 import { Input } from "../../ui-shadcn/input";
-import { SettingRow } from "./SettingRows";
 import { AgentMemoryExportDialog } from "./AgentMemoryExportDialog";
 import { AgentMemoryImportDialog } from "./AgentMemoryImportDialog";
 import { describeAgentMemoryCode } from "./agentMemoryLabels";
@@ -101,46 +100,75 @@ export function AgentMemorySettingsSection(props: {
 		}
 	};
 
-	const summary = status
-		? [
-				t("settings.agentMemorySummaryFiles", { size: formatBytes(status.totalBytes), count: String(status.files.reduce((sum, file) => sum + file.entries, 0)) }),
-				status.index ? t("settings.agentMemorySummaryIndex", { sessions: String(status.index.sessions), messages: String(status.index.messages) }) : t("settings.agentMemoryIndexUnavailable"),
-				t("settings.agentMemorySummaryDevice", { device: status.device.name }),
-			].join(" · ")
-		: t("common.loading");
+	const filesValue = status ? t("settings.agentMemorySummaryFiles", { size: formatBytes(status.totalBytes), count: String(status.files.reduce((sum, file) => sum + file.entries, 0)) }) : null;
+	const indexValue = status ? (status.index ? t("settings.agentMemoryStatIndexValue", { sessions: String(status.index.sessions), messages: String(status.index.messages) }) : t("settings.agentMemoryIndexUnavailable")) : null;
 
 	const learnSummary = status ? (status.learn.lastAt ? t("settings.agentMemoryLearnLast", { count: String(status.learn.sessions), time: new Date(status.learn.lastAt).toLocaleString() }) : t("settings.agentMemoryLearnNever")) : null;
 
 	return (
 		<>
-			<SettingRow anchor="memory-usage" title={t("settings.agentMemoryUsage")} description={summary}>
-				<span className="flex flex-wrap items-center gap-2">
-					<Button type="button" variant="outline" size="sm" disabled={busy !== "none"} onClick={() => setExportOpen(true)}>
-						<Download size={14} strokeWidth={2} aria-hidden="true" />
-						{t("settings.agentMemoryExport")}
-					</Button>
-					<Button type="button" variant="outline" size="sm" disabled={busy !== "none"} onClick={() => void runPreviewImport()}>
-						<Upload size={14} strokeWidth={2} aria-hidden="true" />
-						{t("settings.agentMemoryImport")}
-					</Button>
-					<Button type="button" variant="outline" size="sm" disabled={busy !== "none" || !status} onClick={() => void runReveal()}>
+			{/* 状态卡：信息在上、主操作在右、维护动作在底。
+			    五个按钮挤进 SettingRow 的 260px 控件列会折成三行、右缘参差，所以这一块不再走两列栅格。 */}
+			<div id="settings-section-memory-usage" className="flex flex-col gap-3 px-2 py-2">
+				<div className="flex flex-wrap items-start justify-between gap-3">
+					<div className="min-w-0">
+						<strong className="text-control font-medium text-foreground">{t("settings.agentMemoryUsage")}</strong>
+						{props.showLearn && learnSummary ? <small className="mt-0.5 block text-caption leading-relaxed text-muted-foreground">{learnSummary}</small> : null}
+					</div>
+					<div className="flex shrink-0 items-center gap-2">
+						<Button type="button" variant="outline" size="sm" disabled={busy !== "none"} onClick={() => setExportOpen(true)}>
+							<Download size={14} strokeWidth={2} aria-hidden="true" />
+							{t("settings.agentMemoryExport")}
+						</Button>
+						<Button type="button" variant="outline" size="sm" disabled={busy !== "none"} onClick={() => void runPreviewImport()}>
+							<Upload size={14} strokeWidth={2} aria-hidden="true" />
+							{t("settings.agentMemoryImport")}
+						</Button>
+					</div>
+				</div>
+
+				{status ? (
+					<dl className="grid gap-y-2 sm:grid-cols-3">
+						<div className="min-w-0">
+							<dt className="text-micro text-muted-foreground">{t("settings.agentMemoryStatFiles")}</dt>
+							<dd className="mt-0.5 truncate text-control font-medium text-foreground tabular-nums">{filesValue}</dd>
+						</div>
+						<div className="min-w-0 sm:border-l sm:border-border-subtle/60 sm:pl-4">
+							<dt className="text-micro text-muted-foreground">{t("settings.agentMemoryStatIndex")}</dt>
+							<dd className="mt-0.5 truncate text-control font-medium text-foreground tabular-nums">{indexValue}</dd>
+						</div>
+						<div className="min-w-0 sm:border-l sm:border-border-subtle/60 sm:pl-4">
+							<dt className="text-micro text-muted-foreground">{t("settings.agentMemoryStatDevice")}</dt>
+							<dd className="mt-0.5 truncate text-control font-medium text-foreground" title={status.device.name}>
+								{status.device.name}
+							</dd>
+						</div>
+					</dl>
+				) : (
+					<p className="text-caption text-muted-foreground">{t("common.loading")}</p>
+				)}
+
+				{/* 维护动作：目录与改名是日常入口；清空索引只重建缓存（记忆文件不动），单独隔开降低误触。 */}
+				<div className="flex flex-wrap items-center justify-end gap-1.5 border-t border-border-subtle/60 pt-2.5">
+					<Button type="button" variant="ghost" size="sm" disabled={busy !== "none" || !status} onClick={() => void runReveal()}>
 						<FolderOpen size={14} strokeWidth={2} aria-hidden="true" />
 						{t("settings.agentMemoryOpenFolder")}
 					</Button>
-					<Button type="button" variant="outline" size="sm" disabled={busy !== "none" || !status} onClick={() => setRenameOpen(true)}>
+					<Button type="button" variant="ghost" size="sm" disabled={busy !== "none" || !status} onClick={() => setRenameOpen(true)}>
 						<Pencil size={14} strokeWidth={2} aria-hidden="true" />
 						{t("common.rename")}
 					</Button>
-					<Button type="button" variant="outline" size="sm" disabled={busy !== "none" || !status?.index} onClick={() => setConfirmClear(true)}>
+					<span className="mx-1 h-4 w-px bg-border-subtle" aria-hidden="true" />
+					<Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive" disabled={busy !== "none" || !status?.index} onClick={() => setConfirmClear(true)}>
 						<RefreshCw size={14} strokeWidth={2} aria-hidden="true" />
 						{t("settings.agentMemoryClearIndex")}
 					</Button>
-				</span>
-			</SettingRow>
-			{props.showLearn && learnSummary ? <p className="px-4 pb-2 text-xs text-muted-foreground">{learnSummary}</p> : null}
-			{status?.indexError ? <p className="px-4 pb-2 text-xs text-muted-foreground">{t("settings.agentMemoryIndexDegraded", { reason: status.indexError })}</p> : null}
-			{error ? <p className="px-4 pb-2 text-xs text-destructive">{error}</p> : null}
-			{message ? <p className="px-4 pb-2 text-xs text-muted-foreground">{message}</p> : null}
+				</div>
+
+				{status?.indexError ? <p className="text-caption text-muted-foreground">{t("settings.agentMemoryIndexDegraded", { reason: status.indexError })}</p> : null}
+				{error ? <p className="text-caption text-destructive">{error}</p> : null}
+				{message ? <p className="text-caption text-muted-foreground">{message}</p> : null}
+			</div>
 			{exportOpen ? (
 				<AgentMemoryExportDialog
 					onCancel={() => setExportOpen(false)}
