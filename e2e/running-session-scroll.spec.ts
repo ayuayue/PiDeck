@@ -148,3 +148,31 @@ test("运行中工具尾部在历史阅读切回后保持锚点与回底入口",
 	await expect.poll(async () => Math.abs(((await readOffset()) ?? 10_000) - (before ?? 0)), { timeout: 8_000 }).toBeLessThanOrEqual(28);
 	await expect(window.locator("[data-scroll-to-bottom]")).toBeVisible();
 });
+
+test("正文流式跟底时切走再切回：继续跟随且不冒回底按钮", async ({ app, window }) => {
+	test.setTimeout(150_000);
+	await openRunningProject(app, window);
+	await openSeeded(window, "Running A");
+	const sourceId = await window.locator('[role="tab"][data-session-id][aria-selected="true"]').getAttribute("data-session-id");
+	expect(sourceId).toBeTruthy();
+	const moveToLatest = window.locator("[data-scroll-to-bottom]");
+	if (await moveToLatest.isVisible().catch(() => false)) await moveToLatest.click();
+	await window.waitForTimeout(300);
+
+	// SLOW LONG：18 chunk × 220ms 的长正文，在流式中途切走（此时的跟随动画滞后几十 px，
+	// 曾被当成用户上滚写成阅读锚点，切回就变 autoScroll=false —— 正文还在输出却不再跟随）。
+	await window.locator(".composer .rich-input").fill("SLOW LONG running-text-follow");
+	await window.getByRole("button", { name: "发送", exact: true }).click();
+	await expect.poll(async () => (await scrollMetrics(window)).distance ?? 10_000, { timeout: 20_000 }).toBeLessThanOrEqual(28);
+
+	await openSeeded(window, "Running B");
+	await window.locator(`[role="tab"][data-session-id="${sourceId}"]`).click();
+	for (let index = 0; index < 12; index += 1) {
+		await window.waitForTimeout(250);
+		const sample = await scrollMetrics(window);
+		expect(sample.button).toBe(false);
+		expect(sample.distance ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(160);
+	}
+	await expect(window.locator(".message-timeline")).toContainText("第 120 行", { timeout: 30_000 });
+	await expect.poll(async () => (await scrollMetrics(window)).distance ?? 10_000, { timeout: 10_000 }).toBeLessThanOrEqual(8);
+});
