@@ -1323,18 +1323,20 @@ export { DiagnosticMessageCard, RespondingIndicator, ThinkingBlock };
 export { MultiSelectModal };
 
 /**
- * 会话定位轴（beUI PreviewRail）：消息区右缘一列 2px 刻度，一根 = 一个用户检查点；
+ * 会话定位轴（beUI PreviewRail）：消息区右缘一列刻度，一根 = 一条用户提问或一轮的最终回答
+ * （中间回复与 thinking 不出刻度，见 buildOutline）；
+ * 用户刻度更宽更深、助手刻度更细更淡，预览卡标题前带角色标签。
  * 静默态整体不可见，指针移上去（或键盘聚焦）才浮现（见 surfaces.css 的 .session-outline-pane）。
  * hover 出预览卡、点击跳转；工具开关已上收会话 Tab 栏（SessionToolAction），
  * 此处不再承载其他入口；容器沿用 .outline-hover 的定位规则（session-outline-pane 贴右缘，有测试守护）。
  *
- * 条数与取哪几条：刻度只覆盖**最近 RAIL_RECENT_TICK_ITEMS 条**提问，更早的走展开态
+ * 条数与取哪几条：刻度只覆盖**最近 RAIL_RECENT_TICK_ITEMS 条**消息，更早的走展开态
  * 目录面板（SessionOutlinePanel）。段数按**可用高度**算（railCapacity = 高度 / 12，
  * 没有下限——小窗装不下就少给几段，不许撑出容器）。能一条一根就一条一根：放不下
  * （几百轮会话）才切成 capacity 段、每段只画第一根（railBuckets）。刻度纵向位置因此
  * 等于「这一段会话的第几成」，高度恒定——既不会只看得到最新一批（2026-11「显示不全、
  * 翻回来退化」），也不会随会话增长把屏幕拉满（2026-11「越来越长，装不下」）。段内
- * 其它提问点一下即跳到段首，没有从刻度上消失。
+ * 其它消息点一下即跳到段首，没有从刻度上消失。
  *
  * 高度自适应：容器被 .outline-hover 的 top/bottom 双向夹持出可用高度，间距按条数
  * 收缩（14px → 最低 12px），不做内部滚动。
@@ -1396,7 +1398,7 @@ function ConversationOutlineView(props: ConversationOutlineProps) {
 		return () => observer.disconnect();
 	}, []);
 	// 条数与取哪几条：railBuckets —— 段数按可用高度算（railCapacity），**能一条一根就
-	// 一条一根**，放不下才均分、每段只画段首。固定 30 段时一根代表好几条提问，点下去只能
+	// 一条一根**，放不下才均分、每段只画段首。固定 30 段时一根代表好几条消息，点下去只能
 	// 落到段首，看起来就是「定位到别的地方」（2026-11 真机，85 轮会话）。
 	// 早先还试过「以阅读位置为中心的滑动窗口」：纵向位置不等于会话进度、翻上翻下整列平移。
 	// 先按源下标定位 active（高亮用），再分段、再规划间距。
@@ -1408,7 +1410,7 @@ function ConversationOutlineView(props: ConversationOutlineProps) {
 		const hasHead = props.items.length > RAIL_RECENT_TICK_ITEMS;
 		return Math.max(1, capacity - (hasHead ? 1 : 0));
 	}, [availableHeight, props.items.length]);
-	// 刻度条只覆盖最近 N 条，更早的交给展开态面板。
+	// 刻度条只覆盖最近 N 条刻度（一轮两条），更早的交给展开态面板。
 	// 真正的好处不是「变短」，是恢复定位精度：railCapacity 约 66 根（800px 屏），
 	// 147 条 > 66 只能均分、每根代表 2.2 条，点一根只落到段首；60 <= 66 就回到
 	// 「能一条一根就一条一根」—— 那本来就是这段代码的设计意图。
@@ -1436,14 +1438,18 @@ function ConversationOutlineView(props: ConversationOutlineProps) {
 						},
 					]
 				: []),
-			...plan.items.map((item) => ({
-				id: item.id,
-				label: item.title,
-				ariaLabel: item.title,
-				description: item.time,
-				// 目录里有、还没加载的检查点：画淡一档，点之前就知道要补页
-				muted: item.pending === true,
-			})),
+			...plan.items.map((item) => {
+				const roleLabel = item.role === "user" ? t("sessionFind.roleUser") : t("sessionFind.roleAssistant");
+				return {
+					id: item.id,
+					role: item.role === "user" ? ("user" as const) : ("assistant" as const),
+					label: `${roleLabel} · ${item.title}`,
+					ariaLabel: `${roleLabel} · ${item.title}`,
+					description: item.time,
+					// 目录里有、还没加载的检查点：画淡一档，点之前就知道要补页
+					muted: item.pending === true,
+				};
+			}),
 		],
 		// getI18nLocale() 进依赖：t() 读模块级 locale 且不订阅变化，切语言后
 		// windowStart 不变，不写进依赖就会让「更早 · 前 N 条」停在旧语言
@@ -1477,10 +1483,6 @@ function ConversationOutlineView(props: ConversationOutlineProps) {
 				/>
 			) : (
 				<>
-					{/* 展开入口：目标未加载时按钮也会先补页，所以没条目时仍要能点开 */}
-					<button type="button" onClick={() => setExpanded(true)} aria-label={t("outline.expand")} className="pointer-events-auto mb-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground">
-						☰
-					</button>
 					{railItems.length > 0 && (
 						<PreviewRail
 							orientation="vertical"
@@ -1500,9 +1502,9 @@ function ConversationOutlineView(props: ConversationOutlineProps) {
 								setRailActiveId(item.id);
 								props.onJump(item.id);
 							}}
-							/* 宽度对齐原触发按钮（30px），min-h-0 抵消组件自带的演示高度 */
+							/* 刻度轴固定 30px 宽；min-h-0 抵消组件自带的演示高度 */
 							className="pointer-events-auto min-h-0 w-[30px]"
-							railClassName="w-full content-center [&_[data-slot=preview-rail-item]]:w-full [&_[data-slot=preview-rail-item]]:justify-center [&_[data-slot=preview-rail-tick]]:h-0.5 [&_[data-slot=preview-rail-tick]]:w-4 [&_[data-slot=preview-rail-tick]]:origin-center"
+							railClassName="w-full content-center [&_[data-slot=preview-rail-item]]:w-full [&_[data-slot=preview-rail-item]]:justify-center"
 							previewContainerClassName="inset-y-0 right-7 left-auto w-64"
 							previewClassName="[&_[data-slot=preview-rail-card]]:h-20 [&_[data-slot=preview-rail-card]]:overflow-hidden [&_[data-slot=preview-rail-card]]:p-3 [&_[data-slot=preview-rail-title]]:line-clamp-1 [&_[data-slot=preview-rail-title]]:text-xs [&_[data-slot=preview-rail-title]]:leading-4 [&_[data-slot=preview-rail-description]]:line-clamp-1 [&_[data-slot=preview-rail-description]]:text-xs [&_[data-slot=preview-rail-description]]:leading-4"
 						/>

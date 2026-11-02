@@ -47,7 +47,7 @@ test("未测量时回退到 fallback", () => {
 
 test("新增目录面板的 i18n key 三种语言齐全", () => {
 	// 硬编码中文会让英文/繁中界面下出现一个简体中文面板。
-	const keys = ["outline.panel", "outline.searchPlaceholder", "outline.searchAria", "outline.collapse", "outline.expand", "outline.onlyRange", "outline.hits", "outline.total", "outline.earlier", "outline.earlierAria"];
+	const keys = ["outline.panel", "outline.searchPlaceholder", "outline.searchAria", "outline.collapse", "outline.onlyRange", "outline.hits", "outline.total", "outline.earlier", "outline.earlierAria"];
 	for (const locale of ["zh-CN", "zh-TW", "en-US"]) {
 		const source = readFileSync("src/renderer/src/i18n/rendererCopy." + locale + ".ts", "utf8");
 		for (const key of keys) {
