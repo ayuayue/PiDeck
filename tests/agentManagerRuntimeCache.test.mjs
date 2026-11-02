@@ -644,3 +644,56 @@ test("delete after abort drops an unpersisted turn from runtime cache instead of
 		await rm(directory, { recursive: true, force: true });
 	}
 });
+
+test("loadMessages applies context_edit so deleted messages stay deleted after runtime restart", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "pideck-runtime-context-edit-"));
+	const sessionPath = join(directory, "session.jsonl");
+	try {
+		// 会话文件语义与 pi 一致：删除/编辑只追加 context_edit，原文行保留。
+		const lines = [
+			entryLine("u1", null, "user", "q1"),
+			entryLine("a1", "u1", "assistant", "answer to delete"),
+			entryLine("u2", "a1", "user", "q2"),
+			entryLine("a2", "u2", "assistant", "answer 2"),
+			JSON.stringify({ type: "context_edit", id: "ce1", parentId: "a2", targetId: "a1", replacement: null, timestamp: "2026-11-02T09:09:52.794Z" }),
+			JSON.stringify({ type: "context_edit", id: "ce2", parentId: "ce1", targetId: "u2", replacement: { content: "edited question" }, timestamp: "2026-11-02T09:09:53.000Z" }),
+		];
+		await writeFile(sessionPath, lines.join("\n") + "\n", "utf8");
+		const runtime = {
+			tab: {
+				id: "agent-1",
+				projectId: "project-1",
+				cwd: "C:/project",
+				title: "Session",
+				status: "idle",
+				sessionPath,
+				sessionEnvironment: "native",
+				sessionSource: "pi",
+				createdAt: 1,
+			},
+			process: { client: { request: async () => ({ success: true, data: {} }) } },
+		};
+		const manager = new AgentManager(
+			() => ({ id: "project-1", name: "Project", path: "C:/project" }),
+			() => null,
+			{ get: () => ({}) },
+			{},
+		);
+		manager.agents.set("agent-1", runtime);
+
+		await manager.loadMessages("agent-1");
+		const cached = manager.messages.get("agent-1");
+		// 运行时窗口必须与停止态/历史页同一套 context_edit 投影：被删条目不再出现，
+		// 编辑条目显示改写后的正文（修复前两者都会从原始行回显成原文）。
+		assert.equal(cached.map((message) => message.meta?.entryId).join(","), "u1,u2,a2");
+		assert.equal(
+			cached.some((message) => message.meta?.entryId === "a1"),
+			false,
+		);
+		assert.equal(cached.find((message) => message.meta?.entryId === "u2").text, "edited question");
+		// 槽位对齐不被过滤打乱：a2 仍是自己那条消息
+		assert.equal(cached.find((message) => message.meta?.entryId === "a2").text, "answer 2");
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});

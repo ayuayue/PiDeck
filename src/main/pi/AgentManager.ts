@@ -82,7 +82,7 @@ import type { PiRuntimeLauncher, RemoteSshPiRuntimeLaunchPlan } from "./PiSpawnH
 import { REMOTE_RUNTIME_CODES, type RemoteRuntimePort } from "./remoteRuntimePort";
 import type { RemoteSessionRegistration } from "../sessions/SessionCatalog";
 import { SessionFileEditor, type SessionEntryTarget, type SessionFileRef } from "./SessionFileEditor";
-import { SessionHistoryReader, boundTurnWindowStart } from "./SessionHistoryReader";
+import { SessionHistoryReader, applySessionContextEdits, boundTurnWindowStart } from "./SessionHistoryReader";
 import { createTrajectoryFactsReader, type TrajectoryFactsReader } from "../sessions/trajectoryFactsReader";
 import { scanJsonlLines } from "../sessions/jsonlLineStream";
 import { estimateMessagesPayloadBytes } from "./messagePayloadSize";
@@ -1812,6 +1812,13 @@ export class AgentManager {
 			headOffset = -1; // 未知：不提供 windowStartFilePos，渲染层回退 entryId 锚点
 		}
 
+		// 删除/编辑只向文件追加 context_edit，原文行仍留在尾部窗口里。运行态窗口必须
+		// 应用与停止态同一份投影过滤，否则启动 Agent 后被删消息「复活」、编辑回退原文
+		// （issue #482）。只过滤投影后的消息，rawMessages / activeEntryIds /
+		// windowStartFilePos 仍按原始条数计算（getRecentActiveEntryIds 槽位对齐依赖它）。
+		const contextEdits = useFileEntryIds && sessionPath ? await this.sessionHistoryReader.getSessionContextEdits(sessionPath).catch(() => undefined) : undefined;
+		assertCurrentRuntime();
+
 		// 解析会话文件里的压缩记录：拿到所有压缩段摘要 + 归档消息。
 		// pi 的 get_messages 对压缩会话只返回压缩后的消息，通常不带压缩摘要；
 		// 这里从原始会话文件补回：压缩摘要卡片 + 归档消息（支持展开查看压缩前内容）。
@@ -1882,7 +1889,10 @@ export class AgentManager {
 			this.emitState();
 		}
 
-		const messages = this.convertAgentMessages(agentId, finalRaw, activeEntryIds);
+		const projected = this.convertAgentMessages(agentId, finalRaw, activeEntryIds);
+		// 投影之后按 meta.entryId 过滤/替换（与停止态、历史页同一个函数）：只有带 entryId 的
+		// 消息参与，压缩摘要卡与实时消息原样保留。
+		const messages = contextEdits ? applySessionContextEdits(projected, contextEdits) : projected;
 		const t2 = Date.now();
 		this.recordTiming("session.history.load", t0, {
 			agentId,

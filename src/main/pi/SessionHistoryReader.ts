@@ -92,6 +92,42 @@ export function collectSessionContextEdits(activeBranch: readonly ContextEditSou
 	return { excludedEntryIds, replacedEntryIds, replacementText };
 }
 
+/**
+ * 应用当前分支上生效的上下文编辑（展示层过滤 + 正文替换）。
+ *
+ * - excluded（`replacement: null`）：**从时间线上直接去掉**，不显示、不标记、
+ *   不折叠——用户按下删除就应当看不到它。
+ * - replaced：正文换成改写后的内容（否则刚做完的编辑看起来没生效），不加任何标记。
+ *
+ * 文件里两种情况的原文都原样保留（pi 的 append-only 语义），只是不再参与展示；
+ * 因此原始历史、导出与计费仍能看到它们，模型上下文也不再包含被移出的条目。
+ * 原文只有在没有可见文本块（纯图片/工具块）时才不替换正文，避免把有内容的
+ * 回答显示成空。
+ *
+ * 只认带 entryId 的消息：实时乐观消息 / 无 entryId 的系统卡片不参与。
+ *
+ * 展示层有两条投影链：停止态/历史页（readSessionDisplayMessages）与运行态窗口
+ * （AgentManager.loadMessages 从 JSONL 尾部读原始行后投影）。两条必须调同一个函数——
+ * 只在其中一条过滤，就会出现「删除后重启 Agent 消息又回来」（issue #482）。
+ */
+export function applySessionContextEdits(messages: ChatMessage[], contextEdits: SessionContextEditsDetail): ChatMessage[] {
+	if (contextEdits.excludedEntryIds.length === 0 && contextEdits.replacedEntryIds.length === 0) return messages;
+	const excluded = new Set(contextEdits.excludedEntryIds);
+	const replaced = new Set(contextEdits.replacedEntryIds);
+	const result: ChatMessage[] = [];
+	for (const message of messages) {
+		const entryId = typeof message.meta?.entryId === "string" ? message.meta.entryId : undefined;
+		if (!entryId) {
+			result.push(message);
+			continue;
+		}
+		if (excluded.has(entryId)) continue;
+		const replacementText = replaced.has(entryId) ? contextEdits.replacementText.get(entryId) : undefined;
+		result.push(replacementText === undefined ? message : { ...message, text: replacementText });
+	}
+	return result;
+}
+
 /** 分支树预览文本上限（字符）：导航级摘要足够定位消息，不需要全文。 */
 const BRANCH_PREVIEW_MAX_CHARS = 120;
 
@@ -972,7 +1008,7 @@ export class SessionHistoryReader {
 				isTailWindow: true,
 				entryRendererTypes: options?.entryRendererTypes ?? [],
 			});
-			return this.applyContextEdits(this.applyCustomMessageCards(messages, cards, entries, 0, this.resolveCompactionInsertOffset(index)), index.contextEdits);
+			return applySessionContextEdits(this.applyCustomMessageCards(messages, cards, entries, 0, this.resolveCompactionInsertOffset(index)), index.contextEdits);
 		}
 		const content = sessionContent;
 		const entries: Array<{
@@ -1055,7 +1091,7 @@ export class SessionHistoryReader {
 			finalRaw = [...rawMessages.slice(0, insertAt), card, ...rawMessages.slice(insertAt)];
 		}
 
-		return this.applyContextEdits(this.deps.convertMessages(agentId, finalRaw, activeEntryIds), collectSessionContextEdits(activeBranch));
+		return applySessionContextEdits(this.deps.convertMessages(agentId, finalRaw, activeEntryIds), collectSessionContextEdits(activeBranch));
 	}
 
 	/**
@@ -1153,7 +1189,7 @@ export class SessionHistoryReader {
 				entryRendererTypes,
 			});
 			return {
-				messages: this.applyContextEdits(this.applyCustomMessageCards(messages, cards, entries, start, this.resolveCompactionInsertOffset(index)), index.contextEdits),
+				messages: applySessionContextEdits(this.applyCustomMessageCards(messages, cards, entries, start, this.resolveCompactionInsertOffset(index)), index.contextEdits),
 				total,
 				nextBefore: start > 0 ? start : null,
 				nextBeforeEntryId: start > 0 ? index.activeMessageEntries[start]?.id : undefined,
@@ -1173,7 +1209,7 @@ export class SessionHistoryReader {
 			entryRendererTypes,
 		});
 		return {
-			messages: this.applyContextEdits(this.applyCustomMessageCards(this.deps.convertMessages(agentId, rawMessages, roleMessageEntryIds(entries)), cards, entries, start), index.contextEdits),
+			messages: applySessionContextEdits(this.applyCustomMessageCards(this.deps.convertMessages(agentId, rawMessages, roleMessageEntryIds(entries)), cards, entries, start), index.contextEdits),
 			total,
 			nextBefore: start > 0 ? start : null,
 			nextBeforeEntryId: start > 0 ? index.activeMessageEntries[start]?.id : undefined,
@@ -1351,6 +1387,17 @@ export class SessionHistoryReader {
 	}
 
 	/**
+	 * 活动分支上最终生效的 context_edit（含改写文本），供运行态窗口做与停止态一致的投影。
+	 *
+	 * 删除/编辑只向文件追加 `context_edit`，原文行仍在尾部窗口里（readRecentMessages
+	 * 返回的是原始行）；运行态不应用这份过滤，启动 Agent 后被删消息就会「复活」（issue #482）。
+	 * 只读索引缓存，不额外解析文件。
+	 */
+	async getSessionContextEdits(sessionPath: string): Promise<SessionContextEditsDetail> {
+		return (await this.getSessionDisplayIndex(sessionPath)).contextEdits;
+	}
+
+	/**
 	 * 把范围内的 custom_message / custom 条目构造成时间线卡片（含插入偏移）。
 	 *
 	 * 为什么要在读侧合成：PiDeck 不写 pi 的会话文件（会话读写归 pi），而 pi 用
@@ -1491,38 +1538,6 @@ export class SessionHistoryReader {
 			const afterCompaction = hasCompactionCard && compactionInsertOffset !== undefined && offset >= compactionInsertOffset;
 			return messageIndexFromEntryOffset(windowEntries, offset, windowStart) + (afterCompaction ? 1 : 0);
 		});
-	}
-
-	/**
-	 * 应用当前分支上生效的上下文编辑（展示层过滤 + 正文替换）。
-	 *
-	 * - excluded（`replacement: null`）：**从时间线上直接去掉**，不显示、不标记、
-	 *   不折叠——用户按下删除就应当看不到它。
-	 * - replaced：正文换成改写后的内容（否则刚做完的编辑看起来没生效），不加任何标记。
-	 *
-	 * 文件里两种情况的原文都原样保留（pi 的 append-only 语义），只是不再参与展示；
-	 * 因此原始历史、导出与计费仍能看到它们，模型上下文也不再包含被移出的条目。
-	 * 原文只有在没有可见文本块（纯图片/工具块）时才不替换正文，避免把有内容的
-	 * 回答显示成空。
-	 *
-	 * 只认带 entryId 的消息：实时乐观消息 / 无 entryId 的系统卡片不参与。
-	 */
-	private applyContextEdits(messages: ChatMessage[], contextEdits: SessionContextEditsDetail): ChatMessage[] {
-		if (contextEdits.excludedEntryIds.length === 0 && contextEdits.replacedEntryIds.length === 0) return messages;
-		const excluded = new Set(contextEdits.excludedEntryIds);
-		const replaced = new Set(contextEdits.replacedEntryIds);
-		const result: ChatMessage[] = [];
-		for (const message of messages) {
-			const entryId = typeof message.meta?.entryId === "string" ? message.meta.entryId : undefined;
-			if (!entryId) {
-				result.push(message);
-				continue;
-			}
-			if (excluded.has(entryId)) continue;
-			const replacementText = replaced.has(entryId) ? contextEdits.replacementText.get(entryId) : undefined;
-			result.push(replacementText === undefined ? message : { ...message, text: replacementText });
-		}
-		return result;
 	}
 
 	/**
