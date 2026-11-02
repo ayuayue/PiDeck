@@ -20,7 +20,7 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 | Linux（WSL）POSIX/Linux-only 邻接用例 | **通过**：139 pass / 1 skip（root-only chown） |
 | Linux（WSL）根池化相关 4 文件 | **通过**：51/51 |
 | Linux（WSL）remote/ssh 全扫 | **失败（7 例，全部既有，非本提交引入）** + **跳过 11 例**；基线 HEAD~1 复跑失败数一致，详见 §3.3 |
-| 真实 SSH + Electron 端到端验收 | **部分通过（UI 入口 bug 已修复；R0 1 passed 40.7s；R1 在 step 5 失败）**：R0（池化关闭）真机通过；R1（池化开启）已越过 UI 入口，但远端会话扫描拿不到 home；S2/S5/S6/S7 未执行，详见 §10 |
+| 真实 SSH + Electron 端到端验收 | **部分通过（UI 入口 bug 已修复；R0 1 passed 40.7s；R1 越过 step 5 后失败于 step 6）**：R0（池化关闭）真机通过；R1（池化）home 探针修复后 step 5 通过，但远端会话权威标题读取仍失败；S2/S5/S6/S7 未执行，详见 §10 |
 | Linux CI 覆盖 | **通过（仅本地新增，未触发 GitHub CI）**：新增 `linux-unit-remote` job（硬门禁 17 文件 253/252+1；全扫 continue-on-error）+ 挂账文档；见 §11 |
 | panel-service-baseline.manifest | **通过**：按 HEAD 重建，`panel-baseline.mjs verify` 48/48 rc=0；见 §11 |
 | 旧文档失效状态审计 | **完成并已同步旧文档 + 重建 manifest**（见 §5/§11） |
@@ -325,15 +325,16 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 - 修复提交：`a905d4d7d`（F1 源码 + 回归测试 + 验收文档）。
 - 旧文档同步提交：`f870d5574`。
 - CI/基线清单/文档提交：`17cce290a`。
-- 本轮 UI 入口修复与回归测试（`SessionStartSurface.tsx`、`tests/remoteProjectComposerEntry.test.mjs`）及本验收文档的最新更新**随本次提交落库（未 push）**。
+- UI 入口修复与回归测试已提交 `c1012918e`（未 push）。
+- 池化 HOME 探针修复（`RemoteHostConnectionService.ts`）与本文档最新更新**尚未提交**。
 - 原检查点 `55dd5b702` 未被改写；未 push/merge。
 
 ### 9.4 仍未做
 
-- R1 池化仍失败于远端会话扫描 home 解析（§10.4），需单独修复后才能继续 S2/S5/S6/S7。
+- R1 池化已越过 home 解析，但权威标题读取仍失败（§10.4），需单独修复后才能继续 S2/S5/S6/S7。
 - 真机 S2/S5/S6/S7（切换不重建、TTL/sweep、显式断开、监听降级）未执行。
 - 7 个既有 Linux 红已挂账（`docs/ci-linux-known-failures.md`），未修；`remoteGitStability` 属 Git/Phase C 债。
-- UI 入口修复与回归测试已随本次提交落库；是否 push 由用户决定。
+- UI 入口修复已提交；池化 HOME 探针修复待提交；是否 push 由用户决定。
 
 ## 10. 真实 SSH + Electron 执行结果（2026-10-31；R0 通过，R1 失败）
 
@@ -349,11 +350,11 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 | R0（修复前）#1/#2/#3 | 池化关闭 | exit 1；42.3s / 34.9s / 35.1s；均卡在 spec:223 |
 | R1（修复前）#1/#2 | `rootPooling: {}` | exit 1；37.8s / 33.0s；同一点失败 |
 | **R0（修复后）** | 池化关闭，含 UI fix | **1 passed（40.7s）** |
-| **R1（修复后）** | `rootPooling: {}`，含 UI fix | **exit 1；step 5 失败**（远端会话扫描/远端 home 解析） |
+| **R1（修复后）** | `rootPooling: {}`，含 UI fix | 先失败于 step 5（远端 home）；补 pinned HOME 探针后 **step 5 通过**，改为 **step 6 失败**（权威标题读不到，回退文件名） |
 
 **UI 入口失败根因（已修复）**：R0（修复前）的 ARIA 显示中栏是 `SessionStartSurface`，但按钮不存在。React fiber 对照确认：`SessionStartSurface` 收到 `secondaryAction`（Button 元素），而 `SessionStartBody` 没收到——`SessionStartSurface.tsx:123` 在重构后返回 `SessionStartBody` 时**漏转发 `secondaryAction`**，`SessionStartBody.tsx:169` 因此永远不渲染。修复：补 `secondaryAction={props.secondaryAction}`；回归断言加到 `tests/remoteProjectComposerEntry.test.mjs`（“start surface and file panel expose the two-way switch”）。R0 复跑 **1 passed (40.7s)**，证明入口恢复。
 
-**R1（池化）后续失败（未修复）**：R1 已越过 UI 入口，失败于 step 5「远端会话列表」：UI 文案“无法确定远端会话目录（远端 home 解析失败）”，断言位置 `e2e/remoteHostAcceptance.spec.ts:237:62`（step 5）。只读定位：池化 `connect` 只 `ensureHeldShared`、不创建 root helper（`RemoteHostConnectionService.ts:669-688`），而 `readHomeEnsuring` 在没有缓存 manager/池条目时返回 undefined（`RemoteHostConnectionService.ts:1095-1110`）——这是池化模式的真实缺口，不是 UI 入口问题；本轮未改此逻辑。
+**R1（池化）后续失败**：R1 先失败于 step 5「远端会话列表」：UI 文案“无法确定远端会话目录（远端 home 解析失败）”，断言位置 `e2e/remoteHostAcceptance.spec.ts:237:62`。只读定位：池化 `connect` 只 `ensureHeldShared`、不创建 root helper（`RemoteHostConnectionService.ts:669-688`），而 `readHomeEnsuring` 在没有缓存 manager/池条目时返回 undefined（`RemoteHostConnectionService.ts:1095-1110`）。已在工作区补 pinned 只读 HOME 探针（`buildReadHomeCommand` + `buildPinnedSshInvocation`，不建 helper、不碰项目 root），R1 step 5 通过。**新的失败点**：step 6 权威标题断言（spec:260）拿到的仍是文件名 `e2e-auth-<runId>`，而非夹具 `session_info` 名；说明池化下远端会话标题读取仍未闭环。该 home 修复尚未提交；标题问题未修。
 
 影响：R0（池化关闭）的 S0/S1 入口与登记链路已通过；R1 池化仍不能签收；S2/S5/S6/S7 未执行。
 
@@ -372,7 +373,7 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 ### 10.4 结论
 
 - UI 入口 bug 是产品回归（`SessionStartSurface` 漏转发 `secondaryAction`），已修复；R0 真机复跑通过，回归测试已加。
-- R1 池化在 step 5 仍失败：远端会话扫描期间没有可用的 root helper/manager，`remoteHomeEnsuring` 拿不到 home（池化 connect 不建 helper，而 home 读取没有按需建立 root 会话）。这是池化真机验收的下一个真实阻塞点，本轮未修。
+- 池化 HOME 缺口已用 pinned 只读探针补齐（工作区未提交），R1 因此越过 step 5；随后卡在 step 6：远端会话权威标题读不到，UI 回退文件名而非 `session_info` 名。这是池化下会话读取的新阻塞点，本轮未修。
 - S2/S5/S6/S7 未执行；不能把 R0 通过写成“池化真机通过”。
 
 ## 11. CI 与基线清单同步（2026-10-31，已提交 17cce290a）

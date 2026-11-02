@@ -6,6 +6,7 @@ import { isAbsolute } from "node:path";
 import { RemoteHostStore } from "./RemoteHostStore";
 import { createRemoteHostOperationLock } from "./RemoteHostOperationLock";
 import { resolveRemoteBrowseRoot } from "./RemoteBrowseRoot";
+import { buildReadHomeCommand } from "./RemoteDirectoryListing";
 import { bootstrapPinnedHost, resolveRemoteNodeExecutable } from "./RemoteBootstrapSession";
 import { resolveRemotePiExecutable } from "./RemotePiDiscovery";
 import { deployedRunnerPath } from "./RemoteBootstrapDeployment";
@@ -1083,6 +1084,25 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 	}
 
 	/**
+	 * 池化 connect 只证明主机可达、刻意不建 root helper；此时没有 manager 可回答 HOME。
+	 * 会话扫描仍然需要 HOME，因此用与 browse-root 同一条已验证的 pinned ssh 只读探针
+	 * （固定命令、无 helper、不碰任何项目 root），把 HOME 作为主机级事实取回。
+	 */
+	const readHomeViaPinnedProbe = async (hostId: string): Promise<string | undefined> => {
+		if (disposed || explicitlyDisconnected.has(hostId)) return undefined;
+		const entry = entryFor(hostId);
+		const held = entry.held;
+		if (held === undefined) return undefined;
+		const revision = held.revision;
+		const invocation = await buildPinnedSshInvocation(options.userDataDir, hostId, "ssh-batch", { client: hostClient(hostId), remoteCommand: buildReadHomeCommand() });
+		// pin 构造本身有 await：启动探针前再确认主机代数与断开状态都没变。
+		if (disposed || explicitlyDisconnected.has(hostId) || entry.held?.revision !== revision) return undefined;
+		const result = await hostClient(hostId).run(invocation.executable, invocation.args);
+		if (result.exitCode !== 0) return undefined;
+		return readRemoteHome(result.stdout.trim());
+	};
+
+	/**
 	 * 解析某主机的已验证 HOME，**缓存状态读不到时按需建立会话**。
 	 *
 	 * `remoteHome` 是纯读：它只从「已经活着的会话」回答。这对会话扫描不够——扫描要用 HOME 推
@@ -1107,7 +1127,10 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		} finally {
 			if (entry.inFlight === run) entry.inFlight = undefined;
 		}
-		return readCachedHome(hostId);
+		const afterConnect = await readCachedHome(hostId);
+		if (afterConnect !== undefined) return afterConnect;
+		// 池化路径没有 root helper：用 pinned 只读探针回答主机级 HOME。
+		return rootPool === undefined ? undefined : readHomeViaPinnedProbe(hostId);
 	};
 	/**
 	 * 写一份安全策略快照到该主机的部署根（原子替换）。
