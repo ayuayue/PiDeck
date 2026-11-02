@@ -58,10 +58,7 @@ test("parseTokenDancePriceTags 各项倍率不一致时优先输入 token 单价
 
 test("parseTokenDancePriceTags 计费项单价 0 不参与折扣比（缓存免费不该算成 0 折）；数字/字符串 rate 都收", () => {
 	const tags = parseTokenDancePriceTags({
-		models: [
-			model("zero-item", { [INPUT_ITEM]: 0.9, [OUTPUT_ITEM]: 5 }, { [INPUT_ITEM]: 1 }),
-			{ slug: "numeric", pricing: { items: [{ id: INPUT_ITEM, plans: [{ rate: 1.5 }] }], reference: [{ id: INPUT_ITEM, plans: [{ rate: 3 }] }] } },
-		],
+		models: [model("zero-item", { [INPUT_ITEM]: 0.9, [OUTPUT_ITEM]: 5 }, { [INPUT_ITEM]: 1 }), { slug: "numeric", pricing: { items: [{ id: INPUT_ITEM, plans: [{ rate: 1.5 }] }], reference: [{ id: INPUT_ITEM, plans: [{ rate: 3 }] }] } }],
 	});
 	eq(tags["zero-item"], { discount: 0.9 });
 	eq(tags.numeric, { discount: 0.5 });
