@@ -113,6 +113,7 @@ function ComposerMeasuredExtras(props: ComposerExtrasProps) {
 				    不足其 max-height 也仍是滚动容器，若它自己带 overscroll-contain，滚轮会被
 				    它吞掉、本层一像素不动 —— 观感就是「展开后只看到前几条且滚不动」
 				    （2026-10 子代理条事故，契约见 tests/composerStripWheelChain.test.mjs）。 */}
+				{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 				<div className="flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto overscroll-contain pb-px empty:hidden">
 					{props.widgets}
 					{props.queuePanel}

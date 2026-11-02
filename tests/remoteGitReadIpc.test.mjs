@@ -32,10 +32,16 @@ const refsValue = {
 };
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
+const otherProjectId = "remote-project-other";
+const otherLocator = { kind: "ssh", hostId: locator.hostId, remotePath: "/workspace/other-project" };
+
 /** Drive registered IPC handlers with the real remote service, no network and no local Git fallback. */
 function fixture(overrides = {}) {
 	const handlers = new Map();
 	const calls = [];
+	const factsCalls = [];
+	const hostFactsCalls = [];
+	const { projectFacts, ...rest } = overrides;
 	const { registerRemoteGitReadIpc } = loadTsCommonJs("src/main/ipc/remoteGitReadIpc.ts", { stubs: { electron: { ipcMain: { handle: (channel, fn) => handlers.set(channel, fn) } } } });
 	const sender = new EventEmitter();
 	sender.id = 1;
@@ -65,11 +71,25 @@ function fixture(overrides = {}) {
 				assert.ok(options.signal instanceof AbortSignal);
 				return { ok: true, value: await work(session) };
 			},
+			// 主机级事实：只为证明「主机连上了」不再是项目读的身份来源；新契约下它必须一次都不被问到。
+			connectionFacts: (hostId) => {
+				hostFactsCalls.push(hostId);
+				return { connectionId: "conn-host", state: "ready" };
+			},
+			// 项目读的事实入口按 (host, root) 回答；未注入时端口没有该方法 = 没有稳定项目身份。
+			...(projectFacts === undefined
+				? {}
+				: {
+						projectConnectionFacts: (hostId, root) => {
+							factsCalls.push({ hostId, root });
+							return projectFacts(hostId, root);
+						},
+					}),
 		}),
-		...overrides,
+		...rest,
 	};
 	const port = registerRemoteGitReadIpc(input);
-	return { port, handlers, calls, sender, session, input, event: { sender } };
+	return { port, handlers, calls, factsCalls, hostFactsCalls, sender, session, input, event: { sender } };
 }
 
 test("git:refs 的远端实现返回与本地同形的 GitRef[]（W5 单通道族第一个读动词）", async () => {
@@ -434,4 +454,87 @@ test("remote repo discovery is a token-free read with a re-validated answer", as
 		broken.session.request = async (method) => (method === "hello" ? { protocolVersion: 1, root: locator.remotePath, capabilities: ["git.repos"] } : reply);
 		assert.deepEqual(plain(await broken.handlers.get(ipcChannels.gitRemoteRepos)(broken.event, projectId)), { ok: false, code: "GIT_RESULT_INVALID" });
 	}
+});
+/** 同主机、不同 root 的两个项目：能力/事实必须按项目自己的 root 回答。 */
+const projectLocators = {
+	[projectId]: locator,
+	[otherProjectId]: otherLocator,
+};
+
+test("项目读的连接代按本项目 root 查询：主机级事实与兄弟 root 都不能冒充", async () => {
+	const factsCalls = [];
+	const hostFactsCalls = [];
+	const f = fixture({
+		locator: (id) => projectLocators[id],
+		// 假 helper 会话按 --root 启动：hello 只回显它自己的 root（真实 helper 的语义）。
+		service: async () => ({
+			withProjectSession: async (hostId, root, work, options) => {
+				assert.equal(options.requireReady, true);
+				const bound = {
+					request: async (method) => {
+						if (method === "hello") return { protocolVersion: 1, root, capabilities: ["git.repos"] };
+						if (method === "git.repos") return { repos: [], truncated: false };
+						throw new Error("UNEXPECTED_METHOD");
+					},
+					cancel: async () => undefined,
+				};
+				return { ok: true, value: await work(bound) };
+			},
+			// 主机级事实：新契约下它不再是项目读的身份来源，必须一次都不被问到。
+			connectionFacts: (hostId) => {
+				hostFactsCalls.push(hostId);
+				return { connectionId: "conn-host", state: "ready" };
+			},
+			projectConnectionFacts: (hostId, root) => {
+				factsCalls.push({ hostId, root });
+				return root === locator.remotePath ? { connectionId: "conn-a", state: "ready" } : undefined;
+			},
+		}),
+	});
+	const listingA = await f.port.repositoryListing(f.event, projectId);
+	assert.equal(listingA.ok, true, JSON.stringify(listingA));
+	assert.equal(listingA.value.generation, "conn-a", "generation 必须来自 A 自己 root 的会话");
+	assert.deepEqual(factsCalls, [{ hostId: locator.hostId, root: locator.remotePath }]);
+	// 同主机的兄弟 root 没有活会话：unknown 就是空代，既不是 A 的代，也不是「主机 ready」的代。
+	const listingOther = await f.port.repositoryListing(f.event, otherProjectId);
+	assert.equal(listingOther.ok, true, JSON.stringify(listingOther));
+	assert.equal(listingOther.value.generation, "");
+	assert.deepEqual(factsCalls.at(-1), { hostId: locator.hostId, root: otherLocator.remotePath });
+	assert.deepEqual(hostFactsCalls, [], "主机级 connectionFacts 不得再为项目读提供身份");
+});
+
+test("暖事实之上，本项目 root 没有活会话时仍拒绝：主机 ready 不等于项目会话可用", async () => {
+	const f = fixture({ projectFacts: () => undefined });
+	const first = await f.handlers.get(ipcChannels.gitRemoteSnapshot)(f.event, projectId);
+	assert.equal(first.ok, true, JSON.stringify(first));
+	const loads = f.calls.filter((call) => call.method === "git.status").length;
+	const second = await f.handlers.get(ipcChannels.gitRemoteSnapshot)(f.event, projectId);
+	assert.deepEqual(plain(second), { ok: false, code: "SSH_HOST_NOT_READY" }, "unknown 的项目会话不得拿暖事实冒充成功");
+	assert.equal(f.calls.filter((call) => call.method === "git.status").length, loads, "拒绝不得再读远端");
+	assert.deepEqual(f.hostFactsCalls, [], "主机级 ready 不构成项目会话的证明");
+});
+
+test("事实通知的连接代按本项目 root 求值，unknown 时保持空串", async () => {
+	const tick = () => new Promise((resolve) => setImmediate(resolve));
+	const published = [];
+	const scoped = fixture({
+		factsEvents: { publish: (change) => published.push(change) },
+		projectFacts: (hostId, root) => (root === locator.remotePath ? { connectionId: "conn-a", state: "ready" } : undefined),
+	});
+	assert.equal((await scoped.handlers.get(ipcChannels.gitRemoteSnapshot)(scoped.event, projectId)).ok, true);
+	scoped.port.invalidateProject(projectId);
+	await tick();
+	assert.deepEqual(plain(published.map((change) => change.generation)), ["conn-a"]);
+	assert.ok(scoped.factsCalls.length > 0);
+	for (const call of scoped.factsCalls) assert.deepEqual(call, { hostId: locator.hostId, root: locator.remotePath });
+	assert.deepEqual(scoped.hostFactsCalls, []);
+
+	// 没有本项目 root 的会话：通知不猜代，也不回退主机代（主机级事实在假服务里是 ready）。
+	const unknownPublished = [];
+	const unknown = fixture({ factsEvents: { publish: (change) => unknownPublished.push(change) }, projectFacts: () => undefined });
+	assert.equal((await unknown.handlers.get(ipcChannels.gitRemoteSnapshot)(unknown.event, projectId)).ok, true);
+	unknown.port.invalidateProject(projectId);
+	await tick();
+	assert.deepEqual(plain(unknownPublished.map((change) => change.generation)), [""]);
+	assert.deepEqual(unknown.hostFactsCalls, []);
 });

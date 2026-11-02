@@ -47,5 +47,6 @@ test("自动刷新只在本机宿主注册；远端只有显式动作/有界 ref
 	// 远端面板不得复活 setInterval/自动 fetch；refs 轮询由显式展开 + hostReady 门控的 hook 负责。
 	assert.doesNotMatch(panel, /setInterval/);
 	assert.doesNotMatch(panel, /refreshAheadBehind/);
-	assert.match(panel, /useRemoteGitRefsPolling\(\{ active: refsOpen, refsLoaded: state\.refs !== undefined, hostReady/);
+	// G4b：轮询的 active 串上 refsWatch 能力；展开、页面可见、hostReady、首次 refs 加载这四个条件仍由 hook 保留。
+	assert.match(panel, /useRemoteGitRefsPolling\(\{\s*active: refsOpen && capabilities\.refsWatch,\s*refsLoaded: state\.refs !== undefined,\s*hostReady,\s*poll: pollRefs,\s*stop: stopRefsPolling,?\s*\}\)/);
 });

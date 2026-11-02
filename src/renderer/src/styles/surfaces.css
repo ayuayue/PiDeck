@@ -269,8 +269,22 @@
      刻度从右端开始排、预览卡向左展开（previewSide="before"）。
      bottom 不再写死 24px——交给基础规则的 var(--outline-bottom)，
      否则终端坞打开时定位轴会盖到终端上（该变量由 AppShell 按终端高度下发）。 */
-  right: 0;
+  /* 让开原生滚动条槽位（实测 12px，见 foundation.css 全局 scrollbar-width: thin 的注释）。
+     这条列原来 right: 0，连同 pointer-events-auto 一起盖住了右缘整列 —— 滚动条就在这 12px 里，
+     用户在边缘拖动会命中刻度而不是滚动条，观感就是「滑不上去 / 拖不动」（2026-11 真机）。
+     用变量而不是写死像素：换平台或改滚动条样式时只改这一处。 */
+  right: var(--rail-inset, 12px);
   top: 150px;
+}
+
+/* 展开态目录面板：容器是 flex column，子项默认 min-height:auto 会按内容撑开，
+   于是内部列表永远觉得自己放得下、滚动条不出现。max-height 撑满容器（top/bottom
+   已由 .outline-hover 夹持），min-height:0 让列表真正能收缩并滚动。
+   展开是浮层：不改变消息区的宽度，展开/收起时 timeline 的 clientWidth 与 scrollTop
+   必须不变，否则会触发一次重排 + 虚拟化全量重算，比不展开更卡。 */
+.session-outline-panel {
+  max-height: 100%;
+  min-height: 0;
 }
 .outline-hover {
   position: absolute;

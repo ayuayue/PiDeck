@@ -17,8 +17,9 @@ test("tab switch does not refresh the project file tree or git branches", () => 
 	// 文件抽屉走共用 lazyDirTree（每层 maxDepth 0）；切会话不得把 currentSessionId 绑进扫盘。
 	// （文件树加载已迁入 useProjectFileTreeController，断言跟随迁移。）
 	assert.match(fileTreeControllerSource, /createLazyDirTreeController\(/);
-	// 每层只拉 maxDepth 0；用项目 scope 的 target 调用，远端项目不会进入本机 files:list。
-	assert.match(fileTreeControllerSource, /api\.files\.list\(\s*\{\s*projectId,\s*relativePath: dir\s*\},\s*\{\s*maxDepth: 0\s*\}\s*\)/);
+	// 每层只拉一层；用项目 scope 的 target 调服务目录页（远端项目不会进入本机 files:list）。
+	assert.match(fileTreeControllerSource, /active\.files\.listDirectory\(\s*\{\s*projectId,\s*relativePath: dir\s*\}/);
+	assert.match(fileTreeControllerSource, /ProjectDirectoryEntry/);
 	assert.match(appSource, /api\.git\.branches\(activeProjectId\)/);
 	assert.match(appSource, /\}, \[activeProjectId, activeProjectIsRemote\]\);/);
 	assert.doesNotMatch(appSource, /api\.git\.branches\(activeProjectId\)[\s\S]{0,400}\}, \[activeProjectId, currentSessionId/);
@@ -36,8 +37,8 @@ test("file tree list is shallow by default in the drawer and accepts a scoped di
 	assert.match(fileServiceSource, /hasChildren/);
 	assert.match(filesIpcSource, /maxDepth/);
 	assert.match(filesIpcSource, /directory/);
-	// （文件树加载已迁入 useProjectFileTreeController）
-	assert.match(fileTreeControllerSource, /maxDepth:\s*0/);
+	// （文件树加载已迁入 useProjectFileTreeController：改走公共目录页，仍只读当前层）
+	assert.match(fileTreeControllerSource, /active\.files\.listDirectory\(/);
 	// composer @ 引用跟文件抽屉同一套懒加载，只跟项目（effectiveProjectId），不跟 sessionId
 	// （@ 引用取数已从 ComposerArea 迁入 useSessionComposerController）
 	assert.match(composerSource, /maxDepth:\s*0/);

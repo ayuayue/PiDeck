@@ -18,9 +18,9 @@ function harness(historyPage) {
 	const calls = [];
 	const states = [];
 	const api = {
-		historyPage: async (projectId, options, repo) => {
-			calls.push({ projectId, options, repo });
-			return historyPage(projectId, options, repo);
+		historyPage: async (options, repo) => {
+			calls.push({ options, repo });
+			return historyPage(options, repo);
 		},
 	};
 	const controller = createRemoteGitViewController("project-1", "key-1", api, (state) => states.push(state), "");
@@ -32,7 +32,7 @@ test("公共 historyPage 的 authorTimeMs 转成面板使用的秒，分页 skip
 	const testHarness = harness(async () => ({ ok: true, value: { commits: [commit("a".repeat(40), 1_700_000_123_456)], hasMore: true } }));
 	await testHarness.controller.loadHistory();
 	assert.deepEqual(plain(testHarness.calls[0].options), { maxCount: 50 });
-	assert.deepEqual(plain(testHarness.calls[0].repo), { projectId: "project-1", relativePath: "" });
+	assert.equal(testHarness.calls[0].repo, "");
 	assert.equal(testHarness.last().history.commits[0].authorTimeSec, 1_700_000_123);
 	assert.equal(testHarness.last().history.hasMore, true);
 
@@ -42,9 +42,9 @@ test("公共 historyPage 的 authorTimeMs 转成面板使用的秒，分页 skip
 
 test("增量页失败保留已显示的行；下一次整页加载才替换", async () => {
 	let fail = false;
-	const testHarness = harness(async (_projectId, options) => {
+	const testHarness = harness(async (_options) => {
 		if (fail) return { ok: false, code: "SSH_HOST_DISCONNECTED" };
-		return { ok: true, value: { commits: [commit("b".repeat(40), 1_700_000_000_000)], hasMore: options.skip === undefined } };
+		return { ok: true, value: { commits: [commit("b".repeat(40), 1_700_000_000_000)], hasMore: _options.skip === undefined } };
 	});
 	await testHarness.controller.loadHistory();
 	fail = true;
@@ -55,22 +55,10 @@ test("增量页失败保留已显示的行；下一次整页加载才替换", as
 	assert.equal(testHarness.last().historyMoreLoading, false);
 });
 
-test("没有 historyPage 时继续走旧的 remoteLog（迁移期兼容壳）", async () => {
-	const calls = [];
+test("历史只有公共 historyPage 一个读法：没有第二通道，也不会换一条兼容壳重读", async () => {
 	const states = [];
-	const controller = createRemoteGitViewController(
-		"project-1",
-		"key-1",
-		{
-			remoteLog: async (projectId, options, repo) => {
-				calls.push({ projectId, options, repo });
-				return { ok: true, page: { commits: [{ oid: "c".repeat(40), parents: [], subject: "old", authorName: "Dev", authorEmail: "d@e", authorTimeSec: 5 }], hasMore: false } };
-			},
-		},
-		(state) => states.push(state),
-		"",
-	);
+	const controller = createRemoteGitViewController("project-1", "key-1", {}, (state) => states.push(state), "");
 	await controller.loadHistory();
-	assert.deepEqual(plain(calls[0].options), { maxCount: 50 });
-	assert.equal(states.at(-1).history.commits[0].authorTimeSec, 5);
+	assert.equal(states.at(-1).historyErrorCode, "GIT_COMMAND_FAILED", "a missing read entry is a bounded failure, not a silent fallback");
+	assert.equal(states.at(-1).history, undefined);
 });

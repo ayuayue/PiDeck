@@ -151,6 +151,9 @@ const FIELD_CATALOG: readonly FieldCatalogEntry[] = [
 	// 通知设置 tab：系统通知三开关 + 声音提醒整块 soundAlert（目录顺序与 settingsTabLayout 一致）
 	{ field: "soundAlert", tab: "notification", itemKey: "settings.sound.title" },
 
+	{ field: "wslEnabled", tab: "dev", itemKey: "settings.piSource.label" },
+	{ field: "wslDistro", tab: "dev", itemKey: "settings.wsl.distro" },
+	{ field: "wslUser", tab: "dev", itemKey: "settings.wsl.user" },
 	{ field: "customPiPath", tab: "dev", itemKey: "settings.customPiPath" },
 	{ field: "dshRunnerNodePath", tab: "dev", itemKey: "settings.dshRunnerNode" },
 	{ field: "autoDownloadUpdates", tab: "dev", itemKey: "settings.autoDownloadUpdates" },

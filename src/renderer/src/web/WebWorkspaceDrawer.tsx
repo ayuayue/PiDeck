@@ -37,9 +37,11 @@ export function WebWorkspaceDrawer(props: { projectId: string; open: boolean; on
 						<TabsTrigger value="git">{t("web.gitTab")}</TabsTrigger>
 						<TabsTrigger value="files">{t("web.filesTab")}</TabsTrigger>
 					</TabsList>
+					{/* scroll-ok: nested —— 行列表在子组件里（本层只是滚动窗），虚拟化要先把行模型提到这一层。 */}
 					<TabsContent value="git" className="mt-2 min-h-0 flex-1 overflow-y-auto px-3 pb-3">
 						<GitPanel projectId={props.projectId} active={props.open} />
 					</TabsContent>
+					{/* scroll-ok: nested —— 行列表在子组件里（本层只是滚动窗），虚拟化要先把行模型提到这一层。 */}
 					<TabsContent value="files" className="mt-2 min-h-0 flex-1 overflow-y-auto px-3 pb-3">
 						<FilesPanel projectId={props.projectId} active={props.open} onOpenFile={props.onOpenFile} />
 					</TabsContent>
@@ -202,10 +204,12 @@ function ResourceGroupList(props: {
 								<div className="mt-1 grid gap-1.5 rounded-md border border-border bg-card p-2">
 									<div>
 										<div className="mb-0.5 text-micro text-muted-foreground">{t("web.diffOriginal")}</div>
+										{/* scroll-ok: nested —— 行列表在子组件里（本层只是滚动窗），虚拟化要先把行模型提到这一层。 */}
 										<pre className="max-h-64 overflow-auto rounded bg-muted/50 p-1.5 text-micro leading-relaxed whitespace-pre-wrap">{props.diff.originalContent || "—"}</pre>
 									</div>
 									<div>
 										<div className="mb-0.5 text-micro text-muted-foreground">{t("web.diffModified")}</div>
+										{/* scroll-ok: nested —— 行列表在子组件里（本层只是滚动窗），虚拟化要先把行模型提到这一层。 */}
 										<pre className="max-h-64 overflow-auto rounded bg-muted/50 p-1.5 text-micro leading-relaxed whitespace-pre-wrap">{props.diff.modifiedContent || "—"}</pre>
 									</div>
 								</div>

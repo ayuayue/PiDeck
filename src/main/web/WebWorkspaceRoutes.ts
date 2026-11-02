@@ -1,14 +1,16 @@
 /**
  * Web 工作区只读路由（P1-P3 增强扩展）：
  * - GET /api/git/status|diff|log —— Git 抽屉数据（只读，写操作仍回桌面端）
- * - GET /api/files、GET /api/file-content —— 文件抽屉（沙箱限制在项目根内 + 有界读取）
+ * - GET /api/files、GET /api/file-content —— 文件抽屉（项目内文件沙箱限制在项目根内 + 有界读取）
+ *   与项目外文件预览（绝对路径 / `~/x` 按安全等级求值后只读读取，见 fileContent）
  * - GET /api/prompts、GET /api/prompts/:slug —— 中文提示词精选（XuePromptManager）
  *
  * 独立模块承载（WebServiceManager 已超 1600 行），经 WebServiceManager.handleRequest
  * 在 /api/* 404 兜底前分发；所有路由只读，不引入新的写通道。
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
 import { open, readFile, stat } from "node:fs/promises";
 import type { CommitEntry, FileTreeNode, GitBranchInfo, PiExtensionListResult, PiExtensionSummary, PiSkillListResult, PiSkillSummary, Project, YaoPromptDetailResult, YaoPromptListResult } from "../../shared/types";
 // GitService 是本地实现：它返回的是「文件系统绑定」形状（绝对路径，没有渲染层的 ProjectFileTarget），
@@ -16,6 +18,8 @@ import type { CommitEntry, FileTreeNode, GitBranchInfo, PiExtensionListResult, P
 // 这里不能声明成 GitResourceGroups，否则类型在说谎（运行时根本没有 target/displayPath）。
 import type { LocalGitResourceGroups, LocalGitWorkspaceFileDiff } from "../git/localGitTypes";
 import { assertProjectFileReadPath, FILE_OUTSIDE_PROJECT_ERROR } from "../files/projectFileAccess";
+import { isPathInsideProject } from "../fs/FileSystemService";
+import type { UserReadAccessVerdict } from "../security/policy";
 import { WEB_CORS_HEADERS } from "./WebHttpResponders";
 
 export type WebWorkspaceRoutesDeps = {
@@ -45,6 +49,12 @@ export type WebWorkspaceRoutesDeps = {
 		listExtensions: () => Promise<PiExtensionListResult>;
 		setExtensionEnabled: (source: string, enabled: boolean, scope: PiExtensionSummary["scope"], path?: string, projectId?: string) => Promise<void>;
 	};
+	/**
+	 * 项目外文件预览的用户意图门（安全策略求值，主进程注入 evaluateUserReadAccess）。
+	 * 未注入时按「需确认」处理：确认后仍可预览（不至于因装配漏了就整条功能不可用），
+	 * 但不会静默放行项目外路径。
+	 */
+	userReadAccess?: (input: { filePath: string; cwd: string; projectRoot: string; sessionId?: string }) => UserReadAccessVerdict;
 };
 
 /** 文件内容读取上限：2MB 以内完整返回（Web 端轻量预览的边界）。 */
@@ -154,8 +164,16 @@ function sendJson(response: ServerResponse, status: number, body: unknown) {
 	response.end(payload);
 }
 
-function sendError(response: ServerResponse, status: number, code: string, message: string) {
-	sendJson(response, status, { code, message });
+function sendError(response: ServerResponse, status: number, code: string, message: string, details?: Record<string, unknown>) {
+	sendJson(response, status, { code, message, ...details });
+}
+
+/** `~/x` / `~\\x` 按当前用户家目录展开（消息里的配置/临时文件路径大多写成 ~ 形式）。 */
+function expandHomePath(path: string): string {
+	if (!path.startsWith("~")) return path;
+	const rest = path.slice(1);
+	if (!rest.startsWith("/") && !rest.startsWith("\\")) return path;
+	return join(homedir(), rest.slice(1));
 }
 
 export class WebWorkspaceRoutes {
@@ -291,30 +309,51 @@ export class WebWorkspaceRoutes {
 			sendError(response, 404, "webError.projectNotFound", "project not found");
 			return true;
 		}
-		const target = url.searchParams.get("path") ?? "";
-		if (!target) {
+		const rawTarget = url.searchParams.get("path") ?? "";
+		if (!rawTarget) {
 			sendError(response, 400, "webError.invalidRequest", "path is required");
 			return true;
 		}
-		// 沙箱：限制在项目根内（含符号链接逃逸检查）。注：assertProjectFileReadPath 要求
-		// 绝对 target，这里先把相对路径拼进项目根；拼 `..`/绝对盘符后的结果会被词法边界拒绝。
+		// 路径分流（Web 端不要求文件必须在项目内）：
+		// - 项目内（相对路径或绝对路径）→ 原有项目根沙箱（含符号链接逃逸检查）；
+		// - 项目外且是相对路径（`..` 逃逸）→ 仍 403，不把 Web 变成任意目录进目录浏览；
+		// - 项目外绝对路径 / `~/x` → 安全等级求值（allow 直读 / ask 需确认 / deny 拒绝）。
 		// 错误分流：越界 → 403；文件不存在（ENOENT）→ 404，不能一律笼统当 403。
+		const target = expandHomePath(rawTarget);
+		const absoluteTarget = isAbsolute(target) ? resolve(target) : resolve(root, target);
 		let absolute: string;
-		try {
-			absolute = await assertProjectFileReadPath(root, join(root, target));
-		} catch (error) {
-			// vm/跨模块场景下 instanceof Error 不可靠（错误可能来自另一个 realm），用 message 判别
-			const message = typeof error === "object" && error !== null && "message" in error ? String((error as { message: unknown }).message) : "";
-			if (message === FILE_OUTSIDE_PROJECT_ERROR) {
-				sendError(response, 403, "webError.fileOutsideProject", "path escapes project root");
+		if (isPathInsideProject(root, absoluteTarget)) {
+			try {
+				absolute = await assertProjectFileReadPath(root, absoluteTarget);
+			} catch (error) {
+				// vm/跨模块场景下 instanceof Error 不可靠（错误可能来自另一个 realm），用 message 判别
+				const message = typeof error === "object" && error !== null && "message" in error ? String((error as { message: unknown }).message) : "";
+				if (message === FILE_OUTSIDE_PROJECT_ERROR) {
+					sendError(response, 403, "webError.fileOutsideProject", "path escapes project root");
+					return true;
+				}
+				const missing = typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+				if (missing) {
+					sendError(response, 404, "webError.fileNotFound", "file not found");
+					return true;
+				}
+				throw error;
+			}
+		} else if (!isAbsolute(target)) {
+			sendError(response, 403, "webError.fileOutsideProject", "path escapes project root");
+			return true;
+		} else {
+			// 确认后的读仍然是同一条路由：`confirm=1` 只能把 ask 降为放行，deny 永远不降级
+			const verdict = this.deps.userReadAccess?.({ filePath: absoluteTarget, cwd: root, projectRoot: root, sessionId: url.searchParams.get("sessionId") ?? undefined }) ?? { access: "ask" as const, reason: "policy-unavailable" as const };
+			if (verdict.access === "deny") {
+				sendError(response, 403, "webError.fileAccessDenied", "security policy denies this path", { reason: verdict.reason });
 				return true;
 			}
-			const missing = typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
-			if (missing) {
-				sendError(response, 404, "webError.fileNotFound", "file not found");
+			if (verdict.access === "ask" && url.searchParams.get("confirm") !== "1") {
+				sendError(response, 403, "webError.fileAccessNeedsConfirm", "confirmation required to read this path", { reason: verdict.reason });
 				return true;
 			}
-			throw error;
+			absolute = absoluteTarget;
 		}
 		const info = await stat(absolute).catch(() => null);
 		if (!info?.isFile()) {

@@ -691,6 +691,7 @@ export function SourceControlGraph(props: GitGraphProps) {
 				</Button>
 			</PaneHeader>
 			{props.open && (
+				// scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。
 				<div className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
 					{loading && !commits.length && (
 						<div className="git-status-msg">

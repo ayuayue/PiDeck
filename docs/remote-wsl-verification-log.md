@@ -334,7 +334,7 @@
 | 失败 | 断言 | 实测 | 定性 |
 |------|------|------|------|
 | `tests/remoteDragMove.test.mjs:70` | `RemoteProjectPanel.tsx` 行数 ≤ 440 | **467 行**（本轮合并 +27） | 重构行数预算守卫；Lead 决定：抽出内容搜索分区组件（不篡改断言） |
-| `tests/remoteProjectUpload.test.mjs:301` | `REMOTE_UPLOAD_TEMP_NAME.test(` 在 `remoteProjectIpc.ts` + `remoteProjectReadIpc.ts` 里**恰好 2 处** | **3 处** | 源码形状计数守卫（多一处过滤更严，不是漏过滤）；Lead 决定：把用户可见条目判据抽到被计数文件之外的共享模块（不篡改断言） |
+| `tests/remoteProjectUpload.test.mjs:301` | `REMOTE_UPLOAD_TEMP_NAME.test(` 在 `remoteProjectIpc.ts` + `remoteProjectReadIpc.ts` 里**恰好 2 处** | **3 处** | 源码形状计数守卫（多一处过滤更严，不是漏过滤）；Lead 决定：把用户可见条目判据抽到被计数文件之外的共享模块（不篡改断言）。**2026-10-31 注：55dd5b702 已把列表过滤移到 `remoteProjectDirFacts.ts:123`，当前守卫读 projectIpc+dirFacts+readIpc 三文件；本行为当时历史记录。** |
 
 > 处置口径：等 W2 提交合入 dev 后，本轮只需 `git merge dev` → **复跑全量 npm test + 这两个守卫文件 + 「远端文件管理」E2E（54s）**；其余 E2E 结果沿用（结构性改动、行为不变）。
 >
@@ -596,3 +596,13 @@
 > 说明：`tests/skillsRenameIpc.test.mjs` 的 block 边界改为「下一个 handler 起点」，`rename` 断言改为 `/\.rename\(skillPath, newName\)/`（不绑变量名），三条语义断言强度不变；`extensionUserPluginClassification` 的 toggleFromUi 断言改为 `/\.toggleFromUi\(/`。
 
 
+
+
+## 15. 检查点 55dd5b702 独立验收（2026-10-31）
+
+> 本节登记 [remote-acceptance-55dd5b702.md](remote-acceptance-55dd5b702.md) 的验收结果，不改变上面各节的历史记录。
+
+- 基线：`09aca4203..55dd5b702`；只读复核 + Windows 定向复跑 + WSL Linux 测试；未连接真实主机、未启动 Electron。
+- Linux（WSL Ubuntu 26.04，node v24.19.0）：本提交 6 个测试文件 61/61；POSIX/Linux-only 邻接 139 pass / 1 skip；根池化 51/51；`tests/remote*.test.mjs` + `tests/ssh*.test.mjs` 全扫 2361 pass / 7 fail / 11 skip；7 例在 `HEAD~1` 副本同失败，属既有问题（`remoteGitStability` 4 例等）。
+- F1（池化开启时的显式断开清理顺序）已复现并修复：提交 `a905d4d7d`（stale 暖缓存守卫 + 生产顺序回归）；Windows 62/62、Linux lifecycle 7/7、typecheck/format/ipc-wiring 均通过；原提交 `55dd5b702` 未改写。
+- 未执行：真实 SSH + Electron 端到端验收（方案 §4，待目标与范围授权）。

@@ -168,7 +168,17 @@ test("discovery fails closed with a stable code instead of falling back to an un
 	// 候选全不可用时必须抛稳定码，绝不能「找不到就随便用一个」。
 	await assert.rejects(() => resolvePosixSshClient({ candidates: ["/nonexistent/ssh"] }), /SSH_CLIENT_MISSING/);
 	// 存在但不是 OpenSSH 客户端的二进制：由既有的 `ssh -V` 自检拦下。
-	await assert.rejects(() => resolvePosixSshClient({ candidates: ["/bin/ls"] }), /SSH_CLIENT_VERSION_UNSUPPORTED/);
+	// 不能用 /bin/ls：Ubuntu 的 /bin 是 usrmerge 符号链接，createSshClientRuntime 会先以
+	// SSH_CLIENT_NOT_REGULAR_FILE 拒绝（这是另一条正确防线），到不了版本自检。用普通文件夹具。
+	const directory = await mkdtemp(join(tmpdir(), "pideck-ssh-version-"));
+	try {
+		const fake = join(directory, "ssh");
+		await writeFile(fake, '#!/bin/sh\nif [ "$1" = "-V" ]; then echo \'OpenSSH_7.9p1 Fake\' >&2; exit 0; fi\nexit 0\n', { mode: 0o755 });
+		await writeFile(join(directory, "scp"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+		await assert.rejects(() => resolvePosixSshClient({ candidates: [fake] }), /SSH_CLIENT_VERSION_UNSUPPORTED/);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
 });
 
 test("the route probe uses the real parser, so 'supported' means the parser actually reads it", async (t) => {

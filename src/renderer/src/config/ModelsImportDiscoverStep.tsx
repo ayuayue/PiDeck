@@ -91,6 +91,7 @@ export function ModelsImportDiscoverStep(props: ModelsImportDiscoverStepProps) {
 
 	return (
 		<div className="flex h-full min-h-0 flex-col">
+			{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 			<div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
 				<div className="space-y-3">
 					<div className="flex items-start justify-between gap-3">

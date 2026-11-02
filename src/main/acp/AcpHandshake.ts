@@ -7,7 +7,7 @@
  */
 import type { ChatMessage } from "../../shared/types/session";
 import type { AgentTab } from "../../shared/types/agent";
-import type { AcpConfigOption, AcpAgentCapabilities, AcpRpcNotification, AcpSessionLoadResult, AcpSessionSetupResult } from "./acpProtocol";
+import type { AcpConfigOption, AcpAgentCapabilities, AcpMcpServer, AcpRpcNotification, AcpSessionLoadResult, AcpSessionSetupResult } from "./acpProtocol";
 import { ACP_PROTOCOL_VERSION } from "./acpProtocol";
 import type { AcpAgentRuntime } from "./acpAgentRuntime";
 import type { AcpConnection } from "./AcpConnection";
@@ -25,6 +25,12 @@ export type AcpHandshakeDeps = {
 	onNotification: (runtime: AcpAgentRuntime, notification: AcpRpcNotification) => void;
 	/** configOptions 变更推送（settings 回调）。 */
 	onConfigOptionsChanged?: (tab: AgentTab, options: AcpConfigOption[]) => void;
+	/**
+	 * 会话级 MCP 服务器（ACP v1 只有 stdio 形态）：PiDeck 用它把 `pideck-agent-memory`
+	 * 挂进外部 CLI 会话，让 ACP 后端也有记忆工具。缺省不给工具（保持旧行为）。
+	 * 传函数是为了每次握手现算：挂载内容依赖会话 cwd（项目记忆键）。
+	 */
+	mcpServers?: (cwd: string) => AcpMcpServer[];
 };
 
 /** load 失败回退 / 无 loadSession 能力时的播种:用本进程内快照保住显示连续性。 */
@@ -90,8 +96,9 @@ export async function performAcpHandshake(runtime: AcpAgentRuntime, resumeSessio
 	};
 
 	// session/new 或 session/load。load 失败(id 在 agent 侧已不存在)回退新建。
-	// mcpServers 必传空数组: ACP v1 规范该字段必填, opencode 的 zod 校验缺它直接
+	// mcpServers 必传(哪怕是空数组): ACP v1 规范该字段必填, opencode 的 zod 校验缺它直接
 	// -32602 Invalid params(实测), 会话创建即失败冒泡成首条消息发送失败。
+	const mcpServers = deps.mcpServers?.(cwd) ?? [];
 	let setup: AcpSessionLoadResult | undefined;
 	if (resumeSessionId && runtime.agentInfo.capabilities.loadSession) {
 		// ACP 规范:agent 先经 session/update 重放历史、再回 load 响应。重放期 client
@@ -100,7 +107,7 @@ export async function performAcpHandshake(runtime: AcpAgentRuntime, resumeSessio
 		runtime.acpSessionId = resumeSessionId;
 		runtime.reloading = true;
 		try {
-			const loaded = (await conn.request("session/load", { sessionId: resumeSessionId, cwd, mcpServers: [] }, timeoutMs)) as AcpSessionLoadResult;
+			const loaded = (await conn.request("session/load", { sessionId: resumeSessionId, cwd, mcpServers }, timeoutMs)) as AcpSessionLoadResult;
 			await runtime.updateChain;
 			// 标准 load 响应无 sessionId；保留请求身份。兼容明确回传身份的旧 CLI。
 			setup = { ...loaded, sessionId: typeof loaded?.sessionId === "string" && loaded.sessionId ? loaded.sessionId : resumeSessionId };
@@ -124,7 +131,7 @@ export async function performAcpHandshake(runtime: AcpAgentRuntime, resumeSessio
 		seedProjectionFromSnapshot(runtime, deps, resumeSessionId);
 	}
 	if (!setup?.sessionId) {
-		setup = (await conn.request("session/new", { cwd, mcpServers: [] }, timeoutMs)) as AcpSessionSetupResult;
+		setup = (await conn.request("session/new", { cwd, mcpServers }, timeoutMs)) as AcpSessionSetupResult;
 	}
 	if (!setup?.sessionId || typeof setup.sessionId !== "string") throw new Error("ACP session/new returned no sessionId");
 	runtime.acpSessionId = setup.sessionId;

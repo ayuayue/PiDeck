@@ -57,6 +57,7 @@ function SelectContent({
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
 	return (
 		<SelectPrimitive.Portal>
+			{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 			<SelectPrimitive.Content
 				ref={floatingWheelGuardRef}
 				data-slot="select-content"

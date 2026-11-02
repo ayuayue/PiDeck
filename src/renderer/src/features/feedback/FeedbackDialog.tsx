@@ -156,6 +156,7 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 
 					<div className="min-h-0 flex-1">
 						{/* ── 问题描述 ── */}
+						{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 						<TabsContent value="describe" className="m-0 flex h-full flex-col gap-3 overflow-y-auto p-4">
 							<SectionHeading title={t("feedback.descriptionLabel")} description={t("feedback.descriptionHint")} />
 							<Textarea className="min-h-[120px]" value={feedback.context.description} onChange={(event) => feedback.setContext((prev) => ({ ...prev, description: event.target.value }))} placeholder={t("feedback.descriptionPlaceholder")} />
@@ -186,6 +187,7 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 								) : null}
 							</div>
 
+							{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 							<div className="min-h-0 flex-1 overflow-y-auto p-4">
 								{feedback.state === "idle" ? (
 									<div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">

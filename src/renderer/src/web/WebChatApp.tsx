@@ -13,6 +13,7 @@
  * 复用桌面设计 token、shadcn 组件、lucide 图标与 timeline/surfaces 样式类。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
@@ -21,7 +22,7 @@ import { createSessionModelPreference } from "../../../shared/modelDisplayName";
 import { t } from "@/i18n";
 import { WebSidebar, type WebSessionRowAction } from "./WebSidebar";
 import { WebHeader, type WebHeaderStatus } from "./WebHeader";
-import { WebTimeline, uiMessageImages, uiMessageText } from "./WebTimeline";
+import { WebTimeline, uiMessageImages, uiMessageText, type WebTimelineJumpApi } from "./WebTimeline";
 import { forkPromptText, isLastUserMessageIn, resolveWebForkEntryId } from "./webForkMutation";
 import { WebComposer } from "./WebComposer";
 import { WebDshToolsPanel } from "./WebDshToolsPanel";
@@ -97,6 +98,11 @@ export function WebChatApp() {
 		}
 	};
 	const [commandError, setCommandError] = useState<string | null>(null);
+	// composer 上方错误横幅的关闭指纹（=错误文本）：同一条错误保持关闭，
+	// 错误清零后重置（见下方 effect），换新错误自然重新出现。
+	const [errorDismissed, setErrorDismissed] = useState<string | null>(null);
+	// 「跳到最新」请求计数：待答横幅点击时递增，驱动 WebTimeline 回底滚动。
+	const [jumpToLatestNonce, setJumpToLatestNonce] = useState(0);
 	// 首页（无会话）时选择的模型/思考级别：暂存为待用偏好，随下一次新建会话生效
 	const [pendingModel, setPendingModel] = useState<{ provider: string; modelId: string; modelName: string } | null>(null);
 	const [pendingThinkingLevel, setPendingThinkingLevel] = useState<string | null>(null);
@@ -316,7 +322,12 @@ export function WebChatApp() {
 		return () => window.removeEventListener("keydown", onKey);
 	}, []);
 
+	const timelineJumpRef = useRef<WebTimelineJumpApi | null>(null);
+
+	// 虚拟化后离屏消息没有 DOM（锚点 getElementById 会静默返回 null）：
+	// 先让时间线按行索引把目标行拉进视口，短列表（未虚拟化）才退回锚点跳转。
 	const scrollToMessage = (messageId: string) => {
+		if (timelineJumpRef.current?.jumpTo(messageId)) return;
 		document.getElementById(`web-msg-${messageId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
 	};
 
@@ -328,11 +339,8 @@ export function WebChatApp() {
 	const jumpToSearchHit = async (messageId: string) => {
 		if (!activeSessionId) return;
 		for (let page = 0; page <= MAX_SEARCH_JUMP_PAGES; page += 1) {
-			const target = document.getElementById(`web-msg-${messageId}`);
-			if (target) {
-				target.scrollIntoView({ behavior: "smooth", block: "start" });
-				return;
-			}
+			// 虚拟化后离屏行没有 DOM：先问时间线「这条在不在已加载条目里」，再决定要不要继续翻页。
+			if (timelineJumpRef.current?.jumpTo(messageId)) return;
 			const meta = historyMetaRef.current[activeSessionId];
 			if (page === MAX_SEARCH_JUMP_PAGES || !meta || meta.nextBefore == null) return;
 			await loadOlderMessages();
@@ -1273,6 +1281,13 @@ export function WebChatApp() {
 	// 外部流已在渲染同一轮时不挂传输层错误条：断流后由外部流回放接管，
 	// 两边同时显示会出现「Network error + 正文在输出」的错乱观感。
 	const transportError = error && !externalStreaming && !liveMessage ? error.message : null;
+	// composer 上方横幅的数据源：传输/命令错误 + 当前会话的待答请求。
+	// 时间线列表尾的 diagnostic-card / WebAskCard 保留（就近语境），横幅负责「滚离底部也看得见」。
+	const activeError = transportError ?? commandError;
+	const activePendingUi = (state.pendingUiRequests ?? []).find((item) => item.sessionId === activeSessionId);
+	useEffect(() => {
+		if (!activeError) setErrorDismissed(null);
+	}, [activeError]);
 	const combinedStreaming = streaming || externalStreaming;
 	// 输入区的「回合占用」判定还要算上 runtime 仍在跑的情况（刷新页面/切后台回来后本端没在
 	// 拉流、pi 却还在生成）：此时发送必须走排队而不是直接派发——pi 会以 turnActive 拒收，
@@ -1305,6 +1320,8 @@ export function WebChatApp() {
 					status={headerStatus}
 					onOpenSidebar={() => setMobileSidebarOpen(true)}
 					backend={activeSession?.backend}
+					acpToolId={activeSession?.acpToolId}
+					acpTools={state.acpTools}
 					contextUsage={contextUsage}
 					// 额度用量归属：优先 runtime 直报的供应商（跟随当次实际模型），退回会话记录的模型供应商；
 					// 后端按会话后端走，DSH 会话才会用 dsh 链的用量探针。
@@ -1361,12 +1378,13 @@ export function WebChatApp() {
 					loadingMore={loadingMore}
 					streaming={combinedStreaming}
 					error={transportError ?? commandError}
-					pendingUiRequest={(state.pendingUiRequests ?? []).find((item) => item.sessionId === activeSessionId)}
+					pendingUiRequest={activePendingUi}
 					uiResponding={uiResponding}
 					onRespondUi={(response) => void handleRespondUi(response)}
 					onLoadMore={() => void handleLoadMore()}
 					onScrollTopChange={handleTimelineScroll}
 					onNearBottomChange={handleNearBottomChange}
+					jumpToLatestNonce={jumpToLatestNonce}
 					canManageMessages={activeSession?.backend === "acp" ? false : activeSession?.backend !== "dsh" || Boolean(activeTarget)}
 					canDeleteMessage={activeSession?.backend === "acp" ? false : Boolean(activeTarget)}
 					pendingMessageAction={pendingMessageAction}
@@ -1376,8 +1394,35 @@ export function WebChatApp() {
 					onDeleteMessage={(messageId) => void handleDeleteMessage(messageId)}
 					onResendMessage={(messageId) => void handleResendMessage(messageId)}
 					onOpenFile={openFilePreview}
+					jumpApiRef={timelineJumpRef}
 				/>
 				<WebSessionStrips sessionId={activeSessionId} />
+				{/* 2026-10 评审 P1：错误/待答原本只出现在时间线列表尾，用户回读历史时完全不可见
+				    （composer 又可能已隐藏）。在 composer 上方放常驻横幅兜底，滚多远都在视口内。 */}
+				{(activeError && errorDismissed !== activeError) || (activePendingUi && !nearBottom) ? (
+					<div className="flex shrink-0 flex-col gap-1 border-t border-border/60 bg-background px-3 py-1.5">
+						{activeError && errorDismissed !== activeError ? (
+							<div className="flex items-center gap-1.5 rounded-md border border-danger/30 bg-danger/10 px-2.5 py-1 text-caption text-danger" role="alert">
+								<span className="min-w-0 flex-1 leading-5">{activeError}</span>
+								{/* 传输层错误有现成的兜底恢复路径（从磁盘重拉当前会话）；命令错误无通用重试，只给关闭 */}
+								{transportError ? (
+									<Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 px-2 text-caption text-danger hover:bg-danger/10 hover:text-danger" onClick={() => activeSessionId && refreshSessionMessages(activeSessionId)}>
+										{t("web.refreshMessages")}
+									</Button>
+								) : null}
+								<button type="button" className="flex size-7 shrink-0 items-center justify-center rounded text-danger transition-colors hover:bg-danger/10" aria-label={t("common.close")} onClick={() => setErrorDismissed(activeError)}>
+									<X className="size-3.5" aria-hidden="true" />
+								</button>
+							</div>
+						) : null}
+						{activePendingUi && !nearBottom ? (
+							<button type="button" className="flex w-full items-center gap-2 rounded-md border border-border bg-primary/10 px-2.5 py-1.5 text-caption text-primary transition-colors hover:bg-primary/15" role="status" onClick={() => setJumpToLatestNonce((nonce) => nonce + 1)}>
+								<span className="min-w-0 flex-1 truncate text-left">{t("web.askWaitingBanner")}</span>
+								<span className="shrink-0 font-medium">{t("web.scrollToBottom")}</span>
+							</button>
+						) : null}
+					</div>
+				) : null}
 				<WebComposer
 					hasSession={Boolean(activeSessionId)}
 					disabled={Boolean(creatingProjectId)}

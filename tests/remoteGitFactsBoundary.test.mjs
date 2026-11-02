@@ -85,7 +85,9 @@ function fixture() {
 			assert.equal(options.requireReady, true);
 			return { ok: true, value: await work(session) };
 		},
-		connectionFacts(hostId) {
+		// 项目读的事实入口按 (hostId, 项目 root) 查询：主机当前 manager 不再给项目缓存背书。
+		projectConnectionFacts(hostId, root) {
+			assert.equal(root, locator.remotePath);
 			if (state.connectionId === undefined) return undefined;
 			return { connectionId: state.connectionId, state: state.ready };
 		},
@@ -333,9 +335,14 @@ function dirFixture() {
 		async withProjectSession(_hostId, _root, task) {
 			return { ok: true, value: await task({ request: async () => ({ watchId: "w1" }), cancel: async () => undefined }) };
 		},
-		connectionFacts() {
+		// 项目事实与能力都按本项目 root 回答：主机在线或兄弟 root 的会话都不能替这个项目背书。
+		projectConnectionFacts(_hostId, root) {
 			if (state.connectionId === undefined) return undefined;
+			if (root !== locator.remotePath) return undefined;
 			return { connectionId: state.connectionId, state: state.ready };
+		},
+		projectHelperCapabilities() {
+			return ["fs.watch"];
 		},
 	};
 	registerRemoteProjectIpc({
@@ -394,14 +401,15 @@ test("renderer 控制器的显式刷新走 force 通道；普通刷新仍走缓�
 		"identity",
 		{
 			cancelRemoteReads: async () => {},
-			remoteSnapshot: async () => {
+			status: async () => {
 				calls.push("cached");
 				return { ok: true, snapshot };
 			},
-			refreshRemoteSnapshot: async () => {
+			refresh: async () => {
 				calls.push("forced");
 				return { ok: true, snapshot: { ...snapshot, branch: "feature" } };
 			},
+			branches: async () => ({ ok: true, info: { current: "main", branches: ["main"] } }),
 		},
 		() => undefined,
 	);

@@ -85,8 +85,20 @@ export function detectFileManager(): FileManagerInfo | null {
 export function openFileManagerAt(path: string): Promise<void> {
 	return new Promise((resolve, reject) => {
 		const info = detectFileManager();
+		if (!info && process.platform === "linux") {
+			const child = spawn("xdg-open", [path], {
+				detached: true,
+				stdio: "ignore",
+				windowsHide: true,
+			});
+			child.once("error", (error) => reject(error));
+			child.once("spawn", () => {
+				child.unref();
+				resolve();
+			});
+			return;
+		}
 		if (!info) {
-			// Linux 未检测到文件管理器：回退系统默认（目录由 xdg-open 打开）
 			reject(new Error("no file manager detected"));
 			return;
 		}

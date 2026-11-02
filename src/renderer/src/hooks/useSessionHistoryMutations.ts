@@ -229,7 +229,8 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 		async (sessionId: string, kind: "resend" | "edit", message: ChatMessage, newText?: string) => {
 			const latest = depsRef.current;
 			// 确认弹窗等待期间可切焦点；必须传入发起方会话，不能把原消息的 entryId 送进新会话。
-			let target = latest.getRuntimeTargetForSession(sessionId);
+			// error/closed 终态可能仍保留旧 target，只有 live 才能复用，否则先激活新 runtime。
+			let target = latest.isSessionRuntimeLive(sessionId) ? latest.getRuntimeTargetForSession(sessionId) : undefined;
 			if (!target) {
 				// 冷会话：fork 走 runtime 命令，必须先有活进程（standby 池摊薄激活成本）
 				showOverlay(sessionId, "activating");
@@ -494,7 +495,7 @@ export function useSessionHistoryMutations(deps: SessionHistoryMutationsDeps) {
 			};
 			forkLog("info", "Fork started", { entryOrMessage: typeof entryOrMessage === "string" ? entryOrMessage : entryOrMessage.id });
 			try {
-				let target = latest.getRuntimeTargetForSession(sessionId);
+				let target = latest.isSessionRuntimeLive(sessionId) ? latest.getRuntimeTargetForSession(sessionId) : undefined;
 				if (!target) {
 					showOverlay(sessionId, "activating");
 					const activated = requireSessionCommand(await api.sessions.activateRuntime(sessionId));

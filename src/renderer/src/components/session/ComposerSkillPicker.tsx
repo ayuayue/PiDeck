@@ -7,6 +7,7 @@ import { desktopApi } from "../../desktopApi";
 import { projectByIdAtomFamily } from "../../atoms";
 import type { AgentBackend, DshSkillView } from "../../../../shared/types";
 import { emptyProjectResourceDiscovery, type SkillCatalogEntry, mergePiSkillCatalog } from "../../../../shared/skillCatalog";
+import { isRendererVirtualSessionId } from "../../../../shared/rendererVirtualSessionId";
 import { CommandItem } from "../ui-shadcn/command";
 import { CommandPickerGroup } from "../ui-shadcn/command-picker";
 import { Button } from "../ui-shadcn/button";
@@ -60,7 +61,7 @@ export function ComposerSkillPicker(props: {
 	// DSH 没有运行中 agent 时也能读目录：主进程先扫描本地技能根（通用 SKILL.md 逻辑），
 	// 能拿到 host 权威列表时再做并集（preset/插件技能不漏）。引导页等虚拟会话 id
 	// （renderer: 前缀）没有 catalog 记录，仍走「启动后可读」提示。
-	const dshCatalogSessionId = props.backend === "dsh" && !props.agentId && props.sessionId && !props.sessionId.startsWith("renderer:") ? props.sessionId : undefined;
+	const dshCatalogSessionId = props.backend === "dsh" && !props.agentId && props.sessionId && !isRendererVirtualSessionId(props.sessionId) ? props.sessionId : undefined;
 
 	useEffect(() => {
 		if (props.backend === "dsh" && !props.agentId && !dshCatalogSessionId) {
@@ -170,6 +171,7 @@ export function ComposerSkillPicker(props: {
 						<div className="flex flex-col items-center gap-1.5 px-4 py-6 text-caption">
 							<span className="font-medium text-foreground">{t("app.skillContentLoadFailed")}</span>
 							<span className="text-muted-foreground">{t("app.skillPickerLoadFailedNote")}</span>
+							{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 							<pre className="max-h-28 w-full overflow-auto whitespace-pre-wrap break-all rounded-md border border-border/60 bg-muted/40 p-2.5 font-mono text-micro leading-relaxed text-muted-foreground">{detail.error}</pre>
 						</div>
 					) : (
@@ -262,6 +264,7 @@ export function ComposerSkillPicker(props: {
 				<div className="flex flex-col items-center gap-1.5 px-4 py-6 text-caption">
 					<span className="font-medium text-foreground">{t("app.skillPickerLoadFailed")}</span>
 					<span className="text-muted-foreground">{t("app.skillPickerLoadFailedNote")}</span>
+					{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 					{error && <pre className="max-h-28 w-full overflow-auto whitespace-pre-wrap break-all rounded-md border border-border/60 bg-muted/40 p-2.5 font-mono text-micro leading-relaxed text-muted-foreground">{error}</pre>}
 				</div>
 			) : blockedByAgent ? (

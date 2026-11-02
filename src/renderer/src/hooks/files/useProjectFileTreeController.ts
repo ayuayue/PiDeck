@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import { desktopApi as api } from "../../desktopApi";
 import { t } from "../../i18n";
-import { FILE_TREE_ABSOLUTE_MAX_DEPTH } from "../../../../shared/fileTree";
+import { codeOf } from "../../../../shared/op";
+import { FILE_TREE_ABSOLUTE_MAX_DEPTH, FILE_TREE_MAX_DIRECTORY_ENTRIES } from "../../../../shared/fileTree";
+import type { ProjectServices } from "../../services/projectServiceContracts";
 import type { FileTreeNode } from "../../../../shared/types";
+import type { ProjectDirectoryEntry } from "../../../../shared/types/projectFiles";
 import { migrateExpandedDirKeys } from "../../utils/fileTreeLazy";
 import { localExpandedDirKey, localExpandedDirRelative } from "../../utils/localFileTreeKeys";
 import { legacyAgentIdsForProject, loadExpandedDirsFromStorage, saveExpandedDirsToStorage } from "../../utils/expandedDirsPersistence";
@@ -12,12 +15,33 @@ import { createLazyDirTreeController, type LazyDirTreeController } from "../../u
 export interface ProjectFileTreeControllerDeps {
 	setFiles: React.Dispatch<React.SetStateAction<FileTreeNode[]>>;
 	activeProjectId: string | undefined;
+	/** 当前项目的服务（本地项目才有本地树）；项目尚未解析出 Project 时为 null。 */
+	services: ProjectServices | null;
 	/** 该 projectId 是否本机项目：文件树只服务本机目录，远端项目一律不发起本地 files:list。 */
 	isLocalProjectId: (projectId: string) => boolean;
 	compactMiddlePackagesEnabled: boolean;
 	agentsRef: MutableRefObject<AgentTab[]>;
 	refreshProjects: () => Promise<unknown>;
 	showToast: (message: string, duration?: number) => void;
+}
+
+/** 公共目录页条目 → 本机文件树节点：保留绝对路径与排序元数据，行为对齐旧的 files.list。 */
+function directoryPageNode(entry: ProjectDirectoryEntry): FileTreeNode {
+	const name = entry.relativePath.slice(entry.relativePath.lastIndexOf("/") + 1);
+	const path = entry.path ?? entry.relativePath;
+	const isDirectory = entry.type === "directory";
+	return {
+		name,
+		path,
+		displayPath: path,
+		relativePath: entry.relativePath,
+		target: entry.target,
+		type: entry.type,
+		...(isDirectory ? { hasChildren: entry.hasChildren !== false } : {}),
+		...(entry.mtimeMs === undefined ? {} : { mtimeMs: entry.mtimeMs }),
+		...(entry.ctimeMs === undefined ? {} : { ctimeMs: entry.ctimeMs }),
+		...(entry.size === undefined ? {} : { size: entry.size }),
+	};
 }
 
 /**
@@ -30,9 +54,12 @@ export interface ProjectFileTreeControllerDeps {
  * 维护第二份 children。展开键继续使用本机节点当前的 `relative:` 身份，controller 内部用项目相对路径；
  * legacy 绝对路径键在根层载入后逐层迁移。
  */
-export function useProjectFileTreeController({ setFiles, activeProjectId, isLocalProjectId, compactMiddlePackagesEnabled, agentsRef, refreshProjects, showToast }: ProjectFileTreeControllerDeps) {
+export function useProjectFileTreeController({ setFiles, activeProjectId, services, isLocalProjectId, compactMiddlePackagesEnabled, agentsRef, refreshProjects, showToast }: ProjectFileTreeControllerDeps) {
 	const [expandedDirs, setExpandedDirs] = useState<Set<string>>(() => new Set());
 	const controllerRef = useRef<LazyDirTreeController | null>(null);
+	// 本地树只消费 ProjectServices；服务实例随项目解析变化，loader 必须读最新一份。
+	const servicesRef = useRef(services);
+	servicesRef.current = services;
 	// 这两个回调由 App 每次渲染重建；放进 deps 会让项目树 effect 反复重跑，只能经 ref 取最新值。
 	const refreshProjectsRef = useRef(refreshProjects);
 	refreshProjectsRef.current = refreshProjects;
@@ -50,7 +77,7 @@ export function useProjectFileTreeController({ setFiles, activeProjectId, isLoca
 
 	useEffect(() => {
 		const projectId = activeProjectId;
-		if (!projectId || !isLocalProjectId(projectId)) {
+		if (!projectId || servicesRef.current === null || !isLocalProjectId(projectId)) {
 			controllerRef.current = null;
 			setFiles((current) => (current.length === 0 ? current : []));
 			setExpandedDirs((current) => (current.size === 0 ? current : new Set()));
@@ -61,13 +88,18 @@ export function useProjectFileTreeController({ setFiles, activeProjectId, isLoca
 		setFiles((current) => (current.length === 0 ? current : []));
 		setExpandedDirs((current) => (current.size === 0 ? current : new Set()));
 		const stored = loadExpandedDirs(projectId);
-		const controller = createLazyDirTreeController(async (dir) => {
+		const controller = createLazyDirTreeController(async (dir, force) => {
+			const active = servicesRef.current;
+			if (active === null) return { ok: false, code: "PROJECT_FILE_SERVICE_UNAVAILABLE" };
 			try {
-				const nodes = await api.files.list({ projectId, relativePath: dir }, { maxDepth: 0 });
-				return { ok: true, page: { nodes, generation: "local" } };
+				// 与远端同一份公共目录页：本机条目额外带绝对路径与排序元数据（ProjectDirectoryEntry.path）。
+				const page = await active.files.listDirectory({ projectId, relativePath: dir }, { force });
+				// 本机旧路径对超大目录是硬拒绝（不返回半棵树）：保持同一提示口径。
+				if (page.truncated) return { ok: false, code: `FILE_TREE_DIRECTORY_TOO_LARGE:${page.totalEntries ?? page.entries.length}:${FILE_TREE_MAX_DIRECTORY_ENTRIES}` };
+				return { ok: true, page: { nodes: page.entries.map(directoryPageNode), revision: page.revision, generation: page.generation } };
 			} catch (error) {
-				// 稳定码/原始错误都交给 controller 存为 error；刷新入口只按 message 归类提示。
-				return { ok: false, code: error instanceof Error ? error.message : String(error) };
+				// 服务层已把 IPC 失败归一成稳定码；刷新入口只按稳定码归类提示。
+				return { ok: false, code: codeOf(error, "PROJECT_FILE_READ_FAILED") };
 			}
 		});
 		controllerRef.current = controller;
@@ -142,7 +174,7 @@ export function useProjectFileTreeController({ setFiles, activeProjectId, isLoca
 			controller.dispose();
 			if (controllerRef.current === controller) controllerRef.current = null;
 		};
-	}, [activeProjectId, isLocalProjectId, loadExpandedDirs, reportError, saveExpandedDirs, setFiles]);
+	}, [activeProjectId, isLocalProjectId, loadExpandedDirs, reportError, saveExpandedDirs, services?.projectId, setFiles]);
 
 	/** 手动刷新/增删改后：重读根层与全部已加载目录；错误统一走与项目切换相同的文案。 */
 	const refreshVisibleFiles = useCallback(

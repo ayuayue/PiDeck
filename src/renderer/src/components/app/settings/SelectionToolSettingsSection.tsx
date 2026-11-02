@@ -15,6 +15,7 @@ import { desktopApi } from "../../../desktopApi";
 import { t } from "../../../i18n";
 import { BUILTIN_TRANSLATE_AGENT_ID, type AgentMarketSettings } from "../../../../../shared/types/agentProfile";
 import { Button } from "../../ui-shadcn/button";
+import { AgentIcon } from "../../agents/AgentIcon";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
 import { Switch } from "../../ui-shadcn/switch";
 import { SettingRow } from "./SettingRows";
@@ -71,7 +72,9 @@ export function SelectionToolSettingsSection() {
 							<SelectItem value={DEFAULT_AGENT_SENTINEL}>{t("settings.selectionTool.defaultAgentAuto")}</SelectItem>
 							{agents.map((agent) => (
 								<SelectItem key={agent.id} value={agent.id}>
-									{agent.icon ? `${agent.icon} ` : ""}
+									<span className="mr-1 inline-flex w-4 justify-center text-xs leading-none" aria-hidden="true">
+										<AgentIcon icon={agent.icon} />
+									</span>
 									{agent.name}
 									{agent.id === BUILTIN_TRANSLATE_AGENT_ID ? ` (${t("agentMarket.builtinBadge")})` : ""}
 								</SelectItem>

@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { EventEmitter } from "node:events";
 import { mkdtemp, writeFile, realpath, mkdir } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 // 注：期望值里的项目内路径用 join 构造，避免 Windows 分隔符差异
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
@@ -213,6 +213,81 @@ test("file-content enforces sandbox, size bound, and binary refusal on a real di
 	assert.equal((await call(routes, `/api/file-content?projectId=p1&path=${encodeURIComponent("missing.txt")}`)).status, 404);
 	assert.equal((await call(routes, "/api/file-content?projectId=p1&path=")).status, 400);
 	assert.equal((await call(routes, "/api/file-content?projectId=nope&path=a.txt")).status, 404);
+});
+
+test("file-content: 项目外路径按安全等级求值，confirm 只降级 ask，deny 永不降级", async () => {
+	const root = await realpath(await mkdtemp(join(tmpdir(), "web-workspace-root-")));
+	const outsideDir = await realpath(await mkdtemp(join(tmpdir(), "web-workspace-outside-")));
+	const outsideFile = join(outsideDir, "notes.md");
+	await writeFile(outsideFile, "# outside", "utf8");
+	await writeFile(join(dirname(root), "escape-marker.txt"), "outside", "utf8");
+
+	/** 注入一个固定 verdict 的意图门，并记录它看到的入参。 */
+	const withGate = (verdict) => {
+		const seen = [];
+		const { deps } = stubDeps(root);
+		const routes = new WebWorkspaceRoutes({
+			...deps,
+			files: undefined,
+			git: undefined,
+			prompts: undefined,
+			userReadAccess: (input) => {
+				seen.push(input);
+				return verdict;
+			},
+		});
+		return { routes, seen };
+	};
+	const askUrl = `/api/file-content?projectId=p1&path=${encodeURIComponent(outsideFile)}`;
+
+	// ask：不带 confirm → 403 + 结构化 reason（前端据此弹「只读查看」）；带 confirm=1 → 正常读取
+	const ask = withGate({ access: "ask", reason: "outside-allowed-dirs" });
+	const asked = await call(ask.routes, `${askUrl}&sessionId=s1`);
+	assert.equal(asked.status, 403);
+	assert.equal(asked.body.code, "webError.fileAccessNeedsConfirm");
+	assert.equal(asked.body.reason, "outside-allowed-dirs");
+	// 求值入参：绝对路径 + 项目根（相对目录按它展开）+ 会话身份（会话级等级覆盖）
+	// 跨 realm 对象（vm 里加载的模块）原型不同，展开成测试 realm 的普通对象再比
+	assert.deepEqual({ ...ask.seen[0] }, { filePath: outsideFile, cwd: root, projectRoot: root, sessionId: "s1" });
+	const confirmed = await call(ask.routes, `${askUrl}&confirm=1`);
+	assert.equal(confirmed.status, 200);
+	assert.equal(confirmed.body.content, "# outside");
+
+	// deny（命中 denyDirs）：confirm 也不能放行
+	const deny = withGate({ access: "deny", reason: "deny-dir" });
+	const denied = await call(deny.routes, `${askUrl}&confirm=1`);
+	assert.equal(denied.status, 403);
+	assert.equal(denied.body.code, "webError.fileAccessDenied");
+	assert.equal(denied.body.reason, "deny-dir");
+
+	// allow：不弹确认直接读
+	const allow = withGate({ access: "allow", reason: "unrestricted" });
+	const allowed = await call(allow.routes, askUrl);
+	assert.equal(allowed.status, 200);
+	assert.equal(allowed.body.content, "# outside");
+
+	// `~/x` 先按家目录展开再求值（消息里的路径常写成 ~ 形式）
+	const home = withGate({ access: "deny", reason: "deny-dir" });
+	await call(home.routes, `/api/file-content?projectId=p1&path=${encodeURIComponent("~/.pi/agent/settings.json")}`);
+	assert.equal(home.seen[0].filePath, join(homedir(), ".pi/agent/settings.json"));
+
+	// 未注入意图门：按需确认处理（装配漏了不至于让整条功能不可用，但也不静默放行项目外路径）
+	const { deps } = stubDeps(root);
+	const bare = new WebWorkspaceRoutes({ ...deps, files: undefined, git: undefined, prompts: undefined });
+	assert.equal((await call(bare, askUrl)).status, 403);
+	assert.equal((await call(bare, askUrl)).body.code, "webError.fileAccessNeedsConfirm");
+	assert.equal((await call(bare, `${askUrl}&confirm=1`)).status, 200);
+
+	// 相对路径的 .. 逃逸仍然硬拒（Web 端不因此变成任意目录浏览）
+	const escape = await call(allow.routes, `/api/file-content?projectId=p1&path=${encodeURIComponent("../escape-marker.txt")}`);
+	assert.equal(escape.status, 403);
+	assert.equal(escape.body.code, "webError.fileOutsideProject");
+
+	// 项目内绝对路径仍走项目根沙箱并正常预览
+	await writeFile(join(root, "inside.txt"), "inside", "utf8");
+	const inside = await call(allow.routes, `/api/file-content?projectId=p1&path=${encodeURIComponent(join(root, "inside.txt"))}`);
+	assert.equal(inside.status, 200);
+	assert.equal(inside.body.content, "inside");
 });
 
 test("prompt listing strips host paths, clamps pageSize, and detail decodes slugs", async () => {

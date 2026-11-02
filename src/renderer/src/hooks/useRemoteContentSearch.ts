@@ -1,51 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FileContentSearchResult } from "../../../shared/types";
-import { readRootStatusResponse } from "../components/sidebar/remoteProjectStatusState";
-import { desktopApi } from "../desktopApi";
-import { remoteCapabilitiesAllowContentSearch, shouldRunRemoteContentSearch } from "../utils/fileSearchCapability";
+import type { ProjectServices } from "../services/projectServiceContracts";
+import { shouldRunRemoteContentSearch } from "../utils/fileSearchCapability";
 
 /**
- * 远端内容搜索的渲染层两件套（W2）：
+ * 远端内容搜索的渲染层状态（Phase B）。
  *
- * 1. `useRemoteProjectContentSearchCapability`：能力只来自连接 hello —— rootStatus 的
- *    `helperCapabilities`。树根读完（session 已建立）后再问一次，旧 helper 的清单里没有
- *    `fs.searchContent`，面板据此继续只做文件名搜索；查询本身不建立会话。
- * 2. `useRemoteContentSearch`：提交式内容搜索（与文件名搜索同一个提交动作），代次作废迟到结果；
- *    只有 supported 时才发 IPC，失败/不可用一律回退 null（只显示文件名结果），不把能力边界伪装成错误。
+ * 能力不再由这里自己问 rootStatus：S 的 `capabilities.files.contentSearch` 已经把
+ * 连接状态、helper hello 声明（`fs.searchContent`）、root 复核与位置（WSL 无索引）合成唯一判据。
+ * 组件只负责把 capability 传进来；这里只做提交式搜索、代次作废与失败回退 null
+ * （失败/不可用一律只显示文件名结果，不把能力边界伪装成错误）。
  *
- * 与 `useFileSearch` 分开是有意的：那条 hook 绑定本机 file-index 的 `files.search`，远端名字搜索走
- * `remoteHosts.searchProject`，两个来源与能力判定都不同，合并会把两套语义焊死在一起。
+ * 与 `useFileSearch` 分开是有意的：那条 hook 服务本机抽屉的名字/内容检索，远端面板的提交语义
+ * 与能力来源不同；两者都经 `ProjectFileService`，但状态机不合并。
  */
-
-export function useRemoteProjectContentSearchCapability(projectId: string, ready: boolean): boolean {
-	const [supported, setSupported] = useState(false);
-
-	// 切项目立即回到"未知=不支持"：上一个项目的能力不能带进新项目。
-	useEffect(() => {
-		setSupported(false);
-	}, [projectId]);
-
-	useEffect(() => {
-		if (!ready) return;
-		let current = true;
-		void (async () => {
-			try {
-				const view = readRootStatusResponse(await desktopApi.remoteHosts.rootStatus(projectId));
-				if (!current) return;
-				setSupported(view.status !== "unavailable" && remoteCapabilitiesAllowContentSearch(view.helperCapabilities));
-			} catch {
-				// A broken query is "unknown", and unknown is unsupported: never promise content hits we cannot serve.
-				if (current) setSupported(false);
-			}
-		})();
-		return () => {
-			current = false;
-		};
-	}, [projectId, ready]);
-
-	return supported;
-}
-
 export type RemoteContentSearchHandle = {
 	results: FileContentSearchResult | null;
 	isSearching: boolean;
@@ -54,11 +22,12 @@ export type RemoteContentSearchHandle = {
 	reset: () => void;
 };
 
-export function useRemoteContentSearch(options: { projectId: string; supported: boolean }): RemoteContentSearchHandle {
+export function useRemoteContentSearch(options: { services: ProjectServices; supported: boolean }): RemoteContentSearchHandle {
 	const [results, setResults] = useState<FileContentSearchResult | null>(null);
 	const [isSearching, setIsSearching] = useState(false);
 	const sequence = useRef(0);
-	const { projectId, supported } = options;
+	const { services, supported } = options;
+	const projectId = services.projectId;
 
 	const reset = useCallback(() => {
 		sequence.current += 1;
@@ -66,10 +35,10 @@ export function useRemoteContentSearch(options: { projectId: string; supported: 
 		setIsSearching(false);
 	}, []);
 
-	// 能力关闭或切项目：立刻丢掉上一位置的内容态，并作废在途请求。
+	// 能力关闭、切项目或连接换代：立刻丢掉上一位置的内容态，并作废在途请求。
 	useEffect(() => {
 		reset();
-	}, [projectId, supported, reset]);
+	}, [projectId, services.generation, supported, reset]);
 
 	useEffect(
 		() => () => {
@@ -88,16 +57,16 @@ export function useRemoteContentSearch(options: { projectId: string; supported: 
 			const generation = ++sequence.current;
 			setIsSearching(true);
 			try {
-				const value = await desktopApi.files.searchContent(projectId, trimmed);
+				const value = await services.files.searchContent(trimmed);
 				if (generation === sequence.current) setResults(value);
 			} catch {
-				// 主进程把"旧 helper / 不可用"折叠成 null；这里只兜 IPC 失败，任何失败都不显示内容分区。
+				// 服务层把“旧 helper / 不可用”折叠成 null；这里只兜真实失败，任何失败都不显示内容分区。
 				if (generation === sequence.current) setResults(null);
 			} finally {
 				if (generation === sequence.current) setIsSearching(false);
 			}
 		},
-		[projectId, supported, reset],
+		[services, supported, reset],
 	);
 
 	return { results, isSearching, run, reset };

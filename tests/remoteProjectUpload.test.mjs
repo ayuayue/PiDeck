@@ -294,9 +294,10 @@ test("上传临时文件不出现在列表与搜索里（只有我们造的那�
 	for (const name of [".env", ".gitignore", "my.pideck-put", ".short.pideck-put", ".0123456789abcdef0123456789abcdef.pideck-put.bak"]) {
 		assert.equal(REMOTE_UPLOAD_TEMP_NAME.test(name), false, name);
 	}
-	// 只读 IPC 已拆到 remoteProjectReadIpc：列表过滤在目录事实层，搜索过滤在读面 handler。
+	// 列表过滤在目录事实层（已拆到 remoteProjectDirFacts），搜索过滤在读面 handler。
 	const readIpc = readFileSync("src/main/ipc/remoteProjectReadIpc.ts", "utf8");
 	const projectIpc = readFileSync("src/main/ipc/remoteProjectIpc.ts", "utf8");
-	const filters = (projectIpc + readIpc).match(/REMOTE_UPLOAD_TEMP_NAME\.test\(/g) ?? [];
+	const dirFacts = readFileSync("src/main/ipc/remoteProjectDirFacts.ts", "utf8");
+	const filters = (projectIpc + dirFacts + readIpc).match(/REMOTE_UPLOAD_TEMP_NAME\.test\(/g) ?? [];
 	assert.equal(filters.length, 2, "列表与搜索都必须过滤临时文件");
 });

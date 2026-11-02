@@ -22,6 +22,8 @@
  *      全英文但一个名单关键词都没有，530 也不在名单（只列 429/500/502/503/504/524），
  *      会话直接失败停止。
  *   5. Cloudflare 520-527 等边缘层 5xx —— 同样是服务端瞬态，pi 名单未列。
+ *   6. `basispoints_tool_arguments_stalled: Tool arguments stopped making progress`
+ *      —— 网关看门狗掐断退化（连续空白）的参数流，工具未执行，重发即可能成功。
  *
  * 方案：本扩展在 `message_end` 事件里拦截 assistant 错误消息，识别上述瞬态故障，
  * 把 `errorMessage` 改写成既命中 pi 重试名单、又不触发 pi 上下文溢出误判的文本。
@@ -155,6 +157,31 @@ const TRANSIENT_TRANSPORT_PATTERNS: RegExp[] = [
 ];
 
 /**
+ * 流式工具参数停滞（上游网关的「参数流不再前进」保护）。
+ *
+ * 实测原文（中转网关的 Responses 流，前缀是该网关的租户标识）：
+ * ```text
+ * <tenant>_tool_arguments_stalled: Tool arguments stopped making progress:
+ * consecutive whitespace outside JSON strings (output_index=1,
+ * whitespace_bytes=1024, limit_bytes=1024)
+ * ```
+ *
+ * 语义：模型在流式 tool_call 参数里连续输出 1KB 以上**字符串外**的空白
+ * （JSON 词法上合法，但模型实际是退化空转），网关的看门狗主动掐断这一轮。
+ * 掐断发生在参数流中途，工具从未执行，也没有任何副作用，重发一轮即可能正常
+ * 生成；但文案里没有 pi 重试名单的任何关键词，会话会直接失败停止 ——
+ * 实测同一个会话 20 分钟内连续中断 5 次，每次都要手动重发。
+ *
+ * 判定只锚定「参数流停滞」这一确定性特征（error code 的 `tool_arguments_stalled`
+ * 与官方说明句），不宽泛匹配 `whitespace`：正常的参数内容里也会提到空白。
+ */
+const TRANSIENT_STREAM_STALL_PATTERNS: RegExp[] = [
+	/\btool[_\s:-]?arguments?[_\s:-]?stalled\b/i,
+	/tool\s+arguments\s+stopped\s+making\s+progress/i,
+	/consecutive\s+whitespace\s+outside\s+JSON\s+strings/i,
+];
+
+/**
  * 边缘层 / 隧道类故障（Cloudflare Tunnel、Argo 隧道、CDN 回源不通）。
  *
  * 实测原文（juzi 网关，HTTP 530）：
@@ -245,6 +272,8 @@ const ALREADY_RETRYABLE_SIGNALS: RegExp[] = [
  * 2. 传输层错误 —— `stream_read_error` / `unexpected EOF` / HTTP2 `GOAWAY` 等。
  * 3. 边缘层/隧道回源故障 —— Cloudflare Tunnel「unable to reach it」、Argo 1033 等。
  * 4. 名单外的 5xx 状态码 —— 520-527/529/530/531…（pi 只列 500/502/503/504/524）。
+ * 5. 流式工具参数停滞 —— 上游网关看门狗掐断退化的参数流
+ *    （`*_tool_arguments_stalled`），工具未执行，重发即可能成功。
  *
  * 排除原则（宁可漏判，不可误判）：
  * - 额度/鉴权/模型不存在/请求构造错误 → 重试无意义（黑名单优先）
@@ -267,6 +296,7 @@ export function isTransientError(errorMessage: string): boolean {
 		TRANSIENT_OVERLOAD_PATTERNS.some((p) => p.test(errorMessage)) ||
 		TRANSIENT_UPSTREAM_PATTERNS.some((p) => p.test(errorMessage)) ||
 		TRANSIENT_TRANSPORT_PATTERNS.some((p) => p.test(errorMessage)) ||
+		TRANSIENT_STREAM_STALL_PATTERNS.some((p) => p.test(errorMessage)) ||
 		TRANSIENT_EDGE_PATTERNS.some((p) => p.test(errorMessage)) ||
 		RETRYABLE_SERVER_STATUS_PATTERN.test(errorMessage)
 	);

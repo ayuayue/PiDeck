@@ -23,8 +23,64 @@ export const PI_SETTINGS_DEFAULTS: Readonly<Record<string, unknown>> = {
 	hideThinkingBlock: false,
 	defaultProjectTrust: "ask",
 	compaction: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 },
-	retry: { enabled: true, maxRetries: 3 },
+	// retry 是「嵌套也补」的设置项：用户机器上常见的形态是 `retry: {maxRetries:50, baseDelayMs:5000}`
+	// （只有整键判定时永远补不进 provider 层），而 provider.maxRetries 缺失 = **传输层重试关闭**，
+	// 网关/本地代理一断开就是整个回合失败（用户反馈「magpie 断开，任务直接停」）。
+	// provider 层覆盖建连/TLS/HTTP 状态码/429，agent 层（上面的 maxRetries）只负责流中途断的文本分类。
+	// provider.maxRetries=4：建连/断连/HTTP 状态/429 由 provider 层兜，退避是 0.5s/1s/2s/4s
+	// （+25% 抖动，服务端 retry-after 提示上限 60s），最坏多等十几秒换「不用手动再发」。
+	retry: { enabled: true, maxRetries: 3, baseDelayMs: 2000, maxAgentDelayMs: 60_000, provider: { maxRetries: 4 } },
 };
+
+/**
+ * 允许「只补缺失子键」的顶层键。其它对象（如 compaction）保持整键语义：
+ * 用户故意删掉的子键不应该变成我们每次启动都写一次盘的理由。
+ */
+const NESTED_DEFAULT_KEYS: ReadonlySet<string> = new Set(["retry"]);
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** 递归算缺失键（只用于 NESTED_DEFAULT_KEYS 内部）。 */
+function missingNestedKeys(current: Record<string, unknown>, defaults: Record<string, unknown>): Record<string, unknown> | null {
+	const patch: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(defaults)) {
+		if (!(key in current)) {
+			patch[key] = value;
+			continue;
+		}
+		const existing = current[key];
+		if (isPlainRecord(existing) && isPlainRecord(value)) {
+			const nested = missingNestedKeys(existing, value);
+			if (nested) patch[key] = nested;
+		}
+	}
+	return Object.keys(patch).length > 0 ? patch : null;
+}
+
+/** 把 patch 合并回 current：NESTED_DEFAULT_KEYS 深合并（保留用户已有子键），其余键直接赋值。 */
+function applyDefaults(current: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
+	const next = { ...current };
+	for (const [key, value] of Object.entries(patch)) {
+		const existing = next[key];
+		if (NESTED_DEFAULT_KEYS.has(key) && isPlainRecord(existing) && isPlainRecord(value)) {
+			next[key] = applyNestedDefaults(existing, value);
+		} else {
+			next[key] = value;
+		}
+	}
+	return next;
+}
+
+function applyNestedDefaults(current: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
+	const next = { ...current };
+	for (const [key, value] of Object.entries(patch)) {
+		const existing = next[key];
+		next[key] = isPlainRecord(existing) && isPlainRecord(value) ? applyNestedDefaults(existing, value) : value;
+	}
+	return next;
+}
 
 /**
  * 纯函数：算出还需要补哪些键。返回 null = 已经齐全，无需写盘。
@@ -33,7 +89,15 @@ export const PI_SETTINGS_DEFAULTS: Readonly<Record<string, unknown>> = {
 export function missingPiSettingsDefaults(current: Record<string, unknown>, piVersionHint?: string): Record<string, unknown> | null {
 	const patch: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(PI_SETTINGS_DEFAULTS)) {
-		if (!(key in current)) patch[key] = value;
+		if (!(key in current)) {
+			patch[key] = value;
+			continue;
+		}
+		const existing = current[key];
+		if (NESTED_DEFAULT_KEYS.has(key) && isPlainRecord(existing) && isPlainRecord(value)) {
+			const nested = missingNestedKeys(existing, value);
+			if (nested) patch[key] = nested;
+		}
 	}
 	if (piVersionHint && !("lastChangelogVersion" in current)) patch.lastChangelogVersion = piVersionHint;
 	return Object.keys(patch).length > 0 ? patch : null;
@@ -62,7 +126,7 @@ export async function ensurePiSettingsDefaults(configDir: string, piVersionHint?
 	// 锁内重读后再判定一次：读与写之间若 pi/TUI 刚补过默认项或改过其它键，这里以磁盘为准。
 	const result = await writePiConfigFile(filePath, (current) => {
 		const patch = missingPiSettingsDefaults(current, piVersionHint);
-		return patch ? { ...current, ...patch } : current;
+		return patch ? applyDefaults(current, patch) : current;
 	});
 	if (!result.ok) {
 		getAppLogger()?.warn("settings", "Failed to ensure pi settings defaults", { filePath, error: result.error });

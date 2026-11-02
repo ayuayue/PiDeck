@@ -28,13 +28,13 @@ const { REMOTE_HELPER_ENTRY_VERSION, REMOTE_HELPER_ENTRY_SHA256, REMOTE_HELPER_I
 const HOST_ID = "6f1d2c3b-4a59-4e8d-9f70-1a2b3c4d5e6f";
 const HOME = "/home/dev";
 const CONTROL = String.fromCharCode(0);
-/** Current frozen build (helper 1.22.0); it was 1.6.0 when the J2 feature was verified. */
-const FROZEN_HELPER_SHA256 = "04102d31c444c78fa0217de83f5f38eea10d48e539e8ea37ef83f382852b884d";
+/** Current frozen build (helper 1.25.1); it was 1.6.0 when the J2 feature was verified. */
+const FROZEN_HELPER_SHA256 = "aa9f69ec6a9b90b5468402598f47d6017c66d7e42370f52e22f78a82ecc980ea";
 const CONFIG_ROOT = HOME + "/.pi/agent";
 const CONFIG_PATH = "settings.json";
 const DEFAULT_ROOT = HOME + "/.pi/agent/sessions";
 const SETTINGS_READ_CEILING = 65536;
-/** The frozen helper's advertised vocabulary (build 1.23.0); the session-root code may use the fs batch only. */
+/** The frozen helper's advertised vocabulary (build 1.25.1); the session-root code may use the fs batch only. */
 const FROZEN_CAPABILITIES = [
 	"echo",
 	"fs.stat",
@@ -73,8 +73,8 @@ const FROZEN_CAPABILITIES = [
 	"config.patch",
 ];
 
-test("the helper protocol is byte-for-byte the frozen 1.23.0 artifact", () => {
-	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.25.0", "the helper version must match the frozen artifact");
+test("the helper protocol is byte-for-byte the frozen 1.25.1 artifact", () => {
+	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.25.1", "the helper version must match the frozen artifact");
 	assert.equal(REMOTE_HELPER_ENTRY_SHA256, FROZEN_HELPER_SHA256, "the declared digest must stay the frozen one");
 	const recomputed = createHash("sha256").update(Buffer.from(REMOTE_HELPER_INLINE_SOURCE, "utf8")).digest("hex");
 	assert.equal(recomputed, REMOTE_HELPER_ENTRY_SHA256, "the uploaded body must hash to the declared digest");

@@ -17,7 +17,7 @@ import type { BranchDiffResult, CommitDetail, CommitEntry, GitAheadBehind, GitCh
 import { GitStatus } from "../../../../shared/types";
 import { EMPTY_GIT_COMMIT_COMPOSER, gitCommitComposerByScopeAtom, gitCommitScopeKey, openSettingsAtom, patchGitCommitComposer, type GitCommitComposerState } from "../../atoms";
 import { t } from "../../i18n";
-import { fileNameOnly, FileTree, getCollapsibleChangeDirs, ResourceGroup, ResourceRow } from "./git/GitResourceTree";
+import { fileNameOnly, ChangesGroupsStack, getCollapsibleChangeDirs, ResourceRow, type ChangesGroupSpec } from "./git/GitResourceTree";
 import { collectChangeTreeDirPaths, collectUnstagedResources, type GitChangeViewMode } from "./git/changeTree";
 import { GitCompactFilter, PaneHeader } from "./git/GitPanelControls";
 import { SourceControlGraph } from "./git/GitGraph";
@@ -26,6 +26,9 @@ import { Input } from "../ui-shadcn/input";
 import { Progress } from "../ui-shadcn/progress";
 import { Textarea } from "../ui-shadcn/textarea";
 import { Label } from "../../components/ui-shadcn/label";
+import type { ProjectGitCapabilities } from "../../services/projectServiceContracts";
+import { normalizeGitCapabilities, SHARED_GIT_BANNER_ITEM_IDS } from "../../utils/remoteGitCapabilityView";
+import { RemoteGitCapabilityBanner } from "../workspace/RemoteGitCapabilityBanner";
 
 /** 与主进程 quickGenerate 60s 上限对齐：面板进度条按此时长爬升，避免用户误以为卡住。 */
 const COMMIT_GEN_TIMEOUT_MS = 60_000;
@@ -73,7 +76,11 @@ function showCommitGenProgressToast(scopeKey: string) {
 function finishCommitGen(scopeKey: string, patch: Partial<GitCommitComposerState> = {}) {
 	inflightCommitGenScopes.delete(scopeKey);
 	dismissNotice(commitGenToastId(scopeKey));
-	patchGitCommitComposer(scopeKey, { generating: false, startedAt: undefined, ...patch });
+	patchGitCommitComposer(scopeKey, {
+		generating: false,
+		startedAt: undefined,
+		...patch,
+	});
 }
 
 type GitPanelProps = {
@@ -146,6 +153,13 @@ type GitPanelProps = {
 	deleteFiles?: (projectId: string, targets: ProjectFileTarget[]) => Promise<void>;
 	/** 自动刷新能力位；本机全开，缺省即全开。共用宿主给远端传 false，展示层不写 backend 分支。 */
 	capabilities?: Partial<GitAutoRefreshCapabilities>;
+	/**
+	 * 服务能力（G4b）：缺省 = 全可用，现有调用方零行为变化。传入后按能力门禁入口与副作用
+	 * （push/pull/fetch、init、stage/unstage/discard/commit、cherryPick/revert/reset/dropCommit、
+	 * compare、refs watch、自动 status 刷新、提交快捷键），并把缺失项用同一条能力条置顶解释。
+	 * 能力只决定 UI 入口，不替代 main 的逐操作授权。
+	 */
+	gitCapabilities?: Partial<ProjectGitCapabilities>;
 };
 
 type PaneId = "changes" | "graph" | "compare";
@@ -463,6 +477,10 @@ export function GitPanel(props: GitPanelProps) {
 		[composerScopeKey, setComposerByScope],
 	);
 	const layout = props.layout ?? "full";
+	// 能力表：缺省全可用（零行为变化）。能力经 ref 读取，稳定回调不因能力对象换引用而重建定时器。
+	const gitCapabilities = useMemo(() => normalizeGitCapabilities(props.gitCapabilities), [props.gitCapabilities]);
+	const gitCapabilitiesRef = useRef(gitCapabilities);
+	gitCapabilitiesRef.current = gitCapabilities;
 	const paneIdPrefix = useId();
 	// GitDrawerHost 会随外层 App 的流式渲染重跑，并为同一仓库重新创建函数包装器。
 	// 这些 ref 只跟踪最新实现，避免 API 函数身份变化被误判为仓库变化。
@@ -481,7 +499,10 @@ export function GitPanel(props: GitPanelProps) {
 	const aheadBehindInFlightRef = useRef<Promise<void> | null>(null);
 	// 已写入 localStorage 的角标快照：值没变就不重复写（localStorage 是渲染线程同步存储，
 	// 5 秒一次的无效写入既占主线程也没意义）。key 带上作用域，切项目/仓库时自然失效。
-	const aheadBehindPersistedRef = useRef<{ key: string; value: GitAheadBehind | null } | null>(null);
+	const aheadBehindPersistedRef = useRef<{
+		key: string;
+		value: GitAheadBehind | null;
+	} | null>(null);
 	// historyOnly 没有独立仓库标题；changesOnly 把仓库名并进分支栏，不再额外预留标题高度。
 	const panelChromeHeight = layout === "historyOnly" ? 0 : BRANCH_BAR_HEIGHT;
 	const statusRequestRef = useRef(0);
@@ -672,6 +693,9 @@ export function GitPanel(props: GitPanelProps) {
 		async (fetchRemote = true) => {
 			await readAheadBehind();
 			if (!fetchRemote) return;
+			// 刷新手势不是「显式同步」：除了 sync，还必须显式允许自动联网（autoFetch）。
+			// 远端 provider 的 autoFetch 恒 false —— 透传远端能力后，刷新绝不能变成自动 fetch。
+			if (!gitCapabilitiesRef.current.sync || !gitCapabilitiesRef.current.autoFetch) return;
 			const fetch = fetchRef.current;
 			if (!fetch) return;
 			try {
@@ -763,7 +787,7 @@ export function GitPanel(props: GitPanelProps) {
 	 * 完成后用最新作用域的 refresh 拉一次状态，确保刚 init 的仓库立刻出现在变更区。
 	 */
 	const doInitRepo = useCallback(async () => {
-		if (!props.gitInit) return;
+		if (!props.gitInit || !gitCapabilitiesRef.current.init) return;
 		setInitializing(true);
 		try {
 			await props.gitInit(props.projectId);
@@ -779,16 +803,19 @@ export function GitPanel(props: GitPanelProps) {
 	// 打开 Git drawer 时首次加载；historyOnly 只看 Graph/Compare，不必轮询工作区。
 	useEffect(() => {
 		if (layout === "historyOnly") return;
+		// 读能力关闭时不发首轮 status 请求：错误/能力条由宿主与能力条解释。
+		if (!gitCapabilities.read) return;
 		void refresh();
-	}, [layout, refresh]);
+	}, [layout, refresh, gitCapabilities.read]);
 
 	const autoRefreshCapabilities = useMemo<GitAutoRefreshCapabilities>(
 		() => ({
-			statusPoll: props.capabilities?.statusPoll ?? LOCAL_GIT_AUTO_REFRESH.statusPoll,
-			refsWatch: props.capabilities?.refsWatch ?? LOCAL_GIT_AUTO_REFRESH.refsWatch,
-			autoFetch: props.capabilities?.autoFetch ?? LOCAL_GIT_AUTO_REFRESH.autoFetch,
+			// 现有 GitAutoRefreshCapabilities 与 ProjectGitCapabilities 取交集：任一层说不可用就不注册 effect。
+			statusPoll: (props.capabilities?.statusPoll ?? LOCAL_GIT_AUTO_REFRESH.statusPoll) && gitCapabilities.statusPoll,
+			refsWatch: (props.capabilities?.refsWatch ?? LOCAL_GIT_AUTO_REFRESH.refsWatch) && gitCapabilities.refsWatch,
+			autoFetch: (props.capabilities?.autoFetch ?? LOCAL_GIT_AUTO_REFRESH.autoFetch) && gitCapabilities.autoFetch,
 		}),
-		[props.capabilities?.statusPoll, props.capabilities?.refsWatch, props.capabilities?.autoFetch],
+		[props.capabilities?.statusPoll, props.capabilities?.refsWatch, props.capabilities?.autoFetch, gitCapabilities.statusPoll, gitCapabilities.refsWatch, gitCapabilities.autoFetch],
 	);
 	const isMutating = useCallback(() => mutationRunningRef.current, []);
 	useGitAutoRefresh({
@@ -807,9 +834,6 @@ export function GitPanel(props: GitPanelProps) {
 		onRefsChanged: props.onRefsChanged,
 	});
 
-	const toggleResource = (key: keyof typeof resourceOpen) => {
-		setResourceOpen((current) => ({ ...current, [key]: !current[key] }));
-	};
 	const togglePane = (id: PaneId) => {
 		setPaneAnimSeq((v) => v + 1);
 		setPaneState((current) => {
@@ -834,7 +858,8 @@ export function GitPanel(props: GitPanelProps) {
 	// VS Code enables the action for either staged changes or working-tree changes
 	// when smart commit is enabled/suggested; the command decides whether to prompt.
 	const hasChangesToCommit = stagedCount > 0 || (workingChanges.length > 0 && (smartCommitPreference.enableSmartCommit || smartCommitPreference.suggestSmartCommit));
-	const canCommit = Boolean(commitMessage.trim()) && hasChangesToCommit && !hasUnresolvedConflicts && !committing && !mutating;
+	// 写能力关闭时提交入口整体不可用：置灰 + 不发任何 stage/commit 调用（快捷键走同一门禁）。
+	const canCommit = gitCapabilities.write && Boolean(commitMessage.trim()) && hasChangesToCommit && !hasUnresolvedConflicts && !committing && !mutating;
 	const total = groups.merge.length + stagedCount + workingChanges.length;
 
 	// 合并 merge/staged/working 的可折叠目录，驱动顶部「收起/展开全部」按钮状态。
@@ -880,6 +905,8 @@ export function GitPanel(props: GitPanelProps) {
 	}, []);
 
 	const act = async (operation: () => Promise<void>) => {
+		// 写能力关闭：所有行内/批量变更动作共用这一个漏斗，能力关闭时一律不发调用。
+		if (!gitCapabilities.write) return;
 		if (mutationRunningRef.current || committing) return;
 		const mutationRequest = ++mutationRequestRef.current;
 		mutationRunningRef.current = true;
@@ -935,8 +962,91 @@ export function GitPanel(props: GitPanelProps) {
 		setDeleteTarget(target);
 	}, []);
 
+	// 变更区三组的规格：合并后交给 ChangesGroupsStack 扁平虚拟化。
+	// 用 useMemo 稳定数组引用 —— ChangesGroupsStack 的 items memo 依赖它，每次
+	// render 新建数组会让虚拟行全量重算；批量动作走 actRef 保持引用稳定。
+	const changeGroupSpecs = useMemo<ChangesGroupSpec[]>(() => {
+		const mutatingNow = mutating || committing;
+		const specs: ChangesGroupSpec[] = [];
+		if (groups.merge.length > 0) {
+			specs.push({
+				key: "merge",
+				groupType: "merge",
+				title: t("git.mergeChanges"),
+				open: resourceOpen.merge,
+				onToggle: () => setResourceOpen((current) => ({ ...current, merge: !current.merge })),
+				resources: groups.merge,
+				readOnly: !gitCapabilities.write,
+			});
+		}
+		if (groups.index.length > 0) {
+			specs.push({
+				key: "staged",
+				groupType: "index",
+				title: t("git.stagedChanges"),
+				open: resourceOpen.staged,
+				onToggle: () =>
+					setResourceOpen((current) => ({
+						...current,
+						staged: !current.staged,
+					})),
+				resources: groups.index,
+				allAction: gitCapabilities.write
+					? () =>
+							actRef.current(() =>
+								props.unstageFiles(
+									props.projectId,
+									groups.index.map((resource) => resource.target),
+								),
+							)
+					: undefined,
+				allLabel: t("git.unstageAll"),
+				allDisabled: mutatingNow,
+				readOnly: !gitCapabilities.write,
+				unstageFile: gitCapabilities.write ? unstageFile : undefined,
+				deleteFile: props.deleteFiles && gitCapabilities.deleteFiles ? deleteFile : undefined,
+				onOpenFile: props.onOpenFile,
+			});
+		}
+		if (workingChanges.length > 0) {
+			specs.push({
+				key: "changes",
+				groupType: "workingTree",
+				title: t("git.unstagedChanges"),
+				open: resourceOpen.changes,
+				onToggle: () =>
+					setResourceOpen((current) => ({
+						...current,
+						changes: !current.changes,
+					})),
+				resources: workingChanges,
+				allAction: gitCapabilities.write
+					? () =>
+							actRef.current(() =>
+								props.stageFiles(
+									props.projectId,
+									workingChanges.map((resource) => resource.target),
+								),
+							)
+					: undefined,
+				allLabel: t("git.stageAll"),
+				allDisabled: mutatingNow,
+				readOnly: !gitCapabilities.write,
+				stageFile: gitCapabilities.write ? stageFile : undefined,
+				discardFile: gitCapabilities.write ? discardFile : undefined,
+				deleteFile: props.deleteFiles && gitCapabilities.deleteFiles ? deleteFile : undefined,
+				onOpenFile: props.onOpenFile,
+				stageDir: gitCapabilities.write ? stageFiles : undefined,
+				discardDir: gitCapabilities.write ? discardDir : undefined,
+			});
+		}
+		return specs;
+	}, [groups, workingChanges, resourceOpen, mutating, committing, gitCapabilities.write, gitCapabilities.deleteFiles, props.projectId, props.unstageFiles, props.stageFiles, props.deleteFiles, props.onOpenFile, unstageFile, deleteFile, stageFile, discardFile, stageFiles, discardDir]);
+	const changesScrollRef = useRef<HTMLDivElement | null>(null);
+
 	const runCommit = async (stageAll: boolean) => {
 		const message = commitMessage.trim();
+		if (!gitCapabilitiesRef.current.write) return;
 		if (!message || committing || mutating || hasUnresolvedConflicts || mutationRunningRef.current) return;
 		const projectId = props.projectId;
 		const mutationRequest = ++mutationRequestRef.current;
@@ -950,7 +1060,9 @@ export function GitPanel(props: GitPanelProps) {
 			}
 			await props.commit(projectId, message);
 			// 提交成功清的是该仓库草稿，哪怕用户已经切到别的项目。
-			patchGitCommitComposer(gitCommitScopeKey(projectId, repoScopeKey), { message: "" });
+			patchGitCommitComposer(gitCommitScopeKey(projectId, repoScopeKey), {
+				message: "",
+			});
 			if (projectId !== projectIdRef.current) return;
 			await refresh();
 		} catch (caught) {
@@ -1038,7 +1150,10 @@ export function GitPanel(props: GitPanelProps) {
 		const scopeKey = gitCommitScopeKey(projectId, repoScopeKey);
 		if (inflightCommitGenScopes.has(scopeKey)) return;
 		inflightCommitGenScopes.add(scopeKey);
-		patchGitCommitComposer(scopeKey, { generating: true, startedAt: Date.now() });
+		patchGitCommitComposer(scopeKey, {
+			generating: true,
+			startedAt: Date.now(),
+		});
 		showCommitGenProgressToast(scopeKey);
 		try {
 			const result = await props.generateCommitMessage(projectId);
@@ -1087,7 +1202,8 @@ export function GitPanel(props: GitPanelProps) {
 	}, [openSettings, props.generateCommitMessage, props.projectId, repoScopeKey, groups.index.length, refresh]);
 
 	const doPush = async () => {
-		if (!props.push || mutationRunningRef.current) return;
+		// 同步能力关闭时按钮已置灰；这里再挡一次，防止绕过 UI 的调用变成网络写。
+		if (!props.push || !gitCapabilitiesRef.current.sync || mutationRunningRef.current) return;
 		const projectId = props.projectId;
 		const mutationRequest = ++mutationRequestRef.current;
 		mutationRunningRef.current = true;
@@ -1106,7 +1222,10 @@ export function GitPanel(props: GitPanelProps) {
 					// 首次推送新分支：给“建立上游”引导而非裸报错；复制按钮可直接粘到终端执行。
 					const command = `git push --set-upstream origin ${props.currentBranch}`;
 					showNotice(
-						t("git.pushNoUpstreamDesc", { branch: props.currentBranch, command }),
+						t("git.pushNoUpstreamDesc", {
+							branch: props.currentBranch,
+							command,
+						}),
 						8000,
 						"error",
 						t("git.pushNoUpstreamTitle"),
@@ -1133,7 +1252,7 @@ export function GitPanel(props: GitPanelProps) {
 	};
 
 	const doPull = async () => {
-		if (!props.pull || mutationRunningRef.current) return;
+		if (!props.pull || !gitCapabilitiesRef.current.sync || mutationRunningRef.current) return;
 		const projectId = props.projectId;
 		const mutationRequest = ++mutationRequestRef.current;
 		mutationRunningRef.current = true;
@@ -1282,7 +1401,10 @@ export function GitPanel(props: GitPanelProps) {
 				className="size-6"
 				title={t("common.refresh")}
 				aria-label={t("common.refresh")}
+				disabled={!gitCapabilities.read}
 				onClick={() => {
+					// 读能力关闭时连 status 都不发：按钮置灰 + 这里再挡一次（外部触发同样受约束）。
+					if (!gitCapabilitiesRef.current.read) return;
 					// 非 silent refresh 成功后会顺带 refreshAheadBehind，不必再单独 fetch
 					void refresh();
 				}}
@@ -1291,7 +1413,16 @@ export function GitPanel(props: GitPanelProps) {
 			</Button>
 			{props.push && (
 				<div className="relative inline-flex items-center">
-					<Button type="button" variant="ghost" size="icon-sm" className="size-6" title={aheadBehind && aheadBehind.ahead > 0 ? t("git.pushAhead", { count: aheadBehind.ahead }) : t("git.push")} aria-label={t("git.push")} disabled={pushing || mutationRunningRef.current} onClick={() => void doPush()}>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-sm"
+						className="size-6"
+						title={aheadBehind && aheadBehind.ahead > 0 ? t("git.pushAhead", { count: aheadBehind.ahead }) : t("git.push")}
+						aria-label={t("git.push")}
+						disabled={!gitCapabilities.sync || pushing || mutationRunningRef.current}
+						onClick={() => void doPush()}
+					>
 						{pushing ? <Loader2 size={14} className="animate-pideck-spin" /> : <ArrowUpFromLine size={14} />}
 					</Button>
 					{/* 领先角标：本地上游提交数，提示需要推送。
@@ -1307,7 +1438,16 @@ export function GitPanel(props: GitPanelProps) {
 			)}
 			{props.pull && (
 				<div className="relative inline-flex items-center">
-					<Button type="button" variant="ghost" size="icon-sm" className="size-6" title={aheadBehind && aheadBehind.behind > 0 ? t("git.pullBehind", { count: aheadBehind.behind }) : t("git.pull")} aria-label={t("git.pull")} disabled={pulling || mutationRunningRef.current} onClick={() => void doPull()}>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-sm"
+						className="size-6"
+						title={aheadBehind && aheadBehind.behind > 0 ? t("git.pullBehind", { count: aheadBehind.behind }) : t("git.pull")}
+						aria-label={t("git.pull")}
+						disabled={!gitCapabilities.sync || pulling || mutationRunningRef.current}
+						onClick={() => void doPull()}
+					>
 						{pulling ? <Loader2 size={14} className="animate-pideck-spin" /> : <ArrowDownToLine size={14} />}
 					</Button>
 					{/* 落后角标：远程领先本地的提交数，提示需要拉取（颜色同领先角标，见上注释） */}
@@ -1326,6 +1466,8 @@ export function GitPanel(props: GitPanelProps) {
 
 	return (
 		<div ref={panelRef} data-pane-animating={paneAnimating || undefined} className={`git-panel flex min-h-0 flex-col overflow-hidden bg-bg-page-raised text-foreground${layout === "full" ? " h-full" : ""}`} aria-label={t("git.sourceControl")}>
+			{/* G4b：能力条置顶；只有宿主真正传入能力时才渲染（缺省零行为变化）。 */}
+			{props.gitCapabilities === undefined ? null : <RemoteGitCapabilityBanner git={gitCapabilities} items={SHARED_GIT_BANNER_ITEM_IDS} />}
 			{layout !== "historyOnly" && (
 				<>
 					{/* 当前分支 + 切换下拉：无边框、宽度收窄，把空间留给仓库名和提交区。 */}
@@ -1368,6 +1510,8 @@ export function GitPanel(props: GitPanelProps) {
 						)}
 						{branchOpen &&
 							createPortal(
+								// scroll-ok: transient —— 分支选择下拉：portal 里的一次性弹窗，点选即关、下次打开重建，
+								// 行的生命周期等于一次选择；虚拟器要的测量缓存与 ResizeObserver 在这类窗里没有收益。
 								<div ref={branchDropdownRef} className="z-50 max-h-[calc(100vh-16px)] max-w-[calc(100vw-16px)] overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md" style={branchDropdownStyle}>
 									{props.branches.map((branch) => (
 										<Button
@@ -1546,81 +1690,10 @@ export function GitPanel(props: GitPanelProps) {
 									</div>
 								)}
 
-								{/* scroll-ok: nested —— 里面是 FileTree（目录→文件两层嵌套，展开态决定行数）与 ResourceGroup。
-								    扁平化会破坏目录层级语义与折叠定位，需先做「树→扁平行」的通用件，未验证不改。 */}
-								<div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
-									{groups.merge.length > 0 && (
-										<ResourceGroup title={t("git.mergeChanges")} count={groups.merge.length} open={resourceOpen.merge} onToggle={() => toggleResource("merge")}>
-											<FileTree resources={groups.merge} groupType="merge" onOpenWorkspaceFileDiff={props.onOpenWorkspaceFileDiff} mutating={mutating || committing} projectRoot={props.projectRoot} viewMode={changesViewMode} collapsedDirs={collapsedChangeDirs} onToggleDir={toggleChangeDir} />
-										</ResourceGroup>
-									)}
-									{groups.index.length > 0 && (
-										<ResourceGroup
-											title={t("git.stagedChanges")}
-											count={groups.index.length}
-											open={resourceOpen.staged}
-											onToggle={() => toggleResource("staged")}
-											allAction={() =>
-												act(() =>
-													props.unstageFiles(
-														props.projectId,
-														groups.index.map((resource) => resource.target),
-													),
-												)
-											}
-											allLabel={t("git.unstageAll")}
-											allDisabled={mutating || committing}
-										>
-											<FileTree
-												resources={groups.index}
-												groupType="index"
-												onOpenWorkspaceFileDiff={props.onOpenWorkspaceFileDiff}
-												mutating={mutating || committing}
-												unstageFile={unstageFile}
-												deleteFile={props.deleteFiles ? deleteFile : undefined}
-												onOpenFile={props.onOpenFile}
-												projectRoot={props.projectRoot}
-												viewMode={changesViewMode}
-												collapsedDirs={collapsedChangeDirs}
-												onToggleDir={toggleChangeDir}
-											/>
-										</ResourceGroup>
-									)}
-									{workingChanges.length > 0 && (
-										<ResourceGroup
-											title={t("git.unstagedChanges")}
-											count={workingChanges.length}
-											open={resourceOpen.changes}
-											onToggle={() => toggleResource("changes")}
-											allAction={() =>
-												act(() =>
-													props.stageFiles(
-														props.projectId,
-														workingChanges.map((resource) => resource.target),
-													),
-												)
-											}
-											allLabel={t("git.stageAll")}
-											allDisabled={mutating || committing}
-										>
-											<FileTree
-												resources={workingChanges}
-												groupType="workingTree"
-												onOpenWorkspaceFileDiff={props.onOpenWorkspaceFileDiff}
-												mutating={mutating || committing}
-												stageFile={stageFile}
-												discardFile={discardFile}
-												deleteFile={props.deleteFiles ? deleteFile : undefined}
-												onOpenFile={props.onOpenFile}
-												projectRoot={props.projectRoot}
-												viewMode={changesViewMode}
-												collapsedDirs={collapsedChangeDirs}
-												onToggleDir={toggleChangeDir}
-												stageDir={stageFiles}
-												discardDir={discardDir}
-											/>
-										</ResourceGroup>
-									)}
+								{/* 变更区：三组折成一条扁平行列表走一个 VirtualStack（行内 Radix ContextMenu +
+					    Seti SVG 的行渲染代价随变更文件数线性增长，无虚拟化时几千文件即卡顿全应用）。 */}
+								<div ref={changesScrollRef} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+									<ChangesGroupsStack scrollRef={changesScrollRef} groups={changeGroupSpecs} viewMode={changesViewMode} collapsedDirs={collapsedChangeDirs} onToggleDir={toggleChangeDir} mutating={mutating || committing} onOpenWorkspaceFileDiff={props.onOpenWorkspaceFileDiff} projectRoot={props.projectRoot} />
 								</div>
 							</div>
 						)}
@@ -1644,10 +1717,10 @@ export function GitPanel(props: GitPanelProps) {
 					open={paneState.open.graph}
 					height={paneState.heights.graph}
 					onToggle={() => togglePane("graph")}
-					cherryPick={props.cherryPick}
-					revert={props.revert}
-					reset={props.reset}
-					dropCommit={props.dropCommit}
+					cherryPick={gitCapabilities.write ? props.cherryPick : undefined}
+					revert={gitCapabilities.write ? props.revert : undefined}
+					reset={gitCapabilities.write ? props.reset : undefined}
+					dropCommit={gitCapabilities.write ? props.dropCommit : undefined}
 					historyRepoPath={props.historyRepoPath}
 					historyRepoOptions={props.historyRepoOptions}
 					onSelectHistoryRepo={props.onSelectHistoryRepo}
@@ -1661,6 +1734,7 @@ export function GitPanel(props: GitPanelProps) {
 					key={`compare-${repoScopeKey}`}
 					paneIdPrefix={paneIdPrefix}
 					projectId={props.projectId}
+					enabled={gitCapabilities.compare}
 					branches={props.branches}
 					branchCompare={props.branchCompare}
 					open={paneState.open.compare}
@@ -1776,6 +1850,8 @@ function CompareChanges(props: {
 	projectId: string;
 	branches: string[];
 	branchCompare: GitPanelProps["branchCompare"];
+	/** 对比能力：关闭时整块只读、不发请求（能力条解释原因）。 */
+	enabled: boolean;
 	open: boolean;
 	height: number;
 	onToggle: () => void;
@@ -1808,6 +1884,7 @@ function CompareChanges(props: {
 	}, [base, props.branches, target]);
 
 	const run = async () => {
+		if (!props.enabled) return;
 		if (!base || !target || base === target) return;
 		const request = ++requestSequence.current;
 		const projectId = props.projectId;
@@ -1872,7 +1949,7 @@ function CompareChanges(props: {
 								onChange={(value) => setTarget(value)}
 							/>
 						</Label>
-						<Button type="button" variant="ghost" size="sm" className=" h-auto px-2.5 text-control" disabled={!base || !target || base === target || loading} onClick={() => void run()}>
+						<Button type="button" variant="ghost" size="sm" className=" h-auto px-2.5 text-control" disabled={!props.enabled || !base || !target || base === target || loading} onClick={() => void run()}>
 							{loading ? <Loader2 size={14} className="animate-pideck-spin" /> : t("git.compare")}
 						</Button>
 					</div>

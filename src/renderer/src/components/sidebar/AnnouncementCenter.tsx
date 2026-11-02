@@ -166,6 +166,7 @@ function AnnouncementDetailDrawer(props: { item: AnnouncementItem | null; onClos
 							<X className="size-4" />
 						</Button>
 					</header>
+					{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 					<div
 						ref={scrollRef}
 						onWheel={(event) => {
@@ -181,6 +182,7 @@ function AnnouncementDetailDrawer(props: { item: AnnouncementItem | null; onClos
 							else if (event.deltaMode === 2) delta = el.clientHeight * Math.sign(delta);
 							el.scrollTop = Math.min(max, Math.max(0, el.scrollTop + delta));
 						}}
+						// scroll-ok: text —— 公告正文是单一 markdown 块（MarkdownStream 一次渲染），没有行列表可切。
 						className="markdown-body min-h-0 flex-1 overflow-y-auto px-5 py-4"
 					>
 						<MarkdownStream
@@ -322,6 +324,7 @@ export function AnnouncementCenter() {
 							: t("announcements.notFetched")}
 					</DialogDescription>
 				</DialogHeader>
+				{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 				<div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto pr-1">
 					{items.length === 0 ? (
 						<p className="py-8 text-center text-sm text-muted-foreground">{t("announcements.empty")}</p>

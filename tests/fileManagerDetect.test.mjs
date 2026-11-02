@@ -11,7 +11,7 @@ function plain(value) {
 	return JSON.parse(JSON.stringify(value));
 }
 
-function loadFileManager(existsStub = () => false) {
+function loadFileManager(existsStub = () => false, spawnStub = () => ({ once: () => {}, unref: () => {} }), platform = process.platform) {
 	const source = readFileSync("src/main/files/FileManager.ts", "utf8");
 	const { outputText } = ts.transpileModule(source, {
 		compilerOptions: {
@@ -25,12 +25,13 @@ function loadFileManager(existsStub = () => false) {
 		require: (name) => {
 			if (name === "node:fs") return { existsSync: existsStub };
 			if (name === "node:child_process") {
-				return { spawn: () => ({ once: () => {}, unref: () => {} }) };
+				return { spawn: spawnStub };
 			}
 			if (name === "../../shared/types/project") return {};
 			return require(name);
 		},
 	};
+	sandbox.process = { platform, env: { PATH: "" } };
 	vm.runInNewContext(outputText, sandbox, { filename: "FileManager.ts" });
 	return sandbox.exports;
 }
@@ -66,6 +67,24 @@ test("Linux picks the first file manager found on PATH in priority order", () =>
 	// 全部未装：返回 null（调用方回退系统默认）
 	const none = detectFileManagerForPlatform("linux", "/usr/bin", () => false);
 	assert.equal(none, null);
+});
+
+test("Linux without a known file manager falls back to xdg-open", async () => {
+	let command;
+	let args;
+	const { openFileManagerAt } = loadFileManager(
+		() => false,
+		(spawnCommand, spawnArgs) => {
+			command = spawnCommand;
+			args = spawnArgs;
+			return { once: (event, callback) => event === "spawn" && callback(), unref: () => {} };
+		},
+		"linux",
+	);
+
+	await openFileManagerAt("/tmp/project");
+	assert.equal(command, "xdg-open");
+	assert.deepEqual([...args], ["/tmp/project"]);
 });
 
 test("findOnPath checks PATH entries with platform extension rules", () => {

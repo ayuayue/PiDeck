@@ -71,7 +71,9 @@ node tests/scrollContainerGuard.mjs --list   # 只列未判定
 node tests/scrollContainerGuard.mjs --seed   # 重新生成基线
 ```
 
-三种合法状态：**接线**（容器带一个 ref，同一个 ref 名作为 `scrollRef` 传给 `<VirtualStack>`）/ 写 `scroll-ok:` / 已登记进基线。
+四种合法状态：**接线**（容器带一个 ref，同一个 ref 名作为 `scrollRef` 传给 `<VirtualStack>`）/ **自持**（容器元素本身就是虚拟化组件，标签以 `Virtualizer`/`VirtualStack`/`VirtualList` 开头，没有外部 ref 可对）/ 写 `scroll-ok:` / 已登记进基线。
+
+「自持」这一条是 2026-11 补的：diff 视图写的是 `<Virtualizer className="… overflow-auto">`，容器与虚拟化是同一个节点，旧判据只认外部 `scrollRef` 两头对上，于是**已经虚拟化的它被当成未判定**，唯一的出路只剩写一条假豁免。
 
 「接线」是 2026-10 收紧后的判据，之前的判据是「同文件 ±80 行内出现过 `<VirtualStack>`」——那样两种真缺陷都能过关：接了但容器没 ref（虚拟器拿不到 `scrollElement`，视口恒 0、一行不渲染），以及压根没接却挨得近（永久逃出判定面）。现在判据要求同名 ref 两头都在，`props.` 开头的透传 ref 不算（透传无法静态证明调用方给了实 ref，要在组件内 `props.scrollRef ?? localRef` 兜底）。
 
@@ -92,3 +94,91 @@ node tests/scrollContainerGuard.mjs --seed   # 重新生成基线
   选 2 的理由是短列表零 DOM 变化：`containerProps` 一旦传入，短列表也会多包一层 `<div>`（`virtual-stack.tsx` 短列表分支），
   而这两条的短列表本来是 `ul > li`，多一层就是「为了虚拟化改短列表的 DOM」——正是本补丁极力避免的。
   判据：**如果短列表是 `ul`/`ol`，role 不要传 `containerProps`（外层容器已经是 list）；如果短列表也是 `div`，用 `containerProps`。**
+
+
+## 七、2026-11 第二轮：基线清零
+
+上一轮留下 133 条「等后续批次处理」的基线。基线的问题是**它和缺陷长得一样**：没人知道
+里面多少条是真待办、多少条其实早有判定。这一轮把它清到 0，规则是每条必须二选一：
+
+- 接 `<VirtualStack>`（容器 ref 与 `scrollRef` 同名接线）；或
+- 写 `scroll-ok: <类别>` 并给出**能复算的依据**（指向具体的分页函数、上限常量、子组件边界）。
+
+判据不写死数字，随时可复算：
+
+```bash
+node tests/scrollContainerGuard.mjs        # 四档统计；未判定必须为 0
+node tests/scrollContainerGuard.mjs --seed # 只有全量判定后才允许重建基线（本轮之后基线应为空）
+```
+
+### 7.1 本轮修订的三条分类判据
+
+上一轮的四类不够用，出现了三种反复出现的形状，各自定死判据：
+
+| 形状 | 判据 | 依据在哪 | 归类 |
+| --- | --- | --- | --- |
+| 受控分页列表 | 行数由「点了多少次更多」决定，而不是随数据自动增长 | 侧栏 `showMoreChildren` / 网页侧栏 `resolveSidebarWindow` / Git 提交图每次 +30 / 快捷消息 `MAX_QUICK_MESSAGES` | `bounded` |
+| 行列表在子组件里 | 本层只是个空滚动窗，行模型由 children 或子组件持有 | `MessageShareModal` → `MessageSelectionTree`；`WebWorkspaceDrawer` → 各 tab 自己的面板 | `nested` |
+| 单一文本块 | 一块 markdown / `pre` / diff 原文，没有「行列表」概念 | 公告正文、文件预览、错误原文 | `text` |
+
+**受控分页为什么算判定而不是缺口**：判据是「会不会随数据无限变长」。分页列表在用户
+不点「更多」时行数恒定，点了是用户主动的一次性动作，不是流式或历史增长；而虚拟化它要
+先设计无限滚动（把「更多」按钮换成触底加载），那是另一个功能，不是接一个栈能解决的。
+
+### 7.2 本轮接入的滚动窗
+
+判定记录（`node tests/scrollContainerGuard.mjs` 现算已达 22 处）：
+
+| 接入点 | 为什么 |
+| --- | --- |
+| `web/WebTimeline.tsx` 消息流 | 长会话几百轮、每轮几十个节点；同时补了命令式跳转句柄（见 7.3） |
+| `web/WebSessionStrips.tsx` 子代理 / 待办条 | 与桌面同一数据源，条数随子代理与任务增长 |
+| `components/session/ComposerPanels.tsx` | 命令面板候选列表 |
+| `components/session/DshAgentToolsPanel.tsx` | 工具清单，插件多了会几十上百条 |
+| `components/session/trajectory/SessionTrajectoryView.tsx` 详情面板 | 轨迹事件流 |
+| `components/session/SessionSubagentsStrip.tsx` | 子代理行（已有虚拟化的姊妹条） |
+| `config/PiDeckMcpPanel.tsx` | MCP 服务器 / 工具清单 |
+
+### 7.3 流式输出时「点刻度跳不回去」：仲裁补了第三维
+
+前一轮只挡了「跳转挂起（`pendingJump`）」这一种情况下的引擎上报。真机上仍然失效，
+因为**最常见的那条路径根本不设 `pendingJump`**：用户点的刻度若在已挂载窗口内（流式时
+点的常常就是最新那几轮），`jumpToMessage` 走「DOM 已存在」分支，落位后直接返回。
+
+于是流式下一帧：引擎 resize → 上报 following=true → `autoScroll` 变回 true → 跟着新内容
+滚回底部。用户看到的就是「跳过去了又弹回来」。
+
+修法（`hooks/timelineJumpGuard.ts`）：仲裁条件从「有挂起跳转」扩展为
+**「有挂起跳转 或 有浏览 pin」**。pin 存在表示视口被钉在某一行，此时引擎的「已跟底」
+是过期判定。落位后立刻建立 pin（`jumpToMessage` 两条路径都建），RO 才能在内客增高时
+补位移；用户自己滚回底部时 pin 被清、上报恢复接收。
+
+判据在 `tests/timelineJumpGuard.test.mjs`（含「没有 pin 时必须照常接收上报」的反向样本——
+只测「该忽略」一侧，把条件写成恒 true 也能全绿）。
+
+### 7.4 review 修订：类名抽成变量是一条静默逃跑通道
+
+review 指出（PR #471）守卫里「跳过变量声明行」那条规则只看声明，等于把容器判据丢了一半：
+
+- 声明行 `const listClass = "m-0 max-h-64 overflow-y-auto"` 被跳过（这一行确实不是容器）；
+- 真正那一行 `<ul className={listClass}>` 里没有 `overflow-*` 字面量，于是**整个容器从判定面消失**：
+  既不进基线、也不报未判定，等于永久逃出审计。
+
+实测命中 4 处，已全部把类名内联回元素行，并给出归类：
+
+| 位置 | 归类 | 依据 |
+| --- | --- | --- |
+| `tool-result.tsx` 工具输出视口 | `nested` | 行模型由 children（ToolCard 渲染的内容）持有，本层只是限高视口 |
+| `PiCommandSourcePanel.tsx` ×2 | `bounded` | 安装来源是固定枚举（nvm/mise/pnpm 的 shim），条数有硬上限 |
+| `ProviderLoginModal.tsx` 阶段内容区 | `transient` | loading / 表单 / 二维码轮换，随弹窗生命周期结束 |
+
+守卫补上了反方向判据：文件内定义了含 `overflow-*` 的字符串常量、元素行又引用到它时，
+那个元素行照样算容器候选，必须落进「虚拟化 / 豁免 / 基线」三档之一。三条用例钉住这个方向
+（抽成变量必须报、内联后必须能被标记认下来、只声明不引用不算容器）。
+
+**写新容器时照这条来**：滚动容器的类名内联在元素行上。要复用就别抽类名常量——
+抽类名会让守卫扫不到，正确的做法是拆组件。
+
+**已知取舍**：`WebFilePreview` 的 markdown 分支整段交给 `MarkdownStream`，不虚拟化。
+理由不只是「没有行列表」——跨屏整段选中复制依赖完整 DOM，虚拟化后只能拿到视口内的行。
+这条取舍适用于所有 `text` 类别容器。

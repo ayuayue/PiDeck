@@ -120,8 +120,10 @@ test("the hook polls only when expanded, visible, host-ready and after the first
 	assert.ok(!hook.includes("loadSync"), "polling must never touch sync facts");
 	assert.ok(!hook.includes("loadRefs"), "polling is a quiet read, not the manual section load");
 	const panel = readFileSync(PANEL, "utf8");
-	// The gates are the refs area's own state plus the host's observed readiness, never a snapshot-watching effect.
-	assert.match(panel, /useRemoteGitRefsPolling\(\{ active: refsOpen, refsLoaded: state\.refs !== undefined, hostReady, poll: pollRefs, stop: stopRefsPolling \}\)/);
+	// The gates are the refs area's own expansion, the refs-watch capability and the host's observed readiness,
+	// never a snapshot-watching effect. G4b adds the capability to the expansion gate (the hook still requires
+	// expanded + visible + host-ready + a first manual refs load).
+	assert.match(panel, /useRemoteGitRefsPolling\(\{\s*active: refsOpen && capabilities\.refsWatch,\s*refsLoaded: state\.refs !== undefined,\s*hostReady,\s*poll: pollRefs,\s*stop: stopRefsPolling,?\s*\}\)/);
 	assert.match(panel, /data-testid="remote-git-refs-auto"/);
 	for (const effect of panel.split("useEffect(").slice(1)) {
 		const body = effect.split("\n\t},")[0];
@@ -138,7 +140,13 @@ function controllerFixture(api = {}) {
 	const reads = createRemoteGitViewController(
 		projectId,
 		"identity",
-		{ cancelRemoteReads: async () => {}, remoteSnapshot: async () => ({ ok: true, snapshot: { head: oid("a"), branch: "main", groups: { merge: [], index: [], workingTree: [], untracked: [] } } }), remoteRefs: async () => ({ ok: true, refs: refsList("main") }), ...api },
+		{
+			cancelRemoteReads: async () => {},
+			status: async () => ({ ok: true, snapshot: { head: oid("a"), branch: "main", groups: { merge: [], index: [], workingTree: [], untracked: [] } } }),
+			branches: async () => ({ ok: true, info: { current: "main", branches: ["main"] } }),
+			refs: async () => ({ ok: true, refs: refsList("main") }),
+			...api,
+		},
 		(state) => states.push(state),
 	);
 	return { reads, current: () => states.at(-1) };
@@ -146,7 +154,7 @@ function controllerFixture(api = {}) {
 
 test("a quiet poll keeps the rows on screen and reports failures without clearing them", async () => {
 	let result = { ok: true, refs: refsList("main") };
-	const f = controllerFixture({ remoteRefs: async () => result });
+	const f = controllerFixture({ refs: async () => result });
 	await f.reads.refresh();
 	await f.reads.loadRefs();
 	assert.equal(f.current().refs.branch, "main");
@@ -167,7 +175,7 @@ test("polling never runs before refs facts exist and never overlaps itself", asy
 		resolve = accept;
 	});
 	const f = controllerFixture({
-		remoteRefs: () => {
+		refs: () => {
 			calls += 1;
 			return calls === 1 ? Promise.resolve({ ok: true, refs: refsList("main") }) : pending;
 		},
@@ -189,7 +197,7 @@ test("a manual refs load and stopRefsPolling both retire an in-flight poll", asy
 	let pollPending;
 	let mode = "poll";
 	const f = controllerFixture({
-		remoteRefs: () => {
+		refs: () => {
 			if (mode !== "poll") return Promise.resolve({ ok: true, refs: refsList("manual", oid("b")) });
 			pollPending = new Promise((accept) => {
 				resolvePoll = accept;

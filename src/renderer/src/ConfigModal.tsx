@@ -2720,6 +2720,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						}}
 						className="config-layout grid min-h-0 flex-1 gap-0 bg-transparent"
 					>
+						{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 						<TabsList
 							className="config-sidebar flex min-h-0 shrink-0 flex-col items-stretch gap-2.5 overflow-auto border-0 border-r border-border rounded-none bg-transparent p-2.5 data-[orientation=vertical]:w-[160px] max-[820px]:flex-row max-[820px]:gap-3 max-[820px]:overflow-x-auto max-[820px]:overflow-y-hidden max-[820px]:border-r-0 max-[820px]:border-b"
 							aria-label={t("config.title")}
@@ -2777,7 +2778,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 								</TabsTrigger>
 							</div>
 						</TabsList>
-
 						<TabsContent value="config:models" className="config-main min-w-0">
 							<div className="config-content">
 								<PiConfigTargetSelector target={configTarget} hosts={remoteConfigHosts} disabled={saving} onChange={handleConfigTargetChange} />
@@ -2875,7 +2875,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 								)}
 							</div>
 						</TabsContent>
-
 						<TabsContent value="config:auth" className="config-main min-w-0">
 							<div className="config-content">
 								{remoteTargetHostId ? (
@@ -2920,7 +2919,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 								)}
 							</div>
 						</TabsContent>
-
 						<TabsContent value="config:settings" className="config-main min-w-0">
 							<div className="config-content">
 								<PiConfigTargetSelector target={configTarget} hosts={remoteConfigHosts} disabled={saving} onChange={handleConfigTargetChange} />
@@ -2949,7 +2947,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 								)}
 							</div>
 						</TabsContent>
-
 						<TabsContent value="skills" className="config-main min-w-0">
 							<div className="config-content">
 								{statusBlock}
@@ -3031,7 +3028,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 									))}
 							</div>
 						</TabsContent>
-
 						<TabsContent value="prompts" className="config-main min-w-0">
 							<div className="config-content">
 								{statusBlock}
@@ -3078,7 +3074,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 								)}
 							</div>
 						</TabsContent>
-
 						<TabsContent value="extensions" className="config-main min-w-0">
 							<div className="config-content">
 								{statusBlock}
@@ -3104,7 +3099,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 								/>
 							</div>
 						</TabsContent>
-
 						{/* forceMount：面板自管草稿（工具动作 allow/ask/deny、目录边界等只在组件 state 里），
 						    切走再回来不能丢未保存编辑；inactive 必须 hidden，否则叠在别的 tab 上。 */}
 						<TabsContent value="security" forceMount className="config-main min-w-0 data-[state=inactive]:hidden">
@@ -3112,7 +3106,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 								<SecuritySection ref={securitySectionRef} onDirtyChange={handleSecurityDirtyChange} />
 							</div>
 						</TabsContent>
-
 						{/* forceMount：MCP 页自管草稿，切走再回来不能丢未保存编辑；inactive 必须 hidden，否则叠在别的 tab 上。 */}
 						<TabsContent value="config:mcp" forceMount className="config-main min-w-0 data-[state=inactive]:hidden">
 							<div className="config-content flex min-h-0 flex-col">
@@ -3136,7 +3129,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 								)}
 							</div>
 						</TabsContent>
-
 						{/* 只有项目资源管理器会走到这里（见左侧导航同名开关）；forceMount：面板自管草稿，
 						    切走再回来不能丢未保存编辑，inactive 必须 hidden，否则叠在别的 tab 上。 */}
 						{resourceOnly ? (
@@ -3146,7 +3138,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 								</div>
 							</TabsContent>
 						) : null}
-
 						<TabsContent value="config:trust" className="config-main min-w-0">
 							<div className="config-content">
 								{remoteTargetHostId ? (
@@ -3172,7 +3163,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 								)}
 							</div>
 						</TabsContent>
-
 						<TabsContent value="config:raw" className="config-main min-w-0">
 							<div className="config-content flex min-h-0 flex-col">
 								{remoteTargetHostId ? (
@@ -3253,6 +3243,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 						<AlertDialogHeader>
 							<AlertDialogTitle>{t("config.unsavedTitle")}</AlertDialogTitle>
 							<AlertDialogDescription asChild>
+								{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 								<div className="grid max-h-56 gap-1.5 overflow-auto text-left">
 									{configUnsavedSummary && configUnsavedSummary.totalCount === 1 ? (
 										/* 单项：沿用带「是否在关闭前保存？」的单行提示，不需要列表 */

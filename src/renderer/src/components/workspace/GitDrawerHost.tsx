@@ -4,6 +4,7 @@ import { GitPanel } from "../app/GitPanel";
 import { useGitRepoScope } from "../../hooks/useGitRepoScope";
 import { t } from "../../i18n";
 import { showNotice } from "../../utils/notice";
+import type { ProjectGitCapabilities } from "../../services/projectServiceContracts";
 
 export type GitDrawerApi = {
 	listRepos: (projectId: string) => Promise<GitRepoInfo[]>;
@@ -49,6 +50,11 @@ export type GitDrawerHostProps = {
 	onOpenCommitFileDiff: (commit: CommitEntry, file: GitChangedFile, repoTarget?: ProjectFileTarget) => void | Promise<void>;
 	onOpenWorkspaceFileDiff: (group: GitResourceGroupType, target: ProjectFileTarget, repoTarget?: ProjectFileTarget) => void | Promise<void>;
 	onOpenFile?: (target: ProjectFileTarget) => void;
+	/**
+	 * 服务能力（G4b）：可选透传给共用 GitPanel。缺省 = 全可用，现有调用方零行为变化；
+	 * 是否接入由 DrawerSurface（集成者）决定，本宿主不新增判定。
+	 */
+	gitCapabilities?: Partial<ProjectGitCapabilities>;
 };
 
 const EMPTY_GIT_INFO: GitBranchInfo = { current: null, branches: [] };
@@ -124,7 +130,7 @@ function sameBranchInfoMap(current: Record<string, GitBranchInfo>, next: Record<
  * 通过下拉切换仓库。单仓继续完整三栏；嵌套仓分支状态按路径隔离。
  */
 export function GitDrawerHost(props: GitDrawerHostProps) {
-	const { projectId, gitApi, fallbackGitInfo, fallbackSwitchBranch, fallbackCreateBranch, onOpenCommitFileDiff, onOpenWorkspaceFileDiff, onOpenFile } = props;
+	const { projectId, gitApi, fallbackGitInfo, fallbackSwitchBranch, fallbackCreateBranch, onOpenCommitFileDiff, onOpenWorkspaceFileDiff, onOpenFile, gitCapabilities } = props;
 	const scope = useGitRepoScope({ projectId, listRepos: gitApi.listRepos });
 	const [gitInfoByRepoPath, setGitInfoByRepoPath] = useState<Record<string, GitBranchInfo>>({});
 	const singleRepo = scope.repos.length === 1 ? scope.repos[0] : undefined;
@@ -237,6 +243,7 @@ export function GitDrawerHost(props: GitDrawerHostProps) {
 				repoScopeKey={repoKey ?? ""}
 				repositoryLabel={repositoryLabel}
 				layout={layout}
+				gitCapabilities={gitCapabilities}
 				historyRepoPath={layout === "historyOnly" ? historyRepoPath : undefined}
 				historyRepoOptions={layout === "historyOnly" ? scope.repos.map((item) => ({ value: item.relativePath, label: repoLabel(item) })) : undefined}
 				onSelectHistoryRepo={layout === "historyOnly" ? selectHistoryRepo : undefined}
@@ -293,6 +300,7 @@ export function GitDrawerHost(props: GitDrawerHostProps) {
 		const historyRepo = scope.repos.find((repo) => repo.relativePath === historyRepoPath) ?? scope.repos[0];
 		return (
 			<div className="git-panel flex h-full min-h-0 flex-col overflow-hidden">
+				{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 				<div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
 					{scope.repos.map((repo) => (
 						<section key={repo.relativePath} className="shrink-0 border-b border-[var(--git-panel-border)] last:border-b-0">

@@ -162,7 +162,7 @@ function gitFixture(overrides = {}) {
 		}
 	})();
 	sender.destroyed = false;
-	const state = { destroyDuringWrite: false };
+	const state = { destroyDuringWrite: false, factLookups: [] };
 	const session = {
 		hostRevision: 1,
 		request: async (method, params, options) => {
@@ -185,7 +185,12 @@ function gitFixture(overrides = {}) {
 		locator: (id) => (id === PROJECT ? locator : undefined),
 		trusted: async () => true,
 		service: async () => ({
-			connectionFacts: () => ({ connectionId: "conn-1", state: "ready" }),
+			// 项目读的事实入口按 (hostId, 项目 root) 查询：通知里的代必须来自这个项目的 root 会话；
+			// root 不匹配一律 undefined（兄弟 root 的会话不能替本项目担保）。
+			projectConnectionFacts: (hostId, root) => {
+				state.factLookups.push([hostId, root]);
+				return hostId === HOST && root === locator.remotePath ? { connectionId: "conn-1", state: "ready" } : undefined;
+			},
 			withProjectSession: async (_hostId, _root, work) => ({ ok: true, value: await work(session) }),
 		}),
 		factsEvents: { publish: (change) => published.push(change) },
@@ -210,6 +215,7 @@ test("Git 写成功：发布 status + tree 两个事实 scope", async () => {
 	assert.equal(f.published.length, 1);
 	assert.equal(f.published[0].projectId, PROJECT);
 	assert.equal(f.published[0].generation, "conn-1", "通知携带连接代");
+	assert.deepEqual([...new Set(f.state.factLookups.map(([, root]) => root))], [locator.remotePath], "事实只按项目自己的 root 查询（兄弟 root 不参与）");
 	const scopes = plain(f.published[0].scopes);
 	assert.deepEqual(
 		scopes.find((scope) => scope.kind === "status"),
@@ -247,7 +253,7 @@ const P1 = "project-remote-1";
 const P2 = "project-remote-2";
 
 function projectHarness() {
-	const calls = { list: [] };
+	const calls = { list: [], keepAlive: [] };
 	const handlers = new Map();
 	const { registerRemoteProjectIpc } = loadTsCommonJs("src/main/ipc/remoteProjectIpc.ts", {
 		stubs: {
@@ -290,6 +296,11 @@ function projectHarness() {
 					cancel: async () => undefined,
 				}),
 			}),
+			// 暖缓存围栏按本项目 root 的会话查询；root 不匹配是 undefined（同主机兄弟 root 不冒充）。
+			projectConnectionFacts: (hostId, root) => (hostId === HOST_ID && root === "/srv/app" ? { connectionId: "conn-1", state: "ready" } : undefined),
+			// 目录订阅保活：0→1 retain、退订清空 release（池的 watchers 计数是加减法）。
+			retainProjectSessionWatch: (hostId, root) => calls.keepAlive.push({ kind: "retain", hostId, root }),
+			releaseProjectSessionWatch: (hostId, root) => calls.keepAlive.push({ kind: "release", hostId, root }),
 		}),
 		projects: {
 			enroll: async () => ({ projectId: P1 }),
@@ -314,4 +325,18 @@ test("invalidateTree：只标脏该项目的目录事实，不装载、不碰别
 	const after = await h.list(P1, "src");
 	assert.equal(h.calls.list.length, 3);
 	assert.equal(after.ok, true);
+});
+
+test("目录订阅保活：根目录首读 retain 一次，关闭项目 release 恰好一次", async () => {
+	const h = projectHarness();
+	await h.list(P1, "");
+	assert.deepEqual(h.calls.keepAlive, [{ kind: "retain", hostId: HOST_ID, root: "/srv/app" }], "0→1 retain 一次");
+	await h.list(P1, "");
+	assert.equal(h.calls.keepAlive.length, 1, "watcher 仍挂着：重复读不再 retain");
+	await h.facts.closeProject(P1);
+	assert.deepEqual(
+		h.calls.keepAlive.map((entry) => entry.kind),
+		["retain", "release"],
+		"关闭项目成对 release 一次",
+	);
 });

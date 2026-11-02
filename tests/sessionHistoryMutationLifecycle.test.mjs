@@ -160,6 +160,46 @@ for (const kind of ["resend", "edit"]) {
 	});
 }
 
+for (const kind of ["resend", "edit"]) {
+	test(`${kind} after terminal runtime activates a fresh runtime instead of reusing a stale target`, async () => {
+		const h = harness({
+			live: false,
+			activateResult: { ok: true, value: { agentId: "agent-restarted", runtimeGeneration: 2 } },
+		});
+		const message = userMessage();
+		if (kind === "resend") {
+			h.hook.resendUserMessage(message);
+			await h.flush();
+		} else {
+			await h.hook.editMessage(message, "terminal runtime edit");
+		}
+		assert.deepEqual(
+			h.calls.find((call) => call[0] === "activate"),
+			["activate", "source-a"],
+		);
+		assert.deepEqual(
+			h.calls.find((call) => call[0] === "fork"),
+			["fork", { sessionId: "source-a", agentId: "agent-restarted", runtimeGeneration: 2 }, "entry-a", { mutationFork: true, branchMode: false }],
+		);
+	});
+}
+
+test("explicit fork after terminal runtime activates a fresh runtime instead of reusing a stale target", async () => {
+	const h = harness({
+		live: false,
+		activateResult: { ok: true, value: { agentId: "agent-restarted", runtimeGeneration: 2 } },
+	});
+	await h.hook.forkFromUserMessage(userMessage());
+	assert.deepEqual(
+		h.calls.find((call) => call[0] === "activate"),
+		["activate", "source-a"],
+	);
+	assert.deepEqual(
+		h.calls.find((call) => call[0] === "fork"),
+		["fork", { sessionId: "source-a", agentId: "agent-restarted", runtimeGeneration: 2 }, "entry-a", undefined],
+	);
+});
+
 for (const phase of ["activate", "fork"]) {
 	test(`resend ${phase} failure is reported locally, clears overlay and remains retryable`, async () => {
 		const failed = { ok: false, error: { code: "SESSION_COMMAND_FAILED", debugDetails: `${phase} failed` } };

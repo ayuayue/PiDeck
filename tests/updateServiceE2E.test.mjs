@@ -891,19 +891,19 @@ test("atomgit source is applied as generic feed URL on start", async (t) => {
 	assert.equal(updater.feedUrl, "https://atomgit.com/ayuayue/PiDeck/releases/download/latest");
 });
 
-test("dev channel: feed is forced to GitHub and allowPrerelease=true regardless of the configured source", async (t) => {
+test("dev channel: update source follows the setting while allowPrerelease stays true", async (t) => {
 	const { service, updater, settings } = createAutomaticService({
 		channel: "dev",
 		settings: { updateSource: "atomgit" },
 	});
 	stopAfter(t, service);
 	service.start({ startDelayMs: 0, intervalMs: 60_000 });
-	// dev 恒官方 GitHub：null = 恢复原生 provider；预发布恒开启。
-	assert.equal(updater.feedUrl, null);
+	// 更新源不因 dev 通道被改写；预发布语义只体现在 allowPrerelease。
+	assert.equal(updater.feedUrl, "https://atomgit.com/ayuayue/PiDeck/releases/download/latest");
 	assert.deepEqual(updater.allowPrereleaseCalls, [true]);
 
-	// 设置项切换后重新应用：dev 语义不随 updateSource 漂移。
-	await settings.update({ updateSource: "atomgit" });
+	// 设置项切换后重新应用：feed 跟随设置，allowPrerelease 仍恒 true。
+	await settings.update({ updateSource: "github" });
 	service.applyUpdateSource();
 	assert.equal(updater.feedUrl, null);
 	assert.deepEqual(updater.allowPrereleaseCalls, [true, true]);
@@ -921,7 +921,7 @@ test("stable channel behavior is unchanged: atomgit feed applies and prerelease 
 	assert.deepEqual(updater.allowPrereleaseCalls, [false]);
 });
 
-test("manual delivery on dev channel checks GitHub even when atomgit source is configured", async (t) => {
+test("manual delivery on dev channel follows the configured atomgit source", async (t) => {
 	let receivedUrl;
 	const { service, settings } = createManualService(
 		(latestReleaseUrl) => {
@@ -933,7 +933,11 @@ test("manual delivery on dev channel checks GitHub even when atomgit source is c
 	stopAfter(t, service);
 	await settings.update({ updateSource: "atomgit" });
 	await service.checkNow();
-	// dev 强制官方 GitHub：latestReleaseUrl 为 undefined（镜像 URL 不得传入检查器）。
+	// dev 也跟随设置：镜像源 URL 必须传进检查器（不再被通道强制改回 GitHub）。
+	assert.equal(receivedUrl, "https://api.atomgit.com/api/v5/repos/ayuayue/PiDeck/releases/latest");
+
+	await settings.update({ updateSource: "github" });
+	await service.checkNow();
 	assert.equal(receivedUrl, undefined);
 });
 

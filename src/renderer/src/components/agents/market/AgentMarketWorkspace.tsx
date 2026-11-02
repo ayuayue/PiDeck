@@ -26,7 +26,7 @@ type AgentMarketRoute = { kind: "market" } | { kind: "editor"; agentId: string |
 interface AgentMarketWorkspaceProps {
 	/** 打开页面时就指定编辑目标的智能体 id（市场外入口传入）；只作初始路由，消费后由宿主清空。 */
 	initialEditingAgentId: string | null;
-	/** 「使用」：由页面宿主注入的建会话+绑定动作；返回 true 表示已打开绑定会话，市场应收起。 */
+	/** 「使用」：由页面宿主注入的「带着该智能体打开新会话页」动作；返回 true 表示已导航，市场应收起。 */
 	onUseAgent: (agent: AgentProfile) => Promise<boolean>;
 	onClose: () => void;
 }
@@ -121,9 +121,9 @@ export function AgentMarketWorkspace({ initialEditingAgentId, onUseAgent, onClos
 	);
 
 	/**
-	 * 「使用」：交给页面宿主建会话 + 绑定（主进程按绑定注入角色设定，时间线只显示用户输入）。
-	 * 成功才收起市场露出新会话；失败留在市场，宿主已经 toast 了原因。
-	 * pending 期间忽略重复点击——建会话是异步的，连点会建出多个会话。
+	 * 「使用」：交给页面宿主带着该智能体打开新会话页（目录在输入框上方选，发送时才建会话并绑定）。
+	 * 成功才收起市场露出新会话页；失败留在市场，宿主已经 toast 了原因。
+	 * pending 期间忽略重复点击。
 	 */
 	const handleUse = useCallback(
 		async (agent: AgentProfile) => {
@@ -186,6 +186,7 @@ export function AgentMarketWorkspace({ initialEditingAgentId, onUseAgent, onClos
 						<AgentMarketCategoryChips value={filter.category} onChange={handleCategoryChange} />
 					)}
 					<div className="flex min-h-0 flex-1">
+						{/* scroll-ok: flip —— 子组件 AgentMarketGrid 是自适应多列网格（auto-fill / minmax(230px,1fr)）+ RemovalRow 淡出 + useListReorder 的 FLIP 位移动画，重排靠真实兄弟节点算位移；虚拟行是单列 absolute 定位，形状不兼容。 */}
 						<div className="min-w-0 flex-1 overflow-y-auto px-5 py-3">
 							<AgentMarketGrid
 								agents={visibleAgents}

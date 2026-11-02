@@ -25,6 +25,9 @@ export function RewindPanel() {
 				{t("rewind.title")}
 				<span className="ml-auto text-micro font-normal text-text-tertiary">{t("rewind.panelHint")}</span>
 			</div>
+			{/* scroll-ok: bounded —— 行由子组件 RewindCheckpointList 渲染，且列表是后端游标分页
+			     （到顶后点「加载更多」追加），条数由点击增长；虚拟化要么把行数组提到父级、
+			     要么把滚动窗下沉到子组件，都属跨组件重构，不在本批。 */}
 			<div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain px-2 pb-2">
 				{!sessionId ? (
 					<div className="px-1 py-2 text-xs leading-5 text-text-secondary">

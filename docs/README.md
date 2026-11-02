@@ -35,8 +35,10 @@
 | [host-plugins.md](host-plugins.md) | 宿主插件机制 |
 | [host-plugin-dev-guide.md](host-plugin-dev-guide.md) | 宿主插件开发指南 |
 | [project-location-architecture.md](project-location-architecture.md) | 本地/SSH/WSL 位置模型 ADR（**Proposed**，未实现部分未定） |
-| [remote-host-root-pooling-adr.md](remote-host-root-pooling-adr.md) | 同主机多 root 池化 ADR（测量 + 方案，生产未改） |
+| [remote-host-root-pooling-adr.md](remote-host-root-pooling-adr.md) | 同主机多 root 池化 ADR（测量 + 方案；默认关闭的池化路径已实现，真机验收未做） |
 | [remote-wsl-verification-log.md](remote-wsl-verification-log.md) | SSH/WSL 功能收敛的验证证据（现行台账） |
+| [remote-acceptance-55dd5b702.md](remote-acceptance-55dd5b702.md) | 检查点 55dd5b702 独立验收：四焦点复核、Linux 证据、真实 SSH 方案、旧文档同步 |
+| [ci-linux-known-failures.md](ci-linux-known-failures.md) | Linux CI remote/SSH 清零记录、21 文件硬门禁与跟踪边界 |
 | [process-group-implementation-contract.md](process-group-implementation-contract.md) | 过程组冻结契约（已实现） |
 | [release-process.md](release-process.md) | 发版流程 |
 | [release-test-shape-exceptions.md](release-test-shape-exceptions.md) | `check:test-shape` 基线例外 |
@@ -45,6 +47,7 @@
 | [dsh-remote-contract.md](dsh-remote-contract.md) | DSH Typert Remote 集成契约 |
 | [dsh-0.2.0-migration.md](dsh-0.2.0-migration.md) | DSH 0.2.0 增量契约（与上文叠加） |
 | [pideck-mcp.md](pideck-mcp.md) | PiDeck 本机 MCP 服务说明 |
+| [agent-memory.md](agent-memory.md) | 智能体长期记忆（stdio MCP 服务器、三后端挂载、DSH 待办） |
 
 ## 3. 活动计划（Active plan）
 
@@ -52,9 +55,10 @@
 |---|---|
 | [ui-commercialization-plan.md](ui-commercialization-plan.md) | Wave 1–7 已落地；剩余项按文中标记 |
 | [ui-unification-plan.md](ui-unification-plan.md) | wave 1 执行中 |
-| [remote-file-tree-and-git-unification-plan.md](remote-file-tree-and-git-unification-plan.md) | 计划已复核、尚未实施（与面板服务缝 ADR 配套） |
-| [project-panel-service-seam-adr.md](project-panel-service-seam-adr.md) | Phase A 已落地；Phase B/C 待批准 |
-| [root-pooling-handoff.md](root-pooling-handoff.md) | 待其他会话执行 B0–B4 |
+| [remote-file-tree-and-git-unification-plan.md](remote-file-tree-and-git-unification-plan.md) | T1–T9 分片已交付；当前事实/保留项见 §10.7/§10.8 |
+| [project-panel-service-seam-adr.md](project-panel-service-seam-adr.md) | Phase A 已落地、A0 纯 stat 已修；S 契约已冻结（并行交接 §8.2），B 的 UI 迁移待 F/G |
+| [remote-project-parallel-handoff.md](remote-project-parallel-handoff.md) | 远程多项目并行入口：A0/P/S/T 已整合（§8），S 契约冻结、F/G 可开工、V 未核验；含基线同步（§8.4）与可复制提示词 |
+| [root-pooling-handoff.md](root-pooling-handoff.md) | 池化专用入口（已标 Historical）；P 已交付默认关闭的池化路径（离线测试通过，真机验收未做），开启=改 `main/index.ts` 构造参数 `rootPooling`（无设置项） |
 
 ## 4. 代码/测试引用与归档
 

@@ -308,6 +308,7 @@ export function CustomThemeSection({ draft, updateDraft }: CustomThemeSectionPro
 						aria-label={t("settings.customThemesEditorTitle")}
 					/>
 					{errors.length > 0 ? (
+						// scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。
 						<div className="max-h-28 shrink-0 overflow-y-auto rounded-md border border-[var(--color-danger)]/50 bg-[var(--color-danger-soft)] px-3 py-2 text-xs text-[var(--color-danger)]">
 							{errors.map((error, index) => (
 								// eslint-disable-next-line react/no-array-index-key -- 错误清单为静态展示，无重排

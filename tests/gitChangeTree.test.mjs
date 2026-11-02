@@ -15,7 +15,7 @@ const load = (relativePath) => loadTsCommonJs(`${ROOT}/${relativePath}`);
 const readSource = (relativePath) => readFileSync(`${ROOT}/${relativePath}`, "utf8");
 
 const { GitStatus } = load("src/shared/types/git.ts");
-const { buildChangeTreeRows, changeDirOf, collectChangeTreeDirPaths, collectUnstagedResources, toRelativeChangePath } = load("src/renderer/src/components/app/git/changeTree.ts");
+const { buildChangeFlatRows, buildChangeTreeRows, changeDirOf, collectChangeTreeDirPaths, collectUnstagedResources, shortenDir, toRelativeChangePath } = load("src/renderer/src/components/app/git/changeTree.ts");
 
 /** 完整 GitResource 工厂：纯函数只读 path，仍构造形状完整的资源，避免半截对象混进断言 */
 const file = (path, letter = "M") => ({ path, status: GitStatus.MODIFIED, letter });
@@ -109,6 +109,29 @@ test("多仓路径：项目根外的绝对路径按自身段建树，各自归�
 	assert.equal(rows.find((row) => row.kind === "dir" && row.label === "repoB.src").path, "repoB/src", "合并后的折叠键仍是链尾真实路径");
 });
 
+test("buildChangeFlatRows：一级目录分组、根目录排最前，折叠剪枝与树形同语义", () => {
+	const rows = buildChangeFlatRows([file("/p/src/a.ts"), file("/p/src/b.ts"), file("/p/README.md")], "/p");
+
+	assert.deepEqual(shape(rows), ["dir:@0=1", "file:README.md@0", "dir:src@0=2", "file:a.ts@0", "file:b.ts@0"], "根目录（显示为 /）排最前；多目录时根文件也有目录头；文件行永远在 depth 0（旧 flat 行为）");
+});
+
+test("buildChangeFlatRows：单根时默认隐藏目录头且文件不受折叠影响；有批量操作则保留", () => {
+	const collapsed = new Set([""]);
+	const resources = [file("/p/a.ts"), file("/p/b.ts")];
+
+	assert.deepEqual(shape(buildChangeFlatRows(resources, "/p", collapsed)), ["file:a.ts@0", "file:b.ts@0"], "单根无批量操作：无目录头，折叠态不隐藏文件（旧 flat 行为）");
+	assert.deepEqual(shape(buildChangeFlatRows(resources, "/p", new Set(), { includeSingleRootHeader: true })), ["dir:@0=2", "file:a.ts@0", "file:b.ts@0"], "有目录级批量操作时单根目录头必须保留（否则 stageDir/discardDir 无处挂靠）；文件行仍在 depth 0");
+	assert.deepEqual(shape(buildChangeFlatRows(resources, "/p", collapsed, { includeSingleRootHeader: true })), ["dir:@0=2"], "有目录头后折叠即隐藏文件（目录头是折叠开关，旧 flat 行为）");
+});
+
+test("buildChangeFlatRows：目录头缩写与树形一致，折叠目录只出目录行", () => {
+	const rows = buildChangeFlatRows([file("/p/averyveryverylongdirectoryname/src/a.ts")], "/p", new Set(["averyveryverylongdirectoryname/src"]));
+	const dir = rows.find((row) => row.kind === "dir");
+
+	assert.equal(dir.label, shortenDir("averyveryverylongdirectoryname/src"), "长目录名用 shortenDir 缩写（与旧 flat 目录头一致）");
+	assert.deepEqual(shape(rows), [`dir:averyveryverylongdirectoryname/src@0=1`], "折叠命中的目录只输出目录行");
+});
+
 test("collectUnstagedResources：Changes 组只取工作区侧改动，已暂存资源不留在未暂存列表（issue #391）", () => {
 	const stagedOnly = { path: "/p/only.ts", status: GitStatus.INDEX_MODIFIED, letter: "M" };
 	const stagedThenEditedInIndex = { path: "/p/both.ts", status: GitStatus.INDEX_MODIFIED, letter: "M" };
@@ -125,11 +148,13 @@ test("collectUnstagedResources：Changes 组只取工作区侧改动，已暂存
 	assert.equal(collectUnstagedResources({ workingTree: [], untracked: [] }).length, 0, "无未暂存改动时返回空列表");
 });
 
-test("接线契约：三个变更分组都传 viewMode，模式持久化且默认平铺", () => {
+test("接线契约：变更区走 ChangesGroupsStack 单一虚拟化，视图模式持久化且默认平铺", () => {
 	const panel = readSource("src/renderer/src/components/app/GitPanel.tsx");
 	const tree = readSource("src/renderer/src/components/app/git/GitResourceTree.tsx");
 
-	assert.equal((panel.match(/viewMode\s*=\s*\{changesViewMode\}/g) ?? []).length, 3, "merge / staged / working 三处都要透传视图模式");
+	assert.equal((panel.match(/viewMode=\{changesViewMode\}/g) ?? []).length, 1, "变更区只挂一个 ChangesGroupsStack，视图模式集中透传一处");
+	assert.match(panel, /<ChangesGroupsStack\s[\s\S]{0,400}?scrollRef=\{changesScrollRef\}/, "变更区滚动容器 ref 必须传给 ChangesGroupsStack（VirtualStack 靠它算可视窗口）");
+	assert.match(panel, /ref=\{changesScrollRef\} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto/, "ChangesGroupsStack 与滚动容器共用同一个 ref");
 	assert.match(panel, /useState<GitChangeViewMode>\s*\(\s*\(\s*\)\s*=>\s*readChangesViewMode\(\)\s*\)/, "视图模式要能从持久化偏好初始化");
 	assert.match(panel, /localStorage\.getItem\(\s*GIT_CHANGES_VIEW_MODE_STORAGE_KEY\s*\)\s*===\s*"tree"\s*\?\s*"tree"\s*:\s*"flat"/, "非法值/无缓存回落平铺（默认与旧版一致，树形需主动开启）");
 	assert.match(panel, /writeChangesViewMode\s*\(/, "切换后要写回偏好");
@@ -137,4 +162,6 @@ test("接线契约：三个变更分组都传 viewMode，模式持久化且默�
 	assert.match(panel, /toggleChangesViewMode[\s\S]{0,400}?setCollapsedChangeDirs\(new Set\(\)\)/, "切换视图要重置折叠态");
 	assert.match(panel, /changesViewMode\s*===\s*"tree"\s*\?\s*collectChangeTreeDirPaths\(/, "树形的「收起/展开全部」按树形折叠键收集");
 	assert.match(tree, /props\.viewMode\s*===\s*"tree"[\s\S]{0,200}?buildChangeTreeRows\(props\.resources,\s*props\.projectRoot,\s*props\.collapsedDirs\)/, "FileTree 在树形模式下用 buildChangeTreeRows 渲染");
+	// 行数不多时 VirtualStack 直出 Fragment，不包虚拟化 DOM；超过阈值后必须走绝对定位虚拟行
+	assert.match(tree, /<VirtualStack\s[\s\S]{0,200}?estimateHeight=\{28\}/, "变更区行离走 VirtualStack 虚拟化（28px 与 h-7 行高一致）");
 });

@@ -627,6 +627,7 @@ node scripts/pack-host-plugin.mjs <插件目录> [输出.pideck-plugin]
   - **「从文件安装…」**：选 `.pideck-plugin` 归档（文件选择在主进程完成，渲染层不传路径）；
   - **「从文件夹安装…」**：直接选**已解压的插件目录**（就是含 `pideck-plugin.json` 的那一层），适合开发目录；`.git`、`node_modules` 整棵跳过，路径形状不合法（带空格/中文名）或超限的文件也跳过而不会让整包失败。
   - **「从 GitHub 安装…」**：粘贴仓库或 `/tree/` 链接（见 9.2），主进程直接拉 `codeload` 的 tar.gz 解包，无需作者先打归档。
+  - **「插件市场」**：搜索官方收录与社区仓库后一键安装，走的仍是「从 GitHub 安装」这条路径（见 9.3）。
 
 ### 9.2 从 GitHub 链接安装
 
@@ -636,6 +637,20 @@ node scripts/pack-host-plugin.mjs <插件目录> [输出.pideck-plugin]
 - 预算：下载 24 MiB、解包 96 MiB、成品包 16 MiB / 100 文件 / 单文件 4 MiB——与归档安装同一套上限，超出即 `package-too-large` / `asset-too-large`。
 - 只取常规文件：符号链接、`.git`、`node_modules`、路径非法的条目在解包阶段被丢弃，不会让整包失败；不执行任何仓库里的脚本（无 `npm install`、无构建步骤），所以仓库里必须是**可直接运行的静态文件**，需要构建的插件请自行提交产物或提供 `.pideck-plugin` 归档。
 - 更新语义：启用中的插件拒绝被替换（`plugin-in-use`），先禁用再装；禁用状态下重装同 id，字节一致则指纹不变、内容变化则旧授权失效。
+
+### 9.3 让别人搜到你（插件市场）
+
+设置 → PiDeck 插件 →「插件市场」是双源搜索，两条路都能被搜到，选一条即可：
+
+| 来源 | 怎么进来 | 卡片标记 | 适合 |
+| --- | --- | --- | --- |
+| **官方收录** | 向 [ayuayue/pideck-plugins](https://github.com/ayuayue/pideck-plugins) 提 PR，在 `registry.json` 加一条 | 官方收录 | 想被明确推荐、一个仓库放多个插件、需要人工核对过权限 |
+| **社区 · GitHub** | 给仓库打 `pideck-plugin` topic（`gh repo edit --add-topic pideck-plugin`） | 社区 · 未审阅 | 不想等审核；要求 `pideck-plugin.json` 在**仓库根** |
+
+- 社区源不加审核、按星标倒序展示，卡片明确标「未审阅」——所以**权限写得越克制，别人越敢装**。
+- 社区源只认仓库根的 `pideck-plugin.json`：一个仓库要放多个插件请走官方收录的 `subpath`（`repo` + `ref` + `subpath` 拼成 `/tree/<分支>/<子目录>` 安装链接）。
+- 市场只负责搜索与**下载链接**：不产出包字节，也不跳过任何一步——装完仍是禁用状态，仍需在列表里授权启用。停掉别人的分发也只需撤掉 topic 或从 `registry.json` 删那一行，已装的实例不受影响。
+- 搜索打的是 `api.github.com/search/repositories`（未认证限 10 请求/分钟），因此 PiDeck 只按 topic 拉一次全量再本地按关键词过滤，结果缓存 10 分钟；官方索引缓存 6 小时。刚打的 topic 或刚提的 PR 最多等一个缓存周期。
 
 ## 10. 复用现有工具：转换 pi-context
 

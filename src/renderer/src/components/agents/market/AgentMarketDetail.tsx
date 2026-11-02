@@ -1,6 +1,7 @@
-import { Bot, Copy, Pencil, Pin, RotateCcw, Trash2, X } from "lucide-react";
+import { Copy, Pencil, Pin, RotateCcw, Trash2, X } from "lucide-react";
 import type { AgentProfile } from "../../../../../shared/types/agentProfile";
 import { t } from "../../../i18n";
+import { AgentIcon } from "../AgentIcon";
 import { Badge } from "../../ui-shadcn/badge";
 import { Button } from "../../ui-shadcn/button";
 import { AGENT_CATEGORY_LABEL_KEYS } from "./AgentMarketCategoryChips";
@@ -17,9 +18,10 @@ function agentModelLabel(agent: AgentProfile): string {
 interface AgentMarketDetailProps {
 	agent: AgentProfile;
 	selectionDefault: boolean;
-	/** 「使用」正在为这个智能体建会话：按钮显示 loading，避免连点建出多个绑定会话。 */
+	/** 「使用」正在为这个智能体打开新会话页：按钮显示 loading，避免连点重复导航。 */
 	usePending: boolean;
 	onClose: () => void;
+	/** 「使用」：带着该智能体打开新会话页，目录在输入框上方选，发送时才建会话。 */
 	onUse: (agent: AgentProfile) => void;
 	onEdit: (agent: AgentProfile) => void;
 	onRequestDelete: (agent: AgentProfile) => void;
@@ -38,7 +40,7 @@ export function AgentMarketDetail({ agent, selectionDefault, usePending, onClose
 			<header className="flex shrink-0 items-start justify-between gap-2 border-b border-border/40 px-4 py-3">
 				<div className="flex min-w-0 items-center gap-2">
 					<span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-bg-muted text-lg leading-none" aria-hidden="true">
-						{agent.icon ? agent.icon : <Bot className="size-4 text-muted-foreground" />}
+						<AgentIcon icon={agent.icon} />
 					</span>
 					<div className="min-w-0">
 						<p className="truncate text-sm font-medium text-foreground">{agent.name}</p>
@@ -50,6 +52,7 @@ export function AgentMarketDetail({ agent, selectionDefault, usePending, onClose
 				</Button>
 			</header>
 
+			{/* scroll-ok: bounded —— 单个 agent 的详情面板，固定字段集（徽章 / 描述 / 模型 / 后端 / 提示词），行数不随数据增长。 */}
 			<div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-3">
 				{(agent.builtin || selectionDefault) && (
 					<div className="flex flex-wrap items-center gap-1.5">
@@ -78,6 +81,7 @@ export function AgentMarketDetail({ agent, selectionDefault, usePending, onClose
 				</div>
 				<div className="flex min-h-0 flex-col gap-1">
 					<span className="text-micro font-medium text-foreground">{t("agentMarket.detailPrompt")}</span>
+					{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 					<pre className="max-h-[300px] overflow-y-auto rounded-lg border border-border/40 bg-bg-muted/40 p-2.5 font-mono text-micro leading-relaxed break-words whitespace-pre-wrap text-foreground/90">{agent.systemPrompt}</pre>
 				</div>
 				<span className="text-micro text-text-tertiary">{usage}</span>

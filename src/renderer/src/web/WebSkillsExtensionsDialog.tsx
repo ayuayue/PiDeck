@@ -79,6 +79,7 @@ export function WebSkillsExtensionsDialog({ open, onOpenChange }: { open: boolea
 							<TabsTrigger value="skills">{t("web.tabSkills")}</TabsTrigger>
 							<TabsTrigger value="extensions">{t("web.tabExtensions")}</TabsTrigger>
 						</TabsList>
+						{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 						<TabsContent value="skills" className="min-h-0 overflow-y-auto">
 							{state.skills.length === 0 ? (
 								<p className="py-6 text-center text-sm text-text-muted">{t("web.skillsEmpty")}</p>
@@ -105,6 +106,7 @@ export function WebSkillsExtensionsDialog({ open, onOpenChange }: { open: boolea
 								</ul>
 							)}
 						</TabsContent>
+						{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 						<TabsContent value="extensions" className="min-h-0 overflow-y-auto">
 							<p className="mb-2 text-micro text-text-muted">{t("web.extensionRestartHint")}</p>
 							{state.extensions.length === 0 ? (

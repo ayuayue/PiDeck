@@ -1,6 +1,6 @@
 # 工作区面板服务缝（Phase A：契约草案 + 迁移对照）
 
-Status: **Phase A 已落地（契约 + 两个 provider + 行为测试）**；未改任何现有 UI/通道。Phase B/C 待批准。
+Status: **Active plan（2026-10-31 更新）**。Phase A 已落地，尚未接 UI；A0 纯 stat 修复已在工作树验证，文本令牌等契约仍待校准。并行实施与前置门禁见 [remote-project-parallel-handoff.md](remote-project-parallel-handoff.md)。
 
 ## 1. 问题
 
@@ -57,6 +57,14 @@ ZCode 已经把“位置”从 UI 里拿掉了：
 
 验证：`node --test tests/projectServiceSeam.test.mjs` 8/8 pass；`typecheck` 0；`check:format` 0；`check:test-shape` 新增 0。
 
+### 4.1 接 UI 前的校准（2026-10-31）
+
+- A0 已修：本地/远端 `stat` 共用 `files.stat` 纯读取；新增 `projectServiceStatRead` 用真实 entry 令牌表验证 128 次查询不挤掉 rename 授权。相关三文件测试 14/14、typecheck 通过；既有测试未改。
+- 待处理：文本保存缺 version 时误取 entry token；旧 `projectServiceSeam` 用例还要求这种行为。两张令牌表不兼容，按并行交接 T 同步纠正实现和错误旧预期，补真实边界测试并说明覆盖变化；无需仅因修改旧用例另行确认，验证通过后再接文本写 UI。
+- 待处理：当前删除等 provider 丢弃写入收据，能力表是静态值，`refresh` 仍读缓存 status。复用 `shared/projectCapabilities.ts` 的已有纯判定，补项目事实与动作能力，不新建第二事实 owner。
+- 公共 stat 当前有远端失败折为不存在的行为，接 UI 前须明确错误契约；A0 不代表全部读写语义已就绪。
+- §5 是目标 parity 与 Phase A 历史交付对照，不能据其勾选认定上述待处理项已经完成。§6 的 B/C 先过并行交接的 S/T 门禁。
+
 ## 5. Parity 矩阵
 
 | 操作 | 本机 provider | 远端 provider | Phase A |
@@ -85,11 +93,12 @@ ZCode 已经把“位置”从 UI 里拿掉了：
 **Phase C（Git 面板，5–8 天）**
 1. `RemoteGitPanel` 并回 `GitPanel`，用 `capabilities.git` 控制 Worktree/图谱/同步等不可用项（置灰 + 说明，不是隐藏实现）。
 2. 远端写面在 provider 内实现令牌经纪：`remoteSnapshot` 取 `mutationToken/commitToken/...` → 对应 `mutateRemoteIndex/commitRemote/discardRemote/fetchRemote/...`；`outcome=unknown` 只读回核对、绝不重放。
-3. 门禁：现有 G1–G5e e2e + 新增 parity 用例；不得放宽断言。
+3. 门禁：G1–G5e e2e 与 parity 用例验证当前契约；过时预期可同步更新，保留仍有效的行为与安全覆盖，不为消红弱化验证。
 
 **Phase D（契约完整性）**
 - 参照 ZCode 的 `assertRemoteWorkspaceRpcContract`：为 `ProjectFileService/ProjectGitService` 建方法清单，两个 provider 必须实现或显式 unsupported；缺一个单测红。
 - 把 §5 矩阵变成测试数据，防“本地加了功能、远端忘了”。
+- 其中方法/能力一致性与结果语义检查前移到 S、B/C 各片门禁，不能等所有 UI 接完才验证。
 
 ## 7. 开放问题
 
@@ -102,5 +111,5 @@ ZCode 已经把“位置”从 UI 里拿掉了：
 
 - 不改 `shared/` 契约（本 Phase 只新增 renderer 服务层）。
 - 不新增 IPC 通道；写面继续用现有 `files:*` / `remoteHosts:*` / `git:*`。
-- 不降低任何现有断言；Phase A 测试只加行为断言。
+- 测试按任务需求与契约演进，更新依据和覆盖变化可审查；保留仍有效的回归与安全边界，不为消红迁就缺陷。
 - 文件行数预算：`RemoteProjectPanel ≤ 440`；新服务文件保持 < 300 行，超出即拆。

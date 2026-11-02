@@ -248,6 +248,7 @@ const hostPlugins: HostPluginDesktopApi = {
 	install: () => ipcRenderer.invoke(ipcChannels.hostPluginsInstall),
 	installDirectory: () => ipcRenderer.invoke(ipcChannels.hostPluginsInstallDirectory),
 	installGitHub: (url: string) => ipcRenderer.invoke(ipcChannels.hostPluginsInstallGitHub, url),
+	searchMarket: (keyword: string) => ipcRenderer.invoke(ipcChannels.hostPluginsMarketSearch, keyword),
 	scaffold: (input) => ipcRenderer.invoke(ipcChannels.hostPluginsScaffold, input),
 	mount: (input) => ipcRenderer.invoke(ipcChannels.hostPluginsMount, input),
 	update: (instanceId: string, context: HostPluginContext) => ipcRenderer.invoke(ipcChannels.hostPluginsUpdate, instanceId, context),
@@ -264,7 +265,27 @@ const piDeckMcp: PiDeckMcpDesktopApi = {
 	connection: () => ipcRenderer.invoke(ipcChannels.piDeckMcpConnection),
 };
 
+/**
+ * 智能体记忆的设置页视图。返回值统一是 `{ok,value}` / `{ok:false,code}`，
+ * 渲染层据此区分「操作失败（有稳定错误码）」和「IPC 层异常」，不需要解析错误文案。
+ */
+const agentMemory = {
+	status: () => ipcRenderer.invoke(ipcChannels.agentMemoryStatus) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<import("../shared/types/agentMemory").AgentMemoryStatus>>,
+	clearIndex: () => ipcRenderer.invoke(ipcChannels.agentMemoryClearIndex) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<{ removed: number }>>,
+	exportBundle: (selection?: string[] | null) => ipcRenderer.invoke(ipcChannels.agentMemoryExport, { selection: selection ?? null }) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<import("../shared/types/agentMemory").AgentMemoryExportOutcome>>,
+	previewBundle: (filePath?: string) => ipcRenderer.invoke(ipcChannels.agentMemoryPreview, filePath ? { filePath } : {}) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<import("../shared/types/agentMemory").AgentMemoryBundlePeekOutcome>>,
+	importBundle: (options?: import("../shared/types/agentMemory").AgentMemoryImportOptions) => ipcRenderer.invoke(ipcChannels.agentMemoryImport, options ?? {}) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<import("../shared/types/agentMemory").AgentMemoryImportResult>>,
+	list: () => ipcRenderer.invoke(ipcChannels.agentMemoryList) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<import("../shared/types/agentMemory").AgentMemoryEntryList>>,
+	deleteEntry: (input: { target: string; projectId?: string; key: string }) => ipcRenderer.invoke(ipcChannels.agentMemoryDeleteEntry, input) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<{ removed: number }>>,
+	restoreEntry: (input: { target: string; projectId?: string; content: string; category?: string }) => ipcRenderer.invoke(ipcChannels.agentMemoryRestoreEntry, input) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<{ restored: boolean }>>,
+	revealRoot: () => ipcRenderer.invoke(ipcChannels.agentMemoryRevealRoot) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<null>>,
+	standingRead: () => ipcRenderer.invoke(ipcChannels.agentMemoryStandingRead) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<string>>,
+	standingWrite: (input: { content: string }) => ipcRenderer.invoke(ipcChannels.agentMemoryStandingWrite, input) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<{ chars: number }>>,
+	renameDevice: (name: string) => ipcRenderer.invoke(ipcChannels.agentMemoryRenameDevice, name) as Promise<import("../shared/types/agentMemory").AgentMemoryResult<{ id: string; name: string }>>,
+};
+
 const api = {
+	agentMemory,
 	piDeckMcp,
 	hostPlugins,
 	clipboard: {
@@ -1089,6 +1110,11 @@ const api = {
 		remoteSnapshot: (projectId: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteSnapshot, projectId, repo) as Promise<import("../shared/types").GitReadSnapshotResult>,
 		// 显式刷新（同一通道的 force 位）：越过已完成事实缓存；普通读仍可共享缓存。
 		refreshRemoteSnapshot: (projectId: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteSnapshot, projectId, repo, true) as Promise<import("../shared/types").GitReadSnapshotResult>,
+		/**
+		 * 纯事实强刷（facts-only force）：越过事实缓存重读，但**不撤销、不签发**任何授权令牌。
+		 * provider 用它实现零授权副作用的 refresh；旧装配 / Web / 预览模式没有该方法时回落 refreshRemoteSnapshot。
+		 */
+		refreshRemoteGitFacts: (projectId: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteSnapshot, projectId, repo, true, "facts") as Promise<import("../shared/types").GitReadSnapshotResult>,
 		// G5d：项目根下的有界仓库发现（无 token、纯读）
 		remoteRepos: (projectId: string) => ipcRenderer.invoke(ipcChannels.gitRemoteRepos, projectId) as Promise<import("../shared/types").RemoteGitReposResult>,
 		// 分支写面（G3b）：新建分支不移动 HEAD，切换走原生 switch 且冲突即拒（绝不 force）
@@ -2026,4 +2052,9 @@ try {
 	ipcRenderer.send(ipcChannels.preloadError, detail);
 }
 
-export type PiDesktopApi = typeof api;
+/**
+ * 纯事实强刷是渐进能力：真实 preload 提供实现，Web / 预览模式的 PiDesktopApi 桩不需要为一个它们用不到的
+ * 远端通道补桩，因此对外类型里它是可选的（provider 用可选链做特性检测，缺省回落 refreshRemoteSnapshot）。
+ */
+type GitFactsRefreshSlot = { refreshRemoteGitFacts?: (projectId: string, repo?: string) => Promise<import("../shared/types").GitReadSnapshotResult> };
+export type PiDesktopApi = Omit<typeof api, "git"> & { git: Omit<typeof api.git, "refreshRemoteGitFacts"> & GitFactsRefreshSlot };

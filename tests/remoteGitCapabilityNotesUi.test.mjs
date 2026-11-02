@@ -3,6 +3,9 @@
  *
  * 只验证用户能看到什么：纯函数按上下文决定是否显示；组件用 server render 断言文本与 data-testid。
  * 不新增 source-scan 测试（check:test-shape 会拦）。
+ *
+ * G4b 更新：能力条（RemoteGitCapabilityBanner）接手「哪些入口不可用 + 稳定原因」，
+ * 说明条继续只解释只读区块的能力边界；本文件保留全部原断言，并补一条「不渲染假按钮」的锁定。
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -69,4 +72,20 @@ test("多仓说明 key 在中英词典都存在；compareHint 已改为 trees-on
 	}
 	assert.match(zhCN["remoteGit.compareHint"], /merge-base/);
 	assert.match(enUS["remoteGit.compareHint"], /merge-base/);
+});
+
+/**
+ * 能力说明条与 G4b 能力条的分工：说明条解释「这个位置没有哪些只读能力」（文案），
+ * 能力条（RemoteGitCapabilityBanner）解释「这些入口现在不可用及第一条稳定原因」。
+ * 两者都只解释，绝不渲染假按钮或成功分支——这条断言防止未来把说明条改成可点击入口。
+ */
+test("说明条只解释缺失能力：不渲染按钮、链接或成功分支", () => {
+	const renders = [renderNote("history", { historyOpen: true }), renderNote("commit", { commitVisible: true }), renderNote("repoScope", { repoCount: 2 }), renderNote("compare", { compareOpen: true, compareMode: "trees" })];
+	for (const html of renders) {
+		assert.ok(html.length > 0, "the note must render where it applies");
+		assert.doesNotMatch(html, /<button/i);
+		assert.doesNotMatch(html, /role="button"/);
+		assert.doesNotMatch(html, /onClick/);
+		assert.doesNotMatch(html, /data-testid="remote-git-(?:sync-push-confirm|init-confirm|discard-confirm|recovery-drop-confirm)"/);
+	}
 });

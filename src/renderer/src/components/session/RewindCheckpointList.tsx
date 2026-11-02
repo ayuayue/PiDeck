@@ -382,6 +382,8 @@ function CheckpointRow(props: {
 			    display:contents 根不生成盒子；限高滚动样式留在折叠体本身。
 			    open 由「diff 已加载或加载中」推导，与行按钮 onToggleDiff 的取/清语义对齐。 */}
 			<Collapsible open={diffVisible} className="contents">
+				{/* scroll-ok: text —— 折叠体里是单块 diff 原文，没有「行列表」可切；
+				     按行切会拆散 unified diff 的 hunk 对齐与整块复制语义。 */}
 				<CollapsibleContent className="mt-1.5 max-h-40 overflow-auto rounded-md bg-muted/40 px-2 py-1.5 font-mono text-micro leading-4 text-text-secondary">
 					{props.diffLoading ? (
 						<span className="inline-flex items-center gap-1">

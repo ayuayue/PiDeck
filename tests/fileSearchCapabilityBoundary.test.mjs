@@ -21,32 +21,34 @@ function hookHarness() {
 	const host = quickMessageHookHost();
 	const nameCalls = [];
 	const contentCalls = [];
-	const windowStub = {
-		piDesktop: {
-			files: {
-				search: (projectId, query) => {
-					const call = { projectId, query };
-					nameCalls.push(call);
-					return new Promise((resolve, reject) => {
-						call.resolve = resolve;
-						call.reject = reject;
-					});
-				},
-				searchContent: (projectId, query) => {
-					const call = { projectId, query };
-					contentCalls.push(call);
-					return new Promise((resolve, reject) => {
-						call.resolve = resolve;
-						call.reject = reject;
-					});
-				},
+	// Phase B：能力来自 ProjectServices；用同一代假服务模拟切项目/切能力。
+	const makeServices = (contentSearch) => ({
+		projectId: "p1",
+		kind: "local",
+		generation: "local",
+		capabilities: { files: { contentSearch } },
+		files: {
+			searchFiles: (query) => {
+				const call = { projectId: "p1", query };
+				nameCalls.push(call);
+				return new Promise((resolve, reject) => {
+					call.resolve = resolve;
+					call.reject = reject;
+				});
+			},
+			searchContent: (query) => {
+				const call = { projectId: "p1", query };
+				contentCalls.push(call);
+				return new Promise((resolve, reject) => {
+					call.resolve = resolve;
+					call.reject = reject;
+				});
 			},
 		},
-	};
+	});
 
 	const { useFileSearch } = loadTsCommonJs("src/renderer/src/hooks/useFileSearch.ts", {
 		stubs: { react: host.react },
-		globals: { window: windowStub },
 	});
 
 	let state = null;
@@ -54,7 +56,8 @@ function hookHarness() {
 	let currentOptions = {};
 	const render = (next) => {
 		if (next !== undefined) currentOptions = next;
-		state = host.render(() => useFileSearch({ projectId: "p1", ...currentOptions }));
+		const services = makeServices(currentOptions.contentSearchSupported !== false);
+		state = host.render(() => useFileSearch({ services }));
 		return state;
 	};
 	const drive = (query) => {
@@ -79,7 +82,7 @@ test("内容搜索不受支持的位置：只发名字检索，不进入内容 l
 	assert.equal(h.view().isSearching, true);
 	assert.equal(h.view().isContentSearching, false, "不显示内容 spinner");
 	assert.equal(h.view().contentResults, null);
-	h.nameCalls[0].resolve(NAME_RESULT);
+	h.nameCalls[0].resolve({ results: NAME_RESULT });
 	await flush();
 	h.render();
 	assert.equal(h.view().results.length, 1);

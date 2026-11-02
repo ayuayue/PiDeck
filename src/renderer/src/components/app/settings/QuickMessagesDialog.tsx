@@ -133,6 +133,7 @@ export function QuickMessagesDialog(props: { open: boolean; onOpenChange: (open:
 				) : (
 					<div className="flex min-h-0 flex-col gap-2">
 						{/* 列表自己滚：条数再多也只占弹框高度，设置页与弹框都不跟着长高 */}
+						{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 						<div className="flex max-h-[min(52vh,420px)] min-h-0 flex-col gap-1.5 overflow-y-auto pr-1">
 							{rows.length === 0 ? <p className="py-3 text-caption text-muted-foreground">{t("settings.quickMessagesEmpty")}</p> : null}
 							{rows.map((text, index) => (

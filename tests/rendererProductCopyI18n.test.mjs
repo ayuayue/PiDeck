@@ -172,8 +172,9 @@ test("reachable renderer surfaces use i18n without changing their UI structure",
 });
 
 test("renderer async failures log diagnostics and expose stable localized copy", () => {
-	// WSL 配置已迁到连接档案，开发设置 tab 不再有验证分支。
-	assert.doesNotMatch(devTab, /WSL validation failed/);
+	// WSL 验证仍是开发设置的一部分：异常保留诊断日志，UI 只展示稳定本地化文案。
+	assert.match(devTab, /console\.error\("\[Settings\] WSL validation failed", err\)/);
+	assert.match(devTab, /t\("settings\.wsl\.validationFailed"\)/);
 
 	assert.match(skillStore, /console\.error\("\[SkillStore\] Search failed", err\)/);
 	assert.match(skillStore, /setError\(t\("config\.skillStoreImportError"\)\)/);

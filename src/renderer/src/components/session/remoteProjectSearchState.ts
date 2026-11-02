@@ -113,6 +113,44 @@ export function readSearchResponse(raw: unknown): RemoteSearchOutcome {
 	return { kind: "ok", entries, scanned: raw.scanned, truncated: raw.truncated };
 }
 
+/**
+ * 服务层搜索结果 → 搜索状态机的终态。
+ *
+ * Phase B 起名字搜索只消费 `ProjectFileService.searchFiles`（类型已收窄），但仍在这一层重建
+ * 视图对象：外部数据只在边界解析一次，缺字段/坏路径一律 `rejected`，绝不把畸形对象渲染出去。
+ * 服务契约目前只携带 name/relativePath/type，因此这里不再有 bytes 与 "other" 分类（见交接 §8.8 的
+ * S 契约扩展项）；truncated/scanned 原样保留，截断不能冒充完整结果。
+ */
+export function remoteSearchOutcomeFromService(result: { results: readonly { name: string; relativePath: string; type: "file" | "directory" }[]; entries?: readonly { path: string; name: string; kind: "file" | "directory" | "other"; bytes?: number }[]; truncated?: boolean; scanned?: number }): RemoteSearchOutcome {
+	if (!Array.isArray(result.results)) return { kind: "rejected" };
+	if (result.truncated !== undefined && typeof result.truncated !== "boolean") return { kind: "rejected" };
+	if (result.scanned !== undefined && !isCount(result.scanned)) return { kind: "rejected" };
+	const scanned = result.scanned ?? 0;
+	const truncated = result.truncated === true;
+	// 远端 provider 会附带原始 entries（other/bytes）；有就优先用它，避免把未跟随的链接/大小丢掉。
+	if (result.entries !== undefined) {
+		if (!Array.isArray(result.entries)) return { kind: "rejected" };
+		const entries: RemoteSearchEntryView[] = [];
+		for (const item of result.entries) {
+			const view = readSearchEntryView(item);
+			if (view === undefined) return { kind: "rejected" };
+			entries.push(view);
+		}
+		return { kind: "ok", entries, scanned, truncated };
+	}
+	const entries: RemoteSearchEntryView[] = [];
+	for (const item of result.results) {
+		const path = item.relativePath;
+		if (typeof path !== "string" || !isSafeRelativePath(path)) return { kind: "rejected" };
+		const name = item.name;
+		if (typeof name !== "string" || !isEntryName(name)) return { kind: "rejected" };
+		if (path !== name && !path.endsWith("/" + name)) return { kind: "rejected" };
+		if (item.type !== "file" && item.type !== "directory") return { kind: "rejected" };
+		entries.push({ path, name, kind: item.type });
+	}
+	return { kind: "ok", entries, scanned, truncated };
+}
+
 function idleState(): RemoteProjectSearchState {
 	return { phase: "idle", query: "", entries: [], truncated: false, scanned: 0, errorCode: null };
 }

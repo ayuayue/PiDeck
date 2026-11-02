@@ -29,6 +29,7 @@ const { ipcChannels } = loadTsCommonJs("src/shared/ipc.ts");
 const HOST_ID = "b145de8c-6330-45be-8752-f20e8e270150";
 const ROOT_A = "/srv/app";
 const ROOT_B = "/srv/other";
+const ROOT_C = "/srv/third";
 const STATUS_CHANNEL = "remote:project-root-status";
 const STABLE_CODE = /^[A-Z][A-Z0-9_]{2,63}$/;
 const CLIENT = { sshPath: "/usr/bin/ssh", scpPath: "/usr/bin/scp", env: { PATH: "/usr/bin" }, run: async () => ({ exitCode: 0, stdout: "", stderr: "" }) };
@@ -163,10 +164,12 @@ test("a drifted project is needs-attention while its healthy neighbour on the sa
 	// below is what proves the registration used it.
 	if (ipcChannels.remoteProjectRootStatus !== undefined) assert.equal(ipcChannels.remoteProjectRootStatus, STATUS_CHANNEL);
 
-	// Both projects start healthy on the same host.
+	// Both projects start healthy on the same host. In the default single-session mode reading B replaced the
+	// session of A, so A has no live session to answer for: its capabilities are unknown, not B's hello list
+	// (a pooled service that keeps A's session alive may report A's own list here - never a sibling's).
 	assert.equal((await read(ROOT_A)).ok, true);
 	assert.equal((await read(ROOT_B)).ok, true);
-	assert.deepEqual(plain(await rootStatus(handlers, "project-a")), { ok: true, value: { status: "ok", helperCapabilities: FIXTURE_CAPABILITIES } });
+	assert.deepEqual(plain(await rootStatus(handlers, "project-a")), { ok: true, value: { status: "ok" } }, "the session of B root must not answer for project A");
 	assert.deepEqual(plain(await rootStatus(handlers, "project-b")), { ok: true, value: { status: "ok", helperCapabilities: FIXTURE_CAPABILITIES } });
 
 	// Project A's persisted path is re-pointed somewhere else. Switching back to A is where the service
@@ -284,6 +287,60 @@ test("an unresolvable root records its own stable code", async (t) => {
 	const status = await rootStatus(handlers, "project-a");
 	assert.equal(status.value.status, "needs-attention");
 	assert.equal(status.value.code, "SSH_PROJECT_ROOT_UNRESOLVED", "the probe's own code must be what is recorded");
+});
+
+test("root status 按本项目 root 查询能力：兄弟 root 与主机级清单都不能冒充", async () => {
+	const calls = { rootStatus: [], capabilities: [], hostCapabilities: 0, sessions: 0 };
+	// 同主机两个项目各有自己的清单；第三个项目在这台主机上没有会话。
+	const capabilitiesByRoot = new Map([
+		[ROOT_A, ["echo", "root-a"]],
+		[ROOT_B, ["echo", "root-b"]],
+	]);
+	const service = {
+		projectRootStatus: (hostId, root) => {
+			calls.rootStatus.push({ hostId, root });
+			return { status: "ok" };
+		},
+		projectHelperCapabilities: (hostId, root) => {
+			calls.capabilities.push({ hostId, root });
+			return capabilitiesByRoot.get(root);
+		},
+		// 主机级入口仍供真正的主机控制面使用；项目事实查询不得消费它。
+		helperCapabilities: () => {
+			calls.hostCapabilities += 1;
+			return [...FIXTURE_CAPABILITIES, "fs.searchContent"];
+		},
+		withProjectSession: async () => {
+			calls.sessions += 1;
+			throw new Error("a status query must not establish a session");
+		},
+	};
+	const handlers = registerProjectIpc(service, HOST_ID, {
+		"project-a": { kind: "ssh", hostId: HOST_ID, remotePath: ROOT_A },
+		"project-b": { kind: "ssh", hostId: HOST_ID, remotePath: ROOT_B },
+		"project-c": { kind: "ssh", hostId: HOST_ID, remotePath: ROOT_C },
+	});
+	// A 得到的是 A 自己 root 的清单，B 得到 B 的：handler 不会拿兄弟 root 的答案顶上。
+	assert.deepEqual(plain(await rootStatus(handlers, "project-a")), { ok: true, value: { status: "ok", helperCapabilities: ["echo", "root-a"] } });
+	assert.deepEqual(plain(await rootStatus(handlers, "project-b")), { ok: true, value: { status: "ok", helperCapabilities: ["echo", "root-b"] } });
+	assert.deepEqual(
+		calls.capabilities,
+		[
+			{ hostId: HOST_ID, root: ROOT_A },
+			{ hostId: HOST_ID, root: ROOT_B },
+		],
+		"能力查询必须带项目自己的 canonical root",
+	);
+	// 第三个项目在这台主机上没有会话：unknown，不回退主机级清单。
+	assert.deepEqual(plain(await rootStatus(handlers, "project-c")), { ok: true, value: { status: "ok" } });
+	assert.deepEqual(calls.capabilities.at(-1), { hostId: HOST_ID, root: ROOT_C });
+	assert.equal(calls.hostCapabilities, 0, "主机级 helperCapabilities 不是项目事实入口");
+	assert.equal(calls.sessions, 0, "状态查询不得建立会话");
+	assert.deepEqual(calls.rootStatus, [
+		{ hostId: HOST_ID, root: ROOT_A },
+		{ hostId: HOST_ID, root: ROOT_B },
+		{ hostId: HOST_ID, root: ROOT_C },
+	]);
 });
 
 test("unknown, non-ssh and invalid project ids are refused with stable codes", async (t) => {

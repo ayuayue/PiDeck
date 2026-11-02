@@ -6,11 +6,15 @@ import { MarkdownStream } from "./MarkdownStream";
 import { SettledLongAnswer } from "./SettledLongAnswer";
 import { shouldCollapseSettledText } from "./markdownStreamPolicy";
 import { PreviewRail, type PreviewRailItem } from "../motion/preview-rail";
-import { planRailTicks, windowRailItems } from "./timeline/outlineRailTicks";
+import { OUTLINE_WINDOW_HEAD_ID, RAIL_RECENT_TICK_ITEMS, planRailItemSize, planRailTicks, railBuckets, railCapacity } from "./timeline/outlineRailTicks";
+import { SessionOutlinePanel } from "./SessionOutlinePanel";
 import { areOutlineRailItemsEqual, createOutlineItemIndex, resolveVisibleRailActiveId } from "./timeline/outlineRailActive";
 import { useTimelineOutlineActiveId } from "./timeline/useTimelineOutlineActiveId";
 import { useLazyValue } from "../../lib/hooks/use-render-reuse";
 import { useAtomValue } from "jotai";
+import { getComposerEnterIntent } from "../../composerBehavior";
+import { sendShortcutAtom } from "../../atoms/composer-atoms";
+import { useSendShortcutKeyHint } from "../../hooks/settings/useSendShortcut";
 import type { TpsDisplayMode } from "../../../../shared/types/settings";
 import { tpsDisplayModeAtom } from "../../atoms/tps-atoms";
 import { buildTpsDisplay } from "../../utils/tpsDisplay";
@@ -102,7 +106,7 @@ import {
 } from "lucide-react";
 import { getFileIconSeti, getFileIconColor, getFileTypeLabel } from "../../fileIcons";
 import { normalizeSessionPathForCompare } from "../../agentListDisplay";
-import { t } from "../../i18n";
+import { getI18nLocale, t } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { showNotice } from "../../utils/notice";
 import { desktopApi } from "../../desktopApi";
@@ -636,6 +640,7 @@ function VisionBridgeDetail(props: { events: VisionEventsInfo | null; loading: b
 		return <p className="mt-2 text-micro text-muted-foreground">{t("app.visionNoEvents")}</p>;
 	}
 	return (
+		// scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。
 		<div className="mt-2 max-h-56 overflow-y-auto border-t border-border/60 pt-2 text-micro leading-relaxed text-muted-foreground">
 			<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
 				<span className="font-mono text-foreground/80">{batch.model}</span>
@@ -858,6 +863,9 @@ export const UserBubble = memo(function UserBubble(props: {
 	// 返回的函数引用稳定，`CopyMenu` 的 memo 不受影响。
 	const resolveMarkdown = useLazyValue(() => replaceExpandedRefBlocksWithLabels(message.text), [message.text]);
 	const resolvePlain = useLazyValue(() => stripMarkdown(replaceExpandedRefBlocksWithLabels(cleanText)), [cleanText]);
+	// 编辑框的提交键帽跟随「发送快捷键」设置（与下方 onKeyDown 的判定同源）。
+	const sendShortcut = useAtomValue(sendShortcutAtom);
+	const editSendKeyHint = useSendShortcutKeyHint();
 	/** 原地编辑不影响输入框；先提交给确认弹窗。 */
 	const handleSaveEdit = () => {
 		if (!props.onEditMessage) return;
@@ -1042,7 +1050,9 @@ export const UserBubble = memo(function UserBubble(props: {
 						value={editText}
 						onChange={(e) => setEditText(e.target.value)}
 						onKeyDown={(e) => {
-							if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+							// 与 composer 同一套判定：编辑框的提交键跟随「发送快捷键」设置，
+							// 不再写死 Ctrl/⌘+Enter（设置成 Enter 发送却按 Enter 只换行会很割裂）。
+							if (getComposerEnterIntent(e, sendShortcut) === "send") {
 								e.preventDefault();
 								handleSaveEdit();
 							}
@@ -1051,8 +1061,11 @@ export const UserBubble = memo(function UserBubble(props: {
 						autoFocus
 					/>
 					<div className="flex justify-end gap-2">
-						<Button variant="outline" size="sm" className="h-auto border-[var(--color-accent)] px-3 py-1 text-xs text-[var(--color-accent)] shadow-none hover:text-[var(--color-accent)]" onClick={handleSaveEdit}>
-							{t("common.save")}
+						<Button variant="outline" size="sm" className="h-auto border-[var(--color-accent)] px-3 py-1 text-xs text-[var(--color-accent)] shadow-none hover:text-[var(--color-accent)]" onClick={handleSaveEdit} title={`${t("app.send")} ${editSendKeyHint}`}>
+							{t("app.send")}
+							<kbd aria-hidden="true" className="ml-1 rounded border border-current/30 px-1 py-px font-mono text-micro leading-none opacity-70">
+								{editSendKeyHint}
+							</kbd>
 						</Button>
 						<Button variant="outline" size="sm" className="h-auto px-3 py-1 text-xs shadow-none" onClick={() => setEditing(false)}>
 							{t("common.cancel")}
@@ -1315,13 +1328,16 @@ export { MultiSelectModal };
  * hover 出预览卡、点击跳转；工具开关已上收会话 Tab 栏（SessionToolAction），
  * 此处不再承载其他入口；容器沿用 .outline-hover 的定位规则（session-outline-pane 贴右缘，有测试守护）。
  *
- * 条数与取哪几条：**最多 RAIL_TICK_LIMIT（30）条，以当前阅读位置为中心的滑动窗口**
- * （windowRailItems）。底部时是「最新的 30 条」，往上翻窗口跟着上移——用户反馈
- * 「旁边横条太多」后的取舍，见 outlineRailTicks.ts 头部注释（对比 Proma 的桶 /
- * dsh 的全量可滚）。注意副作用：条数超 30 后纵向位置不再代表整段会话的进度。
+ * 条数与取哪几条：刻度只覆盖**最近 RAIL_RECENT_TICK_ITEMS 条**提问，更早的走展开态
+ * 目录面板（SessionOutlinePanel）。段数按**可用高度**算（railCapacity = 高度 / 12，
+ * 没有下限——小窗装不下就少给几段，不许撑出容器）。能一条一根就一条一根：放不下
+ * （几百轮会话）才切成 capacity 段、每段只画第一根（railBuckets）。刻度纵向位置因此
+ * 等于「这一段会话的第几成」，高度恒定——既不会只看得到最新一批（2026-11「显示不全、
+ * 翻回来退化」），也不会随会话增长把屏幕拉满（2026-11「越来越长，装不下」）。段内
+ * 其它提问点一下即跳到段首，没有从刻度上消失。
  *
  * 高度自适应：容器被 .outline-hover 的 top/bottom 双向夹持出可用高度，间距按条数
- * 收缩（14px → 最低 6px，30 × 6 = 180px 足够放下），不做内部滚动。
+ * 收缩（14px → 最低 12px），不做内部滚动。
  * 滚轮落在刻度上会转发给时间线（导轨是滚动视口的兄弟节点，不转发就滚不动）。
  */
 type ConversationOutlineProps = {
@@ -1339,6 +1355,9 @@ function areConversationOutlinePropsEqual(previous: ConversationOutlineProps, ne
 function ConversationOutlineView(props: ConversationOutlineProps) {
 	// The visible timeline checkpoint owns rail feedback; clicking a tick updates it immediately.
 	const [railActiveId, setRailActiveId] = useTimelineOutlineActiveId(props.timelineRef, props.items);
+	// 展开态是临时查看行为，不做持久化：每次开应用都弹一个 288px 面板挡正文，
+	// 用户第一反应是「我没点它」。收起即回到刻度条。
+	const [expanded, setExpanded] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const [availableHeight, setAvailableHeight] = useState(0);
 	// 导轨是时间线滚动视口的兄弟节点，滚轮落在它上面不会带动时间线，必须显式转发。
@@ -1353,6 +1372,12 @@ function ConversationOutlineView(props: ConversationOutlineProps) {
 		const onWheel = (event: WheelEvent) => {
 			const forward = forwardWheelRef.current;
 			if (!forward || event.deltaY === 0) return;
+			// 展开态目录面板是本容器的子节点：它要自己滚。这里无条件 preventDefault 加转发，
+			// 用户在面板里滚 = 动的是背后的时间线、面板纹丝不动，还会以为面板坏了。
+			// 不能用 stopPropagation 修：本监听挂在这层原生节点上，冒泡阶段先于 React 合成事件，
+			// 在 onWheel 里拦已经晚了。只能在源头判归属。
+			// [耦合点] 这个 class 名与 SessionOutlinePanel 根节点同源，那边也写了反向注释。
+			if ((event.target as Element | null)?.closest(".session-outline-panel")) return;
 			event.preventDefault();
 			forward(event.deltaY);
 		};
@@ -1370,16 +1395,48 @@ function ConversationOutlineView(props: ConversationOutlineProps) {
 		observer.observe(element);
 		return () => observer.disconnect();
 	}, []);
-	const outlineItemIndex = useMemo(() => createOutlineItemIndex(props.items), [props.items]);
-	// 滑动窗口：最多 RAIL_TICK_LIMIT 条，以当前阅读位置为中心。底部时就是「最新的 30 条」，
-	// 往上翻窗口跟着上移，更早的提问进入窗口（上滑即显示更多）。
-	// 先按源下标定位 active（窗口前后都用同一套源坐标），再截窗口、再规划间距。
-	const activeSourceIndex = railActiveId === undefined ? -1 : (outlineItemIndex.get(railActiveId) ?? -1);
-	const visibleItems = useMemo(() => windowRailItems(props.items, activeSourceIndex), [props.items, activeSourceIndex]);
+	// 条数与取哪几条：railBuckets —— 段数按可用高度算（railCapacity），**能一条一根就
+	// 一条一根**，放不下才均分、每段只画段首。固定 30 段时一根代表好几条提问，点下去只能
+	// 落到段首，看起来就是「定位到别的地方」（2026-11 真机，85 轮会话）。
+	// 早先还试过「以阅读位置为中心的滑动窗口」：纵向位置不等于会话进度、翻上翻下整列平移。
+	// 先按源下标定位 active（高亮用），再分段、再规划间距。
+	// 顶端占位项要从容量里扣掉一格：PreviewRail 的总高 = 条数 x 间距，而间距有 12px 硬下限。
+	// 不扣的话 h=792（capacity=66）时 67 根 x 12 = 804 > 792，导轨溢出。
+	// 扣除后 total <= floor(h/12)，planRailItemSize 的 12px 下限才一定落得下。
+	const railLimit = useMemo(() => {
+		const capacity = railCapacity(availableHeight);
+		const hasHead = props.items.length > RAIL_RECENT_TICK_ITEMS;
+		return Math.max(1, capacity - (hasHead ? 1 : 0));
+	}, [availableHeight, props.items.length]);
+	// 刻度条只覆盖最近 N 条，更早的交给展开态面板。
+	// 真正的好处不是「变短」，是恢复定位精度：railCapacity 约 66 根（800px 屏），
+	// 147 条 > 66 只能均分、每根代表 2.2 条，点一根只落到段首；60 <= 66 就回到
+	// 「能一条一根就一条一根」—— 那本来就是这段代码的设计意图。
+	// 用固定尾部窗口而不是「跟随阅读位置的滑动窗口」：后者被否决过（纵向位置不代表
+	// 会话第几成、翻上翻下整列平移）。
+	const windowStart = Math.max(0, props.items.length - RAIL_RECENT_TICK_ITEMS);
+	const windowItems = useMemo(() => (windowStart > 0 ? props.items.slice(windowStart) : props.items), [props.items, windowStart]);
+	// 索引表必须与被压缩的集合同源：用全量建表、拿切片后的 plan.items 去查，
+	// resolveVisibleRailActiveId 找不到最近的一根时会**退到边界那根**（它遍历 railItems
+	// 取 distance 最小，越界不返回 undefined）—— 用户在第 21 条，高亮会落到第 88 条。
+	const windowItemIndex = useMemo(() => createOutlineItemIndex(windowItems), [windowItems]);
+	const visibleItems = useMemo(() => railBuckets(windowItems, railLimit), [windowItems, railLimit]);
 	const plan = useMemo(() => planRailTicks(visibleItems, availableHeight), [visibleItems, availableHeight]);
+	// 顶端占位项标出「上面还有更早的」；点击它打开面板，不走消息跳转。
 	const railItems = useMemo<PreviewRailItem[]>(
-		() =>
-			plan.items.map((item) => ({
+		() => [
+			...(windowStart > 0
+				? [
+						{
+							id: OUTLINE_WINDOW_HEAD_ID,
+							label: t("outline.earlier", { count: windowStart }),
+							ariaLabel: t("outline.earlierAria", { count: windowStart }),
+							description: "",
+							muted: true,
+						},
+					]
+				: []),
+			...plan.items.map((item) => ({
 				id: item.id,
 				label: item.title,
 				ariaLabel: item.title,
@@ -1387,31 +1444,70 @@ function ConversationOutlineView(props: ConversationOutlineProps) {
 				// 目录里有、还没加载的检查点：画淡一档，点之前就知道要补页
 				muted: item.pending === true,
 			})),
-		[plan.items],
+		],
+		// getI18nLocale() 进依赖：t() 读模块级 locale 且不订阅变化，切语言后
+		// windowStart 不变，不写进依赖就会让「更早 · 前 N 条」停在旧语言
+		// （同文件 directoryRailItems 已是这个写法，这里曾经漏了）。
+		[plan.items, windowStart, getI18nLocale()],
 	);
-	const visibleRailActiveId = useMemo(() => resolveVisibleRailActiveId(railActiveId, outlineItemIndex, plan.items), [railActiveId, outlineItemIndex, plan.items]);
+	// 间距必须按**实际渲染条数**算，不能直接用 plan.itemSize：planRailTicks 的分母是
+	// visibleItems.length，而 PreviewRail 的导轨总高 = items.length x itemSize，
+	// 占位项让实际条数多 1。h=800、count=66 时 plan 给 12px，67 x 12 = 804 就把容器撑破。
+	// 判据：railItems.length x railItemSize <= availableHeight。
+	const railItemSize = useMemo(() => {
+		const total = railItems.length;
+		return planRailItemSize(total, availableHeight, plan.itemSize);
+	}, [railItems.length, availableHeight, plan.itemSize]);
+	const visibleRailActiveId = useMemo(() => resolveVisibleRailActiveId(railActiveId, windowItemIndex, plan.items), [railActiveId, windowItemIndex, plan.items]);
 
 	return (
 		<div ref={containerRef} className={cn("outline-hover pointer-events-none", props.className)}>
-			{railItems.length > 0 && (
-				<PreviewRail
-					orientation="vertical"
-					items={railItems}
-					label={t("outline.title")}
-					itemSize={plan.itemSize}
-					previewSide="before"
-					activeId={visibleRailActiveId}
-					highlightActive={visibleRailActiveId !== undefined}
-					onItemSelect={(item) => {
-						setRailActiveId(item.id);
-						props.onJump(item.id);
+			{expanded ? (
+				<SessionOutlinePanel
+					items={props.items}
+					activeId={railActiveId}
+					onJump={(id) => {
+						setRailActiveId(id);
+						props.onJump(id);
+						// 面板是浮层，会盖住右边近 300px —— 用户跳过去要看的正是被盖住的那一块。
+						// 收起是「用完就走」，不是「关掉偏好」。
+						setExpanded(false);
 					}}
-					/* 宽度对齐原触发按钮（30px），min-h-0 抵消组件自带的演示高度 */
-					className="pointer-events-auto min-h-0 w-[30px]"
-					railClassName="w-full content-center [&_[data-slot=preview-rail-item]]:w-full [&_[data-slot=preview-rail-item]]:justify-center [&_[data-slot=preview-rail-tick]]:h-0.5 [&_[data-slot=preview-rail-tick]]:w-4 [&_[data-slot=preview-rail-tick]]:origin-center"
-					previewContainerClassName="inset-y-0 right-7 left-auto w-64"
-					previewClassName="[&_[data-slot=preview-rail-card]]:h-20 [&_[data-slot=preview-rail-card]]:overflow-hidden [&_[data-slot=preview-rail-card]]:p-3 [&_[data-slot=preview-rail-title]]:line-clamp-1 [&_[data-slot=preview-rail-title]]:text-xs [&_[data-slot=preview-rail-title]]:leading-4 [&_[data-slot=preview-rail-description]]:line-clamp-1 [&_[data-slot=preview-rail-description]]:text-xs [&_[data-slot=preview-rail-description]]:leading-4"
+					onClose={() => setExpanded(false)}
 				/>
+			) : (
+				<>
+					{/* 展开入口：目标未加载时按钮也会先补页，所以没条目时仍要能点开 */}
+					<button type="button" onClick={() => setExpanded(true)} aria-label={t("outline.expand")} className="pointer-events-auto mb-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground">
+						☰
+					</button>
+					{railItems.length > 0 && (
+						<PreviewRail
+							orientation="vertical"
+							items={railItems}
+							label={t("outline.title")}
+							itemSize={railItemSize}
+							previewSide="before"
+							activeId={visibleRailActiveId}
+							highlightActive={visibleRailActiveId !== undefined}
+							onItemSelect={(item) => {
+								// 顶端占位项不是消息：交给 pendingRailJump 会走 jumpToMessage 查不到节点、
+								// 弹「跳转失败」。它代表「更早的那 N 条」，点了就打开面板。
+								if (item.id === OUTLINE_WINDOW_HEAD_ID) {
+									setExpanded(true);
+									return;
+								}
+								setRailActiveId(item.id);
+								props.onJump(item.id);
+							}}
+							/* 宽度对齐原触发按钮（30px），min-h-0 抵消组件自带的演示高度 */
+							className="pointer-events-auto min-h-0 w-[30px]"
+							railClassName="w-full content-center [&_[data-slot=preview-rail-item]]:w-full [&_[data-slot=preview-rail-item]]:justify-center [&_[data-slot=preview-rail-tick]]:h-0.5 [&_[data-slot=preview-rail-tick]]:w-4 [&_[data-slot=preview-rail-tick]]:origin-center"
+							previewContainerClassName="inset-y-0 right-7 left-auto w-64"
+							previewClassName="[&_[data-slot=preview-rail-card]]:h-20 [&_[data-slot=preview-rail-card]]:overflow-hidden [&_[data-slot=preview-rail-card]]:p-3 [&_[data-slot=preview-rail-title]]:line-clamp-1 [&_[data-slot=preview-rail-title]]:text-xs [&_[data-slot=preview-rail-title]]:leading-4 [&_[data-slot=preview-rail-description]]:line-clamp-1 [&_[data-slot=preview-rail-description]]:text-xs [&_[data-slot=preview-rail-description]]:leading-4"
+						/>
+					)}
+				</>
 			)}
 		</div>
 	);

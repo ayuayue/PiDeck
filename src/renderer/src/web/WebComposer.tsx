@@ -15,7 +15,7 @@
  * - 无会话时禁用；流式期间提交按钮转为停止
  */
 import { useEffect, useRef, useState, type FocusEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { ClipboardList, CornerDownLeft, ImagePlus, ListEnd, X } from "lucide-react";
+import { ArrowUp, ClipboardList, CornerDownLeft, ImagePlus, ListEnd, X } from "lucide-react";
 import { Button } from "@/components/ui-shadcn/button";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -26,7 +26,7 @@ import { WebModelSelector } from "./WebModelSheet";
 import { WebBackendSelector } from "./WebBackendSelector";
 import { WebThinkingSelector } from "./WebThinkingSelector";
 import { WebPromptPicker } from "./WebPromptPicker";
-import { useIsMobileViewport } from "./useIsMobileViewport";
+import { useCoarsePointer, useIsMobileViewport } from "./useIsMobileViewport";
 import { resolveComposerCollapsed } from "./composerCollapse";
 
 /** 单会话图片上限（压缩后每张约 100–300KB，4 张足够多数场景且 body 可控）。 */
@@ -90,6 +90,7 @@ export function WebComposer(props: {
 	const [mode, setMode] = useState<ComposerAgentMode>("normal");
 	const [focused, setFocused] = useState(false);
 	const mobileViewport = useIsMobileViewport();
+	const coarsePointer = useCoarsePointer();
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const composerRef = useRef<HTMLDivElement | null>(null);
 	const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -194,8 +195,10 @@ export function WebComposer(props: {
 				</Button>
 			</span>
 		) : (
-			<Button type="submit" size="sm" className="h-8 shrink-0 whitespace-nowrap pointer-coarse:h-10" data-testid={compact ? "web-composer-send-compact" : "web-composer-send"} disabled={props.disabled || busy || (!draft.trim() && images.length === 0)}>
-				{t("app.send")}
+			// DeepSeek 式提交钮：品牌蓝圆形箭头（视觉），可及性靠 aria-label（文案在 i18n）。
+			// 尺寸保持与同排控件同高（web-mobile-ui 的基线契约），触屏同升到 h-10。
+			<Button type="submit" size="sm" className="web-send h-8 w-8 shrink-0 rounded-full p-0 pointer-coarse:h-10 pointer-coarse:w-10" data-testid={compact ? "web-composer-send-compact" : "web-composer-send"} disabled={props.disabled || busy || (!draft.trim() && images.length === 0)} aria-label={t("app.send")}>
+				<ArrowUp className="size-4" aria-hidden="true" />
 			</Button>
 		);
 
@@ -230,12 +233,19 @@ export function WebComposer(props: {
 									</>
 								) : null}
 							</div>
+							{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 							<ul className="flex max-h-24 shrink-0 flex-col gap-1 overflow-y-auto">
 								{props.queued.map((item) => (
 									<li key={item.id} className="flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-background/70 px-1.5 py-1">
 										<span className="min-w-0 flex-1 truncate text-micro text-foreground">{item.text || t("app.queuedImageMessage")}</span>
 										{item.imageCount > 0 ? <span className="shrink-0 text-micro text-muted-foreground">{t("app.queuedImageCount", { count: item.imageCount })}</span> : null}
-										<button type="button" className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground pointer-coarse:p-2" aria-label={t("web.queueRemove")} title={t("web.queueRemove")} onClick={() => props.onRemoveQueued?.(item.id)}>
+										<button
+											type="button"
+											className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground pointer-coarse:size-9"
+											aria-label={t("web.queueRemove")}
+											title={t("web.queueRemove")}
+											onClick={() => props.onRemoveQueued?.(item.id)}
+										>
 											<X className="size-3" aria-hidden="true" />
 										</button>
 									</li>
@@ -254,7 +264,12 @@ export function WebComposer(props: {
 								{images.map((src, index) => (
 									<span key={`${index}-${src.slice(-24)}`} className="relative inline-block size-14 overflow-hidden rounded-md border border-border">
 										<img src={src} alt={t("web.messageImage")} className="size-full object-cover" />
-										<button type="button" aria-label={t("web.removeImage")} className="absolute top-0.5 right-0.5 rounded-full bg-background/80 p-0.5 text-muted-foreground transition-colors hover:bg-background hover:text-foreground" onClick={() => setImages((prev) => prev.filter((_, position) => position !== index))}>
+										<button
+											type="button"
+											aria-label={t("web.removeImage")}
+											className="absolute top-0.5 right-0.5 flex size-6 items-center justify-center rounded-full bg-background/80 text-muted-foreground transition-colors hover:bg-background hover:text-foreground pointer-coarse:size-7"
+											onClick={() => setImages((prev) => prev.filter((_, position) => position !== index))}
+										>
 											<X className="size-3" aria-hidden="true" />
 										</button>
 									</span>
@@ -277,7 +292,13 @@ export function WebComposer(props: {
 							}}
 							placeholder={placeholder}
 							disabled={props.disabled}
+							/* 触屏虚拟键盘没有 Shift：Enter 一律保持默认换行，发送只走右下角按钮，
+							    避免「发送」与「换行」共用一键造成误发（2026-10 评审 P1）；
+							    桌面物理键盘维持 Enter 发送 / Shift+Enter 换行。enterKeyHint 让
+							    虚拟键盘回车键直接标注行为（enter=换行 / send=发送）。 */
+							enterKeyHint={coarsePointer ? "enter" : "send"}
 							onKeyDown={(event) => {
+								if (coarsePointer) return;
 								if (event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
 									event.preventDefault();
 									submit();
@@ -294,7 +315,7 @@ export function WebComposer(props: {
 						) : null}
 						<div className={cn("grid shrink-0 transition-[grid-template-rows] duration-[240ms] ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none", collapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]")} data-testid="web-composer-tool-rows" inert={collapsed} aria-hidden={collapsed || undefined}>
 							<div className={cn("min-h-0 overflow-hidden transition-opacity duration-[240ms] ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none", collapsed ? "opacity-0" : "opacity-100")}>
-								<div className="flex shrink-0 items-center gap-1.5 border-t border-border/60 px-3 pt-2" data-testid="web-composer-ops-row" onPointerDown={suppressPointerFocus}>
+								<div className="flex shrink-0 items-center gap-1.5 px-3 pt-2" data-testid="web-composer-ops-row" onPointerDown={suppressPointerFocus}>
 									<span className="flex min-w-0 flex-1 flex-nowrap items-center gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none]">
 										<input
 											ref={fileInputRef}
@@ -350,7 +371,7 @@ export function WebComposer(props: {
 											<WebThinkingSelector level={props.thinkingLevel} onChange={props.onThinkingChange} />
 										</>
 									)}
-									<span className="composer-hint ml-auto hidden min-w-0 truncate text-caption text-muted-foreground sm:inline">{mode === "plan" ? t("app.composerPlanStatus") : t("web.composerHint")}</span>
+									<span className="composer-hint ml-auto min-w-0 truncate text-caption text-muted-foreground">{coarsePointer ? t("web.composerHintTouch") : mode === "plan" ? t("app.composerPlanStatus") : t("web.composerHint")}</span>
 								</div>
 							</div>
 						</div>

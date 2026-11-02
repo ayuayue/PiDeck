@@ -58,6 +58,7 @@ import {
 	openSettingsAtom,
 	openAutomationPageAtom,
 	agentProfilesAtom,
+	pendingAgentBindingAtom,
 	activeWorkspacePageAtom,
 	openWorkspacePageIdsAtom,
 	openWorkspacePageAtom,
@@ -69,12 +70,14 @@ import {
 	toggleRpcLoggingAgent,
 } from "./atoms";
 import { type SidebarActions } from "./components/sidebar/SidebarContent";
+import { removeProjectsSequentially, type BatchProjectRemovalOutcome } from "./utils/batchProjectRemoval";
 import { AppSidebar } from "./components/sidebar/AppSidebar";
 import { AppBootstrap } from "./components/app/AppBootstrap";
 import { SettingsFeatureRoot } from "./components/app/SettingsFeatureRoot";
 import { hostPluginCatalogAtom, hostPluginPanelAtom, isHostPluginPagePanel } from "./atoms/host-plugin-atoms";
 import { AutomationPage } from "./components/automation/AutomationPage";
 import { AgentMarketPage } from "./components/agents/AgentMarketPage";
+import { buildAgentSessionTitle } from "./components/agents/agentIconCodec";
 import { FavoritesPage } from "./components/favorites/FavoritesPage";
 import { sortWorkspacePageIds } from "./utils/workspacePageTabs";
 import { SelectionToolHost } from "./components/selectionTool/SelectionToolHost";
@@ -116,9 +119,11 @@ import { useCommandPalette } from "./hooks/app/useCommandPalette";
 import { useSidebarArchiveActions } from "./hooks/sidebar/useSidebarArchiveActions";
 import { useSettingsUpdater } from "./hooks/settings/useSettingsUpdater";
 import { useTpsDisplayMode } from "./hooks/settings/useTpsDisplayMode";
+import { useSendShortcut } from "./hooks/settings/useSendShortcut";
 import { useSessionRunControl } from "./hooks/session/useSessionRunControl";
 import { useCloseSessionTabShortcut } from "./hooks/useCloseSessionTabShortcut";
 import { useProjectFileTreeController } from "./hooks/files/useProjectFileTreeController";
+import { useProjectServices } from "./hooks/useProjectServices";
 import { useSessionDurationTracking } from "./hooks/session/useSessionDurationTracking";
 import { useSessionPromptDispatch } from "./hooks/session/useSessionPromptDispatch";
 
@@ -872,10 +877,16 @@ export function App() {
 
 	// 项目文件树域（展开持久化/自愈/下钻/切换加载）收口到 useProjectFileTreeController。
 	// 文件树是纯本机能力：远端项目没有本机 path，hook 需要据此跳过一切本地 files:list。
+	// 本地树的数据入口同样走 ProjectServices（useProjectServices 支持 Project | undefined：
+	// 没有活动项目时不建 runtime/subscription）。
+	const activeProject = projects.find((project) => project.id === activeProjectId);
+	const localFileTreeProject = activeProject !== undefined && isLocalProject(activeProject) ? activeProject : undefined;
+	const localFileTreeServices = useProjectServices(localFileTreeProject);
 	const isLocalProjectId = useCallback((projectId: string) => projects.some((project) => project.id === projectId && isLocalProject(project)), [projects]);
 	const { expandedDirs, refreshVisibleFiles, restoreExpandedDirs, drillCompactChain, toggleDirectory, collapseAllDirectories } = useProjectFileTreeController({
 		setFiles,
 		activeProjectId,
+		services: localFileTreeServices,
 		isLocalProjectId,
 		compactMiddlePackagesEnabled,
 		agentsRef,
@@ -900,7 +911,6 @@ export function App() {
 	useDshRuntimeMigrationNotice();
 
 	const activeProjectRuntimeCapabilities = useProjectRuntimeCapabilities(activeProjectId);
-	const activeProject = projects.find((project) => project.id === activeProjectId);
 	// 远端项目没有本机路径：本地文件树/Git/会话扫描一律不得对它触发（各 IPC 也已按 locator 拒绝）。
 	const activeProjectIsRemote = activeProject !== undefined && isRemoteProject(activeProject);
 	const overlays = useOverlayActions({ activeProject, appInfo, showToast });
@@ -1009,6 +1019,7 @@ export function App() {
 	// 激活 Agent 数量告警：受设置 agentCountReminderEnabled 控制（默认开启），每个启动周期提示一次
 	useAgentLoadNotice(settings.agentCountReminderEnabled);
 	useTpsDisplayMode(settings.tpsDisplayMode);
+	useSendShortcut(settings.sendShortcut);
 
 	// 架构错包检测：x64 包跑在 Apple Silicon（Rosetta）下时提示换装 arm64 原生包（可永久关闭）
 	useArchMismatchNotice();
@@ -1422,7 +1433,7 @@ export function App() {
 			if (!agent || !project || !trimmed) return false;
 			const backend: AgentBackend = effectiveAgentBackend === "dsh" ? "dsh" : "pi";
 			try {
-				const title = `${agent.icon ? `${agent.icon} ` : ""}${agent.name}`.trim();
+				const title = buildAgentSessionTitle(agent);
 				const session = await api.sessions.createDraft({
 					projectId: project.id,
 					title,
@@ -1455,42 +1466,28 @@ export function App() {
 	);
 
 	/**
-	 * 智能体「使用」：新建会话并绑定该智能体（会话页面复用）。
+	 * 智能体「使用」：带着该智能体回到新会话页（不建会话、不发请求）。
 	 *
-	 * 角色设定不预填、不显示：主进程在绑定的会话每次发送时把 systemPrompt 拼进
-	 * agentMessage（对 UI 隐藏，见 src/main/ipc/sessionIpc.ts 的 resolveSessionAgentInstruction），
-	 * 因此时间线里只有用户自己输入的内容。标题用智能体名，侧栏一眼可认。
+	 * 目录由新会话页输入框上方的项目选择器决定，用户在那里换项目；待绑定智能体记在
+	 * pendingAgentBindingAtom 里，首次发送时由 ensureSessionForSend 建会话并落绑定。
+	 * 角色设定不预填、不显示：主进程在绑定会话的每次发送时把 systemPrompt 拼进 agentMessage
+	 * （对 UI 隐藏，见 src/main/ipc/sessionIpc.ts 的 resolveSessionAgentInstruction）。
+	 * 留在市场页（返回 false）只有一种情形：一个项目都没有，无处可去。
 	 */
 	const handleAgentUseAgent = useCallback(
 		async (agent: AgentProfile): Promise<boolean> => {
-			const project = projects.find((candidate) => candidate.id === activeProjectId) ?? projects[0];
+			const liveProjects = store.get(projectInventoryAtom);
+			const project = liveProjects.find((candidate) => candidate.id === activeProjectId) ?? liveProjects[0];
 			if (!project) {
 				showToast(t("agentMarket.useFailed", { error: t("feedback.ai.noProject") }), 4000, "error");
 				return false;
 			}
-			// 后端只允许 pi/dsh：acp 需要用户先点选外部 CLI，生图/生视频没有提示词 agent 语义。
-			const backend: AgentBackend = (agent.backend ?? effectiveAgentBackend) === "dsh" ? "dsh" : "pi";
-			try {
-				const title = `${agent.icon ? `${agent.icon} ` : ""}${agent.name}`.trim();
-				const session = await api.sessions.createDraft({
-					projectId: project.id,
-					title,
-					backend,
-					...(agent.model && backend === "pi" ? { model: agent.model } : {}),
-				});
-				upsertSession(session);
-				// 先绑定再打开：打开瞬间用户就可能发送，绑定必须已落盘（主进程按会话查角色设定）。
-				await api.agentProfiles.bindSession({ sessionId: session.id, agentId: agent.id });
-				selectSessionCommand(project.id, session.id, false);
-				workspaceChrome.registerOpenSession(session.id, "permanent");
-				showToast(t("agentMarket.usedAgent", { name: agent.name }), 2600);
-				return true;
-			} catch (error) {
-				showToast(t("agentMarket.useFailed", { error: error instanceof Error ? error.message : String(error) }), 5000, "error");
-				return false;
-			}
+			store.set(pendingAgentBindingAtom, agent.id);
+			selectProjectCommand(project.id);
+			showToast(t("agentMarket.useArmed", { name: agent.name }), 2600);
+			return true;
 		},
-		[activeProjectId, effectiveAgentBackend, projects, selectSessionCommand, showToast, upsertSession, workspaceChrome],
+		[activeProjectId, selectProjectCommand, showToast, store],
 	);
 
 	/**
@@ -1592,6 +1589,10 @@ export function App() {
 				throw new Error(t("app.guideBootstrapUnavailable"));
 			}
 			const promotion = (async () => {
+				// 「使用」带来的人：首次发送建会话时落地绑定。必须在选中会话之前完成——
+				// 主进程按绑定在每次发送时拼角色设定，晚一步首条消息就不带人设。
+				const pendingAgentId = store.get(pendingAgentBindingAtom);
+				const pendingAgent = pendingAgentId ? store.get(agentProfilesAtom).find((profile) => profile.id === pendingAgentId) : undefined;
 				// 引导页 picker 无 record 分支把显式选择存进 localStorage；创建时将模型交给
 				// 主进程校验、将思考档位作为启动偏好带入。底栏展示和真实会话创建读取同一份值，
 				// 避免出现「菜单看似切换，首次发送后又回到默认档位」。
@@ -1620,13 +1621,23 @@ export function App() {
 				const acpToolName = draftBackend === "acp" && acpToolId ? store.get(acpToolsAtom).find((candidate) => candidate.id === acpToolId)?.name : undefined;
 				const session = await api.sessions.createDraft({
 					projectId: project.id,
-					title: draftBackend === "dsh" ? `${project.name} DSH` : (acpToolName ?? `${project.name} agent`),
+					title: pendingAgent ? buildAgentSessionTitle(pendingAgent) : draftBackend === "dsh" ? `${project.name} DSH` : (acpToolName ?? `${project.name} agent`),
 					backend: draftBackend,
 					...(draftBackend === "acp" && acpToolId ? { acpToolId } : {}),
 					...(welcomeModel ? (draftBackend === "dsh" ? { model: welcomeModel } : { welcomeModel }) : {}),
 					...(welcomeThinking ? { thinkingLevel: welcomeThinking } : {}),
 				});
 				upsertSession(session);
+				if (pendingAgent) {
+					// 绑定失败不阻断发送（会话已存在，用户还能在输入框上方的提示条里再绑）；
+					// 无论成败都清掉待绑定 id，避免下一轮新会话页继承上一个智能体。
+					try {
+						await api.agentProfiles.bindSession({ sessionId: session.id, agentId: pendingAgent.id });
+					} catch (error) {
+						showToast(t("agentMarket.useFailed", { error: error instanceof Error ? error.message : String(error) }), 5000, "error");
+					}
+					store.set(pendingAgentBindingAtom, null);
+				}
 				// 引导页发送时 useSessionSend 已把 user 消息乐观写入虚拟会话 cache；
 				// 提升时搬到真实会话——否则切页后新会话空态与引导页视觉相同，
 				// 要等 agent 启动、回复流入后页面才「动」，用户误以为发送没生效。
@@ -1650,8 +1661,16 @@ export function App() {
 				guideBootstrapPromotionRef.current = undefined;
 			}
 		},
-		[activeProjectId, projects, promoteSessionComposerState, promoteSessionMessagesCache, selectSessionCommand, upsertSession, workspaceChrome, effectiveAgentBackend, store],
+		[activeProjectId, projects, promoteSessionComposerState, promoteSessionMessagesCache, selectSessionCommand, upsertSession, workspaceChrome, effectiveAgentBackend, store, showToast],
 	);
+
+	// 待绑定智能体只在「新会话页」有意义：一旦进入真实会话（含刚建好的），就丢掉——
+	// 否则用户之后再回到引导页发消息，会把上一轮选过的智能体莫名绑上去。
+	useEffect(() => {
+		if (!currentSessionId) return;
+		if (store.get(pendingAgentBindingAtom) === null) return;
+		store.set(pendingAgentBindingAtom, null);
+	}, [currentSessionId, store]);
 
 	/** 有效文件路径白名单：仅工作区真实存在的 @ 引用渲染为 chip */
 	const validFilePaths = useMemo(() => new Set(flatFiles.map((f) => f.relativePath)), [flatFiles]);
@@ -2225,6 +2244,32 @@ export function App() {
 	}
 
 	/**
+	 * 批量移除项目记录：逐个调用既有 projects.remove IPC（主进程已按项目做 standby 释放、
+	 * 运行中 Agent 拦截与会话索引清理）。失败容错、进度回调与计数在 removeProjectsSequentially，
+	 * 这里只负责接线：每个成功项同步本地侧栏与选中态（见 updateAfterProjectRemoved），
+	 * 全部结束后用最后一次清单刷新；只删记录、不动磁盘目录，已成功的项目不回滚。
+	 */
+	async function removeSidebarProjects(projectIds: readonly string[], onProgress?: (done: number, total: number) => void): Promise<BatchProjectRemovalOutcome> {
+		// 逐项返回的清单按顺序收集：最后一次成功的结果就是当前完整清单（主进程每次重算可见项目）。
+		const remainingLists: Project[][] = [];
+		const outcome = await removeProjectsSequentially(
+			projectIds,
+			async (projectId) => {
+				const next = await api.projects.remove(projectId);
+				remainingLists.push(next);
+				updateAfterProjectRemoved(projectId, next);
+			},
+			onProgress,
+		);
+		const latest = remainingLists[remainingLists.length - 1];
+		if (latest) setProjects(latest);
+		if (outcome.removed + outcome.failed > 0) {
+			showToast(outcome.failed > 0 ? t("app.projectsRemovePartial", { removed: outcome.removed, failed: outcome.failed }) : t("app.projectsRemoved", { count: outcome.removed }), outcome.failed > 0 ? 6000 : 2200);
+		}
+		return outcome;
+	}
+
+	/**
 	 * 修改内置对话区（Chat）的聊天记录保存目录：弹目录选择器 → 主进程写入
 	 * chat-path.json 并广播 projects:changed → 重新扫描该项目会话列表 → toast 提示。
 	 * 侧边栏菜单与聊天区头部按钮共用此实现，避免两处 IPC 调用逻辑漂移。
@@ -2313,6 +2358,7 @@ export function App() {
 				showToast(t("common.copied"));
 			},
 			remove: removeSidebarProject,
+			removeMany: removeSidebarProjects,
 			rename: rename.openProjectRename,
 			changeChatPath,
 		},
@@ -3810,7 +3856,7 @@ export function App() {
 				{/* 命令面板首次引导：它是纯键盘入口，没有任何可点的 affordance，
         不主动提示就等于不存在。看完即写 localStorage，只弹一次。
         空状态（没项目）不弹——那时面板本身也没什么可搜的。 */}
-				{!quickTask.active && <CommandPaletteOnboarding enabled={Boolean(activeProjectId) && !commandPaletteOpen} onTryNow={openCommandPalette} />}
+				{!quickTask.active && <CommandPaletteOnboarding enabled={Boolean(activeProjectId) && !activeProjectHasBusyAgent && !commandPaletteOpen} onTryNow={openCommandPalette} />}
 
 				{/* 数据环境弹窗族：首启数据模式选择（内含导入向导）与目录标记警告，事件/atom 驱动 */}
 				<DataModeChoiceDialog />

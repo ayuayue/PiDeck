@@ -67,6 +67,16 @@
 - **写入是整体替换式**（按 group id upsert），不做字段级合并；保存/删除/排序成功后 store 广播 `session-groups:changed`，桌面帧据此刷新侧栏。插件不是唯一写入方时的竞态由「启动时一次性迁移 + 单写方约定」收敛：v2 插件私有 storage 只在首次启动被导入一次（只读不删），之后一律以宿主 store 为准。
 - 禁止扩成通用存储桥：不得在此通道上夹带任意键值、会话正文、文件路径或设置读写；会话 id 只是引用，失效引用由消费方按 catalog 过滤，宿主不追删、不校验会话存在性。
 
+## 例外八：本地 stdio MCP 记忆服务器（`pideck-agent-memory`）
+
+- 与例外六/七不同：**服务器不在主进程内**，是 `resources/agent-memory/server.mjs`（随包进 `extraResources`）由各后端以 `ELECTRON_RUN_AS_NODE=1 <electron> server.mjs` 拉起，stdin/stdout 跑 MCP 2024-11-05。挂载三处：pi 写 `~/.pi/agent/mcp.json` 的 `pideck-agent-memory` 条目；ACP 经 `AcpHandshakeDeps.mcpServers(cwd)` 填 `session/new` / `session/load` 的 `mcpServers`；DSH 未接。
+- 用途只有两件：读写 Markdown 记忆文件（`<userData>/agent-memory/`），以及检索**已落盘的**会话历史。不提供会话控制、模型调用、任意文件系统、shell、任意 HTTP。
+- 数据真值是 Markdown（用户可编辑），`memory.db` 是可用重建的索引；索引不可用时读写与检索退化为子串匹配，不报错。
+- 采集只读：只读已落盘的响应文件，跳过 system 消息与工具结果，单文件 64MB / 单会话 2000 条上限，不跟随符号链接、不访问网络。
+- 写入必须过注入扫描（不可见字符 / 指令覆盖句式 / 疑似凭据），命中即拒绝；项目作用域缺 `projectId` 时拒绝而不是静默写全局。
+- 禁止扩成通用宿主控制通道：不得暴露会话控制、设置读写、任意 JS/FS/shell。会话来源只能由宿主通过 `PIDECK_AGENT_MEMORY_SOURCES` 注入，服务器不得自行扫描用户目录。
+- 注册失败不影响启动（记忆是增强项）；`mcp.json` 形状不对时跳过写入而不是覆盖用户配置。详见 `docs/agent-memory.md`；守卫测试 `tests/agentMemoryMounts.test.mjs`、`tests/agentMemoryServer.test.mjs`。
+
 ## 侧车通用规则
 
 - 所有随包 sidecar 必须列进 `extraResources`，stdout 只放协议数据（日志走 stderr 或主进程 logger）。

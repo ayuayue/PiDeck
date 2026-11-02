@@ -50,10 +50,13 @@ test("maxHeight accepts null and null disables the inner vertical scroller", () 
 		// 限高样式与滚动类都由 maxHeight===null 派生，null 时不写 maxHeight、不加纵向滚动
 		assert.match(source, /maxHeightStyle\s*=\s*maxHeight\s*===\s*null\s*\?\s*undefined\s*:\s*\{\s*maxHeight\s*\}/);
 		assert.match(source, /style=\{maxHeightStyle\}/);
-		assert.match(source, /className=\{scrollClass\}/);
+		// 容器行上的滚动类由各文件自己断言（见文件末尾）：tool-result 已把类名内联，
+		// 因为守卫只认元素行里的 overflow-* 字面量（docs/virtualization-audit.md 7.4）。
 	}
 	// tool-result：null → 完全不滚动；否则仍保持 scrollbar-hide overflow-y-auto
-	assert.match(toolResultSource(), /scrollClass\s*=\s*maxHeight\s*===\s*null\s*\?\s*"[^"]*"\s*:\s*"scrollbar-hide overflow-y-auto"/);
+	assert.match(toolResultSource(), /className=\{maxHeight === null \? "" : "scrollbar-hide overflow-y-auto"\}/);
 	// file-diff：null → 只保留横向滚动（overflow-y:auto 会让 overflow-x 计算成 auto，宽行会顶出组体）
-	assert.match(fileDiffSource(), /scrollClass\s*=\s*maxHeight\s*===\s*null\s*\?\s*"overflow-x-auto"\s*:\s*"scrollbar-hide overflow-auto"/);
+	// file-diff：null → 只保留横向滚动（overflow-y:auto 会让 overflow-x 计算成 auto，宽行会顶出组体）。
+	// 类名同样内联在容器行上（守卫要看得见字面量）。
+	assert.match(fileDiffSource(), /className=\{maxHeight === null \? "overflow-x-auto" : "scrollbar-hide overflow-auto"\}/);
 });

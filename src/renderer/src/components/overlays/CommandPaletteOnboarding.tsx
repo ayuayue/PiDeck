@@ -15,7 +15,7 @@ const ONBOARDING_SEEN_KEY = "pideck:command-palette-onboarding";
 
 /**
  * 启动后延迟弹出：让首屏渲染与会话恢复先完成，避免引导盖在加载态上。
- * 2.5s 是「首屏基本稳定」与「用户还没进入心流」之间的折中——再晚用户已经在打字了。
+ * 2.5s 让首屏先稳定；到点仍在输入或已有弹窗时继续等待，不抢焦点、不叠层。
  */
 const ONBOARDING_DELAY_MS = 2500;
 
@@ -84,7 +84,20 @@ export function CommandPaletteOnboarding(props: {
 
 	useEffect(() => {
 		if (!props.enabled || hasSeenOnboarding()) return;
-		const timer = window.setTimeout(() => setOpen(true), ONBOARDING_DELAY_MS);
+		let timer: number;
+		const schedule = () => {
+			timer = window.setTimeout(() => {
+				const active = document.activeElement;
+				const isEditing = active instanceof HTMLElement && (active.isContentEditable || active.tagName === "INPUT" || active.tagName === "TEXTAREA");
+				const hasOpenDialog = document.querySelector('[role="dialog"][data-state="open"]') !== null;
+				if (isEditing || hasOpenDialog) {
+					schedule();
+					return;
+				}
+				setOpen(true);
+			}, ONBOARDING_DELAY_MS);
+		};
+		schedule();
 		return () => window.clearTimeout(timer);
 	}, [props.enabled]);
 

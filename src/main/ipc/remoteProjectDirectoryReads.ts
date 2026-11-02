@@ -16,9 +16,19 @@ import { createRemoteWorkspaceReader } from "../remote/RemoteWorkspaceReader";
  * 只投影「确实降级」的状态：路径列表留在主进程，页面只需要原因与计数。
  * 未降级返回 undefined，页面就完全不带这个字段（旧渲染层/旧缓存不会看到新形状）。
  */
-export function projectDirectoryWatchDegradation(status: { degraded?: { reason: ProjectDirectoryWatchDegradation["reason"]; desired: number; covered: number; dropped: number } }): ProjectDirectoryWatchDegradation | undefined {
+export function projectDirectoryWatchDegradation(status: { degraded?: { reason: ProjectDirectoryWatchDegradation["reason"]; desired: number; covered: number; dropped: number; code?: string } }): ProjectDirectoryWatchDegradation | undefined {
 	const degraded = status.degraded;
-	return degraded === undefined ? undefined : { degraded: true, reason: degraded.reason, desired: degraded.desired, covered: degraded.covered, dropped: degraded.dropped };
+	return degraded === undefined
+		? undefined
+		: {
+				degraded: true,
+				reason: degraded.reason,
+				desired: degraded.desired,
+				covered: degraded.covered,
+				dropped: degraded.dropped,
+				// 稳定失败码是「为什么没监听」的唯一可判定答案；成功/预算降级没有码时不伪造。
+				...(degraded.code === undefined ? {} : { code: degraded.code }),
+			};
 }
 
 export function projectDirectoryPage(input: {

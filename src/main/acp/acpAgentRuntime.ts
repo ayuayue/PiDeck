@@ -62,6 +62,11 @@ export type AcpAgentRuntime = {
 	/** 本回合升级强杀原因;sendPrompt catch 依此定向结算(delivery=unknown + 本地化文案)。 */
 	escalatedStop: AcpAbortEscalationReason | null;
 	/**
+	 * 本回合是否见过 agent 侧动静（任何 session/update 通知或挂起审批）。
+	 * 断线重连的判据：有过动静说明工具可能已经开跑，重开会重跑一遍；每回合派发前清空。
+	 */
+	turnSawActivity: boolean;
+	/**
 	 * 本回合收到的 session/update 类型计数（诊断用）：空白回合要靠它区分
 	 * 「事件流真的没来」与「来了但我们没消费」（如 agent 发的是非标准 update 类型）。
 	 * 每回合派发前清空。

@@ -61,7 +61,9 @@ test("main/index.ts：装配 FileIndexService + 注册 quitCleanup + 注入 gett
 test("useFileSearch.ts：内容检索与名字检索同防抖并行，迟到结果按代次丢弃", () => {
 	const source = read("../src/renderer/src/hooks/useFileSearch.ts");
 	assert.match(source, /export\s+const\s+FILE_CONTENT_SEARCH_MIN_QUERY_LENGTH\s*=\s*2/);
-	assert.match(source, /window\.piDesktop\.files\.searchContent\(projectId,\s*trimmed\)/);
+	// Phase B：数据入口改为 ProjectServices，不再直连 window.piDesktop。
+	assert.match(source, /active\.files\.searchContent\(trimmed\)/);
+	assert.match(source, /services\.files\.searchFiles\(trimmed\)|active\.files\.searchFiles\(trimmed\)/);
 	assert.match(source, /seq\s*===\s*requestSeqRef\.current\)\s*setContentResults/);
 	// 查询词太短不扫内容（单字符命中几乎是全库）
 	assert.match(source, /contentEnabled\s*=\s*trimmed\.length\s*>=\s*FILE_CONTENT_SEARCH_MIN_QUERY_LENGTH/);

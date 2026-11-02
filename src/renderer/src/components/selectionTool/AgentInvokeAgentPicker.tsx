@@ -1,6 +1,7 @@
-import { Bot, Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import type { AgentProfile } from "../../../../shared/types/agentProfile";
 import { t } from "../../i18n";
+import { AgentIcon } from "../agents/AgentIcon";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
 
 export type AgentInvokeAgentPickerProps = {
@@ -33,29 +34,22 @@ export function AgentInvokeAgentPicker({ agents, selected, onSelect, compact = f
 							: "inline-flex h-6 max-w-[150px] min-w-0 items-center gap-1 rounded-md border border-border-subtle bg-transparent px-1.5 text-xs text-foreground transition-colors hover:bg-accent-soft disabled:pointer-events-none disabled:opacity-50"
 					}
 				>
-					{selected?.icon ? (
-						<span className="text-sm leading-none" aria-hidden="true">
-							{selected.icon}
-						</span>
-					) : (
-						<Bot size={13} className="shrink-0 text-muted-foreground" aria-hidden="true" />
-					)}
+					<span className="text-sm leading-none" aria-hidden="true">
+						<AgentIcon icon={selected?.icon ?? ""} />
+					</span>
 					<span className="min-w-0 truncate">{selected?.name ?? t("agentInvoke.selectAgent")}</span>
 					<ChevronDown size={12} className="shrink-0 text-muted-foreground" aria-hidden="true" />
 				</button>
 			</DropdownMenuTrigger>
+			{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 			<DropdownMenuContent align="start" sideOffset={6} data-selection-tool-ui className="max-h-[min(320px,50vh)] w-[260px] overflow-y-auto">
 				<DropdownMenuLabel>{t("agentInvoke.agentLabel")}</DropdownMenuLabel>
 				<DropdownMenuSeparator />
 				{agents.map((agent) => (
 					<DropdownMenuItem key={agent.id} onSelect={() => onSelect(agent.id)}>
-						{agent.icon ? (
-							<span className="w-4 shrink-0 text-center text-sm leading-none" aria-hidden="true">
-								{agent.icon}
-							</span>
-						) : (
-							<Bot size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
-						)}
+						<span className="w-4 shrink-0 text-center text-sm leading-none" aria-hidden="true">
+							<AgentIcon icon={agent.icon} />
+						</span>
 						<span className="min-w-0 flex-1 truncate">{agent.name}</span>
 						{agent.id === selected?.id ? <Check size={13} className="shrink-0 text-primary" aria-hidden="true" /> : null}
 					</DropdownMenuItem>

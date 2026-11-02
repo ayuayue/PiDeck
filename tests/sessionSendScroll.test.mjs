@@ -4,7 +4,7 @@ import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
 import { quickMessageHookHost } from "./helpers/quickMessageHookHost.mjs";
 
 /** Run the real controller, geometry and rAF animation without Electron or a model request. */
-function sendScrollHarness({ height = 2800, viewportHeight = 600, latestTop = height - 140, startLoading = false, startWithOptimistic = false, startWithAnchor = false } = {}) {
+function sendScrollHarness({ height = 2800, viewportHeight = 600, latestTop = height - 140, startLoading = false, startWithOptimistic = false, startWithAnchor = false, bottomScrollSucceeds = true, viewerProjection = false } = {}) {
 	const host = quickMessageHookHost();
 	let now = 0;
 	let nextFrame = 0;
@@ -15,8 +15,14 @@ function sendScrollHarness({ height = 2800, viewportHeight = 600, latestTop = he
 	let sendStatus = startWithOptimistic ? { status: "activating", requestId: "optimistic-uuid" } : { status: "idle" };
 	// controller 通过会话级 atom 标记「发送置顶动画进行中」（TurnRow 据此延后新一轮折叠）。
 	let sendPinAnimating = {};
-	let messages = startWithOptimistic ? [{ id: "optimistic-uuid", role: "user", text: "new question", timestamp: 1, agentId: "" }] : startLoading ? [] : [{ id: "history-user", role: "user", text: "history", timestamp: 1, agentId: "agent" }];
-	const rowTops = new Map(startWithOptimistic ? [["optimistic-uuid", latestTop]] : startLoading ? [] : [["history-user", latestTop]]);
+	let messages = startWithOptimistic
+		? [{ id: "optimistic-uuid", role: "user", text: "new question", timestamp: 1, agentId: "" }]
+		: startLoading
+			? []
+			: viewerProjection
+				? [{ id: "_viewer-history-9", role: "user", text: "history", timestamp: 1, agentId: "agent", meta: { entryId: "e9" } }]
+				: [{ id: "history-user", role: "user", text: "history", timestamp: 1, agentId: "agent" }];
+	const rowTops = new Map(startWithOptimistic ? [["optimistic-uuid", latestTop]] : startLoading ? [] : [[viewerProjection ? "_viewer-history-9" : "history-user", latestTop]]);
 	const frames = new Map();
 	const listeners = new Map();
 	const observers = new Set();
@@ -70,7 +76,7 @@ function sendScrollHarness({ height = 2800, viewportHeight = 600, latestTop = he
 		},
 		scrollToBottom() {
 			calls.push("bottom");
-			viewport.scrollTop = viewport.scrollHeight - viewportHeight;
+			if (bottomScrollSucceeds) viewport.scrollTop = viewport.scrollHeight - viewportHeight;
 		},
 	};
 	const atoms = {
@@ -231,6 +237,21 @@ function sendScrollHarness({ height = 2800, viewportHeight = 600, latestTop = he
 			naturalHeight = 400;
 			render();
 		},
+		returnToSourceAtLiveEdge() {
+			sessionId = "s1";
+			messages = [{ id: "history-user", role: "user", text: "history", timestamp: 1, agentId: "agent" }];
+			rowTops.set("history-user", latestTop);
+			naturalHeight = height;
+			top = 0;
+			render();
+		},
+		/** pi 预热激活后运行时全量 flush：磁盘页投影（_viewer-history-X）换成运行时投影
+		 *（<agentId>-history-X），同一 entryId。 */
+		reproject() {
+			messages = messages.map((m) => ({ ...m, id: m.id.replace(/^_viewer-history-/, "agent-history-") }));
+			for (const m of messages) if (!rowTops.has(m.id)) rowTops.set(m.id, rowTops.get(m.id.replace(/^agent-history-/, "_viewer-history-")) ?? latestTop);
+			render();
+		},
 		finish() {
 			for (let i = 0; i < 55; i++) advance();
 		},
@@ -330,6 +351,21 @@ test("session switching disposes send animation and spacer instead of scrolling 
 		h.finish();
 		assert.equal(h.spacer.offsetHeight, 0);
 		assert.equal(h.viewport.scrollTop, 0);
+	} finally {
+		h.unmount();
+	}
+});
+
+test("a failed live-edge restore exposes go-bottom instead of silently losing follow", () => {
+	const h = sendScrollHarness({ bottomScrollSucceeds: false });
+	try {
+		h.switchSession();
+		h.returnToSourceAtLiveEdge();
+		h.advance();
+		h.advance();
+		assert.equal(h.viewport.scrollTop, 0, "the injected restore failure must remain observable");
+		assert.equal(h.controller.autoScroll, false);
+		assert.equal(h.controller.showScrollToBottom, true);
 	} finally {
 		h.unmount();
 	}
@@ -458,6 +494,28 @@ test("短会话不播置顶动画，也不残留标记", () => {
 		h.advance();
 		h.finish();
 		assert.equal(h.sendPinAnimating(), false);
+	} finally {
+		h.unmount();
+	}
+});
+
+test("pi 预热重投影同一 entryId 不触发发送定位，也不打断历史浏览", () => {
+	const h = sendScrollHarness({ viewerProjection: true });
+	try {
+		h.browse();
+		const start = h.viewport.scrollTop;
+		h.reproject();
+		h.advance();
+		h.finish();
+		assert.equal(h.viewport.scrollTop, start, "同一条消息换 id 不得移动视口");
+		assert.equal(h.spacer.offsetHeight, 0, "不得创建发送定位垫片");
+		assert.equal(h.controller.autoScroll, false, "应停留在历史浏览模式，不重锁跟底");
+		assert.ok(!h.sendPinAnimating(), "不得置位发送置顶动画标记");
+		// 重投影后再发一条新消息（无 entryId）：发送定位仍必须正常工作。
+		const id = h.send();
+		h.advance();
+		h.finish();
+		assert.ok(Math.abs(h.rowGap(id) - 24) <= 1, `重投影后的真实发送仍应置顶，实际 ${h.rowGap(id)}px`);
 	} finally {
 		h.unmount();
 	}

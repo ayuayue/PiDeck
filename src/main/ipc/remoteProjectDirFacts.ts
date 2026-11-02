@@ -1,0 +1,229 @@
+/**
+ * 远端项目目录事实与深层订阅（从 remoteProjectIpc.ts 拆出，行为保持）。
+ *
+ * 这里拥有四件事，避免项目域写面文件承载目录缓存细节、再次越过 400 行红线：
+ * 1. 目录事实缓存（按 projectId + 相对目录键，一次装载只发一次远端请求）；
+ * 2. 项目 generation / host / root 归属，以及关闭项目、root 退休、主机断连时的清理；
+ * 3. 深层目录订阅（期望路径集 + 合并窗口 + 预算/失败降级）；
+ * 4. helper 事件 → 只标脏与通知，不装载。
+ *
+ * IPC 层只负责登记与转发；读仍由活跃的消费者决定，一次写不产生远端往返。
+ */
+import { codeOf, opFailFromCode, opOk } from "../../shared/op";
+import type { ProjectDirectoryPageResult } from "../../shared/types/projectFiles";
+import type { RemoteWorkspaceEntry } from "../../shared/types/remoteHost";
+import { createFactCache, type FactCache } from "../remote/RemoteFactCache";
+import type { RemoteFactsHub } from "../remote/RemoteFactsNotifications";
+import { createDeepDirWatch, type DeepDirWatchStatus } from "../remote/RemoteDeepDirWatch";
+import { dirKeysAfterWrite, dirPathsAfterWrite } from "../remote/RemoteDirWatchRegistry";
+import { REMOTE_PROJECT_TRASH_DIR } from "../remote/RemoteProjectEntryCommands";
+import { REMOTE_UPLOAD_TEMP_NAME } from "../remote/RemoteProjectFileUpload";
+import { createRemoteWorkspaceReader } from "../remote/RemoteWorkspaceReader";
+import { projectDirectoryPage, projectDirectoryWatchDegradation } from "./remoteProjectDirectoryReads";
+import { readerPath, sessionPort, type RemoteProjectDirSnapshot } from "./remoteProjectReadIpc";
+import type { RemoteProjectTargetResolver } from "./remoteProjectTarget";
+import { createProjectWatchKeepAlive } from "./remoteProjectWatchKeepAlive";
+
+export type ProjectDirFacts = {
+	/** 失效矩阵：写到的路径 ⇒ 所在目录 + 其父目录（目录自身的元数据也变了）。 */
+	afterWrite(projectId: string, paths: readonly string[]): void;
+	/** 整树失效（远端 Git 写成功/结果未知）：只标脏、不装载。 */
+	invalidateTree(projectId: string): void;
+	/** 公共目录页：与远端 list 共用同一份事实缓存，带 truncated/revision/generation。 */
+	directoryPage(projectId: string, path: string, force?: boolean): Promise<ProjectDirectoryPageResult>;
+	/** 目录事实读（list 与公共目录页共用）。 */
+	readDirSnapshot(projectId: string, relative: string, force: boolean): Promise<RemoteProjectDirSnapshot>;
+	/** helper 变更事件：把 watchId 换回「哪个项目的哪些目录」，只标脏。 */
+	onHelperEvent(entry: { hostId: string; watchId: string; paths: readonly string[]; sessionKey: string }): void;
+	/** 断连：helper 的 watcher 已随会话一起死，登记直接丢弃（不再发退订）。 */
+	onHostDisconnected(hostId: string): void;
+	/** root 会话退休（TTL/LRU/latched/显式）：只清这个 root 的项目代与订阅，不碰兄弟 root。 */
+	onRootRetired(entry: { hostId: string; root: string; sessionKey: string }): void;
+	/** 项目关闭：清期望集合、运行期事实与目录缓存，再成对退订该项目的 watcher。 */
+	closeProject(projectId: string): Promise<void>;
+	/** 立即冲刷深层订阅的合并窗口（测试/诊断）。 */
+	flushDirWatch(): Promise<void>;
+	dirWatchStatus(projectId: string): DeepDirWatchStatus;
+	/** 只读诊断：一次会话内真实发生的目录装载次数。 */
+	dirLoads(): number;
+	/** 进程退出：成对退订后丢弃全部订阅登记。 */
+	dispose(): Promise<void>;
+};
+
+export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectTargetResolver; factsEvents: RemoteFactsHub }): ProjectDirFacts {
+	const factsEvents = input.factsEvents;
+	const projectWatches = createProjectWatchKeepAlive();
+	const watchRegistry = projectWatches.registry;
+	const dirWatch = createDeepDirWatch({ registry: watchRegistry });
+
+	/** projectId → 最近一次装载所用的连接代（通知里带出去，渲染层跨代丢弃缓存）。 */
+	const projectGenerations = new Map<string, string>();
+	/** projectId → hostId（断连时把这一代标成已断开）。 */
+	const projectHosts = new Map<string, string>();
+	/** projectId → 最近一次装载使用的 canonical root（root 退休时精确判断归属，不误伤兄弟 root）。 */
+	const projectRoots = new Map<string, string>();
+	/**
+	 * projectId → 生命周期清理代数（关闭项目/root 退休/主机断连时前进）。
+	 *
+	 * 目录装载是异步的：清理之后，先前发出的读仍可能回来。没有这个代数，它会把
+	 * `projectGenerations` / `projectHosts` / `dirs` 重新写回，下次打开就看到一份「已清理但仍有主」
+	 * 的旧缓存。装载回调在每次写入项目级状态前核对捕获的代数，不一致就按取消收尾。
+	 */
+	const projectEpochs = new Map<string, number>();
+	let disconnectedGeneration = 0;
+	const generationOf = (projectId: string): string => projectGenerations.get(projectId) ?? "";
+	const epochOf = (projectId: string): number => projectEpochs.get(projectId) ?? 0;
+	const bumpEpoch = (projectId: string): void => {
+		projectEpochs.set(projectId, epochOf(projectId) + 1);
+	};
+	/**
+	 * 丢弃一个项目的运行期事实并推进代数：连接代、host/root 归属与目录缓存必须一起清。
+	 * 只删本项目键（前缀含 NUL，不会误命中同前缀项目）；`clearWhere` 同时退休在途装载。
+	 */
+	const forgetProjectFacts = (projectId: string): void => {
+		bumpEpoch(projectId);
+		projectGenerations.delete(projectId);
+		projectHosts.delete(projectId);
+		projectRoots.delete(projectId);
+		dirs.clearWhere((key) => key.startsWith(projectId + "\u0000"));
+	};
+
+	const dirs: FactCache<RemoteWorkspaceEntry[]> = createFactCache<RemoteWorkspaceEntry[]>(async (key) => {
+		const separator = key.indexOf("\u0000");
+		const projectId = key.slice(0, separator);
+		const relative = key.slice(separator + 1);
+		// 代数在解析 target 之前捕获：解析本身也是 await，期间可能已经发生一次关闭。
+		const epoch = epochOf(projectId);
+		const target = await input.projectReadTarget(projectId);
+		if ("code" in target) return opFailFromCode(target.code);
+		const stillCurrent = (): boolean => epochOf(projectId) === epoch;
+		try {
+			const outcome = await target.service.withProjectSession(target.hostId, target.remotePath, async (session) => {
+				// 关闭项目后，先前发出的读仍可能建立/返回会话：在写入任何项目级状态前先核对代数。
+				if (!stillCurrent()) throw new Error("REQUEST_CANCELLED");
+				// 连接代与 host/root 归属记在这里：事件/写面通知带去给渲染层，断连时据此换代。
+				projectGenerations.set(projectId, session.connectionId);
+				// 保活登记：这条会话的 watcher 活着时，池不能因为空闲把它回收掉。
+				projectWatches.noteSession(session.connectionId, { service: target.service, hostId: target.hostId, root: target.remotePath });
+				projectHosts.set(projectId, target.hostId);
+				projectRoots.set(projectId, target.remotePath);
+				const reader = createRemoteWorkspaceReader({ port: sessionPort(session, target.hostId) });
+				const listed = await reader.list(target.hostId, readerPath(relative));
+				// 读期间项目被关闭/root 退休：这份结果不属于任何还活着的项目，不能再登记 watcher。
+				if (!stillCurrent()) throw new Error("REQUEST_CANCELLED");
+				// 读成功后登记订阅：根目录立即 ensure，深层目录进合并窗口；之后 helper 的变更事件才能把
+				// 这个项目的事实标脏。订阅不是读的前置条件（失败只降级到只读刷新）。
+				await dirWatch.record(projectId, target.hostId, relative, session);
+				return listed;
+			});
+			if (!outcome.ok) return opFailFromCode(outcome.code);
+			// 结果 settle 与关闭可能交错：缓存发布前再核对一次，避免旧代写回。
+			if (!stillCurrent()) return opFailFromCode("REQUEST_CANCELLED");
+			// 两类条目不属于用户数据：回收站命名空间（只在根目录隐藏）与本通道自己的上传临时文件。
+			return opOk(outcome.value.entries.filter((entry) => (relative !== "" || entry.name !== REMOTE_PROJECT_TRASH_DIR) && !REMOTE_UPLOAD_TEMP_NAME.test(entry.name)).map((entry) => ({ name: entry.name, kind: entry.kind, ...(entry.bytes === undefined ? {} : { bytes: entry.bytes }) })));
+		} catch (error) {
+			return opFailFromCode(codeOf(error, "REMOTE_PROJECT_READ_FAILED"));
+		}
+	});
+
+	/**
+	 * 目录事实读（list 与公共目录页共用）：暖缓存命中也要逐次重解析当前项目/连接。
+	 *
+	 * `force` 只给显式刷新用：越过已完成缓存；在途同代装载仍可合并。
+	 */
+	async function readDirSnapshot(projectId: string, relative: string, force: boolean): Promise<RemoteProjectDirSnapshot> {
+		// 解析 target 也是一次 await：若关闭项目恰好落在这个窗口，不能等到解析完成再开始一次「新」装载，
+		// 否则装载回调捕获的是清理后的代数，会把已清掉的 generation/缓存写回来。
+		const epoch = epochOf(projectId);
+		const target = await input.projectReadTarget(projectId);
+		if ("code" in target) return { ok: false, code: target.code };
+		if (epochOf(projectId) !== epoch) return { ok: false, code: "REQUEST_CANCELLED" };
+		const key = projectId + "\u0000" + relative;
+		// 只有暖事实才要求活的同代会话；首次打开目录必须允许正常建立会话。
+		const existing = dirs.peek(key);
+		const connection = target.service.projectConnectionFacts(target.hostId, target.remotePath);
+		// 只有「未被标脏」的暖事实才要求活的同代会话。断连 / 失效后的 stale 暖值如果也走这条守卫，
+		// 目录读会被永久挡在 SSH_HOST_NOT_READY（池化重连后无池会话时尤其明显），真实错误码或重连后的
+		// 新会话都进不来。stale 值放行一次装载：仍然不会把旧事实当现状返回，只是把拒绝/重载交给装载层。
+		if (existing !== undefined && existing.ok === true && existing.stale === false && (connection === undefined || connection.state !== "ready")) return { ok: false, code: "SSH_HOST_NOT_READY" };
+		const snapshot = await dirs.read(key, { ...(connection === undefined ? {} : { generation: connection.connectionId }), force });
+		return snapshot.ok ? { ok: true, snapshot } : { ok: false, code: snapshot.code };
+	}
+
+	return {
+		afterWrite(projectId, paths) {
+			// 没有活着的项目代 = 写面在关闭之后才回来：不得为已清理的项目重新制造缓存条目/通知。
+			// 首次目录读尚未落地时也没有代，但那时同样没有可失效的目录事实。
+			if (!projectGenerations.has(projectId)) return;
+			const touched = dirPathsAfterWrite(paths);
+			for (const key of dirKeysAfterWrite(projectId, paths)) dirs.invalidate(key);
+			// 只标脏 + 通知：读仍由活跃的消费者决定（一次写不产生远端往返）。
+			factsEvents.publish({ projectId, generation: generationOf(projectId), scopes: touched.map((path) => ({ kind: "dir" as const, path })) });
+		},
+		invalidateTree(projectId) {
+			if (!projectGenerations.has(projectId)) return;
+			// 前缀匹配 = 本项目全部目录键（项目 id 后紧跟真实的 NUL 分隔符，不会误命中同前缀的其它项目）。
+			dirs.invalidateWhere((key) => key.startsWith(projectId + "\u0000"));
+		},
+		directoryPage: (projectId, path, force = false) =>
+			projectDirectoryPage({
+				projectId,
+				path,
+				force,
+				readDirSnapshot,
+				generationOf,
+				// 监听降级是项目级事实：每个目录页都顺手带出去，渲染层不必再开一条诊断通道。
+				dirWatch: (id) => projectDirectoryWatchDegradation(dirWatch.status(id)),
+			}),
+		readDirSnapshot,
+		onHelperEvent(entry) {
+			const changed = watchRegistry.scopesForEvent(entry.hostId, entry.sessionKey, entry.watchId) ?? [];
+			// 先发通知再标脏：两者都是同步的，读仍由活跃的消费者决定（事件不装载）。
+			for (const scope of changed) factsEvents.publish({ projectId: scope.projectId, generation: generationOf(scope.projectId), scopes: scope.paths.map((path) => ({ kind: "dir" as const, path })) });
+			for (const scope of changed) {
+				for (const path of scope.paths) dirs.invalidate(scope.projectId + "\u0000" + path);
+			}
+		},
+		onHostDisconnected(hostId) {
+			// helper 已死：旧的 watchId 不可能再回来，登记直接丢弃，不发退订。
+			dirWatch.forgetHost(hostId);
+			projectWatches.forgetHost(hostId);
+			// 断连换代：旧代缓存与渲染层持有的快照都不能再被当作“现在”。
+			disconnectedGeneration += 1;
+			for (const [projectId, projectHost] of [...projectHosts]) {
+				if (projectHost !== hostId) continue;
+				projectGenerations.set(projectId, `${hostId}#disconnected#${disconnectedGeneration}`);
+				// 断连时在途的目录读可能在之后才 settle：推进代数并退休在途装载，
+				// 否则它会用旧 helper 的事实覆盖刚写下的“已断开”代。
+				bumpEpoch(projectId);
+				dirs.invalidateWhere((key) => key.startsWith(projectId + "\u0000"));
+			}
+		},
+		onRootRetired(entry) {
+			projectWatches.forgetSession(entry.hostId, entry.sessionKey);
+			// TTL/LRU/latched 都是「这条 root 的 helper 已不在」，不是用户断开主机。使用过这条会话的项目
+			// 必须丢掉旧代与旧目录事实，否则下一次读会拿暖缓存去要求一条不存在的会话（SSH_HOST_NOT_READY），
+			// 永远开不回来。只按 sessionKey+host+root 精确匹配，兄弟 root 保持原样。
+			for (const [projectId, generation] of [...projectGenerations]) {
+				if (generation !== entry.sessionKey) continue;
+				if (projectHosts.get(projectId) !== entry.hostId) continue;
+				if (projectRoots.get(projectId) !== entry.root) continue;
+				forgetProjectFacts(projectId);
+			}
+		},
+		closeProject(projectId) {
+			// 期望集合先丢（迟到的冲刷不得把它订回来），再清运行期事实并成对退订该项目的 watcher。
+			// 清缓存同时退休在途装载：关闭之后才回来的读不得把 generation/host/目录缓存写回。
+			dirWatch.forgetProject(projectId);
+			forgetProjectFacts(projectId);
+			return watchRegistry.closeProject(projectId);
+		},
+		flushDirWatch: () => dirWatch.flush(),
+		dirWatchStatus: (projectId) => dirWatch.status(projectId),
+		dirLoads: () => dirs.stats().loads,
+		dispose() {
+			dirWatch.dispose();
+			return watchRegistry.releaseAll();
+		},
+	};
+}

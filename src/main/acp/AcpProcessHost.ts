@@ -62,6 +62,61 @@ export function spawnAcpProcess(tool: AcpToolConfig, cwd: string, deps: AcpProce
 }
 
 /**
+ * 有序停止的宽限（issue #475）：与 pi 侧 `WINDOWS_PI_GRACEFUL_EXIT_MS` 同值。
+ * 关 stdin 后 CLI 需要时间跑自己的 SessionEnd 钩子/清理，宽限到点仍未退出才整树强杀。
+ */
+export const ACP_GRACEFUL_EXIT_MS = 1_500;
+
+/** 进程已自己结束：exitCode（正常退出）或 signalCode（被信号杀）任一落定即可。 */
+function hasExited(proc: import("node:child_process").ChildProcess): boolean {
+	return proc.exitCode !== null || proc.signalCode !== null;
+}
+
+/** 等进程自己退出，超时返回 false（调用方据此升级为整树强杀）。 */
+function waitForExit(proc: import("node:child_process").ChildProcess, timeoutMs: number): Promise<boolean> {
+	if (hasExited(proc)) return Promise.resolve(true);
+	return new Promise<boolean>((resolve) => {
+		let timer: NodeJS.Timeout;
+		const onExit = (): void => {
+			clearTimeout(timer);
+			resolve(true);
+		};
+		proc.once("exit", onExit);
+		timer = setTimeout(() => {
+			proc.off("exit", onExit);
+			resolve(false);
+		}, timeoutMs);
+	});
+}
+
+/**
+ * 有序停止 ACP CLI（issue #475）：关闭 stdin 给 CLI 一个自己收尾的窗口，宽限到点仍未
+ * 退出再走 killAcpProcessTree。
+ *
+ * 为什么必须关 stdin：`AcpConnection.close()` 只结算本端 pending、并不关管道，老路径
+ * 「conn.close() → 立即 taskkill /T /F」等于 TerminateProcess——CLI 的 SessionEnd 钩子
+ * 与自身清理（外部归档/统计/记忆提炼）全被跳过。pi 侧 #450 早已是「stdin.end() → 宽限
+ * → 强杀」，这里对齐同一条停止语义。
+ *
+ * 非 Windows 保持原样：proc.kill() 发的 SIGTERM 本身就是优雅信号，没有 TerminateProcess
+ * 那种「钩子必被跳过」的问题，不多等一秒。
+ */
+export async function shutdownAcpProcess(proc: import("node:child_process").ChildProcess, options: { platform?: NodeJS.Platform; gracefulExitMs?: number } = {}): Promise<void> {
+	if (hasExited(proc)) return;
+	if ((options.platform ?? process.platform) !== "win32") {
+		killAcpProcessTree(proc);
+		return;
+	}
+	try {
+		proc.stdin?.end();
+	} catch {
+		/* 管道已关闭：照常等宽限/强杀 */
+	}
+	if (await waitForExit(proc, options.gracefulExitMs ?? ACP_GRACEFUL_EXIT_MS)) return;
+	killAcpProcessTree(proc);
+}
+
+/**
  * 进程树击杀。Windows 下 spawn 常经 cmd.exe 垫片（.cmd shim），proc.kill() 只杀垫片
  * 进程，CLI 孙进程成为孤儿（opencode 实测残留）；taskkill /T 按进程树强杀。
  * spawn 失败（taskkill 缺失等）兜底 proc.kill()——必须挂 error 监听（AGENTS 安全约束）。

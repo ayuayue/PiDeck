@@ -72,13 +72,13 @@ function agentsFixture(path) {
 	};
 }
 
-async function withAliasCatalog(run) {
+async function withAliasCatalog(run, extraEntries = () => []) {
 	const dir = await mkdtemp(join(tmpdir(), "pideck-354-runtime-alias-"));
 	try {
 		const filePath = join(dir, "2026-10-07T12-34-56-000Z_abcdef01.jsonl");
 		await writeFile(filePath, '{"type":"session"}\n', "utf8");
 		const catalogPath = join(dir, "session-catalog.json");
-		await writeFile(catalogPath, JSON.stringify({ version: 1, sessions: [mergedEntry(filePath)] }), "utf8");
+		await writeFile(catalogPath, JSON.stringify({ version: 1, sessions: [mergedEntry(filePath), ...extraEntries(filePath)] }), "utf8");
 		const catalog = new SessionCatalog(catalogPath);
 		await catalog.load();
 		await run({ catalog, filePath });
@@ -104,6 +104,42 @@ test("activating a merged session ID addresses the canonical runtime instead of 
 		assert.equal(coordinator.getAgentId("old-id"), canonicalTarget.agentId);
 		assert.equal(coordinator.hasLiveRuntime("old-id"), true);
 	});
+});
+
+test("activation follows a catalog merge that happens while its runtime is starting", async () => {
+	await withAliasCatalog(
+		async ({ catalog, filePath }) => {
+			const harness = agentsFixture(filePath);
+			const create = harness.agents.create;
+			let releaseCreate;
+			let markCreateStarted;
+			const createStarted = new Promise((resolve) => {
+				markCreateStarted = resolve;
+			});
+			const createBarrier = new Promise((resolve) => {
+				releaseCreate = resolve;
+			});
+			harness.agents.create = async (input) => {
+				markCreateStarted();
+				await createBarrier;
+				return create(input);
+			};
+			const coordinator = new SessionRuntimeCoordinator(catalog, harness.agents, harness.send);
+			const activation = coordinator.activateRuntime("old-id");
+			await createStarted;
+			await catalog.attachRuntime({ sessionId: "new-id", filePath, piSessionId: "pi-session" });
+			assert.equal(catalog.resolveSessionId("legacy-id"), "new-id", "the concurrent catalog mutation absorbs the originally targeted record");
+			releaseCreate();
+			const activated = await activation;
+			assert.equal(activated.ok, true, "activation must follow the merged identity instead of failing with SESSION_RUNTIME_CHANGED");
+			assert.equal(activated.value.sessionId, "new-id");
+			assert.equal(activated.value.agentId, "agent-1");
+			assert.equal(coordinator.getTarget("old-id").sessionId, "new-id");
+			assert.equal(coordinator.getTarget("new-id").agentId, "agent-1");
+			assert.equal(harness.calls.create, 1, "following the alias reuses the runtime created for the same session file");
+		},
+		(filePath) => [{ ...mergedEntry(filePath), id: "new-id", filePath: undefined, originKey: undefined, mergedSessionIds: undefined, locator: undefined }],
+	);
 });
 
 test("sending through a merged session ID uses the canonical dispatch lease and shares request deduplication", async () => {

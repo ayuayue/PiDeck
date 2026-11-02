@@ -128,10 +128,12 @@ export function registerRemoteProjectReadIpc(input: { enabled: boolean; projectR
 		const target = await input.projectReadTarget(projectIdValue);
 		if ("code" in target) return opFailFromCode(target.code);
 		const status = target.service.projectRootStatus(target.hostId, target.remotePath);
-		// Optional capability list of the live session (content search is the first consumer). Absent means
+		// Optional capability list of **this project's own root session** (content search is the first consumer).
+		// A sibling root's helper must not answer here: the host can hold a live session for another project,
+		// and advertising its vocabulary would claim a capability this root never negotiated. Absent means
 		// "unknown/unsupported" - a renderer must fall back instead of guessing, which is exactly the old-helper
 		// path. It is a diagnostic read: querying status still opens no session.
-		const capabilities = target.service.helperCapabilities(target.hostId);
+		const capabilities = target.service.projectHelperCapabilities(target.hostId, target.remotePath);
 		return opOk({
 			status: status.status === "ok" ? ("ok" as const) : ("needs-attention" as const),
 			...(status.status === "ok" ? {} : { code: status.code }),

@@ -94,6 +94,18 @@ const SETTINGS_ROW_ANCHORS = [
 	},
 	{
 		tab: "dev",
+		slug: "dev-pi-source",
+		labelKey: "settings.piSource.label",
+		keywords: ["pi 来源", "wsl", "windows 原生", "运行环境", "pi source"],
+	},
+	{
+		tab: "dev",
+		slug: "dev-wsl-config",
+		labelKey: "settings.wsl.distro",
+		keywords: ["wsl", "发行版", "distro", "子系统", "linux 用户", "wsl user"],
+	},
+	{
+		tab: "dev",
 		slug: "dev-pi-installations",
 		// 原「自定义 pi 路径」输入框已并入这块列表（检测到的安装 + 我添加的路径），
 		// 锚点必须跟着走：留在旧 id 上会让命令面板点进去静默无反应。
@@ -336,6 +348,24 @@ const SETTINGS_ROW_ANCHORS = [
 		slug: "common-floating-ball-expand-target",
 		labelKey: "settings.floatingBallExpandTarget",
 		keywords: ["悬浮球展开", "点开目标", "小任务浮窗", "工作台", "expand target", "floating ball"],
+	},
+	{
+		tab: "memory",
+		slug: "memory-enabled",
+		labelKey: "settings.agentMemoryEnabled",
+		keywords: ["智能体记忆", "长期记忆", "memory", "agent memory", "跨后端记忆", "session_search"],
+	},
+	{
+		tab: "memory",
+		slug: "memory-auto-learn",
+		labelKey: "settings.agentMemoryAutoLearn",
+		keywords: ["自动学习", "记忆学习循环", "auto learn", "memory learning", "提炼记忆", "模型提炼"],
+	},
+	{
+		tab: "memory",
+		slug: "memory-usage",
+		labelKey: "settings.agentMemoryUsage",
+		keywords: ["记忆状态", "记忆用量", "索引规模", "导出记忆", "导入记忆", "memory export", "memory import", "清空索引", "设备"],
 	},
 	{
 		tab: "common",

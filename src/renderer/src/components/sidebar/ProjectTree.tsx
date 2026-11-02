@@ -1,5 +1,6 @@
-import { ChevronRight, ChevronsDownUp, Ellipsis, Filter, Folder, FolderOpen, FolderPlus, Pin, Plus, RefreshCw } from "lucide-react";
-import type { DragEvent } from "react";
+import { ChevronRight, ChevronsDownUp, Ellipsis, Filter, Folder, FolderOpen, FolderPlus, Pin, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { useState, type DragEvent } from "react";
+import { BatchRemoveProjectsDialog } from "./BatchRemoveProjectsDialog";
 import { SidebarRemovalList, SidebarRemovalRow } from "./SidebarRemovalRow";
 import { useAtomValue } from "jotai";
 import type { Project, WorktreeEntry } from "../../../../shared/types";
@@ -28,7 +29,7 @@ import { countPendingAsksForSessions, hasPendingAskForSession } from "../../util
 import type { AskRequestEntry } from "../../utils/askUi";
 import { PendingAskBadge } from "./PendingAskBadge";
 import { Button } from "../ui-shadcn/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
 import { cn } from "../../lib/utils";
 
 /** 项目行只做容器：hover 浅灰，永不挂选中底。
@@ -94,6 +95,8 @@ export function ProjectTree(props: {
 	// 冻结标题只在常规模式生效：simple 壳侧栏背景是 --simple-shell-surface，
 	// 遮底用的 bg-sidebar 会在该模式下露出色差，直接不启用。
 	const stickyHeader = !props.simple && props.stickyGroupHeaders === true;
+	// 批量删除项目记录：低频维护动作，弹窗由本组件本地挂载（清单就是这里的 workspaceProjects）。
+	const [batchRemoveOpen, setBatchRemoveOpen] = useState(false);
 	// 远端项目的 root 复核状态：项目级只读查询，随清单刷新的整批结果按代次落地（不在这里渲染）。
 	// 侧栏只读 atom（RemoteProjectStatusTag），所以查询集中一处、不随行重复发。
 	useRemoteProjectRootStatuses(desktopApi, props.controller.catalog.projects);
@@ -471,6 +474,12 @@ export function ProjectTree(props: {
 										<RefreshCw className="size-3.5" aria-hidden="true" />
 										{t("app.projectRefreshAll")}
 									</DropdownMenuItem>
+									{/* 批量删除项目记录：低频维护入口，放分割线下方，与刷新分开避免误点。 */}
+									<DropdownMenuSeparator />
+									<DropdownMenuItem variant="destructive" onSelect={() => setBatchRemoveOpen(true)}>
+										<Trash2 className="size-3.5" aria-hidden="true" />
+										{t("app.projectsBatchRemove")}
+									</DropdownMenuItem>
 								</DropdownMenuContent>
 							</DropdownMenu>
 						</div>
@@ -511,6 +520,7 @@ export function ProjectTree(props: {
 					</div>
 				</div>
 			)}
+			{batchRemoveOpen ? <BatchRemoveProjectsDialog projects={workspaceProjects} onRemove={props.actions.projects.removeMany} onClose={() => setBatchRemoveOpen(false)} /> : null}
 		</section>
 	);
 

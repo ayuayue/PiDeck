@@ -1,10 +1,12 @@
 /**
- * 文件抽屉搜索（useFileSearch）的内容检索状态回归测试。
+ * 文件抽屉搜索（useFileSearch）的内容检索状态回归测试（Phase B：数据入口为 ProjectServices）。
  *
  * 名字检索与内容检索共用一次防抖、同一代次：名字毫秒级先出、内容扫盘后到，
  * 两者必须各自落态且互不覆盖；迟到内容结果按代次丢弃；查询词太短不扫内容；
  * 空查询清两态；内容失败只影响内容分区（名字结果照常可用）。
- * 用确定性 React 宿主（无 DOM）+ window.piDesktop 替身驱动，不依赖真实扫盘。
+ * 能力由 services.capabilities.files.contentSearch 决定；能力关闭时一个内容 IPC 都不发。
+ *
+ * 用确定性 React 宿主（无 DOM）+ 假 ProjectServices 驱动，不依赖真实扫盘。
  *
  * 读状态前必须 h.render()：宿主把 state 快照进返回值，setState 不触发重渲染。
  */
@@ -15,51 +17,51 @@ import { quickMessageHookHost } from "./helpers/quickMessageHookHost.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-function hookHarness() {
+function hookHarness(options = {}) {
 	const host = quickMessageHookHost();
 	const seen = { name: [], content: [] };
-	// 每个调用返回一个可外部结算的 promise，方便制造「内容比名字晚到」与迟到竞态
 	const nameCalls = [];
 	const contentCalls = [];
-	const windowStub = {
-		piDesktop: {
-			files: {
-				search: (projectId, query) => {
-					const call = { projectId, query };
-					nameCalls.push(call);
-					seen.name.push(query);
-					return new Promise((resolve, reject) => {
-						call.resolve = resolve;
-						call.reject = reject;
-					});
-				},
-				searchContent: (projectId, query) => {
-					const call = { projectId, query };
-					contentCalls.push(call);
-					seen.content.push(query);
-					return new Promise((resolve, reject) => {
-						call.resolve = resolve;
-						call.reject = reject;
-					});
-				},
+	const services = {
+		projectId: options.projectId ?? "p1",
+		generation: options.generation ?? "ssh:h:0:g1",
+		kind: "remote",
+		capabilities: { files: { contentSearch: options.contentSearch !== false } },
+		files: {
+			searchFiles: (query) => {
+				const call = { query };
+				nameCalls.push(call);
+				seen.name.push(query);
+				call.promise = new Promise((resolve, reject) => {
+					call.resolve = resolve;
+					call.reject = reject;
+				});
+				return call.promise;
+			},
+			searchContent: (query) => {
+				const call = { query };
+				contentCalls.push(call);
+				seen.content.push(query);
+				call.promise = new Promise((resolve, reject) => {
+					call.resolve = resolve;
+					call.reject = reject;
+				});
+				return call.promise;
 			},
 		},
 	};
 
-	const { useFileSearch } = loadTsCommonJs("src/renderer/src/hooks/useFileSearch.ts", {
-		stubs: { react: host.react },
-		globals: { window: windowStub },
-	});
+	const { useFileSearch } = loadTsCommonJs("src/renderer/src/hooks/useFileSearch.ts", { stubs: { react: host.react } });
 
 	let state = null;
-	const render = (projectId = "p1") => (state = host.render(() => useFileSearch({ projectId })));
+	const render = (nextServices = services) => (state = host.render(() => useFileSearch({ services: nextServices })));
 	/** 直接驱动一次检索（不等防抖）：查询词先落到 state 再调 searchNow */
 	const drive = (query) => {
 		state.setQuery(query);
 		render();
 		state.searchNow(query);
 	};
-	return { host, render, view: () => state, drive, nameCalls, contentCalls, seen };
+	return { host, render, view: () => state, drive, nameCalls, contentCalls, seen, services };
 }
 
 const NAME_RESULT = [{ name: "alpha.ts", path: "D:/p/alpha.ts", relativePath: "alpha.ts", type: "file" }];
@@ -76,7 +78,7 @@ test("名字与内容并行发出、各自落态（内容后到不覆盖名字�
 	assert.equal(h.view().isSearching, true);
 	assert.equal(h.view().isContentSearching, true);
 	// 名字先回
-	h.nameCalls[0].resolve(NAME_RESULT);
+	h.nameCalls[0].resolve({ results: NAME_RESULT });
 	await flush();
 	h.render();
 	assert.equal(h.view().results.length, 1);
@@ -100,6 +102,18 @@ test("查询词短于 2 字符：只发名字检索，不扫内容", async () =>
 	assert.equal(h.seen.content.length, 0);
 	h.render();
 	assert.equal(h.view().contentResults, null);
+	assert.equal(h.view().isContentSearching, false);
+	h.host.unmount();
+});
+
+test("内容检索能力关闭：即使查询词够长也不发内容请求", async () => {
+	const h = hookHarness({ contentSearch: false });
+	h.render();
+	h.drive("alpha");
+	await flush();
+	assert.equal(h.seen.name.length, 1);
+	assert.equal(h.seen.content.length, 0);
+	h.render();
 	assert.equal(h.view().isContentSearching, false);
 	h.host.unmount();
 });
@@ -130,7 +144,7 @@ test("空查询：名字与内容两态一起清空（退出搜索不留残留�
 	h.render();
 	h.drive("alpha");
 	await flush();
-	h.nameCalls[0].resolve(NAME_RESULT);
+	h.nameCalls[0].resolve({ results: NAME_RESULT });
 	h.contentCalls[0].resolve(CONTENT_RESULT);
 	await flush();
 	h.render();
@@ -152,7 +166,7 @@ test("内容检索失败：内容分区回落 null，名字结果不受影响", 
 	h.render();
 	h.drive("alpha");
 	await flush();
-	h.nameCalls[0].resolve(NAME_RESULT);
+	h.nameCalls[0].resolve({ results: NAME_RESULT });
 	h.contentCalls[0].reject(new Error("sidecar down"));
 	await flush();
 	h.render();
@@ -171,11 +185,39 @@ test("防抖路径：输入后 250ms 才同时发起名字与内容检索", asyn
 	await new Promise((resolve) => setTimeout(resolve, 320));
 	assert.equal(h.seen.name.length, 1);
 	assert.equal(h.seen.content.length, 1);
-	h.nameCalls[0].resolve(NAME_RESULT);
+	h.nameCalls[0].resolve({ results: NAME_RESULT });
 	h.contentCalls[0].resolve(CONTENT_RESULT);
 	await flush();
 	h.render();
 	assert.equal(h.view().results.length, 1);
 	assert.equal(h.view().contentResults.hits.length, 1);
+	h.host.unmount();
+});
+
+test("连接换代：在途结果作废，迟到回包不能写回新代状态", async () => {
+	const h = hookHarness({ generation: "g1" });
+	h.render();
+	h.drive("alpha");
+	await flush();
+	assert.equal(h.nameCalls.length, 1);
+	// 同一组件收到新代 services：reset 立即作废旧代在途请求。
+	const next = { ...h.services, generation: "g2" };
+	h.render(next);
+	assert.equal(h.view().results, null);
+	h.nameCalls[0].resolve({ results: NAME_RESULT });
+	h.contentCalls[0].resolve(CONTENT_RESULT);
+	await flush();
+	h.render(next);
+	assert.equal(h.view().results, null, "旧代回包不得写回新代状态");
+	assert.equal(h.view().contentResults, null);
+	// 新代查询照常工作。
+	h.view().setQuery("beta");
+	h.render(next);
+	h.view().searchNow("beta");
+	await flush();
+	h.nameCalls[1].resolve({ results: [{ ...NAME_RESULT[0], name: "beta.ts", relativePath: "beta.ts" }] });
+	await flush();
+	h.render(next);
+	assert.equal(h.view().results[0].name, "beta.ts");
 	h.host.unmount();
 });

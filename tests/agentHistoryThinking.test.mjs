@@ -416,17 +416,18 @@ test("offline Session Viewer reads complete historical turns only", async () => 
 	}
 	try {
 		await writeFile(sessionPath, `${lines.join("\n")}\n`, "utf8");
+		// 单页上限已从 10 放开到 60，所以请求 25 轮就拿 25 轮（50 条消息），不再被夹到 10。
 		const newest = await manager.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 25);
 		assert.equal(newest.total, 150);
-		assert.equal(newest.messages.length, 20);
-		assert.equal(newest.messages[0].text, "fixture message 130");
+		assert.equal(newest.messages.length, 50);
+		assert.equal(newest.messages[0].text, "fixture message 100");
 		assert.equal(newest.messages.at(-1).text, "fixture message 149");
-		assert.equal(newest.nextBefore, 130);
+		assert.equal(newest.nextBefore, 100);
 
 		const older = await manager.readSessionDisplayTurnPage(sessionPath, "viewer", newest.nextBefore ?? undefined, 25);
-		assert.equal(older.messages[0].text, "fixture message 110");
-		assert.equal(older.messages.at(-1).text, "fixture message 129");
-		assert.equal(older.nextBefore, 110);
+		assert.equal(older.messages[0].text, "fixture message 50");
+		assert.equal(older.messages.at(-1).text, "fixture message 99");
+		assert.equal(older.nextBefore, 50);
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}

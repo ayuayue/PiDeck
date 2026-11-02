@@ -107,7 +107,11 @@ export function DirectoryImportSourceList(props: DirectoryImportSourceListProps)
 		<div className="flex h-full min-h-0 flex-col">
 			{/* 弹窗在 bodyOverride 场景下去掉了 body 内边距，所以搜索行与列表由本组件自己管（搜索行全宽贴着工具栏）。 */}
 			<ImportListSearchRow value={filter.query} onChange={filter.setQuery} matchedCount={filter.matched.length} totalCount={filter.totalCount} placeholder={t("directoryImport.searchPlaceholder")} label={t("directoryImport.searchLabel")} />
-			<div ref={scrollRef} className="min-h-0 flex-1 overflow-auto p-3">
+			<div
+				/* scroll-ok: bounded —— 行数由 useLazyListWindow 钳住（首屏一页、触底再加一批），且触底哨兵是真实 DOM 节点：虚拟化会把哨兵移出文档，增量加载失效。 */
+				ref={scrollRef}
+				className="min-h-0 flex-1 overflow-auto p-3"
+			>
 				{filter.isSearching && filter.matched.length === 0 ? (
 					<ImportListNoMatch query={filter.query} totalCount={filter.totalCount} onClear={filter.clearQuery} />
 				) : (

@@ -702,6 +702,12 @@ export class SessionRuntimeCoordinator {
 		const canonicalSessionId = this.canonicalSessionId(sessionId);
 		try {
 			const tab = await this.ensureRuntime(canonicalSessionId);
+			const resolvedSessionId = this.canonicalSessionId(canonicalSessionId);
+			if (resolvedSessionId !== canonicalSessionId) {
+				// attach/扫描可在 activate 的 await 期间归并 catalog 身份。沿别名再走既有激活链路，
+				// 让 bind 把同一 agent 从旧 ID 迁到现存 ID，而不是留下旧绑定后报 SESSION_RUNTIME_CHANGED。
+				return this.activateRuntime(resolvedSessionId);
+			}
 			void this.logger?.info("session-runtime", "Runtime activated", {
 				sessionId: canonicalSessionId,
 				agentId: tab.id,

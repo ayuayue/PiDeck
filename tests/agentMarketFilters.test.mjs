@@ -135,6 +135,10 @@ test("未配置默认智能体时同样回退内置翻译；没有内置时退�
 const PAGE_PATH = "src/renderer/src/components/agents/AgentMarketPage.tsx";
 const WORKSPACE_PATH = "src/renderer/src/components/agents/market/AgentMarketWorkspace.tsx";
 const EDITOR_PATH = "src/renderer/src/components/agents/market/AgentMarketEditor.tsx";
+const USE_TARGET_MENU_PATH = "src/renderer/src/components/agents/market/AgentUseTargetMenu.tsx";
+const PROMPT_BAR_PATH = "src/renderer/src/components/session/SessionAgentPromptBar.tsx";
+const CARD_PATH = "src/renderer/src/components/agents/market/AgentMarketCard.tsx";
+const DETAIL_PATH = "src/renderer/src/components/agents/market/AgentMarketDetail.tsx";
 
 test("页面是会话 Tab 栏里的专属页面 Tab（非弹窗）：覆盖会话列、失活隐藏、Esc/关闭按钮收起", () => {
 	const page = readSource(PAGE_PATH);
@@ -166,18 +170,73 @@ test("侧栏入口进入市场页面（page atom），不再打开弹框", () =>
 	assert.ok(!/agentMarketModalOpenAtom|openAgentMarketModalAtom/.test(dock), "侧栏入口不得再触达旧弹框 atom");
 });
 
-test("「使用」交给页面宿主 onUseAgent 建绑定会话：成功收起页面，失败留在市场；不再派发一次性调用面板", () => {
+test("「使用」交给页面宿主 onUseAgent：带着智能体打开新会话页，成功收起页面、失败留在市场", () => {
 	const workspace = readSource(WORKSPACE_PATH);
-	assert.match(workspace, /onUseAgent:\s*\(agent:\s*AgentProfile\)\s*=>\s*Promise<boolean>/, "工作区必须接收页面宿主注入的 onUseAgent");
+	assert.match(workspace, /onUseAgent:\s*\(agent:\s*AgentProfile\)\s*=>\s*Promise<boolean>/, "工作区接收页面宿主注入的 onUseAgent（只带智能体，目录由新会话页决定）");
 	assert.match(workspace, /if\s*\(await\s+onUseAgent\(agent\)\)\s*onClose\(\)/, "使用成功才收起市场，失败要留在市场");
 	assert.ok(!/openAgentInvokePanelAtom|openInvokePanel/.test(workspace), "市场不得再打开划词调用面板");
 	const page = readSource(PAGE_PATH);
-	assert.match(page, /<AgentMarketWorkspace\s+initialEditingAgentId=\{editingAgentId\}\s+onUseAgent=\{onUseAgent\}/, "页面宿主必须把 onUseAgent 透传给工作区");
+	assert.match(page, /<AgentMarketWorkspace\s+initialEditingAgentId=\{editingAgentId\}/, "页面宿主必须把 initialEditingAgentId 透传给工作区");
+	assert.match(page, /onUseAgent=\{onUseAgent\}/, "页面宿主必须透传 onUseAgent");
+	assert.match(page, /onClose=\{close\}/, "页面宿主必须透传 onClose");
 });
 
 test("「使用」入口带绑定会话语义提示（useInSessionHint）", () => {
 	for (const path of ["src/renderer/src/components/agents/market/AgentMarketCard.tsx", "src/renderer/src/components/agents/market/AgentMarketDetail.tsx"]) {
 		assert.match(readSource(path), /agentMarket\.useInSessionHint/, path + " 必须展示「使用=绑定会话、角色设定隐藏」的提示");
+	}
+});
+
+test("「使用」直达新会话页：只记待绑定 id + 回引导页，目录在输入框上方换，首次发送才建会话并绑定", () => {
+	// 不再有目录选择菜单（项目多时下拉难用，且真实会话的项目条是只读的）。
+	assert.equal(existsSync(USE_TARGET_MENU_PATH), false, "目录选择菜单已删除（改用新会话页的项目选择器）");
+	for (const path of [CARD_PATH, DETAIL_PATH]) {
+		assert.ok(!/AgentUseTargetMenu/.test(readSource(path)), path + " 的「使用」不得再弹目录菜单");
+		assert.match(readSource(path), /onClick=\{\(\) => onUse\(agent\)\}/, path + " 的「使用」必须直接带智能体跳转");
+	}
+	const app = readSource("src/renderer/src/App.tsx");
+	// 宿主：只 arm 待绑定 id + 切到该项目的引导页，不发请求、不建草稿。
+	assert.match(app, /handleAgentUseAgent = useCallback\(\s*async \(agent: AgentProfile\): Promise<boolean>/, "宿主不得再要求选定目录（目录来自新会话页）");
+	assert.match(app, /store\.set\(pendingAgentBindingAtom, agent\.id\)/, "「使用」只记待绑定智能体 id");
+	assert.match(app, /selectProjectCommand\(project\.id\)/, "「使用」要落到该项目的引导页（新会话页）");
+	assert.match(app, /const liveProjects = store\.get\(projectInventoryAtom\)/, "判定能否跳转前现取项目清单（可能刚增删过）");
+	// 首次发送：建会话时落绑定，并在选中会话前完成（主进程按绑定拼角色设定）。
+	const promo = app.slice(app.indexOf("const ensureSessionForSend"));
+	assert.match(promo, /const pendingAgentId = store\.get\(pendingAgentBindingAtom\)/, "建会话时必须读待绑定 id");
+	assert.match(promo, /api\.agentProfiles\.bindSession\(\{ sessionId: session\.id, agentId: pendingAgent\.id \}\)/, "建会话时落绑定");
+	assert.ok(promo.indexOf("bindSession") < promo.indexOf("selectSessionCommand(project.id, session.id"), "绑定必须早于选中会话（否则首条消息不带人设）");
+	assert.match(promo, /store\.set\(pendingAgentBindingAtom, null\)/, "落地后要清掉待绑定 id");
+	assert.match(app, /title: pendingAgent \? buildAgentSessionTitle\(pendingAgent\)/, "绑定了智能体的会话用智能体名做标题");
+	// 真实会话里提示条只反映落盘绑定：离开引导页就丢掉待绑定 id。
+	assert.match(app, /if \(!currentSessionId\) return;[\s\S]{0,120}store\.set\(pendingAgentBindingAtom, null\)/, "进入真实会话后要清空待绑定 id");
+	// 新会话页的提示条：待绑定形态 + 取消。
+	const bar = readSource(PROMPT_BAR_PATH);
+	assert.match(bar, /pendingAgentBindingAtom/, "提示条要读待绑定智能体");
+	assert.match(bar, /sessionId === GUIDE_BOOTSTRAP_SESSION_ID/, "待绑定形态只在引导页（新会话页）显示");
+	assert.match(bar, /agentPromptBar\.pendingCancel/, "待绑定提示条要能取消");
+	assert.match(bar, /agentPromptBar\.pendingLabel/, "待绑定状态要有可辨认的标签（否则用户以为已绑定）");
+});
+
+test("编辑器图标字段走图标选择器（内置组件图标 + emoji），不再需要手输字符", () => {
+	const editor = readSource(EDITOR_PATH);
+	assert.match(editor, /<AgentIconPicker[\s\S]*?value=\{icon\}[\s\S]*?onChange=\{setIcon\}/, "图标字段必须是选择器且双向绑定 icon 状态");
+	assert.ok(!editor.includes('id="agent-market-icon"'), "不得再有手输图标的 Input（id=agent-market-icon）");
+	const picker = readSource("src/renderer/src/components/agents/market/AgentIconPicker.tsx");
+	assert.match(picker, /AGENT_ICON_LUCIDE_IDS/, "选择器必须提供内置组件图标网格");
+	assert.match(picker, /agentIconValueOfLucide/, "选中内置图标要写成 lucide:<id> 编码");
+	assert.match(picker, /agentMarket\.iconPickerClear/, "要能把图标清回机器人默认");
+	// 所有渲染点都走同一个 AgentIcon，否则 emoji 之外的新编码会在某处显示成原文（lucide:bot）。
+	for (const path of [
+		CARD_PATH,
+		DETAIL_PATH,
+		"src/renderer/src/components/session/SessionAgentPromptBar.tsx",
+		"src/renderer/src/components/selectionTool/AgentInvokeAgentPicker.tsx",
+		"src/renderer/src/components/selectionTool/SelectionToolHost.tsx",
+		"src/renderer/src/components/app/settings/SelectionToolSettingsSection.tsx",
+	]) {
+		const source = readSource(path);
+		assert.match(source, /<AgentIcon\b/, path + " 必须用 AgentIcon 渲染图标");
+		assert.ok(!/>\s*\{[^}]*\.icon\b/.test(source), path + " 不得把 icon 字符串当文本直接渲染");
 	}
 });
 

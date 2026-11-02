@@ -10,6 +10,8 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const { createRemoteControlClient } = loadTsCommonJs("src/main/remote/RemoteControlClient.ts");
 const { createRemoteHostOperationLock } = loadTsCommonJs("src/main/remote/RemoteHostOperationLock.ts");
 const { createRemoteGitViewController } = loadTsCommonJs("src/renderer/src/utils/remoteGitViewState.ts");
+const { createRemoteGitPanelApi } = loadTsCommonJs("src/renderer/src/utils/remoteGitPanelApi.ts");
+const { createProjectServices } = loadTsCommonJs("src/renderer/src/services/projectServices.ts");
 const { ipcChannels } = loadTsCommonJs("src/shared/ipc.ts");
 const hostId = "01234567-89ab-4def-8123-456789abcdef",
 	projectId = "owned-project";
@@ -56,6 +58,41 @@ function harness(t) {
 	});
 	f.child.stdin.on("error", () => client.closeConnection());
 	f.child.on("exit", () => client.closeConnection());
+	// The renderer's only data entry is the project-bound service: tokens stay inside the provider (minted per write),
+	// so this harness exercises the same path production uses instead of the retired token-carrying preload shape.
+	const remoteProject = { id: projectId, name: "owned", createdAt: 0, lastOpenedAt: 0, locator: { kind: "ssh", hostId, remotePath: f.root } };
+	const facts = {
+		projectId,
+		locationKind: "ssh",
+		hostId,
+		hostState: "ready",
+		rootStatus: "ok",
+		trust: "approved",
+		generation: "ssh:" + hostId + ":1",
+		helperCapabilities: [
+			"git.status",
+			"git.workspaceDiff",
+			"git.log",
+			"git.repos",
+			"git.refs",
+			"git.compare",
+			"git.stage",
+			"git.unstage",
+			"git.commit",
+			"git.discard",
+			"git.createBranch",
+			"git.switchBranch",
+			"git.fetch",
+			"git.push",
+			"git.pull",
+			"git.syncFacts",
+			"git.init",
+			"git.recoveryList",
+			"git.recoveryRestore",
+			"git.recoveryDrop",
+			"fs.watch",
+		],
+	};
 	const session = {
 		hostRevision: 7,
 		request: (method, params, requestOptions) => {
@@ -91,13 +128,39 @@ function harness(t) {
 		sender.isDestroyed = () => false;
 		const event = { sender },
 			states = [];
-		const api = {
-			cancelRemoteReads: async (project) => handlers.get(ipcChannels.gitRemoteCancelReads)(event, project),
-			remoteSnapshot: (project) => handlers.get(ipcChannels.gitRemoteSnapshot)(event, project),
-			workspaceFileDiff: (project, group, file) => port.workspaceDiff(event, project, group, file),
-			mutateRemoteIndex: (project, operation, group, file, token) => handlers.get(ipcChannels.gitRemoteMutateIndex)(event, project, operation, group, file, token),
+		// One fake preload namespace wired to the real IPC handlers, so the provider's token brokerage is the thing
+		// under test (the controller itself never receives a token).
+		const gitApi = {
+			status: (project, repo) => port.status(event, project, repo),
+			remoteSnapshot: (project, repo) => handlers.get(ipcChannels.gitRemoteSnapshot)(event, project, repo),
+			refreshRemoteSnapshot: (project, repo) => handlers.get(ipcChannels.gitRemoteSnapshot)(event, project, repo, true),
+			remoteRefs: (project, repo) => handlers.get(ipcChannels.gitRemoteRefs)(event, project, repo),
+			syncFacts: (project, repo) => handlers.get(ipcChannels.gitRemoteSyncFacts)(event, project, repo),
+			historyPage: (project, options, repo) => port.historyPage(event, project, options, repo),
+			repositoryList: (project) => port.repositoryListing(event, project),
+			compareRefs: (project, base, head, repo) => port.compareRefs(event, project, base, head, repo),
+			refs: (project, repo) => port.refs(event, project, repo),
+			workspaceFileDiff: (project, group, file, repo) => port.workspaceDiff(event, project, group, file, repo),
+			mutateRemoteIndex: (project, operation, group, file, token, repo) => handlers.get(ipcChannels.gitRemoteMutateIndex)(event, project, operation, group, file, token, repo),
+			commitRemote: (project, message, token, repo) => handlers.get(ipcChannels.gitRemoteCommit)(event, project, message, token, repo),
+			discardRemote: (project, group, file, token, repo) => handlers.get(ipcChannels.gitRemoteDiscard)(event, project, group, file, token, repo),
+			createRemoteBranch: (project, name, token, repo) => handlers.get(ipcChannels.gitRemoteCreateBranch)(event, project, name, token, repo),
+			switchRemoteBranch: (project, name, token, repo) => handlers.get(ipcChannels.gitRemoteSwitchBranch)(event, project, name, token, repo),
+			fetchRemote: (project, remote, token, repo) => handlers.get(ipcChannels.gitRemoteFetch)(event, project, remote, token, repo),
+			pushRemote: (project, remote, branch, token, repo) => handlers.get(ipcChannels.gitRemotePush)(event, project, remote, branch, token, repo),
+			pullRemote: (project, remote, branch, token, repo) => handlers.get(ipcChannels.gitRemotePull)(event, project, remote, branch, token, repo),
+			recoveryList: (project, repo) => handlers.get(ipcChannels.gitRemoteRecoveryList)(event, project, repo),
+			recoveryRestore: (project, ref, oid, path, token, repo) => handlers.get(ipcChannels.gitRemoteRecoveryRestore)(event, project, ref, oid, path, token, repo),
+			recoveryDrop: (project, ref, oid, token, repo) => handlers.get(ipcChannels.gitRemoteRecoveryDrop)(event, project, ref, oid, token, repo),
+			initRemote: (project) => handlers.get(ipcChannels.gitRemoteInit)(event, project),
+			remoteCommitDetail: (project, oid, repo) => handlers.get(ipcChannels.gitRemoteCommitDetail)(event, project, oid, repo),
+			remoteRefFileDiff: (project, base, head, file, repo) => handlers.get(ipcChannels.gitRemoteRefFileDiff)(event, project, base, head, file, repo),
+			cancelRemoteReads: (project) => handlers.get(ipcChannels.gitRemoteCancelReads)(event, project),
 		};
-		const controller = createRemoteGitViewController(projectId, "owned-identity", api, (state) => states.push(state));
+		const services = createProjectServices(remoteProject, { files: {}, remoteHosts: {}, remoteTrust: {}, git: gitApi }, { facts });
+		// Three frozen-contract gaps still use the existing preload channels; here they are the same registered handlers.
+		const api = createRemoteGitPanelApi(services, { git: gitApi });
+		const controller = createRemoteGitViewController(projectId, "owned-identity", api, (state) => states.push(state), "", services.capabilities.git);
 		t.after(() => {
 			controller.dispose();
 			sender.emit("destroyed");
@@ -228,7 +291,7 @@ test("bounded 24-cycle renderer/IPC/helper/native-Git soak keeps FDs, listeners,
 	for (let cycle = 0; cycle < 24; cycle++) {
 		await view.controller.mutate("stage", "workingTree", target);
 		assert.equal(view.current().errorCode, undefined, `stage cycle ${cycle}`);
-		const diff = await view.api.workspaceFileDiff(projectId, "index", target);
+		const diff = await view.api.workspaceFileDiff("index", target);
 		assert.equal(diff.originalContent, "BASE\n");
 		assert.equal(diff.modifiedContent, "WORKING\r\n");
 		await view.controller.mutate("unstage", "index", target);

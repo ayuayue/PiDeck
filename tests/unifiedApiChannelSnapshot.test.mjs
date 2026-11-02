@@ -39,15 +39,19 @@
  *   它们会让「三处同步」失去机械可判定性，因此迁到 agentEventTags；ipcChannels 711 → 703，
  *   agents 前缀因 agentsRpcLog 仍在而保留（前缀数仍 89）。新增 npm run check:ipc-wiring 守两张表边界。
  * 刷新方式：entries.map(([k, v]) => `${k}=${v}`).sort().join("\n") 重算 sha256，写入 CHANNEL_DIGEST。
+ * 2026-11-01 刷新（+1）：hostPluginsMarketSearch（插件市场双源搜索：官方收录 registry.json +
+ *   GitHub topic:pideck-plugin 全网搜索，提交 3a64d7aeb），host-plugins 前缀早已存在，前缀数仍 91。
+ * 2026-11-02 合并刷新（+12）：agentMemory 域入场，agent-memory 前缀同时进入清单；
+ *   ipcChannels 796→808，前缀 91→92。通道总数仍与 check:ipc-wiring 一致。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const CHANNEL_TOTAL = 795;
-const PREFIX_COUNT = 91;
-const CHANNEL_DIGEST = "c98877becbd97dc1c3dd59705a699b46583b1cc3df17c905aac2de92cbe7887b";
+const CHANNEL_TOTAL = 808;
+const PREFIX_COUNT = 92;
+const CHANNEL_DIGEST = "4b4d564a2e19ae725d91d7d1db8673367c1bafefe6c7d201af39dcca63d7099e";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";
@@ -66,11 +70,11 @@ const sortedDigest = (pairs) => {
 	return createHash("sha256").update(serialized, "utf8").digest("hex");
 };
 
-test("F3-1 通道常量总数 === 795", () => {
+test("F3-1 通道常量总数 === 808", () => {
 	assert.equal(entries.length, CHANNEL_TOTAL);
 });
 
-test("F3-2 通道值唯一数 === 795（无重复通道字符串）", () => {
+test("F3-2 通道值唯一数 === 808（无重复通道字符串）", () => {
 	assert.equal(new Set(values).size, CHANNEL_TOTAL);
 });
 
@@ -99,7 +103,7 @@ test("F3-5 锚点抽查：appGetChannel=update:get-channel、sessionsRuntimeEven
 	assert.equal(countByPrefix("enhance"), 3);
 });
 
-test("F3-6 通道域前缀种类 === 91", () => {
+test("F3-6 通道域前缀种类 === 92", () => {
 	const prefixes = new Set(values.map((value) => value.split(":")[0]));
 	assert.equal(prefixes.size, PREFIX_COUNT);
 });

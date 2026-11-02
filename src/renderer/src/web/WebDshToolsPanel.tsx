@@ -51,6 +51,8 @@ export function WebDshToolsPanel(props: { sessionId: string; onClose: () => void
 				</div>
 				{/* 内容限高：静态插件清单可达 30+ 条，不限高会把 Dialog 撑出屏幕；
 					60vh 上限 + 内部滚动，tab 条与关闭钮始终在视口内。 */}
+				{/* scroll-ok: transient —— 面板里四个互斥 tab 共用一个限高滚动窗，一次只渲染一个 tab 的行，
+				     行数组在各自 tab 子组件内；面板关掉即卸载，行的生命周期等于一次查看。 */}
 				<div className="max-h-[60vh] min-h-40 overflow-y-auto">
 					{tab === "goals" && <GoalsTab sessionId={props.sessionId} />}
 					{tab === "subagents" && <SubagentsTab sessionId={props.sessionId} />}
@@ -189,6 +191,8 @@ function SubagentsTab(props: { sessionId: string }) {
 						{entry.kind === "diagnostic" && <span className="inline-flex shrink-0 items-center rounded bg-warning/15 px-1.5 py-0.5 text-micro text-warning">{t("dshTools.subagentDiagnostic")}</span>}
 					</button>
 					{expanded === entry.id && (
+						// scroll-ok: nested —— 行内展开的次级滚动窗（子代理 transcript），嵌在外层列表行
+						// 与折叠高度动画里：两层虚拟化各自 measure，展开/折叠会互相触发重测。
 						<div className="flex max-h-56 flex-col gap-1 overflow-y-auto border-t border-border-subtle p-2">
 							{transcriptLoading && (
 								<p className="flex items-center gap-1.5 px-1 text-caption text-text-tertiary">

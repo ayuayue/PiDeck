@@ -315,6 +315,11 @@ Gitmoji 对应关系：
 	// 自动审批默认开启；显式保存的 false 仍由 load 合并保留，不自动改写用户选择。
 	cuaAutoApprove: true,
 
+	// 智能体记忆默认关闭：关闭时不注册 MCP 服务器、不改动 pi 的 mcp.json（与现状一致）
+	agentMemoryEnabled: false,
+	// 学习循环默认关：开启后回合结算会调模型提炼记忆，属于会花钱的行为。
+	agentMemoryAutoLearnEnabled: false,
+
 	// 浏览器 Agent 默认关闭：不注册 browser_* 工具，端点是否监听取决于 CUA 是否已开启。
 	// 开启后写动作默认免审批（与 CUA 一致）；关闭自动审批后逐次确认。
 	browserAgentEnabled: false,
@@ -505,6 +510,16 @@ function sanitizeOptionalPositiveIntMs(value: unknown): number | undefined {
 	return n > 0 && n <= 86_400_000 ? n : undefined;
 }
 
+/**
+ * ACP 自动重试次数清洗：0 在这里是有意义的值（= 只试一次），因此不能复用
+ * sanitizeOptionalPositiveIntMs；上限 10（与 acpTurnRetry.ACP_TURN_RETRY_LIMITS 同口径）。
+ */
+function sanitizeOptionalRetryCount(value: unknown): number | undefined {
+	if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+	const n = Math.floor(value);
+	return n >= 0 && n <= 10 ? n : undefined;
+}
+
 export class SettingsStore {
 	private readonly filePath = desktopSettingsPath();
 	private settings: AppSettings = { ...defaultSettings };
@@ -630,6 +645,10 @@ export class SettingsStore {
 			// ACP 超时口径：正整数毫秒；脏值丢弃回落代码内默认（stall 90s / turn 10min）。
 			this.settings.acpPromptStallTimeoutMs = sanitizeOptionalPositiveIntMs(parsed.acpPromptStallTimeoutMs);
 			this.settings.acpPromptTurnTimeoutMs = sanitizeOptionalPositiveIntMs(parsed.acpPromptTurnTimeoutMs);
+			// ACP 自动重试：开关只认真布尔（缺省 undefined = 默认开启），次数/退避为整数，脏值丢弃回落默认。
+			this.settings.acpTurnRetryEnabled = typeof parsed.acpTurnRetryEnabled === "boolean" ? parsed.acpTurnRetryEnabled : undefined;
+			this.settings.acpTurnRetryMaxRetries = sanitizeOptionalRetryCount(parsed.acpTurnRetryMaxRetries);
+			this.settings.acpTurnRetryBaseDelayMs = sanitizeOptionalPositiveIntMs(parsed.acpTurnRetryBaseDelayMs);
 			// 字号档位：旧版本有 5 档（多一个已删除的 "default"），现在是 4 档（紧凑/中/大/特大）。
 			// 刻意不做迁移框架——任何不在档位表里的历史值一律落到「中」，旧用户升级后自动等于中；
 			// 同时避免 UI 下拉读到未知值时变成空白。null（跟随全局）必须保持 null。
@@ -870,6 +889,13 @@ export class SettingsStore {
 		if ("browserAgentAutoApprove" in safePatch && typeof safePatch.browserAgentAutoApprove !== "boolean") {
 			delete safePatch.browserAgentAutoApprove;
 		}
+		// 智能体记忆开关来自渲染层，入参不可信：只接受布尔值，非法值保持原设置。
+		if ("agentMemoryEnabled" in safePatch && typeof safePatch.agentMemoryEnabled !== "boolean") {
+			delete safePatch.agentMemoryEnabled;
+		}
+		if ("agentMemoryAutoLearnEnabled" in safePatch && typeof safePatch.agentMemoryAutoLearnEnabled !== "boolean") {
+			delete safePatch.agentMemoryAutoLearnEnabled;
+		}
 		if ("navigationMode" in safePatch && safePatch.navigationMode !== "tabs" && safePatch.navigationMode !== "simple") {
 			delete safePatch.navigationMode;
 		}
@@ -940,6 +966,20 @@ export class SettingsStore {
 			const turnMs = sanitizeOptionalPositiveIntMs(safePatch.acpPromptTurnTimeoutMs);
 			if (turnMs === undefined) delete safePatch.acpPromptTurnTimeoutMs;
 			else safePatch.acpPromptTurnTimeoutMs = turnMs;
+		}
+		// ACP 自动重试：开关只收布尔；次数与退避是正整数毫秒，脏值删键（保留既有合法值/回落默认）。
+		if ("acpTurnRetryEnabled" in safePatch && typeof safePatch.acpTurnRetryEnabled !== "boolean") {
+			delete safePatch.acpTurnRetryEnabled;
+		}
+		if ("acpTurnRetryMaxRetries" in safePatch) {
+			const retries = sanitizeOptionalRetryCount(safePatch.acpTurnRetryMaxRetries);
+			if (retries === undefined) delete safePatch.acpTurnRetryMaxRetries;
+			else safePatch.acpTurnRetryMaxRetries = retries;
+		}
+		if ("acpTurnRetryBaseDelayMs" in safePatch) {
+			const baseDelayMs = sanitizeOptionalPositiveIntMs(safePatch.acpTurnRetryBaseDelayMs);
+			if (baseDelayMs === undefined) delete safePatch.acpTurnRetryBaseDelayMs;
+			else safePatch.acpTurnRetryBaseDelayMs = baseDelayMs;
 		}
 		// 更新源 id 归一化（只允许已知枚举：atomgit 第一首选，github 官方；其余历史值回退 atomgit）。
 		if ("updateSource" in safePatch) {

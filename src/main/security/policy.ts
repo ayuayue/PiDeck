@@ -7,6 +7,7 @@
  * 扩展负责「按快照拦截」。
  */
 
+import { isAbsolute, resolve } from "node:path";
 import type { SecurityAction, SecurityConfig, SecurityLevelConfig, SecurityPolicySnapshot } from "../../shared/types/security";
 
 /**
@@ -140,6 +141,42 @@ export function matchBashDenyPatterns(level: SecurityLevelConfig, command: strin
 		}
 	}
 	return null;
+}
+
+/**
+ * 用户主动读取一个路径的动作求值（Web 端「项目外文件预览」的用户意图门）。
+ *
+ * 规则顺序与渲染层 `renderer/src/utils/externalPathAccessPolicy.ts` 的 evaluateExternalPathAccess
+ * 一致：denyDirs 黑名单 > 敏感文件 > 目录边界。唯一差异在边界外的动作——工具越界调用是
+ * deny，而用户自己点开一个文件更适合降级成 ask（确认后可只读预览）。
+ *
+ * `reason` 作为 Web 应答字段原样下发，渲染层按同一组 reason 选文案（externalPathAccessReasonKey）。
+ */
+export type UserReadAccessReason = "security-disabled" | "unrestricted" | "allowed-dir" | "deny-dir" | "sensitive" | "outside-allowed-dirs" | "policy-unavailable";
+
+export type UserReadAccessVerdict = { access: SecurityAction; reason: UserReadAccessReason };
+
+export function evaluateUserReadAccess(config: SecurityConfig | null, input: { filePath: string; cwd?: string; projectRoot?: string; sessionId?: string }): UserReadAccessVerdict {
+	const dirBase = input.cwd ?? input.projectRoot;
+	// 配置里的相对目录按工作目录展开（与渲染层 resolveConfigDir 同语义）；没有基准目录时按原样比较
+	const resolveDir = (dir: string) => (isAbsolute(dir) || !dirBase ? dir : resolve(dirBase, dir));
+
+	// 配置拉取失败不猜：问用户（不静默放行绕过严格等级，也不静默拒绝回到老问题）
+	if (!config) return { access: "ask", reason: "policy-unavailable" };
+	if (!config.enabled) return { access: "allow", reason: "security-disabled" };
+	const level = resolveLevel(config, resolveLevelId(config, input.sessionId));
+	if (!level) return { access: "ask", reason: "policy-unavailable" };
+
+	// 黑名单优先于一切 allow 判定
+	if (level.denyDirs.some((dir) => isPathInsideRoot(input.filePath, resolveDir(dir)))) return { access: "deny", reason: "deny-dir" };
+	if (level.protectSensitivePaths && matchesSensitivePath(input.filePath)) return { access: "ask", reason: "sensitive" };
+	if (level.pathPolicy === "unrestricted") return { access: "allow", reason: "unrestricted" };
+
+	// workspace / custom：工作目录与项目根始终算允许，custom 额外允许自定义目录
+	if (input.cwd && isPathInsideRoot(input.filePath, input.cwd)) return { access: "allow", reason: "allowed-dir" };
+	if (input.projectRoot && isPathInsideRoot(input.filePath, input.projectRoot)) return { access: "allow", reason: "allowed-dir" };
+	if (level.pathPolicy === "custom" && level.customAllowDirs.some((dir) => isPathInsideRoot(input.filePath, resolveDir(dir)))) return { access: "allow", reason: "allowed-dir" };
+	return { access: "ask", reason: "outside-allowed-dirs" };
 }
 
 /** 求值文件访问动作：黑名单/敏感文件 → deny；目录边界外的写 → deny（读放行降级）；否则 null 由工具动作决定 */

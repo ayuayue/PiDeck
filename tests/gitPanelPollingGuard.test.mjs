@@ -107,7 +107,7 @@ test("push/pull 成功后不再额外等一轮 fetch 计数", () => {
 });
 
 test("非 git 仓库 / 未安装 git 时暂停 5 分钟 fetch 远程轮询", () => {
-	const fetchBlock = block("// 5 分钟 fetch 远程", "const toggleResource");
+	const fetchBlock = policy.slice(policy.indexOf("// 5 分钟 fetch 远程"));
 	assert.match(fetchBlock, /if \(!enabled \|\| !capabilities\.autoFetch \|\| suspended \|\| !hasFetch \|\| !hasAheadBehind\) return;/);
 	assert.match(fetchBlock, /\[enabled, capabilities\.autoFetch, suspended, hasFetch, hasAheadBehind, refreshAheadBehind, isMutating\]/);
 	// 首次挂载不得立刻 fetch：必须等 refresh 成功确认仓库，否则非 git 项目一打开就 git fetch 报 128
@@ -123,7 +123,7 @@ test("外层 render 重新包装 Git API 时不触发额外 status 刷新", () =
 });
 
 test("远程角标计时器不依赖每次 render 新建的 fetch 包装器", () => {
-	const fetchBlock = block("// 5 分钟 fetch 远程", "const toggleResource");
+	const fetchBlock = policy.slice(policy.indexOf("// 5 分钟 fetch 远程"));
 	assert.match(fetchBlock, /hasFetch/);
 	assert.doesNotMatch(fetchBlock, /props\.fetch, props\.aheadBehind/);
 });

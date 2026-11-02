@@ -25,8 +25,16 @@ test("the sync bar keeps a constant height and never reloads its facts from an e
 		const body = effect.split("\n\t},")[0];
 		assert.ok(!body.includes("loadSync"), `an effect must not load the sync facts (found in: ${body.split("\n")[1]?.trim() ?? ""})`);
 	}
-	// One facts load per project identity, sequenced after the first repository read.
+	// One facts load per project identity, sequenced after the first repository read and only when read is available.
 	const hook = readFileSync(HOOK, "utf8");
+	assert.match(hook, /if \(!capabilities\.read\) reads\.setUnavailable\(blocked\["git\.read"\]/, "the initial read is a capability decision");
 	assert.match(hook, /void reads\.refresh\(\)\.then\(\(\) => reads\.loadSync\(\)\)/, "the facts are read once, after the first read");
 	assert.equal(hook.split("reads.loadSync()").length - 1, 1, "the hook must not load the facts from anywhere else");
+});
+test("同步完成文案只陈述服务层确认的事实（不虚构 up-to-date / 快进 / 合并 / 引用计数）", () => {
+	const source = readFileSync(PANEL, "utf8");
+	assert.match(source, /remoteGit\.syncFetchedDone/);
+	assert.match(source, /remoteGit\.syncPushedDone/);
+	assert.match(source, /remoteGit\.syncPulledDone/);
+	assert.doesNotMatch(source, /"up-to-date"|fast-forward|updated:/, "the panel must not invent sync details the service does not report");
 });

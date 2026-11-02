@@ -68,6 +68,21 @@ export function useSettingsUpdater({ showToast, piUpdate, onSettingsApplied, onP
 				if ("startupWindowMode" in patch) {
 					notice = t("app.settingsSaved"); // 启动窗口需重启
 				}
+				// WSL/Windows pi 源切换：重新检测 pi 环境、刷新项目和会话列表
+				if ("wslEnabled" in patch || "wslDistro" in patch || "wslUser" in patch) {
+					// WSL 配置变更后强制重探：否则切换 distro/用户名仍会命中旧的 wsl:// 绝对路径缓存
+					void api.pi
+						.check(true)
+						.then((next) => piUpdate.setPiStatus(next))
+						.catch(() => undefined);
+					void api.projects
+						.list()
+						.then((projects) => onProjectsChanged(projects))
+						.catch(() => undefined);
+					if (activeProjectId) {
+						void refreshProjectSessions(activeProjectId, true).catch(() => undefined);
+					}
+				}
 				showToast(notice);
 				return true;
 			} catch (error) {

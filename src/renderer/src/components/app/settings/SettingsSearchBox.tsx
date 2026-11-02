@@ -112,6 +112,7 @@ export function SettingsSearchBox(props: { entries: readonly SettingsSearchEntry
 				<p className="min-w-0 flex-1 truncate text-caption text-muted-foreground max-[820px]:hidden">{t("settings.searchHint")}</p>
 			</div>
 			{searching ? (
+				// scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。
 				<ul ref={listRef} id="settings-search-results" role="listbox" aria-label={t("settings.searchPlaceholder")} className="min-h-0 flex-1 overflow-y-auto p-2">
 					{hits.length === 0 ? <li className="px-3 py-6 text-center text-caption text-muted-foreground">{t("settings.searchNoResult")}</li> : null}
 					{hits.map((hit, index) => (

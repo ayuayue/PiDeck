@@ -10,7 +10,7 @@ import { materializeRemoteHelperArtifacts } from "./helpers/remoteHelperArtifact
 import { fileSymlinkSkipReason } from "./helpers/symlinkSupport.mjs";
 
 /*
- * Wire proof for bounded remote content search (fs.searchContent, helper build 1.25.0).
+ * Wire proof for bounded remote content search (fs.searchContent, helper build 1.25.1).
  *
  * The contract half pins the method, every ceiling and the result shape against the frozen sibling artifact; the
  * behaviour half drives the frozen bundle as a real child process with a real --root and the production
@@ -111,6 +111,13 @@ function tempDirectory(t, prefix) {
 
 function link(target, path, kind) {
 	symlinkSync(target, path, process.platform === "win32" ? kind : kind === "junction" ? "dir" : undefined);
+}
+
+// 文件符号链接在无特权的 Windows 上不可用（EPERM）；需要链接的用例已用 linkSearchTest 跳过，
+// fixture 里降级为不建文件链接，让 refusal 类用例仍能在这些机器上验证协议语义。
+const fileSymlinksUsable = fileSymlinkSkipReason() === undefined;
+function linkFile(target, path) {
+	if (fileSymlinksUsable) link(target, path, "file");
 }
 
 function startHelper(t, options = {}) {
@@ -255,9 +262,9 @@ searchTest("the content-search artifact is one byte-frozen ASCII line with its o
 	assert.ok(source.length > 1024 && source.length < 96 * 1024, "unexpected artifact size " + source.length);
 });
 
-searchTest("the entry pins the sibling, the bundle list and helper build 1.25.0", () => {
-	assert.equal(entry.REMOTE_HELPER_ENTRY_VERSION, "1.25.0");
-	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('"1.25.0"'), "hello must report the new build");
+searchTest("the entry pins the sibling, the bundle list and helper build 1.25.1", () => {
+	assert.equal(entry.REMOTE_HELPER_ENTRY_VERSION, "1.25.1");
+	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('"1.25.1"'), "hello must report the new build");
 	assert.equal(entry.REMOTE_HELPER_ENTRY_SHA256, createHash("sha256").update(entry.REMOTE_HELPER_INLINE_SOURCE, "utf8").digest("hex"));
 	assert.deepEqual(
 		Array.from(entry.REMOTE_HELPER_ARTIFACTS, (artifact) => artifact.name),
@@ -288,7 +295,7 @@ function createContentFixture(t) {
 		mkdirSync(join(root, skipped), { recursive: true });
 		writeFileSync(join(root, skipped, "hidden.txt"), DECOY + " needle\n");
 	}
-	link(join(root, "alpha.txt"), join(root, "link-to-alpha"), "file");
+	linkFile(join(root, "alpha.txt"), join(root, "link-to-alpha"));
 	link(outside, join(root, "outside-link"), "junction");
 	return { base, root, outside };
 }
@@ -297,7 +304,7 @@ linkSearchTest("searchContent matches lines case-insensitively, skips binary/UTF
 	const fixture = createContentFixture(t);
 	const session = startHelper(t, { root: fixture.root });
 	const hello = plain(await guard(session.client.request("hello"), "hello"));
-	assert.equal(hello.helperVersion, "1.25.0");
+	assert.equal(hello.helperVersion, "1.25.1");
 	assert.ok(hello.capabilities.includes(REMOTE_HELPER_METHOD_FS_SEARCH_CONTENT), "hello must advertise the content search");
 
 	const answer = await searchContent(session, { path: ".", query: "needle" });

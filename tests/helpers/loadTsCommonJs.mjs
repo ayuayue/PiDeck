@@ -38,7 +38,10 @@ export function loadTsCommonJs(filePath, options = {}) {
 				esModuleInterop: true,
 				jsx: ts.JsxEmit.ReactJSX,
 			},
-			fileName: absolutePath,
+			// `.mjs` 文件被 TS 当作 ESM，transpileModule 会保留 import 语句，vm 里就不是
+			// 模块而直接 SyntaxError。按 .ts 命名才能强制降级成 CommonJS（生产由打包器
+			// 处理，这里只为测试能同步 require 生产依赖图）。
+			fileName: /\.mjs$/i.test(absolutePath) ? absolutePath.replace(/\.mjs$/i, ".ts") : absolutePath,
 		}).outputText;
 		const module = { exports: {} };
 		cache.set(absolutePath, module);
@@ -47,6 +50,18 @@ export function loadTsCommonJs(filePath, options = {}) {
 			if (Object.hasOwn(stubs, specifier)) return stubs[specifier];
 			if (specifier.startsWith(".") || specifier.startsWith("/")) {
 				return load(resolveLocalModule(absolutePath, specifier));
+			}
+			// renderer 的 bundler 别名（electron.vite.config.ts 的 resolve.alias）：ui-shadcn 原语
+			// 统一写 `@/lib/utils`，Node 解析不到，也不该为测试去改生产 import。
+			for (const [prefix, root] of [
+				["@renderer/", "src/renderer/src/"],
+				["@shared/", "src/shared/"],
+				["@/", "src/renderer/src/"],
+			]) {
+				if (!specifier.startsWith(prefix)) continue;
+				// resolveLocalModule 以「调用方（生产文件）」的目录名为基准，这里用 cwd 下的假文件充当它。
+				const aliased = resolveLocalModule(resolve(process.cwd(), "index.js"), root + specifier.slice(prefix.length));
+				if (aliased) return load(aliased);
 			}
 			// 项目根相对导入（"src/shared/..."，bundler root 语义）：node 解析不到、
 			// 也不是包名。npm test 以项目根为 cwd，先按项目根解析本地 TS 文件；

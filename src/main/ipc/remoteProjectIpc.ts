@@ -21,21 +21,17 @@ import { ipcChannels } from "../../shared/ipc";
 import { codeOf, opFailFromCode, opOk, type Op } from "../../shared/op";
 import type { FileContentSearchResult } from "../../shared/types";
 import type { ProjectDirectoryPageResult, ProjectPathsExistResult } from "../../shared/types/projectFiles";
-import type { RemoteProjectDownloadResult, RemoteProjectUploadResult, RemoteProjectEnrollAnswerResult, RemoteProjectEnrollMode, RemoteProjectEnrollRequest, RemoteProjectEnrollResult, RemoteWorkspaceEntry } from "../../shared/types/remoteHost";
-import { readRelativePath, readerPath, registerRemoteProjectReadIpc, sessionPort, type RemoteProjectDirSnapshot } from "./remoteProjectReadIpc";
-import { projectDirectoryPage, projectDirectoryWatchDegradation, projectPathsExist } from "./remoteProjectDirectoryReads";
+import type { RemoteProjectDownloadResult, RemoteProjectUploadResult, RemoteProjectEnrollAnswerResult, RemoteProjectEnrollMode, RemoteProjectEnrollRequest, RemoteProjectEnrollResult } from "../../shared/types/remoteHost";
+import { registerRemoteProjectReadIpc, sessionPort } from "./remoteProjectReadIpc";
+import { projectPathsExist } from "./remoteProjectDirectoryReads";
+import { createProjectDirFacts } from "./remoteProjectDirFacts";
 import { registerRemoteProjectCreateFlow } from "./remoteProjectCreateIpc";
-import type { RemoteHostConnectionService, RemoteProjectSession } from "../remote/RemoteHostConnectionService";
-import { REMOTE_PROJECT_TRASH_DIR } from "../remote/RemoteProjectEntryCommands";
+import type { RemoteHostConnectionService } from "../remote/RemoteHostConnectionService";
 import { isUserVisibleRemoteEntry } from "../remote/RemoteProjectNameRules";
-import { REMOTE_UPLOAD_TEMP_NAME } from "../remote/RemoteProjectFileUpload";
 import { resolveRemoteBrowseRoot } from "../remote/RemoteBrowseRoot";
-import { createRemoteWorkspaceReader } from "../remote/RemoteWorkspaceReader";
 import { createRemoteSearchReader } from "../remote/RemoteSearchReader";
 import { REMOTE_HELPER_METHOD_FS_SEARCH_CONTENT } from "../remote/RemoteHelperContract";
-import { createFactCache, type FactCache } from "../remote/RemoteFactCache";
-import { createDirWatchRegistry, dirKeysAfterWrite, dirPathsAfterWrite } from "../remote/RemoteDirWatchRegistry";
-import { createDeepDirWatch, type DeepDirWatchStatus } from "../remote/RemoteDeepDirWatch";
+import type { DeepDirWatchStatus } from "../remote/RemoteDeepDirWatch";
 import { createRemoteFactsHub, type RemoteFactsHub } from "../remote/RemoteFactsNotifications";
 import { PendingConfirmationBroker } from "../security/PendingConfirmationBroker";
 
@@ -70,9 +66,10 @@ export type RemoteProjectIpcHandle = {
 	 * 只做**失效**，不装载：事件是「你可能要重读」的提示，重读仍由读的人决定。
 	 * 未注册的 watchId（旧会话、别的项目、已撤销）直接忽略——绝不猜。
 	 */
-	onHelperEvent(entry: { hostId: string; watchId: string; paths: readonly string[] }): void;
+	onHelperEvent(entry: { hostId: string; watchId: string; paths: readonly string[]; sessionKey: string }): void;
 	/** 断连：helper 的 watcher 已随会话一起死，登记直接丢弃（不再发退订）。 */
 	onHostDisconnected(hostId: string): void;
+	onRootRetired(entry: { hostId: string; root: string; sessionKey: string }): void;
 	/** 项目关闭：退订它在各 host 上的目录订阅，不影响别的项目。 */
 	closeProject(projectId: string): Promise<void>;
 	/** 立即冲刷深层订阅的合并窗口（测试/诊断；正常路径由 150–250ms 窗口自行冲刷）。 */
@@ -241,98 +238,26 @@ export function registerRemoteProjectIpc(input: {
 	 * 在同一个装载里合并，并带一个 revision——两个读者据此知道“我看到的是同一份事实”。
 	 * 失效只在写面发生时标脏（`afterWrite`），装载成本由读的人决定，一次写不产生任何往返。
 	 */
-	const watchRegistry = createDirWatchRegistry();
-
 	/**
 	 * 事实变化通知的出口（v5 T4）：事实层只标脏，通知由这里发。
 	 * 订阅按 (sender, project) 绑定；退订/窗口销毁都清登记（见 `RemoteFactsNotifications`）。
 	 */
 	const factsEvents: RemoteFactsHub = input.factsEvents ?? createRemoteFactsHub(ipcChannels.remoteProjectFactsChanged);
-	/** projectId → 最近一次装载所用的连接代（通知里带出去，渲染层跨代丢弃缓存）。 */
-	const projectGenerations = new Map<string, string>();
-	/** projectId → hostId（断连时把这一代标成已断开）。 */
-	const projectHosts = new Map<string, string>();
-	let disconnectedGeneration = 0;
-	const generationOf = (projectId: string): string => projectGenerations.get(projectId) ?? "";
-
-	/**
-	 * 深层目录订阅（P0-4）：期望路径集 + 合并窗口 + 一次性 ensure/rewatch 在 RemoteDeepDirWatch。
-	 *
-	 * 这里只负责登记：目录读成功后把**项目相对路径**交给它；订阅失败/超预算是降级，不是读失败。
-	 */
-	const dirWatch = createDeepDirWatch({ registry: watchRegistry });
-
-	const dirs: FactCache<RemoteWorkspaceEntry[]> = createFactCache<RemoteWorkspaceEntry[]>(async (key) => {
-		const separator = key.indexOf("\u0000");
-		const projectId = key.slice(0, separator);
-		const relative = key.slice(separator + 1);
-		const target = await projectReadTarget(projectId);
-		if ("code" in target) return opFailFromCode(target.code);
-		try {
-			const outcome = await target.service.withProjectSession(target.hostId, target.remotePath, async (session) => {
-				// 连接代与 host 归属记在这里：事件/写面通知带去给渲染层，断连时据此换代。
-				projectGenerations.set(projectId, session.connectionId);
-				projectHosts.set(projectId, target.hostId);
-				const reader = createRemoteWorkspaceReader({ port: sessionPort(session, target.hostId) });
-				const listed = await reader.list(target.hostId, readerPath(relative));
-				// 读成功后登记订阅：根目录立即 ensure，深层目录进合并窗口；之后 helper 的变更事件才能把
-				// 这个项目的事实标脏。订阅不是读的前置条件（失败只降级到只读刷新）。
-				await dirWatch.record(projectId, target.hostId, relative, session);
-				return listed;
-			});
-			if (!outcome.ok) return opFailFromCode(outcome.code);
-			// 两类条目不属于用户数据：回收站命名空间（只在根目录隐藏）与本通道自己的上传临时文件。
-			return opOk(outcome.value.entries.filter((entry) => (relative !== "" || entry.name !== REMOTE_PROJECT_TRASH_DIR) && !REMOTE_UPLOAD_TEMP_NAME.test(entry.name)).map((entry) => ({ name: entry.name, kind: entry.kind, ...(entry.bytes === undefined ? {} : { bytes: entry.bytes }) })));
-		} catch (error) {
-			return opFailFromCode(codeOf(error, "REMOTE_PROJECT_READ_FAILED"));
-		}
-	});
-
-	/**
-	 * 目录事实读（list 与公共目录页共用）：暖缓存命中也要逐次重解析当前项目/连接。
-	 *
-	 * `force` 只给显式刷新用：越过已完成缓存；在途同代装载仍可合并。
-	 */
-	async function readDirSnapshot(projectId: string, relative: string, force: boolean): Promise<RemoteProjectDirSnapshot> {
-		const target = await projectReadTarget(projectId);
-		if ("code" in target) return { ok: false, code: target.code };
-		const key = projectId + "\u0000" + relative;
-		// 只有暖事实才要求活的同代会话；首次打开目录必须允许正常建立会话。
-		const existing = dirs.peek(key);
-		const connection = target.service.connectionFacts?.(target.hostId);
-		if (typeof target.service.connectionFacts === "function" && existing !== undefined && (connection === undefined || connection.state !== "ready")) return { ok: false, code: "SSH_HOST_NOT_READY" };
-		const snapshot = await dirs.read(key, { ...(connection === undefined ? {} : { generation: connection.connectionId }), force });
-		return snapshot.ok ? { ok: true, snapshot } : { ok: false, code: snapshot.code };
-	}
+	/** 目录事实缓存 + generation/host/root 归属 + 深层订阅：拆到窄模块，保持本文件在体量红线内。 */
+	const projectDirs = createProjectDirFacts({ projectReadTarget, factsEvents });
 
 	registerRemoteProjectReadIpc({
 		enabled: input.enabled,
 		projectReadTarget,
 		factsEvents,
-		readDirSnapshot,
+		readDirSnapshot: projectDirs.readDirSnapshot,
 	});
 
 	return {
-		afterWrite(projectId: string, paths: readonly string[]): void {
-			const touched = dirPathsAfterWrite(paths);
-			for (const key of dirKeysAfterWrite(projectId, paths)) dirs.invalidate(key);
-			// 只标脏 + 通知：读仍由活跃的消费者决定（一次写不产生远端往返）。
-			factsEvents.publish({ projectId, generation: generationOf(projectId), scopes: touched.map((path) => ({ kind: "dir" as const, path })) });
-		},
-		invalidateTree(projectId: string): void {
-			// 前缀匹配 = 本项目全部目录键（项目 id 后紧跟真实的 NUL 分隔符，不会误命中同前缀的其它项目）。
-			dirs.invalidateWhere((key) => key.startsWith(projectId + "\u0000"));
-		},
-		directoryPage: (projectId, path, force = false) =>
-			projectDirectoryPage({
-				projectId,
-				path,
-				force,
-				readDirSnapshot,
-				generationOf,
-				// 监听降级是项目级事实：每个目录页都顺手带出去，渲染层不必再开一条诊断通道。
-				dirWatch: (id) => projectDirectoryWatchDegradation(dirWatch.status(id)),
-			}),
+		// 目录事实缓存/订阅/生命周期都在窄模块里：这里只转发，不再把目录细节堆回项目域写面文件。
+		afterWrite: projectDirs.afterWrite,
+		invalidateTree: projectDirs.invalidateTree,
+		directoryPage: projectDirs.directoryPage,
 		pathsExist: (projectId, paths) => projectPathsExist({ projectId, paths, projectReadTarget }),
 		async searchContent(projectId, query) {
 			const target = await projectReadTarget(projectId);
@@ -341,7 +266,7 @@ export function registerRemoteProjectIpc(input: {
 				// The capability is read after the session exists: a first read of a cold host establishes the
 				// session inside withProjectSession, so the hello answer is already stored when this runs.
 				const outcome = await target.service.withProjectSession(target.hostId, target.remotePath, async (session) => {
-					const capabilities = target.service.helperCapabilities(target.hostId);
+					const capabilities = target.service.projectHelperCapabilities(target.hostId, target.remotePath);
 					if (capabilities === undefined || capabilities.includes(REMOTE_HELPER_METHOD_FS_SEARCH_CONTENT) === false) return null;
 					const reader = createRemoteSearchReader({ port: sessionPort(session, target.hostId) });
 					const result = await reader.searchContent(target.hostId, ".", query);
@@ -355,37 +280,13 @@ export function registerRemoteProjectIpc(input: {
 				return opFailFromCode(codeOf(error, "REMOTE_PROJECT_READ_FAILED"));
 			}
 		},
-		onHelperEvent(entry): void {
-			const changed = watchRegistry.scopesForEvent(entry.hostId, entry.watchId) ?? [];
-			// 先发通知再标脏：两者都是同步的，读仍由活跃的消费者决定（事件不装载）。
-			for (const scope of changed) factsEvents.publish({ projectId: scope.projectId, generation: generationOf(scope.projectId), scopes: scope.paths.map((path) => ({ kind: "dir" as const, path })) });
-			for (const scope of changed) {
-				for (const path of scope.paths) dirs.invalidate(scope.projectId + " " + path);
-			}
-		},
-		dirLoads(): number {
-			return dirs.stats().loads;
-		},
-		onHostDisconnected(hostId: string): void {
-			// helper 已死：旧的 watchId 不可能再回来，登记直接丢弃，不发退订。
-			dirWatch.forgetHost(hostId);
-			watchRegistry.clearHost(hostId);
-			// 断连换代：旧代缓存与渲染层持有的快照都不能再被当作“现在”。
-			disconnectedGeneration += 1;
-			for (const [projectId, projectHost] of projectHosts) if (projectHost === hostId) projectGenerations.set(projectId, `${hostId}#disconnected#${disconnectedGeneration}`);
-		},
-		closeProject(projectId: string): Promise<void> {
-			// 期望集合先丢（迟到的冲刷不得把它订回来），再成对退订该项目的 watcher。
-			dirWatch.forgetProject(projectId);
-			return watchRegistry.closeProject(projectId);
-		},
-		flushDirWatch(): Promise<void> {
-			return dirWatch.flush();
-		},
-		dirWatchStatus: (projectId) => dirWatch.status(projectId),
-		dispose(): Promise<void> {
-			dirWatch.dispose();
-			return watchRegistry.releaseAll();
-		},
+		onHelperEvent: projectDirs.onHelperEvent,
+		dirLoads: projectDirs.dirLoads,
+		onHostDisconnected: projectDirs.onHostDisconnected,
+		onRootRetired: projectDirs.onRootRetired,
+		closeProject: projectDirs.closeProject,
+		flushDirWatch: projectDirs.flushDirWatch,
+		dirWatchStatus: projectDirs.dirWatchStatus,
+		dispose: projectDirs.dispose,
 	};
 }

@@ -16,11 +16,12 @@ interface AgentMarketGridProps {
 	totalCount: number;
 	selectionDefaultId: string | null;
 	selectedAgentId: string | null;
-	/** 「使用」创建会话中的智能体 id：卡片按钮显示 loading 并忽略重复点击。 */
+	/** 「使用」打开新会话页中的智能体 id：卡片按钮显示 loading 并忽略重复点击。 */
 	usePendingId: string | null;
 	/** 拖拽排序：只上报真正发生位移的顺序（落盘与乐观更新由工作区负责）。 */
 	onReorder: (nextOrder: string[]) => void;
 	onOpen: (agent: AgentProfile) => void;
+	/** 「使用」：带着该智能体打开新会话页。 */
 	onUse: (agent: AgentProfile) => void;
 	onEdit: (agent: AgentProfile) => void;
 	onRequestDelete: (agent: AgentProfile) => void;

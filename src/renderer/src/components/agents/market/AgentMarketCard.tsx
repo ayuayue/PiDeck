@@ -1,8 +1,9 @@
-import { Bot, Copy, GripVertical, Pencil, Pin, RotateCcw, Trash2 } from "lucide-react";
+import { Copy, GripVertical, Pencil, Pin, RotateCcw, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AgentProfile } from "../../../../../shared/types/agentProfile";
 import type { ListReorderItemBinding } from "../../../hooks/useListReorder";
 import { t } from "../../../i18n";
+import { AgentIcon } from "../AgentIcon";
 import { Badge } from "../../ui-shadcn/badge";
 import { Button } from "../../ui-shadcn/button";
 import { Checkbox } from "../../ui-shadcn/checkbox";
@@ -16,10 +17,11 @@ interface AgentMarketCardProps {
 	/** 详情面板正在展示这张卡片（描边高亮）。 */
 	active: boolean;
 	onOpen: (agent: AgentProfile) => void;
+	/** 「使用」：带着该智能体打开新会话页，目录在输入框上方选，发送时才建会话。 */
 	onUse: (agent: AgentProfile) => void;
 	onEdit: (agent: AgentProfile) => void;
 	onRequestDelete: (agent: AgentProfile) => void;
-	/** 「使用」正在建会话：按钮显示 loading，避免连点建出多个绑定会话。 */
+	/** 「使用」正在打开新会话页：按钮显示 loading，避免连点重复导航。 */
 	usePending: boolean;
 	/** 拖拽重排接线（手柄/拖拽态/插入指示线），由 AgentMarketGrid 统一生成。 */
 	reorder: ListReorderItemBinding;
@@ -70,7 +72,7 @@ export function AgentMarketCard({ agent, selectionDefault, active, reorder, sele
 				onClick={() => (selectionMode ? onToggleSelect(agent) : onOpen(agent))}
 			>
 				<span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-bg-muted text-lg leading-none" aria-hidden="true">
-					{agent.icon ? agent.icon : <Bot className="size-4 text-muted-foreground" />}
+					<AgentIcon icon={agent.icon} />
 				</span>
 				<span className="flex min-w-0 flex-1 flex-col gap-1">
 					{/* 标题行不换行：徽标换到第二行会让各卡片简介起始位置参差；名称放不下时截断，靠 title 兜住全文。 */}
@@ -111,7 +113,7 @@ export function AgentMarketCard({ agent, selectionDefault, active, reorder, sele
 					<GripVertical className="size-3.5" aria-hidden="true" />
 				</Button>
 				<div className={cn("absolute inset-y-0 right-0 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100", selectionMode && "hidden")}>
-					{/* 「使用」不再是调用面板：新建一个绑定该智能体的会话并收起市场，角色设定对时间线隐藏。title 里说明这一点。 */}
+					{/* 「使用」不建会话：带着该智能体打开新会话页（目录在输入框上方换），发送时才创建并绑定。 */}
 					<Button type="button" size="xs" className="mr-0.5 h-6 px-2 text-xs" title={t("agentMarket.useInSessionHint")} loading={usePending} onClick={() => onUse(agent)}>
 						{t("agentMarket.use")}
 					</Button>

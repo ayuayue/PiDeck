@@ -69,6 +69,7 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
 						</div>
 					</SettingRow>
 					{timings.length > 0 ? (
+						// scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。
 						<ul className="mt-1 max-h-48 overflow-auto px-1 font-mono text-caption text-muted-foreground">
 							{timings.slice(0, 20).map((item, index) => (
 								<li key={`${item.name}-${item.startedAt}-${index}`}>

@@ -95,6 +95,7 @@ export function WebPromptPicker(props: { disabled?: boolean; onPick: (content: s
 						))}
 					</div>
 				) : null}
+				{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 				<div className="max-h-72 overflow-y-auto p-1.5">
 					{loadError ? (
 						<div role="alert" className="flex flex-col items-center gap-2 px-2 py-3 text-caption text-danger">

@@ -25,6 +25,9 @@ test("remote empty state is the composer first, files second", () => {
 test("start surface and file panel expose the two-way switch", () => {
 	assert.match(startSurface, /secondaryAction\?: ReactNode/);
 	assert.match(startSurface, /props\.projectSwitcher/);
+	// 回归：SessionStartSurface 曾漏把 secondaryAction 转发给 SessionStartBody，
+	// 导致真实主机空态的「浏览远端文件」入口整个消失（e2e remoteHostAcceptance:223 抓到）。
+	assert.match(startSurface, /<SessionStartBody[\s\S]{0,400}secondaryAction=\{props\.secondaryAction\}/);
 	assert.match(startSurface, /props\.secondaryAction !== undefined[\s\S]{0,120}props\.secondaryAction\}/);
 	assert.match(panel, /onBack\?: \(\) => void/);
 	assert.match(panel, /data-testid="remote-project-back"/);

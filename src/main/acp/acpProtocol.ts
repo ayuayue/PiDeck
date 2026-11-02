@@ -117,11 +117,21 @@ export type AcpToolCallContent = { type: "content"; content: AcpContentBlock } |
 
 // ── session setup ──────────────────────────────────────────────────────────
 
+/** ACP stdio MCP 的一个环境变量：规范里是 `{name, value}` 项，不是对象映射。 */
+export type AcpMcpEnvVariable = { name: string; value: string };
+
+/**
+ * `session/new` / `session/load` 的 mcpServers 项（ACP v1 只有 stdio 形态）。
+ *
+ * 四个字段在 schema 里都是 required，`env` 是 `EnvVariable[]` 而不是 `Record`：
+ * 传对象或缺 args/env 都会被 agent 的 zod 校验拒成 `-32602 Invalid params`
+ * （CodeBuddy 2.179.2 实测：对象 env → -32602，数组 env → session 正常建立）。
+ */
 export type AcpMcpServer = {
 	name: string;
 	command: string;
-	args?: string[];
-	env?: Record<string, string>;
+	args: string[];
+	env: AcpMcpEnvVariable[];
 };
 
 export type AcpSessionNewParams = {

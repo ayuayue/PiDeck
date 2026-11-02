@@ -6,6 +6,7 @@ import { resolveBusySendDelivery } from "../../../shared/busySendDelivery";
 import { FILE_TREE_ABSOLUTE_MAX_DEPTH } from "../../../shared/fileTree";
 import { isRemoteProject } from "../../../shared/projectLocation";
 import { classifyCompactError, compactOwnerReason, compactRoutedCommand, type CompactNoticeKind } from "../../../shared/compactFeedback";
+import { isRendererVirtualSessionId } from "../../../shared/rendererVirtualSessionId";
 import { findImageGenProvider } from "../../../shared/imageGenConfig";
 import { findVideoGenProvider } from "../../../shared/videoGenConfig";
 import { buildSessionReferenceContext } from "../../../shared/sessionReferenceContext";
@@ -1576,7 +1577,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 				// 已折叠进草稿：立即移除 chip（发送成功/失败都会在 clearSnapshot 兜底清空）
 				setPasteFiles([]);
 			}
-			options.onPromoteSession?.(sessionId);
+			if (!isRendererVirtualSessionId(sessionId)) options.onPromoteSession?.(sessionId);
 			return send(behavior, overrideText);
 		},
 		[draft, mode, generateImage, submitVideo, options.onPromoteSession, pasteFiles, send, sessionId, setDraft, setPasteFiles],

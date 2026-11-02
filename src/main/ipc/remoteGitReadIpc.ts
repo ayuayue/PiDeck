@@ -102,13 +102,18 @@ export function registerRemoteGitReadIpc(input: {
 	/** 公共仓库列表的单调版本：一次成功列表就是一份新事实（truncated 也属这份事实）。 */
 	let repositoryListingRevision = 0;
 
-	/** 当前连接代（没有稳定身份时为空串）：只用于随结果/通知一起返给渲染层。 */
+	/**
+	 * 本项目 **root 的会话代**（没有稳定身份时为空串）：只用于随结果/通知一起返给渲染层。
+	 *
+	 * 主机级 connectionFacts 回答的是「这台机器是否连着」；项目需要的是「服务我这个 root 的会话是否
+	 * 连着」。拿主机当前 manager 的代当项目代，等于让兄弟 root 的会话给这个项目的缓存和渲染层背书。
+	 */
 	async function generationFor(projectId: string): Promise<string> {
 		try {
 			const locator = input.locator(projectId);
 			if (locator === undefined) return "";
 			const service = await input.service();
-			return service?.connectionFacts?.(locator.hostId)?.connectionId ?? "";
+			return service?.projectConnectionFacts?.(locator.hostId, locator.remotePath)?.connectionId ?? "";
 		} catch {
 			return "";
 		}
@@ -131,7 +136,7 @@ export function registerRemoteGitReadIpc(input: {
 			try {
 				const locator = input.locator(projectId);
 				const service = await input.service();
-				const generation = locator === undefined ? "" : (service?.connectionFacts?.(locator.hostId)?.connectionId ?? "");
+				const generation = locator === undefined ? "" : (service?.projectConnectionFacts?.(locator.hostId, locator.remotePath)?.connectionId ?? "");
 				events.publish({ projectId, generation, scopes });
 			} catch {
 				// 观察者不是事务的一部分。
@@ -217,6 +222,9 @@ export function registerRemoteGitReadIpc(input: {
 	 * 缓存只复用事实，绝不能复用授权结论：trust 被撤销、项目被移除、host 离线都必须当场拒绝，
 	 * 而不是把暖缓存当“仍然是那个权限下的同一个事实”。没有稳定 helper 身份时返回空（不猜 identity）。
 	 *
+	 * 身份必须是**本项目 root 的会话**：同一主机上另一个 root 的 helper 不能给这个项目的缓存换代背书，
+	 * 所以这里按 (hostId, remotePath) 查项目连接事实；主机在线本身不构成“这个项目的会话可用”。
+	 *
 	 * `hasCachedFacts` 区分两种读：没有暖事实时允许正常读去建立/恢复会话（首次打开项目必须可读）；
 	 * 有暖事实时，没有就绪的同代会话就不许拿旧值冒充成功。
 	 */
@@ -226,8 +234,8 @@ export function registerRemoteGitReadIpc(input: {
 		if (!(await input.trusted(locator))) throw new Error("GIT_TRUST_REQUIRED");
 		const service = await input.service();
 		if (service === undefined) throw new Error("SSH_HOST_NOT_READY");
-		if (typeof service.connectionFacts !== "function") return {};
-		const connection = service.connectionFacts(locator.hostId);
+		if (typeof service.projectConnectionFacts !== "function") return {};
+		const connection = service.projectConnectionFacts(locator.hostId, locator.remotePath);
 		if (connection === undefined || connection.state !== "ready") {
 			if (hasCachedFacts) throw new Error("SSH_HOST_NOT_READY");
 			// 没有暖事实：让正常读走 withProjectSession，由它决定建立会话还是报告真实状态。
@@ -267,15 +275,21 @@ export function registerRemoteGitReadIpc(input: {
 		tokens.revoke(event.sender.id, projectId);
 		for (const [controller, read] of reads) if (read.senderId === event.sender.id && read.projectId === projectId) controller.abort();
 	});
-	ipcMain.handle(ipcChannels.gitRemoteSnapshot, async (event, projectId: unknown, repo: unknown, force?: unknown): Promise<GitReadSnapshotResult> => {
+	ipcMain.handle(ipcChannels.gitRemoteSnapshot, async (event, projectId: unknown, repo: unknown, force?: unknown, mode?: unknown): Promise<GitReadSnapshotResult> => {
 		try {
 			// 显式 refresh 是第十五个参数位置（同一通道的第四个入参）：只接受 boolean/undefined，不猜。
 			if (force !== undefined && typeof force !== "boolean") throw new Error("GIT_RESULT_INVALID");
+			// 第五个入参是显式的模式位：缺省/ "snapshot" = 今天的行为（撤旧令牌 + 现签）；
+			// "facts" = 纯事实强刷（只读事实，既不撤旧令牌也不签发新令牌）。
+			if (mode !== undefined && mode !== "facts" && mode !== "snapshot") throw new Error("GIT_RESULT_INVALID");
 			const repoPath = validateRemoteGitRepoPath(repo);
-			tokens.revoke(event.sender.id, typeof projectId === "string" ? projectId : "");
+			const factsOnly = mode === "facts";
+			if (!factsOnly) tokens.revoke(event.sender.id, typeof projectId === "string" ? projectId : "");
 			// 事实可缓存（同键并发合并成一次往返）；令牌每次现签，绑定的是这份事实的 revision。
 			const readSnapshot = (await readFacts(event, projectId, repoPath, force === true)).facts;
 			const { writeExpectation, commitExpectation, branchExpectation, switchExpectation, discardExpectation, restoreExpectation, dropExpectation, fetchExpectation, pushExpectation, pullExpectation, ...snapshot } = readSnapshot;
+			// 纯事实：事实之外什么都不带（尤其没有授权令牌），让渲染层可以“只看事实”地强刷一次。
+			if (factsOnly) return { ok: true, snapshot };
 			// Every confirmed scope mints grants bound to itself (G5e): a nested snapshot's tokens carry its repoPath, so
 			// the token layer refuses them against another repository.
 			if (typeof projectId === "string") {

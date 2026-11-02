@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Loader2, RefreshCw, Save } from "lucide-react";
 import { useRemoteFileDraft } from "../../hooks/useRemoteFileDraft";
+import type { ProjectServices } from "../../services/projectServiceContracts";
 import { imageMimeForPath } from "../../utils/imageMime";
 import { RemoteImagePreview } from "./RemoteImagePreview";
 import { t } from "../../i18n";
@@ -14,13 +15,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
  * 图片走独立预览：远端文本通道拒绝非 UTF-8 内容，把 PNG 喂给草稿编辑器只会得到
  * `REMOTE_FILE_NOT_TEXT`——那不是"文件坏了"，是"这个文件不该用编辑器打开"。
  */
-export function RemoteFileEditor(props: { projectId: string; path: string }) {
-	if (imageMimeForPath(props.path) !== undefined) return <RemoteImagePreview projectId={props.projectId} path={props.path} />;
-	return <RemoteTextFileEditor projectId={props.projectId} path={props.path} />;
+export function RemoteFileEditor(props: { services: ProjectServices; path: string }) {
+	if (imageMimeForPath(props.path) !== undefined) return <RemoteImagePreview projectId={props.services.projectId} path={props.path} />;
+	return <RemoteTextFileEditor services={props.services} path={props.path} />;
 }
 
-function RemoteTextFileEditor(props: { projectId: string; path: string }) {
-	const { draft, loadError, change, save, reload, dirty } = useRemoteFileDraft(props.projectId, props.path);
+function RemoteTextFileEditor(props: { services: ProjectServices; path: string }) {
+	const { draft, loadError, change, save, reload, dirty } = useRemoteFileDraft(props.services, props.path);
 	const [confirmReload, setConfirmReload] = useState(false);
 	const code = loadError ?? draft?.errorCode;
 	const errorText =
@@ -32,21 +33,25 @@ function RemoteTextFileEditor(props: { projectId: string; path: string }) {
 					? t("remoteFile.conflict")
 					: code === "REMOTE_FILE_VERSION_INVALID"
 						? t("remoteFile.expired")
-						: code === "REMOTE_FILE_TOO_LARGE"
-							? t("remoteFile.tooLarge")
-							: code === "REMOTE_FILE_NOT_TEXT" || code === "REMOTE_FILE_LINE_ENDING_UNSUPPORTED"
-								? t("remoteFile.notText")
-								: code === "REMOTE_FILE_NOT_FOUND"
-									? t("remoteFile.notFound")
-									: code === "REMOTE_FILE_PERMISSION_DENIED"
-										? t("remoteFile.permission")
-										: code === "REMOTE_FILE_PLATFORM_UNSUPPORTED"
-											? t("remoteFile.platform")
-											: code === "REMOTE_FILE_DRAFT_LIMIT"
-												? t("remoteFile.draftLimit")
-												: code
-													? t("remoteFile.failure", { code })
-													: null;
+						: code === "PROJECT_SERVICE_VERSION_REQUIRED"
+							? t("remoteFile.expired")
+							: code === "PROJECT_SERVICE_GENERATION_STALE"
+								? t("remoteFile.connection")
+								: code === "REMOTE_FILE_TOO_LARGE"
+									? t("remoteFile.tooLarge")
+									: code === "REMOTE_FILE_NOT_TEXT" || code === "REMOTE_FILE_LINE_ENDING_UNSUPPORTED"
+										? t("remoteFile.notText")
+										: code === "REMOTE_FILE_NOT_FOUND"
+											? t("remoteFile.notFound")
+											: code === "REMOTE_FILE_PERMISSION_DENIED"
+												? t("remoteFile.permission")
+												: code === "REMOTE_FILE_PLATFORM_UNSUPPORTED"
+													? t("remoteFile.platform")
+													: code === "REMOTE_FILE_DRAFT_LIMIT"
+														? t("remoteFile.draftLimit")
+														: code
+															? t("remoteFile.failure", { code })
+															: null;
 	return (
 		<section
 			className="flex min-h-0 flex-1 flex-col overflow-hidden"

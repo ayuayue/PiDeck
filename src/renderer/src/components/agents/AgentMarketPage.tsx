@@ -10,8 +10,8 @@ interface AgentMarketPageProps {
 	/** 当前呈现的是不是本页面：失活时保持挂载、只隐藏，切回来搜索/详情/编辑状态不丢。 */
 	active: boolean;
 	/**
-	 * 「使用」= 在该智能体指定的后端新建会话并绑定它（角色设定经隐藏通道注入，时间线只显示用户输入）。
-	 * 成功返回 true：本页收起并露出新会话；失败返回 false：页面留在市场，原因由宿主的 toast 承担。
+	 * 「使用」= 带着该智能体打开新会话页（目录在输入框上方选，首次发送时才建会话并绑定）。
+	 * 成功返回 true：本页收起并露出新会话页；失败返回 false：页面留在市场，原因由宿主的 toast 承担。
 	 */
 	onUseAgent: (agent: AgentProfile) => Promise<boolean>;
 }

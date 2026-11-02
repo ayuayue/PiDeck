@@ -244,7 +244,12 @@ export function TodoList({ items, title = t("app.todoListTitle"), open, defaultO
 			</button>
 
 			<AgentDisclosure id={contentId} role="region" aria-labelledby={triggerId} open={currentOpen}>
-				<div ref={viewportRef} className="overflow-y-auto px-2 pb-2 [scrollbar-width:none]" style={{ maxHeight }}>
+				<div
+					ref={viewportRef}
+					/* scroll-ok: flip —— 这条列表是官方 registry 源逐字节拷贝，行由 AnimatePresence 管退场、motion.li 管位置过渡：行被虚拟化卸载就丢掉退场锚点与排布动画，等于拆上游行为。 */
+					className="overflow-y-auto px-2 pb-2 [scrollbar-width:none]"
+					style={{ maxHeight }}
+				>
 					{items.length ? (
 						<ol aria-live="polite" className="space-y-0">
 							<AnimatePresence initial={false} mode="popLayout">

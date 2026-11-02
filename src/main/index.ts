@@ -319,6 +319,15 @@ import { PiModelCapabilityCache, watchPiConfigDirectory } from "./pi/PiModelCapa
 import { isDefaultAgentTitle } from "./pi/agentUtils";
 import { CompositeAgentGateway } from "./agents/CompositeAgentGateway";
 import { AcpAgentManager } from "./acp/AcpAgentManager";
+import { buildAcpMcpServers, buildAgentMemoryMountForApp, memoryDirOfMount, resolveAgentMemoryDir, sourcesOfMount } from "./agentMemory/agentMemoryMounts";
+import { runLearnerPass } from "./agentMemory/agentMemoryLearner";
+import { resolveEnhanceTargetModel } from "../shared/enhanceModelPreference";
+import { syncAgentMemoryRegistration } from "./agentMemory/AgentMemoryMcpRegistration";
+import { clearAgentMemoryIndex, readAgentMemoryStatus } from "./agentMemory/agentMemoryStatus";
+import { deleteAgentMemoryEntry, readAgentMemoryEntries, readStandingEntry, restoreAgentMemoryEntry, writeStandingEntry } from "./agentMemory/agentMemoryEntries";
+import { renameDevice } from "../../resources/agent-memory/sync.mjs";
+import { exportAgentMemoryBundle, importAgentMemoryBundle, previewAgentMemoryBundle } from "./agentMemory/agentMemoryBundle";
+import { registerAgentMemoryIpc } from "./ipc/agentMemoryIpc";
 import { AcpSessionArchive } from "./acp/AcpSessionArchive";
 import { createAcpModelRateAnnotator } from "./acp/acpModelRates";
 import { withAcpConfigDefault } from "./acp/acpToolConfig";
@@ -380,6 +389,7 @@ import { DirectorySessionImporter } from "./sessions/DirectorySessionImporter";
 import { normalizeSessionPathKey } from "./sessions/directorySessionImport";
 import { SettingsStore } from "./settings/SettingsStore";
 import { SecurityStore } from "./security/SecurityStore";
+import { evaluateUserReadAccess } from "./security/policy";
 import { applyDesktopProxy } from "./settings/DesktopProxy";
 import { GitService } from "./git/GitService";
 import { GitRefsWatcher } from "./git/GitRefsWatcher";
@@ -843,6 +853,11 @@ let promptSuggestionService: EnhancePromptService | null = null;
  * 让划词翻译把用户正在跑的输入框增强打断（见 AGENTS.md 例外四）。
  */
 let agentInvokeCompletionService: EnhancePromptService | null = null;
+/**
+ * 记忆学习循环专用侧车实例。同样的单飞语义理由：与提示词增强/输入预测共用实例，
+ * 学习跑一次就会把用户正在用的增强打断（学习是后台行为，用户看不见它为什么卡住）。
+ */
+let agentMemoryLearnService: EnhancePromptService | null = null;
 /** 系统级划词浮窗（全局快捷键触发的独立 BrowserWindow）；null = 尚未装配/装配失败。 */
 let selectionToolWindow: SelectionToolWindow | null = null;
 /** 系统级划词服务：取词、浮窗展示与全局快捷键注册的唯一归属地。 */
@@ -978,7 +993,8 @@ const foreignSyncDeps: DshForeignSyncDeps = {
 			dismissedPaths: projectStore.listDismissedPaths(),
 			pathExists: await defaultPathCheck(cwd),
 		}),
-	ensureProjectForCwd: (cwd) => projectStore.add(cwd),
+	// 全局 WSL 模式下按 WSL 环境登记：cwd 是发行版内路径时不能记成 Windows 项目。
+	ensureProjectForCwd: (cwd) => projectStore.add(cwd, undefined, settingsStore.get().wslEnabled ? "wsl" : "windows"),
 	ensureFallbackProject: () => projectStore.ensureExternalSessionsProject(mainCopy("project.externalSessions")),
 	createDraft: (input) => sessionCatalog.createDraft(input),
 	// 纠正归属时看现有标题是不是 cwd 兑底占位；有官方投影名时必须覆盖。
@@ -1539,6 +1555,60 @@ function resolveImageGenStorageRoots(): { sessions: string; blobs: string } {
  */
 function resolveSessionExportDir(): string {
 	return join(app.getPath("userData"), "exports");
+}
+
+/**
+ * Agent 记忆（pideck-agent-memory）的挂载描述。
+ *
+ * 记忆实现是 resources/agent-memory 下的 stdio MCP 服务器，由各后端子进程自己拉起：
+ * pi 走 ~/.pi/agent/mcp.json（pi 0.99 内置 MCP 只认这个文件），ACP 走 session/new 的 mcpServers。
+ * 传 cwd 时会话就带上项目作用域键，三种后端因此共享同一份项目记忆。
+ */
+/**
+ * 学习循环的一次性补全：与增强/预测同一条通道（同一份侧车协议），但用独立实例。
+ *
+ * 模型优先级复用增强那一套解析：用户显式指定的增强模型 > 该会话记录的模型。
+ * 都没有就拒绝——学习是可选增益，不能为了它去猜一个模型或退回某个默认供应商。
+ */
+function memoryLearnComplete(sessionId: string, input: { systemPrompt: string; text: string }): Promise<string> {
+	const service = agentMemoryLearnService;
+	if (!service) return Promise.reject(new Error("learn-service-unavailable"));
+	const record = sessionCatalog?.get(sessionId)?.model;
+	const target = resolveEnhanceTargetModel({
+		configured: settingsStore?.get().enhanceModel ?? null,
+		recordModel: record ? { provider: record.provider, modelId: record.modelId } : undefined,
+	});
+	if (!target) return Promise.reject(new Error("learn-model-unavailable"));
+	return new Promise<string>((resolve, reject) => {
+		void service
+			.enhance(
+				{ provider: target.provider, modelId: target.modelId, userText: input.text, systemPrompt: input.systemPrompt },
+				{
+					onDelta: () => undefined,
+					onDone: (text) => resolve(text),
+					onAborted: () => reject(new Error("learn-aborted")),
+					onError: (errorKind, message) => reject(new Error(`learn-${errorKind}: ${message}`)),
+				},
+			)
+			.then((accepted) => {
+				if (!accepted.ok) reject(new Error(`learn-${accepted.errorKind}`));
+			});
+	});
+}
+
+function createAgentMemoryMount(cwd?: string) {
+	return buildAgentMemoryMountForApp({
+		userData: app.getPath("userData"),
+		home: app.getPath("home"),
+		execPath: process.execPath,
+		isPackaged: app.isPackaged,
+		appPath: app.getAppPath(),
+		resourcesPath: process.resourcesPath,
+		cwd,
+		// DSH 会话也进记忆索引（根会话才采）；dshHomeDir 设置为空时与 DshHost 同默认（~/.dsh）。
+		// settingsStore 未装配时（理论上不会，注册都发生在 whenReady 后）不挡 pi/ACP 采集。
+		dshSessionsDir: settingsStore ? join(resolveDshHomeDir(settingsStore.get().dshHomeDir ?? "", app.getPath("userData")), "sessions") : undefined,
+	});
 }
 
 /**
@@ -3296,7 +3366,7 @@ function resolveBuiltInExtensionRoots(): BuiltInExtensionPathRoots {
  * 一个独立进程（EnhancePromptService 的单飞语义是「新 run 打断旧 run」，共用实例会互相打断）。
  * resolveLaunch 现求值：用户改自定义 pi 路径后下次调用即生效，无需重启。
  */
-function createCompletionHelperService(namespace: "enhance" | "agent-invoke" | "suggest"): EnhancePromptService {
+function createCompletionHelperService(namespace: "enhance" | "agent-invoke" | "suggest" | "agent-memory"): EnhancePromptService {
 	const log = (level: "debug" | "info" | "warn" | "error", message: string) => void appLogger?.[level](namespace, message);
 	return new EnhancePromptService({
 		// 侧车是常驻单进程，env 在 spawn 时固定，所以代理只能在这里落地：
@@ -3383,6 +3453,8 @@ function registerIpc() {
 				},
 				// helper 1.24.0 的变更事件：只标脏事实，不触发装载（重读仍由读的人决定）。
 				onHelperEvent: (entry) => remoteProjectFacts?.onHelperEvent(entry),
+				// root 会话退休（TTL/LRU/latched/显式）与主机断开是两件事：只清这个 root 的登记，不关终端。
+				onRootRetired: (entry) => remoteProjectFacts?.onRootRetired(entry),
 			});
 			remoteHostService = service;
 			quitCleanup.register("remote-host", () => remoteHostService?.dispose());
@@ -3445,8 +3517,9 @@ function registerIpc() {
 	let remoteProjectFacts:
 		| {
 				afterWrite(projectId: string, paths: readonly string[]): void;
-				onHelperEvent(entry: { hostId: string; watchId: string; paths: readonly string[] }): void;
+				onHelperEvent(entry: { hostId: string; watchId: string; paths: readonly string[]; sessionKey: string }): void;
 				onHostDisconnected(hostId: string): void;
+				onRootRetired(entry: { hostId: string; root: string; sessionKey: string }): void;
 		  }
 		| undefined;
 	/** 目录与 Git 共用的事实变化通知出口（T4）：订阅按 sender + project，事件只标脏。 */
@@ -3842,6 +3915,42 @@ function registerIpc() {
 	quitCleanup.register("pideck-mcp", async () => {
 		unregisterPiDeckMcp();
 		await piDeckMcp.dispose();
+	});
+	// 智能体记忆的设置页视图：状态/清空索引/导出/导入。记忆根目录与 MCP 服务器用的是同一个
+	// （userData/memory），所以这里算出来的体积与索引规模就是 Agent 侧看到的真实值。
+	const agentMemoryRoot = () => resolveAgentMemoryDir(app.getPath("userData"));
+	const unregisterAgentMemoryIpc = registerAgentMemoryIpc({
+		getWindow: () => mainWindow,
+		readStatus: () => readAgentMemoryStatus(agentMemoryRoot()),
+		clearIndex: () => clearAgentMemoryIndex(agentMemoryRoot()),
+		exportBundle: (selection) => exportAgentMemoryBundle({ root: agentMemoryRoot(), getWindow: () => mainWindow, selection }),
+		previewBundle: (filePath) => previewAgentMemoryBundle({ root: agentMemoryRoot(), getWindow: () => mainWindow, filePath }),
+		importBundle: (options) => importAgentMemoryBundle({ root: agentMemoryRoot(), getWindow: () => mainWindow, ...options }),
+		// 项目名只用于展示：记忆键由会话 cwd 派生，要靠项目路径反查一次才认得出来。
+		listEntries: () =>
+			readAgentMemoryEntries({
+				root: agentMemoryRoot(),
+				// ssh 项目没有本机路径，用远端路径派生同一个键（与会话 cwd 的派生口径一致）。
+				projects: () => projectStore.list().map((project) => ({ name: project.name, path: "locator" in project ? project.locator.remotePath : project.path })),
+			}),
+		deleteEntry: (input) => deleteAgentMemoryEntry(agentMemoryRoot(), input),
+		restoreEntry: (input) => restoreAgentMemoryEntry(agentMemoryRoot(), input),
+		// 打开记忆根目录：showItemInFolder 是 fire-and-forget（Linux 上 openPath 会永不 settle，#396），
+		// 包一层 Promise 让信封形态保持一致；失败只告警，不让设置页弹错误。
+		revealRoot: async () => {
+			try {
+				shell.showItemInFolder(agentMemoryRoot());
+			} catch (error) {
+				mcpWarning(error instanceof Error ? error.message : String(error));
+			}
+		},
+		readStanding: () => readStandingEntry(agentMemoryRoot()),
+		writeStanding: (content) => writeStandingEntry(agentMemoryRoot(), content),
+		renameDevice: (name) => renameDevice(agentMemoryRoot(), name),
+		warn: mcpWarning,
+	});
+	quitCleanup.register("agent-memory-ipc", () => {
+		unregisterAgentMemoryIpc();
 	});
 	quitCleanup.register("host-plugins", () => {
 		unregisterHostPlugins();
@@ -4711,7 +4820,7 @@ function registerIpc() {
 	installAtomgitNoCacheBypass(() => session.fromPartition(UPDATER_PARTITION_NAME, { cache: false }));
 	const updateServiceBase = {
 		settingsStore,
-		// 更新通道（dev/stable，启动时已判定）：dev 强制 GitHub 源 + allowPrerelease（见 UpdateService.applyUpdateSource）。
+		// 更新通道（dev/stable，启动时已判定）：dev 开启 allowPrerelease，更新源仍跟随设置（见 UpdateService.applyUpdateSource）。
 		channel: updateChannel,
 		checkPiUpdate: () => extensionManager.checkPiUpdate(),
 		// 模型目录：复用设置页同一检查链路（GitHub main 分支 manifest 比对），结果并入更新快照。
@@ -4986,6 +5095,12 @@ function registerIpc() {
 				browserAgentEnabled: next.browserAgentEnabled ?? false,
 			});
 		},
+		// 智能体记忆开关：开启即幂等注册、关闭只删自己那一项（与启动时同一套动作）。
+		reactToAgentMemorySettings: async (prev, next) => {
+			if (prev.agentMemoryEnabled === next.agentMemoryEnabled) return;
+			const synced = syncAgentMemoryRegistration({ enabled: next.agentMemoryEnabled, mount: createAgentMemoryMount() });
+			void appLogger?.info("memory", "agent memory MCP synced", { action: synced.action, path: synced.path });
+		},
 		applyNativeThemeSource,
 		refreshTrayContextMenu,
 		// 语言变更时按当前主进程 locale 重算，忽略 systemIpc 传入的占位参数
@@ -5236,6 +5351,8 @@ app
 		// 且没有跨 store rebind 事务在跑。门自己读 remote-hosts.json，不依赖主进程缓存；构造本身不做 I/O。
 		const remoteReferenceWriteGuard = createRemoteReferenceWriteGuard({ userDataDir: app.getPath("userData") });
 		projectStore = new ProjectStore(() => mainCopy("dialog.chooseProjectFolder"), { referenceGuard: remoteReferenceWriteGuard });
+		// Agent 记忆（pideck-agent-memory）：注册时机与 CUA 同一处——settingsStore 已就绪后再按开关决定，
+		// 避免「先无条件写用户 mcp.json，再等设置加载」这类顺序依赖。
 		fileSystemService = new FileSystemService();
 		sessionScanner = new SessionScanner(mainCopy);
 		codexSessionImporter = new CodexSessionImporter(mainCopy);
@@ -5388,6 +5505,10 @@ app
 		// 输入预测：与增强同协议、独立进程；启动期只装配，首次预测才拉起侧车。
 		promptSuggestionService = createCompletionHelperService("suggest");
 		quitCleanup.register("prompt-suggestion", () => promptSuggestionService?.dispose());
+		// 记忆学习循环：只在用户开启开关后才会被调用（见 registerIpc 里的回合结算钩子），
+		// 这里只装配实例——侧车进程仍然是首次真正需要时才拉起。
+		agentMemoryLearnService = createCompletionHelperService("agent-memory");
+		quitCleanup.register("agent-memory-learn", () => agentMemoryLearnService?.dispose());
 		// DSH 用量链路（backend="dsh"）：配置落 $DSH_HOME/usage-probes.json、凭据从
 		// $DSH_HOME/.credentials.yaml 读，与 pi 侧链路（~/.pi/agent）完全同构、互不干扰。
 		// DSH_HOME 解析与 DshHost 同一套（设置覆盖 > ~/.dsh > 应用私有目录），getter 每次求值，
@@ -6247,8 +6368,10 @@ app
 				if (settings.acpEnabled !== true) return [];
 				return (settings.acpTools ?? []).filter((tool) => tool.enabled).map((tool) => ({ id: tool.id, name: tool.name }));
 			},
+			// 宿主版本号：/api/state 的 version 投影，Web 端侧栏底栏展示。
+			getAppVersion: () => app.getVersion(),
 			listProjects: () => projectStore.list().filter(isLocalProject),
-			createProject: (path) => projectStore.add(path),
+			createProject: (path) => projectStore.add(path, undefined, settingsStore.get().wslEnabled ? "wsl" : "windows"),
 			deleteProject: async (projectId) => {
 				if (!projectStore.get(projectId) || projectStore.get(projectId)?.kind === "chat") return false;
 				const childIds = projectStore.listWorktreeChildren(projectId).map((child) => child.id);
@@ -6570,6 +6693,9 @@ app
 			files: {
 				listTree: (root, maxDepth, directory) => fileSystemService.listTree(root, maxDepth, directory),
 			},
+			// Web 端预览项目外文件时的用户意图门：与桌面端「项目外文件链接」同一套安全等级规则
+			// （denyDirs > 敏感文件 > 目录边界），ask 由 Web 端弹「只读查看」确认后再带 confirm=1 重请求。
+			userReadAccess: (input) => evaluateUserReadAccess(securityStore.getConfig(), input),
 			// 提示词库只在 SQLite 库可用时注入（缺库时路由返回 503，前端隐藏入口）
 			prompts: xuePromptManager
 				? {
@@ -6990,6 +7116,9 @@ app
 		// 开启后每次 create 即 spawn 对应 CLI，无预热。
 		acpAgentManager = new AcpAgentManager({
 			piLocator,
+			// 每次 session/new 现算：项目键依赖会话 cwd，ACP CLI 因此获得与 pi 同一套记忆工具。
+			// 开关关闭时给空数组：ACP v1 该字段必填（opencode 缺它直接 -32602），但也别把工具挂给外部 CLI。
+			mcpServers: (cwd) => (settingsStore.get().agentMemoryEnabled ? buildAcpMcpServers(createAgentMemoryMount(cwd)) : []),
 			// ACP CLI 是本机进程：远端项目没有本机 cwd，明确不适用（与 ACP 无远端运行时一致）。
 			getProject: (projectId) => {
 				const project = projectStore.get(projectId);
@@ -7013,6 +7142,12 @@ app
 			readAcpTimeoutSettings: () => {
 				const settings = settingsStore.get();
 				return { promptStallTimeoutMs: settings.acpPromptStallTimeoutMs, promptTurnTimeoutMs: settings.acpPromptTurnTimeoutMs };
+			},
+			// ACP 回合失败自动重试口径：与超时同源实时读，变更后新回合生效。
+			// 未设置时各项为 undefined，由 acpTurnRetry.resolveAcpTurnRetrySettings 落回代码内默认。
+			readAcpTurnRetrySettings: () => {
+				const settings = settingsStore.get();
+				return { enabled: settings.acpTurnRetryEnabled, maxRetries: settings.acpTurnRetryMaxRetries, baseDelayMs: settings.acpTurnRetryBaseDelayMs };
 			},
 			// Ask 通知：与 pi 共用同一份门控/toast；完成通知由 composite.onAgentSettled 统一补。
 			notify: { askPending: (input) => notifyAgentAskPending(agentToastDeps(), input) },
@@ -7063,6 +7198,31 @@ app
 			const tab = compositeAgentGateway?.list().find((candidate) => candidate.id === info.agentId);
 			if (!tab || (tab.backend ?? "pi") === "pi") return;
 			notifySessionFinished(agentToastDeps(), { agentId: info.agentId, title: info.title, ...(tab.deckSessionId ? { sessionId: tab.deckSessionId } : {}) });
+		});
+		// 记忆学习循环：回合结算后按阈值尝试一次提炼（三后端统一走这里）。
+		// 与上面的完成通知不同，pi 会话也要参与——记忆是跨后端的同一份数据。
+		// 学习本身是可选增益：任何失败都只进日志，绝不让它反过来影响会话。
+		compositeAgentGateway.onAgentSettled((info) => {
+			const settings = settingsStore?.get();
+			if (!settings?.agentMemoryEnabled || !settings.agentMemoryAutoLearnEnabled) return;
+			const tab = compositeAgentGateway?.list().find((candidate) => candidate.id === info.agentId);
+			const sessionId = tab?.deckSessionId;
+			if (!sessionId) return;
+			const mount = createAgentMemoryMount(tab?.cwd);
+			void runLearnerPass(
+				{
+					root: memoryDirOfMount(mount),
+					sources: sourcesOfMount(mount),
+					complete: (input) => memoryLearnComplete(sessionId, input),
+					logger: {
+						info: (channel, message, meta) => void appLogger.info(channel, message, meta),
+						warn: (channel, message, meta) => void appLogger.warn(channel, message, meta),
+					},
+				},
+				{ sessionId, projectId: tab?.projectId ?? "" },
+			).catch((error: unknown) => {
+				void appLogger.warn("agent-memory", "learn pass crashed", { error: error instanceof Error ? error.message : String(error) });
+			});
 		});
 		// 项目位置注入给会话协调器：远端会话在 pi 上报会话文件之前没有 ssh 身份，"这条会话的 runtime
 		// 在哪台机器上"只能由项目 locator 回答（AgentManager 也按它路由 runtime）。位置真相同的单一
@@ -7274,10 +7434,45 @@ app
 				},
 			}),
 		});
+		/**
+		 * 全局 WSL 模式（设置 → 开发 → Pi 来源）。
+		 *
+		 * 连接档案（一等 WSL 目标）尚未放开，正式包仍靠这条全局开关工作：启动时把会话扫描、
+		 * Agent/DSH spawn、技能/提示词/扩展/配置目录一起切到发行版 HOME，关闭时切回 Windows。
+		 * 与 0.9.8 同语义：只在启动时同步，切换来源后由设置页的重检 + 重启生效。
+		 */
 		const syncWslConfig = async () => {
-			sessionScanner.clearWsl();
-			agentManager.configureWsl(null);
-			dshHost.configureWsl(null);
+			const { wslEnabled, wslDistro, wslUser } = settingsStore.get();
+			if (wslEnabled && wslDistro && wslUser) {
+				const { resolveWslEnvironment } = await import("./wsl/WslEnvironment");
+				const wslEnv = await resolveWslEnvironment(wslDistro, wslUser, {
+					warn: (msg: string, detail: unknown) => void appLogger?.warn("wsl", String(msg), { detail }),
+				});
+				await sessionScanner.configureWsl(wslEnv);
+				agentManager.configureWsl(wslEnv);
+				// DSH host 是 Windows 原生进程：WSL 项目的 workspace 路径与会话目录编码
+				// 都要按主机路径算，否则 workspace.resolve 失败、会话建不出来。
+				dshHost.configureWsl(wslEnv);
+				skillManager.configureWsl(wslEnv);
+				promptManager.configureWsl(wslEnv);
+				extensionManager.configureWsl(wslEnv);
+				// 配置/雪提示词管理器在装配后段才实例化：启动早期同步时可能还没有，跳过即可。
+				if (configManager) configManager.configureWsl(wslEnv);
+				if (xuePromptManager) xuePromptManager.configureWsl(wslEnv);
+				// 窗口已起来后再异步探测 WSL which，点会话时 resolveCommand 才能命中 wsl:// 缓存。
+				void piLocator.warmWslCommand(wslDistro, wslUser).catch((error: unknown) => {
+					void appLogger?.warn("app", "WSL pi which warmup failed", error);
+				});
+			} else {
+				sessionScanner.clearWsl();
+				agentManager.configureWsl(null);
+				dshHost.configureWsl(null);
+				skillManager.configureWsl(null);
+				promptManager.configureWsl(null);
+				extensionManager.configureWsl(null);
+				if (configManager) configManager.configureWsl(null);
+				if (xuePromptManager) xuePromptManager.configureWsl(null);
+			}
 		};
 		// 先注册 IPC 并创建窗口：WSL 探测 / pi settings / 代理 / Web 服务都可能卡住或抛错，
 		// 不能挡在 createWindow 前面（打包便携版表现为「启动没反应」，dev 因热路径较短不易复现）。
@@ -7631,6 +7826,14 @@ app
 			.catch((error) => {
 				void appLogger.warn("cua", "CUA/browser agent service start failed", error);
 			});
+		// 智能体记忆：默认关闭。关闭时若上一次开过，把 mcp.json 里自己那一项删掉（别人的条目不动），
+		// 否则「关掉开关」在 pi 侧仍会拉起记忆工具。注册失败不阻断启动——记忆是增强项。
+		try {
+			const synced = syncAgentMemoryRegistration({ enabled: settingsStore.get().agentMemoryEnabled ?? false, mount: createAgentMemoryMount() });
+			void appLogger?.info("memory", "agent memory MCP synced", { action: synced.action, path: synced.path });
+		} catch (error) {
+			void appLogger?.warn("memory", "agent memory MCP registration failed", { error: error instanceof Error ? error.message : String(error) });
+		}
 		quitCleanup.register("cua", async () => {
 			// runAll 会逐项 await：返回 dispose 的 Promise 保证退出前 host 关闭 + mcp.json 反注册完成（早前 `void` 掉 Promise，退出竞态）。
 			await cuaService?.dispose();

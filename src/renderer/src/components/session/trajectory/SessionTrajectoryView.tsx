@@ -841,6 +841,7 @@ function TrajectoryInspector(props: {
 			});
 	}, [record?.modelTrace]);
 	if (!record) {
+		// scroll-ok: text —— 没选中记录时的一行提示文案，没有行列表。
 		return <div className="min-h-0 overflow-auto px-3 py-4 text-caption text-muted-foreground">{t("session.trajectory.inspectHint")}</div>;
 	}
 	// 请求体回读视图接管检查器：结构与 RPC 面板的模型行展开共用 ModelTraceDetail。
@@ -863,7 +864,10 @@ function TrajectoryInspector(props: {
 					<ArrowLeft size={12} />
 					{t("session.trajectory.backToRecord")}
 				</button>
-				<div className="min-h-0 flex-1 overflow-auto">
+				<div
+					/* scroll-ok: text —— 整块交给 ModelTraceDetail（一次请求体回读的单一载荷视图），没有可枚举的行列表。 */
+					className="min-h-0 flex-1 overflow-auto"
+				>
 					{traceView.status === "loading" ? <p className="py-4 text-center text-caption text-muted-foreground">{t("session.trajectory.traceLoading")}</p> : null}
 					{traceView.status === "missing" ? <p className="py-4 text-center text-caption text-muted-foreground">{t("session.trajectory.traceMissing")}</p> : null}
 					{traceView.status === "loaded" && summary ? <ModelTraceDetail payloadJson={traceView.payloadJson ?? ""} summary={summary} /> : null}
@@ -871,6 +875,7 @@ function TrajectoryInspector(props: {
 			</div>
 		);
 	}
+	// scroll-ok: bounded —— 单条记录的固定字段表（dl 网格，字段由 record 形状决定），行数不随会话增长。
 	return (
 		<div className="min-h-0 overflow-auto px-3 py-3">
 			<div className="mb-2 flex items-center gap-1.5 text-sm font-medium">

@@ -605,11 +605,35 @@ export async function fetchFileList(projectId: string, dir?: string): Promise<We
 	return payload.nodes ?? [];
 }
 
-/** P3：文件内容（有界 512KB；二进制/超限时返回结构化标记）。 */
-export async function fetchFileContent(projectId: string, path: string): Promise<{ content?: string; size?: number; tooLarge?: boolean; truncated?: boolean; binary?: boolean }> {
+/**
+ * 文件内容读取失败的结构化错误：`code` 区分「需确认」（项目外/敏感文件）与「策略拒绝」，
+ * `reason` 与主进程 evaluateUserReadAccess 的 reason 同名，供渲染层选文案。
+ */
+export class WebFileAccessError extends Error {
+	readonly code: string;
+	readonly reason: string | undefined;
+	constructor(code: string, message: string, reason?: string) {
+		super(message);
+		this.name = "WebFileAccessError";
+		this.code = code;
+		this.reason = reason;
+	}
+}
+
+/** 项目外预览的确认态：`confirm` 只把「需确认」降为放行，服务端仍会独立复核策略（deny 不降级）。 */
+export type FileContentOptions = { sessionId?: string; confirmed?: boolean };
+
+/** P3：文件内容（有界 512KB；二进制/超限时返回结构化标记）。`path` 可为项目内相对路径或项目外绝对路径/`~/x`。 */
+export async function fetchFileContent(projectId: string, path: string, options: FileContentOptions = {}): Promise<{ content?: string; size?: number; tooLarge?: boolean; truncated?: boolean; binary?: boolean }> {
 	const params = new URLSearchParams({ path });
+	if (options.sessionId) params.set("sessionId", options.sessionId);
+	if (options.confirmed) params.set("confirm", "1");
 	const res = await apiFetch(`/api/file-content?projectId=${encodeURIComponent(projectId)}&${params.toString()}`);
-	if (!res.ok) throw new Error(`file content ${res.status}`);
+	if (!res.ok) {
+		// 错误体可能是非 JSON（网关/隧道页）：解析失败时仍用状态码兜底，不让预览整条链路抛 TypeError
+		const payload = (await res.json().catch(() => null)) as { code?: string; message?: string; reason?: string } | null;
+		throw new WebFileAccessError(payload?.code ?? `file content ${res.status}`, payload?.message ?? `file content ${res.status}`, payload?.reason);
+	}
 	return (await res.json()) as { content?: string; size?: number; tooLarge?: boolean; truncated?: boolean; binary?: boolean };
 }
 

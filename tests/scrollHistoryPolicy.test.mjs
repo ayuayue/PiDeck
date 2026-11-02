@@ -71,3 +71,18 @@ test("policy types are exported for the controller to consume", () => {
 	assert.match(source, /export function shouldAutoExpandRenderWindow/);
 	assert.match(source, /export function shouldApplyDelayedHistoryResult/);
 });
+
+// 2026-11 真机反馈：点「加载更多对话」毫无反应。贴底时 autoScroll 为真，迟到的历史页被
+// following 门整条丢弃：数据进缓存、渲染窗口不扩、界面逐字不变（反复点收敛到同一个不动点）。
+// 修法：显式点击带 explicit，贴底也必须应用；自动上滚翻页不设此位，原有行为不变。
+test("explicit button click applies the page even while following (bug 2 regression)", () => {
+	const gate = { following: true, generationAtRequest: 3, currentGeneration: 3 };
+	// 自动上滚到达：贴底仍只写缓存（原行为，不得放松）
+	assert.equal(policy.shouldApplyDelayedHistoryResult(gate), false);
+	// 显式点击：贴底也必须扩窗，否则点击是恒等变换
+	assert.equal(policy.shouldApplyDelayedHistoryResult({ ...gate, explicit: true }), true);
+	// 代数过期优先级最高：显式点击也不能把刚回底的视口拉回历史
+	assert.equal(policy.shouldApplyDelayedHistoryResult({ ...gate, explicit: true, currentGeneration: 4 }), false);
+	// 非贴底 + 显式：本来就该应用
+	assert.equal(policy.shouldApplyDelayedHistoryResult({ ...gate, following: false, explicit: true }), true);
+});

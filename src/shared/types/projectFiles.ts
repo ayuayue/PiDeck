@@ -14,6 +14,15 @@ export type ProjectDirectoryEntry = {
 	relativePath: string;
 	type: "file" | "directory";
 	hasChildren: boolean | "unknown";
+	/**
+	 * 本机 backend 的绝对路径（只给本机树保留既有 `FileTreeNode.path` 语义）。
+	 * 远端投影绝不填本机路径：远端路径不能进入本机 fs API，调用方也不该拿它当路径。
+	 */
+	path?: string;
+	/** 本机文件树排序用的元数据；远端条目缺席（远端面板不提供按时间/大小排序）。 */
+	mtimeMs?: number;
+	ctimeMs?: number;
+	size?: number;
 	/** Git ignore 修饰（仅当 backend 有 Git 判定时出现）；不是“隐藏”。 */
 	ignored?: boolean;
 };
@@ -27,13 +36,19 @@ export type ProjectDirectoryEntry = {
  */
 export type ProjectDirectoryWatchDegradation = {
 	degraded: true;
-	reason: "paths-over-limit" | "watcher-capacity";
+	/**
+	 * `watch-failed`：helper 拒绝/无法建立订阅（不是预算不够）。目录仍可读，但不会实时刷新；
+	 * 失败码放在 `code`，UI 必须把它带出来，否则用户只看到「降级」却不知道原因。
+	 */
+	reason: "paths-over-limit" | "watcher-capacity" | "watch-failed";
 	/** 期望监听的目录数。 */
 	desired: number;
 	/** 真正被 watcher 覆盖的目录数。 */
 	covered: number;
 	/** 因预算没有覆盖到的目录数。 */
 	dropped: number;
+	/** helper 的稳定失败码（例如 METHOD_NOT_FOUND / PERMISSION_DENIED / TOO_MANY_REQUESTS）；无失败时缺席。 */
+	code?: string;
 };
 
 export type ProjectDirectoryPage = {
@@ -45,6 +60,8 @@ export type ProjectDirectoryPage = {
 	generation: string;
 	/** 仅当深层目录订阅降级时出现；正常覆盖时字段缺席（旧读者零影响）。 */
 	dirWatch?: ProjectDirectoryWatchDegradation;
+	/** 仅本机页在单层超限截断时出现：截断前总数，供文件树复现“目录过大”提示。 */
+	totalEntries?: number;
 };
 
 export type ProjectDirectoryPageResult = Op<ProjectDirectoryPage>;

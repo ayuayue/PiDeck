@@ -36,6 +36,7 @@ function TargetLanguagePicker({ value, onChange }: { value: AgentTranslateTarget
 					<ChevronDown size={11} className="shrink-0" aria-hidden="true" />
 				</button>
 			</DropdownMenuTrigger>
+			{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 			<DropdownMenuContent align="start" sideOffset={6} className="max-h-[min(320px,50vh)] w-[170px] overflow-y-auto">
 				<DropdownMenuLabel>{t("selectionTool.targetLabel")}</DropdownMenuLabel>
 				<DropdownMenuSeparator />
@@ -286,6 +287,7 @@ export function SelectionToolWindowView() {
 
 					{capturedText.trim() ? (
 						<div className="shrink-0 border-l-2 border-primary/25 pl-2 text-micro leading-relaxed text-muted-foreground">
+							{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 							<div className="max-h-12 overflow-y-auto whitespace-pre-wrap [overflow-wrap:anywhere]">{capturedText}</div>
 						</div>
 					) : (
@@ -301,6 +303,7 @@ export function SelectionToolWindowView() {
 					)}
 
 					<section className="flex min-h-0 flex-1 flex-col">
+						{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 						<div className="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap pb-1 text-control leading-relaxed [overflow-wrap:anywhere]">
 							{invokeState.phase === "starting" ? (
 								<span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">

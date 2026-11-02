@@ -5,7 +5,12 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const { createRemoteGitViewController } = loadTsCommonJs("src/renderer/src/utils/remoteGitViewState.ts");
 const projectId = "project";
 const target = { projectId, relativePath: "file.txt" };
-const snapshot = { head: "a".repeat(40), branch: "main", groups: { merge: [], index: [], workingTree: [], untracked: [] } };
+const groups = { merge: [], index: [], workingTree: [], untracked: [] };
+/** What the panel API answers for one read: the service bridge maps groups + branch and never a token. */
+const snapshot = { head: null, branch: "main", groups };
+const branchInfo = { current: "main", branches: ["main"] };
+const plain = (value) => JSON.parse(JSON.stringify(value));
+const oid = (char) => char.repeat(40);
 function deferred() {
 	let resolve;
 	const promise = new Promise((accept) => {
@@ -18,44 +23,56 @@ function fixture(api = {}) {
 	const reads = createRemoteGitViewController(
 		projectId,
 		"identity",
-		{ cancelRemoteReads: async () => {}, remoteSnapshot: async () => ({ ok: true, snapshot }), workspaceFileDiff: async () => ({ target, path: target.relativePath, displayPath: target.relativePath, originalContent: "old", modifiedContent: "new" }), ...api },
+		{
+			cancelRemoteReads: async () => {},
+			status: async () => ({ ok: true, snapshot }),
+			refresh: async () => ({ ok: true, snapshot }),
+			branches: async () => ({ ok: true, info: branchInfo }),
+			workspaceFileDiff: async () => ({ target, path: target.relativePath, displayPath: target.relativePath, originalContent: "old", modifiedContent: "new" }),
+			...api,
+		},
 		(state) => states.push(state),
 	);
 	return { reads, states, current: () => states.at(-1) };
 }
 
-test("remote Git refresh exposes complete facts and performs no implicit write", async () => {
-	let count = 0;
+test("remote Git refresh exposes the groups and the branch and performs no implicit write", async () => {
 	const writes = [];
+	let reads = 0;
 	const f = fixture({
-		remoteSnapshot: async () => {
-			count++;
+		status: async () => {
+			reads += 1;
 			return { ok: true, snapshot };
 		},
-		mutateRemoteIndex: async (...args) => {
+		mutateIndex: async (...args) => {
 			writes.push(args);
 			return { ok: true };
 		},
-		commitRemote: async (...args) => {
+		commit: async (...args) => {
 			writes.push(args);
 			return { ok: true };
 		},
 	});
 	await f.reads.refresh();
+	assert.deepEqual(plain(f.current().snapshot.groups), groups);
 	assert.equal(f.current().snapshot.branch, "main");
-	assert.equal(count, 1);
+	assert.equal(f.current().snapshot.head, undefined, "the panel snapshot has no head field");
+	assert.equal(reads, 1);
 	assert.equal(f.reads.stage, undefined, "no convenience alias may act without an explicit call");
 	assert.deepEqual(writes, [], "a refresh never writes; both write actions stay explicit and separate");
-	// The commit action exists, but without a granted token and a message it never reaches the API.
+	// An empty commit message is refused locally; main re-validates the same rule.
 	await f.reads.commit("message\n");
-	assert.deepEqual(writes, [], "commit without a grant must not call the API");
+	assert.equal(writes.length, 1, "a valid commit is a write the user explicitly asked for");
+	await f.reads.commit("   \n");
+	await f.reads.commit("");
+	assert.equal(writes.length, 1, "an empty message never reaches the write API");
 });
 
 test("concurrent refresh cannot start a second read", async () => {
 	const pending = deferred();
 	let count = 0;
 	const f = fixture({
-		remoteSnapshot: () => {
+		status: () => {
 			count++;
 			return pending.promise;
 		},
@@ -69,7 +86,9 @@ test("concurrent refresh cannot start a second read", async () => {
 
 test("failed refresh clears previous facts instead of showing stale clean status", async () => {
 	let count = 0;
-	const f = fixture({ remoteSnapshot: async () => (++count === 1 ? { ok: true, snapshot } : { ok: false, code: "SSH_HOST_DISCONNECTED" }) });
+	const f = fixture({
+		status: async () => (++count === 1 ? { ok: true, snapshot } : { ok: false, code: "SSH_HOST_DISCONNECTED" }),
+	});
 	await f.reads.refresh();
 	await f.reads.refresh();
 	assert.equal(f.current().snapshot, undefined);
@@ -78,7 +97,7 @@ test("failed refresh clears previous facts instead of showing stale clean status
 
 test("unmount/project change discards a late status result", async () => {
 	const pending = deferred();
-	const f = fixture({ remoteSnapshot: () => pending.promise });
+	const f = fixture({ status: () => pending.promise });
 	const request = f.reads.refresh();
 	f.reads.dispose();
 	pending.resolve({ ok: true, snapshot });
@@ -89,7 +108,7 @@ test("unmount/project change discards a late status result", async () => {
 
 test("connection invalidation clears facts and discards in-flight success without refreshing", async () => {
 	const pending = deferred();
-	const f = fixture({ remoteSnapshot: () => pending.promise });
+	const f = fixture({ status: () => pending.promise });
 	const request = f.reads.refresh();
 	f.reads.invalidateConnection();
 	pending.resolve({ ok: true, snapshot });
@@ -142,26 +161,24 @@ test("invoke diagnostics reduce to a stable code rather than leaking remote deta
 	assert.equal(f.current().diffErrorCode, "GIT_NOT_TEXT");
 });
 
-const oid = (char) => char.repeat(40);
-const plain = (value) => JSON.parse(JSON.stringify(value));
-const historyRow = (value, subject) => ({ oid: value, parents: [oid("2")], authorName: "A", authorEmail: "a@e.invalid", authorTimeSec: 1700000000, subject: subject });
+const historyRow = (value, subject) => ({ oid: value, parents: [oid("2")], authorName: "A", authorEmail: "a@e.invalid", authorTimeMs: 1_700_000_000_000, subject });
 const detailFor = (value) => ({ oid: value, parents: [oid("2")], authorName: "A", authorEmail: "a@e.invalid", authorTimeSec: 1700000000, committerName: "A", committerEmail: "a@e.invalid", committerTimeSec: 1700000000, subject: "s", message: "s\n", files: [{ status: "M", path: "file.txt" }] });
 
 test("history pages append on demand and a failed page keeps the rows already on screen", async () => {
 	const calls = [];
 	let failOnce = true;
 	const f = fixture({
-		remoteLog: async (...args) => {
+		historyPage: async (...args) => {
 			calls.push(args);
-			return calls.length === 1 ? { ok: true, page: { commits: [historyRow(oid("1"), "first")], hasMore: true } } : failOnce ? { ok: false, code: "GIT_COMMAND_FAILED" } : { ok: true, page: { commits: [historyRow(oid("3"), "second")], hasMore: false } };
+			return calls.length === 1 ? { ok: true, value: { commits: [historyRow(oid("1"), "first")], hasMore: true } } : failOnce ? { ok: false, code: "GIT_COMMAND_FAILED" } : { ok: true, value: { commits: [historyRow(oid("3"), "second")], hasMore: false } };
 		},
 	});
 	await f.reads.loadHistory();
-	assert.deepEqual(plain(calls), [["project", { maxCount: 50 }, ""]]);
+	assert.deepEqual(plain(calls), [[{ maxCount: 50 }, ""]]);
 	assert.equal(f.current().history.commits.length, 1);
 	assert.equal(f.current().history.hasMore, true);
 	await f.reads.loadMoreHistory();
-	assert.deepEqual(plain(calls.at(-1)), ["project", { maxCount: 50, skip: 1 }, ""]);
+	assert.deepEqual(plain(calls.at(-1)), [{ maxCount: 50, skip: 1 }, ""]);
 	assert.equal(f.current().history.commits.length, 1, "a failed page keeps the visible rows");
 	assert.equal(f.current().historyErrorCode, "GIT_COMMAND_FAILED");
 	failOnce = false;
@@ -177,15 +194,15 @@ test("history pages append on demand and a failed page keeps the rows already on
 test("a refresh drops history, refs and detail facts without reloading them", async () => {
 	const calls = [];
 	const f = fixture({
-		remoteLog: async (...args) => {
+		historyPage: async (...args) => {
 			calls.push(args);
-			return { ok: true, page: { commits: [historyRow(oid("1"), "first")], hasMore: false } };
+			return { ok: true, value: { commits: [historyRow(oid("1"), "first")], hasMore: false } };
 		},
-		remoteRefs: async () => {
+		refs: async () => {
 			calls.push(["refs"]);
-			return { ok: true, refs: { head: oid("1"), branch: "main", refs: [{ fullName: "refs/heads/main", name: "main", oid: oid("1"), kind: "branch" }] } };
+			return { ok: true, refs: { head: null, branch: "main", refs: [{ fullName: "refs/heads/main", name: "main", oid: oid("1"), kind: "branch" }] } };
 		},
-		remoteCommitDetail: async (...args) => {
+		commitDetail: async (...args) => {
 			calls.push(args);
 			return { ok: true, detail: detailFor(oid("1")) };
 		},
@@ -207,10 +224,11 @@ test("a silent status refresh updates facts without dropping diff, history, refs
 	// 并清掉 history/refs/diff 与选中行，等于每隔 5 秒把用户正在看的东西收走一次。
 	let branch = "main";
 	const f = fixture({
-		remoteSnapshot: async () => ({ ok: true, snapshot: { ...snapshot, branch } }),
-		remoteLog: async () => ({ ok: true, page: { commits: [historyRow(oid("1"), "first")], hasMore: false } }),
-		remoteRefs: async () => ({ ok: true, refs: { head: oid("1"), branch: "main", refs: [] } }),
-		remoteCommitDetail: async (_id, value) => ({ ok: true, detail: detailFor(value) }),
+		refresh: async () => ({ ok: true, snapshot: { ...snapshot, branch } }),
+		branches: async () => ({ ok: true, info: { current: branch, branches: [branch] } }),
+		historyPage: async () => ({ ok: true, value: { commits: [historyRow(oid("1"), "first")], hasMore: false } }),
+		refs: async () => ({ ok: true, refs: { head: null, branch: "main", refs: [] } }),
+		commitDetail: async (value) => ({ ok: true, detail: detailFor(value) }),
 	});
 	await f.reads.refresh();
 	await f.reads.loadHistory();
@@ -222,13 +240,17 @@ test("a silent status refresh updates facts without dropping diff, history, refs
 	branch = "feature";
 	await f.reads.refreshStatus();
 	const after = f.current();
-	assert.equal(after.snapshot.branch, "feature", "external changes are picked up");
+	// 静默 tick 只刷新事实：分支是展示信息，沿用上次确认值；分支变化由显式刷新带回（见本用例末尾）。
+	assert.equal(after.snapshot.branch, "main");
+	assert.deepEqual(plain(after.snapshot.groups), plain(before.snapshot.groups));
 	assert.equal(after.loading, false, "a silent tick never flashes loading");
 	assert.equal(after.diffLoading, false);
 	assert.deepEqual(plain(after.history), plain(before.history), "history rows stay");
 	assert.deepEqual(plain(after.refs), plain(before.refs), "refs stay");
 	assert.equal(after.detailOid, oid("1"), "the selected commit stays selected");
 	assert.deepEqual(plain(after.diff), plain(before.diff), "an open diff stays open");
+	await f.reads.refresh();
+	assert.equal(f.current().snapshot.branch, "feature", "an explicit refresh brings the new branch back");
 });
 
 test("a connection invalidation pauses the silent status refresh until a successful explicit refresh", async () => {
@@ -236,12 +258,11 @@ test("a connection invalidation pauses the silent status refresh until a success
 	// 暂停位由 invalidateConnection 置上；只有一次成功快照读的 refresh() 才解除。
 	let result = { ok: true, snapshot };
 	let reads = 0;
-	const f = fixture({
-		remoteSnapshot: async () => {
-			reads += 1;
-			return result;
-		},
-	});
+	const read = async () => {
+		reads += 1;
+		return result;
+	};
+	const f = fixture({ status: read, refresh: read, branches: async () => ({ ok: true, info: { current: result.ok ? result.snapshot.branch : null, branches: [] } }) });
 	await f.reads.refresh();
 	assert.equal(reads, 1);
 
@@ -264,23 +285,23 @@ test("a connection invalidation pauses the silent status refresh until a success
 });
 
 test("commit detail answers the last click, and an answer for another commit is refused", async () => {
-	const f = fixture({ remoteCommitDetail: async (id, value) => ({ ok: true, detail: detailFor(value) }) });
+	const f = fixture({ commitDetail: async (value) => ({ ok: true, detail: detailFor(value) }) });
 	await Promise.all([f.reads.openCommitDetail(oid("a")), f.reads.openCommitDetail(oid("b"))]);
 	assert.equal(f.current().detailOid, oid("b"));
 	assert.equal(f.current().detail.oid, oid("b"));
-	const swapped = fixture({ remoteCommitDetail: async () => ({ ok: true, detail: detailFor(oid("c")) }) });
+	const swapped = fixture({ commitDetail: async () => ({ ok: true, detail: detailFor(oid("c")) }) });
 	await swapped.reads.openCommitDetail(oid("b"));
 	assert.equal(swapped.current().detail, undefined);
 	assert.equal(swapped.current().detailErrorCode, "GIT_RESOURCE_CHANGED");
 });
 
 test("a refused or crashed detail read reports its own code and keeps the selection", async () => {
-	const f = fixture({ remoteCommitDetail: async () => ({ ok: false, code: "GIT_OBJECT_NOT_FOUND" }) });
+	const f = fixture({ commitDetail: async () => ({ ok: false, code: "GIT_OBJECT_NOT_FOUND" }) });
 	await f.reads.openCommitDetail(oid("b"));
 	assert.equal(f.current().detailOid, oid("b"));
 	assert.equal(f.current().detailErrorCode, "GIT_OBJECT_NOT_FOUND");
 	const thrown = fixture({
-		remoteCommitDetail: async () => {
+		commitDetail: async () => {
 			throw new Error("invoke failed with SSH_HOST_DISCONNECTED");
 		},
 	});
@@ -291,7 +312,7 @@ test("a refused or crashed detail read reports its own code and keeps the select
 test("refs load once at a time and a late answer after invalidation is discarded", async () => {
 	let resolve;
 	const f = fixture({
-		remoteRefs: async () =>
+		refs: async () =>
 			new Promise((accept) => {
 				resolve = accept;
 			}),
@@ -300,7 +321,7 @@ test("refs load once at a time and a late answer after invalidation is discarded
 	assert.equal(f.current().refsLoading, true);
 	await f.reads.loadRefs();
 	f.reads.invalidateConnection();
-	resolve({ ok: true, refs: { head: oid("1"), branch: "main", refs: [] } });
+	resolve({ ok: true, refs: { head: null, branch: "main", refs: [] } });
 	await pending;
 	assert.equal(f.current().refs, undefined, "an answer from before the connection loss cannot publish");
 	assert.equal(f.current().errorCode, "REMOTE_CONNECTION_LOST");
@@ -309,14 +330,14 @@ test("refs load once at a time and a late answer after invalidation is discarded
 test("a revision file diff uses the shared diff surface and its identity is checked", async () => {
 	const calls = [];
 	const f = fixture({
-		remoteRefFileDiff: async (id, base, head, fileTarget, repo) => {
-			calls.push([id, base, head, fileTarget, repo]);
+		refFileDiff: async (base, head, fileTarget, repo) => {
+			calls.push([base, head, fileTarget, repo]);
 			return { ok: true, diff: { path: fileTarget.relativePath, target: fileTarget, displayPath: fileTarget.relativePath, base, head, originalContent: "old side", modifiedContent: "new side" } };
 		},
 	});
 	await f.reads.refresh();
 	await f.reads.openHistoryFileDiff(oid("a"), oid("b"), target);
-	assert.deepEqual(plain(calls), [["project", oid("a"), oid("b"), target, ""]]);
+	assert.deepEqual(plain(calls), [[oid("a"), oid("b"), target, ""]]);
 	assert.equal(f.current().diffKind, "revision");
 	assert.equal(f.current().diff.originalContent, "old side");
 	assert.equal(f.current().diffGroup, undefined);
@@ -331,7 +352,7 @@ test("a revision file diff uses the shared diff surface and its identity is chec
 	assert.deepEqual(calls, []);
 	// An answer for a different file is a refusal, not a substitute diff.
 	const swapped = fixture({
-		remoteRefFileDiff: async (id, base, head) => ({ ok: true, diff: { path: "other.txt", target: { projectId, relativePath: "other.txt" }, displayPath: "other.txt", base, head, originalContent: "x", modifiedContent: "y" } }),
+		refFileDiff: async (_base, _head, _target, _repo) => ({ ok: true, diff: { path: "other.txt", target: { projectId, relativePath: "other.txt" }, displayPath: "other.txt", base: oid("a"), head: oid("b"), originalContent: "x", modifiedContent: "y" } }),
 	});
 	await swapped.reads.refresh();
 	await swapped.reads.openHistoryFileDiff(oid("a"), oid("b"), target);
@@ -339,14 +360,11 @@ test("a revision file diff uses the shared diff surface and its identity is chec
 	assert.equal(swapped.current().diffErrorCode, "GIT_RESOURCE_CHANGED");
 });
 
-const branchSnapshot = { ...snapshot, branchToken: "b".repeat(32), switchToken: "c".repeat(32) };
-
-test("creating a branch sends the main-owned grant, refreshes only after confirmation and never replays an unknown result", async () => {
+test("creating a branch calls the provider once, refreshes only after confirmation and never replays an unknown result", async () => {
 	const calls = [];
 	let resolve;
 	const f = fixture({
-		remoteSnapshot: async () => ({ ok: true, snapshot: branchSnapshot }),
-		createRemoteBranch: async (...args) => {
+		createBranch: async (...args) => {
 			calls.push(args);
 			return new Promise((accept) => {
 				resolve = accept;
@@ -360,33 +378,38 @@ test("creating a branch sends the main-owned grant, refreshes only after confirm
 	// One action at a time: a second click while the first is in flight never reaches the API.
 	await f.reads.createBranch("feature/two");
 	assert.equal(calls.length, 1);
-	assert.deepEqual(plain(calls[0]), ["project", "feature/one", branchSnapshot.branchToken, ""]);
+	assert.deepEqual(plain(calls[0]), ["feature/one", ""], "the capability, not a token, is what unlocks the action");
 	resolve({ ok: true });
 	await pending;
 	assert.equal(f.current().mutating, undefined);
-	assert.equal(f.calls?.length ?? 0, 0);
 	// A refusal reports its own code and drops the facts.
-	const refused = fixture({ remoteSnapshot: async () => ({ ok: true, snapshot: branchSnapshot }), createRemoteBranch: async () => ({ ok: false, code: "GIT_REF_EXISTS" }) });
+	const refused = fixture({ createBranch: async () => ({ ok: false, code: "GIT_REF_EXISTS" }) });
 	await refused.reads.refresh();
 	await refused.reads.createBranch("taken");
 	assert.equal(refused.current().errorCode, "GIT_REF_EXISTS");
 	assert.equal(refused.current().snapshot, undefined);
 	// An unknown outcome is a warning, not a success, and is never replayed.
-	const unknown = fixture({ remoteSnapshot: async () => ({ ok: true, snapshot: branchSnapshot }), createRemoteBranch: async () => ({ ok: false, code: "GIT_WRITE_RESULT_UNCONFIRMED" }) });
+	let attempts = 0;
+	const unknown = fixture({
+		createBranch: async () => {
+			attempts += 1;
+			return { ok: false, code: "GIT_WRITE_RESULT_UNCONFIRMED" };
+		},
+	});
 	await unknown.reads.refresh();
 	await unknown.reads.createBranch("maybe");
 	assert.equal(unknown.current().errorCode, "GIT_WRITE_RESULT_UNCONFIRMED");
+	assert.equal(attempts, 1, "an unknown outcome is never retried");
 });
 
-test("an invalid or unauthorized branch name never reaches the API", async () => {
+test("an invalid branch name or the already checked-out branch never reaches the API", async () => {
 	const calls = [];
 	const f = fixture({
-		remoteSnapshot: async () => ({ ok: true, snapshot: branchSnapshot }),
-		createRemoteBranch: async (...args) => {
+		createBranch: async (...args) => {
 			calls.push(args);
 			return { ok: true };
 		},
-		switchRemoteBranch: async (...args) => {
+		switchBranch: async (...args) => {
 			calls.push(args);
 			return { ok: true };
 		},
@@ -395,56 +418,45 @@ test("an invalid or unauthorized branch name never reaches the API", async () =>
 	for (const name of ["", "@", "-feature", "HEAD", "FETCH_HEAD", "refs/heads/x", "a@{b}", "a\\b", "x".repeat(1025), "d".repeat(40)]) await f.reads.createBranch(name);
 	await f.reads.switchBranch("main");
 	assert.deepEqual(calls, [], "names main would refuse and the branch already current are refused locally");
-	// Without a grant from the snapshot nothing is attempted, however valid the name is.
-	const ungranted = fixture({ remoteSnapshot: async () => ({ ok: true, snapshot }) });
-	await ungranted.reads.refresh();
-	await ungranted.reads.createBranch("feature/one");
-	await ungranted.reads.switchBranch("feature/one");
-	assert.equal(ungranted.current().errorCode, undefined);
 });
 
-test("switching uses its own grant, refreshes on confirmation and reports a conflict without touching facts twice", async () => {
+test("switching calls the provider, refreshes on confirmation and reports a conflict without touching facts twice", async () => {
 	const calls = [];
 	const f = fixture({
-		remoteSnapshot: async () => ({ ok: true, snapshot: branchSnapshot }),
-		switchRemoteBranch: async (...args) => {
+		switchBranch: async (...args) => {
 			calls.push(args);
 			return { ok: true };
 		},
 	});
 	await f.reads.refresh();
 	await f.reads.switchBranch("feature");
-	assert.deepEqual(plain(calls), [["project", "feature", branchSnapshot.switchToken, ""]]);
-	// A grant is single use, so the second click can only work because the confirmed switch re-read the repository.
+	assert.deepEqual(plain(calls), [["feature", ""]]);
+	// The confirmed switch re-read the repository, so the next action works from fresh facts.
 	const readsBefore = f.states.filter((entry) => entry.snapshot !== undefined).length;
 	await f.reads.switchBranch("feature");
 	assert.equal(calls.length, 2);
-	assert.ok(f.states.filter((entry) => entry.snapshot !== undefined).length > readsBefore, "a confirmed switch re-reads the repository and hands out the next grant");
-	const conflict = fixture({ remoteSnapshot: async () => ({ ok: true, snapshot: branchSnapshot }), switchRemoteBranch: async () => ({ ok: false, code: "GIT_SWITCH_CONFLICT" }) });
+	assert.ok(f.states.filter((entry) => entry.snapshot !== undefined).length > readsBefore, "a confirmed switch re-reads the repository");
+	const conflict = fixture({ switchBranch: async () => ({ ok: false, code: "GIT_SWITCH_CONFLICT" }) });
 	await conflict.reads.refresh();
 	await conflict.reads.switchBranch("feature");
 	assert.equal(conflict.current().errorCode, "GIT_SWITCH_CONFLICT");
 	assert.equal(conflict.current().mutating, undefined);
 });
 
-const discardSnapshot = {
-	...snapshot,
-	discardToken: "d".repeat(32),
-	groups: { merge: [], index: [], workingTree: [{ target, path: target.relativePath, displayPath: target.relativePath, status: 5, letter: "M" }], untracked: [{ target: { projectId, relativePath: "junk.txt" }, path: "junk.txt", displayPath: "junk.txt", status: 7, letter: "?" }] },
-};
+const discardGroups = { merge: [], index: [], workingTree: [{ target, path: target.relativePath, displayPath: target.relativePath, status: 5, letter: "M" }], untracked: [{ target: { projectId, relativePath: "junk.txt" }, path: "junk.txt", displayPath: "junk.txt", status: 7, letter: "?" }] };
 
-test("discarding a file asks main for the backup, keeps the recovery ref and re-reads the repository", async () => {
+test("discarding a file asks the provider for the backup, keeps the recovery ref and re-reads the repository", async () => {
 	const calls = [];
 	const f = fixture({
-		remoteSnapshot: async () => ({ ok: true, snapshot: discardSnapshot }),
-		discardRemote: async (...args) => {
+		status: async () => ({ ok: true, snapshot: { ...snapshot, groups: discardGroups } }),
+		discard: async (...args) => {
 			calls.push(args);
 			return { ok: true, recoveryRef: "refs/pideck/recovery/20261016120000-ab12cd34" };
 		},
 	});
 	await f.reads.refresh();
 	await f.reads.discard("workingTree", target);
-	assert.deepEqual(plain(calls), [["project", "workingTree", target, discardSnapshot.discardToken, ""]]);
+	assert.deepEqual(plain(calls), [["workingTree", target, ""]]);
 	assert.deepEqual(plain(f.current().discardRecovery), { ref: "refs/pideck/recovery/20261016120000-ab12cd34", path: "file.txt" });
 	// The note is what tells the user how to get the bytes back, so a later read must not erase it.
 	await f.reads.refresh();
@@ -452,11 +464,11 @@ test("discarding a file asks main for the backup, keeps the recovery ref and re-
 	// A second discard replaces the note instead of accumulating stale ones.
 	await f.reads.discard("untracked", { projectId, relativePath: "junk.txt" });
 	assert.deepEqual(plain(f.current().discardRecovery), { ref: "refs/pideck/recovery/20261016120000-ab12cd34", path: "junk.txt" });
-	assert.deepEqual(plain(calls.at(-1)), ["project", "untracked", { projectId, relativePath: "junk.txt" }, discardSnapshot.discardToken, ""]);
+	assert.deepEqual(plain(calls.at(-1)), ["untracked", { projectId, relativePath: "junk.txt" }, ""]);
 });
 
 test("a discard that has nothing to back up reports that honestly", async () => {
-	const f = fixture({ remoteSnapshot: async () => ({ ok: true, snapshot: discardSnapshot }), discardRemote: async () => ({ ok: true, recoveryRef: null }) });
+	const f = fixture({ status: async () => ({ ok: true, snapshot: { ...snapshot, groups: discardGroups } }), discard: async () => ({ ok: true, recoveryRef: null }) });
 	await f.reads.refresh();
 	await f.reads.discard("workingTree", target);
 	assert.deepEqual(plain(f.current().discardRecovery), { ref: null, path: "file.txt" });
@@ -464,15 +476,17 @@ test("a discard that has nothing to back up reports that honestly", async () => 
 });
 
 test("a refused or unknown discard drops the facts, keeps the warning and is never replayed", async () => {
-	const refused = fixture({ remoteSnapshot: async () => ({ ok: true, snapshot: discardSnapshot }), discardRemote: async () => ({ ok: false, code: "RESULT_TOO_LARGE" }) });
+	const refused = fixture({ status: async () => ({ ok: true, snapshot: { ...snapshot, groups: discardGroups } }), discard: async () => ({ ok: false, code: "RESULT_TOO_LARGE" }) });
 	await refused.reads.refresh();
 	await refused.reads.discard("workingTree", target);
 	assert.equal(refused.current().errorCode, "RESULT_TOO_LARGE");
 	assert.equal(refused.current().snapshot, undefined, "a refusal drops facts rather than showing a half-true tree");
 	assert.equal(refused.current().discardRecovery, undefined);
+	let attempts = 0;
 	const unknown = fixture({
-		remoteSnapshot: async () => ({ ok: true, snapshot: discardSnapshot }),
-		discardRemote: async () => {
+		status: async () => ({ ok: true, snapshot: { ...snapshot, groups: discardGroups } }),
+		discard: async () => {
+			attempts += 1;
 			throw new Error("socket closed");
 		},
 	});
@@ -480,13 +494,14 @@ test("a refused or unknown discard drops the facts, keeps the warning and is nev
 	await unknown.reads.discard("workingTree", target);
 	assert.equal(unknown.current().errorCode, "GIT_WRITE_RESULT_UNCONFIRMED");
 	assert.equal(unknown.current().discardRecovery, undefined, "an unknown outcome promises no backup");
+	assert.equal(attempts, 1, "an unknown discard is never replayed");
 });
 
-test("a discard without a grant, with the wrong group or for another project never reaches the API", async () => {
+test("a discard with the wrong group or for another project never reaches the API", async () => {
 	const calls = [];
 	const f = fixture({
-		remoteSnapshot: async () => ({ ok: true, snapshot: discardSnapshot }),
-		discardRemote: async (...args) => {
+		status: async () => ({ ok: true, snapshot: { ...snapshot, groups: discardGroups } }),
+		discard: async (...args) => {
 			calls.push(args);
 			return { ok: true, recoveryRef: null };
 		},
@@ -496,14 +511,10 @@ test("a discard without a grant, with the wrong group or for another project nev
 	await f.reads.discard("workingTree", { projectId: "other", relativePath: "file.txt" });
 	await f.reads.discard("workingTree", { projectId, relativePath: "not-in-snapshot.txt" });
 	assert.deepEqual(calls, []);
-	const ungranted = fixture({ remoteSnapshot: async () => ({ ok: true, snapshot }) });
-	await ungranted.reads.refresh();
-	await ungranted.reads.discard("workingTree", target);
-	assert.equal(ungranted.current().errorCode, undefined);
 	// One action at a time: the second click while the first is in flight is ignored.
 	const busy = fixture({
-		remoteSnapshot: async () => ({ ok: true, snapshot: discardSnapshot }),
-		discardRemote: async (...args) => {
+		status: async () => ({ ok: true, snapshot: { ...snapshot, groups: discardGroups } }),
+		discard: async (...args) => {
 			calls.push(args);
 			return new Promise(() => {});
 		},
@@ -515,7 +526,6 @@ test("a discard without a grant, with the wrong group or for another project nev
 });
 
 const recoveryEntry = { ref: "refs/pideck/recovery/20261016120000-ab12cd34", oid: "e".repeat(40), path: "file.txt", bytes: 2048, at: 1792138005 };
-const recoverySnapshot = { ...snapshot, restoreToken: "e".repeat(32), dropToken: "f".repeat(32) };
 
 test("the recovery listing loads on demand and its truncation flag travels with it", async () => {
 	const calls = [];
@@ -526,7 +536,7 @@ test("the recovery listing loads on demand and its truncation flag travels with 
 		},
 	});
 	await f.reads.loadRecovery();
-	assert.deepEqual(plain(calls), [["project", ""]]);
+	assert.deepEqual(plain(calls), [[""]]);
 	assert.deepEqual(plain(f.current().recovery), { entries: [recoveryEntry], truncated: true });
 	assert.equal(f.current().recoveryLoading, false);
 	const failed = fixture({ recoveryList: async () => ({ ok: false, code: "GIT_COMMAND_FAILED" }) });
@@ -542,19 +552,18 @@ test("the recovery listing loads on demand and its truncation flag travels with 
 	assert.equal(thrown.current().recoveryErrorCode, "SSH_HOST_DISCONNECTED");
 });
 
-test("restoring a snapshot keeps the recovery store and answers with its own grant", async () => {
+test("restoring a snapshot keeps the recovery store and answers with its own outcome", async () => {
 	const calls = [];
 	const f = fixture({
-		remoteSnapshot: async () => ({ ok: true, snapshot: recoverySnapshot }),
 		recoveryList: async () => ({ ok: true, entries: [], truncated: false }),
 		recoveryRestore: async (...args) => {
 			calls.push(args);
-			return { ok: true, path: "file.txt", bytes: 2048 };
+			return { ok: true };
 		},
 	});
 	await f.reads.refresh();
 	await f.reads.restoreRecovery(recoveryEntry);
-	assert.deepEqual(plain(calls), [["project", recoveryEntry.ref, recoveryEntry.oid, recoveryEntry.path, recoverySnapshot.restoreToken, ""]]);
+	assert.deepEqual(plain(calls), [[recoveryEntry.ref, recoveryEntry.oid, recoveryEntry.path, ""]]);
 	assert.deepEqual(plain(f.current().recoveryNotice), { kind: "restored", path: "file.txt" });
 	assert.equal(f.current().mutating, undefined);
 	// The listing is reloaded after a restore, and the notice survives the refresh that follows it.
@@ -563,10 +572,9 @@ test("restoring a snapshot keeps the recovery store and answers with its own gra
 	assert.deepEqual(plain(f.current().recoveryNotice), { kind: "restored", path: "file.txt" }, "an outcome the user still needs is not erased by a read");
 });
 
-test("deleting a snapshot is its own action with its own grant", async () => {
+test("deleting a snapshot is its own action with its own outcome", async () => {
 	const calls = [];
 	const f = fixture({
-		remoteSnapshot: async () => ({ ok: true, snapshot: recoverySnapshot }),
 		recoveryList: async () => ({ ok: true, entries: [], truncated: false }),
 		recoveryDrop: async (...args) => {
 			calls.push(args);
@@ -575,35 +583,35 @@ test("deleting a snapshot is its own action with its own grant", async () => {
 	});
 	await f.reads.refresh();
 	await f.reads.dropRecovery(recoveryEntry);
-	assert.deepEqual(plain(calls), [["project", recoveryEntry.ref, recoveryEntry.oid, recoverySnapshot.dropToken, ""]]);
+	assert.deepEqual(plain(calls), [[recoveryEntry.ref, recoveryEntry.oid, ""]]);
 	assert.deepEqual(plain(f.current().recoveryNotice), { kind: "dropped", path: "file.txt" });
 	// The repository facts come back with the outcome: a drop must not leave the panel looking empty.
 	assert.ok(f.current().snapshot, "the panel re-reads the repository after a drop");
 	// A refused drop reports its code and drops the facts; an unknown one says so and is never replayed.
-	const refused = fixture({ remoteSnapshot: async () => ({ ok: true, snapshot: recoverySnapshot }), recoveryDrop: async () => ({ ok: false, code: "GIT_RECOVERY_ENTRY_NOT_FOUND" }) });
+	const refused = fixture({ recoveryDrop: async () => ({ ok: false, code: "GIT_RECOVERY_ENTRY_NOT_FOUND" }) });
 	await refused.reads.refresh();
 	await refused.reads.dropRecovery(recoveryEntry);
 	assert.equal(refused.current().errorCode, "GIT_RECOVERY_ENTRY_NOT_FOUND");
 	assert.equal(refused.current().snapshot, undefined);
+	let attempts = 0;
 	const unknown = fixture({
-		remoteSnapshot: async () => ({ ok: true, snapshot: recoverySnapshot }),
 		recoveryDrop: async () => {
+			attempts += 1;
 			throw new Error("socket closed");
 		},
 	});
 	await unknown.reads.refresh();
 	await unknown.reads.dropRecovery(recoveryEntry);
 	assert.equal(unknown.current().errorCode, "GIT_WRITE_RESULT_UNCONFIRMED");
+	assert.equal(attempts, 1, "an unknown drop is never replayed");
 });
 
-test("recovery actions without a grant, with a foreign ref or for another project never reach the API", async () => {
+test("recovery actions with a foreign ref or for another project never reach the API", async () => {
 	const calls = [];
 	const f = fixture({
-		remoteSnapshot: async () => ({ ok: true, snapshot: recoverySnapshot }),
-		recoveryList: async () => ({ ok: true, entries: [], truncated: false }),
 		recoveryRestore: async (...args) => {
 			calls.push(args);
-			return { ok: true, path: "file.txt", bytes: 1 };
+			return { ok: true };
 		},
 		recoveryDrop: async (...args) => {
 			calls.push(args);
@@ -616,18 +624,12 @@ test("recovery actions without a grant, with a foreign ref or for another projec
 		await f.reads.dropRecovery(bad);
 	}
 	assert.deepEqual(calls, [], "a foreign ref is refused locally, exactly as main would refuse it");
-	const ungranted = fixture({ remoteSnapshot: async () => ({ ok: true, snapshot }) });
-	await ungranted.reads.refresh();
-	await ungranted.reads.restoreRecovery(recoveryEntry);
-	await ungranted.reads.dropRecovery(recoveryEntry);
-	assert.equal(ungranted.current().errorCode, undefined);
 });
 
 test("a listing that finishes after a drop cannot erase the drop's outcome", async () => {
 	let release;
 	let listings = 0;
 	const f = fixture({
-		remoteSnapshot: async () => ({ ok: true, snapshot: recoverySnapshot }),
 		// The first listing hangs (the panel is still loading it); the reload the drop triggers answers at once.
 		recoveryList: () => {
 			listings += 1;
@@ -651,27 +653,25 @@ test("a listing that finishes after a drop cannot erase the drop's outcome", asy
 });
 
 const syncFacts = { branch: "main", upstream: "refs/remotes/origin/main", ahead: 1, behind: 2, remotes: ["origin"] };
-const syncSnapshot = { ...snapshot, fetchToken: "1".repeat(32), pushToken: "2".repeat(32), pullToken: "3".repeat(32) };
 
-test("sync facts load on demand and the three verbs use their own grants and report their own outcome", async () => {
+test("sync facts load on demand and the three verbs report their own outcome", async () => {
 	const calls = [];
 	const f = fixture({
-		remoteSnapshot: async () => ({ ok: true, snapshot: syncSnapshot }),
 		syncFacts: async (...args) => {
 			calls.push(["facts", ...args]);
 			return { ok: true, facts: syncFacts };
 		},
-		fetchRemote: async (...args) => {
+		fetch: async (...args) => {
 			calls.push(["fetch", ...args]);
-			return { ok: true, outcome: { upToDate: false, updated: [{ ref: "refs/remotes/origin/main", before: null, after: "a".repeat(40) }] } };
+			return { ok: true };
 		},
-		pushRemote: async (...args) => {
+		push: async (...args) => {
 			calls.push(["push", ...args]);
-			return { ok: true, outcome: { outcome: "pushed", refspec: "refs/heads/main:refs/heads/main" } };
+			return { ok: true };
 		},
-		pullRemote: async (...args) => {
+		pull: async (...args) => {
 			calls.push(["pull", ...args]);
-			return { ok: true, outcome: { mode: "fast-forward", head: "b".repeat(40) } };
+			return { ok: true };
 		},
 	});
 	await f.reads.loadSync();
@@ -679,32 +679,33 @@ test("sync facts load on demand and the three verbs use their own grants and rep
 	await f.reads.refresh();
 	await f.reads.loadSync();
 	await f.reads.fetch("origin");
-	assert.deepEqual(plain(calls.filter((call) => call[0] === "fetch").at(-1)), ["fetch", "project", "origin", syncSnapshot.fetchToken, ""]);
-	assert.deepEqual(plain(f.current().syncNotice), { kind: "fetch", outcome: "updated:1" });
+	assert.deepEqual(plain(calls.filter((call) => call[0] === "fetch").at(-1)), ["fetch", "origin", ""]);
+	assert.deepEqual(plain(f.current().syncNotice), { kind: "fetch", outcome: "fetched" });
 	await f.reads.loadSync();
 	await f.reads.push("origin", "main");
-	assert.deepEqual(plain(calls.filter((call) => call[0] === "push").at(-1)), ["push", "project", "origin", "main", syncSnapshot.pushToken, ""]);
+	assert.deepEqual(plain(calls.filter((call) => call[0] === "push").at(-1)), ["push", "origin", "main", ""]);
 	assert.deepEqual(plain(f.current().syncNotice), { kind: "push", outcome: "pushed" });
 	await f.reads.loadSync();
 	await f.reads.pull("origin", "main");
-	assert.deepEqual(plain(calls.filter((call) => call[0] === "pull").at(-1)), ["pull", "project", "origin", "main", syncSnapshot.pullToken, ""]);
-	assert.deepEqual(plain(f.current().syncNotice), { kind: "pull", outcome: "fast-forward" });
+	assert.deepEqual(plain(calls.filter((call) => call[0] === "pull").at(-1)), ["pull", "origin", "main", ""]);
+	assert.deepEqual(plain(f.current().syncNotice), { kind: "pull", outcome: "pulled" });
 	// The notice survives the refresh the verb performs, and the facts are re-read with it.
 	await f.reads.refresh();
-	assert.deepEqual(plain(f.current().syncNotice), { kind: "pull", outcome: "fast-forward" });
+	assert.deepEqual(plain(f.current().syncNotice), { kind: "pull", outcome: "pulled" });
 });
 
 test("sync refusals and unknown outcomes are never replayed or guessed", async () => {
-	const refused = fixture({ remoteSnapshot: async () => ({ ok: true, snapshot: syncSnapshot }), syncFacts: async () => ({ ok: true, facts: syncFacts }), pushRemote: async () => ({ ok: false, code: "GIT_PUSH_REJECTED" }) });
+	const refused = fixture({ syncFacts: async () => ({ ok: true, facts: syncFacts }), push: async () => ({ ok: false, code: "GIT_PUSH_REJECTED" }) });
 	await refused.reads.refresh();
 	await refused.reads.loadSync();
 	await refused.reads.push("origin", "main");
 	assert.equal(refused.current().errorCode, "GIT_PUSH_REJECTED");
 	assert.equal(refused.current().snapshot, undefined, "a refused verb drops the facts instead of showing a stale tree");
+	let attempts = 0;
 	const unknown = fixture({
-		remoteSnapshot: async () => ({ ok: true, snapshot: syncSnapshot }),
 		syncFacts: async () => ({ ok: true, facts: syncFacts }),
-		pullRemote: async () => {
+		pull: async () => {
+			attempts += 1;
 			throw new Error("socket closed");
 		},
 	});
@@ -713,34 +714,31 @@ test("sync refusals and unknown outcomes are never replayed or guessed", async (
 	await unknown.reads.pull("origin", "main");
 	assert.equal(unknown.current().errorCode, "GIT_WRITE_RESULT_UNCONFIRMED");
 	assert.equal(unknown.current().syncNotice, undefined, "an unknown outcome promises nothing");
+	assert.equal(attempts, 1, "an unknown verb is never replayed");
 	const failing = fixture({ syncFacts: async () => ({ ok: false, code: "GIT_SYNC_FAILED" }) });
 	await failing.reads.loadSync();
 	assert.equal(failing.current().syncErrorCode, "GIT_SYNC_FAILED");
 });
 
-test("a sync verb without a grant, an unknown remote or the wrong branch never reaches the API", async () => {
+test("a sync verb with an unknown remote, the wrong branch or no loaded facts never reaches the API", async () => {
 	const calls = [];
 	const f = fixture({
-		remoteSnapshot: async () => ({ ok: true, snapshot: syncSnapshot }),
 		syncFacts: async () => ({ ok: true, facts: syncFacts }),
-		fetchRemote: async (...args) => {
+		fetch: async (...args) => {
 			calls.push(["fetch", ...args]);
-			return { ok: true, outcome: { upToDate: true, updated: [] } };
+			return { ok: true };
 		},
-		pushRemote: async (...args) => {
+		push: async (...args) => {
 			calls.push(["push", ...args]);
-			return { ok: true, outcome: { outcome: "up-to-date", refspec: "refs/heads/main:refs/heads/main" } };
+			return { ok: true };
 		},
 	});
 	await f.reads.refresh();
+	// No sync facts yet: the panel must not guess a remote.
+	await f.reads.fetch("origin");
+	assert.deepEqual(calls, [], "a verb needs the loaded sync facts");
 	await f.reads.loadSync();
 	await f.reads.fetch("elsewhere");
 	await f.reads.push("origin", "other");
 	assert.deepEqual(calls, [], "only a remote this repository has, and only the checked-out branch, may be synced");
-	const ungranted = fixture({ remoteSnapshot: async () => ({ ok: true, snapshot: snapshot }), syncFacts: async () => ({ ok: true, facts: syncFacts }) });
-	await ungranted.reads.refresh();
-	await ungranted.reads.loadSync();
-	await ungranted.reads.fetch("origin");
-	assert.equal(ungranted.current().errorCode, undefined);
-	assert.equal(ungranted.current().syncNotice, undefined);
 });
