@@ -386,6 +386,7 @@ export const zhCN = {
 	"sidebar.emptyProjectsDesc": "Pi 会在项目目录中读写文件、执行命令。添加后可在左侧管理多个项目。",
 	"app.anonymousChatTitle": "匿名 Chat - {name}",
 	"app.guideBootstrapUnavailable": "当前没有可用的项目，无法创建会话",
+	"app.sessionCreateFailed": "创建会话失败，请重试",
 	"app.guideProjectPicker": "选择要创建会话的项目",
 	"askPanel.title": "并行问询",
 	"askPanel.sessionTitle": "并行问询",

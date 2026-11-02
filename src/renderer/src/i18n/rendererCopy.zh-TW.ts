@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 920cf1cb1ca53529d2861b3a8b70c6647c12d535d6e52755479a291790ddc1fc（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 244c86e5a4904a1691b8e237db687c7f3b7c62ea8686c7f919671ef2277d9d8e（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -393,6 +393,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"sidebar.emptyProjectsDesc": "Pi 會在專案目錄中讀寫檔案、執行命令。新增後可在左側管理多個專案。",
 	"app.anonymousChatTitle": "匿名 Chat - {name}",
 	"app.guideBootstrapUnavailable": "當前沒有可用的專案，無法建立會話",
+	"app.sessionCreateFailed": "建立會話失敗，請重試",
 	"app.guideProjectPicker": "選擇要建立會話的專案",
 	"askPanel.title": "並行問詢",
 	"askPanel.sessionTitle": "並行問詢",

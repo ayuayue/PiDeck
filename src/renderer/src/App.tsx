@@ -112,6 +112,7 @@ import { useSessionHistoryMutations } from "./hooks/useSessionHistoryMutations";
 import { useUserMessageEditReplay } from "./hooks/useUserMessageEditReplay";
 import { isLiveRuntimeStatus, resolveSessionReloadMode, sessionCommandFailureToast, type SessionRunAction, type SessionRunCapabilities, type SessionRunControlView } from "./utils/sessionCommands";
 import { GUIDE_BOOTSTRAP_SESSION_ID, readWelcomeDshModelPreference, readWelcomeModelPreference, readWelcomeThinkingPreference, resolveChatSessionBootstrap, type NewSessionBackendTarget } from "./utils/chatSessionBootstrap";
+import { createSessionOnce } from "./utils/sessionCreation";
 import { useAppAppearance } from "./hooks/appearance/useAppAppearance";
 import { useAppBootstrapInfo } from "./hooks/app/useAppBootstrapInfo";
 import { useBootOverlayReady } from "./hooks/app/useBootOverlayReady";
@@ -335,6 +336,13 @@ export function App() {
 	currentSessionIdRef.current = currentSessionId;
 	const openSessionRequestRef = useRef(0);
 	const creatingSessionDraftRef = useRef<Set<string>>(new Set());
+	// 每个项目在途的草稿创建（issue #481）：Tab 栏「+」/ 侧栏新建 与 引导页首发
+	// 是两条独立入口，都会为同一项目建 draft。谁先发起谁落地，后到者复用同一条
+	// 会话——否则多建出的那条没人写过，就是 Tab 栏里点不动的空标签。
+	const pendingDraftCreationRef = useRef<Map<string, Promise<SessionRecord | undefined>>>(new Map());
+	// 最近一条由「+」/侧栏新建落地的草稿：引导页输入框被它顶下去时，卸载前已排队的
+	// 首次发送要落进这条会话，而不是再建一条空会话（issue #481 的另一半竞态）。
+	const lastCreatedDraftIdRef = useRef<string | undefined>(undefined);
 	// 引导页虚拟会话提升并发闸：首次发送触发创建真实会话时登记 promise，同一帧内
 	// 的并发发送（如快速双击）复用同一次提升，避免建出两个会话。
 	const guideBootstrapPromotionRef = useRef<Promise<string> | undefined>(undefined);
@@ -1377,14 +1385,27 @@ export function App() {
 		});
 	}, [workspaceChrome, selectSessionCommand, selectProjectCommand, overlays, showToast]);
 
-	/** 新建会话：选中 + 登记常驻 Tab（chrome 与 selection 在 App 边界组合） */
+	/**
+	 * 新建会话：选中 + 登记常驻 Tab（chrome 与 selection 在 App 边界组合）。
+	 *
+	 * 同一项目同一时刻只跑一条创建（issue #481）：入口在等 IPC 往返时引导页
+	 * 输入框仍可发送，两条链路各建一条会话就会在 Tab 栏留下没人写过的空标签；
+	 * 后到者复用先到者的会话，选择与 Tab 登记本来就幂等。
+	 */
 	const createSessionDraftWithTab = useCallback(
 		async (projectId?: string, preferences: SessionLaunchPreferences = {}, backend?: AgentBackend) => {
-			const session = await runCreateSessionDraft(projectId, preferences, backend);
-			if (session) workspaceChrome.registerOpenSession(session.id, "permanent");
-			return session;
+			const targetProjectId = projectId ?? activeProjectId;
+			if (!targetProjectId) return undefined;
+			return createSessionOnce(pendingDraftCreationRef.current, targetProjectId, async () => {
+				const session = await runCreateSessionDraft(targetProjectId, preferences, backend);
+				if (session) {
+					lastCreatedDraftIdRef.current = session.id;
+					workspaceChrome.registerOpenSession(session.id, "permanent");
+				}
+				return session;
+			});
 		},
-		[runCreateSessionDraft, workspaceChrome],
+		[activeProjectId, runCreateSessionDraft, workspaceChrome],
 	);
 
 	const createAnonymousSessionWithTab = useCallback(
@@ -1619,15 +1640,31 @@ export function App() {
 				// 激活时 SessionRuntimeCoordinator.applyPreferences → DshAgentManager.setModel
 				// 会把这条显式 model 落到 host（host 拒绝时降级并告警，不让创建失败）。
 				const acpToolName = draftBackend === "acp" && acpToolId ? store.get(acpToolsAtom).find((candidate) => candidate.id === acpToolId)?.name : undefined;
-				const session = await api.sessions.createDraft({
-					projectId: project.id,
-					title: pendingAgent ? buildAgentSessionTitle(pendingAgent) : draftBackend === "dsh" ? `${project.name} DSH` : (acpToolName ?? `${project.name} agent`),
-					backend: draftBackend,
-					...(draftBackend === "acp" && acpToolId ? { acpToolId } : {}),
-					...(welcomeModel ? (draftBackend === "dsh" ? { model: welcomeModel } : { welcomeModel }) : {}),
-					...(welcomeThinking ? { thinkingLevel: welcomeThinking } : {}),
-				});
-				upsertSession(session);
+				// 复用 Tab 栏「+」/ 侧栏新建正在创建的草稿（issue #481）：那条 IPC 还没回来时
+				// 引导页首发若另建一条，Tab 栏会多出一个没人写过的空标签。创建失败（undefined）
+				// 时照常自建——失败的那条本来就没落地，不该让首发跟着失败。
+				const inFlightDraft = pendingDraftCreationRef.current.get(project.id);
+				// 「+」/侧栏新建刚落地、并且已经顶掉引导页（currentSessionId 指向它）：这条发送
+				// 来自即将卸载的输入框，消息要落进那条会话。只认「最近新建的那条」，用户手动
+				// 切到的其它会话不会被误当成新建目标。
+				const liveSessionId = store.get(currentSessionIdAtom);
+				const adoptedSession = liveSessionId && liveSessionId === lastCreatedDraftIdRef.current ? store.get(sessionRecordByIdAtomFamily(liveSessionId)) : undefined;
+				const adoptedDraft = inFlightDraft ? await inFlightDraft : adoptedSession;
+				const session =
+					adoptedDraft ??
+					(await createSessionOnce(pendingDraftCreationRef.current, project.id, async () => {
+						const created = await api.sessions.createDraft({
+							projectId: project.id,
+							title: pendingAgent ? buildAgentSessionTitle(pendingAgent) : draftBackend === "dsh" ? `${project.name} DSH` : (acpToolName ?? `${project.name} agent`),
+							backend: draftBackend,
+							...(draftBackend === "acp" && acpToolId ? { acpToolId } : {}),
+							...(welcomeModel ? (draftBackend === "dsh" ? { model: welcomeModel } : { welcomeModel }) : {}),
+							...(welcomeThinking ? { thinkingLevel: welcomeThinking } : {}),
+						});
+						upsertSession(created);
+						return created;
+					}));
+				if (!session) throw new Error(t("app.sessionCreateFailed"));
 				if (pendingAgent) {
 					// 绑定失败不阻断发送（会话已存在，用户还能在输入框上方的提示条里再绑）；
 					// 无论成败都清掉待绑定 id，避免下一轮新会话页继承上一个智能体。
