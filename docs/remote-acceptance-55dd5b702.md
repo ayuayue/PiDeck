@@ -19,7 +19,7 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 | Linux（WSL）本提交 6 个测试文件 | **通过**：61/61（验收时，0 skip）；修复后 lifecycle 7/7 复跑通过 |
 | Linux（WSL）POSIX/Linux-only 邻接用例 | **通过**：139 pass / 1 skip（root-only chown） |
 | Linux（WSL）根池化相关 4 文件 | **通过**：51/51 |
-| Linux（WSL）remote/ssh 全扫 | **失败（7 例，全部既有，非本提交引入）** + **跳过 11 例**；基线 HEAD~1 复跑失败数一致，详见 §3.3 |
+| Linux（WSL）remote/ssh 全扫 | **通过**：2380 tests / 2369 pass / **0 fail** / 11 skip（797.6s）；原 7 条既有红已全部修复并纳入 21 文件硬门禁（§11） |
 | 真实 SSH + Electron 端到端验收 | **通过**：R0/R1 UI 链路通过；S2/S5/S6/S7 另做真机验收并全部通过（S7 为 paths-over-limit 降级/恢复，watch-failed 分支仍由单测覆盖），详见 §10 |
 | Linux CI 覆盖 | **通过（仅本地新增，未触发 GitHub CI）**：新增 `linux-unit-remote` job（硬门禁 17 文件 253/252+1；全扫 continue-on-error）+ 挂账文档；见 §11 |
 | panel-service-baseline.manifest | **通过**：按 HEAD 重建，`panel-baseline.mjs verify` 48/48 rc=0；见 §11 |
@@ -333,7 +333,7 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 ### 9.4 仍未做
 
 - 真机 S2/S5/S6/S7 已完成（§10.5）；S7 仅覆盖 paths-over-limit 降级/恢复，watch-failed 分支仍单测。
-- 7 个既有 Linux 红已挂账（`docs/ci-linux-known-failures.md`），未修；`remoteGitStability` 属 Git/Phase C 债。
+- 7 个既有 Linux 红已全部修复并纳入 21 文件硬门禁（`docs/ci-linux-known-failures.md`）；全扫 0 fail。
 - 池化 HOME 探针与 UI 入口修复已提交（未 push）。
 
 ## 10. 真实 SSH + Electron 执行结果（2026-10-31/11-02；R0/R1 均通过）
@@ -390,10 +390,10 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 
 ### 11.1 Linux CI
 
-- `.github/workflows/ci.yml` 新增 `linux-unit-remote`（`ubuntu-latest`，node 24.13.0，`npm ci`）：
-  - 硬门禁：17 个远端/SSH 相关文件 = **253 tests / 252 pass + 1 root-only skip**，失败挡合并（`remoteProjectLifecycle` 已按修复后的 7 例计入）。
-  - 跟踪：`tests/remote*.test.mjs` + `tests/ssh*.test.mjs` 全扫，`continue-on-error`，只用于发现“§2 清单之外的新红”；WSL2 实测 **248 文件 / 2380 tests / 2362 pass / 7 fail / 11 skip（668s）**，7 红全部命中清单、无第 8 条。
-- 新增 `docs/ci-linux-known-failures.md`：7 条既有 Linux 红（`remoteGitStability` 4、`remoteHelperSearchNames` 1、`remoteSearchIsolation` 1、`sshClientRuntime` 1），均给出复现命令、现象、基线 HEAD~1/09aca4203 同红证据与处置=挂账；并区分 Windows-only / POSIX-only / root-only skip。
+- `.github/workflows/ci.yml` 的 `linux-unit-remote`（`ubuntu-latest`，node 24.13.0，`npm ci`）：
+  - 硬门禁：**21** 个远端/SSH 相关文件 = **307 tests / 302 pass + 5 skip（4 Windows-only + 1 root-only）**，失败挡合并。
+  - 跟踪：`tests/remote*.test.mjs` + `tests/ssh*.test.mjs` 全扫，`continue-on-error`；2026-11-02 WSL2 实测 **248 文件 / 2380 tests / 2369 pass / 0 fail / 11 skip（797.6s）**，原 7 红已清零。
+- `docs/ci-linux-known-failures.md` 已从「7 条挂账」改为「清零记录 + 21 文件硬门禁」：原文 7 红逐条给出根因、修复与复现，当前 0 fail；Windows-only / root-only skip 仍单独记账。
 - 状态：本地改好 `ci.yml` 与新文档，**未触发 GitHub CI**；push 后才生效。
 
 ### 11.2 基线清单

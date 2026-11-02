@@ -79,6 +79,7 @@ function harness(t) {
 			"git.stage",
 			"git.unstage",
 			"git.commit",
+			"git.discard",
 			"git.createBranch",
 			"git.switchBranch",
 			"git.fetch",

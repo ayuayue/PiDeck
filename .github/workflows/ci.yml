@@ -155,7 +155,7 @@ jobs:
         run: npm ci
 
       - name: Hard gate - remote/SSH subset green on Linux
-        # 这 17 个文件是「在 Linux 上实测全绿」的集合；逐文件计数与基线对照见
+        # 这 21 个文件是「在 Linux 上实测全绿」的集合；逐文件计数与基线对照见
         # docs/ci-linux-known-failures.md §1。
         # --test-concurrency=1 与 npm run test:serial 同口径：测试文件共享进程全局状态，
         # 并发会互相干扰；--test-timeout/--test-force-exit 与 Windows job 同理，兜底单测
@@ -180,13 +180,15 @@ jobs:
             tests/remoteBrowseRoot.test.mjs \
             tests/piAuthHostLaunch.test.mjs \
             tests/remoteBootstrapUpload.test.mjs \
-            tests/remoteBundleMaintenance.test.mjs
+            tests/remoteBundleMaintenance.test.mjs \
+            tests/remoteGitStability.test.mjs \
+            tests/remoteHelperSearchNames.test.mjs \
+            tests/remoteSearchIsolation.test.mjs \
+            tests/sshClientRuntime.test.mjs
 
-      - name: Track full remote/SSH sweep (known reds, non-blocking)
-        # continue-on-error 是为了「不让既有红挡合并」，不是「允许新红」：跑完把失败清单与
-        # docs/ci-linux-known-failures.md §2 对照，不在清单里的新红按缺陷处理。
-        # 既有 7 条：remoteGitStability 4 / remoteHelperSearchNames 1 /
-        # remoteSearchIsolation 1 / sshClientRuntime 1。
+      - name: Track full remote/SSH sweep (non-blocking)
+        # continue-on-error 是为了「不让环境差异挡合并」，不是「允许新红」：跑完把失败清单与
+        # docs/ci-linux-known-failures.md 对照；当前已知红已清零，任何新红按缺陷处理。
         # glob 用引号包住交给 node 自己展开（与 package.json 的 test 脚本同写法），
         # 不依赖 runner 的 shell 行为。
         continue-on-error: true
