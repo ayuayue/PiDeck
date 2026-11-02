@@ -57,7 +57,7 @@ function SelectContent({
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
 	return (
 		<SelectPrimitive.Portal>
-			{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
+			{/* scroll-ok: bounded —— 原语本身不限行数，由调用方保证有上限：现网 583 处 <Select> 均为固定枚举 / 受控分页；新增长列表（模型目录等）请改用可搜索的选择器，不要直接铺 SelectItem。 */}
 			<SelectPrimitive.Content
 				ref={floatingWheelGuardRef}
 				data-slot="select-content"

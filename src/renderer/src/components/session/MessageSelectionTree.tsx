@@ -5,6 +5,11 @@ import { formatTime, stripAnsi } from "./TimelineFormat";
 import { Checkbox } from "../ui-shadcn/checkbox";
 import { Label } from "../ui-shadcn/label";
 import { getRunSelectionState, getToolSummaries } from "../../utils/messageSelection";
+import { useLazyListWindow } from "../../hooks/useLazyListWindow";
+
+/** 首屏渲染的顶层条目数：一条 agent-run 会展开成「卡片头 + 若干 assistant 行 + 工具摘要」，
+ *  所以按顶层条目计数即可把 DOM 行数压在两百以内。 */
+const MESSAGE_TREE_PAGE_SIZE = 30;
 
 /**
  * 多选消息树（共享 presentational 组件）。
@@ -14,9 +19,12 @@ import { getRunSelectionState, getToolSummaries } from "../../utils/messageSelec
  * 子区 = assistant 消息行 + 工具只读摘要行）。工具/思考不参与勾选，只读展示。
  */
 export function MessageSelectionTree(props: { items: RenderMessage[]; selectedIds: ReadonlySet<string>; onToggleMessage: (id: string) => void; onToggleRun: (run: AgentRunItem) => void }) {
+	// 长会话上千条消息：先挂一屏，滚动到底再追加一批（行内勾选状态在父组件，卸载不丢）。
+	// 哨兵走视口交叉观察（弹窗自身的滚动容器就在视口内），不依赖 scroll 事件。
+	const listWindow = useLazyListWindow(props.items, { pageSize: MESSAGE_TREE_PAGE_SIZE });
 	return (
 		<div className="flex flex-col gap-1.5">
-			{props.items.map((item) => {
+			{listWindow.visible.map((item) => {
 				if (item.kind === "message") {
 					const msg = item.message;
 					if (msg.role !== "user" && msg.role !== "assistant") return null;
@@ -70,6 +78,7 @@ export function MessageSelectionTree(props: { items: RenderMessage[]; selectedId
 
 				return null;
 			})}
+			{listWindow.hasMore ? <div ref={listWindow.sentinelRef} className="h-px w-full" aria-hidden="true" /> : null}
 		</div>
 	);
 }
