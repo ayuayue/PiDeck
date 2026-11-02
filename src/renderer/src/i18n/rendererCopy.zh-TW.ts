@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 5d4e0881cde7590f1f5bf86e5e4fe6d30cb3265db083305a38b819e175d48fbe（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 58a05bab8f7d29216b6c1913ddcc24fd98c1bcc20d264e5ea689c65ebc461be1（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -7616,6 +7616,12 @@ export const zhTW: Record<TranslationKey, string> = {
 	"agentMarket.fieldDescription": "簡介",
 	"agentMarket.fieldDescriptionPlaceholder": "一句話說明它能做什麼",
 	"agentMarket.fieldIcon": "圖示",
+	"agentMarket.iconPickerTitle": "選擇圖示",
+	"agentMarket.iconPickerBuiltin": "內建圖示",
+	"agentMarket.iconPickerEmoji": "常用表情",
+	"agentMarket.iconPickerCustom": "自定義",
+	"agentMarket.iconPickerCustomPlaceholder": "輸入 emoji",
+	"agentMarket.iconPickerClear": "清除圖示",
 	"agentMarket.fieldCategory": "分類",
 	"agentMarket.fieldModel": "模型",
 	"agentMarket.fieldModelHint": "留空則跟隨當前會話模型",
@@ -7695,6 +7701,11 @@ export const zhTW: Record<TranslationKey, string> = {
 	"selectionTool.insertEmpty": "沒有可傳送的文本",
 	"agentMarket.useInSession": "使用",
 	"agentMarket.useInSessionHint": "新建會話並繫結該智慧體：角色設定隨訊息注入，可在輸入框上方展開檢視",
+	"agentMarket.useTargetTitle": "選擇工作目錄",
+	"agentMarket.useTargetCurrent": "當前",
+	"agentMarket.useTargetHint": "在所選目錄新建會話並繫結該智慧體",
+	"agentMarket.useTargetAddDirectory": "新增工作目錄…",
+	"agentMarket.useTargetEmpty": "還沒有工作目錄",
 	"agentMarket.backend": "後端",
 	"agentMarket.backendFollow": "跟隨預設",
 	"agentMarket.backendHint": "「使用」新建會話時採用該後端；劃詞一次性呼叫固定使用 pi 模型目錄",

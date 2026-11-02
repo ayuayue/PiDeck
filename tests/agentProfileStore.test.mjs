@@ -204,7 +204,7 @@ test("load normalizes malformed persisted agents instead of failing", async () =
 					id: "agent-a",
 					name: "名".repeat(AGENT_PROFILE_NAME_MAX_CHARS + 20),
 					description: "描".repeat(AGENT_PROFILE_DESCRIPTION_MAX_CHARS + 5),
-					icon: "🌐".repeat(10),
+					icon: "🌐".repeat(AGENT_PROFILE_ICON_MAX_CHARS),
 					systemPrompt: "提".repeat(AGENT_PROFILE_SYSTEM_PROMPT_MAX_CHARS + 100),
 					category: "unknown-category",
 					model: { provider: "p", modelId: "" },
@@ -216,6 +216,8 @@ test("load normalizes malformed persisted agents instead of failing", async () =
 				{ id: "agent-a", name: "重复 id" },
 				{ name: "没有 id" },
 				{ id: "agent-b", name: "有模型", systemPrompt: "设定", category: "writing", model: { provider: "openai", modelId: "gpt" }, usageCount: 2.7, lastUsedAt: 500 },
+				// 图标截断点恰好落在一个 emoji 的代理对中间：不得留下孤立高代理位（会渲染成 �）。
+				{ id: "agent-c", name: "图标截断", systemPrompt: "设定", icon: "a".repeat(AGENT_PROFILE_ICON_MAX_CHARS - 1) + "🌐" },
 			],
 		};
 		await writeFile(filePath, JSON.stringify(payload), "utf8");
@@ -239,6 +241,10 @@ test("load normalizes malformed persisted agents instead of failing", async () =
 		assert.deepEqual(plain(agentB.model), { provider: "openai", modelId: "gpt" });
 		assert.equal(agentB.usageCount, 2);
 		assert.equal(agentB.lastUsedAt, 500);
+
+		const agentC = snapshot.agents.find((agent) => agent.id === "agent-c");
+		assert.equal(agentC.icon, "a".repeat(AGENT_PROFILE_ICON_MAX_CHARS - 1));
+		assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(agentC.icon), "截断不得留下孤立的高代理位");
 
 		assert.deepEqual(plain(snapshot.settings), { selectionToolEnabled: true, systemSelectionEnabled: false, selectionToolAgentId: null, sessionAgentBindings: {} });
 		assert.equal(snapshot.revision, 7);

@@ -76,6 +76,8 @@ import { SettingsFeatureRoot } from "./components/app/SettingsFeatureRoot";
 import { hostPluginCatalogAtom, hostPluginPanelAtom, isHostPluginPagePanel } from "./atoms/host-plugin-atoms";
 import { AutomationPage } from "./components/automation/AutomationPage";
 import { AgentMarketPage } from "./components/agents/AgentMarketPage";
+import { buildAgentSessionTitle } from "./components/agents/agentIconCodec";
+import type { AgentUseTarget } from "./components/agents/market/AgentUseTargetMenu";
 import { FavoritesPage } from "./components/favorites/FavoritesPage";
 import { sortWorkspacePageIds } from "./utils/workspacePageTabs";
 import { SelectionToolHost } from "./components/selectionTool/SelectionToolHost";
@@ -1423,7 +1425,7 @@ export function App() {
 			if (!agent || !project || !trimmed) return false;
 			const backend: AgentBackend = effectiveAgentBackend === "dsh" ? "dsh" : "pi";
 			try {
-				const title = `${agent.icon ? `${agent.icon} ` : ""}${agent.name}`.trim();
+				const title = buildAgentSessionTitle(agent);
 				const session = await api.sessions.createDraft({
 					projectId: project.id,
 					title,
@@ -1456,15 +1458,21 @@ export function App() {
 	);
 
 	/**
-	 * 智能体「使用」：新建会话并绑定该智能体（会话页面复用）。
+	 * 智能体「使用」：在用户选定的工作目录新建会话并绑定该智能体（会话页面复用）。
 	 *
 	 * 角色设定不预填、不显示：主进程在绑定的会话每次发送时把 systemPrompt 拼进
 	 * agentMessage（对 UI 隐藏，见 src/main/ipc/sessionIpc.ts 的 resolveSessionAgentInstruction），
 	 * 因此时间线里只有用户自己输入的内容。标题用智能体名，侧栏一眼可认。
+	 *
+	 * projectId 来自市场里「使用」的目录菜单；所选项目在点击瞬间已被删除时回退到当前项目，
+	 * 避免菜单开着期间删项目导致按钮变成空转。
+	 * 项目清单必须现取（store.get）：菜单里「添加工作目录…」返回的新项目还不在渲染期捕获的
+	 * projects 数组里，用旧闭包会找不到 id 而静默落到上一个项目（会话建错目录）。
 	 */
 	const handleAgentUseAgent = useCallback(
-		async (agent: AgentProfile): Promise<boolean> => {
-			const project = projects.find((candidate) => candidate.id === activeProjectId) ?? projects[0];
+		async (agent: AgentProfile, projectId: string): Promise<boolean> => {
+			const liveProjects = store.get(projectInventoryAtom);
+			const project = liveProjects.find((candidate) => candidate.id === projectId) ?? liveProjects.find((candidate) => candidate.id === activeProjectId) ?? liveProjects[0];
 			if (!project) {
 				showToast(t("agentMarket.useFailed", { error: t("feedback.ai.noProject") }), 4000, "error");
 				return false;
@@ -1472,7 +1480,7 @@ export function App() {
 			// 后端只允许 pi/dsh：acp 需要用户先点选外部 CLI，生图/生视频没有提示词 agent 语义。
 			const backend: AgentBackend = (agent.backend ?? effectiveAgentBackend) === "dsh" ? "dsh" : "pi";
 			try {
-				const title = `${agent.icon ? `${agent.icon} ` : ""}${agent.name}`.trim();
+				const title = buildAgentSessionTitle(agent);
 				const session = await api.sessions.createDraft({
 					projectId: project.id,
 					title,
@@ -1491,8 +1499,11 @@ export function App() {
 				return false;
 			}
 		},
-		[activeProjectId, effectiveAgentBackend, projects, selectSessionCommand, showToast, upsertSession, workspaceChrome],
+		[activeProjectId, effectiveAgentBackend, selectSessionCommand, showToast, store, upsertSession, workspaceChrome],
 	);
+
+	/** 「使用」的目录菜单上下文：当前项目打勾，添加目录走系统目录选择框并登记新项目。 */
+	const agentUseTarget: AgentUseTarget = { activeProjectId: activeProjectId ?? null, onAddProject: addProject };
 
 	/**
 	 * 系统级划词浮窗的「发送到 PiDeck」：把浮窗里的文本追加到当前会话输入框。
@@ -2013,14 +2024,15 @@ export function App() {
 		}
 	}
 
-	async function addProject() {
+	async function addProject(): Promise<Project | null> {
 		const project = await api.projects.add();
-		if (!project) return;
+		if (!project) return null;
 		// 先同步 DSH：新目录注册后，原先按 cwd 找不到项目的外部会话才能挂进来。
 		await syncDshForeignSessionsIfEnabled();
 		await refreshProjects();
 		setActiveProjectId(project.id);
 		await refreshProjectSessions(project.id);
+		return project;
 	}
 
 	function updateAfterProjectRemoved(removedProjectId: string, next: Project[]) {
@@ -2294,7 +2306,9 @@ export function App() {
 
 	const sidebarActions: SidebarActions = {
 		projects: {
-			add: addProject,
+			add: async () => {
+				await addProject();
+			},
 			select: (projectId) => {
 				selectProjectCommand(projectId);
 				// 点开目录只选中项目并显示引导页：不自动创建会话，避免每点一个目录都
@@ -3211,7 +3225,7 @@ export function App() {
 							void openSidebarSessionByIdWithTab(projectId, sessionId, "permanent");
 						}}
 					/>
-					<AgentMarketPage active={activeWorkspacePage === "agents"} onUseAgent={handleAgentUseAgent} />
+					<AgentMarketPage active={activeWorkspacePage === "agents"} onUseAgent={handleAgentUseAgent} useTarget={agentUseTarget} />
 					{/* 收藏：整条回复 / 划选片段的本地快照，页面式 Tab（与智能体同一层级） */}
 					<FavoritesPage active={activeWorkspacePage === "favorites"} />
 				</div>

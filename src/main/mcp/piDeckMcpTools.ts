@@ -101,7 +101,7 @@ const context = (projectId: string) => ({ projectId, locale: "en-US" as const, t
 // 枚举走 shared 常量：新增分类/后端时这里自动跟随，不会出现「UI 能选、MCP 拒绝」。
 const agentName = z.string().trim().min(1).max(AGENT_PROFILE_NAME_MAX_CHARS);
 const agentDescription = z.string().max(AGENT_PROFILE_DESCRIPTION_MAX_CHARS);
-const agentIcon = z.string().max(AGENT_PROFILE_ICON_MAX_CHARS);
+const agentIcon = z.string().max(AGENT_PROFILE_ICON_MAX_CHARS).describe("Single emoji, or a built-in component icon encoded as `lucide:<id>` (e.g. `lucide:bot`); empty string falls back to the default bot icon.");
 /** 角色设定只写不读：接受写入，但任何工具输出都不含它。空串按存储规则拒绝。 */
 const agentSystemPrompt = z.string().trim().min(1).max(AGENT_PROFILE_SYSTEM_PROMPT_MAX_CHARS);
 const agentCategory = z.custom<AgentProfileCategory>((value) => typeof value === "string" && (AGENT_PROFILE_CATEGORIES as readonly string[]).includes(value));

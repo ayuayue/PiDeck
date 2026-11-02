@@ -6,6 +6,7 @@ import { AsyncEmptyBlock } from "../../common/AsyncState";
 import { Button } from "../../ui-shadcn/button";
 import { AgentMarketCard } from "./AgentMarketCard";
 import { RemovalList, RemovalRow } from "../../removal/RemovalList";
+import type { AgentUseTarget } from "./AgentUseTargetMenu";
 
 interface AgentMarketGridProps {
 	/** 已过滤的智能体（顺序来自 atom 的展示排序）。 */
@@ -18,10 +19,13 @@ interface AgentMarketGridProps {
 	selectedAgentId: string | null;
 	/** 「使用」创建会话中的智能体 id：卡片按钮显示 loading 并忽略重复点击。 */
 	usePendingId: string | null;
+	/** 有任意智能体正在建会话：其它卡片的菜单项一并置灰（建会话过程中点别的卡会被 guard 吞掉）。 */
+	useBusy: boolean;
 	/** 拖拽排序：只上报真正发生位移的顺序（落盘与乐观更新由工作区负责）。 */
 	onReorder: (nextOrder: string[]) => void;
 	onOpen: (agent: AgentProfile) => void;
-	onUse: (agent: AgentProfile) => void;
+	/** 「使用」：先选工作目录，再在所选项目新建会话。 */
+	onUse: (agent: AgentProfile, projectId: string) => void;
 	onEdit: (agent: AgentProfile) => void;
 	onRequestDelete: (agent: AgentProfile) => void;
 	onCreate: () => void;
@@ -30,6 +34,8 @@ interface AgentMarketGridProps {
 	/** 已选中的智能体 id 集合。 */
 	selectedIds: ReadonlySet<string>;
 	onToggleSelect: (agent: AgentProfile) => void;
+	/** 「使用」的目录选择菜单上下文。 */
+	useTarget: AgentUseTarget;
 }
 
 /**
@@ -37,7 +43,7 @@ interface AgentMarketGridProps {
  * 列宽用 auto-fill/minmax：市场现在是随会话列伸缩的页面（不再被 Dialog 限宽 960），
  * 详情面板展开后网格自动减少列数，不需要为「详情是否展开」写第二套断点。
  */
-export function AgentMarketGrid({ agents, orderIds, totalCount, selectionDefaultId, selectedAgentId, usePendingId, onReorder, onOpen, onUse, onEdit, onRequestDelete, onCreate, selectionMode, selectedIds, onToggleSelect }: AgentMarketGridProps) {
+export function AgentMarketGrid({ agents, orderIds, totalCount, selectionDefaultId, selectedAgentId, usePendingId, useBusy, onReorder, onOpen, onUse, onEdit, onRequestDelete, onCreate, selectionMode, selectedIds, onToggleSelect, useTarget }: AgentMarketGridProps) {
 	// 拖拽排序：可见卡片决定落点，orderIds（完整顺序）决定持久化结果——搜索/分类过滤时
 	// 隐藏的卡片在完整顺序里保持原位，不会被「只看得见的部分」洗牌。
 	const reorder = useListReorder({ keys: orderIds, visibleKeys: agents.map((agent) => agent.id), orientation: "grid", onReorder });
@@ -79,6 +85,7 @@ export function AgentMarketGrid({ agents, orderIds, totalCount, selectionDefault
 							selectionDefault={selectionDefaultId === agent.id}
 							active={selectedAgentId === agent.id}
 							usePending={usePendingId === agent.id}
+							useBusy={useBusy}
 							reorder={reorder.itemBinding(agent.id)}
 							selectionMode={selectionMode}
 							checked={selectedIds.has(agent.id)}
@@ -87,6 +94,7 @@ export function AgentMarketGrid({ agents, orderIds, totalCount, selectionDefault
 							onUse={onUse}
 							onEdit={onEdit}
 							onRequestDelete={onRequestDelete}
+							useTarget={useTarget}
 						/>
 					</RemovalRow>
 				))}

@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useAtomValue } from "jotai";
-import { Bot, ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { agentMarketSettingsAtom, agentProfilesAtom } from "../../atoms/agent-atoms";
 import { t } from "../../i18n";
 import { resolveBoundSessionAgent } from "../../utils/sessionAgentBinding";
+import { AgentIcon } from "../agents/AgentIcon";
 import { Collapsible, CollapsibleContent } from "../ui-shadcn/collapsible";
 
 interface SessionAgentPromptBarProps {
@@ -29,7 +30,7 @@ export function SessionAgentPromptBar({ sessionId }: SessionAgentPromptBarProps)
 		<div data-testid="session-agent-prompt-bar" className="shrink-0 overflow-hidden rounded-xl border border-border/50 bg-bg-panel/40" aria-label={t("agentPromptBar.aria")}>
 			<button type="button" aria-expanded={expanded} className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-accent-soft/60" onClick={() => setExpanded((value) => !value)}>
 				<span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-bg-muted text-xs leading-none" aria-hidden="true">
-					{agent.icon || <Bot className="size-3.5 text-muted-foreground" />}
+					<AgentIcon icon={agent.icon} />
 				</span>
 				<span className="min-w-0 truncate text-xs font-medium text-foreground">{agent.name}</span>
 				<span className="shrink-0 text-micro text-muted-foreground">{t("agentPromptBar.roleLabel")}</span>

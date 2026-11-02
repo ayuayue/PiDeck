@@ -135,6 +135,9 @@ test("未配置默认智能体时同样回退内置翻译；没有内置时退�
 const PAGE_PATH = "src/renderer/src/components/agents/AgentMarketPage.tsx";
 const WORKSPACE_PATH = "src/renderer/src/components/agents/market/AgentMarketWorkspace.tsx";
 const EDITOR_PATH = "src/renderer/src/components/agents/market/AgentMarketEditor.tsx";
+const USE_TARGET_MENU_PATH = "src/renderer/src/components/agents/market/AgentUseTargetMenu.tsx";
+const CARD_PATH = "src/renderer/src/components/agents/market/AgentMarketCard.tsx";
+const DETAIL_PATH = "src/renderer/src/components/agents/market/AgentMarketDetail.tsx";
 
 test("页面是会话 Tab 栏里的专属页面 Tab（非弹窗）：覆盖会话列、失活隐藏、Esc/关闭按钮收起", () => {
 	const page = readSource(PAGE_PATH);
@@ -168,16 +171,67 @@ test("侧栏入口进入市场页面（page atom），不再打开弹框", () =>
 
 test("「使用」交给页面宿主 onUseAgent 建绑定会话：成功收起页面，失败留在市场；不再派发一次性调用面板", () => {
 	const workspace = readSource(WORKSPACE_PATH);
-	assert.match(workspace, /onUseAgent:\s*\(agent:\s*AgentProfile\)\s*=>\s*Promise<boolean>/, "工作区必须接收页面宿主注入的 onUseAgent");
-	assert.match(workspace, /if\s*\(await\s+onUseAgent\(agent\)\)\s*onClose\(\)/, "使用成功才收起市场，失败要留在市场");
+	assert.match(workspace, /onUseAgent:\s*\(agent:\s*AgentProfile,\s*projectId:\s*string\)\s*=>\s*Promise<boolean>/, "工作区必须接收页面宿主注入的 onUseAgent（带用户选定的工作目录）");
+	assert.match(workspace, /if\s*\(await\s+onUseAgent\(agent,\s*projectId\)\)\s*onClose\(\)/, "使用成功才收起市场，失败要留在市场");
 	assert.ok(!/openAgentInvokePanelAtom|openInvokePanel/.test(workspace), "市场不得再打开划词调用面板");
 	const page = readSource(PAGE_PATH);
-	assert.match(page, /<AgentMarketWorkspace\s+initialEditingAgentId=\{editingAgentId\}\s+onUseAgent=\{onUseAgent\}/, "页面宿主必须把 onUseAgent 透传给工作区");
+	assert.match(page, /<AgentMarketWorkspace\s+initialEditingAgentId=\{editingAgentId\}/, "页面宿主必须把 initialEditingAgentId 透传给工作区");
+	assert.match(page, /onUseAgent=\{onUseAgent\}/, "页面宿主必须透传 onUseAgent");
+	assert.match(page, /onClose=\{close\}/, "页面宿主必须透传 onClose");
+	assert.match(page, /useTarget=\{useTarget\}/, "页面宿主必须透传 useTarget");
 });
 
 test("「使用」入口带绑定会话语义提示（useInSessionHint）", () => {
 	for (const path of ["src/renderer/src/components/agents/market/AgentMarketCard.tsx", "src/renderer/src/components/agents/market/AgentMarketDetail.tsx"]) {
 		assert.match(readSource(path), /agentMarket\.useInSessionHint/, path + " 必须展示「使用=绑定会话、角色设定隐藏」的提示");
+	}
+});
+
+test("「使用」先选工作目录：项目清单来自 inventory、标当前项目、可新增目录", () => {
+	const menu = readSource(USE_TARGET_MENU_PATH);
+	// 目录清单必须复活用侧栏同一份 projectInventoryAtom，不能另开缓存（否则新项目/缺失态不一致）。
+	assert.match(menu, /projectInventoryAtom/, "目录列表必须来自项目清单 atom");
+	assert.match(menu, /agentMarket\.useTargetCurrent/, "当前项目要有标记，用户才知道默认会落到哪");
+	assert.match(menu, /agentMarket\.useTargetAddDirectory/, "菜单里要能新增工作目录");
+	assert.match(menu, /onAddProject/, "新增目录必须走宿主注入的 addProject（复用系统目录选择框）");
+	// 卡片/详情的「使用」必须经过目录菜单；卡片操作行平时隐藏，菜单展开时（Radix Portal 抢走焦点）得保持可见。
+	for (const path of [CARD_PATH, DETAIL_PATH]) {
+		assert.match(readSource(path), /AgentUseTargetMenu/, path + " 的「使用」必须走目录选择菜单");
+	}
+	assert.ok(readSource(CARD_PATH).includes("has-data-[state=open]:opacity-100"), "卡片菜单展开时操作行必须保持可见");
+	// 宿主按用户选定的目录建会话，选中项目已消失时回退当前项目。
+	const app = readSource("src/renderer/src/App.tsx");
+	assert.match(app, /handleAgentUseAgent = useCallback\(\s*async \(agent: AgentProfile, projectId: string\): Promise<boolean>/, "宿主必须接收选定的工作目录");
+	// 必须现取项目清单：「添加工作目录…」返回的新项目不在渲染期捕获的数组里，用旧闭包会建到上一个目录。
+	assert.match(app, /const liveProjects = store\.get\(projectInventoryAtom\)/, "建会话前必须现取项目清单（store.get），不能用渲染期闭包");
+	assert.match(app, /liveProjects\.find\(\(candidate\) => candidate\.id === projectId\)/, "必须优先用用户选定的项目");
+	assert.match(app, /add: async \(\) => \{\s*await addProject\(\);/, "侧栏 add 适配 addProject 的新返回值");
+	// 建会话期间其它卡片的菜单项要置灰，否则点击被工作区的全局 guard 静默吞掉。
+	assert.match(readSource(WORKSPACE_PATH), /useBusy=\{pendingUseAgentId !== null\}/, "工作区必须把「有任意建会话在进行」下发给卡片/详情");
+	assert.match(readSource(CARD_PATH), /pending=\{usePending \|\| useBusy\}/, "卡片菜单项要在其它卡片建会话时一并置灰");
+	assert.match(readSource(DETAIL_PATH), /pending=\{usePending \|\| useBusy\}/, "详情菜单项要在其它智能体建会话时一并置灰");
+});
+
+test("编辑器图标字段走图标选择器（内置组件图标 + emoji），不再需要手输字符", () => {
+	const editor = readSource(EDITOR_PATH);
+	assert.match(editor, /<AgentIconPicker[\s\S]*?value=\{icon\}[\s\S]*?onChange=\{setIcon\}/, "图标字段必须是选择器且双向绑定 icon 状态");
+	assert.ok(!editor.includes('id="agent-market-icon"'), "不得再有手输图标的 Input（id=agent-market-icon）");
+	const picker = readSource("src/renderer/src/components/agents/market/AgentIconPicker.tsx");
+	assert.match(picker, /AGENT_ICON_LUCIDE_IDS/, "选择器必须提供内置组件图标网格");
+	assert.match(picker, /agentIconValueOfLucide/, "选中内置图标要写成 lucide:<id> 编码");
+	assert.match(picker, /agentMarket\.iconPickerClear/, "要能把图标清回机器人默认");
+	// 所有渲染点都走同一个 AgentIcon，否则 emoji 之外的新编码会在某处显示成原文（lucide:bot）。
+	for (const path of [
+		CARD_PATH,
+		DETAIL_PATH,
+		"src/renderer/src/components/session/SessionAgentPromptBar.tsx",
+		"src/renderer/src/components/selectionTool/AgentInvokeAgentPicker.tsx",
+		"src/renderer/src/components/selectionTool/SelectionToolHost.tsx",
+		"src/renderer/src/components/app/settings/SelectionToolSettingsSection.tsx",
+	]) {
+		const source = readSource(path);
+		assert.match(source, /<AgentIcon\b/, path + " 必须用 AgentIcon 渲染图标");
+		assert.ok(!/>\s*\{[^}]*\.icon\b/.test(source), path + " 不得把 icon 字符串当文本直接渲染");
 	}
 });
 
