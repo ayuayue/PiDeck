@@ -452,10 +452,16 @@ test("检索：默认只搜当前项目，scope=all 才跨项目，状态里能�
 	assert.equal(all.scope, "all");
 	assert.equal(all.hits.length, 1);
 	assert.equal(all.hits[0].projectId, "proj-a", "跨项目命中要能看出是哪个项目");
-	assert.equal(errorCode(() => searchMemory(root, { query: "x", scope: "everything" })), "scope-invalid");
+	assert.equal(
+		errorCode(() => searchMemory(root, { query: "x", scope: "everything" })),
+		"scope-invalid",
+	);
 
 	const status = memoryStatus(root, { sources: [] });
-	assert.deepEqual(status.projects.map((item) => item.projectId), ["proj-a", "proj-c"]);
+	assert.deepEqual(
+		status.projects.map((item) => item.projectId),
+		["proj-a", "proj-c"],
+	);
 	assert.equal(status.projects[1].memory, 1);
 	assert.equal(status.projectsTruncated, false);
 });
