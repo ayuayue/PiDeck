@@ -61,6 +61,7 @@ import type { SkillManager } from "../skills/SkillManager";
 import { fetchModelList, invalidateModelListCache, modelsFromPiConfig, refreshModelCatalogStore, refreshModelList, resolveModelListReport } from "../pi/modelListCache";
 import { resolveRemoteModelReport as resolveRemoteModelReportRouting } from "../pi/remoteModelReportRouting";
 import { TokendanceCatalogStore } from "../config/tokendanceCatalog";
+import type { TokendancePricingStore } from "../config/tokendancePricing";
 import type { TokendanceInstallResult } from "../config/tokendanceInstaller";
 import type { TokendanceAuthMode, TokendanceAuthStore } from "../config/tokendanceAuth";
 import type { TokendancePaymentStore } from "../config/tokendancePayment";
@@ -225,6 +226,8 @@ export type SystemIpcDeps = {
 	remoteModelCatalog?: { invalidate: (hostId: string) => void };
 	/** 内置 TokenDance 模型目录（live fetch + userData 缓存）；未装配 = 列表不注入。 */
 	tokendanceCatalog?: TokendanceCatalogStore;
+	/** TokenDance 公开报价派生的折扣/免费徽章表（模型选择器展示用）；未装配 = 不显示徽章。 */
+	tokendancePricing?: TokendancePricingStore;
 	/** 内置 TokenDance OAuth 授权流程（PKCE verifier 内存持有）；未装配 = 授权入口不可用。 */
 	tokendanceAuth?: TokendanceAuthStore;
 	/** 内置 TokenDance 充值会话（创建 + 状态查询，Key 不出主进程）；未装配 = 充值入口不可用。 */
@@ -434,6 +437,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		providerMigration,
 		modelCapabilityCache,
 		tokendanceCatalog,
+		tokendancePricing,
 		tokendanceAuth,
 		tokendancePayment,
 		watchaEntitlement,
@@ -2269,6 +2273,19 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				error: error instanceof Error ? error.message : String(error),
 			});
 			return { models: [], fromCache: false, at: 0 };
+		}
+	});
+	ipcMain.handle(ipcChannels.configGetTokendancePriceTags, async () => {
+		// 徽章是装饰信息：没有装配/拉取失败都返回空表，模型列表照常显示（不阻塞选择器）。
+		if (!tokendancePricing) return { tags: {}, at: 0 };
+		try {
+			const result = await tokendancePricing.getTags();
+			return { tags: result.tags, at: result.at };
+		} catch (error) {
+			void appLogger.warn("config", "TokenDance price tags load failed", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return { tags: {}, at: 0 };
 		}
 	});
 	ipcMain.handle(ipcChannels.configTokendanceAuthStart, async (_event, payload: unknown) => {

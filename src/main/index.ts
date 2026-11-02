@@ -401,6 +401,7 @@ import { createPiResourceManagerPool, type PiResourceManagerPool } from "./confi
 import { createPiResourceManagerFactories } from "./config/piResourceFactories";
 import { createPiResourceTargetResolver } from "./config/PiResourceTargetResolver";
 import { TokendanceCatalogStore } from "./config/tokendanceCatalog";
+import { TokendancePricingStore } from "./config/tokendancePricing";
 import { installTokendanceProvider } from "./config/tokendanceInstaller";
 import { TokendanceAuthStore } from "./config/tokendanceAuth";
 import { createRemoteTerminalManager } from "./terminal/createRemoteTerminalManager";
@@ -4941,6 +4942,12 @@ function registerIpc() {
 		getCachePath: () => join(app.getPath("userData"), "tokendance-models.json"),
 		log: (message, detail) => void appLogger.info("tokendance", message, detail),
 	});
+	// TokenDance 公开报价 → 模型折扣/免费徽章（选择器展示用）。独立缓存文件：报价端点与
+	// 网关 /models 不是同一个源，刷新/失败不应互相牵连；拿不到价格时徽章整体缺席。
+	const tokendancePricingStore = new TokendancePricingStore({
+		getCachePath: () => join(app.getPath("userData"), "tokendance-pricing.json"),
+		log: (message, detail) => void appLogger.info("tokendance", message, detail),
+	});
 	/**
 	 * Phase 5 remote config scope (Batch A): every ssh target is one ready host's helper request. The host is
 	 * resolved through the same service the rest of the remote surface uses, so a disconnected/replaced host
@@ -5039,6 +5046,8 @@ function registerIpc() {
 		// 内置 TokenDance 模型目录（live fetch + userData 缓存；
 		// 作为一键配置的数据源：目录模型写入 models.json 后由 pi 运行时自行解析）
 		tokendanceCatalog: tokendanceCatalogStore,
+		// 同一份报价缓存服务模型选择器徽章（折扣/免费），与目录缓存分开（不同端点）
+		tokendancePricing: tokendancePricingStore,
 		// 内置 TokenDance OAuth 授权（PKCE S256 headless；verifier 内存持有，重启失效）
 		tokendanceAuth: new TokendanceAuthStore(),
 		// 内置 TokenDance 充值：与模型调用同一个 API Key（从 models.json 解析，只在本进程使用），

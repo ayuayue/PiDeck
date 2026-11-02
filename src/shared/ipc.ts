@@ -889,6 +889,8 @@ export const ipcChannels = {
 	configFetchModels: "config:fetch-models",
 	/** 取内置 TokenDance 模型目录（live fetch + userData 缓存；force=true 强制刷新） */
 	configGetTokendanceModels: "config:get-tokendance-models",
+	/** 取 TokenDance 公开报价派生的模型徽章表（折扣/免费；失败回空表，模型列表不受影响） */
+	configGetTokendancePriceTags: "config:get-tokendance-price-tags",
 	configInstallTokendance: "config:install-tokendance",
 	/** 启动 TokenDance OAuth 授权流程（PKCE S256；mode=callback 走本地回环自动收 code，headless 需用户粘贴） */
 	configTokendanceAuthStart: "config:tokendance-auth-start",

@@ -1568,6 +1568,8 @@ const api = {
 				fromCache: boolean;
 				at: number;
 			}>,
+		/** TokenDance 公开报价派生的模型徽章表（model id → 折扣/免费）；空表 = 没拉到或该模型无优惠 */
+		getTokendancePriceTags: () => ipcRenderer.invoke(ipcChannels.configGetTokendancePriceTags) as Promise<import("../shared/tokendance").TokendancePriceTagResult>,
 		/**
 		 * 启动 TokenDance OAuth 授权（PKCE S256）：返回授权 URL + flowId（verifier 仅主进程持有）。
 		 * mode 默认 callback（本地回环自动收 code）；主进程绑定失败会降级成 headless 并回 fallbackReason。
