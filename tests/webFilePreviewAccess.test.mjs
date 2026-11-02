@@ -12,6 +12,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const { toProjectRelative, classifyFileContentOutcome, WebFilePreview } = loadTsCommonJs("src/renderer/src/web/WebFilePreview.tsx", {
 	stubs: {
 		"@/components/session/MarkdownStream": { MarkdownStream: () => null },
+		"@/components/ui-shadcn/virtual-stack": { VirtualStack: () => null },
 		"@/i18n": { t: (key) => key },
 		"lucide-react": { Loader2: () => null, X: () => null },
 		"./useDismissOnBack": { useDismissOnBack: () => {} },

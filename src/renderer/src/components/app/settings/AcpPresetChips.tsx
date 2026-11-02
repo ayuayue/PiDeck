@@ -122,6 +122,7 @@ export function AcpPresetChips(props: { onAdd: (preset: AcpToolPreset) => void }
 				))}
 			</div>
 			{logLines.length > 0 ? (
+				// scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。
 				<pre className="bg-muted/50 text-muted-foreground max-h-28 overflow-y-auto rounded-md p-2 font-mono text-micro leading-relaxed" aria-label={t("acp.installLog")}>
 					{logLines.join("\n")}
 				</pre>

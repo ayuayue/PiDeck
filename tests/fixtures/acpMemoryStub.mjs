@@ -114,7 +114,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 		void (async () => {
 			const servers = message.params?.mcpServers;
 			// mcpServers 必须存在且每条都合 schema：缺字段/形状不对就是 -32602
-			const invalid = !Array.isArray(servers) ? "mcpServers missing" : servers.map(invalidMcpServer).find(Boolean) ?? "";
+			const invalid = !Array.isArray(servers) ? "mcpServers missing" : (servers.map(invalidMcpServer).find(Boolean) ?? "");
 			if (invalid) {
 				if (out) writeFileSync(out, JSON.stringify({ method: message.method, error: invalid, mcpServers: servers ?? null }, null, 2));
 				send({ jsonrpc: "2.0", id: message.id, error: { code: -32602, message: `Invalid params: ${invalid}` } });

@@ -109,11 +109,7 @@ export function AgentMemorySettingsSection(props: {
 			].join(" · ")
 		: t("common.loading");
 
-	const learnSummary = status
-		? status.learn.lastAt
-			? t("settings.agentMemoryLearnLast", { count: String(status.learn.sessions), time: new Date(status.learn.lastAt).toLocaleString() })
-			: t("settings.agentMemoryLearnNever")
-		: null;
+	const learnSummary = status ? (status.learn.lastAt ? t("settings.agentMemoryLearnLast", { count: String(status.learn.sessions), time: new Date(status.learn.lastAt).toLocaleString() }) : t("settings.agentMemoryLearnNever")) : null;
 
 	return (
 		<>
@@ -128,14 +124,14 @@ export function AgentMemorySettingsSection(props: {
 						{t("settings.agentMemoryImport")}
 					</Button>
 					<Button type="button" variant="outline" size="sm" disabled={busy !== "none" || !status} onClick={() => void runReveal()}>
-					<FolderOpen size={14} strokeWidth={2} aria-hidden="true" />
-					{t("settings.agentMemoryOpenFolder")}
-				</Button>
-				<Button type="button" variant="outline" size="sm" disabled={busy !== "none" || !status} onClick={() => setRenameOpen(true)}>
-					<Pencil size={14} strokeWidth={2} aria-hidden="true" />
-					{t("common.rename")}
-				</Button>
-				<Button type="button" variant="outline" size="sm" disabled={busy !== "none" || !status?.index} onClick={() => setConfirmClear(true)}>
+						<FolderOpen size={14} strokeWidth={2} aria-hidden="true" />
+						{t("settings.agentMemoryOpenFolder")}
+					</Button>
+					<Button type="button" variant="outline" size="sm" disabled={busy !== "none" || !status} onClick={() => setRenameOpen(true)}>
+						<Pencil size={14} strokeWidth={2} aria-hidden="true" />
+						{t("common.rename")}
+					</Button>
+					<Button type="button" variant="outline" size="sm" disabled={busy !== "none" || !status?.index} onClick={() => setConfirmClear(true)}>
 						<RefreshCw size={14} strokeWidth={2} aria-hidden="true" />
 						{t("settings.agentMemoryClearIndex")}
 					</Button>
@@ -185,7 +181,18 @@ export function AgentMemorySettingsSection(props: {
 				/>
 			) : null}
 			{confirmClear ? <ConfirmDialog title={t("settings.agentMemoryClearIndex")} message={t("settings.agentMemoryClearConfirm")} confirmLabel={t("settings.agentMemoryClearIndex")} danger onConfirm={() => void runClear()} onCancel={() => setConfirmClear(false)} /> : null}
-			{renameOpen && status ? <AgentDeviceRenameDialog current={status.device.name} onDone={(name) => { setRenameOpen(false); if (name) setMessage(t("settings.agentMemoryDeviceRenamed", { name })); void refresh(); }} onCancel={() => setRenameOpen(false)} onError={setError} /> : null}
+			{renameOpen && status ? (
+				<AgentDeviceRenameDialog
+					current={status.device.name}
+					onDone={(name) => {
+						setRenameOpen(false);
+						if (name) setMessage(t("settings.agentMemoryDeviceRenamed", { name }));
+						void refresh();
+					}}
+					onCancel={() => setRenameOpen(false)}
+					onError={setError}
+				/>
+			) : null}
 		</>
 	);
 }
@@ -213,15 +220,32 @@ function AgentDeviceRenameDialog(props: { current: string; onDone: (name: string
 	};
 
 	return (
-		<Dialog open onOpenChange={(open) => { if (!open) props.onCancel(); }}>
+		<Dialog
+			open
+			onOpenChange={(open) => {
+				if (!open) props.onCancel();
+			}}
+		>
 			<DialogContent className="max-w-md">
 				<DialogHeader>
 					<DialogTitle>{t("settings.agentMemoryDeviceRenameTitle")}</DialogTitle>
 				</DialogHeader>
-				<Input value={name} onChange={(event) => setName(event.target.value)} maxLength={60} autoFocus onKeyDown={(event) => { if (event.key === "Enter" && trimmed && !busy) void runSave(); }} />
+				<Input
+					value={name}
+					onChange={(event) => setName(event.target.value)}
+					maxLength={60}
+					autoFocus
+					onKeyDown={(event) => {
+						if (event.key === "Enter" && trimmed && !busy) void runSave();
+					}}
+				/>
 				<DialogFooter>
-					<Button type="button" variant="outline" size="sm" onClick={props.onCancel}>{t("common.cancel")}</Button>
-					<Button type="button" size="sm" disabled={!trimmed || busy || trimmed === props.current} onClick={() => void runSave()}>{t("common.save")}</Button>
+					<Button type="button" variant="outline" size="sm" onClick={props.onCancel}>
+						{t("common.cancel")}
+					</Button>
+					<Button type="button" size="sm" disabled={!trimmed || busy || trimmed === props.current} onClick={() => void runSave()}>
+						{t("common.save")}
+					</Button>
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>

@@ -18,9 +18,7 @@ type SendScrollCallbacks = {
 /** 最新 user 身份不依赖后端 ID 格式，也不要求它仍是数组最后一条。
  * entryId 跨投影稳定（磁盘页 `_viewer-history-X` 与运行时 `<agentId>-history-X` 同指一条），
  * 供控制器识别「同一消息被改写 id」，不误触发发送定位。 */
-export function latestUserMessage(
-	messages: readonly { id: string; role: string; meta?: Record<string, unknown> }[],
-): { id: string; entryId: string | undefined } | undefined {
+export function latestUserMessage(messages: readonly { id: string; role: string; meta?: Record<string, unknown> }[]): { id: string; entryId: string | undefined } | undefined {
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		if (messages[index].role === "user") {
 			const entryId = messages[index].meta?.entryId;

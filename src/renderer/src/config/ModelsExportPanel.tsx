@@ -54,6 +54,7 @@ export function ModelsExportPanel(props: ModelsExportPanelProps) {
 				</Button>
 				<span>{t("config.models.transfer.exportTitle")}</span>
 			</div>
+			{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 			<div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
 				<p className="text-sm text-text-secondary">{t("config.models.transfer.selectedProviders", { count: props.providerIds.length })}</p>
 				<div className="mt-4 space-y-2">

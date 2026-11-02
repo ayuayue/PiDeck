@@ -166,12 +166,16 @@ export function VirtualStack<T>(props: VirtualStackProps<T>) {
 		);
 	}
 
+	// 行容器的宽度工具类：rowClassName 自带 w-* 时不再追加 w-full —— w-full 与 w-max 是同一组
+	// 属性，谁生效取决于 Tailwind 生成的样式表顺序，不是代码里的书写顺序（file-diff 的
+	// w-max 撞过这个：行高亮底色铺不满超长行）。
+	const rowClass = ["absolute left-0 top-0", rowClassName !== undefined && /(?:^|\s)w-/.test(rowClassName) ? undefined : "w-full", rowClassName].filter(Boolean).join(" ");
 	const rows = virtualizer.getVirtualItems().map((virtualItem) => {
 		const item = items[virtualItem.index];
 		if (item === undefined) return null;
 		const key = getKey(item, virtualItem.index);
 		return (
-			<div key={virtualItem.key} data-index={virtualItem.index} {...(rowProps?.(item, virtualItem.index) ?? {})} ref={measure(key)} className={rowClassName ? `absolute left-0 top-0 w-full ${rowClassName}` : "absolute left-0 top-0 w-full"} style={{ transform: `translateY(${virtualItem.start}px)` }}>
+			<div key={virtualItem.key} data-index={virtualItem.index} {...(rowProps?.(item, virtualItem.index) ?? {})} ref={measure(key)} className={rowClass} style={{ transform: `translateY(${virtualItem.start}px)` }}>
 				{renderItem(item, virtualItem.index)}
 			</div>
 		);

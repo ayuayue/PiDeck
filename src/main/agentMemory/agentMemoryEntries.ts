@@ -242,8 +242,12 @@ export function writeStandingEntry(root: string | undefined, content: string): {
 	const normalized = content.replace(/\r\n/g, "\n").trim();
 	// 预算内的两倍余量交给裁剪逻辑没有必要——设置页是人工编辑，直接给硬上限挡手滑。
 	if (normalized.length > FILE_BUDGETS.standing.maxChars) throw new Error("standing-too-long");
-	if (normalized) writeAtomic(targetFilePath(root, "standing", ""), `${normalized}
-`);
+	if (normalized)
+		writeAtomic(
+			targetFilePath(root, "standing", ""),
+			`${normalized}
+`,
+		);
 	else writeAtomic(targetFilePath(root, "standing", ""), "");
 	// 写路径绕过了 mutateEntries，mtime 短路必须强制穿透，否则索引还停在旧内容。
 	syncTarget(root, "standing", "", { force: true });

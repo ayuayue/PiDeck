@@ -46,7 +46,11 @@ export function PromptSuggestions(props: {
 					<X size={16} strokeWidth={2.2} aria-hidden="true" />
 				</Button>
 			</div>
-			<div className="flex-1 overflow-y-auto p-1.5" ref={listRef}>
+			<div
+				/* scroll-ok: bounded —— 建议框行数有硬上限：文件匹配截 15 条、会话匹配截 8 条、命令是固定枚举；且键盘上下键按 list.children[selectedIndex] 直接取行做 scrollIntoView。 */
+				className="flex-1 overflow-y-auto p-1.5"
+				ref={listRef}
+			>
 				{props.items.map((item, index) => (
 					<button key={item.key} className={`flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors${index === props.selectedIndex ? " bg-accent-soft" : " hover:bg-bg-active"}`} onMouseEnter={() => props.onSelectedIndexChange(index)} onClick={() => props.onPick(item)}>
 						{/* label 优先完整显示（文件名/命令名/会话名），description 只作父目录等辅助信息：

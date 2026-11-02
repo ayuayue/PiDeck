@@ -22,7 +22,7 @@ import { createSessionModelPreference } from "../../../shared/modelDisplayName";
 import { t } from "@/i18n";
 import { WebSidebar, type WebSessionRowAction } from "./WebSidebar";
 import { WebHeader, type WebHeaderStatus } from "./WebHeader";
-import { WebTimeline, uiMessageImages, uiMessageText } from "./WebTimeline";
+import { WebTimeline, uiMessageImages, uiMessageText, type WebTimelineJumpApi } from "./WebTimeline";
 import { forkPromptText, isLastUserMessageIn, resolveWebForkEntryId } from "./webForkMutation";
 import { WebComposer } from "./WebComposer";
 import { WebDshToolsPanel } from "./WebDshToolsPanel";
@@ -322,7 +322,12 @@ export function WebChatApp() {
 		return () => window.removeEventListener("keydown", onKey);
 	}, []);
 
+	const timelineJumpRef = useRef<WebTimelineJumpApi | null>(null);
+
+	// 虚拟化后离屏消息没有 DOM（锚点 getElementById 会静默返回 null）：
+	// 先让时间线按行索引把目标行拉进视口，短列表（未虚拟化）才退回锚点跳转。
 	const scrollToMessage = (messageId: string) => {
+		if (timelineJumpRef.current?.jumpTo(messageId)) return;
 		document.getElementById(`web-msg-${messageId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
 	};
 
@@ -334,11 +339,8 @@ export function WebChatApp() {
 	const jumpToSearchHit = async (messageId: string) => {
 		if (!activeSessionId) return;
 		for (let page = 0; page <= MAX_SEARCH_JUMP_PAGES; page += 1) {
-			const target = document.getElementById(`web-msg-${messageId}`);
-			if (target) {
-				target.scrollIntoView({ behavior: "smooth", block: "start" });
-				return;
-			}
+			// 虚拟化后离屏行没有 DOM：先问时间线「这条在不在已加载条目里」，再决定要不要继续翻页。
+			if (timelineJumpRef.current?.jumpTo(messageId)) return;
 			const meta = historyMetaRef.current[activeSessionId];
 			if (page === MAX_SEARCH_JUMP_PAGES || !meta || meta.nextBefore == null) return;
 			await loadOlderMessages();
@@ -1392,6 +1394,7 @@ export function WebChatApp() {
 					onDeleteMessage={(messageId) => void handleDeleteMessage(messageId)}
 					onResendMessage={(messageId) => void handleResendMessage(messageId)}
 					onOpenFile={openFilePreview}
+					jumpApiRef={timelineJumpRef}
 				/>
 				<WebSessionStrips sessionId={activeSessionId} />
 				{/* 2026-10 评审 P1：错误/待答原本只出现在时间线列表尾，用户回读历史时完全不可见

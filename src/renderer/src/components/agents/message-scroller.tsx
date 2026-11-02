@@ -228,6 +228,7 @@ export function MessageScroller({
 			onKeyDown={(event) => {
 				onViewportKeyDown?.(event);
 			}}
+			// scroll-ok: nested —— 本层是通用滚动视口：行由调用方的 children 提供，这里拿不到 items，且它同时是贴底引擎的滚动锚点；要虚拟化必须先把 rows 上提到调用方，属另一批。
 			className={cn("h-full overflow-y-auto overscroll-contain outline-none [overflow-anchor:none] [scrollbar-gutter:stable] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", viewportClassName)}
 		>
 			<div ref={setContentRef} role="log" aria-live="polite" aria-relevant="additions text" aria-busy={busy} className={contentClassName} {...contentProps}>

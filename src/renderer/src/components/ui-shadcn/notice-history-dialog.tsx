@@ -199,6 +199,7 @@ export function NoticeHistoryDialog() {
 				) : (
 					<>
 						{/* 表格限高滚动：横向溢出由 Table 自带的 overflow-x-auto 容器负责 */}
+						{/* scroll-ok: bounded —— 表格自带分页（PAGE_SIZE 条一页），滚动容器里最多一页行数。 */}
 						<div className="max-h-[46vh] overflow-y-auto pr-1 select-text">
 							<Table>
 								<TableHeader>

@@ -295,6 +295,7 @@ export function HostPluginsTab() {
 					if (!open) setConsent(null);
 				}}
 			>
+				{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 				<AlertDialogContent className="max-h-[calc(100vh-64px)] overflow-y-auto">
 					<AlertDialogHeader>
 						<AlertDialogTitle>{t("hostPlugins.consentTitle", { name: consent?.manifest.name ?? "" })}</AlertDialogTitle>
@@ -385,6 +386,7 @@ export function HostPluginsTab() {
 			<HostPluginMarketDialog open={marketOpen} onOpenChange={setMarketOpen} onFail={fail} />
 			{/* 只生成静态页面与示例 JS，不执行生成物、不启动服务；网络目的地随后仍需显式授权。 */}
 			<Dialog open={createOpen} onOpenChange={setCreateOpen}>
+				{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 				<DialogContent className="flex max-h-[calc(100vh-64px)] max-w-[min(600px,calc(100vw-48px))] flex-col gap-4 overflow-y-auto">
 					<DialogHeader>
 						<DialogTitle>{t("hostPlugins.scaffoldTitle")}</DialogTitle>

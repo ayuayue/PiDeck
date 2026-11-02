@@ -1,6 +1,19 @@
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { useCallback, useInsertionEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { resolveRunHeight, splitVirtualRunsByTail, VIRTUAL_ESTIMATED_RUN_HEIGHT } from "./virtualTimelinePolicy";
+import { assertRangeIndexes, mergePinnedRange, resolveRunHeight, splitVirtualRunsByTail, VIRTUAL_ESTIMATED_RUN_HEIGHT } from "./virtualTimelinePolicy";
+
+/**
+ * 开发期自证开关。
+ *
+ * 不用「开发期环境常量」那种写法：它在 vm 测试沙箱里是语法错误，整个文件加载失败
+ * （三条既有测试因此长期变红）。`typeof process` 保护让「没有 process 的环境」
+ * （测试沙箱、某些受限渲染上下文）也不崩。
+ *
+ * 判据取「明确是 development 才自证」，不是「不是 production 就自证」：环境判断失败时
+ * 落在**不自证**一侧。生产环境里自证抛错会被根级 AppErrorBoundary 兜住，整个应用降级
+ * 成错误页 —— 那不是这个断言该有的爆炸半径。
+ */
+const IS_DEV_BUILD = typeof process !== "undefined" && process.env?.NODE_ENV === "development";
 
 /**
  * 包装行的统一测量基准：flow-root 让子元素的下边距计入行高（solid 行与虚拟行同一高度基准），
@@ -154,6 +167,15 @@ export interface VirtualRunListProps<T> {
 	/** 尾部保持真实渲染的轮数；默认见 virtualTimelinePolicy。 */
 	solidTailCount?: number;
 	/**
+	 * 必须强制挂载的 run key（当前钉住的那一行所在的 run）。
+	 *
+	 * 为什么需要：扩窗/翻页在顶部插入轮次时，controller 要按 [data-message-id]
+	 * 查 DOM 把钉住的行拉回原位（pinBrowseRow -> measurePinnedRowTop）。
+	 * 插入后那一行会被推出 overscan，虚拟区不渲染它 -> 查不到 -> 补偿落空 -> 视口掉位。
+	 * 这里把它强制加进 rangeExtractor 的渲染范围：只多挂一行，不必整表真实渲染。
+	 */
+	pinnedRunKeys?: readonly string[];
+	/**
 	 * 全部行真实渲染（不走 virtualizer）。用于锚点恢复 / 挂起跳转 / 多选导出期间：
 	 * 前两者按 [data-message-id] 查 DOM，后者克隆整表，虚拟区外的行都不在 DOM 里。
 	 * 用 prop 而不是在父层换组件类型 —— 换类型会整棵卸载，高度缓存随之丢失。
@@ -198,7 +220,7 @@ export interface VirtualRunListProps<T> {
  *    在两种分支同在 .message-list 顶层、同 type 同 key，React 会复用。
  */
 export function VirtualRunList<T>(props: VirtualRunListProps<T>) {
-	const { runs, scrollRef, renderRun, getRunId, isAgentRun, isRenderable, solidTailCount, solid = false, onBeforeScrollCorrection } = props;
+	const { runs, scrollRef, renderRun, getRunId, isAgentRun, isRenderable, solidTailCount, solid = false, onBeforeScrollCorrection, pinnedRunKeys } = props;
 	/** 按宽度分桶的实测高度（唯一真值，来自 ref 初测 + 库的后续重测）。 */
 	const heightBucketsRef = useRef<HeightBuckets>(new Map());
 	/** 当前宽度下解算好的高度，供 estimateSize 直接查（避免每帧遍历分桶）。 */
@@ -241,6 +263,18 @@ export function VirtualRunList<T>(props: VirtualRunListProps<T>) {
 	// commit 阶段读它，放 layout effect 会晚一帧。
 	const entriesRef = useRef<readonly { run: T; index: number }[]>([]);
 	entriesRef.current = virtualEntries;
+	// 钉住的行所在 run 的下标：rangeExtractor 用它强制挂载（见 pinnedRunKeys 注释）。
+	// 必须与 entriesRef 同口径（virtualEntries），否则下标会指到真实区去。
+	const pinnedIndexesRef = useRef<readonly number[]>([]);
+	pinnedIndexesRef.current = useMemo(() => {
+		if (!pinnedRunKeys || pinnedRunKeys.length === 0) return [];
+		const wanted = new Set(pinnedRunKeys);
+		const found: number[] = [];
+		virtualEntries.forEach((entry, index) => {
+			if (wanted.has(getRunId(entry.run))) found.push(index);
+		});
+		return found;
+	}, [pinnedRunKeys, virtualEntries, getRunId]);
 	const getRunIdRef = useRef(getRunId);
 	getRunIdRef.current = getRunId;
 
@@ -278,12 +312,31 @@ export function VirtualRunList<T>(props: VirtualRunListProps<T>) {
 		return entry ? getRunIdRef.current(entry.run) || index : index;
 	}, []);
 
+	/**
+	 * 在默认可见范围之外，把钉住的行也加进来。
+	 *
+	 * 库要求返回**升序去重**的下标数组；已在默认范围里时原样返回，不制造重复。
+	 * 只多挂 1~2 行，代价是 O(k log k)，k 通常为 1。
+	 */
+	const rangeExtractor = useCallback((range: Range) => {
+		const count = entriesRef.current.length;
+		const merged = mergePinnedRange(defaultRangeExtractor(range), pinnedIndexesRef.current, count) as number[];
+		// 开发期自证：三项是 tanstack 的硬前提（越界会渲染空行、无序/重复会跳行）。
+		// 只在开发期炸：mergePinnedRange 本身就保证升序/去重/不越界，所以这条断言一旦
+		// 触发就是它坏了；生产环境里 throw 会被根级 AppErrorBoundary 兜住，用户丢的是
+		// 整个应用而不是一行空白 —— 生产降级成不炸才是对的取舍。
+		// 门控变量见文件顶部的 IS_DEV_BUILD：不用 import.meta.env（沙箱里是语法错误）。
+		if (IS_DEV_BUILD) assertRangeIndexes(merged, count);
+		return merged;
+	}, []);
+
 	const virtualizer = useVirtualizer({
 		// solid 期虚拟器不应工作：否则它按 scrollTop 变化 flushSync 重渲染整表（#401 终审 P2）。
 		count: solid || !virtualize ? 0 : virtualEntries.length,
 		getScrollElement: () => scrollRef.current,
 		estimateSize,
 		getItemKey,
+		rangeExtractor,
 		// overscan 是**行数**不是像素。这里的「行」是一整轮，单轮高度从几百 px 到数万 px 不等
 		// （见 virtualTimelinePolicy 的估算说明：长任务会话每轮数万 px）。overscan: 3 意味着视口外
 		// 恒定多挂 3 整轮的**完整子树**（执行过程折叠里的全部 ToolStep / MarkdownStream 都在里面），

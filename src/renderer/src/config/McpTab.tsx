@@ -733,6 +733,7 @@ export const McpTab = forwardRef<
 					/>
 				</div>
 
+				{/* scroll-ok: transient —— 右侧配置表单窗：每选中一个服务器/模板换一次内容，是一组异质表单区块，不是行列表。 */}
 				<div className="flex min-h-0 flex-col gap-3 overflow-auto rounded-md border border-border-subtle bg-bg-panel p-3">
 					{selectedTemplateDefinition?.id === "pideck" ? (
 						<PiDeckMcpPanel key={projectId ?? "global"} existingNames={new Set(displayServers.map((item) => item.name))} disabled={saving || loading} onAdd={handlePiDeckAdd} />

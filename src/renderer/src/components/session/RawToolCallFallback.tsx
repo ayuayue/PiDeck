@@ -39,6 +39,7 @@ export const RawToolCallFallback = memo(function RawToolCallFallback(props: { te
 					{/* 纯文本渲染：不走 markdown（吞标签/autolink 正是本卡片要避开的行为）。
 					    max-h 限高防超长原文撑爆时间线（资源边界规则）。 */}
 					<CollapsibleContent>
+						{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 						<pre className="m-0 max-h-96 overflow-auto border-t border-border-subtle px-3 py-2 text-caption text-text-secondary whitespace-pre-wrap break-all">{props.text}</pre>
 					</CollapsibleContent>
 				</Collapsible>

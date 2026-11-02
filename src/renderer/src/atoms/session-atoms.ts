@@ -781,12 +781,14 @@ export const cacheSessionMessagesAtom = atom(
 
 /**
  * disk 来源历史消息数组的驻留上限（2026 内存排查：浏览历史时 atom 数组无界增长）。
- * 预算：单条消息均值约 2-8KB，2400 条 ≈ 200 轮 ≈ 10MB 封顶；
+ * 预算口径是**消息条数**，不是轮数：一轮（提问 + 回答 + 工具调用）在本机长会话实测约 33 条
+ * 消息（5156 条 / 156 轮），所以 2400 条只够 72 轮 —— 2026-11 真机一份 156 轮会话从底跳顶
+ * 时必然撞墙。取 8000 条 ≈ 240 轮 ≈ 16-64MB 封顶（单条均值 2-8KB）；
  * 超限时丢弃最旧溢出部分并把数值游标前移（页内下标连续：nextBefore = 页最旧下标），
  * 被丢弃段仍可通过「显示更早」从主进程缓存/文件重新拉取。
  * DOM 窗口由 turnRenderWindow 独立控制（TIMELINE_MOUNTED_TURN_LIMIT），此处只管数据层封顶。
  */
-export const DISK_HISTORY_MESSAGE_LIMIT = 2400;
+export const DISK_HISTORY_MESSAGE_LIMIT = 8000;
 
 /**
  * runtime 会话历史前缀（history.messages）的条数驻留上限，与 disk 路径同预算（2026-12
@@ -835,8 +837,10 @@ export const prependSessionMessagePageAtom = atom(
 			const dropCount = Math.min(overflow, freshMessages.length);
 			messages.splice(0, dropCount);
 			if (overflow >= freshMessages.length) {
-				// 整页都丢：保留段最旧一条的下标 = 请求游标（页尾之后第一条）
-				nextBefore = input.before;
+				// 整页都被预算丢掉：**不能**把游标退回请求游标 —— 退回去下次只会取到同一页，
+				// 而同一页每次都会被同样丢掉，形成「一直在加载、永远加载不出来」的死循环
+				// （2026-11 真机）。预算耗尽即更早的历史不可取，明确置空让「加载更多」消失。
+				nextBefore = null;
 			} else if (input.page.nextBefore !== null) {
 				// 部分丢弃：保留段最旧一条 = 页最旧下标 + 丢弃条数
 				nextBefore = input.page.nextBefore + dropCount;
@@ -1049,7 +1053,8 @@ export const prependSessionHistoryPageAtom = atom(
 			const dropCount = Math.min(overflow, freshMessages.length);
 			cappedMessages = merged.slice(dropCount);
 			if (dropCount >= freshMessages.length) {
-				nextBefore = input.before ?? null;
+				// 同 disk 路径：整页丢弃时把游标退回请求值 = 重取同一页 = 死循环。置空为「没有更早」。
+				nextBefore = null;
 			} else if (input.page.nextBefore !== null) {
 				nextBefore = input.page.nextBefore + dropCount;
 			}

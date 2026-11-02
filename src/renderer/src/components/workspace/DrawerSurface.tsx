@@ -184,6 +184,7 @@ export function DrawerSurface(props: DrawerSurfaceProps) {
 					</div>
 				</div>
 			) : drawer && drawer !== "browser" && drawer !== "git" && drawer !== "trajectory" && drawer !== "rpcLog" ? (
+				// scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。
 				<LazyWrapper
 					// 滚动层上移到这里：files/sessions 面板自身不再滚动（见 timeline.css
 					// .files-panel/.sessions-panel 注释），占位与内容共用同一滚动容器，配合

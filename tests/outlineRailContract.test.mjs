@@ -53,10 +53,19 @@ test("滚轮在刻度上转发给时间线（导轨是滚动视口的兄弟节�
 	assert.match(outlineSource, /forward\(event\.deltaY\)/);
 });
 
-test("窗口按源下标截取后再规划间距（顺序反了会永远只显示最新一批）", () => {
-	assert.match(outlineSource, /windowRailItems\(\s*props\.items\s*,\s*activeSourceIndex\s*\)/);
+test("刻度先分段再规划间距（顺序反了会永远只显示最新一批）", () => {
+	// 段数按可用高度算（railCapacity），再分段、再规划间距：顺序写反会只剩最新一批
+	// 断言改成「源码里有这四步、且分段用的是切片后的 windowItems」：
+	// 旧版钉的是 railBuckets(props.items, railLimit) 与 outlineItemIndex，2026-11 引入
+	// 最近 N 条切片后这两处都改名了，测试却还在钉旧名字 —— 源码级断言的固有毛病：
+	// 结构一改就假红，而它对「改成 windowItems 是否更对」一无所知。
+	assert.match(outlineSource, /railBuckets\(\s*windowItems\s*,\s*railLimit\s*\)/);
+	assert.match(outlineSource, /railCapacity\(availableHeight\)/);
 	assert.match(outlineSource, /planRailTicks\(\s*visibleItems\s*,/);
-	assert.match(outlineSource, /outlineItemIndex\.get\(railActiveId\)/);
+	// 高亮解析必须用切片后的索引表（windowItemIndex），否则窗口外的条会被错位成边界那根。
+	// 旧断言钉的是 outlineItemIndex.get(railActiveId) —— 这个名字在源码里从来不存在，
+	// 只是因为前一条断言先失败、它从没被执行到，才一直「看起来绿」。
+	assert.match(outlineSource, /resolveVisibleRailActiveId\(\s*railActiveId\s*,\s*windowItemIndex\s*,/);
 });
 
 test("已删除的滚动子系统不许长回来（上限 30 条之后它只在极端窄高下才可能触发）", () => {

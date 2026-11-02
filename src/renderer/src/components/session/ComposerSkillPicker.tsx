@@ -171,6 +171,7 @@ export function ComposerSkillPicker(props: {
 						<div className="flex flex-col items-center gap-1.5 px-4 py-6 text-caption">
 							<span className="font-medium text-foreground">{t("app.skillContentLoadFailed")}</span>
 							<span className="text-muted-foreground">{t("app.skillPickerLoadFailedNote")}</span>
+							{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 							<pre className="max-h-28 w-full overflow-auto whitespace-pre-wrap break-all rounded-md border border-border/60 bg-muted/40 p-2.5 font-mono text-micro leading-relaxed text-muted-foreground">{detail.error}</pre>
 						</div>
 					) : (
@@ -263,6 +264,7 @@ export function ComposerSkillPicker(props: {
 				<div className="flex flex-col items-center gap-1.5 px-4 py-6 text-caption">
 					<span className="font-medium text-foreground">{t("app.skillPickerLoadFailed")}</span>
 					<span className="text-muted-foreground">{t("app.skillPickerLoadFailedNote")}</span>
+					{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 					{error && <pre className="max-h-28 w-full overflow-auto whitespace-pre-wrap break-all rounded-md border border-border/60 bg-muted/40 p-2.5 font-mono text-micro leading-relaxed text-muted-foreground">{error}</pre>}
 				</div>
 			) : blockedByAgent ? (

@@ -119,6 +119,7 @@ export function ReplyActionsDialog(props: { open: boolean; onOpenChange: (open: 
 					<p className="py-6 text-center text-caption text-muted-foreground">{t("settings.replyActionsLoading")}</p>
 				) : (
 					<div className="flex min-h-0 flex-col gap-2">
+						{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 						<div className="max-h-[min(52vh,420px)] min-h-0 overflow-auto rounded-md border">
 							<Table className="min-w-[760px] table-fixed">
 								<colgroup>

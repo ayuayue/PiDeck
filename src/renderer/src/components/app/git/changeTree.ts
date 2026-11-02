@@ -170,12 +170,7 @@ export function collectChangeTreeDirPaths(resources: GitResource[], projectRoot?
  * `includeSingleRootHeader` = 该组是否有目录级批量操作（stageDir/discardDir），
  * 决定唯一根目录要不要显示可操作的目录头。
  */
-export function buildChangeFlatRows(
-	resources: GitResource[],
-	projectRoot?: string,
-	collapsedDirs?: ReadonlySet<string>,
-	opts?: { includeSingleRootHeader?: boolean },
-): ChangeTreeRow[] {
+export function buildChangeFlatRows(resources: GitResource[], projectRoot?: string, collapsedDirs?: ReadonlySet<string>, opts?: { includeSingleRootHeader?: boolean }): ChangeTreeRow[] {
 	const byDir = new Map<string, GitResource[]>();
 	for (const resource of resources) {
 		const dir = changeDirOf(toRelativeChangePath(resource.path, projectRoot));

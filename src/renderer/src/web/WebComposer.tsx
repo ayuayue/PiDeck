@@ -233,6 +233,7 @@ export function WebComposer(props: {
 									</>
 								) : null}
 							</div>
+							{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 							<ul className="flex max-h-24 shrink-0 flex-col gap-1 overflow-y-auto">
 								{props.queued.map((item) => (
 									<li key={item.id} className="flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-background/70 px-1.5 py-1">

@@ -378,6 +378,9 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 					</div>
 				</>
 			) : snapshot && !viewingDiff ? (
+				// scroll-ok: nested —— 这个滚动窗里装的是「分支摘要 + 若干分组 + 每组一棵 FileTree」，
+				// 两段异质内容加两层可展开目录树，不是扁平行列表；虚拟化前要先扁平化，
+				// 而扁平化会打散目录分组语义与 FileTree 自己的展开状态和 role。
 				<div className="min-h-0 flex-1 overflow-y-auto py-2">
 					<p data-testid="remote-git-branch" className="px-3 pb-2 text-xs text-text-secondary">
 						{snapshot.branch ?? t("remoteGit.detached")}

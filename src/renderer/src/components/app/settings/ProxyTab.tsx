@@ -325,6 +325,7 @@ export const ProxyTab = memo(function ProxyTab(props: ProxyTabProps) {
 							) : visibleModels.length === 0 ? (
 								<span className="text-micro text-muted-foreground">{t("settings.piProxyModelsEmpty")}</span>
 							) : (
+								// scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。
 								<div className="max-h-80 overflow-auto rounded-lg border border-border/60 bg-popover/40">
 									<Table>
 										<TableHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur">

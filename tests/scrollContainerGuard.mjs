@@ -52,6 +52,13 @@ const VIRTUALIZED_RE = /<VirtualStack\b/;
  */
 const CONTAINER_REF_RE = /(?:^|\s)ref=\{([\w.]+)\}/;
 const SCROLL_REF_RE = /scrollRef=\{([\w.]+)\}/;
+/**
+ * 第三种接线形状：容器元素**自己就是**虚拟化组件（diff 视图的
+ * `<Virtualizer className="... overflow-auto">`）。这类没有外部 scrollRef 可对——容器与
+ * 虚拟化是同一个节点，接没接线看标签名就够。漏掉它会让「已经虚拟化的 diff 视图」被当成
+ * 未判定，逼人去写一条假豁免。
+ */
+const SELF_VIRTUALIZED_RE = /^<(?:Virtualizer|VirtualStack|VirtualList|VirtualTimeline)\b/;
 /** 通用件自身：它自己的自建滚动窗不是接入点（没有「该不该虚拟化」这个问题），扫进来只会多一个假未判定。 */
 const SELF_FILE_SUFFIX = "components/ui-shadcn/virtual-stack.tsx";
 
@@ -107,9 +114,30 @@ function scan(options = {}) {
 			const match = SCROLL_REF_RE.exec(line);
 			if (match) scrollRefNames.add(match[1]);
 		}
+		// 类名被抽成变量的容器：`const listClass = "... overflow-y-auto ..."` 这行会被下面的
+		// 跳过规则滤掉，元素行 `<ul className={listClass}>` 又没有 overflow 字面量，于是整个
+		// 容器从判定面里静默消失（PR #471 review 实测命中 4 处：tool-result / PiCommandSourcePanel
+		// ×2 / ProviderLoginModal）。这里记下「本文件定义了含 overflow 的字符串常量」，
+		// 元素行引用到它时仍按容器登记，逼它进虚拟化 / 豁免 / 基线三选一。
+		const extractedClassNames = new Map();
+		for (let i = 0; i < lines.length; i += 1) {
+			const decl = /^\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/.exec(lines[i]);
+			if (decl && CONTAINER_RE.test(lines[i]) && !lines[i].includes("<")) extractedClassNames.set(decl[1], i + 1);
+		}
 		for (let i = 0; i < lines.length; i += 1) {
 			const line = lines[i];
-			if (!CONTAINER_RE.test(line)) continue;
+			// 变量声明不是元素：`const scrollClass = "overflow-auto"` 曾被当成滚动容器，
+			// 于是真正那一行（类名取自变量、行内没有 overflow-* 字面量）反而扫不到，
+			// 基线上留了一条假指纹。只跳过「不含 < 的声明行」——单行 JSX
+			// （`const X = () => <div className="overflow-y-auto" />`）里的容器仍然要扫到。
+			if (/^\s*(?:const|let|var)\s/.test(line) && !line.includes("<")) continue;
+			if (!CONTAINER_RE.test(line)) {
+				// 反方向：字面量不在元素行上，而在本文件的字符串常量里。引用到那个常量同样算容器
+				// 候选——否则「类名抽成变量」就是一条静默逃跑通道（跳过规则只看声明行）。
+				const cls = /className=\{([^}]*)\}/.exec(line);
+				const hit = cls && /<[A-Za-z]/.test(line) ? [...extractedClassNames.keys()].find((name) => new RegExp("(?:^|[^\\w$])" + name + "(?:[^\\w$]|$)").test(cls[1])) : undefined;
+				if (!hit) continue;
+			}
 			if (isCommentLine(line)) continue;
 			const lineNo = i + 1;
 			// 已虚拟化 = 容器自己有 ref，且同一个 ref 名传给了 <VirtualStack> 的 scrollRef。
@@ -131,7 +159,7 @@ function scan(options = {}) {
 					break;
 				}
 			}
-			const hasVirtualStack = refName !== undefined && scrollRefNames.has(refName);
+			const hasVirtualStack = SELF_VIRTUALIZED_RE.test(line.trim()) || (refName !== undefined && scrollRefNames.has(refName));
 			// 向上找豁免标记。三条边界（与 ref 查找同序，顺序本身是判据）：
 			// 1. 先判边界再判匹配 —— 反过来的话，「同一个元素自己的属性里写着 scroll-ok 且该行以 > 收尾」
 			//    会先命中标记、再轮不到 break，等于把这个元素的标记白送给它下方的容器（fail-open）。

@@ -22,7 +22,7 @@ test("long-session window governance stays via turn-based history loading", () =
 	// 「贴底挂载窗口 + 按轮补历史（主进程缓存优先/文件兜底）」承担。
 	const controller = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
 	assert.doesNotMatch(controller, /useMessagePagination/);
-	assert.match(controller, /RUNTIME_HISTORY_TURN_PAGE_SIZE/);
+	assert.match(controller, /resolveHistoryPageSize\(source\)/);
 	assert.match(controller, /beforeEntryId: anchorEntryId/);
 });
 

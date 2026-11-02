@@ -101,3 +101,57 @@ export function isRenderableRunItem(item: RenderableTimelineItem): boolean {
 	if (isRetryStatusMessage(message as ChatMessage)) return false;
 	return true;
 }
+
+/**
+ * 把「必须挂载的行」并进虚拟器的可见范围。
+ *
+ * 为什么需要：扩窗/翻页在顶部插入轮次时，controller 要按 [data-message-id] 查 DOM
+ * 把钉住的行拉回原位。插入后那一行会被推出 overscan，虚拟区不渲染它 -> 查不到 ->
+ * 补偿落空 -> 视口掉位。整表渲染能解决，代价是全部已加载轮次真实挂载（137 轮必掉帧）。
+ * 这里只多挂那一行。
+ *
+ * 库要求返回**升序去重**的数组。这里保证三件事：升序、无重复、每个下标都合法。
+ * 引用优化是做不到的——调用方传进来的 base 来自 defaultRangeExtractor，每次都是新数组，
+ * tanstack 也不按引用判缓存（calculateRange 由 scrollOffset / count 驱动）。别写这种承诺。
+ *
+ * limit 是行数上限（count）：越界下标一旦进 rangeExtractor，tanstack 会按它去取
+ * virtualEntries[undefined] 渲染空行。调用方本来就只从合法范围里取，但纯函数不该依赖
+ * 调用方自律 —— 换个调用方就是一次越界。
+ */
+export function mergePinnedRange(base: readonly number[], pinned: readonly number[], limit?: number): readonly number[] {
+	if (pinned.length === 0) return base;
+	let merged: number[] | undefined;
+	for (const index of pinned) {
+		if (!Number.isInteger(index) || index < 0) continue;
+		if (limit !== undefined && index >= limit) continue;
+		const source = merged ?? base;
+		if (source.includes(index)) continue;
+		merged = [...source, index];
+	}
+	if (!merged) return base;
+	merged.sort((a, b) => a - b);
+	return merged;
+}
+
+/**
+ * 开发期自证：rangeExtractor 的产出必须**严格升序、无重复、无越界**。
+ *
+ * 为什么单独抽成函数：断言本身要能被单测喂坏样本（越界 / 乱序 / 重复都必须抛），
+ * 而不是只靠「源码里出现过这几个字符串」钉住。放在这里是因为它是纯逻辑，不碰 DOM。
+ *
+ * 为什么它只该在开发期跑：mergePinnedRange 已经保证这三件事（见上一段注释），
+ * 所以这条断言一旦触发，说明 mergePinnedRange 自己坏了。生产环境里 throw 会被
+ * 根级 AppErrorBoundary 兜住 → 整个应用降级成错误页，用户丢的是全部会话，
+ * 不是时间线里一行空白。开发期炸、生产期忍，是正确的取舍。
+ */
+export function assertRangeIndexes(indexes: readonly number[], limit: number): void {
+	for (let i = 0; i < indexes.length; i += 1) {
+		const index = indexes[i];
+		if (!Number.isInteger(index) || index < 0 || index >= limit) {
+			throw new Error("[virtualTimelinePolicy] range 下标越界：" + index + "（limit=" + limit + "）");
+		}
+		if (i > 0 && index <= indexes[i - 1]) {
+			throw new Error("[virtualTimelinePolicy] range 未严格升序/重复：" + indexes[i - 1] + " then " + index);
+		}
+	}
+}

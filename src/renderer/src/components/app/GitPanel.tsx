@@ -1435,6 +1435,8 @@ export function GitPanel(props: GitPanelProps) {
 						)}
 						{branchOpen &&
 							createPortal(
+								// scroll-ok: transient —— 分支选择下拉：portal 里的一次性弹窗，点选即关、下次打开重建，
+								// 行的生命周期等于一次选择；虚拟器要的测量缓存与 ResizeObserver 在这类窗里没有收益。
 								<div ref={branchDropdownRef} className="z-50 max-h-[calc(100vh-16px)] max-w-[calc(100vw-16px)] overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md" style={branchDropdownStyle}>
 									{props.branches.map((branch) => (
 										<Button
@@ -1616,16 +1618,7 @@ export function GitPanel(props: GitPanelProps) {
 								{/* 变更区：三组折成一条扁平行列表走一个 VirtualStack（行内 Radix ContextMenu +
 					    Seti SVG 的行渲染代价随变更文件数线性增长，无虚拟化时几千文件即卡顿全应用）。 */}
 								<div ref={changesScrollRef} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
-									<ChangesGroupsStack
-										scrollRef={changesScrollRef}
-										groups={changeGroupSpecs}
-										viewMode={changesViewMode}
-										collapsedDirs={collapsedChangeDirs}
-										onToggleDir={toggleChangeDir}
-										mutating={mutating || committing}
-										onOpenWorkspaceFileDiff={props.onOpenWorkspaceFileDiff}
-										projectRoot={props.projectRoot}
-									/>
+									<ChangesGroupsStack scrollRef={changesScrollRef} groups={changeGroupSpecs} viewMode={changesViewMode} collapsedDirs={collapsedChangeDirs} onToggleDir={toggleChangeDir} mutating={mutating || committing} onOpenWorkspaceFileDiff={props.onOpenWorkspaceFileDiff} projectRoot={props.projectRoot} />
 								</div>
 							</div>
 						)}

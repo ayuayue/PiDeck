@@ -80,7 +80,12 @@ export function readAgentMemoryStatus(root: string): AgentMemoryStatus {
 	const files = collectFiles(root);
 	const stats = indexStats(root);
 	const learnSessions = Object.values(readLearnState(root).sessions);
-	const learnLastAt = learnSessions.map((session) => session.learnedAt).filter(Boolean).sort().at(-1) ?? null;
+	const learnLastAt =
+		learnSessions
+			.map((session) => session.learnedAt)
+			.filter(Boolean)
+			.sort()
+			.at(-1) ?? null;
 	const dbPath = join(root, "agent-memory.db");
 	return {
 		root,

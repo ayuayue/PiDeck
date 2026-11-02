@@ -122,6 +122,7 @@ export function AgentMemoryImportDialog(props: { filePath: string; preview: Agen
 						<p className="text-xs text-muted-foreground">{conflictPolicy === "append" ? t("settings.agentMemoryConflictAppendDesc") : t("settings.agentMemoryConflictOverwriteDesc")}</p>
 					</div>
 				) : null}
+				{/* scroll-ok: bounded —— 导入对话框内的分组勾选列表：高度封顶 48vh，数据来自一次预检结果，不需要虚拟化 */}
 				<div className="max-h-[48vh] overflow-y-auto rounded-md border">
 					{groups.length === 0 ? <p className="px-4 py-6 text-xs text-muted-foreground">{t("settings.agentMemoryImportEmpty")}</p> : null}
 					{groups.map(([key, entries]) => {

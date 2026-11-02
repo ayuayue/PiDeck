@@ -195,6 +195,7 @@ class SettingsModalErrorBoundary extends Component<{ onClose: () => void; childr
 						</DialogClose>
 					</DialogHeader>
 					{/* 不能套 .settings-layout：那是 196px 侧栏 + 内容的双列栅格，唯一子项会被挤进侧栏列（布局错位的根因） */}
+					{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 					<div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5" role="alert">
 						<div className="config-diagnostic-card">
 							<div>
@@ -829,6 +830,7 @@ function SettingsModalContent(props: SettingsModalProps) {
 							{/* 侧栏 = 纯 tab 列表（搜索框在内容列顶部，别再塞回这 196px 窄列——提示文案与
 							    结果行在窄列里必然换行截断）；边框统一交给这层容器，.settings-tabs 自己的边框用 border-0 收掉。 */}
 							<div className="flex min-h-0 w-[196px] shrink-0 flex-col border-r border-border-subtle max-[820px]:w-full max-[820px]:border-r-0 max-[820px]:border-b">
+								{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 								<TabsList className="settings-tabs flex min-h-0 flex-1 flex-col items-stretch gap-2.5 overflow-auto border-0 rounded-none bg-transparent p-2.5" aria-label={t("settings.title")}>
 									{settingsSidebarTabs}
 								</TabsList>
@@ -1091,6 +1093,7 @@ function SettingsModalContent(props: SettingsModalProps) {
 							<AlertDialogHeader>
 								<AlertDialogTitle>{t("settings.unsavedTitle")}</AlertDialogTitle>
 								<AlertDialogDescription asChild>
+									{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 									<div className="grid max-h-56 gap-1.5 overflow-auto text-left">
 										{unsavedSummary && unsavedSummary.totalCount === 1 && !configPaneState.hasDirty ? (
 											/* 单项且仅设置区：沿用带「是否在关闭前保存？」的单行提示，不需要列表 */

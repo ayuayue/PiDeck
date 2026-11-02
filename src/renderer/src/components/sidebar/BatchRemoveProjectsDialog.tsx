@@ -106,6 +106,7 @@ export function BatchRemoveProjectsDialog(props: { projects: readonly Project[];
 							<Checkbox checked={allSelected ? true : someSelected ? "indeterminate" : false} disabled={removing} onCheckedChange={toggleAll} />
 							{t("app.projectsBatchRemoveSelectAll", { count: total })}
 						</label>
+						{/* scroll-ok: bounded —— 行数有硬上限（PAGE_SIZE = 10 的受控分页，翻页组件在下方），不随项目总数增长。 */}
 						<div className="max-h-[46vh] overflow-y-auto rounded-lg border border-border-subtle">
 							{pageProjects.map((project) => {
 								const isChecked = checked.has(project.id);

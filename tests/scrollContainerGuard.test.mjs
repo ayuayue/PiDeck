@@ -175,3 +175,32 @@ test("反例：标记写在同一行属性里（该行以 > 收尾）不豁免�
 	assert.equal(items.length, 1);
 	assert.equal(items[0].exemptCategory, undefined, "标记属于外层元素，不得豁免内层容器");
 });
+
+/**
+ * 反方向用例（PR #471 review 要求）：跳过规则只看「声明行」，
+ * 于是「类名抽成变量」曾是一条静默逃跑通道——声明行被跳过，
+ * 元素行又没有 overflow 字面量，整个容器从判定面里消失（实测命中 4 处）。
+ */
+test("反例：类名抽成变量后，元素行也必须被登记（不许静默消失）", () => {
+	const items = scanSample({
+		"Extracted.tsx": ["const Extracted = () => {", '  const listClass = "m-0 flex max-h-64 flex-col overflow-y-auto";', "  return <ul className={listClass} />;", "};"].join("\n"),
+	});
+	assert.equal(items.length, 1, "声明行不算容器，但引用它的元素行必须算");
+	assert.equal(items[0].hasVirtualStack, false);
+	assert.equal(items[0].exemptCategory, undefined, "没接虚拟栈也没写标记 → 落进未判定");
+});
+
+test("合格样本：内联后的同一行照样能被豁免标记认下来", () => {
+	const items = scanSample({
+		"Inlined.tsx": ["const Inlined = () => (", "  <div>", "    {/* scroll-ok: bounded 固定枚举 */}", '    <ul className="m-0 flex max-h-64 flex-col overflow-y-auto" />', "  </div>", ");"].join("\n"),
+	});
+	assert.equal(items.length, 1);
+	assert.equal(items[0].exemptCategory, "bounded");
+});
+
+test("反例：只有声明、没有元素引用时不算容器（声明行本身不是滚动窗）", () => {
+	const items = scanSample({
+		"DeclOnly.tsx": ["const DeclOnly = () => {", '  const listClass = "m-0 max-h-64 overflow-y-auto";', "  return null;", "};"].join("\n"),
+	});
+	assert.equal(items.length, 0, "没人用的类名常量不该变成滚动容器");
+});

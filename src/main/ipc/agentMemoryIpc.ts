@@ -38,7 +38,20 @@ export interface AgentMemoryIpcDeps {
 }
 
 export function registerAgentMemoryIpc(deps: AgentMemoryIpcDeps): () => void {
-	const channels = [ipcChannels.agentMemoryStatus, ipcChannels.agentMemoryClearIndex, ipcChannels.agentMemoryExport, ipcChannels.agentMemoryPreview, ipcChannels.agentMemoryImport, ipcChannels.agentMemoryList, ipcChannels.agentMemoryDeleteEntry, ipcChannels.agentMemoryRestoreEntry, ipcChannels.agentMemoryRevealRoot, ipcChannels.agentMemoryStandingRead, ipcChannels.agentMemoryStandingWrite, ipcChannels.agentMemoryRenameDevice];
+	const channels = [
+		ipcChannels.agentMemoryStatus,
+		ipcChannels.agentMemoryClearIndex,
+		ipcChannels.agentMemoryExport,
+		ipcChannels.agentMemoryPreview,
+		ipcChannels.agentMemoryImport,
+		ipcChannels.agentMemoryList,
+		ipcChannels.agentMemoryDeleteEntry,
+		ipcChannels.agentMemoryRestoreEntry,
+		ipcChannels.agentMemoryRevealRoot,
+		ipcChannels.agentMemoryStandingRead,
+		ipcChannels.agentMemoryStandingWrite,
+		ipcChannels.agentMemoryRenameDevice,
+	];
 
 	/** 统一包成 `{ok,value}` / `{ok:false,code}`：渲染层不需要猜错误形态，异常码也不会带出本机路径。 */
 	async function result<T>(event: IpcMainInvokeEvent, run: () => Promise<T> | T): Promise<AgentMemoryResult<T>> {

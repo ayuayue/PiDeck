@@ -108,11 +108,7 @@ test("tool_execution_end 迟到：按 toolCallId 更新已有工具消息，不 
 test("工具结束省略 toolName：继承 start 身份，不退化为通用 tool", () => {
 	const manager = createManager();
 
-	manager.upsertToolMessage(
-		"agent-1",
-		{ toolName: "bash", toolCallId: "tc-bash", args: { command: "echo ok" } },
-		"running",
-	);
+	manager.upsertToolMessage("agent-1", { toolName: "bash", toolCallId: "tc-bash", args: { command: "echo ok" } }, "running");
 	manager.upsertToolMessage("agent-1", { toolCallId: "tc-bash", result: { content: "ok" } }, "done");
 
 	const list = manager.messages.get("agent-1");

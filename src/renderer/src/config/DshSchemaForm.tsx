@@ -285,6 +285,7 @@ function JsonReadonly(props: { value: unknown; label?: string }) {
 	return (
 		<div className="rounded-sm border border-border-subtle bg-bg-panel px-3 py-2">
 			{props.label && <div className="mb-1 text-micro text-muted-foreground">{props.label}</div>}
+			{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 			<pre className="max-h-48 overflow-auto font-mono text-micro text-muted-foreground">{text}</pre>
 		</div>
 	);

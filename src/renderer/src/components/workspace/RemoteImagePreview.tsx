@@ -54,6 +54,7 @@ export function RemoteImagePreview(props: { projectId: string; path: string }) {
 				</p>
 			) : null}
 			{src !== null ? (
+				// scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。
 				<div className="flex min-h-0 items-start justify-center overflow-auto rounded border border-border bg-muted/30 p-2">
 					<img src={src} alt={props.path} className="max-h-[520px] max-w-full object-contain" />
 				</div>

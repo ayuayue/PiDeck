@@ -107,6 +107,7 @@ export function AgentMemoryExportDialog(props: { onCancel: () => void; onExporte
 						</Button>
 					</span>
 				</div>
+				{/* scroll-ok: bounded —— 导出对话框内的分组勾选列表：高度封顶 52vh，数据来自一次盘点结果，行数由所选分区决定，不需要虚拟化 */}
 				<div className="max-h-[52vh] overflow-y-auto rounded-md border">
 					{groups && groups.length === 0 ? <p className="px-4 py-6 text-xs text-muted-foreground">{t("settings.agentMemoryExportEmpty")}</p> : null}
 					{groups?.map((group) => {

@@ -15,7 +15,13 @@ function sendScrollHarness({ height = 2800, viewportHeight = 600, latestTop = he
 	let sendStatus = startWithOptimistic ? { status: "activating", requestId: "optimistic-uuid" } : { status: "idle" };
 	// controller 通过会话级 atom 标记「发送置顶动画进行中」（TurnRow 据此延后新一轮折叠）。
 	let sendPinAnimating = {};
-	let messages = startWithOptimistic ? [{ id: "optimistic-uuid", role: "user", text: "new question", timestamp: 1, agentId: "" }] : startLoading ? [] : viewerProjection ? [{ id: "_viewer-history-9", role: "user", text: "history", timestamp: 1, agentId: "agent", meta: { entryId: "e9" } }] : [{ id: "history-user", role: "user", text: "history", timestamp: 1, agentId: "agent" }];
+	let messages = startWithOptimistic
+		? [{ id: "optimistic-uuid", role: "user", text: "new question", timestamp: 1, agentId: "" }]
+		: startLoading
+			? []
+			: viewerProjection
+				? [{ id: "_viewer-history-9", role: "user", text: "history", timestamp: 1, agentId: "agent", meta: { entryId: "e9" } }]
+				: [{ id: "history-user", role: "user", text: "history", timestamp: 1, agentId: "agent" }];
 	const rowTops = new Map(startWithOptimistic ? [["optimistic-uuid", latestTop]] : startLoading ? [] : [[viewerProjection ? "_viewer-history-9" : "history-user", latestTop]]);
 	const frames = new Map();
 	const listeners = new Map();

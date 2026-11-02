@@ -43,6 +43,7 @@ export function HostPluginPermissionDetails({ manifest, warnings = false }: { ma
 			{network && (
 				<div className="flex w-full flex-col gap-1 text-xs">
 					<span className="text-muted-foreground">{t("hostPlugins.networkDestinations")}</span>
+					{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 					<ul className="flex max-h-40 flex-col gap-1 overflow-y-auto">
 						{manifest.network?.httpsOrigins?.map((origin) => (
 							<li key={origin} className="shrink-0 break-all font-mono">
@@ -73,6 +74,7 @@ export function HostPluginPermissionDetails({ manifest, warnings = false }: { ma
 			{services && (
 				<div className="flex w-full flex-col gap-1 text-xs">
 					<span className="text-muted-foreground">{t("hostPlugins.serviceDestinations")}</span>
+					{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 					<ul className="flex max-h-40 flex-col gap-1 overflow-y-auto">
 						{manifest.services?.map((id) => (
 							<li key={id} className="shrink-0 break-all font-mono">

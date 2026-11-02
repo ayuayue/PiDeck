@@ -109,6 +109,7 @@
     "test:serial": "node --test --test-concurrency=1 \"tests/*.test.mjs\" \"tests/cua/*.test.mjs\"",
     "format": "biome format --write src tests scripts e2e",
     "check:format": "biome format src tests scripts e2e",
+    "check:hooks": "biome lint --config-path=biome.hooks.jsonc --diagnostic-level=error src",
     "docs:dev": "vitepress dev docs-site",
     "docs:build": "vitepress build docs-site",
     "docs:preview": "vitepress preview docs-site",

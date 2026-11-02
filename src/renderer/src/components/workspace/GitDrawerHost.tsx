@@ -293,6 +293,7 @@ export function GitDrawerHost(props: GitDrawerHostProps) {
 		const historyRepo = scope.repos.find((repo) => repo.relativePath === historyRepoPath) ?? scope.repos[0];
 		return (
 			<div className="git-panel flex h-full min-h-0 flex-col overflow-hidden">
+				{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 				<div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
 					{scope.repos.map((repo) => (
 						<section key={repo.relativePath} className="shrink-0 border-b border-[var(--git-panel-border)] last:border-b-0">

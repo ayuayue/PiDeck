@@ -348,6 +348,7 @@ export function SessionManagerModal(props: {
 						</div>
 					</div>
 
+					{/* scroll-ok: nested —— 行列表在子组件里（本层只是滚动窗），虚拟化要先把行模型提到这一层。 */}
 					<div className="flex-1 overflow-y-auto bg-bg-muted [scrollbar-gutter:stable]">
 						{showArchived ? (
 							<Table>

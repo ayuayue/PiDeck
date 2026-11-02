@@ -95,6 +95,8 @@ GitHub 的 choice 只能写死静态列表，无法动态读 tag，所以每发�
 
 ## 打包验证
 
+时间线相关的改动（历史翻页 / 刻度跳转 / 加载更多）打包前额外过一遍 [`docs/timeline-manual-qa.md`](timeline-manual-qa.md) 的五条动作。
+
 `npm run pack`（--dir 快速验证）→ `dist:win/mac/linux`；发版前至少跑过一次目标平台完整安装包的人工 smoke，不依赖 CI 构建成功即发布。
 
 构建来源标记：本机脚本一律不注入 `PIDECK_RELEASE_BUILD`，产物因此在设置页显示「本地构建」徽章；

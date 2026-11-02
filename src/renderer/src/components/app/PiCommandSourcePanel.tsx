@@ -53,7 +53,8 @@ export function PiCommandSourcePanel(props: PiCommandSourcePanelProps) {
 	const hasNewest = installations.some((item) => item.isNewest);
 	// 设置页里安装可能有十几份（nvm/mise/pnpm 各自的 shim 都算）：限高滚动，别把整页顶下去。
 	// 子项带 shrink-0：限高 flex 列里子项默认会被压缩。
-	const listClass = variant === "settings" ? "m-0 flex max-h-64 list-none flex-col gap-1 overflow-y-auto p-0 pr-1" : "m-0 flex list-none flex-col gap-1 p-0";
+	// 类名内联在 <ul> 上、不抽常量：scrollContainerGuard 只认元素行里的 overflow-* 字面量，
+	// 抽成变量会让真实滚动窗从判定面里整条消失（与 tool-result.tsx 同款处理）。
 
 	const submitAdd = async () => {
 		const value = draftPath.trim();
@@ -126,7 +127,8 @@ export function PiCommandSourcePanel(props: PiCommandSourcePanelProps) {
 
 			{/* 自动检测到的安装 */}
 			{variant === "settings" && detected.length > 0 && <small className="text-text-tertiary text-caption">{t("environment.installsAutoDetected")}</small>}
-			<ul className={listClass}>
+			{/* scroll-ok: bounded —— 检测到的安装来源是固定枚举（nvm/mise/pnpm 的 shim），条数有硬上限。 */}
+			<ul className={variant === "settings" ? "m-0 flex max-h-64 list-none flex-col gap-1 overflow-y-auto p-0 pr-1" : "m-0 flex list-none flex-col gap-1 p-0"}>
 				{detected.map((installation) => (
 					<InstallationRow key={installation.path} installation={installation} applyingPath={props.applyingPath} onChoose={props.onChoose} onUpdateCustomPath={props.onUpdateCustomPath} onRemoveCustomPath={props.onRemoveCustomPath} variant={variant} hasNewest={hasNewest} />
 				))}
@@ -134,7 +136,8 @@ export function PiCommandSourcePanel(props: PiCommandSourcePanelProps) {
 
 			{/* 用户自己添加的路径 */}
 			{variant === "settings" && userAdded.length > 0 && <small className="text-text-tertiary text-caption">{t("environment.installsUserAdded")}</small>}
-			<ul className={listClass}>
+			{/* scroll-ok: bounded —— 同上：手动添加的来源同样是用户手填的短枚举。 */}
+			<ul className={variant === "settings" ? "m-0 flex max-h-64 list-none flex-col gap-1 overflow-y-auto p-0 pr-1" : "m-0 flex list-none flex-col gap-1 p-0"}>
 				{userAdded.map((installation) => (
 					<InstallationRow
 						key={installation.path}

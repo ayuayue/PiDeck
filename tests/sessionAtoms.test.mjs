@@ -1232,8 +1232,9 @@ test("prependSessionHistoryPageAtom caps runtime history prefix and advances cur
 	assert.equal(entry().history.nextBeforeEntryId, "h-1", "锚点重算到保留段最旧条目");
 	assert.equal(entry().messages[0].id, "w1", "运行时窗口段不受影响");
 
-	// 整页丢弃：再 prepend 2 条更早页 → 溢出恰好等于整页，游标回退到请求游标，
-	// 下次重取同页（与 disk 路径同语义），锚点回到保留段头部
+	// 整页丢弃：再 prepend 2 条更早页 → 溢出恰好等于整页。
+	// 这里**不许**把游标退回请求值：退回去下次只会取到同一页、再次被同样丢掉，
+	// 就成「一直在加载、永远加载不出来」（2026-11 真机）。置 null = 没有更早了。
 	assert.equal(
 		store.set(atoms.prependSessionHistoryPageAtom, {
 			sessionId: "session-a",
@@ -1250,7 +1251,7 @@ test("prependSessionHistoryPageAtom caps runtime history prefix and advances cur
 		true,
 	);
 	assert.equal(entry().history.messages.length, LIMIT);
-	assert.equal(entry().history.nextBefore, 0, "整页丢弃：游标回到请求游标");
+	assert.equal(entry().history.nextBefore, null, "整页丢弃：游标置空，不再重取同一页");
 	assert.equal(entry().history.messages[0].meta.entryId, "h-1", "新页整体丢弃，原前缀原样保留");
 	assert.equal(entry().history.nextBeforeEntryId, "h-1");
 });
@@ -1944,10 +1945,10 @@ test("prependSessionMessagePageAtom trims overflowing oldest messages and advanc
 	assert.equal(entry().messages.length, LIMIT, "裁剪后不超过上限");
 	assert.equal(entry().messages[0].id, "h-1", "最旧的溢出条被丢弃，第三条保留");
 	assert.equal(entry().page.nextBefore, LIMIT - 4 + 2, "部分丢弃：游标 = 页最旧下标 + 丢弃数");
-	assert.equal(entry().messages[LIMIT - 1].id, "m2398", "当前视窗尾部不受影响");
+	assert.equal(entry().messages[LIMIT - 1].id, `m${LIMIT - 2}`, "当前视窗尾部不受影响");
 
-	// 整页丢弃：再 prepend 2 条更早页（无重叠）→ 溢出 2 条恰好等于整页，
-	// 游标回到请求游标（= 保留段最旧一条的文件下标）
+	// 整页丢弃：再 prepend 2 条更早页（无重叠）→ 溢出 2 条恰好等于整页。
+	// 游标置空而不是退回请求值，否则重取同一页 = 死循环（见 runtime 路径同款判据）。
 	const beforeCursor = entry().page.nextBefore;
 	assert.equal(
 		store.set(atoms.prependSessionMessagePageAtom, {
@@ -1963,7 +1964,7 @@ test("prependSessionMessagePageAtom trims overflowing oldest messages and advanc
 		true,
 	);
 	assert.equal(entry().messages.length, LIMIT);
-	assert.equal(entry().page.nextBefore, beforeCursor, "整页丢弃：游标回到请求游标");
+	assert.equal(entry().page.nextBefore, null, "整页丢弃：游标置空，不再重取同一页");
 	assert.equal(entry().messages[0].id, "h-1", "新页整体丢弃，原视窗原样保留");
 });
 

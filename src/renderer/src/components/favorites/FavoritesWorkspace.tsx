@@ -454,6 +454,7 @@ function FavoriteDetailDrawer(props: { entry: FavoriteEntry | null; onClose: () 
 						{entry.model && <DetailMetaRow label={t("favorites.detailModel")} value={entry.model} />}
 					</div>
 					{/* 整条消息按 Markdown 渲染（与时间线同一引擎/插件）；划选片段是纯文本，保持原样换行。 */}
+					{/* scroll-ok: text —— 抽屉里是单独一条收藏消息（markdown-body 或纯文本），单一文本块，没有行列表可虚拟化。 */}
 					<div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
 						{/* markdown-body 是排版容器（与时间线 AnswerOutput 同款）：标题/列表/代码块/表格的间距都靠它。 */}
 						{isSelection ? (

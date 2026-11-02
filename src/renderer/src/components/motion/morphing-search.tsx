@@ -388,7 +388,7 @@ export function MorphingSearch({ items, placeholder = "Search", shortcut = "f", 
 										</div>
 										<kbd className="flex h-7 shrink-0 items-center rounded-md border border-border px-2 text-xs text-muted-foreground">Esc</kbd>
 									</div>
-
+									{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 									<motion.div
 										ref={listRef}
 										id={listboxId}
@@ -421,6 +421,7 @@ export function MorphingSearch({ items, placeholder = "Search", shortcut = "f", 
 										initial={reduce ? { opacity: 1, transform: "translateY(0px)" } : "closed"}
 										animate={reduce ? { opacity: 1, transform: "translateY(0px)" } : "open"}
 										exit={reduce ? undefined : "closed"}
+										// scroll-ok: bounded —— 命令面板结果窗：结果由一次查询产出，条数受结果预算限制，不是随会话增长的列表。
 										className="overscroll-contain overflow-y-auto p-2"
 										style={{
 											maxHeight: geometry.resultsHeight,

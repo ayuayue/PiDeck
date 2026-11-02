@@ -8,7 +8,7 @@
  * - tool-invocation part → 工具卡片（复用桌面 tool-card 视觉）
  * - 流式期间底部显示响应指示器；出错显示诊断卡
  */
-import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useEffect, useImperativeHandle, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { Loader2, ArrowDown, Brain, Check, ChevronDown, ChevronRight, ChevronUp, Copy, ListTree, MessagesSquare, Pencil, RefreshCw, Share2, Trash2, Wrench, X } from "lucide-react";
 import type { UIMessage } from "ai";
 import { Button } from "@/components/ui-shadcn/button";
@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { splitAskOption, formatAskTitle, serializeBatchAnswers } from "../utils/askUi";
 import { WebAssistantText } from "./WebAssistantText";
 import type { WebPendingUiRequest } from "./webTypes";
+import { VirtualStack } from "@/components/ui-shadcn/virtual-stack";
 import type { AgentUiResponse } from "../../../shared/types";
 import { MarkdownStream } from "@/components/session/MarkdownStream";
 import { SingleLinePreview } from "@/components/session/SingleLinePreview";
@@ -25,6 +26,13 @@ import { TimelineMarker } from "../components/session/TimelineMarker";
 import { LogoMark } from "../components/app/LogoMark";
 import { copyTextToClipboard } from "./webClipboard";
 
+/** 命令式跳转句柄：虚拟化后离屏行没有 DOM，父组件必须走这份映射而不是 getElementById。 */
+export type WebTimelineJumpApi = {
+	/** 把某条消息所在的回合滚进视口；返回 false 表示已加载条目里没有它。 */
+	jumpTo: (messageId: string) => boolean;
+	/** 是否已在已加载条目中（用于「命中落在未加载历史页」的判定）。 */
+	has: (messageId: string) => boolean;
+};
 /** 工具参数/结果格式化：字符串原样，对象 pretty JSON，超长截断。 */
 function prettyToolValue(value: unknown, maxChars = 4000): string {
 	if (value == null) return "";
@@ -295,6 +303,7 @@ function ToolValueBlock(props: { label: string; text: string; tone?: "error" }) 
 	return (
 		<div className="min-w-0">
 			<div className={cn("mb-0.5 font-mono text-micro uppercase tracking-wide text-text-tertiary", props.tone === "error" && "text-danger")}>{props.label}</div>
+			{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 			<pre className={cn("max-h-56 overflow-auto rounded border border-border-subtle bg-black/[0.03] p-1.5 font-mono text-micro leading-relaxed whitespace-pre-wrap break-all text-text-secondary", props.tone === "error" && "text-danger")}>{props.text}</pre>
 		</div>
 	);
@@ -619,6 +628,8 @@ export function WebTimeline(props: {
 	onNearBottomChange?: (nearBottom: boolean) => void;
 	/** 外部「跳到最新」请求（待答横幅点击等）：nonce 递增触发一次回底滚动。 */
 	jumpToLatestNonce?: number;
+	/** 命令式跳转句柄（虚拟化后离屏行无 DOM，getElementById 会静默失效）。 */
+	jumpApiRef?: MutableRefObject<WebTimelineJumpApi | null>;
 }) {
 	const { messages, hasActiveSession, hasMoreHistory, moreCount, loadingMore, streaming, error, onLoadMore } = props;
 	const timelineRef = useRef<HTMLDivElement | null>(null);
@@ -732,6 +743,42 @@ export function WebTimeline(props: {
 	}, [messages, props.streaming]);
 	const lastEntryId = timelineEntries.length > 0 ? timelineEntries[timelineEntries.length - 1].id : "";
 
+	// 虚拟化接线：行数超过 minRows 时只有视口附近的行在 DOM 里，
+	// `document.getElementById('web-msg-*')` 对离屏消息返回 null（跳转会静默失效）。
+	// 所以跳转必须先换算成行索引，让虚拟器把行拉进视口。
+	const entryVirtualizerRef = useRef<{ scrollToIndex: (index: number, options?: { align?: "start" | "center" | "end" | "auto" }) => void } | null>(null);
+	const entryIndexByMessageId = useMemo(() => {
+		const index = new Map<string, number>();
+		timelineEntries.forEach((entry, position) => {
+			index.set(entry.id, position);
+			// 回合聚合后，非首条消息的锚点是行内一个 sr-only span：跳转要落到它所在的回合行。
+			if (entry.kind === "turn") {
+				for (const messageId of entry.turn.messageIds) if (!index.has(messageId)) index.set(messageId, position);
+			}
+		});
+		return index;
+	}, [timelineEntries]);
+	useImperativeHandle(
+		props.jumpApiRef,
+		() => ({
+			jumpTo: (messageId: string) => {
+				const position = entryIndexByMessageId.get(messageId);
+				if (position === undefined) return false;
+				const virtualizer = entryVirtualizerRef.current;
+				if (!virtualizer) {
+					// 行数 ≤ minRows 时没有虚拟化，DOM 就在，沿用原来的锚点跳转。
+					document.getElementById(`web-msg-${messageId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+					return true;
+				}
+				programmaticScrollRef.current = true;
+				virtualizer.scrollToIndex(position, { align: "start" });
+				return true;
+			},
+			has: (messageId: string) => entryIndexByMessageId.has(messageId),
+		}),
+		[entryIndexByMessageId],
+	);
+
 	return (
 		<section className="message-timeline relative h-full min-h-0 flex-1 overflow-y-auto" ref={timelineRef} onScroll={updateScrollState}>
 			<div className="message-list flex flex-col gap-4 p-4 pb-6 sm:px-6">
@@ -766,35 +813,43 @@ export function WebTimeline(props: {
 					</div>
 				) : (
 					<>
-						{timelineEntries.map((entry) => {
-							const exiting = entry.kind === "user" ? Boolean(props.exitingMessageIds?.has(entry.id)) : entry.turn.messageIds.some((messageId) => Boolean(props.exitingMessageIds?.has(messageId)));
-							return (
-								<div key={entry.id} id={`web-msg-${entry.id}`} className={cn("scroll-mt-24 [[data-header-hidden=on]_&]:scroll-mt-0", exiting && "web-msg-exiting")}>
-									{entry.kind === "user" ? (
-										<WebUserBubble
-											message={entry.message}
-											canManage={props.canManageMessages}
-											canDelete={props.canDeleteMessage ?? props.canManageMessages}
-											onEdit={props.onEditMessage}
-											onDelete={props.onDeleteMessage}
-											onResend={props.onResendMessage}
-											pendingAction={props.pendingMessageAction?.id === entry.message.id ? props.pendingMessageAction.kind : null}
-											flash={props.flashMessageId === entry.message.id}
-										/>
-									) : (
-										<>
-											{/* 回合聚合后锚点补偿：回合内非首条消息保留 web-msg-{id} 定位（跳转/分支定位用） */}
-											{entry.turn.messageIds
-												.filter((messageId) => messageId !== entry.id)
-												.map((messageId) => (
-													<span key={messageId} id={`web-msg-${messageId}`} className="sr-only" />
-												))}
-											<WebAssistantTurn turn={entry.turn} isStreaming={streaming && entry.id === lastEntryId} onOpenFile={props.onOpenFile} />
-										</>
-									)}
-								</div>
-							);
-						})}
+						<VirtualStack
+							items={timelineEntries}
+							getKey={(entry) => entry.id}
+							scrollRef={timelineRef}
+							// 虚拟行是 absolute，不参与父容器 flex 布局：原来 .message-list 的 gap-4 由行自己补。
+							rowClassName="pb-4"
+							virtualizerRef={entryVirtualizerRef}
+							renderItem={(entry) => {
+								const exiting = entry.kind === "user" ? Boolean(props.exitingMessageIds?.has(entry.id)) : entry.turn.messageIds.some((messageId) => Boolean(props.exitingMessageIds?.has(messageId)));
+								return (
+									<div id={`web-msg-${entry.id}`} className={cn("scroll-mt-24 [[data-header-hidden=on]_&]:scroll-mt-0", exiting && "web-msg-exiting")}>
+										{entry.kind === "user" ? (
+											<WebUserBubble
+												message={entry.message}
+												canManage={props.canManageMessages}
+												canDelete={props.canDeleteMessage ?? props.canManageMessages}
+												onEdit={props.onEditMessage}
+												onDelete={props.onDeleteMessage}
+												onResend={props.onResendMessage}
+												pendingAction={props.pendingMessageAction?.id === entry.message.id ? props.pendingMessageAction.kind : null}
+												flash={props.flashMessageId === entry.message.id}
+											/>
+										) : (
+											<>
+												{/* 回合聚合后锚点补偿：回合内非首条消息保留 web-msg-{id} 定位（跳转/分支定位用） */}
+												{entry.turn.messageIds
+													.filter((messageId) => messageId !== entry.id)
+													.map((messageId) => (
+														<span key={messageId} id={`web-msg-${messageId}`} className="sr-only" />
+													))}
+												<WebAssistantTurn turn={entry.turn} isStreaming={streaming && entry.id === lastEntryId} onOpenFile={props.onOpenFile} />
+											</>
+										)}
+									</div>
+								);
+							}}
+						/>
 					</>
 				)}
 

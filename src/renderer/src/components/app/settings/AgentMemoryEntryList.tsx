@@ -134,9 +134,7 @@ export function AgentMemoryEntryList(props: {
 
 			{deleted ? (
 				<div className="flex items-center gap-2 border-b border-border-subtle bg-bg-muted px-3 py-2">
-					<span className="min-w-0 flex-1 truncate text-caption text-muted-foreground">
-						{t("settings.agentMemoryDeletedEntry", { content: deleted.content.split("\n")[0].length > 80 ? `${deleted.content.split("\n")[0].slice(0, 80)}…` : deleted.content.split("\n")[0] })}
-					</span>
+					<span className="min-w-0 flex-1 truncate text-caption text-muted-foreground">{t("settings.agentMemoryDeletedEntry", { content: deleted.content.split("\n")[0].length > 80 ? `${deleted.content.split("\n")[0].slice(0, 80)}…` : deleted.content.split("\n")[0] })}</span>
 					<Button type="button" variant="ghost" size="sm" disabled={restoring} onClick={() => void runRestore()}>
 						<RotateCcw size={13} aria-hidden="true" />
 						{t("settings.agentMemoryUndoDelete")}

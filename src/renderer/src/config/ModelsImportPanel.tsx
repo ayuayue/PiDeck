@@ -154,6 +154,7 @@ export function ModelsImportPanel(props: ModelsImportPanelProps) {
 			</div>
 			{step !== "entry" && (
 				<>
+					{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 					<div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
 						{step === "select" && imported && (
 							<div className="space-y-2">

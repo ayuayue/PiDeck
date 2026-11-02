@@ -43,6 +43,7 @@ export function SessionAgentPromptBar({ sessionId }: SessionAgentPromptBarProps)
 			<Collapsible open={expanded} className="contents">
 				<CollapsibleContent className="border-t border-border/40 px-3 py-2">
 					<p className="mb-1.5 text-micro text-text-tertiary">{t("agentPromptBar.hint")}</p>
+					{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 					<pre className="max-h-40 overflow-y-auto rounded-md bg-bg-muted/40 p-2 font-mono text-micro leading-relaxed whitespace-pre-wrap break-words text-foreground/90">{agent.systemPrompt}</pre>
 				</CollapsibleContent>
 			</Collapsible>

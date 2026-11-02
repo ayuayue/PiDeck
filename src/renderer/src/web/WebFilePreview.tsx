@@ -12,9 +12,12 @@
  * `confirm=1` 重请求；deny（命中 denyDirs）永远不降级。项目内路径仍走原项目根沙箱。
  * diff 只能来自本项目 git status，项目外路径回退成文件预览（不弹确认，由文件路径自身求值）。
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
+/** 超过这个行数才虚拟化：短文件直接全量渲染，省掉测量与绝对定位开销。 */
+const VIRTUALIZE_MIN_LINES = 40;
 import { MarkdownStream } from "@/components/session/MarkdownStream";
+import { VirtualStack } from "@/components/ui-shadcn/virtual-stack";
 import { t, type TranslationKey } from "@/i18n";
 import { fetchFileContent, fetchGitDiff, fetchGitStatus } from "./webApi";
 import { useDismissOnBack } from "./useDismissOnBack";
@@ -90,23 +93,33 @@ function PreviewHeader({ path, onClose }: { path: string; onClose: () => void })
 function NumberedText({ content, line }: { content: string; line?: number }) {
 	const lines = useMemo(() => content.split("\n"), [content]);
 	const targetRef = useRef<HTMLDivElement | null>(null);
+	const virtualize = lines.length > VIRTUALIZE_MIN_LINES;
+	const viewportRef = useRef<HTMLDivElement | null>(null);
+	const virtualizerRef = useRef<{ scrollToIndex: (index: number, options?: { align?: "start" | "center" | "end" | "auto" }) => void } | null>(null);
+	// 虚拟化后目标行可能不在 DOM 里：先把它的索引滚进视口，下一帧才拿得到节点。
 	useEffect(() => {
-		// 行号在异步加载后才能定位：等目标行挂载后再滚一次（等宽字体下无需等布局完成）
+		if (line === undefined) return;
+		if (virtualize) {
+			virtualizerRef.current?.scrollToIndex(line - 1, { align: "center" });
+			const frame = requestAnimationFrame(() => targetRef.current?.scrollIntoView({ block: "center" }));
+			return () => cancelAnimationFrame(frame);
+		}
 		targetRef.current?.scrollIntoView({ block: "center" });
-	}, [line]);
+	}, [line, virtualize]);
+	const renderRow = (text: string, index: number) => {
+		const lineNumber = index + 1;
+		const highlighted = line === lineNumber;
+		return (
+			// data-line 供定位与未来扩展（跳转/复制单行）；行内容原样展示不转义 HTML（React 默认安全）
+			<div data-line={lineNumber} ref={highlighted ? targetRef : undefined} className={`flex gap-2 whitespace-pre-wrap px-1 text-micro leading-relaxed ${highlighted ? "rounded bg-primary/15 text-foreground" : "text-foreground/90"}`}>
+				<span className="w-8 shrink-0 select-none text-right tabular-nums text-muted-foreground/70">{lineNumber}</span>
+				<span className="min-w-0 flex-1 break-all">{text || " "}</span>
+			</div>
+		);
+	};
 	return (
-		<div className="min-h-0 flex-1 overflow-auto p-2">
-			{lines.map((text, index) => {
-				const lineNumber = index + 1;
-				const highlighted = line === lineNumber;
-				return (
-					// data-line 供定位与未来扩展（跳转/复制单行）；行内容原样展示不转义 HTML（React 默认安全）
-					<div key={lineNumber} data-line={lineNumber} ref={highlighted ? targetRef : undefined} className={`flex gap-2 whitespace-pre-wrap px-1 text-micro leading-relaxed ${highlighted ? "rounded bg-primary/15 text-foreground" : "text-foreground/90"}`}>
-						<span className="w-8 shrink-0 select-none text-right tabular-nums text-muted-foreground/70">{lineNumber}</span>
-						<span className="min-w-0 flex-1 break-all">{text || " "}</span>
-					</div>
-				);
-			})}
+		<div ref={viewportRef} className="min-h-0 flex-1 overflow-auto p-2">
+			{virtualize ? <VirtualStack items={lines} getKey={(_, index) => String(index)} renderItem={renderRow} scrollRef={viewportRef} estimateHeight={18} minRows={VIRTUALIZE_MIN_LINES} virtualizerRef={virtualizerRef} /> : lines.map((text, index) => <Fragment key={index}>{renderRow(text, index)}</Fragment>)}
 		</div>
 	);
 }
@@ -178,8 +191,12 @@ function FilePreviewBody({ projectId, path, line }: { projectId: string; path: s
 	// 截断预览：能看前 512KB 比完全不给强；底部提示告知完整内容请回桌面端
 	const truncatedNotice = data.truncated ? <div className="shrink-0 border-t border-border bg-warning/5 px-3 py-1.5 text-micro text-warning">{t("web.fileViewerTruncated")}</div> : null;
 	if (path.toLowerCase().endsWith(".md")) {
+		{
+			/* scroll-ok: text —— markdown 预览整篇交给 MarkdownStream 渲染，虚拟化会把标题/代码块/列表的结构切成行，语义与复制都会坏。 */
+		}
 		return (
 			<div className="flex min-h-0 flex-1 flex-col">
+				{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 				<div className="markdown-body min-h-0 flex-1 overflow-y-auto px-3 py-2">
 					<MarkdownStream text={data.content} onOpenExternal={(url: string) => window.open(url, "_blank", "noopener")} />
 				</div>

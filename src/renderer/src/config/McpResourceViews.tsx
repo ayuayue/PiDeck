@@ -63,6 +63,8 @@ export function McpServerListPane(props: {
 }) {
 	const stateOf = (name: string): { state: string; tools: string[]; error?: string } | undefined => props.statusByName[name];
 	const { style: logoStyle, customLogo } = useBrandGlyph();
+	// scroll-ok: nested —— 窗内先有两段表头（计数 + 刷新、分组标题）再接服务器行；
+	// VirtualStack 没有 scrollMargin 补偿表头高度，且两段节点形状不同。
 	return (
 		<div className="flex min-h-0 flex-1 flex-col gap-1 overflow-auto rounded-md border border-border-subtle bg-bg-panel p-1.5">
 			<div className="flex items-center justify-between gap-2 px-1 pb-0.5">

@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 5143e237277f5513c3c73edd3e2c1becad671cbfb5e0bcdf8b28b5126f9173ef（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 5d4e0881cde7590f1f5bf86e5e4fe6d30cb3265db083305a38b819e175d48fbe（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -4344,6 +4344,16 @@ export const zhTW: Record<TranslationKey, string> = {
 	"outline.showAll": "顯示全部 {count} 條",
 	"outline.turnFallback": "第 {index} 輪",
 	"outline.title": "會話定位",
+	"outline.panel": "會話目錄",
+	"outline.searchPlaceholder": "搜尋，或輸入條數回車",
+	"outline.searchAria": "搜尋目錄條目，或輸入第幾條跳轉",
+	"outline.collapse": "收起目錄",
+	"outline.expand": "展開會話目錄",
+	"outline.onlyRange": "只有 1–{count}",
+	"outline.hits": "命中 {count}",
+	"outline.total": "共 {count} 條",
+	"outline.earlier": "更早 · 前 {count} 條",
+	"outline.earlierAria": "還有 {count} 條更早的，開啟目錄檢視",
 	"outline.jumpUnreachable": "這條提問還在更早的歷史裡，繼續向上翻一會兒再點。",
 	"outline.trigger": "會話定位 · {count} 條",
 	"prompt.closeHint": "Esc 關閉",
@@ -6399,6 +6409,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"timeline.loadMoreTurns": "載入更多對話",
 	"timeline.loadMoreFailed": "更早的歷史載入失敗",
 	"timeline.loadMoreFailedHint": "可能是會話檔案或 DSH host 暫時不可用；按鈕可再點重試。",
+	"timeline.loadMoreRetryable": "會話在翻頁期間有新內容，再點一次即可",
 	"drawer.lazyLoading": "載入中…",
 	"drawer.loadFailed": "目錄讀取失敗",
 	"diagnostic.errorTitle": "錯誤診斷",

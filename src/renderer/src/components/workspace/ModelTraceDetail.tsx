@@ -30,9 +30,11 @@ function RoleBadge({ role }: { role: TraceMessage["role"] }) {
 function TraceBlockView({ block }: { block: TraceBlock }) {
 	switch (block.type) {
 		case "text":
+			// scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。
 			return <div className={`whitespace-pre-wrap break-words text-xs leading-relaxed ${BLOCK_MAX_H} overflow-y-auto`}>{block.text}</div>;
 		case "thinking":
 			return (
+				// scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。
 				<div className={`border-l-2 border-border pl-2 text-xs italic leading-relaxed text-muted-foreground/80 ${BLOCK_MAX_H} overflow-y-auto`}>
 					<span className="mb-1 inline-flex items-center gap-1 text-micro not-italic">{t("rpc.traceThinking")}</span>
 					{block.text}
@@ -52,6 +54,7 @@ function TraceBlockView({ block }: { block: TraceBlock }) {
 						<Wrench className="size-3 text-muted-foreground" aria-hidden="true" />
 						{block.name}
 					</div>
+					{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 					{block.args ? <pre className={`overflow-auto rounded bg-background/60 p-1.5 font-mono text-micro leading-snug ${BLOCK_MAX_H}`}>{block.args}</pre> : null}
 				</div>
 			);
@@ -62,6 +65,7 @@ function TraceBlockView({ block }: { block: TraceBlock }) {
 						{t("rpc.traceToolResult")}
 						{block.isError ? <span className="rounded bg-destructive/15 px-1 text-destructive">{t("rpc.traceToolError")}</span> : null}
 					</div>
+					{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
 					<pre className={`overflow-auto whitespace-pre-wrap break-words font-mono text-micro leading-snug ${block.isError ? "text-destructive" : ""} ${BLOCK_MAX_H}`}>{block.text}</pre>
 				</div>
 			);

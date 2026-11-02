@@ -104,6 +104,7 @@ export function AgentMarketEditor({ agent, onSaved, onCancel }: AgentMarketEdito
 
 	return (
 		<form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+			{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 			<div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
 				<div className="mx-auto flex max-w-[640px] flex-col gap-4">
 					{agent?.builtin && (

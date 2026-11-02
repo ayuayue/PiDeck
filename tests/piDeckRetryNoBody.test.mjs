@@ -73,11 +73,7 @@ const TRANSIENT_UPSTREAM_PATTERNS = [
 
 const TRANSIENT_TRANSPORT_PATTERNS = [/^stream_read_error\b/i, /unexpected\s+eof/i, /premature\s+close/i, /upstream\s+request\s+failed/i, /no\s+available\s+channel/i, /GOAWAY/i, /connection\s+reset(?:\s+by\s+peer)?/i, /\b(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EAI_AGAIN)\b/];
 
-const TRANSIENT_STREAM_STALL_PATTERNS = [
-	/\btool[_\s:-]?arguments?[_\s:-]?stalled\b/i,
-	/tool\s+arguments\s+stopped\s+making\s+progress/i,
-	/consecutive\s+whitespace\s+outside\s+JSON\s+strings/i,
-];
+const TRANSIENT_STREAM_STALL_PATTERNS = [/\btool[_\s:-]?arguments?[_\s:-]?stalled\b/i, /tool\s+arguments\s+stopped\s+making\s+progress/i, /consecutive\s+whitespace\s+outside\s+JSON\s+strings/i];
 
 const TRANSIENT_EDGE_PATTERNS = [
 	/cloudflare\s+tunnel/i,
@@ -99,7 +95,14 @@ function isTransientError(errorMessage) {
 	if (NON_RETRYABLE_HTTP_STATUS_PATTERN.test(errorMessage)) return false;
 	if (NON_RETRYABLE_SERVER_STATUS_PATTERN.test(errorMessage)) return false;
 	if (ALREADY_RETRYABLE_SIGNALS.some((p) => p.test(errorMessage))) return false;
-	return TRANSIENT_OVERLOAD_PATTERNS.some((p) => p.test(errorMessage)) || TRANSIENT_UPSTREAM_PATTERNS.some((p) => p.test(errorMessage)) || TRANSIENT_TRANSPORT_PATTERNS.some((p) => p.test(errorMessage)) || TRANSIENT_STREAM_STALL_PATTERNS.some((p) => p.test(errorMessage)) || TRANSIENT_EDGE_PATTERNS.some((p) => p.test(errorMessage)) || RETRYABLE_SERVER_STATUS_PATTERN.test(errorMessage);
+	return (
+		TRANSIENT_OVERLOAD_PATTERNS.some((p) => p.test(errorMessage)) ||
+		TRANSIENT_UPSTREAM_PATTERNS.some((p) => p.test(errorMessage)) ||
+		TRANSIENT_TRANSPORT_PATTERNS.some((p) => p.test(errorMessage)) ||
+		TRANSIENT_STREAM_STALL_PATTERNS.some((p) => p.test(errorMessage)) ||
+		TRANSIENT_EDGE_PATTERNS.some((p) => p.test(errorMessage)) ||
+		RETRYABLE_SERVER_STATUS_PATTERN.test(errorMessage)
+	);
 }
 
 const OVERLOAD_TAG = "rate limit";
@@ -614,8 +617,7 @@ test("530 空响应（网关只回状态码不回 body）同样被救援，且�
 	assert.equal(piWillRetry({ ...message, errorMessage: rewritten }), true);
 });
 test("网关掐断退化的工具参数流（*_tool_arguments_stalled）原本不重试，改写后进入 pi 重试（#472）", () => {
-	const errorMessage =
-		"basispoints_tool_arguments_stalled: Tool arguments stopped making progress: consecutive whitespace outside JSON strings (output_index=1, whitespace_bytes=1024, limit_bytes=1024)";
+	const errorMessage = "basispoints_tool_arguments_stalled: Tool arguments stopped making progress: consecutive whitespace outside JSON strings (output_index=1, whitespace_bytes=1024, limit_bytes=1024)";
 	const message = { stopReason: "error", errorMessage, api: "openai-responses" };
 	assert.equal(piWillRetry(message), false, "pi 名单里没有这个词，原本会话直接失败停止");
 	const rewritten = rewriteErrorMessage(message);
@@ -626,21 +628,13 @@ test("网关掐断退化的工具参数流（*_tool_arguments_stalled）原本�
 });
 
 test("参数流停滞只认「停滞」特征，不同网关的租户前缀都能命中", () => {
-	for (const errorMessage of [
-		"juzi_tool_arguments_stalled: Tool arguments stopped making progress",
-		"tool_arguments_stalled: consecutive whitespace outside JSON strings",
-		"tool arguments stalled",
-	]) {
+	for (const errorMessage of ["juzi_tool_arguments_stalled: Tool arguments stopped making progress", "tool_arguments_stalled: consecutive whitespace outside JSON strings", "tool arguments stalled"]) {
 		assert.equal(isTransientError(errorMessage), true, `应判为瞬态: ${errorMessage}`);
 	}
 });
 
 test("参数 JSON 语法类真实错误不被当成参数流停滞（重试必然复现）", () => {
-	for (const errorMessage of [
-		"tool arguments are not valid JSON: Unexpected token }",
-		"Failed to parse arguments string as JSON object",
-		"Tool call arguments exceeded the model limit",
-	]) {
+	for (const errorMessage of ["tool arguments are not valid JSON: Unexpected token }", "Failed to parse arguments string as JSON object", "Tool call arguments exceeded the model limit"]) {
 		const message = { stopReason: "error", errorMessage, api: "openai-responses" };
 		assert.equal(rewriteErrorMessage(message), undefined, `不应改写: ${errorMessage}`);
 	}

@@ -81,10 +81,7 @@ test("ACP 真进程：session/new 的 mcpServers 能被 agent 起成 MCP 服务�
 
 	const summary = received.summary[0];
 	assert.equal(summary.error, "", `服务器启动失败：${summary.error}`);
-	assert.deepEqual(
-		[...summary.tools].sort(),
-		["memory_add", "memory_get", "memory_remove", "memory_replace", "memory_search", "memory_status", "session_search"],
-	);
+	assert.deepEqual([...summary.tools].sort(), ["memory_add", "memory_get", "memory_remove", "memory_replace", "memory_search", "memory_status", "session_search"]);
 });
 
 test("ACP 真进程：开关关闭时 mcpServers 传空数组（ACP v1 该字段必填，不能省）", async (t) => {

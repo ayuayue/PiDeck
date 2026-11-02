@@ -506,9 +506,7 @@ export type ChangesGroupSpec = {
 /** 组头行：原 ResourceGroup 的头部（扁平化后分组不再有包裹层，分隔线落在每组末行的 border 上）。 */
 function GroupHeaderRow(props: { spec: ChangesGroupSpec; border: boolean }) {
 	return (
-		<div
-			className={`group flex h-7 items-center bg-transparent pr-2 pl-2 hover:bg-muted${props.spec.open ? " open" : ""}${props.border ? " border-b border-[var(--git-panel-border)]" : ""}`}
-		>
+		<div className={`group flex h-7 items-center bg-transparent pr-2 pl-2 hover:bg-muted${props.spec.open ? " open" : ""}${props.border ? " border-b border-[var(--git-panel-border)]" : ""}`}>
 			<button type="button" className="inline-flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-left text-inherit focus-visible:shadow-[inset_var(--focus-ring)] focus-visible:outline-none" aria-expanded={props.spec.open} onClick={props.spec.onToggle}>
 				{/* 与下方目录行的 twistie 同列（16px 槽 + 3px 偏移） */}
 				<span aria-hidden="true" className="inline-flex h-full w-4 shrink-0 translate-x-[3px] items-center justify-center">
@@ -528,10 +526,7 @@ function GroupHeaderRow(props: { spec: ChangesGroupSpec; border: boolean }) {
 	);
 }
 
-type ChangesStackRow =
-	| { kind: "group"; spec: ChangesGroupSpec; border: boolean }
-	| { kind: "dir"; spec: ChangesGroupSpec; row: Extract<ChangeTreeRow, { kind: "dir" }>; border: boolean }
-	| { kind: "file"; spec: ChangesGroupSpec; resource: GitResource; depth: number; border: boolean };
+type ChangesStackRow = { kind: "group"; spec: ChangesGroupSpec; border: boolean } | { kind: "dir"; spec: ChangesGroupSpec; row: Extract<ChangeTreeRow, { kind: "dir" }>; border: boolean } | { kind: "file"; spec: ChangesGroupSpec; resource: GitResource; depth: number; border: boolean };
 
 /**
  * 本地变更区：把 merge/staged/changes 三个分组折成一条扁平行列表，走一个 VirtualStack。
@@ -574,9 +569,7 @@ export const ChangesGroupsStack = memo(function ChangesGroupsStack(props: {
 			items={items}
 			scrollRef={props.scrollRef}
 			estimateHeight={28}
-			getKey={(item) =>
-				item.kind === "group" ? `${item.spec.key}:group` : item.kind === "dir" ? `${item.spec.key}:dir:${item.row.path}` : `${item.spec.key}:file:${item.resource.path}`
-			}
+			getKey={(item) => (item.kind === "group" ? `${item.spec.key}:group` : item.kind === "dir" ? `${item.spec.key}:dir:${item.row.path}` : `${item.spec.key}:file:${item.resource.path}`)}
 			renderItem={(item) => {
 				if (item.kind === "group") return <GroupHeaderRow spec={item.spec} border={item.border} />;
 				const ctx: ChangeRowContext = {

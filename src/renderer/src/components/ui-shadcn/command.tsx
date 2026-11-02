@@ -24,6 +24,7 @@ function CommandInput({ className, ...props }: React.ComponentProps<typeof Comma
 }
 
 function CommandList({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.List>) {
+	// scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。
 	return <CommandPrimitive.List data-slot="command-list" className={cn("max-h-[min(420px,50vh)] scroll-py-1 overflow-x-hidden overflow-y-auto", className)} {...props} />;
 }
 

@@ -112,11 +112,7 @@ test("多仓路径：项目根外的绝对路径按自身段建树，各自归�
 test("buildChangeFlatRows：一级目录分组、根目录排最前，折叠剪枝与树形同语义", () => {
 	const rows = buildChangeFlatRows([file("/p/src/a.ts"), file("/p/src/b.ts"), file("/p/README.md")], "/p");
 
-	assert.deepEqual(
-		shape(rows),
-		["dir:@0=1", "file:README.md@0", "dir:src@0=2", "file:a.ts@0", "file:b.ts@0"],
-		"根目录（显示为 /）排最前；多目录时根文件也有目录头；文件行永远在 depth 0（旧 flat 行为）",
-	);
+	assert.deepEqual(shape(rows), ["dir:@0=1", "file:README.md@0", "dir:src@0=2", "file:a.ts@0", "file:b.ts@0"], "根目录（显示为 /）排最前；多目录时根文件也有目录头；文件行永远在 depth 0（旧 flat 行为）");
 });
 
 test("buildChangeFlatRows：单根时默认隐藏目录头且文件不受折叠影响；有批量操作则保留", () => {
@@ -124,11 +120,7 @@ test("buildChangeFlatRows：单根时默认隐藏目录头且文件不受折叠�
 	const resources = [file("/p/a.ts"), file("/p/b.ts")];
 
 	assert.deepEqual(shape(buildChangeFlatRows(resources, "/p", collapsed)), ["file:a.ts@0", "file:b.ts@0"], "单根无批量操作：无目录头，折叠态不隐藏文件（旧 flat 行为）");
-	assert.deepEqual(
-		shape(buildChangeFlatRows(resources, "/p", new Set(), { includeSingleRootHeader: true })),
-		["dir:@0=2", "file:a.ts@0", "file:b.ts@0"],
-		"有目录级批量操作时单根目录头必须保留（否则 stageDir/discardDir 无处挂靠）；文件行仍在 depth 0",
-	);
+	assert.deepEqual(shape(buildChangeFlatRows(resources, "/p", new Set(), { includeSingleRootHeader: true })), ["dir:@0=2", "file:a.ts@0", "file:b.ts@0"], "有目录级批量操作时单根目录头必须保留（否则 stageDir/discardDir 无处挂靠）；文件行仍在 depth 0");
 	assert.deepEqual(shape(buildChangeFlatRows(resources, "/p", collapsed, { includeSingleRootHeader: true })), ["dir:@0=2"], "有目录头后折叠即隐藏文件（目录头是折叠开关，旧 flat 行为）");
 });
 

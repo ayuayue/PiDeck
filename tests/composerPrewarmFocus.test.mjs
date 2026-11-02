@@ -27,6 +27,12 @@ const browsePin = compile("src/renderer/src/hooks/timeline/browsePin.ts");
 // 不再用正则去钉实现字符串。
 const visibleRowsModule = compile("src/renderer/src/hooks/timeline/useVisibleTimelineRows.ts", { react: {} });
 
+// 分批扩窗的纯函数（2026-11 从控制器提出）：控制器 import 它，测试里补真模块而不是 stub，
+// 因为这层逻辑本身有行为测试，stub 掉等于让控制器测试跑在假实现上。
+const windowExpandPlan = compile("src/renderer/src/components/session/timeline/windowExpandPlan.ts");
+// 流式跳转仲裁的纯判定（2026-11 新增）：同样编译真模块；stub 成恒 false 会让
+// 「点刻度时该忽略贴底上报」的行为测试永远绿在假实现上。
+const timelineJumpGuard = compile("src/renderer/src/hooks/timelineJumpGuard.ts");
 const timeline = compile("src/renderer/src/hooks/useSessionTimelineController.ts", {
 	react: {},
 	jotai: { atom: (value) => ({ _mockInit: value }) },
@@ -38,6 +44,11 @@ const timeline = compile("src/renderer/src/hooks/useSessionTimelineController.ts
 	"../desktopApi": {},
 	// 合并 origin/dev 后 controller 直接引用首屏分页函数；测试不驱动磁盘分页，给最小 stub。
 	"../components/session/sessionSubagentTranscript": { readSessionFirstScreenPage: async () => ({ messages: [], hasMore: false }) },
+	// 分批扩窗的纯函数（2026-11 从 controller 提出）：编译真模块而不是 stub ——
+	// 这层逻辑自己有行为测试，stub 掉等于让本测试跑在假实现上。
+	"../components/session/timeline/windowExpandPlan": windowExpandPlan,
+	// 流式跳转仲裁的纯判定（2026-11 新增）：同样编译真模块，别 stub 成恒 false。
+	"./timelineJumpGuard": timelineJumpGuard,
 	// 控制器用 t() 播报「DSH 已停止」文案，而 i18n.ts 会拉起整份字典 → 给最小 stub；
 	// sessionHistoryAvailability 是纯函数（只有 type import），照 browsePin 的做法编译真模块。
 	// 两个都必须在 stub 表里：缺失时 loader 回落到以 tests/ 为基准的 nodeRequire，解析 .ts 必失败。
@@ -73,6 +84,13 @@ const timeline = compile("src/renderer/src/hooks/useSessionTimelineController.ts
 	// 宿主插件 entryId 定位的轮询计划（reveal 通道）：controller 已改为值导入，
 	// 缺这一条时 loader 会回落到以 tests/ 为基准的 nodeRequire，解析 .ts 必失败。
 	"./timeline/timelineRevealChannel": compile("src/renderer/src/hooks/timeline/timelineRevealChannel.ts"),
+	// 补页页大小 / 窗口增长（2026-11 从 controller 提出）：编译真模块，内部只依赖 turnRenderWindow。
+	"../components/session/timeline/historyPagePolicy": compile("src/renderer/src/components/session/timeline/historyPagePolicy.ts", {
+		"./turnRenderWindow": { countUserTurns: () => 0, TIMELINE_SCROLLED_TURN_LIMIT: 3, TIMELINE_WINDOW_EXPAND_STEP: 3 },
+	}),
+	// 跳转收敛判据（2026-11 新增）：纯函数、无内部 import，编译真模块而不是 stub ——
+	// 它自己有 tests/jumpSettle.test.mjs，stub 掉会让控制器测试跑在假实现上。
+	"../components/session/timeline/jumpSettle": compile("src/renderer/src/components/session/timeline/jumpSettle.ts"),
 	// #400：控制器改为经 useVisibleTimelineRows 读视口内行，并用它导出的轮根选择器。
 	// 两样都必须给：只给 hook 不给 ROOT_ROW_SELECTOR 时，控制器里两处
 	// querySelectorAll(ROOT_ROW_SELECTOR) 会拿到 undefined（2026-10-23 评审指出的替身不完整）。

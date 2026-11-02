@@ -224,6 +224,7 @@ export const ScratchPadPanel = memo(function ScratchPadPanel(props: ScratchPadPa
 					spellCheck={false}
 				/>
 			</TabsContent>
+			{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
 			<TabsContent value="preview" className="mt-0 min-h-0 min-w-0 flex-1 overflow-y-auto p-3 text-foreground">
 				{empty ? (
 					<div className="grid h-full place-items-center text-sm text-muted-foreground">

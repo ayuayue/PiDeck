@@ -4,6 +4,8 @@ import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
 
+const controllerPath = "src/renderer/src/hooks/useSessionTimelineController.ts";
+
 function compile(filePath) {
 	const output = ts.transpileModule(readFileSync(filePath, "utf8"), {
 		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -185,4 +187,21 @@ test("estimateJumpExpandTurns：目标不在数据中时返回基础步长（走
 	assert.equal(policy.estimateJumpExpandTurns([{ role: "user" }], -1), STEP);
 	assert.equal(policy.estimateJumpExpandTurns([{ role: "user" }], 1), STEP);
 	assert.equal(policy.estimateJumpExpandTurns([], 0), STEP);
+});
+
+test("补页失败不得吃掉跳转预算：失败短路必须排在 resolveJumpPendingAction 之前", () => {
+	// loadAttempts 是「补页防呆」的保险丝（JUMP_MAX_LOAD_ATTEMPTS = 40）。
+	// 旧实现先 resolve 再 +
+	// 1，失败也照算 —— 用户连点几次就把保险丝烧断，之后彻底跳不动。
+	// 真值判据：失败短路（loadMoreError）必须先于 action 的计算出现。
+	const source = readFileSync(controllerPath, "utf8");
+	const start = source.indexOf("const stillInData = targetIndex >= 0;");
+	assert.ok(start > 0, "找不到 pendingJump effect 主体");
+	const body = source.slice(start, start + 3000);
+	const failGuardAt = body.indexOf("if (!stillInData && loadMoreError) return;");
+	const actionAt = body.indexOf("const action = resolveJumpPendingAction(");
+	assert.ok(failGuardAt > 0, "找不到补页失败短路");
+	assert.ok(actionAt > 0, "找不到 resolveJumpPendingAction 调用");
+	assert.ok(failGuardAt < actionAt, "失败短路必须在 resolveJumpPendingAction 之前");
+	assert.match(body, /loadAttempts: action\.kind === "load-page"/, "推进点仍存在（只是失败时到不了这里）");
 });

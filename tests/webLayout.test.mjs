@@ -168,7 +168,8 @@ test("Web stream recovery wires runtimeBusy into every decision site", () => {
 // 曾经渲染在列表底部（最新消息处），语义反了。
 test("Web load-more-history entry stays at the top of the message flow", () => {
 	const loadMoreIndex = webTimeline.indexOf("{/* 分页加载更多");
-	const entriesIndex = webTimeline.indexOf("{timelineEntries.map(");
+	// 消息行现在由 <VirtualStack items={timelineEntries}> 渲染（虚拟化）；判据是「入口位置」，不是具体写法。
+	const entriesIndex = webTimeline.indexOf("items={timelineEntries}");
 	assert.ok(loadMoreIndex >= 0 && entriesIndex >= 0, "load-more block and entries render must exist");
 	assert.ok(loadMoreIndex < entriesIndex, "load-more must render BEFORE the message entries (top of flow)");
 	// 底部不再残留第二份加载更多入口。

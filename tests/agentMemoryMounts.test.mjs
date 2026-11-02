@@ -37,10 +37,7 @@ test("挂载：env 只带显式字段，会话来源与 cwd 都编码进环境�
 	assert.equal(mount.command, APP.execPath);
 	// 打包态脚本来自 extraResources；开发态来自仓库 resources/
 	assert.equal(mount.args[0], join(APP.resourcesPath, "agent-memory", "server.mjs"));
-	assert.equal(
-		mounts.resolveAgentMemoryServerPath({ isPackaged: false, appPath: "/repo", resourcesPath: "/repo/node_modules/electron/dist/resources" }),
-		join("/repo", "resources", "agent-memory", "server.mjs"),
-	);
+	assert.equal(mounts.resolveAgentMemoryServerPath({ isPackaged: false, appPath: "/repo", resourcesPath: "/repo/node_modules/electron/dist/resources" }), join("/repo", "resources", "agent-memory", "server.mjs"));
 	// 记忆根固定在 userData/memory：用户可备份、可手改
 	assert.equal(mount.env.PIDECK_AGENT_MEMORY_DIR, join(APP.userData, "memory"));
 	assert.equal(mount.env.PIDECK_AGENT_MEMORY_CWD, "D:/work/app");

@@ -106,7 +106,10 @@ test("STANDING：读缺失文件为空串，保存整文件替换并同步索引
 
 	// 写路径强制穿透了 mtime 短路：检索索引里要能立刻搜到新内容（走 db 的 LIKE 通道）。
 	const hits = searchEntries(root, "发布前先列步骤", { limit: 5 });
-	assert.ok(hits.hits.some((hit) => hit.target === "standing"), "保存后索引应包含新常驻指令");
+	assert.ok(
+		hits.hits.some((hit) => hit.target === "standing"),
+		"保存后索引应包含新常驻指令",
+	);
 });
 
 test("STANDING：超预算拒绝保存，空串清空文件", () => {

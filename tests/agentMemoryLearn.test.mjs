@@ -146,7 +146,11 @@ test("学习写入过工具层闸门：注入内容被拒收，不落盘", async
 	});
 	const outcome = await runLearnerPass(deps, { sessionId: "sess-1" });
 	assert.equal(outcome.added, 1);
-	assert.equal(outcome.rejected.some((code) => code.startsWith("memory-content-")), true, `预期被扫描拦下，实际 ${JSON.stringify(outcome.rejected)}`);
+	assert.equal(
+		outcome.rejected.some((code) => code.startsWith("memory-content-")),
+		true,
+		`预期被扫描拦下，实际 ${JSON.stringify(outcome.rejected)}`,
+	);
 	const memory = readFileSync(join(root, "MEMORY.md"), "utf8");
 	assert.doesNotMatch(memory, /Ignore all previous instructions/);
 });

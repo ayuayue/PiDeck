@@ -589,6 +589,7 @@ export function FileDiffViewer(props: {
 						   排版复用会话正文的 .markdown-body 体系，预览专属增量（阅读宽度/任务列表/kbd 等）
 						   由 markdown-preview-chrome utility 提供（tailwind.css @utility，不再自建 parallel 样式）。 */}
 						{!isDiffMode && preview && isMarkdown && (
+							// scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。
 							<div className="markdown-body markdown-preview-chrome h-full overflow-y-auto px-6 py-6 text-body text-text-primary font-sans">
 								<MarkdownStream text={content} onOpenExternal={noopOpenExternal} remarkPlugins={FILE_PREVIEW_REMARK_PLUGINS} rehypePlugins={FILE_PREVIEW_REHYPE_PLUGINS} urlTransform={defaultUrlTransform} />
 							</div>

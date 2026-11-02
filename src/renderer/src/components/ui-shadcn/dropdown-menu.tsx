@@ -20,6 +20,7 @@ function DropdownMenuTrigger({ ...props }: React.ComponentProps<typeof DropdownM
 
 function DropdownMenuContent({ className, sideOffset = 4, collisionPadding, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
 	return (
+		// scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。
 		<DropdownMenuPrimitive.Portal>
 			<DropdownMenuPrimitive.Content
 				ref={floatingWheelGuardRef}
@@ -28,6 +29,7 @@ function DropdownMenuContent({ className, sideOffset = 4, collisionPadding, ...p
 				// 显式传入者优先；默认让开标题栏拖拽热区（见 lib/titlebarInset.ts）
 				collisionPadding={collisionPadding ?? titlebarCollisionPadding()}
 				className={cn(
+					// scroll-ok: transient —— Radix 下拉菜单：条目由调用方当次传入，弹出即用、关闭即销毁。
 					"z-(--z-popover) max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-[var(--shadow-popover)] duration-base ease-out-quint data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:ease-in data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 dropdown-stagger",
 					className,
 				)}

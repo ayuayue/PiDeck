@@ -72,18 +72,9 @@ export function AgentMemoryStandingEditor(props: { onChanged?: () => void }) {
 				<p className="text-xs text-fg-muted">{t("settings.agentMemoryStandingLoading")}</p>
 			) : (
 				<>
-					<Textarea
-						value={content}
-						onChange={(event) => setContent(event.target.value)}
-						rows={6}
-						maxLength={STANDING_MAX_CHARS + 500}
-						placeholder={t("settings.agentMemoryStandingPlaceholder")}
-						className="min-h-28 font-mono text-xs"
-					/>
+					<Textarea value={content} onChange={(event) => setContent(event.target.value)} rows={6} maxLength={STANDING_MAX_CHARS + 500} placeholder={t("settings.agentMemoryStandingPlaceholder")} className="min-h-28 font-mono text-xs" />
 					<div className="flex items-center justify-between gap-3">
-						<span className={`text-xs ${overBudget ? "text-destructive" : "text-muted-foreground"}`}>
-							{t("settings.agentMemoryStandingChars", { chars: String(content.length), max: String(STANDING_MAX_CHARS) })}
-						</span>
+						<span className={`text-xs ${overBudget ? "text-destructive" : "text-muted-foreground"}`}>{t("settings.agentMemoryStandingChars", { chars: String(content.length), max: String(STANDING_MAX_CHARS) })}</span>
 						<Button size="sm" disabled={!dirty || overBudget || busy} onClick={() => void runSave()}>
 							<Save className="size-3.5" />
 							{t("settings.agentMemoryStandingSave")}

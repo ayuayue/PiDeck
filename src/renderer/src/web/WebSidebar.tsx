@@ -367,6 +367,7 @@ export function WebSidebar(props: {
 						</form>
 					)}
 					{/* 项目/会话树 */}
+					{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
 					<div className="conversation-list min-h-0 flex-1 overflow-y-auto">
 						{sortedProjects.map((project) => {
 							const projectSessions = sortedSessions.filter((session) => session.projectId === project.id).filter((session) => matchesSearch(session.title || session.id, search.trim()));
