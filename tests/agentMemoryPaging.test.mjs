@@ -11,7 +11,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  *   2. 越界页码要夹到首/尾页——删掉最后一页的最后一条后不能停在空白页。
  */
 
-const { MEMORY_PAGE_SIZE, buildMemoryPageRows, memoryEntryId, memoryTotalPages } = loadTsCommonJs("src/renderer/src/components/app/settings/agentMemoryPaging.ts");
+const { MEMORY_PAGE_SIZE, buildMemoryPageRows, flattenMemoryRows, memoryEntryId, memoryTotalPages } = loadTsCommonJs("src/renderer/src/components/app/settings/agentMemoryPaging.ts");
 
 function entry(target, index) {
 	return { index, target, scope: "global", projectId: "", projectName: "", key: `k${target}${index}`, exportId: `e${target}${index}`, content: `条目 ${index}`, chars: 4, category: "" };
@@ -77,4 +77,19 @@ test("条目 id 带作用域：同内容在全局与项目里是两条", () => {
 	const project = { ...base, scope: "project", projectId: "proj-a" };
 	assert.notEqual(memoryEntryId(base), memoryEntryId(project));
 	assert.ok(memoryEntryId(base).includes("global"));
+});
+
+test("展平：分组行 + 条目行按序输出，行 key 唯一，且不切片（虚拟滚动自己收敛 DOM）", () => {
+	const groups = [group("memory", 3), group("failure", 2)];
+	const rows = flattenMemoryRows(groups);
+	assert.deepEqual(shape(rows), ["group:memory", "entry:条目 1", "entry:条目 2", "entry:条目 3", "group:failure", "entry:条目 1", "entry:条目 2"]);
+	assert.equal(new Set(rows.map((row) => row.key)).size, rows.length, "行 key 必须唯一：虚拟器按 key 缓存测量与 ref 回调");
+
+	const many = flattenMemoryRows([group("memory", 200)]);
+	assert.equal(many.length, 201, "导出/导入弹窗要能一路滚到底：这里不做分页切片");
+	assert.equal(many[0].kind, "group");
+});
+
+test("展平：空组不出表头（与分页口径一致）", () => {
+	assert.deepEqual(Array.from(flattenMemoryRows([group("memory", 0)])), []);
 });

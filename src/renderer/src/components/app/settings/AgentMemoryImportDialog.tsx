@@ -10,7 +10,7 @@
  *   允许勾选它们只会让用户以为「选了就会覆盖」，而实际是空操作。
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Upload } from "lucide-react";
 import type { AgentMemoryBundleEntryPreview, AgentMemoryBundlePreview } from "../../../../../shared/types/agentMemory";
 import { t } from "../../../i18n";
@@ -18,8 +18,12 @@ import { desktopApi } from "../../../desktopApi";
 import { Button } from "../../ui-shadcn/button";
 import { Checkbox } from "../../ui-shadcn/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../ui-shadcn/dialog";
+import { VirtualStack } from "../../ui-shadcn/virtual-stack";
 import { describeAgentMemoryCode, memoryScopeLabel, memoryTargetLabel } from "./agentMemoryLabels";
 import type { AgentMemoryImportResult } from "../../../../../shared/types/agentMemory";
+
+/** 列表行：分组头（带该组第一条，用于显示作用域 / 目标）+ 条目。 */
+type ImportRow = { kind: "group"; key: string; first: AgentMemoryBundleEntryPreview | undefined } | { kind: "entry"; key: string; entry: AgentMemoryBundleEntryPreview };
 
 function selectable(entry: AgentMemoryBundleEntryPreview): boolean {
 	return entry.status === "new" || entry.status === "conflict";
@@ -65,6 +69,17 @@ export function AgentMemoryImportDialog(props: { filePath: string; preview: Agen
 		}
 		return [...map.entries()];
 	}, [preview.entries]);
+
+	// 行模型：分组头 + 条目。包里的条目数随包大小增长，列表交给虚拟滚动（issue #481）。
+	const rows = useMemo(() => {
+		const out: ImportRow[] = [];
+		for (const [key, entries] of groups) {
+			out.push({ kind: "group", key: `group:${key}`, first: entries[0] });
+			for (const entry of entries) out.push({ kind: "entry", key: entry.id || `${key}|${entry.status}|${entry.content.slice(0, 24)}`, entry });
+		}
+		return out;
+	}, [groups]);
+	const scrollRef = useRef<HTMLDivElement>(null);
 
 	const toggle = (id: string) => {
 		setSelected((current) => {
@@ -122,32 +137,39 @@ export function AgentMemoryImportDialog(props: { filePath: string; preview: Agen
 						<p className="text-xs text-muted-foreground">{conflictPolicy === "append" ? t("settings.agentMemoryConflictAppendDesc") : t("settings.agentMemoryConflictOverwriteDesc")}</p>
 					</div>
 				) : null}
-				{/* scroll-ok: bounded —— 导入对话框内的分组勾选列表：高度封顶 48vh，数据来自一次预检结果，不需要虚拟化 */}
-				<div className="max-h-[48vh] overflow-y-auto rounded-md border">
+				{/* 条目数随包大小增长：交给虚拟滚动，DOM 只挂视口附近的行。 */}
+				<div ref={scrollRef} className="max-h-[48vh] overflow-y-auto rounded-md border">
 					{groups.length === 0 ? <p className="px-4 py-6 text-xs text-muted-foreground">{t("settings.agentMemoryImportEmpty")}</p> : null}
-					{groups.map(([key, entries]) => {
-						const first = entries[0];
-						return (
-							<div key={key} className="border-b last:border-b-0">
-								<div className="flex items-center gap-2 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-									<span className="rounded-sm bg-muted px-1.5 py-0.5 text-foreground">{first ? memoryScopeLabel(first.scope as "global" | "project", first.projectId, first.projectId) : ""}</span>
-									<span>{first ? memoryTargetLabel(first.target) : ""}</span>
-								</div>
-								{entries.map((entry) => (
-									<div key={entry.id || `${entry.status}-${entry.content.slice(0, 24)}`} className="px-3 py-1.5">
-										<label className={selectable(entry) ? "flex cursor-pointer items-start gap-2 text-sm" : "flex items-start gap-2 text-sm opacity-60"}>
-											<Checkbox className="mt-1" checked={selected.has(entry.id)} disabled={!selectable(entry)} onCheckedChange={() => toggle(entry.id)} aria-label={entry.content.slice(0, 40)} />
-											<span className="min-w-0 flex-1">
-												<span className="whitespace-pre-wrap break-words text-foreground">{entry.content}</span>
-												{entry.status === "conflict" && entry.localContent ? <span className="mt-0.5 block whitespace-pre-wrap break-words text-xs text-muted-foreground">{t("settings.agentMemoryImportLocalVersion", { content: entry.localContent })}</span> : null}
-											</span>
-											<span className={`shrink-0 rounded-sm px-1.5 py-0.5 text-micro ${statusClassName(entry.status)}`}>{statusLabel(entry)}</span>
-										</label>
+					<VirtualStack
+						items={rows}
+						getKey={(row) => row.key}
+						scrollRef={scrollRef}
+						estimateHeight={64}
+						renderItem={(row, index) => {
+							if (row.kind === "group") {
+								const first = row.first;
+								return (
+									<div className={`flex items-center gap-2 bg-muted/40 px-3 py-2 text-xs text-muted-foreground${index === 0 ? "" : " border-t border-border/60"}`}>
+										<span className="rounded-sm bg-muted px-1.5 py-0.5 text-foreground">{first ? memoryScopeLabel(first.scope as "global" | "project", first.projectId, first.projectId) : ""}</span>
+										<span>{first ? memoryTargetLabel(first.target) : ""}</span>
 									</div>
-								))}
-							</div>
-						);
-					})}
+								);
+							}
+							const entry = row.entry;
+							return (
+								<div className="px-3 py-1.5">
+									<label className={selectable(entry) ? "flex cursor-pointer items-start gap-2 text-sm" : "flex items-start gap-2 text-sm opacity-60"}>
+										<Checkbox className="mt-1" checked={selected.has(entry.id)} disabled={!selectable(entry)} onCheckedChange={() => toggle(entry.id)} aria-label={entry.content.slice(0, 40)} />
+										<span className="min-w-0 flex-1">
+											<span className="whitespace-pre-wrap break-words text-foreground">{entry.content}</span>
+											{entry.status === "conflict" && entry.localContent ? <span className="mt-0.5 block whitespace-pre-wrap break-words text-xs text-muted-foreground">{t("settings.agentMemoryImportLocalVersion", { content: entry.localContent })}</span> : null}
+										</span>
+										<span className={`shrink-0 rounded-sm px-1.5 py-0.5 text-micro ${statusClassName(entry.status)}`}>{statusLabel(entry)}</span>
+									</label>
+								</div>
+							);
+						}}
+					/>
 				</div>
 				{purgeAffected > 0 ? (
 					<label className="flex cursor-pointer items-start gap-2 text-xs text-muted-foreground">
