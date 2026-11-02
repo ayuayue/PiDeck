@@ -258,7 +258,7 @@ export { REMOTE_HELPER_SEARCH_CONTENT_SHA256 };
 /** Pin of git-sync.mjs. */
 export const REMOTE_HELPER_GIT_SYNC_SHA256 = "4b285dbb0572107e11d711364a192375ed8d06a3b62b85b8221e13dda4a97d8c";
 /** Pin of git-read.mjs; a bundle whose worker differs from the reviewed bytes never activates. */
-export const REMOTE_HELPER_GIT_READ_SHA256 = "99f48a9bb4e160cdbe69e82814c292b8d6cfc7ef8a9c951c861be75d26525286";
+export const REMOTE_HELPER_GIT_READ_SHA256 = "af091fe98737933009722c8d1260cb1545f9bc793a67bf930a8ec5d26979a77d";
 /** Pin of git-write.mjs, kept separate so one file's change cannot hide inside a combined digest. */
 export const REMOTE_HELPER_GIT_WRITE_SHA256 = "e3a655b86d2cb0cd83306c7bdc381c6be39711aa05e1cd1870ce748078b2bb71";
 

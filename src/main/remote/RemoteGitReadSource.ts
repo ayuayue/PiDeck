@@ -19,6 +19,12 @@
  * - `fs.searchNames` visits at most SEARCH_SLICE entries per slice and only enqueues directories below the depth
  *   ceiling, so the directory sitting at the ceiling is never entered;
  * - a read is published only while the identity it was answered from is still on disk (`unchangedRead`);
+ * - the configuration gate reads repository-local scope only (`git config --local`): a repo whose own config carries
+ *   filters/extensions/partial-clone settings is refused, while host-wide tooling config - the system-level
+ *   `filter.lfs.*` that `git lfs install --system` writes on CI runners and many remote hosts - stays out of the
+ *   decision. Read-only commands (`show`/`status`/`diff`/`ls-files`) never smudge or clean, so a host filter cannot
+ *   change what a read returns; treating the whole scope as repository configuration made every remote Git read fail
+ *   with GIT_CONFIG_UNSUPPORTED on those hosts;
  * - the refs compare is the direct tree diff of the two commits the refs resolved to (two-dot), never a
  *   merge-base/three-dot view: the per-file read names the same two OIDs, so the list and the content cannot
  *   disagree even if a ref moves after the compare. Both inputs are full local ref names (`refs/heads/*`,
@@ -314,7 +320,8 @@ export const REMOTE_GIT_READ_SOURCE = String.raw`import{createGitWriteProgram,cr
 		const version = text((await execute(ctx, ["--version"], 1024)).bytes);
 		const parsed = /\bgit version (\d+)\.(\d+)\./.exec(version);
 		if (!parsed || Number(parsed[1]) < 2 || (Number(parsed[1]) === 2 && Number(parsed[2]) < 16)) throw failure("GIT_VERSION_UNSUPPORTED");
-		const config = await execute(ctx, ["config", "--null", "--get-regexp", "^(filter\\.|core\\.(worktree|bare|splitindex|sparsecheckout)|index\\.sparse|extensions\\.(worktreeconfig|partialclone)|remote\\..*\\.(promisor|partialclonefilter))"], MAX_STDERR, [1]);
+		/* --local: only repository config can make a repository unsupported; host-wide config (system-level git-lfs writes filter.lfs.*) is host tooling and read-only commands never smudge/clean. Local filters stay refused. */
+		const config = await execute(ctx, ["config", "--local", "--null", "--get-regexp", "^(filter\\.|core\\.(worktree|bare|splitindex|sparsecheckout)|index\\.sparse|extensions\\.(worktreeconfig|partialclone)|remote\\..*\\.(promisor|partialclonefilter))"], MAX_STDERR, [1]);
 		if (config.exitCode === 0) {
 			let fields;
 			try { fields = new TextDecoder("utf-8", { fatal: true }).decode(config.bytes).split("\0"); } catch { throw failure("GIT_RESULT_INVALID"); }

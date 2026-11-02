@@ -145,6 +145,20 @@ test("remote Git refuses configured clean/process filters instead of running or 
 	assert.equal(result.error.code, "GIT_CONFIG_UNSUPPORTED");
 });
 
+/**
+ * 宿主级（system/global）filter 不该让远端 Git 读整体失效：GitHub runner 与很多远端开发机
+ * 都用 system 级 git-lfs 写 `filter.lfs.*`，而只读命令（show/status/diff/ls-files）不做
+ * smudge/clean，不会因此给出错误内容。这条用例把 global 配置写进夹具的隔离 HOME，钉住
+ * validateConfiguration 只按 --local 判定；本地 filter 仍必须拒绝（上一条用例）。
+ */
+test("remote Git only treats repository-local configuration as unsupported", options, async (t) => {
+	const { directory, root, request } = fixture(t);
+	writeFileSync(join(directory, "home", ".gitconfig"), '[filter "lfs"]\n\tclean = git-lfs clean -- %f\n\tprocess = git-lfs filter-process\n\trequired = true\n');
+	writeFileSync(join(root, "ordinary.txt"), "ordinary\n");
+	const result = successful(await request("git.status"));
+	assert.ok(Buffer.from(result.status, "base64").toString("utf8").includes("?? ordinary.txt\0"));
+});
+
 test("remote Git ignores inherited Git worktree/index/config injection and refuses free argv", options, async (t) => {
 	const { root, request } = fixture(t, true, { GIT_DIR: "/unreachable/injected-gitdir", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "filter.injected.clean", GIT_CONFIG_VALUE_0: "unavailable" });
 	writeFileSync(join(root, "ordinary.txt"), "ordinary\n");
