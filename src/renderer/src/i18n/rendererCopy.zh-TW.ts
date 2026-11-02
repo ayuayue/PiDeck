@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 244c86e5a4904a1691b8e237db687c7f3b7c62ea8686c7f919671ef2277d9d8e（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: bf7fccab35228ea1248812a898858afb14eeb47d8d10c1db1977e6ba74988bf5（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -6510,7 +6510,10 @@ export const zhTW: Record<TranslationKey, string> = {
 	"web.promptPlaceholder": "傳送訊息到當前會話",
 	"web.promptPlaceholderEmpty": "輸入訊息即可新建會話，或從左側選擇專案、現有會話",
 	"web.composerHint": "Enter 傳送，Shift+Enter 換行",
-	"web.composerHintTouch": "Enter 換行，點「傳送」發出",
+	"web.historyLoading": "正在載入會話…",
+	"web.acpHistoryLoading": "正在從 CLI 恢復會話歷史…",
+	"web.historyLoadFailed": "會話歷史載入失敗",
+	"web.historyLoadRetry": "重新載入",
 	"web.emptySelection": "直接輸入訊息即可自動新建會話開始對話；或從左側選擇專案、現有會話。",
 	"web.sendNoProject": "當前沒有可用專案，請先在左側新增一個專案目錄。",
 	"web.backendSheetTitle": "選擇會話後端",

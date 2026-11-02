@@ -3,9 +3,9 @@
  *
  * 复用桌面 .composer / .composer-box 样式类 + shadcn Button：
  * - textarea 由 .composer textarea 统一样式（透明底、内边距、随内容撑高）
- * - Enter 发送、Shift/Ctrl+Enter 换行
- * - 两行工具区（DeepSeek 式）：操作行（后端/图片/提示词/计划模式 + 发送）在上，
- *   模型行（模型/思考选择器）驻留在底部
+ * - Enter 发送、Shift/Ctrl+Enter 换行（触屏 Enter 换行，发送只走按钮）
+ * - 两行工具区（DeepSeek 式）：操作行（后端/图片/提示词/计划模式）在上，
+ *   模型行（模型/思考选择器 + 发送钮）驻留在底部；不再显示 Enter 提示文案
  * - 计划模式复用桌面 composerBehavior 的 buildComposerPromptSubmission：
  *   agentMessage 携带隐藏标记，由内置扩展 pi-deck-plan-mode 识别后切只读工具集；
  *   一次性提交流（发完自动回普通模式），斜线命令原样发送不受标记污染
@@ -163,6 +163,14 @@ export function WebComposer(props: {
 	};
 
 	const collapsed = resolveComposerCollapsed({ mobileViewport, draft, imageCount: images.length, streaming: props.streaming, focused, busy, attachError, planMode: mode === "plan" });
+	// 计划模式的隐藏标记只由 pi 内置扩展识别：DSH/ACP 收到 agentMessage 会拒收整条 prompt，
+	// 生图/生视频没有 LLM 模式概念——这些后端不摆一个点了必然失败的按钮。
+	const modeAvailable = (props.backend ?? "pi") === "pi";
+	// 切到不支持计划模式的后端时清掉残留模式：否则按钮已隐藏，发送仍会带上隐藏标记
+	// （ACP/DSH 会拒收整条 prompt，生图后端也没有这个通道）。
+	useEffect(() => {
+		if (!modeAvailable && mode !== "normal") setMode("normal");
+	}, [modeAvailable, mode]);
 	const placeholder = composerPlaceholder(props.hasSession !== false, mode === "plan");
 	const collapsedBackendPicker = collapsed && Boolean(props.onBackendChange) && !props.backendLocked;
 	// 移动端按下工具行按钮不抢焦点（键盘不闪退）。但弹层/浮层经 portal 挂到 body，
@@ -280,7 +288,7 @@ export function WebComposer(props: {
 							id="prompt"
 							ref={textareaRef}
 							/* legacy .composer textarea 带 height:100%（桌面横向布局遗留）：web 端纵列布局下会把工具行挤出，utilities 层覆盖为随内容自适应 */
-							className={cn("h-auto max-h-[40dvh] min-h-14", collapsedBackendPicker && "pr-28")}
+							className={cn("h-auto max-h-[40dvh] min-h-14 pb-1", collapsedBackendPicker && "pr-28")}
 							value={draft}
 							onChange={(event) => setDraft(event.target.value)}
 							onPaste={(event) => {
@@ -315,8 +323,10 @@ export function WebComposer(props: {
 						) : null}
 						<div className={cn("grid shrink-0 transition-[grid-template-rows] duration-[240ms] ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none", collapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]")} data-testid="web-composer-tool-rows" inert={collapsed} aria-hidden={collapsed || undefined}>
 							<div className={cn("min-h-0 overflow-hidden transition-opacity duration-[240ms] ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none", collapsed ? "opacity-0" : "opacity-100")}>
-								<div className="flex shrink-0 items-center gap-1.5 px-3 pt-2" data-testid="web-composer-ops-row" onPointerDown={suppressPointerFocus}>
-									<span className="flex min-w-0 flex-1 flex-nowrap items-center gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none]">
+								{/* 操作行（上层）：后端（仅草稿可切）/ 图片 / 提示词 / 计划模式。
+								    发送钮下沉到模型行右端——两行各司其职，操作行不再被发送钮挤成一排图标。 */}
+								<div className="flex shrink-0 items-center gap-1 px-3 pt-2" data-testid="web-composer-ops-row" onPointerDown={suppressPointerFocus}>
+									<span className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none]">
 										<input
 											ref={fileInputRef}
 											type="file"
@@ -329,7 +339,8 @@ export function WebComposer(props: {
 												event.target.value = "";
 											}}
 										/>
-										{props.onBackendChange ? <WebBackendSelector backend={props.backend ?? "pi"} acpToolId={props.acpToolId} acpTools={props.acpTools} locked={Boolean(props.backendLocked)} onChange={props.onBackendChange} /> : null}
+										{/* 锁定后端（已有 runtime / 历史会话）不再摆一个点不动的下拉：后端身份在头部图标上有 title/aria-label。 */}
+										{props.onBackendChange && !props.backendLocked ? <WebBackendSelector backend={props.backend ?? "pi"} acpToolId={props.acpToolId} acpTools={props.acpTools} locked={false} onChange={props.onBackendChange} /> : null}
 										<Button
 											type="button"
 											variant="ghost"
@@ -343,27 +354,29 @@ export function WebComposer(props: {
 											<ImagePlus className="size-4" aria-hidden="true" />
 										</Button>
 										<WebPromptPicker disabled={props.disabled} onPick={(content) => setDraft((prev) => (prev ? `${prev}\n\n${content}` : content))} />
-										{/* 计划模式切换（复用桌面「+」菜单里的模式项语义）：激活态高亮；一次性提交流，发送后自动回普通 */}
-										<Button
-											type="button"
-											variant={mode === "plan" ? "default" : "ghost"}
-											size="sm"
-											className="h-8 shrink-0 gap-1 px-2 pointer-coarse:h-9"
-											aria-pressed={mode === "plan"}
-											disabled={props.disabled}
-											title={t("app.composerModePlanDesc")}
-											onClick={() => setMode((prev) => (prev === "plan" ? "normal" : "plan"))}
-										>
-											<ClipboardList className="size-4" aria-hidden="true" />
-											<span className="text-caption">{t("app.composerModePlan")}</span>
-										</Button>
+										{/* 计划模式切换：图标态（不写「计划」文字，避免挤占操作行）；激活态淡蓝底 + 品牌色。
+										    一次性提交流，发送后自动回普通模式。 */}
+										{modeAvailable ? (
+											<Button
+												type="button"
+												variant="ghost"
+												size="sm"
+												className={cn("h-8 w-8 shrink-0 p-0 pointer-coarse:h-9 pointer-coarse:w-9", mode === "plan" ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary" : "text-muted-foreground")}
+												aria-pressed={mode === "plan"}
+												aria-label={t("app.composerModePlan")}
+												disabled={props.disabled}
+												title={mode === "plan" ? t("app.composerModeCancelPlan") : t("app.composerModePlanDesc")}
+												onClick={() => setMode((prev) => (prev === "plan" ? "normal" : "plan"))}
+											>
+												<ClipboardList className="size-4" aria-hidden="true" />
+											</Button>
+										) : null}
 									</span>
-									{sendControls(false)}
 								</div>
-								{/* 模型行（底部驻留）：模型/思考选择器 + 状态提示（计划模式时提示只读分析语义） */}
+								{/* 模型行（下层）：模型/思考 pill 靠左，发送钮靠右。提示文案（Enter 换行等）已移除——
+								    桌面端 Enter 发送/Shift+Enter 换行是既有约定，触屏 Enter 换行由 enterKeyHint 表达。 */}
 								<div className="flex shrink-0 items-center gap-1.5 px-3 pt-1.5 pb-2.5" data-testid="web-composer-model-row" onPointerDown={suppressPointerFocus}>
-									{/* 模型+思考两个 pill 靠左成组，提示文案推到行尾两端对齐，避免整行挤在左侧留大片空白。
-										ACP 会话不显示：模型/思考由 agent CLI 自持（session config options），
+									{/* ACP 会话不显示模型/思考：由 agent CLI 自持（session config options），
 										PiDeck 的 models.json 对它无意义——与桌面端 ComposerComponents 同规。 */}
 									{props.backend === "acp" ? null : (
 										<>
@@ -371,7 +384,7 @@ export function WebComposer(props: {
 											<WebThinkingSelector level={props.thinkingLevel} onChange={props.onThinkingChange} />
 										</>
 									)}
-									<span className="composer-hint ml-auto min-w-0 truncate text-caption text-muted-foreground">{coarsePointer ? t("web.composerHintTouch") : mode === "plan" ? t("app.composerPlanStatus") : t("web.composerHint")}</span>
+									<span className="ml-auto flex shrink-0 items-center gap-1">{sendControls(false)}</span>
 								</div>
 							</div>
 						</div>
