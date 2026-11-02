@@ -58,6 +58,7 @@ import {
 	openSettingsAtom,
 	openAutomationPageAtom,
 	agentProfilesAtom,
+	pendingAgentBindingAtom,
 	activeWorkspacePageAtom,
 	openWorkspacePageIdsAtom,
 	openWorkspacePageAtom,
@@ -77,7 +78,6 @@ import { hostPluginCatalogAtom, hostPluginPanelAtom, isHostPluginPagePanel } fro
 import { AutomationPage } from "./components/automation/AutomationPage";
 import { AgentMarketPage } from "./components/agents/AgentMarketPage";
 import { buildAgentSessionTitle } from "./components/agents/agentIconCodec";
-import type { AgentUseTarget } from "./components/agents/market/AgentUseTargetMenu";
 import { FavoritesPage } from "./components/favorites/FavoritesPage";
 import { sortWorkspacePageIds } from "./utils/workspacePageTabs";
 import { SelectionToolHost } from "./components/selectionTool/SelectionToolHost";
@@ -1464,52 +1464,29 @@ export function App() {
 	);
 
 	/**
-	 * 智能体「使用」：在用户选定的工作目录新建会话并绑定该智能体（会话页面复用）。
+	 * 智能体「使用」：带着该智能体回到新会话页（不建会话、不发请求）。
 	 *
-	 * 角色设定不预填、不显示：主进程在绑定的会话每次发送时把 systemPrompt 拼进
-	 * agentMessage（对 UI 隐藏，见 src/main/ipc/sessionIpc.ts 的 resolveSessionAgentInstruction），
-	 * 因此时间线里只有用户自己输入的内容。标题用智能体名，侧栏一眼可认。
-	 *
-	 * projectId 来自市场里「使用」的目录菜单；所选项目在点击瞬间已被删除时回退到当前项目，
-	 * 避免菜单开着期间删项目导致按钮变成空转。
-	 * 项目清单必须现取（store.get）：菜单里「添加工作目录…」返回的新项目还不在渲染期捕获的
-	 * projects 数组里，用旧闭包会找不到 id 而静默落到上一个项目（会话建错目录）。
+	 * 目录由新会话页输入框上方的项目选择器决定，用户在那里换项目；待绑定智能体记在
+	 * pendingAgentBindingAtom 里，首次发送时由 ensureSessionForSend 建会话并落绑定。
+	 * 角色设定不预填、不显示：主进程在绑定会话的每次发送时把 systemPrompt 拼进 agentMessage
+	 * （对 UI 隐藏，见 src/main/ipc/sessionIpc.ts 的 resolveSessionAgentInstruction）。
+	 * 留在市场页（返回 false）只有一种情形：一个项目都没有，无处可去。
 	 */
 	const handleAgentUseAgent = useCallback(
-		async (agent: AgentProfile, projectId: string): Promise<boolean> => {
+		async (agent: AgentProfile): Promise<boolean> => {
 			const liveProjects = store.get(projectInventoryAtom);
-			const project = liveProjects.find((candidate) => candidate.id === projectId) ?? liveProjects.find((candidate) => candidate.id === activeProjectId) ?? liveProjects[0];
+			const project = liveProjects.find((candidate) => candidate.id === activeProjectId) ?? liveProjects[0];
 			if (!project) {
 				showToast(t("agentMarket.useFailed", { error: t("feedback.ai.noProject") }), 4000, "error");
 				return false;
 			}
-			// 后端只允许 pi/dsh：acp 需要用户先点选外部 CLI，生图/生视频没有提示词 agent 语义。
-			const backend: AgentBackend = (agent.backend ?? effectiveAgentBackend) === "dsh" ? "dsh" : "pi";
-			try {
-				const title = buildAgentSessionTitle(agent);
-				const session = await api.sessions.createDraft({
-					projectId: project.id,
-					title,
-					backend,
-					...(agent.model && backend === "pi" ? { model: agent.model } : {}),
-				});
-				upsertSession(session);
-				// 先绑定再打开：打开瞬间用户就可能发送，绑定必须已落盘（主进程按会话查角色设定）。
-				await api.agentProfiles.bindSession({ sessionId: session.id, agentId: agent.id });
-				selectSessionCommand(project.id, session.id, false);
-				workspaceChrome.registerOpenSession(session.id, "permanent");
-				showToast(t("agentMarket.usedAgent", { name: agent.name }), 2600);
-				return true;
-			} catch (error) {
-				showToast(t("agentMarket.useFailed", { error: error instanceof Error ? error.message : String(error) }), 5000, "error");
-				return false;
-			}
+			store.set(pendingAgentBindingAtom, agent.id);
+			selectProjectCommand(project.id);
+			showToast(t("agentMarket.useArmed", { name: agent.name }), 2600);
+			return true;
 		},
-		[activeProjectId, effectiveAgentBackend, selectSessionCommand, showToast, store, upsertSession, workspaceChrome],
+		[activeProjectId, selectProjectCommand, showToast, store],
 	);
-
-	/** 「使用」的目录菜单上下文：当前项目打勾，添加目录走系统目录选择框并登记新项目。 */
-	const agentUseTarget: AgentUseTarget = { activeProjectId: activeProjectId ?? null, onAddProject: addProject };
 
 	/**
 	 * 系统级划词浮窗的「发送到 PiDeck」：把浮窗里的文本追加到当前会话输入框。
@@ -1610,6 +1587,10 @@ export function App() {
 				throw new Error(t("app.guideBootstrapUnavailable"));
 			}
 			const promotion = (async () => {
+				// 「使用」带来的人：首次发送建会话时落地绑定。必须在选中会话之前完成——
+				// 主进程按绑定在每次发送时拼角色设定，晚一步首条消息就不带人设。
+				const pendingAgentId = store.get(pendingAgentBindingAtom);
+				const pendingAgent = pendingAgentId ? store.get(agentProfilesAtom).find((profile) => profile.id === pendingAgentId) : undefined;
 				// 引导页 picker 无 record 分支把显式选择存进 localStorage；创建时将模型交给
 				// 主进程校验、将思考档位作为启动偏好带入。底栏展示和真实会话创建读取同一份值，
 				// 避免出现「菜单看似切换，首次发送后又回到默认档位」。
@@ -1638,13 +1619,23 @@ export function App() {
 				const acpToolName = draftBackend === "acp" && acpToolId ? store.get(acpToolsAtom).find((candidate) => candidate.id === acpToolId)?.name : undefined;
 				const session = await api.sessions.createDraft({
 					projectId: project.id,
-					title: draftBackend === "dsh" ? `${project.name} DSH` : (acpToolName ?? `${project.name} agent`),
+					title: pendingAgent ? buildAgentSessionTitle(pendingAgent) : draftBackend === "dsh" ? `${project.name} DSH` : (acpToolName ?? `${project.name} agent`),
 					backend: draftBackend,
 					...(draftBackend === "acp" && acpToolId ? { acpToolId } : {}),
 					...(welcomeModel ? (draftBackend === "dsh" ? { model: welcomeModel } : { welcomeModel }) : {}),
 					...(welcomeThinking ? { thinkingLevel: welcomeThinking } : {}),
 				});
 				upsertSession(session);
+				if (pendingAgent) {
+					// 绑定失败不阻断发送（会话已存在，用户还能在输入框上方的提示条里再绑）；
+					// 无论成败都清掉待绑定 id，避免下一轮新会话页继承上一个智能体。
+					try {
+						await api.agentProfiles.bindSession({ sessionId: session.id, agentId: pendingAgent.id });
+					} catch (error) {
+						showToast(t("agentMarket.useFailed", { error: error instanceof Error ? error.message : String(error) }), 5000, "error");
+					}
+					store.set(pendingAgentBindingAtom, null);
+				}
 				// 引导页发送时 useSessionSend 已把 user 消息乐观写入虚拟会话 cache；
 				// 提升时搬到真实会话——否则切页后新会话空态与引导页视觉相同，
 				// 要等 agent 启动、回复流入后页面才「动」，用户误以为发送没生效。
@@ -1668,8 +1659,16 @@ export function App() {
 				guideBootstrapPromotionRef.current = undefined;
 			}
 		},
-		[activeProjectId, projects, promoteSessionComposerState, promoteSessionMessagesCache, selectSessionCommand, upsertSession, workspaceChrome, effectiveAgentBackend, store],
+		[activeProjectId, projects, promoteSessionComposerState, promoteSessionMessagesCache, selectSessionCommand, upsertSession, workspaceChrome, effectiveAgentBackend, store, showToast],
 	);
+
+	// 待绑定智能体只在「新会话页」有意义：一旦进入真实会话（含刚建好的），就丢掉——
+	// 否则用户之后再回到引导页发消息，会把上一轮选过的智能体莫名绑上去。
+	useEffect(() => {
+		if (!currentSessionId) return;
+		if (store.get(pendingAgentBindingAtom) === null) return;
+		store.set(pendingAgentBindingAtom, null);
+	}, [currentSessionId, store]);
 
 	/** 有效文件路径白名单：仅工作区真实存在的 @ 引用渲染为 chip */
 	const validFilePaths = useMemo(() => new Set(flatFiles.map((f) => f.relativePath)), [flatFiles]);
@@ -2030,15 +2029,14 @@ export function App() {
 		}
 	}
 
-	async function addProject(): Promise<Project | null> {
+	async function addProject() {
 		const project = await api.projects.add();
-		if (!project) return null;
+		if (!project) return;
 		// 先同步 DSH：新目录注册后，原先按 cwd 找不到项目的外部会话才能挂进来。
 		await syncDshForeignSessionsIfEnabled();
 		await refreshProjects();
 		setActiveProjectId(project.id);
 		await refreshProjectSessions(project.id);
-		return project;
 	}
 
 	function updateAfterProjectRemoved(removedProjectId: string, next: Project[]) {
@@ -2312,9 +2310,7 @@ export function App() {
 
 	const sidebarActions: SidebarActions = {
 		projects: {
-			add: async () => {
-				await addProject();
-			},
+			add: addProject,
 			select: (projectId) => {
 				selectProjectCommand(projectId);
 				// 点开目录只选中项目并显示引导页：不自动创建会话，避免每点一个目录都
@@ -3231,7 +3227,7 @@ export function App() {
 							void openSidebarSessionByIdWithTab(projectId, sessionId, "permanent");
 						}}
 					/>
-					<AgentMarketPage active={activeWorkspacePage === "agents"} onUseAgent={handleAgentUseAgent} useTarget={agentUseTarget} />
+					<AgentMarketPage active={activeWorkspacePage === "agents"} onUseAgent={handleAgentUseAgent} />
 					{/* 收藏：整条回复 / 划选片段的本地快照，页面式 Tab（与智能体同一层级） */}
 					<FavoritesPage active={activeWorkspacePage === "favorites"} />
 				</div>
