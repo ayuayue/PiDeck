@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 5ffa7eaaa7b01d53d856768ad5be0e070e36403de4c476e8368aeaea42a1fb73（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 10ca0c4a43b54eaa1d1a506994b1687dc8eacdc87eb892c04599f005afef4be9（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -2585,6 +2585,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.mcp.status.check": "檢測連線",
 	"config.mcp.status.checking": "檢測中…",
 	"config.mcp.status.connected": "已連線 · {count} 個工具",
+	"config.mcp.status.toolCount": "· {count} 個工具",
+	"config.mcp.tools.title": "可用工具",
 	"config.mcp.status.needsAuth": "需要登入",
 	"config.mcp.status.disabled": "已停用",
 	"config.mcp.status.enable": "啟用",
@@ -4348,7 +4350,6 @@ export const zhTW: Record<TranslationKey, string> = {
 	"outline.searchPlaceholder": "搜尋，或輸入條數回車",
 	"outline.searchAria": "搜尋目錄條目，或輸入第幾條跳轉",
 	"outline.collapse": "收起目錄",
-	"outline.expand": "展開會話目錄",
 	"outline.onlyRange": "只有 1–{count}",
 	"outline.hits": "命中 {count}",
 	"outline.total": "共 {count} 條",
@@ -7190,7 +7191,6 @@ export const zhTW: Record<TranslationKey, string> = {
 	"remoteGit.capabilityCompare": "分支對比",
 	"remoteGit.capabilityForceRefresh": "強制重新整理",
 	"remoteGit.capabilityInit": "初始化倉庫",
-	"remoteGit.capabilityAvailable": "可用",
 	"remoteGit.capabilityBlocked": "不可用",
 	"remoteGit.capabilityRootNeedsAttention": "專案根需要複核",
 	"remoteGit.syncFetchedDone": "已獲取遠端引用，未改動工作區",

@@ -98,7 +98,11 @@ export function McpServerListPane(props: {
 							<span className={`min-w-0 flex-1 truncate font-medium ${item.pendingDelete && !item.revertsToInherited ? "line-through opacity-60" : ""}`}>{item.name}</span>
 							{item.pendingDelete ? <span className="shrink-0 rounded-sm border border-border-subtle px-1 text-micro text-muted-foreground">{item.revertsToInherited ? t("config.mcp.revertBadge") : t("config.mcp.pendingDeleteBadge")}</span> : null}
 							{item.originScope === "project-pi" && !item.pendingDelete ? <span className="shrink-0 rounded-sm border border-border-subtle px-1 text-micro text-muted-foreground">{t("config.mcp.layer.projectPi")}</span> : null}
-							{connected ? <span className="shrink-0 text-micro text-muted-foreground">· {status.tools.length} 工具</span> : null}
+							{connected ? (
+								<span className="shrink-0 text-micro text-muted-foreground" title={status.tools.join("\n")}>
+									{t("config.mcp.status.toolCount", { count: status.tools.length })}
+								</span>
+							) : null}
 							{needsAuth && !props.providerAuthNames.has(item.name) ? (
 								props.loggingInServer === item.name ? (
 									<span className="shrink-0 text-micro text-muted-foreground">{t("config.mcp.oauth.loggingIn")}</span>
