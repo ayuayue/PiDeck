@@ -481,6 +481,14 @@ const api = {
 		/** 该项目已确认 root 的最近一次复核结果（只读；不建会话、不产生 helper 请求）。 */
 		rootStatus: (projectId: string) => ipcRenderer.invoke(ipcChannels.remoteProjectRootStatus, projectId) as Promise<import("../shared/types/remoteHost").RemoteProjectRootStatusResult>,
 	},
+	remoteTransfers: {
+		/** Start one opaque upload/download job. Picker paths are resolved in main. */
+		start: (input: import("../shared/types/remoteTransfers").RemoteTransferStartInput) => ipcRenderer.invoke(ipcChannels.remoteProjectTransferStart, input) as Promise<import("../shared/types/remoteTransfers").RemoteTransferStartReceipt>,
+		/** Cancel by the original sender + project + opaque job id; repeated requests are idempotent. */
+		cancel: (projectId: string, jobId: string) => ipcRenderer.invoke(ipcChannels.remoteProjectTransferCancel, projectId, jobId) as Promise<import("../shared/types/remoteTransfers").RemoteTransferCancelReceipt>,
+		/** One job yields monotonic progress frames and exactly one settlement frame. */
+		onEvent: (callback: (event: import("../shared/types/remoteTransfers").RemoteTransferEvent) => void) => subscribe(ipcChannels.remoteProjectTransferEvent, callback),
+	},
 	/**
 	 * 远端项目 trust（P4.4b）：清单 / 决策 / 撤销。
 	 *

@@ -93,7 +93,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 
 	// 传输关注点（上传 / 拖放 / 下载）整块在 hook 里，面板只保留接线：这个文件已经同时管导航、
 	// 搜索、写操作弹框与回收站，再塞传输就越过「单文件 ≤400 行」的目标。
-	const transfer = useRemoteProjectTransfer({ projectId: props.projectId, directory: tree.currentDir, reload: () => tree.refresh(), setError, searching });
+	const transfer = useRemoteProjectTransfer({ services, directory: tree.currentDir, reload: () => tree.refresh(), setError, searching });
 
 	const files = useRemoteProjectEntries({ services, reload: () => tree.refresh() });
 
@@ -257,7 +257,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 						<Button type="button" size="icon-sm" variant="ghost" data-testid="remote-file-mkdir" aria-label={t("remoteFileEntry.newFolder")} title={t("remoteFileEntry.newFolder")} disabled={files.busy || busy || !canWrite} onClick={() => setEntryDialog({ kind: "new", entryKind: "directory", parent: tree.currentDir })}>
 							<FolderPlus className="size-4" />
 						</Button>
-						<Button type="button" size="icon-sm" variant="ghost" data-testid="remote-file-upload" aria-label={t("remoteFileEntry.uploadAction")} title={t("remoteFileEntry.uploadAction")} disabled={files.busy || busy} onClick={transfer.uploadFiles}>
+						<Button type="button" size="icon-sm" variant="ghost" data-testid="remote-file-upload" aria-label={t("remoteFileEntry.uploadAction")} title={t("remoteFileEntry.uploadAction")} disabled={files.busy || busy || !services.capabilities.files.upload} onClick={transfer.uploadFiles}>
 							<Upload className="size-4" />
 						</Button>
 						<Button
@@ -308,7 +308,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 					}}
 				/>
 			) : null}
-			{/* 能力边界前置说明：单文件 16 MiB、文件夹不支持（强制在主进程，这里只提前告知）。 */}
+			{/* 能力边界前置说明：单文件 8 GiB、文件夹不支持（强制在主进程，这里只提前告知）。 */}
 			{!searching && !searchOpen ? <RemoteUploadLimitsHint /> : null}
 			{/* 写操作结果/未知提示：固定单行高度，避免布局抖动；读失败只影响目录列表，不覆盖这条回执。 */}
 			<p data-testid="remote-file-outcome" aria-live="polite" className="h-5 truncate text-label text-muted-foreground">
@@ -413,7 +413,9 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 			{rowMenu !== null ? (
 				<RemoteProjectRowMenu
 					menu={rowMenu}
-					busy={files.busy || busy || !canWrite}
+					busy={files.busy || busy}
+					canWrite={canWrite}
+					canDownload={services.capabilities.files.download}
 					onClose={() => setRowMenu(null)}
 					onDownload={() => {
 						transfer.downloadFile(rowMenu.node.relativePath);

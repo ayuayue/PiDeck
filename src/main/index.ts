@@ -443,6 +443,7 @@ import { registerRemoteProjectIpc } from "./ipc/remoteProjectIpc";
 import { createRemoteFactsHub } from "./remote/RemoteFactsNotifications";
 import { registerRemoteProjectFileIpc } from "./ipc/remoteProjectFileIpc";
 import { registerRemoteProjectTransferIpc } from "./ipc/remoteProjectTransferIpc";
+import { registerRemoteProjectTransferJobIpc } from "./ipc/remoteProjectTransferJobIpc";
 import { registerRemoteProjectEntryIpc } from "./ipc/remoteProjectEntryIpc";
 import { registerRemoteProjectTrustIpc } from "./ipc/remoteProjectTrustIpc";
 import { registerRemoteSessionIpc } from "./ipc/remoteSessionIpc";
@@ -452,6 +453,7 @@ import { createRemoteHostConnectionService, type RemoteHostConnectionService } f
 import { createRemoteModelCatalog, REMOTE_MODEL_CATALOG_CODES } from "./remote/RemotePiModelCatalog";
 import { createSshClientRuntime, resolvePosixSshClient, type SshClientRuntime } from "./remote/SshClientRuntime";
 import { buildPinnedSshInvocation } from "./remote/SshVerifiedConnection";
+import { loadRemoteSftpBinaryIdentity, type RemoteSftpBinaryIdentity } from "./remote/RemoteSftpBinary";
 import { createRemoteSessionHistoryReader } from "./remote/RemoteSessionHistoryReader";
 import { createRemoteSessionArchive } from "./remote/RemoteSessionArchive";
 import { createRemoteSessionDelete } from "./remote/RemoteSessionDelete";
@@ -3581,6 +3583,25 @@ function registerIpc() {
 			return project && isRemoteProject(project) ? project.locator : undefined;
 		},
 	});
+	let remoteSftpBinary: Promise<RemoteSftpBinaryIdentity | undefined> | undefined;
+	const remoteProjectTransfers = registerRemoteProjectTransferJobIpc({
+		enabled: remoteExperimentEnabled,
+		service: remoteHostServiceIfEnabled,
+		locator: (projectId) => {
+			const project = projectStore.get(projectId);
+			return project && isRemoteProject(project) ? project.locator : undefined;
+		},
+		binary: () => (remoteSftpBinary ??= loadRemoteSftpBinaryIdentity({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() })),
+		afterWrite: (projectId, paths) => {
+			remoteProjectFacts?.afterWrite(projectId, paths);
+			remoteGitReads.invalidateProject(projectId);
+		},
+		afterUnknown: (projectId) => {
+			remoteProjectIpc.invalidateTree(projectId);
+			remoteGitReads.invalidateProject(projectId);
+		},
+	});
+	quitCleanup.register("remote-project-transfer-jobs", remoteProjectTransfers.dispose);
 	// 文件管理（Phase 5 文件面）：8 条 new/rename/delete/trash 通道 + 独立 entry 令牌表 + sender 写单飞。
 	// 与文本保存 IPC 各自持有令牌表；窗口销毁时两个模块各自撤销自己的表（冻结语义：两类令牌都不可再用）。
 	const remoteProjectEntries = registerRemoteProjectEntryIpc({

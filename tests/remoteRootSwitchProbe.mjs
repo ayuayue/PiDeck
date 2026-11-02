@@ -258,7 +258,7 @@ async function main() {
 	const nodePath = nodeProbe.stdout.split(/\r?\n/).filter(Boolean).pop() ?? "";
 	if (nodePath === "") throw new Error("NO_REMOTE_NODE");
 	out.setup.nodeVersion = sshRun(nodePath + " -v").stdout.trim();
-	const bundleFiles = ["helper.mjs", "git-read.mjs", "git-write.mjs", "git-sync.mjs", "config.mjs", "search-content.mjs", "terminal-runner.mjs"];
+	const bundleFiles = ["helper.mjs", "git-read.mjs", "git-write.mjs", "git-sync.mjs", "config.mjs", "search-content.mjs", "upload-commit.mjs", "terminal-runner.mjs"];
 	const present = sshRun("for f in " + bundleFiles.join(" ") + "; do [ -f '" + bundlePath + "/'$f ] && echo $f; done")
 		.stdout.split(/\r?\n/)
 		.filter(Boolean);

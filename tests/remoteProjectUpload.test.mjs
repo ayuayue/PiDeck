@@ -272,7 +272,7 @@ test("渲染层拖放：经 webUtils 解析本机路径，解析不出来的项�
 	const hook = readFileSync("src/renderer/src/hooks/useRemoteProjectTransfer.ts", "utf8");
 	// Electron 32+ 的 File 没有 path，必须走 preload 的 getPathForFile。
 	assert.match(hook, /desktopApi\.files\.getPathForFile\(file\)/);
-	assert.match(hook, /uploadProjectFilesFromPaths\(/);
+	assert.match(hook, /services\.files\.uploadFiles\([\s\S]*?kind: "paths"/);
 	// dragOver 必须 preventDefault，否则 drop 根本不触发；且只认 Files。
 	assert.match(hook, /onDragOver[\s\S]{0,300}?types\.includes\("Files"\)/);
 	assert.match(hook, /onDragOver[\s\S]{0,400}?preventDefault\(\)/);

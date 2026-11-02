@@ -50,6 +50,9 @@ export const ipcChannels = {
 	remoteProjectUpload: "remote:project-upload",
 	/** 同上，但本机路径由拖放给出（主进程逐条校验是常规文件，不弹对话框）。 */
 	remoteProjectUploadPaths: "remote:project-upload-paths",
+	remoteProjectTransferStart: "remote:project-transfer-start",
+	remoteProjectTransferCancel: "remote:project-transfer-cancel",
+	remoteProjectTransferEvent: "remote:project-transfer-event",
 	/** 已有远端文本文件编辑：main持有版本，保存必须携带打开时签发的令牌。 */
 	remoteProjectTextOpen: "remote:project-text-open",
 	remoteProjectTextSave: "remote:project-text-save",

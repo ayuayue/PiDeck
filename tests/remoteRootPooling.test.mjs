@@ -228,9 +228,17 @@ test("project facts and capabilities come from that project's root, never a sibl
 		const b = await service.withProjectSession(HOST, ROOT_B, async (session) => session.connectionId);
 		const factsA = service.projectConnectionFacts(HOST, ROOT_A);
 		const factsB = service.projectConnectionFacts(HOST, ROOT_B);
+		const transferA = service.projectTransferIdentity(HOST, ROOT_A);
+		const transferB = service.projectTransferIdentity(HOST, ROOT_B);
 		assert.equal(factsA.connectionId, a.value);
 		assert.equal(factsB.connectionId, b.value);
 		assert.notEqual(factsA.connectionId, factsB.connectionId);
+		assert.equal(transferA.connectionId, a.value);
+		assert.equal(transferB.connectionId, b.value);
+		assert.equal(transferA.hostRevision, 7);
+		assert.equal(transferB.hostRevision, 7);
+		assert.equal(transferA.state, "ready");
+		assert.equal(service.projectTransferIdentity(HOST, ROOT_C), undefined);
 		assert.equal(service.projectConnectionFacts(HOST, ROOT_C), undefined, "a root with no session is unknown, not 'the host looks fine'");
 		assert.deepEqual([...service.projectHelperCapabilities(HOST, ROOT_A)], ["fs.watch", "fs.search"]);
 		assert.equal(service.projectHelperCapabilities(HOST, ROOT_C), undefined);

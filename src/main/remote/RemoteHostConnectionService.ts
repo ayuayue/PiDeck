@@ -167,6 +167,8 @@ export type RemoteProjectSession = {
 	runCommand(remoteCommand: string): Promise<{ exitCode: number; stdout: string }>;
 	/** Build and consume an interactive invocation under the host lock; no escaped stale spawn plan. */
 	withTerminalInvocation<T>(remoteCommand: string, launch: (invocation: PinnedSshInvocation, assertCurrent: () => Promise<void>) => T): Promise<T>;
+	/** Build and consume one SFTP subsystem invocation; renderer never supplies SSH flags or paths. */
+	withSftpInvocation<T>(launch: (invocation: PinnedSshInvocation, assertCurrent: () => Promise<void>) => T): Promise<T>;
 	request(method: string, params?: unknown, options?: { timeoutMs?: number; onRequestId?: (requestId: string) => void; repo?: string }): Promise<unknown>;
 	cancel(requestId: string, options?: { timeoutMs?: number }): Promise<unknown>;
 };
@@ -887,6 +889,18 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 				// The PTY outlives helper-root switches, but never a host rebind, explicit disconnect or disposal.
 				const assertCurrent = async () => {
 					if (disposed || explicitlyDisconnected.has(hostId) || (await readRevision()) !== held.revision) throw new Error("SSH_HOST_NOT_READY");
+				};
+				return launch(invocation, assertCurrent);
+			},
+			async withSftpInvocation(launch) {
+				const assertBound = async () => {
+					if (disposed || explicitlyDisconnected.has(hostId) || !isCurrent() || bound.getState(hostId).state !== "ready" || (await readRevision()) !== held.revision) throw new Error("SSH_HOST_NOT_READY");
+				};
+				await assertBound();
+				const invocation = await buildPinnedSshInvocation(options.userDataDir, hostId, "ssh-sftp", { client: hostClient(hostId) });
+				await assertBound();
+				const assertCurrent = async () => {
+					if (disposed || explicitlyDisconnected.has(hostId) || !isCurrent() || bound.getState(hostId).state !== "ready" || (await readRevision()) !== held.revision) throw new Error("SSH_HOST_NOT_READY");
 				};
 				return launch(invocation, assertCurrent);
 			},
@@ -1662,6 +1676,39 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 			try {
 				const state = manager.getState(hostId);
 				return { connectionId: `${hostId}#${managerToken(manager)}#${state.generation}`, state: state.state };
+			} catch {
+				return undefined;
+			}
+		},
+		/**
+		 * Stable project scope for a one-shot transfer job: the manager identity and the
+		 * verified host-store revision that produced its deployment facts.
+		 *
+		 * Like `projectConnectionFacts`, this never connects and never accepts a sibling
+		 * root. It additionally exposes the revision the job registry needs; callers
+		 * still re-establish the session under `withProjectSession` before writing.
+		 */
+		projectTransferIdentity(hostId: string, canonicalRoot: string): { connectionId: string; hostRevision: number; state: RemoteHostConnectionState } | undefined {
+			if (disposed || explicitlyDisconnected.has(hostId)) return undefined;
+			if (typeof canonicalRoot !== "string" || canonicalRoot.length === 0) return undefined;
+			const pooled = rootPool?.peek(hostId, canonicalRoot);
+			if (pooled !== undefined) {
+				try {
+					const state = pooled.value.manager.getState(hostId);
+					return { connectionId: pooledConnectionId(hostId, pooled.value.manager), hostRevision: pooled.value.held.revision, state: state.state };
+				} catch {
+					return undefined;
+				}
+			}
+			if (rootPool !== undefined) return undefined;
+			const entry = hosts.get(hostId);
+			const manager = entry?.manager;
+			const held = entry?.held;
+			if (manager === undefined || held === undefined) return undefined;
+			if ((workspaceRoots.get(hostId) ?? options.root) !== canonicalRoot) return undefined;
+			try {
+				const state = manager.getState(hostId);
+				return { connectionId: `${hostId}#${managerToken(manager)}#${state.generation}`, hostRevision: held.revision, state: state.state };
 			} catch {
 				return undefined;
 			}

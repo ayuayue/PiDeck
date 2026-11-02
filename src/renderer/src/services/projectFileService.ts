@@ -7,12 +7,14 @@ import {
 	type ProjectFileSearchResult,
 	type ProjectFileService,
 	type ProjectFileTarget,
+	type ProjectFileUploadSource,
 	type ProjectServiceFence,
 	type ProjectServicePathState,
 	type ProjectServicesApi,
 	type ProjectTextSaveReceipt,
 } from "./projectServiceContracts";
 import { assertProjectTarget, fenceProjectFileService } from "./projectServiceFence";
+import { downloadThroughRemoteTransfer, uploadThroughRemoteTransfer } from "./remoteProjectTransferClient";
 import type { ProjectDirectoryPage } from "../../../shared/types/projectFiles";
 
 const NOT_FOUND_CODES = new Set(["PATH_NOT_FOUND", "NOT_FOUND", "REMOTE_ENTRY_NOT_FOUND", "ENOENT"]);
@@ -127,6 +129,12 @@ export function createLocalProjectFileService(projectId: string, api: ProjectSer
 			await api.files.delete(target);
 			return { target };
 		},
+		async uploadFiles() {
+			throw unsupported("local project transfer is not implemented by ProjectFileService");
+		},
+		async downloadFile() {
+			throw unsupported("local project transfer is not implemented by ProjectFileService");
+		},
 		async openInEditor(target) {
 			assertProjectTarget(projectId, target);
 			await api.files.open(target);
@@ -226,6 +234,14 @@ export function createRemoteProjectFileService(projectId: string, api: ProjectSe
 			const version = await requireEntryVersion(api, projectId, target, expectedVersion);
 			const deleted = unwrapOp(await api.remoteHosts.deleteProjectEntry(projectId, target.relativePath, version), PROJECT_SERVICE_CODES.failed);
 			return { target, trashId: deleted.trashId };
+		},
+		async uploadFiles(target, source: ProjectFileUploadSource) {
+			assertProjectTarget(projectId, target);
+			return uploadThroughRemoteTransfer(api, projectId, target, source);
+		},
+		async downloadFile(target) {
+			assertProjectTarget(projectId, target);
+			return downloadThroughRemoteTransfer(api, projectId, target);
 		},
 		async openInEditor() {
 			throw unsupported(UNSUPPORTED_DETAIL.fileSystemOpen);

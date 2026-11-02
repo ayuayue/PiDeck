@@ -126,6 +126,36 @@ test("forwards progress only for the requested transfer operation", async () => 
 	assert.deepEqual(plain(result), { ok: true, operation: "download", value: { bytes: 2, mtimeMs: 3, fsync: false, atomicRename: false } });
 });
 
+test("runs a stage-only job and accepts only its bounded digest receipt", async () => {
+	const digest = "a".repeat(64);
+	const localPath = process.platform === "win32" ? "C:\\tmp\\source.bin" : "/tmp/source.bin";
+	let request;
+	let progress;
+	const result = await runRemoteSftpJob(
+		process.platform === "win32" ? "C:\\tools\\remote-sftp.exe" : "/tmp/remote-sftp",
+		{ operation: "stage", invocation: invocation(), root: "/home/user/.pideck/remote-host", relative: "upload-spool/" + "b".repeat(32) + ".part", localPath },
+		{
+			spawnFn() {
+				return fakeChild((child, body) => {
+					request = JSON.parse(body);
+					child.stdout.write(`${JSON.stringify({ type: "progress", operation: "stage", transferred: 1, total: 2 })}\n`);
+					child.stdout.write(`${JSON.stringify({ type: "result", ok: true, result: { bytes: 2, sha256: digest, fsync: true } })}\n`);
+					child.exitCode = 0;
+					child.emit("close", 0, null);
+				});
+			},
+			onProgress(value) {
+				progress = plain(value);
+			},
+		},
+	);
+	assert.equal(request.operation, "stage");
+	assert.equal(request.root, "/home/user/.pideck/remote-host");
+	assert.equal(request.localPath, localPath);
+	assert.deepEqual(plain(progress), { operation: "stage", transferred: 1, total: 2 });
+	assert.deepEqual(plain(result), { ok: true, operation: "stage", value: { bytes: 2, sha256: digest, fsync: true } });
+});
+
 test("rejects invalid paths and overwrite before starting the executor", async () => {
 	let spawned = false;
 	const spawnFn = () => {
@@ -137,6 +167,7 @@ test("rejects invalid paths and overwrite before starting the executor", async (
 		{ operation: "list", invocation: invocation(), root: "/srv/../escape" },
 		{ operation: "download", invocation: invocation(), root: "/srv/project", relative: "a", localPath: "relative" },
 		{ operation: "upload", invocation: invocation(), root: "/srv/project", relative: "a", localPath: process.platform === "win32" ? "C:\\tmp\\a" : "/tmp/a", overwrite: true },
+		{ operation: "stage", invocation: invocation(), root: "/home/user/.pideck/remote-host", relative: "target/a.bin", localPath: process.platform === "win32" ? "C:\\tmp\\a" : "/tmp/a" },
 	]) {
 		assert.deepEqual(plain(await runRemoteSftpJob(binary, input, { spawnFn })), { ok: false, code: "SFTP_REQUEST_INVALID" });
 	}
@@ -177,6 +208,36 @@ test("aborting cancels and kills the one-shot executor", async () => {
 	controller.abort();
 	assert.deepEqual(plain(await pending), { ok: false, code: "SFTP_JOB_CANCELLED" });
 	assert.equal(child.killed, true);
+});
+
+test("cancellation settles only after the executor process closes", async () => {
+	const controller = new AbortController();
+	let child;
+	let settled = false;
+	const pending = runRemoteSftpJob(
+		process.platform === "win32" ? "C:\\tools\\remote-sftp.exe" : "/tmp/remote-sftp",
+		{ operation: "probe", invocation: invocation(), root: "/srv/project" },
+		{
+			signal: controller.signal,
+			spawnFn() {
+				child = fakeChild(() => {});
+				child.kill = () => {
+					child.killed = true;
+					return true;
+				};
+				return child;
+			},
+		},
+	);
+	void pending.then(() => {
+		settled = true;
+	});
+	controller.abort();
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(settled, false, "cancel must not publish success before the process tree is reaped");
+	child.exitCode = 1;
+	child.emit("close", 1, null);
+	assert.deepEqual(plain(await pending), { ok: false, code: "SFTP_JOB_CANCELLED" });
 });
 
 test("a stdin pipe failure settles the job instead of escaping as an unhandled error", async () => {

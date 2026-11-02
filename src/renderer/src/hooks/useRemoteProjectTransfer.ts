@@ -1,6 +1,9 @@
 import { useCallback, useState, type DragEvent } from "react";
+import type { RemoteProjectUploadResult } from "../../../shared/types/remoteHost";
 import { desktopApi } from "../desktopApi";
 import { t } from "../i18n";
+import type { ProjectServices } from "../services/projectServiceContracts";
+import { normalizeProjectServiceError } from "../services/projectServiceFence";
 import { readRemoteUploadNotice, remoteUploadFailureCopy } from "../utils/remoteCapabilityLimits";
 import { REMOTE_ENTRY_DRAG_TYPE } from "../utils/remoteEntryDrag";
 
@@ -14,8 +17,8 @@ import { REMOTE_ENTRY_DRAG_TYPE } from "../utils/remoteEntryDrag";
  * 失败提示的**顺序**在这里是刻意的：所有成功路径都先 `reload()`（它会清掉错误位）再写反馈，
  * 否则「传 10 个失败 9 个」的提示会被刷新抹掉，用户只能看到列表跳一下。
  */
-export function useRemoteProjectTransfer(input: { projectId: string; directory: string; reload: () => Promise<void>; setError: (message: string | null) => void; searching: boolean }) {
-	const { projectId, directory, reload, setError, searching } = input;
+export function useRemoteProjectTransfer(input: { services: ProjectServices; directory: string; reload: () => Promise<void>; setError: (message: string | null) => void; searching: boolean }) {
+	const { services, directory, reload, setError, searching } = input;
 	const [dragActive, setDragActive] = useState(false);
 
 	/** 上传失败码 → 人话（未知码原样展示，绝不吞掉）。 */
@@ -25,7 +28,7 @@ export function useRemoteProjectTransfer(input: { projectId: string; directory: 
 	}, []);
 
 	const finish = useCallback(
-		async (result: Awaited<ReturnType<typeof desktopApi.remoteHosts.uploadProjectFiles>>) => {
+		async (result: RemoteProjectUploadResult) => {
 			// 失败码与部分失败由纯函数分类：任何失败都不会落进 success 分支。
 			const notice = readRemoteUploadNotice(result);
 			if (notice.kind === "error") {
@@ -41,10 +44,18 @@ export function useRemoteProjectTransfer(input: { projectId: string; directory: 
 	);
 
 	const uploadFiles = useCallback(() => {
+		if (!services.capabilities.files.upload) {
+			setError(failureText("PROJECT_SERVICE_UNSUPPORTED"));
+			return;
+		}
 		void (async () => {
-			await finish(await desktopApi.remoteHosts.uploadProjectFiles(projectId, directory));
+			try {
+				await finish(await services.files.uploadFiles({ projectId: services.projectId, relativePath: directory }, { kind: "picker" }));
+			} catch (error) {
+				setError(failureText(normalizeProjectServiceError(error).code));
+			}
 		})();
-	}, [finish, projectId, directory]);
+	}, [finish, services, directory, failureText, setError]);
 
 	/**
 	 * 拖放上传：把拖进来的本机文件传到**当前目录**。
@@ -64,6 +75,10 @@ export function useRemoteProjectTransfer(input: { projectId: string; directory: 
 				setError(t("project.remote.dropUnsupported"));
 				return;
 			}
+			if (!services.capabilities.files.upload) {
+				setError(failureText("PROJECT_SERVICE_UNSUPPORTED"));
+				return;
+			}
 			const paths: string[] = [];
 			for (const file of Array.from(files)) {
 				const path = desktopApi.files.getPathForFile(file);
@@ -74,27 +89,39 @@ export function useRemoteProjectTransfer(input: { projectId: string; directory: 
 				return;
 			}
 			void (async () => {
-				await finish(await desktopApi.remoteHosts.uploadProjectFilesFromPaths(projectId, directory, paths));
+				try {
+					await finish(await services.files.uploadFiles({ projectId: services.projectId, relativePath: directory }, { kind: "paths", paths }));
+				} catch (error) {
+					setError(failureText(normalizeProjectServiceError(error).code));
+				}
 			})();
 		},
-		[directory, finish, projectId, searching, setError],
+		[directory, failureText, finish, searching, services, setError],
 	);
 
 	/** 下载到本机：保存对话框与写盘都在主进程，这里只报失败（取消不是失败）。 */
 	const downloadFile = useCallback(
 		(relativePath: string) => {
+			if (!services.capabilities.files.download) {
+				setError(t("project.remote.downloadFailed", { code: "PROJECT_SERVICE_UNSUPPORTED" }));
+				return;
+			}
 			void (async () => {
-				const result = await desktopApi.remoteHosts.downloadProjectFile(projectId, relativePath);
-				if (!result.ok) {
-					setError(t("project.remote.downloadFailed", { code: result.code }));
-					return;
+				try {
+					const result = await services.files.downloadFile({ projectId: services.projectId, relativePath });
+					if (!result.ok) {
+						setError(t("project.remote.downloadFailed", { code: result.code }));
+						return;
+					}
+					// 取消不是失败：用户自己关掉了保存对话框。
+					if (result.value.canceled === true) return;
+					setError(null);
+				} catch (error) {
+					setError(t("project.remote.downloadFailed", { code: normalizeProjectServiceError(error).code }));
 				}
-				// 取消不是失败：用户自己关掉了保存对话框。
-				if (result.value.canceled === true) return;
-				setError(null);
 			})();
 		},
-		[projectId, setError],
+		[services, setError],
 	);
 
 	/** 只在真正离开面板时收起高亮：子元素之间移动也会触发 dragleave。 */

@@ -23,8 +23,9 @@ const MAX_FRAME_BYTES = 8 * 1024 * 1024;
 const MAX_REQUEST_BYTES = 1024 * 1024;
 const MAX_STDERR_BYTES = 16 * 1024;
 const DEFAULT_JOB_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+const TERMINATION_GRACE_MS = 5_000;
 
-export type RemoteSftpOperation = "probe" | "list" | "download" | "upload";
+export type RemoteSftpOperation = "probe" | "list" | "download" | "upload" | "stage";
 
 type RemoteSftpJobBase = {
 	invocation: PinnedSshInvocation;
@@ -37,10 +38,10 @@ type RemoteSftpJobBase = {
 	overwrite?: boolean;
 };
 
-export type RemoteSftpJobInput = (RemoteSftpJobBase & { operation: "probe" | "list"; localPath?: never }) | (RemoteSftpJobBase & { operation: "download" | "upload"; localPath: string });
+export type RemoteSftpJobInput = (RemoteSftpJobBase & { operation: "probe" | "list"; localPath?: never }) | (RemoteSftpJobBase & { operation: "download" | "upload" | "stage"; localPath: string });
 
 export type RemoteSftpProgress = {
-	operation: "download" | "upload";
+	operation: "download" | "upload" | "stage";
 	transferred: number;
 	total: number;
 };
@@ -73,7 +74,9 @@ export type RemoteSftpTransfer = {
 	atomicRename: boolean;
 };
 
-export type RemoteSftpJobResult = { ok: true; operation: "probe"; value: RemoteSftpProbe } | { ok: true; operation: "list"; value: RemoteSftpList } | { ok: true; operation: "download" | "upload"; value: RemoteSftpTransfer } | { ok: false; code: string };
+export type RemoteSftpStage = { bytes: number; sha256: string; fsync: boolean };
+
+export type RemoteSftpJobResult = { ok: true; operation: "probe"; value: RemoteSftpProbe } | { ok: true; operation: "list"; value: RemoteSftpList } | { ok: true; operation: "download" | "upload"; value: RemoteSftpTransfer } | { ok: true; operation: "stage"; value: RemoteSftpStage } | { ok: false; code: string };
 
 export type RemoteSftpAdapterDependencies = {
 	spawnFn?: typeof spawn;
@@ -161,11 +164,12 @@ function validInvocation(value: unknown): value is PinnedSshInvocation {
 }
 
 function requestFor(input: RemoteSftpJobInput): Record<string, unknown> | undefined {
-	if (!isRecord(input) || !["probe", "list", "download", "upload"].includes(input.operation)) return undefined;
+	if (!isRecord(input) || !["probe", "list", "download", "upload", "stage"].includes(input.operation)) return undefined;
 	if (!validInvocation(input.invocation) || !validRemoteRoot(input.root)) return undefined;
 	const relative = input.relative ?? "";
 	if (!validRelative(relative)) return undefined;
-	if ((input.operation === "download" || input.operation === "upload") && (!validText(input.localPath, 4096) || !isAbsolute(input.localPath))) return undefined;
+	if (input.operation === "stage" && !/^upload-spool\/[a-f0-9]{32}\.part$/.test(relative)) return undefined;
+	if ((input.operation === "download" || input.operation === "upload" || input.operation === "stage") && (!validText(input.localPath, 4096) || !isAbsolute(input.localPath))) return undefined;
 	const maxEntries = input.maxEntries ?? REMOTE_SFTP_DEFAULT_MAX_ENTRIES;
 	if (!Number.isInteger(maxEntries) || maxEntries < 1 || maxEntries > REMOTE_SFTP_MAX_ENTRIES) return undefined;
 	const chunkBytes = input.chunkBytes ?? REMOTE_SFTP_DEFAULT_CHUNK_BYTES;
@@ -185,7 +189,7 @@ function requestFor(input: RemoteSftpJobInput): Record<string, unknown> | undefi
 		maxEntries,
 		chunkBytes,
 	};
-	if (input.operation === "download" || input.operation === "upload") request.localPath = input.localPath;
+	if (input.operation === "download" || input.operation === "upload" || input.operation === "stage") request.localPath = input.localPath;
 	return request;
 }
 
@@ -243,6 +247,11 @@ function readTransfer(value: unknown): RemoteSftpTransfer | undefined {
 	};
 }
 
+function readStage(value: unknown): RemoteSftpStage | undefined {
+	if (!isRecord(value) || !safeInteger(value.bytes) || typeof value.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(value.sha256) || typeof value.fsync !== "boolean") return undefined;
+	return { bytes: value.bytes, sha256: value.sha256, fsync: value.fsync };
+}
+
 function validateResult(input: RemoteSftpJobInput, result: unknown): RemoteSftpJobResult {
 	if (input.operation === "probe") {
 		const value = readProbe(result, input.root);
@@ -251,6 +260,10 @@ function validateResult(input: RemoteSftpJobInput, result: unknown): RemoteSftpJ
 	if (input.operation === "list") {
 		const value = readList(result, input.maxEntries ?? REMOTE_SFTP_DEFAULT_MAX_ENTRIES);
 		return value === undefined ? { ok: false, code: "SFTP_RESULT_INVALID" } : { ok: true, operation: "list", value };
+	}
+	if (input.operation === "stage") {
+		const value = readStage(result);
+		return value === undefined ? { ok: false, code: "SFTP_RESULT_INVALID" } : { ok: true, operation: "stage", value };
 	}
 	const value = readTransfer(result);
 	return value === undefined ? { ok: false, code: "SFTP_RESULT_INVALID" } : { ok: true, operation: input.operation, value };
@@ -296,20 +309,32 @@ export async function runRemoteSftpJob(binaryPath: string, input: RemoteSftpJobI
 
 	return await new Promise<RemoteSftpJobResult>((resolve) => {
 		let settled = false;
+		let terminationCode: string | undefined;
 		let result: RemoteSftpJobResult | undefined;
 		let stdoutBuffer = "";
 		let stderrBytes = 0;
 		const timer = setTimeout(() => finish({ ok: false, code: "SFTP_JOB_TIMEOUT" }), timeoutMs);
 		const abort = (): void => finish({ ok: false, code: "SFTP_JOB_CANCELLED" });
+		let terminationTimer: ReturnType<typeof setTimeout> | undefined;
 
 		const finish = (value: RemoteSftpJobResult): void => {
+			if (settled || terminationCode !== undefined) return;
+			terminationCode = value.ok ? "SFTP_JOB_FAILED" : value.code;
+			clearTimeout(timer);
+			killChildTree(child);
+			// A killed process tree is only safe to report after `close`: resolving on
+			// the kill call itself can publish a cancelled job while the executor or
+			// ssh child still owns a spool/part file. The grace timer is a last-resort
+			// fault breaker for a platform that never emits close.
+			terminationTimer = setTimeout(() => finalize({ ok: false, code: terminationCode ?? "SFTP_JOB_FAILED" }), TERMINATION_GRACE_MS);
+		};
+
+		const finalize = (value: RemoteSftpJobResult): void => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
+			if (terminationTimer !== undefined) clearTimeout(terminationTimer);
 			dependencies.signal?.removeEventListener("abort", abort);
-			if (!child.killed && child.exitCode === null) {
-				killChildTree(child);
-			}
 			resolve(value);
 		};
 
@@ -318,7 +343,7 @@ export async function runRemoteSftpJob(binaryPath: string, input: RemoteSftpJobI
 			const frame = parseFrame(line);
 			if (frame?.type === "progress") {
 				const operation = input.operation;
-				if ((operation === "download" || operation === "upload") && frame.operation === operation && safeInteger(frame.transferred) && safeInteger(frame.total) && frame.transferred <= frame.total) {
+				if ((operation === "download" || operation === "upload" || operation === "stage") && frame.operation === operation && safeInteger(frame.transferred) && safeInteger(frame.total) && frame.transferred <= frame.total) {
 					try {
 						dependencies.onProgress?.({ operation, transferred: frame.transferred, total: frame.total });
 					} catch {
@@ -361,12 +386,16 @@ export async function runRemoteSftpJob(binaryPath: string, input: RemoteSftpJobI
 		});
 		child.on("error", () => finish({ ok: false, code: "SFTP_BINARY_START_FAILED" }));
 		child.on("close", (code) => {
-			if (stdoutBuffer.trim() !== "") consumeLine(stdoutBuffer);
-			if (code !== 0 && result?.ok === true) {
-				finish({ ok: false, code: "SFTP_JOB_FAILED" });
+			if (terminationCode !== undefined) {
+				finalize({ ok: false, code: terminationCode });
 				return;
 			}
-			finish(result ?? { ok: false, code: "SFTP_JOB_FAILED" });
+			if (stdoutBuffer.trim() !== "") consumeLine(stdoutBuffer);
+			if (code !== 0 && result?.ok === true) {
+				finalize({ ok: false, code: "SFTP_JOB_FAILED" });
+				return;
+			}
+			finalize(result ?? { ok: false, code: "SFTP_JOB_FAILED" });
 		});
 		dependencies.signal?.addEventListener("abort", abort, { once: true });
 		if (dependencies.signal?.aborted === true) {

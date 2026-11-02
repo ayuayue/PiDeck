@@ -31,6 +31,7 @@ const (
 )
 
 var envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var stagePathPattern = regexp.MustCompile(`^upload-spool/[a-f0-9]{32}\.part$`)
 
 type request struct {
 	Version    int       `json:"version"`
@@ -109,12 +110,15 @@ func validateRequest(value *request) error {
 		return fail("SFTP_PROTOCOL_VERSION_UNSUPPORTED", nil)
 	}
 	switch value.Operation {
-	case "probe", "list", "download", "upload":
+	case "probe", "list", "download", "upload", "stage":
 	default:
 		return fail("SFTP_OPERATION_INVALID", nil)
 	}
 	if err := validateSSHLaunch(value.SSH); err != nil {
 		return err
+	}
+	if value.Operation == "stage" && !stagePathPattern.MatchString(value.Relative) {
+		return fail("SFTP_STAGE_PATH_INVALID", nil)
 	}
 	root, err := canonicalRemoteRoot(value.Root)
 	if err != nil {
@@ -129,7 +133,7 @@ func validateRequest(value *request) error {
 	if value.Operation != "list" && value.Operation != "probe" && relative == "" {
 		return fail("SFTP_REMOTE_PATH_INVALID", nil)
 	}
-	if value.Operation == "download" || value.Operation == "upload" {
+	if value.Operation == "download" || value.Operation == "upload" || value.Operation == "stage" {
 		if value.Overwrite {
 			return fail("SFTP_OVERWRITE_UNSUPPORTED", nil)
 		}
@@ -137,7 +141,7 @@ func validateRequest(value *request) error {
 			return fail("SFTP_LOCAL_PATH_INVALID", nil)
 		}
 	}
-	if value.Operation == "probe" || value.Operation == "download" || value.Operation == "upload" {
+	if value.Operation == "probe" || value.Operation == "download" || value.Operation == "upload" || value.Operation == "stage" {
 		value.MaxEntries = 0
 	} else {
 		if value.MaxEntries == 0 {

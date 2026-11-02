@@ -50,6 +50,9 @@ const {
 	REMOTE_HELPER_METHOD_FS_SEARCH_NAMES,
 	REMOTE_HELPER_METHOD_FS_STAT,
 	REMOTE_HELPER_METHOD_HELLO,
+	REMOTE_HELPER_METHOD_FS_UPLOAD_ABORT,
+	REMOTE_HELPER_METHOD_FS_UPLOAD_COMMIT,
+	REMOTE_HELPER_METHOD_FS_UPLOAD_PREPARE,
 	REMOTE_HELPER_PROTOCOL_VERSION,
 } = loadTsCommonJs("src/main/remote/RemoteHelperContract.ts");
 const { REMOTE_HELPER_ARTIFACTS, REMOTE_HELPER_ENTRY_FILE_NAME, REMOTE_HELPER_ENTRY_VERSION, REMOTE_HELPER_INLINE_SOURCE } = loadTsCommonJs("src/main/remote/RemoteHelperEntry.ts");
@@ -409,7 +412,12 @@ linkSeamTest("the frozen helper's hello frame is the handshake the connection la
 	assert.equal(typeof hello.arch, "string");
 	assert.equal(typeof hello.home, "string");
 	assert.equal(Array.isArray(hello.capabilities), true);
-	assert.deepEqual(hello.capabilities, [...REMOTE_HELPER_CAPABILITIES], "the advertised capability list is the contract's, verbatim");
+	// This suite runs the flat/dev helper shape, whose argv has no bundle deploy facts. Upload methods are
+	// therefore deliberately withheld; every other contract capability must still be advertised verbatim.
+	const deployOnlyCapabilities = [REMOTE_HELPER_METHOD_FS_UPLOAD_PREPARE, REMOTE_HELPER_METHOD_FS_UPLOAD_COMMIT, REMOTE_HELPER_METHOD_FS_UPLOAD_ABORT];
+	const expectedCapabilities = Array.from(REMOTE_HELPER_CAPABILITIES).filter((capability) => !deployOnlyCapabilities.includes(capability));
+	assert.deepEqual(hello.capabilities, expectedCapabilities, "the flat helper advertises the contract capabilities except deploy-only upload methods");
+	for (const method of deployOnlyCapabilities) assert.ok(!hello.capabilities.includes(method), `${method} must not be advertised without bundle deploy facts`);
 	assert.equal(hello.home, HELPER_HOME, "HOME is reported, never resolved into a path");
 	assert.equal(hello.helperVersion, REMOTE_HELPER_ENTRY_VERSION);
 	assert.equal(hello.nodeVersion, process.versions.node, "the helper runs on the node this suite started it with");

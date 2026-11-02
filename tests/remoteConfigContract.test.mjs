@@ -66,11 +66,11 @@ test("the packed config artifact is one byte-frozen ASCII line with its own pin"
 	assert.ok(source.length > 1024 && source.length < 96 * 1024, "unexpected artifact size " + source.length);
 });
 
-test("the entry re-pins the new artifact and reports helper 1.25.1", () => {
-	assert.equal(entry.REMOTE_HELPER_ENTRY_VERSION, "1.25.1");
-	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('"1.25.1"'), "hello must report the new build");
+test("the entry re-pins the new artifact and reports helper 1.26.0", () => {
+	assert.equal(entry.REMOTE_HELPER_ENTRY_VERSION, "1.26.0");
+	assert.ok(entry.REMOTE_HELPER_INLINE_SOURCE.includes('"1.26.0"'), "hello must report the new build");
 	const artifacts = Array.from(entry.REMOTE_HELPER_ARTIFACTS, (artifact) => artifact.name);
-	assert.deepEqual(artifacts, ["helper.mjs", "git-read.mjs", "git-write.mjs", "git-sync.mjs", "config.mjs", "search-content.mjs", "terminal-runner.mjs"]);
+	assert.deepEqual(artifacts, ["helper.mjs", "git-read.mjs", "git-write.mjs", "git-sync.mjs", "config.mjs", "search-content.mjs", "upload-commit.mjs", "terminal-runner.mjs"]);
 	const packed = entry.REMOTE_HELPER_ARTIFACTS.find((artifact) => artifact.name === "config.mjs");
 	assert.equal(packed.sha256, config.REMOTE_HELPER_CONFIG_SHA256);
 	assert.equal(packed.source, config.REMOTE_CONFIG_SOURCE);

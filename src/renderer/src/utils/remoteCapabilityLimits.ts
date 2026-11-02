@@ -5,7 +5,7 @@ import type { TranslationKey } from "../i18n/rendererCopy.zh-CN";
  * 远端能力边界的 UI 判定（渲染层唯一出处）。
  *
  * 这里只决定「用户看到什么」，不复制主进程的强制边界：
- * - 上传上限 16 MiB 的强制在 `main/remote/RemoteProjectFileUpload.ts`
+ * - 当前上传上限 8 GiB 的强制在 `main/remote/RemoteProjectUploadJob.ts`
  *   （REMOTE_PROJECT_UPLOAD_MAX_BYTES）；文件夹上传被系统对话框的 openFile 与主进程
  *   `info.isFile()` 拒绝。渲染层提前把限制说清楚，避免用户选完文件/拖完目录才看到失败。
  * - 远端会话固定 pi 由会话创建与 composer controller 钳制；底栏据此给出准确的锁定原因，

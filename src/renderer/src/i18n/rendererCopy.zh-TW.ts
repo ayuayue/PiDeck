@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 201b29d98fa2a6cb569e99e8071a7793a32f4d1b961b3490d2a62ae4df51c0b5（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 06f19eb9c21d58f8edc143404ca5d2563aa7539af1788d0b9ee354ef975a6c64（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -4571,8 +4571,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	"project.remote.uploadFailed": "上傳失敗：{code}",
 	"project.remote.uploadLocalIoTimeout": "讀取本機檔案超時（網路盤/共享目錄可能已斷開），請檢查路徑後重試。",
 	"project.remote.uploadNotAFile": "只支援上傳檔案：目錄請在裡面選檔案，或先打包。",
-	"project.remote.uploadTooLarge": "檔案超過 16 MiB 上限，暫不支援。",
-	"project.remote.uploadLimitHint": "上傳限制：單個檔案 ≤ 16 MiB；不支援資料夾上傳，請先打包目錄。",
+	"project.remote.uploadTooLarge": "檔案超過 8 GiB 上限，暫不支援。",
+	"project.remote.uploadLimitHint": "上傳限制：單個檔案 ≤ 8 GiB，單批最多 32 個檔案；不支援資料夾上傳，請先打包目錄。",
 	"project.remote.uploadExists": "遠端已有同名檔案，未覆蓋（請先重新命名或刪除）。",
 	"project.remote.dropSearching": "搜尋狀態下不接受拖放：先清空搜尋再拖檔案。",
 	"project.remote.dropUnsupported": "拖進來的內容不是本機檔案，無法上傳（請從資源管理器拖檔案進來）。",

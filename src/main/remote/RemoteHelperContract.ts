@@ -116,6 +116,16 @@ export const REMOTE_HELPER_ERROR_CODES = [
 	"CONFIG_PATH_UNSUPPORTED",
 	"CONFIG_RESULT_UNCONFIRMED",
 	"CONFIG_UNAVAILABLE",
+	/* SFTP-1 upload transaction: validation and token failures are deterministic; once the hard-link publish
+	 * may have happened every later failure is UNCONFIRMED and must never be replayed automatically. */
+	"FILE_UPLOAD_INPUT_INVALID",
+	"FILE_UPLOAD_TOKEN_INVALID",
+	"FILE_UPLOAD_TARGET_EXISTS",
+	"FILE_UPLOAD_STAGE_INVALID",
+	"FILE_UPLOAD_PATH_INVALID",
+	"FILE_UPLOAD_ROOT_CHANGED",
+	"FILE_UPLOAD_UNSUPPORTED",
+	"FILE_UPLOAD_COMMIT_UNCONFIRMED",
 ] as const;
 export type RemoteHelperErrorCode = (typeof REMOTE_HELPER_ERROR_CODES)[number];
 
@@ -144,6 +154,16 @@ export const REMOTE_HELPER_METHOD_GIT_CHECK_IGNORE = "git.checkIgnore";
  */
 export const REMOTE_HELPER_METHOD_FS_WATCH = "fs.watch";
 export const REMOTE_HELPER_METHOD_FS_UNWATCH = "fs.unwatch";
+/**
+ * SFTP-1 binary upload transaction. `prepare` binds a one-use token to the canonical root, host generation,
+ * target, size and digest; the SFTP executor may write only the opaque spool named by `stageRef`. `commit`
+ * consumes the token before any side effect and publishes create-only. Callers must treat a lost/malformed
+ * reply after sending commit as unknown and must not retry it.
+ */
+export const REMOTE_HELPER_METHOD_FS_UPLOAD_PREPARE = "fs.uploadPrepare";
+export const REMOTE_HELPER_METHOD_FS_UPLOAD_COMMIT = "fs.uploadCommit";
+/** Token-authorized cleanup for a staged upload that failed before commit; it can never name an arbitrary path. */
+export const REMOTE_HELPER_METHOD_FS_UPLOAD_ABORT = "fs.uploadAbort";
 /** 一个 helper 会话同时允许的 watcher 数；超出直接拒绝而不是排队。 */
 export const REMOTE_HELPER_MAX_WATCHES = 4;
 /** 一次订阅里最多几个目录。 */
@@ -347,6 +367,9 @@ export const REMOTE_HELPER_CAPABILITIES = [
 	"fs.searchContent",
 	"fs.watch",
 	"fs.unwatch",
+	"fs.uploadPrepare",
+	"fs.uploadCommit",
+	"fs.uploadAbort",
 	"git.status",
 	"git.workspaceDiff",
 	"git.stage",
@@ -380,6 +403,44 @@ export type RemoteHelperCapability = (typeof REMOTE_HELPER_CAPABILITIES)[number]
  * so an over-long path is a PROTOCOL_INVALID refusal rather than an ENAMETOOLONG round trip.
  */
 export const REMOTE_HELPER_MAX_PATH_LENGTH = 4096;
+/** Short single-use upload tickets; expiry is checked after the token is consumed, so a late commit cannot revive it. */
+export const REMOTE_FILE_UPLOAD_TOKEN_TTL_MS = 120_000;
+/** SFTP streams the body, so this bound is not a frame bound; it keeps one commit finite on the helper side. */
+export const REMOTE_FILE_UPLOAD_MAX_BYTES = 8 * 1024 * 1024 * 1024;
+export const REMOTE_FILE_UPLOAD_ID_PATTERN = /^[0-9a-f]{32}$/;
+export const REMOTE_FILE_UPLOAD_SHA256_PATTERN = /^[0-9a-f]{64}$/;
+export type RemoteFileUploadPolicy = "create";
+export type RemoteFileUploadPrepareParams = {
+	uploadId: string;
+	path: string;
+	policy: RemoteFileUploadPolicy;
+	size: number;
+	sha256: string;
+};
+/** stageRef is the 32hex id the caller appends as `.part` inside the helper-owned upload-spool. */
+export type RemoteFileUploadPrepareResult = { token: string; stageRef: string; expiresAt: number };
+export type RemoteFileUploadCommitParams = { uploadId: string; token: string };
+export type RemoteFileUploadAbortParams = RemoteFileUploadCommitParams;
+export type RemoteFileUploadAbortResult = { cleaned: true };
+export type RemoteFileUploadRevision = {
+	mode: number;
+	size: number;
+	dev: string;
+	ino: string;
+	uid: string;
+	gid: string;
+	mtimeNs: string;
+	ctimeNs: string;
+};
+export type RemoteFileUploadCommitResult = {
+	committed: true;
+	path: string;
+	size: number;
+	sha256: string;
+	revision: RemoteFileUploadRevision;
+	fsync: true;
+	stageCleaned: boolean;
+};
 /**
  * Paths per `fs.statMany` request. It bounds both directions: the caller sends few enough paths for one
  * frame, and the helper answers without splitting a batch, so a full 2000-file listing is <= 32 round trips

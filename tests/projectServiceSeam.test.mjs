@@ -22,6 +22,9 @@ const FULL_HELPER = [
 	"fs.watch",
 	"fs.searchNames",
 	"fs.searchContent",
+	"fs.uploadPrepare",
+	"fs.uploadCommit",
+	"fs.uploadAbort",
 	"git.status",
 	"git.workspaceDiff",
 	"git.log",
@@ -60,6 +63,11 @@ function groups() {
 function makeApi(options = {}) {
 	const calls = [];
 	const record = (name, args) => calls.push({ name, args });
+	const transferListeners = new Set();
+	let transferSequence = 0;
+	const emitTransfer = (event) => {
+		for (const listener of transferListeners) listener(event);
+	};
 	const page = options.page ?? DIRECTORY_PAGE;
 	const api = {
 		files: {
@@ -325,8 +333,39 @@ function makeApi(options = {}) {
 				record("remoteHosts.deleteProjectEntry", [projectId, path, version]);
 				return { ok: true, value: { trashId: "trash-1" } };
 			},
+			uploadProjectFiles: async (projectId, directory) => {
+				record("remoteHosts.uploadProjectFiles", [projectId, directory]);
+				return { ok: true, value: { canceled: true } };
+			},
+			uploadProjectFilesFromPaths: async (projectId, directory, paths) => {
+				record("remoteHosts.uploadProjectFilesFromPaths", [projectId, directory, paths]);
+				return { ok: true, value: { uploaded: [{ name: "a.bin", bytes: 3 }], failed: [] } };
+			},
+			downloadProjectFile: async (projectId, path) => {
+				record("remoteHosts.downloadProjectFile", [projectId, path]);
+				return { ok: true, value: { path: "C:/downloads/a.bin", bytes: 3 } };
+			},
 		},
 		remoteTrust: { list: async () => ({ ok: true, value: { entries: [] } }) },
+		remoteTransfers: {
+			onEvent: (listener) => {
+				transferListeners.add(listener);
+				return () => transferListeners.delete(listener);
+			},
+			start: async (input) => {
+				record("remoteTransfers.start", [input]);
+				if (input.operation === "upload" && input.source.kind === "picker") return { ok: true, value: { canceled: true } };
+				transferSequence += 1;
+				const jobId = "job-" + String(transferSequence).padStart(16, "0");
+				if (input.operation === "upload") {
+					emitTransfer({ kind: "settled", jobId, operation: "upload", outcome: "succeeded", result: { uploaded: [{ name: "a.bin", bytes: 3 }], failed: [] } });
+					return { ok: true, value: { jobId, operation: "upload", total: 3 } };
+				}
+				emitTransfer({ kind: "settled", jobId, operation: "download", outcome: "succeeded", result: { path: "C:/downloads/a.bin", bytes: 3 } });
+				return { ok: true, value: { jobId, operation: "download", total: 3 } };
+			},
+			cancel: async () => ({ ok: true, value: { accepted: true } }),
+		},
 	};
 	return { api, calls };
 }
@@ -435,6 +474,23 @@ test("远端文件管理：新建按类型分流，改名/删除复用 entry 令
 	assert.deepEqual(calls[3].args, ["p2", "src/b.ts", "src/c.ts", "entry-v1"]);
 	assert.deepEqual(calls[5].args, ["p2", "src/c.ts", "entry-v1"]);
 	assert.deepEqual(calls[7].args, ["p2", "src/a.ts", "lib/a.ts", "entry-v1"]);
+});
+
+test("文件传输经 ProjectFileService：远端 picker/拖放/下载共用项目身份，本机显式 unsupported", async () => {
+	const { api, calls } = makeApi();
+	const services = createProjectServices(remoteProject, api, { facts: remoteFacts() });
+	const target = { projectId: "p2", relativePath: "src" };
+	assert.deepEqual(plain(await services.files.uploadFiles(target, { kind: "picker" })), { ok: true, value: { canceled: true } });
+	assert.deepEqual(plain(await services.files.uploadFiles(target, { kind: "paths", paths: ["C:/tmp/a.bin"] })), { ok: true, value: { uploaded: [{ name: "a.bin", bytes: 3 }], failed: [] } });
+	assert.deepEqual(plain(await services.files.downloadFile({ projectId: "p2", relativePath: "src/a.bin" })), { ok: true, value: { path: "C:/downloads/a.bin", bytes: 3 } });
+	assert.deepEqual(names(calls), ["remoteTransfers.start", "remoteTransfers.start", "remoteTransfers.start"]);
+	assert.deepEqual(plain(calls[1].args[0]), { operation: "upload", projectId: "p2", targetRelativePath: "src", source: { kind: "paths", paths: ["C:/tmp/a.bin"] } });
+	assert.deepEqual(plain(calls[2].args[0]), { operation: "download", projectId: "p2", targetRelativePath: "src/a.bin" });
+
+	const local = createProjectServices(localProject, makeApi().api);
+	for (const run of [() => local.files.uploadFiles({ projectId: "p1", relativePath: "src" }, { kind: "picker" }), () => local.files.downloadFile({ projectId: "p1", relativePath: "src/a.bin" })]) {
+		await assert.rejects(run, (error) => error instanceof ProjectServiceError && error.code === PROJECT_SERVICE_CODES.unsupported);
+	}
 });
 
 test("远端没有本机路径：系统打开显式 unsupported，且不调用任何通道", async () => {

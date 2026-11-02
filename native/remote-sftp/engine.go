@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -45,6 +46,12 @@ type transferResult struct {
 	AtomicRename bool  `json:"atomicRename"`
 }
 
+type stageResult struct {
+	Bytes  int64  `json:"bytes"`
+	Sha256 string `json:"sha256"`
+	Fsync  bool   `json:"fsync"`
+}
+
 type remoteWriteFile interface {
 	io.Writer
 	io.Closer
@@ -83,6 +90,9 @@ func (c *sftpRemoteClient) HasExtension(name string) (string, bool) {
 }
 func (c *sftpRemoteClient) Close() error { return c.client.Close() }
 func (c *sftpRemoteClient) OpenExclusive(value string, mode os.FileMode) (remoteWriteFile, error) {
+	// SFTP v3 has no O_NOFOLLOW flag. O_EXCL rejects an existing leaf, including
+	// a symlink; stageRemote separately rejects every existing ancestor symlink
+	// before opening and again before reporting success.
 	file, err := c.client.OpenFile(value, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
 	if err != nil {
 		return nil, err
@@ -108,6 +118,8 @@ func executeJob(client remoteClient, value request, progress progressFunc) (any,
 		return downloadRemote(client, value, progress)
 	case "upload":
 		return uploadRemote(client, value, progress)
+	case "stage":
+		return stageRemote(client, value, progress)
 	default:
 		return nil, fail("SFTP_OPERATION_INVALID", nil)
 	}
@@ -355,6 +367,115 @@ func uploadRemote(client remoteClient, value request, progress progressFunc) (tr
 		// atomicity guarantee. SFTP-1 must define commit semantics with the
 		// versioned helper path before uploads become writable in production.
 		AtomicRename: false,
+	}, nil
+}
+
+// stageRemote writes only to the helper-owned spool path. It deliberately has
+// no target/publish step: a successful return means the bytes are durable enough
+// for the helper commit protocol to verify and publish later.
+func stageRemote(client remoteClient, value request, progress progressFunc) (stageResult, error) {
+	if !stagePathPattern.MatchString(value.Relative) {
+		return stageResult{}, fail("SFTP_STAGE_PATH_INVALID", nil)
+	}
+	local, err := os.Lstat(value.LocalPath)
+	if err != nil {
+		return stageResult{}, fail("SFTP_LOCAL_IO_FAILED", err)
+	}
+	if local.Mode()&os.ModeSymlink != 0 || !local.Mode().IsRegular() {
+		return stageResult{}, fail("SFTP_LOCAL_NOT_A_FILE", nil)
+	}
+	source, err := os.Open(value.LocalPath)
+	if err != nil {
+		return stageResult{}, fail("SFTP_LOCAL_IO_FAILED", err)
+	}
+	defer source.Close()
+	openedLocal, err := source.Stat()
+	if err != nil {
+		return stageResult{}, fail("SFTP_LOCAL_IO_FAILED", err)
+	}
+	if !os.SameFile(local, openedLocal) || !sameLocalFileVersion(local, openedLocal) {
+		return stageResult{}, fail("SFTP_LOCAL_FILE_CHANGED", nil)
+	}
+
+	target, err := remoteChild(value.Root, value.Relative)
+	if err != nil {
+		return stageResult{}, err
+	}
+	if err := assertNoSymlinkParent(client, value.Root, value.Relative); err != nil {
+		return stageResult{}, err
+	}
+	if _, err := client.Lstat(target); err == nil {
+		return stageResult{}, fail("SFTP_REMOTE_EXISTS", nil)
+	} else if !errors.Is(err, sftp.ErrSSHFxNoSuchFile) && !errors.Is(err, os.ErrNotExist) {
+		return stageResult{}, mapRemoteError(err)
+	}
+
+	writer, err := client.OpenExclusive(target, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return stageResult{}, fail("SFTP_REMOTE_EXISTS", nil)
+		}
+		// SFTP v3 commonly reports an O_EXCL collision as a generic failure.
+		// Confirm whether the raced-created leaf now exists before degrading the
+		// stable no-clobber result into a remote I/O error.
+		if _, statErr := client.Lstat(target); statErr == nil {
+			return stageResult{}, fail("SFTP_REMOTE_EXISTS", nil)
+		}
+		return stageResult{}, mapRemoteError(err)
+	}
+	committed := false
+	defer func() {
+		_ = writer.Close()
+		if !committed {
+			_ = client.Remove(target)
+		}
+	}()
+
+	hash := sha256.New()
+	reader := newProgressReader(source, local.Size(), progress)
+	written, err := io.CopyBuffer(writer, io.TeeReader(reader, hash), make([]byte, value.ChunkBytes))
+	if err != nil {
+		return stageResult{}, mapRemoteError(err)
+	}
+	afterOpened, openedErr := source.Stat()
+	afterLocal, pathErr := os.Lstat(value.LocalPath)
+	if openedErr != nil ||
+		pathErr != nil ||
+		!os.SameFile(local, afterOpened) ||
+		!os.SameFile(local, afterLocal) ||
+		!sameLocalFileVersion(local, afterOpened) ||
+		!sameLocalFileVersion(local, afterLocal) ||
+		written != local.Size() {
+		return stageResult{}, fail("SFTP_LOCAL_FILE_CHANGED", nil)
+	}
+	if err := assertNoSymlinkParent(client, value.Root, value.Relative); err != nil {
+		return stageResult{}, err
+	}
+
+	_, fsyncAvailable := client.HasExtension("fsync@openssh.com")
+	if fsyncAvailable {
+		if err := writer.Sync(); err != nil {
+			return stageResult{}, mapRemoteError(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return stageResult{}, mapRemoteError(err)
+	}
+	staged, err := client.Lstat(target)
+	if err != nil {
+		return stageResult{}, mapRemoteError(err)
+	}
+	if staged.Mode()&os.ModeSymlink != 0 || !staged.Mode().IsRegular() || staged.Size() != written {
+		return stageResult{}, fail("SFTP_REMOTE_FILE_CHANGED", nil)
+	}
+	if written == 0 && progress != nil {
+		progress(0, 0)
+	}
+	committed = true
+	return stageResult{
+		Bytes:  written,
+		Sha256: hex.EncodeToString(hash.Sum(nil)),
+		Fsync:  fsyncAvailable,
 	}, nil
 }
 

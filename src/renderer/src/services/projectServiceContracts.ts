@@ -3,7 +3,7 @@ import type { HostConnectionStateLike } from "../../../shared/projectCapabilitie
 import type { GitAheadBehind, GitBranchInfo, GitCompareRefsValue, GitDiscardResource, GitHistoryPage, GitRef, GitRepositoryListing, GitResourceGroups, GitWorkspaceDiffGroup, GitWorkspaceFileDiff, WorktreeEntry } from "../../../shared/types/git";
 import type { Project, ProjectFileTarget } from "../../../shared/types";
 import type { ProjectDirectoryPage } from "../../../shared/types/projectFiles";
-import type { RemoteProjectSearchEntry } from "../../../shared/types/remoteHost";
+import type { RemoteProjectDownloadResult, RemoteProjectSearchEntry, RemoteProjectUploadResult } from "../../../shared/types/remoteHost";
 import type { FileContentSearchResult, FileSearchResult } from "../../../shared/types/session";
 import type { PiDesktopApi } from "../../../preload";
 
@@ -26,6 +26,7 @@ export type ProjectServicesApi = {
 	git: PiDesktopApi["git"];
 	remoteHosts: PiDesktopApi["remoteHosts"];
 	remoteTrust: PiDesktopApi["remoteTrust"];
+	remoteTransfers: PiDesktopApi["remoteTransfers"];
 };
 
 export const PROJECT_SERVICE_CODES = {
@@ -173,9 +174,14 @@ export type ProjectFileService = {
 	/** 移动到项目内另一个目录；destinationRelativePath 是完整目标路径（含文件名）。 */
 	moveEntry(target: ProjectFileTarget, destinationRelativePath: string): Promise<ProjectEntryReceipt>;
 	deleteEntry(target: ProjectFileTarget, expectedVersion?: string): Promise<ProjectEntryDeleteReceipt>;
+	/** 本机侧选择/拖放来源由 main 再验证；远端 provider 使用 jobful SFTP 传输通道。 */
+	uploadFiles(target: ProjectFileTarget, source: ProjectFileUploadSource): Promise<RemoteProjectUploadResult>;
+	downloadFile(target: ProjectFileTarget): Promise<RemoteProjectDownloadResult>;
 	openInEditor(target: ProjectFileTarget): Promise<void>;
 	showInFolder(target: ProjectFileTarget): Promise<void>;
 };
+
+export type ProjectFileUploadSource = { kind: "picker" } | { kind: "paths"; paths: readonly string[] };
 
 // ── Git 结果与契约 ──────────────────────────────────────────────────────
 
@@ -242,6 +248,9 @@ export type ProjectFileCapabilities = {
 	/** 文件名搜索：远端 gate helper fs.searchNames。 */
 	search: boolean;
 	write: boolean;
+	/** 本机↔项目文件的传输入口；后续 SFTP provider 可独立关闭。 */
+	upload: boolean;
+	download: boolean;
 	/** 删除可恢复（远端 .pideck-trash）；本机 delete 没有回收站收据。 */
 	trash: boolean;
 	/** 文本保存是否有可校验的 version：远端 required，本机 none。 */
@@ -291,6 +300,8 @@ export type ProjectGitCapabilities = {
 export type ProjectServiceCapabilityKey =
 	| "files.read"
 	| "files.write"
+	| "files.upload"
+	| "files.download"
 	| "files.trash"
 	| "files.search"
 	| "files.contentSearch"

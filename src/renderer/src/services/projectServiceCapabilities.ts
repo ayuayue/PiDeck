@@ -38,6 +38,9 @@ const HELPER_METHOD = {
 	gitRecoveryDrop: "git.recoveryDrop",
 	fsWatch: "fs.watch",
 	fsSearchNames: "fs.searchNames",
+	fsUploadPrepare: "fs.uploadPrepare",
+	fsUploadCommit: "fs.uploadCommit",
+	fsUploadAbort: "fs.uploadAbort",
 } as const;
 
 export const PROJECT_SERVICE_CAPABILITY_REASONS = {
@@ -56,6 +59,8 @@ export type ProjectServiceMethodSupport = {
 	systemOpen: boolean;
 	fileSearch: boolean;
 	fileTrash: boolean;
+	fileUpload: boolean;
+	fileDownload: boolean;
 	gitRead: boolean;
 	gitDiff: boolean;
 	gitBranches: boolean;
@@ -79,6 +84,8 @@ export const LOCAL_PROJECT_SERVICE_METHODS: ProjectServiceMethodSupport = {
 	systemOpen: true,
 	fileSearch: true,
 	fileTrash: false,
+	fileUpload: false,
+	fileDownload: false,
 	gitRead: true,
 	gitDiff: true,
 	gitBranches: true,
@@ -108,6 +115,8 @@ export const REMOTE_PROJECT_SERVICE_METHODS: ProjectServiceMethodSupport = {
 	systemOpen: false,
 	fileSearch: true,
 	fileTrash: true,
+	fileUpload: true,
+	fileDownload: true,
 	gitRead: true,
 	gitDiff: true,
 	gitBranches: true,
@@ -174,6 +183,9 @@ export function resolveProjectServiceCapabilities(facts: ProjectServiceFacts, me
 
 	const filesRead = close("files.read", rootBlock ?? hostReadBlock);
 	const filesWrite = close("files.write", rootBlock ?? hostWriteBlock);
+	const helperUpload = facts.locationKind === "local" ? true : declaresAll(facts, [HELPER_METHOD.fsUploadPrepare, HELPER_METHOD.fsUploadCommit, HELPER_METHOD.fsUploadAbort]);
+	const filesUpload = filesWrite ? close("files.upload", providerBlock(methods.fileUpload) ?? (helperUpload ? undefined : PROJECT_SERVICE_CAPABILITY_REASONS.helperMethodMissing)) : close("files.upload", rootBlock ?? hostWriteBlock);
+	const filesDownload = filesRead ? close("files.download", providerBlock(methods.fileDownload)) : close("files.download", rootBlock ?? hostReadBlock);
 	const filesTrash = filesWrite ? close("files.trash", providerBlock(methods.fileTrash)) : close("files.trash", rootBlock ?? hostWriteBlock);
 	const helperSearch = facts.locationKind === "local" || declares(facts, HELPER_METHOD.fsSearchNames);
 	const filesSearch = filesRead ? close("files.search", providerBlock(methods.fileSearch) ?? (helperSearch ? undefined : PROJECT_SERVICE_CAPABILITY_REASONS.helperMethodMissing)) : close("files.search", rootBlock ?? hostReadBlock);
@@ -220,6 +232,8 @@ export function resolveProjectServiceCapabilities(facts: ProjectServiceFacts, me
 			read: filesRead,
 			search: filesSearch,
 			write: filesWrite,
+			upload: filesUpload,
+			download: filesDownload,
 			trash: filesTrash,
 			textVersion: facts.locationKind === "ssh" ? "required" : "none",
 			contentSearch: filesContentSearch,
