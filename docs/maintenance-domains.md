@@ -23,7 +23,7 @@
 | 技能商店安装 | 商店搜索必须走注入的 `fetchImpl`（Electron net.fetch），禁裸全局 fetch（undici 不读代理，境外 API 挂到超时）；安装用 spawn + 流式解析（禁 execFile 等终态输出）、进度走 `skill-hub:install-progress`、子进程必注入代理 env（CLI 内部 git 不读 npm proxy） | 本文「技能商店安装链路」 |
 | 内置扩展热更新 | 判据是逐文件 sha256 不是版本号；覆盖层必须完整快照 + vendored 依赖；磁盘根统一走 `resolveBuiltInExtensionRoots()` | 本文「内置扩展热更新」 |
 | 生图存储 | **base64 不进 JSONL**（只存 ref）；读取永远有字节上界；`<img src>` 只走 `imageContentSrc()` | 本文「生图会话存储」 |
-| 模型 API 传输 | 主进程请求模型/供应商 API 一律经 `src/main/modelHttp/`：要 JSON 文本走 `modelHttpRequest`，要 multipart/二进制响应体走 `modelHttpFetch`；**禁再直接写全局 `fetch`**（undici 不读代理）；本地子进程（whisper-server）例外 | 本文「模型 API 传输（modelHttp 统一层）」 |
+| 主进程出网（模型/供应商 API、CDN、目录页） | 一律经 `src/main/modelHttp/`：要 JSON 文本走 `modelHttpRequest`，要 multipart/二进制响应体走 `modelHttpFetch`；**禁再直接写全局 `fetch`**（undici 不读代理）；本地子进程（whisper-server）例外 | 本文「出网传输（modelHttp 统一层）」 |
 | 智能体 / 划词工具 | 配置只落 `<userData>/agent-profiles.json`（内置 `builtin-translate` / `builtin-pideck-helper` / `builtin-pideck-diagnostic` / `builtin-pideck-plugin-dev` 只补种不覆盖用户编辑）；一次性调用 `agent-profiles:invoke` 的 systemPrompt 只能由主进程按 agentId 解析（渲染层禁传），侧车必须**独立实例**（单飞语义，共用会打断输入框增强）；「使用」= 会话绑定（`sessionAgentBindings`），每次发送由主进程注入隐藏 `agentMessage`（DSH 退化为可见前缀），时间线只显示用户输入；「智能体」与「定时任务」都是**会话 Tab 栏里的页面式 Tab**（不是弹窗、不是会话 Tab：切会话只失活、关闭才卸载），标题固定走 i18n；系统级划词目前隐藏且默认关闭（`SYSTEM_SELECTION_TOOL_ENABLED=false`、默认设置 false；复制监听、原生捕获、快捷键全部不启动） | 本文「智能体与划词工具」+ `docs/host-boundaries.md` §例外四 |
 | 内置浏览器 Agent | 只经 `pideck-cua` MCP host 暴露 `browser_*`；页面文本不可信、写动作默认自动放行（可关闭改为逐次审批）；guest 不缓存（抽屉/全屏会重建）；CDP 被 DevTools/内存探针占用时降级并标 degraded；不注入 preload、不改 webview 安全档位 | `docs/archive/plans/browser-agent-plan.md` §7/§9/§12 |
 | ACP 会话链路（backend=acp） | 协议字段收口 `src/main/acp/acpProtocol.ts`；投影切段：工具卡隔断后新开 assistant 段，切段收口 `toolUse`（**只有 settleAcpTurn 能出 `stop/aborted/error`**，写 `stop` 会把一轮拆成多个 agent-run），**一回合多条 assistant 气泡是正常形态**；stall 看门狗豁免「挂起审批 + 在途工具调用」（省略 status 的 `tool_call_update` 是流式补丁帧，不得清豁免），阈值走 settings 读口；历史归档 `userData/acp-sessions/<sha1>.json`（只在回合结算/stop 写、**空快照不写**、base64 只留 ref、读写失败只记日志）；会话内查找与 pi/DSH 共用 `sessions/sessionFindMatches.ts`，入口要 `acpSessionId` | 本文「ACP 会话链路」 |
@@ -114,15 +114,16 @@
 - **新增 sidecar 的接线**：继承基类 + 在 `ensureChild` 里做业务前置校验（空 roots/path → `not-ready`）+ 只发本服务的命令帧；`ready` 附加字段通过 `onReady` 或 `getReadyFrame()` 读取，不参与生命周期判断。测试至少覆盖：ready 握手、复用键变化、boot/请求超时、协议版本不匹配、进程退出、dispose；共享层边界由 `tests/goSidecarClient.test.mjs` 兜底（非法行、stdout 溢出、stdin 错误、运行期协议漂移、写入抛错）。
 - **结果类型**：各服务的 `*FailureReason` / `*CallResult<T>` 是 `GoSidecarFailureReason` / `GoSidecarCallResult<T>` 的别名；新增失败原因先改基类并在四个服务的测试与调用方确认。
 
-## 模型 API 传输（modelHttp 统一层）
+## 出网传输（modelHttp 统一层）
 
 - **两个入口，按响应形态选**：
   - `modelHttpRequest(url, { method, headers, body, timeoutMs, maxBytes, proxyTarget, signal })` → `{ status, statusText, raw, truncated, header() } | { error: "timeout" | "network", detail }`。只负责「要一份 JSON/文本」，正文按 `maxBytes` 截断（`bounded.ts`，truncate 语义），**拿到任意 HTTP 状态码都算成功分支**，3xx 不跟随（`redirect: "error"`，带凭据的请求不许被带去第三方域）。原始异常文本只在 `detail` 里给日志与网络故障分类用，**不得回传渲染层**（message 可能裹挟 URL 上的 key）。
   - `modelHttpFetch(url, init)` → 原生 `Response`。给需要 `FormData` multipart、二进制响应体、或自己读正文与控制错误的调用点（生图 / 生视频 / 语音转写）。错误原样抛出，分类留在调用点。已实测 Electron `net.fetch` 支持 FormData + Blob（boundary 正常）、响应体可 `getReader()` 流式读、`AbortSignal.timeout` 抛 `TimeoutError`。
-- **为什么不能直接写全局 `fetch`**：那是 Node 的 undici——不读系统代理、不读桌面 session 代理、不用 Chromium 根证书库，代理环境下境外 API 挂到超时且只抛含糊 `AbortError`。反向的例外：`WhisperServerPool` / `WhisperRuntimeManager` 这类**本地**子进程/本地 HTTP 必须继续直连，别「顺手统一」进代理栈。
+- **为什么不能直接写全局 `fetch`**：那是 Node 的 undici——不读系统代理、不读桌面 session 代理、不用 Chromium 根证书库，代理环境下境外 API 挂到超时且只抛含糊 `AbortError`。反向的例外：`WhisperServerPool`（本地 whisper-server）与 `WebStaticAssets`（本机 vite dev server）这类**本地** HTTP 必须继续直连，别「顺手统一」进代理栈；`WhisperRuntimeManager` 例外中的例外——它只管本地文件落位，唯一外网请求（GitHub Release 摘要）在境外，所以那个函数走统一层。
 - **Cookie 头走 `net.request`，不是 `net.fetch`**：fetch 规范里 Cookie 是 forbidden header，手动设置会被静默丢弃（火山 `POST /api/wallet/summary` 实测 curl 200 / net.fetch 401）。`modelHttpRequest` 内部按 `hasCookieHeader()` 自动分流，调用点不用关心。
 - **显式代理三态 `proxyTarget`**：`follow`（默认，跟随全局 session）/ `on`（`mode:"fixed_servers"` + `proxyRules`/`proxyBypassRules`）/ `off`（`mode:"direct"`）。on/off 用独立内存 session `pideck-config-proxy` 临时设代理，**不动全局代理开关**——那是用户手动控制的，改全局会影响在跑的会话流量。
-- **守卫**：`tests/modelHttp.test.mjs` 锁分流/超时/取消/截断/代理三态，并静态断言生图、生视频、语音转写、火山 ASR 的缺省实现是 `modelHttpFetch`（防退回全局 `fetch`），同时断言 whisper 本地链路不经统一层。
+- **非模型的主进程出网也用同一层**：pi CLI 更新日志（jsDelivr / unpkg / GitHub raw 三个**境外** CDN，`PiChangelogService` 构造参数 `deps.fetchImpl`，缺省 `modelHttpFetch`）、扩展目录页（`piPackageCatalog.getPiPackageCatalog` 的 `fetchImpl` 是**必填参数**，靠编译期强制调用方注入，不保留全局兜底）。两处旧实现都是全局 `fetch`：代理环境下 changelog 会静默降级成「在浏览器查看」，目录页直接挂到超时并报「商店加载失败」。
+- **守卫**：`tests/modelHttp.test.mjs` 锁分流/超时/取消/截断/代理三态，并静态断言生图、生视频、语音转写、火山 ASR、pi 更新日志的缺省实现是 `modelHttpFetch`（防退回全局 `fetch`），断言目录页 `fetchImpl` 必填且无 `?? fetch` 兜底，同时断言 whisper 本地链路不经统一层。
 
 ## 技能商店安装链路（net.fetch 搜索 + spawn 进度 + 代理 env 注入）
 - **主进程联网一律走注入的 `fetchImpl`（= Electron `net.fetch`）**：裸全局 `fetch` 是 undici，既不读系统代理也不读 Electron 桌面 session 代理，代理环境下境外 API 挂到超时且只抛含糊 `AbortError`。`storeIpc.ts` 四个商店 handler（`skillHubSearch` / `skillStoreSearch` / `promptStoreSearch` / `promptStoreGet`）全部经 `deps.fetchImpl`；测试用 `createStoreIpc({ fetchImpl })` 注桩，未注入时才回退全局 fetch（测试沙箱无 fetch，故必须惰性取值）。

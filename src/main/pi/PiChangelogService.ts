@@ -1,4 +1,5 @@
 import type { PiReleaseNotesPayload } from "../../shared/types";
+import { modelHttpFetch } from "../modelHttp/request";
 import { compareVersions } from "../utils/versionCompare";
 
 /**
@@ -109,9 +110,24 @@ export function extractChangelogRange(markdown: string, currentVersion: string |
 	return { markdown: kept.join("\n\n"), versionCount: kept.length, truncated };
 }
 
+/** 网络实现签名：net.fetch 的子集，便于注入测试替身（不经真实网络）。 */
+type ChangelogFetch = (url: string, init?: RequestInit) => Promise<Response>;
+
+export type PiChangelogServiceDeps = { fetchImpl?: ChangelogFetch };
+
 export class PiChangelogService {
 	/** 钉版内容不可变 → 按 latestVersion 键控的进程内缓存永不过期。 */
 	private readonly cache = new Map<string, { markdown: string; source: PiChangelogSource; fetchedAt: string }>();
+
+	constructor(private readonly deps: PiChangelogServiceDeps = {}) {}
+
+	/**
+	 * 三个 CDN 都在境外，必须走 Chromium 网络栈（系统/桌面代理 + 根证书库）。
+	 * 全局 fetch（undici）在需要代理的机器上会全部超时，降级成「在浏览器查看」。
+	 */
+	private get fetchImpl(): ChangelogFetch {
+		return this.deps.fetchImpl ?? modelHttpFetch;
+	}
 
 	async getReleaseNotes(options: { latestVersion: string; currentVersion?: string }): Promise<PiReleaseNotesPayload> {
 		const latestVersion = typeof options.latestVersion === "string" ? options.latestVersion.trim() : "";
@@ -141,7 +157,7 @@ export class PiChangelogService {
 			const controller = new AbortController();
 			const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 			try {
-				const response = await fetch(candidate.url, {
+				const response = await this.fetchImpl(candidate.url, {
 					headers: { accept: "text/plain, text/markdown, */*", "user-agent": `pi-deck/pi-changelog` },
 					signal: controller.signal,
 				});
