@@ -320,10 +320,6 @@ function dirFixture() {
 			},
 			"../remote/RemoteWorkspaceReader": {
 				createRemoteWorkspaceReader: () => ({
-					async list(_hostId, path) {
-						calls.list.push(path);
-						return { entries: state.entries };
-					},
 					async readFile() {
 						return { content: Buffer.from("x"), bytes: 1, mtimeMs: 1 };
 					},
@@ -349,6 +345,12 @@ function dirFixture() {
 		enabled: true,
 		userDataDir: "/tmp/unused",
 		service: async () => service,
+		directoryReader: {
+			async read({ relative }) {
+				calls.list.push(relative === "" ? "." : relative);
+				return { ok: true, value: { entries: state.entries, scanned: state.entries.length, truncated: false } };
+			},
+		},
 		projects: {
 			enroll: async () => ({ projectId: "p1" }),
 			locator: (id) => (id === "p1" && state.hasLocator ? { kind: "ssh", hostId: locator.hostId, remotePath: locator.remotePath } : undefined),

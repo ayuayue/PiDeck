@@ -16,7 +16,7 @@ import {
 } from "./projectServiceContracts";
 import { assertProjectTarget, fenceProjectFileService } from "./projectServiceFence";
 import { downloadThroughRemoteTransfer, uploadThroughRemoteTransfer } from "./remoteProjectTransferClient";
-import type { ProjectDirectoryPage } from "../../../shared/types/projectFiles";
+import type { ProjectDirectoryPage, ProjectFileStatResult } from "../../../shared/types/projectFiles";
 
 const NOT_FOUND_CODES = new Set(["PATH_NOT_FOUND", "NOT_FOUND", "REMOTE_ENTRY_NOT_FOUND", "ENOENT"]);
 
@@ -59,17 +59,25 @@ function readProjectTarget(value: unknown, fallback: ProjectFileTarget): Project
 /**
  * 纯读取复用 main 的位置路由，不能通过 entry.stat 挤占写授权。
  *
- * 当前公共 files.stat 把本地/远端的读取失败都折叠成 exists=false：provider 只能证明 present，
- * negative 一律记 unavailable（不再让 UI 把读失败显示成“文件不存在”）。
- * 待 I 把公共结果改成携带稳定码的 Op 后，这里再把 PATH_NOT_FOUND 映射成 missing。
+ * 公共 files.stat 携带 present / missing / unavailable 三态；provider 不再从布尔负结果猜测。
  */
 function createProjectStat(projectId: string, api: ProjectServicesApi): ProjectFileService["stat"] {
 	return async (target): Promise<ProjectServicePathState> => {
 		assertProjectTarget(projectId, target);
-		const state = await api.files.stat(target);
-		if (state.exists) return { target, availability: "present", isDirectory: state.isDirectory };
-		// 读不到时连“是不是目录”也不知道：不填 isDirectory，避免 UI 把读失败显示成文件。
-		return { target, availability: "unavailable", code: PROJECT_SERVICE_CODES.statUnavailable };
+		const raw = await api.files.stat(target);
+		// Older preload builds only answered `exists`; keep that boundary explicit while
+		// renderer and preload are reloaded together during a live Electron update.
+		if (!("availability" in raw)) {
+			const legacy = raw as unknown as { exists: boolean; isDirectory: boolean };
+			return legacy.exists ? { target, availability: "present", isDirectory: legacy.isDirectory } : { target, availability: "unavailable", code: PROJECT_SERVICE_CODES.statUnavailable };
+		}
+		const state = raw as ProjectFileStatResult;
+		if (state.availability === "present") return { target, availability: "present", isDirectory: state.isDirectory };
+		return {
+			target,
+			availability: state.availability,
+			code: state.availability === "missing" ? state.code : (state.code ?? PROJECT_SERVICE_CODES.statUnavailable),
+		};
 	};
 }
 

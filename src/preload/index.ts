@@ -452,12 +452,6 @@ const api = {
 		listProject: (projectId: string, path: string) => ipcRenderer.invoke(ipcChannels.remoteProjectList, projectId, path) as Promise<import("../shared/types/remoteHost").RemoteProjectListResult>,
 		/** 按 projectId 读文件（相对路径）；内容为 base64。 */
 		readProjectFile: (projectId: string, path: string) => ipcRenderer.invoke(ipcChannels.remoteProjectRead, projectId, path) as Promise<import("../shared/types/remoteHost").RemoteProjectReadResult>,
-		/** 下载远端项目里的一个文件到本机（主进程弹保存对话框；取消是正常结果）。 */
-		downloadProjectFile: (projectId: string, path: string) => ipcRenderer.invoke(ipcChannels.remoteProjectDownload, projectId, path) as Promise<import("../shared/types/remoteHost").RemoteProjectDownloadResult>,
-		/** 上传本机文件到远端项目的某个目录（主进程弹选择对话框；取消是正常结果）。 */
-		uploadProjectFiles: (projectId: string, directory: string) => ipcRenderer.invoke(ipcChannels.remoteProjectUpload, projectId, directory) as Promise<import("../shared/types/remoteHost").RemoteProjectUploadResult>,
-		/** 拖放上传：本机路径来自 webUtils.getPathForFile，主进程逐条校验后走同一条写通道。 */
-		uploadProjectFilesFromPaths: (projectId: string, directory: string, paths: string[]) => ipcRenderer.invoke(ipcChannels.remoteProjectUploadPaths, projectId, directory, paths) as Promise<import("../shared/types/remoteHost").RemoteProjectUploadResult>,
 		openProjectText: (projectId: string, path: string): Promise<import("../shared/types/remoteFiles").RemoteTextOpenResult> => ipcRenderer.invoke(ipcChannels.remoteProjectTextOpen, projectId, path),
 		saveProjectText: (projectId: string, path: string, content: string, version: string): Promise<import("../shared/types/remoteFiles").RemoteTextSaveResult> => ipcRenderer.invoke(ipcChannels.remoteProjectTextSave, projectId, path, content, version),
 		/** 远端文件管理：读取条目元数据并签发 rename/delete 的一次性 entry 令牌（不读正文）。 */
@@ -586,11 +580,7 @@ const api = {
 		/** 批量校验路径是否存在（返回与入参等长的 boolean[]；单路径失败按 false 计） */
 		pathsExist: (paths: Array<string | ProjectFileTarget>, scope?: ProjectFileAccessScope) => ipcRenderer.invoke(ipcChannels.filesPathsExist, paths, scope) as Promise<boolean[]>,
 		/** 单路径 stat（存在性 + 是否目录）：会话内文件链接点击路由用（目录 → 资源管理器打开） */
-		stat: (path: string | ProjectFileTarget, scope?: ProjectFileAccessScope) =>
-			ipcRenderer.invoke(ipcChannels.filesStat, path, scope) as Promise<{
-				exists: boolean;
-				isDirectory: boolean;
-			}>,
+		stat: (path: string | ProjectFileTarget, scope?: ProjectFileAccessScope) => ipcRenderer.invoke(ipcChannels.filesStat, path, scope) as Promise<import("../shared/types/projectFiles").ProjectFileStatResult>,
 		/** 读取二进制文件为 base64；scope 存在时主进程限制到对应 ProjectStore 根目录。 */
 		readBase64: (path: string | ProjectFileTarget, maxBytes?: number, scope?: ProjectFileAccessScope) => ipcRenderer.invoke(ipcChannels.filesReadBase64, path, maxBytes, scope) as Promise<string>,
 		/** 保存项目来源文件时复用读取 scope，主进程据此校验真实写入路径。 */

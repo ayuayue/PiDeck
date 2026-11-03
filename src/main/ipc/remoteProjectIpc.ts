@@ -21,12 +21,13 @@ import { ipcChannels } from "../../shared/ipc";
 import { codeOf, opFailFromCode, opOk, type Op } from "../../shared/op";
 import type { FileContentSearchResult } from "../../shared/types";
 import type { ProjectDirectoryPageResult, ProjectPathsExistResult } from "../../shared/types/projectFiles";
-import type { RemoteProjectDownloadResult, RemoteProjectUploadResult, RemoteProjectEnrollAnswerResult, RemoteProjectEnrollMode, RemoteProjectEnrollRequest, RemoteProjectEnrollResult } from "../../shared/types/remoteHost";
+import type { RemoteProjectEnrollAnswerResult, RemoteProjectEnrollMode, RemoteProjectEnrollRequest, RemoteProjectEnrollResult } from "../../shared/types/remoteHost";
 import { registerRemoteProjectReadIpc, sessionPort } from "./remoteProjectReadIpc";
 import { projectPathsExist } from "./remoteProjectDirectoryReads";
 import { createProjectDirFacts } from "./remoteProjectDirFacts";
 import { registerRemoteProjectCreateFlow } from "./remoteProjectCreateIpc";
 import type { RemoteHostConnectionService } from "../remote/RemoteHostConnectionService";
+import type { RemoteSftpDirectoryPort } from "../remote/RemoteSftpDirectoryReader";
 import { isUserVisibleRemoteEntry } from "../remote/RemoteProjectNameRules";
 import { resolveRemoteBrowseRoot } from "../remote/RemoteBrowseRoot";
 import { createRemoteSearchReader } from "../remote/RemoteSearchReader";
@@ -96,6 +97,8 @@ export function registerRemoteProjectIpc(input: {
 	enabled: boolean;
 	userDataDir: string;
 	service?: () => RemoteHostConnectionService | undefined | Promise<RemoteHostConnectionService | undefined>;
+	/** Ordinary project directory reads. Production injects it; absence fails closed. */
+	directoryReader?: RemoteSftpDirectoryPort;
 	/** 事实变化通知出口；装配层提供时由目录与 Git 共用同一个 hub。 */
 	factsEvents?: RemoteFactsHub;
 	/**
@@ -244,7 +247,7 @@ export function registerRemoteProjectIpc(input: {
 	 */
 	const factsEvents: RemoteFactsHub = input.factsEvents ?? createRemoteFactsHub(ipcChannels.remoteProjectFactsChanged);
 	/** 目录事实缓存 + generation/host/root 归属 + 深层订阅：拆到窄模块，保持本文件在体量红线内。 */
-	const projectDirs = createProjectDirFacts({ projectReadTarget, factsEvents });
+	const projectDirs = createProjectDirFacts({ projectReadTarget, factsEvents, directoryReader: input.directoryReader });
 
 	registerRemoteProjectReadIpc({
 		enabled: input.enabled,

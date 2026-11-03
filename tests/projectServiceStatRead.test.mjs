@@ -34,7 +34,9 @@ function fixture() {
 		files: {
 			async stat(target) {
 				assert.equal(target.projectId, projectId);
-				return { exists: target.relativePath !== "missing", isDirectory: target.relativePath === "" };
+				if (target.relativePath === "missing") return { availability: "missing", exists: false, isDirectory: false, code: "ENOENT" };
+				if (target.relativePath === "unavailable") return { availability: "unavailable", exists: false, isDirectory: false, code: "SSH_HOST_NOT_READY" };
+				return { availability: "present", exists: true, isDirectory: target.relativePath === "" };
 			},
 		},
 		remoteHosts: {
@@ -64,7 +66,7 @@ test("remote provider stat preserves an outstanding rename grant across 128 read
 	assert.equal(entries.tokenCount(), 0);
 });
 
-test("both providers keep project identity and report present, directory, and unavailable states", async () => {
+test("both providers keep project identity and report present, missing, and unavailable states", async () => {
 	for (const createService of [createLocalProjectFileService, createRemoteProjectFileService]) {
 		const { api, entries } = fixture();
 		const files = createService(projectId, api, testFence());
@@ -75,11 +77,14 @@ test("both providers keep project identity and report present, directory, and un
 		const directory = await files.stat({ projectId, relativePath: "" });
 		assert.equal(directory.availability, "present");
 		assert.equal(directory.isDirectory, true);
-		// 公共 files.stat 的负结果无法区分“缺失”和“读取失败”：只能记 unavailable，不能谎报不存在。
-		const negative = await files.stat({ projectId, relativePath: "missing" });
-		assert.equal(negative.availability, "unavailable");
-		assert.equal(negative.code, PROJECT_SERVICE_CODES.statUnavailable);
-		assert.equal("isDirectory" in negative, false, "读不到时不能猜是不是目录");
+		const missing = await files.stat({ projectId, relativePath: "missing" });
+		assert.equal(missing.availability, "missing");
+		assert.equal(missing.code, "ENOENT");
+		assert.equal("isDirectory" in missing, false, "missing is not evidence of a file type");
+		const unavailable = await files.stat({ projectId, relativePath: "unavailable" });
+		assert.equal(unavailable.availability, "unavailable");
+		assert.equal(unavailable.code, "SSH_HOST_NOT_READY");
+		assert.equal("isDirectory" in unavailable, false, "an unavailable read cannot guess a file type");
 		assert.equal(entries.tokenCount(), 0);
 	}
 });

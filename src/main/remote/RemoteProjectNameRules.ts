@@ -1,5 +1,5 @@
 import { REMOTE_PROJECT_TRASH_DIR } from "./RemoteProjectEntryCommands";
-import { REMOTE_UPLOAD_TEMP_NAME } from "./RemoteProjectFileUpload";
+import { REMOTE_UPLOAD_TEMP_NAME } from "./RemoteProjectUploadNames";
 
 /**
  * 「用户可见的远端条目」判据（新增只读面共用）。

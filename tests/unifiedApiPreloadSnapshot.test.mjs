@@ -32,6 +32,7 @@
  *   79→80；sessions 117 / config 52 / git 64 / app 32 不变。
  * 2026-11-02 SFTP-0 刷新：remoteTransfers（start/cancel/onEvent）入场，80→81；
  *   方法清单摘要随三方法变化，数量锚点不变。
+ * 2026-11-03 SFTP-1 收口：下线 remoteHosts 的三个旧上传/下载方法，任务式入口不变。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -39,7 +40,7 @@ import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const NS_LIST_SHA256 = "87abafdddbb2b40725544e6e67bf7fbcfb65688e7e71b623f524be401d3fcde6";
-const FULL_METHODS_SHA256 = "69d5451e3ae775f4e45bd59331a31e1c1f0d343e9b81449ed829f235c4a627cd";
+const FULL_METHODS_SHA256 = "7889a680b1ff2b768bf1f5c82d5f17a66f2b8debafaf27f543c89105f5f0681a";
 const NAMESPACE_COUNT = 81;
 
 /** 捕获 preload 暴露的 piDesktop；null/undefined/形态不符时显式红并给诊断（F8-6 共用）。 */

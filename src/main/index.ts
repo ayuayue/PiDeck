@@ -442,7 +442,6 @@ import { resolveProjectWslIdentity } from "./wsl/WslProjectEnvironment";
 import { registerRemoteProjectIpc } from "./ipc/remoteProjectIpc";
 import { createRemoteFactsHub } from "./remote/RemoteFactsNotifications";
 import { registerRemoteProjectFileIpc } from "./ipc/remoteProjectFileIpc";
-import { registerRemoteProjectTransferIpc } from "./ipc/remoteProjectTransferIpc";
 import { registerRemoteProjectTransferJobIpc } from "./ipc/remoteProjectTransferJobIpc";
 import { registerRemoteProjectEntryIpc } from "./ipc/remoteProjectEntryIpc";
 import { registerRemoteProjectTrustIpc } from "./ipc/remoteProjectTrustIpc";
@@ -455,6 +454,10 @@ import { createRemoteModelCatalog, REMOTE_MODEL_CATALOG_CODES } from "./remote/R
 import { createSshClientRuntime, resolvePosixSshClient, type SshClientRuntime } from "./remote/SshClientRuntime";
 import { buildPinnedSshInvocation } from "./remote/SshVerifiedConnection";
 import { loadRemoteSftpBinaryIdentity, type RemoteSftpBinaryIdentity } from "./remote/RemoteSftpBinary";
+import { createRemoteSftpCapabilityCache } from "./remote/RemoteSftpCapabilityCache";
+import { createRemoteSftpCapabilityProbe } from "./remote/RemoteSftpCapabilityProbe";
+import { createRemoteSftpDirectoryReader } from "./remote/RemoteSftpDirectoryReader";
+import type { RemoteSftpProbe } from "./remote/RemoteSftpAdapter";
 import { createRemoteSessionHistoryReader } from "./remote/RemoteSessionHistoryReader";
 import { createRemoteSessionArchive } from "./remote/RemoteSessionArchive";
 import { createRemoteSessionDelete } from "./remote/RemoteSessionDelete";
@@ -3522,12 +3525,22 @@ function registerIpc() {
 		| undefined;
 	/** 目录与 Git 共用的事实变化通知出口（T4）：订阅按 sender + project，事件只标脏。 */
 	const remoteFactsEvents = createRemoteFactsHub(ipcChannels.remoteProjectFactsChanged);
+	let remoteSftpBinary: Promise<RemoteSftpBinaryIdentity | undefined> | undefined;
+	const resolveRemoteSftpBinary = (): Promise<RemoteSftpBinaryIdentity | undefined> => (remoteSftpBinary ??= loadRemoteSftpBinaryIdentity({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() }));
+	const remoteSftpCapabilityCache = createRemoteSftpCapabilityCache<RemoteSftpProbe>();
+	const remoteSftpCapabilityProbe = createRemoteSftpCapabilityProbe();
+	const remoteSftpDirectoryReader = createRemoteSftpDirectoryReader({
+		binary: resolveRemoteSftpBinary,
+		cache: remoteSftpCapabilityCache,
+		probe: remoteSftpCapabilityProbe,
+	});
 	registerRemoteProjectTrustIpc({ enabled: remoteExperimentEnabled, trust: () => remoteProjectTrustService });
 	const remoteProjectIpc = registerRemoteProjectIpc({
 		enabled: remoteExperimentEnabled,
 		userDataDir: app.getPath("userData"),
 		service: remoteHostServiceIfEnabled,
 		factsEvents: remoteFactsEvents,
+		directoryReader: remoteSftpDirectoryReader,
 		// 远端项目登记端口（Phase 3 第二段）：canonical 值已由 IPC 层校验/确认，这里只做持久化
 		// 与按 projectId 取 locator。只暴露 ssh 项目，本机项目不经过这条入口。
 		projects: {
@@ -3569,17 +3582,6 @@ function registerIpc() {
 			remoteGitReads.invalidateProject(projectId);
 		},
 	});
-	// 本机 ↔ 远端文件传输（上传走 stdin 分块，支持二进制；下载走只读 reader + 保存对话框）。
-	// 与只读项目通道共用同一份 locator 解析，避免「列表看得到、下载找不到」。
-	registerRemoteProjectTransferIpc({
-		enabled: remoteExperimentEnabled,
-		service: remoteHostServiceIfEnabled,
-		locator: (projectId) => {
-			const project = projectStore.get(projectId);
-			return project && isRemoteProject(project) ? project.locator : undefined;
-		},
-	});
-	let remoteSftpBinary: Promise<RemoteSftpBinaryIdentity | undefined> | undefined;
 	const remoteProjectTransfers = registerRemoteProjectTransferJobIpc({
 		enabled: remoteExperimentEnabled,
 		service: remoteHostServiceIfEnabled,
@@ -3587,7 +3589,9 @@ function registerIpc() {
 			const project = projectStore.get(projectId);
 			return project && isRemoteProject(project) ? project.locator : undefined;
 		},
-		binary: () => (remoteSftpBinary ??= loadRemoteSftpBinaryIdentity({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() })),
+		binary: resolveRemoteSftpBinary,
+		cache: remoteSftpCapabilityCache,
+		probe: remoteSftpCapabilityProbe,
 		afterWrite: (projectId, paths) => {
 			remoteProjectFacts?.afterWrite(projectId, paths);
 			remoteGitReads.invalidateProject(projectId);

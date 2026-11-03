@@ -82,7 +82,6 @@ test("backpressure stops the flush and drain resumes it in whole-frame order", a
 		["A", "B", "C"],
 	);
 });
-
 test("a synchronous writer past the unsent-byte budget fails closed instead of buffering without limit", async () => {
 	const { stdin, handle } = await launch({ cap: 1024 });
 	const big = "x".repeat(3 * 1024 * 1024);
@@ -132,57 +131,4 @@ test("stopping the process releases queued frames and capacity waiters instead o
 	assert.equal(stdin.writes.length, 1);
 	assert.equal(stdin.ended, true);
 	assert.throws(() => handle.write("late"), new RegExp(SSH_LAUNCHER_STDIN_UNAVAILABLE));
-});
-
-test("the project upload awaits each frame so chunks and END keep their order under backpressure", async () => {
-	const { uploadRemoteProjectFile, REMOTE_PROJECT_UPLOAD_CHUNK_BYTES } = loadTsCommonJs("src/main/remote/RemoteProjectFileUpload.ts", {
-		stubs: {
-			"./RemoteBrowseRoot": { readCanonicalBrowseRoot: (value) => ({ canonicalPath: value }) },
-			"./SshVerifiedConnection": { buildPinnedSshInvocation: async (_dir, _host, _kind, { remoteCommand }) => ({ executable: "ssh", args: [remoteCommand] }) },
-		},
-	});
-	const written = [];
-	let stdout;
-	let inFlight = 0;
-	let peakInFlight = 0;
-	const handle = {
-		pid: 9,
-		onExit() {
-			return () => {};
-		},
-		onStdoutLine(listener) {
-			stdout = listener;
-			return () => {};
-		},
-		write() {
-			assert.fail("the upload must use the awaitable stdin form when the handle provides it");
-		},
-		async writeAwait(line) {
-			inFlight += 1;
-			peakInFlight = Math.max(peakInFlight, inFlight);
-			await new Promise((resolve) => setImmediate(resolve));
-			written.push(line);
-			inFlight -= 1;
-			// The remote script answers only after it has read the terminator; the marker is the minted nonce.
-			if (line === "END") stdout?.("PIDECK_PUT_" + "a".repeat(32) + JSON.stringify({ ok: true, bytes: 1 }));
-		},
-		async stop() {},
-	};
-	const bytes = Buffer.alloc(REMOTE_PROJECT_UPLOAD_CHUNK_BYTES * 2 + 10, 7);
-	await uploadRemoteProjectFile({
-		userDataDir: "/tmp/ud",
-		hostId: "11111111-1111-4111-8111-111111111111",
-		generation: 3,
-		nodePath: "/usr/local/bin/node",
-		root: "/srv/project",
-		relative: "docs/big.bin",
-		bytes,
-		client: {},
-		launcher: { start: async () => handle },
-		nonce: "a".repeat(32),
-		timeoutMs: 5_000,
-	});
-	assert.equal(written.length, 4, "three chunks and the terminator, in that order");
-	assert.equal(written.at(-1), "END");
-	assert.equal(peakInFlight, 1, "frames must not be pipelined past the awaitable write");
 });

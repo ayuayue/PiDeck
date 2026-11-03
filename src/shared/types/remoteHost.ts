@@ -219,7 +219,7 @@ export type RemoteProjectCreateAnswerResult = Op<{ enrolled: boolean; projectId?
  * `revision` 是目录事实的版本：值被替换或标脏时递增。两个读者拿到同一个数 = 看到同一份事实，
  * 所以树与面板不再各自「再问一遍确认一下」。
  */
-export type RemoteProjectListResult = Op<{ entries: RemoteWorkspaceEntry[]; revision: number }>;
+export type RemoteProjectListResult = Op<{ entries: RemoteWorkspaceEntry[]; revision: number; truncated: boolean; scanned: number }>;
 
 /** 读项目内文件的结果；`contentBase64` 跨 IPC 传二进制。 */
 export type RemoteProjectReadResult = Op<{ contentBase64: string; bytes: number; mtimeMs: number }>;

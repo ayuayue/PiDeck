@@ -7,7 +7,7 @@ import { codeOf, opFailFromCode, opOk } from "../../shared/op";
 import { ipcChannels } from "../../shared/ipc";
 import { FILE_TREE_ABSOLUTE_MAX_DEPTH } from "../../shared/fileTree";
 import type { ProjectFileAccessScope, ProjectFileTarget } from "../../shared/types/project";
-import type { ProjectDirectoryPageResult, ProjectPathsExistResult } from "../../shared/types/projectFiles";
+import type { ProjectDirectoryPageResult, ProjectFileStatResult, ProjectPathsExistResult } from "../../shared/types/projectFiles";
 import type { FileContentSearchResult, FileSearchResult } from "../../shared/types";
 import { detectFileManager, openFileManagerAt } from "../files/FileManager";
 import { expandHomeForFileAccess } from "../fs/homePathExpansion";
@@ -455,7 +455,7 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		);
 	});
 
-	ipcMain.handle(ipcChannels.filesStat, async (_event, path: unknown, scope?: unknown): Promise<{ exists: boolean; isDirectory: boolean }> => {
+	ipcMain.handle(ipcChannels.filesStat, async (_event, path: unknown, scope?: unknown): Promise<ProjectFileStatResult> => {
 		// 会话内文件链接点击路由用：verdict store 只回答「存在与否」，区分不了目录，
 		// 而编辑器 readContent 对目录会抛 EISDIR（用户看到的 "illegal operation on a
 		// directory" 就是目录链接被当文件读）。这里补一次带边界的 stat 给渲染层分流。
@@ -464,10 +464,13 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 			if (scope !== undefined) throw new Error("INVALID_PROJECT_FILE_ACCESS_SCOPE");
 			const project = projectStore.get(input.projectId);
 			if (project !== undefined && isRemoteProject(project)) {
-				if (!remoteFiles) return { exists: false, isDirectory: false };
+				if (!remoteFiles) return { availability: "unavailable", exists: false, isDirectory: false, code: "REMOTE_FILES_UNAVAILABLE" };
 				const result = await remoteFiles.pathsExist(input.projectId, [input.relativePath]);
-				const state = result.ok ? result.value[0] : undefined;
-				return { exists: state?.exists === true, isDirectory: state?.isDirectory === true };
+				if (!result.ok) return { availability: "unavailable", exists: false, isDirectory: false, code: result.code };
+				const state = result.value[0];
+				if (state === undefined) return { availability: "unavailable", exists: false, isDirectory: false, code: "PROJECT_FILE_STAT_UNAVAILABLE" };
+				if (state.exists) return { availability: "present", exists: true, isDirectory: state.isDirectory };
+				return { availability: "missing", exists: false, isDirectory: false, code: "PATH_NOT_FOUND" };
 			}
 			return projectFileBackendRouter.forProject(input.projectId).stat(input);
 		}
@@ -475,9 +478,10 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		try {
 			const readablePath = await resolveReadablePath(input, boundary);
 			const fileStat = await stat(readablePath);
-			return { exists: true, isDirectory: fileStat.isDirectory() };
-		} catch {
-			return { exists: false, isDirectory: false };
+			return { availability: "present", exists: true, isDirectory: fileStat.isDirectory() };
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return { availability: "missing", exists: false, isDirectory: false, code: "ENOENT" };
+			return { availability: "unavailable", exists: false, isDirectory: false, code: codeOf(error, "PROJECT_FILE_STAT_UNAVAILABLE") };
 		}
 	});
 

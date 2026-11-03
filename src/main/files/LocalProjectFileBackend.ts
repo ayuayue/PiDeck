@@ -1,7 +1,8 @@
 import { cp, readFile, rename as fsRename, rm, stat, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
+import { codeOf } from "../../shared/op";
 import type { FileSearchResult, FileTreeNode, ProjectFileTarget } from "../../shared/types";
-import type { ProjectDirectoryEntry } from "../../shared/types/projectFiles";
+import type { ProjectDirectoryEntry, ProjectFileStatResult } from "../../shared/types/projectFiles";
 import { createProjectFileReadBoundary, resolveProjectFileReadPath, resolveProjectFileWritePath, type ProjectFileReadBoundary } from "./projectFileAccess";
 import { parseProjectFileTarget, resolveLocalProjectFileTarget } from "./projectFileTarget";
 import type { ProjectFileBackend } from "./ProjectFileBackend";
@@ -152,13 +153,14 @@ export class LocalProjectFileBackend implements ProjectFileBackend {
 		);
 	}
 
-	async stat(target: ProjectFileTarget): Promise<{ exists: boolean; isDirectory: boolean }> {
+	async stat(target: ProjectFileTarget): Promise<ProjectFileStatResult> {
 		try {
 			const resolved = await this.resolveTarget(target);
 			const fileStat = await stat(resolved.path);
-			return { exists: true, isDirectory: fileStat.isDirectory() };
-		} catch {
-			return { exists: false, isDirectory: false };
+			return { availability: "present", exists: true, isDirectory: fileStat.isDirectory() };
+		} catch (error) {
+			if (isMissingPath(error)) return { availability: "missing", exists: false, isDirectory: false, code: "ENOENT" };
+			return { availability: "unavailable", exists: false, isDirectory: false, code: codeOf(error, "PROJECT_FILE_STAT_UNAVAILABLE") };
 		}
 	}
 

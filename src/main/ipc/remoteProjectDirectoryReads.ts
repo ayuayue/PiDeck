@@ -52,10 +52,17 @@ export function projectDirectoryPage(input: {
 				target: { projectId: input.projectId, relativePath: prefix + entry.name },
 				relativePath: prefix + entry.name,
 				type: entry.kind as "file" | "directory",
-				// helper 的 fs.list 不逐项探测：远端只能是 unknown，不能伪装成“没有子项”。
+				// 单层目录协议不逐项探测：远端只能是 unknown，不能伪装成“没有子项”。
 				hasChildren: (entry.kind === "directory" ? "unknown" : false) as boolean | "unknown",
 			}));
-		return opOk({ entries: entries.slice(0, 2000), truncated: entries.length > 2000, revision: read.snapshot.revision, generation: input.generationOf(input.projectId), ...(dirWatch === undefined ? {} : { dirWatch }) });
+		return opOk({
+			entries: entries.slice(0, 2000),
+			truncated: read.snapshot.truncated || entries.length > 2000,
+			scanned: read.snapshot.scanned,
+			revision: read.snapshot.revision,
+			generation: input.generationOf(input.projectId),
+			...(dirWatch === undefined ? {} : { dirWatch }),
+		});
 	});
 }
 

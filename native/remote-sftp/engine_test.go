@@ -87,14 +87,14 @@ func (f *fakeRemote) Lstat(value string) (os.FileInfo, error) {
 	return fakeInfo{name: path.Base(value), size: int64(len(node.data)), mode: node.mode, modTime: node.modTime}, nil
 }
 
-func (f *fakeRemote) ReadDir(value string) ([]os.FileInfo, error) {
+func (f *fakeRemote) ReadDirBounded(value string, maxEntries int) ([]os.FileInfo, bool, int, error) {
 	value = path.Clean(value)
 	dir, ok := f.nodes[value]
 	if !ok {
-		return nil, os.ErrNotExist
+		return nil, false, 0, os.ErrNotExist
 	}
 	if !dir.mode.IsDir() {
-		return nil, errors.New("not a directory")
+		return nil, false, 0, errors.New("not a directory")
 	}
 	var result []os.FileInfo
 	for name, node := range f.nodes {
@@ -104,7 +104,12 @@ func (f *fakeRemote) ReadDir(value string) ([]os.FileInfo, error) {
 		result = append(result, fakeInfo{name: path.Base(name), size: int64(len(node.data)), mode: node.mode, modTime: node.modTime})
 	}
 	sort.Slice(result, func(left, right int) bool { return result[left].Name() < result[right].Name() })
-	return result, nil
+	scanned := len(result)
+	truncated := scanned > maxEntries
+	if truncated {
+		result = result[:maxEntries]
+	}
+	return result, truncated, scanned, nil
 }
 
 func (f *fakeRemote) OpenRead(value string) (io.ReadCloser, error) {

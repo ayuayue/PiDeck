@@ -62,9 +62,21 @@ export type ProjectDirectoryPage = {
 	dirWatch?: ProjectDirectoryWatchDegradation;
 	/** 仅本机页在单层超限截断时出现：截断前总数，供文件树复现“目录过大”提示。 */
 	totalEntries?: number;
+	/**
+	 * 远端 SFTP 本次实际检查到的条目数：它可能大于公共投影（类型过滤/2000 上限），
+	 * 也只描述本次有界读取，不是远端目录总数。本机页缺席。
+	 */
+	scanned?: number;
 };
 
 export type ProjectDirectoryPageResult = Op<ProjectDirectoryPage>;
+
+/**
+ * 单路径只读 stat 的三态。`exists` 保留给旧调用方：
+ * - present 时才是 true；
+ * - missing / unavailable 都是 false，但二者绝不能混用。
+ */
+export type ProjectFileStatResult = { availability: "present"; exists: true; isDirectory: boolean } | { availability: "missing"; exists: false; isDirectory: false; code: string } | { availability: "unavailable"; exists: false; isDirectory: false; code: string };
 
 /** 批量存在性/类型（只读 fs 面；不签发任何 entry/文本授权）。 */
 export type ProjectPathState = { target: ProjectFileTarget; exists: boolean; isDirectory: boolean };
