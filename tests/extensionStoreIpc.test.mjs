@@ -23,6 +23,12 @@ test("主进程 storeIpc 注册 extensionsCatalog handler 并转发到 getPiPack
 	assert.match(storeIpc, /store\.packageCatalogFailed/);
 });
 
+test("目录页拉取必须注入 net.fetch：不传 fetchImpl 会回退全局 fetch（不读代理）", () => {
+	// getPiPackageCatalog 缺省 `args.fetchImpl ?? fetch`（=== 全局 fetch 走 undici），
+	// 代理环境下商店目录直接挂到超时。handler 必须把它已解析好的 fetchImpl 传下去。
+	assert.match(storeIpc, /getPiPackageCatalog\(\{ \.\.\.\(query \?\? \{\}\), fetchImpl \}\)/);
+});
+
 test("preload 暴露 extensions.catalog（带类型查询参数）", () => {
 	assert.match(preload, /catalog: \(query: import\("\.\.\/shared\/types"\)\.PiPackageCatalogQuery\)/);
 	assert.match(preload, /ipcChannels\.extensionsCatalog, query/);

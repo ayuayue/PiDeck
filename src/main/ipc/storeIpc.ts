@@ -698,9 +698,11 @@ export function registerStoreIpc({ promptManager, skillManager, xuePromptManager
 	});
 	// 扩展商店：pi.dev 目录页无公开 JSON API，主进程抓 SSR HTML 解析 + 缓存后返回。
 	// 渲染层只消费结构化结果，不感知 HTML 解析细节；失败时保留旧缓存或报用户可读错误。
+	// fetchImpl 必须显式传入：不传就回退模块内的全局 fetch（undici，不读代理），
+	// 代理环境下商店目录会直接挂到超时。
 	ipcMain.handle(ipcChannels.extensionsCatalog, async (_event, query: import("../../shared/types").PiPackageCatalogQuery) => {
 		try {
-			return await getPiPackageCatalog(query ?? {});
+			return await getPiPackageCatalog({ ...(query ?? {}), fetchImpl });
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			void appLogger.warn("extension-store", "Catalog fetch failed", {
