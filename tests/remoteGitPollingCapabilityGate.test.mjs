@@ -219,7 +219,7 @@ test("能力齐全时，关闭的只是对应动作：读仍可用，静默读�
 test("hook 源码：status 轮询受 capabilities.statusPoll 约束、refs 轮询受 refsWatch 约束", () => {
 	const hook = readFileSync(HOOK, "utf8");
 	assert.match(hook, /useProjectServices\(project\)/, "the only data entry is the project service");
-	assert.match(hook, /createRemoteGitPanelApi\(services, desktopApi\)/, "the hook builds the bridge instead of calling preload git directly");
+	assert.match(hook, /createRemoteGitPanelApi\(services\)/, "the hook builds the bridge from the project-bound service");
 	assert.match(hook, /repoPath, services\.generation\]/, "the connection generation is part of the controller key");
 	assert.match(hook, /capabilities\.statusPoll && remoteGitStatusPollingEnabled/, "status polling is gated by the capability");
 	assert.match(hook, /capabilities\.refsWatch \? \(?controller\.current\?\.pollRefs\(\)/, "refs polling is gated by refsWatch");
@@ -233,7 +233,7 @@ test("hook 源码：不再直订 preload 事实/主机订阅，也不需要令�
 	assert.ok(!hook.includes("subscribeRemoteGitFacts"), "the preload facts subscription is gone");
 	assert.ok(!hook.includes("onProjectFactsChanged"), "no direct preload facts subscription");
 	assert.ok(!hook.includes("remoteHosts.onStateChange"), "no direct host state subscription");
-	assert.ok(!hook.includes("desktopApi.git"), "the hook only hands the api to the bridge");
+	assert.ok(!hook.includes("desktopApi.git"), "the hook no longer carries a panel-private Git preload entry");
 	for (const token of ["mutationToken", "commitToken", "branchToken", "switchToken", "discardToken", "restoreToken", "dropToken", "fetchToken", "pushToken", "pullToken"]) {
 		assert.ok(!hook.includes(token), "the hook never mentions the " + token);
 	}

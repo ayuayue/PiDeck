@@ -2,9 +2,8 @@ import { RemoteProjectPanel } from "../session/RemoteProjectPanel";
 import { isRemoteProject } from "../../../../shared/projectLocation";
 import { projectSupportsContentSearch } from "../../utils/fileSearchCapability";
 import { BrowserSurface } from "./BrowserSurface";
-import { GitDrawerHost, type GitDrawerApi, type GitDrawerHostProps } from "./GitDrawerHost";
-import { useProjectServices } from "../../hooks/useProjectServices";
-import { RemoteGitPanel } from "./RemoteGitPanel";
+import type { GitDrawerApi } from "./GitDrawerHost";
+import { ProjectGitDrawer } from "./ProjectGitDrawer";
 import { RewindPanel } from "./RewindPanel";
 import { RpcLogPanel } from "./RpcLogPanel";
 import { ScratchPadDrawer } from "../scratchPad/ScratchPadDrawer";
@@ -71,7 +70,7 @@ export interface DrawerFileMenu {
 }
 
 export interface DrawerFilesPort {
-	/** 当前项目：远端项目走 RemoteProjectPanel / RemoteGitPanel 分支 */
+	/** 当前项目：文件抽屉按位置选择 RemoteProjectPanel；Git 抽屉统一交给 ProjectGitDrawer。 */
 	activeProject?: Project;
 	sessionsProject: Project | undefined;
 	sessionsProjectId: string | undefined;
@@ -109,15 +108,6 @@ export interface DrawerFilesPort {
 	onPasteFiles: (targetDir: string) => void;
 	/** 文件树内部拖拽移动 */
 	onMoveFiles: (sourcePaths: string[], targetDir: string) => void;
-}
-
-/**
- * 共用 GitPanel 的本地宿主：能力从 ProjectServices 取（G4b 的 gitCapabilities 透传）。
- * 远端仍由 RemoteGitPanel 自己走 services；这里只补共用面板的本地透传，缺省能力与旧行为一致。
- */
-function LocalGitDrawerHost({ project, ...props }: GitDrawerHostProps & { project: Project | undefined }) {
-	const services = useProjectServices(project);
-	return <GitDrawerHost {...props} gitCapabilities={services?.capabilities.git} />;
 }
 
 export interface DrawerSurfaceProps {
@@ -176,21 +166,17 @@ export function DrawerSurface(props: DrawerSurfaceProps) {
 				<div className="drawer-content-frame flex min-h-0 flex-1 flex-col overflow-hidden">
 					<div className="git-drawer-stack">
 						<div className="git-drawer-source">
-							{files.activeProject && files.activeProject.id === git.activeProjectId && isRemoteProject(files.activeProject) ? (
-								<RemoteGitPanel key={JSON.stringify([files.activeProject.id, files.activeProject.locator.hostId, files.activeProject.locator.remotePath])} project={files.activeProject} />
-							) : (
-								<LocalGitDrawerHost
-									project={files.activeProject}
-									projectId={git.activeProjectId}
-									gitApi={git.gitApi}
-									fallbackGitInfo={git.gitInfo}
-									fallbackSwitchBranch={git.switchBranch}
-									fallbackCreateBranch={git.createBranch}
-									onOpenCommitFileDiff={git.openCommitFileDiff}
-									onOpenWorkspaceFileDiff={git.openWorkspaceFileDiff}
-									onOpenFile={files.openEditorTab}
-								/>
-							)}
+							<ProjectGitDrawer
+								project={files.activeProject}
+								projectId={git.activeProjectId}
+								gitApi={git.gitApi}
+								fallbackGitInfo={git.gitInfo}
+								fallbackSwitchBranch={git.switchBranch}
+								fallbackCreateBranch={git.createBranch}
+								onOpenCommitFileDiff={git.openCommitFileDiff}
+								onOpenWorkspaceFileDiff={git.openWorkspaceFileDiff}
+								onOpenFile={files.openEditorTab}
+							/>
 						</div>
 					</div>
 				</div>

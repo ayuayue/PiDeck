@@ -17,8 +17,6 @@ import type {
 	RemoteGitRefsResult,
 } from "../../../shared/types/git";
 import type { ProjectFileTarget } from "../../../shared/types/project";
-import type { PiDesktopApi } from "../../../preload";
-import { PROJECT_SERVICE_CODES } from "../services/projectServiceContracts";
 import type { ProjectServices } from "../services/projectServiceContracts";
 import { errorCode, type RemoteGitViewApi } from "./remoteGitViewState";
 
@@ -33,8 +31,8 @@ import { errorCode, type RemoteGitViewApi } from "./remoteGitViewState";
  * - `outcome === "rejected"` → 原稳定码；
  * - 其它异常 → 沿用 `remoteGitViewState` 的稳定码正则（不把 invoke 包装/自由文本带给用户）。
  *
- * 三个只读/取消入口在冻结契约里没有对应方法，这里直连既有 preload 通道并做代数围栏（调用前后
- * `services.isCurrent()`）：结果必须属于创建时的连接代。等集成者扩 `ProjectGitService` 后删除。
+ * commit detail、revision file diff 与 read cancel 也已收进 `ProjectGitService`；本桥不再接收 preload
+ * 通道，因而不会绕过 provider 的项目身份、连接代与错误语义。
  */
 
 type PanelFailure = { ok: false; code: string; outcome: OpOutcome };
@@ -65,11 +63,10 @@ function failureError(failure: PanelFailure): Error {
  * 面板 → `ProjectServices` 的桥。每个方法只做三件事：项目作用域转换、委托服务、把服务失败折回信封。
  * 能力门禁在控制器（web 面板）里做，桥不重复判定“现在能不能用”，只保证不碰令牌。
  */
-export function createRemoteGitPanelApi(services: ProjectServices, api: PiDesktopApi): RemoteGitViewApi {
+export function createRemoteGitPanelApi(services: ProjectServices): RemoteGitViewApi {
 	const projectId = services.projectId;
 	/** "" 是项目根（服务约定：不传 repo 目标）；嵌套仓库传项目相对 target。 */
 	const repo = (repoPath: string | undefined): ProjectFileTarget | undefined => (repoPath === undefined || repoPath === "" ? undefined : { projectId, relativePath: repoPath });
-	const generationStale = (): PanelFailure => ({ ok: false, code: PROJECT_SERVICE_CODES.generationStale, outcome: "rejected" });
 
 	/** 当前分支只是展示信息：能力关闭/读失败都不得影响已经成功的事实读。 */
 	async function readBranch(repoPath: string | undefined): Promise<string | null> {
@@ -97,11 +94,9 @@ export function createRemoteGitPanelApi(services: ProjectServices, api: PiDeskto
 	}
 
 	return {
-		/* 契约缺口：冻结契约没有 cancel 入口；等集成者扩契约后删除。 */
 		async cancelRemoteReads(): Promise<void> {
-			if (!services.isCurrent()) return;
 			try {
-				await api.git.cancelRemoteReads(projectId);
+				await services.git.cancelRemoteReads();
 			} catch {
 				// 取消是尽力而为：调用方只关心下一次读不再发布旧结果。
 			}
@@ -115,13 +110,9 @@ export function createRemoteGitPanelApi(services: ProjectServices, api: PiDeskto
 				return failureOf(error);
 			}
 		},
-		/* 契约缺口：公共历史页存在，但 commitDetail 没有对应服务方法。等集成者扩契约后删除。 */
 		async commitDetail(oid, repoPath) {
-			if (!services.isCurrent()) return generationStale();
 			try {
-				const result = await api.git.remoteCommitDetail(projectId, oid, repoPath === "" ? undefined : repoPath);
-				if (!services.isCurrent()) return generationStale();
-				return result;
+				return { ok: true, detail: await services.git.commitDetail(oid, repo(repoPath)) };
 			} catch (error) {
 				return failureOf(error);
 			}
@@ -142,13 +133,9 @@ export function createRemoteGitPanelApi(services: ProjectServices, api: PiDeskto
 				return failureOf(error);
 			}
 		},
-		/* 契约缺口：逐文件双版本差异没有对应服务方法。等集成者扩契约后删除。 */
 		async refFileDiff(base, head, target, repoPath): Promise<RemoteGitRefFileDiffResult> {
-			if (!services.isCurrent()) return generationStale();
 			try {
-				const result = await api.git.remoteRefFileDiff(projectId, base, head, target, repoPath === "" ? undefined : repoPath);
-				if (!services.isCurrent()) return generationStale();
-				return result;
+				return { ok: true, diff: await services.git.refFileDiff(base, head, target, repo(repoPath)) };
 			} catch (error) {
 				return failureOf(error);
 			}

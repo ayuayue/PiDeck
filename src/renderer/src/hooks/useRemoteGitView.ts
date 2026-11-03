@@ -46,9 +46,8 @@ export function useRemoteGitView(project: RemoteProject, repoPath = "") {
 		},
 		[projectKey, identityKey],
 	);
-	// The bridge is the only place the preload API is still touched (three frozen-contract gaps); everything else is
-	// delegated to the project-bound service, which owns the tokens.
-	const api = useMemo(() => createRemoteGitPanelApi(services, desktopApi), [services]);
+	// The bridge only delegates to the project-bound service; preload stays behind the provider boundary.
+	const api = useMemo(() => createRemoteGitPanelApi(services), [services]);
 	// Host readiness is no longer read from host events: `git.write` is the capability that only opens for a host the
 	// service facts really consider ready, trusted and writable. Read/write themselves are still gated per action.
 	const hostReady = capabilities.write;

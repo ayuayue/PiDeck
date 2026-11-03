@@ -1,13 +1,28 @@
 import { opOutcomeOf } from "../../../shared/op";
-import { PROJECT_SERVICE_CODES, ProjectServiceError, unwrapOp, type ProjectFileTarget, type ProjectGitBranchMode, type ProjectGitDiscardReceipt, type ProjectGitRecoveryEntry, type ProjectGitRecoveryListing, type ProjectGitService, type ProjectGitSyncFacts, type ProjectServicesApi } from "./projectServiceContracts";
+import {
+	assertProjectServiceCurrent,
+	PROJECT_SERVICE_CODES,
+	ProjectServiceError,
+	unwrapOp,
+	type ProjectFileTarget,
+	type ProjectGitBranchMode,
+	type ProjectGitDiscardReceipt,
+	type ProjectGitRecoveryEntry,
+	type ProjectGitRecoveryListing,
+	type ProjectGitService,
+	type ProjectGitSyncFacts,
+	type ProjectServicesApi,
+} from "./projectServiceContracts";
 import type { ProjectServiceFence } from "./projectServiceContracts";
 import { assertProjectTarget, assertProjectTargets, assertRepoScope, fenceProjectGitService } from "./projectServiceFence";
-import type { GitAheadBehind, GitBranchInfo, GitCompareRefsValue, GitDiscardResource, GitHistoryPage, GitReadSnapshot, GitRef, GitRepositoryListing, GitResourceGroups, GitWorkspaceFileDiff, WorktreeEntry } from "../../../shared/types/git";
+import type { GitAheadBehind, GitBranchInfo, GitCompareRefsValue, GitDiscardResource, GitHistoryPage, GitReadSnapshot, GitRef, GitRepositoryListing, GitResourceGroups, GitWorkspaceFileDiff, RemoteGitCommitDetail, RemoteGitRefFileDiff, WorktreeEntry } from "../../../shared/types/git";
 
 const GIT_UNSUPPORTED = {
 	localSyncFacts: "local git sync facts are not wired through the service yet",
 	localCreateBranch: "local git:createBranch only supports create-and-checkout",
 	localRecovery: "local git has no recovery store",
+	localCommitDetail: "local git commit detail still uses the GitDrawerApi",
+	localRefFileDiff: "local git revision file diff still uses the GitDrawerApi",
 	remoteDeleteFiles: "remote file deletion belongs to the file service trash path",
 	remoteWorktree: "remote git worktree is local-only",
 	remoteBranchMode: "remote git only supports the create and create-and-checkout branch modes",
@@ -73,6 +88,15 @@ export function createLocalProjectGitService(projectId: string, api: ProjectServ
 		branches(repoPath): Promise<GitBranchInfo> {
 			assertRepoScope(projectId, repoPath);
 			return api.git.branches(projectId, repoPath);
+		},
+		async commitDetail(): Promise<RemoteGitCommitDetail> {
+			throw unsupported(GIT_UNSUPPORTED.localCommitDetail);
+		},
+		async refFileDiff(): Promise<RemoteGitRefFileDiff> {
+			throw unsupported(GIT_UNSUPPORTED.localRefFileDiff);
+		},
+		async cancelRemoteReads(): Promise<void> {
+			assertProjectServiceCurrent(fence);
 		},
 		async createBranch(name: string, mode: ProjectGitBranchMode, repoPath) {
 			assertRepoScope(projectId, repoPath);
@@ -284,6 +308,20 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 		return { branch: facts.branch, upstream: facts.upstream, ahead: facts.ahead, behind: facts.behind, remotes: [...facts.remotes] };
 	}
 
+	async function readCommitDetail(oid: string, repoPath: ProjectFileTarget | undefined): Promise<RemoteGitCommitDetail> {
+		assertProjectServiceCurrent(fence);
+		const result = await api.git.remoteCommitDetail(projectId, oid, scopeOf(repoPath));
+		if (!result.ok) throw remoteFailure(result.code, "remote git commit detail refused");
+		return result.detail;
+	}
+
+	async function readRefFileDiff(base: string | null, head: string, target: ProjectFileTarget, repoPath: ProjectFileTarget | undefined): Promise<RemoteGitRefFileDiff> {
+		assertProjectServiceCurrent(fence);
+		const result = await api.git.remoteRefFileDiff(projectId, base, head, target, scopeOf(repoPath));
+		if (!result.ok) throw remoteFailure(result.code, "remote git ref file diff refused");
+		return result.diff;
+	}
+
 	/** 契约缺口：同步方法没有 remote 参数。0 个 remote 是确定失败；>1 个无法替用户选，显式 unsupported。 */
 	function resolveRemote(facts: ProjectGitSyncFacts): string {
 		if (facts.remotes.length === 0) throw new ProjectServiceError("GIT_SYNC_REMOTE_UNKNOWN", "rejected", "remote git has no configured remote");
@@ -327,6 +365,24 @@ export function createRemoteProjectGitService(projectId: string, api: ProjectSer
 		branches(repoPath): Promise<GitBranchInfo> {
 			assertRepoScope(projectId, repoPath);
 			return readBranches(repoPath);
+		},
+		async commitDetail(oid, repoPath): Promise<RemoteGitCommitDetail> {
+			assertRepoScope(projectId, repoPath);
+			return readCommitDetail(oid, repoPath);
+		},
+		async refFileDiff(base, head, target, repoPath): Promise<RemoteGitRefFileDiff> {
+			assertProjectTarget(projectId, target);
+			assertRepoScope(projectId, repoPath);
+			return readRefFileDiff(base, head, target, repoPath);
+		},
+		async cancelRemoteReads(): Promise<void> {
+			assertProjectServiceCurrent(fence);
+			try {
+				await api.git.cancelRemoteReads(projectId);
+			} finally {
+				// main 在取消时会撤销该 sender+project 的授权快照；provider 不得再复用其中的令牌。
+				buckets.clear();
+			}
 		},
 		async createBranch(name, mode, repoPath) {
 			assertRepoScope(projectId, repoPath);
