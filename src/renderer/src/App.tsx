@@ -567,6 +567,12 @@ export function App() {
 		t,
 	});
 
+	// refreshProjectSessions 由 useProjectSync 以普通函数返回，每次渲染都换引用。
+	// 写进 effect deps 会让「catalog 加载失败 → 状态更新重渲染」再次触发自动重试，
+	// 持久失败时形成无限扫描风暴。自动加载类 effect 经 ref 取最新实现，不随渲染重跑。
+	const refreshProjectSessionsRef = useRef(refreshProjectSessions);
+	refreshProjectSessionsRef.current = refreshProjectSessions;
+
 	// 回答结束后的会话列表后台静默刷新：500ms 尾沿去抖。
 	// 多个 Agent 同时结束回答时只扫描一次，避免重复 IPC 与列表抖动。
 	const answerEndRefreshTimerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -1601,9 +1607,9 @@ export function App() {
 			catalogStatus: store.get(sessionCatalogLoadStateAtom)[activeProject.id]?.status,
 		});
 		if (action.kind === "load") {
-			void refreshProjectSessions(activeProject.id).catch(() => undefined);
+			void refreshProjectSessionsRef.current(activeProject.id).catch(() => undefined);
 		}
-	}, [activeProject, currentSessionId, refreshProjectSessions, selectSessionCommand, store]);
+	}, [activeProject, currentSessionId, store]);
 
 	// 引导页空白输入框（虚拟会话 GUIDE_BOOTSTRAP_SESSION_ID）的落地钩子：
 	// - 首次发送时创建真实 Catalog 会话（Chat 匿名 / 非 Chat draft）；
@@ -1865,9 +1871,9 @@ export function App() {
 			if (!expandedProjects.has(project.id)) continue;
 			const loadState = store.get(sessionCatalogLoadStateAtom)[project.id];
 			if (loadState?.status === "loading" || loadState?.status === "ready") continue;
-			void refreshProjectSessions(project.id).catch(() => undefined);
+			void refreshProjectSessionsRef.current(project.id).catch(() => undefined);
 		}
-	}, [expandedProjects, expandedProjectsReady, projectIdsKey, refreshProjectSessions, store]);
+	}, [expandedProjects, expandedProjectsReady, projectIdsKey, store]);
 
 	useEffect(() => {
 		if (activeAgentId && !isPendingAgentId(activeAgentId)) void refreshRuntimeState(activeAgentId);
@@ -1957,9 +1963,9 @@ export function App() {
 		const activeProject = projects.find((p) => p.id === activeProjectId);
 		const loadState = store.get(sessionCatalogLoadStateAtom)[activeProjectId];
 		if (expandedProjectsReady && activeProject && expandedProjects.has(activeProjectId) && loadState?.status !== "loading" && loadState?.status !== "ready") {
-			void refreshProjectSessions(activeProjectId).catch(() => undefined);
+			void refreshProjectSessionsRef.current(activeProjectId).catch(() => undefined);
 		}
-	}, [activeProjectId, activeProjectIsRemote, expandedProjects, expandedProjectsReady, projects, refreshProjectSessions, store]);
+	}, [activeProjectId, activeProjectIsRemote, expandedProjects, expandedProjectsReady, projects, store]);
 
 	// 项目切换只刷 git 分支（文件树加载/恢复已收口到 useProjectFileTreeController）
 	useEffect(() => {
