@@ -7,9 +7,11 @@ import { useRemoteGitView } from "../../hooks/useRemoteGitView";
 import { useRemoteGitRepos } from "../../hooks/useRemoteGitRepos";
 import { useRemoteGitRefsPolling } from "../../hooks/useRemoteGitRefsPolling";
 import { t } from "../../i18n";
+import { remoteGitErrorMessage } from "../../utils/gitErrorPresentation";
 import { relativeTimeParts } from "../../utils/providerUsageDisplay";
 import { gitCapabilityReasonKey } from "../../utils/remoteGitCapabilityView";
 import { validRemoteGitBranchName } from "../../utils/remoteGitViewState";
+import { GitInlineErrorNotice } from "../app/git/GitInlineErrorNotice";
 import { Button } from "../ui-shadcn/button";
 import { Input } from "../ui-shadcn/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui-shadcn/select";
@@ -38,41 +40,6 @@ function syncNoticeText(kind: "fetch" | "push" | "pull"): string {
 function historyTime(seconds: number): string {
 	const parts = relativeTimeParts(seconds * 1000);
 	return t(parts.key, parts.params);
-}
-
-/** Only stable categories are rendered; invoke wrappers, remote paths and raw stderr are never user-facing. */
-export function remoteGitErrorMessage(code: string): string {
-	if (code === "GIT_INDEX_LOCKED") return t("remoteGit.indexLocked");
-	if (code === "GIT_COMMIT_NOTHING_STAGED") return t("remoteGit.nothingStaged");
-	if (code === "GIT_COMMIT_MESSAGE_EMPTY") return t("remoteGit.messageEmpty");
-	if (code === "GIT_COMMIT_IDENTITY_REQUIRED") return t("remoteGit.identityRequired");
-	if (code === "GIT_COMMIT_HEAD_CHANGED") return t("remoteGit.headChanged");
-	if (code === "GIT_REF_EXISTS") return t("remoteGit.refExists");
-	if (code === "GIT_REF_NOT_FOUND") return t("remoteGit.refNotFound");
-	if (code === "GIT_REPO_EXISTS") return t("remoteGit.repoExists");
-	if (code === "GIT_SWITCH_CONFLICT") return t("remoteGit.switchConflict");
-	if (code === "GIT_RECOVERY_ENTRY_NOT_FOUND") return t("remoteGit.recoveryEntryNotFound");
-	if (code === "GIT_SYNC_REMOTE_UNKNOWN") return t("remoteGit.syncRemoteUnknown");
-	if (code === "GIT_SYNC_DIRTY") return t("remoteGit.syncDirty");
-	if (code === "GIT_PULL_STRATEGY_REQUIRED") return t("remoteGit.syncStrategyRequired");
-	if (code === "GIT_PULL_CONFLICTS") return t("remoteGit.syncConflicts");
-	if (code === "GIT_PUSH_REJECTED") return t("remoteGit.syncPushRejected");
-	if (code === "GIT_PUSH_REMOTE_REFUSED") return t("remoteGit.syncPushRemoteRefused");
-	if (code === "GIT_SYNC_FAILED") return t("remoteGit.syncFailed");
-	if (code === "GIT_WRITE_UNSUPPORTED") return t("remoteGit.writeUnsupported");
-	if (code === "GIT_WRITE_RESULT_UNCONFIRMED") return t("remoteGit.writeUnknown");
-	if (code === "GIT_WRITE_SNAPSHOT_EXPIRED") return t("remoteGit.writeExpired");
-	if (code === "GIT_TRUST_REQUIRED") return t("remoteGit.trustRequired");
-	if (code === "GIT_NOT_REPOSITORY") return t("remoteGit.notRepository");
-	if (code === "GIT_NOT_FOUND" || code === "GIT_VERSION_UNSUPPORTED") return t("remoteGit.gitUnavailable");
-	if (code === "GIT_UNSUPPORTED_REPOSITORY" || code === "GIT_CONFIG_UNSUPPORTED" || code === "GIT_PLATFORM_UNSUPPORTED" || code === "UNSUPPORTED_CAPABILITY") return t("remoteGit.unsupported");
-	if (code === "GIT_NOT_TEXT" || code === "NOT_A_FILE") return t("remoteGit.notText");
-	if (code === "RESULT_TOO_LARGE") return t("remoteGit.tooLarge");
-	if (code === "GIT_RESOURCE_CHANGED" || code === "GIT_TARGET_CHANGED") return t("remoteGit.changed");
-	if (code === "PERMISSION_DENIED") return t("remoteGit.permission");
-	if (code.startsWith("SSH_") || code === "REMOTE_CONNECTION_LOST" || code === "REMOTE_FEATURE_DISABLED") return t("remoteGit.connection");
-	if (code === "REQUEST_TIMEOUT" || code === "TOO_MANY_REQUESTS") return t("remoteGit.timeout");
-	return t("remoteGit.failed");
 }
 
 /**
@@ -329,11 +296,7 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 					)}
 				</div>
 			) : null}
-			{state.errorCode ? (
-				<p role="alert" data-testid={!nested && state.errorCode === "GIT_NOT_REPOSITORY" ? "remote-git-not-repository" : undefined} className="p-3 text-danger">
-					{nested && state.errorCode === "GIT_NOT_REPOSITORY" ? t("remoteGit.repoNotFound") : remoteGitErrorMessage(state.errorCode)}
-				</p>
-			) : null}
+			{state.errorCode ? <GitInlineErrorNotice message={nested && state.errorCode === "GIT_NOT_REPOSITORY" ? t("remoteGit.repoNotFound") : remoteGitErrorMessage(state.errorCode)} testId={!nested && state.errorCode === "GIT_NOT_REPOSITORY" ? "remote-git-not-repository" : undefined} className="p-3 text-danger" /> : null}
 			{/* A blocked read publishes a stable reason, not an error: explain it with the shared dictionary key. */}
 			{blockedReasonKey !== undefined ? (
 				<p data-testid="remote-git-blocked" role="status" className="px-3 py-2 text-xs text-text-secondary">
@@ -380,11 +343,7 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 					</p>
 				</div>
 			) : null}
-			{state.diffErrorCode ? (
-				<p role="alert" className="p-3 text-danger">
-					{remoteGitErrorMessage(state.diffErrorCode)}
-				</p>
-			) : null}
+			{state.diffErrorCode ? <GitInlineErrorNotice message={remoteGitErrorMessage(state.diffErrorCode)} className="p-3 text-danger" /> : null}
 			{state.diff && !state.diffLoading ? (
 				<>
 					{state.diffGroup === "merge" ? <p className="shrink-0 px-3 py-2 text-xs text-text-secondary">{t("remoteGit.conflictBaseline")}</p> : null}
@@ -477,11 +436,7 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 						{recoveryOpen && capabilities.recovery ? (
 							<>
 								{state.recoveryLoading ? <p className="px-3 text-xs text-text-secondary">{t("remoteGit.loading")}</p> : null}
-								{state.recoveryErrorCode ? (
-									<p role="alert" className="px-3 text-xs text-danger">
-										{remoteGitErrorMessage(state.recoveryErrorCode)}
-									</p>
-								) : null}
+								{state.recoveryErrorCode ? <GitInlineErrorNotice message={remoteGitErrorMessage(state.recoveryErrorCode)} className="px-3 text-xs text-danger" /> : null}
 								{state.recovery && state.recovery.entries.length === 0 ? <p className="px-3 text-xs text-text-secondary">{t("remoteGit.recoveryEmpty")}</p> : null}
 								{state.recovery?.truncated ? <p className="px-3 text-xs text-text-secondary">{t("remoteGit.recoveryTruncated")}</p> : null}
 								{state.recovery?.entries.map((entry) => (
@@ -537,11 +492,7 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 							<>
 								<RemoteGitCapabilityNote kind="history" context={{ historyOpen }} />
 								{state.historyLoading ? <p className="px-3 text-xs text-text-secondary">{t("remoteGit.loading")}</p> : null}
-								{state.historyErrorCode ? (
-									<p role="alert" className="px-3 text-xs text-danger">
-										{remoteGitErrorMessage(state.historyErrorCode)}
-									</p>
-								) : null}
+								{state.historyErrorCode ? <GitInlineErrorNotice message={remoteGitErrorMessage(state.historyErrorCode)} className="px-3 text-xs text-danger" /> : null}
 								{state.history
 									? state.history.commits.map((commit) => (
 											<button
@@ -569,11 +520,7 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 								{state.detailOid ? (
 									<div data-testid="remote-git-commit-detail" className="mx-3 my-1 rounded border border-border p-2">
 										{state.detailLoading ? <p className="text-xs text-text-secondary">{t("remoteGit.loading")}</p> : null}
-										{state.detailErrorCode ? (
-											<p role="alert" className="text-xs text-danger">
-												{remoteGitErrorMessage(state.detailErrorCode)}
-											</p>
-										) : null}
+										{state.detailErrorCode ? <GitInlineErrorNotice message={remoteGitErrorMessage(state.detailErrorCode)} className="text-xs text-danger" /> : null}
 										{detail ? (
 											<>
 												<p className="font-mono text-xs text-text-secondary">{detail.oid}</p>
@@ -617,11 +564,7 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 								{capabilities.refs ? (
 									<>
 										{state.refsLoading ? <p className="px-3 text-xs text-text-secondary">{t("remoteGit.loading")}</p> : null}
-										{state.refsErrorCode ? (
-											<p role="alert" className="px-3 text-xs text-danger">
-												{remoteGitErrorMessage(state.refsErrorCode)}
-											</p>
-										) : null}
+										{state.refsErrorCode ? <GitInlineErrorNotice message={remoteGitErrorMessage(state.refsErrorCode)} className="px-3 text-xs text-danger" /> : null}
 										{state.refs
 											? state.refs.refs.map((ref) => (
 													<div key={ref.fullName} data-testid="remote-git-ref-row" className="flex items-center gap-2 px-3 py-0.5 text-xs">

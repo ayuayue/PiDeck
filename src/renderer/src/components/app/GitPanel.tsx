@@ -27,8 +27,10 @@ import { Progress } from "../ui-shadcn/progress";
 import { Textarea } from "../ui-shadcn/textarea";
 import { Label } from "../../components/ui-shadcn/label";
 import type { ProjectGitCapabilities } from "../../services/projectServiceContracts";
+import { localGitOperationErrorText } from "../../utils/gitErrorPresentation";
 import { normalizeGitCapabilities, SHARED_GIT_BANNER_ITEM_IDS } from "../../utils/remoteGitCapabilityView";
 import { RemoteGitCapabilityBanner } from "../workspace/RemoteGitCapabilityBanner";
+import { GitInlineErrorNotice } from "./git/GitInlineErrorNotice";
 
 /** 与主进程 quickGenerate 60s 上限对齐：面板进度条按此时长爬升，避免用户误以为卡住。 */
 const COMMIT_GEN_TIMEOUT_MS = 60_000;
@@ -37,19 +39,6 @@ const COMMIT_GEN_TIMEOUT_MS = 60_000;
 function commitGenNoticeText(message: string | undefined, fallback: string) {
 	const text = String(message ?? "").trim();
 	return text || fallback;
-}
-
-/**
- * 剥离 Electron IPC 与 execFile 包装前缀，保留 git 自己的报错文本。
- * 例："Error invoking remote method 'git:push': Error: Command failed: git push\nfatal: ..."
- *   → "fatal: The current branch ... has no upstream branch ..."
- * 剥离后为空（二次包装吃掉全部信息）时由调用方用本地化兜底文案，避免 toast 空白。
- */
-function gitOperationErrorText(caught: unknown): string {
-	return errorMessage(caught)
-		.replace(/^Error invoking remote method '[^']+':\s*/i, "")
-		.replace(/^Error:\s+Command failed:\s+[^\n]*\n?/i, "")
-		.trim();
 }
 
 /** 首次推送 "no upstream branch" 的识别：此类失败给“设置上游”引导而非裸报错。 */
@@ -367,10 +356,6 @@ function readPaneState(projectId: string, repoScopeKey: string, layout: NonNulla
 	} catch {
 		return fallback;
 	}
-}
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
 
 function PaneSash(props: { before: PaneId; after: PaneId; beforeHeight: number; afterHeight: number; onResize: (beforeHeight: number, afterHeight: number) => void }) {
@@ -745,7 +730,7 @@ export function GitPanel(props: GitPanelProps) {
 				}
 			} catch (caught) {
 				if (request === statusRequestRef.current && projectId === projectIdRef.current && repoScopeKey === repoScopeKeyRef.current) {
-					const msg = gitOperationErrorText(caught);
+					const msg = localGitOperationErrorText(caught);
 					// 检测"不是 Git 仓库"的错误，展示初始化提示（无论是否静默都要置位，
 					// 否则面板打开期间仓库状态变化时轮询永远停不下来）
 					if (/not a git repository|fatal:/.test(msg)) {
@@ -795,7 +780,7 @@ export function GitPanel(props: GitPanelProps) {
 			void refreshRef.current();
 		} catch (caught) {
 			// 初始化失败不常驻面板错误区（此时面板本就无变更列表），toast 提示即可。
-			showNotice(gitOperationErrorText(caught) || t("git.operationFailed"), 8000, "error", t("git.operationFailed"));
+			showNotice(localGitOperationErrorText(caught) || t("git.operationFailed"), 8000, "error", t("git.operationFailed"));
 		}
 		setInitializing(false);
 	}, [props.gitInit, props.projectId]);
@@ -919,7 +904,7 @@ export function GitPanel(props: GitPanelProps) {
 			if (projectId === projectIdRef.current) {
 				// 变更类操作（放弃更改/重置/拣选等）失败统一走 toast，不再 setError：
 				// 面板错误条会把变更列表顶下去，且错误会在切换后残留；toast 用完即走。
-				showNotice(gitOperationErrorText(caught) || t("git.operationFailed"), 8000, "error", t("git.operationFailed"));
+				showNotice(localGitOperationErrorText(caught) || t("git.operationFailed"), 8000, "error", t("git.operationFailed"));
 			}
 		} finally {
 			if (mutationRequest === mutationRequestRef.current) {
@@ -1069,7 +1054,7 @@ export function GitPanel(props: GitPanelProps) {
 			if (projectId === projectIdRef.current) {
 				// 提交失败（hook 拒绝/模板错误等）不再常驻面板错误区，统一 toast；
 				// 保留 git 自己的 stderr 便于排查（如 pre-commit 输出）。
-				showNotice(gitOperationErrorText(caught) || t("git.commitFailed"), 8000, "error", t("git.commitFailed"), undefined, gitErrorToastId(repoScopeKey, "commit"));
+				showNotice(localGitOperationErrorText(caught) || t("git.commitFailed"), 8000, "error", t("git.commitFailed"), undefined, gitErrorToastId(repoScopeKey, "commit"));
 			}
 		} finally {
 			if (mutationRequest === mutationRequestRef.current) {
@@ -1217,7 +1202,7 @@ export function GitPanel(props: GitPanelProps) {
 			await refresh();
 		} catch (caught) {
 			if (projectId === projectIdRef.current) {
-				const text = gitOperationErrorText(caught);
+				const text = localGitOperationErrorText(caught);
 				if (NO_UPSTREAM_RE.test(text) && props.currentBranch) {
 					// 首次推送新分支：给“建立上游”引导而非裸报错；复制按钮可直接粘到终端执行。
 					const command = `git push --set-upstream origin ${props.currentBranch}`;
@@ -1266,7 +1251,7 @@ export function GitPanel(props: GitPanelProps) {
 		} catch (caught) {
 			if (projectId === projectIdRef.current) {
 				// 拉取失败同样不常驻面板错误区，避免错误条占位挤压变更列表。
-				showNotice(gitOperationErrorText(caught) || t("git.pullFailed"), 8000, "error", t("git.pullFailed"), undefined, gitErrorToastId(repoScopeKey, "pull"));
+				showNotice(localGitOperationErrorText(caught) || t("git.pullFailed"), 8000, "error", t("git.pullFailed"), undefined, gitErrorToastId(repoScopeKey, "pull"));
 			}
 		} finally {
 			if (mutationRequest === mutationRequestRef.current) {
@@ -1672,16 +1657,7 @@ export function GitPanel(props: GitPanelProps) {
 									</div>
 								)}
 
-								{error && (
-									/* 错误态带 alert 语义（Wave 5，对齐 RemoteGitPanel 的 role=alert 基准）：
-									    读屏能播报，且与下方「干净态」视觉分流——错误不再只是一行变色小字。 */
-									<div role="alert" className="flex min-h-[22px] shrink-0 items-center gap-1 px-2.5 text-control text-[var(--git-conflict)]">
-										<TriangleAlert size={13} aria-hidden="true" className="shrink-0" />
-										<span className="min-w-0 flex-1 truncate" title={error}>
-											{error}
-										</span>
-									</div>
-								)}
+								{error && <GitInlineErrorNotice variant="changes" message={error} className="flex min-h-[22px] shrink-0 items-center gap-1 px-2.5 text-control text-[var(--git-conflict)]" icon={<TriangleAlert size={13} aria-hidden="true" className="shrink-0" />} />}
 								{!loading && total === 0 && !error && (
 									/* 工作区干净的完成态：勾图标 + 文案，替代裸一行灰字（用户需要一眼确认「没有待处理」而不是「加载失败」） */
 									<div className="git-status-msg flex min-h-[22px] shrink-0 items-center gap-1.5 px-2.5 text-control text-[var(--git-desc-fg)]">
@@ -1896,7 +1872,7 @@ function CompareChanges(props: {
 			if (request === requestSequence.current && projectId === props.projectId) {
 				setResult(null);
 				// 对比失败（分支被删/仓库异常）不再占面板错误区，toast 用完即走。
-				showNotice(gitOperationErrorText(caught) || t("git.compareFailed"), 8000, "error", t("git.compareFailed"));
+				showNotice(localGitOperationErrorText(caught) || t("git.compareFailed"), 8000, "error", t("git.compareFailed"));
 			}
 		} finally {
 			if (request === requestSequence.current && projectId === props.projectId) setLoading(false);

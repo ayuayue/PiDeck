@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { RemoteGitCompare, RemoteGitRef, RemoteGitRefs } from "../../../../shared/types/git";
 import { t } from "../../i18n";
+import { GitInlineErrorNotice } from "../app/git/GitInlineErrorNotice";
 import { Button } from "../ui-shadcn/button";
 import { RemoteGitCapabilityNote } from "./RemoteGitCapabilityNote";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui-shadcn/select";
@@ -55,11 +56,7 @@ export function RemoteGitCompareSection(props: RemoteGitCompareSectionProps) {
 					{/* 说明条按答案的真实语义判断：merge-base 有 ahead/behind，不能再显示 trees-only 说明。 */}
 					<RemoteGitCapabilityNote kind="compare" context={{ compareOpen: open, compareMode: props.compare?.mode }} />
 					{props.refsLoading ? <p className="px-3 text-xs text-text-secondary">{t("remoteGit.loading")}</p> : null}
-					{props.refsErrorCode ? (
-						<p role="alert" className="px-3 text-xs text-danger">
-							{props.errorMessage(props.refsErrorCode)}
-						</p>
-					) : null}
+					{props.refsErrorCode ? <GitInlineErrorNotice message={props.errorMessage(props.refsErrorCode)} className="px-3 text-xs text-danger" /> : null}
 					<div className="flex items-center gap-2 px-3 pb-1" data-testid="remote-git-compare-pickers">
 						<Select value={base} onValueChange={(value) => setBaseChoice(value)} disabled={options.length === 0 || props.compareLoading}>
 							<SelectTrigger data-testid="remote-git-compare-base" aria-label={t("remoteGit.compareBase")} size="sm" className="min-w-0 flex-1 text-xs">
@@ -91,11 +88,7 @@ export function RemoteGitCompareSection(props: RemoteGitCompareSectionProps) {
 					</div>
 					{!pairReady ? <p className="px-3 text-xs text-text-secondary">{t("remoteGit.compareSameRef")}</p> : null}
 					{props.compareLoading ? <p className="px-3 text-xs text-text-secondary">{t("remoteGit.loading")}</p> : null}
-					{props.compareErrorCode ? (
-						<p role="alert" data-testid="remote-git-compare-error" className="px-3 text-xs text-danger">
-							{props.errorMessage(props.compareErrorCode)}
-						</p>
-					) : null}
+					{props.compareErrorCode ? <GitInlineErrorNotice message={props.errorMessage(props.compareErrorCode)} testId="remote-git-compare-error" className="px-3 text-xs text-danger" /> : null}
 					{props.compare && props.compare.files.length === 0 ? (
 						<p data-testid="remote-git-compare-empty" className="px-3 text-xs text-text-secondary">
 							{t("remoteGit.compareEmpty")}

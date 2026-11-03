@@ -83,6 +83,28 @@ function snapshot(overrides = {}) {
 }
 
 const SYNC_FACTS = { branch: "main", upstream: "refs/remotes/origin/main", ahead: 2, behind: 1, remotes: ["origin"] };
+const COMMIT_DETAIL = {
+	oid: OID,
+	parents: [],
+	authorName: "A",
+	authorEmail: "a@example.com",
+	authorTimeSec: 1,
+	committerName: "A",
+	committerEmail: "a@example.com",
+	committerTimeSec: 1,
+	subject: "subject",
+	message: "subject\n",
+	files: [],
+};
+const REF_FILE_DIFF = {
+	path: TARGET.relativePath,
+	target: TARGET,
+	displayPath: TARGET.relativePath,
+	base: null,
+	head: OID,
+	originalContent: "",
+	modifiedContent: "next\n",
+};
 
 /** 远端 provider 的假 api：公共读通道 + main 的远端 Git 通道；本机专属通道一旦被误用会立刻抛错。 */
 function makeApi(options = {}) {
@@ -109,6 +131,21 @@ function makeApi(options = {}) {
 			compareRefs: async (projectId, base, head, repoPath) => {
 				record("git.compareRefs", [projectId, base, head, repoPath]);
 				return { ok: true, value: { mode: "trees", base: { ref: base, oid: OID }, head: { ref: head, oid: OID }, files: [] } };
+			},
+			remoteCommitDetail: async (projectId, oid, repo) => {
+				record("git.remoteCommitDetail", [projectId, oid, repo]);
+				if (options.commitDetailDeferred) return options.commitDetailDeferred.promise;
+				return options.commitDetailResult ?? { ok: true, detail: COMMIT_DETAIL };
+			},
+			remoteRefFileDiff: async (projectId, base, head, target, repo) => {
+				record("git.remoteRefFileDiff", [projectId, base, head, target, repo]);
+				if (options.refFileDiffDeferred) return options.refFileDiffDeferred.promise;
+				return options.refFileDiffResult ?? { ok: true, diff: REF_FILE_DIFF };
+			},
+			cancelRemoteReads: async (projectId) => {
+				record("git.cancelRemoteReads", [projectId]);
+				if (options.cancelDeferred) return options.cancelDeferred.promise;
+				return undefined;
 			},
 			workspaceFileDiff: async (projectId, group, file, repoPath) => {
 				record("git.workspaceFileDiff", [projectId, group, file, repoPath]);
@@ -266,8 +303,8 @@ function makeApi(options = {}) {
 	return { api, calls };
 }
 
-function services(api, factsOverrides = {}) {
-	return createProjectServices(remoteProject, api, { facts: remoteFacts(factsOverrides) });
+function services(api, factsOverrides = {}, fence) {
+	return createProjectServices(remoteProject, api, { facts: remoteFacts(factsOverrides), ...(fence === undefined ? {} : { fence }) });
 }
 
 const names = (calls) => calls.map((call) => call.name);
@@ -312,6 +349,86 @@ test("读面走公共 git:* 通道；repoPath 越界在触达 IPC 前被拒（�
 	await assert.rejects(() => guarded.git.fetch({ projectId: "p9", relativePath: "" }), rejectsWith(PROJECT_SERVICE_CODES.projectMismatch));
 	await assert.rejects(() => guarded.git.branches({ projectId: "p9", relativePath: "" }), rejectsWith(PROJECT_SERVICE_CODES.projectMismatch));
 	assert.deepEqual(foreign.calls, [], "越界 repoPath 不得触达任何通道");
+});
+
+test("commitDetail/refFileDiff/cancelRemoteReads route through the project-bound service with nested scope", async () => {
+	const { api, calls } = makeApi();
+	const service = services(api);
+
+	assert.deepEqual(plain(await service.git.commitDetail(OID, NESTED_REPO)), COMMIT_DETAIL);
+	assert.deepEqual(plain(await service.git.refFileDiff(null, OID, TARGET, NESTED_REPO)), REF_FILE_DIFF);
+	await service.git.cancelRemoteReads();
+
+	assert.deepEqual(names(calls), ["git.remoteCommitDetail", "git.remoteRefFileDiff", "git.cancelRemoteReads"]);
+	assert.deepEqual(plain(calls[0].args), ["p2", OID, "packages/a"]);
+	assert.deepEqual(plain(calls[1].args), ["p2", null, OID, TARGET, "packages/a"]);
+	assert.deepEqual(plain(calls[2].args), ["p2"]);
+});
+
+test("commitDetail/refFileDiff preserve stable failures and never turn them into empty data", async () => {
+	const detailFailure = makeApi({ commitDetailResult: { ok: false, code: "GIT_OBJECT_NOT_FOUND" } });
+	await assert.rejects(() => services(detailFailure.api).git.commitDetail(OID, REPO), rejectsWith("GIT_OBJECT_NOT_FOUND"));
+	assert.deepEqual(names(detailFailure.calls), ["git.remoteCommitDetail"]);
+
+	const diffFailure = makeApi({ refFileDiffResult: { ok: false, code: "GIT_NOT_TEXT" } });
+	await assert.rejects(() => services(diffFailure.api).git.refFileDiff(null, OID, TARGET, REPO), rejectsWith("GIT_NOT_TEXT"));
+	assert.deepEqual(names(diffFailure.calls), ["git.remoteRefFileDiff"]);
+});
+
+test("the new read/cancel methods reject a retired generation before touching a channel", async () => {
+	const { api, calls } = makeApi();
+	const slot = { current: "g1" };
+	const service = services(api, {}, slot);
+	slot.current = "g2";
+
+	await assert.rejects(() => service.git.commitDetail(OID, REPO), rejectsWith(PROJECT_SERVICE_CODES.generationStale));
+	await assert.rejects(() => service.git.refFileDiff(null, OID, TARGET, REPO), rejectsWith(PROJECT_SERVICE_CODES.generationStale));
+	await assert.rejects(() => service.git.cancelRemoteReads(), rejectsWith(PROJECT_SERVICE_CODES.generationStale));
+	assert.deepEqual(calls, [], "a stale service generation must make zero preload calls");
+});
+
+test("a generation that changes during a detail/ref-diff/cancel read discards the late answer", async () => {
+	const detailGate = deferred();
+	const detailApi = makeApi({ commitDetailDeferred: detailGate });
+	const detailSlot = { current: "g1" };
+	const detail = services(detailApi.api, {}, detailSlot).git.commitDetail(OID, REPO);
+	await waitFor(() => names(detailApi.calls).includes("git.remoteCommitDetail"), "commit detail dispatch");
+	detailSlot.current = "g2";
+	detailGate.resolve({ ok: true, detail: COMMIT_DETAIL });
+	await assert.rejects(detail, rejectsWith(PROJECT_SERVICE_CODES.generationStale));
+
+	const diffGate = deferred();
+	const diffApi = makeApi({ refFileDiffDeferred: diffGate });
+	const diffSlot = { current: "g1" };
+	const diff = services(diffApi.api, {}, diffSlot).git.refFileDiff(null, OID, TARGET, REPO);
+	await waitFor(() => names(diffApi.calls).includes("git.remoteRefFileDiff"), "ref file diff dispatch");
+	diffSlot.current = "g2";
+	diffGate.resolve({ ok: true, diff: REF_FILE_DIFF });
+	await assert.rejects(diff, rejectsWith(PROJECT_SERVICE_CODES.generationStale));
+
+	const cancelGate = deferred();
+	const cancelApi = makeApi({ cancelDeferred: cancelGate });
+	const cancelSlot = { current: "g1" };
+	const cancel = services(cancelApi.api, {}, cancelSlot).git.cancelRemoteReads();
+	await waitFor(() => names(cancelApi.calls).includes("git.cancelRemoteReads"), "cancel dispatch");
+	cancelSlot.current = "g2";
+	cancelGate.resolve();
+	await assert.rejects(cancel, rejectsWith(PROJECT_SERVICE_CODES.generationStale));
+});
+
+test("refFileDiff rejects a foreign target and repo scope before IPC; cancel drops the grant bucket", async () => {
+	const foreign = makeApi();
+	const guarded = services(foreign.api);
+	await assert.rejects(() => guarded.git.refFileDiff(null, OID, { projectId: "p9", relativePath: TARGET.relativePath }, REPO), rejectsWith(PROJECT_SERVICE_CODES.projectMismatch));
+	await assert.rejects(() => guarded.git.refFileDiff(null, OID, TARGET, { projectId: "p9", relativePath: "" }), rejectsWith(PROJECT_SERVICE_CODES.projectMismatch));
+	assert.deepEqual(foreign.calls, []);
+
+	const { api, calls } = makeApi();
+	const service = services(api);
+	await service.git.refresh(REPO);
+	await service.git.cancelRemoteReads();
+	await service.git.commit("after cancel", REPO);
+	assert.deepEqual(names(calls), ["git.refreshRemoteSnapshot", "git.cancelRemoteReads", "git.remoteSnapshot", "git.commitRemote"], "cancel revokes main-owned grants, so the provider cannot reuse the old bucket");
 });
 
 test("主进程支持 facts-only 强刷时，refresh 走它：零授权副作用，且不再调用带授权副作用的 refreshRemoteSnapshot", async () => {

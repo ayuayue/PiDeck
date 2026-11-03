@@ -711,6 +711,23 @@ test("本机 Git：syncFacts/recovery 仍显式 unsupported（本机没有这些
 	assert.deepEqual(calls, []);
 });
 
+test("本机 Git：commit detail/revision diff 保持原 GitDrawerApi owner，远端 read cancel 为 no-op", async () => {
+	const { api, calls } = makeApi();
+	const services = createProjectServices(localProject, api);
+	const repo = { projectId: "p1", relativePath: "" };
+	const target = { projectId: "p1", relativePath: "a.ts" };
+	await assert.rejects(
+		() => services.git.commitDetail(OID, repo),
+		(error) => error instanceof ProjectServiceError && error.code === PROJECT_SERVICE_CODES.unsupported,
+	);
+	await assert.rejects(
+		() => services.git.refFileDiff(null, OID, target, repo),
+		(error) => error instanceof ProjectServiceError && error.code === PROJECT_SERVICE_CODES.unsupported,
+	);
+	await services.git.cancelRemoteReads();
+	assert.deepEqual(calls, [], "the local panel path must not be duplicated through remote or local service calls");
+});
+
 test("本机 Git 写：委派既有通道；只创建分支的显式模式不被暗中追加成创建并切换", async () => {
 	const { api, calls } = makeApi();
 	const services = createProjectServices(localProject, api);

@@ -287,7 +287,7 @@ describe("Git panel VS Code Source Control contract", () => {
 		assert.match(gitSurface, /getFileIconSeti\(name\)/);
 		assert.doesNotMatch(graph, /title=\{`\$\{commit\.message\}/);
 		assert.match(app, /gitApi:/);
-		assert.match(app, /<GitDrawerHost/);
+		assert.match(app, /<ProjectGitDrawer/);
 		assert.match(app, /gitApi=\{git\.gitApi\}/);
 		assert.match(preload, /Promise<CommitDetail \| null>/);
 		assert.match(graph, /\[--git-panel-bg:var\(--color-bg-panel\)\]/);

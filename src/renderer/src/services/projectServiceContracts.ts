@@ -1,6 +1,6 @@
 import type { Op } from "../../../shared/op";
 import type { HostConnectionStateLike } from "../../../shared/projectCapabilities";
-import type { GitAheadBehind, GitBranchInfo, GitCompareRefsValue, GitDiscardResource, GitHistoryPage, GitRef, GitRepositoryListing, GitResourceGroups, GitWorkspaceDiffGroup, GitWorkspaceFileDiff, WorktreeEntry } from "../../../shared/types/git";
+import type { GitAheadBehind, GitBranchInfo, GitCompareRefsValue, GitDiscardResource, GitHistoryPage, GitRef, GitRepositoryListing, GitResourceGroups, GitWorkspaceDiffGroup, GitWorkspaceFileDiff, RemoteGitCommitDetail, RemoteGitRefFileDiff, WorktreeEntry } from "../../../shared/types/git";
 import type { Project, ProjectFileTarget } from "../../../shared/types";
 import type { ProjectDirectoryPage } from "../../../shared/types/projectFiles";
 import type { RemoteProjectDownloadResult, RemoteProjectSearchEntry, RemoteProjectUploadResult } from "../../../shared/types/remoteHost";
@@ -231,6 +231,12 @@ export type ProjectGitService = {
 	repos(): Promise<GitRepositoryListing>;
 	refs(repoPath?: ProjectFileTarget): Promise<GitRef[]>;
 	compare(base: string, head: string, repoPath?: ProjectFileTarget): Promise<GitCompareRefsValue>;
+	/** 单个提交的完整消息与变更文件；失败抛稳定码，不返回伪造的空详情。 */
+	commitDetail(oid: string, repoPath?: ProjectFileTarget): Promise<RemoteGitCommitDetail>;
+	/** 两个 revision 的单文件两侧内容；`base: null` 表示该侧不存在。 */
+	refFileDiff(base: string | null, head: string, target: ProjectFileTarget, repoPath?: ProjectFileTarget): Promise<RemoteGitRefFileDiff>;
+	/** 取消当前项目的远端在途读取；本机 provider 无远端读取，返回 no-op。 */
+	cancelRemoteReads(): Promise<void>;
 	workspaceDiff(group: GitWorkspaceDiffGroup, file: ProjectFileTarget, repoPath?: ProjectFileTarget): Promise<GitWorkspaceFileDiff>;
 	branches(repoPath?: ProjectFileTarget): Promise<GitBranchInfo>;
 	createBranch(name: string, mode: ProjectGitBranchMode, repoPath?: ProjectFileTarget): Promise<void>;
