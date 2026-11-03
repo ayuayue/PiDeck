@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, dropCursor, rectangularSelection, crosshairCursor } from "@codemirror/view";
-import { EditorState } from "@codemirror/state";
+import { Annotation, EditorState, Transaction } from "@codemirror/state";
 import { foldGutter, foldKeymap, indentOnInput, bracketMatching, indentUnit } from "@codemirror/language";
 import { defaultKeymap, history, historyKeymap, indentWithTab, toggleComment } from "@codemirror/commands";
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
@@ -43,6 +43,7 @@ type SelectionMenu = {
 // 文件后焦点还停在原处，按键既进不了编辑器 keymap，也没有别的监听者（窗口没有原生菜单，
 // Electron 不提供内置查找栏），用户看到的就是「Ctrl+F 完全没反应」。
 // 这里登记已挂载的 EditorView，焦点不在编辑器时把 Ctrl+F 转给最近活动的那一个实例。
+const EXTERNAL_VALUE_SYNC = Annotation.define<boolean>();
 const mountedViews: EditorView[] = [];
 let activeView: EditorView | null = null;
 
@@ -81,8 +82,6 @@ export const CodeMirrorEditor = memo(function CodeMirrorEditor({ value, onChange
 	onChangeRef.current = onChange;
 	const onAttachSelectionRef = useRef(onAttachSelection);
 	onAttachSelectionRef.current = onAttachSelection;
-	// 外部 value 快照：仅用于跳过「onChange 已同步过」的重复 dispatch
-	const lastValueRef = useRef(value);
 	// 目标行最新值：挂载 effect 与变化 effect 都读 ref，memo 组件不因 props 重建函数
 	const initialLineRef = useRef(initialLine);
 	initialLineRef.current = initialLine;
@@ -142,17 +141,15 @@ export const CodeMirrorEditor = memo(function CodeMirrorEditor({ value, onChange
 						{ key: "Mod-/", run: toggleComment },
 					]),
 					EditorView.updateListener.of((update) => {
-						if (update.docChanged) {
-							const next = update.state.sliceDoc();
-							lastValueRef.current = next;
-							onChangeRef.current?.(next);
+						// 载入/重读是外部同步，不是用户编辑，不能触发宿主的 dirty/自动保存。
+						if (update.transactions.some((transaction) => transaction.docChanged && !transaction.annotation(EXTERNAL_VALUE_SYNC))) {
+							onChangeRef.current?.(update.state.sliceDoc());
 						}
 					}),
 				],
 			}),
 		});
 		viewRef.current = view;
-		lastValueRef.current = value;
 		// 登记为「最近活动的编辑器」：挂载即认领，用户不必先点进编辑器才能用 Ctrl+F
 		mountedViews.push(view);
 		activeView = view;
@@ -197,7 +194,7 @@ export const CodeMirrorEditor = memo(function CodeMirrorEditor({ value, onChange
 	useEffect(() => {
 		const view = viewRef.current;
 		if (!view || view.state.sliceDoc() === value) return;
-		view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
+		view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value }, annotations: [EXTERNAL_VALUE_SYNC.of(true), Transaction.addToHistory.of(false)] });
 		// 内容替换完成后再定位：mount 时 doc 可能为空，这里拿走目标行
 		const targetLine = initialLineRef.current;
 		if (targetLine !== undefined) {

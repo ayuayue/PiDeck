@@ -28,7 +28,7 @@ test("FileDiffViewer：dirty 翻转上报宿主（只在翻转时回调，不随
 
 test("FileDiffViewer：保存失败是 role=alert 横幅 + 显式重试，不再是静默 error div", () => {
 	assert.match(fileDiffViewer, /const \[saveError, setSaveError\] = useState<string \| null>\(null\);/);
-	assert.match(fileDiffViewer, /setSaveError\(e instanceof Error \? e\.message : String\(e\)\)/);
+	assert.match(fileDiffViewer, /setSaveError\(fileLoadErrorMessage\(e\)\)/);
 	assert.match(fileDiffViewer, /role="alert"/);
 	assert.match(fileDiffViewer, /editor\.saveFailedBanner/);
 	// 重试按钮触发的是 saveNow（内容取 contentRef 最新值），不是重新加载

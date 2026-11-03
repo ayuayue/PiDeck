@@ -3400,6 +3400,11 @@ export const enUS: Record<TranslationKey, string> = {
 	"editor.binaryFileNotSupported": "{ext} is a binary file and cannot be edited",
 	"editor.fileNotFound": "File not found or has been moved: {path}",
 	"editor.fileTooLarge": "File size {size}MB exceeds {max}MB limit, cannot open editor",
+	"editor.fileSizeUnreadable": "The reported file size is abnormal ({size} bytes), so reading was stopped. Check the file's state. If encryption or security software is in use, ask your administrator to verify PiDeck's access permissions.",
+	"editor.fileAccessDenied": "File access failed ({code}); the operation did not complete. Check permissions, file locks, and disk health. If encryption or security software is in use, ask your administrator to verify PiDeck's access permissions.",
+	"editor.fileNotText": "Cannot safely open this as UTF-8 text ({size}). Loading was stopped; editing and auto-save are disabled. It may be binary, another encoding, or encrypted content. Use a tool that supports its format.",
+	"editor.writeBlockedEncrypted":
+		"Save blocked: the existing content on disk cannot safely be read as UTF-8 text ({size}). It may be binary, another encoding, or encrypted content. Nothing was written, to avoid overwriting the original. Check the format first; if encryption software is in use, ask your administrator to verify PiDeck's access permissions.",
 	"editor.preview": "Preview",
 	"editor.source": "Source",
 	"editor.readOnlyBadge": "Read-only",

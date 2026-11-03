@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 5d7a7b6530a1498d65d79c927266dddca91476014b7ad302a463c6cad49d32dd（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 75e6fe71d86ac7c94298205ee8f27d935ee5fbdb605cf6e6061ca3e395317196（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -3389,6 +3389,10 @@ export const zhTW: Record<TranslationKey, string> = {
 	"editor.binaryFileNotSupported": "{ext} 是二進位制檔案，不支援編輯",
 	"editor.fileNotFound": "檔案不存在或已被移動：{path}",
 	"editor.fileTooLarge": "檔案大小為 {size}MB，超過 {max}MB 限制，無法開啟編輯",
+	"editor.fileSizeUnreadable": "檔案大小異常（系統返回 {size} 位元組），已停止讀取。請檢查檔案狀態；如使用透明加密或安全軟體，請聯絡管理員核對 PiDeck 的訪問權限。",
+	"editor.fileAccessDenied": "檔案訪問失敗（{code}），本次操作未完成。請檢查權限、檔案佔用或磁碟狀態；如使用透明加密或安全軟體，請聯絡管理員核對 PiDeck 的訪問權限。",
+	"editor.fileNotText": "無法安全地作為 UTF-8 文本開啟（{size}），已停止載入，未開啟編輯或自動儲存。可能是二進位制、其它編碼或加密內容，請使用支援該格式的工具檢視。",
+	"editor.writeBlockedEncrypted": "已阻止儲存：磁碟上的現有內容無法安全地作為 UTF-8 文本讀取（{size}），可能是二進位制、其它編碼或加密內容。為避免覆蓋原檔案，本次未寫入。請先檢查檔案格式；如使用加密軟體，請聯絡管理員核對 PiDeck 的訪問權限。",
 	"editor.preview": "預覽",
 	"editor.source": "原始碼",
 	"editor.readOnlyBadge": "只讀",
