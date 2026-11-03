@@ -29,8 +29,9 @@ export type PiInstallStatus = {
  * - portable：PiDeck 引导安装写进 `<userData>/pi-runtime/pi-global` 的便携副本
  * - custom：用户在设置里自己指定的路径（不在上面任何已知落点）
  * - path：其余来源（系统 PATH、`~/.local/bin`、/usr/local/bin 等）
+ * - wsl：WSL 模式下发行版内的 pi（唯一候选；宿主机安装不参与切换）
  */
-export type PiInstallationSource = "managed" | "package-manager" | "portable" | "custom" | "path";
+export type PiInstallationSource = "managed" | "package-manager" | "portable" | "custom" | "path" | "wsl";
 
 /** 一次探测到的 pi 安装；列表由主进程给出，渲染层只做展示与选择。 */
 export type PiInstallation = {

@@ -57,8 +57,8 @@ const LOGIN_SHELL_PI_NEGATIVE_TTL_MS = 60_000;
 /** 官方安装器（install.sh / install.ps1）的安装标记文件名，两侧布局一致。 */
 const MANAGED_INSTALL_MARKER = "managed-install.json";
 
-/** 安装来源的展示优先级：官方安装 > 包管理器全局 > PiDeck 便携副本 > 用户自选 > 其余 PATH 目录。 */
-const INSTALLATION_SOURCE_RANK: Record<PiInstallationSource, number> = { managed: 0, "package-manager": 1, portable: 2, custom: 3, path: 4 };
+/** 安装来源的展示优先级：官方安装 > 包管理器全局 > PiDeck 便携副本 > 用户自选 > 其余 PATH 目录；WSL 单独一行不参与排序（列表只有它一条）。 */
+const INSTALLATION_SOURCE_RANK: Record<PiInstallationSource, number> = { managed: 0, "package-manager": 1, portable: 2, custom: 3, path: 4, wsl: 5 };
 
 /**
  * 各启动通道下单条命令行的安全字符预算，供技能/提示词白名单这类 O(N) 参数注入做兜底。
@@ -680,11 +680,30 @@ export class PiLocator {
 	 * 目录顺序与来源判定和 `check()` 完全同源（同一个 searchDirEntries），
 	 * 所以 `isActive === true` 的那条就是 Agent 实际启动的那份。
 	 *
-	 * WSL 模式返回空数组：Agent 跑在发行版内，宿主候选不代表用户实际用的 pi，
-	 * 调用方（设置页/引导）应退回单结果视图（WSL 路径在 WSL 分区配置）。
+	 * WSL 模式不扫描宿主机：宿主候选不代表用户实际用的 pi，只返回发行版内
+	 * 正在使用的那一份（customPiPath 的 Linux 路径优先，其次发行版默认 pi），
+	 * 让来源面板能显示 WSL pi 的路径与版本；发行版里探不到 pi 才返回空数组。
 	 */
 	async listInstallations(customPath?: string, wslEnabled?: boolean, wslDistro?: string, wslUser?: string, options: { forceShellProbe?: boolean; customPaths?: readonly string[] } = {}): Promise<PiInstallation[]> {
-		if (wslEnabled && process.platform === "win32" && wslDistro && wslUser) return [];
+		if (wslEnabled && process.platform === "win32" && wslDistro && wslUser) {
+			// 与 check() 同源：先预热（缓存命中则零开销），再解析当前实际使用的 pi。
+			await this.warmWslCommand(wslDistro, wslUser);
+			const command = this.resolveCommand(customPath, wslEnabled, wslDistro, wslUser);
+			const parsed = command.startsWith("wsl://") ? this.parseWslUrl(command) : null;
+			if (!parsed) return [];
+			const status = await this.checkWslCommand(parsed.distro, parsed.user, parsed.piCommand);
+			if (!status.installed) return [];
+			return [
+				{
+					path: parsed.piCommand,
+					realPath: parsed.piCommand,
+					...(status.version ? { version: status.version } : {}),
+					...(status.error ? { versionError: status.error } : {}),
+					source: "wsl",
+					isActive: true,
+				},
+			];
+		}
 
 		// 先只做目录扫描：交互式 shell 反查要加载用户 rc，不能每次检测都无谓跑一遍。
 		// 两种情况才真的去问 shell：用户显式点「从终端再找一次」，或目录扫描一份都没找到

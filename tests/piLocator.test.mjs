@@ -573,6 +573,49 @@ test("wsl pi check uses exactly the same exec args as the launch path", async ()
 	assert.equal(status.command, `wsl -d Ubuntu-24.04 -u dev ${FNM_PI}`);
 });
 
+test("listInstallations in wsl mode returns the distro pi as the only source (m00534)", async () => {
+	const { PiLocator, resetWslCommandCache } = loadPiLocatorModule("win32", {}, tmpdir(), {
+		"node:child_process": mockWslProbe({ probeOutput: FNM_PROBE_OUTPUT, version: "0.80.8" }),
+	});
+	resetWslCommandCache();
+	const locator = new PiLocator();
+	const installations = await locator.listInstallations(undefined, true, "Ubuntu-24.04", "dev");
+
+	// WSL 模式只列发行版内这一份：设置页「Pi 命令来源」要能显示 WSL pi 的路径/版本，
+	// 而不是一片空白（旧实现直接返回 []，用户不知道当前用的是谁）。
+	assert.equal(installations.length, 1);
+	const [installation] = installations;
+	assert.equal(installation.source, "wsl");
+	assert.equal(installation.path, FNM_PI);
+	assert.equal(installation.realPath, FNM_PI);
+	assert.equal(installation.version, "0.80.8");
+	assert.equal(installation.isActive, true);
+
+	// 用户存了自定义 Linux 路径时：列表跟着切到那份路径，而不是发行版默认 pi。
+	const customInstallations = await locator.listInstallations("/opt/my-pi/bin/pi", true, "Ubuntu-24.04", "dev");
+	assert.equal(customInstallations.length, 1);
+	assert.equal(customInstallations[0].path, "/opt/my-pi/bin/pi");
+	assert.equal(customInstallations[0].source, "wsl");
+});
+
+test("listInstallations in wsl mode returns [] when the distro has no pi", async () => {
+	const { PiLocator, resetWslCommandCache } = loadPiLocatorModule("win32", {}, tmpdir(), {
+		"node:child_process": {
+			execFile: (_command, args, _options, callback) => {
+				// 探测说没装 pi；之后任何 --version 校验（含回退裸 pi 标记）都必须失败
+				if (isWslProbeArgs(args)) callback(null, "PIDECK_MISS=1\n", "");
+				else callback(new Error("not found"), "", "");
+			},
+			execFileSync: () => "",
+		},
+	});
+	resetWslCommandCache();
+	const locator = new PiLocator();
+	const installations = await locator.listInstallations(undefined, true, "Ubuntu-24.04", "dev");
+	// 数组来自沙箱模块（不同 realm），deepStrictEqual 会因原型不同误报；用长度断言
+	assert.equal(installations.length, 0);
+});
+
 test("a windows interop probe hit is not treated as a wsl installation", async () => {
 	const { PiLocator, resetWslCommandCache } = loadPiLocatorModule("win32", {}, tmpdir(), { "node:child_process": mockWslProbe({ probeOutput: "PIDECK_PI=/mnt/c/Users/dev/AppData/Roaming/npm/pi\n" }) });
 	resetWslCommandCache();

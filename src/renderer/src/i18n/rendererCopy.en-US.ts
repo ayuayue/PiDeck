@@ -4098,6 +4098,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"environment.installSourcePortable": "PiDeck portable install",
 	"environment.installSourceCustom": "Custom path",
 	"environment.installSourcePath": "Other location",
+	"environment.installSourceWsl": "WSL distro",
 	"environment.installBadgeActive": "In use",
 	"environment.installBadgeShellDefault": "Your terminal default",
 	"environment.installBadgeNewest": "Newer version",

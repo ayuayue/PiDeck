@@ -4080,6 +4080,7 @@ export const zhCN = {
 	"environment.installSourcePortable": "PiDeck 便携安装",
 	"environment.installSourceCustom": "自定义路径",
 	"environment.installSourcePath": "其它位置",
+	"environment.installSourceWsl": "WSL 发行版",
 	"environment.installBadgeActive": "当前使用",
 	"environment.installBadgeShellDefault": "终端默认",
 	"environment.installBadgeNewest": "版本较新",

@@ -593,7 +593,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	ipcMain.handle(ipcChannels.piInstallations, async (_event, force?: unknown) => {
 		const settings = settingsStore.get();
 		const forceShellProbe = force === true;
-		// 与 piCheck 同理：WSL 模式下按设置探测（listInstallations 会返回空数组，设置页退回单结果视图）。
+		// 与 piCheck 同理：WSL 模式下按设置探测（listInstallations 只返回发行版内正在用的那一份）。
 		const installations = await piLocator.listInstallations(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser, { forceShellProbe, customPaths: settings.piCustomPaths });
 		void appLogger.info("pi", "Pi installations listed", {
 			count: installations.length,

@@ -454,14 +454,20 @@ test("同一份安装既在扫描目录里又是用户添加时，只占一行�
 	}
 });
 
-test("WSL 模式不返回宿主候选（改由设置页 WSL 分区管理）", async () => {
-	// WSL 只存在于 Windows：用 win32 沙箱跑，否则这条用例在 Linux 开发机上验不到那个早返回
+test("WSL 模式只返回发行版内那一份，不掺宿主候选", async () => {
+	// WSL 只存在于 Windows：用 win32 沙箱跑，否则这条用例在 Linux 开发机上验不到那个分支
 	const harness = createHarness({ platform: "win32" });
 	try {
 		writeManagedInstall(harness.home);
 		const { PiLocator } = harness.locatorModule;
 		const installations = await new PiLocator().listInstallations("", true, "Ubuntu", "root");
-		assert.deepEqual(JSON.parse(JSON.stringify(installations)), []);
+		const plain = JSON.parse(JSON.stringify(installations));
+		// 宿主的 managed 安装绝不能出现：Agent 跑在发行版里，宿主候选会把用户带偏；
+		// 列表只列发行版内这一份，让设置页「Pi 命令来源」能显示 WSL pi 的路径/版本（m00534）。
+		assert.equal(plain.length, 1);
+		assert.equal(plain[0].source, "wsl");
+		assert.equal(plain[0].isActive, true);
+		assert.equal(plain.some((item) => item.source === "managed"), false, "宿主 managed 安装不得混进 WSL 模式的列表");
 	} finally {
 		harness.cleanup();
 	}

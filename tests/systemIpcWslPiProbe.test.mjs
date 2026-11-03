@@ -9,6 +9,11 @@
  *
  * 例外：piInstall 的一键安装防重装扫描必须仍按宿主机扫（安装器装在宿主机，
  * 列表不能跟随 WSL 开关变成空数组，否则防重装形同虚设）。
+ *
+ * 第二轮回归（同族，用户报障：点「检查更新」又变回宿主机 pi 1.5）：
+ * piSelfUpdateRunner（check / update 末尾核验）与 ExtensionManager
+ * （updateExtensions / detectPiVersion / runPi）的同族调用点也必须传三件套，
+ * 否则检查更新、扩展更新、版本探测全部命中宿主机安装。
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -18,6 +23,8 @@ const systemIpc = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
 const modelListCache = readFileSync("src/main/pi/modelListCache.ts", "utf8");
 const devTab = readFileSync("src/renderer/src/components/app/settings/DevTab.tsx", "utf8");
 const settingsModal = readFileSync("src/renderer/src/components/app/SettingsModal.tsx", "utf8");
+const piSelfUpdateRunner = readFileSync("src/main/pi/piSelfUpdateRunner.ts", "utf8");
+const extensionManager = readFileSync("src/main/extensions/ExtensionManager.ts", "utf8");
 
 function handlerBody(source, channel) {
 	const hit = source.match(new RegExp(String.raw`ipcMain\.handle\(ipcChannels\.${channel},[\s\S]*?\n\t\}\);`));
@@ -77,4 +84,24 @@ test("DevTab「验证并保存」验证通过即落盘 WSL 字段并重检 pi", 
 test("SettingsModal 的 WSL 落盘通道支持立即值覆盖（extra）", () => {
 	assert.match(settingsModal, /commitWslDraftFields = useCallback\(\s*async \(extra\?: Partial<AppSettings>\)/);
 	assert.match(settingsModal, /const patch: Partial<AppSettings> = \{ \.\.\.extra \};/);
+});
+
+test("Pi 自更新检查与更新后核验跟随 WSL 设置（否则检查更新永远显示宿主机版本）", () => {
+	// check() 与 update() 末尾的版本核验都要命中发行版内的 pi
+	assert.equal([...piSelfUpdateRunner.matchAll(/locator\.check\(settings\.customPiPath, settings\.wslEnabled, settings\.wslDistro, settings\.wslUser\)/g)].length, 2);
+	assert.doesNotMatch(piSelfUpdateRunner, /locator\.check\(settings\.customPiPath\)\s*;?\s*\n/, "不得再出现只传 customPiPath 的宿主机探测");
+});
+
+test("扩展更新/版本探测/runPi 跟随 WSL 设置", () => {
+	assert.equal([...extensionManager.matchAll(/locator\.check\(settings\.customPiPath, settings\.wslEnabled, settings\.wslDistro, settings\.wslUser\)/g)].length, 2, "updateExtensions 与 detectPiVersion 两处");
+	assert.match(extensionManager, /locator\.resolveCommand\(settings\.customPiPath, settings\.wslEnabled, settings\.wslDistro, settings\.wslUser\)/, "runPi 必须解析到发行版内的 pi，否则扩展操作落在宿主机安装上");
+	assert.match(extensionManager, /await this\.locator\.warmWslCommand\(settings\.wslDistro, settings\.wslUser\)/, "resolveCommand 同步拿不到冷缓存，必须先预热");
+});
+
+test("listInstallations 的 WSL 分支返回发行版内正则匹配的那一份（不再是空数组）", () => {
+	const piLocator = readFileSync("src/main/pi/PiLocator.ts", "utf8");
+	const hit = piLocator.match(/async listInstallations\([\s\S]*?\n\t\}/);
+	assert.ok(hit, "listInstallations 未找到");
+	assert.match(hit[0], /source: "wsl"/);
+	assert.match(hit[0], /isActive: true/);
 });
