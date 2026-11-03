@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { shouldActivateAcpHistory, shouldApplyHistorySnapshot } = loadTsCommonJs("src/renderer/src/web/webHistoryLoad.ts");
+const { shouldActivateAcpHistory, shouldApplyHistorySnapshot, isStaleAgainstLiveStream } = loadTsCommonJs("src/renderer/src/web/webHistoryLoad.ts");
 
 test("ACP 冷会话需要后台激活以恢复 agent 侧历史", () => {
 	assert.equal(shouldActivateAcpHistory({ backend: "acp", hasRuntime: false, attempted: false }), true);
@@ -29,4 +29,14 @@ test("ACP 已有内容时瞬时空结果保留缓存（切会话/重开页面空
 	assert.equal(shouldApplyHistorySnapshot({ backend: "acp", nextCount: 0, previousCount: 5, acpRuntimePending: false }), false);
 	assert.equal(shouldApplyHistorySnapshot({ backend: "acp", nextCount: 0, previousCount: 0, acpRuntimePending: false }), true, "真正没有历史的 ACP 会话仍要落到空态");
 	assert.equal(shouldApplyHistorySnapshot({ backend: "acp", nextCount: 2, previousCount: 5, acpRuntimePending: false }), true, "非空结果正常应用");
+});
+
+// 回归（用户报障：发消息后最新一条回复消失、过一会才又出现）：
+// pi 落盘滞后于在途帧，本端 SSE 还在收帧时拉到的磁盘窗口可能比本地还短，
+// 这种「落后快照」不得覆盖时间线，否则正在出的回复会被整段抹掉。
+test("本端流还活着时，比本地短的磁盘快照不可用来覆盖", () => {
+	assert.equal(isStaleAgainstLiveStream({ localStreamLive: true, nextCount: 3, previousCount: 5 }), true);
+	assert.equal(isStaleAgainstLiveStream({ localStreamLive: true, nextCount: 5, previousCount: 5 }), false, "同长说明磁盘已追平");
+	assert.equal(isStaleAgainstLiveStream({ localStreamLive: true, nextCount: 7, previousCount: 5 }), false, "磁盘更长说明本轮本地流已死，落盘追赶要生效");
+	assert.equal(isStaleAgainstLiveStream({ localStreamLive: false, nextCount: 3, previousCount: 5 }), false, "本地流已结束时磁盘才是权威");
 });

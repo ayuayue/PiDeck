@@ -33,6 +33,18 @@ export function shouldApplyHistorySnapshot(input: { backend?: AgentBackend; next
 }
 
 /**
+ * 磁盘快照是否「落后于在途流」（不可用来覆盖本地时间线）。
+ *
+ * 本端 SSE 还在收帧时，磁盘上的会话文件必然慢于已渲染内容（pi 通常在一段内容
+ * 结束后才落盘）。此时拉到的窗口可能比本地还短——套用就会把正在出的回复抹掉
+ * （用户报障：发消息后最新一条回复消失、过一会才又出现）。反过来说，磁盘比本地
+ * 长就说明本地那轮流早就死了（手机后台节流、切网），正是落盘追赶该生效的场合。
+ */
+export function isStaleAgainstLiveStream(input: { localStreamLive: boolean; nextCount: number; previousCount: number }): boolean {
+	return input.localStreamLive && input.nextCount < input.previousCount;
+}
+
+/**
  * 打开 ACP 会话时是否要后台激活 runtime 以恢复 agent 侧历史。
  *
  * 与桌面 ComposerArea 的 ACP 预热同源：选中即激活，握手时 session/load 重放历史。

@@ -33,6 +33,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui-shadcn/dialog";
 import { Button } from "@/components/ui-shadcn/button";
 import { Input } from "@/components/ui-shadcn/input";
+import { webChatFetch } from "./webChatFetch";
 import { chatMessagesToUiMessages, createProject, createSession, deleteProject, fetchMessagePage, fetchModels, fetchState, getWebAuthHeaders, respondToUi, setRuntimeModel, setRuntimeThinking, updateSessionRecord } from "./webApi";
 import { abortRuntime, cloneRuntime, compactRuntime, copySession, deleteSession, downloadSessionHtml, editRuntimeMessage, deleteRuntimeMessage, prepareResend, renameSession, restartRuntime, activateRuntime, forkRuntimeSession, getForkMessages } from "./webApi";
 import { fetchRuntimeContextUsage, setRuntimePermission, setSessionSecurityLevel } from "./webApi";
@@ -55,7 +56,7 @@ import { resolveComposerHidden } from "./composerCollapse";
 import { useIsMobileViewport } from "./useIsMobileViewport";
 import { useExternalSessionStream } from "./webExternalStream";
 import { useWebStateEvents } from "./webStateEvents";
-import { shouldActivateAcpHistory, shouldApplyHistorySnapshot, type WebHistoryPhase } from "./webHistoryLoad";
+import { isStaleAgainstLiveStream, shouldActivateAcpHistory, shouldApplyHistorySnapshot, type WebHistoryPhase } from "./webHistoryLoad";
 import type { AgentUiResponse } from "../../../shared/types";
 import type { WebProject, WebRuntime, WebState, WebContextUsage } from "./webTypes";
 
@@ -168,6 +169,9 @@ export function WebChatApp() {
 		transport: new DefaultChatTransport({
 			api: "/api/chat",
 			headers: getWebAuthHeaders(),
+			// 跨网（隧道/虚拟网）复用到已被对端丢弃的空闲连接时会拖十几秒才 Failed to fetch；
+			// 同体重试一次（服务端按 sessionId+messageId 去重）比让用户看红条划算。
+			fetch: webChatFetch,
 		}),
 	});
 
@@ -273,6 +277,10 @@ export function WebChatApp() {
 			// 与 refreshSessionMessages 同规：ACP runtime 未就绪的空投影不能覆盖已有历史。
 			const previous = messagesBySessionRef.current[sessionId] ?? [];
 			if (!shouldApplyHistorySnapshot({ backend, nextCount: history.length, previousCount: previous.length, acpRuntimePending })) return;
+			// 本端 SSE 还在收帧时，磁盘窗口往往比本地短（pi 落盘滞后）：这种快照是「落后的」，
+			// 套用会把正在出的回复抹掉。本地流已死（ready/error）则磁盘才是权威。
+			const localStreamLive = statusRef.current === "submitted" || statusRef.current === "streaming";
+			if (isStaleAgainstLiveStream({ localStreamLive, nextCount: history.length, previousCount: previous.length })) return;
 			messagesBySessionRef.current[sessionId] = history;
 			historyMetaRef.current[sessionId] = { total: page.total, nextBefore: page.nextBefore };
 			if (activeSessionIdRef.current === sessionId) setMessages(history);
@@ -291,9 +299,10 @@ export function WebChatApp() {
 		}
 	};
 	useEffect(() => {
-		const maybeRecover = () => {
+		const maybeRecover = (trigger: "poll" | "visibility" | "online" | "error") => {
 			const decision = decideStreamRecovery({
 				status: statusRef.current,
+				trigger,
 				runtimeBusy: activeRuntimeRef.current?.status === "running" || activeRuntimeRef.current?.status === "starting",
 				documentVisible: !document.hidden,
 				online: navigator.onLine,
@@ -304,13 +313,15 @@ export function WebChatApp() {
 			recoveryLastAttemptRef.current = Date.now();
 			void recoverFromDisk(decision.notify);
 		};
-		document.addEventListener("visibilitychange", maybeRecover);
-		window.addEventListener("online", maybeRecover);
+		const onVisibility = () => maybeRecover("visibility");
+		const onOnline = () => maybeRecover("online");
+		document.addEventListener("visibilitychange", onVisibility);
+		window.addEventListener("online", onOnline);
 		// error 态（SSE 显式断流）立即尝试一次；防抖在 decideStreamRecovery 内
-		if (status === "error") maybeRecover();
+		if (status === "error") maybeRecover("error");
 		return () => {
-			document.removeEventListener("visibilitychange", maybeRecover);
-			window.removeEventListener("online", maybeRecover);
+			document.removeEventListener("visibilitychange", onVisibility);
+			window.removeEventListener("online", onOnline);
 		};
 	}, [status]);
 
@@ -618,6 +629,8 @@ export function WebChatApp() {
 					runtimeBusyPrevRef.current = true;
 					const decision = decideStreamRecovery({
 						status: statusRef.current,
+						// 主轮询只追脱节态（ready + runtime 忙）：本端流还活着时不得拿磁盘快照覆盖。
+						trigger: "poll",
 						runtimeBusy: true,
 						documentVisible: !document.hidden,
 						online: navigator.onLine,

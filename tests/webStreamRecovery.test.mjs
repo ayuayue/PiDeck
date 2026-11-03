@@ -73,3 +73,31 @@ test("回前台/断流恢复会清掉传输层错误条，且外部流接管期�
 	assert.match(source, /hiddenFor > 1000 && statusRef\.current === "streaming"/);
 	assert.match(source, /void stop\(\)/);
 });
+
+// 回归（用户报障：发消息后最新一条回复消失、只看到两条用户消息，过一会又回来）：
+// 主轮询每 5s 拉一次时本端 SSE 还在收帧，磁盘快照必然落后（缺本轮 assistant），
+// 以前轮询直接调 decideStreamRecovery 并带上 live status→streaming 命中 recover，
+// 套用落后快照就把在途回复抹掉了。轮询只允许追「脱节态」（ready + runtime 忙）。
+test("主轮询不追活跃流（避免抹掉在途回复）", () => {
+	assert.equal(decideStreamRecovery({ ...base, trigger: "poll", status: "streaming" }).recover, false);
+	assert.equal(decideStreamRecovery({ ...base, trigger: "poll", status: "submitted" }).recover, false);
+});
+
+test("主轮询仍追脱节态（useChat 已 ready 但 runtime 在跑）", () => {
+	const decision = decideStreamRecovery({ ...base, trigger: "poll", status: "ready", runtimeBusy: true });
+	assert.equal(decision.recover, true);
+	assert.equal(decision.notify, false);
+});
+
+// 手机后台节流会让「看着在流」的响应实际已死：回前台/网络恢复仍必须允许追活跃流，
+// 不能因为上面的轮询门禁一起被关掉。
+test("回前台/网络恢复仍允许追活跃流（手机节流兑底）", () => {
+	assert.equal(decideStreamRecovery({ ...base, trigger: "visibility", status: "streaming" }).recover, true);
+	assert.equal(decideStreamRecovery({ ...base, trigger: "online", status: "submitted" }).recover, true);
+});
+
+test("error 触发器带上损坏的 live status 也能恢复并提示", () => {
+	const decision = decideStreamRecovery({ ...base, trigger: "error", status: "error" });
+	assert.equal(decision.recover, true);
+	assert.equal(decision.notify, true);
+});
