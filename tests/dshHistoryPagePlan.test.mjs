@@ -137,8 +137,12 @@ test("接线：attach 截断信息进运行时窗口协议（main），渲染层
 	assert.match(manager, /private recordDshHistoryWindow\(/);
 	assert.match(manager, /getMessageWindow\(agentId: string\)/);
 	assert.match(manager, /dshRuntimeWindowFields\(\{\s*messageCount: runtime\.messages\.length/);
-	// 渲染层：windowStart 决定「还有更早历史」，windowStartFilePos 作为首次补页游标
+	// 渲染层：窗口游标由 resolveEarlierHistoryCursor 统一给出（windowStartFilePos 是首次补页的
+	// 唯一证据；「还有更早历史」与「真能发出一次翻页」必须同源，否则就是死按钮）。
+	// 2026-12 起不再在 controller 里内联那两条表达式，改断言「接线到同一游标函数」+ 策略本身。
 	const controller = read("src/renderer/src/hooks/useSessionTimelineController.ts");
-	assert.match(controller, /cachedEntry\??\.windowStart\s*\?\?\s*0\)\s*>\s*0/);
-	assert.match(controller, /typeof cachedEntry\?\.windowStartFilePos === "number" \? cachedEntry\.windowStartFilePos : undefined/);
+	assert.match(controller, /resolveEarlierHistoryCursor\(\{ runtimeHistory, windowMessages: messages, windowStartFilePos: cachedEntry\?\.windowStartFilePos \}\)/);
+	assert.match(controller, /const \{ before, beforeEntryId \} = earlierHistoryCursor;/);
+	const policy = read("src/renderer/src/components/session/timeline/historyPagePolicy.ts");
+	assert.match(policy, /typeof filePos === "number" && filePos > 0 \? \{ before: filePos \} : null/);
 });
