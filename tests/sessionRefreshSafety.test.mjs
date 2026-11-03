@@ -39,7 +39,7 @@ function withTimeoutBlock() {
 }
 
 function addProjectBlock() {
-	const match = app.match(/async function addProject\([\s\S]*?(?=\n\t(?:async )?function [A-Za-z_$])/);
+	const match = app.match(/^[\t ]*async\s+function\s+addProject\s*\([\s\S]*?(?=\n[\t ]*(?:async\s+)?function\s+[A-Za-z_$])/m);
 	assert.ok(match, "addProject implementation should be discoverable");
 	return match[0];
 }
