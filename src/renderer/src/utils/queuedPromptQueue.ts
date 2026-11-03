@@ -42,6 +42,21 @@ export function enqueuePrompt(current: QueuedPromptMap, sessionId: string, promp
 	return replaceSessionQueue(current, sessionId, (queue) => [...queue, { ...prompt, status: "pending", error: undefined }]);
 }
 
+/**
+ * 提到队首（「立即发送」）：idle drain 与 steer drain 都按队列顺序 claim，提到队首即
+ * 「下一条就是它」。failed 项顺带复位成 pending —— 否则 claimPrompt 会跳过它。
+ */
+export function promotePrompt(current: QueuedPromptMap, sessionId: string, promptId: string): QueuedPromptMap {
+	return replaceSessionQueue(current, sessionId, (queue) => {
+		const index = queue.findIndex((prompt) => prompt.id === promptId);
+		if (index < 0) return queue;
+		const target = queue[index];
+		const promoted = target.status === "failed" ? { ...target, status: "pending" as const, error: undefined } : target;
+		if (index === 0 && promoted === target) return queue;
+		return [promoted, ...queue.filter((_, position) => position !== index)];
+	});
+}
+
 /** 面板只展示前 visibleLimit 条，其余用 +N 提示。 */
 export function getQueuedPromptView(queue: QueuedPromptSnapshot[], visibleLimit: number = QUEUED_PROMPT_VISIBLE): { visible: QueuedPromptSnapshot[]; hiddenCount: number } {
 	const limit = Math.max(0, visibleLimit);

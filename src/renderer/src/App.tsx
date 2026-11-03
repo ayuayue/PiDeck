@@ -2958,6 +2958,9 @@ export function App() {
 			queueRetract: queue.retractQueuedPromptForEdit,
 			queueDiscard: queue.discardQueuedPrompt,
 			queueChangeBehavior: queue.setQueuedPromptBehavior,
+			queueSendNow: queue.sendQueuedPromptNow,
+			// ACP 忙时「立即发送」= 先停当前回合（与输入框「停止」同一条 runSessionControl 链路）。
+			queueStopTurn: (sessionId: string) => void runSessionControl(sessionId, "abort"),
 			queueSuppressAutoDrain: queue.suppressSessionQueueAutoDrain,
 			queueFlushBySessionRef,
 			restartingAgentId,

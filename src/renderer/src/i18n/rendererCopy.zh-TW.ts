@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 369877a1457ffc109ad83f7e321b1e13fb933af2f4592a918e4251536816120c（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: ad769e5f2b840664eca55354684d5dbc7ea28427be1721b44b7c546a11814bf2（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -1138,6 +1138,9 @@ export const zhTW: Record<TranslationKey, string> = {
 	"app.queuedSteerUnavailable": "僅執行中可插入當前回合",
 	"app.queuedSteerBackendUnsupported": "該會話的 agent 不支援插入當前回合（ACP 協議無 steer 通道）",
 	"app.queuedBehaviorLocked": "傳送中或結果未知時不能改投遞方式",
+	"app.queuedSendNow": "立即傳送",
+	"app.queuedSendNowStopTurn": "立即傳送（會先停止當前回合）",
+	"app.queuedSendNowUnavailable": "會話未執行，暫時無法傳送",
 	"app.queuedBehaviorSteerShort": "插入",
 	"app.queuedBehaviorFollowUpShort": "排隊",
 	"app.queuedAskUnsupported": "並行傳送暫不支援圖片附件",

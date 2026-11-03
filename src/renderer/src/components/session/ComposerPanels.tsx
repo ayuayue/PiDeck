@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUp, ChevronDown, ChevronUp, Clock, Copy, FileText, FolderOpen, ListOrdered, LoaderCircle, Pause, Pencil, Split, Square, X, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowUp, ChevronDown, ChevronUp, Clock, Copy, FileText, FolderOpen, ListOrdered, LoaderCircle, Pause, Pencil, Send, Split, Square, X, XCircle } from "lucide-react";
 import { useId, useRef, type RefObject } from "react";
 import { useAtomValue } from "jotai";
 import type { ImageContent } from "../../../../shared/types";
@@ -23,6 +23,7 @@ import { sessionRuntimeBySessionIdAtomFamily } from "../../atoms/session-selecto
 import { useAskPanel } from "../../hooks/useAskPanel";
 import { queueDrainSuppressedByIdAtom } from "../../atoms/composer-atoms";
 import { isSessionRuntimeBusy } from "../../hooks/useSessionTimelineController";
+import { isLiveRuntimeStatus } from "../../utils/sessionCommands";
 import { ComposerWidgetFrame, useComposerWidgetCollapsed } from "./ComposerWidgetLayout";
 
 /**
@@ -151,9 +152,15 @@ function QueuedPromptRow(props: {
 	agentBusy: boolean;
 	/** ACP 协议无 steer 通道：该后端的会话不提供「插入当前回合」切换（禁用 + 原因提示）。 */
 	steerSupported: boolean;
+	/** 会话进程还在（已解绑/未启动的队列项没有任何投递目标）。 */
+	runtimeLive: boolean;
 	onRetract: (sessionId: string, prompt: QueuedPromptSnapshot) => void;
 	onDiscard: (sessionId: string, promptId: string) => void;
 	onChangeBehavior: (sessionId: string, promptId: string, behavior: "steer" | "followUp") => void;
+	/** 立即发送：置顶并马上投递（ACP 忙时由调用方先停当前回合）。 */
+	onSendNow: (sessionId: string, promptId: string) => void;
+	/** ACP 忙时「立即发送」的前置：结束当前回合，否则协议层只会拒收。 */
+	onStopTurn?: (sessionId: string) => void;
 	onSendAsk: (prompt: QueuedPromptSnapshot) => void;
 	/** 行根标签：短列表保持 `ul > li`；虚拟化时行被套进 `<div data-index>`，`li` 的父元素不再是 `ul`（非法 HTML），改走 `div[role=listitem]`。 */
 	as?: "li" | "div";
@@ -175,6 +182,10 @@ function QueuedPromptRow(props: {
 	const steerTitle = !props.steerSupported ? t("app.queuedSteerBackendUnsupported") : canChangeBehavior ? (props.agentBusy ? t("app.sendSteerTitle") : t("app.queuedSteerUnavailable")) : t("app.queuedBehaviorLocked");
 	const followUpTitle = canChangeBehavior ? t("app.sendFollowUpTitle") : t("app.queuedBehaviorLocked");
 	const askTitle = !canChangeBehavior ? t("app.queuedBehaviorLocked") : props.prompt.images?.length ? t("app.queuedAskUnsupported") : t("app.sendAskTitle");
+	// 立即发送：忙且后端无 steer（ACP）时前置一步停止——协议层只接受「新回合」，
+	// 把「停 + 发」合成一次点击，用户不用再先停再撤回进输入框。
+	const stopsTurn = props.agentBusy && !props.steerSupported;
+	const sendNowTitle = !canChangeBehavior ? t("app.queuedBehaviorLocked") : !props.runtimeLive ? t("app.queuedSendNowUnavailable") : stopsTurn ? t("app.queuedSendNowStopTurn") : t("app.queuedSendNow");
 	const rowTitle = [t("app.queuedOrder", { n: props.index + 1 }), isSteer ? t("app.sendSteerTitle") : t("app.sendFollowUpTitle"), previewText, props.prompt.error, status === "unknown" ? t("app.queuedUnknown") : ""].filter(Boolean).join("\n");
 	const actionClass = "size-7 rounded-full text-text-tertiary hover:bg-muted/70 hover:text-foreground";
 
@@ -193,6 +204,21 @@ function QueuedPromptRow(props: {
 				<span className="shrink-0 font-mono text-micro leading-none text-text-tertiary">{isSteer ? t("app.queuedBehaviorSteerShort") : t("app.queuedBehaviorFollowUpShort")}</span>
 			)}
 			<div className="inline-flex shrink-0 items-center gap-0.5">
+				<Button
+					variant="ghost"
+					size="icon-xs"
+					className={actionClass}
+					aria-label={t("app.queuedSendNow")}
+					title={sendNowTitle}
+					disabled={!canChangeBehavior || !props.runtimeLive}
+					onClick={() => {
+						// 先停再置顶：停止会同步置「停止后不自动投递」抑制，顺序反了就发不出去。
+						if (stopsTurn) props.onStopTurn?.(props.sessionId);
+						props.onSendNow(props.sessionId, props.prompt.id);
+					}}
+				>
+					<Send size={14} strokeWidth={2} aria-hidden="true" />
+				</Button>
 				<Button
 					variant="ghost"
 					size="icon-xs"
@@ -249,6 +275,8 @@ export function QueuedPromptPanel(props: {
 	onRetract: (sessionId: string, prompt: QueuedPromptSnapshot) => void;
 	onDiscard: (sessionId: string, promptId: string) => void;
 	onChangeBehavior: (sessionId: string, promptId: string, behavior: "steer" | "followUp") => void;
+	onSendNow: (sessionId: string, promptId: string) => void;
+	onStopTurn?: (sessionId: string) => void;
 }) {
 	const listId = useId();
 	const sessionId = props.sessionId;
@@ -261,6 +289,8 @@ export function QueuedPromptPanel(props: {
 	const backend = runtime?.backend ?? sessionRecord?.backend;
 	// ACP 回合结算后 status 可能滞后为 running：isTurnActive=false 视为空闲（与 composer 发送判定同口径）。
 	const agentBusy = isSessionRuntimeBusy(runtime?.status, runtime?.state, backend === "acp" ? "acp" : undefined);
+	// 已解绑/未启动的会话没有可投递目标（liveTarget 为空）：「立即发送」直接禁用，不给假入口。
+	const runtimeLive = isLiveRuntimeStatus(runtime?.status);
 	// runtime 优先于 record（record 未及回写时 runtime 已生效）；ACP 无 steer 通道。
 	const steerSupported = (runtime?.backend ?? sessionRecord?.backend) !== "acp";
 	// 已 claim（sending）的行派发时就上屏了，不再算排队内容；ACP 的投递确认要等回合结算，
@@ -323,7 +353,7 @@ export function QueuedPromptPanel(props: {
 						scrollRef={listRef}
 						estimateHeight={36}
 						renderItem={(prompt, index) => (
-							<QueuedPromptRow as={ItemTag} prompt={prompt} index={index} showQueueGlyph={!multiple} sessionId={sessionId} agentBusy={agentBusy} steerSupported={steerSupported} onRetract={props.onRetract} onDiscard={props.onDiscard} onChangeBehavior={props.onChangeBehavior} onSendAsk={sendAsk} />
+						<QueuedPromptRow as={ItemTag} prompt={prompt} index={index} showQueueGlyph={!multiple} sessionId={sessionId} agentBusy={agentBusy} steerSupported={steerSupported} runtimeLive={runtimeLive} onRetract={props.onRetract} onDiscard={props.onDiscard} onChangeBehavior={props.onChangeBehavior} onSendNow={props.onSendNow} onStopTurn={props.onStopTurn} onSendAsk={sendAsk} />
 						)}
 					/>
 				</ListTag>
