@@ -1,8 +1,9 @@
 import { useAtom, useSetAtom } from "jotai";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { TranslationKey } from "../../i18n/rendererCopy.zh-CN";
 import { openSettingsAtom } from "../../atoms";
 import { remoteEnrollDialogOpenAtom } from "../../atoms/remote-project-atoms";
+import { desktopApi } from "../../desktopApi";
 import { REMOTE_ENROLL_CONFIRM_EXPIRED, REMOTE_ENROLL_REQUEST_FAILED, REMOTE_HOST_STORE_NEEDS_REPAIR, type RemoteProjectEnrollState, useRemoteProjectEnroll } from "../../hooks/useRemoteProjectEnroll";
 import { t } from "../../i18n";
 import { Button } from "../ui-shadcn/button";
@@ -10,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "../ui-shadcn/input";
 import { Label } from "../ui-shadcn/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui-shadcn/select";
-import { RemoteDirectoryPicker } from "./RemoteDirectoryPicker";
+import { DirectoryBrowser, type DirectoryLoadResult } from "./DirectoryBrowser";
 import { isValidNewLeaf, joinRemotePath } from "./remoteDirectoryPath";
 
 /** 新建空目录模式下需要专门解释的稳定码（其余沿用登记域的通用错误文案）。 */
@@ -65,6 +66,16 @@ export function RemoteProjectEnrollDialog(props: { onEnrolled: (projectId: strin
 		onEnrolled: props.onEnrolled,
 	});
 	const { state } = enroll;
+	// 目录浏览器与 WSL 共用同一组件（DirectoryBrowser）：这里只负责把 SSH 的 IPC 结果与错误码翻译成它的口径。
+	const listHostDirs = useCallback(async (hostId: string, path?: string): Promise<DirectoryLoadResult> => {
+		const result = await desktopApi.remoteHosts.listDirs(hostId, path);
+		return result.ok ? { ok: true, page: { path: result.path, entries: result.entries, truncated: result.truncated } } : { ok: false, code: result.code };
+	}, []);
+	const describeDirError = useCallback((code: string) => {
+		if (code === "SSH_HOST_NOT_READY" || code === "SSH_HOST_DISCONNECTED" || code === "SSH_CONNECTION_FAILED") return t("sidebar.remoteEnroll.dirNotConnected");
+		if (code === "REMOTE_LIST_DIRS_NOT_A_DIRECTORY") return t("sidebar.remoteEnroll.dirNotADirectory");
+		return t("sidebar.remoteEnroll.dirFailed", { code });
+	}, []);
 	// 新建空目录模式：浏览器只选父目录，叶名单独输入；两者合成后才交给登记流程。
 	const [createParent, setCreateParent] = useState("");
 	const [leaf, setLeaf] = useState("");
@@ -159,11 +170,12 @@ export function RemoteProjectEnrollDialog(props: { onEnrolled: (projectId: strin
 							<>
 								<div className="grid gap-1.5">
 									<Label>{t("sidebar.remoteEnroll.createParent")}</Label>
-									<RemoteDirectoryPicker
+									<DirectoryBrowser
 										key={`create-${state.hostId}`}
-										hostId={state.hostId}
 										value={createParent}
 										disabled={formLocked}
+										load={(path) => listHostDirs(state.hostId!, path)}
+										describeError={describeDirError}
 										onChange={(parent) => {
 											setCreateParent(parent);
 											syncCreatePath(parent, leaf);
@@ -190,7 +202,7 @@ export function RemoteProjectEnrollDialog(props: { onEnrolled: (projectId: strin
 						) : (
 							<div className="grid gap-1.5">
 								<Label>{t("sidebar.remoteEnroll.path")}</Label>
-								<RemoteDirectoryPicker key={`existing-${state.hostId}`} hostId={state.hostId} value={state.path} disabled={formLocked} onChange={enroll.setPath} />
+								<DirectoryBrowser key={`existing-${state.hostId}`} value={state.path} disabled={formLocked} load={(path) => listHostDirs(state.hostId!, path)} describeError={describeDirError} onChange={enroll.setPath} />
 							</div>
 						)}
 						{state.stage === "awaiting-confirm" ? <p className="text-label text-muted-foreground">{t("sidebar.remoteEnroll.awaitingConfirm")}</p> : null}

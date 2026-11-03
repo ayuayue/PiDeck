@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 75e6fe71d86ac7c94298205ee8f27d935ee5fbdb605cf6e6061ca3e395317196（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: af9ac98b0d7f47ba338da02aa3e7107c9f4f3ad36d7c294cf76044aab7f81ba2（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -4624,10 +4624,6 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.connections.wsl.title": "WSL",
 	"settings.connections.wsl.hint": "本機 WSL 環境；這裡管理發行版/使用者檔案，專案目錄在「新增專案」時選擇。",
 	"settings.connections.wsl.addProject": "新增專案",
-	"settings.connections.wsl.addingProject": "選擇目錄…",
-	"settings.connections.wsl.projectAdded": "已新增專案：{name}",
-	"settings.connections.wsl.projectHostMissing": "WSL 檔案已不存在，請重新整理後重試。",
-	"settings.connections.wsl.projectAddFailed": "新增專案失敗：{code}",
 	"settings.connections.wsl.add": "新增 WSL",
 	"settings.connections.wsl.added": "已儲存 WSL 連線：{host}",
 	"settings.connections.wsl.empty": "還沒有 WSL 連線。",
@@ -7407,6 +7403,13 @@ export const zhTW: Record<TranslationKey, string> = {
 	"sidebar.remoteEnroll.enrolled": "已新增遠端專案",
 	"sidebar.remoteEnroll.enrolledHint": "專案已出現在側欄並選中，切換專案即可只讀瀏覽。",
 	"sidebar.remoteEnroll.done": "完成",
+	"sidebar.wslPicker.title": "選擇 WSL 專案目錄",
+	"sidebar.wslPicker.hint": "在你的 WSL 發行版裡瀏覽目錄：以檔案使用者身份執行，能進入 Windows 訪問不到的路徑（如 root 檔案的 /root）。",
+	"sidebar.wslPicker.add": "新增此目錄",
+	"sidebar.wslPicker.dirMissing": "這個目錄在發行版裡不存在，或已經不是目錄。",
+	"sidebar.wslPicker.dirUnreadable": "檔案使用者進不去這個目錄，請確認發行版與使用者是否正確。",
+	"sidebar.wslPicker.dirUnavailable": "WSL 發行版當前不可用，請確認它能正常開啟。",
+	"sidebar.wslPicker.dirFailed": "目錄瀏覽失敗：{code}",
 	"sidebar.remoteSessions.title": "遠端會話",
 	"sidebar.remoteSessions.scan": "掃描遠端會話",
 	"sidebar.remoteSessions.rescan": "重新掃描",

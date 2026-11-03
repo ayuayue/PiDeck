@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 52aa0303590f0bc81dd50c3407785c7ff53aa0e0ace6744c29010a4ac961cba8（来自 src/shared/i18n/mainProcessCopy.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 99bdc2e9bb2f49d2d0328f516f8a705eb8a2df9691eb2cd65a1597d1b9f2f9a3（来自 src/shared/i18n/mainProcessCopy.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import type { MainProcessTranslationKey } from "./mainProcessCopy";
 
@@ -109,6 +109,7 @@ export const mainProcessZhTW: Record<MainProcessTranslationKey, string> = {
 	"project.windowsPathInWslMode": "當前處於 WSL 模式，只能新增 WSL 發行版內的目錄。請在 WSL 內選擇目錄，或先到設定裡關閉 WSL 模式。",
 	"project.wslDistroMismatch": "所選目錄屬於 WSL 發行版「{distro}」，當前使用的是「{active}」。請在設定裡切換髮行版後重試。",
 	"project.wslPathNotFound": "WSL 裡找不到該目錄：{path}。若發行版未啟動，請先在終端執行 wsl -d {distro} 後重試。",
+	"project.wslEnvironmentUnavailable": "WSL 發行版當前不可用（未啟動、檔案已失效，或 wsl.exe 無法執行）。請確認該發行版能正常開啟後重試。",
 	"session.notFound": "會話不存在，請重新整理會話列表後重試。",
 	"session.invalidModel": "模型選擇無效，請重新選擇。",
 	"session.backendLocked": "會話已建立，後端（Pi / DSH）不可切換。",

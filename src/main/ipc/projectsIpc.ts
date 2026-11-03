@@ -2,9 +2,11 @@ import { dialog, ipcMain, type BrowserWindow } from "electron";
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { ipcChannels } from "../../shared/ipc";
+import { opFail } from "../../shared/op";
 import { isLocalProject, isRemoteProject, PROJECT_HOST_ID_PATTERN } from "../../shared/projectLocation";
 import type { FeedbackProjectContext, LocalProject } from "../../shared/types";
-import type { ProjectStore } from "../projects/ProjectStore";
+import { WSL_DIRECTORY_CODES } from "../../shared/types/wslDirectory";
+import type { ProjectStore, WslProjectIdentity } from "../projects/ProjectStore";
 import type { SettingsStore } from "../settings/SettingsStore";
 import { readTextBounded } from "../fs/boundedTextRead";
 import type { GitService } from "../git/GitService";
@@ -18,7 +20,8 @@ import { removeProjectWithSessions } from "../projects/projectRemoval";
 import { consumeUserDataNameMigrationNotice } from "../projects/userDataNameMigration";
 import { registerProjectResourceIpc } from "./projectResourceIpc";
 import { createProjectGitHandler } from "./gitProjectHandlers";
-import { isWslDistroMismatchError, normalizeSelectedWslProjectPath, normalizeWslProjectAddPath, parseWslUncPath, toWindowsHostPath, type WslEnvironment } from "../wsl/WslPaths";
+import { isWslDistroMismatchError, linuxPathToWslUnc, normalizeSelectedWslProjectPath, normalizeWslProjectAddPath, parseWslUncPath, toWindowsHostPath, type WslEnvironment } from "../wsl/WslPaths";
+import { listWslDirectory } from "../wsl/WslDirectoryBrowser";
 import { createWslHostStore } from "../wsl/WslHostStore";
 
 export type ProjectsIpcDeps = {
@@ -88,45 +91,77 @@ export function registerProjectsIpc({ projectStore, settingsStore, gitService, w
 
 	ipcMain.handle(ipcChannels.projectsList, async () => getVisibleProjects());
 	ipcMain.handle(ipcChannels.projectsAdd, async () => {
-		// 全局 WSL 模式：连接档案尚未放开，普通「添加项目」按设置的 Pi 来源决定环境，
-		// 与 0.9.8 一致；按档案添加仍走 projects:add-wsl（dev 通道的连接页）。
-		const settings = settingsStore.get();
-		const env = settings.wslEnabled ? ("wsl" as const) : ("windows" as const);
-		// #155：WSL 模式下必须带上当前发行版环境，否则 chooseAndAdd 直接抛 INVALID_WSL_PATH。
-		const wslEnvironment = env === "wsl" && settings.wslDistro && settings.wslUser && resolveWslEnvironment ? await resolveWslEnvironment(settings.wslDistro, settings.wslUser) : null;
-		const project = await projectStore.chooseAndAdd(env, wslEnvironment);
-		void appLogger.info("project", "Project added", { projectId: project?.id, path: project?.path, environment: env });
-		return project;
-	});
-	// 文件夹右键菜单（--open-project）直达：给定路径必须是已存在的目录，
-	// 校验通过后直接入库（与选择框添加同一 add 链路：同路径去重/聊天目录特判）。
-	/**
-	 * 第 11 步：按 WSL 档案添加项目。
-	 *
-	 * 身份只来自主进程读到的档案（渲染层只给 id）；目录仍用系统选择框，选中后按该档案的
-	 * distro/user 构造 WslEnvironment 并写入项目 locator。旧 `projects:add` 保留给
-	 * 全局 WSL 模式（第 14 步删除）。
-	 */
-	ipcMain.handle(ipcChannels.projectsAddWsl, async (_event, hostIdValue: unknown) => {
-		if (typeof hostIdValue !== "string" || !PROJECT_HOST_ID_PATTERN.test(hostIdValue)) throw new Error("WSL_HOST_NOT_FOUND");
-		if (resolveWslEnvironment === undefined) throw new Error("WSL_HOST_UNAVAILABLE");
-		const store = await createWslHostStore(userDataDir);
-		const profile = (await store.list()).find((host) => host.id === hostIdValue);
-		if (profile === undefined) throw new Error("WSL_HOST_NOT_FOUND");
-		let environment: WslEnvironment;
-		try {
-			environment = await resolveWslEnvironment(profile.distro, profile.user);
-		} catch {
-			throw new Error("WSL_HOST_UNAVAILABLE");
-		}
-		const project = await projectStore.chooseAndAdd("wsl", environment, { hostId: profile.id, distro: profile.distro, user: profile.user });
-		if (project !== null) {
-			const visible = await getVisibleProjects();
-			getMainWindow()?.webContents.send(ipcChannels.projectsChanged, visible);
-		}
+		// 只服务 Windows 目录选择框：WSL 添加项目走内置选择器（projects:list-wsl-directory +
+		// projects:add-wsl-path），因为系统对话框递给我们的 `\\wsl.localhost\<distro>\<home>` 是按
+		// 发行版**默认用户**鉴权的，root 档案的 /root 在 Windows 侧根本打不开（issue 见计划文档）。
+		const project = await projectStore.chooseAndAdd();
+		void appLogger.info("project", "Project added", { projectId: project?.id, path: project?.path, environment: "windows" });
 		return project;
 	});
 
+	/**
+	 * Wave 0：目录浏览/按路径添加所需的 WSL 身份。**只来自主进程**：渲染层最多给一个档案 id，
+	 * distro/user 由档案或全局 WSL 模式解析，缺省档案身份时保持旧行为（运行时回退全局 distro/user）。
+	 */
+	const resolveWslBrowseTarget = async (hostIdValue: unknown): Promise<{ distro: string; user: string; identity?: WslProjectIdentity } | null> => {
+		if (process.platform !== "win32") return null;
+		if (hostIdValue === undefined || hostIdValue === null || hostIdValue === "") {
+			const settings = settingsStore.get();
+			if (settings.wslEnabled !== true) return null;
+			const distro = String(settings.wslDistro ?? "").trim();
+			const user = String(settings.wslUser ?? "").trim();
+			if (!distro || !user) return null;
+			return { distro, user };
+		}
+		if (typeof hostIdValue !== "string" || !PROJECT_HOST_ID_PATTERN.test(hostIdValue)) return null;
+		const store = await createWslHostStore(userDataDir);
+		const profile = (await store.list()).find((host) => host.id === hostIdValue);
+		if (profile === undefined) return null;
+		return { distro: profile.distro, user: profile.user, identity: { hostId: profile.id, distro: profile.distro, user: profile.user } };
+	};
+
+	/**
+	 * 该档案用户的 HOME：只在选择器首次定位（未给路径）时用一次。
+	 * 解析不到就从 `/` 开始浏览——列根目录对任何用户都可读，把它当成硬失败会让用户连自己的目录都找不到。
+	 */
+	const resolveWslBrowseStart = async (distro: string, user: string): Promise<string> => {
+		if (resolveWslEnvironment === undefined) return "/";
+		const environment = await resolveWslEnvironment(distro, user).catch(() => null);
+		return environment?.linuxHome ?? "/";
+	};
+
+	ipcMain.handle(ipcChannels.projectsListWslDirectory, async (_event, pathValue: unknown, hostIdValue: unknown) => {
+		const target = await resolveWslBrowseTarget(hostIdValue);
+		if (target === null) return opFail(WSL_DIRECTORY_CODES.unavailable);
+		// 空串是「从我该在的地方开始」，具体起点由主进程解析；渲染层永远拿不到别人的 HOME 猜测。
+		const path = typeof pathValue === "string" && pathValue.length > 0 ? pathValue : await resolveWslBrowseStart(target.distro, target.user);
+		return listWslDirectory({ distro: target.distro, user: target.user, path });
+	});
+
+	/**
+	 * 选定发行版内目录后添加项目：入库前必须在发行版内校验（Windows 侧对 `\\wsl.localhost` 的
+	 * `stat` 按默认用户鉴权，root 档案的目录可能报错也可能假报存在），路径取列举已归一后的绝对路径，
+	 * 转规范 UNC 只在入库这一刻发生。
+	 */
+	ipcMain.handle(ipcChannels.projectsAddWslPath, async (_event, pathValue: unknown, hostIdValue: unknown) => {
+		const target = await resolveWslBrowseTarget(hostIdValue);
+		if (target === null) throw new Error(mainCopy("project.wslEnvironmentUnavailable"));
+		const path = typeof pathValue === "string" ? pathValue : "";
+		const listed = await listWslDirectory({ distro: target.distro, user: target.user, path });
+		if (!listed.ok) {
+			if (listed.code === WSL_DIRECTORY_CODES.unavailable) throw new Error(mainCopy("project.wslEnvironmentUnavailable"));
+			throw new Error(mainCopy("project.wslPathNotFound", { path, distro: target.distro }));
+		}
+		const projectPath = linuxPathToWslUnc(listed.value.path, target.distro);
+		const project = await projectStore.add(projectPath, undefined, "wsl", target.identity);
+		void appLogger.info("project", "WSL project added via in-distro picker", { projectId: project.id, path: project.path, environment: "wsl" });
+		const visible = await getVisibleProjects();
+		getMainWindow()?.webContents.send(ipcChannels.projectsChanged, visible);
+		return project;
+	});
+
+	// 文件夹右键菜单（--open-project）直达：给定路径必须是已存在的目录，
+	// 校验通过后直接入库（与选择框添加同一 add 链路：同路径去重/聊天目录特判）。
 	ipcMain.handle(ipcChannels.projectsAddByPath, async (_event, path: unknown) => {
 		if (typeof path !== "string" || path.trim().length === 0) {
 			throw new Error(mainCopy("project.invalidPath"));

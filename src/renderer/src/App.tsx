@@ -95,6 +95,7 @@ import { LOGO_STYLE_STORAGE_KEY, resolveLogoStyle } from "./components/app/piTui
 import { writeBootBrandCache } from "./components/app/bootBrandCache";
 import { resolveAppDisplayName } from "../../shared/types/settings";
 import { openProviderLoginAtom } from "./atoms/providerLoginAtoms";
+import { wslProjectPickerAtom } from "./atoms/wsl-project-atoms";
 import { useSessionLayout } from "./hooks/useSessionLayout";
 import { useFileEditor } from "./hooks/useFileEditor";
 import { useSessionFileLinks } from "./hooks/workspace/useSessionFileLinks";
@@ -196,6 +197,7 @@ import { SessionPaneServicesProvider, type SessionFileOpenContext } from "./comp
 import { SessionStatusPanel } from "./components/session/statusPanel/SessionStatusPanel";
 import { ProjectEmptyState } from "./components/session/ProjectEmptyState";
 import { RemoteProjectEnrollDialog } from "./components/sidebar/RemoteProjectEnrollDialog";
+import { WslProjectPickerDialog } from "./components/sidebar/WslProjectPickerDialog";
 import { FileLinkBaseProvider } from "./components/session/FileLinkBase";
 import { useSessionWorkspaceChrome } from "./hooks/useSessionWorkspaceChrome";
 import { useSessionIdAliasMigration } from "./hooks/useSessionIdAliasMigration";
@@ -313,6 +315,8 @@ export function App() {
 	const setHostPluginPanel = useSetAtom(hostPluginPanelAtom);
 	// `/login`：打开供应商登录弹框（弹框自己从 atom 取预选供应商）。
 	const openProviderLogin = useSetAtom(openProviderLoginAtom);
+	// WSL 模式下的「添加项目」：写开关即打开内置目录选择器（系统对话框读不到发行版内目录）。
+	const setWslProjectPicker = useSetAtom(wslProjectPickerAtom);
 	const setProjects = useSetAtom(replaceProjectInventoryAtom);
 	const applyRuntimeEvent = useSetAtom(applySessionRuntimeEventAtom);
 	const upsertSession = useSetAtom(upsertSessionAtom);
@@ -2077,6 +2081,12 @@ export function App() {
 	}
 
 	async function addProject() {
+		// WSL 模式：系统「打开文件夹」只按 Windows 身份访问 \\wsl.localhost，发行版内的目录（尤其 root
+		// 档案的 /root）递进去就是「无法访问网络资源」；改由内置选择器在发行版内列目录。
+		if (settings.wslEnabled === true) {
+			setWslProjectPicker({});
+			return;
+		}
 		const project = await api.projects.add();
 		if (!project) return;
 		// 先同步 DSH：新目录注册后，原先按 cwd 找不到项目的外部会话才能挂进来。
@@ -3841,6 +3851,15 @@ export function App() {
 					<RemoteProjectEnrollDialog
 						onEnrolled={(projectId) => {
 							void refreshProjects()
+								.then(() => selectProjectCommand(projectId))
+								.catch(() => undefined);
+						}}
+					/>
+					{/* WSL 目录选择器：同上，唯一挂载点；WSL 侧没有「外部会话按 cwd 归位」的问题，登记后直接选中新项目。 */}
+					<WslProjectPickerDialog
+						onAdded={(projectId) => {
+							void syncDshForeignSessionsIfEnabled()
+								.then(() => refreshProjects())
 								.then(() => selectProjectCommand(projectId))
 								.catch(() => undefined);
 						}}

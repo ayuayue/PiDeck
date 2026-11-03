@@ -99,8 +99,15 @@ export const ipcChannels = {
 	remotePiModels: "remote:pi-models",
 	projectsList: "projects:list",
 	projectsAdd: "projects:add",
-	/** 按 WSL 连接档案添加项目：主进程查档案、解析环境、选目录并写入 wslHostId/distro/user。 */
-	projectsAddWsl: "projects:add-wsl",
+	/**
+	 * WSL 目录浏览（`docs/wsl-project-in-distro-io-plan.md` Wave 0）：以档案的 distro+user 在发行版内列一层子目录。
+	 * 为什么不能用 `\\wsl.localhost` 代替：9P 按**发行版默认用户**鉴权，与 `-u` 和文件属主无关，
+	 * root 档案的 `/root` 在 Windows 侧连具体文件都打不开（实测 EACCES）。
+	 * 渲染层只传路径与可选档案 id；发行版/用户由主进程解析，返回的 Linux 路径不可交给本机 fs。
+	 */
+	projectsListWslDirectory: "projects:list-wsl-directory",
+	/** 选定发行版内目录后添加项目：身份口径与 projectsListWslDirectory 一致（档案优先，否则全局 WSL 模式），入库前在发行版内校验目录。 */
+	projectsAddWslPath: "projects:add-wsl-path",
 	// 文件夹右键菜单直达：按路径添加项目（渲染层确认后调用；projectsAdd 走系统目录选择框）
 	projectsAddByPath: "projects:add-by-path",
 	projectsRemove: "projects:remove",

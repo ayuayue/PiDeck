@@ -57,7 +57,8 @@ export type RemoteHostConnectResult = { ok: true; hostId: string; state: RemoteH
 export type RemoteHostRemoveResult = { ok: true; hostId: string } | RemoteHostOperationFailure;
 
 /** 目录浏览只返回目录名与是否符号链接；文件、大小与内容都不出主进程。 */
-export type RemoteDirectoryEntry = { name: string; isSymlink: boolean };
+/** `isSymlink` 只在列举能判定它的链路上给出（SSH 探测判、WSL 单层列举不判），缺省即「未知」而不是「不是」。 */
+export type RemoteDirectoryEntry = { name: string; isSymlink?: boolean };
 
 export type RemoteDirectoryListResult = { ok: true; hostId: string; path: string; entries: RemoteDirectoryEntry[]; truncated: boolean } | RemoteHostOperationFailure;
 
