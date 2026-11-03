@@ -26,6 +26,16 @@ export function sessionStatusDotClass(status?: string | null): string | undefine
 	}
 }
 
+/**
+ * 状态点是否应该脉动：只有「正在干活/等回应」才是进度，idle/error 是静态状态。
+ *
+ * #483：状态点曾对所有非 error 状态挂 animate-pulse，于是侧栏每个空闲会话都在永久脉动——
+ * 没有回合、没有流式内容时渲染进程仍持续合成（报告里 renderer 空闲均值 26.8% 单核）。
+ */
+export function isActiveSessionStatus(status?: string | null): boolean {
+	return status === "running" || status === "starting" || status === "pending" || status === "waiting";
+}
+
 const DEFAULT_VISIBLE_PROJECT_CHILD_LIMIT = 5;
 
 export type ProjectChildItem =

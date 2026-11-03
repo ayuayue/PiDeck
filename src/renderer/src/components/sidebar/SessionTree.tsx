@@ -3,7 +3,7 @@ import { SidebarRemovalList, SidebarRemovalRow } from "./SidebarRemovalRow";
 import { ChevronDown, ChevronUp, Ellipsis, HatGlasses, Image as ImageIcon, Pin, Trash2 } from "lucide-react";
 import { useAtomValue } from "jotai";
 import type { AgentTab, Project, SessionRecord, SessionSummary } from "../../../../shared/types";
-import { collectDisplayedSessionIds, filterAgentsForSidebarDisplay, getProjectAgentSessionDisplay, sessionStatusDotClass, type ProjectChildItem } from "../../agentListDisplay";
+import { collectDisplayedSessionIds, filterAgentsForSidebarDisplay, getProjectAgentSessionDisplay, isActiveSessionStatus, sessionStatusDotClass, type ProjectChildItem } from "../../agentListDisplay";
 import { compareSessionsForSortMode } from "../../sessionSortModes";
 import { sessionRecordToSummary } from "../../atoms";
 import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
@@ -70,8 +70,10 @@ function formatPiSubagentName(session: SessionSummary) {
 function renderRuntimeStatusDot(status?: string | null) {
 	const dotClass = sessionStatusDotClass(status);
 	if (!dotClass) return null;
-	const label = status === "idle" ? t("app.statusIdle") : status === "error" ? t("app.statusError") : status === "running" || status === "starting" || status === "pending" || status === "waiting" ? t("app.statusRunning") : undefined;
-	return <span className={cn("size-1.5 shrink-0 rounded-full", dotClass, status === "error" ? "" : "animate-pulse")} aria-label={label} title={label} />;
+	const active = isActiveSessionStatus(status);
+	const label = status === "idle" ? t("app.statusIdle") : status === "error" ? t("app.statusError") : active ? t("app.statusRunning") : undefined;
+	// 只有活跃状态才脉动（#483）：空闲会话也挂 animate-pulse 会让侧栏常驻合成，空闲也烧 CPU。
+	return <span className={cn("size-1.5 shrink-0 rounded-full", dotClass, active && "animate-pulse")} aria-label={label} title={label} />;
 }
 
 export function SessionTree(props: {

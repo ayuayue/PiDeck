@@ -431,6 +431,9 @@ type SessionDisplayIndex = {
 	chainSources?: Array<{ hostPath: string; size: number; mtimeMs: number }>;
 };
 
+/** 索引来源（仅诊断日志用）：缓存命中 / 尾部增量 / sidecar 条目表 / TS 全量重建。 */
+type DisplayIndexSource = "cache" | "append" | "sidecar" | "rebuild";
+
 export type SessionArchiveData = {
 	compactions: Array<{
 		id: string;
@@ -1700,12 +1703,12 @@ export class SessionHistoryReader {
 		return page;
 	}
 
-	private async getSessionDisplayIndex(sessionPath: string): Promise<SessionDisplayIndex> {
+	private async getSessionDisplayIndex(sessionPath: string, source?: { value: DisplayIndexSource }): Promise<SessionDisplayIndex> {
 		// toHostPath 只在 inner 解析一次：调用次数是可观测契约（诊断测试按调用序断言）
-		return this.getSessionDisplayIndexInner(sessionPath, 0, new Set());
+		return this.getSessionDisplayIndexInner(sessionPath, 0, new Set(), undefined, source);
 	}
 
-	private async getSessionDisplayIndexInner(sessionPath: string, depth: number, visited: Set<string>, guard?: PluginHistoryGuard): Promise<SessionDisplayIndex> {
+	private async getSessionDisplayIndexInner(sessionPath: string, depth: number, visited: Set<string>, guard?: PluginHistoryGuard, source?: { value: DisplayIndexSource }): Promise<SessionDisplayIndex> {
 		const hostPath = this.deps.toHostPath(sessionPath);
 		const version = await stat(hostPath);
 		// 插件读取走单槽缓存：不进桌面 LRU（32 文件无总量上限），内存只随最后一个会话 bounded。
@@ -1715,6 +1718,7 @@ export class SessionHistoryReader {
 				this.sessionDisplayIndexes.delete(hostPath);
 				this.sessionDisplayIndexes.set(hostPath, cached);
 			}
+			if (source) source.value = "cache";
 			return cached;
 		}
 
@@ -1731,6 +1735,7 @@ export class SessionHistoryReader {
 					this.sessionDisplayIndexes.set(hostPath, updated);
 					this.trimDisplayIndexCache();
 				}
+				if (source) source.value = "append";
 				return updated;
 			}
 			// 增量失败（IO 异常/无新增完整行）：回退全量重建
@@ -1751,6 +1756,7 @@ export class SessionHistoryReader {
 			}
 			const sidecarBranch = this.traceActiveBranch(sidecarEntries, sidecarLastEntryId);
 			const sidecarIndex = await this.mergeForkChain(hostPath, version, this.finishIndex(hostPath, version, sidecarEntries, sidecarBranch, sidecarTable.endsWithNewline), depth, visited, guard);
+			if (source) source.value = "sidecar";
 			return this.storeDisplayIndex(hostPath, guard, sidecarIndex);
 		}
 
@@ -1794,6 +1800,7 @@ export class SessionHistoryReader {
 		const endsWithNewline = scan.endsWithNewline;
 		const activeBranch = this.traceActiveBranch(entries, lastEntryId);
 		const index = await this.mergeForkChain(hostPath, version, this.finishIndex(hostPath, version, entries, activeBranch, endsWithNewline), depth, visited, guard);
+		if (source) source.value = "rebuild";
 		return this.storeDisplayIndex(hostPath, guard, index);
 	}
 
@@ -2069,8 +2076,15 @@ export class SessionHistoryReader {
 				// 的旧 offset 内容 → 返回 null，调用方回退全量重建。
 				// 合并索引（fork 链）首条目可能来自祖先文件：探针只取宿主自身条目，
 				// 否则用宿主句柄读祖先 offset 必然 id 不匹配 → 每次都误判回退全量重建。
-				const entriesInOrder = [...cached.entries.values()].filter((entry) => !entry.chainHostPath);
-				const probes = [entriesInOrder[0], entriesInOrder[entriesInOrder.length - 1]];
+				// 探针只取首/末两条宿主条目：`[...cached.entries.values()]` 每次 append 都要复制
+				// 整张条目表（万级条目），而下面只用到两条（#483）。
+				const hostEntries = { first: undefined as SessionDisplayEntry | undefined, last: undefined as SessionDisplayEntry | undefined };
+				for (const entry of cached.entries.values()) {
+					if (entry.chainHostPath) continue;
+					hostEntries.first ??= entry;
+					hostEntries.last = entry;
+				}
+				const probes = [hostEntries.first, hostEntries.last];
 				for (const probe of probes) {
 					if (!probe) continue;
 					const probeBuffer = Buffer.allocUnsafe(probe.byteLength);
@@ -2239,9 +2253,10 @@ export class SessionHistoryReader {
 	 */
 	async readRecentMessages(sessionPath: string, maxTurns: number): Promise<RpcResponse> {
 		const t0 = Date.now();
+		const indexSource: { value: DisplayIndexSource } = { value: "cache" };
 		let index: Awaited<ReturnType<SessionHistoryReader["getSessionDisplayIndex"]>>;
 		try {
-			index = await this.getSessionDisplayIndex(sessionPath);
+			index = await this.getSessionDisplayIndex(sessionPath, indexSource);
 		} catch (error) {
 			// 新会话竞态：创建空白会话后 pi 立即返回 sessionFile，但 JSONL 要到首条
 			// 消息才落盘——此刻读取 ENOENT 是「空历史」而不是加载失败（2026-09-14
@@ -2281,20 +2296,28 @@ export class SessionHistoryReader {
 		}
 		const total = index.activeMessageEntries.length;
 		const boundedTurns = Number.isFinite(maxTurns) && maxTurns > 0 ? Math.max(1, Math.floor(maxTurns)) : SessionHistoryReader.DEFAULT_TURN_PAGE_SIZE;
+		const indexEndedAt = Date.now();
 		// 启动窗口要完整保留最近 N 轮（分页页边界统一按轮计，无字节裁剪），
 		// 但极端会话里单轮可能有上千条，再叠一层条目预算（#213：2162 条一次下发 → 渲染 OOM）。
 		const start = boundTurnWindowStart(index.activeMessageEntries, total, boundedTurns, SessionHistoryReader.MAX_LOAD_WINDOW_ENTRIES);
 		const entries = index.activeMessageEntries.slice(start);
 		const rawMessages = await this.readIndexedSessionMessages(index.hostPath, entries);
+		const windowEndedAt = Date.now();
 		const trimmed = this.deps.trimMessages(rawMessages, boundedTurns);
 		const t1 = Date.now();
 
+		// 分阶段计时（#483）：readMs 单个数字分不清「索引重建 / 窗口读盘解析 / 投影裁剪」，
+		// 三者量级差一个数量级、修法完全不同，分开落日志才能定位下一次的成本回升。
 		void this.deps.logger?.info("agent", "Recent messages read from session file", {
 			sessionPath,
 			activeMessages: total,
 			messageEntries: rawMessages.length,
 			trimmedTurns: boundedTurns,
 			trimmedMessages: trimmed.length,
+			indexMode: indexSource.value,
+			indexMs: indexEndedAt - t0,
+			windowMs: windowEndedAt - indexEndedAt,
+			trimMs: t1 - windowEndedAt,
 			readMs: t1 - t0,
 		});
 

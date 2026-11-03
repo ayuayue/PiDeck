@@ -451,6 +451,54 @@ test("SessionHistoryReader full-rebuilds instead of appending after a growing at
 	}
 });
 
+test("SessionHistoryReader logs which display-index path produced the recent read (#483)", async () => {
+	// 回归：readMs 单个数字分不清索引重建与窗口读取，定位大会话变慢只能靠猜。
+	// indexMode 必须如实报出 rebuild/append/cache，且 activeMessages 记录的是总量而非窗口量。
+	const directory = await mkdtemp(join(tmpdir(), "pideck-history-index-mode-"));
+	const sessionPath = join(directory, "session.jsonl");
+	const line = (id, parentId, role, text) =>
+		JSON.stringify({ id, parentId, type: "message", message: { role, content: [{ type: "text", text }] } });
+	const logs = [];
+	const createLoggingReader = () =>
+		new SessionHistoryReader({
+			toHostPath: (path) => path,
+			convertMessages: (_agentId, rawMessages, entryIds = []) =>
+				rawMessages.map((message, index) => ({ id: entryIds[index] ?? `message-${index}`, role: message.role, text: textFromContent(message.content) })),
+			trimMessages: (messages) => messages,
+			translate: () => "Summary unavailable.",
+			logger: {
+				info: (scope, message, detail) => {
+					if (message === "Recent messages read from session file") logs.push(detail);
+				},
+				warn: () => {},
+			},
+		});
+	try {
+		await writeFile(sessionPath, [JSON.stringify({ id: "session", type: "session" }), line("e1", "session", "user", "first question"), line("e2", "e1", "assistant", "first answer")].join("\n") + "\n", "utf8");
+		const reader = createLoggingReader();
+
+		await reader.readRecentMessages(sessionPath, 12);
+		assert.equal(logs.at(-1).indexMode, "rebuild");
+		assert.equal(logs.at(-1).activeMessages, 2);
+		assert.equal(typeof logs.at(-1).indexMs, "number");
+		assert.equal(typeof logs.at(-1).windowMs, "number");
+		assert.equal(typeof logs.at(-1).trimMs, "number");
+
+		// 真 append：只读尾部新增字节，不得整文件重建
+		await appendFile(sessionPath, [line("e3", "e2", "user", "second question"), line("e4", "e3", "assistant", "second answer")].join("\n") + "\n", "utf8");
+		await reader.readRecentMessages(sessionPath, 12);
+		assert.equal(logs.at(-1).indexMode, "append");
+		assert.equal(logs.at(-1).activeMessages, 4);
+
+		// 文件未变：命中缓存
+		await reader.readRecentMessages(sessionPath, 12);
+		assert.equal(logs.at(-1).indexMode, "cache");
+		assert.equal(logs.at(-1).activeMessages, 4);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
 test("compaction page paging stays in index space when conversion skips messages", async () => {
 	// 回归（打开大会话起始页误显根因）：hasCompaction 分页曾用 readSessionDisplayMessages
 	// 的全量数组按索引坐标 slice——转换跳过空消息（thinking-only/空 user）后数组比索引短，
