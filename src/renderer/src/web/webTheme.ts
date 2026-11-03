@@ -44,6 +44,16 @@ export function nextWebTheme(pref: WebThemePreference, resolved: ResolvedWebThem
 	return resolved === "dark" ? "light" : "dark";
 }
 
+/**
+ * 一键明暗翻转（Web 头部按钮）：显式档直接对翻；system 档按「当前实际解析结果」翻到对面，
+ * 并退出自动模式——一次点击必须产生可见变化。语义与桌面底栏 dock 的 toggleThemeMode 一致。
+ */
+export function toggleWebTheme(pref: WebThemePreference, resolved: ResolvedWebTheme): WebThemePreference {
+	if (pref === "light") return "dark";
+	if (pref === "dark") return "light";
+	return resolved === "dark" ? "light" : "dark";
+}
+
 export function applyWebTheme(theme: ResolvedWebTheme): void {
 	if (typeof document === "undefined") return;
 	// foundation 变量只在 dark 有覆盖集，light 显式写属性保持 DOM 状态可观察
@@ -56,4 +66,16 @@ export function applyWebTheme(theme: ResolvedWebTheme): void {
 export function systemPrefersDark(): boolean {
 	if (typeof window === "undefined" || !window.matchMedia) return false;
 	return window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+/**
+ * 首帧前的主题初始化：按「已存偏好 + 系统明暗」落 data-theme，避免手动选暗色的用户刷新时先闪一下亮色。
+ *
+ * 只做一次性应用，不在这里订阅 prefers-color-scheme：运行期跟随系统由持有主题状态的 WebChatApp
+ * 负责，两处同时写会互相覆盖用户的手动选择。
+ */
+export function bootstrapWebTheme(): ResolvedWebTheme {
+	const resolved = resolveWebTheme(readStoredWebTheme(), systemPrefersDark());
+	applyWebTheme(resolved);
+	return resolved;
 }

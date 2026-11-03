@@ -409,6 +409,20 @@ export function getComposerEnterIntent(event: ComposerKeyboardState, sendShortcu
 }
 
 /**
+ * 「发送快捷键」设置 → 发送按钮上的键帽文案。
+ *
+ * 提示必须与 getComposerEnterIntent 的真实判定同源：任何一处硬编码 ⌘↵ 都会在
+ * 用户把设置改成「Enter 发送 / Shift+Enter 发送」时给出错误引导。
+ * isMac 由调用方按平台传入，本模块保持无平台依赖，node 里可直接单测。
+ */
+export function sendShortcutKeyHint(sendShortcut: SendShortcut, isMac: boolean): string {
+	const mod = isMac ? "⌘" : "Ctrl+";
+	if (sendShortcut === "enter-send") return "↵";
+	if (sendShortcut === "ctrl-enter-send") return `${mod}↵`;
+	return "⇧↵";
+}
+
+/**
  * 判断 plan 模式下是否应当把按键视为「发送」意图。
  *
  * 业务规则：plan 是一次性提交流——用户点「计划模式」chip 后回车即发一眼计划，

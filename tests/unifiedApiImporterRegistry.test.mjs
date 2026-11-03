@@ -11,8 +11,8 @@ import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 /** TEST-PLAN §0 锚定数字：11 导入器。 */
-const IMPORTER_TOTAL = 11;
-const EXPECTED_IDS = ["claude", "codex", "cursor", "directory-sessions", "kimi", "kimi-work", "minimax", "opencode", "qoder", "workbuddy", "zcode"];
+const IMPORTER_TOTAL = 12;
+const EXPECTED_IDS = ["claude", "codebuddy", "codex", "cursor", "directory-sessions", "kimi", "kimi-work", "minimax", "opencode", "qoder", "workbuddy", "zcode"];
 const CAPABILITY_ENUM = ["describe", "import", "listSources", "scan"];
 const ROW_KEYS = ["capabilities", "channelPrefix", "id", "ipcFile", "manager", "preloadNamespaces"];
 
@@ -62,7 +62,7 @@ function validateImporterRow(row) {
 	return problems;
 }
 
-test("F6-1 IMPORTER_CATALOG 恰 11 行且 id 集合精确（§0 锚）", () => {
+test("F6-1 IMPORTER_CATALOG 恰 12 行且 id 集合精确（§0 锚）", () => {
 	assert.equal(CATALOG.length, IMPORTER_TOTAL);
 	assert.deepEqual(CATALOG.map((row) => row.id).sort(), EXPECTED_IDS);
 	assert.equal(new Set(CATALOG.map((row) => row.id)).size, IMPORTER_TOTAL);

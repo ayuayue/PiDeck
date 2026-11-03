@@ -41,13 +41,14 @@ test("project-scoped reads route through registered local backend boundaries", (
 	assert.match(filesIpc, /new ProjectFileBackendRouter\(/);
 	assert.match(filesIpc, /projectFileBackendRouter\.forProject\(input\.projectId\)\.readContent\(input, effectiveMax\)/);
 	assert.match(localFileBackend, /resolveProjectFileReadPath\(boundary, localPath\)/);
-	assert.match(localFileBackend, /await readFile\(path, "utf8"\)/);
-	assert.match(localFileBackend, /await writeFile\(path, content, "utf8"\)/);
+	assert.match(localFileBackend, /readTextFileGuarded\(path, maxBytes\)/);
+	// 写路径走共享守卫（密文拦截 + 原子替换），不得回退到裸 writeFile。
+	assert.match(localFileBackend, /await writeTextFileGuarded\(path, content\)/);
 	assert.match(filesIpc, /const boundary = await resolveProjectReadBoundary\(scope\)/);
 	assert.match(filesIpc, /const readablePath = await resolveReadablePath\(input, boundary\)/);
 	assert.match(filesIpc, /const fileStat = await stat\(readablePath\)/);
 	assert.match(filesIpc, /const writablePath = await resolveReadablePath\(input, boundary\)/);
-	assert.match(filesIpc, /await writeFile\(writablePath, content, "utf8"\)/);
+	assert.match(filesIpc, /await writeTextFileGuarded\(writablePath, content\)/);
 	assert.match(preload, /scope\?: ProjectFileAccessScope/);
 	assert.match(preload, /filesOpen, path, scope/);
 	assert.match(preload, /filesShowInFolder, path, scope/);

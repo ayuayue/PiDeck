@@ -93,7 +93,7 @@ PiDeck 桌面能力面统一门面 `piDeckApi` 的契约文档。三层结构：
 | `quick-messages` | shell | 快捷消息 | ipc/quickMessagesIpc.ts | `quickMessages` | `quick-messages` | `aggregate` |
 | `notice-history` | shell | NoticeHistoryStore（公告已读历史） | ipc/noticeHistoryIpc.ts | `noticeHistory` | `notice-history` | `aggregate` |
 
-外部会话导入器（11 个，独立清单 IMPORTER_CATALOG）：
+外部会话导入器（12 个，独立清单 IMPORTER_CATALOG）：
 
 | 导入器 | 主进程归属 | IPC 注册文件 | preload 命名空间 | 通道前缀 | 能力 |
 | --- | --- | --- | --- | --- | --- |
@@ -103,6 +103,7 @@ PiDeck 桌面能力面统一门面 `piDeckApi` 的契约文档。三层结构：
 | `opencode` | OpenCodeSessionImporter | ipc/sessionIpc.ts | `openCodeSessions` | `opencode-sessions` | scan / import |
 | `zcode` | ZCodeSessionImporter | ipc/sessionIpc.ts | `zcodeSessions` | `zcode-sessions` | scan / import |
 | `workbuddy` | WorkBuddySessionImporter | ipc/sessionIpc.ts | `workbuddySessions` | `workbuddy-sessions` | scan / import |
+| `codebuddy` | CodeBuddySessionImporter | ipc/sessionIpc.ts | `codebuddySessions` | `codebuddy-sessions` | scan / import |
 | `cursor` | CursorSessionImporter | ipc/sessionIpc.ts | `cursorSessions` | `cursor-sessions` | scan / import |
 | `kimi` | KimiSessionImporter | ipc/sessionIpc.ts | `kimiSessions` | `kimi-sessions` | scan / import |
 | `kimi-work` | KimiWorkSessionImporter | ipc/sessionIpc.ts | `kimiWorkSessions` | `kimi-work-sessions` | scan / import / describe |

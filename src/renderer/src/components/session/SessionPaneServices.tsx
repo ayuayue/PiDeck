@@ -76,6 +76,10 @@ export type SessionPaneServices = {
 	queueRetract: (sessionId: string, prompt: QueuedPrompt) => void;
 	queueDiscard: (sessionId: string, promptId: string) => void;
 	queueChangeBehavior: (sessionId: string, promptId: string, behavior: "steer" | "followUp") => void;
+	/** 「立即发送」：置顶该条并马上投递（空闲直发，pi/dsh 忙时转 steer 插入）。 */
+	queueSendNow: (sessionId: string, promptId: string) => void;
+	/** ACP 忙时「立即发送」的前置：先结束当前回合（协议只接受新回合）。 */
+	queueStopTurn?: (sessionId: string) => void;
 	queueFlushBySessionRef: MutableRefObject<Set<string>>;
 	restartingAgentId: string | null;
 	sessionDurationByAgent: Record<string, number>;

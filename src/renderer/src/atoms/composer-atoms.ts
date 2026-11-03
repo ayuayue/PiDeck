@@ -6,12 +6,19 @@ import type { EnhanceModelSelection } from "../../../shared/enhanceModelPreferen
 import type { ModelPending } from "../utils/modelPendingDisplay";
 import type { QuoteSnippet } from "../components/session/composer/quoteChip";
 import { currentSessionIdAtom } from "./session-atoms";
+import type { SendShortcut } from "../composerBehavior";
 
 /**
  * 提示词增强的固定模型（settings.enhanceModel 镜像）：null = 跟随会话模型。
  * App 首拉 settings 时水合；设置页保存后写穿，composer 点击增强时读取。
  */
 export const enhanceModelAtom = atom<EnhanceModelSelection | null>(null);
+
+/**
+ * 「发送快捷键」设置镜像（settings.sendShortcut）：composer 发送按钮与时间线编辑框
+ * 共用同一份，键帽提示才不会各自硬编码、给出互相矛盾的引导。
+ */
+export const sendShortcutAtom = atom<SendShortcut>("enter-send");
 
 /** 显式选择后才发送会话正文，旧设置与引导页均默认为关闭。 */
 export const enhanceIncludeContextAtom = atom(false);

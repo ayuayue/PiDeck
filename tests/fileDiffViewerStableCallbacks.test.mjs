@@ -20,9 +20,10 @@ test("file viewer IO callbacks are stable across App re-renders", () => {
 test("file viewer keeps project scope and drops stale media reads", () => {
 	assert.match(viewer, /const fileAccessPath = props\.fileTarget \?\? props\.filePath/);
 	assert.match(viewer, /props\.readContent\(fileAccessPath, maxFileSize, props\.fileAccessScope\)/);
-	assert.match(viewer, /FILE_TOO_LARGE:\(\\d\+\):\(\\d\+\)/);
-	assert.match(viewer, /props\.saveContent\(savePath, latest, props\.fileAccessScope\)/);
-	assert.match(viewer, /\[getLatestContent, isDiffMode, props\.saveContent, props\.filePath, props\.fileTarget\?\.projectId, props\.fileTarget\?\.relativePath, props\.fileAccessScope\?\.projectId\]/);
+	// 错误文案转换已抽出，前缀行为由 fileLoadErrorMessage.test.mjs 验证。
+	assert.match(viewer, /import\s*\{\s*fileLoadErrorMessage\s*\}\s*from\s*["']\.\/fileLoadErrorMessage["']/);
+	assert.match(viewer, /saveContent\(savePath, latest, props\.fileAccessScope\)/);
+	assert.match(viewer, /\[isDiffMode, props\.saveContent, props\.filePath, props\.fileTarget\?\.projectId, props\.fileTarget\?\.relativePath, props\.fileAccessScope\?\.projectId\]/);
 	assert.match(viewer, /async function loadMediaPreview\(\)/);
 	assert.match(viewer, /if \(cancelled \|\| !base64\)/);
 	// 回归（2026-10）：主进程 FILE_TOO_LARGE:size:max 结构化前缀必须经

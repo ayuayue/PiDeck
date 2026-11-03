@@ -34,6 +34,7 @@ import { ComposerModeChip } from "./composer/ComposerModeChip";
 import { resolveAcpConfigSelect, flattenAcpConfigOptions, isRenderableAcpConfigEntry, splitAcpConfigEntries, type AcpConfigEntry } from "./acpConfigSelect";
 import { AcpConfigGlyph } from "./AcpConfigGlyph";
 import { AcpModelRateBadge } from "./AcpModelRateBadge";
+import { ModelPriceTagBadge } from "./ModelPriceTagBadge";
 import { AcpConfigSearchSelect } from "./AcpConfigSearchSelect";
 import type { AgentBackend, AgentRuntimeState, AvailableModel, ComposerAgentMode, GitBranchInfo, ModelListFailReason, ModelListReport, SessionRecord, SessionRuntimeTarget, UsageProbeBackend } from "../../../../shared/types";
 
@@ -1171,6 +1172,8 @@ export function ModelPicker(props: {
 				<span className="min-w-0 flex-1 truncate font-mono text-control font-medium text-foreground" title={`${modelRowName(model)} · ${modelKey}`}>
 					{labels}
 				</span>
+				{/* 供应商公开报价徽章（折扣/免费）：只有 TokenDance 目录模型带 priceTag */}
+				<ModelPriceTagBadge tag={model.priceTag} />
 				{/* 隐藏模型操作按钮：悬停时显示，点击将模型放入隐藏列表 */}
 				{props.onToggleHideModel && !favorited && (
 					<button
@@ -1247,6 +1250,7 @@ export function ModelPicker(props: {
 										<span className="min-w-0 flex-1 truncate font-mono text-control opacity-70" title={`${modelRowName(model)} · ${modelKey}`}>
 											{labels}
 										</span>
+										<ModelPriceTagBadge tag={model.priceTag} />
 										<button
 											type="button"
 											className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"

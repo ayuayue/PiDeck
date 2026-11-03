@@ -379,22 +379,26 @@ function SettingsModalContent(props: SettingsModalProps) {
 	 * 启动必然 ENOENT，表现为「校验失败：无法运行 pi CLI」。
 	 * 只提交这几个字段并推进对应基准，其余草稿字段的脏标记保持原样。
 	 */
-	const commitWslDraftFields = useCallback(async (): Promise<boolean> => {
-		const wslKeys = ["wslEnabled", "wslDistro", "wslUser"] as const;
-		const patch: Partial<AppSettings> = {};
-		for (const key of wslKeys) {
-			if (dirtyFields.has(key)) {
-				(patch as Record<string, unknown>)[key] = draftSettings[key];
+	const commitWslDraftFields = useCallback(
+		async (extra?: Partial<AppSettings>): Promise<boolean> => {
+			const wslKeys = ["wslEnabled", "wslDistro", "wslUser"] as const;
+			// extra：调用方刚 setState、本渲染闭包还读不到的立即值（如刚验证完的 wslUser），优先级高于草稿。
+			const patch: Partial<AppSettings> = { ...extra };
+			for (const key of wslKeys) {
+				if (dirtyFields.has(key)) {
+					(patch as Record<string, unknown>)[key] = draftSettings[key];
+				}
 			}
-		}
-		if (Object.keys(patch).length === 0) return true;
-		const ok = await props.onChange(patch).catch(() => false);
-		if (ok) {
-			baseSnapshotRef.current = { ...baseSnapshotRef.current, ...deepClone(patch) };
-			setBaselineToken((v) => v + 1);
-		}
-		return ok;
-	}, [draftSettings, dirtyFields, props.onChange]);
+			if (Object.keys(patch).length === 0) return true;
+			const ok = await props.onChange(patch).catch(() => false);
+			if (ok) {
+				baseSnapshotRef.current = { ...baseSnapshotRef.current, ...deepClone(patch) };
+				setBaselineToken((v) => v + 1);
+			}
+			return ok;
+		},
+		[draftSettings, dirtyFields, props.onChange],
+	);
 
 	// 外观实时预览：草稿中明暗/外观主题/主色变化时立即写入 <html> 的 data-* 属性，
 	// 与 App.tsx 的持久化应用共用 applyAppearanceAttributes（见 themeAppearance.ts）。

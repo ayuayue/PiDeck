@@ -48,7 +48,7 @@ async function expandComposer(page: import("@playwright/test").Page) {
 	const toolRows = page.getByTestId("web-composer-tool-rows");
 	await expect(toolRows).not.toHaveAttribute("inert", "");
 	// 等展开动画（grid-rows 240ms）落定再量几何：动画中两行会被逐步裁出，逐个按钮取 box 会拿到不同 y
-	await expect.poll(async () => (await page.locator(".composer-box").boundingBox())?.height ?? 0, { timeout: 3_000 }).toBeGreaterThan(150);
+	await expect.poll(async () => (await page.locator(".composer-box").boundingBox())?.height ?? 0, { timeout: 3_000 }).toBeGreaterThan(120);
 	await page.waitForTimeout(80);
 	return { toolRows, opsRow: page.getByTestId("web-composer-ops-row"), modelRow: page.getByTestId("web-composer-model-row") };
 }
@@ -70,16 +70,16 @@ test("mobile: layout fits and composer toolbar stays reachable", async ({ app })
 		expect(Math.abs((btnBox?.width ?? 0) - 32)).toBeLessThanOrEqual(1);
 		expect(Math.abs((btnBox?.height ?? 0) - 32)).toBeLessThanOrEqual(1);
 	}
-	const titleBlock = page.locator(".web-title-block strong");
+	const titleBlock = page.locator(".web-title-block h1 span");
 	await expect(titleBlock).toBeVisible();
 	const titleTruncated = await titleBlock.evaluate((el) => el.scrollWidth > el.clientWidth + 1);
 	expect(titleTruncated).toBe(false);
 	const [titleBox, actionsBox] = await Promise.all([titleBlock.boundingBox(), headerActions.boundingBox()]);
 	expect((titleBox?.x ?? 0) + (titleBox?.width ?? 0)).toBeLessThanOrEqual((actionsBox?.x ?? 999) + 1);
 
-	// 工具区两行：操作行（附件/提示词/计划/发送）+ 模型行（模型/思考 pill）；窄屏默认折叠，先聚焦展开
+	// 工具区两行：操作行（附件/提示词/计划）+ 模型行（模型/思考 pill + 发送）；窄屏默认折叠，先聚焦展开
 	const { opsRow, modelRow } = await expandComposer(page);
-	const sendButton = opsRow.getByTestId("web-composer-send");
+	const sendButton = modelRow.getByTestId("web-composer-send");
 	await expect(sendButton).toBeVisible();
 	const sendBox = await sendButton.boundingBox();
 	expect(sendBox?.x ?? 999).toBeGreaterThanOrEqual(0);
@@ -147,8 +147,8 @@ test("mobile: model bottom sheet opens from bottom and selection updates pill", 
 	expect(sheetBox).not.toBeNull();
 	expect(MOBILE.height - ((sheetBox?.y ?? 0) + (sheetBox?.height ?? 0))).toBeLessThanOrEqual(2);
 
-	// 模型列表有可选行（h-12 大触控行）；点第一行 → 弹层关闭
-	const firstRow = sheet.locator("ul button, div ul button").first();
+	// 模型列表有可选行（h-12 大触控行，摊平渲染在 div 里而非 ul）；选第二项（Pro）确保 pill 文本变化
+	const firstRow = sheet.getByRole("button", { name: /Mock Model Pro/ }).first();
 	await expect(firstRow).toBeVisible();
 	await firstRow.click();
 	await expect(sheet).toBeHidden({ timeout: 5_000 });

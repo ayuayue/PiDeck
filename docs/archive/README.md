@@ -40,6 +40,7 @@
 | plans | `docs/archive/plans/ui-commercialization-impl-wave5.md` → [`docs/archive/plans/ui-commercialization-impl-wave5.md`](plans/ui-commercialization-impl-wave5.md) |
 | plans | `docs/archive/plans/ui-commercialization-impl-wave6.md` → [`docs/archive/plans/ui-commercialization-impl-wave6.md`](plans/ui-commercialization-impl-wave6.md) |
 | plans | `docs/archive/plans/ui-commercialization-impl-wave7.md` → [`docs/archive/plans/ui-commercialization-impl-wave7.md`](plans/ui-commercialization-impl-wave7.md) |
+| plans | `docs/ui-unification-plan.md` → [`docs/archive/plans/ui-unification-plan.md`](plans/ui-unification-plan.md) |
 | plans | `docs/archive/plans/web-mobile-viewport-height-plan.md` → [`docs/archive/plans/web-mobile-viewport-height-plan.md`](plans/web-mobile-viewport-height-plan.md) |
 | plans | `docs/archive/plans/web-service-split-plan.md` → [`docs/archive/plans/web-service-split-plan.md`](plans/web-service-split-plan.md) |
 | plans | `docs/archive/plans/windows-quick-task.md` → [`docs/archive/plans/windows-quick-task.md`](plans/windows-quick-task.md) |
@@ -61,6 +62,8 @@
 | remote | `docs/archive/remote/remote-security-review-config-addendum.md` → [`docs/archive/remote/remote-security-review-config-addendum.md`](remote/remote-security-review-config-addendum.md) |
 | remote | `docs/archive/remote/remote-security-review-round2.md` → [`docs/archive/remote/remote-security-review-round2.md`](remote/remote-security-review-round2.md) |
 | remote | `docs/archive/remote/remote-security-review.md` → [`docs/archive/remote/remote-security-review.md`](remote/remote-security-review.md) |
+| remote | `docs/root-pooling-handoff.md` → [`docs/archive/remote/root-pooling-handoff.md`](remote/root-pooling-handoff.md) |
+| remote | `docs/v-review-2026-10-31.md` → [`docs/archive/remote/v-review-2026-10-31.md`](remote/v-review-2026-10-31.md) |
 | remote | `docs/archive/remote/remote-trust-plan.md` → [`docs/archive/remote/remote-trust-plan.md`](remote/remote-trust-plan.md) |
 | remote | `docs/archive/remote/remote-write-plan.md` → [`docs/archive/remote/remote-write-plan.md`](remote/remote-write-plan.md) |
 | remote | `docs/archive/remote/remote-wsl-functional-hardening-handoff.md` → [`docs/archive/remote/remote-wsl-functional-hardening-handoff.md`](remote/remote-wsl-functional-hardening-handoff.md) |
@@ -73,3 +76,6 @@
 |---|---|
 | `remote-merge-to-dev-plan.md` | 合并已执行（FF），内容被 git 历史覆盖，无引用 |
 | `mcp-page-refresh-plan.md` | 自述完成后删除；结论已回填到归档的改进清单 |
+| `docs/images/{piDevSetting,piModelConfig,piProjectTerminalGit,piStartAgent,piStartMsg,conversation,piHomePage}.png` | 2026-07 的旧截图，README/官网/文档全无引用（官网图片走 `docs-site/.vitepress/sharedReadmeImages.ts` 白名单） |
+| `docs/prototypes/resource-{scope-management,list-unified}.html` | 资源作用域设计稿，需求已实现，全仓库无引用 |
+| `docs/mockups/process-group-{1-vs-4,full-turn,header-options,header,sticky}.html` | 过程组效果稿，结论已进 `process-group-implementation-contract.md`；被该契约引用的 `process-group-scroll.html` 保留 |

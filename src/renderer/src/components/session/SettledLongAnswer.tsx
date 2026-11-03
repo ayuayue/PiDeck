@@ -14,12 +14,12 @@ import { settledCollapsePreview, shouldCollapseSettledText } from "./markdownStr
  * 几万字 final answer settle 后单次 mount 数万~数十万 DOM 节点且常驻（性能审计 #401 同源）。
  * 两条路径现在共用同一份折叠策略。
  */
-export const SettledLongAnswer = memo(function SettledLongAnswer(props: { text: string; onOpenExternal: (url: string, forceSystem?: boolean) => void; onOpenFile?: (path: string, line?: number) => void }) {
+export const SettledLongAnswer = memo(function SettledLongAnswer(props: { text: string; paused?: boolean; background?: boolean; onOpenExternal: (url: string, forceSystem?: boolean) => void; onOpenFile?: (path: string, line?: number) => void }) {
 	const [expanded, setExpanded] = useState(false);
 	if (expanded) {
 		return (
 			<div>
-				<MarkdownStream text={props.text} isStreaming={false} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />
+				<MarkdownStream text={props.text} isStreaming={false} paused={props.paused} background={props.background} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />
 				<button type="button" className="mt-1 cursor-pointer rounded-md px-2 py-1 text-caption text-muted-foreground transition-colors duration-fast hover:bg-[var(--color-bg-hover)] hover:text-foreground" onClick={() => setExpanded(false)}>
 					{t("session.longAnswer.collapse")}
 				</button>
@@ -27,11 +27,11 @@ export const SettledLongAnswer = memo(function SettledLongAnswer(props: { text: 
 		);
 	}
 	if (!shouldCollapseSettledText(props.text.length)) {
-		return <MarkdownStream text={props.text} isStreaming={false} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />;
+		return <MarkdownStream text={props.text} isStreaming={false} paused={props.paused} background={props.background} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />;
 	}
 	return (
 		<div data-long-answer-collapsed="1">
-			<MarkdownStream text={settledCollapsePreview(props.text)} isStreaming={false} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />
+			<MarkdownStream text={settledCollapsePreview(props.text)} isStreaming={false} paused={props.paused} background={props.background} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />
 			<button type="button" className="mt-1 cursor-pointer rounded-md px-2 py-1 text-caption text-muted-foreground transition-colors duration-fast hover:bg-[var(--color-bg-hover)] hover:text-foreground" onClick={() => setExpanded(true)}>
 				{t("session.longAnswer.expand", { kb: Math.round(props.text.length / 1024) })}
 			</button>

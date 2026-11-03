@@ -15,6 +15,8 @@ export const MAX_ENTRY_CHARS: number;
 export const MAX_INDEXED_MESSAGE_CHARS: number;
 
 export function projectKeyFromPath(cwd: string): string;
+export function legacyProjectKeyFromPath(cwd: string): string;
+export function listProjectKeys(root: string, limit?: number): string[];
 export function defaultProjectKey(env?: NodeJS.ProcessEnv): string;
 export function resolveMemoryRoot(env?: NodeJS.ProcessEnv): string;
 export function resolveProjectDir(root: string, projectId: string): string;

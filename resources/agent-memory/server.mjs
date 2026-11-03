@@ -18,6 +18,7 @@ import { createInterface } from "node:readline";
 
 import { closeDatabase } from "./db.mjs";
 import { defaultProjectKey, resolveMemoryRoot } from "./paths.mjs";
+import { migrateLegacyProjectDirs } from "./migrate.mjs";
 import { addMemory, getMemories, MemoryToolError, memoryStatus, removeMemory, replaceMemory, searchMemory, searchSessions } from "./tools.mjs";
 
 const PROTOCOL_VERSION = "2024-11-05";
@@ -83,13 +84,15 @@ const TOOL_DEFINITIONS = [
 	},
 	{
 		name: "memory_search",
-		description: "Search saved memories (global + project + failure lessons) by full-text query. Call this before asking the user something they may already have told you.",
+		description:
+			"Search saved memories (global + current project + device) by full-text query. Call this before asking the user something they may already have told you. Set scope:\"all\" to also search the other projects on this machine (each hit carries its projectId).",
 		inputSchema: {
 			type: "object",
 			properties: {
 				query: { type: "string" },
 				target: { type: "string", enum: ["memory", "user", "project", "failure", "device"], description: "Optional: restrict to one target." },
 				projectId: { type: "string" },
+				scope: { type: "string", enum: ["current", "all"], description: "Optional: current (default) = global + current project + device; all = include every project on this machine." },
 				limit: { type: "integer", minimum: 1, maximum: 50 },
 			},
 			required: ["query"],
@@ -124,7 +127,7 @@ const TOOL_DEFINITIONS = [
 	},
 	{
 		name: "memory_status",
-		description: "Report memory budget usage and index size. Use to check whether the memory system is actually working.",
+		description: "Report memory budget usage (with overBudget flags), the list of project scopes, and index size. Use to check whether the memory system is actually working, and which projects scope:\"all\" can reach.",
 		inputSchema: { type: "object", properties: { projectId: { type: "string" } } },
 	},
 ];
@@ -147,7 +150,7 @@ function dispatch(root, name, args) {
 		case "memory_remove":
 			return removeMemory(root, { target: args?.target, content: args?.content, projectId: projectOf(args) });
 		case "memory_search":
-			return searchMemory(root, { query: args?.query, target: args?.target, projectId: projectOf(args), limit: args?.limit ?? 10 });
+			return searchMemory(root, { query: args?.query, target: args?.target, projectId: projectOf(args), limit: args?.limit ?? 10, scope: args?.scope ?? "current" });
 		case "memory_get":
 			return getMemories(root, { target: args?.target, projectId: projectOf(args), offset: args?.offset ?? 0, limit: args?.limit ?? 50 });
 		case "session_search":
@@ -221,6 +224,14 @@ function main() {
 		// 没有记忆目录就不启动：默认值会把它写到某个进程的 cwd 里，那是更坏的失败模式。
 		process.stderr.write(`[agent-memory] refusing to start: ${error instanceof Error ? error.message : "memory-dir-missing"}\n`);
 		process.exit(2);
+	}
+	// 项目键算法换过一版（slug + 路径哈希）：先把本会话的旧键目录改名，否则老用户的
+	// 项目记忆会「凭空消失」。幂等且尽力而为，失败不影响服务（下次启动再试）。
+	try {
+		const migrated = migrateLegacyProjectDirs(root, [process.env.PIDECK_AGENT_MEMORY_CWD]);
+		for (const item of migrated.moved) process.stderr.write(`[agent-memory] migrated project scope ${item.from} -> ${item.to}\n`);
+	} catch (error) {
+		process.stderr.write(`[agent-memory] project scope migration skipped: ${error instanceof Error ? error.message : "unknown"}\n`);
 	}
 
 	const reader = createInterface({ input: process.stdin, crlfDelay: Number.POSITIVE_INFINITY });

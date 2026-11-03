@@ -835,6 +835,20 @@ export const McpTab = forwardRef<
 								) : (
 									<p className="text-micro text-muted-foreground">{t("config.mcp.status.notTested")}</p>
 								)}
+								{/* 已连接时列出具体工具名：只给数量既看不出这台 server 能干什么，
+								    也没法照着名字去「按工具覆盖暴露方式」里填键。 */}
+								{selected && statusByName[selected]?.state === "connected" && statusByName[selected].tools.length > 0 ? (
+									<div className="mt-2 grid gap-1">
+										<span className="text-micro text-muted-foreground">{t("config.mcp.tools.title")}</span>
+										<div className="flex flex-wrap gap-1">
+											{statusByName[selected].tools.map((tool) => (
+												<span key={tool} className="rounded-sm border border-border-subtle bg-bg-panel px-1.5 py-0.5 font-mono text-micro text-muted-foreground">
+													{tool}
+												</span>
+											))}
+										</div>
+									</div>
+								) : null}
 								{/* 「已停用」只描述状态、不给出路：就地补一个启用入口，用户不必再去下方「启用」卡片找开关
 								    （实测反馈：PiDeck 本地服务交接后条目是停用态，只看到已停用不知道哪里开启）。
 								    启用写本层配置，因此仅在条目归属本层（可写）时出现；继承来的停用要去对应层改。 */}

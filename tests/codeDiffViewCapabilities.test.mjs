@@ -56,3 +56,9 @@ test("worker theme registration matches the render theme", () => {
 	assert.match(source, /highlighterOptions=\{\{[\s\S]*one-dark-pro/);
 	assert.match(source, /one-light/);
 });
+
+test("diff 行文使用外观设置里的代码字体（issue #481）", () => {
+	// @pierre/diffs 的行文本是 `font-family: var(--diffs-font-family, --diffs-font-fallback)`，
+	// 库自带等宽栈；不覆盖这个 token，用户配了「代码字体」diff 里仍是默认字体。
+	assert.match(source, /--diffs-font-family:\s*var\(--font-family-mono\)/, "必须把库的字体 token 指回外观设置的代码字体");
+});

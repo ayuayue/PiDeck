@@ -50,15 +50,19 @@ export function dedupeEntries(entries) {
 	return result;
 }
 
-/** 超预算裁剪：从**最老的**开始丢（文件按追加顺序排列），返回被丢掉的条数。 */
+/**
+ * 超预算裁剪：从**最老的**开始丢（文件按追加顺序排列），返回被丢掉的条目本身。
+ *
+ * 被丢的内容要带着走：静默裁剪等于替用户删数据，工具层必须能把「丢了哪几条」说清楚
+ * （尤其是外部导入超过预算后的第一次写入）。
+ */
 export function trimEntries(entries, budget) {
-	let kept = entries.slice();
-	let dropped = 0;
+	const kept = entries.slice();
+	const droppedEntries = [];
 	while (kept.length > 0 && (kept.length > budget.maxEntries || renderEntries(kept).length > budget.maxChars)) {
-		kept.shift();
-		dropped += 1;
+		droppedEntries.push(kept.shift());
 	}
-	return { entries: kept, dropped };
+	return { entries: kept, dropped: droppedEntries.length, droppedEntries };
 }
 
 /** `failure` 条目 → `{ category, content }`；没有合法前缀时按 `insight` 归。 */

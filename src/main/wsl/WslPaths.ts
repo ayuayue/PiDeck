@@ -128,6 +128,26 @@ export function normalizeSelectedWslProjectPath(path: string, environment: Pick<
 	return toWslLinuxPath(path, environment);
 }
 
+/**
+ * 按路径添加项目（右键菜单 / 快捷任务，不经目录选择框）时的 WSL 归一。
+ *
+ * 这三个入口拿到的是现成路径，可能是 `\\wsl.localhost\<distro>\...`、WSL 内的绝对
+ * Linux 路径（/home、/root、/mnt/d），也可能根本是宿主盘符目录。返回规范 UNC 供入库；
+ * 返回 null 表示“不是 WSL 路径”，由调用方决定当 Windows 项目还是直接拒绝——
+ * 早先这类路径一律按 windows 环境入库，WSL 模式下会被可见性过滤掉（添加了却找不到）。
+ * 发行版不匹配抛 WSL_DISTRO_MISMATCH。
+ */
+export function normalizeWslProjectAddPath(path: string, distro: string): string | null {
+	const trimmed = path.trim();
+	const unc = parseWslUncPath(trimmed);
+	if (unc) {
+		ensureMatchingDistro(unc.distro, distro);
+		return linuxPathToWslUnc(unc.linuxPath, distro);
+	}
+	if (trimmed.startsWith("/")) return linuxPathToWslUnc(trimmed, distro);
+	return null;
+}
+
 export function isWslDistroMismatchError(error: unknown): boolean {
 	return error instanceof WslPathError ? error.code === "WSL_DISTRO_MISMATCH" : error instanceof Error && error.message.includes("WSL_DISTRO_MISMATCH");
 }

@@ -190,7 +190,7 @@ export function WebSessionStrips({ sessionId }: { sessionId: string | null }) {
 	const empty = subagents.length === 0 && (!todo || todo.todos.length === 0);
 	if (empty) return null;
 	return (
-		<div className="flex flex-col border-t border-border-subtle px-3" aria-label={t("web.subagentsStripTitle")}>
+		<div className="composer-above flex flex-col border-t border-border-subtle px-3" aria-label={t("web.subagentsStripTitle")}>
 			<WebSubagentsStrip subagents={subagents} />
 			<WebTodoStrip todo={todo} />
 		</div>

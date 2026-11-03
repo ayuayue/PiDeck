@@ -26,7 +26,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  * 用 fs 替身统计真实读取的字节量，字节上界一旦失效立即失败。
  */
 
-const importerFiles = ["src/main/sessions/ClaudeSessionImporter.ts", "src/main/sessions/CursorSessionImporter.ts", "src/main/sessions/WorkBuddySessionImporter.ts", "src/main/sessions/cursorSessionSource.ts", "src/main/sessions/workbuddySessionSource.ts"];
+const importerFiles = ["src/main/sessions/ClaudeSessionImporter.ts", "src/main/sessions/CursorSessionImporter.ts", "src/main/sessions/codebuddyFamilySessionImporter.ts", "src/main/sessions/cursorSessionSource.ts", "src/main/sessions/codebuddyFamilySessionSource.ts"];
 
 /** 剥掉注释与字符串字面量：守卫断言要针对代码，而不是解释性文字。 */
 function stripCommentsAndStrings(source) {
@@ -53,7 +53,7 @@ test("scan 使用有界并发 + 头部读取；导入使用流式读取", () => 
 		}
 	}
 	// 导入路径必须是逐行流式（readJsonlObjects）+ 批量写（createBufferedLineSink）
-	for (const file of ["src/main/sessions/ClaudeSessionImporter.ts", "src/main/sessions/CursorSessionImporter.ts", "src/main/sessions/WorkBuddySessionImporter.ts"]) {
+	for (const file of ["src/main/sessions/ClaudeSessionImporter.ts", "src/main/sessions/CursorSessionImporter.ts", "src/main/sessions/codebuddyFamilySessionImporter.ts"]) {
 		const source = stripCommentsAndStrings(readFileSyncUtf8(file));
 		assert.match(source, /readJsonlObjects\(/, `${file} 的导入必须逐行流式读取`);
 		assert.match(source, /createBufferedLineSink\(/, `${file} 的导入必须批量写盘`);
@@ -187,7 +187,7 @@ test("三个导入器的 head-only 读取能从头部取出元数据（大文件
 });
 
 test("导入产物写入临时文件后原子改名，失败时不留残留", async () => {
-	for (const file of ["src/main/sessions/ClaudeSessionImporter.ts", "src/main/sessions/CursorSessionImporter.ts", "src/main/sessions/WorkBuddySessionImporter.ts"]) {
+	for (const file of ["src/main/sessions/ClaudeSessionImporter.ts", "src/main/sessions/CursorSessionImporter.ts", "src/main/sessions/codebuddyFamilySessionImporter.ts"]) {
 		const source = stripCommentsAndStrings(readFileSyncUtf8(file));
 		// 直接写目标文件会在失败时留下半截会话（污染列表）；必须 tmp + rename
 		assert.match(source, /renameWithRetry\(/, `${file} 必须用临时文件 + 原子改名`);

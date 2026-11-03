@@ -176,7 +176,8 @@ import type { ClaudeSessionImporter } from "../sessions/ClaudeSessionImporter";
 import type { QoderSessionImporter } from "../sessions/QoderSessionImporter";
 import type { OpenCodeSessionImporter } from "../sessions/OpenCodeSessionImporter";
 import type { ZCodeSessionImporter } from "../sessions/ZCodeSessionImporter";
-import type { WorkBuddySessionImporter } from "../sessions/WorkBuddySessionImporter";
+import type { WorkBuddySessionImporter } from "../sessions/codebuddyFamilySessionImporter";
+import type { CodeBuddySessionImporter } from "../sessions/codebuddyFamilySessionImporter";
 import type { CursorSessionImporter } from "../sessions/CursorSessionImporter";
 import type { KimiSessionImporter } from "../sessions/KimiSessionImporter";
 import type { KimiWorkSessionImporter } from "../sessions/KimiWorkSessionImporter";
@@ -417,6 +418,8 @@ export type SessionIpcDeps = {
 	openCodeSessionImporter: OpenCodeSessionImporter;
 	zcodeSessionImporter: ZCodeSessionImporter;
 	workbuddySessionImporter: WorkBuddySessionImporter;
+	/** CodeBuddy（腾讯 CodeBuddy Code CLI）会话导入：~/.codebuddy/projects，与 WorkBuddy 同一套源格式。 */
+	codebuddySessionImporter: CodeBuddySessionImporter;
 	cursorSessionImporter: CursorSessionImporter;
 	kimiSessionImporter: KimiSessionImporter;
 	/** Kimi Work（桌面版）会话导入：daimon-share 位置可被用户自定义，scan/import 内部走探测链。 */
@@ -565,6 +568,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		openCodeSessionImporter,
 		zcodeSessionImporter,
 		workbuddySessionImporter,
+		codebuddySessionImporter,
 		cursorSessionImporter,
 		kimiSessionImporter,
 		kimiWorkSessionImporter,
@@ -2667,6 +2671,25 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
 		const result = await workbuddySessionImporter.import(project.path, sourcePaths);
 		void appLogger.info("session", "WorkBuddy sessions imported", {
+			projectId,
+			sourceCount: sourcePaths.length,
+		});
+		return result;
+	});
+	ipcMain.handle(ipcChannels.codebuddySessionsScan, async (_event, projectId: string) => {
+		const project = projectStore.get(projectId);
+		if (!project) throw new Error(`Project not found: ${projectId}`);
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+		const result = await codebuddySessionImporter.scan(project.path);
+		void appLogger.debug("session", "CodeBuddy sessions scanned", { projectId });
+		return result;
+	});
+	ipcMain.handle(ipcChannels.codebuddySessionsImport, async (_event, projectId: string, sourcePaths: string[]) => {
+		const project = projectStore.get(projectId);
+		if (!project) throw new Error(`Project not found: ${projectId}`);
+		if (!isLocalProject(project)) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+		const result = await codebuddySessionImporter.import(project.path, sourcePaths);
+		void appLogger.info("session", "CodeBuddy sessions imported", {
 			projectId,
 			sourceCount: sourcePaths.length,
 		});

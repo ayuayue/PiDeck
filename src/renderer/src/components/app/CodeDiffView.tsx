@@ -87,6 +87,10 @@ export const CodeDiffView = memo(function CodeDiffView(props: { oldContent: stri
 			// 颜色全部引用应用 token（明暗随 data-theme 自动切换），不写死色值
 			unsafeCSS: `
 			:root, :host {
+				/* 代码字体跟随外观设置（issue #481）：库默认用自己的等宽栈，
+				   用户配了「代码字体」后 diff 里仍是默认字体。--font-family-mono
+				   由 useAppAppearance 写在 :root，shadow 边界内按继承取值。 */
+				--diffs-font-family: var(--font-family-mono);
 				--diffs-bg: transparent;
 				--diffs-addition-base: var(--color-success);
 				--diffs-deletion-base: var(--color-danger);

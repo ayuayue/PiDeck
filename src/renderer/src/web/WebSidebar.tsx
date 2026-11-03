@@ -19,7 +19,7 @@ import { WebBottomSheet } from "./WebBottomSheet";
 import { WEB_SIDEBAR_INITIAL_VISIBLE, growSidebarWindow, resolveSidebarWindow } from "./webSidebarPaging";
 import { groupWebSessionsByParent } from "./webSidebarSessions";
 import { cn } from "@/lib/utils";
-import { sessionStatusDotClass } from "@/agentListDisplay";
+import { isActiveSessionStatus, sessionStatusDotClass } from "@/agentListDisplay";
 import { WebBackendMark } from "./WebBackendMark";
 import type { WebAcpTool, WebProject, WebRuntime, WebSession, WebState } from "./webTypes";
 
@@ -216,8 +216,10 @@ function SessionRows(props: { sessions: WebSession[]; runtimeFor: (sessionId: st
 function renderRuntimeStatusDot(status?: string) {
 	const dotClass = sessionStatusDotClass(status);
 	if (!dotClass) return null;
-	const label = status === "idle" ? t("app.statusIdle") : status === "error" ? t("app.statusError") : t("app.statusRunning");
-	return <span className={cn("size-1.5 shrink-0 rounded-full", dotClass, status === "error" ? "" : "animate-pulse")} aria-label={label} title={label} />;
+	const active = isActiveSessionStatus(status);
+	const label = status === "idle" ? t("app.statusIdle") : status === "error" ? t("app.statusError") : active ? t("app.statusRunning") : undefined;
+	// 与桌面侧栏同口径：idle/error 是静态状态，不跑永久脉动动画（#483）。
+	return <span className={cn("size-1.5 shrink-0 rounded-full", dotClass, active && "animate-pulse")} aria-label={label} title={label} />;
 }
 
 export function WebSidebar(props: {

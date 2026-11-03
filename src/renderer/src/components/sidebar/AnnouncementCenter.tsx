@@ -60,6 +60,9 @@ function isOutsideInteractionFromDetailDrawer(event: { target: EventTarget | nul
 /** 未读通知 + 使用指南的默认展示上限；超出走「展示更多公告」，不全量展开。 */
 const VISIBLE_LIMIT = 5;
 
+/** 每次「展示更多」追加的条数：一次点开就渲染全部，公告多了照样卡（远端 feed 条数不受本地约束）。 */
+const ANNOUNCEMENT_PAGE_SIZE = 20;
+
 /** 公告级别 → 视觉锚点类（tone-* 保留锚点，颜色规则走既有 token 状态规则）。 */
 function levelToneClass(level: AnnouncementItem["level"]): string {
 	switch (level) {
@@ -208,8 +211,8 @@ function AnnouncementDetailDrawer(props: { item: AnnouncementItem | null; onClos
  */
 export function AnnouncementCenter() {
 	const [refreshing, setRefreshing] = useState(false);
-	// 「展示更多」开关：未读+指南合计超过 VISIBLE_LIMIT 时控制展开全部
-	const [showAllActive, setShowAllActive] = useState(false);
+	// 「展示更多」的增量窗口：每次追加一页，不是一次性展开全部
+	const [activeLimit, setActiveLimit] = useState(VISIBLE_LIMIT);
 	// 已读通知区默认折叠成一行计数，只看一眼就用不着撑开长列表
 	const [showRead, setShowRead] = useState(false);
 	// 详情抽屉受控状态：null = 关闭；打开时与列表弹窗并存（抽屉 z 层更高，压在弹窗上）
@@ -260,8 +263,8 @@ export function AnnouncementCenter() {
 	const guides = items.filter((item) => item.category === "guide");
 	// 主展示区 = 未读临时通知 + 未读公告 + 使用指南（新的在前，快照已按发布时间倒序）
 	const activeItems = [...unreadFlashes, ...unreadNotices, ...guides];
-	const activeVisible = showAllActive ? activeItems : activeItems.slice(0, VISIBLE_LIMIT);
-	const hiddenCount = Math.max(0, activeItems.length - VISIBLE_LIMIT);
+	const activeVisible = activeItems.slice(0, activeLimit);
+	const hiddenCount = Math.max(0, activeItems.length - activeVisible.length);
 	const unreadCount = unread.length;
 
 	// 入口隐藏：开关关闭 = 用户不要公告，通知与入口一并下线（挂载点不变，侧栏结构稳定）
@@ -274,7 +277,7 @@ export function AnnouncementCenter() {
 				setOpen(next);
 				// 关闭时复位展开状态，下次打开回到默认折叠视图
 				if (!next) {
-					setShowAllActive(false);
+					setActiveLimit(VISIBLE_LIMIT);
 					setShowRead(false);
 				}
 				// 关闭/打开都视为「已浏览」：打开瞬间标记，弹窗内未读点即时消隐
@@ -363,12 +366,16 @@ export function AnnouncementCenter() {
 										))}
 								</section>
 							)}
-							{/* 展示更多 / 收起：未读+指南合计超过上限时出现，避免大全量展开 */}
-							{hiddenCount > 0 && (
-								<Button type="button" variant="ghost" size="sm" className="self-center text-xs text-muted-foreground hover:text-foreground" onClick={() => setShowAllActive((v) => !v)}>
-									{showAllActive ? t("announcements.collapse") : t("announcements.showMore", { count: String(hiddenCount) })}
+							{/* 展示更多（每页追加）/ 收起：一次展开全部会让远端 feed 的整份列表同时上屏 */}
+							{hiddenCount > 0 ? (
+								<Button type="button" variant="ghost" size="sm" className="self-center text-xs text-muted-foreground hover:text-foreground" onClick={() => setActiveLimit((limit) => limit + ANNOUNCEMENT_PAGE_SIZE)}>
+									{t("announcements.showMore", { count: String(hiddenCount) })}
 								</Button>
-							)}
+							) : activeLimit > VISIBLE_LIMIT ? (
+								<Button type="button" variant="ghost" size="sm" className="self-center text-xs text-muted-foreground hover:text-foreground" onClick={() => setActiveLimit(VISIBLE_LIMIT)}>
+									{t("announcements.collapse")}
+								</Button>
+							) : null}
 							{/* 已读归档：公告读过折叠成一行（看过后不该占主列表）；flash 已读不归档直接消失 */}
 							{readNotices.length > 0 && (
 								<section className="flex flex-col gap-2.5">

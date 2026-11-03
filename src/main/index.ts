@@ -324,6 +324,7 @@ import { runLearnerPass } from "./agentMemory/agentMemoryLearner";
 import { resolveEnhanceTargetModel } from "../shared/enhanceModelPreference";
 import { syncAgentMemoryRegistration } from "./agentMemory/AgentMemoryMcpRegistration";
 import { clearAgentMemoryIndex, readAgentMemoryStatus } from "./agentMemory/agentMemoryStatus";
+import { migrateAgentMemoryProjectKeys } from "./agentMemory/agentMemoryMigration";
 import { deleteAgentMemoryEntry, readAgentMemoryEntries, readStandingEntry, restoreAgentMemoryEntry, writeStandingEntry } from "./agentMemory/agentMemoryEntries";
 import { renameDevice } from "../../resources/agent-memory/sync.mjs";
 import { exportAgentMemoryBundle, importAgentMemoryBundle, previewAgentMemoryBundle } from "./agentMemory/agentMemoryBundle";
@@ -380,7 +381,8 @@ import { ClaudeSessionImporter } from "./sessions/ClaudeSessionImporter";
 import { QoderSessionImporter } from "./sessions/QoderSessionImporter";
 import { OpenCodeSessionImporter } from "./sessions/OpenCodeSessionImporter";
 import { ZCodeSessionImporter } from "./sessions/ZCodeSessionImporter";
-import { WorkBuddySessionImporter } from "./sessions/WorkBuddySessionImporter";
+import { WorkBuddySessionImporter } from "./sessions/codebuddyFamilySessionImporter";
+import { CodeBuddySessionImporter } from "./sessions/codebuddyFamilySessionImporter";
 import { CursorSessionImporter } from "./sessions/CursorSessionImporter";
 import { KimiSessionImporter } from "./sessions/KimiSessionImporter";
 import { KimiWorkSessionImporter } from "./sessions/KimiWorkSessionImporter";
@@ -400,6 +402,7 @@ import { createPiResourceManagerPool, type PiResourceManagerPool } from "./confi
 import { createPiResourceManagerFactories } from "./config/piResourceFactories";
 import { createPiResourceTargetResolver } from "./config/PiResourceTargetResolver";
 import { TokendanceCatalogStore } from "./config/tokendanceCatalog";
+import { TokendancePricingStore } from "./config/tokendancePricing";
 import { installTokendanceProvider } from "./config/tokendanceInstaller";
 import { TokendanceAuthStore } from "./config/tokendanceAuth";
 import { createRemoteTerminalManager } from "./terminal/createRemoteTerminalManager";
@@ -717,6 +720,7 @@ let qoderSessionImporter: QoderSessionImporter;
 let openCodeSessionImporter: OpenCodeSessionImporter;
 let zcodeSessionImporter: ZCodeSessionImporter;
 let workbuddySessionImporter: WorkBuddySessionImporter;
+let codebuddySessionImporter: CodeBuddySessionImporter;
 let cursorSessionImporter: CursorSessionImporter;
 let kimiSessionImporter: KimiSessionImporter;
 /** Kimi Work（桌面版）会话导入；daimon-share 位置不固定，内部走探测链。 */
@@ -3936,6 +3940,14 @@ function registerIpc() {
 	// 智能体记忆的设置页视图：状态/清空索引/导出/导入。记忆根目录与 MCP 服务器用的是同一个
 	// （userData/memory），所以这里算出来的体积与索引规模就是 Agent 侧看到的真实值。
 	const agentMemoryRoot = () => resolveAgentMemoryDir(app.getPath("userData"));
+	// 项目键算法换过一版（slug → slug + 路径哈希）：启动时把旧的 projects/<旧键>/ 改名到新键，
+	// 否则老用户的项目记忆会失联。幂等、尽力而为；不在 PiDeck 项目列表里的路径，
+	// 会在对应会话启动时由 MCP 服务器自己补迁。
+	const memoryMigration = migrateAgentMemoryProjectKeys(
+		agentMemoryRoot(),
+		projectStore.list().map((project) => ("locator" in project ? project.locator.remotePath : project.path)),
+	);
+	if (memoryMigration.skipped.length > 0) mcpWarning(`agent-memory: 项目记忆目录迁移跳过 ${memoryMigration.skipped.length} 个：${memoryMigration.skipped.join(", ")}`);
 	const unregisterAgentMemoryIpc = registerAgentMemoryIpc({
 		getWindow: () => mainWindow,
 		readStatus: () => readAgentMemoryStatus(agentMemoryRoot()),
@@ -4508,6 +4520,7 @@ function registerIpc() {
 		openCodeSessionImporter,
 		zcodeSessionImporter,
 		workbuddySessionImporter,
+		codebuddySessionImporter,
 		cursorSessionImporter,
 		kimiSessionImporter,
 		kimiWorkSessionImporter,
@@ -4953,6 +4966,12 @@ function registerIpc() {
 		getCachePath: () => join(app.getPath("userData"), "tokendance-models.json"),
 		log: (message, detail) => void appLogger.info("tokendance", message, detail),
 	});
+	// TokenDance 公开报价 → 模型折扣/免费徽章（选择器展示用）。独立缓存文件：报价端点与
+	// 网关 /models 不是同一个源，刷新/失败不应互相牵连；拿不到价格时徽章整体缺席。
+	const tokendancePricingStore = new TokendancePricingStore({
+		getCachePath: () => join(app.getPath("userData"), "tokendance-pricing.json"),
+		log: (message, detail) => void appLogger.info("tokendance", message, detail),
+	});
 	/**
 	 * Phase 5 remote config scope (Batch A): every ssh target is one ready host's helper request. The host is
 	 * resolved through the same service the rest of the remote surface uses, so a disconnected/replaced host
@@ -5051,6 +5070,8 @@ function registerIpc() {
 		// 内置 TokenDance 模型目录（live fetch + userData 缓存；
 		// 作为一键配置的数据源：目录模型写入 models.json 后由 pi 运行时自行解析）
 		tokendanceCatalog: tokendanceCatalogStore,
+		// 同一份报价缓存服务模型选择器徽章（折扣/免费），与目录缓存分开（不同端点）
+		tokendancePricing: tokendancePricingStore,
 		// 内置 TokenDance OAuth 授权（PKCE S256 headless；verifier 内存持有，重启失效）
 		tokendanceAuth: new TokendanceAuthStore(),
 		// 内置 TokenDance 充值：与模型调用同一个 API Key（从 models.json 解析，只在本进程使用），
@@ -5382,6 +5403,7 @@ app
 		openCodeSessionImporter = new OpenCodeSessionImporter(mainCopy);
 		zcodeSessionImporter = new ZCodeSessionImporter(mainCopy);
 		workbuddySessionImporter = new WorkBuddySessionImporter(mainCopy);
+		codebuddySessionImporter = new CodeBuddySessionImporter(mainCopy);
 		cursorSessionImporter = new CursorSessionImporter(mainCopy);
 		kimiSessionImporter = new KimiSessionImporter(mainCopy);
 		kimiWorkSessionImporter = new KimiWorkSessionImporter(mainCopy);

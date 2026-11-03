@@ -221,6 +221,14 @@ export type WorkBuddyImportReport = {
 	failed: number;
 };
 
+// ── CodeBuddy Session Import Types ─────────────────────────────────────
+// CodeBuddy（腾讯 CodeBuddy Code CLI）与 WorkBuddy 是同一套本地会话格式（同厂同构），
+// 扫描/导入的汇总结构逐字段相同，因此这里只做别名而不是复制四份类型。
+export type CodeBuddyImportStatus = WorkBuddyImportStatus;
+export type CodeBuddySessionSummary = WorkBuddySessionSummary;
+export type CodeBuddyImportResult = WorkBuddyImportResult;
+export type CodeBuddyImportReport = WorkBuddyImportReport;
+
 // ── Cursor Session Import Types ────────────────────────────────────────
 
 /** Cursor 会话导入状态：未导入 / 已是最新 / 源更新后可覆盖。 */

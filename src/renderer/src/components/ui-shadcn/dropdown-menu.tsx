@@ -20,7 +20,7 @@ function DropdownMenuTrigger({ ...props }: React.ComponentProps<typeof DropdownM
 
 function DropdownMenuContent({ className, sideOffset = 4, collisionPadding, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
 	return (
-		// scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。
+		// scroll-ok: bounded —— 原语本身不限行数，由调用方保证有上限：菜单条目由调用方当次传入（多为固定枚举 / 受控分页）。
 		<DropdownMenuPrimitive.Portal>
 			<DropdownMenuPrimitive.Content
 				ref={floatingWheelGuardRef}

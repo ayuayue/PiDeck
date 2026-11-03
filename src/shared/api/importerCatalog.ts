@@ -1,12 +1,12 @@
 /**
  * 统一接口聚合层 · 外部会话导入器清单（IMPORTER_CATALOG）。
  *
- * 11 个导入器（RESEARCH 域盘点）：scan（列举外部源会话）→ import（导入两段式）；
+ * 12 个导入器（RESEARCH 域盘点）：scan（列举外部源会话）→ import（导入两段式）；
  * kimi-work 额外 describe、directory-sessions 额外 listSources。导入器不进 DOMAIN_CATALOG
- * （沉默清单 S4：11 导入域不占域清单行，由本表承载），通道走 sessions:import* 入口，
+ * （沉默清单 S4：导入域不占域清单行，由本表承载），通道走 sessions:import* 入口，
  * handler 统一注册在 ipc/sessionIpc.ts。
  * 守卫测试 tests/unifiedApiDomainCatalog.test.mjs：id 与域清单共用唯一空间、
- * 11 个 *-sessions 前缀由本表认领、命名空间与 DOMAIN_CATALOG 并集恰好覆盖 74 命名空间。
+ * 各 *-sessions 前缀由本表认领、命名空间与 DOMAIN_CATALOG 并集恰好覆盖全部命名空间。
  */
 import type { ImporterCatalogEntry } from "./domainTypes";
 
@@ -17,6 +17,7 @@ export const IMPORTER_CATALOG = [
 	{ id: "opencode", manager: "OpenCodeSessionImporter", ipcFile: ["ipc/sessionIpc.ts"], preloadNamespaces: ["openCodeSessions"], channelPrefix: ["opencode-sessions"], capabilities: ["scan", "import"] },
 	{ id: "zcode", manager: "ZCodeSessionImporter", ipcFile: ["ipc/sessionIpc.ts"], preloadNamespaces: ["zcodeSessions"], channelPrefix: ["zcode-sessions"], capabilities: ["scan", "import"] },
 	{ id: "workbuddy", manager: "WorkBuddySessionImporter", ipcFile: ["ipc/sessionIpc.ts"], preloadNamespaces: ["workbuddySessions"], channelPrefix: ["workbuddy-sessions"], capabilities: ["scan", "import"] },
+	{ id: "codebuddy", manager: "CodeBuddySessionImporter", ipcFile: ["ipc/sessionIpc.ts"], preloadNamespaces: ["codebuddySessions"], channelPrefix: ["codebuddy-sessions"], capabilities: ["scan", "import"] },
 	{ id: "cursor", manager: "CursorSessionImporter", ipcFile: ["ipc/sessionIpc.ts"], preloadNamespaces: ["cursorSessions"], channelPrefix: ["cursor-sessions"], capabilities: ["scan", "import"] },
 	{ id: "kimi", manager: "KimiSessionImporter", ipcFile: ["ipc/sessionIpc.ts"], preloadNamespaces: ["kimiSessions"], channelPrefix: ["kimi-sessions"], capabilities: ["scan", "import"] },
 	{ id: "kimi-work", manager: "KimiWorkSessionImporter", ipcFile: ["ipc/sessionIpc.ts"], preloadNamespaces: ["kimiWorkSessions"], channelPrefix: ["kimi-work-sessions"], capabilities: ["scan", "import", "describe"] },
@@ -37,6 +38,7 @@ export const IMPORTER_FACADE_METHODS = {
 	opencode: ["scan", "import"],
 	zcode: ["scan", "import"],
 	workbuddy: ["scan", "import"],
+	codebuddy: ["scan", "import"],
 	cursor: ["scan", "import"],
 	kimi: ["scan", "import"],
 	"kimi-work": ["scan", "import", "describe"],
@@ -52,6 +54,7 @@ export const IMPORTER_NAMESPACES = {
 	opencode: "opencodeSessions",
 	zcode: "zcodeSessions",
 	workbuddy: "workbuddySessions",
+	codebuddy: "codebuddySessions",
 	cursor: "cursorSessions",
 	kimi: "kimiSessions",
 	"kimi-work": "kimiWorkSessions",

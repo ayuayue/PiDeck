@@ -14,7 +14,8 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { projectKeyFromPath } from "../resources/agent-memory/paths.mjs";
+import { legacyProjectKeyFromPath, projectKeyFromPath } from "../resources/agent-memory/paths.mjs";
+import { migrateLegacyProjectDirs } from "../resources/agent-memory/migrate.mjs";
 import { MemoryToolError, addMemory, getMemories, memoryStatus, removeMemory, replaceMemory, searchMemory, searchSessions } from "../resources/agent-memory/tools.mjs";
 
 /** 每个用例一份独立记忆根：Markdown 真值 + SQLite 索引都在里面。 */
@@ -347,6 +348,7 @@ test("协议层：initialize / tools/list / tools/call 走 stdio JSON-RPC，业�
 
 	const list = await request("tools/list", {});
 	assert.deepEqual(list.result.tools.map((tool) => tool.name).sort(), ["memory_add", "memory_get", "memory_remove", "memory_replace", "memory_search", "memory_status", "session_search"]);
+	assert.deepEqual(list.result.tools.find((tool) => tool.name === "memory_search").inputSchema.properties.scope.enum, ["current", "all"]);
 
 	const added = await request("tools/call", { name: "memory_add", arguments: { target: "memory", content: "协议层写入的内容" } });
 	const payload = JSON.parse(added.result.content[0].text);
@@ -362,4 +364,104 @@ test("协议层：initialize / tools/list / tools/call 走 stdio JSON-RPC，业�
 	const afterPayload = JSON.parse(after.result.content[0].text);
 	assert.equal(afterPayload.hits.length, 1);
 	assert.equal(afterPayload.degraded, false);
+
+	// scope 必须真的透传到工具层：非法值报稳定错误码，而不是静默回落成 current
+	const badScope = await request("tools/call", { name: "memory_search", arguments: { query: "协议层", scope: "everything" } });
+	assert.equal(badScope.result.isError, true);
+	assert.equal(JSON.parse(badScope.result.content[0].text).error.code, "scope-invalid");
+});
+
+test("项目键：路径哈希后缀让不同路径不再撞键", () => {
+	// 旧算法把路径分隔符和字面 `-` 折成同一个字符：这两对路径会共用一份项目记忆
+	const slashCollision = [join(tmpdir(), "pideck-key", "b"), join(tmpdir(), "pideck-key-b")];
+	const dirCollision = [join(tmpdir(), "项目一", "T6"), join(tmpdir(), "项目二", "T6")];
+	for (const pair of [slashCollision, dirCollision]) {
+		assert.equal(legacyProjectKeyFromPath(pair[0]), legacyProjectKeyFromPath(pair[1]), "前提：旧算法下这两个路径确实撞键");
+		assert.notEqual(projectKeyFromPath(pair[0]), projectKeyFromPath(pair[1]), "新算法必须把撞键的路径分开");
+	}
+
+	const key = projectKeyFromPath(join(tmpdir(), "pideck-key", "proj"));
+	assert.match(key, /-[0-9a-f]{8}$/, "键尾必须是路径哈希（可读前缀 + 哈希）");
+	assert.ok(key.length <= 96, `键长必须落在 PROJECT_ID_PATTERN 的 128 上限内，实际 ${key.length}`);
+	assert.notEqual(key, legacyProjectKeyFromPath(join(tmpdir(), "pideck-key", "proj")), "新键必须与旧键不同，否则等价于没迁移");
+	assert.equal(projectKeyFromPath(""), "", "空 cwd 不派生键");
+	if (process.platform === "win32") {
+		assert.equal(projectKeyFromPath("C:/Users/Me/Proj"), projectKeyFromPath("c:/users/me/proj"), "Windows 同一目录大小写不同仍是同一个键");
+	}
+});
+
+test("迁移：旧键项目目录改名到新键，幂等，目标已存在时不覆盖", () => {
+	const root = freshRoot();
+	const cwd = join(tmpdir(), "pideck-migrate-target");
+	const legacyKey = legacyProjectKeyFromPath(cwd);
+	const nextKey = projectKeyFromPath(cwd);
+	mkdirSync(join(root, "projects", legacyKey), { recursive: true });
+	writeFileSync(join(root, "projects", legacyKey, "MEMORY.md"), "迁移前的外部记忆\n");
+
+	const first = migrateLegacyProjectDirs(root, [cwd]);
+	assert.deepEqual(first.moved, [{ from: legacyKey, to: nextKey }]);
+	assert.match(readFileSync(join(root, "projects", nextKey, "MEMORY.md"), "utf8"), /迁移前的外部记忆/);
+	assert.deepEqual(migrateLegacyProjectDirs(root, [cwd]).moved, [], "幂等：再跑一次没有可迁的");
+
+	// 目标已存在（两边都有内容）时不合并、不覆盖：宁可留下旧目录，也不冒丢条目的险
+	mkdirSync(join(root, "projects", legacyKey), { recursive: true });
+	writeFileSync(join(root, "projects", legacyKey, "MEMORY.md"), "后来又被外部工具写回的记忆\n");
+	const conflict = migrateLegacyProjectDirs(root, [cwd]);
+	assert.deepEqual(conflict.moved, []);
+	assert.equal(conflict.skipped[0].reason, "target-exists");
+	assert.match(readFileSync(join(root, "projects", nextKey, "MEMORY.md"), "utf8"), /迁移前的外部记忆/);
+	assert.match(readFileSync(join(root, "projects", legacyKey, "MEMORY.md"), "utf8"), /后来又被外部工具写回/);
+});
+
+test("预算：放开到 32KB/400 条，导入不再被静默裁掉，超限时把被丢条目回给调用方", () => {
+	const root = freshRoot();
+	const imported = Array.from({ length: 350 }, (_, index) => `导入的记忆 ${index}`);
+	writeFileSync(join(root, "MEMORY.md"), `${imported.join("\n§\n")}\n`);
+	const kept = addMemory(root, { target: "memory", content: "导入之后新写的一条" });
+	assert.equal(kept.dropped, 0, "350 条在 400 条预算内，不该丢任何一条");
+	assert.equal(kept.count, 351);
+	assert.equal(kept.trimmed, undefined, "没裁剪时不该出现 trimmed");
+
+	// 超预算：丢最老的，并把丢掉的样本交回去——否则「我的记忆怎么少了 90 条」无从查起
+	writeFileSync(join(root, "MEMORY.md"), `${Array.from({ length: 405 }, (_, index) => `溢出点 ${index}`).join("\n§\n")}\n`);
+	const overflow = addMemory(root, { target: "memory", content: "溢出之后新写的一条" });
+	assert.equal(overflow.dropped, 6);
+	assert.equal(overflow.count, 400);
+	assert.equal(overflow.trimmed.count, 6);
+	assert.match(overflow.trimmed.oldest[0], /溢出点 0/);
+	assert.equal(overflow.trimmed.oldest.length, 3, "只回样本，不回整批");
+
+	// 外部工具绕过工具层继续写时，状态自己标出超预算（不用「写一条看看丢没丢」才发现）
+	writeFileSync(join(root, "failures.md"), `${Array.from({ length: 401 }, (_, index) => `[insight] 教训 ${index}`).join("\n§\n")}\n`);
+	const status = memoryStatus(root, { sources: [] });
+	assert.equal(status.usage.memory.overBudget, false);
+	assert.equal(status.usage.failure.overBudget, true);
+	assert.ok(status.usage.failure.chars > 0);
+});
+
+test("检索：默认只搜当前项目，scope=all 才跨项目，状态里能看到有哪些项目", () => {
+	const root = freshRoot();
+	addMemory(root, { target: "project", content: "XssFilter 中文乱码要按 GBK 回退", projectId: "proj-a" });
+	addMemory(root, { target: "project", content: "经费卡余额要按财务口径四舍五入", projectId: "proj-c" });
+
+	const current = searchMemory(root, { query: "XssFilter", projectId: "proj-b" });
+	assert.equal(current.scope, "current");
+	assert.equal(current.hits.length, 0, "默认作用域不串项目");
+
+	const all = searchMemory(root, { query: "XssFilter", projectId: "proj-b", scope: "all" });
+	assert.equal(all.scope, "all");
+	assert.equal(all.hits.length, 1);
+	assert.equal(all.hits[0].projectId, "proj-a", "跨项目命中要能看出是哪个项目");
+	assert.equal(
+		errorCode(() => searchMemory(root, { query: "x", scope: "everything" })),
+		"scope-invalid",
+	);
+
+	const status = memoryStatus(root, { sources: [] });
+	assert.deepEqual(
+		status.projects.map((item) => item.projectId),
+		["proj-a", "proj-c"],
+	);
+	assert.equal(status.projects[1].memory, 1);
+	assert.equal(status.projectsTruncated, false);
 });

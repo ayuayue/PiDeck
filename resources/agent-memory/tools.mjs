@@ -15,7 +15,7 @@ import { readAllEntries, mutateEntries, readEntries } from "./files.mjs";
 import { formatFailureEntry, normalizeKey, parseFailureEntry } from "./format.mjs";
 import { hasCjk, indexStats, recordSyncState, searchEntries, searchMessages, syncEntries, syncStateOf } from "./db.mjs";
 import { entryCategory } from "./format.mjs";
-import { FAILURE_CATEGORIES, FILE_BUDGETS, MAX_ENTRY_CHARS, MEMORY_TARGETS, targetFilePath } from "./paths.mjs";
+import { FAILURE_CATEGORIES, FILE_BUDGETS, MAX_ENTRY_CHARS, MEMORY_TARGETS, listProjectKeys, targetFilePath } from "./paths.mjs";
 import { scanMemoryContent } from "./scan.mjs";
 import { indexSources } from "./sessions.mjs";
 import { addTombstone, deviceScopeId } from "./sync.mjs";
@@ -84,14 +84,52 @@ export function syncTarget(root, target, projectId, { force = false } = {}) {
 	return entries;
 }
 
+/** 检索范围：`current` = 全局 + 当前项目 + 本机设备；`all` = 再加上其余每个项目目录。 */
+const SEARCH_SCOPES = ["current", "all"];
+
+/** 裁剪样本的长度：够模型判断丢了什么，又不至于把工具输出刷满。 */
+const TRIM_SAMPLE_CHARS = 160;
+
+/**
+ * 预算裁剪的可见化。
+ *
+ * 预算满了仍按「最老的先丢」，但丢掉的条目必须回到调用方手里：静默裁剪等于替用户删数据，
+ * 而调用方（模型）是唯一还能把内容合并回去的角色。
+ */
+function trimReport(outcome) {
+	if (!outcome.dropped) return {};
+	return {
+		trimmed: {
+			count: outcome.dropped,
+			oldest: outcome.droppedEntries.slice(0, 3).map((entry) => (entry.length > TRIM_SAMPLE_CHARS ? `${entry.slice(0, TRIM_SAMPLE_CHARS)}…` : entry)),
+			hint: "预算已满，丢弃的是最老的条目；重要内容先 memory_get 取回，再合并进现有条目（memory_replace）而不是继续追加。",
+		},
+	};
+}
+
+/** 给当前项目列一份 `{projectId, memory, failure}` 用量，回答「跨项目检索能搜到哪些项目」。 */
+function projectUsage(root) {
+	const keys = listProjectKeys(root);
+	const projects = keys.slice(0, 100).map((projectId) => ({ projectId, memory: readEntries(root, "memory", projectId).length, failure: readEntries(root, "failure", projectId).length }));
+	return { projects, projectsTruncated: keys.length > projects.length };
+}
+
 /** 检索前的整体同步（全局四份 + 可选项目两份）。 */
-function syncAll(root, projectId) {
+function syncAll(root, projectId, { allProjects = false } = {}) {
 	syncTarget(root, "standing", "");
 	syncTarget(root, "user", "");
 	syncTarget(root, "memory", "");
 	syncTarget(root, "failure", "");
 	// 设备作用域每次检索都要带上：本机事实（盘符、家目录约定）对当前机器永远相关。
 	syncTarget(root, "memory", deviceScopeId(root));
+	if (allProjects) {
+		// scope=all：把每个项目目录都灌进镜像，否则别的项目的记忆在索引里根本不存在。
+		for (const key of listProjectKeys(root)) {
+			syncTarget(root, "memory", key);
+			syncTarget(root, "failure", key);
+		}
+		return;
+	}
 	if (projectId) {
 		syncTarget(root, "memory", projectId);
 		syncTarget(root, "failure", projectId);
@@ -140,6 +178,7 @@ export function addMemory(root, { target = "memory", content, category, projectI
 		count: outcome.count,
 		dropped: outcome.dropped,
 		budget: FILE_BUDGETS[scope.target],
+		...trimReport(outcome),
 	};
 }
 
@@ -163,7 +202,7 @@ export function replaceMemory(root, { target = "memory", oldContent, content, pr
 	});
 
 	syncTarget(root, scope.target, scope.projectId, { force: true });
-	return { ok: true, target, scope: scopeLabel(scope.projectId), projectId: scope.projectId, count: outcome.count, dropped: outcome.dropped };
+	return { ok: true, target, scope: scopeLabel(scope.projectId), projectId: scope.projectId, count: outcome.count, dropped: outcome.dropped, budget: FILE_BUDGETS[scope.target], ...trimReport(outcome) };
 }
 
 /** 删除：定位规则与替换一致。 */
@@ -207,27 +246,37 @@ export function getMemories(root, { target = "memory", projectId = "", limit = 5
 }
 
 /** 检索记忆。DB 不可用时退化为 Markdown 子串扫描（结果形态一致，只是没有排序分数）。 */
-export function searchMemory(root, { query, target, projectId = "", limit = 10 }) {
+export function searchMemory(root, { query, target, projectId = "", limit = 10, scope = "current" }) {
 	if (typeof query !== "string" || query.trim().length === 0) throw new MemoryToolError("query-required");
+	if (!SEARCH_SCOPES.includes(scope)) throw new MemoryToolError("scope-invalid", `expected one of ${SEARCH_SCOPES.join("/")}`);
 	const targets = target && target !== "project" ? [target] : ["memory", "user", "standing", "failure", "project"];
-	syncAll(root, projectId);
-	const found = searchEntries(root, query.trim(), { limit, targets, projectId, deviceProjectId: deviceScopeId(root) });
-	if (found.ok) return { ok: true, query: query.trim(), degraded: false, hits: found.hits };
+	const allProjects = scope === "all";
+	syncAll(root, projectId, { allProjects });
+	const found = searchEntries(root, query.trim(), { limit, targets, projectId, deviceProjectId: deviceScopeId(root), allProjects });
+	if (found.ok) return { ok: true, query: query.trim(), scope, degraded: false, hits: found.hits };
 
 	// 降级：没有索引时直接在文件内容里找子串。仍能命中，只是没有 bm25 排序。
 	// 设备作用域在这里同样要算进去（索引不可用不该让「本机事实」搜不到）。
 	const wanted = query.trim().toLowerCase();
-	const deviceEntries = readEntries(root, "memory", deviceScopeId(root));
 	const hits = [];
-	for (const [key, entries] of Object.entries(readAllEntries(projectId, root))) {
-		for (const entry of entries) {
-			if (entry.toLowerCase().includes(wanted)) hits.push({ content: entry, target: key.startsWith("project") ? "project" : key, scope: key.startsWith("project") ? "project" : "global", projectId: key.startsWith("project") ? projectId : "", score: 1 });
+	const collect = (scopeId) => {
+		const files = readAllEntries(scopeId, root);
+		for (const [key, entries] of Object.entries(files)) {
+			const isProject = key === "projectMemory" || key === "projectFailure";
+			const hitTarget = isProject ? (key === "projectFailure" ? "failure" : "memory") : key;
+			if (!targets.includes(hitTarget) && !(isProject && targets.includes("project"))) continue;
+			for (const entry of entries) {
+				if (entry.toLowerCase().includes(wanted)) hits.push({ content: entry, target: hitTarget, scope: isProject ? "project" : "global", projectId: isProject ? scopeId : "", score: 1 });
+			}
 		}
-	}
+	};
+	collect(projectId);
+	if (allProjects) for (const key of listProjectKeys(root)) if (key !== projectId) collect(key);
+	const deviceEntries = readEntries(root, "memory", deviceScopeId(root));
 	for (const entry of deviceEntries) {
 		if (entry.toLowerCase().includes(wanted)) hits.push({ content: entry, target: "memory", scope: "device", projectId: deviceScopeId(root), score: 1 });
 	}
-	return { ok: true, query: query.trim(), degraded: true, reason: found.reason, hits: hits.slice(0, limit) };
+	return { ok: true, query: query.trim(), scope, degraded: true, reason: found.reason, hits: hits.slice(0, limit) };
 }
 
 /** 跨后端会话检索（采集 → 检索）。 */
@@ -250,8 +299,9 @@ export function memoryStatus(root, { projectId = "", sources = [] } = {}) {
 	for (const [key, entries] of Object.entries(scopes)) {
 		const target = key === "projectMemory" || key === "device" ? "memory" : key === "projectFailure" ? "failure" : key;
 		const budget = FILE_BUDGETS[target];
-		usage[key] = { entries: entries.length, chars: entries.join("\n§\n").length, maxEntries: budget.maxEntries, maxChars: budget.maxChars };
+		const chars = entries.join("\n§\n").length;
+		usage[key] = { entries: entries.length, chars, maxEntries: budget.maxEntries, maxChars: budget.maxChars, overBudget: entries.length > budget.maxEntries || chars > budget.maxChars };
 	}
 	const stats = indexStats(root);
-	return { ok: true, usage, index: stats, sessionSources: sources.length, cjkQueryUsesLike: hasCjk("记忆") };
+	return { ok: true, usage, ...projectUsage(root), index: stats, sessionSources: sources.length, cjkQueryUsesLike: hasCjk("记忆") };
 }

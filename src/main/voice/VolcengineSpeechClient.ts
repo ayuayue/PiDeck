@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { normalizeVolcLanguageTag } from "../../shared/voiceTranscriptionConfig";
 import type { VoiceTranscriptionResult } from "../../shared/types/voiceTranscription";
+import { modelHttpFetch } from "../modelHttp/request";
 import { readBoundedResponseText } from "./responseText";
 import { boundVolcMessage, classifyVolcFailure, volcFailureDetail, VOLC_CODE_SILENT_AUDIO, VOLC_CODE_SUCCESS } from "./volcErrorCodes";
 
@@ -86,7 +87,7 @@ export async function transcribeWithVolcengine(deps: VolcengineSpeechDeps, input
 		},
 	};
 
-	const response = await (deps.fetchImpl ?? fetch)(VOLC_RECOGNIZE_ENDPOINT, {
+	const response = await (deps.fetchImpl ?? modelHttpFetch)(VOLC_RECOGNIZE_ENDPOINT, {
 		method: "POST",
 		headers,
 		body: JSON.stringify(payload),

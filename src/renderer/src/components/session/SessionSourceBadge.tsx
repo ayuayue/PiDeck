@@ -19,6 +19,7 @@ const SOURCE_LABELS: Record<SessionSource, string> = {
 	opencode: t("sessionSource.opencode"),
 	zcode: t("sessionSource.zcode"),
 	workbuddy: t("sessionSource.workbuddy"),
+	codebuddy: t("sessionSource.codebuddy"),
 	cursor: t("sessionSource.cursor"),
 	kimi: t("sessionSource.kimi"),
 	kimiwork: t("sessionSource.kimiwork"),
@@ -35,6 +36,8 @@ const SOURCE_TONES: Record<SessionSource, string> = {
 	zcode: "border-muted-foreground/40 text-muted-foreground",
 	// WorkBuddy 同无公开品牌 SVG，沿用中性色 + 自绘 W 字形标记（与 zcode 惯例一致）
 	workbuddy: "border-muted-foreground/40 text-muted-foreground",
+	// CodeBuddy（腾讯）与 WorkBuddy 同无随包品牌 SVG：沿用中性色 + 自绘开口环 C（同 AcpToolBrand 的 codebuddy 字形）
+	codebuddy: "border-muted-foreground/40 text-muted-foreground",
 	// Cursor 无随包品牌 SVG，用中性色 + 指针标记，避免误用第三方品牌色。
 	cursor: "border-muted-foreground/40 text-muted-foreground",
 	// Qoder 同样无随包品牌 SVG：自绘「Q」环形+尾笔标记，沿用中性色惯例（与 zcode/workbuddy 一致）。

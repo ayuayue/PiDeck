@@ -18,7 +18,6 @@ import { AgentMarketEditor } from "./AgentMarketEditor";
 import { AgentMarketGrid } from "./AgentMarketGrid";
 import { PageHeader } from "../../common/PageHeader";
 import { AgentMarketHeader } from "./AgentMarketHeader";
-import type { AgentUseTarget } from "./AgentUseTargetMenu";
 import { useAgentMarketActions } from "./useAgentMarketActions";
 
 /** 市场内部路由：列表（含详情侧栏）/ 编辑器。关闭页面不在这里处理，归页面宿主。 */
@@ -27,11 +26,9 @@ type AgentMarketRoute = { kind: "market" } | { kind: "editor"; agentId: string |
 interface AgentMarketWorkspaceProps {
 	/** 打开页面时就指定编辑目标的智能体 id（市场外入口传入）；只作初始路由，消费后由宿主清空。 */
 	initialEditingAgentId: string | null;
-	/** 「使用」：由页面宿主注入的建会话+绑定动作（projectId 为用户选定的工作目录）；返回 true 表示已打开绑定会话，市场应收起。 */
-	onUseAgent: (agent: AgentProfile, projectId: string) => Promise<boolean>;
+	/** 「使用」：由页面宿主注入的「带着该智能体打开新会话页」动作；返回 true 表示已导航，市场应收起。 */
+	onUseAgent: (agent: AgentProfile) => Promise<boolean>;
 	onClose: () => void;
-	/** 「使用」目录菜单需要的当前项目与「添加目录」入口。 */
-	useTarget: AgentUseTarget;
 }
 
 /**
@@ -41,7 +38,7 @@ interface AgentMarketWorkspaceProps {
  * 不需要跨窗口/跨会话持久化。智能体数据与设置仍走 atoms（Lead 的 useAgentProfileSync 同步）。
  * 划词工具设置已移到设置页，市场内不再有设置视图。
  */
-export function AgentMarketWorkspace({ initialEditingAgentId, onUseAgent, onClose, useTarget }: AgentMarketWorkspaceProps) {
+export function AgentMarketWorkspace({ initialEditingAgentId, onUseAgent, onClose }: AgentMarketWorkspaceProps) {
 	const agents = useAtomValue(agentProfilesAtom);
 	const settings = useAtomValue(agentMarketSettingsAtom);
 	const setSnapshot = useSetAtom(agentProfileSnapshotAtom);
@@ -124,16 +121,16 @@ export function AgentMarketWorkspace({ initialEditingAgentId, onUseAgent, onClos
 	);
 
 	/**
-	 * 「使用」：交给页面宿主在所选的工作目录建会话 + 绑定（主进程按绑定注入角色设定，时间线只显示用户输入）。
-	 * 成功才收起市场露出新会话；失败留在市场，宿主已经 toast 了原因。
-	 * pending 期间忽略重复点击——建会话是异步的，连点会建出多个会话。
+	 * 「使用」：交给页面宿主带着该智能体打开新会话页（目录在输入框上方选，发送时才建会话并绑定）。
+	 * 成功才收起市场露出新会话页；失败留在市场，宿主已经 toast 了原因。
+	 * pending 期间忽略重复点击。
 	 */
 	const handleUse = useCallback(
-		async (agent: AgentProfile, projectId: string) => {
+		async (agent: AgentProfile) => {
 			if (pendingUseAgentId) return;
 			setPendingUseAgentId(agent.id);
 			try {
-				if (await onUseAgent(agent, projectId)) onClose();
+				if (await onUseAgent(agent)) onClose();
 			} catch (error) {
 				// 契约上宿主返回 false 而不是 reject；这里兜底未处理的 Promise 拒绝，避免控制台报错。
 				showNotice(error instanceof Error ? error.message : String(error), 3500, "error");
@@ -198,31 +195,19 @@ export function AgentMarketWorkspace({ initialEditingAgentId, onUseAgent, onClos
 								selectionDefaultId={defaultSelection?.id ?? null}
 								selectedAgentId={selectedAgentId}
 								usePendingId={pendingUseAgentId}
-								useBusy={pendingUseAgentId !== null}
 								onReorder={handleReorder}
 								onOpen={(agent) => setSelectedAgentId(agent.id)}
-								onUse={(agent, projectId) => void handleUse(agent, projectId)}
+								onUse={(agent) => void handleUse(agent)}
 								onEdit={handleEdit}
 								onRequestDelete={setPendingDelete}
 								onCreate={() => setRoute({ kind: "editor", agentId: null })}
 								selectionMode={selectionMode}
 								selectedIds={selected}
 								onToggleSelect={toggleSelect}
-								useTarget={useTarget}
 							/>
 						</div>
 						{selectedAgent && (
-							<AgentMarketDetail
-								agent={selectedAgent}
-								selectionDefault={defaultSelection?.id === selectedAgent.id}
-								usePending={pendingUseAgentId === selectedAgent.id}
-								useBusy={pendingUseAgentId !== null}
-								onClose={() => setSelectedAgentId(null)}
-								onUse={(agent, projectId) => void handleUse(agent, projectId)}
-								onEdit={handleEdit}
-								onRequestDelete={setPendingDelete}
-								useTarget={useTarget}
-							/>
+							<AgentMarketDetail agent={selectedAgent} selectionDefault={defaultSelection?.id === selectedAgent.id} usePending={pendingUseAgentId === selectedAgent.id} onClose={() => setSelectedAgentId(null)} onUse={(agent) => void handleUse(agent)} onEdit={handleEdit} onRequestDelete={setPendingDelete} />
 						)}
 					</div>
 				</>

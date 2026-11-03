@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentBackend, AvailableModel, ModelListReport } from "../../../shared/types";
+import { TOKENDANCE_PROVIDER, type TokendancePriceTagMap } from "../../../shared/tokendance";
+import { applyTokenDancePriceTags, loadTokenDancePriceTags } from "./tokendancePriceTags";
 import { isDshManuallyStoppedErrorMessage } from "../../../shared/dshManualStop";
 import { desktopApi } from "../desktopApi";
 import { t } from "../i18n";
 import { showNotice } from "../utils/notice";
 
 const EMPTY_MODELS: AvailableModel[] = [];
+const EMPTY_PRICE_TAGS: TokendancePriceTagMap = {};
 
 /** Accepted reports retain their source so a new scope cannot reuse their success flag. */
 type CatalogResult = {
@@ -124,5 +127,21 @@ export function useBackendModelCatalog(options: { sessionId: string; backend?: A
 	// Filter during render, not in an effect: consumers use report.ok to invalidate
 	// welcome preferences, so even the first render must reject another source's data.
 	const report = catalog?.backend === options.backend && catalog?.projectId === options.projectId && catalog?.sessionId === options.sessionId ? (catalog?.report ?? null) : null;
-	return { models: report?.models ?? EMPTY_MODELS, report, loading: options.enabled && loading, refreshing: options.enabled && refreshing, reload: load };
+	const catalogModels = report?.models ?? EMPTY_MODELS;
+	// TokenDance 模型的价格徽章（折扣/免费）：目录里出现 tokendance 组才拉一次报价表，
+	// 到货后补价格标记重新渲染；不阻塞首屏——徽章没到/拉取失败时列表照常可用。
+	const hasTokenDanceModels = catalogModels.some((model) => model.provider === TOKENDANCE_PROVIDER);
+	const [priceTags, setPriceTags] = useState<TokendancePriceTagMap>(EMPTY_PRICE_TAGS);
+	useEffect(() => {
+		if (!hasTokenDanceModels) return;
+		let cancelled = false;
+		void loadTokenDancePriceTags().then((tags) => {
+			if (!cancelled) setPriceTags(tags);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [hasTokenDanceModels]);
+	const models = useMemo(() => applyTokenDancePriceTags(catalogModels, priceTags), [catalogModels, priceTags]);
+	return { models, report, loading: options.enabled && loading, refreshing: options.enabled && refreshing, reload: load };
 }

@@ -229,6 +229,7 @@ export class AcpAgentManager implements SessionAgentGateway {
 	/**
 	 * 按 acpSessionId 读消息（**异步读口**）：runtime 投影 → 磁盘归档 → 内存快照逐级回退
 	 * （归档在快照之前，理由见方法内注释：快照有 400 条上限，归档才是完整历史）。
+	 * runtime 在场但投影为空（握手/重连窗口）也走归档兜底——否则激活完成前时间线是空白。
 	 *
 	 * 为什么保留两个入口：同步版是既有契约（开机恢复/播种与历史用例按同步断言），只覆盖
 	 * 内存；归档是磁盘 IO，不能塞进同步路径。归档读失败/文件损坏在 AcpSessionArchive
@@ -237,7 +238,14 @@ export class AcpAgentManager implements SessionAgentGateway {
 	async readMessagesWithArchive(acpSessionId: string): Promise<ChatMessage[]> {
 		if (!acpSessionId) return [];
 		for (const runtime of this.runtimes.values()) {
-			if (runtime.acpSessionId === acpSessionId) return runtime.projection.messages;
+			if (runtime.acpSessionId !== acpSessionId) continue;
+			// 投影非空：runtime 在场时内存优先，不碰磁盘（既有契约）。
+			if (runtime.projection.messages.length > 0) return runtime.projection.messages;
+			// 投影为空 = 握手/重连窗口（session/load 重放尚未到达，或 load 失败回退）：
+			// 继续走归档兜底。否则打开一个正在启动的会话会读到空数组，Web/桌面时间线
+			// 在激活完成前一片空白（用户反馈的「运行中 ACP 会话切回后空白」）。
+			// 归档读不到再回退快照；重放完成后投影恢复，下次读取自动切回内存。
+			break;
 		}
 		// 归档优先于内存快照：归档是结算点写的完整快照（≤2000 条），内存快照只是
 		// ≤400 条的流式末段。先读快照会让重开的长会话只剩末尾 400 条（时间线、分页、

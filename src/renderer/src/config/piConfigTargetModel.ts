@@ -30,6 +30,17 @@ export function hasWslConfigProfile(hosts: readonly PiConfigTargetHost[]): boole
 }
 
 /**
+ * 目标条是否值得渲染。只有本机一个可选目标时整条不渲染：
+ * 「配置目标：本机 + 暂无已验证的 SSH 主机」占掉页首一行，却没有可选择的东西——
+ * 提示语说的是「去别处加主机」，不是本页可做的操作。
+ *
+ * 当前目标停在已消失的远端主机上时仍然渲染：否则用户没有回到本机的入口（下拉里恒有「本机」）。
+ */
+export function configTargetBarVisible(target: PiConfigTarget, hosts: readonly PiConfigTargetHost[]): boolean {
+	return target.kind !== "local" || hosts.length > 0;
+}
+
+/**
  * 切换配置目标前必须拦下的「配置组未保存草稿」判定。
  * 只看 config:* 的脏标记：skills/prompts 等与配置目标无关的未保存修改不应挡住切目标。
  */

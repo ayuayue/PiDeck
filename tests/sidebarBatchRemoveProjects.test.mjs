@@ -73,14 +73,15 @@ test("空清单不触发任何移除调用，返回 0/0", async () => {
 	assert.equal(outcome.failed, 0);
 });
 
-test("弹窗分页只渲染当前页项目，并给出跨页全选与未选提示", () => {
+test("弹窗一次渲染整个清单，表头给出项目与路径列，未选时主按钮禁用", () => {
 	const projects = Array.from({ length: 23 }, (_, index) => localProject(index));
 	const html = renderDialog(projects);
-	// 第一页 10 行：每行渲染自己的目录路径，第 11 个项目（proj-10）不在第一页。
-	assert.equal(countMatches(html, /title="C:\/work\/proj-\d+"/g), 10);
-	assert.match(html, /C:\/work\/proj-9</);
-	assert.doesNotMatch(html, /C:\/work\/proj-10</);
-	// 全选文案带总数（勾的是整个清单，不是当前页）；未选时主按钮禁用并显示 0。
+	// 与会话管理同构：表格一次全量渲染（不再按页切片），每行都带完整路径的 title。
+	assert.equal(countMatches(html, /title="C:\/work\/proj-\d+"/g), 23);
+	assert.match(html, /C:\/work\/proj-22</);
+	assert.match(html, />项目</);
+	assert.match(html, />路径</);
+	// 全选文案带总数；未选时主按钮禁用并显示 0。
 	assert.match(html, /全选（共 23 项）/);
 	assert.match(html, /已选 0 \/ 23/);
 	assert.match(html, />移除 0 个</);
@@ -189,7 +190,8 @@ function createInteractionHarness(initialProjects, onRemove = async () => ({ rem
 			"../ui-shadcn/dialog": Object.fromEntries(["Dialog", "DialogContent", "DialogHeader", "DialogFooter"].map((name) => [name, (props) => props.children])),
 			"../ui-shadcn/button": { Button: "button" },
 			"../ui-shadcn/checkbox": { Checkbox: "checkbox" },
-			"../ui-shadcn/pagination": { Pagination: "pagination" },
+			"../ui-shadcn/label": { Label: "label" },
+			"../ui-shadcn/table": { Table: "table", TableHeader: "thead", TableBody: "tbody", TableRow: "tr", TableHead: "th", TableCell: "td" },
 		},
 	});
 	let projects = initialProjects;
@@ -203,8 +205,8 @@ function createInteractionHarness(initialProjects, onRemove = async () => ({ rem
 				}),
 			),
 		);
-	// 行与全选都是 label 包 Checkbox：label 的文案（也就是父节点的可读文本）用来定位。
-	const checkboxBy = (predicate) => entries().find(({ node, ancestors }) => typeof node.props?.onCheckedChange === "function" && predicate(textContent(ancestors[ancestors.length - 1])));
+	// 行 Checkbox 用 aria-label（名称 + 路径）定位；全选 Checkbox 没有 aria-label，退回父 label 的可读文本。
+	const checkboxBy = (predicate) => entries().find(({ node, ancestors }) => typeof node.props?.onCheckedChange === "function" && predicate(textContent(ancestors[ancestors.length - 1]), node.props?.["aria-label"] ?? ""));
 	const confirmButton = () => entries().find(({ node }) => typeof node.props?.onClick === "function" && /^移除 \d+ 个$/.test(textContent(node)));
 	const statusText = () => textContent(entries().find(({ node }) => node.props?.role === "status").node);
 	return {
@@ -216,7 +218,7 @@ function createInteractionHarness(initialProjects, onRemove = async () => ({ rem
 			entries();
 		},
 		clickRow(index) {
-			checkboxBy((text) => text.includes(`C:/work/proj-${index}`)).node.props.onCheckedChange();
+			checkboxBy((_text, label) => label.includes(`C:/work/proj-${index}`)).node.props.onCheckedChange();
 			entries();
 		},
 		clickSelectAll() {
@@ -234,19 +236,13 @@ function createInteractionHarness(initialProjects, onRemove = async () => ({ rem
 		confirmLabel() {
 			return textContent(confirmButton().node);
 		},
-		/** 当前页渲染出的行（按目录路径识别），用于验证分页切片。 */
+		/** 渲染出的行（按 Checkbox 的 aria-label 识别目录路径），用于验证全量渲染。 */
 		visiblePaths() {
 			return entries()
 				.filter(({ node }) => node.type === "checkbox")
-				.map(({ ancestors }) => textContent(ancestors[ancestors.length - 1]))
-				.filter((text) => text.includes("C:/work/proj-"))
-				.map((text) => text.slice(text.indexOf("C:/work/proj-")));
-		},
-		goToPage(page) {
-			entries()
-				.find(({ node }) => typeof node.props?.onPageChange === "function")
-				.node.props.onPageChange(page);
-			entries();
+				.map(({ node }) => node.props?.["aria-label"] ?? "")
+				.filter((label) => label.includes("C:/work/proj-"))
+				.map((label) => label.slice(label.indexOf("C:/work/proj-")));
 		},
 	};
 }
@@ -264,27 +260,15 @@ test("点行勾选立刻反映到已选计数与按钮文案，再点一次取�
 	assert.equal(harness.confirmDisabled(), true);
 });
 
-test("全选勾的是整个清单（含未显示的页），再点一次清空", () => {
+test("全选勾的是整个清单，再点一次清空", () => {
 	const projects = Array.from({ length: 23 }, (_, index) => localProject(index));
 	const harness = createInteractionHarness(projects);
+	// 没有分页：23 行全部在渲染树里。
+	assert.equal(harness.visiblePaths().length, 23);
 	harness.clickSelectAll();
 	assert.match(harness.status(), /已选 23 \/ 23/);
 	harness.clickSelectAll();
 	assert.match(harness.status(), /已选 0 \/ 23/);
-});
-
-test("翻页只换当前页的行，已选跨页保留", () => {
-	const projects = Array.from({ length: 23 }, (_, index) => localProject(index));
-	const harness = createInteractionHarness(projects);
-	harness.clickRow(1);
-	harness.goToPage(2);
-	assert.deepEqual(
-		harness.visiblePaths(),
-		Array.from({ length: 10 }, (_, offset) => `C:/work/proj-${10 + offset}`),
-	);
-	harness.goToPage(3);
-	assert.deepEqual(harness.visiblePaths(), ["C:/work/proj-20", "C:/work/proj-21", "C:/work/proj-22"]);
-	assert.match(harness.status(), /已选 1 \/ 23/);
 });
 
 test("确认后按勾选的 id 批量移除，全部成功后关闭弹窗", async () => {

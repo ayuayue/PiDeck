@@ -10,6 +10,7 @@
  *   已在宿主侧校验过（这里再做一次路径逃逸检查，防止 `..` 拼出目录穿越）。
  */
 
+import { readdirSync } from "node:fs";
 import path from "node:path";
 
 /** 条目分隔符：单条记忆内部可以有多行，条目之间用这个不可见的分节符隔开。 */
@@ -40,13 +41,17 @@ export const FAILURE_CATEGORIES = ["failure", "correction", "insight", "preferen
 
 /**
  * 预算：超出后按「最老的先丢」裁剪。
- * 数字取「能放进系统提示且不挤掉其他指令」的量级；STANDING 每条会话都要注入，给得更紧。
+ *
+ * 记忆是**检索式读取**（Agent 用 memory_search/memory_get 主动查），不再整份塞进系统提示，
+ * 所以这里不是「提示长度上限」而是「防止一次外部导入把单个文件写成图书馆」的闸门：
+ * 32KB / 400 条足够装下从 pi-hermes / Claude 等外部工具导出的中型记忆库而不裁掉任何一条。
+ * STANDING 是用户手写的备注文件，给得更紧。
  */
 export const FILE_BUDGETS = {
-	memory: { maxChars: 8000, maxEntries: 120 },
-	user: { maxChars: 4000, maxEntries: 60 },
+	memory: { maxChars: 32000, maxEntries: 400 },
+	user: { maxChars: 32000, maxEntries: 400 },
 	standing: { maxChars: 4000, maxEntries: 40 },
-	failure: { maxChars: 8000, maxEntries: 120 },
+	failure: { maxChars: 32000, maxEntries: 400 },
 };
 
 /** 单条内容上限：防止一次写入把整份文件挤空。 */
@@ -58,27 +63,73 @@ export const MAX_INDEXED_MESSAGE_CHARS = 4000;
 /** 项目 id 只允许这些字符；宿主侧同样有校验，这里是第二道闸。 */
 const PROJECT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 
+/** 路径规范化口径：Windows 大小写不敏感，同一个目录的不同大小写要落到同一个键。 */
+function canonicalPath(cwd) {
+	const resolved = path.resolve(cwd);
+	return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+/** 可读前缀：非 `[A-Za-z0-9._-]` 的字符段（也包括路径分隔符）统一折成 `-`。 */
+function readableSlug(normalized) {
+	return normalized.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+/** 路径的 32 位哈希（8 位十六进制）：只用来给可读前缀去重，不承担密码学职责。 */
+function pathHash(normalized) {
+	let hash = 0;
+	for (let index = 0; index < normalized.length; index += 1) hash = (hash * 31 + normalized.charCodeAt(index)) >>> 0;
+	return hash.toString(16).padStart(8, "0");
+}
+
 /**
- * 会话工作目录 → 项目作用域的键。
+ * 会话工作目录 → 项目作用域的键：`<可读前缀>-<路径哈希>`。
  *
  * 项目记忆刻意用**路径派生的稳定键**而不是 PiDeck 的 projectId：
  * - 同一个项目在 pi / ACP / 终端里 cwd 相同，三种后端自然共享一份项目记忆；
  * - 项目从 PiDeck 移除再加回来（id 会变）时记忆不丢；
  * - Agent 本来就知道自己的 cwd，不需要额外告诉它宿主侧的内部 id。
- * 超长路径用短哈希收尾，保证目录名可读且不撞。
+ *
+ * 哈希后缀**始终存在**，不是只为超长路径：可读前缀把路径分隔符和字面 `-` 折成同一个字符，
+ * 不带哈希时 `D:/a/b` 与 `D:/a-b`、`D:/项目一/T6` 与 `D:/项目二/T6` 会并成同一个键
+ * （两个互不相干的项目共享一份记忆，用户看到的是「别的项目的规矩冒了出来」）。
  */
 export function projectKeyFromPath(cwd) {
 	if (typeof cwd !== "string" || !cwd.trim()) return "";
-	const normalized = path.resolve(cwd);
-	const slug = normalized.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+	const normalized = canonicalPath(cwd);
+	const slug = readableSlug(normalized);
 	if (slug.length === 0) return "";
-	// 先截短再校验：超长路径的 slug 必定超出目录名长度上限，截断后才是最终键。
-	// 前缀留 80 字符保证人工可读，后缀用路径哈希避免同前缀项目撞成一条记忆。
+	// 前缀留 80 字符保证人工可读，后缀固定 8 位哈希；总长 89 < 目录名上限。
+	const key = `${slug.slice(0, 80)}-${pathHash(normalized)}`;
+	return PROJECT_ID_PATTERN.test(key) ? key : "";
+}
+
+/**
+ * v1.5.x 及更早的键算法（短路径不加哈希、长路径加哈希）。
+ * 只用于把旧的 `projects/<旧键>/` 目录迁移到新键，不要再拿来派生新键。
+ */
+export function legacyProjectKeyFromPath(cwd) {
+	if (typeof cwd !== "string" || !cwd.trim()) return "";
+	const normalized = path.resolve(cwd);
+	const slug = readableSlug(normalized);
+	if (slug.length === 0) return "";
 	if (slug.length <= 96) return PROJECT_ID_PATTERN.test(slug) ? slug : "";
 	let hash = 0;
 	for (let index = 0; index < normalized.length; index += 1) hash = (hash * 31 + normalized.charCodeAt(index)) >>> 0;
 	const key = `${slug.slice(0, 80)}-${hash.toString(16)}`;
 	return PROJECT_ID_PATTERN.test(key) ? key : "";
+}
+
+/** 已存在的项目作用域键（`projects/` 下的目录名），按名字排序；读不到目录时返回空数组。 */
+export function listProjectKeys(root, limit = 500) {
+	try {
+		return readdirSync(path.join(root, "projects"), { withFileTypes: true })
+			.filter((entry) => entry.isDirectory() && PROJECT_ID_PATTERN.test(entry.name))
+			.map((entry) => entry.name)
+			.sort()
+			.slice(0, limit);
+	} catch {
+		return [];
+	}
 }
 
 /** 省略 projectId 时的项目作用域键（由宿主注入的会话 cwd 推导）；没有 cwd 时返回空。 */

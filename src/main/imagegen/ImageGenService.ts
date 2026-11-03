@@ -1,3 +1,5 @@
+import { readBoundedBytesOrNull, type BoundedResponseLike } from "../modelHttp/bounded";
+import { modelHttpFetch } from "../modelHttp/request";
 import { buildImageGenApiBody, buildImageGenEditsForm, imageGenOutputMimeType, parseImageGenOutputFormat } from "../../shared/imageGenParams";
 import type { ImageGenApiStyle, ImageGenProviderExtraParams, ImageGenReferenceMode } from "../../shared/imageGenConfig";
 import type { ImageContent } from "../../shared/types";
@@ -61,7 +63,7 @@ export class ImageGenService {
 			let response: Response;
 			if (refs.length > 0 && referenceMode === "edits") {
 				// OpenAI gpt-image-1 风格：multipart 到 /images/edits；响应结构与 generations 一致
-				response = await fetch(normalizeImagesEditsUrl(credentials.baseUrl), {
+				response = await modelHttpFetch(normalizeImagesEditsUrl(credentials.baseUrl), {
 					method: "POST",
 					headers: { Authorization: `Bearer ${credentials.apiKey.trim()}` },
 					body: buildImageGenEditsForm({
@@ -86,7 +88,7 @@ export class ImageGenService {
 					apiStyle: credentials.apiStyle ?? "openai",
 					referenceImages: refs.length > 0 && referenceMode === "image-field" ? refs : undefined,
 				});
-				response = await fetch(imagesUrl, {
+				response = await modelHttpFetch(imagesUrl, {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
@@ -126,8 +128,8 @@ export class ImageGenService {
 				};
 			}
 			if (item?.url) {
-				// 服务端不支持 b64_json 时回退下载（url 一般与 baseUrl 同源，直接 fetch）
-				const imageResponse = await fetch(item.url, { signal: AbortSignal.timeout(120_000) });
+				// 服务端不支持 b64_json 时回退下载（url 一般与 baseUrl 同源，直接下载）
+				const imageResponse = await modelHttpFetch(item.url, { signal: AbortSignal.timeout(120_000) });
 				if (!imageResponse.ok) {
 					return { ok: false, error: "network", detail: `image download ${imageResponse.status}` };
 				}
@@ -149,35 +151,9 @@ export class ImageGenService {
 	}
 
 	/** 流式读取响应体，超过 IMAGE_GEN_MAX_RESPONSE_BYTES 时 cancel reader 并返回 null。
-	 *  用 getReader().read() 循环而非 for-await：本模块在测试经 vm 沙箱加载，
-	 *  沙箱与宿主的 Symbol.asyncIterator 分属不同 realm，for-await 跨 realm 不可靠。 */
+	 *  泵体已收口到 modelHttp/bounded（与主进程其他响应体读取同一实现）。 */
 	private async readBodyCapped(response: CappedResponseLike): Promise<Buffer | null> {
-		const body = response.body;
-		if (body && typeof body.getReader === "function") {
-			const reader = body.getReader();
-			const chunks: Buffer[] = [];
-			let total = 0;
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
-				if (!value || typeof value.byteLength !== "number" || value.byteLength === 0) continue;
-				total += value.byteLength;
-				if (total > IMAGE_GEN_MAX_RESPONSE_BYTES) {
-					try {
-						await reader.cancel();
-					} catch {
-						// 连接已随取消关闭
-					}
-					return null;
-				}
-				chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
-			}
-			return Buffer.concat(chunks);
-		}
-		// 无流式 body 的替身/受限运行时：整体读取后校验（生产 fetch 必有 body）
-		if (typeof response.arrayBuffer !== "function") return null;
-		const buffer = Buffer.from(await response.arrayBuffer());
-		return buffer.byteLength > IMAGE_GEN_MAX_RESPONSE_BYTES ? null : buffer;
+		return readBoundedBytesOrNull(response, IMAGE_GEN_MAX_RESPONSE_BYTES);
 	}
 
 	/** 读取 JSON 响应并施加体积上限；超限返回 null。
@@ -205,16 +181,8 @@ const IMAGE_GEN_ERROR_DETAIL_LIMIT = 800;
  *  （不直接 import ImageBlobStore：测试沙箱 require 白名单仅含 shared 两个模块。） */
 const IMAGE_GEN_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 
-/** 最小响应形状：支持流式 body（Node/undici fetch 必有）或整体读取（测试替身）。 */
-type CappedResponseLike = {
-	body?: {
-		getReader(): {
-			read(): Promise<{ done?: boolean; value?: Uint8Array }>;
-			cancel(): Promise<void>;
-		};
-	} | null;
-	arrayBuffer?(): Promise<ArrayBuffer>;
-};
+/** 响应形状：与 modelHttp/bounded 的 BoundedResponseLike 同构（支持流式 body 或整体 arrayBuffer 的替身）。 */
+type CappedResponseLike = BoundedResponseLike;
 
 /**
  * 从厂商非 2xx 响应里抽出可读 detail。

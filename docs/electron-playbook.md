@@ -37,6 +37,14 @@
 - 需要真实窗口位置/几何的用例（如 `window-memory`、`quick-task`）必须 `test.use({ e2eWindowMode: "visible" })`（fixture 下发 `PIDECK_E2E_WINDOW_MODE=visible`）；调试时同样设该环境变量。
 - 摆放失败必须静默回退，不阻断 e2e。守卫：`tests/e2eWindowMode.test.mjs` + `e2e/window-background.spec.ts`。
 
+## 本机文件编辑与透明加密环境
+
+- 打开或外部同步内容不算用户编辑，不能触发 dirty 或自动保存。`CodeMirrorEditor` 对外部同步事务加标记，`FileDiffViewer` 仅在载入时确定换行形式，保留 CRLF 与保存后的撤销历史；重载开始取消旧防抖、读取失败禁止保存旧缓冲。
+- 文本读写共用 `src/main/files/textFileRead.ts` / `textFileWrite.ts`：非法 UTF-8 或非文本内容拒绝编辑/覆盖；异常大小与访问错误给专项提示。非 UTF-8 也可能是合法的其它编码，不能据此认定为密文。
+- 保存使用同目录随机、排他创建的临时文件再 rename；写入、权限恢复或替换失败时不回退原位截断写。编辑器合并重叠保存并追上最新内容，安装前置任务也等最新内容落盘；主进程按目标排队，链接解析后替换真实文件，不能静默替换 symlink 目录项。失败保留未保存内容与 dirty；新建文件使用 `wx`，不清空同名文件。不在 userData 等目录额外备份明文。
+- 加密客户端错误码（如 `[49-0]`）本身不能证明 PiDeck 已损坏文件。真实兼容性需在受管目录的测试副本上由管理员核对驱动日志和访问权限；不能靠绕过策略或关闭安全软件修复。
+- 回归：`node --test tests/textFileReadGuard.test.mjs tests/textFileWriteGuard.test.mjs tests/fileEditorSaveSafety.test.mjs tests/fileLoadErrorMessage.test.mjs tests/filesListTarget.test.mjs`。这些验证应用行为与注入的文件系统失败，不代替真实加密驱动验收。
+
 ## IPC 与 preload
 
 - preload 不做业务，只做校验后的转发与订阅封装；通道名一律引用 `ipcChannels` 常量，不写字面量。

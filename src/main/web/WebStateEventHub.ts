@@ -96,6 +96,9 @@ export class WebStateEventHub {
 
 	/** 去抖调度一次快照广播；已有待发定时器时静默合并（事件风暴防抖）。 */
 	schedule(): void {
+		// 没有 Web 订阅者时不建定时器：Web 只是数据出口，没人看就不该为每条 pi 事件
+		// 排一次 400ms 的快照比对。新连接在 handle() 里立即首推，不依赖这里。
+		if (this.stateEventClients.size === 0) return;
 		if (this.statePushTimer) return;
 		this.statePushTimer = setTimeout(() => {
 			this.statePushTimer = null;

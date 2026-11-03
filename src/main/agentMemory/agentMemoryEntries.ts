@@ -17,52 +17,12 @@ import { readRaw, writeAtomic } from "../../../resources/agent-memory/files.mjs"
 import { FILE_BUDGETS, TARGET_FILES, projectKeyFromPath, resolveMemoryRoot, targetFilePath } from "../../../resources/agent-memory/paths.mjs";
 import { addTombstone, exportEntryId, removeTombstone } from "../../../resources/agent-memory/sync.mjs";
 import { addMemory, syncTarget } from "../../../resources/agent-memory/tools.mjs";
+import type { AgentMemoryEntry, AgentMemoryEntryGroup, AgentMemoryEntryList } from "../../shared/types/agentMemory";
 
-export type AgentMemoryTarget = keyof typeof TARGET_FILES;
-export type AgentMemoryScope = "global" | "project" | "device";
-
-export interface AgentMemoryEntryView {
-	/** 文件内序号（1 起）。删除按 `key` 定位，序号只用于展示顺序。 */
-	index: number;
-	target: AgentMemoryTarget;
-	file: string;
-	scope: AgentMemoryScope;
-	projectId: string;
-	/** 展示用名字：项目名（能匹配到 PiDeck 项目时）、设备短键，全局留空。 */
-	projectName: string;
-	/** 规范化内容键：与去重/墓碑同一个哈希口径，删除用它定位。 */
-	key: string;
-	/**
-	 * 导出弹窗的勾选键。**必须由 `sync.mjs` 的 `exportEntryId` 算**：
-	 * `failure` 条目在包里是「纯内容」（去掉 `[category]` 前缀），与 `key`（整块哈希）不同，
-	 * 渲染层自己拼 id 会让失败教训类的勾选错位。
-	 */
-	exportId: string;
-	content: string;
-	chars: number;
-	/** `failure` 的分类；其他目标为空串。 */
-	category: string;
-}
-
-export interface AgentMemoryEntryGroup {
-	target: AgentMemoryTarget;
-	scope: AgentMemoryScope;
-	projectId: string;
-	projectName: string;
-	/** 相对根目录的路径，作为「这条记忆存在哪个文件」给用户看的凭据。 */
-	file: string;
-	bytes: number;
-	/** 全局四份文件有注入预算；项目/设备作用域只在检索时出现，没有预算。 */
-	budget: { maxChars: number; maxEntries: number } | null;
-	chars: number;
-	entries: AgentMemoryEntryView[];
-}
-
-export interface AgentMemoryEntryList {
-	root: string;
-	total: number;
-	groups: AgentMemoryEntryGroup[];
-}
+export type AgentMemoryTarget = AgentMemoryEntry["target"];
+export type AgentMemoryScope = AgentMemoryEntry["scope"];
+/** 视图形状只有一个出处：改类型只改 shared 那份，主进程这边只做别名。 */
+export type AgentMemoryEntryView = AgentMemoryEntry;
 
 /** 作用域顺序：全局 → 项目 → 设备；同一作用域内按「记忆 / 用户 / 教训 / 常驻」排。 */
 const TARGET_ORDER: readonly AgentMemoryTarget[] = ["memory", "user", "failure", "standing"];
@@ -87,7 +47,8 @@ function buildGroup(root: string, target: AgentMemoryTarget, scope: AgentMemoryS
 	} catch {
 		return null;
 	}
-	const entries = parseEntries(readRaw(absolute)).map((content, index) => {
+	const blocks = parseEntries(readRaw(absolute));
+	const entries = blocks.map((content, index) => {
 		// 包的条目身份按「语义内容」算（failure 去掉分类前缀），这里必须用同一口径。
 		const semantic = target === "failure" ? parseFailureEntry(content).content : content;
 		return {
@@ -105,6 +66,10 @@ function buildGroup(root: string, target: AgentMemoryTarget, scope: AgentMemoryS
 		};
 	});
 	if (entries.length === 0) return null;
+	// 预算对所有作用域生效（裁剪发生在文件层，不分全局/项目）：设置页必须按同一口弴显示，
+	// 否则「外部导入了 500 条的项目记忆」在 UI 上看不出已经超出限额，下一次写入会静默丢最老的。
+	const chars = renderEntries(blocks).length;
+	const budget = FILE_BUDGETS[target] ?? null;
 	return {
 		target,
 		scope,
@@ -112,8 +77,9 @@ function buildGroup(root: string, target: AgentMemoryTarget, scope: AgentMemoryS
 		projectName,
 		file: entries[0].file,
 		bytes,
-		budget: scope === "global" ? (FILE_BUDGETS[target] ?? null) : null,
-		chars: entries.reduce((sum, entry) => sum + entry.chars, 0),
+		budget,
+		chars,
+		overBudget: budget ? blocks.length > budget.maxEntries || chars > budget.maxChars : false,
 		entries,
 	};
 }

@@ -45,7 +45,7 @@ P 的 root-scoped facts 接线完成 ───────────> G 的 ma
 
 1. 优先两条独立 worktree；可复用合适的已有工作树，新增分支用 `codex/`。不要替别的智能体清理工作树、stash、装依赖或终止进程。
 2. **I0 基线已提交到 `dev`（从 `dev` 当前 HEAD 新建工作树即可继承）。** 从 `24529c394` 新建 worktree 不会带上 A0 和本交接；现在应从 `dev` 新建 worktree（§8.4），或在目标文件确认与基线一致时显式同步白名单文件。目标已有改动时停下核对，不覆盖。
-3. 前置同步白名单：`AGENTS.md`、`docs/engineering-standards.md`、`src/renderer/src/services/projectFileService.ts`、`tests/projectServiceStatRead.test.mjs`、本文件、`docs/README.md`、`docs/project-panel-service-seam-adr.md`、`docs/remote-file-tree-and-git-unification-plan.md`、`docs/remote-host-root-pooling-adr.md`、`docs/root-pooling-handoff.md`。必须同步测试演进新规则，避免工作树继续按旧禁令执行。未提交同步要记录源/目标内容一致，任务 diff 分开列前置与本任务文件，避免重复提交。
+3. 前置同步白名单：`AGENTS.md`、`docs/engineering-standards.md`、`src/renderer/src/services/projectFileService.ts`、`tests/projectServiceStatRead.test.mjs`、本文件、`docs/README.md`、`docs/project-panel-service-seam-adr.md`、`docs/remote-file-tree-and-git-unification-plan.md`、`docs/remote-host-root-pooling-adr.md`、`docs/archive/remote/root-pooling-handoff.md`。必须同步测试演进新规则，避免工作树继续按旧禁令执行。未提交同步要记录源/目标内容一致，任务 diff 分开列前置与本任务文件，避免重复提交。
 4. 若只能共享当前工作树，严格按下表 ownership；不运行全仓写格式化。公共文件由 I 单写，提交修改需求/补丁给 I 后继续自己独立部分。
 5. `AGENTS.md`、`package*.json`、`scripts/testShapeBaseline.json` 不在本批修改范围。`main/index.ts`、`App.tsx`、`DrawerSurface.tsx`、`src/preload/index.ts`、`src/shared/**`、i18n 由 I 单写；只读不受限。I 应及时应用必要汇聚改动再验证，不能让代码任务以未接线类型错误收尾。
 6. 未获用户明确授权，不 `git add/commit/push/merge`，不重启宿主、不连接真实远端。代码完成与允许合入是不同状态。

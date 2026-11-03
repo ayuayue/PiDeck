@@ -217,7 +217,7 @@ test("add project and right-click refresh sync DSH foreign sessions", () => {
 	assertInOrder(projectSync, ["async function refreshProjectTree(project: Project) {", "await syncDshForeignSessionsIfEnabled()", "await refreshProjectSessions(latestProject.id)"], "right-click refresh must import DSH before catalog scan");
 	assertInOrder(
 		addProjectBlock(),
-		["const project = await api.projects.add();", "if (!project) return null;", "await syncDshForeignSessionsIfEnabled();", "await refreshProjects();", "setActiveProjectId(project.id);", "await refreshProjectSessions(project.id);"],
+		["const project = await api.projects.add();", "if (!project) return;", "await syncDshForeignSessionsIfEnabled();", "await refreshProjects();", "setActiveProjectId(project.id);", "await refreshProjectSessions(project.id);"],
 		"adding a project must import DSH after the path is registered and before catalog scan",
 	);
 	assert.match(projectSync, /dshAutoImportSessions === false/);

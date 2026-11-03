@@ -158,8 +158,11 @@ const editorThemeSpec = {
 	".cm-scroller": { fontFamily: "var(--font-family-mono)", lineHeight: "1.6" },
 	".cm-content": { caretColor: "var(--color-accent)", padding: "12px" },
 	".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--color-accent)" },
+	// 选区用专属 token 而不是 accent-soft：后者是「弱表面」（近白灰），叠在面板上几乎
+	// 看不出选中范围，选中文本等于没有反馈。--color-editor-selection 自带对比度，
+	// 且与主题 accent（近黑/近白）解耦，换 accent 皮肤不会把选区一起冲淡。
 	"&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, ::selection": {
-		backgroundColor: "var(--color-accent-soft)",
+		backgroundColor: "var(--color-editor-selection)",
 		// 显式前景色：drawSelection 只接管选区背景，::selection 若不指定 color，
 		// GTK/Linux 的 UA 样式会用 highlighttext 把选区文字反白 —— 浅色选区上直接失读；
 		// currentColor 保持 token 自身颜色，不吞语法高亮。
@@ -198,7 +201,8 @@ const editorThemeSpec = {
 	".cm-panels.cm-panels-bottom": { borderTop: "1px solid var(--color-border-subtle)" },
 	".cm-button": { backgroundImage: "none", background: "var(--color-bg-muted)", border: "1px solid var(--color-border-default)", borderRadius: "var(--radius-sm)", color: "var(--color-text-primary)" },
 	".cm-textfield": { background: "var(--color-bg-input)", border: "1px solid var(--color-border-default)", borderRadius: "var(--radius-sm)", color: "var(--color-text-primary)" },
-	".cm-selectionMatch": { backgroundColor: "var(--color-accent-soft)" },
+	// 同词高亮（highlightSelectionMatches）：同色系但更淡，不能和真实选区同强度
+	".cm-selectionMatch": { backgroundColor: "var(--color-editor-selection-match)" },
 } as const;
 
 export const editorTheme = EditorView.theme(editorThemeSpec, {

@@ -136,6 +136,7 @@ const PAGE_PATH = "src/renderer/src/components/agents/AgentMarketPage.tsx";
 const WORKSPACE_PATH = "src/renderer/src/components/agents/market/AgentMarketWorkspace.tsx";
 const EDITOR_PATH = "src/renderer/src/components/agents/market/AgentMarketEditor.tsx";
 const USE_TARGET_MENU_PATH = "src/renderer/src/components/agents/market/AgentUseTargetMenu.tsx";
+const PROMPT_BAR_PATH = "src/renderer/src/components/session/SessionAgentPromptBar.tsx";
 const CARD_PATH = "src/renderer/src/components/agents/market/AgentMarketCard.tsx";
 const DETAIL_PATH = "src/renderer/src/components/agents/market/AgentMarketDetail.tsx";
 
@@ -169,16 +170,15 @@ test("侧栏入口进入市场页面（page atom），不再打开弹框", () =>
 	assert.ok(!/agentMarketModalOpenAtom|openAgentMarketModalAtom/.test(dock), "侧栏入口不得再触达旧弹框 atom");
 });
 
-test("「使用」交给页面宿主 onUseAgent 建绑定会话：成功收起页面，失败留在市场；不再派发一次性调用面板", () => {
+test("「使用」交给页面宿主 onUseAgent：带着智能体打开新会话页，成功收起页面、失败留在市场", () => {
 	const workspace = readSource(WORKSPACE_PATH);
-	assert.match(workspace, /onUseAgent:\s*\(agent:\s*AgentProfile,\s*projectId:\s*string\)\s*=>\s*Promise<boolean>/, "工作区必须接收页面宿主注入的 onUseAgent（带用户选定的工作目录）");
-	assert.match(workspace, /if\s*\(await\s+onUseAgent\(agent,\s*projectId\)\)\s*onClose\(\)/, "使用成功才收起市场，失败要留在市场");
+	assert.match(workspace, /onUseAgent:\s*\(agent:\s*AgentProfile\)\s*=>\s*Promise<boolean>/, "工作区接收页面宿主注入的 onUseAgent（只带智能体，目录由新会话页决定）");
+	assert.match(workspace, /if\s*\(await\s+onUseAgent\(agent\)\)\s*onClose\(\)/, "使用成功才收起市场，失败要留在市场");
 	assert.ok(!/openAgentInvokePanelAtom|openInvokePanel/.test(workspace), "市场不得再打开划词调用面板");
 	const page = readSource(PAGE_PATH);
 	assert.match(page, /<AgentMarketWorkspace\s+initialEditingAgentId=\{editingAgentId\}/, "页面宿主必须把 initialEditingAgentId 透传给工作区");
 	assert.match(page, /onUseAgent=\{onUseAgent\}/, "页面宿主必须透传 onUseAgent");
 	assert.match(page, /onClose=\{close\}/, "页面宿主必须透传 onClose");
-	assert.match(page, /useTarget=\{useTarget\}/, "页面宿主必须透传 useTarget");
 });
 
 test("「使用」入口带绑定会话语义提示（useInSessionHint）", () => {
@@ -187,29 +187,34 @@ test("「使用」入口带绑定会话语义提示（useInSessionHint）", () =
 	}
 });
 
-test("「使用」先选工作目录：项目清单来自 inventory、标当前项目、可新增目录", () => {
-	const menu = readSource(USE_TARGET_MENU_PATH);
-	// 目录清单必须复活用侧栏同一份 projectInventoryAtom，不能另开缓存（否则新项目/缺失态不一致）。
-	assert.match(menu, /projectInventoryAtom/, "目录列表必须来自项目清单 atom");
-	assert.match(menu, /agentMarket\.useTargetCurrent/, "当前项目要有标记，用户才知道默认会落到哪");
-	assert.match(menu, /agentMarket\.useTargetAddDirectory/, "菜单里要能新增工作目录");
-	assert.match(menu, /onAddProject/, "新增目录必须走宿主注入的 addProject（复用系统目录选择框）");
-	// 卡片/详情的「使用」必须经过目录菜单；卡片操作行平时隐藏，菜单展开时（Radix Portal 抢走焦点）得保持可见。
+test("「使用」直达新会话页：只记待绑定 id + 回引导页，目录在输入框上方换，首次发送才建会话并绑定", () => {
+	// 不再有目录选择菜单（项目多时下拉难用，且真实会话的项目条是只读的）。
+	assert.equal(existsSync(USE_TARGET_MENU_PATH), false, "目录选择菜单已删除（改用新会话页的项目选择器）");
 	for (const path of [CARD_PATH, DETAIL_PATH]) {
-		assert.match(readSource(path), /AgentUseTargetMenu/, path + " 的「使用」必须走目录选择菜单");
+		assert.ok(!/AgentUseTargetMenu/.test(readSource(path)), path + " 的「使用」不得再弹目录菜单");
+		assert.match(readSource(path), /onClick=\{\(\) => onUse\(agent\)\}/, path + " 的「使用」必须直接带智能体跳转");
 	}
-	assert.ok(readSource(CARD_PATH).includes("has-data-[state=open]:opacity-100"), "卡片菜单展开时操作行必须保持可见");
-	// 宿主按用户选定的目录建会话，选中项目已消失时回退当前项目。
 	const app = readSource("src/renderer/src/App.tsx");
-	assert.match(app, /handleAgentUseAgent = useCallback\(\s*async \(agent: AgentProfile, projectId: string\): Promise<boolean>/, "宿主必须接收选定的工作目录");
-	// 必须现取项目清单：「添加工作目录…」返回的新项目不在渲染期捕获的数组里，用旧闭包会建到上一个目录。
-	assert.match(app, /const liveProjects = store\.get\(projectInventoryAtom\)/, "建会话前必须现取项目清单（store.get），不能用渲染期闭包");
-	assert.match(app, /liveProjects\.find\(\(candidate\) => candidate\.id === projectId\)/, "必须优先用用户选定的项目");
-	assert.match(app, /add: async \(\) => \{\s*await addProject\(\);/, "侧栏 add 适配 addProject 的新返回值");
-	// 建会话期间其它卡片的菜单项要置灰，否则点击被工作区的全局 guard 静默吞掉。
-	assert.match(readSource(WORKSPACE_PATH), /useBusy=\{pendingUseAgentId !== null\}/, "工作区必须把「有任意建会话在进行」下发给卡片/详情");
-	assert.match(readSource(CARD_PATH), /pending=\{usePending \|\| useBusy\}/, "卡片菜单项要在其它卡片建会话时一并置灰");
-	assert.match(readSource(DETAIL_PATH), /pending=\{usePending \|\| useBusy\}/, "详情菜单项要在其它智能体建会话时一并置灰");
+	// 宿主：只 arm 待绑定 id + 切到该项目的引导页，不发请求、不建草稿。
+	assert.match(app, /handleAgentUseAgent = useCallback\(\s*async \(agent: AgentProfile\): Promise<boolean>/, "宿主不得再要求选定目录（目录来自新会话页）");
+	assert.match(app, /store\.set\(pendingAgentBindingAtom, agent\.id\)/, "「使用」只记待绑定智能体 id");
+	assert.match(app, /selectProjectCommand\(project\.id\)/, "「使用」要落到该项目的引导页（新会话页）");
+	assert.match(app, /const liveProjects = store\.get\(projectInventoryAtom\)/, "判定能否跳转前现取项目清单（可能刚增删过）");
+	// 首次发送：建会话时落绑定，并在选中会话前完成（主进程按绑定拼角色设定）。
+	const promo = app.slice(app.indexOf("const ensureSessionForSend"));
+	assert.match(promo, /const pendingAgentId = store\.get\(pendingAgentBindingAtom\)/, "建会话时必须读待绑定 id");
+	assert.match(promo, /api\.agentProfiles\.bindSession\(\{ sessionId: session\.id, agentId: pendingAgent\.id \}\)/, "建会话时落绑定");
+	assert.ok(promo.indexOf("bindSession") < promo.indexOf("selectSessionCommand(project.id, session.id"), "绑定必须早于选中会话（否则首条消息不带人设）");
+	assert.match(promo, /store\.set\(pendingAgentBindingAtom, null\)/, "落地后要清掉待绑定 id");
+	assert.match(app, /title: pendingAgent \? buildAgentSessionTitle\(pendingAgent\)/, "绑定了智能体的会话用智能体名做标题");
+	// 真实会话里提示条只反映落盘绑定：离开引导页就丢掉待绑定 id。
+	assert.match(app, /if \(!currentSessionId\) return;[\s\S]{0,120}store\.set\(pendingAgentBindingAtom, null\)/, "进入真实会话后要清空待绑定 id");
+	// 新会话页的提示条：待绑定形态 + 取消。
+	const bar = readSource(PROMPT_BAR_PATH);
+	assert.match(bar, /pendingAgentBindingAtom/, "提示条要读待绑定智能体");
+	assert.match(bar, /sessionId === GUIDE_BOOTSTRAP_SESSION_ID/, "待绑定形态只在引导页（新会话页）显示");
+	assert.match(bar, /agentPromptBar\.pendingCancel/, "待绑定提示条要能取消");
+	assert.match(bar, /agentPromptBar\.pendingLabel/, "待绑定状态要有可辨认的标签（否则用户以为已绑定）");
 });
 
 test("编辑器图标字段走图标选择器（内置组件图标 + emoji），不再需要手输字符", () => {

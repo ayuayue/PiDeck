@@ -46,6 +46,23 @@ export interface ToolPhrase {
 	object?: string;
 }
 
+/** 直接挂在 MCP server 下的工具名前缀（与 `toolKind.ts` 口径一致；本文件零依赖，不复用常量）。 */
+const MCP_DIRECT_PREFIX = "mcp__";
+
+/**
+ * 语义猜测所用的名字：`mcp__<server>__<tool>` 只取 `<tool>` 段。
+ *
+ * server 名由第三方/用户自定（本机宿主 server 叫 `pideck_agent_memory`），拿整条名字做子串
+ * 匹配会让 server 名里的词污染动词词典：`mcp__pideck_agent_memory__memory_get` 被 server 名里
+ * 的 `agent` 截走，一次读记忆被显示成「派出子代理」（2026-11 用户反馈）。工具段本身照常命中，
+ * `mcp__pideck-cua__cua_type` 仍是「输入」。名字里没有 server 段时原样返回。
+ */
+function semanticMatchName(key: string): string {
+	if (!key.startsWith(MCP_DIRECT_PREFIX)) return key;
+	const separator = key.lastIndexOf("__");
+	return separator > MCP_DIRECT_PREFIX.length ? key.slice(separator + 2) : key;
+}
+
 /** 组装 ToolPhrase：label 固定为「动词 对象」拼接，保持整句消费者的产出不变 */
 function phraseFor(verb: string, object: string | undefined, loadingVerb: string): ToolPhrase {
 	return {
@@ -60,7 +77,7 @@ function phraseFor(verb: string, object: string | undefined, loadingVerb: string
  * 常见工具动作关键词 → 中文动宾（按序子串匹配，命中即止）。
  *
  * 覆盖内置短语表之外的宿主 MCP 工具（pideck-cua 的 cua_*、browser_*）与常见第三方
- * MCP/扩展工具名（`mcp__server__tool` 形态子串照常命中，无需去前缀）。
+ * MCP/扩展工具名（`mcp__server__tool` 形态只拿 `<tool>` 段匹配，server 名不参与猜词）。
  * 词序敏感：更具体的键必须排在会被它截胡的短键前面（subagent_result 先于 agent）。
  * 新增宿主工具时在这里补一行即可让过程行本土化，避免回退到英文工具名。
  */
@@ -125,6 +142,8 @@ export function getToolPhrase(toolName: string, input: Record<string, unknown> =
 	}
 
 	const key = toolName.toLowerCase();
+	// 下面所有「名字里含某个词就猜语义」的分支都只看 matchKey：MCP 的 server 名不参与猜词。
+	const matchKey = semanticMatchName(key);
 	const path = pickPath(input);
 	const file = path ? filename(path) : undefined;
 
@@ -159,7 +178,7 @@ export function getToolPhrase(toolName: string, input: Record<string, unknown> =
 	}
 
 	// 网络获取类
-	if (key === "fetch" || key === "fetch_content" || key === "web_search" || key === "url" || key === "http" || key.includes("fetch")) {
+	if (key === "fetch" || key === "fetch_content" || key === "web_search" || key === "url" || key === "http" || matchKey.includes("fetch")) {
 		const url = firstString(input.url, input.urls, input.query);
 		return phraseFor("获取", url, "正在获取");
 	}
@@ -171,14 +190,14 @@ export function getToolPhrase(toolName: string, input: Record<string, unknown> =
 	}
 
 	// 图片/附件
-	if (key === "image" || key === "vision" || key.includes("image")) {
+	if (key === "image" || key === "vision" || matchKey.includes("image")) {
 		return phraseFor("查看图片", file, "正在查看图片");
 	}
 
 	// 关键词词典：常见 MCP/扩展工具动词本土化（cua_*、browser_*、子代理、Git 等）。
 	// 对象优先取可读字符串参数（输入文本/URL/查询词/选择器），其余进等宽 chip。
 	for (const [keyword, verb, loadingVerb] of KEYWORD_PHRASES) {
-		if (key.includes(keyword)) {
+		if (matchKey.includes(keyword)) {
 			const param = firstString(input.text, input.url, input.query, input.prompt, input.selector, input.target, input.path, input.file_path, input.filePath, input.command, input.pattern);
 			return phraseFor(verb, param ? truncate(String(param), 60) : undefined, loadingVerb);
 		}

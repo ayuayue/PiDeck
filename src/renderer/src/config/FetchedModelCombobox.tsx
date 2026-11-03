@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check } from "lucide-react";
 import { t } from "../i18n";
 import { Button } from "../components/ui-shadcn/button";
 import { Input } from "../components/ui-shadcn/input";
+import { useLazyListWindow } from "../hooks/useLazyListWindow";
 import type { FetchedModel } from "../../../shared/types/fetchedModel";
 
 /**
@@ -15,7 +16,13 @@ export function FetchedModelCombobox(props: { models: FetchedModel[]; value: str
 	const existingModelIdSet = new Set(props.existingModelIds);
 	const selectedModelIdSet = new Set(props.value);
 	const normalizedFilter = filter.trim().toLowerCase();
-	const visibleModels = normalizedFilter ? props.models.filter((model) => [model.id, model.name].filter(Boolean).some((text) => text!.toLowerCase().includes(normalizedFilter))) : props.models;
+	// useMemo 不是性能优化而是正确性：useLazyListWindow 按数组引用判断「数据换了」，
+	// 每次渲染都新造数组会让窗口一直回到首屏（且每次渲染都重扫一遍模型表）。
+	const visibleModels = useMemo(() => (normalizedFilter ? props.models.filter((model) => [model.id, model.name].filter(Boolean).some((text) => text!.toLowerCase().includes(normalizedFilter))) : props.models), [props.models, normalizedFilter]);
+	// 供应商的 /models 可以返回几百条（OpenRouter 之类）：首屏只挂一页，触底再追加，
+	// DOM 行数不随模型总数增长。
+	const listRef = useRef<HTMLDivElement | null>(null);
+	const listWindow = useLazyListWindow(visibleModels, { scrollRef: listRef });
 	const selectableVisibleModels = visibleModels.filter((model) => !existingModelIdSet.has(model.id));
 	const selectedModels = props.models.filter((model) => selectedModelIdSet.has(model.id));
 	const allSelectableSelected = selectableVisibleModels.length > 0 && selectableVisibleModels.every((model) => selectedModelIdSet.has(model.id));
@@ -69,9 +76,9 @@ export function FetchedModelCombobox(props: { models: FetchedModel[]; value: str
 					})}
 				</span>
 			</div>
-			{/* scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。 */}
-			<div className="mt-2 flex max-h-[220px] flex-wrap gap-2 overflow-auto p-1">
-				{visibleModels.map((model) => {
+			{/* scroll-ok: bounded —— 行数由 useLazyListWindow 钳住（首屏一页、触底再加一批），且触底哨兵是真实 DOM 节点：虚拟化会把哨兵移出文档，增量加载失效。 */}
+			<div ref={listRef} className="mt-2 flex max-h-[220px] flex-wrap gap-2 overflow-auto p-1">
+				{listWindow.visible.map((model) => {
 					const selected = selectedModelIdSet.has(model.id);
 					const configured = existingModelIdSet.has(model.id);
 					return (
@@ -90,6 +97,7 @@ export function FetchedModelCombobox(props: { models: FetchedModel[]; value: str
 						</button>
 					);
 				})}
+				{listWindow.hasMore ? <div ref={listWindow.sentinelRef} className="h-px w-full" aria-hidden="true" /> : null}
 				{visibleModels.length === 0 && <div className="w-full p-3 text-center text-xs text-text-tertiary">{t("app.modelPickerEmpty")}</div>}
 			</div>
 		</div>
