@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 6b08254667a66962372cf675c42bd046294e2345900139c41e73246531bf9162（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: da40c4f814989f34a6b554d9aff1dc10f65bf014b0f7134cb23fa9e2f775456e（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -1706,6 +1706,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"sessionSource.opencode": "OpenCode",
 	"sessionSource.zcode": "ZCode",
 	"sessionSource.workbuddy": "WorkBuddy",
+	"sessionSource.codebuddy": "CodeBuddy",
 	"sessionSource.cursor": "Cursor",
 	"sessionSource.kimi": "Kimi Code",
 	"sessionSource.kimiwork": "Kimi Work",
@@ -1841,6 +1842,20 @@ export const zhTW: Record<TranslationKey, string> = {
 	"workbuddy.status.new": "未匯入",
 	"workbuddy.status.outdated": "可覆蓋更新",
 	"workbuddy.title": "匯入 WorkBuddy 會話",
+	"codebuddy.emptyDesc": "只會掃描 `~/.codebuddy/projects` 中 cwd 與當前專案一致的會話。",
+	"codebuddy.emptyTitle": "沒有找到當前專案的 CodeBuddy 會話",
+	"codebuddy.importCount": "{count} 個可匯入會話",
+	"codebuddy.importDone": "匯入完成：{imported} 成功，{failed} 失敗",
+	"codebuddy.importFailed": "匯入 CodeBuddy 會話失敗：{error}",
+	"codebuddy.importSelected": "匯入 {count}",
+	"codebuddy.importing": "匯入中…",
+	"codebuddy.scanFailed": "掃描 CodeBuddy 會話失敗：{error}",
+	"codebuddy.scanning": "正在掃描當前專案的 CodeBuddy 會話…",
+	"codebuddy.selectNone": "取消全選",
+	"codebuddy.status.current": "已是最新",
+	"codebuddy.status.new": "未匯入",
+	"codebuddy.status.outdated": "可覆蓋更新",
+	"codebuddy.title": "匯入 CodeBuddy 會話",
 	"cursor.emptyDesc": "只會掃描 `~/.cursor/projects` 中與當前專案路徑對應的 Agent 會話。",
 	"cursor.emptyTitle": "沒有找到當前專案的 Cursor 會話",
 	"cursor.importCount": "{count} 個可匯入會話",
@@ -4314,6 +4329,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"menu.importSessions": "匯入會話",
 	"menu.importZCode": "匯入 ZCode 會話",
 	"menu.importWorkBuddy": "匯入 WorkBuddy 會話",
+	"menu.importCodeBuddy": "匯入 CodeBuddy 會話",
 	"menu.importCursor": "匯入 Cursor 會話",
 	"menu.importKimi": "匯入 Kimi Code 會話",
 	"menu.importKimiWork": "匯入 Kimi Work 會話",

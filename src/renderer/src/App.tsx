@@ -592,6 +592,8 @@ export function App() {
 		setZcodeImportProject,
 		workbuddyImportProject,
 		setWorkbuddyImportProject,
+		codebuddyImportProject,
+		setCodebuddyImportProject,
 		cursorImportProject,
 		setCursorImportProject,
 		kimiImportProject,
@@ -606,6 +608,7 @@ export function App() {
 		openCodeImportController,
 		zcodeImportController,
 		workbuddyImportController,
+		codebuddyImportController,
 		cursorImportController,
 		kimiImportController,
 		kimiWorkImportController,
@@ -616,6 +619,7 @@ export function App() {
 		openOpenCodeImport,
 		openZCodeImport,
 		openWorkBuddyImport,
+		openCodeBuddyImport,
 		openCursorImport,
 		openKimiImport,
 		openKimiWorkImport,
@@ -636,6 +640,8 @@ export function App() {
 		importZCodeSessionsApi: api.zcodeSessions.import,
 		scanWorkBuddySessions: api.workbuddySessions.scan,
 		importWorkBuddySessionsApi: api.workbuddySessions.import,
+		scanCodeBuddySessions: api.codebuddySessions.scan,
+		importCodeBuddySessionsApi: api.codebuddySessions.import,
 		scanCursorSessions: api.cursorSessions.scan,
 		importCursorSessionsApi: api.cursorSessions.import,
 		scanKimiSessions: api.kimiSessions.scan,
@@ -2380,6 +2386,7 @@ export function App() {
 				if (source === "qoder") return openQoderImport(project);
 				if (source === "zcode") return openZCodeImport(project);
 				if (source === "workbuddy") return openWorkBuddyImport(project);
+				if (source === "codebuddy") return openCodeBuddyImport(project);
 				if (source === "cursor") return openCursorImport(project);
 				if (source === "kimi") return openKimiImport(project);
 				if (source === "kimiwork") return openKimiWorkImport(project);
@@ -3861,6 +3868,7 @@ export function App() {
 					{openCodeImportProject && <ImportOverlayHost kind="opencode" project={openCodeImportProject} controller={openCodeImportController} onClose={() => setOpenCodeImportProject(null)} />}
 					{zcodeImportProject && <ImportOverlayHost kind="zcode" project={zcodeImportProject} controller={zcodeImportController} onClose={() => setZcodeImportProject(null)} />}
 					{workbuddyImportProject && <ImportOverlayHost kind="workbuddy" project={workbuddyImportProject} controller={workbuddyImportController} onClose={() => setWorkbuddyImportProject(null)} />}
+					{codebuddyImportProject && <ImportOverlayHost kind="codebuddy" project={codebuddyImportProject} controller={codebuddyImportController} onClose={() => setCodebuddyImportProject(null)} />}
 					{cursorImportProject && <ImportOverlayHost kind="cursor" project={cursorImportProject} controller={cursorImportController} onClose={() => setCursorImportProject(null)} />}
 					{kimiImportProject && <ImportOverlayHost kind="kimi" project={kimiImportProject} controller={kimiImportController} onClose={() => setKimiImportProject(null)} />}
 					{kimiWorkImportProject && <ImportOverlayHost kind="kimiwork" project={kimiWorkImportProject} controller={kimiWorkImportController} onClose={() => setKimiWorkImportProject(null)} />}

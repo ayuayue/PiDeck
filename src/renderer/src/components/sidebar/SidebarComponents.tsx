@@ -636,6 +636,7 @@ export function SessionSourceFilterMenu(props: { menu: { projectId: string; x: n
 		opencode: t("sessionSource.opencode"),
 		zcode: t("sessionSource.zcode"),
 		workbuddy: t("sessionSource.workbuddy"),
+		codebuddy: t("sessionSource.codebuddy"),
 		cursor: t("sessionSource.cursor"),
 		kimi: t("sessionSource.kimi"),
 		kimiwork: t("sessionSource.kimiwork"),
@@ -680,6 +681,8 @@ export function ProjectContextMenu(props: {
 	onImportOpenCodeSessions: () => void;
 	onImportZCodeSessions: () => void;
 	onImportWorkBuddySessions: () => void;
+	/** 导入 CodeBuddy（腾讯 CodeBuddy Code CLI）会话；数据目录固定 ~/.codebuddy/projects。 */
+	onImportCodeBuddySessions: () => void;
 	onImportCursorSessions: () => void;
 	onImportKimiSessions: () => void;
 	/** 导入 Kimi Work（kimi-desktop 桌面版）会话；数据目录位置由探测链/手动指定决定。 */
@@ -831,6 +834,7 @@ export function ProjectContextMenu(props: {
 							<DropdownMenuItem onSelect={props.onImportOpenCodeSessions}>{t("menu.importOpenCode")}</DropdownMenuItem>
 							<DropdownMenuItem onSelect={props.onImportZCodeSessions}>{t("menu.importZCode")}</DropdownMenuItem>
 							<DropdownMenuItem onSelect={props.onImportWorkBuddySessions}>{t("menu.importWorkBuddy")}</DropdownMenuItem>
+							<DropdownMenuItem onSelect={props.onImportCodeBuddySessions}>{t("menu.importCodeBuddy")}</DropdownMenuItem>
 							<DropdownMenuItem onSelect={props.onImportCursorSessions}>{t("menu.importCursor")}</DropdownMenuItem>
 							<DropdownMenuItem onSelect={props.onImportKimiSessions}>{t("menu.importKimi")}</DropdownMenuItem>
 							<DropdownMenuItem onSelect={props.onImportKimiWorkSessions}>{t("menu.importKimiWork")}</DropdownMenuItem>

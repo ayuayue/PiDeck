@@ -491,6 +491,8 @@ export const ipcChannels = {
 	zcodeSessionsImport: "zcode-sessions:import",
 	workbuddySessionsScan: "workbuddy-sessions:scan",
 	workbuddySessionsImport: "workbuddy-sessions:import",
+	codebuddySessionsScan: "codebuddy-sessions:scan",
+	codebuddySessionsImport: "codebuddy-sessions:import",
 	cursorSessionsScan: "cursor-sessions:scan",
 	cursorSessionsImport: "cursor-sessions:import",
 	kimiSessionsScan: "kimi-sessions:scan",

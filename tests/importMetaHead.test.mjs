@@ -130,7 +130,7 @@ test("头部上限足够小：与文件体积解耦（常量守卫）", () => {
 
 test("各导入器都走有界读取，源码中不再整读导入产物", async () => {
 	const { readFile } = await import("node:fs/promises");
-	const files = ["src/main/sessions/CodexSessionImporter.ts", "src/main/sessions/ClaudeSessionImporter.ts", "src/main/sessions/OpenCodeSessionImporter.ts", "src/main/sessions/ZCodeSessionImporter.ts", "src/main/sessions/cursorSessionSource.ts", "src/main/sessions/workbuddySessionSource.ts"];
+	const files = ["src/main/sessions/CodexSessionImporter.ts", "src/main/sessions/ClaudeSessionImporter.ts", "src/main/sessions/OpenCodeSessionImporter.ts", "src/main/sessions/ZCodeSessionImporter.ts", "src/main/sessions/cursorSessionSource.ts", "src/main/sessions/codebuddyFamilySessionSource.ts"];
 	for (const file of files) {
 		const source = (await readFile(file, "utf8"))
 			// 剥掉注释与字符串，避免文档里提到的反例被误判

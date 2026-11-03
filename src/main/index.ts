@@ -381,7 +381,8 @@ import { ClaudeSessionImporter } from "./sessions/ClaudeSessionImporter";
 import { QoderSessionImporter } from "./sessions/QoderSessionImporter";
 import { OpenCodeSessionImporter } from "./sessions/OpenCodeSessionImporter";
 import { ZCodeSessionImporter } from "./sessions/ZCodeSessionImporter";
-import { WorkBuddySessionImporter } from "./sessions/WorkBuddySessionImporter";
+import { WorkBuddySessionImporter } from "./sessions/codebuddyFamilySessionImporter";
+import { CodeBuddySessionImporter } from "./sessions/codebuddyFamilySessionImporter";
 import { CursorSessionImporter } from "./sessions/CursorSessionImporter";
 import { KimiSessionImporter } from "./sessions/KimiSessionImporter";
 import { KimiWorkSessionImporter } from "./sessions/KimiWorkSessionImporter";
@@ -716,6 +717,7 @@ let qoderSessionImporter: QoderSessionImporter;
 let openCodeSessionImporter: OpenCodeSessionImporter;
 let zcodeSessionImporter: ZCodeSessionImporter;
 let workbuddySessionImporter: WorkBuddySessionImporter;
+let codebuddySessionImporter: CodeBuddySessionImporter;
 let cursorSessionImporter: CursorSessionImporter;
 let kimiSessionImporter: KimiSessionImporter;
 /** Kimi Work（桌面版）会话导入；daimon-share 位置不固定，内部走探测链。 */
@@ -4497,6 +4499,7 @@ function registerIpc() {
 		openCodeSessionImporter,
 		zcodeSessionImporter,
 		workbuddySessionImporter,
+		codebuddySessionImporter,
 		cursorSessionImporter,
 		kimiSessionImporter,
 		kimiWorkSessionImporter,
@@ -5379,6 +5382,7 @@ app
 		openCodeSessionImporter = new OpenCodeSessionImporter(mainCopy);
 		zcodeSessionImporter = new ZCodeSessionImporter(mainCopy);
 		workbuddySessionImporter = new WorkBuddySessionImporter(mainCopy);
+		codebuddySessionImporter = new CodeBuddySessionImporter(mainCopy);
 		cursorSessionImporter = new CursorSessionImporter(mainCopy);
 		kimiSessionImporter = new KimiSessionImporter(mainCopy);
 		kimiWorkSessionImporter = new KimiWorkSessionImporter(mainCopy);

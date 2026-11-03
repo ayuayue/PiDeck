@@ -1,13 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { SessionImportCopy } from "./SessionImportCopy";
 import { importedContentHasToolCall, normalizeImportedStopReason, safeIsoTimestamp } from "./importNormalize";
-import { asArray, parseWorkBuddyArguments, readNumber, readRecord, readString, readWorkBuddyModel, stripInjectedContext, type ParsedWorkBuddySession, type WorkBuddyRecord } from "./workbuddySessionSource";
-import { cleanImportTitle as cleanWorkBuddyTitle, zeroUsage } from "./importShared";
+import { asArray, parseFamilyArguments, readFamilyModel, readNumber, readString, stripInjectedContext, type CodeBuddyFamilyRecord, type CodeBuddyFamilySource, type ParsedCodeBuddyFamilySession } from "./codebuddyFamilySessionSource";
+import { cleanImportTitle, readRecord, zeroUsage } from "./importShared";
 
-// 标题清洗与 usage 占位实现统一在 importShared；仍从本模块转出旧名字。
-export { cleanWorkBuddyTitle, zeroUsage };
-
-export type ConvertedWorkBuddySession = {
+export type ConvertedCodeBuddyFamilySession = {
 	/** 转换结果元数据；`raw` 仅在内存模式（scan 摘要）下由调用方拼装 */
 	raw?: string;
 	title: string;
@@ -15,9 +12,10 @@ export type ConvertedWorkBuddySession = {
 	messageCount: number;
 };
 
-export type ConvertWorkBuddyInput = {
+export type ConvertCodeBuddyFamilyInput = {
+	source: CodeBuddyFamilySource;
 	projectPath: string;
-	session: ParsedWorkBuddySession;
+	session: ParsedCodeBuddyFamilySession;
 	translate: SessionImportCopy;
 };
 
@@ -25,11 +23,11 @@ export type ConvertWorkBuddyInput = {
  * 内存版转换：把结果拼成完整文本返回。
  *
  * 仅供**扫描**使用（entries 是头部小数组，体积有上界）；
- * 导入路径请走 convertWorkBuddySessionTo（流式写盘）。
+ * 导入路径请走 convertCodeBuddyFamilySessionTo（流式写盘）。
  */
-export async function convertWorkBuddySession(input: ConvertWorkBuddyInput): Promise<ConvertedWorkBuddySession> {
+export async function convertCodeBuddyFamilySession(input: ConvertCodeBuddyFamilyInput): Promise<ConvertedCodeBuddyFamilySession> {
 	const lines: string[] = [];
-	const result = await convertWorkBuddySessionTo({
+	const result = await convertCodeBuddyFamilySessionTo({
 		...input,
 		entries: input.session.entries,
 		sink: (line) => {
@@ -51,7 +49,7 @@ function pickText(content: unknown, type: string): string {
 		.join("\n\n");
 }
 
-function joinedReasoning(entry: WorkBuddyRecord): string {
+function joinedReasoning(entry: CodeBuddyFamilyRecord): string {
 	const fromRaw = asArray(entry.rawContent)
 		.map((item) => readString(readRecord(item).text))
 		.filter(Boolean)
@@ -63,7 +61,7 @@ function joinedReasoning(entry: WorkBuddyRecord): string {
 		.join("\n");
 }
 
-function extractToolOutput(entry: WorkBuddyRecord): string {
+function extractToolOutput(entry: CodeBuddyFamilyRecord): string {
 	const output = entry.output;
 	if (typeof output === "string") return output;
 	const record = readRecord(output);
@@ -89,14 +87,21 @@ function makeId(sessionId: string, sequence: number): string {
 }
 
 /**
- * 把 WorkBuddy 会话记录流转换为 pi 原生 JSONL 会话文件。
+ * 把 CodeBuddy 家族（CodeBuddy / WorkBuddy）会话记录流转换为 pi 原生 JSONL 会话文件。
  *
- * 关键差异：WorkBuddy 把 reasoning / function_call 写成独立的顶层记录，
+ * 关键差异：源格式把 reasoning / function_call 写成独立的顶层记录，
  * 而 pi 要求它们挂在同一个 assistant 消息的 content 数组里，因此这里用
  * pending 缓冲区聚合同一轮的推理与工具调用，遇到文本消息或工具结果时再 flush。
  */
-export async function convertWorkBuddySessionTo(input: { projectPath: string; session: ParsedWorkBuddySession; translate: SessionImportCopy; entries: Iterable<WorkBuddyRecord> | AsyncIterable<WorkBuddyRecord>; sink: (line: string) => Promise<void> | void }): Promise<ConvertedWorkBuddySession> {
-	const { projectPath, session, translate, entries, sink } = input;
+export async function convertCodeBuddyFamilySessionTo(input: {
+	source: CodeBuddyFamilySource;
+	projectPath: string;
+	session: ParsedCodeBuddyFamilySession;
+	translate: SessionImportCopy;
+	entries: Iterable<CodeBuddyFamilyRecord> | AsyncIterable<CodeBuddyFamilyRecord>;
+	sink: (line: string) => Promise<void> | void;
+}): Promise<ConvertedCodeBuddyFamilySession> {
+	const { source, projectPath, session, translate, entries, sink } = input;
 	const sessionId = session.meta.sessionId;
 	const timestamp = safeIsoTimestamp(session.meta.firstTimestamp);
 	const titleState = { title: session.meta.aiTitle, preview: "" };
@@ -133,7 +138,7 @@ export async function convertWorkBuddySessionTo(input: { projectPath: string; se
 		const text = extractPiText(content).trim();
 		if (text && !titleState.preview) titleState.preview = text.slice(0, 160);
 		if (role === "user" && text && !titleState.title) {
-			titleState.title = cleanWorkBuddyTitle(text);
+			titleState.title = cleanImportTitle(text);
 		}
 	};
 
@@ -145,8 +150,8 @@ export async function convertWorkBuddySessionTo(input: { projectPath: string; se
 			"assistant",
 			content,
 			{
-				api: "workbuddy-import",
-				provider: "workbuddy",
+				api: `${source.provider}-import`,
+				provider: source.provider,
 				model: modelId,
 				stopReason: normalizeImportedStopReason({
 					hasToolCall: importedContentHasToolCall(content),
@@ -158,9 +163,11 @@ export async function convertWorkBuddySessionTo(input: { projectPath: string; se
 
 	await pushEntry({ type: "session", version: 3, id: sessionId, timestamp, cwd: projectPath });
 	await pushEntry({
-		type: "workbuddy_import",
+		type: source.importMarker,
 		version: 1,
-		workbuddySessionId: sessionId,
+		// 标记行字段名随来源走（workbuddySessionId / codebuddySessionId），
+		// 只作溯源信息，SessionScanner 判来源只看 type。
+		[`${source.key}SessionId`]: sessionId,
 		sourcePath: session.sourcePath,
 		sourceMtime: session.sourceMtime,
 		sourceSize: session.sourceSize,
@@ -173,7 +180,7 @@ export async function convertWorkBuddySessionTo(input: { projectPath: string; se
 		id: modelChangeId,
 		parentId,
 		timestamp,
-		provider: "workbuddy",
+		provider: source.provider,
 		modelId,
 	});
 	parentId = modelChangeId;
@@ -196,9 +203,9 @@ export async function convertWorkBuddySessionTo(input: { projectPath: string; se
 					"assistant",
 					content,
 					{
-						api: "workbuddy-import",
-						provider: "workbuddy",
-						model: readWorkBuddyModel(entry) || modelId,
+						api: `${source.provider}-import`,
+						provider: source.provider,
+						model: readFamilyModel(entry) || modelId,
 						stopReason: "stop",
 					},
 					at,
@@ -220,7 +227,7 @@ export async function convertWorkBuddySessionTo(input: { projectPath: string; se
 				pending.push({
 					type: "thinking",
 					thinking,
-					thinkingSignature: "workbuddy_thinking",
+					thinkingSignature: `${source.provider}_thinking`,
 				});
 			}
 			continue;
@@ -231,7 +238,7 @@ export async function convertWorkBuddySessionTo(input: { projectPath: string; se
 				type: "toolCall",
 				id: readString(entry.callId),
 				name: readString(entry.name),
-				arguments: parseWorkBuddyArguments(entry.arguments),
+				arguments: parseFamilyArguments(entry.arguments),
 			});
 			continue;
 		}
@@ -254,7 +261,7 @@ export async function convertWorkBuddySessionTo(input: { projectPath: string; se
 
 	await flushPending(session.meta.lastTimestamp);
 
-	const title = cleanWorkBuddyTitle(titleState.title) || translate("session.importedTitle", { source: "WorkBuddy" });
+	const title = cleanImportTitle(titleState.title) || translate("session.importedTitle", { source: source.displayName });
 	// 使用 pi 原生 session_info 格式追加在末尾，避免旧版 sessionName 行（无 type 字段）
 	// 在文件头破坏 pi 的首行校验导致会话无法加载（见 #114）。
 	await pushEntry({
@@ -268,7 +275,7 @@ export async function convertWorkBuddySessionTo(input: { projectPath: string; se
 
 	return {
 		title,
-		preview: titleState.preview || translate("session.importedPreview", { source: "WorkBuddy" }),
+		preview: titleState.preview || translate("session.importedPreview", { source: source.displayName }),
 		messageCount,
 	};
 }

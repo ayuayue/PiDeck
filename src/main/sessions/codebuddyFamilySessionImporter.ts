@@ -3,30 +3,40 @@ import { randomUUID } from "node:crypto";
 import { open, rm, utimes } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { WorkBuddyImportReport, WorkBuddyImportResult, WorkBuddyImportStatus, WorkBuddySessionSummary } from "../../shared/types";
-import { convertWorkBuddySession, convertWorkBuddySessionTo } from "./workbuddySessionConvert";
+import { convertCodeBuddyFamilySession, convertCodeBuddyFamilySessionTo } from "./codebuddyFamilySessionConvert";
 import { defaultSessionImportCopy, type SessionImportCopy } from "./SessionImportCopy";
-import { collectWorkBuddyJsonl, ensureProjectSessionDir, getWorkBuddyProjectDir, getWorkBuddyTargetPath, readWorkBuddyImportMeta, readWorkBuddySessionHead, type ParsedWorkBuddySession } from "./workbuddySessionSource";
+import { CODEBUDDY_SOURCE, collectFamilyJsonl, getFamilyProjectDir, getFamilyTargetPath, readFamilyImportMeta, readFamilySessionHead, WORKBUDDY_SOURCE, type CodeBuddyFamilySource, type ParsedCodeBuddyFamilySession } from "./codebuddyFamilySessionSource";
 import { createBufferedLineSink, mapWithConcurrency, readJsonlObjects, renameWithRetry, SESSION_SCAN_CONCURRENCY } from "./sessionSourceHead";
+import { ensureProjectSessionDir } from "./importShared";
 
 /**
- * 导入 WorkBuddy（~/.workbuddy/projects）会话为 pi 原生会话文件。
+ * 导入 CodeBuddy / WorkBuddy（<home>/.codebuddy|.workbuddy/projects）会话为 pi 原生会话文件。
  * 与 Claude/Codex/OpenCode/ZCode 导入器同构：扫描源目录 → 转换为 pi JSONL → 写入 ~/.pi。
- * 解析与转换分别落在 workbuddySessionSource / workbuddySessionConvert，本类只做编排。
+ * 解析、转换、编排分别落在 codebuddyFamilySessionSource / Convert / 本文件。
+ *
+ * 两个来源共用同一份实现，只有来源描述符不同（家目录名/产物前缀/标记 type/provider）；
+ * 汇总结构也相同，故统一用 WorkBuddy* 类型（shared/types 里 CodeBuddy* 是它的别名）。
+ * 对外的 WorkBuddySessionImporter / CodeBuddySessionImporter 只是各自固定描述符的子类。
  */
-export class WorkBuddySessionImporter {
-	private readonly workbuddyRoot = join(app.getPath("home"), ".workbuddy", "projects");
+export class CodeBuddyFamilySessionImporter {
+	private readonly sourceRoot: string;
 	private readonly piRoot = join(app.getPath("home"), ".pi", "agent", "sessions");
 
-	constructor(private readonly translate: SessionImportCopy = defaultSessionImportCopy) {}
+	constructor(
+		private readonly source: CodeBuddyFamilySource,
+		private readonly translate: SessionImportCopy = defaultSessionImportCopy,
+	) {
+		this.sourceRoot = join(app.getPath("home"), source.homeDirName, "projects");
+	}
 
 	async scan(projectPath: string): Promise<WorkBuddySessionSummary[]> {
-		const projectDir = getWorkBuddyProjectDir(this.workbuddyRoot, projectPath);
-		const files = await collectWorkBuddyJsonl(projectDir).catch(() => []);
+		const projectDir = getFamilyProjectDir(this.sourceRoot, projectPath);
+		const files = await collectFamilyJsonl(projectDir).catch(() => []);
 		// 有界并发 + 只读头部：源 transcript 可达几十 MB~GB，
 		// 整读（尤其是并发整读）会让主进程 384MB 堆 abort，表现为应用闪退。
-		const sessions = await mapWithConcurrency(files, SESSION_SCAN_CONCURRENCY, (file) => readWorkBuddySessionHead(this.workbuddyRoot, file).catch(() => null));
+		const sessions = await mapWithConcurrency(files, SESSION_SCAN_CONCURRENCY, (file) => readFamilySessionHead(this.source, this.sourceRoot, file).catch(() => null));
 
-		const summaries = await Promise.all(sessions.filter((session): session is ParsedWorkBuddySession => Boolean(session)).map((session) => this.toSummary(session, projectPath)));
+		const summaries = await Promise.all(sessions.filter((session): session is ParsedCodeBuddyFamilySession => Boolean(session)).map((session) => this.toSummary(session, projectPath)));
 
 		return summaries.sort((a, b) => b.updatedAt - a.updatedAt);
 	}
@@ -48,18 +58,19 @@ export class WorkBuddySessionImporter {
 		let tempPath: string | undefined;
 		try {
 			// 元数据只读头部（大源文件不能整读），正文逐行流式转换写盘：内存 O(单行)
-			const parsed = await readWorkBuddySessionHead(this.workbuddyRoot, sourcePath);
-			const targetPath = getWorkBuddyTargetPath(this.piRoot, projectPath, parsed);
-			const existing = await readWorkBuddyImportMeta(targetPath);
+			const parsed = await readFamilySessionHead(this.source, this.sourceRoot, sourcePath);
+			const targetPath = getFamilyTargetPath(this.source, this.piRoot, projectPath, parsed);
+			const existing = await readFamilyImportMeta(this.source, targetPath);
 			await ensureProjectSessionDir(this.piRoot, projectPath);
 			// 临时文件放在目标目录旁（此时已确保存在），与目标同盘才能原子改名；
-			// 不写进源目录（~/.workbuddy），避免给其他应用留下垃圾文件。
+			// 不写进源目录（~/.codebuddy / ~/.workbuddy），避免给其他应用留下垃圾文件。
 			tempPath = join(dirname(targetPath), `.pideck-import-${randomUUID().slice(0, 8)}.tmp`);
 
 			// 先写临时文件再原子改名：中途失败不会留下半截会话文件污染列表
 			handle = await open(tempPath, "w");
 			const buffered = createBufferedLineSink(handle);
-			const converted = await convertWorkBuddySessionTo({
+			const converted = await convertCodeBuddyFamilySessionTo({
+				source: this.source,
 				projectPath,
 				session: parsed,
 				translate: this.translate,
@@ -99,10 +110,11 @@ export class WorkBuddySessionImporter {
 		}
 	}
 
-	private async toSummary(session: ParsedWorkBuddySession, projectPath: string): Promise<WorkBuddySessionSummary> {
-		const targetPath = getWorkBuddyTargetPath(this.piRoot, projectPath, session);
-		const importMeta = await readWorkBuddyImportMeta(targetPath);
-		const converted = await convertWorkBuddySession({
+	private async toSummary(session: ParsedCodeBuddyFamilySession, projectPath: string): Promise<WorkBuddySessionSummary> {
+		const targetPath = getFamilyTargetPath(this.source, this.piRoot, projectPath, session);
+		const importMeta = await readFamilyImportMeta(this.source, targetPath);
+		const converted = await convertCodeBuddyFamilySession({
+			source: this.source,
 			projectPath,
 			session,
 			translate: this.translate,
@@ -123,5 +135,19 @@ export class WorkBuddySessionImporter {
 			sourceSize: session.sourceSize,
 			importedSourceMtime: importMeta?.sourceMtime,
 		};
+	}
+}
+
+/** WorkBuddy（~/.workbuddy/projects）会话导入。 */
+export class WorkBuddySessionImporter extends CodeBuddyFamilySessionImporter {
+	constructor(translate: SessionImportCopy = defaultSessionImportCopy) {
+		super(WORKBUDDY_SOURCE, translate);
+	}
+}
+
+/** CodeBuddy（~/.codebuddy/projects）会话导入；源格式与 WorkBuddy 同构。 */
+export class CodeBuddySessionImporter extends CodeBuddyFamilySessionImporter {
+	constructor(translate: SessionImportCopy = defaultSessionImportCopy) {
+		super(CODEBUDDY_SOURCE, translate);
 	}
 }

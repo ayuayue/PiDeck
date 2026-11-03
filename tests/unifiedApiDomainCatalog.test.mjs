@@ -187,8 +187,8 @@ test("F1-12 坏 fixture 分辨力：重复 id 与孤儿前缀必须使校验函�
 	);
 });
 
-test("F1-13 DOMAIN_CATALOG 不含 IMPORTER_CATALOG 的 11 个导入器 id", () => {
+test("F1-13 DOMAIN_CATALOG 不含 IMPORTER_CATALOG 的 12 个导入器 id", () => {
 	const importerIds = new Set(IMPORTER_CATALOG.map((row) => row.id));
-	assert.equal(importerIds.size, 11, "导入器必须 11 个");
+	assert.equal(importerIds.size, 12, "导入器必须 12 个");
 	for (const row of DOMAIN_CATALOG) assert.ok(!importerIds.has(row.id), `域清单不得含导入器 id: ${row.id}`);
 });

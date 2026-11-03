@@ -83,6 +83,8 @@ import type {
 	ZCodeSessionSummary,
 	WorkBuddyImportReport,
 	WorkBuddySessionSummary,
+	CodeBuddyImportReport,
+	CodeBuddySessionSummary,
 	CursorImportReport,
 	CursorSessionSummary,
 	KimiImportReport,
@@ -1037,6 +1039,10 @@ const api = {
 	workbuddySessions: {
 		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.workbuddySessionsScan, projectId) as Promise<WorkBuddySessionSummary[]>,
 		import: (projectId: string, sourcePaths: string[]) => ipcRenderer.invoke(ipcChannels.workbuddySessionsImport, projectId, sourcePaths) as Promise<WorkBuddyImportReport>,
+	},
+	codebuddySessions: {
+		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.codebuddySessionsScan, projectId) as Promise<CodeBuddySessionSummary[]>,
+		import: (projectId: string, sourcePaths: string[]) => ipcRenderer.invoke(ipcChannels.codebuddySessionsImport, projectId, sourcePaths) as Promise<CodeBuddyImportReport>,
 	},
 	cursorSessions: {
 		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.cursorSessionsScan, projectId) as Promise<CursorSessionSummary[]>,
