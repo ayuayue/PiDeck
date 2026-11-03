@@ -92,6 +92,7 @@ for (const phase of ["inspect", "write", "chmod", "rename"]) {
 				const target = join(dir, "App.vue");
 				const original = "<template>keep this intact</template>\r\n";
 				writeFileSync(target, original);
+				const inspectTarget = await fs.realpath(target);
 				const failure = Object.assign(new Error(`${phase} blocked`), { code });
 				const { writeTextFileGuarded: write } = loadTsCommonJs("src/main/files/textFileWrite.ts", {
 					stubs: {
@@ -106,7 +107,8 @@ for (const phase of ["inspect", "write", "chmod", "rename"]) {
 								return {
 									stat: (...params) => handle.stat(...params),
 									read: async (...params) => {
-										if (phase === "inspect" && path === target) throw failure;
+										const sameInspectTarget = process.platform === "win32" ? String(path).toLowerCase() === inspectTarget.toLowerCase() : path === inspectTarget;
+										if (phase === "inspect" && sameInspectTarget) throw failure;
 										return handle.read(...params);
 									},
 									writeFile: async (...params) => {
