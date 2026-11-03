@@ -38,6 +38,12 @@ function withTimeoutBlock() {
 	return match[0];
 }
 
+function addProjectBlock() {
+	const match = app.match(/^[\t ]*async\s+function\s+addProject\s*\([\s\S]*?(?=\n[\t ]*(?:async\s+)?function\s+[A-Za-z_$])/m);
+	assert.ok(match, "addProject implementation should be discoverable");
+	return match[0];
+}
+
 function assertInOrder(source, fragments, message) {
 	let previousIndex = -1;
 	for (const fragment of fragments) {
@@ -209,7 +215,11 @@ test("add project and right-click refresh sync DSH foreign sessions", () => {
 	// DSH 会话在 $DSH_HOME，不在项目目录 JSONL；添加/刷新若只扫 pi，侧栏会缺会话。
 	assert.match(projectSync, /async function syncDshForeignSessionsIfEnabled\(\)/, "project sync should own the DSH disk import");
 	assertInOrder(projectSync, ["async function refreshProjectTree(project: Project) {", "await syncDshForeignSessionsIfEnabled()", "await refreshProjectSessions(latestProject.id)"], "right-click refresh must import DSH before catalog scan");
-	assertInOrder(app, ["async function addProject() {", "await api.projects.add()", "await syncDshForeignSessionsIfEnabled()", "await refreshProjectSessions(project.id)"], "adding a project must import DSH after the path is registered");
+	assertInOrder(
+		addProjectBlock(),
+		["const project = await api.projects.add();", "if (!project) return null;", "await syncDshForeignSessionsIfEnabled();", "await refreshProjects();", "setActiveProjectId(project.id);", "await refreshProjectSessions(project.id);"],
+		"adding a project must import DSH after the path is registered and before catalog scan",
+	);
 	assert.match(projectSync, /dshAutoImportSessions === false/);
 });
 
