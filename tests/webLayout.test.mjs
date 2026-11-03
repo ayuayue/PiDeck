@@ -412,3 +412,14 @@ test("Web usage rows are never rendered on germline-less providers", () => {
 	assert.match(webHeader, /import \{ formatTokens \} from "..\/components\/session\/SessionContextMeter";/);
 	assert.match(webHeader, /\$\{formatTokens\(tokens\)\} \/ \$\{formatTokens\(window\)\}/);
 });
+
+// 回归（宽屏走查）：输入框上方的条（子代理 / 任务清单、错误待答横幅）曾经铺满整个 chat-pane，
+// 宽屏下一根线横穿整屏、和 776px 的输入卡完全脱节。776px 阅读宽此前只落在
+// `.composer > *` 与 `.message-list` 上，所以这里把「条」也钉到同一列宽契约。
+test("Web strips above the composer share the composer reading width", () => {
+	const aboveRule = webCss.slice(webCss.indexOf(".web-app .composer-above"));
+	assert.ok(aboveRule.length > 0, "web.css must cap the strips above the composer");
+	assert.match(aboveRule.slice(0, 200), /width:\s*100%;[\s\S]*?max-width:\s*776px;[\s\S]*?margin-inline:\s*auto;/, "the strips need the same 776px centered column as .composer > *");
+	assert.match(webSessionStrips, /className="composer-above\b/, "子代理/任务清单条必须挂 composer-above，否则会再次铺满 chat-pane");
+	assert.match(webChatApp, /className="composer-above\b/, "错误/待答横幅与输入框同宽，否则会在输入卡上方横穿整屏");
+});

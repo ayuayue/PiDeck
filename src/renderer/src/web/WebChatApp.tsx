@@ -1516,7 +1516,7 @@ export function WebChatApp() {
 				{/* 2026-10 评审 P1：错误/待答原本只出现在时间线列表尾，用户回读历史时完全不可见
 				    （composer 又可能已隐藏）。在 composer 上方放常驻横幅兜底，滚多远都在视口内。 */}
 				{(activeError && errorDismissed !== activeError) || (activePendingUi && !nearBottom) ? (
-					<div className="flex shrink-0 flex-col gap-1 border-t border-border/60 bg-background px-3 py-1.5">
+					<div className="composer-above flex shrink-0 flex-col gap-1 border-t border-border/60 bg-background px-3 py-1.5">
 						{activeError && errorDismissed !== activeError ? (
 							<div className="flex items-center gap-1.5 rounded-md border border-danger/30 bg-danger/10 px-2.5 py-1 text-caption text-danger" role="alert">
 								<span className="min-w-0 flex-1 leading-5">{activeError}</span>
