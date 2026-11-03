@@ -57,28 +57,44 @@ export const AUTO_LEARN_SYSTEM_PROMPT = `你是记忆提炼器。输入是一段
 - target=user 只放「用户是谁/怎么做事」；target=memory 放通用经验；target=project 放这个项目的约定；target=failure 放踩过的坑（此时 category 必填，其余 target 可省略 category）。
 - content 用陈述句，写清触发条件与结论，不要写「用户说他……」这类转述。`;
 
-/** 每会话进度：learnedTurns 是上次学习时的用户回合数。 */
-export type LearnState = { version: 1; sessions: Record<string, { learnedTurns: number; learnedAt: string }> };
+/** 水位与本机来源元数据：旧文件没有 entries 时不推断条目来源。 */
+export type LearnState = {
+	version: 1;
+	sessions: Record<string, { learnedTurns: number; learnedAt: string }>;
+	/** 键沿用 exportEntryId，来源不写入 Markdown，也不由索引重建。 */
+	entries?: Record<string, "auto-learn">;
+};
 
 const EMPTY_STATE: LearnState = { version: 1, sessions: {} };
+
+/** JSON 边界仅接受键值对象，避免把数组或不合法的来源当作有效状态。 */
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 
 export function readLearnState(root: string): LearnState {
 	const file = join(root, LEARN_STATE_FILENAME);
 	if (!existsSync(file)) return { ...EMPTY_STATE, sessions: {} };
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
-		if (!parsed || typeof parsed !== "object") return { ...EMPTY_STATE, sessions: {} };
+		if (!isRecord(parsed)) return { ...EMPTY_STATE, sessions: {} };
 		const sessions: LearnState["sessions"] = {};
-		const raw = (parsed as { sessions?: unknown }).sessions;
-		if (raw && typeof raw === "object") {
-			for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
-				const learnedTurns = Number((value as { learnedTurns?: unknown })?.learnedTurns);
+		if (isRecord(parsed.sessions)) {
+			for (const [id, value] of Object.entries(parsed.sessions)) {
+				if (!isRecord(value)) continue;
+				const learnedTurns = Number(value.learnedTurns);
 				if (!Number.isFinite(learnedTurns) || learnedTurns < 0) continue;
-				const learnedAt = typeof (value as { learnedAt?: unknown })?.learnedAt === "string" ? (value as { learnedAt: string }).learnedAt : "";
+				const learnedAt = typeof value.learnedAt === "string" ? value.learnedAt : "";
 				sessions[id] = { learnedTurns: Math.floor(learnedTurns), learnedAt };
 			}
 		}
-		return { version: 1, sessions };
+		const entries: NonNullable<LearnState["entries"]> = {};
+		if (isRecord(parsed.entries)) {
+			for (const [id, source] of Object.entries(parsed.entries)) {
+				if (id && source === "auto-learn") entries[id] = source;
+			}
+		}
+		return { version: 1, sessions, ...(Object.keys(entries).length ? { entries } : {}) };
 	} catch {
 		// 坏文件当没学过：重新学一次（多花一次模型调用）比永久卡住便宜。
 		return { ...EMPTY_STATE, sessions: {} };
@@ -98,8 +114,11 @@ export function writeLearnState(root: string, state: LearnState): void {
 	}
 }
 
-export function markLearned(state: LearnState, sessionId: string, turns: number, at: string): LearnState {
-	return { version: 1, sessions: { ...state.sessions, [sessionId]: { learnedTurns: turns, learnedAt: at } } };
+/** 成功批次同时推进水位并记录新条目；空批次和重复条目不抹掉旧来源。 */
+export function markLearned(state: LearnState, sessionId: string, turns: number, at: string, entryIds: readonly string[] = []): LearnState {
+	const entries = { ...state.entries };
+	for (const id of entryIds) entries[id] = "auto-learn";
+	return { version: 1, sessions: { ...state.sessions, [sessionId]: { learnedTurns: turns, learnedAt: at } }, ...(Object.keys(entries).length ? { entries } : {}) };
 }
 
 /** 该会话是否值得学一次。 */

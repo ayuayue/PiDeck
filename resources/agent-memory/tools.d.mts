@@ -7,6 +7,8 @@ export class MemoryToolError extends Error {
 export type AddMemoryResult = {
 	ok: true;
 	target: string;
+	scope: "global" | "project" | "device";
+	projectId: string;
 	duplicate: boolean;
 	count: number;
 	dropped: number;

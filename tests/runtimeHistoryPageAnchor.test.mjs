@@ -82,3 +82,16 @@ test("回退锚点在 page 之前倒序取最近的一条，不会跳过中间�
 	assert.equal(page.nextBeforeEntryId, "closest", "倒序扫描必须取离窗口最近的条目");
 	assert.equal(page.nextBefore, 101);
 });
+
+test("锚点就在文件头：nextBefore 必须是 null（0 会让按钮常驻在第一条消息上方）", async () => {
+	// 旧写法直接把 resolveEntryPosition 的结果当游标，命中文件首条时得到 0；
+	// 渲染层按 `nextBefore !== null` 判定「还有更早」，于是「加载更多对话」永远挂在
+	// 第一条消息上方，点一次只换来一页空数据（2026-12 真机）。
+	// 契约与文件路径 readTurnPageCore 的 `start > 0 ? start : null` 一致。
+	const messages = [msg("user", "e1"), msg("assistant", "e2"), msg("user", "e3"), msg("assistant", "e4")];
+	const manager = createManager(messages, { e1: 0, e2: 1, e3: 2, e4: 3 });
+	const page = await manager.tryReadRuntimeTurnPage(SESSION_PATH, "agent-live", { beforeEntryId: "e3", turnCount: 3 });
+	assert.ok(page, "缓存命中应返回一页");
+	assert.equal(page.nextBefore, null, "文件头必须回 null，不能是 0");
+	assert.equal(page.nextBeforeEntryId, undefined, "没有更早历史时不应再给 entryId 锚点");
+});

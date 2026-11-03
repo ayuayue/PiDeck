@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 8ccd5cdc9a3389c96077c9ebb6bf5f43611cbd46d878775a833bc5ada5b97a8b（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 112b9db3d562edf82ac971bad62f3559b9fc052eb1e6a245c5b16d26b613a99a（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -5576,7 +5576,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.agentMemoryEnabled": "啟用智慧體記憶",
 	"settings.agentMemoryEnabledDesc": "開啟後 Agent 才能用 memory_add / memory_replace / memory_remove / memory_search / memory_get / session_search / memory_status。只對新會話生效；關閉不會刪除已儲存的記憶檔案。",
 	"settings.agentMemoryAutoLearn": "自動學習記憶",
-	"settings.agentMemoryAutoLearnDesc": "每 12 輪對話後讓模型從最近的會話裡提煉最多 3 條記憶（用提示詞增強的模型，可用增強模型設定另行指定；單次會話不會重複提煉）。會產生模型呼叫費用，預設關閉。",
+	"settings.agentMemoryAutoLearnDesc": "每個會話每新增 12 輪使用者對話後，從最近的會話裡提煉最多 3 條記憶（優先使用增強模型設定指定的模型，未指定時使用會話模型）。成功後相同進度不重複提煉，失敗可在後續回合重試。會產生模型呼叫費用，預設關閉。",
 	"settings.agentMemoryStatusDesc": "記憶檔案體積、會話索引規模與本機裝置標識。匯出/匯入與清空索引都不改變記憶內容，所以不需要點儲存。",
 	"settings.agentMemoryEntries": "記憶條目",
 	"settings.agentMemoryKindLabel": "記憶型別",
@@ -5586,6 +5586,11 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.agentMemorySearchPlaceholder": "搜尋記憶內容或專案名",
 	"settings.agentMemorySearchClear": "清除搜尋",
 	"settings.agentMemoryTableContent": "內容",
+	"settings.agentMemorySourceAutoLearn": "自動學習",
+	"settings.agentMemoryTableUpdated": "記錄於",
+	"settings.agentMemoryTableUpdatedHint": "這條記憶寫入本機索引的時間；改內容會重新計時，索引重建後會被重置",
+	"settings.agentMemoryTableUpdatedUnknown": "索引裡沒有這條的時間（舊條目，或索引還沒同步過）",
+	"settings.agentMemoryRefresh": "重新整理列表",
 	"settings.agentMemoryTableChars": "字數",
 	"settings.agentMemoryTableActions": "操作",
 	"settings.agentMemoryEntriesCount": "顯示 {shown} / {total} 條",

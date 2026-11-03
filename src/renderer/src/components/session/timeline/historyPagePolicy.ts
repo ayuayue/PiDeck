@@ -75,3 +75,57 @@ export function resolvePageWindowGrowth(messages: readonly { role?: string }[], 
 	const turns = countUserTurns(messages);
 	return Math.min(pageSize, mountedLimit, Math.max(1, turns));
 }
+
+/** 一次「加载更早对话」请求的游标；两个字段的语义与主进程 `readRecordMessagePage` 入参一致。 */
+export interface EarlierHistoryCursor {
+	/** 文件消息下标空间的数值游标；null = 上一页已到文件头（续页时不能换成 undefined）。 */
+	before?: number | null;
+	/** entryId 锚点：跨下标空间稳定，主进程优先用它定位。 */
+	beforeEntryId?: string;
+}
+
+export interface EarlierHistoryCursorInput {
+	/** 运行时历史前缀（翻过页后存在）：它的游标是唯一真相，窗口段的下标不再适用。 */
+	runtimeHistory?: { nextBefore?: number | null; nextBeforeEntryId?: string | null } | null;
+	/** 窗口段消息（按显示顺序；首条可能是无 entryId 的压缩/分支摘要卡片）。 */
+	windowMessages: ReadonlyArray<{ meta?: Record<string, unknown> }>;
+	/** 窗口首条消息在文件消息下标空间的位置；主进程算不出时缺席。 */
+	windowStartFilePos?: number | null;
+}
+
+/**
+ * 「加载更多对话」是否还有更早历史 —— 与「这次点击真的能推进一页」同源。
+ *
+ * 拆出来的原因：这两个判断原先是两份实现。按钮可见性看 registry 的
+ * `nextBefore !== null`（或 `windowStart > 0`），请求侧则在拿不到锚点时**静默 return**。
+ * 两边一旦不同源，用户看到的就是「按钮常驻在第一条消息上方，点一次毫无反应」
+ * （2026-12 真机，两处独立成因）：
+ * 1. 主进程缓存命中路径把「锚点就在文件头」回成 `nextBefore: 0`，而 0 不是 null；
+ * 2. 无文件/大历史窗口两条路径可能只剩 `windowStart > 0`，没有任何可发送的游标。
+ *
+ * 契约：返回 null 就是「没有更早历史」——调用方必须据此隐藏按钮，不要自己再造判定。
+ */
+export function resolveEarlierHistoryCursor(input: EarlierHistoryCursorInput): EarlierHistoryCursor | null {
+	const runtime = input.runtimeHistory;
+	if (runtime) {
+		const { nextBefore } = runtime;
+		// 0 是文件头（主进程 2026-12 之前会回 0）：必须当「没有更早」，否则按钮挂在第一条
+		// 消息上方，点一次只换来一页空数据。
+		if (typeof nextBefore === "number") {
+			if (nextBefore <= 0) return null;
+			const entryId = runtime.nextBeforeEntryId;
+			return typeof entryId === "string" && entryId ? { before: nextBefore, beforeEntryId: entryId } : { before: nextBefore };
+		}
+		// nextBefore 为 null 但 entryId 锚点仍在：sliding 后的前缀只靠 entryId 续页。
+		const entryId = runtime.nextBeforeEntryId;
+		return typeof entryId === "string" && entryId ? { before: null, beforeEntryId: entryId } : null;
+	}
+	// 未翻过页：窗口内第一条带 entryId 的消息是唯一能跨下标的锚点，必须跳过摘要卡片/工具结果。
+	for (const message of input.windowMessages) {
+		const entryId = message.meta?.entryId;
+		if (typeof entryId === "string" && entryId) return { beforeEntryId: entryId };
+	}
+	// 大历史窗口（skipEntries）整段缺 entryId：退化为窗口首条的文件下标；0 同样是文件头。
+	const filePos = input.windowStartFilePos;
+	return typeof filePos === "number" && filePos > 0 ? { before: filePos } : null;
+}

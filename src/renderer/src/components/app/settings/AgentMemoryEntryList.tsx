@@ -6,7 +6,9 @@
  * 想改内容就让 Agent 改，想改措辞就删掉再说一遍。
  *
  * 形态：**表格式列表**（`ui-shadcn/table` + 卡片外壳），与「进程与内存监控」等设置面板同一套视觉。
- * 卡片顶部按类型分两个 tab（记忆 / 教训），下面是工具栏（搜索 + 计数）、表格与分页。
+ * 卡片顶部按类型分两个 tab（记忆 / 教训），下面是工具栏（搜索 + 计数 + 手动刷新）、表格与分页。
+ * 列为内容 / 记录于 / 字数 / 删除；时间来自记忆索引（Markdown 真值不存时间戳），
+ * 所以工具栏留了一个刷新按钮：Agent 在会话里刚写下的记忆不会主动推到这里。
  * 分组不再靠嵌套小节，而是在表格里插一条跨列的分组行（作用域 + 落盘文件 + 预算）——既保留
  * 「这条记忆在哪个文件里」这个关键信息，又不会把列表拆成几坨各自的边框。
  *
@@ -17,10 +19,11 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Brain, ChevronDown, ChevronRight, RotateCcw, Search, SearchX, Trash2 } from "lucide-react";
+import { Brain, ChevronDown, ChevronRight, RefreshCw, RotateCcw, Search, SearchX, Trash2 } from "lucide-react";
 import type { AgentMemoryEntry, AgentMemoryEntryGroup, AgentMemoryEntryList } from "../../../../../shared/types/agentMemory";
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
+import { Badge } from "../../ui-shadcn/badge";
 import { Button } from "../../ui-shadcn/button";
 import { Input } from "../../ui-shadcn/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui-shadcn/table";
@@ -29,6 +32,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../ui-shadcn/tabs";
 import { ConfirmDialog } from "../../ui-shadcn/ConfirmDialog";
 import { describeAgentMemoryCode, memoryGroupScopeLabel, memoryTargetLabel } from "./agentMemoryLabels";
 import { MEMORY_PAGE_SIZE, buildMemoryPageRows, memoryEntryId, memoryTotalPages } from "./agentMemoryPaging";
+import { formatFullDateTime, formatRelativeTime } from "../../../utils/relativeTime";
 
 /** tab 与 target 的归属：用户偏好也是「记忆」，只有失败教训单独一类。 */
 const KIND_TARGETS = {
@@ -36,6 +40,26 @@ const KIND_TARGETS = {
 	failure: ["failure"],
 } as const;
 type EntryKind = keyof typeof KIND_TARGETS;
+
+/**
+ * 条目时间格：相对时间（刚刚 / n 分钟 / n 天），title 给精确时刻。
+ * 时间来自记忆索引，索引不可用、或这条还没被索引过时留破折号——不编造时间。
+ */
+function EntryTimeCell({ value }: { value?: string }) {
+	const ms = value ? Date.parse(value) : Number.NaN;
+	if (Number.isNaN(ms)) {
+		return (
+			<TableCell className="text-right text-caption text-muted-foreground" title={t("settings.agentMemoryTableUpdatedUnknown")}>
+				—
+			</TableCell>
+		);
+	}
+	return (
+		<TableCell className="text-right text-caption tabular-nums text-muted-foreground" title={formatFullDateTime(ms)}>
+			{formatRelativeTime(ms)}
+		</TableCell>
+	);
+}
 
 export function AgentMemoryEntryList(props: {
 	/** 兄弟面板（导出/导入/清空索引）改过记忆后 +1。 */
@@ -55,6 +79,8 @@ export function AgentMemoryEntryList(props: {
 	/** 记忆 / 教训两个 tab：四种 target 混排时教训总被挤到列表底部。 */
 	const [kind, setKind] = useState<EntryKind>("memory");
 	const [page, setPage] = useState(1);
+	/** 手动刷新中：Agent 在会话里写了记忆后，页面不会自己知道。 */
+	const [refreshing, setRefreshing] = useState(false);
 
 	const refresh = useCallback(async () => {
 		const result = await desktopApi.agentMemory.list();
@@ -67,6 +93,15 @@ export function AgentMemoryEntryList(props: {
 	useEffect(() => {
 		void refresh();
 	}, [refresh, props.reloadKey]);
+
+	const runRefresh = useCallback(async () => {
+		setRefreshing(true);
+		try {
+			await refresh();
+		} finally {
+			setRefreshing(false);
+		}
+	}, [refresh]);
 
 	const needle = query.trim().toLowerCase();
 	// 过滤在渲染层做：记忆总量有预算封顶（几万字），一次全量拿到前端比每条搜索都往主进程跑一次稳。
@@ -81,7 +116,7 @@ export function AgentMemoryEntryList(props: {
 		return kindGroups
 			.map((group) => ({
 				...group,
-				entries: group.entries.filter((entry) => `${entry.content}\n${memoryTargetLabel(entry.target)}\n${memoryGroupScopeLabel(group)}`.toLowerCase().includes(needle)),
+				entries: group.entries.filter((entry) => `${entry.content}\n${memoryTargetLabel(entry.target)}\n${memoryGroupScopeLabel(group)}\n${entry.source === "auto-learn" ? t("settings.agentMemorySourceAutoLearn") : ""}`.toLowerCase().includes(needle)),
 			}))
 			.filter((group) => group.entries.length > 0);
 	}, [kindGroups, needle]);
@@ -166,6 +201,10 @@ export function AgentMemoryEntryList(props: {
 						</div>
 						{/* 计数只在搜索时出现：不搜索时 tab 上的角标就是本类总数，再写一遍只是噪音；分页信息由分页条自己给。 */}
 						<span className="ml-auto shrink-0 text-micro tabular-nums text-muted-foreground">{!data ? t("common.loading") : needle ? t("settings.agentMemoryEntriesCount", { shown: String(shown), total: String(kindTotal) }) : null}</span>
+						{/* 手动刷新：条目真值在磁盘上，Agent 在会话里刚写下的记忆不会推到这里（只有兄弟面板改动会 +1 reloadKey）。 */}
+						<Button type="button" variant="ghost" size="icon-sm" aria-label={t("settings.agentMemoryRefresh")} title={t("settings.agentMemoryRefresh")} disabled={refreshing} onClick={() => void runRefresh()}>
+							<RefreshCw size={13} className={refreshing ? "animate-spin" : undefined} aria-hidden="true" />
+						</Button>
 					</div>
 
 					{error ? <p className="border-b border-border-subtle px-3 py-2 text-control text-destructive">{error}</p> : null}
@@ -184,6 +223,9 @@ export function AgentMemoryEntryList(props: {
 						<TableHeader>
 							<TableRow className="hover:bg-transparent">
 								<TableHead>{t("settings.agentMemoryTableContent")}</TableHead>
+								<TableHead className="w-20 text-right" title={t("settings.agentMemoryTableUpdatedHint")}>
+									{t("settings.agentMemoryTableUpdated")}
+								</TableHead>
 								<TableHead className="w-16 text-right">{t("settings.agentMemoryTableChars")}</TableHead>
 								<TableHead className="w-12" aria-label={t("settings.agentMemoryTableActions")} />
 							</TableRow>
@@ -191,7 +233,7 @@ export function AgentMemoryEntryList(props: {
 						<TableBody>
 							{emptyKind ? (
 								<TableRow className="hover:bg-transparent">
-									<TableCell colSpan={3} className="whitespace-normal">
+									<TableCell colSpan={4} className="whitespace-normal">
 										<div className="flex flex-col items-center gap-2 py-8 text-center">
 											<span className="flex size-9 items-center justify-center rounded-full bg-bg-muted text-muted-foreground">{emptyKind === "nomatch" ? <SearchX size={16} aria-hidden="true" /> : <Brain size={16} aria-hidden="true" />}</span>
 											<p className="max-w-sm text-caption leading-relaxed text-muted-foreground">{emptyKind === "loading" ? t("common.loading") : emptyKind === "empty" ? t(kind === "failure" ? "settings.agentMemoryEmptyFailure" : "settings.agentMemoryEmpty") : t("settings.agentMemoryNoMatch")}</p>
@@ -208,7 +250,7 @@ export function AgentMemoryEntryList(props: {
 								row.kind === "group" ? (
 									/* 分组行：作用域 + 落盘文件 + 预算。跨列铺满，读起来是表格的一条分隔带，不是第二个容器。 */
 									<TableRow key={row.key} className="bg-bg-muted hover:bg-bg-muted">
-										<TableCell colSpan={3} className="py-1 whitespace-normal">
+										<TableCell colSpan={4} className="py-1 whitespace-normal">
 											<div className="flex items-center gap-2 text-caption text-muted-foreground">
 												<span className="shrink-0 rounded-sm bg-background px-1.5 py-0.5 text-foreground">{memoryGroupScopeLabel(row.group)}</span>
 												<span className="shrink-0">{memoryTargetLabel(row.group.target)}</span>
@@ -230,9 +272,15 @@ export function AgentMemoryEntryList(props: {
 											{/* 折叠态单行省略，展开后整段铺开：记忆条目是纯文本，首行通常就是结论。 */}
 											<button type="button" className="flex w-full items-start gap-1.5 text-left text-control text-foreground focus-visible:outline-none" aria-expanded={expanded[row.key] === true} onClick={() => setExpanded((current) => ({ ...current, [row.key]: current[row.key] !== true }))}>
 												<span className="mt-0.5 shrink-0 text-muted-foreground">{expanded[row.key] === true ? <ChevronDown size={13} aria-hidden="true" /> : <ChevronRight size={13} aria-hidden="true" />}</span>
+												{row.entry.source === "auto-learn" ? (
+													<Badge variant="secondary" size="sm">
+														{t("settings.agentMemorySourceAutoLearn")}
+													</Badge>
+												) : null}
 												<span className={expanded[row.key] === true ? "min-w-0 whitespace-pre-wrap break-words" : "min-w-0 truncate"}>{expanded[row.key] === true ? row.entry.content : row.entry.content.split("\n")[0]}</span>
 											</button>
 										</TableCell>
+										<EntryTimeCell value={row.entry.updatedAt} />
 										<TableCell className="text-right text-caption tabular-nums text-muted-foreground">{row.entry.chars}</TableCell>
 										<TableCell>
 											<Button type="button" variant="ghost" size="icon-sm" aria-label={t("settings.agentMemoryDeleteEntry")} disabled={busyKey === row.key} onClick={() => setPending(row.entry)} className="text-muted-foreground hover:text-destructive">
