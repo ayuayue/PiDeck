@@ -640,7 +640,8 @@ export async function resolveModelListReport(piLocator: PiLocator, settingsStore
 	let version: string | null = null;
 	let checkError: string | null = null;
 	try {
-		const status = await piLocator.check(settings.customPiPath);
+		// WSL 模式下按当前设置探测，否则宿主机 pi 存在时会把 WSL 侧的失败误判成「pi 正常」。
+		const status = await piLocator.check(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser);
 		installed = status.installed;
 		version = status.installed && status.version ? status.version : null;
 		checkError = status.error ?? null;

@@ -562,7 +562,9 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		const settings = settingsStore.get();
 		// 渲染层输入不可信：只认布尔 true，其他一律当非强制重检
 		const forceWslProbe = force === true;
-		const status = await piLocator.check(settings.customPiPath, false, undefined, undefined, { forceWslProbe });
+		// WSL 模式必须按当前设置探测（customPiPath 仍是宿主机语义，wsl 三件套决定是否切到 wsl:// 解析），
+		// 否则设置页切到 WSL 后状态卡永远显示宿主机 pi（#484 后续回归：2bc73a783 拿掉传参、5ee923a8f 恢复全局 WSL 设置时漏了这里）。
+		const status = await piLocator.check(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser, { forceWslProbe });
 		void appLogger.info("pi", "Pi check completed", {
 			installed: status.installed,
 			version: status.version,
@@ -591,7 +593,8 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	ipcMain.handle(ipcChannels.piInstallations, async (_event, force?: unknown) => {
 		const settings = settingsStore.get();
 		const forceShellProbe = force === true;
-		const installations = await piLocator.listInstallations(settings.customPiPath, false, undefined, undefined, { forceShellProbe, customPaths: settings.piCustomPaths });
+		// 与 piCheck 同理：WSL 模式下按设置探测（listInstallations 会返回空数组，设置页退回单结果视图）。
+		const installations = await piLocator.listInstallations(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser, { forceShellProbe, customPaths: settings.piCustomPaths });
 		void appLogger.info("pi", "Pi installations listed", {
 			count: installations.length,
 			forceShellProbe,
@@ -648,7 +651,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	ipcMain.handle(ipcChannels.piCheckCustom, async (_event, customPath: string, activate?: unknown) => {
 		const shouldActivate = activate !== false;
 		const settings = settingsStore.get();
-		const status = await piLocator.validateCustomPath(customPath, false, undefined, undefined);
+		const status = await piLocator.validateCustomPath(customPath, settings.wslEnabled, settings.wslDistro, settings.wslUser);
 		if (status.installed && status.command && shouldActivate) {
 			await settingsStore.update({ customPiPath: status.command });
 			// 自定义路径变了，当前使用项/排序跟着变；不清缓存会让设置页在 TTL 内显示旧列表。
@@ -1263,9 +1266,9 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		appInfoPromise ??= (async () => {
 			let piVersion: string | undefined;
 			try {
-				// 与设置页/反馈环境一致：用当前设置的 WSL 路径探测 pi CLI 版本
+				// 与设置页/反馈环境一致：用当前设置的 WSL 配置探测 pi CLI 版本
 				const settings = settingsStore.get();
-				const status = await piLocator.check(settings.customPiPath);
+				const status = await piLocator.check(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser);
 				piVersion = status.version;
 			} catch (error) {
 				appLogger.warn("appInfo", "pi version probe failed", { error });
@@ -1556,7 +1559,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 
 	ipcMain.handle(ipcChannels.appFeedbackEnvironment, async () => {
 		const settings = settingsStore.get();
-		const pi = await piLocator.check(settings.customPiPath);
+		const pi = await piLocator.check(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser);
 		return {
 			appVersion: app.getVersion(),
 			platform: process.platform,
