@@ -117,19 +117,20 @@ IPC：`agentMemory:status | clear-index | export | preview-bundle | import | lis
 记忆平时只由模型主动 `memory_add`。开启「自动学习」后，宿主在**回合结算**时尝试一次提炼：
 
 1. `compositeAgentGateway.onAgentSettled` 是三种后端统一的结算信号（同一处也在发「会话完成」通知）。pi 会话也参与，记忆是跨后端同一份数据。
-2. 先做一次增量索引（`indexSources`，按文件 size/mtime 跳过未变文件），再从索引取该会话最近 40 条消息——**不为学习新写一套会话读取**：三种后端的原始格式差异已经在索引层消化掉了。
+2. `runLearnerForAgent` 区分两类会话身份：索引用后端 `sessionId`（pi 原 ID，ACP / DSH 分别加 `acp:` / `dsh:` 前缀），模型回退查询仍用 catalog 的 `deckSessionId`。先做一次增量索引（`indexSources`，按文件 size/mtime 跳过未变文件），再取该会话最近 40 条消息——**不为学习新写一套会话读取**：三种后端的格式差异已在索引层消化。
 3. 水位判断：`<root>/learn-state.json` 记录每个会话已学到第几轮用户回合，**每新增 12 轮**才调一次模型。水位按整份会话的用户回合数算，不是按那 40 条消息的窗口算（否则窗口一满就再也学不到）。
 4. 一次模型调用（独立侧车实例 `createCompletionHelperService("agent-memory")`，与增强/预测/划词各自独立进程，避免把它们打断），模型优先级 = 用户指定的增强模型 > 该会话记录模型，都没有就跳过。
 5. 模型输出按 `[`…`]` 截取成 JSON 数组，逐条校验 target/content/category，最多 3 条，其余计入 rejected。
 6. 落盘走**工具层同一个 `addMemory`**：扫描（注入/密钥/不可见字符）、去重、预算裁剪一处生效，学习绕不过闸门。`target=project` 但没有项目上下文时退化成全局经验，不当失败丢弃。
-7. 只有真的调用过模型才推水位：模型失败/超时/被取消保持原水位，下次满足阈值再试。
+7. 只有模型调用成功才推水位：失败/超时/被取消保持原水位，后续回合再试；成功后同一进度不重复调用，同一会话再新增 12 轮仍会学习。
+8. 仅给 `addMemory` 确认新写入的条目记录 `auto-learn` 来源，按既有 `exportEntryId` 身份存入本机 `learn-state.json.entries`，列表显示「自动学习」标签并可按标签搜索。命中已有条目不补标；历史没有记录时不推断来源。来源不写入 Markdown，也不随导出包迁移，清空 SQLite 索引不会丢失已有来源记录。
 
 设计取舍：
 - **默认关闭**并且是独立一格外关：开启会产生模型调用费用，用户必须显式同意；主开关关闭时学习开关在设置页置灰。
 - **不静默扩面**：单次最多 3 条、单会话每 12 轮一次，`runLearnerPass` 全局单飞（同时只跑一趟）。
 - **失败只进日志**：学习是可选增益，异常绝不影响会话（`catch` 只写 `agent-memory` 日志）。
 
-守卫测试（`tests/agentMemoryLearn.test.mjs`，9 条）：不足阈值一次都不调模型、达到阈值落盘并推水位、再跑不重复计费、模型失败不推水位（下次重试）、围栏可解/超量截断/坏 target 拒收、注入内容被工具层闸门拒收、重复条目计入 duplicate、未指定会话直接跳过、状态区汇总学习水位（sessions/lastAt）。
+守卫测试（均使用假补全，不联网、不调用付费模型）：`tests/agentMemoryLearn.test.mjs` 覆盖阈值、水位、重试、解析、去重与安全闸门；`tests/agentMemoryLearnTrigger.test.mjs` 用三种后端真实会话文件验证 ID 映射、模型仍取 catalog ID、12 / 24 轮再次触发和失败重试；`tests/agentMemoryLearnSource.test.mjs` 覆盖来源持久化、真实落盘作用域、历史/重复条目不补标及列表标签与搜索。
 
 ## 5. DSH：采集已接，注入未做
 
@@ -154,7 +155,7 @@ node --test tests/agentMemorySettings.test.mjs  # 开关默认关、非法入参
 node --test tests/agentMemorySync.test.mjs     # 导出形状/勾选裁剪、预览五类状态、冲突策略、墓碑、设备作用域
 node --test tests/agentMemoryBundleDialogs.test.mjs # 导入导出必须先弹窗、勾选与策略一路传到主进程、词典键齐全
 node --test tests/agentMemoryEntryList.test.mjs # 条目浏览：列表 key 可删、只删一行、墓碑、撤销、STANDING 编辑、设备改名
-node --test tests/agentMemoryLearn.test.mjs    # 学习循环：水位、失败不推、闸门
+node --test tests/agentMemoryLearn.test.mjs tests/agentMemoryLearnTrigger.test.mjs tests/agentMemoryLearnSource.test.mjs # 学习循环、三后端触发与来源标签
 node --test tests/agentMemoryAcpE2E.test.mjs   # ACP 真进程：mcpServers 下发与工具调用
 node --test tests/zhTwCopy.test.mjs            # 改了 zh-CN 词典后必须重跑生成器
 npm run typecheck

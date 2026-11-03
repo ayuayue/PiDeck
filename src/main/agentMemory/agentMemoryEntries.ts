@@ -14,10 +14,12 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { entryCategory, normalizeKey, parseEntries, parseFailureEntry, renderEntries } from "../../../resources/agent-memory/format.mjs";
 import { readRaw, writeAtomic } from "../../../resources/agent-memory/files.mjs";
+import { entryTimes } from "../../../resources/agent-memory/db.mjs";
 import { FILE_BUDGETS, TARGET_FILES, projectKeyFromPath, resolveMemoryRoot, targetFilePath } from "../../../resources/agent-memory/paths.mjs";
 import { addTombstone, exportEntryId, removeTombstone } from "../../../resources/agent-memory/sync.mjs";
 import { addMemory, syncTarget } from "../../../resources/agent-memory/tools.mjs";
 import type { AgentMemoryEntry, AgentMemoryEntryGroup, AgentMemoryEntryList } from "../../shared/types/agentMemory";
+import { readLearnState, type LearnState } from "./autoLearn";
 
 export type AgentMemoryTarget = AgentMemoryEntry["target"];
 export type AgentMemoryScope = AgentMemoryEntry["scope"];
@@ -38,7 +40,7 @@ function readDirKeys(dir: string): string[] {
 	}
 }
 
-function buildGroup(root: string, target: AgentMemoryTarget, scope: AgentMemoryScope, projectId: string, projectName: string): AgentMemoryEntryGroup | null {
+function buildGroup(root: string, target: AgentMemoryTarget, scope: AgentMemoryScope, projectId: string, projectName: string, sources: LearnState["entries"]): AgentMemoryEntryGroup | null {
 	const absolute = targetFilePath(root, target, projectId);
 	if (!existsSync(absolute)) return null;
 	let bytes = 0;
@@ -48,13 +50,19 @@ function buildGroup(root: string, target: AgentMemoryTarget, scope: AgentMemoryS
 		return null;
 	}
 	const blocks = parseEntries(readRaw(absolute));
+	// 时间来自记忆索引（Markdown 真值刻意不存时间戳）：先按 size+mtime 做一次增量同步
+	// （文件没变更时是空操作），再按内容取各作用域里的最新写入时间，缺失则留空由 UI 兜底。
+	syncTarget(root, target, projectId);
+	const times = entryTimes(root, target);
 	const entries = blocks.map((content, index) => {
 		// 包的条目身份按「语义内容」算（failure 去掉分类前缀），这里必须用同一口径。
 		const semantic = target === "failure" ? parseFailureEntry(content).content : content;
+		const exportId = exportEntryId({ target, scope, projectKey: projectId, content: semantic });
 		return {
 			index: index + 1,
 			target,
-			exportId: exportEntryId({ target, scope, projectKey: projectId, content: semantic }),
+			exportId,
+			source: sources?.[exportId],
 			file: scope === "global" ? TARGET_FILES[target] : `${scope === "device" ? "devices" : "projects"}/${projectId}/${TARGET_FILES[target]}`,
 			scope,
 			projectId,
@@ -63,6 +71,7 @@ function buildGroup(root: string, target: AgentMemoryTarget, scope: AgentMemoryS
 			content,
 			chars: content.length,
 			category: target === "failure" ? entryCategory(content) : "",
+			updatedAt: times.get(content),
 		};
 	});
 	if (entries.length === 0) return null;
@@ -92,6 +101,7 @@ function buildGroup(root: string, target: AgentMemoryTarget, scope: AgentMemoryS
  */
 export function readAgentMemoryEntries(input: { root?: string; projects?: () => { name: string; path: string }[] }): AgentMemoryEntryList {
 	const root = input.root ?? resolveMemoryRoot();
+	const sources = readLearnState(root).entries;
 	const nameByKey = new Map<string, string>();
 	// 惰性求值：设置页每次刷新都读一次项目表，但记忆 tab 打开时项目可能已经变了。
 	for (const project of input.projects?.() ?? []) {
@@ -100,7 +110,7 @@ export function readAgentMemoryEntries(input: { root?: string; projects?: () => 
 	}
 	const groups: AgentMemoryEntryGroup[] = [];
 	const push = (target: AgentMemoryTarget, scope: AgentMemoryScope, projectId: string, projectName: string) => {
-		const group = buildGroup(root, target, scope, projectId, projectName);
+		const group = buildGroup(root, target, scope, projectId, projectName, sources);
 		if (group) groups.push(group);
 	};
 

@@ -353,7 +353,22 @@ export function QueuedPromptPanel(props: {
 						scrollRef={listRef}
 						estimateHeight={36}
 						renderItem={(prompt, index) => (
-						<QueuedPromptRow as={ItemTag} prompt={prompt} index={index} showQueueGlyph={!multiple} sessionId={sessionId} agentBusy={agentBusy} steerSupported={steerSupported} runtimeLive={runtimeLive} onRetract={props.onRetract} onDiscard={props.onDiscard} onChangeBehavior={props.onChangeBehavior} onSendNow={props.onSendNow} onStopTurn={props.onStopTurn} onSendAsk={sendAsk} />
+							<QueuedPromptRow
+								as={ItemTag}
+								prompt={prompt}
+								index={index}
+								showQueueGlyph={!multiple}
+								sessionId={sessionId}
+								agentBusy={agentBusy}
+								steerSupported={steerSupported}
+								runtimeLive={runtimeLive}
+								onRetract={props.onRetract}
+								onDiscard={props.onDiscard}
+								onChangeBehavior={props.onChangeBehavior}
+								onSendNow={props.onSendNow}
+								onStopTurn={props.onStopTurn}
+								onSendAsk={sendAsk}
+							/>
 						)}
 					/>
 				</ListTag>

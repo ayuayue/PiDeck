@@ -456,14 +456,12 @@ test("SessionHistoryReader logs which display-index path produced the recent rea
 	// indexMode 必须如实报出 rebuild/append/cache，且 activeMessages 记录的是总量而非窗口量。
 	const directory = await mkdtemp(join(tmpdir(), "pideck-history-index-mode-"));
 	const sessionPath = join(directory, "session.jsonl");
-	const line = (id, parentId, role, text) =>
-		JSON.stringify({ id, parentId, type: "message", message: { role, content: [{ type: "text", text }] } });
+	const line = (id, parentId, role, text) => JSON.stringify({ id, parentId, type: "message", message: { role, content: [{ type: "text", text }] } });
 	const logs = [];
 	const createLoggingReader = () =>
 		new SessionHistoryReader({
 			toHostPath: (path) => path,
-			convertMessages: (_agentId, rawMessages, entryIds = []) =>
-				rawMessages.map((message, index) => ({ id: entryIds[index] ?? `message-${index}`, role: message.role, text: textFromContent(message.content) })),
+			convertMessages: (_agentId, rawMessages, entryIds = []) => rawMessages.map((message, index) => ({ id: entryIds[index] ?? `message-${index}`, role: message.role, text: textFromContent(message.content) })),
 			trimMessages: (messages) => messages,
 			translate: () => "Summary unavailable.",
 			logger: {

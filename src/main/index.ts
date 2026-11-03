@@ -320,7 +320,7 @@ import { isDefaultAgentTitle } from "./pi/agentUtils";
 import { CompositeAgentGateway } from "./agents/CompositeAgentGateway";
 import { AcpAgentManager } from "./acp/AcpAgentManager";
 import { buildAcpMcpServers, buildAgentMemoryMountForApp, memoryDirOfMount, resolveAgentMemoryDir, sourcesOfMount } from "./agentMemory/agentMemoryMounts";
-import { runLearnerPass } from "./agentMemory/agentMemoryLearner";
+import { runLearnerForAgent } from "./agentMemory/agentMemoryLearner";
 import { resolveEnhanceTargetModel } from "../shared/enhanceModelPreference";
 import { syncAgentMemoryRegistration } from "./agentMemory/AgentMemoryMcpRegistration";
 import { clearAgentMemoryIndex, readAgentMemoryStatus } from "./agentMemory/agentMemoryStatus";
@@ -7228,20 +7228,19 @@ app
 			const settings = settingsStore?.get();
 			if (!settings?.agentMemoryEnabled || !settings.agentMemoryAutoLearnEnabled) return;
 			const tab = compositeAgentGateway?.list().find((candidate) => candidate.id === info.agentId);
-			const sessionId = tab?.deckSessionId;
-			if (!sessionId) return;
-			const mount = createAgentMemoryMount(tab?.cwd);
-			void runLearnerPass(
+			if (!tab) return;
+			const mount = createAgentMemoryMount(tab.cwd);
+			void runLearnerForAgent(
 				{
 					root: memoryDirOfMount(mount),
 					sources: sourcesOfMount(mount),
-					complete: (input) => memoryLearnComplete(sessionId, input),
+					complete: memoryLearnComplete,
 					logger: {
 						info: (channel, message, meta) => void appLogger.info(channel, message, meta),
 						warn: (channel, message, meta) => void appLogger.warn(channel, message, meta),
 					},
 				},
-				{ sessionId, projectId: tab?.projectId ?? "" },
+				tab,
 			).catch((error: unknown) => {
 				void appLogger.warn("agent-memory", "learn pass crashed", { error: error instanceof Error ? error.message : String(error) });
 			});
