@@ -53,6 +53,9 @@ function loadServiceClass() {
 		},
 		{ filename: "imageGenParams.ts" },
 	);
+	// 字节上界读取器（src/main/modelHttp/bounded.ts）：与 ImageGenService 同一份泵体
+	const boundedModule = { exports: {} };
+	vm.runInNewContext(transpile(readFileSync("src/main/modelHttp/bounded.ts", "utf8")), { module: boundedModule, exports: boundedModule.exports, Buffer }, { filename: "modelHttp/bounded.ts" });
 	const exported = {};
 	const sandbox = {
 		exports: exported,
@@ -62,6 +65,7 @@ function loadServiceClass() {
 		require: (id) => {
 			if (id === "../../shared/imageGenParams") return paramsModule.exports;
 			if (id === "../../shared/imageGenConfig") return configModule.exports;
+			if (id === "../modelHttp/bounded") return boundedModule.exports;
 			throw new Error(`unexpected require ${id}`);
 		},
 		// vm 上下文看不到宿主全局，fetch 必须显式注入；经可变引用转发到当前测试的 stub

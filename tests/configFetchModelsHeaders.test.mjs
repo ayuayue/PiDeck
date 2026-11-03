@@ -36,22 +36,19 @@ function compile() {
 	const module = { exports: {} };
 	const localRequire = (specifier) => {
 		if (specifier.startsWith("node:")) return syncRequire(specifier);
-		// electron：只暴露 net.fetch，供 fetchProviderModels 使用
-		if (specifier === "electron") {
+		// 统一模型 HTTP 层（src/main/modelHttp/request.ts）：本用例只关心请求头，
+		// 所以直接返回固定 listing，不模拟 net 传输细节。
+		if (specifier === "../modelHttp/request") {
 			return {
-				net: {
-					fetch: async (url, init) => {
-						lastRequestHeaders = init?.headers ?? null;
-						return {
-							ok: true,
-							status: 200,
-							statusText: "OK",
-							json: async () => ({
-								object: "list",
-								data: [{ id: "bailu-test", object: "model" }],
-							}),
-						};
-					},
+				modelHttpRequest: async (_url, init) => {
+					lastRequestHeaders = init?.headers ?? null;
+					return {
+						status: 200,
+						statusText: "OK",
+						raw: JSON.stringify({ object: "list", data: [{ id: "bailu-test", object: "model" }] }),
+						truncated: false,
+						header: (name) => (String(name).toLowerCase() === "content-type" ? "application/json" : null),
+					};
 				},
 			};
 		}
