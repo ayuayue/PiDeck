@@ -203,7 +203,7 @@ export function AgentMemoryEntryList(props: {
 						<span className="ml-auto shrink-0 text-micro tabular-nums text-muted-foreground">{!data ? t("common.loading") : needle ? t("settings.agentMemoryEntriesCount", { shown: String(shown), total: String(kindTotal) }) : null}</span>
 						{/* 手动刷新：条目真值在磁盘上，Agent 在会话里刚写下的记忆不会推到这里（只有兄弟面板改动会 +1 reloadKey）。 */}
 						<Button type="button" variant="ghost" size="icon-sm" aria-label={t("settings.agentMemoryRefresh")} title={t("settings.agentMemoryRefresh")} disabled={refreshing} onClick={() => void runRefresh()}>
-							<RefreshCw size={13} className={refreshing ? "animate-spin" : undefined} aria-hidden="true" />
+							<RefreshCw size={13} className={refreshing ? "animate-pideck-spin" : undefined} aria-hidden="true" />
 						</Button>
 					</div>
 
