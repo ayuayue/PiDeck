@@ -391,3 +391,84 @@ test("exec 端口未装配时 fail closed：WSL_CONFIG_UNAVAILABLE，不回退 U
 		[],
 	);
 });
+
+/**
+ * 解析缓存：设置页一次点击会并行拉 models + settings，各自跑一遍 wsl.exe HOME 探测 + UNC stat
+ * 就是纯重复开销（50+ 模型的供应商点开卡一下的来源）。读复用，保存必须重解析。
+ */
+test("TTL 内重复读只解析一次，文件仍各读各的", async () => {
+	let listCalls = 0;
+	let envCalls = 0;
+	const { fs, calls } = createFakeFs();
+	const store = storeModule.createWslPiConfigStore({
+		listProfiles: async () => {
+			listCalls += 1;
+			return [PROFILE];
+		},
+		resolveEnvironment: async () => {
+			envCalls += 1;
+			return { distro: DISTRO, user: USER, linuxHome: LINUX_HOME, windowsHome: WINDOWS_HOME };
+		},
+		fs,
+		platform: "win32",
+		translate: (key) => key,
+	});
+	// 并发：设置页同时请求两份配置。
+	const [models, settings] = await Promise.all([store.read({ hostId: HOST, file: "models" }), store.read({ hostId: HOST, file: "settings" })]);
+	assert.equal(models.kind, "wsl");
+	assert.equal(settings.file, "settings");
+	assert.equal(listCalls, 1, "并发读只能解析一次档案");
+	assert.equal(envCalls, 1, "并发读只能探测一次 HOME");
+	assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+		["stat", DISTRO_ROOT],
+		["stat", WINDOWS_HOME],
+		["read", CONFIG_DIR + "\\models.json"],
+		["read", CONFIG_DIR + "\\settings.json"],
+	]);
+	// 顺序读同样命中缓存。
+	await store.read({ hostId: HOST, file: "models" });
+	assert.equal(envCalls, 1);
+});
+
+test("解析失败不进缓存：下一次读重新探测", async () => {
+	let listCalls = 0;
+	const { fs } = createFakeFs({ dirs: [] });
+	const store = storeModule.createWslPiConfigStore({
+		listProfiles: async () => {
+			listCalls += 1;
+			return [PROFILE];
+		},
+		resolveEnvironment: async () => ({ distro: DISTRO, user: USER, linuxHome: LINUX_HOME, windowsHome: WINDOWS_HOME }),
+		fs,
+		platform: "win32",
+		translate: (key) => key,
+	});
+	assert.equal(await rejectionCode(() => store.read({ hostId: HOST, file: "models" })), shared.WSL_CONFIG_CODES.distroUnavailable);
+	assert.equal(await rejectionCode(() => store.read({ hostId: HOST, file: "models" })), shared.WSL_CONFIG_CODES.distroUnavailable);
+	assert.equal(listCalls, 2, "发行版不可用不能被缓存成 5s 内的假失败");
+});
+
+test("保存绕过缓存：档案改动后写不会落到过期目录", async () => {
+	let listCalls = 0;
+	const targets = [];
+	const exec = async (input) => {
+		targets.push(input.configDir);
+	};
+	const { fs } = createFakeFs();
+	const store = storeModule.createWslPiConfigStore({
+		listProfiles: async () => {
+			listCalls += 1;
+			return [PROFILE];
+		},
+		resolveEnvironment: async () => ({ distro: DISTRO, user: USER, linuxHome: LINUX_HOME, windowsHome: WINDOWS_HOME }),
+		fs,
+		execInDistro: exec,
+		platform: "win32",
+		translate: (key) => key,
+	});
+	await store.read({ hostId: HOST, file: "models" });
+	const saved = await store.saveModels({ hostId: HOST, data: { providers: { openai: { models: [{ id: "gpt-4o" }] } } } });
+	assert.equal(saved.valid, true);
+	assert.equal(listCalls, 2, "保存必须重新解析，不能复用读路径的缓存");
+	assert.deepEqual(targets, [LINUX_CONFIG_DIR]);
+});
