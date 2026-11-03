@@ -26,6 +26,15 @@ jobs:
           node-version: 24.13.0
           cache: npm
 
+      - name: Setup Go (remote-sftp executor)
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: native/remote-sftp/go.sum
+
+      - name: Go unit tests (remote-sftp executor)
+        run: go -C native/remote-sftp test ./...
+
       - name: Install dependencies
         run: npm ci
 
@@ -135,11 +144,10 @@ jobs:
     # 要么走另一条实现，Windows 绿灯证明不了 Linux 正确。这里只补这块缺口，不复刻全量套件。
     #
     # 两段式（硬门禁 + 跟踪）：
-    # 1) 硬门禁：17 个文件在 Linux 上实测全绿（253 tests = 252 pass + 1 个 root-only skip），
+    # 1) 硬门禁：24 个文件在 Linux 上实测全绿（338 tests = 333 pass + 5 个平台/root-only skip），
     #    红了就挡合并；
-    # 2) 跟踪：remote*/ssh* 全扫，continue-on-error。既有 Linux 红（7 条 / 4 个文件）登记在
-    #    docs/ci-linux-known-failures.md §2，不因为它们挡合并，但每轮都留失败清单，用来发现
-    #    「已知之外的新红」。
+    # 2) 跟踪：remote*/ssh* 全扫，continue-on-error。当前既有红已清零；保留跟踪是为了让
+    #    runner 与本地环境差异留下失败清单。任何新红按缺陷处理，不能拿非阻断当免修理由。
     # 超时：硬门禁在本机 Linux 实测约 1 分钟（最慢 remoteProjectDirFacts ~15s），给 15 分钟；
     # 全扫给 25 分钟；job 45 分钟与 Windows job 同量级，兜底整文件挂起（见 build job 注释）。
     timeout-minutes: 45
@@ -154,11 +162,20 @@ jobs:
           node-version: 24.13.0
           cache: npm
 
+      - name: Setup Go (remote-sftp executor)
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: native/remote-sftp/go.sum
+
+      - name: Go unit tests (remote-sftp executor, Linux)
+        run: go -C native/remote-sftp test ./...
+
       - name: Install dependencies
         run: npm ci
 
       - name: Hard gate - remote/SSH subset green on Linux
-        # 这 21 个文件是「在 Linux 上实测全绿」的集合；逐文件计数与基线对照见
+        # 这 24 个文件是「在 Linux 上实测全绿」的集合；逐文件计数与基线对照见
         # docs/ci-linux-known-failures.md §1。
         # --test-concurrency=1 与 npm run test:serial 同口径：测试文件共享进程全局状态，
         # 并发会互相干扰；--test-timeout/--test-force-exit 与 Windows job 同理，兜底单测
@@ -173,6 +190,7 @@ jobs:
             tests/remoteDirWatchDegradedHint.test.mjs \
             tests/remoteDirectoryPageWatchDegraded.test.mjs \
             tests/remoteProjectUpload.test.mjs \
+            tests/remoteSftpAdapter.test.mjs \
             tests/remoteRootPooling.test.mjs \
             tests/remoteRootSessionPool.test.mjs \
             tests/remoteProjectRootReverify.test.mjs \
@@ -187,6 +205,8 @@ jobs:
             tests/remoteGitStability.test.mjs \
             tests/remoteHelperSearchNames.test.mjs \
             tests/remoteSearchIsolation.test.mjs \
+            tests/sshVerifiedConnection.test.mjs \
+            tests/sshCommandBuilder.test.mjs \
             tests/sshClientRuntime.test.mjs
 
       - name: Track full remote/SSH sweep (non-blocking)

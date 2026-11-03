@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
@@ -152,7 +153,7 @@ test("watched sessions stay warm; releasing the watch makes them collectable", a
 	const { pool, retired } = harness({ now: () => clock, policy: { idleTtlMs: 10 * 60_000, idleCapacity: 0, maxEntries: 4 } });
 	const a = await pool.acquire({ hostId: HOST, root: ROOT_A });
 	a.lease.release();
-	assert.equal(pool.retainWatch(HOST, ROOT_A), true);
+	assert.equal(pool.retainWatch(HOST, ROOT_A, a.lease.connectionId), true);
 	// A competing idle entry exists, so the sweep has a victim it is allowed to take.
 	const b = await pool.acquire({ hostId: HOST, root: ROOT_B });
 	b.lease.release();
@@ -165,8 +166,8 @@ test("watched sessions stay warm; releasing the watch makes them collectable", a
 		["lru"],
 	);
 	// Releasing the watch only makes the entry collectable; the next sweep is then allowed to take it.
-	pool.releaseWatch(HOST, ROOT_A);
-	assert.equal(pool.retainWatch(HOST, "unknown-root"), false, "no session means nothing to keep alive");
+	pool.releaseWatch(HOST, ROOT_A, a.lease.connectionId);
+	assert.equal(pool.retainWatch(HOST, "unknown-root", "unknown"), false, "no session means nothing to keep alive");
 	await pool.sweep(clock);
 	assert.equal(pool.peek(HOST, ROOT_A), undefined);
 	assert.deepEqual(
@@ -363,4 +364,11 @@ test("the default policy keeps the ADR's candidate values", async () => {
 	assert.equal(ROOT_POOL_DEFAULT_POLICY.idleCapacity, 2);
 	assert.equal(ROOT_POOL_DEFAULT_POLICY.idleTtlMs, 10 * 60_000);
 	assert.ok(ROOT_POOL_DEFAULT_POLICY.maxEntries > ROOT_POOL_DEFAULT_POLICY.idleCapacity, "the total budget must exceed the warm set, or a third project could never open");
+});
+
+test("production assembly explicitly uses the audited default policy", async () => {
+	const source = readFileSync("src/main/index.ts", "utf8");
+	assert.match(source, /import \{ ROOT_POOL_DEFAULT_POLICY \} from "\.\/remote\/RemoteRootSessionPool";/);
+	assert.match(source, /rootPooling:\s*ROOT_POOL_DEFAULT_POLICY/);
+	assert.doesNotMatch(source, /PIDECK_E2E_REMOTE_ROOT_POOLING/, "the product path must not depend on an E2E pooling override");
 });

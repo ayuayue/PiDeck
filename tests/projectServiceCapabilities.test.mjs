@@ -10,6 +10,9 @@ const FULL_HELPER = [
 	"fs.watch",
 	"fs.searchNames",
 	"fs.searchContent",
+	"fs.uploadPrepare",
+	"fs.uploadCommit",
+	"fs.uploadAbort",
 	"git.status",
 	"git.workspaceDiff",
 	"git.log",
@@ -46,7 +49,7 @@ function resolve(facts, methods) {
 
 test("本机项目：读写/Git 全开，但回收站、恢复与同步事实不假装存在", () => {
 	const capabilities = resolve(localFacts(), LOCAL_PROJECT_SERVICE_METHODS);
-	assert.deepEqual(plain(capabilities.files), { read: true, search: true, write: true, trash: false, textVersion: "none", contentSearch: true, systemOpen: true, watch: "full" });
+	assert.deepEqual(plain(capabilities.files), { read: true, search: true, write: true, upload: false, download: false, trash: false, textVersion: "none", contentSearch: true, systemOpen: true, watch: "full" });
 	assert.deepEqual(plain(capabilities.git), {
 		read: true,
 		diff: true,
@@ -71,13 +74,15 @@ test("本机项目：读写/Git 全开，但回收站、恢复与同步事实不
 		deleteFiles: true,
 	});
 	assert.equal(capabilities.blocked["files.trash"], PROJECT_SERVICE_CAPABILITY_REASONS.providerUnsupported);
+	assert.equal(capabilities.blocked["files.upload"], PROJECT_SERVICE_CAPABILITY_REASONS.providerUnsupported);
+	assert.equal(capabilities.blocked["files.download"], PROJECT_SERVICE_CAPABILITY_REASONS.providerUnsupported);
 	assert.equal(capabilities.blocked["git.recovery"], PROJECT_SERVICE_CAPABILITY_REASONS.providerUnsupported);
 	assert.equal(capabilities.blocked["git.syncFacts"], PROJECT_SERVICE_CAPABILITY_REASONS.providerUnsupported);
 });
 
 test("远端 ready + trust approved + 完整 helper：Git 读写/分支/同步/恢复/强刷/轮询可用；autoFetch/worktree/deleteFiles 保持关闭", () => {
 	const capabilities = resolve(remoteFacts(), REMOTE_PROJECT_SERVICE_METHODS);
-	assert.deepEqual(plain(capabilities.files), { read: true, search: true, write: true, trash: true, textVersion: "required", contentSearch: true, systemOpen: false, watch: "full" });
+	assert.deepEqual(plain(capabilities.files), { read: true, search: true, write: true, upload: true, download: true, trash: true, textVersion: "required", contentSearch: true, systemOpen: false, watch: "full" });
 	assert.equal(capabilities.git.read, true);
 	assert.equal(capabilities.git.compare, true);
 	assert.equal(capabilities.git.diff, true);
@@ -127,6 +132,15 @@ test("helper 未声明 Git 写动作：写能力关闭并带 helper 方法缺失
 	assert.equal(capabilities.blocked["git.write"], PROJECT_SERVICE_CAPABILITY_REASONS.helperMethodMissing);
 	// 只缺 stage 不影响分支写（createBranch/switchBranch 仍在声明里）。
 	assert.equal(capabilities.git.branchWrite, true);
+});
+
+test("SFTP upload 需要 prepare/commit/abort 三项 helper 能力，缺一项只关闭上传", () => {
+	for (const method of ["fs.uploadPrepare", "fs.uploadCommit", "fs.uploadAbort"]) {
+		const capabilities = resolve(remoteFacts({ helperCapabilities: FULL_HELPER.filter((entry) => entry !== method) }), REMOTE_PROJECT_SERVICE_METHODS);
+		assert.equal(capabilities.files.upload, false, method);
+		assert.equal(capabilities.blocked["files.upload"], PROJECT_SERVICE_CAPABILITY_REASONS.helperMethodMissing, method);
+		assert.equal(capabilities.files.download, true, method);
+	}
 });
 
 test("方法支持是能力的一层：G 实现远端写/强刷后，同一份 ready 事实立即改判", () => {

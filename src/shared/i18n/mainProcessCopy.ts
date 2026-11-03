@@ -409,7 +409,7 @@ export const mainProcessEnUS: Record<MainProcessTranslationKey, string> = {
 	"project.invalidPath": "The path is empty or invalid. Choose a folder again.",
 	"project.pathNotFound": "The folder does not exist or cannot be accessed: {path}",
 	"project.windowsPathInWslMode": "WSL mode is on, so only folders inside the WSL distro can be added. Pick a folder inside WSL, or turn off WSL mode in Settings first.",
-	"project.wslDistroMismatch": "That folder belongs to the WSL distro \"{distro}\", but \"{active}\" is active. Switch the distro in Settings and try again.",
+	"project.wslDistroMismatch": 'That folder belongs to the WSL distro "{distro}", but "{active}" is active. Switch the distro in Settings and try again.',
 	"project.wslPathNotFound": "The folder cannot be found in WSL: {path}. If the distro is not running, start it with wsl -d {distro} and try again.",
 	"project.wslEnvironmentUnavailable": "That WSL distribution is unavailable (not started, the profile no longer resolves, or wsl.exe could not run). Confirm the distro opens and try again.",
 	"session.notFound": "The session no longer exists. Refresh the session list and try again.",

@@ -74,8 +74,8 @@ test("the payload declares the frozen bundle identity with byte-proven bodies", 
 	assert.equal(payload.op, "deploy");
 	assert.equal(payload.bundleSha256, HASH);
 	assert.match(HASH, /^[0-9a-f]{64}$/);
-	// 名字来自冻结清单本身（排序后）：7 个 helper 产物 + runner 入口，没有第二份清单。
-	assert.deepEqual(Array.from(payload.files.map((file) => file.name)), ["config.mjs", "git-read.mjs", "git-sync.mjs", "git-write.mjs", "helper.mjs", "runner.mjs", "search-content.mjs", "terminal-runner.mjs"]);
+	// 名字来自冻结清单本身（排序后）：8 个 helper 产物 + runner 入口，没有第二份清单。
+	assert.deepEqual(Array.from(payload.files.map((file) => file.name)), ["config.mjs", "git-read.mjs", "git-sync.mjs", "git-write.mjs", "helper.mjs", "runner.mjs", "search-content.mjs", "terminal-runner.mjs", "upload-commit.mjs"]);
 	for (const file of payload.files) {
 		const bytes = Buffer.from(file.data, "base64");
 		assert.equal(bytes.length, file.bytes, file.name);

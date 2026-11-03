@@ -14,7 +14,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
  * 代价是 `role="menuitem"` 只有名字没有行为：打开后焦点不进菜单、方向键不动、Tab 会跑到
  * 菜单背后的页面、键盘焦点看不见、ESC 后焦点掉到 body。Radix 把这几件事一次补齐。
  */
-export function RemoteProjectRowMenu(props: { menu: { node: FileTreeNode; x: number; y: number }; busy: boolean; onClose: () => void; onDownload: () => void; onRename: () => void; onDelete: () => void }) {
+export function RemoteProjectRowMenu(props: { menu: { node: FileTreeNode; x: number; y: number }; busy: boolean; canWrite: boolean; canDownload: boolean; onClose: () => void; onDownload: () => void; onRename: () => void; onDelete: () => void }) {
 	const isFile = props.menu.node.type === "file";
 	const handleCloseAutoFocus = useMenuFocusReturn();
 	return (
@@ -43,16 +43,16 @@ export function RemoteProjectRowMenu(props: { menu: { node: FileTreeNode; x: num
 			/>
 			<DropdownMenuContent align="start" side="bottom" className="min-w-40" data-testid="remote-file-row-menu" onCloseAutoFocus={handleCloseAutoFocus}>
 				{isFile ? (
-					<DropdownMenuItem data-testid="remote-file-row-download" disabled={props.busy} onSelect={props.onDownload}>
+					<DropdownMenuItem data-testid="remote-file-row-download" disabled={props.busy || !props.canDownload} onSelect={props.onDownload}>
 						{t("remoteFileEntry.downloadAction")}
 					</DropdownMenuItem>
 				) : null}
 				{/* 分隔线放在改名/删除这一组之前，与本地文件树菜单（ComposerOverlayComponents.FileContextMenu）同构 */}
 				<DropdownMenuSeparator />
-				<DropdownMenuItem data-testid="remote-file-row-rename" disabled={props.busy} onSelect={props.onRename}>
+				<DropdownMenuItem data-testid="remote-file-row-rename" disabled={props.busy || !props.canWrite} onSelect={props.onRename}>
 					{t("remoteFileEntry.renameAction")}
 				</DropdownMenuItem>
-				<DropdownMenuItem variant="destructive" data-testid="remote-file-row-delete" disabled={props.busy} onSelect={props.onDelete}>
+				<DropdownMenuItem variant="destructive" data-testid="remote-file-row-delete" disabled={props.busy || !props.canWrite} onSelect={props.onDelete}>
 					{t("remoteFileEntry.deleteAction")}
 				</DropdownMenuItem>
 			</DropdownMenuContent>

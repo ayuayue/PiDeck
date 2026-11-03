@@ -85,3 +85,8 @@ test("UI contract anchors exist in the shipped renderer modules", () => {
 	assert.match(panel, /aria-live="polite"/);
 	assert.match(trash, /aria-live="polite"/);
 });
+
+test("a successful first directory load refreshes helper facts before upload readiness is consumed", () => {
+	const tree = readFileSync("src/renderer/src/hooks/useRemoteFileTree.ts", "utf8");
+	assert.match(tree, /activeServices\.facts\.helperCapabilities === undefined[\s\S]{0,180}void activeServices\.refresh\(\)/, "rootStatus cannot see a helper before the first session exists; the directory load must refill capability facts");
+});

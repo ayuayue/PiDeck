@@ -18,12 +18,16 @@ import { createHash } from "node:crypto";
 import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { getWhisperModelDef, resolveWhisperHostSupport, WHISPER_CPP_RELEASE_TAG, WHISPER_MODEL_CATALOG, whisperAssetUrl, whisperCppReleaseApiUrl, whisperModelUrlCandidates, type WhisperInstallProgress, type WhisperModelId, type WhisperRuntimeStatus } from "../../shared/types/whisperRuntime";
+import { modelHttpFetch } from "../modelHttp/request";
 
 /** 下载器：`onProgress(receivedBytes, totalBytes|undefined)`；`options.resumeFromBytes` 见 createNetDownloader。 */
 export type WhisperDownloader = (url: string, destPath: string, onProgress?: (received: number, total?: number) => void, signal?: AbortSignal, options?: { resumeFromBytes?: number }) => Promise<void>;
 
 /** Release 资产名 → sha256（小写 hex）；返回 null = API 不可达/解析失败。 */
 export type WhisperReleaseDigestsFetcher = (url: string) => Promise<Record<string, string> | null>;
+
+/** 摘要接口的网络实现：`net.fetch` 子集，便于测试注入替身。 */
+type ReleaseDigestsFetch = (url: string, init?: RequestInit) => Promise<Response>;
 
 export type WhisperRuntimeLayout = {
 	/** userData/voice-runtime：二进制版本目录与哈希锁都在这。 */
@@ -494,10 +498,14 @@ export class WhisperRuntimeManager {
 /**
  * 读取 GitHub Release 各资产的 sha256 digest（`assets[].digest = "sha256:<hex>"`）。
  * API 不可达/无 digest 返回 null，调用方落到「哈希锁定」兜底。
+ *
+ * 必须走 Chromium 网络栈：api.github.com 在国内不经代理经常直接超时，而全局
+ * fetch（undici）既不读系统代理也不读桌面 session 代理——失败后就会被静默降级
+ * 成哈希锁定，用户看不出问题，装包却少了「上游 digest」这道校验。
  */
-export async function fetchWhisperReleaseDigests(url: string): Promise<Record<string, string> | null> {
+export async function fetchWhisperReleaseDigests(url: string, fetchImpl: ReleaseDigestsFetch = modelHttpFetch): Promise<Record<string, string> | null> {
 	try {
-		const response = await fetch(url, { headers: { Accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(10_000) });
+		const response = await fetchImpl(url, { headers: { Accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(10_000) });
 		if (!response.ok) return null;
 		const parsed: unknown = await response.json();
 		if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as { assets?: unknown }).assets)) return null;

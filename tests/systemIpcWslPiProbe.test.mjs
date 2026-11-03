@@ -40,11 +40,7 @@ function handlerBody(source, channel) {
 
 test("piCheck 按 settings 的 WSL 三件套探测，不回落宿主机", () => {
 	const body = handlerBody(systemIpc, "piCheck");
-	assert.match(
-		body,
-		/piLocator\.check\(settings\.customPiPath, settings\.wslEnabled, settings\.wslDistro, settings\.wslUser, \{ forceWslProbe \}\)/,
-		"piCheck 必须传 settings.wslEnabled/wslDistro/wslUser，硬编码 false 会让 WSL 模式永远检测宿主机 pi",
-	);
+	assert.match(body, /piLocator\.check\(settings\.customPiPath, settings\.wslEnabled, settings\.wslDistro, settings\.wslUser, \{ forceWslProbe \}\)/, "piCheck 必须传 settings.wslEnabled/wslDistro/wslUser，硬编码 false 会让 WSL 模式永远检测宿主机 pi");
 });
 
 test("piInstallations / piCheckCustom 同样跟随 WSL 设置", () => {
@@ -59,11 +55,7 @@ test("关于弹框与反馈环境的 pi 版本探测也跟随 WSL 设置", () =>
 });
 
 test("模型列表失败归因的健康检查跟随 WSL 设置", () => {
-	assert.match(
-		modelListCache,
-		/piLocator\.check\(settings\.customPiPath, settings\.wslEnabled, settings\.wslDistro, settings\.wslUser\)/,
-		"失败归因不跟随 WSL 时，宿主机 pi 存在会把 WSL 侧失败误判成「pi 正常」",
-	);
+	assert.match(modelListCache, /piLocator\.check\(settings\.customPiPath, settings\.wslEnabled, settings\.wslDistro, settings\.wslUser\)/, "失败归因不跟随 WSL 时，宿主机 pi 存在会把 WSL 侧失败误判成「pi 正常」");
 });
 
 test("一键安装在 WSL 模式下不装宿主机副本，防重装扫描跟随 WSL 设置", () => {

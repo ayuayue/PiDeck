@@ -16,7 +16,8 @@ import type { ProjectServiceFacts, ProjectServiceFenceSlot, ProjectServices, Pro
  * - 事实/代变化：先更新代数槽，再用新 facts 重新构造 services；旧 services 的 await 结果会抛 GENERATION_STALE。
  *
  * 代数单调：generation = ssh:host:epoch[:mainGeneration]。主进程 facts 事件的 generation 可能晚于
- * 状态事件到达；已退役的 generation 永不重新采纳，避免旧 services 因字符串回退而“复活”。
+ * 状态事件到达；首次看到它只认领当前连接基线，不能把同一连接的文件事件误判成换代。
+ * 已退役的 generation 永不重新采纳，避免旧 services 因字符串回退而“复活”。
  */
 export type ProjectServiceRuntime = {
 	getSnapshot(): ProjectServices;
@@ -54,7 +55,10 @@ export function createProjectServiceRuntime(project: Project, api: ProjectServic
 	let disposed = false;
 	let started = false;
 	let epoch = 0;
+	/** 最近观察到的主进程连接代：用于识别迟到/旧代事件。 */
 	let mainGeneration: string | undefined;
+	/** 只有主进程连接代在已有关联之后又变化，才进入 services generation。 */
+	let generationMain: string | undefined;
 	const retiredGenerations = new Set<string>();
 	let factsRevision = 0;
 	let refreshSeq = 0;
@@ -67,7 +71,7 @@ export function createProjectServiceRuntime(project: Project, api: ProjectServic
 
 	function generation(): string {
 		if (remoteProject === undefined) return "local";
-		return "ssh:" + String(hostId) + ":" + String(epoch) + ":" + (mainGeneration ?? "local");
+		return "ssh:" + String(hostId) + ":" + String(epoch) + ":" + (generationMain ?? "local");
 	}
 
 	/** 用事实输入重建 services；generation 统一从当前代数派生，旧实例经共享槽位变成 stale。 */
@@ -89,6 +93,7 @@ export function createProjectServiceRuntime(project: Project, api: ProjectServic
 		factsRevision += 1;
 		retire(mainGeneration);
 		mainGeneration = undefined;
+		generationMain = undefined;
 		epoch += 1;
 		rebuild({ ...withoutGeneration(facts), hostState: change.state });
 		void refresh();
@@ -101,11 +106,19 @@ export function createProjectServiceRuntime(project: Project, api: ProjectServic
 			// 主进程当时不持有稳定身份：仍按“这个项目有一次失效”换一代，旧结果一律丢弃。
 			retire(mainGeneration);
 			mainGeneration = undefined;
+			generationMain = undefined;
 			epoch += 1;
 		} else {
 			if (candidate === mainGeneration || retiredGenerations.has(candidate)) return;
+			if (mainGeneration === undefined) {
+				// 状态/只读事实已经把 epoch 推到当前连接；首个带身份的 facts 事件是在补充基线，
+				// 不是第二次换代。否则一次上传自己触发的目录失效会 abort 自己。
+				mainGeneration = candidate;
+				return;
+			}
 			retire(mainGeneration);
 			mainGeneration = candidate;
+			generationMain = candidate;
 		}
 		factsRevision += 1;
 		rebuild(withoutGeneration(facts));
@@ -126,6 +139,7 @@ export function createProjectServiceRuntime(project: Project, api: ProjectServic
 		if (facts.hostState !== collected.hostState) {
 			retire(mainGeneration);
 			mainGeneration = undefined;
+			generationMain = undefined;
 			epoch += 1;
 		}
 		rebuild(collected);

@@ -39,6 +39,7 @@ test("codeOf 只透传稳定码，其余一律回落调用方给的域常量", (
 
 test("outcome 只由闭集推出：写面的 unconfirmed ⇒ unknown，其余 ⇒ rejected", () => {
 	assert.deepEqual(plain(opFailFromCode("REMOTE_FILE_RESULT_UNCONFIRMED")), { ok: false, code: "REMOTE_FILE_RESULT_UNCONFIRMED", outcome: "unknown" });
+	assert.deepEqual(plain(opFailFromCode("REMOTE_DOWNLOAD_RESULT_UNCONFIRMED")), { ok: false, code: "REMOTE_DOWNLOAD_RESULT_UNCONFIRMED", outcome: "unknown" });
 	assert.deepEqual(plain(opFailFromCode("REMOTE_FILE_CHANGED")), { ok: false, code: "REMOTE_FILE_CHANGED", outcome: "rejected" });
 
 	// 用户写面的 unconfirmed 全部进 unknown：重试会重复执行。

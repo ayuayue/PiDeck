@@ -62,6 +62,8 @@ export function fenceProjectFileService(fence: ProjectServiceFence, service: Pro
 		renameEntry: fenced(fence, service.renameEntry, "unknown"),
 		moveEntry: fenced(fence, service.moveEntry, "unknown"),
 		deleteEntry: fenced(fence, service.deleteEntry, "unknown"),
+		uploadFiles: fenced(fence, service.uploadFiles, "unknown"),
+		downloadFile: fenced(fence, service.downloadFile),
 		openInEditor: fenced(fence, service.openInEditor),
 		showInFolder: fenced(fence, service.showInFolder),
 	};

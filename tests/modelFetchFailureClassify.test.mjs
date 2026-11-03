@@ -50,6 +50,22 @@ function compile() {
 				session: {},
 			};
 		}
+		if (specifier === "../modelHttp/request") {
+			return {
+				modelHttpRequest: async () => {
+					if (responder instanceof Error) {
+						return { error: "network", detail: `${responder.name}: ${responder.message}` };
+					}
+					return {
+						status: responder.status,
+						statusText: responder.statusText ?? "",
+						raw: typeof responder.text === "function" ? await responder.text() : "",
+						truncated: false,
+						header: (name) => responder.headers?.get?.(name) ?? null,
+					};
+				},
+			};
+		}
 		if (specifier === "./baseUrlPath") {
 			return {
 				ensureOpenAiVersionPath: (url) => url,
@@ -144,6 +160,7 @@ test("content-type 声称 JSON 但正文不是 → 同样归入「被拦截」",
 		json: async () => {
 			throw new SyntaxError("Unexpected token '<'");
 		},
+		text: async () => '<html><meta name="aliyun_waf_aa"></html>',
 	};
 	const result = await makeManager().fetchProviderModels("https://agentrouter.org/v1", "sk-test", "openai-completions");
 	assert.equal(result.success, false);

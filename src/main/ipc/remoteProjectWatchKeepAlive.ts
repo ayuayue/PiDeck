@@ -33,11 +33,11 @@ export function createProjectWatchKeepAlive(): ProjectWatchKeepAlive {
 		keepAlive: {
 			retain(sessionKey) {
 				const owner = owners.get(sessionKey);
-				owner?.service.retainProjectSessionWatch(owner.hostId, owner.root);
+				owner?.service.retainProjectSessionWatch(owner.hostId, owner.root, sessionKey);
 			},
 			release(sessionKey) {
 				const owner = owners.get(sessionKey);
-				owner?.service.releaseProjectSessionWatch(owner.hostId, owner.root);
+				owner?.service.releaseProjectSessionWatch(owner.hostId, owner.root, sessionKey);
 			},
 		},
 	});

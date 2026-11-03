@@ -297,12 +297,13 @@ test("readBoundedBytesOrNull：reject 语义按 content-length 提前拒绝", as
 // 曾经各写一份全局 fetch，改用 modelHttpFetch 后加断言防回归：默认实现必须是
 // 统一层的 fetch，注入点（deps.fetchImpl / deps.fetch）保持不变以便测试替身。
 
-test("生图 / 生视频 / 语音转写的缺省传输是 modelHttpFetch，不留全局 fetch 兜底", () => {
+test("生图 / 生视频 / 语音转写 / 更新日志的缺省传输是 modelHttpFetch，不留全局 fetch 兜底", () => {
 	for (const [file, marker] of [
 		["src/main/imagegen/ImageGenService.ts", "await modelHttpFetch("],
 		["src/main/videogen/VideoJobRunner.ts", "this.deps.fetchImpl ?? modelHttpFetch"],
 		["src/main/voice/VoiceTranscriptionService.ts", "this.deps.fetch ?? modelHttpFetch"],
 		["src/main/voice/VolcengineSpeechClient.ts", "deps.fetchImpl ?? modelHttpFetch"],
+		["src/main/pi/PiChangelogService.ts", "this.deps.fetchImpl ?? modelHttpFetch"],
 	]) {
 		const source = readFileSync(file, "utf8");
 		assert.ok(source.includes('from "../modelHttp/request"'), `${file} 应导入统一传输层`);
@@ -311,10 +312,19 @@ test("生图 / 生视频 / 语音转写的缺省传输是 modelHttpFetch，不�
 	}
 });
 
-test("本地进程与静态资源仍用全局 fetch（不该走代理）", () => {
-	// whisper-server 是 127.0.0.1 上的本地子进程；Chromium 栈会把这类请求
-	// 带进代理判定，本机代理异常时反而挂掉。留断言防止有人「顺手统一」。
-	for (const file of ["src/main/voice/WhisperServerPool.ts", "src/main/voice/WhisperRuntimeManager.ts"]) {
+test("扩展目录页拉取把 fetchImpl 做成必填，删掉全局 fetch 兜底", () => {
+	const source = readFileSync("src/main/extensions/piPackageCatalog.ts", "utf8");
+	assert.ok(source.includes("fetchImpl: CatalogFetcher;"), "fetchImpl 应是必填参数（编译期强制调用方注入）");
+	assert.equal(/fetchImpl\s*=\s*args\.fetchImpl\s*\?\?\s*fetch/.test(source), false, "不应保留 args.fetchImpl ?? fetch 兜底");
+	assert.equal(/\?\?\s*fetch\b/.test(source), false, "文件内不应再出现全局 fetch 兜底");
+});
+
+test("本地进程与本地静态资源仍直连（不该走代理）", () => {
+	// whisper-server 是 127.0.0.1 上的本地子进程；WebStaticAssets 扟的是本机 vite
+	// dev server。Chromium 栈会把这类请求带进代理判定，本机代理异常时反而挂掉。
+	// 留断言防止有人「顺手统一」。注：同文件里的 WhisperRuntimeManager 只管文件落位/
+	// 解压，它唯一的外网请求（GitHub Release 摘要）在境外，所以它走统一层。
+	for (const file of ["src/main/voice/WhisperServerPool.ts", "src/main/web/WebStaticAssets.ts"]) {
 		const source = readFileSync(file, "utf8");
 		assert.equal(source.includes('from "../modelHttp/request"'), false, `${file} 应继续直连，不经代理栈`);
 	}

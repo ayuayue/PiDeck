@@ -111,7 +111,7 @@ test("自动学习开关：默认关、依赖启用开关、四端接线齐全",
 
 	// 学习循环必须挂在「回合结算」上，并且真的读这两个开关（否则开了也不跑）。
 	const main = readFileSync("src/main/index.ts", "utf8");
-	assert.match(main, /runLearnerPass\(/, "主进程没接学习循环");
+	assert.match(main, /runLearnerForAgent\(/, "主进程没接带后端会话 ID 映射的学习入口");
 	assert.match(main, /!\s*settings\??\.agentMemoryEnabled\s*\|\|\s*!\s*settings\.agentMemoryAutoLearnEnabled/, "学习循环必须同时看两个开关");
 	for (const key of ["settings.agentMemoryAutoLearn", "settings.agentMemoryAutoLearnDesc"]) {
 		assert.ok(readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8").includes(`"${key}"`), `missing i18n key: ${key}`);

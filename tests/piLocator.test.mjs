@@ -1047,11 +1047,7 @@ test("macOS 上 Homebrew 目录排在继承的 PATH 之前（#484：垫片的 en
 });
 
 test("runCheck 失败时反查 env node 并把它写进原因与日志（#484）", async () => {
-	const stderr = Buffer.from([
-		"file:///opt/stale/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/chunk-44DLKSKE.js:47",
-		"        throw new TypeError('zlib.createZstdDecompress is not a function');",
-		"TypeError: zlib.createZstdDecompress is not a function",
-	].join("\n"));
+	const stderr = Buffer.from(["file:///opt/stale/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/chunk-44DLKSKE.js:47", "        throw new TypeError('zlib.createZstdDecompress is not a function');", "TypeError: zlib.createZstdDecompress is not a function"].join("\n"));
 	const calls = [];
 	const execFile = (command, args, _options, callback) => {
 		calls.push({ command, args });

@@ -61,7 +61,7 @@ export type VerifiedSshArgvInput = {
 	connectTimeoutMs: number;
 };
 
-export type VerifiedSshCommandKind = "ssh-batch" | "ssh-terminal" | "scp";
+export type VerifiedSshCommandKind = "ssh-batch" | "ssh-terminal" | "ssh-sftp" | "scp";
 
 function validLocalPath(path: unknown): path is string {
 	return typeof path === "string" && path.length <= 4096 && isAbsolute(path) && !/[\x00-\x1f\x7f%]/.test(path);
@@ -74,11 +74,12 @@ export function buildVerifiedSshArgv(target: VerifiedSshArgvInput, kind: Verifie
 	if (typeof target.hostName !== "string" || !validHost(target.hostName) || typeof target.user !== "string" || !/^[A-Za-z0-9_][A-Za-z0-9_.@-]*$/.test(target.user) || !validPort(target.port)) throw new Error("INVALID_SSH_VERIFIED_TARGET");
 	if (!validLocalPath(target.pinFile) || (target.identityFile !== undefined && !validLocalPath(target.identityFile))) throw new Error("INVALID_SSH_LOCAL_PATH");
 	if (!Number.isSafeInteger(target.connectTimeoutMs) || target.connectTimeoutMs < 1000 || target.connectTimeoutMs > 120_000) throw new Error("INVALID_SSH_CONNECT_TIMEOUT");
-	if (kind !== "ssh-batch" && kind !== "ssh-terminal" && kind !== "scp") throw new Error("INVALID_SSH_COMMAND_KIND");
+	if (kind !== "ssh-batch" && kind !== "ssh-terminal" && kind !== "ssh-sftp" && kind !== "scp") throw new Error("INVALID_SSH_COMMAND_KIND");
 	const globalHostsFile = process.platform === "win32" ? "NUL" : "/dev/null";
 	const args = [
 		// Interactive bytes are remote shell input, never OpenSSH's local escape/forwarding console.
-		...(kind === "ssh-batch" ? ["-T"] : kind === "ssh-terminal" ? ["-tt", "-e", "none"] : []),
+		...(kind === "ssh-batch" || kind === "ssh-sftp" ? ["-T"] : kind === "ssh-terminal" ? ["-tt", "-e", "none"] : []),
+		...(kind === "ssh-sftp" ? ["-s"] : []),
 		// A direct IP needs no Host alias expansion. Ignore inherited SendEnv/Match rules on this route.
 		...(isIP(target.sshHost) !== 0 && target.proxyJump === undefined ? ["-F", process.platform === "win32" ? "NUL" : "/dev/null"] : []),
 		"-o",
@@ -142,6 +143,7 @@ export function buildVerifiedSshArgv(target: VerifiedSshArgvInput, kind: Verifie
 	];
 	if (target.proxyJump !== undefined) args.push("-J", target.proxyJump);
 	if (target.identityFile !== undefined) args.push("-i", target.identityFile, "-o", "IdentitiesOnly=yes");
-	if (kind !== "scp") args.push("--", target.sshHost);
+	if (kind === "ssh-sftp") args.push("--", target.sshHost, "sftp");
+	else if (kind !== "scp") args.push("--", target.sshHost);
 	return args;
 }

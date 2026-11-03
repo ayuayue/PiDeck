@@ -467,7 +467,11 @@ test("WSL 模式只返回发行版内那一份，不掺宿主候选", async () =
 		assert.equal(plain.length, 1);
 		assert.equal(plain[0].source, "wsl");
 		assert.equal(plain[0].isActive, true);
-		assert.equal(plain.some((item) => item.source === "managed"), false, "宿主 managed 安装不得混进 WSL 模式的列表");
+		assert.equal(
+			plain.some((item) => item.source === "managed"),
+			false,
+			"宿主 managed 安装不得混进 WSL 模式的列表",
+		);
 	} finally {
 		harness.cleanup();
 	}

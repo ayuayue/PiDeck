@@ -52,8 +52,9 @@ jobs:
           cache-dependency-path: |
             native/xue-index/go.sum
             native/file-index/go.sum
+            native/remote-sftp/go.sum
 
-      # 三个 sidecar 的 Go 单测：宿主与 Go 侧的协议字段名/索引语义是手写镜像，
+      # Go sidecar 单测：宿主与 Go 侧的协议字段名/索引语义是手写镜像，
       # 本地漏跑时靠这里兜底（例如快照与语料同代校验、URI 路径转义）
       - name: Go unit tests (sidecars)
         run: |
@@ -61,6 +62,7 @@ jobs:
           go -C native/xue-index test ./...
           go -C native/file-index test ./...
           go -C native/session-store test ./...
+          go -C native/remote-sftp test ./...
 
       - name: Install dependencies
         run: npm ci
@@ -80,6 +82,8 @@ jobs:
           FILE_INDEX_ARCH: ${{ matrix.arch }}
           SESSION_STORE_OS: darwin
           SESSION_STORE_ARCH: ${{ matrix.arch }}
+          REMOTE_SFTP_OS: darwin
+          REMOTE_SFTP_ARCH: ${{ matrix.arch }}
 
       # 打包后门禁：bundle 必须有有效签名（无 Apple 证书时靠 build.mac.identity 的显式
       # ad-hoc，原因见 docs/release-process.md「打包验证」与 issue #347）。

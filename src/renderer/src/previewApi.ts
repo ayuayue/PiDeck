@@ -540,6 +540,11 @@ export function createPreviewApi(): PiDesktopApi {
 			searchProject: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED", outcome: "rejected" as const }),
 			rootStatus: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED", outcome: "rejected" as const }),
 		},
+		remoteTransfers: {
+			start: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED", outcome: "rejected" as const }),
+			cancel: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED", outcome: "rejected" as const }),
+			onEvent: () => () => undefined,
+		},
 		remoteSessions: {
 			scan: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED", outcome: "rejected" as const }),
 			register: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED", outcome: "rejected" as const }),

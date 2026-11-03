@@ -320,7 +320,7 @@ import { isDefaultAgentTitle } from "./pi/agentUtils";
 import { CompositeAgentGateway } from "./agents/CompositeAgentGateway";
 import { AcpAgentManager } from "./acp/AcpAgentManager";
 import { buildAcpMcpServers, buildAgentMemoryMountForApp, memoryDirOfMount, resolveAgentMemoryDir, sourcesOfMount } from "./agentMemory/agentMemoryMounts";
-import { runLearnerPass } from "./agentMemory/agentMemoryLearner";
+import { runLearnerForAgent } from "./agentMemory/agentMemoryLearner";
 import { resolveEnhanceTargetModel } from "../shared/enhanceModelPreference";
 import { syncAgentMemoryRegistration } from "./agentMemory/AgentMemoryMcpRegistration";
 import { clearAgentMemoryIndex, readAgentMemoryStatus } from "./agentMemory/agentMemoryStatus";
@@ -447,15 +447,18 @@ import { registerRemoteProjectIpc } from "./ipc/remoteProjectIpc";
 import { createRemoteFactsHub } from "./remote/RemoteFactsNotifications";
 import { registerRemoteProjectFileIpc } from "./ipc/remoteProjectFileIpc";
 import { registerRemoteProjectTransferIpc } from "./ipc/remoteProjectTransferIpc";
+import { registerRemoteProjectTransferJobIpc } from "./ipc/remoteProjectTransferJobIpc";
 import { registerRemoteProjectEntryIpc } from "./ipc/remoteProjectEntryIpc";
 import { registerRemoteProjectTrustIpc } from "./ipc/remoteProjectTrustIpc";
 import { registerRemoteSessionIpc } from "./ipc/remoteSessionIpc";
 import { registerRemotePiModelIpc } from "./ipc/remotePiModelIpc";
 import { createRemotePiModelProbe } from "./pi/RemotePiModelProbe";
 import { createRemoteHostConnectionService, type RemoteHostConnectionService } from "./remote/RemoteHostConnectionService";
+import { ROOT_POOL_DEFAULT_POLICY } from "./remote/RemoteRootSessionPool";
 import { createRemoteModelCatalog, REMOTE_MODEL_CATALOG_CODES } from "./remote/RemotePiModelCatalog";
 import { createSshClientRuntime, resolvePosixSshClient, type SshClientRuntime } from "./remote/SshClientRuntime";
 import { buildPinnedSshInvocation } from "./remote/SshVerifiedConnection";
+import { loadRemoteSftpBinaryIdentity, type RemoteSftpBinaryIdentity } from "./remote/RemoteSftpBinary";
 import { createRemoteSessionHistoryReader } from "./remote/RemoteSessionHistoryReader";
 import { createRemoteSessionArchive } from "./remote/RemoteSessionArchive";
 import { createRemoteSessionDelete } from "./remote/RemoteSessionDelete";
@@ -3500,13 +3503,7 @@ function registerIpc() {
 		});
 		return remoteSshClientPending;
 	};
-	/**
-	 * Build the connection service, discovering and verifying the client first.
-	 *
-	 * Discovery is async (it probes the client), so this returns a promise; the IPC boundary awaits it
-	 * and turns any failure into a stable code rather than letting it escape as an unhandled rejection.
-	 * The result is cached so a second connect does not re-probe.
-	 */
+	/** Discover the verified client once; failed construction can be retried. */
 	let remoteHostServicePending: Promise<import("./remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined;
 	const remoteHostServiceIfEnabled = (): Promise<import("./remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined => {
 		if (!remoteExperimentEnabled) return undefined;
@@ -3518,6 +3515,7 @@ function registerIpc() {
 			const service = createRemoteHostConnectionService({
 				userDataDir: app.getPath("userData"),
 				client,
+				rootPooling: ROOT_POOL_DEFAULT_POLICY,
 				// 内置扩展快照的来源：与本地 `-e` 注入同一份「当前生效」字节（覆盖层优先，整份校验）。
 				builtInExtensionRoots: resolveBuiltInExtensionRoots(),
 				onDisconnect: (hostId) => {
@@ -3662,6 +3660,25 @@ function registerIpc() {
 			return project && isRemoteProject(project) ? project.locator : undefined;
 		},
 	});
+	let remoteSftpBinary: Promise<RemoteSftpBinaryIdentity | undefined> | undefined;
+	const remoteProjectTransfers = registerRemoteProjectTransferJobIpc({
+		enabled: remoteExperimentEnabled,
+		service: remoteHostServiceIfEnabled,
+		locator: (projectId) => {
+			const project = projectStore.get(projectId);
+			return project && isRemoteProject(project) ? project.locator : undefined;
+		},
+		binary: () => (remoteSftpBinary ??= loadRemoteSftpBinaryIdentity({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() })),
+		afterWrite: (projectId, paths) => {
+			remoteProjectFacts?.afterWrite(projectId, paths);
+			remoteGitReads.invalidateProject(projectId);
+		},
+		afterUnknown: (projectId) => {
+			remoteProjectIpc.invalidateTree(projectId);
+			remoteGitReads.invalidateProject(projectId);
+		},
+	});
+	quitCleanup.register("remote-project-transfer-jobs", remoteProjectTransfers.dispose);
 	// 文件管理（Phase 5 文件面）：8 条 new/rename/delete/trash 通道 + 独立 entry 令牌表 + sender 写单飞。
 	// 与文本保存 IPC 各自持有令牌表；窗口销毁时两个模块各自撤销自己的表（冻结语义：两类令牌都不可再用）。
 	const remoteProjectEntries = registerRemoteProjectEntryIpc({
@@ -4060,7 +4077,11 @@ function registerIpc() {
 		getMainWindow: () => mainWindow,
 		userDataDir: app.getPath("userData"),
 		// 项目关闭时退订它的目录订阅；连接/窗口级清理分别在 onDisconnect 与 quitCleanup 里。
-		onProjectRemoved: (projectId) => remoteProjectIpc.closeProject(projectId),
+		onProjectRemoved: async (projectId, removed) => {
+			remoteProjectTransfers.closeProject(projectId);
+			await remoteProjectIpc.closeProject(projectId);
+			if (removed && isRemoteProject(removed)) await remoteHostService?.retireProjectSession(removed.locator.hostId, removed.locator.remotePath);
+		},
 		resolveWslEnvironment: async (distro, user) => {
 			const { resolveWslEnvironment } = await import("./wsl/WslEnvironment");
 			return resolveWslEnvironment(distro, user, {
@@ -7289,20 +7310,19 @@ app
 			const settings = settingsStore?.get();
 			if (!settings?.agentMemoryEnabled || !settings.agentMemoryAutoLearnEnabled) return;
 			const tab = compositeAgentGateway?.list().find((candidate) => candidate.id === info.agentId);
-			const sessionId = tab?.deckSessionId;
-			if (!sessionId) return;
-			const mount = createAgentMemoryMount(tab?.cwd);
-			void runLearnerPass(
+			if (!tab) return;
+			const mount = createAgentMemoryMount(tab.cwd);
+			void runLearnerForAgent(
 				{
 					root: memoryDirOfMount(mount),
 					sources: sourcesOfMount(mount),
-					complete: (input) => memoryLearnComplete(sessionId, input),
+					complete: memoryLearnComplete,
 					logger: {
 						info: (channel, message, meta) => void appLogger.info(channel, message, meta),
 						warn: (channel, message, meta) => void appLogger.warn(channel, message, meta),
 					},
 				},
-				{ sessionId, projectId: tab?.projectId ?? "" },
+				tab,
 			).catch((error: unknown) => {
 				void appLogger.warn("agent-memory", "learn pass crashed", { error: error instanceof Error ? error.message : String(error) });
 			});

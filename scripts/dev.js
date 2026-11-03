@@ -132,6 +132,16 @@ function runDev() {
 	} catch (error) {
 		console.warn("[dev] build:session-store 跳过:", error instanceof Error ? error.message : error);
 	}
+	// Go remote-sftp executor（SFTP-0 原型）：产物缺失只表示能力不可用，不阻断开发启动
+	try {
+		require("node:child_process").execSync("npm run build:remote-sftp", {
+			cwd: path.join(__dirname, ".."),
+			stdio: "inherit",
+			shell: true,
+		});
+	} catch (error) {
+		console.warn("[dev] build:remote-sftp 跳过:", error instanceof Error ? error.message : error);
+	}
 	checkElectronBinaryBeforeDev();
 	const invocation = getElectronViteInvocation();
 	// Windows 下切换到 UTF-8 代码页，使终端能正确显示中文输出

@@ -1653,7 +1653,13 @@ export class AgentManager {
 		const oldestEntryId = pickAnchorEntryId(page) ?? pickAnchorEntryIdBefore(start);
 		// 缓存里没有能当锚点的更早条目：缓存这条线索到此为止，交给文件路径按数值 before 继续翻。
 		if (!oldestEntryId) return null;
-		const nextBefore = oldestEntryId ? ((await this.sessionHistoryReader.resolveEntryPosition(sessionPath, oldestEntryId)) ?? null) : null;
+		// 文件位置 0 = 锚点就在文件头，即「没有更早历史」：必须给 null，与文件路径
+		// readTurnPageCore 的 `nextBefore: start > 0 ? start : null` 同一口径。
+		// 给 0 的话渲染层按 `nextBefore !== null` 判定还有更早历史，于是「加载更多对话」
+		// 永远挂在第一条消息上方，点一次只换来一页空数据、界面毫无变化（2026-12 真机）。
+		const anchorPosition = await this.sessionHistoryReader.resolveEntryPosition(sessionPath, oldestEntryId);
+		const hasEarlier = typeof anchorPosition === "number" && anchorPosition > 0;
+		const nextBefore = hasEarlier ? anchorPosition : null;
 		const total = await this.sessionHistoryReader.getActiveEntryCount(sessionPath);
 		// 与文件路径同口径的会话文件版本：渲染层据此检测压缩/外部改写并丢弃已缓存的历史前缀
 		// （indexVersion 缺失会让 cache 页沿用旧版本，压缩后前缀失效不可见）。
@@ -1664,7 +1670,7 @@ export class AgentManager {
 			pos,
 			pageCount: page.length,
 			// 续页锚点打出来：「加载更多对话」不出现时，先看这两位是不是都空。
-			nextBeforeEntryId: oldestEntryId ?? null,
+			nextBeforeEntryId: hasEarlier ? oldestEntryId : null,
 			nextBefore,
 		});
 		return {
@@ -1674,7 +1680,7 @@ export class AgentManager {
 			messages: stripToolResultForDelivery(page),
 			total,
 			nextBefore,
-			...(oldestEntryId ? { nextBeforeEntryId: oldestEntryId } : {}),
+			...(hasEarlier ? { nextBeforeEntryId: oldestEntryId } : {}),
 			indexVersion,
 		};
 	}

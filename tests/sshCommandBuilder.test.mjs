@@ -90,3 +90,24 @@ test("verified argv rejects forged aliases, OpenSSH path tokens and invalid comm
 	}
 	assert.throws(() => buildVerifiedSshArgv(target, "scp -T"), /INVALID_SSH_COMMAND_KIND/);
 });
+
+test("SFTP requests the subsystem through the same pinned OpenSSH route", () => {
+	const hostId = "01234567-89ab-4def-8123-456789abcdef";
+	const target = {
+		hostId,
+		sshHost: "work-server",
+		hostName: "server.example.invalid",
+		user: "alice",
+		port: 2222,
+		pinAlias: `pideck-${hostId}`,
+		pinFile: process.platform === "win32" ? "C:\\pin" : "/tmp/pin",
+		connectTimeoutMs: 15000,
+	};
+	const args = Array.from(buildVerifiedSshArgv(target, "ssh-sftp"));
+	assert.equal(args[0], "-T");
+	assert.equal(args[1], "-s");
+	assert.deepEqual(args.slice(-3), ["--", "work-server", "sftp"]);
+	assert.ok(args.includes("StrictHostKeyChecking=yes"));
+	assert.ok(args.includes(`UserKnownHostsFile=${target.pinFile}`));
+	assert.ok(args.includes("ControlMaster=no"));
+});

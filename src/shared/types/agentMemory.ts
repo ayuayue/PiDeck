@@ -50,6 +50,10 @@ export interface AgentMemoryEntry {
 	chars: number;
 	/** `failure` 的分类；其他目标为空串。 */
 	category: string;
+	/** 写入时间（ISO 串，来自记忆索引；索引不可用或尚未同步的旧条目为空）。 */
+	updatedAt?: string;
+	/** 仅标记宿主自动学习新写入的条目；历史无记录时缺省，不推断来源。 */
+	source?: "auto-learn";
 }
 
 export interface AgentMemoryEntryGroup {

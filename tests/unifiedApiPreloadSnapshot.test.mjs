@@ -2,8 +2,8 @@
  * F8 · preload 暴露面快照守卫（TEST-PLAN §F8，6 例=4 正+2 负）。
  *
  * 捕获 src/preload/index.ts 经 contextBridge 实际暴露的 piDesktop API，对
- * 81 命名空间清单与每命名空间方法清单做 sha256 快照（A10：暴露面零变化），
- * 并核对数量锚点（sessions 116 / config 50 / git 59 / app 32）与订阅形态。
+ * 82 命名空间清单与每命名空间方法清单做 sha256 快照（A10：暴露面零变化），
+ * 并核对数量锚点（sessions 117 / config 53 / git 64 / app 32）与订阅形态。
  * 摘要来源：T7 只读探针实测（2026-10-14；2026-10-16 合并刷新随 dev 演进重算：
  * yaoPrompts 方法与 sessions.searchContent、skillHub.onInstallProgress 入场，命名空间数不变；
  * 2026-10-17 再刷新：files.searchContent（file-index 工作区文件内容检索）入场，命名空间/方法数锚点不变；
@@ -30,8 +30,10 @@
  *   命名空间数与数量锚点不变，仅方法清单摘要变化。
  * 2026-11-02 合并刷新：远端 agentMemory 与本地 remoteHosts 两条并行命名空间同时入场，
  *   79→80；sessions 117 / config 52 / git 64 / app 32 不变。
+ * 2026-11-02 SFTP-0 刷新：remoteTransfers（start/cancel/onEvent）入场，80→81；
+ *   方法清单摘要随三方法变化，数量锚点不变。
  * 2026-11-03 刷新：codebuddySessions（CodeBuddy 会话导入，与 WorkBuddy 同一家族管线）入场，
- *   命名空间 80→81，仅方法清单摘要变化。
+ *   与 SFTP-0 的 remoteTransfers 并行合入后命名空间 80→82。
  *   同批把 config 锚点 52→53：上一提交 b383f3709 加了 config.getTokendancePriceTags
  *   却漏刷本快照，dev 上 F8-3 一直是红的；此处按实测暴露面刷新，未改动断言强度。
  */
@@ -40,9 +42,9 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const NS_LIST_SHA256 = "5532f8bb47a6ec6647b7bdd8278c2c38b2a23007d871f1aa8c6a1a3a48da3a0d";
-const FULL_METHODS_SHA256 = "5d640ab186377673d90273d60bdb62b80c8573e3e19461b8d3cb812498a4bc7a";
-const NAMESPACE_COUNT = 81;
+const NS_LIST_SHA256 = "ecf92dceedeea2d9b21c5625e42f3f30786c264a01fba4cb738834630948efee";
+const FULL_METHODS_SHA256 = "861d00b17654d29223d968f3b4f8216ff9a8c77c5c3cac87cae32f883a0b183f";
+const NAMESPACE_COUNT = 82;
 
 /** 捕获 preload 暴露的 piDesktop；null/undefined/形态不符时显式红并给诊断（F8-6 共用）。 */
 function assertValidCapture(capture) {
@@ -85,7 +87,7 @@ const api = capturePreloadApi();
 const namespaces = sortedKeys(api);
 const methodLines = namespaces.map((ns) => `${ns}=${sortedKeys(api[ns]).join(",")}`);
 
-test("F8-1 preload 顶层命名空间数 === 81 且排序清单摘要零漂移", () => {
+test("F8-1 preload 顶层命名空间数 === 82 且排序清单摘要零漂移", () => {
 	assert.equal(namespaces.length, NAMESPACE_COUNT, `命名空间数 ${namespaces.length} ≠ ${NAMESPACE_COUNT}`);
 	assert.equal(sha256(namespaces.join(",")), NS_LIST_SHA256, "命名空间清单摘要漂移：preload 暴露面发生变化（A10 红线）");
 });

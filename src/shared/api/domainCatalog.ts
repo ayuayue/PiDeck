@@ -5,7 +5,7 @@
  * 的静态映射，不 import 运行时代码。行数据由通道面探针推导（锚定数字见 TEST-PLAN §0），非手写臆测。
  * 守卫测试 tests/unifiedApiDomainCatalog.test.mjs
  * 校验：id 唯一且 kebab-case、63 行、每行 channelPrefix ⊆ shared/ipc.ts 实际 92 前缀、
- * 两表并集认领全部 92 前缀与 80 命名空间（F1-4/5/6）、红线行 aggregation === "redline"（F1-7）。
+ * 两表并集认领全部 92 前缀与 81 命名空间（F1-4/5/6）、红线行 aggregation === "redline"（F1-7）。
  * 2026-10-16 合并刷新：随 dev 演进补 acp/wechat/host-plugins/pideck-mcp/videogen/notice-history
  * 六行（+7 前缀 +6 命名空间，探针口径同 §0），sessions/config 收口组同步补新方法。
  * 2026-10-18 远端合并刷新：补 remote 行（remote:* 前缀 + remoteHosts/probeRemoteModels/
@@ -152,15 +152,16 @@ export const DOMAIN_CATALOG = [
 	{ id: "automation", group: "integration", manager: "AutomationStore + AutomationScheduler + RunCoordinator", ipcFile: ["ipc/automationIpc.ts"], preloadNamespaces: ["automation"], channelPrefix: ["automation"], aggregation: "aggregate" },
 	{ id: "acp", group: "integration", manager: "AcpAgentManager + AcpConnection/AcpProcessHost + AcpMessageSnapshotStore（外部 ACP CLI agent 接入）", ipcFile: ["ipc/acpIpc.ts"], preloadNamespaces: ["acp"], channelPrefix: ["acp"], aggregation: "aggregate" },
 	// 裁决（远端合并刷新）：远端开发面（SSH 主机/项目/文件/会话/信任/模型探测/Git 只读）
-	// 全部经 remote:* 前缀，由四个 preload 命名空间承载——remoteHosts（主机与远端项目读写）、
-	// probeRemoteModels（主机级模型探测，无独立前缀）、remoteTrust、remoteSessions（只读发现与登记）。
+	// 全部经 remote:* 前缀，由五个 preload 命名空间承载——remoteHosts（主机与远端项目读写）、
+	// probeRemoteModels（主机级模型探测，无独立前缀）、remoteTrust、remoteSessions（只读发现与登记）、
+	// remoteTransfers（SFTP 任务级启动/取消/事件）。
 	// 远端会话读写本身仍归 sessions 域；本行只认领远端访问与传输面。
 	{
 		id: "remote",
 		group: "integration",
-		manager: "RemoteHostStore + RemoteHostConnectionService + RemoteWorkspaceReader + RemoteSessionHistoryWriter + RemoteHostReferenceRegistry（SSH 主机/项目/会话/信任/模型探测）",
-		ipcFile: ["ipc/remoteHostIpc.ts", "ipc/remoteProjectIpc.ts", "ipc/remoteProjectFileIpc.ts", "ipc/remoteProjectEntryIpc.ts", "ipc/remoteProjectCreateIpc.ts", "ipc/remoteProjectTrustIpc.ts", "ipc/remoteSessionIpc.ts", "ipc/remoteGitReadIpc.ts", "ipc/remotePiModelIpc.ts"],
-		preloadNamespaces: ["remoteHosts", "probeRemoteModels", "remoteTrust", "remoteSessions"],
+		manager: "RemoteHostStore + RemoteHostConnectionService + RemoteWorkspaceReader + RemoteSessionHistoryWriter + RemoteHostReferenceRegistry + RemoteProjectTransferRegistry + RemoteSftpAdapter（SSH 主机/项目/会话/信任/模型探测/SFTP 传输）",
+		ipcFile: ["ipc/remoteHostIpc.ts", "ipc/remoteProjectIpc.ts", "ipc/remoteProjectFileIpc.ts", "ipc/remoteProjectEntryIpc.ts", "ipc/remoteProjectCreateIpc.ts", "ipc/remoteProjectTrustIpc.ts", "ipc/remoteSessionIpc.ts", "ipc/remoteGitReadIpc.ts", "ipc/remotePiModelIpc.ts", "ipc/remoteProjectTransferJobIpc.ts"],
+		preloadNamespaces: ["remoteHosts", "probeRemoteModels", "remoteTrust", "remoteSessions", "remoteTransfers"],
 		channelPrefix: ["remote"],
 		aggregation: "aggregate",
 	},

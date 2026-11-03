@@ -192,7 +192,10 @@ export async function buildPinnedSshInvocation(userDataDir: string, hostId: stri
 	await assertReadableIdentity(target.identityFile);
 	const candidate = await cachedCandidateRoute(profile, target.pinAlias, client);
 	assertSavedRoute(candidate.hostName, candidate.user, candidate.port, sshRouteDigest(candidate), profile);
-	const strictArgs = kind === "scp" ? ["-G", ...requestedArgs, "--", target.sshHost] : ["-G", ...requestedArgs.slice(1)];
+	// SFTP adds transport-only `-T -s` before the common route flags and a
+	// subsystem name after the destination. `ssh -G` validates the route, not
+	// either of those transport selectors.
+	const strictArgs = kind === "scp" ? ["-G", ...requestedArgs, "--", target.sshHost] : kind === "ssh-sftp" ? ["-G", ...requestedArgs.slice(2, -1)] : ["-G", ...requestedArgs.slice(1)];
 	const strictQuery = await client.run(client.sshPath, strictArgs);
 	const effective = parseSshResolvedRoute(strictQuery);
 	assertSavedRoute(effective.hostName, effective.user, effective.port, sshRouteDigest(effective), profile);

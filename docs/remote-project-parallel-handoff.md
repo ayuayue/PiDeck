@@ -1,4 +1,4 @@
-Status: **Active plan** — 2026-10-31（I0 集成更新，取代原「A0 已完成、P/S/T/F/G 待实施」状态）；基线 `dev / 24529c394`。A0、P、S/T 已在集成工作区 `F:\PiDeck` 整合并通过门禁，并以一组提交落到 `dev`（未 push；范围 `git log --oneline 24529c394..dev`）；S 契约已冻结（§8.2）、T 已验证（§8.5）；**F/G 可开工**；V **未核验（未找到产出物）**，不得表述为「V 已通过」。凡与源码冲突的旧表述以源码为准。
+Status: **Active plan** — 2026-11-02 生产池化已完成真实主机签收并默认开启；2026-11-03 最终审计修复后再次通过真实主机复验。当前状态见 §11，以下 I0 / F/G 历史检查点保持原基线；当前事实以 §11 和源码为准。
 
 # 远程多项目与面板服务并行交接
 
@@ -367,7 +367,7 @@ node F:\PiDeck\scripts\panel-baseline.mjs sync --to F:\PiDeck-f
 ### 8.8 剩余集成 / 真机验收项（不阻塞 F/G 开工，但必须在对应节点闭环）
 
 1. **V 未核验** → 基线发布后补一次独立只读 V（§8.6）。
-2. **真机/资源验收**（池化默认开启前必须）：N=1..4 多项目 soak、RSS/线程/SSH 连接数、TTL 回落、A/B/C 切换 p50/p95、latched 重建、断连/重绑/root drift 的 E2E；现有离线测试只覆盖默认关闭路径。
+2. **真机/资源验收**（已完成，2026-11-02）：A/B/C ≥60s、六 root RSS/线程/SSH 峰值、断连/重连、关闭/重开和隔离已通过；真实 TTL 到期、第七 root 满载、多 host 争用仍由离线测试或后续长稳覆盖，见 §11。
 3. **stat 的 missing 语义**：公共 `files.stat` 仍把读取失败折叠成 `exists:false`，provider 只能报 `unavailable`。要启用 `missing` 需集成者改 `shared/types/projectFiles + filesIpc + preload` 带失败码——F 在此之前**不得把 unavailable 当删除**。
 4. **事实订阅统一入口**：`projectServiceFactSubscription` 的引用计数只覆盖 `services` runtime；现有 hooks 直接订 `onProjectFactsChanged` 会互相退订。F/G 同时开两个直订 hook 会掉订阅——统一入口定案前，二者都走 `useProjectServices` 的 runtime。
 5. **trust 无推送事件**：设置页改 trust 后能力可能滞后，需 UI 显式 `services.refresh()` 或补事件（集成者）。
@@ -375,10 +375,10 @@ node F:\PiDeck\scripts\panel-baseline.mjs sync --to F:\PiDeck-f
 7. **远端 Git 写面**：G 接 main 令牌经纪；「纯事实强刷」若需扩 force 参数，由集成者一次接全 `shared/preload/main`（P 已释放 `remoteGitReadIpc.ts`）。
 8. **远端 Git 读能力偏保守**：依赖 helper hello 声明 `git.status/workspaceDiff/log/repos/refs/compare`，旧 helper 会整块关闭读；是否放宽由 P/S 复核，G 不得反向探测。
 9. **ADR 文档漂移**：`project-panel-service-seam-adr.md` 仍写远端文件名搜索走统一 `files.search`，实际 main 对 remote 抛 `UNSUPPORTED_PROJECT_LOCATION`、S 走 `remoteHosts.searchProject`；F 只消费 service，ADR 需集成者同步。
-10. **池化 ADR 措辞**（非 V 审计遗留）：`remote-host-root-pooling-adr.md:241` 验收措辞与「默认关闭」表述需统一。
-11. **保活计数按 (host, root) 而非 sessionKey**：`onRootRetired` 的 release 若迟到到同 root 新条目已 retain 之后，会误减新条目计数；无测试覆盖，建议按 sessionKey/代数复核（P 审计风险 4）。
-12. **「A 慢操作不阻塞已就绪 B」缺正向断言**：现有测试只用预算拒绝侧证明（P 审计风险 5）。
-13. **池化开关**：首版只在构造期选择，无设置项/无运行期降级；开启即改 `main/index.ts` 构造参数 `rootPooling: { idleCapacity: 2, idleTtlMs: 10*60_000, maxEntries: 6, acquireTimeoutMs: 30_000 }`（集成者单写，且必须先过第 2 条真机验收）。
+10. **池化 ADR 措辞**（已完成）：`remote-host-root-pooling-adr.md` §8 已统一为生产默认开启、真机通过及回滚口径。
+11. **保活身份竞态已补**（2026-11-02）：retain/release 携带 connectionId；旧代 release 不能减新条目；见 `remoteRootSessionPoolRaces.test.mjs` 与 §11。
+12. **慢 A 不阻塞就绪 B 已补正向回归**（2026-11-02）：`remoteRootPooling.test.mjs` 让 A 持租约停在 deferred，B 仍成功。
+13. **池化开关**：只在构造期选择，无设置项/无运行期降级。main 当前显式传 `ROOT_POOL_DEFAULT_POLICY`，不再支持 E2E 环境变量绕行。详见 §11。
 14. **host 级 `connectionFacts`/`helperCapabilities` 已无生产消费者**：保留作真机控制面或标 deprecated，由集成者决策，避免后续误用回兄弟 root。
 
 ---
@@ -389,7 +389,7 @@ node F:\PiDeck\scripts\panel-baseline.mjs sync --to F:\PiDeck-f
 |---|---|---|
 | **F 能否开工** | **能**（读面 + 文本写都可接） | §8.2 文件契约冻结；T 已验证（§8.5）；A0 stat 纯读入口在基线内；仅 stat `missing` 与订阅统一入口属已知限制（§8.8 第 3、4 条），不阻塞 |
 | **G 能否开工** | **能**（Git 读面/面板迁移 + 能力置灰；写面需 main 接线后） | §8.2 Git 契约冻结、`projectGitService.ts` 已移交；远端写/强刷/同步/恢复仍 `UNSUPPORTED`，实现需集成者接 `shared/preload/main`（§8.8 第 7 条） |
-| **池化默认开启** | **不是** F/G 开发前提（保持关闭） | 池化默认关闭且无设置项；真机验收未做（§8.8 第 2 条） |
+| **池化默认开启** | **不是** F/G 开发前提（已默认开启） | 真实主机验收已通过；产品装配显式使用默认策略，见 §11 |
 | **最终远端验收** | **不是** F/G 开发前提 | 未授权连接真实远端；离线门禁已过（§8.7） |
 
 ---
@@ -402,3 +402,33 @@ node F:\PiDeck\scripts\panel-baseline.mjs sync --to F:\PiDeck-f
 - **门禁**：`typecheck` / `check:ipc-wiring`（795 通道）/ `check:test-shape` / `check:format` 均 0；全量 `npm test` **15475 tests / 15190 pass / 0 fail / 285 skip**。
 - **E2E**：`git-panel`、`file-viewer`、`file-tree-dom-budget` 通过；`file-tree-sticky` 行距断言在 I0 基线同样失败（既有环境/布局问题，已用临时 baseline worktree 复核并清理）。
 - **未完成/限制**：真实 SSH、远端 E2E、Linux CI、T 的文本保存真机验收；回收站/上传下载/图片预览仍是远端薄壳；`files.stat` 的 `missing` 与 `capabilities.files.watch` UI 仍待集成者。
+
+## 11. 生产 root pooling 交接（2026-11-02 初次真机通过；2026-11-03 审计后复验；未提交）
+
+- 独立工作树 `C:\Users\Administrator\.codex\worktrees\root-pooling-prod\PiDeck`，分支
+  `codex/root-pooling-prod`，基线 `01b4cf517`；原 `codex/sftp-0` 未改写。
+- **生产默认开启**。`src/main/index.ts` 显式装配 `ROOT_POOL_DEFAULT_POLICY`：保温 2 /
+  TTL 10 分钟 / service 总预算 6 / 等待 30 秒。E2E-only 环境变量绕行已删除，正常产品路径不依赖
+  `PIDECK_E2E_REMOTE_ROOT_POOLING`。
+- 修复资源槽位提前释放、sweep 与 acquire 竞态、共享建立取消、旧 watcher release、迟到 generation
+  回包、项目移除漏清理、重复 dispose 不等待清理、host config 缺 rootless helper。Git/文件公共契约、
+  renderer、helper/SFTP 线协议未扩展。审计表与回滚见池化 ADR §8。
+- 最终审计又补了两个时序边界：取得 lease/构造 route 后再检查取消，任务启动前取消不会继续执行；
+  未发布 root 的冷开失败不能覆盖显式连接或健康兄弟已证明的 host ready，已发布 root 的故障仍正常
+  传播。两者均有对照回归。
+- 真实主机 E2E 在不设置 pooling env 的生产装配下 `1 passed (5.9m)`：A→B→A 上传入口恢复
+  `158 ms`；A/B/C 连续 `61,079 ms / 19 轮` 且 3 条 helper PID/代数稳定；取消/关闭 A 不影响 B；
+  关闭后重开 A 可传；显式断开后 helper/SSH 归零并拒绝后台读，重连可重建和上传。
+- 2026-11-03 在最终审计修复后、同样不设置 pooling env 的生产装配上再次完成真实主机验收，
+  `1 passed (4.6m)`；A→B→A 为 `153 ms`，A/B/C `60,632 ms / 22 轮` 且 3 条 helper PID 稳定，
+  原有传输、取消/关闭隔离、六槽位资源和断线/重连断言全部通过。
+- `maxEntries=6` 时峰值 `6 helpers / 6 ssh.exe / peakEntries=6`；六条 helper RSS 合计
+  `348,652 KiB`，单条 `53,936–63,076 KiB`、7 线程；本机 SSH RSS `68,952,064 bytes`（初次分别为
+  `349,136 KiB` / `68,329,472 bytes`）。
+  测试根只创建 run 子目录，结束时按绝对路径校验后删除；独立只读复核 run 目录与匹配 helper 均为 0。
+- 未覆盖边界：真实等待 10 分钟 TTL、第七 root 满载等待/超时、小时级长稳、真实 rebind UI、
+  多 host 预算争用、硬断网/进程崩溃、ProxyJump/askpass、8 GiB/32 文件压力和 Linux 原生 Electron。
+  六槽等待与 TTL/LRU 仍有离线竞态测试，但不能冒充真机覆盖。
+- 回滚：把 main 装配改回 `rootPooling: false` 并 `npm run build:fast`，下次启动生效；不改 schema、
+  不热切换在途写、不重放 unknown 结果。离线门禁与完整验收记录见
+  `remote-acceptance-55dd5b702.md` §12。未执行 commit/push/merge。
