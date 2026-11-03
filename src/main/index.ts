@@ -442,6 +442,7 @@ import { registerWslHostIpc } from "./ipc/wslHostIpc";
 import { createWslHostReferenceRegistry } from "./wsl/WslHostReferences";
 import { createWslHostStore } from "./wsl/WslHostStore";
 import { resolveProjectWslIdentity } from "./wsl/WslProjectEnvironment";
+import { createWslHelperSessionPool } from "./wsl/WslHelperSession";
 import { registerRemoteProjectIpc } from "./ipc/remoteProjectIpc";
 import { createRemoteFactsHub } from "./remote/RemoteFactsNotifications";
 import { registerRemoteProjectFileIpc } from "./ipc/remoteProjectFileIpc";
@@ -5343,6 +5344,10 @@ function registerIpc() {
 
 	// ── 配置管理 ──────────────────────────────────────
 
+	// WSL 项目的文件读面在发行版内以档案用户身份执行（Wave 1a）：会话按项目身份懒建立、
+	// 跨调用复用，退出时与其它常驻资源一起回收。
+	const wslHelperPool = createWslHelperSessionPool();
+	quitCleanup.register("wsl-helper-session", () => wslHelperPool.closeAll());
 	registerFilesIpc({
 		fileSystemService,
 		projectStore,
@@ -5351,6 +5356,7 @@ function registerIpc() {
 		getFileIndexService: () => fileIndexService,
 		appLogger,
 		openExternalUrl,
+		wslHelperPool,
 		// 公共文件读（T6）：ssh 项目的目录页与批量 stat 走只读 fs 面，不经过 entry 令牌。
 		remoteFiles: {
 			directoryPage: (projectId, path, force) => remoteProjectIpc.directoryPage(projectId, path, force),

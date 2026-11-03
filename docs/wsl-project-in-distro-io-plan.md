@@ -1,6 +1,6 @@
 # WSL 项目 IO 走发行版内执行（对照计划）
 
-> 状态：**Wave 0 代码完成（未提交，待真机验证），Wave 1 未开始**。本文是实现对照表与合并门禁，不是已完成的能力清单；
+> 状态：**Wave 0 已合入；Wave 1a 代码完成（未提交，待真机验证）**。本文是实现对照表与合并门禁，不是已完成的能力清单；
 > 每 wave 合入后更新顶部状态行与该 wave 的「已合入」标记。相关既有规划：
 > `docs/project-location-architecture.md`（Proposed，位置模型，第 11 步已落、第 14 步未落）、
 > `docs/remote-file-tree-and-git-unification-plan.md`（W0–W6，文件/Git 的 target 收口口径同源）。
@@ -69,8 +69,7 @@ PiDeck 今天假设「`\\wsl.localhost\<distro>\…` 是 Windows 主进程也能
 | Wave | 交付 | 合并门禁 |
 |---|---|---|
 | **0** | 一次性 `sh` 目录浏览（`WslDirectoryBrowser`：`wsl.exe -d <distro> -u <user> --exec /bin/sh -c <脚本> pideck-dir <path>`，路径是独立 argv，绝不进脚本语法；上限与 SSH 浏览同为 300 条，共用同一句「目录过多」文案）；新增 `projects:list-wsl-directory` / `projects:add-wsl-path`（三处同步）并退役 `projects:add-wsl`（系统对话框链路）；`ProjectStore.chooseAndAdd()` 去掉 WSL 参数——不再把不可达的 UNC 甩给系统对话框；渲染层 `DirectoryBrowser`（SSH 与 WSL 共用一个浏览器，来源由调用方注入 `load`/`describeError`）+ `WslProjectPickerDialog`，入口分流在 App 的 `addProject()`（`wslEnabled` 时开选择器）与连接页档案行（按档案 id 打开） | `npm run typecheck` + `node --test tests/wslDirectoryBrowser.test.mjs tests/wslPaths.test.mjs tests/wslProjectAddContract.test.mjs tests/remoteDirectoryBrowser.test.mjs` + `npm run check:ipc-wiring`；真机 root 档案能列出并添加 `/root/…`；Windows 模式对话框行为逐字不变 |
-| **1a** | helper 在发行版内的部署+会话（`WslHelperSession`，`--root <项目 Linux 路径>`）；files 读侧收口：`filesList`/`filesDirectoryPage`/`filesSearch*`/`filesReadContent`/`filesReadBase64`/`filesStat`/`filesPathsExist` 经 backend 分派；WSL 项目走 `WslProjectFileBackend`；读边界（realpath/symlink）由 helper 侧 `fs.stat` 语义承担 | 同一棵 fixture 树 → 与 `LocalProjectFileBackend` **同形状**（含 `truncated`、隐藏/生成目录规则）；typecheck + 文件域针对性测试 |
-| **1b** | files 写侧：`writeContent`/`create`/`delete`/`rename`/`copy`/`move` 走 helper 新方法（协议 + contract + client + helper 源，**同时更新 SSH 侧 parity**） | helper 契约测试双 transport 通过；禁止只为消红而弱化既有断言 |
+| **1a** | helper 在发行版内的部署+会话（`WslHelperSession`，`--root <项目 Linux 路径>`）；files 读侧收口：`filesList`/`filesDirectoryPage`/`filesSearch*`/`filesReadContent`/`filesReadBase64`/`filesStat`/`filesPathsExist` 经 backend 分派；WSL 项目走 `WslProjectFileBackend`；读边界（realpath/symlink）由 helper 侧 `fs.stat` 语义承担 | 同一棵 fixture 树 → 与 `LocalProjectFileBackend` **同形状**（含 `truncated`、隐藏/生成目录规则）；typecheck + 文件域针对性测试 || **1b** | files 写侧：`writeContent`/`create`/`delete`/`rename`/`copy`/`move` 走 helper 新方法（协议 + contract + client + helper 源，**同时更新 SSH 侧 parity**） | helper 契约测试双 transport 通过；禁止只为消红而弱化既有断言 |
 | **2** | 会话正文读写/导出、项目存在性、markdown 本地图 | 大会话分块读语义不回退（见 CHANGELOG 超大会话条目） |
 | **3** | Git 的 fs 侧副作用 + 把 gitWsl 的 UNC 嗅探改为按项目身份；不可路由项 fail-closed + 文案 | 现有 git 测试全绿；`-X theirs/ours` 禁用 |
 
