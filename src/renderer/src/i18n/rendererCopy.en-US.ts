@@ -7512,7 +7512,6 @@ export const enUS: Record<TranslationKey, string> = {
 	"config.target.label": "Configuration target",
 	"config.target.local": "This machine",
 	"config.target.unknownHost": "Unknown host",
-	"config.target.noHosts": "No verified SSH hosts yet (add and verify one in the remote host list)",
 	"config.target.remoteHint": "Reads/writes happen in the remote Pi directory; secrets show status only",
 	"config.target.switchTitle": "Switch configuration target",
 	"config.target.switchMessage": "There is an unapplied patch for the remote target; switching discards it. Continue?",

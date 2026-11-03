@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: d4bdab15e87a386b256143e48e16fbcff10a0fe45c5b0babb5cbfcd3d1c1cb22（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 369877a1457ffc109ad83f7e321b1e13fb933af2f4592a918e4251536816120c（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -7486,7 +7486,6 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.target.label": "配置目標",
 	"config.target.local": "本機",
 	"config.target.unknownHost": "未知主機",
-	"config.target.noHosts": "暫無已驗證的 SSH 主機（先在遠端主機列表新增並驗證）",
 	"config.target.remoteHint": "讀寫均發生在遠端 Pi 目錄，金鑰只顯示狀態",
 	"config.target.switchTitle": "切換配置目標",
 	"config.target.switchMessage": "遠端還有未應用的 patch，切換目標會丟棄它。確定繼續？",

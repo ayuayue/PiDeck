@@ -35,7 +35,7 @@ test("the selector offers local plus verified, non-disabled hosts and stays a sh
 	assert.match(selector, /data-testid="config-target-selector"/);
 	assert.match(selector, /data-testid="config-target-local"/);
 	assert.match(selector, /data-testid=\{"config-target-ssh-" \+ host\.id\}/);
-	assert.match(selector, /t\("config\.target\.noHosts"\)/);
+	assert.match(selector, /if \(!configTargetBarVisible\(target, props\.hosts\)\) return null;/);
 	assert.match(selector, /t\("config\.target\.local"\)/);
 	// The selector only emits the target union; it never calls IPC itself.
 	assert.doesNotMatch(selector, /desktopApi|ipcRenderer/);

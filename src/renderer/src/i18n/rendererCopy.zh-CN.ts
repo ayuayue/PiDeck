@@ -7479,7 +7479,6 @@ export const zhCN = {
 	"config.target.label": "配置目标",
 	"config.target.local": "本机",
 	"config.target.unknownHost": "未知主机",
-	"config.target.noHosts": "暂无已验证的 SSH 主机（先在远端主机列表添加并验证）",
 	"config.target.remoteHint": "读写均发生在远端 Pi 目录，密钥只显示状态",
 	"config.target.switchTitle": "切换配置目标",
 	"config.target.switchMessage": "远端还有未应用的 patch，切换目标会丢弃它。确定继续？",
