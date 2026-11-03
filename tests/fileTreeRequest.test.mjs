@@ -114,5 +114,10 @@ test("目录缺失时的项目 presence 刷新不会让文件树 effect 自激�
 	assert.match(app, /const isLocalProjectIdRef = useRef\(isLocalProjectId\);/);
 	assert.match(app, /isLocalProjectIdRef\.current\(projectId\)/);
 	assert.match(app, /if \(projectDirectoryMissing\) void refreshProjectsRef\.current\(\)/);
+	// git refs 订阅 effect 同理：projects 一刷新就重装 watch/unwatch 订阅，
+	// 期间 refs 事件又会触发 refreshVisibleFiles → reportError → refreshProjects。
+	const gitWatch = app.slice(app.indexOf("git refs 变了")).match(/\}, \[[^\]]*\]\);/);
+	assert.ok(gitWatch, "git refs effect should keep an explicit dependency list");
+	assert.doesNotMatch(gitWatch[0], /isLocalProjectId\b/);
 });
 

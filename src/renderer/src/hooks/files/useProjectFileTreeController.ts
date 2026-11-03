@@ -205,7 +205,7 @@ export function useProjectFileTreeController({ setFiles, activeProjectId, servic
 	// 按 (projectId, repoPath) 复用同一份签名轮询，与分支徽标订阅共用计数，不额外 spawn git。
 	useEffect(() => {
 		const projectId = activeProjectId;
-		if (!projectId || !isLocalProjectId(projectId)) return;
+		if (!projectId || !isLocalProjectIdRef.current(projectId)) return;
 		let stopped = false;
 		let watchId: string | null = null;
 		const offRefsChanged = api.git.onRefsChanged((changedWatchId) => {
@@ -225,7 +225,7 @@ export function useProjectFileTreeController({ setFiles, activeProjectId, servic
 				if (id) void api.git.unwatchRefs(id);
 			});
 		};
-	}, [activeProjectId, isLocalProjectId]);
+	}, [activeProjectId]);
 
 	/** 文件链接/搜索 reveal 前的自愈：只补读已展开但尚未落地的目录。 */
 	const restoreExpandedDirs = useCallback(
