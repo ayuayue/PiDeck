@@ -47,7 +47,7 @@ export function AgentIconPicker({ value, onChange, id }: AgentIconPickerProps) {
 					<ChevronDown className="absolute right-1.5 size-3 text-muted-foreground" aria-hidden="true" />
 				</Button>
 			</PopoverTrigger>
-			{/* 宽度按 8 列 × size-7 + gap-1 反推：280 - p-3×2 = 256 ≥ 8*28 + 7*4 = 252，再窄会横向溢出。 */}
+			{/* scroll-ok: bounded 固定枚举（AGENT_ICON_LUCIDE_IDS + AGENT_ICON_EMOJIS），不随用户数据增长；宽度按 8 列 × size-7 + gap-1 反推：280 - p-3×2 = 256 ≥ 8*28 + 7*4 = 252，再窄会横向溢出。 */}
 			<PopoverContent align="end" className="max-h-[min(60vh,360px)] w-[280px] overflow-y-auto p-3">
 				<p className="mb-1.5 text-micro font-medium text-muted-foreground">{t("agentMarket.iconPickerBuiltin")}</p>
 				<div className="grid grid-cols-8 gap-1">
