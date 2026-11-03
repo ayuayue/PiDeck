@@ -1121,14 +1121,24 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 			// 只在 UI 层不展示引导不够——检测总有覆盖不到的地方（自定义目录、别名、只在 GUI 看不见的 shell 里配的 PATH），
 			// 一旦漏判，用户点一下就会真的多出一份，之后终端与 PiDeck 各用各的、更新走两条路。
 			const settings = settingsStore.get();
-			const existing = await piLocator.listInstallations(settings.customPiPath);
+			// WSL 模式下 pi 是发行版内的那一份：宿主机 npm 装出来的副本一条也用不上（PATH 与执行环境都在 Linux 侧），
+			// 先按 WSL 目标探一次，既校验「已装」拦截，也避免往下走白白装一份宿主副本。
+			const wslEnabled = process.platform === "win32" && settings.wslEnabled === true && Boolean(settings.wslDistro) && Boolean(settings.wslUser);
+			const existing = await piLocator.listInstallations(settings.customPiPath, wslEnabled, settings.wslDistro, settings.wslUser);
 			const guard = resolvePiInstallGuard(existing);
 			if (guard.skip) {
 				void appLogger.info("pi", "Runtime pi install skipped because pi already exists", {
 					count: guard.installations.length,
 					sources: guard.installations.map((item) => item.source),
+					wsl: wslEnabled,
 				});
 				return { success: false, exitCode: null, stdout: "", stderr: "", alreadyInstalled: guard.installations };
+			}
+			if (wslEnabled) {
+				// 发行版里确实没有 pi，而这一步只能装宿主机副本——直接说清楚，不要给用户装出一份用不上的 pi。
+				const blocked = mainCopy("wsl.hostInstallBlocked");
+				void appLogger.warn("pi", "Runtime pi install skipped in WSL mode", { distro: settings.wslDistro, user: settings.wslUser });
+				return { success: false, exitCode: null, stdout: "", stderr: blocked };
 			}
 			const userData = app.getPath("userData");
 			// npm 解析顺序：便携 node 同目录 npm（引导链路主路径）→ 系统 npm。

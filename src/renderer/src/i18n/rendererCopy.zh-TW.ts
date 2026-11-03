@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: da40c4f814989f34a6b554d9aff1dc10f65bf014b0f7134cb23fa9e2f775456e（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 5d7a7b6530a1498d65d79c927266dddca91476014b7ad302a463c6cad49d32dd（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -4065,6 +4065,11 @@ export const zhTW: Record<TranslationKey, string> = {
 	"environment.setupInstalling": "正在安裝…",
 	"environment.setupUseMirror": "使用國內映象源",
 	"environment.setupInstalledHint": "Pi 已安裝，正在重新檢測…",
+	"environment.setupWslTitle": "在 WSL 發行版內安裝 Pi",
+	"environment.setupWslDesc": "當前使用的是 WSL 發行版「{distro}」裡的 Pi。宿主機（Windows）上的 Node.js / npm 和「一鍵安裝」都不會作用於它，請在這個發行版的終端裡執行：",
+	"environment.setupWslCommandHint": "npm i -g @earendil-works/pi-coding-agent",
+	"environment.setupWslMirrorHint": "國內網路可以在命令後加 --registry=https://registry.npmmirror.com 走映象源。",
+	"environment.setupWslRecheckHint": "裝好後點下面的「重新檢測」；如果發行版或使用者不對，到「設定 → 開發 → WSL」裡切換。",
 	"environment.setupErrorNodeUnsupported": "當前平臺不支援自動安裝 Node，請從官網下載安裝後點「重新檢測」。",
 	"environment.setupErrorNode": "下載或安裝 Node 失敗，請檢查網路後重試。",
 	"environment.setupErrorNpm": "沒有找到可用的 npm，請檢查 Node.js 安裝是否完整。",
@@ -4075,6 +4080,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"environment.setupUseThisPath": "使用這份",
 	"environment.setupAdvancedTitle": "手動安裝 / 檢視檢測詳情",
 	"environment.setupAdvancedDesc": "一鍵安裝失敗時，可以在這裡手動執行安裝命令、檢視安裝輸出、檢測報錯和已搜尋的目錄。",
+	"environment.setupAdvancedDescWsl": "WSL 模式下這裡的安裝器不生效（它只會裝宿主機副本），安裝請在發行版終端裡執行；這裡用來看這次檢測的報錯和已搜尋的目錄。",
 	"environment.setupPreviewBanner": "預覽模式：模擬本機沒有 pi，展示一鍵安裝引導（不影響真實檢測結果）。",
 	// —— 不装 pi 的替代路径：DSH 内置运行时（需先下载 runtime；安装/修复都跳配置管理的 DSH 分页）——
 	"environment.dshTitle": "不裝 Pi 也能用：DSH 執行時",

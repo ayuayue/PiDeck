@@ -10,6 +10,12 @@
  * 例外：piInstall 的一键安装防重装扫描必须仍按宿主机扫（安装器装在宿主机，
  * 列表不能跟随 WSL 开关变成空数组，否则防重装形同虚设）。
  *
+ * 第三轮（用户报障：WSL 模式下检测不到 pi 时，引导页没有 WSL 相关检测/引导）：
+ * 「一键安装」整条链路（runtimeNodeCheck/runtimeNodeInstall/piRuntimePiInstall）
+ * 只在宿主机装，WSL 模式下装出来的副本用不上。因此清单扫描改为跟随 WSL（已装就用），
+ * 否则返回「请在发行版内安装」的结构化失败，渲染层引导页同时给出 WSL 内的安装指令。
+ * 旧用例「防重装扫描保持单参」已被这条契约取代。
+ *
  * 第二轮回归（同族，用户报障：点「检查更新」又变回宿主机 pi 1.5）：
  * piSelfUpdateRunner（check / update 末尾核验）与 ExtensionManager
  * （updateExtensions / detectPiVersion / runPi）的同族调用点也必须传三件套，
@@ -60,17 +66,14 @@ test("模型列表失败归因的健康检查跟随 WSL 设置", () => {
 	);
 });
 
-test("一键安装防重装扫描仍按宿主机（不跟随 WSL 开关）", () => {
-	assert.match(
-		systemIpc,
-		/listInstallations\(settings\.customPiPath\)/,
-		"安装器装在宿主机：防重装扫描必须保持单参宿主机语义",
-	);
-	assert.doesNotMatch(
-		handlerBody(systemIpc, "piInstallations"),
-		/listInstallations\(settings\.customPiPath\)/,
-		"设置页列表 handler 已跟随 WSL 设置，不应再出现单参宿主机调用",
-	);
+test("一键安装在 WSL 模式下不装宿主机副本，防重装扫描跟随 WSL 设置", () => {
+	const body = handlerBody(systemIpc, "piRuntimePiInstall");
+	// 发行版内的 pi 才是用户实际用的那份：扫描必须命中它，否则 WSL 模式下会再装一份宿主机副本。
+	assert.match(body, /listInstallations\(settings\.customPiPath, wslEnabled, settings\.wslDistro, settings\.wslUser\)/);
+	assert.match(body, /const wslEnabled = process\.platform === "win32" && settings\.wslEnabled === true/);
+	// 发行版里确实没装时，宿主机 npm 装的副本用不上：直接返回带说明的失败，不装作成功。
+	assert.match(body, /if \(wslEnabled\) \{[\s\S]*?mainCopy\("wsl\.hostInstallBlocked"\)[\s\S]*?return \{ success: false/);
+	assert.doesNotMatch(systemIpc, /listInstallations\(settings\.customPiPath\)/, "不得再出现不带 WSL 三件套的探测");
 });
 
 test("DevTab「验证并保存」验证通过即落盘 WSL 字段并重检 pi", () => {

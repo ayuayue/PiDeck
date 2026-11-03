@@ -18,7 +18,7 @@ import { removeProjectWithSessions } from "../projects/projectRemoval";
 import { consumeUserDataNameMigrationNotice } from "../projects/userDataNameMigration";
 import { registerProjectResourceIpc } from "./projectResourceIpc";
 import { createProjectGitHandler } from "./gitProjectHandlers";
-import { normalizeSelectedWslProjectPath, toWindowsHostPath, type WslEnvironment } from "../wsl/WslPaths";
+import { isWslDistroMismatchError, normalizeSelectedWslProjectPath, normalizeWslProjectAddPath, parseWslUncPath, toWindowsHostPath, type WslEnvironment } from "../wsl/WslPaths";
 import { createWslHostStore } from "../wsl/WslHostStore";
 
 export type ProjectsIpcDeps = {
@@ -129,14 +129,35 @@ export function registerProjectsIpc({ projectStore, settingsStore, gitService, w
 
 	ipcMain.handle(ipcChannels.projectsAddByPath, async (_event, path: unknown) => {
 		if (typeof path !== "string" || path.trim().length === 0) {
-			throw new Error("INVALID_PROJECT_PATH");
+			throw new Error(mainCopy("project.invalidPath"));
 		}
-		const stats = await stat(path).catch(() => null);
+		// 全局 WSL 模式：右键菜单 / 快捷任务递过来的通常是 `\\wsl.localhost\<distro>\...` 这类 UNC，或
+		// WSL 内的绝对 Linux 路径。早先这里不带 environment 入库，项目被记成 windows 环境，随后
+		// getVisibleProjects 在 WSL 模式下按环境过滤把它整条藏掉 —— 表现为「添加了却找不到、打不开」。
+		const settings = settingsStore.get();
+		const wslDistro = process.platform === "win32" && settings.wslEnabled === true ? String(settings.wslDistro ?? "").trim() : "";
+		let projectPath = path.trim();
+		if (wslDistro) {
+			let normalized: string | null;
+			try {
+				normalized = normalizeWslProjectAddPath(projectPath, wslDistro);
+			} catch (error) {
+				// 别的发行版的目录：项目运行时要按 Linux 侧路径转发给 wsl.exe，发行版对不上一律拒绝。
+				if (isWslDistroMismatchError(error)) throw new Error(mainCopy("project.wslDistroMismatch", { distro: parseWslUncPath(projectPath)?.distro ?? "", active: wslDistro }));
+				throw error;
+			}
+			if (normalized === null) {
+				// 宿主盘符目录在 WSL 模式下不属于可见清单：说清楚，不要静默入库后消失。
+				throw new Error(mainCopy("project.windowsPathInWslMode"));
+			}
+			projectPath = normalized;
+		}
+		const stats = await stat(projectPath).catch(() => null);
 		if (!stats || !stats.isDirectory()) {
-			throw new Error("INVALID_PROJECT_PATH");
+			throw new Error(wslDistro ? mainCopy("project.wslPathNotFound", { path: projectPath, distro: wslDistro }) : mainCopy("project.pathNotFound", { path: projectPath }));
 		}
-		const project = await projectStore.add(path.trim());
-		void appLogger.info("project", "Project added via explorer context menu", { projectId: project.id, path: project.path });
+		const project = await projectStore.add(projectPath, undefined, wslDistro ? "wsl" : undefined);
+		void appLogger.info("project", "Project added via explorer context menu", { projectId: project.id, path: project.path, environment: wslDistro ? "wsl" : "windows" });
 		// 与重命名/删除一致：入库后广播可见项目清单，侧栏（含 LAN Web 端）立即刷新，否则新增项目不显示。
 		const visible = await getVisibleProjects();
 		getMainWindow()?.webContents.send(ipcChannels.projectsChanged, visible);

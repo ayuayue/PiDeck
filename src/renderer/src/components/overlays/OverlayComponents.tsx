@@ -64,6 +64,8 @@ export function EnvironmentDialog(props: {
 	onRestartApp: () => void;
 	/** 重置 piEnvironmentChecked 标记，使下次启动重新触发环境检测 */
 	onClearCheckFlag?: () => void;
+	/** 全局 WSL 模式：pi 来自发行版，引导面板要给 WSL 内的安装指令而不是宿主机一键安装 */
+	wsl?: EnvironmentSetupPanelProps["wsl"];
 }) {
 	const installed = !props.setupPreview && (props.status?.installed || props.customPathResult?.installed);
 	const searchedDirs = props.status?.searchedDirs.slice(0, 16) ?? [];
@@ -130,6 +132,7 @@ export function EnvironmentDialog(props: {
 							{props.setupPreview && <p className="m-0 shrink-0 rounded-md border border-border-subtle bg-muted px-3 py-2 text-text-secondary text-caption">{t("environment.setupPreviewBanner")}</p>}
 							<EnvironmentSetupPanel
 								guide={props.guide}
+								wsl={props.wsl}
 								errorText={errorText}
 								searchedDirs={searchedDirs}
 								onOpenInstallDocs={props.onOpenInstallDocs}

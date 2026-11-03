@@ -796,9 +796,11 @@ export function App() {
 	const { checkNode: checkGuideNode, checkNpmForGuide: checkGuideNpm } = piGuide;
 	useEffect(() => {
 		if (!environmentDialog) return;
+		// WSL 模式下 pi 由发行版提供：宿主机 Node/npm 的检测与引导面板无关（面板已换成 WSL 内的安装指令），不做无谓探测。
+		if (settings.wslEnabled === true) return;
 		void checkGuideNode();
 		void checkGuideNpm();
-	}, [environmentDialog, checkGuideNode, checkGuideNpm]);
+	}, [environmentDialog, checkGuideNode, checkGuideNpm, settings.wslEnabled]);
 	// 默认后端自动选择：没有手动选过时，只装了 DSH runtime（没有 pi）就用 dsh，否则 pi。
 	// piInstalled 用实时检测优先、持久化缓存兜底：首次引导前 piStatus 还是 null。
 	const dshRuntimeStatus = useAtomValue(dshRuntimeStatusAtom);
@@ -3792,12 +3794,16 @@ export function App() {
 								piUpdate.setNpmVersion(undefined);
 								piUpdate.setInstallResult(null);
 								piUpdate.setInstallCompleted(false);
-								// 引导面板上的 Node/npm 状态同步刷新（一键安装可能刚补上便携 Node）
-								void piGuide.checkNode();
-								void piGuide.checkNpmForGuide();
+								// 引导面板上的 Node/npm 状态同步刷新（一键安装可能刚补上便携 Node）；WSL 模式下不展示也不探测宿主机环境
+								if (settings.wslEnabled !== true) {
+									void piGuide.checkNode();
+									void piGuide.checkNpmForGuide();
+								}
 								piUpdate.checkPiInstall("manual");
 							}}
 							onOpenInstallDocs={() => api.app.openExternal("https://pi.dev/docs/latest/quickstart#install")}
+							// WSL 模式下 pi 在发行版里，引导面板要换成 WSL 内的安装指令（宿主机一键安装对它无效）。
+							wsl={{ enabled: settings.wslEnabled === true, distro: settings.wslDistro, user: settings.wslUser }}
 							installations={piUpdate.piInstallations ?? []}
 							applyingInstallationPath={piUpdate.applyingInstallationPath}
 							onChooseInstallation={(path) => void piUpdate.choosePiInstallation(path)}
