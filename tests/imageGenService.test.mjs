@@ -56,6 +56,10 @@ function loadServiceClass() {
 	// 字节上界读取器（src/main/modelHttp/bounded.ts）：与 ImageGenService 同一份泵体
 	const boundedModule = { exports: {} };
 	vm.runInNewContext(transpile(readFileSync("src/main/modelHttp/bounded.ts", "utf8")), { module: boundedModule, exports: boundedModule.exports, Buffer }, { filename: "modelHttp/bounded.ts" });
+	// 统一模型 HTTP 层（src/main/modelHttp/request.ts）：与 ImageGenService 同一份「挑哪条
+	// 传输通道」逻辑。沙箱里不需要 Electron net，直接把请求转发给当前测试的 fetch stub
+	// （即断言「请求确实经统一层发出、没有直接摸全局 fetch」）。
+	const requestModule = { exports: { modelHttpFetch: (input, init) => fetchStubRef(input, init) } };
 	const exported = {};
 	const sandbox = {
 		exports: exported,
@@ -66,6 +70,7 @@ function loadServiceClass() {
 			if (id === "../../shared/imageGenParams") return paramsModule.exports;
 			if (id === "../../shared/imageGenConfig") return configModule.exports;
 			if (id === "../modelHttp/bounded") return boundedModule.exports;
+			if (id === "../modelHttp/request") return requestModule.exports;
 			throw new Error(`unexpected require ${id}`);
 		},
 		// vm 上下文看不到宿主全局，fetch 必须显式注入；经可变引用转发到当前测试的 stub

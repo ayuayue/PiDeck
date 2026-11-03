@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
@@ -287,4 +288,34 @@ test("readBoundedBytesOrNull：reject 语义按 content-length 提前拒绝", as
 	assert.equal(await bounded.readBoundedTextOrNull(response, 10), null);
 	// truncate 语义不看 content-length：仍要读满前缀供解析
 	assert.equal(await bounded.readBoundedText(response, 10), "");
+});
+
+// ── 契约：主进程请求模型 API 不摸全局 fetch ─────────────────────────────
+//
+// 全局 fetch 是 Node 的 undici，不读系统代理、不跟随桌面代理开关、不用 Chromium
+// 根证书库，境外 API 会挂到超时（docs/maintenance-domains.md 同款教训）。这几处
+// 曾经各写一份全局 fetch，改用 modelHttpFetch 后加断言防回归：默认实现必须是
+// 统一层的 fetch，注入点（deps.fetchImpl / deps.fetch）保持不变以便测试替身。
+
+test("生图 / 生视频 / 语音转写的缺省传输是 modelHttpFetch，不留全局 fetch 兜底", () => {
+	for (const [file, marker] of [
+		["src/main/imagegen/ImageGenService.ts", "await modelHttpFetch("],
+		["src/main/videogen/VideoJobRunner.ts", "this.deps.fetchImpl ?? modelHttpFetch"],
+		["src/main/voice/VoiceTranscriptionService.ts", "this.deps.fetch ?? modelHttpFetch"],
+		["src/main/voice/VolcengineSpeechClient.ts", "deps.fetchImpl ?? modelHttpFetch"],
+	]) {
+		const source = readFileSync(file, "utf8");
+		assert.ok(source.includes('from "../modelHttp/request"'), `${file} 应导入统一传输层`);
+		assert.ok(source.includes(marker), `${file} 的缺省实现应是 modelHttpFetch`);
+		assert.equal(/\?\?\s*fetch\b|= fetch;|await fetch\(/.test(source), false, `${file} 不应再直接调全局 fetch`);
+	}
+});
+
+test("本地进程与静态资源仍用全局 fetch（不该走代理）", () => {
+	// whisper-server 是 127.0.0.1 上的本地子进程；Chromium 栈会把这类请求
+	// 带进代理判定，本机代理异常时反而挂掉。留断言防止有人「顺手统一」。
+	for (const file of ["src/main/voice/WhisperServerPool.ts", "src/main/voice/WhisperRuntimeManager.ts"]) {
+		const source = readFileSync(file, "utf8");
+		assert.equal(source.includes('from "../modelHttp/request"'), false, `${file} 应继续直连，不经代理栈`);
+	}
 });

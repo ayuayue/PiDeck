@@ -4,8 +4,11 @@
  * 承载两类请求：
  *   1. 供应商管理接口（模型列表探测、用量/余额探针）——走 Electron `net`，
  *      即 Chromium 网络栈，自动服从系统代理、桌面代理全局开关与系统根证书。
- *   2. 后续需要显式代理策略的请求——通过 `proxyTarget` 使用独立内存 session，
- *      不改动全局代理（见下方 modelListProxySession 注释）。
+ *   2. 模型媒体接口（生图 / 生视频 / 语音转写）——同样经 `modelHttpFetch` 走 Chromium 栈；
+ *      它们要 multipart 请求体与二进制响应体，不套 `modelHttpRequest` 的文本形状。
+ *
+ * 两者都可经 `proxyTarget` 使用独立内存 session 显式指定代理，不改动全局代理
+ * （见下方 modelListProxySession 注释）。
  *
  * 为什么保留 `net.request` 这条路：Electron 的 `net.fetch` 基于 fetch 规范，
  * Cookie 是 forbidden header——手动设置在 init.headers 里的 Cookie 会被静默丢弃，
@@ -88,6 +91,25 @@ export async function modelHttpRequest(url: string, init: ModelHttpRequestInit):
 	return netFetchSend(url, init);
 }
 
+type NetFetchInit = NonNullable<Parameters<typeof net.fetch>[1]>;
+export type ModelHttpFetchInit = NetFetchInit & { proxyTarget?: ModelHttpProxyTarget };
+
+/**
+ * 只负责「走哪个 fetch」的薄入口：默认 `net.fetch`（Chromium 网络栈，跟随系统代理、
+ * 桌面代理全局开关与系统根证书），显式要求时用独立 session 临时设代理。
+ *
+ * 给需要 multipart 请求体、二进制响应体、或自己读正文与控制错误的调用点用
+ * （生图 / 生视频 / 语音转写）——这些地方不能套 `modelHttpRequest` 的
+ * 「读成 utf8 文本 + 统一错误分类」形状。**不要直接调全局 `fetch`**：
+ * undici 不读代理，境外 API 会挂到超时（见 docs/maintenance-domains.md）。
+ */
+export async function modelHttpFetch(url: string, init: ModelHttpFetchInit = {}): Promise<Awaited<ReturnType<typeof net.fetch>>> {
+	const { proxyTarget, ...rest } = init;
+	const useDedicated = proxyTarget?.mode === "on" || proxyTarget?.mode === "off";
+	const fetcher = useDedicated && proxyTarget ? await configureProxySession(proxyTarget) : net.fetch;
+	return fetcher(url, rest);
+}
+
 /** 把外部取消与超时归并成一个 abort 源，返回清理函数。 */
 function combineAbort(external: AbortSignal | undefined, timeoutMs: number): { signal: AbortSignal; cleanup: () => void } {
 	const controller = new AbortController();
@@ -118,16 +140,14 @@ function describeError(error: unknown): string {
 async function netFetchSend(url: string, init: ModelHttpRequestInit): Promise<ModelHttpResult> {
 	const { signal, cleanup } = combineAbort(init.signal, init.timeoutMs);
 	try {
-		const target = init.proxyTarget;
-		const useDedicated = target?.mode === "on" || target?.mode === "off";
-		const fetcher = useDedicated ? await configureProxySession(target) : net.fetch;
-		const response = await fetcher(url, {
+		const response = await modelHttpFetch(url, {
 			method: init.method ?? "GET",
 			...(init.headers ? { headers: init.headers } : {}),
 			...(init.body !== undefined ? { body: init.body } : {}),
 			// 拒绝重定向：带凭据的请求不允许被 3xx 带到第三方域（fail-closed）。
 			redirect: "error",
 			signal,
+			...(init.proxyTarget ? { proxyTarget: init.proxyTarget } : {}),
 		});
 		const body = await readBoundedBody(response, init.maxBytes, "truncate");
 		return {

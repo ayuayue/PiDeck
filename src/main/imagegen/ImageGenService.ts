@@ -1,4 +1,5 @@
 import { readBoundedBytesOrNull, type BoundedResponseLike } from "../modelHttp/bounded";
+import { modelHttpFetch } from "../modelHttp/request";
 import { buildImageGenApiBody, buildImageGenEditsForm, imageGenOutputMimeType, parseImageGenOutputFormat } from "../../shared/imageGenParams";
 import type { ImageGenApiStyle, ImageGenProviderExtraParams, ImageGenReferenceMode } from "../../shared/imageGenConfig";
 import type { ImageContent } from "../../shared/types";
@@ -62,7 +63,7 @@ export class ImageGenService {
 			let response: Response;
 			if (refs.length > 0 && referenceMode === "edits") {
 				// OpenAI gpt-image-1 风格：multipart 到 /images/edits；响应结构与 generations 一致
-				response = await fetch(normalizeImagesEditsUrl(credentials.baseUrl), {
+				response = await modelHttpFetch(normalizeImagesEditsUrl(credentials.baseUrl), {
 					method: "POST",
 					headers: { Authorization: `Bearer ${credentials.apiKey.trim()}` },
 					body: buildImageGenEditsForm({
@@ -87,7 +88,7 @@ export class ImageGenService {
 					apiStyle: credentials.apiStyle ?? "openai",
 					referenceImages: refs.length > 0 && referenceMode === "image-field" ? refs : undefined,
 				});
-				response = await fetch(imagesUrl, {
+				response = await modelHttpFetch(imagesUrl, {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
@@ -127,8 +128,8 @@ export class ImageGenService {
 				};
 			}
 			if (item?.url) {
-				// 服务端不支持 b64_json 时回退下载（url 一般与 baseUrl 同源，直接 fetch）
-				const imageResponse = await fetch(item.url, { signal: AbortSignal.timeout(120_000) });
+				// 服务端不支持 b64_json 时回退下载（url 一般与 baseUrl 同源，直接下载）
+				const imageResponse = await modelHttpFetch(item.url, { signal: AbortSignal.timeout(120_000) });
 				if (!imageResponse.ok) {
 					return { ok: false, error: "network", detail: `image download ${imageResponse.status}` };
 				}
