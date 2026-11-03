@@ -534,3 +534,37 @@ test("list treats legacy disable-model-invocation as user-only, not a PiDeck dis
 		assert.deepEqual(settings.disabledSkills, []);
 	});
 });
+
+test("configureWsl 切换 HOME 后列表缓存立刻失效（设置保存热切换，无需重启）", async () => {
+	await withTemporaryHome(async (home) => {
+		const { SkillManager } = loadSkillManagerModule();
+		const manager = new SkillManager(home);
+		await createSkillFile(join(home, ".pi", "agent", "skills", "local-skill", "SKILL.md"), "local-skill");
+		const before = await manager.list();
+		assert.equal(
+			before.skills.some((skill) => skill.name === "local-skill"),
+			true,
+		);
+
+		const wslHome = await mkdtemp(join(tmpdir(), "pideck-skill-manager-wsl-"));
+		try {
+			await createSkillFile(join(wslHome, ".pi", "agent", "skills", "wsl-skill", "SKILL.md"), "wsl-skill");
+			manager.configureWsl({ distro: "Test", user: "tester", linuxHome: "/home/tester", windowsHome: wslHome });
+
+			const after = await manager.list();
+			assert.notEqual(after, before, "切换环境必须让 TTL 缓存失效");
+			assert.equal(after.locations[0].path, join(wslHome, ".pi", "agent", "skills"));
+			assert.equal(
+				after.skills.some((skill) => skill.name === "wsl-skill"),
+				true,
+			);
+			assert.equal(
+				after.skills.some((skill) => skill.name === "local-skill"),
+				false,
+				"不得混入旧环境的技能",
+			);
+		} finally {
+			await rm(wslHome, { recursive: true, force: true });
+		}
+	});
+});
