@@ -518,6 +518,108 @@ test("toplevel 解析失败静默降级：不抛、不误报，退订照常", as
 	}
 });
 
+test("非 git 目录的解析失败进负缓存：重复订阅不再 spawn、不再重复 warn（#483）", async () => {
+	const bare = makeTempDir();
+	let spawns = 0;
+	const { watcher, timers, warnings } = createWatcher({
+		resolveRepoRoot: async () => {
+			spawns += 1;
+			return null;
+		},
+	});
+	const watchId = watcher.acquire("p1", bare);
+	await flushResolution();
+	assert.equal(spawns, 1);
+	assert.equal(warnings.length, 1, "首次失败记一条 warn（带真实原因）");
+
+	// 聚焦切换的真实形态：unwatch + 立刻重新 watch 同一路径（一天 463 次 / 99.4% 在 3s 内）
+	for (let round = 0; round < 5; round += 1) {
+		watcher.release(watchId);
+		assert.equal(watcher.activeRepoCount, 0, `第 ${round} 轮退订后必须停掉仓库条目`);
+		watcher.acquire("p1", bare);
+		await flushResolution();
+		assert.equal(watcher.activeRepoCount, 1, `第 ${round} 轮重订阅仍要按 fallback 登记`);
+	}
+
+	assert.equal(spawns, 1, "负缓存命中期间不得再起 toplevel 解析子进程");
+	assert.equal(warnings.length, 1, "同一路径的失败 warn 只记一次");
+	assert.equal(timers.live().length, 1, "fallback 登记照常轮询（不因负缓存丢轮询）");
+
+	watcher.release(watchId);
+	assert.equal(watcher.activeRepoCount, 0);
+	assert.equal(timers.live().length, 0, "最后一个订阅者退订后停掉定时器");
+});
+
+test("负缓存到期后重新探测；解析成功清掉缓存并起轮询（git init 后能自动恢复）", async () => {
+	let now = 1_000_000;
+	let result = null;
+	let spawns = 0;
+	const bare = makeTempDir();
+	const repo = createRepo();
+	const { watcher, timers, warnings } = createWatcher({
+		now: () => now,
+		resolveFailureTtlMs: 60_000,
+		resolveRepoRoot: async () => {
+			spawns += 1;
+			return result;
+		},
+	});
+
+	const watchId = watcher.acquire("p1", bare);
+	await flushResolution();
+	assert.equal(spawns, 1);
+	watcher.release(watchId);
+
+	// TTL 内：命中负缓存，不 spawn
+	now += 59_000;
+	watcher.acquire("p1", bare);
+	await flushResolution();
+	assert.equal(spawns, 1, "TTL 内必须命中负缓存");
+	watcher.release(watchId);
+
+	// TTL 到期：重探一次；这次目录已经是仓库，必须清缓存并起轮询
+	now += 2_000;
+	result = repo.root;
+	watcher.acquire("p1", bare);
+	await flushResolution();
+	assert.equal(spawns, 2, "TTL 到期必须重新探测（否则用户中途 git init 永远看不到加速）");
+	assert.equal(warnings.length, 1, "成功解析不该新增 fallback warn");
+	assert.equal(watcher.activeRepoCount, 1);
+	assert.equal(timers.live().length, 1, "解析成功后按 toplevel 起轮询");
+
+	// 成功后清缓存：再退订重订仍在 TTL 内也不得落回负缓存
+	watcher.release(watchId);
+	watcher.acquire("p1", bare);
+	await flushResolution();
+	assert.equal(spawns, 3, "解析成功后缓存必须清掉，重订阅照常解析");
+});
+
+test("负缓存期间目录出现 .git 立即重探（git init 不必等 TTL 过期）", async () => {
+	const bare = makeTempDir();
+	let spawns = 0;
+	const { watcher } = createWatcher({
+		resolveFailureTtlMs: 600_000,
+		resolveRepoRoot: async () => {
+			spawns += 1;
+			// 第一次非仓库，之后 .git 出现就算仓库（模拟用户中途 git init）
+			return readRefsSignature(bare) === null ? null : bare;
+		},
+	});
+
+	const watchId = watcher.acquire("p1", bare);
+	await flushResolution();
+	assert.equal(spawns, 1, "首次必须探测");
+	watcher.release(watchId);
+
+	// 还在 TTL 内，但目录已经变成仓库：一次 stat 就该发现，不能再等 10 分钟
+	mkdirSync(join(bare, ".git", "refs", "heads"), { recursive: true });
+	writeFileSync(join(bare, ".git", "HEAD"), "ref: refs/heads/main\n");
+	watcher.acquire("p1", bare);
+	await flushResolution();
+	assert.equal(spawns, 2, ".git 出现后必须立即重探");
+	assert.equal(watcher.activeRepoCount, 1);
+});
+
 test("toplevel 解析超时立即回落并起轮询（WSL 下不能等 execGit 的 60s 下限）", async () => {
 	const repo = createRepo();
 	const { watcher, timers, warnings } = createWatcher({

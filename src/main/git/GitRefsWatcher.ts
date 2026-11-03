@@ -50,6 +50,18 @@ const DEFAULT_RESOLVE_TIMEOUT_MS = 8000;
 /** 解析超时时写进 warn 的原因串（与「非仓库 / 未装 git」区分开，便于线上定位）。 */
 const RESOLVE_TIMEOUT_REASON = "toplevel resolve timeout";
 
+/**
+ * 解析失败的负缓存有效期（毫秒）。
+ *
+ * 非 git 目录的失败是**确定性**的：同一路径重订阅 N 次就有 N 个 git 子进程 + N 条 warn
+ * （#483：一天 463 条 warn、99.4% 落在聚焦窗口切换后 3 秒内）。记下来就能把重复探测压成
+ * 一次；到期重试是留给「用户中途 git init / 装好 git」的恢复通路（另有 .git 出现即失效的快路）。
+ */
+const DEFAULT_RESOLVE_FAILURE_TTL_MS = 60_000;
+
+/** 负缓存条目上限：订阅路径来自用户项目列表，不能无界增长。 */
+const RESOLVE_FAILURE_CACHE_LIMIT = 64;
+
 export type GitRefsWatcherDeps = {
 	logger?: Pick<AppLogger, "warn">;
 	/** 轮询间隔（毫秒），测试可调小。 */
@@ -69,6 +81,10 @@ export type GitRefsWatcherDeps = {
 	/** 定时器注入点（测试用假定时器手动推进），默认真实 setInterval。 */
 	setTimer?: (handler: () => void, intervalMs: number) => unknown;
 	clearTimer?: (timer: unknown) => void;
+	/** 解析失败的负缓存有效期（毫秒，默认 60000），测试可调小。 */
+	resolveFailureTtlMs?: number;
+	/** 时钟注入点（测试推进 TTL 用），默认真实 Date.now。 */
+	now?: () => number;
 	/** 平台注入点（默认 process.platform）：WSL UNC 豁免只在 win32 生效，测试可跨平台注入。 */
 	platform?: NodeJS.Platform;
 };
@@ -291,6 +307,8 @@ export class GitRefsWatcher {
 	private readonly resolveRepoRootFn: (cwd: string) => Promise<string | null>;
 	private readonly setTimer: (handler: () => void, intervalMs: number) => unknown;
 	private readonly clearTimer: (timer: unknown) => void;
+	private readonly resolveFailureTtlMs: number;
+	private readonly now: () => number;
 	private readonly platform: NodeJS.Platform;
 	private readonly listeners = new Set<(watchId: string) => void>();
 	/** 仓库条目：键是解析后的 toplevel（同一仓库的多个项目根共用一份）。 */
@@ -299,6 +317,8 @@ export class GitRefsWatcher {
 	private readonly bindings = new Map<string, string>();
 	/** 解析尚未完成的登记：键是调用方 watchId（退订、重复订阅都在这里结算）。 */
 	private readonly pending = new Map<string, PendingWatch>();
+	/** 解析失败的负缓存：仓库键（规范化后的订阅路径）→ 失败时间与原因。 */
+	private readonly resolveFailures = new Map<string, { at: number; error: string }>();
 	private timer: unknown = null;
 	private polling = false;
 
@@ -310,6 +330,8 @@ export class GitRefsWatcher {
 		this.resolveRepoRootFn = deps.resolveRepoRoot ?? resolveGitToplevel;
 		this.setTimer = deps.setTimer ?? ((handler, intervalMs) => setInterval(handler, intervalMs));
 		this.clearTimer = deps.clearTimer ?? ((timer) => clearInterval(timer as NodeJS.Timeout));
+		this.resolveFailureTtlMs = deps.resolveFailureTtlMs ?? DEFAULT_RESOLVE_FAILURE_TTL_MS;
+		this.now = deps.now ?? (() => Date.now());
 		this.platform = deps.platform ?? process.platform;
 	}
 
@@ -363,6 +385,13 @@ export class GitRefsWatcher {
 		}
 		const entry: PendingWatch = { cwd: repoPath, refs: 1 };
 		this.pending.set(watchId, entry);
+		// 负缓存命中：同一路径的确定性失败不再起第二个 git 子进程，也不再重复 warn。
+		// 直接走 fallback 结算（与解析失败同一收敛点），退订路径完全一致。
+		const cachedFailure = this.readResolveFailure(repoPath);
+		if (cachedFailure !== null) {
+			this.commit(watchId, entry, null, cachedFailure, true);
+			return watchId;
+		}
 		// entry 本身就是代际令牌：退订会用同一个 watchId 重新登记，旧解析回调靠对象身份自我作废。
 		void this.resolveWithWatchdog(repoPath).then(({ root, error }) => this.commit(watchId, entry, root, error));
 		return watchId;
@@ -436,6 +465,7 @@ export class GitRefsWatcher {
 		this.bindings.clear();
 		// 清掉解析中的登记：在飞的解析回调回来时会因为找不到对应 entry 而安静退出
 		this.pending.clear();
+		this.resolveFailures.clear();
 		this.listeners.clear();
 	}
 
@@ -445,7 +475,7 @@ export class GitRefsWatcher {
 	 * 解析期间已退订 / 已 disposeAll / 已被新一代登记取代时什么都不做（对象身份不等），
 	 * 因此不会留下孤儿定时器或孤儿 map 条目——这是「异步解析 + 同步退订」的唯一收敛点。
 	 */
-	private commit(watchId: string, entry: PendingWatch, root: string | null, resolveError: string | null): void {
+	private commit(watchId: string, entry: PendingWatch, root: string | null, resolveError: string | null, cachedFailure = false): void {
 		if (this.pending.get(watchId) !== entry) return;
 		this.pending.delete(watchId);
 		const repoPath = root ?? entry.cwd;
@@ -454,8 +484,17 @@ export class GitRefsWatcher {
 		// config 的 mtime 与 size，以及 config 里 branch.*.remote|merge 两个上游名——不回传任何
 		// 文件内容、不落 token。除这几处 stat 与上面那段 config 解析外，不访问仓库内其它路径。
 		if (root === null) {
-			// 解析失败（非仓库 / 没装 git / 超时）不是错误，只是退回「盯着订阅路径」的老行为
-			this.warn("git refs watch: repo toplevel unresolved, falling back to the subscribed path", { repoPath, error: resolveError ?? "not a git work tree" });
+			// 解析失败（非仓库 / 没装 git / 超时）不是错误，只是退回「盯着订阅路径」的老行为。
+			// 负缓存命中时已经 warn 过一次，重复 warn 只会刷屏（#483 的 463 条/天）。
+			if (!cachedFailure) {
+				this.warn("git refs watch: repo toplevel unresolved, falling back to the subscribed path", { repoPath, error: resolveError ?? "not a git work tree" });
+				// 确定性失败（非仓库 / git 不可用）记负缓存；超时是瞬时故障，缓存它会让 refs 检测
+				// 整整一个 TTL 里退回 5s 轮询，得不偿失。
+				if (resolveError !== RESOLVE_TIMEOUT_REASON) this.recordResolveFailure(entry.cwd, resolveError ?? "not a git work tree");
+			}
+		} else {
+			// 解析成功（可能是 TTL 到期后的重试）：旧的失败记录必须清掉，否则下次订阅又落回 fallback
+			this.resolveFailures.delete(normalizeRepoKey(entry.cwd));
 		}
 		const repoKey = normalizeRepoKey(repoPath);
 		const existing = this.repos.get(repoKey);
@@ -471,6 +510,37 @@ export class GitRefsWatcher {
 			this.startPolling();
 		}
 		this.bindings.set(watchId, repoKey);
+	}
+
+	/**
+	 * 读负缓存：TTL 内且路径仍不是仓库时返回失败原因，调用方按 fallback 结算、不 spawn。
+	 * `.git` 出现的检查是一次 stat——用户中途 `git init` 就不该再等 TTL 过期。
+	 */
+	private readResolveFailure(repoPath: string): string | null {
+		const key = normalizeRepoKey(repoPath);
+		const cached = this.resolveFailures.get(key);
+		if (!cached) return null;
+		if (this.now() - cached.at > this.resolveFailureTtlMs) {
+			this.resolveFailures.delete(key);
+			return null;
+		}
+		if (existsSync(join(repoPath, ".git"))) {
+			this.resolveFailures.delete(key);
+			return null;
+		}
+		return cached.error;
+	}
+
+	/** 记一条负缓存（重复记录只刷新时间戳位置，不累加条目）。 */
+	private recordResolveFailure(repoPath: string, error: string): void {
+		const key = normalizeRepoKey(repoPath);
+		this.resolveFailures.delete(key);
+		this.resolveFailures.set(key, { at: this.now(), error });
+		while (this.resolveFailures.size > RESOLVE_FAILURE_CACHE_LIMIT) {
+			const oldest = this.resolveFailures.keys().next().value;
+			if (oldest === undefined) break;
+			this.resolveFailures.delete(oldest);
+		}
 	}
 
 	private startPolling(): void {
