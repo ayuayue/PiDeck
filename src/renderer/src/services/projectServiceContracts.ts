@@ -160,7 +160,7 @@ export type ProjectFileTransferOptions = {
 /**
  * stat 三态：
  * - present：已证明存在；
- * - missing：已证明不存在（需要公共 files.stat 携带失败码后才会出现）；
+ * - missing：公共 files.stat 明确证明不存在；
  * - unavailable：读不到/不确定——绝不能当成“文件不存在”。
  */
 export type ProjectPathAvailability = "present" | "missing" | "unavailable";

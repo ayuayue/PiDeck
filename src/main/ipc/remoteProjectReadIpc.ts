@@ -14,12 +14,12 @@ import type { RemoteProjectTargetResolver } from "./remoteProjectTarget";
 import type { RemoteProjectSession } from "../remote/RemoteHostConnectionService";
 import { REMOTE_HELPER_MAX_SEARCH_QUERY_LENGTH } from "../remote/RemoteHelperContract";
 import { REMOTE_PROJECT_TRASH_DIR } from "../remote/RemoteProjectEntryCommands";
-import { REMOTE_UPLOAD_TEMP_NAME } from "../remote/RemoteProjectFileUpload";
+import { REMOTE_UPLOAD_TEMP_NAME } from "../remote/RemoteProjectUploadNames";
 import { createRemoteSearchReader, REMOTE_SEARCH_READER_CODES } from "../remote/RemoteSearchReader";
 import { createRemoteWorkspaceReader, type RemoteWorkspacePort } from "../remote/RemoteWorkspaceReader";
 import type { RemoteFactsHub } from "../remote/RemoteFactsNotifications";
 
-export type RemoteProjectDirSnapshot = { ok: true; snapshot: { value: RemoteWorkspaceEntry[]; revision: number } } | { ok: false; code: string };
+export type RemoteProjectDirSnapshot = { ok: true; snapshot: { value: RemoteWorkspaceEntry[]; revision: number; truncated: boolean; scanned: number } } | { ok: false; code: string };
 
 /** 校验项目根相对路径：绝对路径、穿越段、控制字节与反斜杠一律拒绝。空串表示根。 */
 export function readRelativePath(value: unknown): string | undefined {
@@ -54,7 +54,7 @@ export function registerRemoteProjectReadIpc(input: { enabled: boolean; projectR
 		const read = await input.readDirSnapshot(projectIdValue, relative, false);
 		if (!read.ok) return opFailFromCode(read.code);
 		// revision 随值替换或标脏递增：两个读者拿到同一个数就说明他们看的是同一份事实。
-		return opOk({ entries: read.snapshot.value, revision: read.snapshot.revision });
+		return opOk({ entries: read.snapshot.value, revision: read.snapshot.revision, truncated: read.snapshot.truncated, scanned: read.snapshot.scanned });
 	});
 
 	ipcMain.handle(ipcChannels.remoteProjectFactsSubscribe, (event, projectIdValue: unknown) => {

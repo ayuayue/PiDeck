@@ -11,16 +11,7 @@ const read = (path) => readFileSync(path, "utf8");
  * 而**每一份单独看都是对的**——所以 review 看不见，只有把「只允许一处」写成断言才挡得住再长。
  * 新增域时如果又想抄一份，这条会当场红。
  */
-const CONVERTED_IPC = [
-	"src/main/ipc/remoteProjectEntryIpc.ts",
-	"src/main/ipc/remoteProjectFileIpc.ts",
-	"src/main/ipc/remoteProjectTrustIpc.ts",
-	"src/main/ipc/remoteProjectIpc.ts",
-	"src/main/ipc/remoteProjectTransferIpc.ts",
-	"src/main/ipc/remoteProjectCreateIpc.ts",
-	"src/main/ipc/remoteProjectTransferIpc.ts",
-	"src/main/ipc/wslHostIpc.ts",
-];
+const CONVERTED_IPC = ["src/main/ipc/remoteProjectEntryIpc.ts", "src/main/ipc/remoteProjectFileIpc.ts", "src/main/ipc/remoteProjectTrustIpc.ts", "src/main/ipc/remoteProjectIpc.ts", "src/main/ipc/remoteProjectCreateIpc.ts", "src/main/ipc/wslHostIpc.ts"];
 
 /** 已迁到 Op<T> 的结果类型所在文件（新增域时往这里加，不是往上面加）。 */
 const CONVERTED_TYPES = ["src/shared/types/remoteFiles.ts", "src/shared/types/remoteTrust.ts"];

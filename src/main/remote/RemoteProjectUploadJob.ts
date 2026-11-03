@@ -8,6 +8,7 @@ import { runRemoteSftpJob } from "./RemoteSftpAdapter";
 import type { RemoteSftpCapabilityCache } from "./RemoteSftpCapabilityCache";
 import type { RemoteSftpCapabilityProbe } from "./RemoteSftpCapabilityProbe";
 import type { RemoteSftpProbe } from "./RemoteSftpAdapter";
+import { REMOTE_UPLOAD_TEMP_NAME } from "./RemoteProjectUploadNames";
 
 export const REMOTE_PROJECT_UPLOAD_JOB_CODES = {
 	pathInvalid: "REMOTE_UPLOAD_PATH_INVALID",
@@ -29,7 +30,6 @@ const HASH_CHUNK_BYTES = 1024 * 1024;
 const CONTROL = /[\u0000-\u001f\u007f]/;
 const REF = /^[0-9a-f]{32}$/;
 const HASH = /^[0-9a-f]{64}$/;
-const RESERVED_TEMP = /^\.[0-9a-f]{32}\.pideck-put$/;
 const REQUIRED_METHODS = ["fs.uploadPrepare", "fs.uploadCommit", "fs.uploadAbort"] as const;
 const DEFINITE_COMMIT_REFUSALS = new Set(["FILE_UPLOAD_INPUT_INVALID", "FILE_UPLOAD_TOKEN_INVALID", "FILE_UPLOAD_TARGET_EXISTS", "FILE_UPLOAD_STAGE_INVALID", "FILE_UPLOAD_PATH_INVALID", "FILE_UPLOAD_ROOT_CHANGED", "FILE_UPLOAD_UNSUPPORTED", "TOO_MANY_REQUESTS", "PERMISSION_DENIED", "IO_ERROR"]);
 
@@ -191,7 +191,7 @@ function readDirectory(value: unknown): string | undefined {
 function targetRelative(directory: unknown, localPath: string): { relative: string; name: string } {
 	const parsed = readDirectory(directory);
 	const name = basename(localPath);
-	if (parsed === undefined || name.length === 0 || name.includes("\\") || CONTROL.test(name) || name === "." || name === ".." || RESERVED_TEMP.test(name)) throw jobError(REMOTE_PROJECT_UPLOAD_JOB_CODES.pathInvalid);
+	if (parsed === undefined || name.length === 0 || name.includes("\\") || CONTROL.test(name) || name === "." || name === ".." || REMOTE_UPLOAD_TEMP_NAME.test(name)) throw jobError(REMOTE_PROJECT_UPLOAD_JOB_CODES.pathInvalid);
 	const relative = parsed === "" ? name : parsed + "/" + name;
 	if (Buffer.byteLength(relative, "utf8") > 4096) throw jobError(REMOTE_PROJECT_UPLOAD_JOB_CODES.pathInvalid);
 	return { relative, name };

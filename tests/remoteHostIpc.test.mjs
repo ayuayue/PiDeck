@@ -814,16 +814,6 @@ function projectHandlers(options = {}) {
 			},
 			"../remote/RemoteWorkspaceReader": {
 				createRemoteWorkspaceReader: ({ port }) => ({
-					async list(hostId, path) {
-						calls.list.push({ hostId, path, portHasRequest: typeof port.request === "function" });
-						if (options.listFails) throw new Error("REMOTE_WORKSPACE_LIST_TOO_LARGE");
-						return {
-							entries: options.listEntries ?? [
-								{ name: "src", kind: "directory" },
-								{ name: "readme.md", kind: "file", bytes: 12 },
-							],
-						};
-					},
 					async readFile(hostId, path) {
 						calls.read.push({ hostId, path });
 						if (options.readFails) throw new Error("REMOTE_WORKSPACE_READ_FAILED");
@@ -848,6 +838,17 @@ function projectHandlers(options = {}) {
 	registerRemoteProjectIpc({
 		enabled: options.enabled ?? true,
 		userDataDir: "/tmp/ignored",
+		directoryReader: {
+			async read({ session, relative }) {
+				calls.list.push({ hostId: HOST_ID, path: relative === "" ? "." : relative, portHasRequest: typeof session.request === "function" });
+				if (options.listFails) return { ok: false, code: "REMOTE_WORKSPACE_LIST_TOO_LARGE" };
+				const entries = options.listEntries ?? [
+					{ name: "src", kind: "directory" },
+					{ name: "readme.md", kind: "file", bytes: 12 },
+				];
+				return { ok: true, value: { entries, scanned: entries.length, truncated: false } };
+			},
+		},
 		service: () => ({
 			client: { sshPath: "/usr/bin/ssh", scpPath: "/usr/bin/scp", env: {}, run: async () => ({ exitCode: 0, stdout: "" }) },
 			async request() {},
@@ -1002,6 +1003,8 @@ test("per-project reads resolve the locator, switch the root and read relative t
 			],
 			// 目录事实的版本号（W3）：值第一次装载后是 1；两个读者拿到同一个数说明看的是同一份事实。
 			revision: 1,
+			truncated: false,
+			scanned: 2,
 		},
 	});
 	assert.deepEqual(harness.calls.setRoot, [{ hostId: HOST_ID, root: "/srv/app" }], "the project's root is handed to the connection");
@@ -1021,7 +1024,7 @@ test("the project trash directory is hidden from the root listing but not from a
 		],
 	});
 	const root = await harness.handlers.get("remote:project-list")({}, "project-remote-1", "");
-	assert.deepEqual(JSON.parse(JSON.stringify(root)), { ok: true, value: { entries: [{ name: "src", kind: "directory" }], revision: 1 } }, "the reserved trash namespace is not a user-visible root entry");
+	assert.deepEqual(JSON.parse(JSON.stringify(root)), { ok: true, value: { entries: [{ name: "src", kind: "directory" }], revision: 1, truncated: false, scanned: 2 } }, "the reserved trash namespace is not a user-visible root entry");
 	const nested = await harness.handlers.get("remote:project-list")({}, "project-remote-1", "src");
 	assert.deepEqual(
 		JSON.parse(JSON.stringify(nested)),
@@ -1034,6 +1037,8 @@ test("the project trash directory is hidden from the root listing but not from a
 				],
 				// 同一个事实缓存里的下一个目录：装载即发新版本号。
 				revision: 2,
+				truncated: false,
+				scanned: 2,
 			},
 		},
 		"a same-named entry inside a subdirectory is user data and stays visible",

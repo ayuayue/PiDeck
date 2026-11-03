@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -91,18 +92,32 @@ func runCommand(ctx context.Context, value request, progress progressFunc) (any,
 		return nil, fail("SFTP_SSH_START_FAILED", err)
 	}
 
-	client, err := sftp.NewClientPipe(bufio.NewReader(stdout), stdin)
+	var input io.Reader = stdout
+	var bounded *boundedPacketReader
+	if value.Operation == "list" {
+		bounded = newBoundedPacketReader(stdout)
+		input = bounded
+	}
+	client, err := sftp.NewClientPipe(bufio.NewReader(input), stdin)
 	if err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		return nil, fail("SFTP_SUBSYSTEM_UNAVAILABLE", err)
 	}
-	remote := &sftpRemoteClient{client: client}
+	remote := &sftpRemoteClient{client: client, bounded: bounded}
 	result, runErr := executeJob(remote, value, progress)
 	closeErr := remote.Close()
 	waitErr := cmd.Wait()
 	if runErr != nil {
 		return nil, runErr
+	}
+	if value.Operation == "list" {
+		if listed, ok := result.(listResult); ok && listed.Truncated {
+			// The bounded reader intentionally ends the one-shot protocol after the
+			// first batch beyond its cap. Process teardown errors are not a second
+			// result and must not turn a complete bounded receipt into failure.
+			return result, nil
+		}
 	}
 	if closeErr != nil {
 		return nil, mapRemoteError(closeErr)

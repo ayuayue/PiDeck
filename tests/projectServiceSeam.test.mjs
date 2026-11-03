@@ -333,18 +333,6 @@ function makeApi(options = {}) {
 				record("remoteHosts.deleteProjectEntry", [projectId, path, version]);
 				return { ok: true, value: { trashId: "trash-1" } };
 			},
-			uploadProjectFiles: async (projectId, directory) => {
-				record("remoteHosts.uploadProjectFiles", [projectId, directory]);
-				return { ok: true, value: { canceled: true } };
-			},
-			uploadProjectFilesFromPaths: async (projectId, directory, paths) => {
-				record("remoteHosts.uploadProjectFilesFromPaths", [projectId, directory, paths]);
-				return { ok: true, value: { uploaded: [{ name: "a.bin", bytes: 3 }], failed: [] } };
-			},
-			downloadProjectFile: async (projectId, path) => {
-				record("remoteHosts.downloadProjectFile", [projectId, path]);
-				return { ok: true, value: { path: "C:/downloads/a.bin", bytes: 3 } };
-			},
 		},
 		remoteTrust: { list: async () => ({ ok: true, value: { entries: [] } }) },
 		remoteTransfers: {

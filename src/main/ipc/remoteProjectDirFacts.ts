@@ -17,10 +17,10 @@ import type { RemoteFactsHub } from "../remote/RemoteFactsNotifications";
 import { createDeepDirWatch, type DeepDirWatchStatus } from "../remote/RemoteDeepDirWatch";
 import { dirKeysAfterWrite, dirPathsAfterWrite } from "../remote/RemoteDirWatchRegistry";
 import { REMOTE_PROJECT_TRASH_DIR } from "../remote/RemoteProjectEntryCommands";
-import { REMOTE_UPLOAD_TEMP_NAME } from "../remote/RemoteProjectFileUpload";
-import { createRemoteWorkspaceReader } from "../remote/RemoteWorkspaceReader";
+import { REMOTE_UPLOAD_TEMP_NAME } from "../remote/RemoteProjectUploadNames";
+import type { RemoteSftpDirectoryPort } from "../remote/RemoteSftpDirectoryReader";
 import { projectDirectoryPage, projectDirectoryWatchDegradation } from "./remoteProjectDirectoryReads";
-import { readerPath, sessionPort, type RemoteProjectDirSnapshot } from "./remoteProjectReadIpc";
+import type { RemoteProjectDirSnapshot } from "./remoteProjectReadIpc";
 import type { RemoteProjectTargetResolver } from "./remoteProjectTarget";
 import { createProjectWatchKeepAlive } from "./remoteProjectWatchKeepAlive";
 
@@ -50,7 +50,7 @@ export type ProjectDirFacts = {
 	dispose(): Promise<void>;
 };
 
-export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectTargetResolver; factsEvents: RemoteFactsHub }): ProjectDirFacts {
+export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectTargetResolver; factsEvents: RemoteFactsHub; directoryReader?: RemoteSftpDirectoryPort }): ProjectDirFacts {
 	const factsEvents = input.factsEvents;
 	const projectWatches = createProjectWatchKeepAlive();
 	const watchRegistry = projectWatches.registry;
@@ -88,7 +88,8 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 		dirs.clearWhere((key) => key.startsWith(projectId + "\u0000"));
 	};
 
-	const dirs: FactCache<RemoteWorkspaceEntry[]> = createFactCache<RemoteWorkspaceEntry[]>(async (key) => {
+	type DirectoryFact = { entries: RemoteWorkspaceEntry[]; truncated: boolean; scanned: number };
+	const dirs: FactCache<DirectoryFact> = createFactCache<DirectoryFact>(async (key) => {
 		const separator = key.indexOf("\u0000");
 		const projectId = key.slice(0, separator);
 		const relative = key.slice(separator + 1);
@@ -107,20 +108,26 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 				projectWatches.noteSession(session.connectionId, { service: target.service, hostId: target.hostId, root: target.remotePath });
 				projectHosts.set(projectId, target.hostId);
 				projectRoots.set(projectId, target.remotePath);
-				const reader = createRemoteWorkspaceReader({ port: sessionPort(session, target.hostId) });
-				const listed = await reader.list(target.hostId, readerPath(relative));
+				// Ordinary directory reads are SFTP-only. The helper remains responsible for watch
+				// registration below, but its fs.list path must never be a silent fallback.
+				if (input.directoryReader === undefined) throw new Error("REMOTE_SFTP_DIRECTORY_READ_FAILED");
+				const listed = await input.directoryReader.read({ session, canonicalRoot: target.remotePath, relative });
+				if (!listed.ok) throw new Error(listed.code);
 				// 读期间项目被关闭/root 退休：这份结果不属于任何还活着的项目，不能再登记 watcher。
 				if (!stillCurrent()) throw new Error("REQUEST_CANCELLED");
 				// 读成功后登记订阅：根目录立即 ensure，深层目录进合并窗口；之后 helper 的变更事件才能把
 				// 这个项目的事实标脏。订阅不是读的前置条件（失败只降级到只读刷新）。
 				await dirWatch.record(projectId, target.hostId, relative, session);
-				return listed;
+				return {
+					entries: listed.value.entries.filter((entry) => (relative !== "" || entry.name !== REMOTE_PROJECT_TRASH_DIR) && !REMOTE_UPLOAD_TEMP_NAME.test(entry.name)).map((entry) => ({ name: entry.name, kind: entry.kind, ...(entry.kind === "file" && entry.bytes !== undefined ? { bytes: entry.bytes } : {}) })),
+					truncated: listed.value.truncated,
+					scanned: listed.value.scanned,
+				};
 			});
 			if (!outcome.ok) return opFailFromCode(outcome.code);
 			// 结果 settle 与关闭可能交错：缓存发布前再核对一次，避免旧代写回。
 			if (!stillCurrent()) return opFailFromCode("REQUEST_CANCELLED");
-			// 两类条目不属于用户数据：回收站命名空间（只在根目录隐藏）与本通道自己的上传临时文件。
-			return opOk(outcome.value.entries.filter((entry) => (relative !== "" || entry.name !== REMOTE_PROJECT_TRASH_DIR) && !REMOTE_UPLOAD_TEMP_NAME.test(entry.name)).map((entry) => ({ name: entry.name, kind: entry.kind, ...(entry.bytes === undefined ? {} : { bytes: entry.bytes }) })));
+			return opOk(outcome.value);
 		} catch (error) {
 			return opFailFromCode(codeOf(error, "REMOTE_PROJECT_READ_FAILED"));
 		}
@@ -147,7 +154,17 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 		// 新会话都进不来。stale 值放行一次装载：仍然不会把旧事实当现状返回，只是把拒绝/重载交给装载层。
 		if (existing !== undefined && existing.ok === true && existing.stale === false && (connection === undefined || connection.state !== "ready")) return { ok: false, code: "SSH_HOST_NOT_READY" };
 		const snapshot = await dirs.read(key, { ...(connection === undefined ? {} : { generation: connection.connectionId }), force });
-		return snapshot.ok ? { ok: true, snapshot } : { ok: false, code: snapshot.code };
+		return snapshot.ok
+			? {
+					ok: true,
+					snapshot: {
+						value: snapshot.value.entries,
+						revision: snapshot.revision,
+						truncated: snapshot.value.truncated,
+						scanned: snapshot.value.scanned,
+					},
+				}
+			: { ok: false, code: snapshot.code };
 	}
 
 	return {

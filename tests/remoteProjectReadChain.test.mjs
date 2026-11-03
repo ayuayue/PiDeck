@@ -132,7 +132,6 @@ function fakeManagerPorts(remote) {
 					if (manager.state !== "ready") throw new Error("SSH_HOST_NOT_READY");
 					options?.onRequestId?.("req-" + method);
 					if (method === "fs.stat") return remote.stat(root, params.path);
-					if (method === "fs.list") return { entries: remote.list(root, params.path) };
 					if (method === "fs.read") {
 						const gate = remote.gateFor(root, params.path, params.offset);
 						if (gate !== undefined) {
@@ -197,6 +196,12 @@ async function createLifecycle(userDataDir, remote, ports, browseRoot = async ({
 		enabled: true,
 		userDataDir,
 		service: () => service,
+		directoryReader: {
+			async read({ canonicalRoot }) {
+				const entries = remote.list(canonicalRoot, ".");
+				return { ok: true, value: { entries, scanned: entries.length, truncated: false } };
+			},
+		},
 		projects: {
 			enroll: async ({ hostId, canonicalRemotePath }) => ({ projectId: (await projectStore.addRemote({ hostId, canonicalRemotePath })).id }),
 			locator: (projectId) => {

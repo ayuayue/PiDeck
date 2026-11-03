@@ -1,4 +1,5 @@
 import type { FileSearchResult, FileTreeNode, ProjectFileTarget, ProjectLocator } from "../../shared/types";
+import type { ProjectFileStatResult } from "../../shared/types/projectFiles";
 
 export type ProjectFileBackend = {
 	readonly locationKind: ProjectLocator["kind"];
@@ -8,7 +9,7 @@ export type ProjectFileBackend = {
 	readBase64(target: ProjectFileTarget, maxBytes?: number): Promise<string>;
 	writeContent(target: ProjectFileTarget, content: string): Promise<void>;
 	pathsExist(targets: ProjectFileTarget[]): Promise<boolean[]>;
-	stat(target: ProjectFileTarget): Promise<{ exists: boolean; isDirectory: boolean }>;
+	stat(target: ProjectFileTarget): Promise<ProjectFileStatResult>;
 	create(parent: ProjectFileTarget, name: string, type: "file" | "directory"): Promise<ProjectFileTarget>;
 	delete(target: ProjectFileTarget, recursive?: boolean): Promise<void>;
 	rename(target: ProjectFileTarget, newName: string): Promise<ProjectFileTarget>;

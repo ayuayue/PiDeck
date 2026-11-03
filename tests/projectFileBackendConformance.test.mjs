@@ -87,10 +87,6 @@ function remoteHarness(options = {}) {
 		async request(method, params) {
 			calls[method.replace("fs.", "")]?.push(method === "fs.list" ? params.path : method === "fs.statMany" ? [...params.paths] : params.path);
 			if (method === "fs.watch") return { watchId: "w1" };
-			if (method === "fs.list") {
-				if (options.listError !== undefined) throw new Error(options.listError);
-				return { entries: options.entries ?? [] };
-			}
 			if (method === "fs.statMany") {
 				if (options.statManyError !== undefined) throw new Error(options.statManyError);
 				return { entries: params.paths.map((path) => ({ path, kind: options.kinds?.[path] ?? "file", bytes: 1, mtimeMs: 1 })) };
@@ -117,6 +113,25 @@ function remoteHarness(options = {}) {
 		enabled: true,
 		userDataDir: "/tmp/unused",
 		service: async () => service,
+		...(options.withoutDirectoryReader === true
+			? {}
+			: {
+					directoryReader: {
+						async read({ relative }) {
+							calls.list.push(relative === "" ? "." : relative);
+							if (options.listError !== undefined) return { ok: false, code: options.listError };
+							const entries = options.entries ?? [];
+							return {
+								ok: true,
+								value: {
+									entries,
+									scanned: options.scanned ?? entries.length,
+									truncated: options.truncated ?? false,
+								},
+							};
+						},
+					},
+				}),
 		projects: {
 			enroll: async () => ({ projectId: PROJECT }),
 			locator: (projectId) => (projectId === PROJECT ? { kind: "ssh", hostId: HOST, remotePath: "/srv/app" } : undefined),
@@ -132,6 +147,7 @@ test("远端目录页：target 项目相对、hasChildren=unknown、2000/2001 �
 	assert.equal(page.ok, true);
 	assert.equal(page.value.entries.length, 2000);
 	assert.equal(page.value.truncated, true);
+	assert.equal(page.value.scanned, 2001);
 	assert.equal(page.value.generation, "conn-1");
 	assert.ok(page.value.revision > 0);
 	assert.deepEqual(plain(page.value.entries[0]), {
@@ -146,19 +162,69 @@ test("远端目录页：target 项目相对、hasChildren=unknown、2000/2001 �
 	const exactPage = await exact.facts.directoryPage(PROJECT, "");
 	assert.equal(exactPage.value.entries.length, 2000);
 	assert.equal(exactPage.value.truncated, false);
+	assert.equal(exactPage.value.scanned, 2000);
 });
 
 test("远端目录页失败如实返回稳定码，不缓存成空目录", async () => {
-	const h = remoteHarness({ listError: "REMOTE_PROJECT_READ_FAILED" });
-	const failed = await h.facts.directoryPage(PROJECT, "");
-	assert.equal(failed.ok, false);
-	assert.equal(failed.code, "REMOTE_PROJECT_READ_FAILED");
-	assert.equal("value" in failed, false);
-	assert.equal(h.calls.list.length, 1);
+	let h;
+	for (const code of ["SFTP_PERMISSION_DENIED", "SFTP_REMOTE_NOT_FOUND", "SFTP_REMOTE_CONNECTION_LOST"]) {
+		h = remoteHarness({ listError: code });
+		const failed = await h.facts.directoryPage(PROJECT, "");
+		assert.equal(failed.ok, false);
+		assert.equal(failed.code, code);
+		assert.equal("value" in failed, false, `${code} must not be projected as an empty directory`);
+		assert.equal(h.calls.list.length, 1);
+	}
 	// 失败不缓存为事实：下一次读会重新询问。
+	assert.ok(h);
 	const retried = await h.facts.directoryPage(PROJECT, "");
 	assert.equal(retried.ok, false);
 	assert.equal(h.calls.list.length, 2);
+});
+
+test("远端空目录成功但不伪造截断", async () => {
+	const h = remoteHarness({ entries: [] });
+	const page = await h.facts.directoryPage(PROJECT, "");
+	assert.equal(page.ok, true);
+	assert.deepEqual(plain(page.value.entries), []);
+	assert.equal(page.value.truncated, false);
+	assert.equal(page.value.scanned, 0);
+});
+
+test("未装配 SFTP 目录端口时显式失败，不回退 helper fs.list", async () => {
+	const h = remoteHarness({ withoutDirectoryReader: true });
+	const page = await h.facts.directoryPage(PROJECT, "");
+	assert.equal(page.ok, false);
+	assert.equal(page.code, "REMOTE_SFTP_DIRECTORY_READ_FAILED");
+	assert.equal(h.calls.list.length, 0, "no directory port means no read at all, not a helper fallback");
+});
+
+test("远端目录页：SFTP 截断不会被 2000 条投影边界掩盖", async () => {
+	const h = remoteHarness({
+		entries: [
+			{ name: ".env", kind: "file", bytes: 4 },
+			{ name: ".pideck-trash", kind: "directory" },
+			{ name: ".0123456789abcdef0123456789abcdef.pideck-put", kind: "file", bytes: 1 },
+			{ name: ".short.pideck-put", kind: "file", bytes: 1 },
+			{ name: "src", kind: "directory" },
+			{ name: "link", kind: "other" },
+		],
+		scanned: 4100,
+		truncated: true,
+	});
+	const page = await h.facts.directoryPage(PROJECT, "");
+	assert.equal(page.ok, true);
+	assert.equal(page.value.truncated, true, "native truncation is independent of the 2000-entry projection");
+	assert.equal(page.value.scanned, 4100);
+	assert.deepEqual(
+		plain(page.value.entries.map((entry) => [entry.relativePath, entry.type])),
+		[
+			[".env", "file"],
+			[".short.pideck-put", "file"],
+			["src", "directory"],
+		],
+		"hidden files stay visible; reserved names are hidden exactly; unsupported entry kinds are not followed or projected",
+	);
 });
 
 test("远端 pathsExist：128 路径 = 2 帧（64/帧），只走只读 fs 面", async () => {

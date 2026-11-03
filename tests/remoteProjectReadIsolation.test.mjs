@@ -174,7 +174,6 @@ function fakeManagerPorts(remote, overrides = {}) {
 					record.requests.push({ hostId, method, params });
 					calls.requests.push({ hostId, method, params, root });
 					if (method === "fs.stat") return remote.stat(root, params.path);
-					if (method === "fs.list") return { entries: remote.list(root, params.path) };
 					if (method === "fs.read") {
 						const gate = remote.gateFor(root, params.path, params.offset);
 						if (gate !== undefined) {
@@ -204,7 +203,7 @@ async function writeStore(userDataDir, revision = 7) {
  * 只 stub 与本套件无关的模块（browse root / 主机 store / pin store / electron），
  * 刻意不 stub RemoteWorkspaceReader，以便真实分块读参与交错。
  */
-function registerIpc({ service, projects, userDataDir, beforeProjectOperation }) {
+function registerIpc({ service, projects, userDataDir, beforeProjectOperation, directoryReader }) {
 	const handlers = new Map();
 	const stubs = {
 		electron: { ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) } },
@@ -243,6 +242,7 @@ function registerIpc({ service, projects, userDataDir, beforeProjectOperation })
 		enabled: true,
 		userDataDir,
 		service: () => wrapped,
+		directoryReader,
 		projects: {
 			enroll: async () => ({ projectId: PROJECT_A }),
 			locator: (projectId) => projects[projectId],
@@ -264,7 +264,18 @@ async function withHarness({ overrides = {}, beforeProjectOperation } = {}, run)
 		const remote = fakeRemote();
 		const ports = fakeManagerPorts(remote, overrides);
 		const service = createRemoteHostConnectionService({ userDataDir, client: CLIENT, nodePath: "/usr/bin/node", ports, ...(overrides.serviceOptions ?? {}) });
-		const handlers = registerIpc({ service, projects: LOCATORS, userDataDir, beforeProjectOperation });
+		const handlers = registerIpc({
+			service,
+			projects: LOCATORS,
+			userDataDir,
+			beforeProjectOperation,
+			directoryReader: {
+				async read({ canonicalRoot }) {
+					const entries = remote.list(canonicalRoot);
+					return { ok: true, value: { entries, scanned: entries.length, truncated: false } };
+				},
+			},
+		});
 		const result = await run({ handlers, service, remote, ports });
 		await service.dispose();
 		return result;
@@ -390,8 +401,8 @@ test("consecutive reads of one project do not rebuild the session", async () => 
 	});
 });
 
-test("a single-frame list must be served from the root it was resolved for, even if another project switches before it starts", async () => {
-	// 只有一帧的 fs.list 也必须在「这个项目自己的 root」上执行。在 withProjectSession 取锁之前留窗口，
+test("a bounded directory read must use the root it was resolved for, even if another project switches before it starts", async () => {
+	// 目录读取也必须绑定「这个项目自己的 root」。在 withProjectSession 取锁之前留窗口，
 	// 让 B 的切根先真实落地，再放行 A 的操作；A 必须重新对齐到 A 的 root，而不是接着用 B 的会话。
 	let enteredOperation;
 	const operationEntered = new Promise((resolve) => {

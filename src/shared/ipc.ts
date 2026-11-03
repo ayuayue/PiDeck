@@ -44,12 +44,7 @@ export const ipcChannels = {
 	remoteProjectList: "remote:project-list",
 	/** 按 projectId 读文件（相对路径）。 */
 	remoteProjectRead: "remote:project-read",
-	/** 把远端项目里的一个文件下载到本机（主进程弹保存对话框；字节数受远端读上限约束）。 */
-	remoteProjectDownload: "remote:project-download",
-	/** 把本机文件上传到远端项目的当前目录（主进程弹选择对话框；stdin 分块写，支持二进制）。 */
-	remoteProjectUpload: "remote:project-upload",
-	/** 同上，但本机路径由拖放给出（主进程逐条校验是常规文件，不弹对话框）。 */
-	remoteProjectUploadPaths: "remote:project-upload-paths",
+	/** 传输任务只暴露 start/cancel/event；不可回退到旧的单次 upload/download 通道。 */
 	remoteProjectTransferStart: "remote:project-transfer-start",
 	remoteProjectTransferCancel: "remote:project-transfer-cancel",
 	remoteProjectTransferEvent: "remote:project-transfer-event",

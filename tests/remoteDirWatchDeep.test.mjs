@@ -370,10 +370,6 @@ function ipcHarness() {
 			},
 			"../remote/RemoteWorkspaceReader": {
 				createRemoteWorkspaceReader: () => ({
-					async list(_hostId, path) {
-						calls.list.push(path);
-						return { entries: [{ name: "src", kind: "directory" }] };
-					},
 					async readFile() {
 						return { content: Buffer.from("x"), bytes: 1, mtimeMs: 1 };
 					},
@@ -384,6 +380,13 @@ function ipcHarness() {
 	const facts = registerRemoteProjectIpc({
 		enabled: true,
 		userDataDir: "/tmp/unused",
+		directoryReader: {
+			async read({ relative }) {
+				const entries = [{ name: "src", kind: "directory" }];
+				calls.list.push(relative === "" ? "." : relative);
+				return { ok: true, value: { entries, scanned: entries.length, truncated: false } };
+			},
+		},
 		service: async () => ({
 			withProjectSession: async (_hostId, _root, task) => ({
 				ok: true,

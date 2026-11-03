@@ -12,7 +12,7 @@ function projectFixture(root, overrides = {}) {
 	return { id: "project-1", name: "Project", path: root, lastOpenedAt: 0, ...overrides };
 }
 
-function createFilesIpc(root, projectOverride) {
+function createFilesIpc(root, projectOverride, remoteFiles) {
 	const listHandlers = new Map();
 	const listCalls = [];
 	const mutationCalls = [];
@@ -60,6 +60,7 @@ function createFilesIpc(root, projectOverride) {
 		appLogger: { info: async () => undefined, error: async () => undefined },
 		getMainWindow: () => null,
 		openExternalUrl: async () => undefined,
+		remoteFiles,
 	});
 	return {
 		listHandler: listHandlers.get(ipcChannels.filesList),
@@ -216,16 +217,53 @@ test("files:read, write, stat, open, and pathsExist resolve a project target loc
 		const existence = await api.pathsExistHandler({}, [target]);
 		assert.equal(existence[0], true);
 		const stat = await api.statHandler({}, target);
+		assert.equal(stat.availability, "present");
 		assert.equal(stat.exists, true);
 		assert.equal(stat.isDirectory, false);
 		const missing = await api.statHandler({}, { projectId: "project-1", relativePath: "src/missing.ts" });
+		assert.equal(missing.availability, "missing");
 		assert.equal(missing.exists, false);
 		assert.equal(missing.isDirectory, false);
+		assert.equal(missing.code, "ENOENT");
 		await api.openHandler({}, target);
 		assert.equal(api.openedPaths[0], await realpath(filePath));
 	} finally {
 		rmSync(fixture, { recursive: true, force: true });
 	}
+});
+
+test("files:stat remote results distinguish present, missing, and unavailable", async () => {
+	const project = projectFixture("/unused", { locator: { kind: "ssh", hostId: "host-1", remotePath: "/srv/project" } });
+	let answer = { ok: true, value: [{ exists: true, isDirectory: true }] };
+	const api = createFilesIpc("/unused", project, {
+		async pathsExist() {
+			return answer;
+		},
+	});
+	const target = { projectId: project.id, relativePath: "src" };
+	const present = await api.statHandler({}, target);
+	assert.equal(present.availability, "present");
+	assert.equal(present.exists, true);
+	assert.equal(present.isDirectory, true);
+
+	answer = { ok: true, value: [{ exists: false, isDirectory: false }] };
+	const missing = await api.statHandler({}, target);
+	assert.equal(missing.availability, "missing");
+	assert.equal(missing.exists, false);
+	assert.equal(missing.isDirectory, false);
+	assert.equal(missing.code, "PATH_NOT_FOUND");
+
+	answer = { ok: false, code: "SFTP_PERMISSION_DENIED", outcome: "rejected" };
+	const unavailable = await api.statHandler({}, target);
+	assert.equal(unavailable.availability, "unavailable");
+	assert.equal(unavailable.exists, false);
+	assert.equal(unavailable.isDirectory, false);
+	assert.equal(unavailable.code, "SFTP_PERMISSION_DENIED");
+
+	const noRemote = createFilesIpc("/unused", project);
+	const absent = await noRemote.statHandler({}, target);
+	assert.equal(absent.availability, "unavailable");
+	assert.equal(absent.code, "REMOTE_FILES_UNAVAILABLE");
 });
 
 test("file mutation handlers resolve project targets beneath the registered root", async () => {
