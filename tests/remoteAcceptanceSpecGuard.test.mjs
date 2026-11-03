@@ -101,6 +101,13 @@ test("the spec gates on credentials before any Electron session can start", () =
 	assert.ok(!/EXPECT_FAIL|ALLOW_FAILURE|PIDECK_E2E_ACCEPT_ANY/i.test(source), "no environment value may flip the spec to passing");
 });
 
+test("the remote oracle closes stdin and retries only a local timeout", () => {
+	const source = specSource(FIXTURES);
+	assert.match(source, /\["-n", "-o", "BatchMode=yes"/, "the oracle must not leave Windows OpenSSH waiting on local stdin");
+	assert.match(source, /const timedOut = failure\.killed === true \|\| failure\.code === "ETIMEDOUT"/, "a killed oracle must be distinguishable from a remote command result");
+	assert.match(source, /if \(!timedOut && failure\.code !== 255/, "timeouts and dropped connections share exactly one retry path");
+});
+
 test("no credential is committed anywhere under e2e/", () => {
 	for (const name of readdirSync("e2e")) {
 		if (!name.endsWith(".ts")) continue;

@@ -1,305 +1,48 @@
-import { createHash } from "node:crypto";
-import { closeSync, ftruncateSync, mkdtempSync, openSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
-import { expect, type ElectronApplication, type Page } from "@playwright/test";
-import { REMOTE_ACCEPTANCE_ENV, REMOTE_APP_DATA_DIR_NAME, dismissRemoteConnectionProgress, openRemoteProjectFiles, readPinnedHostKeyFingerprint, readRemoteAcceptanceCredentials, readRemoteAcceptanceTimeouts, runRemoteCommand, test, type RemoteAcceptanceCredentials } from "./remote-fixtures";
+import { join } from "node:path";
+import { expect } from "@playwright/test";
+import type { PiDesktopApi } from "../src/preload";
+import { REMOTE_ACCEPTANCE_ENV, REMOTE_APP_DATA_DIR_NAME, readPinnedHostKeyFingerprint, readRemoteAcceptanceCredentials, readRemoteAcceptanceTimeouts, test } from "./remote-fixtures";
+import {
+	addAndConnectHost,
+	cancelJob,
+	clearTransferEvents,
+	dismissOnboarding,
+	dismissTerminalTransfers,
+	enrollRemoteProject,
+	installTransferRecorder,
+	listProjects,
+	makeSparse,
+	openProjectPanel,
+	q,
+	remote,
+	remoteBytes,
+	remoteExists,
+	remoteSha,
+	removeProject,
+	setOpenDialog,
+	setSaveDialog,
+	sha256File,
+	startPathUpload,
+	transferEvents,
+	transferEvidence,
+	waitForEvent,
+	waitForTransferPhase,
+	waitJobSettled,
+	type StartReceipt,
+	type TransferEvent,
+} from "./remote-sftp-helpers";
+import { assertHelperBudget, assertRootPage, createResourceRecorder, disconnectHost, readPoolLogs, runRootSoak, waitHelpers } from "./remote-root-pooling-acceptance";
 
 const credentials = readRemoteAcceptanceCredentials(process.env);
 const timeouts = readRemoteAcceptanceTimeouts(process.env);
 const HELP_TEXT = "set " + [REMOTE_ACCEPTANCE_ENV.host, REMOTE_ACCEPTANCE_ENV.user, REMOTE_ACCEPTANCE_ENV.fingerprint].join(" / ") + " to run the real-host acceptance test";
-const ACCEPTANCE_PARENT_SUFFIX = "/.pideck-acceptance/sftp-1-20261102";
+const ACCEPTANCE_PARENT_SUFFIX = "/.pideck-acceptance/root-pooling-prod-20261102";
 const MiB = 1024 * 1024;
 
-type ProjectView = {
-	id: string;
-	name: string;
-	locator?: { kind: "ssh"; hostId: string; remotePath: string };
-};
-
-type TransferEvent =
-	| { kind: "progress"; jobId: string; operation: "upload" | "download"; transferred: number; total: number }
-	| { kind: "settled"; jobId: string; operation: "upload" | "download"; outcome: "succeeded"; result: unknown }
-	| { kind: "settled"; jobId: string; operation: "upload" | "download"; outcome: "failed" | "cancelled" | "unknown"; code: string };
-
-type TransferEvidence = {
-	uploadProgress: boolean;
-	downloadProgress: boolean;
-	cancelled: boolean;
-};
-
-type StartReceipt = { ok: true; value: { canceled: true } | { canceled?: false; jobId: string; operation: "upload" | "download"; total: number } } | { ok: false; code: string; outcome?: "rejected" | "unknown" };
-
-function q(value: string): string {
-	return "'" + value.replace(/'/g, "'\\''") + "'";
-}
-
-function sha256File(path: string): string {
-	return createHash("sha256").update(readFileSync(path)).digest("hex");
-}
-
-function makeSparse(path: string, bytes: number): void {
-	const fd = openSync(path, "w");
-	try {
-		ftruncateSync(fd, bytes);
-	} finally {
-		closeSync(fd);
-	}
-}
-
-async function remote(credentials: RemoteAcceptanceCredentials, script: string, timeoutMs = 60_000): Promise<string> {
-	return (await runRemoteCommand(credentials, script, timeoutMs)).stdout.trim();
-}
-
-async function remoteExists(credentials: RemoteAcceptanceCredentials, path: string): Promise<boolean> {
-	return (await remote(credentials, "test -e " + q(path) + " && printf YES || printf NO")).trim() === "YES";
-}
-
-async function remoteSha(credentials: RemoteAcceptanceCredentials, path: string): Promise<string> {
-	const result = await remote(credentials, "sha256sum -- " + q(path) + " | awk '{print $1}'");
-	expect(result).toMatch(/^[0-9a-f]{64}$/);
-	return result;
-}
-
-async function remoteBytes(credentials: RemoteAcceptanceCredentials, path: string): Promise<number> {
-	const value = Number(await remote(credentials, "stat -c %s -- " + q(path)));
-	expect(Number.isSafeInteger(value) && value >= 0).toBe(true);
-	return value;
-}
-
-async function dismissOnboarding(window: Page): Promise<void> {
-	const dialog = window.locator('[role="dialog"]').filter({ hasText: "用命令面板直达任何设置" });
-	await dialog.waitFor({ state: "visible", timeout: 8_000 }).catch(() => undefined);
-	if ((await dialog.count()) > 0) {
-		await dialog.getByRole("button", { name: "以后再说" }).click();
-		await expect(dialog).toHaveCount(0);
-	}
-}
-
-async function addAndConnectHost(window: Page, credentials: RemoteAcceptanceCredentials): Promise<string> {
-	const added = (await window.evaluate(
-		async (input) => {
-			const api = (window as unknown as { piDesktop: { remoteHosts: { add: (value: unknown) => Promise<unknown> } } }).piDesktop;
-			return api.remoteHosts.add(input);
-		},
-		{ label: "sftp-acceptance", hostName: credentials.host, user: credentials.user, port: credentials.port },
-	)) as { ok: boolean; hostId?: string; code?: string };
-	expect(added.ok, "add host must succeed: " + String(added.code)).toBe(true);
-	if (typeof added.hostId !== "string") throw new Error("add host returned no hostId");
-	const connected = (await window.evaluate(async (hostId) => {
-		const api = (window as unknown as { piDesktop: { remoteHosts: { connect: (id: string) => Promise<unknown> } } }).piDesktop;
-		return api.remoteHosts.connect(hostId);
-	}, added.hostId)) as { ok: boolean; state?: string; code?: string };
-	expect(connected.ok, "connect must succeed: " + String(connected.code)).toBe(true);
-	expect(connected.state).toBe("ready");
-	await dismissRemoteConnectionProgress(window);
-	return added.hostId;
-}
-
-async function enrollRemoteProject(window: Page, hostId: string, remotePath: string): Promise<string> {
-	return await window.evaluate(
-		async ({ hostId: targetHostId, remotePath: targetPath }) => {
-			const api = (
-				window as unknown as {
-					piDesktop: {
-						remoteHosts: {
-							enrollProject: (hostId: string, path: string, mode?: "existing" | "create") => Promise<unknown>;
-							answerProjectEnroll: (requestId: string, choice: "approve" | "deny") => Promise<unknown>;
-							onProjectEnrollConfirm: (callback: (request: { requestId: string; canonicalPath: string }) => void) => () => void;
-						};
-					};
-				}
-			).piDesktop;
-			return await new Promise<string>((resolve, reject) => {
-				const timer = window.setTimeout(() => {
-					unsubscribe();
-					reject(new Error("timed out waiting for project enrollment confirmation"));
-				}, 240_000);
-				const unsubscribe = api.remoteHosts.onProjectEnrollConfirm((request) => {
-					window.clearTimeout(timer);
-					unsubscribe();
-					if (request.canonicalPath !== targetPath) {
-						reject(new Error("enrollment canonical path changed"));
-						return;
-					}
-					void api.remoteHosts.answerProjectEnroll(request.requestId, "approve").then(
-						(result) => {
-							const answer = result as { ok: boolean; code?: string; value?: { enrolled?: boolean; projectId?: string } };
-							if (!answer.ok || answer.value?.enrolled !== true || typeof answer.value.projectId !== "string") {
-								reject(new Error("enrollment answer failed: " + String(answer.code)));
-								return;
-							}
-							resolve(answer.value.projectId);
-						},
-						(error) => reject(error),
-					);
-				});
-				void api.remoteHosts.enrollProject(targetHostId, targetPath, "existing").then(
-					(result) => {
-						const begin = result as { ok: boolean; code?: string };
-						if (!begin.ok) {
-							window.clearTimeout(timer);
-							unsubscribe();
-							reject(new Error("project enrollment failed: " + String(begin.code)));
-						}
-					},
-					(error) => {
-						window.clearTimeout(timer);
-						unsubscribe();
-						reject(error);
-					},
-				);
-			});
-		},
-		{ hostId, remotePath },
-	);
-}
-
-async function listProjects(window: Page): Promise<ProjectView[]> {
-	return (await window.evaluate(async () => {
-		const api = (window as unknown as { piDesktop: { projects: { list: () => Promise<unknown> } } }).piDesktop;
-		return api.projects.list();
-	})) as ProjectView[];
-}
-
-async function setOpenDialog(app: ElectronApplication, paths: readonly string[]): Promise<void> {
-	await app.evaluate(({ dialog }, filePaths) => {
-		dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [...filePaths] });
-	}, paths);
-}
-
-async function setSaveDialog(app: ElectronApplication, path: string): Promise<void> {
-	await app.evaluate(({ dialog }, filePath) => {
-		dialog.showSaveDialog = async () => ({ canceled: false, filePath });
-	}, path);
-}
-
-async function openProjectPanel(window: Page, projectId: string): Promise<void> {
-	await dismissOnboarding(window);
-	await window.getByRole("tab", { name: "项目" }).click();
-	await window
-		.locator('[data-project-row-id="' + projectId + '"] .conversation-title')
-		.first()
-		.click();
-	await openRemoteProjectFiles(window);
-	await expect(window.getByTestId("remote-file-toolbar")).toBeVisible({ timeout: timeouts.helperMs });
-	// Toolbar visibility only proves the drawer mounted. Starting the transfer before the
-	// project's root page has loaded races the connection/root switch that owns the transfer.
-	await expect(window.getByTestId("remote-file-upload")).toBeEnabled({ timeout: timeouts.helperMs });
-}
-
-async function dismissTerminalTransfers(window: Page): Promise<void> {
-	for (let index = 0; index < 20; index += 1) {
-		const dismiss = window.getByTestId(/remote-transfer-dismiss-/).first();
-		if ((await dismiss.count()) === 0) return;
-		await dismiss.click();
-	}
-	throw new Error("too many terminal transfer cards to dismiss");
-}
-
-async function waitForTransferPhase(window: Page, phase: string, timeoutMs: number): Promise<void> {
-	await expect(
-		window
-			.getByTestId("remote-transfer-status")
-			.locator('[data-phase="' + phase + '"]')
-			.last(),
-	).toBeVisible({ timeout: timeoutMs });
-}
-
-async function installTransferRecorder(window: Page): Promise<void> {
-	await window.evaluate(() => {
-		const holder = window as unknown as {
-			__pideckSftpEvents?: unknown[];
-			__pideckSftpEvidence?: TransferEvidence;
-			__pideckSftpUnsubscribe?: () => void;
-			piDesktop: { remoteTransfers: { onEvent: (callback: (event: unknown) => void) => () => void } };
-		};
-		holder.__pideckSftpUnsubscribe?.();
-		holder.__pideckSftpEvents = [];
-		holder.__pideckSftpEvidence = { uploadProgress: false, downloadProgress: false, cancelled: false };
-		holder.__pideckSftpUnsubscribe = holder.piDesktop.remoteTransfers.onEvent((event) => {
-			const events = holder.__pideckSftpEvents;
-			if (events !== undefined && events.length < 30_000) events.push(event);
-			const evidence = holder.__pideckSftpEvidence;
-			if (evidence === undefined || typeof event !== "object" || event === null) return;
-			const value = event as Partial<TransferEvent>;
-			if (value.kind === "progress" && typeof value.transferred === "number" && value.transferred > 0) {
-				if (value.operation === "upload") evidence.uploadProgress = true;
-				if (value.operation === "download") evidence.downloadProgress = true;
-			}
-			if (value.kind === "settled" && value.outcome === "cancelled") evidence.cancelled = true;
-		});
-	});
-}
-
-async function clearTransferEvents(window: Page): Promise<void> {
-	await window.evaluate(() => {
-		const holder = window as unknown as { __pideckSftpEvents?: unknown[] };
-		holder.__pideckSftpEvents = [];
-	});
-}
-
-async function transferEvents(window: Page): Promise<TransferEvent[]> {
-	return (await window.evaluate(() => {
-		const holder = window as unknown as { __pideckSftpEvents?: unknown[] };
-		return holder.__pideckSftpEvents ?? [];
-	})) as TransferEvent[];
-}
-
-async function transferEvidence(window: Page): Promise<TransferEvidence> {
-	return (await window.evaluate(() => {
-		const holder = window as unknown as { __pideckSftpEvidence?: TransferEvidence };
-		return holder.__pideckSftpEvidence ?? { uploadProgress: false, downloadProgress: false, cancelled: false };
-	})) as TransferEvidence;
-}
-
-async function waitForEvent<T>(window: Page, select: (events: readonly TransferEvent[]) => T | undefined, timeoutMs: number, label: string): Promise<T> {
-	const deadline = Date.now() + timeoutMs;
-	while (Date.now() < deadline) {
-		const selected = select(await transferEvents(window));
-		if (selected !== undefined) return selected;
-		await window.waitForTimeout(100);
-	}
-	throw new Error("timed out waiting for " + label);
-}
-
-async function waitJobSettled(window: Page, jobId: string, timeoutMs: number): Promise<Extract<TransferEvent, { kind: "settled" }>> {
-	return await waitForEvent(window, (events) => events.find((event): event is Extract<TransferEvent, { kind: "settled" }> => event.kind === "settled" && event.jobId === jobId), timeoutMs, "transfer " + jobId + " settlement");
-}
-
-async function startPathUpload(window: Page, projectId: string, path: string): Promise<{ jobId: string; total: number }> {
-	const receipt = (await window.evaluate(
-		async (input) => {
-			const api = (window as unknown as { piDesktop: { remoteTransfers: { start: (value: unknown) => Promise<unknown> } } }).piDesktop;
-			return api.remoteTransfers.start(input);
-		},
-		{ operation: "upload", projectId, targetRelativePath: "", source: { kind: "paths", paths: [path] } },
-	)) as StartReceipt;
-	expect(receipt.ok, "direct upload start must succeed: " + String(receipt.ok ? "" : receipt.code)).toBe(true);
-	if (!receipt.ok || receipt.value.canceled === true) throw new Error("direct upload did not start");
-	return { jobId: receipt.value.jobId, total: receipt.value.total };
-}
-
-async function cancelJob(window: Page, projectId: string, jobId: string): Promise<void> {
-	const receipt = (await window.evaluate(
-		async ({ projectId: targetProject, jobId: targetJob }) => {
-			const api = (window as unknown as { piDesktop: { remoteTransfers: { cancel: (projectId: string, jobId: string) => Promise<unknown> } } }).piDesktop;
-			return api.remoteTransfers.cancel(targetProject, targetJob);
-		},
-		{ projectId, jobId },
-	)) as { ok: boolean; value?: { accepted?: boolean }; code?: string };
-	expect(receipt.ok && receipt.value?.accepted === true, "transfer cancel must be accepted: " + String(receipt.code)).toBe(true);
-}
-
-async function removeProject(window: Page, projectId: string): Promise<void> {
-	await window.evaluate(async (id) => {
-		const api = (window as unknown as { piDesktop: { projects: { remove: (projectId: string) => Promise<unknown> } } }).piDesktop;
-		return api.projects.remove(id);
-	}, projectId);
-}
-
-test.describe("SFTP-1 真实传输验收", () => {
+test.describe("SFTP-1 + 生产 root pooling 真实验收", () => {
 	test.skip(credentials === undefined, HELP_TEXT);
 
 	test("系统 OpenSSH SFTP：上传/下载/进度/取消/冲突/双项目隔离", async ({ remoteApp, remoteWindow, remoteUserDataRoot }) => {
@@ -310,12 +53,14 @@ test.describe("SFTP-1 真实传输验收", () => {
 			return;
 		}
 		const window = remoteWindow;
+		expect(process.env.PIDECK_E2E_REMOTE_ROOT_POOLING, "acceptance must use production assembly without a pooling override").toBeUndefined();
 		const runId = "sftp-" + Date.now().toString(36);
 		const remoteHome = await remote(creds, 'printf %s "$HOME"', 30_000);
 		expect(remoteHome.startsWith("/")).toBe(true);
 		const remoteRoot = remoteHome + ACCEPTANCE_PARENT_SUFFIX + "/runs/" + runId;
 		const projectAPath = remoteRoot + "/a";
 		const projectBPath = remoteRoot + "/b";
+		const projectCPath = remoteRoot + "/c";
 		const deniedPath = projectAPath + "/denied";
 		const localRoot = mkdtempSync(join(tmpdir(), "pideck-sftp-e2e-"));
 		const emptyPath = join(localRoot, "empty.bin");
@@ -326,13 +71,18 @@ test.describe("SFTP-1 真实传输验收", () => {
 		const batchExistingPath = join(localRoot, "batch-existing.bin");
 		const parallelBPath = join(localRoot, "parallel-b.bin");
 		const reopenedPath = join(localRoot, "reopened-a.bin");
+		const reconnectedPath = join(localRoot, "reconnected-a.bin");
 		const downloadPath = join(localRoot, "download-result.bin");
 		let hostId: string | undefined;
 		let projectAId: string | undefined;
 		let projectBId: string | undefined;
+		let projectCId: string | undefined;
 		let deniedRestored = false;
 		let spoolBaseline = 0;
 		const timings: Record<string, number> = {};
+		const resource = createResourceRecorder(creds, remoteRoot, remoteApp.process().pid!);
+		let soak: Awaited<ReturnType<typeof runRootSoak>> | undefined;
+		let transferProof = { uploadProgress: false, downloadProgress: false, cancelled: false };
 
 		writeFileSync(emptyPath, Buffer.alloc(0));
 		writeFileSync(unicodePath, "SFTP unicode and space path\n");
@@ -340,8 +90,9 @@ test.describe("SFTP-1 真实传输验收", () => {
 		makeSparse(cancelPath, 256 * MiB);
 		writeFileSync(batchNewPath, "batch-new\n");
 		writeFileSync(batchExistingPath, "local replacement must never be published\n");
-		writeFileSync(parallelBPath, "parallel project B survives A cancellation\n");
+		makeSparse(parallelBPath, 128 * MiB);
 		writeFileSync(reopenedPath, "reopened project A still transfers\n");
+		writeFileSync(reconnectedPath, "reconnected project A still transfers\n");
 
 		try {
 			await test.step("远端前置：两个项目根、权限拒绝子目录与同名目标（只写本 run 目录）", async () => {
@@ -350,11 +101,14 @@ test.describe("SFTP-1 真实传输验收", () => {
 					[
 						"set -eu",
 						"umask 077",
+						"test " + q(remoteHome) + " = " + q("/home/" + creds.user),
+						'test "$(realpath -m ' + q(remoteRoot) + ')" = ' + q(remoteRoot),
 						"mkdir -p " + q(projectAPath + "/denied") + " " + q(projectBPath),
 						"chmod 700 " + q(remoteRoot) + " " + q(projectAPath) + " " + q(projectBPath),
 						"chmod 500 " + q(deniedPath),
 						"printf 'REMOTE_ORIGINAL\\n' > " + q(projectAPath + "/batch-existing.bin"),
 						"printf 'B_PROJECT\\n' > " + q(projectBPath + "/hello-b.txt"),
+						...["a", "b", "c", "d", "e", "f"].flatMap((name) => ["mkdir -p " + q(remoteRoot + "/" + name), "printf " + q(name) + " > " + q(remoteRoot + "/" + name + "/root-" + name + ".txt")]),
 					].join("; "),
 					60_000,
 				);
@@ -514,43 +268,105 @@ test.describe("SFTP-1 真实传输验收", () => {
 				// project's root. Warm both roots before exercising the lower-level IPC in parallel; starting
 				// from an unopened project would test a pre-start state the UI never exposes.
 				await openProjectPanel(window, projectBId);
-				await openProjectPanel(window, projectAId);
+				timings.returnAToUploadReadyMs = await openProjectPanel(window, projectAId, 5_000);
+				await assertRootPage(window, projectAId, "a");
 				const jobA = await startPathUpload(window, projectAId, cancelPath);
 				const progressA = await waitForEvent(window, (events) => events.find((event): event is Extract<TransferEvent, { kind: "progress" }> => event.kind === "progress" && event.jobId === jobA.jobId && event.transferred > 0), timeouts.helperMs, "parallel A progress");
 				expect(progressA.operation).toBe("upload");
 				const jobB = await startPathUpload(window, projectBId, parallelBPath);
-				const settledB = await waitJobSettled(window, jobB.jobId, timeouts.helperMs);
-				expect(settledB.outcome).toBe("succeeded");
-				expect(await remoteSha(creds, projectBPath + "/parallel-b.bin")).toBe(sha256File(parallelBPath));
+				await waitForEvent(window, (events) => events.find((event) => event.kind === "progress" && event.jobId === jobB.jobId && event.transferred > 0 && event.transferred < event.total), timeouts.helperMs, "parallel B active progress");
+				expect((await transferEvents(window)).some((event) => event.kind === "settled" && event.jobId === jobB.jobId)).toBe(false);
 				await cancelJob(window, projectAId, jobA.jobId);
 				const settledA = await waitJobSettled(window, jobA.jobId, timeouts.helperMs);
 				expect(settledA.outcome).toBe("cancelled");
+				const settledB = await waitJobSettled(window, jobB.jobId, timeouts.helperMs);
+				expect(settledB.outcome).toBe("succeeded");
+				expect(await remoteSha(creds, projectBPath + "/parallel-b.bin")).toBe(sha256File(parallelBPath));
 				expect(await remoteExists(creds, projectAPath + "/cancel-256MiB.bin")).toBe(false);
 			});
 
 			await test.step("关闭 A 不打断 B 的在途传输；重开 A 后仍可传输", async () => {
 				if (projectAId === undefined || projectBId === undefined) throw new Error("projects missing");
+				transferProof = await transferEvidence(window);
+				expect(transferProof).toEqual({ uploadProgress: true, downloadProgress: true, cancelled: true });
 				await clearTransferEvents(window);
+				const jobA = await startPathUpload(window, projectAId, cancelPath);
+				await waitForEvent(window, (events) => events.find((event) => event.kind === "progress" && event.jobId === jobA.jobId && event.transferred > 0), timeouts.helperMs, "close-isolation A progress");
 				const jobB = await startPathUpload(window, projectBId, largePath);
 				await waitForEvent(window, (events) => events.find((event): event is Extract<TransferEvent, { kind: "progress" }> => event.kind === "progress" && event.jobId === jobB.jobId && event.transferred > 0), timeouts.helperMs, "close-isolation B progress");
+				expect((await transferEvents(window)).some((event) => event.kind === "settled" && (event.jobId === jobA.jobId || event.jobId === jobB.jobId))).toBe(false);
 				await removeProject(window, projectAId);
 				projectAId = undefined;
+				await waitHelpers(creds, remoteRoot, [projectBPath]);
+				expect(await remoteExists(creds, projectAPath + "/cancel-256MiB.bin")).toBe(false);
 				const settledB = await waitJobSettled(window, jobB.jobId, timeouts.helperMs);
 				expect(settledB.outcome).toBe("succeeded");
 				expect(await remoteSha(creds, projectBPath + "/large-32MiB.bin")).toBe(sha256File(largePath));
 				if (hostId === undefined) throw new Error("hostId missing");
 				projectAId = await enrollRemoteProject(window, hostId, projectAPath);
+				await window.reload({ waitUntil: "domcontentloaded" });
+				await dismissOnboarding(window);
+				await installTransferRecorder(window);
+				await openProjectPanel(window, projectAId);
 				const reopened = await startPathUpload(window, projectAId, reopenedPath);
 				const settled = await waitJobSettled(window, reopened.jobId, timeouts.helperMs);
 				expect(settled.outcome).toBe("succeeded");
 				expect(await remoteSha(creds, projectAPath + "/reopened-a.bin")).toBe(sha256File(reopenedPath));
 			});
 
+			await test.step("A/B/C 至少 60 秒真实轮换：同代、同 PID、目录 watcher 持续生效", async () => {
+				if (!hostId || !projectAId || !projectBId) throw new Error("projects missing");
+				projectCId = await enrollRemoteProject(window, hostId, projectCPath);
+				await window.reload({ waitUntil: "domcontentloaded" });
+				await dismissOnboarding(window);
+				soak = await runRootSoak(window, creds, remoteRoot, [
+					{ id: projectAId, name: "a" },
+					{ id: projectBId, name: "b" },
+					{ id: projectCId, name: "c" },
+				]);
+				assertHelperBudget(await resource.sample("three-watched-roots"), [projectAPath, projectBPath, projectCPath]);
+			});
+
+			await test.step("D/E/F 可打开：maxEntries=6 的 helper/SSH/RSS 资源门禁", async () => {
+				if (!hostId) throw new Error("host missing");
+				for (const name of ["d", "e", "f"]) {
+					const id = await enrollRemoteProject(window, hostId, remoteRoot + "/" + name);
+					await assertRootPage(window, id, name);
+				}
+				const roots = ["a", "b", "c", "d", "e", "f"].map((name) => remoteRoot + "/" + name);
+				await waitHelpers(creds, remoteRoot, roots);
+				for (let index = 0; index < 3; index += 1) {
+					assertHelperBudget(await resource.sample("six-watched-roots"), roots);
+					await window.waitForTimeout(2_000);
+				}
+			});
+
+			await test.step("显式断开退休所有 root；后台读不复活；重连后重新建立并上传", async () => {
+				if (!hostId || !projectAId) throw new Error("project missing");
+				await disconnectHost(window, hostId);
+				await waitHelpers(creds, remoteRoot, []);
+				const refused = await window.evaluate((id) => (window as unknown as { piDesktop: PiDesktopApi }).piDesktop.remoteHosts.listProject(id, ""), projectAId);
+				expect(refused.ok).toBe(false);
+				if (!refused.ok) expect(refused.code).toBe("SSH_HOST_DISCONNECTED");
+				await window.waitForTimeout(2_000);
+				await waitHelpers(creds, remoteRoot, []);
+				await expect.poll(async () => (await resource.sample("disconnected")).local.filter((p) => p.name.toLowerCase() === "ssh.exe").length, { timeout: 30_000 }).toBe(0);
+				const connected = await window.evaluate((id) => (window as unknown as { piDesktop: PiDesktopApi }).piDesktop.remoteHosts.connect(id), hostId);
+				expect(connected.ok).toBe(true);
+				await installTransferRecorder(window);
+				await openProjectPanel(window, projectAId);
+				const job = await startPathUpload(window, projectAId, reconnectedPath);
+				expect((await waitJobSettled(window, job.jobId, timeouts.helperMs)).outcome).toBe("succeeded");
+				expect(await remoteSha(creds, projectAPath + "/reconnected-a.bin")).toBe(sha256File(reconnectedPath));
+			});
+
 			const events = await transferEvents(window);
-			const evidence = await transferEvidence(window);
-			expect(evidence.uploadProgress).toBe(true);
-			expect(evidence.downloadProgress).toBe(true);
-			expect(evidence.cancelled).toBe(true);
+			const evidence = transferProof;
+			const poolLogs = readPoolLogs(join(remoteUserDataRoot, REMOTE_APP_DATA_DIR_NAME));
+			expect(poolLogs.some((event) => event.message === "Root pool sweep" && event.detail.before !== undefined)).toBe(true);
+			expect(Math.max(...poolLogs.map((event) => event.detail.stats.peakEntries))).toBe(6);
+			expect(resource.errors).toEqual([]);
+			expect(resource.peaks().helpers).toBe(6);
 			await test.info().attach("remote-sftp-acceptance", {
 				body: Buffer.from(
 					JSON.stringify(
@@ -561,6 +377,9 @@ test.describe("SFTP-1 真实传输验收", () => {
 							projectAId,
 							projectBId,
 							timings,
+							soak,
+							resources: { samples: resource.samples, peaks: resource.peaks() },
+							poolLogs,
 							eventCount: events.length,
 							evidence,
 							largeUpload: {
@@ -578,6 +397,8 @@ test.describe("SFTP-1 真实传输验收", () => {
 				contentType: "application/json",
 			});
 		} finally {
+			await resource.stop();
+			await test.info().attach("root-pool-resources", { body: Buffer.from(JSON.stringify({ samples: resource.samples, peaks: resource.peaks(), errors: resource.errors })), contentType: "application/json" });
 			try {
 				const projects = await listProjects(window);
 				for (const project of projects) {
@@ -596,8 +417,10 @@ test.describe("SFTP-1 真实传输验收", () => {
 					// Best effort cleanup after the acceptance assertions.
 				}
 			}
-			if (!deniedRestored) await remote(creds, "chmod 700 " + q(deniedPath) + " 2>/dev/null || true").catch(() => undefined);
-			await remote(creds, "target=$(realpath -m " + q(remoteRoot) + "); " + "expected=" + q(remoteRoot) + '; test "$target" = "$expected" && rm -rf -- "$target"', 120_000).catch(() => undefined);
+			await waitHelpers(creds, remoteRoot, []);
+			expect(runId).toMatch(/^sftp-[a-z0-9]+$/);
+			expect(remoteRoot).toBe("/home/" + creds.user + ACCEPTANCE_PARENT_SUFFIX + "/runs/" + runId);
+			await remote(creds, "set -eu; target=$(realpath -m " + q(remoteRoot) + "); expected=" + q(remoteRoot) + '; test "$target" = "$expected"; ' + (deniedRestored ? "" : "if test -d " + q(deniedPath) + "; then chmod 700 " + q(deniedPath) + "; fi; ") + 'rm -rf -- "$target"; test ! -e "$target"', 60_000);
 			await rm(localRoot, { recursive: true, force: true });
 		}
 	});

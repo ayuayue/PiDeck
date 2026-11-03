@@ -1,6 +1,6 @@
 # 远程 SFTP Phase 1：流式传输与安全提交
 
-> 状态：离线实现已接线；核心真实 SSH / Electron 验收已通过，剩余边界见 §11。2026-11-02。
+> 状态：SFTP-1 历史核心真实 SSH / Electron 验收已通过；生产 root pooling 已通过真实主机签收并默认开启，2026-11-03 最终审计修复后再次复验，见 §11.5。
 > 基线：`c06d528fb`（SFTP-0 原生执行器原型）；验收实现与真机 harness 位于 `d904ae950`。
 > 范围：单文件/多选上传、单文件下载、任务进度、取消、稳定错误与能力探测。
 > 不在本阶段：目录读取迁移、文本保存迁移、搜索/watch/Git/回收站、server、SFTP 递归传输、断点续传、双向同步。
@@ -193,16 +193,13 @@ SFTP subsystem 不能由 helper capability 推断，首次传输必须独立 pro
 8. 同 host 双项目并行：A 的上传被取消不影响 B 成功；
 9. 关闭 A 项目不打断 B 的在途传输，重新登记 A 后仍能继续上传。
 
-### 11.3 池化边界与已观察限制
+### 11.3 池化边界与历史限制
 
-- 上述第 8、9 项需要同 host 多 root 的 helper 会话隔离。本次真机运行通过
+- 上述第 8、9 项需要同 host 多 root 的 helper 会话隔离。历史真机运行曾通过
   `PIDECK_E2E=1` 与 `PIDECK_E2E_REMOTE_ROOT_POOLING=1` 打开 **E2E-only** 的
-  `{ rootPooling: {} }` 装配；生产默认仍不传 `rootPooling`，所以不能把这次结果描述成
-  “生产多项目并行已经默认开启”。
-- 在默认单会话路径预跑时，观察到 A 根成功后切到 B、再切回 A，A 的新上传在 240 秒内
-  一直不可用。该限制说明“同 host 顺序多项目切换”不能靠现有单会话路径直接交付。
-  真正默认支持多项目前，必须先决定是否以验收通过的池化路径替换默认装配，并补生产开关、
-  资源上限与 60 秒级多项目验收。
+  `{ rootPooling: {} }` 装配。该环境变量绕行已在本生产化工作树删除，不能再开启池化。
+- 历史默认单会话路径中，A 成功切到 B 再回 A 后，A 的新上传曾在约 240 秒内不可用。该问题已由
+  生产默认 root pooling 闭环：2026-11-02 最终真机热切回 A 的上传入口就绪为 **158 ms**，见 §11.5。
 
 ### 11.4 仍未运行
 
@@ -210,4 +207,34 @@ SFTP subsystem 不能由 helper capability 推断，首次传输必须独立 pro
 - askpass 与 ProxyJump 产品路径；
 - helper commit 请求已发出后的硬断网 / 进程崩溃 / unknown 回包；
 - Linux 原生 Electron 客户端（本轮客户端为 Windows，远端为 Linux）；
-- 生产默认开启池化后的 60 秒 sweep、RSS、多项目连续切换与长稳。
+- 真实等待 10 分钟 TTL、第七 root 满载等待/超时、多小时长稳与多 host 预算争用。
+
+### 11.5 生产 root pooling 推进（2026-11-02 初次真机通过；2026-11-03 审计后复验）
+
+起点 `01b4cf517`，独立分支 `codex/root-pooling-prod`。池资源预算与生命周期竞态、项目关闭、
+旧 generation 回包、watcher 保活、rootless config 均已补实现/回归，详见池化 ADR §8。
+**生产默认已开启**：`src/main/index.ts` 显式传 `ROOT_POOL_DEFAULT_POLICY`，策略为
+`idleCapacity=2`、`idleTtlMs=600000`、`maxEntries=6`、`acquireTimeoutMs=30000`。正常产品路径
+不需要 `PIDECK_E2E_REMOTE_ROOT_POOLING`。
+
+2026-11-02 在不设置该 E2E 变量、清除 `ELECTRON_RUN_AS_NODE` 的生产装配上，对真实 Linux SSH 主机
+运行 Windows Electron + OpenSSH helper 验收，测试根为
+`/home/zhadainian/.pideck-acceptance/root-pooling-prod-20261102`，最终 `1 passed (5.9m)`。
+通过项包括此前 §11.2 全部传输场景、A/B 并行取消隔离、关闭 A 不影响 B、重开 A、A/B/C 连续
+`61,079 ms / 19 轮` 且同代同 PID、六 root 打开、显式断开全部退休、后台读不复活、重连后传输。
+A→B→A 上传入口恢复实测 `158 ms`，240 秒问题已闭环。
+
+最终审计又修复并回归了“acquire 后、任务启动前取消仍会执行”和“未发布 root 冷开失败误降级 host
+ready”两个边界。2026-11-03 在同一生产装配、同一测试根、同样不设置 pooling env 的条件下复验，
+`1 passed (4.6m)`；A→B→A 为 `153 ms`，A/B/C `60,632 ms / 22 轮`，传输、多项目、取消/关闭隔离、
+六槽位资源和断线/重连断言均通过。
+
+`maxEntries=6` 最终复验峰值 `6 helpers / 6 ssh.exe / peakEntries=6`；三 root 稳态
+`186,816 KiB` helper RSS，六 root 稳态 `348,652 KiB`（单条 `53,936–63,076 KiB`、7 线程），
+本机 SSH RSS `68,952,064 bytes`；显式断开后 helper/SSH 均为 0。测试结束只读复核 run 目录和匹配
+helper 均为 0，既有 bundle 未改动。初次运行的对应资源数字保留在 ADR §8.3 和验收报告 §12.2。
+
+回滚只把 main 装配改回 `rootPooling: false` 并 `npm run build:fast`，下次启动生效；不改持久化
+schema、不热切换在途写、不重放 unknown 结果。未覆盖真实 TTL 到期、第七 root 满载等待/超时、
+多小时长稳、多 host 预算争用、硬断网/崩溃、ProxyJump/askpass、8 GiB/32 文件压力及 Linux 原生
+Electron。完整门禁与验收记录见 `remote-acceptance-55dd5b702.md` §12。

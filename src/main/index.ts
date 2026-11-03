@@ -97,8 +97,6 @@ initializeAppBrand(app, app.isPackaged && __PIDECK_DEV_BUILD__ ? "PiDeck Dev" : 
 // E2E（Playwright 驱动）静默运行：窗口显示但不抢焦点、不最大化铺满屏，
 // 避免打断用户在其他软件的输入。fixture 通过 env PIDECK_E2E=1 标识。
 const isE2E = process.env.PIDECK_E2E === "1";
-/** Real-host acceptance may exercise the default-off multi-root path without changing production defaults. */
-const e2eRemoteRootPooling = isE2E && process.env.PIDECK_E2E_REMOTE_ROOT_POOLING === "1";
 // E2E 窗口默认摆到屏幕外（见 e2eWindowMode.ts）：不遮挡、不抢焦点、不进任务栏；
 // PIDECK_E2E_WINDOW_MODE=visible 给 window-memory / quick-task 这类需要真实几何的用例回退。
 const e2eWindowPlacement = resolveE2EWindowPlacement(isE2E, process.env.PIDECK_E2E_WINDOW_MODE);
@@ -452,6 +450,7 @@ import { registerRemoteSessionIpc } from "./ipc/remoteSessionIpc";
 import { registerRemotePiModelIpc } from "./ipc/remotePiModelIpc";
 import { createRemotePiModelProbe } from "./pi/RemotePiModelProbe";
 import { createRemoteHostConnectionService, type RemoteHostConnectionService } from "./remote/RemoteHostConnectionService";
+import { ROOT_POOL_DEFAULT_POLICY } from "./remote/RemoteRootSessionPool";
 import { createRemoteModelCatalog, REMOTE_MODEL_CATALOG_CODES } from "./remote/RemotePiModelCatalog";
 import { createSshClientRuntime, resolvePosixSshClient, type SshClientRuntime } from "./remote/SshClientRuntime";
 import { buildPinnedSshInvocation } from "./remote/SshVerifiedConnection";
@@ -3423,13 +3422,7 @@ function registerIpc() {
 		});
 		return remoteSshClientPending;
 	};
-	/**
-	 * Build the connection service, discovering and verifying the client first.
-	 *
-	 * Discovery is async (it probes the client), so this returns a promise; the IPC boundary awaits it
-	 * and turns any failure into a stable code rather than letting it escape as an unhandled rejection.
-	 * The result is cached so a second connect does not re-probe.
-	 */
+	/** Discover the verified client once; failed construction can be retried. */
 	let remoteHostServicePending: Promise<import("./remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined;
 	const remoteHostServiceIfEnabled = (): Promise<import("./remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined => {
 		if (!remoteExperimentEnabled) return undefined;
@@ -3441,7 +3434,7 @@ function registerIpc() {
 			const service = createRemoteHostConnectionService({
 				userDataDir: app.getPath("userData"),
 				client,
-				...(e2eRemoteRootPooling ? { rootPooling: {} } : {}),
+				rootPooling: ROOT_POOL_DEFAULT_POLICY,
 				// 内置扩展快照的来源：与本地 `-e` 注入同一份「当前生效」字节（覆盖层优先，整份校验）。
 				builtInExtensionRoots: resolveBuiltInExtensionRoots(),
 				onDisconnect: (hostId) => {
@@ -3995,7 +3988,11 @@ function registerIpc() {
 		getMainWindow: () => mainWindow,
 		userDataDir: app.getPath("userData"),
 		// 项目关闭时退订它的目录订阅；连接/窗口级清理分别在 onDisconnect 与 quitCleanup 里。
-		onProjectRemoved: (projectId) => remoteProjectIpc.closeProject(projectId),
+		onProjectRemoved: async (projectId, removed) => {
+			remoteProjectTransfers.closeProject(projectId);
+			await remoteProjectIpc.closeProject(projectId);
+			if (removed && isRemoteProject(removed)) await remoteHostService?.retireProjectSession(removed.locator.hostId, removed.locator.remotePath);
+		},
 		resolveWslEnvironment: async (distro, user) => {
 			const { resolveWslEnvironment } = await import("./wsl/WslEnvironment");
 			return resolveWslEnvironment(distro, user, {

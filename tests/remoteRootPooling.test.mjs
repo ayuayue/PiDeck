@@ -57,10 +57,11 @@ function poolingPorts(overrides = {}) {
 				requests: [],
 				capabilities: ["fs.watch", "fs.search"],
 				state: "disconnected",
+				generation: 1,
 				latched: false,
 				lastCode: "SSH_CONNECTION_READY",
 				getState(hostId) {
-					return { hostId, generation: 1, state: manager.state, attempts: 0, lastCode: manager.lastCode, latched: manager.latched };
+					return { hostId, generation: manager.generation, state: manager.state, attempts: 0, lastCode: manager.lastCode, latched: manager.latched };
 				},
 				getHome() {
 					return "/home/remote";
@@ -187,14 +188,16 @@ test("visiting a sibling project never invalidates the first project's session",
 
 test("an in-flight operation keeps its lease: the budget cannot recycle it out from under it", async () => {
 	const gate = deferred();
+	const entered = deferred();
 	await withService(
 		async ({ service }) => {
 			const slow = service.withProjectSession(HOST, ROOT_A, async () => {
+				entered.resolve();
 				await gate.promise;
 				return "written";
 			});
-			// Give the slow read its lease before the second project asks for the only other slot.
-			await new Promise((resolve) => setImmediate(resolve));
+			// Synchronize on the actual lease, not a scheduler tick during asynchronous store reads.
+			await entered.promise;
 			const blocked = await service.withProjectSession(HOST, ROOT_B, async () => "b");
 			assert.equal(blocked.ok, false);
 			assert.equal(blocked.code, "SSH_ROOT_POOL_BUSY", "a full budget must fail with a stable code instead of recycling an active session");
@@ -209,11 +212,11 @@ test("a watched session cannot be evicted; releasing the watch makes it collecta
 	await withService(
 		async ({ service, ports }) => {
 			await service.withProjectSession(HOST, ROOT_A, async (session) => session.connectionId);
-			service.retainProjectSessionWatch(HOST, ROOT_A);
+			service.retainProjectSessionWatch(HOST, ROOT_A, service.projectConnectionFacts(HOST, ROOT_A).connectionId);
 			const blocked = await service.withProjectSession(HOST, ROOT_B, async () => "b");
 			assert.equal(blocked.ok, false, "a session with a live watcher is not idle, so it must not be recycled");
 			assert.equal(blocked.code, "SSH_ROOT_POOL_BUSY");
-			service.releaseProjectSessionWatch(HOST, ROOT_A);
+			service.releaseProjectSessionWatch(HOST, ROOT_A, service.projectConnectionFacts(HOST, ROOT_A).connectionId);
 			const allowed = await service.withProjectSession(HOST, ROOT_B, async () => "b");
 			assert.equal(allowed.ok, true);
 			assert.equal(ports.calls.managers[0].disposed, 1, "the released session is the one recycled for the budget");
@@ -365,4 +368,274 @@ test("helper events carry the session identity of the helper that produced them"
 		assert.equal(events.helper[1].sessionKey, a);
 		assert.equal(events.helper[0].watchId, events.helper[1].watchId, "the same watchId from two helpers stays distinguishable by session");
 	});
+});
+
+test("a fourth root opens and a slow A operation does not block ready B", async () => {
+	await withService(async ({ service, ports }) => {
+		for (const root of [ROOT_A, ROOT_B, ROOT_C, "/srv/projects/d"]) assert.equal((await read(service, root)).ok, true);
+		assert.equal(ports.calls.managers.length, 4);
+		const gate = deferred();
+		let entered;
+		const started = new Promise((resolve) => {
+			entered = resolve;
+		});
+		const slow = service.withProjectSession(HOST, ROOT_A, async () => {
+			entered();
+			await gate.promise;
+			return "a";
+		});
+		await started;
+		try {
+			const b = await service.withProjectSession(HOST, ROOT_B, async () => "b");
+			assert.equal(b.value, "b");
+			assert.equal(service.rootPoolStats().leased, 1);
+		} finally {
+			gate.resolve();
+			await slow;
+		}
+	});
+});
+
+test("closing A retires only A, and reopening A gets a fresh identity", async () => {
+	await withService(async ({ service, ports }) => {
+		const a = await read(service, ROOT_A);
+		const b = await read(service, ROOT_B);
+		await service.retireProjectSession(HOST, ROOT_A);
+		assert.equal(ports.calls.managers[0].disposed, 1);
+		assert.equal(ports.calls.managers[1].disposed, 0);
+		assert.equal(service.projectConnectionFacts(HOST, ROOT_B).connectionId, b.value.connectionId);
+		assert.notEqual((await read(service, ROOT_A)).value.connectionId, a.value.connectionId);
+	});
+});
+
+test("closing a root during verification fences its late establishment", async () => {
+	const gate = deferred();
+	const begun = deferred();
+	const ports = poolingPorts({
+		verifyRoot: async ({ userPath }) => {
+			begun.resolve();
+			await gate.promise;
+			return { canonicalPath: userPath };
+		},
+	});
+	await withService(
+		async ({ service }) => {
+			const pending = read(service, ROOT_A);
+			await begun.promise;
+			const closing = service.retireProjectSession(HOST, ROOT_A);
+			gate.resolve();
+			await closing;
+			assert.equal((await pending).code, "SSH_HOST_NOT_READY");
+			assert.equal(ports.calls.managers.length, 0);
+			assert.equal((await read(service, ROOT_A)).ok, true);
+		},
+		{ ports },
+	);
+});
+
+test("a cancelled root establishment cannot cancel the host bootstrap used by B", async () => {
+	const gate = deferred();
+	const begun = deferred();
+	const ports = poolingPorts({
+		bootstrap: async ({ signal }) => {
+			begun.resolve();
+			await gate.promise;
+			if (signal.aborted) throw new Error("SSH_HOST_DISCONNECTED");
+			return { bundleSha256: BUNDLE, deployRoot: "/deploy", active: "/deploy/bundles/" + BUNDLE };
+		},
+	});
+	await withService(
+		async ({ service }) => {
+			const controller = new AbortController();
+			const a = service.withProjectSession(HOST, ROOT_A, async () => "a", { signal: controller.signal });
+			await begun.promise;
+			const b = service.withProjectSession(HOST, ROOT_B, async () => "b");
+			await new Promise((resolve) => setImmediate(resolve));
+			controller.abort();
+			gate.resolve();
+			assert.equal((await a).code, "REQUEST_CANCELLED");
+			assert.equal((await b).value, "b");
+		},
+		{ ports },
+	);
+});
+
+test("a published root failure still updates host state", async () => {
+	await withService(async ({ service, ports, events }) => {
+		await read(service, ROOT_A);
+		const manager = ports.calls.managers[0];
+		manager.state = "offline";
+		manager.lastCode = "SSH_CONNECTION_LOST";
+		manager.onStateChange({ hostId: HOST, state: manager.getState(HOST) });
+		assert.deepEqual(
+			events.state.map((entry) => entry.state.state),
+			["ready", "offline"],
+		);
+		assert.equal(service.states()[HOST], "offline");
+	});
+});
+
+test("a failed root cold start cannot downgrade explicit host readiness", async () => {
+	const ports = poolingPorts();
+	const createManager = ports.createManager;
+	ports.createManager = (input) => {
+		const manager = createManager(input);
+		manager.connect = async (hostId) => {
+			manager.state = "needs-attention";
+			manager.lastCode = "SSH_HELPER_ROOT_MISMATCH";
+			input.onStateChange?.({ hostId, state: manager.getState(hostId) });
+			return manager.getState(hostId);
+		};
+		return manager;
+	};
+	await withService(
+		async ({ service, events }) => {
+			assert.equal((await service.connect(HOST)).ok, true);
+			const failed = await service.withProjectSession(HOST, ROOT_A, async () => "never");
+			assert.equal(failed.ok, false);
+			assert.equal(failed.code, "SSH_HELPER_ROOT_MISMATCH");
+			assert.deepEqual(
+				events.state.map((entry) => entry.state.state),
+				["ready"],
+				"a root helper failure is project-scoped and must not broadcast a host outage",
+			);
+			assert.equal(service.states()[HOST], "ready");
+		},
+		{ ports },
+	);
+});
+
+test("an old helper generation cannot publish a late result or cancel a new request", async () => {
+	await withService(async ({ service, ports }) => {
+		let session;
+		await service.withProjectSession(HOST, ROOT_A, async (value) => {
+			session = value;
+		});
+		const gate = deferred();
+		const begun = deferred();
+		const manager = ports.calls.managers[0];
+		manager.request = async () => {
+			begun.resolve();
+			return gate.promise;
+		};
+		const result = session.request("fs.list", {});
+		await begun.promise;
+		manager.generation += 1;
+		gate.resolve({ entries: ["stale"] });
+		await assert.rejects(result, /SSH_HOST_NOT_READY/);
+		await assert.rejects(session.cancel("old-id"), /SSH_HOST_NOT_READY/);
+	});
+});
+
+test("a retired root cannot publish the late result of a leased operation", async () => {
+	await withService(async ({ service }) => {
+		const begun = deferred();
+		const gate = deferred();
+		const pending = service.withProjectSession(HOST, ROOT_A, async () => {
+			begun.resolve();
+			await gate.promise;
+			return "obsolete";
+		});
+		await begun.promise;
+		await service.retireProjectSession(HOST, ROOT_A);
+		gate.resolve();
+		assert.equal((await pending).code, "SSH_HOST_NOT_READY");
+	});
+});
+
+test("cancelling after acquire but before the task starts fences the task", async () => {
+	await withService(async ({ service, ports }) => {
+		await read(service, ROOT_A);
+		const manager = ports.calls.managers[0];
+		const controller = new AbortController();
+		const getState = manager.getState.bind(manager);
+		let calls = 0;
+		manager.getState = (hostId) => {
+			calls += 1;
+			// peek renders the identity once, the queue pre-check reads it again, and the
+			// lease is minted with a third read. Abort after that lease exists but before
+			// withProjectSession hands the session to the task.
+			if (calls === 3) controller.abort();
+			return getState(hostId);
+		};
+		let started = false;
+		const outcome = await service.withProjectSession(
+			HOST,
+			ROOT_A,
+			async () => {
+				started = true;
+				return "ran";
+			},
+			{ signal: controller.signal },
+		);
+		assert.equal(outcome.ok, false);
+		assert.equal(outcome.code, "REQUEST_CANCELLED");
+		assert.equal(started, false, "a cancelled request must not start work after acquiring a lease");
+	});
+});
+
+test("store revision invalidates every sibling and explicit reconnect rebuilds roots", async () => {
+	await withService(async ({ service, ports, userDataDir }) => {
+		await read(service, ROOT_A);
+		await read(service, ROOT_B);
+		await writeStore(userDataDir, 8);
+		assert.equal((await read(service, ROOT_C)).ok, true);
+		assert.equal(ports.calls.managers[0].disposed, 1);
+		assert.equal(ports.calls.managers[1].disposed, 1);
+		await service.disconnect(HOST, "abort");
+		assert.equal(service.rootPoolStats().entries, 0);
+		assert.equal((await service.connect(HOST)).ok, true);
+		assert.equal((await read(service, ROOT_A)).ok, true);
+	});
+});
+
+test("host configuration uses a budgeted rootless helper and never borrows a project", async () => {
+	await withService(async ({ service, ports }) => {
+		assert.equal((await service.connect(HOST)).ok, true);
+		await service.request(HOST, "config.read", { file: "settings" });
+		assert.equal(ports.calls.managers[0].helperSession.root, undefined);
+		await read(service, ROOT_A);
+		await service.request(HOST, "config.read", { file: "models" });
+		assert.deepEqual(ports.calls.managers[0].requests, ["config.read", "config.read"]);
+		assert.deepEqual(ports.calls.managers[1].requests, []);
+		assert.equal(service.rootPoolStats().entries, 2);
+	});
+});
+
+test("opening a sibling emits no false host outage and retired managers cannot emit", async () => {
+	const ports = poolingPorts();
+	const create = ports.createManager;
+	ports.createManager = (input) => {
+		const manager = create(input);
+		manager.connect = async (hostId) => {
+			for (const state of ["connecting", "ready"]) {
+				manager.state = state;
+				input.onStateChange?.({ hostId, state: manager.getState(hostId) });
+			}
+			return manager.getState(hostId);
+		};
+		return manager;
+	};
+	await withService(
+		async ({ service, events }) => {
+			await service.connect(HOST);
+			await read(service, ROOT_A);
+			await read(service, ROOT_B);
+			assert.deepEqual(
+				events.state.map((e) => e.state.state),
+				["ready"],
+			);
+			await service.retireProjectSession(HOST, ROOT_A);
+			const old = ports.calls.managers[0];
+			old.state = "offline";
+			old.onStateChange({ hostId: HOST, state: old.getState(HOST) });
+			old.onEvent(HOST, { watchId: "late", paths: [""] });
+			assert.deepEqual(
+				events.state.map((e) => e.state.state),
+				["ready"],
+			);
+			assert.deepEqual(events.helper, []);
+		},
+		{ ports },
+	);
 });

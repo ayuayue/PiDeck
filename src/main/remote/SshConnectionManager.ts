@@ -348,6 +348,7 @@ export function createSshConnectionManager(options: SshConnectionManagerOptions)
 		...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
 	};
 	let disposed = false;
+	let disposing: Promise<void> | undefined;
 
 	function entryFor(hostId: string): HostEntry {
 		let entry = hosts.get(hostId);
@@ -717,15 +718,14 @@ export function createSshConnectionManager(options: SshConnectionManagerOptions)
 			// side that actually decides whether the withdraw took effect.
 			return control.cancel(requestId, clientRequestOptions(requestOptions));
 		},
-		async dispose() {
-			if (disposed) return;
-			disposed = true;
-			const entries = [...hosts.values()];
-			await Promise.all(entries.map((entry) => disconnectHost(entry, "shutdown")));
-			// A spawn already in flight when teardown started still resolves; the epoch change makes the
-			// attempt stop the process it produced, so teardown must wait for that to finish.
-			await Promise.all(entries.map((entry) => entry.attempt?.catch(() => undefined)));
-			hosts.clear();
+		dispose() {
+			return (disposing ??= (async () => {
+				disposed = true;
+				const entries = [...hosts.values()];
+				await Promise.all(entries.map((entry) => disconnectHost(entry, "shutdown")));
+				await Promise.all(entries.map((entry) => entry.attempt?.catch(() => undefined)));
+				hosts.clear();
+			})());
 		},
 	};
 }

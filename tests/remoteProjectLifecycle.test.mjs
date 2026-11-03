@@ -138,11 +138,11 @@ function harness(options = {}) {
 		projectHelperCapabilities(hostId, root) {
 			return pool.peek(hostId, root) === undefined ? undefined : ["fs.watch"];
 		},
-		retainProjectSessionWatch(hostId, root) {
-			pool.retainWatch(hostId, root);
+		retainProjectSessionWatch(hostId, root, sessionKey) {
+			pool.retainWatch(hostId, root, sessionKey);
 		},
-		releaseProjectSessionWatch(hostId, root) {
-			pool.releaseWatch(hostId, root);
+		releaseProjectSessionWatch(hostId, root, sessionKey) {
+			pool.releaseWatch(hostId, root, sessionKey);
 		},
 	};
 

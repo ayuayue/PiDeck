@@ -10,11 +10,11 @@ const ROOT = "/srv/projects/a";
 /** The narrow service face the keep-alive port uses; it records the pairs it is asked to hold. */
 function fakeService(calls) {
 	return {
-		retainProjectSessionWatch(hostId, root) {
-			calls.push(["retain", hostId, root]);
+		retainProjectSessionWatch(hostId, root, connectionId) {
+			calls.push(["retain", hostId, root, connectionId]);
 		},
-		releaseProjectSessionWatch(hostId, root) {
-			calls.push(["release", hostId, root]);
+		releaseProjectSessionWatch(hostId, root, connectionId) {
+			calls.push(["release", hostId, root, connectionId]);
 		},
 	};
 }
@@ -26,7 +26,7 @@ test("a session's first watcher retains its (host, root) once, and the last one 
 	const keepAlive = createProjectWatchKeepAlive();
 	keepAlive.noteSession("conn-1", { service: fakeService(calls), hostId: HOST, root: ROOT });
 	await keepAlive.registry.ensure(HOST, "conn-1", "p1", subscribeWith("w1"), { paths: [""] });
-	assert.deepEqual(calls, [["retain", HOST, ROOT]], "the first watch keeps the session warm");
+	assert.deepEqual(calls, [["retain", HOST, ROOT, "conn-1"]], "the first watch keeps its exact session warm");
 	// A second project (or another directory) on the same session must not retain twice.
 	await keepAlive.registry.ensure(HOST, "conn-1", "p2", subscribeWith("w2"), { paths: [""] });
 	assert.equal(calls.length, 1, "retain is per session, not per watch");
@@ -34,8 +34,8 @@ test("a session's first watcher retains its (host, root) once, and the last one 
 	assert.deepEqual(
 		calls,
 		[
-			["retain", HOST, ROOT],
-			["release", HOST, ROOT],
+			["retain", HOST, ROOT, "conn-1"],
+			["release", HOST, ROOT, "conn-1"],
 		],
 		"retirement gives the keep-alive back exactly once",
 	);

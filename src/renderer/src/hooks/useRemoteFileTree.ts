@@ -89,6 +89,12 @@ export function useRemoteFileTree(project: RemoteProject, services: ProjectServi
 	// 组件重渲染后 loader 必须用当前代的 services；闭包里捕获旧实例会把正常换代读成 stale。
 	const servicesRef = useRef(services);
 	servicesRef.current = services;
+	/**
+	 * rootStatus 是只读探针，首次打开项目时 helper 尚未建立，因此能力快照为空。
+	 * 目录读成功已经证明本 root 的 helper 就绪；此时按连接代补采一次事实，上传等
+	 * 依赖 helper 声明的方法才能从“未知”转成可用。每个连接代最多触发一次。
+	 */
+	const capabilityRefreshGeneration = useRef<string | null>(null);
 	const projectRef = useRef(project);
 	projectRef.current = project;
 	/** 目录页自带的连接代（主进程事实）；用于判断事实通知是否仍是同一代。 */
@@ -109,6 +115,11 @@ export function useRemoteFileTree(project: RemoteProject, services: ProjectServi
 				return { ok: false, code: result.code };
 			}
 			const page = result.value;
+			const activeServices = servicesRef.current;
+			if (activeServices.facts.helperCapabilities === undefined && capabilityRefreshGeneration.current !== activeServices.generation) {
+				capabilityRefreshGeneration.current = activeServices.generation;
+				void activeServices.refresh();
+			}
 			if (page.generation.length > 0) pageGeneration.current = page.generation;
 			loadedDirs.current.add(dir);
 			return {

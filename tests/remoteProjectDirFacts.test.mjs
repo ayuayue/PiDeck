@@ -291,6 +291,18 @@ test("root 会话退休：只归还这一条会话的保活，旧代目录事实
 	assert.equal(h.calls.list.length, 2, "旧代目录缓存随会话退休作废，下一次读重新装载");
 });
 
+test("retiring a root cancels its queued deep watcher without subscribing the old helper", async () => {
+	const h = harness();
+	await h.list("");
+	await h.list("src");
+	const before = h.calls.watches.length;
+	h.facts.onRootRetired({ hostId: HOST_ID, root: PROJECT_ROOT, sessionKey: "conn-1" });
+	await h.facts.flushDirWatch();
+	assert.equal(h.calls.watches.length, before, "a retired session must not receive the delayed fs.watch");
+	assert.deepEqual(h.plain(h.facts.dirWatchStatus(PROJECT)), { desired: [], covered: [] });
+	await h.facts.dispose();
+});
+
 test("fs.watch 失败：读取仍成功，但目录页必须带 watch-failed 与真实失败码；恢复后清除", async () => {
 	const h = harness();
 	h.state.watchFails = true;

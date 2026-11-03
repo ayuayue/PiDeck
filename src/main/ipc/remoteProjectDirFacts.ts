@@ -208,6 +208,7 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 				if (generation !== entry.sessionKey) continue;
 				if (projectHosts.get(projectId) !== entry.hostId) continue;
 				if (projectRoots.get(projectId) !== entry.root) continue;
+				dirWatch.forgetProject(projectId);
 				forgetProjectFacts(projectId);
 			}
 		},

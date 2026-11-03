@@ -49,6 +49,7 @@ export type RemoteProjectTransferJobIpcInput = ProjectTargetInput & {
 };
 
 export type RemoteProjectTransferJobIpcHandle = {
+	closeProject(projectId: string): void;
 	dispose(): void;
 };
 
@@ -429,6 +430,9 @@ export function registerRemoteProjectTransferJobIpc(input: RemoteProjectTransfer
 	});
 
 	return {
+		closeProject(projectId): void {
+			registry.closeProject(projectId);
+		},
 		dispose(): void {
 			if (disposed) return;
 			disposed = true;

@@ -1,5 +1,6 @@
 import { buildPinnedSshInvocation, type PinnedSshInvocation } from "./SshVerifiedConnection";
 import { createRootSessionPool, type RootPoolPolicy, type RootSessionPool } from "./RemoteRootSessionPool";
+import { logRootPoolDiagnostic } from "./RemoteRootPoolDiagnostics";
 import { clearInterval as cancelSweepTimer, setInterval as intervalTimer } from "node:timers";
 import { createHash, randomBytes } from "node:crypto";
 import { isAbsolute } from "node:path";
@@ -122,7 +123,7 @@ export type RemoteHostConnectionServiceOptions = {
 	 */
 	onRootRetired?: (entry: { hostId: string; root: string; sessionKey: string }) => void;
 	/**
-	 * 同主机多项目 root 池（默认关闭）。
+	 * 同主机多项目 root 池。生产装配使用 ROOT_POOL_DEFAULT_POLICY；false/省略保留隔离单测路径。
 	 *
 	 * 关闭时走原来的「每主机一条会话、换 root 即重建」路径，行为逐字节保持；开启后按
 	 * (hostId, canonicalRoot) 复用 helper 会话，容量与 TTL 由这里给出的策略决定（见 RemoteRootSessionPool）。
@@ -338,8 +339,6 @@ function defaultPorts(): RemoteHostConnectionPorts {
  * Both fences are re-checked at every step, so a host whose profile changed mid-flight never reaches the
  * manager with a stale helper location.
  *
- * Nothing in this module is reachable in production: no IPC channel and no assembly site reference it.
- *
  * Node discovery is deliberately owned here rather than required from the caller: the remote Node binary
  * can only be known by asking the host, so demanding it as construction input would force every caller to
  * produce the answer before the connection that finds it. `options.nodePath` remains as an override for
@@ -388,12 +387,9 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 	 */
 	const rootFailures = new Map<string, Map<string, string>>();
 	let disposed = false;
-	/**
-	 * 主机级代数：显式断开、重绑、换 held 都会推进它。池建立是异步的（可能跨一次 bootstrap），
-	 * 建立完成时代数若已变，这条会话就不属于任何有效代，必须自毁而不是入池——
-	 * 否则「用户已断开 → 后台读完成」会把连接偷偷复活。
-	 */
+	/** 主机失效推进代数；旧代异步建立只能自毁，不能把断开的主机复活。 */
 	const hostEpochs = new Map<string, number>();
+	const rootEpochs = new Map<string, number>();
 	/** 池化模式下显式 connect 证明的主机就绪事实（不额外起一条没有 root 的 helper）。 */
 	const pooledHostStates = new Map<string, ConnectionMachineState>();
 	/** 正在建立中的池 manager：它们的状态/事件仍属于本服务，不能因为「还没入池」被身份围栏掉。 */
@@ -404,18 +400,16 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 			? undefined
 			: createRootSessionPool<PooledRootSession>({
 					policy: options.rootPooling,
+					onDiagnostic: logRootPoolDiagnostic,
 					establish: (key, signal) => establishPooledRoot(key.hostId, key.root, signal),
 					retire: async (entry) => {
 						pooledPending.delete(entry.value.manager);
-						await entry.value.manager.dispose().catch(() => undefined);
+						await entry.value.manager.dispose();
 					},
 					identity: (session) => pooledConnectionId(session.hostId, session.manager),
 					onRetired: (event) => options.onRootRetired?.({ hostId: event.hostId, root: event.root, sessionKey: event.connectionId }),
 				});
-	/**
-	 * 空闲条目按 TTL/LRU 回收。没有这个定时器，10 分钟 TTL 只在「下次有流量」时才生效，
-	 * 而空闲会话的代价正是「没人用它却还占着一条 SSH + 一个 helper 进程」。unref 掉，退出时不拖住进程。
-	 */
+	/** 无流量时也执行 TTL/LRU；定时器不阻止退出。 */
 	const sweepTimer = rootPool === undefined ? undefined : intervalTimer(() => void rootPool.sweep(), 60_000);
 	sweepTimer?.unref?.();
 
@@ -520,7 +514,9 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 	 */
 	function managerFor(held: HeldBootstrap, hostId: string, runtime?: { root?: string; isCurrent?: () => boolean }): SshConnectionManager {
 		let manager: SshConnectionManager | undefined;
-		const helperSession = runtime?.root === undefined ? held.session : { ...held.session, root: runtime.root };
+		const { root: _configuredRoot, ...hostSession } = held.session;
+		const helperSession = runtime?.root === undefined ? held.session : runtime.root === "" ? hostSession : { ...hostSession, root: runtime.root };
+		let previousConnectionId: string | undefined;
 		// 缺省围栏（未池化路径）：仍以「主机当前 manager 就是这条」为准，行为与之前逐字节一致。
 		const isCurrent = runtime?.isCurrent ?? (() => manager !== undefined && hosts.get(hostId)?.manager === manager);
 		manager = ports.createManager({
@@ -538,17 +534,40 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 							options.onHelperEvent?.({ hostId: eventHostId, watchId: event.watchId, paths: event.paths, sessionKey: pooledConnectionId(eventHostId, manager) });
 						},
 					}),
-			...(options.onStateChange === undefined
+			...(options.onStateChange === undefined && rootPool === undefined
 				? {}
 				: {
 						onStateChange: (change: { hostId: string; state: ConnectionMachineState }) => {
 							// Root switches dispose the old helper asynchronously. Its shutdown is not a new host outage.
 							if (manager === undefined || !isCurrent()) return;
-							options.onStateChange?.(change);
+							if (rootPool === undefined) return options.onStateChange?.(change);
+							// A root that has not entered the pool is a project-scoped establishment attempt. Its
+							// connecting/failure/shutdown frames must not rewrite the host-level fact proved by an
+							// explicit connect or by a healthy sibling. establishPooledRoot publishes the settled
+							// ready transition; churn from a published root is still forwarded below.
+							if (pooledPending.has(manager)) return;
+							const connectionId = pooledConnectionId(hostId, manager);
+							if (previousConnectionId !== undefined && previousConnectionId !== connectionId && runtime?.root !== undefined) options.onRootRetired?.({ hostId, root: runtime.root, sessionKey: previousConnectionId });
+							previousConnectionId = connectionId;
+							publishPooledState(change);
 						},
 					}),
 		});
 		return manager;
+	}
+	/** A sibling's cold start or retry is not a host outage for every project. */
+	function publishPooledState(change: { hostId: string; state: ConnectionMachineState }): void {
+		const previous = pooledHostStates.get(change.hostId);
+		const ready = pooledManager(change.hostId)?.getState(change.hostId);
+		const state = ready ?? (previous?.state === "ready" && ["connecting", "probing", "bootstrapping"].includes(change.state.state) ? previous : change.state);
+		pooledHostStates.set(change.hostId, state);
+		if (previous?.state !== state.state) {
+			try {
+				options.onStateChange?.({ hostId: change.hostId, state });
+			} catch {
+				// A renderer/window sink is an observer; it cannot fail a connection that already reached a state.
+			}
+		}
 	}
 
 	/** Drop every resource of one host. The manager owns its attempts, so it is disposed first. */
@@ -676,8 +695,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 				await ensureHeldShared(entry, hostId, signal);
 				throwIfCancelled(signal);
 				const ready: ConnectionMachineState = { hostId, generation: entry.generation, state: "ready", attempts: 0, latched: false };
-				pooledHostStates.set(hostId, ready);
-				options.onStateChange?.({ hostId, state: ready });
+				publishPooledState({ hostId, state: ready });
 				return { ok: true, hostId, state: ready };
 			} catch (error) {
 				if (disposed) return { ok: false, hostId, code: "REMOTE_CONNECTION_SERVICE_DISPOSED" };
@@ -853,15 +871,13 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		};
 	}
 
-	/**
-	 * 把一个已就绪的 manager（连同它的 held）包成一次项目会话。
-	 *
-	 * 单会话与池化两条路径共用这段绑定与逐帧复验：每一帧都要重新证明「这条 manager 仍属于调用方、它还是
-	 * ready、host store 代数没变」。差别只在 `isCurrent`——单会话看「主机当前 manager 就是它」，池化看
-	 * 「它仍是池里这个 root 的 manager」。这样旧会话在换代后失败关闭，而兄弟项目的活动不会影响它。
-	 */
+	/** 两种模式共用身份、就绪与 revision 复验；差别仅在 manager 归属判据。 */
 	function buildProjectSession(input: { hostId: string; manager: SshConnectionManager; held: HeldBootstrap; connectionId: string; hostRouteDigest: string; isCurrent: () => boolean }): RemoteProjectSession {
-		const { hostId, manager: bound, held, connectionId, hostRouteDigest, isCurrent } = input;
+		const { hostId, manager: bound, held, connectionId, hostRouteDigest } = input;
+		const isCurrent = (): boolean => !disposed && !explicitlyDisconnected.has(hostId) && input.isCurrent() && pooledConnectionId(hostId, bound) === connectionId;
+		const assertBound = async (): Promise<void> => {
+			if (!isCurrent() || bound.getState(hostId).state !== "ready" || (await readRevision()) !== held.revision) throw new Error("SSH_HOST_NOT_READY");
+		};
 		return {
 			hostId,
 			nodePath: held.session.nodePath,
@@ -872,17 +888,14 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 			connectionId,
 			async runCommand(remoteCommand) {
 				// 每块重新校验pin和host store代数；不能拿旧Node路径向重绑后的主机发写命令。
-				if (disposed || !isCurrent() || bound.getState(hostId).state !== "ready" || (await readRevision()) !== held.revision) throw new Error("SSH_HOST_NOT_READY");
+				await assertBound();
 				const invocation = await buildPinnedSshInvocation(options.userDataDir, hostId, "ssh-batch", { client: hostClient(hostId), remoteCommand });
 				// pin/route构造本身有await；必须在真正启动写命令前再次把host代数绑定到已验证Node。
-				if (disposed || !isCurrent() || bound.getState(hostId).state !== "ready" || (await readRevision()) !== held.revision) throw new Error("SSH_HOST_NOT_READY");
+				await assertBound();
 				const result = await hostClient(hostId).run(invocation.executable, invocation.args);
 				return { exitCode: result.exitCode, stdout: result.stdout };
 			},
 			async withTerminalInvocation(remoteCommand, launch) {
-				const assertBound = async () => {
-					if (disposed || explicitlyDisconnected.has(hostId) || !isCurrent() || bound.getState(hostId).state !== "ready" || (await readRevision()) !== held.revision) throw new Error("SSH_HOST_NOT_READY");
-				};
 				await assertBound();
 				const invocation = await buildPinnedSshInvocation(options.userDataDir, hostId, "ssh-terminal", { client: hostClient(hostId), remoteCommand });
 				await assertBound();
@@ -893,20 +906,16 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 				return launch(invocation, assertCurrent);
 			},
 			async withSftpInvocation(launch) {
-				const assertBound = async () => {
-					if (disposed || explicitlyDisconnected.has(hostId) || !isCurrent() || bound.getState(hostId).state !== "ready" || (await readRevision()) !== held.revision) throw new Error("SSH_HOST_NOT_READY");
-				};
 				await assertBound();
 				const invocation = await buildPinnedSshInvocation(options.userDataDir, hostId, "ssh-sftp", { client: hostClient(hostId) });
 				await assertBound();
-				const assertCurrent = async () => {
-					if (disposed || explicitlyDisconnected.has(hostId) || !isCurrent() || bound.getState(hostId).state !== "ready" || (await readRevision()) !== held.revision) throw new Error("SSH_HOST_NOT_READY");
-				};
-				return launch(invocation, assertCurrent);
+				return launch(invocation, assertBound);
 			},
-			request(method, params, requestOptions) {
-				if (!isCurrent()) return Promise.reject(new Error("SSH_HOST_NOT_READY"));
-				return bound.request(hostId, method, params, requestOptions);
+			async request(method, params, requestOptions) {
+				await assertBound();
+				const result = await bound.request(hostId, method, params, requestOptions);
+				await assertBound();
+				return result;
 			},
 			cancel(requestId, requestOptions) {
 				if (!isCurrent()) return Promise.reject(new Error("SSH_HOST_NOT_READY"));
@@ -928,13 +937,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		return `${hostId}#${managerToken(manager)}#${manager.getState(hostId).generation}`;
 	}
 
-	/**
-	 * 池化路径上的 held 复用：同一主机的并发建立共享一次 bootstrap。
-	 *
-	 * bootstrap（node 发现 + upload + verify）是**主机级**资源，而池里每个 root 各自起自己的 manager。
-	 * 两个项目同时首次打开时若各跑一次 bootstrap，就会重复上传同一份 bundle；这里只串行化这一段，
-	 * 不串行化已就绪 root 的读——那正是池化要消除的队头阻塞。
-	 */
+	/** 并发冷开共享主机 bootstrap；已就绪 root 的操作不经过此队列。 */
 	async function ensureHeldShared(entry: HostEntry, hostId: string, signal?: AbortSignal): Promise<HeldBootstrap> {
 		const pending = entry.heldPending;
 		if (pending !== undefined) {
@@ -942,76 +945,85 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 			throwIfCancelled(signal);
 			return shared;
 		}
-		const task = withAttemptSlot(entry, (attemptSignal) => ensureHeld(entry, hostId, attemptSignal), signal);
+		// Root cancellation must not abort the host bootstrap shared by other roots.
+		const task = withAttemptSlot(entry, (attemptSignal) => ensureHeld(entry, hostId, attemptSignal));
 		entry.heldPending = task;
 		try {
-			return await task;
+			const held = await task;
+			throwIfCancelled(signal);
+			return held;
 		} finally {
 			if (entry.heldPending === task) entry.heldPending = undefined;
 		}
 	}
 
-	/**
-	 * 为一个 (host, root) 建立会话：复核边界 → 复用/建立主机级 held → 起自己的 manager → 连到 ready。
-	 *
-	 * 只在池未命中时执行，因此这里付得起一次 pinned 的 root 复核（命中路径不做任何远程探测）。
-	 * 任何一步失败都只抛稳定码：调用方据此把失败记到**这个项目**，而不是主机 needs-attention。
-	 */
+	/** 冷开复核 root，再复用主机 bootstrap 并建立独立 manager；失败只归本项目。 */
 	async function establishPooledRoot(hostId: string, root: string, signal: AbortSignal): Promise<PooledRootSession> {
 		if (disposed) throw new Error("REMOTE_CONNECTION_SERVICE_DISPOSED");
 		if (explicitlyDisconnected.has(hostId)) throw new Error("SSH_HOST_DISCONNECTED");
 		const epoch = hostEpochOf(hostId);
-		const verified = await verifyProjectRoot(hostId, root);
+		const verified = root === "" ? { ok: true as const } : await verifyProjectRoot(hostId, root);
 		if (!verified.ok) throw new Error(verified.code);
 		throwIfCancelled(signal);
 		const entry = entryFor(hostId);
 		const held = await ensureHeldShared(entry, hostId, signal);
 		throwIfCancelled(signal);
+		if (disposed || explicitlyDisconnected.has(hostId) || hostEpochOf(hostId) !== epoch) throw new Error("SSH_HOST_NOT_READY");
 		let built: SshConnectionManager | undefined;
 		built = managerFor(held, hostId, { root, isCurrent: () => built !== undefined && (pooledPending.has(built) || rootPool?.peek(hostId, root)?.value.manager === built) });
 		const manager = built;
 		pooledPending.add(manager);
+		const abort = (): void => {
+			void manager.dispose().catch(() => undefined);
+		};
+		signal.addEventListener("abort", abort, { once: true });
 		try {
 			const connected = await manager.connect(hostId);
 			throwIfCancelled(signal);
 			if (connected.state !== "ready") throw new Error(connected.lastCode ?? "SSH_HOST_NOT_READY");
 			// 建立过程中主机被显式断开/重绑：这条会话已不属于任何有效代，必须自毁而不是入池。
-			if (disposed || explicitlyDisconnected.has(hostId) || hostEpochOf(hostId) !== epoch) throw new Error(disposed ? "REMOTE_CONNECTION_SERVICE_DISPOSED" : "SSH_HOST_NOT_READY");
+			if (disposed || explicitlyDisconnected.has(hostId) || hostEpochOf(hostId) !== epoch || (await readRevision()) !== held.revision) throw new Error(disposed ? "REMOTE_CONNECTION_SERVICE_DISPOSED" : "SSH_HOST_NOT_READY");
+			// Transitions before publication are project-scoped; only a fully validated root may make the
+			// host ready. Later failure/reconnect frames come from the published manager path above.
+			publishPooledState({ hostId, state: connected });
 			return { hostId, root, manager, held };
 		} catch (error) {
-			pooledPending.delete(manager);
-			void manager.dispose().catch(() => undefined);
+			await manager.dispose().catch(() => undefined);
 			throw error;
+		} finally {
+			pooledPending.delete(manager);
+			signal.removeEventListener("abort", abort);
 		}
 	}
 
-	/**
-	 * 这台主机当前是否**已在线**（用于 requireReady：允许为新项目建会话，但不唤醒离线主机）。
-	 *
-	 * 判据是「有任何一条 root 会话 ready/degraded」或「显式 connect 刚证明过主机可用」。只看池而不看
-	 * 配置里的 root 字符串：字符串相等证明不了任何一条 helper 还活着。
-	 */
+	/** requireReady 只认活会话或显式 connect 的证明；配置中的 root 不能证明在线。 */
 	function hostOnline(hostId: string): boolean {
 		if (pooledManager(hostId) !== undefined) return true;
 		return pooledHostStates.get(hostId)?.state === "ready";
 	}
 
-	/**
-	 * 池化路径的一次项目操作：取该 root 的租约 → 跑整个操作 → 释放租约。
-	 *
-	 * 刻意没有 per-host 队列：A 的慢读不会排在 B 的已就绪读后面（这正是池化的目的），同一 root 的并发读
-	 * 由 helper 自己的 in-flight/等待窗承载。租约的存在只为一件事——在途操作期间该条目不可被回收。
-	 */
+	/** 租约覆盖整次项目操作；跨 root 不排队，在途条目不可被 TTL/LRU 回收。 */
 	async function withPooledProjectSession<T>(hostId: string, root: string, task: (session: RemoteProjectSession) => Promise<T>, readOptions?: { requireReady?: boolean; signal?: AbortSignal }): Promise<{ ok: true; value: T } | { ok: false; code: string }> {
 		const pool = rootPool;
+		const rootKey = hostId + "\u0000" + root;
+		const rootEpoch = rootEpochs.get(rootKey);
+		let hostEpoch = hostEpochOf(hostId);
+		const isAborted = (): boolean => readOptions?.signal?.aborted === true;
 		if (pool === undefined) return { ok: false, code: "SSH_HOST_NOT_READY" };
 		// 用户的显式断开优先于后台读：一次读不能把主机偷偷连回来。
 		if (explicitlyDisconnected.has(hostId)) return { ok: false, code: "SSH_HOST_DISCONNECTED" };
-		if (readOptions?.signal?.aborted) return { ok: false, code: "REQUEST_CANCELLED" };
+		if (isAborted()) return { ok: false, code: "REQUEST_CANCELLED" };
 		// 重绑/禁用/重验会让 held 换代：池的热路径只做本地检查，所以这里用一次 store 快照把「主机身份变了」
 		// 变成整池失效，而不是继续拿旧 deploy root 服务新项目。读的是已缓存的快照，不是远端往返。
 		const hostEntry = hosts.get(hostId);
-		if (hostEntry?.held !== undefined && hostEntry.held.revision !== (await readRevision())) discard(hostId, hostEntry);
+		if (hostEntry?.held !== undefined) {
+			const revision = await readRevision();
+			if (hostEpochOf(hostId) !== hostEpoch) return { ok: false, code: "SSH_HOST_NOT_READY" };
+			if (hostEntry.held?.revision !== revision) {
+				discard(hostId, hostEntry);
+				hostEpoch = hostEpochOf(hostId);
+			}
+		}
 		const existing = pool.peek(hostId, root);
 		if (existing !== undefined) {
 			const current = existing.value.manager.getState(hostId);
@@ -1024,6 +1036,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 			}
 		}
 		if (existing === undefined && readOptions?.requireReady === true && !hostOnline(hostId)) return { ok: false, code: "SSH_HOST_NOT_READY" };
+		if (rootEpochs.get(rootKey) !== rootEpoch || hostEpochOf(hostId) !== hostEpoch) return { ok: false, code: "SSH_HOST_NOT_READY" };
 		let acquired;
 		try {
 			acquired = await pool.acquire({ hostId, root }, readOptions?.signal === undefined ? {} : { signal: readOptions.signal });
@@ -1038,21 +1051,29 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 			await pool.retireRoot(hostId, root, "explicit");
 			return { ok: false, code: disposed ? "REMOTE_CONNECTION_SERVICE_DISPOSED" : "SSH_HOST_DISCONNECTED" };
 		}
+		if (isAborted()) {
+			acquired.lease.release();
+			return { ok: false, code: "REQUEST_CANCELLED" };
+		}
 		try {
 			const bound = acquired.lease.value;
 			// 启动票据绑定 host 代数与 pin 路线；读本身不依赖票据，但路线对不上说明这条会话已过期。
 			const route = await readVerifiedRoute(hostId);
 			if (route !== null && route.revision !== bound.held.revision) return { ok: false, code: "SSH_HOST_NOT_READY" };
+			const isCurrent = (): boolean => pool.peek(hostId, root)?.value === bound && pooledConnectionId(hostId, bound.manager) === acquired.lease.connectionId;
+			if (!isCurrent()) return { ok: false, code: "SSH_HOST_NOT_READY" };
+			if (isAborted()) return { ok: false, code: "REQUEST_CANCELLED" };
 			const session = buildProjectSession({
 				hostId,
 				manager: bound.manager,
 				held: bound.held,
 				connectionId: acquired.lease.connectionId,
 				hostRouteDigest: route?.routeDigest ?? "",
-				// 池里的「我仍存在」判据：这个 root 的条目必须还是这一条会话（被淘汰/重建后旧会话失败关闭）。
-				isCurrent: () => pool.peek(hostId, root)?.value === bound,
+				isCurrent,
 			});
-			return { ok: true, value: await task(session) };
+			const value = await task(session);
+			if (!isCurrent() || (await readRevision()) !== bound.held.revision) return { ok: false, code: "SSH_HOST_NOT_READY" };
+			return { ok: true, value };
 		} catch (error) {
 			if (readOptions?.signal?.aborted === true) return { ok: false, code: "REQUEST_CANCELLED" };
 			throw error;
@@ -1360,24 +1381,21 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 				return undefined;
 			}
 		},
-		/**
-		 * 与 `remoteHome` 同一语义，但缓存状态读不到时**按需建立会话**再读一次。
-		 *
-		 * 会话扫描专用（`RemoteSessionScanner` 是 `remoteHome` 的唯一生产调用方）：扫描总是紧跟
-		 * 在登记/读取项目之后，而那些路径会收掉临时会话，导致纯读在那一刻拿不到 home。
-		 */
-		/**
-		 * 订阅保活：目录 watcher 仍挂在这条 root 会话上时，池不得因为空闲（TTL/LRU）回收它。
-		 *
-		 * 池化关闭时是空操作：单会话路径本来就没有回收动作，订阅跟着会话一起结束。
-		 */
-		retainProjectSessionWatch(hostId: string, root: string): void {
-			rootPool?.retainWatch(hostId, root);
+		/** 按连接身份成对保活；单会话模式为空操作。 */
+		retainProjectSessionWatch(hostId: string, root: string, connectionId: string): void {
+			rootPool?.retainWatch(hostId, root, connectionId);
 		},
 		/** 成对释放保活（最后一条订阅退掉时必须调用，否则这条会话永远不会被回收）。 */
-		releaseProjectSessionWatch(hostId: string, root: string): void {
-			rootPool?.releaseWatch(hostId, root);
+		releaseProjectSessionWatch(hostId: string, root: string, connectionId: string): void {
+			rootPool?.releaseWatch(hostId, root, connectionId);
 		},
+		/** Main-only project removal: retire this boundary, including any unfinished acquire. */
+		async retireProjectSession(hostId: string, root: string): Promise<void> {
+			const key = hostId + "\u0000" + root;
+			rootEpochs.set(key, (rootEpochs.get(key) ?? 0) + 1);
+			await rootPool?.retireRoot(hostId, root, "explicit");
+		},
+		rootPoolStats: () => rootPool?.stats(),
 		async remoteHomeEnsuring(hostId: string): Promise<string | undefined> {
 			return readHomeEnsuring(hostId);
 		},
@@ -1601,13 +1619,19 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 		 * commands. The manager already refuses anything but a ready host with a live protocol client.
 		 */
 		request(hostId: string, method: string, params?: unknown, options?: { timeoutMs?: number; onRequestId?: (requestId: string) => void; repo?: string }): Promise<unknown> {
+			// Host configuration has no project root. Its helper occupies the same bounded pool.
+			if (rootPool !== undefined)
+				return withPooledProjectSession(hostId, "", (session) => session.request(method, params, options), { requireReady: true }).then((result) => {
+					if (!result.ok) throw new Error(result.code);
+					return result.value;
+				});
 			const manager = hosts.get(hostId)?.manager;
 			if (manager === undefined) return Promise.reject(new Error("SSH_HOST_NOT_READY"));
 			return manager.request(hostId, method, params, options);
 		},
 		/** Withdraw a request a ready host is still holding, by the id `request` reported. */
 		cancel(hostId: string, requestId: string, options?: { timeoutMs?: number }): Promise<unknown> {
-			const manager = hosts.get(hostId)?.manager;
+			const manager = rootPool === undefined ? hosts.get(hostId)?.manager : rootPool.peek(hostId, "")?.value.manager;
 			if (manager === undefined) return Promise.reject(new Error("SSH_HOST_NOT_READY"));
 			return manager.cancel(hostId, requestId, options);
 		},
@@ -1760,10 +1784,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 				return { ok: true, value: await task(session) };
 			});
 		},
-		/**
-		 * Stop every host. Waits for in-flight connects so a bootstrap that is still uploading cannot
-		 * publish a helper session into a disposed service; idempotent, because quit paths run twice.
-		 */
+		/** Idempotent teardown waits for attempts and helpers; no late publication after disposal. */
 		dispose(): Promise<void> {
 			disposing ??= (async () => {
 				disposed = true;
@@ -1775,11 +1796,7 @@ export function createRemoteHostConnectionService(options: RemoteHostConnectionS
 				const entries = [...hosts.entries()];
 				const pending = entries.flatMap(([, entry]) => (entry.inFlight === undefined ? [] : [entry.inFlight.catch(() => undefined)]));
 				await Promise.all(pending);
-				await Promise.all(
-					entries.map(async ([hostId, entry]) => {
-						discard(hostId, entry);
-					}),
-				);
+				for (const [hostId, entry] of entries) discard(hostId, entry);
 				// 池与 held 同源：先让池退役每条 root 会话，再清主机表，最后停掉保温回收定时器。
 				if (rootPool !== undefined) await rootPool.dispose();
 				if (sweepTimer !== undefined) cancelSweepTimer(sweepTimer);

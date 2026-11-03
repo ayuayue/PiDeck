@@ -6,6 +6,7 @@ const { createProjectServiceRuntime } = loadTsCommonJs("src/renderer/src/service
 
 const project = { id: "p2", name: "p2", lastOpenedAt: 0, locator: { kind: "ssh", hostId: "h1", remotePath: "/srv/p2" } };
 const FULL_HELPER = ["fs.watch", "fs.searchContent", "git.status", "git.compare"];
+const UPLOAD_HELPER = [...FULL_HELPER, "fs.uploadPrepare", "fs.uploadCommit", "fs.uploadAbort"];
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -321,6 +322,25 @@ test("runtime：services.refresh() 重新采集 trust（没有推送事件）并
 	assert.equal(after.capabilities.files.write, true, "文件 API 不读 trust");
 	assert.equal(after.capabilities.git.read, false);
 	assert.equal(after.generation, before.generation, "只读事实重采集不换连接代");
+	runtime.dispose();
+});
+
+test("runtime：首个 helper 建立后补采事实才能开放上传", async () => {
+	const h = harness();
+	h.setRoot({ ok: true, value: { status: "ok" } });
+	const runtime = createProjectServiceRuntime(project, h.api);
+	runtime.start();
+	await runtime.refresh();
+	await flush();
+	const before = runtime.getSnapshot();
+	assert.equal(before.facts.hostState, "ready");
+	assert.equal(before.capabilities.files.upload, false, "a side-effect-free root probe cannot see a helper that does not exist yet");
+
+	h.setRoot({ ok: true, value: { status: "ok", helperCapabilities: UPLOAD_HELPER } });
+	await before.refresh();
+	const after = runtime.getSnapshot();
+	assert.equal(after.generation, before.generation, "refilling facts for the same connection is not a generation change");
+	assert.equal(after.capabilities.files.upload, true);
 	runtime.dispose();
 });
 

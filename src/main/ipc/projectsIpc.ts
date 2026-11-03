@@ -3,7 +3,7 @@ import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { ipcChannels } from "../../shared/ipc";
 import { isLocalProject, isRemoteProject, PROJECT_HOST_ID_PATTERN } from "../../shared/projectLocation";
-import type { FeedbackProjectContext, LocalProject } from "../../shared/types";
+import type { FeedbackProjectContext, LocalProject, Project } from "../../shared/types";
 import type { ProjectStore } from "../projects/ProjectStore";
 import type { SettingsStore } from "../settings/SettingsStore";
 import { readTextBounded } from "../fs/boundedTextRead";
@@ -33,7 +33,7 @@ export type ProjectsIpcDeps = {
 	/**
 	 * 项目被删除后的收尾（目录订阅等）。在数据库删除成功之后调用，失败不回滚删除，也不影响返回值。
 	 */
-	onProjectRemoved?: (projectId: string) => void | Promise<void>;
+	onProjectRemoved?: (projectId: string, removed?: Project) => void | Promise<void>;
 	mainCopy: (key: string, params?: Record<string, string | number>) => string;
 	getMainWindow: () => BrowserWindow | null;
 	/** 添加 WSL 项目前解析当前发行版/用户；缺失时 chooseAndAdd 会拒绝（#155）。 */
@@ -158,7 +158,7 @@ export function registerProjectsIpc({ projectStore, settingsStore, gitService, w
 		// 提交点，只有这个顺序保证任一段失败时都不会留下指向已删项目的倒挂引用；失败不再被吞成“0 条”。
 		await removeProjectWithSessions({ projects: projectStore, sessions: sessionCatalog }, id, { childProjectIds: childIds });
 		// 目录订阅跟着项目一起收尾：退订失败不影响删除结果，但下次同项目读会重新订阅。
-		if (onProjectRemoved !== undefined) void Promise.resolve(onProjectRemoved(id)).catch(() => undefined);
+		if (onProjectRemoved !== undefined) await Promise.resolve(onProjectRemoved(id, removed)).catch(() => undefined);
 		void appLogger.info("project", "Project removed", { projectId: id, path: removed?.path });
 		return getVisibleProjects();
 	});

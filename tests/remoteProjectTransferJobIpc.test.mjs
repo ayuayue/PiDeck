@@ -183,6 +183,41 @@ test("download uses one stat seam, then the SFTP job, and reports its settlement
 	assert.ok(from.events.some((entry) => entry.event.kind === "progress" && entry.event.transferred === 3));
 });
 
+test("closing project A aborts and silences only A while B can finish", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "pideck-transfer-close-"));
+	let f;
+	try {
+		const file = join(directory, "a.bin");
+		await writeFile(file, "a");
+		const workers = [];
+		f = setup({
+			uploadOne: (input) =>
+				new Promise((resolve, reject) => {
+					workers.push({ input, finish: () => resolve({ name: "a.bin", bytes: 1, relativePath: "a.bin" }) });
+					input.signal.addEventListener("abort", () => reject(new Error("REQUEST_CANCELLED")), { once: true });
+				}),
+		});
+		const a = f.sender(1);
+		const b = f.sender(2);
+		await f.invoke("remote:project-transfer-start", a, { operation: "upload", projectId: "a", targetRelativePath: "", source: { kind: "paths", paths: [file] } });
+		await f.invoke("remote:project-transfer-start", b, { operation: "upload", projectId: "b", targetRelativePath: "", source: { kind: "paths", paths: [file] } });
+		assert.equal(workers.length, 2);
+		f.handle.closeProject("a");
+		assert.equal(workers[0].input.signal.aborted, true);
+		assert.equal(workers[1].input.signal.aborted, false);
+		workers[1].finish();
+		assert.equal((await settled(b)).outcome, "succeeded");
+		assert.equal(
+			a.events.some(({ event }) => event.kind === "settled"),
+			false,
+		);
+		assert.deepEqual(f.audit.afterWrite, [{ projectId: "b", paths: ["a.bin"] }]);
+	} finally {
+		f?.handle.dispose();
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
 test("a download failure after the SFTP job starts is unknown, not a false rejection", async () => {
 	const f = setup({
 		savedTo: process.platform === "win32" ? "C:\\downloads\\a.bin" : "/tmp/a.bin",
