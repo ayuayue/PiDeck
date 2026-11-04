@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 1094029070f46ba17dd107832516ceae63a60f104b6acb878793a7e13cb4ee40（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 722a361ed54a77c262e1be04bd766f6cc70257b26a772cb167aba9f86cfab7e6（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -6811,6 +6811,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"cloudSync.provider.onedriveConnect": "通過瀏覽器連線",
 	"cloudSync.provider.onedriveOpenUrl": "開啟以下連結並登入授權：",
 	"cloudSync.provider.onedriveWaiting": "等待授權完成…",
+	"cloudSync.provider.onedriveFlowFailed": "OneDrive 授權失敗，請重試。",
 	"cloudSync.provider.googleTitle": "Google Drive",
 	"cloudSync.provider.googleDesc": "谷歌雲端硬碟：瀏覽器授權直連，適合海外使用者。",
 	"cloudSync.provider.googleClientId": "Google OAuth 客戶端 ID",
@@ -6819,6 +6820,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"cloudSync.provider.googleConnect": "通過瀏覽器連線",
 	"cloudSync.provider.googleOpenUrl": "開啟以下連結並登入授權：",
 	"cloudSync.provider.googleWaiting": "等待授權完成…",
+	"cloudSync.provider.googleFlowFailed": "Google Drive 授權失敗，請重試。",
 	"cloudSync.provider.webdavPresets": "快捷模板",
 	"cloudSync.provider.webdavPresetNutstore": "堅果雲",
 	"cloudSync.provider.webdavPresetInfiniCloud": "InfiniCloud",
@@ -6853,6 +6855,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"cloudSync.content.strategyPreferCloud": "以雲端為準",
 	"cloudSync.content.strategyPreferLocal": "以本地為準",
 	"cloudSync.content.autoSync": "自動同步",
+	"cloudSync.content.autoSyncInterval": "間隔（分鐘）",
 	"cloudSync.content.scan": "掃描會話",
 	"cloudSync.content.selectAll": "全選",
 	"cloudSync.content.selectNone": "全不選",
