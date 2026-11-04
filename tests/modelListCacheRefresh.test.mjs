@@ -117,7 +117,7 @@ test("pi update --models entry: args are array form (spawn safety) and startup w
 	assert.match(indexSource, /piModelCapabilityCache\?\.watchConfigDirectory\(\)/);
 	const refreshIndex = indexSource.indexOf("await refreshModelCatalogIfStale(");
 	const hydrateIndex = indexSource.indexOf("await piModelCapabilityCache?.ensure()", refreshIndex);
-	const watcherIndex = indexSource.indexOf("piModelCapabilityCache?.watchConfigDirectory()");
+	const watcherIndex = indexSource.indexOf("piModelCapabilityCache?.watchConfigDirectory()", hydrateIndex);
 	assert.ok(refreshIndex >= 0 && hydrateIndex > refreshIndex && watcherIndex > hydrateIndex, "startup must finish catalog refresh and initial hydration before installing the watcher");
 	// watcher 必须把 models-store.json 纳入监视：目录刷新后已发布快照要失效重取。
 	const capabilitySource = readFileSync("src/main/pi/PiModelCapabilityCache.ts", "utf8");

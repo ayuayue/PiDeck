@@ -4,13 +4,16 @@ import test from "node:test";
 
 const source = readFileSync("src/main/ipc/projectsIpc.ts", "utf8");
 
-test("projects:add follows the global Pi source (Windows / WSL) while the profile entry is paused", () => {
-	// 连接档案（projects:add-wsl）只在 dev 通道开放；正式包仍按「设置 → 开发 → Pi 来源」
-	// 的全局开关决定新项目环境，与 0.9.8 一致。档案放开后再切回「只加本机项目」。
-	assert.match(source, /const env = settings\.wslEnabled \? \("wsl" as const\) : \("windows" as const\)/);
-	assert.match(source, /chooseAndAdd\(env, wslEnvironment\)/);
-	// WSL 模式下必须带发行版环境，否则 chooseAndAdd 直接抛 INVALID_WSL_PATH（#155）。
-	assert.match(source, /resolveWslEnvironment\(settings\.wslDistro, settings\.wslUser\)/);
+test("projects:add is Windows-only; WSL uses the in-distro browser and add-by-path flow", () => {
+	// 系统目录对话框按发行版默认用户鉴权，无法可靠访问其它 WSL 用户的目录，因此
+	// projects:add 只允许 Windows 路径；WSL 必须走主进程内置选择器与 add-wsl-path。
+	assert.match(source, /ipcMain\.handle\(ipcChannels\.projectsAdd,[\s\S]{0,500}?projectStore\.chooseAndAdd\(\)/);
+	assert.doesNotMatch(source, /chooseAndAdd\(\s*env\s*,\s*wslEnvironment\s*\)/);
+	assert.doesNotMatch(source, /projectsAddWsl:/);
+	assert.match(source, /ipcMain\.handle\(ipcChannels\.projectsAddWslPath/);
+	assert.match(source, /listWslDirectory\(\{ distro: target\.distro, user: target\.user, path \}\)/);
+	assert.match(source, /linuxPathToWslUnc\(listed\.value\.path, target\.distro\)/);
+	assert.match(source, /projectStore\.add\(projectPath, undefined, "wsl", target\.identity\)/);
 });
 
 test("visible projects follow the global mode; remote and chat projects are exempt", () => {
