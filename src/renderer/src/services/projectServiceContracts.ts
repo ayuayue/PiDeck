@@ -1,31 +1,43 @@
 import type { Op } from "../../../shared/op";
-import type { GitCompareRefsValue, GitHistoryPage, GitRef, GitResourceGroups, GitResourceGroupType, GitRepositoryListing, GitDiscardResource } from "../../../shared/types/git";
+import type { HostConnectionStateLike } from "../../../shared/projectCapabilities";
+import type { GitAheadBehind, GitBranchInfo, GitCompareRefsValue, GitDiscardResource, GitHistoryPage, GitRef, GitRepositoryListing, GitResourceGroups, GitWorkspaceDiffGroup, GitWorkspaceFileDiff, WorktreeEntry } from "../../../shared/types/git";
 import type { Project, ProjectFileTarget } from "../../../shared/types";
-import type { ProjectDirectoryPage, ProjectPathState } from "../../../shared/types/projectFiles";
+import type { ProjectDirectoryPage } from "../../../shared/types/projectFiles";
 import type { FileContentSearchResult, FileSearchResult } from "../../../shared/types/session";
 import type { PiDesktopApi } from "../../../preload";
 
 /**
- * 工作区面板的服务缝（Phase A 草案）。
+ * 工作区面板的服务缝（S 检查点）。
  *
- * 目标：文件/ Git 面板只依赖本文件里的接口，不再直接依赖 window.piDesktop 的具体通道；
- * 本地与远端各有一个 provider，UI 只按项目位置选择 provider，同一套组件消费同一份契约。
+ * 与 Phase A 草案的区别（见 docs/remote-project-parallel-handoff.md §4）：
+ * - 服务实例绑定明确项目身份：构造时带 projectId，方法不再让业务组件传“当前项目”；
+ * - 事实快照（host/root/helper/trust/generation）参与能力判定，能力缺失必须带稳定原因；
+ * - 异步结果有代数围栏：连接代变化后，旧代成功/失败都不再作为结果发布；
+ * - 写面返回既有收据（文本 version、删除 trashId、改名后的 target），unknown 只抛错不重放；
+ * - stat 区分 present / missing / unavailable，当前公共 files.stat 只能证明 present。
  *
- * Phase A 只定义契约 + 两个 provider（远端 Git 写与部分能力显式 unsupported），不改任何现有 UI；
- * 迁移步骤与 parity 矩阵见 docs/project-panel-service-seam-adr.md。
+ * 本文件只放共享契约与错误，不放任何 provider 实现。
  */
 
-/** provider 需要的最小 API 面：本地文件/Git + 远端文件管理。 */
+/** provider 需要的最小 API 面：本地文件/Git、远端文件管理、远端项目事实。 */
 export type ProjectServicesApi = {
 	files: PiDesktopApi["files"];
 	git: PiDesktopApi["git"];
 	remoteHosts: PiDesktopApi["remoteHosts"];
+	remoteTrust: PiDesktopApi["remoteTrust"];
 };
 
 export const PROJECT_SERVICE_CODES = {
 	unsupported: "PROJECT_SERVICE_UNSUPPORTED",
 	versionRequired: "PROJECT_SERVICE_VERSION_REQUIRED",
-	remoteFailed: "PROJECT_SERVICE_REMOTE_FAILED",
+	/** 中性失败码：raw 通道没有稳定码时的回退，不冒充“远端失败”。 */
+	failed: "PROJECT_SERVICE_FAILED",
+	/** 调用方给的项目身份与服务实例不一致：在触达 IPC 前拒绝。 */
+	projectMismatch: "PROJECT_SERVICE_PROJECT_MISMATCH",
+	/** 异步结果属于旧连接代：调用方必须丢弃，不能当成功或失败展示。 */
+	generationStale: "PROJECT_SERVICE_GENERATION_STALE",
+	/** 公共 files.stat 的负结果不能证明“缺失”（读取失败也被折叠成 false）。 */
+	statUnavailable: "PROJECT_SERVICE_STAT_UNAVAILABLE",
 } as const;
 
 export type ProjectServiceErrorCode = (typeof PROJECT_SERVICE_CODES)[keyof typeof PROJECT_SERVICE_CODES];
@@ -45,87 +57,283 @@ export class ProjectServiceError extends Error {
 	}
 }
 
-export type ProjectFileText = { content: string; version?: string };
-
-/**
- * 文件面板需要的操作。读面（目录页/文件名搜索/内容搜索）已经是位置无关的公共契约；
- * 写面（读正文、保存、新建、改名、删除、系统打开）才需要 provider 适配。
- */
-export type ProjectFileService = {
-	/** 公共目录页：本地与远端的唯一的目录读入口。 */
-	listDirectory(target: ProjectFileTarget, options?: { force?: boolean }): Promise<ProjectDirectoryPage>;
-	/** 文件名搜索（公共契约，位置无关）。 */
-	searchFiles(projectId: string, query: string): Promise<FileSearchResult[]>;
-	/** 内容搜索（公共契约；far-end 旧 helper 时远端返回 null = 仅文件名回退）。 */
-	searchContent(projectId: string, query: string): Promise<FileContentSearchResult | null>;
-	readText(target: ProjectFileTarget, options?: { maxBytes?: number }): Promise<ProjectFileText>;
-	writeText(target: ProjectFileTarget, content: string, expectedVersion?: string): Promise<{ version?: string }>;
-	stat(target: ProjectFileTarget): Promise<ProjectPathState>;
-	createEntry(parent: ProjectFileTarget, name: string, type: "file" | "directory"): Promise<void>;
-	renameEntry(target: ProjectFileTarget, newName: string, expectedVersion?: string): Promise<void>;
-	deleteEntry(target: ProjectFileTarget, expectedVersion?: string): Promise<void>;
-	openInEditor(target: ProjectFileTarget): Promise<void>;
-	showInFolder(target: ProjectFileTarget): Promise<void>;
-};
-
-/** Git 读面：T7 起这些通道本身已经位置无关（main 按项目位置路由），provider 只做透传。 */
-export type ProjectGitService = {
-	status(projectId: string, repoPath?: ProjectFileTarget): Promise<GitResourceGroups>;
-	refresh(projectId: string, repoPath?: ProjectFileTarget): Promise<GitResourceGroups>;
-	history(projectId: string, options?: { maxCount?: number; skip?: number }, repoPath?: ProjectFileTarget): Promise<GitHistoryPage>;
-	repos(projectId: string): Promise<GitRepositoryListing>;
-	refs(projectId: string, repoPath?: ProjectFileTarget): Promise<GitRef[]>;
-	compare(projectId: string, base: string, head: string, repoPath?: ProjectFileTarget): Promise<GitCompareRefsValue>;
-	/** 写面：本机直接委派；远端需要 main 所有的令牌经纪（Phase C），当前 provider 抛 unsupported。 */
-	stage(projectId: string, targets: ProjectFileTarget[], repoPath?: ProjectFileTarget): Promise<void>;
-	unstage(projectId: string, targets: ProjectFileTarget[], repoPath?: ProjectFileTarget): Promise<void>;
-	commit(projectId: string, message: string, repoPath?: ProjectFileTarget): Promise<void>;
-	discard(projectId: string, resources: GitDiscardResource[], repoPath?: ProjectFileTarget): Promise<void>;
-};
-
-export type ProjectFileCapabilities = {
-	write: boolean;
-	trash: boolean;
-	/** "negotiated"：由 helper hello/rootStatus 能力决定（旧 helper 回退仅文件名）。 */
-	contentSearch: boolean | "negotiated";
-	/** 系统文件管理器打开（远端没有本机路径，天然不支持）。 */
-	systemOpen: boolean;
-	watch: "full" | "degraded" | "none";
-};
-
-export type ProjectGitCapabilities = {
-	read: boolean;
-	/** 远端写需要令牌经纪；Phase C 前由面板自有实现承担，服务缝不假装支持。 */
-	write: boolean;
-	worktree: boolean;
-	compare: boolean;
-	sync: boolean;
-};
-
-export type ProjectServiceCapabilities = {
-	files: ProjectFileCapabilities;
-	git: ProjectGitCapabilities;
-};
-
-export type ProjectServices = {
-	files: ProjectFileService;
-	git: ProjectGitService;
-	capabilities: ProjectServiceCapabilities;
-	/** 显式标注 provider 位置，供诊断与测试断言；不是业务分支条件。 */
-	kind: "local" | "remote";
-};
-
 export function unwrapOp<T>(op: Op<T>, fallbackCode: string): T {
 	if (op && op.ok === true) return op.value;
 	const failure = op as { code?: string; outcome?: "rejected" | "unknown" } | null;
 	throw new ProjectServiceError(failure?.code ?? fallbackCode, failure?.outcome ?? "rejected");
 }
 
-export const REMOTE_UNSUPPORTED_DETAIL = {
-	fileSystemOpen: "remote workspace has no local path",
-	gitWrite: "phase-c: remote git writes need the main-owned token broker",
-	gitWorktree: "phase-c: worktree is local-only",
-	gitSync: "phase-c: remote sync stays in the panel until the token broker lands",
-} as const;
+// ── 项目事实与代数 ──────────────────────────────────────────────────────
 
-export type { Project, ProjectFileTarget, GitResourceGroupType };
+/** 远端项目 trust 决策（只作为 Git 能力输入；主进程仍逐操作现读）。 */
+export type ProjectServiceTrust = "approved" | "denied" | "stale" | "none" | "unknown";
+
+/** root 复核状态：needs-attention 表示项目根已漂移，读面不能当成“只是旧值”。 */
+export type ProjectServiceRootStatus = "ok" | "needs-attention" | "unknown";
+
+export type ProjectServiceFacts = {
+	projectId: string;
+	locationKind: "local" | "ssh";
+	/** 仅 ssh；与 services 绑定一致。 */
+	hostId?: string;
+	/** 本机项目为 "local"；远端取连接状态机。 */
+	hostState: HostConnectionStateLike | "local";
+	/** 本机项目环境（内容搜索在 WSL 上不可用）；ssh 项目缺席。 */
+	environment?: "windows" | "wsl";
+	rootStatus: ProjectServiceRootStatus;
+	/** helper hello 声明的实际方法；缺席 = 未知 = 按不支持处理。 */
+	helperCapabilities?: readonly string[];
+	trust: ProjectServiceTrust;
+	/** 连接代围栏：值变化即表示旧代异步结果必须丢弃。 */
+	generation: string;
+};
+
+/**
+ * 代数槽：runtime 在项目/连接代变化时原地更新 current；
+ * 服务实例捕获创建时的 generation，await 之后比较槽位，就能识别“旧代结果”。
+ */
+export type ProjectServiceFenceSlot = { current: string };
+
+export type ProjectServiceFence = {
+	readonly generation: string;
+	readonly slot: ProjectServiceFenceSlot;
+};
+
+export function isProjectServiceCurrent(fence: ProjectServiceFence): boolean {
+	return fence.slot.current === fence.generation;
+}
+
+/**
+ * 代数围栏。读路径用 rejected；写路径必须用 unknown：代变化时写可能已经落地，
+ * 调用方不能按“确定没发生”自动重试。
+ */
+export function assertProjectServiceCurrent(fence: ProjectServiceFence, outcome: "rejected" | "unknown" = "rejected"): void {
+	if (!isProjectServiceCurrent(fence)) throw new ProjectServiceError(PROJECT_SERVICE_CODES.generationStale, outcome, outcome === "unknown" ? "write might have been applied on an expired generation" : undefined);
+}
+
+// ── 文件结果 ────────────────────────────────────────────────────────────
+
+export type ProjectFileText = { content: string; version?: string };
+
+/**
+ * 文件名搜索结果。远端 searchProject 带 truncated/scanned；本机 files.search 没有该元数据时缺席，
+ * 不填 false 冒充“结果完整”。
+ */
+export type ProjectFileSearchResult = {
+	results: FileSearchResult[];
+	truncated?: boolean;
+	scanned?: number;
+};
+
+/**
+ * 文本保存收据：远端 next version 是下一次保存的输入；本机没有 version（textVersion = "none"）。
+ * 旧版本由主进程拒绝，provider 绝不用 entry 令牌或重新 open 得到的版本冒充。
+ */
+export type ProjectTextSaveReceipt = { version?: string };
+
+export type ProjectEntryReceipt = { target: ProjectFileTarget; kind?: "file" | "directory" };
+
+/** 删除收据：远端进回收站时带 trashId；本机没有可恢复收据。 */
+export type ProjectEntryDeleteReceipt = { target: ProjectFileTarget; trashId?: string };
+
+/**
+ * stat 三态：
+ * - present：已证明存在；
+ * - missing：已证明不存在（需要公共 files.stat 携带失败码后才会出现）；
+ * - unavailable：读不到/不确定——绝不能当成“文件不存在”。
+ */
+export type ProjectPathAvailability = "present" | "missing" | "unavailable";
+
+export type ProjectServicePathState = {
+	target: ProjectFileTarget;
+	availability: ProjectPathAvailability;
+	/** present 时是事实；unavailable 时缺席（读不到不能猜类型）。 */
+	isDirectory?: boolean;
+	code?: string;
+};
+
+export type ProjectFileService = {
+	/** 公共目录页：本地与远端的唯一目录读入口。truncated/revision/generation 原样保留。 */
+	listDirectory(target: ProjectFileTarget, options?: { force?: boolean }): Promise<ProjectDirectoryPage>;
+	searchFiles(query: string): Promise<ProjectFileSearchResult>;
+	/** 内容搜索（公共契约；旧 helper 返回 null = 仅文件名回退）。 */
+	searchContent(query: string): Promise<FileContentSearchResult | null>;
+	readText(target: ProjectFileTarget, options?: { maxBytes?: number }): Promise<ProjectFileText>;
+	/** 远端必须带 readText 返回的 version；缺失/空串由 provider 在触达 IPC 前拒绝。 */
+	writeText(target: ProjectFileTarget, content: string, expectedVersion?: string): Promise<ProjectTextSaveReceipt>;
+	stat(target: ProjectFileTarget): Promise<ProjectServicePathState>;
+	createEntry(parent: ProjectFileTarget, name: string, type: "file" | "directory"): Promise<ProjectEntryReceipt>;
+	renameEntry(target: ProjectFileTarget, newName: string, expectedVersion?: string): Promise<ProjectEntryReceipt>;
+	deleteEntry(target: ProjectFileTarget, expectedVersion?: string): Promise<ProjectEntryDeleteReceipt>;
+	openInEditor(target: ProjectFileTarget): Promise<void>;
+	showInFolder(target: ProjectFileTarget): Promise<void>;
+};
+
+// ── Git 结果与契约 ──────────────────────────────────────────────────────
+
+/** 创建分支的显式模式：绝不把“仅创建”暗中追加成“创建并切换”。 */
+export type ProjectGitBranchMode = "create" | "create-and-checkout";
+
+export type ProjectGitDiscardReceipt = {
+	/** 远端可恢复丢弃返回 recoveryRef；本机 discardFiles 没有恢复快照。 */
+	recoveryRef?: string | null;
+};
+
+/** 同步事实（分支/上游/ahead-behind/remotes）；不触发网络。 */
+export type ProjectGitSyncFacts = {
+	branch: string | null;
+	upstream: string | null;
+	ahead: number;
+	behind: number;
+	remotes: string[];
+};
+
+export type ProjectGitRecoveryEntry = { ref: string; oid: string; path: string; bytes: number; at: number };
+export type ProjectGitRecoveryListing = { entries: ProjectGitRecoveryEntry[]; truncated: boolean };
+
+/**
+ * Git 面板所需动作。读面已经是公共通道（main 按位置路由）；写面在远端需要 main 所有的令牌经纪，
+ * 远端 workspace diff 已由 main 的公共 git:workspace-diff 路由；Git 写/同步/恢复/强刷仍由 G 接令牌经纪。
+ */
+export type ProjectGitService = {
+	status(repoPath?: ProjectFileTarget): Promise<GitResourceGroups>;
+	/** 纯事实强制刷新：不得调用授权 snapshot（不撤/重签令牌）；远端当前显式 unsupported。 */
+	refresh(repoPath?: ProjectFileTarget): Promise<GitResourceGroups>;
+	history(options?: { maxCount?: number; skip?: number }, repoPath?: ProjectFileTarget): Promise<GitHistoryPage>;
+	repos(): Promise<GitRepositoryListing>;
+	refs(repoPath?: ProjectFileTarget): Promise<GitRef[]>;
+	compare(base: string, head: string, repoPath?: ProjectFileTarget): Promise<GitCompareRefsValue>;
+	workspaceDiff(group: GitWorkspaceDiffGroup, file: ProjectFileTarget, repoPath?: ProjectFileTarget): Promise<GitWorkspaceFileDiff>;
+	branches(repoPath?: ProjectFileTarget): Promise<GitBranchInfo>;
+	createBranch(name: string, mode: ProjectGitBranchMode, repoPath?: ProjectFileTarget): Promise<void>;
+	checkout(branch: string, repoPath?: ProjectFileTarget): Promise<GitBranchInfo>;
+	stage(targets: ProjectFileTarget[], repoPath?: ProjectFileTarget): Promise<void>;
+	unstage(targets: ProjectFileTarget[], repoPath?: ProjectFileTarget): Promise<void>;
+	commit(message: string, repoPath?: ProjectFileTarget): Promise<void>;
+	discard(resources: GitDiscardResource[], repoPath?: ProjectFileTarget): Promise<ProjectGitDiscardReceipt>;
+	fetch(repoPath?: ProjectFileTarget): Promise<void>;
+	pull(repoPath?: ProjectFileTarget): Promise<void>;
+	push(repoPath?: ProjectFileTarget): Promise<void>;
+	syncFacts(repoPath?: ProjectFileTarget): Promise<ProjectGitSyncFacts>;
+	recoveryList(repoPath?: ProjectFileTarget): Promise<ProjectGitRecoveryListing>;
+	recoveryRestore(entry: Pick<ProjectGitRecoveryEntry, "ref" | "oid" | "path">, repoPath?: ProjectFileTarget): Promise<void>;
+	recoveryDrop(entry: Pick<ProjectGitRecoveryEntry, "ref" | "oid">, repoPath?: ProjectFileTarget): Promise<void>;
+	init(): Promise<{ branch: string | null }>;
+	deleteFiles(targets: ProjectFileTarget[], repoPath?: ProjectFileTarget): Promise<void>;
+	worktreeList(): Promise<WorktreeEntry[]>;
+	worktreeCreate(branchName: string): Promise<WorktreeEntry>;
+	worktreeRemove(target: ProjectFileTarget): Promise<boolean>;
+	/** 当前分支相对上游的差距（本机通道；远端由 syncFacts 提供）。 */
+	aheadBehind(repoPath?: ProjectFileTarget): Promise<GitAheadBehind | null>;
+};
+
+// ── 能力 ────────────────────────────────────────────────────────────────
+
+export type ProjectFileCapabilities = {
+	read: boolean;
+	/** 文件名搜索：远端 gate helper fs.searchNames。 */
+	search: boolean;
+	write: boolean;
+	/** 删除可恢复（远端 .pideck-trash）；本机 delete 没有回收站收据。 */
+	trash: boolean;
+	/** 文本保存是否有可校验的 version：远端 required，本机 none。 */
+	textVersion: "required" | "none";
+	contentSearch: boolean;
+	systemOpen: boolean;
+	/** full = 有推送/本机 watcher；degraded = 只能显式刷新；none = 读也不可用。 */
+	watch: "full" | "degraded" | "none";
+};
+
+export type ProjectGitBranchCreateMode = "create" | "create-and-checkout" | "both" | "none";
+
+export type ProjectGitCapabilities = {
+	read: boolean;
+	/** workspace diff（本地与远端都走公共 git:workspace-diff）。 */
+	diff: boolean;
+	/** 分支列表（远端待 G 从 remoteRefs 派生）。 */
+	branchRead: boolean;
+	/** 历史页：gate helper git.log。 */
+	history: boolean;
+	/** 仓库发现：gate helper git.repos。 */
+	repos: boolean;
+	/** 本地引用列表：gate helper git.refs。 */
+	refs: boolean;
+	/** index/commit/discard 等写动词（远端待令牌经纪）。 */
+	write: boolean;
+	branchWrite: boolean;
+	branchCreateMode: ProjectGitBranchCreateMode;
+	sync: boolean;
+	syncFacts: boolean;
+	aheadBehind: boolean;
+	compare: boolean;
+	recovery: boolean;
+	worktree: boolean;
+	init: boolean;
+	/** 纯事实强刷（不签/撤令牌）；远端待 main 的 force 入口。 */
+	forceRefresh: boolean;
+	/** 允许自动触发网络写（自动 fetch）；服务本身从不自动调用。 */
+	autoFetch: boolean;
+	/** 允许后台定时 status 轮询；远端需要显式刷新/事实推送。 */
+	statusPoll: boolean;
+	/** 允许挂载 refs watcher；远端尚无该订阅。 */
+	refsWatch: boolean;
+	deleteFiles: boolean;
+};
+
+export type ProjectServiceCapabilityKey =
+	| "files.read"
+	| "files.write"
+	| "files.trash"
+	| "files.search"
+	| "files.contentSearch"
+	| "files.systemOpen"
+	| "files.watch"
+	| "git.read"
+	| "git.diff"
+	| "git.branchRead"
+	| "git.history"
+	| "git.repos"
+	| "git.refs"
+	| "git.write"
+	| "git.branchWrite"
+	| "git.sync"
+	| "git.syncFacts"
+	| "git.aheadBehind"
+	| "git.compare"
+	| "git.recovery"
+	| "git.worktree"
+	| "git.init"
+	| "git.forceRefresh"
+	| "git.autoFetch"
+	| "git.statusPoll"
+	| "git.refsWatch"
+	| "git.deleteFiles";
+
+/** 每个被关闭能力的第一条稳定原因；可用能力不出现在这里。 */
+export type ProjectServiceCapabilityReasons = Partial<Record<ProjectServiceCapabilityKey, string>>;
+
+export type ProjectServiceCapabilities = {
+	projectId: string;
+	locationKind: "local" | "ssh";
+	generation: string;
+	trust: ProjectServiceTrust;
+	files: ProjectFileCapabilities;
+	git: ProjectGitCapabilities;
+	blocked: ProjectServiceCapabilityReasons;
+};
+
+export type ProjectServices = {
+	projectId: string;
+	kind: "local" | "remote";
+	generation: string;
+	facts: ProjectServiceFacts;
+	files: ProjectFileService;
+	git: ProjectGitService;
+	capabilities: ProjectServiceCapabilities;
+	/** 服务实例创建时的连接代是否仍是当前代；旧实例不得再发布结果。 */
+	isCurrent(): boolean;
+	/** 只读重新采集 host/root/trust 事实（trust 决策没有推送事件）。 */
+	refresh(): Promise<void>;
+};
+
+export type { Project, ProjectFileTarget };

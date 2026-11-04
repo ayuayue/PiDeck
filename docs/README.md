@@ -52,9 +52,10 @@
 |---|---|
 | [ui-commercialization-plan.md](ui-commercialization-plan.md) | Wave 1–7 已落地；剩余项按文中标记 |
 | [ui-unification-plan.md](ui-unification-plan.md) | wave 1 执行中 |
-| [remote-file-tree-and-git-unification-plan.md](remote-file-tree-and-git-unification-plan.md) | 计划已复核、尚未实施（与面板服务缝 ADR 配套） |
-| [project-panel-service-seam-adr.md](project-panel-service-seam-adr.md) | Phase A 已落地；Phase B/C 待批准 |
-| [root-pooling-handoff.md](root-pooling-handoff.md) | 待其他会话执行 B0–B4 |
+| [remote-file-tree-and-git-unification-plan.md](remote-file-tree-and-git-unification-plan.md) | T1–T9 分片已交付；当前事实/保留项见 §10.7/§10.8 |
+| [project-panel-service-seam-adr.md](project-panel-service-seam-adr.md) | Phase A 已落地、A0 纯 stat 已修；B/C 待契约校准 |
+| [remote-project-parallel-handoff.md](remote-project-parallel-handoff.md) | 远程多项目并行入口：P/S 现在可派工，F/G 等契约检查点；含可复制提示词 |
+| [root-pooling-handoff.md](root-pooling-handoff.md) | 池化专用入口；并行任务按新交接 P 执行，生产池化尚未实现 |
 
 ## 4. 代码/测试引用与归档
 
