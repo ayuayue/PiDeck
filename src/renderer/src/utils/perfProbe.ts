@@ -12,6 +12,11 @@
  */
 
 export const PERF_PROBE_STORAGE_KEY = "pideck:perf-log";
+/** 开关只解析一次（热路径上不重复读 localStorage）；测试可用 resetPerfProbeCache 复位。 */
+let probeEnabledCache: boolean | null = null;
+export function resetPerfProbeCache(): void {
+	probeEnabledCache = null;
+}
 /** 超过这个时长才算 longtask（浏览器口径是 50ms）。 */
 const DEFAULT_LONG_TASK_MS = 50;
 const DEFAULT_SUMMARY_INTERVAL_MS = 5_000;
@@ -30,6 +35,45 @@ export function isPerfProbeEnabled(storage: Pick<Storage, "getItem"> | null | un
 
 export function formatLongTaskLine(durationMs: number, startTime: number): string {
 	return `[perf] longtask ${Math.round(durationMs)}ms @${Math.round(startTime)}ms`;
+}
+
+export function formatMeasureLine(name: string, durationMs: number): string {
+	return `[perf] measure ${name} ${Math.round(durationMs)}ms`;
+}
+
+/**
+ * 分段计时：返回 stop()，stop 时打一条 `[perf] measure <name> <ms>`。
+ *
+ * 用来把一次 longtask 拆开看——比如「结构化克隆 + 原子合并」和「React 提交」各占多少。
+ * 只在探针开启时计时；关闭时 stop 是空函数，调用点只多一次判断。
+ */
+function probeEnabled(): boolean {
+	if (typeof performance === "undefined") return false;
+	if (probeEnabledCache === null) probeEnabledCache = isPerfProbeEnabled(typeof localStorage === "undefined" ? null : localStorage);
+	return probeEnabledCache;
+}
+
+/**
+ * 事件到达打点：`[perf] event <channel> @<performance.now()>`。
+ *
+ * 和 longtask 行用同一个时钟（performance.now），可以直接对齐：
+ * 若 longtask 的起点明显早于事件打点，说明耗时在「反序列化 + 派发」这段（事件回调之前），
+ * 不在回调里——这是区分「IPC 体量」与「渲染」的唯一手段。
+ */
+export function perfEvent(channel: string): void {
+	if (!probeEnabled()) return;
+	console.info(`[perf] event ${channel} @${Math.round(performance.now())}`);
+}
+
+export function perfSpan(name: string): () => void {
+	// 每次消息事件都会调到这里：关闭时连 performance.now 都不取。
+	if (!probeEnabled()) return () => undefined;
+	const startedAt = performance.now();
+	return () => {
+		// 走 console 而不是注入 log：atoms 这类模块不该依赖 main.tsx 的日志出口，
+		// 探针开启时 DevTools 控制台同样能看到（e2e 也从控制台抓）。
+		console.info(formatMeasureLine(name, performance.now() - startedAt));
+	};
 }
 
 export function formatLongTaskSummary(stats: PerfProbeStats): string {

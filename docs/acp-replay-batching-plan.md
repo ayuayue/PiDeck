@@ -189,10 +189,57 @@ payload 降了 80%，但最长任务仍有 180ms——原因写在下一条。
 - 剩下的 180ms 是「渲染这一轮 200 条工具卡」的成本，属于渲染层问题（Phase 4），
   不是投递协议问题。
 
-### Phase 4：渲染层预算（可选，与后端无关）
+### Phase 4：渲染层预算（⛔ 前提被实测推翻，未改代码）
 
-- `reconcileRuns` / `stabilizeRuntimeMessageIds` 做一次性 O(N) 归并，改成按窗口段处理；
-- 首帧只挂窗口内 3 轮（已是现状），确认 ACP 激活后没有被 `browse pin` 撑成全量。
+计划里假设残余 180ms 来自「对 1076 条做 O(N) 归并 + 挂载大量行」。加了分段计时
+（`utils/perfProbe.perfSpan`，探针关闭时是空函数）实测后，这个假设不成立：
+
+| 观察点 | 实测 |
+|---|---|
+| `atoms:agents-message`（结构化合并 + 原子写入） | **1ms** |
+| 时间线 DOM（挂载） | 3 个 turn-row / 9 条 message-row / 2 个代码块 / 2233 字符 markdown |
+| 整页 DOM | 1011 个节点 |
+| 侧栏 DOM | 188 个节点 / 5 个会话行 |
+| 单次投递 payload | 829KB（窗口 204 条） |
+
+也就是说：**没有任何 O(消息数) 的渲染或归并在跑**。180ms 不在这条路径上，把它
+「按窗口段处理」既没有对象也没有收益。下一步要定位它，得在 IPC 反序列化（preload 侧）
+和主进程驱动的 catalog/runtime 广播上再打点，而不是继续削消息数组。
+
+已落地的是探针本身（`perfSpan` + `atoms:agents-message` 分段），可复用；
+真正的优化要等新的归因结果。
+
+#### 4.1 第二轮归因：事件打点对齐（`perfEvent` + longtask 同钟）
+
+加了 `perfEvent(channel)`（在 `useSessionRuntimeBridge` 的事件回调最前面打点），
+和 longtask 行共用 `performance.now` 时钟，可以直接对齐先后：
+
+```
+@19442 agents:state
+@19500 agents:runtime-state
+@19502 agents:state
+@19556 agents:message      ← atoms:agents-message 1ms
+@19563 agents:state
+@19578 agents:message      ← atoms:agents-message 2ms
+@19590 longtask 240ms      ← 起点在最后一条消息事件之后 12ms
+@19914 agents:state
+@19928 agents:message      ← atoms 1ms
+@20121 longtask 141ms
+```
+
+结论（三条都被排除）：
+
+1. **不是 IPC 反序列化**：反序列化发生在事件回调之前，若它是成本，longtask 起点必然
+   **早于** `agents:message` 打点；实测起点晚 12ms。
+2. **不是原子合并**：1–2ms（与第一轮一致）。
+3. **不是 DOM 体量**：1011 个节点、3 个 turn-row。
+
+于是 240ms 落在「事件之后、由这些事件触发的那次提交/绘制」上；同时注意到激活窗口内
+**`agents:state` 连发 4 次**（全量 AgentTab[] 广播），每次都会走桥的分支与 catalog 侧处理。
+
+下一步（未做）：在时间线首帧提交处加 span（`useLayoutEffect` 前后），并统计激活窗口内
+`agents:state` 的实际次数与来源——如果确实是「一次激活打四轮全量广播」，那属于主进程
+广播去重，比渲染层优化更划算。
 
 ## 5. 不变量
 
@@ -214,11 +261,12 @@ payload 降了 80%，但最长任务仍有 180ms——原因写在下一条。
 
 ```
 Phase 0 采样（✅ payload 4.25MB / longtask 236ms）
-   └─ Phase 3 分块（✅ 236→146ms）── Phase 2 窗口化（✅ 4.25MB→829KB，windowed=1/1，
-        「加载更多」打通，最长 180ms）
-        └─ 残余：一轮 204 条 → 180ms，属渲染层成本 → Phase 4（未做）
-Phase 1 的增量 upsertFrom（长回合流式）仍独立排期，不阻塞上面。
+   └─ Phase 3 分块（✅ 236→146ms）
+        └─ Phase 2 窗口化 + ACP 历史分页（✅ 4.25MB→829KB，windowed=1/1，
+              「加载更多」打通，最长 180ms）
+             └─ Phase 4 渲染层预算（⛔ 实测证伪：原子合并 1ms、DOM 仅 1011 节点）
+                  → 180ms 不在消息/渲染条数上，需在 IPC 反序列化与 catalog 广播处重新归因
 ```
 
-两条门禁现状：payload 已达标（829KB 仍高于 256KB 目标，但已与历史长度解耦——
-再长的会话窗口也只是一轮）；**最长任务 180ms 未达标**，需要 Phase 4。
+现状：payload 已与历史长度解耦（窗口 = 最后一轮）；**最长任务 180ms 未达标，
+且归因未完成**——下一步是补 preload/catalog 侧的打点，不是继续削数组。
