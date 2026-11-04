@@ -125,7 +125,7 @@ export function HostPluginsTab() {
 			setBusy(false);
 		}
 	};
-	/** 卸载：删掉插件目录并清掉授权；内置示例会被主进程拒（plugin-builtin），提示用户改用禁用。 */
+	/** 卸载：删插件目录 + 清授权 + 清该插件的私有 storage；不可撤销，确认框里说清楚。 */
 	const remove = async (plugin: HostPluginInfo) => {
 		setBusy(true);
 		try {

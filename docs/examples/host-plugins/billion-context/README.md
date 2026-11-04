@@ -1,7 +1,9 @@
-# billion-context（PiDeck 内置示例插件）
+# billion-context（PiDeck 示例插件）
 
 查看并启停 [billion-context](https://www.npmjs.com/package/billion-context) 的本地代理（`bili`），
 并用 PiDeck 的内置浏览器打开它的 Web 面板 `/__bili/`。
+
+不随包分发：在「设置 → PiDeck 插件 → 从文件夹安装…」选这一层目录，再按指纹授权即可；不想留着直接卸载（会一并清掉本插件的私有 storage）。
 
 ## 前置条件
 
@@ -51,10 +53,8 @@ bili 的 Web 面板只监听 `127.0.0.1` 且**没有鉴权**。不要把这个�
 
 ## 改这个插件
 
-这是普通宿主插件，直接改 `resources/host-plugins/billion-context/` 里的文件即可；改完回 PiDeck「PiDeck 插件」设置页点「重新扫描」。因为授权绑定整包代码指纹，内容一变就需要重新确认授权。
+这是普通宿主插件，直接改 `docs/examples/host-plugins/billion-context/` 里的文件即可；改完回 PiDeck「PiDeck 插件」设置页点「重新扫描」。因为授权绑定整包代码指纹，内容一变就需要重新确认授权。
 
-已经落位到 `userData/host-plugins/billion-context/` 的副本，只有在**内容仍等于上次落位时的指纹**（也就是没被手改过）时才会随新版 PiDeck 自动刷新；手改过的副本永不被覆盖。改坏了可以删掉 `userData` 里那个目录再重启，PiDeck 会重新落位一份。
-
-（唯一例外：早期 PiDeck 版本落位的副本没有「落位记录」，那次升级只能靠 manifest 版本号判断是不是我们自己放的——版本不同就替换一次，之后又回到「手改过就不覆盖」。）
+插件目录是 `userData/host-plugins/billion-context/`（安装时拷过去的副本）：改示例源目录不会自动同步到已安装的那份，要重新安装；反过来直接改安装目录也可以，改完重新扫描 + 重新授权。卸载会同时删掉这两者中的副本与该插件的私有 storage。
 
 API 参考见 PiDeck 仓库的 `docs/host-plugin-dev-guide.md`。

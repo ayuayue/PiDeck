@@ -9,7 +9,7 @@
 import type { Project, SessionGroup, SessionRecord } from "../../../../shared/types";
 import type { HostPluginCatalog } from "../../../../shared/types/hostPlugin";
 
-/** 侧栏分组树的产出方：内置「会话分组」宿主插件（目录名 = manifest.id）。 */
+/** 侧栏分组树的产出方：session-groups 宿主插件（示例包在 docs/examples/host-plugins/，目录名 = manifest.id）。 */
 export const SESSION_GROUPS_PLUGIN_ID = "session-groups";
 
 /**

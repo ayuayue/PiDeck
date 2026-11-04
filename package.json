@@ -230,13 +230,6 @@
         ]
       },
       {
-        "from": "resources/host-plugins",
-        "to": "host-plugins",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
         "from": "resources/agent-memory",
         "to": "agent-memory",
         "filter": [

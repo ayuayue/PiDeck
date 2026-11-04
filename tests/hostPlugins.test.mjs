@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, appendFile, readFile, rm, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, appendFile, readFile, readdir, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -136,6 +136,26 @@ test("host plugin package consent is bound to exact files and revoked after resc
 	}
 });
 
+test("旧状态文件里的 seeded 记录被忽略：授权照常生效，卸载不再有内置例外", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pideck-plugin-state-"));
+	const manager = new HostPluginManager(root);
+	try {
+		const directory = join(root, "host-plugins", "viewer");
+		await packageAt(directory);
+		const approved = await readHostPluginPackage(directory);
+		// 旧版本把「内置示例落位指纹」也写在同一个文件里；现在只有 grants 有读者（无需迁移分支）。
+		await writeFile(join(root, "host-plugin-state.json"), JSON.stringify({ version: 1, grants: { "example.viewer": { fingerprint: approved.fingerprint, enabled: true } }, seeded: { "billion-context": "a".repeat(64) } }));
+		await manager.load();
+		const catalog = manager.catalog();
+		assert.deepEqual(Array.from(catalog.plugins, (plugin) => plugin.manifest.id), ["example.viewer"]);
+		assert.equal(catalog.plugins[0].enabled, true);
+		assert.deepEqual(plain((await manager.remove("example.viewer")).plugins), []);
+	} finally {
+		manager.dispose();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 test("host plugin package rejects directory symlinks and missing entry assets", async (t) => {
 	const root = await mkdtemp(join(tmpdir(), "pideck-plugin-path-"));
 	try {
@@ -193,6 +213,28 @@ test("host plugin storage stays in its own namespace, enforces quota and revocat
 		const stored = JSON.parse(await readFile(join(root, "storage", "viewer.one.json"), "utf8"));
 		assert.equal(stored.layout.mode, "dna");
 		assert.equal(Object.keys(stored).length, 200);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("卸载清私有 storage：等排队写入落定后删文件，缺失时不报错且不碰别的插件", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pideck-plugin-storage-"));
+	try {
+		const directory = join(root, "storage");
+		const storage = new HostPluginStorage(directory);
+		await storage.set("viewer.one", "layout", { mode: "dna" }, () => true);
+		await storage.set("viewer.two", "layout", { mode: "dna" }, () => true);
+		// 与在途写并发：purge 先等该插件的队列落定再删，不留下晩到的正式文件。
+		const pending = storage.set("viewer.one", "theme", "dark", () => true);
+		await storage.purge("viewer.one");
+		await pending.catch(() => undefined);
+		assert.deepEqual((await readdir(directory)).sort(), ["viewer.two.json"]);
+		assert.equal(await storage.get("viewer.one", "layout"), null);
+		// 再清一次也不报错（force），别人的 store 不受影响。
+		await storage.purge("viewer.one");
+		assert.deepEqual(plain(await storage.get("viewer.two", "layout")), { mode: "dna" });
+		await assert.rejects(() => storage.purge("../outside"), /invalid-plugin-id/);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}

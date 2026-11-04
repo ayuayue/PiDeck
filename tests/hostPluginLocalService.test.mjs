@@ -8,7 +8,7 @@
  *      `openUi` 只转发主进程适配器推导出的地址；
  *   4. 适配器自身：只认回环 UI 地址、只按 CLI 报告的 pid 终止、命令与参数过字符白名单。
  *
- * 另外守一份「随包内置示例插件」的契约：它必须是真能装进用户目录的包。
+ * 另外守一份示例包（`docs/examples/host-plugins/billion-context/`）的契约：它必须是真能装进用户目录的包。
  */
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -388,7 +388,9 @@ test("billion-context service: a service that never comes up reports start-timeo
 
 test("local service cli: commands and arguments are character-allowlisted, never interpolated", () => {
 	const invocation = localServiceInvocation("bili", ["doctor", "--json"]);
-	assert.equal(invocation.args.at(-1).includes("doctor --json"), true);
+	// 非 win32 原样透传 argv；win32 经 cmd.exe /c 合成一条命令行（仍是单个 verbatim 参数，不拼 shell）。
+	if (process.platform === "win32") assert.equal(invocation.args.at(-1).includes("doctor --json"), true);
+	else assert.deepEqual(invocation.args, ["doctor", "--json"]);
 	// Windows 上 npm 全局命令是 .cmd 垫片，必须经 cmd.exe；其他平台原样透传。
 	assert.equal(process.platform === "win32" ? invocation.command === (process.env.ComSpec || "cmd.exe") && invocation.windowsVerbatimArguments === true : invocation.command === "bili" && invocation.args.length === 2, true);
 	assert.doesNotThrow(() => localServiceInvocation("bili", ["start", "--port=8788", "-F"]));
@@ -425,90 +427,7 @@ test("local service cli: commands and arguments are character-allowlisted, never
 	for (const pid of [0, -1, 1.5, 2 ** 31, Number.NaN]) assert.equal(killLocalServiceInvocation(pid, "win32"), null, String(pid));
 });
 
-test("seedBuiltin places the packaged demo plugin once and never overwrites it", async () => {
-	const root = await mkdtemp(join(tmpdir(), "pideck-host-plugins-"));
-	try {
-		const source = join(root, "resources");
-		const plugin = join(source, SERVICE_ID);
-		await mkdir(plugin, { recursive: true });
-		await writeFile(join(plugin, "pideck-plugin.json"), JSON.stringify(manifest({ id: SERVICE_ID, name: "billion-context", permissions: ["service.local"], services: [SERVICE_ID] })));
-		await writeFile(join(plugin, "app.html"), "<!doctype html>");
-		await writeFile(join(plugin, "app.js"), "console.log('shipped');");
-
-		const manager = new HostPluginManager(join(root, "userData"));
-		await manager.seedBuiltin(source);
-		const target = join(root, "userData", "host-plugins", SERVICE_ID);
-		assert.equal(await readFile(join(target, "app.js"), "utf8"), "console.log('shipped');");
-		// seedBuiltin 只负责落位，扫描仍由 load()/rescan() 触发
-		await manager.load();
-		assert.equal(manager.catalog().plugins.length, 1);
-		// 落位不等于授权：内置插件同样是 requiresConsent。
-		assert.equal(manager.catalog().plugins[0].requiresConsent, true);
-
-		// 内置内容升级：目录里还是上次落位的那份（指纹等于落位记录）→ 允许替换，已授权的沿用。
-		// 这是第一方内容换版，不该让用户在每次应用更新后重新批准自己的内置示例。
-		const granted = manager.catalog().plugins[0];
-		await manager.setEnabled(SERVICE_ID, true, granted.fingerprint);
-		await writeFile(join(plugin, "app.js"), "console.log('shipped-v2');");
-		await manager.seedBuiltin(source);
-		assert.equal(await readFile(join(target, "app.js"), "utf8"), "console.log('shipped-v2');");
-		// seedBuiltin 只动磁盘，目录内容要重新扫描才反映到 catalog（真实链路由 initialize 接着调 load）
-		await manager.load();
-		const upgraded = manager.catalog().plugins[0];
-		assert.notEqual(upgraded.fingerprint, granted.fingerprint);
-		assert.equal(upgraded.enabled, true, "第一方内容换版不该让用户重新授权");
-
-		// 用户改过的副本永不被覆盖
-		await writeFile(join(target, "app.js"), "console.log('mine');");
-		await manager.seedBuiltin(source);
-		assert.equal(await readFile(join(target, "app.js"), "utf8"), "console.log('mine');");
-
-		// 源目录不存在（打包漏配 extraResources）只是少一个示例，不该抛
-		await assert.doesNotReject(() => manager.seedBuiltin(join(root, "absent")));
-		manager.dispose();
-	} finally {
-		await rm(root, { recursive: true, force: true });
-	}
-});
-
-test("seedBuiltin migrates copies placed before the seed record existed", async () => {
-	const root = await mkdtemp(join(tmpdir(), "pideck-host-plugins-"));
-	try {
-		const source = join(root, "resources");
-		const plugin = join(source, SERVICE_ID);
-		const userData = join(root, "userData");
-		const target = join(userData, "host-plugins", SERVICE_ID);
-		await mkdir(plugin, { recursive: true });
-		await writeFile(join(plugin, "pideck-plugin.json"), JSON.stringify(manifest({ id: SERVICE_ID, name: "billion-context", version: "0.2.0" })));
-		await writeFile(join(plugin, "app.html"), "<!doctype html>");
-		await writeFile(join(plugin, "app.js"), "console.log('new');");
-		// 旧版本 PiDeck 落的副本 + 只有 grants 的状态文件（没有 seeded 字段），用户已授权过
-		await mkdir(target, { recursive: true });
-		await writeFile(join(target, "pideck-plugin.json"), JSON.stringify(manifest({ id: SERVICE_ID, name: "billion-context", version: "0.1.0" })));
-		await writeFile(join(target, "app.html"), "<!doctype html>");
-		await writeFile(join(target, "app.js"), "console.log('old');");
-		const manager = new HostPluginManager(userData);
-		await manager.load();
-		const legacy = manager.catalog().plugins[0];
-		await writeFile(join(userData, "host-plugin-state.json"), JSON.stringify({ version: 1, grants: { [SERVICE_ID]: { fingerprint: legacy.fingerprint, enabled: true } } }));
-
-		await manager.seedBuiltin(source);
-		await manager.load();
-		// 版本不同 ⇒ 这份副本来自另一个 PiDeck 版本的内置载荷，用新版替换；已授权的顺延
-		assert.equal(await readFile(join(target, "app.js"), "utf8"), "console.log('new');");
-		assert.equal(manager.catalog().plugins[0].enabled, true);
-
-		// 迁移只发生一次：之后 seeded 有记录，手改过的副本又回到「永不覆盖」
-		await writeFile(join(target, "app.js"), "console.log('mine');");
-		await manager.seedBuiltin(source);
-		assert.equal(await readFile(join(target, "app.js"), "utf8"), "console.log('mine');");
-		manager.dispose();
-	} finally {
-		await rm(root, { recursive: true, force: true });
-	}
-});
-
-test("remove 卸载第三方插件：先撤权、再删目录、清授权；内置示例拒绝卸载", async () => {
+test("remove 卸载插件：先撤权、再删目录、清授权", async () => {
 	const root = await mkdtemp(join(tmpdir(), "pideck-host-plugins-"));
 	try {
 		const manager = new HostPluginManager(join(root, "userData"));
@@ -531,15 +450,6 @@ test("remove 卸载第三方插件：先撤权、再删目录、清授权；内�
 			false,
 		);
 		await assert.rejects(() => manager.remove("third-party"), /plugin-not-found/);
-
-		// 内置示例删了下次启动会被重新落位，删了只会让人以为卸载没生效 → 直接拒绝。
-		const source = join(root, "resources");
-		await mkdir(join(source, SERVICE_ID), { recursive: true });
-		await writeFile(join(source, SERVICE_ID, "pideck-plugin.json"), JSON.stringify(manifest({ id: SERVICE_ID })));
-		await writeFile(join(source, SERVICE_ID, "app.html"), "<!doctype html>");
-		await manager.seedBuiltin(source);
-		await manager.load();
-		await assert.rejects(() => manager.remove(SERVICE_ID), /plugin-builtin/);
 		manager.dispose();
 	} finally {
 		await rm(root, { recursive: true, force: true });
@@ -560,8 +470,8 @@ test("服务面板入口：侧栏一行 + 浮层，rail 永远显示活动面板
 	assert.match(dock, /flex h-\[280px\] flex-col/);
 });
 
-test("the packaged billion-context demo is a loadable package that only talks to window.pideck", async () => {
-	const directory = join("resources", "host-plugins", SERVICE_ID);
+test("the billion-context example is a loadable package that only talks to window.pideck", async () => {
+	const directory = join("docs", "examples", "host-plugins", SERVICE_ID);
 	const packaged = parseHostPluginManifest(JSON.parse(await readFile(join(directory, "pideck-plugin.json"), "utf8")));
 	assert.equal(packaged.id, SERVICE_ID);
 	assert.deepEqual(plain(packaged.permissions), ["service.local"]);
@@ -583,7 +493,7 @@ test("服务 Web UI 交给内置浏览器时，插件面板先让位", async () 
 test("面板只在动作返回状态时重绘（openUi 没有返回值）", async () => {
 	// 回归：openUi 契约是 Promise<void>，主进程回 null；直接 paint(await action()) 会抛
 	// “Cannot read properties of null (reading 'available')”。
-	const app = await readFile(join("resources", "host-plugins", SERVICE_ID, "app.js"), "utf8");
+	const app = await readFile(join("docs", "examples", "host-plugins", SERVICE_ID, "app.js"), "utf8");
 	assert.doesNotMatch(app, /paint\(\s*await\s+action\(\)\s*\)/);
 	assert.match(app, /const\s+next\s*=\s*await\s+action\(\)[\s\S]{0,200}if\s*\(\s*next\s*\)\s*\{[\s\S]{0,80}paint\(next\)/);
 	// 动作留下的提示必须在收尾的 refresh() 之后补回：refresh() 自己会清空提示区。
@@ -631,7 +541,7 @@ test("服务已在运行时三个按钮不能停在忙碌时的置灰状态", as
 			services: { status: async () => running, start: async () => running, stop: async () => ({ ...running, running: false }), openUi: async () => undefined },
 		},
 	};
-	vm.runInNewContext(await readFile(join("resources", "host-plugins", SERVICE_ID, "app.js"), "utf8"), sandbox);
+	vm.runInNewContext(await readFile(join("docs", "examples", "host-plugins", SERVICE_ID, "app.js"), "utf8"), sandbox);
 	// main() 是 fire-and-forget 的 async：冲刷微任务直到首次状态渲染完成。
 	for (let i = 0; i < 50; i += 1) await new Promise((resolve) => setImmediate(resolve));
 
@@ -645,9 +555,9 @@ test("服务已在运行时三个按钮不能停在忙碌时的置灰状态", as
 
 test("面板在等状态查询期间给出忙碌反馈（刷新转圈）", async () => {
 	// 回归（用户反馈「点击刷新服务状态也没动画」）：一次状态查询要跑 bili doctor，不给反馈就像没点动。
-	const app = await readFile(join("resources", "host-plugins", SERVICE_ID, "app.js"), "utf8");
-	const css = await readFile(join("resources", "host-plugins", SERVICE_ID, "styles.css"), "utf8");
-	const html = await readFile(join("resources", "host-plugins", SERVICE_ID, "app.html"), "utf8");
+	const app = await readFile(join("docs", "examples", "host-plugins", SERVICE_ID, "app.js"), "utf8");
+	const css = await readFile(join("docs", "examples", "host-plugins", SERVICE_ID, "styles.css"), "utf8");
+	const html = await readFile(join("docs", "examples", "host-plugins", SERVICE_ID, "app.html"), "utf8");
 	assert.match(app, /document\.body\.dataset\.busy = next \? "1" : ""/);
 	assert.match(app, /el\("refresh"\)\.disabled = next/);
 	// 旋转的是图标本身：直接转按钮会把边框一起转。

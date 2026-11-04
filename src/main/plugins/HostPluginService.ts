@@ -1,8 +1,9 @@
 /** Assembles independent plugin discovery, data capabilities and views; no pi runtime dependency. */
 import { join } from "node:path";
-import type { HostPluginContext, HostPluginMountInput } from "../../shared/types/hostPlugin";
+import type { HostPluginCatalog, HostPluginContext, HostPluginMountInput } from "../../shared/types/hostPlugin";
 import type { SessionCatalog } from "../sessions/SessionCatalog";
 import type { LocalServiceRegistry } from "../localServices/LocalServiceRegistry";
+import { getAppLogger } from "../logging/sharedLogger";
 import { preparePreloadPath } from "../preloadPath";
 import { setHostPluginWebviewBridge } from "./hostPluginWebviewPolicy";
 import { HostPluginManager } from "./HostPluginManager";
@@ -17,6 +18,7 @@ export class HostPluginService {
 	readonly broker: HostPluginBroker;
 	private views?: HostPluginViewHost;
 	private disposed = false;
+	private readonly storage: HostPluginStorage;
 	private readonly sessions: HostPluginSessions;
 	constructor(
 		userData: string,
@@ -30,12 +32,12 @@ export class HostPluginService {
 	) {
 		this.manager = new HostPluginManager(userData, process.env.PIDECK_DISABLE_HOST_PLUGINS === "1");
 		this.sessions = new HostPluginSessions(catalog, projectOf);
-		this.broker = new HostPluginBroker(this.manager, this.sessions, new HostPluginStorage(join(userData, "host-plugin-storage")), (projectId) => projectOf?.(projectId)?.name, undefined, services, sessionGroups);
+		this.storage = new HostPluginStorage(join(userData, "host-plugin-storage"));
+		this.broker = new HostPluginBroker(this.manager, this.sessions, this.storage, (projectId) => projectOf?.(projectId)?.name, undefined, services, sessionGroups);
 	}
 
-	/** 内置示例插件（如 billion-context）在首次扫描前落位；目录已存在则不覆盖。 */
-	async initialize(builtinDirectory?: string): Promise<void> {
-		if (builtinDirectory) await this.manager.seedBuiltin(builtinDirectory);
+	/** 插件目录一个都不随包：扫描用户自己装的那些，没有就空着。 */
+	async initialize(): Promise<void> {
 		await this.manager.load();
 		const preload = await preparePreloadPath(this.preload, "host-plugin-preload.js");
 		if (!this.disposed) {
@@ -57,6 +59,16 @@ export class HostPluginService {
 
 	unmount(id: string): void {
 		this.views?.unmount(id);
+	}
+
+	/**
+	 * 卸载：撤权 + 删目录（manager）→ 清插件私有 store。
+	 * 目录已经删掉后再因为 store 清不掉而报「卸载失败」会误导用户，所以私有数据按尽力而为处理，只留一条警告。
+	 */
+	async remove(id: string): Promise<HostPluginCatalog> {
+		const catalog = await this.manager.remove(id);
+		await this.storage.purge(id).catch((error: unknown) => void getAppLogger()?.warn("host-plugins", "Plugin storage cleanup failed", { id, message: String(error) }));
+		return catalog;
 	}
 
 	dispose(): void {

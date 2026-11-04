@@ -103,7 +103,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"hostPlugins.marketCommunityHint": "The community source only requires a public repo, a pideck-plugin.json at the repository root, and the topic. PiDeck has not reviewed any of that code.",
 	"hostPlugins.remove": "Uninstall",
 	"hostPlugins.removeConfirmTitle": "Uninstall {name}?",
-	"hostPlugins.removeConfirmDescription": "Deletes the plugin folder and clears its grant; this cannot be undone. Built-in examples cannot be uninstalled (they are re-seeded on next launch) — disable them instead.",
+	"hostPlugins.removeConfirmDescription": "Deletes the plugin folder, clears its grant, and removes the plugin's own local data (storage); this cannot be undone.",
 	"hostPlugins.removed": "Uninstalled {name}",
 	"hostPlugins.plugin": "Plugin",
 	"hostPlugins.permission": "Permissions and status",

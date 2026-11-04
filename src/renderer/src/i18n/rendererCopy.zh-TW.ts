@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 7fa9f3544878c1f1125ddb15312e8c30d0565f87c812b619599c3bc82ea910e9（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 419aef9eac8fe41214d916161693f19abb269f3b738082c0450102257c140e58（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -108,7 +108,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"hostPlugins.marketCommunityHint": "社群來源只要求「倉庫公開 + 倉庫根有 pideck-plugin.json + 打了 topic」，PiDeck 沒有審閱過其中任何程式碼。",
 	"hostPlugins.remove": "解除安裝",
 	"hostPlugins.removeConfirmTitle": "解除安裝 {name}？",
-	"hostPlugins.removeConfirmDescription": "會刪除外掛目錄並清除它的授權，無法撤銷。內建示例不能解除安裝（下次啟動會重新落位），停用它請用「停用」。",
+	"hostPlugins.removeConfirmDescription": "會刪除外掛目錄、清除授權，並刪掉這個外掛自己的本地資料（storage），無法撤銷。",
 	"hostPlugins.removed": "已解除安裝 {name}",
 	"hostPlugins.plugin": "外掛",
 	"hostPlugins.permission": "權限與狀態",

@@ -1,5 +1,5 @@
 /** Small plugin-owned JSON stores; keys cannot select host paths or another plugin's namespace. */
-import { mkdir, open, writeFile } from "node:fs/promises";
+import { mkdir, open, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { renameWithRetry } from "../utils/fsRetry";
 import { isHostPluginId, isPluginRecord } from "./hostPluginManifest";
@@ -73,6 +73,15 @@ export class HostPluginStorage {
 			data[key] = value;
 			return data;
 		});
+	}
+
+	/** 卸载：等该插件排队中的写入落定后删掉它的私有 store；文件不存在视为已清空。 */
+	async purge(id: string): Promise<void> {
+		const path = this.path(id);
+		await this.queues.get(id);
+		this.queues.delete(id);
+		await rm(path, { force: true });
+		await rm(`${path}.tmp`, { force: true });
 	}
 
 	private async mutate(id: string, authorized: () => boolean, update: (data: Record<string, unknown>) => Record<string, unknown>): Promise<void> {

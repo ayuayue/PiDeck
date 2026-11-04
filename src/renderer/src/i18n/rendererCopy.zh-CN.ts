@@ -101,7 +101,7 @@ export const zhCN = {
 	"hostPlugins.marketCommunityHint": "社区来源只要求「仓库公开 + 仓库根有 pideck-plugin.json + 打了 topic」，PiDeck 没有审阅过其中任何代码。",
 	"hostPlugins.remove": "卸载",
 	"hostPlugins.removeConfirmTitle": "卸载 {name}？",
-	"hostPlugins.removeConfirmDescription": "会删除插件目录并清除它的授权，无法撤销。内置示例不能卸载（下次启动会重新落位），停用它请用「禁用」。",
+	"hostPlugins.removeConfirmDescription": "会删除插件目录、清除授权，并删掉这个插件自己的本地数据（storage），无法撤销。",
 	"hostPlugins.removed": "已卸载 {name}",
 	"hostPlugins.plugin": "插件",
 	"hostPlugins.permission": "权限与状态",

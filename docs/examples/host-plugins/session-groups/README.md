@@ -52,15 +52,14 @@
 
 点击某个会话时工作台会切到它所属的项目，**登记常驻 Tab** 后打开，插件页随之收起——打开的会话必须在 Tab 栏里有归属，否则关不掉、切不回来。
 
-## 内置落位语义
+## 安装与升级
 
-- 随包分发在 `resources/host-plugins/session-groups/`（`extraResources` → `<resources>/host-plugins`），由 `HostPluginManager.seedBuiltin()` 在 `load()` 前落位到 `userData/host-plugins/session-groups/`。
-- **落位 ≠ 授权**：首次落位同样是 `requiresConsent`，要在 设置 → PiDeck 插件 里按整包指纹授权并启用；侧栏只列已启用插件的面板。
-- 升级：磁盘副本仍等于上次落位指纹（没人手改）时随新版 PiDeck 替换，且授权顺延；手改过的副本永不被覆盖（那时以你的副本为准，内置内容不再生效）。
-- 内置插件不允许卸载（`plugin-builtin`，下次启动会被重新落位），要停用请用禁用。
+- 不随包分发：在「设置 → PiDeck 插件 → 从文件夹安装…」选本目录，再按整包指纹授权并启用；侧栏只列已启用插件的面板，没装就不显示分组树。
+- **安装 ≠ 授权**：装完是 `requiresConsent`，要在设置里按整包指纹确认后才生效。
+- 升级：装好的是 `userData/host-plugins/session-groups/` 里的副本，换新版要重新安装（启用中先禁用）；内容一变指纹就变，需要重新授权。
+- 卸载：删插件目录 + 清授权 + 清本插件私有 storage；分组数据在宿主 store（`<userData>/session-groups.json`），不受插件卸载影响。
 - v1.6.0 → v2.0.0 新增了 `sessions.read.workspace` 权限，包的指纹变了：升级后需要在设置里重新授权一次。
-- v2.1.0 只改界面与分页，未新增权限；内置副本随包升级会替换并顺延授权。
-- v2.1.1 只改界面（去掉居中限宽），未新增权限；指纹变化后同样随包替换。
+- v2.1.0 / v2.1.1 只改界面与分页，未新增权限，但内容变了仍需重新授权。
 - **v3.0.0 新增 `sessionGroups.manage` 权限**（分组数据搬到宿主 store，侧栏分组树实时同步）：指纹变化，升级后需要在设置里重新授权一次。
 - 样式 token 由宿主 `hostPluginTokens.ts` 的 `HOST_PLUGIN_THEME_TOKENS` 注入（颜色 / 圆角 / 阴影 / 控件高度 / 字号 / 字体）；新增 token 需同步 `docs/host-plugin-dev-guide.md` §5.7。
 
