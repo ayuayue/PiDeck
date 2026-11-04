@@ -55,6 +55,8 @@ function loadAtoms() {
 		"./outlineProjectionCache": compileModule("src/renderer/src/atoms/outlineProjectionCache.ts"),
 		"./sessionActivityAtoms": sessionActivityAtoms,
 		"../utils/sessionActivityClock": sessionActivityClock,
+		// 分段计时探针（perfSpan）：默认关闭时是空函数，stub 掉即可（同 sessionAtoms.test.mjs）。
+		"../utils/perfProbe": { perfSpan: () => () => undefined },
 		"./session-family-registry": familyRegistry,
 	});
 	const composer = compileModule("src/renderer/src/atoms/composer-atoms.ts", {

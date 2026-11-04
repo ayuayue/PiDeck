@@ -352,6 +352,17 @@ test("放大镜入口常驻头部工具条：按钮写会话级请求，浮层�
 function overlayHarness() {
 	const host = quickMessageHookHost();
 	const searchCalls = [];
+	// window 事件总线：轻触关闭与 Esc 都挂在 window 上（见 useDismiss），只有让测试能手动派发，
+	// 才能验「焦点已经离开浮层」这种真实处境——容器级 onKeyDown 恰恰在这种情况下收不到键。
+	const listeners = new Map();
+	const bus = {
+		dispatch(type, event) {
+			for (const listener of [...(listeners.get(type) ?? [])]) listener(event);
+		},
+		count(type) {
+			return listeners.get(type)?.size ?? 0;
+		},
+	};
 	const reactStub = { ...host.react, useLayoutEffect: host.react.useEffect };
 	const { SessionFindOverlay } = loadTsCommonJs("src/renderer/src/components/session/SessionFindOverlay.tsx", {
 		stubs: {
@@ -371,14 +382,24 @@ function overlayHarness() {
 			"react-dom": { createPortal: (children) => children },
 		},
 		globals: {
-			window: { innerWidth: 1200, innerHeight: 900, addEventListener: () => undefined, removeEventListener: () => undefined },
+			window: {
+				innerWidth: 1200,
+				innerHeight: 900,
+				addEventListener: (type, listener) => {
+					if (!listeners.has(type)) listeners.set(type, new Set());
+					listeners.get(type).add(listener);
+				},
+				removeEventListener: (type, listener) => {
+					listeners.get(type)?.delete(listener);
+				},
+			},
 			document: { body: { tag: "body" } },
 		},
 	});
 	const anchorRef = { current: null };
 	// 渲染结果 = 收起态 null / 展开态面板元素（props.role = "dialog"）
 	const render = (openSignal, sessionId = "s1") => host.render(() => SessionFindOverlay({ sessionId, anchorRef, openSignal, onJump: () => undefined }));
-	return { host, render, searchCalls };
+	return { host, render, searchCalls, bus };
 }
 
 test("openSignal 只在变化时弹出：挂载时已有非零值不会把上一次按键重放成自动搜索", async () => {
@@ -415,4 +436,49 @@ test("会话内查找浮层按会话隔离：单栏 pane 复用换会话时必�
 	assert.equal(mountedAtSignalTwo, null, "新会话挂载时仍是收起态，不渲染浮层");
 	assert.equal(fresh.searchCalls.at(-1)?.open, false, "新会话挂载时不得自动检索");
 	fresh.host.unmount();
+});
+
+// ── 轻触关闭 / 全局 Esc / 层级 token（#487）──────────────────────────────
+// 早期浮层只在容器 div 与输入框上挂 onKeyDown：用户点一下时间线读正文，焦点就离开浮层，
+// 此后按 Esc 没有任何元素收键（浮层关不掉，只能精准点 24×24 的关闭按钮）；点击外部
+// 区域也从来不收起。层级还硬编码 z-40（低于 --z-sticky:100）。
+
+test("浮层用 useDismiss 收窗：window 级 Esc + 外部 pointerdown，层级走 --z-popover", async () => {
+	const { readFileSync } = await import("node:fs");
+	const overlay = readFileSync("src/renderer/src/components/session/SessionFindOverlay.tsx", "utf8");
+	assert.match(overlay, /import \{ useDismiss \} from "\.\.\/\.\.\/lib\/hooks\/use-dismiss";/);
+	assert.match(overlay, /const panelRef = useRef<HTMLDivElement \| null>\(null\);/);
+	assert.match(overlay, /ref=\{panelRef\}/);
+	// pass-through：这次点击照常作用于下面的目标（点消息就是点消息，只是顺带收起浮层）
+	assert.match(overlay, /useDismiss\(open, close, panelRef, \{ behavior: "pass-through", escape: true \}\);/);
+	// 容器不再自己收键：焦点移出后它根本收不到
+	assert.doesNotMatch(overlay, /event\.key !== "Escape"\) return;/);
+	// 层级 token（--z-popover:960）而不是裸数值；portal 浮层还要显式退出 40px 拖拽热区
+	assert.match(overlay, /fixed z-\(--z-popover\)/);
+	assert.doesNotMatch(overlay, /fixed z-40/);
+	assert.match(overlay, /\[-webkit-app-region:no-drag\]/);
+});
+
+test("Esc 在焦点移出浮层后仍能关闭（监听在 window，不在容器上）", async () => {
+	const { host, render, bus, searchCalls } = overlayHarness();
+	render(1);
+	render(2);
+	assert.equal(render(2).props.role, "dialog", "先确保浮层已展开");
+	// 用户点过时间线读正文 → 焦点已离开浮层；容器级 onKeyDown 这时收不到任何键
+	bus.dispatch("keydown", { key: "Escape" });
+	assert.equal(render(2), null, "Esc 必须仍能关掉浮层");
+	assert.equal(searchCalls.at(-1)?.open, false, "关闭后不得继续检索");
+	host.unmount();
+	assert.equal(bus.count("keydown"), 0, "卸载后必须摘掉 window 监听");
+});
+
+test("点击浮层外部即收起（轻触关闭），不必精准点关闭按钮", async () => {
+	const { host, render, bus } = overlayHarness();
+	render(1);
+	render(2);
+	assert.equal(render(2).props.role, "dialog", "先确保浮层已展开");
+	// pointerdown 落在浮层之外（时间线空白/输入框/侧栏）：捕获阶段先收起，点击照常生效
+	bus.dispatch("pointerdown", { target: { tag: "timeline-blank" } });
+	assert.equal(render(2), null, "外部 pointerdown 必须收起浮层");
+	host.unmount();
 });

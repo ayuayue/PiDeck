@@ -10,6 +10,7 @@ import { mergeAgentRuntimeState } from "../utils/agentRuntimeState";
 import { isSessionTurnRunning } from "../utils/sessionActivityClock";
 import { findLastUserMessageIndex, shouldRefreshOutlineForRuntimeUpsert } from "./outlineRevision";
 import { releaseSessionOutlineProjection } from "./outlineProjectionCache";
+import { perfSpan } from "../utils/perfProbe";
 import { sameProjectSessionList } from "../utils/sessionRecordIdentity";
 import { historyHasCurrentAssistantText, resolveStreamingTextUpdate, shouldHoldLiveText, shouldReleaseHeldLiveText } from "../utils/liveTextHandoff";
 
@@ -1673,6 +1674,8 @@ export const applySessionRuntimeEventAtom = atom(null, (get, set, event: Session
 		}
 		return;
 	} else if ((event.sourceChannel === "agents:message" || event.sourceChannel === "sessions:messages") && payload) {
+		// Phase 4 分段计时（探针关闭时是空函数）：把一次投递拆成「原子合并」与「React 提交」。
+		const stopMessageSpan = perfSpan("atoms:agents-message");
 		// 迟到快照守卫（2026-11）：stop 后主进程先发 detach（agentId 清除），节流 50ms 的
 		// 最终 messages flush 可能晚于编辑/删除后的 force disk 重载到达，覆盖刚写回的缓存。
 		// 同代际 + 绑定已消失 + terminal 才拦；新代际事件不受影响（detach 清 agentId 后
@@ -1747,6 +1750,7 @@ export const applySessionRuntimeEventAtom = atom(null, (get, set, event: Session
 					...(typeof payloadWindowStartFilePos === "number" ? { windowStartFilePos: payloadWindowStartFilePos } : {}),
 				});
 			}
+			stopMessageSpan();
 			// message 到达后若已含同段 thinking，安全卸 live（覆盖 done 先到的情况）。
 			tryReleaseLiveThinkingAfterHistory(get, set, event.sessionId);
 			tryReleaseHeldLiveTextAfterHistory(get, set, event.sessionId);

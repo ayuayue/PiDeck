@@ -36,11 +36,9 @@
  *   与 SFTP-0 的 remoteTransfers 并行合入后命名空间 80→82。
  *   同批把 config 锚点 52→53：上一提交 b383f3709 加了 config.getTokendancePriceTags
  *   却漏刷本快照，dev 上 F8-3 一直是红的；此处按实测暴露面刷新，未改动断言强度。
- * 2026-11-04 合并刷新（仅方法清单摘要）：dev 并入 main 后按实测暴露面重算 FULL_METHODS_SHA256。
- *   命名空间清单与数量锚点全部不变（82 / sessions 117 / config 53 / git 64 / app 32）；
- *   方法面变化来自 projects.listWslDirectory + projects.addWslPath 入场并下线 projects.addWsl
- *   （WSL 项目一览 Wave 0）、config.getTokendancePriceTags；codebuddySessions 与 remoteTransfers
- *   两个命名空间在 dev 侧快照刷新时已计入，本次摘要变化与它们无关。
+ * 2026-11-04 刷新：WSL 目录浏览（Wave 0，提交 0f91282e4）把 projects.addWsl 换成
+ *   listWslDirectory + addWslPath（净 +1 方法）；命名空间数 82 与 sessions 117 / config 53 /
+ *   git 64 / app 32 钓点均不变，仅方法清单摘要变化。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";

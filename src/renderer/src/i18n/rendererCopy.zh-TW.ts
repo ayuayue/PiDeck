@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 902af3b78400770bd63a2b42c26e5af22d61b473dd08732ac1cefaf62fb51f36（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 7fa9f3544878c1f1125ddb15312e8c30d0565f87c812b619599c3bc82ea910e9（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -3405,6 +3405,11 @@ export const zhTW: Record<TranslationKey, string> = {
 	"editor.unlockEditBody": "檔案：{path}\n它不在任何專案目錄內。解鎖後自動儲存與 Ctrl+S 會直接寫入這個路徑，沒有版本控制也沒有撤銷以外的兜底。",
 	"editor.unlockEditConfirm": "允許編輯",
 	"editor.attachSelectionRange": "引用選中內容（第 {range} 行）",
+	"editor.reload": "重新載入",
+	"editor.reloadHint": "從磁碟重新讀取這個檔案（AI 或外部工具改動後用它重新整理）",
+	"editor.reloadDirtyTitle": "重新載入會丟棄未儲存的修改？",
+	"editor.reloadDirtyBody": "{file} 有未儲存的修改，重新載入會丟棄它們。",
+	"editor.reloadDirtyConfirm": "丟棄並重新載入",
 	"editor.diffTooLarge": "檔案過大，無法顯示差異對比",
 	"editor.diffTooLargeDetail": "舊檔案 {old} 行，新檔案 {new} 行，請使用 git diff 檢視",
 	"editor.dirtyCloseTitle": "關閉未儲存的檔案？",
@@ -6317,9 +6322,11 @@ export const zhTW: Record<TranslationKey, string> = {
 	"agent.tips.promptSuggestion": "回合結束後空輸入框會給出下一句建議，Tab 或 → 採納、Esc 忽略",
 	"agent.tips.terminalDock": "會話「更多操作」選單裡可開終端、草稿本和外部編輯器",
 	"agent.tips.sessionMenu": "會話標籤的「更多操作」選單可匯出 HTML、複製會話或開啟會話檔案",
+	"agent.tips.favoriteSession": "右鍵會話可收藏整條會話，收藏頁能只看會話",
 	"agent.tips.composerModes": "「+」選單裡可切換計劃/目標模式，點底欄標籤上的 × 回到普通模式",
 	"agent.tips.multiSelect": "懸停自己的訊息可多選分享為文本 / Markdown / 圖片",
 	"agent.tips.settingsExtras": "設定裡有用量統計、桌面寵物、Web 服務與外部連線（飛書 / 微信）",
+	"agent.tips.memory": "設定 →「記憶」能看 Agent 記下的偏好與教訓，也能匯入匯出、逐條刪除",
 	"agent.tips.sessionStatusPlacement": "設定 →「外觀設定」的會話狀態位置能把待辦、修改檔案、子代理挪到右側邊欄",
 	"agent.tips.moduleVisibility": "設定 →「外觀設定」裡能關掉不用的模組與輸入框入口，只隱藏介面、不動配置和快捷鍵",
 	"agent.tips.pasteAttach": "輸入框可以直接貼上圖片、拖入檔案當附件",
@@ -6328,15 +6335,15 @@ export const zhTW: Record<TranslationKey, string> = {
 	"agent.tips.sessionManager": "右鍵專案 →「會話管理」可批次歸檔歷史會話，也能恢復已歸檔的",
 	"agent.tips.projectReorder": "左側專案可以直接拖動排序，順序會記住",
 	"agent.tips.projectPin": "右鍵專案可置頂，常去的專案固定在最前",
-	"agent.tips.importSessions": "右鍵專案可匯入 Codex、Claude、Qoder 等工具的歷史會話",
+	"agent.tips.importSessions": "右鍵專案可匯入 Codex、Claude、CodeBuddy 等工具的歷史會話",
 	"agent.tips.checkpoints": "右欄「檢查點」能把檔案恢復到某一步，或把會話 fork 到那一刻",
 	"agent.tips.contextRing": "輸入框旁的圓環是上下文佔用，點開可看 tokens 和費用，也能手動壓縮",
 	"agent.tips.usageStats": "設定 →「用量統計」能按模型看累計 Token 與成本",
 	"agent.tips.usageProbe": "設定 →「用量查詢」能讓供應商顯示餘額或額度",
 	"agent.tips.fileChanges": "每輪迴答末尾會列出本輪修改的檔案，點檔名可直接開啟",
-	"agent.tips.queueOps": "排隊中的訊息可以撤回輸入框繼續改，也可以直接丟棄",
+	"agent.tips.queueOps": "排隊中的訊息可以撤回輸入框繼續改、立即傳送或直接丟棄",
 	"agent.tips.replyActions": "回答末尾會冒出幾個常用追問按鈕，點一下直接發出",
-	"agent.tips.outline": "時間線右側的刻度欄是「會話定位」，點選可跳到任意一條訊息",
+	"agent.tips.outline": "時間線右側刻度欄點頂端的「更早」能展開完整目錄並搜尋跳轉",
 	"agent.tips.splitView": "把會話標籤拖到會話面板邊緣，可以和另一個會話並排",
 	"agent.tips.backendPicker": "底欄後端圖示可切換 Pi、DSH 與 Agent CLI，會話開始後鎖定",
 	"agent.tips.securityLevel": "底欄可以給每個會話單獨設安全檔位，改完約兩秒生效",
@@ -6344,6 +6351,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"agent.tips.visionBridge": "設定 →「視覺橋」能給不支援圖片的模型接上外部識圖",
 	"agent.tips.configBackup": "設定 →「配置備份」能給模型與設定打快照並隨時回滾",
 	"agent.tips.storeInstall": "設定裡的商店能一鍵裝提示詞、技能和擴充套件，不用手寫配置",
+	"agent.tips.hostPluginMarket": "設定 →「PiDeck 外掛」裡有外掛市場，能搜 GitHub 上的宿主外掛並一鍵裝",
 	"agent.tips.noticeHistory": "錯過的通知不會丟：設定 →「通知設定」裡有通知歷史",
 	"agent.tips.zoomShortcut": "按 {shortcut} 縮放整個介面，圖示與間距一起變大",
 	"agent.tips.findInSession": "按 {shortcut} 在當前會話裡查詢關鍵詞，可逐條跳轉",
@@ -6364,6 +6372,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"agent.tips.fileTreeMenu": "檔案樹右鍵能新建、重新命名、刪除，也能把檔案「加入對話引用」",
 	"agent.tips.projectSessionFilter": "右鍵專案 →「過濾歷史記錄」能只看某個來源的會話",
 	"agent.tips.projectResources": "右鍵專案 →「技能&擴充套件&提示詞」管理這個專案自己的資源",
+	"agent.tips.batchRemoveProjects": "「專案」標題欄的「…」能批次移除專案記錄，只刪索引不動磁碟",
 	"agent.tips.slashCompact": "輸入 /compact 壓縮上下文，命令後面還能寫自定義要求",
 	"agent.tips.slashLogin": "輸入 /login 登入供應商，帶上供應商名可直接預選",
 	"message.editReloadPrompt": "修改將寫入會話記錄並立即生效，確定繼續？",

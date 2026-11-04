@@ -199,8 +199,46 @@ export function extractTextFromContent(content: unknown): string {
 	return "";
 }
 
+/**
+ * 消息 content → **正文**（只取 text 块，thinking 一律丢弃）。
+ *
+ * #488：标题必须是正文——thinking 是模型的草稿本，不是任何人给会话起的名字。旧实现对
+ * thinking 与 text 一视同仁（`text ?? thinking`），于是「头窗口没读到首条用户消息」时会话标题
+ * 变成一段思考原文并锁进 catalog。需要含 thinking 的全文时仍用 extractTextFromContent
+ * （会话引用的预算统计等场景刻意不共用，见 shared/sessionReferenceContext.ts）。
+ */
+export function extractBodyTextFromContent(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.map((item) => {
+			if (typeof item === "string") return item;
+			if (item !== null && typeof item === "object") {
+				const record = item as Record<string, unknown>;
+				return typeof record.text === "string" ? record.text : "";
+			}
+			return "";
+		})
+		.filter(Boolean)
+		.join(" ");
+}
+
+/** 弱兜底候选出自哪一类消息：user 正文 > assistant 正文 > thinking（后者只在一份窗口零正文时降级使用）。 */
+export type SessionTitleFallbackKind = "user" | "assistant" | "thinking";
+
 /** 标题推断结果；fromSessionInfo 只保留来源信息（与本地 readSummary 的 inferredName 同一契约）。 */
-export type SessionTitleInference = { name?: string; fromSessionInfo: boolean; fallbackName?: string };
+export type SessionTitleInference = {
+	name?: string;
+	fromSessionInfo: boolean;
+	fallbackName?: string;
+	/** fallbackName 的消息来源；undefined = 没有可用兜底。 */
+	fallbackKind?: SessionTitleFallbackKind;
+	/**
+	 * 旧口径（thinking 也算正文）的兜底候选，仅供存量指纹自愈比对：catalog 里被旧版本锁成
+	 * fallback 的 thinking 原文必须能对上它才算「当年猜错的那一条」（#488）。
+	 */
+	legacyFallbackName?: string;
+};
 
 /**
  * 从已解析的 JSONL 行序列推断会话标题（与 readSummary 的 inferredName 同一优先级：
@@ -219,6 +257,9 @@ export function inferSessionTitleFromLines(lines: readonly string[], extractText
 	let name: string | undefined;
 	let firstUserText = "";
 	let firstAssistantText = "";
+	let firstThinkingText = "";
+	let firstUserFullText = "";
+	let firstAssistantFullText = "";
 	for (const line of lines) {
 		let parsed: unknown;
 		try {
@@ -243,9 +284,25 @@ export function inferSessionTitleFromLines(lines: readonly string[], extractText
 		const nested = entry.message ?? entry.data?.message;
 		const message: SessionScanMessage = nested ?? { role: entry.role, content: entry.content };
 		if (message.role) {
-			const text = extractText(message.content).trim();
-			if (text && message.role === "user" && !firstUserText) firstUserText = text;
-			if (text && message.role === "assistant" && !firstAssistantText) firstAssistantText = text;
+			// 正文（只看 text 块）与含 thinking 的全文分开收集：标题取正文，thinking 只在整份窗口
+			// 一个正文都没有时降级使用；全文另外留一份，作为旧版本误锁标题的指纹基准（#488）。
+			const body = extractBodyTextFromContent(message.content).trim();
+			const full = extractText(message.content).trim();
+			if (message.role === "user") {
+				if (body) {
+					if (!firstUserText) firstUserText = body;
+				} else if (full && !firstThinkingText) {
+					firstThinkingText = full;
+				}
+				if (full && !firstUserFullText) firstUserFullText = full;
+			} else if (message.role === "assistant") {
+				if (body) {
+					if (!firstAssistantText) firstAssistantText = body;
+				} else if (full && !firstThinkingText) {
+					firstThinkingText = full;
+				}
+				if (full && !firstAssistantFullText) firstAssistantFullText = full;
+			}
 		}
 	}
 	// 取出 clean 前先保留来源标记：清洗后也可能是 timestamp/stem，
@@ -261,10 +318,18 @@ export function inferSessionTitleFromLines(lines: readonly string[], extractText
 	// 首条 user 可能是展开后的 `/模板名` / `&会话引用` 块：先剥块正文，只拿用户自己写的字当回退标题，
 	// 否则重开/扫描会把 `<prompt_template …>` 原文写回 catalog（与 inferTitleFromMessages 同一套清洗）。
 	// 弱兜底候选先算出来，权威名赢的时候也要带出去（#266 指纹修复的比对基准）。
-	const fallback = cleanSessionTitleCandidate(textForSessionTitle(firstUserText)) || cleanSessionTitleCandidate(firstAssistantText);
-	if (infoName) return { name: infoName, fromSessionInfo: Boolean(authoritativeInfoName || namedFieldInfoName), fallbackName: fallback };
-	if (fallback) return { name: fallback, fromSessionInfo: false, fallbackName: fallback };
-	return { name: undefined, fromSessionInfo: false };
+	// 优先级 user 正文 > assistant 正文 > thinking：思考原文只在一份窗口没有任何正文时兜底（#488）。
+	const userCandidate = cleanSessionTitleCandidate(textForSessionTitle(firstUserText));
+	const assistantCandidate = cleanSessionTitleCandidate(firstAssistantText);
+	const thinkingCandidate = cleanSessionTitleCandidate(textForSessionTitle(firstThinkingText));
+	const fallback = userCandidate || assistantCandidate || thinkingCandidate;
+	const fallbackKind: SessionTitleFallbackKind | undefined = userCandidate ? "user" : assistantCandidate ? "assistant" : thinkingCandidate ? "thinking" : undefined;
+	// 旧口径兜底（thinking 也算正文）：只在需要判断「catalog 里存的这一行是不是当年猜错的 thinking」时用。
+	const legacyFallbackName = cleanSessionTitleCandidate(textForSessionTitle(firstUserFullText)) || cleanSessionTitleCandidate(firstAssistantFullText);
+	const trailing = { fallbackName: fallback, fallbackKind, legacyFallbackName };
+	if (infoName) return { name: infoName, fromSessionInfo: Boolean(authoritativeInfoName || namedFieldInfoName), ...trailing };
+	if (fallback) return { name: fallback, fromSessionInfo: false, ...trailing };
+	return { name: undefined, fromSessionInfo: false, ...trailing };
 }
 
 /**

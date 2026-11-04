@@ -109,7 +109,13 @@ writeStartupLog("info", "Renderer bootstrap started", {
 
 // Phase 0 长任务探针（docs/acp-replay-batching-plan.md）：默认关闭，只在
 // localStorage 里 pideck:perf-log=1 时订阅 longtask，输出走同一条日志通道。
-installPerfProbe({ log: (message, detail) => writeRuntimeLog("perf", "info", message, detail) });
+installPerfProbe({
+	log: (message, detail) => {
+		// 同时进控制台：分段计时（perfEvent/perfSpan）只打控制台，归因时两者必须在同一路输出里对齐
+		console.info(message);
+		writeRuntimeLog("perf", "info", message, detail);
+	},
+});
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {

@@ -117,13 +117,16 @@ export function AppSidebar(props: AppSidebarProps) {
 						    简洁模式只去掉底边线（面板间靠底色差分区），高度/内边距/对齐与标签模式完全一致。 */}
 						<div className={cn("list-toolbar flex h-10 shrink-0 items-center gap-1 pr-2.5 pl-[max(0.625rem,var(--traffic-lights-width,0px))]", props.simple ? "border-b border-transparent" : "border-b border-border/40")}>
 							{/* min-w-0 flex-1 必须给到 MorphPopover 根：它默认 inline-flex（min-width:auto），
-							    不改就无法收缩，长应用名会把字标顶出标题行、折叠按钮被挤到栏外。 */}
-							<AboutPopover appInfo={props.appInfo} className="min-w-0 flex-1">
+							    不改就无法收缩，长应用名会把字标顶出标题行、折叠按钮被挤到栏外。
+							    这层只负责占位与 mac 居中，不能当点击热区：foundation.css 把 .app-badge 置为
+							    no-drag，根一旦跟着撑满并被点，整段空白就吞掉窗口拖拽（issue #486）。 */}
+							<AboutPopover appInfo={props.appInfo} className="flex min-w-0 flex-1 items-center justify-start [.mac-custom-titlebar_&]:justify-center">
 								{/* 品牌对齐分平台：mac 红绿灯占左侧，字标在剩余空间居中才显得对称；
 								    Windows/Linux 没有红绿灯，继续居中会在左边留一条空白（用户反馈），改为靠左，
-								    与右端折叠按钮的 10px 内距形成对称。 */}
+								    与右端折叠按钮的 10px 内距形成对称。
+								    w-fit 让可点击热区只包住 logo 与字标：右侧到折叠按钮之间的空白留给标题栏拖拽。 */}
 								<div
-									className="app-badge flex min-w-0 flex-1 cursor-pointer items-center justify-start [.mac-custom-titlebar_&]:justify-center [.mac-custom-titlebar_&]:pl-5"
+									className="app-badge flex w-fit max-w-full min-w-0 cursor-pointer items-center [.mac-custom-titlebar_&]:pl-5"
 									role="button"
 									tabIndex={0}
 									aria-label={t("about.title")}

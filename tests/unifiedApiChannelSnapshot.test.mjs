@@ -47,6 +47,8 @@
  *   ipcChannels 808→811，remote 前缀已存在，前缀数仍 92。
  * 2026-11-03 合并刷新（+3）：codebuddySessions 的 start/answer/cancel 入场；
  *   ipcChannels 811→814，新增 codebuddy 前缀，前缀数 92→93。
+ * 2026-11-04 刷新（净 +1）：WSL 目录浏览（Wave 0，提交 0f91282e4）退役 projects:add-wsl，
+ *   新增 projects:list-wsl-directory / projects:add-wsl-path → 815，projects 前缀已存在，前缀数仍 93。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";

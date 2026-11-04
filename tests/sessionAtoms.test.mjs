@@ -64,6 +64,8 @@ function loadAtoms() {
 		"./sessionActivityAtoms": sessionActivityAtoms,
 		"../utils/sessionActivityClock": sessionActivityClock,
 		"./session-family-registry": familyRegistry,
+		// 分段计时探针（Phase 4）：关闭态是空函数，stub 掉即可，不必加载真实 perfProbe。
+		"../utils/perfProbe": { perfSpan: () => () => undefined },
 	});
 	const composer = compileModule("src/renderer/src/atoms/composer-atoms.ts", {
 		"./session-atoms": sessions,

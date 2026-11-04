@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { isPendingAskRequest, countPendingAsksForSessions, hasPendingAskForSession } from "../src/renderer/src/utils/askUi.ts";
+import { isPendingAskRequest, countPendingAsksForSessions, findFirstPendingAskSessionId, hasPendingAskForSession } from "../src/renderer/src/utils/askUi.ts";
 
 test("isPendingAskRequest correctly identifies pending asks vs non-ask / completed requests", () => {
 	// pending select
@@ -148,4 +148,40 @@ test("SessionTree marks pending asks per session row, not only on the project he
 
 	// 与 ActiveSessionsTree / 项目行共用同一徽章组件，视觉与无障碍语义不得分叉。
 	assert.match(sessionTree, /<PendingAskBadge count=\{1\} \/>/);
+});
+
+test("findFirstPendingAskSessionId returns the first pending session in list order", () => {
+	const runtimeMap = {
+		"session-idle": {
+			requests: { "req-1": { status: "completed", request: { id: "req-1", method: "confirm", question: "Done?" } } },
+		},
+		"session-pending": {
+			requests: { "req-2": { status: "pending", request: { id: "req-2", method: "select", question: "Pick" } } },
+		},
+		"session-responding": {
+			requests: { "req-3": { status: "responding", request: { id: "req-3", method: "input", question: "Name" } } },
+		},
+	};
+
+	// 顺序由调用方决定：侧栏传入的就是列表顺序，因此「第一个」= 列表最上面那个待确认会话
+	assert.equal(findFirstPendingAskSessionId(["session-idle", "session-pending", "session-responding"], runtimeMap), "session-pending");
+	assert.equal(findFirstPendingAskSessionId(["session-responding", "session-pending"], runtimeMap), "session-responding");
+	// 无待确认 / 空列表 / 未加载 runtime：返回 undefined，调用方不必额外判空
+	assert.equal(findFirstPendingAskSessionId(["session-idle"], runtimeMap), undefined);
+	assert.equal(findFirstPendingAskSessionId([], runtimeMap), undefined);
+	assert.equal(findFirstPendingAskSessionId(["session-pending"], undefined), undefined);
+});
+
+test("chat header pending badge (issue #485) is collapsed-only and clickable", () => {
+	const projectTree = readFileSync("src/renderer/src/components/sidebar/ProjectTree.tsx", "utf8");
+
+	// 展开态会话行已各自挂会话级徽章，标题栏再挂一枚同样的闪烁徽章会被当成渲染重复；
+	// 徽章徽标因此只在折叠态计算与渲染（见 chatSection 的 collapsed 守卫）。
+	assert.match(projectTree, /const pendingAskSessionId = collapsed \? findFirstPendingAskSessionId\(/);
+	assert.match(projectTree, /const pendingAskCount = pendingAskSessionId \? countPendingAsksForSessions\(/);
+
+	// 静态 Badge 点不动 = 看上去像「通知卡死」；折叠态徽章必须是可点按钮，
+	// 点了展开分组并打开第一个等待确认的会话。
+	const clickableBadge = /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*props\.controller\.revealProject\(project\.id\);\s*void props\.actions\.sessions\.open\(project\.id, pendingAskSessionId\);/;
+	assert.match(projectTree, clickableBadge);
 });

@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.9.9-blue)
+![Version](https://img.shields.io/badge/version-0.10.0-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -82,24 +82,25 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.9.9** (2026-10-30)
+> **Latest: v0.10.0** (2026-11-04)
 
-### v0.9.9 Release Highlights
-- 🚀 **Appearance split into "style × palette", with the pi TUI terminal skin ported wholesale**
-- 🚀 **Session groups become a host-level capability (plugin v3)**
-- 🚀 **Favorite whole sessions**
-- 🚀 **Scratchpad gains project / global scopes**
-- 🚀 **ACP remembers thinking / mode / permission per tool and replays them**
-- 🚀 **Per-tool "default bypass permissions for new sessions" and a Qoder CLI preset**
-- 🚀 **A separate proxy switch for ACP**
-- 🚀 **Create and drive ACP sessions over MCP**
-- 🚀 **ACP sessions in the Web client**
-- 🚀 **ACP usage panel gains token / latency / TPS metrics**
-- 🚀 **ACP sessions now show todos and subagents**
-- ✨ **Searchable model dropdown in ACP**
-- ✨ **Queued sends mid-turn, plus a dedicated stop button**
-- ✨ **ACP tool table collapses into rows**
-- ✨ **Turn footer split into "actions | duration | model"**
+### v0.10.0 Release Highlights
+- 🚀 **Agent memory shared by pi / DSH / ACP**
+- 🚀 **Memory export / import with preview and conflict policy**
+- 🚀 **SFTP file transfer for remote projects**
+- 🚀 **Remote multi-project parallelism: root session pooling on by default**
+- 🚀 **Projects inside WSL distributions can be added and edited normally**
+- 🚀 **Host plugin market**
+- 🚀 **CodeBuddy session import**
+- 🚀 **The timeline's right-edge scale expands into a full session directory**
+- 🚀 **Built-in TokenDance provider shows discount / free badges**
+- 🚀 **One-click light / dark switch in the Web header**
+- 🚀 **Web sidebar visual rebuild and backend identity marks**
+- 🚀 **EasyTier managed service can be restarted from the Web UI**
+- ✨ **Queued messages support Send Immediately**
+- ✨ **MCP connections list their tool names**
+- ✨ **Filename search results group into a tree by directory**
+- ✨ **The file panel regains common actions**
 
 [View Full Changelog →](CHANGELOG.md)
 

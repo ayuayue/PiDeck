@@ -6,7 +6,7 @@ import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 // 纯函数模块（零依赖）直接编译加载
-const { isLegacySessionNameEntry, isLegacySessionNameLine, stripLegacySessionNameLine, tryRestorePathGluedHeader } = loadTsCommonJs("src/main/sessions/sessionNameLine.ts");
+const { extractBodyTextFromContent, inferSessionTitleFromLines, isLegacySessionNameEntry, isLegacySessionNameLine, stripLegacySessionNameLine, tryRestorePathGluedHeader } = loadTsCommonJs("src/main/sessions/sessionNameLine.ts");
 
 // SessionScanner 依赖 electron（仅 app.getPath / shell），构造期需要桩
 const { SessionScanner } = loadTsCommonJs("src/main/sessions/SessionScanner.ts", {
@@ -41,6 +41,40 @@ function damagedSessionText() {
 function healthySessionText() {
 	return [SESSION_HEADER, MESSAGE_LINE].join("\n") + "\n";
 }
+
+// ── 纯函数：标题候选（#488 thinking 不得当正文） ───────────────
+
+function messageLine(role, content) {
+	return JSON.stringify({ type: "message", id: `${role}-1`, parentId: null, timestamp: "2026-08-22T04:00:01.000Z", message: { role, content } });
+}
+
+test("extractBodyTextFromContent 只看 text 块，thinking 不算正文（#488）", () => {
+	assert.equal(
+		extractBodyTextFromContent([
+			{ type: "text", text: "正文" },
+			{ type: "thinking", thinking: "草稿本" },
+		]),
+		"正文",
+	);
+	assert.equal(extractBodyTextFromContent([{ type: "thinking", thinking: "草稿本" }]), "", "只有 thinking 时没有正文可当标题");
+	assert.equal(extractBodyTextFromContent("字符串消息"), "字符串消息");
+	assert.equal(extractBodyTextFromContent(undefined), "");
+});
+
+test("inferSessionTitleFromLines 不让 thinking 抢在正文前面（#488）", () => {
+	// 现场：头窗口里首条用户消息被 64KB 截断 → 只剩一条 thinking；修复后正文一出现就必须赢。
+	const thinkingFirst = [messageLine("assistant", [{ type: "thinking", thinking: "让我想想接下来要做什么……" }]), messageLine("user", [{ type: "text", text: "真正的首条用户消息" }])];
+	const inferred = inferSessionTitleFromLines(thinkingFirst);
+	assert.equal(inferred.name, "真正的首条用户消息");
+	assert.equal(inferred.fallbackKind, "user");
+
+	// 整份窗口零正文时才降级用 thinking，但仍然要标出来源（catalog 靠它判可自愈）。
+	const thinkingOnly = inferSessionTitleFromLines([messageLine("assistant", [{ type: "thinking", thinking: "让我想想接下来要做什么……" }])]);
+	assert.equal(thinkingOnly.name, "让我想想接下来要做什么……");
+	assert.equal(thinkingOnly.fallbackKind, "thinking");
+	// 旧口径（thinking 也算正文）留着做存量指纹基准：catalog 里锁住的正是这一条。
+	assert.equal(thinkingOnly.legacyFallbackName, "让我想想接下来要做什么……");
+});
 
 // ── 纯函数：识别与剔除 ─────────────────────────────────────────
 

@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.9.9-blue)
+![Version](https://img.shields.io/badge/version-0.10.0-blue)
 
 国内 AtomGit 托管：https://atomgit.com/ayuayue/PiDeck
 <!-- 预留 AtomGit G-Star 徽章位（替换占位链接后启用）
@@ -102,24 +102,25 @@
 
 ## 📋 更新日志
 
-> **最新版本 v0.9.9**（2026-10-30）
+> **最新版本 v0.10.0**（2026-11-04）
 
-### v0.9.9 更新亮点
-- 🚀 **外观拆成「样式 × 配色」两维，终端皮肤成套移植 pi TUI**
-- 🚀 **会话分组成为宿主核心能力（插件 v3）**
-- 🚀 **收藏整个会话**
-- 🚀 **草稿本支持项目 / 全局作用域**
-- 🚀 **ACP 按工具记住思考 / 模式 / 权限并自动重放**
-- 🚀 **ACP 工具级「新会话默认 Bypass 权限」与 Qoder CLI 预设**
-- 🚀 **ACP 代理独立开关**
-- 🚀 **通过 MCP 新建并驱动 ACP 会话**
-- 🚀 **Web 端支持 ACP 会话**
-- 🚀 **ACP 用量面板补齐 token / 时延 / TPS**
-- 🚀 **ACP 会话补齐待办与子代理**
-- ✨ **ACP 模型下拉可搜索**
-- ✨ **ACP 回合中发送排队，忙碌时补独立停止钮**
-- ✨ **ACP 工具表改为折叠行**
-- ✨ **轮尾操作栏按「按钮 | 耗时 | 模型」三分区**
+### v0.10.0 更新亮点
+- 🚀 **智能体记忆：pi / DSH / ACP 共用同一份长期记忆**
+- 🚀 **记忆导出 / 导入带预览与冲突策略**
+- 🚀 **远程项目支持 SFTP 文件传输**
+- 🚀 **远程多项目并行：root 会话池化默认开启**
+- 🚀 **WSL 发行版里的项目可以正常添加与编辑**
+- 🚀 **宿主插件市场**
+- 🚀 **支持导入 CodeBuddy 会话**
+- 🚀 **时间线右缘刻度可展开成完整会话目录**
+- 🚀 **内置 TokenDance 供应商显示折扣 / 免费徽章**
+- 🚀 **Web 端头部一键明暗切换**
+- 🚀 **Web 侧栏视觉重构与后端身份标记**
+- 🚀 **Web 端 EasyTier 托管服务可重启**
+- ✨ **排队消息支持「立即发送」**
+- ✨ **MCP 连接后列出具体工具名**
+- ✨ **文件名搜索结果按目录归并成树**
+- ✨ **文件面板补齐常用动作**
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
 

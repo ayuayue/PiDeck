@@ -141,12 +141,12 @@ test("接线：attach 截断信息进运行时窗口协议（main），渲染层
 	// 唯一证据；「还有更早历史」与「真能发出一次翻页」必须同源，否则就是死按钮）。
 	// 2026-12 起不再在 controller 里内联那两条表达式，改断言「接线到同一游标函数」+ 策略本身。
 	const controller = read("src/renderer/src/hooks/useSessionTimelineController.ts");
-	// 多行调用：入参里除 runtimeHistory / windowMessages / windowStartFilePos 外还传了 ACP 用的
-	// windowStart（无会话文件的窗口起点），所以按「接线到同一游标函数 + 三个必备入参」断言。
-	assert.match(controller, /resolveEarlierHistoryCursor\(\{[\s\S]{0,400}?runtimeHistory,[\s\S]{0,400}?windowMessages: messages,[\s\S]{0,400}?windowStartFilePos: cachedEntry\?\.windowStartFilePos/);
+	// 入参顺序与字段随 ACP 分页（windowStart，无会话文件）演进而多了一个，断言保留三个关键输入。
+	assert.match(controller, /resolveEarlierHistoryCursor\(\{[\s\S]*?runtimeHistory,[\s\S]*?windowMessages: messages,[\s\S]*?windowStartFilePos: cachedEntry\?\.windowStartFilePos,/);
 	assert.match(controller, /const \{ before, beforeEntryId \} = earlierHistoryCursor;/);
 	const policy = read("src/renderer/src/components/session/timeline/historyPagePolicy.ts");
-	// 文件下标 0 = 文件头（不是「还有更早」）；ACP 无文件时退回投递窗口起点当游标。
-	assert.match(policy, /if \(typeof filePos === "number" && filePos > 0\) return \{ before: filePos \};/);
-	assert.match(policy, /return typeof windowStart === "number" && windowStart > 0 \? \{ before: windowStart \} : null;/);
+	// 文件下标游标：只有 >0 才是「真有更早」（0 = 文件头，旧实现回 0 时按钮常驻）。
+	assert.match(policy, /typeof filePos === "number" && filePos > 0\) return \{ before: filePos \};/);
+	// ACP：没有会话文件与 entryId，窗口起点本身就是主进程分页游标（同样以 0 为无更多）。
+	assert.match(policy, /typeof windowStart === "number" && windowStart > 0 \? \{ before: windowStart \} : null/);
 });
