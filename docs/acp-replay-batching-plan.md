@@ -82,7 +82,25 @@ localStorage.setItem("pideck:perf-log", "1")
 
 **门禁**：若 ACP 实测 payload < 256KB 且最长任务 < 50ms，则本方案降级为「不做」，把资源投向别处。这是防止为了一个观感问题做跨进程改造的止损点。
 
-#### 0.1 已采样：payload 侧（2026-11-04，本机 40 条真实 ACP 会话归档）
+#### 0.1 已采样（2026-11-04，本机真实会话）
+
+**真机一次完整激活**（会话「优化会话分组插件页面 UI」，ACP，profile 副本 + `PIDECK_PERF_LOG=1`）：
+
+```
+flush-large acp bytes=4251KB delivered=1076 total=1076 upsertFrom=- windowStart=- emitMs=15.4
+flush-meter acp flushes=1 maxBytes=4251KB maxDelivered=1076 windowed=0/1 incremental=0/1 maxEmitMs=15.4
+[perf] longtask 54ms / 236ms / 123ms  → summary tasks=3 max=236ms total=413ms
+```
+
+| backend | 历史条数 | 激活时 maxBytes | 投递条数 | windowed | incremental | 最长 longtask |
+|---|---|---|---|---|---|---|
+| **acp** | 1076 | **4251KB** | 1076（全量） | 0/1 | 0/1 | **236ms**（同窗口合计 413ms） |
+| pi | 待采 | | | | | |
+| dsh | 待采 | | | | | |
+
+结论：**两项门禁都被击穿**（payload 超 256KB 16 倍、最长任务超 50ms 4.7 倍）。主进程侧 `emitMs` 只有 15.4ms，说明 236ms 主要发生在渲染进程（结构化克隆 + 原子写入 + 时间线提交），不是 IPC 发送本身。
+
+#### 0.2 离线复算：40 条真实 ACP 归档（用于选窗口口径）
 
 用 `%APPDATA%/PiDeck/acp-sessions/*.json` 复算 `flushMessages` 的实际载荷（同形对象 + JSON 体积），**渲染侧 longtask 尚未采**（需要真机跑一次，见上文开关）。
 
