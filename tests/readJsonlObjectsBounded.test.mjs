@@ -36,6 +36,37 @@ test("readJsonlObjects：超长行抛错而非无界缓冲（防导入 OOM）", 
 	await assert.rejects(() => head.readJsonlObjects(file, { maxLineBytes: 1024 }).next(), /Oversized line/);
 });
 
+test("readJsonlObjects：磁盘零填充区段跳过（严格模式也不让整条会话导入失败）", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "jsonl-head-"));
+	const file = join(dir, "zero.jsonl");
+	// 第 2 行模拟 NTFS「长度已扩展、数据未落盘」读回的全 0 区
+	// （2026-11 实测 CodeBuddy 会话 01a1a03a 的 2999 字节坏区，修复前整条会话 ✗）
+	await writeFile(file, `${JSON.stringify({ ok: 1 })}\n${"\u0000".repeat(2999)}\n${JSON.stringify({ ok: 2 })}\n`, "utf8");
+	const out = [];
+	for await (const obj of head.readJsonlObjects(file)) out.push(obj);
+	// 跨 realm 对象：按序列化比（deepStrictEqual 会比原型链）
+	assert.equal(JSON.stringify(out), JSON.stringify([{ ok: 1 }, { ok: 2 }]));
+});
+
+test("readJsonlObjects：坏区切在半行上也跳过（行内 NUL 而非整行 NUL）", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "jsonl-head-"));
+	const file = join(dir, "half.jsonl");
+	await writeFile(file, `${JSON.stringify({ ok: 1 })}\n{"ok":2,"x":"\u0000\u0000"}\n${JSON.stringify({ ok: 3 })}\n`, "utf8");
+	const out = [];
+	for await (const obj of head.readJsonlObjects(file)) out.push(obj);
+	assert.equal(JSON.stringify(out), JSON.stringify([{ ok: 1 }, { ok: 3 }]));
+});
+
+test("readJsonlObjects：真坏行的报错前缀转义控制字符，不再渲染成空白", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "jsonl-head-"));
+	const file = join(dir, "ctrl.jsonl");
+	// \u0001 不是 NUL：不触发零填充跳过，仍要报错；但报错文案里必须可见
+	await writeFile(file, `${JSON.stringify({ ok: 1 })}\nnot-json\u0001tail\n`, "utf8");
+	await assert.rejects(async () => {
+		for await (const _obj of head.readJsonlObjects(file)) void _obj;
+	}, /Invalid JSON line in .*not-json\\u0001tail/);
+});
+
 test("readJsonlObjects：消费方提前 break 不炸（后台扫描自然收尾）", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "jsonl-head-"));
 	const file = join(dir, "many.jsonl");

@@ -1,5 +1,6 @@
 import { open, rename, stat } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
+import { getAppLogger } from "../logging/sharedLogger";
 import { scanJsonlLines } from "./jsonlLineStream";
 
 /**
@@ -100,6 +101,16 @@ export async function mapWithConcurrency<T, R>(items: readonly T[], limit: numbe
 }
 
 /**
+ * 把行前缀里的控制字符转义成可见形式，再拼进错误信息。
+ *
+ * 坏行前缀可能全是 0x00 之类不可见字节，直接塞进 message 会在 UI/日志里渲染成空白，
+ * 用户只能看到「导入失败」却看不到任何原因。
+ */
+function escapeControlChars(value: string): string {
+	return value.replace(/[\u0000-\u001f\u007f]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
+/**
  * 逐行异步读取 JSONL 源文件，产出**已解析的对象**。
  *
  * 基于 scanJsonlLines（自有 chunk 流式实现）而非裸 readline：readline 对单行
@@ -114,6 +125,12 @@ export async function mapWithConcurrency<T, R>(items: readonly T[], limit: numbe
  * 变成整个会话导入失败（Kimi wire / Minimax 用）。
  * 超长行（>64MiB）两种模式都抛错而非静默丢弃——严格模式丢行会让产物不完整，
  * 宽容模式丢行也会把超大内容静默漏掉，报错更能暴露源文件异常。
+ *
+ * **零填充行例外（两种模式都跳过）**：NUL 字节不可能出现在合法 JSON 文本里
+ * （JSON 字符串中的控制字符必须转义成 `\u0000`，落盘不会有裸 0x00），所以含 NUL 的行
+ * 不可能是「某条消息写坏了」，只能是磁盘/进程层面的写入丢失——NTFS 上「文件长度已扩展、
+ * 数据还没落盘」的区域读回全 0。该区段里本来就没有可恢复的内容，跳过并记 warn，
+ * 否则一段 3KB 的 0 区能让几十 MB 的会话整条导入失败（2026-11 实测 CodeBuddy 会话）。
  */
 export async function* readJsonlObjects(filePath: string, options: { maxLineBytes?: number; skipBadLines?: boolean } = {}): AsyncGenerator<Record<string, any>> {
 	// 异步队列桥接：scanJsonlLines（callback 式）→ async generator（消费方 for await 式）。
@@ -128,8 +145,18 @@ export async function* readJsonlObjects(filePath: string, options: { maxLineByte
 	};
 	void scanJsonlLines(
 		filePath,
-		(line) => {
+		(line, context) => {
 			if (!line.trim()) return;
+			// 零填充区段：磁盘写入丢失，内容不可恢复，严格模式也跳过（见函数注释）
+			if (line.includes("\u0000")) {
+				getAppLogger()?.warn("session-import", "Skipped zero-filled line (unreadable disk region)", {
+					filePath,
+					index: context.index,
+					offset: context.offset,
+					byteLength: context.byteLength,
+				});
+				return;
+			}
 			try {
 				const parsed = JSON.parse(line) as unknown;
 				if (parsed && typeof parsed === "object") {
@@ -138,13 +165,13 @@ export async function* readJsonlObjects(filePath: string, options: { maxLineByte
 				}
 			} catch (error) {
 				if (options.skipBadLines) return; // 宽容模式：坏行/半行跳过（见函数注释）
-				throw new Error(`Invalid JSON line in ${filePath}: ${line.slice(0, 120)} (${error instanceof Error ? error.message : String(error)})`);
+				throw new Error(`Invalid JSON line in ${filePath}: ${escapeControlChars(line.slice(0, 120))} (${error instanceof Error ? error.message : String(error)})`);
 			}
 		},
 		{
 			maxLineBytes: options.maxLineBytes,
 			onOversizedLine: (info) => {
-				throw new Error(`Oversized line (${info.byteLength} bytes) in ${filePath}: ${info.prefix.slice(0, 120)}`);
+				throw new Error(`Oversized line (${info.byteLength} bytes) in ${filePath}: ${escapeControlChars(info.prefix.slice(0, 120))}`);
 			},
 		},
 	).then(
