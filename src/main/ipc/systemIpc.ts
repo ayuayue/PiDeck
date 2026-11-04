@@ -35,6 +35,7 @@ import { invalidatePiInstallationCache, type PiLocator } from "../pi/PiLocator";
 import { validateInstallCommand } from "../pi/installCommandPolicy";
 import { resolvePiInstallGuard } from "../pi/piInstallGuard";
 import { sanitizePiCustomPaths } from "../pi/piCustomPaths";
+import { hasWslSettingsChanged } from "../wsl/WslProjectEnvironment";
 import type { SettingsStore } from "../settings/SettingsStore";
 import type { ConfigManager } from "../config/ConfigManager";
 import type { RemotePiConfigBackend } from "../config/RemotePiConfigBackend";
@@ -1914,7 +1915,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		// WSL 来源/发行版/用户：目标是另一套 HOME，技能/提示词/扩展/配置目录必须整体重绑，
 		// 否则设置页改完只有「检测环境」生效，资源页仍是旧用户（/root 的 0700 家目录还会 EPERM）。
 		// 只在三元组真的变化时重放：普通设置保存不额外拉起 wsl.exe 探测。
-		const wslSettingsChanged = prevSettings.wslEnabled !== settings.wslEnabled || prevSettings.wslDistro !== settings.wslDistro || prevSettings.wslUser !== settings.wslUser;
+		const wslSettingsChanged = hasWslSettingsChanged(prevSettings, settings);
 		if (wslSettingsChanged && deps.applyWslSettings) {
 			try {
 				await deps.applyWslSettings();
