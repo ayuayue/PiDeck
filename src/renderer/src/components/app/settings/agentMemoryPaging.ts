@@ -3,8 +3,8 @@
  *
  * 为什么要单独一个文件：分页的单位是**条目**，但表格里还有「分组行」（作用域 + 落盘文件 +
  * 预算）。两者混在一起时最容易出的错是「换页后条目还在、分组行没了」——读者看到一屏记忆
- * 却不知道它们属于哪个文件。这里让分组行跟着它在本页的第一条一起出现：一页从某个组中间
- * 开始时，页首补一次该组的分组行。
+ * 却不知道它们属于哪个文件。列表先按记录时间倒序，再分页；页首或作用域切换时补上
+ * 当前组的分组行，交错出现的同组条目也能辨认所属文件。
  *
  * 导出/导入弹窗不翻页，而是把同一份行模型交给虚拟滚动（行数随记忆量增长，见 issue #481）：
  * 它们用 `flattenMemoryRows` 拿全量行，渲染交给 VirtualStack。
@@ -50,27 +50,26 @@ export function flattenMemoryRows(groups: readonly AgentMemoryEntryGroup[]): Age
 }
 
 /**
- * 取第 page 页（1 起）的行。越界页码夹到首/尾页，删条目后不会停在空白页。
+ * 新记录在前，再取第 page 页（1 起）。同时间或无时间时保留组序，组内按文件序号倒序。
+ * 越界页码夹到首/尾页，删条目后不会停在空白页；不改变原数据和导出顺序。
  */
 export function buildMemoryPageRows(groups: readonly AgentMemoryEntryGroup[], page: number, pageSize = MEMORY_PAGE_SIZE): AgentMemoryRow[] {
-	const totalEntries = groups.reduce((sum, group) => sum + group.entries.length, 0);
-	const current = Math.min(Math.max(1, Math.trunc(page) || 1), memoryTotalPages(totalEntries, pageSize));
+	const entries = groups.flatMap((group, groupIndex) =>
+		group.entries.map((entry) => {
+			const time = Date.parse(entry.updatedAt ?? "");
+			return { group, groupIndex, entry, time: Number.isFinite(time) ? time : Number.NEGATIVE_INFINITY };
+		}),
+	);
+	entries.sort((a, b) => (a.time !== b.time ? b.time - a.time : a.groupIndex - b.groupIndex || b.entry.index - a.entry.index));
+	const current = Math.min(Math.max(1, Math.trunc(page) || 1), memoryTotalPages(entries.length, pageSize));
 	const pageStart = (current - 1) * pageSize;
-	const pageEnd = pageStart + pageSize;
 	const rows: AgentMemoryRow[] = [];
-	let offset = 0;
-	for (const group of groups) {
-		const start = Math.max(0, pageStart - offset);
-		const end = Math.min(group.entries.length, pageEnd - offset);
-		if (end > start) {
-			rows.push({ kind: "group", key: memoryGroupKey(group), group });
-			for (let index = start; index < end; index += 1) {
-				const entry = group.entries[index];
-				rows.push({ kind: "entry", key: memoryEntryId(entry), entry });
-			}
-		}
-		offset += group.entries.length;
-		if (offset >= pageEnd) break;
+	let previousGroup: AgentMemoryEntryGroup | undefined;
+	for (const { group, entry } of entries.slice(pageStart, pageStart + pageSize)) {
+		const key = memoryEntryId(entry);
+		if (group !== previousGroup) rows.push({ kind: "group", key: `${memoryGroupKey(group)}|${key}`, group });
+		rows.push({ kind: "entry", key, entry });
+		previousGroup = group;
 	}
 	return rows;
 }
