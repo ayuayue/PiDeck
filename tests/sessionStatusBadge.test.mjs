@@ -18,22 +18,22 @@ const json = (value) => JSON.stringify(value);
 
 // —— 操作进行中优先级（busy 优先于 status，且不依赖 runtime 存在）——
 
-test("sessionStatusBadge: 停止中覆盖 running，统一 loading 且不带运行黄", () => {
+test("sessionStatusBadge: 停止中覆盖 running，统一黄色 loading", () => {
 	const { sessionStatusBadge } = loadSessionStatusBadge();
 	const badge = sessionStatusBadge("running", { isStopping: true });
-	assert.equal(json(badge), json({ status: "loading" }));
+	assert.equal(json(badge), json({ status: "loading", colorClass: "text-warning" }));
 });
 
-test("sessionStatusBadge: 重载中在无 runtime（未启动）时也显示 loading 徽章", () => {
+test("sessionStatusBadge: 重载中在无 runtime（未启动）时也显示黄色 loading 徽章", () => {
 	const { sessionStatusBadge } = loadSessionStatusBadge();
 	const badge = sessionStatusBadge(undefined, { isReloading: true });
-	assert.equal(json(badge), json({ status: "loading" }));
+	assert.equal(json(badge), json({ status: "loading", colorClass: "text-warning" }));
 });
 
-test("sessionStatusBadge: 重启中覆盖 idle，显示 loading", () => {
+test("sessionStatusBadge: 重启中覆盖 idle，显示黄色 loading", () => {
 	const { sessionStatusBadge } = loadSessionStatusBadge();
 	const badge = sessionStatusBadge("idle", { isRestarting: true });
-	assert.equal(json(badge), json({ status: "loading" }));
+	assert.equal(json(badge), json({ status: "loading", colorClass: "text-warning" }));
 });
 
 test("sessionStatusBadge: busy 全 false 时回落 status 映射", () => {
@@ -44,11 +44,11 @@ test("sessionStatusBadge: busy 全 false 时回落 status 映射", () => {
 
 // —— 无操作时按 status 映射 ——
 
-test("sessionStatusBadge: error→danger / idle→蓝色圆环 / starting→loading", () => {
+test("sessionStatusBadge: error→danger / idle→蓝色圆环 / starting→黄色 loading", () => {
 	const { sessionStatusBadge } = loadSessionStatusBadge();
 	assert.equal(json(sessionStatusBadge("error")), json({ status: "danger" }));
 	assert.equal(json(sessionStatusBadge("idle")), json({ status: "neutral", colorClass: "text-info" }));
-	assert.equal(json(sessionStatusBadge("starting")), json({ status: "loading" }));
+	assert.equal(json(sessionStatusBadge("starting")), json({ status: "loading", colorClass: "text-warning" }));
 });
 
 test("空闲 Tab 渲染蓝色圆环，不更换图标或增加旋转", () => {
@@ -59,6 +59,34 @@ test("空闲 Tab 渲染蓝色圆环，不更换图标或增加旋转", () => {
 	assert.match(html, /class="[^"]*\btext-info\b[^"]*"/);
 	assert.match(html, /lucide-circle/);
 	assert.doesNotMatch(html, /lucide-info|animate-pideck-spin/);
+});
+
+test("Tab 与侧栏的运行状态使用相同颜色，启动及运行保持旋转", () => {
+	const { sessionStatusBadge } = loadSessionStatusBadge();
+	const { AnimatedBadge } = loadTsCommonJs("src/renderer/src/components/motion/animated-badge.tsx");
+	const { SidebarStatusDot } = loadTsCommonJs("src/renderer/src/components/sidebar/SidebarStatusDot.tsx");
+	for (const status of ["idle", "starting", "running", "pending", "waiting", "error"]) {
+		const sidebar = renderToStaticMarkup(createElement(SidebarStatusDot, { status }));
+		const tone = sidebar.match(/\bbg-(info|warning|danger)\b/)?.[1];
+		assert.ok(tone, `${status} 应有侧栏状态色`);
+		const badge = sessionStatusBadge(status);
+		const tab = renderToStaticMarkup(createElement(AnimatedBadge, { status: badge.status, size: "sm", bare: true, pulse: false, className: badge.colorClass }));
+		assert.match(tab, new RegExp(`class="[^"]*\\btext-${tone}\\b[^"]*"`), status);
+		assert.equal(tab.includes("animate-pideck-spin"), tone === "warning", status);
+	}
+});
+
+test("重启、停止和重载的 Tab 保持黄色旋转，覆盖错误状态", () => {
+	const { sessionStatusBadge } = loadSessionStatusBadge();
+	const { AnimatedBadge } = loadTsCommonJs("src/renderer/src/components/motion/animated-badge.tsx");
+	for (const operation of ["isRestarting", "isStopping", "isReloading"]) {
+		const badge = sessionStatusBadge("error", { [operation]: true });
+		const html = renderToStaticMarkup(createElement(AnimatedBadge, { status: badge.status, size: "sm", bare: true, pulse: false, className: badge.colorClass }));
+		assert.match(html, /class="[^"]*\btext-warning\b[^"]*"/, operation);
+		assert.match(html, /lucide-loader-circle/, operation);
+		assert.match(html, /animate-pideck-spin/, operation);
+		assert.doesNotMatch(html, /\btext-info\b|\btext-danger\b/, operation);
+	}
 });
 
 test("sessionStatusBadge: running/pending/waiting → loading + 黄色覆盖", () => {

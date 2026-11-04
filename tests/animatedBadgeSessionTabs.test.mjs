@@ -51,12 +51,11 @@ test("session tab uses AnimatedBadge instead of raw pulse dot", () => {
 	assert.match(source, /pulse=\{false\}/);
 	assert.match(source, /\[&_svg\]:h-2\.5 \[&_svg\]:w-2\.5/);
 	assert.match(statusSource, /text-warning/);
-	// 状态映射（颜色语义：启动蓝旋转 / 运行黄旋转 / 空闲蓝圆环 / 失败红）
+	// 状态映射（颜色语义：启动/运行黄旋转 / 空闲蓝圆环 / 失败红）
 	assert.match(statusSource, /export function sessionStatusBadge\(/);
 	assert.match(statusSource, /case "error":\s*\n\s*return \{ status: "danger" \};/);
 	assert.match(statusSource, /case "idle":\s*\n\s*return \{ status: "neutral", colorClass: "text-info" \};/);
-	assert.match(statusSource, /case "starting":\s*\n\s*return \{ status: "loading" \};/);
-	assert.match(statusSource, /case "running":\s*\n\s*case "pending":\s*\n\s*case "waiting":\s*\n\s*return \{\s*\n\s*status: "loading",/);
+	assert.match(statusSource, /case "starting":\s*\n\s*case "running":\s*\n\s*case "pending":\s*\n\s*case "waiting":\s*\n\s*return \{\s*\n\s*status: "loading",/);
 	assert.match(statusSource, /if \(!status \|\| status === "detached"\) return undefined;/);
 	assert.match(source, /const badge = sessionStatusBadge\(status, \{/);
 	// 激活指示条（tab 下方弧形横条）已移除
