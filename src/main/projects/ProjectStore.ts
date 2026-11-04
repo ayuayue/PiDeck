@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import type { LocalProject, Project } from "../../shared/types";
 import { projectLocatorFromLegacy } from "../../shared/locationAdapters";
 import { isLocalProject, isRemoteProject, readSshProjectLocator, type SshProjectLocator } from "../../shared/projectLocation";
-import { parseWslUncPath } from "../wsl/WslPaths";
+import { mountedDriveToWindowsPath, parseWslUncPath } from "../wsl/WslPaths";
 import { getAppLogger } from "../logging/sharedLogger";
 import { assertHostRebindRecordIds, canonicalHostLocatorJson, type HostRebindRecordPatch, type HostRebindRecordResult, type HostRebindRecordSnapshot, type HostRebindStorePort } from "../remote/HostRebindJournal";
 import { isEphemeralProjectPath, projectPathKey, sanitizeProjectDisplayName } from "./projectPathPolicy";
@@ -733,7 +733,19 @@ export class ProjectStore implements HostRebindStorePort {
 		return normalize(resolve(path));
 	}
 
+	/** drvfs（/mnt/<盘符>）的三种写法归一到盘符路径（小写比较前先去掉尾部分隔符）；非 drvfs 返回 null。 */
+	private mountedDriveForm(path: string) {
+		const linuxPath = parseWslUncPath(path)?.linuxPath ?? path;
+		const drivePath = mountedDriveToWindowsPath(linuxPath) ?? (/^[A-Za-z]:(?:[\\/]|$)/.test(path) ? path.replace(/\//g, "\\") : null);
+		return drivePath === null ? null : drivePath.replace(/\\+$/, "");
+	}
+
 	private sameProjectPath(a: string, b: string) {
+		// drvfs 同一目录可以是 /mnt/d/x、D:\x、\\wsl.localhost\<distro>\mnt\d\x；先统一到盘符路径
+		// 再比，否则修好路径后重新添加同一目录会多出一条重复项目（盘符不区分大小写）。
+		const leftDrive = this.mountedDriveForm(a);
+		const rightDrive = this.mountedDriveForm(b);
+		if (leftDrive !== null && rightDrive !== null) return leftDrive.toLowerCase() === rightDrive.toLowerCase();
 		const leftWsl = parseWslUncPath(a);
 		const rightWsl = parseWslUncPath(b);
 		if (leftWsl && rightWsl) {

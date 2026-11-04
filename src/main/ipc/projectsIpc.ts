@@ -20,7 +20,7 @@ import { removeProjectWithSessions } from "../projects/projectRemoval";
 import { consumeUserDataNameMigrationNotice } from "../projects/userDataNameMigration";
 import { registerProjectResourceIpc } from "./projectResourceIpc";
 import { createProjectGitHandler } from "./gitProjectHandlers";
-import { isWslDistroMismatchError, linuxPathToWslUnc, normalizeSelectedWslProjectPath, normalizeWslProjectAddPath, parseWslUncPath, toWindowsHostPath, type WslEnvironment } from "../wsl/WslPaths";
+import { isWslDistroMismatchError, linuxPathToWslUnc, mountedDriveToWindowsPath, normalizeSelectedWslProjectPath, normalizeWslProjectAddPath, parseWslUncPath, toWindowsHostPath, type WslEnvironment } from "../wsl/WslPaths";
 import { listWslDirectory } from "../wsl/WslDirectoryBrowser";
 import { createWslHostStore } from "../wsl/WslHostStore";
 
@@ -152,7 +152,10 @@ export function registerProjectsIpc({ projectStore, settingsStore, gitService, w
 			if (listed.code === WSL_DIRECTORY_CODES.unavailable) throw new Error(mainCopy("project.wslEnvironmentUnavailable"));
 			throw new Error(mainCopy("project.wslPathNotFound", { path, distro: target.distro }));
 		}
-		const projectPath = linuxPathToWslUnc(listed.value.path, target.distro);
+		// drvfs（/mnt/<盘符>）在 Windows 侧不走 9P：存成 UNC 会让 stat EPERM（目录不存在）、
+		// git 探测失败、pi 子进程 spawn cwd ENOENT（会话启动失败）。这类目录存宿主盘符路径，
+		// 运行时用 toWslLinuxPath 再转回 /mnt/... 交给 wsl.exe --cd。
+		const projectPath = mountedDriveToWindowsPath(listed.value.path) ?? linuxPathToWslUnc(listed.value.path, target.distro);
 		const project = await projectStore.add(projectPath, undefined, "wsl", target.identity);
 		void appLogger.info("project", "WSL project added via in-distro picker", { projectId: project.id, path: project.path, environment: "wsl" });
 		const visible = await getVisibleProjects();

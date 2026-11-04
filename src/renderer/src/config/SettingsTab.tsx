@@ -105,7 +105,7 @@ export function SettingsTab(props: {
 	authData?: AuthFile;
 	/** 通过已知端点自动发现的模型（auth-only 供应商） */
 	discoveredModels?: Record<string, Array<{ id: string; name?: string }>>;
-	onChange: (data: SettingsFile) => void;
+	onChange: (data: SettingsFile, reason?: "normalize") => void;
 	onSave: () => void;
 }) {
 	const { data, saving } = props;
@@ -170,7 +170,7 @@ export function SettingsTab(props: {
 		retryInitializedRef.current = true;
 		const existingRetry = data.retry;
 		if (!existingRetry || typeof existingRetry !== "object" || Object.keys(existingRetry).some((key) => !(key in retryConfig))) {
-			props.onChange({ ...data, retry: retryConfig });
+			props.onChange({ ...data, retry: retryConfig }, "normalize");
 		}
 	}, [data, props.onChange, retryConfig.maxRetries, retryConfig.baseDelayMs]);
 
@@ -187,7 +187,7 @@ export function SettingsTab(props: {
 		};
 		const needsNormalize = !existing || typeof existing !== "object" || Array.isArray(existing) || typeof (existing as Record<string, unknown>).enabled !== "boolean" || typeof (existing as Record<string, unknown>).reserveTokens !== "number" || typeof (existing as Record<string, unknown>).keepRecentTokens !== "number";
 		if (needsNormalize) {
-			props.onChange({ ...data, compaction: next });
+			props.onChange({ ...data, compaction: next }, "normalize");
 		}
 	}, [data, props.onChange, compactionConfig.enabled, compactionConfig.reserveTokens, compactionConfig.keepRecentTokens]);
 

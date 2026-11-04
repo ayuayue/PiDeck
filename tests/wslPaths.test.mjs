@@ -36,15 +36,24 @@ test("converts drive, mounted-drive, Linux, and UNC paths across host boundaries
 	assert.equal(paths.toWslLinuxPath("\\\\wsl.localhost\\Ubuntu-24.04\\root\\repo", rootEnvironment), "/root/repo");
 	assert.equal(paths.toWindowsHostPath("/mnt/d/repo", rootEnvironment), "D:\\repo");
 	assert.equal(paths.toWindowsHostPath("/root/repo", rootEnvironment), "\\\\wsl.localhost\\Ubuntu-24.04\\root\\repo");
+	// drvfs 在 Windows 侧不走 9P（stat EPERM / spawn cwd ENOENT）：UNC 形态同样换回盘符路径
+	assert.equal(paths.toWindowsHostPath("\\\\wsl.localhost\\Ubuntu-24.04\\mnt\\c\\repo", rootEnvironment), "C:\\repo");
+	assert.equal(paths.toWindowsHostPath("//wsl$/Ubuntu-24.04/mnt/d/space dir", rootEnvironment), "D:\\space dir");
 	assert.equal(paths.toWindowsHostPath("c:/repo", rootEnvironment), "C:\\repo");
 	assert.equal(paths.toWslLinuxPath("C:\\", rootEnvironment), "/mnt/c");
 	assert.equal(paths.toWindowsHostPath("/mnt/c/", rootEnvironment), "C:\\");
 	assert.equal(paths.linuxPathToWslUnc("/", "Ubuntu-24.04"), "\\\\wsl.localhost\\Ubuntu-24.04");
 });
 
-test("normalizes selected projects without changing the existing mounted-drive convention", () => {
-	assert.equal(paths.normalizeSelectedWslProjectPath("D:\\repo", rootEnvironment), "/mnt/d/repo");
+test("normalizes selected projects: drvfs → host drive path, distro-internal keeps Linux/UNC form", () => {
+	// /mnt 下的目录一律存盘符路径：UNC 与 Linux 形态在 Windows 侧都不可直接使用
+	// （\\wsl.localhost\<distro>\mnt\c 的 stat 是 EPERM，当子进程 cwd 是 ENOENT）。
+	assert.equal(paths.normalizeSelectedWslProjectPath("D:\\repo", rootEnvironment), "D:\\repo");
+	assert.equal(paths.normalizeSelectedWslProjectPath("/mnt/d/repo", rootEnvironment), "D:\\repo");
+	assert.equal(paths.normalizeSelectedWslProjectPath("\\\\wsl.localhost\\Ubuntu-24.04\\mnt\\d\\repo", rootEnvironment), "D:\\repo");
+	// 发行版内目录保持原形态：UNC 输入回规范 UNC，Linux 输入保持 Linux
 	assert.equal(paths.normalizeSelectedWslProjectPath("//wsl$/ubuntu-24.04/root/repo/", rootEnvironment), "\\\\wsl.localhost\\Ubuntu-24.04\\root\\repo");
+	assert.equal(paths.normalizeSelectedWslProjectPath("/root/repo", rootEnvironment), "/root/repo");
 });
 
 test("rejects another distribution and unrelated network shares", () => {
@@ -146,4 +155,15 @@ test("matches WSL UNC aliases without folding Linux path case", () => {
 
 	assert.equal(store.sameProjectPath("//wsl$/ubuntu-24.04/root/Repo", "\\\\wsl.localhost\\Ubuntu-24.04\\root\\Repo"), true);
 	assert.equal(store.sameProjectPath("//wsl$/Ubuntu-24.04/root/Repo", "\\\\wsl.localhost\\Ubuntu-24.04\\root\\repo"), false);
+});
+
+test("drvfs 的三种写法算同一目录（否则改成盘符路径后重加会多一条重复项目）", () => {
+	const { ProjectStore } = loadProjectStore({});
+	const store = new ProjectStore();
+
+	assert.equal(store.sameProjectPath("/mnt/d/Repo", "D:\\Repo"), true);
+	assert.equal(store.sameProjectPath("\\\\wsl.localhost\\Debian\\mnt\\c\\proj", "C:\\proj"), true);
+	assert.equal(store.sameProjectPath("/mnt/d/repo", "/mnt/d/other"), false);
+	// 非 drvfs 的发行版内路径仍区分大小写（Linux 卷）
+	assert.equal(store.sameProjectPath("/home/me/Repo", "\\\\wsl.localhost\\Debian\\home\\me\\repo"), false);
 });

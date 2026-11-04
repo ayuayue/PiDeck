@@ -28,10 +28,14 @@ test("\\wsl$ / \\wsl.localhost 两种 UNC 都归一成规范 UNC", () => {
 	assert.equal(normalizeWslProjectAddPath("\\\\wsl.localhost\\debian\\root\\proj", "Debian"), "\\\\wsl.localhost\\Debian\\root\\proj");
 });
 
-test("WSL 内的绝对 Linux 路径（含 /mnt 盘符）归一成 UNC", () => {
+test("WSL 内的绝对 Linux 路径归一：发行版内转 UNC，/mnt 盘符转宿主盘符路径", () => {
 	assert.equal(normalizeWslProjectAddPath("/root/proj", "Debian"), "\\\\wsl.localhost\\Debian\\root\\proj");
 	assert.equal(normalizeWslProjectAddPath("/home/me/proj/", "Debian"), "\\\\wsl.localhost\\Debian\\home\\me\\proj");
-	assert.equal(normalizeWslProjectAddPath("/mnt/d/work/proj", "Debian"), "\\\\wsl.localhost\\Debian\\mnt\\d\\work\\proj");
+	// drvfs 不能存 UNC：Windows 侧对 \\wsl.localhost\<distro>\mnt\c 的 stat 是 EPERM，
+	// 当 pi 子进程 cwd 则是 spawn ENOENT（用户报障：目录不存在 + 会话启动失败 + Git 不可用）。
+	assert.equal(normalizeWslProjectAddPath("/mnt/d/work/proj", "Debian"), "D:\\work\\proj");
+	assert.equal(normalizeWslProjectAddPath("/mnt/c/Users/me", "Debian"), "C:\\Users\\me");
+	assert.equal(normalizeWslProjectAddPath("\\\\wsl.localhost\\Debian\\mnt\\d\\work\\proj", "Debian"), "D:\\work\\proj");
 });
 
 test("宿主盘符路径返回 null（由 handler 给明确错误，不静默入库后消失）", () => {
