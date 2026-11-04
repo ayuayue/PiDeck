@@ -50,7 +50,7 @@ export function resolveSharedImageSource(name: string, sourceDir: string = SHARE
 /**
  * 把这些共用图片同步到站点 publicDir（`docs-site/public/images/`）。
  *
- * 由插件的 configResolved 调用（dev 启动与 build 打包的最早期阶段），
+ * 由 sync-shared.mjs 在 vitepress 启动前调用（插件钩子里也会调一次，幂等）。
  * 因此 dev 与 build 用的是同一份实现，不存在「dev 能看到、打包后丢图」这类只在一种模式下暴露的问题。
  *
  * 源文件缺失直接抛错而不是跳过：官网首页与 README 都引用了它，

@@ -11,9 +11,11 @@ import type { Plugin } from "vitepress";
  *
  * 做法：`docs/host-plugin-dev-guide.md` 是唯一数据源，dev 启动与 build 打包前由本插件
  * 复制为 `docs-site/guide/host-plugins.md`（构建产物，已 gitignore），官网路径 /guide/host-plugins。
- * 与 sharedReadmeImages 同一套机制（configResolved 时机 + 可注入路径 + 缺源硬失败），
- * 差别仅在目标是 markdown 页面而非 publicDir 图片——VitePress 的 srcDir 内页面同样要求
- * 构建前落盘，时机选择理由一致。
+ * 与 sharedReadmeImages 同一套实现（可注入路径 + 缺源硬失败）。
+ *
+ * 时机注意：configResolved 已经晚于 VitePress 的页面发现——只靠插件钩子会出现
+ * 「文件复制了、页面没生成」，CI 干净检出上 /guide/host-plugins 曾长期 404。
+ * 因此 dev / build 都改由 package.json 脚本先跑 sync-shared.mjs，插件保留为兜底。
  *
  * 指南内禁止使用仓库相对链接（官网侧会变破链），自包含文本即可双向成立。
  */
@@ -38,7 +40,7 @@ export function resolveSharedGuideSource(name: string, sourceDir: string = GUIDE
 }
 
 /**
- * 把共用指南同步为站点页面。由插件 configResolved 调用（dev / build 同一实现）。
+ * 把共用指南同步为站点页面。由 sync-shared.mjs 在 vitepress 启动前调用。
  * 源文件缺失直接抛错：侧边栏已挂载该路由，静默跳过等于官网上线一条 404。
  */
 export function syncSharedGuideDocs(pagesDir: string = GUIDE_PAGES_DIR, sourceDir: string = GUIDE_SOURCES_DIR): void {
@@ -60,7 +62,7 @@ export function sharedGuideDocsPlugin(): Plugin {
 		name: "pideck-shared-guide-docs",
 
 		// 与 sharedReadmeImagesPlugin 同理：必须在 configResolved 落盘，
-		// build 的页面发现阶段（buildStart 前）就要能看到目标 md。
+		// 同步由 sync-shared.mjs 在启动前完成；这里再调一次是幂等兜底。
 		configResolved() {
 			syncSharedGuideDocs();
 		},
