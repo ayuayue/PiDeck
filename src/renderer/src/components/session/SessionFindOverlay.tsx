@@ -5,6 +5,7 @@ import type { SessionSearchMatch } from "../../../../shared/types";
 import { t } from "../../i18n";
 import { SESSION_FIND_MIN_QUERY_LENGTH, useSessionMessageSearch } from "../../hooks/useSessionMessageSearch";
 import { resolveSessionFindAnchor, type SessionFindAnchor } from "./sessionFindAnchor";
+import { useDismiss } from "../../lib/hooks/use-dismiss";
 import { formatAbsoluteTime, formatRelativeTime } from "../../utils/relativeTime";
 import { Button } from "../ui-shadcn/button";
 import { Input } from "../ui-shadcn/input";
@@ -48,6 +49,7 @@ export function SessionFindOverlay(props: SessionFindOverlayProps) {
 	const [anchorBox, setAnchorBox] = useState<SessionFindAnchor>(() => resolveSessionFindAnchor(null, { width: typeof window === "undefined" ? 0 : window.innerWidth, height: typeof window === "undefined" ? 0 : window.innerHeight }));
 	const inputRef = useRef<HTMLInputElement | null>(null);
 	const listRef = useRef<HTMLDivElement | null>(null);
+	const panelRef = useRef<HTMLDivElement | null>(null);
 
 	const { result, isSearching, unavailable } = useSessionMessageSearch(props.sessionId, query, open);
 	const matches = useMemo<SessionSearchMatch[]>(() => result?.sessions[0]?.matches ?? [], [result]);
@@ -116,6 +118,12 @@ export function SessionFindOverlay(props: SessionFindOverlayProps) {
 		setQuery("");
 	}, []);
 
+	// 轻触关闭 + 全局 Esc。只挂在容器 onKeyDown 上是不够的：点一下时间线读正文，焦点就离开浮层，
+	// 之后按 Esc 没有任何元素收键（浮层「关不掉」）；点击外部区域也从来不会收起。
+	// useDismiss 在 window 捕获 pointerdown / 监听 keydown，且「pass-through」让这次点击照常
+	// 作用于下面的目标（点消息就是点消息，只是顺带收起浮层）。
+	useDismiss(open, close, panelRef, { behavior: "pass-through", escape: true });
+
 	// 活动行滚动进视野（长结果列表里键盘导航必须能看见当前项）
 	//
 	// 虚拟化后必须分两步：离屏行**根本没挂载**，`querySelector` 直接返回 null，
@@ -147,16 +155,15 @@ export function SessionFindOverlay(props: SessionFindOverlayProps) {
 
 	return createPortal(
 		<div
-			className="fixed z-40 flex max-w-[calc(100vw-24px)] shrink-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-popover shadow-md"
+			ref={panelRef}
+			// 层级与 portal 浮层两块约定见 docs/ui-and-css.md：① 用语义 token 而不是裸 z-40
+			// （40 连 --z-sticky:100 都不如，sticky 头部/抽屉里会被压在下面）；② 非 Radix 的
+			// createPortal 浮层不在 `[data-radix-popper-content-wrapper] *` 的 no-drag 规则内，
+			// 而本浮层贴的是消息区右上角＝窗口顶部 40px 拖拽热区，不显式退出热区就点不动。
+			className="fixed z-(--z-popover) flex max-w-[calc(100vw-24px)] shrink-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-popover shadow-md [-webkit-app-region:no-drag]"
 			style={positionStyle}
 			role="dialog"
 			aria-label={t("sessionFind.open")}
-			onKeyDown={(event) => {
-				// 焦点可能落在上一条/下一条/关闭按钮上：Esc 在容器层兜住，随处可关
-				if (event.key !== "Escape") return;
-				event.preventDefault();
-				close();
-			}}
 		>
 			<div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-border/40 px-2">
 				<Search size={13} className="shrink-0 text-muted-foreground" aria-hidden="true" />
