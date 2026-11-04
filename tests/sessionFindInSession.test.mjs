@@ -14,8 +14,38 @@ import { quickMessageHookHost } from "./helpers/quickMessageHookHost.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
+function createFakeTimers() {
+	let now = 0;
+	let nextId = 1;
+	const timers = new Map();
+
+	const setTimeout = (callback, delay = 0, ...args) => {
+		const id = nextId++;
+		timers.set(id, { dueAt: now + Number(delay), callback: () => callback(...args) });
+		return id;
+	};
+	const clearTimeout = (id) => {
+		timers.delete(id);
+	};
+	const advance = (ms) => {
+		now += ms;
+		while (true) {
+			let next;
+			for (const entry of timers) {
+				if (entry[1].dueAt <= now && (!next || entry[1].dueAt < next[1].dueAt || (entry[1].dueAt === next[1].dueAt && entry[0] < next[0]))) next = entry;
+			}
+			if (!next) return;
+			timers.delete(next[0]);
+			next[1].callback();
+		}
+	};
+
+	return { setTimeout, clearTimeout, advance };
+}
+
 function hookHarness() {
 	const host = quickMessageHookHost();
+	const timers = createFakeTimers();
 	const calls = [];
 	// IPC 入参是 SessionRecord.id（主进程按 catalog 的后端分派 pi/DSH 检索源），不是会话文件路径。
 	const windowStub = {
@@ -34,12 +64,12 @@ function hookHarness() {
 	};
 	const { useSessionMessageSearch, SESSION_FIND_DEBOUNCE_MS, SESSION_FIND_MIN_QUERY_LENGTH } = loadTsCommonJs("src/renderer/src/hooks/useSessionMessageSearch.ts", {
 		stubs: { react: host.react },
-		globals: { window: windowStub },
+		globals: { window: windowStub, setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout },
 	});
 
 	let state = null;
 	const render = (sessionId, query, enabled = true) => (state = host.render(() => useSessionMessageSearch(sessionId, query, enabled)));
-	return { host, calls, render, view: () => state, SESSION_FIND_DEBOUNCE_MS, SESSION_FIND_MIN_QUERY_LENGTH };
+	return { host, calls, render, advance: timers.advance, view: () => state, SESSION_FIND_DEBOUNCE_MS, SESSION_FIND_MIN_QUERY_LENGTH };
 }
 
 const HIT = {
@@ -56,7 +86,11 @@ test("输入停顿防抖后按会话 id 发起检索，并落命中结果", asyn
 	assert.equal(h.calls.length, 0);
 	h.render("s1", "alpha");
 	assert.equal(h.view().isSearching, true);
-	await new Promise((resolve) => setTimeout(resolve, h.SESSION_FIND_DEBOUNCE_MS + 20));
+	h.advance(h.SESSION_FIND_DEBOUNCE_MS - 1);
+	await flush();
+	assert.equal(h.calls.length, 0, "防抖截止前不得发请求");
+	h.advance(1);
+	await flush();
 	assert.equal(h.calls.length, 1);
 	assert.equal(h.calls[0].sessionId, "s1");
 	assert.equal(h.calls[0].query, "alpha");
@@ -72,7 +106,8 @@ test("输入停顿防抖后按会话 id 发起检索，并落命中结果", asyn
 test("主进程返回 null（pi 索引未就绪 / DSH host 不可用）标为 unavailable，而不是「没有匹配」", async () => {
 	const h = hookHarness();
 	h.render("s1", "alpha");
-	await new Promise((resolve) => setTimeout(resolve, h.SESSION_FIND_DEBOUNCE_MS + 20));
+	h.advance(h.SESSION_FIND_DEBOUNCE_MS);
+	await flush();
 	h.calls[0].resolve(null);
 	await flush();
 	h.render("s1", "alpha");
@@ -84,11 +119,13 @@ test("主进程返回 null（pi 索引未就绪 / DSH host 不可用）标为 un
 test("切会话后迟到回包被丢弃：上一个会话的命中不会贴到新会话", async () => {
 	const h = hookHarness();
 	h.render("s1", "alpha");
-	await new Promise((resolve) => setTimeout(resolve, h.SESSION_FIND_DEBOUNCE_MS + 20));
+	h.advance(h.SESSION_FIND_DEBOUNCE_MS);
+	await flush();
 	assert.equal(h.calls.length, 1);
 	// 切到另一个会话（同一关键词）：新一代请求发出
 	h.render("s2", "alpha");
-	await new Promise((resolve) => setTimeout(resolve, h.SESSION_FIND_DEBOUNCE_MS + 20));
+	h.advance(h.SESSION_FIND_DEBOUNCE_MS);
+	await flush();
 	assert.equal(h.calls.length, 2);
 	assert.equal(h.calls[1].sessionId, "s2");
 	// 新的一代先回
@@ -107,13 +144,15 @@ test("切会话后迟到回包被丢弃：上一个会话的命中不会贴到�
 test("空查询与关闭（enabled=false）都不发请求且清空结果", async () => {
 	const h = hookHarness();
 	h.render("s1", "");
-	await new Promise((resolve) => setTimeout(resolve, h.SESSION_FIND_DEBOUNCE_MS + 20));
+	h.advance(h.SESSION_FIND_DEBOUNCE_MS);
+	await flush();
 	assert.equal(h.calls.length, 0);
 	assert.equal(h.view().result, null);
 	assert.equal(h.view().isSearching, false);
 
 	h.render("s1", "alpha", false);
-	await new Promise((resolve) => setTimeout(resolve, h.SESSION_FIND_DEBOUNCE_MS + 20));
+	h.advance(h.SESSION_FIND_DEBOUNCE_MS);
+	await flush();
 	assert.equal(h.calls.length, 0, "浮层收起时不检索");
 	h.host.unmount();
 });
@@ -121,7 +160,8 @@ test("空查询与关闭（enabled=false）都不发请求且清空结果", asyn
 test("请求失败只把状态标为 unavailable，不抛出到渲染层", async () => {
 	const h = hookHarness();
 	h.render("s1", "alpha");
-	await new Promise((resolve) => setTimeout(resolve, h.SESSION_FIND_DEBOUNCE_MS + 20));
+	h.advance(h.SESSION_FIND_DEBOUNCE_MS);
+	await flush();
 	h.calls[0].reject(new Error("ipc boom"));
 	await flush();
 	h.render("s1", "alpha");
