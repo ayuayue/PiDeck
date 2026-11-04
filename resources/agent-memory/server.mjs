@@ -85,14 +85,14 @@ const TOOL_DEFINITIONS = [
 	{
 		name: "memory_search",
 		description:
-			"Search saved memories (global + current project + device) by full-text query. Call this before asking the user something they may already have told you. Set scope:\"all\" to also search the other projects on this machine (each hit carries its projectId).",
+			"Search saved memories (global + current project + device) by full-text query. Call this before asking the user something they may already have told you. Set scope:\"all\" to also search the other projects on this machine (each hit carries its projectId). When the current scope has no hits, the result lists `elsewhere`: projects that do have matches — an empty `hits` alone does not mean the memory does not exist.",
 		inputSchema: {
 			type: "object",
 			properties: {
 				query: { type: "string" },
 				target: { type: "string", enum: ["memory", "user", "project", "failure", "device"], description: "Optional: restrict to one target." },
 				projectId: { type: "string" },
-				scope: { type: "string", enum: ["current", "all"], description: "Optional: current (default) = global + current project + device; all = include every project on this machine." },
+				scope: { type: "string", enum: ["current", "all"], description: "Optional: current (default) = global + current project + device; all = include every project on this machine. Chinese queries work (substring match); use all when you need another project's memories." },
 				limit: { type: "integer", minimum: 1, maximum: 50 },
 			},
 			required: ["query"],
@@ -100,12 +100,12 @@ const TOOL_DEFINITIONS = [
 	},
 	{
 		name: "memory_get",
-		description: "List saved memory entries for one target (oldest first). Use memory_search to look up by content.",
+		description: "List saved memory entries for one target (oldest first). Use memory_search to look up by content. target=memory without projectId is the global file; pass projectId to read that project's entries (target=project defaults to the current session's project).",
 		inputSchema: {
 			type: "object",
 			properties: {
 				target: { type: "string", enum: ["memory", "user", "project", "failure", "device"] },
-				projectId: { type: "string" },
+				projectId: { type: "string", description: "Optional. For target=project this is the project scope (defaults to the current session's project); for target=memory an explicit value reads that project's entries instead of the global ones." },
 				offset: { type: "integer", minimum: 0 },
 				limit: { type: "integer", minimum: 1, maximum: 200 },
 			},
@@ -139,6 +139,11 @@ function projectOf(args) {
 	return defaultProjectKey();
 }
 
+/** 只取显式传入的 projectId（没传就是空串）。`memory_get` 要用它区分「看全局」与「看某个项目」。 */
+function explicitProjectOf(args) {
+	return typeof args?.projectId === "string" ? args.projectId.trim() : "";
+}
+
 /** 工具分发。所有实现都返回可 JSON 序列化的对象，由此统一包成 MCP 文本结果。 */
 function dispatch(root, name, args) {
 	const sources = readSources();
@@ -151,8 +156,13 @@ function dispatch(root, name, args) {
 			return removeMemory(root, { target: args?.target, content: args?.content, projectId: projectOf(args) });
 		case "memory_search":
 			return searchMemory(root, { query: args?.query, target: args?.target, projectId: projectOf(args), limit: args?.limit ?? 10, scope: args?.scope ?? "current" });
-		case "memory_get":
-			return getMemories(root, { target: args?.target, projectId: projectOf(args), offset: args?.offset ?? 0, limit: args?.limit ?? 50 });
+		case "memory_get": {
+			// target=project 的作用域默认就是当前会话项目；target=memory 只有**显式**给了 projectId
+			// 才切到那个项目的文件（不传仍是全局文件），否则每次 memory_get 都会静默变成项目作用域。
+			const explicit = explicitProjectOf(args);
+			const scoped = args?.target === "project" ? explicit || projectOf(args) : explicit;
+			return getMemories(root, { target: args?.target, projectId: scoped, offset: args?.offset ?? 0, limit: args?.limit ?? 50 });
+		}
 		case "session_search":
 			return searchSessions(root, { query: args?.query, project: args?.project, limit: args?.limit ?? 10, sources });
 		case "memory_status":

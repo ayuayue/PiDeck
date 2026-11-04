@@ -49,8 +49,8 @@
 | `memory_add` | 写一条事实 | `target` ∈ memory/user/project/failure/device；project 必须有 projectId；device 只落本机 |
 | `memory_replace` | 改一条（事实变了用它，别加第二条） | 定位必须唯一，歧义报 `entry-ambiguous` |
 | `memory_remove` | 删一条 | 同上 |
-| `memory_search` | 全文检索（全局+当前项目+设备） | `scope:"all"` 连带搜本机其它项目（每条命中带 projectId）；target 过滤在 FTS 与 LIKE 两条通道都生效 |
-| `memory_get` | 按 target 列举（旧→新） | 分页 |
+| `memory_search` | 全文检索（全局+当前项目+设备） | `scope:"all"` 连带搜本机其它项目（每条命中带 projectId）；target 过滤在 FTS 与 LIKE 两条通道都生效；**当前作用域 0 命中而别处有时回 `elsewhere`（`[{projectId, matches}]` + `hint`），只看 `hits` 为空不等于记忆里没有** |
+| `memory_get` | 按 target 列举（旧→新） | 分页；`target:"memory"` 不传 projectId 是全局文件，显式给出才读 `projects/<key>/MEMORY.md`（`target:"project"` 默认取会话 cwd 派生键） |
 | `session_search` | 跨后端检索历史会话 | 采集源为空时报 `session-sources-empty` |
 | `memory_status` | 预算用量（含设备作用域、`overBudget` 标记）+ 项目作用域清单 + 索引规模 | 用于诊断「记忆到底有没有在工作」与「跨项目检索能搜到哪些项目」 |
 
@@ -161,7 +161,7 @@ node --test tests/zhTwCopy.test.mjs            # 改了 zh-CN 词典后必须重
 npm run typecheck
 ```
 
-守卫测试固定的行为（含学习循环：不白调模型、失败不推水位、写入过扫描闸门）：重复写入幂等、目标隔离、写入扫描拒绝、替换/删除歧义报错、CJK 子串检索、target 过滤不漏、`scope:"all"` 能跨项目检索而 `current` 不串项目、预算裁剪把被丢条目回给调用方、`memory_status` 报 `overBudget` 与项目键清单、项目键不撞且带哈希、旧键目录迁移幂等且目标已存在时不覆盖、会话指纹未变时跳过、追加后整份重灌不重复、`system` 消息不入库、fork 会话共享消息 id 时两边都要入索引、`cwd` 必须能派生出项目键、mcp.json 损坏时不覆盖、打包/开发两态脚本路径、导出不含设备记忆、导入幂等且坏条目不断任务、墓碑双向传播、设备记忆可检索且不进包、记忆 tab 的条目清单给的 key 正好能删掉它自己那一行、预览不写盘、按勾选裁剪导入导出（`overwrite` 让旧版本真的消失）、关掉墓碑同步就不删本地条目、删除后的撤销会回收墓碑、STANDING 保存穿透 mtime 短路且超预算拒写、设备改名只动 name 不动 id、DSH 会话（多帧 zstd）与 pi/acp 同一套索引且派生会话不采。
+守卫测试固定的行为（含学习循环：不白调模型、失败不推水位、写入过扫描闸门）：重复写入幂等、目标隔离、写入扫描拒绝、替换/删除歧义报错、CJK 子串检索、target 过滤不漏、`scope:"all"` 能跨项目检索而 `current` 不串项目、`current` 空命中时回 `elsewhere` 而不搬内容、`memory_get` 只在显式 projectId 时切项目作用域、预算裁剪把被丢条目回给调用方、`memory_status` 报 `overBudget` 与项目键清单、项目键不撞且带哈希、旧键目录迁移幂等且目标已存在时不覆盖、会话指纹未变时跳过、追加后整份重灌不重复、`system` 消息不入库、fork 会话共享消息 id 时两边都要入索引、`cwd` 必须能派生出项目键、mcp.json 损坏时不覆盖、打包/开发两态脚本路径、导出不含设备记忆、导入幂等且坏条目不断任务、墓碑双向传播、设备记忆可检索且不进包、记忆 tab 的条目清单给的 key 正好能删掉它自己那一行、预览不写盘、按勾选裁剪导入导出（`overwrite` 让旧版本真的消失）、关掉墓碑同步就不删本地条目、删除后的撤销会回收墓碑、STANDING 保存穿透 mtime 短路且超预算拒写、设备改名只动 name 不动 id、DSH 会话（多帧 zstd）与 pi/acp 同一套索引且派生会话不采。
 
 ## 8. 与 hermes 的差异
 

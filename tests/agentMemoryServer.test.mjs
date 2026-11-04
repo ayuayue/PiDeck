@@ -365,6 +365,15 @@ test("协议层：initialize / tools/list / tools/call 走 stdio JSON-RPC，业�
 	assert.equal(afterPayload.hits.length, 1);
 	assert.equal(afterPayload.degraded, false);
 
+	// memory_get 的 projectId 要真的作用于作用域：不带就是全局文件，显式给了才读该项目
+	addMemory(root, { target: "project", content: "协议层项目事实", projectId: "proj-x" });
+	const globalGet = JSON.parse((await request("tools/call", { name: "memory_get", arguments: { target: "memory" } })).result.content[0].text);
+	assert.equal(globalGet.scope, "global");
+	const scopedGet = JSON.parse((await request("tools/call", { name: "memory_get", arguments: { target: "memory", projectId: "proj-x" } })).result.content[0].text);
+	assert.equal(scopedGet.scope, "project");
+	assert.equal(scopedGet.projectId, "proj-x");
+	assert.deepEqual(scopedGet.entries.map((entry) => entry.content), ["协议层项目事实"]);
+
 	// scope 必须真的透传到工具层：非法值报稳定错误码，而不是静默回落成 current
 	const badScope = await request("tools/call", { name: "memory_search", arguments: { query: "协议层", scope: "everything" } });
 	assert.equal(badScope.result.isError, true);
@@ -437,6 +446,44 @@ test("预算：放开到 32KB/400 条，导入不再被静默裁掉，超限时�
 	assert.equal(status.usage.memory.overBudget, false);
 	assert.equal(status.usage.failure.overBudget, true);
 	assert.ok(status.usage.failure.chars > 0);
+});
+
+test("检索：当前作用域 0 命中时告诉调用方「别的项目里有」，空 hits 不再等于记忆里没有", () => {
+	const root = freshRoot();
+	addMemory(root, { target: "project", content: "打印模板前缀 zg = 自购，经费余额走备用链", projectId: "proj-t6" });
+
+	// 中文子串检索本身是好的：内容仍只在 scope=all 时返回（既有契约不变）。
+	const current = searchMemory(root, { query: "经费余额", projectId: "proj-other" });
+	assert.equal(current.hits.length, 0);
+	assert.equal(current.degraded, false);
+	assert.deepEqual(current.elsewhere, [{ projectId: "proj-t6", matches: 1 }], "0 命中要能看出命中在哪个项目");
+	assert.match(current.hint, /scope:"all"/);
+
+	// 无关查询不给 elsewhere：否则每条空结果都带一句提示，等于噪音。
+	const unrelated = searchMemory(root, { query: "完全不存在的词", projectId: "proj-other" });
+	assert.equal(unrelated.elsewhere, undefined);
+	assert.equal(unrelated.hint, undefined);
+
+	// 当前作用域本来就有命中时不扫其他项目，也不会把本项目算成 elsewhere。
+	const local = searchMemory(root, { query: "经费余额", projectId: "proj-t6" });
+	assert.equal(local.hits.length, 1);
+	assert.equal(local.elsewhere, undefined);
+});
+
+test("memory_get：显式 projectId 读那个项目的条目，不传才读全局", () => {
+	const root = freshRoot();
+	addMemory(root, { target: "memory", content: "全局事实：回答用中文" });
+	addMemory(root, { target: "project", content: "项目事实：禁止全量构建", projectId: "proj-a" });
+
+	const global = getMemories(root, { target: "memory" });
+	assert.equal(global.scope, "global");
+	assert.deepEqual(global.entries.map((entry) => entry.content), ["全局事实：回答用中文"]);
+
+	// 以前显式给了 projectId 也会静默退回全局文件，调用方据此判定「这个项目没有记忆」。
+	const scoped = getMemories(root, { target: "memory", projectId: "proj-a" });
+	assert.equal(scoped.scope, "project");
+	assert.equal(scoped.projectId, "proj-a");
+	assert.deepEqual(scoped.entries.map((entry) => entry.content), ["项目事实：禁止全量构建"]);
 });
 
 test("检索：默认只搜当前项目，scope=all 才跨项目，状态里能看到有哪些项目", () => {
