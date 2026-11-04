@@ -82,7 +82,24 @@ localStorage.setItem("pideck:perf-log", "1")
 
 **门禁**：若 ACP 实测 payload < 256KB 且最长任务 < 50ms，则本方案降级为「不做」，把资源投向别处。这是防止为了一个观感问题做跨进程改造的止损点。
 
-### Phase 1：ACP 复用增量尾部协议（低风险，预计吃掉大部分收益）
+#### 0.1 已采样：payload 侧（2026-11-04，本机 40 条真实 ACP 会话归档）
+
+用 `%APPDATA%/PiDeck/acp-sessions/*.json` 复算 `flushMessages` 的实际载荷（同形对象 + JSON 体积），**渲染侧 longtask 尚未采**（需要真机跑一次，见上文开关）。
+
+| 口径 | 超 256KB 的会话 | p50 | p90 | max |
+|---|---|---|---|---|
+| 现状（全量、含工具结果） | 34 / 40 | 1.86MB | 3.70MB | **7.58MB** |
+| + `stripToolResultForDelivery` | 32 / 40 | 1.46MB | 2.88MB | 4.26MB |
+| + 尾部 **9 轮**窗口 | 31 / 40 | 1.12MB | 2.26MB | 4.26MB |
+| + 尾部 **100 条**窗口 | 10 / 40 | 0.21MB | 0.28MB | 0.39MB |
+| + 尾部 200 条窗口 | 32 / 40 | 0.41MB | 0.60MB | 0.78MB |
+
+两个结论直接改写了下文方案：
+
+1. **payload 门禁已被击穿**：34/40 超过 256KB，p90 3.7MB、最大 7.58MB。改造值得做。
+2. **「尾部 N 轮」窗口对 ACP 几乎无效**（31/40 仍超标）。原因：ACP 一轮里每次工具调用都是一条消息，单轮可达 200+ 条（本机最长 1283 条 / 6 轮）。pi 的 9 轮窗口口径在 ACP 上不成立，**必须改成按消息条数预算**（100 条 ≈ 0.21MB），并对齐轮边界避免把一轮切两半。
+
+### Phase 1：剥离工具结果（低成本，但**不足以单独收口**）
 
 1. 把 `buildMessageFlushPayload` / `stripToolResultForDelivery` 从 `src/main/pi/agentUtils.ts` 提到 `src/main/agents/messageFlushPayload.ts`（纯函数，零依赖），pi 侧改为从新位置导入——**行为零变化**，只是搬家。
 2. `AcpUpdatePipeline` 维护 `dirtyFrom`（与 pi 的 batcher 同语义：投影改动的最早下标），`flushMessages` 用它构造 payload：
@@ -90,22 +107,26 @@ localStorage.setItem("pideck:perf-log", "1")
    - 终态 / 编辑 / 删除 / 截断 / 重载 → 仍然全量（与 pi 同一条回退规则）。
 3. 投递前统一走 `stripToolResultForDelivery`（大工具输出不进 IPC，渲染层按需从快照取）。
 
-**收益**：流式期间每次 flush 从 O(N) 降到 O(尾部增量)；重放终态仍需一次全量，但去掉了工具结果载荷。
+**收益**：实测 −19%~−51%（p50 1.86MB → 1.46MB）。**但 32/40 仍超 256KB**——剥离只能减重，不能收口，所以不单独作为修复阶段，直接并入 Phase 2 的载荷构造点（同一处代码，一行的事）。
+**保留价值**：`upsertFrom` 增量（Phase 1 的另一半）与重放无关，它治的是**长回合流式期间每 80ms 重传整段历史**。那是一个独立的性能问题，建议单独排期，不阻塞重放修复。
 **风险**：`upsertFrom` 与渲染层合并校验（长度必须等于 `totalLength - W + cardCount`）不满足时会丢弃并等下一次全量——表现是「本轮显示延迟」而非错乱，pi 已经这样跑了两个大版本。
 **验证**：`tests/acpUpdatePipeline`（新增：dirtyFrom 传播、终态全量、工具结果裁剪）+ 渲染层既有 `sessionMessageUpsert` 回归；e2e 用 mock ACP 回放一条 200 条历史。
 
 ### Phase 2：重放窗口化 + 归档分页（中风险，Phase 1 不够时做）
 
-重放终态那次全量仍然 O(N)。改成与 pi 一致的窗口投递：
+重放终态那次全量仍然 O(N)。改成**按消息条数预算的窗口投递**（不是 pi 的「尾部 N 轮」，理由见 §0.1）：
 
-1. 主进程按「尾部 N 轮」算 `windowStart`，只投递 `[windowStart..]` + `totalLength`；
+1. 主进程从尾部按**轮边界**向前累加，直到「≥100 条 或 ≥9 轮」即停（取先到者），只投递 `[windowStart..]` + `totalLength`；窗口必须停在轮起点，不把一轮切两半（切了工具卡会缺上下文）；
+   - 100 条是实测值：p50 0.21MB / p90 0.28MB / max 0.39MB；若后续要求更严可下调到 60 条；
 2. 渲染层已有的 `windowStart` 分支和「加载更早」分页直接生效（ACP 的 `sessions.messages` 已支持）；
 3. **必须补版本守卫**：pi 用 `fileVersion`（会话文件 mtime:size）判断「磁盘前缀是否还属于同一份历史」；ACP 没有会话文件，需要等价物——用归档的 `mtime:size`（`AcpSessionArchive`）或投影代次作为 `archiveVersion`，版本不符时丢弃已加载的前缀并重新分页。
    - 为什么必须：CLI 侧可能压缩/改写过历史，归档副本与重放结果不一致时，前缀会和新窗口拼出「同一段对话两遍」。
 
 **风险**：窗口化把「权威历史（CLI 重放）」和「本地归档副本」拼在一起，版本守卫写错就是重复/错位消息。**这是本方案唯一真正危险的一步**，建议单独一个 PR、单独回滚开关（`settings.acpWindowedReplay`，默认关 → 灰度）。
 
-### Phase 3：分块投递（兜底，仅在 Phase 1/2 后仍超标时做）
+### Phase 3：分块投递（兜底，仅在 Phase 2 后仍超标时做）
+
+Phase 2 的窗口预算会把 31/40 的超标会话压到 10/40；剩下的是「单轮就超过 100 条」的会话（本机最长一轮 ~200 条）。这类会话没有合法窗口能既保住整轮又保住体积，只能分块：
 
 重放期不一次性 flush，而是每积累 K 条（建议 50）或每 16ms 投递一次增量块：
 
@@ -124,7 +145,7 @@ localStorage.setItem("pideck:perf-log", "1")
 1. **CLI 重放仍是权威历史**；任何窗口化/分页都不得让本地归档冒充权威。
 2. **不丢消息**：增量协议的失败路径只能是「等下一次全量校准」，不允许静默跳过。
 3. **不新增 pi↔PiDeck 通道**：全部改动在既有 `agents:message` 载荷字段内（`upsertFrom`/`totalLength`/`windowStart` 已是既有协议）。
-4. **pi 行为零变化**：Phase 1 的搬家必须是纯位移，`tests/agentManagerRuntimeCache` 等既有用例不改断言。
+4. **pi 行为零变化**：Phase 1 的搬家（若做）必须是纯位移，`tests/agentManagerRuntimeCache` 等既有用例不改断言。
 
 ## 6. 验收
 
@@ -135,11 +156,15 @@ localStorage.setItem("pideck:perf-log", "1")
 | 流式期间每秒 flush 字节数 | 与历史长度无关（只随本轮增量增长） |
 | 重放后消息顺序/条数 | 与 CLI 侧一致，无重复、无缺失（e2e 断言） |
 
-## 7. 顺序与依赖
+## 7. 顺序与依赖（按实测调整）
 
 ```
-Phase 0 测量 ──► Phase 1 增量+裁剪 ──► 复测 ──┬─ 达标 → 结束
-                                              └─ 不达标 → Phase 2 窗口化 ──► 复测 ──► Phase 3（如需）
+Phase 0 采样（payload ✅ / longtask 待真机）
+   └─ payload 34/40 超标 → 直接做 Phase 2（窗口化 + 顺带剥离工具结果）
+        └─ 复测 ──┬─ ≤256KB → 结束
+                  └─ 仍超标（单轮 >100 条的会话）→ Phase 3 分块投递
+Phase 1 的增量 upsertFrom：独立性能项（长回合流式），单独排期，不阻塞上面
 ```
 
-Phase 1 与 Phase 2 可以并行开发但**必须串行上线**（Phase 2 的窗口化依赖 Phase 1 的载荷构造点）。
+为什么不再是「Phase 1 → Phase 2」：实测剥离只把 p50 从 1.86MB 降到 1.46MB（32/40 仍超标），
+单独做 Phase 1 拿不到任何可感知的改善；而它要改的载荷构造点与 Phase 2 完全重合，并进去即可。
