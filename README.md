@@ -433,6 +433,8 @@ src/
   <img src="docs/images/wechat-qrcode.png" alt="PiDeck 微信群二维码" width="280" />
 </p>
 
+> QQ 群与微信群的二维码都在**[这里（腾讯文档，会定时更新）](https://docs.qq.com/doc/DVEZOdEh1Rk9FQkNa)**。上面这张图可能会过期，以链接里的为准。
+
 ---
 
 ## 🔒 安全与隐私
