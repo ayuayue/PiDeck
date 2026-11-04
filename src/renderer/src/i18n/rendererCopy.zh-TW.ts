@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 902af3b78400770bd63a2b42c26e5af22d61b473dd08732ac1cefaf62fb51f36（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 38ee5784b4f520eacb18bf8fbe3e81bd084ce68d3a13fa5b106a40be65aab7d6（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -3405,6 +3405,11 @@ export const zhTW: Record<TranslationKey, string> = {
 	"editor.unlockEditBody": "檔案：{path}\n它不在任何專案目錄內。解鎖後自動儲存與 Ctrl+S 會直接寫入這個路徑，沒有版本控制也沒有撤銷以外的兜底。",
 	"editor.unlockEditConfirm": "允許編輯",
 	"editor.attachSelectionRange": "引用選中內容（第 {range} 行）",
+	"editor.reload": "重新載入",
+	"editor.reloadHint": "從磁碟重新讀取這個檔案（AI 或外部工具改動後用它重新整理）",
+	"editor.reloadDirtyTitle": "重新載入會丟棄未儲存的修改？",
+	"editor.reloadDirtyBody": "{file} 有未儲存的修改，重新載入會丟棄它們。",
+	"editor.reloadDirtyConfirm": "丟棄並重新載入",
 	"editor.diffTooLarge": "檔案過大，無法顯示差異對比",
 	"editor.diffTooLargeDetail": "舊檔案 {old} 行，新檔案 {new} 行，請使用 git diff 檢視",
 	"editor.dirtyCloseTitle": "關閉未儲存的檔案？",
