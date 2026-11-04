@@ -1307,6 +1307,53 @@ export const ipcChannels = {
 	 */
 	clipboardWriteText: "clipboard:write-text",
 
+	// ===== 云同步（CloudSyncManager，主进程持有密码/密钥/Provider 凭据） =====
+	cloudSyncGetState: "cloud-sync:get-state",
+	/** 主进程 → 渲染：同步状态/安全状态变化推送 */
+	cloudSyncStateChanged: "cloud-sync:state-changed",
+	cloudSyncSetupMasterKey: "cloud-sync:setup-master-key",
+	cloudSyncUnlock: "cloud-sync:unlock",
+	cloudSyncLock: "cloud-sync:lock",
+	cloudSyncChangePassword: "cloud-sync:change-password",
+	cloudSyncConfigureProvider: "cloud-sync:configure-provider",
+	cloudSyncDisconnectProvider: "cloud-sync:disconnect-provider",
+	cloudSyncConnect: "cloud-sync:connect",
+	cloudSyncGithubDeviceStart: "cloud-sync:github-device-start",
+	cloudSyncGithubDevicePoll: "cloud-sync:github-device-poll",
+	cloudSyncScan: "cloud-sync:scan",
+	cloudSyncUpdateSelection: "cloud-sync:update-selection",
+	cloudSyncSyncNow: "cloud-sync:sync-now",
+	cloudSyncResolveConflicts: "cloud-sync:resolve-conflicts",
+	cloudSyncRestoreExtensions: "cloud-sync:restore-extensions",
+	cloudSyncSetAutoSync: "cloud-sync:set-auto-sync",
+	cloudSyncSetStrategy: "cloud-sync:set-strategy",
+	/** 本地一键导出：`.pideckbackup` 加密备份包（可离线、无需云服务） */
+	cloudSyncExport: "cloud-sync:export",
+	/** 本地一键导入：从备份包恢复（可离线、无需云服务） */
+	cloudSyncImport: "cloud-sync:import",
+	/** OneDrive 浏览器授权启动（token 只在主进程流转） */
+	cloudSyncOneDriveStart: "cloud-sync:onedrive-start",
+	/** OneDrive 授权轮询（成功即完成 provider 配置） */
+	cloudSyncOneDrivePoll: "cloud-sync:onedrive-poll",
+	/** Google Drive 浏览器授权启动（token 只在主进程流转） */
+	cloudSyncGoogleStart: "cloud-sync:google-start",
+	/** Google Drive 授权轮询（成功即完成 provider 配置） */
+	cloudSyncGooglePoll: "cloud-sync:google-poll",
+	/** M9：设置扫描排除规则（用户黑名单） */
+	cloudSyncSetExclusions: "cloud-sync:set-exclusions",
+	/** M9：添加自选同步路径（文件/文件夹） */
+	cloudSyncAddCustomPath: "cloud-sync:add-custom-path",
+	/** M9：移除自选同步路径 */
+	cloudSyncRemoveCustomPath: "cloud-sync:remove-custom-path",
+	/** M9：云端项目挂载到本地目录（全手动策略） */
+	cloudSyncMountProject: "cloud-sync:mount-project",
+	/** M9：解除挂载 */
+	cloudSyncUnmountProject: "cloud-sync:unmount-project",
+	/** M9：弹文件/文件夹选择器，选择后归属计算并加入自选同步清单 */
+	cloudSyncPickCustomPath: "cloud-sync:pick-custom-path",
+	/** M9：弹目录选择器，供云端项目挂载选本地目录 */
+	cloudSyncPickMountDirectory: "cloud-sync:pick-mount-directory",
+
 	// ===== 资源管理器右键菜单（HKCU 注册/查询，portable 亦可用） =====
 	/** 渲染层 → 主进程：查询「用 PiDeck 打开」右键菜单是否已注册 */
 	shellMenuGetState: "shell-menu:get-state",

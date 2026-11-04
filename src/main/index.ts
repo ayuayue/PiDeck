@@ -1,9 +1,9 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, protocol, safeStorage, screen, session, shell, Tray, Notification, webContents } from "electron";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { hostname, release as osRelease } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { renderDshSessionHtml as renderSessionHtmlForExport, sanitizeExportFileName } from "./dsh/dshSessionHtmlExport";
-import { release as osRelease } from "node:os";
 import { createWriteStream, existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { is } from "@electron-toolkit/utils";
@@ -505,6 +505,8 @@ import { registerPasteFilesIpc } from "./ipc/pasteFilesIpc";
 import { registerSecurityIpc } from "./ipc/securityIpc";
 import { registerVisionIpc } from "./ipc/visionIpc";
 import { registerImageGenIpc } from "./ipc/imagegenIpc";
+import { registerCloudSyncIpc } from "./ipc/cloudSyncIpc";
+import { CloudSyncManager } from "./cloudSync/CloudSyncManager";
 import { ImageGenService } from "./imagegen/ImageGenService";
 import { ImageSessionStore } from "./imagegen/ImageSessionStore";
 import { ImageBlobStore } from "./imagegen/ImageBlobStore";
@@ -958,6 +960,7 @@ function syncSelectionToolShortcut(): void {
 }
 /** 粘贴文件启动清理（registerIpc 阶段赋值；whenReady 后 fire-and-forget 执行） */
 let cleanupPasteFiles: (() => Promise<number>) | undefined;
+let cloudSyncManager: CloudSyncManager;
 
 /** 退出清理登记表（C12）：常驻资源创建处登记，before-quit 统一顺序执行。 */
 const quitCleanup = new QuitCleanupRegistry();
@@ -1043,6 +1046,13 @@ function broadcastVisibleProjects(): void {
 	window.webContents.send(ipcChannels.projectsChanged, visible);
 	// 项目集变化同步重建托盘菜单（最近项目区），否则增删项目后菜单滞后。
 	refreshTrayContextMenu();
+}
+
+/** 云同步状态变化 → 渲染层（设置页/全局状态订阅共用）。 */
+function broadcastCloudSyncStateChanged(): void {
+	const window = mainWindow;
+	if (!window || window.isDestroyed() || !cloudSyncManager) return;
+	window.webContents.send(ipcChannels.cloudSyncStateChanged, cloudSyncManager.getStateSnapshot());
 }
 
 /**
@@ -5391,6 +5401,12 @@ function registerIpc() {
 		},
 	});
 	registerClipboardIpc({ appLogger });
+	// 云同步：主进程业务在 CloudSyncManager，handler 薄层只校验入参/适配返回值
+	registerCloudSyncIpc({
+		manager: cloudSyncManager,
+		notifyStateChanged: () => broadcastCloudSyncStateChanged(),
+		listProjects: () => projectStore.list(),
+	});
 	// 资源管理器右键菜单（HKCU）：菜单显示名跟随主进程 locale（可能随设置语言切换）
 	registerShellMenuIpc({
 		appLogger,
@@ -7000,6 +7016,47 @@ app
 			if (win && !win.isDestroyed()) win.webContents.send(ipcChannels.sessionGroupsChanged, null);
 		});
 		await Promise.all([sessionCatalog.load(), automationStorePreload, agentProfileStorePreload, favoritesStorePreload, sessionGroupStorePreload]);
+		// 云同步编排：主进程唯一持有密码/派生 key/Provider 凭据；扫描与恢复都走主进程。
+		cloudSyncManager = new CloudSyncManager({
+			userDataDir: app.getPath("userData"),
+			homeDir: app.getPath("home"),
+			// DSH 会话同步：DSH_HOME 与 DshHost 同一套解析（设置覆盖 > ~/.dsh > 应用私有目录）。
+			dshHomeDir: resolveDshHomeDir(settingsStore.get().dshHomeDir ?? "", app.getPath("userData")),
+			deviceName: hostname(),
+			appVersion: app.getVersion(),
+			listProjects: () => projectStore.list(),
+			listSessionRecords: () => sessionCatalog.listEntries().map((entry) => sessionCatalog.getRecord(entry.id)).filter((record): record is SessionRecord => Boolean(record)),
+			getDesktopSettings: () => settingsStore.get(),
+			// filterSyncableDesktopSettings 已把未知 key 过滤掉，这里收窄为 AppSettings 字段。
+			updateDesktopSettings: async (patch) => {
+				await settingsStore.update(patch as Partial<AppSettings>);
+			},
+			// M5：包扩展安装走 ExtensionManager（pi install）；失败只记录缺失，不阻断同步。
+			installExtension: async (source) => {
+				try {
+					await extensionManager.install(source);
+					return { ok: true };
+				} catch (error) {
+					return { ok: false, error: error instanceof Error ? error.message : String(error) };
+				}
+			},
+			listExtensions: async () => {
+				try {
+					const result = await extensionManager.list(false);
+					return result.extensions.map((summary) => ({
+						source: summary.source,
+						scope: summary.scope,
+					}));
+				} catch {
+					return [];
+				}
+			},
+			onStateChanged: () => broadcastCloudSyncStateChanged(),
+			log: (domain, message, details) => void appLogger.info(domain, message, details),
+		});
+		await cloudSyncManager.initialize();
+		// C12：退出清理登记（before-quit 统一 runAll；cloud-sync 定时器与适配器随进程结束回收）
+		quitCleanup.register("cloud-sync", () => cloudSyncManager?.dispose());
 		// 智能体一次性调用（划词工具 / 市场面板）：复用提示词增强侧车协议，但**独立实例**。
 		// 侧车进程常驻、首次调用才拉起（EnhancePromptService 的现有语义），启动期只做装配。
 		agentInvokeCompletionService = createCompletionHelperService("agent-invoke");
