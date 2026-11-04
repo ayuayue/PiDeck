@@ -877,6 +877,14 @@ function projectHandlers(options = {}) {
 				}
 				return { ok: true, value: await task({ hostId, request: async () => ({}), cancel: async () => ({ cancelled: true }) }) };
 			},
+			// 项目事实与能力按 (hostId, canonicalRoot) 回答：替身只在自己记着的那个 root 上认账，
+			// 兄弟 root 一律 undefined——这正是项目缓存围栏要证明的东西。
+			projectConnectionFacts(hostId, root) {
+				return roots.get(hostId) === root ? { connectionId: hostId + "#fake#1", state: "ready" } : undefined;
+			},
+			projectHelperCapabilities() {
+				return ["fs.list"];
+			},
 			listDiagnostics: () => [],
 			async dispose() {},
 		}),

@@ -34,8 +34,9 @@ import { createRemoteWorkspaceReader } from "../remote/RemoteWorkspaceReader";
 import { createRemoteSearchReader } from "../remote/RemoteSearchReader";
 import { REMOTE_HELPER_METHOD_FS_SEARCH_CONTENT } from "../remote/RemoteHelperContract";
 import { createFactCache, type FactCache } from "../remote/RemoteFactCache";
-import { createDirWatchRegistry, dirKeysAfterWrite, dirPathsAfterWrite } from "../remote/RemoteDirWatchRegistry";
+import { dirKeysAfterWrite, dirPathsAfterWrite } from "../remote/RemoteDirWatchRegistry";
 import { createDeepDirWatch, type DeepDirWatchStatus } from "../remote/RemoteDeepDirWatch";
+import { createProjectWatchKeepAlive } from "./remoteProjectWatchKeepAlive";
 import { createRemoteFactsHub, type RemoteFactsHub } from "../remote/RemoteFactsNotifications";
 import { PendingConfirmationBroker } from "../security/PendingConfirmationBroker";
 
@@ -70,9 +71,10 @@ export type RemoteProjectIpcHandle = {
 	 * 只做**失效**，不装载：事件是「你可能要重读」的提示，重读仍由读的人决定。
 	 * 未注册的 watchId（旧会话、别的项目、已撤销）直接忽略——绝不猜。
 	 */
-	onHelperEvent(entry: { hostId: string; watchId: string; paths: readonly string[] }): void;
+	onHelperEvent(entry: { hostId: string; watchId: string; paths: readonly string[]; sessionKey: string }): void;
 	/** 断连：helper 的 watcher 已随会话一起死，登记直接丢弃（不再发退订）。 */
 	onHostDisconnected(hostId: string): void;
+	onRootRetired(entry: { hostId: string; root: string; sessionKey: string }): void;
 	/** 项目关闭：退订它在各 host 上的目录订阅，不影响别的项目。 */
 	closeProject(projectId: string): Promise<void>;
 	/** 立即冲刷深层订阅的合并窗口（测试/诊断；正常路径由 150–250ms 窗口自行冲刷）。 */
@@ -241,7 +243,8 @@ export function registerRemoteProjectIpc(input: {
 	 * 在同一个装载里合并，并带一个 revision——两个读者据此知道“我看到的是同一份事实”。
 	 * 失效只在写面发生时标脏（`afterWrite`），装载成本由读的人决定，一次写不产生任何往返。
 	 */
-	const watchRegistry = createDirWatchRegistry();
+	const projectWatches = createProjectWatchKeepAlive();
+	const watchRegistry = projectWatches.registry;
 
 	/**
 	 * 事实变化通知的出口（v5 T4）：事实层只标脏，通知由这里发。
@@ -272,6 +275,8 @@ export function registerRemoteProjectIpc(input: {
 			const outcome = await target.service.withProjectSession(target.hostId, target.remotePath, async (session) => {
 				// 连接代与 host 归属记在这里：事件/写面通知带去给渲染层，断连时据此换代。
 				projectGenerations.set(projectId, session.connectionId);
+				// 保活登记：这条会话的 watcher 活着时，池不能因为空闲把它回收掉。
+				projectWatches.noteSession(session.connectionId, { service: target.service, hostId: target.hostId, root: target.remotePath });
 				projectHosts.set(projectId, target.hostId);
 				const reader = createRemoteWorkspaceReader({ port: sessionPort(session, target.hostId) });
 				const listed = await reader.list(target.hostId, readerPath(relative));
@@ -299,8 +304,8 @@ export function registerRemoteProjectIpc(input: {
 		const key = projectId + "\u0000" + relative;
 		// 只有暖事实才要求活的同代会话；首次打开目录必须允许正常建立会话。
 		const existing = dirs.peek(key);
-		const connection = target.service.connectionFacts?.(target.hostId);
-		if (typeof target.service.connectionFacts === "function" && existing !== undefined && (connection === undefined || connection.state !== "ready")) return { ok: false, code: "SSH_HOST_NOT_READY" };
+		const connection = target.service.projectConnectionFacts(target.hostId, target.remotePath);
+		if (existing !== undefined && (connection === undefined || connection.state !== "ready")) return { ok: false, code: "SSH_HOST_NOT_READY" };
 		const snapshot = await dirs.read(key, { ...(connection === undefined ? {} : { generation: connection.connectionId }), force });
 		return snapshot.ok ? { ok: true, snapshot } : { ok: false, code: snapshot.code };
 	}
@@ -341,7 +346,7 @@ export function registerRemoteProjectIpc(input: {
 				// The capability is read after the session exists: a first read of a cold host establishes the
 				// session inside withProjectSession, so the hello answer is already stored when this runs.
 				const outcome = await target.service.withProjectSession(target.hostId, target.remotePath, async (session) => {
-					const capabilities = target.service.helperCapabilities(target.hostId);
+					const capabilities = target.service.projectHelperCapabilities(target.hostId, target.remotePath);
 					if (capabilities === undefined || capabilities.includes(REMOTE_HELPER_METHOD_FS_SEARCH_CONTENT) === false) return null;
 					const reader = createRemoteSearchReader({ port: sessionPort(session, target.hostId) });
 					const result = await reader.searchContent(target.hostId, ".", query);
@@ -356,11 +361,11 @@ export function registerRemoteProjectIpc(input: {
 			}
 		},
 		onHelperEvent(entry): void {
-			const changed = watchRegistry.scopesForEvent(entry.hostId, entry.watchId) ?? [];
+			const changed = projectWatches.registry.scopesForEvent(entry.hostId, entry.sessionKey, entry.watchId) ?? [];
 			// 先发通知再标脏：两者都是同步的，读仍由活跃的消费者决定（事件不装载）。
 			for (const scope of changed) factsEvents.publish({ projectId: scope.projectId, generation: generationOf(scope.projectId), scopes: scope.paths.map((path) => ({ kind: "dir" as const, path })) });
 			for (const scope of changed) {
-				for (const path of scope.paths) dirs.invalidate(scope.projectId + " " + path);
+				for (const path of scope.paths) dirs.invalidate(scope.projectId + "\u0000" + path);
 			}
 		},
 		dirLoads(): number {
@@ -369,15 +374,17 @@ export function registerRemoteProjectIpc(input: {
 		onHostDisconnected(hostId: string): void {
 			// helper 已死：旧的 watchId 不可能再回来，登记直接丢弃，不发退订。
 			dirWatch.forgetHost(hostId);
-			watchRegistry.clearHost(hostId);
+			projectWatches.forgetHost(hostId);
 			// 断连换代：旧代缓存与渲染层持有的快照都不能再被当作“现在”。
 			disconnectedGeneration += 1;
 			for (const [projectId, projectHost] of projectHosts) if (projectHost === hostId) projectGenerations.set(projectId, `${hostId}#disconnected#${disconnectedGeneration}`);
 		},
+		// root 会话退休 ≠ 主机断连：只丢这一条会话的登记（helper 已不在，不发退订），邻居 root 不动。
+		onRootRetired: (entry) => projectWatches.forgetSession(entry.hostId, entry.sessionKey),
 		closeProject(projectId: string): Promise<void> {
 			// 期望集合先丢（迟到的冲刷不得把它订回来），再成对退订该项目的 watcher。
 			dirWatch.forgetProject(projectId);
-			return watchRegistry.closeProject(projectId);
+			return projectWatches.registry.closeProject(projectId);
 		},
 		flushDirWatch(): Promise<void> {
 			return dirWatch.flush();
@@ -385,7 +392,7 @@ export function registerRemoteProjectIpc(input: {
 		dirWatchStatus: (projectId) => dirWatch.status(projectId),
 		dispose(): Promise<void> {
 			dirWatch.dispose();
-			return watchRegistry.releaseAll();
+			return projectWatches.registry.releaseAll();
 		},
 	};
 }

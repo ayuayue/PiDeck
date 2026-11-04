@@ -21,6 +21,14 @@ function unsupported(detail: string): ProjectServiceError {
 	return new ProjectServiceError(PROJECT_SERVICE_CODES.unsupported, "rejected", detail);
 }
 
+/** 纯读取复用 main 的位置路由，不能通过 entry.stat 挤占写授权。 */
+function createProjectStat(api: ProjectServicesApi): ProjectFileService["stat"] {
+	return async (target): Promise<ProjectPathState> => {
+		const state = await api.files.stat(target);
+		return { target, exists: state.exists, isDirectory: state.isDirectory };
+	};
+}
+
 /** 本机文件 provider：公共读面直接透传，写面走 files:* 通道。 */
 export function createLocalProjectFileService(api: ProjectServicesApi): ProjectFileService {
 	return {
@@ -41,10 +49,7 @@ export function createLocalProjectFileService(api: ProjectServicesApi): ProjectF
 			await api.files.writeContent(target, content);
 			return {};
 		},
-		async stat(target): Promise<ProjectPathState> {
-			const state = await api.files.stat(target);
-			return { target, exists: state.exists, isDirectory: state.isDirectory };
-		},
+		stat: createProjectStat(api),
 		async createEntry(parent, name, type) {
 			await api.files.create(parent, name, type);
 		},
@@ -101,10 +106,7 @@ export function createRemoteProjectFileService(api: ProjectServicesApi): Project
 			const saved = unwrapOp(await api.remoteHosts.saveProjectText(target.projectId, target.relativePath, content, version), PROJECT_SERVICE_CODES.remoteFailed);
 			return { version: saved.version };
 		},
-		async stat(target): Promise<ProjectPathState> {
-			const entry = await statEntry(target.projectId, target.relativePath);
-			return { target, exists: entry.exists, isDirectory: entry.isDirectory };
-		},
+		stat: createProjectStat(api),
 		async createEntry(parent, name, type) {
 			const result = type === "file" ? await api.remoteHosts.createProjectFile(parent.projectId, parent.relativePath, name) : await api.remoteHosts.createProjectDirectory(parent.projectId, parent.relativePath, name);
 			unwrapOp(result, PROJECT_SERVICE_CODES.remoteFailed);

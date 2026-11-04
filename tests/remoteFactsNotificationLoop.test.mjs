@@ -9,6 +9,7 @@ const CHANNEL = "remote:project-facts-changed";
 
 const HOST = "6f1b7c1e-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
 const PROJECT = "project-remote-1";
+const PROJECT_ROOT = "/srv/app";
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 function fakeSender(id) {
@@ -87,7 +88,7 @@ test("hub：非法订阅/空 scopes 被忽略，发送失败不影响调用方",
 /* ------------------------------------------------------------ 生产接线 */
 
 function harness(options = {}) {
-	const calls = { list: 0, watches: [] };
+	const calls = { list: 0, watches: [], keepAlive: [] };
 	const handlers = new Map();
 	const state = { connectionId: "conn-1" };
 	const { registerRemoteProjectIpc } = loadTsCommonJs("src/main/ipc/remoteProjectIpc.ts", {
@@ -138,9 +139,13 @@ function harness(options = {}) {
 				}),
 			};
 		},
-		connectionFacts() {
-			return { connectionId: state.connectionId, state: "ready" };
-		},
+		// 项目事实/能力按本项目的 root 查询：主机级 connectionFacts 证明不了这份缓存属于哪个 root，
+		// 同主机可能同时挂着另一个 root 的会话（池化 B3）。
+		projectConnectionFacts: (hostId, root) => (hostId === HOST && root === PROJECT_ROOT ? { connectionId: state.connectionId, state: "ready" } : undefined),
+		projectHelperCapabilities: (hostId, root) => (hostId === HOST && root === PROJECT_ROOT ? ["fs.watch"] : undefined),
+		// 目录订阅保活：0→1 记 retain、退订清空记 release（池的 watchers 计数只是加减法）。
+		retainProjectSessionWatch: (hostId, root) => calls.keepAlive.push({ kind: "retain", hostId, root }),
+		releaseProjectSessionWatch: (hostId, root) => calls.keepAlive.push({ kind: "release", hostId, root }),
 	};
 	const facts = registerRemoteProjectIpc({
 		enabled: true,
@@ -182,7 +187,10 @@ test("写面与 helper 事件只标脏并通知：事件本身不装载，读的
 	);
 
 	// helper 事件：同一个通知形状（根目录 watcher），仍旧不装载。
-	h.facts.onHelperEvent({ hostId: HOST, watchId: "w1", paths: [""] });
+	// 事件必须带会话身份：同主机另一条会话返回同一个 watchId 时，它的事件不得标脏本项目。
+	h.facts.onHelperEvent({ hostId: HOST, sessionKey: "conn-other", watchId: "w1", paths: [""] });
+	assert.equal(sender.sent.length, 1, "别的 sessionKey 的同一 watchId 不通知、不标脏");
+	h.facts.onHelperEvent({ hostId: HOST, sessionKey: "conn-1", watchId: "w1", paths: [""] });
 	assert.equal(h.calls.list, 1, "事件不是装载触发器");
 	assert.equal(sender.sent.length, 2);
 	assert.deepEqual(plain(sender.sent[1].payload.scopes), [{ kind: "dir", path: "" }]);
@@ -223,6 +231,25 @@ test("订阅本身不发请求、不建会话；重复订阅幂等", async () =>
 	assert.equal(h.hub.subscriberCount(PROJECT), 1, "重复订阅只登记一次");
 	assert.equal(h.calls.list, 0, "订阅不是读取，不触发任何装载");
 	assert.equal(h.calls.watches.length, 0);
+});
+
+test("目录订阅保活：0→1 retain 一次，关闭项目 release 恰好一次；订阅失败不 retain", async () => {
+	const h = harness();
+	await h.list();
+	assert.deepEqual(h.calls.keepAlive, [{ kind: "retain", hostId: HOST, root: PROJECT_ROOT }], "第一次有 watch 时 retain");
+	await h.list();
+	assert.equal(h.calls.keepAlive.length, 1, "watcher 仍挂着：重复读取不再 retain（池的 watchers 计数不漂）");
+	await h.facts.closeProject(PROJECT);
+	assert.deepEqual(
+		h.calls.keepAlive.map((entry) => entry.kind),
+		["retain", "release"],
+		"关闭项目成对 release 一次",
+	);
+
+	// helper 不支持 watch：没有登记，也就没有保活计数。
+	const failing = harness({ watchFails: true });
+	await failing.list();
+	assert.deepEqual(failing.calls.keepAlive, [], "订阅失败不 retain");
 });
 
 test("订阅失败/无 watch 能力时：读取仍成功，显式失效仍能让下一次读刷新", async () => {

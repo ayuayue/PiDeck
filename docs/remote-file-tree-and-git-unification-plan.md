@@ -1,10 +1,10 @@
 # 文件树与 Git 面板：本地/远端统一改造计划
 
-> 状态：**计划已复核；按 §10 的任务卡顺序实施，现存缺陷尚未修复。** 审核发现与行为对照见 §4.2，当前进度见 §4.1。此前“薄适配器直接换面板”的方案不作为实施依据。
+> Status: **Active plan（2026-10-31 校准）**。T1–T9 已有分片交付，当前事实/保留项见 §10.7/§10.8；§1/§4.1 保留原审计背景，不代表所有缺陷仍未修复。此前“薄适配器直接换面板”的方案不作为实施依据。
 >
-> **交接基线：`dev / c26dbb85d`（计划编写时）；当前 `dev` 已到 `f6f4eeaf6`。** 注意：`project-panel-service-seam-adr.md` 的 Phase A（契约 + 本地/远端 provider + 行为测试）已落地；本计划的 T1 起任务卡仍未执行。开工前核对实际 HEAD 与工作区，保留其他人的改动。
+> **本次核对基线：`dev / 24529c394`；原计划基线为 `c26dbb85d`。** 服务缝 Phase A 已落地，A0 纯 stat 已在工作树修复；B/C 仍需契约校准。开工前核对实际 HEAD 与工作区，保留其他人的改动。
 >
-> **执行者先读 §10.1，再执行 T1；每卡通过门禁后继续下一卡。** 不需要重做全仓审计，也不需要逐卡重新请求技术方案确认。§1 是最初问题归纳，不能代替 §4.1 的当前事实。
+> **本轮派工入口：[remote-project-parallel-handoff.md](remote-project-parallel-handoff.md)。** 按其中 P/S/T/F/G ownership 与依赖推进；§10 的旧任务卡用于对照已有行为，不从 T1 重跑已完成迁移。
 >
 > 相关：[架构](architecture.md)、[位置模型 ADR](project-location-architecture.md)、[远端 Git 计划](./archive/remote/remote-git-plan.md)、[远端文件管理计划](./archive/remote/remote-file-management-plan.md)、[远端协作交接](./archive/remote/remote-development-handoff.md)、[工程标准](engineering-standards.md)。
 >
@@ -42,7 +42,7 @@
 
 | 编号 | 根问题 | 证据 | 与 A–D 的关系 | 归属 |
 |---|---|---|---|---|
-| **R1** | **一个 host 同时只有一个活动 root**：helper 启动时 `--root` 固定，切 root 就 `discard` 整个会话重建；整台 host 一把 `operationLock` | `RemoteHostConnectionService.ts:618-623`（不同 root ⇒ discard）、`:1180-1206`（`operationLock.run`）、旧扫描器借 helper 的问题已由 R1a 改为命令传输 | A 的物理版本：不是“谁缓存”，是“根本没有并行容量” | **本轮不改**（要动 helper 协议）；本轮只把它显式化 + 可测 |
+| **R1** | **一个 host 同时只有一个活动 root**：helper 启动时 `--root` 固定，切 root 就 `discard` 整个会话重建；整台 host 一把 `operationLock` | `RemoteHostConnectionService` 的切 root/operationLock；旧扫描器借 helper 的问题已由 R1a 改为命令传输 | A 的物理版本：不是“谁缓存”，是“根本没有并行容量” | 独立 P 任务；采用 main 侧单 root helper 池化，无需先改 helper 协议，见池化 ADR |
 | **R2** | **信封在每个 IPC 边界被拆开重建**：`withProjectSession` 返回 `{ok,code}` → handler `throw new Error(result.code)` → 自己再 `catch` 成 `{ok:false, code}`；`codeOf` 有 8 份独立实现，fallback 各不同 | 6 处 `if (!result.ok) throw new Error(result.code)`（`remoteGitReadIpc:72`、`remoteProjectEntryIpc:30`、`remoteProjectFileIpc:17`、`RemoteHostConnectionService:800,1118`、`createRemoteTerminalManager:35`）；`codeOf` 独立实现 8 份；`remoteProjectIpc.ts:10` 明写“两个域刻意互不 import …`codeOf` 在本文件重新声明” | B 的放大版：不是三套词汇，是**七套**（files/git/hosts/entry/transfer/trust/session 各一套） | **并入本轮 W2/W4** |
 | **R3** | **“主机可用”有两个定义**：`ready \|\| degraded` vs `ready` | `ConnectionsTab.tsx:310`、`remoteConnectionProgressState.ts:97` 用前者；`useRemoteGitView.ts:28` 用后者；renderer 共 4 处订阅 `onStateChange` 各算一套 | A 的渲染层版本 | **并入本轮 W3**（`capabilities` 快照的前置） |
 
@@ -239,7 +239,7 @@ helper 1.23.0 引入、当前 1.24.0 保留该方法，单批最多 64 路径；
 | F5 | P1 | “远端只有根仓”错误：现有 UI 支持根/嵌套仓选择且嵌套可写。共用 refs port 拒绝合法 ProjectFileTarget repo；嵌套 status 的 target 仍是仓库相对路径，不能直接交给按项目路径打开文件的入口；共用 listRepos 丢了截断标志 | `RemoteGitPanel.tsx` 的 repo selector；`remoteGitReadIpc.ts`：`refs/status/listRepositories`；`RemoteGitService.ts`：`readRemoteGitStatus`；`gitIpc.ts`：本地 target 装饰 |
 | F6 | P1 | W6 用每次新建的 session 对象作为 watcher 身份，同一 helper 的根目录重载被误认成换会话；旧 watcher 未 unwatch，第四次变更后的重载申请第 5 个订阅失败，登记表已清，后续事件失效。事件也尚未通知 renderer/Git 缓存 | `RemoteHostConnectionService.ts`：`establishProjectSession` 返回新对象；`remoteProjectIpc.ts`：`ensureRootWatch/onHelperEvent`；`RemoteDirWatchRegistry.ts`：`ensure`；`index.ts` 的 `onHelperEvent` 装配 |
 | F7 | P2 | 只给 GitPanel 加 capability 标志不够：图谱菜单仍会渲染可选回调的动作，缺回调时 optional call 仍走“成功”分支；commitCount 是图谱 load 的必调项。门控必须覆盖实际消费者与后台 effect | `src/renderer/src/components/app/git/GitGraph.tsx`：`load/runGitAction`、右键菜单；`GitPanel.tsx`：effects |
-| F8 | P2 | 现有测试明确保护远端宿主入口与同步区源码形状；“直接改路由再删三个文件”与保持既有测试不变冲突。保留入口/专属区块，迁移其共用内核，不用假壳或修改断言骗绿 | `tests/remoteGitDrawer.test.mjs`、`remoteGitSyncBar.test.mjs`、`remoteGitRepoScopeView.test.mjs` |
+| F8 | P2 | 现有测试含远端宿主入口与同步区的源码形状断言。重构时可改为当前契约的行为验证，保留仍有效的授权/同步/恢复覆盖；真实职责未迁完的入口与专属区块继续保留，不用假壳迁就旧形状或修改断言骗绿 | `tests/remoteGitDrawer.test.mjs`、`remoteGitSyncBar.test.mjs`、`remoteGitRepoScopeView.test.mjs` |
 
 **行为对照与保留条件**
 
@@ -265,7 +265,7 @@ helper 1.23.0 引入、当前 1.24.0 保留该方法，单批最多 64 路径；
 2. **在现有 main Git 领域边界归一公共事实与结果。** 保留 `ProjectFileTarget`、分页/截断元数据、比较模式和 `Op<T>` 的 rejected/unknown。相同语义使用一份转换；不把远端所有动词强转成本地旧类型，也不为“对齐”扩写 helper 能力。
 3. **先承接状态规则，再替换视图。** renderer 的共享 controller/hook 承接单活动 scope、读写互斥、迟到结果围栏、opaque grant 失效、unknown 告警和明确刷新；main 继续是 grant 与期望条件的权威。`remoteGitViewState` 的这些行为不是可删除的传输样板。
 4. **以视图区块为单位共用。** 优先复用已存在的 FileTree/FileDiffViewer，再迁变更区、历史/比较、同步区与宿主布局；`GitDrawerApi` 可用作迁移期注入口，但需要收窄能力、移走面板内的副作用策略。让存量巨文件不净增长，不把所有新逻辑塞入 GitPanel。
-5. **最后退役重复实现。** 上表每项必须有“原行为用例 + 新路径配对用例”。保留 `RemoteGitPanel` 等入口和真实远端专属区块；共用状态/展示迁出后可留薄包装，旧 IPC 保留一版委托兼容。既有测试不改、不造无效代码满足源码断言；不以物理删除三个文件为验收条件。净行数以完成切片后的 diff 测量。
+5. **最后退役重复实现。** 上表每项必须有原行为与新路径的覆盖对照。仍有真实职责的 `RemoteGitPanel` 等入口和远端专属区块保留；共用状态/展示迁出后可留薄包装，旧 IPC 保留一版委托兼容。过时测试按新契约更新并说明覆盖变化，不造无效代码满足源码断言；不以物理删除三个文件为验收条件。净行数以完成切片后的 diff 测量。
 
 **本次验证证据与未验证项**
 
@@ -310,7 +310,7 @@ helper 1.23.0 引入、当前 1.24.0 保留该方法，单批最多 64 路径；
 | 4 | Git 面板位置无关 | `GitPanel.tsx` 中 `remoteGit` 出现 0 次 |
 | 5 | 不以迁移位置冒充收敛 | 完成切片的旧管线删除量与新增共享代码量分别实测；临时适配明确退役条件，存量巨文件不净增长 |
 | 6 | 契约测试覆盖两实现 | 两个 conformance 文件 + 分歧账本被断言 |
-| 7 | 安全断言未改 | `remoteGitMutationTokens`、`remoteProjectTrustIpc`、`remoteProjectReadConcurrency`、`remoteFileStatTokenPressure` 既有断言保持 |
+| 7 | 有效安全边界覆盖保留 | `remoteGitMutationTokens`、`remoteProjectTrustIpc`、`remoteProjectReadConcurrency`、`remoteFileStatTokenPressure` 验证当前契约，测试演进不得遗漏仍有效的安全边界 |
 | 8 | 能力显式缺席 | 能力缺席时按钮、菜单及后台 effect 均不可触发对应操作；运行时 grant 缺失立即禁写 |
 | 9 | 令牌红线 | 远端 `list/stat/pathsExist/checkIgnore` 前后令牌数不变；树着色只走 `git:status` |
 | 10 | 单活动 scope 是策略 | 策略常量被生产入口使用且有行为测试；远端同一时刻一个可写仓库，仍可切换根/嵌套仓 |
@@ -465,9 +465,9 @@ helper 事件与写操作仅标脏、发通知；只有活跃读者决定装载�
 
 ### 10.6 完成定义与可直接交给执行模型的指令
 
-**完成定义**：T1–T9 对应行为门禁通过；§4.2 对照表逐项有新路径证据；共用事实/状态/展示规则已落地；本地能力与远端授权/确认/恢复/嵌套功能均保留；旧入口仅剩已登记的兼容委托或真实专属 UI。未执行的真机项明列，不能用单测替代。兼容 API 的物理移除按一版兼容策略另行安排，不为删名称破坏既有测试。
+**完成定义**：T1–T9 对应行为门禁通过；§4.2 对照表逐项有新路径证据；共用事实/状态/展示规则已落地；本地能力与远端授权/确认/恢复/嵌套功能均保留；旧入口仅剩已登记的兼容委托或真实专属 UI。未执行的真机项明列，不能用单测替代。兼容 API 的物理移除按一版兼容策略另行安排，相关测试同步演进，保留有效行为覆盖。
 
-> 按 `docs/remote-file-tree-and-git-unification-plan.md` 的 §10 执行，从 T1 开始，逐卡验证后自动继续。先核对基线和工作区；不得假定任何审核缺陷已经修复。复用已有模块，保持现有测试与安全语义，不重写 helper，不直接把远端挂到本地 GitPanel。每卡先补能复现问题的行为测试，再实现，跑该卡测试与 typecheck，回填本文进度。不要全量构建、改无关代码、安装依赖、自动提交/push或重启宿主；不反复请求常规技术选择确认。遇到与既有契约冲突时保留证据和未完成项，不用假结果、吞错误或放宽断言继续。
+> 新任务按 `docs/remote-project-parallel-handoff.md` 的对应提示词派发。先核对基线与 §10.7/§10.8 已有交付，不从 T1 重做；复用已有模块，保留有效行为与安全覆盖，不重写 helper，不直接把远端挂到本地 GitPanel。按任务 ownership 分片验证，记录未完成契约；不全量构建、不自动提交/push、不修改别人的工作。旧测试与真实契约矛盾时同步纠正并报告依据，文本保存按交接 T 的实施与验证范围处理，不吞错误或为消红弱化测试。
 
 ### 10.7 任务卡进度（滚动更新）
 
@@ -479,7 +479,7 @@ helper 事件与写操作仅标脏、发通知；只有活跃读者决定装载�
 | T4 | ◐ 主进程通知闭环 | 新增 `RemoteFactsNotifications`（订阅绑定 sender+project、窗口销毁清理）；新增 IPC 订阅/退订/推送三通道并在 preload 暴露 `onProjectFactsChanged`（返回 unsubscribe）；目录写面与 helper 事件只标脏 + 发通知，携带 projectId/generation/scopes；断连换代；Git 写成功/unknown 也发 status 标脏通知。 | 新增 `tests/remoteFactsNotificationLoop.test.mjs`（6 例）；`check:ipc-wiring` 绿。**未完成**：dirs/repos/status 仍是两个缓存实例（目录 FactCache 与 Git SnapshotFactsCache）而非一个 owner；展开目录尚未登记真实路径 watcher（当前只有根层非递归 watch）；renderer 消费方/退订接线留给 T8。 |
 | T5 | ◐ 路径边界函数已落地 | `RemoteGitService` 新增唯一归一化 `remoteGitRepoScope`（字符串或 ProjectFileTarget）、`projectFilePath`、`repoRelativeFilePath`（严格目录前缀，拒绝同名前缀/跨仓）；`git:refs` 与 `compatRepo` 改用同一归一化，`git:refs` 现在接受文件树传来的 target scope。 | 新增 `tests/remoteGitTargetBoundary.test.mjs`（3 例）。T5 套件 34 pass。**未完成**：status/workspaceDiff/写面仍按旧远端契约返回/接受仓库内路径（未改成项目相对），避免与现有 legacy controller 及受保护测试冲突；项目相对输出与 `openDiff` 输入适配留到 T7/T8 同批迁移。 |
 
-**T6–T9 尚未实施（本轮到此为止的原因与入口）**
+**T6–T9 在 T1–T5 交付时的后续任务摘要（后续落实情况见紧随其后的表格；不是新的开工指令）**
 
 - **T6 文件域**：需要新增 `files:directory-page`（local + ssh 两种 backend）与公共 entry 形状（`target/relativePath/type/hasChildren/ignored`、2000 条上限、`truncated`、revision/generation、128 路径 2×64 stat、`git.checkIgnore` 分批）。本地侧现有 `ProjectFileBackend.list` 返回递归树，仍需一层“单目录页 + hasChildren”转换；SSH 侧可直接建在 `remoteProjectIpc` 的目录事实缓存上。
 - **T7 Git 域**：`git.repositoryList` / `git.historyPage` / `git.compareRefs` 三个新公共入口与 `Op<T>` 结果；在 T5 的路径函数之上把公共 target 改为项目相对，同时用 preload/控制器适配旧接口（一次改全）；仓库列表补 `truncated`；写入仍按能力组逐组迁移。
