@@ -30,5 +30,5 @@ test("ConfigModal：归一回写刷新基准快照而不是 markDirty", () => {
 	assert.match(handler[0], /baselineSettingsRef\.current = deepClone\(data\)/, "归一时必须同步基准，否则每次进设置都假脏");
 	assert.match(handler[0], /reason === "normalize"/);
 	// 非归一路径仍是正常的脏标记
-	assert.ok(handler[0].indexOf("markDirty(\"config:settings\")") > handler[0].indexOf("reason === \"normalize\""));
+	assert.ok(handler[0].indexOf('markDirty("config:settings")') > handler[0].indexOf('reason === "normalize"'));
 });
