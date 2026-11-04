@@ -20,7 +20,7 @@
 import { isUtf8 } from "node:buffer";
 import { codeOf } from "../../shared/op";
 import type { FileSearchResult, FileTreeNode, ProjectFileTarget } from "../../shared/types";
-import type { ProjectDirectoryEntry } from "../../shared/types/projectFiles";
+import type { ProjectDirectoryEntry, ProjectFileStatResult } from "../../shared/types/projectFiles";
 import { createRemoteSearchReader } from "../remote/RemoteSearchReader";
 import { createRemoteWorkspaceReader, type RemoteWorkspaceReader } from "../remote/RemoteWorkspaceReader";
 import { looksNonText, MAX_TRUSTED_STAT_BYTES } from "./textFileRead";
@@ -329,17 +329,23 @@ export class WslProjectFileBackend implements ProjectFileBackend {
 		}
 	}
 
-	async stat(rawTarget: ProjectFileTarget): Promise<{ exists: boolean; isDirectory: boolean }> {
+	async stat(rawTarget: ProjectFileTarget): Promise<ProjectFileStatResult> {
 		const target = parseProjectFileTarget(rawTarget);
 		return await this.readThrough(
 			target,
 			async (reader) => {
 				try {
 					const described = await reader.stat(WSL_READER_HOST_ID, target.relativePath === "" ? "." : target.relativePath);
-					return { exists: described.kind === "file" || described.kind === "directory", isDirectory: described.kind === "directory" };
+					if (described.kind === "file" || described.kind === "directory") {
+						return { availability: "present", exists: true, isDirectory: described.kind === "directory" };
+					}
+					return { availability: "unavailable", exists: false, isDirectory: false, code: "NOT_A_FILE" };
 				} catch (error) {
-					if (codeOf(error, "PROJECT_FILE_READ_FAILED") === "PATH_NOT_FOUND") return { exists: false, isDirectory: false };
-					throw error;
+					const code = codeOf(error, "PROJECT_FILE_READ_FAILED");
+					if (code === "PATH_NOT_FOUND") return { availability: "missing", exists: false, isDirectory: false, code };
+					// Transient helper failures still need to reach readThrough so the UNC fallback can run.
+					if (isHelperChainUnavailable(code)) throw error;
+					return { availability: "unavailable", exists: false, isDirectory: false, code };
 				}
 			},
 			async () => await this.deps.fallback.stat(target),

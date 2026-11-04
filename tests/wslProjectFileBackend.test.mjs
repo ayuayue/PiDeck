@@ -129,7 +129,7 @@ function makeFallback() {
 		},
 		async stat(...args) {
 			calls.push(["stat", ...args]);
-			return { exists: true, isDirectory: false };
+			return { availability: "present", exists: true, isDirectory: false };
 		},
 		async writeContent(...args) {
 			calls.push(["writeContent", ...args]);
@@ -331,16 +331,16 @@ test("pathsExist answers per path when the all-or-nothing batch contains a missi
 
 test("stat reports absence from PATH_NOT_FOUND instead of failing", async () => {
 	const { backend } = makeBackend();
-	assert.deepEqual(plain(await backend.stat({ projectId: PROJECT, relativePath: "README.md" })), { exists: true, isDirectory: false });
-	assert.deepEqual(plain(await backend.stat({ projectId: PROJECT, relativePath: "src" })), { exists: true, isDirectory: true });
-	assert.deepEqual(plain(await backend.stat({ projectId: PROJECT, relativePath: "missing.txt" })), { exists: false, isDirectory: false });
+	assert.deepEqual(plain(await backend.stat({ projectId: PROJECT, relativePath: "README.md" })), { availability: "present", exists: true, isDirectory: false });
+	assert.deepEqual(plain(await backend.stat({ projectId: PROJECT, relativePath: "src" })), { availability: "present", exists: true, isDirectory: true });
+	assert.deepEqual(plain(await backend.stat({ projectId: PROJECT, relativePath: "missing.txt" })), { availability: "missing", exists: false, isDirectory: false, code: "PATH_NOT_FOUND" });
 });
 
 test("read paths fall back to the local backend when the helper chain is unavailable", async () => {
 	const { backend, fallback } = makeBackend({ pool: makePool("unavailable") });
 	assert.equal(await backend.readContent({ projectId: PROJECT, relativePath: "README.md" }), "fallback-content");
 	assert.deepEqual(await backend.pathsExist([{ projectId: PROJECT, relativePath: "README.md" }]), [true, true]);
-	assert.deepEqual(await backend.stat({ projectId: PROJECT, relativePath: "README.md" }), { exists: true, isDirectory: false });
+	assert.deepEqual(await backend.stat({ projectId: PROJECT, relativePath: "README.md" }), { availability: "present", exists: true, isDirectory: false });
 	assert.deepEqual(
 		fallback.calls.map((call) => call[0]),
 		["readContent", "pathsExist", "stat"],
