@@ -412,6 +412,12 @@ export function App() {
 		name: string;
 	} | null>(null);
 	const [renamingFileInput, setRenamingFileInput] = useState("");
+	/** 文件树右键「新建文件/新建文件夹」：target 与「粘贴」同源（目录=自身、文件=父目录） */
+	const [creatingFile, setCreatingFile] = useState<{
+		target: string | ProjectFileTarget;
+		kind: "file" | "directory";
+	} | null>(null);
+	const [creatingFileInput, setCreatingFileInput] = useState("");
 	/** 历史会话来源过滤（按项目）：undefined=显示全部，Record 含项目ID对应 Set（含 DSH 类别） */
 	const [sessionSourceFilter] = useState<Record<string, Set<SessionFilterPill> | null>>(() => loadSessionSourceFilter());
 	/** 编辑器展示模式：弹框或侧栏 */
@@ -3702,6 +3708,11 @@ export function App() {
 								}
 								setFileMenu(null);
 							}}
+							onCreate={(target, kind) => {
+								setCreatingFile({ target, kind });
+								setCreatingFileInput("");
+								setFileMenu(null);
+							}}
 							onDelete={() => {
 								const node = fileMenu.node;
 								const target = node.target ?? node.path;
@@ -3742,6 +3753,31 @@ export function App() {
 					)}
 					<RenameModals
 						rename={rename.renameModalsProps.rename}
+						fileCreate={
+							creatingFile
+								? {
+										targetLabel: typeof creatingFile.target === "string" ? creatingFile.target : creatingFile.target.relativePath || "/",
+										kind: creatingFile.kind,
+										inputValue: creatingFileInput,
+										onInputChange: setCreatingFileInput,
+										onClose: () => setCreatingFile(null),
+										onConfirm: (name) => {
+											void api.files
+												.create(creatingFile.target, name, creatingFile.kind)
+												.then(() => {
+													// 静默刷新：下面已经有了针对本次操作的具体提示，别再叠一层「已刷新」
+													void refreshVisibleFiles(undefined, true);
+													setCreatingFile(null);
+													showToast(t(creatingFile.kind === "directory" ? "app.folderCreated" : "app.fileCreated"), 2000);
+												})
+												.catch((error) => {
+													setCreatingFile(null);
+													showToast(t("app.fileCreateFailed", { error: error instanceof Error ? error.message : String(error) }), 4000);
+												});
+										},
+									}
+								: undefined
+						}
 						fileRename={
 							renamingFile
 								? {

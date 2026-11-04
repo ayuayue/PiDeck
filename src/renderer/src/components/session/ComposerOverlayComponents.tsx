@@ -86,6 +86,8 @@ export function FileContextMenu(props: {
 	/** 剪贴板中有文件路径时显示「粘贴」选项 */
 	hasClipboardFiles?: boolean;
 	onPaste?: (targetDir: string | ProjectFileTarget) => void;
+	/** 新建文件/文件夹：目录建在自身内，文件建在与它同级的目录（targetDir 已按此规则算好，与「粘贴」共用） */
+	onCreate?: (targetDir: string | ProjectFileTarget, kind: "file" | "directory") => void;
 }) {
 	const node = props.menu.node;
 	const parentRelativePath = node.type === "directory" ? node.relativePath : node.relativePath.split("/").slice(0, -1).join("/");
@@ -120,6 +122,15 @@ export function FileContextMenu(props: {
 				}}
 			/>
 			<DropdownMenuContent align="start" side="bottom" className="min-w-40" onCloseAutoFocus={handleCloseAutoFocus}>
+				{/* 新建放在最前：文件树里最高频的写操作。目标目录与「粘贴」同源，
+				    节点没有可写目标（preview / 无 path 的旧节点）时整组不出现。 */}
+				{props.onCreate && targetDir && (
+					<>
+						<DropdownMenuItem onSelect={() => props.onCreate?.(targetDir, "file")}>{t("drawer.newFile")}</DropdownMenuItem>
+						<DropdownMenuItem onSelect={() => props.onCreate?.(targetDir, "directory")}>{t("drawer.newFolder")}</DropdownMenuItem>
+						<DropdownMenuSeparator />
+					</>
+				)}
 				{/* 目录同样可引用：拖拽落点与 @ 建议列表都允许目录，右键菜单不应更严。
 				    引用文本由 fileNodeDragPayloadToRef 统一补尾斜杠（@dir/），
 				    裸 @dir 过不了 chip 路径规则，模型也容易当成 mention。 */}

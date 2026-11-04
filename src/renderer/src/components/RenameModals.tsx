@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { t } from "../i18n";
 import { isComposingKeyboardEvent } from "../composerBehavior";
+import { isValidNewLeaf } from "./sidebar/remoteDirectoryPath";
 import type { RenameModalProps } from "../hooks/useRename";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui-shadcn/dialog";
 import { Button } from "./ui-shadcn/button";
@@ -22,14 +23,33 @@ type FileRenameProps = {
 	onConfirm: (path: string, newName: string) => void;
 };
 
+type FileCreateProps = {
+	/** 新建位置的展示名（本地绝对路径，或远端项目内相对路径） */
+	targetLabel: string;
+	kind: "file" | "directory";
+	inputValue: string;
+	onInputChange: (value: string) => void;
+	onClose: () => void;
+	onConfirm: (name: string) => void;
+};
+
 type Props = {
 	fileRename?: FileRenameProps;
+	fileCreate?: FileCreateProps;
 	rename?: RenameModalProps;
 };
 
-export function RenameModals({ fileRename, rename }: Props) {
+export function RenameModals({ fileRename, fileCreate, rename }: Props) {
 	const renameInputRef = useRef<HTMLInputElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	const createInputRef = useRef<HTMLInputElement>(null);
+	// 新建的叶名约束与远端目录同一套（单段、非 . / ..、无分隔符、长度有界）：
+	// 名字里带分隔符会让 API 建出意料之外的嵌套路径。
+	const createName = fileCreate?.inputValue.trim() ?? "";
+	const canCreate = createName.length > 0 && isValidNewLeaf(createName);
+	const submitCreate = () => {
+		if (fileCreate && canCreate) fileCreate.onConfirm(createName);
+	};
 	// 文件重命名的确认语义：非空且与原名不同才提交，否则视为取消
 	const submitFileRename = () => {
 		if (!fileRename) return;
@@ -44,6 +64,48 @@ export function RenameModals({ fileRename, rename }: Props) {
 
 	return (
 		<>
+			{fileCreate && (
+				<Dialog
+					open
+					onOpenChange={(open) => {
+						if (!open) fileCreate.onClose();
+					}}
+				>
+					<DialogContent
+						className="sm:max-w-sm"
+						onOpenAutoFocus={(event) => {
+							event.preventDefault();
+							createInputRef.current?.focus();
+						}}
+					>
+						<DialogHeader>
+							<DialogTitle>{fileCreate.kind === "directory" ? t("drawer.newFolder") : t("drawer.newFile")}</DialogTitle>
+							<DialogDescription className="break-all">{fileCreate.targetLabel}</DialogDescription>
+						</DialogHeader>
+						<Input
+							ref={createInputRef}
+							aria-label={fileCreate.kind === "directory" ? t("drawer.newFolder") : t("drawer.newFile")}
+							value={fileCreate.inputValue}
+							placeholder={fileCreate.kind === "directory" ? t("drawer.createFolderPlaceholder") : t("drawer.createFilePlaceholder")}
+							onChange={(e) => fileCreate.onInputChange(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter" && !isComposingKeyboardEvent(e)) {
+									e.preventDefault();
+									submitCreate();
+								}
+							}}
+						/>
+						<DialogFooter>
+							<Button type="button" variant="outline" onClick={fileCreate.onClose}>
+								{t("common.cancel")}
+							</Button>
+							<Button type="button" disabled={!canCreate} onClick={() => submitCreate()}>
+								{t("common.confirm")}
+							</Button>
+						</DialogFooter>
+					</DialogContent>
+				</Dialog>
+			)}
 			{rename && (
 				<Dialog
 					open

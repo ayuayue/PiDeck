@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: e1c455c7fa1a492559ae49e7f7df531712448ade24ae02ce8bf28d0527f72b4c（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 902af3b78400770bd63a2b42c26e5af22d61b473dd08732ac1cefaf62fb51f36（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -437,6 +437,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	"app.fileDeleteFailed": "刪除檔案失敗：{error}",
 	"app.fileRenamed": "檔案已重新命名",
 	"app.fileCreated": "檔案已建立",
+	"app.folderCreated": "資料夾已建立",
+	"app.fileCreateFailed": "建立失敗：{error}",
 	"app.fileCopyDone": "已複製 {count} 個檔案/資料夾",
 	"app.fileMoveDone": "已移動 {count} 個檔案/資料夾",
 	"app.filePasteFailed": "貼上失敗：{error}",
@@ -4261,6 +4263,10 @@ export const zhTW: Record<TranslationKey, string> = {
 	"drawer.files": "檔案",
 	"drawer.pasteFiles": "貼上檔案到此處",
 	"drawer.openFolder": "開啟資料夾",
+	"drawer.newFile": "新建檔案",
+	"drawer.newFolder": "新建資料夾",
+	"drawer.createFilePlaceholder": "例如 README.md",
+	"drawer.createFolderPlaceholder": "例如 components",
 	"drawer.historyLoading": "正在讀取該目錄的歷史會話…",
 	"drawer.historyTitle": "歷史會話",
 	"drawer.modifiedFiles": "修改檔案",
