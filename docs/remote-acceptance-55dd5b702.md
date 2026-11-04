@@ -1,6 +1,6 @@
 # PiDeck 检查点 55dd5b702 独立验收
 
-Status: **Current（2026-10-31 独立验收 + 2026-11-02 生产 root pooling 签收 + 2026-11-03 审计后复验；基线 09aca4203..55dd5b702）**
+Status: **Current（2026-10-31 独立验收 + 2026-11-02 生产 root pooling 签收 + 2026-11-03 审计后复验与测试门禁收口；基线 09aca4203..55dd5b702）**
 验收对象：`fix(remote): 目录监听失败降级与项目关闭生命周期收尾`（55dd5b702）
 验收方式：只读代码复核 + Windows 定向复跑 + WSL Linux 测试 + 真实 SSH/Electron 验收。§4/§6 保留执行前的方案与边界快照；历史检查点结果见 §10.5/§11，生产 root pooling 当前结论以 §12 为准。
 状态口径：**通过 / 失败 / 跳过 / 未执行**；跳过与未执行都不计通过（同 `docs/remote-wsl-verification-log.md` 的口径）。本文件是新验收记录，不修改既有文档；旧文档失效项见 §5。
@@ -15,7 +15,7 @@ Status: **Current（2026-10-31 独立验收 + 2026-11-02 生产 root pooling 签
 | 只读复核：监听失败降级与恢复 | **通过**（1 条低风险观察项） |
 | 只读复核：显式断开后不自动复活 | **验收时失败（条件性 F1）→ 已修复并提交 `a905d4d7d`**：“不自动复活”成立，但当时生产顺序下“清理 × retirement”交互未闭环；后续生产池化又补了主机整池退休与重连真机验收。复现见 §2.2，修复与验证见 §9/§12 |
 | Windows 定向复跑（本提交 6 个测试文件） | **通过**：62/62，0 skip（验收时 61 + §9 修复新增 1 例） |
-| Windows 全量 / 通用门禁 | **通过（既有声明；本轮未重跑全量，仅定向复跑 + typecheck/format/ipc-wiring 佐证）** |
+| Windows 全量 / 通用门禁 | **通过**：2026-11-03 在 `codex/root-pooling-prod` 基线 `eca70c60d` 的隔离 worktree 完整复跑，15,971 tests / 15,684 pass / **0 fail** / 287 skip，exit 0；typecheck / IPC / test-shape / format 均 exit 0，见 §12.6 |
 | Linux（WSL）本提交 6 个测试文件 | **通过**：61/61（验收时，0 skip）；修复后 lifecycle 7/7 复跑通过 |
 | Linux（WSL）POSIX/Linux-only 邻接用例 | **通过**：139 pass / 1 skip（root-only chown） |
 | Linux（WSL）根池化相关 4 文件 | **通过**：51/51 |
@@ -26,7 +26,7 @@ Status: **Current（2026-10-31 独立验收 + 2026-11-02 生产 root pooling 签
 | 旧文档失效状态审计 | **完成并已同步旧文档 + 重建 manifest**（见 §5/§11） |
 | 生产 root pooling 默认路径 | **通过并默认开启**：真实主机初次 E2E `1 passed (5.9m)`，最终审计修复后复验 `1 passed (4.6m)`；A→B→A 153ms、A/B/C 60,632ms、六 root 资源门禁通过。见 §12 |
 
-**总体判定：55dd5b702 历史检查点无阻断；F1、UI 入口、池化 home 三处已修复；R0/R1 及 S2/S5/S6/S7 真机验收均通过。2026-11-02 生产 root pooling 在无 E2E 开关的生产装配下通过真实主机多项目与资源验收并成为默认路径，2026-11-03 最终审计修复后再次通过；A→B→A 240 秒问题闭环。S7 的 watch-failed 分支仍只有单测（paths-over-limit 已真机验证）。**
+**总体判定：55dd5b702 历史检查点无阻断；F1、UI 入口、池化 home 三处已修复；R0/R1 及 S2/S5/S6/S7 真机验收均通过。2026-11-02 生产 root pooling 在无 E2E 开关的生产装配下通过真实主机多项目与资源验收并成为默认路径，2026-11-03 最终审计修复后再次通过；A→B→A 240 秒问题闭环。S7 的 watch-failed 分支仍只有单测（paths-over-limit 已真机验证）。2026-11-03 的完整 Windows 单测门禁已 0 fail，三项仓库测试债务均已按根因收口，见 §12.4/§12.6。**
 
 ## 1. 基线与工作区核对（只读）
 
@@ -467,7 +467,8 @@ TTL 600000ms、service 总预算 6、满载等待 30000ms。真实正确性和�
 | `npm run build:fast` | 通过，最终产品树 exit 0；没有运行全量 `npm run build` |
 | `npm run build:remote-sftp` | 通过，Windows amd64 binary 4,632,576 bytes；另核对产物存在，未只依赖 fail-open 构建脚本的 rc |
 | `npx playwright test e2e/remote-sftp-transfer.spec.ts` | 生产装配真实主机：初次 **1 passed（5.9m）**；最终审计修复后复验 **1 passed（4.6m）**；均清除 `ELECTRON_RUN_AS_NODE`，未设置 pooling env |
-| `npm test` | 最终代码完整复跑为 15,971 tests / 15,681 pass / 3 fail / 287 skip，479,839 ms，exit 1。两项是相对 HEAD 无改动的确定性基线失败；一项是未改动 `sessionFindInSession` 在高负载全量运行中的时序抖动，独立 3 次均 16/16 通过。详见 §12.4，**不冒充全绿** |
+| 三个债务测试文件 | 独立为 17/17、10/10、16/16；三文件组合 43/43。三种文件顺序各重复 10 轮，共 30 次均为 43/43、0 skip；`sessionFindInSession` 另在 12 个本地 CPU 竞争进程下连续 50 次均为 16/16 |
+| `npm test` | **通过**：15,971 tests / **15,684 pass / 0 fail** / 287 skip，753,985.7622 ms，exit 0。skip 数与收口前相同，没有为变绿跳过原有效用例 |
 | `git diff --check` | 通过 |
 
 最终针对性命令（不省略所要求的五个文件）：
@@ -479,33 +480,30 @@ node --test tests/remoteRootPooling.test.mjs tests/remoteHostConnectionService.t
 测试契约变化：原“租约已进入”用例的 `setImmediate` 改为由真实任务回调触发的 deferred，消除本地
 store 文件 I/O 与调度的猜测；保活用例增加 connectionId；新增竞态、关闭隔离、取消 fencing 和
 host 状态发布范围断言。未跳过或弱化有效回归。第一次新诊断断言遇到 VM 数组原型差异，改为
-`Array.from` 保留完全相同的内容断言。
+`Array.from` 保留完全相同的内容断言。2026-11-03 又收口了三项仓库测试债务：固定枚举图标选择器按
+`bounded` 显式判定；项目添加测试不再绑定旧函数签名，并覆盖 null 早退、DSH 同步和 catalog 扫描顺序；
+会话内查找测试改用虚拟时钟精确推进 debounce，不再把真实事件循环相位当作断言前提。详见 §12.4。
 
-### 12.4 全量测试失败归因
+### 12.4 全量测试失败归因与收口
 
-1. `remoteProjectServiceWiring.test.mjs` 的 3 项失败由本任务引入：`useRemoteFileTree` 在首个目录页
-   成功后读取新增的 `facts` 并调用 `refresh()`，旧测试夹具没有这两个必需的 `ProjectServices` 成员。
-   已在夹具补齐 `facts` 与 `refresh`，保留原有调用次数/换代断言，复跑 9/9 通过。
-2. `scrollContainerGuard.test.mjs:18`：`AgentIconPicker.tsx:51` 的滚动容器缺少判定。
-3. `sessionRefreshSafety.test.mjs:208`：源码断言找不到 `App.tsx` 中的 `async function addProject()`。
-4. `sessionFindInSession.test.mjs:51` 在最终全量高负载下，160 ms debounce 在首个 `setImmediate` 前
-   已发出请求（`1 !== 0`）；该测试、hook 与测试宿主相对 HEAD 均无改动。独立串行运行 3 次均为
-   16/16 通过，因此归因为未改动域的时序抖动，没有修改 hook、测试或断言。
+历史完整复跑曾为 15,971 tests / 15,681 pass / 3 fail / 287 skip，exit 1。三项在本轮逐一按根因收口：
 
-两个确定性基线失败及依赖相对 HEAD 无改动，证明命令输出 `BASELINE_TWO_DIFF_RC=0`：
+1. `scrollContainerGuard.test.mjs` 命中 `AgentIconPicker.tsx` 的 `PopoverContent`。该弹层的内容来自
+   代码内固定 Lucide 映射和固定 emoji 数组，不是数据增长列表；限高滚动属于 `bounded`。在容器上方
+   写明依据，没有向全局基线新增路径，也没有为消红改成不正确的虚拟网格。
+2. `sessionRefreshSafety.test.mjs` 找不到 `async function addProject()`。真实代码在 `90988aca7`
+   增加了 `Promise<Project | null>` 返回类型与取消分支，DSH 同步接线未丢失。测试改为不绑定返回类型
+   字面量，并新增 `api.projects.add → null 早退 → syncDshForeignSessionsIfEnabled → refreshProjects →
+   激活项目 → refreshProjectSessions → return` 的完整顺序断言，原有“添加项目后同步 DSH foreign
+   sessions”覆盖保留且更具体。
+3. `sessionFindInSession.test.mjs` 的失败是测试隔离问题，不是 hook 的代次/会话竞态：原测试在真实
+   160 ms debounce 与首个 `setImmediate` 之间做先后断言，事件循环被延迟时 debounce 会先触发。修复前
+   50 次独立运行和 12 轮外部 CPU 竞争均未自然复现；用等价条件在首个 `setImmediate` 前确定性阻塞
+   220 ms 后稳定得到 1 次请求，证明根因。测试改用虚拟时钟推进 159/160 ms，保留防抖前零请求、
+   截止后一请求及迟到回包丢弃等全部行为断言；没有增加 retry、固定 sleep 或延长等待。
 
-```powershell
-git diff --exit-code HEAD -- src/renderer/src/components/agents/market/AgentIconPicker.tsx src/renderer/src/App.tsx src/renderer/src/hooks/useProjectSync.ts tests/scrollContainerGuard.test.mjs tests/scrollContainerGuard.mjs tests/scrollContainerGuard.baseline.json tests/sessionRefreshSafety.test.mjs
-Write-Output ("BASELINE_TWO_DIFF_RC={0}" -f $LASTEXITCODE)
-
-git diff --exit-code HEAD -- tests/sessionFindInSession.test.mjs tests/helpers/quickMessageHookHost.mjs src/renderer/src/hooks/useSessionMessageSearch.ts
-Write-Output ("SESSION_FIND_DIFF_RC={0}" -f $LASTEXITCODE)
-```
-
-独立复跑 `node --test tests/scrollContainerGuard.test.mjs tests/sessionRefreshSafety.test.mjs` 得
-27 tests / 25 pass / 2 fail，失败点完全相同；`tests/sessionFindInSession.test.mjs` 独立连续 3 次
-均为 16/16 通过。没有为了消红修改 `App.tsx`、`useProjectSync.ts`、`AgentIconPicker.tsx`、
-`useSessionMessageSearch.ts` 或这些测试/基线。该结果不等于全量门禁已绿。
+收口后最终完整复跑为 15,971 tests / 15,684 pass / 0 fail / 287 skip，exit 0。`sessionFindInSession`
+在 CPU 竞争下连续 50 次通过；三文件三种顺序各 10 轮均通过。没有跳过原有效用例。
 
 ### 12.5 回滚、未覆盖与文件清单
 
@@ -557,3 +555,15 @@ A tests/remoteRootSessionPoolRaces.test.mjs
 只拆出测试操作与资源验收 helpers，没有做额外领域迁移。原始门禁日志与 E2E 临时类型配置保留在
 本工作树 `.tmp/root-pooling-prod/`（ignored，本地证据，不提交）；构建产物与 node_modules
 junction 同样不纳入提交。
+
+### 12.6 2026-11-03 测试债务收口
+
+- 工作树：从 `codex/root-pooling-prod` 基线 `eca70c60d` 新建的 detached 隔离 worktree；未 rebase、
+  merge、reset 或改写基线，也未改动该分支现有 worktree。
+- 修改：`AgentIconPicker.tsx`（`bounded` 判定）、`sessionRefreshSafety.test.mjs`（当前签名与先后顺序）、
+  `sessionFindInSession.test.mjs`（虚拟 debounce 时钟）、本验收文档与 ADR 债务状态。
+- 门禁：`npm run typecheck`、`npm run check:ipc-wiring`（811 通道 + 8 event tags）、
+  `npm run check:test-shape`（sourceOnly 395/1884，新增 0）、`npm run check:format`（4382 files）
+  均 exit 0；三文件组合 43/43；最终 `npm test` 15,971 tests / 15,684 pass / 0 fail / 287 skip，exit 0。
+- 边界：本轮没有连接真实远端主机、没有运行全量 build、没有 commit/push/PR/merge，也没有触发远程 CI。
+  §12.5 与 ADR §8.4 的真机未覆盖项保持有效，不能由本机单测全绿替代。
