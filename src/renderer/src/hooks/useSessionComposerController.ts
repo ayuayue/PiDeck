@@ -383,6 +383,9 @@ export function useSessionComposerController(options: UseSessionComposerControll
 						planModeActive: runtime?.state?.planModeActive === true,
 						goalPhase: runtime?.state?.goal?.phase,
 					});
+	// 生图判据（与 ComposerComponents 的 imageGenComposer 同义）：模式 or 引导页选中的生图后端。
+	// 生图附件是参考图，@path 引用不会被解析：选图/拖入都统一进附件栏。
+	const imageGenComposer = mode === "imagegen" || (isGuideBootstrapSession && guideBackend === "imagegen");
 	// DSH 部署默认模型选择（settings.yaml agent-default-model）：草稿/未激活会话
 	// 的底栏与选择器用它展示默认模型/思考档位（host 会话创建前没有 runtime state）。
 	// settings.yaml 未配 reasoningEffort 时，回退到默认模型自身的 defaultEffort
@@ -2106,6 +2109,34 @@ export function useSessionComposerController(options: UseSessionComposerControll
 	);
 
 	/**
+	 * 本地图片路径 → 附件栏参考图（生图选图与生图模式拖入共用）。
+	 * 逐张提示：一张读失败不应把同批其它图一起丢掉。
+	 */
+	const addReferenceImagePaths = useCallback(
+		async (paths: string[]) => {
+			const imagePaths = paths.filter(isImageFilePath);
+			// 选择器/拖入都可能带非图片：提示一次即可，不往 prompt 里塞无效的 @path。
+			if (imagePaths.length === 0) {
+				showNotice(t("app.imageUnsupported"), 3000);
+				return;
+			}
+			const files: File[] = [];
+			for (const path of imagePaths) {
+				try {
+					const dataUrl = await desktopApi.files.readBase64(path, COMPOSER_IMAGE_MAX_BYTES);
+					// 主进程对 ENOENT 返回空串（与粘贴同一读取口）：文件被移走时按读取失败提示。
+					if (!dataUrl) throw new Error("image-read-failed");
+					files.push(dataUrlToFile(dataUrl, imageMimeTypeFromPath(path), path.split(/[\\/]/).pop() || path));
+				} catch (error) {
+					showNotice(/FILE_TOO_LARGE/.test(String(error)) ? t("app.imageTooLarge") : t("app.imageReadFailed"), 3000);
+				}
+			}
+			if (files.length > 0) await addImageFiles(files);
+		},
+		[addImageFiles],
+	);
+
+	/**
 	 * 拖拽：
 	 * 1) 文件树节点（含目录）→ 按节点信息生成 @ 引用；
 	 * 2) OS 本地文件/目录 → 以 @path 引用插入（含图片文件，不上传内容）；
@@ -2123,12 +2154,17 @@ export function useSessionComposerController(options: UseSessionComposerControll
 			if (files.length === 0) return;
 			const paths = resolveLocalPathsFromFiles(files);
 			if (paths.length > 0) {
+				// 生图模式：附件是参考图，@path 不会被解析成图片——与粘贴/选图同一条附件流程。
+				if (imageGenComposer) {
+					void addReferenceImagePaths(paths);
+					return;
+				}
 				insertFilePathRefs(paths);
 				return;
 			}
 			void addImageFiles(getDroppedImageFiles(event.dataTransfer));
 		},
-		[addImageFiles, insertFilePathRefs, insertRefTexts, resolveLocalPathsFromFiles],
+		[addImageFiles, addReferenceImagePaths, imageGenComposer, insertFilePathRefs, insertRefTexts, resolveLocalPathsFromFiles],
 	);
 
 	/** 「加入对话引用」按钮：系统选择器选中的文件/目录以 @path 插入 */
@@ -2140,6 +2176,22 @@ export function useSessionComposerController(options: UseSessionComposerControll
 			// 用户取消或出错时不作处理
 		}
 	}, [insertFilePathRefs]);
+
+	/**
+	 * 生图模式的「上传参考图」：系统选择器选中的图片走与粘贴/拖入同一条附件流程。
+	 * 生图 prompt 里的 @path 引用没有任何意义（主进程不会把它们解成参考图），所以不能复用 attachFile。
+	 */
+	const attachReferenceImages = useCallback(async () => {
+		let paths: string[];
+		try {
+			paths = await desktopApi.dialog.pickFiles({ title: t("app.composerAddReferenceImage") });
+		} catch {
+			return;
+		}
+		// 取消（空列表）不提示；选择器没有扩展名过滤，选错文件才给一次明确原因。
+		if (paths.length === 0) return;
+		await addReferenceImagePaths(paths);
+	}, [addReferenceImagePaths]);
 
 	/** 移除粘贴文件 chip：同步删除落盘文件（粘贴产物，不留孤儿文件）。 */
 	const removePasteFile = useCallback(
@@ -2502,6 +2554,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 			onBlur: () => setSuggestionsOpen(false),
 			onChipClick,
 			attachFile,
+			attachReferenceImages,
 		},
 		suggestions: {
 			open: suggestionsOpen,

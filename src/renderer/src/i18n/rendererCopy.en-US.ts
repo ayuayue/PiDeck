@@ -948,6 +948,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"app.imageTooLarge": "Image is too large. Maximum size is 10MB.",
 	"app.imageBudgetExceeded": "Attachment images reached the {size} limit. Send or remove some first.",
 	"app.imageUnsupported": "Unsupported image format. Use PNG/JPEG/GIF/WebP.",
+	"app.imageReadFailed": "Couldn't read that image — pick it again (it may have been moved or deleted).",
 	"app.latestVersion": "You are on the latest version",
 	"app.latestVersionNotice": "You are on the latest version v{version}.",
 	"app.logoLabel": "PiDeck logo",
@@ -1610,6 +1611,7 @@ export const enUS: Record<TranslationKey, string> = {
 	// ── Plus menu (attach/skill/prompt) ──
 	"app.composerAddTitle": "Add an attachment, skill, prompt, or mode",
 	"app.composerAddAttach": "Upload attachment",
+	"app.composerAddReferenceImage": "Upload reference image",
 	"app.composerAddSkill": "Pick a skill",
 	"app.composerAddPrompt": "Pick a prompt",
 	"app.composerAddMode": "Mode",

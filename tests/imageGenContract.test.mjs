@@ -104,6 +104,25 @@ test("ComposerAgentMode 含 imagegen、videogen 与 goal", () => {
 	assert.match(agentTypes, /ComposerAgentMode = "normal" \| "plan" \| "imagegen" \| "videogen" \| "goal"/);
 });
 
+test("生图模式「+」菜单提供参考图上传入口（生视频仍无附件）", () => {
+	// 2026-11 用户反馈：生图模式里粘贴图片能进附件栏，但「+」菜单里找不到上传按钮。
+	// 生图 prompt 不解析 @path，所以参考图必须走「选图 → 读字节 → 附件栏」，不能复用「加入对话引用」。
+	assert.match(composerComponents, /const imageGenComposer = isImageGenMode \|\| props\.backend === "imagegen"/);
+	assert.match(composerComponents, /onAttachReferenceImage: \(\) => void/);
+	assert.match(composerComponents, /imageGenComposer \? \(\s*<DropdownMenuItem onSelect=\{\(\) => props\.onAttachReferenceImage\(\)\}/);
+	// 普通会话仍是「加入对话引用」（@path）；生视频/media 一律不出附件项。
+	assert.match(composerComponents, /: !isMediaComposer \? \(\s*<DropdownMenuItem onSelect=\{\(\) => props\.onAttachFile\(\)\}/);
+	assert.match(controller, /const attachReferenceImages = useCallback/);
+	assert.match(controller, /readBase64\(path, COMPOSER_IMAGE_MAX_BYTES\)/);
+	assert.match(controller, /paths\.filter\(isImageFilePath\)/);
+	// 生图模式拖入图片也不能变 @path：与粘贴/选图共用同一条附件流程。
+	assert.match(controller, /const imageGenComposer = mode === "imagegen"/);
+	assert.match(controller, /if \(imageGenComposer\)[\s\S]{0,80}addReferenceImagePaths\(paths\)/);
+	// 选图入口必须接到 ComposerComponents，否则按钮存在但点击无反应。
+	const area = readFileSync("src/renderer/src/components/session/ComposerArea.tsx", "utf8");
+	assert.match(area, /onAttachReferenceImage=\{composer\.editor\.attachReferenceImages\}/);
+});
+
 test("composer 生图底栏用独立配置，不读会话 LLM", () => {
 	const options = readFileSync("src/renderer/src/components/session/ComposerImageGenOptions.tsx", "utf8");
 	const area = readFileSync("src/renderer/src/components/session/ComposerArea.tsx", "utf8");
@@ -115,7 +134,8 @@ test("composer 生图底栏用独立配置，不读会话 LLM", () => {
 	// 「mode 或 backend」——引导页没有 record，选了生图/生视频后端时 mode 仍是 normal，
 	// 只看 mode 会漏屏蔽（见 ComposerComponents.tsx 里 isMediaComposer 的注释）。
 	// 断言写到新判据上并做空白容忍，避免再被格式化/换行弄红。
-	assert.match(composerComponents, /const\s+isMediaComposer\s*=[^;]*isImageGenMode\s*\|\|\s*isVideoGenMode[^;]*"imagegen"/);
+	assert.match(composerComponents, /const\s+imageGenComposer\s*=\s*isImageGenMode\s*\|\|\s*props\.backend === "imagegen"/);
+	assert.match(composerComponents, /const\s+isMediaComposer\s*=\s*imageGenComposer\s*\|\|\s*isVideoGenMode\s*\|\|\s*props\.backend === "videogen"/);
 	assert.match(composerComponents, /\{\s*isMediaComposer\s*\?\s*null\s*:/);
 	assert.match(options, /IMAGE_GEN_SIZE_PRESETS/);
 	assert.match(options, /IMAGE_GEN_SIZE_UNSET/);

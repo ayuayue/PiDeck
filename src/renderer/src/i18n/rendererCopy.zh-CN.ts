@@ -946,6 +946,7 @@ export const zhCN = {
 	"app.imageTooLarge": "图片过大，最大支持 10MB",
 	"app.imageBudgetExceeded": "附件图片总量已达上限（{size}），请先发送或删除部分图片",
 	"app.imageUnsupported": "不支持的图片格式，请使用 PNG/JPEG/GIF/WebP",
+	"app.imageReadFailed": "读取图片失败，请重新选择（文件可能已被移动或删除）",
 	"app.latestVersion": "当前已是最新版本",
 	"app.latestVersionNotice": "当前已是最新版本 v{version}。",
 	"app.logoLabel": "PiDeck 标志",
@@ -1605,6 +1606,7 @@ export const zhCN = {
 	// ── 加号菜单（附件/技能/提示词三合一）──
 	"app.composerAddTitle": "添加附件、技能、提示词或模式",
 	"app.composerAddAttach": "上传附件",
+	"app.composerAddReferenceImage": "上传参考图",
 	"app.composerAddSkill": "选择技能",
 	"app.composerAddPrompt": "选择提示词",
 	"app.composerAddMode": "模式",
