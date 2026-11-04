@@ -129,12 +129,7 @@ export function encodeBackupContainer(headerBytes: Uint8Array, entries: BackupEn
 	if (headerBytes.byteLength > BACKUP_MAX_HEADER_BYTES) {
 		throw new TypeError("Backup header is too large");
 	}
-	const parts: Buffer[] = [
-		MAGIC_BYTES,
-		writeU32LE(BACKUP_FORMAT_VERSION),
-		writeU32LE(headerBytes.byteLength),
-		Buffer.from(headerBytes),
-	];
+	const parts: Buffer[] = [MAGIC_BYTES, writeU32LE(BACKUP_FORMAT_VERSION), writeU32LE(headerBytes.byteLength), Buffer.from(headerBytes)];
 	for (const entry of entries) {
 		const name = assertEntryName(entry.name);
 		assertEntrySize(entry.bytes.byteLength);
@@ -212,11 +207,7 @@ export class BackupFileWriter {
 		if (headerBytes.byteLength > BACKUP_MAX_HEADER_BYTES) {
 			throw new TypeError("Backup header is too large");
 		}
-		const prefix = Buffer.concat([
-			MAGIC_BYTES,
-			writeU32LE(BACKUP_FORMAT_VERSION),
-			writeU32LE(headerBytes.byteLength),
-		]);
+		const prefix = Buffer.concat([MAGIC_BYTES, writeU32LE(BACKUP_FORMAT_VERSION), writeU32LE(headerBytes.byteLength)]);
 		await this.writeAt(prefix);
 		await this.writeAt(Buffer.from(headerBytes));
 	}

@@ -12,13 +12,15 @@ function makeIndex({ settings, sessions, resources, projectMetadata }) {
 	if (resources) globalOptions.resources = resources;
 	const projects = [buildGlobalCloudSyncProject(globalOptions)];
 	if (projectMetadata) {
-		projects.push(buildCloudSyncProject({
-			id: "proj-a",
-			name: "Proj",
-			path: "/workspace/proj",
-			lastOpenedAt: 1,
-			...projectMetadata,
-		}));
+		projects.push(
+			buildCloudSyncProject({
+				id: "proj-a",
+				name: "Proj",
+				path: "/workspace/proj",
+				lastOpenedAt: 1,
+				...projectMetadata,
+			}),
+		);
 	}
 	return buildPiDeckSyncIndex({
 		deviceId: "device-a",
@@ -73,8 +75,14 @@ test("session transfers: upload local-only, download remote-only, conflict on bo
 	const remote = makeIndex({ sessions: [sessionRef("s1", "a".repeat(64)), sessionRef("s2", "b".repeat(64)), sessionRef("s4", "d".repeat(64))] });
 	const result = mergeSyncIndexes(base, local, remote, "smartMerge");
 	// s3 仅本地 → 上传；s4 仅远端 → 下载；s1/s2 未变
-	assert.deepEqual(result.transfers.sessionUpload.map((ref) => ref.sessionId), ["s3"]);
-	assert.deepEqual(result.transfers.sessionDownload.map((ref) => ref.sessionId), ["s4"]);
+	assert.deepEqual(
+		result.transfers.sessionUpload.map((ref) => ref.sessionId),
+		["s3"],
+	);
+	assert.deepEqual(
+		result.transfers.sessionDownload.map((ref) => ref.sessionId),
+		["s4"],
+	);
 	assert.equal(result.conflicts.length, 0);
 	const mergedIds = result.merged.projects[0].sessions.map((ref) => ref.sessionId).sort();
 	assert.deepEqual(mergedIds, ["s1", "s2", "s3", "s4"]);
@@ -90,7 +98,10 @@ test("session transfers: upload local-only, download remote-only, conflict on bo
 	// 显式选远端 → 下载
 	const resolved = resolveMergeConflicts(base2, local2, remote2, [{ id: "session:s1", choice: "remote" }], "smartMerge");
 	assert.equal(resolved.conflicts.length, 0);
-	assert.deepEqual(resolved.transfers.sessionDownload.map((ref) => ref.sessionId), ["s1"]);
+	assert.deepEqual(
+		resolved.transfers.sessionDownload.map((ref) => ref.sessionId),
+		["s1"],
+	);
 	assert.equal(resolved.merged.projects[0].sessions[0].contentHash, "f".repeat(64));
 });
 
@@ -108,14 +119,11 @@ test("resource transfer plan keeps project/category/relativePath provenance", ()
 	assert.equal(result.conflicts.length, 1);
 	assert.equal(result.conflicts[0].id, "resource:__global__:skills:demo/SKILL.md");
 	assert.equal(result.conflicts[0].kind, "resource");
-	const resolved = resolveMergeConflicts(
-		base,
-		local,
-		remote,
-		[{ id: "resource:__global__:skills:demo/SKILL.md", choice: "remote" }],
-		"smartMerge",
+	const resolved = resolveMergeConflicts(base, local, remote, [{ id: "resource:__global__:skills:demo/SKILL.md", choice: "remote" }], "smartMerge");
+	assert.deepEqual(
+		resolved.transfers.resourceDownload.map((item) => item.bundle.relativePath),
+		["demo/SKILL.md"],
 	);
-	assert.deepEqual(resolved.transfers.resourceDownload.map((item) => item.bundle.relativePath), ["demo/SKILL.md"]);
 	assert.equal(resolved.merged.projects[0].resources.skills[0].content, "remote");
 });
 
@@ -126,7 +134,10 @@ test("project metadata conflict and one-sided adoption", () => {
 	const result = mergeSyncIndexes(base, local, remote, "smartMerge");
 	const proj = result.merged.projects.find((project) => project.projectId === "proj-a");
 	// pinned: 仅本地改 → 采纳本地；sortOrder: 双方改 → 冲突（默认本地优先）
-	assert.deepEqual(result.conflicts.map((conflict) => conflict.id), ["project:proj-a:sortOrder"]);
+	assert.deepEqual(
+		result.conflicts.map((conflict) => conflict.id),
+		["project:proj-a:sortOrder"],
+	);
 	assert.equal(proj.metadata.pinned, true);
 	assert.equal(proj.metadata.sortOrder, 1);
 	// 显式选远端

@@ -10,10 +10,7 @@
  * The HTTP layer is injectable so tests can run without network.
  */
 
-import type {
-	GithubGistConfig,
-	ProviderAccount,
-} from "../../../shared/types/cloudSync.ts";
+import type { GithubGistConfig, ProviderAccount } from "../../../shared/types/cloudSync.ts";
 import {
 	assertSafeCloudObjectKey,
 	CloudSyncConditionalWriteError,
@@ -27,10 +24,7 @@ import {
 } from "../objectStorage.ts";
 import { normalizeGithubGistConfig } from "../providerConfig.ts";
 
-export type CloudSyncHttpFetch = (
-	url: string,
-	init?: { method?: string; headers?: Record<string, string>; body?: string },
-) => Promise<{ status: number; json(): Promise<unknown>; text(): Promise<string> }>;
+export type CloudSyncHttpFetch = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{ status: number; json(): Promise<unknown>; text(): Promise<string> }>;
 
 const GITHUB_API = "https://api.github.com";
 const GIST_DESCRIPTION = "PiDeck cloud sync (end-to-end encrypted)";
@@ -56,10 +50,7 @@ export interface GithubDeviceFlowToken {
 }
 
 /** 发起 GitHub Device Flow：返回用户需访问的验证 URL 与一次性 code。 */
-export async function startGithubDeviceFlow(
-	clientId: string,
-	fetchImpl: CloudSyncHttpFetch = fetch as unknown as CloudSyncHttpFetch,
-): Promise<GithubDeviceFlowStart> {
+export async function startGithubDeviceFlow(clientId: string, fetchImpl: CloudSyncHttpFetch = fetch as unknown as CloudSyncHttpFetch): Promise<GithubDeviceFlowStart> {
 	if (!clientId.trim()) throw new TypeError("GitHub client id is required");
 	const response = await fetchImpl("https://github.com/login/device/code", {
 		method: "POST",
@@ -81,11 +72,7 @@ export async function startGithubDeviceFlow(
 }
 
 /** 轮询 GitHub Device Flow 换取 access token；未授权完成时返回 error: "authorization_pending"。 */
-export async function pollGithubDeviceFlow(
-	clientId: string,
-	deviceCode: string,
-	fetchImpl: CloudSyncHttpFetch = fetch as unknown as CloudSyncHttpFetch,
-): Promise<GithubDeviceFlowToken> {
+export async function pollGithubDeviceFlow(clientId: string, deviceCode: string, fetchImpl: CloudSyncHttpFetch = fetch as unknown as CloudSyncHttpFetch): Promise<GithubDeviceFlowToken> {
 	const response = await fetchImpl("https://github.com/login/oauth/access_token", {
 		method: "POST",
 		headers: { "content-type": "application/json", accept: "application/json" },
@@ -126,10 +113,7 @@ export class GithubGistObjectStorage implements PiDeckCloudObjectStorage {
 	private gistId: string | null = null;
 	private account: ProviderAccount | null = null;
 
-	constructor(
-		config: unknown,
-		fetchImpl: CloudSyncHttpFetch = fetch as unknown as CloudSyncHttpFetch,
-	) {
+	constructor(config: unknown, fetchImpl: CloudSyncHttpFetch = fetch as unknown as CloudSyncHttpFetch) {
 		this.config = normalizeGithubGistConfig(config);
 		this.fetchImpl = fetchImpl;
 	}
@@ -176,11 +160,7 @@ export class GithubGistObjectStorage implements PiDeckCloudObjectStorage {
 		};
 	}
 
-	async writeObject(
-		key: string,
-		bytes: Uint8Array,
-		options?: CloudSyncObjectWriteOptions,
-	): Promise<CloudSyncObjectWriteResult> {
+	async writeObject(key: string, bytes: Uint8Array, options?: CloudSyncObjectWriteOptions): Promise<CloudSyncObjectWriteResult> {
 		assertSafeCloudObjectKey(key);
 		this.requireConnected();
 		if (bytes.byteLength > 1024 * 1024) {
@@ -268,11 +248,7 @@ export class GithubGistObjectStorage implements PiDeckCloudObjectStorage {
 		};
 	}
 
-	private async request(
-		path: string,
-		method: string,
-		body?: Record<string, unknown>,
-	): Promise<unknown> {
+	private async request(path: string, method: string, body?: Record<string, unknown>): Promise<unknown> {
 		this.requireToken();
 		const response = await this.fetchImpl(`${GITHUB_API}${path}`, {
 			method,

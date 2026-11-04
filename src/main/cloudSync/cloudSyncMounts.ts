@@ -36,25 +36,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isMountRecord(value: unknown): value is CloudSyncMount {
 	if (!isRecord(value)) return false;
 	const { remoteProjectId, remoteProjectName, localPath, mountedAt } = value;
-	return (
-		typeof remoteProjectId === "string" &&
-		remoteProjectId.length > 0 &&
-		typeof remoteProjectName === "string" &&
-		remoteProjectName.length > 0 &&
-		typeof localPath === "string" &&
-		localPath.length > 0 &&
-		typeof mountedAt === "number" &&
-		Number.isFinite(mountedAt)
-	);
+	return typeof remoteProjectId === "string" && remoteProjectId.length > 0 && typeof remoteProjectName === "string" && remoteProjectName.length > 0 && typeof localPath === "string" && localPath.length > 0 && typeof mountedAt === "number" && Number.isFinite(mountedAt);
 }
 
 function isMissingError(error: unknown): boolean {
-	return Boolean(
-		error &&
-			typeof error === "object" &&
-			"code" in error &&
-			(error as { code?: unknown }).code === "ENOENT",
-	);
+	return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "ENOENT");
 }
 
 /** 跨平台绝对路径判定：当前平台 + win32（C:\ / \\server\share）+ posix（/）。 */

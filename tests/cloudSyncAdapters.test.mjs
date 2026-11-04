@@ -50,15 +50,12 @@ test("WebDAV object storage atomically writes bytes and verifies the stored body
 	const bytes = Buffer.from([0, 1, 2, 255]);
 	const result = await storage.writeObject("pideck-sessions/session.jsonl.enc", bytes);
 	assert.equal(result.created, true);
-	assert.deepEqual(
-		Buffer.from((await storage.readObject("pideck-sessions/session.jsonl.enc")).bytes),
-		bytes,
+	assert.deepEqual(Buffer.from((await storage.readObject("pideck-sessions/session.jsonl.enc")).bytes), bytes);
+	assert.equal(
+		[...client.files.keys()].some((key) => key.includes(".tmp-")),
+		false,
 	);
-	assert.equal([...client.files.keys()].some((key) => key.includes(".tmp-")), false);
-	assert.deepEqual(
-		await storage.deleteObject("pideck-sessions/session.jsonl.enc"),
-		{ deleted: true },
-	);
+	assert.deepEqual(await storage.deleteObject("pideck-sessions/session.jsonl.enc"), { deleted: true });
 });
 
 test("WebDAV falls back to direct PUT when MOVE is unavailable and still cleans temp data", async () => {
@@ -67,7 +64,10 @@ test("WebDAV falls back to direct PUT when MOVE is unavailable and still cleans 
 	await storage.connect();
 	await storage.writeObject("pideck-index.json", Buffer.from("encrypted"));
 	assert.equal(client.files.has("/pideck-index.json"), true);
-	assert.equal([...client.files.keys()].some((key) => key.includes(".tmp-")), false);
+	assert.equal(
+		[...client.files.keys()].some((key) => key.includes(".tmp-")),
+		false,
+	);
 });
 
 function createS3Client() {
@@ -137,10 +137,7 @@ test("S3 object storage uses HEAD revisions and supports conditional writes", as
 	const read = await storage.readObject("pideck-index.json");
 	assert.equal(Buffer.from(read.bytes).toString(), "one");
 
-	await assert.rejects(
-		() => storage.writeObject("pideck-index.json", Buffer.from("two"), { expectedRevision: "stale" }),
-		/does not match/,
-	);
+	await assert.rejects(() => storage.writeObject("pideck-index.json", Buffer.from("two"), { expectedRevision: "stale" }), /does not match/);
 	const second = await storage.writeObject("pideck-index.json", Buffer.from("two"), {
 		expectedRevision: first.revision,
 	});

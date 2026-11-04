@@ -2,12 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAtom } from "jotai";
 import { desktopApi } from "../desktopApi";
 import { cloudSyncStateAtom, cloudSyncTreeAtom } from "../atoms/cloudSyncAtoms";
-import type {
-	CloudSyncImportInput,
-	CloudSyncProviderConfigInput,
-	CloudSyncSelectionTree,
-	CloudSyncSelectionUpdate,
-} from "../../../shared/types";
+import type { CloudSyncImportInput, CloudSyncProviderConfigInput, CloudSyncSelectionTree, CloudSyncSelectionUpdate } from "../../../shared/types";
 
 /**
  * 云同步状态/操作 Hook（渲染层唯一入口）。
@@ -39,7 +34,7 @@ export function useCloudSync() {
 		};
 	}, [setState]);
 
-	const run = useCallback(async <T,>(action: () => Promise<T>): Promise<T | undefined> => {
+	const run = useCallback(async <T>(action: () => Promise<T>): Promise<T | undefined> => {
 		setBusy(true);
 		setError(null);
 		try {
@@ -58,11 +53,14 @@ export function useCloudSync() {
 		return next;
 	}, [run, setTree]);
 
-	const updateSelection = useCallback(async (update: CloudSyncSelectionUpdate) => {
-		const next = await run(() => desktopApi.cloudSync.updateSelection(update));
-		if (next) setTree(next);
-		return next;
-	}, [run, setTree]);
+	const updateSelection = useCallback(
+		async (update: CloudSyncSelectionUpdate) => {
+			const next = await run(() => desktopApi.cloudSync.updateSelection(update));
+			if (next) setTree(next);
+			return next;
+		},
+		[run, setTree],
+	);
 
 	return {
 		state,
@@ -72,44 +70,29 @@ export function useCloudSync() {
 		setupMasterKey: (password: string) => run(() => desktopApi.cloudSync.setupMasterKey(password)),
 		unlock: (password: string) => run(() => desktopApi.cloudSync.unlock(password)),
 		lock: () => run(() => desktopApi.cloudSync.lock()),
-		changePassword: (oldPassword: string, newPassword: string) =>
-			run(() => desktopApi.cloudSync.changePassword(oldPassword, newPassword)),
-		configureProvider: (input: CloudSyncProviderConfigInput) =>
-			run(() => desktopApi.cloudSync.configureProvider(input)),
-		disconnectProvider: (provider: string) =>
-			run(() => desktopApi.cloudSync.disconnectProvider(provider)),
+		changePassword: (oldPassword: string, newPassword: string) => run(() => desktopApi.cloudSync.changePassword(oldPassword, newPassword)),
+		configureProvider: (input: CloudSyncProviderConfigInput) => run(() => desktopApi.cloudSync.configureProvider(input)),
+		disconnectProvider: (provider: string) => run(() => desktopApi.cloudSync.disconnectProvider(provider)),
 		connect: (provider: string) => run(() => desktopApi.cloudSync.connect(provider)),
 		githubDeviceStart: (clientId: string) => run(() => desktopApi.cloudSync.githubDeviceStart(clientId)),
 		githubDevicePoll: () => run(() => desktopApi.cloudSync.githubDevicePoll()),
 		scan,
 		updateSelection,
 		syncNow: (allowShrink?: boolean) => run(() => desktopApi.cloudSync.syncNow({ allowShrink })),
-		resolveConflicts: (resolutions: Array<{ id: string; choice: "local" | "remote" }>) =>
-			run(() => desktopApi.cloudSync.resolveConflicts(resolutions)),
+		resolveConflicts: (resolutions: Array<{ id: string; choice: "local" | "remote" }>) => run(() => desktopApi.cloudSync.resolveConflicts(resolutions)),
 		restoreExtensions: () => run(() => desktopApi.cloudSync.restoreExtensions()),
-		setAutoSync: (enabled: boolean, intervalMinutes?: number) =>
-			run(() => desktopApi.cloudSync.setAutoSync(enabled, intervalMinutes)),
+		setAutoSync: (enabled: boolean, intervalMinutes?: number) => run(() => desktopApi.cloudSync.setAutoSync(enabled, intervalMinutes)),
 		setStrategy: (strategy: string) => run(() => desktopApi.cloudSync.setStrategy(strategy)),
-		exportBackup: (options?: { outputPath?: string; title?: string }) =>
-			run(() => desktopApi.cloudSync.exportBackup(options)),
-		importBackup: (input: CloudSyncImportInput) =>
-			run(() => desktopApi.cloudSync.importBackup(input)),
+		exportBackup: (options?: { outputPath?: string; title?: string }) => run(() => desktopApi.cloudSync.exportBackup(options)),
+		importBackup: (input: CloudSyncImportInput) => run(() => desktopApi.cloudSync.importBackup(input)),
 		oneDriveStart: (clientId: string) => run(() => desktopApi.cloudSync.oneDriveStart(clientId)),
 		oneDrivePoll: () => run(() => desktopApi.cloudSync.oneDrivePoll()),
-		googleStart: (clientId: string, clientSecret?: string) =>
-			run(() => desktopApi.cloudSync.googleStart(clientId, clientSecret)),
+		googleStart: (clientId: string, clientSecret?: string) => run(() => desktopApi.cloudSync.googleStart(clientId, clientSecret)),
 		googlePoll: () => run(() => desktopApi.cloudSync.googlePoll()),
 		setExclusions: (patterns: string[]) => run(() => desktopApi.cloudSync.setExclusions(patterns)),
-		addCustomPath: (input: {
-			filePath: string;
-			relativeTo: "project" | "home" | "absolute";
-			relativePath: string;
-			projectId?: string;
-			label?: string;
-		}) => run(() => desktopApi.cloudSync.addCustomPath(input)),
+		addCustomPath: (input: { filePath: string; relativeTo: "project" | "home" | "absolute"; relativePath: string; projectId?: string; label?: string }) => run(() => desktopApi.cloudSync.addCustomPath(input)),
 		removeCustomPath: (id: string) => run(() => desktopApi.cloudSync.removeCustomPath(id)),
-		mountProject: (input: { remoteProjectId: string; remoteProjectName: string; localPath: string }) =>
-			run(() => desktopApi.cloudSync.mountProject(input)),
+		mountProject: (input: { remoteProjectId: string; remoteProjectName: string; localPath: string }) => run(() => desktopApi.cloudSync.mountProject(input)),
 		unmountProject: (remoteProjectId: string) => run(() => desktopApi.cloudSync.unmountProject(remoteProjectId)),
 		pickCustomPath: () => run(() => desktopApi.cloudSync.pickCustomPath()),
 		pickMountDirectory: () => run(() => desktopApi.cloudSync.pickMountDirectory()),

@@ -9,15 +9,7 @@ import { homedir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { ipcChannels } from "../../shared/ipc";
 import { isLocalProject } from "../../shared/projectLocation";
-import type {
-	CloudProvider,
-	CloudSyncConflictResolution,
-	CloudSyncExportResult,
-	CloudSyncImportInput,
-	CloudSyncImportMode,
-	CloudSyncSelectionUpdate,
-	CloudSyncStrategy,
-} from "../../shared/types/cloudSync";
+import type { CloudProvider, CloudSyncConflictResolution, CloudSyncExportResult, CloudSyncImportInput, CloudSyncImportMode, CloudSyncSelectionUpdate, CloudSyncStrategy } from "../../shared/types/cloudSync";
 import { isBuiltinCloudProvider } from "../../shared/types/cloudSync";
 import { parseProviderConfigInput } from "../cloudSync/parseProviderConfig";
 import type { CloudSyncManager } from "../cloudSync/CloudSyncManager";
@@ -46,12 +38,8 @@ function parsePassword(value: unknown): string {
 
 function parseSelectionUpdate(value: unknown): CloudSyncSelectionUpdate {
 	if (!isPlainObject(value)) throw new TypeError("Selection update must be an object");
-	const selectedSessionIds = Array.isArray(value.selectedSessionIds)
-		? value.selectedSessionIds.filter((id): id is string => typeof id === "string" && id.startsWith("session:"))
-		: [];
-	const selectedResourceIds = Array.isArray(value.selectedResourceIds)
-		? value.selectedResourceIds.filter((id): id is string => typeof id === "string" && id.startsWith("resource:"))
-		: [];
+	const selectedSessionIds = Array.isArray(value.selectedSessionIds) ? value.selectedSessionIds.filter((id): id is string => typeof id === "string" && id.startsWith("session:")) : [];
+	const selectedResourceIds = Array.isArray(value.selectedResourceIds) ? value.selectedResourceIds.filter((id): id is string => typeof id === "string" && id.startsWith("resource:")) : [];
 	const content = value.content;
 	if (content !== undefined && !isPlainObject(content)) throw new TypeError("Content preferences must be an object");
 	return {
@@ -161,9 +149,7 @@ function parseExportOptions(value: unknown): { outputPath?: string; title?: stri
 	const outputPath = value.outputPath;
 	const title = value.title;
 	return {
-		...(typeof outputPath === "string" && outputPath.length > 0 && outputPath.length <= 4096 && !outputPath.includes("\0")
-			? { outputPath }
-			: {}),
+		...(typeof outputPath === "string" && outputPath.length > 0 && outputPath.length <= 4096 && !outputPath.includes("\0") ? { outputPath } : {}),
 		...(typeof title === "string" && title.length > 0 && title.length <= 256 ? { title } : {}),
 	};
 }
@@ -192,11 +178,7 @@ async function resolveBackupSavePath(title?: string): Promise<string | null> {
 	return result.canceled ? null : result.filePath;
 }
 
-export function registerCloudSyncIpc(deps: {
-	manager: CloudSyncManager;
-	notifyStateChanged: () => void;
-	listProjects?: () => Project[];
-}): void {
+export function registerCloudSyncIpc(deps: { manager: CloudSyncManager; notifyStateChanged: () => void; listProjects?: () => Project[] }): void {
 	if (deps.listProjects) listProjectsForCustomPath = deps.listProjects;
 	const { manager, notifyStateChanged } = deps;
 
@@ -268,8 +250,7 @@ export function registerCloudSyncIpc(deps: {
 		return tree;
 	});
 
-	ipcMain.handle(ipcChannels.cloudSyncSyncNow, (_event, options: unknown) =>
-		manager.syncNow(options && typeof options === "object" ? { allowShrink: Boolean((options as { allowShrink?: unknown }).allowShrink) } : undefined));
+	ipcMain.handle(ipcChannels.cloudSyncSyncNow, (_event, options: unknown) => manager.syncNow(options && typeof options === "object" ? { allowShrink: Boolean((options as { allowShrink?: unknown }).allowShrink) } : undefined));
 
 	ipcMain.handle(ipcChannels.cloudSyncResolveConflicts, async (_event, resolutions: unknown) => {
 		if (!Array.isArray(resolutions) || resolutions.length > 1000) {
@@ -310,7 +291,7 @@ export function registerCloudSyncIpc(deps: {
 
 	ipcMain.handle(ipcChannels.cloudSyncExport, async (_event, options: unknown): Promise<CloudSyncExportResult | null> => {
 		const parsed = parseExportOptions(options);
-		const filePath = parsed.outputPath ?? await resolveBackupSavePath(parsed.title);
+		const filePath = parsed.outputPath ?? (await resolveBackupSavePath(parsed.title));
 		if (!filePath) return null; // 用户取消保存对话框
 		const result = await manager.exportBackup({ outputPath: filePath });
 		notifyStateChanged();
@@ -417,10 +398,7 @@ export function registerCloudSyncIpc(deps: {
 		if (clientSecret !== null && clientSecret !== undefined && typeof clientSecret !== "string") {
 			throw new TypeError("Google Drive client secret is invalid");
 		}
-		return manager.startGoogleOAuth(
-			typeof clientId === "string" ? clientId.trim() : "",
-			typeof clientSecret === "string" ? clientSecret.trim() : undefined,
-		);
+		return manager.startGoogleOAuth(typeof clientId === "string" ? clientId.trim() : "", typeof clientSecret === "string" ? clientSecret.trim() : undefined);
 	});
 
 	ipcMain.handle(ipcChannels.cloudSyncGooglePoll, async () => {

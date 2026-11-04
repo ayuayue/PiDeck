@@ -120,4 +120,3 @@ test("目录缺失时的项目 presence 刷新不会让文件树 effect 自激�
 	assert.ok(gitWatch, "git refs effect should keep an explicit dependency list");
 	assert.doesNotMatch(gitWatch[0], /isLocalProjectId\b/);
 });
-

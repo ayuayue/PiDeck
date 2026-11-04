@@ -9,15 +9,7 @@
  * Pure functions only: file I/O and provider access live in CloudSyncManager.
  */
 
-import type {
-	CloudSyncConflict,
-	CloudSyncConflictResolution,
-	CloudSyncFileBundle,
-	CloudSyncProject,
-	CloudSyncSessionRef,
-	CloudSyncStrategy,
-	PiDeckSyncIndexV1,
-} from "../../shared/types/cloudSync.ts";
+import type { CloudSyncConflict, CloudSyncConflictResolution, CloudSyncFileBundle, CloudSyncProject, CloudSyncSessionRef, CloudSyncStrategy, PiDeckSyncIndexV1 } from "../../shared/types/cloudSync.ts";
 import { GLOBAL_SYNC_PROJECT_ID } from "./payload.ts";
 
 export type ConflictChoiceMap = ReadonlyMap<string, "local" | "remote">;
@@ -143,13 +135,7 @@ function hashOf(value: unknown): string | undefined {
 }
 
 /** 三方比较两个实体版本，返回动作。 */
-function decideSide<T>(
-	local: T | undefined,
-	base: T | undefined,
-	remote: T | undefined,
-	localEquals: (a: T, b: T) => boolean,
-	remoteEquals: (a: T, b: T) => boolean,
-): "local" | "remote" | "conflict" | "none" {
+function decideSide<T>(local: T | undefined, base: T | undefined, remote: T | undefined, localEquals: (a: T, b: T) => boolean, remoteEquals: (a: T, b: T) => boolean): "local" | "remote" | "conflict" | "none" {
 	const localChanged = local !== undefined && base !== undefined ? !localEquals(local, base) : local !== base;
 	const remoteChanged = remote !== undefined && base !== undefined ? !remoteEquals(remote, base) : remote !== base;
 	if (!localChanged && !remoteChanged) return "none";
@@ -174,13 +160,7 @@ function bundleEquals(a: ResourceEntry | undefined, b: ResourceEntry | undefined
  * 三路合并索引。choices 只作用于「双方都改且内容不同」的冲突实体；
  * 其余实体按 base 自动决定本地/远端。
  */
-export function mergeSyncIndexes(
-	base: PiDeckSyncIndexV1 | null,
-	local: PiDeckSyncIndexV1,
-	remote: PiDeckSyncIndexV1,
-	strategy: CloudSyncStrategy,
-	choices: ConflictChoiceMap = new Map(),
-): CloudSyncMergeResult {
+export function mergeSyncIndexes(base: PiDeckSyncIndexV1 | null, local: PiDeckSyncIndexV1, remote: PiDeckSyncIndexV1, strategy: CloudSyncStrategy, choices: ConflictChoiceMap = new Map()): CloudSyncMergeResult {
 	const conflicts: CloudSyncConflict[] = [];
 	const transfers: CloudSyncTransferPlan = {
 		sessionUpload: [],
@@ -210,7 +190,13 @@ export function mergeSyncIndexes(
 			const lv = localMeta[field];
 			const rv = remoteMeta[field];
 			const bv = baseMeta[field];
-			const decision = decideSide(lv, bv, rv, (a, c) => a === c, (a, c) => a === c);
+			const decision = decideSide(
+				lv,
+				bv,
+				rv,
+				(a, c) => a === c,
+				(a, c) => a === c,
+			);
 			if (decision === "local" || decision === "none") {
 				if (lv !== undefined) mergedMeta[field] = lv;
 			} else if (decision === "remote") {
@@ -310,13 +296,7 @@ export function mergeSyncIndexes(
 		const localEntry = l.catalog.get(id);
 		const remoteEntry = r.catalog.get(id);
 		const baseEntry = b.catalog.get(id);
-		const decision = decideSide(
-			localEntry?.entry,
-			baseEntry?.entry,
-			remoteEntry?.entry,
-			isSameText,
-			isSameText,
-		);
+		const decision = decideSide(localEntry?.entry, baseEntry?.entry, remoteEntry?.entry, isSameText, isSameText);
 		if (decision === "local" || decision === "none") {
 			if (localEntry) mergedCatalog.set(id, localEntry);
 			else if (remoteEntry) mergedCatalog.set(id, remoteEntry);
@@ -333,10 +313,7 @@ export function mergeSyncIndexes(
 	}
 
 	// Settings：按字段三方比较
-	const settingsFields = new Set([
-		...(local.settings ? Object.keys(local.settings) : []),
-		...(remote.settings ? Object.keys(remote.settings) : []),
-	]);
+	const settingsFields = new Set([...(local.settings ? Object.keys(local.settings) : []), ...(remote.settings ? Object.keys(remote.settings) : [])]);
 	const mergedSettings: Record<string, unknown> = {};
 	let settingsAdoptedFromRemote = false;
 	for (const field of settingsFields) {
@@ -367,12 +344,14 @@ export function mergeSyncIndexes(
 	for (const [projectId, project] of mergedProjects) {
 		projectsById.set(projectId, {
 			...project,
-			...(project.resources ? {
-				resources: {
-					...(project.resources.piSettings !== undefined ? { piSettings: project.resources.piSettings } : {}),
-					...(project.resources.extensionSources !== undefined ? { extensionSources: project.resources.extensionSources } : {}),
-				},
-			} : {}),
+			...(project.resources
+				? {
+						resources: {
+							...(project.resources.piSettings !== undefined ? { piSettings: project.resources.piSettings } : {}),
+							...(project.resources.extensionSources !== undefined ? { extensionSources: project.resources.extensionSources } : {}),
+						},
+					}
+				: {}),
 			sessions: [],
 			catalogEntries: [],
 		});
@@ -394,9 +373,7 @@ export function mergeSyncIndexes(
 	for (const ref of mergedSessions.values()) {
 		// project/dsh 会话按各自 projectId 挂回项目节点（DSH 会话与侧栏一致按项目组织）；
 		// 无 projectId（global 或旧数据兜底）落全局节点。
-		const projectId = (ref.scope === "project" || ref.scope === "dsh") && ref.projectId
-			? ref.projectId
-			: GLOBAL_SYNC_PROJECT_ID;
+		const projectId = (ref.scope === "project" || ref.scope === "dsh") && ref.projectId ? ref.projectId : GLOBAL_SYNC_PROJECT_ID;
 		ensureProject(projectId, projectId).sessions!.push(ref);
 	}
 	for (const entry of mergedResources.values()) {
@@ -419,12 +396,13 @@ export function mergeSyncIndexes(
 	const merged: PiDeckSyncIndexV1 = {
 		...local,
 		...(Object.keys(mergedSettings).length > 0 ? { settings: mergedSettings } : {}),
-		projects: [...projectsById.values()].filter((project) => (
-			project.sessions?.length ||
-			(project.resources && (project.resources.prompts?.length || project.resources.skills?.length || project.resources.localExtensions?.length || project.resources.piSettings || project.resources.extensionSources?.length)) ||
-			project.catalogEntries?.length ||
-			(project.metadata && Object.keys(project.metadata).length > 0)
-		)),
+		projects: [...projectsById.values()].filter(
+			(project) =>
+				project.sessions?.length ||
+				(project.resources && (project.resources.prompts?.length || project.resources.skills?.length || project.resources.localExtensions?.length || project.resources.piSettings || project.resources.extensionSources?.length)) ||
+				project.catalogEntries?.length ||
+				(project.metadata && Object.keys(project.metadata).length > 0),
+		),
 		syncedAt: Date.now(),
 	};
 
@@ -441,15 +419,7 @@ function choiceFor(id: string, choices: ConflictChoiceMap, strategy: CloudSyncSt
 }
 
 /** 把解析结果应用到合并：等价于带 choices 重跑 merge（由 manager 持有 base/local/remote 时调用）。 */
-export function resolveMergeConflicts(
-	base: PiDeckSyncIndexV1 | null,
-	local: PiDeckSyncIndexV1,
-	remote: PiDeckSyncIndexV1,
-	resolutions: CloudSyncConflictResolution[],
-	strategy: CloudSyncStrategy,
-): CloudSyncMergeResult {
-	const choices = new Map<string, "local" | "remote">(
-		resolutions.map((resolution) => [resolution.id, resolution.choice]),
-	);
+export function resolveMergeConflicts(base: PiDeckSyncIndexV1 | null, local: PiDeckSyncIndexV1, remote: PiDeckSyncIndexV1, resolutions: CloudSyncConflictResolution[], strategy: CloudSyncStrategy): CloudSyncMergeResult {
+	const choices = new Map<string, "local" | "remote">(resolutions.map((resolution) => [resolution.id, resolution.choice]));
 	return mergeSyncIndexes(base, local, remote, strategy, choices);
 }

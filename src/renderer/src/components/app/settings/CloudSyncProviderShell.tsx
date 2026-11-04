@@ -36,21 +36,8 @@ export function SecretInput(props: { placeholder?: string; value: string; onChan
 	const [visible, setVisible] = useState(false);
 	return (
 		<div className="relative">
-			<Input
-				type={visible ? "text" : "password"}
-				placeholder={props.placeholder}
-				value={props.value}
-				onChange={(event) => props.onChange(event.target.value)}
-				className="pr-9"
-			/>
-			<button
-				type="button"
-				tabIndex={-1}
-				aria-label={t("cloudSync.provider.showSecret")}
-				title={t("cloudSync.provider.showSecret")}
-				onClick={() => setVisible((prev) => !prev)}
-				className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-foreground"
-			>
+			<Input type={visible ? "text" : "password"} placeholder={props.placeholder} value={props.value} onChange={(event) => props.onChange(event.target.value)} className="pr-9" />
+			<button type="button" tabIndex={-1} aria-label={t("cloudSync.provider.showSecret")} title={t("cloudSync.provider.showSecret")} onClick={() => setVisible((prev) => !prev)} className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-foreground">
 				{visible ? <EyeOff size={15} /> : <Eye size={15} />}
 			</button>
 		</div>
@@ -59,15 +46,7 @@ export function SecretInput(props: { placeholder?: string; value: string; onChan
 
 /** Provider 状态点：连接态用语义色，未连接灰色。 */
 export function StatusDot(props: { status: string }) {
-	return (
-		<span
-			aria-hidden
-			className={cn(
-				"inline-block size-2 rounded-full",
-				props.status === "connected" ? "bg-success" : props.status === "connecting" ? "bg-warning" : props.status === "error" ? "bg-destructive" : "bg-text-tertiary/50",
-			)}
-		/>
-	);
+	return <span aria-hidden className={cn("inline-block size-2 rounded-full", props.status === "connected" ? "bg-success" : props.status === "connecting" ? "bg-warning" : props.status === "error" ? "bg-destructive" : "bg-text-tertiary/50")} />;
 }
 
 /** 头部右侧状态文案：connected > connecting > 已配置未连接 > 未连接。 */
@@ -82,15 +61,7 @@ function providerStatusLabel(status: string, configured: boolean): string {
  * 折叠式服务卡外壳：点头部展开编辑区，收起时只显示状态行（对齐 Netcatty 布局）。
  * 编辑态由外壳持有；children 为函数以暴露 close()，供「取消」按钮收起编辑区。
  */
-export function ProviderCardShell(props: {
-	icon: React.ReactNode;
-	title: string;
-	description?: string;
-	account?: string;
-	status: string;
-	configured: boolean;
-	children: (close: () => void) => React.ReactNode;
-}) {
+export function ProviderCardShell(props: { icon: React.ReactNode; title: string; description?: string; account?: string; status: string; configured: boolean; children: (close: () => void) => React.ReactNode }) {
 	const [editing, setEditing] = useState(false);
 	return (
 		<div className="overflow-hidden rounded-lg border border-border-subtle">
@@ -99,7 +70,12 @@ export function ProviderCardShell(props: {
 				role="button"
 				tabIndex={0}
 				onClick={() => setEditing((prev) => !prev)}
-				onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setEditing((prev) => !prev); } }}
+				onKeyDown={(event) => {
+					if (event.key === "Enter" || event.key === " ") {
+						event.preventDefault();
+						setEditing((prev) => !prev);
+					}
+				}}
 			>
 				{editing ? <ChevronDown size={16} className="shrink-0 text-text-tertiary" /> : <ChevronRight size={16} className="shrink-0 text-text-tertiary" />}
 				<span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">{props.icon}</span>
@@ -113,11 +89,7 @@ export function ProviderCardShell(props: {
 					{providerStatusLabel(props.status, props.configured)}
 				</span>
 			</div>
-			{editing ? (
-				<div className="space-y-3 border-t border-border-subtle px-4 py-4">
-					{props.children(() => setEditing(false))}
-				</div>
-			) : null}
+			{editing ? <div className="space-y-3 border-t border-border-subtle px-4 py-4">{props.children(() => setEditing(false))}</div> : null}
 		</div>
 	);
 }
@@ -153,12 +125,7 @@ export function ProviderActionBar(props: {
 				</Button>
 			) : null}
 			{props.configured && props.onDisconnect ? (
-				<Button
-					size="sm"
-					variant={props.removeVariant ?? "ghost"}
-					className={props.removeVariant === "outline" ? undefined : "text-destructive hover:text-destructive"}
-					onClick={props.onDisconnect}
-				>
+				<Button size="sm" variant={props.removeVariant ?? "ghost"} className={props.removeVariant === "outline" ? undefined : "text-destructive hover:text-destructive"} onClick={props.onDisconnect}>
 					{t("cloudSync.provider.remove")}
 				</Button>
 			) : null}

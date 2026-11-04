@@ -21,10 +21,7 @@ export interface CloudSyncBrowserFlow {
 }
 
 /** useCloudSync 中 OAuth 相关的稳定回调集合（窄接口，避免整包透传）。 */
-export type CloudSyncOAuthApi = Pick<
-	ReturnType<typeof useCloudSync>,
-	"githubDeviceStart" | "githubDevicePoll" | "oneDriveStart" | "oneDrivePoll" | "googleStart" | "googlePoll"
->;
+export type CloudSyncOAuthApi = Pick<ReturnType<typeof useCloudSync>, "githubDeviceStart" | "githubDevicePoll" | "oneDriveStart" | "oneDrivePoll" | "googleStart" | "googlePoll">;
 
 /**
  * GitHub Device Flow：串行 setTimeout 轮询链（RFC 8628）。
@@ -61,11 +58,14 @@ export function useGithubDeviceFlow(api: CloudSyncOAuthApi) {
 			return;
 		}
 		// pending：按主进程返回的 retryAfterMs 安排下一跳（slow_down 累加已由主进程完成）。
-		pollTimer.current = window.setTimeout(() => {
-			pollTimer.current = null;
-			if (current !== generation.current) return;
-			void runPoll();
-		}, Math.max(0, result.retryAfterMs ?? 5000));
+		pollTimer.current = window.setTimeout(
+			() => {
+				pollTimer.current = null;
+				if (current !== generation.current) return;
+				void runPoll();
+			},
+			Math.max(0, result.retryAfterMs ?? 5000),
+		);
 	}, [api]);
 
 	const start = useCallback(async () => {

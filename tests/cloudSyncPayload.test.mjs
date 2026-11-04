@@ -45,10 +45,7 @@ test("desktop settings payload keeps portable preferences and excludes device pa
 		accent: "green",
 		favoriteModels: ["provider/model"],
 	});
-	assert.deepEqual(
-		filterSyncableDesktopSettings({ ...settings, language: "zh-CN", customPiPath: "/unsafe" }),
-		{ theme: "dark", accent: "green", favoriteModels: ["provider/model"], language: "zh-CN" },
-	);
+	assert.deepEqual(filterSyncableDesktopSettings({ ...settings, language: "zh-CN", customPiPath: "/unsafe" }), { theme: "dark", accent: "green", favoriteModels: ["provider/model"], language: "zh-CN" });
 });
 
 test("session and project paths round-trip as portable relative paths", async () => {
@@ -84,15 +81,16 @@ test("selected session refs contain identity/hash/object key but never absolute 
 	});
 	assert.equal(sessionObjectKey("session-1"), ref.objectKey);
 	assert.throws(
-		() => createSessionRef({
-			sessionId: "session-1",
-			scope: "project",
-			rootPath: "/workspace/pideck/.pi/sessions",
-			filePath: "/workspace/pideck/.pi/sessions/a.jsonl",
-			size: 1,
-			mtimeMs: 1,
-			contentHash: "hash",
-		}),
+		() =>
+			createSessionRef({
+				sessionId: "session-1",
+				scope: "project",
+				rootPath: "/workspace/pideck/.pi/sessions",
+				filePath: "/workspace/pideck/.pi/sessions/a.jsonl",
+				size: 1,
+				mtimeMs: 1,
+				contentHash: "hash",
+			}),
 		/project id/,
 	);
 });
@@ -105,19 +103,22 @@ test("project tree, catalog entry and file bundles use the sync manifest shape",
 	assert.equal(large.content, undefined);
 	assert.match(large.objectKey, /^pideck-files\/[0-9a-f]{64}\.enc$/);
 
-	const catalog = buildCatalogSyncEntry({
-		id: "session-1",
-		projectId: "project-a",
-		title: "Review",
-		source: "pi",
-		environment: "native",
-		filePath: "/workspace/pideck/.pi/sessions/session.jsonl",
-		preview: "hello",
-		messageCount: 2,
-		status: "active",
-		createdAt: 1,
-		updatedAt: 2,
-	}, "session.jsonl");
+	const catalog = buildCatalogSyncEntry(
+		{
+			id: "session-1",
+			projectId: "project-a",
+			title: "Review",
+			source: "pi",
+			environment: "native",
+			filePath: "/workspace/pideck/.pi/sessions/session.jsonl",
+			preview: "hello",
+			messageCount: 2,
+			status: "active",
+			createdAt: 1,
+			updatedAt: 2,
+		},
+		"session.jsonl",
+	);
 	assert.equal(catalog.filePath, undefined);
 	assert.equal(catalog.parentSessionPath, undefined);
 	assert.equal(catalog.relativePath, "session.jsonl");

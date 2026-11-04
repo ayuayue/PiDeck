@@ -176,31 +176,34 @@ test("manager syncs a selected session through the local sync folder end to end"
 		const sessionFile = join(sessionsDir, "session-a.jsonl");
 		await writeFile(sessionFile, '{"type":"session_info","name":"A"}\n{"role":"user","content":"hi"}\n', "utf8");
 
-		const records = [{
-			id: "session-a",
-			projectId: "__global__",
-			title: "Session A",
-			source: "pi",
-			environment: "native",
-			filePath: sessionFile,
-			preview: "hi",
-			messageCount: 1,
-			status: "active",
-			createdAt: 1,
-			updatedAt: 1,
-		}];
+		const records = [
+			{
+				id: "session-a",
+				projectId: "__global__",
+				title: "Session A",
+				source: "pi",
+				environment: "native",
+				filePath: sessionFile,
+				preview: "hi",
+				messageCount: 1,
+				status: "active",
+				createdAt: 1,
+				updatedAt: 1,
+			},
+		];
 
-		const createManager = () => new CloudSyncManager({
-			userDataDir,
-			homeDir,
-			deviceName: "test",
-			appVersion: "0.0.0-test",
-			listProjects: () => [],
-			listSessionRecords: () => records,
-			getDesktopSettings: minimalSettings,
-			updateDesktopSettings: async () => undefined,
-			// 不注入 createAdapter：走真实工厂，local → LocalFolderObjectStorage
-		});
+		const createManager = () =>
+			new CloudSyncManager({
+				userDataDir,
+				homeDir,
+				deviceName: "test",
+				appVersion: "0.0.0-test",
+				listProjects: () => [],
+				listSessionRecords: () => records,
+				getDesktopSettings: minimalSettings,
+				updateDesktopSettings: async () => undefined,
+				// 不注入 createAdapter：走真实工厂，local → LocalFolderObjectStorage
+			});
 
 		const manager = createManager();
 		await manager.initialize();

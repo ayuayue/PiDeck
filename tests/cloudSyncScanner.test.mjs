@@ -50,13 +50,15 @@ test("scanner builds a global + project selection tree with per-root status", as
 		});
 		const scanner = new CloudSyncScanner({
 			homeDir: home,
-			listProjects: () => [{
-				id: "proj-1",
-				name: "proj",
-				path: projectPath,
-				lastOpenedAt: 1,
-				environment: "windows",
-			}],
+			listProjects: () => [
+				{
+					id: "proj-1",
+					name: "proj",
+					path: projectPath,
+					lastOpenedAt: 1,
+					environment: "windows",
+				},
+			],
 			listSessionRecords: () => [],
 		});
 		const snapshot = await scanner.scan(DEFAULT_PREFERENCES);
@@ -134,19 +136,21 @@ test("scanner honors existing selection and groups sessions by catalog project i
 		const scanner = new CloudSyncScanner({
 			homeDir: home,
 			listProjects: () => [],
-			listSessionRecords: () => [{
-				id: "session-a",
-				projectId: "proj-1",
-				title: "Review",
-				source: "pi",
-				environment: "native",
-				filePath,
-				preview: "",
-				messageCount: 1,
-				status: "active",
-				createdAt: 1,
-				updatedAt: 1,
-			}],
+			listSessionRecords: () => [
+				{
+					id: "session-a",
+					projectId: "proj-1",
+					title: "Review",
+					source: "pi",
+					environment: "native",
+					filePath,
+					preview: "",
+					messageCount: 1,
+					status: "active",
+					createdAt: 1,
+					updatedAt: 1,
+				},
+			],
 		});
 		// 第一次扫描拿到 selectionId，再带选中偏好扫描
 		const first = await scanner.scan(DEFAULT_PREFERENCES);
@@ -186,9 +190,7 @@ test("scanner exposes only machine-local loose files in the config category; aut
 		const snapshot = await scanner.scan(DEFAULT_PREFERENCES);
 		const global = snapshot.tree.projects.find((node) => node.projectId === "__global__");
 		assert.ok(global);
-		const configPaths = global.resources
-			.filter((resource) => resource.category === "config")
-			.map((resource) => resource.relativePath);
+		const configPaths = global.resources.filter((resource) => resource.category === "config").map((resource) => resource.relativePath);
 		// 单一入口：auth.json/models.json 归分类开关（payload.pi 对象域），不进 config 文件候选。
 		assert.deepEqual(configPaths, ["models-store.json"]);
 		// trust.json 与 *.bak* 被排除：不进任何候选
@@ -217,9 +219,7 @@ test("scanner applies user exclusion blacklist (glob)", async () => {
 		const snapshot = await scanner.scan(DEFAULT_PREFERENCES, { exclusions: ["**/secret*"] });
 		const global = snapshot.tree.projects.find((node) => node.projectId === "__global__");
 		assert.ok(global);
-		const promptPaths = global.resources
-			.filter((resource) => resource.category === "prompts")
-			.map((resource) => resource.relativePath);
+		const promptPaths = global.resources.filter((resource) => resource.category === "prompts").map((resource) => resource.relativePath);
 		assert.ok(promptPaths.includes("prompts/keep.md"), "non-excluded file must survive");
 		assert.ok(!promptPaths.includes("prompts/secret.md"), "**/secret* must filter the file");
 		assert.ok(!promptPaths.includes("prompts/secret/nested.md"), "**/secret* must filter nested paths");
@@ -241,13 +241,15 @@ test("scanner adds custom sync paths as config candidates", async () => {
 			listSessionRecords: () => [],
 		});
 		const snapshot = await scanner.scan(DEFAULT_PREFERENCES, {
-			customPaths: [{
-				id: "cp-1",
-				filePath: customFile,
-				relativeTo: "home",
-				relativePath: "my-tool/web.json",
-				label: "my-tool web.json",
-			}],
+			customPaths: [
+				{
+					id: "cp-1",
+					filePath: customFile,
+					relativeTo: "home",
+					relativePath: "my-tool/web.json",
+					label: "my-tool web.json",
+				},
+			],
 		});
 		const global = snapshot.tree.projects.find((node) => node.projectId === "__global__");
 		assert.ok(global);
@@ -259,13 +261,15 @@ test("scanner adds custom sync paths as config candidates", async () => {
 		assert.equal(custom.customPathId, "cp-1");
 		// 不存在的自选路径静默跳过，不抛异常
 		const snapshot2 = await scanner.scan(DEFAULT_PREFERENCES, {
-			customPaths: [{
-				id: "cp-missing",
-				filePath: join(base, "nope", "missing.json"),
-				relativeTo: "home",
-				relativePath: "nope/missing.json",
-				label: "missing",
-			}],
+			customPaths: [
+				{
+					id: "cp-missing",
+					filePath: join(base, "nope", "missing.json"),
+					relativeTo: "home",
+					relativePath: "nope/missing.json",
+					label: "missing",
+				},
+			],
 		});
 		const global2 = snapshot2.tree.projects.find((node) => node.projectId === "__global__");
 		assert.equal(global2.resources.filter((resource) => resource.relativePath === "nope/missing.json").length, 0);

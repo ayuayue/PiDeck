@@ -13,14 +13,7 @@
 // Cloud provider identities
 // ---------------------------------------------------------------------------
 
-export const BUILTIN_CLOUD_PROVIDERS = [
-	"github",
-	"google",
-	"onedrive",
-	"webdav",
-	"s3",
-	"local",
-] as const;
+export const BUILTIN_CLOUD_PROVIDERS = ["github", "google", "onedrive", "webdav", "s3", "local"] as const;
 
 export type BuiltinCloudProvider = (typeof BUILTIN_CLOUD_PROVIDERS)[number];
 
@@ -166,7 +159,6 @@ export interface CloudSyncGithubPollResult {
 	error?: string;
 }
 
-
 export interface ProviderAccount {
 	id: string;
 	email?: string;
@@ -174,12 +166,7 @@ export interface ProviderAccount {
 	avatarUrl?: string;
 }
 
-export type ProviderConnectionStatus =
-	| "disconnected"
-	| "connecting"
-	| "connected"
-	| "syncing"
-	| "error";
+export type ProviderConnectionStatus = "disconnected" | "connecting" | "connected" | "syncing" | "error";
 
 export interface ProviderConnection {
 	provider: CloudProvider;
@@ -475,12 +462,7 @@ export interface CloudSyncCategoryToggle {
 // Three-way merge / conflict model (M6)
 // ---------------------------------------------------------------------------
 
-export type CloudSyncConflictKind =
-	| "session"
-	| "resource"
-	| "settings"
-	| "catalog"
-	| "project";
+export type CloudSyncConflictKind = "session" | "resource" | "settings" | "catalog" | "project";
 
 /** One side of a conflicted entity; hashes are optional for non-file entities. */
 export interface CloudSyncConflictSide {
@@ -518,7 +500,6 @@ export type CloudSyncProviderConfigInput =
 	| { provider: "local"; config: LocalFolderConfig }
 	| { provider: "onedrive"; config: OneDriveConfig }
 	| { provider: "google"; config: GoogleDriveConfig };
-
 
 export type CloudSyncSecurityState = "NO_KEY" | "LOCKED" | "UNLOCKED";
 

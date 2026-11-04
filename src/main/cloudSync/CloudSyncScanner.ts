@@ -3,16 +3,7 @@ import { lstat, readdir } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import type { Project, SessionRecord } from "../../shared/types.ts";
 import { isLocalProject, localProjectPath } from "../../shared/projectLocation.ts";
-import type {
-	CloudSyncCustomPath,
-	CloudSyncProjectSelectionNode,
-	CloudSyncResourceCandidate,
-	CloudSyncResourceCategory,
-	CloudSyncScanRootStatus,
-	CloudSyncSelectionPreferences,
-	CloudSyncSelectionTree,
-	CloudSyncSessionCandidate,
-} from "../../shared/types/cloudSync.ts";
+import type { CloudSyncCustomPath, CloudSyncProjectSelectionNode, CloudSyncResourceCandidate, CloudSyncResourceCategory, CloudSyncScanRootStatus, CloudSyncSelectionPreferences, CloudSyncSelectionTree, CloudSyncSessionCandidate } from "../../shared/types/cloudSync.ts";
 import { scanDshSessionHeaders } from "../dsh/dshForeignSessionScan.ts";
 import { readSessionProjectionTitles } from "../dsh/dshProjectionCache.ts";
 import { workspaceDirFor } from "../dsh/dshSessionPath.ts";
@@ -28,15 +19,7 @@ const SKIPPED_DIRECTORIES = new Set([".pideck-archive", ".trash", "subagent-arti
  * 内置扫描排除模式（M9，§12.4）：后缀/文件名/目录名匹配。
  * 与用户黑名单（glob）合并后统一应用；`*` 匹配任意字符。
  */
-export const DEFAULT_SCAN_EXCLUSIONS = [
-	"*.bak*",
-	"*.log",
-	"*-events.jsonl",
-	"node_modules",
-	".trash",
-	".pideck-archive",
-	"subagent-artifacts",
-] as const;
+export const DEFAULT_SCAN_EXCLUSIONS = ["*.bak*", "*.log", "*-events.jsonl", "node_modules", ".trash", ".pideck-archive", "subagent-artifacts"] as const;
 
 /** 全局「配置」类别白名单：只留机器相关的散落文件。auth.json/models.json 由分类开关（pi 认证/pi 模型）对象级管理，settings.json 归「设置」类别，均不进此清单。 */
 export const GLOBAL_CONFIG_FILE_WHITELIST = ["models-store.json"] as const;
@@ -98,24 +81,15 @@ function normalizeRelativePath(value: string): string {
 }
 
 function isMissingError(error: unknown): boolean {
-	return Boolean(
-		error && typeof error === "object" && "code" in error &&
-		(error as { code?: unknown }).code === "ENOENT",
-	);
+	return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "ENOENT");
 }
 
 function isPermissionError(error: unknown): boolean {
-	return Boolean(
-		error && typeof error === "object" && "code" in error &&
-		((error as { code?: unknown }).code === "EACCES" || (error as { code?: unknown }).code === "EPERM"),
-	);
+	return Boolean(error && typeof error === "object" && "code" in error && ((error as { code?: unknown }).code === "EACCES" || (error as { code?: unknown }).code === "EPERM"));
 }
 
 function stableOrphanSessionId(scope: "global" | "project" | "dsh", projectId: string, relativePath: string): string {
-	const digest = createHash("sha256")
-		.update(`${scope}\0${projectId}\0${relativePath}`, "utf8")
-		.digest("hex")
-		.slice(0, 32);
+	const digest = createHash("sha256").update(`${scope}\0${projectId}\0${relativePath}`, "utf8").digest("hex").slice(0, 32);
 	return `orphan-${digest}`;
 }
 
@@ -191,14 +165,7 @@ function isPlaceholderDshTitle(title: string | undefined, cwd: string | undefine
  * → catalog 记录标题（非占位）→ cwd 末段 → 工作区目录 → 会话目录。
  * 与 dshForeignSessionScan.listForeignSessionsFromDisk 同源，保证侧栏与同步树名字一致。
  */
-function resolveDshSessionTitle(
-	projectionTitle: string | undefined,
-	loggedTitle: string | undefined,
-	recordTitle: string | undefined,
-	cwd: string | undefined,
-	workspaceDir: string,
-	sessionDir: string,
-): string {
+function resolveDshSessionTitle(projectionTitle: string | undefined, loggedTitle: string | undefined, recordTitle: string | undefined, cwd: string | undefined, workspaceDir: string, sessionDir: string): string {
 	const projection = projectionTitle?.trim();
 	if (projection) return projection;
 	const logged = loggedTitle?.trim();
@@ -304,29 +271,16 @@ export class CloudSyncScanner {
 		}
 
 		const globalSessionsRoot = join(this.options.homeDir, SESSION_ROOT_RELATIVE);
-		const globalSessions = await this.scanSessionRoot(
-			globalSessionsRoot,
-			"global-sessions",
-			"Global sessions",
-			undefined,
-			recordsByPath,
-			preferences,
-		);
+		const globalSessions = await this.scanSessionRoot(globalSessionsRoot, "global-sessions", "Global sessions", undefined, recordsByPath, preferences);
 		roots.push(globalSessions.status);
 		for (const item of globalSessions.items) {
-			const groupId = item.candidate.projectId === GLOBAL_SYNC_PROJECT_ID
-				? GLOBAL_SYNC_PROJECT_ID
-				: item.candidate.projectId;
+			const groupId = item.candidate.projectId === GLOBAL_SYNC_PROJECT_ID ? GLOBAL_SYNC_PROJECT_ID : item.candidate.projectId;
 			const node = projectNodes.get(groupId) ?? globalNode;
 			node.sessions.push(item.candidate);
 			sessions.set(item.candidate.selectionId, item);
 		}
 
-		const globalResources = await this.scanResourceRoots(
-			this.globalResourceRoots(),
-			GLOBAL_SYNC_PROJECT_ID,
-			preferences,
-		);
+		const globalResources = await this.scanResourceRoots(this.globalResourceRoots(), GLOBAL_SYNC_PROJECT_ID, preferences);
 		roots.push(...globalResources.statuses);
 		for (const item of globalResources.items) {
 			globalNode.resources.push(item.candidate);
@@ -373,24 +327,13 @@ export class CloudSyncScanner {
 				continue;
 			}
 			const sessionRoot = join(projectPath, ".pi", "sessions");
-			const projectSessions = await this.scanSessionRoot(
-				sessionRoot,
-				"project-sessions",
-				`${project.name} sessions`,
-				project.id,
-				recordsByPath,
-				preferences,
-			);
+			const projectSessions = await this.scanSessionRoot(sessionRoot, "project-sessions", `${project.name} sessions`, project.id, recordsByPath, preferences);
 			roots.push(projectSessions.status);
 			for (const item of projectSessions.items) {
 				node.sessions.push(item.candidate);
 				sessions.set(item.candidate.selectionId, item);
 			}
-			const projectResources = await this.scanResourceRoots(
-				this.projectResourceRoots(projectPath),
-				project.id,
-				preferences,
-			);
+			const projectResources = await this.scanResourceRoots(this.projectResourceRoots(projectPath), project.id, preferences);
 			roots.push(...projectResources.statuses);
 			for (const item of projectResources.items) {
 				node.resources.push(item.candidate);
@@ -412,12 +355,7 @@ export class CloudSyncScanner {
 		// 目录生成合成节点。标题取 host 投影缓存/日志折叠的真实会话名，不用目录名占位。
 		let dshWorkspaceNodeIds: string[] = [];
 		if (this.options.dshHomeDir) {
-			const dshResult = await this.scanDshSessions(
-				this.options.dshHomeDir,
-				preferences,
-				projectNodes,
-				recordsByDshSessionId,
-			);
+			const dshResult = await this.scanDshSessions(this.options.dshHomeDir, preferences, projectNodes, recordsByDshSessionId);
 			roots.push(dshResult.status);
 			dshWorkspaceNodeIds = dshResult.workspaceNodeIds;
 			for (const item of dshResult.items) {
@@ -431,15 +369,9 @@ export class CloudSyncScanner {
 		}
 		const orderedProjects = [
 			globalNode,
-			...projects
-				.map((project) => projectNodes.get(project.id))
-				.filter((node): node is CloudSyncProjectSelectionNode => Boolean(node)),
-			...dshWorkspaceNodeIds
-				.map((id) => projectNodes.get(id))
-				.filter((node): node is CloudSyncProjectSelectionNode => Boolean(node)),
-			...syntheticProjectIds
-				.map((id) => projectNodes.get(id))
-				.filter((node): node is CloudSyncProjectSelectionNode => Boolean(node)),
+			...projects.map((project) => projectNodes.get(project.id)).filter((node): node is CloudSyncProjectSelectionNode => Boolean(node)),
+			...dshWorkspaceNodeIds.map((id) => projectNodes.get(id)).filter((node): node is CloudSyncProjectSelectionNode => Boolean(node)),
+			...syntheticProjectIds.map((id) => projectNodes.get(id)).filter((node): node is CloudSyncProjectSelectionNode => Boolean(node)),
 		];
 		const tree: CloudSyncSelectionTree = {
 			scannedAt: Date.now(),
@@ -480,14 +412,7 @@ export class CloudSyncScanner {
 		];
 	}
 
-	private async scanSessionRoot(
-		rootPath: string,
-		kind: "global-sessions" | "project-sessions",
-		label: string,
-		projectId: string | undefined,
-		recordsByPath: Map<string, SessionRecord>,
-		preferences: CloudSyncSelectionPreferences,
-	): Promise<RootScanResult<CloudSyncInternalSession>> {
+	private async scanSessionRoot(rootPath: string, kind: "global-sessions" | "project-sessions", label: string, projectId: string | undefined, recordsByPath: Map<string, SessionRecord>, preferences: CloudSyncSelectionPreferences): Promise<RootScanResult<CloudSyncInternalSession>> {
 		const files = await this.listFiles(rootPath, ".jsonl");
 		const items: CloudSyncInternalSession[] = [];
 		for (const file of files.items) {
@@ -534,12 +459,7 @@ export class CloudSyncScanner {
 	 * catalog 记录归属项目 → 按工作区目录生成合成节点（missing=false，恢复仍走 $DSH_HOME）。
 	 * 标题：host 投影缓存 → 日志折叠 → catalog 记录标题（非占位）→ cwd 末段 → 工作区目录。
 	 */
-	private async scanDshSessions(
-		dshHome: string,
-		preferences: CloudSyncSelectionPreferences,
-		projectNodes: Map<string, CloudSyncProjectSelectionNode>,
-		recordsByDshSessionId: Map<string, SessionRecord>,
-	): Promise<RootScanResult<CloudSyncInternalSession> & { workspaceNodeIds: string[] }> {
+	private async scanDshSessions(dshHome: string, preferences: CloudSyncSelectionPreferences, projectNodes: Map<string, CloudSyncProjectSelectionNode>, recordsByDshSessionId: Map<string, SessionRecord>): Promise<RootScanResult<CloudSyncInternalSession> & { workspaceNodeIds: string[] }> {
 		const sessionsRoot = join(dshHome, "sessions");
 		const items: CloudSyncInternalSession[] = [];
 		const workspaceNodeIds: string[] = [];
@@ -549,9 +469,7 @@ export class CloudSyncScanner {
 		const projectionTitles = readSessionProjectionTitles(dshHome);
 		// 折叠开关按 dev 语义收口：投影缓存已覆盖的会话不再读日志折叠（读日志是冷会话兜底），
 		// 与 dshForeignSessionScan.listForeignSessionsFromDisk 的清单场景一致，保证两处标题同源。
-		const headersById = new Map(
-			scanDshSessionHeaders(dshHome, { foldTitle: (sessionId) => !projectionTitles.has(sessionId) }).map((header) => [header.id, header]),
-		);
+		const headersById = new Map(scanDshSessionHeaders(dshHome, { foldTitle: (sessionId) => !projectionTitles.has(sessionId) }).map((header) => [header.id, header]));
 		// 工作区目录 → 合成节点（同一 workspace 的未匹配会话归到同一节点）。
 		const workspaceNodes = new Map<string, CloudSyncProjectSelectionNode>();
 		// 工作区显示名：取该工作区内首个带 cwd 的会话的目录末段（readdir 顺序无关紧要，同 workspace 通常同一目录）。
@@ -559,9 +477,7 @@ export class CloudSyncScanner {
 		try {
 			let workspaceDirs: string[];
 			try {
-				workspaceDirs = (await readdir(sessionsRoot, { withFileTypes: true }))
-					.filter((entry) => entry.isDirectory())
-					.map((entry) => entry.name);
+				workspaceDirs = (await readdir(sessionsRoot, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 			} catch (caught) {
 				// 尚无 sessions 目录 = 0 个会话，不是失败（全新 $DSH_HOME 常见）。
 				if (isMissingError(caught)) {
@@ -571,9 +487,7 @@ export class CloudSyncScanner {
 			}
 			for (const workspaceDir of workspaceDirs) {
 				const workspacePath = join(sessionsRoot, workspaceDir);
-				const sessionDirs = (await readdir(workspacePath, { withFileTypes: true }))
-					.filter((entry) => entry.isDirectory())
-					.map((entry) => entry.name);
+				const sessionDirs = (await readdir(workspacePath, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 				for (const sessionDir of sessionDirs) {
 					const sessionPath = join(workspacePath, sessionDir);
 					const logFile = await this.findDshLogFile(sessionPath);
@@ -590,14 +504,7 @@ export class CloudSyncScanner {
 					const record = recordsByDshSessionId.get(sessionDir);
 					const projectId = this.resolveDshProjectId(cwd, workspaceDir, record, projectNodes, workspaceNodes, workspaceNodeIds);
 					const relativePath = `${workspaceDir}/${sessionDir}/${basename(logFile)}`;
-					const title = resolveDshSessionTitle(
-						projectionTitles.get(sessionDir),
-						header?.loggedTitle,
-						record?.title,
-						cwd,
-						workspaceDir,
-						sessionDir,
-					);
+					const title = resolveDshSessionTitle(projectionTitles.get(sessionDir), header?.loggedTitle, record?.title, cwd, workspaceDir, sessionDir);
 					const candidate: CloudSyncSessionCandidate = {
 						selectionId: selectionId("dsh", DSH_SYNC_PROJECT_ID, sessionDir),
 						sessionId: sessionDir,
@@ -645,20 +552,19 @@ export class CloudSyncScanner {
 	}
 
 	/** 决定 DSH 会话归属的项目 id（见 scanDshSessions 注释的匹配顺序）。 */
-	private resolveDshProjectId(
-		cwd: string | undefined,
-		workspaceDir: string,
-		record: SessionRecord | undefined,
-		projectNodes: Map<string, CloudSyncProjectSelectionNode>,
-		workspaceNodes: Map<string, CloudSyncProjectSelectionNode>,
-		workspaceNodeIds: string[],
-	): string {
+	private resolveDshProjectId(cwd: string | undefined, workspaceDir: string, record: SessionRecord | undefined, projectNodes: Map<string, CloudSyncProjectSelectionNode>, workspaceNodes: Map<string, CloudSyncProjectSelectionNode>, workspaceNodeIds: string[]): string {
 		if (cwd) {
-			const matched = this.options.listProjects().filter(isLocalProject).find((project) => dshProjectPathMatches(project.path, cwd));
+			const matched = this.options
+				.listProjects()
+				.filter(isLocalProject)
+				.find((project) => dshProjectPathMatches(project.path, cwd));
 			if (matched) return matched.id;
 		}
 		// header 缺失/cwd 对不上时：会话目录名 = workspaceDirFor(项目路径) 精确匹配（编码一致才成立）。
-		const encodedMatch = this.options.listProjects().filter(isLocalProject).find((project) => workspaceDirFor(project.path) === workspaceDir);
+		const encodedMatch = this.options
+			.listProjects()
+			.filter(isLocalProject)
+			.find((project) => workspaceDirFor(project.path) === workspaceDir);
 		if (encodedMatch) return encodedMatch.id;
 		// catalog 记录归属（侧栏同源；项目已删时落到既有合成「待映射」节点）。
 		if (record?.projectId && record.projectId !== GLOBAL_SYNC_PROJECT_ID) {
@@ -697,24 +603,14 @@ export class CloudSyncScanner {
 		return null;
 	}
 
-	private async scanResourceRoots(
-		roots: Array<{ category: CloudSyncResourceCategory; rootPath: string; relativeBase: string }>,
-		projectId: string,
-		preferences: CloudSyncSelectionPreferences,
-	): Promise<{ items: CloudSyncInternalResource[]; statuses: CloudSyncScanRootStatus[] }> {
+	private async scanResourceRoots(roots: Array<{ category: CloudSyncResourceCategory; rootPath: string; relativeBase: string }>, projectId: string, preferences: CloudSyncSelectionPreferences): Promise<{ items: CloudSyncInternalResource[]; statuses: CloudSyncScanRootStatus[] }> {
 		const items: CloudSyncInternalResource[] = [];
 		const statuses: CloudSyncScanRootStatus[] = [];
 		for (const root of roots) {
 			const isSingleFile = root.category === "settings" || root.category === "config";
-			const files = isSingleFile
-				? await this.listSingleFile(root.rootPath, root.relativeBase)
-				: await this.listFiles(root.rootPath);
+			const files = isSingleFile ? await this.listSingleFile(root.rootPath, root.relativeBase) : await this.listFiles(root.rootPath);
 			for (const file of files.items) {
-				const relativePath = root.category === "settings"
-					? (projectId === GLOBAL_SYNC_PROJECT_ID ? "settings.json" : ".pi/settings.json")
-					: root.category === "config"
-						? file.relativePath
-						: normalizeRelativePath(join(root.relativeBase, file.relativePath));
+				const relativePath = root.category === "settings" ? (projectId === GLOBAL_SYNC_PROJECT_ID ? "settings.json" : ".pi/settings.json") : root.category === "config" ? file.relativePath : normalizeRelativePath(join(root.relativeBase, file.relativePath));
 				const id = resourceSelectionId(projectId, root.category, relativePath);
 				const unavailable = file.size > MAX_RESOURCE_BYTES;
 				const candidate: CloudSyncResourceCandidate = {
@@ -752,10 +648,7 @@ export class CloudSyncScanner {
 	}
 
 	/** 校验并扫描一个自选同步路径；不存在/超限/符号链接时静默跳过。 */
-	private async scanCustomPath(
-		customPath: CloudSyncCustomPath,
-		preferences: CloudSyncSelectionPreferences,
-	): Promise<CloudSyncInternalResource | null> {
+	private async scanCustomPath(customPath: CloudSyncCustomPath, preferences: CloudSyncSelectionPreferences): Promise<CloudSyncInternalResource | null> {
 		let info;
 		try {
 			info = await lstat(customPath.filePath);

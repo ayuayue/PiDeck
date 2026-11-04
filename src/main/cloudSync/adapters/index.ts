@@ -8,10 +8,7 @@ import { S3ObjectStorage } from "./S3ObjectStorage.ts";
 import { WebDAVObjectStorage } from "./WebDAVObjectStorage.ts";
 
 /** Construct a provider adapter only after the caller has selected a built-in provider. */
-export function createCloudSyncObjectStorage(
-	provider: BuiltinCloudProvider,
-	config: unknown,
-): PiDeckCloudObjectStorage {
+export function createCloudSyncObjectStorage(provider: BuiltinCloudProvider, config: unknown): PiDeckCloudObjectStorage {
 	switch (provider) {
 		case "webdav":
 			return new WebDAVObjectStorage(config);

@@ -1,29 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { Agent } from "node:https";
-import {
-	AuthType,
-	createClient,
-	type OAuthToken,
-	type WebDAVClient,
-} from "webdav";
+import { AuthType, createClient, type OAuthToken, type WebDAVClient } from "webdav";
 import type { ProviderAccount, WebDAVConfig } from "../../../shared/types/cloudSync.ts";
-import {
-	assertSafeCloudObjectKey,
-	cloudObjectKeyPath,
-	type CloudSyncObjectDeleteOptions,
-	type CloudSyncObjectReadResult,
-	type CloudSyncObjectStorageCapabilities,
-	type CloudSyncObjectWriteOptions,
-	type CloudSyncObjectWriteResult,
-	type PiDeckCloudObjectStorage,
-} from "../objectStorage.ts";
+import { assertSafeCloudObjectKey, cloudObjectKeyPath, type CloudSyncObjectDeleteOptions, type CloudSyncObjectReadResult, type CloudSyncObjectStorageCapabilities, type CloudSyncObjectWriteOptions, type CloudSyncObjectWriteResult, type PiDeckCloudObjectStorage } from "../objectStorage.ts";
 import { CloudSyncConditionalWriteError } from "../objectStorage.ts";
 import { normalizeWebDAVConfig } from "../providerConfig.ts";
 
-type WebDAVClientLike = Pick<
-	WebDAVClient,
-	"exists" | "getFileContents" | "putFileContents" | "moveFile" | "deleteFile"
->;
+type WebDAVClientLike = Pick<WebDAVClient, "exists" | "getFileContents" | "putFileContents" | "moveFile" | "deleteFile">;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -108,11 +91,7 @@ export class WebDAVObjectStorage implements PiDeckCloudObjectStorage {
 		};
 	}
 
-	async writeObject(
-		key: string,
-		bytes: Uint8Array,
-		options?: CloudSyncObjectWriteOptions,
-	): Promise<CloudSyncObjectWriteResult> {
+	async writeObject(key: string, bytes: Uint8Array, options?: CloudSyncObjectWriteOptions): Promise<CloudSyncObjectWriteResult> {
 		assertSafeCloudObjectKey(key);
 		this.requireConnected();
 		if (options?.expectedRevision !== undefined) {
@@ -182,9 +161,7 @@ export class WebDAVObjectStorage implements PiDeckCloudObjectStorage {
 	}
 
 	private createClient(config: WebDAVConfig): WebDAVClientLike {
-		const transport = config.allowInsecure
-			? { httpsAgent: new Agent({ rejectUnauthorized: false }) }
-			: {};
+		const transport = config.allowInsecure ? { httpsAgent: new Agent({ rejectUnauthorized: false }) } : {};
 		if (config.authType === "token") {
 			const token: OAuthToken = {
 				access_token: config.token ?? "",

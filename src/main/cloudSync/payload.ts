@@ -1,18 +1,7 @@
 import { createHash } from "node:crypto";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import type {
-	AppSettings,
-	Project,
-	SessionRecord,
-} from "../../shared/types.ts";
-import type {
-	CloudSyncFileBundle,
-	CloudSyncExtensionSource,
-	CloudSyncProject,
-	CloudSyncProjectResources,
-	CloudSyncSessionRef,
-	PiDeckSyncIndexV1,
-} from "../../shared/types/cloudSync.ts";
+import type { AppSettings, Project, SessionRecord } from "../../shared/types.ts";
+import type { CloudSyncFileBundle, CloudSyncExtensionSource, CloudSyncProject, CloudSyncProjectResources, CloudSyncSessionRef, PiDeckSyncIndexV1 } from "../../shared/types/cloudSync.ts";
 
 export const GLOBAL_SYNC_PROJECT_ID = "__global__";
 export const GLOBAL_SYNC_PROJECT_NAME = "Global";
@@ -139,11 +128,7 @@ export function resolveGlobalSessionPath(homeDir: string, relativePath: string):
 	return resolvePortablePath(join(homeDir, ".pi", "agent", "sessions"), relativePath);
 }
 
-export function resolveProjectSessionPath(
-	projectPath: string,
-	relativePath: string,
-	sessionDirectory = ".pi/sessions",
-): string {
+export function resolveProjectSessionPath(projectPath: string, relativePath: string, sessionDirectory = ".pi/sessions"): string {
 	const sessionRoot = resolvePortablePath(projectPath, normalizeRelativePath(sessionDirectory, "sessionDirectory"));
 	return resolvePortablePath(sessionRoot, relativePath);
 }
@@ -165,10 +150,7 @@ function hashText(content: string): string {
 
 /** Build a text resource bundle; large content becomes a separately uploaded object. */
 /** 从 pi settings.json 提取包扩展声明（packages 数组：字符串或 {source,...} 对象）。 */
-export function extractExtensionSources(
-	piSettings: unknown,
-	scope: "user" | "project",
-): CloudSyncExtensionSource[] {
+export function extractExtensionSources(piSettings: unknown, scope: "user" | "project"): CloudSyncExtensionSource[] {
 	if (typeof piSettings !== "object" || piSettings === null || Array.isArray(piSettings)) return [];
 	const packages = (piSettings as Record<string, unknown>).packages;
 	if (!Array.isArray(packages) || packages.length > 500) return [];
@@ -193,11 +175,7 @@ export function extractExtensionSources(
 	return result;
 }
 
-export function createTextFileBundle(
-	relativePath: string,
-	content: string,
-	inlineLimit = DEFAULT_INLINE_FILE_BYTES,
-): CloudSyncFileBundle {
+export function createTextFileBundle(relativePath: string, content: string, inlineLimit = DEFAULT_INLINE_FILE_BYTES): CloudSyncFileBundle {
 	const normalizedPath = normalizeRelativePath(relativePath, "resource relativePath");
 	const contentHash = hashText(content);
 	const bytes = Buffer.byteLength(content, "utf8");
@@ -258,10 +236,7 @@ export interface CloudSyncProjectOptions {
 }
 
 /** Convert a local Project record into the portable project-tree node. */
-export function buildCloudSyncProject(
-	project: Project,
-	options: CloudSyncProjectOptions = {},
-): CloudSyncProject {
+export function buildCloudSyncProject(project: Project, options: CloudSyncProjectOptions = {}): CloudSyncProject {
 	return {
 		projectId: project.id,
 		name: project.name,
@@ -292,11 +267,7 @@ export function buildGlobalCloudSyncProject(options: CloudSyncProjectOptions = {
 }
 
 /** 合成项目节点：本机未注册的归属项目（DSH 工作区目录等），只作载荷组织维度。 */
-export function buildSyntheticCloudSyncProject(
-	projectId: string,
-	name: string,
-	options: CloudSyncProjectOptions = {},
-): CloudSyncProject {
+export function buildSyntheticCloudSyncProject(projectId: string, name: string, options: CloudSyncProjectOptions = {}): CloudSyncProject {
 	return {
 		projectId,
 		name,
@@ -308,11 +279,7 @@ export function buildSyntheticCloudSyncProject(
 }
 
 /** Catalog entry shape used by sync: identity/metadata only, never an absolute file path. */
-export function buildCatalogSyncEntry(
-	record: SessionRecord,
-	relativePath?: string,
-	parentRelativePath?: string,
-): Record<string, unknown> {
+export function buildCatalogSyncEntry(record: SessionRecord, relativePath?: string, parentRelativePath?: string): Record<string, unknown> {
 	const result: Record<string, unknown> = {
 		id: record.id,
 		projectId: record.projectId,

@@ -52,10 +52,7 @@ test("同一远程项目重复挂载被拒绝", async () => {
 	const { dir, target, registry } = await makeRegistry();
 	try {
 		await registry.mount({ remoteProjectId: "p1", remoteProjectName: "pideck", localPath: target });
-		await assert.rejects(
-			registry.mount({ remoteProjectId: "p1", remoteProjectName: "pideck", localPath: target }),
-			/already mounted/,
-		);
+		await assert.rejects(registry.mount({ remoteProjectId: "p1", remoteProjectName: "pideck", localPath: target }), /already mounted/);
 		assert.equal(registry.list().length, 1);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
@@ -65,10 +62,7 @@ test("同一远程项目重复挂载被拒绝", async () => {
 test("挂载目标不存在被拒绝", async () => {
 	const { dir, registry } = await makeRegistry();
 	try {
-		await assert.rejects(
-			registry.mount({ remoteProjectId: "p1", remoteProjectName: "pideck", localPath: join(dir, "nope") }),
-			/does not exist/,
-		);
+		await assert.rejects(registry.mount({ remoteProjectId: "p1", remoteProjectName: "pideck", localPath: join(dir, "nope") }), /does not exist/);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
@@ -78,10 +72,7 @@ test("挂载目标是文件（非目录）被拒绝", async () => {
 	const { dir, registry } = await makeRegistry();
 	try {
 		await writeFile(join(dir, "file.txt"), "x");
-		await assert.rejects(
-			registry.mount({ remoteProjectId: "p1", remoteProjectName: "pideck", localPath: join(dir, "file.txt") }),
-			/not a directory/,
-		);
+		await assert.rejects(registry.mount({ remoteProjectId: "p1", remoteProjectName: "pideck", localPath: join(dir, "file.txt") }), /not a directory/);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
@@ -90,10 +81,7 @@ test("挂载目标是文件（非目录）被拒绝", async () => {
 test("相对路径被拒绝", async () => {
 	const { dir, registry } = await makeRegistry();
 	try {
-		await assert.rejects(
-			registry.mount({ remoteProjectId: "p1", remoteProjectName: "pideck", localPath: "relative/path" }),
-			/absolute path/,
-		);
+		await assert.rejects(registry.mount({ remoteProjectId: "p1", remoteProjectName: "pideck", localPath: "relative/path" }), /absolute path/);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
@@ -102,14 +90,8 @@ test("相对路径被拒绝", async () => {
 test("空字段被拒绝", async () => {
 	const { dir, target, registry } = await makeRegistry();
 	try {
-		await assert.rejects(
-			registry.mount({ remoteProjectId: "", remoteProjectName: "pideck", localPath: target }),
-			/non-empty/,
-		);
-		await assert.rejects(
-			registry.mount({ remoteProjectId: "p1", remoteProjectName: "  ", localPath: target }),
-			/non-empty/,
-		);
+		await assert.rejects(registry.mount({ remoteProjectId: "", remoteProjectName: "pideck", localPath: target }), /non-empty/);
+		await assert.rejects(registry.mount({ remoteProjectId: "p1", remoteProjectName: "  ", localPath: target }), /non-empty/);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
@@ -119,10 +101,7 @@ test("不同远程项目挂到同一目录被拒绝", async () => {
 	const { dir, target, registry } = await makeRegistry();
 	try {
 		await registry.mount({ remoteProjectId: "p1", remoteProjectName: "pideck", localPath: target });
-		await assert.rejects(
-			registry.mount({ remoteProjectId: "p2", remoteProjectName: "other", localPath: target }),
-			/already in use/,
-		);
+		await assert.rejects(registry.mount({ remoteProjectId: "p2", remoteProjectName: "other", localPath: target }), /already in use/);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}

@@ -18,21 +18,41 @@ const BASE_CONFIG = { clientId: CLIENT_ID, accessToken: "token-1", refreshToken:
 function jsonResponse(status, body, headers = {}) {
 	return {
 		status,
-		headers: { get(name) { return headers[name] ?? null; } },
-		async json() { return body; },
-		async arrayBuffer() { return Uint8Array.from(Buffer.from(JSON.stringify(body))).buffer; },
-		async text() { return JSON.stringify(body); },
+		headers: {
+			get(name) {
+				return headers[name] ?? null;
+			},
+		},
+		async json() {
+			return body;
+		},
+		async arrayBuffer() {
+			return Uint8Array.from(Buffer.from(JSON.stringify(body))).buffer;
+		},
+		async text() {
+			return JSON.stringify(body);
+		},
 	};
 }
 
 function bytesResponse(status, bytes, headers = {}) {
 	return {
 		status,
-		headers: { get(name) { return headers[name] ?? null; } },
-		async json() { throw new Error("not json"); },
+		headers: {
+			get(name) {
+				return headers[name] ?? null;
+			},
+		},
+		async json() {
+			throw new Error("not json");
+		},
 		// 小 Buffer 来自共享 slab，必须用 Uint8Array.from 生成精确大小的 ArrayBuffer。
-		async arrayBuffer() { return Uint8Array.from(bytes).buffer; },
-		async text() { throw new Error("not text"); },
+		async arrayBuffer() {
+			return Uint8Array.from(bytes).buffer;
+		},
+		async text() {
+			throw new Error("not text");
+		},
 	};
 }
 
@@ -54,7 +74,9 @@ function createDriveMock() {
 	const mock = {
 		calls,
 		files,
-		setFailNextWith401() { failNextWith401 = true; },
+		setFailNextWith401() {
+			failNextWith401 = true;
+		},
 		async fetchLike(url, init = {}) {
 			const method = init.method ?? "GET";
 			const headers = init.headers ?? {};
@@ -76,10 +98,20 @@ function createDriveMock() {
 				pendingSessionName = metadata.name ?? "";
 				return {
 					status: 200,
-					headers: { get(name) { return name.toLowerCase() === "location" ? "https://upload.example.test/session-1" : null; } },
-					async json() { return {}; },
-					async arrayBuffer() { return new ArrayBuffer(0); },
-					async text() { return ""; },
+					headers: {
+						get(name) {
+							return name.toLowerCase() === "location" ? "https://upload.example.test/session-1" : null;
+						},
+					},
+					async json() {
+						return {};
+					},
+					async arrayBuffer() {
+						return new ArrayBuffer(0);
+					},
+					async text() {
+						return "";
+					},
 				};
 			}
 			// resumable 分段上传
@@ -187,7 +219,7 @@ test("Google Drive adapter writes, reads and deletes objects with eTag revisions
 	const bytes = Buffer.from([0, 1, 2, 255]);
 	const write = await storage.writeObject(key, bytes);
 	assert.equal(write.created, true);
-	assert.ok(typeof write.revision === "string" && write.revision.startsWith("\"etag-"));
+	assert.ok(typeof write.revision === "string" && write.revision.startsWith('"etag-'));
 
 	const read = await storage.readObject(key);
 	assert.equal(read.found, true);
@@ -242,7 +274,10 @@ test("Google Drive adapter uses a resumable session for objects over 5MB", async
 	const key = "pideck-sessions/big.jsonl.enc";
 	const write = await storage.writeObject(key, large);
 	assert.equal(write.created, true);
-	assert.ok(graph.calls.some((call) => call.url.includes("uploadType=resumable")), "should create a resumable session");
+	assert.ok(
+		graph.calls.some((call) => call.url.includes("uploadType=resumable")),
+		"should create a resumable session",
+	);
 	const ranged = graph.calls.find((call) => call.url === "https://upload.example.test/session-1");
 	assert.ok(ranged, "should PUT to the session URL");
 	assert.match(ranged.headers["Content-Range"], /^bytes 0-\d+\/\d+$/);
@@ -282,10 +317,16 @@ test("manager Google OAuth flow completes via loopback callback and configures t
 
 		const memoryStorage = {
 			objects: new Map(),
-			async connect() { return { account: { id: "mem", name: "memory" } }; },
+			async connect() {
+				return { account: { id: "mem", name: "memory" } };
+			},
 			async disconnect() {},
-			async getAccount() { return { id: "mem", name: "memory" }; },
-			async getCapabilities() { return { revisions: true, conditionalWrites: true, atomicReplacement: true }; },
+			async getAccount() {
+				return { id: "mem", name: "memory" };
+			},
+			async getCapabilities() {
+				return { revisions: true, conditionalWrites: true, atomicReplacement: true };
+			},
 			async readObject(key) {
 				const entry = this.objects.get(key);
 				if (!entry) return { found: false, key, bytes: null };
@@ -294,13 +335,17 @@ test("manager Google OAuth flow completes via loopback callback and configures t
 			async writeObject(key, bytes, options) {
 				const existing = this.objects.get(key);
 				if (options?.expectedRevision === null && existing) {
-					const err = new Error("conditional"); err.code = "conditional_write_conflict"; throw err;
+					const err = new Error("conditional");
+					err.code = "conditional_write_conflict";
+					throw err;
 				}
 				const revision = `rev-${this.objects.size + 1}`;
 				this.objects.set(key, { bytes, revision });
 				return { created: !existing, revision };
 			},
-			async deleteObject(key) { return { deleted: this.objects.delete(key) }; },
+			async deleteObject(key) {
+				return { deleted: this.objects.delete(key) };
+			},
 		};
 
 		let exchangedCode = "";
@@ -374,7 +419,9 @@ test("manager Google OAuth rejects a callback with a mismatched state", async ()
 			listSessionRecords: () => [],
 			getDesktopSettings: minimalSettings,
 			updateDesktopSettings: async () => undefined,
-			exchangeGoogleCode: async () => { throw new Error("should not be called"); },
+			exchangeGoogleCode: async () => {
+				throw new Error("should not be called");
+			},
 		});
 		await manager.initialize();
 		await manager.setupMasterKey("correct horse battery staple");

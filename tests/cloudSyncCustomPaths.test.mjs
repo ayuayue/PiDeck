@@ -51,10 +51,16 @@ async function withTemp(run) {
 function createMemoryStorage() {
 	const storage = {
 		objects: new Map(),
-		async connect() { return { account: { id: "mem", name: "memory" } }; },
+		async connect() {
+			return { account: { id: "mem", name: "memory" } };
+		},
 		async disconnect() {},
-		async getAccount() { return { id: "mem", name: "memory" }; },
-		async getCapabilities() { return { revisions: true, conditionalWrites: true, atomicReplacement: true }; },
+		async getAccount() {
+			return { id: "mem", name: "memory" };
+		},
+		async getCapabilities() {
+			return { revisions: true, conditionalWrites: true, atomicReplacement: true };
+		},
 		async readObject(key) {
 			const entry = this.objects.get(key);
 			if (!entry) return { found: false, key, bytes: null };
@@ -63,13 +69,17 @@ function createMemoryStorage() {
 		async writeObject(key, bytes, options) {
 			const existing = this.objects.get(key);
 			if (options?.expectedRevision === null && existing) {
-				const err = new Error("conditional"); err.code = "conditional_write_conflict"; throw err;
+				const err = new Error("conditional");
+				err.code = "conditional_write_conflict";
+				throw err;
 			}
 			const revision = `rev-${this.objects.size + 1}`;
 			this.objects.set(key, { bytes, revision });
 			return { created: !existing, revision };
 		},
-		async deleteObject(key) { return { deleted: this.objects.delete(key) }; },
+		async deleteObject(key) {
+			return { deleted: this.objects.delete(key) };
+		},
 	};
 	return storage;
 }
@@ -131,14 +141,16 @@ test("project-relative custom path appears under the project node", async () => 
 			listSessionRecords: () => [],
 		});
 		const snapshot = await scanner.scan(DEFAULT_PREFERENCES, {
-			customPaths: [{
-				id: "cp-2",
-				filePath: customFile,
-				relativeTo: "project",
-				relativePath: "notes/idea.md",
-				projectId: "p1",
-				label: "repo/notes/idea.md",
-			}],
+			customPaths: [
+				{
+					id: "cp-2",
+					filePath: customFile,
+					relativeTo: "project",
+					relativePath: "notes/idea.md",
+					projectId: "p1",
+					label: "repo/notes/idea.md",
+				},
+			],
 		});
 		const projectNode = snapshot.tree.projects.find((node) => node.projectId === "p1");
 		assert.ok(projectNode);
@@ -159,14 +171,16 @@ test("machine-only absolute custom path shows under global with label", async ()
 			listSessionRecords: () => [],
 		});
 		const snapshot = await scanner.scan(DEFAULT_PREFERENCES, {
-			customPaths: [{
-				id: "cp-3",
-				filePath: realFile,
-				relativeTo: "absolute",
-				// 无法相对化：relativePath 存原始绝对路径（模拟 D:\ 等盘符场景）
-				relativePath: "D:/elsewhere/outside-home.txt",
-				label: "D:/elsewhere/outside-home.txt",
-			}],
+			customPaths: [
+				{
+					id: "cp-3",
+					filePath: realFile,
+					relativeTo: "absolute",
+					// 无法相对化：relativePath 存原始绝对路径（模拟 D:\ 等盘符场景）
+					relativePath: "D:/elsewhere/outside-home.txt",
+					label: "D:/elsewhere/outside-home.txt",
+				},
+			],
 		});
 		const global = snapshot.tree.projects.find((node) => node.projectId === "__global__");
 		assert.ok(global);

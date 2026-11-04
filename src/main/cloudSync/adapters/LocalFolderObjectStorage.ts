@@ -20,16 +20,7 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { LocalFolderConfig, ProviderAccount } from "../../../shared/types/cloudSync.ts";
-import {
-	assertSafeCloudObjectKey,
-	CloudSyncConditionalWriteError,
-	type CloudSyncObjectDeleteOptions,
-	type CloudSyncObjectReadResult,
-	type CloudSyncObjectStorageCapabilities,
-	type CloudSyncObjectWriteOptions,
-	type CloudSyncObjectWriteResult,
-	type PiDeckCloudObjectStorage,
-} from "../objectStorage.ts";
+import { assertSafeCloudObjectKey, CloudSyncConditionalWriteError, type CloudSyncObjectDeleteOptions, type CloudSyncObjectReadResult, type CloudSyncObjectStorageCapabilities, type CloudSyncObjectWriteOptions, type CloudSyncObjectWriteResult, type PiDeckCloudObjectStorage } from "../objectStorage.ts";
 import { normalizeLocalFolderConfig } from "../providerConfig.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -98,11 +89,7 @@ export class LocalFolderObjectStorage implements PiDeckCloudObjectStorage {
 		};
 	}
 
-	async writeObject(
-		key: string,
-		bytes: Uint8Array,
-		options?: CloudSyncObjectWriteOptions,
-	): Promise<CloudSyncObjectWriteResult> {
+	async writeObject(key: string, bytes: Uint8Array, options?: CloudSyncObjectWriteOptions): Promise<CloudSyncObjectWriteResult> {
 		assertSafeCloudObjectKey(key);
 		this.requireConnected();
 		const path = this.objectPath(key);

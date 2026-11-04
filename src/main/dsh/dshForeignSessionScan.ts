@@ -7,11 +7,7 @@ import { zstdDecompressSync } from "node:zlib";
 import type { DshForeignSessionItem } from "./dshForeignSync.ts";
 import { readSessionProjectionTitles } from "./dshProjectionCache.ts";
 import { findDshSessionLogFile } from "./dshSessionPath.ts";
-import {
-	consumeTitleEvent,
-	resolveFoldedTitle,
-	type LoggedTitleFold,
-} from "./dshSessionTitleFold.ts";
+import { consumeTitleEvent, resolveFoldedTitle, type LoggedTitleFold } from "./dshSessionTitleFold.ts";
 
 /**
  * 从 DSH_HOME 磁盘只读扫描外部根会话（不启动 host、不 attach、不写文件）。

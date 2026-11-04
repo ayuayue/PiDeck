@@ -6,21 +6,9 @@
  * key derivation would block Electron's main event loop during unlock/sync.
  */
 
-import {
-	createCipheriv,
-	createDecipheriv,
-	createHash,
-	pbkdf2 as pbkdf2Callback,
-	randomBytes,
-	timingSafeEqual,
-} from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, pbkdf2 as pbkdf2Callback, randomBytes, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import {
-	CLOUD_SYNC_CONSTANTS,
-	type CloudSyncMasterKeyConfig,
-	type PiDeckSyncIndexV1,
-	type SyncedFile,
-} from "../../shared/types/cloudSync.ts";
+import { CLOUD_SYNC_CONSTANTS, type CloudSyncMasterKeyConfig, type PiDeckSyncIndexV1, type SyncedFile } from "../../shared/types/cloudSync.ts";
 
 const pbkdf2 = promisify(pbkdf2Callback);
 const KEY_BYTES = CLOUD_SYNC_CONSTANTS.AES_KEY_LENGTH / 8;
@@ -58,12 +46,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isValidIterations(value: unknown): value is number {
-	return (
-		typeof value === "number" &&
-		Number.isSafeInteger(value) &&
-		value >= CLOUD_SYNC_CONSTANTS.MIN_PBKDF2_ITERATIONS &&
-		value <= CLOUD_SYNC_CONSTANTS.MAX_PBKDF2_ITERATIONS
-	);
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= CLOUD_SYNC_CONSTANTS.MIN_PBKDF2_ITERATIONS && value <= CLOUD_SYNC_CONSTANTS.MAX_PBKDF2_ITERATIONS;
 }
 
 function assertValidIterations(iterations: number): void {
@@ -140,11 +123,7 @@ export function generateRandomBytes(length: number): Buffer {
 }
 
 /** Derive an AES-256 key from a master password without blocking the main loop. */
-export async function deriveKey(
-	password: string,
-	salt: Uint8Array,
-	iterations = DEFAULT_KDF_ITERATIONS,
-): Promise<Buffer> {
+export async function deriveKey(password: string, salt: Uint8Array, iterations = DEFAULT_KDF_ITERATIONS): Promise<Buffer> {
 	assertValidPassword(password);
 	assertValidSalt(salt);
 	assertValidIterations(iterations);
@@ -158,10 +137,7 @@ export function createVerificationHash(key: Buffer): string {
 }
 
 /** Verify a password without exposing whether any key material matched early. */
-export async function verifyPassword(
-	password: string,
-	config: CloudSyncMasterKeyConfig,
-): Promise<boolean> {
+export async function verifyPassword(password: string, config: CloudSyncMasterKeyConfig): Promise<boolean> {
 	if (!isValidCloudSyncPassword(password) || !isValidMasterKeyConfig(config)) return false;
 	try {
 		const key = await deriveKey(password, decodeBase64(config.salt, "salt"), config.kdfIterations);
@@ -174,12 +150,7 @@ export async function verifyPassword(
 }
 
 /** Encrypt UTF-8 text with AES-256-GCM; the returned ciphertext includes its tag. */
-export function encrypt(
-	plaintext: string,
-	key: Buffer,
-	salt: Uint8Array,
-	iterations = DEFAULT_KDF_ITERATIONS,
-): CloudSyncEncryptionResult {
+export function encrypt(plaintext: string, key: Buffer, salt: Uint8Array, iterations = DEFAULT_KDF_ITERATIONS): CloudSyncEncryptionResult {
 	assertValidKey(key);
 	assertValidSalt(salt);
 	assertValidIterations(iterations);
@@ -234,10 +205,7 @@ export async function createMasterKeyConfig(password: string): Promise<CloudSync
 }
 
 /** Unlock a master key into process memory after verifying the password. */
-export async function unlockMasterKey(
-	password: string,
-	config: CloudSyncMasterKeyConfig,
-): Promise<UnlockedCloudSyncKey | null> {
+export async function unlockMasterKey(password: string, config: CloudSyncMasterKeyConfig): Promise<UnlockedCloudSyncKey | null> {
 	if (!(await verifyPassword(password, config))) return null;
 	const salt = decodeBase64(config.salt, "salt");
 	return {
@@ -248,11 +216,7 @@ export async function unlockMasterKey(
 }
 
 /** Re-key future writes after verifying the old password; existing objects need migration. */
-export async function changeMasterPassword(
-	oldPassword: string,
-	newPassword: string,
-	config: CloudSyncMasterKeyConfig,
-): Promise<CloudSyncMasterKeyConfig | null> {
+export async function changeMasterPassword(oldPassword: string, newPassword: string, config: CloudSyncMasterKeyConfig): Promise<CloudSyncMasterKeyConfig | null> {
 	if (!(await verifyPassword(oldPassword, config))) return null;
 	return createMasterKeyConfig(newPassword);
 }
@@ -319,24 +283,18 @@ function isValidSyncProject(value: unknown): boolean {
 			if (bundles !== undefined && (!Array.isArray(bundles) || bundles.length > 2000 || !bundles.every(isValidSyncFileBundle))) return false;
 		}
 		if (value.resources.piSettings !== undefined && !isBoundedRecord(value.resources.piSettings)) return false;
-		if (value.resources.extensionSources !== undefined && (
-			!Array.isArray(value.resources.extensionSources) ||
-			value.resources.extensionSources.length > 500 ||
-			!value.resources.extensionSources.every((source) => (
-				isRecord(source) && isSafeText(source.source, 2048) &&
-				(source.scope === "user" || source.scope === "project") &&
-				(source.version === undefined || isSafeText(source.version, 512)) &&
-				(source.lockContent === undefined || typeof source.lockContent === "string")
-			))
-		)) return false;
+		if (
+			value.resources.extensionSources !== undefined &&
+			(!Array.isArray(value.resources.extensionSources) ||
+				value.resources.extensionSources.length > 500 ||
+				!value.resources.extensionSources.every(
+					(source) => isRecord(source) && isSafeText(source.source, 2048) && (source.scope === "user" || source.scope === "project") && (source.version === undefined || isSafeText(source.version, 512)) && (source.lockContent === undefined || typeof source.lockContent === "string"),
+				))
+		)
+			return false;
 	}
-	if (value.sessions !== undefined && (
-		!Array.isArray(value.sessions) || value.sessions.length > 5000 || !value.sessions.every(isValidSyncSessionRef)
-	)) return false;
-	if (value.catalogEntries !== undefined && (
-		!Array.isArray(value.catalogEntries) || value.catalogEntries.length > 5000 ||
-		!value.catalogEntries.every((entry) => isBoundedRecord(entry, 128))
-	)) return false;
+	if (value.sessions !== undefined && (!Array.isArray(value.sessions) || value.sessions.length > 5000 || !value.sessions.every(isValidSyncSessionRef))) return false;
+	if (value.catalogEntries !== undefined && (!Array.isArray(value.catalogEntries) || value.catalogEntries.length > 5000 || !value.catalogEntries.every((entry) => isBoundedRecord(entry, 128)))) return false;
 	return true;
 }
 
@@ -349,14 +307,11 @@ export function isPiDeckSyncIndexV1(value: unknown): value is PiDeckSyncIndexV1 
 	if (value.settings !== undefined && !isBoundedRecord(value.settings)) return false;
 	if (value.pi !== undefined && !isRecord(value.pi)) return false;
 	if (value.dsh !== undefined && !isRecord(value.dsh)) return false;
-	if (value.projects !== undefined && (
-		!Array.isArray(value.projects) || value.projects.length > 500 || !value.projects.every(isValidSyncProject)
-	)) return false;
+	if (value.projects !== undefined && (!Array.isArray(value.projects) || value.projects.length > 500 || !value.projects.every(isValidSyncProject))) return false;
 	if (value.imageGen !== undefined && !isRecord(value.imageGen)) return false;
 	if (value.extensionState !== undefined && !isRecord(value.extensionState)) return false;
 	return true;
 }
-
 
 function readSyncedFileMeta(file: SyncedFile): {
 	iv: Buffer;
@@ -375,9 +330,7 @@ function readSyncedFileMeta(file: SyncedFile): {
 	if (typeof meta.version !== "number" || !Number.isSafeInteger(meta.version) || meta.version < 1) {
 		throw new TypeError("Cloud sync file version is invalid");
 	}
-	const kdfIterations = meta.kdfIterations === undefined
-		? DEFAULT_KDF_ITERATIONS
-		: meta.kdfIterations;
+	const kdfIterations = meta.kdfIterations === undefined ? DEFAULT_KDF_ITERATIONS : meta.kdfIterations;
 	if (!isValidIterations(kdfIterations)) {
 		throw new TypeError("Cloud sync file KDF iterations are invalid");
 	}
@@ -402,14 +355,7 @@ function readSyncedFileMeta(file: SyncedFile): {
 }
 
 /** Encrypt the PiDeck index payload into the provider-neutral file envelope. */
-export async function encryptPayload(
-	payload: PiDeckSyncIndexV1,
-	password: string,
-	deviceId: string,
-	deviceName: string,
-	appVersion: string,
-	existingVersion = 0,
-): Promise<SyncedFile> {
+export async function encryptPayload(payload: PiDeckSyncIndexV1, password: string, deviceId: string, deviceName: string, appVersion: string, existingVersion = 0): Promise<SyncedFile> {
 	assertValidPassword(password);
 	if (!Number.isSafeInteger(existingVersion) || existingVersion < 0) {
 		throw new RangeError("Existing cloud sync version is invalid");
@@ -436,10 +382,7 @@ export async function encryptPayload(
 }
 
 /** Decrypt and minimally validate a remote PiDeck index payload. */
-export async function decryptPayload(
-	syncedFile: SyncedFile,
-	password: string,
-): Promise<PiDeckSyncIndexV1> {
+export async function decryptPayload(syncedFile: SyncedFile, password: string): Promise<PiDeckSyncIndexV1> {
 	assertValidPassword(password);
 	const meta = readSyncedFileMeta(syncedFile);
 	const candidate: unknown = syncedFile;
@@ -466,10 +409,7 @@ export async function decryptPayload(
 }
 
 /** Check a remote file without leaking decryption errors to the caller. */
-export async function verifySyncedFile(
-	syncedFile: SyncedFile,
-	password: string,
-): Promise<boolean> {
+export async function verifySyncedFile(syncedFile: SyncedFile, password: string): Promise<boolean> {
 	try {
 		await decryptPayload(syncedFile, password);
 		return true;

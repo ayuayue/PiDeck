@@ -6,15 +6,7 @@
  * back to "basic" (the UI default), matching Netcatty's behavior.
  */
 
-import type {
-	CloudSyncProviderConfigInput,
-	GithubGistConfig,
-	GoogleDriveConfig,
-	LocalFolderConfig,
-	OneDriveConfig,
-	S3Config,
-	WebDAVConfig,
-} from "../../shared/types/cloudSync.ts";
+import type { CloudSyncProviderConfigInput, GithubGistConfig, GoogleDriveConfig, LocalFolderConfig, OneDriveConfig, S3Config, WebDAVConfig } from "../../shared/types/cloudSync.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);

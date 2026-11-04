@@ -1,14 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-	assertSafeCloudObjectKey,
-	isCloudSyncConditionalWriteError,
-} from "../src/main/cloudSync/objectStorage.ts";
-import {
-	normalizeS3Config,
-	normalizeWebDAVConfig,
-} from "../src/main/cloudSync/providerConfig.ts";
+import { assertSafeCloudObjectKey, isCloudSyncConditionalWriteError } from "../src/main/cloudSync/objectStorage.ts";
+import { normalizeS3Config, normalizeWebDAVConfig } from "../src/main/cloudSync/providerConfig.ts";
 
 const webdavBase = {
 	endpoint: "dav.example.test/backup",
@@ -38,22 +32,10 @@ test("provider config normalizers canonicalize endpoints without exposing creden
 });
 
 test("provider config rejects insecure or ambiguous connection input", () => {
-	assert.throws(
-		() => normalizeWebDAVConfig({ ...webdavBase, endpoint: "http://dav.example.test" }),
-		/allowInsecure=true/,
-	);
-	assert.throws(
-		() => normalizeS3Config({ ...s3Base, endpoint: "https://user:password@s3.example.test" }),
-		/credentials or query parameters/,
-	);
-	assert.throws(
-		() => normalizeS3Config({ ...s3Base, prefix: "pideck/../escape" }),
-		/unsafe path segment/,
-	);
-	assert.throws(
-		() => normalizeWebDAVConfig({ ...webdavBase, authType: "bearer" }),
-		/auth type is invalid/,
-	);
+	assert.throws(() => normalizeWebDAVConfig({ ...webdavBase, endpoint: "http://dav.example.test" }), /allowInsecure=true/);
+	assert.throws(() => normalizeS3Config({ ...s3Base, endpoint: "https://user:password@s3.example.test" }), /credentials or query parameters/);
+	assert.throws(() => normalizeS3Config({ ...s3Base, prefix: "pideck/../escape" }), /unsafe path segment/);
+	assert.throws(() => normalizeWebDAVConfig({ ...webdavBase, authType: "bearer" }), /auth type is invalid/);
 });
 
 test("cloud object keys cannot escape the provider namespace", () => {

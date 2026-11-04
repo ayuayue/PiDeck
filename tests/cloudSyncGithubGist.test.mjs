@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-	GithubGistObjectStorage,
-	startGithubDeviceFlow,
-	pollGithubDeviceFlow,
-} from "../src/main/cloudSync/adapters/GithubGistObjectStorage.ts";
+import { GithubGistObjectStorage, startGithubDeviceFlow, pollGithubDeviceFlow } from "../src/main/cloudSync/adapters/GithubGistObjectStorage.ts";
 
 /** 内存假 GitHub API：按 URL 路由到 gist 对象存储。 */
 function fakeGithub(gistFiles) {

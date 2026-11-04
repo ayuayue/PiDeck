@@ -5,15 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { CloudSyncManager } from "../src/main/cloudSync/CloudSyncManager.ts";
-import {
-	BACKUP_FORMAT_VERSION,
-	BACKUP_MAGIC,
-	BackupFileReader,
-	BackupFileWriter,
-	encodeBackupContainer,
-	parseBackupContainer,
-	parseBackupManifest,
-} from "../src/main/cloudSync/exportImport.ts";
+import { BACKUP_FORMAT_VERSION, BACKUP_MAGIC, BackupFileReader, BackupFileWriter, encodeBackupContainer, parseBackupContainer, parseBackupManifest } from "../src/main/cloudSync/exportImport.ts";
 import { createDefaultExternalEditorSettings } from "../src/shared/types/project.ts";
 
 const PASSWORD = "correct horse battery staple";
@@ -58,19 +50,21 @@ async function makeGlobalSession(homeDir) {
 	await mkdir(sessionsDir, { recursive: true });
 	const sessionFile = join(sessionsDir, "session-a.jsonl");
 	await writeFile(sessionFile, SESSION_CONTENT, "utf8");
-	return [{
-		id: "session-a",
-		projectId: "__global__",
-		title: "Session A",
-		source: "pi",
-		environment: "native",
-		filePath: sessionFile,
-		preview: "hi",
-		messageCount: 1,
-		status: "active",
-		createdAt: 1,
-		updatedAt: 1,
-	}];
+	return [
+		{
+			id: "session-a",
+			projectId: "__global__",
+			title: "Session A",
+			source: "pi",
+			environment: "native",
+			filePath: sessionFile,
+			preview: "hi",
+			messageCount: 1,
+			status: "active",
+			createdAt: 1,
+			updatedAt: 1,
+		},
+	];
 }
 
 /** 导出 machine A 的全量选择为一个备份文件。 */
@@ -101,7 +95,10 @@ test("backup container encodes and parses header + entries", () => {
 	const parsed = parseBackupContainer(data);
 	assert.equal(parsed.formatVersion, BACKUP_FORMAT_VERSION);
 	assert.deepEqual(Buffer.from(parsed.headerBytes), header);
-	assert.deepEqual(parsed.entries.map((entry) => entry.name), entries.map((entry) => entry.name));
+	assert.deepEqual(
+		parsed.entries.map((entry) => entry.name),
+		entries.map((entry) => entry.name),
+	);
 	assert.deepEqual(Buffer.from(parsed.entries[1].bytes), Buffer.from([1, 2, 3, 255]));
 });
 
@@ -143,7 +140,10 @@ test("backup file writer/reader round-trips through a real file", async () => {
 			assert.equal(Buffer.from(headerBytes).toString("utf8"), "header-bytes");
 			const entries = [];
 			for await (const entry of reader.entries()) entries.push(entry);
-			assert.deepEqual(entries.map((entry) => entry.name), ["pideck-sessions/s1.jsonl.enc", "pideck-files/abc.enc"]);
+			assert.deepEqual(
+				entries.map((entry) => entry.name),
+				["pideck-sessions/s1.jsonl.enc", "pideck-files/abc.enc"],
+			);
 			assert.equal(Buffer.from(entries[1].bytes).toString("hex"), "0909");
 		} finally {
 			await reader.close();
@@ -270,26 +270,17 @@ test("import rejects wrong password, mismatched master password and corrupt file
 		await mkdir(homeB, { recursive: true });
 		const managerB = makeManager({ userDataDir: userDataB, homeDir: homeB });
 		await managerB.initialize();
-		await assert.rejects(
-			() => managerB.importBackup({ filePath: backupPath, password: "wrong password 123", mode: "merge" }),
-			/password is incorrect or the file is corrupted/,
-		);
+		await assert.rejects(() => managerB.importBackup({ filePath: backupPath, password: "wrong password 123", mode: "merge" }), /password is incorrect or the file is corrupted/);
 		assert.equal(managerB.securityState(), "NO_KEY");
 
 		// 本机已有另一个主密码（模拟已配置云同步的机器）→ 即使备份能解开也拒绝。
 		await managerB.setupMasterKey("master-password-other");
-		await assert.rejects(
-			() => managerB.importBackup({ filePath: backupPath, password: PASSWORD, mode: "merge" }),
-			/does not match the master password/,
-		);
+		await assert.rejects(() => managerB.importBackup({ filePath: backupPath, password: PASSWORD, mode: "merge" }), /does not match the master password/);
 
 		// 损坏文件：魔数错误 → 报错且不改状态。
 		const corruptPath = join(base, "corrupt.pideckbackup");
 		await writeFile(corruptPath, "this is not a backup", "utf8");
-		await assert.rejects(
-			() => managerB.importBackup({ filePath: corruptPath, password: "master-password-other", mode: "merge" }),
-			/Not a PiDeck backup/,
-		);
+		await assert.rejects(() => managerB.importBackup({ filePath: corruptPath, password: "master-password-other", mode: "merge" }), /Not a PiDeck backup/);
 		await managerB.dispose();
 	});
 });
@@ -304,19 +295,21 @@ test("project sessions without a local project land in the pending mapping area"
 		const sessionFile = join(sessionsDir, "session-p.jsonl");
 		await writeFile(sessionFile, SESSION_CONTENT, "utf8");
 		const projects = [{ id: "proj-1", name: "proj", path: projectPath, lastOpenedAt: 1, environment: "windows" }];
-		const records = [{
-			id: "session-p",
-			projectId: "proj-1",
-			title: "Session P",
-			source: "pi",
-			environment: "native",
-			filePath: sessionFile,
-			preview: "hi",
-			messageCount: 1,
-			status: "active",
-			createdAt: 1,
-			updatedAt: 1,
-		}];
+		const records = [
+			{
+				id: "session-p",
+				projectId: "proj-1",
+				title: "Session P",
+				source: "pi",
+				environment: "native",
+				filePath: sessionFile,
+				preview: "hi",
+				messageCount: 1,
+				status: "active",
+				createdAt: 1,
+				updatedAt: 1,
+			},
+		];
 
 		const userDataA = join(base, "userData-a");
 		const managerA = makeManager({ userDataDir: userDataA, homeDir: homeA, records, projects });

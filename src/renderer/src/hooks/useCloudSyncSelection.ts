@@ -8,10 +8,7 @@ import type { useCloudSync } from "./useCloudSync";
  */
 
 /** useCloudSync 中选择/扫描相关的稳定回调集合（窄接口，避免整包透传）。 */
-export type CloudSyncSelectionApi = Pick<
-	ReturnType<typeof useCloudSync>,
-	"scan" | "updateSelection" | "resolveConflicts" | "pickCustomPath" | "removeCustomPath" | "pickMountDirectory" | "mountProject" | "unmountProject"
->;
+export type CloudSyncSelectionApi = Pick<ReturnType<typeof useCloudSync>, "scan" | "updateSelection" | "resolveConflicts" | "pickCustomPath" | "removeCustomPath" | "pickMountDirectory" | "mountProject" | "unmountProject">;
 
 export function useCloudSyncSelection(api: CloudSyncSelectionApi) {
 	const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
@@ -19,12 +16,15 @@ export function useCloudSyncSelection(api: CloudSyncSelectionApi) {
 	/** 冲突选择（id → local/remote），默认本地优先。 */
 	const [conflictChoices, setConflictChoices] = useState<Record<string, "local" | "remote">>({});
 
-	const syncSelection = useCallback(async (tree: CloudSyncSelectionTree | null) => {
-		await api.updateSelection({
-			selectedSessionIds: [...selectedSessionIds],
-			selectedResourceIds: [...selectedResourceIds],
-		});
-	}, [api, selectedSessionIds, selectedResourceIds]);
+	const syncSelection = useCallback(
+		async (tree: CloudSyncSelectionTree | null) => {
+			await api.updateSelection({
+				selectedSessionIds: [...selectedSessionIds],
+				selectedResourceIds: [...selectedResourceIds],
+			});
+		},
+		[api, selectedSessionIds, selectedResourceIds],
+	);
 
 	const toggleSession = useCallback((selectionId: string) => {
 		setSelectedSessionIds((prev) => {
@@ -84,43 +84,72 @@ export function useCloudSyncSelection(api: CloudSyncSelectionApi) {
 	}, []);
 
 	/** M9：弹文件/文件夹选择器（主进程归属计算），把自选路径加入同步清单。 */
-	const onAddCustomPath = useCallback(async (tree: CloudSyncSelectionTree | null) => {
-		await api.pickCustomPath();
-		void api.scan();
-	}, [api]);
+	const onAddCustomPath = useCallback(
+		async (tree: CloudSyncSelectionTree | null) => {
+			await api.pickCustomPath();
+			void api.scan();
+		},
+		[api],
+	);
 
 	/** M9：移除自选同步路径并重扫。 */
-	const onRemoveCustomPath = useCallback((customPathId: string) => {
-		void api.removeCustomPath(customPathId).then(() => api.scan());
-	}, [api]);
+	const onRemoveCustomPath = useCallback(
+		(customPathId: string) => {
+			void api.removeCustomPath(customPathId).then(() => api.scan());
+		},
+		[api],
+	);
 
 	/** M9：云端项目手动挂载 —— 弹目录选择器 → mount-project 持久化映射。 */
-	const onMountProject = useCallback(async (remoteProjectId: string, name: string) => {
-		const localPath = await api.pickMountDirectory();
-		if (!localPath) return;
-		await api.mountProject({ remoteProjectId, remoteProjectName: name, localPath });
-	}, [api]);
+	const onMountProject = useCallback(
+		async (remoteProjectId: string, name: string) => {
+			const localPath = await api.pickMountDirectory();
+			if (!localPath) return;
+			await api.mountProject({ remoteProjectId, remoteProjectName: name, localPath });
+		},
+		[api],
+	);
 
 	/** M9：解除挂载映射。 */
-	const onUnmountProject = useCallback((remoteProjectId: string) => {
-		void api.unmountProject(remoteProjectId);
-	}, [api]);
+	const onUnmountProject = useCallback(
+		(remoteProjectId: string) => {
+			void api.unmountProject(remoteProjectId);
+		},
+		[api],
+	);
 
 	/** 内容分类开关（密钥/模型/生图等）：随选择一并持久化。 */
-	const toggleContentCategory = useCallback((key: keyof CloudSyncContentPreferences, checked: boolean) => {
-		void api.updateSelection({
-			selectedSessionIds: [...selectedSessionIds],
-			selectedResourceIds: [...selectedResourceIds],
-			content: { [key]: checked },
-		});
-	}, [api, selectedSessionIds, selectedResourceIds]);
+	const toggleContentCategory = useCallback(
+		(key: keyof CloudSyncContentPreferences, checked: boolean) => {
+			void api.updateSelection({
+				selectedSessionIds: [...selectedSessionIds],
+				selectedResourceIds: [...selectedResourceIds],
+				content: { [key]: checked },
+			});
+		},
+		[api, selectedSessionIds, selectedResourceIds],
+	);
 
 	/** 扫描：以扫描结果重置选择集合（扫描快照的 selected 是持久化选择）。 */
 	const handleScan = useCallback(async () => {
 		const next = await api.scan();
 		if (!next) return null;
-		setSelectedSessionIds(new Set(next.projects.flatMap((project) => project.sessions).filter((session) => session.selected).map((session) => session.selectionId)));
-		setSelectedResourceIds(new Set(next.projects.flatMap((project) => project.resources).filter((resource) => resource.selected).map((resource) => resource.selectionId)));
+		setSelectedSessionIds(
+			new Set(
+				next.projects
+					.flatMap((project) => project.sessions)
+					.filter((session) => session.selected)
+					.map((session) => session.selectionId),
+			),
+		);
+		setSelectedResourceIds(
+			new Set(
+				next.projects
+					.flatMap((project) => project.resources)
+					.filter((resource) => resource.selected)
+					.map((resource) => resource.selectionId),
+			),
+		);
 		return next;
 	}, [api]);
 
@@ -130,14 +159,17 @@ export function useCloudSyncSelection(api: CloudSyncSelectionApi) {
 		setSelectedResourceIds(new Set(all ? tree.projects.flatMap((project) => project.resources).map((resource) => resource.selectionId) : []));
 	}, []);
 
-	const applyConflictResolutions = useCallback(async (conflicts: Array<{ id: string; label: string }>) => {
-		const resolutions = (conflicts ?? []).map((conflict) => ({
-			id: conflict.id,
-			choice: conflictChoices[conflict.id] ?? "local",
-		}));
-		if (resolutions.length === 0) return;
-		await api.resolveConflicts(resolutions);
-	}, [api, conflictChoices]);
+	const applyConflictResolutions = useCallback(
+		async (conflicts: Array<{ id: string; label: string }>) => {
+			const resolutions = (conflicts ?? []).map((conflict) => ({
+				id: conflict.id,
+				choice: conflictChoices[conflict.id] ?? "local",
+			}));
+			if (resolutions.length === 0) return;
+			await api.resolveConflicts(resolutions);
+		},
+		[api, conflictChoices],
+	);
 
 	return {
 		selectedSessionIds,

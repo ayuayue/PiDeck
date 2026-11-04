@@ -24,11 +24,7 @@ export function useCloudSyncBackup(api: CloudSyncBackupApi) {
 			showNotice(t("cloudSync.backup.exportCanceled"), 2000, "info");
 			return;
 		}
-		showNotice(
-			t("cloudSync.backup.exportDone", { path: result.filePath, sessions: result.sessionCount, resources: result.resourceCount }),
-			5000,
-			"info",
-		);
+		showNotice(t("cloudSync.backup.exportDone", { path: result.filePath, sessions: result.sessionCount, resources: result.resourceCount }), 5000, "info");
 	}, [api]);
 
 	const handlePickImportFile = useCallback(async () => {
@@ -42,11 +38,12 @@ export function useCloudSyncBackup(api: CloudSyncBackupApi) {
 		if (!result) return; // 失败已写入 error
 		const skipped = result.sessionsSkipped + result.resourcesSkipped;
 		const pending = result.pendingProjects.length;
-		const message = t("cloudSync.backup.importDone", {
-			restored: result.sessionsRestored,
-			resourcesRestored: result.resourcesRestored,
-			skipped,
-		}) + (pending > 0 ? t("cloudSync.backup.importPending", { count: pending }) : "");
+		const message =
+			t("cloudSync.backup.importDone", {
+				restored: result.sessionsRestored,
+				resourcesRestored: result.resourcesRestored,
+				skipped,
+			}) + (pending > 0 ? t("cloudSync.backup.importPending", { count: pending }) : "");
 		showNotice(message, 5000, "info");
 	}, [api, importFilePath, importPassword, importMode]);
 

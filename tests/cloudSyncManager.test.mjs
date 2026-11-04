@@ -115,19 +115,21 @@ test("manager seals provider credentials and syncs a selected session end to end
 		await writeFile(sessionFile, '{"type":"session_info","name":"A"}\n{"role":"user","content":"hi"}\n', "utf8");
 
 		const storage = new InMemoryStorage();
-		let records = [{
-			id: "session-a",
-			projectId: "__global__",
-			title: "Session A",
-			source: "pi",
-			environment: "native",
-			filePath: sessionFile,
-			preview: "hi",
-			messageCount: 1,
-			status: "active",
-			createdAt: 1,
-			updatedAt: 1,
-		}];
+		let records = [
+			{
+				id: "session-a",
+				projectId: "__global__",
+				title: "Session A",
+				source: "pi",
+				environment: "native",
+				filePath: sessionFile,
+				preview: "hi",
+				messageCount: 1,
+				status: "active",
+				createdAt: 1,
+				updatedAt: 1,
+			},
+		];
 
 		const manager = new CloudSyncManager({
 			userDataDir,
@@ -365,9 +367,13 @@ test("manager records missing extensions and retries install (M5)", async () => 
 		const sessionsDir = join(agentDir, "sessions");
 		await mkdir(sessionsDir, { recursive: true });
 		// 全局 settings.json 声明两个包扩展
-		await writeFile(join(agentDir, "settings.json"), JSON.stringify({
-			packages: ["npm:pi-tracker", { source: "github:org/repo", version: "v1.0.0" }],
-		}), "utf8");
+		await writeFile(
+			join(agentDir, "settings.json"),
+			JSON.stringify({
+				packages: ["npm:pi-tracker", { source: "github:org/repo", version: "v1.0.0" }],
+			}),
+			"utf8",
+		);
 
 		const storage = new InMemoryStorage();
 		const installed = new Set();

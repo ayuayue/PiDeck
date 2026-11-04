@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-	decryptPayload,
-	encryptPayload,
-} from "../src/main/cloudSync/EncryptionService.ts";
+import { decryptPayload, encryptPayload } from "../src/main/cloudSync/EncryptionService.ts";
 import { buildPiDeckSyncIndex, buildCloudSyncProject } from "../src/main/cloudSync/payload.ts";
 
 const PASSWORD = "correct horse battery staple";
@@ -35,61 +32,70 @@ test("decryptPayload accepts a well-formed remote index", async () => {
 });
 
 test("decryptPayload rejects a malicious remote index with an unsafe session path", async () => {
-	const index = baseIndex([{
-		...buildCloudSyncProject(project),
-		sessions: [{
-			sessionId: "session-1",
-			scope: "project",
-			projectId: "proj-a",
-			relativePath: "../etc/passwd",
-			size: 10,
-			mtimeMs: 1,
-			contentHash: "a".repeat(64),
-			objectKey: "pideck-sessions/session-1.jsonl.enc",
-		}],
-	}]);
+	const index = baseIndex([
+		{
+			...buildCloudSyncProject(project),
+			sessions: [
+				{
+					sessionId: "session-1",
+					scope: "project",
+					projectId: "proj-a",
+					relativePath: "../etc/passwd",
+					size: 10,
+					mtimeMs: 1,
+					contentHash: "a".repeat(64),
+					objectKey: "pideck-sessions/session-1.jsonl.enc",
+				},
+			],
+		},
+	]);
 	// 恶意索引仍可被本地加密（encryptPayload 不校验内容），但解密端必须拒绝。
 	const file = await encryptPayload(index, PASSWORD, "device-a", "Workstation", "0.0.0-test", 0);
 	await assert.rejects(() => decryptPayload(file, PASSWORD), /schema is unsupported/);
 });
 
 test("decryptPayload rejects oversized or mismatched session refs", async () => {
-	const badHashes = [
-		"../etc/passwd",
-		"../../secret",
-	];
+	const badHashes = ["../etc/passwd", "../../secret"];
 	for (const relativePath of badHashes) {
-		const index = baseIndex([{
-			...buildCloudSyncProject(project),
-			sessions: [{
-				sessionId: "session-1",
-				scope: "project",
-				projectId: "proj-a",
-				relativePath,
-				size: 10,
-				mtimeMs: 1,
-				contentHash: "a".repeat(64),
-				objectKey: "pideck-sessions/session-1.jsonl.enc",
-			}],
-		}]);
+		const index = baseIndex([
+			{
+				...buildCloudSyncProject(project),
+				sessions: [
+					{
+						sessionId: "session-1",
+						scope: "project",
+						projectId: "proj-a",
+						relativePath,
+						size: 10,
+						mtimeMs: 1,
+						contentHash: "a".repeat(64),
+						objectKey: "pideck-sessions/session-1.jsonl.enc",
+					},
+				],
+			},
+		]);
 		const file = await encryptPayload(index, PASSWORD, "device-a", "Workstation", "0.0.0-test", 0);
 		await assert.rejects(() => decryptPayload(file, PASSWORD), /schema is unsupported/);
 	}
 
 	// 会话对象 key 与 sessionId 不匹配 → 拒绝
-	const index = baseIndex([{
-		...buildCloudSyncProject(project),
-		sessions: [{
-			sessionId: "session-1",
-			scope: "project",
-			projectId: "proj-a",
-			relativePath: "2026/a.jsonl",
-			size: 10,
-			mtimeMs: 1,
-			contentHash: "a".repeat(64),
-			objectKey: "pideck-sessions/other-session.jsonl.enc",
-		}],
-	}]);
+	const index = baseIndex([
+		{
+			...buildCloudSyncProject(project),
+			sessions: [
+				{
+					sessionId: "session-1",
+					scope: "project",
+					projectId: "proj-a",
+					relativePath: "2026/a.jsonl",
+					size: 10,
+					mtimeMs: 1,
+					contentHash: "a".repeat(64),
+					objectKey: "pideck-sessions/other-session.jsonl.enc",
+				},
+			],
+		},
+	]);
 	const file = await encryptPayload(index, PASSWORD, "device-a", "Workstation", "0.0.0-test", 0);
 	await assert.rejects(() => decryptPayload(file, PASSWORD), /schema is unsupported/);
 });

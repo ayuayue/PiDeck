@@ -2,15 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { CLOUD_SYNC_CONSTANTS } from "../src/shared/types/cloudSync.ts";
-import {
-	EncryptionService,
-	createMasterKeyConfig,
-	decryptPayload,
-	encryptPayload,
-	isCloudSyncMasterKeyConfig,
-	verifyPassword,
-	verifySyncedFile,
-} from "../src/main/cloudSync/EncryptionService.ts";
+import { EncryptionService, createMasterKeyConfig, decryptPayload, encryptPayload, isCloudSyncMasterKeyConfig, verifyPassword, verifySyncedFile } from "../src/main/cloudSync/EncryptionService.ts";
 
 const PASSWORD = "correct horse battery staple";
 
@@ -44,15 +36,8 @@ test("master key config verifies the right password and rejects malformed record
 	assert.equal(isCloudSyncMasterKeyConfig(config), true);
 	assert.equal(await verifyPassword(PASSWORD, config), true);
 	assert.equal(await verifyPassword("wrong password", config), false);
-	assert.equal(
-		isCloudSyncMasterKeyConfig({ ...config, kdfIterations: 1 }),
-		false,
-		"untrusted iteration counts must not bypass the KDF policy",
-	);
-	await assert.rejects(
-		() => createMasterKeyConfig("short"),
-		/Master password must contain at least 8 characters/,
-	);
+	assert.equal(isCloudSyncMasterKeyConfig({ ...config, kdfIterations: 1 }), false, "untrusted iteration counts must not bypass the KDF policy");
+	await assert.rejects(() => createMasterKeyConfig("short"), /Master password must contain at least 8 characters/);
 });
 
 test("PiDeck index payload round-trips without exposing plaintext", async () => {

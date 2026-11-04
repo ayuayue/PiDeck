@@ -1,8 +1,5 @@
 import { atom } from "jotai";
-import type {
-	CloudSyncSelectionTree,
-	CloudSyncStateSnapshot,
-} from "../../../shared/types";
+import type { CloudSyncSelectionTree, CloudSyncStateSnapshot } from "../../../shared/types";
 
 /** 云同步全局状态快照：主进程推送 + 渲染层主动拉取共同维护。 */
 export const cloudSyncStateAtom = atom<CloudSyncStateSnapshot | null>(null);

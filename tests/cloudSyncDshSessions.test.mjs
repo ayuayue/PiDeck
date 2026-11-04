@@ -109,10 +109,16 @@ async function makeProjectionCache(dshHome, titlesBySessionId) {
 function createMemoryStorage() {
 	const storage = {
 		objects: new Map(),
-		async connect() { return { account: { id: "mem", name: "memory" } }; },
+		async connect() {
+			return { account: { id: "mem", name: "memory" } };
+		},
 		async disconnect() {},
-		async getAccount() { return { id: "mem", name: "memory" }; },
-		async getCapabilities() { return { revisions: true, conditionalWrites: true, atomicReplacement: true }; },
+		async getAccount() {
+			return { id: "mem", name: "memory" };
+		},
+		async getCapabilities() {
+			return { revisions: true, conditionalWrites: true, atomicReplacement: true };
+		},
 		async readObject(key) {
 			const entry = this.objects.get(key);
 			if (!entry) return { found: false, key, bytes: null };
@@ -121,13 +127,17 @@ function createMemoryStorage() {
 		async writeObject(key, bytes, options) {
 			const existing = this.objects.get(key);
 			if (options?.expectedRevision === null && existing) {
-				const err = new Error("conditional"); err.code = "conditional_write_conflict"; throw err;
+				const err = new Error("conditional");
+				err.code = "conditional_write_conflict";
+				throw err;
 			}
 			const revision = `rev-${this.objects.size + 1}`;
 			this.objects.set(key, { bytes, revision });
 			return { created: !existing, revision };
 		},
-		async deleteObject(key) { return { deleted: this.objects.delete(key) }; },
+		async deleteObject(key) {
+			return { deleted: this.objects.delete(key) };
+		},
 	};
 	return storage;
 }
@@ -171,7 +181,10 @@ test("scanner groups DSH sessions into projects by cwd with real titles; no __ds
 		const snapshot = await scanner.scan(DEFAULT_PREFERENCES);
 
 		// 不再有独立的「DSH 会话」标签节点
-		assert.equal(snapshot.tree.projects.some((node) => node.projectId === "__dsh__"), false);
+		assert.equal(
+			snapshot.tree.projects.some((node) => node.projectId === "__dsh__"),
+			false,
+		);
 
 		// cwd 匹配的会话归入项目节点
 		const projectNode = snapshot.tree.projects.find((node) => node.projectId === "p1");
@@ -208,9 +221,7 @@ test("scanner prefers projection cache / catalog record for DSH project and titl
 			homeDir: join(base, "home"),
 			dshHomeDir: dshHome,
 			listProjects: () => [makeProject("p2", "beta", join(base, "beta"))],
-			listSessionRecords: () => [
-				makeDshRecord("rec-cat", "p2", "侧栏真实标题", "sid-cat"),
-			],
+			listSessionRecords: () => [makeDshRecord("rec-cat", "p2", "侧栏真实标题", "sid-cat")],
 		});
 		const snapshot = await scanner.scan(DEFAULT_PREFERENCES);
 		const projectNode = snapshot.tree.projects.find((node) => node.projectId === "p2");

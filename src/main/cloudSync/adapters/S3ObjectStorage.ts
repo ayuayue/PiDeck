@@ -1,24 +1,8 @@
 import { Agent } from "node:https";
-import {
-	DeleteObjectCommand,
-	GetObjectCommand,
-	HeadObjectCommand,
-	PutObjectCommand,
-	S3Client,
-	type PutObjectCommandInput,
-} from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client, type PutObjectCommandInput } from "@aws-sdk/client-s3";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 import type { ProviderAccount, S3Config } from "../../../shared/types/cloudSync.ts";
-import {
-	assertSafeCloudObjectKey,
-	CloudSyncConditionalWriteError,
-	type CloudSyncObjectDeleteOptions,
-	type CloudSyncObjectReadResult,
-	type CloudSyncObjectStorageCapabilities,
-	type CloudSyncObjectWriteOptions,
-	type CloudSyncObjectWriteResult,
-	type PiDeckCloudObjectStorage,
-} from "../objectStorage.ts";
+import { assertSafeCloudObjectKey, CloudSyncConditionalWriteError, type CloudSyncObjectDeleteOptions, type CloudSyncObjectReadResult, type CloudSyncObjectStorageCapabilities, type CloudSyncObjectWriteOptions, type CloudSyncObjectWriteResult, type PiDeckCloudObjectStorage } from "../objectStorage.ts";
 import { normalizeS3Config } from "../providerConfig.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -85,10 +69,12 @@ export class S3ObjectStorage implements PiDeckCloudObjectStorage {
 
 	async connect(): Promise<{ account: ProviderAccount }> {
 		try {
-			await this.client.send(new HeadObjectCommand({
-				Bucket: this.config.bucket,
-				Key: this.objectKey("pideck-index.json"),
-			}));
+			await this.client.send(
+				new HeadObjectCommand({
+					Bucket: this.config.bucket,
+					Key: this.objectKey("pideck-index.json"),
+				}),
+			);
 		} catch (error) {
 			if (!isNotFound(error)) throw error;
 		}
@@ -117,11 +103,14 @@ export class S3ObjectStorage implements PiDeckCloudObjectStorage {
 		this.requireConnected();
 		const objectKey = this.objectKey(key);
 		try {
-			const response = await this.client.send(new GetObjectCommand({
-				Bucket: this.config.bucket,
-				Key: objectKey,
-				ResponseCacheControl: "no-cache",
-			}), { abortSignal: options?.signal });
+			const response = await this.client.send(
+				new GetObjectCommand({
+					Bucket: this.config.bucket,
+					Key: objectKey,
+					ResponseCacheControl: "no-cache",
+				}),
+				{ abortSignal: options?.signal },
+			);
 			return {
 				found: true,
 				key,
@@ -135,21 +124,14 @@ export class S3ObjectStorage implements PiDeckCloudObjectStorage {
 		}
 	}
 
-	async writeObject(
-		key: string,
-		bytes: Uint8Array,
-		options?: CloudSyncObjectWriteOptions,
-	): Promise<CloudSyncObjectWriteResult> {
+	async writeObject(key: string, bytes: Uint8Array, options?: CloudSyncObjectWriteOptions): Promise<CloudSyncObjectWriteResult> {
 		this.requireConnected();
 		const objectKey = this.objectKey(key);
 		const current = await this.headObject(key, options?.signal);
 		if (options?.expectedRevision === null && current.found) {
 			throw new CloudSyncConditionalWriteError("S3 object already exists");
 		}
-		if (
-			typeof options?.expectedRevision === "string" &&
-			(!current.found || current.revision !== options.expectedRevision)
-		) {
+		if (typeof options?.expectedRevision === "string" && (!current.found || current.revision !== options.expectedRevision)) {
 			throw new CloudSyncConditionalWriteError("S3 object revision does not match");
 		}
 
@@ -185,13 +167,14 @@ export class S3ObjectStorage implements PiDeckCloudObjectStorage {
 			throw new CloudSyncConditionalWriteError("S3 object revision does not match");
 		}
 		try {
-			await this.client.send(new DeleteObjectCommand({
-				Bucket: this.config.bucket,
-				Key: this.objectKey(key),
-				IfMatch: options?.expectedRevision === undefined
-					? undefined
-					: toIfMatch(options.expectedRevision),
-			}), { abortSignal: options?.signal });
+			await this.client.send(
+				new DeleteObjectCommand({
+					Bucket: this.config.bucket,
+					Key: this.objectKey(key),
+					IfMatch: options?.expectedRevision === undefined ? undefined : toIfMatch(options.expectedRevision),
+				}),
+				{ abortSignal: options?.signal },
+			);
 			return { deleted: true };
 		} catch (error) {
 			if (isNotFound(error)) return { deleted: false };
@@ -202,16 +185,16 @@ export class S3ObjectStorage implements PiDeckCloudObjectStorage {
 		}
 	}
 
-	private async headObject(
-		key: string,
-		signal?: AbortSignal,
-	): Promise<{ found: boolean; revision?: string }> {
+	private async headObject(key: string, signal?: AbortSignal): Promise<{ found: boolean; revision?: string }> {
 		const objectKey = this.objectKey(key);
 		try {
-			const response = await this.client.send(new HeadObjectCommand({
-				Bucket: this.config.bucket,
-				Key: objectKey,
-			}), { abortSignal: signal });
+			const response = await this.client.send(
+				new HeadObjectCommand({
+					Bucket: this.config.bucket,
+					Key: objectKey,
+				}),
+				{ abortSignal: signal },
+			);
 			return { found: true, revision: normalizeRevision(response.ETag) };
 		} catch (error) {
 			if (isNotFound(error)) return { found: false };

@@ -22,9 +22,7 @@ export interface OAuthBuiltinCredentials {
 /** GitHub OAuth App 公开 Client ID（Device Flow 公共客户端，无密钥；应用方注册的默认值）。 */
 export const DEFAULT_GITHUB_CLIENT_ID = "Ov23liDM74yxq3HOLCRS";
 
-export function resolveOauthBuiltinCredentials(
-	env: Record<string, string | undefined> = process.env,
-): OAuthBuiltinCredentials {
+export function resolveOauthBuiltinCredentials(env: Record<string, string | undefined> = process.env): OAuthBuiltinCredentials {
 	return {
 		githubClientId: (env.VITE_SYNC_GITHUB_CLIENT_ID ?? "").trim() || DEFAULT_GITHUB_CLIENT_ID,
 		onedriveClientId: (env.VITE_SYNC_ONEDRIVE_CLIENT_ID ?? "").trim(),

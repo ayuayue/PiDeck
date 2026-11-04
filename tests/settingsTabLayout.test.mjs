@@ -16,7 +16,10 @@ test("布局覆盖全部 24 个 tab 且不重复", () => {
 });
 
 test("展示顺序按 基础 → 扩展集成 → 开发者工具 → 开发与维护 排列", () => {
-	assert.deepEqual([...SETTINGS_TAB_LAYOUT.map((entry) => entry.id)], ["common", "shortcuts", "notification", "appearance", "terminal", "memory", "proxy", "connections", "im", "pet", "vision", "imagegen", "cloudsync", "videogen", "acp", "hostplugins", "web", "editors", "git", "dev", "usage", "process", "storage", "backup"]);
+	assert.deepEqual(
+		[...SETTINGS_TAB_LAYOUT.map((entry) => entry.id)],
+		["common", "shortcuts", "notification", "appearance", "terminal", "memory", "proxy", "connections", "im", "pet", "vision", "imagegen", "cloudsync", "videogen", "acp", "hostplugins", "web", "editors", "git", "dev", "usage", "process", "storage", "backup"],
+	);
 });
 
 test("分割线只出现在簇边界前，首项不带分割线", () => {
