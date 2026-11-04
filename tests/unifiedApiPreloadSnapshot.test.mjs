@@ -36,6 +36,11 @@
  *   与 SFTP-0 的 remoteTransfers 并行合入后命名空间 80→82。
  *   同批把 config 锚点 52→53：上一提交 b383f3709 加了 config.getTokendancePriceTags
  *   却漏刷本快照，dev 上 F8-3 一直是红的；此处按实测暴露面刷新，未改动断言强度。
+ * 2026-11-04 合并刷新（仅方法清单摘要）：dev 并入 main 后按实测暴露面重算 FULL_METHODS_SHA256。
+ *   命名空间清单与数量锚点全部不变（82 / sessions 117 / config 53 / git 64 / app 32）；
+ *   方法面变化来自 projects.listWslDirectory + projects.addWslPath 入场并下线 projects.addWsl
+ *   （WSL 项目一览 Wave 0）、config.getTokendancePriceTags；codebuddySessions 与 remoteTransfers
+ *   两个命名空间在 dev 侧快照刷新时已计入，本次摘要变化与它们无关。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -43,7 +48,7 @@ import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const NS_LIST_SHA256 = "ecf92dceedeea2d9b21c5625e42f3f30786c264a01fba4cb738834630948efee";
-const FULL_METHODS_SHA256 = "861d00b17654d29223d968f3b4f8216ff9a8c77c5c3cac87cae32f883a0b183f";
+const FULL_METHODS_SHA256 = "8d5e92b1c0f3e86355b6a84048a094514712cf0f565ce8025a661cd9a35ac877";
 const NAMESPACE_COUNT = 82;
 
 /** 捕获 preload 暴露的 piDesktop；null/undefined/形态不符时显式红并给诊断（F8-6 共用）。 */

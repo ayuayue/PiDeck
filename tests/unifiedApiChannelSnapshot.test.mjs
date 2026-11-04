@@ -53,9 +53,9 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const CHANNEL_TOTAL = 814;
+const CHANNEL_TOTAL = 815;
 const PREFIX_COUNT = 93;
-const CHANNEL_DIGEST = "ce85fc66fd593a7365cbea1a80435abf6e23fc6d931dc669c8f96cf83bd98c84";
+const CHANNEL_DIGEST = "aa75a5cd981930853cc8a7d176ca2e2baf93b8afa8150853c5fedf1b34f73e5d";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";
@@ -74,11 +74,11 @@ const sortedDigest = (pairs) => {
 	return createHash("sha256").update(serialized, "utf8").digest("hex");
 };
 
-test("F3-1 通道常量总数 === 814", () => {
+test("F3-1 通道常量总数 === 815", () => {
 	assert.equal(entries.length, CHANNEL_TOTAL);
 });
 
-test("F3-2 通道值唯一数 === 814（无重复通道字符串）", () => {
+test("F3-2 通道值唯一数 === 815（无重复通道字符串）", () => {
 	assert.equal(new Set(values).size, CHANNEL_TOTAL);
 });
 

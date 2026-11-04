@@ -33,6 +33,9 @@ function createHarness() {
 			"../../i18n": { t: (key) => key },
 			"../ui-shadcn/button": { Button: button },
 			"../ui-shadcn/popover": { Popover: popover, PopoverTrigger: passthrough, PopoverContent: passthrough },
+			// 底栏模型名气泡走同一套 Tooltip（应用内由 App 的 TooltipProvider 包住）；
+			// SSR 断言不需要 Provider 语义，按 popover 同样的透传桩渲染即可。
+			"../ui-shadcn/tooltip": { Tooltip: passthrough, TooltipTrigger: passthrough, TooltipContent: passthrough },
 			"../ui-shadcn/slider": { Slider: slider },
 			"../../hooks/useShortcutBindings": { useShortcutBindings: () => ({ bindings: { cycleThinking: "Control+T" }, platform: "win32" }) },
 		},
@@ -194,9 +197,14 @@ test("模型按钮独立打开现有模型选择器，并保留待生效标签�
 	const { captured, ModelThinkingChip } = createHarness();
 	let opened = 0;
 	const html = renderToStaticMarkup(createElement(ModelThinkingChip, { modelLabel: "Current model", modelPendingTo: "Next model", modelPendingTitle: "Next turn", onPickModel: () => opened++, thinkingControl: createElement("div", { "data-testid": "thinking-control" }, "high") }));
-	assert.ok(captured.buttons.some((b) => b.title === "Next turn"));
+	// 待生效提示从原生 title 并入了统一 Tooltip 气泡（底栏其它控件同一套），按钮本身只留 aria-label。
+	assert.ok(
+		captured.buttons.some((b) => b["aria-label"] === "app.modelPickerTitle"),
+		"模型按钮必须是打开模型选择器的独立按钮",
+	);
 	assert.equal(opened, 0);
 	assert.ok(html.includes("Current model → Next model"));
+	assert.ok(html.includes("Next turn"), "待生效模型名要出现在气泡里，不能让用户点猜");
 	assert.ok(html.includes('data-testid="thinking-control"'));
 });
 

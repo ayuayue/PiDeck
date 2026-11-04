@@ -12,11 +12,7 @@ import test from "node:test";
  */
 const app = readFileSync("src/renderer/src/App.tsx", "utf8");
 
-const AUTO_LOAD_EFFECT_MARKERS = [
-	"const action = resolveChatSessionBootstrap({",
-	"settings.json 覆盖首屏 localStorage 后",
-	"切换项目时按 catalog load state 判断",
-];
+const AUTO_LOAD_EFFECT_MARKERS = ["const action = resolveChatSessionBootstrap({", "settings.json 覆盖首屏 localStorage 后", "切换项目时按 catalog load state 判断"];
 
 test("自动加载 effect 经 ref 调用 refreshProjectSessions，不把它写进 deps", () => {
 	assert.match(app, /const refreshProjectSessionsRef = useRef\(refreshProjectSessions\);/);
