@@ -297,6 +297,18 @@ test("Google Drive adapter refreshes an expired token on 401 and retries", async
 	assert.ok(refreshCalls.length >= 1, "should hit the refresh endpoint");
 });
 
+test("Google Drive adapter coalesces concurrent token refreshes into one request", async () => {
+	const graph = createDriveMock();
+	const expired = { ...BASE_CONFIG, expiresAt: Date.now() - 1000 };
+	const storage = new GoogleDriveObjectStorage(expired, { fetchLike: graph.fetchLike });
+	await storage.connect();
+	graph.calls.length = 0; // 连接期已刷过一次：从零开始数，只看并发这一轮
+	storage.expiresAt = Date.now() - 1000;
+	await Promise.all([storage.readObject("pideck-index.json"), storage.readObject("project-a.json")]);
+	const refreshCalls = graph.calls.filter((call) => call.url.includes("oauth2.googleapis.com/token"));
+	assert.equal(refreshCalls.length, 1, "concurrent 401s must share a single token refresh");
+});
+
 // ── Manager OAuth flow（真实回环回调 + 注入换码，无外部网络） ─────────────
 
 function minimalSettings() {

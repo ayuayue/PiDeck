@@ -91,6 +91,8 @@ export class OneDriveObjectStorage implements PiDeckCloudObjectStorage {
 	private accessToken: string | undefined;
 	private refreshToken: string | undefined;
 	private expiresAt: number | undefined;
+	/** 在途刷新：并发 401 共用同一次刷新，避免两路各用一个一次性 refresh token 去换。 */
+	private refreshInFlight: Promise<void> | null = null;
 	/** token 轮换回调：刷新成功后通知持有者持久化（Microsoft consumer 每次刷新轮换并作废旧 token）。 */
 	private onTokensRefreshed: ((tokens: CloudSyncRotatedTokens) => void | Promise<void>) | null = null;
 
@@ -283,7 +285,20 @@ export class OneDriveObjectStorage implements PiDeckCloudObjectStorage {
 		}
 	}
 
+	/**
+	 * 并发 401 必须共用同一次刷新：refresh_token 是一次性凭据，两路各刷一次时，先完成的那一路
+	 * 会把服务端已轮换的旧 token 留在内存里，下一次刷新直接失败（审计项 N5）。
+	 */
 	private async refreshAccessToken(signal?: AbortSignal): Promise<void> {
+		if (this.refreshInFlight === null) {
+			this.refreshInFlight = this.performTokenRefresh(signal).finally(() => {
+				this.refreshInFlight = null;
+			});
+		}
+		await this.refreshInFlight;
+	}
+
+	private async performTokenRefresh(signal?: AbortSignal): Promise<void> {
 		if (!this.refreshToken) throw new Error("OneDrive refresh token is missing; reconnect the provider");
 		const tenant = this.config.tenant ?? "consumers";
 		const body = new URLSearchParams({

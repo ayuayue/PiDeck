@@ -106,6 +106,8 @@ export class GoogleDriveObjectStorage implements PiDeckCloudObjectStorage {
 	private accessToken: string | undefined;
 	private refreshToken: string | undefined;
 	private expiresAt: number | undefined;
+	/** 在途刷新：并发 401 共用同一次刷新（refresh token 一次性）。 */
+	private refreshInFlight: Promise<void> | null = null;
 	/** token 轮换回调：刷新成功后通知持有者持久化（Google refresh token 会轮换）。 */
 	private onTokensRefreshed: ((tokens: CloudSyncRotatedTokens) => void | Promise<void>) | null = null;
 
@@ -345,7 +347,17 @@ export class GoogleDriveObjectStorage implements PiDeckCloudObjectStorage {
 		}
 	}
 
+	/** 并发 401 共用同一次刷新：refresh_token 是一次性凭据，两路各刷一次会留下已作废的旧 token（审计项 N5）。 */
 	private async refreshAccessToken(signal?: AbortSignal): Promise<void> {
+		if (this.refreshInFlight === null) {
+			this.refreshInFlight = this.performTokenRefresh(signal).finally(() => {
+				this.refreshInFlight = null;
+			});
+		}
+		await this.refreshInFlight;
+	}
+
+	private async performTokenRefresh(signal?: AbortSignal): Promise<void> {
 		if (!this.refreshToken) throw new Error("Google Drive refresh token is missing; reconnect the provider");
 		const params = new URLSearchParams({
 			client_id: this.config.clientId,
