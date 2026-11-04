@@ -1071,7 +1071,10 @@ export const prependSessionHistoryPageAtom = atom(
 			return false;
 		}
 		if (current.history && current.history.nextBefore !== input.before) return false;
-		if (!current.history && input.before !== undefined) return false;
+		// 首屏历史页的游标：pi 是「文件头/entryId 锚点」（before 缺省），ACP 没有会话文件，
+		// 首屏游标就是投递窗口起点（数组下标）。两种都接受，其余数值一律拒绝，
+		// 否则一次错游标会把「窗口前那段」以外的消息拼进来。
+		if (!current.history && input.before !== undefined && input.before !== current.windowStart) return false;
 
 		const segmentKeys = new Set(current.messages.map(messageEntryKey));
 		const pageMessages = input.page.messages.filter((message) => !segmentKeys.has(messageEntryKey(message)));

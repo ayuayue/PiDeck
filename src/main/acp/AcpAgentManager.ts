@@ -488,6 +488,7 @@ export class AcpAgentManager implements SessionAgentGateway {
 			loadedSession: false,
 			flushTimer: null,
 			flushPending: false,
+			windowStart: 0,
 			abortEscalateTimer: null,
 			stallTimer: null,
 			lastUpdateAt: 0,
@@ -595,7 +596,9 @@ export class AcpAgentManager implements SessionAgentGateway {
 		this.emit(agentEventTags.agentsState, this.list());
 		this.emitRuntimeState(runtime.tab.id);
 		// load 重放/新建即回显:attach 会话历史立即可见。
-		this.updates.flushMessages(runtime, true);
+		// 重放是全量投递（实测 1076 条 / 4251KB），一次发完会在渲染进程形成 ~236ms 长任务，
+		// 这里按块摊开；条数不多时内部直接退化为一次常规 flush。
+		this.updates.flushMessagesChunked(runtime);
 		// 握手成功即留一份归档副本（load 重放完成 / 归档回灌后），不必等到第一次回合结算
 		// 或 stop()。空投影不会写盘（AcpSessionArchive 的护栏），load 重放为空也不会写坏归档。
 		await this.persistArchive(runtime);

@@ -118,3 +118,12 @@ test("没有任何游标时返回 null：宁可不出按钮，也不出点了没
 	assert.equal(policy.resolveEarlierHistoryCursor({ windowMessages: [{ meta: {} }], windowStartFilePos: 0 }), null);
 	assert.equal(policy.resolveEarlierHistoryCursor({ windowMessages: [], windowStartFilePos: undefined }), null);
 });
+
+test("ACP：无会话文件、无 entryId 时用投递窗口起点当游标", () => {
+	// ACP 的历史在 agent CLI 侧，主进程 acpMessagePage 的游标就是数组下标 = windowStart
+	assert.equal(policy.resolveEarlierHistoryCursor({ windowMessages: [{ meta: {} }], windowStart: 100 }).before, 100);
+	// 0 是窗口头（整段都在窗口里）：没有更早历史，按钮不能常驻
+	assert.equal(policy.resolveEarlierHistoryCursor({ windowMessages: [{ meta: {} }], windowStart: 0 }), null);
+	// entryId 仍然优先（本地/DSH 路径行为不变）
+	assert.equal(policy.resolveEarlierHistoryCursor({ windowMessages: [{ meta: { entryId: "e1" } }], windowStart: 100 }).beforeEntryId, "e1");
+});

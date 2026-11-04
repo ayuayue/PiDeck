@@ -91,6 +91,11 @@ export interface EarlierHistoryCursorInput {
 	windowMessages: ReadonlyArray<{ meta?: Record<string, unknown> }>;
 	/** 窗口首条消息在文件消息下标空间的位置；主进程算不出时缺席。 */
 	windowStartFilePos?: number | null;
+	/**
+	 * 投递窗口起点（runtime 数组下标）。ACP 没有会话文件、消息也不带 entryId，
+	 * 只能用它当游标：主进程 acpMessagePage 按「数组下标 before」按轮切片。
+	 */
+	windowStart?: number | null;
 }
 
 /**
@@ -127,5 +132,8 @@ export function resolveEarlierHistoryCursor(input: EarlierHistoryCursorInput): E
 	}
 	// 大历史窗口（skipEntries）整段缺 entryId：退化为窗口首条的文件下标；0 同样是文件头。
 	const filePos = input.windowStartFilePos;
-	return typeof filePos === "number" && filePos > 0 ? { before: filePos } : null;
+	if (typeof filePos === "number" && filePos > 0) return { before: filePos };
+	// ACP：没有会话文件、消息也没有 entryId，窗口起点本身就是主进程分页的数组游标。
+	const windowStart = input.windowStart;
+	return typeof windowStart === "number" && windowStart > 0 ? { before: windowStart } : null;
 }

@@ -779,7 +779,19 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	// 可见性看 `nextBefore !== null` / `windowStart > 0`，请求侧拿不到锚点就静默 return。
 	// 现在统一走 resolveEarlierHistoryCursor：拿不到游标 = 没更早历史 = 不显示按钮。
 	// 两个曾经的坑写在那个函数里（缓存页把文件头回成 nextBefore: 0、无文件会话只剩 windowStart>0）。
-	const earlierHistoryCursor = useMemo(() => (controllerEnabled ? resolveEarlierHistoryCursor({ runtimeHistory, windowMessages: messages, windowStartFilePos: cachedEntry?.windowStartFilePos }) : null), [controllerEnabled, runtimeHistory, messages, cachedEntry?.windowStartFilePos]);
+	const earlierHistoryCursor = useMemo(
+		() =>
+			controllerEnabled
+				? resolveEarlierHistoryCursor({
+						runtimeHistory,
+						windowMessages: messages,
+						windowStartFilePos: cachedEntry?.windowStartFilePos,
+						// ACP 没有会话文件、消息也不带 entryId：窗口起点就是分页游标
+						windowStart: cachedEntry?.windowStart,
+					})
+				: null,
+		[controllerEnabled, runtimeHistory, messages, cachedEntry?.windowStartFilePos, cachedEntry?.windowStart],
+	);
 	const historyHasMore = controllerEnabled && cachedEntry?.source === "runtime" ? earlierHistoryCursor !== null : false;
 	// disk 页与窗口页的统一口径：游标必须是 >0 的实下标（0 = 文件头，不是「还有」。）
 	const hasEarlierPages = diskPage ? typeof diskPage.nextBefore === "number" && diskPage.nextBefore > 0 : historyHasMore;
