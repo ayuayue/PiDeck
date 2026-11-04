@@ -71,6 +71,6 @@ test("项目域文件按写面/读面拆分，各自都在体量红线内", () =
 test("装配层同时注册两个域", () => {
 	const main = readFileSync("src/main/index.ts", "utf8");
 	assert.match(main, /import\s*\{\s*registerRemoteProjectIpc\s*\}\s*from\s*"\.\/ipc\/remoteProjectIpc"/);
-	assert.match(main, /registerRemoteProjectIpc\(\{[\s\S]{0,300}?enabled:\s*remoteExperimentEnabled/);
-	assert.match(main, /registerRemoteHostIpc\(\{[\s\S]{0,400}?enabled:\s*remoteExperimentEnabled/);
+	assert.match(main, /registerRemoteProjectIpc\(\{[\s\S]{0,300}?enabled:\s*remoteFeatureEnabled/);
+	assert.match(main, /registerRemoteHostIpc\(\{[\s\S]{0,400}?enabled:\s*remoteFeatureEnabled/);
 });

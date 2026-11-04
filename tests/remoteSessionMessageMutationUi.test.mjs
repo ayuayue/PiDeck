@@ -37,5 +37,5 @@ test("the remote message-mutation write plane reuses the pinned ssh short-comman
 	assert.match(block, /runPinnedRemoteCommand/, "the writer must use the shared pinned command runner");
 	assert.match(block, /resolveSessionRoot/, "the writer must reuse the single session-root resolver");
 	// 实验开关关闭时不装配端口（fail-closed：协调器得到稳定码，而不是落回本机路径分支）。
-	assert.match(main, /remoteExperimentEnabled\s*\?\s*createRemoteSessionHistoryWriter/, "the port must only exist when the experimental gate is open");
+	assert.match(main, /remoteFeatureEnabled\s*\?\s*createRemoteSessionHistoryWriter/, "the port must only exist when the remote feature is available");
 });

@@ -9,12 +9,10 @@ import { promisify } from "node:util";
 /**
  * 远端主机功能级验收（task-25）的专用 fixture 与纯函数。
  *
- * 与 e2e/fixtures.ts 的两点刻意差异，都是真机验收的必要条件：
+ * 与 e2e/fixtures.ts 的一点刻意差异，是真机验收的必要条件：
  * 1) **不隔离 HOME/USERPROFILE**：产品自身用系统 OpenSSH 连主机，必须能读到真实用户的
  *    ~/.ssh/config 与私钥；只隔离 Electron 的 userData（--user-data-dir + APPDATA/LOCALAPPDATA），
  *    绝不碰开发者的真实应用数据。
- * 2) 启动就带 PIDECK_REMOTE_EXPERIMENTAL=1：远端能力在 main 里受开发态门禁约束
- *    （!app.isPackaged && env=1），e2e 跑的是未打包产物，这里显式打开。
  *
  * 凭据只从环境变量读；仓库里不存在也不允许出现真实主机/指纹字面量。
  */
@@ -198,7 +196,6 @@ export const test = base.extend<RemoteAppFixture & { remoteCredentials: RemoteAc
 			// 只隔离 userData；USERPROFILE/HOME 保持真实，OpenSSH 才能读到真用户的 config 与私钥。
 			APPDATA: remoteUserDataRoot,
 			LOCALAPPDATA: remoteUserDataRoot,
-			PIDECK_REMOTE_EXPERIMENTAL: "1",
 			PIDECK_E2E: "1",
 			CI: "1",
 		};

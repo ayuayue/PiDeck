@@ -66,7 +66,7 @@ test("editor channels are wired through shared/preload/main/preview without loca
 		assert.match(channels, new RegExp(name + "\\s*:"));
 		assert.match(preload, new RegExp("invoke\\(ipcChannels\\." + name));
 	}
-	assert.match(main, /registerRemoteProjectFileIpc\(\{\s*enabled:\s*remoteExperimentEnabled/);
+	assert.match(main, /registerRemoteProjectFileIpc\(\{\s*enabled:\s*remoteFeatureEnabled/);
 	for (const name of ["openProjectText", "saveProjectText"]) assert.match(preview, new RegExp(name + "\\s*:"));
 	const editor = readFileSync("src/renderer/src/components/workspace/RemoteFileEditor.tsx", "utf8");
 	assert.match(editor, /CodeMirrorEditor/);

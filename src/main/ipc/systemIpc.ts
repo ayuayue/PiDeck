@@ -9,6 +9,7 @@ import { existsSync } from "node:fs";
 import { ipcChannels } from "../../shared/ipc";
 import { resolveBuildOrigin } from "../buildIdentity";
 import { isDevChannelBuild, resolveUpdateChannel } from "../update/channelIdentity";
+import { REMOTE_FEATURE_AVAILABLE } from "../remote/remoteFeaturePolicy";
 import { UPDATE_REPO, UPDATE_REPO_OWNER } from "../update/releaseRepo";
 import { probeAllMirrors, type MirrorHealthResult } from "../update/mirrorHealth";
 import { ChangelogService, type ChangelogLanguage } from "../update/ChangelogService";
@@ -1336,8 +1337,10 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	ipcMain.handle(ipcChannels.appGetChannel, () => ({
 		channel: resolveUpdateChannel(),
 		currentVersion: app.getVersion(),
-		// 构建身份：未打包 dev 或 dev 通道包为 true，stable 安装包恒 false（不作为功能入口门控）。
+		// 构建身份：未打包 dev 或 dev 通道包为 true，stable 安装包恒 false（仅表示构建身份）。
 		devBuild: isDevChannelBuild(),
+		// 远端能力与更新通道正交；渲染层只读这一项决定是否展示入口。
+		remoteAvailable: REMOTE_FEATURE_AVAILABLE,
 		// 来源与通道正交：本地打包的 stable 包在更新界面上与官方发布包同形，靠这个字段区分。
 		buildOrigin: resolveBuildOrigin(),
 	}));

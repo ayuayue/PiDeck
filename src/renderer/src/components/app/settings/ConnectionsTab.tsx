@@ -82,7 +82,7 @@ export function ConnectionsTab() {
 	const refresh = useCallback(async () => {
 		const result = await desktopApi.remoteHosts.list();
 		if (!result.ok) {
-			// REMOTE_FEATURE_DISABLED 是正常状态（正式包默认关闭），不是错误。
+			// REMOTE_FEATURE_DISABLED 是能力下线的稳定状态，不是请求异常。
 			setMessage(result.code === "REMOTE_FEATURE_DISABLED" ? t("settings.connections.disabled") : t("settings.connections.listUnavailable"));
 			setHosts([]);
 			return;

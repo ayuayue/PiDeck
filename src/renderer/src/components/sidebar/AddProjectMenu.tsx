@@ -19,7 +19,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
  * 触发器直接回到「按钮 → 选目录」，不再套一层没有选择的下拉。
  *
  * 刻意不做成两个都指向同一行为的假菜单项，也不在这里放远端主机管理（那是设备设置）。
- * 通道门禁（正式包不提供远端能力）与主机清单任一条不满足，都按「不出现」处理。
+ * 远端能力与主机清单任一条不满足，都按「不出现」处理。
  */
 export function AddProjectMenu(props: { onAddLocal: () => void; labeled?: boolean }) {
 	const setRemoteOpen = useSetAtom(remoteEnrollDialogOpenAtom);
@@ -35,15 +35,7 @@ export function AddProjectMenu(props: { onAddLocal: () => void; labeled?: boolea
 				{t("app.addProject")}
 			</Button>
 		) : (
-			<Button
-				type="button"
-				variant="ghost"
-				size="icon-xs"
-				className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-bg-hover hover:text-foreground"
-				aria-label={t("app.addProject")}
-				title={t("app.addProject")}
-				{...(onClick === undefined ? {} : { onClick })}
-			>
+			<Button type="button" variant="ghost" size="icon-xs" className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-bg-hover hover:text-foreground" aria-label={t("app.addProject")} title={t("app.addProject")} {...(onClick === undefined ? {} : { onClick })}>
 				<Plus className="size-3.5" aria-hidden="true" />
 			</Button>
 		);

@@ -25,22 +25,18 @@ function handlerFor(input) {
 	return handlersFor(input).get("remote:hosts-list");
 }
 
-test("remote host channel is declared, bridged, and registered behind the dev gate", () => {
+test("remote host channel is declared, bridged, and registered by the release policy", () => {
 	const shared = readFileSync("src/shared/ipc.ts", "utf8");
 	const preload = readFileSync("src/preload/index.ts", "utf8");
 	const main = readFileSync("src/main/index.ts", "utf8");
 	const catalog = readFileSync("src/main/remote/RemoteHostCatalogView.ts", "utf8");
 	assert.match(shared, /remoteHostsList:\s*"remote:hosts-list"/);
 	assert.match(preload, /remoteHosts:\s*\{[\s\S]*?ipcRenderer\.invoke\(ipcChannels\.remoteHostsList\)/);
-	// 通道策略（2026-10-27，策略变更，非放宽断言）：远端能力**只在 dev 通道提供**——
-	// 正式包必须关掉，dev 通道包与未打包运行必须开。因此门禁只能走 isDevChannelBuild()
-	//（`!app.isPackaged || __PIDECK_DEV_BUILD__`）：写死字面量 true 会把远端漏进正式包，
-	// 而单看 app.isPackaged / PIDECK_REMOTE_EXPERIMENTAL 会让 dev 通道包又静默关掉远端。
-	// 判据真值表与渲染层入口门禁见 tests/remoteChannelGate.test.mjs。
-	assert.match(main, /const remoteExperimentEnabled = isDevChannelBuild\(\);/);
-	assert.doesNotMatch(main, /const remoteExperimentEnabled = true;/);
-	assert.doesNotMatch(main, /remoteExperimentEnabled\s*=\s*(?:!app\.isPackaged|process\.env\.PIDECK_REMOTE_EXPERIMENTAL)/);
-	assert.match(main, /registerRemoteHostIpc\(\{[\s\S]{0,400}?enabled:\s*remoteExperimentEnabled/);
+	const { REMOTE_FEATURE_AVAILABLE } = loadTsCommonJs("src/main/remote/remoteFeaturePolicy.ts");
+	assert.equal(REMOTE_FEATURE_AVAILABLE, true, "stable and dev builds must both provide remote capability");
+	assert.match(main, /import \{ REMOTE_FEATURE_AVAILABLE \} from "\.\/remote\/remoteFeaturePolicy"/);
+	assert.match(main, /const remoteFeatureEnabled = REMOTE_FEATURE_AVAILABLE;/);
+	assert.match(main, /registerRemoteHostIpc\(\{[\s\S]{0,400}?enabled:\s*remoteFeatureEnabled/);
 	// 目录读取在装配处接上「主机退役即清 trust 决策」的钩子（P4.4b；与 pin 清理同一位置、同一重试语义）。
 	assert.match(main, /openRemoteHostCatalogView\(app\.getPath\("userData"\),\s*\{\s*onHostRetired:[\s\S]{0,200}?forgetHost\(hostId\)/);
 	assert.match(catalog, /createRemoteHostReferenceRegistry\(join\(userDataDir,\s*"session-catalog\.json"\),\s*join\(userDataDir,\s*"projects\.json"\)\)/);

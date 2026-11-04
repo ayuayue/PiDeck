@@ -49,11 +49,11 @@ test("the spec gates on credentials before any Electron session can start", () =
 	assert.ok(gateIndex >= 0, "the gate must exist");
 	assert.ok(firstBodyIndex < 0 || gateIndex < firstBodyIndex, "the gate must be evaluated before the first test body runs");
 	assert.ok(!/EXPECT_FAIL|ALLOW_FAILURE|PIDECK_E2E_ACCEPT_ANY/i.test(text), "no environment value may flip the spec to passing");
-	// 实验门禁只有一处来源：remote-fixtures 的 remoteApp fixture。spec 自己再读一次环境变量就是第二种传法。
-	assert.ok(!text.includes("PIDECK_REMOTE_EXPERIMENTAL"), "the spec must not re-implement the experimental gate; the fixture owns it");
+	// 远端能力已经是正式产品能力，真机 spec 不再依赖历史实验环境变量。
+	assert.ok(!text.includes("PIDECK_REMOTE_EXPERIMENTAL"), "the spec must not depend on the retired experimental gate");
 	assert.match(text, /from\s+"\.\/remote-fixtures"/, "the spec must reuse the shared real-host fixture");
 	const fixture = source(FIXTURES);
-	assert.match(fixture, /PIDECK_REMOTE_EXPERIMENTAL:\s*"1"/, "the fixture must open the experimental gate for the child process");
+	assert.ok(!fixture.includes("PIDECK_REMOTE_EXPERIMENTAL"), "the fixture must not depend on the retired experimental gate");
 	assert.match(fixture, /PIDECK_E2E_USER_DATA_DIR:\s*profileDir/, "the fixture must isolate userData");
 	// 隔离只针对 userData：HOME/USERPROFILE 必须保持真实，产品要用真实 ~/.ssh 私钥。
 	assert.ok(!/USERPROFILE\s*:/.test(fixture) && !/\bHOME\s*:/.test(fixture), "the fixture must not redirect HOME/USERPROFILE (the product needs the real ~/.ssh)");

@@ -128,7 +128,7 @@ test("entry channels are wired through shared/preload/main/preview without local
 		assert.match(preload, new RegExp("invoke\\(\\s*ipcChannels\\." + name), name + " missing preload invoke");
 	}
 	for (const method of ["statProjectEntry", "createProjectFile", "createProjectDirectory", "renameProjectEntry", "deleteProjectEntry", "listProjectTrash", "restoreProjectTrash", "pruneProjectTrash"]) assert.match(preview, new RegExp(method + "\\s*:"), method + " missing preview stub");
-	assert.match(main, /registerRemoteProjectEntryIpc\(\{\s*enabled:\s*remoteExperimentEnabled/);
+	assert.match(main, /registerRemoteProjectEntryIpc\(\{\s*enabled:\s*remoteFeatureEnabled/);
 	const handler = readFileSync("src/main/ipc/remoteProjectEntryIpc.ts", "utf8");
 	assert.match(handler, /ipcMain\.handle\(\s*ipcChannels\.remoteProjectEntryStat/);
 	assert.doesNotMatch(handler, /node:fs|node:child_process|from "electron"\.app/);

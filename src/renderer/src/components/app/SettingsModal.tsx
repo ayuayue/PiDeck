@@ -623,8 +623,8 @@ function SettingsModalContent(props: SettingsModalProps) {
 	);
 
 	// 侧栏条目 = 布局模块定义的顺序/分组边界，经隐藏模块过滤（按草稿，开关即预览），再拼上面的图标文案元数据。
-	// 「连接」tab 装的是远端（SSH）主机，受通道门禁约束：正式包（stable）不提供远端能力，
-	// 这个 tab 直接从布局里拿掉——不给入口比给了再报「未启用」更符合「正式包不提这个」。
+	// 「连接」tab 装的是远端（SSH）主机；能力关闭时从布局里拿掉，
+	// 能力可用（正式包与 dev 包默认）时保持正常入口。
 	const remoteAvailable = useRemoteFeatureAvailable();
 	const settingsLayout = useMemo(() => applyRemoteGateToSettingsLayout(SETTINGS_TAB_LAYOUT, remoteAvailable), [remoteAvailable]);
 	const hiddenModules = draftSettings.hiddenModules ?? NO_HIDDEN_MODULES;

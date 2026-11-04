@@ -39,7 +39,7 @@ export function ProjectEmptyState(props: {
 	onCreateSession?: (projectId: string) => void;
 }) {
 	// 远端登记弹框由 App 统一挂载，这里只打开开关（与侧栏「+」同一条路径）。
-	// 入口与侧栏「+」共用同一条判据：正式包不提供远端能力，也要求已配好一台可用 SSH 主机。
+	// 入口与侧栏「+」共用同一条判据：远端能力可用，且已配好一台可用 SSH 主机。
 	const setRemoteEnrollOpen = useSetAtom(remoteEnrollDialogOpenAtom);
 	const remoteAvailable = useRemoteFeatureAvailable();
 	const hostsConfigured = useRemoteHostsConfigured();

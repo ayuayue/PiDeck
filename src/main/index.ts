@@ -65,7 +65,7 @@ import { readDataEnvDecision, validateStartupDataEnv, writeDataEnvDecision } fro
 import { registerDataEnvIpc } from "./ipc/dataEnvIpc";
 import { ChannelSwitchService } from "./update/ChannelSwitchService";
 import { registerChannelSwitchIpc } from "./ipc/channelSwitchIpc";
-import { isDevChannelBuild, resolveUpdateChannel } from "./update/channelIdentity";
+import { resolveUpdateChannel } from "./update/channelIdentity";
 import { resolveBuildOrigin } from "./buildIdentity";
 import { APP_DEEP_LINK_SCHEME } from "./utils/deepLinkScheme";
 import { APP_DISPLAY_NAME, initializeAppBrand } from "./utils/appBrand";
@@ -445,6 +445,7 @@ import { resolveProjectWslIdentity } from "./wsl/WslProjectEnvironment";
 import { createWslHelperSessionPool } from "./wsl/WslHelperSession";
 import { registerRemoteProjectIpc } from "./ipc/remoteProjectIpc";
 import { createRemoteFactsHub } from "./remote/RemoteFactsNotifications";
+import { REMOTE_FEATURE_AVAILABLE } from "./remote/remoteFeaturePolicy";
 import { registerRemoteProjectFileIpc } from "./ipc/remoteProjectFileIpc";
 import { registerRemoteProjectTransferJobIpc } from "./ipc/remoteProjectTransferJobIpc";
 import { registerRemoteProjectEntryIpc } from "./ipc/remoteProjectEntryIpc";
@@ -3492,15 +3493,10 @@ async function syncWslConfig(): Promise<void> {
 }
 
 function registerIpc() {
-	// 通道策略（2026-10-27）：远端能力**只在 dev 通道提供**，正式包不启用、界面也不暴露入口。
-	// 判据复用 isDevChannelBuild()（未打包运行 / dev 通道安装包为 true，release 产物为 false），
-	// 与更新通道同源，不再另外维护第二份打包/环境变量表达式（历史上这里是
-	// `!app.isPackaged && env === "1"`，后来一度写死 true 便于集成分支验收）。
-	// 关掉时开关只是策略位：远端 IPC 本就统一返回 REMOTE_FEATURE_DISABLED；
-	// 渲染层按同一判据（app:get-channel 的 devBuild）连入口都不渲染。
-	// pack:dev 的 dev 渠道标记由 pack-dev.js 注入 PIDECK_DEV_BUILD=1 保证——缺了它打包验收包会以稳定渠道
-	// 运行、远端静默关闭（真机验收表现为「功能没启用」且难排查）。
-	const remoteExperimentEnabled = isDevChannelBuild();
+	// 远端能力与更新通道正交：正式包和 dev 包都装配；同一策略位由
+	// update:get-channel 的 remoteAvailable 下发给渲染层，避免主/渲染判据漂移。
+	// 各远端 IPC 仍保留 enabled=false 的 fail-closed 分支，供测试和后续下线策略使用。
+	const remoteFeatureEnabled = REMOTE_FEATURE_AVAILABLE;
 	let remoteHostService: import("./remote/RemoteHostConnectionService").RemoteHostConnectionService | undefined;
 	/**
 	 * 已解析的 OpenSSH 客户端（SSH 路由校验与每个 ssh/scp 子进程共用同一份）。
@@ -3519,7 +3515,7 @@ function registerIpc() {
 	/** Discover the verified client once; failed construction can be retried. */
 	let remoteHostServicePending: Promise<import("./remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined;
 	const remoteHostServiceIfEnabled = (): Promise<import("./remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined => {
-		if (!remoteExperimentEnabled) return undefined;
+		if (!remoteFeatureEnabled) return undefined;
 		remoteHostServicePending ??= (async () => {
 			// Windows resolves its client internally; elsewhere the client must be discovered and proven
 			// capable before we let it answer route checks. Failing here is a stable code, not a crash.
@@ -3577,7 +3573,7 @@ function registerIpc() {
 	// 那里的 `resolveTrust` 闭包在**真正 spawn 时**才求值，不会拿到一个当时还不存在的对象。
 	remoteProjectTrustService = remoteProjectTrust;
 	registerRemoteHostIpc({
-		enabled: remoteExperimentEnabled,
+		enabled: remoteFeatureEnabled,
 		userDataDir: app.getPath("userData"),
 		// 主机退役时同时清掉它的 trust 决策（与 pin 清理同一位置、同一重试语义）。
 		list: () => openRemoteHostCatalogView(app.getPath("userData"), { onHostRetired: (hostId) => remoteProjectTrustService?.forgetHost(hostId) ?? Promise.resolve() }),
@@ -3625,9 +3621,9 @@ function registerIpc() {
 		cache: remoteSftpCapabilityCache,
 		probe: remoteSftpCapabilityProbe,
 	});
-	registerRemoteProjectTrustIpc({ enabled: remoteExperimentEnabled, trust: () => remoteProjectTrustService });
+	registerRemoteProjectTrustIpc({ enabled: remoteFeatureEnabled, trust: () => remoteProjectTrustService });
 	const remoteProjectIpc = registerRemoteProjectIpc({
-		enabled: remoteExperimentEnabled,
+		enabled: remoteFeatureEnabled,
 		userDataDir: app.getPath("userData"),
 		service: remoteHostServiceIfEnabled,
 		factsEvents: remoteFactsEvents,
@@ -3648,7 +3644,7 @@ function registerIpc() {
 	remoteProjectFacts = remoteProjectIpc;
 	quitCleanup.register("remote-project-ipc", () => remoteProjectIpc.dispose());
 	const remoteGitReads = registerRemoteGitReadIpc({
-		enabled: remoteExperimentEnabled,
+		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,
 		factsEvents: remoteFactsEvents,
 		// P0-1：Git 写成功/结果未知时，主进程目录事实缓存与渲染层文件树一起失效（tree scope）。
@@ -3661,7 +3657,7 @@ function registerIpc() {
 	});
 	quitCleanup.register("remote-git-reads", remoteGitReads.dispose);
 	registerRemoteProjectFileIpc({
-		enabled: remoteExperimentEnabled,
+		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,
 		locator: (projectId) => {
 			const project = projectStore.get(projectId);
@@ -3674,7 +3670,7 @@ function registerIpc() {
 		},
 	});
 	const remoteProjectTransfers = registerRemoteProjectTransferJobIpc({
-		enabled: remoteExperimentEnabled,
+		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,
 		locator: (projectId) => {
 			const project = projectStore.get(projectId);
@@ -3696,7 +3692,7 @@ function registerIpc() {
 	// 文件管理（Phase 5 文件面）：8 条 new/rename/delete/trash 通道 + 独立 entry 令牌表 + sender 写单飞。
 	// 与文本保存 IPC 各自持有令牌表；窗口销毁时两个模块各自撤销自己的表（冻结语义：两类令牌都不可再用）。
 	const remoteProjectEntries = registerRemoteProjectEntryIpc({
-		enabled: remoteExperimentEnabled,
+		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,
 		locator: (projectId) => {
 			const project = projectStore.get(projectId);
@@ -3730,7 +3726,7 @@ function registerIpc() {
 
 	// 远端 Session 只读发现与登记（Phase 3 第三段）。通道名由装配注入（与 contentStoreIpc 的 ChannelGroup 同一先例）。
 	registerRemoteSessionIpc({
-		enabled: remoteExperimentEnabled,
+		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,
 		// R1a：扫描 / 根解析 / register / title 走一次性 pinned SSH 短命令（与读/写/归档同一条通道），
 		// 不再借 helper 会话 —— 否则每次刷新会话列表都会把用户项目的活动 root 切走再连回来。
@@ -3757,7 +3753,7 @@ function registerIpc() {
 		findLiveAgentId: (projectIds) => agentManager?.findLiveRemoteAgentId(projectIds),
 		getAvailableModels: (agentId) => agentManager.getAvailableModels(agentId),
 	});
-	registerRemotePiModelIpc({ enabled: remoteExperimentEnabled, probe: remotePiModelProbe });
+	registerRemotePiModelIpc({ enabled: remoteFeatureEnabled, probe: remotePiModelProbe });
 	// 用量统计：业务在 UsageStatsService，handler 薄层只校验/适配
 	registerUsageStatsIpc(ipcMain, usageStatsService);
 	// 供应商认证（/login）：同样只做校验/适配，进程与协议在 PiAuthService
@@ -4382,7 +4378,7 @@ function registerIpc() {
 	 * pi 的 user-level `settings.json` 可以把会话根换掉，这里再拼一次 `<home>/.pi/agent/sessions` 就会在
 	 * 那些机器上读错文件。
 	 */
-	const readRemoteSessionHistoryPage = remoteExperimentEnabled
+	const readRemoteSessionHistoryPage = remoteFeatureEnabled
 		? async (input: { hostId: string; locator: SshSessionLocator; before?: number }) => {
 				const reader = createRemoteSessionHistoryReader({
 					transport: { readRemoteWindow: runPinnedRemoteCommand },
@@ -4401,7 +4397,7 @@ function registerIpc() {
 	 * 而且目录会随 runtime 重启/空闲回收一起消失。这里就是「远端算好、传回来、缓存住」：
 	 * 同一条 pinned SSH 短命令跑一次 `pi --list-models`，本机同一个纯函数解析，按主机缓存。
 	 */
-	const remotePiModelCatalog = remoteExperimentEnabled
+	const remotePiModelCatalog = remoteFeatureEnabled
 		? createRemoteModelCatalog({
 				resolveFacts: async (hostId: string) => {
 					const port = await remoteHostServiceIfEnabled();
@@ -4481,7 +4477,7 @@ function registerIpc() {
 	 * `REMOTE_SESSION_ARCHIVE_UNAVAILABLE`，而不是落回本机路径分支。
 	 * 本机侧的归档索引与 catalog 记录由 sessionIpc 的远端分支负责（这里只管远端文件）。
 	 */
-	const remoteSessionArchive = remoteExperimentEnabled
+	const remoteSessionArchive = remoteFeatureEnabled
 		? createRemoteSessionArchive({
 				transport: { runRemoteCommand: runPinnedRemoteCommand },
 				resolveSessionRoot: resolveRemoteSessionRoot,
@@ -4494,7 +4490,7 @@ function registerIpc() {
 	 * 写入守卫同源（remotePiRuntimeFacts），不新增 helper op；实验开关关掉时不装配 ⇒ 请求得到
 	 * REMOTE_SESSION_DELETE_UNAVAILABLE（fail closed，绝不落回本机路径）。
 	 */
-	const remoteSessionDelete = remoteExperimentEnabled
+	const remoteSessionDelete = remoteFeatureEnabled
 		? createRemoteSessionDelete({
 				transport: { runRemoteCommand: runPinnedRemoteCommand },
 				resolveNodePath: async (hostId) => {
@@ -4514,7 +4510,7 @@ function registerIpc() {
 	 * `REMOTE_SESSION_HISTORY_WRITER_UNAVAILABLE`，而**不会**落回本机路径分支（本机路径入口对 ssh
 	 * locator 抛稳定码，落回只会得到“本地文件缺失”这种错误原因）。
 	 */
-	remoteSessionMessageMutation = remoteExperimentEnabled
+	remoteSessionMessageMutation = remoteFeatureEnabled
 		? createRemoteSessionHistoryWriter({
 				transport: { runRemoteCommand: runPinnedRemoteCommand },
 				resolveSessionRoot: resolveRemoteSessionRoot,
@@ -5069,7 +5065,7 @@ function registerIpc() {
 	 * fails closed with HOST_NOT_READY instead of reading anything local. Batch B adds the renderer selector; this
 	 * batch only routes and validates.
 	 */
-	const remotePiConfig = remoteExperimentEnabled
+	const remotePiConfig = remoteFeatureEnabled
 		? createRemotePiConfigBackend({
 				request: async (hostId, method, params) => {
 					const pending = remoteHostServiceIfEnabled();
@@ -7025,7 +7021,11 @@ app
 			deviceName: hostname(),
 			appVersion: app.getVersion(),
 			listProjects: () => projectStore.list(),
-			listSessionRecords: () => sessionCatalog.listEntries().map((entry) => sessionCatalog.getRecord(entry.id)).filter((record): record is SessionRecord => Boolean(record)),
+			listSessionRecords: () =>
+				sessionCatalog
+					.listEntries()
+					.map((entry) => sessionCatalog.getRecord(entry.id))
+					.filter((record): record is SessionRecord => Boolean(record)),
 			getDesktopSettings: () => settingsStore.get(),
 			// filterSyncableDesktopSettings 已把未知 key 过滤掉，这里收窄为 AppSettings 字段。
 			updateDesktopSettings: async (patch) => {
