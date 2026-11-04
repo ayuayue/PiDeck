@@ -1,8 +1,8 @@
 # PiDeck 检查点 55dd5b702 独立验收
 
-Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702）**
+Status: **Current（2026-10-31 独立验收 + 2026-11-02 生产 root pooling 签收 + 2026-11-03 审计后复验；基线 09aca4203..55dd5b702）**
 验收对象：`fix(remote): 目录监听失败降级与项目关闭生命周期收尾`（55dd5b702）
-验收方式：只读代码复核 + Windows 定向复跑 + WSL Linux 测试 + 真实 SSH/Electron 验收。§4/§6 保留执行前的方案与边界快照；最终结果以 §10.5 和 §11 为准。
+验收方式：只读代码复核 + Windows 定向复跑 + WSL Linux 测试 + 真实 SSH/Electron 验收。§4/§6 保留执行前的方案与边界快照；历史检查点结果见 §10.5/§11，生产 root pooling 当前结论以 §12 为准。
 状态口径：**通过 / 失败 / 跳过 / 未执行**；跳过与未执行都不计通过（同 `docs/remote-wsl-verification-log.md` 的口径）。本文件是新验收记录，不修改既有文档；旧文档失效项见 §5。
 
 ## 0. 结论摘要
@@ -13,7 +13,7 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 | 只读复核：root 退休作用域 | **通过** |
 | 只读复核：关闭项目期间的异步读围栏 | **通过**（3 条低风险观察项，见 §2.3） |
 | 只读复核：监听失败降级与恢复 | **通过**（1 条低风险观察项） |
-| 只读复核：显式断开后不自动复活 | **验收时失败（条件性 F1，仅 rootPooling 开启时可达）→ 已修复并提交 `a905d4d7d`**：“不自动复活”成立，但生产顺序下“清理 × retirement”交互未闭环；默认关闭的池化路径不受影响。复现见 §2.2，修复与验证见 §9 |
+| 只读复核：显式断开后不自动复活 | **验收时失败（条件性 F1）→ 已修复并提交 `a905d4d7d`**：“不自动复活”成立，但当时生产顺序下“清理 × retirement”交互未闭环；后续生产池化又补了主机整池退休与重连真机验收。复现见 §2.2，修复与验证见 §9/§12 |
 | Windows 定向复跑（本提交 6 个测试文件） | **通过**：62/62，0 skip（验收时 61 + §9 修复新增 1 例） |
 | Windows 全量 / 通用门禁 | **通过（既有声明；本轮未重跑全量，仅定向复跑 + typecheck/format/ipc-wiring 佐证）** |
 | Linux（WSL）本提交 6 个测试文件 | **通过**：61/61（验收时，0 skip）；修复后 lifecycle 7/7 复跑通过 |
@@ -24,8 +24,9 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 | Linux CI 覆盖 | **通过（仅本地新增，未触发 GitHub CI）**：新增 `linux-unit-remote` job（硬门禁 17 文件 253/252+1；全扫 continue-on-error）+ 挂账文档；见 §11 |
 | panel-service-baseline.manifest | **通过**：按 HEAD 重建，`panel-baseline.mjs verify` 48/48 rc=0；见 §11 |
 | 旧文档失效状态审计 | **完成并已同步旧文档 + 重建 manifest**（见 §5/§11） |
+| 生产 root pooling 默认路径 | **通过并默认开启**：真实主机初次 E2E `1 passed (5.9m)`，最终审计修复后复验 `1 passed (4.6m)`；A→B→A 153ms、A/B/C 60,632ms、六 root 资源门禁通过。见 §12 |
 
-**总体判定：默认生产构建（池化关闭）无阻断；F1、UI 入口、池化 home 三处已修复；R0/R1 及 S2/S5/S6/S7 真机验收均通过。默认关闭的池化路径已具备真机证据；S7 的 watch-failed 分支仍只有单测（paths-over-limit 已真机验证），如需 100% 真机覆盖需另找可稳定注入 watch 失败的手段。**
+**总体判定：55dd5b702 历史检查点无阻断；F1、UI 入口、池化 home 三处已修复；R0/R1 及 S2/S5/S6/S7 真机验收均通过。2026-11-02 生产 root pooling 在无 E2E 开关的生产装配下通过真实主机多项目与资源验收并成为默认路径，2026-11-03 最终审计修复后再次通过；A→B→A 240 秒问题闭环。S7 的 watch-failed 分支仍只有单测（paths-over-limit 已真机验证）。**
 
 ## 1. 基线与工作区核对（只读）
 
@@ -66,7 +67,7 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 实测结果：`{ok:false, code:"SSH_HOST_NOT_READY", establishedDelta:0}`；随后 `facts.pathsExist(PROJECT_B, [])` 成功、`establishedDelta=1`，再 `h.list` 才恢复 ok（探针输出见 `%TEMP%\pideck-f1`）。
 若把顺序反过来（先 retireHost 再 onHostDisconnected），断开后返回 `SSH_HOST_DISCONNECTED`、重连后读成功——与本提交新增测试的断言一致，但**不是生产顺序**。
 
-**影响面**：仅 `rootPooling` 开启的构建（生产装配当前未传该参数，默认关闭）；默认路径重连后由主机级 manager 换代，不受此路径卡住。属**存量缺陷**（基线 09aca4203 的 `onRootRetired` 只做 `forgetSession`，暖缓存同样不清），但本提交声称“主机断连时清理 generation/host/目录缓存”的语义在该路径未落地，且新增测试未覆盖生产顺序。
+**影响面**：仅 `rootPooling` 开启的构建（本检查点当时生产装配未传该参数，池化默认关闭；2026-11-02 已改为生产默认开启）；默认路径重连后由主机级 manager 换代，不受此路径卡住。属**存量缺陷**（基线 09aca4203 的 `onRootRetired` 只做 `forgetSession`，暖缓存同样不清），但本提交声称“主机断连时清理 generation/host/目录缓存”的语义在该路径未落地，且新增测试未覆盖生产顺序。
 
 **测试缺口（不阻断，但必须补）**：`tests/remoteProjectLifecycle.test.mjs:246-275` 的“显式断开不复活”用例只调用 `pool.retireHost`，且 harness 的 fake service 在 `disconnected=true` 时直接短路（`:124`），断言只验证 mock 自己的门禁；它没有调用 `onHostDisconnected`，恰好绕过 F1。另有“已有暖事实 + 断连/重连”场景未覆盖（`:327-346` 只覆盖从未发布过暖值的断连读）。
 
@@ -157,12 +158,12 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 
 > 本节保留执行前方案摘要；完整 609 行版本在仓库外草稿 `%TEMP%\pideck-acceptance\ssh-electron-plan.md`（不入库）。R0/R1 与 S2/S5/S6/S7 的最终执行结果见 §10.5。
 
-### 4.1 开关事实（必须先明确）
+### 4.1 开关事实（验收时快照；当前状态见 §12）
 
 | 事实 | 证据 |
 |---|---|
 | 池化唯一开关是构造参数 `rootPooling`（`Partial<RootPoolPolicy>` 或 `false`）；无设置项、无环境变量、无运行期切换 | `src/main/remote/RemoteHostConnectionService.ts:130`、`:398-401`；ADR `:230` |
-| 生产装配未传该参数 ⇒ **池化默认关闭** | `src/main/index.ts:3367-3388` |
+| 验收时生产装配未传该参数 ⇒ **池化默认关闭**；2026-11-02 已改为显式默认策略 | `src/main/index.ts`（验收时 `3367-3388`；当前 §12） |
 | 默认 TTL 10 分钟；sweep 每 60 秒；sweep 只回收“无租约且无 watcher”的空闲条目 | `RemoteRootSessionPool.ts:40`、`RemoteHostConnectionService.ts:416-417`、`RemoteRootSessionPool.ts:345-356` |
 | 远端能力本身只在 dev 通道开启（未打包运行 / dev 渠道包） | `src/main/index.ts:3327-3336`；`channelIdentity.ts:18-20`；`scripts/pack-dev.js:44` |
 | 历史环境变量 `PIDECK_REMOTE_EXPERIMENTAL` 已不被 main 读取 | `src/main/index.ts:3330-3331`；`tests/remoteChannelGate.test.mjs:23` |
@@ -246,16 +247,16 @@ Status: **Current（2026-10-31 独立验收记录；基线 09aca4203..55dd5b702�
 | 4 | `docs/remote-project-parallel-handoff.md:325、:361` | “当前清单 48 文件”；“48/48 逐字节一致” | 清单已过期：`panel-baseline.mjs verify` rc=1、16/48 mismatch；本提交直接改了清单内 4 个文件，新增 2 个文件未登记。建议由清单所有者重建后再引用 |
 | 5 | `docs/panel-service-baseline.manifest:12、:15、:35、:44` | 4 条 sha256（remoteProjectIpc.ts、RemoteDeepDirWatch.ts、remoteDirWatchDeep.test.mjs、remoteProjectDirFacts.test.mjs） | 哈希与工作树不符，作为可校验基线已失效；不要手改单条哈希，由所有者重建 |
 | 6 | `docs/remote-wsl-verification-log.md:337` | “`REMOTE_UPLOAD_TEMP_NAME.test(` 在 remoteProjectIpc.ts + remoteProjectReadIpc.ts 里恰好 2 处” | 列表过滤已移到 `remoteProjectDirFacts.ts:123`，守卫改为读 projectIpc+dirFacts+readIpc 三个文件（`tests/remoteProjectUpload.test.mjs:297-302`）。建议更新文件归属与计数 |
-| 7 | `docs/root-pooling-handoff.md:15` | “池化仍只交付 ADR + 探针，尚无池化生产实现” | 已有默认关闭的池化实现（`RemoteRootSessionPool.ts`、接入 `RemoteHostConnectionService.ts:398-411`）；本提交又补了目录事实/生命周期修复。建议改为“已实现、生产装配默认关闭（`main/index.ts:3367-3388`）、真机验收未做” |
-| 8 | `docs/root-pooling-handoff.md:3、:13` | “Status: Active plan（2026-10-31 核对）”；“基线 dev = 24529c394” | 文档基线落后于 HEAD 55dd5b702；B1–B3 已实现而非待做，状态行与任务清单均过期。建议重写或归档 |
+| 7 | `docs/archive/remote/root-pooling-handoff.md:15` | “池化仍只交付 ADR + 探针，尚无池化生产实现” | 已有默认关闭的池化实现（`RemoteRootSessionPool.ts`、接入 `RemoteHostConnectionService.ts:398-411`）；本提交又补了目录事实/生命周期修复。建议改为“已实现、生产装配默认关闭（`main/index.ts:3367-3388`）、真机验收未做” |
+| 8 | `docs/archive/remote/root-pooling-handoff.md:3、:13` | “Status: Active plan（2026-10-31 核对）”；“基线 dev = 24529c394” | 文档基线落后于 HEAD 55dd5b702；B1–B3 已实现而非待做，状态行与任务清单均过期。建议重写或归档 |
 | 9 | `docs/README.md:38` | “remote-host-root-pooling-adr.md｜同主机多 root 池化 ADR（测量 + 方案，生产未改）” | 生产代码已有默认关闭的池化路径，“生产未改”不成立。建议改为“ADR + 已实现的默认关闭池化路径；真机验收未做” |
 | 10 | `docs/git-panel-phase-c-plan.md:3` | “Status: 已实施，checkpoint 2d703f830，待最终验收” | 后续已有 09aca4203 与 55dd5b702；状态行仍把 2d703f830 当检查点。建议改为“历史检查点；HEAD 见 git log”，技术结论保留 |
-| 11 | `docs/v-review-2026-10-31.md:3、:5、:9、:35` | “已执行并已按结论修复”“审查对象：G/F 未提交改动”“无阻断…代数围栏完整” | 审查范围只含 G/F；本提交改的是 P 域目录事实/监听生命周期，不在 V 的审查范围。作为质量背书引用时需补范围声明；`:35` 未覆盖清单应收录“P 域监听降级/关闭生命周期” |
+| 11 | `docs/archive/remote/v-review-2026-10-31.md:3、:5、:9、:35` | “已执行并已按结论修复”“审查对象：G/F 未提交改动”“无阻断…代数围栏完整” | 审查范围只含 G/F；本提交改的是 P 域目录事实/监听生命周期，不在 V 的审查范围。作为质量背书引用时需补范围声明；`:35` 未覆盖清单应收录“P 域监听降级/关闭生命周期” |
 | 12 | `docs/remote-wsl-verification-log.md:3、:343` | “Status: Current；最新 sweep HEAD 2c4b35e51” | 台账为现行文档，但没有任何一条覆盖 55dd5b702 行为（watch-failed/关闭生命周期/TTL 重开）；属记录缺口。建议追加一节登记本文件与未执行真机项 |
 
 关联但不在本轮六份重点内：`docs/remote-host-root-pooling-adr.md:3` “池化生产实现尚未落地”已过期；其正文大量 file:line 已漂移，不能当现状引用。`docs/README.md:58` 关于 root-pooling-handoff 的“离线测试通过、真机验收未做”仍基本成立，但“离线测试”未含本提交新增 6 例，开启方式应补“改 main/index.ts 构造参数”。
 
-**更新记录（2026-10-31）**：已更新 `docs/remote-project-parallel-handoff.md`（§8.1 I0 快照注记、onRootRetired 语义、P 文件/测试增量、48/48 清单过期）、`docs/root-pooling-handoff.md`（Status/基线/已实现说明）、`docs/README.md:38/:58`、`docs/git-panel-phase-c-plan.md:3`、`docs/v-review-2026-10-31.md`（范围注记）、`docs/remote-wsl-verification-log.md:337`（历史注记 + §15）、`docs/remote-host-root-pooling-adr.md:3`（默认关闭实现已落地）。`docs/panel-service-baseline.manifest` 已按 HEAD `f870d5574` 重建（48 条成员不变，仅刷新哈希），`panel-baseline.mjs verify` 48/48 rc=0；重建前实测 19/48 mismatch（初始 16/48 为文档更新前快照）。
+**更新记录（2026-10-31）**：已更新 `docs/remote-project-parallel-handoff.md`（§8.1 I0 快照注记、onRootRetired 语义、P 文件/测试增量、48/48 清单过期）、`docs/archive/remote/root-pooling-handoff.md`（Status/基线/已实现说明）、`docs/README.md:38/:58`、`docs/git-panel-phase-c-plan.md:3`、`docs/archive/remote/v-review-2026-10-31.md`（范围注记）、`docs/remote-wsl-verification-log.md:337`（历史注记 + §15）、`docs/remote-host-root-pooling-adr.md:3`（默认关闭实现已落地）。`docs/panel-service-baseline.manifest` 已按 HEAD `f870d5574` 重建（48 条成员不变，仅刷新哈希），`panel-baseline.mjs verify` 48/48 rc=0；重建前实测 19/48 mismatch（初始 16/48 为文档更新前快照）。
 
 未审计：`docs/archive/**`、`docs/maintenance-domains.md`、`docs/unified-api.md` 等大文档；只按本检查点相关面审计。
 
@@ -297,7 +298,7 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 ## 8. 验收签字建议
 
 - **默认构建（池化关闭）**：可接受；本提交四个方向中 3 个通过，F1 不触发默认路径。
-- **池化默认开启**：R0/R1 + S2/S5/S6/S7 真机已通过，具备开启前的行为证据；仍需处理 §2.3 的保活计数风险。S7 的 watch-failed 分支未真机注入（paths-over-limit 已验证），默认关闭不受影响。
+- **池化默认开启**：历史 R0/R1 + S2/S5/S6/S7 真机已通过；保活计数风险随后由生产化实现修复，2026-11-02 最终默认路径验收见 §12。S7 的 watch-failed 分支仍只由单测覆盖（paths-over-limit 已真机验证）。
 - **Git Phase C / Linux-only 既有红**：`remoteGitStability` 4 例在本 Linux 环境稳定红（基线同红），需另行挂账，不应被本检查点的“Windows 全绿”掩盖。
 
 ## 9. 验收后修复（已提交 `a905d4d7d`）
@@ -409,3 +410,150 @@ node --test "$env:TEMP\pideck-f1\f1-probe.test.mjs"
 - `docs/remote-acceptance-55dd5b702.md`（§10 更新）
 - 另有 `?? docs/remote-sftp-evaluation.md`：非本轮产出，未纳入/未修改。
 - 本次提交未 push。
+
+## 12. 生产 root pooling 实施复核（2026-11-02 初次签收；2026-11-03 审计后复验）
+
+本节是 `01b4cf517` 起点的独立实施记录，不改写上文历史证据。工作树
+`C:\Users\Administrator\.codex\worktrees\root-pooling-prod\PiDeck`，分支 `codex/root-pooling-prod`。
+没有 commit、push、merge 或暂存；原 `codex/sftp-0` 未改写。
+
+### 12.1 结论与本轮行为变化
+
+**生产默认已开启并通过签收。** main 显式传 `rootPooling: ROOT_POOL_DEFAULT_POLICY`，移除了
+`PIDECK_E2E_REMOTE_ROOT_POOLING` 绕行；正常产品路径不再依赖该 E2E 开关。策略为保温 2、
+TTL 600000ms、service 总预算 6、满载等待 30000ms。真实正确性和资源门禁均通过，因此保留默认开启。
+
+池化方向仍是最小正确方案；只改开关不足以修好资源/生命周期竞态。详细审计见
+`remote-host-root-pooling-adr.md` §8，主要变化如下：
+
+- 物理预算覆盖建立中与销毁中；同 root 合并建立；单个调用方取消不影响共享建立的其他等待者。
+- lease/watcher 不被 TTL/LRU 淘汰；sweep 在每次 await 后复核候选；满载返回稳定码而不串根。
+- watcher 保活按 connectionId 成对；旧 release、迟到建立/回包/事件不能污染新代；root 退休还清理
+  尚未 flush 的深目录 watcher。重复 manager.dispose 等待同一清理任务完成。
+- 项目移除取消该项目传输并退休对应 root；host 断开/重绑/revision 失效退休整 host。兄弟 root
+  不因新 root 冷开收到假离线；host config 的 rootless helper 也计入同一预算。
+- 最终审计补齐两个时序边界：取得 lease/构造 route 后再次检查取消，任务启动前取消不会继续执行；
+  未发布的 root 冷开失败不能覆盖显式连接或健康兄弟已证明的 host ready，已发布 root 的故障仍正常
+  更新 host 状态，状态观察者抛错也不会破坏成功的连接。
+- 主进程 lifecycle 日志记录池计数、每 root 的匿名键/连接身份/状态、等待与峰值、sweep 前后数据；
+  不向 renderer 新增内部路径、SSH argv 或池诊断契约。
+
+### 12.2 真实主机与资源证据
+
+| 检查 | 本轮结果 |
+| --- | --- |
+| `serve` 只读连通性、Linux/用户/HOME | 已验证 |
+| 当前部署 bundle 的文件摘要 | 9/9 与本树一致，bundle 为 `4f41cea1ba176eb067fafff92f1c8661d5a7e43fc33f7285070faeb22159d0f5`；只读 SHA-256 比较 |
+| 不设置 pooling env 的真实 Electron/SFTP | **通过**：生产装配；2026-11-02 初次 `1 passed (5.9m)`，2026-11-03 最终审计修复后复验 `1 passed (4.6m)`；均清除 `ELECTRON_RUN_AS_NODE`、未设置 `PIDECK_E2E_REMOTE_ROOT_POOLING` |
+| A→B→A 上传入口立即恢复 | **通过**：初次 `158 ms`；2026-11-03 最终审计后复验 `153 ms`；240 秒问题闭环 |
+| A/B/C 连续交替 ≥60 秒 | **通过**：初次 `61,079 ms / 19 轮`；最终复验 `60,632 ms / 22 轮`、66 次切换 102–216 ms（中位 149 ms），3 条 helper PID 与 generation 稳定，watcher 与 UI 持续更新 |
+| A/B 在途取消/关闭隔离、重开 A | **通过**：取消或关闭 A 不影响 B；重开 A 后上传成功 |
+| 显式断开/重连 | **通过**：断开后 helper/本地 ssh 为 0，后台读拒绝复活；重连后重建并可上传 |
+| maxEntries=6 的真实 helper / ssh 峰值 / RSS | **通过**：最终复验峰值 `6 helpers / 6 ssh.exe / peakEntries=6`；六 helper RSS `348,652 KiB`，单条 `53,936–63,076 KiB`、7 线程；SSH RSS `68,952,064 bytes`；断开后均为 0 |
+| 本任务远端写入与清理 | 每个 run 只写测试根；最终绝对路径校验后删除。2026-11-03 再次只读复核 `runs/` 目录为 0、匹配 helper 为 0；实际复用的 `4f41cea1…` bundle 目录 mtime 仍为 2026-11-02，复验当天没有新增 bundle |
+
+### 12.3 离线门禁
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm run typecheck` | 通过，exit 0 |
+| `npm run check:ipc-wiring` | 通过，811 IPC 通道 + 8 agent event tags |
+| `npm run check:test-shape` | 通过，sourceOnly 395/1884，新增 0 |
+| `npm run check:format` | 通过，4382 files，无修改，exit 0 |
+| 指定 5 文件 + 生命周期/诊断/竞态/守卫测试 | 最终 190 tests / 189 pass / 0 fail / 1 skip，exit 0；skip 是凭据守卫的真实错误指纹控制，非单测失效 |
+| 最终审计新增回归 | 取消后 fencing、未发布 root 冷开失败与 host ready 隔离、已发布 root 故障传播三组断言通过；修复前对应行为可复现失败 |
+| `node --test tests/remoteProjectServiceWiring.test.mjs` | 9/9 通过；修复由首个目录页补采 helper facts 引起的测试夹具缺字段 |
+| E2E 三个任务文件的独立严格 TS 检查 | 通过；临时 tsconfig 继承根配置并纳入 `src/**/*.d.ts` 与 3 个 E2E 文件 |
+| `npm run build:fast` | 通过，最终产品树 exit 0；没有运行全量 `npm run build` |
+| `npm run build:remote-sftp` | 通过，Windows amd64 binary 4,632,576 bytes；另核对产物存在，未只依赖 fail-open 构建脚本的 rc |
+| `npx playwright test e2e/remote-sftp-transfer.spec.ts` | 生产装配真实主机：初次 **1 passed（5.9m）**；最终审计修复后复验 **1 passed（4.6m）**；均清除 `ELECTRON_RUN_AS_NODE`，未设置 pooling env |
+| `npm test` | 最终代码完整复跑为 15,971 tests / 15,681 pass / 3 fail / 287 skip，479,839 ms，exit 1。两项是相对 HEAD 无改动的确定性基线失败；一项是未改动 `sessionFindInSession` 在高负载全量运行中的时序抖动，独立 3 次均 16/16 通过。详见 §12.4，**不冒充全绿** |
+| `git diff --check` | 通过 |
+
+最终针对性命令（不省略所要求的五个文件）：
+
+```sh
+node --test tests/remoteRootPooling.test.mjs tests/remoteHostConnectionService.test.mjs tests/projectServiceRuntime.test.mjs tests/remoteSftpAdapter.test.mjs tests/remoteProjectTransferUi.test.mjs tests/remoteRootSessionPool.test.mjs tests/remoteRootSessionPoolRaces.test.mjs tests/remoteRootPoolDiagnostics.test.mjs tests/remoteProjectLifecycle.test.mjs tests/remoteProjectWatchKeepAlive.test.mjs tests/remoteProjectTransferJobIpc.test.mjs tests/remoteProjectDirFacts.test.mjs tests/remoteProjectEntryState.test.mjs tests/sshConnectionManager.test.mjs tests/remoteAcceptanceSpecGuard.test.mjs
+```
+
+测试契约变化：原“租约已进入”用例的 `setImmediate` 改为由真实任务回调触发的 deferred，消除本地
+store 文件 I/O 与调度的猜测；保活用例增加 connectionId；新增竞态、关闭隔离、取消 fencing 和
+host 状态发布范围断言。未跳过或弱化有效回归。第一次新诊断断言遇到 VM 数组原型差异，改为
+`Array.from` 保留完全相同的内容断言。
+
+### 12.4 全量测试失败归因
+
+1. `remoteProjectServiceWiring.test.mjs` 的 3 项失败由本任务引入：`useRemoteFileTree` 在首个目录页
+   成功后读取新增的 `facts` 并调用 `refresh()`，旧测试夹具没有这两个必需的 `ProjectServices` 成员。
+   已在夹具补齐 `facts` 与 `refresh`，保留原有调用次数/换代断言，复跑 9/9 通过。
+2. `scrollContainerGuard.test.mjs:18`：`AgentIconPicker.tsx:51` 的滚动容器缺少判定。
+3. `sessionRefreshSafety.test.mjs:208`：源码断言找不到 `App.tsx` 中的 `async function addProject()`。
+4. `sessionFindInSession.test.mjs:51` 在最终全量高负载下，160 ms debounce 在首个 `setImmediate` 前
+   已发出请求（`1 !== 0`）；该测试、hook 与测试宿主相对 HEAD 均无改动。独立串行运行 3 次均为
+   16/16 通过，因此归因为未改动域的时序抖动，没有修改 hook、测试或断言。
+
+两个确定性基线失败及依赖相对 HEAD 无改动，证明命令输出 `BASELINE_TWO_DIFF_RC=0`：
+
+```powershell
+git diff --exit-code HEAD -- src/renderer/src/components/agents/market/AgentIconPicker.tsx src/renderer/src/App.tsx src/renderer/src/hooks/useProjectSync.ts tests/scrollContainerGuard.test.mjs tests/scrollContainerGuard.mjs tests/scrollContainerGuard.baseline.json tests/sessionRefreshSafety.test.mjs
+Write-Output ("BASELINE_TWO_DIFF_RC={0}" -f $LASTEXITCODE)
+
+git diff --exit-code HEAD -- tests/sessionFindInSession.test.mjs tests/helpers/quickMessageHookHost.mjs src/renderer/src/hooks/useSessionMessageSearch.ts
+Write-Output ("SESSION_FIND_DIFF_RC={0}" -f $LASTEXITCODE)
+```
+
+独立复跑 `node --test tests/scrollContainerGuard.test.mjs tests/sessionRefreshSafety.test.mjs` 得
+27 tests / 25 pass / 2 fail，失败点完全相同；`tests/sessionFindInSession.test.mjs` 独立连续 3 次
+均为 16/16 通过。没有为了消红修改 `App.tsx`、`useProjectSync.ts`、`AgentIconPicker.tsx`、
+`useSessionMessageSearch.ts` 或这些测试/基线。该结果不等于全量门禁已绿。
+
+### 12.5 回滚、未覆盖与文件清单
+
+回滚只改 `src/main/index.ts` 启动装配为 `rootPooling: false`，运行 `npm run build:fast`，正常退出后
+下次启动生效；不增加设置项或环境变量，不热切换在途写，不重放 unknown 结果。当前默认状态是开启。
+尚未覆盖真实十分钟 TTL 到期、第七 root 满载等待/超时、小时级长稳、单 root 自动重试的 UI 恢复、
+真实 rebind UI、多 host 预算争用、硬断网/进程崩溃、ProxyJump/askpass、重叠根 Git 写竞争、
+8 GiB/32 文件压力、Linux 原生 Electron。六 root 的真实资源峰值已验证，但不能替代上述压力项。
+详见 ADR §8.4。
+
+本任务未提交文件（相对上述独立工作树；M 为修改，A 为新文件且未暂存）：
+
+```text
+M docs/remote-host-root-pooling-adr.md
+M docs/remote-project-parallel-handoff.md
+M docs/remote-sftp-phase-1-plan.md
+M docs/remote-acceptance-55dd5b702.md
+M e2e/remote-fixtures.ts
+M e2e/remote-sftp-transfer.spec.ts
+A e2e/remote-sftp-helpers.ts
+A e2e/remote-root-pooling-acceptance.ts
+M src/main/index.ts
+M src/main/ipc/projectsIpc.ts
+M src/main/ipc/remoteProjectDirFacts.ts
+M src/main/ipc/remoteProjectTransferJobIpc.ts
+M src/main/ipc/remoteProjectWatchKeepAlive.ts
+M src/main/remote/RemoteHostConnectionService.ts
+M src/main/remote/RemoteRootSessionPool.ts
+M src/main/remote/SshConnectionManager.ts
+A src/main/remote/RemoteRootPoolDiagnostics.ts
+M src/renderer/src/hooks/useRemoteFileTree.ts
+M tests/projectServiceRuntime.test.mjs
+M tests/remoteAcceptanceSpecGuard.test.mjs
+M tests/remoteProjectDirFacts.test.mjs
+M tests/remoteProjectEntryState.test.mjs
+M tests/remoteProjectLifecycle.test.mjs
+M tests/remoteProjectServiceWiring.test.mjs
+M tests/remoteProjectTransferJobIpc.test.mjs
+M tests/remoteProjectWatchKeepAlive.test.mjs
+M tests/remoteRootPooling.test.mjs
+M tests/remoteRootSessionPool.test.mjs
+M tests/sshConnectionManager.test.mjs
+A tests/remoteRootPoolDiagnostics.test.mjs
+A tests/remoteRootSessionPoolRaces.test.mjs
+```
+
+大文件体量：`main/index.ts` 7978→7975、`RemoteHostConnectionService.ts` 1794→1811、
+`RemoteRootSessionPool.ts` 384→398、`SshConnectionManager.ts` 731→731、原 SFTP spec 604→427；
+只拆出测试操作与资源验收 helpers，没有做额外领域迁移。原始门禁日志与 E2E 临时类型配置保留在
+本工作树 `.tmp/root-pooling-prod/`（ignored，本地证据，不提交）；构建产物与 node_modules
+junction 同样不纳入提交。

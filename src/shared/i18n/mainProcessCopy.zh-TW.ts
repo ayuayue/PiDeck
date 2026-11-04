@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 866316a8b961cba20cca6d3b56b81afdbf628babf2ef09c1407fc193e475f1af（来自 src/shared/i18n/mainProcessCopy.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 99bdc2e9bb2f49d2d0328f516f8a705eb8a2df9691eb2cd65a1597d1b9f2f9a3（来自 src/shared/i18n/mainProcessCopy.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import type { MainProcessTranslationKey } from "./mainProcessCopy";
 
@@ -91,6 +91,7 @@ export const mainProcessZhTW: Record<MainProcessTranslationKey, string> = {
 	"wsl.windowsOnly": "WSL 僅在 Windows 上可用。",
 	"wsl.piNotInstalled": "未檢測到 Pi CLI。若用 nvm/fnm/volta 等版本管理器安裝，請在「自定義 Pi 路徑」填寫 WSL 內的絕對路徑（如 /home/user/.nvm/versions/node/v22/bin/pi）；或在 WSL 中執行 npm i -g @earendil-works/pi-coding-agent。",
 	"wsl.connectionFailed": "無法連線到所選 WSL 發行版和使用者，請檢查配置後重試。",
+	"wsl.hostInstallBlocked": "當前為 WSL 模式：Pi 必須裝在 WSL 發行版裡。請在該發行版的終端執行 npm i -g @earendil-works/pi-coding-agent，宿主機上的安裝不會對它生效。",
 	"webService.invalidPort": "Web 服務埠必須是 1 到 65535 之間的整數。",
 	"webService.startFailed": "Web 服務啟動失敗，請檢查主機和埠設定後重試。",
 	"pet.switch": "切換寵物",
@@ -103,6 +104,12 @@ export const mainProcessZhTW: Record<MainProcessTranslationKey, string> = {
 	"pet.waitingSuffix": "等待操作",
 	"project.notFound": "專案不存在，請重新整理專案列表後重試。",
 	"project.externalSessions": "外部會話",
+	"project.invalidPath": "路徑為空或格式無效，請重新選擇目錄。",
+	"project.pathNotFound": "目錄不存在或無法訪問：{path}",
+	"project.windowsPathInWslMode": "當前處於 WSL 模式，只能新增 WSL 發行版內的目錄。請在 WSL 內選擇目錄，或先到設定裡關閉 WSL 模式。",
+	"project.wslDistroMismatch": "所選目錄屬於 WSL 發行版「{distro}」，當前使用的是「{active}」。請在設定裡切換髮行版後重試。",
+	"project.wslPathNotFound": "WSL 裡找不到該目錄：{path}。若發行版未啟動，請先在終端執行 wsl -d {distro} 後重試。",
+	"project.wslEnvironmentUnavailable": "WSL 發行版當前不可用（未啟動、檔案已失效，或 wsl.exe 無法執行）。請確認該發行版能正常開啟後重試。",
 	"session.notFound": "會話不存在，請重新整理會話列表後重試。",
 	"session.invalidModel": "模型選擇無效，請重新選擇。",
 	"session.backendLocked": "會話已建立，後端（Pi / DSH）不可切換。",

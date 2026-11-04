@@ -854,6 +854,75 @@ test("windowed full snapshot stores segment with windowStart and merges later up
 	assert.equal(entry().messages.length, 4, "upsert before window start must be discarded");
 });
 
+test("ACP windowed session accepts the first history page at the window start", () => {
+	const atoms = loadAtoms();
+	const store = createStore();
+	const emit = (payload) =>
+		store.set(atoms.applySessionRuntimeEventAtom, {
+			sessionId: "session-a",
+			agentId: "agent-a",
+			runtimeGeneration: 1,
+			sourceChannel: "agents:message",
+			payload,
+		});
+	const entry = () => store.get(atoms.sessionMessagesCacheAtom)["session-a"];
+
+	// ACP：消息没有 entryId，窗口从下标 100 开始（前 100 条只能靠分页翻回来）
+	emit({
+		agentId: "agent-a",
+		windowStart: 100,
+		totalLength: 110,
+		messages: Array.from({ length: 10 }, (_, index) => ({ id: "w" + index, role: index % 2 === 0 ? "user" : "assistant", text: "x" })),
+	});
+	assert.equal(entry().windowStart, 100);
+
+	// 首屏历史页游标 = 窗口起点：允许
+	assert.equal(
+		store.set(atoms.prependSessionHistoryPageAtom, {
+			sessionId: "session-a",
+			expectedRevision: entry().revision,
+			before: 100,
+			page: { messages: [{ id: "old-1", role: "user", text: "older" }], total: 110, nextBefore: 60 },
+		}),
+		true,
+	);
+	assert.equal(entry().history.messages.length, 1);
+	assert.equal(entry().history.nextBefore, 60);
+
+	// 续页必须沿用上一页游标：错游标一律拒绝（防止把别段历史拼进来）
+	assert.equal(
+		store.set(atoms.prependSessionHistoryPageAtom, {
+			sessionId: "session-a",
+			expectedRevision: entry().revision,
+			before: 999,
+			page: { messages: [{ id: "wrong", role: "user", text: "wrong" }], total: 110, nextBefore: 10 },
+		}),
+		false,
+	);
+	assert.equal(entry().history.messages.length, 1);
+});
+
+test("ACP windowed session rejects a wrong first-page cursor", () => {
+	const atoms = loadAtoms();
+	const store = createStore();
+	store.set(atoms.applySessionRuntimeEventAtom, {
+		sessionId: "session-b",
+		agentId: "agent-a",
+		runtimeGeneration: 1,
+		sourceChannel: "agents:message",
+		payload: { agentId: "agent-a", windowStart: 100, totalLength: 110, messages: [{ id: "w0", role: "user", text: "x" }] },
+	});
+	assert.equal(
+		store.set(atoms.prependSessionHistoryPageAtom, {
+			sessionId: "session-b",
+			expectedRevision: store.get(atoms.sessionMessagesCacheAtom)["session-b"].revision,
+			before: 7,
+			page: { messages: [{ id: "wrong", role: "user", text: "wrong" }], total: 110, nextBefore: 1 },
+		}),
+		false,
+	);
+});
+
 test("windowed full reconciles disk history prefix: seam dedupe by entryId and version-drop on compaction", () => {
 	const atoms = loadAtoms();
 	const store = createStore();

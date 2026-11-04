@@ -83,6 +83,8 @@ import type {
 	ZCodeSessionSummary,
 	WorkBuddyImportReport,
 	WorkBuddySessionSummary,
+	CodeBuddyImportReport,
+	CodeBuddySessionSummary,
 	CursorImportReport,
 	CursorSessionSummary,
 	KimiImportReport,
@@ -481,6 +483,14 @@ const api = {
 		/** 该项目已确认 root 的最近一次复核结果（只读；不建会话、不产生 helper 请求）。 */
 		rootStatus: (projectId: string) => ipcRenderer.invoke(ipcChannels.remoteProjectRootStatus, projectId) as Promise<import("../shared/types/remoteHost").RemoteProjectRootStatusResult>,
 	},
+	remoteTransfers: {
+		/** Start one opaque upload/download job. Picker paths are resolved in main. */
+		start: (input: import("../shared/types/remoteTransfers").RemoteTransferStartInput) => ipcRenderer.invoke(ipcChannels.remoteProjectTransferStart, input) as Promise<import("../shared/types/remoteTransfers").RemoteTransferStartReceipt>,
+		/** Cancel by the original sender + project + opaque job id; repeated requests are idempotent. */
+		cancel: (projectId: string, jobId: string) => ipcRenderer.invoke(ipcChannels.remoteProjectTransferCancel, projectId, jobId) as Promise<import("../shared/types/remoteTransfers").RemoteTransferCancelReceipt>,
+		/** One job yields monotonic progress frames and exactly one settlement frame. */
+		onEvent: (callback: (event: import("../shared/types/remoteTransfers").RemoteTransferEvent) => void) => subscribe(ipcChannels.remoteProjectTransferEvent, callback),
+	},
 	/**
 	 * 远端项目 trust（P4.4b）：清单 / 决策 / 撤销。
 	 *
@@ -514,8 +524,10 @@ const api = {
 		add: () => ipcRenderer.invoke(ipcChannels.projectsAdd) as Promise<Project | null>,
 		/** 文件夹右键菜单直达：给定路径必须是已存在的目录，主进程校验后入库 */
 		addByPath: (path: string) => ipcRenderer.invoke(ipcChannels.projectsAddByPath, path) as Promise<Project>,
-		/** 通过已登记的 WSL 档案添加项目（主进程查档案并写入 wslHostId/distro/user）。 */
-		addWsl: (hostId: string) => ipcRenderer.invoke(ipcChannels.projectsAddWsl, hostId) as Promise<Project | null>,
+		/** WSL 目录浏览：以档案（hostId 缺省则全局 WSL 模式）的 distro+user 在发行版内列一层子目录。 */
+		listWslDirectory: (path: string, hostId?: string) => ipcRenderer.invoke(ipcChannels.projectsListWslDirectory, path, hostId) as Promise<import("../shared/types/wslDirectory").WslDirectoryPageResult>,
+		/** 选定发行版内目录后添加项目：主进程在发行版内校验目录，再转规范 UNC 入库。 */
+		addWslPath: (path: string, hostId?: string) => ipcRenderer.invoke(ipcChannels.projectsAddWslPath, path, hostId) as Promise<Project>,
 		remove: (id: string) => ipcRenderer.invoke(ipcChannels.projectsRemove, id) as Promise<Project[]>,
 		reorder: (projectIds: string[]) => ipcRenderer.invoke(ipcChannels.projectsReorder, projectIds) as Promise<Project[]>,
 		// 置顶/取消置顶普通项目；返回更新后的项目列表
@@ -1037,6 +1049,10 @@ const api = {
 	workbuddySessions: {
 		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.workbuddySessionsScan, projectId) as Promise<WorkBuddySessionSummary[]>,
 		import: (projectId: string, sourcePaths: string[]) => ipcRenderer.invoke(ipcChannels.workbuddySessionsImport, projectId, sourcePaths) as Promise<WorkBuddyImportReport>,
+	},
+	codebuddySessions: {
+		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.codebuddySessionsScan, projectId) as Promise<CodeBuddySessionSummary[]>,
+		import: (projectId: string, sourcePaths: string[]) => ipcRenderer.invoke(ipcChannels.codebuddySessionsImport, projectId, sourcePaths) as Promise<CodeBuddyImportReport>,
 	},
 	cursorSessions: {
 		scan: (projectId: string) => ipcRenderer.invoke(ipcChannels.cursorSessionsScan, projectId) as Promise<CursorSessionSummary[]>,
@@ -1568,6 +1584,8 @@ const api = {
 				fromCache: boolean;
 				at: number;
 			}>,
+		/** TokenDance 公开报价派生的模型徽章表（model id → 折扣/免费）；空表 = 没拉到或该模型无优惠 */
+		getTokendancePriceTags: () => ipcRenderer.invoke(ipcChannels.configGetTokendancePriceTags) as Promise<import("../shared/tokendance").TokendancePriceTagResult>,
 		/**
 		 * 启动 TokenDance OAuth 授权（PKCE S256）：返回授权 URL + flowId（verifier 仅主进程持有）。
 		 * mode 默认 callback（本地回环自动收 code）；主进程绑定失败会降级成 headless 并回 fallbackReason。

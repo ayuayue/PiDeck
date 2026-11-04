@@ -234,13 +234,6 @@ function InstallationRow(props: InstallationRowProps) {
 					<code className="min-w-0 flex-1 truncate font-mono text-text-primary text-caption" title={installation.path}>
 						{installation.path}
 					</code>
-					{/* 只显示一个徽章（当前使用 > 终端默认 > 较新） */}
-					{badgeKey && (
-						<span className="inline-flex shrink-0 items-center gap-1 rounded-sm bg-accent-soft px-1.5 py-0.5 text-text-primary text-caption">
-							{badge === "active" && <Check size={11} strokeWidth={3} aria-hidden="true" />}
-							{t(badgeKey)}
-						</span>
-					)}
 					{installation.missing && <span className="shrink-0 text-danger text-caption">{t("environment.installMissing")}</span>}
 				</div>
 				{/* 来源 / 版本 / 版本提示挤在同一行：以前各占一行，四份安装就占满一整屏 */}
@@ -256,6 +249,15 @@ function InstallationRow(props: InstallationRowProps) {
 			</div>
 
 			<div className="flex shrink-0 items-center gap-1">
+				{/* 只显示一个徽章（当前使用 > 终端默认 > 较新）。
+				    放在右侧操作簇里而不是路径行：行是两行文本、操作按钮垂直居中，
+				    徽章留在第一行会比按钮高出半行，看起来是歪的。 */}
+				{badgeKey && (
+					<span className="inline-flex shrink-0 items-center gap-1 rounded-sm bg-accent-soft px-1.5 py-0.5 text-text-primary text-caption">
+						{badge === "active" && <Check size={11} strokeWidth={3} aria-hidden="true" />}
+						{t(badgeKey)}
+					</span>
+				)}
 				{actions.canUse && (
 					<Button variant="secondary" size="sm" className="h-auto shrink-0 px-2.5 py-1 shadow-none" onClick={() => props.onChoose(installation.path)} disabled={applying || installation.missing}>
 						{applying ? t("environment.installsApplying") : t("environment.installsUse")}

@@ -3,21 +3,21 @@
 > **Status: Current（2026-11-02）**
 >
 > 2026-10-31 初版挂账 7 条 Linux 既有红；2026-11-02 本轮全部修复并摘除。
-> 硬门禁从 17 个文件扩到 **21 个文件**，跟踪全扫已 **0 fail**。本文保留口径、修复证据与复现命令。
+> 硬门禁从 17 个文件扩到 **24 个文件**（新增 SFTP adapter 与 SSH pin/argv 用例），跟踪全扫已 **0 fail**。本文保留口径、修复证据与复现命令。
 
 ## 0. 口径与证据环境
 
 | 项 | 事实 |
 |----|------|
-| 证据环境 | WSL2 Ubuntu 26.04（kernel 6.18.33.2-microsoft-standard-WSL2），node **v24.19.0** |
+| 证据环境 | WSL2 Ubuntu 26.04（kernel 6.18.33.2-microsoft-standard-WSL2），node **v22.23.2** |
 | CI 目标环境 | GitHub `ubuntu-latest` + node **24.13.0**（`ci.yml` 固定版本） |
 | 两者关系 | WSL2 不等价于 runner；跑绿证明「Linux 上不再红」，不替代首轮 CI 实跑 |
 | 复现命令 | `node --test --test-concurrency=1 tests/<file>.test.mjs`（cwd = 仓库根） |
 | CI 命令 | 同一条，额外加 `--test-timeout=120000 --test-force-exit` |
 
-## 1. 硬门禁：21 个文件在 Linux 实测全绿
+## 1. 硬门禁：24 个文件在 Linux 实测全绿
 
-2026-11-02 单并发实测（WSL2、node v24.19.0，含本轮 4 个新入组文件）：
+2026-11-02 单并发实测（WSL2、node v22.23.2；含本轮 4 个 Linux 修复文件与 3 个 SFTP/SSH 契约文件）：
 
 | # | 文件 | tests | pass | skip | fail |
 |---|------|-------|------|------|------|
@@ -42,11 +42,14 @@
 | 19 | `tests/remoteHelperSearchNames.test.mjs` | 13 | 13 | 0 | 0 |
 | 20 | `tests/remoteSearchIsolation.test.mjs` | 25 | 25 | 0 | 0 |
 | 21 | `tests/sshClientRuntime.test.mjs` | 12 | 8 | **4** | 0 |
-| | **合计** | **307** | **302** | **5** | **0** |
+| 22 | `tests/remoteSftpAdapter.test.mjs` | 8 | 8 | 0 | 0 |
+| 23 | `tests/sshCommandBuilder.test.mjs` | 7 | 7 | 0 | 0 |
+| 24 | `tests/sshVerifiedConnection.test.mjs` | 16 | 16 | 0 | 0 |
+| | **合计** | **338** | **333** | **5** | **0** |
 
 - 5 个 skip：`sshClientRuntime` 的 4 条 Windows-only；`remoteBootstrapContract:909` 的 1 条 root-only。
-- 实测耗时 **92.9s**（/mnt/f 9p 慢盘），CI 硬门禁 timeout 15 分钟仍有约 10 倍余量。
-- 硬门禁验收口径：**307 tests = 302 pass + 5 skip + 0 fail**。任何第 6 个 skip 都要查。
+- 实测耗时 **68.9s**（/mnt/f 9p 慢盘；含 `sshVerifiedConnection` 的 pin/route fixture），CI 硬门禁 timeout 15 分钟仍有约 13 倍余量。
+- 硬门禁验收口径：**338 tests = 333 pass + 5 skip + 0 fail**。任何第 6 个 skip 都要查。
 
 ## 2. 原 7 条既有红：根因与修复
 
@@ -70,10 +73,10 @@
 
 | step | 内容 | 失败影响 | 超时 |
 |------|------|----------|------|
-| Hard gate - remote/SSH subset green on Linux | §1 的 **21** 个文件，单并发 + timeout/force-exit | **挡合并** | 15 分钟 |
+| Hard gate - remote/SSH subset green on Linux | §1 的 **24** 个文件，单并发 + timeout/force-exit | **挡合并** | 15 分钟 |
 | Track full remote/SSH sweep (non-blocking) | `tests/remote*.test.mjs` + `tests/ssh*.test.mjs` | `continue-on-error`，不挡合并 | 25 分钟 |
 
-- 跟踪全扫实测（2026-11-02）：**2380 tests / 2369 pass / 0 fail / 11 skip，797.6s（约 13.3 分钟）**，rc=0。
+- 跟踪全扫上一轮实测（SFTP-0 新增/扩充用例之前，2026-11-02）：**2380 tests / 2369 pass / 0 fail / 11 skip，797.6s（约 13.3 分钟）**，rc=0。本轮新增的 3 个 SFTP/SSH 文件已纳入上方硬门禁；未重复跑 13 分钟全扫，新的全扫总数由 CI 首跑记录。
 - 对比 2026-10-31 基线：2362 pass / 7 fail / 11 skip；本轮 **+7 pass、7 红清零、skip 不变**。
 - 跟踪 step 仍保留 `continue-on-error`：环境差异（runner 与 WSL 不同）不应挡合并；但**当前已知红已清零**，任何新红按缺陷处理，不允许用改断言/加 skip/删用例消红。
 - 25 分钟对 13.3 分钟约 1.9 倍余量；若首轮 CI 逼近 25 分钟，改超时，不把红挪进硬门禁。
@@ -85,7 +88,7 @@
 | Windows-only | `sshClientRuntime` 4 条 | skip | 真跑 | Linux 硬门禁预期 4 skip |
 | root-only | `remoteBootstrapContract:909` | 非 root skip | 同左 | 硬门禁预期 1 skip |
 
-硬门禁在 GitHub runner（非 root）上的预期：**307 tests = 302 pass + 5 skip + 0 fail**。
+硬门禁在 GitHub runner（非 root）上的预期：**338 tests = 333 pass + 5 skip + 0 fail**。
 
 ## 5. 复现 / 维护
 

@@ -1,5 +1,5 @@
 import { ipcMain, shell } from "electron";
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { relative } from "node:path";
 import { projectLocatorFromLegacy } from "../../shared/locationAdapters";
 import { isRemoteProject } from "../../shared/projectLocation";
@@ -17,19 +17,20 @@ import { registerFilesSystemIpc } from "./filesSystemIpc";
 import { createProjectFileReadBoundary, resolveProjectFileReadPath, type ProjectFileReadBoundary } from "../files/projectFileAccess";
 import { parseProjectFileTarget, resolveLocalProjectFileTarget } from "../files/projectFileTarget";
 import { LocalProjectFileBackend } from "../files/LocalProjectFileBackend";
+import { WslProjectFileBackend } from "../files/WslProjectFileBackend";
+import { assertTrustedStatSize, readTextFileGuarded } from "../files/textFileRead";
+import { writeTextFileGuarded } from "../files/textFileWrite";
 import { LocalFileMutationAdapter } from "../files/LocalFileMutationAdapter";
 import { ProjectFileBackendRouter } from "../files/ProjectFileBackend";
 import type { FileSystemService } from "../fs/FileSystemService";
 import type { ProjectStore } from "../projects/ProjectStore";
 import type { SettingsStore } from "../settings/SettingsStore";
 import type { AppLogger } from "../logging/AppLogger";
-import { parseWslUncPath, toWindowsHostPath } from "../wsl/WslPaths";
+import { parseWslUncPath, toWslLinuxPath, toWindowsHostPath } from "../wsl/WslPaths";
+import { resolveProjectWslIdentity } from "../wsl/WslProjectEnvironment";
+import type { WslHelperSessionPool, WslHelperSessionTarget } from "../wsl/WslHelperSession";
 
-/**
- * filesReadBase64 未显式传 maxBytes 时的默认读取上限（64MB）。
- * 文件抽屉二进制预览走的是无参调用，而 base64 + IPC 过桥会把体积放大约 1.33 倍且两侧各持
- * 一份；上限必须在主进程侧兜底（渲染层输入不可信），防单点无界读把内存推到数百 MB。
- */
+/** 二进制预览缺省 64MiB：base64 跨 IPC 会放大内存，必须在主进程限制。 */
 const MAX_BINARY_PREVIEW_BYTES = 64 * 1024 * 1024;
 
 export type FilesIpcDeps = {
@@ -53,6 +54,11 @@ export type FilesIpcDeps = {
 		 */
 		searchContent?(projectId: string, query: string): Promise<{ ok: true; value: FileContentSearchResult | null } | { ok: false; code: string }>;
 	};
+	/**
+	 * WSL 项目的发行版内 helper 会话池（Wave 1a）。未装配时 WSL 项目保持今天的 UNC 本机行为，
+	 * 便于单测与不启动 WSL 的场景维持既有语义。
+	 */
+	wslHelperPool?: WslHelperSessionPool;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -86,7 +92,7 @@ function parseOptionalMaxBytes(value: unknown): number | undefined {
 	return value;
 }
 
-export function registerFilesIpc({ fileSystemService, projectStore, settingsStore, getFileIndexService, appLogger, openExternalUrl, remoteFiles }: FilesIpcDeps): void {
+export function registerFilesIpc({ fileSystemService, projectStore, settingsStore, getFileIndexService, appLogger, openExternalUrl, remoteFiles, wslHelperPool }: FilesIpcDeps): void {
 	registerFilesSystemIpc({ settingsStore, openExternalUrl });
 	// Windows Node / Electron 边界不能直接消费 WSL Linux 路径：统一走 WslPaths 转成当前发行版的主机 UNC。
 	// 已经是普通 Windows/非 WSL 网络盘的输入保持不变，避免误伤非 WSL 路径。
@@ -132,10 +138,39 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 			return toWindowsPath(project.path, project);
 		},
 	});
-	const projectFileBackendRouter = new ProjectFileBackendRouter(localProjectFileBackend, (projectId) => {
-		const project = localProject(projectId);
-		return project ? projectLocatorFromLegacy(project) : undefined;
-	});
+	/**
+	 * WSL 项目的发行版内身份：全部从 ProjectStore + SettingsStore 解析，renderer 不能自报发行版/用户/根。
+	 * 档案不可用（非 WSL、未启用、路径不可转换）返回 undefined，读面按今天的 UNC 路径执行。
+	 */
+	const resolveWslSessionTarget = (projectId: string): WslHelperSessionTarget | undefined => {
+		if (process.platform !== "win32") return undefined;
+		const settings = settingsStore.get();
+		if (settings.wslEnabled !== true) return undefined;
+		const project = projectStore.get(projectId);
+		if (!project || "locator" in project) return undefined;
+		const identity = resolveProjectWslIdentity(project, settings);
+		if (identity === undefined) return undefined;
+		let root: string;
+		try {
+			root = toWslLinuxPath(project.path, { distro: identity.distro });
+		} catch {
+			return undefined;
+		}
+		// helper 的 --root 拒绝文件系统根：没有项目根就没有 containment 语义。
+		if (root === "/") return undefined;
+		return { distro: identity.distro, user: identity.user, root };
+	};
+	const wslProjectFileBackend = wslHelperPool === undefined ? undefined : new WslProjectFileBackend({ pool: wslHelperPool, resolveSessionTarget: resolveWslSessionTarget, fallback: localProjectFileBackend });
+	// composer @ 引用的整树扫描额外跳过构建产物；与本地包装实例同源，回退也走同一个跳过口径。
+	const wslProjectFileBackendSkipped = wslHelperPool === undefined ? undefined : new WslProjectFileBackend({ pool: wslHelperPool, resolveSessionTarget: resolveWslSessionTarget, fallback: localProjectFileBackendWithSkippedGeneratedDirs, skipGeneratedDirs: true });
+	const projectFileBackendRouter = new ProjectFileBackendRouter(
+		localProjectFileBackend,
+		(projectId) => {
+			const project = localProject(projectId);
+			return project ? projectLocatorFromLegacy(project) : undefined;
+		},
+		wslProjectFileBackend,
+	);
 
 	/**
 	 * issue #426：`~` 必须在落到 fs.* / shell.* 之前展开成家目录绝对路径。
@@ -212,8 +247,8 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		const legacyDirectory = typeof listOptions.directory === "string" && listOptions.directory.trim() ? listOptions.directory.trim() : undefined;
 		const backend = projectFileBackendRouter.forProject(projectId);
 		// skipGeneratedDirs 是 dev 文件抽屉的默认行为（node_modules/.git 等不展开）；
-		// 列表 backend 与 router 的同一性由包装实例保持，避免 list 走第二条解析路径。
-		const listBackend = listOptions.skipGeneratedDirs === true ? localProjectFileBackendWithSkippedGeneratedDirs : backend;
+		// WSL 与本地各有跳过构建产物的包装实例，切换时必须留在同一 backend 家族内。
+		const listBackend = listOptions.skipGeneratedDirs !== true ? backend : backend === wslProjectFileBackend && wslProjectFileBackendSkipped !== undefined ? wslProjectFileBackendSkipped : localProjectFileBackendWithSkippedGeneratedDirs;
 		// 子目录 ENOENT 是常态竞态（pi-subagents 清理 artifacts/outputs 后，抽屉仍记住展开态）：
 		// dev 语义是返回空子树让节点自然落空；backend 只给稳定码，按「是否子目录」在这里翻译。
 		//
@@ -257,8 +292,11 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 			return await remoteFiles.directoryPage(target.projectId, target.relativePath, isRecord(options) && options.force === true);
 		}
 		try {
-			const page = await localProjectFileBackend.directoryPage(target, 2000);
-			return opOk({ ...page, revision: (localPageRevision += 1), generation: "local" });
+			// 本地与 WSL 共用同一份目录页形状（单层、显式 truncated）；WSL 的读取由 backend 在发行版内完成。
+			const backend = projectFileBackendRouter.forProject(target.projectId);
+			if (backend.directoryPage === undefined) return opFailFromCode("UNSUPPORTED_PROJECT_LOCATION");
+			const page = await backend.directoryPage(target, 2000);
+			return opOk({ ...page, revision: (localPageRevision += 1), generation: backend === wslProjectFileBackend ? "wsl" : "local" });
 		} catch (error) {
 			return opFailFromCode(codeOf(error, "PROJECT_FILE_READ_FAILED"));
 		}
@@ -379,10 +417,9 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		try {
 			const boundary = await resolveProjectReadBoundary(scope);
 			const readablePath = await resolveReadablePath(input, boundary);
-			const fileStat = await stat(readablePath);
-			// 结构化前缀供渲染层识别后走 i18n 文案；message 不直接展示给用户
-			if (fileStat.size > effectiveMax) throw new Error(`FILE_TOO_LARGE:${fileStat.size}:${Math.floor(effectiveMax)}`);
-			return await readFile(readablePath, "utf8");
+			// 结构化前缀供渲染层识别后走 i18n 文案；message 不直接展示给用户。
+			// 大小可信性与文本性判定统一收在 readTextFileGuarded，不将异常元数据直接当成普通大文件。
+			return await readTextFileGuarded(readablePath, effectiveMax);
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
 			throw error;
@@ -492,7 +529,8 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		}
 		const boundary = await resolveProjectReadBoundary(scope);
 		const writablePath = await resolveReadablePath(input, boundary);
-		await writeFile(writablePath, content, "utf8");
+		// 走共享写守卫：盘上当前字节不是文本（加密容器/二进制）时拒绝写，且原子替换不留半截文件。
+		await writeTextFileGuarded(writablePath, content);
 		void appLogger.info("file", "File written", {
 			path: writablePath,
 			bytes: Buffer.byteLength(content, "utf8"),
@@ -514,6 +552,7 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 			const boundary = await resolveProjectReadBoundary(scope);
 			const readablePath = await resolveReadablePath(input, boundary);
 			const fileStat = await stat(readablePath);
+			assertTrustedStatSize(fileStat.size);
 			if (fileStat.size > effectiveMaxBytes) throw new Error(`FILE_TOO_LARGE:${fileStat.size}:${Math.floor(effectiveMaxBytes)}`);
 			// 渲染层对空串（ENOENT）走「不支持」提示。
 			return (await readFile(readablePath)).toString("base64");

@@ -540,6 +540,11 @@ export function createPreviewApi(): PiDesktopApi {
 			searchProject: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED", outcome: "rejected" as const }),
 			rootStatus: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED", outcome: "rejected" as const }),
 		},
+		remoteTransfers: {
+			start: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED", outcome: "rejected" as const }),
+			cancel: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED", outcome: "rejected" as const }),
+			onEvent: () => () => undefined,
+		},
 		remoteSessions: {
 			scan: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED", outcome: "rejected" as const }),
 			register: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED", outcome: "rejected" as const }),
@@ -558,7 +563,11 @@ export function createPreviewApi(): PiDesktopApi {
 			list: async () => projects,
 			add: async () => projects[0],
 			addByPath: async () => projects[0],
-			addWsl: async () => projects[0] ?? null,
+			// 预览/静态模式没有主进程，也没有发行版：浏览报「不可用」，添加抛稳定码，不伪造目录。
+			listWslDirectory: async () => ({ ok: false as const, code: "WSL_DIRECTORY_DISTRO_UNAVAILABLE", outcome: "rejected" as const }),
+			addWslPath: async () => {
+				throw new Error("WSL_DIRECTORY_DISTRO_UNAVAILABLE");
+			},
 			remove: async () => projects,
 			reorder: async (projectIds) => {
 				projects.sort((a, b) => projectIds.indexOf(a.id) - projectIds.indexOf(b.id));
@@ -1069,6 +1078,10 @@ export function createPreviewApi(): PiDesktopApi {
 			import: async () => ({ results: [], imported: 0, failed: 0 }),
 		},
 		workbuddySessions: {
+			scan: async () => [],
+			import: async () => ({ results: [], imported: 0, failed: 0 }),
+		},
+		codebuddySessions: {
 			scan: async () => [],
 			import: async () => ({ results: [], imported: 0, failed: 0 }),
 		},
@@ -1826,6 +1839,8 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 			// 设计预览：内置 TokenDance 目录返回空（不触真实网络）
 			getTokendanceModels: async () => ({ models: [], fromCache: false, at: 0 }),
+			// 设计预览：价格徽章表同样为空（预览不请求报价端点）
+			getTokendancePriceTags: async () => ({ tags: {}, at: 0 }),
 			tokendanceAuthStart: async () => ({ ok: false, error: "preview" }),
 			tokendanceAuthAwait: async () => ({ ok: false, error: "preview" }),
 			tokendanceAuthCancel: async () => ({ ok: true }),

@@ -9,6 +9,7 @@ import { sessionHistoryUnavailableState } from "../utils/sessionHistoryAvailabil
 import { isLiveRuntimeStatus } from "../utils/sessionCommands";
 import { isSessionTurnRunning } from "../utils/sessionActivityClock";
 import type { TrajectoryModelTraceSummary } from "../components/session/trajectory/buildTrajectory";
+import { resolveEarlierHistoryCursor } from "../components/session/timeline/historyPagePolicy";
 
 /** 与时间线 runtime 翻页对齐：一次补 3 轮，复用同一份消息缓存。 */
 const RUNTIME_HISTORY_TURN_PAGE_SIZE = 3;
@@ -240,13 +241,10 @@ export function useSessionTrajectorySource(sessionId: string | undefined) {
 
 	const diskPage = cachedEntry?.source === "disk" ? cachedEntry.page : undefined;
 	const runtimeHistory = cachedEntry?.source === "runtime" ? cachedEntry.history : undefined;
-	// slideOut 重建前缀时 nextBefore 可能为 null；nextBeforeEntryId 仍是有效续页锚点。
-	// 兜底分支（runtimeHistory 缺失）不能只看 windowStart：主进程内存窗口只驻留最近若干轮，
-	// windowStart 常为 0，而真正还有更早历史时只有 windowStartFilePos 是正数。判据与
-	// useSessionTimelineController 的 historyHasMore 保持一致，否则轨迹面板与主时间线的
-	// 「加载更多对话」会出现与否打架。
-	const windowHasEarlier = typeof cachedEntry?.windowStartFilePos === "number" ? cachedEntry.windowStartFilePos > 0 : (cachedEntry?.windowStart ?? 0) > 0;
-	const hasMore = diskPage ? diskPage.nextBefore !== null : Boolean(cachedEntry?.source === "runtime" && (runtimeHistory ? runtimeHistory.nextBefore !== null || Boolean(runtimeHistory.nextBeforeEntryId) : windowHasEarlier));
+	// 判据与主时间线同源（resolveEarlierHistoryCursor）：两边各写一份，就会出现「轨迹面板
+	// 显示加载更多、主时间线不显示」或者「按钮在但锚点缺、点了静默无反应」的分叉。
+	const earlierHistoryCursor = useMemo(() => resolveEarlierHistoryCursor({ runtimeHistory, windowMessages: cachedEntry?.messages ?? [], windowStartFilePos: cachedEntry?.windowStartFilePos }), [runtimeHistory, cachedEntry?.messages, cachedEntry?.windowStartFilePos]);
+	const hasMore = diskPage ? typeof diskPage.nextBefore === "number" && diskPage.nextBefore > 0 : Boolean(cachedEntry?.source === "runtime" && earlierHistoryCursor);
 
 	const loadMore = useCallback(() => {
 		if (!sessionId || !cachedEntry || isLoadingMore) return;
@@ -255,7 +253,8 @@ export function useSessionTrajectorySource(sessionId: string | undefined) {
 
 		if (diskPage) {
 			const before = diskPage.nextBefore;
-			if (before === null) return;
+			// 0 是文件头而不是「还有更早」：放过会发出一次空页请求，界面毫无变化。
+			if (typeof before !== "number" || before <= 0) return;
 			setIsLoadingMore(true);
 			void desktopApi.sessions
 				.readRecordMessagePage(sessionId, before, 100)
@@ -274,17 +273,12 @@ export function useSessionTrajectorySource(sessionId: string | undefined) {
 		}
 
 		if (cachedEntry.source !== "runtime") return;
-		const before = runtimeHistory?.nextBefore;
-		const anchorMessage = !runtimeHistory ? cachedEntry.messages.find((message) => typeof message.meta?.entryId === "string") : undefined;
-		const anchorEntryId = typeof anchorMessage?.meta?.entryId === "string" ? anchorMessage.meta.entryId : undefined;
-		const anchorFilePos = !runtimeHistory && !anchorEntryId ? (typeof cachedEntry.windowStartFilePos === "number" ? cachedEntry.windowStartFilePos : undefined) : undefined;
-		if (!runtimeHistory && !anchorEntryId && anchorFilePos === undefined) return;
+		if (!earlierHistoryCursor) return;
+		const { before, beforeEntryId } = earlierHistoryCursor;
 
 		setIsLoadingMore(true);
 		void desktopApi.sessions
-			.readRecordMessagePage(sessionId, before ?? (anchorFilePos !== undefined ? anchorFilePos : undefined), RUNTIME_HISTORY_TURN_PAGE_SIZE, {
-				beforeEntryId: anchorEntryId ?? runtimeHistory?.nextBeforeEntryId ?? undefined,
-			})
+			.readRecordMessagePage(sessionId, before ?? undefined, RUNTIME_HISTORY_TURN_PAGE_SIZE, { beforeEntryId })
 			.then((page) => {
 				if (loadSequenceRef.current !== sequence) return;
 				// 与 disk 翻页同源：host 被停时的空页不是新历史（否则同样的游标/total 损坏）。
@@ -294,7 +288,7 @@ export function useSessionTrajectorySource(sessionId: string | undefined) {
 			.finally(() => {
 				if (loadSequenceRef.current === sequence) setIsLoadingMore(false);
 			});
-	}, [cachedEntry, diskPage, isLoadingMore, prependHistoryPage, prependMessagePage, runtimeHistory, sessionId]);
+	}, [cachedEntry, diskPage, earlierHistoryCursor, isLoadingMore, prependHistoryPage, prependMessagePage, sessionId]);
 
 	return {
 		messages,

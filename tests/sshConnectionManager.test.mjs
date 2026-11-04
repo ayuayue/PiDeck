@@ -10,10 +10,7 @@ const { createSshProcessLauncher, SSH_LAUNCHER_MAX_OUTPUT_BYTES } = loadTsCommon
 const { buildHelperRemoteCommand } = loadTsCommonJs("src/main/remote/RemoteHelperCommand.ts");
 const { quotePosixArgument } = loadTsCommonJs("src/main/remote/RemoteBootstrapContract.ts");
 
-/**
- * The verified bootstrap result every production call site has to pass on: `deployRoot` comes from the
- * bootstrap ready frame, never from a guessed remote HOME, and the address only has to be a content hash.
- */
+/** Verified bootstrap fixture; the path is never guessed by the connection manager. */
 const HELPER_SESSION = { nodePath: "/usr/bin/node", deployRoot: "/home/dev/.pideck/remote-host", bundleSha256: "a".repeat(64) };
 
 /**
@@ -25,10 +22,6 @@ const WORKSPACE_ROOT = "/home/dev/work/my 'project' dir";
 /** The same verified bootstrap plus the workspace root the caller resolved at wiring time. */
 const ROOTED_HELPER_SESSION = { ...HELPER_SESSION, root: WORKSPACE_ROOT };
 
-/**
- * Every manager in this suite is built here, so the mandatory handshake session is stated once; a test
- * that wants the fail-closed path overrides it explicitly (`helperSession: undefined`).
- */
 function createManager(options) {
 	return createSshConnectionManager({ helperSession: HELPER_SESSION, ...options });
 }
@@ -704,11 +697,18 @@ test("dispose waits for an in-flight spawn and refuses later connects", async (t
 	const disposing = dispose().then(() => {
 		settled = true;
 	});
+	let repeatedSettled = false;
+	const repeated = dispose().then(() => {
+		repeatedSettled = true;
+	});
 	await flushMicrotasks();
 	assert.equal(settled, false, "dispose waits for the attempt that is still spawning");
+	const repeatedBeforeCleanup = repeatedSettled;
 	const handle = deferred.release();
+	await repeated;
 	await disposing;
 	await connecting;
+	assert.equal(repeatedBeforeCleanup, false, "a repeated dispose must wait for the same physical cleanup");
 	assert.deepEqual(Array.from(handle.stopCalls), ["abort"], "the late process is stopped before dispose resolves");
 	await assert.rejects(manager.connect(profile.id), /SSH_CONNECTION_MANAGER_DISPOSED/);
 	await assert.rejects(manager.retry(profile.id), /SSH_CONNECTION_MANAGER_DISPOSED/);

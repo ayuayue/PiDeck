@@ -1,6 +1,6 @@
 # 领域维护手册（改到哪读哪）
 
-> **Status: Current（2026-10-31 核对；以代码与测试为准）**
+> **Status: Current（2026-11-02 核对；以代码与测试为准）**
 
 
 > 领域运维的权威细节都在这份文件与它指向的专题文档里；根 `AGENTS.md` 只保留铁律与路由表。
@@ -17,12 +17,14 @@
 | 提示词库 xueprompts.db | db 远程拉取双源成套（sha256 + db 同源）；检索走 xue-index Go sidecar，缺失降级 sql.js（应用层 gunzip，SQL LIKE 中文恒不命中）；改 db 走 publish 脚本 + Release 资产 | 本文「商店提示词库维护」 |
 | 跨会话正文搜索 | session-index Go sidecar（纯标准库）；语料+快照落 `<userData>/session-index/`；roots = 全局 + 全局 sessionDir + **各项目项目级 sessionDir**（WSL 不支持）；查询多词 AND（每词必中）；任何失败 IPC 返回 null 降级标题过滤；**会话内查找绑定 Ctrl/Cmd+Shift+F（Ctrl+F 仍是「搜索会话」）**：IPC 入参是 SessionRecord.id，主进程按 catalog 后端分派——pi 走同 sidecar 的 `search-session`，DSH 走 host 历史投影（`DshAgentManager.searchSessionMessages`）；`SESSION_INDEX_OS/ARCH` 必须进三平台 workflow | 本文「跨会话正文搜索」 |
 | 文件抽屉搜索 | 名字走 file-index Go sidecar（不可用回退 `FileSystemService.searchNames` 扫盘）；**拼音检索只存在于 sidecar 通道**：纯字母查询（2–24）按 首字母整名 > 首字母前缀 > 全拼 > 跳字 计分（含异读首字母：`cq`/`zq` 都能命中「重庆」），全拼不覆盖异读、内容检索不参与；正文搜索 `files:search-content` 失败/未就绪/WSL 返回 null、UI 隐藏内容分区；内容扫描有扩展名白名单/忽略目录/单文件 1MiB/总 64MiB 预算；`FILE_INDEX_OS/ARCH` 必须进三平台 workflow，`native/file-index/go.sum` 必须入库 | 本文「工作区文件搜索」 |
+| 远程 SFTP（SFTP-0） | 系统 OpenSSH + 一次性 Go 执行器；只到 native/adapter/build 层，**未接 IPC/UI**；helper 继续负责 watch/search/Git/versioned write/trash；上传写入在提交语义冻结前不得接线 | `docs/remote-sftp-evaluation.md` §1.1 + 本文「远程 SFTP 执行器」 |
 | 会话标题拼音 | 侧栏搜索是渲染层本地过滤（拿不到 sidecar 索引）：拼音表是**生成物** `src/renderer/src/utils/pinyinTable.ts`（`native/tools/pinyin-table` 从 go-pinyin 抽，改字典版本必须 `npm run gen:pinyin-table`，生成物禁手改）；分数与 file-index 逐值对齐（700/680/640/560），装配点 `SidebarContent` 的 `pinyin: pinyinKeys(title)`（漏喂＝拼音静默失效，`tests/morphingSearchFilter.test.mjs` 兜） | 本文「工作区文件搜索」 |
 | 会话数据面 sidecar | session-store（`get-index` 条目表 + parity 双向全绿 + **条目录盘，默认开启**）：`settings.sessionStoreEnabled` 置 false 即回退纯 TS 解析（无 UI）；`state.bin` 只存文件级记账（`size` 只推进到完整行、行 > 64MiB 只探前缀），条目表落 `<userData>/session-store/tables/<sha1>.table`（256 文件/512MiB 上限，`size+mtimeMs` 版本键，变长且上次停在换行边界→尾扫增量）；重启首次打开大会话 14–20ms（TS 冷建表 99–188ms，见计划 §8.11）；roots 逐请求不带进 spawn；构建链 `npm run build:session-store` + `extraResources` + `SESSION_STORE_OS/ARCH` 三平台 workflow，缺一即打包后 binary-missing | 本文「会话数据面 sidecar」 |
 | Go sidecar 宿主客户端 | 一律继承 `src/main/sidecar/GoSidecarClient.ts`；禁止复制 NDJSON 行泵/boot 计时器/pending Map/进程身份核对；新增 sidecar 必须有复用键、协议版本校验、fail-open 降级与共享层测试 | 本文「Go sidecar 宿主客户端」 |
 | 技能商店安装 | 商店搜索必须走注入的 `fetchImpl`（Electron net.fetch），禁裸全局 fetch（undici 不读代理，境外 API 挂到超时）；安装用 spawn + 流式解析（禁 execFile 等终态输出）、进度走 `skill-hub:install-progress`、子进程必注入代理 env（CLI 内部 git 不读 npm proxy） | 本文「技能商店安装链路」 |
 | 内置扩展热更新 | 判据是逐文件 sha256 不是版本号；覆盖层必须完整快照 + vendored 依赖；磁盘根统一走 `resolveBuiltInExtensionRoots()` | 本文「内置扩展热更新」 |
 | 生图存储 | **base64 不进 JSONL**（只存 ref）；读取永远有字节上界；`<img src>` 只走 `imageContentSrc()` | 本文「生图会话存储」 |
+| 主进程出网（模型/供应商 API、CDN、目录页） | 一律经 `src/main/modelHttp/`：要 JSON 文本走 `modelHttpRequest`，要 multipart/二进制响应体走 `modelHttpFetch`；**禁再直接写全局 `fetch`**（undici 不读代理）；本地子进程（whisper-server）例外 | 本文「出网传输（modelHttp 统一层）」 |
 | 智能体 / 划词工具 | 配置只落 `<userData>/agent-profiles.json`（内置 `builtin-translate` / `builtin-pideck-helper` / `builtin-pideck-diagnostic` / `builtin-pideck-plugin-dev` 只补种不覆盖用户编辑）；一次性调用 `agent-profiles:invoke` 的 systemPrompt 只能由主进程按 agentId 解析（渲染层禁传），侧车必须**独立实例**（单飞语义，共用会打断输入框增强）；「使用」= 会话绑定（`sessionAgentBindings`），每次发送由主进程注入隐藏 `agentMessage`（DSH 退化为可见前缀），时间线只显示用户输入；「智能体」与「定时任务」都是**会话 Tab 栏里的页面式 Tab**（不是弹窗、不是会话 Tab：切会话只失活、关闭才卸载），标题固定走 i18n；系统级划词目前隐藏且默认关闭（`SYSTEM_SELECTION_TOOL_ENABLED=false`、默认设置 false；复制监听、原生捕获、快捷键全部不启动） | 本文「智能体与划词工具」+ `docs/host-boundaries.md` §例外四 |
 | 内置浏览器 Agent | 只经 `pideck-cua` MCP host 暴露 `browser_*`；页面文本不可信、写动作默认自动放行（可关闭改为逐次审批）；guest 不缓存（抽屉/全屏会重建）；CDP 被 DevTools/内存探针占用时降级并标 degraded；不注入 preload、不改 webview 安全档位 | `docs/archive/plans/browser-agent-plan.md` §7/§9/§12 |
 | ACP 会话链路（backend=acp） | 协议字段收口 `src/main/acp/acpProtocol.ts`；投影切段：工具卡隔断后新开 assistant 段，切段收口 `toolUse`（**只有 settleAcpTurn 能出 `stop/aborted/error`**，写 `stop` 会把一轮拆成多个 agent-run），**一回合多条 assistant 气泡是正常形态**；stall 看门狗豁免「挂起审批 + 在途工具调用」（省略 status 的 `tool_call_update` 是流式补丁帧，不得清豁免），阈值走 settings 读口；历史归档 `userData/acp-sessions/<sha1>.json`（只在回合结算/stop 写、**空快照不写**、base64 只留 ref、读写失败只记日志）；会话内查找与 pi/DSH 共用 `sessions/sessionFindMatches.ts`，入口要 `acpSessionId` | 本文「ACP 会话链路」 |
@@ -112,6 +114,26 @@
 - **子类只提供差异**：`name`、`resolveBinaryPath`、`spawnFn`（测试注入）、`timeouts` 默认值、`maxLineChars`、`messages`（各服务文案）、`onReady`（日志/诊断字段）、`logStderr` / `writeFailureLogLevel`（保留原行为）。进程复用键与 spawn 参数由子类的 `ensureChild` 传入 `ensureReady(key, args)`：session-index/file-index 用 roots 签名，xue-index 用 dbPath，session-store 用常量键 + 逐请求 roots。
 - **新增 sidecar 的接线**：继承基类 + 在 `ensureChild` 里做业务前置校验（空 roots/path → `not-ready`）+ 只发本服务的命令帧；`ready` 附加字段通过 `onReady` 或 `getReadyFrame()` 读取，不参与生命周期判断。测试至少覆盖：ready 握手、复用键变化、boot/请求超时、协议版本不匹配、进程退出、dispose；共享层边界由 `tests/goSidecarClient.test.mjs` 兜底（非法行、stdout 溢出、stdin 错误、运行期协议漂移、写入抛错）。
 - **结果类型**：各服务的 `*FailureReason` / `*CallResult<T>` 是 `GoSidecarFailureReason` / `GoSidecarCallResult<T>` 的别名；新增失败原因先改基类并在四个服务的测试与调用方确认。
+
+## 远程 SFTP 执行器（SFTP-0 原型）
+
+- **不是常驻 Go sidecar**：`native/remote-sftp` 每个传输任务启动一个进程，stdin 只收一个有界 JSON 请求，stdout 只发 NDJSON progress/result；任务结束即退出。因此它**不能硬套** `GoSidecarClient` 的 ready/pending Map/复用键生命周期。若未来改成常驻多路复用，才需要重新对齐共享传输层规则。
+- **唯一路由**：宿主只接受已由 `SshVerifiedConnection` 验证的 `PinnedSshInvocation`；`SshCommandBuilder` 的 `ssh-sftp` 负责 `-T -s -- <host> sftp` 并保留全部 host pin、ProxyJump、identity/askpass 与严格 host-key 选项。禁止 renderer 传 SSH argv、凭据或绝对远端路径。
+- **当前数据面**：`RemoteSftpAdapter.ts` 负责请求/结果校验、进度转发、超时/取消/进程树清理（POSIX 进程组、Windows `taskkill /T /F`）；Go 执行器负责 root realpath、父链 symlink 拒绝、流式上传下载、临时文件、错误码和 NDJSON。当前没有 IPC、项目服务或 renderer 接线，生产文件操作仍走既有 helper/versioned 路径。
+- **未冻结项**：标准 SFTP rename 不具备可移植 no-clobber/原子提交语义，当前上传结果明确 `atomicRename: false`，rename 回包丢失映射为 `SFTP_REMOTE_COMMIT_UNKNOWN` 且不自动重放；在 SFTP-1 证明版本化提交前不得开放写口。`ReadDir` 仍会先在远端收齐整目录，SFTP-2 才替换为有界目录页；路径检查不是 fd 锚定，不能宣称等价于 helper 的路径替换防护。
+- **构建链**：`npm run build:remote-sftp`（fail-open）→ `resources/remote-sftp/bin/remote-sftp(.exe)`；`package.json` 的 `build`/`extraResources`、`scripts/dev.js` 与三平台 workflow 均接入；`native/remote-sftp/go.mod` 固定 Go 1.26、`go.sum` 必须入库。
+- **测试**：Go 侧 `native/remote-sftp/*_test.go` + `tests/remoteSftpAdapter.test.mjs` + `tests/sshCommandBuilder.test.mjs` + `tests/sshVerifiedConnection.test.mjs`；Linux 远端硬门禁包含后三者。真实 SSH/Electron、断网、扩展差异和吞吐仍未验收，详见 `docs/remote-sftp-evaluation.md` §1.1。
+
+## 出网传输（modelHttp 统一层）
+
+- **两个入口，按响应形态选**：
+  - `modelHttpRequest(url, { method, headers, body, timeoutMs, maxBytes, proxyTarget, signal })` → `{ status, statusText, raw, truncated, header() } | { error: "timeout" | "network", detail }`。只负责「要一份 JSON/文本」，正文按 `maxBytes` 截断（`bounded.ts`，truncate 语义），**拿到任意 HTTP 状态码都算成功分支**，3xx 不跟随（`redirect: "error"`，带凭据的请求不许被带去第三方域）。原始异常文本只在 `detail` 里给日志与网络故障分类用，**不得回传渲染层**（message 可能裹挟 URL 上的 key）。
+  - `modelHttpFetch(url, init)` → 原生 `Response`。给需要 `FormData` multipart、二进制响应体、或自己读正文与控制错误的调用点（生图 / 生视频 / 语音转写）。错误原样抛出，分类留在调用点。已实测 Electron `net.fetch` 支持 FormData + Blob（boundary 正常）、响应体可 `getReader()` 流式读、`AbortSignal.timeout` 抛 `TimeoutError`。
+- **为什么不能直接写全局 `fetch`**：那是 Node 的 undici——不读系统代理、不读桌面 session 代理、不用 Chromium 根证书库，代理环境下境外 API 挂到超时且只抛含糊 `AbortError`。反向的例外：`WhisperServerPool`（本地 whisper-server）与 `WebStaticAssets`（本机 vite dev server）这类**本地** HTTP 必须继续直连，别「顺手统一」进代理栈；`WhisperRuntimeManager` 例外中的例外——它只管本地文件落位，唯一外网请求（GitHub Release 摘要）在境外，所以那个函数走统一层。
+- **Cookie 头走 `net.request`，不是 `net.fetch`**：fetch 规范里 Cookie 是 forbidden header，手动设置会被静默丢弃（火山 `POST /api/wallet/summary` 实测 curl 200 / net.fetch 401）。`modelHttpRequest` 内部按 `hasCookieHeader()` 自动分流，调用点不用关心。
+- **显式代理三态 `proxyTarget`**：`follow`（默认，跟随全局 session）/ `on`（`mode:"fixed_servers"` + `proxyRules`/`proxyBypassRules`）/ `off`（`mode:"direct"`）。on/off 用独立内存 session `pideck-config-proxy` 临时设代理，**不动全局代理开关**——那是用户手动控制的，改全局会影响在跑的会话流量。
+- **非模型的主进程出网也用同一层**：pi CLI 更新日志（jsDelivr / unpkg / GitHub raw 三个**境外** CDN，`PiChangelogService` 构造参数 `deps.fetchImpl`，缺省 `modelHttpFetch`）、扩展目录页（`piPackageCatalog.getPiPackageCatalog` 的 `fetchImpl` 是**必填参数**，靠编译期强制调用方注入，不保留全局兜底）。两处旧实现都是全局 `fetch`：代理环境下 changelog 会静默降级成「在浏览器查看」，目录页直接挂到超时并报「商店加载失败」。
+- **守卫**：`tests/modelHttp.test.mjs` 锁分流/超时/取消/截断/代理三态，并静态断言生图、生视频、语音转写、火山 ASR、pi 更新日志的缺省实现是 `modelHttpFetch`（防退回全局 `fetch`），断言目录页 `fetchImpl` 必填且无 `?? fetch` 兜底，同时断言 whisper 本地链路不经统一层。
 
 ## 技能商店安装链路（net.fetch 搜索 + spawn 进度 + 代理 env 注入）
 - **主进程联网一律走注入的 `fetchImpl`（= Electron `net.fetch`）**：裸全局 `fetch` 是 undici，既不读系统代理也不读 Electron 桌面 session 代理，代理环境下境外 API 挂到超时且只抛含糊 `AbortError`。`storeIpc.ts` 四个商店 handler（`skillHubSearch` / `skillStoreSearch` / `promptStoreSearch` / `promptStoreGet`）全部经 `deps.fetchImpl`；测试用 `createStoreIpc({ fetchImpl })` 注桩，未注入时才回退全局 fetch（测试沙箱无 fetch，故必须惰性取值）。

@@ -34,10 +34,11 @@ export function buildModelsFromFetchedSelection(fetchedModels: FetchedModel[], s
 	return sortModelRows(result);
 }
 
-// 模型表渐进渲染窗口：每行是「4 输入框 + Popover + 2 Dialog + 操作按钮」的重树，上百行全量平铺
-// 挂载与逐键整表重渲都会卡。默认窗口 100 行，不足再按步长「继续加载」。
-export const MODEL_TABLE_INITIAL_VISIBLE_ROWS = 100;
-export const MODEL_TABLE_LOAD_MORE_STEP = 100;
+// 模型表渐进渲染窗口：每行是「4 输入框 + Popover + 2 Dialog + 操作按钮」的重树，整表平铺
+// 挂载与逐键整表重渲都会卡。窗口 20 行是实测一屏半的量——几十行的供应商展开也不该全量挂载，
+// 不足再按步长「继续加载」（窗口只做前缀切片，行 index 语义不变）。
+export const MODEL_TABLE_INITIAL_VISIBLE_ROWS = 20;
+export const MODEL_TABLE_LOAD_MORE_STEP = 20;
 
 /**
  * 模型表当前应渲染的行数（前缀窗口）。

@@ -228,6 +228,32 @@ test("files:read, write, stat, open, and pathsExist resolve a project target loc
 	}
 });
 
+test("文件读写双入口：拒绝非文本且原字节不变，普通打开不改文件", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pideck-files-text-guard-"));
+	const filePath = join(root, "App.vue");
+	try {
+		const api = createFilesIpc(root);
+		const target = { projectId: "project-1", relativePath: "App.vue" };
+		const scope = { projectId: "project-1" };
+		for (const input of [target, filePath]) {
+			const access = typeof input === "string" ? scope : undefined;
+			const original = Buffer.alloc(128, 0xaa);
+			writeFileSync(filePath, original);
+			await assert.rejects(api.readContentHandler({}, input, 1024, access), /FILE_NOT_TEXT:128/);
+			await assert.rejects(api.writeContentHandler({}, input, "replacement", access), /FILE_WRITE_BLOCKED_ENCRYPTED:128/);
+			assert.deepEqual(readFileSync(filePath), original);
+			const source = "<template>ok</template>\r\n";
+			writeFileSync(filePath, source);
+			assert.equal(await api.readContentHandler({}, input, 1024, access), source);
+			assert.equal(readFileSync(filePath, "utf8"), source);
+			await api.writeContentHandler({}, input, "edited\r\n", access);
+			assert.equal(readFileSync(filePath, "utf8"), "edited\r\n");
+		}
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test("file mutation handlers resolve project targets beneath the registered root", async () => {
 	const fixture = mkdtempSync(join(tmpdir(), "pideck-files-target-mutate-"));
 	const root = join(fixture, "project");

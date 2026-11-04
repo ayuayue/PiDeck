@@ -144,6 +144,23 @@ test("fresh candidate and strict queries build pinned SSH/SCP argv per request",
 	await assert.rejects(buildPinnedSshInvocation(directory, profile.id, "ssh-terminal", { client, remoteCommand: "invalid\ncommand" }), /SSH_REMOTE_COMMAND_INVALID/);
 });
 
+test("SFTP requests the subsystem while keeping transport-only flags out of the strict route query", async (t) => {
+	const { directory, profile } = await fixture(t);
+	const { client, calls } = configRunner(profile.id);
+	const invocation = await buildPinnedSshInvocation(directory, profile.id, "ssh-sftp", { client });
+	const args = Array.from(invocation.args);
+	assert.equal(args[0], "-T");
+	assert.equal(args[1], "-s");
+	assert.deepEqual(args.slice(-3), ["--", "work", "sftp"]);
+	assert.ok(args.includes("StrictHostKeyChecking=yes"));
+	const strictQueries = calls.filter((call) => call.args.includes("-G") && option(call.args, "UserKnownHostsFile") !== undefined);
+	assert.equal(strictQueries.length, 1);
+	assert.equal(strictQueries[0].args.includes("-s"), false);
+	assert.equal(strictQueries[0].args.includes("sftp"), false);
+	assert.deepEqual(Array.from(strictQueries[0].args.slice(-2)), ["--", "work"]);
+	await assert.rejects(buildPinnedSshInvocation(directory, profile.id, "ssh-sftp", { client, remoteCommand: "echo" }), /SSH_REMOTE_COMMAND_NOT_ALLOWED/);
+});
+
 test("strict config accepts omitted UpdateHostKeys but never an enabled value", async (t) => {
 	const { directory, profile } = await fixture(t);
 	const { client: omitted } = configRunner(profile.id, ({ args, strict }) => (strict ? { exitCode: 0, stdout: strictConfig(profile.id, args).replace("updatehostkeys false\n", "") } : undefined));

@@ -33,10 +33,10 @@ function loadImporter(homePath) {
 	// （registry.source / registry.convert 等）。
 	const load = createTsSandbox({ stubs: { electron: { app: { getPath: () => homePath } } } });
 	const registry = {
-		source: load("src/main/sessions/workbuddySessionSource.ts"),
-		convert: load("src/main/sessions/workbuddySessionConvert.ts"),
+		source: load("src/main/sessions/codebuddyFamilySessionSource.ts"),
+		convert: load("src/main/sessions/codebuddyFamilySessionConvert.ts"),
 	};
-	const mod = load("src/main/sessions/WorkBuddySessionImporter.ts");
+	const mod = load("src/main/sessions/codebuddyFamilySessionImporter.ts");
 	return { importer: new mod.WorkBuddySessionImporter(), registry };
 }
 

@@ -4,7 +4,7 @@ import { showNotice } from "../utils/notice";
 import { latestUserMessage, SendScrollPositioner } from "./timeline/sendScroll";
 import { ROOT_ROW_SELECTOR, useVisibleTimelineRows, type VisibleTimelineRow } from "./timeline/useVisibleTimelineRows";
 import { capWindowTurns, planWindowExpandBatch } from "../components/session/timeline/windowExpandPlan";
-import { resolveHistoryPageSize, resolvePageWindowGrowth } from "../components/session/timeline/historyPagePolicy";
+import { resolveEarlierHistoryCursor, resolveHistoryPageSize, resolvePageWindowGrowth } from "../components/session/timeline/historyPagePolicy";
 import { selectAtom } from "jotai/utils";
 import { desktopApi } from "../desktopApi";
 import type { AgentRuntimeState, ChatMessage, SessionMessagePage, SessionRecord } from "../../../shared/types";
@@ -774,16 +774,27 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	// 前缀与窗口段是两个下标空间，仅在渲染层按顺序拼接，合并/去重由 atoms 保证。
 	const runtimeHistory = controllerEnabled && cachedEntry?.source === "runtime" ? cachedEntry.history : undefined;
 	const combinedMessages = useMemo(() => (runtimeHistory ? [...runtimeHistory.messages, ...messages] : messages), [runtimeHistory, messages]);
-	// 窗口前还有历史可加载：已加载前缀看游标（数值或 entryId），未加载看窗口起点（>0 说明激活时被截断）。
-	// slideOut 单独重建前缀时 nextBefore 可能为 null，但 nextBeforeEntryId 仍指向更早锚点，
-	// 不能把这种前缀误判为「已经到最早」。
-	// 兜底分支（runtimeHistory 缺失）不能只看 windowStart：主进程内存窗口只驻留
-	// MAX_HISTORY_LOAD_TURNS 轮，恢复会话时 windowStart 恒为 0（getMessageWindow 只在 >0 时下发），
-	// 而文件里更早的历史仍在——「加载更多对话」因此永远不出现（长会话压缩过几轮后必现）。
-	// windowStartFilePos 是窗口首条在文件下标空间里的位置，>0 即证明文件里还有更早内容，
-	// 翻页游标也用它（见下方 anchorFilePos），两条判断从此同源。
-	const windowHasEarlier = typeof cachedEntry?.windowStartFilePos === "number" ? cachedEntry.windowStartFilePos > 0 : (cachedEntry?.windowStart ?? 0) > 0;
-	const historyHasMore = controllerEnabled && cachedEntry?.source === "runtime" ? (runtimeHistory ? runtimeHistory.nextBefore !== null || Boolean(runtimeHistory.nextBeforeEntryId) : windowHasEarlier) : false;
+	// 窗口前还有历史可加载：判断与「这次点击真能推进一页」必须同源，否则按钮变成死按钮
+	// （2026-12 真机：已经是第一条消息了按钮还在，点了无任何变化）。旧写法两份实现：
+	// 可见性看 `nextBefore !== null` / `windowStart > 0`，请求侧拿不到锚点就静默 return。
+	// 现在统一走 resolveEarlierHistoryCursor：拿不到游标 = 没更早历史 = 不显示按钮。
+	// 两个曾经的坑写在那个函数里（缓存页把文件头回成 nextBefore: 0、无文件会话只剩 windowStart>0）。
+	const earlierHistoryCursor = useMemo(
+		() =>
+			controllerEnabled
+				? resolveEarlierHistoryCursor({
+						runtimeHistory,
+						windowMessages: messages,
+						windowStartFilePos: cachedEntry?.windowStartFilePos,
+						// ACP 没有会话文件、消息也不带 entryId：窗口起点就是分页游标
+						windowStart: cachedEntry?.windowStart,
+					})
+				: null,
+		[controllerEnabled, runtimeHistory, messages, cachedEntry?.windowStartFilePos, cachedEntry?.windowStart],
+	);
+	const historyHasMore = controllerEnabled && cachedEntry?.source === "runtime" ? earlierHistoryCursor !== null : false;
+	// disk 页与窗口页的统一口径：游标必须是 >0 的实下标（0 = 文件头，不是「还有」。）
+	const hasEarlierPages = diskPage ? typeof diskPage.nextBefore === "number" && diskPage.nextBefore > 0 : historyHasMore;
 	// 2026-11 轮次模型：不再按 100 条分页器切片，显示数组 = 已加载全部（历史前缀 + 运行时窗口段）。
 	// 内存预算由主进程 12 轮缓存 + 回底临时历史清理承担，渲染层不再有第二道条数窗口。
 	const visibleMessages = combinedMessages;
@@ -1515,7 +1526,8 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			if (diskPage) {
 				const sessionId = options.sessionId;
 				const before = diskPage.nextBefore;
-				if (!sessionId || before === null || isLoadingMessagePage) return;
+				// 0 是文件头而不是「还有更早」：放过会发出一次空页请求，界面毫无变化。
+				if (!sessionId || typeof before !== "number" || before <= 0 || isLoadingMessagePage) return;
 				const browseGeneration = historyBrowseGenerationRef.current;
 				const sequence = ++nextLoadSequence;
 				trackLatestLoad(sessionId, sequence);
@@ -1584,19 +1596,14 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			// runtime 窗口会话：直接按轮次补历史（2026-11 轮次模型，不再有 100 条渲染窗口）。
 			// 首次加载以运行时窗口段首条消息的 entryId 为锚点（两个下标空间唯一的对齐点），
 			// 续页用上一页最旧条目的 entryId（nextBeforeEntryId）——主进程缓存命中路径依赖它。
-			if (historyHasMore) {
+			if (earlierHistoryCursor) {
 				const sessionId = options.sessionId;
 				if (!sessionId || isLoadingMessagePage) return;
-				const before = runtimeHistory?.nextBefore;
-				// 首次补历史锚点：窗口首条可能是无 entryId 的系统摘要卡片（compaction/branchSummary），
-				// 必须取第一条有 entryId 的消息，否则锚点解析失败导致首次上翻静默放弃。
-				const anchorMessage = !runtimeHistory ? messages.find((m) => typeof m.meta?.entryId === "string") : undefined;
-				const anchorEntryId = typeof anchorMessage?.meta?.entryId === "string" ? anchorMessage.meta.entryId : undefined;
-				// 大历史窗口（skipEntries 路径）消息可能整体缺 entryId：退化为窗口首条消息的
-				// 文件消息下标（windowStartFilePos）作为数值游标——主进程缓存路径先把它解析成
-				// entryId 再查缓存，磁盘路径直接消费文件下标。两者都没有才放弃补历史。
-				const anchorFilePos = !runtimeHistory && !anchorEntryId ? (typeof cachedEntry?.windowStartFilePos === "number" ? cachedEntry.windowStartFilePos : undefined) : undefined;
-				if (!runtimeHistory && !anchorEntryId && anchorFilePos === undefined) return;
+				// 游标由 resolveEarlierHistoryCursor 统一给出（与 historyHasMore 同一判断）：
+				// 续页用上一页最旧条目的 entryId（nextBeforeEntryId），首次用窗口段首条带 entryId
+				// 的消息，大历史窗口退化为 windowStartFilePos。这里不再自己找锚点——两处各写一份
+				// 就会出现「按钮在、锚点缺、静默 return」的死按钮。
+				const { before, beforeEntryId } = earlierHistoryCursor;
 				const browseGeneration = historyBrowseGenerationRef.current;
 				const sequence = ++nextLoadSequence;
 				trackLatestLoad(sessionId, sequence);
@@ -1614,9 +1621,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 				// 重试时先清掉上一次的错误行
 				setLoadMoreError(null);
 				void desktopApi.sessions
-					.readRecordMessagePage(sessionId, before ?? (anchorFilePos !== undefined ? anchorFilePos : undefined), pageSize, {
-						beforeEntryId: anchorEntryId ?? runtimeHistory?.nextBeforeEntryId ?? undefined,
-					})
+					.readRecordMessagePage(sessionId, before ?? undefined, pageSize, { beforeEntryId })
 					.then((page: SessionMessagePage) => {
 						if (latestLoadBySession.get(sessionId) !== sequence) return;
 						// 与 disk 翻页同一语义：host 被停时不把空页当新历史，出失败行
@@ -1663,7 +1668,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 				return;
 			}
 		},
-		[beginPrependSolid, cachedEntry?.revision, captureBrowsePin, diskPage, escapeAutoScroll, expandWindowBatched, historyHasMore, isLoadingMessagePage, messages, options.sessionId, ownerKey, prependHistoryPage, prependMessagePage, runtimeHistory],
+		[beginPrependSolid, cachedEntry?.revision, captureBrowsePin, diskPage, earlierHistoryCursor, escapeAutoScroll, expandWindowBatched, isLoadingMessagePage, options.sessionId, ownerKey, prependHistoryPage, prependMessagePage],
 	);
 
 	// ── 回底清理临时历史（2026-11 轮次模型）──
@@ -1854,7 +1859,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			// 扩窗（只多挂轮次）永远挂不出这些节点。先请求包含它的 TurnRow 展开折叠，
 			// 再由下面的 pendingJump 重试循环完成落位。
 			if (index >= 0) requestTimelineReveal(targetNodeId);
-			const hasMorePages = diskPage ? diskPage.nextBefore !== null : historyHasMore;
+			const hasMorePages = hasEarlierPages;
 			// 冷会话（消息还没上屏 / 首屏仍在加载）里 index<0 不等于「目标不存在」：挂起跳转，
 			// 等数据到达后由 pendingJump effect 落位。旧实现这里直接 return，宿主插件按 entryId
 			// 导航到尚未加载完消息的会话时静默失效（#401 复审 P0）。
@@ -1873,7 +1878,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 				value: { messageId, expandAttempts: 0, loadAttempts: 0, nonce: jumpNonceRef.current },
 			});
 		},
-		[clearTimelineReveal, combinedMessages, diskPage, escapeAutoScroll, expandWindowBatched, highlightMessage, historyHasMore, isSurfaceLoading, ownerKey, requestTimelineReveal, scrollJumpTargetIntoView, settleJumpTarget],
+		[clearTimelineReveal, combinedMessages, escapeAutoScroll, expandWindowBatched, hasEarlierPages, highlightMessage, isSurfaceLoading, ownerKey, requestTimelineReveal, scrollJumpTargetIntoView, settleJumpTarget],
 	);
 
 	/**
@@ -2118,7 +2123,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 				}
 
 				const now = Date.now();
-				const hasMore = diskPage ? diskPage.nextBefore !== null : historyHasMore;
+				const hasMore = hasEarlierPages;
 				// wheel 意图在浏览器默认滚动前上报，scrollbar/touch 意图在 scroll 后上报；
 				// 下一帧读取统一后的最终位置，因此不再依赖监听器注册顺序或 sticky 方向标记。
 				const expandThreshold = resolveAutoExpandThreshold(timeline.clientHeight);
@@ -2146,7 +2151,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 				}
 			});
 		},
-		[captureBrowsePin, controllerEnabled, diskPage, escapeAutoScroll, expandWindowBatched, historyHasMore, isLoadingMessagePage, loadMoreMessages, ownerKey],
+		[captureBrowsePin, controllerEnabled, escapeAutoScroll, expandWindowBatched, hasEarlierPages, isLoadingMessagePage, loadMoreMessages, ownerKey],
 	);
 
 	useLayoutEffect(() => {
@@ -2249,7 +2254,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 		// 目标未挂载：按策略兜底扩窗（指数步长）/ 跳转驱动补页 / 放弃（防呆上限）。
 		// give-up 保留旧行为兜底：目标已不在数据（压缩清理/删除）时不无限扩窗（2026-08 黑屏治理）。
 		const stillInData = targetIndex >= 0;
-		const hasMorePages = diskPage ? diskPage.nextBefore !== null : historyHasMore;
+		const hasMorePages = hasEarlierPages;
 		// 冷会话等待：目标还没进数据，但消息尚未上屏（首批未到 / 首屏加载中）。
 		// 这不是「目标不存在」—— give-up 会误报「跳转失败」并把插件导航丢掉（#401 复审 P0）。
 		// effect 依赖 combinedMessages：数据到达后自动重跑并落位。
@@ -2299,14 +2304,14 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			return;
 		}
 		expandWindow(action.turns);
-	}, [clearTimelineReveal, combinedMessages, controllerEnabled, diskPage, expandWindow, findFallbackJumpRow, highlightMessage, historyHasMore, isLoadingMessagePage, isSurfaceLoading, loadMoreError, loadMoreMessages, ownerKey, pendingJump, scrollJumpTargetIntoView, scrolledWindowTurns, settleJumpTarget]);
+	}, [clearTimelineReveal, combinedMessages, controllerEnabled, expandWindow, findFallbackJumpRow, hasEarlierPages, highlightMessage, isLoadingMessagePage, isSurfaceLoading, loadMoreError, loadMoreMessages, ownerKey, pendingJump, scrollJumpTargetIntoView, scrolledWindowTurns, settleJumpTarget]);
 
 	return {
 		timelineRef,
 		messages,
 		visibleMessages: diskPage ? messages : visibleMessages,
 		totalMessageCount: diskPage ? diskPage.total : combinedMessages.length,
-		hasMoreMessages: diskPage ? diskPage.nextBefore !== null : historyHasMore,
+		hasMoreMessages: hasEarlierPages,
 		// 下一次「加载更多」是否触发 disk 轮次分页（窗口前还有历史）：
 		// 2026-11 轮次模型：runtime 会话一律按轮补页（无内存扩窗阶段），文案恒为「加载更多对话」
 		nextLoadIsHistory: controllerEnabled && !diskPage && historyHasMore,

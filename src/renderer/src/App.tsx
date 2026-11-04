@@ -95,6 +95,7 @@ import { LOGO_STYLE_STORAGE_KEY, resolveLogoStyle } from "./components/app/piTui
 import { writeBootBrandCache } from "./components/app/bootBrandCache";
 import { resolveAppDisplayName } from "../../shared/types/settings";
 import { openProviderLoginAtom } from "./atoms/providerLoginAtoms";
+import { wslProjectPickerAtom } from "./atoms/wsl-project-atoms";
 import { useSessionLayout } from "./hooks/useSessionLayout";
 import { useFileEditor } from "./hooks/useFileEditor";
 import { useSessionFileLinks } from "./hooks/workspace/useSessionFileLinks";
@@ -112,6 +113,7 @@ import { useSessionHistoryMutations } from "./hooks/useSessionHistoryMutations";
 import { useUserMessageEditReplay } from "./hooks/useUserMessageEditReplay";
 import { isLiveRuntimeStatus, resolveSessionReloadMode, sessionCommandFailureToast, type SessionRunAction, type SessionRunCapabilities, type SessionRunControlView } from "./utils/sessionCommands";
 import { GUIDE_BOOTSTRAP_SESSION_ID, readWelcomeDshModelPreference, readWelcomeModelPreference, readWelcomeThinkingPreference, resolveChatSessionBootstrap, type NewSessionBackendTarget } from "./utils/chatSessionBootstrap";
+import { createSessionOnce } from "./utils/sessionCreation";
 import { useAppAppearance } from "./hooks/appearance/useAppAppearance";
 import { useAppBootstrapInfo } from "./hooks/app/useAppBootstrapInfo";
 import { useBootOverlayReady } from "./hooks/app/useBootOverlayReady";
@@ -195,6 +197,7 @@ import { SessionPaneServicesProvider, type SessionFileOpenContext } from "./comp
 import { SessionStatusPanel } from "./components/session/statusPanel/SessionStatusPanel";
 import { ProjectEmptyState } from "./components/session/ProjectEmptyState";
 import { RemoteProjectEnrollDialog } from "./components/sidebar/RemoteProjectEnrollDialog";
+import { WslProjectPickerDialog } from "./components/sidebar/WslProjectPickerDialog";
 import { FileLinkBaseProvider } from "./components/session/FileLinkBase";
 import { useSessionWorkspaceChrome } from "./hooks/useSessionWorkspaceChrome";
 import { useSessionIdAliasMigration } from "./hooks/useSessionIdAliasMigration";
@@ -312,6 +315,8 @@ export function App() {
 	const setHostPluginPanel = useSetAtom(hostPluginPanelAtom);
 	// `/login`：打开供应商登录弹框（弹框自己从 atom 取预选供应商）。
 	const openProviderLogin = useSetAtom(openProviderLoginAtom);
+	// WSL 模式下的「添加项目」：写开关即打开内置目录选择器（系统对话框读不到发行版内目录）。
+	const setWslProjectPicker = useSetAtom(wslProjectPickerAtom);
 	const setProjects = useSetAtom(replaceProjectInventoryAtom);
 	const applyRuntimeEvent = useSetAtom(applySessionRuntimeEventAtom);
 	const upsertSession = useSetAtom(upsertSessionAtom);
@@ -335,6 +340,13 @@ export function App() {
 	currentSessionIdRef.current = currentSessionId;
 	const openSessionRequestRef = useRef(0);
 	const creatingSessionDraftRef = useRef<Set<string>>(new Set());
+	// 每个项目在途的草稿创建（issue #481）：Tab 栏「+」/ 侧栏新建 与 引导页首发
+	// 是两条独立入口，都会为同一项目建 draft。谁先发起谁落地，后到者复用同一条
+	// 会话——否则多建出的那条没人写过，就是 Tab 栏里点不动的空标签。
+	const pendingDraftCreationRef = useRef<Map<string, Promise<SessionRecord | undefined>>>(new Map());
+	// 最近一条由「+」/侧栏新建落地的草稿：引导页输入框被它顶下去时，卸载前已排队的
+	// 首次发送要落进这条会话，而不是再建一条空会话（issue #481 的另一半竞态）。
+	const lastCreatedDraftIdRef = useRef<string | undefined>(undefined);
 	// 引导页虚拟会话提升并发闸：首次发送触发创建真实会话时登记 promise，同一帧内
 	// 的并发发送（如快速双击）复用同一次提升，避免建出两个会话。
 	const guideBootstrapPromotionRef = useRef<Promise<string> | undefined>(undefined);
@@ -400,6 +412,12 @@ export function App() {
 		name: string;
 	} | null>(null);
 	const [renamingFileInput, setRenamingFileInput] = useState("");
+	/** 文件树右键「新建文件/新建文件夹」：target 与「粘贴」同源（目录=自身、文件=父目录） */
+	const [creatingFile, setCreatingFile] = useState<{
+		target: string | ProjectFileTarget;
+		kind: "file" | "directory";
+	} | null>(null);
+	const [creatingFileInput, setCreatingFileInput] = useState("");
 	/** 历史会话来源过滤（按项目）：undefined=显示全部，Record 含项目ID对应 Set（含 DSH 类别） */
 	const [sessionSourceFilter] = useState<Record<string, Set<SessionFilterPill> | null>>(() => loadSessionSourceFilter());
 	/** 编辑器展示模式：弹框或侧栏 */
@@ -555,6 +573,12 @@ export function App() {
 		t,
 	});
 
+	// refreshProjectSessions 由 useProjectSync 以普通函数返回，每次渲染都换引用。
+	// 写进 effect deps 会让「catalog 加载失败 → 状态更新重渲染」再次触发自动重试，
+	// 持久失败时形成无限扫描风暴。自动加载类 effect 经 ref 取最新实现，不随渲染重跑。
+	const refreshProjectSessionsRef = useRef(refreshProjectSessions);
+	refreshProjectSessionsRef.current = refreshProjectSessions;
+
 	// 回答结束后的会话列表后台静默刷新：500ms 尾沿去抖。
 	// 多个 Agent 同时结束回答时只扫描一次，避免重复 IPC 与列表抖动。
 	const answerEndRefreshTimerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -584,6 +608,8 @@ export function App() {
 		setZcodeImportProject,
 		workbuddyImportProject,
 		setWorkbuddyImportProject,
+		codebuddyImportProject,
+		setCodebuddyImportProject,
 		cursorImportProject,
 		setCursorImportProject,
 		kimiImportProject,
@@ -598,6 +624,7 @@ export function App() {
 		openCodeImportController,
 		zcodeImportController,
 		workbuddyImportController,
+		codebuddyImportController,
 		cursorImportController,
 		kimiImportController,
 		kimiWorkImportController,
@@ -608,6 +635,7 @@ export function App() {
 		openOpenCodeImport,
 		openZCodeImport,
 		openWorkBuddyImport,
+		openCodeBuddyImport,
 		openCursorImport,
 		openKimiImport,
 		openKimiWorkImport,
@@ -628,6 +656,8 @@ export function App() {
 		importZCodeSessionsApi: api.zcodeSessions.import,
 		scanWorkBuddySessions: api.workbuddySessions.scan,
 		importWorkBuddySessionsApi: api.workbuddySessions.import,
+		scanCodeBuddySessions: api.codebuddySessions.scan,
+		importCodeBuddySessionsApi: api.codebuddySessions.import,
 		scanCursorSessions: api.cursorSessions.scan,
 		importCursorSessionsApi: api.cursorSessions.import,
 		scanKimiSessions: api.kimiSessions.scan,
@@ -782,9 +812,11 @@ export function App() {
 	const { checkNode: checkGuideNode, checkNpmForGuide: checkGuideNpm } = piGuide;
 	useEffect(() => {
 		if (!environmentDialog) return;
+		// WSL 模式下 pi 由发行版提供：宿主机 Node/npm 的检测与引导面板无关（面板已换成 WSL 内的安装指令），不做无谓探测。
+		if (settings.wslEnabled === true) return;
 		void checkGuideNode();
 		void checkGuideNpm();
-	}, [environmentDialog, checkGuideNode, checkGuideNpm]);
+	}, [environmentDialog, checkGuideNode, checkGuideNpm, settings.wslEnabled]);
 	// 默认后端自动选择：没有手动选过时，只装了 DSH runtime（没有 pi）就用 dsh，否则 pi。
 	// piInstalled 用实时检测优先、持久化缓存兜底：首次引导前 piStatus 还是 null。
 	const dshRuntimeStatus = useAtomValue(dshRuntimeStatusAtom);
@@ -1377,14 +1409,27 @@ export function App() {
 		});
 	}, [workspaceChrome, selectSessionCommand, selectProjectCommand, overlays, showToast]);
 
-	/** 新建会话：选中 + 登记常驻 Tab（chrome 与 selection 在 App 边界组合） */
+	/**
+	 * 新建会话：选中 + 登记常驻 Tab（chrome 与 selection 在 App 边界组合）。
+	 *
+	 * 同一项目同一时刻只跑一条创建（issue #481）：入口在等 IPC 往返时引导页
+	 * 输入框仍可发送，两条链路各建一条会话就会在 Tab 栏留下没人写过的空标签；
+	 * 后到者复用先到者的会话，选择与 Tab 登记本来就幂等。
+	 */
 	const createSessionDraftWithTab = useCallback(
 		async (projectId?: string, preferences: SessionLaunchPreferences = {}, backend?: AgentBackend) => {
-			const session = await runCreateSessionDraft(projectId, preferences, backend);
-			if (session) workspaceChrome.registerOpenSession(session.id, "permanent");
-			return session;
+			const targetProjectId = projectId ?? activeProjectId;
+			if (!targetProjectId) return undefined;
+			return createSessionOnce(pendingDraftCreationRef.current, targetProjectId, async () => {
+				const session = await runCreateSessionDraft(targetProjectId, preferences, backend);
+				if (session) {
+					lastCreatedDraftIdRef.current = session.id;
+					workspaceChrome.registerOpenSession(session.id, "permanent");
+				}
+				return session;
+			});
 		},
-		[runCreateSessionDraft, workspaceChrome],
+		[activeProjectId, runCreateSessionDraft, workspaceChrome],
 	);
 
 	const createAnonymousSessionWithTab = useCallback(
@@ -1568,9 +1613,9 @@ export function App() {
 			catalogStatus: store.get(sessionCatalogLoadStateAtom)[activeProject.id]?.status,
 		});
 		if (action.kind === "load") {
-			void refreshProjectSessions(activeProject.id).catch(() => undefined);
+			void refreshProjectSessionsRef.current(activeProject.id).catch(() => undefined);
 		}
-	}, [activeProject, currentSessionId, refreshProjectSessions, selectSessionCommand, store]);
+	}, [activeProject, currentSessionId, store]);
 
 	// 引导页空白输入框（虚拟会话 GUIDE_BOOTSTRAP_SESSION_ID）的落地钩子：
 	// - 首次发送时创建真实 Catalog 会话（Chat 匿名 / 非 Chat draft）；
@@ -1619,15 +1664,31 @@ export function App() {
 				// 激活时 SessionRuntimeCoordinator.applyPreferences → DshAgentManager.setModel
 				// 会把这条显式 model 落到 host（host 拒绝时降级并告警，不让创建失败）。
 				const acpToolName = draftBackend === "acp" && acpToolId ? store.get(acpToolsAtom).find((candidate) => candidate.id === acpToolId)?.name : undefined;
-				const session = await api.sessions.createDraft({
-					projectId: project.id,
-					title: pendingAgent ? buildAgentSessionTitle(pendingAgent) : draftBackend === "dsh" ? `${project.name} DSH` : (acpToolName ?? `${project.name} agent`),
-					backend: draftBackend,
-					...(draftBackend === "acp" && acpToolId ? { acpToolId } : {}),
-					...(welcomeModel ? (draftBackend === "dsh" ? { model: welcomeModel } : { welcomeModel }) : {}),
-					...(welcomeThinking ? { thinkingLevel: welcomeThinking } : {}),
-				});
-				upsertSession(session);
+				// 复用 Tab 栏「+」/ 侧栏新建正在创建的草稿（issue #481）：那条 IPC 还没回来时
+				// 引导页首发若另建一条，Tab 栏会多出一个没人写过的空标签。创建失败（undefined）
+				// 时照常自建——失败的那条本来就没落地，不该让首发跟着失败。
+				const inFlightDraft = pendingDraftCreationRef.current.get(project.id);
+				// 「+」/侧栏新建刚落地、并且已经顶掉引导页（currentSessionId 指向它）：这条发送
+				// 来自即将卸载的输入框，消息要落进那条会话。只认「最近新建的那条」，用户手动
+				// 切到的其它会话不会被误当成新建目标。
+				const liveSessionId = store.get(currentSessionIdAtom);
+				const adoptedSession = liveSessionId && liveSessionId === lastCreatedDraftIdRef.current ? store.get(sessionRecordByIdAtomFamily(liveSessionId)) : undefined;
+				const adoptedDraft = inFlightDraft ? await inFlightDraft : adoptedSession;
+				const session =
+					adoptedDraft ??
+					(await createSessionOnce(pendingDraftCreationRef.current, project.id, async () => {
+						const created = await api.sessions.createDraft({
+							projectId: project.id,
+							title: pendingAgent ? buildAgentSessionTitle(pendingAgent) : draftBackend === "dsh" ? `${project.name} DSH` : (acpToolName ?? `${project.name} agent`),
+							backend: draftBackend,
+							...(draftBackend === "acp" && acpToolId ? { acpToolId } : {}),
+							...(welcomeModel ? (draftBackend === "dsh" ? { model: welcomeModel } : { welcomeModel }) : {}),
+							...(welcomeThinking ? { thinkingLevel: welcomeThinking } : {}),
+						});
+						upsertSession(created);
+						return created;
+					}));
+				if (!session) throw new Error(t("app.sessionCreateFailed"));
 				if (pendingAgent) {
 					// 绑定失败不阻断发送（会话已存在，用户还能在输入框上方的提示条里再绑）；
 					// 无论成败都清掉待绑定 id，避免下一轮新会话页继承上一个智能体。
@@ -1816,9 +1877,9 @@ export function App() {
 			if (!expandedProjects.has(project.id)) continue;
 			const loadState = store.get(sessionCatalogLoadStateAtom)[project.id];
 			if (loadState?.status === "loading" || loadState?.status === "ready") continue;
-			void refreshProjectSessions(project.id).catch(() => undefined);
+			void refreshProjectSessionsRef.current(project.id).catch(() => undefined);
 		}
-	}, [expandedProjects, expandedProjectsReady, projectIdsKey, refreshProjectSessions, store]);
+	}, [expandedProjects, expandedProjectsReady, projectIdsKey, store]);
 
 	useEffect(() => {
 		if (activeAgentId && !isPendingAgentId(activeAgentId)) void refreshRuntimeState(activeAgentId);
@@ -1908,9 +1969,9 @@ export function App() {
 		const activeProject = projects.find((p) => p.id === activeProjectId);
 		const loadState = store.get(sessionCatalogLoadStateAtom)[activeProjectId];
 		if (expandedProjectsReady && activeProject && expandedProjects.has(activeProjectId) && loadState?.status !== "loading" && loadState?.status !== "ready") {
-			void refreshProjectSessions(activeProjectId).catch(() => undefined);
+			void refreshProjectSessionsRef.current(activeProjectId).catch(() => undefined);
 		}
-	}, [activeProjectId, activeProjectIsRemote, expandedProjects, expandedProjectsReady, projects, refreshProjectSessions, store]);
+	}, [activeProjectId, activeProjectIsRemote, expandedProjects, expandedProjectsReady, projects, store]);
 
 	// 项目切换只刷 git 分支（文件树加载/恢复已收口到 useProjectFileTreeController）
 	useEffect(() => {
@@ -2032,6 +2093,12 @@ export function App() {
 	}
 
 	async function addProject() {
+		// WSL 模式：系统「打开文件夹」只按 Windows 身份访问 \\wsl.localhost，发行版内的目录（尤其 root
+		// 档案的 /root）递进去就是「无法访问网络资源」；改由内置选择器在发行版内列目录。
+		if (settings.wslEnabled === true) {
+			setWslProjectPicker({});
+			return;
+		}
 		const project = await api.projects.add();
 		if (!project) return;
 		// 先同步 DSH：新目录注册后，原先按 cwd 找不到项目的外部会话才能挂进来。
@@ -2343,6 +2410,7 @@ export function App() {
 				if (source === "qoder") return openQoderImport(project);
 				if (source === "zcode") return openZCodeImport(project);
 				if (source === "workbuddy") return openWorkBuddyImport(project);
+				if (source === "codebuddy") return openCodeBuddyImport(project);
 				if (source === "cursor") return openCursorImport(project);
 				if (source === "kimi") return openKimiImport(project);
 				if (source === "kimiwork") return openKimiWorkImport(project);
@@ -2921,6 +2989,9 @@ export function App() {
 			queueRetract: queue.retractQueuedPromptForEdit,
 			queueDiscard: queue.discardQueuedPrompt,
 			queueChangeBehavior: queue.setQueuedPromptBehavior,
+			queueSendNow: queue.sendQueuedPromptNow,
+			// ACP 忙时「立即发送」= 先停当前回合（与输入框「停止」同一条 runSessionControl 链路）。
+			queueStopTurn: (sessionId: string) => void runSessionControl(sessionId, "abort"),
 			queueSuppressAutoDrain: queue.suppressSessionQueueAutoDrain,
 			queueFlushBySessionRef,
 			restartingAgentId,
@@ -3637,6 +3708,11 @@ export function App() {
 								}
 								setFileMenu(null);
 							}}
+							onCreate={(target, kind) => {
+								setCreatingFile({ target, kind });
+								setCreatingFileInput("");
+								setFileMenu(null);
+							}}
 							onDelete={() => {
 								const node = fileMenu.node;
 								const target = node.target ?? node.path;
@@ -3677,6 +3753,31 @@ export function App() {
 					)}
 					<RenameModals
 						rename={rename.renameModalsProps.rename}
+						fileCreate={
+							creatingFile
+								? {
+										targetLabel: typeof creatingFile.target === "string" ? creatingFile.target : creatingFile.target.relativePath || "/",
+										kind: creatingFile.kind,
+										inputValue: creatingFileInput,
+										onInputChange: setCreatingFileInput,
+										onClose: () => setCreatingFile(null),
+										onConfirm: (name) => {
+											void api.files
+												.create(creatingFile.target, name, creatingFile.kind)
+												.then(() => {
+													// 静默刷新：下面已经有了针对本次操作的具体提示，别再叠一层「已刷新」
+													void refreshVisibleFiles(undefined, true);
+													setCreatingFile(null);
+													showToast(t(creatingFile.kind === "directory" ? "app.folderCreated" : "app.fileCreated"), 2000);
+												})
+												.catch((error) => {
+													setCreatingFile(null);
+													showToast(t("app.fileCreateFailed", { error: error instanceof Error ? error.message : String(error) }), 4000);
+												});
+										},
+									}
+								: undefined
+						}
 						fileRename={
 							renamingFile
 								? {
@@ -3745,12 +3846,16 @@ export function App() {
 								piUpdate.setNpmVersion(undefined);
 								piUpdate.setInstallResult(null);
 								piUpdate.setInstallCompleted(false);
-								// 引导面板上的 Node/npm 状态同步刷新（一键安装可能刚补上便携 Node）
-								void piGuide.checkNode();
-								void piGuide.checkNpmForGuide();
+								// 引导面板上的 Node/npm 状态同步刷新（一键安装可能刚补上便携 Node）；WSL 模式下不展示也不探测宿主机环境
+								if (settings.wslEnabled !== true) {
+									void piGuide.checkNode();
+									void piGuide.checkNpmForGuide();
+								}
 								piUpdate.checkPiInstall("manual");
 							}}
 							onOpenInstallDocs={() => api.app.openExternal("https://pi.dev/docs/latest/quickstart#install")}
+							// WSL 模式下 pi 在发行版里，引导面板要换成 WSL 内的安装指令（宿主机一键安装对它无效）。
+							wsl={{ enabled: settings.wslEnabled === true, distro: settings.wslDistro, user: settings.wslUser }}
 							installations={piUpdate.piInstallations ?? []}
 							applyingInstallationPath={piUpdate.applyingInstallationPath}
 							onChooseInstallation={(path) => void piUpdate.choosePiInstallation(path)}
@@ -3792,6 +3897,15 @@ export function App() {
 								.catch(() => undefined);
 						}}
 					/>
+					{/* WSL 目录选择器：同上，唯一挂载点；WSL 侧没有「外部会话按 cwd 归位」的问题，登记后直接选中新项目。 */}
+					<WslProjectPickerDialog
+						onAdded={(projectId) => {
+							void syncDshForeignSessionsIfEnabled()
+								.then(() => refreshProjects())
+								.then(() => selectProjectCommand(projectId))
+								.catch(() => undefined);
+						}}
+					/>
 					{/*
 					 * 问题反馈弹窗的「新建会话分析」依赖 App 级会话创建能力（createSessionDraftWithTab），
 					 * 在装配层组合：useOverlayActions 只持开关状态，会话创建与预填在此处注入。
@@ -3821,6 +3935,7 @@ export function App() {
 					{openCodeImportProject && <ImportOverlayHost kind="opencode" project={openCodeImportProject} controller={openCodeImportController} onClose={() => setOpenCodeImportProject(null)} />}
 					{zcodeImportProject && <ImportOverlayHost kind="zcode" project={zcodeImportProject} controller={zcodeImportController} onClose={() => setZcodeImportProject(null)} />}
 					{workbuddyImportProject && <ImportOverlayHost kind="workbuddy" project={workbuddyImportProject} controller={workbuddyImportController} onClose={() => setWorkbuddyImportProject(null)} />}
+					{codebuddyImportProject && <ImportOverlayHost kind="codebuddy" project={codebuddyImportProject} controller={codebuddyImportController} onClose={() => setCodebuddyImportProject(null)} />}
 					{cursorImportProject && <ImportOverlayHost kind="cursor" project={cursorImportProject} controller={cursorImportController} onClose={() => setCursorImportProject(null)} />}
 					{kimiImportProject && <ImportOverlayHost kind="kimi" project={kimiImportProject} controller={kimiImportController} onClose={() => setKimiImportProject(null)} />}
 					{kimiWorkImportProject && <ImportOverlayHost kind="kimiwork" project={kimiWorkImportProject} controller={kimiWorkImportController} onClose={() => setKimiWorkImportProject(null)} />}

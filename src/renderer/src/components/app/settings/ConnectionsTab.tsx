@@ -1,6 +1,8 @@
+import { useSetAtom } from "jotai";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LoaderCircle, Pencil, Plus, Server, TerminalSquare, Trash2 } from "lucide-react";
 import { desktopApi } from "../../../desktopApi";
+import { wslProjectPickerAtom } from "../../../atoms/wsl-project-atoms";
 import { t } from "../../../i18n";
 import { cn } from "../../../lib/utils";
 import { REMOTE_HOST_TONE_DOT_CLASS, resolveRemoteHostConnectionTone } from "../../../utils/remoteHostIdentity";
@@ -57,7 +59,8 @@ export function ConnectionsTab() {
 	const [removingWsl, setRemovingWsl] = useState<WslHostListItem | null>(null);
 	const [wslRemoveBusy, setWslRemoveBusy] = useState(false);
 	const [wslRemoveError, setWslRemoveError] = useState<string | null>(null);
-	const [wslAddingId, setWslAddingId] = useState<string | null>(null);
+	// 「添加项目」交给 App 挂载的 WSL 目录选择器：这里只递档案 id，不自己开系统对话框。
+	const openWslProjectPicker = useSetAtom(wslProjectPickerAtom);
 	/** 取消/重试会换代：旧 connect 的迟到结果不得回写新一次的状态。 */
 	const attemptRef = useRef(0);
 
@@ -110,21 +113,17 @@ export function ConnectionsTab() {
 		void refreshWsl();
 	}, [refreshWsl]);
 
-	/** 用该档案添加项目：目录仍由系统选择框决定，主进程写入 distro/user/hostId。 */
-	const addWslProject = useCallback(async (host: WslHostListItem) => {
-		setWslAddingId(host.id);
-		setWslError(null);
-		try {
-			const project = await desktopApi.projects.addWsl(host.id);
-			if (project !== null) setMessage(t("settings.connections.wsl.projectAdded", { name: project.name }));
-		} catch (error) {
-			const raw = error instanceof Error ? error.message : String(error);
-			const code = /^[A-Z][A-Z0-9_]{2,63}$/u.test(raw) ? raw : "WSL_HOST_UNAVAILABLE";
-			setWslError(code === "WSL_HOST_NOT_FOUND" ? t("settings.connections.wsl.projectHostMissing") : t("settings.connections.wsl.projectAddFailed", { code }));
-		} finally {
-			setWslAddingId(null);
-		}
-	}, []);
+	/**
+	 * 用该档案添加项目：打开内置 WSL 目录选择器（App 唯一挂载点），主进程按档案写入 distro/user/hostId。
+	 * 不再走系统「打开文件夹」——它只能按 Windows 身份访问 \\wsl.localhost，发行版内目录会报「无法访问网络资源」。
+	 */
+	const addWslProject = useCallback(
+		(host: WslHostListItem) => {
+			setWslError(null);
+			openWslProjectPicker({ hostId: host.id });
+		},
+		[openWslProjectPicker],
+	);
 
 	const confirmRemoveWsl = useCallback(async () => {
 		if (removingWsl === null) return;
@@ -427,8 +426,8 @@ export function ConnectionsTab() {
 												{host.distro} · {host.user}
 											</span>
 										</div>
-										<Button variant="secondary" size="sm" className="ml-auto shrink-0" disabled={wslAddingId === host.id} onClick={() => void addWslProject(host)}>
-											{wslAddingId === host.id ? t("settings.connections.wsl.addingProject") : t("settings.connections.wsl.addProject")}
+										<Button variant="secondary" size="sm" className="ml-auto shrink-0" onClick={() => addWslProject(host)}>
+											{t("settings.connections.wsl.addProject")}
 										</Button>
 										<Button
 											type="button"

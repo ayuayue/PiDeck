@@ -10,6 +10,8 @@ import { desktopApi } from "../../desktopApi";
 import { t } from "../../i18n";
 import { supportsSessionFind } from "../../utils/sessionFindSupport";
 import { registerVisibleSession } from "../../utils/sessionVisibility";
+import { useDocumentVisible } from "../../hooks/useDocumentVisible";
+import { SessionPaneRenderModeContext, type SessionPaneRenderMode } from "./sessionPaneActive";
 
 export type ChatSessionPaneProps = {
 	sessionId: string;
@@ -17,6 +19,11 @@ export type ChatSessionPaneProps = {
 	onFocusPane: () => void;
 	/** 分屏双栏时为 true（边框高亮）；单栏 Tab 外置时为 false */
 	splitPane?: boolean;
+	/**
+	 * 渲染活跃态覆盖：默认跟随 focused（非焦点分屏暂停流式渲染）。
+	 * 侧边任务面板这类「可见但不接管快捷键焦点」的栏传 true，避免被误判成后台栏。
+	 */
+	active?: boolean;
 };
 
 /**
@@ -29,6 +36,11 @@ export function ChatSessionPane(props: ChatSessionPaneProps) {
 	const setPendingMessageJump = useSetAtom(pendingMessageJumpAtom);
 	const pendingJump = useAtomValue(pendingMessageJumpAtom);
 	const clearLiveText = useSetAtom(clearSessionLiveTextAtom);
+	// 渲染模式 = 本栏聚焦 + 窗口可见。非活跃栏停打字机/Markdown 逐帧重排/秒表；
+	// background 仍按 1s 粗刷新（可见分屏不能看起来停住），hidden 完全冻结。
+	const documentVisible = useDocumentVisible();
+	const paneActive = (props.active ?? focused) && documentVisible;
+	const renderMode: SessionPaneRenderMode = !documentVisible ? "hidden" : paneActive ? "active" : "background";
 
 	// 可见性上报：主进程只给挂载中的聊天栏推 live 正文/思考（discussion #446）。
 	// 卸载时顺手清掉本会话的 live 槽：后台流不再下发，切回时主进程按可见性补一帧全量。
@@ -110,7 +122,7 @@ export function ChatSessionPane(props: ChatSessionPaneProps) {
 	);
 
 	return (
-		<>
+		<SessionPaneRenderModeContext.Provider value={renderMode}>
 			{findSupported && (
 				<SessionFindOverlay
 					// 会话切换必须重挂：单栏模式下 pane 实例跨会话复用（App.tsx 的 solo 分支没有 key），
@@ -142,6 +154,6 @@ export function ChatSessionPane(props: ChatSessionPaneProps) {
 				activeQueuedPrompts={activeQueuedPrompts}
 				queuedTrackRef={localQueuedTrackRef}
 			/>
-		</>
+		</SessionPaneRenderModeContext.Provider>
 	);
 }

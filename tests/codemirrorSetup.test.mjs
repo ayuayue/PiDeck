@@ -99,3 +99,24 @@ test("editor active line stays a light accent wash and selection pins its foregr
 	assert.doesNotMatch(src, /\.cm-activeLineGutter["']?\s*:\s*\{[^}]*backgroundColor:\s*"var\(--color-bg-(active|hover)\)"/);
 	assert.match(src, /::selection["']?\s*:\s*\{[^}]*color:\s*"currentColor"/);
 });
+
+// 回归守卫：选区曾用 --color-accent-soft（弱表面近白灰 #e5e7eb），叠在近白面板上几乎
+// 看不出选中范围，用户反馈「选中了但看不清哪些是选中的文本」。选区必须有专属 token，
+// 且明暗两套都要定义——换 accent 皮肤/主题时选区不能跟着被冲淡。
+test("editor selection uses a dedicated contrast token, not the weak surface", () => {
+	const src = readFileSync("src/renderer/src/utils/codemirrorSetup.ts", "utf8");
+	assert.doesNotMatch(src, /\.cm-selectionBackground[^}]*backgroundColor:\s*"var\(--color-accent-soft\)"/);
+	assert.match(src, /::selection"?\s*:\s*\{[^}]*backgroundColor:\s*"var\(--color-editor-selection\)"/);
+	assert.match(src, /\.cm-selectionMatch"?\s*:\s*\{\s*backgroundColor:\s*"var\(--color-editor-selection-match\)"/);
+
+	const css = readFileSync("src/renderer/src/styles/foundation.css", "utf8");
+	const lightBlock = css.slice(0, css.indexOf(':root[data-theme="dark"]'));
+	const darkBlock = css.slice(css.indexOf(':root[data-theme="dark"]'));
+	for (const [name, block] of [
+		["light", lightBlock],
+		["dark", darkBlock],
+	]) {
+		assert.match(block, /--color-editor-selection:\s*#[0-9a-f]{6}/i, `${name} theme must define --color-editor-selection`);
+		assert.match(block, /--color-editor-selection-match:/, `${name} theme must define --color-editor-selection-match`);
+	}
+});

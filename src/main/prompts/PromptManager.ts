@@ -175,6 +175,8 @@ export class PromptManager {
 
 	/** 将 prompt 目录切换到统一解析出的 WSL HOME；null 恢复 Windows home。 */
 	configureWsl(environment: WslEnvironment | null) {
+		// 提示词根整体换了一套目录：不清缓存的话，切换 WSL 用户后 1.5s 内仍返回旧环境的列表。
+		this.invalidateListCache();
 		this.wslEnvironment = environment;
 		this.promptsDir = join(environment?.windowsHome ?? homedir(), ".pi", "agent", "prompts");
 	}

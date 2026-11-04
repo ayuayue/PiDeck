@@ -18,6 +18,7 @@ import type {
 	SessionUiResponseInput,
 	TodoItem,
 } from "../../shared/types";
+import { emitAgentMessageMeasured } from "../perf/messageFlushMeter";
 import { isDshPermissionPreset } from "../../shared/types/agent";
 import type { SessionProcessEvent } from "../../shared/types/trajectory";
 // DSH 会话 id 品牌类型（零运行时成本，仅类型擦除）
@@ -2259,11 +2260,17 @@ export class DshAgentManager implements SessionAgentGateway {
 	}
 
 	private emitMessages(runtime: DshAgentRuntime): void {
-		this.emit(agentEventTags.agentsMessage, {
-			agentId: runtime.tab.id,
-			messages: runtime.messages,
-			...this.historyWindowFields(runtime),
-		});
+		// 经计量口投递（Phase 0，PIDECK_PERF_LOG=1 时才记录）：DSH 本就窗口化，作对照基线。
+		emitAgentMessageMeasured(
+			"dsh",
+			runtime.tab.id,
+			{
+				agentId: runtime.tab.id,
+				messages: runtime.messages,
+				...this.historyWindowFields(runtime),
+			},
+			(payload) => this.emit(agentEventTags.agentsMessage, payload),
+		);
 	}
 
 	/** 记录 attach 窗口的「窗口前还有更早历史」信息（判定规则见 resolveDshHistoryWindow）。 */
@@ -2559,6 +2566,9 @@ export class DshAgentManager implements SessionAgentGateway {
 			return;
 		}
 		if (payload.type !== "session/event") return;
+		// journal 回放（follow 的 snapshot.records）不是实时事件：投影照旧（历史要显示），
+		// 但不得触发「回合完成」——否则打开历史会话会把每条历史 turn/end 都提醒一遍。
+		const replayed = payload.replay === true;
 		const event = payload.event as { type?: string; seq?: number; time?: number; data?: unknown } | undefined;
 		// 轨迹过程事件：模型切换/权限/plan/goal/压缩命令等非对话记录
 		// （pi 会话文件过程事件的 DSH 等价物；与消息投影并行收集）。
@@ -2692,8 +2702,9 @@ export class DshAgentManager implements SessionAgentGateway {
 			if (runtime.isCompacting) runtime.isCompacting = false;
 			this.emitRuntimeState(runtime.tab.id);
 			// 成功收口：通知装配层（会话完成通知 / 桌宠 done 气泡）。
-			// 用户停止、失败回合与 /compact 命令回合都不算「回答完成」（与 pi 的 settled 同口径）。
-			if (!userStopped && !wasCompacting && reasonKind !== "error") this.notifyAgentSettled(runtime.tab.id, runtime.tab.title);
+			// 用户停止、失败回合与 /compact 命令回合都不算「回答完成」（与 pi 的 settled 同口径）；
+			// 回放的历史回合同理不算——它们早就提醒过了。
+			if (!replayed && !userStopped && !wasCompacting && reasonKind !== "error") this.notifyAgentSettled(runtime.tab.id, runtime.tab.title);
 		}
 		if (p.messagesChanged && !p.turnEnded) {
 			this.emitMessages(runtime);

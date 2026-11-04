@@ -8,5 +8,5 @@ export function mutateEntries(
 	target: string,
 	projectId: string,
 	mutator: (entries: string[]) => { entries: string[]; result: unknown },
-): { changed: boolean; result: unknown; dropped: number; count: number };
+): { changed: boolean; result: unknown; dropped: number; droppedEntries: string[]; count: number };
 export function readAllEntries(projectId: string, root: string): Record<string, string[]>;

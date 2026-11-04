@@ -6,14 +6,14 @@
  * dsh TurnNavigator 与 vivid-layer Chat Minimap 都是「全部条目 + 能滚」。
  * 没有一家把游标窗口里的条当成跳转按钮：刻度可点就必须点得动。
  *
- * 取哪几条：先截**最近 `RAIL_RECENT_TICK_ITEMS` 条**提问（更早的交给展开态目录面板），
+ * 取哪几条：先截**最近 `RAIL_RECENT_TICK_ITEMS` 条**消息（更早的交给展开态目录面板），
  * 再按**可用高度**算段数（`railCapacity` = 高度 / 12，无下限）——能一条一根就一条一根；
- * 放不下才把这段均分成 capacity 个连续段，每段只画段首（`railBuckets`）。段内其它提问
+ * 放不下才把这段均分成 capacity 个连续段，每段只画段首（`railBuckets`）。段内其它消息
  * 没有消失：点这一段就跳到段首，再往下翻即可。
  *
  * 废弃过三种取法：稀疏采样（相邻提问整段丢掉、留下的常超出补页预算，点了没反应）、
  * 滑动窗口（纵向位置不等于会话进度，翻上翻下整列平移）、固定 30 段覆盖全量（一根代表
- * 两三条提问，点下去只落到段首，看起来像「定位到别的地方」）。
+ * 两三条消息，点下去只落到段首，看起来像「定位到别的地方」）。
  *
  * 间距：能舒展就舒展（上限 14px），放不下就按条数收缩，硬下限 12px。段数由高度反推
  * （height / 12），所以刻度**永远不会溢出容器**，也就不需要导轨内部滚动（2026-10 重构
@@ -34,23 +34,24 @@ export const RAIL_TICK_MAX_SIZE = 14;
  * 六条全是这一个数字的副作用：太密则点不准、DOM 也多、滚动条还被这一列盖住。
  *
  * 改成 12：同一高度条数减半（1000px → 83 根），间距 12px、2px 线 + 10px 空隙，
- * 相邻刻度不再抢同一次点击。代价是一根可能代表 2 条提问（点它落到段首），
+ * 相邻刻度不再抢同一次点击。代价是一根可能代表 2 条消息（点它落到段首），
  * 这是拿「段内精确度」换「点得准 + 不卡」，用户当前抱怨的是后者。
  */
 export const RAIL_TICK_MIN_SIZE = 12;
 /** 刻度条数的**下限**（不是上限）：放得下时条数按可用高度算，见 railCapacity。 */
 export const RAIL_TICK_LIMIT = 30;
 
-/** 刻度条只覆盖「最近的这么多条提问」，更早的交给展开态目录面板。
+/** 刻度条只覆盖「最近的这么多条刻度」（一轮两条：用户提问 + 本轮最终回答），
+ *  更早的交给展开态目录面板。
  *
  *  为什么要有这个上限：刻度数 = 可用高度 / 12（约 66~90 根），与提问条数无关；
- *  147 条提问会被均分成 66 段以上，一根刻度背后可能差两三条。用户想找「第 87 条」
+ *  147 条消息会被均分成 66 段以上，一根刻度背后可能差两三条。用户想找「第 87 条」
  *  点完还要往下翻 —— 于是有了展开态面板（全量检索）。两者分工之后，刻度条不必
  *  再承担「覆盖整段会话」的职责：它只负责最近这一段的快速定位。
  *
  *  取值演变：60 → 30（2026-11 真机）。用户的理由不是「太长」，是**一根要对应一条**：
- *  30 条固定小于任何正常窗口的容量（h=792 时 capacity=66），于是每根刻度恰好一条提问，
- *  点哪根就是哪条，不用再按段首猜测。代价是更早的提问只能走面板，但那正是面板的职责。
+ *  30 条固定小于任何正常窗口的容量（h=792 时 capacity=66），于是每根刻度恰好一条消息，
+ *  点哪根就是哪条，不用再按段首猜测。代价是更早的消息只能走面板，但那正是面板的职责。
  *
  *  为什么不按「当前阅读位置附近的 N 条」（滑动窗口）：试过，被否决 ——
  *  纵向位置不再代表会话第几成、翻上翻下整列平移（2026-11 真机反馈）。
@@ -60,8 +61,8 @@ export const RAIL_RECENT_TICK_ITEMS = 30;
 
 /** 刻度条顶端的「更早」占位项 id。
  *
- *  切片后刻度顶端不再是第 1 条提问。不标的话，用户看到 60 根会以为那就是全部，
- *  往上滚到会话开头才发现最上面那根不是最早的问题。
+ *  切片后刻度顶端不再是第 1 条消息。不标的话，用户看到 60 根会以为那就是全部，
+ *  往上滚到会话开头才发现最上面那根不是最早的消息。
  *
  *  **这个 id 不能交给 jumpToMessage**：它不在消息里，查不到节点会弹「跳转失败」——
  *  用户点一个「⋯」得到报错。点击它 = 打开目录面板（那才是查更早内容的入口）。
@@ -172,23 +173,56 @@ export type OutlineRailItem = { id: string; role: string; title: string; time: s
  * 为什么需要：刻度原先只覆盖已加载消息，长会话最上面的刻度不是第一条提问。
  * 目录项按 entryId 去重：已加载的保留原文标题，未加载的用目录给的标题
  * （索引建表时带走的用户消息 preview，不是序号占位），顺序按目录（= 活动链）为准。
+ * 助手回复没有 entryId，按「它前面最近的用户消息」分桶后跟着该用户条目一起落位；
+ * 否则目录重建会把所有助手刻度堆到列表尾部，时间顺序就断了。
  */
 export function mergeOutlineRailItems(loaded: readonly OutlineRailItem[], directory: readonly { entryId: string; title: string; time?: string }[]): OutlineRailItem[] {
 	if (directory.length === 0) return [...loaded];
-	const byEntryId = new Map<string, OutlineRailItem>();
-	for (const item of loaded) if (item.entryId) byEntryId.set(item.entryId, item);
+
+	// 已加载消息里，助手回复挂在它前面最近的用户消息上。目录只覆盖用户检查点，
+	// 重建顺序时必须把助手条目跟着对应的用户条目走，否则会全部堆到列表尾部。
+	const buckets = new Map<string, OutlineRailItem[]>();
+	const bucketOrder: string[] = [];
+	let currentKey: string | undefined;
+	const orphanAssistants: OutlineRailItem[] = [];
+	for (const item of loaded) {
+		if (item.role === "user") {
+			currentKey = item.entryId ?? item.id;
+			if (!buckets.has(currentKey)) {
+				buckets.set(currentKey, []);
+				bucketOrder.push(currentKey);
+			}
+			buckets.get(currentKey)?.push(item);
+		} else if (currentKey !== undefined) {
+			buckets.get(currentKey)?.push(item);
+		} else {
+			// 已加载窗口从助手消息中间开始：没有可挂靠的用户条目，先单独收着。
+			orphanAssistants.push(item);
+		}
+	}
+
 	const merged: OutlineRailItem[] = [];
+	const usedBuckets = new Set<string>();
+	let orphanInserted = false;
 	for (const entry of directory) {
-		const hit = byEntryId.get(entry.entryId);
-		if (hit) {
-			merged.push(hit);
+		const bucket = buckets.get(entry.entryId);
+		if (bucket) {
+			if (!orphanInserted) {
+				merged.push(...orphanAssistants);
+				orphanInserted = true;
+			}
+			merged.push(...bucket);
+			usedBuckets.add(entry.entryId);
 			continue;
 		}
 		merged.push({ id: `outline-pending:${entry.entryId}`, entryId: entry.entryId, role: "user", title: entry.title, time: entry.time ?? "", pending: true });
 	}
-	// 目录只覆盖用户检查点；已加载但没有 entryId 的 live 消息追加在尾部，不能凭空丢刻度。
-	const seen = new Set(merged.map((item) => item.id));
-	for (const item of loaded) if (!seen.has(item.id)) merged.push(item);
+	// 目录里没有的已加载用户（live 消息的 entryId 还没进索引）连同其助手回复追加在尾部。
+	if (!orphanInserted) merged.push(...orphanAssistants);
+	for (const key of bucketOrder) {
+		if (usedBuckets.has(key)) continue;
+		merged.push(...(buckets.get(key) ?? []));
+	}
 	return merged;
 }
 

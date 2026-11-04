@@ -43,14 +43,16 @@ test("列表：按作用域分组、带规范化 key 与字数，项目键能翻
 	const globalMemory = list.groups.find((group) => group.scope === "global" && group.target === "memory");
 	assert.ok(globalMemory, "缺全局记忆分组");
 	assert.equal(globalMemory.file, "MEMORY.md");
-	assert.equal(globalMemory.budget.maxChars > 0, true, "全局文件应带注入预算");
+	assert.equal(globalMemory.budget.maxChars, 32000, "写入闸门是 32KB/400 条（外部导入不再被默默裁掉）");
+	assert.equal(globalMemory.overBudget, false);
 	assert.equal(globalMemory.entries[0].chars, globalMemory.entries[0].content.length);
 	assert.ok(globalMemory.entries[0].key.length > 0, "条目必须带能定位自己的 key");
 
 	const project = list.groups.find((group) => group.scope === "project");
 	assert.ok(project);
 	assert.equal(project.projectName, "Alpha", "项目键应翻成用户认得的项目名");
-	assert.equal(project.budget, null, "项目作用域不参与每轮注入，因此没有预算");
+	assert.equal(project.budget.maxEntries, 400, "项目/设备与全局同一套写入闸门，分组头要能显示预算与超限");
+	assert.equal(project.overBudget, false);
 });
 
 test("列表：删除用的 key 与列表给的 key 一致，删掉一条只影响它自己", () => {

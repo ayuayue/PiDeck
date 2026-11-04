@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { formatDuration } from "./TimelineFormat";
+import { useSessionPaneActive } from "./sessionPaneActive";
 
 /**
  * 实时耗时（公共组件）：思考卡片 / 工具卡片共用。
@@ -25,11 +26,15 @@ export function LiveDuration(props: {
 	isStreaming?: boolean;
 }) {
 	const [now, setNow] = useState(() => Date.now());
+	// 非激活栏不跑秒表：每实例 10 次/秒的 setState 在后台栏是纯浪费。
+	// 恢复时立刻取一次当前时间，避免秒表停在暂停瞬间直到下一个 tick。
+	const active = useSessionPaneActive();
 	useEffect(() => {
-		if (!props.isStreaming) return;
+		if (!props.isStreaming || !active) return;
+		setNow(Date.now());
 		const timer = window.setInterval(() => setNow(Date.now()), 100);
 		return () => window.clearInterval(timer);
-	}, [props.isStreaming]);
+	}, [props.isStreaming, active]);
 
 	const started = props.startedAt;
 	if (started == null || started <= 0) return null;

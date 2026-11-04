@@ -271,6 +271,42 @@ test("terminal launch is fenced around pin awaits and remains independent of hel
 	});
 });
 
+test("SFTP invocation is built as the pinned subsystem and rechecked after pin work and on return", async () => {
+	await withUserData(async (userDataDir) => {
+		await writeStore(userDataDir, 7, [HOST_ID]);
+		let invocationKind;
+		let current;
+		const { createRemoteHostConnectionService: createService } = loadTsCommonJs("src/main/remote/RemoteHostConnectionService.ts", {
+			stubs: {
+				"./SshVerifiedConnection": {
+					buildPinnedSshInvocation: async (_dir, _host, kind) => {
+						invocationKind = kind;
+						return { executable: "/usr/bin/ssh", destination: "pideck-host", args: ["-T", "-s", "--", "pideck-host", "sftp"], env: { PATH: "/usr/bin" }, openSshVersion: "OpenSSH_9.9" };
+					},
+				},
+			},
+		});
+		const ports = fakePorts({ verifyRoot: async ({ userPath }) => ({ canonicalPath: userPath }) });
+		const service = createService({ userDataDir, client: CLIENT, nodePath: "/usr/bin/node", ports });
+		try {
+			const result = await service.withProjectSession(HOST_ID, "/repo", (session) =>
+				session.withSftpInvocation((invocation, assertCurrent) => {
+					current = assertCurrent;
+					return invocation.args;
+				}),
+			);
+			assert.equal(result.ok, true);
+			assert.equal(invocationKind, "ssh-sftp");
+			assert.deepEqual(Array.from(result.value), ["-T", "-s", "--", "pideck-host", "sftp"]);
+			await current();
+			await writeStore(userDataDir, 8, [HOST_ID]);
+			await assert.rejects(current(), /SSH_HOST_NOT_READY/);
+		} finally {
+			await service.dispose();
+		}
+	});
+});
+
 test("an unknown host id is refused without reading the store or starting a bootstrap", async () => {
 	await withUserData(async (userDataDir) => {
 		await writeStore(userDataDir, 7, []);

@@ -1,6 +1,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Page } from "@playwright/test";
 import { test, expect } from "./mock-pi-fixture";
 
 /**
@@ -19,7 +20,8 @@ test.use({
 	seedProjects: [{ id: "p1", name: "file-viewer", path: projectDir }],
 });
 
-test("file viewer opens in workbench split and closes back to the drawer", async ({ window }) => {
+/** 进入预置项目 → 打开抽屉文件面板 → 点开 hello.ts，落到中间栏分屏查看器 */
+async function openFileInWorkbench(window: Page) {
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 
 	// 侧栏分段(56469f95)后默认停在「聊天」分段，工作区项目行在「项目」分段下，先切换
@@ -49,6 +51,11 @@ test("file viewer opens in workbench split and closes back to the drawer", async
 	await fileRow.click();
 
 	await expect(window.locator(".workbench-stage-split").first()).toBeVisible({ timeout: 15_000 });
+}
+
+test("file viewer opens in workbench split and closes back to the drawer", async ({ window }) => {
+	await openFileInWorkbench(window);
+	const drawer = window.locator(".detail-drawer");
 	// 阅读面右上角关闭按钮常驻可点
 	const closeBtn = window.locator(".file-diff-header-actions").getByRole("button", { name: "关闭" }).first();
 	await expect(closeBtn).toBeVisible({ timeout: 15_000 });
@@ -57,4 +64,41 @@ test("file viewer opens in workbench split and closes back to the drawer", async
 	await closeBtn.click();
 	await expect(window.locator(".workbench-stage-with-content")).toHaveCount(0, { timeout: 10_000 });
 	await expect(drawer).toHaveAttribute("data-open", "true");
+});
+
+/**
+ * Ctrl+F 回归（用户反馈「编辑器打开后按 Ctrl+F 完全没反应」）：
+ * CM 自带 searchKeymap 只在编辑器持有 DOM 焦点时才跑；从文件树/标签栏打开文件后焦点
+ * 还停在原处，按键没有任何监听者（窗口没有原生菜单，Electron 不提供内置查找栏），
+ * 表现就是完全没反应。这里验证焦点不在编辑器里也能拉出查找面板并直接输入。
+ */
+test("Ctrl+F opens the find panel even when focus is outside the editor", async ({ window }) => {
+	await openFileInWorkbench(window);
+	await expect(window.locator(".cm-editor").first()).toBeVisible({ timeout: 15_000 });
+
+	// 焦点移出编辑器：模拟从文件树 / 标签栏打开文件后焦点不在正文里
+	await window.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+	await window.keyboard.press(process.platform === "darwin" ? "Meta+f" : "Control+f");
+
+	await expect(window.locator(".cm-search").first()).toBeVisible({ timeout: 5_000 });
+	// 面板打开即聚焦输入框：敲进查询词应当命中文件内容
+	await window.keyboard.type("hello");
+	await expect(window.locator(".cm-searchMatch").first()).toBeVisible({ timeout: 5_000 });
+});
+
+/**
+ * 用户实际路径：从文件树点开文件后焦点还停在树行上（file-node-row button），
+ * 此时 Ctrl+F 必须进编辑器查找，而不是打开抽屉的「按文件名搜索」。
+ * 面板的搜索仍有工具行放大镜与「输入即搜索」两个入口，不靠这个快捷键。
+ */
+test("Ctrl+F right after opening a file finds in the file, not in the file tree", async ({ window }) => {
+	await openFileInWorkbench(window);
+	await expect(window.locator(".cm-editor").first()).toBeVisible({ timeout: 15_000 });
+	// 焦点确实还在文件树上（点文件行不会把焦点交给编辑器）
+	expect(await window.evaluate(() => Boolean((document.activeElement as HTMLElement | null)?.closest(".files-panel")))).toBe(true);
+
+	await window.keyboard.press(process.platform === "darwin" ? "Meta+f" : "Control+f");
+
+	await expect(window.locator(".cm-search").first()).toBeVisible({ timeout: 5_000 });
+	await expect(window.locator(".file-search-input")).toHaveCount(0);
 });

@@ -3,8 +3,6 @@ import { randomUUID } from "node:crypto";
 import { normalize, join, dirname } from "node:path";
 import { dirname as posixDirname, normalize as posixNormalize } from "node:path/posix";
 import { homedir } from "node:os";
-import { net, session } from "electron";
-import type { Session } from "electron";
 import type { ConfigFileDiagnostic, ConfigFileReadResult } from "../../shared/types";
 import type { McpConfigFile, McpConfigSnapshot, McpProbeResult, McpServerDefinition } from "../../shared/types/mcp";
 import { loadMcpConfigSnapshot, mcpDocsUrl, probeMcpServer, saveMcpConfigFile, validateMcpConfigFile } from "./mcpConfig";
@@ -27,6 +25,7 @@ import { resolveProviderUsageEndpoint } from "./providerUsageResolver";
 import { buildDeclarativeUsageProbeTemplate, isDeclarativeTemplateId, USAGE_PROBE_CATEGORY_BY_TEMPLATE_ID } from "./usageProbeTemplates";
 import { loadUsageProbeProviderConfigs, loadUsageProbeSettings, loadUserUsageProbes, loadUserUsageProbesDetailed, updateUsageProbeSub2ApiTokens } from "./userUsageProbes";
 import type { UserUsageProbe, UsageProbeSettingsLoadResult } from "./userUsageProbes";
+import { modelHttpRequest } from "../modelHttp/request";
 import { usageProbeRequest } from "./usageProbeTransport";
 import { pideckUsageProbesDir } from "../dsh/pideckDshHome";
 import { getPiAiCatalogIndex } from "../pi/piAiBuiltinCatalog";
@@ -63,39 +62,10 @@ type Sub2ApiPanelContext = {
 	persist: boolean;
 };
 
-// 模型列表拉取的"显式代理"专用 session。
-// 为什么不用 defaultSession + session.setProxy 全局改：桌面代理全局开关是用户
-// 手动控制的（D:\桌面代理），这里按单个拉取请求临时开启/关闭代理，改全局会
-// 影响用户在跑的会话流量；所以用独立内存 partition（非 persist 前缀=不落盘），
-// 代理规则只影响本模块的请求。
-let modelListProxySession: Session | null = null;
-async function getModelListProxySession(): Promise<Session> {
-	if (!modelListProxySession) {
-		modelListProxySession = session.fromPartition("pideck-config-proxy", { cache: false });
-	}
-	return modelListProxySession;
-}
-
-// 根据代理目标挑出用于拉取模型列表的 fetch 实现：
-// - follow/undefined → net.fetch（走默认 session，受桌面代理全局开关影响，现状行为）；
-// - on/off → 独立 session，临时 setProxy 为 fixed_servers / direct 后 fetch。
-// 返回 null 表示跟随全局（调用方继续用 net.fetch）。
-async function modelListFetch(url: string, init: { method?: string; headers?: Record<string, string>; signal: AbortSignal }, proxyTarget?: ConfigProxyTarget): Promise<Response | null> {
-	if (proxyTarget?.mode !== "on" && proxyTarget?.mode !== "off") {
-		return null;
-	}
-	const proxySession = await getModelListProxySession();
-	const proxyMode =
-		proxyTarget.mode === "on"
-			? {
-					mode: "fixed_servers" as const,
-					proxyRules: proxyTarget.url,
-					proxyBypassRules: proxyTarget.bypass,
-				}
-			: { mode: "direct" as const };
-	await proxySession.setProxy(proxyMode);
-	return proxySession.fetch(url, init);
-}
+// 模型列表请求超时：网络不通时避免长时间卡住。
+const MODEL_LIST_TIMEOUT_MS = 10_000;
+// 模型列表响应体上界：正常 listing 远小于此值，超限按异常响应处理而不是整段进内存。
+const MODEL_LIST_MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 // 用量查询默认超时（学 cc-switch：10 秒；可被 per-provider 配置覆盖）。
 const USAGE_PROBE_DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -622,100 +592,91 @@ export class ConfigManager {
 
 		for (const request of requests) {
 			lastRequestUrl = this.redactSecret(request.url, apiKey);
-			try {
-				const controller = new AbortController();
-				// 10 秒超时，避免网络不通时长时间卡住
-				const timeout = setTimeout(() => controller.abort(), 10_000);
-
-				try {
-					// 桌面端配置检测属于 Electron 主进程自身请求；net.fetch 才走 defaultSession 的代理配置。
-					// 显式选择了代理时改用独立 session（见 modelListFetch），避免动全局代理开关。
-					const response = await modelListFetch(
-						request.url,
-						{
-							method: request.method ?? "GET",
-							headers: request.headers,
-							signal: controller.signal,
-						},
-						proxyTarget,
-					);
-					const res =
-						response ??
-						(await net.fetch(request.url, {
-							method: request.method ?? "GET",
-							headers: request.headers,
-							signal: controller.signal,
-						}));
-
-					if (!res.ok) {
-						lastDebugDetails = `HTTP ${res.status}: ${res.statusText}`;
-						void getAppLogger()?.warn("config", "Provider model list request failed", { status: res.status, requestUrl: lastRequestUrl });
-						lastError = this.translate("mainConfig.fetchModelsFailed");
-						continue;
-					}
-
-					// WAF / 反爬拦截：网关（如 Cloudflare / 阿里云 WAF）会返回 HTTP 200，
-					// 但正文是 JS 挑战页 HTML 而非 JSON。若不识别，`res.json()` 报出的是
-					// `Unexpected token '<'` 这类无关堆栈，用户只会看到笼统的「获取失败」。
-					// 这里先看 content-type，再拿正文做判定，给出可操作的提示：
-					// 切换代理 / 配置能过白名单的 User-Agent（如 claude-cli/...）。
-					const contentType = res.headers?.get?.("content-type") ?? "";
-					if (/text\/html/i.test(contentType)) {
-						lastDebugDetails = `HTTP ${res.status} text/html (WAF/anti-bot page)`;
-						void getAppLogger()?.warn("config", "Provider returned an HTML page instead of JSON", { requestUrl: lastRequestUrl, contentType });
-						lastError = this.translate("mainConfig.fetchBlockedByHtml");
-						continue;
-					}
-
-					let body: Record<string, unknown>;
-					try {
-						body = (await res.json()) as Record<string, unknown>;
-					} catch {
-						// content-type 撒谎（声称 JSON 实则 HTML）或返回截断/非 JSON 正文：
-						// 同样归入「被拦截」而非笼统失败，引导用户排查网络出口与 UA。
-						lastDebugDetails = `HTTP ${res.status} non-JSON body`;
-						lastError = this.translate("mainConfig.fetchBlockedByHtml");
-						continue;
-					}
-					// listing 有容量就用；缺的再按 pi-ai 内置目录精确匹配，仍缺则空着
-					const models = this.parseModelsResponse(body, apiType);
-
-					if (models.length === 0) {
-						lastError = this.translate("mainConfig.emptyModelList");
-						continue;
-					}
-
-					// 成功路径若依赖检测侧自动补 /v1，而用户配置仍是根路径，
-					// 会话侧会原样用 baseUrl → 返回建议 baseUrl 供 UI 自动改写。
-					// apiType 必须传：Anthropic 系探测走 /v1/models 但会话侧 SDK 自拼 /v1/messages，
-					// 这种协议补版本段反而会让会话 404（issue #337）。
-					const sessionBaseUrlNeedsVersion = needsSessionBaseUrlVersionHint(baseUrl, request.url, apiType);
-					const suggestedBaseUrl = suggestNormalizedBaseUrl(baseUrl, request.url, apiType) ?? undefined;
-					return {
-						success: true,
-						models,
-						requestUrl: lastRequestUrl,
-						sessionBaseUrlNeedsVersion,
-						suggestedBaseUrl,
-					};
-				} finally {
-					clearTimeout(timeout);
-				}
-			} catch (e) {
-				if (e instanceof Error && e.name === "AbortError") {
+			// 桌面端配置检测属于 Electron 主进程自身请求：走 net（Chromium 网络栈）才会跟随
+			// defaultSession 的代理配置。显式选择了代理时由 proxyTarget 走独立 session，
+			// 避免动全局代理开关（见 src/main/modelHttp/request.ts）。
+			const result = await modelHttpRequest(request.url, {
+				method: request.method ?? "GET",
+				headers: request.headers,
+				timeoutMs: MODEL_LIST_TIMEOUT_MS,
+				maxBytes: MODEL_LIST_MAX_RESPONSE_BYTES,
+				...(proxyTarget ? { proxyTarget } : {}),
+			});
+			if ("error" in result) {
+				if (result.error === "timeout") {
 					lastError = this.translate("mainConfig.fetchTimeout");
-				} else {
-					// 网络层异常需分类提示：这些站点常见失败形态是 TLS 被中间设备干扰
-					// （ERR_SSL_VERSION_OR_CIPHER_MISMATCH）或连不上（ERR_CONNECTION_TIMED_OUT /
-					// ENOTFOUND），分类后给出「开代理 / 换域名」的可操作文案。
-					// 注意：原始异常文本只进日志，**不得**回传渲染层——异常 message 可能裹挟
-					// 请求 URL（Gemini 的 key 在 query 上）或网关回显的正文，返回值会跨 IPC
-					// 序列化到渲染进程；可操作指引已由下面的专用文案承载，无需原始文本。
-					const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-					void getAppLogger()?.error("config", "Provider model list request failed", { error: detail });
-					lastError = describeNetworkFailure(detail, (key) => this.translate(key)) ?? this.translate("mainConfig.fetchModelsFailed");
+					continue;
 				}
+				// 网络层异常需分类提示：这些站点常见失败形态是 TLS 被中间设备干扰
+				// （ERR_SSL_VERSION_OR_CIPHER_MISMATCH）或连不上（ERR_CONNECTION_TIMED_OUT /
+				// ENOTFOUND），分类后给出「开代理 / 换域名」的可操作文案。
+				// 注意：原始异常文本只进日志，**不得**回传渲染层——异常 message 可能裹挟
+				// 请求 URL（Gemini 的 key 在 query 上）或网关回显的正文，返回值会跨 IPC
+				// 序列化到渲染进程；可操作指引已由下面的专用文案承载，无需原始文本。
+				const detail = result.detail ?? "";
+				void getAppLogger()?.error("config", "Provider model list request failed", { error: detail });
+				lastError = describeNetworkFailure(detail, (key) => this.translate(key)) ?? this.translate("mainConfig.fetchModelsFailed");
+				continue;
 			}
+			if (result.status < 200 || result.status >= 300) {
+				lastDebugDetails = `HTTP ${result.status}: ${result.statusText}`;
+				void getAppLogger()?.warn("config", "Provider model list request failed", { status: result.status, requestUrl: lastRequestUrl });
+				lastError = this.translate("mainConfig.fetchModelsFailed");
+				continue;
+			}
+
+			// WAF / 反爬拦截：网关（如 Cloudflare / 阿里云 WAF）会返回 HTTP 200，
+			// 但正文是 JS 挑战页 HTML 而非 JSON。若不识别，`JSON.parse` 报出的是
+			// `Unexpected token '<'` 这类无关堆栈，用户只会看到笼统的「获取失败」。
+			// 这里先看 content-type，再拿正文做判定，给出可操作的提示：
+			// 切换代理 / 配置能过白名单的 User-Agent（如 claude-cli/...）。
+			const contentType = result.header("content-type") ?? "";
+			if (/text\/html/i.test(contentType)) {
+				lastDebugDetails = `HTTP ${result.status} text/html (WAF/anti-bot page)`;
+				void getAppLogger()?.warn("config", "Provider returned an HTML page instead of JSON", { requestUrl: lastRequestUrl, contentType });
+				lastError = this.translate("mainConfig.fetchBlockedByHtml");
+				continue;
+			}
+
+			// 正文超过上界：截断的 JSON 无法解析，按异常响应处理（不去猜是不是被拦截）。
+			if (result.truncated) {
+				lastDebugDetails = `HTTP ${result.status} body exceeds ${MODEL_LIST_MAX_RESPONSE_BYTES} bytes`;
+				void getAppLogger()?.warn("config", "Provider model list response exceeds cap", { requestUrl: lastRequestUrl });
+				lastError = this.translate("mainConfig.fetchModelsFailed");
+				continue;
+			}
+
+			let body: Record<string, unknown>;
+			try {
+				body = JSON.parse(result.raw) as Record<string, unknown>;
+			} catch {
+				// content-type 撒谎（声称 JSON 实则 HTML）或返回截断/非 JSON 正文：
+				// 同样归入「被拦截」而非笼统失败，引导用户排查网络出口与 UA。
+				lastDebugDetails = `HTTP ${result.status} non-JSON body`;
+				lastError = this.translate("mainConfig.fetchBlockedByHtml");
+				continue;
+			}
+			// listing 有容量就用；缺的再按 pi-ai 内置目录精确匹配，仍缺则空着
+			const models = this.parseModelsResponse(body, apiType);
+
+			if (models.length === 0) {
+				lastError = this.translate("mainConfig.emptyModelList");
+				continue;
+			}
+
+			// 成功路径若依赖检测侧自动补 /v1，而用户配置仍是根路径，
+			// 会话侧会原样用 baseUrl → 返回建议 baseUrl 供 UI 自动改写。
+			// apiType 必须传：Anthropic 系探测走 /v1/models 但会话侧 SDK 自拼 /v1/messages，
+			// 这种协议补版本段反而会让会话 404（issue #337）。
+			const sessionBaseUrlNeedsVersion = needsSessionBaseUrlVersionHint(baseUrl, request.url, apiType);
+			const suggestedBaseUrl = suggestNormalizedBaseUrl(baseUrl, request.url, apiType) ?? undefined;
+			return {
+				success: true,
+				models,
+				requestUrl: lastRequestUrl,
+				sessionBaseUrlNeedsVersion,
+				suggestedBaseUrl,
+			};
 		}
 
 		return {

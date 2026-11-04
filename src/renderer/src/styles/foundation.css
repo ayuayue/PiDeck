@@ -156,6 +156,12 @@
   --color-accent: #18181b;
   --color-accent-strong: #09090b;
   --color-accent-soft: #e5e7eb;
+  /* 代码编辑器选区：accent-soft 是「弱表面」近白灰，叠在近白面板上几乎看不出选中范围，
+     用户反馈「选中了但看不清哪些是选中的文本」。选区必须自带对比度，且与 accent
+     （近黑）解耦——换 accent 皮肤不能把选区一起冲淡，取 VS Code 浅色主题的选区蓝。
+     同词高亮用同色系更淡一档，避免和真实选区抢注意力。 */
+  --color-editor-selection: #add6ff;
+  --color-editor-selection-match: color-mix(in srgb, var(--color-editor-selection) 45%, transparent);
   --color-brand-green: #4b5563;
   --color-brand-blue: #6b7280;
   /* 代码编辑器语法高亮（CodeMirror 6）：明暗各一套 GitHub 配色，
@@ -635,6 +641,10 @@
   --color-accent: #fafafa;
   --color-accent-strong: #e4e4e7;
   --color-accent-soft: #2a2a2a;
+  /* 暗色选区同理：accent-soft(#2a2a2a) 在面板 #1a1a1a 上只有一档灰差，选中范围读不出来。
+     取 VS Code 暗色主题的选区蓝，同词高亮同色系更淡一档。 */
+  --color-editor-selection: #264f78;
+  --color-editor-selection-match: color-mix(in srgb, var(--color-editor-selection) 55%, transparent);
   /* 危险色暗色提亮：#b42318 深红在暗底上发闷，destructive 按钮/错误态改用亮红；
      soft 同步换成深红底（直接沿用浅色 #fdecea 会在暗色界面出现粉底徽章）。 */
   /* 危险色暗色提亮：red-400 档——danger-soft 徽章底、sea-blue/graphite 等皮肤较亮面板上

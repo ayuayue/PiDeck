@@ -342,11 +342,10 @@ test("传入能力且确有不可用项时顶部渲染同一条能力条（workt
 	assert.ok(html.includes("remoteGit.capabilitySync"));
 	assert.ok(html.includes("remoteGit.capabilityBlocked"));
 	assert.ok(html.includes("remoteGit.worktreeUnsupported"));
-	// 未传入能力（缺省）时绝不渲染能力条；传入且全可用时渲染“可用入口清单”，不渲染任何不可用行。
+	// 未传入能力（缺省）或传入且全可用时都不渲染能力条；只有确有不可用项时才出现。
 	assert.ok(!render({}).html.includes("remote-git-capabilities"), "without the prop there is no capability banner");
 	const allOpen = render({ gitCapabilities: {} }).html;
-	assert.ok(allOpen.includes("remote-git-capabilities-available"));
-	assert.ok(!allOpen.includes("remote-git-capability-write"));
+	assert.ok(!allOpen.includes("remote-git-capabilities"), "all-available must not render the banner");
 });
 
 test("面板源码契约：每个门禁点都读 gitCapabilities，能力条只在传入时渲染", () => {

@@ -71,3 +71,59 @@ test("页大小 200 轮时 DOM 挂载仍封顶 10 轮（否则一次挂 200 轮 
 	assert.equal(policy.resolvePageWindowGrowth(turns(200), 200), 10);
 	assert.equal(policy.resolvePageWindowGrowth(turns(3), 200), 3, "页内轮数比上限少时按实际轮数");
 });
+
+// ── 「加载更多对话」按钮与请求游标同源 ──
+// 回归靶子（2026-12 真机）：会话已经翻到第一条消息，按钮还挂着，点一次界面毫无变化。
+// 旧写法两处各判一份：按钮看 `nextBefore !== null` / `windowStart > 0`，
+// 请求侧在拿不到锚点时静默 return —— 判定与能力不同源就会长出死按钮。
+// 注意：策略模块在沙箱里加载，返回的对象原型不同，断言只比字段（不比 deepEqual）。
+
+test("缓存页给出的 nextBefore 为 0 视为文件头：没有更早历史", () => {
+	// 主进程缓存命中路径曾把「锚点就在文件第一条」回成 0，0 !== null 让按钮常驻。
+	assert.equal(policy.resolveEarlierHistoryCursor({ runtimeHistory: { nextBefore: 0 }, windowMessages: [] }), null);
+	assert.equal(policy.resolveEarlierHistoryCursor({ runtimeHistory: { nextBefore: 0, nextBeforeEntryId: "e1" }, windowMessages: [] }), null);
+});
+
+test("nextBefore > 0 时带上 entryId 锚点，两字段与旧请求一致", () => {
+	const withEntry = policy.resolveEarlierHistoryCursor({ runtimeHistory: { nextBefore: 7, nextBeforeEntryId: "e8" }, windowMessages: [] });
+	assert.equal(withEntry.before, 7);
+	assert.equal(withEntry.beforeEntryId, "e8");
+	const withoutEntry = policy.resolveEarlierHistoryCursor({ runtimeHistory: { nextBefore: 7, nextBeforeEntryId: null }, windowMessages: [] });
+	assert.equal(withoutEntry.before, 7);
+	assert.equal(withoutEntry.beforeEntryId, undefined);
+});
+
+test("nextBefore 为 null 但 entryId 锚点仍在：before 必须是 null 而不是 undefined", () => {
+	// prependSessionHistoryPageAtom 用 `history.nextBefore !== input.before` 做前置，
+	// 把 null 换成 undefined 会让每一页都被当成「缓存已变」而拒绝。
+	const cursor = policy.resolveEarlierHistoryCursor({ runtimeHistory: { nextBefore: null, nextBeforeEntryId: "e3" }, windowMessages: [] });
+	assert.equal(cursor.before, null);
+	assert.equal(cursor.beforeEntryId, "e3");
+	assert.equal(policy.resolveEarlierHistoryCursor({ runtimeHistory: { nextBefore: null, nextBeforeEntryId: null }, windowMessages: [] }), null);
+});
+
+test("未翻过页：跳过无 entryId 的摘要卡片，取窗口内第一条带 entryId 的消息", () => {
+	const cursor = policy.resolveEarlierHistoryCursor({ windowMessages: [{ meta: {} }, { meta: { entryId: "e9" } }, { meta: { entryId: "e10" } }] });
+	assert.equal(cursor.beforeEntryId, "e9");
+	assert.equal(cursor.before, undefined);
+});
+
+test("整段窗口缺 entryId：退化为 windowStartFilePos", () => {
+	assert.equal(policy.resolveEarlierHistoryCursor({ windowMessages: [{ meta: {} }], windowStartFilePos: 42 }).before, 42);
+});
+
+test("没有任何游标时返回 null：宁可不出按钮，也不出点了没反应的按钮", () => {
+	// 无文件/匿名会话（headOffset = -1）不只缺 entryId，windowStartFilePos 也缺席；
+	// 旧兜底 `(windowStart ?? 0) > 0` 会在这里显示一个永远点不动的按钮。
+	assert.equal(policy.resolveEarlierHistoryCursor({ windowMessages: [{ meta: {} }], windowStartFilePos: 0 }), null);
+	assert.equal(policy.resolveEarlierHistoryCursor({ windowMessages: [], windowStartFilePos: undefined }), null);
+});
+
+test("ACP：无会话文件、无 entryId 时用投递窗口起点当游标", () => {
+	// ACP 的历史在 agent CLI 侧，主进程 acpMessagePage 的游标就是数组下标 = windowStart
+	assert.equal(policy.resolveEarlierHistoryCursor({ windowMessages: [{ meta: {} }], windowStart: 100 }).before, 100);
+	// 0 是窗口头（整段都在窗口里）：没有更早历史，按钮不能常驻
+	assert.equal(policy.resolveEarlierHistoryCursor({ windowMessages: [{ meta: {} }], windowStart: 0 }), null);
+	// entryId 仍然优先（本地/DSH 路径行为不变）
+	assert.equal(policy.resolveEarlierHistoryCursor({ windowMessages: [{ meta: { entryId: "e1" } }], windowStart: 100 }).beforeEntryId, "e1");
+});

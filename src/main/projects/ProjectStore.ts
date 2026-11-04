@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import type { LocalProject, Project } from "../../shared/types";
 import { projectLocatorFromLegacy } from "../../shared/locationAdapters";
 import { isLocalProject, isRemoteProject, readSshProjectLocator, type SshProjectLocator } from "../../shared/projectLocation";
-import { normalizeSelectedWslProjectPath, parseWslUncPath, WslPathError, type WslEnvironment } from "../wsl/WslPaths";
+import { mountedDriveToWindowsPath, parseWslUncPath } from "../wsl/WslPaths";
 import { getAppLogger } from "../logging/sharedLogger";
 import { assertHostRebindRecordIds, canonicalHostLocatorJson, type HostRebindRecordPatch, type HostRebindRecordResult, type HostRebindRecordSnapshot, type HostRebindStorePort } from "../remote/HostRebindJournal";
 import { isEphemeralProjectPath, projectPathKey, sanitizeProjectDisplayName } from "./projectPathPolicy";
@@ -261,26 +261,22 @@ export class ProjectStore implements HostRebindStorePort {
 		}
 	}
 
-	async chooseAndAdd(environment?: "windows" | "wsl", wslEnvironment?: WslEnvironment | null, wslIdentity?: WslProjectIdentity) {
+	/**
+	 * Windows 系统目录选择框 → 添加项目。
+	 *
+	 * WSL 目录**不**走这里：系统对话框只能按 Windows 身份访问 `\\wsl.localhost\<distro>\…`，而 9P 一律按
+	 * 发行版默认用户鉴权，root 档案的 /root 递进去就是「无法访问网络资源」（issue 见
+	 * `docs/wsl-project-in-distro-io-plan.md`）。WSL 侧由内置选择器列目录，再走 `add(path, ..., "wsl", identity)`。
+	 */
+	async chooseAndAdd() {
 		this.assertWritable();
-		if (environment === "wsl" && !wslEnvironment) {
-			throw new WslPathError("INVALID_WSL_PATH", "The active WSL environment is unavailable.");
-		}
 		const result = await dialog.showOpenDialog({
 			title: this.chooseProjectTitle(),
-			...(environment === "wsl" ? { defaultPath: wslEnvironment!.windowsHome } : {}),
 			properties: ["openDirectory"],
 		});
 
 		if (result.canceled || result.filePaths.length === 0) return null;
-		let projectPath = result.filePaths[0];
-
-		// WSL 盘符项目沿用 /mnt 存储格式；WSL 内部项目保留为可供 Windows 主进程访问的规范 UNC。
-		if (environment === "wsl") {
-			projectPath = normalizeSelectedWslProjectPath(projectPath, wslEnvironment!);
-		}
-
-		return this.add(projectPath, undefined, environment, wslIdentity);
+		return this.add(result.filePaths[0]);
 	}
 
 	/** 添加项目，可指定所属环境（缺省 windows）；WSL 档案身份可选，供选择器链路复用。 */
@@ -309,6 +305,11 @@ export class ProjectStore implements HostRebindStorePort {
 					existing.wslDistro = wslIdentity.distro;
 					existing.wslUser = wslIdentity.user;
 					existing.wslHostId = wslIdentity.hostId;
+				} else if (environment !== undefined && existing.environment !== environment) {
+					// 无档案身份（全局 WSL 模式下按路径入库）：环境仍以本次添加为准。
+					// 典型场景是同一个 WSL 目录早先被记成 windows 项目（按路径添加时未带 environment），
+					// 不改写的话它会被可见性过滤掉，表现为「加进去了却找不到」。
+					existing.environment = environment;
 				}
 				// 外部已有 worktree 可能曾经作为顶级项目加入；开启工作区后需要补上父子关系。
 				if (worktreeParentId && existing.id !== worktreeParentId) {
@@ -732,7 +733,19 @@ export class ProjectStore implements HostRebindStorePort {
 		return normalize(resolve(path));
 	}
 
+	/** drvfs（/mnt/<盘符>）的三种写法归一到盘符路径（小写比较前先去掉尾部分隔符）；非 drvfs 返回 null。 */
+	private mountedDriveForm(path: string) {
+		const linuxPath = parseWslUncPath(path)?.linuxPath ?? path;
+		const drivePath = mountedDriveToWindowsPath(linuxPath) ?? (/^[A-Za-z]:(?:[\\/]|$)/.test(path) ? path.replace(/\//g, "\\") : null);
+		return drivePath === null ? null : drivePath.replace(/\\+$/, "");
+	}
+
 	private sameProjectPath(a: string, b: string) {
+		// drvfs 同一目录可以是 /mnt/d/x、D:\x、\\wsl.localhost\<distro>\mnt\d\x；先统一到盘符路径
+		// 再比，否则修好路径后重新添加同一目录会多出一条重复项目（盘符不区分大小写）。
+		const leftDrive = this.mountedDriveForm(a);
+		const rightDrive = this.mountedDriveForm(b);
+		if (leftDrive !== null && rightDrive !== null) return leftDrive.toLowerCase() === rightDrive.toLowerCase();
 		const leftWsl = parseWslUncPath(a);
 		const rightWsl = parseWslUncPath(b);
 		if (leftWsl && rightWsl) {

@@ -1,5 +1,5 @@
 /**
- * 同主机多项目 root 会话池（main 私有；默认关闭，由连接服务的构造参数启用）。
+ * 同主机多项目 root 会话池（main 私有；生产默认启用并已通过真实主机资源门禁）。
  *
  * 为什么需要它：helper 的 `--root` 在**进程生命周期内固定**，所以旧实现里「切到另一个项目」必然拆掉当前
  * helper 会话——重新发现 node、重新握手、全部 watcher 重建、事实缓存换代。池把「一台主机一条会话」升级为
@@ -36,7 +36,7 @@ export type RootPoolPolicy = {
 	readonly acquireTimeoutMs: number;
 };
 
-/** ADR §5.2 的候选值：保温 2 / TTL 10 分钟；预算与等待是可配置的保守默认。 */
+/** 生产策略：保温 2 / TTL 10 分钟；建立中与销毁中也占用总预算。 */
 export const ROOT_POOL_DEFAULT_POLICY: RootPoolPolicy = Object.freeze({ idleCapacity: 2, idleTtlMs: 10 * 60_000, maxEntries: 6, acquireTimeoutMs: 30_000 });
 
 /** 一份执行租约：`release()` 幂等，条目在租约存续期间不可被淘汰。 */
@@ -63,6 +63,8 @@ export type RootPoolEntryView<T> = {
 
 export type RootPoolStats = {
 	readonly entries: number;
+	readonly creating: number;
+	readonly retiring: number;
 	readonly idle: number;
 	readonly leased: number;
 	readonly watched: number;
@@ -72,6 +74,7 @@ export type RootPoolStats = {
 	readonly retired: number;
 	readonly evictedIdle: number;
 	readonly waits: number;
+	readonly waitCount: number;
 	readonly waitTimeouts: number;
 	readonly peakEntries: number;
 };
@@ -79,7 +82,7 @@ export type RootPoolStats = {
 export type RootSessionPoolOptions<T> = {
 	policy?: Partial<RootPoolPolicy>;
 	/**
-	 * 建立一个新会话。同 key 并发只会调用一次；`signal` 在调用方取消时触发，实现应把它接到自己的等待上。
+	 * 同 key 并发共享建立；最后一位等待者取消或条目退休时触发 signal。
 	 * 抛出的稳定码原样交给调用方（例如 `SSH_PROJECT_ROOT_CHANGED`），因此建立失败不会被伪装成池故障。
 	 */
 	establish: (key: RootPoolKey, signal: AbortSignal) => Promise<T>;
@@ -89,6 +92,8 @@ export type RootSessionPoolOptions<T> = {
 	identity?: (value: T) => string;
 	/** 条目被回收后的通知（root 退休 ≠ 主机断开，调用方据此只清这个 root 的订阅）。 */
 	onRetired?: (event: { hostId: string; root: string; connectionId: string; reason: RootPoolRetireReason }) => void;
+	/** Main-only lifecycle snapshots; never forwarded through renderer diagnostics. */
+	onDiagnostic?: (event: { action: string; before?: RootPoolStats; stats: RootPoolStats; roots: readonly { hostId: string; root: string; connectionId: string; leases: number; watchers: number; state: "ready" | "retiring" }[]; creatingRoots: readonly RootPoolKey[] }) => void;
 	now?: () => number;
 };
 
@@ -99,8 +104,8 @@ export type RootSessionPool<T> = {
 	peek(hostId: string, root: string): RootPoolEntryView<T> | undefined;
 	entries(): readonly RootPoolEntryView<T>[];
 	/** 订阅保活：登记该 root 还挂着 watcher。返回 false 表示当前没有会话可保活。 */
-	retainWatch(hostId: string, root: string): boolean;
-	releaseWatch(hostId: string, root: string): void;
+	retainWatch(hostId: string, root: string, connectionId: string): boolean;
+	releaseWatch(hostId: string, root: string, connectionId: string): void;
 	/** 退休一个 root（显式断开某个项目/条目被判定失效）：不影响同主机其它条目。 */
 	retireRoot(hostId: string, root: string, reason: RootPoolRetireReason): Promise<void>;
 	/** 主机级失效（显式断开/重绑/禁用/store 代数变化）：该主机全部条目一起退休。 */
@@ -117,7 +122,7 @@ type Entry<T> = {
 	value: T;
 	lastUsedAt: number;
 	leases: number;
-	watchers: number;
+	watchers: Map<string, number>;
 	live: boolean;
 };
 
@@ -129,254 +134,263 @@ function stableCodeOf(error: unknown): string {
 	return typeof message === "string" && STABLE_CODE.test(message) ? message : "SSH_HOST_NOT_READY";
 }
 
+type Creation = { key: RootPoolKey; controller: AbortController; users: number; task: Promise<{ ok: true } | { ok: false; code: string }> };
+type Acquisition = { key: RootPoolKey; controller: AbortController; code: string };
+
 export function createRootSessionPool<T>(options: RootSessionPoolOptions<T>): RootSessionPool<T> {
 	const policy: RootPoolPolicy = { ...ROOT_POOL_DEFAULT_POLICY, ...options.policy };
-	if (!Number.isInteger(policy.idleCapacity) || policy.idleCapacity < 0) throw new Error("REMOTE_ROOT_POOL_POLICY_INVALID");
-	if (!Number.isFinite(policy.idleTtlMs) || policy.idleTtlMs <= 0) throw new Error("REMOTE_ROOT_POOL_POLICY_INVALID");
-	if (!Number.isInteger(policy.maxEntries) || policy.maxEntries < 1) throw new Error("REMOTE_ROOT_POOL_POLICY_INVALID");
-	if (!Number.isFinite(policy.acquireTimeoutMs) || policy.acquireTimeoutMs <= 0) throw new Error("REMOTE_ROOT_POOL_POLICY_INVALID");
+	if (!Number.isInteger(policy.idleCapacity) || policy.idleCapacity < 0 || !Number.isFinite(policy.idleTtlMs) || policy.idleTtlMs <= 0 || !Number.isInteger(policy.maxEntries) || policy.maxEntries < 1 || !Number.isFinite(policy.acquireTimeoutMs) || policy.acquireTimeoutMs <= 0)
+		throw new Error("REMOTE_ROOT_POOL_POLICY_INVALID");
 	const now = options.now ?? Date.now;
 	const entries = new Map<string, Entry<T>>();
-	/** 同 key 的在途建立：并发 acquire 共享同一次 bootstrap，而不是各建一条 helper。 */
-	const creating = new Map<string, Promise<{ ok: true } | { ok: false; code: string }>>();
-	/** 满载时的有界等待队列（FIFO）；每个等待者有自己的超时与取消。 */
-	const waiters: (() => void)[] = [];
+	const creating = new Map<string, Creation>();
+	const retiring = new Map<string, { entry: Entry<T>; task: Promise<void> }>();
+	const acquisitions = new Set<Acquisition>();
+	const waiters = new Set<() => void>();
 	const counters = { hits: 0, misses: 0, created: 0, retired: 0, evictedIdle: 0, waits: 0, waitTimeouts: 0, peakEntries: 0 };
 	let disposed = false;
 	let disposing: Promise<void> | undefined;
 	const keyOf = (hostId: string, root: string): string => hostId + "\u0000" + root;
 	const identityOf = (value: T): string => options.identity?.(value) ?? "";
-	const viewOf = (entry: Entry<T>): RootPoolEntryView<T> => ({ hostId: entry.hostId, root: entry.root, connectionId: identityOf(entry.value), value: entry.value, leases: entry.leases, watchers: entry.watchers, lastUsedAt: entry.lastUsedAt });
-	/** 唤醒一个等待者：腾出的位置按到达顺序给最早等待的人。 */
-	function wakeSlot(): void {
-		const next = waiters.shift();
-		next?.();
+	const watchersOf = (entry: Entry<T>): number => [...entry.watchers.values()].reduce((sum, count) => sum + count, 0);
+	// A freshly published entry is reserved until its awaiting acquirers receive their leases.
+	const idle = (entry: Entry<T>): boolean => entry.live && entry.leases === 0 && watchersOf(entry) === 0 && ![...acquisitions].some((request) => !request.controller.signal.aborted && request.key.hostId === entry.hostId && request.key.root === entry.root);
+	const idleEntries = (): Entry<T>[] => [...entries.values()].filter(idle).sort((a, b) => a.lastUsedAt - b.lastUsedAt);
+	const viewOf = (entry: Entry<T>): RootPoolEntryView<T> => ({ hostId: entry.hostId, root: entry.root, connectionId: identityOf(entry.value), value: entry.value, leases: entry.leases, watchers: watchersOf(entry), lastUsedAt: entry.lastUsedAt });
+	const slots = (): number => entries.size + creating.size + retiring.size;
+	function stats(): RootPoolStats {
+		const all = [...entries.values()];
+		return { entries: all.length, creating: creating.size, retiring: retiring.size, idle: all.filter(idle).length, leased: all.filter((e) => e.leases > 0).length, watched: all.filter((e) => watchersOf(e) > 0).length, ...counters, waitCount: waiters.size };
+	}
+	function diagnose(action: string, before?: RootPoolStats): void {
+		try {
+			options.onDiagnostic?.({
+				action,
+				...(before === undefined ? {} : { before }),
+				stats: stats(),
+				roots: [...entries.values(), ...[...retiring.values()].map((r) => r.entry)].map((e) => ({ hostId: e.hostId, root: e.root, connectionId: identityOf(e.value), leases: e.leases, watchers: watchersOf(e), state: e.live ? "ready" : "retiring" })),
+				creatingRoots: [...creating.values()].map((pending) => pending.key),
+			});
+		} catch {
+			// Observability must not break slot accounting or session teardown.
+		}
+	}
+	function wake(): void {
+		for (const notify of [...waiters]) notify();
 	}
 	function makeLease(entry: Entry<T>): RootPoolLease<T> {
 		let released = false;
+		entry.leases += 1;
+		entry.lastUsedAt = now();
 		return {
 			hostId: entry.hostId,
 			root: entry.root,
-			get connectionId() {
-				return identityOf(entry.value);
-			},
+			connectionId: identityOf(entry.value),
 			value: entry.value,
 			release() {
 				if (released) return;
 				released = true;
-				entry.leases = Math.max(0, entry.leases - 1);
+				entry.leases -= 1;
 				entry.lastUsedAt = now();
-				// 只有仍活着的条目才值得唤醒等待者：已退休的条目早就把位置让出来了。
-				if (entry.live) wakeSlot();
+				if (entry.live) wake();
 			},
 		};
 	}
-	async function retire(entry: Entry<T>, reason: RootPoolRetireReason): Promise<void> {
-		if (!entry.live) return;
+	function retire(entry: Entry<T>, reason: RootPoolRetireReason): Promise<void> {
+		const id = keyOf(entry.hostId, entry.root);
+		if (!entry.live) return retiring.get(id)?.task ?? Promise.resolve();
 		entry.live = false;
-		entries.delete(keyOf(entry.hostId, entry.root));
+		entries.delete(id);
 		counters.retired += 1;
-		if (reason === "lru") counters.evictedIdle += 1;
-		// 先让出位置再等待销毁：销毁是异步的（manager.dispose），不该让同主机其它项目的等待者排在它后面。
-		wakeSlot();
-		try {
-			await options.retire({ key: { hostId: entry.hostId, root: entry.root }, value: entry.value, connectionId: identityOf(entry.value) }, reason);
-		} catch {
-			// 销毁失败不改变「已退休」这一事实：条目已从登记表移除，旧会话不会再被复用；残留进程由退出清理兜底。
-		}
-		// 退休通知在销毁之后：调用方要退的是「已经决定不再使用」的订阅，而不是一条正在被优雅关闭的会话。
-		options.onRetired?.({ hostId: entry.hostId, root: entry.root, connectionId: identityOf(entry.value), reason });
+		if (reason === "lru" || reason === "ttl") counters.evictedIdle += 1;
+		const connectionId = identityOf(entry.value);
+		// Fence consumers immediately, but reserve the physical slot until teardown settles.
+		const task = Promise.resolve()
+			.then(() => options.retire({ key: { hostId: entry.hostId, root: entry.root }, value: entry.value, connectionId }, reason))
+			.catch(() => diagnose("retire-failed"))
+			.then(() => {
+				retiring.delete(id);
+				diagnose("retired:" + reason);
+				wake();
+			});
+		retiring.set(id, { entry, task });
+		options.onRetired?.({ hostId: entry.hostId, root: entry.root, connectionId, reason });
+		diagnose("retiring:" + reason);
+		return task;
 	}
-	/** 满载时挑一个**既无租约也无订阅**的条目按 LRU 淘汰；没有可淘汰的就返回 false。 */
-	async function evictOneIdle(): Promise<boolean> {
-		let victim: Entry<T> | undefined;
-		for (const entry of entries.values()) {
-			if (!entry.live || entry.leases > 0 || entry.watchers > 0) continue;
-			if (victim === undefined || entry.lastUsedAt < victim.lastUsedAt) victim = entry;
-		}
-		if (victim === undefined) return false;
-		await retire(victim, "lru");
-		return true;
-	}
-	/** 等一个位置；`true` = 有人让位，`false` = 超时或调用方取消。 */
-	function waitForSlot(deadline: number, signal: AbortSignal | undefined): Promise<boolean> {
-		return new Promise<boolean>((resolve) => {
-			let done = false;
-			const waiter = (): void => finish(true);
-			const finish = (freed: boolean): void => {
-				if (done) return;
-				done = true;
-				remove();
-				resolve(freed);
-			};
-			const remove = (): void => {
+	/** Every capacity wait has a deadline and cancellation; registering has no await gap. */
+	function waitForSlot(deadline: number, signal: AbortSignal): Promise<void> {
+		return new Promise((resolve) => {
+			const finish = (): void => {
 				cancelTimer(timer);
-				signal?.removeEventListener("abort", onAbort);
-				const index = waiters.indexOf(waiter);
-				if (index >= 0) waiters.splice(index, 1);
+				waiters.delete(finish);
+				signal.removeEventListener("abort", finish);
+				resolve();
 			};
-			const timer = delayTimer(() => finish(false), Math.max(0, deadline - now()));
-			const onAbort = (): void => finish(false);
-			waiters.push(waiter);
-			signal?.addEventListener("abort", onAbort, { once: true });
+			const timer = delayTimer(finish, Math.max(0, deadline - now()));
+			waiters.add(finish);
+			signal.addEventListener("abort", finish, { once: true });
+			if (signal.aborted) finish();
 		});
 	}
-	async function createEntry(key: RootPoolKey, signal: AbortSignal | undefined): Promise<{ ok: true } | { ok: false; code: string }> {
+	/** Cancelling a consumer never cancels the shared producer while another consumer remains. */
+	async function joinCreation(pending: Creation, request: Acquisition): Promise<{ ok: true } | { ok: false; code: string }> {
+		pending.users += 1;
+		try {
+			return await new Promise((resolve) => {
+				const finish = (result: { ok: true } | { ok: false; code: string }): void => {
+					request.controller.signal.removeEventListener("abort", abort);
+					resolve(result);
+				};
+				const abort = (): void => finish({ ok: false, code: request.code });
+				request.controller.signal.addEventListener("abort", abort, { once: true });
+				void pending.task.then(finish);
+				if (request.controller.signal.aborted) abort();
+			});
+		} finally {
+			pending.users -= 1;
+			if (pending.users === 0 && request.controller.signal.aborted) pending.controller.abort();
+		}
+	}
+	function createEntry(key: RootPoolKey): Creation {
 		const id = keyOf(key.hostId, key.root);
 		const controller = new AbortController();
-		const onAbort = (): void => controller.abort();
-		signal?.addEventListener("abort", onAbort, { once: true });
-		if (signal?.aborted === true) controller.abort();
-		const task = (async (): Promise<{ ok: true } | { ok: false; code: string }> => {
+		const task = Promise.resolve().then(async (): Promise<{ ok: true } | { ok: false; code: string }> => {
 			try {
+				if (controller.signal.aborted) return { ok: false, code: "REQUEST_CANCELLED" };
 				const value = await options.establish(key, controller.signal);
-				// 建立期间服务被关闭：不能把一个没人拥有的会话留在池里。
-				if (disposed) {
-					await Promise.resolve(options.retire({ key, value, connectionId: identityOf(value) }, "dispose")).catch(() => undefined);
-					return { ok: false, code: "REMOTE_CONNECTION_SERVICE_DISPOSED" };
+				if (disposed || controller.signal.aborted) {
+					await options.retire({ key, value, connectionId: identityOf(value) }, disposed ? "dispose" : "explicit");
+					return { ok: false, code: disposed ? "REMOTE_CONNECTION_SERVICE_DISPOSED" : "SSH_HOST_NOT_READY" };
 				}
-				const existing = entries.get(id);
-				if (existing !== undefined && existing.live) {
-					// 同 key 的另一条创建路径赢了这个位置（例如被上一次超时放弃的建立最终成功）：只保留一个条目。
-					await Promise.resolve(options.retire({ key, value, connectionId: identityOf(value) }, "explicit")).catch(() => undefined);
-					return { ok: true };
-				}
-				entries.set(id, { hostId: key.hostId, root: key.root, value, lastUsedAt: now(), leases: 0, watchers: 0, live: true });
+				// Transfer the reservation atomically; creating must not double-count a ready entry.
+				creating.delete(id);
+				entries.set(id, { ...key, value, lastUsedAt: now(), leases: 0, watchers: new Map(), live: true });
 				counters.created += 1;
-				counters.peakEntries = Math.max(counters.peakEntries, entries.size);
+				diagnose("created");
 				return { ok: true };
 			} catch (error) {
 				return { ok: false, code: stableCodeOf(error) };
+			} finally {
+				creating.delete(id);
+				wake();
 			}
-		})();
-		creating.set(id, task);
-		try {
-			return await task;
-		} finally {
-			if (creating.get(id) === task) creating.delete(id);
-			signal?.removeEventListener("abort", onAbort);
-			// 建立失败也意味着这个「创建中」的位置结束了，等待者应当重新尝试而不是干等超时。
-			wakeSlot();
+		});
+		const pending = { key, controller, users: 0, task };
+		creating.set(id, pending);
+		counters.peakEntries = Math.max(counters.peakEntries, slots());
+		return pending;
+	}
+	/** Invalidate both ready entries and queued/creating work before the first await. */
+	async function retireMatching(matches: (key: RootPoolKey) => boolean, reason: RootPoolRetireReason): Promise<void> {
+		for (const request of acquisitions)
+			if (matches(request.key)) {
+				request.code = disposed ? "REMOTE_CONNECTION_SERVICE_DISPOSED" : "SSH_HOST_NOT_READY";
+				request.controller.abort();
+			}
+		const pending = [...creating.values()].filter((item) => matches(item.key));
+		for (const item of pending) item.controller.abort();
+		const tasks = [...entries.values()].filter(matches).map((entry) => retire(entry, reason));
+		for (const [id, pendingRetirement] of retiring) {
+			const [hostId, root] = id.split("\u0000");
+			if (matches({ hostId, root })) tasks.push(pendingRetirement.task);
 		}
+		await Promise.all([...tasks, ...pending.map((item) => item.task)]);
 	}
 	return {
 		async acquire(key, acquireOptions = {}) {
-			if (disposed) return { ok: false, code: "REMOTE_CONNECTION_SERVICE_DISPOSED" };
+			const request: Acquisition = { key, controller: new AbortController(), code: "REQUEST_CANCELLED" };
 			const signal = acquireOptions.signal;
-			// 每次检查都重新读一次：把 bus/abort 的判定集中成一个入口，避免在循环里被 TS 的常量窄化误导。
-			const isAborted = (): boolean => signal?.aborted === true;
-			if (isAborted()) return { ok: false, code: "REQUEST_CANCELLED" };
+			const abort = (): void => request.controller.abort();
+			signal?.addEventListener("abort", abort, { once: true });
+			if (signal?.aborted) abort();
+			acquisitions.add(request);
 			const id = keyOf(key.hostId, key.root);
 			const deadline = now() + policy.acquireTimeoutMs;
-			for (;;) {
-				if (disposed) return { ok: false, code: "REMOTE_CONNECTION_SERVICE_DISPOSED" };
-				if (isAborted()) return { ok: false, code: "REQUEST_CANCELLED" };
-				const existing = entries.get(id);
-				if (existing !== undefined && existing.live) {
-					counters.hits += 1;
-					existing.leases += 1;
-					existing.lastUsedAt = now();
-					return { ok: true, lease: makeLease(existing) };
-				}
-				const pending = creating.get(id);
-				if (pending !== undefined) {
-					// 同 key 并发：等那一次建立，合并成一条会话（绝不各建一条 helper）。
-					const settled = await pending;
-					if (!settled.ok) return settled;
-					const shared = entries.get(id);
-					if (shared !== undefined && shared.live) {
+			let waited = false;
+			try {
+				for (;;) {
+					if (disposed) return { ok: false, code: "REMOTE_CONNECTION_SERVICE_DISPOSED" };
+					if (request.controller.signal.aborted) return { ok: false, code: request.code };
+					const existing = entries.get(id);
+					if (existing !== undefined) {
 						counters.hits += 1;
-						shared.leases += 1;
-						shared.lastUsedAt = now();
-						return { ok: true, lease: makeLease(shared) };
+						return { ok: true, lease: makeLease(existing) };
 					}
-					continue;
-				}
-				// 在途建立也占预算：它们各会变成一条真实 helper，若不计数，满载时会被静默超额。
-				if (entries.size + creating.size >= policy.maxEntries) {
-					counters.waits += 1;
-					if (await evictOneIdle()) continue;
-					const freed = await waitForSlot(deadline, signal);
-					if (!freed) {
-						counters.waitTimeouts += 1;
-						return { ok: false, code: isAborted() ? "REQUEST_CANCELLED" : "SSH_ROOT_POOL_BUSY" };
+					const pending = creating.get(id);
+					if (pending !== undefined) {
+						const result = await joinCreation(pending, request);
+						if (!result.ok) return result;
+						continue;
 					}
-					continue;
+					if (retiring.has(id) || slots() >= policy.maxEntries) {
+						if (now() >= deadline) {
+							counters.waitTimeouts += 1;
+							diagnose("wait-timeout");
+							return { ok: false, code: "SSH_ROOT_POOL_BUSY" };
+						}
+						if (!waited) {
+							counters.waits += 1;
+							waited = true;
+						}
+						const victim = retiring.has(id) ? undefined : idleEntries()[0];
+						if (victim) void retire(victim, "lru");
+						await waitForSlot(deadline, request.controller.signal);
+						continue;
+					}
+					counters.misses += 1;
+					const result = await joinCreation(createEntry(key), request);
+					if (!result.ok) return result;
+					if (request.controller.signal.aborted) return { ok: false, code: request.code };
+					const created = entries.get(id);
+					if (created) return { ok: true, lease: makeLease(created) };
 				}
-				counters.misses += 1;
-				const createdResult = await createEntry(key, signal);
-				if (!createdResult.ok) return createdResult;
-				// 这一次调用自己建立的条目：发租约但不记 hit（hit 只统计「复用了别人建立/已有的会话」）。
-				const createdEntry = entries.get(id);
-				if (createdEntry === undefined || !createdEntry.live) continue;
-				createdEntry.leases += 1;
-				createdEntry.lastUsedAt = now();
-				return { ok: true, lease: makeLease(createdEntry) };
+			} finally {
+				acquisitions.delete(request);
+				signal?.removeEventListener("abort", abort);
+				if (request.controller.signal.aborted) wake();
 			}
 		},
 		peek(hostId, root) {
 			const entry = entries.get(keyOf(hostId, root));
-			return entry === undefined || !entry.live ? undefined : viewOf(entry);
+			return entry === undefined ? undefined : viewOf(entry);
 		},
-		entries() {
-			return [...entries.values()].filter((entry) => entry.live).map(viewOf);
-		},
-		retainWatch(hostId, root) {
+		entries: () => [...entries.values()].map(viewOf),
+		retainWatch(hostId, root, connectionId) {
 			const entry = entries.get(keyOf(hostId, root));
-			if (entry === undefined || !entry.live) return false;
-			entry.watchers += 1;
+			if (entry === undefined || identityOf(entry.value) !== connectionId) return false;
+			entry.watchers.set(connectionId, (entry.watchers.get(connectionId) ?? 0) + 1);
 			entry.lastUsedAt = now();
 			return true;
 		},
-		releaseWatch(hostId, root) {
+		releaseWatch(hostId, root, connectionId) {
 			const entry = entries.get(keyOf(hostId, root));
-			if (entry === undefined) return;
-			entry.watchers = Math.max(0, entry.watchers - 1);
+			if (entry === undefined || !entry.watchers.has(connectionId)) return;
+			const remaining = (entry.watchers.get(connectionId) ?? 0) - 1;
+			if (remaining > 0) entry.watchers.set(connectionId, remaining);
+			else entry.watchers.delete(connectionId);
 			entry.lastUsedAt = now();
+			wake();
 		},
-		async retireRoot(hostId, root, reason) {
-			const entry = entries.get(keyOf(hostId, root));
-			if (entry !== undefined) await retire(entry, reason);
-		},
-		async retireHost(hostId, reason) {
-			const victims = [...entries.values()].filter((entry) => entry.hostId === hostId);
-			for (const entry of victims) await retire(entry, reason);
-		},
+		retireRoot: (hostId, root, reason) => retireMatching((key) => key.hostId === hostId && key.root === root, reason),
+		retireHost: (hostId, reason) => retireMatching((key) => key.hostId === hostId, reason),
 		async sweep(at = now()) {
-			// 只有「既无租约也无订阅」的条目才进入候选：活跃操作与在挂监听都不会被这里回收。
-			const idle = [...entries.values()].filter((entry) => entry.live && entry.leases === 0 && entry.watchers === 0);
-			for (const entry of idle) if (at - entry.lastUsedAt >= policy.idleTtlMs) await retire(entry, "ttl");
-			const remaining = [...entries.values()].filter((entry) => entry.live && entry.leases === 0 && entry.watchers === 0).sort((left, right) => left.lastUsedAt - right.lastUsedAt);
-			let over = remaining.length - policy.idleCapacity;
-			for (const entry of remaining) {
-				if (over <= 0) break;
-				over -= 1;
-				await retire(entry, "lru");
+			const before = stats();
+			for (const entry of idleEntries()) if (idle(entry) && at - entry.lastUsedAt >= policy.idleTtlMs) await retire(entry, "ttl");
+			// Recompute after every await: a candidate may have acquired a lease or watcher.
+			for (;;) {
+				const candidates = idleEntries();
+				if (candidates.length <= policy.idleCapacity) break;
+				await retire(candidates[0], "lru");
 			}
+			if (before.entries > 0 || before.creating > 0 || before.retiring > 0) diagnose("sweep", before);
 		},
-		stats() {
-			const all = [...entries.values()].filter((entry) => entry.live);
-			return {
-				entries: all.length,
-				idle: all.filter((entry) => entry.leases === 0 && entry.watchers === 0).length,
-				leased: all.filter((entry) => entry.leases > 0).length,
-				watched: all.filter((entry) => entry.watchers > 0).length,
-				hits: counters.hits,
-				misses: counters.misses,
-				created: counters.created,
-				retired: counters.retired,
-				evictedIdle: counters.evictedIdle,
-				waits: counters.waits,
-				waitTimeouts: counters.waitTimeouts,
-				peakEntries: counters.peakEntries,
-			};
-		},
+		stats,
 		dispose() {
 			disposing ??= (async () => {
 				disposed = true;
-				for (const waiter of waiters.splice(0, waiters.length)) waiter();
-				const victims = [...entries.values()];
-				await Promise.all(victims.map((entry) => retire(entry, "dispose")));
+				await retireMatching(() => true, "dispose");
+				diagnose("dispose");
 			})();
 			return disposing;
 		},

@@ -352,3 +352,25 @@ test("items 变长时不能沿用旧数组", () => {
 	assert.equal(second[0].items.length, 2, "新增条目必须出现");
 	assert.equal(second[0].items[1].id, "tool-2");
 });
+
+// 预热激活回归（2026-11）：pi 运行时首次 flush 会把磁盘页投影 `_viewer-history-X`
+// 改写为 `<agentId>-history-X`。session-atoms 的 stabilizeRuntimeMessageIds 负责把
+// 运行时窗口段 id 稳定回缓存已有显示 id；这里守住它下游的契约——id 与内容都未变的
+// run 必须复用旧引用（TurnRow memo 快路径命中、不 remount、不重播入场动画），
+// 而 id 被改写的 run（修复前形态）不会复用，正是 remount/卡顿/焦点丢失的来源。
+test("投影 id 稳定时 flush 后 run 引用复用；id 被改写时不复用", () => {
+	const { reconcileRuns } = loadAppUtils();
+	const diskRun = makeRun("_viewer-history-e5-run", "answer");
+	const first = reconcileRuns(undefined, [diskRun]);
+
+	// 修复后：运行时窗口段经 stabilizeRuntimeMessageIds 稳定回磁盘页显示 id
+	//（对象是新的，id 与内容不变 —— flush 全量重建的形态）。
+	const stabilizedRun = makeRun("_viewer-history-e5-run", "answer");
+	const second = reconcileRuns(first, [stabilizedRun]);
+	assert.equal(second[0], diskRun, "id+内容不变 → 复用旧引用（不 remount）");
+
+	// 修复前形态：id 被改写为运行时投影前缀 → 视为不同 run，不复用（会 remount）。
+	const rewrittenRun = makeRun("agent-1-history-e5-run", "answer");
+	const third = reconcileRuns(first, [rewrittenRun]);
+	assert.notEqual(third[0], diskRun, "id 改写 → 新引用（修复前 remount 的形态）");
+});

@@ -1,13 +1,16 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, dropCursor, rectangularSelection, crosshairCursor } from "@codemirror/view";
-import { EditorState } from "@codemirror/state";
+import { Annotation, EditorState, Transaction } from "@codemirror/state";
 import { foldGutter, foldKeymap, indentOnInput, bracketMatching, indentUnit } from "@codemirror/language";
 import { defaultKeymap, history, historyKeymap, indentWithTab, toggleComment } from "@codemirror/commands";
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
-import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
+import { highlightSelectionMatches, openSearchPanel, searchKeymap } from "@codemirror/search";
 import { linter, lintGutter } from "@codemirror/lint";
 import { jsonParseLinter } from "@codemirror/lang-json";
 import { baseEditorExtensions, foldMarkerDOM, resolveEditorLanguage } from "../../utils/codemirrorSetup";
+import { isEditorFindShortcut } from "../../utils/editorFindShortcut";
+import { setEditorFindHandler } from "../../utils/editorFindBridge";
+import { isEditableTarget } from "../../utils/fileSearchTrigger";
 import { t } from "../../i18n";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
 
@@ -36,6 +39,48 @@ type SelectionMenu = {
 	endLine: number;
 };
 
+// —— 全局 Ctrl/Cmd+F 兜底 ——
+// CM 的 searchKeymap 只在编辑器持有 DOM 焦点时才生效：从文件树/标签栏/会话文件链接打开
+// 文件后焦点还停在原处，按键既进不了编辑器 keymap，也没有别的监听者（窗口没有原生菜单，
+// Electron 不提供内置查找栏），用户看到的就是「Ctrl+F 完全没反应」。
+// 这里登记已挂载的 EditorView，焦点不在编辑器时把 Ctrl+F 转给最近活动的那一个实例。
+const EXTERNAL_VALUE_SYNC = Annotation.define<boolean>();
+const mountedViews: EditorView[] = [];
+let activeView: EditorView | null = null;
+
+/** 首次打开查找面板时 CM 只建 DOM 不聚焦输入框，不手动聚焦会让下一次击键打进正文。 */
+function focusSearchField(view: EditorView) {
+	const field = view.dom.querySelector<HTMLInputElement>(".cm-search input[name=search]");
+	if (!field) return;
+	field.focus();
+	field.select();
+}
+
+/** 在最近活动的编辑器里打开查找面板；没有可用实例返回 false（快捷键交回调用方）。 */
+function openActiveEditorFind(): boolean {
+	const view = activeView;
+	if (!view || !view.dom.isConnected) return false;
+	view.focus();
+	openSearchPanel(view);
+	focusSearchField(view);
+	return true;
+}
+
+function handleGlobalFindShortcut(event: KeyboardEvent) {
+	if (!isEditorFindShortcut(event)) return;
+	const target = event.target instanceof Element ? event.target : null;
+	// 焦点就在编辑器里：交给 CM 自己的 keymap，别重复开面板
+	if (target?.closest(".cm-editor")) return;
+	// 输入框/文本域里按 Ctrl+F 是「搜索输入框内容」，不能抢
+	if (isEditableTarget(target)) return;
+	if (!openActiveEditorFind()) return;
+	event.preventDefault();
+}
+
+if (typeof window !== "undefined") window.addEventListener("keydown", handleGlobalFindShortcut);
+// 文件面板的 Ctrl+F 也走这里仲裁：有文件开着时查找归编辑器（见 utils/editorFindBridge）
+setEditorFindHandler(openActiveEditorFind);
+
 /** 统一封装：与旧 MonacoEditor 的 props 完全兼容（value/onChange/language/height/readOnly），
  * 外部切换时零成本替换。EditorView 生命周期由本组件托管：卸载 dispose、外部 value 变化
  * 以「与当前文档不同才替换」的方式同步，避免覆盖用户正在输入的内容。 */
@@ -46,8 +91,6 @@ export const CodeMirrorEditor = memo(function CodeMirrorEditor({ value, onChange
 	onChangeRef.current = onChange;
 	const onAttachSelectionRef = useRef(onAttachSelection);
 	onAttachSelectionRef.current = onAttachSelection;
-	// 外部 value 快照：仅用于跳过「onChange 已同步过」的重复 dispatch
-	const lastValueRef = useRef(value);
 	// 目标行最新值：挂载 effect 与变化 effect 都读 ref，memo 组件不因 props 重建函数
 	const initialLineRef = useRef(initialLine);
 	initialLineRef.current = initialLine;
@@ -107,17 +150,22 @@ export const CodeMirrorEditor = memo(function CodeMirrorEditor({ value, onChange
 						{ key: "Mod-/", run: toggleComment },
 					]),
 					EditorView.updateListener.of((update) => {
-						if (update.docChanged) {
-							const next = update.state.sliceDoc();
-							lastValueRef.current = next;
-							onChangeRef.current?.(next);
+						// 载入/重读是外部同步，不是用户编辑，不能触发宿主的 dirty/自动保存。
+						if (update.transactions.some((transaction) => transaction.docChanged && !transaction.annotation(EXTERNAL_VALUE_SYNC))) {
+							onChangeRef.current?.(update.state.sliceDoc());
 						}
 					}),
 				],
 			}),
 		});
 		viewRef.current = view;
-		lastValueRef.current = value;
+		// 登记为「最近活动的编辑器」：挂载即认领，用户不必先点进编辑器才能用 Ctrl+F
+		mountedViews.push(view);
+		activeView = view;
+		const claimActive = () => {
+			activeView = view;
+		};
+		view.dom.addEventListener("focusin", claimActive);
 		// 文档就绪即定位（值为空时跳过：真实内容到达后由 value effect 再定位一次）
 		const targetLine = initialLineRef.current;
 		if (targetLine !== undefined && view.state.doc.lines > 0) {
@@ -128,6 +176,11 @@ export const CodeMirrorEditor = memo(function CodeMirrorEditor({ value, onChange
 			});
 		}
 		return () => {
+			view.dom.removeEventListener("focusin", claimActive);
+			const index = mountedViews.indexOf(view);
+			if (index >= 0) mountedViews.splice(index, 1);
+			// 销毁的正是活动实例时退回到仍在挂载的最后一个，别让 Ctrl+F 指向死 view
+			if (activeView === view) activeView = mountedViews.at(-1) ?? null;
 			view.destroy();
 			viewRef.current = null;
 		};
@@ -150,7 +203,7 @@ export const CodeMirrorEditor = memo(function CodeMirrorEditor({ value, onChange
 	useEffect(() => {
 		const view = viewRef.current;
 		if (!view || view.state.sliceDoc() === value) return;
-		view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
+		view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value }, annotations: [EXTERNAL_VALUE_SYNC.of(true), Transaction.addToHistory.of(false)] });
 		// 内容替换完成后再定位：mount 时 doc 可能为空，这里拿走目标行
 		const targetLine = initialLineRef.current;
 		if (targetLine !== undefined) {

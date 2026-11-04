@@ -135,18 +135,21 @@ const execFileAsync = promisify(execFile);
  * BatchMode：绝不允许交互式密码提示把 e2e 挂住；超时由调用方给。
  */
 export async function runRemoteCommand(credentials: RemoteAcceptanceCredentials, command: string, timeoutMs: number): Promise<{ stdout: string; stderr: string }> {
-	const args = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=8", "-p", String(credentials.port), credentials.user + "@" + credentials.host, command];
+	// `-n` closes stdin locally. Without it Windows OpenSSH can keep the local process alive after a
+	// short remote command has already completed, which makes a watcher oracle look like a product stall.
+	const args = ["-n", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=8", "-p", String(credentials.port), credentials.user + "@" + credentials.host, command];
 	const run = () => execFileAsync("ssh", args, { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024 });
 	try {
 		const { stdout, stderr } = await run();
 		return { stdout, stderr };
 	} catch (error) {
-		// Direct SSH oracles are test infrastructure, not the product path: a single dropped connection must not
-		// turn into a fake product failure. Retry exactly once on connection-level errors (ssh exits 255); a
-		// remote command failure that carried real output is rethrown unchanged.
-		const failure = error as { code?: unknown; stderr?: unknown };
+		// Direct SSH oracles are test infrastructure, not the product path: a single dropped connection or a
+		// local client timeout must not turn into a fake product failure. Retry exactly once; a remote command
+		// failure that carried real output is rethrown unchanged.
+		const failure = error as { code?: unknown; stderr?: unknown; killed?: unknown; signal?: unknown };
 		const stderr = typeof failure.stderr === "string" ? failure.stderr : "";
-		if (failure.code !== 255 && !/Connection reset|Connection closed|Connection timed out|Operation timed out|Broken pipe|kex_exchange|Timeout, server|banner exchange/i.test(stderr)) throw error;
+		const timedOut = failure.killed === true || failure.code === "ETIMEDOUT" || failure.signal === "SIGTERM";
+		if (!timedOut && failure.code !== 255 && !/Connection reset|Connection closed|Connection timed out|Operation timed out|Broken pipe|kex_exchange|Timeout, server|banner exchange/i.test(stderr)) throw error;
 		await new Promise((resolve) => setTimeout(resolve, 300));
 		const { stdout, stderr: retried } = await run();
 		return { stdout, stderr: retried };
@@ -207,7 +210,7 @@ export const test = base.extend<RemoteAppFixture & { remoteCredentials: RemoteAc
 		// 避免为读文本全局改变渲染后端。
 		const domTerminalRenderer = testInfo.title.includes("远端终端");
 		const rendererArgs = domTerminalRenderer ? ["--disable-gpu", "--disable-software-rasterizer"] : [];
-		const app = await electron.launch({ args: [entry, "--user-data-dir=" + profileDir, ...rendererArgs], env });
+		const app = await electron.launch({ args: [entry, "--user-data-dir=" + profileDir, ...rendererArgs], env: Object.fromEntries(Object.entries(env).filter((pair): pair is [string, string] => pair[1] !== undefined)) });
 		await use(app);
 		await app.close();
 	},
@@ -441,7 +444,7 @@ export async function dismissRemoteConnectionProgress(window: Page): Promise<voi
  * 隐藏目录（.pideck-e2e-*）需要先打开「显示隐藏目录」。
  */
 export async function chooseRemoteDirectory(window: Page, targetPath: string): Promise<void> {
-	const picker = window.getByTestId("remote-directory-picker").last();
+	const picker = window.getByTestId("directory-picker").last();
 	await expect(picker).toBeVisible({ timeout: 30_000 });
 	const currentPath = async () => (await picker.getAttribute("data-current-path")) ?? "";
 	await expect.poll(currentPath, { timeout: 30_000 }).not.toBe("");

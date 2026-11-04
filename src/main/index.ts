@@ -320,10 +320,11 @@ import { isDefaultAgentTitle } from "./pi/agentUtils";
 import { CompositeAgentGateway } from "./agents/CompositeAgentGateway";
 import { AcpAgentManager } from "./acp/AcpAgentManager";
 import { buildAcpMcpServers, buildAgentMemoryMountForApp, memoryDirOfMount, resolveAgentMemoryDir, sourcesOfMount } from "./agentMemory/agentMemoryMounts";
-import { runLearnerPass } from "./agentMemory/agentMemoryLearner";
+import { runLearnerForAgent } from "./agentMemory/agentMemoryLearner";
 import { resolveEnhanceTargetModel } from "../shared/enhanceModelPreference";
 import { syncAgentMemoryRegistration } from "./agentMemory/AgentMemoryMcpRegistration";
 import { clearAgentMemoryIndex, readAgentMemoryStatus } from "./agentMemory/agentMemoryStatus";
+import { migrateAgentMemoryProjectKeys } from "./agentMemory/agentMemoryMigration";
 import { deleteAgentMemoryEntry, readAgentMemoryEntries, readStandingEntry, restoreAgentMemoryEntry, writeStandingEntry } from "./agentMemory/agentMemoryEntries";
 import { renameDevice } from "../../resources/agent-memory/sync.mjs";
 import { exportAgentMemoryBundle, importAgentMemoryBundle, previewAgentMemoryBundle } from "./agentMemory/agentMemoryBundle";
@@ -380,7 +381,8 @@ import { ClaudeSessionImporter } from "./sessions/ClaudeSessionImporter";
 import { QoderSessionImporter } from "./sessions/QoderSessionImporter";
 import { OpenCodeSessionImporter } from "./sessions/OpenCodeSessionImporter";
 import { ZCodeSessionImporter } from "./sessions/ZCodeSessionImporter";
-import { WorkBuddySessionImporter } from "./sessions/WorkBuddySessionImporter";
+import { WorkBuddySessionImporter } from "./sessions/codebuddyFamilySessionImporter";
+import { CodeBuddySessionImporter } from "./sessions/codebuddyFamilySessionImporter";
 import { CursorSessionImporter } from "./sessions/CursorSessionImporter";
 import { KimiSessionImporter } from "./sessions/KimiSessionImporter";
 import { KimiWorkSessionImporter } from "./sessions/KimiWorkSessionImporter";
@@ -400,6 +402,7 @@ import { createPiResourceManagerPool, type PiResourceManagerPool } from "./confi
 import { createPiResourceManagerFactories } from "./config/piResourceFactories";
 import { createPiResourceTargetResolver } from "./config/PiResourceTargetResolver";
 import { TokendanceCatalogStore } from "./config/tokendanceCatalog";
+import { TokendancePricingStore } from "./config/tokendancePricing";
 import { installTokendanceProvider } from "./config/tokendanceInstaller";
 import { TokendanceAuthStore } from "./config/tokendanceAuth";
 import { createRemoteTerminalManager } from "./terminal/createRemoteTerminalManager";
@@ -439,19 +442,23 @@ import { registerWslHostIpc } from "./ipc/wslHostIpc";
 import { createWslHostReferenceRegistry } from "./wsl/WslHostReferences";
 import { createWslHostStore } from "./wsl/WslHostStore";
 import { resolveProjectWslIdentity } from "./wsl/WslProjectEnvironment";
+import { createWslHelperSessionPool } from "./wsl/WslHelperSession";
 import { registerRemoteProjectIpc } from "./ipc/remoteProjectIpc";
 import { createRemoteFactsHub } from "./remote/RemoteFactsNotifications";
 import { registerRemoteProjectFileIpc } from "./ipc/remoteProjectFileIpc";
 import { registerRemoteProjectTransferIpc } from "./ipc/remoteProjectTransferIpc";
+import { registerRemoteProjectTransferJobIpc } from "./ipc/remoteProjectTransferJobIpc";
 import { registerRemoteProjectEntryIpc } from "./ipc/remoteProjectEntryIpc";
 import { registerRemoteProjectTrustIpc } from "./ipc/remoteProjectTrustIpc";
 import { registerRemoteSessionIpc } from "./ipc/remoteSessionIpc";
 import { registerRemotePiModelIpc } from "./ipc/remotePiModelIpc";
 import { createRemotePiModelProbe } from "./pi/RemotePiModelProbe";
 import { createRemoteHostConnectionService, type RemoteHostConnectionService } from "./remote/RemoteHostConnectionService";
+import { ROOT_POOL_DEFAULT_POLICY } from "./remote/RemoteRootSessionPool";
 import { createRemoteModelCatalog, REMOTE_MODEL_CATALOG_CODES } from "./remote/RemotePiModelCatalog";
 import { createSshClientRuntime, resolvePosixSshClient, type SshClientRuntime } from "./remote/SshClientRuntime";
 import { buildPinnedSshInvocation } from "./remote/SshVerifiedConnection";
+import { loadRemoteSftpBinaryIdentity, type RemoteSftpBinaryIdentity } from "./remote/RemoteSftpBinary";
 import { createRemoteSessionHistoryReader } from "./remote/RemoteSessionHistoryReader";
 import { createRemoteSessionArchive } from "./remote/RemoteSessionArchive";
 import { createRemoteSessionDelete } from "./remote/RemoteSessionDelete";
@@ -714,6 +721,7 @@ let qoderSessionImporter: QoderSessionImporter;
 let openCodeSessionImporter: OpenCodeSessionImporter;
 let zcodeSessionImporter: ZCodeSessionImporter;
 let workbuddySessionImporter: WorkBuddySessionImporter;
+let codebuddySessionImporter: CodeBuddySessionImporter;
 let cursorSessionImporter: CursorSessionImporter;
 let kimiSessionImporter: KimiSessionImporter;
 /** Kimi Work（桌面版）会话导入；daimon-share 位置不固定，内部走探测链。 */
@@ -3394,6 +3402,82 @@ function createCompletionHelperService(namespace: "enhance" | "agent-invoke" | "
 	});
 }
 
+/** 读 pi settings.json 的 skills / prompts / extensions 条目；读不出来返回 null（投影降级为无规则）。 */
+async function readNativeEntries(key: "skills" | "prompts" | "extensions"): Promise<string[] | null> {
+	try {
+		const file = await readPiConfigFile(join(configManager.getConfigDir(), "settings.json"));
+		const value = file.data[key];
+		return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+	} catch {
+		return null;
+	}
+}
+
+/** 刷新技能/模板状态投影缓存（迁移完成、用户切开关、或设置里切换 WSL 环境后调用）。 */
+async function refreshSkillProjection(): Promise<void> {
+	skillManagerNativeEntries = await readNativeEntries("skills");
+}
+
+async function refreshPromptProjection(): Promise<void> {
+	promptManagerNativeEntries = await readNativeEntries("prompts");
+}
+
+async function refreshExtensionProjection(): Promise<void> {
+	try {
+		const file = await readPiConfigFile(join(configManager.getConfigDir(), "settings.json"));
+		const extensions = file.data.extensions;
+		const packages = file.data.packages;
+		extensionManagerNativeEntries = Array.isArray(extensions) ? extensions.filter((item): item is string => typeof item === "string") : [];
+		extensionManagerNativePackages = Array.isArray(packages) ? [...packages] : [];
+	} catch {
+		extensionManagerNativeEntries = null;
+		extensionManagerNativePackages = null;
+	}
+}
+
+/**
+ * 全局 WSL 模式（设置 → 开发 → Pi 来源）。
+ *
+ * 把会话扫描、Agent/DSH spawn、技能/提示词/扩展/配置目录一起切到发行版 HOME，关闭时切回 Windows。
+ * 启动时执行一次；设置保存时由 settingsUpdate → applyWslSettings 重放，切换无需重启。
+ */
+async function syncWslConfig(): Promise<void> {
+	const { wslEnabled, wslDistro, wslUser } = settingsStore.get();
+	if (wslEnabled && wslDistro && wslUser) {
+		const { resolveWslEnvironment } = await import("./wsl/WslEnvironment");
+		const wslEnv = await resolveWslEnvironment(wslDistro, wslUser, {
+			warn: (msg: string, detail: unknown) => void appLogger?.warn("wsl", String(msg), { detail }),
+		});
+		await sessionScanner.configureWsl(wslEnv);
+		agentManager.configureWsl(wslEnv);
+		// DSH host 是 Windows 原生进程：WSL 项目的 workspace 路径与会话目录编码
+		// 都要按主机路径算，否则 workspace.resolve 失败、会话建不出来。
+		dshHost.configureWsl(wslEnv);
+		skillManager.configureWsl(wslEnv);
+		promptManager.configureWsl(wslEnv);
+		extensionManager.configureWsl(wslEnv);
+		// 配置/雪提示词管理器在装配后段才实例化：启动早期同步时可能还没有，跳过即可。
+		if (configManager) configManager.configureWsl(wslEnv);
+		if (xuePromptManager) xuePromptManager.configureWsl(wslEnv);
+		// 窗口已起来后再异步探测 WSL which，点会话时 resolveCommand 才能命中 wsl:// 缓存。
+		void piLocator.warmWslCommand(wslDistro, wslUser).catch((error: unknown) => {
+			void appLogger?.warn("app", "WSL pi which warmup failed", error);
+		});
+	} else {
+		sessionScanner.clearWsl();
+		agentManager.configureWsl(null);
+		dshHost.configureWsl(null);
+		skillManager.configureWsl(null);
+		promptManager.configureWsl(null);
+		extensionManager.configureWsl(null);
+		if (configManager) configManager.configureWsl(null);
+		if (xuePromptManager) xuePromptManager.configureWsl(null);
+	}
+	// 原生过滤投影取自 <config dir>/settings.json：目录换了一套就必须重读，
+	// 否则开关显示的还是旧用户那份设置（切换 WSL 用户后点开关会写错文件）。
+	await Promise.all([refreshSkillProjection(), refreshPromptProjection(), refreshExtensionProjection()]);
+}
+
 function registerIpc() {
 	// 通道策略（2026-10-27）：远端能力**只在 dev 通道提供**，正式包不启用、界面也不暴露入口。
 	// 判据复用 isDevChannelBuild()（未打包运行 / dev 通道安装包为 true，release 产物为 false），
@@ -3419,13 +3503,7 @@ function registerIpc() {
 		});
 		return remoteSshClientPending;
 	};
-	/**
-	 * Build the connection service, discovering and verifying the client first.
-	 *
-	 * Discovery is async (it probes the client), so this returns a promise; the IPC boundary awaits it
-	 * and turns any failure into a stable code rather than letting it escape as an unhandled rejection.
-	 * The result is cached so a second connect does not re-probe.
-	 */
+	/** Discover the verified client once; failed construction can be retried. */
 	let remoteHostServicePending: Promise<import("./remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined;
 	const remoteHostServiceIfEnabled = (): Promise<import("./remote/RemoteHostConnectionService").RemoteHostConnectionService> | undefined => {
 		if (!remoteExperimentEnabled) return undefined;
@@ -3437,6 +3515,7 @@ function registerIpc() {
 			const service = createRemoteHostConnectionService({
 				userDataDir: app.getPath("userData"),
 				client,
+				rootPooling: ROOT_POOL_DEFAULT_POLICY,
 				// 内置扩展快照的来源：与本地 `-e` 注入同一份「当前生效」字节（覆盖层优先，整份校验）。
 				builtInExtensionRoots: resolveBuiltInExtensionRoots(),
 				onDisconnect: (hostId) => {
@@ -3581,6 +3660,25 @@ function registerIpc() {
 			return project && isRemoteProject(project) ? project.locator : undefined;
 		},
 	});
+	let remoteSftpBinary: Promise<RemoteSftpBinaryIdentity | undefined> | undefined;
+	const remoteProjectTransfers = registerRemoteProjectTransferJobIpc({
+		enabled: remoteExperimentEnabled,
+		service: remoteHostServiceIfEnabled,
+		locator: (projectId) => {
+			const project = projectStore.get(projectId);
+			return project && isRemoteProject(project) ? project.locator : undefined;
+		},
+		binary: () => (remoteSftpBinary ??= loadRemoteSftpBinaryIdentity({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() })),
+		afterWrite: (projectId, paths) => {
+			remoteProjectFacts?.afterWrite(projectId, paths);
+			remoteGitReads.invalidateProject(projectId);
+		},
+		afterUnknown: (projectId) => {
+			remoteProjectIpc.invalidateTree(projectId);
+			remoteGitReads.invalidateProject(projectId);
+		},
+	});
+	quitCleanup.register("remote-project-transfer-jobs", remoteProjectTransfers.dispose);
 	// 文件管理（Phase 5 文件面）：8 条 new/rename/delete/trash 通道 + 独立 entry 令牌表 + sender 写单飞。
 	// 与文本保存 IPC 各自持有令牌表；窗口销毁时两个模块各自撤销自己的表（冻结语义：两类令牌都不可再用）。
 	const remoteProjectEntries = registerRemoteProjectEntryIpc({
@@ -3919,6 +4017,14 @@ function registerIpc() {
 	// 智能体记忆的设置页视图：状态/清空索引/导出/导入。记忆根目录与 MCP 服务器用的是同一个
 	// （userData/memory），所以这里算出来的体积与索引规模就是 Agent 侧看到的真实值。
 	const agentMemoryRoot = () => resolveAgentMemoryDir(app.getPath("userData"));
+	// 项目键算法换过一版（slug → slug + 路径哈希）：启动时把旧的 projects/<旧键>/ 改名到新键，
+	// 否则老用户的项目记忆会失联。幂等、尽力而为；不在 PiDeck 项目列表里的路径，
+	// 会在对应会话启动时由 MCP 服务器自己补迁。
+	const memoryMigration = migrateAgentMemoryProjectKeys(
+		agentMemoryRoot(),
+		projectStore.list().map((project) => ("locator" in project ? project.locator.remotePath : project.path)),
+	);
+	if (memoryMigration.skipped.length > 0) mcpWarning(`agent-memory: 项目记忆目录迁移跳过 ${memoryMigration.skipped.length} 个：${memoryMigration.skipped.join(", ")}`);
 	const unregisterAgentMemoryIpc = registerAgentMemoryIpc({
 		getWindow: () => mainWindow,
 		readStatus: () => readAgentMemoryStatus(agentMemoryRoot()),
@@ -3971,7 +4077,11 @@ function registerIpc() {
 		getMainWindow: () => mainWindow,
 		userDataDir: app.getPath("userData"),
 		// 项目关闭时退订它的目录订阅；连接/窗口级清理分别在 onDisconnect 与 quitCleanup 里。
-		onProjectRemoved: (projectId) => remoteProjectIpc.closeProject(projectId),
+		onProjectRemoved: async (projectId, removed) => {
+			remoteProjectTransfers.closeProject(projectId);
+			await remoteProjectIpc.closeProject(projectId);
+			if (removed && isRemoteProject(removed)) await remoteHostService?.retireProjectSession(removed.locator.hostId, removed.locator.remotePath);
+		},
 		resolveWslEnvironment: async (distro, user) => {
 			const { resolveWslEnvironment } = await import("./wsl/WslEnvironment");
 			return resolveWslEnvironment(distro, user, {
@@ -4487,6 +4597,7 @@ function registerIpc() {
 		openCodeSessionImporter,
 		zcodeSessionImporter,
 		workbuddySessionImporter,
+		codebuddySessionImporter,
 		cursorSessionImporter,
 		kimiSessionImporter,
 		kimiWorkSessionImporter,
@@ -4932,6 +5043,12 @@ function registerIpc() {
 		getCachePath: () => join(app.getPath("userData"), "tokendance-models.json"),
 		log: (message, detail) => void appLogger.info("tokendance", message, detail),
 	});
+	// TokenDance 公开报价 → 模型折扣/免费徽章（选择器展示用）。独立缓存文件：报价端点与
+	// 网关 /models 不是同一个源，刷新/失败不应互相牵连；拿不到价格时徽章整体缺席。
+	const tokendancePricingStore = new TokendancePricingStore({
+		getCachePath: () => join(app.getPath("userData"), "tokendance-pricing.json"),
+		log: (message, detail) => void appLogger.info("tokendance", message, detail),
+	});
 	/**
 	 * Phase 5 remote config scope (Batch A): every ssh target is one ready host's helper request. The host is
 	 * resolved through the same service the rest of the remote surface uses, so a disconnected/replaced host
@@ -4965,6 +5082,13 @@ function registerIpc() {
 	registerSystemIpc({
 		// 设置保存后的主进程副作用：系统级划词快捷键按新键位/开关重注册（appShortcuts 同一时机）。
 		afterSettingsUpdate: () => syncSelectionToolShortcut(),
+		// WSL 来源/发行版/用户变化：立即重绑资源目录与 spawn 环境，省掉一次重启。
+		// 配置文件目录（models.json / settings.json）已经换了一套，能力快照与 watcher 一起重指向。
+		applyWslSettings: async () => {
+			await syncWslConfig();
+			piModelCapabilityCache?.invalidate();
+			piModelCapabilityCache?.watchConfigDirectory();
+		},
 		piLocator,
 		settingsStore,
 		configManager,
@@ -5030,6 +5154,8 @@ function registerIpc() {
 		// 内置 TokenDance 模型目录（live fetch + userData 缓存；
 		// 作为一键配置的数据源：目录模型写入 models.json 后由 pi 运行时自行解析）
 		tokendanceCatalog: tokendanceCatalogStore,
+		// 同一份报价缓存服务模型选择器徽章（折扣/免费），与目录缓存分开（不同端点）
+		tokendancePricing: tokendancePricingStore,
 		// 内置 TokenDance OAuth 授权（PKCE S256 headless；verifier 内存持有，重启失效）
 		tokendanceAuth: new TokendanceAuthStore(),
 		// 内置 TokenDance 充值：与模型调用同一个 API Key（从 models.json 解析，只在本进程使用），
@@ -5239,6 +5365,10 @@ function registerIpc() {
 
 	// ── 配置管理 ──────────────────────────────────────
 
+	// WSL 项目的文件读面在发行版内以档案用户身份执行（Wave 1a）：会话按项目身份懒建立、
+	// 跨调用复用，退出时与其它常驻资源一起回收。
+	const wslHelperPool = createWslHelperSessionPool();
+	quitCleanup.register("wsl-helper-session", () => wslHelperPool.closeAll());
 	registerFilesIpc({
 		fileSystemService,
 		projectStore,
@@ -5247,6 +5377,7 @@ function registerIpc() {
 		getFileIndexService: () => fileIndexService,
 		appLogger,
 		openExternalUrl,
+		wslHelperPool,
 		// 公共文件读（T6）：ssh 项目的目录页与批量 stat 走只读 fs 面，不经过 entry 令牌。
 		remoteFiles: {
 			directoryPage: (projectId, path, force) => remoteProjectIpc.directoryPage(projectId, path, force),
@@ -5361,6 +5492,7 @@ app
 		openCodeSessionImporter = new OpenCodeSessionImporter(mainCopy);
 		zcodeSessionImporter = new ZCodeSessionImporter(mainCopy);
 		workbuddySessionImporter = new WorkBuddySessionImporter(mainCopy);
+		codebuddySessionImporter = new CodeBuddySessionImporter(mainCopy);
 		cursorSessionImporter = new CursorSessionImporter(mainCopy);
 		kimiSessionImporter = new KimiSessionImporter(mainCopy);
 		kimiWorkSessionImporter = new KimiWorkSessionImporter(mainCopy);
@@ -6965,34 +7097,6 @@ app
 			piResourceStateStore,
 			{ projectTrust: async (projectId, _root) => (await configManager.getProjectTrustDecision(projectStore.get(projectId)?.path ?? "")) === true },
 		);
-		/** 刷新技能/模板状态投影缓存（迁移完成、或用户切开关后调用）。 */
-		const readNativeEntries = async (key: "skills" | "prompts" | "extensions"): Promise<string[] | null> => {
-			try {
-				const file = await readPiConfigFile(join(configManager.getConfigDir(), "settings.json"));
-				const value = file.data[key];
-				return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-			} catch {
-				return null;
-			}
-		};
-		const refreshSkillProjection = async (): Promise<void> => {
-			skillManagerNativeEntries = await readNativeEntries("skills");
-		};
-		const refreshPromptProjection = async (): Promise<void> => {
-			promptManagerNativeEntries = await readNativeEntries("prompts");
-		};
-		const refreshExtensionProjection = async (): Promise<void> => {
-			try {
-				const file = await readPiConfigFile(join(configManager.getConfigDir(), "settings.json"));
-				const extensions = file.data.extensions;
-				const packages = file.data.packages;
-				extensionManagerNativeEntries = Array.isArray(extensions) ? extensions.filter((item): item is string => typeof item === "string") : [];
-				extensionManagerNativePackages = Array.isArray(packages) ? [...packages] : [];
-			} catch {
-				extensionManagerNativeEntries = null;
-				extensionManagerNativePackages = null;
-			}
-		};
 		/**
 		 * 迁移依赖：全局与项目共用（项目迁移也需要全局资源做名称→路径映射）。
 		 * 迁移是「旧禁用记录 → 原生过滤规则」的唯一入口，必须在任何 Agent spawn 前跑完，
@@ -7206,20 +7310,19 @@ app
 			const settings = settingsStore?.get();
 			if (!settings?.agentMemoryEnabled || !settings.agentMemoryAutoLearnEnabled) return;
 			const tab = compositeAgentGateway?.list().find((candidate) => candidate.id === info.agentId);
-			const sessionId = tab?.deckSessionId;
-			if (!sessionId) return;
-			const mount = createAgentMemoryMount(tab?.cwd);
-			void runLearnerPass(
+			if (!tab) return;
+			const mount = createAgentMemoryMount(tab.cwd);
+			void runLearnerForAgent(
 				{
 					root: memoryDirOfMount(mount),
 					sources: sourcesOfMount(mount),
-					complete: (input) => memoryLearnComplete(sessionId, input),
+					complete: memoryLearnComplete,
 					logger: {
 						info: (channel, message, meta) => void appLogger.info(channel, message, meta),
 						warn: (channel, message, meta) => void appLogger.warn(channel, message, meta),
 					},
 				},
-				{ sessionId, projectId: tab?.projectId ?? "" },
+				tab,
 			).catch((error: unknown) => {
 				void appLogger.warn("agent-memory", "learn pass crashed", { error: error instanceof Error ? error.message : String(error) });
 			});
@@ -7434,46 +7537,7 @@ app
 				},
 			}),
 		});
-		/**
-		 * 全局 WSL 模式（设置 → 开发 → Pi 来源）。
-		 *
-		 * 连接档案（一等 WSL 目标）尚未放开，正式包仍靠这条全局开关工作：启动时把会话扫描、
-		 * Agent/DSH spawn、技能/提示词/扩展/配置目录一起切到发行版 HOME，关闭时切回 Windows。
-		 * 与 0.9.8 同语义：只在启动时同步，切换来源后由设置页的重检 + 重启生效。
-		 */
-		const syncWslConfig = async () => {
-			const { wslEnabled, wslDistro, wslUser } = settingsStore.get();
-			if (wslEnabled && wslDistro && wslUser) {
-				const { resolveWslEnvironment } = await import("./wsl/WslEnvironment");
-				const wslEnv = await resolveWslEnvironment(wslDistro, wslUser, {
-					warn: (msg: string, detail: unknown) => void appLogger?.warn("wsl", String(msg), { detail }),
-				});
-				await sessionScanner.configureWsl(wslEnv);
-				agentManager.configureWsl(wslEnv);
-				// DSH host 是 Windows 原生进程：WSL 项目的 workspace 路径与会话目录编码
-				// 都要按主机路径算，否则 workspace.resolve 失败、会话建不出来。
-				dshHost.configureWsl(wslEnv);
-				skillManager.configureWsl(wslEnv);
-				promptManager.configureWsl(wslEnv);
-				extensionManager.configureWsl(wslEnv);
-				// 配置/雪提示词管理器在装配后段才实例化：启动早期同步时可能还没有，跳过即可。
-				if (configManager) configManager.configureWsl(wslEnv);
-				if (xuePromptManager) xuePromptManager.configureWsl(wslEnv);
-				// 窗口已起来后再异步探测 WSL which，点会话时 resolveCommand 才能命中 wsl:// 缓存。
-				void piLocator.warmWslCommand(wslDistro, wslUser).catch((error: unknown) => {
-					void appLogger?.warn("app", "WSL pi which warmup failed", error);
-				});
-			} else {
-				sessionScanner.clearWsl();
-				agentManager.configureWsl(null);
-				dshHost.configureWsl(null);
-				skillManager.configureWsl(null);
-				promptManager.configureWsl(null);
-				extensionManager.configureWsl(null);
-				if (configManager) configManager.configureWsl(null);
-				if (xuePromptManager) xuePromptManager.configureWsl(null);
-			}
-		};
+		// 全局 WSL 模式：定义见模块级 syncWslConfig（设置保存时热重放同一份逻辑）。
 		// 先注册 IPC 并创建窗口：WSL 探测 / pi settings / 代理 / Web 服务都可能卡住或抛错，
 		// 不能挡在 createWindow 前面（打包便携版表现为「启动没反应」，dev 因热路径较短不易复现）。
 		// 模型请求快照端点：只绑 127.0.0.1，起不来就静默跳过（快照不工作，pi 与 PiDeck 照常）。

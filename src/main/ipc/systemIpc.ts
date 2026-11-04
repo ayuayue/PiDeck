@@ -61,6 +61,7 @@ import type { SkillManager } from "../skills/SkillManager";
 import { fetchModelList, invalidateModelListCache, modelsFromPiConfig, refreshModelCatalogStore, refreshModelList, resolveModelListReport } from "../pi/modelListCache";
 import { resolveRemoteModelReport as resolveRemoteModelReportRouting } from "../pi/remoteModelReportRouting";
 import { TokendanceCatalogStore } from "../config/tokendanceCatalog";
+import type { TokendancePricingStore } from "../config/tokendancePricing";
 import type { TokendanceInstallResult } from "../config/tokendanceInstaller";
 import type { TokendanceAuthMode, TokendanceAuthStore } from "../config/tokendanceAuth";
 import type { TokendancePaymentStore } from "../config/tokendancePayment";
@@ -171,6 +172,11 @@ export type SystemIpcDeps = {
 	 * 与 refreshShortcutBindings 同一时机：保存即生效，无需重启。
 	 */
 	afterSettingsUpdate?: (settings: AppSettings) => void;
+	/**
+	 * WSL 来源/发行版/用户变化后重放一次全局 WSL 环境切换（会话扫描、Agent/DSH spawn、
+	 * 技能/提示词/扩展/配置目录），保存即生效，无需重启。未装配时保持旧行为（下次启动生效）。
+	 */
+	applyWslSettings?: () => Promise<void>;
 	piLocator: PiLocator;
 	settingsStore: SettingsStore;
 	configManager: ConfigManager;
@@ -225,6 +231,8 @@ export type SystemIpcDeps = {
 	remoteModelCatalog?: { invalidate: (hostId: string) => void };
 	/** 内置 TokenDance 模型目录（live fetch + userData 缓存）；未装配 = 列表不注入。 */
 	tokendanceCatalog?: TokendanceCatalogStore;
+	/** TokenDance 公开报价派生的折扣/免费徽章表（模型选择器展示用）；未装配 = 不显示徽章。 */
+	tokendancePricing?: TokendancePricingStore;
 	/** 内置 TokenDance OAuth 授权流程（PKCE verifier 内存持有）；未装配 = 授权入口不可用。 */
 	tokendanceAuth?: TokendanceAuthStore;
 	/** 内置 TokenDance 充值会话（创建 + 状态查询，Key 不出主进程）；未装配 = 充值入口不可用。 */
@@ -434,6 +442,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		providerMigration,
 		modelCapabilityCache,
 		tokendanceCatalog,
+		tokendancePricing,
 		tokendanceAuth,
 		tokendancePayment,
 		watchaEntitlement,
@@ -558,7 +567,9 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		const settings = settingsStore.get();
 		// 渲染层输入不可信：只认布尔 true，其他一律当非强制重检
 		const forceWslProbe = force === true;
-		const status = await piLocator.check(settings.customPiPath, false, undefined, undefined, { forceWslProbe });
+		// WSL 模式必须按当前设置探测（customPiPath 仍是宿主机语义，wsl 三件套决定是否切到 wsl:// 解析），
+		// 否则设置页切到 WSL 后状态卡永远显示宿主机 pi（#484 后续回归：2bc73a783 拿掉传参、5ee923a8f 恢复全局 WSL 设置时漏了这里）。
+		const status = await piLocator.check(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser, { forceWslProbe });
 		void appLogger.info("pi", "Pi check completed", {
 			installed: status.installed,
 			version: status.version,
@@ -587,7 +598,8 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	ipcMain.handle(ipcChannels.piInstallations, async (_event, force?: unknown) => {
 		const settings = settingsStore.get();
 		const forceShellProbe = force === true;
-		const installations = await piLocator.listInstallations(settings.customPiPath, false, undefined, undefined, { forceShellProbe, customPaths: settings.piCustomPaths });
+		// 与 piCheck 同理：WSL 模式下按设置探测（listInstallations 只返回发行版内正在用的那一份）。
+		const installations = await piLocator.listInstallations(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser, { forceShellProbe, customPaths: settings.piCustomPaths });
 		void appLogger.info("pi", "Pi installations listed", {
 			count: installations.length,
 			forceShellProbe,
@@ -644,7 +656,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 	ipcMain.handle(ipcChannels.piCheckCustom, async (_event, customPath: string, activate?: unknown) => {
 		const shouldActivate = activate !== false;
 		const settings = settingsStore.get();
-		const status = await piLocator.validateCustomPath(customPath, false, undefined, undefined);
+		const status = await piLocator.validateCustomPath(customPath, settings.wslEnabled, settings.wslDistro, settings.wslUser);
 		if (status.installed && status.command && shouldActivate) {
 			await settingsStore.update({ customPiPath: status.command });
 			// 自定义路径变了，当前使用项/排序跟着变；不清缓存会让设置页在 TTL 内显示旧列表。
@@ -1114,14 +1126,24 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 			// 只在 UI 层不展示引导不够——检测总有覆盖不到的地方（自定义目录、别名、只在 GUI 看不见的 shell 里配的 PATH），
 			// 一旦漏判，用户点一下就会真的多出一份，之后终端与 PiDeck 各用各的、更新走两条路。
 			const settings = settingsStore.get();
-			const existing = await piLocator.listInstallations(settings.customPiPath);
+			// WSL 模式下 pi 是发行版内的那一份：宿主机 npm 装出来的副本一条也用不上（PATH 与执行环境都在 Linux 侧），
+			// 先按 WSL 目标探一次，既校验「已装」拦截，也避免往下走白白装一份宿主副本。
+			const wslEnabled = process.platform === "win32" && settings.wslEnabled === true && Boolean(settings.wslDistro) && Boolean(settings.wslUser);
+			const existing = await piLocator.listInstallations(settings.customPiPath, wslEnabled, settings.wslDistro, settings.wslUser);
 			const guard = resolvePiInstallGuard(existing);
 			if (guard.skip) {
 				void appLogger.info("pi", "Runtime pi install skipped because pi already exists", {
 					count: guard.installations.length,
 					sources: guard.installations.map((item) => item.source),
+					wsl: wslEnabled,
 				});
 				return { success: false, exitCode: null, stdout: "", stderr: "", alreadyInstalled: guard.installations };
+			}
+			if (wslEnabled) {
+				// 发行版里确实没有 pi，而这一步只能装宿主机副本——直接说清楚，不要给用户装出一份用不上的 pi。
+				const blocked = mainCopy("wsl.hostInstallBlocked");
+				void appLogger.warn("pi", "Runtime pi install skipped in WSL mode", { distro: settings.wslDistro, user: settings.wslUser });
+				return { success: false, exitCode: null, stdout: "", stderr: blocked };
 			}
 			const userData = app.getPath("userData");
 			// npm 解析顺序：便携 node 同目录 npm（引导链路主路径）→ 系统 npm。
@@ -1259,9 +1281,9 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		appInfoPromise ??= (async () => {
 			let piVersion: string | undefined;
 			try {
-				// 与设置页/反馈环境一致：用当前设置的 WSL 路径探测 pi CLI 版本
+				// 与设置页/反馈环境一致：用当前设置的 WSL 配置探测 pi CLI 版本
 				const settings = settingsStore.get();
-				const status = await piLocator.check(settings.customPiPath);
+				const status = await piLocator.check(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser);
 				piVersion = status.version;
 			} catch (error) {
 				appLogger.warn("appInfo", "pi version probe failed", { error });
@@ -1552,7 +1574,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 
 	ipcMain.handle(ipcChannels.appFeedbackEnvironment, async () => {
 		const settings = settingsStore.get();
-		const pi = await piLocator.check(settings.customPiPath);
+		const pi = await piLocator.check(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser);
 		return {
 			appVersion: app.getVersion(),
 			platform: process.platform,
@@ -1885,6 +1907,18 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 			// 当前使用项与候选列表都随这些字段变化：不清缓存会让 UI 在 TTL 内显示旧安装列表。
 			invalidatePiInstallationCache();
 			void refreshPiModelCatalogs().catch(() => undefined);
+		}
+		// WSL 来源/发行版/用户：目标是另一套 HOME，技能/提示词/扩展/配置目录必须整体重绑，
+		// 否则设置页改完只有「检测环境」生效，资源页仍是旧用户（/root 的 0700 家目录还会 EPERM）。
+		// 只在三元组真的变化时重放：普通设置保存不额外拉起 wsl.exe 探测。
+		const wslSettingsChanged = prevSettings.wslEnabled !== settings.wslEnabled || prevSettings.wslDistro !== settings.wslDistro || prevSettings.wslUser !== settings.wslUser;
+		if (wslSettingsChanged && deps.applyWslSettings) {
+			try {
+				await deps.applyWslSettings();
+			} catch (error) {
+				// 设置已落盘：切换失败不回滚、也不让保存请求失败，用户可点「检测环境」重试。
+				void appLogger.warn("wsl", "Applying WSL settings failed", { error: error instanceof Error ? error.message : String(error) });
+			}
 		}
 		return settings;
 	});
@@ -2269,6 +2303,19 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				error: error instanceof Error ? error.message : String(error),
 			});
 			return { models: [], fromCache: false, at: 0 };
+		}
+	});
+	ipcMain.handle(ipcChannels.configGetTokendancePriceTags, async () => {
+		// 徽章是装饰信息：没有装配/拉取失败都返回空表，模型列表照常显示（不阻塞选择器）。
+		if (!tokendancePricing) return { tags: {}, at: 0 };
+		try {
+			const result = await tokendancePricing.getTags();
+			return { tags: result.tags, at: result.at };
+		} catch (error) {
+			void appLogger.warn("config", "TokenDance price tags load failed", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return { tags: {}, at: 0 };
 		}
 	});
 	ipcMain.handle(ipcChannels.configTokendanceAuthStart, async (_event, payload: unknown) => {

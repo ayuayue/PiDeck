@@ -6,6 +6,7 @@ const { createProjectServiceRuntime } = loadTsCommonJs("src/renderer/src/service
 
 const project = { id: "p2", name: "p2", lastOpenedAt: 0, locator: { kind: "ssh", hostId: "h1", remotePath: "/srv/p2" } };
 const FULL_HELPER = ["fs.watch", "fs.searchContent", "git.status", "git.compare"];
+const UPLOAD_HELPER = [...FULL_HELPER, "fs.uploadPrepare", "fs.uploadCommit", "fs.uploadAbort"];
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -117,7 +118,7 @@ test("runtime：host 状态变化换代并收回写能力，旧 services 立即 
 	runtime.dispose();
 });
 
-test("runtime：项目事实事件采纳主进程 generation 并围栏旧代；别的项目/主机事件不影响本 runtime", async () => {
+test("runtime：首个事实事件只认领主进程连接基线，不打断同一连接上的在途任务", async () => {
 	const h = harness();
 	const runtime = createProjectServiceRuntime(project, h.api);
 	runtime.start();
@@ -132,9 +133,28 @@ test("runtime：项目事实事件采纳主进程 generation 并围栏旧代；�
 	h.emitState({ hostId: "h9", state: "offline" });
 	assert.equal(runtime.getSnapshot(), previous);
 	h.emitFacts({ projectId: "p2", generation: "main-generation-1", scopes: [{ kind: "dir", path: "" }] });
+	assert.equal(runtime.getSnapshot(), previous, "首见 connection id 是同代基线，不能重建 services");
+	assert.equal(notifications, 0);
+	runtime.dispose();
+});
+
+test("runtime：已知连接基线后出现新的主进程 generation 才换代并围栏旧 services", async () => {
+	const h = harness();
+	const runtime = createProjectServiceRuntime(project, h.api);
+	runtime.start();
+	await runtime.refresh();
+	await flush();
+	let notifications = 0;
+	runtime.subscribe(() => {
+		notifications += 1;
+	});
+	h.emitFacts({ projectId: "p2", generation: "main-generation-1", scopes: [] });
+	const baseline = runtime.getSnapshot();
+	assert.match(baseline.generation, /:local$/);
+	h.emitFacts({ projectId: "p2", generation: "main-generation-2", scopes: [{ kind: "dir", path: "" }] });
 	const next = runtime.getSnapshot();
-	assert.equal(next.generation, "ssh:h1:1:main-generation-1");
-	assert.equal(previous.isCurrent(), false);
+	assert.equal(next.generation, "ssh:h1:1:main-generation-2");
+	assert.equal(baseline.isCurrent(), false);
 	assert.equal(notifications, 1);
 	assert.equal(next.facts.hostState, "ready");
 	runtime.dispose();
@@ -147,19 +167,19 @@ test("runtime：状态事件后迟到的旧 generation 不得回退并复活旧�
 	await runtime.refresh();
 	await flush();
 	h.emitFacts({ projectId: "p2", generation: "connection-1", scopes: [] });
-	const withMainGeneration = runtime.getSnapshot();
-	assert.match(withMainGeneration.generation, /:connection-1$/);
+	const baseline = runtime.getSnapshot();
+	assert.match(baseline.generation, /:local$/);
 	h.setStates({ h1: "degraded" });
 	h.emitState({ hostId: "h1", state: "degraded" });
 	await flush();
 	await runtime.refresh();
 	const degraded = runtime.getSnapshot();
-	assert.equal(withMainGeneration.isCurrent(), false);
-	assert.notEqual(degraded.generation, withMainGeneration.generation);
+	assert.equal(baseline.isCurrent(), false);
+	assert.notEqual(degraded.generation, baseline.generation);
 	// 旧连接的 facts 事件可能晚于状态事件到达：必须被拒绝，不能把 generation 设回 connection-1。
 	h.emitFacts({ projectId: "p2", generation: "connection-1", scopes: [] });
 	assert.equal(runtime.getSnapshot(), degraded);
-	assert.equal(withMainGeneration.isCurrent(), false);
+	assert.equal(baseline.isCurrent(), false);
 	runtime.dispose();
 });
 
@@ -302,6 +322,25 @@ test("runtime：services.refresh() 重新采集 trust（没有推送事件）并
 	assert.equal(after.capabilities.files.write, true, "文件 API 不读 trust");
 	assert.equal(after.capabilities.git.read, false);
 	assert.equal(after.generation, before.generation, "只读事实重采集不换连接代");
+	runtime.dispose();
+});
+
+test("runtime：首个 helper 建立后补采事实才能开放上传", async () => {
+	const h = harness();
+	h.setRoot({ ok: true, value: { status: "ok" } });
+	const runtime = createProjectServiceRuntime(project, h.api);
+	runtime.start();
+	await runtime.refresh();
+	await flush();
+	const before = runtime.getSnapshot();
+	assert.equal(before.facts.hostState, "ready");
+	assert.equal(before.capabilities.files.upload, false, "a side-effect-free root probe cannot see a helper that does not exist yet");
+
+	h.setRoot({ ok: true, value: { status: "ok", helperCapabilities: UPLOAD_HELPER } });
+	await before.refresh();
+	const after = runtime.getSnapshot();
+	assert.equal(after.generation, before.generation, "refilling facts for the same connection is not a generation change");
+	assert.equal(after.capabilities.files.upload, true);
 	runtime.dispose();
 });
 

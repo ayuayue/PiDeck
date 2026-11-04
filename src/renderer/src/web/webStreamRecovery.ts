@@ -18,8 +18,13 @@
 
 export type WebStreamStatus = "submitted" | "streaming" | "ready" | "error";
 
+/** 触发面：主轮询 / 回前台 / 网络恢复 / useChat error 态。 */
+export type WebRecoveryTrigger = "poll" | "visibility" | "online" | "error";
+
 export type WebRecoveryDecisionInput = {
 	status: WebStreamStatus;
+	/** 本次决策由谁触发（缺省按「可见性/网络」这类非轮询触发器处理）。 */
+	trigger?: WebRecoveryTrigger;
 	/** pi runtime 仍在跑（running/starting）；ready 态恢复必须带它，避免误拉空闲会话。 */
 	runtimeBusy?: boolean;
 	documentVisible: boolean;
@@ -40,9 +45,14 @@ export type WebRecoveryDecision = {
 export const WEB_RECOVERY_DEBOUNCE_MS = 5000;
 
 export function decideStreamRecovery(input: WebRecoveryDecisionInput): WebRecoveryDecision {
-	const { status, runtimeBusy, documentVisible, online, lastAttemptAt, now } = input;
+	const { status, runtimeBusy, documentVisible, online, lastAttemptAt, now, trigger } = input;
 	// 不可见页面不追（拉了也没人看；等回前台再触发）
 	if (!documentVisible || !online) return { recover: false, notify: false };
+	// 主轮询只负责「脱节态」：useChat 已回 ready 但 runtime 仍在跑。本端流还活着
+	// （submitted/streaming）时磁盘快照必然落后于在途帧，套用会把正在出的回复整段抹掉
+	// （用户报障：发消息后最新一条回复消失、过一会才又出现）。回前台/网络恢复仍允许
+	// 追活跃流——手机后台节流会让「看着在流」的响应实际已死，那是这条兜底的原始用途。
+	if (trigger === "poll" && status !== "ready") return { recover: false, notify: false };
 	// 只有错误态或活跃流（可能被后台节流悄悄断掉）需要追赶；ready 无流可断。
 	// 例外：ready + runtime 忙 = 刷新/断线后的脱节态（SSE 已死但 pi 还在落盘），
 	// 此时静默追赶磁盘快照直到 runtime 空闲；没有 runtimeBusy 信号的 ready 仍按空闲处理。

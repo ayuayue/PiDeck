@@ -25,6 +25,7 @@ import { SingleLinePreview } from "@/components/session/SingleLinePreview";
 import { TimelineMarker } from "../components/session/TimelineMarker";
 import { LogoMark } from "../components/app/LogoMark";
 import { copyTextToClipboard } from "./webClipboard";
+import type { WebHistoryPhase } from "./webHistoryLoad";
 
 /** 命令式跳转句柄：虚拟化后离屏行没有 DOM，父组件必须走这份映射而不是 getElementById。 */
 export type WebTimelineJumpApi = {
@@ -597,9 +598,56 @@ function WebAskCard(props: { request: WebPendingUiRequest; busy: boolean; onResp
 	);
 }
 
+/**
+ * 首屏历史加载：复用桌面骨架屏（.history-loading / .skeleton-* 在 foundation.css），
+ * 另加一行显式状态文字 + 转圈——慢会话/ACP 激活期间用户看到的是「正在恢复」，
+ * 而不是一帧空问候页被误认成会话丢失。
+ */
+function WebHistoryLoading(props: { label: string }) {
+	return (
+		<div className="history-loading" role="status" aria-live="polite" data-testid="web-history-loading">
+			<div className="history-loading-placeholder w-full">
+				<div className="skeleton-bubble" />
+				<div className="skeleton-line" />
+				<div className="skeleton-line" />
+				<div className="skeleton-line" />
+			</div>
+			<div className="history-loading-placeholder w-full">
+				<div className="skeleton-line" />
+				<div className="skeleton-line" />
+				<div className="skeleton-line" />
+			</div>
+			<span className="flex items-center gap-1.5 self-center pt-3 text-caption text-muted-foreground">
+				<Loader2 className="size-3.5 animate-pideck-spin" aria-hidden="true" />
+				{props.label}
+			</span>
+		</div>
+	);
+}
+
+/** 首屏加载失败：给出原因与重试入口，不把失败留成空白页。 */
+function WebHistoryError(props: { onRetry?: () => void }) {
+	return (
+		<div className="empty-state" role="alert" data-testid="web-history-error">
+			<p className="text-sm text-muted-foreground">{t("web.historyLoadFailed")}</p>
+			{props.onRetry ? (
+				<Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={props.onRetry}>
+					<RefreshCw className="size-3.5" aria-hidden="true" />
+					{t("web.historyLoadRetry")}
+				</Button>
+			) : null}
+		</div>
+	);
+}
+
 export function WebTimeline(props: {
 	messages: UIMessage[];
 	hasActiveSession: boolean;
+	/** 首屏历史阶段：loading=骨架（ACP 冷会话要等 runtime 激活），error=重试入口。 */
+	historyPhase?: WebHistoryPhase | null;
+	/** 加载态文案（ACP 恢复与普通会话不同）。 */
+	historyLoadingLabel?: string;
+	onRetryHistory?: () => void;
 	hasMoreHistory: boolean;
 	moreCount: number;
 	loadingMore: boolean;
@@ -802,6 +850,10 @@ export function WebTimeline(props: {
 						</div>
 						<p className="empty-hint">{t("web.emptySelection")}</p>
 					</div>
+				) : messages.length === 0 && props.historyPhase === "loading" ? (
+					<WebHistoryLoading label={props.historyLoadingLabel ?? t("web.historyLoading")} />
+				) : messages.length === 0 && props.historyPhase === "error" ? (
+					<WebHistoryError onRetry={props.onRetryHistory} />
 				) : messages.length === 0 ? (
 					<div className="empty-state">
 						<div className="empty-greeting">

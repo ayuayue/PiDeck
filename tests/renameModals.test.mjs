@@ -130,3 +130,52 @@ test("file rename preserves no-change cancellation and only handles Enter in its
 	assert.equal(closed, 1);
 	assert.equal(confirmed, undefined);
 });
+
+function renderCreate(inputValue, kind = "file") {
+	let submitted = null;
+	let closed = 0;
+	const tree = RenameModals({
+		fileCreate: {
+			targetLabel: "/project/src",
+			kind,
+			inputValue,
+			onInputChange() {},
+			onClose() {
+				closed++;
+			},
+			onConfirm(name) {
+				submitted = name;
+			},
+		},
+	});
+	return { tree, submitted: () => submitted, closed: () => closed };
+}
+
+test("create dialog accepts a single segment and trims it before submitting", () => {
+	const h = renderCreate("  notes.md  ");
+	assert.equal(all(h.tree, Input)[0].props["aria-label"], "drawer.newFile");
+	assert.equal(all(h.tree, Input)[0].props.placeholder, "drawer.createFilePlaceholder");
+	assert.equal(all(h.tree, Button)[1].props.disabled, false);
+	all(h.tree, Input)[0].props.onKeyDown({ key: "Enter", nativeEvent: { isComposing: false }, preventDefault() {} });
+	assert.equal(h.submitted(), "notes.md");
+});
+
+test("create dialog refuses names that are not a single path segment", () => {
+	// 名字里带分隔符会让创建 API 建出意料之外的嵌套路径，确认按钮必须被拦住
+	for (const inputValue of ["   ", "notes/", "a\\b", ".", "..", "x".repeat(256)]) {
+		const h = renderCreate(inputValue);
+		assert.equal(all(h.tree, Button)[1].props.disabled, true, `应拒绝 ${JSON.stringify(inputValue)}`);
+		all(h.tree, Input)[0].props.onKeyDown({ key: "Enter", nativeEvent: { isComposing: false }, preventDefault() {} });
+		assert.equal(h.submitted(), null, `应拒绝 ${JSON.stringify(inputValue)}`);
+	}
+});
+
+test("create dialog uses the folder copy and honours IME composition", () => {
+	const h = renderCreate("components", "directory");
+	assert.equal(all(h.tree, Input)[0].props["aria-label"], "drawer.newFolder");
+	assert.equal(all(h.tree, Input)[0].props.placeholder, "drawer.createFolderPlaceholder");
+	// 输入法组词中的 Enter 是选词，不是提交
+	all(h.tree, Input)[0].props.onKeyDown({ key: "Enter", nativeEvent: { isComposing: true }, preventDefault() {} });
+	assert.equal(h.submitted(), null);
+	assert.equal(h.closed(), 0);
+});

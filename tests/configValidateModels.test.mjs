@@ -106,6 +106,22 @@ function recompileWithFetchProbe(onFetch) {
 		}
 		if (specifier === "./parseProviderModels") return loadTsCommonJs("src/main/config/parseProviderModels.ts");
 		if (specifier === "./baseUrlPath") return loadTsCommonJs("src/main/config/baseUrlPath.ts");
+		if (specifier === "../modelHttp/request") {
+			// 统一模型 HTTP 层（src/main/modelHttp/request.ts）：本用例只关心「是否发请求」，
+			// 直接返回固定 listing，不模拟 net 传输细节。
+			return {
+				modelHttpRequest: async (url) => {
+					onFetch(url);
+					return {
+						status: 200,
+						statusText: "OK",
+						raw: JSON.stringify({ data: [{ id: "probe-model" }] }),
+						truncated: false,
+						header: () => "application/json",
+					};
+				},
+			};
+		}
 		if (specifier.includes("mainProcessCopy")) return { mainProcessT: (_locale, key) => key };
 		return {};
 	};

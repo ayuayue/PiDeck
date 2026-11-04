@@ -45,20 +45,24 @@
 | [data-migrations.md](data-migrations.md) | 持久数据迁移索引 |
 | [ai-assist.md](ai-assist.md) | AI issue/PR 协助工作流 |
 | [dsh-remote-contract.md](dsh-remote-contract.md) | DSH Typert Remote 集成契约 |
-| [dsh-0.2.0-migration.md](dsh-0.2.0-migration.md) | DSH 0.2.0 增量契约（与上文叠加） |
+| [dsh-0.2.0-migration.md](dsh-0.2.0-migration.md) | DSH 0.2.0 增量契约（与上文叠加；V3→V4 与回退边界仍现行） |
 | [pideck-mcp.md](pideck-mcp.md) | PiDeck 本机 MCP 服务说明 |
 | [agent-memory.md](agent-memory.md) | 智能体长期记忆（stdio MCP 服务器、三后端挂载、DSH 待办） |
+| [timeline-manual-qa.md](timeline-manual-qa.md) | 时间线翻页/刻度跳转的真机验收清单（每次打包前照做） |
+| [remote-sftp-evaluation.md](remote-sftp-evaluation.md) | 远程文件管理 SFTP 接入调研与实施建议（结论：采用；未接入生产） |
 
 ## 3. 活动计划（Active plan）
 
 | 文档 | 状态 |
 |---|---|
 | [ui-commercialization-plan.md](ui-commercialization-plan.md) | Wave 1–7 已落地；剩余项按文中标记 |
-| [ui-unification-plan.md](ui-unification-plan.md) | wave 1 执行中 |
 | [remote-file-tree-and-git-unification-plan.md](remote-file-tree-and-git-unification-plan.md) | T1–T9 分片已交付；当前事实/保留项见 §10.7/§10.8 |
 | [project-panel-service-seam-adr.md](project-panel-service-seam-adr.md) | Phase A 已落地、A0 纯 stat 已修；S 契约已冻结（并行交接 §8.2），B 的 UI 迁移待 F/G |
 | [remote-project-parallel-handoff.md](remote-project-parallel-handoff.md) | 远程多项目并行入口：A0/P/S/T 已整合（§8），S 契约冻结、F/G 可开工、V 未核验；含基线同步（§8.4）与可复制提示词 |
-| [root-pooling-handoff.md](root-pooling-handoff.md) | 池化专用入口（已标 Historical）；P 已交付默认关闭的池化路径（离线测试通过，真机验收未做），开启=改 `main/index.ts` 构造参数 `rootPooling`（无设置项） |
+| [main-index-split-plan.md](main-index-split-plan.md) | 巨文件拆分方法（AGENTS.md 路由引用）：Wave 1 已落地，后续只许单调下降 |
+| [app-tsx-split-plan.md](app-tsx-split-plan.md) | 同上（App.tsx）：Wave 1–3 已落地，JSX 装配拆分未做 |
+| [agent-manager-split-plan.md](agent-manager-split-plan.md) | 同上（AgentManager.ts）：Wave 1–4 已落地，新增状态机域必须建协作者模块 |
+| [acp-replay-batching-plan.md](acp-replay-batching-plan.md) | ACP 重放卡顿：先测量再改，分「增量尾部 → 窗口化 → 分块投递」三阶段；未实现 |
 
 ## 4. 代码/测试引用与归档
 
@@ -71,10 +75,13 @@
 
 如果以后要移动这两份，必须同时改测试路径；改完可一起归档。
 
+**2026-11-02 归档**（状态行已过期、内容已交付或被取代）：`ui-unification-plan.md`（Wave 0–4 全部完成，标准已进 DESIGN.md）、`root-pooling-handoff.md`、`v-review-2026-10-31.md`。`git-panel-phase-c-plan.md` 同为历史检查点，但工作区还有并行任务未提交的改动，待其落地后再归档。
+
 ## 5. 归档（Historical）
 
 - 归档清单与旧路径映射：[archive/README.md](archive/README.md)
 - 已删除（无引用、内容已覆盖）：`remote-merge-to-dev-plan.md`、`mcp-page-refresh-plan.md`
+- 2026-11-02 清理零引用素材（全仓库含 docs-site / archive / e2e / scripts 均无引用）：`docs/images/` 下 7 张旧截图、`docs/prototypes/` 2 个 HTML 稿、`docs/mockups/` 5 个效果稿（`process-group-scroll.html` 被过程组契约引用，保留）
 
 ## 6. 关于“文档是怎么来的”
 

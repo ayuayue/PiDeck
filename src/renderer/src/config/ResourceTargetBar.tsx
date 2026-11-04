@@ -1,6 +1,6 @@
 import type { PiResourceTarget } from "../../../shared/piConfig";
 import { t } from "../i18n";
-import type { WslConfigTargetHost } from "./piConfigTargetModel";
+import { configTargetBarVisible, type WslConfigTargetHost } from "./piConfigTargetModel";
 import { PiConfigTargetSelector } from "./PiConfigTargetSelector";
 
 /**
@@ -11,6 +11,9 @@ import { PiConfigTargetSelector } from "./PiConfigTargetSelector";
  * 这里再显式忽略一次（绝不把 ssh 静默落成本机，也不会把 ssh 目标传进资源池）。
  */
 export function ResourceTargetBar(props: { target: PiResourceTarget; hosts: WslConfigTargetHost[]; disabled?: boolean; readOnly: boolean; onChange: (target: PiResourceTarget) => void }) {
+	// 选择器自己会隐藏，但外面这层还拄着 data-testid 与只读提示；没有可切换目标且不需要提示时
+	// 整条都不留（否则只会在页首留一个空 div）。
+	if (!configTargetBarVisible(props.target, props.hosts) && !props.readOnly) return null;
 	return (
 		<div className="flex flex-col" data-testid="resource-target-bar">
 			<PiConfigTargetSelector

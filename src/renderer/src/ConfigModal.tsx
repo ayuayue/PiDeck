@@ -2936,8 +2936,14 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 												modelsData={modelsData}
 												authData={authData}
 												discoveredModels={discoveredModels}
-												onChange={(data) => {
+												onChange={(data, reason) => {
 													setSettingsData(data);
+													if (reason === "normalize") {
+														// 打开页面时的格式归一（补全 compaction / 剔除旧版 retry 字段）不是用户编辑：
+														// 同步刷新基准快照，否则 settings.json 里只要缺这几个键，每次进设置都会报「有未保存更改」。
+														baselineSettingsRef.current = deepClone(data);
+														return;
+													}
 													markDirty("config:settings");
 												}}
 												onSave={handleSaveSettings}

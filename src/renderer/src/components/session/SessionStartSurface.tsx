@@ -194,7 +194,7 @@ function SessionStartBody(props: SessionStartProps) {
 							<SessionGoalStrip sessionId={props.sessionId} />
 						</>
 					}
-					queuePanel={<QueuedPromptPanel trackRef={queuedTrackRef} sessionId={props.sessionId} prompts={activeQueuedPrompts} onRetract={services.queueRetract} onDiscard={services.queueDiscard} onChangeBehavior={services.queueChangeBehavior} />}
+					queuePanel={<QueuedPromptPanel trackRef={queuedTrackRef} sessionId={props.sessionId} prompts={activeQueuedPrompts} onRetract={services.queueRetract} onDiscard={services.queueDiscard} onChangeBehavior={services.queueChangeBehavior} onSendNow={services.queueSendNow} onStopTurn={services.queueStopTurn} />}
 				/>
 			</div>
 		</StartSurfaceShell>

@@ -29,9 +29,14 @@ function message(index) {
 	};
 }
 
-/** 40 条磁盘历史，磁盘页游标 nextBefore=12（更早还有历史可翻）。 */
-const DISK_MESSAGES = Array.from({ length: 40 }, (_, index) => message(index));
+/** 40 条磁盘历史，磁盘页游标 nextBefore=12（更早还有历史可翻）。磁盘读投影固定 _viewer。 */
+const DISK_MESSAGES = Array.from({ length: 40 }, (_, index) => ({ ...message(index), id: `_viewer-history-e${index}` }));
 const DISK_PAGE = { total: 40, nextBefore: 12, indexVersion: "111:222" };
+
+/** 运行时 flush 投影：同一 entryId，id 前缀换成真实 agent（AgentMessageProjector 口径）。 */
+function runtimeProjectionMessage(index) {
+	return { ...message(index), id: `agent-new-history-e${index}` };
+}
 
 function setup() {
 	const store = createStore();
@@ -130,4 +135,46 @@ test("已经是 runtime 前缀的会话不受影响（不重复拼接）", () =>
 	const second = entry(store);
 	assert.equal(second.history?.messages.length, firstHistoryLength, "重复 flush 不得把窗口段再拼进前缀");
 	assert.equal(second.messages.length, 6);
+});
+
+test("预热 flush 的投影 id 改写不得触发轮次 remount：窗口段按 entryId 稳定回磁盘页显示 id", () => {
+	const store = setup();
+	// 真实口径：磁盘页用 _viewer-history-<entryId>，runtime flush 用 <agentId>-history-<entryId>。
+	// 若直接替换，TurnRow 的 React key 逐条失配 → 可见轮次 remount + 入场动画，布局跳动
+	// 打断输入法合成，输入框焦点丢失（2026-11 用户反馈：打字触发预热后页面卡一下）。
+	const flushedWindow = Array.from({ length: 6 }, (_, i) => runtimeProjectionMessage(34 + i));
+	store.set(atoms.applySessionRuntimeEventAtom, runtimeMessagesEvent({ messages: flushedWindow, windowStart: 34, totalLength: 40, fileVersion: DISK_PAGE.indexVersion }));
+	const current = entry(store);
+	assert.deepEqual(
+		Array.from(current.messages, (item) => item.id),
+		DISK_MESSAGES.slice(34).map((item) => item.id),
+		"窗口段 id 必须稳定回磁盘页时代的显示 id（React key 不变）",
+	);
+	assert.deepEqual(
+		Array.from(current.messages, (item) => item.text),
+		flushedWindow.map((item) => item.text),
+		"内容仍以运行时窗口段为权威",
+	);
+	const displayed = [...(current.history?.messages ?? []), ...current.messages];
+	assert.equal(new Set(displayed.map((item) => item.id)).size, displayed.length, "前缀与窗口段接缝去重后 id 不得重复");
+});
+
+test("窗口左移 / 文件改写后重建窗口：不在缓存里的新消息保留运行时投影 id", () => {
+	const store = setup();
+	const flushedWindow = [...Array.from({ length: 5 }, (_, i) => runtimeProjectionMessage(35 + i)), { ...message(40), id: "agent-new-history-e40" }];
+	store.set(atoms.applySessionRuntimeEventAtom, runtimeMessagesEvent({ messages: flushedWindow, windowStart: 35, totalLength: 41, fileVersion: DISK_PAGE.indexVersion }));
+	const current = entry(store);
+	assert.equal(current.messages[0].id, "_viewer-history-e35", "缓存已有条目稳定回旧显示 id");
+	assert.equal(current.messages.at(-1)?.id, "agent-new-history-e40", "新条目（磁盘页从未见过）保留运行时 id");
+});
+
+test("增量 flush（upsertFrom）同样按 entryId 稳定 id，窗口内既有条目不被改写", () => {
+	const store = setup();
+	const flushedWindow = Array.from({ length: 6 }, (_, i) => runtimeProjectionMessage(34 + i));
+	store.set(atoms.applySessionRuntimeEventAtom, runtimeMessagesEvent({ messages: flushedWindow, windowStart: 34, totalLength: 40, fileVersion: DISK_PAGE.indexVersion }));
+	// 流式中途的增量 flush：runtime 对 e39 重建了条目（id 又带回了运行时前缀）
+	store.set(atoms.applySessionRuntimeEventAtom, runtimeMessagesEvent({ messages: [{ ...runtimeProjectionMessage(39), text: "t39 updated" }], upsertFrom: 39, totalLength: 40, windowStart: 34 }));
+	const current = entry(store);
+	assert.equal(current.messages.at(-1)?.id, "_viewer-history-e39", "增量重建条目不得把 id 改回运行时前缀（会触发 remount）");
+	assert.equal(current.messages.at(-1)?.text, "t39 updated", "增量内容照常生效");
 });

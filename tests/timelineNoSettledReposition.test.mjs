@@ -74,6 +74,9 @@ function timelineHarness() {
 			"../../hooks/useMessageContextMenu": { useMessageContextMenu: () => ({ state: null, handleContextMenu: () => {}, close: () => {}, copy: () => {}, selectAll: () => {} }) },
 			"./timeline/MessageContextMenu": {},
 			"../../hooks/useSessionVisionBridgeExpected": { useSessionVisionBridgeExpected: () => false },
+			// ACP 历史恢复窗口期（输入框宿主判定）与滚动重定位无关：恒 false 即保持原语义，
+			// 不 stub 会去加载真实 hooks/useAcpRestoreHint → 真实 atoms 图（jotai atomWithStorage）。
+			"../../hooks/useAcpRestoreHint": { useAcpHistoryRestorePending: () => false },
 			// 收藏入口（useFavorites）会牵进 favorites-atoms → 真实 atoms 图（jotai atom），
 			// 与滚动重定位无关，这里只保留时间线读取的两个成员。
 			"../../hooks/useFavorites": { useFavorites: () => ({ favoritedMessageKeys: new Set(), toggleMessageFavorite: () => {} }) },

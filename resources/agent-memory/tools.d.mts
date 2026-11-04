@@ -4,7 +4,18 @@ export class MemoryToolError extends Error {
 	constructor(code: string, message?: string);
 }
 
-export type AddMemoryResult = { ok: true; target: string; duplicate: boolean; count: number; dropped: number };
+export type AddMemoryResult = {
+	ok: true;
+	target: string;
+	scope: "global" | "project" | "device";
+	projectId: string;
+	duplicate: boolean;
+	count: number;
+	dropped: number;
+	budget?: { maxChars: number; maxEntries: number };
+	/** `dropped > 0` 时才出现：被预算裁剪丢弃的最老条目片段。 */
+	trimmed?: { count: number; oldest: string[]; hint: string };
+};
 
 export function addMemory(
 	root: string,

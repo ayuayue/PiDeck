@@ -328,7 +328,10 @@ export class DshRemoteClient {
 				for (const record of frame.records ?? []) {
 					if (record?.event) {
 						const event = record.event;
-						yield { payload: { sessionId, type: "session/event", event, view: event.surfaceOp } };
+						// replay：snapshot.records 是 attach/重连时的 journal 回放，不是实时事件。
+						// 下游据此跳过「回合完成」通知——否则每打开一个历史 DSH 会话，回放里
+						// 每条 turn/end 都会弹一次「已完成响应」。
+						yield { payload: { sessionId, type: "session/event", event, view: event.surfaceOp, replay: true } };
 					}
 				}
 			}

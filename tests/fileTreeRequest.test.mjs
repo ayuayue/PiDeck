@@ -99,3 +99,25 @@ test("project file tree effect does not retrigger on an unstable toast helper", 
 	assert.doesNotMatch(deps[0], /showToast|refreshProjects/);
 	assert.match(appShell, /const showToast = useCallback\(/);
 });
+
+test("目录缺失时的项目 presence 刷新不会让文件树 effect 自激循环", () => {
+	// reportError 对 PROJECT_DIRECTORY_MISSING 会调 refreshProjects：projects:list 每次
+	// 返回新数组，App 的 isLocalProjectId（useCallback deps=[projects]）随之换引用。
+	// 它若留在 effect deps，目录缺失就会「加载失败 → 刷新项目 → effect 重跑 → 再失败」，
+	// 无限叠「项目目录不存在」toast。必须经 ref 取最新值。
+	const app = readFileSync("src/renderer/src/hooks/files/useProjectFileTreeController.ts", "utf8");
+	const effectStart = app.indexOf("项目切换：先清空旧树");
+	assert.notEqual(effectStart, -1, "file-tree switch effect should still exist");
+	const deps = app.slice(effectStart).match(/\}, \[activeProjectId[^\]]*\]\)/);
+	assert.ok(deps, "file-tree effect should keep an explicit dependency list");
+	assert.doesNotMatch(deps[0], /isLocalProjectId\b/);
+	assert.match(app, /const isLocalProjectIdRef = useRef\(isLocalProjectId\);/);
+	assert.match(app, /isLocalProjectIdRef\.current\(projectId\)/);
+	assert.match(app, /if \(projectDirectoryMissing\) void refreshProjectsRef\.current\(\)/);
+	// git refs 订阅 effect 同理：projects 一刷新就重装 watch/unwatch 订阅，
+	// 期间 refs 事件又会触发 refreshVisibleFiles → reportError → refreshProjects。
+	const gitWatch = app.slice(app.indexOf("git refs 变了")).match(/\}, \[[^\]]*\]\);/);
+	assert.ok(gitWatch, "git refs effect should keep an explicit dependency list");
+	assert.doesNotMatch(gitWatch[0], /isLocalProjectId\b/);
+});
+

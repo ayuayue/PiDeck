@@ -18,6 +18,7 @@ import { createInterface } from "node:readline";
 
 import { closeDatabase } from "./db.mjs";
 import { defaultProjectKey, resolveMemoryRoot } from "./paths.mjs";
+import { migrateLegacyProjectDirs } from "./migrate.mjs";
 import { addMemory, getMemories, MemoryToolError, memoryStatus, removeMemory, replaceMemory, searchMemory, searchSessions } from "./tools.mjs";
 
 const PROTOCOL_VERSION = "2024-11-05";
@@ -83,13 +84,15 @@ const TOOL_DEFINITIONS = [
 	},
 	{
 		name: "memory_search",
-		description: "Search saved memories (global + project + failure lessons) by full-text query. Call this before asking the user something they may already have told you.",
+		description:
+			"Search saved memories (global + current project + device) by full-text query. Call this before asking the user something they may already have told you. Set scope:\"all\" to also search the other projects on this machine (each hit carries its projectId). When the current scope has no hits, the result lists `elsewhere`: projects that do have matches — an empty `hits` alone does not mean the memory does not exist.",
 		inputSchema: {
 			type: "object",
 			properties: {
 				query: { type: "string" },
 				target: { type: "string", enum: ["memory", "user", "project", "failure", "device"], description: "Optional: restrict to one target." },
 				projectId: { type: "string" },
+				scope: { type: "string", enum: ["current", "all"], description: "Optional: current (default) = global + current project + device; all = include every project on this machine. Chinese queries work (substring match); use all when you need another project's memories." },
 				limit: { type: "integer", minimum: 1, maximum: 50 },
 			},
 			required: ["query"],
@@ -97,12 +100,12 @@ const TOOL_DEFINITIONS = [
 	},
 	{
 		name: "memory_get",
-		description: "List saved memory entries for one target (oldest first). Use memory_search to look up by content.",
+		description: "List saved memory entries for one target (oldest first). Use memory_search to look up by content. target=memory without projectId is the global file; pass projectId to read that project's entries (target=project defaults to the current session's project).",
 		inputSchema: {
 			type: "object",
 			properties: {
 				target: { type: "string", enum: ["memory", "user", "project", "failure", "device"] },
-				projectId: { type: "string" },
+				projectId: { type: "string", description: "Optional. For target=project this is the project scope (defaults to the current session's project); for target=memory an explicit value reads that project's entries instead of the global ones." },
 				offset: { type: "integer", minimum: 0 },
 				limit: { type: "integer", minimum: 1, maximum: 200 },
 			},
@@ -124,7 +127,7 @@ const TOOL_DEFINITIONS = [
 	},
 	{
 		name: "memory_status",
-		description: "Report memory budget usage and index size. Use to check whether the memory system is actually working.",
+		description: "Report memory budget usage (with overBudget flags), the list of project scopes, and index size. Use to check whether the memory system is actually working, and which projects scope:\"all\" can reach.",
 		inputSchema: { type: "object", properties: { projectId: { type: "string" } } },
 	},
 ];
@@ -134,6 +137,11 @@ function projectOf(args) {
 	const explicit = typeof args?.projectId === "string" ? args.projectId.trim() : "";
 	if (explicit) return explicit;
 	return defaultProjectKey();
+}
+
+/** 只取显式传入的 projectId（没传就是空串）。`memory_get` 要用它区分「看全局」与「看某个项目」。 */
+function explicitProjectOf(args) {
+	return typeof args?.projectId === "string" ? args.projectId.trim() : "";
 }
 
 /** 工具分发。所有实现都返回可 JSON 序列化的对象，由此统一包成 MCP 文本结果。 */
@@ -147,9 +155,14 @@ function dispatch(root, name, args) {
 		case "memory_remove":
 			return removeMemory(root, { target: args?.target, content: args?.content, projectId: projectOf(args) });
 		case "memory_search":
-			return searchMemory(root, { query: args?.query, target: args?.target, projectId: projectOf(args), limit: args?.limit ?? 10 });
-		case "memory_get":
-			return getMemories(root, { target: args?.target, projectId: projectOf(args), offset: args?.offset ?? 0, limit: args?.limit ?? 50 });
+			return searchMemory(root, { query: args?.query, target: args?.target, projectId: projectOf(args), limit: args?.limit ?? 10, scope: args?.scope ?? "current" });
+		case "memory_get": {
+			// target=project 的作用域默认就是当前会话项目；target=memory 只有**显式**给了 projectId
+			// 才切到那个项目的文件（不传仍是全局文件），否则每次 memory_get 都会静默变成项目作用域。
+			const explicit = explicitProjectOf(args);
+			const scoped = args?.target === "project" ? explicit || projectOf(args) : explicit;
+			return getMemories(root, { target: args?.target, projectId: scoped, offset: args?.offset ?? 0, limit: args?.limit ?? 50 });
+		}
 		case "session_search":
 			return searchSessions(root, { query: args?.query, project: args?.project, limit: args?.limit ?? 10, sources });
 		case "memory_status":
@@ -221,6 +234,14 @@ function main() {
 		// 没有记忆目录就不启动：默认值会把它写到某个进程的 cwd 里，那是更坏的失败模式。
 		process.stderr.write(`[agent-memory] refusing to start: ${error instanceof Error ? error.message : "memory-dir-missing"}\n`);
 		process.exit(2);
+	}
+	// 项目键算法换过一版（slug + 路径哈希）：先把本会话的旧键目录改名，否则老用户的
+	// 项目记忆会「凭空消失」。幂等且尽力而为，失败不影响服务（下次启动再试）。
+	try {
+		const migrated = migrateLegacyProjectDirs(root, [process.env.PIDECK_AGENT_MEMORY_CWD]);
+		for (const item of migrated.moved) process.stderr.write(`[agent-memory] migrated project scope ${item.from} -> ${item.to}\n`);
+	} catch (error) {
+		process.stderr.write(`[agent-memory] project scope migration skipped: ${error instanceof Error ? error.message : "unknown"}\n`);
 	}
 
 	const reader = createInterface({ input: process.stdin, crlfDelay: Number.POSITIVE_INFINITY });

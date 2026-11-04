@@ -267,7 +267,8 @@ export class FileSystemService {
 		if (type === "directory") {
 			await mkdir(fullPath, { recursive: true });
 		} else {
-			await writeFile(fullPath, "", "utf8");
+			// 独占创建，避免同名文件（包括受加密软件管理的内容）被静默截断。
+			await writeFile(fullPath, "", { encoding: "utf8", flag: "wx" });
 		}
 		return fullPath;
 	}

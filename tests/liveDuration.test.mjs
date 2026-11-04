@@ -51,7 +51,8 @@ test("LiveDuration: live tick only while streaming, fixed after end", () => {
 	const source = readFileSync("src/renderer/src/components/session/LiveDuration.tsx", "utf8");
 	// 100ms tick：仅 isStreaming 时启动 interval，结束/卸载清理
 	assert.match(source, /setInterval\(\(\) => setNow\(Date\.now\(\)\), 100\)/);
-	assert.match(source, /if \(!props\.isStreaming\) return;/);
+	assert.match(source, /if \(!props\.isStreaming \|\| !active\) return;/);
+	assert.match(source, /const active = useSessionPaneActive\(\);/);
 	assert.match(source, /clearInterval\(timer\)/);
 	// 结束截止：endedAt > 0 时用固定差值，不再依赖 now
 	assert.match(source, /ended \?\? now\) - started/);

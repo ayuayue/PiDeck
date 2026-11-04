@@ -313,7 +313,11 @@ export const SessionRuntimeInjector = React.memo(function SessionRuntimeInjector
 					// askPanelVisible 决定底栏是否占位 + composer 高度预留；overlay 自己也用同一份判据。
 					askPanelVisible={askPanelVisible}
 					runtimeUi={runtimeUiResponder ? <SessionRuntimeUiOverlay sessionId={currentSessionId} runtime={currentSessionRuntime} ui={currentSessionRuntimeUi} responder={runtimeUiResponder} onExpandedChange={() => undefined} /> : null}
-					queuePanel={currentSessionId ? <QueuedPromptPanel trackRef={queuedTrackRef} sessionId={currentSessionId} prompts={activeQueuedPrompts} onRetract={services.queueRetract} onDiscard={services.queueDiscard} onChangeBehavior={services.queueChangeBehavior} /> : undefined}
+					queuePanel={
+						currentSessionId ? (
+							<QueuedPromptPanel trackRef={queuedTrackRef} sessionId={currentSessionId} prompts={activeQueuedPrompts} onRetract={services.queueRetract} onDiscard={services.queueDiscard} onChangeBehavior={services.queueChangeBehavior} onSendNow={services.queueSendNow} onStopTurn={services.queueStopTurn} />
+						) : undefined
+					}
 					terminalDockVisible={paneTerminalDockVisible}
 					terminalOpen={paneTerminalOpen}
 					// 本栏 dock 卸载不播关闭动画（面板随 open 立即卸载，closing 只在 App 级空态路径有意义）

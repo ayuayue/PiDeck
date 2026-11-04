@@ -1933,6 +1933,27 @@ test("异步读口 readMessagesWithArchive:内存 miss 时回退归档(同步读
 	assert.equal((await manager.readMessagesWithArchive("sess-never")).length, 0);
 });
 
+test("runtime 投影为空（启动/重连窗口）时异步读口回退归档，不返回空白", async (t) => {
+	const archive = await tempArchiveHarness(t);
+	await archive.save("sess-starting", archivedMessages(["启动窗口里的归档提问", "启动窗口里的归档回答"]));
+	const { manager, createAgent } = harness(
+		t,
+		{
+			handler: (frame) => {
+				if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: {} };
+				if (frame.method === "session/new") return { sessionId: "sess-starting" };
+				return {};
+			},
+		},
+		{ archive },
+	);
+	const tab = await createAgent();
+	// runtime 在场但投影为空（session/load 重放未到）：Web/桌面打开「正在启动」会话的真实窗口。
+	assert.equal(manager.readMessages(tab.id).length, 0);
+	const restored = await manager.readMessagesWithArchive("sess-starting");
+	assert.equal(restored.map((entry) => entry.text).join("|"), "启动窗口里的归档提问|启动窗口里的归档回答");
+});
+
 test("归档回灌不按 400 条内存快照裁剪:重开长会话拿到完整归档(时间线/分页/会话内查找都不被截断)", async (t) => {
 	const archive = await tempArchiveHarness(t);
 	// 500 条 > MESSAGE_SNAPSHOT_LIMIT(400)：走 set() 回灌会丢掉前 100 条

@@ -29,6 +29,7 @@ import { fileTreeNodeKey, projectFileKey } from "../../utils/fileTreeLazy";
 import type { RemoteSearchEntryView } from "./remoteProjectSearchState";
 import { RemoteProjectSearchBar } from "./RemoteProjectSearchBar";
 import { RemoteUploadLimitsHint } from "./RemoteUploadLimitsHint";
+import { RemoteProjectTransferStatus } from "./RemoteProjectTransferStatus";
 
 /**
  * 远端项目目录浏览 + 文件名搜索 + 文本编辑 + 文件管理（Phase B：只消费 ProjectServices）。
@@ -40,12 +41,10 @@ import { RemoteUploadLimitsHint } from "./RemoteUploadLimitsHint";
  * provider 负责位置差异；本组件只按 capabilities.files 决定入口可用性与内容检索，不再自己判断
  * isRemoteProject 去选通道。抽屉仍只传 projectId（公共装配交 I），这里按显式 id 取 Project 建服务。
  *
- * 文件管理（新建/重命名/移动/删除/回收站）只在远端项目面板出现：命令与状态机在
- * useRemoteProjectEntries，弹框、行菜单、回收站与 testid 在 §10.2 冻结。失败与空目录分开呈现，
+ * 文件管理只在远端项目面板出现：状态机在 useRemoteProjectEntries，失败与空目录分开呈现，
  * 未知结果消息保留到用户显式刷新；本机 FileTree/右键菜单不受影响。
  *
- * 仍保留的远端专属薄壳（服务契约未覆盖，见交接 §8.8）：上传/下载、回收站列表/恢复/清空、图片预览，
- * 以及跨目录移动（renameEntry 契约是同父目录改名）。
+ * 仍保留的远端专属薄壳：回收站列表/恢复/清空、图片预览与跨目录移动。
  */
 type RemoteProjectPanelProps = { projectId: string; projectName: string; onOpenTerminal?: () => void; onCreateSession?: () => void; onBack?: () => void };
 
@@ -93,7 +92,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 
 	// 传输关注点（上传 / 拖放 / 下载）整块在 hook 里，面板只保留接线：这个文件已经同时管导航、
 	// 搜索、写操作弹框与回收站，再塞传输就越过「单文件 ≤400 行」的目标。
-	const transfer = useRemoteProjectTransfer({ projectId: props.projectId, directory: tree.currentDir, reload: () => tree.refresh(), setError, searching });
+	const transfer = useRemoteProjectTransfer({ services, directory: tree.currentDir, reload: () => tree.refresh(), setError, searching });
 
 	const files = useRemoteProjectEntries({ services, reload: () => tree.refresh() });
 
@@ -257,7 +256,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 						<Button type="button" size="icon-sm" variant="ghost" data-testid="remote-file-mkdir" aria-label={t("remoteFileEntry.newFolder")} title={t("remoteFileEntry.newFolder")} disabled={files.busy || busy || !canWrite} onClick={() => setEntryDialog({ kind: "new", entryKind: "directory", parent: tree.currentDir })}>
 							<FolderPlus className="size-4" />
 						</Button>
-						<Button type="button" size="icon-sm" variant="ghost" data-testid="remote-file-upload" aria-label={t("remoteFileEntry.uploadAction")} title={t("remoteFileEntry.uploadAction")} disabled={files.busy || busy} onClick={transfer.uploadFiles}>
+						<Button type="button" size="icon-sm" variant="ghost" data-testid="remote-file-upload" aria-label={t("remoteFileEntry.uploadAction")} title={t("remoteFileEntry.uploadAction")} disabled={files.busy || busy || !canWrite || !services.capabilities.files.upload} onClick={transfer.uploadFiles}>
 							<Upload className="size-4" />
 						</Button>
 						<Button
@@ -308,8 +307,9 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 					}}
 				/>
 			) : null}
-			{/* 能力边界前置说明：单文件 16 MiB、文件夹不支持（强制在主进程，这里只提前告知）。 */}
+			{/* 能力边界前置说明：单文件 8 GiB、文件夹不支持（强制在主进程，这里只提前告知）。 */}
 			{!searching && !searchOpen ? <RemoteUploadLimitsHint /> : null}
+			<RemoteProjectTransferStatus items={transfer.transfers} onCancel={transfer.cancelTransfer} onDismiss={transfer.dismissTransfer} />
 			{/* 写操作结果/未知提示：固定单行高度，避免布局抖动；读失败只影响目录列表，不覆盖这条回执。 */}
 			<p data-testid="remote-file-outcome" aria-live="polite" className="h-5 truncate text-label text-muted-foreground">
 				{fileOutcomeText}
@@ -413,7 +413,9 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 			{rowMenu !== null ? (
 				<RemoteProjectRowMenu
 					menu={rowMenu}
-					busy={files.busy || busy || !canWrite}
+					busy={files.busy || busy}
+					canWrite={canWrite}
+					canDownload={services.capabilities.files.read && services.capabilities.files.download}
 					onClose={() => setRowMenu(null)}
 					onDownload={() => {
 						transfer.downloadFile(rowMenu.node.relativePath);

@@ -82,7 +82,7 @@ export function SideTaskPanel(props: { controller: SideTaskController; paneServi
 				// 否则组按 h-full 占满整层、会话头再叠一层，整个会话栏下溢被抽屉 overflow:hidden 裁掉。
 				<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 					<SessionPaneServicesProvider value={paneServices}>
-						<ChatSessionPane sessionId={currentId} focused={false} onFocusPane={() => {}} splitPane={false} />
+						<ChatSessionPane sessionId={currentId} focused={false} active onFocusPane={() => {}} splitPane={false} />
 					</SessionPaneServicesProvider>
 				</div>
 			) : (

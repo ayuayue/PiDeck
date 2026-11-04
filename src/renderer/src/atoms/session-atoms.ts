@@ -982,6 +982,45 @@ function reconcileHistoryPrefix(history: SessionMessageCacheEntry["history"], se
 }
 
 /**
+ * 磁盘投影 → 运行时投影的消息 id 稳定化（2026-11 预热卡顿治理）。
+ *
+ * 同一条会话记录有两套投影 id：磁盘分页读（SessionHistoryReader，agentId 固定 "_viewer"）
+ * 生成 `_viewer-history-<entryId>`；运行时全量 flush（AgentMessageProjector，agentId 为
+ * 真实 agent）生成 `<agentId>-history-<entryId>`。会话静止时时间线读的是磁盘页，预热
+ * （用户开始输入）启动 runtime 后首个全量 flush 会整体替换窗口段——若放任 id 前缀改写，
+ * TurnRow 的 React key 逐条失配，可见轮次整体 remount（Markdown 重新解析 + 入场动画），
+ * 布局跳动还会打断输入法合成（见 useTipTapComposerEditor 的 composition watchdog 注释），
+ * 输入框焦点随之丢失。
+ *
+ * meta.entryId 跨投影稳定，是同一记录的权威身份：flush 到达时按 entryId 把窗口段 id
+ * 重写回缓存里已有的显示 id，key 不变则轮次按内容复用，remount 消失。找不到映射
+ * （新消息 / 缓存为空 / 无 entryId）时保留原 id；内容始终以运行时段为权威，只改身份
+ * 不改内容。同 entryId 同时出现在前缀与窗口时以窗口 id 为准（与显示顺序一致）。
+ */
+function stabilizeRuntimeMessageIds(current: SessionMessageCacheEntry | undefined, incoming: readonly ChatMessage[]): ChatMessage[] {
+	if (!current || incoming.length === 0) return incoming as ChatMessage[];
+	const idByEntryId = new Map<string, string>();
+	for (const message of current.history?.messages ?? []) {
+		const entryId = message.meta?.entryId;
+		if (typeof entryId === "string" && entryId) idByEntryId.set(entryId, message.id);
+	}
+	for (const message of current.messages) {
+		const entryId = message.meta?.entryId;
+		if (typeof entryId === "string" && entryId) idByEntryId.set(entryId, message.id);
+	}
+	if (idByEntryId.size === 0) return incoming as ChatMessage[];
+	let changed = false;
+	const stabilized = incoming.map((message) => {
+		const entryId = message.meta?.entryId;
+		const stableId = typeof entryId === "string" ? idByEntryId.get(entryId) : undefined;
+		if (stableId === undefined || stableId === message.id) return message;
+		changed = true;
+		return { ...message, id: stableId };
+	});
+	return changed ? stabilized : (incoming as ChatMessage[]);
+}
+
+/**
  * disk → runtime 交接：把「激活前时间线正在显示的磁盘页」转成 history 前缀。
  *
  * 为什么必须显式转（2026-10-21 用户诊断包）：会话停着时时间线读的是磁盘页
@@ -1032,7 +1071,10 @@ export const prependSessionHistoryPageAtom = atom(
 			return false;
 		}
 		if (current.history && current.history.nextBefore !== input.before) return false;
-		if (!current.history && input.before !== undefined) return false;
+		// 首屏历史页的游标：pi 是「文件头/entryId 锚点」（before 缺省），ACP 没有会话文件，
+		// 首屏游标就是投递窗口起点（数组下标）。两种都接受，其余数值一律拒绝，
+		// 否则一次错游标会把「窗口前那段」以外的消息拼进来。
+		if (!current.history && input.before !== undefined && input.before !== current.windowStart) return false;
 
 		const segmentKeys = new Set(current.messages.map(messageEntryKey));
 		const pageMessages = input.page.messages.filter((message) => !segmentKeys.has(messageEntryKey(message)));
@@ -1660,8 +1702,9 @@ export const applySessionRuntimeEventAtom = atom(null, (get, set, event: Session
 				const cardCount = current?.cardCount ?? 0;
 				const offset = upsertFrom - W + cardCount;
 				if (current?.source === "runtime" && offset >= 0 && current.messages.length >= offset) {
-					const merged = [...current.messages.slice(0, offset), ...(messages as ChatMessage[])];
-					const outlineChanged = shouldRefreshOutlineForRuntimeUpsert(current.messages, current.outlineLastUserIndex, offset, messages);
+					const incoming = stabilizeRuntimeMessageIds(current, messages as ChatMessage[]);
+					const merged = [...current.messages.slice(0, offset), ...incoming];
+					const outlineChanged = shouldRefreshOutlineForRuntimeUpsert(current.messages, current.outlineLastUserIndex, offset, incoming);
 					// 长度校验：合并后本地长度 = 卡片 + (totalLength − W)；不满足说明增量已失序
 					// （漏事件/trim 未校准），丢弃等待全量
 					if (merged.length === totalLength - W + cardCount) {
@@ -1681,13 +1724,15 @@ export const applySessionRuntimeEventAtom = atom(null, (get, set, event: Session
 			} else {
 				// 窗口化全量 / 传统全量：替换运行时窗口段；
 				// disk 前缀经版本守卫（压缩改写即失效）+ 接缝去重（窗口右移与前缀重叠）后保留
-				const segment = messages as ChatMessage[];
+				// id 稳定化（见 stabilizeRuntimeMessageIds）：磁盘页时代的显示 id 保持不变，
+				// 避免投影切换导致 TurnRow remount / 布局跳动打断输入
+				const segment = stabilizeRuntimeMessageIds(current, messages as ChatMessage[]);
 				// 卡片数推导：全量载荷 = [卡片(c), 窗口段]，本地长度 = c + (totalLength − W)
 				const W = payloadWindowStart ?? 0;
 				const cardCount = Math.max(0, segment.length - (totalLength ?? segment.length) + W);
 				// trim 窗口右移的滑出轮：主进程把旧窗口头部（不再被新窗口覆盖的轮次）
 				// 随全量 flush 下发，并入历史前缀，避免「锚点轮从视口消失且翻不回来」
-				const slideOut = Array.isArray(payload.slideOut) ? (payload.slideOut as ChatMessage[]) : undefined;
+				const slideOut = Array.isArray(payload.slideOut) ? stabilizeRuntimeMessageIds(current, payload.slideOut as ChatMessage[]) : undefined;
 				// disk → runtime 交接：窗口段替换 messages 之前，先把磁盘页转成历史前缀
 				// （见 historyPrefixFromDiskPage 注释）。已是 runtime 前缀的照旧走 reconcile。
 				set(cacheSessionMessagesAtom, {

@@ -1,9 +1,9 @@
 /**
  * 远端能力边界的 UI 提示（WS3 P2）：上传硬限制与「远端固定 pi」的锁定原因。
  *
- * 强制边界在主进程（16 MiB / 只接受常规文件 / 后端 clamp），这里锁定 UI 不能做的事：
+ * 强制边界在主进程（8 GiB / 32 files / 只接受常规文件 / 后端 clamp），这里锁定 UI 不能做的事：
  * - 超限、文件夹（拖入目录）失败必须走错误提示，不能刷新成「成功」；
- * - 上传面板提前说明 16 MiB 与「不支持文件夹」；
+ * - 上传面板提前说明 8 GiB、32 files 与「不支持文件夹」；
  * - 远端会话的后端锁定原因必须是「远端只支持 pi」，不能复用「已发送消息后锁定」。
  */
 import assert from "node:assert/strict";
@@ -48,26 +48,32 @@ test("上传失败码映射：超限与文件夹都有明确文案，未知码�
 	const notAFile = remoteUploadFailureCopy("REMOTE_UPLOAD_NOT_A_FILE");
 	assert.equal(notAFile.key, "project.remote.uploadNotAFile");
 	assert.equal(notAFile.withCode, false);
+	for (const code of ["REMOTE_FILE_TARGET_EXISTS", "FILE_UPLOAD_TARGET_EXISTS"]) {
+		const exists = remoteUploadFailureCopy(code);
+		assert.equal(exists.key, "project.remote.uploadExists");
+		assert.equal(exists.withCode, false);
+	}
 	const unknown = remoteUploadFailureCopy("REMOTE_SOMETHING_NEW");
 	assert.equal(unknown.key, "project.remote.uploadFailed");
 	assert.equal(unknown.withCode, true);
 });
 
-test("上传限制文案：zh-CN/en-US 都明确 16 MiB 与不支持文件夹", () => {
+test("上传限制文案：zh-CN/en-US 都明确 8 GiB、32 files 与不支持文件夹", () => {
 	for (const [dictionary, label] of [
 		[zhCN, "zh-CN"],
 		[enUS, "en-US"],
 	]) {
 		const hint = dictionary["project.remote.uploadLimitHint"];
 		assert.ok(hint, label + " 缺少 uploadLimitHint");
-		assert.match(hint, /16 MiB/);
+		assert.match(hint, /8 GiB/);
+		assert.match(hint, /32/);
 		assert.match(hint, label === "zh-CN" ? /文件夹/ : /[Ff]older/);
 	}
 	// 文件夹失败（只接受常规文件）与超限失败都有可行动文案，而不是泛化错误。
 	assert.match(zhCN["project.remote.uploadNotAFile"], /文件夹|目录/);
-	assert.match(zhCN["project.remote.uploadTooLarge"], /16 MiB/);
+	assert.match(zhCN["project.remote.uploadTooLarge"], /8 GiB/);
 	assert.match(enUS["project.remote.uploadNotAFile"], /folder/i);
-	assert.match(enUS["project.remote.uploadTooLarge"], /16 MiB/);
+	assert.match(enUS["project.remote.uploadTooLarge"], /8 GiB/);
 });
 
 test("后端锁定文案：远端固定 pi 与「会话已开始」使用不同 key", () => {
@@ -86,11 +92,12 @@ test("后端锁定文案：远端固定 pi 与「会话已开始」使用不同 
 	assert.match(zhCN["session.backendRemotePiOnlyNotice"], /远端项目/);
 });
 
-test("上传提示组件渲染 16 MiB / 文件夹限制", () => {
+test("上传提示组件渲染 8 GiB / 32 files / 文件夹限制", () => {
 	const { RemoteUploadLimitsHint } = loadTsCommonJs("src/renderer/src/components/session/RemoteUploadLimitsHint.tsx", { stubs: { react: React } });
 	const html = renderToStaticMarkup(React.createElement(RemoteUploadLimitsHint));
 	assert.match(html, /data-testid="remote-upload-limits-hint"/);
-	assert.match(html, /16 MiB/);
+	assert.match(html, /8 GiB/);
+	assert.match(html, /32/);
 	assert.match(html, /文件夹/);
 });
 
@@ -100,17 +107,19 @@ function transferHarness(results) {
 	const reloads = [];
 	const calls = [];
 	const queue = [...results];
-	const desktopApi = {
-		remoteHosts: {
-			uploadProjectFiles: async (projectId, directory) => {
-				calls.push({ kind: "dialog", projectId, directory });
+	const services = {
+		projectId: "p1",
+		capabilities: { files: { read: true, write: true, upload: true, download: true } },
+		files: {
+			uploadFiles: async (target, source) => {
+				if (source.kind === "picker") calls.push({ kind: "dialog", target });
+				else calls.push({ kind: "paths", target, paths: source.paths });
 				return queue.shift();
 			},
-			uploadProjectFilesFromPaths: async (projectId, directory, paths) => {
-				calls.push({ kind: "paths", projectId, directory, paths });
-				return queue.shift();
-			},
+			downloadFile: async () => ({ ok: true, value: { canceled: true } }),
 		},
+	};
+	const desktopApi = {
 		files: { getPathForFile: () => "D:/dropped/folder" },
 	};
 	const { useRemoteProjectTransfer } = loadTsCommonJs("src/renderer/src/hooks/useRemoteProjectTransfer.ts", {
@@ -125,7 +134,7 @@ function transferHarness(results) {
 	const render = () =>
 		(state = host.render(() =>
 			useRemoteProjectTransfer({
-				projectId: "p1",
+				services,
 				directory: "",
 				reload: async () => {
 					reloads.push(1);
@@ -137,7 +146,7 @@ function transferHarness(results) {
 	return { host, render, view: () => state, errors, reloads, calls };
 }
 
-test("超限上传：显示 16 MiB 限制错误，不刷新列表（不是成功）", async () => {
+test("超限上传：显示 8 GiB 限制错误，不刷新列表（不是成功）", async () => {
 	const h = transferHarness([{ ok: false, code: "REMOTE_FILE_TOO_LARGE" }]);
 	h.render();
 	h.view().uploadFiles();

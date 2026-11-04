@@ -59,7 +59,7 @@
   "main": "out/main/index.js",
   "scripts": {
     "dev": "node scripts/dev.js",
-    "build": "npm run sync:dsh-version && npm run build:packages && npm run generate:pi-ai-catalog && npm run generate:extensions-manifest && npm run generate:prompts-manifest && npm run generate:skills-manifest && npm run runtime:pack && npm run runtime:check && npm run check:xueprompts && npm run build:feishu-sdk && npm run build:xue-index && npm run build:session-index && npm run build:file-index && npm run build:session-store && tsc --noEmit --skipLibCheck --incremental && electron-vite build",
+    "build": "npm run sync:dsh-version && npm run build:packages && npm run generate:pi-ai-catalog && npm run generate:extensions-manifest && npm run generate:prompts-manifest && npm run generate:skills-manifest && npm run runtime:pack && npm run runtime:check && npm run check:xueprompts && npm run build:feishu-sdk && npm run build:xue-index && npm run build:session-index && npm run build:file-index && npm run build:session-store && npm run build:remote-sftp && tsc --noEmit --skipLibCheck --incremental && electron-vite build",
     "build:packages": "node scripts/build-local-packages.js",
     "build:fast": "npm run generate:pi-ai-catalog && npm run generate:extensions-manifest && npm run generate:prompts-manifest && npm run generate:skills-manifest && electron-vite build",
     "build:main": "electron-vite build --config electron.vite.main.mjs",
@@ -83,6 +83,7 @@
     "build:session-index": "node scripts/build-session-index.mjs",
     "build:file-index": "node scripts/build-file-index.mjs",
     "build:session-store": "node scripts/build-session-store.mjs",
+    "build:remote-sftp": "node scripts/build-remote-sftp.mjs",
     "gen:pinyin-table": "node scripts/gen-pinyin-table.mjs",
     "build:announcements": "node scripts/build-announcements.js",
     "check:announcements": "node scripts/build-announcements.js --check",
@@ -276,6 +277,14 @@
         "filter": [
           "session-store",
           "session-store.exe"
+        ]
+      },
+      {
+        "from": "resources/remote-sftp/bin",
+        "to": "remote-sftp",
+        "filter": [
+          "remote-sftp",
+          "remote-sftp.exe"
         ]
       },
       {

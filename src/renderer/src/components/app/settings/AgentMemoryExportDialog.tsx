@@ -11,13 +11,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Download } from "lucide-react";
-import type { AgentMemoryEntryGroup } from "../../../../../shared/types/agentMemory";
+import type { AgentMemoryEntry, AgentMemoryEntryGroup } from "../../../../../shared/types/agentMemory";
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
 import { Button } from "../../ui-shadcn/button";
 import { Checkbox } from "../../ui-shadcn/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../ui-shadcn/dialog";
+import { VirtualStack } from "../../ui-shadcn/virtual-stack";
 import { describeAgentMemoryCode, memoryGroupScopeLabel, memoryTargetLabel } from "./agentMemoryLabels";
+import { flattenMemoryRows } from "./agentMemoryPaging";
 
 /** 设备作用域按定义不出设备，导出弹窗里直接不出现，免得用户以为漏选了。 */
 function exportableGroups(groups: AgentMemoryEntryGroup[]): AgentMemoryEntryGroup[] {
@@ -52,6 +54,15 @@ export function AgentMemoryExportDialog(props: { onCancel: () => void; onExporte
 	}, []);
 
 	const total = useMemo(() => groups?.reduce((sum, group) => sum + group.entries.length, 0) ?? 0, [groups]);
+	// 行模型与条目表共用一份（agentMemoryPaging）：分组行 + 条目行，虚拟滚动只挂视口附近的行。
+	const rows = useMemo(() => (groups ? flattenMemoryRows(groups) : []), [groups]);
+	// 按目标统计：四种 target 混排时「教训」最容易看不见，先给一行总数（勾选仍按文件分组）。
+	const countByTarget = useMemo(() => {
+		const counts = new Map<AgentMemoryEntry["target"], number>();
+		for (const group of groups ?? []) counts.set(group.target, (counts.get(group.target) ?? 0) + group.entries.length);
+		return counts;
+	}, [groups]);
+	const scrollRef = useRef<HTMLDivElement>(null);
 
 	const toggle = (id: string) => {
 		setSelected((current) => {
@@ -107,33 +118,53 @@ export function AgentMemoryExportDialog(props: { onCancel: () => void; onExporte
 						</Button>
 					</span>
 				</div>
-				{/* scroll-ok: bounded —— 导出对话框内的分组勾选列表：高度封顶 52vh，数据来自一次盘点结果，行数由所选分区决定，不需要虚拟化 */}
-				<div className="max-h-[52vh] overflow-y-auto rounded-md border">
+				{groups && total > 0 ? (
+					<p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+						{(["memory", "user", "failure", "standing"] as const).map((target) => {
+							const count = countByTarget.get(target) ?? 0;
+							if (count === 0) return null;
+							return (
+								<span key={target}>
+									{memoryTargetLabel(target)} <span className="tabular-nums text-foreground">{count}</span>
+								</span>
+							);
+						})}
+					</p>
+				) : null}
+				{/* 行数随记忆量增长（两百条是常态）：交给虚拟滚动，DOM 只挂视口附近的行。 */}
+				<div ref={scrollRef} className="max-h-[52vh] overflow-y-auto rounded-md border">
 					{groups && groups.length === 0 ? <p className="px-4 py-6 text-xs text-muted-foreground">{t("settings.agentMemoryExportEmpty")}</p> : null}
-					{groups?.map((group) => {
-						const ids = group.entries.map((entry) => entry.exportId);
-						const picked = ids.filter((id) => selected.has(id)).length;
-						const state = picked === 0 ? false : picked === ids.length ? true : "indeterminate";
-						return (
-							<div key={`${group.scope}|${group.projectId}|${group.target}`} className="border-b last:border-b-0">
-								<label className="flex cursor-pointer items-center gap-2 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-									<Checkbox checked={state} onCheckedChange={() => toggleGroup(group)} aria-label={memoryGroupScopeLabel(group)} />
-									<span className="rounded-sm bg-muted px-1.5 py-0.5 text-foreground">{memoryGroupScopeLabel(group)}</span>
-									<span>{memoryTargetLabel(group.target)}</span>
-									<span className="font-mono opacity-70">{group.file}</span>
-									<span className="ml-auto tabular-nums">
-										{picked}/{ids.length}
-									</span>
-								</label>
-								{group.entries.map((entry) => (
-									<label key={entry.exportId} className="flex cursor-pointer items-start gap-2 px-3 py-1.5 text-sm hover:bg-accent/40">
-										<Checkbox className="mt-1" checked={selected.has(entry.exportId)} onCheckedChange={() => toggle(entry.exportId)} aria-label={entry.content.slice(0, 40)} />
-										<span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-foreground">{entry.content}</span>
+					<VirtualStack
+						items={rows}
+						getKey={(row) => row.key}
+						scrollRef={scrollRef}
+						estimateHeight={72}
+						renderItem={(row, index) => {
+							if (row.kind === "group") {
+								const ids = row.group.entries.map((entry) => entry.exportId);
+								const picked = ids.filter((id) => selected.has(id)).length;
+								const state = picked === 0 ? false : picked === ids.length ? true : "indeterminate";
+								return (
+									<label className={`flex cursor-pointer items-center gap-2 bg-muted/40 px-3 py-2 text-xs text-muted-foreground${index === 0 ? "" : " border-t border-border/60"}`}>
+										<Checkbox checked={state} onCheckedChange={() => toggleGroup(row.group)} aria-label={memoryGroupScopeLabel(row.group)} />
+										<span className="rounded-sm bg-muted px-1.5 py-0.5 text-foreground">{memoryGroupScopeLabel(row.group)}</span>
+										<span>{memoryTargetLabel(row.group.target)}</span>
+										<span className="font-mono opacity-70">{row.group.file}</span>
+										<span className="ml-auto tabular-nums">
+											{picked}/{ids.length}
+										</span>
 									</label>
-								))}
-							</div>
-						);
-					})}
+								);
+							}
+							const entry = row.entry;
+							return (
+								<label className="flex cursor-pointer items-start gap-2 px-3 py-1.5 text-sm hover:bg-accent/40">
+									<Checkbox className="mt-1" checked={selected.has(entry.exportId)} onCheckedChange={() => toggle(entry.exportId)} aria-label={entry.content.slice(0, 40)} />
+									<span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-foreground">{entry.content}</span>
+								</label>
+							);
+						}}
+					/>
 				</div>
 				<DialogFooter>
 					<Button type="button" variant="outline" onClick={props.onCancel} disabled={busy}>

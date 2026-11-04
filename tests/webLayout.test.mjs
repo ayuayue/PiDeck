@@ -320,6 +320,25 @@ test("Web theme cycle always produces a visible change", () => {
 	assert.match(webChatApp, /nextWebTheme\(themePreference, resolvedTheme\)/);
 });
 
+// 回归（Web 走查）：暗色只能从 ⋮ 溢出菜单里找，触屏用户当它不存在。
+// 头部要有可见的一键明暗按钮；首帧主题只由 bootstrapWebTheme 按已存偏好落 data-theme，
+// 运行期订阅归 WebChatApp 独占（两处会互相覆盖手动选择）。
+test("Web header exposes a visible one-tap light/dark toggle", () => {
+	const webMain = readFileSync("src/renderer/src/web-main.tsx", "utf8");
+	const toggleIndex = webHeader.indexOf("onClick={props.onToggleTheme}");
+	const menuTriggerIndex = webHeader.indexOf('aria-label={t("web.moreActions")}');
+	assert.ok(toggleIndex > 0, "header must render a toggle button wired to onToggleTheme");
+	assert.ok(menuTriggerIndex > 0, "overflow menu trigger must still exist");
+	// 在 ⋮ 触发钮之前：直接可见，不用先打开菜单
+	assert.ok(toggleIndex < menuTriggerIndex, "theme toggle must sit in the visible action row, not inside the overflow menu");
+	assert.match(webHeader, /aria-label=\{themeToggleLabel\}/);
+	assert.match(webHeader, /props\.resolvedTheme === "dark" \? "web\.themeSwitchToLight" : "web\.themeSwitchToDark"/);
+	assert.match(webChatApp, /toggleWebTheme\(themePreference, resolvedTheme\)/);
+	assert.match(webChatApp, /onToggleTheme=\{toggleTheme\}/);
+	assert.match(webMain, /bootstrapWebTheme\(\);/);
+	assert.doesNotMatch(webMain, /prefers-color-scheme/, "web-main must not own a second theme listener");
+});
+
 // 回归（Web 走查 #14）：图标按钮的原生 outline 被 shadcn 的 outline-none 清掉，
 // 键盘用户看不到落点——Web 作用域内统一补 focus 环。
 test("Web interactive elements keep a visible focus ring", () => {
@@ -392,4 +411,15 @@ test("Web usage rows are never rendered on germline-less providers", () => {
 	assert.doesNotMatch(webHeader, /toLocaleString\(\)/);
 	assert.match(webHeader, /import \{ formatTokens \} from "..\/components\/session\/SessionContextMeter";/);
 	assert.match(webHeader, /\$\{formatTokens\(tokens\)\} \/ \$\{formatTokens\(window\)\}/);
+});
+
+// 回归（宽屏走查）：输入框上方的条（子代理 / 任务清单、错误待答横幅）曾经铺满整个 chat-pane，
+// 宽屏下一根线横穿整屏、和 776px 的输入卡完全脱节。776px 阅读宽此前只落在
+// `.composer > *` 与 `.message-list` 上，所以这里把「条」也钉到同一列宽契约。
+test("Web strips above the composer share the composer reading width", () => {
+	const aboveRule = webCss.slice(webCss.indexOf(".web-app .composer-above"));
+	assert.ok(aboveRule.length > 0, "web.css must cap the strips above the composer");
+	assert.match(aboveRule.slice(0, 200), /width:\s*100%;[\s\S]*?max-width:\s*776px;[\s\S]*?margin-inline:\s*auto;/, "the strips need the same 776px centered column as .composer > *");
+	assert.match(webSessionStrips, /className="composer-above\b/, "子代理/任务清单条必须挂 composer-above，否则会再次铺满 chat-pane");
+	assert.match(webChatApp, /className="composer-above\b/, "错误/待答横幅与输入框同宽，否则会在输入卡上方横穿整屏");
 });

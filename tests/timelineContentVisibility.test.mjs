@@ -23,7 +23,8 @@ test("long-session window governance stays via turn-based history loading", () =
 	const controller = readFileSync("src/renderer/src/hooks/useSessionTimelineController.ts", "utf8");
 	assert.doesNotMatch(controller, /useMessagePagination/);
 	assert.match(controller, /resolveHistoryPageSize\(source\)/);
-	assert.match(controller, /beforeEntryId: anchorEntryId/);
+	assert.match(controller, /const \{ before, beforeEntryId \} = earlierHistoryCursor;/);
+	assert.match(controller, /readRecordMessagePage\(sessionId, before \?\? undefined, pageSize, \{ beforeEntryId \}\)/);
 });
 
 test("single-turn DOM stays light via default-collapsed process group", () => {

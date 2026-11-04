@@ -59,7 +59,7 @@ test("FileDiffViewer: debounced auto-save with Ctrl+S immediate save", () => {
 	assert.match(viewer, /setTimeout\(\(\) => \{\n\s*saveTimerRef\.current = null;/);
 	assert.match(viewer, /500\);/);
 	assert.match(viewer, /lastSavedRef\.current/);
-	assert.match(viewer, /if \(latest === lastSavedRef\.current\) return/);
+	assert.match(viewer, /if \(latest === lastSavedRef\.current\) \{\n\s*setDirty\(false\);\n\s*reportDirty\(false\);\n\s*setSaveError\(null\);\n\s*return true;/);
 	// 加载完成即建立「已落盘」基准，避免打开后无改动就写盘
 	assert.match(viewer, /lastSavedRef\.current = result/);
 	// Ctrl+S 立即保存（取消挂起 timer），卸载清理 timer（生命周期配对）
@@ -72,13 +72,13 @@ test("FileDiffViewer: auto-save reads the latest edit and never reapplies a stal
 	// 编辑器回调与 debounce timer 之间不能捕获旧 render 的 content，否则停顿 500ms
 	// 后会把最后一个字符回滚，CodeMirror 随后将光标带回文档开头。
 	assert.match(viewer, /const contentRef = useRef\(content\)/);
-	assert.match(viewer, /contentRef\.current = result;\n\s*setContent\(result\)/);
-	assert.match(viewer, /const getLatestContent = useCallback\(\(\) => contentRef\.current, \[\]\)/);
+	assert.match(viewer, /contentRef\.current = result;\n\s*lineSeparatorRef\.current = [^\n]+;\n\s*setContent\(result\)/);
+	assert.match(viewer, /const latest = contentRef\.current;/);
 	assert.match(viewer, /contentRef\.current = value;\n\s*setContent\(value\)/);
 	// 保存完成后若用户已继续输入，不得用保存开始时的快照覆盖当前编辑内容。
-	// 合并 origin/dev 后同一分支多了 reportDirty(false) 的脏态上报（语义不变：仍在「内容未被用户改写」时才清脏）。
-	assert.match(viewer, /if \(contentRef\.current === latest\) \{\n\s*setDirty\(false\);\n(?:\s*reportDirty\(false\);\n)?\s*\}/);
-	assert.doesNotMatch(viewer, /lastSavedRef\.current = latest;\n\s*setContent\(latest\)/);
+	// 循环先把 latest 落盘并记为基准，下一轮只有 ref 仍等于它时才清脏。
+	assert.match(viewer, /await saveContent\(savePath, latest, props\.fileAccessScope\);\n\s*if \(saveGeneration !== saveGenerationRef\.current\) return false;\n\s*lastSavedRef\.current = latest;/);
+	assert.doesNotMatch(viewer, /setContent\(latest\)/);
 });
 
 test("editors bind Ctrl+/ comment toggle and JSON lint", () => {

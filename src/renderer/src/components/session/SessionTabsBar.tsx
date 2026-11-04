@@ -1401,8 +1401,25 @@ function NewSessionMenu(props: { targets: readonly NewSessionTarget[]; onSelect:
 	const acpEnabled = useAtomValue(acpEnabledAtom);
 	const acpTools = useAtomValue(acpToolsAtom);
 	const acpVisible = Boolean(props.onNewAcpSession) && acpEnabled && acpTools.length > 0 && projectTargets.length > 0;
+	// 一次打开只认一个目标（issue #481）：上层（App）每次重渲染都会给 targets 新引用，
+	// 菜单项可能在 pointerdown 与 pointerup 之间被重渲染，Radix 随即对同一次点击派发两次
+	// onSelect。两次都建会话 = 新建出一条没人写过的空标签（第二次选中，第一次留在 Tab 栏）。
+	// 选中即锁定，下次打开菜单再解锁。
+	const [open, setOpen] = useState(false);
+	const pickedRef = useRef(false);
+	const pick = (action: () => void) => {
+		if (pickedRef.current) return;
+		pickedRef.current = true;
+		action();
+	};
 	return (
-		<DropdownMenu>
+		<DropdownMenu
+			open={open}
+			onOpenChange={(next) => {
+				setOpen(next);
+				if (next) pickedRef.current = false;
+			}}
+		>
 			<DropdownMenuTrigger asChild>
 				<Button type="button" variant="ghost" size="icon-sm" className="session-tabs-new ml-0.5 inline-grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground" title={t("tabs.new")} aria-label={t("tabs.new")}>
 					<Plus className="size-3.5" />
@@ -1410,7 +1427,7 @@ function NewSessionMenu(props: { targets: readonly NewSessionTarget[]; onSelect:
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" side="bottom" className="min-w-44">
 				{chatTargets.map((target) => (
-					<DropdownMenuItem key={target.projectId} onSelect={() => props.onSelect(target.projectId)}>
+					<DropdownMenuItem key={target.projectId} onSelect={() => pick(() => props.onSelect(target.projectId))}>
 						<span className="inline-flex items-center gap-2">
 							<MessagesSquare className="size-3.5 text-muted-foreground" aria-hidden="true" />
 							{target.label}
@@ -1419,7 +1436,7 @@ function NewSessionMenu(props: { targets: readonly NewSessionTarget[]; onSelect:
 				))}
 				{chatTargets.length > 0 && projectTargets.length > 0 && <DropdownMenuSeparator />}
 				{projectTargets.map((target) => (
-					<DropdownMenuItem key={target.projectId} onSelect={() => props.onSelect(target.projectId)}>
+					<DropdownMenuItem key={target.projectId} onSelect={() => pick(() => props.onSelect(target.projectId))}>
 						<span className="inline-flex min-w-0 items-center gap-2">
 							<Folder className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
 							<span className="truncate">{target.label}</span>
@@ -1438,7 +1455,7 @@ function NewSessionMenu(props: { targets: readonly NewSessionTarget[]; onSelect:
 								</DropdownMenuSubTrigger>
 								<DropdownMenuSubContent>
 									{projectTargets.map((target) => (
-										<DropdownMenuItem key={target.projectId} onSelect={() => props.onNewAcpSession?.(target.projectId, tool.id)}>
+										<DropdownMenuItem key={target.projectId} onSelect={() => pick(() => props.onNewAcpSession?.(target.projectId, tool.id))}>
 											<span className="inline-flex min-w-0 items-center gap-2">
 												<Folder className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
 												<span className="truncate">{target.label}</span>

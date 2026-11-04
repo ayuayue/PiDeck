@@ -52,6 +52,9 @@ function treeHarness() {
 		kind: "remote",
 		generation,
 		capabilities: { files: {} },
+		/** The first directory page may trigger the production hook's one-time helper-facts refresh. */
+		facts: {},
+		refresh: async () => undefined,
 		files: {
 			listDirectory: async (target, options) => {
 				calls.push({ relativePath: target.relativePath, force: options?.force === true, projectId: target.projectId });

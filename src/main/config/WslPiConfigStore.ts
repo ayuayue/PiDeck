@@ -23,6 +23,10 @@
  * - 写 settings.json：锁外重读磁盘后按 settingsFormPayload 的合并规则落盘（资源类键以磁盘为准）；
  * - resolve() 全程有 15s 截止：档案查询/HOME 解析/UNC stat 任一挂住都回 WSL_CONFIG_DISTRO_UNAVAILABLE，
  *   不能让设置页永远转圈；非 Windows 或 wsl.exe 缺失一律 WSL_CONFIG_UNAVAILABLE。
+ *
+ * 解析结果有 5s 缓存（见 resolve()）：设置页一次展开会并行拉 models 与 settings，各自跑一遍
+ * wsl.exe HOME 探测 + UNC stat 纯属重复开销。缓存只给读用，保存一定重新解析——档案被改名或
+ * 换了发行版时，写不能落在过期的目录上。
  */
 
 import { execFile } from "node:child_process";
@@ -45,6 +49,9 @@ const MODEL_ID_MAX_LENGTH = 256;
 
 /** resolve() 的全程截止：档案查询 + HOME 解析 + 两个 UNC stat 都算在内。 */
 const RESOLVE_TIMEOUT_MS = 15_000;
+
+/** 解析结果缓存窗口：够并行的 models/settings 两次读取合并成一次探测，又短到档案改动几乎立刻生效。 */
+const RESOLVE_CACHE_TTL_MS = 5_000;
 
 /** 单次 wsl.exe 写命令的截止：发行版/9P 挂起时不能让保存请求永远不返回。 */
 const WRITE_TIMEOUT_MS = 15_000;
@@ -118,6 +125,8 @@ export type WslPiConfigStorePorts = {
 	/** resolve() 的定时器（测试注入假定时器，不真等 15s）。 */
 	timer?: WslPiConfigTimer;
 	resolveTimeoutMs?: number;
+	/** 解析结果缓存窗口，默认 5s；设 0 关闭缓存。 */
+	resolveCacheTtlMs?: number;
 };
 
 export type WslPiConfigSaveResult = { valid: true; receipt: WslPiConfigWriteReceipt } | { valid: false; error: string };
@@ -265,6 +274,7 @@ export function createWslPiConfigStore(ports: WslPiConfigStorePorts): WslPiConfi
 	const platform = ports.platform ?? process.platform;
 	const timer = ports.timer ?? defaultTimer();
 	const resolveTimeoutMs = ports.resolveTimeoutMs ?? RESOLVE_TIMEOUT_MS;
+	const resolveCacheTtlMs = ports.resolveCacheTtlMs ?? RESOLVE_CACHE_TTL_MS;
 
 	type Resolved = { configDir: string; linuxConfigDir: string; profile: WslHostListItem };
 
@@ -336,6 +346,34 @@ export function createWslPiConfigStore(ports: WslPiConfigStorePorts): WslPiConfi
 		});
 	}
 
+	/**
+	 * 带缓存的解析：同一 hostId 在 TTL 内复用结果，并发请求共享同一个在途 promise。
+	 * 只缓存成功——失败（发行版刚被关掉、档案刚改）必须让下一次读取重新探测。
+	 */
+	const resolvedCache = new Map<string, { expiresAt: number; value: Resolved }>();
+	const inFlight = new Map<string, Promise<Resolved>>();
+
+	function resolveCached(hostId: unknown): Promise<Resolved> {
+		const key = typeof hostId === "string" ? hostId : "";
+		const hit = resolvedCache.get(key);
+		if (hit && hit.expiresAt > Date.now()) return Promise.resolve(hit.value);
+		const pending = inFlight.get(key);
+		if (pending) return pending;
+		const task = resolve(hostId).then(
+			(value) => {
+				inFlight.delete(key);
+				resolvedCache.set(key, { expiresAt: Date.now() + resolveCacheTtlMs, value });
+				return value;
+			},
+			(error) => {
+				inFlight.delete(key);
+				throw error;
+			},
+		);
+		inFlight.set(key, task);
+		return task;
+	}
+
 	async function requireDirectory(path: string, code: string): Promise<void> {
 		let stats: { isDirectory: boolean } | null;
 		try {
@@ -393,7 +431,7 @@ export function createWslPiConfigStore(ports: WslPiConfigStorePorts): WslPiConfi
 		async read(input) {
 			requireSupportedPlatform();
 			const file = fileKeyOf(input.file);
-			const { configDir, profile } = await resolve(input.hostId);
+			const { configDir, profile } = await resolveCached(input.hostId);
 			return snapshotOf(profile, file, await readFileData(join(configDir, `${file}.json`), file));
 		},
 		async saveModels(input) {

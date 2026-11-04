@@ -10,7 +10,7 @@ export interface AgentMemoryFileStat {
 	name: string;
 	bytes: number;
 	entries: number;
-	/** 注入预算；`null` 表示这份文件不参与预算（项目/设备作用域只在检索时出现）。 */
+	/** 预算（裁剪在文件层执行，所有作用域都有）；`null` 只出现在未知 target 上。 */
 	budget: { maxChars: number; maxEntries: number } | null;
 }
 
@@ -50,6 +50,10 @@ export interface AgentMemoryEntry {
 	chars: number;
 	/** `failure` 的分类；其他目标为空串。 */
 	category: string;
+	/** 写入时间（ISO 串，来自记忆索引；索引不可用或尚未同步的旧条目为空）。 */
+	updatedAt?: string;
+	/** 仅标记宿主自动学习新写入的条目；历史无记录时缺省，不推断来源。 */
+	source?: "auto-learn";
 }
 
 export interface AgentMemoryEntryGroup {
@@ -60,9 +64,12 @@ export interface AgentMemoryEntryGroup {
 	/** 相对记忆根目录的文件位置。 */
 	file: string;
 	bytes: number;
-	/** 全局四份文件有注入预算；项目/设备作用域没有。 */
+	/** 预算（裁剪在文件层执行，全局/项目/设备作用域同一套限额）。 */
 	budget: { maxChars: number; maxEntries: number } | null;
+	/** 文件内字符数（含分节符，与裁剪口径一致）。 */
 	chars: number;
+	/** 已超预算：下次写入会按「最老的先丢」裁剪，设置页要能看出来。 */
+	overBudget: boolean;
 	entries: AgentMemoryEntry[];
 }
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -62,8 +62,20 @@ const {
 	REMOTE_TERMINAL_TICKET_TTL_MS,
 	REMOTE_TERMINAL_TICKET_CLAIM_PATTERN,
 } = loadTsCommonJs("src/main/remote/RemoteHelperContract.ts");
-const { REMOTE_HELPER_ARTIFACTS, REMOTE_HELPER_ENTRY_FILE_NAME, REMOTE_HELPER_ENTRY_SHA256, REMOTE_HELPER_ENTRY_VERSION, REMOTE_HELPER_CONFIG_SHA256, REMOTE_HELPER_SEARCH_CONTENT_SHA256, REMOTE_HELPER_GIT_READ_SHA256, REMOTE_HELPER_GIT_SYNC_SHA256, REMOTE_HELPER_GIT_WRITE_SHA256, REMOTE_HELPER_INLINE_SOURCE } =
-	loadTsCommonJs("src/main/remote/RemoteHelperEntry.ts");
+const {
+	REMOTE_HELPER_ARTIFACTS,
+	REMOTE_HELPER_ENTRY_FILE_NAME,
+	REMOTE_HELPER_ENTRY_SHA256,
+	REMOTE_HELPER_ENTRY_VERSION,
+	REMOTE_HELPER_CONFIG_SHA256,
+	REMOTE_HELPER_SEARCH_CONTENT_SHA256,
+	REMOTE_HELPER_UPLOAD_COMMIT_SHA256,
+	REMOTE_UPLOAD_COMMIT_FILE_NAME,
+	REMOTE_HELPER_GIT_READ_SHA256,
+	REMOTE_HELPER_GIT_SYNC_SHA256,
+	REMOTE_HELPER_GIT_WRITE_SHA256,
+	REMOTE_HELPER_INLINE_SOURCE,
+} = loadTsCommonJs("src/main/remote/RemoteHelperEntry.ts");
 const { REMOTE_TERMINAL_RUNNER_ENTRY_SHA256 } = loadTsCommonJs("src/main/remote/RemoteTerminalRunnerEntry.ts");
 const { REMOTE_GIT_READ_SOURCE } = loadTsCommonJs("src/main/remote/RemoteGitReadSource.ts");
 const { materializeRemoteHelperArtifacts } = await import("./helpers/remoteHelperArtifacts.mjs");
@@ -74,11 +86,13 @@ const HOST_ID = "01234567-89ab-4def-8123-456789abcdef";
 /** The helper never resolves HOME into a path, so a POSIX literal is the honest fixture on any platform. */
 const HELPER_HOME = "/home/pideck-helper";
 /** Frozen digest, pinned here as well as in the module: editing the source means editing both. */
-const FROZEN_SHA256 = "aa9f69ec6a9b90b5468402598f47d6017c66d7e42370f52e22f78a82ecc980ea";
+const FROZEN_SHA256 = "d45b4f862d095ee17db1c4aa744c2675067075ce565a382d71d13545eaddc8de";
 const MAX_TEXT = 4096;
 const TEST_TIMEOUT_MS = 30_000;
 const GUARD_TIMEOUT_MS = 10_000;
 const DROP_CODES = new Set(Object.values(REMOTE_FRAME_DIAGNOSTIC_CODES));
+const UPLOAD_CAPABILITIES = new Set(["fs.uploadPrepare", "fs.uploadCommit", "fs.uploadAbort"]);
+const withoutUploadCapabilities = (capabilities) => Array.from(capabilities).filter((capability) => UPLOAD_CAPABILITIES.has(capability) === false);
 /** The token a refusal must never have read: it exists only outside the root. */
 const DECOY = "pideck-decoy-7f3a1c";
 /** Contract source read back by this suite: the result shapes are asserted against the declared types. */
@@ -443,12 +457,13 @@ helperTest("every frozen bundle artifact is one byte-frozen ASCII line with its 
 	// programs that worker imports - and each one is content-addressed and pinned on its own. A change is only
 	// legitimate together with a deliberate update of that file's digest.
 	const expected = new Map([
-		["helper.mjs", { sha256: FROZEN_SHA256, builtins: ["node:fs", "node:path", "node:crypto"], imports: ["git-read.mjs", "config.mjs", "search-content.mjs"] }],
+		["helper.mjs", { sha256: FROZEN_SHA256, builtins: ["node:fs", "node:path", "node:crypto"], imports: ["upload-commit.mjs", "git-read.mjs", "config.mjs", "search-content.mjs"] }],
 		["git-read.mjs", { sha256: REMOTE_HELPER_GIT_READ_SHA256, builtins: ["node:child_process", "node:crypto"], imports: ["git-write.mjs", "git-sync.mjs"] }],
 		["git-write.mjs", { sha256: REMOTE_HELPER_GIT_WRITE_SHA256, builtins: [], imports: [] }],
 		["git-sync.mjs", { sha256: REMOTE_HELPER_GIT_SYNC_SHA256, builtins: [], imports: [] }],
 		["config.mjs", { sha256: REMOTE_HELPER_CONFIG_SHA256, builtins: [], imports: [] }],
 		["search-content.mjs", { sha256: REMOTE_HELPER_SEARCH_CONTENT_SHA256, builtins: [], imports: [] }],
+		[REMOTE_UPLOAD_COMMIT_FILE_NAME, { sha256: REMOTE_HELPER_UPLOAD_COMMIT_SHA256, builtins: [], imports: [] }],
 		["terminal-runner.mjs", { sha256: REMOTE_TERMINAL_RUNNER_ENTRY_SHA256, builtins: ["node:fs", "node:path", "node:child_process"], imports: [] }],
 	]);
 	assert.deepEqual(
@@ -535,7 +550,7 @@ helperTest("every frozen bundle artifact is one byte-frozen ASCII line with its 
 helperTest("the exported entry identity matches the frozen source", () => {
 	assert.equal(REMOTE_HELPER_ENTRY_FILE_NAME, "helper.mjs");
 	assert.match(REMOTE_HELPER_ENTRY_VERSION, /^\d+\.\d+\.\d+$/);
-	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.25.1", "fs.searchContent is helper 1.25.1");
+	assert.equal(REMOTE_HELPER_ENTRY_VERSION, "1.26.0", "fs.uploadPrepare/Commit are helper 1.26.0");
 	// The frozen source cannot import the contract, so its literals are checked against it here.
 	assert.ok(REMOTE_HELPER_INLINE_SOURCE.includes(`"${REMOTE_HELPER_ENTRY_VERSION}"`), "hello must report REMOTE_HELPER_ENTRY_VERSION");
 	for (const token of [REMOTE_HELPER_METHOD_HELLO, REMOTE_HELPER_METHOD_ECHO, REMOTE_HELPER_METHOD_CANCEL, REMOTE_HELPER_METHOD_FS_STAT, REMOTE_HELPER_METHOD_FS_STAT_MANY, REMOTE_HELPER_METHOD_FS_LIST, REMOTE_HELPER_METHOD_FS_READ]) {
@@ -584,7 +599,7 @@ helperTest("hello answers the contract handshake through the production client",
 		// The canonical root it confined itself to: main uses this to prove the --root it asked for is the
 		// one that took effect, instead of assuming the path was not a symlink to somewhere else.
 		root: session.root,
-		capabilities: Array.from(REMOTE_HELPER_CAPABILITIES),
+		capabilities: withoutUploadCapabilities(REMOTE_HELPER_CAPABILITIES),
 		helperVersion: REMOTE_HELPER_ENTRY_VERSION,
 		nodeVersion: process.versions.node,
 		pid: session.child.pid,
@@ -721,7 +736,7 @@ helperTest("a helper started without --root is a legal host-only session that se
 	assert.equal(hello.root, null);
 	// The capabilities are reported as this build really has them: fs.* is still a capability, it is only the
 	// paths that are unreachable, so a client must never read the host-only mode as a downgraded build.
-	assert.deepEqual(hello.capabilities, Array.from(REMOTE_HELPER_CAPABILITIES));
+	assert.deepEqual(hello.capabilities, withoutUploadCapabilities(REMOTE_HELPER_CAPABILITIES), "a host-only helper advertises no filesystem write capability");
 	assert.equal(hello.helperVersion, REMOTE_HELPER_ENTRY_VERSION);
 	assert.deepEqual(plain(await guard(session.client.request(REMOTE_HELPER_METHOD_ECHO, { text: "host-only" }), "echo without a root")), { text: "host-only", delayMs: 0 });
 	assert.deepEqual(plain(await guard(session.client.request(REMOTE_HELPER_METHOD_CANCEL, { requestId: "req-never-seen" }), "cancel without a root")), {
@@ -1555,7 +1570,7 @@ helperTest("the uploaded helper.mjs runs the same frozen source", async (t) => {
 	const result = plain(await guard(session.client.request(REMOTE_HELPER_METHOD_HELLO), "hello from the uploaded entry"));
 	assert.equal(result.helperVersion, REMOTE_HELPER_ENTRY_VERSION);
 	assert.equal(result.home, HELPER_HOME);
-	assert.deepEqual(result.capabilities, Array.from(REMOTE_HELPER_CAPABILITIES));
+	assert.deepEqual(result.capabilities, withoutUploadCapabilities(REMOTE_HELPER_CAPABILITIES), "the uploaded flat fixture has no deploy spool");
 	assert.deepEqual(plain(await guard(session.client.request(REMOTE_HELPER_METHOD_ECHO, { text: "file" }), "echo from the uploaded entry")), { text: "file", delayMs: 0 });
 	// The ES module artifact loads its two builtins and confines itself to the same root.
 	assert.deepEqual(await call(session, REMOTE_HELPER_METHOD_FS_LIST, { path: "." }), { entries: [{ name: "entry.txt", kind: "file", bytes: "uploaded".length }] });
@@ -1654,4 +1669,150 @@ helperTest("fs.watch pushes one debounced event frame and never settles a reques
 	// 幂等关闭：第一次 closed:true，第二次 closed:false（不是错误）。
 	assert.deepEqual(plain(await helper.client.request("fs.unwatch", { watchId: watched.watchId })), { closed: true });
 	assert.deepEqual(plain(await helper.client.request("fs.unwatch", { watchId: watched.watchId })), { closed: false });
+});
+
+function uploadSha256(bytes) {
+	return createHash("sha256").update(bytes).digest("hex");
+}
+
+function createUploadBundle(t) {
+	const deployRoot = mkdtempSync(join(tmpdir(), "pideck-helper-upload-"));
+	const bundleDirectory = join(deployRoot, "bundles", "a".repeat(64));
+	const root = join(deployRoot, "project");
+	mkdirSync(bundleDirectory, { recursive: true });
+	mkdirSync(root);
+	t.after(() => rmSync(deployRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+	return { deployRoot, entryPath: materializeRemoteHelperArtifacts(bundleDirectory).entryPath, root };
+}
+
+function writeUploadStage(deployRoot, uploadId, bytes) {
+	const spool = join(deployRoot, "upload-spool");
+	mkdirSync(spool, { recursive: true, mode: 0o700 });
+	const target = join(spool, `${uploadId}.part`);
+	writeFileSync(target, bytes, { mode: 0o600 });
+	return target;
+}
+
+helperTest("fs.uploadPrepare and fs.uploadCommit stay narrow on a helper without a deploy root", async (t) => {
+	const session = startHelper(t);
+	const bytes = Buffer.from("upload");
+	await expectRefusal(session, "fs.uploadPrepare", { uploadId: "1".repeat(32), path: "a.txt", policy: "create", size: bytes.length, sha256: uploadSha256(bytes) }, "FILE_UPLOAD_UNSUPPORTED");
+	await expectRefusal(session, "fs.uploadCommit", { uploadId: "1".repeat(32), token: "2".repeat(32) }, "FILE_UPLOAD_TOKEN_INVALID");
+	await expectRefusal(session, "fs.uploadAbort", { uploadId: "1".repeat(32), token: "2".repeat(32) }, "FILE_UPLOAD_TOKEN_INVALID");
+	for (const params of [
+		undefined,
+		{},
+		{ uploadId: "A".repeat(32), path: "a.txt", policy: "create", size: 1, sha256: uploadSha256(Buffer.from("x")) },
+		{ uploadId: "1".repeat(32), path: "", policy: "create", size: 1, sha256: uploadSha256(Buffer.from("x")) },
+		{ uploadId: "1".repeat(32), path: "a.txt", policy: "replace", size: 1, sha256: uploadSha256(Buffer.from("x")) },
+		{ uploadId: "1".repeat(32), path: "a.txt", policy: "create", size: -1, sha256: uploadSha256(Buffer.from("x")) },
+		{ uploadId: "1".repeat(32), path: "a.txt", policy: "create", size: 1, sha256: "0".repeat(63) },
+	]) {
+		await expectRefusal(session, "fs.uploadPrepare", params, "FILE_UPLOAD_INPUT_INVALID");
+	}
+	await expectRefusal(session, "fs.uploadCommit", { uploadId: "1".repeat(32) }, "FILE_UPLOAD_INPUT_INVALID");
+	await expectRefusal(session, "fs.uploadCommit", { uploadId: "1".repeat(32), token: "A".repeat(32) }, "FILE_UPLOAD_INPUT_INVALID");
+});
+
+helperTest("fs.uploadCommit publishes a create-only file once and consumes the token", async (t) => {
+	if (process.platform !== "linux") {
+		t.skip("the upload commit requires Linux procfs and O_NOFOLLOW");
+		return;
+	}
+	const fixture = createUploadBundle(t);
+	const session = startHelper(t, { root: fixture.root, entryPath: fixture.entryPath });
+	const hello = await call(session, REMOTE_HELPER_METHOD_HELLO);
+	assert.ok(hello.capabilities.includes("fs.uploadPrepare"));
+	assert.ok(hello.capabilities.includes("fs.uploadCommit"));
+	assert.ok(hello.capabilities.includes("fs.uploadAbort"));
+	const abortId = "0".repeat(32);
+	const abortTicket = await call(session, "fs.uploadPrepare", { uploadId: abortId, path: "never.bin", policy: "create", size: 1, sha256: uploadSha256(Buffer.from("x")) });
+	const abortStage = writeUploadStage(fixture.deployRoot, abortId, Buffer.from("x"));
+	assert.deepEqual(await call(session, "fs.uploadAbort", { uploadId: abortId, token: abortTicket.token }), { cleaned: true });
+	assert.equal(existsSync(abortStage), false);
+	assert.equal(existsSync(join(fixture.root, "never.bin")), false);
+	await expectRefusal(session, "fs.uploadAbort", { uploadId: abortId, token: abortTicket.token }, "FILE_UPLOAD_TOKEN_INVALID");
+	const bytes = Buffer.from("streamed upload\n", "utf8");
+	const uploadId = "1".repeat(32);
+	const prepared = await call(session, "fs.uploadPrepare", {
+		uploadId,
+		path: "new.bin",
+		policy: "create",
+		size: bytes.length,
+		sha256: uploadSha256(bytes),
+	});
+	assert.deepEqual(Object.keys(prepared).sort(), ["expiresAt", "stageRef", "token"]);
+	assert.match(prepared.token, /^[0-9a-f]{32}$/);
+	assert.equal(prepared.stageRef, uploadId);
+	assert.ok(prepared.expiresAt > Date.now());
+	const stage = writeUploadStage(fixture.deployRoot, uploadId, bytes);
+
+	const committed = await call(session, "fs.uploadCommit", { uploadId, token: prepared.token });
+	assert.deepEqual(Object.keys(committed).sort(), ["committed", "fsync", "path", "revision", "sha256", "size", "stageCleaned"]);
+	assert.equal(committed.committed, true);
+	assert.equal(committed.path, "new.bin");
+	assert.equal(committed.size, bytes.length);
+	assert.equal(committed.sha256, uploadSha256(bytes));
+	assert.equal(committed.fsync, true);
+	assert.equal(committed.stageCleaned, true);
+	assert.equal(readFileSync(join(fixture.root, "new.bin"), "utf8"), bytes.toString("utf8"));
+	assert.equal(statSync(join(fixture.root, "new.bin")).mode & 0o777, 0o600);
+	assert.equal(existsSync(stage), false, "the spool file is removed after commit");
+	assert.equal(existsSync(join(fixture.root, `.${uploadId}.pideck-put`)), false, "the staging name is removed after publish");
+
+	// The result may be lost after commit, but a replay is always a deterministic refusal.
+	await expectRefusal(session, "fs.uploadCommit", { uploadId, token: prepared.token }, "FILE_UPLOAD_TOKEN_INVALID");
+	assert.equal(readFileSync(join(fixture.root, "new.bin"), "utf8"), bytes.toString("utf8"));
+});
+
+helperTest("fs.uploadCommit never clobbers and rejects mismatched or linked stages", async (t) => {
+	if (process.platform !== "linux") {
+		t.skip("the upload commit requires Linux procfs and O_NOFOLLOW");
+		return;
+	}
+	const fixture = createUploadBundle(t);
+	const session = startHelper(t, { root: fixture.root, entryPath: fixture.entryPath });
+	const bytes = Buffer.from("replacement");
+	const existing = "keep me";
+	const firstId = "2".repeat(32);
+	const first = await call(session, "fs.uploadPrepare", { uploadId: firstId, path: "existing.txt", policy: "create", size: bytes.length, sha256: uploadSha256(bytes) });
+	writeFileSync(join(fixture.root, "existing.txt"), existing);
+	const firstStage = writeUploadStage(fixture.deployRoot, firstId, bytes);
+	await expectRefusal(session, "fs.uploadCommit", { uploadId: firstId, token: first.token }, "FILE_UPLOAD_TARGET_EXISTS");
+	assert.equal(readFileSync(join(fixture.root, "existing.txt"), "utf8"), existing);
+	assert.equal(existsSync(firstStage), false, "a refused create-only commit still cleans its spool");
+
+	const secondId = "3".repeat(32);
+	const second = await call(session, "fs.uploadPrepare", { uploadId: secondId, path: "mismatch.txt", policy: "create", size: bytes.length, sha256: uploadSha256(Buffer.from("different")) });
+	const secondStage = writeUploadStage(fixture.deployRoot, secondId, bytes);
+	await expectRefusal(session, "fs.uploadCommit", { uploadId: secondId, token: second.token }, "FILE_UPLOAD_STAGE_INVALID");
+	assert.equal(existsSync(join(fixture.root, "mismatch.txt")), false);
+	assert.equal(existsSync(secondStage), false);
+
+	const outside = join(fixture.deployRoot, "outside.txt");
+	writeFileSync(outside, bytes);
+	const thirdId = "4".repeat(32);
+	const third = await call(session, "fs.uploadPrepare", { uploadId: thirdId, path: "linked.txt", policy: "create", size: bytes.length, sha256: uploadSha256(bytes) });
+	const thirdStage = writeUploadStage(fixture.deployRoot, thirdId, Buffer.from("placeholder"));
+	rmSync(thirdStage);
+	symlinkSync(outside, thirdStage);
+	await expectRefusal(session, "fs.uploadCommit", { uploadId: thirdId, token: third.token }, "FILE_UPLOAD_STAGE_INVALID");
+	assert.equal(readFileSync(outside, "utf8"), bytes.toString("utf8"));
+	assert.equal(existsSync(join(fixture.root, "linked.txt")), false);
+
+	const escape = join(fixture.root, "escape");
+	symlinkSync(fixture.deployRoot, escape, "dir");
+	await expectRefusal(
+		session,
+		"fs.uploadPrepare",
+		{
+			uploadId: "5".repeat(32),
+			path: "escape/pwn.txt",
+			policy: "create",
+			size: bytes.length,
+			sha256: uploadSha256(bytes),
+		},
+		"FILE_UPLOAD_PATH_INVALID",
+	);
+	assert.equal(existsSync(join(fixture.deployRoot, "pwn.txt")), false);
 });

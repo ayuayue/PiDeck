@@ -1,7 +1,7 @@
 # ADR：同主机多项目 root 池化（测量 + 方案）
 
-> Status: **Active plan（2026-10-31 更新；默认关闭的池化实现已落地，生产装配未开启，真机验收未做）**。初稿从 dev `187c96041` 起；核对基线 `24529c394`，后续验收基线 `55dd5b702`；引用 §2 的 file:line 前按当前代码复核。
-> 测量脚本为 `tests/remoteRootSwitchProbe.mjs`；并行派工与前置同步见 [remote-project-parallel-handoff.md](remote-project-parallel-handoff.md)。先明确测量门槛与回滚边界，再实施默认关闭路径；真实远端连接与默认开启验收分别处理。
+> Status: **生产默认已开启并通过真实主机验收（2026-11-02；2026-11-03 审计后复验）**。`main/index.ts` 显式装配 `ROOT_POOL_DEFAULT_POLICY`，E2E-only 池化开关已移除；当前结论、实测资源和回滚见 §8。§2–6 的源码行号和测量是历史基线，不能当作本轮验收。
+> 测量脚本为 `tests/remoteRootSwitchProbe.mjs`；并行派工与前置同步见 [remote-project-parallel-handoff.md](remote-project-parallel-handoff.md)。本轮起点 `01b4cf517`，未改写原 `codex/sftp-0` 分支。
 >
 > 相关前置：`docs/archive/remote/remote-functional-optimization-plan.md` F3（切 root 仍重建会话，只复用已验证安装内容）、
 > `docs/archive/remote/remote-phase4-plan.md` B7（`--root` 每连接一个）、`docs/archive/remote/remote-development-plan.md` `7（`root.register`
@@ -250,9 +250,105 @@
 
 ## 7. 决定
 
-- **接受 B 作为方向，生产实现待派工**：按并行交接的 P 任务给出实施计划，先做默认关闭路径与离线门禁；
-  真实主机接入另取授权，默认开启前完成 §4.4 的关键测量与多项目验收。
+- **接受 B 作为方向，池化已实现、硬化并成为生产默认**：真实主机多项目与资源验收已通过；当前状态见 §8。
 - **拒绝 A 作为第一步**：多 root 助手协议改动过大，且 watcher/并发预算共享会引入新的队头阻塞；若 B
   的进程/内存成本不可接受，再单独立项评估 A。
 - **拒绝 C**：共享 SSH 传输会削弱 pin/route 的逐次证明语义。
-- 本文修改不代表池化已经实现；后台存活、独立多端接回与常驻 server 不在本阶段范围。
+- 后台存活、独立多端接回与常驻 server 不在本阶段范围。
+
+## 8. 生产默认推进记录（2026-11-02，已签收）
+
+### 8.1 当前决定与实施切面
+
+工作树 `C:\Users\Administrator\.codex\worktrees\root-pooling-prod\PiDeck`，分支
+`codex/root-pooling-prod`，起点 `01b4cf517`；未改写 `codex/sftp-0`，未提交。
+**生产默认已开启**：`main/index.ts` 显式传 `rootPooling: ROOT_POOL_DEFAULT_POLICY`。
+原 `PIDECK_E2E_REMOTE_ROOT_POOLING` 生产绕行已删除，未替换成另一个环境变量。
+真实正确性与资源门禁均通过，因此保留默认开启。
+
+默认策略只有一个定义 `ROOT_POOL_DEFAULT_POLICY`：`idleCapacity: 2`、`idleTtlMs: 600000`、
+`maxEntries: 6`、`acquireTimeoutMs: 30000`。预算属于一个 connection service，覆盖该服务的所有
+host/root，包括 rootless config helper；不是每个项目各 6 条，也不是只能打开两个项目。
+
+| 方案 | 审计结论 |
+| --- | --- |
+| 仅改开关 | 不够：异步退休提前让出槽位、旧代 watcher release、关闭项目遗漏退休等竞态可复现 |
+| 按 root 池化 + 生命周期硬化 | 最小正确方向；继续复用已验证的 helper/SFTP 协议和每 root 事实 |
+| helper 多 root 协议 | 不需要；会改变 fs/git 路由与协议安全边界，本轮禁止 |
+| 常驻 server | 与当前桌面在线范围不符，本轮禁止 |
+
+### 8.2 审计与离线覆盖
+
+| 切面 | 本轮处理与证据 |
+| --- | --- |
+| helper 生命周期 | 建立中、可用、销毁中都计入硬预算；退出前不释放槽位；manager 重复 dispose 等待同一个清理 Promise |
+| 同 root 并发 | 共享一次建立；一个等待者取消不取消其他等待者；所有等待者离开才取消建立 |
+| watcher retain/release | 携带 connectionId；旧 release 不减新会话计数；释放最后一个 watcher 唤醒容量等待者 |
+| per-project generation | wrapper 和请求回包都复核 manager/generation/revision；旧操作迟到结果拒绝；退休取消延迟 deep-watch |
+| close/remove project | 先取消该项目传输、清目录事实/订阅，再退休该 root；删除前 locator 快照供清理使用；兄弟 root 不受影响 |
+| host disconnect/retry/rebind | 主机级 epoch 和 store revision 使整 host 池退休；禁止断开后后台读复活。未发布的 root 冷开失败只属于该次项目尝试，不能覆盖显式连接或健康兄弟已经证明的 host ready；已发布 root 的后续故障仍会更新 host 状态，状态观察者抛错也不能破坏已经成功的连接 |
+| TTL/LRU/sweep | 只回收无 lease/无 watcher 条目；每次异步退休后重算候选；并发 sweep 与 dispose 幂等 |
+| transfer / 文件抽屉 | lease 覆盖整个操作；取得 lease 和构造 route 后再次检查 AbortSignal，取消后不会在“已取得 lease、任务尚未启动”的窗口继续执行；取消 A、关闭 A 的 worker 不影响 B；不改上传提交协议 |
+| Git / 文件事实 | 保留现有按项目 root 查询和 generation 缓存；不重构 Git UI；目录 root 退休清掉旧代事实与待订阅 |
+| 资源上限 / 错误码 | 六槽位冷开回归中 6 成功、2 返回 `SSH_ROOT_POOL_BUSY`；满载只淘汰空闲项，否则有界等待；不改投其他 root |
+| host config | rootless helper 也走池预算，不再依赖池化时不存在的单 manager；不借项目 root 做 host config |
+
+前 8 个竞态用例在原实现上 0/8，通过修复后全部转绿；另补六槽位并发、sweep、迟到结果、重复
+dispose、延迟 watcher 与关闭传输隔离。最终审计又补了“acquire 后、任务启动前取消”的 fencing，以及
+“未发布 root 冷开失败不得把显式 ready 主机降级”和“已发布 root 失败仍更新 host”两条对照回归。
+完整命令、结果和未通过的门禁见验收报告 §12。
+
+### 8.3 诊断与资源口径
+
+主进程 logging scope 为 `remote-root-pool`，只在建立、退休、等待超时、每分钟非空 sweep、dispose
+记录快照。包含 entries/creating/retiring、idle/leased/watched、hits/misses/created/retired/
+evictedIdle、waits（累计）/waitCount（当前）/waitTimeouts/peakEntries，以及 sweep before/after。
+每 root 记录连接身份、ready/retiring 状态、helper 数和建立中 root；路径只保留 SHA-256 的 16 位
+摘要，不记录 SSH argv，不新增 renderer 诊断通道。计数之间有重叠（同条目可同时 leased 与 watched）。
+
+真机 harness 每约 2 秒采集本 run 的远端 helper PID/RSS/线程和 Electron 后代 ssh PID/RSS，另采
+三条与六条 watcher 稳态。门槛：单 helper 稳态 ≤80 MiB、3 条合计 ≤180 MiB、6 条合计 ≤480 MiB、
+线程 ≤12，稳态 ssh 为 helper 数至 helper 数+1（只容许瞬时只读探针）；传输期间额外 SFTP ssh 单列
+采样。峰值指采样峰值，不能宣称连续时间绝对峰值。
+
+2026-11-02 初次真机结果：三条 watched root 为 `3 helpers / 3 ssh.exe / 187,084 KiB` helper RSS
+（约 182.7 MiB，单条 61,516–63,108 KiB、7 线程）；六条 watched root 连续 3 次采样均为
+`6 helpers / 6 ssh.exe / 349,136 KiB` helper RSS（约 341.0 MiB，单条 53,984–63,108 KiB、7 线程），
+本机 SSH RSS `68,329,472 bytes`。
+
+2026-11-03 最终审计修复后复验：三条 watched root 为 `3 helpers / 3 ssh.exe / 186,816 KiB` helper
+RSS（单条 61,576–63,076 KiB、7 线程）；六条 watched root 连续 3 次采样均为
+`6 helpers / 6 ssh.exe / 348,652 KiB` helper RSS（单条 53,936–63,076 KiB、7 线程），本机 SSH RSS
+`68,952,064 bytes`。两次运行的峰值均为 `helpers=6`、`ssh=6`、`peakEntries=6`；最终断线采样
+`helpers=0`、`ssh=0`，采样错误为 0。资源门槛通过。
+
+### 8.4 真机验收、回滚与未覆盖边界
+
+- **日期与范围**：2026-11-02 初次真机签收；2026-11-03 在最终审计修复后复验。Windows Electron
+  客户端 + 真实 Linux SSH 主机 `serve`，
+  测试根 `/home/zhadainian/.pideck-acceptance/root-pooling-prod-20261102`。启动前清除
+  `ELECTRON_RUN_AS_NODE`，未设置 `PIDECK_E2E_REMOTE_ROOT_POOLING`；既有 bundle
+  `4f41cea1ba176eb067fafff92f1c8661d5a7e43fc33f7285070faeb22159d0f5` 只读复用。未 sudo、
+  未修改系统目录、未覆盖/升级既有 bundle。
+- **通过项**：空文件与中文/空格名、32 MiB 上传/下载与进度、冲突拒绝、批量部分失败、取消与 spool
+  收敛、权限拒绝、A/B 并行取消隔离、关闭 A 不影响 B、重开 A 后继续传输、A/B/C 连续 61,079 ms
+  （19 轮、3 条 helper PID/代数稳定、watcher 与 UI 持续更新）、D/E/F 六 root 资源门禁、显式断开
+  退休整主机、后台读不复活、重连后重新建立并上传。初次 Playwright 结果 `1 passed (5.9m)`；
+  最终审计修复后的 2026-11-03 生产装配复验为 `1 passed (4.6m)`，A/B/C 连续
+  `60,632 ms / 22 轮`，66 次切换耗时 102–216 ms（中位 149 ms），3 条 helper PID/代数稳定。
+- **A→B→A 闭环**：2026-11-02 热切回 A 后上传入口恢复就绪实测 `158 ms`；2026-11-03 最终审计后
+  复验为 `153 ms`，不再等待约 240 秒。
+- **池化诊断**：最终运行 `hits=162 / misses=9 / created=9 / retired=7 / evictedIdle=0 / waits=0 /
+  waitTimeouts=0 / peakEntries=6`；六 root 稳态采样 `entries=6`，之后显式断开使全部 6 条退休。
+  `before/after` sweep、per-root 连接身份与 helper 数已进入 main-only `remote-root-pool` 日志。六 root
+  恰好在预算内，真实运行未触发 `waits`/`evictedIdle` 路径；这两条由离线竞态测试覆盖。
+- **清理**：测试进程删除每个 `runs/sftp-*` 后，另以 SSH 只读复核 `runs/` 下 run 目录为 0、匹配本任务
+  路径的 helper 为 0；既有 deploy bundle 未改动。2026-11-03 再次只读复核 `runs/` 与 helper 均为 0，
+  实际复用的 `4f41cea1…` bundle 目录 mtime 仍为 2026-11-02，复验当天没有新增 bundle。
+- **回滚**：只改 `src/main/index.ts` 为 `rootPooling: false`，运行 `npm run build:fast`，正常退出后
+  下次启动生效。没有设置项、schema 或数据迁移；不热切换在途写，不重放 unknown 结果。若要回退整项
+  行为，也可单独 revert `codex/root-pooling-prod` 的最终提交。
+- **未覆盖**：真实等待 10 分钟 TTL 到期、长时间网络抖动/单 root 自动重试的 UI 恢复、真实 host
+  rebind UI、多 host 争用六槽预算、第七 root 满载的真实等待/超时、重叠目录/Git 写竞争、
+  8 GiB/32 文件压力、ProxyJump/askpass、提交后硬断网/崩溃、Linux 原生 Electron 客户端。
+  `maxEntries=6` 的真实资源峰值已验证，但连续长稳只覆盖至少 60 秒 soak，不等同于小时级压力测试。
