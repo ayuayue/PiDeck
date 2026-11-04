@@ -47,15 +47,17 @@
  *   ipcChannels 808→811，remote 前缀已存在，前缀数仍 92。
  * 2026-11-03 合并刷新（+3）：codebuddySessions 的 start/answer/cancel 入场；
  *   ipcChannels 811→814，新增 codebuddy 前缀，前缀数 92→93。
+ * 2026-11-04 刷新（净 +1）：WSL 目录浏览（Wave 0，提交 0f91282e4）退役 projects:add-wsl，
+ *   新增 projects:list-wsl-directory / projects:add-wsl-path → 815，projects 前缀已存在，前缀数仍 93。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const CHANNEL_TOTAL = 814;
+const CHANNEL_TOTAL = 815;
 const PREFIX_COUNT = 93;
-const CHANNEL_DIGEST = "ce85fc66fd593a7365cbea1a80435abf6e23fc6d931dc669c8f96cf83bd98c84";
+const CHANNEL_DIGEST = "aa75a5cd981930853cc8a7d176ca2e2baf93b8afa8150853c5fedf1b34f73e5d";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";
