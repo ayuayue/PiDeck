@@ -2,7 +2,7 @@
  * SQLite 索引镜像（`node:sqlite`，Node 22+/Electron 43 内置）。
  *
  * 定位：**只是索引，不是真值**。Markdown 永远是权威副本，所以：
- * - 每次写文件后按该文件当前内容**整体重灌**行（先删后插），天然自愈，不需要版本迁移脚本；
+ * - 每次写文件后按该文件当前内容做**差分同步**（删差集、插新增），天然自愈，不需要版本迁移脚本；
  * - 库文件损坏/不可用时整体降级：记忆读写继续可用，检索退化成对 Markdown 的子串扫描；
  *   会话检索则明确报「索引不可用」，绝不返回「看起来成功但空结果」。
  *
@@ -138,8 +138,11 @@ export function getMeta(root, key) {
 }
 
 /**
- * 把某个 Markdown 文件的当前内容整体重灌进索引。
- * 「先删后插」而不是 diff：条目量本来就小（百量级），整体重灌换来「永远和文件一致」。
+ * 把某个 Markdown 文件的当前内容同步进索引：只删差集、插新增，内容没变的行保留原 updated_at。
+ *
+ * 早先是「整体先删后插」——自愈简单，但文件一有改动就把该文件所有条目的 updated_at 刷成现在，
+ * 「这条记忆什么时候记下的」这个信息随之丢失，fts rowid 也整体换新（等于每次重写一遍索引）。
+ * 条目量是百量级，diff 的成本可以忽略。
  */
 export function syncEntries(root, { target, scope, projectId = "", entries, categoryOf }) {
 	const handle = openDatabase(root);
@@ -148,22 +151,61 @@ export function syncEntries(root, { target, scope, projectId = "", entries, cate
 	const now = new Date().toISOString();
 	db.exec("BEGIN IMMEDIATE");
 	try {
-		const stale = db.prepare("SELECT id FROM entries WHERE target = ? AND scope = ? AND project_id = ?").all(target, scope, projectId);
+		const existing = db
+			.prepare("SELECT id, content, category FROM entries WHERE target = ? AND scope = ? AND project_id = ?")
+			.all(target, scope, projectId);
+		const byContent = new Map(existing.map((row) => [String(row.content), row]));
 		const deleteEntry = db.prepare("DELETE FROM entries WHERE id = ?");
 		const deleteFts = db.prepare("DELETE FROM entries_fts WHERE rowid = ?");
-		for (const row of stale) {
-			deleteFts.run(row.id);
-			deleteEntry.run(row.id);
-		}
 		const insertEntry = db.prepare("INSERT INTO entries(target, scope, project_id, content, category, updated_at) VALUES (?, ?, ?, ?, ?, ?)");
 		const insertFts = db.prepare("INSERT INTO entries_fts(rowid, content) VALUES (?, ?)");
+		const updateCategory = db.prepare("UPDATE entries SET category = ? WHERE id = ?");
+		const kept = new Set();
 		for (const content of entries) {
-			const { lastInsertRowid } = insertEntry.run(target, scope, projectId, content, categoryOf ? categoryOf(content) : "", now);
-			insertFts.run(lastInsertRowid, content);
+			const category = categoryOf ? categoryOf(content) : "";
+			const row = byContent.get(String(content));
+			if (row) {
+				const id = Number(row.id);
+				kept.add(id);
+				// 分类可能随解析规则变化（教训条目带 `[failure]` 前缀），其余字段一律不动。
+				if (String(row.category) !== category) updateCategory.run(category, id);
+				continue;
+			}
+			const id = Number(insertEntry.run(target, scope, projectId, content, category, now).lastInsertRowid);
+			insertFts.run(id, content);
+			kept.add(id);
+		}
+		for (const row of existing) {
+			const id = Number(row.id);
+			if (kept.has(id)) continue;
+			deleteFts.run(id);
+			deleteEntry.run(id);
 		}
 		db.exec("COMMIT");
 	} catch {
 		db.exec("ROLLBACK");
+	}
+}
+
+/**
+ * 每条记忆的写入时间（`entries.updated_at`，ISO 串），按 content 取各作用域里的最大值。
+ * 设置页只关心「这条内容多久前写下的」，同一条内容同时存在于全局和某个项目时不必区分。
+ */
+export function entryTimes(root, target) {
+	const handle = openDatabase(root);
+	if (!handle.db) return new Map();
+	try {
+		const rows = handle.db.prepare("SELECT content, updated_at FROM entries WHERE target = ?").all(target);
+		const times = new Map();
+		for (const row of rows) {
+			const content = String(row.content);
+			const at = String(row.updated_at);
+			const previous = times.get(content);
+			if (!previous || at > previous) times.set(content, at);
+		}
+		return times;
+	} catch {
+		return new Map();
 	}
 }
 
@@ -214,13 +256,22 @@ function sanitizeFtsQuery(query) {
 
 /**
  * 在记忆条目里检索。
+ *
+ * `allProjects` = 不按 projectId 过滤（`scope=all` 的跨项目检索）：项目作用域与设备作用域都会被搜到，
+ * 每条命中自带 `projectId`，调用方据此判断属于哪个项目。
  * @returns {{ ok: true, hits: Array<{content: string, target: string, scope: string, projectId: string, score: number}> } | { ok: false, reason: string }}
  */
-export function searchEntries(root, query, { limit = 10, targets = ["memory", "user", "standing", "failure", "project"], projectId = "", deviceProjectId = "" } = {}) {
+export function searchEntries(root, query, { limit = 10, targets = ["memory", "user", "standing", "failure", "project"], projectId = "", deviceProjectId = "", allProjects = false } = {}) {
 	const handle = openDatabase(root);
 	if (!handle.db) return { ok: false, reason: "index-unavailable" };
 	const db = handle.db;
 	const targetFilter = targets.map((target) => (target === "project" ? "project" : target));
+	// 项目作用域过滤：全局行 `project_id=''`，项目行是项目键，设备行是 `device:<键>`。
+	// 必须与 target 过滤**并列**而不是并进同一个 OR——否则「命中的 target」会直接放行
+	// 别的项目的同 target 行（典型表现：搜别的项目的记忆也命中）。
+	const projectFilter = (alias) =>
+		allProjects ? "1 = 1" : `(${alias}project_id = '' OR (? <> '' AND ${alias}project_id = ?) OR (? <> '' AND ${alias}project_id = ?))`;
+	const projectArgs = allProjects ? [] : [projectId, projectId, deviceProjectId, deviceProjectId];
 	const hits = [];
 	const seen = new Set();
 	const push = (row, score) => {
@@ -242,10 +293,11 @@ export function searchEntries(root, query, { limit = 10, targets = ["memory", "u
 					`SELECT e.target, e.scope, e.project_id AS projectId, e.content, bm25(entries_fts) AS score
 					 FROM entries_fts JOIN entries e ON e.id = entries_fts.rowid
 					 WHERE entries_fts MATCH ?
-					   AND (e.target IN (${targetFilter.map(() => "?").join(",")}) OR (? <> '' AND e.project_id = ?) OR (? <> '' AND e.project_id = ?))
+					   AND (e.target IN (${targetFilter.map(() => "?").join(",")}))
+					   AND ${projectFilter("e.")}
 					 ORDER BY score ASC LIMIT ?`,
 				)
-				.all(ftsQuery, ...targetFilter, projectId, projectId, deviceProjectId, deviceProjectId, limit * 4);
+				.all(ftsQuery, ...targetFilter, ...projectArgs, limit * 4);
 			for (const row of rows) push(row, Number(row.score));
 		} catch {
 			// FTS 查询语法失败时静默退到 LIKE：检索不可用不等于工具报错。
@@ -258,10 +310,11 @@ export function searchEntries(root, query, { limit = 10, targets = ["memory", "u
 		const rows = db
 			.prepare(
 				`SELECT target, scope, project_id AS projectId, content FROM entries
-				 WHERE content LIKE ? ESCAPE '\\' AND (target IN (${targetFilter.map(() => "?").join(",")}) OR (? <> '' AND project_id = ?) OR (? <> '' AND project_id = ?))
+				 WHERE content LIKE ? ESCAPE '\\' AND (target IN (${targetFilter.map(() => "?").join(",")}))
+				   AND ${projectFilter("")}
 				 ORDER BY LENGTH(content) ASC LIMIT ?`,
 			)
-			.all(pattern, ...targetFilter, projectId, projectId, deviceProjectId, deviceProjectId, limit * 4);
+			.all(pattern, ...targetFilter, ...projectArgs, limit * 4);
 		for (const row of rows) push(row, 1);
 	} catch {
 		// 同上：检索降级不阻断写入与读取。

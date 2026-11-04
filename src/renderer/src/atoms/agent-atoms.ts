@@ -42,6 +42,14 @@ export const closeAgentMarketPageAtom = atom(null, (_get, set) => {
 });
 
 /**
+ * 「使用」后待绑定的智能体 id：市场里点「使用」只把它带上新会话页（GUIDE_BOOTSTRAP 虚拟会话），
+ * 不发请求、不建会话——目录由输入框上方的项目选择器决定，首次发送才由
+ * App.ensureSessionForSend 建会话并落绑定。null = 没有待绑定智能体。
+ * 清空时机：取消、发送落地、或离开新会话页进入任何真实会话（见 App 的 effect）。
+ */
+export const pendingAgentBindingAtom = atom<string | null>(null);
+
+/**
  * 应用内划词的「原地工具栏」请求：会话时间线自带的「引用并提问」浮层里点「翻译」时写入，
  * 由全局 SelectionToolHost 消费（同一时间只有一个工具栏，避免两套浮层叠在一起）。
  */

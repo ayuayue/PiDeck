@@ -11,6 +11,8 @@ import type {
 	ZCodeSessionSummary,
 	WorkBuddyImportReport,
 	WorkBuddySessionSummary,
+	CodeBuddyImportReport,
+	CodeBuddySessionSummary,
 	CursorImportReport,
 	CursorSessionSummary,
 	KimiImportReport,
@@ -59,6 +61,10 @@ export interface UseImportFlowInput {
 	scanWorkBuddySessions: (projectId: string) => Promise<WorkBuddySessionSummary[]>;
 	/** API: import WorkBuddy sessions */
 	importWorkBuddySessionsApi: (projectId: string, sourcePaths: string[]) => Promise<WorkBuddyImportReport>;
+	/** API: scan CodeBuddy sessions */
+	scanCodeBuddySessions: (projectId: string) => Promise<CodeBuddySessionSummary[]>;
+	/** API: import CodeBuddy sessions */
+	importCodeBuddySessionsApi: (projectId: string, sourcePaths: string[]) => Promise<CodeBuddyImportReport>;
 	/** API: scan Cursor sessions */
 	scanCursorSessions: (projectId: string) => Promise<CursorSessionSummary[]>;
 	/** API: import Cursor sessions */
@@ -98,6 +104,8 @@ export interface UseImportFlowOutput {
 	setZcodeImportProject: React.Dispatch<React.SetStateAction<Project | null>>;
 	workbuddyImportProject: Project | null;
 	setWorkbuddyImportProject: React.Dispatch<React.SetStateAction<Project | null>>;
+	codebuddyImportProject: Project | null;
+	setCodebuddyImportProject: React.Dispatch<React.SetStateAction<Project | null>>;
 	cursorImportProject: Project | null;
 	setCursorImportProject: React.Dispatch<React.SetStateAction<Project | null>>;
 	kimiImportProject: Project | null;
@@ -112,6 +120,7 @@ export interface UseImportFlowOutput {
 	openCodeImportController: ImportController<OpenCodeSessionSummary, OpenCodeImportReport>;
 	zcodeImportController: ImportController<ZCodeSessionSummary, ZCodeImportReport>;
 	workbuddyImportController: ImportController<WorkBuddySessionSummary, WorkBuddyImportReport>;
+	codebuddyImportController: ImportController<CodeBuddySessionSummary, CodeBuddyImportReport>;
 	cursorImportController: ImportController<CursorSessionSummary, CursorImportReport>;
 	kimiImportController: ImportController<KimiSessionSummary, KimiImportReport>;
 	kimiWorkImportController: KimiWorkImportController;
@@ -122,6 +131,7 @@ export interface UseImportFlowOutput {
 	openOpenCodeImport: (project: Project) => Promise<void>;
 	openZCodeImport: (project: Project) => Promise<void>;
 	openWorkBuddyImport: (project: Project) => Promise<void>;
+	openCodeBuddyImport: (project: Project) => Promise<void>;
 	openCursorImport: (project: Project) => Promise<void>;
 	openKimiImport: (project: Project) => Promise<void>;
 	openKimiWorkImport: (project: Project) => Promise<void>;
@@ -129,7 +139,7 @@ export interface UseImportFlowOutput {
 }
 
 /**
- * 汇总导入源（Codex / Claude / Qoder / OpenCode / ZCode / WorkBuddy / Cursor / Kimi / Kimi Work）的会话导入流程。
+ * 汇总导入源（Codex / Claude / Qoder / OpenCode / ZCode / WorkBuddy / CodeBuddy / Cursor / Kimi / Kimi Work）的会话导入流程。
  * 每个源的状态机由 useImportSource 提供，本 hook 只负责把 API 与文案前缀装配进来。
  * Kimi Work（桌面版）额外叠加数据目录探测/手动指定（useKimiWorkImport）。
  */
@@ -186,6 +196,14 @@ export function useImportFlow(input: UseImportFlowInput): UseImportFlowOutput {
 		importSessions: input.importWorkBuddySessionsApi,
 	});
 
+	// CodeBuddy 与 WorkBuddy 是同一套本地会话格式，除 API 与文案前缀外无差异。
+	const codebuddy = useImportSource<CodeBuddySessionSummary, CodeBuddyImportReport>({
+		...base,
+		copyPrefix: "codebuddy",
+		scan: input.scanCodeBuddySessions,
+		importSessions: input.importCodeBuddySessionsApi,
+	});
+
 	const cursor = useImportSource<CursorSessionSummary, CursorImportReport>({
 		...base,
 		copyPrefix: "cursor",
@@ -231,6 +249,8 @@ export function useImportFlow(input: UseImportFlowInput): UseImportFlowOutput {
 		setZcodeImportProject: zcode.setProject,
 		workbuddyImportProject: workbuddy.project,
 		setWorkbuddyImportProject: workbuddy.setProject,
+		codebuddyImportProject: codebuddy.project,
+		setCodebuddyImportProject: codebuddy.setProject,
 		cursorImportProject: cursor.project,
 		setCursorImportProject: cursor.setProject,
 		kimiImportProject: kimi.project,
@@ -245,6 +265,7 @@ export function useImportFlow(input: UseImportFlowInput): UseImportFlowOutput {
 		openCodeImportController: openCode.controller,
 		zcodeImportController: zcode.controller,
 		workbuddyImportController: workbuddy.controller,
+		codebuddyImportController: codebuddy.controller,
 		cursorImportController: cursor.controller,
 		kimiImportController: kimi.controller,
 		kimiWorkImportController: kimiWork.controller,
@@ -255,6 +276,7 @@ export function useImportFlow(input: UseImportFlowInput): UseImportFlowOutput {
 		openOpenCodeImport: openCode.open,
 		openZCodeImport: zcode.open,
 		openWorkBuddyImport: workbuddy.open,
+		openCodeBuddyImport: codebuddy.open,
 		openCursorImport: cursor.open,
 		openKimiImport: kimi.open,
 		openKimiWorkImport: kimiWork.open,

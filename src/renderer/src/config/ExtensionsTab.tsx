@@ -334,34 +334,35 @@ export function ExtensionsTab(props: {
 					<div className="config-section">
 						{/* 标题走共享 SectionHeading：与系统设置各页同一套字重/字号，不再靠 legacy 类名锚定 */}
 						<SectionHeading className="mb-2" title={t("config.installedExtensions")} />
-						<div className="mb-3 mt-2 flex flex-wrap items-center justify-between gap-3">
-							<div className="flex min-w-0 flex-1 flex-col gap-1">
-								<div className="flex min-w-0 items-center gap-2">
-									{/* 搜索框：写法对齐 DshPluginSection / ProxyTab 的「左图标 + Input」组合 */}
-									<div className="relative min-w-0 flex-1 basis-52">
-										<Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/70" aria-hidden="true" />
-										<Input type="search" value={extensionQuery} onChange={(event) => setExtensionQuery(event.currentTarget.value)} placeholder={t("config.extensionListSearchPlaceholder")} aria-label={t("config.extensionListSearchPlaceholder")} size="sm" className="pl-8" />
-									</div>
-									{/* 有查询词时显示「匹配数 / 总数」，否则维持原有总数计数 */}
-									<span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{extensionQuery.trim().length > 0 ? t("config.extensionListResultCount", { matched: filteredExtensions.length, count: visibleExtensions.length }) : t("config.count.extensions", { count: visibleExtensions.length })}</span>
+						{/* 表格工具栏：单行「搜索 + 计数 ←→ 操作」。搜索框限宽到 max-w-xs——
+				    列表只有三列，铺满整行的输入框会把它读成页面级搜索而不是表格过滤；
+				    计数紧跟搜索框，眼睛不用横跨整屏去找结果数。 */}
+						<div className="mb-3 flex flex-col gap-1.5">
+							<div className="flex flex-wrap items-center gap-2">
+								{/* 搜索框：写法对齐 DshPluginSection / ProxyTab 的「左图标 + Input」组合 */}
+								<div className="relative min-w-0 max-w-xs flex-1 basis-52">
+									<Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/70" aria-hidden="true" />
+									<Input type="search" value={extensionQuery} onChange={(event) => setExtensionQuery(event.currentTarget.value)} placeholder={t("config.extensionListSearchPlaceholder")} aria-label={t("config.extensionListSearchPlaceholder")} size="sm" className="pl-8" />
 								</div>
-								<small className="block text-caption text-text-tertiary">{t("config.extensionRestartHint")}</small>
+								{/* 有查询词时显示「匹配数 / 总数」，否则维持原有总数计数 */}
+								<span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{extensionQuery.trim().length > 0 ? t("config.extensionListResultCount", { matched: filteredExtensions.length, count: visibleExtensions.length }) : t("config.count.extensions", { count: visibleExtensions.length })}</span>
+								{/* 窄窗口下按钮换行而不是被裁掉：shrink-0 保证按钮不被压缩，ms-auto + justify-end
+								    让操作区贴右；换行后整组仍落在新一行右侧，不会散成左右两半 */}
+								<div className="ms-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+									{props.scope === "global" ? (
+										<>
+											{/* 工具栏统一 size=sm，与设置页/会话顶栏控件高度对齐 */}
+											<Button variant="outline" size="sm" onClick={handleUpdateExtensions} disabled={props.loading || Boolean(updating)}>
+												{updating ? t("settings.updating") : t("settings.updateExtensionsAll")}
+											</Button>
+										</>
+									) : null}
+									<Button variant="outline" size="sm" onClick={props.onRefresh} disabled={props.loading}>
+										{t("common.refresh")}
+									</Button>
+								</div>
 							</div>
-							{/* 窄窗口下按钮换行而不是被裁掉：shrink-0 保证按钮不被压缩，
-				    flex-wrap + justify-end 让溢出部分落到第二行右对齐 */}
-							<div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-								{props.scope === "global" ? (
-									<>
-										{/* 工具栏统一 size=sm，与设置页/会话顶栏控件高度对齐 */}
-										<Button variant="outline" size="sm" onClick={handleUpdateExtensions} disabled={props.loading || Boolean(updating)}>
-											{updating ? t("settings.updating") : t("settings.updateExtensionsAll")}
-										</Button>
-									</>
-								) : null}
-								<Button variant="outline" size="sm" onClick={props.onRefresh} disabled={props.loading}>
-									{t("common.refresh")}
-								</Button>
-							</div>
+							<small className="block text-caption text-text-tertiary">{t("config.extensionRestartHint")}</small>
 						</div>
 						{/* 内置扩展版本 + 热更新：包级版本号（不跟应用版本走），检测走 AtomGit 清单。
 				    只放全局作用域——内置扩展是全局资源，项目视图里给「更新」入口会误导。 */}

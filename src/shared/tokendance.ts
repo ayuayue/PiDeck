@@ -9,6 +9,7 @@
  *  - 应用归因：app_url 写入 API Key，请求维度用 X-App-URL 覆盖；
  *  - OAuth 式授权：/auth + PKCE(S256)，code 在 /portal/api/v1/auth/keys 交换。
  */
+import type { ModelPriceTag } from "./types/agent";
 
 /** 内置供应商名（pi models.json 的 provider key、模型选择器分组名）。 */
 export const TOKENDANCE_PROVIDER = "tokendance";
@@ -25,8 +26,28 @@ export const TOKENDANCE_AUTH_URL = "https://tokendance.space/auth";
 /** code 交换 API Key 的端点（POST /portal/api/v1/auth/keys）。 */
 export const TOKENDANCE_EXCHANGE_URL = "https://tokendance.space/portal/api/v1/auth/keys";
 
+/**
+ * TokenDance 公开报价端点（站点 SPA 自用，不是 OpenAI 兼容网关的一部分）。
+ * 网关 /gateway/v1/models 只给 id/name/context_length，不含价格；折扣与免费标记只能从这里取：
+ * `{ models: [{ slug, pricing: { items: [{ id, plans: [{ rate }] }], reference: [...] } }] }`，
+ * slug 与网关模型 id 一一对应，rate 为「元/百万 token」单价，reference 是没有折扣时的参考价。
+ */
+export const TOKENDANCE_PRICING_URL = "https://tokendance.space/portal/api/models/all";
+
 /** 授权页展示的应用名（key_name 参数，也是新 Key 的默认名称）。 */
 export const TOKENDANCE_KEY_NAME = "PiDeck";
+
+/**
+ * 单模型价格徽章表（model id → 徽章）；缺失条目 = 该模型无折扣/无报价，渲染层直接不显示。
+ * 主进程只负责抓取与解析，文案由渲染层按 locale 拼（8 折 / 20% off）。
+ */
+export type TokendancePriceTagMap = Record<string, ModelPriceTag>;
+
+/** 价格表读取结果：at = 该份数据的拉取时刻（epoch ms；0 表示还没成功拉过）。 */
+export type TokendancePriceTagResult = {
+	tags: TokendancePriceTagMap;
+	at: number;
+};
 
 /** 兜底解析内置端点时发出的归因请求头（请求维度归因，覆盖 Key 上的 app_url）。 */
 export const TOKENDANCE_APP_URL_HEADER = "X-App-URL";

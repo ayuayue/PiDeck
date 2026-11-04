@@ -111,7 +111,8 @@ export class PiSelfUpdateRunner {
 	/** 用固定设置快照检查更新：检查、执行、结果核验共用同一份快照，期间用户切运行时也不串味。 */
 	async check(settings: AppSettings): Promise<PiUpdateCheckResult> {
 		try {
-			const status = await this.locator.check(settings.customPiPath);
+			// WSL 模式下检测/核验都必须命中发行版内的 pi，否则版本来自宿主机安装（#484 同族回归）。
+			const status = await this.locator.check(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser);
 			if (!status.installed) return { hasUpdate: false, error: this.translate("mainExtension.piNotInstalled") };
 			// 与 `pi update --self` 使用同一个 pi.dev 版本接口，避免 npm latest 与 Pi 官方
 			// 发布门槛短暂不同步时，PiDeck 显示的版本和 CLI 提示不一致。
@@ -175,7 +176,8 @@ export class PiSelfUpdateRunner {
 			this.resetVersionProbeCache();
 			PiProcess.invalidateVersionCache();
 		}
-		const status = await this.locator.check(settings.customPiPath);
+		// 与 check() 同一快照、同一 WSL 语境核验：宿主机版本会掩盖发行版内更新失败。
+		const status = await this.locator.check(settings.customPiPath, settings.wslEnabled, settings.wslDistro, settings.wslUser);
 		if (!status.installed || !status.version || compareVersions(status.version, check.latestVersion ?? "0.0.0") < 0) {
 			throw new Error(`${this.translate("mainExtension.piUpdateNotApplied", { current: status.version || "?", latest: check.latestVersion || "?" })}\n${this.sanitizeCommandOutput(output)}`);
 		}

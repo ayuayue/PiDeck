@@ -65,6 +65,13 @@ test("键未变：跳过整快照构建；键变化：构建并推送；force �
 	assert.equal(writes.length, 2);
 });
 
+test("没有 Web 订阅者时 schedule 不建去抖定时器（Web 只是数据出口）", () => {
+	const { hub } = makeHarness();
+	hub.schedule();
+	// statePushTimer 是 TS private（运行期普通字段）：无订阅者时不应排 400ms 快照比对。
+	assert.equal(hub.statePushTimer, null);
+});
+
 test("skipRevisionGate：5s 兜底 tick 必须穿过版本键门（#442）", async () => {
 	// 版本键只含 runtimes + pendingUi；桌面端改名/删除会话不进键。tick 若也走这个门，
 	// 第一道就 return，后面的全量 JSON 比对永远执行不到 —— 兜底形同虚设。

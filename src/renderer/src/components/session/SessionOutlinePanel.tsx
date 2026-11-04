@@ -7,7 +7,7 @@ import type { OutlineRailItem } from "./timeline/outlineRailTicks";
 /**
  * 会话目录面板（右缘刻度条的展开态）。
  *
- * 折叠态是那列刻度：条数 = 可用高度 / 12，147 条提问被压成约 90 根，一根刻度背后
+ * 折叠态是那列刻度：条数 = 可用高度 / 12，147 条消息被压成约 90 根，一根刻度背后
  * 可能差几条 —— 用户想找「第 87 条」只能点完再往下翻。展开态把完整目录摆出来。
  *
  * 四条硬约束（都来自真机/复审缺陷，改这里之前先看）：
@@ -167,6 +167,7 @@ export function SessionOutlinePanel(props: { items: readonly OutlineRailItem[]; 
 								className={`flex w-full items-start gap-2 px-2 py-1.5 text-left text-xs hover:bg-muted/60 ${isActive || isTarget ? "bg-accent-soft text-foreground" : "text-muted-foreground"}`}
 							>
 								<span className="w-7 shrink-0 text-right tabular-nums opacity-60">{row.index + 1}</span>
+								<span className={`mt-0.5 min-w-7 shrink-0 whitespace-nowrap text-micro ${row.item.role === "user" ? "text-info" : "text-muted-foreground/60"}`}>{row.item.role === "user" ? t("sessionFind.roleUser") : t("sessionFind.roleAssistant")}</span>
 								<span className="min-w-0 flex-1">
 									<span className={`line-clamp-2 break-words ${row.item.pending === true ? "opacity-60" : ""}`}>{row.item.title}</span>
 									{row.item.time ? <span className="mt-0.5 block text-micro opacity-60">{row.item.time}</span> : null}
@@ -176,11 +177,11 @@ export function SessionOutlinePanel(props: { items: readonly OutlineRailItem[]; 
 					})}
 				</div>
 			</div>
-			{/* 这里的条数是 merged 后的长度，可能与底部状态栏的「N 轮」差 1–2 条：
-			    mergeOutlineRailItems 会在尾部追加「没有 entryId 的 live 消息」，刚发一条提问、
+			{/* 这里的条数是 merged 后的长度（用户提问 + 助手回复），与底部状态栏的「N 轮」不是
+			    同一口径：一轮通常包含 1 条提问和至少 1 条回复，差值是助手条目，不是边界误差。
+			    mergeOutlineRailItems 还会在尾部追加「没有 entryId 的 live 消息」，刚发一条提问、
 			    目录索引还没更新时面板会多一条；状态栏用 max(countUserTurns, directory.length)，
-			    两者不是同一口径的边界。不改逻辑（那边 max 有它自己的理由），只说明差异来源，
-			    否则以后有人对着两个数找不到原因。 */}
+			    那是轮次口径。两者不强行对齐，只在这里说明差异来源。 */}
 			<div className="border-t border-border px-2 py-1.5 text-micro text-muted-foreground">
 				{t("outline.total", { count: items.length })}
 				{hint ? ` · ${hint}` : ""}

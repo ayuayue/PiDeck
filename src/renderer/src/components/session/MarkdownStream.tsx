@@ -144,6 +144,16 @@ const FrozenMarkdownChunk = memo(function FrozenMarkdownChunk(props: { text: str
 export const MarkdownStream = memo(function MarkdownStream(props: {
 	text: string;
 	isStreaming?: boolean;
+	/**
+	 * 非激活栏暂停：冻结打字机与 Markdown 重排，保持轻量渲染（不做 settle 全量高亮）。
+	 * 恢复时由 useSmoothStream 一次性对齐到最新文本，再按空闲调度补全量渲染。
+	 */
+	paused?: boolean;
+	/**
+	 * 可见但未聚焦（非焦点分屏）：停打字机，文本随上游 1s 粗刷新跳变；
+	 * 不做 settle 全量高亮，等聚焦后再补。
+	 */
+	background?: boolean;
 	onOpenExternal: (url: string, forceSystem?: boolean) => void;
 	/**
 	 * 会话内文件链接打开（path 为规范化后的绝对/可解析路径；line 为可选的
@@ -167,8 +177,13 @@ export const MarkdownStream = memo(function MarkdownStream(props: {
 	const { displayedContent } = useSmoothStream({
 		content: props.text,
 		isStreaming: Boolean(props.isStreaming),
+		paused: Boolean(props.paused),
+		background: Boolean(props.background),
 	});
-	const rawDisplayText = props.isStreaming ? displayedContent : props.text;
+	// 暂停/后台时即使 isStreaming 已经变 false 也继续用 displayedContent：
+	// 流可能在暂停期间结束，此时直接读 props.text 会把全文一次性铺出来，暂停失效。
+	// displayedContent 由 useSmoothStream 冻结在暂停瞬间 / 按粗刷新推进，恢复时一次性追平。
+	const rawDisplayText = props.paused || props.background ? displayedContent : props.isStreaming ? displayedContent : props.text;
 	// 在分块前统一分隔符，避免公式跨冻结边界；消息原文与复制内容不改写。
 	const displayText = useMemo(() => normalizeMathDelimiters(rawDisplayText), [rawDisplayText]);
 	const isStreamingNow = Boolean(props.isStreaming);
@@ -183,8 +198,11 @@ export const MarkdownStream = memo(function MarkdownStream(props: {
 	// 调度，避免 shiki 全量高亮与会话流式渲染抢主线程（2027-02 分屏卡顿修复）。
 	const wasStreamingRef = useRef(false);
 	const [settleFull, setSettleFull] = useState(false);
-	const effectiveLight = props.light || isStreamingNow || !settleFull || shouldKeepLightOnSettle(props.text.length);
+	const effectiveLight = props.light || isStreamingNow || !settleFull || Boolean(props.paused) || Boolean(props.background) || shouldKeepLightOnSettle(props.text.length);
 	useEffect(() => {
+		// 暂停/后台不调度 settle 全量：非激活栏做 shiki/mermaid 同步长任务只会和
+		// 激活栏的流式渲染抢主线程。恢复后本 effect 重新运行，再按空闲调度补全量。
+		if (props.paused || props.background) return;
 		if (isStreamingNow) {
 			// 新一轮流式：复位，等待下次 settle 再调度全量
 			wasStreamingRef.current = true;
@@ -208,14 +226,14 @@ export const MarkdownStream = memo(function MarkdownStream(props: {
 			if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(id);
 			else window.clearTimeout(id);
 		};
-	}, [isStreamingNow]);
+	}, [isStreamingNow, props.paused, props.background]);
 	// ── 冻结切分必须先于 streamPlain：不可冻结（prefixEnd=0）时需要据此回退纯文本 ──
 	// 每条 MarkdownStream 实例跟一段流：非 append 升 generation，冻结节点整段重建。
 	// settle 等待全量渲染期间（settleFull=false）继续用冻结渲染展示完整文本（轻量插件），
 	// 空闲调度切全量后（usingFrozen=false）才 reset frontier。
 	const frontierRef = useRef<IncrementalMarkdownFrontier | undefined>(undefined);
 	if (!frontierRef.current) frontierRef.current = new IncrementalMarkdownFrontier();
-	const usingFrozen = isStreamingNow || !settleFull;
+	const usingFrozen = isStreamingNow || !settleFull || Boolean(props.paused) || Boolean(props.background);
 	const frozenSplit = usingFrozen && !props.light && displayText.length <= STREAM_LIGHT_MAX_CHARS ? frontierRef.current.update(displayText) : undefined;
 	if (!usingFrozen) frontierRef.current.reset();
 	// 流式纯文本兜底（长度单调递增，一旦触发保持到 settle，不会反复横跳）：
@@ -240,7 +258,9 @@ export const MarkdownStream = memo(function MarkdownStream(props: {
 		setMountedChunkCount(1);
 	}, [settledChunks]);
 	useEffect(() => {
-		if (!settledChunks || mountedChunkCount >= settledChunks.length) return;
+		// 暂停中只保留首块（首块已在同步路径挂出），其余块等恢复后再按空闲逐块挂载：
+		// 非激活栏不应该在后台持续做大文本解析 + DOM commit。
+		if (!settledChunks || mountedChunkCount >= settledChunks.length || props.paused || props.background) return;
 		let cancelled = false;
 		const schedule = typeof window.requestIdleCallback === "function" ? (callback: () => void) => window.requestIdleCallback(callback, { timeout: 400 }) : (callback: () => void) => window.setTimeout(callback, 32);
 		const cancel = typeof window.cancelIdleCallback === "function" ? (handle: number) => window.cancelIdleCallback(handle) : (handle: number) => window.clearTimeout(handle);
@@ -251,7 +271,7 @@ export const MarkdownStream = memo(function MarkdownStream(props: {
 			cancelled = true;
 			cancel(handle);
 		};
-	}, [settledChunks, mountedChunkCount]);
+	}, [settledChunks, mountedChunkCount, props.paused, props.background]);
 	// 流式中精简插件：gfm/codeMeta/linkifyPaths 与 math 等插件都留到静态渲染；
 	// 外部显式传入的插件（FileDiffViewer 等场景）不受流式精简影响。
 	const resolvedRemarkPlugins = isStreamingNow ? NO_STREAM_REMARK_PLUGINS : (props.remarkPlugins ?? [remarkGfmNoSingleTilde, remarkInlineMathGuard, remarkRecoverLocalImages, remarkRecoverInlineLinks, defaultRemarkPlugins.codeMeta, remarkLinkifyPaths]);

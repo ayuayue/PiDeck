@@ -28,7 +28,7 @@ type DevTabProps = {
 	/** 检测环境前把 WSL 草稿差异先落盘；主进程读的是持久化设置，
 	 * 草稿未提交时会拿旧的 wslEnabled/distro/user 执行（Linux 路径被当 Windows 文件 → ENOENT）。
 	 * 返回 false（持久化失败）时调用方应中止操作，避免用旧配置出误导性结果。 */
-	onEnsureWslSettingsSaved: () => Promise<boolean>;
+	onEnsureWslSettingsSaved: (extra?: Partial<AppSettings>) => Promise<boolean>;
 	/** 壳层「取消」递增：本 tab 借此重置 WSL 局部输入 */
 	resetKey: number;
 	appInfo: AppInfo;
@@ -178,6 +178,11 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
 			if (result.ok) {
 				// 验证通过后，将用户输入写入 draft
 				updateDraft({ wslUser: wslUserInput });
+				// 「验证并保存」要真的保存：立刻把 WSL 字段（含刚验证的用户名）落盘并重检 pi。
+				// 否则顶部状态卡的路径/版本仍停留在宿主机 pi，直到用户再点「检测环境」才刷新。
+				// extra 直传刚验证的 wslUser：updateDraft 刚 setState，提交闭包里还读不到新草稿。
+				if (!(await props.onEnsureWslSettingsSaved({ wslUser: wslUserInput }))) return;
+				props.onCheckPi();
 			}
 		} catch (err) {
 			console.error("[Settings] WSL validation failed", err);

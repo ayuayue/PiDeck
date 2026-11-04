@@ -47,6 +47,14 @@ test("未加载刻度淡一档，且由 pending 映射而来", () => {
 	assert.match(outlineSource, /muted:\s*item\.pending\s*===\s*true/);
 });
 
+test("用户/助手刻度用宽高区分（role 分叉仍在）", () => {
+	assert.match(railSource, /role\?:/);
+	assert.match(railSource, /item\.role === "user"/);
+	assert.match(railSource, /item\.role === "assistant"/);
+	assert.match(railSource, /w-7/);
+	assert.match(railSource, /w-5/);
+});
+
 test("滚轮在刻度上转发给时间线（导轨是滚动视口的兄弟节点）", () => {
 	// 必须非 passive：React 的 onWheel 是 passive，preventDefault 会被忽略
 	assert.match(outlineSource, /addEventListener\(\s*"wheel"\s*,\s*onWheel\s*,\s*\{\s*passive:\s*false\s*\}\s*\)/);

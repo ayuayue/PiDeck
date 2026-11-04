@@ -55,6 +55,9 @@ export type SeedFavorite = {
 	model?: string | null;
 };
 
+/** 测试文件可通过 test.use({ seedMemoryFiles }) 预置记忆文件（写入 <userData>/memory/）：键是文件名，值是文件原文。 */
+export type SeedMemoryFiles = Record<string, string>;
+
 /** 测试文件可通过 test.use({ seedSettings }) 追加预置设置项（合并进 settings.json） */
 export type SeedSettings = Record<string, unknown>;
 
@@ -120,6 +123,7 @@ export const test = base.extend<
 		seedFeishuBots: SeedFeishuBot[] | undefined;
 		seedFavorites: SeedFavorite[] | undefined;
 		seedSessionFiles: SeedSessionFile[] | undefined;
+		seedMemoryFiles: SeedMemoryFiles | undefined;
 		seedSettings: SeedSettings | undefined;
 		seedImageGenConfig: SeedImageGenConfig | undefined;
 		launchArgs: string[];
@@ -134,12 +138,13 @@ export const test = base.extend<
 	seedFeishuBots: [undefined, { option: true }],
 	seedFavorites: [undefined, { option: true }],
 	seedSessionFiles: [undefined, { option: true }],
+	seedMemoryFiles: [undefined, { option: true }],
 	seedSettings: [undefined, { option: true }],
 	seedImageGenConfig: [undefined, { option: true }],
 	// Exercise real startup intents with the same isolated profile and mock RPC backend.
 	launchArgs: [[], { option: true }],
 	mockSessionInProject: [false, { option: true }],
-	app: async ({ seedProjects, seedFeishuBots, seedFavorites, seedSessionFiles, seedSettings, seedImageGenConfig, launchArgs, mockSessionInProject, e2eWindowMode }, use) => {
+	app: async ({ seedProjects, seedFeishuBots, seedFavorites, seedSessionFiles, seedMemoryFiles, seedSettings, seedImageGenConfig, launchArgs, mockSessionInProject, e2eWindowMode }, use) => {
 		// 先归一化（元组陷阱见 normalizeSeeds 注释）：非法值在启动 Electron 之前就报错，
 		// 避免用例因「种子项目凭空消失」在后面超时。
 		const projects = normalizeSeeds("seedProjects", seedProjects, "项目需含 id / name / path（用 makeSeedProject 生成）。");
@@ -182,6 +187,12 @@ export const test = base.extend<
 			);
 			if (seedImageGenConfig) {
 				writeFileSync(join(userDataRoot, "profile", "imagegen.json"), JSON.stringify(seedImageGenConfig));
+			}
+			// 可选：预置记忆文件（记忆根 = <userData>/memory；条目之间用 `\n§\n` 分隔）。
+			if (seedMemoryFiles) {
+				const memoryRoot = join(userDataRoot, "profile", "memory");
+				mkdirSync(memoryRoot, { recursive: true });
+				for (const [name, content] of Object.entries(seedMemoryFiles)) writeFileSync(join(memoryRoot, name), content);
 			}
 
 			// 可选：预置项目列表。ProjectStore.load 会保留种子项目并追加内置聊天项目。

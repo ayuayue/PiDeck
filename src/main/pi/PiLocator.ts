@@ -57,8 +57,8 @@ const LOGIN_SHELL_PI_NEGATIVE_TTL_MS = 60_000;
 /** 官方安装器（install.sh / install.ps1）的安装标记文件名，两侧布局一致。 */
 const MANAGED_INSTALL_MARKER = "managed-install.json";
 
-/** 安装来源的展示优先级：官方安装 > 包管理器全局 > PiDeck 便携副本 > 用户自选 > 其余 PATH 目录。 */
-const INSTALLATION_SOURCE_RANK: Record<PiInstallationSource, number> = { managed: 0, "package-manager": 1, portable: 2, custom: 3, path: 4 };
+/** 安装来源的展示优先级：官方安装 > 包管理器全局 > PiDeck 便携副本 > 用户自选 > 其余 PATH 目录；WSL 单独一行不参与排序（列表只有它一条）。 */
+const INSTALLATION_SOURCE_RANK: Record<PiInstallationSource, number> = { managed: 0, "package-manager": 1, portable: 2, custom: 3, path: 4, wsl: 5 };
 
 /**
  * 各启动通道下单条命令行的安全字符预算，供技能/提示词白名单这类 O(N) 参数注入做兜底。
@@ -73,6 +73,13 @@ export const CREATE_PROCESS_ARG_CHAR_BUDGET = 26000;
 export const CMD_EXE_ARG_CHAR_BUDGET = 5000;
 /** 非 Windows 走 execve，受系统 ARG_MAX 限制（Linux ≥2MB / macOS ≥1MB），实际等同于不限制。 */
 export const UNLIMITED_ARG_CHAR_BUDGET = 1_000_000;
+
+/**
+ * Node 未捕获异常的诊断行（`TypeError: ...` / `Error [ERR_XXX]: ...`）。
+ * pi 的 POSIX 垫片靠 `#!/usr/bin/env node` 找解释器：命中过旧 node 时 stderr 首行是
+ * `file:///.../chunk-XXXX.js:47` 这类栈帧地址，真正的原因（缺哪个 API）在后面的异常行里（#484）。
+ */
+const NODE_EXCEPTION_LINE = /^(?:[A-Za-z_$][\w$]*)?Error\b/;
 
 function wslCommandCacheKey(distro: string, user: string): string {
 	return `${distro}\0${user}`;
@@ -309,6 +316,7 @@ export class PiLocator {
 	 *
 	 * 顺序即解析优先级（resolveCommand / getCandidates 取第一个存在的候选），所以必须保持原有的
 	 * 「env PATH → 登录 shell PATH → 包管理器/版本管理器目录 → 平台兜底 → PiDeck 自带运行时」；
+	 * 唯一例外是 macOS 的 Homebrew 目录（排在 env PATH 之前，理由见 entries 首行的注释）；
 	 * 新增目录时应扦在同类群里，不要插到 PATH 前面（否则会静默改掉已有用户实际启动的 pi）。
 	 * 来源标签只用于「检测到多个安装」时的展示与排序（见 listInstallations）。
 	 */
@@ -338,6 +346,14 @@ export class PiLocator {
 		const fnmRoots = [...(process.env.FNM_DIR ? [process.env.FNM_DIR] : []), join(home, ".fnm"), join(process.env.XDG_DATA_HOME || join(home, ".local", "share"), "fnm"), ...(process.platform === "darwin" ? [join(home, "Library", "Application Support", "fnm")] : [])];
 		const fnmEntries = process.platform === "win32" ? [] : fnmRoots.flatMap((root) => [plain(join(root, "current", "bin")), ...this.listChildDirs(join(root, "node-versions")).map((dir) => plain(join(dir, "installation", "bin")))]);
 		const entries = [
+			// #484：macOS 上 Homebrew 目录必须排在 env PATH 之前。GUI 启动（Dock/Finder）的 PATH 来自
+			// /etc/paths，固定且常过期——典型是官方 pkg 装的 node 落在 /usr/local/bin，而 Apple Silicon 的
+			// Homebrew 在 /opt/homebrew（不在 /etc/paths，只能靠本项补上）。pi 的 POSIX 垫片是
+			// `#!/usr/bin/env node`，PATH 顺序直接决定它拿到哪个 node：排在最后时 `env node` 命中旧 node，
+			// pi 一早崩在缺 API 上（老版本 node 22 无 zlib.createZstdDecompress），终端里正常、桌面端起不来。
+			// Intel 的 Homebrew 目录就是 /usr/local/bin，通常已是 /etc/paths 首项，此调整无行为变化。
+			// 版本管理器目录不在本项：已由上方 fnmEntries / nvm 分支统一覆盖（FNM_DIR/XDG 布局）。
+			...(process.platform === "darwin" ? ["/opt/homebrew/bin", "/usr/local/bin"].map(plain) : []),
 			...this.pathDirs().map(plain),
 			pkg(join(appData, "npm")),
 			// pnpm：PNPM_HOME / 平台默认目录 + Windows 的 %LOCALAPPDATA%\pnpm
@@ -377,11 +393,6 @@ export class PiLocator {
 			// 来源不在这里标 managed：只有 managed-install.json 校验通过才算官方安装
 			// （见 classifyInstallationSource），残留/半删的目录不应被宣称成官方安装。
 			plain(join(home, ".pi", "agent", "bin")),
-			// macOS GUI 启动（Dock/Finder）经常拿不到终端里的 Homebrew PATH。
-			// Apple Silicon 默认 /opt/homebrew，Intel 常见 /usr/local；两者都扫一遍，
-			// 避免 M4 上 pi 装在 brew 里却被桌面端判定“未安装/启动失败”。
-			// fnm 目录不在本分支：已由上方 fnmEntries 统一覆盖（FNM_DIR/XDG 布局）。
-			...(process.platform === "darwin" ? ["/opt/homebrew/bin", "/usr/local/bin"].map(plain) : []),
 			// Linux 常见全局 bin，同样覆盖“桌面启动 PATH 不完整”的场景。
 			...(process.platform === "linux" ? ["/usr/local/bin", "/usr/bin"].map(plain) : []),
 			// PiDeck 自带引导装的便携 Node/pi 全局目录（<userData>/pi-runtime）：
@@ -669,11 +680,30 @@ export class PiLocator {
 	 * 目录顺序与来源判定和 `check()` 完全同源（同一个 searchDirEntries），
 	 * 所以 `isActive === true` 的那条就是 Agent 实际启动的那份。
 	 *
-	 * WSL 模式返回空数组：Agent 跑在发行版内，宿主候选不代表用户实际用的 pi，
-	 * 调用方（设置页/引导）应退回单结果视图（WSL 路径在 WSL 分区配置）。
+	 * WSL 模式不扫描宿主机：宿主候选不代表用户实际用的 pi，只返回发行版内
+	 * 正在使用的那一份（customPiPath 的 Linux 路径优先，其次发行版默认 pi），
+	 * 让来源面板能显示 WSL pi 的路径与版本；发行版里探不到 pi 才返回空数组。
 	 */
 	async listInstallations(customPath?: string, wslEnabled?: boolean, wslDistro?: string, wslUser?: string, options: { forceShellProbe?: boolean; customPaths?: readonly string[] } = {}): Promise<PiInstallation[]> {
-		if (wslEnabled && process.platform === "win32" && wslDistro && wslUser) return [];
+		if (wslEnabled && process.platform === "win32" && wslDistro && wslUser) {
+			// 与 check() 同源：先预热（缓存命中则零开销），再解析当前实际使用的 pi。
+			await this.warmWslCommand(wslDistro, wslUser);
+			const command = this.resolveCommand(customPath, wslEnabled, wslDistro, wslUser);
+			const parsed = command.startsWith("wsl://") ? this.parseWslUrl(command) : null;
+			if (!parsed) return [];
+			const status = await this.checkWslCommand(parsed.distro, parsed.user, parsed.piCommand);
+			if (!status.installed) return [];
+			return [
+				{
+					path: parsed.piCommand,
+					realPath: parsed.piCommand,
+					...(status.version ? { version: status.version } : {}),
+					...(status.error ? { versionError: status.error } : {}),
+					source: "wsl",
+					isActive: true,
+				},
+			];
+		}
 
 		// 先只做目录扫描：交互式 shell 反查要加载用户 rc，不能每次检测都无谓跑一遍。
 		// 两种情况才真的去问 shell：用户显式点「从终端再找一次」，或目录扫描一份都没找到
@@ -957,18 +987,20 @@ export class PiLocator {
 	private async runCheck(command: string, searchedDirs: string[], options: { quiet?: boolean } = {}): Promise<PiInstallStatus> {
 		return new Promise((resolve) => {
 			const invocation = this.createInvocation(command, ["--version"]);
+			// 子进程 PATH 与「pi 垫片自己看到的 PATH」必须同源：失败时靠它反查 shebang 的 `env node`。
+			const env = this.createProcessEnv(undefined, invocation.pathPrefix, invocation.wsl);
 			execFile(
 				invocation.command,
 				invocation.args,
 				{
-					env: this.createProcessEnv(undefined, invocation.pathPrefix, invocation.wsl),
+					env,
 					shell: invocation.shell,
 					windowsHide: true,
 					timeout: 8_000,
 					encoding: "buffer",
 					windowsVerbatimArguments: invocation.windowsVerbatimArguments,
 				},
-				(error, stdout, stderr) => {
+				async (error, stdout, stderr) => {
 					if (error) {
 						// 优先使用 stderr 中的实际错误信息（如"系统找不到指定的文件"），
 						// 并处理 Windows GBK 编码问题。兜底用 error.message 但去掉冗余的命令行前缀。
@@ -977,6 +1009,8 @@ export class PiLocator {
 						const raw = stderrText || this.cleanExecError(error.message);
 						// 仅命令行本身没有诊断价值时，补上 exit code / timeout，方便区分 PATH 与真失败
 						const errObj = error as NodeJS.ErrnoException & { killed?: boolean; code?: string | number };
+						// 逐个候选探测（quiet）失败是常态，WSL 里生效的是发行版内的 node：两种情形都不探。
+						const node = options.quiet || invocation.wsl ? undefined : await this.probeEnvNode(env);
 						if (!options.quiet) {
 							console.error("[PiLocator] pi CLI check failed", {
 								command,
@@ -985,6 +1019,7 @@ export class PiLocator {
 								stdout: stdoutText || undefined,
 								exitCode: errObj.code,
 								killed: errObj.killed,
+								envNode: node ? `${node.version} ${node.execPath}` : undefined,
 								invocation: {
 									command: invocation.command,
 									args: invocation.args,
@@ -992,7 +1027,7 @@ export class PiLocator {
 								},
 							});
 						}
-						resolve({ installed: false, command, searchedDirs, error: this.composeCheckFailure(raw) });
+						resolve({ installed: false, command, searchedDirs, error: this.composeCheckFailure(raw, node?.version) });
 						return;
 					}
 
@@ -1214,16 +1249,46 @@ export class PiLocator {
 	 * 区分「路径写错 / 不可执行 / WSL 冷启动超时」的唯一线索，此前只进 dev console，
 	 * 设置页只能看到笼统的「无法运行 pi CLI」，用户无从下手（2026-09-17 WSL 自定义路径排查）。
 	 * 单行 + 去 ANSI/控制字符 + 截断，避免多行 stderr 破坏设置页布局。
+	 *
+	 * 取行顺序：Node 异常行 > 第一条非空行。崩溃栈的首行只有 `file:///...chunk.js:47`，
+	 * 只取首行会把「缺哪个 API」这类可行动信息吞掉，用户拿到的原因毫无意义（#484）。
+	 * nodeVersion 只在崩在 JS 异常上时附带：这类失败八成是 PATH 命中的 node 太旧，
+	 * 而 pi 的 engines 为空、CLI 自身不报版本问题，两侧都没有版本线索。
 	 */
-	private composeCheckFailure(raw: string): string {
-		const firstLine = raw
+	private composeCheckFailure(raw: string, nodeVersion?: string): string {
+		const lines = raw
 			.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
 			.split(/\r?\n/)
 			.map((line) => line.replace(/[\x00-\x1f\x7f]/g, "").trim())
-			.find((line) => line.length > 0);
-		if (!firstLine) return this.translate("mainPi.checkFailed");
-		const short = firstLine.length > 160 ? `${firstLine.slice(0, 160)}…` : firstLine;
+			.filter((line) => line.length > 0);
+		const picked = lines.find((line) => NODE_EXCEPTION_LINE.test(line)) ?? lines[0];
+		if (!picked) return this.translate("mainPi.checkFailed");
+		let short = picked.length > 160 ? `${picked.slice(0, 160)}…` : picked;
+		if (nodeVersion && NODE_EXCEPTION_LINE.test(picked)) short = `${short} (node ${nodeVersion})`;
 		return this.translate("mainPi.checkFailedReason", { reason: short });
+	}
+
+	/**
+	 * 反查 `#!/usr/bin/env node` 实际命中的解释器（版本 + 真实路径）。
+	 *
+	 * pi 的 POSIX 垫片靠 shebang 找 node，子进程 PATH 的顺序直接决定拿到哪个版本：
+	 * 用户 PATH 里遗留的旧 node 会让 pi 一早崩在缺 API 上，而 pi 的 engines 为空、
+	 * CLI 自身不会提示，两侧都没有版本线索（#484）。检测失败时多跑一次 `env node`，
+	 * 把解释器写进日志/原因，让「PATH 里有个旧 node」从靠猜变成可见。
+	 * Win32 不经 `env`（.cmd 垫片直接解析 node.exe），WSL 里生效的是发行版内的 node，两者都不探。
+	 */
+	private probeEnvNode(env: NodeJS.ProcessEnv): Promise<{ version: string; execPath: string } | undefined> {
+		if (process.platform === "win32") return Promise.resolve(undefined);
+		return new Promise((resolve) => {
+			execFile("/usr/bin/env", ["node", "-p", "process.version + ' ' + process.execPath"], { env, timeout: 3_000, encoding: "utf8", windowsHide: true }, (error, stdout) => {
+				if (error) {
+					resolve(undefined);
+					return;
+				}
+				const [version, execPath] = String(stdout).trim().split(/\s+/);
+				resolve(version && execPath && /^v\d+\.\d+\.\d+/.test(version) ? { version, execPath } : undefined);
+			});
+		});
 	}
 
 	/**

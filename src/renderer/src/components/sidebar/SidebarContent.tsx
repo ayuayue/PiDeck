@@ -51,7 +51,7 @@ export type SidebarActions = {
 		setPinned: (project: Project, pinned: boolean) => Promise<void>;
 		reveal: (project: Project) => Promise<void>;
 		openWithEditor: (project: Project) => void;
-		importSessions: (project: Project, source: "codex" | "claude" | "qoder" | "opencode" | "zcode" | "workbuddy" | "cursor" | "kimi" | "kimiwork" | "minimax") => void;
+		importSessions: (project: Project, source: "codex" | "claude" | "qoder" | "opencode" | "zcode" | "workbuddy" | "codebuddy" | "cursor" | "kimi" | "kimiwork" | "minimax") => void;
 		/** 导入其他目录的会话：源目录现选，用于目录移动/改名后找回历史。 */
 		importDirectorySessions: (project: Project) => void;
 		manageResources: (project: Project) => void;
@@ -618,6 +618,10 @@ export function SidebarContent(props: SidebarContentProps) {
 					}}
 					onImportWorkBuddySessions={() => {
 						actions.projects.importSessions(menuProject, "workbuddy");
+						controller.closeMenu();
+					}}
+					onImportCodeBuddySessions={() => {
+						actions.projects.importSessions(menuProject, "codebuddy");
 						controller.closeMenu();
 					}}
 					onImportCursorSessions={() => {

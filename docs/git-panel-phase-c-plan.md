@@ -154,11 +154,12 @@ const result = factsOnly
 | `remoteGit.capabilitySync` | 同步 | Sync |
 | `remoteGit.capabilityRecovery` | 恢复 | Recovery |
 | `remoteGit.capabilityForceRefresh` | 强制刷新 | Force refresh |
-| `remoteGit.capabilityAvailable` | 可用 | Available |
 | `remoteGit.capabilityBlocked` | 不可用 | Unavailable |
 | `remoteGit.capabilityRootNeedsAttention` | 项目根需要复核 | Project root needs review |
 
 补齐后把 `utils/remoteGitCapabilityView.ts` 的兜底映射换成这些 key（判据不变，只换文案）。
+
+> 2026-11 调整：`remoteGit.capabilityAvailable` 已移除。能力条只在确有入口被关闭时渲染，全可用时不再占用面板顶部一行「… 可用」文本。
 
 ### 4.6 落地状态（2026-10-31 已实现并验证）
 
@@ -234,7 +235,7 @@ skip 构成：25 个 Linux-only helper 用例（`remoteGitDiscard` 16 / `remoteG
 
 ## 8. V 只读审查（2026-10-31，已按结论修复）
 
-审查报告与逐条处理见 [v-review-2026-10-31.md](v-review-2026-10-31.md)。结论：无阻断、无高危。
+审查报告与逐条处理见 [v-review-2026-10-31.md](archive/remote/v-review-2026-10-31.md)。结论：无阻断、无高危。
 
 | 编号 | 结论 |
 |---|---|

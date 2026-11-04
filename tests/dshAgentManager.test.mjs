@@ -947,6 +947,11 @@ const sessionEventFrame = (sessionId, evt) => ({
 	payload: { type: "session/event", sessionId, event: evt },
 });
 
+/** session/follow 的 snapshot.records 回放帧：与实时帧同形，但带 replay 标记。 */
+const replayEventFrame = (sessionId, evt) => ({
+	payload: { type: "session/event", sessionId, event: evt, replay: true },
+});
+
 /** 构造 DSH 官方 session/projection 帧（每个 key 按 seq higher-seq-wins）。 */
 const projectionFrame = (sessionId, key, value, seq) => ({
 	payload: { type: "session/projection", sessionId, key, value, seq },
@@ -2237,4 +2242,25 @@ test("turn/end 成功触发 onAgentSettled；用户停止与 error 收口不触�
 	client.pushFrames(sessionEventFrame("session-settle", event("turn/start", 5)), sessionEventFrame("session-settle", event("turn/end", 6, { reason: { kind: "error", error: { message: "boom" } } })));
 	await flush();
 	assert.equal(settled.length, 1, "失败回合不得触发完成信号");
+});
+
+test("attach 的 journal 回放不触发 onAgentSettled；实时回合照常触发", async () => {
+	const { host, client, sessions } = makeFakeHost();
+	sessions.set("session-replay", { sessionId: "session-replay", cwd: PROJECT.path, running: false, blank: false });
+	const manager = new DshAgentManager(host, () => PROJECT);
+	const tab = await manager.create({ projectId: "project-1", backend: "dsh", dshSessionId: "session-replay" });
+	const settled = [];
+	manager.onAgentSettled((info) => settled.push(info));
+
+	// follow 的 snapshot.records 回放：历史 turn/end 不得当成「刚刚完成」提醒，
+	// 否则打开一个有 N 轮历史的会话会连弹 N 条「已完成响应」。
+	client.pushFrames(replayEventFrame("session-replay", event("turn/end", 1)), replayEventFrame("session-replay", event("turn/end", 2)), replayEventFrame("session-replay", event("turn/end", 3)));
+	await flush();
+	assert.equal(settled.length, 0, "回放的历史回合不得触发完成信号");
+
+	// 实时回合（无 replay 标记）仍按原语义收口通知。
+	client.pushFrames(sessionEventFrame("session-replay", event("turn/start", 4)), sessionEventFrame("session-replay", event("turn/end", 5)));
+	await flush();
+	assert.equal(settled.length, 1, "实时回合仍要触发完成信号");
+	assert.equal(settled[0].agentId, tab.id);
 });

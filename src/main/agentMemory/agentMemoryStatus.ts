@@ -22,7 +22,7 @@ export interface AgentMemoryFileStat {
 	name: string;
 	bytes: number;
 	entries: number;
-	/** `null` 表示这份文件不参与注入预算（例如项目作用域目前不进系统提示）。 */
+	/** 预算（裁剪在文件层执行，全局/项目/设备作用域同一套限额）。 */
 	budget: { maxChars: number; maxEntries: number } | null;
 }
 
@@ -57,9 +57,9 @@ function collectFiles(root: string): AgentMemoryFileStat[] {
 			const target = (Object.keys(TARGET_FILES) as (keyof typeof TARGET_FILES)[]).find((key) => TARGET_FILES[key] === fileName) ?? null;
 			// 条目数按文件内容数节：与预算裁剪的口径一致，也不受索引是否可用影响。
 			const entries = parseEntries(readRaw(absolute)).length;
-			// 项目作用域目前不进系统提示（只有 memory_search 能查到），所以不给预算。
+			// 预算对全局/项目/设备作用域统一生效（裁剪在文件层），所以一律给出限额。
 			const budget = target ? (FILE_BUDGETS[target as keyof typeof FILE_BUDGETS] ?? null) : null;
-			result.push({ name: relative, bytes: info.size, entries, budget: relative.includes("/") ? null : budget });
+			result.push({ name: relative, bytes: info.size, entries, budget });
 		} catch {
 			// 并发删除/无权限：跳过这份文件，状态区不该因此报错
 		}

@@ -86,6 +86,10 @@ export const ThinkingBlock = memo(
 		defaultExpanded?: boolean;
 		/** 流式进行中：MarkdownStream / 单行预览都以 isStreaming 实时渲染 */
 		isStreaming?: boolean;
+		/** 非激活栏 / 折叠行：冻结打字机与 Markdown 重排，恢复时一次追平 */
+		paused?: boolean;
+		/** 可见但未聚焦（非焦点分屏）：停打字机，文本随上游 1s 粗刷新跳变 */
+		background?: boolean;
 		onOpenExternal: (url: string) => void;
 		onOpenFile?: (path: string) => void;
 	}) {
@@ -106,6 +110,9 @@ export const ThinkingBlock = memo(
 			content: props.text,
 			isStreaming: Boolean(props.isStreaming),
 			disabled: !props.isStreaming,
+			// 折叠/非激活：暂停逐字推进；恢复时一次对齐到最新思考文本。
+			paused: Boolean(props.paused),
+			background: Boolean(props.background),
 		});
 
 		if (!props.showThinking || !props.text.trim()) return null;
@@ -162,7 +169,7 @@ export const ThinkingBlock = memo(
 					{expanded && (
 						<div className="relative ml-5 mt-1 mb-2 rounded-b-sm border-l-2 border-border-subtle bg-transparent pl-3 animate-in fade-in duration-fast motion-reduce:animate-none">
 							<div className="markdown-body px-0 pt-1 pb-1 text-text-tertiary">
-								<MarkdownStream text={props.text} isStreaming={props.isStreaming} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />
+								<MarkdownStream text={props.text} isStreaming={props.isStreaming} paused={props.paused} background={props.background} onOpenExternal={props.onOpenExternal} onOpenFile={props.onOpenFile} />
 							</div>
 							{/* 收起入口：长思考展开后滚到底即可收起（不用滚回顶部思考栏）。 */}
 							<div className="flex pb-1.5">
@@ -183,7 +190,16 @@ export const ThinkingBlock = memo(
 	},
 	// 外部链接回调通常稳定；文件回调会随分屏栏的 cwd/project 变化，必须参与比较，
 	// 否则展开后的 Markdown 会继续使用旧栏的文件授权上下文。
-	(prev, next) => prev.text === next.text && prev.startedAt === next.startedAt && prev.endedAt === next.endedAt && prev.showThinking === next.showThinking && prev.isStreaming === next.isStreaming && prev.onOpenExternal === next.onOpenExternal && prev.onOpenFile === next.onOpenFile,
+	(prev, next) =>
+		prev.text === next.text &&
+		prev.startedAt === next.startedAt &&
+		prev.endedAt === next.endedAt &&
+		prev.showThinking === next.showThinking &&
+		prev.isStreaming === next.isStreaming &&
+		prev.paused === next.paused &&
+		prev.background === next.background &&
+		prev.onOpenExternal === next.onOpenExternal &&
+		prev.onOpenFile === next.onOpenFile,
 );
 
 /**

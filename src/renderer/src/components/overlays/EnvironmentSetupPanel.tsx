@@ -69,6 +69,11 @@ export interface EnvironmentSetupPanelProps {
 	};
 	/** 打开官方安装文档（App 层注入，链接形态由装配层决定） */
 	onOpenInstallDocs: () => void;
+	/**
+	 * 全局 WSL 模式：pi 由发行版提供，宿主机上的 Node/npm 与 npm 全局安装都不作用于它。
+	 * 开启后主卡换成 WSL 内的安装指令，不再给「一键安装」（那个按钮只能装出宿主机副本）。
+	 */
+	wsl?: { enabled: boolean; distro?: string; user?: string };
 	/** 选一份已经找到的 pi（主进程实测校验通过后切换并关窗）；没传就不渲染选择按钮 */
 	onChooseInstallation?: (path: string) => void;
 	/**
@@ -94,6 +99,9 @@ export interface EnvironmentSetupPanelProps {
  */
 export function EnvironmentSetupPanel(props: EnvironmentSetupPanelProps) {
 	const { guide, manual, customPath, onChooseInstallation, dsh } = props;
+	// WSL 模式：宿主机侧的一切检测/安装都不适用于用户实际要用的那份 pi。
+	const wslMode = props.wsl?.enabled === true;
+	const wslDistro = props.wsl?.distro?.trim() || "WSL";
 	const nodeStatus = guide.nodeStatus;
 	const nodeReady = Boolean(nodeStatus?.installed || nodeStatus?.systemNodeAvailable);
 	const nodeUnsupported = Boolean(nodeStatus && !nodeReady && nodeStatus.installSupported === false);
@@ -133,15 +141,23 @@ export function EnvironmentSetupPanel(props: EnvironmentSetupPanelProps) {
 		<>
 			<section className="flex shrink-0 flex-col gap-3.5 rounded-lg border border-border bg-muted p-4">
 				<div className="flex flex-col gap-1">
-					<h3 className="m-0 text-sm font-semibold text-text-primary">{t("environment.setupTitle")}</h3>
-					<p className="m-0 text-xs leading-relaxed text-text-secondary">{t("environment.setupDesc")}</p>
+					<h3 className="m-0 text-sm font-semibold text-text-primary">{t(wslMode ? "environment.setupWslTitle" : "environment.setupTitle")}</h3>
+					<p className="m-0 text-xs leading-relaxed text-text-secondary">{wslMode ? t("environment.setupWslDesc", { distro: wslDistro }) : t("environment.setupDesc")}</p>
 				</div>
 
-				<ul className="m-0 flex list-none flex-col gap-2 rounded-md border border-border-subtle bg-background/50 px-3 py-2.5">
-					<SetupStepRow state={nodeState} title={t("environment.setupNode")} detail={nodeDetail} />
-					<SetupStepRow state={npmState} title={t("environment.setupNpm")} detail={npmDetail} />
-					<SetupStepRow state={piState} title={t("environment.setupPi")} detail={guide.installed ? t("environment.setupPiReady") : t("environment.setupPiMissing")} />
-				</ul>
+				{wslMode ? (
+					<div className="flex flex-col gap-2">
+						<code className="select-all rounded-sm bg-background px-2 py-1 font-mono text-xs text-text-primary">{t("environment.setupWslCommandHint")}</code>
+						<p className="m-0 text-xs leading-relaxed text-text-secondary">{t("environment.setupWslMirrorHint")}</p>
+						<p className="m-0 text-xs leading-relaxed text-text-secondary">{t("environment.setupWslRecheckHint")}</p>
+					</div>
+				) : (
+					<ul className="m-0 flex list-none flex-col gap-2 rounded-md border border-border-subtle bg-background/50 px-3 py-2.5">
+						<SetupStepRow state={nodeState} title={t("environment.setupNode")} detail={nodeDetail} />
+						<SetupStepRow state={npmState} title={t("environment.setupNpm")} detail={npmDetail} />
+						<SetupStepRow state={piState} title={t("environment.setupPi")} detail={guide.installed ? t("environment.setupPiReady") : t("environment.setupPiMissing")} />
+					</ul>
+				)}
 
 				{guide.failure && (
 					<div className="flex flex-col gap-1.5 rounded-md border border-danger/25 bg-danger-soft px-3 py-2.5">
@@ -154,28 +170,30 @@ export function EnvironmentSetupPanel(props: EnvironmentSetupPanelProps) {
 					</div>
 				)}
 
-				<div className="flex flex-wrap items-center gap-3">
-					{nodeUnsupported ? (
-						<Button
-							size="sm"
-							onClick={() =>
-								// 环境检测是 Dialog，链接必须走系统浏览器：内置浏览器面板在 Dialog 下层不可见。
-								window.piDesktop.app.openExternal("https://nodejs.org/zh-cn/download/", true)
-							}
-						>
-							{t("environment.openNodejsOrg")}
-						</Button>
-					) : (
-						<Button size="sm" onClick={guide.installAll} disabled={guide.installing}>
-							{guide.installing && <Loader2 size={14} className="animate-pideck-spin" aria-hidden="true" />}
-							{guide.installing ? t("environment.setupInstalling") : t("environment.setupInstallAll")}
-						</Button>
-					)}
-					<label className="flex cursor-pointer items-center gap-2 text-xs text-text-secondary">
-						<Switch size="sm" checked={guide.piUseMirror} onCheckedChange={guide.setPiUseMirror} disabled={guide.installing} />
-						{t("environment.setupUseMirror")}
-					</label>
-				</div>
+				{wslMode ? null : (
+					<div className="flex flex-wrap items-center gap-3">
+						{nodeUnsupported ? (
+							<Button
+								size="sm"
+								onClick={() =>
+									// 环境检测是 Dialog，链接必须走系统浏览器：内置浏览器面板在 Dialog 下层不可见。
+									window.piDesktop.app.openExternal("https://nodejs.org/zh-cn/download/", true)
+								}
+							>
+								{t("environment.openNodejsOrg")}
+							</Button>
+						) : (
+							<Button size="sm" onClick={guide.installAll} disabled={guide.installing}>
+								{guide.installing && <Loader2 size={14} className="animate-pideck-spin" aria-hidden="true" />}
+								{guide.installing ? t("environment.setupInstalling") : t("environment.setupInstallAll")}
+							</Button>
+						)}
+						<label className="flex cursor-pointer items-center gap-2 text-xs text-text-secondary">
+							<Switch size="sm" checked={guide.piUseMirror} onCheckedChange={guide.setPiUseMirror} disabled={guide.installing} />
+							{t("environment.setupUseMirror")}
+						</label>
+					</div>
+				)}
 
 				{guide.installed && (
 					<p className="m-0 flex items-center gap-1.5 text-xs text-success">
@@ -242,7 +260,7 @@ export function EnvironmentSetupPanel(props: EnvironmentSetupPanelProps) {
 							<code className="select-all rounded-sm bg-background px-2 py-1 font-mono text-xs text-text-primary">where pi</code>
 						</div>
 						<div className="flex flex-wrap items-center gap-2">
-							<Input type="text" className="min-w-[240px] flex-1" placeholder="D:\mise-data\installs\node\24.13.0\pi.cmd" value={customPath.value} onChange={(event) => customPath.onChange(event.target.value)} disabled={customPath.validating} />
+							<Input type="text" className="min-w-[240px] flex-1" placeholder={wslMode ? "/home/user/.nvm/versions/node/v22/bin/pi" : "D:\\mise-data\\installs\\node\\24.13.0\\pi.cmd"} value={customPath.value} onChange={(event) => customPath.onChange(event.target.value)} disabled={customPath.validating} />
 							<Button variant="outline" size="sm" onClick={customPath.onBrowse} disabled={customPath.browsing || customPath.validating}>
 								<FolderOpen size={13} aria-hidden="true" />
 								{t("environment.installsBrowse")}
@@ -267,29 +285,34 @@ export function EnvironmentSetupPanel(props: EnvironmentSetupPanelProps) {
 				</CollapsibleTrigger>
 				<CollapsibleContent>
 					<div className="flex flex-col gap-3 border-t border-border-subtle px-4 py-3">
-						<p className="m-0 text-xs leading-relaxed text-text-secondary">{t("environment.setupAdvancedDesc")}</p>
+						<p className="m-0 text-xs leading-relaxed text-text-secondary">{t(wslMode ? "environment.setupAdvancedDescWsl" : "environment.setupAdvancedDesc")}</p>
 
-						<div className="flex flex-col gap-1.5">
-							<Label className="text-xs text-text-secondary">{t("environment.installCommandLabel")}</Label>
-							<div className="flex flex-wrap items-center gap-2">
-								<Input type="text" className="min-w-[260px] flex-1 font-mono text-xs" value={manual.command} onChange={(event) => manual.onCommandChange(event.target.value)} disabled={manual.executing} placeholder="npm install -g @earendil-works/pi-coding-agent" />
-								<Button variant="outline" size="sm" onClick={manual.onExec} disabled={manual.executing || !manual.command.trim()}>
-									{manual.executing ? t("environment.installExecuting") : t("environment.installExec")}
-								</Button>
-							</div>
-						</div>
+						{/* WSL 模式下这里的安装器只会在宿主机路径上跑，装出来的副本用不上：只留检测详情。 */}
+						{wslMode ? null : (
+							<>
+								<div className="flex flex-col gap-1.5">
+									<Label className="text-xs text-text-secondary">{t("environment.installCommandLabel")}</Label>
+									<div className="flex flex-wrap items-center gap-2">
+										<Input type="text" className="min-w-[260px] flex-1 font-mono text-xs" value={manual.command} onChange={(event) => manual.onCommandChange(event.target.value)} disabled={manual.executing} placeholder="npm install -g @earendil-works/pi-coding-agent" />
+										<Button variant="outline" size="sm" onClick={manual.onExec} disabled={manual.executing || !manual.command.trim()}>
+											{manual.executing ? t("environment.installExecuting") : t("environment.installExec")}
+										</Button>
+									</div>
+								</div>
 
-						{manual.result && (
-							<div className="flex flex-col gap-1.5">
-								<span className={cn("text-xs font-medium", manual.result.success ? "text-success" : "text-danger")}>
-									{manual.result.success ? t("environment.installCompleted") : t("environment.installFailed")}
-									{` · ${t("environment.installExitCode")} ${manual.result.exitCode ?? "-"}`}
-								</span>
-								{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
-								{manual.result.stdout && <pre className="m-0 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-background p-2 font-mono text-micro leading-relaxed text-text-secondary">{manual.result.stdout}</pre>}
-								{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
-								{manual.result.stderr && <pre className="m-0 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-background p-2 font-mono text-micro leading-relaxed text-danger">{manual.result.stderr}</pre>}
-							</div>
+								{manual.result && (
+									<div className="flex flex-col gap-1.5">
+										<span className={cn("text-xs font-medium", manual.result.success ? "text-success" : "text-danger")}>
+											{manual.result.success ? t("environment.installCompleted") : t("environment.installFailed")}
+											{` · ${t("environment.installExitCode")} ${manual.result.exitCode ?? "-"}`}
+										</span>
+										{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
+										{manual.result.stdout && <pre className="m-0 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-background p-2 font-mono text-micro leading-relaxed text-text-secondary">{manual.result.stdout}</pre>}
+										{/* scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。 */}
+										{manual.result.stderr && <pre className="m-0 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-background p-2 font-mono text-micro leading-relaxed text-danger">{manual.result.stderr}</pre>}
+									</div>
+								)}
+							</>
 						)}
 
 						{manual.completed && (

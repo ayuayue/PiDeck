@@ -1,4 +1,5 @@
 import { setTimeout as nodeSetTimeout } from "node:timers";
+import { modelHttpFetch } from "../modelHttp/request";
 import type { ChatMessage } from "../../shared/types";
 import type { VideoGenJobSnapshot, VideoGenJobStatus, VideoGenRequest, VideoGenSubmitResult } from "../../shared/types/videogen";
 import type { VideoGenProtocolFamily } from "../../shared/videoGenConfig";
@@ -21,6 +22,13 @@ import { isTerminalVideoStatus, type VideoJobRecord } from "./VideoJobStore";
  * setTimeout 不可用，全部经 deps 注入（生产缺省用真实实现，显式 import
  * node:timers，见 AGENTS 测试标准 #4 的教训）。
  */
+
+/**
+ * 运行器只用到「url 字符串 + init」这一小片 fetch 形状。收窄成自己的类型，
+ * 才能把统一层 `modelHttpFetch`（只要 string）当缺省实现塞进来——
+ * 全局 `fetch` 直接赋给 `typeof fetch` 会因 `URL | RequestInfo` 参数更宽而报错。
+ */
+type VideoRunnerFetch = (url: string, init?: RequestInit) => Promise<Response>;
 
 /** 轮询间隔：5s（上游生成 10s~分钟级，5s 足够跟手且不冒犯限频）。 */
 const POLL_INTERVAL_MS = 5_000;
@@ -55,8 +63,8 @@ export class VideoJobRunner {
 		},
 	) {}
 
-	private get fetchImpl(): typeof fetch {
-		return this.deps.fetchImpl ?? fetch;
+	private get fetchImpl(): VideoRunnerFetch {
+		return this.deps.fetchImpl ?? modelHttpFetch;
 	}
 
 	private get now(): () => number {

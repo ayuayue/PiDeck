@@ -246,6 +246,44 @@ test("sessionsFollow：opt-in assistantStream，并把实时帧翻成 assistant/
 	client.dispose();
 });
 
+// snapshot.records 是 attach/重连时的 journal 回放，不是实时事件：必须带 replay 标记，
+// 否则下游会把历史 turn/end 当成「刚刚完成」，打开一个有 N 轮历史的会话就连弹 N 条通知。
+test("sessionsFollow：snapshot.records 回放帧带 replay 标记", async () => {
+	const { transport, mainToHost, hostPush } = makeMemoryTransport();
+	const client = new DshApiClient({ transport });
+	const remote = new DshRemoteClient(client);
+	const controller = new AbortController();
+	const seen = [];
+	const consume = (async () => {
+		for await (const frame of remote.sessionsFollow({ sessionId: "s1" }, controller.signal)) seen.push(frame);
+	})();
+	await waitForOutbound(mainToHost, 1);
+	const open = mainToHost[0];
+	hostPush({
+		type: "stream-item",
+		id: open.id,
+		value: {
+			type: "snapshot",
+			projections: { sessionStats: { turns: 1, steps: 2 } },
+			records: [{ event: { type: "turn/end", seq: 1, data: { reason: { kind: "stop" } } } }, { event: { type: "turn/end", seq: 2, data: { reason: { kind: "stop" } } } }],
+		},
+	});
+
+	const deadline = Date.now() + 5000;
+	while (seen.length < 3 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+	hostPush({ type: "stream-end", id: open.id });
+	await consume;
+
+	assert.equal(seen[0].payload.type, "session/projection", "snapshot 的 projections 仍是投影基线");
+	const replayed = seen.filter((frame) => frame.payload.type === "session/event");
+	assert.equal(replayed.length, 2);
+	assert.ok(
+		replayed.every((frame) => frame.payload.replay === true),
+		"snapshot 回放帧必须带 replay 标记",
+	);
+	client.dispose();
+});
+
 // ── 投影控制流（session/control） ──
 // 0.1.5 把「投影变更广播」从 events.mux 挪到这条 Host 级流：不订阅 ⇒ sessionStats /
 // tokenUsage / contextPressure / contextBreakdown 永远停在 attach 那一刻的初值，

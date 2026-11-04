@@ -3,7 +3,7 @@ import type { MutableRefObject } from "react";
 import type { createStore } from "jotai";
 import type { AgentTab, ComposerAgentMode, ImageContent, SessionRuntimeTarget } from "../../../shared/types";
 import { currentSessionIdAtom, sessionRecordsAtom, sessionRuntimeByIdAtom } from "../atoms";
-import { acknowledgeUnknownPrompt, claimIdleHead, claimNextSteerPrompt, enqueuePrompt, QUEUED_PROMPT_LIMIT, replaceSessionQueue, resolveClaimedPrompt, retractPrompt, updateQueuedPromptBehavior, type QueuedPromptSnapshot } from "../utils/queuedPromptQueue";
+import { acknowledgeUnknownPrompt, canChangeQueuedPromptBehavior, claimIdleHead, claimNextSteerPrompt, enqueuePrompt, promotePrompt, QUEUED_PROMPT_LIMIT, replaceSessionQueue, resolveClaimedPrompt, retractPrompt, updateQueuedPromptBehavior, type QueuedPromptSnapshot } from "../utils/queuedPromptQueue";
 import { queueDrainSuppressedByIdAtom, sessionDraftByIdAtom, setSessionDraftAtom, setSessionAttachmentsAtom, setSessionComposerModeAtom } from "../atoms/composer-atoms";
 import { PromptDeliveryUnknownError } from "../utils/promptErrors";
 import { isLiveRuntimeStatus, toSessionRuntimeTarget } from "../utils/sessionCommands";
@@ -243,6 +243,12 @@ export function useQueuedPrompt(options: UseQueuedPromptOptions) {
 		return Boolean(runtime.status === "starting" || runtime.status === "running" || agent?.status === "starting" || agent?.status === "running" || runtimeState?.isStreaming || runtimeState?.isExecutingTool);
 	}
 
+	/** 后端是否支持「插入当前回合」：ACP 协议无 steer 通道，忙时派发只会被拒收。
+	 *  record 与 runtime 两侧都看：record 未回写时 runtime 已经生效，反之亦然。 */
+	function supportsSteer(sessionId: string): boolean {
+		return store.get(sessionRecordsAtom)[sessionId]?.backend !== "acp" && store.get(sessionRuntimeByIdAtom)[sessionId]?.backend !== "acp";
+	}
+
 	function canFlushQueuedPrompt(sessionId: string) {
 		const runtime = store.get(sessionRuntimeByIdAtom)[sessionId];
 		const record = store.get(sessionRecordsAtom)[sessionId];
@@ -332,7 +338,7 @@ export function useQueuedPrompt(options: UseQueuedPromptOptions) {
 		if (!isSessionRuntimeBusy(sessionId)) return;
 		// ACP 协议无 steer 通道：忙碌时派发只会被 AcpAgentManager 拒收成失败队列项；
 		// steer 项保留给空闲 drain（claimIdleHead 按序发，空闲时 steer 语义≈直发）。
-		if (store.get(sessionRecordsAtom)[sessionId]?.backend === "acp") return;
+		if (!supportsSteer(sessionId)) return;
 		const flush = beginFlush(sessionId);
 		if (!flush) return;
 		try {
@@ -379,6 +385,29 @@ export function useQueuedPrompt(options: UseQueuedPromptOptions) {
 		}
 	}
 
+	/**
+	 * 立即发送某条排队消息（不等当前回合结束，也不必先撤回进输入框再发）。
+	 *
+	 * - 空闲：置顶后直接走 idle drain，并解除「停止响应」的自动投递抑制——
+	 *   抑制挡的是「自动发」，用户点名要发这条就不该再挡（否则停一次后队列只能靠编辑发）。
+	 * - 忙且后端有 steer 通道（pi/dsh）：切成 steer 并立即插入当前回合。
+	 * - 忙且 ACP：协议无 steer，只能「停当前回合 → 当作新回合发」；调用方须先停止
+	 *   （abortAgent 会同步置抑制，所以顺序是先停后调这里），回合结算后由 idle drain 发出。
+	 */
+	function sendQueuedPromptNow(sessionId: string, promptId: string) {
+		const live = queuedPromptsRef.current[sessionId]?.find((item) => item.id === promptId);
+		if (!live || !canChangeQueuedPromptBehavior(live.status)) return;
+		if (suppressedRef.current.delete(sessionId)) syncDrainSuppressedAtom(sessionId);
+		updateQueuedPrompts((current) => promotePrompt(current, sessionId, promptId));
+		if (!isSessionRuntimeBusy(sessionId)) {
+			void flushNextQueuedPrompt(sessionId);
+			return;
+		}
+		if (!supportsSteer(sessionId)) return;
+		updateQueuedPrompts((current) => updateQueuedPromptBehavior(current, sessionId, promptId, "steer"));
+		void flushQueuedSteerPrompts(sessionId);
+	}
+
 	return {
 		queuedPrompts,
 		setQueuedPrompts,
@@ -391,6 +420,7 @@ export function useQueuedPrompt(options: UseQueuedPromptOptions) {
 		discardQueuedPrompt,
 		retractQueuedPromptForEdit,
 		setQueuedPromptBehavior,
+		sendQueuedPromptNow,
 		suppressSessionQueueAutoDrain,
 		isSessionRuntimeBusy,
 		canFlushQueuedPrompt,

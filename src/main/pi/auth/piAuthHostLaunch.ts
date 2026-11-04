@@ -11,7 +11,7 @@
  */
 
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { basename, delimiter, dirname, join, resolve } from "node:path";
 import type { AppSettings } from "../../../shared/types/settings";
 import type { PiCommandInvocation, PiLocator } from "../PiLocator";
 import { stripBom } from "../../config/piConfigFileStore";
@@ -187,8 +187,48 @@ function resolveReleaseSdkEntry(installRoot: string): string | undefined {
 	return fallback?.entry;
 }
 
+/** mise 数据目录下的垫片目录名：`<data>/shims/pi`、`<data>/shims/pi.exe`。 */
+const MISE_SHIMS_DIRNAME = "shims";
+
+/**
+ * 解析 mise 垫片背后的 pi 包。
+ *
+ * mise 的垫片是编译出来的转发器（Windows 是 .exe，POSIX 是二进制/脚本）：realpath
+ * 拿不到 npm 包，向上也找不到 node_modules。于是用户能正常启动会话，但增强/认证侧车
+ * 解析不到 SDK 入口，表现为「输入预测/提示词增强/登录全部 sdk-unavailable」
+ * （线上案例：`%LOCALAPPDATA%\mise\shims\pi.exe`，2026-11）。
+ *
+ * mise 的 npm 后端把全局包装在 `<installs>/node/<ver>/node_modules`，与 node.exe 同目录。
+ * 垫片在运行时才按 .tool-versions 决定用哪个版本，宿主侧拿不到那个决定，因此多版本
+ * 并存时取版本号最大的可用包——解析到一个能用的入口，好过整条通道不可用。
+ */
+export function resolveMiseShimSdkEntry(commandPath: string): string | undefined {
+	const shimDir = dirname(resolve(tryRealpath(commandPath) ?? commandPath));
+	if (basename(shimDir) !== MISE_SHIMS_DIRNAME) return undefined;
+	// MISE_INSTALL_PATH 可整体覆盖 installs 目录（与 PiLocator 的搜索口径一致）。
+	const installsRoot = process.env.MISE_INSTALL_PATH || join(dirname(shimDir), "installs");
+	let nodeVersions: string[];
+	try {
+		nodeVersions = readdirSync(join(installsRoot, "node"));
+	} catch {
+		// 垫片目录但没有任何 node 安装：不是可解析的 mise 布局，交给上层出提示。
+		return undefined;
+	}
+	let best: { version: string; numbers: [number, number, number]; entry: string } | undefined;
+	for (const version of nodeVersions) {
+		const numbers = releaseVersionNumbers(version);
+		if (!numbers) continue;
+		const entry = piSdkEntryIn(join(installsRoot, "node", version, "node_modules", PI_PACKAGE_NAME));
+		if (!entry) continue;
+		if (!best || compareReleaseVersion(numbers, version, best.numbers, best.version) > 0) best = { version, numbers, entry };
+	}
+	return best?.entry;
+}
+
 function releaseVersionNumbers(name: string): [number, number, number] | undefined {
 	const [major, minor, patch] = name.split(".");
+	// 目录名不一定三段（mise 的 node 目录里可能有 lts/别名）；缺段直接判为不可比。
+	if (patch === undefined) return undefined;
 	const parsed = [Number(major), Number(minor), Number(patch.split("-")[0].split("+")[0])];
 	return parsed.every((n) => Number.isInteger(n)) ? ([parsed[0], parsed[1], parsed[2]] as [number, number, number]) : undefined;
 }
@@ -280,7 +320,8 @@ export function resolvePiAuthHostLaunch(input: {
 	const candidate = pickPiEntryCandidate(invocation, piCommand);
 	// managed 安装：pi.cmd/pi 只是转发到 pi-launcher.js 的小垫片，垫片还原与向上找包根都到不了
 	// node_modules，此时按 install/current-version → releases/<ver> 直取包根（issue #335）。
-	const sdkEntry = (candidate ? resolvePiSdkEntry(candidate) : undefined) ?? resolveManagedPiSdkEntry(piCommand);
+	// mise 垫片同理：垫片是编译产物，真实包在 installs/node/<ver>/node_modules 下。
+	const sdkEntry = (candidate ? resolvePiSdkEntry(candidate) : undefined) ?? resolveManagedPiSdkEntry(piCommand) ?? resolveMiseShimSdkEntry(piCommand);
 	if (!sdkEntry) {
 		// cmd-shim 回退原因（垫片形态不符/入口缺失）一并带出，便于排查装的是什么形态的 pi。
 		return { ok: false, reason: "no-pi-entry", detail: invocation.windowsLaunch?.reason ?? candidate ?? piCommand };

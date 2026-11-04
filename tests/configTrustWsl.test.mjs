@@ -85,6 +85,11 @@ function loadConfigManager() {
 					loadUsageProbeSettings: async () => ({ errors: [] }),
 				};
 			}
+			if (id === "../modelHttp/request") {
+				// 统一模型 HTTP 层（src/main/modelHttp/request.ts）：trust 测试不触达模型列表拉取，空实现即可。
+				// 不 stub 会落到底部兜底 require，而它内部是无扩展名相对导入，会被 Node ESM 解析判 MODULE_NOT_FOUND。
+				return { modelHttpRequest: async () => ({ error: "network", detail: "stub" }) };
+			}
 			if (id === "./providerUsageResolver") {
 				return { resolveProviderUsageEndpoint: async () => ({ provider: "", matched: false }) };
 			}

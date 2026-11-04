@@ -108,27 +108,6 @@ export function describeGitCapabilityBanner(git: ProjectGitCapabilities, blocked
 	return lines;
 }
 
-/**
- * 能力条的双态模型：`available` 是当前**真正可用**的入口标签（面板顶部要能清楚说明“现在能做什么”），
- * `blocked` 是不可用入口 + 第一条稳定原因。两者都由同一份能力表推出，不新增第二套判定。
- */
-export type GitCapabilityBannerModel = { available: TranslationKey[]; blocked: GitCapabilityBannerLine[] };
-
-/**
- * 双态判据：与 `describeGitCapabilityBanner` 同源（后者只回答“缺什么”，这里同时回答“有什么”）。
- * 可用入口按入口顺序去重合并成一组标签；缺 `blocked` 原因时只是没有原因文案，不会被当成可用。
- */
-export function describeGitCapabilityBannerModel(git: ProjectGitCapabilities, blocked: ProjectServiceCapabilityReasons = {}, items: readonly GitCapabilityBannerItemId[] = REMOTE_GIT_BANNER_ITEM_IDS): GitCapabilityBannerModel {
-	const wanted = new Set(items);
-	const available: TranslationKey[] = [];
-	for (const entry of BANNER_ENTRIES) {
-		// standalone 入口（worktree 不提供）只以整句说明出现在“不可用”里，不能混进“可用”那一行。
-		if (!wanted.has(entry.id) || entry.standalone === true || git[entry.capability] === false) continue;
-		for (const label of entry.labels) if (!available.includes(label)) available.push(label);
-	}
-	return { available, blocked: describeGitCapabilityBanner(git, blocked, items) };
-}
-
 /** 缺省值：缺省 = 全可用。共用面板不传能力时与改前完全一致。 */
 export const ALL_GIT_CAPABILITIES: ProjectGitCapabilities = {
 	read: true,

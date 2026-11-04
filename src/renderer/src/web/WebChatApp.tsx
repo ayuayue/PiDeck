@@ -33,6 +33,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui-shadcn/dialog";
 import { Button } from "@/components/ui-shadcn/button";
 import { Input } from "@/components/ui-shadcn/input";
+import { webChatFetch } from "./webChatFetch";
 import { chatMessagesToUiMessages, createProject, createSession, deleteProject, fetchMessagePage, fetchModels, fetchState, getWebAuthHeaders, respondToUi, setRuntimeModel, setRuntimeThinking, updateSessionRecord } from "./webApi";
 import { abortRuntime, cloneRuntime, compactRuntime, copySession, deleteSession, downloadSessionHtml, editRuntimeMessage, deleteRuntimeMessage, prepareResend, renameSession, restartRuntime, activateRuntime, forkRuntimeSession, getForkMessages } from "./webApi";
 import { fetchRuntimeContextUsage, setRuntimePermission, setSessionSecurityLevel } from "./webApi";
@@ -47,7 +48,7 @@ const MAX_SEARCH_JUMP_PAGES = 5;
 import { WebFilePreview, type WebFilePreviewTarget } from "./WebFilePreview";
 import { WebSearchDialog } from "./WebSearchDialog";
 import { WebSkillsExtensionsDialog } from "./WebSkillsExtensionsDialog";
-import { applyWebTheme, nextWebTheme, readStoredWebTheme, resolveWebTheme, storeWebTheme, systemPrefersDark, type ResolvedWebTheme, type WebThemePreference } from "./webTheme";
+import { applyWebTheme, nextWebTheme, readStoredWebTheme, resolveWebTheme, storeWebTheme, systemPrefersDark, toggleWebTheme, type ResolvedWebTheme, type WebThemePreference } from "./webTheme";
 import { registerWebServiceWorker, usePwaInstall } from "./webPwa";
 import { decideStreamRecovery } from "./webStreamRecovery";
 import { useWebHeaderAutoHide } from "./useWebHeaderAutoHide";
@@ -55,6 +56,7 @@ import { resolveComposerHidden } from "./composerCollapse";
 import { useIsMobileViewport } from "./useIsMobileViewport";
 import { useExternalSessionStream } from "./webExternalStream";
 import { useWebStateEvents } from "./webStateEvents";
+import { isStaleAgainstLiveStream, shouldActivateAcpHistory, shouldApplyHistorySnapshot, type WebHistoryPhase } from "./webHistoryLoad";
 import type { AgentUiResponse } from "../../../shared/types";
 import type { WebProject, WebRuntime, WebState, WebContextUsage } from "./webTypes";
 
@@ -84,6 +86,9 @@ export function WebChatApp() {
 	const [creatingProjectId, setCreatingProjectId] = useState<string>("");
 	const [connected, setConnected] = useState(false);
 	const [loadingMore, setLoadingMore] = useState(false);
+	// 时间线首屏加载态：切换会话且本地无缓存时显示骨架，而不是闪一帧空问候页。
+	// ACP 冷会话要等 runtime 激活（session/load 重放 agent 侧历史）后才拿得到内容。
+	const [historyPhase, setHistoryPhase] = useState<{ sessionId: string; phase: WebHistoryPhase } | null>(null);
 	const [models, setModels] = useState<AvailableModel[]>([]);
 	const [modelsRefreshing, setModelsRefreshing] = useState(false);
 	// 模型选择器刷新按钮：绕过缓存重新拉取／api/models?force=1；失败保留旧列表，避免误清空。
@@ -142,8 +147,16 @@ export function WebChatApp() {
 	// 本页「新建」的零消息草稿：后端切换仅对这类会话开放（复制/克隆/fork 与历史会话自带
 	// 消息记录，后端不可切——消息归属创建时的后端，切了会让历史错位）。
 	const webDraftSessionsRef = useRef<Set<string>>(new Set());
-	// 会话消息刷新去重：同会话在途只发一次（切换 SWR / busy 收尾 / 手动刷新共用入口）
-	const refreshingSessionsRef = useRef<Set<string>>(new Set());
+	// 会话消息刷新去重：同会话在途只发一次（切换 SWR / busy 收尾 / 手动刷新共用入口）。
+	// 存 Promise 而不是布尔集合：后到的调用（如 ACP 激活完成后的重拉）能等到同一份结果，
+	// 而不是被静默吞掉——那正是「加载一直不结束」的另一条路径。
+	const refreshingSessionsRef = useRef<Map<string, Promise<void>>>(new Map());
+	// 状态快照：refreshSessionMessages 在 await 之后仍要判断调用发起时的后端/runtime 状态，
+	// 闭包里的 state 会过期。
+	const stateRef = useRef<WebState>({ projects: [], sessions: [], runtimes: [] });
+	stateRef.current = state;
+	// ACP 冷会话激活只尝试一次：/api/state 轮询会让 effect 反复触发，不能每轮都拉 CLI。
+	const acpActivationAttemptedRef = useRef<Set<string>>(new Set());
 	// 主轮询用：上一轮活跃会话 runtime 是否 busy，用于捕拿 busy→idle 边沿做收尾拉取
 	const runtimeBusyPrevRef = useRef(false);
 	const activeSessionIdRef = useRef<string>("");
@@ -156,6 +169,9 @@ export function WebChatApp() {
 		transport: new DefaultChatTransport({
 			api: "/api/chat",
 			headers: getWebAuthHeaders(),
+			// 跨网（隧道/虚拟网）复用到已被对端丢弃的空闲连接时会拖十几秒才 Failed to fetch；
+			// 同体重试一次（服务端按 sessionId+messageId 去重）比让用户看红条划算。
+			fetch: webChatFetch,
 		}),
 	});
 
@@ -197,6 +213,11 @@ export function WebChatApp() {
 	const cycleTheme = () => {
 		// system → 跳到与当前解析结果相反的一档：系统此时是亮色却切到 light，用户看不到任何变化。
 		const next: WebThemePreference = nextWebTheme(themePreference, resolvedTheme);
+		setThemePreference(next);
+		storeWebTheme(next);
+	};
+	const toggleTheme = () => {
+		const next: WebThemePreference = toggleWebTheme(themePreference, resolvedTheme);
 		setThemePreference(next);
 		storeWebTheme(next);
 	};
@@ -247,8 +268,19 @@ export function WebChatApp() {
 		const sessionId = activeSessionIdRef.current;
 		if (!sessionId) return;
 		try {
+			const snapshot = stateRef.current;
+			const backend = snapshot.sessions.find((session) => session.id === sessionId)?.backend;
+			const runtimeStatus = snapshot.runtimes.find((runtime) => runtime.sessionId === sessionId)?.status;
+			const acpRuntimePending = backend === "acp" && (runtimeStatus === undefined || runtimeStatus === "starting");
 			const page = await fetchMessagePage(sessionId);
 			const history = chatMessagesToUiMessages(page.messages);
+			// 与 refreshSessionMessages 同规：ACP runtime 未就绪的空投影不能覆盖已有历史。
+			const previous = messagesBySessionRef.current[sessionId] ?? [];
+			if (!shouldApplyHistorySnapshot({ backend, nextCount: history.length, previousCount: previous.length, acpRuntimePending })) return;
+			// 本端 SSE 还在收帧时，磁盘窗口往往比本地短（pi 落盘滞后）：这种快照是「落后的」，
+			// 套用会把正在出的回复抹掉。本地流已死（ready/error）则磁盘才是权威。
+			const localStreamLive = statusRef.current === "submitted" || statusRef.current === "streaming";
+			if (isStaleAgainstLiveStream({ localStreamLive, nextCount: history.length, previousCount: previous.length })) return;
 			messagesBySessionRef.current[sessionId] = history;
 			historyMetaRef.current[sessionId] = { total: page.total, nextBefore: page.nextBefore };
 			if (activeSessionIdRef.current === sessionId) setMessages(history);
@@ -267,9 +299,10 @@ export function WebChatApp() {
 		}
 	};
 	useEffect(() => {
-		const maybeRecover = () => {
+		const maybeRecover = (trigger: "poll" | "visibility" | "online" | "error") => {
 			const decision = decideStreamRecovery({
 				status: statusRef.current,
+				trigger,
 				runtimeBusy: activeRuntimeRef.current?.status === "running" || activeRuntimeRef.current?.status === "starting",
 				documentVisible: !document.hidden,
 				online: navigator.onLine,
@@ -280,13 +313,15 @@ export function WebChatApp() {
 			recoveryLastAttemptRef.current = Date.now();
 			void recoverFromDisk(decision.notify);
 		};
-		document.addEventListener("visibilitychange", maybeRecover);
-		window.addEventListener("online", maybeRecover);
+		const onVisibility = () => maybeRecover("visibility");
+		const onOnline = () => maybeRecover("online");
+		document.addEventListener("visibilitychange", onVisibility);
+		window.addEventListener("online", onOnline);
 		// error 态（SSE 显式断流）立即尝试一次；防抖在 decideStreamRecovery 内
-		if (status === "error") maybeRecover();
+		if (status === "error") maybeRecover("error");
 		return () => {
-			document.removeEventListener("visibilitychange", maybeRecover);
-			window.removeEventListener("online", maybeRecover);
+			document.removeEventListener("visibilitychange", onVisibility);
+			window.removeEventListener("online", onOnline);
 		};
 	}, [status]);
 
@@ -376,6 +411,8 @@ export function WebChatApp() {
 	const runtimeFor = (sessionId: string) => state.runtimes.find((runtime) => runtime.sessionId === sessionId);
 	const activeSession = state.sessions.find((session) => session.id === activeSessionId);
 	const activeRuntime = activeSessionId ? runtimeFor(activeSessionId) : undefined;
+	// 只认当前会话的加载阶段：切走后旧会话的 loading/error 不能挂到新会话的时间线上。
+	const activeHistoryPhase = activeSessionId && historyPhase?.sessionId === activeSessionId ? historyPhase.phase : null;
 
 	// ── 实时推送链路（对齐桌面端）──
 	// 外部流订阅：桌面端/其他设备发起的回复实时打字机渲染；本端 useChat 发送期间关流，
@@ -441,14 +478,72 @@ export function WebChatApp() {
 	}, [nearBottom, revealHeader]);
 
 	// 切换会话：stale-while-revalidate——缓存命中先展示旧快照立即渲染，再后台重拉磁盘
-	// 最新（桌面端/其他端跑出的新消息不会漏）；未加载过的会话直接拉首页注入。
+	// 最新（桌面端/其他端跑出的新消息不会漏）；未加载过的会话先挂骨架再拉首页注入。
+	// 旧实现无缓存时直接留空 messages，首屏会闪一帧「你好」空问候页，慢会话看起来像空白页。
 	useEffect(() => {
-		if (!activeSessionId) return;
+		if (!activeSessionId) {
+			setHistoryPhase(null);
+			return;
+		}
 		if (loadedSessionsRef.current.has(activeSessionId)) {
 			setMessages(messagesBySessionRef.current[activeSessionId] ?? []);
+			setHistoryPhase((current) => (current?.sessionId === activeSessionId ? null : current));
+		} else {
+			setHistoryPhase({ sessionId: activeSessionId, phase: "loading" });
 		}
 		void refreshSessionMessages(activeSessionId);
 	}, [activeSessionId, setMessages]);
+
+	/**
+	 * ACP 冷会话激活：历史在 agent CLI 侧，没有 runtime 时本地读不到（归档只覆盖
+	 * 结算过的回合）。与桌面「选中即预热」同源——打开会话就在后台拉 CLI + session/load
+	 * 重放，完成后再拉一次历史；失败时时间线给重试入口，而不是停在空问候页。
+	 */
+	const activateAcpForHistory = (sessionId: string) => {
+		void activateRuntime(sessionId)
+			.then(() => refreshSessionMessages(sessionId, { force: true, authoritative: true }))
+			.catch(() => {
+				if (activeSessionIdRef.current !== sessionId) return;
+				setHistoryPhase({ sessionId, phase: "error" });
+			});
+	};
+	useEffect(() => {
+		if (!activeSessionId) return;
+		const session = state.sessions.find((item) => item.id === activeSessionId);
+		if (!session) return;
+		const attempted = acpActivationAttemptedRef.current.has(activeSessionId);
+		if (!shouldActivateAcpHistory({ backend: session.backend, hasRuntime: Boolean(activeRuntime), attempted })) return;
+		acpActivationAttemptedRef.current.add(activeSessionId);
+		activateAcpForHistory(activeSessionId);
+		// activateAcpForHistory 每帧重建，只由会话/runtime 变化驱动；attempted 已防重复。
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [activeSessionId, activeRuntime, state.sessions]);
+
+	// 桌面端已在预热（runtime 已存在但 status=starting）时不再重复激活：
+	// 等它握手完成（starting → idle/running）再拉一次历史，骨架一直挂到那一刻。
+	useEffect(() => {
+		if (!activeSessionId || activeHistoryPhase !== "loading") return;
+		if (activeSession?.backend !== "acp") return;
+		if (!activeRuntime || activeRuntime.status === "starting") return;
+		void refreshSessionMessages(activeSessionId);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [activeSessionId, activeHistoryPhase, activeRuntime?.status, activeSession?.backend]);
+
+	/** 首屏加载失败后的重试：冷 ACP 会话要连同 runtime 激活一起重试。 */
+	const retryActiveHistory = () => {
+		const sessionId = activeSessionIdRef.current;
+		if (!sessionId) return;
+		setHistoryPhase({ sessionId, phase: "loading" });
+		acpActivationAttemptedRef.current.delete(sessionId);
+		const session = stateRef.current.sessions.find((item) => item.id === sessionId);
+		const hasRuntime = stateRef.current.runtimes.some((runtime) => runtime.sessionId === sessionId);
+		if (session?.backend === "acp" && !hasRuntime) {
+			acpActivationAttemptedRef.current.add(sessionId);
+			activateAcpForHistory(sessionId);
+			return;
+		}
+		void refreshSessionMessages(sessionId, { force: true });
+	};
 
 	// 流式期间同步缓存：仅 streaming 时回写（空闲时 setMessages 来自历史恢复/分页，
 	// 对应逻辑已各自写缓存；这里若无条件覆盖会把刚恢复的历史再次清空）
@@ -534,6 +629,8 @@ export function WebChatApp() {
 					runtimeBusyPrevRef.current = true;
 					const decision = decideStreamRecovery({
 						status: statusRef.current,
+						// 主轮询只追脱节态（ready + runtime 忙）：本端流还活着时不得拿磁盘快照覆盖。
+						trigger: "poll",
 						runtimeBusy: true,
 						documentVisible: !document.hidden,
 						online: navigator.onLine,
@@ -946,24 +1043,52 @@ export function WebChatApp() {
 			}
 		: undefined;
 
-	/** 从磁盘重拉指定会话历史写缓存；活跃且 useChat 空闲时同步注入（streaming 中只更新缓存，不打断打字机）。 */
-	const refreshSessionMessages = async (sessionId: string) => {
-		if (!sessionId || refreshingSessionsRef.current.has(sessionId)) return;
-		refreshingSessionsRef.current.add(sessionId);
-		try {
-			const page = await fetchMessagePage(sessionId);
-			const history = chatMessagesToUiMessages(page.messages);
-			messagesBySessionRef.current[sessionId] = history;
-			historyMetaRef.current[sessionId] = { total: page.total, nextBefore: page.nextBefore };
-			loadedSessionsRef.current.add(sessionId);
-			// 仅活跃会话且非流式中才注入（避免切走后串台/打断 SSE 渲染）；
-			// 流式结束后由 busy→idle 边沿收尾或下次切换时对齐。
-			if (activeSessionIdRef.current === sessionId && statusRef.current === "ready") setMessages(history);
-		} catch {
-			// 刷新失败保持现状（下次轮询/操作会重试）；首次加载失败不标已加载，切回时自动重试
-		} finally {
-			refreshingSessionsRef.current.delete(sessionId);
+	/**
+	 * 从磁盘重拉指定会话历史写缓存；活跃且 useChat 空闲时同步注入（streaming 中只更新缓存，不打断打字机）。
+	 *
+	 * force：跳过同会话在途去重。ACP 激活完成后的重拉必须拿到激活后的投影，不能复用
+	 * 激活前那次（可能返回空投影、且已按 pending 规则放弃应用）的 Promise。
+	 * authoritative：调用方已确认 runtime 就绪（activate 返回后），本次空结果就是权威历史，
+	 * 不受客户端 state 尚未收到新 runtime 的滞后影响。
+	 */
+	const refreshSessionMessages = (sessionId: string, options?: { force?: boolean; authoritative?: boolean }): Promise<void> => {
+		if (!sessionId) return Promise.resolve();
+		if (!options?.force) {
+			const inFlight = refreshingSessionsRef.current.get(sessionId);
+			if (inFlight) return inFlight;
 		}
+		const run = (async () => {
+			try {
+				// 调用发起时的快照：await 之后 state 可能已变，但「这次结果是否权威」取决于发起时。
+				const snapshot = stateRef.current;
+				const backend = snapshot.sessions.find((session) => session.id === sessionId)?.backend;
+				const runtimeStatus = snapshot.runtimes.find((runtime) => runtime.sessionId === sessionId)?.status;
+				const acpRuntimePending = !options?.authoritative && backend === "acp" && (runtimeStatus === undefined || runtimeStatus === "starting");
+				const page = await fetchMessagePage(sessionId);
+				const history = chatMessagesToUiMessages(page.messages);
+				const previous = messagesBySessionRef.current[sessionId] ?? [];
+				// ACP 的空结果不是权威（历史在 agent 侧，runtime 未就绪/重连窗口只有空投影）：
+				// 应用它会把已显示的历史抹成空白，并让首屏误判「加载完成」。
+				if (!shouldApplyHistorySnapshot({ backend, nextCount: history.length, previousCount: previous.length, acpRuntimePending })) return;
+				messagesBySessionRef.current[sessionId] = history;
+				historyMetaRef.current[sessionId] = { total: page.total, nextBefore: page.nextBefore };
+				loadedSessionsRef.current.add(sessionId);
+				// 仅活跃会话且非流式中才注入（避免切走后串台/打断 SSE 渲染）；
+				// 流式结束后由 busy→idle 边沿收尾或下次切换时对齐。
+				if (activeSessionIdRef.current === sessionId && statusRef.current === "ready") setMessages(history);
+				setHistoryPhase((current) => (current?.sessionId === sessionId ? null : current));
+			} catch {
+				// 刷新失败保持现状（下次轮询/操作会重试）；首次加载失败给时间线一个重试入口。
+				if (activeSessionIdRef.current === sessionId && !loadedSessionsRef.current.has(sessionId)) {
+					setHistoryPhase({ sessionId, phase: "error" });
+				}
+			}
+		})();
+		const tracked = run.finally(() => {
+			refreshingSessionsRef.current.delete(sessionId);
+		});
+		refreshingSessionsRef.current.set(sessionId, tracked);
+		return tracked;
 	};
 
 	/** 重新拉取活跃会话历史（编辑/删除/压缩后刷新时间线）。 */
@@ -1351,6 +1476,7 @@ export function WebChatApp() {
 					themePreference={themePreference}
 					resolvedTheme={resolvedTheme}
 					onCycleTheme={cycleTheme}
+					onToggleTheme={toggleTheme}
 					canInstall={canInstall}
 					onInstall={() => void install()}
 					onOpenAssets={() => setAssetsOpen(true)}
@@ -1373,6 +1499,9 @@ export function WebChatApp() {
 				<WebTimeline
 					messages={timelineMessages}
 					hasActiveSession={Boolean(activeSession)}
+					historyPhase={activeHistoryPhase}
+					historyLoadingLabel={activeSession?.backend === "acp" ? t("web.acpHistoryLoading") : t("web.historyLoading")}
+					onRetryHistory={retryActiveHistory}
 					hasMoreHistory={hasMoreHistory}
 					moreCount={moreCount}
 					loadingMore={loadingMore}
@@ -1400,7 +1529,7 @@ export function WebChatApp() {
 				{/* 2026-10 评审 P1：错误/待答原本只出现在时间线列表尾，用户回读历史时完全不可见
 				    （composer 又可能已隐藏）。在 composer 上方放常驻横幅兜底，滚多远都在视口内。 */}
 				{(activeError && errorDismissed !== activeError) || (activePendingUi && !nearBottom) ? (
-					<div className="flex shrink-0 flex-col gap-1 border-t border-border/60 bg-background px-3 py-1.5">
+					<div className="composer-above flex shrink-0 flex-col gap-1 border-t border-border/60 bg-background px-3 py-1.5">
 						{activeError && errorDismissed !== activeError ? (
 							<div className="flex items-center gap-1.5 rounded-md border border-danger/30 bg-danger/10 px-2.5 py-1 text-caption text-danger" role="alert">
 								<span className="min-w-0 flex-1 leading-5">{activeError}</span>

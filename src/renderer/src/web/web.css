@@ -240,6 +240,16 @@
   max-width: 776px;
   margin-inline: auto;
 }
+
+/* 输入框上方的条（子代理 / 任务清单 / 错误待答横幅）与输入卡同宽同居中：
+   776px 阅读宽原本只落在 .composer > * 和消息列上，这些条铺满整个 chat-pane，
+   宽屏下一根线横穿整屏、和输入卡完全脱节。窄屏下 100% 生效，仍靠各自的 px-3
+   给出与 composer 一致的边距。 */
+.web-app .composer-above {
+  width: 100%;
+  max-width: 776px;
+  margin-inline: auto;
+}
 .web-app .composer-box {
   border-radius: 24px;
   background: var(--color-bg-panel);

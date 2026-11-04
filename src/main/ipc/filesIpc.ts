@@ -1,5 +1,5 @@
 import { ipcMain, shell } from "electron";
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { relative } from "node:path";
 import { projectLocatorFromLegacy } from "../../shared/locationAdapters";
 import { isRemoteProject } from "../../shared/projectLocation";
@@ -17,6 +17,8 @@ import { registerFilesSystemIpc } from "./filesSystemIpc";
 import { createProjectFileReadBoundary, resolveProjectFileReadPath, type ProjectFileReadBoundary } from "../files/projectFileAccess";
 import { parseProjectFileTarget, resolveLocalProjectFileTarget } from "../files/projectFileTarget";
 import { LocalProjectFileBackend } from "../files/LocalProjectFileBackend";
+import { assertTrustedStatSize, readTextFileGuarded } from "../files/textFileRead";
+import { writeTextFileGuarded } from "../files/textFileWrite";
 import { LocalFileMutationAdapter } from "../files/LocalFileMutationAdapter";
 import { ProjectFileBackendRouter } from "../files/ProjectFileBackend";
 import type { FileSystemService } from "../fs/FileSystemService";
@@ -25,11 +27,7 @@ import type { SettingsStore } from "../settings/SettingsStore";
 import type { AppLogger } from "../logging/AppLogger";
 import { parseWslUncPath, toWindowsHostPath } from "../wsl/WslPaths";
 
-/**
- * filesReadBase64 未显式传 maxBytes 时的默认读取上限（64MB）。
- * 文件抽屉二进制预览走的是无参调用，而 base64 + IPC 过桥会把体积放大约 1.33 倍且两侧各持
- * 一份；上限必须在主进程侧兜底（渲染层输入不可信），防单点无界读把内存推到数百 MB。
- */
+/** 二进制预览缺省 64MiB：base64 跨 IPC 会放大内存，必须在主进程限制。 */
 const MAX_BINARY_PREVIEW_BYTES = 64 * 1024 * 1024;
 
 export type FilesIpcDeps = {
@@ -379,10 +377,9 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		try {
 			const boundary = await resolveProjectReadBoundary(scope);
 			const readablePath = await resolveReadablePath(input, boundary);
-			const fileStat = await stat(readablePath);
-			// 结构化前缀供渲染层识别后走 i18n 文案；message 不直接展示给用户
-			if (fileStat.size > effectiveMax) throw new Error(`FILE_TOO_LARGE:${fileStat.size}:${Math.floor(effectiveMax)}`);
-			return await readFile(readablePath, "utf8");
+			// 结构化前缀供渲染层识别后走 i18n 文案；message 不直接展示给用户。
+			// 大小可信性与文本性判定统一收在 readTextFileGuarded，不将异常元数据直接当成普通大文件。
+			return await readTextFileGuarded(readablePath, effectiveMax);
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
 			throw error;
@@ -496,7 +493,8 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		}
 		const boundary = await resolveProjectReadBoundary(scope);
 		const writablePath = await resolveReadablePath(input, boundary);
-		await writeFile(writablePath, content, "utf8");
+		// 走共享写守卫：盘上当前字节不是文本（加密容器/二进制）时拒绝写，且原子替换不留半截文件。
+		await writeTextFileGuarded(writablePath, content);
 		void appLogger.info("file", "File written", {
 			path: writablePath,
 			bytes: Buffer.byteLength(content, "utf8"),
@@ -518,6 +516,7 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 			const boundary = await resolveProjectReadBoundary(scope);
 			const readablePath = await resolveReadablePath(input, boundary);
 			const fileStat = await stat(readablePath);
+			assertTrustedStatSize(fileStat.size);
 			if (fileStat.size > effectiveMaxBytes) throw new Error(`FILE_TOO_LARGE:${fileStat.size}:${Math.floor(effectiveMaxBytes)}`);
 			// 渲染层对空串（ENOENT）走「不支持」提示。
 			return (await readFile(readablePath)).toString("base64");

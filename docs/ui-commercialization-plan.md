@@ -2,7 +2,7 @@
 
 > 状态：**Wave 1–7 已落地（2026-10-31 合入 origin/dev；实施记录见 archive/plans/ui-commercialization-impl-*）；本文件保留为剩余页面清单与验收基线，未完成项按文中“待执行/未覆盖”标记为准。**
 > 适用端：PiDeck 桌面端（Electron renderer）。Web 远端界面保持其独立设计体系，不在本次合并范围内。
-> 关联文档：`DESIGN.md`、`docs/ui-unification-plan.md`、`docs/ui-and-css.md`、`docs/architecture.md`、`docs/engineering-standards.md`。
+> 关联文档：`DESIGN.md`、`docs/archive/plans/ui-unification-plan.md`、`docs/ui-and-css.md`、`docs/architecture.md`、`docs/engineering-standards.md`。
 
 ## 0. 这份文档怎么使用
 
@@ -28,7 +28,7 @@ PiDeck 已经有明确的 **The Ink Workbench** 设计方向和较完整的语�
 ### 2.1 直接复用，不重复建设
 
 - `DESIGN.md` 已定义中性墨阶、字号、间距、圆角、阴影和组件原则；继续沿用，不引入第二套视觉语言。
-- `docs/ui-unification-plan.md` 的字号、间距、颜色、圆角和渲染态扫描 Wave 0–4 已完成；本计划进入**组件模式、信息架构和交互体验**阶段，不重复做 token 大扫除。
+- `docs/archive/plans/ui-unification-plan.md` 的字号、间距、颜色、圆角和渲染态扫描 Wave 0–4 已完成；本计划进入**组件模式、信息架构和交互体验**阶段，不重复做 token 大扫除。
 - 新改动使用 Tailwind + `components/ui-shadcn/`；旧样式按“改到哪、迁到哪”处理，禁止 big-bang 重写。
 - 样式（`data-appearance`）与配色（`data-palette`）分离，状态色、身份色和 Markdown 色继续遵守既有边界。
 - 已有 E2E、节点单测、隔离 renderer 预览和截图机制优先复用，不为设计验收另起重型工具链。

@@ -25,6 +25,7 @@ const SOURCE_KEYS: Record<PiInstallationSource, TranslationKey> = {
 	portable: "environment.installSourcePortable",
 	custom: "environment.installSourceCustom",
 	path: "environment.installSourcePath",
+	wsl: "environment.installSourceWsl",
 };
 
 export function piInstallationSourceKey(source: PiInstallationSource): TranslationKey {

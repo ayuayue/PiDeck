@@ -34,8 +34,10 @@ export function SessionSurfaceStage(props: { sessionId: string; sessionTimeline:
 	// Assistant streaming rebuilds the derived array; equal user checkpoints should not rerender the rail.
 	const outlineItemsAtom = useMemo(() => selectAtom(outlineItemsBySessionIdAtomFamily(sessionId), (items) => items, areOutlineRailItemsEqual), [sessionId]);
 	const outlineItems = useAtomValue(outlineItemsAtom);
+	// 目录只覆盖用户检查点：用用户条目数做取数触发，助手回复完成不必重拉目录。
+	const outlineUserCount = useMemo(() => outlineItems.filter((item) => item.role === "user").length, [outlineItems]);
 	// 索引目录补齐「已加载消息之外」的用户检查点；未加载项点击后连续补页再跳转。
-	const directory = useSessionOutlineDirectory(sessionId, outlineItems.length);
+	const directory = useSessionOutlineDirectory(sessionId, outlineUserCount);
 	// 目录项 → 导轨卡片：标题用索引预览（与已加载标题同一套归一，加载前后是同一句话），
 	// 时间与已加载项同一格式化口（此前误塞原始 ISO）。
 	// 标题兜底走 t()，而 t() 读模块级 locale 且不订阅变化：locale 必须进依赖，

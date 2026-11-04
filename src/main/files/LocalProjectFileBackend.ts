@@ -1,10 +1,12 @@
-import { cp, readFile, rename as fsRename, rm, stat, writeFile } from "node:fs/promises";
+import { cp, readFile, rename as fsRename, rm, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { codeOf } from "../../shared/op";
 import type { FileSearchResult, FileTreeNode, ProjectFileTarget } from "../../shared/types";
 import type { ProjectDirectoryEntry, ProjectFileStatResult } from "../../shared/types/projectFiles";
 import { createProjectFileReadBoundary, resolveProjectFileReadPath, resolveProjectFileWritePath, type ProjectFileReadBoundary } from "./projectFileAccess";
 import { parseProjectFileTarget, resolveLocalProjectFileTarget } from "./projectFileTarget";
+import { assertTrustedStatSize, readTextFileGuarded } from "./textFileRead";
+import { writeTextFileGuarded } from "./textFileWrite";
 import type { ProjectFileBackend } from "./ProjectFileBackend";
 import type { FileSystemService } from "../fs/FileSystemService";
 
@@ -113,8 +115,8 @@ export class LocalProjectFileBackend implements ProjectFileBackend {
 	async readContent(target: ProjectFileTarget, maxBytes?: number): Promise<string> {
 		try {
 			const { path } = await this.resolveTarget(target);
-			if (Number.isFinite(maxBytes) && (maxBytes ?? 0) > 0) await this.assertWithinSize(path, maxBytes as number);
-			return await readFile(path, "utf8");
+			// 大小可信性/文本性判定与 files:read-content 共用同一守卫，避免两条路径给出不同诊断。
+			return await readTextFileGuarded(path, maxBytes);
 		} catch (error) {
 			if (isMissingPath(error)) return "";
 			throw error;
@@ -135,7 +137,8 @@ export class LocalProjectFileBackend implements ProjectFileBackend {
 	async writeContent(target: ProjectFileTarget, content: string): Promise<void> {
 		if (typeof content !== "string") throw new Error("Invalid file content");
 		const { path } = await this.resolveTarget(target);
-		await writeFile(path, content, "utf8");
+		// 与 files:write-content 同一条写守卫：拒绝把明文写进非文本/密文文件，写盘原子化。
+		await writeTextFileGuarded(path, content);
 	}
 
 	async pathsExist(targets: ProjectFileTarget[]): Promise<boolean[]> {
@@ -236,6 +239,7 @@ export class LocalProjectFileBackend implements ProjectFileBackend {
 
 	private async assertWithinSize(path: string, maxBytes: number): Promise<void> {
 		const fileStat = await stat(path);
+		assertTrustedStatSize(fileStat.size);
 		if (fileStat.size > maxBytes) throw new Error(`FILE_TOO_LARGE:${fileStat.size}:${Math.floor(maxBytes)}`);
 	}
 }

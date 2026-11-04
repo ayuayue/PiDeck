@@ -52,6 +52,27 @@ test("折叠态仍保留后端切换入口（否则「换个后端试试」变�
 	assert.match(composer, /\{sendControls\(false\)\}/, "工具行保留自己的发送/停止按钮");
 });
 
+test("两行工具区：操作行只放工具，发送钮下沉到模型行右端", () => {
+	const composer = readFileSync("src/renderer/src/web/WebComposer.tsx", "utf8");
+	const opsStart = composer.indexOf('data-testid="web-composer-ops-row"');
+	const modelStart = composer.indexOf('data-testid="web-composer-model-row"');
+	assert.ok(opsStart > 0 && modelStart > opsStart, "两行 testid 必须存在且操作行在前");
+	const opsBlock = composer.slice(opsStart, modelStart);
+	assert.doesNotMatch(opsBlock, /sendControls\(false\)/, "发送钮不再挤在操作行（用户反馈操作行过挤）");
+	assert.match(composer.slice(modelStart), /\{sendControls\(false\)\}/, "模型行右端保留唯一发送/停止入口");
+	// 计划按钮只出图标：文本「计划」会重新把操作行撑宽。
+	assert.doesNotMatch(composer, /<span className="text-caption">\{t\("app\.composerModePlan"\)\}<\/span>/);
+	assert.match(composer, /aria-label=\{t\("app\.composerModePlan"\)\}/, "图标按钮必须有可及名称");
+	// Enter 换行提示与计划状态文案已移除（用户明确要求）。
+	assert.doesNotMatch(composer, /web\.composerHintTouch|app\.composerPlanStatus|web\.composerHint/);
+	// 锁定后端（已有 runtime / 历史会话）不再摆点不动的下拉。
+	assert.match(composer, /props\.onBackendChange && !props\.backendLocked \? <WebBackendSelector/);
+	// 计划标记只对 pi 有效：DSH/ACP 会拒收隐藏 agentMessage，不摆必然失败的按钮。
+	assert.match(composer, /const modeAvailable = \(props\.backend \?\? "pi"\) === "pi";/);
+	// 切到非 pi 后端必须清掉残留计划模式：否则按钮已隐藏，发送仍会带隐藏标记。
+	assert.match(composer, /if \(!modeAvailable && mode !== "normal"\) setMode\("normal"\)/);
+});
+
 const { resolveComposerHidden } = loadTsCommonJs("src/renderer/src/web/composerCollapse.ts");
 
 const hideBase = { headerHidden: true, nearBottom: false, streaming: false, engaged: false };

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ClaudeImportModal, CodexImportModal, CursorImportModal, DirectoryImportModal, KimiImportModal, KimiWorkImportModal, MinimaxImportModal, OpenCodeImportModal, QoderImportModal, WorkBuddyImportModal, ZCodeImportModal } from "../app/ImportModals";
+import { ClaudeImportModal, CodeBuddyImportModal, CodexImportModal, CursorImportModal, DirectoryImportModal, KimiImportModal, KimiWorkImportModal, MinimaxImportModal, OpenCodeImportModal, QoderImportModal, WorkBuddyImportModal, ZCodeImportModal } from "../app/ImportModals";
 import type {
 	CodexImportReport,
 	CodexSessionSummary,
@@ -13,6 +13,8 @@ import type {
 	ZCodeSessionSummary,
 	WorkBuddyImportReport,
 	WorkBuddySessionSummary,
+	CodeBuddyImportReport,
+	CodeBuddySessionSummary,
 	CursorImportReport,
 	CursorSessionSummary,
 	KimiImportReport,
@@ -34,6 +36,7 @@ export type ImportOverlayHostProps =
 	| { kind: "opencode"; project: Project; controller: ImportController<OpenCodeSessionSummary, OpenCodeImportReport>; onClose: () => void }
 	| { kind: "zcode"; project: Project; controller: ImportController<ZCodeSessionSummary, ZCodeImportReport>; onClose: () => void }
 	| { kind: "workbuddy"; project: Project; controller: ImportController<WorkBuddySessionSummary, WorkBuddyImportReport>; onClose: () => void }
+	| { kind: "codebuddy"; project: Project; controller: ImportController<CodeBuddySessionSummary, CodeBuddyImportReport>; onClose: () => void }
 	| { kind: "cursor"; project: Project; controller: ImportController<CursorSessionSummary, CursorImportReport>; onClose: () => void }
 	| { kind: "kimi"; project: Project; controller: ImportController<KimiSessionSummary, KimiImportReport>; onClose: () => void }
 	| { kind: "minimax"; project: Project; controller: ImportController<MinimaxSessionSummary, MinimaxImportReport>; onClose: () => void }
@@ -126,6 +129,13 @@ export function ImportOverlayHost(props: ImportOverlayHostProps) {
 				{renderImportError(props.controller.error)}
 			</>
 		);
+	if (props.kind === "codebuddy")
+		return (
+			<>
+				<CodeBuddyImportModal project={props.project} {...props.controller} onClose={props.onClose} onRefresh={props.controller.refresh} onToggle={props.controller.toggle} onToggleAll={props.controller.toggleAll} onImport={() => void props.controller.importSelected()} />
+				{renderImportError(props.controller.error)}
+			</>
+		);
 	if (props.kind === "cursor")
 		return (
 			<>
@@ -181,6 +191,7 @@ export type ImportOverlayData = {
 	opencode: { sessions: OpenCodeSessionSummary[]; report: OpenCodeImportReport | null };
 	zcode: { sessions: ZCodeSessionSummary[]; report: ZCodeImportReport | null };
 	workbuddy: { sessions: WorkBuddySessionSummary[]; report: WorkBuddyImportReport | null };
+	codebuddy: { sessions: CodeBuddySessionSummary[]; report: CodeBuddyImportReport | null };
 	cursor: { sessions: CursorSessionSummary[]; report: CursorImportReport | null };
 	kimi: { sessions: KimiSessionSummary[]; report: KimiImportReport | null };
 	directory: { sessions: DirectorySessionSummary[]; report: DirectoryImportReport | null };

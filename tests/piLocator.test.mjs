@@ -573,6 +573,49 @@ test("wsl pi check uses exactly the same exec args as the launch path", async ()
 	assert.equal(status.command, `wsl -d Ubuntu-24.04 -u dev ${FNM_PI}`);
 });
 
+test("listInstallations in wsl mode returns the distro pi as the only source (m00534)", async () => {
+	const { PiLocator, resetWslCommandCache } = loadPiLocatorModule("win32", {}, tmpdir(), {
+		"node:child_process": mockWslProbe({ probeOutput: FNM_PROBE_OUTPUT, version: "0.80.8" }),
+	});
+	resetWslCommandCache();
+	const locator = new PiLocator();
+	const installations = await locator.listInstallations(undefined, true, "Ubuntu-24.04", "dev");
+
+	// WSL 模式只列发行版内这一份：设置页「Pi 命令来源」要能显示 WSL pi 的路径/版本，
+	// 而不是一片空白（旧实现直接返回 []，用户不知道当前用的是谁）。
+	assert.equal(installations.length, 1);
+	const [installation] = installations;
+	assert.equal(installation.source, "wsl");
+	assert.equal(installation.path, FNM_PI);
+	assert.equal(installation.realPath, FNM_PI);
+	assert.equal(installation.version, "0.80.8");
+	assert.equal(installation.isActive, true);
+
+	// 用户存了自定义 Linux 路径时：列表跟着切到那份路径，而不是发行版默认 pi。
+	const customInstallations = await locator.listInstallations("/opt/my-pi/bin/pi", true, "Ubuntu-24.04", "dev");
+	assert.equal(customInstallations.length, 1);
+	assert.equal(customInstallations[0].path, "/opt/my-pi/bin/pi");
+	assert.equal(customInstallations[0].source, "wsl");
+});
+
+test("listInstallations in wsl mode returns [] when the distro has no pi", async () => {
+	const { PiLocator, resetWslCommandCache } = loadPiLocatorModule("win32", {}, tmpdir(), {
+		"node:child_process": {
+			execFile: (_command, args, _options, callback) => {
+				// 探测说没装 pi；之后任何 --version 校验（含回退裸 pi 标记）都必须失败
+				if (isWslProbeArgs(args)) callback(null, "PIDECK_MISS=1\n", "");
+				else callback(new Error("not found"), "", "");
+			},
+			execFileSync: () => "",
+		},
+	});
+	resetWslCommandCache();
+	const locator = new PiLocator();
+	const installations = await locator.listInstallations(undefined, true, "Ubuntu-24.04", "dev");
+	// 数组来自沙箱模块（不同 realm），deepStrictEqual 会因原型不同误报；用长度断言
+	assert.equal(installations.length, 0);
+});
+
 test("a windows interop probe hit is not treated as a wsl installation", async () => {
 	const { PiLocator, resetWslCommandCache } = loadPiLocatorModule("win32", {}, tmpdir(), { "node:child_process": mockWslProbe({ probeOutput: "PIDECK_PI=/mnt/c/Users/dev/AppData/Roaming/npm/pi\n" }) });
 	resetWslCommandCache();
@@ -967,6 +1010,66 @@ test("composeCheckFailure surfaces the first meaningful stderr line instead of t
 	// 超长首行截断到 160 字符 + 省略号
 	const truncated = locator.composeCheckFailure("x".repeat(300));
 	assert.equal(truncated, `REASON<${"x".repeat(160)}…>`);
+});
+
+test("composeCheckFailure 取 Node 异常行而不是崩溃栈首行，并带上 env node 版本（#484）", () => {
+	const { PiLocator } = loadPiLocatorModule("darwin");
+	const locator = new PiLocator((key, params) => (key === "mainPi.checkFailedReason" ? `REASON<${params?.reason}>` : `BASE<${key}>`));
+	// node 太旧时 pi 的真实 stderr：首行只有 chunk 地址，缺哪个 API 在后面的异常行里。
+	const raw = [
+		"file:///Users/me/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/chunk-44DLKSKE.js:47",
+		"        throw new TypeError('zlib.createZstdDecompress is not a function');",
+		"        ^",
+		"",
+		"TypeError: zlib.createZstdDecompress is not a function",
+		"    at Object.<anonymous> (file:///Users/me/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/chunk-44DLKSKE.js:47:15)",
+	].join("\n");
+	assert.equal(locator.composeCheckFailure(raw, "v22.14.0"), "REASON<TypeError: zlib.createZstdDecompress is not a function (node v22.14.0)>");
+	// 未知 node 版本时不编造后缀；非 JS 异常（ENOENT/Permission denied）仍取第一条非空行
+	assert.equal(locator.composeCheckFailure(raw), "REASON<TypeError: zlib.createZstdDecompress is not a function>");
+	assert.equal(locator.composeCheckFailure("spawn /opt/stale/bin/pi ENOENT", "v22.14.0"), "REASON<spawn /opt/stale/bin/pi ENOENT>");
+});
+
+test("macOS 上 Homebrew 目录排在继承的 PATH 之前（#484：垫片的 env node 必须拿到 brew 新 node）", () => {
+	// 模拟 GUI 启动的过期 PATH：/opt/legacy-node/bin 里的旧 node 在 env PATH 最前，brew 不在里面。
+	// 只放一个目录：pathDirs 用宿主分隔符切分，多目录在 Windows 开发机上不会拆开。
+	const envPath = "/opt/legacy-node/bin";
+	const { PiLocator } = loadPiLocatorModule("darwin", { PATH: envPath });
+	const locator = new PiLocator();
+	const dirs = locator.getSearchDirs();
+	assert.ok(dirs.indexOf("/opt/homebrew/bin") < dirs.indexOf("/opt/legacy-node/bin"), `brew bin 必须排在 env PATH 之前：${dirs.slice(0, 6).join(", ")}`);
+	// 子进程 PATH 同源：shebang 的 `env node` 就是按它解析的
+	const childPath = String(locator.createProcessEnv().PATH);
+	assert.ok(childPath.indexOf("/opt/homebrew/bin") < childPath.indexOf("/opt/legacy-node/bin"));
+	// 非 darwin 不加这两个目录：不能拿 brew 路径去污染 Linux/Windows 的候选
+	const linux = loadPiLocatorModule("linux", { PATH: envPath });
+	assert.ok(!new linux.PiLocator().getSearchDirs().includes("/opt/homebrew/bin"));
+});
+
+test("runCheck 失败时反查 env node 并把它写进原因与日志（#484）", async () => {
+	const stderr = Buffer.from(["file:///opt/stale/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/chunk-44DLKSKE.js:47", "        throw new TypeError('zlib.createZstdDecompress is not a function');", "TypeError: zlib.createZstdDecompress is not a function"].join("\n"));
+	const calls = [];
+	const execFile = (command, args, _options, callback) => {
+		calls.push({ command, args });
+		if (command === "/usr/bin/env") {
+			callback(null, "v22.14.0 /usr/local/bin/node\n", "");
+			return;
+		}
+		if (command === "/bin/sh") {
+			callback(null, "", "");
+			return;
+		}
+		callback(Object.assign(new Error("Command failed: pi --version"), { code: 1 }), Buffer.alloc(0), stderr);
+	};
+	const { PiLocator } = loadPiLocatorModule("darwin", { PATH: "/opt/stale/bin:/usr/bin:/bin" }, tmpdir(), { "node:child_process": { execFile, execFileSync: () => "" } });
+	const locator = new PiLocator((key, params) => (key === "mainPi.checkFailedReason" ? `REASON<${params?.reason}>` : `BASE<${key}>`));
+	const status = await locator.validateCustomPath("/opt/stale/bin/pi", false, undefined, undefined);
+	assert.equal(status.installed, false);
+	assert.equal(status.error, "REASON<TypeError: zlib.createZstdDecompress is not a function (node v22.14.0)>");
+	assert.ok(
+		calls.some((call) => call.command === "/usr/bin/env" && Array.isArray(call.args) && call.args[0] === "node"),
+		"失败后必须探一次 env node，否则「PATH 里有旧 node」无从确认",
+	);
 });
 
 test("a driveless linux path without wsl context reports the actionable copy instead of ENOENT", async () => {

@@ -33,8 +33,11 @@ test("显式 maxBytes 必须被钳到天花板（渲染层可传任意大数字�
 
 test("stat 拦截必须对 effectiveMax 统一生效（默认路径与显式路径同闸）", () => {
 	const body = handlerBody(source);
-	assert.match(body, /fileStat\.size > effectiveMax/, "体积判定必须作用于钳制后的 effectiveMax");
-	assert.match(body, /FILE_TOO_LARGE:\$\{fileStat\.size\}:\$\{Math\.floor\(effectiveMax\)\}/, "结构化错误前缀必须携带实际上界");
+	// 体积判定与文本性判决统一收在 readTextFileGuarded，但必须把钳制后的 effectiveMax（而非渲染层请求值）传下去。
+	assert.match(body, /readTextFileGuarded\(readablePath, effectiveMax\)/, "必须用 effectiveMax 调共享守卫");
+	const guard = readFileSync(join(import.meta.dirname, "..", "src", "main", "files", "textFileRead.ts"), "utf8");
+	assert.match(guard, /fileStat\.size > maxBytes/, "体积判定必须作用于传入的上界");
+	assert.match(guard, /FILE_TOO_LARGE:\$\{fileStat\.size\}:\$\{Math\.floor\(maxBytes\)\}/, "结构化错误前缀必须携带实际上界");
 });
 
 test("错误前缀协议不变：渲染层按 FILE_TOO_LARGE 识别 i18n 文案", () => {

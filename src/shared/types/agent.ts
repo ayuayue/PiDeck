@@ -268,6 +268,16 @@ export type AgentRuntimeState = {
 	perfAt?: number;
 };
 
+/**
+ * 模型价格徽章（供应商公开报价，仅供选择器展示，不参与能力/额度判定）。
+ * - free：该模型所有计费项单价都为 0；
+ * - discount：现价 / 参考价，0.8 表示 8 折；只在确有折扣（<1）时给出。
+ */
+export type ModelPriceTag = {
+	free?: boolean;
+	discount?: number;
+};
+
 export type AvailableModel = {
 	id: string;
 	name?: string;
@@ -294,6 +304,11 @@ export type AvailableModel = {
 	/** DSH 模型自己的默认思考档位（reasoning.defaultEffort）；settings.yaml 未配
 	 *  agent-default-model.reasoningEffort 时，底栏/选择器应回退到这个值。 */
 	defaultEffort?: string;
+	/**
+	 * 供应商公开报价徽章（当前只有 TokenDance 提供）：由渲染层目录 hook 从主进程价格表补上，
+	 * pi / DSH 目录本身不带价格字段。缺失 = 没拉到价格或该模型无折扣，不要当成免费。
+	 */
+	priceTag?: ModelPriceTag;
 };
 
 /** 模型列表加载失败的成因分类：供模型选择器给出差异化引导（版本过低/配置损坏/pi 未安装）。 */

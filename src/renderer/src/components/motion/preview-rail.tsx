@@ -1,13 +1,14 @@
 "use client";
 // beui.dev/components/motion/preview-rail
 //
-// PiDeck 本地扩展（仅 4 条；`npx shadcn add @beui/preview-rail --overwrite` 会整份覆盖，
+// PiDeck 本地扩展（仅 5 条；`npx shadcn add @beui/preview-rail --overwrite` 会整份覆盖，
 // 覆盖后照此重施即可，tests/outlineRailContract.test.mjs 会在覆盖后变红报警）：
 // 1. `muted`：未加载目标的刻度淡一档（对齐 dsh TurnNavigator 的 markUnloaded）；
 // 2. 预览卡只渲染一张、按刻度算 top 绝对定位（官方版为对齐渲染了 N 个占位格子，DOM 减半）；
 // 3. 预览卡垂直位置用纯计算 + 钳制（`resolveCardTop`），不量 DOM——本组件在 PiDeck 的
 //    挂载点传了 `min-h-0`，导轨高度恰好等于 `条数 × itemSize`，与卡片容器高度一致；
-// 4. 预览卡在相邻刻度间移动补 140ms 过渡（官方版瞬移），减少动态偏好下关闭。
+// 4. 预览卡在相邻刻度间移动补 140ms 过渡（官方版瞬移），减少动态偏好下关闭；
+// 5. `role`：用户/助手刻度用宽高区分（用户更宽更深、助手更细更淡），不改变交互。
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { type MouseEvent, type PointerEvent, type ReactNode, useCallback, useId, useRef, useState } from "react";
@@ -24,6 +25,8 @@ export interface PreviewRailItem {
 	description?: ReactNode;
 	/** [PiDeck local] 目标尚未加载（点击需先补页）：刻度淡一档，避免误当成「点了立刻跳」。 */
 	muted?: boolean;
+	/** [PiDeck local] 消息角色：用户刻度更宽更深，助手刻度更细更淡。 */
+	role?: "user" | "assistant";
 	href?: string;
 	target?: "_blank" | "_self" | "_parent" | "_top";
 	rel?: string;
@@ -164,19 +167,21 @@ export function PreviewRail({
 					const distance = displayedIndex < 0 ? Number.POSITIVE_INFINITY : Math.abs(index - displayedIndex);
 					const scale = highlighted ? 1 : distance === 1 ? 0.68 : distance === 2 ? 0.44 : 0.25;
 
+					// 用户/助手用宽高区分：用户更宽更深（主消息），助手更细更淡（回复），
+					// 目录里未加载的占位项没有 role，保持中间宽度。
+					const tickToneClass = isHorizontal ? "h-12 w-0.5 origin-bottom" : item.role === "user" ? "h-[3px] w-7 origin-center" : item.role === "assistant" ? "h-0.5 w-5 origin-center" : "h-0.5 w-6 origin-center";
 					const itemContent = (
 						<>
-							<motion.span
-								data-slot="preview-rail-tick"
-								aria-hidden="true"
-								animate={isHorizontal ? { scaleY: scale } : { scaleX: scale }}
-								transition={reduce ? { duration: 0 } : SPRING_LAYOUT}
-								className={cn("block bg-current", isHorizontal ? "h-12 w-0.5 origin-bottom" : "h-0.5 w-12 origin-left", highlighted ? "text-foreground" : undefined)}
-							/>
+							<motion.span data-slot="preview-rail-tick" aria-hidden="true" animate={isHorizontal ? { scaleY: scale } : { scaleX: scale }} transition={reduce ? { duration: 0 } : SPRING_LAYOUT} className={cn("block bg-current", tickToneClass, highlighted ? "text-foreground" : undefined)} />
 						</>
 					);
 
-					const sharedClassName = cn("relative flex text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background", isHorizontal ? "h-12 w-6 items-end justify-center" : "h-6 w-12 items-center", item.muted && "opacity-60");
+					const sharedClassName = cn(
+						"relative flex focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+						isHorizontal ? "h-12 w-6 items-end justify-center" : "h-6 w-12 items-center",
+						item.role === "user" ? "text-foreground/80" : "text-muted-foreground",
+						item.muted && "opacity-60",
+					);
 					const sharedStyle = isHorizontal ? { width: itemSize } : { height: itemSize };
 					const handlePointerEnter = (event: PointerEvent<HTMLElement>) => {
 						if (hover.enter(event)) setHoveredId(item.id);

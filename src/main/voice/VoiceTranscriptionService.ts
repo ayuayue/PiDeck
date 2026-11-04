@@ -3,6 +3,7 @@ import { normalizeVoiceTranscriptionUrl, resolveVolcProtocol, VOICE_STREAM_FRAME
 import { toSimplifiedChinese } from "./simplifiedChinese";
 import { createSilentPcm, createSilentWav } from "./silentWav";
 import { extractWavPcm } from "./wavPcm";
+import { modelHttpFetch } from "../modelHttp/request";
 import { readBoundedResponseText } from "./responseText";
 import { transcribeWithVolcengine } from "./VolcengineSpeechClient";
 import { VolcengineStreamSession, type VolcStreamSocket } from "./VolcengineStreamSession";
@@ -141,7 +142,7 @@ export class VoiceTranscriptionService {
 			body.append("model", credentials.model.trim());
 			if (credentials.language.trim()) body.append("language", credentials.language.trim());
 			startTimeout();
-			const response = await (this.deps.fetch ?? fetch)(endpoint, {
+			const response = await (this.deps.fetch ?? modelHttpFetch)(endpoint, {
 				method: "POST",
 				headers: { Authorization: `Bearer ${credentials.apiKey}` },
 				body,

@@ -82,7 +82,7 @@ import type { PiRuntimeLauncher, RemoteSshPiRuntimeLaunchPlan } from "./PiSpawnH
 import { REMOTE_RUNTIME_CODES, type RemoteRuntimePort } from "./remoteRuntimePort";
 import type { RemoteSessionRegistration } from "../sessions/SessionCatalog";
 import { SessionFileEditor, type SessionEntryTarget, type SessionFileRef } from "./SessionFileEditor";
-import { SessionHistoryReader, boundTurnWindowStart } from "./SessionHistoryReader";
+import { SessionHistoryReader, applySessionContextEdits, boundTurnWindowStart } from "./SessionHistoryReader";
 import { createTrajectoryFactsReader, type TrajectoryFactsReader } from "../sessions/trajectoryFactsReader";
 import { scanJsonlLines } from "../sessions/jsonlLineStream";
 import { estimateMessagesPayloadBytes } from "./messagePayloadSize";
@@ -1653,7 +1653,13 @@ export class AgentManager {
 		const oldestEntryId = pickAnchorEntryId(page) ?? pickAnchorEntryIdBefore(start);
 		// 缓存里没有能当锚点的更早条目：缓存这条线索到此为止，交给文件路径按数值 before 继续翻。
 		if (!oldestEntryId) return null;
-		const nextBefore = oldestEntryId ? ((await this.sessionHistoryReader.resolveEntryPosition(sessionPath, oldestEntryId)) ?? null) : null;
+		// 文件位置 0 = 锚点就在文件头，即「没有更早历史」：必须给 null，与文件路径
+		// readTurnPageCore 的 `nextBefore: start > 0 ? start : null` 同一口径。
+		// 给 0 的话渲染层按 `nextBefore !== null` 判定还有更早历史，于是「加载更多对话」
+		// 永远挂在第一条消息上方，点一次只换来一页空数据、界面毫无变化（2026-12 真机）。
+		const anchorPosition = await this.sessionHistoryReader.resolveEntryPosition(sessionPath, oldestEntryId);
+		const hasEarlier = typeof anchorPosition === "number" && anchorPosition > 0;
+		const nextBefore = hasEarlier ? anchorPosition : null;
 		const total = await this.sessionHistoryReader.getActiveEntryCount(sessionPath);
 		// 与文件路径同口径的会话文件版本：渲染层据此检测压缩/外部改写并丢弃已缓存的历史前缀
 		// （indexVersion 缺失会让 cache 页沿用旧版本，压缩后前缀失效不可见）。
@@ -1664,7 +1670,7 @@ export class AgentManager {
 			pos,
 			pageCount: page.length,
 			// 续页锚点打出来：「加载更多对话」不出现时，先看这两位是不是都空。
-			nextBeforeEntryId: oldestEntryId ?? null,
+			nextBeforeEntryId: hasEarlier ? oldestEntryId : null,
 			nextBefore,
 		});
 		return {
@@ -1674,7 +1680,7 @@ export class AgentManager {
 			messages: stripToolResultForDelivery(page),
 			total,
 			nextBefore,
-			...(oldestEntryId ? { nextBeforeEntryId: oldestEntryId } : {}),
+			...(hasEarlier ? { nextBeforeEntryId: oldestEntryId } : {}),
 			indexVersion,
 		};
 	}
@@ -1812,6 +1818,13 @@ export class AgentManager {
 			headOffset = -1; // 未知：不提供 windowStartFilePos，渲染层回退 entryId 锚点
 		}
 
+		// 删除/编辑只向文件追加 context_edit，原文行仍留在尾部窗口里。运行态窗口必须
+		// 应用与停止态同一份投影过滤，否则启动 Agent 后被删消息「复活」、编辑回退原文
+		// （issue #482）。只过滤投影后的消息，rawMessages / activeEntryIds /
+		// windowStartFilePos 仍按原始条数计算（getRecentActiveEntryIds 槽位对齐依赖它）。
+		const contextEdits = useFileEntryIds && sessionPath ? await this.sessionHistoryReader.getSessionContextEdits(sessionPath).catch(() => undefined) : undefined;
+		assertCurrentRuntime();
+
 		// 解析会话文件里的压缩记录：拿到所有压缩段摘要 + 归档消息。
 		// pi 的 get_messages 对压缩会话只返回压缩后的消息，通常不带压缩摘要；
 		// 这里从原始会话文件补回：压缩摘要卡片 + 归档消息（支持展开查看压缩前内容）。
@@ -1882,7 +1895,10 @@ export class AgentManager {
 			this.emitState();
 		}
 
-		const messages = this.convertAgentMessages(agentId, finalRaw, activeEntryIds);
+		const projected = this.convertAgentMessages(agentId, finalRaw, activeEntryIds);
+		// 投影之后按 meta.entryId 过滤/替换（与停止态、历史页同一个函数）：只有带 entryId 的
+		// 消息参与，压缩摘要卡与实时消息原样保留。
+		const messages = contextEdits ? applySessionContextEdits(projected, contextEdits) : projected;
 		const t2 = Date.now();
 		this.recordTiming("session.history.load", t0, {
 			agentId,

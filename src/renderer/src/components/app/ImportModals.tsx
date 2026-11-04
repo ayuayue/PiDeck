@@ -20,6 +20,8 @@ import type {
 	ZCodeImportReport,
 	WorkBuddySessionSummary,
 	WorkBuddyImportReport,
+	CodeBuddySessionSummary,
+	CodeBuddyImportReport,
 	CursorSessionSummary,
 	CursorImportReport,
 	KimiSessionSummary,
@@ -366,7 +368,7 @@ export function ZCodeImportModal(props: {
 }
 type ImportStatusValue = "new" | "current" | "outdated";
 
-/** 会话列表项的最小公共形状：Claude / OpenCode / ZCode / WorkBuddy / Cursor 汇总结构一致。 */
+/** 会话列表项的最小公共形状：Claude / OpenCode / ZCode / WorkBuddy / CodeBuddy / Cursor 汇总结构一致。 */
 type ImportSessionLike = {
 	sourcePath: string;
 	title: string;
@@ -552,6 +554,28 @@ export function WorkBuddyImportModal(props: {
 	onImport: () => void;
 }) {
 	return <SessionImportModal copyPrefix="workbuddy" formatStatus={formatWorkBuddyStatus} {...props} />;
+}
+
+function formatCodeBuddyStatus(status: CodeBuddySessionSummary["status"]) {
+	if (status === "current") return t("codebuddy.status.current");
+	if (status === "outdated") return t("codebuddy.status.outdated");
+	return t("codebuddy.status.new");
+}
+
+export function CodeBuddyImportModal(props: {
+	project: Project;
+	sessions: CodeBuddySessionSummary[];
+	selectedPaths: string[];
+	loading: boolean;
+	importing: boolean;
+	report: CodeBuddyImportReport | null;
+	onClose: () => void;
+	onRefresh: () => void;
+	onToggle: (sourcePath: string) => void;
+	onToggleAll: () => void;
+	onImport: () => void;
+}) {
+	return <SessionImportModal copyPrefix="codebuddy" formatStatus={formatCodeBuddyStatus} {...props} />;
 }
 
 function formatCursorStatus(status: CursorSessionSummary["status"]) {

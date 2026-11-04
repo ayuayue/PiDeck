@@ -5,18 +5,15 @@ import { agentMarketEditingAgentIdAtom, agentMarketPageOpenAtom, closeAgentMarke
 import { t } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { AgentMarketWorkspace } from "./market/AgentMarketWorkspace";
-import type { AgentUseTarget } from "./market/AgentUseTargetMenu";
 
 interface AgentMarketPageProps {
 	/** 当前呈现的是不是本页面：失活时保持挂载、只隐藏，切回来搜索/详情/编辑状态不丢。 */
 	active: boolean;
 	/**
-	 * 「使用」= 在用户选定的工作目录新建会话并绑定它（角色设定经隐藏通道注入，时间线只显示用户输入）。
-	 * 成功返回 true：本页收起并露出新会话；失败返回 false：页面留在市场，原因由宿主的 toast 承担。
+	 * 「使用」= 带着该智能体打开新会话页（目录在输入框上方选，首次发送时才建会话并绑定）。
+	 * 成功返回 true：本页收起并露出新会话页；失败返回 false：页面留在市场，原因由宿主的 toast 承担。
 	 */
-	onUseAgent: (agent: AgentProfile, projectId: string) => Promise<boolean>;
-	/** 目录选择菜单的「当前项目」与「添加目录」入口（由 App 装配层注入）。 */
-	useTarget: AgentUseTarget;
+	onUseAgent: (agent: AgentProfile) => Promise<boolean>;
 }
 
 /**
@@ -25,7 +22,7 @@ interface AgentMarketPageProps {
  * 页面覆盖会话列（侧栏/抽屉/底部停靠栏保持可交互），打开状态由 workspace-page-atoms 驱动：
  * 切到会话只是失活（子树保持挂载），关闭 Tab 才卸载并复原会话视图；Esc 关闭 Tab。
  */
-export function AgentMarketPage({ active, onUseAgent, useTarget }: AgentMarketPageProps) {
+export function AgentMarketPage({ active, onUseAgent }: AgentMarketPageProps) {
 	const open = useAtomValue(agentMarketPageOpenAtom);
 	const editingAgentId = useAtomValue(agentMarketEditingAgentIdAtom);
 	const close = useSetAtom(closeAgentMarketPageAtom);
@@ -49,7 +46,7 @@ export function AgentMarketPage({ active, onUseAgent, useTarget }: AgentMarketPa
 	return (
 		// inset-0 只覆盖会话列：与 HostPluginPageOverlay/定时任务页同一层级约定，页面打开时会话树不卸载。
 		<div className={cn("absolute inset-0 z-30 flex flex-col bg-background", !active && "hidden")} role="region" aria-label={t("agentMarket.title")}>
-			<AgentMarketWorkspace initialEditingAgentId={editingAgentId} onUseAgent={onUseAgent} onClose={close} useTarget={useTarget} />
+			<AgentMarketWorkspace initialEditingAgentId={editingAgentId} onUseAgent={onUseAgent} onClose={close} />
 		</div>
 	);
 }

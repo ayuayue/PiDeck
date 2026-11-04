@@ -31,6 +31,21 @@ interface UseSmoothStreamOptions {
 	 * 折叠态内容不可见，逐字推进是纯浪费；展开瞬间以全文呈现（与打字机追平后的观感一致）。
 	 */
 	disabled?: boolean;
+	/**
+	 * 暂停推进（非激活分屏 / 窗口不可见）：停止 rAF、清空待显示队列，画面冻结在当前位置。
+	 * 与 disabled 的区别：disabled 是「内容不可见，连文本都不用更新」；paused 是
+	 * 「内容仍可见，但先不推进动画」，数据照常更新。
+	 *
+	 * 恢复语义：不重放暂停期间积压的逐字动画，直接对齐到最新权威文本；仍在流式时
+	 * 后续新 delta 继续走打字机。这样切回分屏不会看到几分钟的旧文字慢慢追。
+	 */
+	paused?: boolean;
+	/**
+	 * 可见但未聚焦（非焦点分屏）：停 rAF 打字机，文本随上游 1s 粗刷新直接跳变。
+	 * 与 paused 的区别：paused 是完全冻结（窗口不可见）；background 仍然更新，
+	 * 只是不做逐字动画，避免可见分屏看起来停住。
+	 */
+	background?: boolean;
 	/** 两帧之间最短间隔（ms）。默认 16ms≈60Hz；长文本会再降频，见下方 effectiveMinDelay */
 	minDelay?: number;
 	/** 流式期的分母：队列越长步进越大。步进 = 队列长度 / divisor */
@@ -62,7 +77,7 @@ function segmentText(text: string): string[] {
 	return Array.from(segmenter.segment(text)).map((s) => s.segment);
 }
 
-export function useSmoothStream({ content, isStreaming, disabled = false, minDelay = 16, streamingDivisor = 5, drainDivisor = 3, maxStepPerFrame = 10, maxDrainStepPerFrame = 12 }: UseSmoothStreamOptions): UseSmoothStreamReturn {
+export function useSmoothStream({ content, isStreaming, disabled = false, paused = false, background = false, minDelay = 16, streamingDivisor = 5, drainDivisor = 3, maxStepPerFrame = 10, maxDrainStepPerFrame = 12 }: UseSmoothStreamOptions): UseSmoothStreamReturn {
 	const [displayedContent, setDisplayedContent] = useState(content);
 
 	// 长文本降频（2026-08 内存/CPU 治理）：每帧 DOM 更新（文本节点替换 → layout）
@@ -82,6 +97,14 @@ export function useSmoothStream({ content, isStreaming, disabled = false, minDel
 	const displayedRef = useRef(content);
 	// 上一版权威文本（用于下次算 delta）
 	const prevContentRef = useRef(content);
+	// 暂停/后台态：rAF 回调里同步读取，切换瞬间已排队的旧帧不再推进。
+	const pausedRef = useRef(paused);
+	pausedRef.current = paused;
+	const backgroundRef = useRef(background);
+	backgroundRef.current = background;
+	// 最新权威文本：恢复时一次性对齐用（不依赖 effect 闭包里的 content）。
+	const contentRef = useRef(content);
+	contentRef.current = content;
 	// 上次实际渲染的时刻（minDelay 闸门）
 	const lastRenderTimeRef = useRef(0);
 	// 流式是否已结束（renderLoop 里读它决定 divisor / maxStep）
@@ -101,9 +124,23 @@ export function useSmoothStream({ content, isStreaming, disabled = false, minDel
 
 		// 折叠态（disabled）：只追平 prevContent 引用，不 push chunk 不 setState，
 		// 内容不可见时连「增量入队 + 重渲染」都省掉。
-		if (disabled) {
+		// 暂停态（paused）：数据继续更新 prevContent，但画面冻结在当前位置；
+		// 恢复时由下方 resume effect 一次性对齐到最新文本，不重放积压动画。
+		if (disabled || paused) {
+			prevContentRef.current = newContent;
+			if (disabled) displayedRef.current = newContent;
+			lastChunkAtRef.current = performance.now();
+			return;
+		}
+
+		// 可见但未聚焦（非焦点分屏）：上游 atom 已按 1s 粗采样，这里直接跳变，
+		// 不做逐字动画、不建队列。既能看到进度，又不让 delta 驱动整栏逐帧重排。
+		if (background) {
+			chunkQueueRef.current = [];
 			prevContentRef.current = newContent;
 			displayedRef.current = newContent;
+			lastChunkAtRef.current = performance.now();
+			setDisplayedContent(newContent);
 			return;
 		}
 
@@ -139,11 +176,14 @@ export function useSmoothStream({ content, isStreaming, disabled = false, minDel
 		}
 		prevContentRef.current = newContent;
 		lastChunkAtRef.current = performance.now();
-	}, [content, disabled]);
+	}, [content, disabled, paused, background]);
 
 	// 流式结束：取消在途 rAF，直接 dump 全文（不再逐字排空）
 	useEffect(() => {
-		if (isStreaming) return;
+		// 暂停中不 dump：画面必须停在暂停瞬间，等恢复 effect 一次性对齐。
+		// 否则「流在暂停期间结束」会把全文直接铺出来，暂停等于没生效。
+		// 后台可见栏同理：让 1s 粗刷新自然对齐，避免 settle 时在非焦点栏做全量渲染。
+		if (isStreaming || paused || background) return;
 		// 流式结束（会话/回合收口）：立即收口，不再逐字排空——
 		// 打字机只在流式期间运行，「会话结束后思考打字机不触发」（2026-12 兼容期）。
 		// 取消在途 rAF、清空队列、直接显示全文（终态文本权威）。
@@ -155,11 +195,32 @@ export function useSmoothStream({ content, isStreaming, disabled = false, minDel
 		displayedRef.current = content;
 		prevContentRef.current = content;
 		setDisplayedContent(content);
-	}, [isStreaming, content]);
+	}, [isStreaming, content, paused, background]);
+
+	// 暂停/后台/折叠切换：不重放积压的逐字动画，直接对齐到最新权威文本。
+	// - 恢复（active）：一次性追平后，后续新 delta 继续走打字机；
+	// - 进入 background：停 rAF、丢掉队列，先显示当前全文，之后由 content effect
+	//   随 1s 粗刷新直接跳变；
+	// - paused/disabled：这里不动，保持冻结。
+	useEffect(() => {
+		if (disabled || paused) return;
+		const latest = contentRef.current;
+		chunkQueueRef.current = [];
+		prevContentRef.current = latest;
+		displayedRef.current = latest;
+		lastChunkAtRef.current = performance.now();
+		setDisplayedContent(latest);
+	}, [disabled, paused, background]);
 
 	// 主循环
 	const renderLoop = useCallback(
 		(currentTime: number) => {
+			// 暂停/后台：停止推进。恢复由 mode effect 重新挂帧。
+			// 这里再判一次是因为切换可能发生在已排队的 rAF 回调之前。
+			if (pausedRef.current || backgroundRef.current) {
+				rafRef.current = null;
+				return;
+			}
 			const queue = chunkQueueRef.current;
 			if (queue.length === 0) {
 				if (streamDoneRef.current) {
@@ -217,7 +278,7 @@ export function useSmoothStream({ content, isStreaming, disabled = false, minDel
 
 	// 启停 rAF：流式中或有积压就挂帧，卸载时取消
 	useEffect(() => {
-		if (disabled) return; // 折叠态：不启动 rAF，避免不可见内容逐字推进
+		if (disabled || paused || background) return; // 折叠/暂停/后台：不启动 rAF
 		if ((isStreaming || chunkQueueRef.current.length > 0) && !rafRef.current) {
 			rafRef.current = requestAnimationFrame(renderLoop);
 		}
@@ -227,7 +288,7 @@ export function useSmoothStream({ content, isStreaming, disabled = false, minDel
 				rafRef.current = null;
 			}
 		};
-	}, [isStreaming, renderLoop, disabled]);
+	}, [isStreaming, renderLoop, disabled, paused, background]);
 
 	// disabled：同步返回最新内容（展开瞬间全文立现，与打字机追平后观感一致）
 	if (disabled) return { displayedContent: content };

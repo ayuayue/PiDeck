@@ -141,7 +141,7 @@ export type FileContentSearchResult = {
 	truncated: boolean;
 };
 
-export type SessionSource = "pi" | "codex" | "claude" | "opencode" | "zcode" | "workbuddy" | "cursor" | "qoder" | "kimi" | "kimiwork" | "minimax";
+export type SessionSource = "pi" | "codex" | "claude" | "opencode" | "zcode" | "workbuddy" | "codebuddy" | "cursor" | "qoder" | "kimi" | "kimiwork" | "minimax";
 export type SessionEnvironment = "native" | "wsl";
 
 export type SessionLocator = { kind: "local"; environment: SessionEnvironment; filePath?: string; wslDistro?: string; wslUser?: string } | { kind: "ssh"; hostId: string; remotePath?: string; remoteSessionId?: string; remotePathAliases?: string[] };

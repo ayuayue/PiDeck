@@ -25,6 +25,7 @@ import { showNotice } from "../../utils/notice";
 import { isBinaryExtension, isImageFile, isPdfFile } from "../../utils/isTextFile";
 import { updateInstallPreflightTasksAtom } from "../../atoms/update-install-preflight";
 import { encodeHtmlPreviewUrl } from "../../../../shared/htmlPreview";
+import { fileLoadErrorMessage } from "./fileLoadErrorMessage";
 
 type ViewMode = "view" | "diff";
 
@@ -35,19 +36,6 @@ const FILE_PREVIEW_REMARK_PLUGINS = [remarkGfmNoSingleTilde];
 // 文件预览同样渲染不可信内容（模型写的 .md 就可能是当前打开的文件）：复用统一净化序列，KaTeX 产物在 sanitize 之后生成
 const FILE_PREVIEW_REHYPE_PLUGINS = [...UNTRUSTED_MARKDOWN_REHYPE_PLUGINS, rehypeKatex];
 const noopOpenExternal = (): void => undefined;
-
-/** 把主进程的大文件错误码还原为用户可读文案，其它错误保留原始诊断。 */
-function fileLoadErrorMessage(error: unknown): string {
-	const raw = error instanceof Error ? error.message : String(error);
-	const match = /FILE_TOO_LARGE:(\d+):(\d+)/.exec(raw);
-	if (!match) return raw;
-	const size = Number(match[1]);
-	const limit = Number(match[2]);
-	return t("editor.fileTooLarge", {
-		size: (size / 1024 / 1024).toFixed(1),
-		max: (limit / 1024 / 1024).toFixed(0),
-	});
-}
 
 export function FileDiffViewer(props: {
 	active?: boolean;
@@ -134,6 +122,8 @@ export function FileDiffViewer(props: {
 	// 编辑器的 input 事件先于 React render；debounce timer 不能捕获旧 render 的 content。
 	// 这个 ref 是编辑内容的实时镜像，保存时始终从它读取最新文本。
 	const contentRef = useRef(content);
+	// 换行形式只在载入时确定，保存单行内容不能重建编辑器并清空撤销历史。
+	const lineSeparatorRef = useRef<"\n" | "\r\n">("\n");
 
 	const isDiffMode = props.mode === "diff";
 	const fileAccessPath = props.fileTarget ?? props.filePath;
@@ -165,11 +155,18 @@ export function FileDiffViewer(props: {
 
 	useEffect(() => {
 		let cancelled = false;
+		// 每次重载（含大小上限变化）都失效旧 timer；读取失败时绝不能把旧缓冲写回。
+		saveGenerationRef.current += 1;
+		savePendingRef.current = null;
+		saveReadyRef.current = false;
+		if (saveTimerRef.current) {
+			clearTimeout(saveTimerRef.current);
+			saveTimerRef.current = null;
+		}
+		setSaving(false);
 		async function load() {
 			setLoading(true);
 			setError(null);
-			setDirty(false);
-			reportDirty(false);
 			try {
 				// 图片/PDF：仅 view 模式读取二进制转 Blob URL 预览（不文本读取）；
 				// diff 模式无法展示二进制差异，维持「不支持编辑」提示。
@@ -202,6 +199,7 @@ export function FileDiffViewer(props: {
 						return;
 					}
 					contentRef.current = result;
+					lineSeparatorRef.current = result.includes("\r\n") ? "\r\n" : "\n";
 					setContent(result);
 					// 自动保存基准快照：加载完成即视为「已落盘」状态，避免打开后无改动就触发写盘
 					lastSavedRef.current = result;
@@ -210,15 +208,22 @@ export function FileDiffViewer(props: {
 					// ENOENT 返回 ""（为「新建文件」流程保留的语义），死链直接渲染就是
 					// 一片空白。但 AI 回复链接打开的路径必须给明确反馈——已解析成绝对路径
 					// 仍读到空串，大概率是模型给的路径本就不存在；再确认一次并展示错误态。
+					let missing = false;
 					if (result === "" && !isDiffMode && (props.fileTarget || /^([A-Za-z]:[\\/]|\/)/.test(props.filePath))) {
 						try {
 							const [exists] = await window.piDesktop.files.pathsExist([fileAccessPath], props.fileAccessScope);
 							if (!exists && !cancelled) {
+								missing = true;
 								setError(t("editor.fileNotFound", { path: props.fileTarget?.relativePath ?? props.filePath }));
 							}
 						} catch {
 							// 校验通道不可用（预览模式）：维持原状不额外报错。
 						}
+					}
+					if (!cancelled && !missing) {
+						saveReadyRef.current = true;
+						setDirty(false);
+						reportDirty(false);
 					}
 				}
 			} catch (e) {
@@ -261,6 +266,7 @@ export function FileDiffViewer(props: {
 		void load();
 		return () => {
 			cancelled = true;
+			saveReadyRef.current = false;
 		};
 		// readContent/readOriginalContent 是稳定的 API 回调（上层已 useCallback），
 		// 不参与 effect deps，避免父组件因其他状态变化重渲染时反复加载文件导致编辑器重置到顶部。
@@ -279,65 +285,57 @@ export function FileDiffViewer(props: {
 		}
 	}
 
-	// 从实时内容镜像取值，而不是从 state 闭包取值：debounce timer/快捷键回调
-	// 可能仍属于上一次 render，但 input 事件已经把最新文本写入 ref。
-	const getLatestContent = useCallback(() => contentRef.current, []);
-
 	// 自动保存：编辑停止 500ms 后静默落盘（仅 allowSave 的文件），Ctrl+S 立即保存并取消挂起的自动保存。
 	const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	// 最近一次落盘内容快照：内容未变时跳过保存，避免重复写盘
 	const lastSavedRef = useRef("");
 	// FileDiffViewer 在切换 Tab 时复用实例；用代数阻止旧文件的异步保存结果污染新 Tab。
 	const saveGenerationRef = useRef(0);
+	const saveReadyRef = useRef(false);
+	const savePendingRef = useRef<Promise<boolean> | null>(null);
 
-	// 切换文件/Tab 或外部缓存内容时，取消旧文件的 debounce 保存并令进行中的保存失效。
-	// 否则旧 timer 可能在新文件已挂载后调用旧 render 的 saveNow，覆盖新文件状态。
-	useEffect(() => {
-		saveGenerationRef.current += 1;
+	const saveNow = useCallback((): Promise<boolean> => {
 		if (saveTimerRef.current) {
 			clearTimeout(saveTimerRef.current);
 			saveTimerRef.current = null;
 		}
-		contentRef.current = "";
-		lastSavedRef.current = "";
-		setSaving(false);
-	}, [props.activeTabId, props.filePath, props.fileTarget?.projectId, props.fileTarget?.relativePath, props.originalContent, props.modifiedContent, props.fileAccessScope?.projectId, isDiffMode]);
-
-	const saveNow = useCallback(async (): Promise<boolean> => {
-		if (saveTimerRef.current) {
-			clearTimeout(saveTimerRef.current);
-			saveTimerRef.current = null;
-		}
-		if (isDiffMode || !props.saveContent) return true;
-		const latest = getLatestContent();
-		if (latest === lastSavedRef.current) return true;
+		const saveContent = props.saveContent;
+		if (isDiffMode || !saveContent) return Promise.resolve(true);
+		if (!saveReadyRef.current) return Promise.resolve(!dirtyRef.current);
+		if (savePendingRef.current) return savePendingRef.current;
 		const saveGeneration = saveGenerationRef.current;
 		const savePath = fileAccessPath;
-		setSaving(true);
-		try {
-			await props.saveContent(savePath, latest, props.fileAccessScope);
-			// Tab 已切换时，旧请求即使完成也不能改动新 Tab 的 dirty/content 状态。
-			if (saveGeneration !== saveGenerationRef.current) return true;
-			lastSavedRef.current = latest;
-			// 保存期间用户可能继续输入；只有没有更新过才可以清除 dirty，
-			// 绝不能把保存开始时的快照重新 set 回编辑器。
-			if (contentRef.current === latest) {
-				setDirty(false);
-				reportDirty(false);
+		// 所有调用等待同一个串行任务；期间继续输入时保存最新文本，安装前置检查也必须等它落盘。
+		const save = async (): Promise<boolean> => {
+			setSaving(true);
+			try {
+				while (saveGeneration === saveGenerationRef.current) {
+					const latest = contentRef.current;
+					if (latest === lastSavedRef.current) {
+						setDirty(false);
+						reportDirty(false);
+						setSaveError(null);
+						return true;
+					}
+					await saveContent(savePath, latest, props.fileAccessScope);
+					if (saveGeneration !== saveGenerationRef.current) return false;
+					lastSavedRef.current = latest;
+				}
+				return false;
+			} catch (e) {
+				// 失败不清 dirty/缓冲；旧文件请求不能污染新 Tab。
+				if (saveGeneration === saveGenerationRef.current) setSaveError(fileLoadErrorMessage(e));
+				return false;
+			} finally {
+				if (saveGeneration === saveGenerationRef.current) setSaving(false);
 			}
-			setSaveError(null);
-			return true;
-		} catch (e) {
-			if (saveGeneration === saveGenerationRef.current) {
-				// 保存失败保留 dirty，用户可继续编辑后由下一次自动保存/Ctrl+S 重试；
-				// 失败本身升格为可见横幅（Wave 5）：静默失败会让用户以为已保存。
-				setSaveError(e instanceof Error ? e.message : String(e));
-			}
-			return false;
-		} finally {
-			if (saveGeneration === saveGenerationRef.current) setSaving(false);
-		}
-	}, [getLatestContent, isDiffMode, props.saveContent, props.filePath, props.fileTarget?.projectId, props.fileTarget?.relativePath, props.fileAccessScope?.projectId]);
+		};
+		const pending = save().finally(() => {
+			if (savePendingRef.current === pending) savePendingRef.current = null;
+		});
+		savePendingRef.current = pending;
+		return pending;
+	}, [isDiffMode, props.saveContent, props.filePath, props.fileTarget?.projectId, props.fileTarget?.relativePath, props.fileAccessScope?.projectId]);
 
 	// 更新安装会直接终止 Electron；把活跃文本编辑器的防抖保存提升为可等待的前置任务。
 	useEffect(() => {
@@ -358,11 +356,12 @@ export function FileDiffViewer(props: {
 	}, [isDiffMode, props.saveContent, saveNow, setUpdateInstallPreflightTasks, updateInstallPreflightId]);
 
 	const scheduleAutoSave = useCallback(() => {
-		if (!props.saveContent) return;
+		if (!props.saveContent || !saveReadyRef.current) return;
 		if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+		const generation = saveGenerationRef.current;
 		saveTimerRef.current = setTimeout(() => {
 			saveTimerRef.current = null;
-			void saveNow();
+			if (generation === saveGenerationRef.current) void saveNow();
 		}, 500);
 	}, [props.saveContent, saveNow]);
 
@@ -403,6 +402,7 @@ export function FileDiffViewer(props: {
 
 	const handleEditorChange = useCallback(
 		(value: string) => {
+			if (!saveReadyRef.current || readOnlyView) return;
 			// 先写 ref 再触发 React 更新，保证 debounce timer 不会保存上一个 render 的值。
 			contentRef.current = value;
 			setContent(value);
@@ -411,7 +411,7 @@ export function FileDiffViewer(props: {
 			props.onDirty?.();
 			scheduleAutoSave();
 		},
-		[scheduleAutoSave, props.onDirty],
+		[scheduleAutoSave, props.onDirty, readOnlyView],
 	);
 
 	// 编辑器选中文本 → 右键「引用选中内容」：以 pi 的 read 语法 @path:start-end 派发到输入框。
@@ -614,7 +614,7 @@ export function FileDiffViewer(props: {
 										</div>
 									}
 								>
-									<CodeMirrorEditor value={content} language={language} readOnly={readOnlyView} initialLine={props.initialLine} onChange={handleEditorChange} onAttachSelection={handleAttachSelection} />
+									<CodeMirrorEditor value={content} lineSeparator={lineSeparatorRef.current} language={language} readOnly={readOnlyView} initialLine={props.initialLine} onChange={handleEditorChange} onAttachSelection={handleAttachSelection} />
 								</Suspense>
 							</div>
 						)}

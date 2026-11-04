@@ -5,7 +5,6 @@ import { AgentIcon } from "../AgentIcon";
 import { Badge } from "../../ui-shadcn/badge";
 import { Button } from "../../ui-shadcn/button";
 import { AGENT_CATEGORY_LABEL_KEYS } from "./AgentMarketCategoryChips";
-import { AgentUseTargetMenu, type AgentUseTarget } from "./AgentUseTargetMenu";
 import { agentBackendLabel } from "./agentBackendOptions";
 import { useAgentMarketActions } from "./useAgentMarketActions";
 
@@ -19,24 +18,20 @@ function agentModelLabel(agent: AgentProfile): string {
 interface AgentMarketDetailProps {
 	agent: AgentProfile;
 	selectionDefault: boolean;
-	/** 「使用」正在为这个智能体建会话：按钮显示 loading，避免连点建出多个绑定会话。 */
+	/** 「使用」正在为这个智能体打开新会话页：按钮显示 loading，避免连点重复导航。 */
 	usePending: boolean;
-	/** 有任意智能体正在建会话：菜单项一并置灰（否则点了会被 workspace 的 guard 静默吞掉）。 */
-	useBusy: boolean;
 	onClose: () => void;
-	/** 「使用」选定工作目录后在所选项目新建会话。 */
-	onUse: (agent: AgentProfile, projectId: string) => void;
+	/** 「使用」：带着该智能体打开新会话页，目录在输入框上方选，发送时才建会话。 */
+	onUse: (agent: AgentProfile) => void;
 	onEdit: (agent: AgentProfile) => void;
 	onRequestDelete: (agent: AgentProfile) => void;
-	/** 「使用」的目录选择菜单上下文。 */
-	useTarget: AgentUseTarget;
 }
 
 /**
  * 右侧详情面板：完整角色设定预览 + 全套操作（使用/编辑/复制/设为划词默认/恢复内置/删除）。
  * 卡片悬停行只放高频操作，低频与危险操作在这里都有带文字的入口，不需要用户去猜图标。
  */
-export function AgentMarketDetail({ agent, selectionDefault, usePending, useBusy, onClose, onUse, onEdit, onRequestDelete, useTarget }: AgentMarketDetailProps) {
+export function AgentMarketDetail({ agent, selectionDefault, usePending, onClose, onUse, onEdit, onRequestDelete }: AgentMarketDetailProps) {
 	const actions = useAgentMarketActions();
 	const usage = agent.usageCount > 0 ? t("agentMarket.usage", { count: agent.usageCount }) : t("agentMarket.neverUsed");
 
@@ -94,11 +89,9 @@ export function AgentMarketDetail({ agent, selectionDefault, usePending, useBusy
 
 			<footer className="flex shrink-0 flex-col gap-1.5 border-t border-border/40 px-4 py-3">
 				<div className="flex items-center gap-1.5">
-					<AgentUseTargetMenu useTarget={useTarget} pending={usePending || useBusy} onPick={(projectId) => onUse(agent, projectId)}>
-						<Button type="button" size="sm" className="h-8 flex-1 text-xs" title={t("agentMarket.useInSessionHint")} loading={usePending}>
-							{t("agentMarket.use")}
-						</Button>
-					</AgentUseTargetMenu>
+					<Button type="button" size="sm" className="h-8 flex-1 text-xs" title={t("agentMarket.useInSessionHint")} loading={usePending} onClick={() => onUse(agent)}>
+						{t("agentMarket.use")}
+					</Button>
 					<Button type="button" variant="outline" size="sm" className="h-8 flex-1 gap-1.5 text-xs" onClick={() => onEdit(agent)}>
 						<Pencil className="size-3.5" aria-hidden="true" />
 						{t("agentMarket.edit")}

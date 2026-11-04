@@ -12,10 +12,12 @@
  */
 
 import type { AgentMemorySource } from "./agentMemoryMounts";
-import { addMemory, MemoryToolError } from "../../../resources/agent-memory/tools.mjs";
+import type { AgentTab } from "../../shared/types/agent";
+import { addMemory, MemoryToolError, type AddMemoryResult } from "../../../resources/agent-memory/tools.mjs";
 import { indexSources } from "../../../resources/agent-memory/sessions.mjs";
 import { sessionMessages } from "../../../resources/agent-memory/db.mjs";
-import { AUTO_LEARN_MESSAGE_LIMIT, AUTO_LEARN_SYSTEM_PROMPT, buildTranscript, countUserTurns, parseLearnedEntries, readLearnState, shouldLearn, markLearned, writeLearnState, type LearnState } from "./autoLearn";
+import { exportEntryId } from "../../../resources/agent-memory/sync.mjs";
+import { AUTO_LEARN_MESSAGE_LIMIT, AUTO_LEARN_SYSTEM_PROMPT, buildTranscript, parseLearnedEntries, readLearnState, shouldLearn, markLearned, writeLearnState, type LearnState } from "./autoLearn";
 
 /** 会话来源沿用挂载描述里的定义：服务器与学习循环必须索引同一组目录。 */
 export type { AgentMemorySource } from "./agentMemoryMounts";
@@ -35,7 +37,7 @@ export type LearnerDeps = {
 	logger?: LearnerLogger;
 	now?: () => Date;
 	/** 便于单测替换写入口；默认就是工具层 addMemory。 */
-	addEntry?: (input: { target: string; content: string; category?: string; projectId: string }) => { duplicate?: boolean };
+	addEntry?: (input: { target: string; content: string; category?: string; projectId: string }) => Pick<AddMemoryResult, "duplicate" | "scope" | "projectId">;
 };
 
 export type LearnerOutcome = {
@@ -49,6 +51,16 @@ export type LearnerOutcome = {
 	/** 模型调用或解析失败的错误码（不抛出）。 */
 	error?: string;
 };
+
+/** 结算入口保留 catalog 身份给模型选择；索引身份由后端会话决定。 */
+export function runLearnerForAgent(deps: Omit<LearnerDeps, "complete"> & { complete: (deckSessionId: string, input: { systemPrompt: string; text: string }) => Promise<string> }, tab: Pick<AgentTab, "backend" | "sessionId" | "deckSessionId" | "projectId">): Promise<LearnerOutcome> {
+	const deckSessionId = tab.deckSessionId;
+	const backend = tab.backend ?? "pi";
+	if (!deckSessionId || !tab.sessionId || (backend !== "pi" && backend !== "acp" && backend !== "dsh")) return Promise.resolve({ ran: false, skipped: "no-session" });
+	// 与 sessions.mjs 的索引主键一致；catalog ID 只供会话模型回退查找。
+	const sessionId = backend === "pi" ? tab.sessionId : `${backend}:${tab.sessionId}`;
+	return runLearnerPass({ ...deps, complete: (input) => deps.complete(deckSessionId, input) }, { sessionId, projectId: tab.projectId });
+}
 
 /** 同一时刻只跑一趟：学习是后台增益，不需要并发，也不该和用户操作抢模型通道。 */
 let inFlight: Promise<LearnerOutcome> | null = null;
@@ -93,6 +105,7 @@ async function runPass(deps: LearnerDeps, input: { sessionId?: string; projectId
 		output = await deps.complete({ systemPrompt: AUTO_LEARN_SYSTEM_PROMPT, text: transcript });
 	} catch (error) {
 		// 模型不可用/超时/被取消：不动进度，下次满足阈值时再试。
+		deps.logger?.warn("agent-memory", "learn: completion failed", { sessionId, error: describe(error) });
 		return { ran: false, error: describe(error), userTurns };
 	}
 
@@ -100,14 +113,19 @@ async function runPass(deps: LearnerDeps, input: { sessionId?: string; projectId
 	const rejected = parsed.rejected.map((entry) => `${entry.reason}@${entry.index}`);
 	let added = 0;
 	let duplicate = 0;
+	const addedEntryIds: string[] = [];
 	for (const entry of parsed.entries) {
 		// target=project 需要真实项目 id：没有项目上下文时退化成全局经验，
 		// 而不是当失败丢弃——模型无从得知当前是哪个项目。
 		const target = entry.target === "project" && !projectId ? "memory" : entry.target;
 		try {
 			const outcome = deps.addEntry ? deps.addEntry({ target, content: entry.content, category: entry.category, projectId }) : addMemory(root, { target, content: entry.content, category: entry.category, projectId });
-			if (outcome?.duplicate) duplicate += 1;
-			else added += 1;
+			if (outcome.duplicate) duplicate += 1;
+			else {
+				added += 1;
+				// 用写入口返回的真实作用域，避免把全局 user/memory 错记到当前项目。
+				addedEntryIds.push(exportEntryId({ target: target === "project" ? "memory" : target, scope: outcome.scope, projectKey: outcome.projectId, content: entry.content }));
+			}
 		} catch (error) {
 			// 工具层闸门（扫描命中注入/密钥、预算裁剪、目标非法）在这里统一拒收。
 			rejected.push(error instanceof MemoryToolError ? error.message : describe(error));
@@ -116,7 +134,7 @@ async function runPass(deps: LearnerDeps, input: { sessionId?: string; projectId
 
 	// 只有真的调用过模型才推水位：模型失败时不该把这一段会话标记成「已学」。
 	try {
-		writeLearnState(root, markLearned(readLearnState(root), sessionId, userTurns, now.toISOString()));
+		writeLearnState(root, markLearned(readLearnState(root), sessionId, userTurns, now.toISOString(), addedEntryIds));
 	} catch (error) {
 		deps.logger?.warn("agent-memory", "learn: state write failed", { error: describe(error) });
 	}

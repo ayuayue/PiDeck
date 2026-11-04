@@ -116,6 +116,27 @@ test("bare capture keyword no longer claims screen capture for packet-capture to
 	assert.equal(cua.verb, "截图");
 });
 
+// 2026-11 用户反馈「读记忆的 MCP 调用被显示成派出子代理」：`mcp__<server>__<tool>` 里的 server
+// 名同样由第三方/用户自定（宿主记忆 server 叫 `pideck_agent_memory`），拿整条工具名做子串匹配
+// 时 server 名里的 `agent` 会截走 `memory_get` 这类无关工具。口径：名词猜语义的分支只拿
+// `<tool>` 段匹配，server 名不参与；工具段本身仍照常命中（`cua_type` → 「输入」）。
+test("MCP server namespace does not drive the verb dictionary", () => {
+	const get = loadPhrase("mcp__pideck_agent_memory__memory_get", { target: "user" });
+	assert.notEqual(get.verb, "派出子代理");
+	assert.equal(get.verb, "mcp__pideck_agent_memory__memory_get");
+	// target=user 不是通用可读参数（是记忆范围），不再变成动词旁的 chip
+	assert.equal(get.object, undefined);
+
+	const search = loadPhrase("mcp__pideck_agent_memory__memory_search", { query: "路由" });
+	assert.notEqual(search.verb, "派出子代理");
+
+	// server 名里的词不再截胡；工具段里的关键词照常命中
+	const typed = loadPhrase("mcp__pideck-cua__cua_type", { text: "你好" });
+	assert.equal(typed.verb, "输入");
+	const dispatch = loadPhrase("mcp__agent_hub__agent_dispatch", { prompt: "查一下路由" });
+	assert.equal(dispatch.verb, "派出子代理");
+});
+
 test("keyword dictionary covers subagent and git tool families with order guard", () => {
 	const dispatch = loadPhrase("Agent", { prompt: "查一下路由" });
 	assert.equal(dispatch.verb, "派出子代理");

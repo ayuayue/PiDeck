@@ -51,7 +51,7 @@ export function writeAtomic(filePath, content) {
  * @param {"memory"|"user"|"standing"|"failure"} target
  * @param {string} projectId 项目作用域 id；空串表示全局
  * @param {(entries: string[]) => { entries: string[], result: any }} mutator
- * @returns {{ changed: boolean, result: any, dropped: number, count: number }}
+ * @returns {{ changed: boolean, result: any, dropped: number, droppedEntries: string[], count: number }}
  */
 export function mutateEntries(root, target, projectId, mutator) {
 	const filePath = targetFilePath(root, target, projectId);
@@ -60,7 +60,7 @@ export function mutateEntries(root, target, projectId, mutator) {
 	const trimmed = trimEntries(dedupeEntries(next), FILE_BUDGETS[target]);
 	const rendered = renderEntries(trimmed.entries);
 	if (rendered !== renderEntries(before)) writeAtomic(filePath, rendered);
-	return { changed: rendered !== renderEntries(before), result, dropped: trimmed.dropped, count: trimmed.entries.length };
+	return { changed: rendered !== renderEntries(before), result, dropped: trimmed.dropped, droppedEntries: trimmed.droppedEntries, count: trimmed.entries.length };
 }
 
 /** 便捷包装：让 mutator 只关心「要追加什么」。 */

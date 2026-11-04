@@ -1451,7 +1451,7 @@ export function GitPanel(props: GitPanelProps) {
 
 	return (
 		<div ref={panelRef} data-pane-animating={paneAnimating || undefined} className={`git-panel flex min-h-0 flex-col overflow-hidden bg-bg-page-raised text-foreground${layout === "full" ? " h-full" : ""}`} aria-label={t("git.sourceControl")}>
-			{/* G4b：能力条置顶；只有宿主真正传入能力时才渲染（缺省零行为变化）。 */}
+			{/* G4b：能力条置顶；只在确有入口被关闭时显示（全可用时不占一行）。 */}
 			{props.gitCapabilities === undefined ? null : <RemoteGitCapabilityBanner git={gitCapabilities} items={SHARED_GIT_BANNER_ITEM_IDS} />}
 			{layout !== "historyOnly" && (
 				<>

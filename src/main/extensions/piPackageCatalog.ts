@@ -202,12 +202,17 @@ function buildCatalog(items: PiPackageCatalogItem[], query: PiPackageCatalogQuer
  */
 export async function getPiPackageCatalog(
 	args: PiPackageCatalogQuery & {
-		fetchImpl?: CatalogFetcher;
+		/**
+		 * 网络实现**必填**：缺省回退全局 fetch 会让目录页在代理环境下挂到超时
+		 * （Node undici 既不读系统代理也不读 Chromium session 代理）。调用方注入
+		 * Electron net.fetch，测试注入替身。
+		 */
+		fetchImpl: CatalogFetcher;
 		now?: () => number;
-	} = {},
+	},
 ): Promise<PiPackageCatalog> {
 	const now = args.now ?? Date.now;
-	const fetchImpl: CatalogFetcher = args.fetchImpl ?? fetch;
+	const { fetchImpl } = args;
 	const query = normalizeQuery(args);
 	const key = cacheKey(query);
 	const hit = cache.get(key);

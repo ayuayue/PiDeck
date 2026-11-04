@@ -309,6 +309,11 @@ export class ProjectStore implements HostRebindStorePort {
 					existing.wslDistro = wslIdentity.distro;
 					existing.wslUser = wslIdentity.user;
 					existing.wslHostId = wslIdentity.hostId;
+				} else if (environment !== undefined && existing.environment !== environment) {
+					// 无档案身份（全局 WSL 模式下按路径入库）：环境仍以本次添加为准。
+					// 典型场景是同一个 WSL 目录早先被记成 windows 项目（按路径添加时未带 environment），
+					// 不改写的话它会被可见性过滤掉，表现为「加进去了却找不到」。
+					existing.environment = environment;
 				}
 				// 外部已有 worktree 可能曾经作为顶级项目加入；开启工作区后需要补上父子关系。
 				if (worktreeParentId && existing.id !== worktreeParentId) {

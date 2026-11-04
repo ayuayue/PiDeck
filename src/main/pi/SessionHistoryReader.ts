@@ -92,6 +92,42 @@ export function collectSessionContextEdits(activeBranch: readonly ContextEditSou
 	return { excludedEntryIds, replacedEntryIds, replacementText };
 }
 
+/**
+ * 应用当前分支上生效的上下文编辑（展示层过滤 + 正文替换）。
+ *
+ * - excluded（`replacement: null`）：**从时间线上直接去掉**，不显示、不标记、
+ *   不折叠——用户按下删除就应当看不到它。
+ * - replaced：正文换成改写后的内容（否则刚做完的编辑看起来没生效），不加任何标记。
+ *
+ * 文件里两种情况的原文都原样保留（pi 的 append-only 语义），只是不再参与展示；
+ * 因此原始历史、导出与计费仍能看到它们，模型上下文也不再包含被移出的条目。
+ * 原文只有在没有可见文本块（纯图片/工具块）时才不替换正文，避免把有内容的
+ * 回答显示成空。
+ *
+ * 只认带 entryId 的消息：实时乐观消息 / 无 entryId 的系统卡片不参与。
+ *
+ * 展示层有两条投影链：停止态/历史页（readSessionDisplayMessages）与运行态窗口
+ * （AgentManager.loadMessages 从 JSONL 尾部读原始行后投影）。两条必须调同一个函数——
+ * 只在其中一条过滤，就会出现「删除后重启 Agent 消息又回来」（issue #482）。
+ */
+export function applySessionContextEdits(messages: ChatMessage[], contextEdits: SessionContextEditsDetail): ChatMessage[] {
+	if (contextEdits.excludedEntryIds.length === 0 && contextEdits.replacedEntryIds.length === 0) return messages;
+	const excluded = new Set(contextEdits.excludedEntryIds);
+	const replaced = new Set(contextEdits.replacedEntryIds);
+	const result: ChatMessage[] = [];
+	for (const message of messages) {
+		const entryId = typeof message.meta?.entryId === "string" ? message.meta.entryId : undefined;
+		if (!entryId) {
+			result.push(message);
+			continue;
+		}
+		if (excluded.has(entryId)) continue;
+		const replacementText = replaced.has(entryId) ? contextEdits.replacementText.get(entryId) : undefined;
+		result.push(replacementText === undefined ? message : { ...message, text: replacementText });
+	}
+	return result;
+}
+
 /** 分支树预览文本上限（字符）：导航级摘要足够定位消息，不需要全文。 */
 const BRANCH_PREVIEW_MAX_CHARS = 120;
 
@@ -394,6 +430,9 @@ type SessionDisplayIndex = {
 	 */
 	chainSources?: Array<{ hostPath: string; size: number; mtimeMs: number }>;
 };
+
+/** 索引来源（仅诊断日志用）：缓存命中 / 尾部增量 / sidecar 条目表 / TS 全量重建。 */
+type DisplayIndexSource = "cache" | "append" | "sidecar" | "rebuild";
 
 export type SessionArchiveData = {
 	compactions: Array<{
@@ -972,7 +1011,7 @@ export class SessionHistoryReader {
 				isTailWindow: true,
 				entryRendererTypes: options?.entryRendererTypes ?? [],
 			});
-			return this.applyContextEdits(this.applyCustomMessageCards(messages, cards, entries, 0, this.resolveCompactionInsertOffset(index)), index.contextEdits);
+			return applySessionContextEdits(this.applyCustomMessageCards(messages, cards, entries, 0, this.resolveCompactionInsertOffset(index)), index.contextEdits);
 		}
 		const content = sessionContent;
 		const entries: Array<{
@@ -1055,7 +1094,7 @@ export class SessionHistoryReader {
 			finalRaw = [...rawMessages.slice(0, insertAt), card, ...rawMessages.slice(insertAt)];
 		}
 
-		return this.applyContextEdits(this.deps.convertMessages(agentId, finalRaw, activeEntryIds), collectSessionContextEdits(activeBranch));
+		return applySessionContextEdits(this.deps.convertMessages(agentId, finalRaw, activeEntryIds), collectSessionContextEdits(activeBranch));
 	}
 
 	/**
@@ -1153,7 +1192,7 @@ export class SessionHistoryReader {
 				entryRendererTypes,
 			});
 			return {
-				messages: this.applyContextEdits(this.applyCustomMessageCards(messages, cards, entries, start, this.resolveCompactionInsertOffset(index)), index.contextEdits),
+				messages: applySessionContextEdits(this.applyCustomMessageCards(messages, cards, entries, start, this.resolveCompactionInsertOffset(index)), index.contextEdits),
 				total,
 				nextBefore: start > 0 ? start : null,
 				nextBeforeEntryId: start > 0 ? index.activeMessageEntries[start]?.id : undefined,
@@ -1173,7 +1212,7 @@ export class SessionHistoryReader {
 			entryRendererTypes,
 		});
 		return {
-			messages: this.applyContextEdits(this.applyCustomMessageCards(this.deps.convertMessages(agentId, rawMessages, roleMessageEntryIds(entries)), cards, entries, start), index.contextEdits),
+			messages: applySessionContextEdits(this.applyCustomMessageCards(this.deps.convertMessages(agentId, rawMessages, roleMessageEntryIds(entries)), cards, entries, start), index.contextEdits),
 			total,
 			nextBefore: start > 0 ? start : null,
 			nextBeforeEntryId: start > 0 ? index.activeMessageEntries[start]?.id : undefined,
@@ -1351,6 +1390,17 @@ export class SessionHistoryReader {
 	}
 
 	/**
+	 * 活动分支上最终生效的 context_edit（含改写文本），供运行态窗口做与停止态一致的投影。
+	 *
+	 * 删除/编辑只向文件追加 `context_edit`，原文行仍在尾部窗口里（readRecentMessages
+	 * 返回的是原始行）；运行态不应用这份过滤，启动 Agent 后被删消息就会「复活」（issue #482）。
+	 * 只读索引缓存，不额外解析文件。
+	 */
+	async getSessionContextEdits(sessionPath: string): Promise<SessionContextEditsDetail> {
+		return (await this.getSessionDisplayIndex(sessionPath)).contextEdits;
+	}
+
+	/**
 	 * 把范围内的 custom_message / custom 条目构造成时间线卡片（含插入偏移）。
 	 *
 	 * 为什么要在读侧合成：PiDeck 不写 pi 的会话文件（会话读写归 pi），而 pi 用
@@ -1491,38 +1541,6 @@ export class SessionHistoryReader {
 			const afterCompaction = hasCompactionCard && compactionInsertOffset !== undefined && offset >= compactionInsertOffset;
 			return messageIndexFromEntryOffset(windowEntries, offset, windowStart) + (afterCompaction ? 1 : 0);
 		});
-	}
-
-	/**
-	 * 应用当前分支上生效的上下文编辑（展示层过滤 + 正文替换）。
-	 *
-	 * - excluded（`replacement: null`）：**从时间线上直接去掉**，不显示、不标记、
-	 *   不折叠——用户按下删除就应当看不到它。
-	 * - replaced：正文换成改写后的内容（否则刚做完的编辑看起来没生效），不加任何标记。
-	 *
-	 * 文件里两种情况的原文都原样保留（pi 的 append-only 语义），只是不再参与展示；
-	 * 因此原始历史、导出与计费仍能看到它们，模型上下文也不再包含被移出的条目。
-	 * 原文只有在没有可见文本块（纯图片/工具块）时才不替换正文，避免把有内容的
-	 * 回答显示成空。
-	 *
-	 * 只认带 entryId 的消息：实时乐观消息 / 无 entryId 的系统卡片不参与。
-	 */
-	private applyContextEdits(messages: ChatMessage[], contextEdits: SessionContextEditsDetail): ChatMessage[] {
-		if (contextEdits.excludedEntryIds.length === 0 && contextEdits.replacedEntryIds.length === 0) return messages;
-		const excluded = new Set(contextEdits.excludedEntryIds);
-		const replaced = new Set(contextEdits.replacedEntryIds);
-		const result: ChatMessage[] = [];
-		for (const message of messages) {
-			const entryId = typeof message.meta?.entryId === "string" ? message.meta.entryId : undefined;
-			if (!entryId) {
-				result.push(message);
-				continue;
-			}
-			if (excluded.has(entryId)) continue;
-			const replacementText = replaced.has(entryId) ? contextEdits.replacementText.get(entryId) : undefined;
-			result.push(replacementText === undefined ? message : { ...message, text: replacementText });
-		}
-		return result;
 	}
 
 	/**
@@ -1685,12 +1703,12 @@ export class SessionHistoryReader {
 		return page;
 	}
 
-	private async getSessionDisplayIndex(sessionPath: string): Promise<SessionDisplayIndex> {
+	private async getSessionDisplayIndex(sessionPath: string, source?: { value: DisplayIndexSource }): Promise<SessionDisplayIndex> {
 		// toHostPath 只在 inner 解析一次：调用次数是可观测契约（诊断测试按调用序断言）
-		return this.getSessionDisplayIndexInner(sessionPath, 0, new Set());
+		return this.getSessionDisplayIndexInner(sessionPath, 0, new Set(), undefined, source);
 	}
 
-	private async getSessionDisplayIndexInner(sessionPath: string, depth: number, visited: Set<string>, guard?: PluginHistoryGuard): Promise<SessionDisplayIndex> {
+	private async getSessionDisplayIndexInner(sessionPath: string, depth: number, visited: Set<string>, guard?: PluginHistoryGuard, source?: { value: DisplayIndexSource }): Promise<SessionDisplayIndex> {
 		const hostPath = this.deps.toHostPath(sessionPath);
 		const version = await stat(hostPath);
 		// 插件读取走单槽缓存：不进桌面 LRU（32 文件无总量上限），内存只随最后一个会话 bounded。
@@ -1700,6 +1718,7 @@ export class SessionHistoryReader {
 				this.sessionDisplayIndexes.delete(hostPath);
 				this.sessionDisplayIndexes.set(hostPath, cached);
 			}
+			if (source) source.value = "cache";
 			return cached;
 		}
 
@@ -1716,6 +1735,7 @@ export class SessionHistoryReader {
 					this.sessionDisplayIndexes.set(hostPath, updated);
 					this.trimDisplayIndexCache();
 				}
+				if (source) source.value = "append";
 				return updated;
 			}
 			// 增量失败（IO 异常/无新增完整行）：回退全量重建
@@ -1736,6 +1756,7 @@ export class SessionHistoryReader {
 			}
 			const sidecarBranch = this.traceActiveBranch(sidecarEntries, sidecarLastEntryId);
 			const sidecarIndex = await this.mergeForkChain(hostPath, version, this.finishIndex(hostPath, version, sidecarEntries, sidecarBranch, sidecarTable.endsWithNewline), depth, visited, guard);
+			if (source) source.value = "sidecar";
 			return this.storeDisplayIndex(hostPath, guard, sidecarIndex);
 		}
 
@@ -1779,6 +1800,7 @@ export class SessionHistoryReader {
 		const endsWithNewline = scan.endsWithNewline;
 		const activeBranch = this.traceActiveBranch(entries, lastEntryId);
 		const index = await this.mergeForkChain(hostPath, version, this.finishIndex(hostPath, version, entries, activeBranch, endsWithNewline), depth, visited, guard);
+		if (source) source.value = "rebuild";
 		return this.storeDisplayIndex(hostPath, guard, index);
 	}
 
@@ -2054,8 +2076,15 @@ export class SessionHistoryReader {
 				// 的旧 offset 内容 → 返回 null，调用方回退全量重建。
 				// 合并索引（fork 链）首条目可能来自祖先文件：探针只取宿主自身条目，
 				// 否则用宿主句柄读祖先 offset 必然 id 不匹配 → 每次都误判回退全量重建。
-				const entriesInOrder = [...cached.entries.values()].filter((entry) => !entry.chainHostPath);
-				const probes = [entriesInOrder[0], entriesInOrder[entriesInOrder.length - 1]];
+				// 探针只取首/末两条宿主条目：`[...cached.entries.values()]` 每次 append 都要复制
+				// 整张条目表（万级条目），而下面只用到两条（#483）。
+				const hostEntries = { first: undefined as SessionDisplayEntry | undefined, last: undefined as SessionDisplayEntry | undefined };
+				for (const entry of cached.entries.values()) {
+					if (entry.chainHostPath) continue;
+					hostEntries.first ??= entry;
+					hostEntries.last = entry;
+				}
+				const probes = [hostEntries.first, hostEntries.last];
 				for (const probe of probes) {
 					if (!probe) continue;
 					const probeBuffer = Buffer.allocUnsafe(probe.byteLength);
@@ -2224,9 +2253,10 @@ export class SessionHistoryReader {
 	 */
 	async readRecentMessages(sessionPath: string, maxTurns: number): Promise<RpcResponse> {
 		const t0 = Date.now();
+		const indexSource: { value: DisplayIndexSource } = { value: "cache" };
 		let index: Awaited<ReturnType<SessionHistoryReader["getSessionDisplayIndex"]>>;
 		try {
-			index = await this.getSessionDisplayIndex(sessionPath);
+			index = await this.getSessionDisplayIndex(sessionPath, indexSource);
 		} catch (error) {
 			// 新会话竞态：创建空白会话后 pi 立即返回 sessionFile，但 JSONL 要到首条
 			// 消息才落盘——此刻读取 ENOENT 是「空历史」而不是加载失败（2026-09-14
@@ -2266,20 +2296,28 @@ export class SessionHistoryReader {
 		}
 		const total = index.activeMessageEntries.length;
 		const boundedTurns = Number.isFinite(maxTurns) && maxTurns > 0 ? Math.max(1, Math.floor(maxTurns)) : SessionHistoryReader.DEFAULT_TURN_PAGE_SIZE;
+		const indexEndedAt = Date.now();
 		// 启动窗口要完整保留最近 N 轮（分页页边界统一按轮计，无字节裁剪），
 		// 但极端会话里单轮可能有上千条，再叠一层条目预算（#213：2162 条一次下发 → 渲染 OOM）。
 		const start = boundTurnWindowStart(index.activeMessageEntries, total, boundedTurns, SessionHistoryReader.MAX_LOAD_WINDOW_ENTRIES);
 		const entries = index.activeMessageEntries.slice(start);
 		const rawMessages = await this.readIndexedSessionMessages(index.hostPath, entries);
+		const windowEndedAt = Date.now();
 		const trimmed = this.deps.trimMessages(rawMessages, boundedTurns);
 		const t1 = Date.now();
 
+		// 分阶段计时（#483）：readMs 单个数字分不清「索引重建 / 窗口读盘解析 / 投影裁剪」，
+		// 三者量级差一个数量级、修法完全不同，分开落日志才能定位下一次的成本回升。
 		void this.deps.logger?.info("agent", "Recent messages read from session file", {
 			sessionPath,
 			activeMessages: total,
 			messageEntries: rawMessages.length,
 			trimmedTurns: boundedTurns,
 			trimmedMessages: trimmed.length,
+			indexMode: indexSource.value,
+			indexMs: indexEndedAt - t0,
+			windowMs: windowEndedAt - indexEndedAt,
+			trimMs: t1 - windowEndedAt,
 			readMs: t1 - t0,
 		});
 
