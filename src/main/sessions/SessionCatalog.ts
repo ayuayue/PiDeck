@@ -31,6 +31,12 @@ import { looksLikeExpandedRefBlockTitle } from "../../shared/expandedRefBlocks";
 import { createSessionModelPreference } from "../../shared/modelDisplayName";
 import { buildSessionIdAliasMap } from "../../shared/sessionIdAliases";
 import { arbitrateRuntimeMergeTitle, isFileSession, mergeSourceGroupInto, repairSessionCatalogIdentities } from "./sessionCatalogIdentityRepair";
+import type { SessionTitleFallbackKind } from "./sessionNameLine";
+
+/** #488：存量的 fallback 标题只有「明显是正文摘录」才值得读盘自愈——人写的名字不会这么长。 */
+const FALLBACK_TITLE_PROBE_MIN_LENGTH = 120;
+/** 一次扫描最多为多少条 fallback 条目读盘自愈；其余留给后续扫描，不把启动变成大批量 JSON 解析。 */
+const FALLBACK_TITLE_PROBE_MAX_PER_SCAN = 32;
 
 /** 端口边界只允许稳定码（设计 §4.4）：recorder 自己的 needs-repair 码 + 收敛侧的"结果未知"。 */
 const SESSION_CATALOG_NEEDS_REPAIR = "SESSION_CATALOG_NEEDS_REPAIR";
@@ -276,7 +282,7 @@ export type SessionFilePathResolver = (projectId: string, filePath: string, envi
  * 用户 fork / 普通会话 / nicobailon 嵌套形态不返回该值。
  * forked 为 pi fork/branch 探测结果（parentSession header + 非 tintinweb 形态）：
  * 只做列表 (fork) 标记，不影响 parentSessionPath 的折叠语义。 */
-export type SessionTitleFetchResult = { name?: string; nameFromSessionInfo?: boolean; valid?: boolean; parentSessionPath?: string; forked?: boolean; fallbackName?: string; firstUserText?: string };
+export type SessionTitleFetchResult = { name?: string; nameFromSessionInfo?: boolean; valid?: boolean; parentSessionPath?: string; forked?: boolean; fallbackName?: string; fallbackKind?: SessionTitleFallbackKind; legacyFallbackName?: string; firstUserText?: string };
 
 /** collectScannedTitles 收集的补名结果：fromSessionInfo=false 表示首条消息弱回退，所有权只算 fallback（#266）。
  *  fallbackName 是本文件的弱兜底候选（首条 user/assistant 文本），与最终 name 取谁无关：
@@ -419,6 +425,23 @@ function repairedLegacyFallbackTitle(entry: Pick<SessionCatalogEntry, "title">, 
 /** 指纹比对前的归一化：折叠空白并去首尾空白，避免换行/多空格造成的假阴性。 */
 function normalizeFingerprintTitle(value: string | undefined): string {
 	return (value ?? "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * #488 存量自愈：旧版本把头窗口外的首条用户消息丢掉、又让 thinking 顶替正文，于是把一段思考原文
+ * 锁成了 fallback 标题（用户看到的就是「标题是一段思考」）。正文能读到后原地纠正。
+ *
+ * 比 #266 更严：源标签必须是 fallback（用户/扩展写下的名字不参与），现存标题必须逐字等于**旧口径**
+ * （含 thinking）兜底，本次读到的兜底必须来自 user 正文且与现存标题不同——三条同时成立才改写。
+ */
+function repairedThinkingFallbackTitle(lockedTitle: string, probe: { fallbackName?: string; fallbackKind?: SessionTitleFallbackKind; legacyFallbackName?: string }): string | undefined {
+	if (probe.fallbackKind !== "user") return undefined;
+	const fallback = catalogDisplayTitle(probe.fallbackName);
+	if (!fallback) return undefined;
+	const locked = normalizeFingerprintTitle(lockedTitle);
+	if (!locked || normalizeFingerprintTitle(fallback) === locked) return undefined;
+	if (normalizeFingerprintTitle(probe.legacyFallbackName) !== locked) return undefined;
+	return fallback;
 }
 
 /**
@@ -2069,7 +2092,7 @@ export class SessionCatalog implements HostRebindStorePort {
 		// 新发现文件用 pi JSONL 标题初始化 catalog；一旦 catalog 已有记录，后续扫描
 		// 只更新文件身份、预览和结构元数据，不能用 pi/TUI 的标题覆盖 PiDeck 名称。
 		// 同一次读取仍校验会话头：invalidOrigins 收集非有效会话文件，下面据此清洗与拒绝。
-		const { titles: fetchedTitles, legacyProbes: fetchedLegacyProbes, invalid: invalidOrigins, parents: fetchedParents, forked: fetchedForked } = await this.collectScannedTitles(summaries, context);
+		const { titles: fetchedTitles, legacyProbes: fetchedLegacyProbes, thinkingFallbackRepairs: fetchedThinkingFallbackRepairs, invalid: invalidOrigins, parents: fetchedParents, forked: fetchedForked } = await this.collectScannedTitles(summaries, context);
 
 		// 外部删除清理（在入锁前完成磁盘探测）：mergeScanned 历史上只增改不删，
 		// pi 会话文件被外部删除（pi 回收站、用户手工 rm、脚本清理）后条目会永远
@@ -2228,7 +2251,10 @@ export class SessionCatalog implements HostRebindStorePort {
 					// 避免每次扫描都为一个不可能自愈的条目读盘。读盘失败则保持 legacy 下次再试。
 					const legacyProbe = fetchedLegacyProbes.get(originKey);
 					const legacyRepair = legacyProbe ? repairedLegacyFallbackTitle(entry, summaryTitle && summary.nameFromSessionInfo === true ? { ...legacyProbe, authoritative: summaryTitle } : legacyProbe) : undefined;
-					const nextTitle = legacyRepair || (canAbsorbTitle ? initialTitle : undefined) || catalogDisplayTitle(entry.title) || scannedFileStemTitle(summary.filePath);
+					// #488 存量自愈：fallback 标题若被旧版本锁成 thinking 原文，笼统可读后原地纠正（origin 保持 fallback）。
+					// 排在权威名升级之后：真有 pi/用户写下的名字时以它为准。
+					const thinkingFallbackRepair = fetchedThinkingFallbackRepairs.get(originKey);
+					const nextTitle = legacyRepair || (canAbsorbTitle ? initialTitle : undefined) || thinkingFallbackRepair || catalogDisplayTitle(entry.title) || scannedFileStemTitle(summary.filePath);
 					// rollout 文件名标题（历史导入兑底）不锁定：留一次被真实标题覆盖的机会；
 					// 真实标题一旦落库即锁定，后续 pi /name 或 JSONL 变化不再反向改写。
 					// 未锁定条目吸收的新标题按来源升级：权威 session_info → manual，首条消息弱回退 → fallback。
@@ -2320,17 +2346,24 @@ export class SessionCatalog implements HostRebindStorePort {
 	 * 已锁定 catalog 标题不会因为文件 mtime 变化而补读：PiDeck 已持久化显示名，
 	 * 也不再关心 JSONL 中段或尾部追加的 session_info。标题读取仍顺带校验会话头、
 	 * 补平铺子代理父关系和 fork 标记。 */
-	private async collectScannedTitles(summaries: SessionSummary[], context: SessionCatalogContext): Promise<{ titles: Map<string, ScannedTitleFetch>; legacyProbes: Map<string, LegacyTitleProbe>; invalid: Set<string>; parents: Map<string, string>; forked: Map<string, boolean> }> {
+	/** #488 存量自愈：已探过的 fallback 条目（每进程一次）。与 #266 legacy 探测同构——
+	 *  命中即改、不命中不再重读，避免每次扫描都为一个不可能自愈的条目读盘。 */
+	private readonly probedFallbackTitles = new Set<string>();
+
+	private async collectScannedTitles(summaries: SessionSummary[], context: SessionCatalogContext): Promise<{ titles: Map<string, ScannedTitleFetch>; legacyProbes: Map<string, LegacyTitleProbe>; thinkingFallbackRepairs: Map<string, string>; invalid: Set<string>; parents: Map<string, string>; forked: Map<string, boolean> }> {
 		const titles = new Map<string, ScannedTitleFetch>();
 		// 只收录**读取成功**的 legacy 探测：读不到（权限/锁定/WSL 抖动）时条目保持 legacy，下次扫描再试，
 		// 否则一次瞬时失败就会把唯一的一次自愈机会消费掉。
 		const legacyProbes = new Map<string, LegacyTitleProbe>();
+		// #488：指纹命中的 fallback 重写结果（originKey → 新标题）。读不到同样不消费机会（见 worker）。
+		const thinkingFallbackRepairs = new Map<string, string>();
 		const invalid = new Set<string>();
 		const parents = new Map<string, string>();
 		const forked = new Map<string, boolean>();
-		if (!this.fetchTitle) return { titles, legacyProbes, invalid, parents, forked };
+		if (!this.fetchTitle) return { titles, legacyProbes, thinkingFallbackRepairs, invalid, parents, forked };
 		const byOrigin = new Map(this.entries.filter((entry) => entry.originKey).map((entry) => [entry.originKey!, entry]));
-		const wanted: Array<{ originKey: string; filePath: string; includeTitle: boolean; legacyProbe?: boolean; lockedTitle?: string }> = [];
+		const wanted: Array<{ originKey: string; filePath: string; includeTitle: boolean; legacyProbe?: boolean; fallbackProbe?: boolean; lockedTitle?: string }> = [];
+		let fallbackProbesQueued = 0;
 		for (const summary of summaries) {
 			const originKey = buildSummaryOriginKey(summary, context);
 			const existing = byOrigin.get(originKey);
@@ -2342,8 +2375,22 @@ export class SessionCatalog implements HostRebindStorePort {
 				// 命中即修、不命中转终态，一次读取收口，之后与其他锁定条目一样不再读盘。
 				const legacy = existing.source === "pi" && resolveTitleOrigin(existing) === "legacy";
 				const tintinwebOrphan = existing.source === "pi" && !existing.parentSessionPath && /^[^#]+#[0-9a-f]{8}$/i.test(existing.title);
+				// #488：旧版本把 thinking 原文锁成了 fallback 标题。只探「一眼是正文摘录」的长标题（FALLBACK_TITLE_PROBE_MIN_LENGTH），
+				// 每进程每条一次，且单次扫描限量（FALLBACK_TITLE_PROBE_MAX_PER_SCAN）——存量条目很多时
+				// 不能让启动退化成大批量 JSON 解析，剩下的留给后续扫描。
+				const thinkingFallback =
+					existing.source === "pi" &&
+					resolveTitleOrigin(existing) === "fallback" &&
+					normalizeFingerprintTitle(existing.title).length > FALLBACK_TITLE_PROBE_MIN_LENGTH &&
+					!this.probedFallbackTitles.has(originKey) &&
+					fallbackProbesQueued < FALLBACK_TITLE_PROBE_MAX_PER_SCAN;
 				if (legacy) wanted.push({ originKey, filePath: summary.filePath, includeTitle: true, legacyProbe: true, lockedTitle: existing.title });
 				else if (tintinwebOrphan) wanted.push({ originKey, filePath: summary.filePath, includeTitle: false });
+				else if (thinkingFallback) {
+					this.probedFallbackTitles.add(originKey);
+					fallbackProbesQueued += 1;
+					wanted.push({ originKey, filePath: summary.filePath, includeTitle: true, fallbackProbe: true, lockedTitle: existing.title });
+				}
 				continue;
 			}
 			// readSummary 全量路径已携带初始名称，无需再次读盘。
@@ -2352,7 +2399,7 @@ export class SessionCatalog implements HostRebindStorePort {
 			// read; every other locked record remains entirely out of this path.
 			wanted.push({ originKey, filePath: summary.filePath, includeTitle: true });
 		}
-		if (wanted.length === 0) return { titles, legacyProbes, invalid, parents, forked };
+		if (wanted.length === 0) return { titles, legacyProbes, thinkingFallbackRepairs, invalid, parents, forked };
 		// 有界并行读头部；限制并发避免 WSL 环境一次拉起过多 wsl.exe。
 		// 单个失败降级为无标题/不拒绝，不影响扫描结果。
 		const CONCURRENCY = 8;
@@ -2361,8 +2408,13 @@ export class SessionCatalog implements HostRebindStorePort {
 			while (cursor < wanted.length) {
 				const item = wanted[cursor++];
 				const result = await this.fetchTitle!(item.filePath, { includeTitle: item.includeTitle, ...(context.wslDistro ? { wslDistro: context.wslDistro } : {}), ...(context.wslUser ? { wslUser: context.wslUser } : {}) }).catch(() => undefined);
-				if (!result) continue;
-				if (item.includeTitle && result.name) {
+				if (!result) {
+					// 读不到（文件已删/权限/WSL 抖动）：归还 #488 自愈机会，下次扫描再试。
+					if (item.fallbackProbe) this.probedFallbackTitles.delete(item.originKey);
+					continue;
+				}
+				// fallback 探测只用于原地纠错，不登记为标题（否则会绕开既有的权威名升级/锁定规则）。
+				if (item.includeTitle && result.name && !item.fallbackProbe) {
 					// fromSessionInfo=false 是首条消息弱回退（#266）：所有权只能算 fallback，
 					// 缺省（旧 fetcher/未标记）按权威名处理，保持既有行为。
 					// 权威名本身是标记脏行（第三方上下文代理把它写进了 session_info）时不采信：
@@ -2394,6 +2446,10 @@ export class SessionCatalog implements HostRebindStorePort {
 						: undefined;
 					legacyProbes.set(item.originKey, { authoritative, fallback: result.fallbackName, firstUserText });
 				}
+				if (item.fallbackProbe) {
+					const repaired = repairedThinkingFallbackTitle(item.lockedTitle ?? "", { fallbackName: result.fallbackName, fallbackKind: result.fallbackKind, legacyFallbackName: result.legacyFallbackName });
+					if (repaired) thinkingFallbackRepairs.set(item.originKey, repaired);
+				}
 				// valid 显式为 false 才拒绝；缺省（读不到/未校验）保留原行为
 				if (result.valid === false) invalid.add(item.originKey);
 				// 平铺子代理（tintinweb 形态）回补父关系：来源只推断自 filename，
@@ -2405,7 +2461,7 @@ export class SessionCatalog implements HostRebindStorePort {
 			}
 		});
 		await Promise.all(workers);
-		return { titles, legacyProbes, invalid, parents, forked };
+		return { titles, legacyProbes, thinkingFallbackRepairs, invalid, parents, forked };
 	}
 
 	private sessionLocatorForEntry(entry: SessionCatalogEntry, summary?: SessionSummary): SessionLocator | undefined {

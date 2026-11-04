@@ -31,6 +31,8 @@ import {
 	type ForkHistoryBoundary,
 	type SessionScanLine,
 	type SessionScanMessage,
+	type SessionTitleFallbackKind,
+	type SessionTitleInference,
 } from "./sessionNameLine";
 import { SessionSummaryCache, type SessionFileVersion } from "./sessionSummaryCache";
 import { rewriteJsonlLines, scanJsonlLines, type JsonlLineContext } from "./jsonlLineStream";
@@ -2122,7 +2124,7 @@ export class SessionScanner {
 	 * `includeTitle=true` 时有界读取头尾，并在小会话中精确扫描最后一个 session_info。
 	 * `false` 时只读取有界头部，供已锁定 catalog 记录补结构元数据而不触碰标题窗口。
 	 */
-	private async readHeadAndInfer(filePath: string, includeTitle = true): Promise<{ raw: string; name: string | undefined; nameFromSessionInfo: boolean; fallbackName?: string } | null> {
+	private async readHeadAndInfer(filePath: string, includeTitle = true): Promise<{ raw: string; name: string | undefined; nameFromSessionInfo: boolean; fallbackName?: string; fallbackKind?: SessionTitleFallbackKind; legacyFallbackName?: string } | null> {
 		const isWsl = this.isWslPath(filePath);
 		try {
 			const windowBytes = SessionScanner.SUMMARY_NAME_WINDOW_BYTES;
@@ -2138,18 +2140,49 @@ export class SessionScanner {
 			}
 			// 头/尾窗口边界可能截断半行；inferSessionTitleFromLines 会跳过不可解析行。
 			const inferred = inferSessionTitleFromLines(titleText.split(/\r?\n/).filter(Boolean), (content) => this.extractText(content));
+			// #488：窗口里没有 user 正文（首条用户消息单行 88KB 被 64KB 头窗口整行切掉、尾部又落在 assistant
+			// thinking 上）时，兜底会退化成思考原文。有权威名时不追：标题不靠首条消息。
+			const effective =
+				!inferred.fromSessionInfo && inferred.fallbackKind !== "user" && version.size > windowBytes
+					? await this.preferUserBodyFallback(filePath, isWsl, version.size, inferred)
+					: inferred;
 			if (version.size <= SessionScanner.SUMMARY_NAME_FULL_SCAN_MAX_BYTES && version.size > windowBytes) {
 				const latestSessionInfoName = await this.inferLatestSessionInfoFromSmallFile(filePath, version.size, readForkHistoryBoundary(head.split(/\r?\n/).filter(Boolean)));
 				if (latestSessionInfoName) {
 					// 权威名赢，但弱兜底候选仍要带出去（legacy 存量条目的指纹比对基准）。
-					return { raw: head, name: latestSessionInfoName, nameFromSessionInfo: true, fallbackName: inferred.fallbackName };
+					return { raw: head, name: latestSessionInfoName, nameFromSessionInfo: true, fallbackName: effective.fallbackName, fallbackKind: effective.fallbackKind, legacyFallbackName: effective.legacyFallbackName };
 				}
 			}
-			return { raw: head, name: inferred.name, nameFromSessionInfo: inferred.fromSessionInfo, fallbackName: inferred.fallbackName };
+			return { raw: head, name: effective.name, nameFromSessionInfo: effective.fromSessionInfo, fallbackName: effective.fallbackName, fallbackKind: effective.fallbackKind, legacyFallbackName: effective.legacyFallbackName };
 		} catch {
 			// 读不到（权限/锁定/不存在）：返回 null，调用方按 best-effort 处理，不拒绝文件。
 			return null;
 		}
+	}
+
+	/**
+	 * 单调续读标题前缀，直到拿到 user 正文或到上界（#488）。
+	 *
+	 * 头/尾窗口只有 64KB：首条用户消息内嵌 AGENTS.md/系统提示时单行就有几十 KB，整行不可解析 →
+	 * 兜底只能退到尾部某条 assistant/thinking。这里从头往后读（沿用 #266 inferFirstMessageTitle
+	 * 的单调前缀语义），先 256KB、必要时 SUMMARY_NAME_FULL_SCAN_MAX_BYTES，拿到 user 正文即停。
+	 * 注意 legacyFallbackName 保留原窗口的值：catalog 里被旧版本锁住的正是那个窗口猜出来的文本。
+	 */
+	private async preferUserBodyFallback(filePath: string, isWsl: boolean, fileSize: number, windowed: SessionTitleInference): Promise<SessionTitleInference> {
+		const limit = Math.min(fileSize, SessionScanner.SUMMARY_NAME_FULL_SCAN_MAX_BYTES);
+		const firstStep = Math.min(SessionScanner.SUMMARY_NAME_WINDOW_BYTES * 4, limit);
+		for (const bytes of firstStep === limit ? [limit] : [firstStep, limit]) {
+			try {
+				const prefix = isWsl ? await this.readWslFileHead(filePath, bytes) : await this.readLocalFilePrefix(filePath, bytes);
+				const inferred = inferSessionTitleFromLines(prefix.split(/\r?\n/).filter(Boolean), (content) => this.extractText(content));
+				if (inferred.fallbackName && (inferred.fallbackKind === "user" || bytes === limit)) {
+					return { ...windowed, name: inferred.fallbackName, fallbackName: inferred.fallbackName, fallbackKind: inferred.fallbackKind };
+				}
+			} catch {
+				return windowed;
+			}
+		}
+		return windowed;
 	}
 
 	/**
@@ -2201,7 +2234,7 @@ export class SessionScanner {
 	 * provisional 标题阶段采用该名称，后续 pi/TUI 改名不会覆盖 PiDeck 显示标题。
 	 * `includeTitle:false` 只返回头部有效性和结构元数据，不读取尾部或小文件全文。
 	 */
-	async inferSessionNameAndValidity(filePath: string, options: { includeTitle?: boolean; includeFirstUserText?: boolean } = {}): Promise<{ name?: string; nameFromSessionInfo?: boolean; valid?: boolean; parentSessionPath?: string; forked?: boolean; fallbackName?: string; firstUserText?: string }> {
+	async inferSessionNameAndValidity(filePath: string, options: { includeTitle?: boolean; includeFirstUserText?: boolean } = {}): Promise<{ name?: string; nameFromSessionInfo?: boolean; valid?: boolean; parentSessionPath?: string; forked?: boolean; fallbackName?: string; fallbackKind?: SessionTitleFallbackKind; legacyFallbackName?: string; firstUserText?: string }> {
 		const head = await this.readHeadAndInfer(filePath, options.includeTitle !== false);
 		if (!head) return {};
 		const parentSessionPath = await this.detectFlatSubagentParentFromHead(filePath, head.raw);
@@ -2209,7 +2242,7 @@ export class SessionScanner {
 		// #266 存量自愈的第二指纹基准：只有真首句才和当年锁进 catalog 的标题可比。调用方仅在
 		// 「窗口兜底对不上目录标题」时才要（多一次有界读），默认不读。
 		const firstUserText = options.includeFirstUserText ? await this.inferFirstMessageTitle(filePath) : undefined;
-		return { name: head.name, nameFromSessionInfo: head.nameFromSessionInfo, valid: isValidPiSessionFileHead(head.raw), parentSessionPath, forked: forked || undefined, fallbackName: head.fallbackName, firstUserText };
+		return { name: head.name, nameFromSessionInfo: head.nameFromSessionInfo, valid: isValidPiSessionFileHead(head.raw), parentSessionPath, forked: forked || undefined, fallbackName: head.fallbackName, fallbackKind: head.fallbackKind, legacyFallbackName: head.legacyFallbackName, firstUserText };
 	}
 
 	/**
