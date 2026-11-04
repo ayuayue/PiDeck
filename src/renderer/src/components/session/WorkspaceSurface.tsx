@@ -26,6 +26,7 @@ import { FILE_TREE_RENDER_BATCH } from "../../utils/fileTreeRenderBudget";
 import { FileTreeNodeRow } from "./FileTreeRows";
 import { SessionsPanel } from "./SessionHistoryPanel";
 import { isEditableTarget, isFileSearchShortcut, isTypeToSearchKey } from "../../utils/fileSearchTrigger";
+import { requestEditorFind } from "../../utils/editorFindBridge";
 
 // 兼容导出：会话历史弹窗已迁到 SessionHistoryPanel（> 600 行红线），
 // SurfaceComponents 的「DrawerContent / SessionFileSummary / SessionHistoryModal」汇总出口保持不变。
@@ -272,10 +273,13 @@ function FilesPanelBody(props: FilesPanelProps & { services: ProjectServices | n
 		}
 		// 搜索要项目 id 才能扫盘：没有选中项目时连入口都不渲染，快捷键也不应响应
 		if (!props.projectId) return;
-		// Ctrl+F / ⌘F：在面板内打开搜索视图（挡掉宿主自带查找栏）；焦点在输入框里时不抢键
+		// Ctrl+F / ⌘F：焦点在输入框里时不抢键。有文件在编辑器里打开时先让给编辑器查找——
+		// 用户从文件树点开文件后焦点仍在树行上，此时最想要的是「在当前文件里找」，
+		// 而不是「按文件名再找一个文件」；没有编辑器可查才回落到面板自己的文件名搜索。
 		if (isFileSearchShortcut(event)) {
 			if (isEditableTarget(event.target)) return;
 			event.preventDefault();
+			if (requestEditorFind()) return;
 			setSearchOpen(true);
 			return;
 		}

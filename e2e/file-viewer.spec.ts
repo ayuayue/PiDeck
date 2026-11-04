@@ -85,3 +85,20 @@ test("Ctrl+F opens the find panel even when focus is outside the editor", async 
 	await window.keyboard.type("hello");
 	await expect(window.locator(".cm-searchMatch").first()).toBeVisible({ timeout: 5_000 });
 });
+
+/**
+ * 用户实际路径：从文件树点开文件后焦点还停在树行上（file-node-row button），
+ * 此时 Ctrl+F 必须进编辑器查找，而不是打开抽屉的「按文件名搜索」。
+ * 面板的搜索仍有工具行放大镜与「输入即搜索」两个入口，不靠这个快捷键。
+ */
+test("Ctrl+F right after opening a file finds in the file, not in the file tree", async ({ window }) => {
+	await openFileInWorkbench(window);
+	await expect(window.locator(".cm-editor").first()).toBeVisible({ timeout: 15_000 });
+	// 焦点确实还在文件树上（点文件行不会把焦点交给编辑器）
+	expect(await window.evaluate(() => Boolean((document.activeElement as HTMLElement | null)?.closest(".files-panel")))).toBe(true);
+
+	await window.keyboard.press(process.platform === "darwin" ? "Meta+f" : "Control+f");
+
+	await expect(window.locator(".cm-search").first()).toBeVisible({ timeout: 5_000 });
+	await expect(window.locator(".file-search-input")).toHaveCount(0);
+});
