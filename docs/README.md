@@ -62,6 +62,7 @@
 | [main-index-split-plan.md](main-index-split-plan.md) | 巨文件拆分方法（AGENTS.md 路由引用）：Wave 1 已落地，后续只许单调下降 |
 | [app-tsx-split-plan.md](app-tsx-split-plan.md) | 同上（App.tsx）：Wave 1–3 已落地，JSX 装配拆分未做 |
 | [agent-manager-split-plan.md](agent-manager-split-plan.md) | 同上（AgentManager.ts）：Wave 1–4 已落地，新增状态机域必须建协作者模块 |
+| [acp-replay-batching-plan.md](acp-replay-batching-plan.md) | ACP 重放卡顿：先测量再改，分「增量尾部 → 窗口化 → 分块投递」三阶段；未实现 |
 
 ## 4. 代码/测试引用与归档
 

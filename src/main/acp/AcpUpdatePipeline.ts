@@ -13,6 +13,7 @@ import type { AgentTab } from "../../shared/types/agent";
 import type { AcpConfigOption, AcpRpcNotification, AcpSessionUpdate, AcpToolCallUpdate } from "./acpProtocol";
 import type { AcpAgentRuntime } from "./acpAgentRuntime";
 import { projectAcpSessionUpdate } from "./AcpEventProjector";
+import { emitAgentMessageMeasured } from "../perf/messageFlushMeter";
 import type { AcpMessageSnapshotStore } from "./AcpMessageSnapshotStore";
 
 /** 流式消息 flush 节流:每 chunk 都 emit 会打爆 IPC(与 DSH 实测同因)。 */
@@ -164,12 +165,19 @@ export class AcpUpdatePipeline {
 			runtime.flushTimer = null;
 			runtime.flushPending = false;
 		}
-		this.host.emit(agentEventTags.agentsMessage, {
-			agentId: runtime.tab.id,
-			deckSessionId: runtime.tab.deckSessionId,
-			messages: runtime.projection.messages,
-			totalLength: runtime.projection.messages.length,
-		});
+		// 经计量口投递（Phase 0，PIDECK_PERF_LOG=1 时才记录）：重放终态这一次是全量，
+		// 体积与条数正是 docs/acp-replay-batching-plan.md 要测的数字。
+		emitAgentMessageMeasured(
+			"acp",
+			runtime.tab.id,
+			{
+				agentId: runtime.tab.id,
+				deckSessionId: runtime.tab.deckSessionId,
+				messages: runtime.projection.messages,
+				totalLength: runtime.projection.messages.length,
+			},
+			(payload) => this.host.emit(agentEventTags.agentsMessage, payload),
+		);
 		// 内存快照：stop/升级强杀后 runtime 删除，重入会话时 readMessagesByAcpSessionId
 		// 用它避免时间线空白；激活后 session/load 重放会覆盖为完整历史。
 		if (runtime.acpSessionId) {

@@ -133,6 +133,7 @@ import { ExtensionUiGate } from "./extensionUiGate";
 import type { ProjectTrustChoice } from "./projectTrustGate";
 
 export type { ProjectTrustChoice };
+import { emitAgentMessageMeasured } from "../perf/messageFlushMeter";
 import { isContextOverflowError } from "../../shared/contextOverflow";
 import { reasoningText } from "../../shared/reasoningText";
 
@@ -562,7 +563,9 @@ export class AgentManager {
 			computeDisplayWindowStart: (messages) => this.computeDisplayWindowStart(messages),
 			computeWindowStartFilePos: (agentId, messages, windowStart) => this.computeWindowStartFilePos(agentId, messages, windowStart),
 			sessionFileVersion: (agentId) => this.sessionFileVersionByAgent.get(agentId),
-			emitMessageFlush: (payload) => this.emit(agentEventTags.agentsMessage, payload),
+			// 经计量口投递（Phase 0，PIDECK_PERF_LOG=1 时才记录）：pi 已有增量/窗口化，
+			// 这一路作为 ACP 的对照基线。
+			emitMessageFlush: (payload) => emitAgentMessageMeasured("pi", payload.agentId, payload, (measured) => this.emit(agentEventTags.agentsMessage, measured)),
 			emitStreamingStatePatch: (agentId) => this.emitStreamingStatePatch(agentId),
 		});
 		// 启动期诊断队列（Wave 4A）：宿主回调只暴露时间线写入/toast/设置读取/warn 日志。

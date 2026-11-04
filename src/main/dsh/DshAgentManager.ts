@@ -18,6 +18,7 @@ import type {
 	SessionUiResponseInput,
 	TodoItem,
 } from "../../shared/types";
+import { emitAgentMessageMeasured } from "../perf/messageFlushMeter";
 import { isDshPermissionPreset } from "../../shared/types/agent";
 import type { SessionProcessEvent } from "../../shared/types/trajectory";
 // DSH 会话 id 品牌类型（零运行时成本，仅类型擦除）
@@ -2259,11 +2260,17 @@ export class DshAgentManager implements SessionAgentGateway {
 	}
 
 	private emitMessages(runtime: DshAgentRuntime): void {
-		this.emit(agentEventTags.agentsMessage, {
-			agentId: runtime.tab.id,
-			messages: runtime.messages,
-			...this.historyWindowFields(runtime),
-		});
+		// 经计量口投递（Phase 0，PIDECK_PERF_LOG=1 时才记录）：DSH 本就窗口化，作对照基线。
+		emitAgentMessageMeasured(
+			"dsh",
+			runtime.tab.id,
+			{
+				agentId: runtime.tab.id,
+				messages: runtime.messages,
+				...this.historyWindowFields(runtime),
+			},
+			(payload) => this.emit(agentEventTags.agentsMessage, payload),
+		);
 	}
 
 	/** 记录 attach 窗口的「窗口前还有更早历史」信息（判定规则见 resolveDshHistoryWindow）。 */
