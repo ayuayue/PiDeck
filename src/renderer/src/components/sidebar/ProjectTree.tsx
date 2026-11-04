@@ -25,7 +25,7 @@ import { SessionActivityIndicator } from "../session/SessionActivityIndicator";
 import { sessionDisplayName } from "../../utils/sessionDisplayName";
 import { displayProjectDirectoryName, isChatProject } from "../../rendererUtils";
 import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
-import { countPendingAsksForSessions, hasPendingAskForSession } from "../../utils/askUi";
+import { countPendingAsksForSessions, findFirstPendingAskSessionId, hasPendingAskForSession } from "../../utils/askUi";
 import type { AskRequestEntry } from "../../utils/askUi";
 import { PendingAskBadge } from "./PendingAskBadge";
 import { Button } from "../ui-shadcn/button";
@@ -72,10 +72,13 @@ function matchesProject(project: Project, search: string, controller: SidebarCon
  * 会话集合只能来自 catalog.sessionsByProject（懒加载，未加载的会话不参与统计），
  * 所以项目行与 Chat 标题栏共用这一处汇总逻辑，避免两处各写一份导致口径漂移。
  */
-function countProjectPendingAsks(projectId: string, controller: SidebarController, sessionRuntimeUiById: Readonly<Record<string, { requests?: Record<string, AskRequestEntry> }>>): number {
+function collectProjectSessionIds(projectId: string, controller: SidebarController): string[] {
 	const relatedProjectIds = [projectId, ...controller.catalog.projects.filter((candidate) => candidate.worktreeParentId === projectId).map((candidate) => candidate.id)];
-	const sessionIds = relatedProjectIds.flatMap((pid) => (controller.catalog.sessionsByProject[pid] ?? []).map((session) => session.id));
-	return countPendingAsksForSessions(sessionIds, sessionRuntimeUiById);
+	return relatedProjectIds.flatMap((pid) => (controller.catalog.sessionsByProject[pid] ?? []).map((session) => session.id));
+}
+
+function countProjectPendingAsks(projectId: string, controller: SidebarController, sessionRuntimeUiById: Readonly<Record<string, { requests?: Record<string, AskRequestEntry> }>>): number {
+	return countPendingAsksForSessions(collectProjectSessionIds(projectId, controller), sessionRuntimeUiById);
 }
 
 export function ProjectTree(props: {
@@ -328,9 +331,15 @@ export function ProjectTree(props: {
 		// 空态只在 catalog 已就绪（ready）时给：加载中/尚未加载时展示「还没有聊天记录」会闪错误信息，
 		// 这两态仍由 SessionTree 的 loading 行/占位承接（#387）。
 		const chatCatalogReady = props.controller.catalog.catalogLoadStateByProject[project.id]?.status === "ready";
-		// Chat 无独立的项目行，标题栏就是该项目的唯一身份入口，
-		// 因此待确认徽章必须挂在这里，否则 Chat 项目内的 ask 提问在侧栏完全不可见。
-		const pendingAskCount = countProjectPendingAsks(project.id, props.controller, sessionRuntimeUiById);
+		// Chat 无独立的项目行，标题栏就是该项目的唯一身份入口。
+		// 折叠态下列表整体收起，标题栏徽章是分组内待确认的唯一可见提示，因此必须挂在这里；
+		// 展开态下会话行已各自挂会话级徽章，标题栏不再重复同一枚闪烁徽章（#485：两处同时
+		// 闪烁被误读成「渲染重复」的数据 Bug）。
+		const chatSessionIds = collectProjectSessionIds(project.id, props.controller);
+		// 折叠态点徽章直达第一个等待确认的会话：旧实现是纯静态 Badge，点了没反应，
+		// 用户很容易当成「通知卡死 / 按钮失效」（#485）。顺序取会话列表序（更新时间倒序）。
+		const pendingAskSessionId = collapsed ? findFirstPendingAskSessionId(chatSessionIds, sessionRuntimeUiById) : undefined;
+		const pendingAskCount = pendingAskSessionId ? countPendingAsksForSessions(chatSessionIds, sessionRuntimeUiById) : 0;
 		return (
 			<section key={project.id} className="mb-4" aria-label={t("app.chatProject")} role="treeitem" aria-expanded={!collapsed}>
 				{/* 聊天标题栏：左侧「聊天」标题，右侧 = 「过滤历史记录」+「+ 新建会话」+ 折叠（高频操作外露）
@@ -347,7 +356,21 @@ export function ProjectTree(props: {
 				>
 					<span className="flex min-w-0 items-center gap-1">
 						<span className="text-caption font-medium text-muted-foreground">{t("app.sidebarChats")}</span>
-						<PendingAskBadge count={pendingAskCount} />
+						{pendingAskSessionId && (
+							<button
+								type="button"
+								className="cursor-pointer rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								title={t("sidebar.pendingConfirmationHint", { count: String(pendingAskCount) })}
+								aria-label={t("sidebar.pendingConfirmationHint", { count: String(pendingAskCount) })}
+								onClick={(event) => {
+									event.stopPropagation();
+									props.controller.revealProject(project.id);
+									void props.actions.sessions.open(project.id, pendingAskSessionId);
+								}}
+							>
+								<PendingAskBadge count={pendingAskCount} />
+							</button>
+						)}
 					</span>
 					<div className="flex items-center gap-0.5">
 						{/* 过滤历史记录：与工作区项目行 hover 按钮同款功能，聊天区标题栏常驻（用户反馈补齐） */}
