@@ -165,7 +165,7 @@ Status: **Current（2026-10-31 独立验收 + 2026-11-02 生产 root pooling 签
 | 池化唯一开关是构造参数 `rootPooling`（`Partial<RootPoolPolicy>` 或 `false`）；无设置项、无环境变量、无运行期切换 | `src/main/remote/RemoteHostConnectionService.ts:130`、`:398-401`；ADR `:230` |
 | 验收时生产装配未传该参数 ⇒ **池化默认关闭**；2026-11-02 已改为显式默认策略 | `src/main/index.ts`（验收时 `3367-3388`；当前 §12） |
 | 默认 TTL 10 分钟；sweep 每 60 秒；sweep 只回收“无租约且无 watcher”的空闲条目 | `RemoteRootSessionPool.ts:40`、`RemoteHostConnectionService.ts:416-417`、`RemoteRootSessionPool.ts:345-356` |
-| 远端能力本身只在 dev 通道开启（未打包运行 / dev 渠道包） | `src/main/index.ts:3327-3336`；`channelIdentity.ts:18-20`；`scripts/pack-dev.js:44` |
+| 远端能力当时只在 dev 通道开启（**历史快照**；2026-11-04 已改为正式包与 dev 包都开放） | `src/main/index.ts:3327-3336`（历史）；当前策略见 `remote-release-readiness.md` |
 | 历史环境变量 `PIDECK_REMOTE_EXPERIMENTAL` 已不被 main 读取 | `src/main/index.ts:3330-3331`；`tests/remoteChannelGate.test.mjs:23` |
 
 运行矩阵：**R0** 不改代码，仅池化关闭基线；**R1** 临时加 `rootPooling: {}` 走默认策略（主证据）；**R2** `rootPooling: { idleTtlMs: 60_000 }` 加速冒烟（仅补充，不作签收）。R1 补丁只在专用工作树/用户确认的空窗内加一行构造参数，**禁止提交**；记录补丁与 `out/main/index.js` 的 sha256，验收后 `git apply -R` 还原。
