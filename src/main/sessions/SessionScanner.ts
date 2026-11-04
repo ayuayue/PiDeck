@@ -2142,10 +2142,7 @@ export class SessionScanner {
 			const inferred = inferSessionTitleFromLines(titleText.split(/\r?\n/).filter(Boolean), (content) => this.extractText(content));
 			// #488：窗口里没有 user 正文（首条用户消息单行 88KB 被 64KB 头窗口整行切掉、尾部又落在 assistant
 			// thinking 上）时，兜底会退化成思考原文。有权威名时不追：标题不靠首条消息。
-			const effective =
-				!inferred.fromSessionInfo && inferred.fallbackKind !== "user" && version.size > windowBytes
-					? await this.preferUserBodyFallback(filePath, isWsl, version.size, inferred)
-					: inferred;
+			const effective = !inferred.fromSessionInfo && inferred.fallbackKind !== "user" && version.size > windowBytes ? await this.preferUserBodyFallback(filePath, isWsl, version.size, inferred) : inferred;
 			if (version.size <= SessionScanner.SUMMARY_NAME_FULL_SCAN_MAX_BYTES && version.size > windowBytes) {
 				const latestSessionInfoName = await this.inferLatestSessionInfoFromSmallFile(filePath, version.size, readForkHistoryBoundary(head.split(/\r?\n/).filter(Boolean)));
 				if (latestSessionInfoName) {
@@ -2234,7 +2231,10 @@ export class SessionScanner {
 	 * provisional 标题阶段采用该名称，后续 pi/TUI 改名不会覆盖 PiDeck 显示标题。
 	 * `includeTitle:false` 只返回头部有效性和结构元数据，不读取尾部或小文件全文。
 	 */
-	async inferSessionNameAndValidity(filePath: string, options: { includeTitle?: boolean; includeFirstUserText?: boolean } = {}): Promise<{ name?: string; nameFromSessionInfo?: boolean; valid?: boolean; parentSessionPath?: string; forked?: boolean; fallbackName?: string; fallbackKind?: SessionTitleFallbackKind; legacyFallbackName?: string; firstUserText?: string }> {
+	async inferSessionNameAndValidity(
+		filePath: string,
+		options: { includeTitle?: boolean; includeFirstUserText?: boolean } = {},
+	): Promise<{ name?: string; nameFromSessionInfo?: boolean; valid?: boolean; parentSessionPath?: string; forked?: boolean; fallbackName?: string; fallbackKind?: SessionTitleFallbackKind; legacyFallbackName?: string; firstUserText?: string }> {
 		const head = await this.readHeadAndInfer(filePath, options.includeTitle !== false);
 		if (!head) return {};
 		const parentSessionPath = await this.detectFlatSubagentParentFromHead(filePath, head.raw);

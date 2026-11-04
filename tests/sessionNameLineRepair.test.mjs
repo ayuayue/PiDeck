@@ -49,7 +49,13 @@ function messageLine(role, content) {
 }
 
 test("extractBodyTextFromContent 只看 text 块，thinking 不算正文（#488）", () => {
-	assert.equal(extractBodyTextFromContent([{ type: "text", text: "正文" }, { type: "thinking", thinking: "草稿本" }]), "正文");
+	assert.equal(
+		extractBodyTextFromContent([
+			{ type: "text", text: "正文" },
+			{ type: "thinking", thinking: "草稿本" },
+		]),
+		"正文",
+	);
 	assert.equal(extractBodyTextFromContent([{ type: "thinking", thinking: "草稿本" }]), "", "只有 thinking 时没有正文可当标题");
 	assert.equal(extractBodyTextFromContent("字符串消息"), "字符串消息");
 	assert.equal(extractBodyTextFromContent(undefined), "");

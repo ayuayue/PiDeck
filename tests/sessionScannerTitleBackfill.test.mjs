@@ -309,11 +309,7 @@ test("inferSessionNameAndValidity reads a first user message longer than the hea
 		// 单行 ~88KB（现场量级）：整行跨过 64KB 头窗口，窗口只能看到半行。
 		const body = `${bodyHead}\n\n# AGENTS.md\n${"规则正文 ".repeat(14000)}`;
 		const thinking = "Now I'll write the text answer and then create the explainer. ".repeat(400);
-		writeSession(file, [
-			makeHeader("abc"),
-			makeUser("u1", body),
-			{ type: "message", id: "a1", parentId: "u1", timestamp: "2026-08-22T04:00:02.000Z", message: { role: "assistant", content: [{ type: "thinking", thinking }] } },
-		]);
+		writeSession(file, [makeHeader("abc"), makeUser("u1", body), { type: "message", id: "a1", parentId: "u1", timestamp: "2026-08-22T04:00:02.000Z", message: { role: "assistant", content: [{ type: "thinking", thinking }] } }]);
 		const scanner = new Scanner();
 		const inferred = await scanner.inferSessionNameAndValidity(file);
 		assert.equal(inferred.fallbackKind, "user", "正文可读后兜底来源必须是 user 正文");

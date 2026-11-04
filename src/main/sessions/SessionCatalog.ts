@@ -2350,7 +2350,10 @@ export class SessionCatalog implements HostRebindStorePort {
 	 *  命中即改、不命中不再重读，避免每次扫描都为一个不可能自愈的条目读盘。 */
 	private readonly probedFallbackTitles = new Set<string>();
 
-	private async collectScannedTitles(summaries: SessionSummary[], context: SessionCatalogContext): Promise<{ titles: Map<string, ScannedTitleFetch>; legacyProbes: Map<string, LegacyTitleProbe>; thinkingFallbackRepairs: Map<string, string>; invalid: Set<string>; parents: Map<string, string>; forked: Map<string, boolean> }> {
+	private async collectScannedTitles(
+		summaries: SessionSummary[],
+		context: SessionCatalogContext,
+	): Promise<{ titles: Map<string, ScannedTitleFetch>; legacyProbes: Map<string, LegacyTitleProbe>; thinkingFallbackRepairs: Map<string, string>; invalid: Set<string>; parents: Map<string, string>; forked: Map<string, boolean> }> {
 		const titles = new Map<string, ScannedTitleFetch>();
 		// 只收录**读取成功**的 legacy 探测：读不到（权限/锁定/WSL 抖动）时条目保持 legacy，下次扫描再试，
 		// 否则一次瞬时失败就会把唯一的一次自愈机会消费掉。
@@ -2378,12 +2381,7 @@ export class SessionCatalog implements HostRebindStorePort {
 				// #488：旧版本把 thinking 原文锁成了 fallback 标题。只探「一眼是正文摘录」的长标题（FALLBACK_TITLE_PROBE_MIN_LENGTH），
 				// 每进程每条一次，且单次扫描限量（FALLBACK_TITLE_PROBE_MAX_PER_SCAN）——存量条目很多时
 				// 不能让启动退化成大批量 JSON 解析，剩下的留给后续扫描。
-				const thinkingFallback =
-					existing.source === "pi" &&
-					resolveTitleOrigin(existing) === "fallback" &&
-					normalizeFingerprintTitle(existing.title).length > FALLBACK_TITLE_PROBE_MIN_LENGTH &&
-					!this.probedFallbackTitles.has(originKey) &&
-					fallbackProbesQueued < FALLBACK_TITLE_PROBE_MAX_PER_SCAN;
+				const thinkingFallback = existing.source === "pi" && resolveTitleOrigin(existing) === "fallback" && normalizeFingerprintTitle(existing.title).length > FALLBACK_TITLE_PROBE_MIN_LENGTH && !this.probedFallbackTitles.has(originKey) && fallbackProbesQueued < FALLBACK_TITLE_PROBE_MAX_PER_SCAN;
 				if (legacy) wanted.push({ originKey, filePath: summary.filePath, includeTitle: true, legacyProbe: true, lockedTitle: existing.title });
 				else if (tintinwebOrphan) wanted.push({ originKey, filePath: summary.filePath, includeTitle: false });
 				else if (thinkingFallback) {
