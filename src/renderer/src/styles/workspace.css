@@ -850,7 +850,8 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
 }
 .git-resource-open.static { cursor: default; }
 .git-resource-open:disabled { cursor: progress; opacity: 0.72; }
-.git-resource-open:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }.git-resource-name { min-width: 0; flex: 0 1 auto; overflow: hidden; color: var(--git-panel-fg); text-overflow: ellipsis; white-space: nowrap; }
+.git-resource-open:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }/* 文件名占满剩余宽度：行内操作按钮已改成绝对定位，不再挤文件名（窄侧栏下以前只剩几个字符） */
+.git-resource-name { min-width: 0; flex: 1 1 auto; overflow: hidden; color: var(--git-panel-fg); text-overflow: ellipsis; white-space: nowrap; }
 .git-decoration { width: 16px; flex: 0 0 16px; margin-left: 5px; color: var(--git-desc-fg); font-family: var(--git-ui-font); font-size: var(--font-size-caption); font-weight: 600; text-align: right; }
 .git-resource-row.status-modified .git-decoration { color: var(--git-modified); }
 .git-resource-row.status-added .git-decoration { color: var(--git-added); }

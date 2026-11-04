@@ -394,7 +394,7 @@ export function ResourceRow(props: {
 	const letter = props.compareStatus ? compareStatusLetter(props.compareStatus) : props.letter;
 	const rowPadding = { paddingLeft: CHANGE_ROW_BASE_PADDING + (props.indent ?? 0) };
 	const row = (
-		<div className={`group git-resource-row flex h-7 items-center gap-1.5 rounded-sm pr-2 text-body transition-[background-color,border-color,box-shadow] duration-base hover:bg-muted focus-within:bg-muted ${tone}`} title={props.path}>
+		<div className={`group git-resource-row relative flex h-7 items-center gap-1.5 rounded-sm pr-2 text-body transition-[background-color,border-color,box-shadow] duration-base hover:bg-muted focus-within:bg-muted ${tone}`} title={props.path}>
 			{props.onOpen ? (
 				<button
 					type="button"
@@ -415,17 +415,20 @@ export function ResourceRow(props: {
 					{/* 16px twistie 占位 + 24px 图标槽：文件图标列与目录行 chevron 同列，列宽与文件抽屉的树行一致 */}
 					<span aria-hidden="true" className="h-full w-4 shrink-0" />
 					<FileIcon name={name} className="mr-0 size-6" />
-					<span className="git-resource-name min-w-0 flex-[0_1_auto] truncate text-[var(--git-panel-fg)]">{name}</span>
+					<span className="git-resource-name min-w-0 flex-1 truncate text-[var(--git-panel-fg)]">{name}</span>
 				</button>
 			) : (
 				<div className="flex h-full min-w-0 flex-1 cursor-default items-center gap-1.5 border-0 bg-transparent p-0 text-left font-inherit" style={rowPadding}>
 					<span aria-hidden="true" className="h-full w-4 shrink-0" />
 					<FileIcon name={name} className="mr-0 size-6" />
-					<span className="git-resource-name min-w-0 flex-[0_1_auto] truncate text-[var(--git-panel-fg)]">{name}</span>
+					<span className="git-resource-name min-w-0 flex-1 truncate text-[var(--git-panel-fg)]">{name}</span>
 				</div>
 			)}
 			{props.actions && props.actions.length > 0 && (
-				<div className="invisible mr-1 flex flex-[0_0_auto] items-center gap-0.5 group-hover:visible group-focus-within:visible">
+				// 行内操作绝对定位在状态字母左侧：放进流里会常驻占宽（两个按钮 ~54px），
+				// 文件名在窄侧栏里被挤到只剩几个字符。不 hover 时完全不吃文件名宽度，
+				// hover 时用与行 hover 同色的底把底下的文件名盖住，不叠字。
+				<div className="pointer-events-none absolute inset-y-0 right-[29px] flex items-center gap-0.5 rounded-sm bg-muted pl-2 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
 					{props.actions.map((action) => (
 						<Button
 							variant="ghost"
