@@ -2,7 +2,7 @@
  * F8 · preload 暴露面快照守卫（TEST-PLAN §F8，6 例=4 正+2 负）。
  *
  * 捕获 src/preload/index.ts 经 contextBridge 实际暴露的 piDesktop API，对
- * 82 命名空间清单与每命名空间方法清单做 sha256 快照（A10：暴露面零变化），
+ * 83 命名空间清单与每命名空间方法清单做 sha256 快照（A10：暴露面零变化），
  * 并核对数量锚点（sessions 117 / config 53 / git 64 / app 32）与订阅形态。
  * 摘要来源：T7 只读探针实测（2026-10-14；2026-10-16 合并刷新随 dev 演进重算：
  * yaoPrompts 方法与 sessions.searchContent、skillHub.onInstallProgress 入场，命名空间数不变；
@@ -37,15 +37,17 @@
  *   同批把 config 锚点 52→53：上一提交 b383f3709 加了 config.getTokendancePriceTags
  *   却漏刷本快照，dev 上 F8-3 一直是红的；此处按实测暴露面刷新，未改动断言强度。
  * 2026-11-03 SFTP-1 收口：下线 remoteHosts 的三个旧上传/下载方法，任务式入口不变。
+ * 2026-11-04 本地 dev 集成刷新：cloudSync 命名空间与 31 个同步/Provider 方法入场，
+ *   82→83；既有 sessions/config/git/app 数量锚点不变。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const NS_LIST_SHA256 = "ecf92dceedeea2d9b21c5625e42f3f30786c264a01fba4cb738834630948efee";
-const FULL_METHODS_SHA256 = "1c9e227eff38612c02cc5112adc66a9e0eabe75bb187a7e5e20c10c6d0f34897";
-const NAMESPACE_COUNT = 82;
+const NS_LIST_SHA256 = "f909ece292c40c44553af5d815321bbb8a0666d76c9a4c02a454a319d9505922";
+const FULL_METHODS_SHA256 = "9139ef8a56423395cfba32eda14d5b60121aa3c0fc0a0b01538b0dc94267249a";
+const NAMESPACE_COUNT = 83;
 
 /** 捕获 preload 暴露的 piDesktop；null/undefined/形态不符时显式红并给诊断（F8-6 共用）。 */
 function assertValidCapture(capture) {
@@ -88,7 +90,7 @@ const api = capturePreloadApi();
 const namespaces = sortedKeys(api);
 const methodLines = namespaces.map((ns) => `${ns}=${sortedKeys(api[ns]).join(",")}`);
 
-test("F8-1 preload 顶层命名空间数 === 82 且排序清单摘要零漂移", () => {
+test("F8-1 preload 顶层命名空间数 === 83 且排序清单摘要零漂移", () => {
 	assert.equal(namespaces.length, NAMESPACE_COUNT, `命名空间数 ${namespaces.length} ≠ ${NAMESPACE_COUNT}`);
 	assert.equal(sha256(namespaces.join(",")), NS_LIST_SHA256, "命名空间清单摘要漂移：preload 暴露面发生变化（A10 红线）");
 });

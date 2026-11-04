@@ -1,39 +1,14 @@
 import { useCallback, useState } from "react";
-import {
-	ChevronDown,
-	ChevronRight,
-	Cloud,
-	Download,
-	Folder,
-	FolderOpen,
-	KeyRound,
-	Lock,
-	Plus,
-	RefreshCw,
-	Settings2,
-	ShieldCheck,
-	TriangleAlert,
-	Upload,
-} from "lucide-react";
+import { ChevronDown, ChevronRight, Cloud, Download, Folder, FolderOpen, KeyRound, Lock, Plus, RefreshCw, Settings2, ShieldCheck, TriangleAlert, Upload } from "lucide-react";
 import { t, type TranslationKey } from "../../../i18n";
 import { useCloudSync } from "../../../hooks/useCloudSync";
 import { useCloudSyncSelection } from "../../../hooks/useCloudSyncSelection";
 import { useCloudSyncBackup } from "../../../hooks/useCloudSyncBackup";
-import {
-	useGithubDeviceFlow,
-	useOneDriveFlow,
-	useGoogleFlow,
-} from "../../../hooks/useCloudSyncProviderFlows";
+import { useGithubDeviceFlow, useOneDriveFlow, useGoogleFlow } from "../../../hooks/useCloudSyncProviderFlows";
 import { SettingsSection } from "./SettingsStorageTab";
 import { SettingBox } from "./SettingRows";
 import { CloudSyncPasswordForm } from "./CloudSyncPasswordForm";
-import {
-	GithubProviderCard,
-	GoogleProviderCard,
-	LocalFolderProviderCard,
-	OneDriveProviderCard,
-	ProviderCard,
-} from "./CloudSyncProviderCards";
+import { GithubProviderCard, GoogleProviderCard, LocalFolderProviderCard, OneDriveProviderCard, ProviderCard } from "./CloudSyncProviderCards";
 import { Field, SecretInput, StatusDot } from "./CloudSyncProviderShell";
 import { GLOBAL_SYNC_PROJECT_ID, ProjectSelectionNode } from "./CloudSyncSelectionTree";
 import { Button } from "../../ui-shadcn/button";
@@ -41,12 +16,7 @@ import { Checkbox } from "../../ui-shadcn/checkbox";
 import { Input } from "../../ui-shadcn/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../ui-shadcn/tabs";
-import type {
-	CloudSyncContentPreferences,
-	CloudSyncProviderConfigInput,
-	CloudSyncResourceCategory,
-	CloudSyncSelectionTree,
-} from "../../../../../shared/types";
+import type { CloudSyncContentPreferences, CloudSyncProviderConfigInput, CloudSyncResourceCategory, CloudSyncSelectionTree } from "../../../../../shared/types";
 import { cn } from "../../../lib/utils";
 
 /** 全局配置分类开关：密钥/模型/生图随加密载荷同步；DSH 未实现时禁用。 */
@@ -71,23 +41,7 @@ const CONTENT_CATEGORIES: Array<{
 /** 云同步设置页：主密码 → Provider → 选择树 → 同步（装配层，域逻辑在 useCloudSync* 系列 hook）。 */
 export function CloudSyncSettingsTab() {
 	const cloudSync = useCloudSync();
-	const {
-		state,
-		tree,
-		busy,
-		error,
-		setupMasterKey,
-		unlock,
-		lock,
-		configureProvider,
-		disconnectProvider,
-		scan,
-		syncNow,
-		restoreExtensions,
-		connect,
-		setAutoSync,
-		setStrategy,
-	} = cloudSync;
+	const { state, tree, busy, error, setupMasterKey, unlock, lock, configureProvider, disconnectProvider, scan, syncNow, restoreExtensions, connect, setAutoSync, setStrategy } = cloudSync;
 
 	// 域 hook：选择集合 / 备份表单 / 三套 OAuth 授权流程（窄接口透传，不重复订阅）。
 	const selection = useCloudSyncSelection(cloudSync);
@@ -122,13 +76,7 @@ export function CloudSyncSettingsTab() {
 	const googleSnapshot = providers?.google;
 
 	const syncState = state?.syncState ?? "IDLE";
-	const syncStatusDot = syncState === "SYNCING"
-		? "connecting"
-		: syncState === "IDLE"
-			? "connected"
-			: syncState === "ERROR" || syncState === "CONFLICT" || syncState === "BLOCKED"
-				? "error"
-				: "disconnected";
+	const syncStatusDot = syncState === "SYNCING" ? "connecting" : syncState === "IDLE" ? "connected" : syncState === "ERROR" || syncState === "CONFLICT" || syncState === "BLOCKED" ? "error" : "disconnected";
 	const syncStatusLabel = t(`cloudSync.state.${syncState}` as TranslationKey);
 
 	return (
@@ -143,18 +91,9 @@ export function CloudSyncSettingsTab() {
 				<TabsContent value="providers" className="mt-0">
 					<SettingsSection title={t("cloudSync.security.title")} description={t("cloudSync.security.desc")} boxed={false}>
 						{securityState === "NO_KEY" ? (
-							<CloudSyncPasswordForm
-								description={t("cloudSync.security.noKeyDesc")}
-								submitLabel={t("cloudSync.security.setup")}
-								confirm
-								onSubmit={(password) => setupMasterKey(password)}
-							/>
+							<CloudSyncPasswordForm description={t("cloudSync.security.noKeyDesc")} submitLabel={t("cloudSync.security.setup")} confirm onSubmit={(password) => setupMasterKey(password)} />
 						) : securityState === "LOCKED" ? (
-							<CloudSyncPasswordForm
-								description={t("cloudSync.security.lockedDesc")}
-								submitLabel={t("cloudSync.security.unlock")}
-								onSubmit={(password) => unlock(password)}
-							/>
+							<CloudSyncPasswordForm description={t("cloudSync.security.lockedDesc")} submitLabel={t("cloudSync.security.unlock")} onSubmit={(password) => unlock(password)} />
 						) : (
 							<SettingBox>
 								<div className="flex flex-wrap items-center justify-between gap-2">
@@ -293,12 +232,8 @@ export function CloudSyncSettingsTab() {
 											<KeyRound size={14} /> {t("cloudSync.content.syncNow")}
 										</Button>
 									</div>
-									{state?.lastError ? (
-										<div className="mt-2 text-sm text-destructive">{state.lastError}</div>
-									) : null}
-									{error ? (
-										<div className="mt-2 text-sm text-destructive">{error}</div>
-									) : null}
+									{state?.lastError ? <div className="mt-2 text-sm text-destructive">{state.lastError}</div> : null}
+									{error ? <div className="mt-2 text-sm text-destructive">{error}</div> : null}
 								</SettingBox>
 							</SettingsSection>
 						</>
@@ -313,7 +248,9 @@ export function CloudSyncSettingsTab() {
 									<div className="flex items-center gap-2">
 										<span className="text-sm">{t("cloudSync.content.strategy")}</span>
 										<Select value={state?.syncStrategy ?? "smartMerge"} onValueChange={(value) => void setStrategy(value)}>
-											<SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+											<SelectTrigger className="w-40">
+												<SelectValue />
+											</SelectTrigger>
 											<SelectContent>
 												<SelectItem value="smartMerge">{t("cloudSync.content.strategySmartMerge")}</SelectItem>
 												<SelectItem value="preferCloud">{t("cloudSync.content.strategyPreferCloud")}</SelectItem>
@@ -322,10 +259,7 @@ export function CloudSyncSettingsTab() {
 										</Select>
 									</div>
 									<label className="flex cursor-pointer items-center gap-2 text-sm">
-										<Checkbox
-											checked={Boolean(state?.autoSyncEnabled)}
-											onCheckedChange={(checked) => void setAutoSync(Boolean(checked), state?.autoSyncInterval ?? 5)}
-										/>
+										<Checkbox checked={Boolean(state?.autoSyncEnabled)} onCheckedChange={(checked) => void setAutoSync(Boolean(checked), state?.autoSyncInterval ?? 5)} />
 										{t("cloudSync.content.autoSync")}
 									</label>
 									{/* 自动同步间隔（分钟）：值以主进程 snapshot 为准（无本地副本，避免漂移）；改动即时生效。 */}
@@ -338,10 +272,14 @@ export function CloudSyncSettingsTab() {
 												void setAutoSync(Boolean(state?.autoSyncEnabled), minutes);
 											}}
 										>
-											<SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
+											<SelectTrigger className="w-24">
+												<SelectValue />
+											</SelectTrigger>
 											<SelectContent>
 												{[5, 10, 15, 30, 60].map((minutes) => (
-													<SelectItem key={minutes} value={String(minutes)}>{minutes}</SelectItem>
+													<SelectItem key={minutes} value={String(minutes)}>
+														{minutes}
+													</SelectItem>
 												))}
 											</SelectContent>
 										</Select>
@@ -351,8 +289,12 @@ export function CloudSyncSettingsTab() {
 									<Button size="sm" onClick={() => void selection.handleScan()} loading={busy}>
 										<RefreshCw size={14} /> {t("cloudSync.content.scan")}
 									</Button>
-									<Button size="sm" variant="outline" onClick={() => selection.handleToggleAll(selectionTree, true)}>{t("cloudSync.content.selectAll")}</Button>
-									<Button size="sm" variant="outline" onClick={() => selection.handleToggleAll(selectionTree, false)}>{t("cloudSync.content.selectNone")}</Button>
+									<Button size="sm" variant="outline" onClick={() => selection.handleToggleAll(selectionTree, true)}>
+										{t("cloudSync.content.selectAll")}
+									</Button>
+									<Button size="sm" variant="outline" onClick={() => selection.handleToggleAll(selectionTree, false)}>
+										{t("cloudSync.content.selectNone")}
+									</Button>
 									<Button size="sm" variant="outline" onClick={() => void selection.syncSelection(selectionTree)} disabled={!selectionTree} loading={busy}>
 										{t("cloudSync.content.saveSelection")}
 									</Button>
@@ -372,9 +314,7 @@ export function CloudSyncSettingsTab() {
 									<div className="grid gap-1.5 sm:grid-cols-2">
 										{CONTENT_CATEGORIES.map((category) => {
 											const globalNode = selectionTree.projects.find((candidate) => candidate.projectId === GLOBAL_SYNC_PROJECT_ID);
-											const linkedItems = category.resourceCategory
-												? (globalNode?.resources.filter((resource) => resource.category === category.resourceCategory) ?? [])
-												: [];
+											const linkedItems = category.resourceCategory ? (globalNode?.resources.filter((resource) => resource.category === category.resourceCategory) ?? []) : [];
 											// 联动开关：状态 = 全局树对应类别全选（无三态）；切换 = 批量全选/全不选。
 											const linkedChecked = linkedItems.length > 0 && linkedItems.every((item) => selection.selectedResourceIds.has(item.selectionId));
 											const checked = category.resourceCategory ? linkedChecked : Boolean(selectionTree.content[category.key as keyof CloudSyncContentPreferences]);
@@ -386,18 +326,8 @@ export function CloudSyncSettingsTab() {
 												}
 											};
 											return (
-												<label
-													key={category.key}
-													className={cn(
-														"flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent/50",
-														!category.supported && "cursor-not-allowed opacity-60",
-													)}
-												>
-													<Checkbox
-														checked={checked}
-														disabled={!category.supported}
-														onCheckedChange={(value) => onToggle(Boolean(value))}
-													/>
+												<label key={category.key} className={cn("flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent/50", !category.supported && "cursor-not-allowed opacity-60")}>
+													<Checkbox checked={checked} disabled={!category.supported} onCheckedChange={(value) => onToggle(Boolean(value))} />
 													<span className="min-w-0 flex-1">
 														<span className="block truncate">{t(category.labelKey)}</span>
 														{category.descKey ? <span className="block truncate text-caption text-text-tertiary">{t(category.descKey)}</span> : null}
@@ -412,6 +342,7 @@ export function CloudSyncSettingsTab() {
 							) : null}
 
 							{selectionTree && selectionTree.projects.length > 0 ? (
+								/* scroll-ok: nested 行模型是「项目→会话」两层树（本层 map + ProjectSelectionNode 子层），项目数无硬上限，需先扁平化才能虚拟化 */
 								<div className="mt-3 max-h-96 space-y-2 overflow-y-auto rounded-lg border border-border-subtle bg-background/30 p-2">
 									{selectionTree.projects.map((node) => (
 										<ProjectSelectionNode
@@ -466,18 +397,10 @@ export function CloudSyncSettingsTab() {
 												<span className="flex-1 truncate text-sm">{conflict.label}</span>
 												{/* 二选一按钮组（本地/云端）：选中态 primary，语义等价于 radio，桌面工作台风格。 */}
 												<div className="flex items-center gap-1 text-sm">
-													<Button
-														size="sm"
-														variant={(selection.conflictChoices[conflict.id] ?? "local") === "local" ? "default" : "outline"}
-														onClick={() => selection.setConflictChoices((prev) => ({ ...prev, [conflict.id]: "local" }))}
-													>
+													<Button size="sm" variant={(selection.conflictChoices[conflict.id] ?? "local") === "local" ? "default" : "outline"} onClick={() => selection.setConflictChoices((prev) => ({ ...prev, [conflict.id]: "local" }))}>
 														{t("cloudSync.conflict.local")}
 													</Button>
-													<Button
-														size="sm"
-														variant={(selection.conflictChoices[conflict.id] ?? "local") === "remote" ? "default" : "outline"}
-														onClick={() => selection.setConflictChoices((prev) => ({ ...prev, [conflict.id]: "remote" }))}
-													>
+													<Button size="sm" variant={(selection.conflictChoices[conflict.id] ?? "local") === "remote" ? "default" : "outline"} onClick={() => selection.setConflictChoices((prev) => ({ ...prev, [conflict.id]: "remote" }))}>
 														{t("cloudSync.conflict.remote")}
 													</Button>
 												</div>
@@ -497,8 +420,14 @@ export function CloudSyncSettingsTab() {
 									<div className="space-y-1">
 										{state.missingExtensions.map((extension) => (
 											<div key={`${extension.scope}:${extension.source}`} className="flex items-center justify-between gap-2 text-sm">
-												<span className="truncate">{extension.source} <span className="text-caption text-text-tertiary">({extension.scope})</span></span>
-												{extension.error ? <span className="shrink-0 text-warning" title={extension.error}><TriangleAlert size={14} aria-label={extension.error} /></span> : null}
+												<span className="truncate">
+													{extension.source} <span className="text-caption text-text-tertiary">({extension.scope})</span>
+												</span>
+												{extension.error ? (
+													<span className="shrink-0 text-warning" title={extension.error}>
+														<TriangleAlert size={14} aria-label={extension.error} />
+													</span>
+												) : null}
 											</div>
 										))}
 									</div>
@@ -539,12 +468,7 @@ export function CloudSyncSettingsTab() {
 							<div className="mt-3 space-y-3">
 								<Field label={t("cloudSync.backup.importFile")}>
 									<div className="flex gap-2">
-										<Input
-											value={backup.importFilePath}
-											onChange={(event) => backup.setImportFilePath(event.target.value)}
-											placeholder="pideck-backup-2026-08-01.pideckbackup"
-											className="min-w-0 flex-1"
-										/>
+										<Input value={backup.importFilePath} onChange={(event) => backup.setImportFilePath(event.target.value)} placeholder="pideck-backup-2026-08-01.pideckbackup" className="min-w-0 flex-1" />
 										<Button size="sm" variant="outline" onClick={() => void backup.handlePickImportFile()}>
 											<FolderOpen size={14} /> {t("cloudSync.backup.importPick")}
 										</Button>
@@ -555,7 +479,9 @@ export function CloudSyncSettingsTab() {
 								</Field>
 								<Field label={t("cloudSync.backup.importMode")}>
 									<Select value={backup.importMode} onValueChange={(value) => backup.setImportMode(value as "merge" | "overwrite" | "restoreMissing")}>
-										<SelectTrigger className="w-full max-w-sm"><SelectValue /></SelectTrigger>
+										<SelectTrigger className="w-full max-w-sm">
+											<SelectValue />
+										</SelectTrigger>
 										<SelectContent>
 											<SelectItem value="merge">{t("cloudSync.backup.importModeMerge")}</SelectItem>
 											<SelectItem value="overwrite">{t("cloudSync.backup.importModeOverwrite")}</SelectItem>
@@ -569,9 +495,7 @@ export function CloudSyncSettingsTab() {
 							</div>
 						</SettingBox>
 
-						{error ? (
-							<div className="text-sm text-destructive">{error}</div>
-						) : null}
+						{error ? <div className="text-sm text-destructive">{error}</div> : null}
 					</SettingsSection>
 				</TabsContent>
 			</Tabs>

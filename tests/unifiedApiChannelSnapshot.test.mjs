@@ -49,15 +49,17 @@
  *   ipcChannels 811→814，新增 codebuddy 前缀，前缀数 92→93。
  * 2026-11-03 SFTP-2 刷新（-3）：legacy remoteProjectTransfer{Start,Cancel,Event} 下线；
  *   ipcChannels 814→811，remote 前缀仍存在，前缀数仍 93。
+ * 2026-11-04 本地 dev 集成刷新（+32）：CloudSyncManager 的 cloud-sync 域入场，
+ *   ipcChannels 811→843，新增 cloud-sync 前缀，前缀数 93→94。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const CHANNEL_TOTAL = 811;
-const PREFIX_COUNT = 93;
-const CHANNEL_DIGEST = "f733e3ac9d798be5627262d55f146aff60ffd0b4c934e710107956f4e8e1ce2c";
+const CHANNEL_TOTAL = 843;
+const PREFIX_COUNT = 94;
+const CHANNEL_DIGEST = "e4586759c74350a96370ff1bdb478580fce62305bf2df3a64c5841ac3e48b3db";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";
@@ -76,11 +78,11 @@ const sortedDigest = (pairs) => {
 	return createHash("sha256").update(serialized, "utf8").digest("hex");
 };
 
-test("F3-1 通道常量总数 === 811", () => {
+test("F3-1 通道常量总数 === 843", () => {
 	assert.equal(entries.length, CHANNEL_TOTAL);
 });
 
-test("F3-2 通道值唯一数 === 811（无重复通道字符串）", () => {
+test("F3-2 通道值唯一数 === 843（无重复通道字符串）", () => {
 	assert.equal(new Set(values).size, CHANNEL_TOTAL);
 });
 
@@ -109,7 +111,7 @@ test("F3-5 锚点抽查：appGetChannel=update:get-channel、sessionsRuntimeEven
 	assert.equal(countByPrefix("enhance"), 3);
 });
 
-test("F3-6 通道域前缀种类 === 93", () => {
+test("F3-6 通道域前缀种类 === 94", () => {
 	const prefixes = new Set(values.map((value) => value.split(":")[0]));
 	assert.equal(prefixes.size, PREFIX_COUNT);
 });

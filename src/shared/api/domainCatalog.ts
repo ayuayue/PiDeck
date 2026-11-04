@@ -4,8 +4,8 @@
  * 纯契约层：只描述「域 → 分组 / Manager / main 侧注册文件 / preload 命名空间 / 通道前缀」
  * 的静态映射，不 import 运行时代码。行数据由通道面探针推导（锚定数字见 TEST-PLAN §0），非手写臆测。
  * 守卫测试 tests/unifiedApiDomainCatalog.test.mjs
- * 校验：id 唯一且 kebab-case、63 行、每行 channelPrefix ⊆ shared/ipc.ts 实际 92 前缀、
- * 两表并集认领全部 92 前缀与 81 命名空间（F1-4/5/6）、红线行 aggregation === "redline"（F1-7）。
+ * 校验：id 唯一且 kebab-case、69 行、每行 channelPrefix ⊆ shared/ipc.ts 实际 94 前缀、
+ * 两表并集认领全部 94 前缀与 83 命名空间（F1-4/5/6）、红线行 aggregation === "redline"（F1-7）。
  * 2026-10-16 合并刷新：随 dev 演进补 acp/wechat/host-plugins/pideck-mcp/videogen/notice-history
  * 六行（+7 前缀 +6 命名空间，探针口径同 §0），sessions/config 收口组同步补新方法。
  * 2026-10-18 远端合并刷新：补 remote 行（remote:* 前缀 + remoteHosts/probeRemoteModels/
@@ -141,6 +141,8 @@ export const DOMAIN_CATALOG = [
 	// 裁决：Agent 记忆是 PiDeck 自己的本地内容与索引域，不进入 pi 会话文件或通用模型桥；
 	// 通道、命名空间与主进程 IPC 一一对应，按普通域聚合。
 	{ id: "agent-memory", group: "integration", manager: "AgentMemoryService + AgentMemoryStore + AgentMemoryIndex", ipcFile: ["ipc/agentMemoryIpc.ts"], preloadNamespaces: ["agentMemory"], channelPrefix: ["agent-memory"], aggregation: "aggregate" },
+	// 云同步的密码、派生密钥与 Provider 凭据只留在主进程；渲染层只接收状态快照与选择树。
+	{ id: "cloud-sync", group: "integration", manager: "CloudSyncManager + CloudSyncScanner + CloudSyncMountRegistry + object storage adapters", ipcFile: ["ipc/cloudSyncIpc.ts"], preloadNamespaces: ["cloudSync"], channelPrefix: ["cloud-sync"], aggregation: "aggregate" },
 	// 裁决：系统级划词浮窗（SelectionToolWindow + SelectionToolService）。独立 BrowserWindow
 	// 复用主 preload（同一份 desktopApi），凭据/模型调用都走 agent-profiles:invoke 既有红线通道；
 	// 本行只认领浮窗自身的状态/隐藏/回填通道，不做任何聚合扩展。

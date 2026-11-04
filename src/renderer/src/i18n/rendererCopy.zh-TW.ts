@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 712a6fa7acf0103b85a5090b8e324f692f4376732e03ed478072fb59f32cf3b1（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 8309f9984bc3a451f6a28b105201c233bc2bc96e1469a4eeef0e84a2a20d878c（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -5706,6 +5706,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.modules.petDesc": "桌面寵物設定頁",
 	"settings.modules.visionDesc": "視覺橋設定頁",
 	"settings.modules.imagegenDesc": "生圖設定頁、輸入框的生圖入口",
+	"settings.modules.cloudsyncDesc": "端到端加密雲同步設定頁",
 	"settings.modules.videogenDesc": "生影片設定頁、輸入框的生影片入口",
 	"videogen.providerModel": "供應商 / 模型",
 	"videogen.notConfiguredHint": "尚未配置生影片供應商，請到設定頁新增",
@@ -7821,8 +7822,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"app.messageDeliveryFollowUp": "結束後排隊",
 	"app.messageDeliveryFollowUpTitle": "followUp：等待 agent 停止後傳送",
 	"app.messageDeliverySteer": "下次呼叫前",
-	"app.messageDeliverySteerTitle":
-		"steer：當前工具呼叫後、下一次 LLM 呼叫前生效",
+	"app.messageDeliverySteerTitle": "steer：當前工具呼叫後、下一次 LLM 呼叫前生效",
 	"sessionFiles.title": "修改的檔案",
 	"sessionFiles.empty": "會話暫無檔案修改",
 	"sessionFiles.loading": "正在載入檔案…",
@@ -7835,11 +7835,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.renameCancel": "取消重新命名",
 	"config.renameConfirm": "確認重新命名",
 	"config.renameProvider": "重新命名供應商",
-	"config.label.compaction": "會話壓縮",
 	"menu.reloadSession": "重新載入會話",
-	"rpc.logOpenedTitle": "RPC 日誌記錄已開啟",
-	"rpc.logOpenedDescription": "該 Agent 的 RPC 通訊已開始留痕，可在日誌檢視器中檢視。",
-	"rpc.logViewNow": "立即檢視",
 	"settings.tabs.cloudsync": "雲同步",
 	"settings.tabs.cloudsyncDesc": "端到端加密同步會話與配置",
 	"cloudSync.security.title": "主密碼",
@@ -8028,7 +8024,5 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.storage.actions": "操作",
 	"settings.storage.clearAllButton": "清理全部日誌",
 	"settings.storage.clearLocalStorageButton": "清理介面快取",
-	"settings.collapsePrevRunsOnNewTurn": "新一輪開始時收起上一輪",
-	"settings.collapsePrevRunsOnNewTurnDesc": "傳送新訊息後自動收起上一輪展開的思考/工具詳情（含手動展開的），減少同時渲染的內容。",
 	"diagnostic.retryToastTitle": "自動重試",
 };

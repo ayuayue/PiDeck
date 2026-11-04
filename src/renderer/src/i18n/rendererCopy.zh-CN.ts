@@ -5699,6 +5699,7 @@ export const zhCN = {
 	"settings.modules.petDesc": "桌面宠物设置页",
 	"settings.modules.visionDesc": "视觉桥设置页",
 	"settings.modules.imagegenDesc": "生图设置页、输入框的生图入口",
+	"settings.modules.cloudsyncDesc": "端到端加密云同步设置页",
 	"settings.modules.videogenDesc": "生视频设置页、输入框的生视频入口",
 	"videogen.providerModel": "供应商 / 模型",
 	"videogen.notConfiguredHint": "尚未配置生视频供应商，请到设置页添加",
@@ -7814,8 +7815,7 @@ export const zhCN = {
 	"app.messageDeliveryFollowUp": "结束后排队",
 	"app.messageDeliveryFollowUpTitle": "followUp：等待 agent 停止后发送",
 	"app.messageDeliverySteer": "下次调用前",
-	"app.messageDeliverySteerTitle":
-		"steer：当前工具调用后、下一次 LLM 调用前生效",
+	"app.messageDeliverySteerTitle": "steer：当前工具调用后、下一次 LLM 调用前生效",
 	"sessionFiles.title": "修改的文件",
 	"sessionFiles.empty": "会话暂无文件修改",
 	"sessionFiles.loading": "正在加载文件…",
@@ -7828,11 +7828,7 @@ export const zhCN = {
 	"config.renameCancel": "取消重命名",
 	"config.renameConfirm": "确认重命名",
 	"config.renameProvider": "重命名供应商",
-	"config.label.compaction": "会话压缩",
 	"menu.reloadSession": "重新加载会话",
-	"rpc.logOpenedTitle": "RPC 日志记录已开启",
-	"rpc.logOpenedDescription": "该 Agent 的 RPC 通信已开始留痕，可在日志查看器中查看。",
-	"rpc.logViewNow": "立即查看",
 	"settings.tabs.cloudsync": "云同步",
 	"settings.tabs.cloudsyncDesc": "端到端加密同步会话与配置",
 	"cloudSync.security.title": "主密码",
@@ -8021,8 +8017,6 @@ export const zhCN = {
 	"settings.storage.actions": "操作",
 	"settings.storage.clearAllButton": "清理全部日志",
 	"settings.storage.clearLocalStorageButton": "清理界面缓存",
-	"settings.collapsePrevRunsOnNewTurn": "新一轮开始时收起上一轮",
-	"settings.collapsePrevRunsOnNewTurnDesc": "发送新消息后自动收起上一轮展开的思考/工具详情（含手动展开的），减少同时渲染的内容。",
 	"diagnostic.retryToastTitle": "自动重试",
 } as const;
 
