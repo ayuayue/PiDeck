@@ -107,3 +107,26 @@ for (const [mode, navigationMode] of [
 		});
 	});
 }
+
+/**
+ * issue #486：品牌区的点击热区是 `.app-badge`，foundation.css 把它整块置为 no-drag。
+ * 它一旦撑满标题行，右侧空白也不再是 drag 区——整条顶栏拖不动窗口，松手还会误开「关于」。
+ * 默认应用名下量几何：热区右缘到折叠按钮之间必须留出一段可拖拽空白。
+ */
+fixture.describe("sidebar titlebar drag area", () => {
+	fixture.use({ seedProjects: [{ id: "titlebar-drag-project", name: "TitlebarProject", path: process.cwd() }] });
+
+	fixture("brand hot area leaves a draggable gap before the collapse button", async ({ window }) => {
+		await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
+		await expect(window.locator(".list-toolbar")).toBeVisible();
+		const metrics = await window.evaluate(() => {
+			const barElement = document.querySelector(".list-toolbar") as HTMLElement;
+			const badge = barElement.querySelector(".app-badge")!.getBoundingClientRect();
+			const toggle = barElement.querySelector(".list-toggle-native")!.getBoundingClientRect();
+			return { barWidth: barElement.getBoundingClientRect().width, badgeWidth: badge.width, badgeRight: badge.right, toggleLeft: toggle.left };
+		});
+		// 热区只包住 logo 与字标，不随 flex 撑满（撑满 = 又变回 flex-1）。
+		expect(metrics.badgeWidth).toBeLessThan(metrics.barWidth / 2);
+		expect(metrics.toggleLeft - metrics.badgeRight).toBeGreaterThanOrEqual(24);
+	});
+});
