@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import ts from "typescript";
-import vm from "node:vm";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 /**
  * Tab 徽章状态映射纯函数（sessionStatusBadge）。
@@ -11,15 +11,7 @@ import vm from "node:vm";
  */
 
 function loadSessionStatusBadge() {
-	const source = readFileSync("src/renderer/src/utils/sessionStatusBadge.ts", "utf8");
-	const output = ts.transpileModule(source, {
-		compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-		fileName: "sessionStatusBadge.ts",
-	}).outputText;
-	// import type { AnimatedBadgeStatus } 会被 transpile 擦除，无需真实依赖。
-	const sandbox = { exports: {}, require: () => ({}) };
-	vm.runInNewContext(output, sandbox, { filename: "sessionStatusBadge.ts" });
-	return sandbox.exports;
+	return loadTsCommonJs("src/renderer/src/utils/sessionStatusBadge.ts");
 }
 
 const json = (value) => JSON.stringify(value);
@@ -52,11 +44,21 @@ test("sessionStatusBadge: busy 全 false 时回落 status 映射", () => {
 
 // —— 无操作时按 status 映射 ——
 
-test("sessionStatusBadge: error→danger / idle→neutral / starting→loading", () => {
+test("sessionStatusBadge: error→danger / idle→蓝色圆环 / starting→loading", () => {
 	const { sessionStatusBadge } = loadSessionStatusBadge();
 	assert.equal(json(sessionStatusBadge("error")), json({ status: "danger" }));
-	assert.equal(json(sessionStatusBadge("idle")), json({ status: "neutral" }));
+	assert.equal(json(sessionStatusBadge("idle")), json({ status: "neutral", colorClass: "text-info" }));
 	assert.equal(json(sessionStatusBadge("starting")), json({ status: "loading" }));
+});
+
+test("空闲 Tab 渲染蓝色圆环，不更换图标或增加旋转", () => {
+	const { sessionStatusBadge } = loadSessionStatusBadge();
+	const { AnimatedBadge } = loadTsCommonJs("src/renderer/src/components/motion/animated-badge.tsx");
+	const badge = sessionStatusBadge("idle");
+	const html = renderToStaticMarkup(createElement(AnimatedBadge, { status: badge.status, size: "sm", bare: true, pulse: false, className: badge.colorClass }));
+	assert.match(html, /class="[^"]*\btext-info\b[^"]*"/);
+	assert.match(html, /lucide-circle/);
+	assert.doesNotMatch(html, /lucide-info|animate-pideck-spin/);
 });
 
 test("sessionStatusBadge: running/pending/waiting → loading + 黄色覆盖", () => {
