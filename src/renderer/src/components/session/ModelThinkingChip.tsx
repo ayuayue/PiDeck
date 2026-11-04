@@ -6,6 +6,7 @@ import { formatAccelerator } from "../../../../shared/shortcuts";
 import { Button } from "../ui-shadcn/button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui-shadcn/popover";
 import { Slider } from "../ui-shadcn/slider";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui-shadcn/tooltip";
 import { clampThinkingLevelToAllowed } from "../../utils/thinkingDisplay";
 import { THINKING_LEVELS, type ThinkingPickerLevel } from "./sessionPickerOptions";
 import { accumulateWheelStep, type WheelStepState } from "./thinkingWheelStep";
@@ -13,22 +14,33 @@ import { accumulateWheelStep, type WheelStepState } from "./thinkingWheelStep";
 /**
  * 紧凑的模型/思考组合：模型直接打开完整选择器，思考保留独立的就地入口。
  * modelLabel 只放模型名；modelTitle 是悬停展示的完整标识（provider/model）。
+ * 芯片宽度有上限（模型名长时会省略），所以完整标识交给悬停气泡——原生 title 要
+ * 等系统延迟、且和底栏其它控件（增强/上下文圆环）的气泡风格不一致，改成同一套 Tooltip。
  */
 export function ModelThinkingChip(props: { modelLabel: string; modelTitle?: string; modelPendingTo?: string; modelPendingTitle?: string; disabled?: boolean; onPickModel: () => void; thinkingControl: ReactNode; startSurface?: boolean }) {
 	const modelValue = props.modelPendingTo ? `${props.modelLabel} → ${props.modelPendingTo}` : props.modelLabel;
+	const modelHint = props.modelPendingTitle ?? props.modelTitle ?? t("app.modelPickerTitle");
 	return (
 		<div className={`composer-bar-btn model-thinking inline-flex h-7 min-w-0 max-w-[30ch] items-center rounded-md text-control ${props.startSurface ? "font-normal" : "font-medium"}`}>
-			<Button
-				variant="ghost"
-				size="sm"
-				className={`h-7 min-w-0 rounded-md px-2 text-control hover:bg-muted/60 ${props.startSurface ? "font-normal text-text-secondary" : "font-medium text-foreground"}`}
-				disabled={props.disabled}
-				onClick={props.onPickModel}
-				title={props.modelPendingTitle ?? props.modelTitle ?? t("app.modelPickerTitle")}
-				aria-label={t("app.modelPickerTitle")}
-			>
-				<span className="min-w-0 truncate">{modelValue}</span>
-			</Button>
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<Button
+						variant="ghost"
+						size="sm"
+						// shadcn Button 基类带 shrink-0（按钮按内容取宽、永不收缩），模型名很长时会撑出外层
+						// max-w-[30ch]，把文字画过右侧「思考」与 git 分支/发送按钮（视觉上分支被压没、文字硬截断
+						// 且没有省略号）。行内 flexShrink 优先于任何 class 的层叠顺序，让名称在芯片内省略。
+						style={{ flexShrink: 1 }}
+						className={`h-7 min-w-0 rounded-md px-2 text-control hover:bg-muted/60 ${props.startSurface ? "font-normal text-text-secondary" : "font-medium text-foreground"}`}
+						disabled={props.disabled}
+						onClick={props.onPickModel}
+						aria-label={t("app.modelPickerTitle")}
+					>
+						<span className="min-w-0 truncate">{modelValue}</span>
+					</Button>
+				</TooltipTrigger>
+				<TooltipContent className="max-w-80 break-words">{modelHint}</TooltipContent>
+			</Tooltip>
 			<span className="shrink-0 text-muted-foreground/70" aria-hidden="true">
 				·
 			</span>
