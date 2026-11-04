@@ -1316,6 +1316,9 @@ export function createPreviewApi(): PiDesktopApi {
 			networkAddresses: async () => [{ address: "192.168.1.100", interfaceName: "Wi-Fi", cidr: "192.168.1.100/24", isPrivate: true, family: "IPv4" }],
 			checkUpdate: async () => undefined,
 			// 浏览器预览不是真实构建：按 release 呈现，不显示「本地构建」徽章。
+			// remoteAvailable=true 是**有意的预览口径**：让「设置 → 连接」与远端入口在静态预览里可渲染；
+			// 预览没有主进程/SSH，所有远端写面返回 REMOTE_FEATURE_DISABLED（见 remoteHosts 段注释），
+			// 两者成对出现，由 tests/remoteChannelGate.test.mjs 钉住。改这里必须同步改那组写面。
 			getChannel: async () => ({ channel: "stable" as const, currentVersion: "preview", devBuild: false, remoteAvailable: true, buildOrigin: "release" as const }),
 			onUpdateStatus: () => () => undefined,
 			onOpenSettings: () => () => undefined,

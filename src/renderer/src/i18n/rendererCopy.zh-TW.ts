@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 8309f9984bc3a451f6a28b105201c233bc2bc96e1469a4eeef0e84a2a20d878c（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 854f66f994ebd232e3ba1cd2b7de1c079e6fe802c86a4ed8594a059bf01f7920（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -4659,7 +4659,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.remoteTrust.title": "遠端信任",
 	"settings.remoteTrust.hint": "決定「哪臺主機的哪個遠端專案根」可以載入它自己的 .pi 資源（擴充套件、技能、提示詞、專案設定）。決定在下一次啟動遠端會話時生效；主機指紋、使用者或埠變化會讓舊決定自動作廢。",
 	"settings.remoteTrust.empty": "還沒有任何遠端專案信任決定。",
-	"settings.remoteTrust.disabled": "遠端開發實驗未啟用。",
+	"settings.remoteTrust.disabled": "遠端功能未啟用，無法讀取或修改信任決定。",
 	"settings.remoteTrust.listUnavailable": "無法讀取遠端信任清單。",
 	"settings.remoteTrust.state.approved": "已信任",
 	"settings.remoteTrust.state.denied": "已拒絕",
@@ -7406,7 +7406,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"sidebar.remoteEnroll.resolve": "解析並確認",
 	"sidebar.remoteEnroll.loading": "正在讀取主機列表…",
 	"sidebar.remoteEnroll.loadFailed": "無法讀取主機列表：{code}",
-	"sidebar.remoteEnroll.featureDisabled": "遠端功能未啟用：當前構建不提供遠端開發能力。",
+	"sidebar.remoteEnroll.featureDisabled": "遠端功能未啟用，無法新增遠端專案。",
 	"sidebar.remoteEnroll.needsRepair": "遠端主機儲存需要修復，請先在裝置設定裡完成修復。",
 	"sidebar.remoteEnroll.noHost": "沒有已驗證且未停用的主機。先在裝置設定裡新增主機並完成指紋確認。",
 	"sidebar.remoteEnroll.openDeviceSettings": "去裝置設定",

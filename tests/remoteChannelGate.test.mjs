@@ -24,6 +24,26 @@ test("远端发布策略不随更新通道变化", () => {
 	assert.equal(devChannelBuild(true, false), false, "stable 包的构建身份仍为 false，但远端策略独立为 true");
 });
 
+test("远端域注册开关只有一个来源，且不允许写死", () => {
+	const main = readFileSync("src/main/index.ts", "utf8");
+	// 策略位只允许在装配层读一次：域内再读一次就会与这个开关漂移。
+	assert.equal([...main.matchAll(/const remoteFeatureEnabled\s*=\s*REMOTE_FEATURE_AVAILABLE;/g)].length, 1, "策略位应只在装配层派生一次");
+	const registrations = [...main.matchAll(/registerRemote\w+Ipc\(\{/g)].length;
+	const switches = [...main.matchAll(/enabled:\s*remoteFeatureEnabled\b/g)].length;
+	assert.equal(registrations, 9, "远端域注册点数量变化时，同步更新本条断言与 docs/remote-release-readiness.md 的口径");
+	assert.equal(switches, registrations, "每个远端注册点都必须用同一个开关，否则翻策略位只关掉一部分域");
+	assert.doesNotMatch(main, /enabled:\s*true\b/, "不允许出现写死的 enabled: true（策略位会形同虚设）");
+});
+
+test("浏览器预览的能力位与写面成对，不是野值", () => {
+	const preview = readFileSync("src/renderer/src/previewApi.ts", "utf8");
+	// 预览要能渲染「连接」与远端入口，所以能力位为 true；但它没有主进程/SSH，
+	// 写面必须报稳定码而不是假装成功——这两件事必须同时成立，才是可解释的预览口径。
+	assert.match(preview, /remoteAvailable:\s*true/);
+	assert.match(preview, /connect: async \(hostId\) => \(\{ ok: false as const, hostId, code: "REMOTE_FEATURE_DISABLED" \}\)/);
+	assert.match(preview, /start: async \(\) => \(\{ ok: false as const, code: "REMOTE_FEATURE_DISABLED", outcome: "rejected" as const \}\)/);
+});
+
 test("能力契约只在 remoteAvailable=false 时隐藏入口", () => {
 	const type = readFileSync("src/shared/types/app.ts", "utf8");
 	const main = readFileSync("src/main/ipc/systemIpc.ts", "utf8");
