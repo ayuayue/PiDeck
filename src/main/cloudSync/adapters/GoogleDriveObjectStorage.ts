@@ -33,12 +33,15 @@ import {
 } from "../objectStorage.ts";
 import { normalizeGoogleDriveConfig } from "../providerConfig.ts";
 
-type FetchLike = (input: string, init?: {
-	method?: string;
-	headers?: Record<string, string>;
-	body?: BodyInit;
-	signal?: AbortSignal;
-}) => Promise<{
+type FetchLike = (
+	input: string,
+	init?: {
+		method?: string;
+		headers?: Record<string, string>;
+		body?: BodyInit;
+		signal?: AbortSignal;
+	},
+) => Promise<{
 	status: number;
 	headers: { get(name: string): string | null };
 	json(): Promise<unknown>;
@@ -104,7 +107,7 @@ export class GoogleDriveObjectStorage implements PiDeckCloudObjectStorage {
 	private refreshToken: string | undefined;
 	private expiresAt: number | undefined;
 	/** token 轮换回调：刷新成功后通知持有者持久化（Google refresh token 会轮换）。 */
-	private onTokensRefreshed: ((tokens: CloudSyncRotatedTokens) => void) | null = null;
+	private onTokensRefreshed: ((tokens: CloudSyncRotatedTokens) => void | Promise<void>) | null = null;
 
 	constructor(config: unknown, deps?: { fetchLike?: FetchLike }) {
 		this.config = normalizeGoogleDriveConfig(config);
@@ -161,11 +164,7 @@ export class GoogleDriveObjectStorage implements PiDeckCloudObjectStorage {
 		};
 	}
 
-	async writeObject(
-		key: string,
-		bytes: Uint8Array,
-		options?: CloudSyncObjectWriteOptions,
-	): Promise<CloudSyncObjectWriteResult> {
+	async writeObject(key: string, bytes: Uint8Array, options?: CloudSyncObjectWriteOptions): Promise<CloudSyncObjectWriteResult> {
 		assertSafeCloudObjectKey(key);
 		this.requireConnected();
 		if (bytes.byteLength > MAX_OBJECT_BYTES) {
@@ -188,13 +187,9 @@ export class GoogleDriveObjectStorage implements PiDeckCloudObjectStorage {
 
 		let revision: string | undefined;
 		if (bytes.byteLength <= SIMPLE_UPLOAD_LIMIT) {
-			revision = existing?.id
-				? await this.simpleUpdate(existing.id, bytes, existing.etag, options?.signal)
-				: await this.simpleCreate(key, bytes, options?.signal);
+			revision = existing?.id ? await this.simpleUpdate(existing.id, bytes, existing.etag, options?.signal) : await this.simpleCreate(key, bytes, options?.signal);
 		} else {
-			revision = existing?.id
-				? await this.resumableUpdate(existing.id, key, bytes, options?.signal)
-				: await this.resumableCreate(key, bytes, options?.signal);
+			revision = existing?.id ? await this.resumableUpdate(existing.id, key, bytes, options?.signal) : await this.resumableCreate(key, bytes, options?.signal);
 		}
 		return { created: !existing, revision };
 	}
@@ -222,11 +217,7 @@ export class GoogleDriveObjectStorage implements PiDeckCloudObjectStorage {
 	private async findFile(key: string, signal?: AbortSignal): Promise<DriveFile | null> {
 		const name = fileNameForKey(key);
 		const query = `name='${quoteQueryValue(name)}' and 'appDataFolder' in parents and trashed=false`;
-		const response = await this.driveRequest(
-			"GET",
-			`${DRIVE_API}/files?spaces=appDataFolder&q=${encodeURIComponent(query)}&fields=files(id,name,etag,md5Checksum,size)`,
-			{ signal },
-		);
+		const response = await this.driveRequest("GET", `${DRIVE_API}/files?spaces=appDataFolder&q=${encodeURIComponent(query)}&fields=files(id,name,etag,md5Checksum,size)`, { signal });
 		if (response.status !== 200) {
 			throw new Error(`Google Drive lookup failed (HTTP ${response.status})`);
 		}
@@ -328,11 +319,7 @@ export class GoogleDriveObjectStorage implements PiDeckCloudObjectStorage {
 	}
 
 	/** 带 token 的 Drive 请求：过期/401 时刷新一次后重试。 */
-	private async driveRequest(
-		method: string,
-		url: string,
-		options?: { headers?: Record<string, string>; body?: BodyInit; signal?: AbortSignal },
-	): Promise<{ status: number; headers: { get(name: string): string | null }; json(): Promise<unknown>; arrayBuffer(): Promise<ArrayBuffer>; text(): Promise<string> }> {
+	private async driveRequest(method: string, url: string, options?: { headers?: Record<string, string>; body?: BodyInit; signal?: AbortSignal }): Promise<{ status: number; headers: { get(name: string): string | null }; json(): Promise<unknown>; arrayBuffer(): Promise<ArrayBuffer>; text(): Promise<string> }> {
 		await this.ensureFreshToken(options?.signal);
 		const response = await this.rawDriveRequest(method, url, options);
 		if (response.status === 401) {
@@ -342,11 +329,7 @@ export class GoogleDriveObjectStorage implements PiDeckCloudObjectStorage {
 		return response;
 	}
 
-	private async rawDriveRequest(
-		method: string,
-		url: string,
-		options?: { headers?: Record<string, string>; body?: BodyInit; signal?: AbortSignal },
-	): Promise<{ status: number; headers: { get(name: string): string | null }; json(): Promise<unknown>; arrayBuffer(): Promise<ArrayBuffer>; text(): Promise<string> }> {
+	private async rawDriveRequest(method: string, url: string, options?: { headers?: Record<string, string>; body?: BodyInit; signal?: AbortSignal }): Promise<{ status: number; headers: { get(name: string): string | null }; json(): Promise<unknown>; arrayBuffer(): Promise<ArrayBuffer>; text(): Promise<string> }> {
 		this.requireToken();
 		return this.fetchLike(url, {
 			method,
@@ -389,7 +372,7 @@ export class GoogleDriveObjectStorage implements PiDeckCloudObjectStorage {
 		}
 		this.expiresAt = typeof token.expires_in === "number" ? Date.now() + token.expires_in * 1000 : undefined;
 		// 轮换后的 token 必须持久化，否则重启后旧 refresh token 失效 → 被迫重新授权。
-		this.onTokensRefreshed?.({
+		await this.onTokensRefreshed?.({
 			accessToken: this.accessToken,
 			...(this.refreshToken ? { refreshToken: this.refreshToken } : {}),
 			...(this.expiresAt !== undefined ? { expiresAt: this.expiresAt } : {}),
@@ -397,7 +380,7 @@ export class GoogleDriveObjectStorage implements PiDeckCloudObjectStorage {
 	}
 
 	/** 注册 token 轮换回调（持有者 = CloudSyncManager，负责密封落盘）。 */
-	setOnTokensRefreshed(callback: (tokens: CloudSyncRotatedTokens) => void): void {
+	setOnTokensRefreshed(callback: (tokens: CloudSyncRotatedTokens) => void | Promise<void>): void {
 		this.onTokensRefreshed = callback;
 	}
 

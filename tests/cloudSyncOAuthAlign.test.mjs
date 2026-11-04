@@ -25,14 +25,28 @@ function createRotatingTokenAdapter() {
 	const adapter = {
 		providerId: "onedrive",
 		refreshedCallback: null,
-		async connect() { return { account: { id: "od", name: "OneDrive" } }; },
+		async connect() {
+			return { account: { id: "od", name: "OneDrive" } };
+		},
 		async disconnect() {},
-		async getAccount() { return { id: "od", name: "OneDrive" }; },
-		async getCapabilities() { return { revisions: true, conditionalWrites: true, atomicReplacement: false }; },
-		async readObject(key) { return { found: false, key, bytes: null }; },
-		async writeObject(key, bytes) { return { created: true, revision: "r1" }; },
-		async deleteObject(key) { return { deleted: false }; },
-		setOnTokensRefreshed(callback) { this.refreshedCallback = callback; },
+		async getAccount() {
+			return { id: "od", name: "OneDrive" };
+		},
+		async getCapabilities() {
+			return { revisions: true, conditionalWrites: true, atomicReplacement: false };
+		},
+		async readObject(key) {
+			return { found: false, key, bytes: null };
+		},
+		async writeObject(key, bytes) {
+			return { created: true, revision: "r1" };
+		},
+		async deleteObject(key) {
+			return { deleted: false };
+		},
+		setOnTokensRefreshed(callback) {
+			this.refreshedCallback = callback;
+		},
 	};
 	return adapter;
 }
@@ -41,13 +55,25 @@ function createRotatingTokenAdapter() {
 function createGithubFakeAdapter() {
 	return {
 		providerId: "github",
-		async connect() { return { account: { id: "gh", name: "GitHub" } }; },
+		async connect() {
+			return { account: { id: "gh", name: "GitHub" } };
+		},
 		async disconnect() {},
-		async getAccount() { return { id: "gh", name: "GitHub" }; },
-		async getCapabilities() { return { revisions: true, conditionalWrites: true, atomicReplacement: false }; },
-		async readObject(key) { return { found: false, key, bytes: null }; },
-		async writeObject(key, bytes) { return { created: true, revision: "r1" }; },
-		async deleteObject(key) { return { deleted: false }; },
+		async getAccount() {
+			return { id: "gh", name: "GitHub" };
+		},
+		async getCapabilities() {
+			return { revisions: true, conditionalWrites: true, atomicReplacement: false };
+		},
+		async readObject(key) {
+			return { found: false, key, bytes: null };
+		},
+		async writeObject(key, bytes) {
+			return { created: true, revision: "r1" };
+		},
+		async deleteObject(key) {
+			return { deleted: false };
+		},
 	};
 }
 
@@ -228,14 +254,10 @@ test("rotated OAuth tokens are persisted to the sealed provider config and survi
 		});
 		assert.ok(adapter.refreshedCallback, "connectProvider should wire the rotation callback");
 
-		// 模拟刷新成功后 token 轮换（Microsoft consumer 每次刷新轮换并作废旧 token）。
-		adapter.refreshedCallback({ accessToken: "new-access", refreshToken: "new-refresh", expiresAt: 12345 });
-		// persistRotatedTokens 是异步 fire-and-forget（PBKDF2 密封较慢），有界轮询等它落盘。
-		for (let attempt = 0; attempt < 40; attempt++) {
-			const sealed = manager.providerConfigs.get("onedrive");
-			if (sealed && "refreshToken" in sealed && sealed.refreshToken === "new-refresh") break;
-			await new Promise((resolve) => setTimeout(resolve, 50));
-		}
+		// 模拟连续刷新（Microsoft consumer 每次刷新轮换并作废旧 token）；最后一次轮换必须胜出。
+		const firstRotation = adapter.refreshedCallback({ accessToken: "intermediate-access", refreshToken: "intermediate-refresh", expiresAt: 12345 });
+		const finalRotation = adapter.refreshedCallback({ accessToken: "new-access", refreshToken: "new-refresh", expiresAt: 23456 });
+		await Promise.all([firstRotation, finalRotation]);
 
 		const sealedConfig = manager.providerConfigs.get("onedrive");
 		assert.ok(sealedConfig);
@@ -270,11 +292,7 @@ test("GitHub device flow poll: pending → slow_down → ok, token configures pr
 		const userDataDir = join(base, "userData");
 		const homeDir = join(base, "home");
 		await mkdir(homeDir, { recursive: true });
-		const staged = [
-			{ accessToken: "", error: "authorization_pending" },
-			{ accessToken: "", error: "slow_down" },
-			{ accessToken: "gh-token-123" },
-		];
+		const staged = [{ accessToken: "", error: "authorization_pending" }, { accessToken: "", error: "slow_down" }, { accessToken: "gh-token-123" }];
 		const polled = [];
 		const manager = makeManager({
 			userDataDir,
@@ -282,7 +300,11 @@ test("GitHub device flow poll: pending → slow_down → ok, token configures pr
 			oauthBuiltins: { githubClientId: "", onedriveClientId: "", googleClientId: "", googleClientSecret: "" },
 			createAdapter: () => createGithubFakeAdapter(),
 			startGithubDeviceFlowImpl: async () => ({
-				deviceCode: "dc", userCode: "uc", verificationUrl: "https://github.com/login/device", expiresIn: 900, interval: 5,
+				deviceCode: "dc",
+				userCode: "uc",
+				verificationUrl: "https://github.com/login/device",
+				expiresIn: 900,
+				interval: 5,
 			}),
 			pollGithubDeviceFlowImpl: async (clientId, deviceCode) => {
 				polled.push({ clientId, deviceCode });
@@ -334,7 +356,11 @@ test("GitHub device flow poll: terminal error clears flow and surfaces a display
 			oauthBuiltins: { githubClientId: "builtin-gh-id", onedriveClientId: "", googleClientId: "", googleClientSecret: "" },
 			createAdapter: () => createGithubFakeAdapter(),
 			startGithubDeviceFlowImpl: async () => ({
-				deviceCode: "dc", userCode: "uc", verificationUrl: "https://github.com/login/device", expiresIn: 900, interval: 5,
+				deviceCode: "dc",
+				userCode: "uc",
+				verificationUrl: "https://github.com/login/device",
+				expiresIn: 900,
+				interval: 5,
 			}),
 			pollGithubDeviceFlowImpl: async () => ({ accessToken: "", error: "access_denied", errorDescription: "The user denied access" }),
 		});
@@ -358,31 +384,49 @@ test("GitHub adapter parses interval from device authorization and token respons
 	const fakeFetch = (response) => async () => response;
 
 	// 服务端在 token 响应中下发 slow_down + interval（秒）→ 适配器原样透出，供上层累加。
-	const slowDown = await pollGithubDeviceFlow("client-id", "device-code", fakeFetch({
-		json: async () => ({ error: "slow_down", interval: 10 }),
-	}));
+	const slowDown = await pollGithubDeviceFlow(
+		"client-id",
+		"device-code",
+		fakeFetch({
+			json: async () => ({ error: "slow_down", interval: 10 }),
+		}),
+	);
 	assert.deepEqual(slowDown, { accessToken: "", error: "slow_down", errorDescription: undefined, interval: 10 });
 
-	const denied = await pollGithubDeviceFlow("client-id", "device-code", fakeFetch({
-		json: async () => ({ error: "access_denied" }),
-	}));
+	const denied = await pollGithubDeviceFlow(
+		"client-id",
+		"device-code",
+		fakeFetch({
+			json: async () => ({ error: "access_denied" }),
+		}),
+	);
 	assert.deepEqual(denied, { accessToken: "", error: "access_denied", errorDescription: undefined, interval: undefined });
 
-	const ok = await pollGithubDeviceFlow("client-id", "device-code", fakeFetch({
-		json: async () => ({ access_token: "tok" }),
-	}));
+	const ok = await pollGithubDeviceFlow(
+		"client-id",
+		"device-code",
+		fakeFetch({
+			json: async () => ({ access_token: "tok" }),
+		}),
+	);
 	assert.deepEqual(ok, { accessToken: "tok" });
 
 	// device authorization：显式 interval 原样返回；缺省兜底 5s。
-	const withInterval = await startGithubDeviceFlow("client-id", fakeFetch({
-		status: 200,
-		json: async () => ({ device_code: "dc", user_code: "uc", verification_url: "https://github.com/login/device", expires_in: 900, interval: 7 }),
-	}));
+	const withInterval = await startGithubDeviceFlow(
+		"client-id",
+		fakeFetch({
+			status: 200,
+			json: async () => ({ device_code: "dc", user_code: "uc", verification_url: "https://github.com/login/device", expires_in: 900, interval: 7 }),
+		}),
+	);
 	assert.equal(withInterval.interval, 7);
 
-	const defaultInterval = await startGithubDeviceFlow("client-id", fakeFetch({
-		status: 200,
-		json: async () => ({ device_code: "dc", user_code: "uc", verification_url: "https://github.com/login/device", expires_in: 900 }),
-	}));
+	const defaultInterval = await startGithubDeviceFlow(
+		"client-id",
+		fakeFetch({
+			status: 200,
+			json: async () => ({ device_code: "dc", user_code: "uc", verification_url: "https://github.com/login/device", expires_in: 900 }),
+		}),
+	);
 	assert.equal(defaultInterval.interval, 5);
 });

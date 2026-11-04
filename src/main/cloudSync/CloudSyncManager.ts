@@ -4,11 +4,7 @@ import { createServer } from "node:http";
 import { lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { gunzipSync, gzipSync, zstdCompressSync, zstdDecompressSync } from "node:zlib";
-import type {
-	AppSettings,
-	Project,
-	SessionRecord,
-} from "../../shared/types.ts";
+import type { AppSettings, Project, SessionRecord } from "../../shared/types.ts";
 import type {
 	CloudProvider,
 	CloudSyncConflict,
@@ -46,33 +42,9 @@ import type {
 } from "../../shared/types/cloudSync.ts";
 import { CLOUD_SYNC_CONSTANTS } from "../../shared/types/cloudSync.ts";
 import { localProjectPath } from "../../shared/projectLocation.ts";
-import {
-	createMasterKeyConfig,
-	changeMasterPassword,
-	decrypt,
-	decryptPayload,
-	deriveKey,
-	encrypt,
-	encryptPayload,
-	generateRandomBytes,
-	isCloudSyncMasterKeyConfig,
-	unlockMasterKey,
-	verifyPassword,
-} from "./EncryptionService.ts";
-import {
-	pollGithubDeviceFlow,
-	startGithubDeviceFlow,
-	type GithubDeviceFlowStart,
-	type GithubDeviceFlowToken,
-} from "./adapters/GithubGistObjectStorage.ts";
-import {
-	CloudSyncScanner,
-	CLOUD_SYNC_SCANNER_LIMITS,
-	type CloudSyncInternalResource,
-	type CloudSyncInternalSession,
-	type CloudSyncScanOptions,
-	type CloudSyncScanSnapshot,
-} from "./CloudSyncScanner.ts";
+import { createMasterKeyConfig, changeMasterPassword, decrypt, decryptPayload, deriveKey, encrypt, encryptPayload, generateRandomBytes, isCloudSyncMasterKeyConfig, unlockMasterKey, verifyPassword } from "./EncryptionService.ts";
+import { pollGithubDeviceFlow, startGithubDeviceFlow, type GithubDeviceFlowStart, type GithubDeviceFlowToken } from "./adapters/GithubGistObjectStorage.ts";
+import { CloudSyncScanner, CLOUD_SYNC_SCANNER_LIMITS, type CloudSyncInternalResource, type CloudSyncInternalSession, type CloudSyncScanOptions, type CloudSyncScanSnapshot } from "./CloudSyncScanner.ts";
 import type { PiDeckCloudObjectStorage } from "./objectStorage.ts";
 import { createCloudSyncObjectStorage } from "./adapters/index.ts";
 import { normalizeGithubGistConfig, normalizeGoogleDriveConfig, normalizeLocalFolderConfig, normalizeOneDriveConfig, normalizeS3Config, normalizeWebDAVConfig } from "./providerConfig.ts";
@@ -97,14 +69,9 @@ import {
 	toPortableRelativePath,
 	type CloudSyncProjectOptions,
 } from "./payload.ts";
-import {
-	mergeSyncIndexes,
-	type CloudSyncMergeResult,
-} from "./merge.ts";
+import { mergeSyncIndexes, type CloudSyncMergeResult } from "./merge.ts";
 
-type PersistedProviderEntry =
-	| { configured: true; sealed: string }
-	| null;
+type PersistedProviderEntry = { configured: true; sealed: string } | null;
 
 type CloudSyncPersistedState = {
 	version: 1;
@@ -179,17 +146,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isMissingError(error: unknown): boolean {
-	return Boolean(
-		error && typeof error === "object" && "code" in error &&
-		(error as { code?: unknown }).code === "ENOENT",
-	);
+	return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "ENOENT");
 }
 
 function isPermissionError(error: unknown): boolean {
-	return Boolean(
-		error && typeof error === "object" && "code" in error &&
-		((error as { code?: unknown }).code === "EACCES" || (error as { code?: unknown }).code === "EPERM"),
-	);
+	return Boolean(error && typeof error === "object" && "code" in error && ((error as { code?: unknown }).code === "EACCES" || (error as { code?: unknown }).code === "EPERM"));
 }
 
 function encodeBase64(value: Uint8Array): string {
@@ -204,12 +165,7 @@ function decodeBase64(value: string): Buffer {
 }
 
 function isSafeSelectionId(value: string): boolean {
-	return (
-		typeof value === "string" &&
-		value.length > 0 &&
-		value.length <= 512 &&
-		(value.startsWith("session:") || value.startsWith("resource:"))
-	);
+	return typeof value === "string" && value.length > 0 && value.length <= 512 && (value.startsWith("session:") || value.startsWith("resource:"));
 }
 
 /** Stream a file into a SHA-256 hex digest without loading it into memory. */
@@ -285,21 +241,9 @@ export interface CloudSyncManagerOptions {
 	/** 已安装扩展清单（source + scope），用于判断声明是否缺失。 */
 	listExtensions?: () => Promise<Array<{ source: string; scope?: string }>>;
 	/** OneDrive OAuth 测试注入点：缺省走真实 Graph token 端点（全局 fetch）。 */
-	exchangeOneDriveCode?: (input: {
-		clientId: string;
-		tenant: string;
-		code: string;
-		codeVerifier: string;
-		redirectUri: string;
-	}) => Promise<{ accessToken: string; refreshToken?: string; expiresIn: number }>;
+	exchangeOneDriveCode?: (input: { clientId: string; tenant: string; code: string; codeVerifier: string; redirectUri: string }) => Promise<{ accessToken: string; refreshToken?: string; expiresIn: number }>;
 	/** Google OAuth 测试注入点：缺省走真实 Google token 端点（全局 fetch）。 */
-	exchangeGoogleCode?: (input: {
-		clientId: string;
-		clientSecret?: string;
-		code: string;
-		codeVerifier: string;
-		redirectUri: string;
-	}) => Promise<{ accessToken: string; refreshToken?: string; expiresIn: number }>;
+	exchangeGoogleCode?: (input: { clientId: string; clientSecret?: string; code: string; codeVerifier: string; redirectUri: string }) => Promise<{ accessToken: string; refreshToken?: string; expiresIn: number }>;
 	/** GitHub Device Flow 测试注入点：缺省走真实 GitHub 端点（全局 fetch）。 */
 	startGithubDeviceFlowImpl?: (clientId: string) => Promise<GithubDeviceFlowStart>;
 	/** GitHub Device Flow 轮询测试注入点：缺省走真实 GitHub 端点（全局 fetch）。 */
@@ -339,6 +283,10 @@ export class CloudSyncManager {
 		remote: PiDeckSyncIndexV1;
 		conflicts: CloudSyncConflict[];
 	} | null = null;
+	/** Serialize state writes so a slower, older write cannot replace a newer one. */
+	private statePersistQueue: Promise<void> = Promise.resolve();
+	/** Serialize OAuth rotations through seal + durable write; the final callback wins. */
+	private tokenPersistQueue: Promise<void> = Promise.resolve();
 	private autoSyncTimer: ReturnType<typeof setInterval> | null = null;
 	private disposed = false;
 	/** GitHub Device Flow 进行中的上下文（主进程持有，token 永不进 renderer）。
@@ -391,9 +339,7 @@ export class CloudSyncManager {
 	}
 
 	getStateSnapshot(): CloudSyncStateSnapshot {
-		const providers = Object.fromEntries(
-			Object.keys(this.providerSnapshots()).map((provider) => [provider, this.providerSnapshots()[provider as CloudProvider]]),
-		) as Record<CloudProvider, CloudSyncProviderSnapshot>;
+		const providers = Object.fromEntries(Object.keys(this.providerSnapshots()).map((provider) => [provider, this.providerSnapshots()[provider as CloudProvider]])) as Record<CloudProvider, CloudSyncProviderSnapshot>;
 		return {
 			securityState: this.securityState(),
 			syncState: this.syncState,
@@ -548,9 +494,7 @@ export class CloudSyncManager {
 		// OAuth provider：token 轮换时持久化新 token（Microsoft consumer / Google 每次刷新轮换并作废旧值）。
 		if (provider === "onedrive" || provider === "google") {
 			const base = config as OneDriveConfig | GoogleDriveConfig;
-			adapter.setOnTokensRefreshed?.((tokens) => {
-				void this.persistRotatedTokens(provider, { ...base, ...tokens });
-			});
+			adapter.setOnTokensRefreshed?.((tokens) => this.queueRotatedTokens(provider, { ...base, ...tokens }));
 		}
 		const result = await adapter.connect();
 		this.adapters.set(provider, adapter);
@@ -558,19 +502,24 @@ export class CloudSyncManager {
 		return result.account;
 	}
 
+	private queueRotatedTokens(provider: "onedrive" | "google", config: OneDriveConfig | GoogleDriveConfig): Promise<void> {
+		const persist = () => this.persistRotatedTokens(provider, config);
+		const result = this.tokenPersistQueue.then(persist, persist);
+		this.tokenPersistQueue = result;
+		return result;
+	}
+
 	/** OAuth token 轮换持久化：重新密封落盘（不触发连接重建，避免刷新期间抖动）。 */
-	private async persistRotatedTokens(
-		provider: "onedrive" | "google",
-		config: OneDriveConfig | GoogleDriveConfig,
-	): Promise<void> {
+	private async persistRotatedTokens(provider: "onedrive" | "google", config: OneDriveConfig | GoogleDriveConfig): Promise<void> {
 		if (this.securityState() !== "UNLOCKED") return; // 锁定时无法密封，解锁后下次刷新失败会提示重连
 		try {
 			const sealed = await this.sealConfig(config, this.requirePassword(), this.state.masterKeyConfig!);
 			this.state.providers[provider] = { configured: true, sealed };
-			this.providerConfigs.set(provider, config);
 			await this.persist();
+			if (this.securityState() === "UNLOCKED") this.providerConfigs.set(provider, config);
 		} catch (error) {
 			// 持久化尽力而为：本次会话的新 token 仍可用，失败不阻断同步（Netcatty 同策略）。
+			if (this.securityState() === "UNLOCKED") this.providerConfigs.set(provider, config);
 			this.options.log?.("cloudSync", `Failed to persist rotated tokens for ${provider}`, {
 				error: error instanceof Error ? error.message : String(error),
 			});
@@ -668,7 +617,7 @@ export class CloudSyncManager {
 			if (this.oneDriveFlow && callbackState === this.oneDriveFlow.state && (code || error)) {
 				this.oneDriveFlow.resolved = code ? { code } : { error: error ?? "access_denied" };
 				response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-				response.end("<!doctype html><meta charset=\"utf-8\"><p>授权成功，可以关闭此页面。</p>");
+				response.end('<!doctype html><meta charset="utf-8"><p>授权成功，可以关闭此页面。</p>');
 				// 回调已到达：只关本服务（resolved 留给 poll 处理，绝不能清 flow）。
 				setTimeout(() => {
 					try {
@@ -695,11 +644,7 @@ export class CloudSyncManager {
 
 		const redirectUri = encodeURIComponent(`http://localhost:${port}`);
 		const verificationUrl =
-			"https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize" +
-			`?client_id=${encodeURIComponent(resolvedClientId)}` +
-			`&response_type=code&redirect_uri=${redirectUri}` +
-			"&scope=Files.ReadWrite.AppFolder%20offline_access" +
-			`&code_challenge=${codeChallenge}&code_challenge_method=S256&state=${state}`;
+			"https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize" + `?client_id=${encodeURIComponent(resolvedClientId)}` + `&response_type=code&redirect_uri=${redirectUri}` + "&scope=Files.ReadWrite.AppFolder%20offline_access" + `&code_challenge=${codeChallenge}&code_challenge_method=S256&state=${state}`;
 		return { verificationUrl, port };
 	}
 
@@ -744,13 +689,7 @@ export class CloudSyncManager {
 	}
 
 	/** 默认 token 交换：POST Microsoft identity 端点（全局 fetch，无新依赖）。 */
-	private readonly exchangeOneDriveCode = async (input: {
-		clientId: string;
-		tenant: string;
-		code: string;
-		codeVerifier: string;
-		redirectUri: string;
-	}): Promise<{ accessToken: string; refreshToken?: string; expiresIn: number }> => {
+	private readonly exchangeOneDriveCode = async (input: { clientId: string; tenant: string; code: string; codeVerifier: string; redirectUri: string }): Promise<{ accessToken: string; refreshToken?: string; expiresIn: number }> => {
 		const body = new URLSearchParams({
 			client_id: input.clientId,
 			grant_type: "authorization_code",
@@ -815,7 +754,7 @@ export class CloudSyncManager {
 			if (this.googleFlow && callbackState === this.googleFlow.state && (code || error)) {
 				this.googleFlow.resolved = code ? { code } : { error: error ?? "access_denied" };
 				response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-				response.end("<!doctype html><meta charset=\"utf-8\"><p>授权成功，可以关闭此页面。</p>");
+				response.end('<!doctype html><meta charset="utf-8"><p>授权成功，可以关闭此页面。</p>');
 				// 回调已到达：只关本服务（resolved 留给 poll 处理，绝不能清 flow）。
 				setTimeout(() => {
 					try {
@@ -851,12 +790,7 @@ export class CloudSyncManager {
 		const redirectUri = encodeURIComponent(`http://localhost:${port}`);
 		const scope = encodeURIComponent("https://www.googleapis.com/auth/drive.appfolder");
 		const verificationUrl =
-			"https://accounts.google.com/o/oauth2/v2/auth" +
-			`?client_id=${encodeURIComponent(resolvedClientId)}` +
-			`&redirect_uri=${redirectUri}` +
-			`&response_type=code&scope=${scope}` +
-			`&code_challenge=${codeChallenge}&code_challenge_method=S256&state=${state}` +
-			"&access_type=offline&prompt=consent";
+			"https://accounts.google.com/o/oauth2/v2/auth" + `?client_id=${encodeURIComponent(resolvedClientId)}` + `&redirect_uri=${redirectUri}` + `&response_type=code&scope=${scope}` + `&code_challenge=${codeChallenge}&code_challenge_method=S256&state=${state}` + "&access_type=offline&prompt=consent";
 		return { verificationUrl, port };
 	}
 
@@ -902,13 +836,7 @@ export class CloudSyncManager {
 	}
 
 	/** 默认 token 交换：POST Google token 端点（全局 fetch，无新依赖）。 */
-	private readonly exchangeGoogleCode = async (input: {
-		clientId: string;
-		clientSecret?: string;
-		code: string;
-		codeVerifier: string;
-		redirectUri: string;
-	}): Promise<{ accessToken: string; refreshToken?: string; expiresIn: number }> => {
+	private readonly exchangeGoogleCode = async (input: { clientId: string; clientSecret?: string; code: string; codeVerifier: string; redirectUri: string }): Promise<{ accessToken: string; refreshToken?: string; expiresIn: number }> => {
 		const body = new URLSearchParams({
 			client_id: input.clientId,
 			grant_type: "authorization_code",
@@ -998,22 +926,14 @@ export class CloudSyncManager {
 
 	/** 替换用户扫描排除黑名单（glob 列表，去重、限长、trim）。 */
 	async setExclusions(patterns: string[]): Promise<void> {
-		const clean = Array.isArray(patterns)
-			? patterns.map((item) => (typeof item === "string" ? item.trim() : "")).filter((item) => item.length > 0 && item.length <= 512)
-			: [];
+		const clean = Array.isArray(patterns) ? patterns.map((item) => (typeof item === "string" ? item.trim() : "")).filter((item) => item.length > 0 && item.length <= 512) : [];
 		this.state.exclusions = [...new Set(clean)].map((pattern, index) => ({ id: `ex-${Date.now()}-${index}`, pattern }));
 		await this.persist();
 		this.emitState();
 	}
 
 	/** 添加自选同步路径（用户点「添加」手动选中）；校验入参后入清单。 */
-	async addCustomPath(input: {
-		filePath: string;
-		relativeTo: "project" | "home" | "absolute";
-		relativePath: string;
-		projectId?: string;
-		label?: string;
-	}): Promise<void> {
+	async addCustomPath(input: { filePath: string; relativeTo: "project" | "home" | "absolute"; relativePath: string; projectId?: string; label?: string }): Promise<void> {
 		if (!input || typeof input.filePath !== "string" || input.filePath.trim().length === 0 || input.filePath.length > 4096) {
 			throw new TypeError("Custom path is invalid");
 		}
@@ -1128,10 +1048,10 @@ export class CloudSyncManager {
 				if (mergeResult.conflicts.length > 0) {
 					this.pendingConflictContext = {
 						base,
-					local: localIndex,
-					remote: remoteIndex,
-					conflicts: mergeResult.conflicts,
-				};
+						local: localIndex,
+						remote: remoteIndex,
+						conflicts: mergeResult.conflicts,
+					};
 					this.syncState = "CONFLICT";
 					this.lastError = null;
 					this.emitState();
@@ -1181,13 +1101,7 @@ export class CloudSyncManager {
 		if (choices.size !== conflictIds.size) {
 			throw new TypeError("All conflicts must be resolved before continuing");
 		}
-		const mergeResult = mergeSyncIndexes(
-			context.base,
-			context.local,
-			context.remote,
-			this.state.strategy,
-			choices,
-		);
+		const mergeResult = mergeSyncIndexes(context.base, context.local, context.remote, this.state.strategy, choices);
 		this.pendingConflictContext = null;
 		const scan = await this.scanner.scan(this.getSelectionPreferences(), this.scanOptions());
 		const remote = await this.readRemoteIndex();
@@ -1219,26 +1133,21 @@ export class CloudSyncManager {
 		return result;
 	}
 
-	private async evaluateShrinkGuard(
-		scan: CloudSyncScanSnapshot,
-		allowShrink: boolean,
-	): Promise<{ allowed: boolean; reason?: string }> {
+	private async evaluateShrinkGuard(scan: CloudSyncScanSnapshot, allowShrink: boolean): Promise<{ allowed: boolean; reason?: string }> {
 		const selectedSessions = [...scan.sessions.values()].filter((item) => item.candidate.selected).length;
 		const selectedResources = [...scan.resources.values()].filter((item) => item.candidate.selected).length;
 		const failedRoots = scan.tree.roots.filter((root) => !root.ok);
 		if (failedRoots.length > 0 && !allowShrink) {
-			const labels = failedRoots.map((root) => root.label).slice(0, 3).join(", ");
+			const labels = failedRoots
+				.map((root) => root.label)
+				.slice(0, 3)
+				.join(", ");
 			return {
 				allowed: false,
 				reason: `Cannot sync: scan failed for ${labels}`,
 			};
 		}
-		if (
-			!allowShrink &&
-			(this.state.lastSyncedSessionCount > 0 || this.state.lastSyncedResourceCount > 0) &&
-			selectedSessions === 0 &&
-			selectedResources === 0
-		) {
+		if (!allowShrink && (this.state.lastSyncedSessionCount > 0 || this.state.lastSyncedResourceCount > 0) && selectedSessions === 0 && selectedResources === 0) {
 			return {
 				allowed: false,
 				reason: "Selection is empty; confirm to clear the cloud copy",
@@ -1247,9 +1156,7 @@ export class CloudSyncManager {
 		return { allowed: true };
 	}
 
-	private async readRemoteIndex(): Promise<
-		{ found: false } | { found: true; file: SyncedFile; revision?: string }
-	> {
+	private async readRemoteIndex(): Promise<{ found: false } | { found: true; file: SyncedFile; revision?: string }> {
 		const provider = this.firstAdapter();
 		if (!provider) return { found: false };
 		const result = await provider.readObject(CLOUD_SYNC_CONSTANTS.SYNC_INDEX_OBJECT_KEY);
@@ -1268,13 +1175,7 @@ export class CloudSyncManager {
 		return decryptPayload(file, this.requirePassword());
 	}
 
-	private async push(
-		scan: CloudSyncScanSnapshot,
-		selectedSessions: CloudSyncInternalSession[],
-		selectedResources: CloudSyncInternalResource[],
-		expectedRevisionArg: string | undefined,
-		remoteVersionArg?: number,
-	): Promise<void> {
+	private async push(scan: CloudSyncScanSnapshot, selectedSessions: CloudSyncInternalSession[], selectedResources: CloudSyncInternalResource[], expectedRevisionArg: string | undefined, remoteVersionArg?: number): Promise<void> {
 		const provider = this.firstAdapter();
 		if (!provider) throw new Error("No connected provider");
 
@@ -1291,14 +1192,7 @@ export class CloudSyncManager {
 		await this.checkAndRestoreExtensions(index);
 		// 版本号取 max(local, remote)，防止覆盖远端时把版本计数器回退。
 		const existingVersion = Math.max(this.state.localVersion, remoteVersionArg ?? this.state.localVersion);
-		const file = await encryptPayload(
-			index,
-			this.requirePassword(),
-			this.state.deviceId,
-			this.state.deviceName,
-			this.options.appVersion,
-			existingVersion,
-		);
+		const file = await encryptPayload(index, this.requirePassword(), this.state.deviceId, this.state.deviceName, this.options.appVersion, existingVersion);
 		const capabilities = await provider.getCapabilities();
 		// WebDAV has no conditional writes; only S3-style providers guard with a revision.
 		const conditionalRevision = capabilities.conditionalWrites ? expectedRevisionArg : undefined;
@@ -1321,13 +1215,7 @@ export class CloudSyncManager {
 	}
 
 	/** 合并结果落地：按传输计划上传/下载对象，写回合并索引为新的 base。 */
-	private async applyMerged(
-		scan: CloudSyncScanSnapshot,
-		result: CloudSyncMergeResult,
-		remoteIndex: PiDeckSyncIndexV1,
-		remoteVersion: number,
-		expectedRevisionArg: string | undefined,
-	): Promise<void> {
+	private async applyMerged(scan: CloudSyncScanSnapshot, result: CloudSyncMergeResult, remoteIndex: PiDeckSyncIndexV1, remoteVersion: number, expectedRevisionArg: string | undefined): Promise<void> {
 		const provider = this.firstAdapter();
 		if (!provider) throw new Error("No connected provider");
 
@@ -1346,14 +1234,7 @@ export class CloudSyncManager {
 			await this.downloadResourceBundle(item.projectId, item.bundle, provider);
 		}
 
-		const file = await encryptPayload(
-			result.merged,
-			this.requirePassword(),
-			this.state.deviceId,
-			this.state.deviceName,
-			this.options.appVersion,
-			remoteVersion,
-		);
+		const file = await encryptPayload(result.merged, this.requirePassword(), this.state.deviceId, this.state.deviceName, this.options.appVersion, remoteVersion);
 		const capabilities = await provider.getCapabilities();
 		const conditionalRevision = capabilities.conditionalWrites ? expectedRevisionArg : undefined;
 		await provider.writeObject(CLOUD_SYNC_CONSTANTS.SYNC_INDEX_OBJECT_KEY, Buffer.from(JSON.stringify(file), "utf8"), {
@@ -1378,10 +1259,7 @@ export class CloudSyncManager {
 		this.state.lastSyncDeviceId = this.state.deviceId;
 		this.state.lastSyncedIndex = result.merged;
 		this.state.lastSyncedSessionCount = result.merged.projects?.reduce((sum, project) => sum + (project.sessions?.length ?? 0), 0) ?? 0;
-		this.state.lastSyncedResourceCount = result.merged.projects?.reduce(
-			(sum, project) => sum + (project.resources ? Object.keys(project.resources).length : 0),
-			0,
-		) ?? 0;
+		this.state.lastSyncedResourceCount = result.merged.projects?.reduce((sum, project) => sum + (project.resources ? Object.keys(project.resources).length : 0), 0) ?? 0;
 		this.pendingLocalSync = false;
 		this.pendingConflictContext = null;
 		await this.persist();
@@ -1545,10 +1423,7 @@ export class CloudSyncManager {
 		const iv = decodeBase64(meta.iv);
 		const salt = decodeBase64(meta.salt);
 		const key = await deriveKey(password, salt, meta.kdfIterations ?? CLOUD_SYNC_CONSTANTS.PBKDF2_ITERATIONS);
-		const plain = decrypt(
-			{ ciphertext: decodeBase64(file.payload), iv, salt, kdf: "PBKDF2", kdfIterations: meta.kdfIterations ?? CLOUD_SYNC_CONSTANTS.PBKDF2_ITERATIONS },
-			key,
-		);
+		const plain = decrypt({ ciphertext: decodeBase64(file.payload), iv, salt, kdf: "PBKDF2", kdfIterations: meta.kdfIterations ?? CLOUD_SYNC_CONSTANTS.PBKDF2_ITERATIONS }, key);
 		// 旧对象无 compressed 字段：明文即 UTF-8 文本，向后兼容。
 		if (meta.compressed === "gzip") {
 			return gunzipSync(Buffer.from(plain, "base64")).toString("utf8");
@@ -1556,19 +1431,13 @@ export class CloudSyncManager {
 		return plain;
 	}
 
-	private async buildLocalIndex(
-		scan: CloudSyncScanSnapshot,
-		selectedSessions: CloudSyncInternalSession[],
-		selectedResources: CloudSyncInternalResource[],
-	): Promise<PiDeckSyncIndexV1> {
+	private async buildLocalIndex(scan: CloudSyncScanSnapshot, selectedSessions: CloudSyncInternalSession[], selectedResources: CloudSyncInternalResource[]): Promise<PiDeckSyncIndexV1> {
 		const settings = this.options.getDesktopSettings();
 		const content = this.state.selection.content;
 		const sessionsByProject = new Map<string, CloudSyncInternalSession[]>();
 		for (const item of selectedSessions) {
 			// DSH 会话按扫描器解析出的所属项目归组（cwd/catalog 匹配），不再单列 __dsh__ 合成节点。
-			const group = item.candidate.scope === "project" || item.candidate.scope === "dsh"
-				? item.candidate.projectId
-				: GLOBAL_SYNC_PROJECT_ID;
+			const group = item.candidate.scope === "project" || item.candidate.scope === "dsh" ? item.candidate.projectId : GLOBAL_SYNC_PROJECT_ID;
 			const list = sessionsByProject.get(group) ?? [];
 			list.push(item);
 			sessionsByProject.set(group, list);
@@ -1622,9 +1491,11 @@ export class CloudSyncManager {
 		for (const [projectId, sessions] of sessionsByProject) {
 			if (emittedProjectIds.has(projectId) || sessions.length === 0) continue;
 			const nodeName = scan.tree.projects.find((node) => node.projectId === projectId)?.name ?? projectId;
-			projects.push(buildSyntheticCloudSyncProject(projectId, nodeName, {
-				sessions: await Promise.all(sessions.map((item) => this.buildSessionRef(item))),
-			}));
+			projects.push(
+				buildSyntheticCloudSyncProject(projectId, nodeName, {
+					sessions: await Promise.all(sessions.map((item) => this.buildSessionRef(item))),
+				}),
+			);
 		}
 
 		const pi = await this.buildPiSyncContent(content);
@@ -1668,7 +1539,7 @@ export class CloudSyncManager {
 		try {
 			const raw = await readFile(filePath, "utf8");
 			const parsed = JSON.parse(raw) as unknown;
-			return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+			return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
 		} catch {
 			return null;
 		}
@@ -1700,9 +1571,7 @@ export class CloudSyncManager {
 
 	private async buildSessionRef(item: CloudSyncInternalSession): Promise<import("../../shared/types/cloudSync.ts").CloudSyncSessionRef> {
 		// DSH 会话：hash 基于解压后文本（与上传/恢复一致）。
-		const contentHash = item.candidate.scope === "dsh"
-			? await this.hashDshSessionText(item.filePath)
-			: await hashFile(item.filePath);
+		const contentHash = item.candidate.scope === "dsh" ? await this.hashDshSessionText(item.filePath) : await hashFile(item.filePath);
 		return createSessionRef({
 			sessionId: item.candidate.sessionId,
 			scope: item.candidate.scope,
@@ -1721,9 +1590,7 @@ export class CloudSyncManager {
 		return createHash("sha256").update(text, "utf8").digest("hex");
 	}
 
-	private async buildResourceBundles(
-		resources: CloudSyncInternalResource[],
-	): Promise<NonNullable<import("../../shared/types/cloudSync.ts").CloudSyncProject["resources"]>> {
+	private async buildResourceBundles(resources: CloudSyncInternalResource[]): Promise<NonNullable<import("../../shared/types/cloudSync.ts").CloudSyncProject["resources"]>> {
 		const result: NonNullable<import("../../shared/types/cloudSync.ts").CloudSyncProject["resources"]> = {};
 		const byCategory = new Map<string, CloudSyncInternalResource[]>();
 		for (const item of resources) {
@@ -1794,13 +1661,9 @@ export class CloudSyncManager {
 				await this.downloadResourceBundle(project.projectId, bundle, provider);
 			}
 			if (resources.piSettings) {
-				const scopeRoot = project.projectId === GLOBAL_SYNC_PROJECT_ID
-					? join(this.options.homeDir, ".pi", "agent")
-					: this.options.listProjects().find((candidate) => candidate.id === project.projectId)?.path;
+				const scopeRoot = project.projectId === GLOBAL_SYNC_PROJECT_ID ? join(this.options.homeDir, ".pi", "agent") : this.options.listProjects().find((candidate) => candidate.id === project.projectId)?.path;
 				if (scopeRoot) {
-					const target = project.projectId === GLOBAL_SYNC_PROJECT_ID
-						? join(scopeRoot, "settings.json")
-						: join(scopeRoot, ".pi", "settings.json");
+					const target = project.projectId === GLOBAL_SYNC_PROJECT_ID ? join(scopeRoot, "settings.json") : join(scopeRoot, ".pi", "settings.json");
 					await mkdir(dirname(target), { recursive: true });
 					await ensureNoSymlinkEscape(scopeRoot, target);
 					await writeFileAtomic(target, JSON.stringify(resources.piSettings, null, 2));
@@ -1822,16 +1685,12 @@ export class CloudSyncManager {
 		// M8：pi auth/models 与 ImageGen 配置按分类开关恢复。
 		await this.restoreSensitiveContent(remoteIndex, remoteIndex);
 
-
 		this.state.remoteVersion = remoteVersion;
 		this.state.localVersion = remoteVersion;
 		this.state.lastSyncAt = Date.now();
 		this.state.lastSyncDeviceId = remoteIndex.meta.deviceId;
 		this.state.lastSyncedSessionCount = (remoteIndex.projects ?? []).reduce((sum, project) => sum + (project.sessions?.length ?? 0), 0);
-		this.state.lastSyncedResourceCount = (remoteIndex.projects ?? []).reduce(
-			(sum, project) => sum + (project.resources ? Object.keys(project.resources).length : 0),
-			0,
-		);
+		this.state.lastSyncedResourceCount = (remoteIndex.projects ?? []).reduce((sum, project) => sum + (project.resources ? Object.keys(project.resources).length : 0), 0);
 		this.state.lastSyncedIndex = remoteIndex;
 		this.pendingLocalSync = false;
 		this.pendingConflictContext = null;
@@ -1841,10 +1700,7 @@ export class CloudSyncManager {
 	}
 
 	/** 下载单个会话对象并写入目标路径（hash 相同则跳过）。 */
-	private async downloadSessionRef(
-		sessionRef: import("../../shared/types/cloudSync.ts").CloudSyncSessionRef,
-		provider: PiDeckCloudObjectStorage,
-	): Promise<void> {
+	private async downloadSessionRef(sessionRef: import("../../shared/types/cloudSync.ts").CloudSyncSessionRef, provider: PiDeckCloudObjectStorage): Promise<void> {
 		if (sessionRef.scope === "dsh") {
 			await this.downloadDshSession(sessionRef, provider);
 			return;
@@ -1863,10 +1719,7 @@ export class CloudSyncManager {
 	}
 
 	/** DSH 会话恢复：解密文本后按原格式写回（.zstd 重新压缩，hash 比较基于解压文本）。 */
-	private async downloadDshSession(
-		sessionRef: import("../../shared/types/cloudSync.ts").CloudSyncSessionRef,
-		provider: PiDeckCloudObjectStorage,
-	): Promise<void> {
+	private async downloadDshSession(sessionRef: import("../../shared/types/cloudSync.ts").CloudSyncSessionRef, provider: PiDeckCloudObjectStorage): Promise<void> {
 		const target = await this.resolveSessionTarget(sessionRef);
 		const root = this.sessionTargetRoot(sessionRef);
 		if (!target || !root) return;
@@ -1885,10 +1738,7 @@ export class CloudSyncManager {
 	 * `~/` 前缀 = home 相对自选路径 → 用户 home（不是 agent 根目录）；machine-only → 全局 agentRoot；
 	 * 否则全局 → agentRoot；本地项目 → 项目路径；否则查挂载映射；无 → null。
 	 */
-	private resolveResourceTarget(
-		projectId: string,
-		relativePath: string,
-	): { root: string; relative: string } | null {
+	private resolveResourceTarget(projectId: string, relativePath: string): { root: string; relative: string } | null {
 		if (relativePath.startsWith("~/")) {
 			return { root: this.options.homeDir, relative: relativePath.slice(2) };
 		}
@@ -1898,14 +1748,10 @@ export class CloudSyncManager {
 	}
 
 	/** 下载单个资源 bundle 并写入对应作用域目录。 */
-	private async downloadResourceBundle(
-		projectId: string,
-		bundle: import("../../shared/types/cloudSync.ts").CloudSyncFileBundle,
-		provider: PiDeckCloudObjectStorage,
-	): Promise<void> {
+	private async downloadResourceBundle(projectId: string, bundle: import("../../shared/types/cloudSync.ts").CloudSyncFileBundle, provider: PiDeckCloudObjectStorage): Promise<void> {
 		const targetInfo = this.resolveResourceTarget(projectId, bundle.relativePath);
 		if (!targetInfo) return;
-		const content = bundle.content ?? await this.readObjectText(provider, bundle.objectKey ?? "");
+		const content = bundle.content ?? (await this.readObjectText(provider, bundle.objectKey ?? ""));
 		if (content === undefined) return;
 		const target = join(targetInfo.root, targetInfo.relative);
 		await mkdir(dirname(target), { recursive: true });
@@ -1922,9 +1768,7 @@ export class CloudSyncManager {
 		return this.mounts?.get(projectId)?.localPath;
 	}
 
-	private async resolveSessionTarget(
-		sessionRef: import("../../shared/types/cloudSync.ts").CloudSyncSessionRef,
-	): Promise<string | null> {
+	private async resolveSessionTarget(sessionRef: import("../../shared/types/cloudSync.ts").CloudSyncSessionRef): Promise<string | null> {
 		if (sessionRef.scope === "global") {
 			return resolveGlobalSessionPath(this.options.homeDir, sessionRef.relativePath);
 		}
@@ -1941,9 +1785,7 @@ export class CloudSyncManager {
 		return join(this.options.userDataDir, "cloud-sync-pending", sessionRef.projectId ?? "unknown", sessionRef.relativePath);
 	}
 
-	private sessionTargetRoot(
-		sessionRef: import("../../shared/types/cloudSync.ts").CloudSyncSessionRef,
-	): string | null {
+	private sessionTargetRoot(sessionRef: import("../../shared/types/cloudSync.ts").CloudSyncSessionRef): string | null {
 		if (sessionRef.scope === "global") {
 			return join(this.options.homeDir, ".pi", "agent", "sessions");
 		}
@@ -2024,9 +1866,7 @@ export class CloudSyncManager {
 		const entries: Array<{ name: string; bytes: Uint8Array }> = [];
 		for (const item of selectedSessions) {
 			// DSH 会话：.zstd 解压为文本后打包（与上传路径一致）。
-			const content = item.candidate.scope === "dsh"
-				? await this.readDshSessionText(item.filePath)
-				: await readTextBounded(item.filePath, CLOUD_SYNC_SCANNER_LIMITS.maxSessionBytes);
+			const content = item.candidate.scope === "dsh" ? await this.readDshSessionText(item.filePath) : await readTextBounded(item.filePath, CLOUD_SYNC_SCANNER_LIMITS.maxSessionBytes);
 			const file = await this.encryptObject(content);
 			entries.push({
 				name: item.candidate.scope === "dsh" ? dshSessionObjectKey(item.candidate.sessionId) : sessionObjectKey(item.candidate.sessionId),
@@ -2121,11 +1961,7 @@ export class CloudSyncManager {
 	}
 
 	/** 把备份清单落地：会话/资源按模式写回，配置域与云端 pull 同语义。 */
-	private async applyBackup(
-		input: CloudSyncImportInput,
-		manifest: PiDeckBackupManifestV1,
-		entriesByName: Map<string, Uint8Array>,
-	): Promise<CloudSyncImportResult> {
+	private async applyBackup(input: CloudSyncImportInput, manifest: PiDeckBackupManifestV1, entriesByName: Map<string, Uint8Array>): Promise<CloudSyncImportResult> {
 		const index = manifest.index;
 		const result: CloudSyncImportResult = {
 			filePath: input.filePath,
@@ -2157,7 +1993,7 @@ export class CloudSyncManager {
 			if (resources) {
 				for (const bundle of [...(resources.prompts ?? []), ...(resources.skills ?? []), ...(resources.localExtensions ?? []), ...(resources.config ?? [])]) {
 					result.resourceCount += 1;
-					const content = bundle.content ?? await this.decryptBackupEntry(entriesByName.get(bundle.objectKey ?? ""));
+					const content = bundle.content ?? (await this.decryptBackupEntry(entriesByName.get(bundle.objectKey ?? "")));
 					if (content === undefined) {
 						result.resourcesSkipped += 1;
 						continue;
@@ -2188,11 +2024,7 @@ export class CloudSyncManager {
 		return result;
 	}
 
-	private async restoreBackupSession(
-		sessionRef: CloudSyncSessionRef,
-		entryBytes: Uint8Array,
-		mode: CloudSyncImportMode,
-	): Promise<{ written: boolean; pending: boolean }> {
+	private async restoreBackupSession(sessionRef: CloudSyncSessionRef, entryBytes: Uint8Array, mode: CloudSyncImportMode): Promise<{ written: boolean; pending: boolean }> {
 		// DSH 会话：hash 基于解压文本、写回按原格式（.zstd 重新压缩）。
 		if (sessionRef.scope === "dsh") {
 			return this.restoreDshBackupSession(sessionRef, entryBytes, mode);
@@ -2212,11 +2044,7 @@ export class CloudSyncManager {
 	}
 
 	/** 备份导入的 DSH 会话恢复（无项目映射概念，root 恒存在或跳过）。 */
-	private async restoreDshBackupSession(
-		sessionRef: CloudSyncSessionRef,
-		entryBytes: Uint8Array,
-		mode: CloudSyncImportMode,
-	): Promise<{ written: boolean; pending: boolean }> {
+	private async restoreDshBackupSession(sessionRef: CloudSyncSessionRef, entryBytes: Uint8Array, mode: CloudSyncImportMode): Promise<{ written: boolean; pending: boolean }> {
 		const target = await this.resolveSessionTarget(sessionRef);
 		const root = this.sessionTargetRoot(sessionRef);
 		if (!target || !root) return { written: false, pending: false };
@@ -2230,12 +2058,7 @@ export class CloudSyncManager {
 		return { written: true, pending: false };
 	}
 
-	private async restoreBackupResource(
-		projectId: string,
-		relativePath: string,
-		content: string,
-		mode: CloudSyncImportMode,
-	): Promise<boolean> {
+	private async restoreBackupResource(projectId: string, relativePath: string, content: string, mode: CloudSyncImportMode): Promise<boolean> {
 		const targetInfo = this.resolveResourceTarget(projectId, relativePath);
 		if (!targetInfo) return false;
 		const target = join(targetInfo.root, targetInfo.relative);
@@ -2286,11 +2109,7 @@ export class CloudSyncManager {
 		throw new TypeError(`Unsupported cloud provider: ${String((input as { provider?: unknown }).provider)}`);
 	}
 
-	private async sealConfig(
-		config: WebDAVConfig | S3Config | GithubGistConfig | LocalFolderConfig | OneDriveConfig | GoogleDriveConfig,
-		password: string,
-		masterConfig: CloudSyncMasterKeyConfig,
-	): Promise<string> {
+	private async sealConfig(config: WebDAVConfig | S3Config | GithubGistConfig | LocalFolderConfig | OneDriveConfig | GoogleDriveConfig, password: string, masterConfig: CloudSyncMasterKeyConfig): Promise<string> {
 		const salt = Buffer.from(masterConfig.salt, "base64");
 		const key = await deriveKey(password, salt, masterConfig.kdfIterations);
 		const encrypted = encrypt(JSON.stringify(config), key, salt);
@@ -2400,7 +2219,10 @@ export class CloudSyncManager {
 	}
 
 	private async persist(): Promise<void> {
-		await writeFileAtomic(this.stateFile, JSON.stringify(this.state, null, 2));
+		const serialized = JSON.stringify(this.state, null, 2);
+		const write = this.statePersistQueue.then(() => writeFileAtomic(this.stateFile, serialized));
+		this.statePersistQueue = write.catch(() => undefined);
+		await write;
 	}
 
 	private emitState(): void {
@@ -2428,6 +2250,8 @@ export class CloudSyncManager {
 
 	async dispose(): Promise<void> {
 		this.disposed = true;
+		await this.tokenPersistQueue;
+		await this.statePersistQueue;
 		if (this.autoSyncTimer) {
 			clearInterval(this.autoSyncTimer);
 			this.autoSyncTimer = null;

@@ -35,12 +35,15 @@ import {
 } from "../objectStorage.ts";
 import { normalizeOneDriveConfig } from "../providerConfig.ts";
 
-type FetchLike = (input: string, init?: {
-	method?: string;
-	headers?: Record<string, string>;
-	body?: BodyInit;
-	signal?: AbortSignal;
-}) => Promise<{
+type FetchLike = (
+	input: string,
+	init?: {
+		method?: string;
+		headers?: Record<string, string>;
+		body?: BodyInit;
+		signal?: AbortSignal;
+	},
+) => Promise<{
 	status: number;
 	headers: { get(name: string): string | null };
 	json(): Promise<unknown>;
@@ -71,7 +74,10 @@ function isGraphItem(value: unknown): value is GraphItem {
 /** 对象 key → Graph 路径（`approot:/<key>`），每段 encodeURIComponent。 */
 function driveItemPath(key: string): string {
 	assertSafeCloudObjectKey(key);
-	const encoded = key.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+	const encoded = key
+		.split("/")
+		.map((segment) => encodeURIComponent(segment))
+		.join("/");
 	return `/me/drive/special/approot:/${encoded}`;
 }
 
@@ -86,7 +92,7 @@ export class OneDriveObjectStorage implements PiDeckCloudObjectStorage {
 	private refreshToken: string | undefined;
 	private expiresAt: number | undefined;
 	/** token 轮换回调：刷新成功后通知持有者持久化（Microsoft consumer 每次刷新轮换并作废旧 token）。 */
-	private onTokensRefreshed: ((tokens: CloudSyncRotatedTokens) => void) | null = null;
+	private onTokensRefreshed: ((tokens: CloudSyncRotatedTokens) => void | Promise<void>) | null = null;
 
 	constructor(config: unknown, deps?: { fetchLike?: FetchLike }) {
 		this.config = normalizeOneDriveConfig(config);
@@ -142,11 +148,7 @@ export class OneDriveObjectStorage implements PiDeckCloudObjectStorage {
 		};
 	}
 
-	async writeObject(
-		key: string,
-		bytes: Uint8Array,
-		options?: CloudSyncObjectWriteOptions,
-	): Promise<CloudSyncObjectWriteResult> {
+	async writeObject(key: string, bytes: Uint8Array, options?: CloudSyncObjectWriteOptions): Promise<CloudSyncObjectWriteResult> {
 		assertSafeCloudObjectKey(key);
 		this.requireConnected();
 		if (bytes.byteLength > MAX_OBJECT_BYTES) {
@@ -255,11 +257,7 @@ export class OneDriveObjectStorage implements PiDeckCloudObjectStorage {
 	 * 带 token 的 Graph 请求：过期/401 时刷新一次后重试。
 	 * 返回 { status, headers, json }；json 为懒解析（只有需要时才调用）。
 	 */
-	private async graphRequest(
-		method: string,
-		urlPath: string,
-		options?: { headers?: Record<string, string>; body?: BodyInit; signal?: AbortSignal },
-	): Promise<{ status: number; headers: { get(name: string): string | null }; json(): Promise<unknown>; arrayBuffer(): Promise<ArrayBuffer> }> {
+	private async graphRequest(method: string, urlPath: string, options?: { headers?: Record<string, string>; body?: BodyInit; signal?: AbortSignal }): Promise<{ status: number; headers: { get(name: string): string | null }; json(): Promise<unknown>; arrayBuffer(): Promise<ArrayBuffer> }> {
 		await this.ensureFreshToken(options?.signal);
 		const response = await this.rawGraphRequest(method, urlPath, options);
 		if (response.status === 401) {
@@ -269,11 +267,7 @@ export class OneDriveObjectStorage implements PiDeckCloudObjectStorage {
 		return response;
 	}
 
-	private async rawGraphRequest(
-		method: string,
-		urlPath: string,
-		options?: { headers?: Record<string, string>; body?: BodyInit; signal?: AbortSignal },
-	): Promise<{ status: number; headers: { get(name: string): string | null }; json(): Promise<unknown>; arrayBuffer(): Promise<ArrayBuffer> }> {
+	private async rawGraphRequest(method: string, urlPath: string, options?: { headers?: Record<string, string>; body?: BodyInit; signal?: AbortSignal }): Promise<{ status: number; headers: { get(name: string): string | null }; json(): Promise<unknown>; arrayBuffer(): Promise<ArrayBuffer> }> {
 		this.requireToken();
 		return this.fetchLike(`${GRAPH_BASE}${urlPath}`, {
 			method,
@@ -317,7 +311,7 @@ export class OneDriveObjectStorage implements PiDeckCloudObjectStorage {
 		}
 		this.expiresAt = typeof token.expires_in === "number" ? Date.now() + token.expires_in * 1000 : undefined;
 		// 轮换后的 token 必须持久化，否则重启后旧 refresh token 失效 → 被迫重新授权。
-		this.onTokensRefreshed?.({
+		await this.onTokensRefreshed?.({
 			accessToken: this.accessToken,
 			...(this.refreshToken ? { refreshToken: this.refreshToken } : {}),
 			...(this.expiresAt !== undefined ? { expiresAt: this.expiresAt } : {}),
@@ -325,7 +319,7 @@ export class OneDriveObjectStorage implements PiDeckCloudObjectStorage {
 	}
 
 	/** 注册 token 轮换回调（持有者 = CloudSyncManager，负责密封落盘）。 */
-	setOnTokensRefreshed(callback: (tokens: CloudSyncRotatedTokens) => void): void {
+	setOnTokensRefreshed(callback: (tokens: CloudSyncRotatedTokens) => void | Promise<void>): void {
 		this.onTokensRefreshed = callback;
 	}
 

@@ -1,9 +1,4 @@
-import type {
-	CloudProvider,
-	ProviderAccount,
-	S3Config,
-	WebDAVConfig,
-} from "../../shared/types/cloudSync.ts";
+import type { CloudProvider, ProviderAccount, S3Config, WebDAVConfig } from "../../shared/types/cloudSync.ts";
 
 export interface CloudSyncObjectStorageCapabilities {
 	revisions: boolean;
@@ -52,18 +47,14 @@ export interface PiDeckCloudObjectStorage {
 	getAccount(options?: { signal?: AbortSignal }): Promise<ProviderAccount | null>;
 	getCapabilities(options?: { signal?: AbortSignal }): Promise<CloudSyncObjectStorageCapabilities>;
 	readObject(key: string, options?: { signal?: AbortSignal }): Promise<CloudSyncObjectReadResult>;
-	writeObject(
-		key: string,
-		bytes: Uint8Array,
-		options?: CloudSyncObjectWriteOptions,
-	): Promise<CloudSyncObjectWriteResult>;
+	writeObject(key: string, bytes: Uint8Array, options?: CloudSyncObjectWriteOptions): Promise<CloudSyncObjectWriteResult>;
 	deleteObject(key: string, options?: CloudSyncObjectDeleteOptions): Promise<{ deleted: boolean }>;
 	/**
 	 * OAuth providers：access/refresh token 轮换时回调，供持有者持久化
 	 * （Microsoft consumer / Google 的 refresh token 每次刷新会轮换并作废旧值，
 	 * 不持久化新值会导致重启后刷新失败、被迫重新授权——Netcatty #1189 教训）。
 	 */
-	setOnTokensRefreshed?(callback: (tokens: CloudSyncRotatedTokens) => void): void;
+	setOnTokensRefreshed?(callback: (tokens: CloudSyncRotatedTokens) => void | Promise<void>): void;
 }
 
 export type CloudSyncProviderConfig = WebDAVConfig | S3Config;
@@ -84,10 +75,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function isCloudSyncConditionalWriteError(error: unknown): boolean {
 	if (error instanceof CloudSyncConditionalWriteError) return true;
 	if (!isRecord(error)) return false;
-	return (
-		error.code === "conditional_write_conflict" ||
-		error.name === "CloudSyncConditionalWriteError"
-	);
+	return error.code === "conditional_write_conflict" || error.name === "CloudSyncConditionalWriteError";
 }
 
 /** Object keys are relative provider paths, never arbitrary URLs or filesystem paths. */
