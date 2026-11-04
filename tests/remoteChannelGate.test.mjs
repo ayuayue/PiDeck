@@ -32,6 +32,24 @@ test("入口可见性：只有明确拿到 devBuild=false 才隐藏", () => {
 	assert.equal(isRemoteEntryVisible(undefined), true, "通道信息未到不先藏入口");
 });
 
+test("添加项目的远端入口：通道允许且真有一台可用主机时才出现", () => {
+	const { isRemoteAddProjectVisible, readRemoteHostsConfigured } = loadTsCommonJs(VISIBILITY_MODULE);
+	const host = (verified, disabled) => ({ id: "11111111-1111-4111-8111-111111111111", label: "h", sshHost: "h", verified, disabled });
+
+	// 清单 → 是否有可用主机（口径与登记弹框一致：已验证且未禁用）。
+	assert.equal(readRemoteHostsConfigured({ ok: true, status: "ready", hosts: [] }), false, "一台主机都没有 -> 没有");
+	assert.equal(readRemoteHostsConfigured({ ok: true, status: "ready", hosts: [host(false, false)] }), false, "未验证的主机不算可用（没有信任锚）");
+	assert.equal(readRemoteHostsConfigured({ ok: true, status: "ready", hosts: [host(true, true)] }), false, "已禁用的主机不算可用");
+	assert.equal(readRemoteHostsConfigured({ ok: true, status: "ready", hosts: [host(false, false), host(true, false)] }), true, "有一台可用就算配置过");
+	assert.equal(readRemoteHostsConfigured({ ok: false, code: "REMOTE_FEATURE_DISABLED" }), undefined, "读不到清单不能当成「没有主机」");
+
+	// 入口可见性：通道 + 主机清单两条都要满足。
+	assert.equal(isRemoteAddProjectVisible(true, true), true, "dev 通道且已配主机 -> 出现");
+	assert.equal(isRemoteAddProjectVisible(true, false), false, "没有可用主机 -> 不出现（点进去只会落到 no-host）");
+	assert.equal(isRemoteAddProjectVisible(true, undefined), false, "清单还没读到 -> 先不出现，也就不用先给一层空下拉");
+	assert.equal(isRemoteAddProjectVisible(false, true), false, "正式包即使配了主机也不提供远端入口");
+});
+
 test("设置页布局：正式包把「连接」tab 整条剔除，dev 与未知状态原样返回", () => {
 	const { applyRemoteGateToSettingsLayout } = loadTsCommonJs(VISIBILITY_MODULE);
 	const { SETTINGS_TAB_LAYOUT } = loadTsCommonJs("src/renderer/src/components/app/settings/settingsTabLayout.ts");

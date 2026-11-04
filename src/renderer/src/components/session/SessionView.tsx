@@ -13,6 +13,7 @@ import { SessionGoalStrip } from "./SessionGoalStrip";
 import { SessionSubagentsStrip } from "./SessionSubagentsStrip";
 import { SessionTodoStrip } from "./SessionTodoStrip";
 import { SessionTeamStrip } from "./SessionTeamStrip";
+import { SessionAcpRestoreStrip } from "./SessionAcpRestoreStrip";
 import { SessionQueuedMessagesStrip } from "./SessionQueuedMessagesStrip";
 import { SessionSurfaceStage } from "./SessionSurfaceStage";
 import { ComposerArea } from "./ComposerArea";
@@ -28,6 +29,7 @@ import { projectByIdAtomFamily, sessionRecordByIdAtomFamily, sessionStatusInSide
 import type { EnqueuePromptSnapshot } from "../../hooks/useSessionSend";
 import { countUserTurns } from "./timeline/turnRenderWindow";
 import { useSessionOutlineDirectory } from "../../hooks/useSessionOutlineDirectory";
+import { useAcpHistoryRestorePending } from "../../hooks/useAcpRestoreHint";
 
 // terminal 程序化布局保护窗口（ms）：setLayout 后该窗口内的 terminal
 // onResize 一律视为程序化结果，不写 collapsed 状态。
@@ -220,10 +222,13 @@ export function SessionView({
 
 	const terminalPanelVisible = !isLanWeb && !settingsOpen && !environmentDialog && terminalDockVisible && terminalOpen;
 	// 空会话磁盘就绪后卸底部栏，改由 timeline 内 SessionStartSurface 居中输入。
+	// ACP 激活重放窗口期：输入框必须一开始就钉在底部，否则历史落地时换宿主会丢焦点
+	const acpRestorePending = useAcpHistoryRestorePending(sessionId);
 	const bottomComposerVisible = shouldMountBottomComposer({
 		hasActiveConversation,
 		messageCount: sessionTimeline.messages.length,
 		isConversationLoading: sessionTimeline.isSurfaceLoading,
+		isHistoryRestorePending: acpRestorePending,
 	});
 	// 右侧边栏「会话状态」面板正可见地展示本会话时，输入框上方的待办/子代理折叠条让位给面板
 	//（文件修改已改由每轮末尾的 chip 行走轮次上下文，不再经过面板与 latestAgentRun）。
@@ -397,6 +402,8 @@ export function SessionView({
 								queuePanel={queuePanel}
 								widgets={
 									<>
+										{/* ACP 激活重放期间输入框已经在底部：恢复提示条跟着搬到这一侧，位置不变 */}
+										<SessionAcpRestoreStrip sessionId={sessionId} />
 										<SessionQueuedMessagesStrip sessionId={sessionId} />
 										{!statusInSidebar && <SessionTodoStrip sessionId={sessionId} />}
 										<SessionTeamStrip sessionId={sessionId} />

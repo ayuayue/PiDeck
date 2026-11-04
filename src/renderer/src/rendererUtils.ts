@@ -35,11 +35,17 @@ export type SessionPanelSet = {
  *
  * 起始页（空会话且磁盘已就绪）在 timeline 内居中挂同一 ComposerArea，底部栏不重复。
  * 加载中即使 messages 仍为空也要挂底部栏，避免历史会话首帧闪一下居中起始页。
+ *
+ * isHistoryRestorePending：ACP 的历史存在 agent CLI 侧，激活重放之前时间线必然为空，
+ * 但历史一定会填进来。这个窗口期必须按「加载中」同等对待——否则用户先在居中起始页
+ * 打字，重放落地那一刻输入框从居中换到列底（卸载重建），正在输入的字与焦点一起丢。
+ * pi 有本地历史文件、DSH 是常驻 host，首帧就有消息，不需要这个窗口。
  */
-export function shouldMountBottomComposer(input: { hasActiveConversation: boolean; messageCount: number; isConversationLoading: boolean }): boolean {
+export function shouldMountBottomComposer(input: { hasActiveConversation: boolean; messageCount: number; isConversationLoading: boolean; isHistoryRestorePending?: boolean }): boolean {
 	if (!input.hasActiveConversation) return false;
 	if (input.messageCount > 0) return true;
-	return input.isConversationLoading;
+	if (input.isConversationLoading) return true;
+	return input.isHistoryRestorePending === true;
 }
 
 /** 终端面板挂载变化时强制重建 Group，避免 2 值缓存套到 1 面板上。 */

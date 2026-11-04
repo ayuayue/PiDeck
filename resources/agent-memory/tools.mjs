@@ -90,6 +90,9 @@ const SEARCH_SCOPES = ["current", "all"];
 /** 裁剪样本的长度：够模型判断丢了什么，又不至于把工具输出刷满。 */
 const TRIM_SAMPLE_CHARS = 160;
 
+/** 空结果时统计「别的项目里有命中」的扫描上限：只要够判断「有」和是哪个项目，不把内容取回来。 */
+const ELSEWHERE_SCAN_LIMIT = 200;
+
 /**
  * 预算裁剪的可见化。
  *
@@ -231,7 +234,10 @@ export function removeMemory(root, { target = "memory", content, projectId = "" 
 /** 列出条目（按文件顺序，最老的在前）。 */
 export function getMemories(root, { target = "memory", projectId = "", limit = 50, offset = 0 } = {}) {
 	if (!MEMORY_TARGETS.includes(target)) throw new MemoryToolError("target-invalid");
-	const scope = resolveScope(target, projectId, root);
+	// 显式给出 projectId 时，`target=memory` 读的就是**那个项目**的那份记忆（`projects/<key>/MEMORY.md`）。
+	// 不传时依然是全局文件（与 memory_add 的落点一致）。以前这里无条件走 resolveScope，
+	// 于是「带 projectId 的 memory_get」静默退回全局结果，调用方据此判定「这个项目没有记忆」——比报错更坏。
+	const scope = target === "memory" && projectId ? { target: "memory", projectId } : resolveScope(target, projectId, root);
 	const entries = readEntries(root, scope.target, scope.projectId);
 	const sliced = entries.slice(Math.max(0, offset), Math.max(0, offset) + Math.max(1, Math.min(200, limit)));
 	return {
@@ -245,6 +251,28 @@ export function getMemories(root, { target = "memory", projectId = "", limit = 5
 	};
 }
 
+/**
+ * 当前作用域 0 命中时，报告「其余项目里有没有命中」。
+ *
+ * 记忆是按项目分文件存的：T6 的打印模板事实在 `projects/<t6 键>/` 里，在 pi-desktop 的会话里
+ * 用默认 `scope=current` 搜它必然 0 命中。以前这个 0 就是全部答案，调用方于是把它读成
+ * 「记忆里没有」，还会顺手记下一条错误结论。这里只回**计数和项目键**（不搬内容）：
+ * 要不要读别的项目由调用方显式决定（`scope:"all"`）。
+ */
+function elsewhereReport(root, query, { targets, projectId }) {
+	// 别的项目目录以前可能没被索引过（syncAll 只灌当前项目），不先同步就永远统计不到。
+	syncAll(root, projectId, { allProjects: true });
+	const found = searchEntries(root, query, { limit: ELSEWHERE_SCAN_LIMIT, targets, projectId, deviceProjectId: deviceScopeId(root), allProjects: true });
+	if (!found.ok) return [];
+	const counts = new Map();
+	for (const hit of found.hits) {
+		// 全局与本机设备作用域已经在 current 里查过；本项目的命中为空是本次的前提。
+		if (!hit.projectId || hit.projectId === projectId || hit.projectId.startsWith("device:")) continue;
+		counts.set(hit.projectId, (counts.get(hit.projectId) ?? 0) + 1);
+	}
+	return [...counts].map(([id, matches]) => ({ projectId: id, matches }));
+}
+
 /** 检索记忆。DB 不可用时退化为 Markdown 子串扫描（结果形态一致，只是没有排序分数）。 */
 export function searchMemory(root, { query, target, projectId = "", limit = 10, scope = "current" }) {
 	if (typeof query !== "string" || query.trim().length === 0) throw new MemoryToolError("query-required");
@@ -253,7 +281,18 @@ export function searchMemory(root, { query, target, projectId = "", limit = 10, 
 	const allProjects = scope === "all";
 	syncAll(root, projectId, { allProjects });
 	const found = searchEntries(root, query.trim(), { limit, targets, projectId, deviceProjectId: deviceScopeId(root), allProjects });
-	if (found.ok) return { ok: true, query: query.trim(), scope, degraded: false, hits: found.hits };
+	if (found.ok) {
+		const result = { ok: true, query: query.trim(), scope, degraded: false, hits: found.hits };
+		if (allProjects || found.hits.length > 0) return result;
+		// 0 命中不等于「记忆里没有」：把别处有命中这件事一起回给调用方。
+		const elsewhere = elsewhereReport(root, query.trim(), { targets, projectId });
+		if (elsewhere.length === 0) return result;
+		return {
+			...result,
+			elsewhere,
+			hint: "当前作用域（全局 + 本项目 + 本机）没有命中，但上面这些项目的记忆里有。要读内容用同一 query + scope:\"all\" 再搜一次；不要据此得出「记忆里没有」。",
+		};
+	}
 
 	// 降级：没有索引时直接在文件内容里找子串。仍能命中，只是没有 bm25 排序。
 	// 设备作用域在这里同样要算进去（索引不可用不该让「本机事实」搜不到）。

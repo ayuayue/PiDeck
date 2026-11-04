@@ -1,10 +1,6 @@
-import { useAtomValue } from "jotai";
 import { History, LoaderCircle, TriangleAlert } from "lucide-react";
-import { acpToolsAtom } from "../../atoms/acp-atoms";
-import { sessionRuntimeBySessionIdAtomFamily } from "../../atoms";
-import { sessionRecordByIdAtomFamily } from "../../atoms/session-selectors";
 import { t } from "../../i18n";
-import { resolveAcpRestoreHint } from "../../utils/acpSessionRestore";
+import { useAcpRestoreHint } from "../../hooks/useAcpRestoreHint";
 import { ComposerWidgetFrame } from "./ComposerWidgetLayout";
 
 /**
@@ -17,10 +13,7 @@ import { ComposerWidgetFrame } from "./ComposerWidgetLayout";
  */
 export function SessionAcpRestoreStrip(props: { sessionId: string }) {
 	// 侧栏/分屏都各自按 sessionId 订阅（禁止读 currentSession 全局原子）。
-	const record = useAtomValue(sessionRecordByIdAtomFamily(props.sessionId));
-	const runtime = useAtomValue(sessionRuntimeBySessionIdAtomFamily(props.sessionId));
-	const tools = useAtomValue(acpToolsAtom);
-	const hint = resolveAcpRestoreHint(record, runtime, tools);
+	const hint = useAcpRestoreHint(props.sessionId);
 	if (!hint) return null;
 	const text = hint.kind === "tool-missing" ? t("acp.restoreMissing") : hint.activating ? t("acp.restoringHistory", { tool: hint.toolName }) : t("acp.restoreHint", { tool: hint.toolName });
 	return (

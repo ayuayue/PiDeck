@@ -442,6 +442,7 @@ import { registerWslHostIpc } from "./ipc/wslHostIpc";
 import { createWslHostReferenceRegistry } from "./wsl/WslHostReferences";
 import { createWslHostStore } from "./wsl/WslHostStore";
 import { resolveProjectWslIdentity } from "./wsl/WslProjectEnvironment";
+import { createWslHelperSessionPool } from "./wsl/WslHelperSession";
 import { registerRemoteProjectIpc } from "./ipc/remoteProjectIpc";
 import { createRemoteFactsHub } from "./remote/RemoteFactsNotifications";
 import { registerRemoteProjectFileIpc } from "./ipc/remoteProjectFileIpc";
@@ -3404,6 +3405,82 @@ function createCompletionHelperService(namespace: "enhance" | "agent-invoke" | "
 	});
 }
 
+/** 读 pi settings.json 的 skills / prompts / extensions 条目；读不出来返回 null（投影降级为无规则）。 */
+async function readNativeEntries(key: "skills" | "prompts" | "extensions"): Promise<string[] | null> {
+	try {
+		const file = await readPiConfigFile(join(configManager.getConfigDir(), "settings.json"));
+		const value = file.data[key];
+		return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+	} catch {
+		return null;
+	}
+}
+
+/** 刷新技能/模板状态投影缓存（迁移完成、用户切开关、或设置里切换 WSL 环境后调用）。 */
+async function refreshSkillProjection(): Promise<void> {
+	skillManagerNativeEntries = await readNativeEntries("skills");
+}
+
+async function refreshPromptProjection(): Promise<void> {
+	promptManagerNativeEntries = await readNativeEntries("prompts");
+}
+
+async function refreshExtensionProjection(): Promise<void> {
+	try {
+		const file = await readPiConfigFile(join(configManager.getConfigDir(), "settings.json"));
+		const extensions = file.data.extensions;
+		const packages = file.data.packages;
+		extensionManagerNativeEntries = Array.isArray(extensions) ? extensions.filter((item): item is string => typeof item === "string") : [];
+		extensionManagerNativePackages = Array.isArray(packages) ? [...packages] : [];
+	} catch {
+		extensionManagerNativeEntries = null;
+		extensionManagerNativePackages = null;
+	}
+}
+
+/**
+ * 全局 WSL 模式（设置 → 开发 → Pi 来源）。
+ *
+ * 把会话扫描、Agent/DSH spawn、技能/提示词/扩展/配置目录一起切到发行版 HOME，关闭时切回 Windows。
+ * 启动时执行一次；设置保存时由 settingsUpdate → applyWslSettings 重放，切换无需重启。
+ */
+async function syncWslConfig(): Promise<void> {
+	const { wslEnabled, wslDistro, wslUser } = settingsStore.get();
+	if (wslEnabled && wslDistro && wslUser) {
+		const { resolveWslEnvironment } = await import("./wsl/WslEnvironment");
+		const wslEnv = await resolveWslEnvironment(wslDistro, wslUser, {
+			warn: (msg: string, detail: unknown) => void appLogger?.warn("wsl", String(msg), { detail }),
+		});
+		await sessionScanner.configureWsl(wslEnv);
+		agentManager.configureWsl(wslEnv);
+		// DSH host 是 Windows 原生进程：WSL 项目的 workspace 路径与会话目录编码
+		// 都要按主机路径算，否则 workspace.resolve 失败、会话建不出来。
+		dshHost.configureWsl(wslEnv);
+		skillManager.configureWsl(wslEnv);
+		promptManager.configureWsl(wslEnv);
+		extensionManager.configureWsl(wslEnv);
+		// 配置/雪提示词管理器在装配后段才实例化：启动早期同步时可能还没有，跳过即可。
+		if (configManager) configManager.configureWsl(wslEnv);
+		if (xuePromptManager) xuePromptManager.configureWsl(wslEnv);
+		// 窗口已起来后再异步探测 WSL which，点会话时 resolveCommand 才能命中 wsl:// 缓存。
+		void piLocator.warmWslCommand(wslDistro, wslUser).catch((error: unknown) => {
+			void appLogger?.warn("app", "WSL pi which warmup failed", error);
+		});
+	} else {
+		sessionScanner.clearWsl();
+		agentManager.configureWsl(null);
+		dshHost.configureWsl(null);
+		skillManager.configureWsl(null);
+		promptManager.configureWsl(null);
+		extensionManager.configureWsl(null);
+		if (configManager) configManager.configureWsl(null);
+		if (xuePromptManager) xuePromptManager.configureWsl(null);
+	}
+	// 原生过滤投影取自 <config dir>/settings.json：目录换了一套就必须重读，
+	// 否则开关显示的还是旧用户那份设置（切换 WSL 用户后点开关会写错文件）。
+	await Promise.all([refreshSkillProjection(), refreshPromptProjection(), refreshExtensionProjection()]);
+}
+
 function registerIpc() {
 	// 通道策略（2026-10-27）：远端能力**只在 dev 通道提供**，正式包不启用、界面也不暴露入口。
 	// 判据复用 isDevChannelBuild()（未打包运行 / dev 通道安装包为 true，release 产物为 false），
@@ -5009,6 +5086,13 @@ function registerIpc() {
 	registerSystemIpc({
 		// 设置保存后的主进程副作用：系统级划词快捷键按新键位/开关重注册（appShortcuts 同一时机）。
 		afterSettingsUpdate: () => syncSelectionToolShortcut(),
+		// WSL 来源/发行版/用户变化：立即重绑资源目录与 spawn 环境，省掉一次重启。
+		// 配置文件目录（models.json / settings.json）已经换了一套，能力快照与 watcher 一起重指向。
+		applyWslSettings: async () => {
+			await syncWslConfig();
+			piModelCapabilityCache?.invalidate();
+			piModelCapabilityCache?.watchConfigDirectory();
+		},
 		piLocator,
 		settingsStore,
 		configManager,
@@ -5285,6 +5369,10 @@ function registerIpc() {
 
 	// ── 配置管理 ──────────────────────────────────────
 
+	// WSL 项目的文件读面在发行版内以档案用户身份执行（Wave 1a）：会话按项目身份懒建立、
+	// 跨调用复用，退出时与其它常驻资源一起回收。
+	const wslHelperPool = createWslHelperSessionPool();
+	quitCleanup.register("wsl-helper-session", () => wslHelperPool.closeAll());
 	registerFilesIpc({
 		fileSystemService,
 		projectStore,
@@ -5293,6 +5381,7 @@ function registerIpc() {
 		getFileIndexService: () => fileIndexService,
 		appLogger,
 		openExternalUrl,
+		wslHelperPool,
 		// 公共文件读（T6）：ssh 项目的目录页与批量 stat 走只读 fs 面，不经过 entry 令牌。
 		remoteFiles: {
 			directoryPage: (projectId, path, force) => remoteProjectIpc.directoryPage(projectId, path, force),
@@ -7012,34 +7101,6 @@ app
 			piResourceStateStore,
 			{ projectTrust: async (projectId, _root) => (await configManager.getProjectTrustDecision(projectStore.get(projectId)?.path ?? "")) === true },
 		);
-		/** 刷新技能/模板状态投影缓存（迁移完成、或用户切开关后调用）。 */
-		const readNativeEntries = async (key: "skills" | "prompts" | "extensions"): Promise<string[] | null> => {
-			try {
-				const file = await readPiConfigFile(join(configManager.getConfigDir(), "settings.json"));
-				const value = file.data[key];
-				return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-			} catch {
-				return null;
-			}
-		};
-		const refreshSkillProjection = async (): Promise<void> => {
-			skillManagerNativeEntries = await readNativeEntries("skills");
-		};
-		const refreshPromptProjection = async (): Promise<void> => {
-			promptManagerNativeEntries = await readNativeEntries("prompts");
-		};
-		const refreshExtensionProjection = async (): Promise<void> => {
-			try {
-				const file = await readPiConfigFile(join(configManager.getConfigDir(), "settings.json"));
-				const extensions = file.data.extensions;
-				const packages = file.data.packages;
-				extensionManagerNativeEntries = Array.isArray(extensions) ? extensions.filter((item): item is string => typeof item === "string") : [];
-				extensionManagerNativePackages = Array.isArray(packages) ? [...packages] : [];
-			} catch {
-				extensionManagerNativeEntries = null;
-				extensionManagerNativePackages = null;
-			}
-		};
 		/**
 		 * 迁移依赖：全局与项目共用（项目迁移也需要全局资源做名称→路径映射）。
 		 * 迁移是「旧禁用记录 → 原生过滤规则」的唯一入口，必须在任何 Agent spawn 前跑完，
@@ -7480,46 +7541,7 @@ app
 				},
 			}),
 		});
-		/**
-		 * 全局 WSL 模式（设置 → 开发 → Pi 来源）。
-		 *
-		 * 连接档案（一等 WSL 目标）尚未放开，正式包仍靠这条全局开关工作：启动时把会话扫描、
-		 * Agent/DSH spawn、技能/提示词/扩展/配置目录一起切到发行版 HOME，关闭时切回 Windows。
-		 * 与 0.9.8 同语义：只在启动时同步，切换来源后由设置页的重检 + 重启生效。
-		 */
-		const syncWslConfig = async () => {
-			const { wslEnabled, wslDistro, wslUser } = settingsStore.get();
-			if (wslEnabled && wslDistro && wslUser) {
-				const { resolveWslEnvironment } = await import("./wsl/WslEnvironment");
-				const wslEnv = await resolveWslEnvironment(wslDistro, wslUser, {
-					warn: (msg: string, detail: unknown) => void appLogger?.warn("wsl", String(msg), { detail }),
-				});
-				await sessionScanner.configureWsl(wslEnv);
-				agentManager.configureWsl(wslEnv);
-				// DSH host 是 Windows 原生进程：WSL 项目的 workspace 路径与会话目录编码
-				// 都要按主机路径算，否则 workspace.resolve 失败、会话建不出来。
-				dshHost.configureWsl(wslEnv);
-				skillManager.configureWsl(wslEnv);
-				promptManager.configureWsl(wslEnv);
-				extensionManager.configureWsl(wslEnv);
-				// 配置/雪提示词管理器在装配后段才实例化：启动早期同步时可能还没有，跳过即可。
-				if (configManager) configManager.configureWsl(wslEnv);
-				if (xuePromptManager) xuePromptManager.configureWsl(wslEnv);
-				// 窗口已起来后再异步探测 WSL which，点会话时 resolveCommand 才能命中 wsl:// 缓存。
-				void piLocator.warmWslCommand(wslDistro, wslUser).catch((error: unknown) => {
-					void appLogger?.warn("app", "WSL pi which warmup failed", error);
-				});
-			} else {
-				sessionScanner.clearWsl();
-				agentManager.configureWsl(null);
-				dshHost.configureWsl(null);
-				skillManager.configureWsl(null);
-				promptManager.configureWsl(null);
-				extensionManager.configureWsl(null);
-				if (configManager) configManager.configureWsl(null);
-				if (xuePromptManager) xuePromptManager.configureWsl(null);
-			}
-		};
+		// 全局 WSL 模式：定义见模块级 syncWslConfig（设置保存时热重放同一份逻辑）。
 		// 先注册 IPC 并创建窗口：WSL 探测 / pi settings / 代理 / Web 服务都可能卡住或抛错，
 		// 不能挡在 createWindow 前面（打包便携版表现为「启动没反应」，dev 因热路径较短不易复现）。
 		// 模型请求快照端点：只绑 127.0.0.1，起不来就静默跳过（快照不工作，pi 与 PiDeck 照常）。

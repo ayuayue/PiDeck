@@ -101,15 +101,12 @@ test("resolves HOME once and exposes an observable compatibility fallback", asyn
 	assert.equal(warnings[0].details.fallback, "/root");
 });
 
-test("opens the WSL project picker at the active HOME and canonicalizes its selection", async () => {
+test("the system folder dialog is Windows-only: no WSL default path, no WSL environment", async () => {
 	const dialogCalls = [];
 	const dialog = {
 		showOpenDialog: async (options) => {
 			dialogCalls.push(options);
-			return {
-				canceled: false,
-				filePaths: ["//wsl.localhost/Ubuntu-24.04/root/ba_cli/"],
-			};
+			return { canceled: false, filePaths: ["C:\\repos\\ba_cli"] };
 		},
 	};
 	const { ProjectStore } = loadProjectStore(dialog);
@@ -120,29 +117,26 @@ test("opens the WSL project picker at the active HOME and canonicalizes its sele
 		return { id: "project", path: args[0] };
 	};
 
-	const project = await store.chooseAndAdd("wsl", rootEnvironment);
+	const project = await store.chooseAndAdd();
 
-	assert.equal(dialogCalls[0].defaultPath, rootEnvironment.windowsHome);
+	// 没有 environment 参数了：WSL 目录一律走内置选择器（projects:add-wsl-path），由主进程在发行版内
+	// 校验后转规范 UNC 入库。把发行版 HOME 当 defaultPath 交给系统对话框 = root 档案报「无法访问网络资源」。
+	assert.equal(ProjectStore.prototype.chooseAndAdd.length, 0);
 	assert.deepEqual(Array.from(dialogCalls[0].properties), ["openDirectory"]);
-	assert.equal(project.path, "\\\\wsl.localhost\\Ubuntu-24.04\\root\\ba_cli");
-	assert.equal(added[2], "wsl");
+	assert.equal(dialogCalls[0].defaultPath, undefined);
+	assert.equal(project.path, "C:\\repos\\ba_cli");
+	assert.equal(added[2], undefined);
 });
 
-test("rejects a project from another distro before adding it", async () => {
-	const dialog = {
-		showOpenDialog: async () => ({
-			canceled: false,
-			filePaths: ["\\\\wsl.localhost\\Debian\\root\\ba_cli"],
-		}),
-	};
-	const { ProjectStore } = loadProjectStore(dialog);
-	const store = new ProjectStore();
+test("a canceled dialog adds nothing", async () => {
 	let addCalled = false;
+	const { ProjectStore } = loadProjectStore({ showOpenDialog: async () => ({ canceled: true, filePaths: [] }) });
+	const store = new ProjectStore();
 	store.add = async () => {
 		addCalled = true;
 	};
 
-	await assert.rejects(store.chooseAndAdd("wsl", rootEnvironment), (error) => error.code === "WSL_DISTRO_MISMATCH");
+	assert.equal(await store.chooseAndAdd(), null);
 	assert.equal(addCalled, false);
 });
 

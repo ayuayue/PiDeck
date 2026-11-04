@@ -60,11 +60,16 @@ export function useProjectFileTreeController({ setFiles, activeProjectId, servic
 	// 本地树只消费 ProjectServices；服务实例随项目解析变化，loader 必须读最新一份。
 	const servicesRef = useRef(services);
 	servicesRef.current = services;
-	// 这两个回调由 App 每次渲染重建；放进 deps 会让项目树 effect 反复重跑，只能经 ref 取最新值。
+	// 这三个回调由 App 每次渲染重建；放进 deps 会让项目树 effect 反复重跑，只能经 ref 取最新值。
 	const refreshProjectsRef = useRef(refreshProjects);
 	refreshProjectsRef.current = refreshProjects;
 	const showToastRef = useRef(showToast);
 	showToastRef.current = showToast;
+	// isLocalProjectId 的依赖是 App 的 projects 数组：每次 projects:list 都是新引用。
+	// 若写进 effect deps，目录缺失时 reportError → refreshProjects → projects 换引用 →
+	// effect 重跑 → 再次加载失败，形成无限「项目目录不存在」toast 循环。
+	const isLocalProjectIdRef = useRef(isLocalProjectId);
+	isLocalProjectIdRef.current = isLocalProjectId;
 	const saveExpandedDirs = useCallback((projectId: string, dirs: Set<string>) => saveExpandedDirsToStorage(projectId, dirs), []);
 	const loadExpandedDirs = useCallback((projectId: string) => loadExpandedDirsFromStorage(projectId, legacyAgentIdsForProject(agentsRef.current, projectId)), [agentsRef]);
 
@@ -77,7 +82,7 @@ export function useProjectFileTreeController({ setFiles, activeProjectId, servic
 
 	useEffect(() => {
 		const projectId = activeProjectId;
-		if (!projectId || servicesRef.current === null || !isLocalProjectId(projectId)) {
+		if (!projectId || servicesRef.current === null || !isLocalProjectIdRef.current(projectId)) {
 			controllerRef.current = null;
 			setFiles((current) => (current.length === 0 ? current : []));
 			setExpandedDirs((current) => (current.size === 0 ? current : new Set()));
@@ -174,7 +179,7 @@ export function useProjectFileTreeController({ setFiles, activeProjectId, servic
 			controller.dispose();
 			if (controllerRef.current === controller) controllerRef.current = null;
 		};
-	}, [activeProjectId, isLocalProjectId, loadExpandedDirs, reportError, saveExpandedDirs, services?.projectId, setFiles]);
+	}, [activeProjectId, loadExpandedDirs, reportError, saveExpandedDirs, services?.projectId, setFiles]);
 
 	/** 手动刷新/增删改后：重读根层与全部已加载目录；错误统一走与项目切换相同的文案。 */
 	const refreshVisibleFiles = useCallback(
@@ -200,7 +205,7 @@ export function useProjectFileTreeController({ setFiles, activeProjectId, servic
 	// 按 (projectId, repoPath) 复用同一份签名轮询，与分支徽标订阅共用计数，不额外 spawn git。
 	useEffect(() => {
 		const projectId = activeProjectId;
-		if (!projectId || !isLocalProjectId(projectId)) return;
+		if (!projectId || !isLocalProjectIdRef.current(projectId)) return;
 		let stopped = false;
 		let watchId: string | null = null;
 		const offRefsChanged = api.git.onRefsChanged((changedWatchId) => {
@@ -220,7 +225,7 @@ export function useProjectFileTreeController({ setFiles, activeProjectId, servic
 				if (id) void api.git.unwatchRefs(id);
 			});
 		};
-	}, [activeProjectId, isLocalProjectId]);
+	}, [activeProjectId]);
 
 	/** 文件链接/搜索 reveal 前的自愈：只补读已展开但尚未落地的目录。 */
 	const restoreExpandedDirs = useCallback(

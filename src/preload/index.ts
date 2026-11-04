@@ -518,8 +518,10 @@ const api = {
 		add: () => ipcRenderer.invoke(ipcChannels.projectsAdd) as Promise<Project | null>,
 		/** 文件夹右键菜单直达：给定路径必须是已存在的目录，主进程校验后入库 */
 		addByPath: (path: string) => ipcRenderer.invoke(ipcChannels.projectsAddByPath, path) as Promise<Project>,
-		/** 通过已登记的 WSL 档案添加项目（主进程查档案并写入 wslHostId/distro/user）。 */
-		addWsl: (hostId: string) => ipcRenderer.invoke(ipcChannels.projectsAddWsl, hostId) as Promise<Project | null>,
+		/** WSL 目录浏览：以档案（hostId 缺省则全局 WSL 模式）的 distro+user 在发行版内列一层子目录。 */
+		listWslDirectory: (path: string, hostId?: string) => ipcRenderer.invoke(ipcChannels.projectsListWslDirectory, path, hostId) as Promise<import("../shared/types/wslDirectory").WslDirectoryPageResult>,
+		/** 选定发行版内目录后添加项目：主进程在发行版内校验目录，再转规范 UNC 入库。 */
+		addWslPath: (path: string, hostId?: string) => ipcRenderer.invoke(ipcChannels.projectsAddWslPath, path, hostId) as Promise<Project>,
 		remove: (id: string) => ipcRenderer.invoke(ipcChannels.projectsRemove, id) as Promise<Project[]>,
 		reorder: (projectIds: string[]) => ipcRenderer.invoke(ipcChannels.projectsReorder, projectIds) as Promise<Project[]>,
 		// 置顶/取消置顶普通项目；返回更新后的项目列表

@@ -172,6 +172,11 @@ export type SystemIpcDeps = {
 	 * 与 refreshShortcutBindings 同一时机：保存即生效，无需重启。
 	 */
 	afterSettingsUpdate?: (settings: AppSettings) => void;
+	/**
+	 * WSL 来源/发行版/用户变化后重放一次全局 WSL 环境切换（会话扫描、Agent/DSH spawn、
+	 * 技能/提示词/扩展/配置目录），保存即生效，无需重启。未装配时保持旧行为（下次启动生效）。
+	 */
+	applyWslSettings?: () => Promise<void>;
 	piLocator: PiLocator;
 	settingsStore: SettingsStore;
 	configManager: ConfigManager;
@@ -1902,6 +1907,18 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 			// 当前使用项与候选列表都随这些字段变化：不清缓存会让 UI 在 TTL 内显示旧安装列表。
 			invalidatePiInstallationCache();
 			void refreshPiModelCatalogs().catch(() => undefined);
+		}
+		// WSL 来源/发行版/用户：目标是另一套 HOME，技能/提示词/扩展/配置目录必须整体重绑，
+		// 否则设置页改完只有「检测环境」生效，资源页仍是旧用户（/root 的 0700 家目录还会 EPERM）。
+		// 只在三元组真的变化时重放：普通设置保存不额外拉起 wsl.exe 探测。
+		const wslSettingsChanged = prevSettings.wslEnabled !== settings.wslEnabled || prevSettings.wslDistro !== settings.wslDistro || prevSettings.wslUser !== settings.wslUser;
+		if (wslSettingsChanged && deps.applyWslSettings) {
+			try {
+				await deps.applyWslSettings();
+			} catch (error) {
+				// 设置已落盘：切换失败不回滚、也不让保存请求失败，用户可点「检测环境」重试。
+				void appLogger.warn("wsl", "Applying WSL settings failed", { error: error instanceof Error ? error.message : String(error) });
+			}
 		}
 		return settings;
 	});

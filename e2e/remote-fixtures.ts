@@ -444,7 +444,7 @@ export async function dismissRemoteConnectionProgress(window: Page): Promise<voi
  * 隐藏目录（.pideck-e2e-*）需要先打开「显示隐藏目录」。
  */
 export async function chooseRemoteDirectory(window: Page, targetPath: string): Promise<void> {
-	const picker = window.getByTestId("remote-directory-picker").last();
+	const picker = window.getByTestId("directory-picker").last();
 	await expect(picker).toBeVisible({ timeout: 30_000 });
 	const currentPath = async () => (await picker.getAttribute("data-current-path")) ?? "";
 	await expect.poll(currentPath, { timeout: 30_000 }).not.toBe("");

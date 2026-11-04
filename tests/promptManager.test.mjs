@@ -252,3 +252,27 @@ test("list() 结果缓存：TTL 内复用同一结果对象，写操作后立刻
 		await rm(home, { recursive: true, force: true });
 	}
 });
+
+test("configureWsl 切换 HOME 后列表缓存立刻失效（设置保存热切换，无需重启）", async () => {
+	const home = await mkdtemp(join(tmpdir(), "pideck-prompt-wsl-cache-"));
+	const wslHome = await mkdtemp(join(tmpdir(), "pideck-prompt-wsl-home-"));
+	try {
+		const { PromptManager } = loadPromptManagerModule();
+		await mkdir(join(home, ".pi", "agent", "prompts"), { recursive: true });
+		await writeFile(join(home, ".pi", "agent", "prompts", "local.md"), "---\ndescription: 本机\n---\n\n正文", "utf8");
+		const manager = new PromptManager(home);
+		const before = await manager.list();
+		assert.equal(before.templates.map((template) => template.name).join(","), "local");
+
+		await mkdir(join(wslHome, ".pi", "agent", "prompts"), { recursive: true });
+		await writeFile(join(wslHome, ".pi", "agent", "prompts", "wsl.md"), "---\ndescription: 发行版\n---\n\n正文", "utf8");
+		manager.configureWsl({ distro: "Test", user: "tester", linuxHome: "/home/tester", windowsHome: wslHome });
+
+		const after = await manager.list();
+		assert.notEqual(after, before, "切换环境必须让 TTL 缓存失效");
+		assert.equal(after.templates.map((template) => template.name).join(","), "wsl", "只显示新环境的模板");
+	} finally {
+		await rm(home, { recursive: true, force: true });
+		await rm(wslHome, { recursive: true, force: true });
+	}
+});

@@ -1,21 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, Eye, EyeOff, Folder, Link2, LoaderCircle, RefreshCw } from "lucide-react";
 import type { RemoteDirectoryEntry } from "../../../../shared/types/remoteHost";
-import { desktopApi } from "../../desktopApi";
 import { t } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui-shadcn/button";
-import { isVisibleRemoteDirectory, remoteParentPath, remotePathSegments } from "./remoteDirectoryPath";
+import { isVisibleRemoteDirectory, joinRemotePath, remoteParentPath, remotePathSegments } from "./remoteDirectoryPath";
 
 /**
- * 远端目录浏览器（项目登记用）。
+ * 服务端目录浏览器（项目登记用）：SSH 远端与 WSL 发行版共用。
  *
- * 只读：调用 `remoteHosts.listDirs`，服务端只返回目录名与是否符号链接。导航本身不构成授权——
- * 用户点「解析路径」后仍由主进程做 canonical 复核、确认推送与回答时重检。
+ * 只列目录、只读：数据来源由调用方注入（`load`），本组件不认识 SSH 主机、wsl.exe 或 IPC 通道。
+ * 导航本身不构成授权——用户点「解析路径」后仍由主进程做 canonical 复核 / 在发行版内重新校验。
  *
- * 代次闸门：快速连点目录时，旧请求的迟到结果不能覆盖新目录；卸载/换主机同样作废。
+ * 代次闸门：快速连点目录时，旧请求的迟到结果不能覆盖新目录；卸载/换来源同样作废。
  */
-export function RemoteDirectoryPicker(props: { hostId: string; value: string; onChange: (path: string) => void; disabled?: boolean }) {
+export type DirectoryPage = { path: string; entries: RemoteDirectoryEntry[]; truncated: boolean };
+
+/** 失败只带稳定码，文案由调用方按自己的域给（`describeError`）。 */
+export type DirectoryLoadResult = { ok: true; page: DirectoryPage } | { ok: false; code: string };
+
+/**
+ * 「目标不是目录」在两条链路上的码：命中就退回父目录，而不是把用户卡在错误上
+ * （父目录同样由服务端校验）。
+ */
+const NOT_A_DIRECTORY_CODES = new Set(["REMOTE_LIST_DIRS_NOT_A_DIRECTORY", "WSL_DIRECTORY_NOT_A_DIRECTORY"]);
+
+export function DirectoryBrowser(props: { value: string; onChange: (path: string) => void; load: (path?: string) => Promise<DirectoryLoadResult>; describeError: (code: string) => string; disabled?: boolean }) {
 	const [current, setCurrent] = useState("");
 	const [entries, setEntries] = useState<RemoteDirectoryEntry[]>([]);
 	const [truncated, setTruncated] = useState(false);
@@ -25,64 +35,56 @@ export function RemoteDirectoryPicker(props: { hostId: string; value: string; on
 	const gateRef = useRef(0);
 	const onChangeRef = useRef(props.onChange);
 	onChangeRef.current = props.onChange;
+	// 每次渲染都取最新闭包：调用方的 load 通常是内联箭头函数，进依赖数组会让导航反复重载。
+	const loadRef = useRef(props.load);
+	loadRef.current = props.load;
 
-	const load = useCallback(
-		async (target?: string) => {
-			const gate = ++gateRef.current;
-			setLoading(true);
-			setErrorCode(null);
-			let result: Awaited<ReturnType<typeof desktopApi.remoteHosts.listDirs>>;
-			try {
-				result = await desktopApi.remoteHosts.listDirs(props.hostId, target);
-			} catch {
-				if (gate !== gateRef.current) return;
-				setLoading(false);
-				setErrorCode("REMOTE_LIST_DIRS_PROBE_FAILED");
-				return;
-			}
+	const load = useCallback(async (target?: string) => {
+		const gate = ++gateRef.current;
+		setLoading(true);
+		setErrorCode(null);
+		let result: DirectoryLoadResult;
+		try {
+			result = await loadRef.current(target);
+		} catch {
 			if (gate !== gateRef.current) return;
 			setLoading(false);
-			if (!result.ok) {
-				// 目标是文件/已消失：退回父目录，而不是把用户卡在错误上（父目录同样由服务端校验）。
-				if (result.code === "REMOTE_LIST_DIRS_NOT_A_DIRECTORY" && target !== undefined) {
-					const parent = remoteParentPath(target);
-					if (parent !== target) {
-						void load(parent);
-						return;
-					}
+			setErrorCode("DIRECTORY_LIST_FAILED");
+			return;
+		}
+		if (gate !== gateRef.current) return;
+		setLoading(false);
+		if (!result.ok) {
+			if (target !== undefined && NOT_A_DIRECTORY_CODES.has(result.code)) {
+				const parent = remoteParentPath(target);
+				if (parent !== target) {
+					void load(parent);
+					return;
 				}
-				setErrorCode(result.code);
-				return;
 			}
-			setCurrent(result.path);
-			setEntries(result.entries);
-			setTruncated(result.truncated);
-			onChangeRef.current(result.path);
-		},
-		[props.hostId],
-	);
+			setErrorCode(result.code);
+			return;
+		}
+		setCurrent(result.page.path);
+		setEntries(result.page.entries);
+		setTruncated(result.page.truncated);
+		onChangeRef.current(result.page.path);
+	}, []);
 
-	// 只在主机变化时重新定位：导航写入的 value 不应该反过来触发一次额外的远端请求。
+	// 只在来源变化时重新定位（调用方用 key 换来源）：导航写入的 value 不应反过来触发一次额外请求。
 	useEffect(() => {
 		setEntries([]);
 		setCurrent("");
 		setErrorCode(null);
 		void load(props.value.trim().length > 0 ? props.value.trim() : undefined);
-	}, [props.hostId, load]);
+	}, [load]);
 
 	const visible = entries.filter((entry) => isVisibleRemoteDirectory(entry.name, showHidden));
 	const segments = remotePathSegments(current);
-	const errorText =
-		errorCode === null
-			? null
-			: errorCode === "SSH_HOST_NOT_READY" || errorCode === "SSH_HOST_DISCONNECTED" || errorCode === "SSH_CONNECTION_FAILED"
-				? t("sidebar.remoteEnroll.dirNotConnected")
-				: errorCode === "REMOTE_LIST_DIRS_NOT_A_DIRECTORY"
-					? t("sidebar.remoteEnroll.dirNotADirectory")
-					: t("sidebar.remoteEnroll.dirFailed", { code: errorCode });
+	const errorText = errorCode === null ? null : props.describeError(errorCode);
 
 	return (
-		<div data-testid="remote-directory-picker" data-current-path={current} className="flex flex-col gap-1.5 rounded-lg border border-border-subtle bg-bg-panel p-2">
+		<div data-testid="directory-picker" data-current-path={current} className="flex flex-col gap-1.5 rounded-lg border border-border-subtle bg-bg-panel p-2">
 			<div className="flex min-w-0 items-center gap-1">
 				<Button type="button" variant="ghost" size="icon-xs" className="shrink-0" aria-label={t("sidebar.remoteEnroll.dirParent")} title={t("sidebar.remoteEnroll.dirParent")} disabled={props.disabled || loading || current === "" || current === "/"} onClick={() => void load(remoteParentPath(current))}>
 					<ChevronLeft className="size-3.5" aria-hidden="true" />
@@ -122,11 +124,11 @@ export function RemoteDirectoryPicker(props: { hostId: string; value: string; on
 							<li key={entry.name}>
 								<button
 									type="button"
-									data-testid="remote-directory-entry"
+									data-testid="directory-entry"
 									data-symlink={entry.isSymlink ? "true" : undefined}
 									className="flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left text-body hover:bg-bg-hover disabled:opacity-60"
 									disabled={props.disabled}
-									onClick={() => void load(current === "/" ? `/${entry.name}` : `${current}/${entry.name}`)}
+									onClick={() => void load(joinRemotePath(current, entry.name))}
 								>
 									<Folder className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
 									<span className="min-w-0 flex-1 truncate">{entry.name}</span>

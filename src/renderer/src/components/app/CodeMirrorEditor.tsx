@@ -9,6 +9,7 @@ import { linter, lintGutter } from "@codemirror/lint";
 import { jsonParseLinter } from "@codemirror/lang-json";
 import { baseEditorExtensions, foldMarkerDOM, resolveEditorLanguage } from "../../utils/codemirrorSetup";
 import { isEditorFindShortcut } from "../../utils/editorFindShortcut";
+import { setEditorFindHandler } from "../../utils/editorFindBridge";
 import { isEditableTarget } from "../../utils/fileSearchTrigger";
 import { t } from "../../i18n";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
@@ -55,6 +56,16 @@ function focusSearchField(view: EditorView) {
 	field.select();
 }
 
+/** 在最近活动的编辑器里打开查找面板；没有可用实例返回 false（快捷键交回调用方）。 */
+function openActiveEditorFind(): boolean {
+	const view = activeView;
+	if (!view || !view.dom.isConnected) return false;
+	view.focus();
+	openSearchPanel(view);
+	focusSearchField(view);
+	return true;
+}
+
 function handleGlobalFindShortcut(event: KeyboardEvent) {
 	if (!isEditorFindShortcut(event)) return;
 	const target = event.target instanceof Element ? event.target : null;
@@ -62,15 +73,13 @@ function handleGlobalFindShortcut(event: KeyboardEvent) {
 	if (target?.closest(".cm-editor")) return;
 	// 输入框/文本域里按 Ctrl+F 是「搜索输入框内容」，不能抢
 	if (isEditableTarget(target)) return;
-	const view = activeView;
-	if (!view || !view.dom.isConnected) return;
+	if (!openActiveEditorFind()) return;
 	event.preventDefault();
-	view.focus();
-	openSearchPanel(view);
-	focusSearchField(view);
 }
 
 if (typeof window !== "undefined") window.addEventListener("keydown", handleGlobalFindShortcut);
+// 文件面板的 Ctrl+F 也走这里仲裁：有文件开着时查找归编辑器（见 utils/editorFindBridge）
+setEditorFindHandler(openActiveEditorFind);
 
 /** 统一封装：与旧 MonacoEditor 的 props 完全兼容（value/onChange/language/height/readOnly），
  * 外部切换时零成本替换。EditorView 生命周期由本组件托管：卸载 dispose、外部 value 变化

@@ -35,6 +35,7 @@ import { injectAskEchoMessage } from "../../utils/askUi";
 import { resolveFreshTailIds } from "../../lib/pinTurnScroll";
 import { chatContentWidthStyle } from "./chatContentWidth";
 import { useSessionVisionBridgeExpected } from "../../hooks/useSessionVisionBridgeExpected";
+import { useAcpHistoryRestorePending } from "../../hooks/useAcpRestoreHint";
 import { countAgentRunItems, selectTimelineTurnWindow, shouldWindowTimelineTurns, TIMELINE_MOUNTED_TURN_LIMIT } from "./timeline/turnRenderWindow";
 import { VirtualRunList } from "./timeline/VirtualRunList";
 import { isRenderableRunItem } from "./timeline/virtualTimelinePolicy";
@@ -155,6 +156,10 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	const hasMoreMessages = controller.hasMoreMessages;
 	const isLoadingMoreMessages = controller.isLoadingMoreMessages;
 	const hasActiveConversation = Boolean(session);
+	// ACP 激活重放窗口期：历史还没投影进来但一定会来。此时不挂居中起始页——输入框已经
+	// 钉在列底（shouldMountBottomComposer 的 isHistoryRestorePending），两处都挂会在重放
+	// 落地那一刻换宿主，把用户正在输入的焦点丢掉。
+	const acpRestorePending = useAcpHistoryRestorePending(sessionId);
 	// disk 读取无论空/非空都会创建缓存条目：「条目是否存在」用于区分
 	// 读取未到达（无条目→钉骨架屏）与读取已返回（有条目→起始页合法）。
 	const surfaceCachedEntry = useAtomValue(sessionMessageCacheBySessionIdAtomFamily(sessionId ?? ""));
@@ -1136,7 +1141,9 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 
 			{!hasActiveConversation && <EmptyState hasProject={props.hasProject} onCreate={props.onCreateSession} />}
 
-			{hasActiveConversation && !isConversationLoading && activeMessages.length === 0 && !sessionFileMissing && <SessionStartSurface sessionId={sessionId} />}
+			{/* ACP 激活重放窗口期不挂居中起始页：输入框已经钉在列底（见 shouldMountBottomComposer 的
+			    isHistoryRestorePending），这里再挂一个会在重放落地时换宿主、丢焦点。 */}
+			{hasActiveConversation && !isConversationLoading && activeMessages.length === 0 && !sessionFileMissing && !acpRestorePending && <SessionStartSurface sessionId={sessionId} />}
 
 			{/* 长会话渲染治理：
           - 不再使用 content-visibility 估算高度（展开工具会抖）。
