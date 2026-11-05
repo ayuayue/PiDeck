@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 4f698d1c8d49ca3eb5901318816ba2f7d8a1dd09dd423e088058d6af383444d7（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: e54889dd385034c9bb9de6572a20abb8d2721f3baedeea707f07bfca07ce15d4（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -107,6 +107,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"hostPlugins.marketInstalledBadge": "已安裝",
 	"hostPlugins.marketUpdateBadge": "可更新到 v{version}",
 	"hostPlugins.marketOpenRepo": "開啟倉庫",
+	"hostPlugins.marketOpenSite": "官方外掛頁",
 	"hostPlugins.marketWarning": "部分來源不可用：{warnings}",
 	"hostPlugins.marketFailed": "搜尋失敗（{code}）。請檢查網路或代理設定後重試。",
 	"hostPlugins.marketCommunityHint": "社群來源只要求「倉庫公開 + 倉庫根有 pideck-plugin.json + 打了 topic」，PiDeck 沒有審閱過其中任何程式碼。",

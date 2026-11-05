@@ -24,6 +24,13 @@ import { Input } from "../components/ui-shadcn/input";
 import { hostPluginPanelIcon } from "../components/plugins/hostPluginPanelIcon";
 import { HOST_PLUGIN_PERMISSION_CHIP_KEYS } from "./HostPluginPermissionDetails";
 
+/**
+ * 官方收录的展示页（GitHub Pages，构建自 https://github.com/ayuayue/pideck-plugins），
+ * 即市场那份 registry 的人读版。弹框里必须强制系统浏览器——内置浏览器面板在 Dialog 下层被遮，
+ * 跟随设置打开等于点了没反应。
+ */
+const MARKET_SITE_URL = "https://ayuayue.github.io/pideck-plugins/";
+
 export type HostPluginMarketDialogProps = {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -107,7 +114,22 @@ export function HostPluginMarketDialog({ open, onOpenChange, onFail }: HostPlugi
 			    基线里的 `sm:max-w-lg` 是带 variant 的，直接写 `max-w-[…]` 会被它在 ≥sm 时压回去（实测只有 510px 宽）。 */}
 			<DialogContent size="xl" className="flex h-auto max-h-[min(850px,calc(100vh-48px))] flex-col gap-3">
 				<DialogHeader>
-					<DialogTitle>{t("hostPlugins.marketTitle")}</DialogTitle>
+					<div className="flex flex-wrap items-center gap-x-3 gap-y-1 pr-8">
+						<DialogTitle>{t("hostPlugins.marketTitle")}</DialogTitle>
+						{/* 想看完整收录（含未进搜索结果的长尾）的人，从这里直接跳 GitHub Pages。
+						    pr-8 给 DialogContent 的右上角关闭按钮让位，否则链接会钻到 X 下面。 */}
+						<Button
+							variant="link"
+							size="sm"
+							className="ml-auto h-auto gap-1 px-0 text-micro font-normal"
+							onClick={() => {
+								void desktopApi.app.openExternal(MARKET_SITE_URL, true).catch(() => onFail("plugin-host-unavailable"));
+							}}
+						>
+							<ExternalLink size={11} aria-hidden="true" />
+							{t("hostPlugins.marketOpenSite")}
+						</Button>
+					</div>
 					<DialogDescription>{t("hostPlugins.marketDescription")}</DialogDescription>
 				</DialogHeader>
 				<form
