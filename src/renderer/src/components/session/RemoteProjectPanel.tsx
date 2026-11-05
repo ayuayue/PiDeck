@@ -22,7 +22,7 @@ import { createRequestGate } from "./remoteRequestGate";
 import { RemoteFileEditor } from "../workspace/RemoteFileEditor";
 import { RemoteProjectEntryDialogs, type RemoteEntryDialog } from "./RemoteProjectEntryDialogs";
 import { RemoteTrashPanel } from "./RemoteTrashPanel";
-import { remoteFileEntryKeepsInput } from "./remoteFileManagementState";
+import { remoteFileEntryIsUnknown, remoteFileEntryKeepsInput } from "./remoteFileManagementState";
 import { FileTreeNodeRow } from "./FileTreeRows";
 import { useRemoteFileTree } from "../../hooks/useRemoteFileTree";
 import { fileTreeNodeKey, projectFileKey } from "../../utils/fileTreeLazy";
@@ -137,7 +137,13 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 		if (result.ok) {
 			setEntryDialog(null);
 			afterSuccess?.();
-		} else if (!remoteFileEntryKeepsInput(result.code)) setEntryDialog(null);
+			return;
+		}
+		if (remoteFileEntryKeepsInput(result.code)) return;
+		setEntryDialog(null);
+		// 未知结果 = 写可能已经落地（回执丢失/连接代变化）：派生视图仍要刷新，否则回收站、
+		// 草稿清理会停在写之前的状态，把「其实成功了」显示成「没发生」（真机文件管理用例的假阴性）。
+		if (remoteFileEntryIsUnknown(result.code)) afterSuccess?.();
 	}, []);
 
 	const submitNew = useCallback(
