@@ -59,7 +59,7 @@ PiDeck 桌面能力面统一门面 `piDeckApi` 的契约文档。三层结构：
 | `content-store` | content | BuiltinContentUpdater（prompts-store/skills-store 两通道域共用同一更新器） | ipc/contentStoreIpc.ts | `contentStore` | `prompts-store`, `skills-store` | `aggregate` |
 | `extensions` | content | ExtensionManager + BuiltInExtensionsUpdater | ipc/storeIpc.ts, ipc/builtInExtensionIpc.ts | `extensions` | `extensions` | `aggregate` |
 | `favorites` | content | FavoritesStore（`<userData>/favorites.json` 本机快照；正文只在收藏动作发生时由渲染层提交，不动会话文件） | ipc/favoritesIpc.ts | `favorites` | `favorites` | `aggregate` |
-| `session-groups` | content | SessionGroupStore（`<userData>/session-groups.json`；内置插件 v3 经 host API 读写同一份，不是 pi 能力） | ipc/sessionGroupsIpc.ts | `sessionGroups` | `session-groups` | `aggregate` |
+| `session-groups` | content | SessionGroupStore（`<userData>/session-groups.json`；示例插件 session-groups v3 经 host API 读写同一份，不是 pi 能力） | ipc/sessionGroupsIpc.ts | `sessionGroups` | `session-groups` | `aggregate` |
 | `imagegen` | content | ImagegenService + 三个图存储 Store | ipc/imagegenIpc.ts | `imagegen` | `imagegen` | `aggregate` |
 | `videogen` | content | VideoJobRunner + IlinkClient + VideoJobStore/VideoBlobStore/VideoSessionStore/VideoGenConfigStore | ipc/videogenIpc.ts | `videogen` | `videogen` | `aggregate` |
 | `settings` | config | SettingsStore + VisionBridgeConfigManager | ipc/systemIpc.ts | `settings` | `settings` | `aggregate` |

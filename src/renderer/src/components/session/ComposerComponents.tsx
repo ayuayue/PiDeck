@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, type ReactNode } from "react"
 import { AnimatePresence } from "motion/react";
 import { useAtomValue } from "jotai";
 import { dshModuleHiddenAtom, imageGenModuleHiddenAtom, videoGenModuleHiddenAtom, acpEnabledAtom, acpToolsAtom, sessionIsRemoteAtomFamily, sessionRemoteExtensionsAtomFamily } from "../../atoms";
-import { AlertCircle, Check, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, CornerDownLeft, Eye, EyeOff, FileText, GitBranch, ImageIcon, LayoutGrid, ListChecks, Loader2, Paperclip, RefreshCw, SlidersHorizontal, Sparkles, Star, Target, X, Zap } from "lucide-react";
+import { AlertCircle, Check, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, CornerDownLeft, Eye, EyeOff, FileText, GitBranch, ImageIcon, ImagePlus, LayoutGrid, ListChecks, Loader2, Paperclip, RefreshCw, SlidersHorizontal, Sparkles, Star, Target, X, Zap } from "lucide-react";
 import { t, type TranslationKey } from "../../i18n";
 import type { PromptEnhanceView } from "../../hooks/usePromptEnhance";
 import { PromptEnhanceControls } from "./PromptEnhanceControls";
@@ -573,6 +573,8 @@ export function ComposerBottomBar(props: {
 	imageGenLocked?: boolean;
 	onCancelPlan: () => void;
 	onAttachFile: () => void;
+	/** 生图模式的上传入口：选图直接进附件栏当参考图（@path 引用对生图 prompt 没有意义）。 */
+	onAttachReferenceImage: () => void;
 	/** 生图模式底栏参数；非 imagegen 时不传。凭据来自独立 imagegen.json。 */
 	imageGenOptions?: {
 		config: ImageGenConfigFile;
@@ -659,7 +661,9 @@ export function ComposerBottomBar(props: {
 	// 只按 mode 判会漏屏蔽引导页窗口——引导页没有 record，mode 由 record.backend 推导
 	// （controller 的 mode 三态分支），选了生图/生视频后端时 mode 仍是 normal，
 	// 于是权限（pi 安全等级 / DSH 权限预设）、飞书镜像、会话 LLM 模型 chip 全部照旧显示。
-	const isMediaComposer = isImageGenMode || isVideoGenMode || props.backend === "imagegen" || props.backend === "videogen";
+	// 生图判据：模式 or 后端任一命中（引导页没有 record，选了生图后端时 mode 仍是 normal）。
+	const imageGenComposer = isImageGenMode || props.backend === "imagegen";
+	const isMediaComposer = imageGenComposer || isVideoGenMode || props.backend === "videogen";
 	// 模式 = 后端身份（生图/生视频后端）：mode 由 record.backend 推导，controller 的 setMode
 	// 对这两个后端直接 return，退出×点了也不会生效（用户反馈「选中视频模式后没办法退出」）。
 	// 此时退出要走后端选择器（未开始对话）或新建会话（已锁定），不摆一个点了没反应的按钮。
@@ -780,13 +784,19 @@ export function ComposerBottomBar(props: {
 							</Button>
 						</DropdownMenuTrigger>
 						<DropdownMenuContent align="start" sideOffset={4} className="min-w-44">
-							{/* 生图模式用图片粘贴添加参考图，不需要文件选择器上传附件；生视频一期不支持参考素材，附件无落点，同样不提供上传 */}
-							{!isMediaComposer && (
+							{/* 生图模式的附件是参考图：只能走图片入口（@path 引用对生图 prompt 没意义）。
+							    2026-11 用户反馈「粘贴能用但「+」里没有上传入口」，补一个点选入口；生视频一期不支持参考素材，仍不提供任何上传。 */}
+							{imageGenComposer ? (
+								<DropdownMenuItem onSelect={() => props.onAttachReferenceImage()}>
+									<ImagePlus size={14} strokeWidth={2} aria-hidden="true" />
+									{t("app.composerAddReferenceImage")}
+								</DropdownMenuItem>
+							) : !isMediaComposer ? (
 								<DropdownMenuItem onSelect={() => props.onAttachFile()}>
 									<Paperclip size={14} strokeWidth={2} aria-hidden="true" />
 									{t("app.composerAddAttach")}
 								</DropdownMenuItem>
-							)}
+							) : null}
 							<DropdownMenuItem onSelect={() => props.onPickSkill()}>
 								<Sparkles size={14} strokeWidth={2} aria-hidden="true" />
 								{t("app.composerAddSkill")}

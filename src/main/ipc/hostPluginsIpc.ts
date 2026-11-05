@@ -153,10 +153,10 @@ export function registerHostPluginsIpc(service: HostPluginService, getWindow: ()
 	);
 	ipcMain.handle(ipcChannels.hostPluginsRemove, (event, id: unknown) =>
 		result(() => {
-			// 与其余管理入口同一信任边界：删目录是不可逆操作，不允许 guest 帧。
+			// 与其余管理入口同一信任边界：删目录与清私有数据都是不可逆操作，不允许 guest 帧。
 			trustedWindow(event);
 			if (!isHostPluginId(id)) throw new Error("invalid-plugin");
-			return service.manager.remove(id);
+			return service.remove(id);
 		}),
 	);
 	ipcMain.handle(ipcChannels.hostPluginRequest, (event, request: unknown) => service.broker.request(event.sender.id, event.senderFrame === event.sender.mainFrame, request));

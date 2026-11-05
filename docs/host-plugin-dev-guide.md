@@ -286,6 +286,7 @@ await pideck.storage.remove("layout");
 | 键名 | `[a-zA-Z0-9_.-]{1,80}`；`__proto__` / `prototype` / `constructor` 保留（报 `invalid-storage-key`） |
 | 原子性 | 写盘走「临时文件 + 原子替换」；重试窗口内插件被撤销会中止（`plugin-revoked`） |
 | 隔离 | 一个插件一个 JSON 文件；`keys()` 看不到别的插件 |
+| 卸载 | 用户在设置页卸载时会删掉这个文件（连同插件目录与授权）；不要把它当跨安装的长期备份，重要的东西要让用户导出 |
 
 ### 5.4 workbench
 
@@ -297,7 +298,7 @@ await pideck.workbench.openExternal("https://github.com/ayuayue/PiDeck/blob/main
 - `navigate` 只对**插件数据范围内**的已保存会话生效（默认当前项目；声明 `sessions.read.workspace` 后是整个工作区，导航会自己切到会话所属项目），否则 `session-not-authorized`；它由 PiDeck 主界面执行，插件页不做任何跳转。没有 JSONL 历史的会话（DSH/ACP/生图/生视频）也能导航——能否导航只看会话是否在范围内，“能否读历史”另由 `readable` 表示。
 - `openExternal` 只接受 **https** 且不能带账号密码；系统浏览器打开。带 `http:`、`file:`、`javascript:`、`pideck-plugin:` 一律 `invalid-request`。
 
-> 5.2 + 5.3 + 5.4 合起来的完整示例：`resources/host-plugins/session-groups/`（列会话、分组持久化到 `storage`、点击经 `navigate` 跳转），随 PiDeck 内置；它也是 `page` 面板形态的参考实现。
+> 5.2 + 5.3 + 5.4 合起来的完整示例：`docs/examples/host-plugins/session-groups/`（列会话、分组经 `pideck.sessionGroups.*` 读写宿主 store、点击经 `navigate` 跳转），不随包，安装时从文件夹选这一层目录；它也是 `page` 面板形态的参考实现。
 
 ### 5.5 network：第三方 API 与已启动本地服务
 
@@ -507,11 +508,11 @@ for (const inst of status.instances ?? []) {
 
 #### 可直接导入的 demo
 
-`resources/host-plugins/billion-context/` 就是完整实现（状态卡 + 启停 + 开面板）。它会随 PiDeck 落位到插件目录，可直接改；改完重新扫描 + 重新授权。
+`docs/examples/host-plugins/billion-context/` 就是完整实现（状态卡 + 启停 + 开面板）。它不随包，从文件夹安装后可直接改；改完重新扫描 + 重新授权。
 
 ### 5.9 会话分组：读写宿主分组数据（`sessionGroups.manage`）
 
-会话分组是 PiDeck 自己的本地数据（`<userData>/session-groups.json`）：侧栏「分组」树只读消费它，声明了 `sessionGroups.manage` 的插件可以读写它（目前是内置的会话分组插件）。用途边界见 `docs/host-boundaries.md` 例外七——**只允许分组读写，不是通用存储桥**。
+会话分组是 PiDeck 自己的本地数据（`<userData>/session-groups.json`）：侧栏「分组」树只读消费它，声明了 `sessionGroups.manage` 的插件可以读写它（目前是 `docs/examples/host-plugins/session-groups/` 这个示例插件）。用途边界见 `docs/host-boundaries.md` 例外七——**只允许分组读写，不是通用存储桥**。
 
 ```ts
 type SessionGroup = {
@@ -527,7 +528,7 @@ type SessionGroup = {
 - `save` 是**整体替换**（按 id upsert）：先 `list()` 拿全量、改内存、再写回，不要按字段猜合并语义。
 - 写入成功后宿主广播 `session-groups:changed`，桌面帧自动刷新侧栏；插件自己不需要（也无法）通知侧栏。
 - 分组是跨插件的共享数据：按 id 增量改，禁止整表清空重建；单组会话引用上限 20000，组数上限 200。
-- 保存/删除/排序分别有 1 次 IPC 往返；高频操作（拖拽、勾选）先改内存、防抖后再落盘（参考内置插件的 `queue()` 串行 + 签名 diff 写法）。
+- 保存/删除/排序分别有 1 次 IPC 往返；高频操作（拖拽、勾选）先改内存、防抖后再落盘（参考 `docs/examples/host-plugins/session-groups/` 的 `queue()` 串行 + 签名 diff 写法）。
 
 ## 6. 安全模型（为什么这些限制是这样）
 

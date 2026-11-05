@@ -193,7 +193,7 @@ export type HostPluginDesktopApi = {
 	 * 只返回条目，不返回字节——安装仍走 `installGitHub`。空关键词 = 浏览全部。
 	 */
 	searchMarket: (keyword: string) => Promise<HostPluginResult<HostPluginMarketSearchResult>>;
-	/** 卸载：删掉 userData 里的插件目录并清掉授权；内置示例不可卸载（返回 plugin-builtin）。 */
+	/** 卸载：删掉 userData 里的插件目录、清掉授权与该插件的私有 storage；不可撤销，没有任何自动恢复的副本。 */
 	remove: (id: string) => Promise<HostPluginResult<HostPluginCatalog>>;
 	mount: (input: HostPluginMountInput) => Promise<HostPluginResult<HostPluginMount>>;
 	update: (instanceId: string, context: HostPluginContext) => Promise<HostPluginResult<void>>;
