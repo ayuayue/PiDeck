@@ -56,7 +56,7 @@ test("add-by-path 在 WSL 模式下按 wsl 环境入库，宿主路径直接报�
 	assert.ok(body, "projectsAddByPath handler 未找到");
 	assert.match(body[0], /settings\.wslEnabled === true/, "必须读全局 WSL 开关，否则 WSL 目录会被记成 windows 项目");
 	assert.match(body[0], /normalizeWslProjectAddPath\(projectPath, wslDistro\)/);
-	assert.match(body[0], /projectStore\.add\(projectPath, undefined, wslDistro \? "wsl" : undefined\)/, "入库必须带 environment，否则会被可见性过滤掉");
+	assert.match(body[0], /projectStore\.add\(projectPath, undefined, wslDistro \? "wsl" : "windows"\)/, "入库必须带 environment，否则会被可见性过滤掉");
 	assert.match(body[0], /mainCopy\("project\.windowsPathInWslMode"\)/);
 	assert.match(body[0], /mainCopy\("project\.wslDistroMismatch"/);
 	assert.match(body[0], /mainCopy\("project\.wslPathNotFound"/);
