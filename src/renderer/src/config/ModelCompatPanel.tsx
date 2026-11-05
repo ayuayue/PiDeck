@@ -43,8 +43,8 @@ export function ModelCompatPanel(props: {
 								</div>
 								<div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
 									{/* 原始键名常驻：用户能直接在 models.json 里搜到这一行 */}
-									<code className="font-mono text-[11px] text-text-tertiary">{field.key}</code>
-									{suggested !== undefined && suggested !== value ? <span className="text-[11px] text-text-tertiary">{t("config.modelCompatSuggestionRow", { value: suggested ? t("config.strictToolSamplingOn") : t("config.strictToolSamplingOff") })}</span> : null}
+									<code className="font-mono text-micro text-text-tertiary">{field.key}</code>
+									{suggested !== undefined && suggested !== value ? <span className="text-micro text-text-tertiary">{t("config.modelCompatSuggestionRow", { value: suggested ? t("config.strictToolSamplingOn") : t("config.strictToolSamplingOff") })}</span> : null}
 								</div>
 							</div>
 							<ConfigSelect triggerClassName="w-auto min-w-28 shrink-0" value={value === undefined ? "follow" : value ? "on" : "off"} options={triStateOptions} onChange={(next) => props.onChange(setModelCompatFlag(props.value, field.key, next === "follow" ? undefined : next === "on"))} />
@@ -60,7 +60,7 @@ export function ModelCompatPanel(props: {
 					</div>
 					<p className="text-caption leading-relaxed text-text-tertiary">{t("config.modelCompatSuggestionDesc", { model: props.suggestion?.matchedId ?? "" })}</p>
 					{/* 建议值用原始键名 + true/false 展示：与 models.json 一一对应，不需要再铺一轮 i18n */}
-					<ul className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-text-secondary">
+					<ul className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-micro text-text-secondary">
 						{diff.map((item) => (
 							<li key={item.key}>
 								{item.key}={String(item.suggested)}
