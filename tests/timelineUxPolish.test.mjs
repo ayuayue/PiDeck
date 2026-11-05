@@ -23,10 +23,10 @@ test("tool card name is a faint process-layer label, weight kept normal", () => 
 });
 
 test("latest turn auto-collapses from the timeline idle signal after streaming", () => {
-	// 1.5s idle 计时在 timeline 侧；TurnRow 只消费 autoCollapseTick。
+	// 1.5s idle 计时在 timeline 侧；TurnRow 只消费 autoCollapseAt（时刻戳）。
 	assert.doesNotMatch(turnExecution, /}, 1500\)/);
 	assert.match(timeline, /TURN_SETTLE_IDLE_COLLAPSE_MS = 1500/);
-	assert.match(turnExecution, /autoCollapseTick/);
+	assert.match(turnExecution, /autoCollapseAt/);
 	assert.match(turnExecution, /onAutoCollapsed/);
 	// 不再在「运行中 → 停转」边沿自动展开执行过程（旧 2026-12 兼容行为已移除）
 	assert.doesNotMatch(turnExecution, /const justFinished = wasRunningRef\.current && !running;/);

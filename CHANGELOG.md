@@ -39,6 +39,7 @@ PiDeck grows from managing pi sessions into a workbench for several backends and
 - **Host plugins are always user-installed** — nothing is seeded from the bundle, and uninstall revokes the grant, deletes the folder and its private storage.
 - **Reference-image upload returns to image-generation mode** — the plus menu picks images and dropped files go to the attachment bar, with the same 10MB-per-image / 32MB-per-session budgets as pasting.
 - **To-do and subagent strips still appeared above the composer with Session status placement set to Right sidebar** — the yield rule hung on whether the panel was visibly showing a session, so it came back the moment the panel collapsed. It now follows the placement setting alone: strips stay out whether the drawer is closed or the panel collapsed, the collapsed tab bar keeps showing to-do progress and subagent counts, and your expand / collapse preference is still remembered as you left it.
+- **The last turn's execution process sometimes stayed open** — the settle signal is now a timestamp, so a regroup-on-flush remount or a final answer landing after the idle edge still collapses it, and collapsing the last turn now folds whatever earlier turns you had left expanded.
 
 ## v0.9.9 (2026-10-30)
 

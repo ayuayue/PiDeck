@@ -89,9 +89,9 @@ export type TurnRowProps = {
 	isLatestRun?: boolean;
 	/** 是否为时间线上最后一个 agent-run（live 正文挂载门：仅它可挂会话级流式槽） */
 	isLastAgentRun?: boolean;
-	/** 最新轮结束后的自动收起信号（timeline 1.5s idle 计时） */
-	autoCollapseTick?: number;
-	/** 自动收起真实发生后回调（timeline 据此定位本轮起始消息） */
+	/** 「安静收起」时刻（epoch ms，timeline 侧 1.5s idle 后写入；0 = 未触发）。 */
+	autoCollapseAt?: number;
+	/** 自动收起真实发生后回调（仅最新轮；timeline 可据此做定位，当前未挂） */
 	onAutoCollapsed?: () => void;
 	/** 打开多选分享弹框 */
 	onEnterMultiSelect?: () => void;
@@ -215,13 +215,13 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 	const stepsVisibleMemory = useAtomValue(stepsVisibleMemoryAtom);
 	const setRunStepsMemoryAtom = useSetAtom(runStepsVisibleMemoryBySessionIdAtomFamily(props.sessionId ?? ""));
 	const onStepsVisibleMemoryChange = useCallback(
-		(visible: boolean | undefined, atTick: number) => {
+		(visible: boolean | undefined, atTick: number, atMs: number) => {
 			const runId = run.id;
 			if (!props.sessionId || !runId) return;
 			setRunStepsMemoryAtom((prev) => {
 				const next = { ...prev };
 				if (visible === undefined) delete next[runId];
-				else next[runId] = { visible, atTick };
+				else next[runId] = { visible, atTick, atMs };
 				return next;
 			});
 		},
@@ -236,7 +236,7 @@ export const TurnRow = memo(function TurnRow(props: TurnRowProps) {
 		expandInterimDuringStream: flowSettings.expandInterimDuringStream,
 		newTurnCollapseTick,
 		sendPinAnimating,
-		autoCollapseTick: props.autoCollapseTick,
+		autoCollapseAt: props.autoCollapseAt,
 		onAutoCollapsed: props.onAutoCollapsed,
 		stepsVisibleMemory,
 		onStepsVisibleMemoryChange,
@@ -514,7 +514,7 @@ function turnRowPropsEqual(prev: TurnRowProps, next: TurnRowProps): boolean {
 		prev.isRuntimeBusy === next.isRuntimeBusy &&
 		prev.isLatestRun === next.isLatestRun &&
 		prev.isLastAgentRun === next.isLastAgentRun &&
-		prev.autoCollapseTick === next.autoCollapseTick &&
+		prev.autoCollapseAt === next.autoCollapseAt &&
 		// 收藏表变化才换引用（时间线 useMemo）：已收藏态变了星标要重绘，未变时保持记忆化。
 		prev.favoritedMessageKeys === next.favoritedMessageKeys &&
 		prev.onOpenFile === next.onOpenFile

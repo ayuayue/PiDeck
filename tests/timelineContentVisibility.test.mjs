@@ -36,10 +36,10 @@ test("single-turn DOM stays light via default-collapsed process group", () => {
 	assert.match(turnExecution, /if \(!opts\.agentRunning\) return false;/);
 	// 手动 override 最高优先：上升沿不清 override、不撑开手动折叠过的轮次
 	assert.match(turnExecution, /!userOverrideRef\.current/);
-	// 1.5s idle 自动收起由 timeline 统一计时，TurnRow 消费 autoCollapseTick；
+	// 1.5s idle 自动收起由 timeline 统一计时，TurnRow 消费 autoCollapseAt（时刻戳）；
 	// 历史 run 默认折叠、流式上升沿才展开，仍然保证单 turn DOM 轻量。
 	assert.doesNotMatch(turnExecution, /}, 1500\)/);
-	assert.match(turnExecution, /autoCollapseTick/);
+	assert.match(turnExecution, /autoCollapseAt/);
 	assert.match(turnExecution, /!wasRunningRef\.current/);
 });
 

@@ -24,9 +24,14 @@ export type TurnExecutionState = {
  * - 手动开合永远最高优先：流式上升沿不会覆盖用户已折叠的状态；
  * - 流式上升沿：设置①（expandInterimDuringStream）开启且无手动 override 时展开；
  * - 新一轮信号：非最新轮强制收起（含手动展开的），节省渲染资源；
- * - 自动收起信号：最新轮结束且用户 1.5s 无操作后，timeline 发来 autoCollapseTick；
- *   若执行过程仍打开，则收起并回调 onAutoCollapsed，由 timeline 把本轮起始消息
- *   拉到视口中上方。这样「结束即展开」的旧行为被替换为「先复盘，再安静收起」。
+ * - 自动收起信号：最新轮结束且用户 1.5s 无操作后，timeline 发来 autoCollapseAt
+ *   （epoch ms）。所有轮次都消费它：最新轮收掉自己，更早的轮次收掉用户此前手动
+ *   展开的过程（2026 用户反馈：最后一轮收起了，上面几轮还开着）。最新轮执行过程
+ *   仍打开时收起并回调 onAutoCollapsed。这样「结束即展开」的旧行为被替换为
+ *   「先复盘，再安静收起」。
+ * - 信号按**时刻**判定而不是按「是否消费过」：tick 是变化信号，终态 flush 让 run
+ *   换 id 重挂载时会一并吞掉它；时刻戳能与记忆里的写入时刻比较，重挂载后仍判定
+ *   「这次收起发生在用户展开之后吗」。
  */
 export function useTurnExecution(opts: {
 	runId?: string;
@@ -43,23 +48,28 @@ export function useTurnExecution(opts: {
 	newTurnCollapseTick?: number;
 	/** 发送置顶滚动动画进行中：新一轮折叠必须等它结束（见下 effect 注释）。 */
 	sendPinAnimating?: boolean;
-	/** 最新轮结束后的自动收起信号（timeline 侧 1.5s idle 计时）。 */
-	autoCollapseTick?: number;
+	/** 「安静收起」时刻（timeline 侧 1.5s idle 计时后写入的 epoch ms，session 级；0 = 未触发）。
+	 * 传给时间线上所有 agent 轮：最新轮收掉自己，更早的轮次收掉用户此前手动展开的过程。 */
+	autoCollapseAt?: number;
 	/** 自动收起真正发生后回调（timeline 据此做「拉到中上方」定位）。 */
 	onAutoCollapsed?: () => void;
 	/** 跨挂载记忆的当前值（undefined = 无记忆，走初始态规则）。 */
 	stepsVisibleMemory?: RunStepsVisibleMemoryEntry;
-	/** 记忆变更回调：{ visible, atTick } = 记录展开意愿与当时的新一轮 tick；
+	/** 记忆变更回调：{ visible, atTick, atMs } = 记录展开意愿、当时的新一轮 tick 与写入时刻；
 	 * undefined = 清除（系统收起/新一轮折叠时）。 */
-	onStepsVisibleMemoryChange?: (visible: boolean | undefined, atTick: number) => void;
+	onStepsVisibleMemoryChange?: (visible: boolean | undefined, atTick: number, atMs: number) => void;
 }): TurnExecutionState {
 	const [stepsVisible, setStepsVisible] = useState(() => {
 		const currentTick = opts.newTurnCollapseTick ?? 0;
+		const settledAt = opts.autoCollapseAt ?? 0;
 		const memory = opts.stepsVisibleMemory;
 		// 记忆带 tick 版本（2026 用户反馈）：只恢复「记忆写入晚于等于当前新一轮」
 		// 的展开意愿——用户在新一轮之后再次手动展开是明确的最新意愿；
 		// 早于最新一轮的旧记忆由新一轮规则压过（下方），不许“永久压过新意向”。
-		if (memory !== undefined && memory.atTick >= currentTick) {
+		// 另外只认「晚于安静收起时刻」的记忆：早于它的展开意愿已经被那次收起兑现
+		// （记忆还留着说明重挂载前没来得及清），恢复它就会让最后一轮重新弹开。
+		const memoryStillWanted = memory !== undefined && (settledAt <= 0 || memory.atMs > settledAt);
+		if (memoryStillWanted && memory.atTick >= currentTick) {
 			return memory.visible;
 		}
 		// 新一轮已发生且本轮非最新：一律折叠（含手动展开过的，含本轮刚刚失去
@@ -79,10 +89,10 @@ export function useTurnExecution(opts: {
 	const userOverrideRef = useRef(false);
 	const wasRunningRef = useRef(Boolean(opts.agentRunning));
 	const stepsVisibleRef = useRef(stepsVisible);
-	// 挂载即把当前 autoCollapseTick 视为已消费：tick 是 timeline 侧单调递增，
-	// TurnRow 以 run.id 重挂载（切会话再切回）时收到的是旧值，不能重新触发
-	// 收起——否则记忆恢复的展开会在挂载瞬间又被 1.5s 收掉（2026 用户反馈）。
-	const lastAutoCollapseTickRef = useRef(opts.autoCollapseTick ?? 0);
+	// 上次处理过的安静收起时刻。挂载从 0 起：由「时刻 vs 记忆写入时刻」自己判断
+	// 这次收起是否还该生效，而不是把挂载时已有的信号一律当成旧信号吞掉
+	// （终态 flush 让 run 换 id 重挂载时，正是那条信号把最后一轮收掉的时机）。
+	const lastAutoCollapsedAtRef = useRef(0);
 	// 新一轮折叠信号同理：只在“挂载后新发生的轮次”时执行，挂载即消费当前值。
 	// 否则切回时刚恢复的记忆（atTick == 当前 tick）会在 effect 首跑时被再次清空。
 	const lastNewTurnCollapseTickRef = useRef(opts.newTurnCollapseTick ?? 0);
@@ -95,10 +105,10 @@ export function useTurnExecution(opts: {
 	useEffect(() => {
 		if (lastRunIdRef.current === opts.runId) return;
 		lastRunIdRef.current = opts.runId;
-		// run 切换（实例复用）：同样把当前 tick 视为已消费，避免旧信号重放。
-		lastAutoCollapseTickRef.current = opts.autoCollapseTick ?? 0;
+		// run 切换（实例复用）：新一轮 tick 视为已消费，避免旧信号重放。
+		// 安静收起时刻不重置：它自带时刻，与记忆写入时刻比较即可判定是否仍生效。
 		lastNewTurnCollapseTickRef.current = opts.newTurnCollapseTick ?? 0;
-	}, [opts.runId, opts.autoCollapseTick, opts.newTurnCollapseTick]);
+	}, [opts.runId, opts.newTurnCollapseTick]);
 
 	// 流式上升沿展开。只处理「开始跑」这一个边沿，busy 抖动不会把用户手动折叠的
 	// 轮次重新撑开；下降沿不再自动展开（旧「结束展开」已由 1.5s 自动收起取代）。
@@ -106,7 +116,7 @@ export function useTurnExecution(opts: {
 		const running = Boolean(opts.agentRunning);
 		if (running && !wasRunningRef.current && !userOverrideRef.current && opts.expandInterimDuringStream) {
 			setStepsVisible(true);
-			opts.onStepsVisibleMemoryChange?.(true, opts.newTurnCollapseTick ?? 0);
+			opts.onStepsVisibleMemoryChange?.(true, opts.newTurnCollapseTick ?? 0, Date.now());
 		}
 		wasRunningRef.current = running;
 	}, [opts.agentRunning, opts.expandInterimDuringStream, opts.onStepsVisibleMemoryChange]);
@@ -130,29 +140,38 @@ export function useTurnExecution(opts: {
 		lastNewTurnCollapseTickRef.current = tick;
 		userOverrideRef.current = false;
 		setStepsVisible(false);
-		opts.onStepsVisibleMemoryChange?.(undefined, tick);
+		opts.onStepsVisibleMemoryChange?.(undefined, tick, Date.now());
 	}, [opts.isLatestRun, opts.newTurnCollapseTick, opts.sendPinAnimating, opts.onStepsVisibleMemoryChange]);
 
-	// timeline 侧 1.5s idle 后发来的自动收起信号。仅最新轮、仍有最终回答且执行过程
-	// 当前可见时收起；已经手动折叠/从未展开的轮次不回调，timeline 不会错误滚动。
-	// 收起同样清除记忆：下次挂载回到初始态（历史轮折叠）。
+	// timeline 侧 1.5s idle 后发来的「安静收起」时刻。所有轮次都消费：
+	// 最新轮收掉自己（要求已有最终回答，否则整轮只剩空壳），更早的轮次收掉用户此刻
+	// 还开着的过程（2026 用户反馈：最后一轮收起了，上面几轮还摊开着）。
+	// - 用户在本次收起之后亲手展开过（记忆写入时刻更晚）→ 尊重最新意愿，不再收；
+	// - 最新轮还没有最终回答：终态 messages 可能晚于 idle 边沿 flush，**不落已处理标记**，
+	//   等 hasFinalAnswer 翻转后同一个时刻会再次进来（旧实现先落标记，于是永久漏收）；
+	// - 收起同时清除记忆：下次挂载回到初始态（历史轮折叠）。
+	const settledAt = opts.autoCollapseAt ?? 0;
+	const latestMemoryAtMs = opts.stepsVisibleMemory?.atMs ?? 0;
 	useEffect(() => {
-		const tick = opts.autoCollapseTick ?? 0;
-		if (tick <= 0 || tick === lastAutoCollapseTickRef.current) return;
-		lastAutoCollapseTickRef.current = tick;
-		if (opts.isLatestRun === false || !opts.hasFinalAnswer) return;
+		if (settledAt <= 0 || settledAt <= lastAutoCollapsedAtRef.current) return;
+		if (latestMemoryAtMs > settledAt) {
+			lastAutoCollapsedAtRef.current = settledAt;
+			return;
+		}
+		if (opts.isLatestRun !== false && !opts.hasFinalAnswer) return;
+		lastAutoCollapsedAtRef.current = settledAt;
 		if (!stepsVisibleRef.current) return;
 		userOverrideRef.current = false;
 		setStepsVisible(false);
-		opts.onStepsVisibleMemoryChange?.(undefined, tick);
-		opts.onAutoCollapsed?.();
-	}, [opts.autoCollapseTick, opts.hasFinalAnswer, opts.isLatestRun, opts.onAutoCollapsed, opts.onStepsVisibleMemoryChange]);
+		opts.onStepsVisibleMemoryChange?.(undefined, opts.newTurnCollapseTick ?? 0, Date.now());
+		if (opts.isLatestRun !== false) opts.onAutoCollapsed?.();
+	}, [settledAt, latestMemoryAtMs, opts.hasFinalAnswer, opts.isLatestRun, opts.onAutoCollapsed, opts.onStepsVisibleMemoryChange, opts.newTurnCollapseTick]);
 
 	const setStepsVisibleFromUser = useCallback(
 		(open: boolean) => {
 			userOverrideRef.current = true;
 			setStepsVisible(open);
-			opts.onStepsVisibleMemoryChange?.(open, opts.newTurnCollapseTick ?? 0);
+			opts.onStepsVisibleMemoryChange?.(open, opts.newTurnCollapseTick ?? 0, Date.now());
 		},
 		[opts.onStepsVisibleMemoryChange, opts.newTurnCollapseTick],
 	);
@@ -161,7 +180,7 @@ export function useTurnExecution(opts: {
 		userOverrideRef.current = true;
 		setStepsVisible((prev) => {
 			const next = !prev;
-			opts.onStepsVisibleMemoryChange?.(next, opts.newTurnCollapseTick ?? 0);
+			opts.onStepsVisibleMemoryChange?.(next, opts.newTurnCollapseTick ?? 0, Date.now());
 			return next;
 		});
 	}, [opts.onStepsVisibleMemoryChange, opts.newTurnCollapseTick]);

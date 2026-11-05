@@ -92,11 +92,13 @@ test("manual/streaming expansion is remembered across remounts (session-scoped)"
 	// TurnRow 按 run.id 订阅记忆（selectAtom 隔离，不引发同会话整列重渲染）
 	assert.match(turnRow, /runStepsVisibleMemoryBySessionIdAtomFamily/);
 	assert.match(turnRow, /selectAtom/);
-	assert.match(turnRow, /next\[runId\] = \{ visible, atTick \}/);
+	assert.match(turnRow, /next\[runId\] = \{ visible, atTick, atMs \}/);
 	// 会话删除时随其它 family 一起释放，避免 atomFamily 长期泄漏
 	assert.match(sessionAtoms, /runStepsVisibleMemoryBySessionIdAtomFamily\.remove\(sessionId\)/);
-	// 重挂载时把当前 autoCollapseTick 视为已消费：旧信号不得在恢复展开的瞬间再收起
-	assert.match(turnExecution, /lastAutoCollapseTickRef = useRef\(opts\.autoCollapseTick \?\? 0\)/);
+	// 自动收起按「时刻」判定：记忆写入早于收起时刻 ⇒ 那次收起已兑现，挂载不再恢复展开；
+	// 比收起时刻更晚的展开意愿（用户亲手点开）才恢复。
+	assert.match(turnExecution, /memory\.atMs > settledAt/);
+	assert.match(turnExecution, /const lastAutoCollapsedAtRef = useRef\(0\);/);
 });
 // 「发送后动画先向上再向下」根因回归（2026-10）：折叠信号在置顶动画途中到达，
 // 上一轮执行过程从新消息上方骤缩，动画中的视口补偿把 scrollTop 往回带。
