@@ -443,7 +443,7 @@ export function ModelsTab(props: {
 							const selectedModelCount = countSelectedModelIndexes(selectedModelIndexes, provider.models.length);
 							const userAgentValue = getHeaderValue(provider.headers, "User-Agent");
 							const providerAdvancedFields = Object.keys(provider).filter((key) => !KNOWN_PROVIDER_FIELDS.has(key));
-							const providerComplexFields = ["headers", "authHeader", "compat", "modelOverrides", "oauth"].filter((key) => provider[key] !== undefined);
+							const providerComplexFields = ["headers", "authHeader", "modelOverrides", "oauth"].filter((key) => provider[key] !== undefined);
 							return (
 								<div
 									key={name}

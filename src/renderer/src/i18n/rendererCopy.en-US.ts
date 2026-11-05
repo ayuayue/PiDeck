@@ -3640,6 +3640,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"config.modelCompatDialogDesc": "These switches write this model's compat (models.json models[].compat) and override provider-level values. Open a new session (or restart PiDeck) after saving for them to take effect.",
 	"config.modelCompatHint": "Unset inherits the provider-level value, then pi's own detection; On / Off applies to this model only (overriding the provider).",
 	"config.modelCompatFollowProvider": "Inherit provider",
+	"config.compatScopeHint": "These are provider defaults, not any single model's effective value; the same switch on a model row takes precedence, otherwise models inherit these.",
 	"config.modelCompatAdaptiveThinking": "Adaptive thinking protocol",
 	"config.modelCompatAdaptiveThinkingDesc": 'Claude Opus 4.7+ / Sonnet 5+ / Fable 5 require thinking:{type:"adaptive"} + output_config.effort. Without this, pi sends the legacy thinking:{type:"enabled",budget_tokens} payload and the upstream returns HTTP 400. Turn it on when using those models through a relay.',
 	"config.modelCompatTemperature": "Allow custom temperature",

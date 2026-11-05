@@ -3621,6 +3621,7 @@ export const zhCN = {
 	"config.modelCompatDialogDesc": "这些开关写入该模型的 compat（models.json 的 models[].compat），优先于供应商级同名设置。保存后需新开会话（或重启 PiDeck）才生效。",
 	"config.modelCompatHint": "未设置 = 继承供应商级同名设置，供应商也没设时交给 pi 判定；开 / 关只影响当前模型（覆盖供应商级）。",
 	"config.modelCompatFollowProvider": "跟随供应商",
+	"config.compatScopeHint": "这里是供应商默认值，不显示单个模型的生效值；模型行里的同名开关优先，未单独设置时继承这里。",
 	"config.modelCompatAdaptiveThinking": "自适应思考协议",
 	"config.modelCompatAdaptiveThinkingDesc": 'Claude Opus 4.7+ / Sonnet 5+ / Fable 5 等新一代模型只接受 thinking:{type:"adaptive"} + output_config.effort。未开启时 pi 按老写法发 thinking:{type:"enabled",budget_tokens}，上游会直接 400；经中转站用这些模型时手动打开。',
 	"config.modelCompatTemperature": "允许自定义温度",

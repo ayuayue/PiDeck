@@ -246,7 +246,7 @@ export function ModelsTable(props: ModelsTableProps) {
 						};
 						const modelAdvancedFields = Object.keys(m).filter((key) => !KNOWN_MODEL_FIELDS.has(key));
 						// thinkingLevelMap 整表由档位勾选列表管理，不再算「高级字段」（计费弹框的保留提示不再列它）
-						const modelComplexFields = ["api", "baseUrl", "cost", "headers", "compat"].filter((key) => m[key] !== undefined);
+						const modelComplexFields = ["api", "baseUrl", "cost", "headers"].filter((key) => m[key] !== undefined);
 
 						// 思考档位勾选态只依赖模型自身（reasoning + thinkingLevelMap），与 Popover 里的勾选列表同源，
 						// 草稿改动实时预演（不读 Pi 的能力探测结果——那回答的是「已保存配置」，含尚未保存的新行）。
