@@ -5199,6 +5199,8 @@ export const enUS: Record<TranslationKey, string> = {
 	"settings.palette.seaBlueDesc": "Cool sea-blue surfaces with a blue accent; crisp and airy.",
 	"settings.palette.warmBeige": "Warm beige",
 	"settings.palette.warmBeigeDesc": "Warm paper-beige surfaces with an amber accent; soft and easy on the eyes.",
+	"settings.palette.parchment": "Parchment",
+	"settings.palette.parchmentDesc": "Warm paper surfaces, a terracotta accent, and ink-brown text.",
 	"settings.palette.tui": "Terminal (TUI)",
 	"settings.palette.tuiDesc": "Port of the pi terminal palette: gray surfaces, yellow headings, blue links, purple inline code; code and tables use terminal tints. With the Terminal style it is the full pi interface.",
 	"settings.palette.custom": "Custom",
@@ -5623,7 +5625,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"settings.cuaSectionDesc": "Let the agent observe the screen and inject mouse/keyboard input to operate native desktop apps. CUA is off by default, with auto-approve on; turn auto-approve off to confirm each write action.",
 	"settings.agentMemorySection": "Agent memory",
 	"settings.agentMemorySectionDesc":
-		"Long-term memory shared across pi / DSH / ACP. Markdown files are the source of truth (memory/ in the user data directory); lookups go through a local full-text index. When enabled, PiDeck writes pideck-agent-memory into pi's mcp.json and mounts it for ACP sessions. Disabling removes only that entry and leaves your other server config untouched.",
+		"Long-term memory shared across pi / ACP sessions; DSH sessions are also searchable through session_search. Markdown files are the source of truth (memory/ in the user data directory); lookups go through a local full-text index. When enabled, PiDeck writes pideck-agent-memory into pi's mcp.json and mounts it for ACP sessions. Disabling removes only that entry and leaves your other server config untouched.",
 	"settings.agentMemoryEnabled": "Enable agent memory",
 	"settings.agentMemoryEnabledDesc": "Agents get memory_add / memory_replace / memory_remove / memory_search / memory_get / session_search / memory_status. Applies to new sessions; disabling never deletes saved memory files.",
 	"settings.agentMemoryAutoLearn": "Learn memory automatically",

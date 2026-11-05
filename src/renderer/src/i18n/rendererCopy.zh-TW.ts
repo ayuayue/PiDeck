@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 818c444cc408fd022f311b0a5cdb8b36115cce4d52252a0123fb1ee2b8949f83（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 9ca391a2a05075496bf0b85034142df456f460ac3540bccff93e36e4286ed27c（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -5186,6 +5186,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.palette.seaBlueDesc": "海藍冷調表面 + 藍色主色，清爽通透。",
 	"settings.palette.warmBeige": "暖陽米",
 	"settings.palette.warmBeigeDesc": "暖米紙感表面 + 琥珀主色，柔和護眼。",
+	"settings.palette.parchment": "羊皮紙",
+	"settings.palette.parchmentDesc": "暖紙面 + 赤陶土主色，墨色文字帶一點襯線氣質。",
 	"settings.palette.tui": "終端（TUI）",
 	"settings.palette.tuiDesc": "移植 pi 終端主題色板：灰底 + 黃標題 + 藍連結 + 紫行內碼，程式碼與表格走終端配色。配「終端」樣式即是完整的 pi 介面。",
 	"settings.palette.custom": "自定義",
@@ -5602,7 +5604,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.floatingBallExpandCompact": "小任務模式",
 	"settings.cuaSectionDesc": "允許 Agent 觀察螢幕並注入滑鼠/鍵盤輸入，從而操作桌面原生應用。CUA 預設關閉，自動審批預設開啟；可關閉自動審批以逐次確認寫操作。",
 	"settings.agentMemorySection": "智慧體記憶",
-	"settings.agentMemorySectionDesc": "跨 pi / DSH / ACP 共享的長期記憶。Markdown 檔案是真值（使用者資料目錄下的 memory/），檢索走本地全文索引。開啟後 PiDeck 把 pideck-agent-memory 寫進 pi 的 mcp.json，並掛給 ACP 會話；關閉只刪這一項，不改動你的其它伺服器配置。",
+	"settings.agentMemorySectionDesc": "跨 pi / ACP 會話共享的長期記憶，DSH 會話也可被 session_search 檢索到。Markdown 檔案是真值（使用者資料目錄下的 memory/），檢索走本地全文索引。開啟後 PiDeck 把 pideck-agent-memory 寫進 pi 的 mcp.json，並掛給 ACP 會話；關閉只刪這一項，不改動你的其它伺服器配置。",
 	"settings.agentMemoryEnabled": "啟用智慧體記憶",
 	"settings.agentMemoryEnabledDesc": "開啟後 Agent 才能用 memory_add / memory_replace / memory_remove / memory_search / memory_get / session_search / memory_status。只對新會話生效；關閉不會刪除已儲存的記憶檔案。",
 	"settings.agentMemoryAutoLearn": "自動學習記憶",
