@@ -157,6 +157,8 @@ export type HostPluginMarketEntry = {
 	source: HostPluginMarketSource;
 	/** 可直接交给 `installGitHub` 的链接（github.com/owner/repo[/tree/ref/subpath]）。 */
 	installUrl: string;
+	/** 官方收录的 AtomGit 镜像安装链接（atomgit.com/owner/repo[/tree/ref/subpath]）；社区源没有。 */
+	atomgitUrl?: string;
 	/** 仓库全名 `owner/name`，用于去重与「打开仓库」。 */
 	repo: string;
 	author?: string;
@@ -186,7 +188,7 @@ export type HostPluginDesktopApi = {
 	install: () => Promise<HostPluginResult<HostPluginCatalog>>;
 	/** Pick and install an unpacked plugin directory (same dialog rule: the renderer never supplies a path). */
 	installDirectory: () => Promise<HostPluginResult<HostPluginCatalog>>;
-	/** Install from a public GitHub repo URL: the main process downloads and extracts it, the renderer only passes the link. */
+	/** Install from a public GitHub or AtomGit repo URL: the main process downloads and extracts it, the renderer only passes the link. */
 	installGitHub: (url: string) => Promise<HostPluginResult<HostPluginCatalog>>;
 	/**
 	 * 插件市场搜索：官方收录（registry.json）+ GitHub `pideck-plugin` topic 双源合并。

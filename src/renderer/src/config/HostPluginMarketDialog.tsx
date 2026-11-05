@@ -1,11 +1,11 @@
 /**
  * 插件市场：双源搜索（官方收录 registry.json + GitHub `pideck-plugin` topic）→ 一键安装。
  *
- * 这个组件只做三件事：拿关键词换条目、把条目渲染成卡片、把条目的 `installUrl` 交给
- * `hostPlugins.installGitHub`。它不解析包、不落盘、不授权——安装与信任判定全在主进程，
- * 与「从 GitHub 链接安装」走的是同一条路径，所以市场本身不扩大任何能力面。
+ * 这个组件只做三件事：拿关键词换条目、把条目渲染成卡片、把条目的安装链接（GitHub 或
+ * AtomGit 镜像）交给 `hostPlugins.installGitHub`。它不解析包、不落盘、不授权——安装与信任判定
+ * 全在主进程，与「从链接安装」走的是同一条路径，所以市场本身不扩大任何能力面。
  *
- * 打开即拉一次全量（空关键词）：本地已装的插件（含随包分发的内置插件）同样在列表里，
+ * 打开即拉一次全量（空关键词）：本地已装的插件同样在列表里，
  * 只是打「已安装」标记并禁用安装按钮——否则点下去只会撞 `plugin-in-use`。
  */
 import { useEffect, useState } from "react";
@@ -49,6 +49,8 @@ export function HostPluginMarketDialog({ open, onOpenChange, onFail }: HostPlugi
 	// null = 还没拿到结果（首帧），空数组 = 搜过但没有结果。
 	const [results, setResults] = useState<HostPluginMarketSearchResult | null>(null);
 	const [installing, setInstalling] = useState<string | null>(null);
+	// 官方收录有 AtomGit 镜像时允许切换下载源；社区源只有 GitHub，切源时自动忽略。
+	const [preferAtomGit, setPreferAtomGit] = useState(false);
 	const [searchError, setSearchError] = useState<string | null>(null);
 	// 本地已装的版本，按插件 id 索引：市场条目只带 id/version，用它判断「已安装 / 可更新」。
 	const installed = new Map<string, string>((catalog?.plugins ?? []).map((plugin) => [plugin.manifest.id, plugin.manifest.version]));
@@ -70,11 +72,13 @@ export function HostPluginMarketDialog({ open, onOpenChange, onFail }: HostPlugi
 		// 缓存由主进程管（社区 10 分钟 / 官方索引 6 小时），反复开关不会反复打网。
 		if (open) void search("");
 	}, [open]);
+	const sourceUrl = (entry: HostPluginMarketEntry) => (preferAtomGit && entry.atomgitUrl ? entry.atomgitUrl : entry.installUrl);
 	/** 安装：市场只提供链接，下载/解包/预算校验/落位都在主进程，装完仍是禁用状态。 */
 	const install = async (entry: HostPluginMarketEntry) => {
-		setInstalling(entry.installUrl);
+		const url = sourceUrl(entry);
+		setInstalling(url);
 		try {
-			const result = await desktopApi.hostPlugins.installGitHub(entry.installUrl);
+			const result = await desktopApi.hostPlugins.installGitHub(url);
 			if (result.ok) {
 				setCatalog({ catalog: result.value });
 				showNotice(t("hostPlugins.marketInstalled", { name: entry.name }), 5000, "info");
@@ -130,8 +134,19 @@ export function HostPluginMarketDialog({ open, onOpenChange, onFail }: HostPlugi
 					</Alert>
 				)}
 				{results && entries.length > 0 && (
-					<div className="flex flex-wrap items-center gap-x-2 text-micro tabular-nums text-muted-foreground">
+					<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-micro tabular-nums text-muted-foreground">
 						<span>{t("hostPlugins.marketSummary", { count: entries.length, registry: official, github: entries.length - official })}</span>
+						{entries.some((entry) => entry.atomgitUrl) && (
+							<div className="ml-auto flex items-center gap-1" title={t("hostPlugins.marketSourceHint")}>
+								<span>{t("hostPlugins.marketSourceLabel")}</span>
+								<Button type="button" size="sm" className="h-6 px-2 text-micro" variant={preferAtomGit ? "ghost" : "secondary"} aria-pressed={!preferAtomGit} disabled={installing !== null} onClick={() => setPreferAtomGit(false)}>
+									{t("hostPlugins.marketSourceGitHub")}
+								</Button>
+								<Button type="button" size="sm" className="h-6 px-2 text-micro" variant={preferAtomGit ? "secondary" : "ghost"} aria-pressed={preferAtomGit} disabled={installing !== null} onClick={() => setPreferAtomGit(true)}>
+									{t("hostPlugins.marketSourceAtomGit")}
+								</Button>
+							</div>
+						)}
 					</div>
 				)}
 				{/* scroll-ok: bounded —— 市场结果双源合并后封顶 40 条（hostPluginMarket.ts MAX_SEARCH_RESULTS），卡片网格高度有界，无需虚拟化 */}
@@ -176,8 +191,8 @@ export function HostPluginMarketDialog({ open, onOpenChange, onFail }: HostPlugi
 											)}
 											{entry.stars !== undefined && <span className="text-micro tabular-nums text-muted-foreground">{t("hostPlugins.marketStars", { count: entry.stars })}</span>}
 											<Button variant="outline" size="sm" className="ml-auto shrink-0" disabled={busy || (isInstalled && !upgradable)} onClick={() => void install(entry)}>
-												{busy && installing === entry.installUrl ? <LoaderCircle className="size-4 animate-pideck-spin" aria-hidden="true" /> : null}
-												{isInstalled && !upgradable ? t("hostPlugins.marketInstalledBadge") : busy && installing === entry.installUrl ? t("hostPlugins.marketInstalling") : t("hostPlugins.marketInstall")}
+												{busy && installing === sourceUrl(entry) ? <LoaderCircle className="size-4 animate-pideck-spin" aria-hidden="true" /> : null}
+												{isInstalled && !upgradable ? t("hostPlugins.marketInstalledBadge") : busy && installing === sourceUrl(entry) ? t("hostPlugins.marketInstalling") : t("hostPlugins.marketInstall")}
 											</Button>
 										</div>
 										{entry.description && (
@@ -193,7 +208,7 @@ export function HostPluginMarketDialog({ open, onOpenChange, onFail }: HostPlugi
 												size="sm"
 												className="h-auto gap-1 px-0 text-micro font-normal"
 												onClick={() => {
-													void desktopApi.app.openExternal(entry.installUrl, true).catch(() => onFail("plugin-host-unavailable"));
+													void desktopApi.app.openExternal(sourceUrl(entry), true).catch(() => onFail("plugin-host-unavailable"));
 												}}
 											>
 												<ExternalLink size={11} aria-hidden="true" />

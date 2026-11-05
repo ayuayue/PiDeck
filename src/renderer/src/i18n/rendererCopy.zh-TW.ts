@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 3c009cabaddd0f8795b929d050a7dde1074576f5766ec26d903dfce5807d28bb（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: b4cc41145e353183b868026fbb0f1380729e17cfa33b7c12e07dd32f402cfa0f（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -16,14 +16,14 @@ export const zhTW: Record<TranslationKey, string> = {
 	"hostPlugins.install": "從檔案安裝…",
 	"hostPlugins.installDirectory": "從資料夾安裝…",
 	"hostPlugins.installMenu": "安裝外掛",
-	"hostPlugins.installGitHub": "從 GitHub 連結安裝…",
-	"hostPlugins.githubTitle": "從 GitHub 連結安裝外掛",
-	"hostPlugins.githubDescription": "貼上公開倉庫地址。PiDeck 只下載該倉庫的原始碼包，找到 pideck-plugin.json 所在的外掛目錄後按普通安裝流程落位；倉庫裡的其他檔案不會被執行，外掛仍預設停用、需確認授權後才生效。",
+	"hostPlugins.installGitHub": "從連結安裝…",
+	"hostPlugins.githubTitle": "從連結安裝外掛",
+	"hostPlugins.githubDescription": "貼上公開的 GitHub 或 AtomGit 倉庫地址。PiDeck 只下載該倉庫的原始碼（GitHub 走 tar.gz，AtomGit 走 API 逐個取檔案），找到 pideck-plugin.json 所在的外掛目錄後按普通安裝流程落位；倉庫裡的其他檔案不會被執行，外掛仍預設停用、需確認授權後才生效。",
 	"hostPlugins.githubUrlLabel": "倉庫連結",
-	"hostPlugins.githubUrlPlaceholder": "https://github.com/owner/repo",
-	"hostPlugins.githubUrlHint": "支援 https://github.com/<owner>/<repo>/tree/<分支>/<子目錄> 指定外掛所在子目錄；倉庫必須公開可訪問。",
+	"hostPlugins.githubUrlPlaceholder": "https://github.com/owner/repo 或 https://atomgit.com/owner/repo",
+	"hostPlugins.githubUrlHint": "支援 GitHub / AtomGit 的 https://<host>/<owner>/<repo>/tree/<分支>/<子目錄> 指定外掛所在子目錄；倉庫必須公開可訪問。",
 	"hostPlugins.githubInstall": "下載並安裝",
-	"hostPlugins.errorInvalidGitHubUrl": "連結格式不對：只支援 https://github.com/owner/repo 或 …/tree/分支/子目錄。",
+	"hostPlugins.errorInvalidGitHubUrl": "連結格式不對：只支援 GitHub 或 AtomGit 的 https://<host>/owner/repo 或 …/tree/分支/子目錄。",
 	"hostPlugins.errorPluginNotFound": "倉庫或分支不存在，或不是公開倉庫。",
 	"hostPlugins.errorMissingManifest": "倉庫裡沒找到 pideck-plugin.json。如果外掛在子目錄，請在連結裡帶上 …/tree/分支/子目錄。",
 	"hostPlugins.errorAmbiguousManifest": "倉庫裡有多個外掛包，請在連結裡用 …/tree/分支/子目錄 指定其中一個。",
@@ -92,6 +92,10 @@ export const zhTW: Record<TranslationKey, string> = {
 	"hostPlugins.marketIdle": "正在拉取官方收錄與社群外掛…",
 	"hostPlugins.marketEmpty": "沒有匹配的外掛。換個關鍵詞，或用「從 GitHub 連結安裝」直接指定倉庫。",
 	"hostPlugins.marketSourceRegistry": "官方收錄",
+	"hostPlugins.marketSourceLabel": "下載源",
+	"hostPlugins.marketSourceGitHub": "GitHub",
+	"hostPlugins.marketSourceAtomGit": "AtomGit 映象",
+	"hostPlugins.marketSourceHint": "GitHub 不可達時可切到 AtomGit 映象；兩者安裝內容與授權流程相同。",
 	"hostPlugins.marketSourceGithub": "社群 · 未審閱",
 	"hostPlugins.marketStars": "{count} 星",
 	"hostPlugins.marketSummary": "共 {count} 個 · 官方收錄 {registry} · 社群 {github}",

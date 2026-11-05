@@ -583,6 +583,25 @@ input {
 	color: var(--sg-text-inverse);
 }
 
+/* 三态（目录下只选了几个会话）：填充底 + 短横，区别于全选的勾。 */
+.check-input:indeterminate + .check-box {
+	border-color: var(--sg-accent);
+	background: var(--sg-accent);
+	color: var(--sg-text-inverse);
+}
+
+.check-input:indeterminate + .check-box svg {
+	display: none;
+}
+
+.check-input:indeterminate + .check-box::after {
+	content: "";
+	width: 8px;
+	height: 2px;
+	border-radius: 1px;
+	background: currentColor;
+}
+
 .check-input:focus-visible + .check-box {
 	box-shadow: 0 0 0 3px color-mix(in srgb, var(--sg-accent-strong) 28%, transparent);
 }
@@ -1218,6 +1237,58 @@ input {
 
 .picker-row.is-checked {
 	background: var(--sg-accent-soft);
+}
+
+/* 新建分组：目录行可展开子会话；勾目录 = 整目录，勾会话 = 只挑几个（目录仍记入范围） */
+
+.create-dir-row {
+	padding-right: 4px;
+}
+
+.create-dir-toggle {
+	position: relative;
+	z-index: 1;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	flex-shrink: 0;
+	padding: 0;
+	border: 0;
+	border-radius: var(--sg-radius-sm);
+	background: transparent;
+	color: var(--sg-text-tertiary);
+	cursor: pointer;
+}
+
+.create-dir-toggle:hover {
+	background: var(--sg-bg-hover);
+	color: var(--sg-text-primary);
+}
+
+.create-dir-toggle:focus-visible {
+	outline: 2px solid var(--sg-accent);
+	outline-offset: 1px;
+}
+
+.create-session-list {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	margin: 1px 0 3px 18px;
+	padding-left: 6px;
+	border-left: 1px solid var(--sg-border-subtle);
+}
+
+.create-session-list .picker-row {
+	padding-top: 4px;
+	padding-bottom: 4px;
+}
+
+.create-more-row {
+	display: flex;
+	padding: 2px 4px 4px 6px;
 }
 
 .picker-text {

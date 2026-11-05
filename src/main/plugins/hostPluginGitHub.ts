@@ -10,9 +10,9 @@
  * 重新授权的路径，所以 GitHub 来源拿不到任何额外能力。
  */
 import { gunzipSync } from "node:zlib";
-import { isHostPluginAsset } from "./hostPluginManifest";
 import { readTarFiles } from "../fs/tarRead";
 import type { HostPluginArchiveFile } from "./hostPluginArchive";
+import { selectHostPluginPackage } from "./hostPluginPackage";
 
 // 保持对外 API：调用方与测试从本模块 import readTarFiles（实现已提取到 fs/tarRead）。
 export { readTarFiles };
@@ -22,10 +22,6 @@ const MAX_URL_LENGTH = 300;
 const MAX_DOWNLOAD_BYTES = 24 * 1024 * 1024;
 /** 解压后 tar 上限（防解压炸弹）：包本身最多 16MiB，仓库其余内容留出余量后到此为止。 */
 const MAX_EXPANDED_BYTES = 96 * 1024 * 1024;
-const MAX_PACKAGE_BYTES = 16 * 1024 * 1024;
-const MAX_PACKAGE_FILES = 100;
-const MAX_ASSET_BYTES = 4 * 1024 * 1024;
-const MANIFEST_FILE = "pideck-plugin.json";
 const METADATA_TIMEOUT_MS = 30_000;
 const TARBALL_TIMEOUT_MS = 120_000;
 
@@ -85,41 +81,17 @@ export function parseGitHubPluginUrl(raw: string): GitHubPluginSource {
 }
 
 /**
- * 从仓库 tarball 里挑出插件包：GitHub 会在最外层加 `<repo>-<ref>/`，先剥掉；再按 `pideck-plugin.json`
- * 定位包根（支持插件放在仓库子目录），最后只保留包根下的文件并施加与归档一致的预算。
+ * 从仓库 tarball 里挑出插件包：GitHub 会在最外层加 `<repo>-<ref>/`，先剥掉；其余与 AtomGit 共用
+ * `selectHostPluginPackage`（定位包根、预算），避免两种下载源的选包口径漂移。
  */
 export function selectGitHubPackage(files: readonly HostPluginArchiveFile[], subpath?: string): HostPluginArchiveFile[] {
-	const relative = new Map<string, Buffer>();
+	const stripped: HostPluginArchiveFile[] = [];
 	for (const file of files) {
 		const slash = file.path.indexOf("/");
 		if (slash < 0) continue;
-		let path = file.path.slice(slash + 1);
-		if (subpath) {
-			if (path !== subpath && !path.startsWith(`${subpath}/`)) continue;
-			path = path.slice(subpath.length).replace(/^\//, "");
-			if (!path) continue;
-		}
-		if (isHostPluginAsset(path)) relative.set(path, file.bytes);
+		stripped.push({ path: file.path.slice(slash + 1), bytes: file.bytes });
 	}
-	const roots = [...relative.keys()].filter((path) => path === MANIFEST_FILE || path.endsWith(`/${MANIFEST_FILE}`)).map((path) => path.slice(0, path.length - MANIFEST_FILE.length));
-	if (roots.length === 0) throw new Error("missing-manifest");
-	const shallowest = Math.min(...roots.map((root) => (root.length === 0 ? 0 : root.split("/").length)));
-	const candidates = roots.filter((root) => (root.length === 0 ? 0 : root.split("/").length) === shallowest);
-	if (candidates.length > 1) throw new Error("plugin-manifest-ambiguous");
-	const root = candidates[0];
-	const collected: HostPluginArchiveFile[] = [];
-	let total = 0;
-	for (const [path, bytes] of relative) {
-		if (root && !path.startsWith(root)) continue;
-		const asset = root ? path.slice(root.length) : path;
-		if (!asset || !isHostPluginAsset(asset)) continue;
-		if (bytes.length > MAX_ASSET_BYTES) throw new Error("asset-too-large");
-		if (collected.length >= MAX_PACKAGE_FILES) throw new Error("package-too-large");
-		total += bytes.length;
-		if (total > MAX_PACKAGE_BYTES) throw new Error("package-too-large");
-		collected.push({ path: asset, bytes });
-	}
-	return collected;
+	return selectHostPluginPackage(stripped, subpath);
 }
 
 /** 解压 tar.gz 并挑包；展开上限在 `gunzipSync` 内部生效，超限直接失败而不是先分配大缓冲。 */

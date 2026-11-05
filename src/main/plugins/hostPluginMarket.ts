@@ -13,8 +13,14 @@
  */
 import type { HostPluginMarketEntry, HostPluginMarketSearchResult } from "../../shared/types/hostPlugin";
 
-/** 官方收录索引（本仓库 `registry.json`，见 https://github.com/ayuayue/pideck-plugins）。 */
-const REGISTRY_URL = "https://raw.githubusercontent.com/ayuayue/pideck-plugins/main/registry.json";
+/**
+ * 官方收录索引（本仓库 `registry.json`，见 https://github.com/ayuayue/pideck-plugins）。
+ * GitHub raw 在部分地区不可达，AtomGit 镜像用同一份文件；两个地址都失败才报错。
+ */
+const REGISTRY_SOURCES = [
+	{ id: "registry", url: "https://raw.githubusercontent.com/ayuayue/pideck-plugins/main/registry.json" },
+	{ id: "registry/atomgit", url: "https://api.atomgit.com/api/v5/repos/ayuayue/pideck-plugins/raw/registry.json?ref=main" },
+] as const;
 
 /** 社区源的约定 topic：作者 `gh repo edit --add-topic pideck-plugin` 即可被搜到。 */
 export const HOST_PLUGIN_MARKET_TOPIC = "pideck-plugin";
@@ -96,15 +102,15 @@ function readStringArray(record: Record<string, unknown>, key: string): string[]
 	return value.filter((item): item is string => typeof item === "string" && item.length > 0);
 }
 
-/** 拼出 PiDeck 能直接吃的 GitHub 链接；`repo`/`ref`/`subpath` 任一形态不合法就返回 undefined。 */
-function buildInstallUrl(repo: string, ref: string | undefined, subpath: string | undefined): string | undefined {
+/** 拼出 PiDeck 能直接吃的 GitHub / AtomGit 链接；`repo`/`ref`/`subpath` 任一形态不合法就返回 undefined。 */
+function buildInstallUrl(host: "github.com" | "atomgit.com", repo: string, ref: string | undefined, subpath: string | undefined): string | undefined {
 	if (!OWNER_REPO_RE.test(repo)) return undefined;
 	if (ref !== undefined && !isRepoPath(ref)) return undefined;
 	if (subpath !== undefined && !isRepoPath(subpath)) return undefined;
-	if (ref === undefined && subpath === undefined) return `https://github.com/${repo}`;
+	if (ref === undefined && subpath === undefined) return `https://${host}/${repo}`;
 	const branch = ref ?? "main";
 	const path = subpath === undefined ? "" : `/${subpath}`;
-	return `https://github.com/${repo}/tree/${branch}${path}`;
+	return `https://${host}/${repo}/tree/${branch}${path}`;
 }
 
 /** 带超时的 fetch，把 AbortController 的生命周期收在一处。 */
@@ -135,8 +141,12 @@ export function parseRegistryEntries(payload: unknown): HostPluginMarketEntry[] 
 		if (id === undefined || repo === undefined) continue;
 		const ref = readString(item, "ref");
 		const subpath = readString(item, "subpath");
-		const installUrl = buildInstallUrl(repo, ref, subpath);
+		const installUrl = buildInstallUrl("github.com", repo, ref, subpath);
 		if (installUrl === undefined) continue;
+		// atomgitRepo 是同一份 registry 在 AtomGit 的镜像仓库（owner/name）：ref/subpath 沿用 GitHub 那条；
+		// 镜像缺失或形态不对时只丢 AtomGit 源，不影响 GitHub 安装。
+		const atomgitRepo = readString(item, "atomgitRepo");
+		const atomgitUrl = atomgitRepo === undefined ? undefined : buildInstallUrl("atomgit.com", atomgitRepo, ref, subpath);
 		entries.push({
 			id,
 			name: readString(item, "name") ?? id,
@@ -144,6 +154,7 @@ export function parseRegistryEntries(payload: unknown): HostPluginMarketEntry[] 
 			description: readString(item, "description"),
 			source: "registry",
 			installUrl,
+			...(atomgitUrl === undefined ? {} : { atomgitUrl }),
 			repo,
 			author: readString(item, "author"),
 			license: readString(item, "license"),
@@ -157,15 +168,24 @@ export function parseRegistryEntries(payload: unknown): HostPluginMarketEntry[] 
 	return entries;
 }
 
-/** 拉官方索引（带内存缓存与超时）；失败抛错由调用方降级。 */
+/** 拉官方索引（GitHub → AtomGit 镜像，带内存缓存与超时）；两个源都失败才抛错，由调用方降级。 */
 async function fetchRegistryEntries(fetchImpl: HostPluginMarketFetch): Promise<HostPluginMarketEntry[]> {
 	const cached = registryCache;
 	if (cached !== undefined && Date.now() - cached.at < REGISTRY_CACHE_TTL_MS) return cached.entries;
-	const response = await fetchWithTimeout(fetchImpl, REGISTRY_URL, REGISTRY_TIMEOUT_MS, { Accept: "application/json" });
-	if (!response.ok) throw new Error(`registry HTTP ${response.status}`);
-	const entries = parseRegistryEntries(await response.json());
-	registryCache = { at: Date.now(), entries };
-	return entries;
+	const failures: string[] = [];
+	for (const source of REGISTRY_SOURCES) {
+		try {
+			const response = await fetchWithTimeout(fetchImpl, source.url, REGISTRY_TIMEOUT_MS, { Accept: "application/json" });
+			if (!response.ok) throw new Error(source.id === "registry" ? `registry HTTP ${response.status}` : `atomgit registry HTTP ${response.status}`);
+			const entries = parseRegistryEntries(await response.json());
+			registryCache = { at: Date.now(), entries };
+			return entries;
+		} catch (error) {
+			// 第一个源沿用「registry: …」前缀（调用方会再包一层），镜像源额外标出来源。
+			failures.push(source.id === "registry" ? describeError(error) : `${source.id}: ${describeError(error)}`);
+		}
+	}
+	throw new Error(failures.join("; "));
 }
 
 /**

@@ -5,6 +5,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const { searchHostPluginMarket, clearHostPluginMarketCache, parseRegistryEntries, HOST_PLUGIN_MARKET_TOPIC } = loadTsCommonJs("src/main/plugins/hostPluginMarket.ts");
 
 const REGISTRY_URL = "https://raw.githubusercontent.com/ayuayue/pideck-plugins/main/registry.json";
+const ATOMGIT_REGISTRY_URL = "https://api.atomgit.com/api/v5/repos/ayuayue/pideck-plugins/raw/registry.json?ref=main";
 const GITHUB_SEARCH_URL = `https://api.github.com/search/repositories?q=topic:${HOST_PLUGIN_MARKET_TOPIC}&sort=stars&order=desc&per_page=30`;
 
 const registryPayload = (plugins) => ({ schemaVersion: 1, plugins });
@@ -161,7 +162,26 @@ test("a failing source degrades to a warning while the other still returns entri
 	assert.equal(result.entries.length, 1);
 	assert.equal(result.entries[0].source, "github");
 	assert.equal(result.warnings.length, 1);
-	assert.match(result.warnings[0], /^registry: registry unreachable$/);
+	assert.match(result.warnings[0], /^registry: registry unreachable/);
+	// GitHub 失败会尝试 AtomGit 镜像；镜像也失败时不阻断另一条社区源。
+	assert.match(result.warnings[0], /registry\/atomgit:/);
+});
+
+test("falls back to the AtomGit registry mirror when GitHub raw is unavailable", async () => {
+	clearHostPluginMarketCache();
+	const { fetchImpl } = fakeFetch({
+		[REGISTRY_URL]: new Error("github blocked"),
+		[ATOMGIT_REGISTRY_URL]: { status: 200, body: registryPayload([{ id: "session-groups", name: "会话分组", repo: "ayuayue/pideck-plugins", ref: "main", subpath: "plugins/session-groups", atomgitRepo: "ayuayue/pideck-plugins", author: "ayuayue", license: "MIT" }]) },
+		[GITHUB_SEARCH_URL]: { status: 200, body: githubSearchPayload([]) },
+	});
+	const result = await searchHostPluginMarket({ keyword: "", fetchImpl });
+	assert.deepEqual(
+		own(result.entries).map((entry) => entry.id),
+		["session-groups"],
+	);
+	assert.deepEqual(own(result.warnings), []);
+	assert.equal(result.entries[0].installUrl, "https://github.com/ayuayue/pideck-plugins/tree/main/plugins/session-groups");
+	assert.equal(result.entries[0].atomgitUrl, "https://atomgit.com/ayuayue/pideck-plugins/tree/main/plugins/session-groups");
 });
 
 test("throws only when both sources fail", async () => {
@@ -258,6 +278,15 @@ test("parseRegistryEntries drops malformed entries instead of offering an instal
 	);
 	assert.equal(entries[0].name, "Good");
 	assert.equal(entries[0].installUrl, "https://github.com/owner/repo");
+	// 没有 atomgitRepo 的条目只提供 GitHub 源。
+	assert.equal(entries[0].atomgitUrl, undefined);
+	// atomgitRepo 派生 AtomGit 链接，ref/subpath 与 GitHub 条目一致。
+	const atomgitEntry = parseRegistryEntries(registryPayload([{ id: "mirrored", name: "Mirrored", repo: "owner/repo", ref: "dev", subpath: "plugins/x", atomgitRepo: "mirror/repo", author: "a", license: "MIT" }]))[0];
+	assert.equal(atomgitEntry.atomgitUrl, "https://atomgit.com/mirror/repo/tree/dev/plugins/x");
+	// 镜像字段形态不对只丢 AtomGit 源，不影响 GitHub 安装。
+	const badMirror = parseRegistryEntries(registryPayload([{ id: "bad-mirror", name: "Bad", repo: "owner/repo", atomgitRepo: "not-a-repo", author: "a", license: "MIT" }]))[0];
+	assert.equal(badMirror.installUrl, "https://github.com/owner/repo");
+	assert.equal(badMirror.atomgitUrl, undefined);
 	// 顶层形态不对时返回空数组而不是抛错。
 	assert.deepEqual(own(parseRegistryEntries({ schemaVersion: 1 })), []);
 	assert.deepEqual(own(parseRegistryEntries(null)), []);
