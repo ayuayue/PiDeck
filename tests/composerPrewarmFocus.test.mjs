@@ -53,6 +53,8 @@ const timeline = compile("src/renderer/src/hooks/useSessionTimelineController.ts
 	// sessionHistoryAvailability 是纯函数（只有 type import），照 browsePin 的做法编译真模块。
 	// 两个都必须在 stub 表里：缺失时 loader 回落到以 tests/ 为基准的 nodeRequire，解析 .ts 必失败。
 	"../i18n": { t: (key) => key },
+	// showNotice 是 Wave 1（feec43b90）从 sonner toast 迁移过来的单通道通知；拉真模块会
+	// 带起 sonner 依赖，这里给最小 stub（跳转失败 toast 在控制器测试里不在断言范围）。
 	"../utils/notice": { showNotice: () => undefined },
 	"../utils/sessionHistoryAvailability": compile("src/renderer/src/utils/sessionHistoryAvailability.ts"),
 	// 磁盘页游标归一（dev 引入）：纯函数，无内部 import，直接编译真模块。

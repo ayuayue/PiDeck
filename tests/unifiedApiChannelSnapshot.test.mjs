@@ -76,11 +76,11 @@ const sortedDigest = (pairs) => {
 	return createHash("sha256").update(serialized, "utf8").digest("hex");
 };
 
-test("F3-1 通道常量总数 === 814", () => {
+test("F3-1 通道常量总数 === 815", () => {
 	assert.equal(entries.length, CHANNEL_TOTAL);
 });
 
-test("F3-2 通道值唯一数 === 814（无重复通道字符串）", () => {
+test("F3-2 通道值唯一数 === 815（无重复通道字符串）", () => {
 	assert.equal(new Set(values).size, CHANNEL_TOTAL);
 });
 
