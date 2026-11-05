@@ -11,8 +11,8 @@ import { MODEL_COMPAT_FIELDS, applyModelCompatSuggestion, diffModelCompatSuggest
  * 全部 value 驱动（与 ProviderConnectionForm 一致）：调用方决定写到哪里
  * （ModelsTab 写 modelsData，AddProviderDialog 写页内草稿），本组件不持有状态。
  *
- * 三态语义复用供应商级「严格工具采样」：跟随 Pi = 不写键（让 pi 按模型 ID/协议判定），
- * 开/关 = 显式落盘。改完保存后要新开会话才生效（pi 启动时读取 models.json）。
+ * 三态语义：跟随供应商 = 不写键（供应商级同名键、再到 pi 的判定依次生效），
+ * 开/关 = 显式落盘并覆盖供应商级。改完保存后要新开会话才生效（pi 启动时读取 models.json）。
  */
 export function ModelCompatPanel(props: {
 	value: ProviderCompat | undefined;
@@ -23,7 +23,7 @@ export function ModelCompatPanel(props: {
 	const current = readCompatBooleans(props.value);
 	const diff = props.suggestion ? diffModelCompatSuggestion(props.value, props.suggestion.flags) : [];
 	const triStateOptions = [
-		{ value: "follow", label: t("config.strictToolSamplingFollow") },
+		{ value: "follow", label: t("config.modelCompatFollowProvider") },
 		{ value: "on", label: t("config.strictToolSamplingOn") },
 		{ value: "off", label: t("config.strictToolSamplingOff") },
 	];

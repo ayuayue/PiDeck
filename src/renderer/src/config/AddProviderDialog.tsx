@@ -146,6 +146,10 @@ export function AddProviderDialog(props: {
 			// 「跟随 pi 默认」）。不做自动推导——真实默认值随协议不同，猜错会让界面与
 			// 线上行为不一致（见 configTypes.ProviderCompat.supportsStrictMode）。
 			supportsStrictMode: initial?.compat?.supportsStrictMode,
+			// 逐模型 compat 名义键的供应商默认值：同样只回显文件里的显式表态，未表态交给 pi 判定
+			forceAdaptiveThinking: initial?.compat?.forceAdaptiveThinking,
+			supportsTemperature: initial?.compat?.supportsTemperature,
+			supportsStore: initial?.compat?.supportsStore,
 		});
 		setModels(initial?.models ? initial.models.map((model) => ({ ...model })) : []);
 		// 三份页内副本按宿主当前状态预填：UA 读 provider，隐藏读 AppSettings，默认档位读 settings.json

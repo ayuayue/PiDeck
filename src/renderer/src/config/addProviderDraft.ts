@@ -27,6 +27,14 @@ export type AddProviderDraft = {
 		 * 变更背景与关闭原因见 configTypes.ProviderCompat.supportsStrictMode。
 		 */
 		supportsStrictMode?: boolean;
+		/**
+		 * 以下三个是逐模型 compat 同名键的供应商级默认值（模型级覆盖供应商级）。
+		 * 三态：true/false = 显式写入；undefined = 不写，交给 pi 判定。
+		 * 用到 forceAdaptiveThinking 的典型场景见 configTypes.ProviderCompat。
+		 */
+		forceAdaptiveThinking?: boolean;
+		supportsTemperature?: boolean;
+		supportsStore?: boolean;
 	};
 	/** 弹窗内维护的模型草稿（新增=空；编辑=现有模型；获取模型勾选后追加）。 */
 	models: ModelItem[];
@@ -109,7 +117,34 @@ export function resolveFetchedBaseUrl(currentBaseUrl: string, suggestedBaseUrl?:
  * 保存时的 DeepSeek 特征判定，不能像另两项那样无条件显式写入。
  * compat.supportsStrictMode 同样只在自己被赋值时写入：它是三态的「用户表态」，
  * 未表态时不写，避免把 pi 自己的协议判定固化成配置（见 configTypes）。
+ * forceAdaptiveThinking / supportsTemperature / supportsStore 与 supportsStrictMode 同一套三态写法
+ *（undefined 不写键），但编辑保存时「跟随」会删除文件旧值——差异原因见下。
  */
+
+/** 草稿里完整拥有的三态 compat 键（新增写值、编辑清值都看这一组）。 */
+const TRI_STATE_COMPAT_KEYS = ["requiresReasoningContentOnAssistantMessages", "supportsStrictMode", "forceAdaptiveThinking", "supportsTemperature", "supportsStore"] as const;
+
+/**
+ * 「跟随 pi」必须能删掉文件旧值的三个键（与上面两个历史键的差异）。
+ *
+ * reasoning_content / strict 的 undefined 还承担「未表态，保留手写值」语义（旧契约，有测试锁定）；
+ * 这三大由供应商弹窗完整接管（初始化时一定会从文件读入），选「跟随 Pi 默认」就是明确的删除意图，
+ * 若保留旧值，用户把自适应推力从「开」改回「跟随」后保存会静默恢复原值。
+ */
+const FOLLOW_DELETES_COMPAT_KEYS = ["forceAdaptiveThinking", "supportsTemperature", "supportsStore"] as const;
+
+function hasTriStateCompat(compat: AddProviderDraft["compat"]): boolean {
+	return TRI_STATE_COMPAT_KEYS.some((key) => compat[key] !== undefined);
+}
+
+/** 只写入草稿显式表态的三态键；undefined 保留目标里原有的值。 */
+function copyTriStateCompat(target: ProviderCompat, source: AddProviderDraft["compat"]): void {
+	for (const key of TRI_STATE_COMPAT_KEYS) {
+		const value = source[key];
+		if (value !== undefined) target[key] = value;
+	}
+}
+
 export function buildProviderConfigFromDraft(draft: AddProviderDraft): ProviderConfig {
 	const provider: ProviderConfig = { models: draft.models ?? [] };
 	// 新增页自己维护逐模型 UA（与展开卡片写同一存储位置 provider.modelOverrides）
@@ -120,19 +155,13 @@ export function buildProviderConfigFromDraft(draft: AddProviderDraft): ProviderC
 	if (draft.userAgent.trim()) {
 		provider.headers = setHeaderValue(undefined, "User-Agent", draft.userAgent);
 	}
-	const reasoningContent = draft.compat.requiresReasoningContentOnAssistantMessages;
-	const strictSampling = draft.compat.supportsStrictMode;
-	if (draft.compat.supportsDeveloperRole || draft.compat.supportsReasoningEffort || reasoningContent !== undefined || strictSampling !== undefined) {
+	const hasTriState = hasTriStateCompat(draft.compat);
+	if (draft.compat.supportsDeveloperRole || draft.compat.supportsReasoningEffort || hasTriState) {
 		provider.compat = {
 			supportsDeveloperRole: draft.compat.supportsDeveloperRole,
 			supportsReasoningEffort: draft.compat.supportsReasoningEffort,
 		};
-		if (reasoningContent !== undefined) {
-			provider.compat.requiresReasoningContentOnAssistantMessages = reasoningContent;
-		}
-		if (strictSampling !== undefined) {
-			provider.compat.supportsStrictMode = strictSampling;
-		}
+		copyTriStateCompat(provider.compat, draft.compat);
 	}
 	return provider;
 }
@@ -177,20 +206,18 @@ export function mergeProviderDraft(original: ProviderConfig | undefined, draft: 
 	// 沿用文件里的值——否则一次无关编辑就会把用户手写的开关抹回「自动判定」。
 	// supportsStrictMode 同理：未表态（undefined）时不动文件里的值，手写在 models.json
 	// 里的 supportsStrictMode 不会被一次无关编辑抹掉。
-	const reasoningContent = draft.compat.requiresReasoningContentOnAssistantMessages;
-	const strictSampling = draft.compat.supportsStrictMode;
 	const compat: ProviderCompat = {
 		...(original.compat ?? {}),
 		supportsDeveloperRole: draft.compat.supportsDeveloperRole,
 		supportsReasoningEffort: draft.compat.supportsReasoningEffort,
 	};
-	if (reasoningContent !== undefined) {
-		compat.requiresReasoningContentOnAssistantMessages = reasoningContent;
+	copyTriStateCompat(compat, draft.compat);
+	for (const key of FOLLOW_DELETES_COMPAT_KEYS) {
+		if (draft.compat[key] === undefined) delete compat[key];
 	}
-	if (strictSampling !== undefined) {
-		compat.supportsStrictMode = strictSampling;
-	}
-	const hasCompat = original.compat != null || draft.compat.supportsDeveloperRole || draft.compat.supportsReasoningEffort || reasoningContent !== undefined || strictSampling !== undefined;
+	// 前两项是表单强制拥有的布尔（可能都是 false）；只要还有任何其他子键（三态表态或
+	// 文件里保留的未知键）就要留下 compat，否则整段删除，不写空对象噪声。
+	const hasCompat = draft.compat.supportsDeveloperRole || draft.compat.supportsReasoningEffort || hasTriStateCompat(draft.compat) || Object.keys(compat).length > 2;
 	if (hasCompat) next.compat = compat;
 	else delete next.compat;
 	return next;

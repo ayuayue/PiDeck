@@ -4,7 +4,7 @@ import { Checkbox } from "../components/ui-shadcn/checkbox";
 import { Button } from "../components/ui-shadcn/button";
 import { Input } from "../components/ui-shadcn/input";
 import { Label } from "../components/ui-shadcn/label";
-import { t } from "../i18n";
+import { t, type TranslationKey } from "../i18n";
 import { CompatLabelHint, ConfigComboboxInput, ConfigSelect } from "./ConfigShared";
 import { ProviderEndpointFields } from "./ProviderEndpointFields";
 import { getUserAgentOptions, isUserAgentOverriddenByApiType, isValidUserAgent } from "./userAgentPresets";
@@ -18,6 +18,33 @@ export type ProviderTestResult = {
 	latencyMs?: number;
 	error?: string;
 };
+
+/**
+ * 兼容性三态行：标签 + 「?」说明 + 跟随/开/关下拉。
+ *
+ * 供应商级与模型级共用同一套控件形态：undefined = 不写该键（交给 pi 判定），
+ * true/false = 显式表态。模型级的同名键覆盖供应商级（见 provider-composer mergeCompat）。
+ */
+function CompatTriStateRow(props: { labelKey: TranslationKey; hintKey: TranslationKey; value: boolean | undefined; onChange: (value: boolean | undefined) => void }) {
+	return (
+		<div className="config-compat-item">
+			<span className="text-control text-text-primary">
+				{t(props.labelKey)}
+				<CompatLabelHint tipKey={props.hintKey} />
+			</span>
+			<ConfigSelect
+				triggerClassName="w-auto min-w-28"
+				value={props.value === undefined ? "follow" : props.value ? "on" : "off"}
+				options={[
+					{ value: "follow", label: t("config.strictToolSamplingFollow") },
+					{ value: "on", label: t("config.strictToolSamplingOn") },
+					{ value: "off", label: t("config.strictToolSamplingOff") },
+				]}
+				onChange={(value) => props.onChange(value === "follow" ? undefined : value === "on")}
+			/>
+		</div>
+	);
+}
 
 /**
  * 供应商连接表单（已保存 provider 的展开卡片 / 新增·编辑供应商页共用）：
@@ -47,8 +74,12 @@ export function ProviderConnectionForm(props: {
 		requiresReasoningContentOnAssistantMessages?: boolean;
 		/** 未赋值 = 跟随 pi 协议默认（不写该键）；true/false = 用户显式表态。 */
 		supportsStrictMode?: boolean;
+		/** 逐模型 compat 的供应商级默认值：未赋值 = 不写键（交给 pi 判定）。 */
+		forceAdaptiveThinking?: boolean;
+		supportsTemperature?: boolean;
+		supportsStore?: boolean;
 	};
-	onChangeCompat: (next: { supportsDeveloperRole: boolean; supportsReasoningEffort: boolean; requiresReasoningContentOnAssistantMessages?: boolean; supportsStrictMode?: boolean }) => void;
+	onChangeCompat: (next: { supportsDeveloperRole: boolean; supportsReasoningEffort: boolean; requiresReasoningContentOnAssistantMessages?: boolean; supportsStrictMode?: boolean; forceAdaptiveThinking?: boolean; supportsTemperature?: boolean; supportsStore?: boolean }) => void;
 
 	/** ── 快速测试连接 ── */
 	testModelId: string;
@@ -287,6 +318,29 @@ export function ProviderConnectionForm(props: {
 							}
 						/>
 					</div>
+
+					{/* 逐模型 compat 的供应商级默认值（模型行里的同名键优先）。
+					    Claude Opus 4.7+ / Sonnet 5+ / Fable 5 经中转站时，必须在这里打开自适应思考，
+					    否则 pi 发老写法 thinking:{type:"enabled",budget_tokens} 会被上游 400；
+					    整个供应商都是新一代模型时配一次即可，混合多代时留给模型行单独覆盖。 */}
+					<CompatTriStateRow
+						labelKey="config.modelCompatAdaptiveThinking"
+						hintKey="config.modelCompatAdaptiveThinkingDesc"
+						value={props.compat.forceAdaptiveThinking}
+						onChange={(value) => props.onChangeCompat({ ...props.compat, forceAdaptiveThinking: value })}
+					/>
+					<CompatTriStateRow
+						labelKey="config.modelCompatTemperature"
+						hintKey="config.modelCompatTemperatureDesc"
+						value={props.compat.supportsTemperature}
+						onChange={(value) => props.onChangeCompat({ ...props.compat, supportsTemperature: value })}
+					/>
+					<CompatTriStateRow
+						labelKey="config.modelCompatStore"
+						hintKey="config.modelCompatStoreDesc"
+						value={props.compat.supportsStore}
+						onChange={(value) => props.onChangeCompat({ ...props.compat, supportsStore: value })}
+					/>
 				</div>
 			</div>
 

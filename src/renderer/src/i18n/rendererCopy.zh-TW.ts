@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: f0f3c7ef459751c72f86d1c8638a3a8e4f13c5517031377cf1b681360778f9a6（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: b0ea2a5a7c8146f24078880a2d5dc65428d19833b41703c0efa03d7a384698a8（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -3626,7 +3626,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	// 逐模型 compat：Claude 新一代模型经中转站时必须声明自适应思考，否则 pi 发老写法被 400
 	"config.modelCompat": "模型相容性",
 	"config.modelCompatDialogDesc": "這些開關寫入該模型的 compat（models.json 的 models[].compat），優先於供應商級同名設定。儲存後需新開會話（或重啟 PiDeck）才生效。",
-	"config.modelCompatHint": "跟隨 Pi 時保留 pi 的自動判定（不寫這個鍵）；開 / 關會顯式寫入配置檔案。",
+	"config.modelCompatHint": "未設定 = 繼承供應商級同名設定，供應商也沒設時交給 pi 判定；開 / 關只影響當前模型（覆蓋供應商級）。",
+	"config.modelCompatFollowProvider": "跟隨供應商",
 	"config.modelCompatAdaptiveThinking": "自適應思考協議",
 	"config.modelCompatAdaptiveThinkingDesc": 'Claude Opus 4.7+ / Sonnet 5+ / Fable 5 等新一代模型只接受 thinking:{type:"adaptive"} + output_config.effort。未開啟時 pi 按老寫法發 thinking:{type:"enabled",budget_tokens}，上游會直接 400；經中轉站用這些模型時手動開啟。',
 	"config.modelCompatTemperature": "允許自定義溫度",
