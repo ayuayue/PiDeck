@@ -39,10 +39,12 @@ export function usePacedAtomValue<T>(atom: Atom<T>, mode: SessionPaneRenderMode,
 	// 连 atom 身份一起存：切会话时 atom 变了，必须同一帧换成新 atom 的当前值，
 	// 否则会先闪一帧上一个会话的文本（effect 里的对齐发生在 paint 之后）。
 	const [snapshot, setSnapshot] = useState<{ atom: Atom<T>; value: T }>(() => ({ atom, value: store.get(atom) }));
+	// 渲染期改写 state 必须是条件式的（否则死循环），但**不能提前 return**：提前 return 会让下面的
+	// useEffect 在「切 atom 那一帧」被跳过，hook 数变化直接抛 React #310。
+	let value = snapshot.value;
 	if (snapshot.atom !== atom) {
-		const next = store.get(atom);
-		setSnapshot({ atom, value: next });
-		return next;
+		value = store.get(atom);
+		setSnapshot({ atom, value });
 	}
 	useEffect(() => {
 		// 值未变时保留原快照，避免 1s 采样在没有新内容时也触发一次渲染。
@@ -60,5 +62,5 @@ export function usePacedAtomValue<T>(atom: Atom<T>, mode: SessionPaneRenderMode,
 		}
 		return store.sub(atom, sync);
 	}, [atom, mode, store, intervalMs]);
-	return snapshot.value;
+	return value;
 }
