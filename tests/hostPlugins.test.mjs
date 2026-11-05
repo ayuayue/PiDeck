@@ -147,7 +147,10 @@ test("旧状态文件里的 seeded 记录被忽略：授权照常生效，卸载
 		await writeFile(join(root, "host-plugin-state.json"), JSON.stringify({ version: 1, grants: { "example.viewer": { fingerprint: approved.fingerprint, enabled: true } }, seeded: { "billion-context": "a".repeat(64) } }));
 		await manager.load();
 		const catalog = manager.catalog();
-		assert.deepEqual(Array.from(catalog.plugins, (plugin) => plugin.manifest.id), ["example.viewer"]);
+		assert.deepEqual(
+			Array.from(catalog.plugins, (plugin) => plugin.manifest.id),
+			["example.viewer"],
+		);
 		assert.equal(catalog.plugins[0].enabled, true);
 		assert.deepEqual(plain((await manager.remove("example.viewer")).plugins), []);
 	} finally {
