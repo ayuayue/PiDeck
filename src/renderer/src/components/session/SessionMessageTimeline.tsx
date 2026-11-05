@@ -259,7 +259,10 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	// 让「内容挂载那一下」不是硬切而是流进来。动画播完（约 300ms）后清理标记。
 	const reduceMotion = useReducedMotion() ?? false;
 	const [topFreshIds, setTopFreshIds] = useState<ReadonlySet<string>>(() => new Set());
-	const [latestTurnAutoCollapseTick, setLatestTurnAutoCollapseTick] = useState(0);
+	// 「安静收起」时刻（epoch ms）：1.5s idle 计时后写入，传给时间线上所有 agent 轮。
+	// 用时刻而不是计数器：run 会因终态 flush 换 id 重挂载，计数器在重挂载时会被当成
+	// 旧信号吞掉（2026 用户反馈「最后一轮有时候不折叠」），时刻可以和记忆写入时刻比较。
+	const [latestTurnSettledAt, setLatestTurnSettledAt] = useState(0);
 	const lastSessionIdRef = useRef(sessionId);
 	const prevDisplayRunsIdsRef = useRef<string[] | undefined>(undefined);
 	const topFreshTimersRef = useRef<Map<string, number>>(new Map());
@@ -321,7 +324,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 		}
 		turnSettleIdleLastRunRef.current = undefined;
 		latestRunIdRef.current = undefined;
-		setLatestTurnAutoCollapseTick(0);
+		setLatestTurnSettledAt(0);
 	}, [sessionId]);
 
 	// ── 失败/重试 toast：只对「当前会话加载完成后新出现」的诊断弹 ──
@@ -613,7 +616,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 			// 用户真实上滚阅读时 autoScroll 保持 false，这里跳过（不打扰阅读）。
 			if (isRuntimeBusyRef.current || !autoScrollRef.current || !latestRunIdRef.current) return;
 			turnSettleIdleLastRunRef.current = undefined;
-			setLatestTurnAutoCollapseTick((tick) => tick + 1);
+			setLatestTurnSettledAt(Date.now());
 		}, TURN_SETTLE_IDLE_COLLAPSE_MS);
 		return clearIdle;
 	}, [hasLiveRuntime, isRuntimeBusy, runtime?.agentId, runtime?.runtimeGeneration, sessionId]);
@@ -880,7 +883,9 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 					agentRunning={isRunStreaming}
 					isLatestRun={item.id === lastDisplayedItemId}
 					isLastAgentRun={item.id === latestAgentRunId}
-					autoCollapseTick={item.id === latestAgentRunId ? latestTurnAutoCollapseTick : 0}
+					// 所有轮次都收：最后一轮收起时，上面几轮还开着的过程一并收掉
+					// （最新轮自己在 hook 里还有「必须有最终回答」的门控）。
+					autoCollapseAt={latestTurnSettledAt}
 					onOpenExternal={props.onOpenExternal}
 					onOpenFile={props.onOpenFile}
 					onDiffFile={props.onDiffFile}

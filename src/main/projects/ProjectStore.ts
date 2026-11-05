@@ -276,7 +276,10 @@ export class ProjectStore implements HostRebindStorePort {
 		});
 
 		if (result.canceled || result.filePaths.length === 0) return null;
-		return this.add(result.filePaths[0]);
+		// 显式声明 windows 环境：去重会命中同一目录早先在 WSL 模式下加过的记录，
+		// 不改写 environment 的话它仍被标成 wsl，随即被「按当前模式过滤可见项目」整条藏掉——
+		// 表现为提示「项目已添加」但列表与工作区都看不到它（2026-11 WSL→Windows 切换现场）。
+		return this.add(result.filePaths[0], undefined, "windows");
 	}
 
 	/** 添加项目，可指定所属环境（缺省 windows）；WSL 档案身份可选，供选择器链路复用。 */

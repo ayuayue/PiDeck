@@ -45,6 +45,7 @@ function createFilesIpc(root, projectOverride) {
 				];
 			},
 			searchNames: async () => [{ name: "main.ts", path: join(root, "src", "main.ts"), relativePath: "src/main.ts", type: "file" }],
+			listTreePage: async () => ({ nodes: [], truncated: false }),
 			create: async (parentDir, name, type) => {
 				mutationCalls.push({ operation: "create", parentDir, name, type });
 				return join(parentDir, name);
@@ -63,6 +64,7 @@ function createFilesIpc(root, projectOverride) {
 	});
 	return {
 		listHandler: listHandlers.get(ipcChannels.filesList),
+		directoryPageHandler: listHandlers.get(ipcChannels.filesDirectoryPage),
 		searchHandler: listHandlers.get(ipcChannels.filesSearch),
 		readContentHandler: listHandlers.get(ipcChannels.filesReadContent),
 		writeContentHandler: listHandlers.get(ipcChannels.filesWriteContent),
@@ -359,6 +361,29 @@ test("files:list preserves the existing local absolute-directory adapter", async
 		assert.equal(listCalls[0].directory, await realpath(directory));
 		assert.equal(nodes[0].target.projectId, "project-1");
 		assert.equal(nodes[0].target.relativePath, "src");
+	} finally {
+		rmSync(fixture, { recursive: true, force: true });
+	}
+});
+
+test("files:directory-page treats a vanished subdirectory as empty, only a missing root as PROJECT_DIRECTORY_MISSING", async () => {
+	const fixture = mkdtempSync(join(tmpdir(), "pideck-files-directory-page-"));
+	const root = join(fixture, "project");
+	mkdirSync(root);
+	try {
+		const { directoryPageHandler } = createFilesIpc(root);
+		// 展开的子目录在切换项目后才被删除：旧实现把它翻成 PROJECT_DIRECTORY_MISSING，
+		// 渲染层据此弹「项目目录不存在」。现在按空目录收口，根目录仍然必须报缺。
+		const subdir = await directoryPageHandler({}, { projectId: "project-1", relativePath: "gone/sub" });
+		assert.equal(subdir.ok, true);
+		assert.equal(subdir.value.entries.length, 0);
+		assert.equal(subdir.value.truncated, false);
+
+		const missingRoot = projectFixture(join(fixture, "no-such-root"));
+		const gone = createFilesIpc(join(fixture, "no-such-root"), missingRoot);
+		const rootResult = await gone.directoryPageHandler({}, { projectId: "project-1", relativePath: "" });
+		assert.equal(rootResult.ok, false);
+		assert.equal(rootResult.code, "PROJECT_DIRECTORY_MISSING");
 	} finally {
 		rmSync(fixture, { recursive: true, force: true });
 	}

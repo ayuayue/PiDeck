@@ -70,6 +70,9 @@ test("missing project directories clear stale files and refresh project presence
 	assert.match(app, /setFiles\(\(current\) => \(current\.length === 0 \? current : \[\]\)\)/);
 	assert.match(app, /code\.includes\("PROJECT_DIRECTORY_MISSING"\)/);
 	assert.match(app, /if \(projectDirectoryMissing\) void refreshProjectsRef\.current\(\)\.catch\(\(\) => undefined\);/);
+	// presence 已标缺失时不再重复弹：切回缺目录项目不该每次都刷一遍 toast。
+	assert.match(app, /if \(projectDirectoryMissing && activeProjectMissingRef\.current\) return;/);
+	assert.match(readFileSync("src/renderer/src/App.tsx", "utf8"), /activeProjectMissing: activeProject\?\.missing === true/);
 	assert.match(i18n, /"app\.projectDirectoryMissing"/);
 });
 

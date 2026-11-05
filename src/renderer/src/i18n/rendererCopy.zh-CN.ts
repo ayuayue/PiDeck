@@ -100,6 +100,7 @@ export const zhCN = {
 	"hostPlugins.marketInstalledBadge": "已安装",
 	"hostPlugins.marketUpdateBadge": "可更新到 v{version}",
 	"hostPlugins.marketOpenRepo": "打开仓库",
+	"hostPlugins.marketOpenSite": "官方插件页",
 	"hostPlugins.marketWarning": "部分来源不可用：{warnings}",
 	"hostPlugins.marketFailed": "搜索失败（{code}）。请检查网络或代理设置后重试。",
 	"hostPlugins.marketCommunityHint": "社区来源只要求「仓库公开 + 仓库根有 pideck-plugin.json + 打了 topic」，PiDeck 没有审阅过其中任何代码。",

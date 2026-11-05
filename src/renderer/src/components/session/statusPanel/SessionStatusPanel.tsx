@@ -86,13 +86,5 @@ function CollapsedStatusBar(props: { sessionId: string; stack: RightSidebarStack
 	const todoSources = useSessionTodoSources(props.sessionId);
 	const todoItems = useMemo(() => todoWidgetsToItems(todoSources), [todoSources]);
 	const subagents = useSessionSubagentList(props.sessionId);
-	return (
-		<StatusTabBar
-			badges={{ todo: todoProgressBadge(todoItems), subagentsTotal: subagents.total, subagentsRunning: subagents.running }}
-			collapsed={props.stack.collapsed}
-			autoCollapsed={props.stack.autoCollapsed}
-			onToggleCollapsed={props.stack.toggleCollapsed}
-			onTriggerClick={props.onTriggerClick}
-		/>
-	);
+	return <StatusTabBar badges={{ todo: todoProgressBadge(todoItems), subagentsTotal: subagents.total, subagentsRunning: subagents.running }} collapsed={props.stack.collapsed} autoCollapsed={props.stack.autoCollapsed} onToggleCollapsed={props.stack.toggleCollapsed} onTriggerClick={props.onTriggerClick} />;
 }

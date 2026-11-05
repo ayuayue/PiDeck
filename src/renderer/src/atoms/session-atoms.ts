@@ -476,6 +476,9 @@ export type RunStepsVisibleMemoryEntry = {
 	visible: boolean;
 	/** 写入时的新一轮 tick（session 级单调递增）。 */
 	atTick: number;
+	/** 写入时刻（epoch ms）。与 timeline 的「安静收起」时刻比较：收起发生在写入之后
+	 * 说明这条意愿已被兑现（记忆只是没来得及清），挂载时不再恢复展开。 */
+	atMs: number;
 };
 
 /**

@@ -268,6 +268,40 @@ export async function repairSessionCatalogIdentities(entries: readonly SessionCa
 		return { entry: { ...repairedEntry, originKey }, original: entry, repaired: true };
 	});
 
+	// 缺档案身份的 WSL 条目补身份（2026-11-05 反馈）：旧版扫描没带 distro/user，同一条
+	// `/mnt/...` 会话被记成 `pi:wsl:unknown:unknown:...`，与后来带项目档案的
+	// `pi:wsl:Debian:debian:...` 各算一个身份，侧栏就出现两行同一会话。同一物理文件
+	// （即去掉 distro/user 的身份键）下档案身份唯一时补成该身份，随后由既有同源归并折成
+	// 一条；身份不唯一（真装了两个 distro 都扫到同一 /mnt 路径）说明那是两条真实记录，不动。
+	const identityByPath = new Map<string, Set<string>>();
+	for (const item of items) {
+		const entry = item.entry;
+		if (!verifiedIdentityIds.has(entry.id) || !entry.filePath) continue;
+		if (entry.environment !== "wsl" || !entry.wslDistro || !entry.wslUser) continue;
+		const key = originKeyForEntry({ ...entry, wslDistro: undefined, wslUser: undefined });
+		if (!key) continue;
+		const identities = identityByPath.get(key) ?? new Set<string>();
+		identities.add(JSON.stringify([entry.wslDistro, entry.wslUser]));
+		identityByPath.set(key, identities);
+	}
+	for (const item of items) {
+		const entry = item.entry;
+		if (!verifiedIdentityIds.has(entry.id) || !entry.filePath) continue;
+		if (entry.environment !== "wsl" || (entry.wslDistro && entry.wslUser)) continue;
+		const key = originKeyForEntry({ ...entry, wslDistro: undefined, wslUser: undefined });
+		const identities = key ? identityByPath.get(key) : undefined;
+		if (!identities || identities.size !== 1) continue;
+		const [distro, user] = JSON.parse([...identities][0]) as [string, string];
+		// locator 与顶层字段必须一起补：读盘时 normalizeEntryLocator 以 local locator 为准，
+		// 只写顶层字段会在下次启动被清回 undefined（同一批记录反复在两种身份间晃动）。
+		const locator = entry.locator?.kind === "local" ? { ...entry.locator, wslDistro: distro, wslUser: user } : entry.locator;
+		const adopted = { ...entry, wslDistro: distro, wslUser: user, locator };
+		const originKey = originKeyForEntry(adopted);
+		if (!originKey) continue;
+		item.entry = { ...adopted, originKey };
+		item.repaired = true;
+	}
+
 	// 同源分组（只含已确认路径的条目），据此判定哪些组需要磁盘证据、哪些组只能原样保留。
 	const originGroups = new Map<string, SessionCatalogEntry[]>();
 	for (const item of items) {

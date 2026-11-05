@@ -609,3 +609,58 @@ test("#354 a mutation queued under an absorbed ID resolves when its transaction 
 		assert.equal(JSON.parse(await readFile(catalogPath, "utf8")).sessions[0].title, "Newest manual title");
 	});
 });
+
+const WSL_SESSION_PATH = "/home/Fixture/Project/.pi/sessions/2026-11-02T16-42-48-667Z_01a19d24.jsonl";
+const LEGACY_WSL_ORIGIN = buildSessionOriginKey({ source: "pi", environment: "wsl", filePath: WSL_SESSION_PATH });
+/** 生产记录同时有顶层身份字段与 local locator，读盘时 locator 是权威——缺一不可。 */
+function wslLocator(wslDistro, wslUser) {
+	return { kind: "local", environment: "wsl", filePath: WSL_SESSION_PATH, wslDistro, wslUser };
+}
+
+test("legacy wsl records that lost the distro/user identity fold into the project profile's record", async () => {
+	// 2026-11-05 现场：同一文件在 catalog 里有两条，一条 `pi:wsl:Debian:debian:...`，
+	// 一条 `pi:wsl:unknown:unknown:...`（旧扫描没带档案），侧栏显示成两行同一会话。
+	const identified = entry({ id: "identified-id", environment: "wsl", wslDistro: "Debian", wslUser: "debian", filePath: WSL_SESSION_PATH, locator: wslLocator("Debian", "debian"), createdAt: 1793665705000, updatedAt: 1793665705000 });
+	const legacy = entry({ id: "legacy-wsl-id", environment: "wsl", filePath: WSL_SESSION_PATH, locator: wslLocator(undefined, undefined), createdAt: 1793665705000, updatedAt: 1793665705000 });
+	assert.equal(legacy.originKey, LEGACY_WSL_ORIGIN, "fixture 必须真的是 unknown:unknown 身份");
+	await withCatalog([legacy, identified], async ({ catalog, createRestarted, catalogPath }) => {
+		await catalog.load();
+		assert.equal(catalog.listEntries().length, 1, "缺身份的旧记录必须并入档案记录，不能留两行");
+		const survivor = catalog.listEntries()[0];
+		assert.equal(survivor.wslDistro, "Debian");
+		assert.equal(survivor.wslUser, "debian");
+		assert.equal(survivor.originKey, buildSessionOriginKey(identified));
+		assert.equal(survivor.locator.wslDistro, "Debian", "locator 是读盘时的权威，必须一起补");
+		assert.equal(survivor.locator.wslUser, "debian");
+		assert.equal(catalog.get("legacy-wsl-id").id, survivor.id, "被吸收的 ID 仍要能解析到存活会话");
+		// 再启动一轮必须收敛：身份已补全，不应再改动任何东西。
+		const snapshot = await readFile(catalogPath, "utf8");
+		const restarted = createRestarted();
+		await restarted.load();
+		assert.equal(restarted.listEntries().length, 1);
+		assert.equal(await readFile(catalogPath, "utf8"), snapshot, "身份补齐必须幂等");
+	});
+});
+
+test("a wsl path scanned by two distributions keeps both records and never guesses a legacy row's identity", async () => {
+	const distroA = entry({ id: "distro-a", environment: "wsl", wslDistro: "DistroA", wslUser: "user", filePath: WSL_SESSION_PATH });
+	const distroB = entry({ id: "distro-b", environment: "wsl", wslDistro: "DistroB", wslUser: "user", filePath: WSL_SESSION_PATH });
+	const legacy = entry({ id: "legacy-wsl-id", environment: "wsl", filePath: WSL_SESSION_PATH });
+	await withCatalog([distroA, distroB, legacy], async ({ catalog }) => {
+		await catalog.load();
+		assert.equal(catalog.listEntries().length, 3, "两个 distro 的同一 /mnt 路径是两条真实记录，缺身份的那条也无从判定");
+		assert.equal(catalog.get("legacy-wsl-id").wslDistro, undefined);
+		assert.equal(catalog.get("legacy-wsl-id").originKey, LEGACY_WSL_ORIGIN);
+	});
+});
+
+test("wsl identity adoption never rewrites native records that happen to share the path", async () => {
+	const nativeRecord = entry({ id: "native-record", filePath: WSL_SESSION_PATH });
+	const wslRecord = entry({ id: "wsl-record", environment: "wsl", wslDistro: "Debian", wslUser: "debian", filePath: WSL_SESSION_PATH });
+	await withCatalog([nativeRecord, wslRecord], async ({ catalog }) => {
+		await catalog.load();
+		assert.equal(catalog.listEntries().length, 2, "本机与 WSL 是两套执行作用域，不得互相吸收");
+		assert.equal(catalog.get("native-record").originKey, buildSessionOriginKey(nativeRecord));
+		assert.equal(catalog.get("native-record").wslDistro, undefined);
+	});
+});

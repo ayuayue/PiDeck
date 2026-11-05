@@ -102,6 +102,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"hostPlugins.marketInstalledBadge": "Installed",
 	"hostPlugins.marketUpdateBadge": "Update to v{version}",
 	"hostPlugins.marketOpenRepo": "Open repository",
+	"hostPlugins.marketOpenSite": "Official plugin site",
 	"hostPlugins.marketWarning": "Some sources are unavailable: {warnings}",
 	"hostPlugins.marketFailed": "Search failed ({code}). Check your network or proxy settings and try again.",
 	"hostPlugins.marketCommunityHint": "The community source only requires a public repo, a pideck-plugin.json at the repository root, and the topic. PiDeck has not reviewed any of that code.",

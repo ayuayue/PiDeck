@@ -194,7 +194,7 @@ export function registerProjectsIpc({ projectStore, settingsStore, gitService, w
 		if (!stats || !stats.isDirectory()) {
 			throw new Error(wslDistro ? mainCopy("project.wslPathNotFound", { path: projectPath, distro: wslDistro }) : mainCopy("project.pathNotFound", { path: projectPath }));
 		}
-		const project = await projectStore.add(projectPath, undefined, wslDistro ? "wsl" : undefined);
+		const project = await projectStore.add(projectPath, undefined, wslDistro ? "wsl" : "windows");
 		void appLogger.info("project", "Project added via explorer context menu", { projectId: project.id, path: project.path, environment: wslDistro ? "wsl" : "windows" });
 		// 与重命名/删除一致：入库后广播可见项目清单，侧栏（含 LAN Web 端）立即刷新，否则新增项目不显示。
 		const visible = await getVisibleProjects();
