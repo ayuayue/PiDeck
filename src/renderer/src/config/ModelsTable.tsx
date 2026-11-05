@@ -593,6 +593,7 @@ export function ModelsTable(props: ModelsTableProps) {
 										}
 									}}
 								>
+									{/* scroll-ok: bounded —— 面板字段集固定（兼容开关枚举），不随数据行数增长；视口只是给窄窗口兜底。 */}
 									<DialogContent className="max-h-[calc(100vh-4rem)] overflow-y-auto sm:max-w-xl">
 										<DialogHeader>
 											<DialogTitle>{t("config.modelCompat")}</DialogTitle>
