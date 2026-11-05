@@ -22,8 +22,10 @@
 | `npm run check:format` | **PASS：4498 files，No fixes applied** | 本次闸门改造后运行 |
 | 三线远端定向测试汇总 | **PASS：1356 tests / 1328 pass / 0 fail / 28 skip / 0 cancelled / 0 todo** | 三个分支相对 `eca70c60d` 的测试文件并集，共 114 files；exit 0 |
 | Cloud Sync OAuth 轮换定向回归 | **PASS：42 tests / 42 pass / 0 fail / 0 skip** | 覆盖 await 落盘后重启与并发轮换最后写入胜出 |
-| `npm test` | **PASS：16386 tests / 16097 pass / 0 fail / 289 skip / 0 cancelled / 0 todo；exit 0** | 本次最终树重跑，duration 590693ms |
+| `npm test` | **PASS：16391 tests / 16102 pass / 0 fail / 289 skip / 0 cancelled / 0 todo；exit 0** | 2026-11-05 真机修复后的最终树重跑 |
 | Go `native/remote-sftp` | **PASS：`go test ./...` exit 0** | 本次闸门改造后运行 |
+
+2026-11-05 真机修复落地后，第 2 节全部门禁在最终树（`dev`，`92878eb64`）上重跑：`typecheck` 0、`npm test` 0 fail、`check:ipc-wiring` 0、`check:test-shape` 0、`check:format` 0。
 
 ## 3. 历史真机证据（不等于当前最终树签收）
 
