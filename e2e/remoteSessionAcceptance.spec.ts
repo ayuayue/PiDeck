@@ -187,6 +187,38 @@ async function createRemoteProjectDirectory(credentials: RemoteAcceptanceCredent
 }
 
 /**
+ * 有界等待产品把主机 pin 落盘，返回读到的那一刻的原值（读不到就是 undefined，交给调用方断言）。
+ *
+ * 为什么必须等：`remoteHostAdd` 里依次是 createDraft（档案先落盘，但还没有 verifiedEndpoint）→
+ * offerPin（真实 SSH 握手：self-check → 两次 `ssh -G` → 一次 `-T` 探针，ConnectTimeout=15 且
+ * connectTimeoutMs=10s）→ confirmPin（这一步才写 pin）。IPC 返回时 pin 一定在盘上，但**返回之前**
+ * 可能已经花掉几十秒；机器负载高（并行 e2e / 构建）时固定 30s 的预算不够，一次性读取就会把
+ * 「还没写完」报成「指纹不对」（真机 G3b 偶发：实到 undefined）。等待预算因此取本文件其余步骤
+ * 同一个 helperMs。
+ *
+ * 只放宽「等待落盘」，**不放宽语义**：读到什么就返回什么，是否命中期望指纹仍由调用方那条断言判定。
+ * 失败快路：add 真的失败时产品把自己的错误留在对话框里（`settings.connections.add.failed` →
+ * 「添加失败：<code>」），这时立刻返回，免得干等到超时才报一条看不出原因的 undefined。
+ */
+type PinnedFingerprintWait = { value: string | undefined; addFailure: string | null };
+
+async function waitForPinnedHostKeyFingerprint(window: Page, appDataDir: string, sshHost: string, timeoutMs: number): Promise<PinnedFingerprintWait> {
+	const deadline = Date.now() + timeoutMs;
+	// 产品 add 失败时的固定文案（全角/半角冒号都认，免得被一次词典微调打断）。
+	const addFailure = window.getByText(/^添加失败[：:]/).first();
+	for (;;) {
+		const value = readPinnedHostKeyFingerprint(appDataDir, sshHost);
+		if (value !== undefined) return { value, addFailure: null };
+		// isVisible 而不是 count：只认「此刻真的显示着」的失败文案，隐藏节点或历史节点不算。
+		const failure = (await addFailure.isVisible()) ? ((await addFailure.textContent()) ?? "").trim() : "";
+		if (failure !== "") return { value: undefined, addFailure: failure };
+		if (Date.now() >= deadline) return { value: undefined, addFailure: null };
+		// 落盘是一次短促写入：250ms 足够细，又不会把事件循环刷满。
+		await window.waitForTimeout(250);
+	}
+}
+
+/**
  * 设置页加主机：ssh config 候选 → 保存（首次信任在主进程内完成）→ 产品自动连接 ready。
  *
  * 这里的断言口径与旧版一致，只是证据换了一处：不再读已经取消的「确认主机指纹」弹框，而是读产品为这台
@@ -218,19 +250,29 @@ async function addVerifiedRemoteHostAndConnect(window: Page, credentials: Remote
 		.getByRole("button", { name: /^(保存|添加并连接)$/ })
 		.first()
 		.click();
-	// 指纹：等产品落盘后再比对（主进程在 add 里完成首次信任，落盘存在短額异步窗口）。
-	const pinDeadline = Date.now() + 30_000;
-	let pinned: string | undefined;
-	while (Date.now() < pinDeadline && pinned === undefined) {
-		pinned = readPinnedHostKeyFingerprint(join(userDataRoot, REMOTE_APP_DATA_DIR_NAME), credentials.host);
-		if (pinned === undefined) await window.waitForTimeout(200);
-	}
-	expect(matchesRemoteFingerprint(credentials.fingerprint, pinned === undefined ? [] : [pinned]), "落盘 pin 的主机指纹必须命中 " + REMOTE_ACCEPTANCE_ENV.fingerprint + "（期望 " + credentials.fingerprint + "，实到 " + String(pinned) + "）").toBe(true);
-	// 保存后产品直接开始连接：就绪时进度框标题变成「{host} 已连接」。
+	// 指纹：等产品落盘后再比对。等待有界（预算=helperMs，覆盖 add 里那次真实 SSH 握手），
+	// 但语义不变——「必须命中期望指纹」仍是下面这一条断言，等待只放宽「什么时候读」。
+	const pinned = await waitForPinnedHostKeyFingerprint(window, join(userDataRoot, REMOTE_APP_DATA_DIR_NAME), credentials.host, limits.helperMs);
+	expect(
+		matchesRemoteFingerprint(credentials.fingerprint, pinned.value === undefined ? [] : [pinned.value]),
+		"落盘 pin 的主机指纹必须命中 " + REMOTE_ACCEPTANCE_ENV.fingerprint + "（期望 " + credentials.fingerprint + "，实到 " + String(pinned.value) + (pinned.addFailure === null ? "" : "；加主机对话框已报：" + pinned.addFailure) + "）",
+	).toBe(true);
+	// 保存后产品直接开始连接：就绪时进度框标题变成「{host} 已连接」。`toBeVisible({ timeout })`
+	// 本身就是有界轮询（失败会一直重试到 helperMs），不是一次性读取。
 	// 先关掉进度框（模态会遮住设置页），再确认行状态与开关；旧构建无此弹框的路径也容忍。
 	const progress = window.getByRole("dialog", { name: /已连接$/ });
-	await expect(progress, "连接就绪后的进度框必须出现").toBeVisible({ timeout: limits.helperMs });
+	// 连接失败时标题是「连接失败」，/已连接$/ 永不匹配：只等成功框会把产品错误码一起吞掉，
+	// 干满预算才报一句「进度框必须出现」。这里改成成功/失败二选一，失败立刻带着文案报错。
+	const connectFailed = window.getByRole("dialog", { name: /连接失败$/ });
+	await expect(progress.or(connectFailed), "连接就绪后的进度框必须出现").toBeVisible({ timeout: limits.helperMs });
+	if (await connectFailed.isVisible().catch(() => false)) {
+		throw new Error("远端主机连接失败：" + ((await connectFailed.textContent().catch(() => null)) ?? "").trim());
+	}
+	// 页脚按钮这里原本是一次 `count()` 采样：采样早于渲染时，「按钮还没画出来」与「旧构建没有按钮」
+	// 在代码里分不开，前者会让我们跳过点击、把模态留在屏幕上，随后点设置页「关闭」被遮住（真机在这
+	// 一步超时过）。改成先有界等它可见，再决定点不点——两种形态都不靠运气。
 	const done = progress.getByRole("button", { name: /^(完成|关闭)$/ }).first();
+	await done.waitFor({ state: "visible", timeout: 10_000 }).catch(() => undefined);
 	if ((await done.count()) > 0) await done.click();
 	await expect(window.getByText("已连接").first()).toBeVisible({ timeout: limits.helperMs });
 	await expect(window.getByRole("button", { name: "断开", exact: true }).first()).toBeVisible();
