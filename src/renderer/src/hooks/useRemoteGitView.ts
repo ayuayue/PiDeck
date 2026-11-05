@@ -78,6 +78,39 @@ export function useRemoteGitView(project: RemoteProject, repoPath = "") {
 		};
 	}, [project.id, project.locator.hostId, projectKey, repoPath, api, capabilities, blocked, identityKey, publish]);
 	/**
+	 * 自锁修复：能力查询按设计不唤醒主机（'no session → unknown/unsupported'），而 root 会话只由
+	 * 真实操作建立。于是「能力没开 → 不读 → 会话不存在 → 能力永远没开」会把 Git 面板锁死
+	 * （真机 G1 复现：rootStatus 恒为 ok + helperCapabilities 恒缺）。
+	 * 面板被 helper-unknown 挡住时，先读一次根目录页把会话建起来，再重采事实；按项目键限次，
+	 * 不做无限重试。
+	 */
+	const warmAttempts = useRef(0);
+	const warmKey = useRef<string | null>(null);
+	useEffect(() => {
+		if (capabilities.read) return;
+		if (blocked["git.read"] !== "PROJECT_SERVICE_CAPABILITY_HELPER_METHOD_MISSING") return;
+		if (warmKey.current !== projectKey) {
+			warmKey.current = projectKey;
+			warmAttempts.current = 0;
+		}
+		if (warmAttempts.current >= 3) return;
+		warmAttempts.current += 1;
+		let cancelled = false;
+		const timer = window.setTimeout(() => {
+			void services.files
+				.listDirectory({ projectId: project.id, relativePath: "" })
+				.catch(() => undefined)
+				.then(() => {
+					if (!cancelled) void services.refresh();
+				});
+		}, warmAttempts.current === 1 ? 0 : 1200);
+		return () => {
+			cancelled = true;
+			window.clearTimeout(timer);
+		};
+	}, [capabilities.read, blocked, services, project.id, projectKey]);
+
+	/**
 	 * 事实失效通知（主进程只标脏，面板自己决定重读）：
 	 * runtime 对**同代**事实事件不会重建 services，所以 hook 必须自己订阅；否则写成功/未知写/文件写发出的
 	 * status 标脏到不了面板，只剩轮询兜底（降级主机上轮询还会被关）。这里只处理本项目当前仓库的 status 范围，
