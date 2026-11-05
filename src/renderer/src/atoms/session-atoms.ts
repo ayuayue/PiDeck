@@ -1909,15 +1909,24 @@ export const bindSessionRuntimeAtom = atom(
 		set(sessionRuntimeByIdAtom, {
 			...get(sessionRuntimeByIdAtom),
 			[input.sessionId]: {
+				// 这里只是绑定刷新（send 路径），除 agent 绑定字段外的会话级元数据（projectId/cwd/
+				// createdAt/远端 trust 等，都不属于某次绑定）必须原样保留：漏掉它们会让
+				// projectId/cwd/createdAt 坍塌成 undefined，`agentInventorySourceAtom` 的非空守卫
+				// 随即把这条会话从活动区剔除，而上面的 touch 已把它顶到「最近会话」首位，
+				// 侧栏就出现「掉进最近再闪回活动」的跨区跳变（#492）。首次绑定（无 current）时
+				// 从 catalog 记录回填同一批字段，避免新会话首条消息同样不落活动区。
+				...(current ?? {}),
 				agentId: input.agentId,
 				runtimeGeneration: input.runtimeGeneration ?? currentGeneration,
 				status: input.status ?? (bindingChanged ? "idle" : current?.status) ?? "idle",
 				state: bindingChanged ? undefined : current?.state,
-				// 这里是「只有这几个字段」的绑定刷新（send 路径），不跟随其它字段；
-				// 远端 trust 标记是会话级事实（不属于某次 agent 绑定），必须跟着会话走，
-				// 否则发一条消息就会把刚显示的「远端项目资源未加载」提示抹掉。
-				remoteTrustUnhandled: current?.remoteTrustUnhandled,
-				remoteExtensions: current?.remoteExtensions,
+				projectId: current?.projectId ?? record?.projectId,
+				cwd: current?.cwd ?? (record?.projectPath || undefined),
+				title: current?.title ?? record?.title,
+				sessionPath: current?.sessionPath ?? record?.filePath,
+				createdAt: current?.createdAt ?? record?.createdAt,
+				deckSessionId: current?.deckSessionId ?? record?.id,
+				backend: current?.backend ?? record?.backend,
 				updatedAt: Date.now(),
 			},
 		});

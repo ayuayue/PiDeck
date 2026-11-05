@@ -583,6 +583,64 @@ test("ignores late events from an older runtime generation", () => {
 	assert.equal(messages[0].text, "new runtime");
 });
 
+test("bindSessionRuntimeAtom keeps session metadata so an active session cannot flash into recent (#492)", () => {
+	const atoms = loadAtoms();
+	const store = createStore();
+	store.set(atoms.replaceProjectSessionsAtom, {
+		projectId: "project-1",
+		sessions: [session("session-a", "project-1", { status: "active", filePath: "/tmp/session-a.jsonl", projectPath: "/repo/app" })],
+	});
+	// runtime 事件先建立完整绑定（真实流程里 agents:state 带全量会话元数据）。
+	store.set(atoms.applySessionRuntimeEventAtom, {
+		sessionId: "session-a",
+		agentId: "agent-a",
+		runtimeGeneration: 1,
+		sourceChannel: "agents:state",
+		payload: {
+			id: "agent-a",
+			status: "idle",
+			projectId: "project-1",
+			cwd: "/repo/app",
+			createdAt: 42,
+			sessionPath: "/tmp/session-a.jsonl",
+			deckSessionId: "session-a",
+			backend: "pi",
+		},
+	});
+	assert.equal(store.get(atoms.sessionRuntimeByIdAtom)["session-a"].projectId, "project-1");
+	// 停止后再次发送：send 路径的轻量绑定刷新不得丢掉会话级元数据，
+	// 否则 agentInventorySourceAtom 的非空守卫会把会话踢出活动区。
+	store.set(atoms.bindSessionRuntimeAtom, { sessionId: "session-a", agentId: "agent-a", runtimeGeneration: 1, status: "running" });
+	const runtime = store.get(atoms.sessionRuntimeByIdAtom)["session-a"];
+	assert.equal(runtime.status, "running");
+	assert.equal(runtime.projectId, "project-1");
+	assert.equal(runtime.cwd, "/repo/app");
+	assert.equal(runtime.createdAt, 42);
+	assert.equal(runtime.sessionPath, "/tmp/session-a.jsonl");
+	assert.equal(runtime.deckSessionId, "session-a");
+	assert.equal(runtime.backend, "pi");
+});
+
+test("bindSessionRuntimeAtom backfills metadata from the catalog record on a first bind", () => {
+	const atoms = loadAtoms();
+	const store = createStore();
+	store.set(atoms.replaceProjectSessionsAtom, {
+		projectId: "project-1",
+		sessions: [session("session-b", "project-1", { title: "Deck session", status: "active", filePath: "/tmp/session-b.jsonl", projectPath: "/repo/app", createdAt: 7 })],
+	});
+	assert.equal(store.get(atoms.sessionRuntimeByIdAtom)["session-b"], undefined);
+	store.set(atoms.bindSessionRuntimeAtom, { sessionId: "session-b", agentId: "agent-b", runtimeGeneration: 3 });
+	const runtime = store.get(atoms.sessionRuntimeByIdAtom)["session-b"];
+	assert.equal(runtime.status, "idle");
+	assert.equal(runtime.runtimeGeneration, 3);
+	assert.equal(runtime.projectId, "project-1");
+	assert.equal(runtime.cwd, "/repo/app");
+	assert.equal(runtime.createdAt, 7);
+	assert.equal(runtime.title, "Deck session");
+	assert.equal(runtime.deckSessionId, "session-b");
+	assert.equal(runtime.sessionPath, "/tmp/session-b.jsonl");
+});
+
 test("anonymous detach clears its record and rejects a late catalog refresh", () => {
 	const atoms = loadAtoms();
 	const store = createStore();

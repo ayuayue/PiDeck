@@ -15,6 +15,7 @@ import { ModelsTable } from "./ModelsTable";
 import { ProviderConnectionForm, type ProviderTestResult } from "./ProviderConnectionForm";
 import { buildProviderConfigFromDraft, providerDialogResetKey, resolveFetchedBaseUrl, resolveInitialReasoningContentReplay, type AddProviderDraft } from "./addProviderDraft";
 import { applyModelPatches, applyAdaptiveTemplateReset, computeModelSpecPatches, mergeAdaptiveModelTemplate } from "../utils/modelSpecAutoFill";
+import { pickManagedCompatFlags } from "./modelCompatFields";
 import { countSelectedModelIndexes, invertModelIndexes, removeSelectedModelIndexes, selectAllModelIndexes, toggleAllModelIndexes, toggleModelIndex } from "./modelBatchSelection";
 import { withModelThinkingLevelEnabled } from "../../../shared/modelThinkingLevels";
 import { getModelUserAgentOverride, readModelOverrides, setModelUserAgentOverride } from "./providerHeaders";
@@ -145,6 +146,10 @@ export function AddProviderDialog(props: {
 			// 「跟随 pi 默认」）。不做自动推导——真实默认值随协议不同，猜错会让界面与
 			// 线上行为不一致（见 configTypes.ProviderCompat.supportsStrictMode）。
 			supportsStrictMode: initial?.compat?.supportsStrictMode,
+			// 逐模型 compat 名义键的供应商默认值：同样只回显文件里的显式表态，未表态交给 pi 判定
+			forceAdaptiveThinking: initial?.compat?.forceAdaptiveThinking,
+			supportsTemperature: initial?.compat?.supportsTemperature,
+			supportsStore: initial?.compat?.supportsStore,
 		});
 		setModels(initial?.models ? initial.models.map((model) => ({ ...model })) : []);
 		// 三份页内副本按宿主当前状态预填：UA 读 provider，隐藏读 AppSettings，默认档位读 settings.json
@@ -612,6 +617,16 @@ export function AddProviderDialog(props: {
 						onResetModel={handleResetModelToAdaptive}
 						resettingModelKey={resettingModelKey}
 						onBlurAutoFill={applyModelSpecAutoFill}
+						// 页内核验目录建议（draft 名未落盘，仍可按模型 id 跨 provider 命中）：
+						// 中转 provider 的 Claude 新模型正是靠这里提示 forceAdaptiveThinking/supportsTemperature。
+						loadModelCompatSuggestion={async (index) => {
+							const model = models[index];
+							const modelId = model?.id?.trim();
+							if (!modelId) return null;
+							const spec = await desktopApi.projects.getModelSpec(name.trim() || "draft", modelId, model.name).catch(() => null);
+							const flags = pickManagedCompatFlags(spec?.compat);
+							return Object.keys(flags).length > 0 ? { matchedId: spec?.matchedId, flags } : null;
+						}}
 						batchMode={modelBatchMode}
 						selectedIndexes={selectedModelIndexes}
 						onToggleSelectIndex={(index) => setSelectedModelIndexes((current) => toggleModelIndex(current, index))}

@@ -53,7 +53,7 @@ const moreRowClass = "session-more-btn session-more-row h-auto min-w-0 w-auto fl
 const collapseRowClass = "session-more-row h-auto shrink-0 w-auto justify-start px-2 text-micro opacity-80 transition-opacity hover:opacity-100";
 
 /**
- * 最近会话区：分界线 + 段落标题（含 x/y 计数）+ 行 + 手动「加载更多」/「收起」。
+ * 最近会话区：分界线 + 段落标题（总数贴近标题、右上只给展示进度）+ 行 + 手动「加载更多」/「收起」。
  *
  * 全量条数与可见条数由外部传入：段落只负责渲染，条数状态归活动页 owner（ActiveSessionsTree），
  * 避免同一份「显示多少条」在两处各存一份。
@@ -63,9 +63,10 @@ export function RecentSessionsSection(props: { controller: SidebarController; ac
 	const sessionRuntimeUiById = useAtomValue(sessionRuntimeUiByIdAtom);
 	// 没有历史会话时整段消失：标题与分界线一起收起，活动页保持现状（不为空列表留一条悬空分界线）。
 	if (props.rows.length === 0) return null;
-	// 剩余未展示条数：按钮标题用「再加载 N 个会话」，按钮右侧数字沿用项目行的右对齐计数列。
+	// 剩余未展示条数：按钮标题用「再加载 N 个会话」，条数内联在动词后用括号展示。
 	const shownCount = Math.min(props.visibleCount, props.totalCount);
 	const remainingCount = Math.max(0, props.totalCount - props.visibleCount);
+	const allShown = shownCount >= props.totalCount;
 	// 收起：只有展开过（超过首页 10 条）才出现，与项目页「查看更多 / 收起」并列的语义一致。
 	const canCollapse = canCollapseRecent(props.visibleCount);
 	const projectNamesById = new Map(props.controller.catalog.projects.map((project) => [project.id, project.name]));
@@ -75,10 +76,14 @@ export function RecentSessionsSection(props: { controller: SidebarController; ac
 			    sticky：下半区自己滚时标题不离场（粘在半个面板顶部），底部给半透明底避免行从字下穿过。 */}
 			<div className="sticky top-0 z-10 flex items-center gap-2 border-t border-border/40 bg-sidebar px-1 pt-1 pb-0.5">
 				{/* 加粗：与项目页分组标题（ProjectTree 的「项目 / 聊天」）同一档，一眼看出这是分段而不是一行会话。 */}
-				<span className="text-caption font-semibold text-muted-foreground">{t("app.sidebarRecentSessions")}</span>
-				<span className="ml-auto shrink-0 text-caption tabular-nums text-muted-foreground" title={t("app.sidebarRecentShown", { shown: shownCount, total: props.totalCount })}>
-					{shownCount}/{props.totalCount}
+				<span className="flex min-w-0 items-center gap-1.5 text-caption font-semibold text-muted-foreground">
+					<span className="truncate">{t("app.sidebarRecentSessions")}</span>
+					{/* 总数贴标题并带量词，不再放右上角与时间列同列：旧版裸 `3/15` 与「3月15日」的
+					    时间戳同字号、同灰色、同一条竖线，被读成日期归档（#491）。 */}
+					<span className="shrink-0 text-micro font-normal tabular-nums">{t("app.sidebarRecentTotal", { count: props.totalCount })}</span>
 				</span>
+				{/* 右上只留「展示进度」的自然语言：位置仍与时间列同列，但不是数字，不会被当成时间戳。 */}
+				<span className="ml-auto min-w-0 truncate text-micro text-muted-foreground/80">{allShown ? t("app.sidebarRecentShownAll") : t("app.sidebarRecentShownPartial", { shown: shownCount })}</span>
 			</div>
 			{/* 删除会话/收起分页时行淡出 + 下方行滑位（与 SessionTree 同一原语）；「最近」按
 			    访问时间排序，顺序变化不是用户动作，不开 orderSensitive。收起分页一次移除多行
@@ -100,7 +105,9 @@ export function RecentSessionsSection(props: { controller: SidebarController; ac
 						<Button type="button" variant="ghost" size="sm" className={moreRowClass} aria-label={t("app.sidebarRecentLoadMore")} title={t("app.sidebarRecentLoadMoreHint", { count: remainingCount })} onClick={props.onLoadMore}>
 							<ChevronDown size={12} aria-hidden="true" />
 							<span className="truncate">{t("app.sidebarRecentLoadMore")}</span>
-							<span className="ml-auto shrink-0 pl-1.5 tabular-nums">{remainingCount}</span>
+							{/* 条数内联在动词后（「加载更多 (5)」）：旧版用 ml-auto 推到按钮最右，在 ghost
+							    无边框状态下紧贴「收起」被读成「收起 5 项」，也容易被当成时间戳（#491）。 */}
+							<span className="shrink-0 tabular-nums">({remainingCount})</span>
 						</Button>
 					)}
 					{canCollapse && (

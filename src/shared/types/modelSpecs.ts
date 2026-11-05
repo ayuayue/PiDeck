@@ -12,6 +12,15 @@ export type ModelSpecSource = "listing" | "pi-ai" | "pi-runtime";
 export type ModelSpecMatchKind = "provider-id" | "model-id" | "id-tail" | "name-alias";
 
 /**
+ * 官方目录声明的逐模型 boolean compat（pi models.json 的 model.compat）。
+ *
+ * 只收布尔键：目录里的字符串枚举（thinkingFormat）和对象（openRouterRouting /
+ * allowedFallbackModels）需要结构化编辑，PiDeck 的兼容性面板表达不了，也不该被
+ * 「应用目录建议」静默写进去。
+ */
+export type ModelCompatFlags = Record<string, boolean>;
+
+/**
  * 模型规格匹配结果（context / 输出上限 / 推理 / 视觉）。
  *
  * 数据按模型本体匹配，与第三方中转站的 provider/baseUrl 无关。调用方仅用这些
@@ -30,6 +39,8 @@ export type ModelSpec = {
 	images?: boolean;
 	/** Pi 的规范档位 → provider wire 值映射；用于保留 xhigh/max 等模型特有档位。 */
 	thinkingLevelMap?: ThinkingLevelMap;
+	/** 官方目录对该模型声明的 compat 布尔键；仅作配置页建议，不参与自动补全。 */
+	compat?: ModelCompatFlags;
 	/** 命中来源 */
 	source: ModelSpecSource;
 	/** 匹配方式：名称别名是受控候选，不会覆盖用户字段。 */

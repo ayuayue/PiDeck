@@ -18,6 +18,7 @@ import { Label } from "../components/ui-shadcn/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui-shadcn/select";
 import { showNotice } from "../utils/notice";
 import { applyModelPatches, computeModelSpecPatches, looksDeepSeekBacked } from "../utils/modelSpecAutoFill";
+import { pickManagedCompatFlags } from "./modelCompatFields";
 import type { FetchedModel, ConfigProxyMode } from "../../../shared/types/fetchedModel";
 import { ProviderMigrationButton } from "./ProviderMigrationButton";
 import { ProviderUsageInline } from "../components/app/ProviderUsageInline";
@@ -442,7 +443,7 @@ export function ModelsTab(props: {
 							const selectedModelCount = countSelectedModelIndexes(selectedModelIndexes, provider.models.length);
 							const userAgentValue = getHeaderValue(provider.headers, "User-Agent");
 							const providerAdvancedFields = Object.keys(provider).filter((key) => !KNOWN_PROVIDER_FIELDS.has(key));
-							const providerComplexFields = ["headers", "authHeader", "compat", "modelOverrides", "oauth"].filter((key) => provider[key] !== undefined);
+							const providerComplexFields = ["headers", "authHeader", "modelOverrides", "oauth"].filter((key) => provider[key] !== undefined);
 							return (
 								<div
 									key={name}
@@ -748,6 +749,14 @@ export function ModelsTab(props: {
 													resettingModelKey={props.resettingModelKey}
 													getRowKey={(i) => getModelInputKey(name, i)}
 													onBlurAutoFill={(i, modelId) => void applyModelSpecAutoFill(name, i, modelId)}
+													loadModelCompatSuggestion={async (i) => {
+														const model = provider.models[i];
+														const modelId = model?.id?.trim();
+														if (!modelId) return null;
+														const spec = await desktopApi.projects.getModelSpec(name, modelId, model.name).catch(() => null);
+														const flags = pickManagedCompatFlags(spec?.compat);
+														return Object.keys(flags).length > 0 ? { matchedId: spec?.matchedId, flags } : null;
+													}}
 													batchMode={isModelBatchMode}
 													selectedIndexes={selectedModelIndexes}
 													onToggleSelectIndex={(i) => setSelectedModelIndexes((current) => toggleModelIndex(current, i))}

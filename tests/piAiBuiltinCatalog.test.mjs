@@ -206,6 +206,8 @@ test("artifact manifest 校验失败时拒绝使用模型目录", () => {
 					contextWindow: 128000,
 					input: ["text", "image", "video"],
 					thinkingLevelMap: { off: null, high: "high", future: "drop" },
+					// compat 只透传布尔键：字符串枚举 / 对象 / 数组在配置页无法可视化编辑
+					compat: { forceAdaptiveThinking: true, supportsTemperature: false, thinkingFormat: "deepseek", allowedFallbackModels: [{ provider: "anthropic", model: "claude-opus-5" }] },
 				},
 			],
 		},
@@ -231,6 +233,7 @@ test("artifact manifest 校验失败时拒绝使用模型目录", () => {
 			contextWindow: 128000,
 			input: ["text", "image"],
 			thinkingLevelMap: { off: null, high: "high" },
+			compat: { forceAdaptiveThinking: true, supportsTemperature: false },
 		},
 	]);
 	manifest.catalogSha256 = "0".repeat(64);
@@ -419,4 +422,17 @@ test("真实生成 catalog：1.4.0 下线的模型不再出现在目录里", () 
 test("readBuiltinPiAiCatalogVersion：仓库内置 manifest 返回 pi-ai 包版本", () => {
 	const version = readBuiltinPiAiCatalogVersion();
 	assert.match(version ?? "", /^\d+\.\d+\.\d+/, "应从仓库 resources 读到 pi-ai 包版本");
+});
+
+test("真实生成 catalog：逐模型 compat 只保留布尔键（Claude 新一代模型的自适应思考）", () => {
+	const index = getPiAiCatalogIndex();
+	// 中转 provider 用 claude-haiku-5-5 这类新模型时，配置页靠这两个键提示用户开自适应思考 / 关温度。
+	const haiku = lookupPiAiCatalogEntry(index, "anthropic", "claude-haiku-5-5");
+	assert.equal(haiku?.compat?.forceAdaptiveThinking, true);
+	assert.equal(haiku?.compat?.supportsTemperature, false);
+	// 字符串枚举与对象（allowedFallbackModels）不进 ModelSpec：面板表达不了，也不该被建议写入。
+	assert.equal(haiku?.compat?.allowedFallbackModels, undefined);
+	const fable = lookupPiAiCatalogEntry(index, "anthropic", "claude-fable-5");
+	assert.equal(fable?.compat?.forceAdaptiveThinking, true);
+	assert.equal(fable?.compat?.allowedFallbackModels, undefined, "allowedFallbackModels 是数组，必须被丢弃");
 });

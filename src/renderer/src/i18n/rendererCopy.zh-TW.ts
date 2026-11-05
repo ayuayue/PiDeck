@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: b4cc41145e353183b868026fbb0f1380729e17cfa33b7c12e07dd32f402cfa0f（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 4c7d64ad6928ada2b50fb2799899156ed5d0c7cfdf5140e07e6ca42986fe1edc（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -223,7 +223,9 @@ export const zhTW: Record<TranslationKey, string> = {
 	"app.sidebarActive": "活動",
 	"app.sidebarActiveEmpty": "暫無執行中的 Agent 會話",
 	"app.sidebarRecentSessions": "最近會話",
-	"app.sidebarRecentShown": "已顯示 {shown}/{total}",
+	"app.sidebarRecentTotal": "共 {count} 條",
+	"app.sidebarRecentShownPartial": "顯示前 {shown} 項",
+	"app.sidebarRecentShownAll": "全部已顯示",
 	"app.sidebarRecentLoadMore": "載入更多",
 	"app.sidebarRecentLoadMoreHint": "再載入 {count} 個會話",
 	"app.sidebarRecentCollapse": "收起",
@@ -3623,6 +3625,22 @@ export const zhTW: Record<TranslationKey, string> = {
 	// 弹框里解释逐模型 UA 的优先级：modelOverrides 覆盖 provider.headers（pi 的 rawModelHeaders 最后展开），
 	// 不写清这一层用户会以为「填了就替换掉供应商 UA 的全部场景」
 	"config.modelUserAgentDialogDesc": "留空 = 繼承該供應商的 UA；填寫後由 Pi 覆蓋供應商級 User-Agent（優先順序更高），只對當前模型生效。",
+	// 逐模型 compat：Claude 新一代模型经中转站时必须声明自适应思考，否则 pi 发老写法被 400
+	"config.modelCompat": "模型相容性",
+	"config.modelCompatDialogDesc": "這些開關寫入該模型的 compat（models.json 的 models[].compat），優先於供應商級同名設定。儲存後需新開會話（或重啟 PiDeck）才生效。",
+	"config.modelCompatHint": "未設定 = 繼承供應商級同名設定，供應商也沒設時交給 pi 判定；開 / 關只影響當前模型（覆蓋供應商級）。",
+	"config.modelCompatFollowProvider": "跟隨供應商",
+	"config.compatScopeHint": "這裡是供應商預設值，不顯示單個模型的生效值；模型行裡的同名開關優先，未單獨設定時繼承這裡。",
+	"config.modelCompatAdaptiveThinking": "自適應思考協議",
+	"config.modelCompatAdaptiveThinkingDesc": 'Claude Opus 4.7+ / Sonnet 5+ / Fable 5 等新一代模型只接受 thinking:{type:"adaptive"} + output_config.effort。未開啟時 pi 按老寫法發 thinking:{type:"enabled",budget_tokens}，上游會直接 400；經中轉站用這些模型時手動開啟。',
+	"config.modelCompatTemperature": "允許自定義溫度",
+	"config.modelCompatTemperatureDesc": "關閉後 pi 不再發送非預設 temperature（compat.supportsTemperature）；Opus 4.7+ 一類模型只接受預設溫度。",
+	"config.modelCompatStore": "傳送 store 引數",
+	"config.modelCompatStoreDesc": "OpenAI 系介面的 store 引數（compat.supportsStore）；中轉站不認時關閉。",
+	"config.modelCompatSuggestionTitle": "官方目錄建議",
+	"config.modelCompatSuggestionDesc": "模型能力目錄裡 {model} 的 compat 與當前設定不同。應用只寫入上面這些開關，不會改動其他 compat 鍵。",
+	"config.modelCompatSuggestionRow": "建議 {value}",
+	"config.modelCompatApplySuggestion": "應用目錄建議",
 	"config.modelResetAdaptive": "重置為自適應",
 	"config.modelResetAdaptiveDone": "已按 {model} 的自適應模板重置能力欄位",
 	"config.modelResetAdaptiveKept": "未匹配到自適應模板，已保留手動填寫的容量欄位",

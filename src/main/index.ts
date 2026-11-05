@@ -7906,6 +7906,11 @@ app
 			browserAgentService?.dispose();
 			browserAgentService = null;
 		});
+		// C12：catalog 的在途写事务必须在退出前落盘。必须登记在最后一个会写 catalog 的清理任务之后：
+		// runAll 顺序执行，而 pi/dsh/acp 的 stopAll、自动化收尾都会回写会话状态；没人等 writeQueue 时，
+		// 这些写在 runAll 返回后被进程终止截断，锁文件（先建空文件、owner 后写）就留在盘上，
+		// 重启后读不出 owner 的残留锁会被当成活着的写者（照旧只报 SESSION_CATALOG_BUSY）。
+		quitCleanup.register("session-catalog-flush", () => sessionCatalog?.flushPendingWrites());
 
 		// 启动后异步检查 RPC 超时时间，如果小于 600 秒则自动修正为 600 秒
 		// 避免用户配置的过小超时（如 30 秒）导致启动或命令执行频繁超时

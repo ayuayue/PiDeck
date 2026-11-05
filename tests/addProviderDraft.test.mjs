@@ -355,3 +355,55 @@ test("新增页缓冲字段不进 models.json（只交给宿主落 settings/AppS
 	assert.equal("modelThinkingLevelDefaults" in merged, false);
 	assert.equal("hiddenModelIds" in merged, false);
 });
+
+// ── 供应商级逐模型 compat 默认值（forceAdaptiveThinking / supportsTemperature / supportsStore）──
+
+test("buildProviderConfigFromDraft: 供应商级 compat 默认值只在显式表态时写入", () => {
+	const untouched = buildProviderConfigFromDraft({
+		...emptyDraft(),
+		compat: { supportsDeveloperRole: false, supportsReasoningEffort: true },
+	});
+	assert.ok(!("forceAdaptiveThinking" in untouched.compat));
+	assert.ok(!("supportsTemperature" in untouched.compat));
+	assert.ok(!("supportsStore" in untouched.compat));
+
+	// 整个中转都是 Claude 新一代模型：供应商级一次打开，模型级可再覆盖
+	const providerLevel = buildProviderConfigFromDraft({
+		...emptyDraft(),
+		compat: { supportsDeveloperRole: false, supportsReasoningEffort: false, forceAdaptiveThinking: true, supportsTemperature: false, supportsStore: false },
+	});
+	assert.equal(providerLevel.compat.forceAdaptiveThinking, true);
+	assert.equal(providerLevel.compat.supportsTemperature, false);
+	assert.equal(providerLevel.compat.supportsStore, false);
+});
+
+test("mergeProviderDraft: 「跟随供应商/Pi」会删掉文件里旧的供应商级默认值", () => {
+	// 与 strict/reasoning_content 的「未表态保留」不同：这三个键由弹窗完整接管，
+	// 选「跟随」就是明确删除意图，否则把自适应推力改回「跟随」保存后会静默恢复 true。
+	const withFlags = {
+		models: [],
+		compat: { supportsDeveloperRole: false, forceAdaptiveThinking: true, supportsTemperature: false },
+	};
+	const cleared = mergeProviderDraft(withFlags, {
+		...emptyDraft(),
+		compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
+	});
+	// 只剩两个强制布尔且都为 false → 整段 compat 删除，不留空对象
+	assert.equal("compat" in cleared, false);
+
+	const changed = mergeProviderDraft(withFlags, {
+		...emptyDraft(),
+		compat: { supportsDeveloperRole: false, supportsReasoningEffort: false, forceAdaptiveThinking: false },
+	});
+	assert.equal(changed.compat.forceAdaptiveThinking, false);
+	assert.equal(changed.compat.supportsTemperature, undefined);
+});
+
+test("mergeProviderDraft: 清掉最后一个供应商级 compat 键后不留下空 compat 对象", () => {
+	const onlyFlag = { models: [], compat: { supportsDeveloperRole: false, supportsReasoningEffort: false, forceAdaptiveThinking: true } };
+	const merged = mergeProviderDraft(onlyFlag, {
+		...emptyDraft(),
+		compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
+	});
+	assert.equal("compat" in merged, false);
+});
