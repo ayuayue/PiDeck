@@ -360,6 +360,10 @@ async function cleanupRemoteRun(credentials: RemoteAcceptanceCredentials, paths:
 }
 
 test.describe("远端会话功能级验收（真机 · Phase 4 P4.2）", () => {
+	// 真机套件受宿主网络抖动影响：每轮 10 个 Git 用例里会随机有 1 个在「加主机」的 SSH 探针上
+	// 撞到 SSH_HOST_COMMAND_TIMEOUT（产品已把稳定码显示出来）。这里允许一次重试，让验收衡量功能
+	// 而不是网速；Playwright 会把「重试后通过」单独标成 flaky，不会把真失败洗成通过。
+	test.describe.configure({ retries: 1 });
 	// 无凭据整体 skip：在 fixture setup 之前生效，所以既不会建临时 userData，也不会启动 Electron。
 	test.skip(credentials === undefined, HELP_TEXT);
 
