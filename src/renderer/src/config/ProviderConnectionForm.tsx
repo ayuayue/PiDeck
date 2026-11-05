@@ -323,24 +323,9 @@ export function ProviderConnectionForm(props: {
 					    Claude Opus 4.7+ / Sonnet 5+ / Fable 5 经中转站时，必须在这里打开自适应思考，
 					    否则 pi 发老写法 thinking:{type:"enabled",budget_tokens} 会被上游 400；
 					    整个供应商都是新一代模型时配一次即可，混合多代时留给模型行单独覆盖。 */}
-					<CompatTriStateRow
-						labelKey="config.modelCompatAdaptiveThinking"
-						hintKey="config.modelCompatAdaptiveThinkingDesc"
-						value={props.compat.forceAdaptiveThinking}
-						onChange={(value) => props.onChangeCompat({ ...props.compat, forceAdaptiveThinking: value })}
-					/>
-					<CompatTriStateRow
-						labelKey="config.modelCompatTemperature"
-						hintKey="config.modelCompatTemperatureDesc"
-						value={props.compat.supportsTemperature}
-						onChange={(value) => props.onChangeCompat({ ...props.compat, supportsTemperature: value })}
-					/>
-					<CompatTriStateRow
-						labelKey="config.modelCompatStore"
-						hintKey="config.modelCompatStoreDesc"
-						value={props.compat.supportsStore}
-						onChange={(value) => props.onChangeCompat({ ...props.compat, supportsStore: value })}
-					/>
+					<CompatTriStateRow labelKey="config.modelCompatAdaptiveThinking" hintKey="config.modelCompatAdaptiveThinkingDesc" value={props.compat.forceAdaptiveThinking} onChange={(value) => props.onChangeCompat({ ...props.compat, forceAdaptiveThinking: value })} />
+					<CompatTriStateRow labelKey="config.modelCompatTemperature" hintKey="config.modelCompatTemperatureDesc" value={props.compat.supportsTemperature} onChange={(value) => props.onChangeCompat({ ...props.compat, supportsTemperature: value })} />
+					<CompatTriStateRow labelKey="config.modelCompatStore" hintKey="config.modelCompatStoreDesc" value={props.compat.supportsStore} onChange={(value) => props.onChangeCompat({ ...props.compat, supportsStore: value })} />
 					{/* 这组开关是供应商默认值，不反映某个模型的生效值：模型行里的同名开关优先，
 					    用户看到「跟随」但模型实际开着时，正是模型级单独设过（避免误以为没生效）。 */}
 					<p className="basis-full text-micro leading-relaxed text-text-tertiary">{t("config.compatScopeHint")}</p>

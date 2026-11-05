@@ -18,6 +18,31 @@ const { default: registerAskQuestion } = loadTsCommonJs("resources/extensions/pi
 				...(options?.default !== undefined ? { default: options.default } : {}),
 			}),
 		},
+		// `typebox` 由 pi 在加载扩展时注入（pi 自带 1.3.27），仓库本身不装它，测试进程
+		// require 不到；这里只实现本扩展用到的构造器，语义与 typebox 一致：Optional
+		// 只影响直属 Object 的 required 计算，不出现在输出的 JSON Schema 里。
+		typebox: (() => {
+			const OPTIONAL = Symbol("optional");
+			const primitive =
+				(type) =>
+				(options) => ({ type, ...options });
+			return {
+				Type: {
+					Object: (properties, options) => ({
+						type: "object",
+						properties,
+						required: Object.keys(properties).filter((key) => properties[key]?.[OPTIONAL] !== true),
+						...options,
+					}),
+					Optional: (schema) => ({ ...schema, [OPTIONAL]: true }),
+					Union: (schemas, options) => ({ anyOf: schemas, ...options }),
+					Array: (items, options) => ({ type: "array", items, ...options }),
+					String: primitive("string"),
+					Number: primitive("number"),
+					Boolean: primitive("boolean"),
+				},
+			};
+		})(),
 	},
 });
 
