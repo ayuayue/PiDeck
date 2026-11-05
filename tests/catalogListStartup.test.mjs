@@ -54,6 +54,24 @@ test("dead file link filter exempts wsl sessions whose filePath is a Linux path"
 	assert.match(filterBlock, /environment\s*===\s*"wsl"[\s\S]*return\s+sessionFileExistsCached\(record\.filePath\)/, "wsl 豁免必须在存在性判定之前，否则恒 false 的宿主探测仍会滤掉 WSL 会话");
 });
 
+test("native projects hide sessions recorded under the wsl execution context", () => {
+	// 2026-11-05 反馈：从 WSL 切回本机后，同一个项目下成片出现「点开永远空」的会话——
+	// catalog 里存着上一轮 WSL 扫描写下的 /mnt/... 记录，上面那条 wsl 豁免把它们放进
+	// 本机项目的列表，而本机读它们必然 ENOENT。豁免必须按项目环境收窄：本机项目
+	// （projectWsl undefined）里 environment=wsl 的记录直接不返回，且判定在最前，
+	// 连无 filePath 的 wsl 草稿一并挡住。翻回 WSL 后原样复现，所以这里只隐藏、不删记录。
+	const handler = sessionIpc.slice(sessionIpc.indexOf("ipcChannels.sessionsCatalogList"), sessionIpc.indexOf("ipcChannels.sessionsCatalogCreateDraft"));
+	const filterBlock = handler.slice(handler.indexOf(".filter((record) => {"), handler.indexOf("if (options?.scan === false)"));
+	assert.match(filterBlock, /if\s*\(\s*record\.environment\s*===\s*"wsl"\s*&&\s*projectWsl\s*===\s*undefined\s*\)\s*return false;/);
+	const crossEnvIndex = filterBlock.indexOf('record.environment === "wsl" && projectWsl === undefined');
+	const wslExemptIndex = filterBlock.indexOf('environment === "wsl") return true');
+	const existsIndex = filterBlock.indexOf("sessionFileExistsCached(record.filePath)");
+	assert.ok(crossEnvIndex >= 0 && crossEnvIndex < wslExemptIndex, "跨环境隐藏必须排在 wsl 豁免之前");
+	assert.ok(wslExemptIndex < existsIndex, "wsl 豁免必须排在存在性判定之前");
+	// 反向不隐藏：WSL 项目里的本机记录本机能读，判据里不能出现对称的 native 分支。
+	assert.doesNotMatch(filterBlock, /record\.environment\s*===\s*"native"\s*&&/);
+});
+
 test("catalog list scan does not parse JSONL bodies", () => {
 	// 侧栏 list() 只 stat + 路径推断；正文留给点击后的 readRecordMessagePage。
 	const listBlock = scanner.slice(scanner.indexOf("private async listUnqueued"), scanner.indexOf("private async resolveScanRoots"));
