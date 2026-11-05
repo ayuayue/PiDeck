@@ -291,17 +291,21 @@ describe("最近会话区渲染契约", () => {
 		assert.match(recentSessionsSection, /sticky bottom-0/);
 	});
 
-	test("两段之间有分界线与段落标题，并显示已显示/总数计数", () => {
-		// 分界线：上边框 + 段落标题、计数行；标题在计数左侧（标题左对齐、计数右对齐）
+	test("两段之间有分界线与段落标题，总数贴近标题、右上只给展示进度", () => {
+		// 分界线：上边框 + 段落标题、总数、展示进度；标题左对齐，总数紧跟标题
 		assert.match(recentSessionsSection, /border-t border-border\/40/);
 		const headerIndex = recentSessionsSection.indexOf('t("app.sidebarRecentSessions")');
-		const countIndex = recentSessionsSection.indexOf("shownCount}/{props.totalCount}");
+		const totalIndex = recentSessionsSection.indexOf('t("app.sidebarRecentTotal"');
 		assert.match(recentSessionsSection, /const shownCount = Math\.min\(props\.visibleCount, props\.totalCount\)/);
 		assert.ok(headerIndex !== -1, "段落标题必须显示「最近会话」");
-		assert.ok(countIndex !== -1, "段落标题必须显示 x/y 计数");
-		assert.ok(headerIndex < countIndex, "标题在计数之前");
+		assert.ok(totalIndex !== -1, "段落标题必须显示总数");
+		assert.ok(headerIndex < totalIndex, "总数跟在标题之后（不再右对齐到时间列）");
 		// 标题加粗：与项目页分组标题同档（否则会被当成又一行会话）
-		assert.match(recentSessionsSection, /text-caption font-semibold text-muted-foreground">\{t\("app\.sidebarRecentSessions"\)\}/);
+		assert.match(recentSessionsSection, /text-caption font-semibold text-muted-foreground">/);
+		// 回归 #491：标题栏不得再出现裸 `shown/total`——它与会话时间戳（3/15）同列同色调，会被读成日期。
+		assert.doesNotMatch(recentSessionsSection, /\{shownCount\}\/\{props\.totalCount\}/);
+		// 右上换成自然语言进度，全部展示后切换为「全部已显示」。
+		assert.match(recentSessionsSection, /allShown \? t\("app\.sidebarRecentShownAll"\) : t\("app\.sidebarRecentShownPartial", \{ shown: shownCount \}\)/);
 	});
 
 	test("默认 10 条由 RECENT_SESSIONS_INITIAL_VISIBLE 驱动，不写死数字", () => {
@@ -379,7 +383,7 @@ describe("最近会话区渲染契约", () => {
 	});
 
 	test("新增文案在中英文两份 copy 中都存在", () => {
-		for (const key of ["app.sidebarRecentSessions", "app.sidebarRecentShown", "app.sidebarRecentLoadMore", "app.sidebarRecentLoadMoreHint", "app.sidebarRecentCollapse", "app.sidebarRecentCollapseHint"]) {
+		for (const key of ["app.sidebarRecentSessions", "app.sidebarRecentTotal", "app.sidebarRecentShownPartial", "app.sidebarRecentShownAll", "app.sidebarRecentLoadMore", "app.sidebarRecentLoadMoreHint", "app.sidebarRecentCollapse", "app.sidebarRecentCollapseHint"]) {
 			assert.match(zhCopy, new RegExp(`"${key}":`), `zh-CN 缺少 ${key}`);
 			assert.match(enCopy, new RegExp(`"${key}":`), `en-US 缺少 ${key}`);
 		}

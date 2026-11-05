@@ -531,25 +531,26 @@ test("expanded children can be collapsed back via sidebar controller", () => {
 	assert.match(en, /"app\.projectCollapseChildren": "Collapse"/);
 });
 
-test("show-more row renders the count separately and drops the trailing unit", () => {
+test("show-more row inlines the count after the verb instead of floating it at the far right (#491)", () => {
 	const sessionTree = readFileSync("src/renderer/src/components/sidebar/SessionTree.tsx", "utf8");
 	const zh = readFileSync("src/renderer/src/i18n/rendererCopy.zh-CN.ts", "utf8");
 	const en = readFileSync("src/renderer/src/i18n/rendererCopy.en-US.ts", "utf8");
 
-	// 文案不再带「个子项 / items」量词，数字单独成列右对齐，避免与行内时间列错位。
+	// 可见文字：无计数的动词文案（复用 common.showMore），条数在 JSX 里紧跟其后内联成「查看更多 (12)」。
+	assert.match(sessionTree, /const showMoreText = props\.nested \? showMoreLabel : t\("common\.showMore"\)/);
+	assert.match(sessionTree, /\{!props\.nested && <span className="shrink-0 tabular-nums">\(\{display\.hiddenChildCount\}\)<\/span>\}/);
+	// 回归 #491：数字不再用 ml-auto 推到按钮最右——ghost 无边框下紧贴「收起」，被读成「收起 12 项」或时间戳。
+	assert.doesNotMatch(sessionTree, /ml-auto shrink-0 pl-1\.5 tabular-nums/);
+
+	// 完整句子（含数字）仍用于 title/aria-label 的无障碍与悬停提示。
+	assert.match(sessionTree, /const showMoreLabel = props\.nested[\s\S]*?app\.projectShowMoreChildren/);
 	assert.match(zh, /"app\.projectShowMoreChildren": "查看更多 \{count\}"/);
-	assert.doesNotMatch(zh, /"app\.projectShowMoreChildren": "[^"]*个子项/);
 	assert.match(en, /"app\.projectShowMoreChildren": "Show \{count\} more"/);
-	assert.doesNotMatch(en, /"app\.projectShowMoreChildren": "[^"]*items/);
 
-	// 数字从文案中拆出，作为独立元素右对齐（ml-auto 需父级 flex，由 .session-more-btn 保证）。
-	assert.match(sessionTree, /className="ml-auto shrink-0 pl-1\.5 tabular-nums"/);
-	assert.match(sessionTree, /const showMoreText = props\.nested[\s\S]*?app\.projectShowMoreChildren/);
-	assert.match(sessionTree, /session-more-btn/);
-
-	// 嵌套文案（数字在句中）不拆数字，否则会出现「还有 个会话…」这种断句。
+	// 嵌套文案（数字在句中：「还有 12 个会话…」）不拆数字，否则会出现「还有 个会话…」这种断句。
 	// formatter 会把单元素三元/逻辑渲染的包裹括号去掉：断言只锁 !props.nested 门控。
 	assert.match(sessionTree, /\{!props\.nested && \(?/);
+	assert.match(sessionTree, /session-more-btn/);
 });
 
 test("activity page keeps failed/stopped agents visible (error/closed)", () => {

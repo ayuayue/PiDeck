@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 534ac0cfde215d12a0c6a78fa0112bd61a51a12dddadf9c5838a936d96a88788（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 4c7d64ad6928ada2b50fb2799899156ed5d0c7cfdf5140e07e6ca42986fe1edc（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -223,7 +223,9 @@ export const zhTW: Record<TranslationKey, string> = {
 	"app.sidebarActive": "活動",
 	"app.sidebarActiveEmpty": "暫無執行中的 Agent 會話",
 	"app.sidebarRecentSessions": "最近會話",
-	"app.sidebarRecentShown": "已顯示 {shown}/{total}",
+	"app.sidebarRecentTotal": "共 {count} 條",
+	"app.sidebarRecentShownPartial": "顯示前 {shown} 項",
+	"app.sidebarRecentShownAll": "全部已顯示",
 	"app.sidebarRecentLoadMore": "載入更多",
 	"app.sidebarRecentLoadMoreHint": "再載入 {count} 個會話",
 	"app.sidebarRecentCollapse": "收起",
