@@ -924,6 +924,7 @@ export function App() {
 		activeProjectId,
 		services: localFileTreeServices,
 		isLocalProjectId,
+		activeProjectMissing: activeProject?.missing === true,
 		compactMiddlePackagesEnabled,
 		agentsRef,
 		refreshProjects,

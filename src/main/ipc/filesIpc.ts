@@ -7,7 +7,7 @@ import { codeOf, opFailFromCode, opOk } from "../../shared/op";
 import { ipcChannels } from "../../shared/ipc";
 import { FILE_TREE_ABSOLUTE_MAX_DEPTH } from "../../shared/fileTree";
 import type { ProjectFileAccessScope, ProjectFileTarget } from "../../shared/types/project";
-import type { ProjectDirectoryPageResult, ProjectPathsExistResult } from "../../shared/types/projectFiles";
+import type { ProjectDirectoryPage, ProjectDirectoryPageResult, ProjectPathsExistResult } from "../../shared/types/projectFiles";
 import type { FileContentSearchResult, FileSearchResult } from "../../shared/types";
 import { detectFileManager, openFileManagerAt } from "../files/FileManager";
 import { expandHomeForFileAccess } from "../fs/homePathExpansion";
@@ -250,10 +250,9 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		// WSL 与本地各有跳过构建产物的包装实例，切换时必须留在同一 backend 家族内。
 		const listBackend = listOptions.skipGeneratedDirs !== true ? backend : backend === wslProjectFileBackend && wslProjectFileBackendSkipped !== undefined ? wslProjectFileBackendSkipped : localProjectFileBackendWithSkippedGeneratedDirs;
 		// 子目录 ENOENT 是常态竞态（pi-subagents 清理 artifacts/outputs 后，抽屉仍记住展开态）：
-		// dev 语义是返回空子树让节点自然落空；backend 只给稳定码，按「是否子目录」在这里翻译。
-		//
-		// 这里是**唯一**翻译点，且只对 list 成立：根目录缺失必须继续冒泡成 PROJECT_DIRECTORY_MISSING
-		// （useProjectSync/useProjectFileTreeController 靠它刷新项目 presence 并提示「目录不存在」）；
+		// dev 语义是返回空子树让节点自然落空；backend 只给稳定码，按「是否子目录」在 IPC 层翻译。
+		// list 与 directoryPage 共用同一条口径；根目录缺失必须继续冒泡成 PROJECT_DIRECTORY_MISSING
+		// （useProjectSync/useProjectFileTreeController 靠它刷新项目 presence 并提示「目录不存在」）。
 		// 而 stat/read/write 等按文件操作命中已消失的子目录时，用户动作指向的对象确实不见了，
 		// 折叠成空在 UI 上会变成「静默成功」，因此不做同类翻译。
 		const listOrEmpty = async (request: ProjectFileTarget) => {
@@ -291,11 +290,20 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 			if (!remoteFiles) return opFailFromCode("UNSUPPORTED_PROJECT_LOCATION");
 			return await remoteFiles.directoryPage(target.projectId, target.relativePath, isRecord(options) && options.force === true);
 		}
+		// 与 list 同一条翻译口径：已展开的子目录在切换项目后才被删除（目录清理 / worktree 切换）是常态，
+		// 目录页返回空页让节点自然落空；只有根目录缺失才是 PROJECT_DIRECTORY_MISSING，
+		// 否则渲染层会把它当成「项目目录不存在」弹 toast 并刷新项目列表。
 		try {
 			// 本地与 WSL 共用同一份目录页形状（单层、显式 truncated）；WSL 的读取由 backend 在发行版内完成。
 			const backend = projectFileBackendRouter.forProject(target.projectId);
 			if (backend.directoryPage === undefined) return opFailFromCode("UNSUPPORTED_PROJECT_LOCATION");
-			const page = await backend.directoryPage(target, 2000);
+			let page: Pick<ProjectDirectoryPage, "entries" | "truncated" | "totalEntries">;
+			try {
+				page = await backend.directoryPage(target, 2000);
+			} catch (error) {
+				if (target.relativePath !== "" && error instanceof Error && error.message === "PROJECT_DIRECTORY_MISSING") page = { entries: [], truncated: false };
+				else throw error;
+			}
 			return opOk({ ...page, revision: (localPageRevision += 1), generation: backend === wslProjectFileBackend ? "wsl" : "local" });
 		} catch (error) {
 			return opFailFromCode(codeOf(error, "PROJECT_FILE_READ_FAILED"));
