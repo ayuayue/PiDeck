@@ -108,8 +108,9 @@ export async function verifyRemoteGitSync(input: { window: Page; credentials: Re
 	await test.step("拉取把远端提交快进到工作区", async () => {
 		await expect(pullButton).toBeEnabled({ timeout: timeoutMs });
 		await pullButton.click();
+		// 同步文案只陈述已确认的完成事实（已获取/已推送/已拉取），不再报快进/合并等细节
+		// （见 RemoteGitPanel.syncNoticeText 上的决策注释）；快进这个「效果」由下面两条断言证明。
 		await expect(message).toContainText("已拉取", { timeout: timeoutMs });
-		await expect(message).toContainText("快进");
 		expect(await command("cat incoming.txt")).toBe("FROM THE OTHER SIDE\n");
 		expect((await git("rev-parse HEAD")).trim()).toBe(await remoteHead());
 	});
