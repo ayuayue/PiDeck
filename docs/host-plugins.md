@@ -135,7 +135,7 @@
 
 | 源 | 来源与顺序 | 卡片标记 |
 | --- | --- | --- |
-| 官方收录 | GitHub raw 的 `registry.json`（失败自动回退 AtomGit API raw）；人工核对过 manifest 与权限，支持 `repo` + `ref` + `subpath` 精确到子目录，可一仓多插件；`atomgitRepo` 声明镜像仓库，安装时可切 AtomGit 下载源 | 官方收录 |
+| 官方收录 | GitHub raw 的 `registry.json`（失败自动回退 AtomGit API raw；镜像仓库 <https://atomgit.com/ayuayue/pideck-plugins>）；人工核对过 manifest 与权限，支持 `repo` + `ref` + `subpath` 精确到子目录，可一仓多插件；`atomgitRepo` 声明镜像仓库，安装时可切 AtomGit 下载源 | 官方收录 |
 | 社区 | GitHub `topic:pideck-plugin`，按星标倒序，排除 fork/归档，**只认仓库根**的 `pideck-plugin.json` | 社区 · 未审阅 |
 
 - 安装复用 `hostPluginsInstallGitHub`：主进程按 host 分派 `downloadGitHubPlugin` / `downloadAtomGitPlugin`，文件集交给 `installFiles`，所以市场拿不到任何额外能力：装完仍是禁用 + 需授权，指纹链路与手工安装完全相同。官方收录在市场里可切 GitHub / AtomGit 下载源（`atomgitUrl` 只在 registry 条目声明了 `atomgitRepo` 时出现）。
@@ -172,4 +172,4 @@
 
 - 网络回归：`node --test tests/hostPluginNetwork.test.mjs tests/hostPluginNetworkTransport.test.mjs tests/hostPluginNetworkUi.test.mjs tests/hostPluginNetworkDemo.test.mjs`（策略/撤权、真实 hop 的替身 socket、授权展示、静态 demo；不启动服务或连接真实接口）。
 - 回归测试：`node --test tests/hostPlugins.test.mjs`（manifest/授权/隔离视图/预算/跨项目 fork/撤销提交）、`node --test tests/hostPluginScaffold.test.mjs`（脚手架产物与新增 API 面）、`node --test tests/hostPluginDirectoryInstall.test.mjs`（目录安装）、`node --test tests/hostPluginArchive.test.mjs`（归档）、`node --test tests/hostPluginMarket.test.mjs`（双源搜索/去重/单源降级/缓存/registry 解析/AtomGit 索引回退）、`node --test tests/hostPluginAtomGit.test.mjs`（AtomGit 链接/文件列表/包根/预算/raw 下载）、`node --test tests/exampleHostPlugins.test.mjs`（示例包的出厂契约与能力面登记）、`node --test tests/piContextHostAdapter.test.mjs`（转换器）。
-- 主进程模块在 `src/main/plugins/`（含 `hostPluginScaffold.ts` / `hostPluginGitHub.ts` / `hostPluginAtomGit.ts` / `hostPluginPackage.ts` / `hostPluginMarket.ts`）；IPC 入口 `src/main/ipc/hostPluginsIpc.ts`；共享契约 `src/shared/types/hostPlugin.ts`；preload 白名单 `src/preload/hostPlugin.ts`。面向插件作者的完整文档是 `docs/host-plugin-dev-guide.md`（同一份文件同步上官网 `/guide/host-plugins`）；插件模板与收录仓库是 [ayuayue/pideck-plugins](https://github.com/ayuayue/pideck-plugins)。
+- 主进程模块在 `src/main/plugins/`（含 `hostPluginScaffold.ts` / `hostPluginGitHub.ts` / `hostPluginAtomGit.ts` / `hostPluginPackage.ts` / `hostPluginMarket.ts`）；IPC 入口 `src/main/ipc/hostPluginsIpc.ts`；共享契约 `src/shared/types/hostPlugin.ts`；preload 白名单 `src/preload/hostPlugin.ts`。面向插件作者的完整文档是 `docs/host-plugin-dev-guide.md`（同一份文件同步上官网 `/guide/host-plugins`）；插件模板与收录仓库是 [ayuayue/pideck-plugins](https://github.com/ayuayue/pideck-plugins)（AtomGit 镜像：<https://atomgit.com/ayuayue/pideck-plugins>）。
