@@ -5171,7 +5171,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"settings.contentWidthPct": "Chat Content Width",
 	"settings.contentWidthPctDesc": "Messages, composer and queued prompts share the same width. 100% is nearly full pane (12px minimum inset).",
 	"settings.sessionStatusPlacement": "Session status placement",
-	"settings.sessionStatusPlacementDesc": 'Where to show to-dos, changed files and subagents. With "Right sidebar", the matching strips above the composer hide while the sidebar panel is expanded and come back when the sidebar closes. Takes effect after saving.',
+	"settings.sessionStatusPlacementDesc": 'Where to show to-dos and subagents. With "Right sidebar", they only appear in the right sidebar and no longer above the composer; whether the sidebar panel is expanded or collapsed is up to you and is remembered. Takes effect after saving.',
 	"settings.sessionStatusPlacementSidebar": "Right sidebar",
 	"settings.sessionStatusPlacementComposer": "Above composer",
 	"settings.theme": "Theme",

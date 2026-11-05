@@ -5149,7 +5149,7 @@ export const zhCN = {
 	"settings.contentWidthPct": "聊天内容宽度",
 	"settings.contentWidthPctDesc": "消息、输入框与待发送共用同一宽度。100% 接近全宽（仍留 12px 边距）。",
 	"settings.sessionStatusPlacement": "会话状态位置",
-	"settings.sessionStatusPlacementDesc": "待办、修改文件、子代理显示在哪里。选「右侧边栏」时，侧栏面板展开期间输入框上方的同类横栏会隐藏，关闭侧栏后恢复；保存后生效。",
+	"settings.sessionStatusPlacementDesc": "待办与子代理显示在哪里。选「右侧边栏」时只在右侧边栏出现，输入框上方不再显示；侧栏下半区是展开还是收起由你决定并会记住。保存后生效。",
 	"settings.sessionStatusPlacementSidebar": "右侧边栏",
 	"settings.sessionStatusPlacementComposer": "输入框上方",
 	"settings.theme": "主题",

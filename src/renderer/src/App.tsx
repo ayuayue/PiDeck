@@ -150,6 +150,7 @@ import {
 	requestSidebarRevealProjectAtom,
 	replaceProjectInventoryAtom,
 	replaceProjectSessionsAtom,
+	sessionStatusInSidebarAtom,
 	sessionRecordByIdAtomFamily,
 	sessionRecordsByProjectIdAtomFamily,
 	sessionIdByRuntimeAgentIdAtomFamily,
@@ -3159,6 +3160,11 @@ export function App() {
 	const simpleMode = settings.navigationMode === "simple";
 	// 会话状态显示位置：首屏设置未拉到 / 预览环境缺字段时按默认值处理
 	const sessionStatusPlacement = parseSessionStatusPlacement(settings.sessionStatusPlacement);
+	// 输入框上方的待办/子代理横栏只看设置：选「右侧边栏」就始终让位，与面板此刻展开还是收起无关。
+	const setSessionStatusInSidebar = useSetAtom(sessionStatusInSidebarAtom);
+	useEffect(() => {
+		setSessionStatusInSidebar(placementShowsSidebarPanel(sessionStatusPlacement));
+	}, [sessionStatusPlacement, setSessionStatusInSidebar]);
 	const [simpleContentExpanded, setSimpleContentExpanded] = useState(false);
 	useEffect(() => setSimpleContentExpanded(false), [activeTabId, gitDrawerDiff?.filePath, simpleMode]);
 	const workbenchLayout = simpleMode ? (simpleContentExpanded ? "maximize" : "split") : workbenchHasGitDiff ? gitDiffDisplayMode : editorMode;

@@ -10,8 +10,8 @@ import { StatusSubagentsTab, StatusTabBar, StatusTodoTab } from "./StatusTabs";
 import { todoProgressBadge } from "./sessionStatusPanelModel";
 
 /**
- * 面板展开且有会话时的主体。数据 hook 只在这里运行：收起或抽屉关闭时不拉取，
- * 此时输入框上方的折叠条已恢复显示，避免两处重复拉取（DSH 子代理 3s 轮询等）。
+ * 面板展开且有会话时的主体。数据 hook 只在这里与收起态的 CollapsedStatusBar 里运行：
+ * 抽屉关闭时不拉取，展开/收起两态各只跑一份，避免两处重复拉取（DSH 子代理 3s 轮询等）。
  *
  * 2027-02 移除 files tab：文件修改改由每轮末尾的 chip 行（turn/TurnFileChanges）
  * 在轮次上下文里展示，面板不再拉取任何文件修改数据。

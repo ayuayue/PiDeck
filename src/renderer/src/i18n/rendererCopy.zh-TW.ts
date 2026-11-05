@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 32692dab772a041988642db78989c52f52d6120ec600ccd6dd787e3c2c11600c（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 4f698d1c8d49ca3eb5901318816ba2f7d8a1dd09dd423e088058d6af383444d7（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -5156,7 +5156,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.contentWidthPct": "聊天內容寬度",
 	"settings.contentWidthPctDesc": "訊息、輸入框與待發送共用同一寬度。100% 接近全寬（仍留 12px 邊距）。",
 	"settings.sessionStatusPlacement": "會話狀態位置",
-	"settings.sessionStatusPlacementDesc": "待辦、修改檔案、子代理顯示在哪裡。選「右側邊欄」時，側欄面板展開期間輸入框上方的同類橫欄會隱藏，關閉側欄後恢復；儲存後生效。",
+	"settings.sessionStatusPlacementDesc": "待辦與子代理顯示在哪裡。選「右側邊欄」時只在右側邊欄出現，輸入框上方不再顯示；側欄下半區是展開還是收起由你決定並會記住。儲存後生效。",
 	"settings.sessionStatusPlacementSidebar": "右側邊欄",
 	"settings.sessionStatusPlacementComposer": "輸入框上方",
 	"settings.theme": "主題",

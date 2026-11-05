@@ -28,7 +28,6 @@ test("删除会话后：composer / 命令表 / outline / 侧栏状态等 family 
 		["sessionSendStateBySessionIdAtomFamily", atoms.sessionSendStateBySessionIdAtomFamily],
 		["sessionCommandsAtomFamily", atoms.sessionCommandsAtomFamily],
 		["outlineItemsBySessionIdAtomFamily", atoms.outlineItemsBySessionIdAtomFamily],
-		["sessionStatusInSidebarAtomFamily", atoms.sessionStatusInSidebarAtomFamily],
 		["sessionRuntimeUiBySessionIdAtomFamily", atoms.sessionRuntimeUiBySessionIdAtomFamily],
 		["sessionHistoryMutationOverlayBySessionIdAtomFamily", atoms.sessionHistoryMutationOverlayBySessionIdAtomFamily],
 		["sessionRecordByIdAtomFamily", atoms.sessionRecordByIdAtomFamily],

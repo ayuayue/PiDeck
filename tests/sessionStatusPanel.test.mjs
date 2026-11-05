@@ -8,15 +8,16 @@ const content = readFileSync(`${dir}/SessionStatusContent.tsx`, "utf8");
 const tabs = readFileSync(`${dir}/StatusTabs.tsx`, "utf8");
 const KEYS = ["title", "tab.todo", "tab.subagents", "collapse", "expand", "expandBlocked", "resizeHandle", "noSession", "subagentsRunning"];
 
-test("面板只在「抽屉打开且下半区展开且有会话」时占用会话，清理时只释放自己", () => {
+test("面板只在「抽屉打开且有会话」时占用下半区，与是否收起无关", () => {
 	assert.match(panel, /stack\.open && !stack\.collapsed/);
-	assert.match(panel, /rightSidebarStatusSessionIdAtom/);
-	assert.match(panel, /current === sessionId \? null : current/);
+	// 横栏的显隐只由设置决定，面板不再写任何「正在展示谁」的 atom
+	assert.doesNotMatch(panel, /rightSidebarStatusSessionIdAtom/);
+	assert.doesNotMatch(panel, /use(?:AtomValue|SetAtom)\(sessionStatusInSidebarAtom/);
 	assert.match(panel, /if \(!stack\.open\) return null;/);
-	// 设置只有 sidebar / composer 二选一：面板挂上即独占，不再有「两处并存」的参数分支
-	assert.match(panel, /if \(!visible \|\| !sessionId\) return;/);
-	assert.match(panel, /\[visible, sessionId, setStatusSessionId\]/);
-	assert.doesNotMatch(panel, /hideComposerStrips/);
+	// 收起态仍要带待办进度与子代理计数，否则收起后信息无处可看
+	assert.match(panel, /function CollapsedStatusBar/);
+	assert.match(panel, /todoProgressBadge\(todoItems\)/);
+	assert.match(panel, /subagentsRunning: subagents\.running/);
 });
 
 test("数据复用折叠条同源 hook，不含已移除的文件 tab 数据源", () => {
@@ -45,10 +46,10 @@ test("三语 i18n 同步新增 sessionStatus.* 文案", () => {
 	}
 });
 
-test("SessionView/SessionStartSurface：面板可见时只隐藏待办/子代理两条（文件条已搬到轮末）", () => {
+test("SessionView/SessionStartSurface：只看设置就隐藏待办/子代理两条（文件条已搬到轮末）", () => {
 	const view = readFileSync("src/renderer/src/components/session/SessionView.tsx", "utf8");
 	const start = readFileSync("src/renderer/src/components/session/SessionStartSurface.tsx", "utf8");
-	assert.match(view, /sessionStatusInSidebarAtomFamily\(sessionId\)/);
+	assert.match(view, /const statusInSidebar = useAtomValue\(sessionStatusInSidebarAtom\);/);
 	assert.match(view, /\{!statusInSidebar && <SessionTodoStrip sessionId=\{sessionId\} \/>\}/);
 	assert.match(view, /\{!statusInSidebar && <SessionSubagentsStrip /);
 	assert.match(view, /<SessionQueuedMessagesStrip sessionId=\{sessionId\} \/>\n/);
@@ -59,12 +60,15 @@ test("SessionView/SessionStartSurface：面板可见时只隐藏待办/子代理
 	// 「修改的文件」已改为每轮末尾的 chip 行（turn/TurnFileChanges），两侧都不再挂文件条
 	assert.doesNotMatch(view, /SessionFilesStrip/);
 	assert.doesNotMatch(start, /SessionFilesStrip/);
-	assert.match(start, /sessionStatusInSidebarAtomFamily\(props\.sessionId\)/);
+	assert.match(start, /const statusInSidebar = useAtomValue\(sessionStatusInSidebarAtom\);/);
+	assert.doesNotMatch(view + start, /sessionStatusInSidebarAtomFamily/);
 	assert.match(start, /\{!statusInSidebar && <SessionTodoStrip sessionId=\{props\.sessionId\} \/>\}/);
 });
 
 test("App 按显示位置装配 drawerFooter：只有 sidebar 挂下半区，composer 时右侧边栏保持单区抽屉", () => {
 	const app = readFileSync("src/renderer/src/App.tsx", "utf8");
 	assert.match(app, /const sessionStatusPlacement = parseSessionStatusPlacement\(settings\.sessionStatusPlacement\);/);
+	// 横栏显隐的真值来自设置：写入 atom 后与面板展开/收起解耦
+	assert.match(app, /setSessionStatusInSidebar\(placementShowsSidebarPanel\(sessionStatusPlacement\)\)/);
 	assert.match(app, /drawerFooter=\{\s*placementShowsSidebarPanel\(sessionStatusPlacement\) \? \(\s*<SessionPaneServicesProvider value=\{sessionPaneServices\}>\s*<SessionStatusPanel sessionId=\{currentSessionId\} \/>\s*<\/SessionPaneServicesProvider>\s*\) : undefined\s*\}/);
 });
