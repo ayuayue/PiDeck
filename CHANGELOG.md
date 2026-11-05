@@ -19,7 +19,7 @@ PiDeck grows from managing pi sessions into a workbench for several backends and
 - **Session Groups plugin 3.1.0** — creating a group can expand a directory and tick only a few sessions (the directory still joins the scope), with session rows lazily loaded 20 at a time; update it from the plugin market.
 
 ### ✨ Improvements
-- **Queued messages support Send Immediately** — while ACP is busy the current turn is stopped first and that message goes out at the top of the queue, instead of Stop → Withdraw → Resend.
+- **Queued messages support Send Immediately** — while ACP is busy the current turn is stopped first and that message goes out at the top of the queue, instead of Stop → Withdraw → Resend; under ACP it takes over the former Add to Current Turn slot, so three delivery buttons no longer sit side by side.
 - **MCP connections list their tool names** — the details panel shows a tool tag list and the row's tool count reveals the names on hover, so exposure can be configured per tool.
 - **Filename search results group into a tree by directory** — the directory holding most hits is obvious at a glance instead of a column of repeated long paths.
 - **The file panel regains common actions** — the reader gets Reload (confirming first when there are unsaved changes), the file tree's right-click menu restores New File / New Folder, and Ctrl+F opens editor search from any focused element.
@@ -31,10 +31,13 @@ PiDeck grows from managing pi sessions into a workbench for several backends and
 - **ACP history and replay catch up** — history can be paginated, and replay is delivered in per-turn windows (a 1076-message / 4.2 MB full replay no longer floods the renderer in a single frame).
 - **ACP turns tolerate jitter** — failed turns retry automatically and dropped connections reconnect in place; stopping gives the agent a graceful-exit window, and closing the panel or idle reclamation walks the same path.
 - **WSL settings take effect immediately** — saving hot-switches source / distribution / user without a restart, and pi detection, self-update, the extension flow and the command source panel all follow the WSL settings.
-- **Input and footer details** — the send keycap and editor submit follow the Send Shortcut setting, very long model names no longer break the footer, and session titles stop treating thinking text as the body.
+- **Input and footer details** — the send keycap and editor submit follow the Send Shortcut setting, very long model names no longer break the footer, session titles stop treating thinking text as the body, and the turn-end file chips shrink to 22px with a lighter background.
 - **Release chain hardening** — the Release workflow's final step now forces the `latest` pointer forward and asserts it, preventing "CI is green but existing clients never see the update", and a long-held `app.asar` is replaced by in-place overwrite.
 - **Environment resolution fixes** — on macOS the Homebrew directory now precedes the inherited PATH (#484), and under a mise shim the pi SDK entry resolves, so prediction / enhancement / login no longer report sdk-unavailable.
 - **Synced with pi-ai 1.5.0** — the bundled model catalog moves to 1.5.0 (1,712 models), so newly released models appear in the picker.
+- **Visual compat editing for models** — each model row gains a Compatibility dialog with 7 boolean keys in three states (follow / on / off); provider-level keys act as defaults that a model overrides key by key, the catalog offers official suggestions with one-click apply, and hand-written non-managed keys are preserved, so `models.json` no longer has to be edited by hand.
+- **A newly added project is revealed in place** — adding a project switches to the Projects section, clears any sidebar search that would filter the row out, and scrolls to it (expanding the parent first for worktree children), with a Project Added notice.
+- **Sidebar counts no longer read as dates** — recent-session sections say All N / Showing first N, and the counts on Load More / View More sit inline right after the verb instead of next to the time column, where they read as a date or a Collapse N items control (#491).
 
 ### 🐛 Fixes
 - **Session import no longer fails wholesale on one bad line** — zero-filled disk regions are skipped and malformed lines have control characters escaped and are logged as warnings with index / offset / byteLength.
@@ -61,6 +64,8 @@ PiDeck grows from managing pi sessions into a workbench for several backends and
 - **Reference-image upload returns to image-generation mode** — the + menu offers image selection, and dropped images go through the attachment bar; compression and the 10 MB per-image / 32 MB per-session budget match the paste path.
 - **Host plugins are now always user-installed** — nothing is seeded from the app bundle, stale seeded fields are ignored, and uninstall revokes the grant, deletes the folder and its private storage instead of failing with plugin-builtin.
 - **Switching sessions no longer crashes on hook order** — usePacedAtomValue keeps hook calls in the same order across atom switches, avoiding React #310.
+- **Binding a session no longer flings an active session into Recent and back** — binding keeps the project id / cwd / createdAt (backfilled from the catalog on first bind), so the sidebar no longer jumps across sections (#492).
+- **Quitting no longer leaves a catalog lock behind** — before-quit gains a seal-then-drain cleanup task (waiting for the write queue and the startup normalization writes) ordered last, so the next launch no longer hits `SESSION_CATALOG_BUSY`.
 
 ## v0.9.9 (2026-10-30)
 
