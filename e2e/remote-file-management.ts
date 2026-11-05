@@ -114,7 +114,7 @@ export async function verifyRemoteFileManagement(input: { window: Page; credenti
 
 	await test.step("新建单层目录 docs → 远端真实存在，且不递归创建父链", async () => {
 		await createEntry(window, "directory", "docs");
-		expect(await entry("docs")).toBe(true);
+		await expect.poll(() => entry("docs"), { timeout: timeoutMs }).toBe(true);
 		expect(await remoteTest(credentials, "test -d " + q(remote("docs")) + " && echo DIR")).toBe("DIR");
 		// 父链不被 -p 创建：在缺失父目录下新建文件必须失败并保留弹框（稳定码呈现）。
 		await window.getByRole("button", { name: "docs", exact: true }).first().click();
@@ -125,15 +125,15 @@ export async function verifyRemoteFileManagement(input: { window: Page; credenti
 
 	await test.step("新建 0 字节文件 docs/notes.txt → 远端普通文件且 size=0", async () => {
 		await createEntry(window, "file", "notes.txt");
-		expect(await entry("docs/notes.txt")).toBe(true);
+		await expect.poll(() => entry("docs/notes.txt"), { timeout: timeoutMs }).toBe(true);
 		expect(Number(await remoteTest(credentials, "stat -c %s " + q(remote("docs/notes.txt"))))).toBe(0);
 		expect(await remoteTest(credentials, "test -f " + q(remote("docs/notes.txt")) + " && echo FILE")).toBe("FILE");
 	});
 
 	await test.step("同目录重命名 notes.txt → notes.bin → 远端旧名消失、新名存在", async () => {
 		await renameEntry(window, "notes.txt", "docs/notes.bin");
-		expect(await entry("docs/notes.txt")).toBe(false);
-		expect(await entry("docs/notes.bin")).toBe(true);
+		await expect.poll(() => entry("docs/notes.txt"), { timeout: timeoutMs }).toBe(false);
+		await expect.poll(() => entry("docs/notes.bin"), { timeout: timeoutMs }).toBe(true);
 	});
 
 	await test.step("跨目录移动 docs/notes.bin → 根 notes.bin → 远端只剩根路径", async () => {
@@ -148,7 +148,7 @@ export async function verifyRemoteFileManagement(input: { window: Page; credenti
 		await deleteEntry(window, "notes.bin");
 		await toggleTrash(window);
 		await expect(window.getByTestId("remote-trash-row").filter({ hasText: "notes.bin" })).toBeVisible();
-		expect(await entry("notes.bin")).toBe(false);
+		await expect.poll(() => entry("notes.bin"), { timeout: timeoutMs }).toBe(false);
 		const manifest = await remoteTest(credentials, "cat " + q(remote(".pideck-trash")) + "/*/entry.json");
 		expect(manifest).toContain('"schemaVersion":1');
 		expect(manifest).toContain('"originalPath":"notes.bin"');
@@ -158,7 +158,7 @@ export async function verifyRemoteFileManagement(input: { window: Page; credenti
 	await test.step("还原回收站条目 → 文件按原内容/权限回到原路径，回收站行消失", async () => {
 		await window.getByTestId("remote-trash-row").filter({ hasText: "notes.bin" }).getByTestId("remote-trash-restore").click();
 		await expect(window.getByTestId("remote-trash-row")).toHaveCount(0, { timeout: timeoutMs });
-		expect(await entry("notes.bin")).toBe(true);
+		await expect.poll(() => entry("notes.bin"), { timeout: timeoutMs }).toBe(true);
 		expect(await remoteTest(credentials, "stat -c %s " + q(remote("notes.bin")))).toBe("0");
 	});
 
@@ -169,7 +169,9 @@ export async function verifyRemoteFileManagement(input: { window: Page; credenti
 		await createEntry(window, "file", "deep.txt");
 		await window.getByRole("button", { name: "/", exact: true }).click();
 		await deleteEntry(window, "tree");
-		expect(await entry("tree")).toBe(false);
+		// 删除是异步写：弹框关闭 ≠ 远端已完成（回执可能晚于 UI）。断言改成有界等到「远端真的没有」，
+		// 真失败仍会在预算内报红，只是不再把「还没写完」记成「没删掉」。
+		await expect.poll(() => entry("tree"), { timeout: timeoutMs, message: "删除目录后远端不应再存在 tree" }).toBe(false);
 		expect(await entry(".pideck-trash/tree")).toBe(false);
 		await expect(window.getByTestId("remote-trash-row").filter({ hasText: "tree" })).toBeVisible();
 	});
@@ -186,16 +188,16 @@ export async function verifyRemoteFileManagement(input: { window: Page; credenti
 	await test.step("删除后同名再建（无覆盖语义的 create-only）→ 新文件存在且 size 仍为 0", async () => {
 		// 上一步还原让 notes.bin 回到了根；先再次删除，同名 create 才能证明「只创建、绝不覆盖」。
 		await deleteEntry(window, "notes.bin");
-		expect(await entry("notes.bin")).toBe(false);
+		await expect.poll(() => entry("notes.bin"), { timeout: timeoutMs }).toBe(false);
 		await createEntry(window, "file", "notes.bin");
-		expect(await entry("notes.bin")).toBe(true);
+		await expect.poll(() => entry("notes.bin"), { timeout: timeoutMs }).toBe(true);
 		expect(await remoteTest(credentials, "stat -c %s " + q(remote("notes.bin")))).toBe("0");
 	});
 
 	await test.step("显式刷新后目录状态一致（无自动轮询/后台刷新）", async () => {
 		await window.getByRole("button", { name: "刷新", exact: true }).first().click();
 		await expect(entryRow(window, "notes.bin")).toHaveCount(1);
-		expect(await entry("notes.bin")).toBe(true);
+		await expect.poll(() => entry("notes.bin"), { timeout: timeoutMs }).toBe(true);
 	});
 
 	await testInfo.attach("remote-file-management-proof", {
