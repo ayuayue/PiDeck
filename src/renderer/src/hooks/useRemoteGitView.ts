@@ -185,6 +185,8 @@ export function useRemoteGitView(project: RemoteProject, repoPath = "") {
 		// Returning the promise lets an explicit refresh gesture sequence the sync-facts read after the snapshot
 		// read; the snapshot update replaces the whole state and would wipe facts read concurrently.
 		refresh: (force = false): Promise<void> => controller.current?.refresh(force) ?? Promise.resolve(),
+		// 本机事实（host/root/trust）没有推送事件：信任决策后由调用方显式重采，能力表才会重新判定。
+		refreshFacts: (): Promise<void> => services.refresh(),
 		openDiff: (group: Parameters<NonNullable<typeof controller.current>["openDiff"]>[0], target: Parameters<NonNullable<typeof controller.current>["openDiff"]>[1]) => {
 			void controller.current?.openDiff(group, target);
 		},

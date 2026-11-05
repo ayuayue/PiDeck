@@ -83,6 +83,7 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 		pollRefs,
 		stopRefsPolling,
 		hostReady,
+		refreshFacts,
 	} = useRemoteGitView(project, repoPath);
 	const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
 	const [message, setMessage] = useState("");
@@ -107,8 +108,12 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 	// An explicit refresh is the user gesture that re-reads both the repository facts and the remote chain: the sync
 	// facts never reload on their own, so nothing can move the rows below this bar without the user asking for it.
 	const refreshAll = () => {
-		// Without the pure-fact force refresh this degrades to an ordinary read instead of disabling the gesture.
-		if (!capabilities.read) return;
+		// trust 决策在主进程没有推送事件：读面被 trust 能力关着时，唯一能让面板重新打开的动作就是
+		// 让 runtime 重采 host/root/trust 事实；否则点完「信任此项目」仍停在同一条 blocked 文案上（真机 G1 复现）。
+		if (!capabilities.read) {
+			void refreshFacts();
+			return;
+		}
 		// The snapshot read rebuilds the view state and drops the sync facts: read them only after it settles, or a
 		// fast facts answer can be wiped by the snapshot and the bar sits on "loading" forever (G5b regression run).
 		void refresh(capabilities.forceRefresh).then(() => loadSync());
@@ -156,6 +161,9 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 	// A blocked read carries its stable reason instead of an error code: explain it with the same dictionary key the
 	// capability banner uses, and never invent copy for a code the dictionary does not know.
 	const blockedReasonKey = state.blockedReason === undefined ? undefined : gitCapabilityReasonKey(state.blockedReason);
+	// 能力层把「未授权」报成 blocked reason（PROJECT_SERVICE_CAPABILITY_TRUST_*）而不是 errorCode：
+	// 授权入口必须跟着这个口径一起出现，否则面板只有一段说明、没有任何可点的出口。
+	const trustBlocked = blockedReasonKey === "remoteGit.trustRequired";
 	// Expanding a section is the user action that loads it; an error stays until the header is clicked again.
 	// Every on-demand load is gated first: a closed capability must not send a request at all.
 	useEffect(() => {
@@ -299,11 +307,11 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 			{state.errorCode ? <GitInlineErrorNotice message={nested && state.errorCode === "GIT_NOT_REPOSITORY" ? t("remoteGit.repoNotFound") : remoteGitErrorMessage(state.errorCode)} testId={!nested && state.errorCode === "GIT_NOT_REPOSITORY" ? "remote-git-not-repository" : undefined} className="p-3 text-danger" /> : null}
 			{/* A blocked read publishes a stable reason, not an error: explain it with the shared dictionary key. */}
 			{blockedReasonKey !== undefined ? (
-				<p data-testid="remote-git-blocked" role="status" className="px-3 py-2 text-xs text-text-secondary">
+				<p data-testid="remote-git-blocked" role={trustBlocked ? "alert" : "status"} className="px-3 py-2 text-xs text-text-secondary">
 					{t(blockedReasonKey)}
 				</p>
 			) : null}
-			{state.errorCode === "GIT_TRUST_REQUIRED" ? <RemoteGitTrustGate project={project} onApproved={refreshAll} /> : null}
+			{state.errorCode === "GIT_TRUST_REQUIRED" || trustBlocked ? <RemoteGitTrustGate project={project} onApproved={refreshAll} /> : null}
 			{/* G5c: a confirmed non-repository gets one explicit, inline-confirmed init action at the project root; nested
 			    scopes never do, and a closed init capability never offers the write at all. */}
 			{!nested && (state.errorCode === "GIT_NOT_REPOSITORY" || state.initializing || state.initNotice !== undefined) && capabilities.init ? (
