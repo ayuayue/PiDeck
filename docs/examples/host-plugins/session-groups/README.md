@@ -7,7 +7,7 @@
 ## 功能
 
 - **工作区范围**：页头显示「全部项目」与「N 个会话 · M 个目录 · K 个分组」，跨项目的会话可同组
-- **按目录建组**：新建分组时直接勾目录（可全选/清空，可多选），选中的目录会成为分组的**目录范围**，目录里所有会话自动入组；提示会显示将加入多少会话
+- **建组时选目录或会话**：新建分组时直接勾目录（可全选/清空，可多选），目录里所有会话自动入组；目录行还能展开成会话列表，只挑其中几个也行（勾了会话的目录仍会记入范围）。弹层顶部可按标题搜索，命中的目录自动展开；展开后每批只渲染 20 条，点「显示更多」追加下一批；提示会显示将加入多少会话
 - **目录范围（限制）**：分组可以只收某几个目录的会话，避免一堆无关目录的会话堆进同一个组。卡片上显示范围（如 `T6`、`pi-desktop +1`），悬停看完整路径；分组头「⋯」菜单里的「编辑目录范围」可收窄范围（范围外的会话移出本组，会话本身不删），「按目录补齐」把范围内还没进来的会话一次补进来；范围为空表示不限目录
 - **添加时可越界**：添加弹层默认只列范围内的目录，可临时切「显示全部目录」；勾了范围外的会话，那个目录会自动并入本组范围（保证组内会话都属于组范围）
 - **按目录分节**：添加会话弹层按目录分节，每节可「全选/清空」；行上显示更新时间与已在的其他分组
@@ -26,7 +26,7 @@
 ## 权限
 
 ```json
-"permissions": ["sessions.read", "sessions.read.workspace", "workbench.navigate"]
+"permissions": ["sessions.read", "sessions.read.workspace", "workbench.navigate", "sessionGroups.manage"]
 ```
 
 - `sessions.read`：只读会话目录与元信息（不读历史正文）。
@@ -61,13 +61,14 @@
 - v1.6.0 → v2.0.0 新增了 `sessions.read.workspace` 权限，包的指纹变了：升级后需要在设置里重新授权一次。
 - v2.1.0 / v2.1.1 只改界面与分页，未新增权限，但内容变了仍需重新授权。
 - **v3.0.0 新增 `sessionGroups.manage` 权限**（分组数据搬到宿主 store，侧栏分组树实时同步）：指纹变化，升级后需要在设置里重新授权一次。
+- **v3.1.0 只改新建分组弹层**（目录下钻勾选会话 + 标题搜索），未新增权限；内容变了仍需重新授权一次。
 - 样式 token 由宿主 `hostPluginTokens.ts` 的 `HOST_PLUGIN_THEME_TOKENS` 注入（颜色 / 圆角 / 阴影 / 控件高度 / 字号 / 字体）；新增 token 需同步 `docs/host-plugin-dev-guide.md` §5.7。
 
 ## 改这个插件
 
 - 目录身份优先用宿主给的 `session.directory`（项目根目录），缺失时退回 `name:<项目名>` / `project:<id>` / `unknown`；改这里要同步 `dirKeyOf()` 与存储里的 `dirs`。
 - 只在本目录改：`app.js` / `styles.css` / `app.html`，然后 设置 → PiDeck 插件 → 重新扫描 → 授权并启用（授权绑定整包文件指纹，内容一变就要重新批准）。
-- 想同步上游：以上游仓库的 `session-groups/` 为数据源，复制这 4 个文件（`pideck-plugin.json` / `app.html` / `app.js` / `styles.css`），**不要**整个仓库覆盖过来（上游还带别的插件与主题文件）。本目录的工作区范围改造与上游分叉，同步时注意保留 `sessions.read.workspace` 与 v2 存储布局。
+- 想同步上游：以上游仓库的 `session-groups/` 为数据源，复制这 4 个文件（`pideck-plugin.json` / `app.html` / `app.js` / `styles.css`），**不要**整个仓库覆盖过来（上游还带别的插件与主题文件）。本目录的工作区范围改造、创建弹层的「目录下钻勾会话」与上游分叉，同步时注意保留 `sessions.read.workspace`、`sessionGroups.manage` 与 v2 存储布局。
 - 想调样式可在普通浏览器里把 `app.html` 的 `<script>` 换成假的 `window.pideck`（见 `docs/host-plugin-dev-guide.md`）。
 - 约束：只用 `window.pideck`（context / sessions / storage / workbench / onEvent），不用 `innerHTML` 渲染动态文本，不联网。
 
