@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 4c7d64ad6928ada2b50fb2799899156ed5d0c7cfdf5140e07e6ca42986fe1edc（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 4f698d1c8d49ca3eb5901318816ba2f7d8a1dd09dd423e088058d6af383444d7（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -1145,7 +1145,6 @@ export const zhTW: Record<TranslationKey, string> = {
 	"app.sendSteerDesc": "steer · 下一次 LLM 呼叫前生效",
 	"app.sendSteerTitle": "加入當前回合",
 	"app.queuedSteerUnavailable": "僅執行中可插入當前回合",
-	"app.queuedSteerBackendUnsupported": "該會話的 agent 不支援插入當前回合（ACP 協議無 steer 通道）",
 	"app.queuedBehaviorLocked": "傳送中或結果未知時不能改投遞方式",
 	"app.queuedSendNow": "立即傳送",
 	"app.queuedSendNowStopTurn": "立即傳送（會先停止當前回合）",
@@ -5157,7 +5156,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.contentWidthPct": "聊天內容寬度",
 	"settings.contentWidthPctDesc": "訊息、輸入框與待發送共用同一寬度。100% 接近全寬（仍留 12px 邊距）。",
 	"settings.sessionStatusPlacement": "會話狀態位置",
-	"settings.sessionStatusPlacementDesc": "待辦、修改檔案、子代理顯示在哪裡。選「右側邊欄」時，側欄面板展開期間輸入框上方的同類橫欄會隱藏，關閉側欄後恢復；儲存後生效。",
+	"settings.sessionStatusPlacementDesc": "待辦與子代理顯示在哪裡。選「右側邊欄」時只在右側邊欄出現，輸入框上方不再顯示；側欄下半區是展開還是收起由你決定並會記住。儲存後生效。",
 	"settings.sessionStatusPlacementSidebar": "右側邊欄",
 	"settings.sessionStatusPlacementComposer": "輸入框上方",
 	"settings.theme": "主題",
@@ -5187,6 +5186,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.palette.seaBlueDesc": "海藍冷調表面 + 藍色主色，清爽通透。",
 	"settings.palette.warmBeige": "暖陽米",
 	"settings.palette.warmBeigeDesc": "暖米紙感表面 + 琥珀主色，柔和護眼。",
+	"settings.palette.parchment": "羊皮紙",
+	"settings.palette.parchmentDesc": "暖紙面 + 赤陶土主色，墨色文字帶一點襯線氣質。",
 	"settings.palette.tui": "終端（TUI）",
 	"settings.palette.tuiDesc": "移植 pi 終端主題色板：灰底 + 黃標題 + 藍連結 + 紫行內碼，程式碼與表格走終端配色。配「終端」樣式即是完整的 pi 介面。",
 	"settings.palette.custom": "自定義",
@@ -5603,7 +5604,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.floatingBallExpandCompact": "小任務模式",
 	"settings.cuaSectionDesc": "允許 Agent 觀察螢幕並注入滑鼠/鍵盤輸入，從而操作桌面原生應用。CUA 預設關閉，自動審批預設開啟；可關閉自動審批以逐次確認寫操作。",
 	"settings.agentMemorySection": "智慧體記憶",
-	"settings.agentMemorySectionDesc": "跨 pi / DSH / ACP 共享的長期記憶。Markdown 檔案是真值（使用者資料目錄下的 memory/），檢索走本地全文索引。開啟後 PiDeck 把 pideck-agent-memory 寫進 pi 的 mcp.json，並掛給 ACP 會話；關閉只刪這一項，不改動你的其它伺服器配置。",
+	"settings.agentMemorySectionDesc": "跨 pi / ACP 會話共享的長期記憶，DSH 會話也可被 session_search 檢索到。Markdown 檔案是真值（使用者資料目錄下的 memory/），檢索走本地全文索引。開啟後 PiDeck 把 pideck-agent-memory 寫進 pi 的 mcp.json，並掛給 ACP 會話；關閉只刪這一項，不改動你的其它伺服器配置。",
 	"settings.agentMemoryEnabled": "啟用智慧體記憶",
 	"settings.agentMemoryEnabledDesc": "開啟後 Agent 才能用 memory_add / memory_replace / memory_remove / memory_search / memory_get / session_search / memory_status。只對新會話生效；關閉不會刪除已儲存的記憶檔案。",
 	"settings.agentMemoryAutoLearn": "自動學習記憶",
@@ -5613,7 +5614,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.agentMemoryKindLabel": "記憶型別",
 	"settings.agentMemoryTabMemory": "記憶",
 	"settings.agentMemoryTabFailure": "教訓",
-	"settings.agentMemoryEntriesDesc": "逐條列出所有作用域的記憶檔案：全域、專案、本機裝置都在這裡。記憶是檢索式讀取——Agent 用 memory_search / memory_get 按需查，不會整份塞進上下文。刪除會留下墓碑，舊匯出包不會把它導回來。",
+	"settings.agentMemoryEntriesDesc": "逐條列出所有作用域的記憶檔案：全域、專案、本機裝置都在這裡。列表按記錄時間混排，行首徽標標明所屬作用域；懸停徽標能看到落盤檔案與該檔案預算。記憶是檢索式讀取——Agent 用 memory_search / memory_get 按需查，不會整份塞進上下文。刪除會留下墓碑，舊匯出包不會把它導回來。",
 	"settings.agentMemorySearchPlaceholder": "搜尋記憶內容或專案名",
 	"settings.agentMemorySearchClear": "清除搜尋",
 	"settings.agentMemoryTableContent": "內容",
@@ -5631,6 +5632,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.agentMemoryGroupBudget": "{count} 條 · {chars}/{maxChars} 字 · 上限 {maxEntries} 條",
 	"settings.agentMemoryGroupPlain": "{count} 條 · {chars} 字 · 檢索時可見",
 	"settings.agentMemoryGroupOverBudget": "已超預算，下次寫入會丟最老的條目",
+	"settings.agentMemoryGroupOverBudgetShort": "超預算",
 	"settings.agentMemoryEntryChars": "{chars} 字",
 	"settings.agentMemoryDeleteEntry": "刪除這條記憶",
 	"settings.agentMemoryDeletedEntry": "已刪除「{content}」",
@@ -5654,6 +5656,9 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.agentMemoryTargetStanding": "常駐指令",
 	"settings.agentMemoryScopeGlobal": "全域",
 	"settings.agentMemoryScopeDevice": "本機裝置 · {device}",
+	"settings.agentMemoryScopeDeviceShort": "本機裝置",
+	"settings.agentMemoryScopeProject": "專案",
+	"settings.agentMemoryScopeProjectId": "專案 · {id}",
 	"settings.agentMemoryUsage": "用量與索引",
 	"settings.agentMemoryStatus": "記憶狀態",
 	"settings.agentMemorySummaryFiles": "{size} / {count} 條",

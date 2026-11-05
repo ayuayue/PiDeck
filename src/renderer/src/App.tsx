@@ -147,8 +147,10 @@ import {
 	projectInventoryAtom,
 	removeSessionComposerStateAtom,
 	removeSessionStateAtom,
+	requestSidebarRevealProjectAtom,
 	replaceProjectInventoryAtom,
 	replaceProjectSessionsAtom,
+	sessionStatusInSidebarAtom,
 	sessionRecordByIdAtomFamily,
 	sessionRecordsByProjectIdAtomFamily,
 	sessionIdByRuntimeAgentIdAtomFamily,
@@ -317,6 +319,8 @@ export function App() {
 	const openProviderLogin = useSetAtom(openProviderLoginAtom);
 	// WSL 模式下的「添加项目」：写开关即打开内置目录选择器（系统对话框读不到发行版内目录）。
 	const setWslProjectPicker = useSetAtom(wslProjectPickerAtom);
+	// 新建项目后请侧栏把新行揭示出来（切项目分段 + 滚动定位）。
+	const requestSidebarRevealProject = useSetAtom(requestSidebarRevealProjectAtom);
 	const setProjects = useSetAtom(replaceProjectInventoryAtom);
 	const applyRuntimeEvent = useSetAtom(applySessionRuntimeEventAtom);
 	const upsertSession = useSetAtom(upsertSessionAtom);
@@ -1396,7 +1400,7 @@ export function App() {
 								// 与对话框添加同一刷新链路：侧栏清单立即出现新项目（主进程广播为兜底）。
 								await refreshProjects();
 								selectProjectCommand(project.id);
-								showToast(t("app.openFolderAdded", { name: project.name }));
+								announceProjectAdded(project);
 							} catch (error) {
 								showToast(error instanceof Error ? error.message : String(error), 5000, "error");
 							} finally {
@@ -2092,6 +2096,15 @@ export function App() {
 		}
 	}
 
+	/**
+	 * 新项目入库后的统一收尾：提示「已添加」+ 请侧栏揭示新行（切到项目分段、展开、滚进可视区）。
+	 * 少了揭示这一步，停在「聊天/活动」分段的用户看到的只是原列表不变——新行根本没挂载。
+	 */
+	function announceProjectAdded(project: Project) {
+		showToast(t("app.openFolderAdded", { name: project.name }));
+		requestSidebarRevealProject(project.id);
+	}
+
 	async function addProject() {
 		// WSL 模式：系统「打开文件夹」只按 Windows 身份访问 \\wsl.localhost，发行版内的目录（尤其 root
 		// 档案的 /root）递进去就是「无法访问网络资源」；改由内置选择器在发行版内列目录。
@@ -2105,6 +2118,7 @@ export function App() {
 		await syncDshForeignSessionsIfEnabled();
 		await refreshProjects();
 		setActiveProjectId(project.id);
+		announceProjectAdded(project);
 		await refreshProjectSessions(project.id);
 	}
 
@@ -3146,6 +3160,11 @@ export function App() {
 	const simpleMode = settings.navigationMode === "simple";
 	// 会话状态显示位置：首屏设置未拉到 / 预览环境缺字段时按默认值处理
 	const sessionStatusPlacement = parseSessionStatusPlacement(settings.sessionStatusPlacement);
+	// 输入框上方的待办/子代理横栏只看设置：选「右侧边栏」就始终让位，与面板此刻展开还是收起无关。
+	const setSessionStatusInSidebar = useSetAtom(sessionStatusInSidebarAtom);
+	useEffect(() => {
+		setSessionStatusInSidebar(placementShowsSidebarPanel(sessionStatusPlacement));
+	}, [sessionStatusPlacement, setSessionStatusInSidebar]);
 	const [simpleContentExpanded, setSimpleContentExpanded] = useState(false);
 	useEffect(() => setSimpleContentExpanded(false), [activeTabId, gitDrawerDiff?.filePath, simpleMode]);
 	const workbenchLayout = simpleMode ? (simpleContentExpanded ? "maximize" : "split") : workbenchHasGitDiff ? gitDiffDisplayMode : editorMode;
@@ -3894,6 +3913,10 @@ export function App() {
 						onEnrolled={(projectId) => {
 							void refreshProjects()
 								.then(() => selectProjectCommand(projectId))
+								.then(() => {
+									// 弹窗成功页已说过「已添加」，这里只补侧栏揭示，不再叠一条重复 toast。
+									requestSidebarRevealProject(projectId);
+								})
 								.catch(() => undefined);
 						}}
 					/>
@@ -3902,7 +3925,11 @@ export function App() {
 						onAdded={(projectId) => {
 							void syncDshForeignSessionsIfEnabled()
 								.then(() => refreshProjects())
-								.then(() => selectProjectCommand(projectId))
+								.then((next) => {
+									selectProjectCommand(projectId);
+									const added = next.find((project) => project.id === projectId);
+									if (added) announceProjectAdded(added);
+								})
 								.catch(() => undefined);
 						}}
 					/>

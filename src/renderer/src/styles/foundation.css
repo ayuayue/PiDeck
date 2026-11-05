@@ -940,6 +940,91 @@
   --color-chat-control-bg: #2b251d;
   --color-chat-table-bg: #2b251d;
 }
+/* 羊皮纸（parchment）：暖纸面 + 赤陶土功能主色；中性色全部带黄棕底调。
+   主色随本块自带（同 tui 先例），选中配色即得到完整一套颜色。
+   info / warning / danger 不覆盖：换肤只换材质，不换语义。 */
+:root[data-palette="parchment"] {
+  --color-bg-app: #f5f4ed;
+  --color-bg-sidebar: #ece9df;
+  --color-bg-panel: #faf9f5;
+  --color-bg-popover: #fffdf8;
+  --color-bg-input: #faf9f5;
+  --color-bg-muted: #eae7dc;
+  --color-bg-hover: #eae7dc;
+  --color-bg-active: #dedacb;
+  --color-text-primary: #141413;
+  --color-text-secondary: #3d3d3a;
+  --color-text-tertiary: #5e5d59;
+  --color-text-faint: #87867f;
+  --color-text-inverse: #faf9f5;
+  --color-border-subtle: #e8e5d9;
+  --color-border-default: #dcd8ca;
+  --color-border-strong: #cbc6b6;
+  --color-accent: #b0562f;
+  --color-accent-strong: #96482a;
+  --color-accent-soft: #f0e2d7;
+  --color-chat-card-bg: #faf9f5;
+  --color-chat-muted-bg: #f1eee4;
+  --color-chat-control-bg: #fdfcf7;
+  --color-chat-bubble-bg: #ece9de;
+  --color-chat-table-bg: #faf9f5;
+  --color-chat-link: #9a4a2b;
+  --color-md-heading: #141413;
+  --color-md-link: #9a4a2b;
+  --color-md-code: #8a3f24;
+  --color-md-quote: #3d3d3a;
+  --color-md-list-bullet: #b0562f;
+  --color-code-bg: #26231d;
+  --color-code-text: #ece6d8;
+  --color-tool: #0f766e;
+  --color-logo-green: #c96442;
+  --color-logo-green-mid: #b0562f;
+  --color-logo-green-deep: #96482a;
+  --color-brand-green: #b0562f;
+  --color-brand-blue: #c96442;
+  --color-brand-amber: #d97757;
+}
+:root[data-theme="dark"][data-palette="parchment"] {
+  --color-bg-app: #141413;
+  --color-bg-sidebar: #1b1a17;
+  --color-bg-panel: #23221e;
+  --color-bg-popover: #2d2b24;
+  --color-bg-input: #23221e;
+  --color-bg-muted: #2b2822;
+  --color-bg-hover: #33302a;
+  --color-bg-active: #3c382f;
+  --color-text-primary: #f3eee2;
+  --color-text-secondary: #c6c0b1;
+  --color-text-tertiary: #a9a294;
+  --color-text-faint: #938d7f;
+  --color-text-inverse: #141413;
+  --color-border-subtle: #302d26;
+  --color-border-default: #3c3830;
+  --color-border-strong: #4b463b;
+  --color-accent: #c96442;
+  --color-accent-strong: #d97757;
+  --color-accent-soft: #3a2a21;
+  --color-chat-card-bg: #23221e;
+  --color-chat-muted-bg: #2b2822;
+  --color-chat-control-bg: #201e1a;
+  --color-chat-bubble-bg: #332a22;
+  --color-chat-table-bg: #23221e;
+  --color-chat-link: #e59a76;
+  --color-md-heading: #f3eee2;
+  --color-md-link: #e59a76;
+  --color-md-code: #e9a887;
+  --color-md-quote: #c6c0b1;
+  --color-md-list-bullet: #d97757;
+  --color-code-bg: #17150f;
+  --color-code-text: #ece6d8;
+  --color-tool: #2dd4bf;
+  --color-logo-green: #d97757;
+  --color-logo-green-mid: #c96442;
+  --color-logo-green-deep: #b0562f;
+  --color-brand-green: #c96442;
+  --color-brand-blue: #d97757;
+  --color-brand-amber: #e59a76;
+}
 /* 终端（terminal）样式：只管形状与排版，颜色全部交给 data-palette（见下方 tui 配色块）。
    等宽接管正文 + Markdown 专用字体 + 直角框线才是终端观感；消息的 ❯/⏺ 标记、
    表头大写等 chrome 在 terminalSkin.css。

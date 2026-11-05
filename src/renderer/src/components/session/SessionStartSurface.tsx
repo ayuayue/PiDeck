@@ -12,7 +12,7 @@ import { LogoMark } from "./SurfaceParts";
 import { Button } from "../ui-shadcn/button";
 import { t } from "../../i18n";
 import { sessionRecordByIdAtomFamily } from "../../atoms/session-selectors";
-import { sessionStatusInSidebarAtomFamily } from "../../atoms/right-sidebar-atoms";
+import { sessionStatusInSidebarAtom } from "../../atoms/right-sidebar-atoms";
 import { usePaneGitInfo } from "../../hooks/usePaneGitInfo";
 import { projectByIdAtomFamily } from "../../atoms/project-atoms";
 import { isChatProject } from "../../rendererUtils";
@@ -162,8 +162,8 @@ function SessionStartBody(props: SessionStartProps) {
 		) : undefined);
 	const queuedTrackRef = useRef<HTMLElement | null>(null);
 	const activeQueuedPrompts = services.queuedPromptsBySession[props.sessionId] ?? [];
-	// 右侧边栏「会话状态」面板正可见地展示本会话时，同类折叠条让位给面板（同 SessionView）
-	const statusInSidebar = useAtomValue(sessionStatusInSidebarAtomFamily(props.sessionId));
+	// 设置里选了「右侧边栏」就始终让位：面板收起时信息由 tab 栏计数兜底，横栏不再回插
+	const statusInSidebar = useAtomValue(sessionStatusInSidebarAtom);
 	// 起步提示：只填草稿、不直接发送；用户仍要自己确认模型/上下文后按发送。
 	const starterPrompts = [t("session.start.promptExplain"), t("session.start.promptFindBug"), t("session.start.promptTests")];
 

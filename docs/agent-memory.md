@@ -2,7 +2,7 @@
 
 > **Status: Current（2026-11-02 核对；以代码与测试为准）**
 
-一句话：PiDeck 给**所有后端**（pi / DSH / ACP）提供同一份长期记忆——Markdown 是唯一真值，SQLite 只是索引，经由一个本地 stdio MCP 服务器以工具形式暴露。
+一句话：PiDeck 给 **pi 与 ACP** 提供同一份长期记忆——Markdown 是唯一真值，SQLite 只是索引，经由一个本地 stdio MCP 服务器以工具形式暴露；DSH 会话已接入采集（可作为 `session_search` 的检索源），工具面待接，见 §5。
 
 对齐的参考实现是 `pi-hermes-memory`（pi 扩展），复刻它的取舍见文末「与 hermes 的差异」。本文件是这一领域的唯一设计入口；宿主通道边界另见 `docs/host-boundaries.md` 例外八。
 

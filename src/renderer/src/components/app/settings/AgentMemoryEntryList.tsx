@@ -9,8 +9,9 @@
  * 卡片顶部按类型分两个 tab（记忆 / 教训），下面是工具栏（搜索 + 计数 + 手动刷新）、表格与分页。
  * 列为内容 / 记录于 / 字数 / 删除；时间来自记忆索引（Markdown 真值不存时间戳），
  * 所以工具栏留了一个刷新按钮：Agent 在会话里刚写下的记忆不会主动推到这里。
- * 分组不再靠嵌套小节，而是在表格里插一条跨列的分组行（作用域 + 落盘文件 + 预算）——既保留
- * 「这条记忆在哪个文件里」这个关键信息，又不会把列表拆成几坨各自的边框。
+ * 所有作用域按记录时间混排成一条列表，行首徽标标明全局 / 项目 / 本机设备——早期在时间线里
+ * 插「分组行」时，同一组的条目被别组隔开就会反复出现同样的表头（一屏好几个「全局 通用记忆
+ * MEMORY.md」）。落盘文件与预算收进徽标的 title，超预算另给一个短徽标。
  *
  * 为什么分 tab + 分页（2026-11 真机）：四种 target 混在一张表里时，教训条目排在
  * 「全局记忆 → 用户偏好」之后，再往下还有每个项目的记忆组——想看教训只能一路滚到底；
@@ -19,7 +20,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Brain, ChevronDown, ChevronRight, RefreshCw, RotateCcw, Search, SearchX, Trash2 } from "lucide-react";
+import { AlertTriangle, Brain, ChevronDown, ChevronRight, RefreshCw, RotateCcw, Search, SearchX, Trash2 } from "lucide-react";
 import type { AgentMemoryEntry, AgentMemoryEntryGroup, AgentMemoryEntryList } from "../../../../../shared/types/agentMemory";
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
@@ -31,7 +32,7 @@ import { Pagination } from "../../ui-shadcn/pagination";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../ui-shadcn/tabs";
 import { ConfirmDialog } from "../../ui-shadcn/ConfirmDialog";
 import { describeAgentMemoryCode, memoryGroupScopeLabel, memoryTargetLabel } from "./agentMemoryLabels";
-import { MEMORY_PAGE_SIZE, buildMemoryPageRows, memoryEntryId, memoryTotalPages } from "./agentMemoryPaging";
+import { MEMORY_PAGE_SIZE, buildMemoryPageEntries, memoryEntryId, memoryTotalPages } from "./agentMemoryPaging";
 import { formatFullDateTime, formatRelativeTime } from "../../../utils/relativeTime";
 
 /** tab 与 target 的归属：用户偏好也是「记忆」，只有失败教训单独一类。 */
@@ -40,6 +41,23 @@ const KIND_TARGETS = {
 	failure: ["failure"],
 } as const;
 type EntryKind = keyof typeof KIND_TARGETS;
+
+/** 行首作用域徽标：项目没有可读名字时带短键，避免一长串目录键挤掉内容。 */
+function entryScopeBadge(group: AgentMemoryEntryGroup): string {
+	if (group.scope === "global") return t("settings.agentMemoryScopeGlobal");
+	if (group.scope === "device") return t("settings.agentMemoryScopeDeviceShort");
+	if (group.projectName) return group.projectName;
+	const shortId = group.projectId.replace(/^device:/, "").slice(0, 8);
+	return shortId ? t("settings.agentMemoryScopeProjectId", { id: shortId }) : t("settings.agentMemoryScopeProject");
+}
+
+/** 徽标 title：完整作用域 + 目标 + 落盘文件 + 该文件预算（原先分组行承担的信息）。 */
+function entryScopeTitle(group: AgentMemoryEntryGroup): string {
+	const budget = group.budget
+		? t("settings.agentMemoryGroupBudget", { count: String(group.entries.length), chars: String(group.chars), maxChars: String(group.budget.maxChars), maxEntries: String(group.budget.maxEntries) })
+		: t("settings.agentMemoryGroupPlain", { count: String(group.entries.length), chars: String(group.chars) });
+	return [memoryGroupScopeLabel(group), `${memoryTargetLabel(group.target)} · ${group.file}`, budget, group.overBudget ? t("settings.agentMemoryGroupOverBudget") : ""].filter(Boolean).join("\n");
+}
 
 /**
  * 条目时间格：相对时间（刚刚 / n 分钟 / n 天），title 给精确时刻。
@@ -126,7 +144,7 @@ export function AgentMemoryEntryList(props: {
 	// 页码状态保留「用户点过的页」，越界（删条目/切 tab/搜索后变短）时由分页函数夹住，不另写重置逻辑。
 	const totalPages = memoryTotalPages(shown, MEMORY_PAGE_SIZE);
 	const currentPage = Math.min(page, totalPages);
-	const pageRows = useMemo(() => buildMemoryPageRows(groups, currentPage), [groups, currentPage]);
+	const pageEntries = useMemo(() => buildMemoryPageEntries(groups, currentPage), [groups, currentPage]);
 
 	const runDelete = async () => {
 		const entry = pending;
@@ -246,50 +264,45 @@ export function AgentMemoryEntryList(props: {
 									</TableCell>
 								</TableRow>
 							) : null}
-							{pageRows.map((row) =>
-								row.kind === "group" ? (
-									/* 分组行：作用域 + 落盘文件 + 预算。跨列铺满，读起来是表格的一条分隔带，不是第二个容器。 */
-									<TableRow key={row.key} className="bg-bg-muted hover:bg-bg-muted">
-										<TableCell colSpan={4} className="py-1 whitespace-normal">
-											<div className="flex items-center gap-2 text-caption text-muted-foreground">
-												<span className="shrink-0 rounded-sm bg-background px-1.5 py-0.5 text-foreground">{memoryGroupScopeLabel(row.group)}</span>
-												<span className="shrink-0">{memoryTargetLabel(row.group.target)}</span>
-												<span className="min-w-0 truncate font-mono opacity-70" title={row.group.file}>
-													{row.group.file}
-												</span>
-												{row.group.overBudget ? <span className="shrink-0 rounded-sm bg-destructive/10 px-1.5 py-0.5 text-destructive">{t("settings.agentMemoryGroupOverBudget")}</span> : null}
-												<span className="ml-auto shrink-0 tabular-nums">
-													{row.group.budget
-														? t("settings.agentMemoryGroupBudget", { count: String(row.group.entries.length), chars: String(row.group.chars), maxChars: String(row.group.budget.maxChars), maxEntries: String(row.group.budget.maxEntries) })
-														: t("settings.agentMemoryGroupPlain", { count: String(row.group.entries.length), chars: String(row.group.chars) })}
-												</span>
-											</div>
-										</TableCell>
-									</TableRow>
-								) : (
-									<TableRow key={row.key} data-state={expanded[row.key] === true ? "selected" : undefined}>
-										<TableCell className="max-w-0 whitespace-normal">
-											{/* 折叠态单行省略，展开后整段铺开：记忆条目是纯文本，首行通常就是结论。 */}
-											<button type="button" className="flex w-full items-start gap-1.5 text-left text-control text-foreground focus-visible:outline-none" aria-expanded={expanded[row.key] === true} onClick={() => setExpanded((current) => ({ ...current, [row.key]: current[row.key] !== true }))}>
-												<span className="mt-0.5 shrink-0 text-muted-foreground">{expanded[row.key] === true ? <ChevronDown size={13} aria-hidden="true" /> : <ChevronRight size={13} aria-hidden="true" />}</span>
-												{row.entry.source === "auto-learn" ? (
-													<Badge variant="secondary" size="sm">
-														{t("settings.agentMemorySourceAutoLearn")}
-													</Badge>
-												) : null}
-												<span className={expanded[row.key] === true ? "min-w-0 whitespace-pre-wrap break-words" : "min-w-0 truncate"}>{expanded[row.key] === true ? row.entry.content : row.entry.content.split("\n")[0]}</span>
-											</button>
-										</TableCell>
-										<EntryTimeCell value={row.entry.updatedAt} />
-										<TableCell className="text-right text-caption tabular-nums text-muted-foreground">{row.entry.chars}</TableCell>
-										<TableCell>
-											<Button type="button" variant="ghost" size="icon-sm" aria-label={t("settings.agentMemoryDeleteEntry")} disabled={busyKey === row.key} onClick={() => setPending(row.entry)} className="text-muted-foreground hover:text-destructive">
-												<Trash2 size={13} aria-hidden="true" />
-											</Button>
-										</TableCell>
-									</TableRow>
-								),
-							)}
+							{pageEntries.map((row) => (
+								<TableRow key={row.key} data-state={expanded[row.key] === true ? "selected" : undefined}>
+									<TableCell className="max-w-0 whitespace-normal">
+										{/* 折叠态单行省略，展开后整段铺开：记忆条目是纯文本，首行通常就是结论。 */}
+										<button type="button" className="flex w-full items-start gap-1.5 text-left text-control text-foreground focus-visible:outline-none" aria-expanded={expanded[row.key] === true} onClick={() => setExpanded((current) => ({ ...current, [row.key]: current[row.key] !== true }))}>
+											<span className="mt-0.5 shrink-0 text-muted-foreground">{expanded[row.key] === true ? <ChevronDown size={13} aria-hidden="true" /> : <ChevronRight size={13} aria-hidden="true" />}</span>
+											{/* 作用域徽标替代分组行：整页一条时间线，靠这一格区分全局 / 项目 / 设备；文件与预算进 title。 */}
+											<Badge variant="neutral" size="sm" className="mt-px max-w-40" title={entryScopeTitle(row.group)}>
+												<span className="min-w-0 truncate">{entryScopeBadge(row.group)}</span>
+											</Badge>
+											{/* 记忆 tab 混装通用记忆与用户偏好：目标不是默认的 memory 时补一个标签，避免两类内容看起来一样。 */}
+											{row.group.target === "user" ? (
+												<Badge variant="outline" size="sm" className="mt-px">
+													{t("settings.agentMemoryTargetUser")}
+												</Badge>
+											) : null}
+											{row.group.overBudget ? (
+												<Badge variant="danger" size="sm" className="mt-px gap-1" title={t("settings.agentMemoryGroupOverBudget")}>
+													<AlertTriangle size={10} aria-hidden="true" />
+													{t("settings.agentMemoryGroupOverBudgetShort")}
+												</Badge>
+											) : null}
+											{row.entry.source === "auto-learn" ? (
+												<Badge variant="secondary" size="sm" className="mt-px">
+													{t("settings.agentMemorySourceAutoLearn")}
+												</Badge>
+											) : null}
+											<span className={expanded[row.key] === true ? "min-w-0 whitespace-pre-wrap break-words" : "min-w-0 truncate"}>{expanded[row.key] === true ? row.entry.content : row.entry.content.split("\n")[0]}</span>
+										</button>
+									</TableCell>
+									<EntryTimeCell value={row.entry.updatedAt} />
+									<TableCell className="text-right text-caption tabular-nums text-muted-foreground">{row.entry.chars}</TableCell>
+									<TableCell>
+										<Button type="button" variant="ghost" size="icon-sm" aria-label={t("settings.agentMemoryDeleteEntry")} disabled={busyKey === row.key} onClick={() => setPending(row.entry)} className="text-muted-foreground hover:text-destructive">
+											<Trash2 size={13} aria-hidden="true" />
+										</Button>
+									</TableCell>
+								</TableRow>
+							))}
 						</TableBody>
 					</Table>
 

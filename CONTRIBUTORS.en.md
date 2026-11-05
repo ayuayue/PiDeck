@@ -1,6 +1,6 @@
 # Contributors
 
-Thanks to everyone who has contributed to PiDeck!
+Thanks to everyone who has contributed code, filed issues, or helped spread the word!
 
 <!-- Ordered by first contribution -->
 
@@ -31,14 +31,16 @@ Thanks to everyone who has contributed to PiDeck!
 - **san-ren** ([@san-ren](https://github.com/san-ren)) — Mobile Web viewport: a top bar that collapses with scroll and a composer that folds away when idle, with the collapse state machine extracted into pure functions and covered by e2e
 - **GME** ([@EEEEEEEEdison](https://github.com/EEEEEEEEdison)) — Session-level average TPS (interval unions remove the overlapping time of derived tasks) and thinking intensity clamped to the levels the current model supports
 - **TanCan1998** ([@TanCan1998](https://github.com/TanCan1998)) — Usage details derive the used percentage when a probe reports only total and remaining; diagnostics bundles keep redacted detail; HTML preview moves to the `pideck-html://` protocol to lift the CSP limit; an explainable error when the DSH runtime is not installed; rewind checkpoints use a temporary index with the WSL index path and empty-tree edge cases covered (#380, #382, #383, #384, #386)
+- **op15066212** ([@op15066212](https://github.com/op15066212)) — Redid timeline paging and scale navigation (bottom-anchored paging, jump-by-item, history budget and an idle loop), fixed Load More Conversations missing or unclickable after restoring a session by aligning the continuation anchor, and made mirror pushes non-interactive with an immediate failure when credentials are missing (#473, #469, #467, #465)
+- **xiaofeilovecoding** ([@xiaofeilovecoding](https://github.com/xiaofeilovecoding)) — Fixed incomplete batch answers being submitted (#456)
 
 And everyone who filed issues, shared feedback, and helped spread the word.
 
 ## 💖 Special Support
 
-- **微时佬友** ([@weishiair](https://github.com/weishiair)) — Provides the Grok model service used for PiDeck development 🎉
-- **橙子** — Provides the subscription service used for PiDeck development 🎉
 - **罪** — Provides the model service used for PiDeck development 🎉
+- **橙子** — Provides the subscription service used for PiDeck development 🎉
+- **微时佬友** ([@weishiair](https://github.com/weishiair)) — Provides the Grok model service used for PiDeck development 🎉
 
 ---
 

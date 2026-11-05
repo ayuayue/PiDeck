@@ -166,6 +166,21 @@ export const PALETTE_PRESETS: readonly PalettePreset[] = [
 		},
 	},
 	{
+		id: "parchment",
+		labelKey: "settings.palette.parchment",
+		descKey: "settings.palette.parchmentDesc",
+		// 主色由 CSS 块接管（同 tui 先例）；default 只用来满足字段契约。
+		accent: "default",
+		preview: "#f5f4ed",
+		previewSurfaces: {
+			background: "#f5f4ed",
+			sidebar: "#ece9df",
+			panel: "#faf9f5",
+			accent: "#b0562f",
+			border: "#dcd8ca",
+		},
+	},
+	{
 		id: "tui",
 		labelKey: "settings.palette.tui",
 		descKey: "settings.palette.tuiDesc",

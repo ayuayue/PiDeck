@@ -1,66 +1,44 @@
 ## v0.10.0 (2026-11-05)
 
-PiDeck grows from managing pi sessions into a workbench for several backends and environments: agent memory is shared across pi / DSH / ACP, remote projects can transfer files and run in parallel, and projects inside WSL distributions can be added and edited like local ones. On the engineering side, main-process networking moves onto Chromium's stack, and the timeline, outline, Git panel and 166 scroll containers finish their virtualization pass, so long sessions no longer render the whole table at once.
+PiDeck grows from managing pi sessions into a workbench for several backends and environments: agent memory lands for pi and ACP sessions, and projects inside WSL distributions can be added and edited like local ones. On the engineering side, main-process networking moves onto Chromium's stack, and the timeline plus long lists finish their virtualization pass.
 
 ### 🚀 New Features
-- **Agent memory shared by pi / DSH / ACP** — a built-in local MCP server keeps memory as Markdown and the session index in a local database; the settings page gains a Memory tab to browse entries by scope and file, delete them one by one, paginate memory and lessons separately, and see write time plus an Auto-learned source mark.
-- **Memory export / import with preview and conflict policy** — export is grouped by scope and file; import first shows a read-only preview marking every entry as new / duplicate / conflict / tombstone / invalid, conflicts can either keep both versions or take the packaged one, tombstones propagate both ways so deleted entries are not resurrected, and the device scope stays local and is never exported.
-- **SFTP file transfer for remote projects** — uploads go through a transaction-safe path with visible progress and cancellation, conflicts and failures stay isolated per project, and the unsupported-only fallback message is gone.
-- **Remote multi-project parallelism: root session pooling on by default** — projects on the same host share a bounded root session pool (idle 2 / TTL 10 min / at most 6), watch and connection facts are isolated per session, and root retirement is handled separately from host disconnects.
-- **Projects inside WSL distributions can be added and edited normally** — Add Project uses in-distribution directory browsing (the root profile no longer reports an unreachable network resource), file reads run as the profile user inside the distribution, and the 9P credential prompt is no longer a blocker.
-- **Host plugin market** — Settings → PiDeck Plugins gains a Plugin Market with two sources (the curated index and a GitHub topic search across the whole network), one-click install, and installed entries marked inline; curated entries can download from GitHub or the AtomGit mirror (index fetch falls back automatically), and AtomGit repo links install directly.
+- **Agent memory shared by pi and ACP sessions** — a built-in local MCP server (`memory_search` / `memory_get` / `session_search` / `memory_status`), registered for pi via `mcp.json` and mounted for ACP through `session/new` mcpServers; memory lives as Markdown with retrieval on a local full-text index, and DSH sessions serve only as an indexing source for `session_search`. The settings page gains a Memory tab where memory and lessons share one reverse-chronological timeline, each row badged with its scope (global / project / this device) or its user-preference target, with the backing file and budget in the badge tooltip and one-click delete per entry.
+- **Memory export / import with preview and conflict policy** — export is grouped by scope and file; import first shows a read-only preview marking every entry as new / duplicate / conflict / tombstone / invalid, conflicts can keep both versions or take the packaged one, tombstones propagate both ways so deleted entries are not resurrected, and the device scope stays local.
+- **Projects inside WSL distributions can be added and edited normally** — Add Project uses in-distribution directory browsing, file reads run as the profile user inside the distribution, and the 9P credential prompt is no longer a blocker.
+- **Host plugin market** — Settings → PiDeck Plugins gains a Plugin Market with two sources (the curated index and a GitHub topic search across the whole network) and one-click install; curated entries download from GitHub or the AtomGit mirror, falling back automatically.
 - **CodeBuddy session import** — same format as WorkBuddy (`~/.codebuddy/projects/…`), converting history messages, tool calls and titles.
-- **The timeline's right-edge scale expands into a full session directory** — the expanded view lists every prompt with search and jump-by-count, so long sessions no longer require repeated clicks on the scale to explore.
-- **Built-in TokenDance provider shows discount / free badges** — current prices from the site's public price table are compared against reference prices, and all-zero unit prices mark the model as free.
-- **One-click light / dark switch in the Web header** — the first frame follows the stored preference, no longer reachable only through the three-state cycle in the overflow menu.
-- **Web sidebar visual rebuild and backend identity marks** — the brand area is aligned to the desktop wordmark, the project tree gains a left rail and shared alignment lines, and session rows plus the header mark the DSH / ACP / image-generation backend.
-- **EasyTier managed service can be restarted from the Web UI** — the settings page gains Restart EasyTier, so changed configuration no longer sends an ineffective start to a running service.
-- **Batch remove project records from the sidebar** — multi-select, select-all and paging, deleting one by one with a single failure not aborting the batch, and a success / failure count notice at the end; only records are removed, never the directories on disk.
-- **Session Groups plugin 3.1.0** — creating a group can expand a directory and tick only a few sessions (the directory still joins the scope), with session rows lazily loaded 20 at a time; update it from the plugin market.
+- **The timeline's right-edge scale expands into a full session directory** — the expanded view lists every prompt with search and jump-by-count.
+- **Built-in TokenDance provider shows discount / free badges** — current prices are compared against reference prices, and all-zero unit prices mark the model as free.
+- **The Web UI catches up with the desktop** — a one-click light / dark switch whose first frame follows the stored preference, a sidebar rebuilt around the desktop wordmark with DSH / ACP / image-generation marks, and EasyTier restarted from settings.
+- **Batch remove project records from the sidebar** — multi-select, select-all and paging, deleting one by one with a single failure not aborting the batch and a success / failure count at the end; only records are removed, never the directories on disk.
+- **New Parchment palette** — Appearance → Palette adds parchment: a warm paper base with terracotta accents and slightly bookish ink text, freely combinable with the classic / terminal styles and checked against the same contrast suite as the built-in palettes.
 
 ### ✨ Improvements
-- **Queued messages support Send Immediately** — while ACP is busy the current turn is stopped first and that message goes out at the top of the queue, instead of Stop → Withdraw → Resend.
-- **MCP connections list their tool names** — the details panel shows a tool tag list and the row's tool count reveals the names on hover, so exposure can be configured per tool.
-- **Filename search results group into a tree by directory** — the directory holding most hits is obvious at a glance instead of a column of repeated long paths.
-- **The file panel regains common actions** — the reader gets Reload (confirming first when there are unsaved changes), the file tree's right-click menu restores New File / New Folder, and Ctrl+F opens editor search from any focused element.
-- **Timeline and outline finish their virtualization pass** — 166 scroll containers were judged one by one and the baseline cleared; Load More runs 10 rounds per click, window expansion is chunked 8 rounds per frame, and scale jumps position first then expand, so rapid clicks and very long sessions no longer freeze on full-table rendering.
-- **The Git panel no longer squeezes text or stutters** — inline actions become hover overlays so filenames take the remaining width, and the changes area joins single-stack virtualization so thousands of changed files no longer slow down the whole app.
+- **Queued messages support Send Immediately** — while ACP is busy the current turn is stopped first and that message goes out at the top of the queue; under ACP it takes over the former Add to Current Turn slot, so three delivery buttons no longer sit side by side.
+- **Timeline and outline finish their virtualization pass** — 166 scroll containers were judged one by one and the baseline cleared; Load More runs 10 rounds per click, window expansion is chunked 8 rounds per frame, and scale jumps position first then expand.
+- **The Git panel no longer squeezes text or stutters** — inline actions become hover overlays so filenames take the remaining width, and the changes area joins single-stack virtualization.
 - **Inactive sessions pause the streaming typewriter and Markdown reflow** — handled in active / background / hidden tiers, background panes coarse-sample at 1s, and switching back catches up in one pass without replaying backlogged animation.
-- **No repeated work in the model table and WSL config** — the model table renders 20 rows instead of 100, and WSL config resolution is cached for 5s so concurrent reads from the settings page probe once, while saving still forces a fresh parse.
-- **Main-process outbound traffic moves onto Chromium's network stack** — model APIs, non-model requests, image / video generation, speech transcription and the extension catalog page all go through the injected fetchImpl, so proxy and root-certificate environments no longer hang until timeout.
-- **ACP history and replay catch up** — history can be paginated, and replay is delivered in per-turn windows (a 1076-message / 4.2 MB full replay no longer floods the renderer in a single frame).
-- **ACP turns tolerate jitter** — failed turns retry automatically and dropped connections reconnect in place; stopping gives the agent a graceful-exit window, and closing the panel or idle reclamation walks the same path.
-- **WSL settings take effect immediately** — saving hot-switches source / distribution / user without a restart, and pi detection, self-update, the extension flow and the command source panel all follow the WSL settings.
-- **Input and footer details** — the send keycap and editor submit follow the Send Shortcut setting, very long model names no longer break the footer, and session titles stop treating thinking text as the body.
-- **Release chain hardening** — the Release workflow's final step now forces the `latest` pointer forward and asserts it, preventing "CI is green but existing clients never see the update", and a long-held `app.asar` is replaced by in-place overwrite.
-- **Environment resolution fixes** — on macOS the Homebrew directory now precedes the inherited PATH (#484), and under a mise shim the pi SDK entry resolves, so prediction / enhancement / login no longer report sdk-unavailable.
-- **Synced with pi-ai 1.5.0** — the bundled model catalog moves to 1.5.0 (1,712 models), so newly released models appear in the picker.
+- **Main-process outbound traffic moves onto Chromium's network stack** — model APIs, non-model requests, image / video generation, speech transcription and the extension catalog page all go through the injected fetchImpl.
+- **ACP history and replay catch up** — history paginates and replay is delivered in per-turn windows.
+- **ACP turns ride out flakiness** — failed turns retry, dropped connections reconnect in place, and stopping gives the agent a graceful-exit window.
+- **WSL settings take effect immediately** — saving hot-switches source / distribution / user, and pi detection, self-update and the extension flow follow.
+- **Visual compat editing for models** — each model row gains a Compat dialog with seven boolean keys in three states (follow / on / off), provider-level keys as defaults, and official suggestions from the catalog that apply in one click.
+- **Sidebar counts no longer read as dates** — the recent-sessions section says All N / Showing first N with counts inline after the verb (#491).
 
 ### 🐛 Fixes
-- **Session import no longer fails wholesale on one bad line** — zero-filled disk regions are skipped and malformed lines have control characters escaped and are logged as warnings with index / offset / byteLength.
-- **Session titles take the real title** — an overlong first message and thinking text no longer take the body slot.
-- **In-session find overlay** — wired to light-dismiss and global Esc, and its layer switched to `--z-popover`.
-- **Sidebar Needs Review badge** — shown only when collapsed, and clicking it expands the group and opens the first session awaiting confirmation (#485).
-- **Title-row whitespace drags the window again** — the brand area's click target shrinks so it no longer opens About by accident.
-- **Load More Conversations** — no longer permanently shown-but-unresponsive at the first message, and it appears after restoring a session.
-- **Continuing-page anchor** — fixes the React #185 whole-window crash caused by an idle loop, plus two silent failure paths for the paging cursor.
-- **Deleting / editing inside the runtime window no longer resurrects after restart** — history reads apply `context_edit` to the running window.
-- **Long lists render at once (#481)** — the shared virtual stack reaches more long lists, and the memory export / import dialogs switch to virtual scrolling and show per-kind counts.
-- **Web polling no longer erases in-flight replies** — `/api/chat` retries from scratch on a dead connection, the bar above the composer aligns to the input card, and ACP sessions no longer load blank.
-- **Web touch input and readability** — Enter becomes a newline on touch devices, semantic color contrast and header menus are merged, and subagent sessions collapse under their parent session.
-- **Update check parse failure** — manual checks work again and the dev update source is allowed.
-- **`SESSION_CATALOG_BUSY` stuck forever (#476)** — a 0-byte lock file left by quitting or force-killing no longer blocks restart.
-- **Two cold-start crashes** — `QueuedPromptPanel` calling `useRef` after an early return (React #310), and a `//` comment in JSX children position crashing the asChild Slot.
-- **MCP server names no longer pollute the tool verb dictionary** — timeline tool cards show the correct verb again.
-- **Memory write and search boundaries** — external imports are no longer silently truncated, project memory no longer collides on keys, and search can cross projects; empty hits say which project they matched in, and `memory_get` no longer silently ignores `projectId`.
-- **A missing project directory no longer self-perpetuates the project-directory-missing prompt** — session catalog auto-load stops retrying unlimited after a failed re-render, and the git refs subscription no longer re-installs when projects change identity.
-- **File and editor safety** — prevents accidental saves when opening a file and protects unsafe text reads and writes; config backup files are tightened to 0600 / 0700.
-- **Linux falls back to `xdg-open` when no file manager is detected**.
-- **Focus loss while ACP history restores** — the composer no longer remounts the tiptap editor onto a new host.
-- **DSH no longer pops repeated Completed notifications when opening a historical session**.
-- **Reference-image upload returns to image-generation mode** — the + menu offers image selection, and dropped images go through the attachment bar; compression and the 10 MB per-image / 32 MB per-session budget match the paste path.
-- **Host plugins are now always user-installed** — nothing is seeded from the app bundle, stale seeded fields are ignored, and uninstall revokes the grant, deletes the folder and its private storage instead of failing with plugin-builtin.
-- **Switching sessions no longer crashes on hook order** — usePacedAtomValue keeps hook calls in the same order across atom switches, avoiding React #310.
+- **Session import no longer fails wholesale on one bad line** — zero-filled disk regions are skipped and malformed lines are escaped and logged as warnings.
+- **Load More Conversations no longer sits there doing nothing** — it also appears again after restoring a session.
+- **The continuation anchor no longer idles** — the resulting React #185 full-window crash and two silent failures of the paging cursor are fixed.
+- **`SESSION_CATALOG_BUSY` no longer sticks forever (#476)** — a leftover 0-byte lock no longer blocks restart, and quitting now seals the catalog and drains writes so the lock is not left behind.
+- **Long lists render at once (#481)** — the shared virtual stack reaches more long lists, and the memory export / import dialogs switch to virtual scrolling with per-kind counts.
+- **Web polling no longer erases in-flight replies** — `/api/chat` retries from scratch on a dead connection, the bar above the composer aligns to the input card, and ACP sessions stop loading blank.
+- **Two cold-start crashes** — `QueuedPromptPanel` calling `useRef` after an early return (React #310), and a `//` comment in JSX children crashing the asChild Slot.
+- **Memory write and retrieval edges** — external imports are no longer silently truncated, project memories no longer collide, retrieval works across projects, and `memory_get` no longer ignores `projectId`.
+- **Binding a session no longer drops it into Recent and back** — binding keeps project / cwd / createdAt, backfilled from the catalog on first bind (#492).
+- **Host plugins are always user-installed** — nothing is seeded from the bundle, and uninstall revokes the grant, deletes the folder and its private storage.
+- **Reference-image upload returns to image-generation mode** — the plus menu picks images and dropped files go to the attachment bar, with the same 10MB-per-image / 32MB-per-session budgets as pasting.
+- **To-do and subagent strips still appeared above the composer with Session status placement set to Right sidebar** — the yield rule hung on whether the panel was visibly showing a session, so it came back the moment the panel collapsed. It now follows the placement setting alone: strips stay out whether the drawer is closed or the panel collapsed, the collapsed tab bar keeps showing to-do progress and subagent counts, and your expand / collapse preference is still remembered as you left it.
 
 ## v0.9.9 (2026-10-30)
 

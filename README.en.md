@@ -85,22 +85,20 @@
 > **Latest: v0.10.0** (2026-11-05)
 
 ### v0.10.0 Release Highlights
-- 🚀 **Agent memory shared by pi / DSH / ACP**
+- 🚀 **Agent memory shared by pi and ACP sessions**
 - 🚀 **Memory export / import with preview and conflict policy**
-- 🚀 **SFTP file transfer for remote projects**
-- 🚀 **Remote multi-project parallelism: root session pooling on by default**
 - 🚀 **Projects inside WSL distributions can be added and edited normally**
 - 🚀 **Host plugin market**
 - 🚀 **CodeBuddy session import**
 - 🚀 **The timeline's right-edge scale expands into a full session directory**
 - 🚀 **Built-in TokenDance provider shows discount / free badges**
-- 🚀 **One-click light / dark switch in the Web header**
-- 🚀 **Web sidebar visual rebuild and backend identity marks**
-- 🚀 **EasyTier managed service can be restarted from the Web UI**
+- 🚀 **The Web UI catches up with the desktop**
+- 🚀 **Batch remove project records from the sidebar**
+- 🚀 **New Parchment palette**
 - ✨ **Queued messages support Send Immediately**
-- ✨ **MCP connections list their tool names**
-- ✨ **Filename search results group into a tree by directory**
-- ✨ **The file panel regains common actions**
+- ✨ **Timeline and outline finish their virtualization pass**
+- ✨ **The Git panel no longer squeezes text or stutters**
+- ✨ **Inactive sessions pause the streaming typewriter and Markdown reflow**
 
 [View Full Changelog →](CHANGELOG.md)
 
@@ -391,7 +389,9 @@ All kinds of contributions are welcome: bug reports, feature ideas, documentatio
 
 ### 🙌 Contributors
 
-Thank you to everyone who has contributed to PiDeck! See the full list (with each contributor's features and issue numbers) in [CONTRIBUTORS.en.md](CONTRIBUTORS.en.md).
+Thank you to everyone who has contributed code, filed issues, or helped spread the word! See the full list (with each contributor's features and issue / PR numbers) in [CONTRIBUTORS.en.md](CONTRIBUTORS.en.md).
+
+> 💖 **Special thanks**: 罪, 橙子 and 微时 for providing the model services used for PiDeck development 🎉
 
 <a href="https://github.com/ayuayue/PiDeck/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=ayuayue/PiDeck&max=100" alt="PiDeck contributors" />

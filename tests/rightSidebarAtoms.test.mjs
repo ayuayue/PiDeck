@@ -5,30 +5,20 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const atoms = loadTsCommonJs("src/renderer/src/atoms/right-sidebar-atoms.ts");
 
-test("面板只「占用」它正在展示的会话：分屏另一栏不受影响，切换后旧会话恢复", () => {
+// 2027-02 起「是否挂在右侧边栏」只看设置，不再由面板是否可见地展示某会话决定：
+// 旧实现（rightSidebarStatusSessionIdAtom + atomFamily）在面板收起时会把横栏放回输入框上方。
+test("单一布尔真值：默认关闭，写上即全局生效", () => {
 	const store = createStore();
-	const a = atoms.sessionStatusInSidebarAtomFamily("session-a");
-	const b = atoms.sessionStatusInSidebarAtomFamily("session-b");
-	assert.equal(store.get(a), false);
-	store.set(atoms.rightSidebarStatusSessionIdAtom, "session-a");
-	assert.equal(store.get(a), true);
-	assert.equal(store.get(b), false);
-	store.set(atoms.rightSidebarStatusSessionIdAtom, "session-b");
-	assert.equal(store.get(a), false);
-	assert.equal(store.get(b), true);
-	store.set(atoms.rightSidebarStatusSessionIdAtom, null);
-	assert.equal(store.get(b), false);
+	assert.equal(store.get(atoms.sessionStatusInSidebarAtom), false);
+	store.set(atoms.sessionStatusInSidebarAtom, true);
+	assert.equal(store.get(atoms.sessionStatusInSidebarAtom), true);
+	store.set(atoms.sessionStatusInSidebarAtom, false);
+	assert.equal(store.get(atoms.sessionStatusInSidebarAtom), false);
 });
 
-test("切换面板会话只通知状态真正变化的会话", () => {
-	const store = createStore();
-	let notifyC = 0;
-	store.sub(atoms.sessionStatusInSidebarAtomFamily("session-c"), () => {
-		notifyC += 1;
-	});
-	store.set(atoms.rightSidebarStatusSessionIdAtom, "session-a");
-	store.set(atoms.rightSidebarStatusSessionIdAtom, "session-b");
-	assert.equal(notifyC, 0);
+test("按会话派生的旧 atom 已移除", () => {
+	assert.equal(atoms.sessionStatusInSidebarAtomFamily, undefined);
+	assert.equal(atoms.rightSidebarStatusSessionIdAtom, undefined);
 });
 
 // 「最近一轮 run」系列 atom 已随面板 files tab 一并移除（2027-02）：

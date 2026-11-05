@@ -30,7 +30,7 @@ export type AppStyleId = "classic" | "terminal";
  * 与样式正交。CSS 走 `[data-palette="<id>"]`，classic-green 为出厂默认（无覆盖块 = :root 中性色板）。
  * custom = 颜色完全来自自定义主题包 / customThemeOverrides，不套内置色板。
  */
-export type AppPaletteId = "classic-green" | "fresh-green" | "graphite" | "sea-blue" | "warm-beige" | "tui" | "custom";
+export type AppPaletteId = "classic-green" | "fresh-green" | "graphite" | "sea-blue" | "warm-beige" | "parchment" | "tui" | "custom";
 
 /**
  * @deprecated 单维外观主题 id（样式与配色合一的旧模型，含已下线的 glass / liquid-glass）。

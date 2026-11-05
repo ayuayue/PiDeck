@@ -1,6 +1,6 @@
 # 贡献者
 
-感谢所有为 PiDeck 做出贡献的人！
+感谢所有为 PiDeck 提交代码、反馈问题和帮助推广的朋友！
 
 <!-- 按首次贡献时间排序 -->
 
@@ -31,14 +31,16 @@
 - **san-ren** ([@san-ren](https://github.com/san-ren)) — Web 移动端可视区优化：顶栏随滚动收起、输入区空闲折叠与滚动隐藏，收起状态机抽成纯函数并补齐 e2e
 - **GME** ([@EEEEEEEEdison](https://github.com/EEEEEEEEdison)) — 会话级平均 TPS（时间区间并集消解派生任务并发重叠）、思考强度超限时按模型支持档位自动 clamp
 - **TanCan1998** ([@TanCan1998](https://github.com/TanCan1998)) — 用量详情在探针只报总额与剩余时反推已用百分比、诊断包保留脱敏后的 detail、HTML 预览改走 `pideck-html://` 协议解除 CSP 限制、DSH runtime 未安装时给出可解释的错误、rewind checkpoint 改用临时 index 并补齐 WSL 与空树快照边界 (#380, #382, #383, #384, #386)
+- **op15066212** ([@op15066212](https://github.com/op15066212)) — 时间线翻页与刻度导航重做（贴底翻页、按条跳转、历史预算与死循环）、恢复会话后「加载更多对话」不出现与点不动的续页锚点修复、镜像 push 改为禁止交互并在凭据缺失时立即失败 (#473, #469, #467, #465)
+- **xiaofeilovecoding** ([@xiaofeilovecoding](https://github.com/xiaofeilovecoding)) — 修复批量回答未完成就被提交 (#456)
 
 以及所有提交 Issue、反馈建议和帮助推广的用户。
 
 ## 💖 特别支持
 
-- **微时佬友** ([@weishiair](https://github.com/weishiair)) — 提供 Grok 模型服务，用于 PiDeck 的软件开发 🎉
-- **橙子** — 提供订阅服务，用于 PiDeck 的软件开发 🎉
-- **罪** — 提供模型服务，用于 PiDeck 的软件开发 🎉
+- **罪** — 为 PiDeck 的软件开发提供模型服务 🎉
+- **橙子** — 为 PiDeck 的软件开发提供订阅服务 🎉
+- **微时佬友** ([@weishiair](https://github.com/weishiair)) — 为 PiDeck 的软件开发提供 Grok 模型服务 🎉
 
 ---
 

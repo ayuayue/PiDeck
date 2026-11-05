@@ -15,7 +15,7 @@ import type { AppPaletteId, AppSkinId, AppStyleId } from "./types/settings";
  */
 export const APP_STYLE_IDS = ["classic", "terminal"] as const;
 
-export const APP_PALETTE_IDS = ["classic-green", "fresh-green", "graphite", "sea-blue", "warm-beige", "tui", "custom"] as const;
+export const APP_PALETTE_IDS = ["classic-green", "fresh-green", "graphite", "sea-blue", "warm-beige", "parchment", "tui", "custom"] as const;
 
 export const DEFAULT_APP_STYLE: AppStyleId = "classic";
 
