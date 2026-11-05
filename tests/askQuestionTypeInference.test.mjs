@@ -23,9 +23,7 @@ const { default: registerAskQuestion } = loadTsCommonJs("resources/extensions/pi
 		// 只影响直属 Object 的 required 计算，不出现在输出的 JSON Schema 里。
 		typebox: (() => {
 			const OPTIONAL = Symbol("optional");
-			const primitive =
-				(type) =>
-				(options) => ({ type, ...options });
+			const primitive = (type) => (options) => ({ type, ...options });
 			return {
 				Type: {
 					Object: (properties, options) => ({
