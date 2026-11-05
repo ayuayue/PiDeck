@@ -94,6 +94,7 @@
 - 🚀 **Built-in TokenDance provider shows discount / free badges**
 - 🚀 **The Web UI catches up with the desktop**
 - 🚀 **Batch remove project records from the sidebar**
+- 🚀 **New Parchment palette**
 - ✨ **Queued messages support Send Immediately**
 - ✨ **Timeline and outline finish their virtualization pass**
 - ✨ **The Git panel no longer squeezes text or stutters**
