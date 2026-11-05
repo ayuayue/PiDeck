@@ -130,7 +130,8 @@ export async function verifyRemoteTerminals(input: { window: Page; app: Electron
 	await expect(window.locator(".terminal-tab-label")).toContainText("已退出");
 	await gone(reopened);
 	await gone(two);
-	await window.locator(".terminal-dock").getByTitle("新建终端").click();
+	// exact：dock 里还有一个 title="以相同 shell 与目录新建终端" 的重开入口，前缀匹配会撞 strict mode。
+	await window.locator(".terminal-dock").getByTitle("新建终端", { exact: true }).click();
 	// 断开后新建终端必须明确失败并说明原因（不静默重连、不重放）：产品走全局 notice，文案可能带稳定码
 	// （SSH_HOST_DISCONNECTED）或翻译后的远端断开文案；两者都算「用户被告知」，但不能完全无反馈。
 	await expect(
@@ -147,7 +148,8 @@ export async function verifyRemoteTerminals(input: { window: Page; app: Electron
 	await expect(modal.getByText("已连接").first()).toBeVisible({ timeout: timeoutMs });
 	await modal.getByRole("button", { name: "关闭" }).first().click();
 	await expect(window.locator(".terminal-tab-label")).toHaveCount(1); // explicit connection alone never creates/replays a terminal
-	await window.locator(".terminal-dock").getByTitle("新建终端").click();
+	// exact：dock 里还有一个 title="以相同 shell 与目录新建终端" 的重开入口，前缀匹配会撞 strict mode。
+	await window.locator(".terminal-dock").getByTitle("新建终端", { exact: true }).click();
 	await expect(window.locator(".terminal-tab-label")).toHaveCount(2, { timeout: timeoutMs });
 	const exiting = await pid(window, "APP_EXIT");
 	await app.close();
