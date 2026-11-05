@@ -119,3 +119,14 @@ test("services and App expose the send-now path", () => {
 	assert.match(app, /queueSendNow: queue\.sendQueuedPromptNow,/);
 	assert.match(app, /queueStopTurn: \(sessionId: string\) => void runSessionControl\(sessionId, "abort"\),/);
 });
+
+test("ACP rows reuse the steer slot for send-now instead of adding a second icon", () => {
+	const source = readFileSync("src/renderer/src/components/session/ComposerPanels.tsx", "utf8");
+	const row = source.slice(source.indexOf("function QueuedPromptRow"), source.indexOf("export function QueuedPromptPanel"));
+	// 一个按钮元素，两处渲染：pi/dsh 与「加入当前回合」并列，ACP 独占该位置。
+	assert.equal(row.match(/<Send /g)?.length, 1, "the send icon is declared once and shared by both branches");
+	assert.match(row, /\{props\.steerSupported \? \(\s*<>/, "steer-capable backends keep the behavior buttons");
+	assert.match(row, /\{sendNowButton\}[\s\S]*?<\/>\s*\) : \(\s*sendNowButton\s*\)\}/, "ACP renders send-now alone in that slot");
+	// ACP 行为固定为下一回合：不再渲染点了没变化的投递方式按钮。
+	assert.equal(row.match(/app\.queuedSteerBackendUnsupported/g), null, "the dead backend-unsupported steer hint is gone");
+});

@@ -1142,7 +1142,6 @@ export const enUS: Record<TranslationKey, string> = {
 	"app.sendSteerDesc": "steer · applies before the next LLM call",
 	"app.sendSteerTitle": "Add to current turn",
 	"app.queuedSteerUnavailable": "Steering is available only while the agent is running",
-	"app.queuedSteerBackendUnsupported": "This agent cannot steer an in-progress turn (ACP has no steer channel)",
 	"app.queuedBehaviorLocked": "Cannot change delivery while sending or when the result is unknown",
 	"app.queuedSendNow": "Send now",
 	"app.queuedSendNowStopTurn": "Send now (stops the current turn first)",

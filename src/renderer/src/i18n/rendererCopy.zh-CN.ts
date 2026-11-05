@@ -1138,7 +1138,6 @@ export const zhCN = {
 	"app.sendSteerDesc": "steer · 下一次 LLM 调用前生效",
 	"app.sendSteerTitle": "加入当前回合",
 	"app.queuedSteerUnavailable": "仅运行中可插入当前回合",
-	"app.queuedSteerBackendUnsupported": "该会话的 agent 不支持插入当前回合（ACP 协议无 steer 通道）",
 	"app.queuedBehaviorLocked": "发送中或结果未知时不能改投递方式",
 	"app.queuedSendNow": "立即发送",
 	"app.queuedSendNowStopTurn": "立即发送（会先停止当前回合）",

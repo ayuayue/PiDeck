@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 4c7d64ad6928ada2b50fb2799899156ed5d0c7cfdf5140e07e6ca42986fe1edc（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 818c444cc408fd022f311b0a5cdb8b36115cce4d52252a0123fb1ee2b8949f83（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -1145,7 +1145,6 @@ export const zhTW: Record<TranslationKey, string> = {
 	"app.sendSteerDesc": "steer · 下一次 LLM 呼叫前生效",
 	"app.sendSteerTitle": "加入當前回合",
 	"app.queuedSteerUnavailable": "僅執行中可插入當前回合",
-	"app.queuedSteerBackendUnsupported": "該會話的 agent 不支援插入當前回合（ACP 協議無 steer 通道）",
 	"app.queuedBehaviorLocked": "傳送中或結果未知時不能改投遞方式",
 	"app.queuedSendNow": "立即傳送",
 	"app.queuedSendNowStopTurn": "立即傳送（會先停止當前回合）",
