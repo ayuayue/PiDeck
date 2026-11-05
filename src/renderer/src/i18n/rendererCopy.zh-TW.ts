@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 9ca391a2a05075496bf0b85034142df456f460ac3540bccff93e36e4286ed27c（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 32692dab772a041988642db78989c52f52d6120ec600ccd6dd787e3c2c11600c（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -5614,7 +5614,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.agentMemoryKindLabel": "記憶型別",
 	"settings.agentMemoryTabMemory": "記憶",
 	"settings.agentMemoryTabFailure": "教訓",
-	"settings.agentMemoryEntriesDesc": "逐條列出所有作用域的記憶檔案：全域、專案、本機裝置都在這裡。記憶是檢索式讀取——Agent 用 memory_search / memory_get 按需查，不會整份塞進上下文。刪除會留下墓碑，舊匯出包不會把它導回來。",
+	"settings.agentMemoryEntriesDesc": "逐條列出所有作用域的記憶檔案：全域、專案、本機裝置都在這裡。列表按記錄時間混排，行首徽標標明所屬作用域；懸停徽標能看到落盤檔案與該檔案預算。記憶是檢索式讀取——Agent 用 memory_search / memory_get 按需查，不會整份塞進上下文。刪除會留下墓碑，舊匯出包不會把它導回來。",
 	"settings.agentMemorySearchPlaceholder": "搜尋記憶內容或專案名",
 	"settings.agentMemorySearchClear": "清除搜尋",
 	"settings.agentMemoryTableContent": "內容",
@@ -5632,6 +5632,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.agentMemoryGroupBudget": "{count} 條 · {chars}/{maxChars} 字 · 上限 {maxEntries} 條",
 	"settings.agentMemoryGroupPlain": "{count} 條 · {chars} 字 · 檢索時可見",
 	"settings.agentMemoryGroupOverBudget": "已超預算，下次寫入會丟最老的條目",
+	"settings.agentMemoryGroupOverBudgetShort": "超預算",
 	"settings.agentMemoryEntryChars": "{chars} 字",
 	"settings.agentMemoryDeleteEntry": "刪除這條記憶",
 	"settings.agentMemoryDeletedEntry": "已刪除「{content}」",
@@ -5655,6 +5656,9 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.agentMemoryTargetStanding": "常駐指令",
 	"settings.agentMemoryScopeGlobal": "全域",
 	"settings.agentMemoryScopeDevice": "本機裝置 · {device}",
+	"settings.agentMemoryScopeDeviceShort": "本機裝置",
+	"settings.agentMemoryScopeProject": "專案",
+	"settings.agentMemoryScopeProjectId": "專案 · {id}",
 	"settings.agentMemoryUsage": "用量與索引",
 	"settings.agentMemoryStatus": "記憶狀態",
 	"settings.agentMemorySummaryFiles": "{size} / {count} 條",

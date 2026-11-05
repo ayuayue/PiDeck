@@ -1,13 +1,13 @@
 /**
  * 记忆条目列表的分页/展平（纯函数，可单测）。
  *
- * 为什么要单独一个文件：分页的单位是**条目**，但表格里还有「分组行」（作用域 + 落盘文件 +
- * 预算）。两者混在一起时最容易出的错是「换页后条目还在、分组行没了」——读者看到一屏记忆
- * 却不知道它们属于哪个文件。列表先按记录时间倒序，再分页；页首或作用域切换时补上
- * 当前组的分组行，交错出现的同组条目也能辨认所属文件。
+ * 设置页的列表是**单一时间线**：所有作用域按记录时间倒序混排，作用域信息跟着条目一起
+ * 返回，行内用徽标区分全局 / 项目 / 本机设备。早期版本在时间线里插「分组行」，同一组
+ * 的条目被别组隔开时会反复出现同样的表头（一屏里好几个「全局 通用记忆 MEMORY.md」），
+ * 既占行又把列表切得零碎，所以不再插入分组行。
  *
- * 导出/导入弹窗不翻页，而是把同一份行模型交给虚拟滚动（行数随记忆量增长，见 issue #481）：
- * 它们用 `flattenMemoryRows` 拿全量行，渲染交给 VirtualStack。
+ * 导出/导入弹窗仍按文件分组：它们用 `flattenMemoryRows` 拿「分组行 + 条目行」，行数随
+ * 记忆量增长，渲染交给 VirtualStack（见 issue #481）。
  */
 
 import type { AgentMemoryEntry, AgentMemoryEntryGroup } from "../../../../../shared/types/agentMemory";
@@ -15,7 +15,11 @@ import type { AgentMemoryEntry, AgentMemoryEntryGroup } from "../../../../../sha
 /** 每页条数：与日志页一致。 */
 export const MEMORY_PAGE_SIZE = 20;
 
+/** 导出/导入弹窗的行模型：仍保留分组行，勾选与虚拟滚动按文件组织。 */
 export type AgentMemoryRow = { kind: "group"; key: string; group: AgentMemoryEntryGroup } | { kind: "entry"; key: string; entry: AgentMemoryEntry };
+
+/** 设置页列表的一行：条目 + 它所属的作用域（徽标、文件、预算都从这里取）。 */
+export type AgentMemoryPageEntry = { key: string; entry: AgentMemoryEntry; group: AgentMemoryEntryGroup };
 
 /** 条目身份：同一段内容可能同时存在于全局与项目作用域，所以键里必须带作用域。 */
 export function memoryEntryId(entry: AgentMemoryEntry): string {
@@ -50,10 +54,10 @@ export function flattenMemoryRows(groups: readonly AgentMemoryEntryGroup[]): Age
 }
 
 /**
- * 新记录在前，再取第 page 页（1 起）。同时间或无时间时保留组序，组内按文件序号倒序。
- * 越界页码夹到首/尾页，删条目后不会停在空白页；不改变原数据和导出顺序。
+ * 全量条目时间线（不分页）：新记录在前，同时间或无时间时保留组序，组内按文件序号倒序。
+ * 不改变原数据和导出顺序（导出仍走 `flattenMemoryRows`）。
  */
-export function buildMemoryPageRows(groups: readonly AgentMemoryEntryGroup[], page: number, pageSize = MEMORY_PAGE_SIZE): AgentMemoryRow[] {
+function memoryTimeline(groups: readonly AgentMemoryEntryGroup[]): AgentMemoryPageEntry[] {
 	const entries = groups.flatMap((group, groupIndex) =>
 		group.entries.map((entry) => {
 			const time = Date.parse(entry.updatedAt ?? "");
@@ -61,15 +65,16 @@ export function buildMemoryPageRows(groups: readonly AgentMemoryEntryGroup[], pa
 		}),
 	);
 	entries.sort((a, b) => (a.time !== b.time ? b.time - a.time : a.groupIndex - b.groupIndex || b.entry.index - a.entry.index));
-	const current = Math.min(Math.max(1, Math.trunc(page) || 1), memoryTotalPages(entries.length, pageSize));
+	return entries.map(({ group, entry }) => ({ key: memoryEntryId(entry), entry, group }));
+}
+
+/**
+ * 取第 page 页（1 起）。越界页码夹到首/尾页，删条目后不会停在空白页。
+ * 每行都带 group：列表不再插分组行，作用域徽标与文件/预算提示需要逐条取。
+ */
+export function buildMemoryPageEntries(groups: readonly AgentMemoryEntryGroup[], page: number, pageSize = MEMORY_PAGE_SIZE): AgentMemoryPageEntry[] {
+	const all = memoryTimeline(groups);
+	const current = Math.min(Math.max(1, Math.trunc(page) || 1), memoryTotalPages(all.length, pageSize));
 	const pageStart = (current - 1) * pageSize;
-	const rows: AgentMemoryRow[] = [];
-	let previousGroup: AgentMemoryEntryGroup | undefined;
-	for (const { group, entry } of entries.slice(pageStart, pageStart + pageSize)) {
-		const key = memoryEntryId(entry);
-		if (group !== previousGroup) rows.push({ kind: "group", key: `${memoryGroupKey(group)}|${key}`, group });
-		rows.push({ kind: "entry", key, entry });
-		previousGroup = group;
-	}
-	return rows;
+	return all.slice(pageStart, pageStart + pageSize);
 }
