@@ -193,6 +193,21 @@ export const sidebarExpandedProjectIdsAtom = atom<ReadonlySet<string>>(
 /** 侧栏 Chats/项目分段：localStorage 首屏缓存，settings.json 作权威来源。 */
 export const sidebarNavTabAtom = atom<SidebarNavTab>(readSidebarNavTab(typeof window === "undefined" ? undefined : window.localStorage) ?? DEFAULT_SIDEBAR_NAV_TAB);
 
+/**
+ * 「新建项目后让侧栏揭示该行」请求：App 添加成功（本地目录 / WSL / 远端登记）后写入，侧栏
+ * 据此切到项目所在分段、展开并滚进可视区——否则用户停在「聊天/活动」分段时，新项目所在
+ * 分段根本没挂载，看起来就是「添加完没反应，要自己滚动才看得到」。
+ *
+ * 传「请求 + nonce」而不是直接暴露 DOM：写入方在 App，滚动容器在 SidebarContent。
+ * 同一项目先移除再添加（id 不变）也必须能再次触发，所以只比 id 会让第二次静默失效。
+ */
+export type SidebarRevealProjectRequest = { projectId: string; nonce: number };
+export const sidebarRevealProjectRequestAtom = atom<SidebarRevealProjectRequest | null>(null);
+export const requestSidebarRevealProjectAtom = atom(null, (get, set, projectId: string) => {
+	if (!projectId) return;
+	set(sidebarRevealProjectRequestAtom, { projectId, nonce: (get(sidebarRevealProjectRequestAtom)?.nonce ?? 0) + 1 });
+});
+
 // useStreamdownRendererAtom 已移除：Streamdown 转正为唯一 markdown 引擎（迁移 react-markdown 完成）。
 
 /**

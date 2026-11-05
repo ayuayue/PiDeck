@@ -317,7 +317,6 @@
 		"tests/sidebarRowAlignment.test.mjs",
 		"tests/sidebarRuntimeBinding.test.mjs",
 		"tests/sidebarSearchBackground.test.mjs",
-		"tests/sidebarSearchProjectReveal.test.mjs",
 		"tests/skillManager.test.mjs",
 		"tests/skillsRenameIpc.test.mjs",
 		"tests/sonnerToasterMount.test.mjs",

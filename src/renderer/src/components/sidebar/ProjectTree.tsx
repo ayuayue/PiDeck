@@ -153,7 +153,7 @@ export function ProjectTree(props: {
 		const pendingAskCount = countProjectPendingAsks(project.id, props.controller, sessionRuntimeUiById);
 		return (
 			<SidebarRemovalRow key={project.id} itemId={project.id} className={cn("project-group mb-1.5", project.worktreeEnabled && "worktree-enabled")}>
-				{/* data-project-row-id：搜索面板选中项目后按此定位（SidebarContent.revealSearchProject）。 */}
+				{/* data-project-row-id：揭示项目行时的定位锚点（SidebarContent.revealProjectRow：搜索选中 / 新建项目后定位）。 */}
 				<div
 					data-project-row-id={project.id}
 					className={cn(
