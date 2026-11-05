@@ -592,7 +592,7 @@ type SessionGroup = {
 | `plugin-changed` / `plugin-code-changed` | 内容变了，授权失效 → 重新授权 |
 | `plugin-in-use` | 启用中的插件拒绝被安装替换 → 先禁用 |
 | `archive-*` | 分发归档格式/哈希/预算问题（`archive-hash-mismatch` 等） |
-| `invalid-github-url` / `plugin-not-found` | GitHub 链接不合法 / 仓库里找不到可安装的包（见 9.2） |
+| `invalid-github-url` / `invalid-atomgit-url` / `plugin-not-found` | GitHub / AtomGit 链接不合法 / 仓库里找不到可安装的包（见 9.2） |
 | `plugin-manifest-ambiguous` | 仓库里有多个 `pideck-plugin.json` 且无法唯一定位 → 用 `/tree/<分支>/<子目录>` 链接指定 |
 | `download-failed` | 下载失败或超 24 MiB |
 
@@ -627,13 +627,14 @@ node scripts/pack-host-plugin.mjs <插件目录> [输出.pideck-plugin]
 - 安装（三条路径信任判定完全一致，装完都是**禁用 + 需重新授权**）：
   - **「从文件安装…」**：选 `.pideck-plugin` 归档（文件选择在主进程完成，渲染层不传路径）；
   - **「从文件夹安装…」**：直接选**已解压的插件目录**（就是含 `pideck-plugin.json` 的那一层），适合开发目录；`.git`、`node_modules` 整棵跳过，路径形状不合法（带空格/中文名）或超限的文件也跳过而不会让整包失败。
-  - **「从 GitHub 安装…」**：粘贴仓库或 `/tree/` 链接（见 9.2），主进程直接拉 `codeload` 的 tar.gz 解包，无需作者先打归档。
-  - **「插件市场」**：搜索官方收录与社区仓库后一键安装，走的仍是「从 GitHub 安装」这条路径（见 9.3）。
+  - **「从链接安装…」**：粘贴 GitHub 或 AtomGit 的仓库 / `/tree/` 链接（见 9.2），主进程直接下载源码，无需作者先打归档。
+  - **「插件市场」**：搜索官方收录与社区仓库后一键安装，走的仍是「从链接安装」这条路径（见 9.3）；官方收录可切 GitHub / AtomGit 下载源。
 
-### 9.2 从 GitHub 链接安装
+### 9.2 从 GitHub / AtomGit 链接安装
 
-- 支持的链接形态：`https://github.com/<owner>/<repo>`、`.../tree/<分支>`、`.../tree/<分支>/<插件子目录>`（分支名可含 `/`，下载时会从最长候选逐段缩短，把剩余部分当子目录）。
-- 安装源固定 `https://codeload.github.com/<owner>/<repo>/tar.gz/<ref>`；不带 `ref` 时先问 `api.github.com` 的默认分支，失败回退 `main`/`master`。只识别 HTTP 404 为「该 ref 不存在」，其余失败按 `download-failed` 报错，不静默换分支。
+- 支持的链接形态（两个 host 相同）：`https://<host>/<owner>/<repo>`、`.../tree/<分支>`、`.../tree/<分支>/<插件子目录>`（分支名可含 `/`，下载时会从最长候选逐段缩短，把剩余部分当子目录）。`<host>` 只接受 `github.com` 与 `atomgit.com`。
+- GitHub 安装源固定 `https://codeload.github.com/<owner>/<repo>/tar.gz/<ref>`；不带 `ref` 时先问 `api.github.com` 的默认分支，失败回退 `main`/`master`。只识别 HTTP 404 为「该 ref 不存在」，其余失败按 `download-failed` 报错，不静默换分支。
+- AtomGit 走 API v5（`https://api.atomgit.com/api/v5/repos/<owner>/<repo>`）：`file_list?ref_name=<ref>` 列全仓库路径，`branches` 找默认分支，`raw/<path>?ref=<ref>` 逐文件取字节。仓库没有匿名可用的归档接口，所以先按 `pideck-plugin.json` 收敛到包根，只下载包根下的文件；预算、包根判定与 GitHub 源共用同一份实现（`hostPluginPackage.ts`）。
 - 包根定位：仓库根或子目录里必须有 `pideck-plugin.json`；整份仓库只有一个包时自动定位，多个同深度包报 `plugin-manifest-ambiguous`（用 `/tree/<分支>/<子目录>` 精确指定）。
 - 预算：下载 24 MiB、解包 96 MiB、成品包 16 MiB / 100 文件 / 单文件 4 MiB——与归档安装同一套上限，超出即 `package-too-large` / `asset-too-large`。
 - 只取常规文件：符号链接、`.git`、`node_modules`、路径非法的条目在解包阶段被丢弃，不会让整包失败；不执行任何仓库里的脚本（无 `npm install`、无构建步骤），所以仓库里必须是**可直接运行的静态文件**，需要构建的插件请自行提交产物或提供 `.pideck-plugin` 归档。

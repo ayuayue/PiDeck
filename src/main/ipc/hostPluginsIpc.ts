@@ -5,6 +5,7 @@ import type { HostPluginResult } from "../../shared/types/hostPlugin";
 import type { HostPluginService } from "../plugins/HostPluginService";
 import { isHostPluginId, isHostPluginPermission, isPluginRecord } from "../plugins/hostPluginManifest";
 import { downloadGitHubPlugin } from "../plugins/hostPluginGitHub";
+import { downloadAtomGitPlugin, isAtomGitPluginUrl } from "../plugins/hostPluginAtomGit";
 import { searchHostPluginMarket } from "../plugins/hostPluginMarket";
 import { isLocalServiceId } from "../../shared/localServices";
 import { createHostPluginScaffold } from "../plugins/hostPluginScaffold";
@@ -90,10 +91,10 @@ export function registerHostPluginsIpc(service: HostPluginService, getWindow: ()
 	ipcMain.handle(ipcChannels.hostPluginsInstallGitHub, (event, url: unknown) =>
 		result(async () => {
 			trustedWindow(event);
-			// 链接是渲染层唯一能提供的输入：形状由 parseGitHubPluginUrl 收窄到 github.com 仓库页，
-			// 下载与解包都在主进程完成，插件目录路径始终由主进程自己生成。
+			// 链接是渲染层唯一能提供的输入：形状由 parseGitHubPluginUrl / parseAtomGitPluginUrl 收窄到
+			// github.com 或 atomgit.com 的仓库页，下载与解包都在主进程完成，插件目录路径始终由主进程自己生成。
 			if (typeof url !== "string" || url.length === 0 || url.length > 300) throw new Error("invalid-github-url");
-			const download = await downloadGitHubPlugin(url);
+			const download = isAtomGitPluginUrl(url) ? await downloadAtomGitPlugin(url) : await downloadGitHubPlugin(url);
 			return service.manager.installFiles(download.files);
 		}),
 	);

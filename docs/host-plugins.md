@@ -126,7 +126,7 @@
 - 格式：NDJSON 单文件（header 行 + 每文件一行 base64 + sha256），与目录包同一套预算（单文件 4MiB / 展开 16MiB / 100 文件 / 深度 8）；归档总体上限 24MiB。选自描述行格式而非 zip：无运行时解压依赖，预算与逐文件校验内建在解析器（`src/main/plugins/hostPluginArchive.ts`）。
 - 打包：`node scripts/pack-host-plugin.mjs <插件目录> [输出.pideck-plugin]`。
 - 安装：设置 → PiDeck 插件 →「从文件安装…」收 `.pideck-plugin` 归档，「从文件夹安装…」收已解压的目录包；两条路径都：路径只来自主进程对话框（渲染层不传路径）→ 拷/写到隐藏 temp 目录（`stageHostPluginFile` 逐级建目录，支持 `assets/app.html` 这类嵌套资产）→ 走 `readHostPluginPackage` 全量验证 → 原子换入，失败自动清理。目录来源额外跳过 `.git`/`node_modules` 整棵；路径形状不合法（空格/中文名等）或超限的文件被跳过而不是造成整包失败，其余文件照搬到落位目录。
-- 第三条路径「从 GitHub 安装…」只收 `https://github.com/<owner>/<repo>[/tree/<ref>[/<subpath>]]`，下载固定走 `codeload.github.com` 的 tar.gz + 自写 tar 解析（无 `git`、不执行仓库脚本）；三条路径共用 `HostPluginManager.installFiles` 同一套预算与信任判定。
+- 第三条路径「从链接安装…」收 GitHub 或 AtomGit 的 `https://<host>/<owner>/<repo>[/tree/<ref>[/<subpath>]]`：GitHub 走 `codeload.github.com` 的 tar.gz + 自写 tar 解析，AtomGit 走 API v5 的 `file_list` + `raw`（先按包根收敛再逐文件取，无归档接口）；两条都不执行仓库脚本，与归档/目录安装共用 `HostPluginManager.installFiles` 同一套预算与信任判定（选包与预算口径收在 `hostPluginPackage.ts`）。
 - 替换语义：启用中的插件拒绝替换（`plugin-in-use`，先禁用再装）；禁用状态重装同 id 允许，字节一致则指纹不变，内容变化则旧授权失效。
 
 ## 插件市场（双源发现）
@@ -135,10 +135,10 @@
 
 | 源 | 来源与顺序 | 卡片标记 |
 | --- | --- | --- |
-| 官方收录 | `https://raw.githubusercontent.com/ayuayue/pideck-plugins/main/registry.json`（人工核对过 manifest 与权限，支持 `repo` + `ref` + `subpath` 精确到子目录，可一仓多插件） | 官方收录 |
+| 官方收录 | GitHub raw 的 `registry.json`（失败自动回退 AtomGit API raw）；人工核对过 manifest 与权限，支持 `repo` + `ref` + `subpath` 精确到子目录，可一仓多插件；`atomgitRepo` 声明镜像仓库，安装时可切 AtomGit 下载源 | 官方收录 |
 | 社区 | GitHub `topic:pideck-plugin`，按星标倒序，排除 fork/归档，**只认仓库根**的 `pideck-plugin.json` | 社区 · 未审阅 |
 
-- 安装复用 `hostPluginsInstallGitHub`（`downloadGitHubPlugin(installUrl)` → `installFiles`），所以市场拿不到任何额外能力：装完仍是禁用 + 需授权，指纹链路与手工安装完全相同。
+- 安装复用 `hostPluginsInstallGitHub`：主进程按 host 分派 `downloadGitHubPlugin` / `downloadAtomGitPlugin`，文件集交给 `installFiles`，所以市场拿不到任何额外能力：装完仍是禁用 + 需授权，指纹链路与手工安装完全相同。官方收录在市场里可切 GitHub / AtomGit 下载源（`atomgitUrl` 只在 registry 条目声明了 `atomgitRepo` 时出现）。
 - 合并规则：官方收录排在社区结果之前；**官方源内部不按仓库去重**（一个 monorepo 可以出多条，`subpath` 各自精确，见已有 4 条收录）；社区条目只要它那个仓库已被收录就跳过（社区只能整仓装，registry 那条更准）；其余按 `installUrl` 去重；结果截断 40 条。
 - 单源失败不阻断：失败文本进 `warnings` 由 UI 展示；**双源全挂才抛错**。所有远程数据当不可信输入：形态不对的 registry 条目、`installUrl` 拼不出来的条目（缺 `repo`、`repo` 不是 `owner/name`、`ref`/`subpath` 含空段或 `.`/`..`）一律丢弃，宁可少一条也不给点下去必然失败的安装按钮。
 - 为什么只按 topic 拉一次再本地过滤：`api.github.com/search/repositories` 未认证限 10 请求/分钟，而用户会连打十几次关键词。缓存：社区源 10 分钟、官方索引 6 小时（`clearHostPluginMarketCache()` 供测试清缓存）。
@@ -147,7 +147,7 @@
 
 ## 示例包（`docs/examples/host-plugins/`）
 
-- 仓库里有两个可直接安装的完整示例，**不随包分发、不自动落位**：PiDeck 出厂不带任何宿主插件，安装来源只有「从文件 / 从文件夹 / 从 GitHub / 插件市场」，装完仍是禁用 + 需按指纹授权。
+- 仓库里有两个可直接安装的完整示例，**不随包分发、不自动落位**：PiDeck 出厂不带任何宿主插件，安装来源只有「从文件 / 从文件夹 / 从链接 / 插件市场」，装完仍是禁用 + 需按指纹授权。
 - 手动安装：设置 → PiDeck 插件 → 「从文件夹安装…」，选 `docs/examples/host-plugins/<id>/`（目录名必须等于 `manifest.id`）。
 
 | id | 演示了什么 | 权限 | 面板 |
@@ -171,5 +171,5 @@
 ## 开发与验证
 
 - 网络回归：`node --test tests/hostPluginNetwork.test.mjs tests/hostPluginNetworkTransport.test.mjs tests/hostPluginNetworkUi.test.mjs tests/hostPluginNetworkDemo.test.mjs`（策略/撤权、真实 hop 的替身 socket、授权展示、静态 demo；不启动服务或连接真实接口）。
-- 回归测试：`node --test tests/hostPlugins.test.mjs`（manifest/授权/隔离视图/预算/跨项目 fork/撤销提交）、`node --test tests/hostPluginScaffold.test.mjs`（脚手架产物与新增 API 面）、`node --test tests/hostPluginDirectoryInstall.test.mjs`（目录安装）、`node --test tests/hostPluginArchive.test.mjs`（归档）、`node --test tests/hostPluginMarket.test.mjs`（双源搜索/去重/单源降级/缓存/registry 解析）、`node --test tests/exampleHostPlugins.test.mjs`（示例包的出厂契约与能力面登记）、`node --test tests/piContextHostAdapter.test.mjs`（转换器）。
-- 主进程模块在 `src/main/plugins/`（含 `hostPluginScaffold.ts` / `hostPluginGitHub.ts` / `hostPluginMarket.ts`）；IPC 入口 `src/main/ipc/hostPluginsIpc.ts`；共享契约 `src/shared/types/hostPlugin.ts`；preload 白名单 `src/preload/hostPlugin.ts`。面向插件作者的完整文档是 `docs/host-plugin-dev-guide.md`（同一份文件同步上官网 `/guide/host-plugins`）；插件模板与收录仓库是 [ayuayue/pideck-plugins](https://github.com/ayuayue/pideck-plugins)。
+- 回归测试：`node --test tests/hostPlugins.test.mjs`（manifest/授权/隔离视图/预算/跨项目 fork/撤销提交）、`node --test tests/hostPluginScaffold.test.mjs`（脚手架产物与新增 API 面）、`node --test tests/hostPluginDirectoryInstall.test.mjs`（目录安装）、`node --test tests/hostPluginArchive.test.mjs`（归档）、`node --test tests/hostPluginMarket.test.mjs`（双源搜索/去重/单源降级/缓存/registry 解析/AtomGit 索引回退）、`node --test tests/hostPluginAtomGit.test.mjs`（AtomGit 链接/文件列表/包根/预算/raw 下载）、`node --test tests/exampleHostPlugins.test.mjs`（示例包的出厂契约与能力面登记）、`node --test tests/piContextHostAdapter.test.mjs`（转换器）。
+- 主进程模块在 `src/main/plugins/`（含 `hostPluginScaffold.ts` / `hostPluginGitHub.ts` / `hostPluginAtomGit.ts` / `hostPluginPackage.ts` / `hostPluginMarket.ts`）；IPC 入口 `src/main/ipc/hostPluginsIpc.ts`；共享契约 `src/shared/types/hostPlugin.ts`；preload 白名单 `src/preload/hostPlugin.ts`。面向插件作者的完整文档是 `docs/host-plugin-dev-guide.md`（同一份文件同步上官网 `/guide/host-plugins`）；插件模板与收录仓库是 [ayuayue/pideck-plugins](https://github.com/ayuayue/pideck-plugins)。

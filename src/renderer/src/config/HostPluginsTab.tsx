@@ -25,6 +25,7 @@ import { hostPluginScaffoldInput, initialHostPluginScaffoldDraft } from "./hostP
 /** 安装/操作失败码 → 可执行的中文提示；未列出的码回退到带码的通用文案。 */
 const PLUGIN_ERROR_KEYS: Record<string, TranslationKey> = {
 	"invalid-github-url": "hostPlugins.errorInvalidGitHubUrl",
+	"invalid-atomgit-url": "hostPlugins.errorInvalidGitHubUrl",
 	"plugin-not-found": "hostPlugins.errorPluginNotFound",
 	"missing-manifest": "hostPlugins.errorMissingManifest",
 	"plugin-manifest-ambiguous": "hostPlugins.errorAmbiguousManifest",
@@ -94,7 +95,7 @@ export function HostPluginsTab() {
 			setBusy(false);
 		}
 	};
-	/** GitHub：下载与解包全在主进程，这里只把链接递过去；成功后关闭弹窗并清空输入。 */
+	/** GitHub / AtomGit：下载与解包全在主进程，这里只把链接递过去；成功后关闭弹窗并清空输入。 */
 	const installFromGitHub = async () => {
 		const url = githubUrl.trim();
 		if (!url) return;
