@@ -129,21 +129,15 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 	);
 
 	const bumpTrash = useCallback(() => setTrashReloadToken((value) => value + 1), []);
-	/**
-	 * 写操作失败时按稳定码决定弹框去留（§10.3）：目标已存在/条目已变化/名字非法保留输入便于重试，
-	 * 其余（受保护路径、未知结果、权限/连接）关闭弹框，避免用户对着不可能成功的输入反复提交。
-	 */
+	/** 写失败按稳定码决定弹框去留（§10.3）：保留输入的码不关框，其余关闭；未知结果关框但照样刷新派生视图。 */
 	const closeDialogAfter = useCallback((result: { ok: true } | { ok: false; code: string }, afterSuccess?: () => void) => {
 		if (result.ok) {
 			setEntryDialog(null);
 			afterSuccess?.();
 			return;
 		}
-		if (remoteFileEntryKeepsInput(result.code)) return;
-		setEntryDialog(null);
-		// 未知结果 = 写可能已经落地（回执丢失/连接代变化）：派生视图仍要刷新，否则回收站、
-		// 草稿清理会停在写之前的状态，把「其实成功了」显示成「没发生」（真机文件管理用例的假阴性）。
-		if (remoteFileEntryIsUnknown(result.code)) afterSuccess?.();
+		if (!remoteFileEntryKeepsInput(result.code)) setEntryDialog(null);
+		if (remoteFileEntryIsUnknown(result.code)) afterSuccess?.(); // 写可能已落地：派生视图照样刷新。
 	}, []);
 
 	const submitNew = useCallback(
