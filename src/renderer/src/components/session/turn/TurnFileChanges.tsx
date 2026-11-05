@@ -9,10 +9,10 @@ import { getFileIconColor, getFileIconSeti } from "../../../fileIcons";
 import { fitOneRow } from "./chipRowFit";
 import { t } from "../../../i18n";
 
-/** chip 之间的间距（px），与 className 的 gap-1.5 必须一致——装箱计算要用真实值。 */
-const CHIP_GAP = 6;
+/** chip 之间的间距（px），与 className 的 gap-1 必须一致——装箱计算要用真实值。 */
+const CHIP_GAP = 4;
 /** chip 行的类名常量：折叠态不换行，展开态换行。 */
-const ROW_BASE = "flex items-center gap-1.5";
+const ROW_BASE = "flex items-center gap-1";
 const ROW_COLLAPSED = `${ROW_BASE} flex-nowrap`;
 const ROW_EXPANDED = `${ROW_BASE} flex-wrap`;
 
@@ -107,11 +107,11 @@ export const TurnFileChanges = memo(function TurnFileChanges(props: {
 		// 「更多」按钮宽度随剩余数量单调递增（+3 比 +12 窄）。fitOneRow 会迭代收敛，
 		// 但不能用「当前已渲染按钮的实测宽度」：首帧该按钮尚未挂载（量不到），
 		// 且按钮一旦挂载，它显示的是上一轮算出的剩余数，不是本轮要算的那个。
-		// 所以直接按剩余数反算上界：overhead = px-2(16) + border(2) + gap-1(4) + chevron(13)，
-		// 数字位宽按 text-control（13px, font-semibold）保守取 0.62em/字符，含 '+' 共 digits+1 位。
+		// 所以直接按剩余数反算上界：overhead = px-1.5(12) + border(2) + gap-1(4) + chevron(12)，
+		// 数字位宽按 text-caption（12px, font-semibold）保守取 0.62em/字符，含 '+' 共 digits+1 位。
 		// 宁可少放一个 chip（多一个进 +N），也不可溢出容器。
-		const digitCharWidth = 13 * 0.62;
-		const moreWidthFor = (remaining: number) => 35 + (String(remaining).length + 1) * digitCharWidth;
+		const digitCharWidth = 12 * 0.62;
+		const moreWidthFor = (remaining: number) => 30 + (String(remaining).length + 1) * digitCharWidth;
 		setVisibleCount(fitOneRow(widths, CHIP_GAP, available, moreWidthFor));
 	}, []);
 
@@ -151,18 +151,18 @@ export const TurnFileChanges = memo(function TurnFileChanges(props: {
 							onClick={toggle}
 							aria-expanded={expanded}
 							title={expanded ? t("common.collapse") : t("sessionFiles.moreChipsHint", { count: hiddenCount })}
-							className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-xs border border-dashed border-border-strong px-2 py-1 text-control font-semibold text-text-tertiary tabular-nums transition-colors duration-fast hover:border-solid hover:border-text-tertiary hover:bg-bg-muted hover:text-text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+							className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-xs border border-dashed border-border-strong px-1.5 py-0.5 text-caption font-semibold text-text-tertiary tabular-nums transition-colors duration-fast hover:border-solid hover:border-text-tertiary hover:bg-bg-muted hover:text-text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
 							data-testid="turn-file-changes-more"
 						>
 							{expanded ? (
 								<>
 									<span>{t("common.collapse")}</span>
-									<ChevronUp size={13} aria-hidden="true" className="shrink-0" />
+									<ChevronUp size={12} aria-hidden="true" className="shrink-0" />
 								</>
 							) : (
 								<>
 									{t("sessionFiles.moreChips", { count: hiddenCount })}
-									<ChevronDown size={13} aria-hidden="true" className="shrink-0" />
+									<ChevronDown size={12} aria-hidden="true" className="shrink-0" />
 								</>
 							)}
 						</button>
@@ -176,7 +176,7 @@ export const TurnFileChanges = memo(function TurnFileChanges(props: {
 			    注意：w-max（max-content）尺寸计算时百分比 max-width 按 CSS 规范视为 none，
 			    测出的宽度可能大于可见行里被 280px 截断后的真实宽度——这种偏差只会让装箱偏保守
 			    （少放一个进 +N），不会溢出，所以接受。 */}
-			<div ref={attachProbe} aria-hidden="true" className="pointer-events-none invisible absolute left-0 top-0 -z-10 flex w-max gap-1.5">
+			<div ref={attachProbe} aria-hidden="true" className="pointer-events-none invisible absolute left-0 top-0 -z-10 flex w-max gap-1">
 				{files.map((entry) => (
 					<FileChangeChip key={entry.path} entry={entry} noInteract />
 				))}
@@ -188,11 +188,15 @@ export const TurnFileChanges = memo(function TurnFileChanges(props: {
 /**
  * 单个文件 chip：图标 + 文件名 + 修改次数 + 增/删行数。
  *
- * 配色（F）：底色用主题 accent 混 10%（随 data-accent 走，看得出「这是本轮产物」），
+ * 尺寸（2027-03 用户反馈「太大、太显眼，不是主要关注元素」）：12px 文字 + 2px 纵向内边距
+ * （22px 高，原 13px/4px → 28px）、14px 图标、4px 间距。它是轮末副产物，亮度要低于正文
+ * 与操作栏，靠图标原色和 +N/−N 状态色保留可读性。
+ *
+ * 配色（F）：底色用主题 accent 混 4%（随 data-accent 走，看得出「这是本轮产物」但不抢视线），
  * 文字用 text-secondary 而非 accent——accent 在 PiDeck 里是「面」不是「字」，
  * 直接当文字色时 green/blue/amber/rose 四个主题对比度只有 3.89~4.38，全部不到 WCAG AA 4.5。
  * 用 secondary 还有个信息层次上的好处：文件名比正文弱一档，产物相对结论降权。
- * hover 时文字提到 primary（悬停反馈靠「变清楚」而不是变色），底色加到 18%。
+ * hover 时文字提到 primary（悬停反馈靠「变清楚」而不是变色），底色加到 8%。
  *
  * data-file-chip：装箱计算靠它取每个 chip 的自然宽度，改名需同步 chipRowFit 的用量处。
  */
@@ -221,7 +225,7 @@ const FileChangeChip = memo(function FileChangeChip(props: { entry: FileEntry; o
 			// title 给完整相对路径：chip 只显示文件名，同名文件（多个 index.ts）靠悬停区分
 			title={props.noInteract ? undefined : entry.path}
 			onClick={props.noInteract ? undefined : canDiff ? handleOpenDiff : handleOpenFile}
-			className="inline-flex min-w-0 max-w-[min(100%,280px)] shrink-0 cursor-pointer items-center gap-1.5 rounded-xs bg-[color:color-mix(in_srgb,var(--color-accent)_6%,transparent)] px-2 py-1 text-control font-medium text-text-secondary transition-colors duration-fast hover:bg-[color:color-mix(in_srgb,var(--color-accent)_12%,transparent)] hover:text-text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-default disabled:opacity-70"
+			className="inline-flex min-w-0 max-w-[min(100%,280px)] shrink-0 cursor-pointer items-center gap-1 rounded-xs bg-[color:color-mix(in_srgb,var(--color-accent)_4%,transparent)] px-1.5 py-0.5 text-caption font-medium text-text-secondary transition-colors duration-fast hover:bg-[color:color-mix(in_srgb,var(--color-accent)_8%,transparent)] hover:text-text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-default disabled:opacity-70"
 		>
 			<FileTypeGlyph fileName={fileName} />
 			<span className="min-w-0 truncate">{fileName}</span>
@@ -259,10 +263,10 @@ const FileChangeChip = memo(function FileChangeChip(props: { entry: FileEntry; o
 function FileTypeGlyph({ fileName }: { fileName: string }) {
 	try {
 		const { svg, colorName } = getFileIconSeti(fileName);
-		// 16px：原 12px 比文件名（13px）还小，图标读不出是什么类型；16px 与 Git 面板 /
-		// 文件抽屉的 Seti 图标同一视觉重量，也与 chip 高度（26px）协调。
-		return <span aria-hidden="true" className="inline-flex size-4 shrink-0 items-center justify-center [&_svg]:size-full [&_svg]:fill-current" style={{ color: getFileIconColor(colorName) }} dangerouslySetInnerHTML={{ __html: svg }} />;
+		// 14px：与 chip 的 12px 文件名同档略大，图标仍是身份标记；原 16px 配 13px 文字是
+		// 28px chip 的比例，chip 收紧到 22px 后 16px 会顶满行高、显得比文件名还重。
+		return <span aria-hidden="true" className="inline-flex size-3.5 shrink-0 items-center justify-center [&_svg]:size-full [&_svg]:fill-current" style={{ color: getFileIconColor(colorName) }} dangerouslySetInnerHTML={{ __html: svg }} />;
 	} catch {
-		return <FileText aria-hidden="true" className="size-4 shrink-0" />;
+		return <FileText aria-hidden="true" className="size-3.5 shrink-0" />;
 	}
 }
