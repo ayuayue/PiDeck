@@ -6,11 +6,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -213,14 +216,20 @@ func (f *fakeWriteFile) Close() error {
 }
 
 func TestDecodeRequestRejectsTraversalAndUnknownFields(t *testing.T) {
-	valid := `{
+	// 执行器与客户端同机，ssh 可执行文件走本机路径语义（filepath.IsAbs），
+	// 所以夹具必须用当前平台的绝对路径：写死 Windows 路径会让 Linux CI 判非法。
+	sshExecutable := "/usr/bin/ssh"
+	if runtime.GOOS == "windows" {
+		sshExecutable = `C:\Windows\System32\OpenSSH\ssh.exe`
+	}
+	valid := fmt.Sprintf(`{
 		"version":1,
 		"operation":"list",
-		"ssh":{"executable":"C:\\Windows\\System32\\OpenSSH\\ssh.exe","args":["-T","-s","host","sftp"],"env":{"SystemRoot":"C:\\Windows"}},
+		"ssh":{"executable":%s,"args":["-T","-s","host","sftp"],"env":{"SystemRoot":"C:\\Windows"}},
 		"root":"/srv/project",
 		"relative":"src",
 		"maxEntries":10
-	}`
+	}`, strconv.Quote(sshExecutable))
 	value, err := decodeRequest(strings.NewReader(valid))
 	if err != nil {
 		t.Fatalf("valid request rejected: %v", err)
