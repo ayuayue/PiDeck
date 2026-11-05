@@ -1,4 +1,4 @@
-import type { ModelSpec, ModelSpecMatchKind, ThinkingLevelMap } from "../../shared/types/modelSpecs";
+import type { ModelCompatFlags, ModelSpec, ModelSpecMatchKind, ThinkingLevelMap } from "../../shared/types/modelSpecs";
 
 const THINKING_LEVEL_KEYS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
@@ -18,6 +18,8 @@ export type ModelCapabilityCandidate = {
 	reasoning?: boolean;
 	input?: Array<"text" | "image">;
 	thinkingLevelMap?: ThinkingLevelMap;
+	/** 目录声明的逐模型 compat 布尔键；只透传给配置页做展示/建议。 */
+	compat?: ModelCompatFlags;
 };
 
 export type ModelCapabilityLookupInput = {
@@ -411,6 +413,7 @@ export function modelCapabilityMatchToSpec(match: ModelCapabilityMatch): ModelSp
 		...(candidate.input ? { input: [...candidate.input] } : {}),
 		...(candidate.input ? { images: candidate.input.includes("image") } : {}),
 		...(candidate.thinkingLevelMap ? { thinkingLevelMap: { ...candidate.thinkingLevelMap } } : {}),
+		...(candidate.compat ? { compat: { ...candidate.compat } } : {}),
 		source: candidate.source,
 		matchKind: match.matchKind,
 		matchedId: candidate.id,

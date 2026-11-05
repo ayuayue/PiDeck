@@ -3616,6 +3616,20 @@ export const zhCN = {
 	// 弹框里解释逐模型 UA 的优先级：modelOverrides 覆盖 provider.headers（pi 的 rawModelHeaders 最后展开），
 	// 不写清这一层用户会以为「填了就替换掉供应商 UA 的全部场景」
 	"config.modelUserAgentDialogDesc": "留空 = 继承该供应商的 UA；填写后由 Pi 覆盖供应商级 User-Agent（优先级更高），只对当前模型生效。",
+	// 逐模型 compat：Claude 新一代模型经中转站时必须声明自适应思考，否则 pi 发老写法被 400
+	"config.modelCompat": "模型兼容性",
+	"config.modelCompatDialogDesc": "这些开关写入该模型的 compat（models.json 的 models[].compat），优先于供应商级同名设置。保存后需新开会话（或重启 PiDeck）才生效。",
+	"config.modelCompatHint": "跟随 Pi 时保留 pi 的自动判定（不写这个键）；开 / 关会显式写入配置文件。",
+	"config.modelCompatAdaptiveThinking": "自适应思考协议",
+	"config.modelCompatAdaptiveThinkingDesc": 'Claude Opus 4.7+ / Sonnet 5+ / Fable 5 等新一代模型只接受 thinking:{type:"adaptive"} + output_config.effort。未开启时 pi 按老写法发 thinking:{type:"enabled",budget_tokens}，上游会直接 400；经中转站用这些模型时手动打开。',
+	"config.modelCompatTemperature": "允许自定义温度",
+	"config.modelCompatTemperatureDesc": "关闭后 pi 不再发送非默认 temperature（compat.supportsTemperature）；Opus 4.7+ 一类模型只接受默认温度。",
+	"config.modelCompatStore": "发送 store 参数",
+	"config.modelCompatStoreDesc": "OpenAI 系接口的 store 参数（compat.supportsStore）；中转站不认时关闭。",
+	"config.modelCompatSuggestionTitle": "官方目录建议",
+	"config.modelCompatSuggestionDesc": "模型能力目录里 {model} 的 compat 与当前设置不同。应用只写入上面这些开关，不会改动其他 compat 键。",
+	"config.modelCompatSuggestionRow": "建议 {value}",
+	"config.modelCompatApplySuggestion": "应用目录建议",
 	"config.modelResetAdaptive": "重置为自适应",
 	"config.modelResetAdaptiveDone": "已按 {model} 的自适应模板重置能力字段",
 	"config.modelResetAdaptiveKept": "未匹配到自适应模板，已保留手动填写的容量字段",

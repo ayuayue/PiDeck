@@ -33,6 +33,7 @@ function piAiCandidates(index: PiAiCatalogIndex): ModelCapabilityCandidate[] {
 				...(entry.reasoning !== undefined ? { reasoning: entry.reasoning } : {}),
 				...(asInput(entry.input) ? { input: asInput(entry.input) } : {}),
 				...(entry.thinkingLevelMap ? { thinkingLevelMap: { ...entry.thinkingLevelMap } } : {}),
+				...(entry.compat ? { compat: { ...entry.compat } } : {}),
 			},
 		];
 	});

@@ -15,6 +15,7 @@ import { ModelsTable } from "./ModelsTable";
 import { ProviderConnectionForm, type ProviderTestResult } from "./ProviderConnectionForm";
 import { buildProviderConfigFromDraft, providerDialogResetKey, resolveFetchedBaseUrl, resolveInitialReasoningContentReplay, type AddProviderDraft } from "./addProviderDraft";
 import { applyModelPatches, applyAdaptiveTemplateReset, computeModelSpecPatches, mergeAdaptiveModelTemplate } from "../utils/modelSpecAutoFill";
+import { pickManagedCompatFlags } from "./modelCompatFields";
 import { countSelectedModelIndexes, invertModelIndexes, removeSelectedModelIndexes, selectAllModelIndexes, toggleAllModelIndexes, toggleModelIndex } from "./modelBatchSelection";
 import { withModelThinkingLevelEnabled } from "../../../shared/modelThinkingLevels";
 import { getModelUserAgentOverride, readModelOverrides, setModelUserAgentOverride } from "./providerHeaders";
@@ -612,6 +613,16 @@ export function AddProviderDialog(props: {
 						onResetModel={handleResetModelToAdaptive}
 						resettingModelKey={resettingModelKey}
 						onBlurAutoFill={applyModelSpecAutoFill}
+						// 页内核验目录建议（draft 名未落盘，仍可按模型 id 跨 provider 命中）：
+						// 中转 provider 的 Claude 新模型正是靠这里提示 forceAdaptiveThinking/supportsTemperature。
+						loadModelCompatSuggestion={async (index) => {
+							const model = models[index];
+							const modelId = model?.id?.trim();
+							if (!modelId) return null;
+							const spec = await desktopApi.projects.getModelSpec(name.trim() || "draft", modelId, model.name).catch(() => null);
+							const flags = pickManagedCompatFlags(spec?.compat);
+							return Object.keys(flags).length > 0 ? { matchedId: spec?.matchedId, flags } : null;
+						}}
 						batchMode={modelBatchMode}
 						selectedIndexes={selectedModelIndexes}
 						onToggleSelectIndex={(index) => setSelectedModelIndexes((current) => toggleModelIndex(current, index))}
