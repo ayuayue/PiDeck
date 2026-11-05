@@ -82,7 +82,7 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.10.0** (2026-11-04)
+> **Latest: v0.10.0** (2026-11-05)
 
 ### v0.10.0 Release Highlights
 - 🚀 **Agent memory shared by pi / DSH / ACP**

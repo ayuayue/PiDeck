@@ -1,4 +1,4 @@
-## v0.10.0 (2026-11-04)
+## v0.10.0 (2026-11-05)
 
 PiDeck grows from managing pi sessions into a workbench for several backends and environments: agent memory is shared across pi / DSH / ACP, remote projects can transfer files and run in parallel, and projects inside WSL distributions can be added and edited like local ones. On the engineering side, main-process networking moves onto Chromium's stack, and the timeline, outline, Git panel and 166 scroll containers finish their virtualization pass, so long sessions no longer render the whole table at once.
 
@@ -8,7 +8,7 @@ PiDeck grows from managing pi sessions into a workbench for several backends and
 - **SFTP file transfer for remote projects** — uploads go through a transaction-safe path with visible progress and cancellation, conflicts and failures stay isolated per project, and the unsupported-only fallback message is gone.
 - **Remote multi-project parallelism: root session pooling on by default** — projects on the same host share a bounded root session pool (idle 2 / TTL 10 min / at most 6), watch and connection facts are isolated per session, and root retirement is handled separately from host disconnects.
 - **Projects inside WSL distributions can be added and edited normally** — Add Project uses in-distribution directory browsing (the root profile no longer reports an unreachable network resource), file reads run as the profile user inside the distribution, and the 9P credential prompt is no longer a blocker.
-- **Host plugin market** — Settings → PiDeck Plugins gains a Plugin Market with two sources (the curated index and a GitHub topic search across the whole network), one-click install, and installed entries marked inline.
+- **Host plugin market** — Settings → PiDeck Plugins gains a Plugin Market with two sources (the curated index and a GitHub topic search across the whole network), one-click install, and installed entries marked inline; curated entries can download from GitHub or the AtomGit mirror (index fetch falls back automatically), and AtomGit repo links install directly.
 - **CodeBuddy session import** — same format as WorkBuddy (`~/.codebuddy/projects/…`), converting history messages, tool calls and titles.
 - **The timeline's right-edge scale expands into a full session directory** — the expanded view lists every prompt with search and jump-by-count, so long sessions no longer require repeated clicks on the scale to explore.
 - **Built-in TokenDance provider shows discount / free badges** — current prices from the site's public price table are compared against reference prices, and all-zero unit prices mark the model as free.
@@ -16,6 +16,7 @@ PiDeck grows from managing pi sessions into a workbench for several backends and
 - **Web sidebar visual rebuild and backend identity marks** — the brand area is aligned to the desktop wordmark, the project tree gains a left rail and shared alignment lines, and session rows plus the header mark the DSH / ACP / image-generation backend.
 - **EasyTier managed service can be restarted from the Web UI** — the settings page gains Restart EasyTier, so changed configuration no longer sends an ineffective start to a running service.
 - **Batch remove project records from the sidebar** — multi-select, select-all and paging, deleting one by one with a single failure not aborting the batch, and a success / failure count notice at the end; only records are removed, never the directories on disk.
+- **Session Groups plugin 3.1.0** — creating a group can expand a directory and tick only a few sessions (the directory still joins the scope), with session rows lazily loaded 20 at a time; update it from the plugin market.
 
 ### ✨ Improvements
 - **Queued messages support Send Immediately** — while ACP is busy the current turn is stopped first and that message goes out at the top of the queue, instead of Stop → Withdraw → Resend.
@@ -33,6 +34,7 @@ PiDeck grows from managing pi sessions into a workbench for several backends and
 - **Input and footer details** — the send keycap and editor submit follow the Send Shortcut setting, very long model names no longer break the footer, and session titles stop treating thinking text as the body.
 - **Release chain hardening** — the Release workflow's final step now forces the `latest` pointer forward and asserts it, preventing "CI is green but existing clients never see the update", and a long-held `app.asar` is replaced by in-place overwrite.
 - **Environment resolution fixes** — on macOS the Homebrew directory now precedes the inherited PATH (#484), and under a mise shim the pi SDK entry resolves, so prediction / enhancement / login no longer report sdk-unavailable.
+- **Synced with pi-ai 1.5.0** — the bundled model catalog moves to 1.5.0 (1,712 models), so newly released models appear in the picker.
 
 ### 🐛 Fixes
 - **Session import no longer fails wholesale on one bad line** — zero-filled disk regions are skipped and malformed lines have control characters escaped and are logged as warnings with index / offset / byteLength.
@@ -56,6 +58,9 @@ PiDeck grows from managing pi sessions into a workbench for several backends and
 - **Linux falls back to `xdg-open` when no file manager is detected**.
 - **Focus loss while ACP history restores** — the composer no longer remounts the tiptap editor onto a new host.
 - **DSH no longer pops repeated Completed notifications when opening a historical session**.
+- **Reference-image upload returns to image-generation mode** — the + menu offers image selection, and dropped images go through the attachment bar; compression and the 10 MB per-image / 32 MB per-session budget match the paste path.
+- **Host plugins are now always user-installed** — nothing is seeded from the app bundle, stale seeded fields are ignored, and uninstall revokes the grant, deletes the folder and its private storage instead of failing with plugin-builtin.
+- **Switching sessions no longer crashes on hook order** — usePacedAtomValue keeps hook calls in the same order across atom switches, avoiding React #310.
 
 ## v0.9.9 (2026-10-30)
 
