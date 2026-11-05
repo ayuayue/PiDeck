@@ -41,6 +41,12 @@ PiDeck grows from managing pi sessions into a workbench for several backends and
 - **To-do and subagent strips still appeared above the composer with Session status placement set to Right sidebar** — the yield rule hung on whether the panel was visibly showing a session, so it came back the moment the panel collapsed. It now follows the placement setting alone: strips stay out whether the drawer is closed or the panel collapsed, the collapsed tab bar keeps showing to-do progress and subagent counts, and your expand / collapse preference is still remembered as you left it.
 - **The last turn's execution process sometimes stayed open** — the settle signal is now a timestamp, so a regroup-on-flush remount or a final answer landing after the idle edge still collapses it, and collapsing the last turn now folds whatever earlier turns you had left expanded.
 
+### 🙏 Thanks
+
+Thanks to **op15066212** for fixing the timeline paging window start (#465), history-page anchor lookup (#467), non-interactive AtomGit mirror pulls (#469) and the load-more button (#473); to **bfzha** for remote SFTP transfers (progress, cancellation and transaction safety), remote-project root pooling, and closing the file-drawer / Git-panel service contracts; to **fengxinzi1814** for making the composer submit key follow the "send shortcut" setting (#462) and adding reload to the file viewer (#489); and to **san-ren** for fixing the ghost tab on guide bootstrap (#470).
+
+Special thanks to **罪**, **橙子** and **微时** for the model services that power this project 🎉
+
 ## v0.9.9 (2026-10-30)
 
 This release takes ACP from "it connects" to "it works every day": per-tool config memory replayed on new sessions, queued sends and a dedicated stop button mid-turn, usage metrics and diffs aligned with pi/DSH, and both the Web client and MCP can drive ACP sessions. Appearance is rebuilt as two independent dimensions (style × palette) with the pi TUI terminal skin ported wholesale, session groups become a host-level capability, and the long-list virtualization and long-reply expansion freezes are closed out.
