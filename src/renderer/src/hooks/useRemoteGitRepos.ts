@@ -15,9 +15,8 @@ type RemoteGitReposState = { repos?: RemoteGitRepo[]; truncated: boolean };
  * `git.repos` capability means zero calls (the selector simply hides). The services runtime owns the fact/connection
  * subscriptions, so a new generation re-reads the list instead of the hook subscribing by itself.
  */
-export function useRemoteGitRepos(project: RemoteProject) {
+export function useRemoteGitRepos(project: RemoteProject, enabled: boolean) {
 	const services = useProjectServices(project);
-	const enabled = services.capabilities.git.repos;
 	const [state, setState] = useState<RemoteGitReposState>({ truncated: false });
 	const active = useRef(0);
 	const reload = useCallback(async (): Promise<void> => {

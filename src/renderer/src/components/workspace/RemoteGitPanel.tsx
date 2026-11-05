@@ -53,7 +53,6 @@ function historyTime(seconds: number): string {
 export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 	// The selected repository scope is panel state: it feeds the controller key so switching scope disposes the old view.
 	const [repoPath, setRepoPath] = useState("");
-	const { repos, truncated: reposTruncated, reload: reloadRepos } = useRemoteGitRepos(project);
 	const {
 		state,
 		capabilities,
@@ -85,6 +84,9 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 		hostReady,
 		refreshFacts,
 	} = useRemoteGitView(project, repoPath);
+	// 仓库发现用面板自己的能力位：hook 内部另起 runtime 的话，它可能永远停在 helper-unknown
+	// （面板的预热只刷新了面板这一份事实），选择器就永远不出现。
+	const { repos, truncated: reposTruncated, reload: reloadRepos } = useRemoteGitRepos(project, capabilities.repos);
 	const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
 	const [message, setMessage] = useState("");
 	const [historyOpen, setHistoryOpen] = useState(false);
