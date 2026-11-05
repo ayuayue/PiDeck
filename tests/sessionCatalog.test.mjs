@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rename as renameFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, rename as renameFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
@@ -1827,6 +1827,41 @@ test("a session created without a locked title can still be auto-named by the mo
 		const desktop = await catalog.createDraft({ projectId: "project-1", title: "Desktop", environment: "native", source: "pi", titleOrigin: "manual" });
 		const kept = await catalog.applyAutomaticTitle(desktop.id, "不该生效", "auto");
 		assert.equal(kept.title, "Desktop");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("flushPendingWrites drains in-flight writes and seals the catalog for shutdown", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-flush-"));
+	try {
+		const catalogPath = join(dir, "sessions.json");
+		const catalog = new SessionCatalog(catalogPath);
+		await catalog.load();
+		// draft 会在重启时被清理，要验证落盘必须先抬成 active。
+		const draft = await catalog.createDraft({ projectId: "project-1", title: "Seed", environment: "native" });
+		await catalog.attachRuntime({ sessionId: draft.id, filePath: join(dir, "seed.jsonl") });
+
+		// 不 await：模拟退出时还排在 writeQueue 里的写事务（每个事务各占一次锁文件）。
+		const queued = ["A", "B", "C"].map((title) => catalog.update(draft.id, { title }));
+		await catalog.flushPendingWrites();
+		await Promise.all(queued);
+
+		const reloaded = new SessionCatalog(catalogPath);
+		await reloaded.load();
+		assert.equal(reloaded.getRecord(draft.id)?.title, "C", "flush 必须把排队中的写事务全部落盘");
+		await assert.rejects(access(`${catalogPath}.lock`), "写完后不得残留锁文件");
+		await catalog.flushPendingWrites(); // 幂等：第二次立即返回
+
+		// 封盘语义：flush 之后到的写不再落盘（退出阶段排在我们后面的收尾任务），
+		// 否则还会再起一次「锁已建、未释放」窗口，正是残留锁的来源。
+		const late = await catalog.update(draft.id, { title: "After flush" });
+		assert.equal(late.title, "After flush", "封盘后仍按内存副本返回调用方期望的值");
+		const afterSeal = new SessionCatalog(catalogPath);
+		await afterSeal.load();
+		assert.equal(afterSeal.getRecord(draft.id)?.title, "C", "封盘后不得再起写事务");
+		await assert.rejects(access(`${catalogPath}.lock`));
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}

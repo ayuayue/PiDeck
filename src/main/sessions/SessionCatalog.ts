@@ -791,6 +791,10 @@ export class SessionCatalog implements HostRebindStorePort {
 	private archivedRemoteSessions = new Map<string, ArchivedRemoteSessionEntry>();
 	private loaded = false;
 	private writeQueue: Promise<void> = Promise.resolve();
+	/** 启动期归一化写盘（见 persistLoadedNormalization）：不进 writeQueue，flushPendingWrites 单独等。 */
+	private initializationWrite: Promise<void> | undefined;
+	/** 退出封盘：置位后不再起新写事务，见 flushPendingWrites。 */
+	private sealed = false;
 	private skipNextBackup = false;
 	/** 磁盘快照的 revision（INV-5a）：v1 文件没有该字段 ⇒ 读成 0；每次写事务后等于刚写入的值。 */
 	private revision = 0;
@@ -956,8 +960,11 @@ export class SessionCatalog implements HostRebindStorePort {
 		// 整份重写，就会把另一个实例刚提交的记录一起丢掉（INV-5a）。
 		this.loaded = true;
 		if (migrated || locatorNormalizationNeeded || this.skipNextBackup) {
+			// 记下这次写：它走自己的锁、不进 writeQueue，退出路径要能单独等它（不然关窗口即截断）。
+			const initializationWrite = this.persistLoadedNormalization();
+			this.initializationWrite = initializationWrite;
 			try {
-				await this.persistLoadedNormalization();
+				await initializationWrite;
 			} catch (error) {
 				// 修复是 best-effort：内存已生效，下一次启动仍会重试；写不进去不能挡住启动。
 				void getAppLogger()?.warn("session-catalog", "Catalog normalization write skipped", {
@@ -2604,7 +2611,30 @@ export class SessionCatalog implements HostRebindStorePort {
 		if (this.needsRepair) throw new SessionCatalogRecoveryError();
 	}
 
+	/**
+	 * 退出路径：封盘并等在途写事务落盘。
+	 *
+	 * 为什么需要：写事务在锁文件存在期间完成（StoreFileLock 先 `open(...,"wx")` 发布空文件，
+	 * owner 才在下一次 write 落盘），进程若在窗口内终止就留下读不出 owner 的残留锁。
+	 * 退出清理表里的任务（pi/dsh/acp 停止、自动化收尾）会回写 catalog，而 before-quit 只等
+	 * runAll 返回——没人等 writeQueue，最后一次写就被进程终止截断。
+	 *
+	 * 封盘位在此置位：flush 之后到的写事务不再落盘（按内存副本算返回值），否则排在我们后面的
+	 * 收尾任务还能再起一次锁窗口。
+	 */
+	async flushPendingWrites(): Promise<void> {
+		this.sealed = true;
+		// 两类在途写：启动归一化（独立锁，不受 sealed 影响）与 writeQueue 里的写事务。
+		await this.initializationWrite?.catch(() => undefined);
+		await this.writeQueue;
+	}
+
 	private enqueueMutation<T>(mutate: (entries: SessionCatalogEntry[]) => { value: T; changed: boolean } | Promise<{ value: T; changed: boolean }>): Promise<T> {
+		if (this.sealed) {
+			// 退出封盘（flushPendingWrites）：不起写事务、不碰锁文件，只用内存副本算返回值给调用方收尾。
+			const nextEntries = this.entries.map(cloneEntry);
+			return Promise.resolve(mutate(nextEntries)).then((result) => result.value);
+		}
 		// 写事务（INV-5a）：持锁 → **重读磁盘**（顺带把内存对齐到它）→ 把 mutate 施加在最新内容上 →
 		// 有改动才写 revision+1。mutate 的入参仍是“副本”，所以各调用点的闭包无需改变；
 		// 它们对 dismissedDshSessionIds 的改动落在刚刚从磁盘同步回来的集合上（readFreshSnapshot）。
