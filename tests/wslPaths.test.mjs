@@ -134,7 +134,10 @@ test("the system folder dialog is Windows-only: no WSL default path, no WSL envi
 	assert.deepEqual(Array.from(dialogCalls[0].properties), ["openDirectory"]);
 	assert.equal(dialogCalls[0].defaultPath, undefined);
 	assert.equal(project.path, "C:\\repos\\ba_cli");
-	assert.equal(added[2], undefined);
+	// environment 必须显式为 windows（不再是什么都不传）：同一目录早先在 WSL 模式下加过时，
+	// 去重会命中那条旧记录，只有显式环境才能把它从 wsl 翻回 windows——否则它仍被
+	// 「按当前模式过滤可见项目」整条藏掉（2026-11 WSL→Windows 切换现场）。
+	assert.equal(added[2], "windows");
 });
 
 test("a canceled dialog adds nothing", async () => {

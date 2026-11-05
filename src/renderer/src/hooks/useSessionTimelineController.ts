@@ -309,11 +309,17 @@ export function shouldSkipInitialDiskLoad(cachedEntry: { source: "disk" | "runti
  *     ready（历史/空会话）或 error（错误卡片），否则骨架屏永驻（Issue #350）。
  *   - loadState 已 settled 且缓存条目被 8-LRU 整体淘汰（undefined）→ 不得跳过，重读自愈
  *     （2026-12 回归修复）；条目仍在时以已有磁盘结论为准，不因 runtime 重写条目重读。
+ *   - loadState 已是终态错误（读盘失败 / 文件缺失 / DSH 专态）→ 不得自动重读：错误态没有
+ *     缓存条目，跳过条件会退化成「effect 每次重跑都读盘」，而 effect 依赖 loadStateStatus，
+ *     形成 loading↔error 的读盘死循环（2026-11 现场：Windows 模式点开 WSL 路径会话，
+ *     48 次/秒 IPC，页面一直闪）。错误由 UI 呈现并支持手动重试，自动恢复只靠重新挂载。
  */
 export function shouldSkipInitialDiskRead(input: { previouslyLoaded: boolean; cachedEntry: { source: "disk" | "runtime" | "remote"; messages: readonly unknown[] } | undefined; knownEmpty: boolean; loadStateStatus: SessionLoadState["status"] | undefined }): boolean {
 	if (shouldSkipInitialDiskLoad(input.cachedEntry, input.knownEmpty)) return true;
 	// 首次挂载到本会话：是否读盘完全由缓存权威性决定（与旧行为一致）。
 	if (!input.previouslyLoaded) return false;
+	// 读盘已给出终态错误：等用户手动重试，不能让 effect 自己再发一次（死循环，见函数注释）。
+	if (input.loadStateStatus === "error") return true;
 	// 从未读盘：空 runtime 投影必须核实（Issue #350 的核心）。
 	if (input.loadStateStatus === undefined) return false;
 	// 读盘在途：等结果，不重复发起（缓存条目可能已被 runtime flush 重建）。

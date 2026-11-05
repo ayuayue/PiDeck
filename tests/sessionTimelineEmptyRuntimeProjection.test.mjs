@@ -86,6 +86,17 @@ test("first visit keeps the authority rules of shouldSkipInitialDiskLoad", () =>
 	assert.equal(shouldSkipInitialDiskRead({ previouslyLoaded: false, cachedEntry: undefined, knownEmpty: true, loadStateStatus: undefined }), true);
 });
 
+test("settled read error must not auto-retry the disk load (loading↔error loop)", () => {
+	// 2026-11 现场：Windows 模式点开 WSL 路径的会话，读盘拿到 file-missing 友好空页 → error。
+	// 错误态不写缓存条目，若按「条目消失就重读」处理，effect 会随 loadStateStatus 变化
+	// 每帧再发一次 IPC（日志里 48 次/秒），页面持续闪烁。
+	assert.equal(shouldSkipInitialDiskRead({ previouslyLoaded: true, cachedEntry: undefined, knownEmpty: false, loadStateStatus: "error" }), true);
+	// 错误态不是粘性的：重新挂载（新 hook 实例）仍要读一次，恢复由 UI 重试/重新打开承担。
+	assert.equal(shouldSkipInitialDiskRead({ previouslyLoaded: false, cachedEntry: undefined, knownEmpty: false, loadStateStatus: "error" }), false);
+	// 空 runtime 投影 + 错误态同样不得自愈重读（错误已给出结论）。
+	assert.equal(shouldSkipInitialDiskRead({ previouslyLoaded: true, cachedEntry: { source: "runtime", messages: [] }, knownEmpty: false, loadStateStatus: "error" }), true);
+});
+
 test("controller effect must consult shouldSkipInitialDiskRead", () => {
 	// 回归保险：effect 里不得再裸判断 `previouslyLoaded && cachedEntry` 或 `cachedEntry ||`
 	// （空 runtime 条目覆盖旧窗口时会误跳读盘，Issue #350 / 2026-10-08 现场）。
