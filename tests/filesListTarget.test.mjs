@@ -403,6 +403,42 @@ test("files:list preserves the existing local absolute-directory adapter", async
 	}
 });
 
+test("远端项目的正文读/写走远端文本端口，而不是「不支持」", async () => {
+	const fixture = mkdtempSync(join(tmpdir(), "pideck-files-remote-text-"));
+	const root = join(fixture, "remote-project");
+	mkdirSync(root);
+	const calls = [];
+	const remoteFiles = {
+		openText: async (senderId, projectId, path) => {
+			calls.push({ kind: "open", senderId, projectId, path });
+			return { content: "remote body", version: "0123456789abcdef0123456789abcdef" };
+		},
+		saveText: async (senderId, projectId, path, content, version) => {
+			calls.push({ kind: "save", senderId, projectId, path, content, version });
+		},
+	};
+	const remote = projectFixture(root, { locator: { kind: "ssh", hostId: "host-1", remotePath: "/home/u/project" } });
+	const { readContentHandler, writeContentHandler } = createFilesIpc(root, remote, remoteFiles);
+	const target = { projectId: "project-1", relativePath: "src/main.ts" };
+	try {
+		assert.equal(await readContentHandler({ sender: { id: 7 } }, target), "remote body");
+		// 不带版本：先读一次拿到远端令牌，再按该令牌写——绝不无版本硬写。
+		await writeContentHandler({ sender: { id: 7 } }, target, "next");
+		assert.deepEqual(
+			calls.map((call) => call.kind),
+			["open", "open", "save"],
+		);
+		assert.equal(calls[2].version, "0123456789abcdef0123456789abcdef");
+		// 带版本：直接写，不再多读一次。
+		calls.length = 0;
+		await writeContentHandler({ sender: { id: 7 } }, target, "again", undefined, "fedcba9876543210fedcba9876543210");
+		assert.deepEqual(calls.map((call) => call.kind), ["save"]);
+		assert.equal(calls[0].version, "fedcba9876543210fedcba9876543210");
+	} finally {
+		rmSync(fixture, { recursive: true, force: true });
+	}
+});
+
 test("写入带修订指纹：盘上已被改过就拒绝，绝不静默覆盖外部修改", async () => {
 	const fixture = mkdtempSync(join(tmpdir(), "pideck-files-revision-"));
 	const root = join(fixture, "local-project");

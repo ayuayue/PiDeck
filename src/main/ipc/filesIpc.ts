@@ -54,6 +54,9 @@ export type FilesIpcDeps = {
 		 * 而不是失败——"这个位置只支持文件名"是能力边界，不是错误。未装配该方法时同样按不支持处理。
 		 */
 		searchContent?(projectId: string, query: string): Promise<{ ok: true; value: FileContentSearchResult | null } | { ok: false; code: string }>;
+		/** 远端正文读/写（中央编辑器用）：与抽屉编辑器共用同一份远端文本服务与令牌表。 */
+		openText?(senderId: number, projectId: string, path: string): Promise<{ content: string; version?: string }>;
+		saveText?(senderId: number, projectId: string, path: string, content: string, version: string): Promise<void>;
 	};
 	/**
 	 * WSL 项目的发行版内 helper 会话池（Wave 1a）。未装配时 WSL 项目保持今天的 UNC 本机行为，
@@ -403,7 +406,13 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		shell.showItemInFolder(readablePath);
 	});
 
-	ipcMain.handle(ipcChannels.filesReadContent, async (_event, path: unknown, maxBytes?: unknown, scope?: unknown) => {
+	/** 远端项目的正文读/写走项目内文本服务；未装配时保持原来的「不支持」拒绝，不静默回退本机。 */
+	const remoteTextTarget = (projectId: string): boolean => {
+		const project = projectStore.get(projectId);
+		return project !== undefined && isRemoteProject(project);
+	};
+
+	ipcMain.handle(ipcChannels.filesReadContent, async (event, path: unknown, maxBytes?: unknown, scope?: unknown) => {
 		const input = parseFilePathInput(path);
 		// 不传参也必须有上界（默认 16MiB；显式入参钳到 64MiB 天花板）。
 		// 本地上界与 backend 读取共用同一个 effectiveMax，避免远端/本地两条路出现不同的读取预算。
@@ -413,6 +422,10 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		const effectiveMax = Math.min(requestedMax, MAX_READ_BYTES_CEILING);
 		if (typeof input !== "string") {
 			if (scope !== undefined) throw new Error("INVALID_PROJECT_FILE_ACCESS_SCOPE");
+			if (remoteTextTarget(input.projectId)) {
+				if (!remoteFiles?.openText) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+				return (await remoteFiles.openText(event.sender.id, input.projectId, input.relativePath)).content;
+			}
 			return projectFileBackendRouter.forProject(input.projectId).readContent(input, effectiveMax);
 		}
 		try {
@@ -523,13 +536,22 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		}
 	});
 
-	ipcMain.handle(ipcChannels.filesWriteContent, async (_event, path: unknown, content: unknown, scope?: unknown, expectedRevision?: unknown) => {
+	ipcMain.handle(ipcChannels.filesWriteContent, async (event, path: unknown, content: unknown, scope?: unknown, expectedRevision?: unknown) => {
 		if (typeof content !== "string") throw new Error("Invalid file content");
 		if (expectedRevision !== undefined && typeof expectedRevision !== "string") throw new Error("INVALID_FILE_REVISION");
 		const revision = expectedRevision as string | undefined;
 		const input = parseFilePathInput(path);
 		if (typeof input !== "string") {
 			if (scope !== undefined) throw new Error("INVALID_PROJECT_FILE_ACCESS_SCOPE");
+			if (remoteTextTarget(input.projectId)) {
+				if (!remoteFiles?.openText || !remoteFiles.saveText) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+				// 远端令牌是 main 现签的 32 位身份：没带就用当前读到的版本，绝不无版本硬写。
+				const version = revision ?? (await remoteFiles.openText(event.sender.id, input.projectId, input.relativePath)).version;
+				if (typeof version !== "string" || version.length === 0) throw new Error("REMOTE_FILE_VERSION_REQUIRED");
+				await remoteFiles.saveText(event.sender.id, input.projectId, input.relativePath, content, version);
+				void appLogger.info("file", "Remote project file written", { target: input, bytes: Buffer.byteLength(content, "utf8") });
+				return;
+			}
 			await projectFileBackendRouter.forProject(input.projectId).writeContent(input, content, revision);
 			void appLogger.info("file", "Project file written", { target: input, bytes: Buffer.byteLength(content, "utf8") });
 			return;

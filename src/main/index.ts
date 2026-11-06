@@ -3656,7 +3656,7 @@ function registerIpc() {
 		},
 	});
 	quitCleanup.register("remote-git-reads", remoteGitReads.dispose);
-	registerRemoteProjectFileIpc({
+	const remoteProjectTextPort = registerRemoteProjectFileIpc({
 		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,
 		locator: (projectId) => {
@@ -5390,6 +5390,8 @@ function registerIpc() {
 		wslHelperPool,
 		// 公共文件读（T6）：ssh 项目的目录页与批量 stat 走只读 fs 面，不经过 entry 令牌。
 		remoteFiles: {
+			// 中央编辑器读写远端文件：与抽屉编辑器共用同一份远端文本服务与令牌表。
+			...remoteProjectTextPort,
 			directoryPage: (projectId, path, force) => remoteProjectIpc.directoryPage(projectId, path, force),
 			pathsExist: (projectId, paths) => remoteProjectIpc.pathsExist(projectId, paths),
 			// 远端内容搜索按 hello capabilities 门控：旧 helper 返回 null（渲染层回退“仅文件名”），不发无效请求。
