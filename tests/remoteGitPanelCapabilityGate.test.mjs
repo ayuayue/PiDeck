@@ -32,6 +32,17 @@ test("全可用时不渲染能力条（只在有入口被关闭时解释原因�
 	assert.deepEqual(plain(describeGitCapabilityBanner(allOpen, { "git.write": "PROJECT_SERVICE_CAPABILITY_PROVIDER_UNSUPPORTED" })), []);
 });
 
+test("分支选择在顶栏：branchRead 门禁，refs 关闭也有入口，打开下拉才加载列表", () => {
+	// 原来切换按钮只长在「引用」折叠区里：refs 能力一关，即使 branchWrite 开着也没有切分支入口。
+	assert.match(panel, /data-testid="remote-git-branch-select"/);
+	assert.match(panel, /capabilities\.branchRead \? \(/, "顶栏分支选择按 branchRead 渲染");
+	assert.match(panel, /disabled=\{!capabilities\.branchWrite \|\| busy \|\| branches\.length <= 1\}/, "没有可切目标时禁用，而不是假装能给选项");
+	// 列表按需加载：打开下拉才发 refs 请求（面板打开时不额外打主机）。
+	assert.match(panel, /onOpenChange=\{\(open\) => \{[\s\S]{0,240}loadRefs\(\)/, "打开下拉才加载分支列表");
+	// refs 关闭时仍显示当前分支，区块不会整块消失。
+	assert.match(panel, /const branches = branchNames\.length > 0 \? branchNames : snapshot\?\.branch \? \[snapshot\.branch\] : \[\]/);
+});
+
 test("脏工作区切分支先确认，干净时直接切", () => {
 	// 切换会带着未提交更改过去；失败时只回一个稳定码，所以先问一句（与本机同一条规则）。
 	assert.match(panel, /changeCount > 0 \? setPendingSwitch\(ref\.name\) : switchBranch\(ref\.name\)/, "切换入口必须区分脏/干净两种路径");

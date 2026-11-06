@@ -138,6 +138,9 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 	const snapshot = state.snapshot;
 	// 未提交更改总数（四个分组求和）：只用来决定切分支要不要先确认，不参与任何写授权。
 	const changeCount = snapshot === undefined ? 0 : GROUPS.reduce((total, group) => total + snapshot.groups[group].length, 0);
+	// 顶栏分支选择：开了 refs 用完整分支列表，否则至少显示当前分支（切换需要 refs 才能选中目标）。
+	const branchNames = state.refs === undefined ? [] : state.refs.refs.filter((ref) => ref.kind === "branch").map((ref) => ref.name);
+	const branches = branchNames.length > 0 ? branchNames : snapshot?.branch ? [snapshot.branch] : [];
 	// A const capture keeps the narrowed commit detail inside file-row closures.
 	const detail = state.detail;
 	const viewingDiff = state.diffLoading || state.diff !== undefined || state.diffErrorCode !== undefined;
@@ -196,6 +199,33 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 					</Button>
 				) : null}
 				<span className="min-w-0 flex-1 truncate font-medium">{t("git.sourceControl")}</span>
+				{/* G4：分支选择提到顶栏（branchRead 门禁）。原来只在「引用」折叠区里渲染，refs 一关就没有入口；
+				    分支列表按需加载——打开下拉才发 refs 请求，面板打开时不额外打主机。 */}
+				{capabilities.branchRead ? (
+					<Select
+						value={snapshot?.branch ?? ""}
+						onValueChange={(next) => {
+							if (next === snapshot?.branch) return;
+							if (changeCount > 0) setPendingSwitch(next);
+							else switchBranch(next);
+						}}
+						onOpenChange={(open) => {
+							if (open && capabilities.refs && state.refs === undefined && !state.refsLoading && !busy) loadRefs();
+						}}
+						disabled={!capabilities.branchWrite || busy || branches.length <= 1}
+					>
+						<SelectTrigger data-testid="remote-git-branch-select" aria-label={t("remoteGit.branchName")} size="sm" className="max-w-44 text-xs">
+							<SelectValue placeholder={t("remoteGit.detached")} />
+						</SelectTrigger>
+						<SelectContent>
+							{branches.map((name) => (
+								<SelectItem key={name} value={name}>
+									{name}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				) : null}
 				<Button variant="ghost" size="icon-sm" onClick={refreshAll} disabled={!capabilities.read || state.loading || state.diffLoading || state.mutating} aria-label={t("remoteGit.refresh")}>
 					<RefreshCw size={14} />
 				</Button>
