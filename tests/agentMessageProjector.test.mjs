@@ -72,6 +72,55 @@ test("keeps thinking-only history turns and their entry IDs aligned", () => {
 	assert.equal(messages[1].thinking, "Check the history");
 });
 
+test("restores image blocks from tool results", () => {
+	const messages = createProjector().convert(
+		"agent",
+		[
+			{ role: "user", content: [{ type: "text", text: "draw a cat" }], timestamp: 1 },
+			{ role: "assistant", content: [{ type: "toolCall", id: "img-1", name: "codex_image", arguments: { prompt: "cat" } }], timestamp: 2 },
+			{
+				role: "toolResult",
+				toolCallId: "img-1",
+				toolName: "codex_image",
+				content: [
+					{ type: "text", text: "saved" },
+					{ type: "image", data: "AAA", mimeType: "image/png" },
+				],
+				timestamp: 3,
+			},
+		],
+		[],
+	);
+	const tool = messages.find((message) => message.role === "tool");
+	assert.deepEqual(
+		tool?.images?.map((image) => ({ ...image })),
+		[{ type: "image", data: "AAA", mimeType: "image/png" }],
+	);
+});
+
+test("restores anthropic-style source images from tool results", () => {
+	const messages = createProjector().convert(
+		"agent",
+		[
+			{ role: "user", content: [{ type: "text", text: "draw" }], timestamp: 1 },
+			{ role: "assistant", content: [{ type: "toolCall", id: "img-2", name: "image_gen", arguments: {} }], timestamp: 2 },
+			{
+				role: "toolResult",
+				toolCallId: "img-2",
+				toolName: "image_gen",
+				content: [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: "BBB" } }],
+				timestamp: 3,
+			},
+		],
+		[],
+	);
+	const tool = messages.find((message) => message.role === "tool");
+	assert.deepEqual(
+		tool?.images?.map((image) => ({ ...image })),
+		[{ type: "image", data: "BBB", mimeType: "image/jpeg" }],
+	);
+});
+
 test("strips the reasoning signature block before storing thinking for display", () => {
 	// 供应商把思维签名拼在推理正文最前面（DSH 0.2.1-rc.5 同场景）：时间线只显示正文。
 	const [assistant] = createProjector().convert("agent", [{ role: "assistant", content: [{ type: "thinking", thinking: "<signature>c2lnbmF0dXJl</signature>\nCheck the history" }], timestamp: 2 }], ["entry-assistant"]);

@@ -21,7 +21,7 @@ export type ChatMessage = {
 	text: string;
 	timestamp: number;
 	meta?: Record<string, unknown> & I18nDescriptor;
-	images?: ImageContent[]; // 用户消息中附加的图片
+	images?: ImageContent[]; // 用户消息附件 / 工具结果里内联的图片
 	/** 生视频产物（meta.videoGen 消息）：只有落盘 ref 形态，展示走 pideck-video:// 协议 */
 	videos?: VideoContent[];
 	/** 思考内容：来自 thinking 内容块，用于展示模型推理过程 */
