@@ -133,13 +133,14 @@ test("列表仅对有来源的条目显示自动学习标签，搜索标签可�
 	// 桌面 API 的 Promise 跨 VM realm，等异步刷新 effect 完成后再检查列表。
 	await new Promise(setImmediate);
 	let tree = render();
-	const badges = walk(tree, (node) => node.type === "badge");
+	// 行首还有作用域徽标（全局 / 项目），这里只数「自动学习」来源标签。
+	const autoLearnBadges = (node) => walk(node, (item) => item.type === "badge" && item.props.children === "自动学习");
+	const badges = autoLearnBadges(tree);
 	assert.equal(badges.length, 1, "历史未记录来源的条目不能补标签");
-	assert.equal(badges[0].props.children, "自动学习");
 	const search = walk(tree, (node) => node.type === "input")[0];
 	search.props.onChange({ target: { value: "自动学习" } });
 	tree = render();
-	assert.equal(walk(tree, (node) => node.type === "badge").length, 1);
+	assert.equal(autoLearnBadges(tree).length, 1);
 	const text = (node) => (Array.isArray(node) ? node.map(text).join("") : node && typeof node === "object" ? text(node.props?.children) : String(node ?? ""));
 	assert.ok(text(tree).includes("本次新学的条目"));
 	assert.ok(!text(tree).includes("历史无来源条目"), "按来源标签搜索时只保留自动条目");

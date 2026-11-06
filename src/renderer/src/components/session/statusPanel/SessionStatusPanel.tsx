@@ -1,22 +1,26 @@
-import { useSetAtom } from "jotai";
-import { useCallback, useEffect, useState } from "react";
-import { rightSidebarStatusSessionIdAtom } from "../../../atoms";
+import { useCallback, useMemo, useState } from "react";
 import { t } from "../../../i18n";
 import { Tabs } from "../../ui-shadcn/tabs";
+import type { RightSidebarStackState } from "../../workspace/RightSidebarStack";
 import { useRightSidebarStack } from "../../workspace/RightSidebarStack";
 import { ComposerWidgetLayoutProvider, useComposerWidgetLayoutValue, type ComposerWidgetCollapsedByKey } from "../ComposerWidgetLayout";
+import { useSessionSubagentList } from "../SessionSubagentsStrip";
+import { todoWidgetsToItems, useSessionTodoSources } from "../SessionTodoStrip";
 import { SessionStatusContent } from "./SessionStatusContent";
 import { StatusEmpty, StatusTabBar } from "./StatusTabs";
-import { SESSION_STATUS_TAB_STORAGE_KEY, parseSessionStatusTab, type SessionStatusTab } from "./sessionStatusPanelModel";
+import { SESSION_STATUS_TAB_STORAGE_KEY, parseSessionStatusTab, todoProgressBadge, type SessionStatusTab } from "./sessionStatusPanelModel";
 
 /**
- * 右侧边栏下半区：当前聚焦会话的待办 / 修改文件 / 子代理（分组标签页）。
+ * 右侧边栏下半区：当前聚焦会话的待办 / 子代理（分组标签页）。
  *
  * - 抽屉关闭：不渲染、不拉数据；
- * - 下半区收起：只留 tab 栏，点任一 tab 展开并切过去；
- * - 展开且有会话：面板「占用」该会话，其输入框上方的同类折叠条隐藏（见 SessionView）。
+ * - 下半区收起：只留 32px tab 栏，但仍拉取待办/子代理计数，信息不至于完全不可见；
+ * - 展开且有会话：面板「占用」该会话。
  *
- * 当前 tab 跨会话、跨重启记忆；数据变化不自动切 tab，避免跳动。
+ * 输入框上方的同类折叠条是否显示只看设置 sessionStatusPlacement（见 App 写入的
+ * sessionStatusInSidebarAtom），与本面板此刻展开还是收起无关。
+ *
+ * 当前 tab、展开/收起偏好都跨会话、跨重启记忆；数据变化不自动切 tab，避免跳动。
  */
 
 function loadTab(): SessionStatusTab {
@@ -38,18 +42,10 @@ function saveTab(tab: SessionStatusTab): void {
 export function SessionStatusPanel({ sessionId }: { sessionId: string | undefined }) {
 	const stack = useRightSidebarStack();
 	const [tab, setTab] = useState<SessionStatusTab>(loadTab);
-	// 行级展开状态（文件 diff、子代理详情）自持一份，与输入框上方折叠条互不串扰
+	// 行级展开状态（子代理详情）自持一份，与输入框上方折叠条互不串扰
 	const [collapsedByKey, setCollapsedByKey] = useState<ComposerWidgetCollapsedByKey>({});
 	const layoutValue = useComposerWidgetLayoutValue(collapsedByKey, setCollapsedByKey);
-	const setStatusSessionId = useSetAtom(rightSidebarStatusSessionIdAtom);
 	const visible = stack.open && !stack.collapsed;
-
-	// 可见地展示某会话时占用它；清理时只释放自己写入的值，避免与新会话的发布竞态。
-	useEffect(() => {
-		if (!visible || !sessionId) return;
-		setStatusSessionId(sessionId);
-		return () => setStatusSessionId((current) => (current === sessionId ? null : current));
-	}, [visible, sessionId, setStatusSessionId]);
 
 	const selectTab = useCallback((value: string) => {
 		const next = parseSessionStatusTab(value);
@@ -71,6 +67,8 @@ export function SessionStatusPanel({ sessionId }: { sessionId: string | undefine
 				<Tabs value={tab} onValueChange={selectTab} className="h-full min-h-0 gap-0">
 					{visible && sessionId ? (
 						<SessionStatusContent key={sessionId} sessionId={sessionId} stack={stack} onTriggerClick={handleTriggerClick} />
+					) : sessionId ? (
+						<CollapsedStatusBar sessionId={sessionId} stack={stack} onTriggerClick={handleTriggerClick} />
 					) : (
 						<>
 							<StatusTabBar collapsed={stack.collapsed} autoCollapsed={stack.autoCollapsed} onToggleCollapsed={stack.toggleCollapsed} onTriggerClick={handleTriggerClick} />
@@ -81,4 +79,12 @@ export function SessionStatusPanel({ sessionId }: { sessionId: string | undefine
 			</ComposerWidgetLayoutProvider>
 		</section>
 	);
+}
+
+/** 收起态：只渲染 tab 栏，但仍带待办进度与子代理计数，收起后不用再回输入框上方找信息。 */
+function CollapsedStatusBar(props: { sessionId: string; stack: RightSidebarStackState; onTriggerClick: () => void }) {
+	const todoSources = useSessionTodoSources(props.sessionId);
+	const todoItems = useMemo(() => todoWidgetsToItems(todoSources), [todoSources]);
+	const subagents = useSessionSubagentList(props.sessionId);
+	return <StatusTabBar badges={{ todo: todoProgressBadge(todoItems), subagentsTotal: subagents.total, subagentsRunning: subagents.running }} collapsed={props.stack.collapsed} autoCollapsed={props.stack.autoCollapsed} onToggleCollapsed={props.stack.toggleCollapsed} onTriggerClick={props.onTriggerClick} />;
 }

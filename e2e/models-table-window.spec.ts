@@ -40,7 +40,7 @@ const test = base.extend({
 test("models table windows rows at 20 and extends on 继续加载", async ({ window }) => {
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 	await window.getByRole("button", { name: "设置" }).click();
-	const settingsDialog = window.getByRole("dialog", { name: "设置" });
+	const settingsDialog = window.locator(".settings-modal");
 	await expect(settingsDialog).toBeVisible();
 	await settingsDialog.getByRole("tab", { name: "配置管理", exact: true }).click();
 	const modal = settingsDialog.locator(".config-layout");

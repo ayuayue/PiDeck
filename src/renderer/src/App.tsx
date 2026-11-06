@@ -26,10 +26,11 @@ import {
 	ScrollText,
 	// 抽屉侧边任务 Tab 图标：不用 PanelRight——那是会话头部抽屉开关的图形，并排会认错
 	Rocket,
-	// 会话 Tab 栏里的页面式工作区 Tab 图标（定时任务 / 智能体 / 收藏）
+	// 会话 Tab 栏里的页面式工作区 Tab 图标（设置 / 定时任务 / 智能体 / 收藏）
 	Clock,
 	Bot,
 	Star,
+	type LucideIcon,
 } from "lucide-react";
 import { configureNoticeDefaults, showNotice, type NoticeKind } from "./utils/notice";
 import { copyTextWithCopiedNotice } from "./utils/clipboardNotice";
@@ -79,7 +80,7 @@ import { AutomationPage } from "./components/automation/AutomationPage";
 import { AgentMarketPage } from "./components/agents/AgentMarketPage";
 import { buildAgentSessionTitle } from "./components/agents/agentIconCodec";
 import { FavoritesPage } from "./components/favorites/FavoritesPage";
-import { sortWorkspacePageIds } from "./utils/workspacePageTabs";
+import { sortWorkspacePageIds, type WorkspacePageId } from "./utils/workspacePageTabs";
 import { SelectionToolHost } from "./components/selectionTool/SelectionToolHost";
 import { useRename } from "./hooks/useRename";
 import { useProjectRuntimeCapabilities } from "./hooks/useRuntimeCapabilities";
@@ -147,8 +148,10 @@ import {
 	projectInventoryAtom,
 	removeSessionComposerStateAtom,
 	removeSessionStateAtom,
+	requestSidebarRevealProjectAtom,
 	replaceProjectInventoryAtom,
 	replaceProjectSessionsAtom,
+	sessionStatusInSidebarAtom,
 	sessionRecordByIdAtomFamily,
 	sessionRecordsByProjectIdAtomFamily,
 	sessionIdByRuntimeAgentIdAtomFamily,
@@ -174,7 +177,7 @@ import {
 	sessionRuntimeByIdAtom,
 } from "./atoms";
 import { isSameSessionPath } from "./agentListDisplay";
-import { t } from "./i18n";
+import { t, type TranslationKey } from "./i18n";
 import { isChatProject, loadSessionSourceFilter, saveSessionSourceFilter, isReplacementForPendingAgent, isPendingAgentId, migrateAgentRecord, stampIdleSessionDuration, type PendingAgentTab } from "./rendererUtils";
 import { isLocalProject, isRemoteProject } from "../../shared/projectLocation";
 import { fileTreeNodeDisplayPath } from "./utils/fileTreeLazy";
@@ -260,6 +263,17 @@ import type {
 import type { TerminalDockSettings } from "./components/terminal/TerminalDock";
 import { WallpaperVideoLayer } from "./components/app/wallpaper/WallpaperVideoLayer";
 
+/**
+ * 页面 Tab 的标题与图标（静态元数据，标题在渲染时经 t() 取当前语言）。
+ * 一张表同时管住标题和图标：两串三元链曾分别维护，新增页面时必有一边漏改。
+ */
+const WORKSPACE_PAGE_TAB_META: Record<WorkspacePageId, { titleKey: TranslationKey; icon: LucideIcon }> = {
+	settings: { titleKey: "settings.title", icon: Settings2 },
+	automation: { titleKey: "automation.title", icon: Clock },
+	agents: { titleKey: "agentMarket.title", icon: Bot },
+	favorites: { titleKey: "favorites.title", icon: Star },
+};
+
 export function App() {
 	if (missingElectronPreload) {
 		return (
@@ -310,6 +324,9 @@ export function App() {
 	const openWorkspacePage = useSetAtom(openWorkspacePageAtom);
 	const deactivateWorkspacePage = useSetAtom(deactivateWorkspacePageAtom);
 	const closeWorkspacePage = useSetAtom(closeWorkspacePageAtom);
+	// 设置页的「关闭请求」出口：页面内持有内存草稿，Tab 栏的关闭叉必须先问它（未保存确认），
+	// 确认后才真正关 Tab。页面组件挂载时写入、卸载时置空（用 ref 而非 atom：函数值走 atom 会被当成更新器）。
+	const settingsCloseRequestRef = useRef<(() => void) | null>(null);
 	// 页面式插件面板与工作区页面共用会话列覆盖层：两者同时呈现会互相盖住，打开页面时收起插件页。
 	const hostPluginPanel = useAtomValue(hostPluginPanelAtom);
 	const setHostPluginPanel = useSetAtom(hostPluginPanelAtom);
@@ -317,6 +334,8 @@ export function App() {
 	const openProviderLogin = useSetAtom(openProviderLoginAtom);
 	// WSL 模式下的「添加项目」：写开关即打开内置目录选择器（系统对话框读不到发行版内目录）。
 	const setWslProjectPicker = useSetAtom(wslProjectPickerAtom);
+	// 新建项目后请侧栏把新行揭示出来（切项目分段 + 滚动定位）。
+	const requestSidebarRevealProject = useSetAtom(requestSidebarRevealProjectAtom);
 	const setProjects = useSetAtom(replaceProjectInventoryAtom);
 	const applyRuntimeEvent = useSetAtom(applySessionRuntimeEventAtom);
 	const upsertSession = useSetAtom(upsertSessionAtom);
@@ -412,6 +431,12 @@ export function App() {
 		name: string;
 	} | null>(null);
 	const [renamingFileInput, setRenamingFileInput] = useState("");
+	/** 文件树右键「新建文件/新建文件夹」：target 与「粘贴」同源（目录=自身、文件=父目录） */
+	const [creatingFile, setCreatingFile] = useState<{
+		target: string | ProjectFileTarget;
+		kind: "file" | "directory";
+	} | null>(null);
+	const [creatingFileInput, setCreatingFileInput] = useState("");
 	/** 历史会话来源过滤（按项目）：undefined=显示全部，Record 含项目ID对应 Set（含 DSH 类别） */
 	const [sessionSourceFilter] = useState<Record<string, Set<SessionFilterPill> | null>>(() => loadSessionSourceFilter());
 	/** 编辑器展示模式：弹框或侧栏 */
@@ -914,6 +939,7 @@ export function App() {
 		activeProjectId,
 		services: localFileTreeServices,
 		isLocalProjectId,
+		activeProjectMissing: activeProject?.missing === true,
 		compactMiddlePackagesEnabled,
 		agentsRef,
 		refreshProjects,
@@ -1390,7 +1416,7 @@ export function App() {
 								// 与对话框添加同一刷新链路：侧栏清单立即出现新项目（主进程广播为兜底）。
 								await refreshProjects();
 								selectProjectCommand(project.id);
-								showToast(t("app.openFolderAdded", { name: project.name }));
+								announceProjectAdded(project);
 							} catch (error) {
 								showToast(error instanceof Error ? error.message : String(error), 5000, "error");
 							} finally {
@@ -2086,6 +2112,15 @@ export function App() {
 		}
 	}
 
+	/**
+	 * 新项目入库后的统一收尾：提示「已添加」+ 请侧栏揭示新行（切到项目分段、展开、滚进可视区）。
+	 * 少了揭示这一步，停在「聊天/活动」分段的用户看到的只是原列表不变——新行根本没挂载。
+	 */
+	function announceProjectAdded(project: Project) {
+		showToast(t("app.openFolderAdded", { name: project.name }));
+		requestSidebarRevealProject(project.id);
+	}
+
 	async function addProject() {
 		// WSL 模式：系统「打开文件夹」只按 Windows 身份访问 \\wsl.localhost，发行版内的目录（尤其 root
 		// 档案的 /root）递进去就是「无法访问网络资源」；改由内置选择器在发行版内列目录。
@@ -2099,6 +2134,7 @@ export function App() {
 		await syncDshForeignSessionsIfEnabled();
 		await refreshProjects();
 		setActiveProjectId(project.id);
+		announceProjectAdded(project);
 		await refreshProjectSessions(project.id);
 	}
 
@@ -2794,11 +2830,19 @@ export function App() {
 	// 激活态只由 activeWorkspacePage 决定；关闭即卸载页面（切会话只是失活）。
 	const workspacePageTabItems: WorkspacePageTabItem[] = sortWorkspacePageIds(openWorkspacePageIds).map((pageId) => ({
 		id: pageId,
-		title: t(pageId === "automation" ? "automation.title" : pageId === "agents" ? "agentMarket.title" : "favorites.title"),
-		icon: pageId === "automation" ? Clock : pageId === "agents" ? Bot : Star,
+		title: t(WORKSPACE_PAGE_TAB_META[pageId].titleKey),
+		icon: WORKSPACE_PAGE_TAB_META[pageId].icon,
 		active: activeWorkspacePage === pageId,
 		onSelect: () => openWorkspacePage(pageId),
-		onClose: () => closeWorkspacePage(pageId),
+		onClose: () => {
+			// 设置页有内存草稿：关闭叉先走页面自己的未保存确认，确认后才真正关 Tab（页面卸载）。
+			// 页面未注册（理论上不会：Tab 开着即挂载）才退回直接关。
+			if (pageId === "settings" && settingsCloseRequestRef.current) {
+				settingsCloseRequestRef.current();
+				return;
+			}
+			closeWorkspacePage(pageId);
+		},
 	}));
 
 	const sessionTabsProps = {
@@ -3148,6 +3192,11 @@ export function App() {
 	const simpleMode = settings.navigationMode === "simple";
 	// 会话状态显示位置：首屏设置未拉到 / 预览环境缺字段时按默认值处理
 	const sessionStatusPlacement = parseSessionStatusPlacement(settings.sessionStatusPlacement);
+	// 输入框上方的待办/子代理横栏只看设置：选「右侧边栏」就始终让位，与面板此刻展开还是收起无关。
+	const setSessionStatusInSidebar = useSetAtom(sessionStatusInSidebarAtom);
+	useEffect(() => {
+		setSessionStatusInSidebar(placementShowsSidebarPanel(sessionStatusPlacement));
+	}, [sessionStatusPlacement, setSessionStatusInSidebar]);
 	const [simpleContentExpanded, setSimpleContentExpanded] = useState(false);
 	useEffect(() => setSimpleContentExpanded(false), [activeTabId, gitDrawerDiff?.filePath, simpleMode]);
 	const workbenchLayout = simpleMode ? (simpleContentExpanded ? "maximize" : "split") : workbenchHasGitDiff ? gitDiffDisplayMode : editorMode;
@@ -3305,6 +3354,21 @@ export function App() {
 					<AgentMarketPage active={activeWorkspacePage === "agents"} onUseAgent={handleAgentUseAgent} />
 					{/* 收藏：整条回复 / 划选片段的本地快照，页面式 Tab（与智能体同一层级） */}
 					<FavoritesPage active={activeWorkspacePage === "favorites"} />
+					{/* 设置：从 80vw×80vh 弹框迁成会话列页面（不再遮住工作区），失活只 hidden 保挂载，
+					    关闭 Tab 才卸载（内存草稿随之丢弃，所以关闭叉先走页面的未保存确认） */}
+					<SettingsFeatureRoot
+						settings={settings}
+						piUpdate={piUpdate}
+						webServiceChanging={webServiceChanging}
+						onRestartWebService={restartWebService}
+						appInfo={appInfo}
+						onChange={updateSettings}
+						projects={projects}
+						projectId={activeProject?.id}
+						projectKind={activeProject?.kind}
+						projectName={activeProject?.name}
+						closeRequestRef={settingsCloseRequestRef}
+					/>
 				</div>
 			}
 			content={workbenchContentNode}
@@ -3710,6 +3774,11 @@ export function App() {
 								}
 								setFileMenu(null);
 							}}
+							onCreate={(target, kind) => {
+								setCreatingFile({ target, kind });
+								setCreatingFileInput("");
+								setFileMenu(null);
+							}}
 							onDelete={() => {
 								const node = fileMenu.node;
 								const target = node.target ?? node.path;
@@ -3750,6 +3819,31 @@ export function App() {
 					)}
 					<RenameModals
 						rename={rename.renameModalsProps.rename}
+						fileCreate={
+							creatingFile
+								? {
+										targetLabel: typeof creatingFile.target === "string" ? creatingFile.target : creatingFile.target.relativePath || "/",
+										kind: creatingFile.kind,
+										inputValue: creatingFileInput,
+										onInputChange: setCreatingFileInput,
+										onClose: () => setCreatingFile(null),
+										onConfirm: (name) => {
+											void api.files
+												.create(creatingFile.target, name, creatingFile.kind)
+												.then(() => {
+													// 静默刷新：下面已经有了针对本次操作的具体提示，别再叠一层「已刷新」
+													void refreshVisibleFiles(undefined, true);
+													setCreatingFile(null);
+													showToast(t(creatingFile.kind === "directory" ? "app.folderCreated" : "app.fileCreated"), 2000);
+												})
+												.catch((error) => {
+													setCreatingFile(null);
+													showToast(t("app.fileCreateFailed", { error: error instanceof Error ? error.message : String(error) }), 4000);
+												});
+										},
+									}
+								: undefined
+						}
 						fileRename={
 							renamingFile
 								? {
@@ -3860,12 +3954,15 @@ export function App() {
 							}}
 						/>
 					</EnvironmentOverlay>
-					<SettingsFeatureRoot settings={settings} piUpdate={piUpdate} webServiceChanging={webServiceChanging} onRestartWebService={restartWebService} appInfo={appInfo} onChange={updateSettings} projects={projects} projectId={activeProject?.id} projectKind={activeProject?.kind} projectName={activeProject?.name} />
 					{/* 远端项目登记：全应用唯一挂载点（侧栏「+」/空态只写开关 atom）。成功后先刷新清单再选中新项目，不创建本地会话。 */}
 					<RemoteProjectEnrollDialog
 						onEnrolled={(projectId) => {
 							void refreshProjects()
 								.then(() => selectProjectCommand(projectId))
+								.then(() => {
+									// 弹窗成功页已说过「已添加」，这里只补侧栏揭示，不再叠一条重复 toast。
+									requestSidebarRevealProject(projectId);
+								})
 								.catch(() => undefined);
 						}}
 					/>
@@ -3874,7 +3971,11 @@ export function App() {
 						onAdded={(projectId) => {
 							void syncDshForeignSessionsIfEnabled()
 								.then(() => refreshProjects())
-								.then(() => selectProjectCommand(projectId))
+								.then((next) => {
+									selectProjectCommand(projectId);
+									const added = next.find((project) => project.id === projectId);
+									if (added) announceProjectAdded(added);
+								})
 								.catch(() => undefined);
 						}}
 					/>

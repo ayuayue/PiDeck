@@ -2,7 +2,7 @@ import { Button } from "../components/ui-shadcn/button";
 import { Collapsible, CollapsibleContent } from "../components/ui-shadcn/collapsible";
 import { Separator } from "../components/ui-shadcn/separator";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUpDown, ChevronDown, ChevronRight, Copy, Eye, EyeOff, ExternalLink, GripVertical, SquarePen, Trash2, X } from "lucide-react";
+import { ArrowUpDown, ChevronDown, ChevronRight, Copy, Eye, EyeOff, ExternalLink, GripVertical, Search, SquarePen, Trash2, X } from "lucide-react";
 import { t } from "../i18n";
 import { desktopApi } from "../desktopApi";
 import type { ModelItem, ModelsFile, ProviderConfig } from "./configTypes";
@@ -16,8 +16,10 @@ import { FetchedModelCombobox } from "./FetchedModelCombobox";
 import { Checkbox } from "../components/ui-shadcn/checkbox";
 import { Label } from "../components/ui-shadcn/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui-shadcn/select";
+import { Input } from "../components/ui-shadcn/input";
 import { showNotice } from "../utils/notice";
 import { applyModelPatches, computeModelSpecPatches, looksDeepSeekBacked } from "../utils/modelSpecAutoFill";
+import { pickManagedCompatFlags } from "./modelCompatFields";
 import type { FetchedModel, ConfigProxyMode } from "../../../shared/types/fetchedModel";
 import { ProviderMigrationButton } from "./ProviderMigrationButton";
 import { ProviderUsageInline } from "../components/app/ProviderUsageInline";
@@ -28,6 +30,7 @@ import type { ProviderDialogInitial } from "./AddProviderDialog";
 import type { AddProviderDraft } from "./addProviderDraft";
 import { splitVisibleAndHiddenProviders } from "./providerVisibility";
 import { applyProviderOrder } from "../utils/providerOrder";
+import { filterIndexedRows } from "../utils/configListSearch";
 import { useProviderReorder } from "../hooks/useProviderReorder";
 import { ModelsTable } from "./ModelsTable";
 import { ModelsExportPanel } from "./ModelsExportPanel";
@@ -152,6 +155,9 @@ export function ModelsTab(props: {
 	// 用完整列表而非仅可见列表：隐藏区也遵循同一顺序，恢复显示时不会突然跳到列表最前。
 	const orderedProviderNames = applyProviderOrder(providerNames, props.providerOrder);
 	const { visible: visibleProviderNames, hidden: hiddenProviderNames } = splitVisibleAndHiddenProviders(orderedProviderNames, props.hiddenProviders ?? []);
+	// 供应商多时逐个翻卡片太慢：顶部关键词过滤（只认 provider 名）；排序与隐藏逻辑不变。
+	const [query, setQuery] = useState("");
+	const searchedProviderNames = filterIndexedRows(visibleProviderNames, query, (name) => [name]).map((entry) => entry.row);
 	// 底部已隐藏折叠区展开状态（默认收起，避免一屏多折叠区）
 	const [hiddenSectionOpen, setHiddenSectionOpen] = useState(false);
 	// 自动获取后的待保存选择：与 provider 分开存储，避免多个 provider 同时展开时选中状态互相污染。
@@ -252,7 +258,8 @@ export function ModelsTab(props: {
 	// DSH 模型页的供应商卡片复用同一份，避免两页规则漂移。
 	// 拖拽的作用域是「模型 + 认证」两页的并集（providerOrderScope）：认证页独有的供应商也要参与
 	// 同一份顺序，否则在认证页排一次会在并集里丢掉它们，模型页的顺序跟着回到默认。
-	const providerReorder = useProviderReorder({ names: props.providerOrderScope?.length ? props.providerOrderScope : orderedProviderNames, visibleNames: visibleProviderNames, onReorder: reorderProviders });
+	// visibleNames 传过滤后的列表：手柄 ↑/↓ 只以看得见的邻居为锚点；排序仍写进完整顺序。
+	const providerReorder = useProviderReorder({ names: props.providerOrderScope?.length ? props.providerOrderScope : orderedProviderNames, visibleNames: searchedProviderNames, onReorder: reorderProviders });
 	const [highlightProvider, setHighlightProvider] = useState<string | null>(null);
 	useEffect(() => {
 		if (!props.focusProvider) return;
@@ -285,12 +292,30 @@ export function ModelsTab(props: {
 			{/* 列表态：顶部按钮 + 指南 + 卡片列表；新增/编辑时整区切换为配置表单页（非弹窗） */}
 			{!props.addingProvider && !props.editingProvider && !transferView && (
 				<>
-					<div className="mb-3 flex items-center justify-between gap-3">
-						<span className="font-mono text-xs tabular-nums text-muted-foreground">{t("config.count.providers", { count: visibleProviderNames.length })}</span>
-						<div className="flex min-w-0 items-center gap-1.5">
+					{/* 搜索与计数/操作同一行：单独的搜索行在供应商少时只是白占一行高度，
+					    关键词与「N 个供应商」「匹配 M / N」放在一起也更好读。 */}
+					<div className="mb-3 flex flex-wrap items-center gap-2">
+						<span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{t("config.count.providers", { count: visibleProviderNames.length })}</span>
+						{visibleProviderNames.length > 0 && (
+							<div className="relative min-w-0 max-w-xs flex-1 basis-52">
+								<Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/70" aria-hidden="true" />
+								<Input type="search" size="sm" value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={t("config.providerSearchPlaceholder")} aria-label={t("config.providerSearchPlaceholder")} className="pl-8" />
+							</div>
+						)}
+						{query.trim().length > 0 && <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{t("config.extensionListResultCount", { matched: searchedProviderNames.length, count: visibleProviderNames.length })}</span>}
+						<div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5">
 							{!batchMode && (
 								<>
-									<Button size="sm" variant="outline" onClick={props.onStartAddProvider} disabled={saving}>
+									<Button
+										size="sm"
+										variant="outline"
+										onClick={() => {
+											// 新供应商名不一定命中当前关键词，留着会「加完看不见」。
+											setQuery("");
+											props.onStartAddProvider();
+										}}
+										disabled={saving}
+									>
 										{t("config.addProvider")}
 									</Button>
 									<Button size="sm" variant="outline" onClick={() => setTransferView({ kind: "import" })} disabled={saving}>
@@ -306,10 +331,10 @@ export function ModelsTab(props: {
 							</Button>
 							{batchMode && (
 								<>
-									<Button size="sm" variant="ghost" disabled={visibleProviderNames.length === 0} onClick={() => setSelectedProviders(new Set(visibleProviderNames))}>
+									<Button size="sm" variant="ghost" disabled={searchedProviderNames.length === 0} onClick={() => setSelectedProviders(new Set(searchedProviderNames))}>
 										{t("common.selectAll")}
 									</Button>
-									<Button size="sm" variant="ghost" disabled={visibleProviderNames.length === 0} onClick={() => setSelectedProviders(new Set(visibleProviderNames.filter((name) => !selectedProviders.has(name))))}>
+									<Button size="sm" variant="ghost" disabled={searchedProviderNames.length === 0} onClick={() => setSelectedProviders(new Set(searchedProviderNames.filter((name) => !selectedProviders.has(name))))}>
 										{t("common.invertSelection")}
 									</Button>
 									{/* 清除选择只清空勾选，留在批量模式（不动 batchAction） */}
@@ -346,7 +371,6 @@ export function ModelsTab(props: {
 							)}
 						</div>
 					)}
-
 					{/* Provider 配置指南：开合走共享折叠原语（真高度渐变 + exit 后卸载 + reduced-motion 回退）；
 					    display:contents 根不生成盒子，卡片样式移到折叠体本身。 */}
 					<Collapsible open={showGuide} className="contents">
@@ -435,14 +459,15 @@ export function ModelsTab(props: {
 					</Collapsible>
 
 					<div className="flex flex-col gap-2.5">
-						{visibleProviderNames.map((name) => {
+						{searchedProviderNames.length === 0 && visibleProviderNames.length > 0 && <div className="py-8 text-center text-control text-text-tertiary">{t("config.providerSearchEmpty")}</div>}
+						{searchedProviderNames.map((name) => {
 							const provider = data.providers[name];
 							const isExpanded = expandedProvider === name;
 							const isModelBatchMode = modelBatchProvider === name;
 							const selectedModelCount = countSelectedModelIndexes(selectedModelIndexes, provider.models.length);
 							const userAgentValue = getHeaderValue(provider.headers, "User-Agent");
 							const providerAdvancedFields = Object.keys(provider).filter((key) => !KNOWN_PROVIDER_FIELDS.has(key));
-							const providerComplexFields = ["headers", "authHeader", "compat", "modelOverrides", "oauth"].filter((key) => provider[key] !== undefined);
+							const providerComplexFields = ["headers", "authHeader", "modelOverrides", "oauth"].filter((key) => provider[key] !== undefined);
 							return (
 								<div
 									key={name}
@@ -748,6 +773,14 @@ export function ModelsTab(props: {
 													resettingModelKey={props.resettingModelKey}
 													getRowKey={(i) => getModelInputKey(name, i)}
 													onBlurAutoFill={(i, modelId) => void applyModelSpecAutoFill(name, i, modelId)}
+													loadModelCompatSuggestion={async (i) => {
+														const model = provider.models[i];
+														const modelId = model?.id?.trim();
+														if (!modelId) return null;
+														const spec = await desktopApi.projects.getModelSpec(name, modelId, model.name).catch(() => null);
+														const flags = pickManagedCompatFlags(spec?.compat);
+														return Object.keys(flags).length > 0 ? { matchedId: spec?.matchedId, flags } : null;
+													}}
 													batchMode={isModelBatchMode}
 													selectedIndexes={selectedModelIndexes}
 													onToggleSelectIndex={(i) => setSelectedModelIndexes((current) => toggleModelIndex(current, i))}

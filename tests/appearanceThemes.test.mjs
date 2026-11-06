@@ -77,7 +77,7 @@ test("STYLE_PRESETS 只列真形状差异的样式，默认 classic", () => {
 
 test("PALETTE_PRESETS 只列配色，默认 classic-green，custom 不联动主色", () => {
 	const ids = [...PALETTE_PRESETS].map((preset) => preset.id);
-	assert.deepEqual(ids, ["classic-green", "fresh-green", "graphite", "sea-blue", "warm-beige", "tui", "custom"]);
+	assert.deepEqual(ids, ["classic-green", "fresh-green", "graphite", "sea-blue", "warm-beige", "parchment", "tui", "custom"]);
 	assert.equal(DEFAULT_PALETTE, "classic-green");
 	for (const preset of PALETTE_PRESETS) {
 		assert.ok(preset.labelKey.startsWith("settings.palette."), preset.id);

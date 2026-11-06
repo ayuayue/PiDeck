@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import type { LocalProject, Project } from "../../shared/types";
 import { projectLocatorFromLegacy } from "../../shared/locationAdapters";
 import { isLocalProject, isRemoteProject, readSshProjectLocator, type SshProjectLocator } from "../../shared/projectLocation";
-import { parseWslUncPath } from "../wsl/WslPaths";
+import { mountedDriveToWindowsPath, parseWslUncPath } from "../wsl/WslPaths";
 import { getAppLogger } from "../logging/sharedLogger";
 import { assertHostRebindRecordIds, canonicalHostLocatorJson, type HostRebindRecordPatch, type HostRebindRecordResult, type HostRebindRecordSnapshot, type HostRebindStorePort } from "../remote/HostRebindJournal";
 import { isEphemeralProjectPath, projectPathKey, sanitizeProjectDisplayName } from "./projectPathPolicy";
@@ -276,7 +276,10 @@ export class ProjectStore implements HostRebindStorePort {
 		});
 
 		if (result.canceled || result.filePaths.length === 0) return null;
-		return this.add(result.filePaths[0]);
+		// 显式声明 windows 环境：去重会命中同一目录早先在 WSL 模式下加过的记录，
+		// 不改写 environment 的话它仍被标成 wsl，随即被「按当前模式过滤可见项目」整条藏掉——
+		// 表现为提示「项目已添加」但列表与工作区都看不到它（2026-11 WSL→Windows 切换现场）。
+		return this.add(result.filePaths[0], undefined, "windows");
 	}
 
 	/** 添加项目，可指定所属环境（缺省 windows）；WSL 档案身份可选，供选择器链路复用。 */
@@ -733,7 +736,19 @@ export class ProjectStore implements HostRebindStorePort {
 		return normalize(resolve(path));
 	}
 
+	/** drvfs（/mnt/<盘符>）的三种写法归一到盘符路径（小写比较前先去掉尾部分隔符）；非 drvfs 返回 null。 */
+	private mountedDriveForm(path: string) {
+		const linuxPath = parseWslUncPath(path)?.linuxPath ?? path;
+		const drivePath = mountedDriveToWindowsPath(linuxPath) ?? (/^[A-Za-z]:(?:[\\/]|$)/.test(path) ? path.replace(/\//g, "\\") : null);
+		return drivePath === null ? null : drivePath.replace(/\\+$/, "");
+	}
+
 	private sameProjectPath(a: string, b: string) {
+		// drvfs 同一目录可以是 /mnt/d/x、D:\x、\\wsl.localhost\<distro>\mnt\d\x；先统一到盘符路径
+		// 再比，否则修好路径后重新添加同一目录会多出一条重复项目（盘符不区分大小写）。
+		const leftDrive = this.mountedDriveForm(a);
+		const rightDrive = this.mountedDriveForm(b);
+		if (leftDrive !== null && rightDrive !== null) return leftDrive.toLowerCase() === rightDrive.toLowerCase();
 		const leftWsl = parseWslUncPath(a);
 		const rightWsl = parseWslUncPath(b);
 		if (leftWsl && rightWsl) {

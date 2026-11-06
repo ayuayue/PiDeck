@@ -2,7 +2,7 @@ import { Activity, Bolt, ChevronRight, CirclePlus, Clock, Folder, Globe, Message
 import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import type { AgentBackend, AgentTab, AppThemeMode, ArchivedDshSession, ArchivedPiSession, Project, SessionRecord, SessionSummary, WorktreeEntry } from "../../../../shared/types";
 import { AgentContextMenu, DraftSessionContextMenu, ProjectContextMenu, SessionContextMenu, SessionManagerModal, SessionSourceFilterMenu, WorktreeCreateDialog } from "./SidebarParts";
-import { automationModuleHiddenAtom, sessionRecordToSummary } from "../../atoms";
+import { automationModuleHiddenAtom, sessionRecordToSummary, sidebarRevealProjectRequestAtom } from "../../atoms";
 import { hasPendingUpdateAtom, pendingAppUpdateAtom, pendingCatalogUpdateAtom, pendingPiUpdateAtom, updateStatusAtom } from "../../atoms/update-atoms";
 import { useAtomValue } from "jotai";
 import { isManagerSessionSummary, worktreeFamilyProjects } from "../../sessionManagerModel";
@@ -32,6 +32,7 @@ import { MorphingSearch, type MorphingSearchItem } from "../motion/morphing-sear
 import { parseSidebarNavTab } from "../../utils/sidebarNavTab";
 import { ensurePinyinTable, pinyinKeys } from "../../utils/pinyinSearch";
 import { displayProjectDirectoryName, isChatProject } from "../../rendererUtils";
+import { planSidebarProjectReveal } from "./projectRevealModel";
 import { isLocalProject } from "../../../../shared/projectLocation";
 import { formatAccelerator } from "../../../../shared/shortcuts";
 import { desktopApi } from "../../desktopApi";
@@ -292,29 +293,43 @@ export function SidebarContent(props: SidebarContentProps) {
 	const currentProject = props.currentProjectId ? controller.catalog.projects.find((project) => project.id === props.currentProjectId) : undefined;
 	const currentRootProject = currentProject?.worktreeParentId ? (controller.catalog.projects.find((project) => project.id === currentProject.worktreeParentId) ?? currentProject) : currentProject;
 
-	// 列表滚动容器：搜索面板选中项目后要把目标行滚进可视区（见 revealSearchProject）。
+	// 列表滚动容器：项目行揭示（搜索面板选中 / 新建项目后定位）要把目标行滚进可视区。
 	const conversationListRef = useRef<HTMLElement>(null);
 	/**
-	 * 搜索面板里点项目 = 「跳过去」：右侧已由 actions.projects.select 切到该项目引导页，
-	 * 左侧列表必须跟着定位，否则分段停在「活动/聊天」时目标行根本没挂载，看起来像没反应。
-	 * 顺序：先切到项目所在分段（Chat 在「聊天」，其余在「项目」）→ 展开父级与自身 →
-	 * 等搜索词清空、行回流落定后滚到可视区。搜索词由面板关闭同步清空，所以等两帧。
+	 * 揭示项目行 = 「跳过去」：右侧已由 actions.projects.select 切到该项目引导页，左侧列表必须跟着定位，
+	 * 否则分段停在「活动/聊天」时目标行根本没挂载，看起来像没反应。
+	 * 顺序：先切到项目所在分段 → 展开父级与分支行 → 等行回流落定后滚到可视区（两帧）。
 	 */
-	const revealSearchProject = (project: Project) => {
-		if (!props.simple) controller.setNavTab(isChatProject(project) ? "chats" : "projects");
+	const revealProjectRow = (project: Project) => {
+		const plan = planSidebarProjectReveal(project, controller.catalog.projects);
+		if (!props.simple) controller.setNavTab(plan.tab);
+		// 侧栏搜索词会把不匹配的项目整行过滤掉（新项目多半不命中旧查询）：先清空再定位，否则行不存在。
+		if (controller.search.trim()) controller.setSearch("");
 		// worktree 子项目行挂在父项目树下：父项目折叠或该分支未展开时行都不存在，先展开。
-		const parent = project.worktreeParentId ? controller.catalog.projects.find((candidate) => candidate.id === project.worktreeParentId) : undefined;
-		if (parent) {
-			controller.revealProject(parent.id);
-			controller.expandWorktreeSessions(project.id);
+		if (plan.parentProjectId) {
+			controller.revealProject(plan.parentProjectId);
+			controller.expandWorktreeSessions(plan.projectId);
 		}
-		controller.revealProject(project.id);
+		controller.revealProject(plan.projectId);
 		requestAnimationFrame(() => {
 			requestAnimationFrame(() => {
-				conversationListRef.current?.querySelector<HTMLElement>(`[data-project-row-id="${CSS.escape(project.id)}"]`)?.scrollIntoView({ block: "nearest" });
+				conversationListRef.current?.querySelector<HTMLElement>(`[data-project-row-id="${CSS.escape(plan.projectId)}"]`)?.scrollIntoView({ block: "nearest" });
 			});
 		});
 	};
+
+	// 新建项目成功后 App 发一次揭示请求（本地目录 / WSL / 远端登记共用）：
+	// 不揭示的话，停在「聊天/活动」分段的用户看到的只是原列表不变。nonce 去重保证只执行一次；
+	// 项目还没进清单时不消费 nonce —— 等 catalog 更新的重渲染再试，避免请求早于入库时丢掉定位。
+	const revealRequest = useAtomValue(sidebarRevealProjectRequestAtom);
+	const handledRevealNonceRef = useRef(0);
+	useEffect(() => {
+		if (!revealRequest || handledRevealNonceRef.current === revealRequest.nonce) return;
+		const project = controller.catalog.projects.find((candidate) => candidate.id === revealRequest.projectId);
+		if (!project) return;
+		handledRevealNonceRef.current = revealRequest.nonce;
+		revealProjectRow(project);
+	}, [revealRequest, controller]);
 
 	// MorphingSearch 检索项：扁平化所有项目 + 会话，供命令面板跳转。
 	// 项目项用目录名（chat 用「Chat」），会话项用标题 + 预览；选中即打开/选中目标。
@@ -331,7 +346,7 @@ export function SidebarContent(props: SidebarContentProps) {
 			icon: isChatProject(project) ? MessageSquare : Folder,
 			onSelect: () => {
 				actions.projects.select(project.id);
-				revealSearchProject(project);
+				revealProjectRow(project);
 			},
 		});
 		for (const session of controller.catalog.sessionsByProject[project.id] ?? []) {

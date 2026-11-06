@@ -12,8 +12,9 @@ import { Button } from "../components/ui-shadcn/button";
 import { Collapsible, CollapsibleContent } from "../components/ui-shadcn/collapsible";
 import { Input } from "../components/ui-shadcn/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui-shadcn/select";
-import { ChevronDown, ChevronRight, Image as ImageIcon, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Image as ImageIcon, Plus, Search, Trash2 } from "lucide-react";
 import { t } from "../i18n";
+import { filterIndexedRows } from "../utils/configListSearch";
 import { formatDshModelCapacity, dshModalitySelection, dshModalityValue, parseDshModelCapacity, type DshModalitySelection, type DshModelInputField } from "./dshModels";
 
 export type DshModelRow = {
@@ -97,6 +98,10 @@ export function ModelsTable(props: {
 	const inherited = !overridden && (props.catalog?.length ?? 0) > 0;
 	const canEditRows = !inherited || props.editableInherited === true;
 	const shownModels = inherited ? (props.catalog ?? []) : models;
+	// 模型目录常见几十行，从上往下扫太慢：按 id / 名称过滤。
+	// 过滤结果保留**原始下标**：行 key、行内编辑回写、展开态都按下标定位，重排后下标会错位。
+	const [query, setQuery] = useState("");
+	const searchRows = filterIndexedRows(shownModels, query, (model) => [typeof model.id === "string" ? model.id : undefined, typeof model.name === "string" ? model.name : undefined]);
 	// 闭包里保持常量收窄：inputField 存在时才渲染模态选择器。
 	const inputField = props.inputField;
 
@@ -110,16 +115,49 @@ export function ModelsTable(props: {
 						{t("config.dsh.resetModels")}
 					</Button>
 				)}
-				<Button type="button" variant="ghost" size="sm" className="ml-auto h-6 gap-1 px-1.5 text-micro text-muted-foreground" disabled={!writable} onClick={onAdd}>
+				<Button
+					type="button"
+					variant="ghost"
+					size="sm"
+					className="ml-auto h-6 gap-1 px-1.5 text-micro text-muted-foreground"
+					disabled={!writable}
+					onClick={() => {
+						// 新行是空 id，留着过滤词会让用户「点了添加却看不到新行」。
+						setQuery("");
+						onAdd();
+					}}
+				>
 					<Plus className="size-3" aria-hidden="true" />
 					{t("config.dsh.addModel")}
 				</Button>
 			</div>
+			{shownModels.length > 0 && (
+				<div className="flex flex-wrap items-center gap-2">
+					<div className="relative min-w-0 max-w-xs flex-1 basis-52">
+						<Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/70" aria-hidden="true" />
+						<Input
+							type="search"
+							size="sm"
+							value={query}
+							placeholder={t("config.modelSearchPlaceholder")}
+							aria-label={t("config.modelSearchPlaceholder")}
+							className="pl-8"
+							onChange={(event) => {
+								setQuery(event.currentTarget.value);
+								// 过滤后下标会变，收起展开态，下次展开的是当前看到的那一行。
+								setExpandedIndex(null);
+							}}
+						/>
+					</div>
+					{query.trim().length > 0 && <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{t("config.extensionListResultCount", { matched: searchRows.length, count: shownModels.length })}</span>}
+				</div>
+			)}
 			{shownModels.length === 0 ? (
 				<div className="rounded-sm border border-dashed border-border-subtle px-3 py-2.5 text-micro text-muted-foreground">{inherited ? t("config.dsh.modelsEmptyHint") : t("config.dsh.modelsEmpty")}</div>
 			) : (
 				<div className="overflow-hidden rounded-lg border border-border-subtle bg-bg-panel">
-					{shownModels.map((model, index) => {
+					{searchRows.length === 0 && <div className="px-3 py-2.5 text-micro text-muted-foreground">{t("config.dsh.modelSearchEmpty")}</div>}
+					{searchRows.map(({ row: model, index }) => {
 						const isOpen = canEditRows && expandedIndex === index;
 						const id = typeof model.id === "string" ? model.id : "";
 						const name = typeof model.name === "string" ? model.name : "";

@@ -2,7 +2,7 @@ import type { ProjectFileAccessScope, ProjectFileTarget } from "../../../../shar
 import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useSetAtom } from "jotai";
 import { t } from "../../i18n";
-import { ArrowLeft, Maximize, Minimize2, Rows2, SquareSplitHorizontal, X, Eye, FileCode, Loader2, TriangleAlert } from "lucide-react";
+import { ArrowLeft, Maximize, Minimize2, RefreshCw, Rows2, SquareSplitHorizontal, X, Eye, FileCode, Loader2, TriangleAlert } from "lucide-react";
 import { Button } from "../ui-shadcn/button";
 import { cn } from "../../lib/utils";
 import { MarkdownStream } from "../session/MarkdownStream";
@@ -109,6 +109,10 @@ export function FileDiffViewer(props: {
 	const [sideBySide, setSideBySide] = useState(props.displayMode !== "drawer");
 	// 「转为可编辑」二次确认：解锁后本 tab 就能自动保存/Ctrl+S，所以把后果（直接写这个路径）先摆给用户。
 	const [unlockConfirmOpen, setUnlockConfirmOpen] = useState(false);
+	// 重新加载（重读磁盘）：内容只在打开/切 Tab 时读一次，AI 或外部工具改完磁盘后
+	// 面板仍是旧快照。自增这个序号触发加载 effect 重跑，等价于「关掉重开」。
+	const [reloadNonce, setReloadNonce] = useState(0);
+	const [reloadConfirmOpen, setReloadConfirmOpen] = useState(false);
 	// diff 模式为只读对比视图（第三方渲染库），无需编辑态切换
 	const [dirty, setDirty] = useState(false);
 	// dirty 镜像上报（Wave 5）：只在翻转时通知宿主，避免每击键回调。
@@ -280,7 +284,7 @@ export function FileDiffViewer(props: {
 		// readContent/readOriginalContent 是稳定的 API 回调（上层已 useCallback），
 		// 不参与 effect deps，避免父组件因其他状态变化重渲染时反复加载文件导致编辑器重置到顶部。
 		// 两侧缓存内容都需要监听：同一路径可在多个历史提交 Diff tab 之间切换。
-	}, [props.filePath, props.fileTarget?.projectId, props.fileTarget?.relativePath, props.activeTabId, props.originalContent, props.modifiedContent, props.fileAccessScope?.projectId, isDiffMode, maxFileSize]);
+	}, [props.filePath, props.fileTarget?.projectId, props.fileTarget?.relativePath, props.activeTabId, props.originalContent, props.modifiedContent, props.fileAccessScope?.projectId, isDiffMode, maxFileSize, reloadNonce]);
 
 	const handleClose = useCallback(() => {
 		props.onClose();
@@ -511,6 +515,23 @@ export function FileDiffViewer(props: {
 					</Button>
 				)}
 				<div className="file-diff-header-actions">
+					{/* 重新加载：只读看盘上最新内容（AI / 外部编辑器改了文件后刷新）。
+					   有未保存改动时先确认——重读会把编辑器里的内容换掉。 */}
+					{!isDiffMode && (
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							title={t("editor.reloadHint")}
+							aria-label={t("editor.reload")}
+							disabled={loading}
+							onClick={() => {
+								if (dirty) setReloadConfirmOpen(true);
+								else setReloadNonce((current) => current + 1);
+							}}
+						>
+							<RefreshCw size={15} className={loading ? "animate-pideck-spin" : undefined} />
+						</Button>
+					)}
 					{(isMarkdown || isHtml || isSvg) && !isDiffMode && !loading && !error && (
 						<Button
 							variant="ghost"
@@ -548,6 +569,18 @@ export function FileDiffViewer(props: {
 					</Button>
 				</div>
 			</div>
+			{reloadConfirmOpen && (
+				<ConfirmDialog
+					title={t("editor.reloadDirtyTitle")}
+					message={t("editor.reloadDirtyBody", { file: fileName })}
+					confirmLabel={t("editor.reloadDirtyConfirm")}
+					onCancel={() => setReloadConfirmOpen(false)}
+					onConfirm={() => {
+						setReloadConfirmOpen(false);
+						setReloadNonce((current) => current + 1);
+					}}
+				/>
+			)}
 			{readOnlyView && unlockConfirmOpen && props.onRequestEditable && (
 				<ConfirmDialog
 					title={t("editor.unlockEditTitle")}

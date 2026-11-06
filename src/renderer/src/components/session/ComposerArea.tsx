@@ -398,6 +398,7 @@ export const ComposerArea = forwardRef<HTMLElement, ComposerAreaProps>(function 
 												imageGenLocked={composer.delivery.imageGenModeLocked}
 												onCancelPlan={() => composer.pickers.setMode("normal")}
 												onAttachFile={composer.editor.attachFile}
+												onAttachReferenceImage={composer.editor.attachReferenceImages}
 												imageGenOptions={
 													composer.mode === "imagegen"
 														? {

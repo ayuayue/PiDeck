@@ -1,6 +1,6 @@
 {
-	"capturedAt": "2026-11-03",
-	"total": 1905,
+	"capturedAt": "2026-11-04",
+	"total": 1921,
 	"sourceOnly": [
 		"tests/abortSlowRecoveryNotice.test.mjs",
 		"tests/abortStreamRegression.test.mjs",
@@ -52,6 +52,7 @@
 		"tests/browserNavigationAbort.test.mjs",
 		"tests/browserPanelSecurity.test.mjs",
 		"tests/builtInExtensionRootsGate.test.mjs",
+		"tests/catalogAutoLoadEffects.test.mjs",
 		"tests/catalogListStartup.test.mjs",
 		"tests/catalogLoadWatchdog.test.mjs",
 		"tests/changelogDialogLayout.test.mjs",
@@ -90,6 +91,7 @@
 		"tests/configModelsBatchDelete.test.mjs",
 		"tests/configNavVisual.test.mjs",
 		"tests/configProviderBatchManage.test.mjs",
+		"tests/configSettingsNormalizeNotDirty.test.mjs",
 		"tests/configVisualConsistency.test.mjs",
 		"tests/connectionsEmptyState.test.mjs",
 		"tests/connectionsTabStatus.test.mjs",
@@ -140,6 +142,7 @@
 		"tests/fileEditorDirtyClose.test.mjs",
 		"tests/fileIcons.test.mjs",
 		"tests/fileManagerDetect.test.mjs",
+		"tests/fileTreeCreateEntry.test.mjs",
 		"tests/fileTreeRenderBudget.test.mjs",
 		"tests/filesIpcRegistration.test.mjs",
 		"tests/finalAnswerLongCollapse.test.mjs",
@@ -285,8 +288,6 @@
 		"tests/sessionRuntimeCoordinator.test.mjs",
 		"tests/sessionRuntimeTargetBoundaries.test.mjs",
 		"tests/sessionSplitEdge.test.mjs",
-		"tests/sessionStartSurface.test.mjs",
-		"tests/sessionStatusBadge.test.mjs",
 		"tests/sessionStatusPanel.test.mjs",
 		"tests/sessionSurfaceLoadState.test.mjs",
 		"tests/sessionTabHoverWorkspace.test.mjs",
@@ -316,7 +317,6 @@
 		"tests/sidebarRowAlignment.test.mjs",
 		"tests/sidebarRuntimeBinding.test.mjs",
 		"tests/sidebarSearchBackground.test.mjs",
-		"tests/sidebarSearchProjectReveal.test.mjs",
 		"tests/skillManager.test.mjs",
 		"tests/skillsRenameIpc.test.mjs",
 		"tests/sonnerToasterMount.test.mjs",
@@ -398,6 +398,7 @@
 		"tests/wslPerSessionSpawn.test.mjs",
 		"tests/wslProjectAddContract.test.mjs",
 		"tests/wslRuntimeIdentity.test.mjs",
+		"tests/wslSettingsHotApply.test.mjs",
 		"tests/xuePromptLikeGate.test.mjs"
 	]
 }

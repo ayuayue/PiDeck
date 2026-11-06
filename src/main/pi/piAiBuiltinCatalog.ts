@@ -12,6 +12,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { FetchedModel } from "../../shared/types/fetchedModel";
+import type { ModelCompatFlags, ThinkingLevelMap } from "../../shared/types/modelSpecs";
 import { parseThinkingLevelMap } from "./modelCapabilityMatch";
 
 /** 官方 pi-ai 模型类型：chat 可缺省（缺省即 chat），image / classifier 显式声明。 */
@@ -33,6 +34,8 @@ export type PiAiCatalogEntry = FetchedModel & {
 	 *  迁移反向（pi→DSH）时用来补全内置 provider 的 profile。仅在 catalog 条目提供时存在。 */
 	api?: string;
 	baseUrl?: string;
+	/** 官方声明的逐模型 compat（只保留布尔键；字符串/对象键见 ModelCompatFlags 注释）。 */
+	compat?: ModelCompatFlags;
 };
 
 /** 条目类型归一化：官方仅显式标注 image / classifier，其余（含缺省）均为 chat。 */
@@ -96,6 +99,17 @@ export function buildPiAiCatalogIndex(entries: readonly PiAiCatalogEntry[]): PiA
 
 export function getPiAiCatalogEntries(index: PiAiCatalogIndex): readonly PiAiCatalogEntry[] {
 	return index.entries;
+}
+
+/** 内置 provider 的默认 API 协议：从 catalog 条目的 provider 级 `api` 取第一个非空值。 */
+export function lookupPiAiCatalogProviderApi(index: PiAiCatalogIndex, providerName: string): string | undefined {
+	const inner = index.byProviderId.get(providerName);
+	if (!inner) return undefined;
+	for (const entry of inner.values()) {
+		const api = typeof entry.api === "string" ? entry.api.trim() : "";
+		if (api) return api;
+	}
+	return undefined;
 }
 
 /** OpenAI 兼容网关常把官方 id 写成 `openai/gpt-4o`；取最后一段做二次精确匹配 */
@@ -165,10 +179,26 @@ function normalizedModelId(value: unknown): string | undefined {
 }
 
 /**
+ * 目录 compat → 只保留布尔键。
+ *
+ * 非布尔值一律丢弃：string 枚举（thinkingFormat / maxTokensField）与对象
+ * （openRouterRouting / allowedFallbackModels / chatTemplateArgs）在配置页无法可视化编辑，
+ * 也不随「应用目录建议」写入 models.json。artifact 原文仍在，需要时再扩这里。
+ */
+function parseModelCompatFlags(value: unknown): ModelCompatFlags | undefined {
+	if (!isRecord(value)) return undefined;
+	const flags: ModelCompatFlags = {};
+	for (const [key, flag] of Object.entries(value)) {
+		if (typeof flag === "boolean") flags[key] = flag;
+	}
+	return Object.keys(flags).length > 0 ? flags : undefined;
+}
+
+/**
  * artifact 中一条原始模型记录 → 主进程可信条目；防御损坏资源或手工编辑。
  *
- * 只校验和归一化 PiDeck 实际消费的字段；官方其余字段（cost / inputLimits / compat
- * 等）留在 artifact 里不动，需要时再在这里声明。类型作为身份的一部分保留，
+ * 只校验和归一化 PiDeck 实际消费的字段；官方其余字段（cost / inputLimits /
+ * 非布尔 compat 等）留在 artifact 里不动，需要时再在这里声明。类型作为身份的一部分保留，
  * 非法值归为缺省（即 chat），不让坏数据伪造出第三种类型。
  */
 function catalogEntryFromArtifact(model: Record<string, unknown>): PiAiCatalogEntry | undefined {
@@ -181,6 +211,7 @@ function catalogEntryFromArtifact(model: Record<string, unknown>): PiAiCatalogEn
 	const reasoning = typeof model.reasoning === "boolean" ? model.reasoning : undefined;
 	const input = Array.isArray(model.input) ? model.input.filter((item): item is "text" | "image" => item === "text" || item === "image") : undefined;
 	const thinkingLevelMap = parseThinkingLevelMap(model.thinkingLevelMap);
+	const compat = parseModelCompatFlags(model.compat);
 	const api = nonEmptyString(model.api);
 	const baseUrl = nonEmptyString(model.baseUrl);
 	const type = model.type === "image" || model.type === "classifier" ? model.type : model.type === "chat" ? "chat" : undefined;
@@ -194,6 +225,7 @@ function catalogEntryFromArtifact(model: Record<string, unknown>): PiAiCatalogEn
 		...(reasoning !== undefined ? { reasoning } : {}),
 		...(input && input.length > 0 ? { input } : {}),
 		...(thinkingLevelMap ? { thinkingLevelMap } : {}),
+		...(compat ? { compat } : {}),
 		...(api ? { api } : {}),
 		...(baseUrl ? { baseUrl } : {}),
 	};

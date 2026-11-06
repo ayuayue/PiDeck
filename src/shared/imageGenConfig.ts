@@ -10,14 +10,17 @@ export const IMAGE_GEN_EXTRA_PARAMS = ["size", "output_format", "watermark"] as 
 export type ImageGenExtraParam = (typeof IMAGE_GEN_EXTRA_PARAMS)[number];
 
 /**
- * 生图接口方言：同一 /images/generations 路径下字段名与响应结构不一致的供应商。
- * - openai（缺省）：OpenAI / 火山方舟 / GPT-Image——size / watermark / output_format、
- *   image 参考图为 dataURI 数组、响应 data[0].{b64_json|url}。
+ * 生图接口方言：路径、字段名与响应结构不一致的供应商。
+ * - openai（缺省）：OpenAI / 火山方舟 / GPT-Image——/images/generations，size / watermark /
+ *   output_format，参考图为 image dataURI 数组，响应 data[0].{b64_json|url}。
  * - siliconflow：SiliconFlow——尺寸字段是 image_size（不是 size），
  *   参考图 image 是单个 string（base64/URL，不认数组），
  *   响应是 images[].url（无 b64_json、无 data 数组）；无 watermark / output_format 概念。
+ * - openrouter：OpenRouter 专用 Image API——POST {base}/images，body 是 model/prompt +
+ *   size/aspect_ratio/output_format，参考图走 input_references（type=image_url），
+ *   响应 data[0].{b64_json, media_type}；不是 OpenAI 的 /images/generations 形状。
  */
-export const IMAGE_GEN_API_STYLES = ["openai", "siliconflow"] as const;
+export const IMAGE_GEN_API_STYLES = ["openai", "siliconflow", "openrouter"] as const;
 export type ImageGenApiStyle = (typeof IMAGE_GEN_API_STYLES)[number];
 
 /**
@@ -25,8 +28,9 @@ export type ImageGenApiStyle = (typeof IMAGE_GEN_API_STYLES)[number];
  * - none（缺省）：不支持参考图；附了图的生图请求直接报错提示，不发无效请求。
  * - edits：OpenAI gpt-image-1 风格，走 POST {base}/images/edits multipart（image 可多张）。
  * - image-field：方舟 seedream 等风格，/images/generations JSON 体里加 image:[dataURI...]。
+ * - input-references：OpenRouter Image API 风格，JSON 体里加 input_references:[{type,image_url}]。
  */
-export const IMAGE_GEN_REFERENCE_MODES = ["none", "edits", "image-field"] as const;
+export const IMAGE_GEN_REFERENCE_MODES = ["none", "edits", "image-field", "input-references"] as const;
 export type ImageGenReferenceMode = (typeof IMAGE_GEN_REFERENCE_MODES)[number];
 
 export type ImageGenProviderExtraParams = {

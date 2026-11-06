@@ -1,4 +1,4 @@
-export type ConfigTab = "models" | "auth" | "settings" | "trust" | "mcp" | "raw";
+export type ConfigTab = "models" | "auth" | "oauth" | "settings" | "trust" | "mcp" | "raw";
 
 import type { ThinkingLevelMap } from "../../../shared/types/modelSpecs";
 import type { ModelCostTier } from "./modelCostTiers";
@@ -52,6 +52,22 @@ export type ProviderCompat = {
 	 * - false = 显式关闭，回到 pi 0.85 的线上行为，用于修中转站把工具调用漏成文本。
 	 */
 	supportsStrictMode?: boolean;
+	/**
+	 * 强制按「自适应思考」协议发送（pi 的 compat.forceAdaptiveThinking）。
+	 *
+	 * Claude Opus 4.7+/Sonnet 5+/Fable 这一代移除了老写法：`thinking: {type:"enabled",
+	 * budget_tokens}` 会被上游 400 拒绝，只能发 `thinking: {type:"adaptive"}` +
+	 * `output_config.effort`。pi 默认按模型 ID 判定，经中转站（自定义 provider 名）时判不出来，
+	 * 需要逐模型声明 true；false 强制走老写法（默认随 pi 判定）。
+	 */
+	forceAdaptiveThinking?: boolean;
+	/**
+	 * 是否允许发送非默认 temperature（pi 的 compat.supportsTemperature）。
+	 * Claude Opus 4.7+ 等新一代模型拒收自定义温度，需要逐模型关掉。
+	 */
+	supportsTemperature?: boolean;
+	/** 是否发送 `store` 参数（pi 的 compat.supportsStore）；中转站不认时关掉。 */
+	supportsStore?: boolean;
 	[key: string]: unknown;
 };
 
@@ -64,6 +80,11 @@ export type ModelItem = {
 	contextWindow?: number;
 	maxTokens?: number;
 	cost?: ModelCost;
+	/**
+	 * 逐模型 compat（与 models.json 的 `models[].compat` 同构，model 值优先于 provider 值）。
+	 * 形状复用 ProviderCompat：pi 的 model/provider compat 是同一套 schema。
+	 */
+	compat?: ProviderCompat;
 	[key: string]: unknown;
 };
 

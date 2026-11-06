@@ -4,16 +4,18 @@ import test from "node:test";
 
 const source = readFileSync("src/main/ipc/projectsIpc.ts", "utf8");
 
-test("projects:add is Windows-only; WSL uses the in-distro browser and add-by-path flow", () => {
-	// 系统目录对话框按发行版默认用户鉴权，无法可靠访问其它 WSL 用户的目录，因此
-	// projects:add 只允许 Windows 路径；WSL 必须走主进程内置选择器与 add-wsl-path。
-	assert.match(source, /ipcMain\.handle\(ipcChannels\.projectsAdd,[\s\S]{0,500}?projectStore\.chooseAndAdd\(\)/);
-	assert.doesNotMatch(source, /chooseAndAdd\(\s*env\s*,\s*wslEnvironment\s*\)/);
-	assert.doesNotMatch(source, /projectsAddWsl:/);
-	assert.match(source, /ipcMain\.handle\(ipcChannels\.projectsAddWslPath/);
+test("projects:add serves the Windows dialog only; WSL adds go through in-distro browsing", () => {
+	// 9P 坑（Wave 0）：系统对话框递来的 \\wsl.localhost\<distro>\<home> 按发行版**默认用户**鉴权，
+	// root 档案的 /root 在 Windows 侧根本打不开，所以 WSL 添加项目不再经系统对话框，
+	// 改走内置选择器：projects:list-wsl-directory 列目录 + projects:add-wsl-path 在发行版内校验后入库。
+	assert.match(source, /const project = await projectStore\.chooseAndAdd\(\)/);
+	// 不再把环境参数交给 chooseAndAdd（旧实现按 settings.wslEnabled 分支传 "wsl"）。
+	assert.doesNotMatch(source, /chooseAndAdd\(env/);
+	assert.doesNotMatch(source, /ipcChannels\.projectsAddWsl\b/);
+	assert.match(source, /ipcChannels\.projectsListWslDirectory/);
+	assert.match(source, /ipcChannels\.projectsAddWslPath/);
+	// 入库前必须在发行版内列一次目录：listWslDirectory 决定路径是否存在（不存在 / 不可用分别给稳定错误码）。
 	assert.match(source, /listWslDirectory\(\{ distro: target\.distro, user: target\.user, path \}\)/);
-	assert.match(source, /linuxPathToWslUnc\(listed\.value\.path, target\.distro\)/);
-	assert.match(source, /projectStore\.add\(projectPath, undefined, "wsl", target\.identity\)/);
 });
 
 test("visible projects follow the global mode; remote and chat projects are exempt", () => {

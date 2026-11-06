@@ -6,8 +6,9 @@
  * - 去重键（墓碑与 `memory_replace` 定位同一份）：`normalizeKey`；
  * - 文件布局（`projects/<key>/`、`devices/<key>/`）：`targetFilePath`。
  *
- * 这里只做列举、删除与 STANDING 的设置页编辑；其余新增/修改永远只由 Agent 在会话里
- * 经工具发生。删除写一条墓碑，让「删掉的条目被旧导出包导回来」不可能发生。
+ * 这里只做列举、删除（单条与批量）与 STANDING 的设置页编辑；其余新增/修改永远只由 Agent
+ * 在会话里经工具发生。删除写一条墓碑，让「删掉的条目被旧导出包导回来」不可能发生。批量删除
+ * 按文件分组一次落盘，避免同一份 MEMORY.md 被读改写 N 遍。
  */
 
 import { existsSync, readdirSync, statSync } from "node:fs";
@@ -18,7 +19,7 @@ import { entryTimes } from "../../../resources/agent-memory/db.mjs";
 import { FILE_BUDGETS, TARGET_FILES, projectKeyFromPath, resolveMemoryRoot, targetFilePath } from "../../../resources/agent-memory/paths.mjs";
 import { addTombstone, exportEntryId, removeTombstone } from "../../../resources/agent-memory/sync.mjs";
 import { addMemory, syncTarget } from "../../../resources/agent-memory/tools.mjs";
-import type { AgentMemoryEntry, AgentMemoryEntryGroup, AgentMemoryEntryList } from "../../shared/types/agentMemory";
+import type { AgentMemoryDeleteOutcome, AgentMemoryEntry, AgentMemoryEntryGroup, AgentMemoryEntryList, AgentMemoryEntryRef } from "../../shared/types/agentMemory";
 import { readLearnState, type LearnState } from "./autoLearn";
 
 export type AgentMemoryTarget = AgentMemoryEntry["target"];
@@ -126,33 +127,69 @@ export function readAgentMemoryEntries(input: { root?: string; projects?: () => 
 }
 
 /**
- * 删除一条记忆。
+ * 删除一条或多条记忆。
  *
- * 全局/项目作用域写墓碑（导出包里的旧条目不会再导入回来）；设备作用域的条目本来就
- * 不参与导出导入，写墓碑只会让 tombstones.json 长出一条永不命中的记录，所以跳过。
+ * 按「落盘文件」分组：同一个文件里的 N 条只读一次、写一次。逐条调用时（批量删除的朴素写法）
+ * 同一份 MEMORY.md 会被读改写 N 遍，每次都推后 mtime 并触发一次索引同步；分组后一次落盘。
+ *
+ * 两种作用域的处理与单条删除一致：全局/项目写墓碑（导出包里的旧条目不会再导入回来）；
+ * 设备作用域的条目不参与导出导入，写墓碑只会让 tombstones.json 长出一条永不命中的记录，跳过。
+ *
+ * 校验先于写入：任何一条 target/key 非法就整批拒绝，不会出现「删掉一半才报错」。
  */
-export function deleteAgentMemoryEntry(root: string | undefined, input: { target: string; projectId?: string; key?: string }): { removed: number } {
-	const target = input.target as AgentMemoryTarget;
-	if (!(target in TARGET_FILES)) throw new Error("target-invalid");
-	const key = typeof input.key === "string" ? input.key.trim() : "";
-	if (!key) throw new Error("entry-key-required");
-	const projectId = typeof input.projectId === "string" ? input.projectId : "";
-	const absolute = targetFilePath(root ?? resolveMemoryRoot(), target, projectId);
-	const before = parseEntries(readRaw(absolute));
-	const removed = before.filter((content) => normalizeKey(content) === key);
-	if (removed.length === 0) return { removed: 0 };
-	writeAtomic(absolute, renderEntries(before.filter((content) => normalizeKey(content) !== key)));
-	if (!projectId.startsWith("device:")) {
-		// 墓碑存「语义内容」：导入时的拦截比较的是包内条目的语义内容（failure 已去掉 `[category]` 前缀），
-		// 存原始块会让 failure 的墓碑永远拦不住同一条。
-		addTombstone(root ?? resolveMemoryRoot(), {
-			target,
-			scope: projectId ? "project" : "global",
-			projectKey: projectId,
-			content: target === "failure" ? parseFailureEntry(removed[0]).content : removed[0],
-		});
+export function deleteAgentMemoryEntries(root: string | undefined, items: readonly AgentMemoryEntryRef[]): AgentMemoryDeleteOutcome {
+	if (items.length === 0) throw new Error("entries-required");
+	// 先整批校验再动手：批量删除是破坏性动作，宁可一条不删，也不要在写到一半时报错。
+	const byFile = new Map<string, { target: AgentMemoryTarget; projectId: string; keys: Set<string> }>();
+	for (const item of items) {
+		const target = item.target as AgentMemoryTarget;
+		if (!(target in TARGET_FILES)) throw new Error("target-invalid");
+		const key = typeof item.key === "string" ? item.key.trim() : "";
+		if (!key) throw new Error("entry-key-required");
+		const projectId = typeof item.projectId === "string" ? item.projectId : "";
+		const fileId = `${target}\u0000${projectId}`;
+		const group = byFile.get(fileId) ?? { target, projectId, keys: new Set<string>() };
+		group.keys.add(key);
+		byFile.set(fileId, group);
 	}
-	return { removed: removed.length };
+
+	const memoryRoot = root ?? resolveMemoryRoot();
+	let removed = 0;
+	let missing = 0;
+	for (const group of byFile.values()) {
+		const absolute = targetFilePath(memoryRoot, group.target, group.projectId);
+		const before = parseEntries(readRaw(absolute));
+		const kept: string[] = [];
+		const dropped: string[] = [];
+		for (const content of before) {
+			if (group.keys.has(normalizeKey(content))) dropped.push(content);
+			else kept.push(content);
+		}
+		// 列表可能已经过期（别处删过、索引慢一拍）：没命中的键计入 missing，不从别的文件里找补。
+		missing += group.keys.size - new Set(dropped.map((content) => normalizeKey(content))).size;
+		if (dropped.length === 0) continue;
+		writeAtomic(absolute, renderEntries(kept));
+		removed += dropped.length;
+		if (!group.projectId.startsWith("device:")) {
+			for (const content of dropped) {
+				// 墓碑存「语义内容」：导入时的拦截比较的是包内条目的语义内容（failure 已去掉 `[category]` 前缀），
+				// 存原始块会让 failure 的墓碑永远拦不住同一条。
+				addTombstone(memoryRoot, {
+					target: group.target,
+					scope: group.projectId ? "project" : "global",
+					projectKey: group.projectId,
+					content: group.target === "failure" ? parseFailureEntry(content).content : content,
+				});
+			}
+		}
+	}
+	return { removed, missing };
+}
+
+/** 删除单条记忆：批量实现的一元退化形式，保持 IPC 的既有入参形态。 */
+export function deleteAgentMemoryEntry(root: string | undefined, input: { target: string; projectId?: string; key?: string }): { removed: number } {
+	const { removed } = deleteAgentMemoryEntries(root, [{ target: input.target, projectId: input.projectId, key: typeof input.key === "string" ? input.key : "" }]);
+	return { removed };
 }
 
 /**

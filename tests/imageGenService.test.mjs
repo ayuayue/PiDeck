@@ -555,6 +555,40 @@ test("referenceMode=edits：走 /images/edits multipart 接口", async () => {
 	restore();
 });
 
+test("openrouter 方言：请求 /api/v1/images，解析 b64_json + media_type", async () => {
+	let captured;
+	const { service, restore } = createService({
+		credentials: {
+			baseUrl: "https://openrouter.ai/api/v1",
+			apiKey: "sk-or-test",
+			extraParams: NO_EXTRA,
+			apiStyle: "openrouter",
+			referenceMode: "input-references",
+		},
+		fetchStub: (input, init) => {
+			captured = { input, init };
+			return fakeResponse({
+				ok: true,
+				json: async () => ({ data: [{ b64_json: "QUJD", media_type: "image/webp" }] }),
+			});
+		},
+	});
+	const result = await service.generate({
+		provider: "p",
+		model: "google/gemini-2.5-flash-image",
+		prompt: "一只猫",
+		referenceImages: [{ type: "image", data: "YWJj", mimeType: "image/png" }],
+	});
+	assert.equal(result.ok, true);
+	assert.equal(result.image.mimeType, "image/webp");
+	assert.equal(captured.input, "https://openrouter.ai/api/v1/images");
+	const body = JSON.parse(captured.init.body);
+	assert.equal(body.model, "google/gemini-2.5-flash-image");
+	assert.equal(body.response_format, undefined);
+	assert.equal(body.input_references[0].image_url.url, "data:image/png;base64,YWJj");
+	restore();
+});
+
 test("JSON 响应体超限 → responseTooLarge（流式读取提前中止）", async () => {
 	let cancelled = false;
 	const response = {

@@ -678,3 +678,33 @@ test("a bracketed manual title is still terminal", async () => {
 		await rm(dir, { recursive: true, force: true });
 	}
 });
+
+// 回归 #488：旧版本把「尾部窗口里唯一能解析的消息」——assistant thinking 原文——锁成了 fallback 标题。
+// 正文可读后（头窗口续读修复），已锁的 fallback 必须能自我纠正；用户/扩展写下的名字不受影响（见上）。
+test("a thinking-derived fallback title is healed once the first user body is readable (#488)", async () => {
+	const { SessionCatalog } = loadCatalog();
+	const dir = await mkdtemp(join(tmpdir(), "pideck-title-origin-thinking-"));
+	try {
+		const filePath = join(dir, "2026-08-22T04-22-29-168Z_think.jsonl");
+		const body = `修复会话标题：thinking 不该当标题\n\n# AGENTS.md\n${"规则正文 ".repeat(14000)}`;
+		const thinking = "Now I'll write the text answer and then create the explainer. ".repeat(400);
+		const lines = [
+			{ type: "session", version: 3, id: "thinking-fixture", cwd: "C:/project" },
+			{ type: "message", message: { role: "user", content: [{ type: "text", text: body }] } },
+			{ type: "message", message: { role: "assistant", content: [{ type: "thinking", thinking }] } },
+		];
+		await writeFile(filePath, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`, "utf8");
+		// 存量 catalog：标题正是当年窗口兜底猜到的 thinking 原文（fallback，不是用户改名）。
+		await writeFile(join(dir, "sessions.json"), JSON.stringify({ version: 1, sessions: [legacyHealEntry(filePath, thinking, { id: "thinking-heal", titleOrigin: "fallback" })] }), "utf8");
+
+		const catalog = new SessionCatalog(join(dir, "sessions.json"), {}, undefined, scannerFetcher());
+		await catalog.load();
+		const [merged] = await catalog.mergeScanned("project-1", [lightSummary({ id: filePath, filePath })]);
+		assert.ok(merged.title.startsWith("修复会话标题"), `标题应自愈成首条用户正文，实际：${merged.title.slice(0, 40)}`);
+		const onDisk = await readEntry(dir, "thinking-heal");
+		assert.equal(onDisk.titleOrigin, "fallback", "内容派生的标题保持 fallback（仍可被扩展自动命名升级）");
+		assert.ok(onDisk.title.startsWith("修复会话标题"));
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});

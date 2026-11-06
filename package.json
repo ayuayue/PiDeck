@@ -1,6 +1,6 @@
 {
   "name": "pideck",
-  "version": "0.9.9",
+  "version": "0.10.0",
   "dshRuntimeVersion": "0.2.1-rc.5",
   "packageManager": "npm@11.6.2",
   "engines": {
@@ -111,8 +111,8 @@
     "format": "biome format --write src tests scripts e2e",
     "check:format": "biome format src tests scripts e2e",
     "check:hooks": "biome lint --config-path=biome.hooks.jsonc --diagnostic-level=error src",
-    "docs:dev": "vitepress dev docs-site",
-    "docs:build": "vitepress build docs-site",
+    "docs:dev": "node docs-site/.vitepress/sync-shared.mjs && vitepress dev docs-site",
+    "docs:build": "node docs-site/.vitepress/sync-shared.mjs && vitepress build docs-site",
     "docs:preview": "vitepress preview docs-site",
     "postinstall": "node scripts/fix-pty-permissions.js && node scripts/patch-electron-builder-rename-retry.js",
     "prepare": "node scripts/install-git-hooks.mjs",
@@ -161,6 +161,7 @@
     ],
     "asar": true,
     "compression": "maximum",
+    "beforePack": "./scripts/configure-mac-signing.js",
     "afterPack": "./scripts/after-pack-cleanup.js",
     "npmRebuild": false,
     "asarUnpack": [
@@ -228,13 +229,6 @@
       {
         "from": "resources/prompts",
         "to": "prompts",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "resources/host-plugins",
-        "to": "host-plugins",
         "filter": [
           "**/*"
         ]
@@ -464,7 +458,7 @@
     "@deepseek-ai/dsh-web-app": "0.2.1-rc.5",
     "@deepseek-ai/dsh-workflow": "0.2.1-rc.5",
     "@deepseek-ai/dsh-workspace": "0.2.1-rc.5",
-    "@earendil-works/pi-ai": "1.4.0",
+    "@earendil-works/pi-ai": "1.5.0",
     "@fiahfy/icns": "^0.0.7",
     "@lezer/highlight": "^1.2.3",
     "@pierre/diffs": "^1.3.5",

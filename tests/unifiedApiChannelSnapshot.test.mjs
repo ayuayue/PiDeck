@@ -51,15 +51,18 @@
  *   ipcChannels 814→811，remote 前缀仍存在，前缀数仍 93。
  * 2026-11-04 本地 dev 集成刷新（+32）：CloudSyncManager 的 cloud-sync 域入场，
  *   ipcChannels 811→843，新增 cloud-sync 前缀，前缀数 93→94。
+ * 2026-11-04 上游刷新（净 +1）：WSL 目录浏览（Wave 0，提交 0f91282e4）退役 projects:add-wsl，
+ *   新增 projects:list-wsl-directory / projects:add-wsl-path → 815，projects 前缀已存在，前缀数仍 93。
+ * 2026-11-07 合并刷新（+1）：上面两条并轨后 ipcChannels 843→844、前缀仍 94（无新增前缀）。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const CHANNEL_TOTAL = 843;
+const CHANNEL_TOTAL = 844;
 const PREFIX_COUNT = 94;
-const CHANNEL_DIGEST = "e4586759c74350a96370ff1bdb478580fce62305bf2df3a64c5841ac3e48b3db";
+const CHANNEL_DIGEST = "4ca870eb280f8c766d03e58cc80c935bc4d47af9b79bd910efb942825eb90b8f";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";
@@ -78,11 +81,11 @@ const sortedDigest = (pairs) => {
 	return createHash("sha256").update(serialized, "utf8").digest("hex");
 };
 
-test("F3-1 通道常量总数 === 843", () => {
+test("F3-1 通道常量总数 === 844", () => {
 	assert.equal(entries.length, CHANNEL_TOTAL);
 });
 
-test("F3-2 通道值唯一数 === 843（无重复通道字符串）", () => {
+test("F3-2 通道值唯一数 === 844（无重复通道字符串）", () => {
 	assert.equal(new Set(values).size, CHANNEL_TOTAL);
 });
 

@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.9.9-blue)
+![Version](https://img.shields.io/badge/version-0.10.0-blue)
 
 国内 AtomGit 托管：https://atomgit.com/ayuayue/PiDeck
 <!-- 预留 AtomGit G-Star 徽章位（替换占位链接后启用）
@@ -102,24 +102,23 @@
 
 ## 📋 更新日志
 
-> **最新版本 v0.9.9**（2026-10-30）
+> **最新版本 v0.10.0**（2026-11-05）
 
-### v0.9.9 更新亮点
-- 🚀 **外观拆成「样式 × 配色」两维，终端皮肤成套移植 pi TUI**
-- 🚀 **会话分组成为宿主核心能力（插件 v3）**
-- 🚀 **收藏整个会话**
-- 🚀 **草稿本支持项目 / 全局作用域**
-- 🚀 **ACP 按工具记住思考 / 模式 / 权限并自动重放**
-- 🚀 **ACP 工具级「新会话默认 Bypass 权限」与 Qoder CLI 预设**
-- 🚀 **ACP 代理独立开关**
-- 🚀 **通过 MCP 新建并驱动 ACP 会话**
-- 🚀 **Web 端支持 ACP 会话**
-- 🚀 **ACP 用量面板补齐 token / 时延 / TPS**
-- 🚀 **ACP 会话补齐待办与子代理**
-- ✨ **ACP 模型下拉可搜索**
-- ✨ **ACP 回合中发送排队，忙碌时补独立停止钮**
-- ✨ **ACP 工具表改为折叠行**
-- ✨ **轮尾操作栏按「按钮 | 耗时 | 模型」三分区**
+### v0.10.0 更新亮点
+- 🚀 **智能体记忆：pi 与 ACP 会话共用一份长期记忆**
+- 🚀 **记忆导出 / 导入带预览与冲突策略**
+- 🚀 **WSL 发行版里的项目可以正常添加与编辑**
+- 🚀 **宿主插件市场**
+- 🚀 **支持导入 CodeBuddy 会话**
+- 🚀 **时间线右缘刻度可展开成完整会话目录**
+- 🚀 **内置 TokenDance 供应商显示折扣 / 免费徽章**
+- 🚀 **Web 端补齐桌面体验**
+- 🚀 **侧栏支持批量移除项目记录**
+- 🚀 **新增「羊皮纸」配色**
+- ✨ **排队消息支持「立即发送」**
+- ✨ **时间线与大纲完成虚拟化收口**
+- ✨ **Git 面板不再挤字也不再卡顿**
+- ✨ **非激活会话暂停流式打字机与 Markdown 重排**
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
 
@@ -411,7 +410,9 @@ src/
 
 ### 🙌 贡献者
 
-感谢所有为 PiDeck 做出贡献的人！完整名单（含各自提交的功能与 Issue 编号）见 [CONTRIBUTORS.md](CONTRIBUTORS.md)。
+感谢所有为 PiDeck 提交代码、反馈问题和帮助推广的朋友！完整名单（含每位提交者贡献的功能与 Issue / PR 编号）见 [CONTRIBUTORS.md](CONTRIBUTORS.md)。
+
+> 💖 **特别感谢**：罪、橙子、微时 为 PiDeck 的软件开发提供模型服务 🎉
 
 <a href="https://github.com/ayuayue/PiDeck/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=ayuayue/PiDeck&max=100" alt="PiDeck 贡献者" />
@@ -432,6 +433,8 @@ src/
 <p align="center">
   <img src="docs/images/wechat-qrcode.png" alt="PiDeck 微信群二维码" width="280" />
 </p>
+
+> QQ 群与微信群的二维码都在**[这里（腾讯文档，会定时更新）](https://docs.qq.com/doc/DVEZOdEh1Rk9FQkNa)**。上面这张图可能会过期，以链接里的为准。
 
 ---
 

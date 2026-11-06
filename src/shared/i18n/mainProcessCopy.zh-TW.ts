@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 99bdc2e9bb2f49d2d0328f516f8a705eb8a2df9691eb2cd65a1597d1b9f2f9a3（来自 src/shared/i18n/mainProcessCopy.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: c5c0ef222015e06a3f102771d5473a0563008e842b4532bb068bc0d18c9e50ca（来自 src/shared/i18n/mainProcessCopy.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import type { MainProcessTranslationKey } from "./mainProcessCopy";
 
@@ -185,6 +185,7 @@ export const mainProcessZhTW: Record<MainProcessTranslationKey, string> = {
 	"mainConfig.providerNameInvalid": "供應商名稱“{provider}”不合法：不能包含路徑分隔符/換行等控制字元。",
 	"mainConfig.modelIdRequired": "provider“{provider}”的模型 #{index} 缺少有效 id。",
 	"mainConfig.modelIdInvalid": "provider“{provider}”的模型 #{index} 的 id 不合法：不能包含換行等控制字元或超過長度上限。",
+	"mainConfig.modelApiRequired": "provider“{provider}”的模型“{model}”缺少 API 型別（api）：請在供應商或該模型上填寫，否則 pi 會跳過整個供應商，模型列表裡看不到它。",
 	"mainConfig.baseUrlInvalid": "provider“{provider}”的 Base URL 不合法：不能包含換行等控制字元。",
 	"mainConfig.emptyModelList": "介面返回了空的模型列表。",
 	"mainConfig.fetchTimeout": "請求超時，請檢查網路或 baseUrl。",

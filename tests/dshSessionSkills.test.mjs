@@ -214,3 +214,12 @@ test("接线契约：技能选择器无 runtime 时走会话级目录，引导�
 	assert.match(PICKER_HOST_SOURCE, /sessionId=\{props\.sessionId\}/);
 	assert.doesNotMatch(PICKER_HOST_SOURCE, /sessionStatus=/);
 });
+
+const COMPOSER_CONTROLLER_SOURCE = readFileSync(new URL("../src/renderer/src/hooks/useSessionComposerController.ts", import.meta.url), "utf8");
+
+test("接线契约：DSH 会话把技能目录并入 `/` 命令补全", () => {
+	// DSH 技能不在 host 命令表里；`/` 菜单必须单独取会话级目录并补成裸名命令。
+	assert.match(COMPOSER_CONTROLLER_SOURCE, /mergeDshSkillCommands\(/);
+	assert.match(COMPOSER_CONTROLLER_SOURCE, /listDshSkills\(\{\s*sessionId\s*\}\)/);
+	assert.match(COMPOSER_CONTROLLER_SOURCE, /if \(!isRendererVirtualSessionId\(sessionId\)\)/);
+});

@@ -57,6 +57,20 @@ export function linuxPathToWslUnc(path: string, distro: string): string {
 	return `\\\\wsl.localhost\\${distro}${suffix ? `\\${suffix}` : ""}`;
 }
 
+/**
+ * `/mnt/<盘符>[/子路径]` → `X:\子路径`，其余 Linux 路径返回 null。
+ *
+ * drvfs 挂载点在 Windows 侧**走不通 9P**：`\\wsl.localhost\<distro>\mnt\c\...` 的
+ * stat 直接 EPERM，拿它当子进程 cwd 则 spawn ENOENT。凡是 `/mnt` 下的路径，宿主侧
+ * 一律用盘符路径表达（同一个文件，但不经 9P）。
+ */
+export function mountedDriveToWindowsPath(linuxPath: string): string | null {
+	const mountedDrive = linuxPath.match(/^\/mnt\/([A-Za-z])(?:\/(.*))?$/);
+	if (!mountedDrive) return null;
+	const suffix = mountedDrive[2]?.replace(/\/+$/, "").replace(/\//g, "\\") ?? "";
+	return `${mountedDrive[1].toUpperCase()}:\\${suffix}`.replace(/\\+$/, suffix ? "" : "\\");
+}
+
 export function createWslEnvironment(distro: string, user: string, linuxHome: string): WslEnvironment {
 	if (!linuxHome || !linuxHome.startsWith("/")) {
 		throw new WslPathError("INVALID_WSL_PATH", `WSL HOME must be absolute, received "${linuxHome}".`);
@@ -99,7 +113,8 @@ export function toWindowsHostPath(path: string, environment: Pick<WslEnvironment
 	const unc = parseWslUncPath(path);
 	if (unc) {
 		ensureMatchingDistro(unc.distro, environment.distro);
-		return linuxPathToWslUnc(unc.linuxPath, environment.distro);
+		// drvfs 在 Windows 侧不走 9P（stat EPERM、spawn cwd ENOENT），换成盘符路径。
+		return mountedDriveToWindowsPath(unc.linuxPath) ?? linuxPathToWslUnc(unc.linuxPath, environment.distro);
 	}
 
 	const drive = path.match(/^([A-Za-z]):(?:[\\/](.*))?$/);
@@ -108,11 +123,8 @@ export function toWindowsHostPath(path: string, environment: Pick<WslEnvironment
 		return `${drive[1].toUpperCase()}:\\${suffix}`.replace(/\\+$/, suffix ? "" : "\\");
 	}
 
-	const mountedDrive = path.match(/^\/mnt\/([A-Za-z])(?:\/(.*))?$/);
-	if (mountedDrive) {
-		const suffix = mountedDrive[2]?.replace(/\//g, "\\") ?? "";
-		return `${mountedDrive[1].toUpperCase()}:\\${suffix}`.replace(/\\+$/, suffix ? "" : "\\");
-	}
+	const mountedDrive = mountedDriveToWindowsPath(path);
+	if (mountedDrive) return mountedDrive;
 
 	if (/^[\\/]{2}/.test(path)) {
 		throw new WslPathError("INVALID_WSL_PATH", `Unsupported network path "${path}".`);
@@ -122,29 +134,37 @@ export function toWindowsHostPath(path: string, environment: Pick<WslEnvironment
 	throw new WslPathError("INVALID_WSL_PATH", `Cannot convert relative path "${path}" for Windows access.`);
 }
 
-/** Keeps the existing /mnt storage convention while preserving WSL-internal projects as UNC. */
+/**
+ * 选中项目的入库形态：发行版内路径（/home、/root）保留 Linux 路径或规范 UNC，
+ * drvfs（`/mnt/<盘符>`）一律用宿主盘符路径——Windows 侧打不开 `/mnt` 的 9P 映射，
+ * 存下去就是「目录不存在 + Git 不可用 + 会话启动失败」。
+ */
 export function normalizeSelectedWslProjectPath(path: string, environment: Pick<WslEnvironment, "distro">): string {
-	if (parseWslUncPath(path)) return toWindowsHostPath(path, environment);
-	return toWslLinuxPath(path, environment);
+	const linuxPath = toWslLinuxPath(path, environment);
+	const mountedDrive = mountedDriveToWindowsPath(linuxPath);
+	if (mountedDrive) return mountedDrive;
+	return parseWslUncPath(path) ? linuxPathToWslUnc(linuxPath, environment.distro) : linuxPath;
 }
 
 /**
  * 按路径添加项目（右键菜单 / 快捷任务，不经目录选择框）时的 WSL 归一。
  *
  * 这三个入口拿到的是现成路径，可能是 `\\wsl.localhost\<distro>\...`、WSL 内的绝对
- * Linux 路径（/home、/root、/mnt/d），也可能根本是宿主盘符目录。返回规范 UNC 供入库；
+ * Linux 路径（/home、/root、/mnt/d），也可能根本是宿主盘符目录。返回规范 UNC（drvfs
+ * 例外：返回宿主盘符路径，见 mountedDriveToWindowsPath）供入库；
  * 返回 null 表示“不是 WSL 路径”，由调用方决定当 Windows 项目还是直接拒绝——
  * 早先这类路径一律按 windows 环境入库，WSL 模式下会被可见性过滤掉（添加了却找不到）。
  * 发行版不匹配抛 WSL_DISTRO_MISMATCH。
  */
 export function normalizeWslProjectAddPath(path: string, distro: string): string | null {
 	const trimmed = path.trim();
+	const wslForm = (linuxPath: string) => mountedDriveToWindowsPath(normalizeLinuxPath(linuxPath)) ?? linuxPathToWslUnc(linuxPath, distro);
 	const unc = parseWslUncPath(trimmed);
 	if (unc) {
 		ensureMatchingDistro(unc.distro, distro);
-		return linuxPathToWslUnc(unc.linuxPath, distro);
+		return wslForm(unc.linuxPath);
 	}
-	if (trimmed.startsWith("/")) return linuxPathToWslUnc(trimmed, distro);
+	if (trimmed.startsWith("/")) return wslForm(trimmed);
 	return null;
 }
 

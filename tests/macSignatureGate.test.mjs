@@ -33,16 +33,17 @@ async function put(path, content = "content") {
 }
 
 /** 构造 codesign -dv 的真实输出形态（封印与否的写法不同）。 */
-function displayOutput({ identifier, infoPlist = "entries=33", sealedResources = "version=2 rules=13 files=417" }) {
+function displayOutput({ identifier, infoPlist = "entries=33", sealedResources = "version=2 rules=13 files=417", signature = "adhoc", teamIdentifier = "not set", authorities = [] }) {
 	return [
 		"Executable=/tmp/PiDeck.app/Contents/MacOS/PiDeck",
 		`Identifier=${identifier}`,
 		"Format=app bundle with Mach-O universal (x86_64 arm64)",
-		"CodeDirectory v=20400 size=1 flags=0x2(adhoc) hashes=1+0 location=embedded",
-		"Signature=adhoc",
+		`CodeDirectory v=20400 size=1 flags=${signature === "adhoc" ? "0x2(adhoc)" : "0x10000(runtime)"} hashes=1+0 location=embedded`,
+		signature === null ? "Signature size=9000" : `Signature=${signature}`,
+		...authorities.map((authority) => `Authority=${authority}`),
 		infoPlist === "not bound" ? "Info.plist=not bound" : `Info.plist ${infoPlist}`,
 		sealedResources === "none" ? "Sealed Resources=none" : `Sealed Resources ${sealedResources}`,
-		"TeamIdentifier=not set",
+		`TeamIdentifier=${teamIdentifier}`,
 		"",
 	].join("\n");
 }
@@ -80,6 +81,13 @@ function makeCodesign({ displays, verifyFailures = new Map() }) {
 			const config = displays.get(target);
 			if (!config) return { code: 1, output: "code object is not signed at all" };
 			return { code: 0, output: displayOutput({ sealedResources: "version=2 rules=7 files=12", ...config }) };
+		}
+		if (args[0] === "-d" && args[1] === "-r-") {
+			const config = displays.get(target);
+			return { code: config?.requirementExitCode ?? 0, output: `designated => ${config?.requirement ?? 'cdhash H"0123456789012345678901234567890123456789"'}` };
+		}
+		if (args.some((arg) => arg.startsWith("-R=")) && displays.get(target)?.untrustedCertificate) {
+			return { code: 3, output: "test-requirement: code failed to satisfy specified code requirement(s)" };
 		}
 		const failure = verifyFailures.get(target);
 		return failure ? { code: failure.code ?? 1, output: failure.output ?? "" } : { code: 0, output: "" };
@@ -296,6 +304,86 @@ test("parseCodeSignDisplay 区分已封印与 linker-signed 两种输出", () =>
 	assert.equal(bad.identifier, "Electron");
 	assert.equal(bad.infoPlist, "not bound");
 	assert.equal(bad.sealedResources, "none");
+});
+
+/** Certificate metadata is not sufficient: the gate must also test the Apple chain requirement. */
+function useDeveloperId(app) {
+	for (const [path, display] of app.displays) {
+		app.displays.set(path, {
+			...display,
+			signature: null,
+			teamIdentifier: "A1B2C3D4E5",
+			authorities: ["Developer ID Application: PiDeck Publisher (A1B2C3D4E5)", "Developer ID Certification Authority", "Apple Root CA"],
+			requirement: `identifier "${display.identifier}" and anchor apple generic and certificate leaf[subject.OU] = A1B2C3D4E5`,
+		});
+	}
+}
+
+test("valid ad-hoc bundles warn that TCC grants cannot be retained across updates", async () => {
+	await withTempRelease(async (release) => {
+		const app = await createApp(release, "mac-arm64", "PiDeck.app");
+		const result = await verifyMacSignature({ releaseDir: release, platform: "darwin", ...harness([app]) });
+		assert.equal(result.ok, true);
+		assert.match(result.warnings?.join("\n") ?? "", /ad-hoc.*TCC/);
+	});
+});
+
+test("certificate-required packaging rejects an otherwise valid ad-hoc bundle", async () => {
+	await withTempRelease(async (release) => {
+		const app = await createApp(release, "mac-arm64", "PiDeck.app");
+		const result = await verifyMacSignature({ releaseDir: release, platform: "darwin", ...harness([app]), requireDeveloperId: true });
+		assert.equal(result.ok, false);
+		assert.match(result.errors.join("\n"), /Developer ID/);
+	});
+});
+
+test("Developer ID signing checks the Apple certificate chain, team and non-hash-pinned requirement for app and helpers", async () => {
+	await withTempRelease(async (release) => {
+		const app = await createApp(release, "mac-arm64", "PiDeck.app", { helpers: [{ name: "PiDeck Helper.app", bundleId: "com.ayuayue.pi-desktop.helper" }] });
+		useDeveloperId(app);
+		const injected = harness([app]);
+		const result = await verifyMacSignature({ releaseDir: release, platform: "darwin", ...injected, requireDeveloperId: true, expectedTeamId: "A1B2C3D4E5" });
+		assert.equal(result.ok, true, result.errors.join("\n"));
+		assert.equal(result.apps[0].teamIdentifier, "A1B2C3D4E5");
+		const requirements = injected.calls.filter((args) => args.some((arg) => arg.startsWith("-R=")));
+		assert.equal(requirements.length, 2, "verify certificate trust on both the main app and its helper");
+		for (const args of requirements) {
+			assert.ok(
+				args.some((arg) => arg.includes("anchor apple generic") && arg.includes("1.2.840.113635.100.6.1.13")),
+				"metadata names must not stand in for an Apple-trusted Developer ID certificate",
+			);
+		}
+	});
+});
+
+for (const [label, patch, message] of [
+	["an untrusted certificate with convincing display metadata", { untrustedCertificate: true }, /Apple.*Developer ID/],
+	["a different developer team", { teamIdentifier: "OTHERTEAM1" }, /TeamIdentifier/],
+	["a certificate-signed bundle with a cdhash-pinned requirement", { requirement: 'cdhash H"0123456789012345678901234567890123456789"' }, /cdhash/],
+	["a weakened identifier-only designated requirement", { requirement: 'identifier "com.ayuayue.pi-desktop"' }, /Apple.*Team/],
+	["an unreadable designated requirement", { requirementExitCode: 1 }, /designated requirement/],
+]) {
+	test(`certificate-required signing rejects ${label}`, async () => {
+		await withTempRelease(async (release) => {
+			const app = await createApp(release, "mac-arm64", "PiDeck.app");
+			useDeveloperId(app);
+			Object.assign(app.displays.get(app.app), patch);
+			const result = await verifyMacSignature({ releaseDir: release, platform: "darwin", ...harness([app]), requireDeveloperId: true, expectedTeamId: "A1B2C3D4E5" });
+			assert.equal(result.ok, false);
+			assert.match(result.errors.join("\n"), message);
+		});
+	});
+}
+
+test("a team id alone requires certificate signing, including for nested helpers", async () => {
+	await withTempRelease(async (release) => {
+		const app = await createApp(release, "mac-arm64", "PiDeck.app", { helpers: [{ name: "PiDeck Helper.app", bundleId: "com.ayuayue.pi-desktop.helper" }] });
+		useDeveloperId(app);
+		app.displays.get(join(app.app, "Contents", "Frameworks", "PiDeck Helper.app")).teamIdentifier = "OTHERTEAM1";
+		const result = await verifyMacSignature({ releaseDir: release, platform: "darwin", ...harness([app]), expectedTeamId: "A1B2C3D4E5" });
+		assert.equal(result.ok, false);
+		assert.match(result.errors.join("\n"), /PiDeck Helper\.app.*TeamIdentifier/);
+	});
 });
 
 // 接线守卫：门禁脚本必须挂在真正打包 mac 产物的 workflow 上，否则改了脚本也没人跑。

@@ -53,9 +53,10 @@ test("config shell defines compact density and crisp system typography", () => {
 	assert.match(configModal, /config-layout grid min-h-0 flex-1/);
 	assert.match(configModal, /max-\[820px\]:flex-row/);
 	assert.match(surfaces, /@media \(max-width: 820px\) \{[\s\S]*?\.config-layout \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);[\s\S]*?grid-template-rows: auto minmax\(0, 1fr\);/);
-	assert.match(settingsModal, /settingsModalSizeClass/);
-	assert.match(settingsModal, /WORKBENCH_DIALOG_SIZE_CLASS/);
-	assert.match(surfaces, /\.settings-modal \{[\s\S]*width: min\(1300px, 80vw\);[\s\S]*height: min\(850px, 80vh\);/);
+	// 设置已迁成会话列页面 Tab：宽度/高度不再由弹框尺寸常量或 CSS 固定，而是铺满页面壳整列。
+	assert.match(settingsModal, /className="settings-modal flex min-h-0 flex-1 flex-col outline-none"/);
+	assert.doesNotMatch(settingsModal, /WORKBENCH_DIALOG_SIZE_CLASS|settingsModalSizeClass/);
+	assert.match(surfaces, /\.settings-modal \{[\s\S]*?flex: 1;[\s\S]*?min-height: 0;[\s\S]*?background: var\(--color-bg-panel\);/);
 	assert.match(surfaces, /\.config-modal \{[\s\S]*width: min\(1300px, 80vw\);[\s\S]*height: min\(850px, 80vh\);/);
 });
 

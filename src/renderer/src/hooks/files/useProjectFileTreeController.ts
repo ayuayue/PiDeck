@@ -22,6 +22,8 @@ export interface ProjectFileTreeControllerDeps {
 	compactMiddlePackagesEnabled: boolean;
 	agentsRef: MutableRefObject<AgentTab[]>;
 	refreshProjects: () => Promise<unknown>;
+	/** 项目列表已确认该目录缺失（presence 刷出来的 missing）：用于抑制切换项目时重复提示。 */
+	activeProjectMissing: boolean;
 	showToast: (message: string, duration?: number) => void;
 }
 
@@ -54,7 +56,7 @@ function directoryPageNode(entry: ProjectDirectoryEntry): FileTreeNode {
  * 维护第二份 children。展开键继续使用本机节点当前的 `relative:` 身份，controller 内部用项目相对路径；
  * legacy 绝对路径键在根层载入后逐层迁移。
  */
-export function useProjectFileTreeController({ setFiles, activeProjectId, services, isLocalProjectId, compactMiddlePackagesEnabled, agentsRef, refreshProjects, showToast }: ProjectFileTreeControllerDeps) {
+export function useProjectFileTreeController({ setFiles, activeProjectId, services, isLocalProjectId, compactMiddlePackagesEnabled, agentsRef, refreshProjects, activeProjectMissing, showToast }: ProjectFileTreeControllerDeps) {
 	const [expandedDirs, setExpandedDirs] = useState<Set<string>>(() => new Set());
 	const controllerRef = useRef<LazyDirTreeController | null>(null);
 	// 本地树只消费 ProjectServices；服务实例随项目解析变化，loader 必须读最新一份。
@@ -65,6 +67,10 @@ export function useProjectFileTreeController({ setFiles, activeProjectId, servic
 	refreshProjectsRef.current = refreshProjects;
 	const showToastRef = useRef(showToast);
 	showToastRef.current = showToast;
+	// presence 已标缺失后，切回该项目仍会重载文件树并失败；此时侧栏已有缺失标记，
+	// 再弹「项目目录不存在」只会每次切换刷一遍，因此只提示 presence 尚未更新的首次失败。
+	const activeProjectMissingRef = useRef(activeProjectMissing);
+	activeProjectMissingRef.current = activeProjectMissing;
 	// isLocalProjectId 的依赖是 App 的 projects 数组：每次 projects:list 都是新引用。
 	// 若写进 effect deps，目录缺失时 reportError → refreshProjects → projects 换引用 →
 	// effect 重跑 → 再次加载失败，形成无限「项目目录不存在」toast 循环。
@@ -77,6 +83,7 @@ export function useProjectFileTreeController({ setFiles, activeProjectId, servic
 		const tooLarge = code.match(/FILE_TREE_DIRECTORY_TOO_LARGE:(\d+):(\d+)/);
 		const projectDirectoryMissing = code.includes("PROJECT_DIRECTORY_MISSING");
 		if (projectDirectoryMissing) void refreshProjectsRef.current().catch(() => undefined);
+		if (projectDirectoryMissing && activeProjectMissingRef.current) return;
 		showToastRef.current(tooLarge ? t("app.filesDirectoryTooLarge", { count: tooLarge[1], max: tooLarge[2] }) : projectDirectoryMissing ? t("app.projectDirectoryMissing") : t("app.filesRefreshFailed", { error: code }), 4000);
 	}, []);
 

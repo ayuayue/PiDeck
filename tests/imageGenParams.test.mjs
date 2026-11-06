@@ -164,6 +164,28 @@ describe("buildImageGenApiBody", () => {
 		});
 		assert.deepEqual(body.image, ["data:image/png;base64,YWJj"]);
 	});
+
+	test("openrouter 方言：不带 response_format/watermark，参考图转 input_references", () => {
+		const { buildImageGenApiBody } = loadParams();
+		const body = buildImageGenApiBody({
+			model: "google/gemini-2.5-flash-image",
+			prompt: "cat",
+			extraParams: { size: true, output_format: true, watermark: true },
+			size: "1024x1024",
+			watermark: true,
+			outputFormat: "png",
+			apiStyle: "openrouter",
+			referenceImages: [{ type: "image", data: "YWJj", mimeType: "image/png" }],
+		});
+		assert.equal(body.size, "1024x1024");
+		assert.equal(body.output_format, "png");
+		// OpenRouter 无 response_format / watermark 概念
+		assert.equal("response_format" in body, false);
+		assert.equal("watermark" in body, false);
+		assert.equal(body.input_references.length, 1);
+		assert.equal(body.input_references[0].type, "image_url");
+		assert.equal(body.input_references[0].image_url.url, "data:image/png;base64,YWJj");
+	});
 });
 
 describe("parseImageGenOutputFormat", () => {

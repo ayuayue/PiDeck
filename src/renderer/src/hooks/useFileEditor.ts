@@ -217,10 +217,7 @@ export function useFileEditor(input: UseFileEditorInput): UseFileEditorOutput {
 	// ---- IO callbacks ----
 	const readEditorFileContent = useCallback((path: string | ProjectFileTarget, maxBytes?: number, scope?: ProjectFileAccessScope) => readFileContent(path, maxBytes, scope), [readFileContent]);
 	const readEditorOriginalContent = useCallback((target?: ProjectFileTarget) => (target ? readGitOriginalContent(target) : Promise.resolve("")), [readGitOriginalContent]);
-	const saveEditorFileContent = useCallback(
-		(path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope, expectedRevision?: string) => writeFileContent(path, content, scope, expectedRevision),
-		[writeFileContent],
-	);
+	const saveEditorFileContent = useCallback((path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope, expectedRevision?: string) => writeFileContent(path, content, scope, expectedRevision), [writeFileContent]);
 
 	// ---- tab management helpers ----
 	const editorTabTextBytes = (tab: EditorTab) => (tab.originalContent.length + (tab.modifiedContent?.length ?? 0)) * 2;

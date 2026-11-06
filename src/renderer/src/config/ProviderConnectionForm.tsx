@@ -1,12 +1,11 @@
 import type { ReactNode } from "react";
-import { HelpCircle, X } from "lucide-react";
+import { X } from "lucide-react";
 import { Checkbox } from "../components/ui-shadcn/checkbox";
 import { Button } from "../components/ui-shadcn/button";
 import { Input } from "../components/ui-shadcn/input";
 import { Label } from "../components/ui-shadcn/label";
 import { t, type TranslationKey } from "../i18n";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui-shadcn/tooltip";
-import { ConfigComboboxInput, ConfigSelect } from "./ConfigShared";
+import { CompatLabelHint, ConfigComboboxInput, ConfigSelect } from "./ConfigShared";
 import { ProviderEndpointFields } from "./ProviderEndpointFields";
 import { getUserAgentOptions, isUserAgentOverriddenByApiType, isValidUserAgent } from "./userAgentPresets";
 import type { ConfigProxyMode } from "../../../shared/types/fetchedModel";
@@ -21,35 +20,29 @@ export type ProviderTestResult = {
 };
 
 /**
- * 兼容性字段标签旁的「?」提示图标：悬停显示完整说明。
+ * 兼容性三态行：标签 + 「?」说明 + 跟随/开/关下拉。
  *
- * 背景：兼容性说明小字（`config-compat-item-desc`）常驻在每项下方，导致四个
- * 兼容项高低不齐、视觉噪音大；说明本质是「出问题时的排障知识」而不是高频信息，
- * 收进 hover tooltip 后行高回归紧凑，文案本身不变（i18n key 复用）。
- * TooltipProvider 已在 main.tsx 全局挂载，无需本地包 Provider。
+ * 供应商级与模型级共用同一套控件形态：undefined = 不写该键（交给 pi 判定），
+ * true/false = 显式表态。模型级的同名键覆盖供应商级（见 provider-composer mergeCompat）。
  */
-function CompatLabelHint(props: { tipKey: TranslationKey }) {
+function CompatTriStateRow(props: { labelKey: TranslationKey; hintKey: TranslationKey; value: boolean | undefined; onChange: (value: boolean | undefined) => void }) {
 	return (
-		<Tooltip>
-			<TooltipTrigger asChild>
-				<span
-					role="button"
-					tabIndex={0}
-					aria-label={t(props.tipKey)}
-					className="inline-grid size-4 cursor-help place-items-center rounded-sm text-text-tertiary transition-colors outline-none hover:text-text-primary focus-visible:shadow-[var(--focus-ring)]"
-					onClick={(event) => event.preventDefault()}
-					onKeyDown={(event) => {
-						// 键盘触发（Enter/Space）会激活 asChild button 的 click 默认行为；
-						// 触发器是 span 时需自己阻断，避免冒泡到外层 Label 切换复选框。
-						if (event.key === "Enter" || event.key === " ") event.preventDefault();
-					}}
-				>
-					<HelpCircle size={12} strokeWidth={1.8} aria-hidden="true" />
-				</span>
-			</TooltipTrigger>
-			{/* 长说明需要限宽换行（默认 w-fit 会被文案撑到一行超长）；text-left 覆盖 text-balance 的居中倾向 */}
-			<TooltipContent className="max-w-75 text-left leading-relaxed">{t(props.tipKey)}</TooltipContent>
-		</Tooltip>
+		<div className="config-compat-item">
+			<span className="text-control text-text-primary">
+				{t(props.labelKey)}
+				<CompatLabelHint tipKey={props.hintKey} />
+			</span>
+			<ConfigSelect
+				triggerClassName="w-auto min-w-28"
+				value={props.value === undefined ? "follow" : props.value ? "on" : "off"}
+				options={[
+					{ value: "follow", label: t("config.strictToolSamplingFollow") },
+					{ value: "on", label: t("config.strictToolSamplingOn") },
+					{ value: "off", label: t("config.strictToolSamplingOff") },
+				]}
+				onChange={(value) => props.onChange(value === "follow" ? undefined : value === "on")}
+			/>
+		</div>
 	);
 }
 
@@ -81,8 +74,12 @@ export function ProviderConnectionForm(props: {
 		requiresReasoningContentOnAssistantMessages?: boolean;
 		/** 未赋值 = 跟随 pi 协议默认（不写该键）；true/false = 用户显式表态。 */
 		supportsStrictMode?: boolean;
+		/** 逐模型 compat 的供应商级默认值：未赋值 = 不写键（交给 pi 判定）。 */
+		forceAdaptiveThinking?: boolean;
+		supportsTemperature?: boolean;
+		supportsStore?: boolean;
 	};
-	onChangeCompat: (next: { supportsDeveloperRole: boolean; supportsReasoningEffort: boolean; requiresReasoningContentOnAssistantMessages?: boolean; supportsStrictMode?: boolean }) => void;
+	onChangeCompat: (next: { supportsDeveloperRole: boolean; supportsReasoningEffort: boolean; requiresReasoningContentOnAssistantMessages?: boolean; supportsStrictMode?: boolean; forceAdaptiveThinking?: boolean; supportsTemperature?: boolean; supportsStore?: boolean }) => void;
 
 	/** ── 快速测试连接 ── */
 	testModelId: string;
@@ -321,6 +318,17 @@ export function ProviderConnectionForm(props: {
 							}
 						/>
 					</div>
+
+					{/* 逐模型 compat 的供应商级默认值（模型行里的同名键优先）。
+					    Claude Opus 4.7+ / Sonnet 5+ / Fable 5 经中转站时，必须在这里打开自适应思考，
+					    否则 pi 发老写法 thinking:{type:"enabled",budget_tokens} 会被上游 400；
+					    整个供应商都是新一代模型时配一次即可，混合多代时留给模型行单独覆盖。 */}
+					<CompatTriStateRow labelKey="config.modelCompatAdaptiveThinking" hintKey="config.modelCompatAdaptiveThinkingDesc" value={props.compat.forceAdaptiveThinking} onChange={(value) => props.onChangeCompat({ ...props.compat, forceAdaptiveThinking: value })} />
+					<CompatTriStateRow labelKey="config.modelCompatTemperature" hintKey="config.modelCompatTemperatureDesc" value={props.compat.supportsTemperature} onChange={(value) => props.onChangeCompat({ ...props.compat, supportsTemperature: value })} />
+					<CompatTriStateRow labelKey="config.modelCompatStore" hintKey="config.modelCompatStoreDesc" value={props.compat.supportsStore} onChange={(value) => props.onChangeCompat({ ...props.compat, supportsStore: value })} />
+					{/* 这组开关是供应商默认值，不反映某个模型的生效值：模型行里的同名开关优先，
+					    用户看到「跟随」但模型实际开着时，正是模型级单独设过（避免误以为没生效）。 */}
+					<p className="basis-full text-micro leading-relaxed text-text-tertiary">{t("config.compatScopeHint")}</p>
 				</div>
 			</div>
 

@@ -164,7 +164,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	// 读取未到达（无条目→钉骨架屏）与读取已返回（有条目→起始页合法）。
 	const surfaceCachedEntry = useAtomValue(sessionMessageCacheBySessionIdAtomFamily(sessionId ?? ""));
 	const modernSurfaceState = deriveSessionSurfaceRuntime(
-		activeMessages.length,
+		paginatedMessages.length,
 		messageLoadState?.status,
 		sendState?.status,
 		runtime?.status,
@@ -182,8 +182,8 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	// 等真实会话页的 SessionStartSurface 输入框比引导页（直接挂 ProjectEmptyState、
 	// 不受此约束）窄且位置偏移，同一组件两副长相；起始页组件自身有 max-w-[980px]
 	// 居中控制，去掉约束后与引导页完全一致。有消息时保持原约束（消息列与输入框对齐契约）。
-	const showSurfaceEmptyState = !hasActiveConversation || (!isConversationLoading && activeMessages.length === 0);
-	const canLoadMoreMessages = canLoadSessionTimelineMore(modernSurfaceState.isStarting, activeMessages.length);
+	const showSurfaceEmptyState = !hasActiveConversation || (!isConversationLoading && paginatedMessages.length === 0);
+	const canLoadMoreMessages = canLoadSessionTimelineMore(modernSurfaceState.isStarting, paginatedMessages.length);
 	// 划选引用：选区落在同一条消息内时在选区上方提供「引用并提问」按钮
 	const { quote: selectionQuote, clear: clearSelectionQuote, toolbarRef: selectionToolbarRef } = useTimelineSelection(timelineRef);
 	// 消息右键菜单：复制来源（选区快照 / 命中消息 / live 正文回退）由 hook 解析，
@@ -259,7 +259,10 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 	// 让「内容挂载那一下」不是硬切而是流进来。动画播完（约 300ms）后清理标记。
 	const reduceMotion = useReducedMotion() ?? false;
 	const [topFreshIds, setTopFreshIds] = useState<ReadonlySet<string>>(() => new Set());
-	const [latestTurnAutoCollapseTick, setLatestTurnAutoCollapseTick] = useState(0);
+	// 「安静收起」时刻（epoch ms）：1.5s idle 计时后写入，传给时间线上所有 agent 轮。
+	// 用时刻而不是计数器：run 会因终态 flush 换 id 重挂载，计数器在重挂载时会被当成
+	// 旧信号吞掉（2026 用户反馈「最后一轮有时候不折叠」），时刻可以和记忆写入时刻比较。
+	const [latestTurnSettledAt, setLatestTurnSettledAt] = useState(0);
 	const lastSessionIdRef = useRef(sessionId);
 	const prevDisplayRunsIdsRef = useRef<string[] | undefined>(undefined);
 	const topFreshTimersRef = useRef<Map<string, number>>(new Map());
@@ -321,7 +324,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 		}
 		turnSettleIdleLastRunRef.current = undefined;
 		latestRunIdRef.current = undefined;
-		setLatestTurnAutoCollapseTick(0);
+		setLatestTurnSettledAt(0);
 	}, [sessionId]);
 
 	// ── 失败/重试 toast：只对「当前会话加载完成后新出现」的诊断弹 ──
@@ -613,7 +616,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 			// 用户真实上滚阅读时 autoScroll 保持 false，这里跳过（不打扰阅读）。
 			if (isRuntimeBusyRef.current || !autoScrollRef.current || !latestRunIdRef.current) return;
 			turnSettleIdleLastRunRef.current = undefined;
-			setLatestTurnAutoCollapseTick((tick) => tick + 1);
+			setLatestTurnSettledAt(Date.now());
 		}, TURN_SETTLE_IDLE_COLLAPSE_MS);
 		return clearIdle;
 	}, [hasLiveRuntime, isRuntimeBusy, runtime?.agentId, runtime?.runtimeGeneration, sessionId]);
@@ -880,7 +883,9 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 					agentRunning={isRunStreaming}
 					isLatestRun={item.id === lastDisplayedItemId}
 					isLastAgentRun={item.id === latestAgentRunId}
-					autoCollapseTick={item.id === latestAgentRunId ? latestTurnAutoCollapseTick : 0}
+					// 所有轮次都收：最后一轮收起时，上面几轮还开着的过程一并收掉
+					// （最新轮自己在 hook 里还有「必须有最终回答」的门控）。
+					autoCollapseAt={latestTurnSettledAt}
 					onOpenExternal={props.onOpenExternal}
 					onOpenFile={props.onOpenFile}
 					onDiffFile={props.onDiffFile}
@@ -1084,7 +1089,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
           也不裸显示起始页误导——明确错误文案 + 重试（2026-08 生图会话文件缺失）。
           DSH host 被手动停止走下面的专态分支：DSH 会话没有 pi 会话文件，说成
           「文件可能已被删除」会把用户引向错误方向，而且重试永远无效。 */}
-			{messageLoadState?.status === "error" && activeMessages.length === 0 && !dshHostStopped && !dshRuntimeMissing && !sessionFileMissing && (
+			{messageLoadState?.status === "error" && paginatedMessages.length === 0 && !dshHostStopped && !dshRuntimeMissing && !sessionFileMissing && (
 				<div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
 					<p className="text-sm font-medium">{t("timeline.loadFailed")}</p>
 					<p className="max-w-[560px] text-xs text-muted-foreground">{t("timeline.loadFailedHint")}</p>
@@ -1099,7 +1104,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 			{/* DSH 手动停止专态：不是故障而是用户自己的选择（预热/按需兜底/崩溃重启全被
 			    门控，不会自愈），所以主操作是「启动 host」而非只给重试；启动成功后
 			    控制器自动重载历史，用户无感回到会话内容。 */}
-			{messageLoadState?.status === "error" && activeMessages.length === 0 && dshHostStopped && (
+			{messageLoadState?.status === "error" && paginatedMessages.length === 0 && dshHostStopped && (
 				<div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
 					<p className="text-sm font-medium">{t("timeline.dshHostStopped")}</p>
 					<p className="max-w-[560px] text-xs text-muted-foreground">{t("timeline.dshHostStoppedHint")}</p>
@@ -1117,7 +1122,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 
 			{/* DSH 运行时未安装专态：与手动停止分开——点「启动 host」修不好这件事，缺的是 runtime
 			    资源本身，恢复路径在「设置 → DSH」，所以这里只给提示 + 重试。 */}
-			{messageLoadState?.status === "error" && activeMessages.length === 0 && dshRuntimeMissing && (
+			{messageLoadState?.status === "error" && paginatedMessages.length === 0 && dshRuntimeMissing && (
 				<div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
 					<p className="text-sm font-medium">{t("timeline.dshRuntimeMissing")}</p>
 					<p className="max-w-[560px] text-xs text-muted-foreground">{t("timeline.dshRuntimeMissingHint")}</p>
@@ -1129,7 +1134,7 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 
 			{/* 空会话（文件尚未创建）专态：只说「还没有内容」+ 怎么产生内容，不展示 ENOENT，
 			    也不渲染起始页——新建会话/外部连接会话打开时就应该是这一屏。 */}
-			{messageLoadState?.status === "error" && activeMessages.length === 0 && sessionFileMissing && (
+			{messageLoadState?.status === "error" && paginatedMessages.length === 0 && sessionFileMissing && (
 				<div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
 					<p className="text-sm font-medium">{t("timeline.emptySessionFile")}</p>
 					<p className="max-w-[560px] text-xs text-muted-foreground">{t("timeline.emptySessionFileHint")}</p>
@@ -1143,13 +1148,13 @@ export function SessionMessageTimeline(props: SessionMessageTimelineProps) {
 
 			{/* ACP 激活重放窗口期不挂居中起始页：输入框已经钉在列底（见 shouldMountBottomComposer 的
 			    isHistoryRestorePending），这里再挂一个会在重放落地时换宿主、丢焦点。 */}
-			{hasActiveConversation && !isConversationLoading && activeMessages.length === 0 && !sessionFileMissing && !acpRestorePending && <SessionStartSurface sessionId={sessionId} />}
+			{hasActiveConversation && !isConversationLoading && paginatedMessages.length === 0 && !sessionFileMissing && !acpRestorePending && <SessionStartSurface sessionId={sessionId} />}
 
 			{/* 长会话渲染治理：
           - 不再使用 content-visibility 估算高度（展开工具会抖）。
           - 学 Proma：总折叠压缩单行 DOM；另在贴底时只挂尾部 N 个 agent-run
             （见 turnRenderWindow），上滚放开。分页仍做数据窗口治理。 */}
-			{hasActiveConversation && !isConversationLoading && activeMessages.length > 0 && (
+			{hasActiveConversation && !isConversationLoading && paginatedMessages.length > 0 && (
 				<div className="message-list min-w-0 w-full mx-auto transition-opacity duration-fast" onContextMenu={messageContextMenu.handleContextMenu}>
 					{/* 阈值在 VirtualRunList 内部判：父层切组件类型会在 8→9 轮时整表卸载（#401 评审） */}
 					{/* 多选导出按 DOM 克隆整表，而 MultiSelectModal 的候选是全量 reconciledRuns：

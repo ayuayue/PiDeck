@@ -75,6 +75,8 @@ Join the PiDeck community for discussion and feedback:
   <img class="community-qr" src="/images/wechat-qrcode.png" alt="PiDeck WeChat group QR code" />
 </p>
 
+> QR codes for both the QQ and WeChat groups live **[here (Tencent Docs, refreshed periodically)](https://docs.qq.com/doc/DVEZOdEh1Rk9FQkNa)**. The image above can go stale — trust the link.
+
 ---
 
 ## Sponsor

@@ -325,7 +325,7 @@ import { resolveEnhanceTargetModel } from "../shared/enhanceModelPreference";
 import { syncAgentMemoryRegistration } from "./agentMemory/AgentMemoryMcpRegistration";
 import { clearAgentMemoryIndex, readAgentMemoryStatus } from "./agentMemory/agentMemoryStatus";
 import { migrateAgentMemoryProjectKeys } from "./agentMemory/agentMemoryMigration";
-import { deleteAgentMemoryEntry, readAgentMemoryEntries, readStandingEntry, restoreAgentMemoryEntry, writeStandingEntry } from "./agentMemory/agentMemoryEntries";
+import { deleteAgentMemoryEntries, deleteAgentMemoryEntry, readAgentMemoryEntries, readStandingEntry, restoreAgentMemoryEntry, writeStandingEntry } from "./agentMemory/agentMemoryEntries";
 import { renameDevice } from "../../resources/agent-memory/sync.mjs";
 import { exportAgentMemoryBundle, importAgentMemoryBundle, previewAgentMemoryBundle } from "./agentMemory/agentMemoryBundle";
 import { registerAgentMemoryIpc } from "./ipc/agentMemoryIpc";
@@ -491,7 +491,6 @@ import { PiDeckMcpService } from "./mcp/PiDeckMcpService";
 import { PiDeckMcpAcpSessions } from "./mcp/piDeckMcpAcpSessions";
 import { HostPluginSessions } from "./plugins/HostPluginSessions";
 import { HostPluginService } from "./plugins/HostPluginService";
-import { resolveBuiltinHostPluginDirectory } from "./plugins/builtinHostPlugins";
 import { BillionContextService } from "./localServices/billionContextService";
 import { LocalServiceRegistry } from "./localServices/LocalServiceRegistry";
 import { createLocalServiceCli, killLocalServiceProcess } from "./localServices/localServiceCli";
@@ -4050,6 +4049,7 @@ function registerIpc() {
 				projects: () => projectStore.list().map((project) => ({ name: project.name, path: "locator" in project ? project.locator.remotePath : project.path })),
 			}),
 		deleteEntry: (input) => deleteAgentMemoryEntry(agentMemoryRoot(), input),
+		deleteEntries: (items) => deleteAgentMemoryEntries(agentMemoryRoot(), items),
 		restoreEntry: (input) => restoreAgentMemoryEntry(agentMemoryRoot(), input),
 		// 打开记忆根目录：showItemInFolder 是 fire-and-forget（Linux 上 openPath 会永不 settle，#396），
 		// 包一层 Promise 让信封形态保持一致；失败只告警，不让设置页弹错误。
@@ -4072,8 +4072,8 @@ function registerIpc() {
 		unregisterHostPlugins();
 		hostPlugins.dispose();
 	});
-	// 内置示例插件（billion-context）首次启动落位；目录已存在则不覆盖。
-	void hostPlugins.initialize(resolveBuiltinHostPluginDirectory(resolveBuiltInExtensionRoots())).catch(() => appLogger.warn("host-plugins", "Optional plugin host initialization failed"));
+	// 插件不随包：只扫描用户自己装的那些（内置示例已改为 docs/examples 下的可安装包）。
+	void hostPlugins.initialize().catch(() => appLogger.warn("host-plugins", "Optional plugin host initialization failed"));
 	registerProjectsIpc({
 		projectStore,
 		settingsStore,
@@ -7004,8 +7004,8 @@ app
 		// 收藏：本地快照（userData/favorites.json）。坏文件按空列表重建，不阻断启动。
 		favoritesStore = new FavoritesStore(join(app.getPath("userData"), "favorites.json"));
 		const favoritesStorePreload = favoritesStore.load();
-		// 会话分组（userData/session-groups.json）：启动时一次性从内置插件的私有 storage 迁入
-		//（只读插件文件、不写不删）；此后侧栏与插件 v3 都经 store 读写同一份数据。
+		// 会话分组（userData/session-groups.json）：启动时一次性从旧版 session-groups 插件的私有 storage 迁入
+		//（那个插件当时随包内置，已改为 docs/examples 下可选安装；只读旧文件、不写不删）；此后侧栏与插件 v3 都经 store 读写同一份数据。
 		sessionGroupStore = new SessionGroupStore(join(app.getPath("userData"), "session-groups.json"), join(app.getPath("userData"), "host-plugin-storage", "session-groups.json"));
 		const sessionGroupStorePreload = sessionGroupStore.load();
 		// 插件页保存分组后实时刷侧栏：数据变化统一从 store 冒泡，广播给主窗口。
@@ -7970,6 +7970,11 @@ app
 			browserAgentService?.dispose();
 			browserAgentService = null;
 		});
+		// C12：catalog 的在途写事务必须在退出前落盘。必须登记在最后一个会写 catalog 的清理任务之后：
+		// runAll 顺序执行，而 pi/dsh/acp 的 stopAll、自动化收尾都会回写会话状态；没人等 writeQueue 时，
+		// 这些写在 runAll 返回后被进程终止截断，锁文件（先建空文件、owner 后写）就留在盘上，
+		// 重启后读不出 owner 的残留锁会被当成活着的写者（照旧只报 SESSION_CATALOG_BUSY）。
+		quitCleanup.register("session-catalog-flush", () => sessionCatalog?.flushPendingWrites());
 
 		// 启动后异步检查 RPC 超时时间，如果小于 600 秒则自动修正为 600 秒
 		// 避免用户配置的过小超时（如 30 秒）导致启动或命令执行频繁超时

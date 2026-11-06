@@ -12,7 +12,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 const passthrough = ({ children }) => children;
 
 function createHarness() {
-	const captured = { sliders: [], buttons: [] };
+	const captured = { sliders: [], buttons: [], tooltipContents: [] };
 	const slider = (props) => {
 		captured.sliders.push(props);
 		// 与 Radix 一致：Root 只渲染 Track/Range/Thumb，children 被丢弃（探针实测），
@@ -22,6 +22,12 @@ function createHarness() {
 	const button = ({ children, onClick, disabled, ...props }) => {
 		captured.buttons.push({ ...props, onClick, disabled, children });
 		return createElement("button", { ...props, onClick, disabled }, children);
+	};
+	// 模型按钮的气泡改用 shadcn Tooltip（Radix）：SSR 需要 TooltipProvider 祖先，真实应用由
+	// main.tsx 全局挂载，这里壳透传；气泡文案由 TooltipContent 捕获（原生 title 已退役）。
+	const tooltipContent = ({ children }) => {
+		captured.tooltipContents.push(children);
+		return null;
 	};
 	// Popover 壳：捕获 onOpenChange（提交时机就在这条回调上，必须可断言）。
 	const popover = (props) => {
@@ -34,6 +40,7 @@ function createHarness() {
 			"../ui-shadcn/button": { Button: button },
 			"../ui-shadcn/popover": { Popover: popover, PopoverTrigger: passthrough, PopoverContent: passthrough },
 			"../ui-shadcn/slider": { Slider: slider },
+			"../ui-shadcn/tooltip": { Tooltip: passthrough, TooltipTrigger: passthrough, TooltipContent: tooltipContent },
 			"../../hooks/useShortcutBindings": { useShortcutBindings: () => ({ bindings: { cycleThinking: "Control+T" }, platform: "win32" }) },
 		},
 	});
@@ -194,7 +201,11 @@ test("模型按钮独立打开现有模型选择器，并保留待生效标签�
 	const { captured, ModelThinkingChip } = createHarness();
 	let opened = 0;
 	const html = renderToStaticMarkup(createElement(ModelThinkingChip, { modelLabel: "Current model", modelPendingTo: "Next model", modelPendingTitle: "Next turn", onPickModel: () => opened++, thinkingControl: createElement("div", { "data-testid": "thinking-control" }, "high") }));
-	assert.ok(captured.buttons.some((b) => b.title === "Next turn"));
+	assert.ok(
+		captured.buttons.some((b) => b.title === undefined),
+		"悬停文案改走 Tooltip，不应再叠原生 title 气泡",
+	);
+	assert.ok(captured.tooltipContents.includes("Next turn"), "待生效标题应在悬停气泡文案里");
 	assert.equal(opened, 0);
 	assert.ok(html.includes("Current model → Next model"));
 	assert.ok(html.includes('data-testid="thinking-control"'));

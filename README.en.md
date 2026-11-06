@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.9.9-blue)
+![Version](https://img.shields.io/badge/version-0.10.0-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -82,24 +82,23 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.9.9** (2026-10-30)
+> **Latest: v0.10.0** (2026-11-05)
 
-### v0.9.9 Release Highlights
-- 🚀 **Appearance split into "style × palette", with the pi TUI terminal skin ported wholesale**
-- 🚀 **Session groups become a host-level capability (plugin v3)**
-- 🚀 **Favorite whole sessions**
-- 🚀 **Scratchpad gains project / global scopes**
-- 🚀 **ACP remembers thinking / mode / permission per tool and replays them**
-- 🚀 **Per-tool "default bypass permissions for new sessions" and a Qoder CLI preset**
-- 🚀 **A separate proxy switch for ACP**
-- 🚀 **Create and drive ACP sessions over MCP**
-- 🚀 **ACP sessions in the Web client**
-- 🚀 **ACP usage panel gains token / latency / TPS metrics**
-- 🚀 **ACP sessions now show todos and subagents**
-- ✨ **Searchable model dropdown in ACP**
-- ✨ **Queued sends mid-turn, plus a dedicated stop button**
-- ✨ **ACP tool table collapses into rows**
-- ✨ **Turn footer split into "actions | duration | model"**
+### v0.10.0 Release Highlights
+- 🚀 **Agent memory shared by pi and ACP sessions**
+- 🚀 **Memory export / import with preview and conflict policy**
+- 🚀 **Projects inside WSL distributions can be added and edited normally**
+- 🚀 **Host plugin market**
+- 🚀 **CodeBuddy session import**
+- 🚀 **The timeline's right-edge scale expands into a full session directory**
+- 🚀 **Built-in TokenDance provider shows discount / free badges**
+- 🚀 **The Web UI catches up with the desktop**
+- 🚀 **Batch remove project records from the sidebar**
+- 🚀 **New Parchment palette**
+- ✨ **Queued messages support Send Immediately**
+- ✨ **Timeline and outline finish their virtualization pass**
+- ✨ **The Git panel no longer squeezes text or stutters**
+- ✨ **Inactive sessions pause the streaming typewriter and Markdown reflow**
 
 [View Full Changelog →](CHANGELOG.md)
 
@@ -390,7 +389,9 @@ All kinds of contributions are welcome: bug reports, feature ideas, documentatio
 
 ### 🙌 Contributors
 
-Thank you to everyone who has contributed to PiDeck! See the full list (with each contributor's features and issue numbers) in [CONTRIBUTORS.en.md](CONTRIBUTORS.en.md).
+Thank you to everyone who has contributed code, filed issues, or helped spread the word! See the full list (with each contributor's features and issue / PR numbers) in [CONTRIBUTORS.en.md](CONTRIBUTORS.en.md).
+
+> 💖 **Special thanks**: 罪, 橙子 and 微时 for providing the model services used for PiDeck development 🎉
 
 <a href="https://github.com/ayuayue/PiDeck/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=ayuayue/PiDeck&max=100" alt="PiDeck contributors" />
@@ -411,6 +412,8 @@ Join the PiDeck community for discussion and feedback:
 <p align="center">
   <img src="docs/images/wechat-qrcode.png" alt="PiDeck WeChat group QR code" width="280" />
 </p>
+
+> QR codes for both the QQ and WeChat groups live **[here (Tencent Docs, refreshed periodically)](https://docs.qq.com/doc/DVEZOdEh1Rk9FQkNa)**. The image above can go stale — trust the link.
 
 ---
 

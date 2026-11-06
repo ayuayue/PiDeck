@@ -20,9 +20,11 @@ const STR = {
 		createGroup: "新建分组",
 		nameLabel: "分组名称",
 		groupNamePlaceholder: "分组名称，如「T6 结账流程」",
-		createDirsHead: "按目录添加（可选）",
+		createDirsHead: "选择目录或会话（可选）",
 		createHint: "将加入 {n} 个会话（含已在其他分组的）",
 		createHintEmpty: "也可以先建空分组，稍后手动添加会话",
+		expandSessions: "展开会话",
+		collapseSessions: "收起会话",
 		scopeLabel: "目录范围",
 		scopeHint: "本组只收这些目录里的会话；勾别的目录的会话会让该目录自动并入范围。",
 		editScope: "编辑目录范围",
@@ -40,6 +42,7 @@ const STR = {
 		selectAll: "全选",
 		selectPage: "本页全选",
 		clearAll: "清空",
+		loadMore: "显示更多（还有 {n} 个）",
 		ungrouped: "未分组",
 		addSessions: "添加会话",
 		addSessionsTitle: "添加会话到「{name}」",
@@ -55,7 +58,7 @@ const STR = {
 		searchPlaceholder: "搜索会话标题…",
 		filterDir: "全部目录",
 		empty: "还没有分组",
-		emptyHint: "点右上角「新建分组」，可以直接选目录把整个目录的会话收进来。",
+		emptyHint: "点右上角「新建分组」：选目录可整目录收进来，展开目录还能只挑几个会话。",
 		emptyGroup: "空分组，点「添加会话」放会话进来。",
 		ungroupedEmpty: "所有会话都已分组",
 		noSessions: "工作区还没有已保存的会话。",
@@ -115,9 +118,11 @@ const STR = {
 		createGroup: "New group",
 		nameLabel: "Group name",
 		groupNamePlaceholder: "Group name, e.g. “T6 checkout flow”",
-		createDirsHead: "Add by directory (optional)",
+		createDirsHead: "Pick directories or sessions (optional)",
 		createHint: "{n} sessions will join (including ones already in other groups)",
 		createHintEmpty: "You can also create an empty group and add sessions later",
+		expandSessions: "Show sessions",
+		collapseSessions: "Hide sessions",
 		scopeLabel: "Directories",
 		scopeHint: "This group only takes sessions from these directories; ticking a session elsewhere adds that directory to the scope.",
 		editScope: "Edit directories",
@@ -135,6 +140,7 @@ const STR = {
 		selectAll: "All",
 		selectPage: "Select page",
 		clearAll: "None",
+		loadMore: "Show more ({n} left)",
 		ungrouped: "Ungrouped",
 		addSessions: "Add sessions",
 		addSessionsTitle: "Add sessions to “{name}”",
@@ -150,7 +156,7 @@ const STR = {
 		searchPlaceholder: "Search session titles…",
 		filterDir: "All directories",
 		empty: "No groups yet",
-		emptyHint: "Click “New group” and pick directories to pull a whole directory's sessions in at once.",
+		emptyHint: "Click “New group”: pick a directory to take all its sessions, or expand it and tick just a few.",
 		emptyGroup: "Empty group. Use “Add sessions” to fill it.",
 		ungroupedEmpty: "Every session is in a group",
 		noSessions: "No saved sessions in this workspace yet.",
@@ -214,6 +220,8 @@ const UNGROUPED = "__ungrouped__";
 const COLORS = ["blue", "green", "orange", "purple", "red", "cyan"];
 // 每页条数：分组卡片里一次铺 20 条（约两屏），再靠页码条翻页；搜索/筛选会重置页码。
 const PAGE_SIZE = 20;
+// 新建分组弹层里展开目录时按页追加（20 条/批），避免大目录一次渲染几百行。
+const CREATE_PAGE_SIZE = 20;
 const ACTIVE_WINDOW_MS = 10 * 60 * 1000;
 const COLOR_INDEX = new Map(COLORS.map((name, index) => [name, index]));
 
@@ -238,7 +246,9 @@ let draggingId = null;
 const pages = new Map(); // 分页键（groupId / UNGROUPED）-> 页码（1 基）
 const selection = { groupId: null, ids: new Set() };
 const modal = { groupId: null, now: new Set(), dirs: new Set(), allDirs: false };
-const createDraft = { dirs: new Set(), mode: "create", groupId: null };
+// 新建模式用 ids（目录范围由已选会话反推）；编辑模式用 dirs（只改范围，提交时收窄成员）。
+// limits：展开过的目录已渲染多少条会话（翻页追加用，重绘时保留）。
+const createDraft = { ids: new Set(), dirs: new Set(), expanded: new Set(), limits: new Map(), query: "", mode: "create", groupId: null };
 let confirmAction = null;
 
 /* ---------- 图标（内联 SVG，lucide 形态；插件不能引外部资源） ---------- */
@@ -634,6 +644,20 @@ function groupScope(group) {
 	return Array.isArray(group.dirs) ? group.dirs.filter((key) => typeof key === "string" && key.length > 0 && key.length <= 200).slice(0, 64) : [];
 }
 
+/** 由已选会话反推目录范围：去重、按宿主契约截断（目录数 ≤64、key ≤200 字符）。 */
+function scopeOfIds(ids) {
+	const dirs = [];
+	for (const id of ids) {
+		if (dirs.length >= 64) break;
+		const session = state.sessions.get(id);
+		if (!session) continue;
+		const key = dirKeyOf(session);
+		if (key.length > 200 || dirs.includes(key)) continue;
+		dirs.push(key);
+	}
+	return dirs;
+}
+
 /** 把会话所在目录并入范围：手工放进来的会话不能让组处于「范围外」的不一致状态。 */
 function extendScope(group, session) {
 	const key = dirKeyOf(session);
@@ -984,6 +1008,9 @@ function renderStaticText() {
 	$("dir-filter-trigger").setAttribute("aria-label", L.filterDir);
 	$("create-name-label").textContent = L.nameLabel;
 	$("create-name").placeholder = L.groupNamePlaceholder;
+	$("create-search").placeholder = L.searchPlaceholder;
+	$("create-search").setAttribute("aria-label", L.searchPlaceholder);
+	$("create-search-field").hidden = createDraft.mode === "edit";
 	$("create-dirs-head").textContent = createDraft.mode === "edit" ? L.scopeLabel : L.createDirsHead;
 	$("create-dirs-all").textContent = L.selectAll;
 	$("create-dirs-none").textContent = L.clearAll;
@@ -1528,13 +1555,18 @@ function render() {
 	container.scrollTop = scrollTop;
 }
 
-/* ---------- 新建分组弹层（按目录添加） ---------- */
+/* ---------- 新建分组弹层（目录 → 会话两级勾选） ---------- */
 
 function openCreateModal() {
 	createDraft.mode = "create";
 	createDraft.groupId = null;
 	createDraft.dirs = new Set();
+	createDraft.ids = new Set();
+	createDraft.expanded = new Set();
+	createDraft.limits = new Map();
+	createDraft.query = "";
 	$("create-name").value = "";
+	$("create-search").value = "";
 	renderCreateDirs();
 	$("create-overlay").hidden = false;
 	$("create-name").focus();
@@ -1547,7 +1579,11 @@ function openScopeEditor(groupId) {
 	createDraft.mode = "edit";
 	createDraft.groupId = groupId;
 	createDraft.dirs = new Set(groupScope(group));
+	createDraft.ids = new Set();
+	createDraft.limits = new Map();
+	createDraft.query = "";
 	$("create-name").value = group.name;
+	$("create-search").value = "";
 	renderCreateDirs();
 	$("create-overlay").hidden = false;
 	$("create-name").focus();
@@ -1558,31 +1594,182 @@ function closeCreateModal() {
 }
 
 function createSelectedCount() {
+	if (createDraft.mode !== "edit") return createDraft.ids.size;
 	let count = 0;
 	for (const entry of dirEntries()) if (createDraft.dirs.has(entry.key)) count += entry.ids.length;
 	return count;
 }
 
-function renderCreateDirs() {
+/** 目录下的会话（按最近更新排序；搜索时只留标题命中的）。 */
+function createEntrySessionIds(entry) {
+	const query = createDraft.query;
+	return sortByUpdated(
+		entry.ids.filter((id) => {
+			const session = state.sessions.get(id);
+			if (!session) return false;
+			return !query || (session.title || "").toLowerCase().includes(query);
+		}),
+	);
+}
+
+/** 编辑模式的行：勾目录 = 记入范围（提交时范围外的会话移出）。 */
+function createScopeRow(entry) {
+	return pickerRow({
+		checked: createDraft.dirs.has(entry.key),
+		title: entry.short,
+		subtitle: (entry.projectName || L.unknownDir) + L.statsSep + entry.ids.length + " " + L.sessionsUnit,
+		full: entry.directory || entry.label,
+		onToggle: (value) => {
+			if (value) createDraft.dirs.add(entry.key);
+			else createDraft.dirs.delete(entry.key);
+			updateCreateHint();
+		},
+	});
+}
+
+/** 新建模式的行：三态目录复选框 + 可展开的会话行（只挑几个会话时不必整目录入组）。 */
+function createDirRow(entry, expanded) {
+	const row = el("label", "picker-row create-dir-row");
+	row.title = entry.directory || entry.label;
+	const input = el("input", "check-input");
+	input.type = "checkbox";
+	input.setAttribute("aria-label", entry.short);
+	const text = el("div", "picker-text");
+	const meta = el("span", "picker-meta");
+	text.append(el("span", "picker-label", entry.short), meta);
+	const toggle = el("button", "create-dir-toggle");
+	toggle.type = "button";
+	toggle.dataset.dirKey = entry.key;
+	toggle.title = expanded ? L.collapseSessions : L.expandSessions;
+	toggle.setAttribute("aria-label", toggle.title);
+	toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+	toggle.append(icon(expanded ? "chevron-down" : "chevron-right", 14));
+	toggle.addEventListener("click", (event) => {
+		event.preventDefault();
+		if (createDraft.expanded.has(entry.key)) {
+			createDraft.expanded.delete(entry.key);
+			createDraft.limits.delete(entry.key);
+		} else {
+			createDraft.expanded.add(entry.key);
+		}
+		renderCreateDirs(false, entry.key);
+	});
+	// 搜索时命中项已全部展开，不再提供无效果的折叠控制。
+	toggle.hidden = createDraft.query.length > 0;
+	row.append(input, checkBoxMark(), text, toggle);
+
+	const sync = () => {
+		let selected = 0;
+		for (const id of entry.ids) if (createDraft.ids.has(id)) selected += 1;
+		const all = selected > 0 && selected === entry.ids.length;
+		input.checked = all;
+		input.indeterminate = selected > 0 && !all;
+		row.classList.toggle("is-checked", selected > 0);
+		const parts = [entry.projectName || L.unknownDir, entry.ids.length + " " + L.sessionsUnit];
+		if (selected > 0 && !all) parts.push(L.selectedUnit.replace("{n}", String(selected)));
+		meta.textContent = parts.join(L.statsSep);
+	};
+	input.addEventListener("change", () => {
+		// 整目录语义：勾上加入该目录全部会话，取消则全部移出（含被搜索结果暂时隐藏的）。
+		if (input.checked) for (const id of entry.ids) createDraft.ids.add(id);
+		else for (const id of entry.ids) createDraft.ids.delete(id);
+		sync();
+		updateCreateHint();
+	});
+	sync();
+	return { row, sync };
+}
+
+function createSessionRow(id, syncDir) {
+	const session = state.sessions.get(id);
+	if (!session) return null;
+	const others = groupsOf(id);
+	const subtitle = [fmtClock(session.updatedAt), others.length > 0 ? others.map((group) => group.name).join(" / ") : ""].filter(Boolean).join(L.statsSep);
+	const row = pickerRow({
+		checked: createDraft.ids.has(id),
+		title: session.title || L.untitled,
+		subtitle,
+		full: session.title || L.untitled,
+		onToggle: (value) => {
+			if (value) createDraft.ids.add(id);
+			else createDraft.ids.delete(id);
+			syncDir();
+			updateCreateHint();
+		},
+	});
+	row.classList.add("create-session-row");
+	return row;
+}
+
+/** 展开的目录：先渲染一页会话，剩下的「显示更多」逐批追加（不整目录一次性铺 DOM）。 */
+function createSessionList(entry, sessionIds, syncDir) {
+	const list = el("div", "create-session-list");
+	const moreRow = el("div", "create-more-row");
+	const more = el("button", "btn btn-ghost btn-xs create-more");
+	more.type = "button";
+	moreRow.append(more);
+	list.append(moreRow);
+	const limit = createDraft.limits.get(entry.key) || CREATE_PAGE_SIZE;
+	let cursor = 0;
+
+	const appendNext = (count) => {
+		const chunk = sessionIds.slice(cursor, cursor + count);
+		cursor += chunk.length;
+		for (const id of chunk) {
+			const row = createSessionRow(id, syncDir);
+			if (row) list.insertBefore(row, moreRow);
+		}
+	};
+	const syncMore = () => {
+		const remaining = sessionIds.length - cursor;
+		moreRow.hidden = remaining <= 0;
+		more.textContent = L.loadMore.replace("{n}", String(remaining));
+	};
+	more.addEventListener("click", () => {
+		appendNext(CREATE_PAGE_SIZE);
+		createDraft.limits.set(entry.key, cursor);
+		syncMore();
+		// 追加的 20 行会把它顶到可视区外：滚回来，保持「点同一个按钮继续加载」的手感。
+		more.scrollIntoView({ block: "nearest" });
+	});
+
+	appendNext(limit);
+	createDraft.limits.set(entry.key, cursor);
+	syncMore();
+	return list;
+}
+
+function renderCreateDirs(resetScroll = true, focusDir = null) {
 	const container = $("create-dirs");
+	const scrollTop = resetScroll ? 0 : container.scrollTop;
 	container.replaceChildren();
-	container.scrollTop = 0;
-	const entries = dirEntries();
-	if (entries.length === 0) container.append(el("p", "empty-text", L.noSessions));
-	for (const entry of entries) {
-		container.append(
-			pickerRow({
-				checked: createDraft.dirs.has(entry.key),
-				title: entry.short,
-				subtitle: (entry.projectName || L.unknownDir) + L.statsSep + entry.ids.length + " " + L.sessionsUnit,
-				full: entry.directory || entry.label,
-				onToggle: (value) => {
-					if (value) createDraft.dirs.add(entry.key);
-					else createDraft.dirs.delete(entry.key);
-					updateCreateHint();
-				},
-			}),
-		);
+	$("create-dirs-head").textContent = createDraft.mode === "edit" ? L.scopeLabel : L.createDirsHead;
+	$("create-search-field").hidden = createDraft.mode === "edit";
+	let shown = 0;
+	for (const entry of dirEntries()) {
+		if (createDraft.mode === "edit") {
+			container.append(createScopeRow(entry));
+			shown += 1;
+			continue;
+		}
+		const expanded = createDraft.query.length > 0 || createDraft.expanded.has(entry.key);
+		// 折叠时不排序未展开目录的会话，避免大工作区开弹层就全量排序。
+		const sessionIds = expanded ? createEntrySessionIds(entry) : [];
+		if (createDraft.query && sessionIds.length === 0) continue;
+		const { row, sync } = createDirRow(entry, expanded);
+		container.append(row);
+		shown += 1;
+		if (!expanded) continue;
+		container.append(createSessionList(entry, sessionIds, sync));
+	}
+	if (shown === 0) container.append(el("p", "empty-text", createDraft.query ? L.noMatch : L.noSessions));
+	container.scrollTop = scrollTop;
+	if (focusDir) {
+		for (const node of container.querySelectorAll(".create-dir-toggle")) {
+			if (node.dataset.dirKey !== focusDir) continue;
+			node.focus();
+			break;
+		}
 	}
 	updateCreateHint();
 }
@@ -1602,14 +1789,13 @@ async function submitCreateModal() {
 		$("create-name").focus();
 		return;
 	}
-	const scope = [...createDraft.dirs];
-
 	if (createDraft.mode === "edit") {
 		const group = groupById(createDraft.groupId);
 		if (!group) {
 			closeCreateModal();
 			return;
 		}
+		const scope = [...createDraft.dirs];
 		group.name = name.slice(0, 80);
 		group.dirs = scope;
 		let removed = 0;
@@ -1630,14 +1816,9 @@ async function submitCreateModal() {
 		return;
 	}
 
-	const group = { id: newGroupId(), name: name.slice(0, 80), color: COLORS[state.groups.length % COLORS.length], createdAt: Date.now(), ids: [], dirs: scope };
-	if (scope.length > 0) {
-		for (const entry of dirEntries()) {
-			if (!scope.includes(entry.key)) continue;
-			for (const id of entry.ids) if (!group.ids.includes(id)) group.ids.push(id);
-		}
-		group.ids = sortByUpdated(group.ids);
-	}
+	const ids = sortByUpdated([...createDraft.ids].filter((id) => state.sessions.has(id)));
+	// 目录范围由已选会话反推：只挑目录里的几个会话时，目录仍记入范围（之后可按目录补齐）。
+	const group = { id: newGroupId(), name: name.slice(0, 80), color: COLORS[state.groups.length % COLORS.length], createdAt: Date.now(), ids, dirs: scopeOfIds(ids) };
 	state.groups.push(group);
 	await saveGroup(group);
 	await saveMeta();
@@ -1878,13 +2059,27 @@ function bindStaticControls() {
 			void submitCreateModal().catch(actionError);
 		}
 	});
+	$("create-search").addEventListener("input", () => {
+		createDraft.query = $("create-search").value.trim().toLowerCase();
+		createDraft.limits.clear();
+		renderCreateDirs(true);
+	});
 	$("create-dirs-all").addEventListener("click", () => {
-		for (const entry of dirEntries()) createDraft.dirs.add(entry.key);
-		renderCreateDirs();
+		if (createDraft.mode === "edit") {
+			for (const entry of dirEntries()) createDraft.dirs.add(entry.key);
+		} else {
+			// 有搜索时只全选命中的会话，和面板里看到的一致。
+			const query = createDraft.query;
+			for (const session of state.sessions.values()) {
+				if (!query || (session.title || "").toLowerCase().includes(query)) createDraft.ids.add(session.id);
+			}
+		}
+		renderCreateDirs(false);
 	});
 	$("create-dirs-none").addEventListener("click", () => {
-		createDraft.dirs.clear();
-		renderCreateDirs();
+		if (createDraft.mode === "edit") createDraft.dirs.clear();
+		else createDraft.ids.clear();
+		renderCreateDirs(false);
 	});
 
 	$("modal-close").addEventListener("click", closeAddModal);

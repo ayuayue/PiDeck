@@ -7,9 +7,9 @@
  * 只有真正消费它们的组件（OutlinePanel / useFileEditor 事件路径）才订阅，
  * App 根组件只订阅「内容稳定」的派生结果，不再随消息流更新。
  *
- * 大纲投影按用户消息边界 + 助手消息完成点缓存：流式 assistant/tool delta 复用既有数组，
- * 只有新用户消息、助手消息落定（message_end 终态 stopReason）、历史前缀变化或低频重载
- * 才重建摘要，避免把 token 频率传导到右侧刻度。
+ * 大纲投影按用户消息边界 + 大纲版本缓存：流式 assistant/tool delta 与助手消息落定
+ * 都复用既有数组（刻度只收用户提问），只有新用户提问、已有提问被编辑/重发、历史前缀
+ * 变化或低频重载才重建摘要，避免把 token 频率传导到右侧刻度。
  * 修改文件清单同样做内容投影缓存（见 modifiedFilesAtom）：字段全等时复用旧数组引用，
  * 否则 App 根会因每 50ms 一条新消息数组而全量重渲。
  */
@@ -131,7 +131,7 @@ function createOutlineItemsAtom(readEntry: (get: Getter) => OutlineEntrySource |
 		return items;
 	});
 }
-/** 当前聚焦会话的大纲条目（用户提问 + 本轮最终回答摘要），供右侧刻度定位轴展示。 */
+/** 当前聚焦会话的大纲条目（只含用户提问），供右侧刻度定位轴展示。 */
 export const outlineItemsAtom = createOutlineItemsAtom((get) => {
 	const sessionId = get(currentSessionIdAtom);
 	return sessionId ? { sessionId, entry: get(sessionMessagesCacheAtom)[sessionId] } : undefined;

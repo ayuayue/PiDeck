@@ -50,7 +50,8 @@ test("AsyncState 契约：loading 是 status live region，空态有标题与说
 
 test("Workbench Dialog 尺寸常量单源（Wave 2 §5.3）", () => {
 	assert.match(DIALOG_SIZE, /WORKBENCH_DIALOG_SIZE_CLASS/, "常量必须导出");
-	assert.match(read("components/app/SettingsModal.tsx"), /WORKBENCH_DIALOG_SIZE_CLASS/, "SettingsModal 引用共享尺寸");
+	// 设置面板已是**页面内**surface（失活 hidden、不用 Radix Dialog），不再有弹窗尺寸问题；
+	// 单源规则只约束真正的 Workbench Dialog（ConfigModal 等）。
 	assert.match(read("ConfigModal.tsx"), /WORKBENCH_DIALOG_SIZE_CLASS/, "ConfigModal 引用共享尺寸");
 });
 

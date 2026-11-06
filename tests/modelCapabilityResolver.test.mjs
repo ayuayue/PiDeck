@@ -140,3 +140,33 @@ test("implausible catalog capacities are dropped instead of written to models.js
 	const second = resolveModelSpecFromCatalogs({ providerName: "relay", modelId: "junk-model-2" }, index);
 	assert.equal(second?.maxTokens, undefined);
 });
+
+// ── 逐模型 compat 建议 ──────────────────────────────────────────────
+
+test("catalog compat booleans reach the spec so the config page can suggest them", () => {
+	// Claude 新一代模型经中转站时必须声明自适应思考（forceAdaptiveThinking），
+	// 否则 pi 发老写法 thinking:{type:"enabled",budget_tokens} 会被上游 400。
+	const index = indexOf([
+		{
+			provider: "anthropic",
+			id: "claude-opus-5",
+			contextWindow: 1000000,
+			maxTokens: 128000,
+			reasoning: true,
+			compat: { forceAdaptiveThinking: true, supportsTemperature: false },
+		},
+	]);
+
+	const spec = resolveModelSpecFromCatalogs({ providerName: "relay", modelId: "claude-opus-5" }, index);
+
+	assert.equal(spec?.matchedId, "claude-opus-5");
+	assert.deepEqual(JSON.parse(JSON.stringify(spec?.compat)), { forceAdaptiveThinking: true, supportsTemperature: false });
+});
+
+test("spec without catalog compat keeps the field absent (page shows no suggestion)", () => {
+	const index = indexOf([{ provider: "openai", id: "gpt-5.6", contextWindow: 400000 }]);
+
+	const spec = resolveModelSpecFromCatalogs({ providerName: "relay", modelId: "gpt-5.6" }, index);
+
+	assert.equal(spec?.compat, undefined);
+});

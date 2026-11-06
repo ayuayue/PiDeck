@@ -295,3 +295,30 @@ test("inferSessionNameFromFile strips expanded reference blocks from the first u
 		rmSync(home, { recursive: true, force: true });
 	}
 });
+
+// 回归 #488：首条用户消息内嵌 AGENTS.md 等内容、单行远超 64KB 头窗口时，整行落在截断处不可解析；
+// 旧实现于是退到尾部窗口的 assistant thinking 原文当标题并锁进 catalog。
+// 修复后按单调前缀续读（先 256KB）拿到 user 正文，thinking 只在整份窗口零正文时降级。
+test("inferSessionNameAndValidity reads a first user message longer than the head window (#488)", async () => {
+	const home = mkdtempSync(join(tmpdir(), "pi-scan-title-longline-"));
+	const { SessionScanner: Scanner } = loadSessionScanner(home);
+	try {
+		const dir = join(home, ".pi", "agent", "sessions", "--C--Users-14012-pi-desktop-dev--");
+		const file = join(dir, "2026-08-22T04-22-29-162Z_abc.jsonl");
+		const bodyHead = "修复会话标题：thinking 不该当标题";
+		// 单行 ~88KB（现场量级）：整行跨过 64KB 头窗口，窗口只能看到半行。
+		const body = `${bodyHead}\n\n# AGENTS.md\n${"规则正文 ".repeat(14000)}`;
+		const thinking = "Now I'll write the text answer and then create the explainer. ".repeat(400);
+		writeSession(file, [makeHeader("abc"), makeUser("u1", body), { type: "message", id: "a1", parentId: "u1", timestamp: "2026-08-22T04:00:02.000Z", message: { role: "assistant", content: [{ type: "thinking", thinking }] } }]);
+		const scanner = new Scanner();
+		const inferred = await scanner.inferSessionNameAndValidity(file);
+		assert.equal(inferred.fallbackKind, "user", "正文可读后兜底来源必须是 user 正文");
+		assert.ok(inferred.name.startsWith(bodyHead), `标题必须是首条用户正文，实际：${inferred.name.slice(0, 40)}`);
+		assert.ok(!inferred.name.startsWith("Now I'll write"), "thinking 原文绝不能当标题");
+		// 旧口径兜底（窗口里唯一能解析的那条消息）仍是 thinking：catalog 存量自愈的指纹基准。
+		assert.ok(inferred.legacyFallbackName.startsWith("Now I'll write"));
+		assert.equal(await scanner.inferSessionNameFromFile(file), inferred.name);
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});

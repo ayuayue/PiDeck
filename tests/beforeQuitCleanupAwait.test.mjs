@@ -45,3 +45,16 @@ test("activate：销毁守卫 + 正常 show/focus + 降级重建", () => {
 	assert.match(block, /mainWindow\.show\(\)/);
 	assert.match(block, /void createWindow\(\)/, "销毁/无窗口时降级重建");
 });
+
+test("session-catalog-flush：登记在所有会写 catalog 的清理任务之后", () => {
+	const flushAt = src.search(/quitCleanup\.register\(\s*"session-catalog-flush"/);
+	assert.ok(flushAt > 0, "退出前必须等在途 catalog 写事务落盘");
+	// 顺序即 runAll 的执行顺序：这些清理会回写会话状态，必须排在 flush 之前，
+	// 否则它们触发的写在进程终止时被截断，留下读不出 owner 的锁文件。
+	for (const label of ["pi-agents", "dsh", "acp", "automation", "cua", "browser-agent"]) {
+		const at = src.indexOf(`quitCleanup.register("${label}"`);
+		assert.ok(at > 0 && at < flushAt, `${label} 的清理必须先于 catalog flush 执行`);
+	}
+	const constructed = src.search(/sessionCatalog = new SessionCatalog/);
+	assert.ok(constructed > 0 && constructed < flushAt, "登记点必须在 catalog 构造之后（启动闭包内）");
+});

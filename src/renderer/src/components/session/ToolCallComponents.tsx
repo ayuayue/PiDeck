@@ -2,14 +2,17 @@ import { memo, useCallback, useState, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { ProcessEntryReturnToStart } from "./turn/ProcessEntryReturnToStart";
 import { useProcessEntryStickyHeader } from "./turn/useProcessEntryStickyHeader";
-import { Brain, Check, ChevronDown, ChevronRight, CircleX, FileText, Folder, Globe2, Loader2, MessageCircle, Network, Scissors, Search, Square, SquarePen, Terminal, Wrench } from "lucide-react";
+import { Brain, Check, ChevronDown, ChevronRight, CircleX, FileText, Folder, Globe2, Image as ImageIcon, Loader2, MessageCircle, Network, Scissors, Search, Square, SquarePen, Terminal, Wrench } from "lucide-react";
 import { countTextLines, getToolEditDiff, getToolFilePath, parseToolArgs, type ToolGroupItem } from "../app/AppUtils";
 import { t } from "../../i18n";
 import { formatAskTitle } from "../../utils/askUi";
 import { Badge } from "../ui-shadcn/badge";
 import { detectSubagentFailure } from "./subagentStatus";
 import { Button } from "../ui-shadcn/button";
-import type { ChatMessage } from "../../../../shared/types";
+import type { ChatMessage, ImageContent } from "../../../../shared/types";
+import { imageContentSrc } from "../../../../shared/imageContentSrc";
+import { ImageLightbox } from "./ImageLightbox";
+import { ImageActionButtons } from "./imageActions";
 import { TimelineMarker } from "./TimelineMarker";
 import { RowText } from "./RowText";
 import { LiveDuration } from "./LiveDuration";
@@ -175,6 +178,33 @@ export const ToolActivityCard = memo(function ToolActivityCard(props: { name: st
  * 限高滚动区就是用户看到的双层滚动条（内层到边即被 contain 切断，外层不动）。
  */
 const TOOL_RESULT_MAX_HEIGHT_OUTSIDE_GROUP = 320;
+
+/** 工具结果里内联的图片（如生图扩展把生成图放进结果）：缩略图常驻，
+ *  折叠态也可见；点开复用消息图片的全屏预览与保存/复制动作。 */
+const ToolResultImages = memo(function ToolResultImages(props: { images: ImageContent[] }) {
+	const [preview, setPreview] = useState<{ image: ImageContent; index: number } | null>(null);
+	const previewSrc = preview ? imageContentSrc(preview.image) : null;
+	return (
+		<>
+			<div className="mt-1 mb-2 ml-5 flex flex-wrap gap-2 pl-3">
+				{props.images.map((image, index) => {
+					const src = imageContentSrc(image);
+					if (!src) return null;
+					const label = t("app.imageAlt", { index: index + 1 });
+					return (
+						<button key={`${image.mimeType}:${index}`} type="button" className="group/img relative size-24 shrink-0 overflow-hidden rounded-md border border-border-subtle bg-muted/40 focus-visible:outline-2 focus-visible:outline-offset-2" onClick={() => setPreview({ image, index })} aria-label={label}>
+							<img src={src} alt={label} loading="lazy" decoding="async" className="size-full object-cover" />
+							<span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition-opacity duration-fast group-hover/img:opacity-100">
+								<ImageIcon size={18} className="text-white" aria-hidden="true" />
+							</span>
+						</button>
+					);
+				})}
+			</div>
+			{preview && previewSrc ? <ImageLightbox src={previewSrc} alt={t("app.imageAlt", { index: preview.index + 1 })} onClose={() => setPreview(null)} actions={<ImageActionButtons image={preview.image} />} /> : null}
+		</>
+	);
+});
 
 /** 单个工具调用卡片：trigger 行（图标+工具名+副标题+状态+耗时）+ 展开后详情。 */
 export const ToolCard = memo(function ToolCard(props: {
@@ -377,6 +407,7 @@ export const ToolCard = memo(function ToolCard(props: {
 					</button>
 					{sticky.pinned && <ProcessEntryReturnToStart onClick={sticky.returnToStart} />}
 				</div>
+				{props.message.images && props.message.images.length > 0 && <ToolResultImages images={props.message.images} />}
 				{expanded && (
 					<div className="relative ml-5 mt-1 mb-2 rounded-b-sm border-l-2 border-border-subtle bg-transparent pl-3 animate-in fade-in duration-fast motion-reduce:animate-none">
 						{isAskCard && askCard ? (

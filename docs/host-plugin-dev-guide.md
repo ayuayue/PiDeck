@@ -286,6 +286,7 @@ await pideck.storage.remove("layout");
 | 键名 | `[a-zA-Z0-9_.-]{1,80}`；`__proto__` / `prototype` / `constructor` 保留（报 `invalid-storage-key`） |
 | 原子性 | 写盘走「临时文件 + 原子替换」；重试窗口内插件被撤销会中止（`plugin-revoked`） |
 | 隔离 | 一个插件一个 JSON 文件；`keys()` 看不到别的插件 |
+| 卸载 | 用户在设置页卸载时会删掉这个文件（连同插件目录与授权）；不要把它当跨安装的长期备份，重要的东西要让用户导出 |
 
 ### 5.4 workbench
 
@@ -297,7 +298,7 @@ await pideck.workbench.openExternal("https://github.com/ayuayue/PiDeck/blob/main
 - `navigate` 只对**插件数据范围内**的已保存会话生效（默认当前项目；声明 `sessions.read.workspace` 后是整个工作区，导航会自己切到会话所属项目），否则 `session-not-authorized`；它由 PiDeck 主界面执行，插件页不做任何跳转。没有 JSONL 历史的会话（DSH/ACP/生图/生视频）也能导航——能否导航只看会话是否在范围内，“能否读历史”另由 `readable` 表示。
 - `openExternal` 只接受 **https** 且不能带账号密码；系统浏览器打开。带 `http:`、`file:`、`javascript:`、`pideck-plugin:` 一律 `invalid-request`。
 
-> 5.2 + 5.3 + 5.4 合起来的完整示例：`resources/host-plugins/session-groups/`（列会话、分组持久化到 `storage`、点击经 `navigate` 跳转），随 PiDeck 内置；它也是 `page` 面板形态的参考实现。
+> 5.2 + 5.3 + 5.4 合起来的完整示例：`docs/examples/host-plugins/session-groups/`（列会话、分组经 `pideck.sessionGroups.*` 读写宿主 store、点击经 `navigate` 跳转），不随包，安装时从文件夹选这一层目录；它也是 `page` 面板形态的参考实现。
 
 ### 5.5 network：第三方 API 与已启动本地服务
 
@@ -507,11 +508,11 @@ for (const inst of status.instances ?? []) {
 
 #### 可直接导入的 demo
 
-`resources/host-plugins/billion-context/` 就是完整实现（状态卡 + 启停 + 开面板）。它会随 PiDeck 落位到插件目录，可直接改；改完重新扫描 + 重新授权。
+`docs/examples/host-plugins/billion-context/` 就是完整实现（状态卡 + 启停 + 开面板）。它不随包，从文件夹安装后可直接改；改完重新扫描 + 重新授权。
 
 ### 5.9 会话分组：读写宿主分组数据（`sessionGroups.manage`）
 
-会话分组是 PiDeck 自己的本地数据（`<userData>/session-groups.json`）：侧栏「分组」树只读消费它，声明了 `sessionGroups.manage` 的插件可以读写它（目前是内置的会话分组插件）。用途边界见 `docs/host-boundaries.md` 例外七——**只允许分组读写，不是通用存储桥**。
+会话分组是 PiDeck 自己的本地数据（`<userData>/session-groups.json`）：侧栏「分组」树只读消费它，声明了 `sessionGroups.manage` 的插件可以读写它（目前是 `docs/examples/host-plugins/session-groups/` 这个示例插件）。用途边界见 `docs/host-boundaries.md` 例外七——**只允许分组读写，不是通用存储桥**。
 
 ```ts
 type SessionGroup = {
@@ -527,7 +528,7 @@ type SessionGroup = {
 - `save` 是**整体替换**（按 id upsert）：先 `list()` 拿全量、改内存、再写回，不要按字段猜合并语义。
 - 写入成功后宿主广播 `session-groups:changed`，桌面帧自动刷新侧栏；插件自己不需要（也无法）通知侧栏。
 - 分组是跨插件的共享数据：按 id 增量改，禁止整表清空重建；单组会话引用上限 20000，组数上限 200。
-- 保存/删除/排序分别有 1 次 IPC 往返；高频操作（拖拽、勾选）先改内存、防抖后再落盘（参考内置插件的 `queue()` 串行 + 签名 diff 写法）。
+- 保存/删除/排序分别有 1 次 IPC 往返；高频操作（拖拽、勾选）先改内存、防抖后再落盘（参考 `docs/examples/host-plugins/session-groups/` 的 `queue()` 串行 + 签名 diff 写法）。
 
 ## 6. 安全模型（为什么这些限制是这样）
 
@@ -591,7 +592,7 @@ type SessionGroup = {
 | `plugin-changed` / `plugin-code-changed` | 内容变了，授权失效 → 重新授权 |
 | `plugin-in-use` | 启用中的插件拒绝被安装替换 → 先禁用 |
 | `archive-*` | 分发归档格式/哈希/预算问题（`archive-hash-mismatch` 等） |
-| `invalid-github-url` / `plugin-not-found` | GitHub 链接不合法 / 仓库里找不到可安装的包（见 9.2） |
+| `invalid-github-url` / `invalid-atomgit-url` / `plugin-not-found` | GitHub / AtomGit 链接不合法 / 仓库里找不到可安装的包（见 9.2） |
 | `plugin-manifest-ambiguous` | 仓库里有多个 `pideck-plugin.json` 且无法唯一定位 → 用 `/tree/<分支>/<子目录>` 链接指定 |
 | `download-failed` | 下载失败或超 24 MiB |
 
@@ -626,13 +627,14 @@ node scripts/pack-host-plugin.mjs <插件目录> [输出.pideck-plugin]
 - 安装（三条路径信任判定完全一致，装完都是**禁用 + 需重新授权**）：
   - **「从文件安装…」**：选 `.pideck-plugin` 归档（文件选择在主进程完成，渲染层不传路径）；
   - **「从文件夹安装…」**：直接选**已解压的插件目录**（就是含 `pideck-plugin.json` 的那一层），适合开发目录；`.git`、`node_modules` 整棵跳过，路径形状不合法（带空格/中文名）或超限的文件也跳过而不会让整包失败。
-  - **「从 GitHub 安装…」**：粘贴仓库或 `/tree/` 链接（见 9.2），主进程直接拉 `codeload` 的 tar.gz 解包，无需作者先打归档。
-  - **「插件市场」**：搜索官方收录与社区仓库后一键安装，走的仍是「从 GitHub 安装」这条路径（见 9.3）。
+  - **「从链接安装…」**：粘贴 GitHub 或 AtomGit 的仓库 / `/tree/` 链接（见 9.2），主进程直接下载源码，无需作者先打归档。
+  - **「插件市场」**：搜索官方收录与社区仓库后一键安装，走的仍是「从链接安装」这条路径（见 9.3）；官方收录可切 GitHub / AtomGit 下载源。
 
-### 9.2 从 GitHub 链接安装
+### 9.2 从 GitHub / AtomGit 链接安装
 
-- 支持的链接形态：`https://github.com/<owner>/<repo>`、`.../tree/<分支>`、`.../tree/<分支>/<插件子目录>`（分支名可含 `/`，下载时会从最长候选逐段缩短，把剩余部分当子目录）。
-- 安装源固定 `https://codeload.github.com/<owner>/<repo>/tar.gz/<ref>`；不带 `ref` 时先问 `api.github.com` 的默认分支，失败回退 `main`/`master`。只识别 HTTP 404 为「该 ref 不存在」，其余失败按 `download-failed` 报错，不静默换分支。
+- 支持的链接形态（两个 host 相同）：`https://<host>/<owner>/<repo>`、`.../tree/<分支>`、`.../tree/<分支>/<插件子目录>`（分支名可含 `/`，下载时会从最长候选逐段缩短，把剩余部分当子目录）。`<host>` 只接受 `github.com` 与 `atomgit.com`。
+- GitHub 安装源固定 `https://codeload.github.com/<owner>/<repo>/tar.gz/<ref>`；不带 `ref` 时先问 `api.github.com` 的默认分支，失败回退 `main`/`master`。只识别 HTTP 404 为「该 ref 不存在」，其余失败按 `download-failed` 报错，不静默换分支。
+- AtomGit 走 API v5（`https://api.atomgit.com/api/v5/repos/<owner>/<repo>`）：`file_list?ref_name=<ref>` 列全仓库路径，`branches` 找默认分支，`raw/<path>?ref=<ref>` 逐文件取字节。仓库没有匿名可用的归档接口，所以先按 `pideck-plugin.json` 收敛到包根，只下载包根下的文件；预算、包根判定与 GitHub 源共用同一份实现（`hostPluginPackage.ts`）。
 - 包根定位：仓库根或子目录里必须有 `pideck-plugin.json`；整份仓库只有一个包时自动定位，多个同深度包报 `plugin-manifest-ambiguous`（用 `/tree/<分支>/<子目录>` 精确指定）。
 - 预算：下载 24 MiB、解包 96 MiB、成品包 16 MiB / 100 文件 / 单文件 4 MiB——与归档安装同一套上限，超出即 `package-too-large` / `asset-too-large`。
 - 只取常规文件：符号链接、`.git`、`node_modules`、路径非法的条目在解包阶段被丢弃，不会让整包失败；不执行任何仓库里的脚本（无 `npm install`、无构建步骤），所以仓库里必须是**可直接运行的静态文件**，需要构建的插件请自行提交产物或提供 `.pideck-plugin` 归档。

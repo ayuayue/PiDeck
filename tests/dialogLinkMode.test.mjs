@@ -6,6 +6,15 @@ import assert from "node:assert/strict";
 // 内置浏览器面板位于 Dialog 下层不可见，linkOpenMode=internal 时跟随设置打开会被遮挡，
 // 用户表现为“点了没反应”。统一规则与 ConfigShared.openDocsInSystemBrowser 一致（forceSystem=true）。
 
+test("plugin market official site link forces system browser", () => {
+	const src = readFileSync("src/renderer/src/config/HostPluginMarketDialog.tsx", "utf8");
+	// 官方收录的 GitHub Pages 入口（市场那份 registry 的人读版）：弹窗盖在内置浏览器面板之上，
+	// 跟随 linkOpenMode 打开会被遮挡，必须 forceSystem=true。
+	assert.match(src, /const MARKET_SITE_URL = "https:\/\/ayuayue\.github\.io\/pideck-plugins\/";/);
+	assert.match(src, /openExternal\(MARKET_SITE_URL, true\)/);
+	assert.doesNotMatch(src, /window\.open\(/);
+});
+
 test("skill hub result cards force system browser", () => {
 	const src = readFileSync("src/renderer/src/config/SkillHubStorePanel.tsx", "utf8");
 	// 技能搜索结果卡片：点击跳 skills.sh 网页，弹框内必须系统浏览器

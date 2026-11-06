@@ -1,10 +1,12 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Brain, Coins, Eye, EyeOff, Fingerprint, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Brain, Coins, Eye, EyeOff, Fingerprint, Plus, RotateCcw, Settings2, Trash2 } from "lucide-react";
 import { t } from "../i18n";
 import { MODEL_THINKING_LEVELS, enabledModelThinkingLevels, formatModelThinkingLevelsSummary, modelThinkingLevelState, orderModelThinkingLevels } from "../../../shared/modelThinkingLevels";
 import type { ModelThinkingLevel } from "../../../shared/modelThinkingLevels";
 import type { ModelItem } from "./configTypes";
 import { ConfigComboboxInput, ConfigSelect, openDocsInSystemBrowser } from "./ConfigShared";
+import { ModelCompatPanel } from "./ModelCompatPanel";
+import { hasModelCompat, summarizeModelCompat, type ModelCompatSuggestion } from "./modelCompatFields";
 import { getUserAgentOptions } from "./userAgentPresets";
 import { emptyTierDraft, normalizeTiers, toTierDrafts, type CostTierDraft } from "./modelCostTiers";
 import { MODEL_TABLE_INITIAL_VISIBLE_ROWS, MODEL_TABLE_LOAD_MORE_STEP, resolveModelTableVisibleRowCount } from "./modelsUtils";
@@ -86,6 +88,12 @@ export type ModelsTableProps = {
 	 * 卡片与编辑页的隐藏区在别处，行内只有这个按钮能看出状态——没有回显就成了盲点。
 	 */
 	getModelHidden?: (index: number) => boolean;
+	/**
+	 * 读取该行模型的官方目录 compat 建议（可选）：打开兼容性弹框时调用，
+	 * 用于提示「官方目录对该模型声明的 compat 与当前设置不同」。
+	 * 不传则弹框只做纯编辑（新增供应商页：provider 未落盘，无从查询）。
+	 */
+	loadModelCompatSuggestion?: (index: number) => Promise<ModelCompatSuggestion | null>;
 };
 
 /**
@@ -108,6 +116,26 @@ export function ModelsTable(props: ModelsTableProps) {
 	// 逐模型 UA 弹框：打开中的行 index（null = 关闭）。
 	// 收进操作列图标而非独立列：UA 覆盖是少数人才用的高级项，早先每行摊一个空输入框白占整列宽度。
 	const [uaDialogIndex, setUaDialogIndex] = useState<number | null>(null);
+	// 逐模型兼容性弹框：打开中的行 index + 官方目录建议（异步加载，关闭后丢弃回包）。
+	const [compatDialogIndex, setCompatDialogIndex] = useState<number | null>(null);
+	const [compatSuggestion, setCompatSuggestion] = useState<ModelCompatSuggestion | null>(null);
+	const compatRequestId = useRef(0);
+	const openCompatDialog = (index: number) => {
+		setCompatDialogIndex(index);
+		setCompatSuggestion(null);
+		const load = props.loadModelCompatSuggestion;
+		if (!load) return;
+		// 弹框可能在建议回包前关掉/换行：用递增请求号丢弃过期结果。
+		compatRequestId.current += 1;
+		const requestId = compatRequestId.current;
+		void load(index)
+			.then((suggestion) => {
+				if (compatRequestId.current === requestId) setCompatSuggestion(suggestion);
+			})
+			.catch(() => {
+				// 建议只是锦上添花：查询失败不影响手动编辑。
+			});
+	};
 	// 梯度计费编辑草稿：弹窗打开时从 cost.tiers 初始化；输入即规整落盘（与基础费率行为一致）
 	const [tierEditor, setTierEditor] = useState<{ key: string; drafts: CostTierDraft[] } | null>(null);
 	const selectionState = getModelSelectionState(selectedIndexes ?? new Set<number>(), models.length);
@@ -218,7 +246,7 @@ export function ModelsTable(props: ModelsTableProps) {
 						};
 						const modelAdvancedFields = Object.keys(m).filter((key) => !KNOWN_MODEL_FIELDS.has(key));
 						// thinkingLevelMap 整表由档位勾选列表管理，不再算「高级字段」（计费弹框的保留提示不再列它）
-						const modelComplexFields = ["api", "baseUrl", "cost", "headers", "compat"].filter((key) => m[key] !== undefined);
+						const modelComplexFields = ["api", "baseUrl", "cost", "headers"].filter((key) => m[key] !== undefined);
 
 						// 思考档位勾选态只依赖模型自身（reasoning + thinkingLevelMap），与 Popover 里的勾选列表同源，
 						// 草稿改动实时预演（不读 Pi 的能力探测结果——那回答的是「已保存配置」，含尚未保存的新行）。
@@ -411,6 +439,16 @@ export function ModelsTable(props: ModelsTableProps) {
 											<Button variant="ghost" size="icon-sm" className="size-7" onClick={() => setCostDialogIndex(i)} title={t("config.modelCost")}>
 												<Coins className="size-3.5" aria-hidden="true" />
 											</Button>
+											{/* 兼容性：已配置 compat 时高亮（含非布尔键），tooltip 直接列出现有布尔键（与 UA 按钮同一套「回显」逻辑） */}
+											{(() => {
+												const compatSummary = summarizeModelCompat(m.compat);
+												const compatConfigured = hasModelCompat(m.compat);
+												return (
+													<Button variant="ghost" size="icon-sm" className={compatConfigured ? "size-7 text-[color:var(--color-accent)]" : "size-7"} onClick={() => openCompatDialog(i)} title={compatConfigured && compatSummary ? `${t("config.modelCompat")}: ${compatSummary}` : t("config.modelCompat")}>
+														<Settings2 className="size-3.5" aria-hidden="true" />
+													</Button>
+												);
+											})()}
 											<Button variant="ghost" size="icon-sm" className="size-7 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => props.onDeleteModel(i)} title={t("config.deleteModel")}>
 												<Trash2 size={14} />
 											</Button>
@@ -536,6 +574,34 @@ export function ModelsTable(props: ModelsTableProps) {
 										</div>
 										<DialogFooter>
 											<Button variant="default" size="sm" onClick={() => setUaDialogIndex(null)}>
+												{t("common.done")}
+											</Button>
+										</DialogFooter>
+									</DialogContent>
+								</Dialog>
+
+								{/* 逐模型兼容性弹框：与计费/UA 同模式（每行一个受控 Dialog，改动即保存）。
+									面板管理的键见 modelCompatFields；compat 里手写的非布尔/非管理键原样保留。 */}
+								<Dialog
+									open={compatDialogIndex === i}
+									onOpenChange={(open) => {
+										if (!open) {
+											// 丢弃迟到的目录建议回包，避免下一次打开时闪出上一行的建议。
+											compatRequestId.current += 1;
+											setCompatDialogIndex(null);
+											setCompatSuggestion(null);
+										}
+									}}
+								>
+									{/* scroll-ok: bounded —— 面板字段集固定（兼容开关枚举），不随数据行数增长；视口只是给窄窗口兜底。 */}
+									<DialogContent className="max-h-[calc(100vh-4rem)] overflow-y-auto sm:max-w-xl">
+										<DialogHeader>
+											<DialogTitle>{t("config.modelCompat")}</DialogTitle>
+											<DialogDescription>{t("config.modelCompatDialogDesc")}</DialogDescription>
+										</DialogHeader>
+										<ModelCompatPanel value={m.compat} suggestion={compatSuggestion} onChange={(next) => props.onUpdateModel(i, "compat", next)} />
+										<DialogFooter>
+											<Button variant="default" size="sm" onClick={() => setCompatDialogIndex(null)}>
 												{t("common.done")}
 											</Button>
 										</DialogFooter>

@@ -157,7 +157,8 @@ function QueuedPromptRow(props: {
 	onRetract: (sessionId: string, prompt: QueuedPromptSnapshot) => void;
 	onDiscard: (sessionId: string, promptId: string) => void;
 	onChangeBehavior: (sessionId: string, promptId: string, behavior: "steer" | "followUp") => void;
-	/** 立即发送：置顶并马上投递（ACP 忙时由调用方先停当前回合）。 */
+	/** 立即发送：置顶并马上投递（ACP 忙时由调用方先停当前回合）。
+	 *  ACP 没有 steer 通道，该动作渲染在原「加入当前回合」的位置，不再单独加图标。 */
 	onSendNow: (sessionId: string, promptId: string) => void;
 	/** ACP 忙时「立即发送」的前置：结束当前回合，否则协议层只会拒收。 */
 	onStopTurn?: (sessionId: string) => void;
@@ -179,7 +180,8 @@ function QueuedPromptRow(props: {
 	const canAsk = canChangeBehavior && Boolean((props.prompt.message || props.prompt.displayText).trim()) && !props.prompt.images?.length;
 	const retractTitle = [t("app.retractToInput"), !retractHint.disabled ? "" : retractHint.reason === "unknown" ? t("app.queuedRetractDisabledUnknown") : t("app.queuedRetractDisabledSending")].filter(Boolean).join("\n");
 	const discardTitle = discardHint.disabled ? [t("app.retractDiscard"), t("app.queuedDiscardDisabledSending")].filter(Boolean).join("\n") : t("app.retractDiscard");
-	const steerTitle = !props.steerSupported ? t("app.queuedSteerBackendUnsupported") : canChangeBehavior ? (props.agentBusy ? t("app.sendSteerTitle") : t("app.queuedSteerUnavailable")) : t("app.queuedBehaviorLocked");
+	// 该按钮只在支持 steer 的后端渲染（ACP 走立即发送），所以不必再判后端能力。
+	const steerTitle = canChangeBehavior ? (props.agentBusy ? t("app.sendSteerTitle") : t("app.queuedSteerUnavailable")) : t("app.queuedBehaviorLocked");
 	const followUpTitle = canChangeBehavior ? t("app.sendFollowUpTitle") : t("app.queuedBehaviorLocked");
 	const askTitle = !canChangeBehavior ? t("app.queuedBehaviorLocked") : props.prompt.images?.length ? t("app.queuedAskUnsupported") : t("app.sendAskTitle");
 	// 立即发送：忙且后端无 steer（ACP）时前置一步停止——协议层只接受「新回合」，
@@ -188,6 +190,31 @@ function QueuedPromptRow(props: {
 	const sendNowTitle = !canChangeBehavior ? t("app.queuedBehaviorLocked") : !props.runtimeLive ? t("app.queuedSendNowUnavailable") : stopsTurn ? t("app.queuedSendNowStopTurn") : t("app.queuedSendNow");
 	const rowTitle = [t("app.queuedOrder", { n: props.index + 1 }), isSteer ? t("app.sendSteerTitle") : t("app.sendFollowUpTitle"), previewText, props.prompt.error, status === "unknown" ? t("app.queuedUnknown") : ""].filter(Boolean).join("\n");
 	const actionClass = "size-7 rounded-full text-text-tertiary hover:bg-muted/70 hover:text-foreground";
+	/**
+	 * 立即发送（置顶 + 马上投递）。
+	 *
+	 * ACP 没有 steer 通道，把「停 + 发」合成一次点击；pi/dsh 忙时由 sendQueuedPromptNow
+	 * 切成 steer，不需要先停。两种后端共用这一个图标，只是渲染位置不同：
+	 * - pi/dsh：与「加入当前回合」「排队到下一轮」并列，三种投递方式各有按钮；
+	 * - ACP：行为固定为下一回合，这一格直接替代原先禁用的「加入当前回合」。
+	 */
+	const sendNowButton = (
+		<Button
+			variant="ghost"
+			size="icon-xs"
+			className={actionClass}
+			aria-label={t("app.queuedSendNow")}
+			title={sendNowTitle}
+			disabled={!canChangeBehavior || !props.runtimeLive}
+			onClick={() => {
+				// 先停再置顶：停止会同步置「停止后不自动投递」抑制，顺序反了就发不出去。
+				if (stopsTurn) props.onStopTurn?.(props.sessionId);
+				props.onSendNow(props.sessionId, props.prompt.id);
+			}}
+		>
+			<Send size={14} strokeWidth={2} aria-hidden="true" />
+		</Button>
+	);
 
 	return (
 		<RowTag role={RowTag === "div" ? "listitem" : undefined} className={`queued-row flex h-9 min-h-9 shrink-0 items-center gap-2.5 border-transparent px-3 transition-[border-color,background-color] duration-fast ${status} queued-behavior-${props.prompt.behavior}`} title={rowTitle}>
@@ -204,35 +231,22 @@ function QueuedPromptRow(props: {
 				<span className="shrink-0 font-mono text-micro leading-none text-text-tertiary">{isSteer ? t("app.queuedBehaviorSteerShort") : t("app.queuedBehaviorFollowUpShort")}</span>
 			)}
 			<div className="inline-flex shrink-0 items-center gap-0.5">
-				<Button
-					variant="ghost"
-					size="icon-xs"
-					className={actionClass}
-					aria-label={t("app.queuedSendNow")}
-					title={sendNowTitle}
-					disabled={!canChangeBehavior || !props.runtimeLive}
-					onClick={() => {
-						// 先停再置顶：停止会同步置「停止后不自动投递」抑制，顺序反了就发不出去。
-						if (stopsTurn) props.onStopTurn?.(props.sessionId);
-						props.onSendNow(props.sessionId, props.prompt.id);
-					}}
-				>
-					<Send size={14} strokeWidth={2} aria-hidden="true" />
-				</Button>
-				<Button
-					variant="ghost"
-					size="icon-xs"
-					className={`${actionClass}${isSteer ? " text-foreground" : ""}`}
-					aria-label={t("app.sendSteerTitle")}
-					title={steerTitle}
-					disabled={!canChangeBehavior || !props.agentBusy || !props.steerSupported}
-					onClick={() => props.onChangeBehavior(props.sessionId, props.prompt.id, "steer")}
-				>
-					<ArrowUp size={14} strokeWidth={2} aria-hidden="true" />
-				</Button>
-				<Button variant="ghost" size="icon-xs" className={`${actionClass}${isFollowUp ? " text-foreground" : ""}`} aria-label={t("app.sendFollowUpTitle")} title={followUpTitle} disabled={!canChangeBehavior} onClick={() => props.onChangeBehavior(props.sessionId, props.prompt.id, "followUp")}>
-					<ListOrdered size={14} strokeWidth={2} aria-hidden="true" />
-				</Button>
+				{/* ACP 协议无 steer 通道、行为固定为下一回合：这一格原本是禁用的「加入当前回合」，
+				    直接改成立即发送（先停当前回合）——同一个位置只留一种投递动作，不再额外挂图标，
+				    也不再展示点了没变化的投递方式切换（行内「排队」徽标已说明当前状态）。 */}
+				{props.steerSupported ? (
+					<>
+						{sendNowButton}
+						<Button variant="ghost" size="icon-xs" className={`${actionClass}${isSteer ? " text-foreground" : ""}`} aria-label={t("app.sendSteerTitle")} title={steerTitle} disabled={!canChangeBehavior || !props.agentBusy} onClick={() => props.onChangeBehavior(props.sessionId, props.prompt.id, "steer")}>
+							<ArrowUp size={14} strokeWidth={2} aria-hidden="true" />
+						</Button>
+						<Button variant="ghost" size="icon-xs" className={`${actionClass}${isFollowUp ? " text-foreground" : ""}`} aria-label={t("app.sendFollowUpTitle")} title={followUpTitle} disabled={!canChangeBehavior} onClick={() => props.onChangeBehavior(props.sessionId, props.prompt.id, "followUp")}>
+							<ListOrdered size={14} strokeWidth={2} aria-hidden="true" />
+						</Button>
+					</>
+				) : (
+					sendNowButton
+				)}
 				<Button variant="ghost" size="icon-xs" className={actionClass} aria-label={t("app.sendAskTitle")} title={askTitle} disabled={!canAsk} onClick={() => props.onSendAsk(props.prompt)}>
 					<Split size={14} strokeWidth={2} aria-hidden="true" />
 				</Button>
@@ -267,6 +281,7 @@ function QueuedPromptRow(props: {
  * composer 上方的排队消息卡（移植自 dsh-web QueueDock 的独立卡形态）。
  * 与 todo / goal 同列同宽：1 条直接一行；多条默认折叠计数头，展开后 180px 内滚动。
  * 行内操作：插入当前回合 / 排队下一轮 / 并行发送，以及撤回进输入框 / 丢弃。
+ * ACP 没有 steer 通道：行内在原「加入当前回合」的位置固定改成立即发送，行为切换不再展示。
  */
 export function QueuedPromptPanel(props: {
 	trackRef: RefObject<HTMLElement | null>;

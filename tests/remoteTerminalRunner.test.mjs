@@ -168,7 +168,11 @@ runnerTest("the same ticket replayed reports ALREADY_CONSUMED and restores the t
 	replay.child.stdin.write(buildRemoteTerminalInitFrame(ticket.ref));
 	await replay.done;
 	assert.equal(errorCodeOf(replay.stdout), "TERMINAL_TICKET_ALREADY_CONSUMED");
-	assert.ok(!/ -echo/.test(replay.stdout), "termios must be restored before the ERROR frame");
+	// `stty -a` prints the bare `echo` token only when the flag is on; `-echonl` and `-echoprt` are other flags, so a
+	// substring match on " -echo" would always hit. The `speed` token proves the trailing probe really ran on this TTY.
+	const ttyFlags = replay.stdout.split(/\s+/);
+	assert.ok(ttyFlags.includes("speed"), "the trailing stty probe must run on the same TTY");
+	assert.ok(ttyFlags.includes("echo"), "termios must be restored before the ERROR frame");
 });
 
 runnerTest("an expired ticket reports EXPIRED and leaves no claim behind", async (t) => {

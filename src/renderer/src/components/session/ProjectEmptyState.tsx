@@ -83,14 +83,7 @@ export function ProjectEmptyState(props: {
 	if (isRemoteProject(remoteProject)) {
 		if (remoteFilesOpen) {
 			return (
-				<RemoteProjectPanel
-					projectId={remoteProject.id}
-					projectName={remoteProject.name}
-					onOpenTerminal={props.onOpenTerminal}
-					onBack={() => setRemoteFilesOpen(false)}
-					onOpenFile={props.onOpenFile}
-					onCreateSession={props.onCreateSession === undefined ? undefined : () => props.onCreateSession?.(remoteProject.id)}
-				/>
+				<RemoteProjectPanel projectId={remoteProject.id} projectName={remoteProject.name} onOpenTerminal={props.onOpenTerminal} onBack={() => setRemoteFilesOpen(false)} onOpenFile={props.onOpenFile} onCreateSession={props.onCreateSession === undefined ? undefined : () => props.onCreateSession?.(remoteProject.id)} />
 			);
 		}
 		return (

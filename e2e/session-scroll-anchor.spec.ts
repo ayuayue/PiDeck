@@ -9,6 +9,9 @@ const ANCHOR_TEXT = SOURCE_TURNS[2];
 const TAIL_WINDOW_ANCHOR_TEXT = SOURCE_TURNS[6];
 // 保留原有滚轮回归的 5 轮工作集；选择其尾部用户轮，避免该用例偶发耦合扩窗节流。
 const WHEEL_ANCHOR_TEXT = SOURCE_TURNS[4];
+// 首屏（读盘）只取最近 9 轮。14 轮让第 2 轮必然落在首屏之外：覆盖「锚点比首屏更深」
+// 的恢复路径（已有用例只有 7 轮，全部落在首屏内）。
+const LONG_HISTORY_TURNS = Array.from({ length: 14 }, (_, index) => `scroll-anchor-long-${index + 1}`);
 
 async function openChatSession(window: Page) {
 	const newSession = window.getByRole("button", { name: "新建会话", exact: true }).first();
@@ -65,6 +68,17 @@ async function expandTurnWindow(window: Page) {
 	// 常规 click 会先把顶部按钮滚入视口，进而触发 near-top 自动扩窗并使按钮
 	// 在 click 前卸载。直接触发其已验证的用户点击 handler，避免测试自身改变窗口状态。
 	await loadMore.dispatchEvent("click");
+}
+
+/** 反复走「加载更多/展开窗口」直到按钮消失（= 已加载数据全部进入渲染窗口）。 */
+async function expandAllTurns(window: Page, maxAttempts = 8) {
+	const loadMore = window.getByRole("button", { name: "加载更多对话", exact: true });
+	for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+		if (!(await loadMore.isVisible().catch(() => false))) return;
+		await loadMore.dispatchEvent("click");
+		await window.waitForTimeout(700);
+	}
+	await expect(loadMore).toHaveCount(0);
 }
 
 async function constrainTimelineViewport(app: ElectronApplication) {
@@ -279,6 +293,42 @@ test("an immediate session switch captures the latest historical scroll anchor",
 	expect(Math.abs(restoredOffset - beforeOffset)).toBeLessThanOrEqual(28);
 });
 
+test("session switch restores an anchor older than the first screen page", async ({ app, window }) => {
+	test.setTimeout(240_000);
+	await constrainTimelineViewport(app);
+	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
+
+	await openChatSession(window);
+	for (const prompt of LONG_HISTORY_TURNS) {
+		await sendTurn(window, prompt);
+	}
+
+	const anchorText = LONG_HISTORY_TURNS[1];
+	// 尾随态只挂虚拟区内的行：先把窗口扩到全部已加载数据，再回到顶部把早期轮挂出来。
+	await expandAllTurns(window);
+	await window.locator(".message-timeline").evaluate((element) => {
+		element.scrollTop = 0;
+		element.dispatchEvent(new Event("scroll", { bubbles: true }));
+	});
+	await window.waitForTimeout(400);
+	const anchorRow = window.locator(".message-timeline").locator("article.user-turn", { hasText: anchorText }).first();
+	await expect(anchorRow).toBeVisible({ timeout: 10_000 });
+	const beforeOffset = await placeAnchorInViewport(window, 96, anchorText);
+	expect(beforeOffset).toBeGreaterThanOrEqual(40);
+	expect(beforeOffset).toBeLessThanOrEqual(150);
+
+	await openChatSession(window);
+	const sourceTab = window.locator('.session-tab[aria-selected="false"]').first();
+	await expect(sourceTab).toBeVisible({ timeout: 10_000 });
+	await sourceTab.click();
+	// 切回时锚点在第 2 轮、比首屏更深：恢复链必须先扩窗/补页，才能把这一行挂出来。
+	await expect(anchorRow).toBeVisible({ timeout: 30_000 });
+	await waitForAnchorRestore(window, anchorText, beforeOffset);
+	await window.waitForTimeout(700);
+	const afterOffset = await readAnchorOffset(window, anchorText);
+	expect(Math.abs(afterOffset - beforeOffset)).toBeLessThanOrEqual(28);
+});
+
 test("session switch keeps go-bottom available when the restored tail is tool calls", async ({ app, window }) => {
 	test.setTimeout(180_000);
 	await constrainTimelineViewport(app);
@@ -297,7 +347,27 @@ test("session switch keeps go-bottom available when the restored tail is tool ca
 	await window.getByRole("button", { name: "发送", exact: true }).click();
 	await expect(timeline.locator(".tool-card").first()).toBeVisible({ timeout: 10_000 });
 
-	const beforeOffset = await placeAnchorInViewport(window, 96, TAIL_WINDOW_ANCHOR_TEXT);
+	// TOOLMANY 是 40×250ms 的连续增长，跟底期间直接用 scrollTop 放锚点会被贴底引擎
+	// 立刻拉回（实测保存成 -236.9，测试自己就没有可比较的期望位置）。这里走真实语义：
+	// 先向时间线派发一次 wheel，引擎按「读者位移」解锁跟底，再把锚点放到视口 96px。
+	// 恢复时尾部仍然是这一组工具卡（流式期间工具行保持展开）。
+	const beforeOffset = await window.evaluate(
+		({ targetText, requestedOffset }) => {
+			const timeline = document.querySelector<HTMLElement>(".message-timeline");
+			const anchor = Array.from(document.querySelectorAll<HTMLElement>("article.user-turn")).find((element) => element.textContent?.includes(targetText));
+			if (!timeline || !anchor) throw new Error("scroll anchor is not mounted");
+			timeline.dispatchEvent(new WheelEvent("wheel", { deltaY: -240, bubbles: true, cancelable: true }));
+			const currentOffset = anchor.getBoundingClientRect().top - timeline.getBoundingClientRect().top;
+			timeline.scrollTop += currentOffset - requestedOffset;
+			timeline.dispatchEvent(new Event("scroll", { bubbles: true }));
+			return anchor.getBoundingClientRect().top - timeline.getBoundingClientRect().top;
+		},
+		{ targetText: TAIL_WINDOW_ANCHOR_TEXT, requestedOffset: 96 },
+	);
+	await window.waitForTimeout(350);
+	expect(beforeOffset).toBeGreaterThanOrEqual(40);
+	expect(beforeOffset).toBeLessThanOrEqual(150);
+
 	await openChatSession(window);
 	const sourceTab = window.locator('.session-tab[aria-selected="false"]').first();
 	await expect(sourceTab).toBeVisible({ timeout: 10_000 });

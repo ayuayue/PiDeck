@@ -45,6 +45,13 @@ export type AcpAgentRuntime = {
 	loadedSession: boolean;
 	flushTimer: NodeJS.Timeout | null;
 	flushPending: boolean;
+	/**
+	 * 投递窗口起点（runtime 数组下标）：>0 表示只把 [windowStart..] 发给渲染层，
+	 * 更早的历史由「加载更多」经 acpMessagePage 按轮翻回来。重放时按
+	 * resolveAcpWindowStart 定一次，会话期内固定——窗口只向前长，不中途右移
+	 * （右移会牵动前缀去重/滑出协议，pi 那套 slideOut 这里不需要）。
+	 */
+	windowStart: number;
 	/** abort/超时升级强杀前的宽限定时器;回合正常结算时清除。 */
 	abortEscalateTimer: NodeJS.Timeout | null;
 	/** 回合 stall 看门狗 interval;回合结算时清除。 */

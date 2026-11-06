@@ -81,11 +81,12 @@ test("列表：条目带上索引里的写入时间，且与 entryTimes 一致",
 	}
 });
 
-test("渲染层：列表有手动刷新按钮与「记录于」列，空跨列跟着变成 4 列", () => {
+test("渲染层：列表有手动刷新按钮与「记录于」列，空态行跨满全部列", () => {
 	const source = readFileSync("src/renderer/src/components/app/settings/AgentMemoryEntryList.tsx", "utf8");
 	assert.match(source, /aria-label=\{t\("settings\.agentMemoryRefresh"\)\}/, "工具栏要有手动刷新按钮");
 	assert.match(source, /<EntryTimeCell value=\{row\.entry\.updatedAt\} \/>/, "行要渲染条目时间");
 	assert.match(source, /title=\{t\("settings\.agentMemoryTableUpdatedHint"\)\}/, "列头要解释时间口径");
 	assert.doesNotMatch(source, /colSpan=\{3\}/, "加了时间列后不能再有 3 列跨列");
-	assert.equal(source.match(/colSpan=\{4\}/g)?.length, 2, "空态行与分组行都要铺满 4 列");
+	assert.equal(source.match(/colSpan=\{[^}]*\}/g)?.length, 1, "只有空态行需要跨列：列表已改成单一时间线，不再插分组行");
+	assert.match(source, /colSpan=\{selecting \? 5 : 4\}/, "空态行要跨满全部列：批量模式多一列勾选框");
 });

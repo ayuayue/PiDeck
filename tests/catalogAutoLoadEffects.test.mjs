@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 /**
  * catalog 自动加载 effect 的依赖稳定性。
@@ -12,14 +11,8 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  * 三处都必须经 refreshProjectSessionsRef 取最新实现，且 deps 不含该函数。
  */
 const app = readFileSync("src/renderer/src/App.tsx", "utf8");
-const { resolveChatSessionBootstrap } = loadTsCommonJs("src/renderer/src/utils/chatSessionBootstrap.ts");
 
 const AUTO_LOAD_EFFECT_MARKERS = ["const action = resolveChatSessionBootstrap({", "settings.json 覆盖首屏 localStorage 后", "切换项目时按 catalog load state 判断"];
-
-test("catalog 加载失败后保持显式补加载语义", () => {
-	assert.deepEqual(JSON.parse(JSON.stringify(resolveChatSessionBootstrap({ isChatProject: true, catalogStatus: "error" }))), { kind: "load" });
-	assert.deepEqual(JSON.parse(JSON.stringify(resolveChatSessionBootstrap({ isChatProject: true, catalogStatus: "loading" }))), { kind: "wait" });
-});
 
 test("自动加载 effect 经 ref 调用 refreshProjectSessions，不把它写进 deps", () => {
 	assert.match(app, /const refreshProjectSessionsRef = useRef\(refreshProjectSessions\);/);

@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 
 async function openSettingsDialog(window: Page) {
 	await window.getByRole("button", { name: "设置" }).click();
-	const settingsDialog = window.getByRole("dialog", { name: "设置" });
+	const settingsDialog = window.locator(".settings-modal");
 	await expect(settingsDialog).toBeVisible();
 	return settingsDialog;
 }

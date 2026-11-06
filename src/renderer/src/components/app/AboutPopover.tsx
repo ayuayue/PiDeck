@@ -17,13 +17,18 @@ const WEBSITE_URL = "https://pideck.caoayu.top/";
 interface AboutPopoverProps {
 	/** 应用/pi/DSH/pi-ai 版本与时间信息，由 App 从主进程 AppInfo IPC 拉取后传入。 */
 	appInfo: AppInfo;
-	/** 弹出触发区（BrandLockup 所在容器）；MorphPopoverTrigger 会为其注入点击控制。 */
+	/** 弹出触发区（BrandLockup 所在容器）；MorphPopoverTrigger 会为其注入点击控制。
+	 *  容器宽度决定点击热区，请保持 `w-fit`：撑满标题行会吞掉窗口拖拽区（issue #486）。 */
 	children: ReactElement;
 	/**
 	 * 透传给 MorphPopover 根节点的布局 class。
 	 * 品牌行是 flex 容器：MorphPopover 的根默认 `inline-flex`（min-width:auto），
 	 * 作为 flex 子项不会收缩，改长应用名时会把字标与折叠按钮一起挤出标题行。
-	 * 调用方必须给 `min-w-0 flex-1` 才能让字标正常截断。
+	 * 调用方必须给 `min-w-0 flex-1` 才能让字标正常截断；需要分平台居中（mac 红绿灯占左）
+	 * 也放在这层，因为它撑满整条标题行。
+	 * 但这层**不能是可点区域**：foundation.css 把 `.app-badge` 置为 no-drag，根一旦变成
+	 * 点击热区，标题行的空白就被 no-drag 吞掉，窗口拖不动（issue #486）。
+	 * 点击热区必须留在 `children` 里那层 `w-fit` 的 `.app-badge` 上。
 	 */
 	className?: string;
 }

@@ -74,6 +74,9 @@ jobs:
         run: npm run build && npx electron-builder --mac dmg zip --${{ matrix.arch }} --publish never
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          CSC_NAME: ${{ secrets.MAC_CSC_NAME }}
           XUE_INDEX_OS: darwin
           XUE_INDEX_ARCH: ${{ matrix.arch }}
           SESSION_INDEX_OS: darwin
@@ -89,6 +92,9 @@ jobs:
       # ad-hoc，原因见 docs/release-process.md「打包验证」与 issue #347）。
       - name: Verify macOS bundle signature
         run: node scripts/verify-mac-signature.mjs
+        env:
+          PIDECK_MAC_REQUIRE_DEVELOPER_ID: ${{ secrets.MAC_CSC_LINK != '' || secrets.MAC_CSC_NAME != '' }}
+          PIDECK_MAC_TEAM_ID: ${{ vars.MAC_TEAM_ID }}
 
       - name: Upload macOS ${{ matrix.arch }} artifact
         uses: actions/upload-artifact@v4

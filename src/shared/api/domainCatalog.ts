@@ -91,7 +91,7 @@ export const DOMAIN_CATALOG = [
 	// 收藏：PiDeck 本地快照（<userData>/favorites.json），不动会话文件、不是 pi 能力，
 	// 因此按普通内容域聚合；正文只在收藏动作发生时由渲染层快照提交。
 	{ id: "favorites", group: "content", manager: "FavoritesStore（<userData>/favorites.json）", ipcFile: ["ipc/favoritesIpc.ts"], preloadNamespaces: ["favorites"], channelPrefix: ["favorites"], aggregation: "aggregate" },
-	// 会话分组：宿主数据（<userData>/session-groups.json），内置 session-groups 插件 v3 经 host API
+	// 会话分组：宿主数据（<userData>/session-groups.json），示例 session-groups 插件 v3 经 host API
 	// 读写同一份，不是 pi 能力；分组树（分组 → 目录 → 会话）由宿主统一落盘，故独立前缀与命名空间。
 	{ id: "session-groups", group: "content", manager: "SessionGroupStore（<userData>/session-groups.json）", ipcFile: ["ipc/sessionGroupsIpc.ts"], preloadNamespaces: ["sessionGroups"], channelPrefix: ["session-groups"], aggregation: "aggregate" },
 	{ id: "imagegen", group: "content", manager: "ImagegenService + 三个图存储 Store", ipcFile: ["ipc/imagegenIpc.ts"], preloadNamespaces: ["imagegen"], channelPrefix: ["imagegen"], aggregation: "aggregate" },

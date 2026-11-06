@@ -11,7 +11,7 @@ const fs = require("node:fs");
 const { finished } = require("node:stream");
 const path = require("node:path");
 const asar = require("@electron/asar");
-const { dirSize, renameWithRetry, rmDir } = require("./after-pack-file-utils");
+const { dirSize, replaceFileWithRetry, rmDir } = require("./after-pack-file-utils");
 const { assertLinuxNativeBaseline, assertNodePtyRuntimeArtifact, cleanNodePtyCompileTimeDirectories } = require("./after-pack-node-pty");
 const { patchSharpIndexCjs } = require("./patch-sharp-index");
 
@@ -373,7 +373,7 @@ exports.default = async function (context) {
 			const tmpAsar = asarPath + ".tmp";
 			await packAsarPreservingUnpacked(extractDir, tmpAsar, unpackedPatterns);
 			const oldSize = fs.statSync(asarPath).size;
-			await renameWithRetry(tmpAsar, asarPath);
+			await replaceFileWithRetry(tmpAsar, asarPath);
 			// @electron/asar 会按路径缓存 header；重命名新归档后必须失效旧缓存，
 			// 否则同一 afterPack 进程后续读取仍会看到被删除的文档和旧 unpack 标记。
 			asar.uncache(asarPath);

@@ -389,6 +389,7 @@ export function createPreviewApi(): PiDesktopApi {
 			importBundle: async () => ({ ok: true as const, value: { canceled: true, added: 0, duplicate: 0, tombstoned: 0, rejected: 0, removed: 0, replaced: 0, scopes: [], device: "" } }),
 			list: async () => ({ ok: true as const, value: { root: "preview/memory", total: 0, groups: [] } }),
 			deleteEntry: async () => ({ ok: true as const, value: { removed: 0 } }),
+			deleteEntries: async () => ({ ok: true as const, value: { removed: 0, missing: 0 } }),
 			restoreEntry: async () => ({ ok: true as const, value: { restored: true } }),
 			revealRoot: async () => ({ ok: true as const, value: null }),
 			standingRead: async () => ({ ok: true as const, value: "" }),

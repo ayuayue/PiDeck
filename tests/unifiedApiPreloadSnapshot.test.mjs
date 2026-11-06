@@ -39,6 +39,10 @@
  * 2026-11-03 SFTP-1 收口：下线 remoteHosts 的三个旧上传/下载方法，任务式入口不变。
  * 2026-11-04 本地 dev 集成刷新：cloudSync 命名空间与 31 个同步/Provider 方法入场，
  *   82→83；既有 sessions/config/git/app 数量锚点不变。
+ * 2026-11-04 上游刷新：WSL 目录浏览（Wave 0，提交 0f91282e4）把 projects.addWsl 换成
+ *   listWslDirectory + addWslPath（净 +1 方法）；命名空间数与四个数量锚点均不变。
+ * 2026-11-07 合并刷新：并轨后命名空间仍 83、sessions 117 / config 53 / git 64 / app 32 均不变，
+ *   仅方法清单摘要随两条线合并后重算。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -46,7 +50,7 @@ import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const NS_LIST_SHA256 = "f909ece292c40c44553af5d815321bbb8a0666d76c9a4c02a454a319d9505922";
-const FULL_METHODS_SHA256 = "9139ef8a56423395cfba32eda14d5b60121aa3c0fc0a0b01538b0dc94267249a";
+const FULL_METHODS_SHA256 = "44aea4ae1f3e754defdabaaea6a19f404d7c82e973721ebef629a443edfd55f7";
 const NAMESPACE_COUNT = 83;
 
 /** 捕获 preload 暴露的 piDesktop；null/undefined/形态不符时显式红并给诊断（F8-6 共用）。 */

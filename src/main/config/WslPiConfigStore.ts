@@ -41,6 +41,7 @@ import { linuxPathToWslUnc, parseWslUncPath, type WslEnvironment } from "../wsl/
 import { createWslHostStore } from "../wsl/WslHostStore";
 import { resolveWslEnvironment } from "../wsl/WslEnvironment";
 import { getWslExe } from "../wsl/wslExe";
+import { getPiAiCatalogIndex, lookupPiAiCatalogProviderApi } from "../pi/piAiBuiltinCatalog";
 import { isSafeProviderName } from "./providerMigration";
 import { mergeSettingsFormPayload } from "./settingsFormPayload";
 
@@ -170,7 +171,7 @@ const CONTROL_CHARS = /[\x00-\x1f\x7f]/;
 
 /**
  * models.json 保存校验：规则与本地 ConfigManager.validateModels 一致（provider 名宽松安全校验、
- * models 数组、模型 id 控制字符/长度、baseUrl 控制字符），文案复用同一组 mainConfig.* 词典。
+ * models 数组、模型 id 控制字符/长度、baseUrl 控制字符、provider/模型的 api 缺省校验），文案复用同一组 mainConfig.* 词典。
  * 为什么不再抽一份共享实现：ConfigManager 的校验是私有的、且被 tests/configValidateModels.test.mjs
  * 按私有方法直接调用（单文件转译 harness 不认新依赖），抽走会让存量断言变红；规则本身只有这几条。
  */
@@ -180,11 +181,14 @@ function validateModelsForSave(data: unknown, translate: WslConfigCopy): { ok: t
 		if (!isSafeProviderName(providerName) || CONTROL_CHARS.test(providerName)) return { ok: false, error: translate("mainConfig.providerNameInvalid", { provider: providerName }) };
 		if (!isRecord(providerValue) || !Array.isArray(providerValue.models)) return { ok: false, error: translate("mainConfig.providerModelsRequired", { provider: providerName }) };
 		if (typeof providerValue.baseUrl === "string" && CONTROL_CHARS.test(providerValue.baseUrl)) return { ok: false, error: translate("mainConfig.baseUrlInvalid", { provider: providerName }) };
+		const defaultApi = (typeof providerValue.api === "string" ? providerValue.api.trim() : "") || lookupPiAiCatalogProviderApi(getPiAiCatalogIndex(), providerName);
 		const models = providerValue.models;
 		for (let index = 0; index < models.length; index += 1) {
 			const model = models[index];
 			if (!isRecord(model) || typeof model.id !== "string" || model.id.length === 0) return { ok: false, error: translate("mainConfig.modelIdRequired", { provider: providerName, index: index + 1 }) };
 			if (CONTROL_CHARS.test(model.id) || model.id.length > MODEL_ID_MAX_LENGTH) return { ok: false, error: translate("mainConfig.modelIdInvalid", { provider: providerName, index: index + 1 }) };
+			const modelApi = typeof model.api === "string" ? model.api.trim() : "";
+			if (!modelApi && !defaultApi) return { ok: false, error: translate("mainConfig.modelApiRequired", { provider: providerName, model: model.id }) };
 		}
 	}
 	return { ok: true };

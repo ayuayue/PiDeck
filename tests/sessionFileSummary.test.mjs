@@ -212,28 +212,30 @@ test("TurnFileChanges: renders per run, hidden while streaming, tolerates runs w
  * 为什么不用 --color-chip-file：它是固定蓝，6 个 accent 主题一个都不覆盖，
  * 切绿/紫/玫主题时它是界面上唯一不变的颜色（用户反馈的「颜色不适配」根因）。
  */
-test("TurnFileChanges: accent-tinted chip with secondary text, 16px icon (no fixed chip-file blue)", () => {
+test("TurnFileChanges: compact accent-tinted chip with secondary text, 14px icon (no fixed chip-file blue)", () => {
 	const chip = readFileSync("src/renderer/src/components/session/turn/TurnFileChanges.tsx", "utf8");
 
 	// 底色来自主题 accent，不是固定身份色。
-	// 6% 是调过的：10% 在 neutral 主题下得 #e8e8e8，白底上像一块深灰「阴影」，
-	// 用户反馈「阴影有点深」；6% 得 #f1f1f1，几乎与页面同层。
-	assert.match(chip, /bg-\[color:color-mix\(in_srgb,var\(--color-accent\)_6%,transparent\)\]/, "chip background must derive from --color-accent (6% to stay unobtrusive)");
+	// 2027-03 用户反馈「这块再小一点，背景再浅一些，不是主要的关注元素」：
+	// 6% 在 neutral 主题下得 #f1f1f1，在 28px 高的 chip 上仍显眼；4% 更接近页面底色，
+	// 收缩到 22px 高（12px 文字 + py-0.5）后靠虚线分隔和图标定位，不靠底色抢视线。
+	assert.match(chip, /bg-\[color:color-mix\(in_srgb,var\(--color-accent\)_4%,transparent\)\]/, "chip background must derive from --color-accent (4% so it stays background, not a card)");
 	assert.doesNotMatch(chip, /bg-chip-file|text-chip-file/, "fixed chip-file blue is the bug being fixed");
 
-	// 行高不要手写覆盖类：text-control 这个 token 自带 --line-height-control
-	//（五档字号下 18/20/22/23/24px，约为字号的 1.5 倍），完全盖得住字形墨迹。
-	// 原代码的 leading-none 把它压成 1.0，实测字形上下各被裁 2px。
-	// 实测（5 档字号 × 4 档缩放 = 20 种组合）：不写 leading-* 余量 0.67~2px，全部完整。
-	assert.doesNotMatch(chip, /text-control leading-/, "do not override the token line-height: text-control already carries --line-height-control (hand-written leading-none clipped glyphs by 2px)");
+	// 行高不要手写覆盖类：text-caption 这个 token 自带 --line-height-caption（18px），
+	// 盖得住 12px 字形的墨迹；不写 leading-* 保持 token 统一。
+	assert.doesNotMatch(chip, /text-caption leading-/, "do not override the token line-height: text-caption already carries --line-height-caption");
 
 	// 文字色：secondary（产物比正文弱一档），hover 提到 primary
 	assert.match(chip, /text-text-secondary/, "chip text uses secondary (F scheme)");
 	assert.match(chip, /hover:text-text-primary/, "hover promotes text to primary instead of changing hue");
 
-	// 图标 16px：原 12px 比 13px 的文件名还小
-	assert.match(chip, /className="inline-flex size-4 shrink-0/, "file type glyph must be 16px (size-4)");
-	assert.doesNotMatch(chip, /inline-flex size-3 shrink-0/, "12px glyph was too small next to 13px text");
+	// 尺寸契约：12px 文字 + py-0.5（22px 高），图标 14px 比文件名略大；
+	// 旧版 13px 文字 + py-1（28px 高）+ 16px 图标被用户反馈「太大」。
+	assert.match(chip, /text-caption font-medium text-text-secondary/, "chip text is text-caption (12px)");
+	assert.match(chip, /px-1\.5 py-0\.5/, "chip padding is px-1.5 py-0.5 (compact, 22px tall)");
+	assert.match(chip, /className="inline-flex size-3\.5 shrink-0/, "file type glyph must be 14px (size-3.5)");
+	assert.doesNotMatch(chip, /inline-flex size-4 shrink-0/, "16px glyph was sized for the old 28px chip");
 
 	// +N/−N 用状态色，跨主题恒定（不跟 accent 走）
 	assert.match(chip, /text-success.*\+\{delta\.added\}/s);

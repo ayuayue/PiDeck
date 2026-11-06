@@ -49,6 +49,13 @@ test("non-empty cache entries keep skipping the disk load (fast path)", () => {
 	assert.equal(shouldSkipInitialDiskLoad({ source: "disk", messages: [{ id: "m1" }] }, false), true);
 });
 
+test("an empty runtime window with loaded history stays authoritative across a fresh mount", () => {
+	const cachedEntry = { source: "runtime", messages: [], history: { messages: [{ id: "persisted-history" }] } };
+	assert.equal(shouldSkipInitialDiskLoad(cachedEntry, false), true);
+	assert.equal(shouldSkipInitialDiskRead({ previouslyLoaded: false, cachedEntry, knownEmpty: false, loadStateStatus: undefined }), true);
+	assert.equal(shouldSkipInitialDiskLoad({ source: "runtime", messages: [], history: { messages: [] } }, false), false);
+});
+
 test("disk-sourced empty cache is a legitimate terminal empty session", () => {
 	// 磁盘已应答「这个会话就是空的」：跳过，起始页是终态（不得反复读盘）。
 	assert.equal(shouldSkipInitialDiskLoad({ source: "disk", messages: [] }, false), true);
@@ -84,6 +91,17 @@ test("first visit keeps the authority rules of shouldSkipInitialDiskLoad", () =>
 	assert.equal(shouldSkipInitialDiskRead({ previouslyLoaded: false, cachedEntry: { source: "runtime", messages: [] }, knownEmpty: false, loadStateStatus: undefined }), false);
 	assert.equal(shouldSkipInitialDiskRead({ previouslyLoaded: false, cachedEntry: { source: "disk", messages: [] }, knownEmpty: false, loadStateStatus: undefined }), true);
 	assert.equal(shouldSkipInitialDiskRead({ previouslyLoaded: false, cachedEntry: undefined, knownEmpty: true, loadStateStatus: undefined }), true);
+});
+
+test("settled read error must not auto-retry the disk load (loading↔error loop)", () => {
+	// 2026-11 现场：Windows 模式点开 WSL 路径的会话，读盘拿到 file-missing 友好空页 → error。
+	// 错误态不写缓存条目，若按「条目消失就重读」处理，effect 会随 loadStateStatus 变化
+	// 每帧再发一次 IPC（日志里 48 次/秒），页面持续闪烁。
+	assert.equal(shouldSkipInitialDiskRead({ previouslyLoaded: true, cachedEntry: undefined, knownEmpty: false, loadStateStatus: "error" }), true);
+	// 错误态不是粘性的：重新挂载（新 hook 实例）仍要读一次，恢复由 UI 重试/重新打开承担。
+	assert.equal(shouldSkipInitialDiskRead({ previouslyLoaded: false, cachedEntry: undefined, knownEmpty: false, loadStateStatus: "error" }), false);
+	// 空 runtime 投影 + 错误态同样不得自愈重读（错误已给出结论）。
+	assert.equal(shouldSkipInitialDiskRead({ previouslyLoaded: true, cachedEntry: { source: "runtime", messages: [] }, knownEmpty: false, loadStateStatus: "error" }), true);
 });
 
 test("controller effect must consult shouldSkipInitialDiskRead", () => {

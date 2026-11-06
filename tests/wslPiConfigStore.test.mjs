@@ -249,6 +249,9 @@ test("models.json 保存沿用本地校验：不合格内容不落盘", async ()
 	const noModels = await store.saveModels({ hostId: HOST, data: { providers: { openai: {} } } });
 	assert.equal(noModels.valid, false);
 	assert.match(noModels.error, /providerModelsRequired/);
+	const missingApi = await store.saveModels({ hostId: HOST, data: { providers: { custom: { baseUrl: "https://api.example.com/v1", models: [{ id: "m1" }] } } } });
+	assert.equal(missingApi.valid, false);
+	assert.match(missingApi.error, /modelApiRequired/);
 	assert.deepEqual(exec.calls, [], "校验失败不得执行写命令");
 	assert.deepEqual(
 		calls.filter((call) => call[0] === "write"),

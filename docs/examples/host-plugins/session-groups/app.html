@@ -43,7 +43,7 @@
 			<main id="groups" class="groups"></main>
 		</div>
 
-		<!-- 新建分组 / 编辑目录范围：名称 + 目录多选（选中目录里的会话自动入组） -->
+		<!-- 新建分组 / 编辑目录范围：名称 + 目录多选；新建时可展开目录勾选里面的会话（勾目录 = 整目录入组） -->
 		<div id="create-overlay" class="overlay" hidden>
 			<div class="modal" role="dialog" aria-modal="true" aria-labelledby="create-title">
 				<div class="modal-head">
@@ -54,6 +54,13 @@
 					<label id="create-name-label" class="field-label" for="create-name"></label>
 					<input id="create-name" class="input" type="text" maxlength="80" autocomplete="off" spellcheck="false" />
 					<p id="create-note" class="hint" hidden></p>
+					<div id="create-search-field" class="search-field" hidden>
+						<svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+							<circle cx="11" cy="11" r="7"></circle>
+							<path d="m20 20-3.5-3.5"></path>
+						</svg>
+						<input id="create-search" class="input search-input" type="search" autocomplete="off" spellcheck="false" />
+					</div>
 					<div class="section-head">
 						<span id="create-dirs-head" class="section-title"></span>
 						<span class="section-actions">

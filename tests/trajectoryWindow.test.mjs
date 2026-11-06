@@ -103,27 +103,36 @@ test("导轨目录合并：已加载项保留原标题，未加载项用索引�
 	assert.equal(merged[2].id, "m3");
 });
 
-test("导轨合并：助手回复跟着它前面的用户检查点走，不堆到列表尾部", async () => {
+test("导轨合并：目录里没有的 live 提问按原顺序追加在尾部", async () => {
 	const { mergeOutlineRailItems } = loadTsCommonJs("src/renderer/src/components/session/timeline/outlineRailTicks.ts");
 	const loaded = [
 		{ id: "m1", entryId: "e1", role: "user", title: "第一条提问", time: "10:00" },
-		{ id: "a1", role: "assistant", title: "第一条回复", time: "10:01" },
-		{ id: "m3", entryId: "e3", role: "user", title: "第二条提问", time: "10:05" },
-		{ id: "a3", role: "assistant", title: "第二条回复", time: "10:06" },
+		{ id: "m2", entryId: "e2", role: "user", title: "刚发出、索引还没追上", time: "10:06" },
 	];
 	const directory = [
 		{ entryId: "e1", title: "第一条提问", time: "10/21 10:00" },
-		{ entryId: "e2", title: "中间那条还没加载的提问", time: "10/21 10:01" },
-		{ entryId: "e3", title: "第二条提问", time: "10/21 10:05" },
+		{ entryId: "e3", title: "中间那条还没加载的提问", time: "10/21 10:05" },
 	];
 	const merged = mergeOutlineRailItems(loaded, directory);
 	assert.deepEqual(
 		Array.from(merged, (item) => item.id),
-		["m1", "a1", "outline-pending:e2", "m3", "a3"],
+		["m1", "outline-pending:e3", "m2"],
 	);
 	assert.deepEqual(
 		Array.from(merged, (item) => item.role),
-		["user", "assistant", "user", "user", "assistant"],
+		["user", "user", "user"],
+	);
+});
+
+test("导轨合并：助手条目不进刻度（历史大纲也一并过滤）", async () => {
+	const { mergeOutlineRailItems } = loadTsCommonJs("src/renderer/src/components/session/timeline/outlineRailTicks.ts");
+	const loaded = [
+		{ id: "m1", entryId: "e1", role: "user", title: "提问", time: "10:00" },
+		{ id: "a1", role: "assistant", title: "回复", time: "10:01" },
+	];
+	assert.deepEqual(
+		Array.from(mergeOutlineRailItems(loaded, []), (item) => item.id),
+		["m1"],
 	);
 });
 

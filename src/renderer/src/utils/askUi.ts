@@ -39,6 +39,19 @@ export function countPendingAsksForSessions(sessionIds: Iterable<string>, sessio
 }
 
 /**
+ * 找出给定顺序里第一个存在待确认 Ask 的会话 id；无待确认时返回 undefined。
+ * 顺序即调用方传入的会话顺序（侧栏按更新时间排列），因此「第一个」= 列表最上面那个，
+ * 供折叠态分组标题栏徽章「点一下直达等待确认的会话」使用（issue #485）。
+ */
+export function findFirstPendingAskSessionId(sessionIds: Iterable<string>, sessionRuntimeUiById: Readonly<Record<string, { requests?: Record<string, AskRequestEntry> }>> | undefined): string | undefined {
+	if (!sessionRuntimeUiById) return undefined;
+	for (const sessionId of sessionIds) {
+		if (hasPendingAskForSession(sessionId, sessionRuntimeUiById)) return sessionId;
+	}
+	return undefined;
+}
+
+/**
  * 判断单个会话是否有待确认的 Ask 请求。
  * 供侧栏「活动会话」行等以会话为粒度展示待确认标记的入口使用。
  */

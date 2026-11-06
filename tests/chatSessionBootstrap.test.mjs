@@ -97,7 +97,9 @@ test("Chat bootstrap never replaces an existing selection or non-Chat project", 
 });
 
 test("Chat bootstrap loads its catalog before showing the unified guide page", () => {
-	assert.match(appSource, /action\.kind === "load"[\s\S]*refreshProjectSessionsRef\.current\(activeProject\.id\)/);
+	// refreshProjectSessions 由 useProjectSync 以普通函数返回、每次渲染换引用，现经 refreshProjectSessionsRef
+	// 稳定化后再调（同语义，不改变副作用）。
+	assert.match(appSource, /action\.kind === "load"[\s\S]*refreshProjectSessions(?:Ref\.current)?\(activeProject\.id\)/);
 	assert.doesNotMatch(appSource, /selectSessionCommand\(activeProject\.id, action\.sessionId, false\)/);
 });
 

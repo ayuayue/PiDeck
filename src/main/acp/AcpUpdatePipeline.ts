@@ -13,10 +13,29 @@ import type { AgentTab } from "../../shared/types/agent";
 import type { AcpConfigOption, AcpRpcNotification, AcpSessionUpdate, AcpToolCallUpdate } from "./acpProtocol";
 import type { AcpAgentRuntime } from "./acpAgentRuntime";
 import { projectAcpSessionUpdate } from "./AcpEventProjector";
+import { resolveAcpWindowStart } from "./acpReplayWindow";
+import { emitAgentMessageMeasured } from "../perf/messageFlushMeter";
 import type { AcpMessageSnapshotStore } from "./AcpMessageSnapshotStore";
 
 /** 流式消息 flush 节流:每 chunk 都 emit 会打爆 IPC(与 DSH 实测同因)。 */
 const FLUSH_THROTTLE_MS = 80;
+/**
+ * 重放分批投递（Phase 3，见 docs/acp-replay-batching-plan.md §0.1 实测）。
+ *
+ * session/load 重放是「一次性全量」：实测 1076 条 / 4251KB 会让渲染进程出现一个
+ * 236ms 的长任务（主进程 emit 只占 15ms，成本在渲染侧）。这里按条数切块、每块隔
+ * 一帧投递，把一次长任务摊成若干短任务；协议复用既有的 upsertFrom / totalLength
+ * 增量合并，渲染层零改动。
+ *
+ * 为什么不按「尾部 N 轮」窗口化（原 Phase 2）：ACP 一轮里每次工具调用都是一条
+ * 消息，9 轮窗口在 40 条真实会话上仍有 31 条超 256KB；且渲染层的「加载更早」
+ * 只对磁盘页生效，ACP 没有磁盘页，窗口化会让更早历史无法翻回来。
+ */
+const REPLAY_CHUNK_MESSAGES = 100;
+/** 低于这个条数不值得切块（一次 flush 即可，避免多出无意义的中间态）。 */
+const REPLAY_CHUNK_MIN_MESSAGES = 300;
+/** 块间隔：一帧左右，让每块落在独立帧里，长任务才真正被摊开。 */
+const REPLAY_CHUNK_INTERVAL_MS = 12;
 
 export type AcpUpdatePipelineHost = {
 	/** runtime 归属校验（stop/重建后旧链上的在途步骤不得再作用于新 runtime）。 */
@@ -157,6 +176,54 @@ export class AcpUpdatePipeline {
 		runtime.flushTimer.unref?.();
 	}
 
+	/**
+	 * 重放/首次回显的分批投递：把一次全量 flush 切成若干增量块，每块隔一帧发出。
+	 *
+	 * 首块走「全量」语义（无 upsertFrom，totalLength = 本块条数），让渲染层建立
+	 * runtime 来源的缓存；后续块带 upsertFrom + 递增的 totalLength，走既有增量合并。
+	 * 末块的 totalLength 等于真实总条数，缓存收敛到与一次性全量完全一致的状态。
+	 *
+	 * 中断规则：分块期间投影被改写（用户已经发消息、新一轮开始）就停止分块并补一次
+	 * 常规全量 flush —— 绝不能留下「只投了前几百条」的残缺历史。
+	 */
+	flushMessagesChunked(runtime: AcpAgentRuntime): void {
+		if (runtime.status === "closed" || !this.host.ownsRuntime(runtime)) return;
+		const all = runtime.projection.messages;
+		// 先定投递窗口：条数预算优先、轮边界对齐（见 acpReplayWindow）。
+		// 窗口起点在会话期内固定，后续流式 flush 复用同一个 W。
+		runtime.windowStart = resolveAcpWindowStart(all);
+		const windowStart = runtime.windowStart;
+		const windowMessages = all.slice(windowStart);
+		if (windowMessages.length <= REPLAY_CHUNK_MIN_MESSAGES) {
+			this.flushMessages(runtime, true);
+			return;
+		}
+		// 内存快照一次写全量：分块只是投递节奏，快照始终是完整历史
+		if (runtime.acpSessionId) this.snapshots.set(runtime.acpSessionId, all);
+		let sent = 0;
+		const emitNext = (): void => {
+			if (runtime.status === "closed" || !this.host.ownsRuntime(runtime)) return;
+			if (runtime.projection.messages !== all) {
+				// 投影已被新一轮改写：停止分块，用常规全量把缓存校准到最新
+				this.flushMessages(runtime, true);
+				return;
+			}
+			const end = Math.min(windowMessages.length, sent + REPLAY_CHUNK_MESSAGES);
+			const base = { agentId: runtime.tab.id, deckSessionId: runtime.tab.deckSessionId, ...(windowStart > 0 ? { windowStart } : {}) };
+			// totalLength 按「已投递到的绝对下标」递增：渲染层按 totalLength - windowStart
+			// 校验合并长度，末块自然收敛到真实总条数。
+			const totalLength = windowStart + end;
+			const payload = sent === 0 ? { ...base, messages: windowMessages.slice(0, end), totalLength } : { ...base, messages: windowMessages.slice(sent, end), upsertFrom: windowStart + sent, totalLength };
+			emitAgentMessageMeasured("acp", runtime.tab.id, payload, (measured) => this.host.emit(agentEventTags.agentsMessage, measured));
+			sent = end;
+			if (sent < windowMessages.length) {
+				const timer = setTimeout(emitNext, REPLAY_CHUNK_INTERVAL_MS);
+				timer.unref?.();
+			}
+		};
+		emitNext();
+	}
+
 	flushMessages(runtime: AcpAgentRuntime, force: boolean): void {
 		if (runtime.status === "closed" || !this.host.ownsRuntime(runtime)) return;
 		if (force && runtime.flushTimer) {
@@ -164,12 +231,23 @@ export class AcpUpdatePipeline {
 			runtime.flushTimer = null;
 			runtime.flushPending = false;
 		}
-		this.host.emit(agentEventTags.agentsMessage, {
-			agentId: runtime.tab.id,
-			deckSessionId: runtime.tab.deckSessionId,
-			messages: runtime.projection.messages,
-			totalLength: runtime.projection.messages.length,
-		});
+		const all = runtime.projection.messages;
+		// 投递窗口：只发 [windowStart..]，更早的历史由「加载更多」按轮翻回来。
+		// 窗口起点由重放时的 flushMessagesChunked 定下并在会话期内固定；这里直接复用，
+		// 避免窗口右移牵动前缀去重协议（pi 的 slideOut 那套）。
+		const windowStart = Math.min(Math.max(0, runtime.windowStart), all.length);
+		emitAgentMessageMeasured(
+			"acp",
+			runtime.tab.id,
+			{
+				agentId: runtime.tab.id,
+				deckSessionId: runtime.tab.deckSessionId,
+				messages: all.slice(windowStart),
+				totalLength: all.length,
+				...(windowStart > 0 ? { windowStart } : {}),
+			},
+			(payload) => this.host.emit(agentEventTags.agentsMessage, payload),
+		);
 		// 内存快照：stop/升级强杀后 runtime 删除，重入会话时 readMessagesByAcpSessionId
 		// 用它避免时间线空白；激活后 session/load 重放会覆盖为完整历史。
 		if (runtime.acpSessionId) {

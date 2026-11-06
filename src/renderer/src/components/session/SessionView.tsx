@@ -25,7 +25,7 @@ import { TerminalDockPanel, TERMINAL_PANEL_COLLAPSED_SIZE, TERMINAL_PANEL_MIN_SI
 import type { TerminalDockSettings } from "../terminal/TerminalDock";
 import { useSessionPaneServices } from "./SessionPaneServices";
 import { COMPOSER_MAX_HEIGHT, COMPOSER_MIN_HEIGHT, TIMELINE_MIN_HEIGHT, displayProjectDirectoryName, redistributeTerminalAgainstTimeline, shouldMountBottomComposer, sessionResizableGroupKey, sessionGroupDefaultLayout } from "../../rendererUtils";
-import { projectByIdAtomFamily, sessionRecordByIdAtomFamily, sessionStatusInSidebarAtomFamily } from "../../atoms";
+import { projectByIdAtomFamily, sessionRecordByIdAtomFamily, sessionStatusInSidebarAtom } from "../../atoms";
 import type { EnqueuePromptSnapshot } from "../../hooks/useSessionSend";
 import { countUserTurns } from "./timeline/turnRenderWindow";
 import { useSessionOutlineDirectory } from "../../hooks/useSessionOutlineDirectory";
@@ -226,13 +226,13 @@ export function SessionView({
 	const acpRestorePending = useAcpHistoryRestorePending(sessionId);
 	const bottomComposerVisible = shouldMountBottomComposer({
 		hasActiveConversation,
-		messageCount: sessionTimeline.messages.length,
+		messageCount: sessionTimeline.visibleMessages.length,
 		isConversationLoading: sessionTimeline.isSurfaceLoading,
 		isHistoryRestorePending: acpRestorePending,
 	});
 	// 右侧边栏「会话状态」面板正可见地展示本会话时，输入框上方的待办/子代理折叠条让位给面板
 	//（文件修改已改由每轮末尾的 chip 行走轮次上下文，不再经过面板与 latestAgentRun）。
-	const statusInSidebar = useAtomValue(sessionStatusInSidebarAtomFamily(sessionId));
+	const statusInSidebar = useAtomValue(sessionStatusInSidebarAtom);
 	const sessionPanels = { terminal: terminalPanelVisible };
 	const timelineColumnMinSize = bottomComposerVisible ? TIMELINE_MIN_HEIGHT + COMPOSER_MIN_HEIGHT : TIMELINE_MIN_HEIGHT;
 	const timelineColumnStyle = {

@@ -255,7 +255,12 @@ export class LocalProjectFileBackend implements ProjectFileBackend {
  */
 export async function localTextRevision(path: string): Promise<string> {
 	try {
-		return "sha256:" + createHash("sha256").update(await readFile(path)).digest("hex");
+		return (
+			"sha256:" +
+			createHash("sha256")
+				.update(await readFile(path))
+				.digest("hex")
+		);
 	} catch (error) {
 		if (isMissingPath(error)) return "absent";
 		throw error;

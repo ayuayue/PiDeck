@@ -46,13 +46,14 @@ export async function openFirstSession(window: Page) {
 /**
  * 打开设置窗口（侧栏底栏 dock 的设置按钮，原 `.settings-icon` 类已随侧栏重构删除）。
  * 有可用更新时该按钮可访问名会带「（有新版本可用）」后缀（settings.titleWithUpdate），
- * 故这里用前缀正则匹配，不用 exact。返回设置对话框定位器。
+ * 故这里用前缀正则匹配，不用 exact。
+ * 设置已从 80vw 弹框迁成会话列页面 Tab（不再有 role=dialog），这里用页面根节点定位。
  */
 export async function openSettings(window: Page) {
 	await window.getByRole("button", { name: /^设置/ }).first().click();
-	const dialog = window.getByRole("dialog", { name: "设置" });
-	await expect(dialog).toBeVisible({ timeout: 15_000 });
-	return dialog;
+	const page = window.locator(".settings-modal");
+	await expect(page).toBeVisible({ timeout: 15_000 });
+	return page;
 }
 
 /**

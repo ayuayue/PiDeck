@@ -37,6 +37,12 @@ test("main resolves the profile itself and validates the directory inside the di
 	assert.match(store, /wslHostId: wslIdentity\.hostId/);
 });
 
+test("in-distro picker：drvfs（/mnt/盘符）入盘符路径，其余入规范 UNC", () => {
+	// 回归：入 UNC 的 /mnt/c 目录在 Windows 侧 stat 是 EPERM（目录不存在），
+	// 当 pi 子进程 cwd 是 spawn ENOENT（会话启动失败），git 探测也全挂。
+	assert.match(ipc, /mountedDriveToWindowsPath\(listed\.value\.path\) \?\? linuxPathToWslUnc\(listed\.value\.path, target\.distro\)/);
+});
+
 test("the system folder dialog is no longer handed a WSL path", () => {
 	assert.doesNotMatch(store, /normalizeSelectedWslProjectPath|windowsHome/);
 	assert.match(store, /async chooseAndAdd\(\) \{/);

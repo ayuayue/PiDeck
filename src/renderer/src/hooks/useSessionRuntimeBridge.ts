@@ -6,6 +6,7 @@ import { agentExitedAtom } from "../atoms/runtime-atoms";
 import { desktopApi } from "../desktopApi";
 import { t } from "../i18n";
 import type { TranslationKey } from "../i18n/rendererCopy.zh-CN";
+import { perfEvent } from "../utils/perfProbe";
 import { showNotice } from "../utils/notice";
 import type { NoticeActions, NoticeKind } from "../utils/notice";
 
@@ -33,6 +34,10 @@ export function useSessionRuntimeBridge(callbacks: RuntimeBridgeCallbacks = {}):
 			.catch(() => undefined);
 
 		const offRuntimeEvents = desktopApi.sessions.onRuntimeEvent((event) => {
+			// 归因打点（Phase 4，探针关闭时空调用）：回调里能拿到的最早时刻。
+			// 与 [perf] longtask 的 startTime 同属 performance.now 时钟，可直接对齐——
+			// 若 longtask 起点早于这里，耗时就在「反序列化 + 派发」而非回调内。
+			perfEvent(event.sourceChannel);
 			// agents:state 是全量 AgentTab[] 推送：对已退出（closed）的 agent 释放
 			// agentId 维度 atomFamily 缓存（agentId 每次新 UUID，只增不清是慢泄漏）。
 			if (event.sourceChannel === "agents:state" && Array.isArray(event.payload)) {

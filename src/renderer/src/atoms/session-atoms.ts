@@ -10,6 +10,7 @@ import { mergeAgentRuntimeState } from "../utils/agentRuntimeState";
 import { isSessionTurnRunning } from "../utils/sessionActivityClock";
 import { findLastUserMessageIndex, shouldRefreshOutlineForRuntimeUpsert } from "./outlineRevision";
 import { releaseSessionOutlineProjection } from "./outlineProjectionCache";
+import { perfSpan } from "../utils/perfProbe";
 import { sameProjectSessionList } from "../utils/sessionRecordIdentity";
 import { historyHasCurrentAssistantText, resolveStreamingTextUpdate, shouldHoldLiveText, shouldReleaseHeldLiveText } from "../utils/liveTextHandoff";
 
@@ -475,6 +476,9 @@ export type RunStepsVisibleMemoryEntry = {
 	visible: boolean;
 	/** 写入时的新一轮 tick（session 级单调递增）。 */
 	atTick: number;
+	/** 写入时刻（epoch ms）。与 timeline 的「安静收起」时刻比较：收起发生在写入之后
+	 * 说明这条意愿已被兑现（记忆只是没来得及清），挂载时不再恢复展开。 */
+	atMs: number;
 };
 
 /**
@@ -1071,7 +1075,10 @@ export const prependSessionHistoryPageAtom = atom(
 			return false;
 		}
 		if (current.history && current.history.nextBefore !== input.before) return false;
-		if (!current.history && input.before !== undefined) return false;
+		// 首屏历史页的游标：pi 是「文件头/entryId 锚点」（before 缺省），ACP 没有会话文件，
+		// 首屏游标就是投递窗口起点（数组下标）。两种都接受，其余数值一律拒绝，
+		// 否则一次错游标会把「窗口前那段」以外的消息拼进来。
+		if (!current.history && input.before !== undefined && input.before !== current.windowStart) return false;
 
 		const segmentKeys = new Set(current.messages.map(messageEntryKey));
 		const pageMessages = input.page.messages.filter((message) => !segmentKeys.has(messageEntryKey(message)));
@@ -1126,11 +1133,11 @@ export const prependSessionHistoryPageAtom = atom(
  * 回底清理临时历史（2026-11 轮次模型）：贴底稳定后把 runtime 会话翻过的历史前缀清掉，
  * 只保留运行时窗口段 —— atom 数据回到「最近 9 轮窗口」（DOM 3 / atom 9 / main 12 模型）；
  * 再次上翻走「atom → 主进程缓存 → 文件」三级递进重新拉取。
- * 仅 runtime 来源缓存生效；disk 来源（历史会话浏览）不清，避免打断按条分页游标。
+ * 仅窗口已有消息的 runtime 缓存生效；预热空窗口的历史是唯一内容，不能回收。disk 来源不清。
  */
 export const clearSessionHistoryAtom = atom(null, (get, set, sessionId: string) => {
 	const current = get(sessionMessagesCacheAtom)[sessionId];
-	if (!current || current.source !== "runtime" || !current.history) return false;
+	if (!current || current.source !== "runtime" || !current.history || current.messages.length === 0) return false;
 	releaseSessionOutlineProjection(sessionId);
 	set(sessionMessagesCacheAtom, {
 		...get(sessionMessagesCacheAtom),
@@ -1670,6 +1677,8 @@ export const applySessionRuntimeEventAtom = atom(null, (get, set, event: Session
 		}
 		return;
 	} else if ((event.sourceChannel === "agents:message" || event.sourceChannel === "sessions:messages") && payload) {
+		// Phase 4 分段计时（探针关闭时是空函数）：把一次投递拆成「原子合并」与「React 提交」。
+		const stopMessageSpan = perfSpan("atoms:agents-message");
 		// 迟到快照守卫（2026-11）：stop 后主进程先发 detach（agentId 清除），节流 50ms 的
 		// 最终 messages flush 可能晚于编辑/删除后的 force disk 重载到达，覆盖刚写回的缓存。
 		// 同代际 + 绑定已消失 + terminal 才拦；新代际事件不受影响（detach 清 agentId 后
@@ -1744,6 +1753,7 @@ export const applySessionRuntimeEventAtom = atom(null, (get, set, event: Session
 					...(typeof payloadWindowStartFilePos === "number" ? { windowStartFilePos: payloadWindowStartFilePos } : {}),
 				});
 			}
+			stopMessageSpan();
 			// message 到达后若已含同段 thinking，安全卸 live（覆盖 done 先到的情况）。
 			tryReleaseLiveThinkingAfterHistory(get, set, event.sessionId);
 			tryReleaseHeldLiveTextAfterHistory(get, set, event.sessionId);
@@ -1902,15 +1912,24 @@ export const bindSessionRuntimeAtom = atom(
 		set(sessionRuntimeByIdAtom, {
 			...get(sessionRuntimeByIdAtom),
 			[input.sessionId]: {
+				// 这里只是绑定刷新（send 路径），除 agent 绑定字段外的会话级元数据（projectId/cwd/
+				// createdAt/远端 trust 等，都不属于某次绑定）必须原样保留：漏掉它们会让
+				// projectId/cwd/createdAt 坍塌成 undefined，`agentInventorySourceAtom` 的非空守卫
+				// 随即把这条会话从活动区剔除，而上面的 touch 已把它顶到「最近会话」首位，
+				// 侧栏就出现「掉进最近再闪回活动」的跨区跳变（#492）。首次绑定（无 current）时
+				// 从 catalog 记录回填同一批字段，避免新会话首条消息同样不落活动区。
+				...(current ?? {}),
 				agentId: input.agentId,
 				runtimeGeneration: input.runtimeGeneration ?? currentGeneration,
 				status: input.status ?? (bindingChanged ? "idle" : current?.status) ?? "idle",
 				state: bindingChanged ? undefined : current?.state,
-				// 这里是「只有这几个字段」的绑定刷新（send 路径），不跟随其它字段；
-				// 远端 trust 标记是会话级事实（不属于某次 agent 绑定），必须跟着会话走，
-				// 否则发一条消息就会把刚显示的「远端项目资源未加载」提示抹掉。
-				remoteTrustUnhandled: current?.remoteTrustUnhandled,
-				remoteExtensions: current?.remoteExtensions,
+				projectId: current?.projectId ?? record?.projectId,
+				cwd: current?.cwd ?? (record?.projectPath || undefined),
+				title: current?.title ?? record?.title,
+				sessionPath: current?.sessionPath ?? record?.filePath,
+				createdAt: current?.createdAt ?? record?.createdAt,
+				deckSessionId: current?.deckSessionId ?? record?.id,
+				backend: current?.backend ?? record?.backend,
 				updatedAt: Date.now(),
 			},
 		});

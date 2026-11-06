@@ -46,6 +46,7 @@ function createFilesIpc(root, projectOverride, remoteFiles) {
 				];
 			},
 			searchNames: async () => [{ name: "main.ts", path: join(root, "src", "main.ts"), relativePath: "src/main.ts", type: "file" }],
+			listTreePage: async () => ({ nodes: [], truncated: false }),
 			create: async (parentDir, name, type) => {
 				mutationCalls.push({ operation: "create", parentDir, name, type });
 				return join(parentDir, name);
@@ -65,6 +66,7 @@ function createFilesIpc(root, projectOverride, remoteFiles) {
 	});
 	return {
 		listHandler: listHandlers.get(ipcChannels.filesList),
+		directoryPageHandler: listHandlers.get(ipcChannels.filesDirectoryPage),
 		searchHandler: listHandlers.get(ipcChannels.filesSearch),
 		readContentHandler: listHandlers.get(ipcChannels.filesReadContent),
 		writeContentHandler: listHandlers.get(ipcChannels.filesWriteContent),
@@ -432,7 +434,10 @@ test("远端项目的正文读/写走远端文本端口，而不是「不支持�
 		// 带版本：直接写，不再多读一次。
 		calls.length = 0;
 		await writeContentHandler({ sender: { id: 7 } }, target, "again", undefined, "fedcba9876543210fedcba9876543210");
-		assert.deepEqual(calls.map((call) => call.kind), ["save"]);
+		assert.deepEqual(
+			calls.map((call) => call.kind),
+			["save"],
+		);
 		assert.equal(calls[0].version, "fedcba9876543210fedcba9876543210");
 	} finally {
 		rmSync(fixture, { recursive: true, force: true });
@@ -458,6 +463,29 @@ test("写入带修订指纹：盘上已被改过就拒绝，绝不静默覆盖�
 		// 不传指纹保持旧行为（显式覆盖），不把可选参数变成强制。
 		await writeContentHandler({}, target, "allowed", undefined, undefined);
 		assert.equal(readFileSync(file, "utf8"), "allowed");
+	} finally {
+		rmSync(fixture, { recursive: true, force: true });
+	}
+});
+
+test("files:directory-page treats a vanished subdirectory as empty, only a missing root as PROJECT_DIRECTORY_MISSING", async () => {
+	const fixture = mkdtempSync(join(tmpdir(), "pideck-files-directory-page-"));
+	const root = join(fixture, "project");
+	mkdirSync(root);
+	try {
+		const { directoryPageHandler } = createFilesIpc(root);
+		// 展开的子目录在切换项目后才被删除：旧实现把它翻成 PROJECT_DIRECTORY_MISSING，
+		// 渲染层据此弹「项目目录不存在」。现在按空目录收口，根目录仍然必须报缺。
+		const subdir = await directoryPageHandler({}, { projectId: "project-1", relativePath: "gone/sub" });
+		assert.equal(subdir.ok, true);
+		assert.equal(subdir.value.entries.length, 0);
+		assert.equal(subdir.value.truncated, false);
+
+		const missingRoot = projectFixture(join(fixture, "no-such-root"));
+		const gone = createFilesIpc(join(fixture, "no-such-root"), missingRoot);
+		const rootResult = await gone.directoryPageHandler({}, { projectId: "project-1", relativePath: "" });
+		assert.equal(rootResult.ok, false);
+		assert.equal(rootResult.code, "PROJECT_DIRECTORY_MISSING");
 	} finally {
 		rmSync(fixture, { recursive: true, force: true });
 	}

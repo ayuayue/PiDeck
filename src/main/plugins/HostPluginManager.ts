@@ -1,6 +1,5 @@
 /** Owns local discovery and exact-code consent, independently from pi extension discovery. */
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import type { Dirent } from "node:fs";
 import { join } from "node:path";
 import type { HostPluginCatalog, HostPluginInfo } from "../../shared/types/hostPlugin";
 import { renameWithRetry } from "../utils/fsRetry";
@@ -15,18 +14,6 @@ export class HostPluginManager {
 	private readonly statePath: string;
 	private packages = new Map<string, HostPluginPackage>();
 	private grants = new Map<string, Grant>();
-	/**
-	 * 上次由 seedBuiltin 落位的指纹。用来区分「我们随包落的那份」与「用户改过 / 装过别的版本」：
-	 * 只有目录内容仍等于这里记录的指纹时才允许被新版内置内容替换，用户动过的一律不覆盖。
-	 */
-	private seeded = new Map<string, string>();
-	/**
-	 * 状态文件里没有 `seeded` 记录（本机制之前落位的副本）。
-	 * 那段时间只有 seedBuiltin 会写 `userData/host-plugins/<内置 id>`，但磁盘上分不出「我们落的」与「用户自己装的同 id 插件」，
-	 * 只能拿 manifest.version 当第二条线索：版本不同 ⇒ 来自另一个 PiDeck 版本的内置载荷（即我们自己落的）；版本相同则当作用户的副本，不覆盖。
-	 * 一旦 seedBuiltin 写过一次 seeded 记录就置 false，迁移只发生一次。
-	 */
-	private legacySeeded = false;
 	private issues: HostPluginCatalog["issues"] = [];
 	private listeners = new Set<() => void>();
 	private writeQueue: Promise<void> = Promise.resolve();
@@ -47,9 +34,11 @@ export class HostPluginManager {
 		await this.rescan();
 	}
 
-	/** 读授权与落位记录；`seedBuiltin` 与 `load` 都要先读它才知道磁盘上那份副本是不是我们自己落的。 */
+	/**
+	 * 只读授权。旧版本状态文件里的 `seeded`（已移除的内置示例落位记录）直接忽略：
+	 * 那份记录不再有任何读者，下次写入时自然消失，不需要额外迁移分支。
+	 */
 	private async readState(): Promise<void> {
-		let hasSeededRecord = false;
 		try {
 			const text = await readFile(this.statePath, "utf8");
 			if (text.length > 64 * 1024) throw new Error("state-too-large");
@@ -59,16 +48,9 @@ export class HostPluginManager {
 					if (isHostPluginId(id) && isPluginRecord(grant) && typeof grant.fingerprint === "string" && /^[a-f0-9]{64}$/.test(grant.fingerprint) && typeof grant.enabled === "boolean") this.grants.set(id, { fingerprint: grant.fingerprint, enabled: grant.enabled });
 				}
 			}
-			if (isPluginRecord(state) && isPluginRecord(state.seeded)) {
-				hasSeededRecord = true;
-				for (const [id, fingerprint] of Object.entries(state.seeded)) {
-					if (isHostPluginId(id) && typeof fingerprint === "string" && /^[a-f0-9]{64}$/.test(fingerprint)) this.seeded.set(id, fingerprint);
-				}
-			}
 		} catch {
 			/* Missing/invalid state means no grants, never implicit enablement. */
 		}
-		this.legacySeeded = !hasSeededRecord;
 	}
 
 	onChanged(listener: () => void): () => void {
@@ -160,7 +142,7 @@ export class HostPluginManager {
 
 	/**
 	 * 把已 staged 的临时目录换成正式目录：旧目录先改名让位，换入失败时回滚，成功后再删旧目录。
-	 * 归档安装、目录安装与内置落位共用同一条换血路径，避免三条路径的原子性语义漂移。
+	 * 归档安装与目录安装共用同一条换血路径，避免两种来源的原子性语义漂移。
 	 */
 	private async swapDirectory(temporary: string, target: string): Promise<void> {
 		const retired = this.temporaryDirectory(".retired");
@@ -186,70 +168,21 @@ export class HostPluginManager {
 	}
 
 	/**
-	 * 随包内置的示例插件落位。
-	 *
-	 * 三种情形：目录不存在 → 复制一份；目录内容仍等于上次落位的指纹（用户没动过）→ 用新版替换；
-	 * 其余（用户改过、装过别的版本、自己写了一个同 id 的）→ 永不覆盖。
-	 *
-	 * 「落位」与「授权」仍然是两件事：首次落位后插件是 requiresConsent，要用户在设置页按指纹授权。
-	 * 唯一的顺延是——用户授权过的**上一版内置内容**升级到新版内置内容时，授权跟着走。
-	 * 这是第一方内容（PiDeck 自己随包分发）换版，若每次都要求重新授权，等于每次应用更新都让用户
-	 * 重新批准自己的内置示例；第三方与用户改过的副本都不在顺延范围内。
-	 */
-	async seedBuiltin(sourceDirectory: string): Promise<void> {
-		await mkdir(this.directory, { recursive: true });
-		// initialize 的调用序是 seedBuiltin → load，所以这里必须先自己读一次状态，否则看不到落位记录、也认不出旧格式。
-		await this.readState();
-		const entries: Dirent[] = await readdir(sourceDirectory, { withFileTypes: true }).catch(() => []);
-		let changed = false;
-		for (const entry of entries.slice(0, 16)) {
-			if (!entry.isDirectory() || entry.name.startsWith(".") || !isHostPluginId(entry.name)) continue;
-			const source = await readHostPluginPackage(join(sourceDirectory, entry.name)).catch(() => undefined);
-			if (!source) continue;
-			const target = join(this.directory, entry.name);
-			const installed = await readHostPluginPackage(target).catch(() => undefined);
-			const seededFingerprint = this.seeded.get(entry.name);
-			// 旧状态文件没有落位记录（legacySeeded）：版本不同就说明这份副本来自另一个 PiDeck 版本的内置载荷（见 legacySeeded 注释）。
-			const refreshable = installed?.fingerprint === seededFingerprint || (this.legacySeeded && installed !== undefined && installed.manifest.version !== source.manifest.version);
-			if (installed && !refreshable) continue;
-			if (installed?.fingerprint === source.fingerprint) continue;
-			const temporary = this.temporaryDirectory(".seed");
-			try {
-				await copyHostPluginPackage(join(sourceDirectory, entry.name), temporary);
-				await this.swapDirectory(temporary, target);
-			} catch {
-				/* 内置示例落位失败不影响插件系统其余功能 */
-				continue;
-			} finally {
-				await rm(temporary, { recursive: true, force: true }).catch(() => undefined);
-			}
-			const grant = this.grants.get(entry.name);
-			// 授权顺延：用户批准的就是磁盘上这份（grant 指纹等于 installed 指纹）且我们正在用自己更新的内置载荷替换它。
-			// 但权限扩大时顺延就等于绕过授权：新的加载物会在用户没批准过的范围上取数据，只保留「权限没扩大」的那一类。
-			const widened = source.manifest.permissions.some((permission) => !installed?.manifest.permissions.includes(permission));
-			if (installed && !widened && grant?.enabled === true && grant.fingerprint === installed.fingerprint) this.grants.set(entry.name, { fingerprint: source.fingerprint, enabled: true });
-			this.seeded.set(entry.name, source.fingerprint);
-			changed = true;
-		}
-		if (changed) await this.persistState().catch(() => undefined);
-	}
-
-	/**
-	 * 卸载：撤权 → 删目录 → 清授权与落位记录。
-	 * 内置示例不允许卸载——下次启动 seedBuiltin 会把它重新落位，删了只会让人以为卸载没生效；要停用它请用禁用。
+	 * 卸载：撤权 → 删目录 → 清授权。
+	 * 插件全部由用户自己安装（文件 / 目录 / GitHub / 市场），没有会自动回来的副本，因此这里没有内置例外。
 	 */
 	async remove(id: string): Promise<HostPluginCatalog> {
 		const plugin = this.packages.get(id);
 		if (!plugin) throw new Error("plugin-not-found");
-		if (this.seeded.has(id)) throw new Error("plugin-builtin");
 		// 先撤权再动磁盘：挂载中的视图要立刻失效，不能等删除完成（与 setEnabled 同序）。
 		if (this.grants.get(id)?.enabled) {
 			this.grants.set(id, { fingerprint: plugin.fingerprint, enabled: false });
 			this.notify();
 		}
 		const retired = this.temporaryDirectory(".removed");
+		// 按包的实际目录删（不拼 id）：用户手工放进来的目录名可以与其 manifest.id 不同，拼 id 会让卸载直接失败。
 		if (
-			!(await rename(join(this.directory, id), retired).then(
+			!(await rename(plugin.root, retired).then(
 				() => true,
 				() => false,
 			))
@@ -257,7 +190,6 @@ export class HostPluginManager {
 			throw new Error("plugin-remove-failed");
 		await rm(retired, { recursive: true, force: true }).catch(() => undefined);
 		this.grants.delete(id);
-		this.seeded.delete(id);
 		await this.persistState().catch(() => undefined);
 		return this.rescan();
 	}
@@ -296,9 +228,9 @@ export class HostPluginManager {
 		return !this.disabled && plugin && grant?.enabled && grant.fingerprint === plugin.fingerprint ? plugin : undefined;
 	}
 
-	/** 串行写状态文件：授权与落位记录同一份，最后一次写入胜出，失败不抛给调用方之外的路径。 */
+	/** 串行写状态文件：最后一次写入胜出，失败不抛给调用方之外的路径。 */
 	private persistState(): Promise<void> {
-		const state = JSON.stringify({ version: 1, grants: Object.fromEntries(this.grants), seeded: Object.fromEntries(this.seeded) });
+		const state = JSON.stringify({ version: 1, grants: Object.fromEntries(this.grants) });
 		const persist = this.writeQueue.then(async () => {
 			const temporary = `${this.statePath}.tmp`;
 			await writeFile(temporary, state, { mode: 0o600 });

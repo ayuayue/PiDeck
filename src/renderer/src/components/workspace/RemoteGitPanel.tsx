@@ -628,15 +628,7 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 														<span className="font-mono text-text-secondary">{ref.oid.slice(0, 8)}</span>
 														{/* Switching only ever names an existing branch; the current one has nothing to do. */}
 														{ref.kind === "branch" && ref.name !== snapshot.branch ? (
-															<Button
-																type="button"
-																variant="ghost"
-																size="sm"
-																data-testid="remote-git-switch-branch"
-																aria-label={`${t("remoteGit.switchBranch")} ${ref.name}`}
-																disabled={!canSwitchBranch}
-																onClick={() => (changeCount > 0 ? setPendingSwitch(ref.name) : switchBranch(ref.name))}
-															>
+															<Button type="button" variant="ghost" size="sm" data-testid="remote-git-switch-branch" aria-label={`${t("remoteGit.switchBranch")} ${ref.name}`} disabled={!canSwitchBranch} onClick={() => (changeCount > 0 ? setPendingSwitch(ref.name) : switchBranch(ref.name))}>
 																{t("remoteGit.switchBranch")}
 															</Button>
 														) : null}

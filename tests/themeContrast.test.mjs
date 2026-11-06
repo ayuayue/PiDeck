@@ -121,7 +121,7 @@ const DARK = { ...LIGHT, ...extractBlock(':root[data-theme="dark"]') };
 // 外观样式（data-appearance）不在这里：它只改形状/字体/圆角，没有任何颜色声明，
 // 因此不产生新的文字/底色配对（守卫见 tests/appearanceThemes.test.mjs）。
 const ACCENTS = ["green", "blue", "purple", "amber", "rose"];
-const PALETTE_IDS = ["fresh-green", "graphite", "sea-blue", "warm-beige", "tui"];
+const PALETTE_IDS = ["fresh-green", "graphite", "sea-blue", "warm-beige", "parchment", "tui"];
 const PALETTES = [
 	{ label: "浅色", tokens: LIGHT },
 	...ACCENTS.map((a) => ({ label: `浅色+${a}`, tokens: { ...LIGHT, ...extractBlock(`:root[data-accent="${a}"]`) } })),

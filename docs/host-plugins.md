@@ -93,10 +93,8 @@
 - 停止只能按 pid 终止（外部 CLI 没有 stop 子命令）：pid 一律来自 `bili doctor --json` 的报告，不猜、不按名字杀。UI 地址同样从报告里取，但只接受 `http://127.0.0.1|localhost:<port>`，防报告被改写成公网地址把内置浏览器带走。
 - 停止**不保证停得住**：billion-context 的 pi lane 由 pi 自己的扩展持有（`dist/agent/pi-native.js` 的 `ensureProxyRunning`），进程一死 pi 会立刻重新拉起——实测杀掉 pid 后约 2 秒就有新 pid 监听同一端口。适配器在轮询窗口内看到「仍在运行但 pid 已变」时返回 `reason: "stop-restarted"`（带新 pid 与 uiUrl），而不是报 `stop-failed` 或假装成功；只有 pid 没变才算真失败。面板要如实转述（要彻底停掉需先退出 pi），不要自动重试。
 - 「打开面板」不走插件：Broker 转发 `onOpenBrowser` sink → `hostPluginOpenBrowser` IPC → 渲染层 `workspace.openDrawerForce("browser") + navigateTo(url)`。插件页 CSP 是 `frame-src 'none'`，本来就无法内嵌这类 SPA。
-- 内置示例：`resources/host-plugins/billion-context/` 随包分发（`extraResources` → `resources/host-plugins`），由 `HostPluginManager.seedBuiltin()` 在 `load()` 前落位到 `userData/host-plugins/`。落位不等于授权：首次落位同样是 `requiresConsent`，仍需用户按指纹确认。
-- 落位的三种情形（`seeded` 记录上次落位指纹，存在 `host-plugin-state.json`）：目录不存在 → 复制一份；目录内容仍等于上次落位的指纹（用户没动过）→ 用新版内置内容替换；其余（用户改过、装过别的版本、自己写了同 id 的）→ **永不覆盖**。只有第一种情形（上一版内置内容）升级时授权顺延，避免每次应用更新都要求重新批准自己的内置示例；第三方与用户改过的副本不在顺延范围。顺延只在新载荷的权限没有扩大时成立（旧权限集合必须是新集合的超集）：内置示例新增权限就是扩大数据范围，必须回到 `requiresConsent` 让用户按指纹重新批准。
-- 旧状态文件（`seeded` 机制之前）没有落位记录，磁盘上分不出「我们落的」与「用户自己装的同 id 插件」：这种情形只用一次，拿 `manifest.version` 当第二条线索——版本不同 ⇒ 来自另一个 PiDeck 版本的内置载荷（即我们自己落的），替换并顺延授权；版本相同则当作用户的副本不覆盖。`seedBuiltin` 写过一次 `seeded` 后该分支就永久失效。
-- 卸载：`HostPluginManager.remove(id)` 先撤权再删目录（顺序与 `setEnabled` 一致，挂载中的视图立刻失效），同时清掉授权与落位记录。`seeded` 里的 id 拒绝卸载（`plugin-builtin`）——下次启动 `seedBuiltin` 会把它重新落位，删了只会让人以为卸载没生效；要停用请用禁用。渲染层入口在设置页插件行（`HostPluginsTab` 的「卸载」+ 确认框）。
+- **示例包不随包**：本地服务示例在 `docs/examples/host-plugins/billion-context/`，不参与打包也不自动落位——设置 → PiDeck 插件 → 「从文件夹安装…」后再授权；不想留着直接卸载。
+- 卸载：`HostPluginService.remove(id)` 先经 `HostPluginManager.remove` 撤权 → 删目录 → 清授权（顺序与 `setEnabled` 一致，挂载中的视图立刻失效），再 `HostPluginStorage.purge(id)` 删掉 `host-plugin-storage/<id>.json`。所有插件都是用户自己装的，没有「下次启动又回来」的内置例外；渲染层入口在设置页插件行（「卸载」+ 确认框）。
 - 新增服务的成本：`src/main/localServices/` 加适配器 + 在 `src/shared/localServices.ts` 登记 ID，插件侧 manifest 校验随之放行。第三方插件无法自行扩展能力面。
 
 ## 面板形态与入口（`presentation`）
@@ -128,7 +126,7 @@
 - 格式：NDJSON 单文件（header 行 + 每文件一行 base64 + sha256），与目录包同一套预算（单文件 4MiB / 展开 16MiB / 100 文件 / 深度 8）；归档总体上限 24MiB。选自描述行格式而非 zip：无运行时解压依赖，预算与逐文件校验内建在解析器（`src/main/plugins/hostPluginArchive.ts`）。
 - 打包：`node scripts/pack-host-plugin.mjs <插件目录> [输出.pideck-plugin]`。
 - 安装：设置 → PiDeck 插件 →「从文件安装…」收 `.pideck-plugin` 归档，「从文件夹安装…」收已解压的目录包；两条路径都：路径只来自主进程对话框（渲染层不传路径）→ 拷/写到隐藏 temp 目录（`stageHostPluginFile` 逐级建目录，支持 `assets/app.html` 这类嵌套资产）→ 走 `readHostPluginPackage` 全量验证 → 原子换入，失败自动清理。目录来源额外跳过 `.git`/`node_modules` 整棵；路径形状不合法（空格/中文名等）或超限的文件被跳过而不是造成整包失败，其余文件照搬到落位目录。
-- 第三条路径「从 GitHub 安装…」只收 `https://github.com/<owner>/<repo>[/tree/<ref>[/<subpath>]]`，下载固定走 `codeload.github.com` 的 tar.gz + 自写 tar 解析（无 `git`、不执行仓库脚本）；三条路径共用 `HostPluginManager.installFiles` 同一套预算与信任判定。
+- 第三条路径「从链接安装…」收 GitHub 或 AtomGit 的 `https://<host>/<owner>/<repo>[/tree/<ref>[/<subpath>]]`：GitHub 走 `codeload.github.com` 的 tar.gz + 自写 tar 解析，AtomGit 走 API v5 的 `file_list` + `raw`（先按包根收敛再逐文件取，无归档接口）；两条都不执行仓库脚本，与归档/目录安装共用 `HostPluginManager.installFiles` 同一套预算与信任判定（选包与预算口径收在 `hostPluginPackage.ts`）。
 - 替换语义：启用中的插件拒绝替换（`plugin-in-use`，先禁用再装）；禁用状态重装同 id 允许，字节一致则指纹不变，内容变化则旧授权失效。
 
 ## 插件市场（双源发现）
@@ -137,29 +135,29 @@
 
 | 源 | 来源与顺序 | 卡片标记 |
 | --- | --- | --- |
-| 官方收录 | `https://raw.githubusercontent.com/ayuayue/pideck-plugins/main/registry.json`（人工核对过 manifest 与权限，支持 `repo` + `ref` + `subpath` 精确到子目录，可一仓多插件） | 官方收录 |
+| 官方收录 | GitHub raw 的 `registry.json`（失败自动回退 AtomGit API raw；镜像仓库 <https://atomgit.com/ayuayue/pideck-plugins>）；人工核对过 manifest 与权限，支持 `repo` + `ref` + `subpath` 精确到子目录，可一仓多插件；`atomgitRepo` 声明镜像仓库，安装时可切 AtomGit 下载源 | 官方收录 |
 | 社区 | GitHub `topic:pideck-plugin`，按星标倒序，排除 fork/归档，**只认仓库根**的 `pideck-plugin.json` | 社区 · 未审阅 |
 
-- 安装复用 `hostPluginsInstallGitHub`（`downloadGitHubPlugin(installUrl)` → `installFiles`），所以市场拿不到任何额外能力：装完仍是禁用 + 需授权，指纹链路与手工安装完全相同。
+- 安装复用 `hostPluginsInstallGitHub`：主进程按 host 分派 `downloadGitHubPlugin` / `downloadAtomGitPlugin`，文件集交给 `installFiles`，所以市场拿不到任何额外能力：装完仍是禁用 + 需授权，指纹链路与手工安装完全相同。官方收录在市场里可切 GitHub / AtomGit 下载源（`atomgitUrl` 只在 registry 条目声明了 `atomgitRepo` 时出现）。
 - 合并规则：官方收录排在社区结果之前；**官方源内部不按仓库去重**（一个 monorepo 可以出多条，`subpath` 各自精确，见已有 4 条收录）；社区条目只要它那个仓库已被收录就跳过（社区只能整仓装，registry 那条更准）；其余按 `installUrl` 去重；结果截断 40 条。
 - 单源失败不阻断：失败文本进 `warnings` 由 UI 展示；**双源全挂才抛错**。所有远程数据当不可信输入：形态不对的 registry 条目、`installUrl` 拼不出来的条目（缺 `repo`、`repo` 不是 `owner/name`、`ref`/`subpath` 含空段或 `.`/`..`）一律丢弃，宁可少一条也不给点下去必然失败的安装按钮。
 - 为什么只按 topic 拉一次再本地过滤：`api.github.com/search/repositories` 未认证限 10 请求/分钟，而用户会连打十几次关键词。缓存：社区源 10 分钟、官方索引 6 小时（`clearHostPluginMarketCache()` 供测试清缓存）。
 - 桌面端所有请求走 Electron `net.fetch`（动态 `import("electron")` 取，跟随 PiDeck 代理设置）；**禁裸全局 `fetch`**——undici 不读系统代理，境外 API 会挂到超时。
 - 卸载/撤下**不追溯**已装实例：删 `registry.json` 里那一行或撤 topic 只影响后续搜索。
 
-## 内置示例（`resources/host-plugins/`）
+## 示例包（`docs/examples/host-plugins/`）
 
-- 目录：`resources/host-plugins/<id>/`（目录名必须等于 `manifest.id`，落位按目录名走），`extraResources` → `<resources>/host-plugins`，开发态取 `appPath/resources/host-plugins`（`src/main/plugins/builtinHostPlugins.ts`）；`seedBuiltin()` 在 `load()` 前落位到 `userData/host-plugins/<id>/`。目录缺失只少一个面板，内置插件是可选示例而不是功能依赖。
-- 当前两个内置插件：
+- 仓库里有两个可直接安装的完整示例，**不随包分发、不自动落位**：PiDeck 出厂不带任何宿主插件，安装来源只有「从文件 / 从文件夹 / 从链接 / 插件市场」，装完仍是禁用 + 需按指纹授权。
+- 手动安装：设置 → PiDeck 插件 → 「从文件夹安装…」，选 `docs/examples/host-plugins/<id>/`（目录名必须等于 `manifest.id`）。
 
 | id | 演示了什么 | 权限 | 面板 |
 | --- | --- | --- | --- |
 | `billion-context` | 本地服务点名与启停（适配器只认 service id） | `service.local` | `popover` |
-| `session-groups` | 只读会话目录 + 工作区分组 + 工作台跳转 + 私有 `storage` 持久化；首个 `page` 形态完整示例（按目录建组，上游 [Lamb-Yang/pideck-plugin](https://github.com/Lamb-Yang/pideck-plugin) 的随包副本，见该目录 README 的同步说明） | `sessions.read`、`sessions.read.workspace`、`workbench.navigate` | `page` |
+| `session-groups` | 只读会话目录 + 工作区分组 + 工作台跳转 + 宿主 `sessionGroups.*`；`page` 形态完整示例（上游 [Lamb-Yang/pideck-plugin](https://github.com/Lamb-Yang/pideck-plugin) 的同步副本，见该目录 README 的同步说明） | `sessions.read`、`sessions.read.workspace`、`workbench.navigate`、`sessionGroups.manage` | `page` |
 
-- `session-groups` 的分组关系只写插件自己的 `storage`（`ws.meta` + 每个分组一个 `ws.g.<groupId>`；分组可带 `dirs` 目录范围，超 800 条 id 自动分片到 `ws.g.<groupId>.<n>`；旧版按项目隔离的 `grp.<projectId>` 会一次性并入且保留原键），不写会话文件、不联网；它没有网络/服务权限。
-- 内置插件的能力面在 `tests/builtinHostPlugins.test.mjs` 的登记表里锁定：目录与登记表必须一一对应，权限/面板形态变化会让测试先红——因此把上游新版复制进来（尤其上游新增 `network.*` / `service.local`）时必须先审一遍数据外发与命令执行风险、改登记表，再随包。
-- 落位、升级、卸载语义与「本地服务」一节同一套：落位 ≠ 授权（首次仍是 `requiresConsent`），只有内容仍等于上次落位指纹才随新版替换并顺延授权（权限扩大时不再顺延），手改过的副本永不被覆盖；`seeded` 里的 id 拒绝卸载（`plugin-builtin`，要停用请用禁用）。
+- `session-groups` 的分组数据自 v3 存在宿主 store（`<userData>/session-groups.json`，经 `pideck.sessionGroups.*` 读写）；旧版插件私有 `storage` 里的 `ws.meta` / `ws.g.*` 由 `SessionGroupStore` 在启动时一次性迁移且不删旧文件。它没有网络/服务权限。
+- 侧栏分组树只在 `session-groups` 已安装且启用时出现（`isSessionGroupsPluginEnabled`，fail-closed）：没装就不显示分组，装回来即恢复（数据在宿主 store，不在插件目录里）。
+- 示例包的能力面在 `tests/exampleHostPlugins.test.mjs` 的登记表里锁定：目录与登记表必须一一对应，权限/面板形态变化会让测试先红——同步上游新版（尤其新增 `network.*` / `service.local`）时必须先审一遍数据外发与命令执行风险、改登记表。
 
 ## pi-context 本地适配
 
@@ -173,5 +171,5 @@
 ## 开发与验证
 
 - 网络回归：`node --test tests/hostPluginNetwork.test.mjs tests/hostPluginNetworkTransport.test.mjs tests/hostPluginNetworkUi.test.mjs tests/hostPluginNetworkDemo.test.mjs`（策略/撤权、真实 hop 的替身 socket、授权展示、静态 demo；不启动服务或连接真实接口）。
-- 回归测试：`node --test tests/hostPlugins.test.mjs`（manifest/授权/隔离视图/预算/跨项目 fork/撤销提交）、`node --test tests/hostPluginScaffold.test.mjs`（脚手架产物与新增 API 面）、`node --test tests/hostPluginDirectoryInstall.test.mjs`（目录安装）、`node --test tests/hostPluginArchive.test.mjs`（归档）、`node --test tests/hostPluginMarket.test.mjs`（双源搜索/去重/单源降级/缓存/registry 解析）、`node --test tests/builtinHostPlugins.test.mjs`（随包内置插件的出厂契约与能力面登记）、`node --test tests/piContextHostAdapter.test.mjs`（转换器）。
-- 主进程模块在 `src/main/plugins/`（含 `hostPluginScaffold.ts` / `hostPluginGitHub.ts` / `hostPluginMarket.ts`）；IPC 入口 `src/main/ipc/hostPluginsIpc.ts`；共享契约 `src/shared/types/hostPlugin.ts`；preload 白名单 `src/preload/hostPlugin.ts`。面向插件作者的完整文档是 `docs/host-plugin-dev-guide.md`（同一份文件同步上官网 `/guide/host-plugins`）；插件模板与收录仓库是 [ayuayue/pideck-plugins](https://github.com/ayuayue/pideck-plugins)。
+- 回归测试：`node --test tests/hostPlugins.test.mjs`（manifest/授权/隔离视图/预算/跨项目 fork/撤销提交）、`node --test tests/hostPluginScaffold.test.mjs`（脚手架产物与新增 API 面）、`node --test tests/hostPluginDirectoryInstall.test.mjs`（目录安装）、`node --test tests/hostPluginArchive.test.mjs`（归档）、`node --test tests/hostPluginMarket.test.mjs`（双源搜索/去重/单源降级/缓存/registry 解析/AtomGit 索引回退）、`node --test tests/hostPluginAtomGit.test.mjs`（AtomGit 链接/文件列表/包根/预算/raw 下载）、`node --test tests/exampleHostPlugins.test.mjs`（示例包的出厂契约与能力面登记）、`node --test tests/piContextHostAdapter.test.mjs`（转换器）。
+- 主进程模块在 `src/main/plugins/`（含 `hostPluginScaffold.ts` / `hostPluginGitHub.ts` / `hostPluginAtomGit.ts` / `hostPluginPackage.ts` / `hostPluginMarket.ts`）；IPC 入口 `src/main/ipc/hostPluginsIpc.ts`；共享契约 `src/shared/types/hostPlugin.ts`；preload 白名单 `src/preload/hostPlugin.ts`。面向插件作者的完整文档是 `docs/host-plugin-dev-guide.md`（同一份文件同步上官网 `/guide/host-plugins`）；插件模板与收录仓库是 [ayuayue/pideck-plugins](https://github.com/ayuayue/pideck-plugins)（AtomGit 镜像：<https://atomgit.com/ayuayue/pideck-plugins>）。

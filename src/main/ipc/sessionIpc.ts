@@ -989,6 +989,14 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			// 引导页重发另建会话留下孤儿空闲 Agent——2026-10-06 事故，与
 			// mergeScanned 的 liveness 豁免同口径）。
 			.filter((record) => {
+				// 跨环境记录不进本机项目的列表（2026-11-05 反馈）：项目在本机模式下运行，条目却
+				// 记在 WSL 执行上下文里（filePath 是 /mnt/c/... 这类 Linux 侧路径）。这些路径宿主
+				// existsSync 恒 false，读历史必然 ENOENT，豁免死链过滤后就是成片的「点开永远是
+				// 空会话」幽灵行——执行环境来回切换一次，同一批会话会各自再抄一份。
+				// 与 docs/project-location-architecture.md 同口径：本机与 WSL 是两套执行作用域。
+				// 只隐藏不清理：翻回 WSL 时条目原样复现（保 pinned / 手工标题），不做破坏性归并。
+				// 反方向（WSL 项目里的本机记录）不隐藏：盘符路径本机能读，时间线可正常打开。
+				if (record.environment === "wsl" && projectWsl === undefined) return false;
 				if (!record.filePath || record.backend === "dsh" || record.backend === "acp" || record.filePath.startsWith("\\\\")) return true;
 				// WSL 条目豁免：catalog 存的是 Linux 侧路径（/home/...），宿主 existsSync 恒
 				// false，按死链滤掉会把 WSL 用户的全部会话从列表里抹掉（2026-10-07 升级

@@ -157,6 +157,8 @@ export type HostPluginMarketEntry = {
 	source: HostPluginMarketSource;
 	/** 可直接交给 `installGitHub` 的链接（github.com/owner/repo[/tree/ref/subpath]）。 */
 	installUrl: string;
+	/** 官方收录的 AtomGit 镜像安装链接（atomgit.com/owner/repo[/tree/ref/subpath]）；社区源没有。 */
+	atomgitUrl?: string;
 	/** 仓库全名 `owner/name`，用于去重与「打开仓库」。 */
 	repo: string;
 	author?: string;
@@ -186,14 +188,14 @@ export type HostPluginDesktopApi = {
 	install: () => Promise<HostPluginResult<HostPluginCatalog>>;
 	/** Pick and install an unpacked plugin directory (same dialog rule: the renderer never supplies a path). */
 	installDirectory: () => Promise<HostPluginResult<HostPluginCatalog>>;
-	/** Install from a public GitHub repo URL: the main process downloads and extracts it, the renderer only passes the link. */
+	/** Install from a public GitHub or AtomGit repo URL: the main process downloads and extracts it, the renderer only passes the link. */
 	installGitHub: (url: string) => Promise<HostPluginResult<HostPluginCatalog>>;
 	/**
 	 * 插件市场搜索：官方收录（registry.json）+ GitHub `pideck-plugin` topic 双源合并。
 	 * 只返回条目，不返回字节——安装仍走 `installGitHub`。空关键词 = 浏览全部。
 	 */
 	searchMarket: (keyword: string) => Promise<HostPluginResult<HostPluginMarketSearchResult>>;
-	/** 卸载：删掉 userData 里的插件目录并清掉授权；内置示例不可卸载（返回 plugin-builtin）。 */
+	/** 卸载：删掉 userData 里的插件目录、清掉授权与该插件的私有 storage；不可撤销，没有任何自动恢复的副本。 */
 	remove: (id: string) => Promise<HostPluginResult<HostPluginCatalog>>;
 	mount: (input: HostPluginMountInput) => Promise<HostPluginResult<HostPluginMount>>;
 	update: (instanceId: string, context: HostPluginContext) => Promise<HostPluginResult<void>>;

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { setImmediate } from "node:timers/promises";
 import test from "node:test";
 import { createRequire } from "node:module";
@@ -8,6 +9,12 @@ const { Transaction } = require("@codemirror/state");
 const { undo, undoDepth } = require("@codemirror/commands");
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { quickMessageHookHost } from "./helpers/quickMessageHookHost.mjs";
+
+const CRLF_DEFAULT = "<template>one</template>\r\n<template>two</template>\r\n";
+
+/** 与实现同一算法（`sha256:` + 内容哈希）；同步算完后在微任务里 resolve，测试不依赖 WebCrypto 的线程池调度。 */
+const sha256Revision = (text) => "sha256:" + createHash("sha256").update(Buffer.from(text, "utf8")).digest("hex");
+const digestStub = { subtle: { digest: async (_algorithm, bytes) => createHash("sha256").update(Buffer.from(bytes)).digest() } };
 
 /** 执行真实编辑器的 effects/listener，以真实 CM state 处理文本，不依赖浏览器布局。 */
 function editorHarness(initialProps) {
@@ -97,6 +104,7 @@ function viewerHarness(initialProps = {}) {
 				return id;
 			},
 			clearTimeout: (id) => timers.delete(id),
+			crypto: digestStub,
 		},
 		stubs: {
 			react: { ...host.react, lazy: () => (++lazyId === 1 ? "CodeMirrorEditor" : "CodeDiffView"), Suspense: "suspense" },
@@ -118,7 +126,7 @@ function viewerHarness(initialProps = {}) {
 		activeTabId: "tab-1",
 		mode: "view",
 		theme: "dark",
-		readContent: async () => "<template>one</template>\r\n<template>two</template>\r\n",
+		readContent: async () => CRLF_DEFAULT,
 		saveContent: async (...args) => {
 			writes.push(args);
 		},
@@ -186,6 +194,8 @@ test("只打开 CRLF 文件并等待防抖：零保存；真实编辑保留 CRLF
 		await viewer.advance();
 		assert.equal(viewer.writes.length, 1);
 		assert.equal(viewer.writes[0][1], "edited <template>one</template>\r\n<template>two</template>\r\n");
+		// 乐观锁：首次保存必须带上「载入时读到的那份内容」的 sha256 基准。
+		assert.equal(viewer.writes[0][3], sha256Revision(CRLF_DEFAULT));
 		assert.deepEqual(viewer.dirtyChanges, [true, false]);
 	} finally {
 		editor?.unmount();
@@ -197,7 +207,7 @@ test("保存进行中再次编辑：串行保存最新内容，安装前置任�
 	const pending = [];
 	const viewer = viewerHarness({
 		readContent: async () => "original",
-		saveContent: (path, content) => new Promise((resolve) => pending.push({ path, content, resolve })),
+		saveContent: (path, content, scope, expectedRevision) => new Promise((resolve) => pending.push({ path, content, scope, expectedRevision, resolve })),
 	});
 	try {
 		viewer.render();
@@ -206,6 +216,7 @@ test("保存进行中再次编辑：串行保存最新内容，安装前置任�
 		viewer.render();
 		await viewer.advance();
 		assert.equal(pending.length, 1);
+		assert.equal(pending[0].expectedRevision, sha256Revision("original"));
 		viewer.editor().props.onChange("latest edit");
 		viewer.render();
 		let preflightDone = false;
@@ -220,6 +231,8 @@ test("保存进行中再次编辑：串行保存最新内容，安装前置任�
 		await viewer.settle();
 		assert.equal(pending.length, 2);
 		assert.equal(pending[1].content, "latest edit");
+		// 基准随成功保存推进：第二次带的是第一次落盘内容的指纹，而不是最初的载入内容。
+		assert.equal(pending[1].expectedRevision, sha256Revision("first edit"));
 		assert.equal(preflightDone, false, "不能在旧内容落盘后就允许安装退出");
 		assert.deepEqual(viewer.dirtyChanges, [true]);
 		pending[1].resolve();
@@ -238,7 +251,7 @@ test("保存期间撤回到原内容：仍需等待旧写入并把原内容真�
 	const pending = [];
 	const viewer = viewerHarness({
 		readContent: async () => "original",
-		saveContent: (_path, content) => new Promise((resolve) => pending.push({ content, resolve })),
+		saveContent: (_path, content, _scope, expectedRevision) => new Promise((resolve) => pending.push({ content, expectedRevision, resolve })),
 	});
 	try {
 		viewer.render();
@@ -258,6 +271,7 @@ test("保存期间撤回到原内容：仍需等待旧写入并把原内容真�
 		pending[0].resolve();
 		await viewer.settle();
 		assert.equal(pending[1].content, "original");
+		assert.equal(pending[1].expectedRevision, sha256Revision("temporary edit"), "撤回内容仍以最近一次成功落盘的指纹作基准");
 		pending[1].resolve();
 		assert.equal(await saved, true);
 		await viewer.settle();
@@ -340,8 +354,10 @@ test("首次加载失败不挂编辑器，Ctrl+S 也不会写盘", async () => {
 
 test("保存被拒绝后展示可读错误并保留编辑内容和dirty，显式重试可成功", async () => {
 	let attempts = 0;
+	const revisions = [];
 	const viewer = viewerHarness({
-		saveContent: async () => {
+		saveContent: async (_path, _content, _scope, expectedRevision) => {
+			revisions.push(expectedRevision);
 			if (++attempts === 1) throw new Error("FILE_ACCESS_DENIED:EPERM");
 		},
 	});
@@ -358,6 +374,8 @@ test("保存被拒绝后展示可读错误并保留编辑内容和dirty，显式
 		viewer.listeners.get("keydown")({ key: "s", ctrlKey: true, preventDefault() {} });
 		await viewer.settle();
 		assert.equal(attempts, 2);
+		// 失败的保存不推进基准指纹：重试仍按最初载入内容做乐观锁。
+		assert.deepEqual(revisions, [sha256Revision(CRLF_DEFAULT), sha256Revision(CRLF_DEFAULT)]);
 		assert.equal(viewer.alert(), undefined);
 		assert.deepEqual(viewer.dirtyChanges, [true, false]);
 	} finally {

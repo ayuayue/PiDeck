@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { fixture, options, successful } from "./helpers/remoteGitFixture.mjs";
@@ -147,7 +147,8 @@ test("a .git symlink (live or dangling) is an existing repository and is never f
 	assert.deepEqual(readdirSync(target), [], "the helper must not follow the link and write through it");
 	assert.deepEqual(witness(f.root), before);
 	// A dangling link is refused the same way: it is a .git entry in some form, not an empty root.
-	rmSync(join(f.root, ".git"));
+	// fs.rmSync stats through the link and refuses a directory target (ERR_FS_EISDIR); unlink removes the link itself.
+	unlinkSync(join(f.root, ".git"));
 	symlinkSync(join(f.directory, "missing-target"), join(f.root, ".git"), "dir");
 	assert.equal(await refusal(f, {}), "GIT_REPO_EXISTS");
 	assert.equal(existsSync(join(f.directory, "missing-target")), false);

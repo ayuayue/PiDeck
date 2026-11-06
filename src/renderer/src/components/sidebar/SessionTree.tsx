@@ -129,10 +129,10 @@ export function SessionTree(props: {
 	const canCollapseChildren = props.controller.hasExpandedChildren(props.project.id);
 	/** 完整文案（含数字），用于 aria-label / title 的无障碍与悬停提示。 */
 	const showMoreLabel = props.nested ? t("app.worktreeShowMoreSessions", { count: display.hiddenChildCount }) : t("app.projectShowMoreChildren", { count: display.hiddenChildCount });
-	/** 按钮内可见文字：非嵌套文案是「查看更多 {count}」，数字在句尾，
-	 *  拆出来单独右对齐（与上方会话行的时间列对齐）；嵌套文案数字在句中，
-	 *  拆开会出现「还有 个会话…」这种断句，故整体渲染。 */
-	const showMoreText = props.nested ? showMoreLabel : t("app.projectShowMoreChildren", { count: "" }).replace(/\s+$/, "");
+	/** 按钮内可见文字：非嵌套用无计数的动词文案，条数在 JSX 里紧跟其后内联成「查看更多 (12)」——
+	 *  旧版把数字用 ml-auto 推到按钮最右（与上方时间列同列），在 ghost 无边框状态下紧贴「收起」，
+	 *  会被读成「收起 12 项」或一个时间戳（#491）。嵌套文案数字在句中（还有 12 个会话…），不拆。 */
+	const showMoreText = props.nested ? showMoreLabel : t("common.showMore");
 	const collapseLabel = t("app.projectCollapseChildren");
 	const hasRows = catalogLoading || draftSessions.length > 0 || display.visibleChildren.length > 0 || display.hiddenChildCount > 0;
 	const [retainingExit, setRetainingExit] = useState(hasRows);
@@ -484,8 +484,8 @@ export function SessionTree(props: {
 						>
 							<ChevronDown size={12} aria-hidden="true" />
 							<span className="truncate">{showMoreText}</span>
-							{/* 数字与上方会话行的相对时间同列右对齐（嵌套文案数字在句中，不拆）。 */}
-							{!props.nested && <span className="ml-auto shrink-0 pl-1.5 tabular-nums">{display.hiddenChildCount}</span>}
+							{/* 条数紧跟动词内联（与活动页「加载更多」同款），不再右对齐到时间列。 */}
+							{!props.nested && <span className="shrink-0 tabular-nums">({display.hiddenChildCount})</span>}
 						</Button>
 					)}
 					{canCollapseChildren && (

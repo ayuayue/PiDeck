@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Fragment, useCallback, useMemo, useRef, type MutableRefObject, type ReactNode, type RefObject } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useReducer, useRef, type MutableRefObject, type ReactNode, type RefObject } from "react";
 
 /**
  * 通用虚拟栈：把一个「可能很长的行列表」收敛成「只挂视口附近的行」。
@@ -34,7 +34,10 @@ import { Fragment, useCallback, useMemo, useRef, type MutableRefObject, type Rea
  * - 虚拟化时行根必须带 `data-index`（virtual-core 的 `indexFromElement` 靠它定位）与稳定 key；
  * - 内容盒高度取 `getTotalSize()`，行用 absolute + translateY —— 滚动容器的 scrollHeight 因此正确，
  *   依赖「内容变高」的跟底引擎（useStickToBottom 的 ResizeObserver）仍然有效；
- * - 行数 <= minRows 时不渲染 `data-virtual-stack` 包裹层。
+ * - 行数 <= minRows 时不渲染 `data-virtual-stack` 包裹层；
+ * - 滚动窗（scrollRef）在本组件 layout effect **之后**才 attach 时必须补一次渲染（见组件内
+ *   useReducer/useEffect 那段，钉在 e2e/todo-strip-many-items.spec.ts）：virtual-core 遇到
+ *   getScrollElement() 恒 null 只会空转、不订阅也不 notify，不补渲染就永久空白。
  */
 
 /** 低于该行数时全量渲染：虚拟器自身有固定开销（一条 ResizeObserver、每帧行集合计算）。 */
@@ -121,6 +124,27 @@ export function VirtualStack<T>(props: VirtualStackProps<T>) {
 
 	// 交出实例：useState 创建的实例引用稳定，这里每次 render 重赋值只是兜底。
 	if (virtualizerRef) virtualizerRef.current = virtualizer;
+
+	// 滚动窗迟到时的补渲染（2026-11，待办条「展开后一片空白、要等好久才出来」的真因）。
+	//
+	// React 的 layout 阶段按 effect 顺序执行：**子组件的 layout effect 先跑，父 host 元素的 ref
+	// 后 attach**。所以「滚动窗和 VirtualStack 在同一次 commit 里首次挂载」时，本组件第一次
+	// virtual-core._willUpdate() 里 `getScrollElement()` 还是 null，与它内部的 scrollElement(null)
+	// 相同 → 直接跳过后面的订阅与 maybeNotify：不订阅 ResizeObserver、不 notify、不触发
+	// re-render。此后没有任何东西能把它救活——只要外部不重渲染，这块就永久空白（折叠条展开
+	// 后就正好没有外部重渲染），用户看到的是「白屏好一会儿」。
+	//
+	// passive effect 一定在整棵树的 layout 阶段（含 ref attach）之后才跑，所以在这里补一次
+	// 「滚动窗到位就强制重渲染」即可：下一次 layout effect 的 _willUpdate 会走订阅分支。
+	// 只在「首次拿到元素」时触发一次，稳定后不再额外渲染。
+	const [, forceRender] = useReducer((count: number) => count + 1, 0);
+	const attachedScrollElement = useRef<HTMLElement | null>(null);
+	useEffect(() => {
+		const element = scrollRef.current;
+		if (element === attachedScrollElement.current) return;
+		attachedScrollElement.current = element;
+		if (element && virtualize) forceRender();
+	});
 
 	const measureRefs = useMemo(() => new Map<string, (node: HTMLDivElement | null) => void>(), [virtualizer]);
 	const measure = useCallback(

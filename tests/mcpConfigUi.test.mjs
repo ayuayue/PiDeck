@@ -6,7 +6,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 test("ConfigModal wires an MCP tab without bloating loadConfig into MCP CRUD", () => {
 	const modal = readFileSync("src/renderer/src/ConfigModal.tsx", "utf8");
 	assert.match(modal, /id: "mcp"/);
-	assert.match(modal, /CONFIG_TABS: readonly ConfigTab\[] = \["models", "auth", "settings", "trust", "mcp", "raw"\]/);
+	assert.match(modal, /CONFIG_TABS: readonly ConfigTab\[] = \["models", "auth", "oauth", "settings", "trust", "mcp", "raw"\]/);
 	// MCP 页固定全局作用域：父层只传导入扫描的项目来源 + 脏回调，不再下发项目列表/作用域
 	assert.match(modal, /<McpTab[\s\S]{0,160}?activeProjectId=\{projectId\}[\s\S]{0,160}?onDirtyChange=\{handleMcpDirtyChange\}/);
 	assert.match(modal, /case "config:mcp":/);
