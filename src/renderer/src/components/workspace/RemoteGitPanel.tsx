@@ -20,6 +20,7 @@ import { FileTree } from "../app/git/GitResourceTree";
 import { RemoteGitCapabilityBanner } from "./RemoteGitCapabilityBanner";
 import { RemoteGitCapabilityNote } from "./RemoteGitCapabilityNote";
 import { RemoteGitCompareSection } from "./RemoteGitCompareSection";
+import { RemoteGitClosedNote } from "./RemoteGitClosedNote";
 import { RemoteGitTrustGate } from "./RemoteGitTrustGate";
 
 const FileDiffViewer = lazy(() => import("../app/FileDiffViewer").then((module) => ({ default: module.FileDiffViewer })));
@@ -491,6 +492,8 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 									</p>
 								) : null}
 							</>
+						) : recoveryOpen ? (
+							<RemoteGitClosedNote capability="git.recovery" blocked={blocked} />
 						) : null}
 					</section>
 					{/* G3a: history and refs are read-only sections; there is no checkout, branch, tag or push control anywhere below. */}
@@ -557,6 +560,8 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 									</div>
 								) : null}
 							</>
+						) : historyOpen ? (
+							<RemoteGitClosedNote capability="git.history" blocked={blocked} />
 						) : null}
 					</section>
 					<section data-testid="remote-git-refs" className="pb-2">
@@ -594,7 +599,9 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 											{t("remoteGit.refsAutoRefresh")}
 										</p>
 									</>
-								) : null}
+								) : (
+									<RemoteGitClosedNote capability="git.refs" blocked={blocked} />
+								)}
 								{/* G5b: compare two local refs by tree; per-file content reuses the revision diff surface. */}
 								{capabilities.compare ? (
 									<RemoteGitCompareSection
@@ -611,7 +618,9 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 										}}
 										onOpenFile={(baseOid, headOid, path) => openHistoryFileDiff(baseOid, headOid, { projectId: project.id, relativePath: path })}
 									/>
-								) : null}
+								) : (
+									<RemoteGitClosedNote capability="git.compare" blocked={blocked} />
+								)}
 							</>
 						) : null}
 					</section>

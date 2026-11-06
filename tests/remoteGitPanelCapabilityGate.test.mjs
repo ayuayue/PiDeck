@@ -17,6 +17,7 @@ const panel = readFileSync("src/renderer/src/components/workspace/RemoteGitPanel
 const view = loadTsCommonJs("src/renderer/src/utils/remoteGitCapabilityView.ts");
 const { describeGitCapabilityBanner, gitCapabilityReasonKey, normalizeGitCapabilities, ALL_GIT_CAPABILITIES, REMOTE_GIT_BANNER_ITEM_IDS, SHARED_GIT_BANNER_ITEM_IDS } = view;
 const { RemoteGitCapabilityBanner } = loadTsCommonJs("src/renderer/src/components/workspace/RemoteGitCapabilityBanner.tsx", { stubs: { react: React } });
+const { RemoteGitClosedNote } = loadTsCommonJs("src/renderer/src/components/workspace/RemoteGitClosedNote.tsx", { stubs: { react: React } });
 const { zhCN } = loadTsCommonJs("src/renderer/src/i18n/rendererCopy.zh-CN.ts");
 
 const allOpen = ALL_GIT_CAPABILITIES;
@@ -29,6 +30,21 @@ test("全可用时不渲染能力条（只在有入口被关闭时解释原因�
 	assert.deepEqual(plain(describeGitCapabilityBanner(allOpen)), [], "nothing is blocked");
 	assert.equal(renderBanner(allOpen), "", "all-available must not render the banner");
 	assert.deepEqual(plain(describeGitCapabilityBanner(allOpen, { "git.write": "PROJECT_SERVICE_CAPABILITY_PROVIDER_UNSUPPORTED" })), []);
+});
+
+test("能力关闭时区块不消失：保留标题并就地说明原因", () => {
+	// 依据 ui-commercialization-plan「disabled 是必查态」：整块隐藏会让人以为功能不存在，
+	// 也分不清是「没做」还是「这台主机/这个 helper 不行」。
+	for (const key of ["git.recovery", "git.history", "git.refs", "git.compare"]) {
+		assert.match(panel, new RegExp('<RemoteGitClosedNote capability="' + key + '"'), "缺少关闭占位：" + key);
+	}
+	const html = renderToStaticMarkup(React.createElement(RemoteGitClosedNote, { capability: "git.history", blocked: { "git.history": "PROJECT_SERVICE_CAPABILITY_HELPER_UNKNOWN" } }));
+	assert.match(html, /data-testid="remote-git-closed-git\.history"/);
+	assert.match(html, /检测/, "占位要给出可读原因，而不是只说不可用");
+	// 未知原因码不猜文案：只保留「不可用」，不编造自由文本。
+	const bare = renderToStaticMarkup(React.createElement(RemoteGitClosedNote, { capability: "git.refs", blocked: { "git.refs": "SOMETHING_ELSE" } }));
+	assert.match(bare, /data-testid="remote-git-closed-git\.refs"/);
+	assert.ok(!bare.includes("SOMETHING_ELSE"), "未知原因码不得出现在 UI 上");
 });
 
 test("能力未知说「正在检测」，不冒充「不支持」", () => {
