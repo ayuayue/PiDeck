@@ -7,7 +7,8 @@ export type ProjectFileBackend = {
 	search(target: ProjectFileTarget, query: string): Promise<FileSearchResult[]>;
 	readContent(target: ProjectFileTarget, maxBytes?: number): Promise<string>;
 	readBase64(target: ProjectFileTarget, maxBytes?: number): Promise<string>;
-	writeContent(target: ProjectFileTarget, content: string): Promise<void>;
+	/** expectedRevision（可选）= 编辑时读到内容的 sha256：盘上已变就拒绝，绝不静默覆盖外部修改。 */
+	writeContent(target: ProjectFileTarget, content: string, expectedRevision?: string): Promise<void>;
 	pathsExist(targets: ProjectFileTarget[]): Promise<boolean[]>;
 	stat(target: ProjectFileTarget): Promise<ProjectFileStatResult>;
 	create(parent: ProjectFileTarget, name: string, type: "file" | "directory"): Promise<ProjectFileTarget>;

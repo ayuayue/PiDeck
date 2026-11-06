@@ -354,8 +354,8 @@ export class WslProjectFileBackend implements ProjectFileBackend {
 
 	// ---- 写面：Wave 1b 才搬进 helper（发行版内原子替换）；本轮保持今天的 UNC 本机行为。 ----
 
-	async writeContent(target: ProjectFileTarget, content: string): Promise<void> {
-		await this.deps.fallback.writeContent(target, content);
+	async writeContent(target: ProjectFileTarget, content: string, expectedRevision?: string): Promise<void> {
+		await this.deps.fallback.writeContent(target, content, expectedRevision);
 	}
 
 	async create(parent: ProjectFileTarget, name: string, type: "file" | "directory"): Promise<ProjectFileTarget> {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { cp, readFile, rename as fsRename, rm, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { codeOf } from "../../shared/op";
@@ -134,9 +135,13 @@ export class LocalProjectFileBackend implements ProjectFileBackend {
 		}
 	}
 
-	async writeContent(target: ProjectFileTarget, content: string): Promise<void> {
+	async writeContent(target: ProjectFileTarget, content: string, expectedRevision?: string): Promise<void> {
 		if (typeof content !== "string") throw new Error("Invalid file content");
 		const { path } = await this.resolveTarget(target);
+		// 乐观锁（与 mcp.json 保存同一思路）：编辑器带回「它读到的那份内容」的 sha256。
+		// 盘上已经变了就拒绝，把外部修改（另一个编辑器、git checkout、agent 写文件）留给用户判断，
+		// 而不是让 500ms 自动保存把别人的修改静默盖掉。
+		if (expectedRevision !== undefined && (await localTextRevision(path)) !== expectedRevision) throw new Error("PROJECT_FILE_CHANGED");
 		// 与 files:write-content 同一条写守卫：拒绝把明文写进非文本/密文文件，写盘原子化。
 		await writeTextFileGuarded(path, content);
 	}
@@ -241,5 +246,18 @@ export class LocalProjectFileBackend implements ProjectFileBackend {
 		const fileStat = await stat(path);
 		assertTrustedStatSize(fileStat.size);
 		if (fileStat.size > maxBytes) throw new Error(`FILE_TOO_LARGE:${fileStat.size}:${Math.floor(maxBytes)}`);
+	}
+}
+
+/**
+ * 本机文本文件的修订指纹：`sha256:` + 内容哈希；文件不存在时用 `absent`。
+ * 只用来做「保存前盘上是否已被改过」的比较，跨进程稳定（渲染层可以用同一算法自查）。
+ */
+export async function localTextRevision(path: string): Promise<string> {
+	try {
+		return "sha256:" + createHash("sha256").update(await readFile(path)).digest("hex");
+	} catch (error) {
+		if (isMissingPath(error)) return "absent";
+		throw error;
 	}
 }

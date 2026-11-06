@@ -10,6 +10,7 @@ import type { ProjectFileAccessScope, ProjectFileTarget } from "../../shared/typ
 import type { ProjectDirectoryPageResult, ProjectFileStatResult, ProjectPathsExistResult } from "../../shared/types/projectFiles";
 import type { FileContentSearchResult, FileSearchResult } from "../../shared/types";
 import { detectFileManager, openFileManagerAt } from "../files/FileManager";
+import { localTextRevision } from "../files/LocalProjectFileBackend";
 import { expandHomeForFileAccess } from "../fs/homePathExpansion";
 import { openSystemPath } from "../fs/openPath";
 import type { FileIndexService } from "../files/FileIndexService";
@@ -522,17 +523,21 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		}
 	});
 
-	ipcMain.handle(ipcChannels.filesWriteContent, async (_event, path: unknown, content: unknown, scope?: unknown) => {
+	ipcMain.handle(ipcChannels.filesWriteContent, async (_event, path: unknown, content: unknown, scope?: unknown, expectedRevision?: unknown) => {
 		if (typeof content !== "string") throw new Error("Invalid file content");
+		if (expectedRevision !== undefined && typeof expectedRevision !== "string") throw new Error("INVALID_FILE_REVISION");
+		const revision = expectedRevision as string | undefined;
 		const input = parseFilePathInput(path);
 		if (typeof input !== "string") {
 			if (scope !== undefined) throw new Error("INVALID_PROJECT_FILE_ACCESS_SCOPE");
-			await projectFileBackendRouter.forProject(input.projectId).writeContent(input, content);
+			await projectFileBackendRouter.forProject(input.projectId).writeContent(input, content, revision);
 			void appLogger.info("file", "Project file written", { target: input, bytes: Buffer.byteLength(content, "utf8") });
 			return;
 		}
 		const boundary = await resolveProjectReadBoundary(scope);
 		const writablePath = await resolveReadablePath(input, boundary);
+		// 显式路径分支同样做乐观锁：调用方带了修订指纹就要求盘上仍是那一份。
+		if (revision !== undefined && (await localTextRevision(writablePath)) !== revision) throw new Error("PROJECT_FILE_CHANGED");
 		// 走共享写守卫：盘上当前字节不是文本（加密容器/二进制）时拒绝写，且原子替换不留半截文件。
 		await writeTextFileGuarded(writablePath, content);
 		void appLogger.info("file", "File written", {

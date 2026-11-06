@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -397,6 +398,30 @@ test("files:list preserves the existing local absolute-directory adapter", async
 		assert.equal(listCalls[0].directory, await realpath(directory));
 		assert.equal(nodes[0].target.projectId, "project-1");
 		assert.equal(nodes[0].target.relativePath, "src");
+	} finally {
+		rmSync(fixture, { recursive: true, force: true });
+	}
+});
+
+test("写入带修订指纹：盘上已被改过就拒绝，绝不静默覆盖外部修改", async () => {
+	const fixture = mkdtempSync(join(tmpdir(), "pideck-files-revision-"));
+	const root = join(fixture, "local-project");
+	mkdirSync(root);
+	const file = join(root, "canary.txt");
+	writeFileSync(file, "first");
+	const { writeContentHandler } = createFilesIpc(root);
+	const target = { projectId: "project-1", relativePath: "canary.txt" };
+	const revisionOfFirst = "sha256:" + createHash("sha256").update("first").digest("hex");
+	try {
+		await writeContentHandler({}, target, "second", undefined, revisionOfFirst);
+		assert.equal(readFileSync(file, "utf8"), "second", "指纹对得上就正常写");
+		// 外部（另一个编辑器 / git checkout / agent）改了文件，编辑器的旧指纹必须被拒绝。
+		writeFileSync(file, "third");
+		await assert.rejects(() => writeContentHandler({}, target, "overwritten", undefined, revisionOfFirst), /PROJECT_FILE_CHANGED/);
+		assert.equal(readFileSync(file, "utf8"), "third", "拒绝时磁盘一个字节都不能变");
+		// 不传指纹保持旧行为（显式覆盖），不把可选参数变成强制。
+		await writeContentHandler({}, target, "allowed", undefined, undefined);
+		assert.equal(readFileSync(file, "utf8"), "allowed");
 	} finally {
 		rmSync(fixture, { recursive: true, force: true });
 	}

@@ -106,9 +106,9 @@ export function createLocalProjectFileService(projectId: string, api: ProjectSer
 		},
 		async writeText(target, content, expectedVersion): Promise<ProjectTextSaveReceipt> {
 			assertProjectTarget(projectId, target);
-			// 本机没有文本 version 通道：传入远端令牌必须显式拒绝，不能静默忽略。
-			if (expectedVersion !== undefined) throw unsupported(UNSUPPORTED_DETAIL.localTextVersion);
-			await api.files.writeContent(target, content);
+			// 本机的 version 是内容指纹（sha256/absent），用来做乐观锁；远端令牌形状仍要显式拒绝，不能静默忽略。
+			if (expectedVersion !== undefined && !/^(sha256:[a-f0-9]{64}|absent)$/.test(expectedVersion)) throw unsupported(UNSUPPORTED_DETAIL.localTextVersion);
+			await api.files.writeContent(target, content, undefined, expectedVersion);
 			return {};
 		},
 		stat: createProjectStat(projectId, api),

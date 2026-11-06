@@ -792,6 +792,7 @@ export const zhCN = {
 	"git.resolveConflictsBeforeCommit": "请先解决合并冲突，然后再提交。",
 	"git.committing": "正在提交…",
 	"git.commitPlaceholder": "消息（Ctrl+Enter 提交到“{branch}”）",
+	"editor.fileChangedOnDisk": "文件已在磁盘上被修改，这次保存没有覆盖它。请重新加载后再改。",
 	"git.noPendingChanges": "没有待提交的更改。",
 	"git.stage": "暂存",
 	"git.stageAll": "全部暂存",

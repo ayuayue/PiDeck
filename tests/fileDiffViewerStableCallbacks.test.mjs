@@ -22,7 +22,11 @@ test("file viewer keeps project scope and drops stale media reads", () => {
 	assert.match(viewer, /props\.readContent\(fileAccessPath, maxFileSize, props\.fileAccessScope\)/);
 	// 错误文案转换已抽出，前缀行为由 fileLoadErrorMessage.test.mjs 验证。
 	assert.match(viewer, /import\s*\{\s*fileLoadErrorMessage\s*\}\s*from\s*["']\.\/fileLoadErrorMessage["']/);
-	assert.match(viewer, /saveContent\(savePath, latest, props\.fileAccessScope\)/);
+	assert.match(viewer, /saveContent\(savePath, latest, props\.fileAccessScope, baselineRevisionRef\.current\)/);
+	// 乐观锁：保存时带内容指纹，盘上已被改过就拒绝并给出「已被修改」文案。
+	assert.match(viewer, /async function contentRevision\(text: string\)/);
+	assert.match(viewer, /baselineRevisionRef\.current = await contentRevision\(latest\)/);
+	assert.match(viewer, /t\("editor\.fileChangedOnDisk"\)/);
 	assert.match(viewer, /\[isDiffMode, props\.saveContent, props\.filePath, props\.fileTarget\?\.projectId, props\.fileTarget\?\.relativePath, props\.fileAccessScope\?\.projectId\]/);
 	assert.match(viewer, /async function loadMediaPreview\(\)/);
 	assert.match(viewer, /if \(cancelled \|\| !base64\)/);

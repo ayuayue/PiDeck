@@ -794,6 +794,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"git.resolveConflictsBeforeCommit": "Resolve merge conflicts before committing.",
 	"git.committing": "Committing…",
 	"git.commitPlaceholder": "Message (Ctrl+Enter to commit on '{branch}')",
+	"editor.fileChangedOnDisk": "The file changed on disk; this save refused to overwrite it. Reload before editing again.",
 	"git.noPendingChanges": "There are no pending changes.",
 	"git.stage": "Stage",
 	"git.stageAll": "Stage All",

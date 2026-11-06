@@ -27,6 +27,12 @@ import { updateInstallPreflightTasksAtom } from "../../atoms/update-install-pref
 import { encodeHtmlPreviewUrl } from "../../../../shared/htmlPreview";
 import { fileLoadErrorMessage } from "./fileLoadErrorMessage";
 
+/** 内容指纹（与主进程 localTextRevision 同一算法）：保存时带上它做乐观锁。 */
+async function contentRevision(text: string): Promise<string> {
+	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+	return "sha256:" + Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 type ViewMode = "view" | "diff";
 
 // md 预览的插件列表必须提为模块级常量：内联数组/箭头函数在 FileDiffViewer 每次
@@ -72,7 +78,7 @@ export function FileDiffViewer(props: {
 	modifiedContent?: string;
 	/** 读取文件的 Git HEAD 原始内容，供差异模式左侧基准列使用。 */
 	readOriginalContent?: (target?: ProjectFileTarget) => Promise<string>;
-	saveContent?: (path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope) => Promise<void>;
+	saveContent?: (path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope, expectedRevision?: string) => Promise<void>;
 	/**
 	 * 只读 tab 的显式解锁：点击头部「转为可编辑」并二次确认后调用，宿主把该 tab
 	 * 的 allowSave 翻成 true，之后才挂自动保存与 Ctrl+S。
@@ -203,6 +209,9 @@ export function FileDiffViewer(props: {
 					setContent(result);
 					// 自动保存基准快照：加载完成即视为「已落盘」状态，避免打开后无改动就触发写盘
 					lastSavedRef.current = result;
+					void contentRevision(result).then((revision) => {
+						if (!cancelled) baselineRevisionRef.current = revision;
+					});
 					setOriginal(originalResult);
 					// 空内容二次校验（仅绝对路径 + 查看/编辑模式）：主进程 readContent 对
 					// ENOENT 返回 ""（为「新建文件」流程保留的语义），死链直接渲染就是
@@ -289,6 +298,8 @@ export function FileDiffViewer(props: {
 	const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	// 最近一次落盘内容快照：内容未变时跳过保存，避免重复写盘
 	const lastSavedRef = useRef("");
+	// 落盘基准指纹（sha256）：保存时带上它，盘上已被外部改过就拒绝，而不是静默覆盖。
+	const baselineRevisionRef = useRef<string | undefined>(undefined);
 	// FileDiffViewer 在切换 Tab 时复用实例；用代数阻止旧文件的异步保存结果污染新 Tab。
 	const saveGenerationRef = useRef(0);
 	const saveReadyRef = useRef(false);
@@ -317,14 +328,16 @@ export function FileDiffViewer(props: {
 						setSaveError(null);
 						return true;
 					}
-					await saveContent(savePath, latest, props.fileAccessScope);
+					await saveContent(savePath, latest, props.fileAccessScope, baselineRevisionRef.current);
 					if (saveGeneration !== saveGenerationRef.current) return false;
+					baselineRevisionRef.current = await contentRevision(latest);
 					lastSavedRef.current = latest;
 				}
 				return false;
 			} catch (e) {
 				// 失败不清 dirty/缓冲；旧文件请求不能污染新 Tab。
-				if (saveGeneration === saveGenerationRef.current) setSaveError(fileLoadErrorMessage(e));
+				const conflict = e instanceof Error && e.message.includes("PROJECT_FILE_CHANGED");
+				if (saveGeneration === saveGenerationRef.current) setSaveError(conflict ? t("editor.fileChangedOnDisk") : fileLoadErrorMessage(e));
 				return false;
 			} finally {
 				if (saveGeneration === saveGenerationRef.current) setSaving(false);
