@@ -108,10 +108,13 @@ test("anchor restoration preserves its effective tail window and expands only wh
 	// 保存必须使用实际窗口，避免切回时恢复到不同高度的文档。
 	assert.match(source, /const effectiveWindowTurns = autoScroll\s*\? TIMELINE_MOUNTED_TURN_LIMIT\s*:\s*scrolledWindowTurns;/);
 	assert.match(source, /renderedWindowTurnsRef\.current = effectiveWindowTurns;/);
-	assert.match(source, /if \(windowExpandableRef\.current\) \{\s*setScrolledWindowTurns\(\(turns\) => turns \+ TIMELINE_WINDOW_EXPAND_STEP\);/);
-	// Even an irrecoverable anchor must unlock stick-to-bottom before showing the
-	// fallback viewport, otherwise ResizeObserver can immediately re-pin it.
-	assert.match(source, /api\.restoreAt\(0\)/);
+	assert.match(source, /resolveMissingAnchorNextStep\(\{/);
+	assert.match(source, /if \(nextStep === "expand"\) \{\s*setScrolledWindowTurns\(\(turns\) => turns \+ TIMELINE_WINDOW_EXPAND_STEP\);/);
+	// 首屏只读 9 轮：锚点在已加载数据之外时补历史页，而不是直接判死（#477）。
+	assert.match(source, /if \(nextStep === "load"\) \{[\s\S]*?loadMoreMessages\("backfill"\);/);
+	// 不可物化时交回无锚点路径回实时尾部；不再回顶部（#477 的「切回落历史开头」）。
+	assert.match(source, /setRestoreAnchor\(undefined\)/);
+	assert.doesNotMatch(source, /api\.restoreAt\(0\)/);
 });
 
 test("scroll events synchronously retain an anchor before a same-task session switch", () => {

@@ -39,6 +39,7 @@ import { browsePinScrollTop, followBrowsePinAfterUserScroll, pickVisibleRootRow,
 import { countUserTurns, TIMELINE_MOUNTED_TURN_LIMIT, TIMELINE_SCROLLED_TURN_LIMIT, TIMELINE_WINDOW_EXPAND_STEP } from "../components/session/timeline/turnRenderWindow";
 import { readSessionFirstScreenPage } from "../components/session/sessionSubagentTranscript";
 import { estimateJumpExpandTurns, resolveJumpFallbackEntry, resolveJumpPendingAction } from "../components/session/timeline/jumpWindowPolicy";
+import { resolveMissingAnchorNextStep } from "../components/session/timeline/restoreAnchorPolicy";
 import { shouldDeferJumpUntilLoaded } from "./timeline/timelineRevealChannel";
 import { resolveJumpMessageIndex, resolveJumpScrollTarget } from "../components/session/timeline/jumpTarget";
 import { planJumpSettleStep } from "../components/session/timeline/jumpSettle";
@@ -1018,6 +1019,8 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	}
 	/** 窗口是否仍可扩展（由 SessionMessageTimeline 按 turnWindowActive 同步，渲染期写入）。 */
 	const windowExpandableRef = useRef(false);
+	/** 本次恢复已发起的历史补页次数。按锚点对象区分：会话再切一次就是新恢复。 */
+	const restoreAnchorPagingRef = useRef<{ anchor: SessionScrollAnchor | undefined; attempts: number }>({ anchor: undefined, attempts: 0 });
 	/** 自动扩窗口冷却时间戳（防惯性滚动接近顶部时连扩多轮）。 */
 	const lastWindowExpandAtRef = useRef(0);
 	/** 自动翻页冷却时间戳；回底开始新浏览事务时同步清零。 */
@@ -1987,6 +1990,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	useEffect(() => {
 		if (!controllerEnabled || restorePhase !== "pending") return;
 		const anchor = restoreAnchor;
+		if (restoreAnchorPagingRef.current.anchor !== anchor) restoreAnchorPagingRef.current = { anchor, attempts: 0 };
 		if (anchor) {
 			// 上滚阅读状态必须在首个 child commit 前关闭跟随；窗口尚在读盘时先等待，
 			// 不把「锚点暂未挂载」误判成永久失效。
@@ -2063,30 +2067,45 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 				// 由 anchor.windowTurns 决定，因此 complete 不会再收缩 DOM 并截断 targetTop。
 				// entryId 反查命中时同步落新 id，避免下次恢复再走一遍反查。
 				currentAnchorRef.current = anchorRowId === anchor.messageId ? anchor : { ...anchor, messageId: anchorRowId };
+				// 恢复成功即接管浏览钉：锚点上方之后仍会长高（图片解码、Markdown 重排），
+				// 而 .message-timeline 是 overflow-anchor:none。没有钉行时增高只会把视口推走，
+				// 用户下次看到的就是「恢复位置差了几百像素」（#477 的漂移变体）。
+				// 期望偏移按真实几何取：targetTop 被文首夹到 0 时 elTop - targetTop 才是实际值。
+				browsePinRef.current = { messageId: anchorRowId, expectedViewportTop: elTop - targetTop };
+				pinFallbackHeightRef.current = timeline.scrollHeight;
 				setRestorePhase("complete");
 				return;
 			}
 
 			// 数据仍在 atom 但被 turn 窗口裁掉时，先扩窗重试。不能立刻回底：
 			// 这正是长历史会话切回后位置丢失的根因。窗口已覆盖当前数据后才降级。
-			if (windowExpandableRef.current) {
+			// 窗口已覆盖、锚点却仍不在已加载数据里（首屏只读 9 轮 / 缓存被淘汰 / 切走
+			// 期间上游追加把锚点挤出尾部）时补历史页，补不到才放弃（#477）。
+			const paging = restoreAnchorPagingRef.current;
+			const nextStep = resolveMissingAnchorNextStep({
+				windowExpandable: windowExpandableRef.current,
+				hasEarlierPages,
+				loadingEarlier: isLoadingMessagePage,
+				loadAttempts: paging.attempts,
+			});
+			if (nextStep === "expand") {
 				setScrolledWindowTurns((turns) => turns + TIMELINE_WINDOW_EXPAND_STEP);
 				return;
 			}
-
-			// 锚点确实不可再物化（压缩/删除等）：保留历史阅读语义并通过引擎解锁，
-			// 不能只写原生 scrollTop，否则 ResizeObserver 会重新把视口钉到底部。
-			markProgrammaticScroll();
-			const api = scrollerScrollApiRef.current;
-			if (api?.restoreAt) {
-				api.restoreAt(0);
-			} else {
-				timeline.scrollTop = 0;
+			if (nextStep === "load") {
+				paging.attempts += 1;
+				loadMoreMessages("backfill");
+				return;
 			}
-			setRestorePhase("complete");
+			if (nextStep === "wait") return;
+
+			// 锚点确实不可再物化（压缩/删除/补页到底）：交回无锚点恢复路径，
+			// 滚到实时尾部并跟底。不再落顶部 —— 否则用户回来看到的是历史开头，
+			// 正是 #477 的原始症状。restoreAnchor 是依赖，置空会重跑上面的无锚点分支。
+			setRestoreAnchor(undefined);
 		});
 		return () => cancelAnimationFrame(frame);
-	}, [controllerEnabled, isSurfaceLoading, markProgrammaticScroll, ownerKey, restoreAnchor, restorePhase, scrolledWindowTurns]);
+	}, [controllerEnabled, hasEarlierPages, isLoadingMessagePage, isSurfaceLoading, loadMoreMessages, markProgrammaticScroll, ownerKey, restoreAnchor, restorePhase, scrolledWindowTurns]);
 
 	// ── 用户上滚接近顶部时自动加载历史（2026-11 轮次模型）──
 	// 历史扩窗只消费 stick 引擎确认的用户意图。普通 scroll 事件仍由
