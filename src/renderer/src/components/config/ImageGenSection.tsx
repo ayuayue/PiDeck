@@ -64,7 +64,8 @@ export const ImageGenSection = forwardRef<ImageGenSectionHandle, ImageGenSection
 	const [fetchedByProvider, setFetchedByProvider] = useState<Record<string, FetchedModel[]>>({});
 	const [selectedIdsByProvider, setSelectedIdsByProvider] = useState<Record<string, string[]>>({});
 	const [fetchErrorByProvider, setFetchErrorByProvider] = useState<Record<string, string | undefined>>({});
-	// 供应商折叠态（仅 UI 状态，不进配置文件）：默认只展开第一个，其余收起，避免多供应商平铺撑爆页面
+	// 供应商折叠态（仅 UI 状态，不进配置文件）：载入后默认全部收起，避免多供应商平铺撑爆页面；
+	// 用户点开哪个才展开，新增供应商仍默认展开以便立即填写。
 	const [collapsedIds, setCollapsedIds] = useState<ReadonlySet<string>>(new Set());
 	/**
 	 * 磁盘上真正存着的密钥（providerId → apiKey），用来区分摘要里的「已保存」与「当前」。
@@ -106,8 +107,8 @@ export const ImageGenSection = forwardRef<ImageGenSectionHandle, ImageGenSection
 				if (cancelled) return;
 				setDraft(loaded);
 				rememberSavedKeys(loaded);
-				// 按“列表”形态初始化：仅保留第一个展开，其余先收起
-				setCollapsedIds(new Set(loaded.providers.slice(1).map((provider) => provider.id)));
+				// 按“列表”形态初始化：全部收起，避免打开设置页就被第一个供应商的表单占满屏幕
+				setCollapsedIds(new Set(loaded.providers.map((provider) => provider.id)));
 			})
 			.catch((e: unknown) => {
 				if (!cancelled) setError(e instanceof Error ? e.message : String(e));
