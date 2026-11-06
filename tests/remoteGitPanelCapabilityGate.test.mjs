@@ -31,6 +31,16 @@ test("全可用时不渲染能力条（只在有入口被关闭时解释原因�
 	assert.deepEqual(plain(describeGitCapabilityBanner(allOpen, { "git.write": "PROJECT_SERVICE_CAPABILITY_PROVIDER_UNSUPPORTED" })), []);
 });
 
+test("能力未知说「正在检测」，不冒充「不支持」", () => {
+	// root 会话还在握手时 helperCapabilities 缺席：这时说「缺少方法」是错的，用户会以为功能坏了。
+	assert.equal(gitCapabilityReasonKey("PROJECT_SERVICE_CAPABILITY_HELPER_UNKNOWN"), "remoteGit.capabilityDetecting");
+	assert.equal(gitCapabilityReasonKey("PROJECT_SERVICE_CAPABILITY_HELPER_METHOD_MISSING"), "remoteGit.unsupported");
+	const lines = describeGitCapabilityBanner({ ...allOpen, write: false }, { "git.write": "PROJECT_SERVICE_CAPABILITY_HELPER_UNKNOWN" });
+	assert.equal(lines.length, 1, "未知原因仍要解释，不能把区块静默隐藏");
+	assert.equal(lines[0].reasonKey, "remoteGit.capabilityDetecting");
+	assert.ok(zhCN["remoteGit.capabilityDetecting"].includes("检测"), "词典必须有「检测中」文案");
+});
+
 test("写入口按能力位成行：提交 / 暂存 / 丢弃，原因码映射到既有文案", () => {
 	const lines = describeGitCapabilityBanner({ ...allOpen, write: false }, { "git.write": "PROJECT_SERVICE_CAPABILITY_HELPER_METHOD_MISSING" });
 	assert.deepEqual(plain(lines), [{ id: "write", labels: ["remoteGit.capabilityWrite"], reason: "PROJECT_SERVICE_CAPABILITY_HELPER_METHOD_MISSING", reasonKey: "remoteGit.unsupported" }]);

@@ -51,6 +51,7 @@ export const PROJECT_SERVICE_CAPABILITY_REASONS = {
 	trustStale: "PROJECT_SERVICE_CAPABILITY_TRUST_STALE",
 	trustUnknown: "PROJECT_SERVICE_CAPABILITY_TRUST_UNKNOWN",
 	helperMethodMissing: "PROJECT_SERVICE_CAPABILITY_HELPER_METHOD_MISSING",
+	helperCapabilityUnknown: "PROJECT_SERVICE_CAPABILITY_HELPER_UNKNOWN",
 	providerUnsupported: "PROJECT_SERVICE_CAPABILITY_PROVIDER_UNSUPPORTED",
 } as const;
 
@@ -156,6 +157,9 @@ function gitTrustBlock(facts: ProjectServiceFacts): string | undefined {
 /** 远端 helper 必须显式声明该动作，旧 helper 缺席就是不可用；本机不走 helper。 */
 function helperBlock(facts: ProjectServiceFacts, methods: readonly string[]): string | undefined {
 	if (facts.locationKind !== "ssh") return undefined;
+	// 「还不知道」和「不支持」必须是两种事实：helperCapabilities 缺席 = 还没有可用的 root 会话（握手未完），
+	// 这时说「helper 缺少方法」是错的——用户看到的是刚打开面板就宣称功能不可用，然后 30 秒后又自己好了。
+	if (facts.helperCapabilities === undefined) return PROJECT_SERVICE_CAPABILITY_REASONS.helperCapabilityUnknown;
 	return declaresAll(facts, methods) ? undefined : PROJECT_SERVICE_CAPABILITY_REASONS.helperMethodMissing;
 }
 

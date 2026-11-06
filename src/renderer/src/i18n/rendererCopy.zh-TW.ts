@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 854f66f994ebd232e3ba1cd2b7de1c079e6fe802c86a4ed8594a059bf01f7920（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 8cf9493b37c6541a4a3455b4b90acf7e5e08b9f68ebf4325a4573625a78697ae（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -7278,6 +7278,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"remoteGit.repoExists": "該目錄已經是 Git 倉庫，或位於父級倉庫內；未執行初始化，磁碟未改動。",
 	"remoteGit.gitUnavailable": "遠端 Git 不存在或版本未支援。請在遠端終端檢查；不會使用本機 Git 或自動安裝。",
 	"remoteGit.unsupported": "此 helper、平臺、倉庫結構或 Git 配置尚未支援。G1 不支援 worktree、submodule、外接 metadata、sparse/partial clone 或 clean/process filter；不會繞過要求。",
+	"remoteGit.capabilityDetecting": "正在檢測遠端 Git 能力（root 會話握手中）；檢測完成前不會發送請求。",
 	"remoteGit.worktreeUnsupported": "遠端專案不支援 Git worktree 工作區：該能力依賴本機 Git 目錄。",
 	"remoteGit.notText": "無法預覽：僅支援普通 UTF-8 文本檔案，不跟隨符號連結，也不將二進位制或無效編碼偽裝成空檔案。",
 	"remoteGit.tooLarge": "狀態、檔案或 metadata 超過讀取預算，本次讀取已拒絕，未返回截斷結果。",

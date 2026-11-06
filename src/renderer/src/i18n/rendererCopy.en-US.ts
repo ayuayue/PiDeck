@@ -7300,6 +7300,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"remoteGit.repoExists": "This directory is already a Git repository or is inside a parent repository; nothing was initialized and the disk was not changed.",
 	"remoteGit.gitUnavailable": "Remote Git is missing or its version is unsupported. Check it in the remote terminal; no local fallback or automatic installation.",
 	"remoteGit.unsupported": "This helper, platform, repository structure or Git configuration is unsupported. G1 excludes worktrees, submodules, external metadata, sparse/partial clones and clean/process filters; requirements are not bypassed.",
+	"remoteGit.capabilityDetecting": "Detecting remote Git capabilities while the root session handshakes; no requests are sent until that finishes.",
 	"remoteGit.worktreeUnsupported": "Remote projects do not support Git worktree workspaces: the feature depends on a local Git checkout.",
 	"remoteGit.notText": "Cannot preview: only ordinary UTF-8 text files are supported. Symlinks are not followed, and binary or invalid encoding is never shown as an empty file.",
 	"remoteGit.tooLarge": "Status, file content or metadata exceeded the read budget. The read was refused, not silently truncated.",

@@ -98,7 +98,9 @@ export function useRemoteGitView(project: RemoteProject, repoPath = "") {
 	const warmHostReady = services.facts.hostState === "ready";
 	useEffect(() => {
 		if (capabilities.read || !warmHostReady) return;
-		if (blocked["git.read"] !== "PROJECT_SERVICE_CAPABILITY_HELPER_METHOD_MISSING") return;
+		// 「未知」也要预热：那正是 root 会话还没起来的形态；「明确缺方法」才是真的旧 helper。
+		const readBlocked = blocked["git.read"];
+		if (readBlocked !== "PROJECT_SERVICE_CAPABILITY_HELPER_METHOD_MISSING" && readBlocked !== "PROJECT_SERVICE_CAPABILITY_HELPER_UNKNOWN") return;
 		if (warmKey.current !== projectKey) {
 			warmKey.current = projectKey;
 			warmTicks.current = 0;

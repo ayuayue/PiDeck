@@ -7271,6 +7271,7 @@ export const zhCN = {
 	"remoteGit.repoExists": "该目录已经是 Git 仓库，或位于父级仓库内；未执行初始化，磁盘未改动。",
 	"remoteGit.gitUnavailable": "远端 Git 不存在或版本未支持。请在远端终端检查；不会使用本机 Git 或自动安装。",
 	"remoteGit.unsupported": "此 helper、平台、仓库结构或 Git 配置尚未支持。G1 不支持 worktree、submodule、外置 metadata、sparse/partial clone 或 clean/process filter；不会绕过要求。",
+	"remoteGit.capabilityDetecting": "正在检测远端 Git 能力（root 会话握手中）；检测完成前不会发送请求。",
 	"remoteGit.worktreeUnsupported": "远端项目不支持 Git worktree 工作区：该能力依赖本机 Git 目录。",
 	"remoteGit.notText": "无法预览：仅支持普通 UTF-8 文本文件，不跟随符号链接，也不将二进制或无效编码伪装成空文件。",
 	"remoteGit.tooLarge": "状态、文件或 metadata 超过读取预算，本次读取已拒绝，未返回截断结果。",
