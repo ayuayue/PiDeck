@@ -101,6 +101,33 @@ jobs:
       - name: Verify packaging config
         run: npm run pack
 
+  mac-icon:
+    name: macOS native icon decoding
+    runs-on: macos-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+          cache: npm
+
+      - name: Install dependencies without Electron lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Verify checked-in ICNS with the native decoder
+        run: node --test tests/macIcon.test.mjs
+
+      - name: Generate app icon
+        run: npm run make-icon
+
+      - name: Verify regenerated ICNS with the native decoder
+        run: node --test tests/macIcon.test.mjs
+
   pet-linux-smoke:
     name: Pet Linux smoke (xvfb)
     runs-on: ubuntu-latest
