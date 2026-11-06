@@ -43,15 +43,34 @@ for (const delayHistory of [false, true])
 			let empty = false;
 			let lostRows = false;
 			let lostComposer = false;
+			let lostEditable = false;
+			let trackingFocus = false;
+			let focusOuts = 0;
 			let flushes = 0;
 			const observe = () => {
 				loading ||= Boolean(document.querySelector(".history-loading"));
 				empty ||= Boolean(document.querySelector(".session-start-surface"));
 				lostRows ||= rows.some((row) => !row.isConnected);
 				lostComposer ||= !composer?.isConnected;
+				if (trackingFocus) lostEditable ||= !composer?.isContentEditable;
+			};
+			const onFocusOut = () => {
+				if (trackingFocus) focusOuts += 1;
+			};
+			composer?.addEventListener("focusout", onFocusOut);
+			const readSelection = () => {
+				const selection = document.getSelection();
+				if (!composer || !selection?.anchorNode || !selection.focusNode || !composer.contains(selection.anchorNode) || !composer.contains(selection.focusNode)) return null;
+				const offset = (node: Node, position: number) => {
+					const range = document.createRange();
+					range.selectNodeContents(composer);
+					range.setEnd(node, position);
+					return range.toString().length;
+				};
+				return { anchor: offset(selection.anchorNode, selection.anchorOffset), focus: offset(selection.focusNode, selection.focusOffset), collapsed: selection.isCollapsed };
 			};
 			const observer = new MutationObserver(observe);
-			observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
+			observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["class", "contenteditable"] });
 			const onAnimation = (event: AnimationEvent) => {
 				if (event.target instanceof Element && event.target.closest(".message-timeline-host")) animations.push(event.animationName);
 			};
@@ -63,10 +82,15 @@ for (const delayHistory of [false, true])
 				if (event.payload && typeof event.payload === "object" && "messages" in event.payload && Array.isArray(event.payload.messages) && event.payload.messages.length === 0) emptyFlushes += 1;
 			});
 			return {
-				read: () => ({ loading, empty, lostRows, lostComposer, flushes, emptyFlushes, animations, rowCount: rows.length, focused: document.activeElement === composer }),
+				armFocusTracking: () => {
+					trackingFocus = true;
+					return document.activeElement === composer;
+				},
+				read: () => ({ loading, empty, lostRows, lostComposer, lostEditable, focusOuts, selection: readSelection(), flushes, emptyFlushes, animations, rowCount: rows.length, focused: document.activeElement === composer }),
 				dispose: () => {
 					observer.disconnect();
 					unsubscribe();
+					composer?.removeEventListener("focusout", onFocusOut);
 					document.removeEventListener("animationstart", onAnimation, true);
 				},
 			};
@@ -95,9 +119,17 @@ for (const delayHistory of [false, true])
 			}, sessionId);
 		try {
 			const composer = window.locator(".composer .rich-input");
-			await composer.fill("draft without sending");
+			await composer.click();
+			expect(await probe.evaluate((handle) => handle.armFocusTracking())).toBe(true);
+			// 只聚焦一次；之后全用页面键盘，避免 locator 自动补焦掩盖瞬时失焦。
+			await window.keyboard.type("draft tail");
+			if (delayHistory) await expect.poll(() => probe.evaluate((handle) => handle.read().emptyFlushes)).toBeGreaterThan(0);
+			for (let index = 0; index < " tail".length; index += 1) await window.keyboard.press("ArrowLeft");
+			expect((await probe.evaluate((handle) => handle.read())).selection).toEqual({ anchor: 5, focus: 5, collapsed: true });
+			const inserted = " continuously during prewarm";
+			await window.keyboard.type(inserted, { delay: 110 }); // 连续输入跨过延迟历史的接管时刻，且光标不在文末。
 			await expect.poll(() => window.evaluate(async (id) => (await window.piDesktop.sessions.listRuntimes()).find((runtime) => runtime.sessionId === id)?.status, sessionId), { timeout: 20_000 }).toBe("idle");
-			await window.waitForTimeout(delayHistory ? 3200 : 2000); // 覆盖空窗口与 1.5s 的历史前缀回收。
+			await window.waitForTimeout(2000); // 覆盖历史接管后的 1.5s 前缀回收。
 			const trace = await probe.evaluate((handle) => handle.read());
 			expect(trace.flushes).toBeGreaterThan(0);
 			if (delayHistory) expect(trace.emptyFlushes).toBeGreaterThan(0);
@@ -106,9 +138,12 @@ for (const delayHistory of [false, true])
 			expect(trace.empty).toBe(false);
 			expect(trace.lostRows).toBe(false);
 			expect(trace.lostComposer).toBe(false);
+			expect(trace.lostEditable).toBe(false);
+			expect(trace.focusOuts).toBe(0);
 			expect(trace.animations).toEqual([]);
 			expect(trace.focused).toBe(true);
-			await expect(composer).toHaveText("draft without sending");
+			expect(trace.selection).toEqual({ anchor: 5 + inserted.length, focus: 5 + inserted.length, collapsed: true });
+			await expect(composer).toHaveText(`draft${inserted} tail`);
 			await expect(window.locator(".message-timeline")).toContainText("history-answer-12");
 		} finally {
 			await probe.evaluate((handle) => handle.dispose());
