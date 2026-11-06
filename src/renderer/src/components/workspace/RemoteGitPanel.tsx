@@ -96,6 +96,8 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 	const [pendingDiscard, setPendingDiscard] = useState<{ group: "workingTree" | "untracked"; path: string; target: ProjectFileTarget } | null>(null);
 	const [recoveryOpen, setRecoveryOpen] = useState(false);
 	const [pendingDrop, setPendingDrop] = useState<RemoteGitRecoveryEntryView | null>(null);
+	// 脏工作区切分支先确认（与本机同一条规则）：切换会带着未提交更改过去，失败时只回一个稳定码。
+	const [pendingSwitch, setPendingSwitch] = useState<string | null>(null);
 	const [pushConfirm, setPushConfirm] = useState(false);
 	const [initConfirm, setInitConfirm] = useState(false);
 	// Bounded refs polling: only while this section is expanded, the window is visible, the host is ready, refs
@@ -134,6 +136,8 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 		if (confirmedCommits > 0) setMessage("");
 	}, [confirmedCommits]);
 	const snapshot = state.snapshot;
+	// 未提交更改总数（四个分组求和）：只用来决定切分支要不要先确认，不参与任何写授权。
+	const changeCount = snapshot === undefined ? 0 : GROUPS.reduce((total, group) => total + snapshot.groups[group].length, 0);
 	// A const capture keeps the narrowed commit detail inside file-row closures.
 	const detail = state.detail;
 	const viewingDiff = state.diffLoading || state.diff !== undefined || state.diffErrorCode !== undefined;
@@ -588,7 +592,15 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 														<span className="font-mono text-text-secondary">{ref.oid.slice(0, 8)}</span>
 														{/* Switching only ever names an existing branch; the current one has nothing to do. */}
 														{ref.kind === "branch" && ref.name !== snapshot.branch ? (
-															<Button type="button" variant="ghost" size="sm" data-testid="remote-git-switch-branch" aria-label={`${t("remoteGit.switchBranch")} ${ref.name}`} disabled={!canSwitchBranch} onClick={() => switchBranch(ref.name)}>
+															<Button
+																type="button"
+																variant="ghost"
+																size="sm"
+																data-testid="remote-git-switch-branch"
+																aria-label={`${t("remoteGit.switchBranch")} ${ref.name}`}
+																disabled={!canSwitchBranch}
+																onClick={() => (changeCount > 0 ? setPendingSwitch(ref.name) : switchBranch(ref.name))}
+															>
 																{t("remoteGit.switchBranch")}
 															</Button>
 														) : null}
@@ -621,6 +633,29 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 								) : (
 									<RemoteGitClosedNote capability="git.compare" blocked={blocked} />
 								)}
+								{pendingSwitch ? (
+									<div data-testid="remote-git-switch-confirm-bar" className="mx-3 my-1 rounded border border-border p-2 text-xs">
+										<p>{t("git.branchSwitchConfirmTitle")}</p>
+										<p className="pt-1 text-text-secondary">{t("git.branchSwitchConfirmMessage", { count: changeCount, branch: pendingSwitch })}</p>
+										<div className="flex items-center gap-2 pt-1">
+											<Button
+												type="button"
+												size="sm"
+												data-testid="remote-git-switch-confirm"
+												onClick={() => {
+													const branch = pendingSwitch;
+													setPendingSwitch(null);
+													if (branch !== null) switchBranch(branch);
+												}}
+											>
+												{t("git.branchSwitchConfirmLabel")}
+											</Button>
+											<Button type="button" variant="ghost" size="sm" data-testid="remote-git-switch-cancel" onClick={() => setPendingSwitch(null)}>
+												{t("remoteGit.discardCancel")}
+											</Button>
+										</div>
+									</div>
+								) : null}
 							</>
 						) : null}
 					</section>

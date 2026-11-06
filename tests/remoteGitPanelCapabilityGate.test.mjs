@@ -32,6 +32,16 @@ test("全可用时不渲染能力条（只在有入口被关闭时解释原因�
 	assert.deepEqual(plain(describeGitCapabilityBanner(allOpen, { "git.write": "PROJECT_SERVICE_CAPABILITY_PROVIDER_UNSUPPORTED" })), []);
 });
 
+test("脏工作区切分支先确认，干净时直接切", () => {
+	// 切换会带着未提交更改过去；失败时只回一个稳定码，所以先问一句（与本机同一条规则）。
+	assert.match(panel, /changeCount > 0 \? setPendingSwitch\(ref\.name\) : switchBranch\(ref\.name\)/, "切换入口必须区分脏/干净两种路径");
+	assert.match(panel, /remote-git-switch-confirm-bar/);
+	assert.match(panel, /remote-git-switch-confirm/);
+	assert.match(panel, /remote-git-switch-cancel/);
+	// 未提交更改总数只用于提示，不参与任何写授权判定。
+	assert.match(panel, /const changeCount = snapshot === undefined \? 0 : GROUPS\.reduce/);
+});
+
 test("能力关闭时区块不消失：保留标题并就地说明原因", () => {
 	// 依据 ui-commercialization-plan「disabled 是必查态」：整块隐藏会让人以为功能不存在，
 	// 也分不清是「没做」还是「这台主机/这个 helper 不行」。

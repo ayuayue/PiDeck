@@ -1,8 +1,18 @@
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { remoteProjectRow, runRemoteCommand, type RemoteAcceptanceCredentials } from "./remote-fixtures";
 
 function quote(value: string): string {
 	return "'" + value.replace(/'/g, "'\\''") + "'";
+}
+
+/**
+ * 脏工作区切分支时产品先弹确认条（未提交更改会随切换带过去），干净工作区不打扰。
+ * 交互从「点一下就切」变成「点一下 → 需要时确认」，验收跟着走，但断言不变。
+ */
+async function confirmBranchSwitchIfAsked(panel: Locator): Promise<void> {
+	const confirm = panel.getByTestId("remote-git-switch-confirm");
+	await confirm.waitFor({ state: "visible", timeout: 1_000 }).catch(() => undefined);
+	if ((await confirm.count()) > 0) await confirm.click();
 }
 
 /**
@@ -100,6 +110,7 @@ export async function verifyRemoteGitBranch(input: { window: Page; credentials: 
 
 	await test.step("切换分支：工作区变成目标分支的内容，未跟踪文件保留", async () => {
 		await panel.getByTestId("remote-git-ref-row").filter({ hasText: "feature" }).getByTestId("remote-git-switch-branch").click();
+		await confirmBranchSwitchIfAsked(panel);
 		await expect(panel.getByTestId("remote-git-branch")).toContainText("feature", { timeout: timeoutMs });
 		expect((await git("symbolic-ref --short HEAD")).trim()).toBe("feature");
 		expect((await git("rev-parse HEAD")).trim()).toBe(featureOid);
@@ -115,6 +126,7 @@ export async function verifyRemoteGitBranch(input: { window: Page; credentials: 
 		await expect(panel.getByTestId("remote-git-workingTree")).toContainText("tracked.txt", { timeout: timeoutMs });
 		await openRefs();
 		await panel.getByTestId("remote-git-ref-row").filter({ hasText: defaultBranch }).getByTestId("remote-git-switch-branch").click();
+		await confirmBranchSwitchIfAsked(panel);
 		await expect(panel.getByRole("alert")).toContainText("工作区有未提交改动", { timeout: timeoutMs });
 		// The refusal drops the panel's facts rather than showing a half-true state; the repository is unchanged.
 		expect((await git("symbolic-ref --short HEAD")).trim()).toBe("feature");
