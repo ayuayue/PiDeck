@@ -18,6 +18,9 @@ const plain = (value) => JSON.parse(JSON.stringify(value));
 
 function createAtomStore() {
 	const atom = { value: new Map() };
+	// 安装前置任务表（生产里是 update-install-preflight 的 atom）：用固定 token 顶掉 atom()，
+	// 测试就不必猜「第几个 atom 才是它」。
+	const preflight = { value: new Map() };
 	const store = {
 		get: (token) => token.value,
 		set: (token, next) => {
@@ -25,15 +28,18 @@ function createAtomStore() {
 		},
 	};
 	const jotai = {
+		atom: () => preflight,
 		useAtom: (token) => [token.value, (next) => store.set(token, next)],
+		useAtomValue: (token) => token.value,
+		useSetAtom: (token) => (next) => store.set(token, next),
 		useStore: () => store,
 	};
-	return { atom, store, jotai };
+	return { atom, preflight, store, jotai };
 }
 
 function draftHarness(overrides = {}) {
 	const host = quickMessageHookHost();
-	const { atom, jotai } = createAtomStore();
+	const { atom, preflight, jotai } = createAtomStore();
 	const calls = { read: [], write: [] };
 	const services = {
 		projectId: "p1",
@@ -61,7 +67,9 @@ function draftHarness(overrides = {}) {
 	let view = null;
 	const render = () => (view = host.render(() => useRemoteFileDraft(services, "a.txt")));
 	const draft = () => atom.value.get(JSON.stringify(["p1", "a.txt"]));
-	return { host, render, view: () => view, calls, atom, draft };
+	/** 安装前置任务表：注册/注销与任务体都由这里观测。 */
+	const preflightTasks = () => preflight.value;
+	return { host, render, view: () => view, calls, atom, draft, preflight: preflightTasks };
 }
 
 const VERSION_REQUIRED = () => Object.assign(new Error("PROJECT_SERVICE_VERSION_REQUIRED"), { code: "PROJECT_SERVICE_VERSION_REQUIRED", outcome: "rejected" });
@@ -136,6 +144,74 @@ test("写结果 unknown：不重试、不重开，草稿与已保存基准保持
 	assert.equal(h.draft().phase, "ready");
 	assert.equal(h.draft().blocked, true);
 	assert.equal(h.draft().errorCode, "REMOTE_FILE_RESULT_UNCONFIRMED");
+	h.host.unmount();
+});
+
+test("有未保存草稿时注册安装前置任务：任务体真写一次远端正文，落盘后立即注销", async () => {
+	const h = draftHarness();
+	h.render();
+	await flush();
+	h.render();
+	assert.equal(h.preflight().size, 0, "干净草稿不得占用安装前置任务");
+	h.view().change("edited on remote");
+	h.render();
+	assert.equal(h.preflight().size, 1, "脏草稿必须挂上安装前置任务");
+	const task = [...h.preflight().values()][0];
+	assert.equal(await task(), true, "任务成功即允许安装流程继续");
+	h.render();
+	assert.equal(h.calls.write.length, 1, "前置任务体就是一次真实写入");
+	assert.equal(h.calls.write[0].content, "edited on remote");
+	assert.equal(h.calls.write[0].version, "v1", "保存仍只使用 readText 的 version");
+	assert.equal(h.draft().savedContent, "edited on remote");
+	assert.equal(h.preflight().size, 0, "草稿干净后注销");
+	h.host.unmount();
+});
+
+test("写不成时不谎报：前置任务返回 false、草稿与 blocked 保留；不再有未保存内容才注销", async () => {
+	const h = draftHarness({
+		write: async () => {
+			throw UNKNOWN();
+		},
+	});
+	h.render();
+	await flush();
+	h.render();
+	h.view().change("unsaved edit");
+	h.render();
+	const task = [...h.preflight().values()][0];
+	assert.equal(await task(), false, "未知结果不得让安装流程放行");
+	h.render();
+	assert.equal(h.calls.write.length, 1);
+	assert.equal(h.draft().content, "unsaved edit", "草稿完整保留，不静默丢");
+	assert.equal(h.draft().blocked, true);
+	assert.equal(h.draft().errorCode, "REMOTE_FILE_RESULT_UNCONFIRMED");
+	assert.equal(h.preflight().size, 1, "仍有未落盘内容：任务继续挂着");
+	h.view().change("disk");
+	h.render();
+	assert.equal(h.preflight().size, 0, "不再有未保存内容时注销");
+	h.host.unmount();
+});
+
+test("安装前置任务等在途保存：同一份正文只写一次，不重复提交", async () => {
+	let release;
+	const h = draftHarness({
+		write: () =>
+			new Promise((resolve) => {
+				release = () => resolve({ version: "v9" });
+			}),
+	});
+	h.render();
+	await flush();
+	h.render();
+	h.view().change("typed once");
+	h.render();
+	const editing = h.view().save();
+	const flushing = [...h.preflight().values()][0]();
+	release();
+	await editing;
+	assert.equal(await flushing, true);
+	assert.equal(h.calls.write.length, 1, "在途保存与安装前置任务合并成一次写");
+	assert.equal(h.draft().savedContent, "typed once");
 	h.host.unmount();
 });
 
