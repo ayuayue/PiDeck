@@ -47,7 +47,7 @@ import { RemoteProjectTransferStatus } from "./RemoteProjectTransferStatus";
  *
  * 仍保留的远端专属薄壳：回收站列表/恢复/清空、图片预览与跨目录移动。
  */
-type RemoteProjectPanelProps = { projectId: string; projectName: string; onOpenTerminal?: () => void; onCreateSession?: () => void; onBack?: () => void };
+type RemoteProjectPanelProps = { projectId: string; projectName: string; onOpenTerminal?: () => void; onCreateSession?: () => void; onBack?: () => void; onOpenFile?: (target: { projectId: string; relativePath: string }) => void };
 
 export function RemoteProjectPanel(props: RemoteProjectPanelProps) {
 	const project = useAtomValue(projectByIdAtomFamily(props.projectId));
@@ -202,8 +202,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 			className={`files-panel flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 py-3 ${transfer.dragActive ? "outline outline-2 -outline-offset-2 outline-primary/60" : ""}`}
 			data-testid="remote-project-drop"
 			onDragOver={(event) => {
-				// 内部拖动也接受 drop（不 preventDefault 就不会派发 drop）：落在空白处 = 当前目录，
-				// 条目本来就在这里，因此是个 no-op。这样「拖到空白」不会显示禁止光标，也不会被误当上传。
+				// 内部拖动的空白 drop = 当前目录，属 no-op：既不显示禁止光标，也不会被当成上传。
 				const route = remoteDropRoute({ hasFiles: event.dataTransfer.types.includes("Files"), hasEntryMarker: event.dataTransfer.types.includes(REMOTE_ENTRY_DRAG_TYPE) });
 				if (route === "move") {
 					event.preventDefault();
@@ -214,8 +213,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 			}}
 			onDragLeave={transfer.onDragLeave}
 			onDrop={(event) => {
-				// 两条路径由纯函数判定（`remoteEntryDrag.ts`）：内部拖动落在空白处既不是移动也不算上传；
-				// 只有从系统拖进来的文件会走上传。
+				// 两条路径由纯函数判定（`remoteEntryDrag.ts`）：只有系统拖进来的文件才算上传。
 				const route = remoteDropRoute({ hasFiles: event.dataTransfer.types.includes("Files"), hasEntryMarker: event.dataTransfer.types.includes(REMOTE_ENTRY_DRAG_TYPE) });
 				if (remoteDropOnBlankArea(route)) {
 					event.preventDefault();
@@ -414,6 +412,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 				<RemoteProjectRowMenu
 					menu={rowMenu}
 					busy={files.busy || busy}
+					onOpenInEditor={props.onOpenFile === undefined ? undefined : () => props.onOpenFile?.({ projectId: props.projectId, relativePath: rowMenu.node.relativePath })}
 					canWrite={canWrite}
 					canDownload={services.capabilities.files.read && services.capabilities.files.download}
 					onClose={() => setRowMenu(null)}

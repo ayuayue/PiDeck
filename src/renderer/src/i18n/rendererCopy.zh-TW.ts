@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: b6985829977b5a88b7cdf4428dfd9290cb4b689d492b1e2110f7c2740a7e8650（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: b9630980e7f058d9a7427d9d76c2ee0b1999db639d066a7de07263c78eb886ab（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -7322,6 +7322,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"remoteFileEntry.createAction": "建立",
 	"remoteFileEntry.renameTitle": "重新命名",
 	"remoteFileEntry.downloadAction": "下載到本機",
+	"remoteFileEntry.openInEditor": "在編輯器中開啟",
 	"remoteFileEntry.uploadAction": "上傳檔案",
 	"remoteFileEntry.renameAction": "重新命名",
 	"remoteFileEntry.deleteTitleFile": "刪除檔案",

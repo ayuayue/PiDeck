@@ -7315,6 +7315,7 @@ export const zhCN = {
 	"remoteFileEntry.createAction": "创建",
 	"remoteFileEntry.renameTitle": "重命名",
 	"remoteFileEntry.downloadAction": "下载到本机",
+	"remoteFileEntry.openInEditor": "在编辑器中打开",
 	"remoteFileEntry.uploadAction": "上传文件",
 	"remoteFileEntry.renameAction": "重命名",
 	"remoteFileEntry.deleteTitleFile": "删除文件",

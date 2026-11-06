@@ -7344,6 +7344,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"remoteFileEntry.createAction": "Create",
 	"remoteFileEntry.renameTitle": "Rename",
 	"remoteFileEntry.downloadAction": "Download to this computer",
+	"remoteFileEntry.openInEditor": "Open in editor",
 	"remoteFileEntry.uploadAction": "Upload files",
 	"remoteFileEntry.renameAction": "Rename",
 	"remoteFileEntry.deleteTitleFile": "Delete file",
