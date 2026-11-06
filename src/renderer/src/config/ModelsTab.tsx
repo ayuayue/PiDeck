@@ -292,9 +292,18 @@ export function ModelsTab(props: {
 			{/* 列表态：顶部按钮 + 指南 + 卡片列表；新增/编辑时整区切换为配置表单页（非弹窗） */}
 			{!props.addingProvider && !props.editingProvider && !transferView && (
 				<>
-					<div className="mb-3 flex items-center justify-between gap-3">
-						<span className="font-mono text-xs tabular-nums text-muted-foreground">{t("config.count.providers", { count: visibleProviderNames.length })}</span>
-						<div className="flex min-w-0 items-center gap-1.5">
+					{/* 搜索与计数/操作同一行：单独的搜索行在供应商少时只是白占一行高度，
+					    关键词与「N 个供应商」「匹配 M / N」放在一起也更好读。 */}
+					<div className="mb-3 flex flex-wrap items-center gap-2">
+						<span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{t("config.count.providers", { count: visibleProviderNames.length })}</span>
+						{visibleProviderNames.length > 0 && (
+							<div className="relative min-w-0 max-w-xs flex-1 basis-52">
+								<Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/70" aria-hidden="true" />
+								<Input type="search" size="sm" value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={t("config.providerSearchPlaceholder")} aria-label={t("config.providerSearchPlaceholder")} className="pl-8" />
+							</div>
+						)}
+						{query.trim().length > 0 && <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{t("config.extensionListResultCount", { matched: searchedProviderNames.length, count: visibleProviderNames.length })}</span>}
+						<div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5">
 							{!batchMode && (
 								<>
 									<Button
@@ -362,16 +371,6 @@ export function ModelsTab(props: {
 							)}
 						</div>
 					)}
-					{visibleProviderNames.length > 0 && (
-						<div className="mb-2.5 flex flex-wrap items-center gap-2">
-							<div className="relative min-w-0 max-w-xs flex-1 basis-52">
-								<Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/70" aria-hidden="true" />
-								<Input type="search" size="sm" value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={t("config.providerSearchPlaceholder")} aria-label={t("config.providerSearchPlaceholder")} className="pl-8" />
-							</div>
-							{query.trim().length > 0 && <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{t("config.extensionListResultCount", { matched: searchedProviderNames.length, count: visibleProviderNames.length })}</span>}
-						</div>
-					)}
-
 					{/* Provider 配置指南：开合走共享折叠原语（真高度渐变 + exit 后卸载 + reduced-motion 回退）；
 					    display:contents 根不生成盒子，卡片样式移到折叠体本身。 */}
 					<Collapsible open={showGuide} className="contents">

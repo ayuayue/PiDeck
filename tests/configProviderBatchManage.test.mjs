@@ -60,10 +60,11 @@ test("export panel exports directly to clipboard or file without a generate phas
 });
 
 test("batch toolbars offer select all, invert and clear selection at both levels", () => {
-	// 供应商级：取消按钮之后、动作下拉之前的三个 ghost 按钮，作用于 visibleProviderNames
+	// 供应商级：取消按钮之后、动作下拉之前的三个 ghost 按钮，作用于 searchedProviderNames
 	assert.match(tab, /common\.cancel[\s\S]{0,400}?common\.selectAll[\s\S]{0,400}?common\.invertSelection[\s\S]{0,400}?common\.clearSelection[\s\S]{0,1000}?config\.models\.batchExecute/);
-	assert.match(tab, /setSelectedProviders\(new Set\(visibleProviderNames\)\)/);
-	assert.match(tab, /visibleProviderNames\.filter\(\(?[^)]*\)?\s*=>\s*!selectedProviders\.has\(/);
+	// 全选/反选作用于「当前搜索结果」而非整份列表：过滤中批量操作不应牵进看不见的供应商。
+	assert.match(tab, /setSelectedProviders\(new Set\(searchedProviderNames\)\)/);
+	assert.match(tab, /searchedProviderNames\.filter\(\(?[^)]*\)?\s*=>\s*!selectedProviders\.has\(/);
 	// 清除不退出批量模式：只清空 Set
 	assert.match(tab, /\{batchMode &&[\s\S]{0,700}?onClick=\{\(\) => setSelectedProviders\(new Set\(\)\)\}/);
 	// 模型级：同一组三按钮，走 modelBatchSelection 纯函数

@@ -134,13 +134,23 @@ export function AuthTab(props: {
 
 	return (
 		<div className="config-auth-tab">
-			<div className="mb-3 flex items-center justify-between gap-3">
-				<span className="font-mono text-xs tabular-nums text-muted-foreground">{t("config.count.auth", { count: allProviders.length })}</span>
-				<div className="flex min-w-0 items-center gap-1.5">
+			{/* 搜索与计数/操作同一行（与模型页同款）：单独一行只是白占高度，关键词紧跟着「N 个认证」也更明确。 */}
+			<div className="mb-3 flex flex-wrap items-center gap-2">
+				<span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{t("config.count.auth", { count: allProviders.length })}</span>
+				{visibleProviders.length > 0 && (
+					<div className="relative min-w-0 max-w-xs flex-1 basis-52">
+						<Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/70" aria-hidden="true" />
+						<Input type="search" size="sm" value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={t("config.providerSearchPlaceholder")} aria-label={t("config.providerSearchPlaceholder")} className="pl-8" />
+					</div>
+				)}
+				{query.trim().length > 0 && <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{t("config.extensionListResultCount", { matched: searchedProviders.length, count: visibleProviders.length })}</span>}
+				<div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5">
 					<Button
 						size="sm"
 						variant="outline"
 						onClick={() => {
+							// 新认证名不一定命中当前关键词，留着会「加完看不见」。
+							setQuery("");
 							setSelectingProvider(true);
 							setSelectedProvider("");
 							setCustomProviderName("");
@@ -201,16 +211,6 @@ export function AuthTab(props: {
 							{t("config.providerOrderReset")}
 						</Button>
 					)}
-				</div>
-			)}
-
-			{visibleProviders.length > 0 && (
-				<div className="mb-2.5 flex flex-wrap items-center gap-2">
-					<div className="relative min-w-0 max-w-xs flex-1 basis-52">
-						<Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/70" aria-hidden="true" />
-						<Input type="search" size="sm" value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={t("config.providerSearchPlaceholder")} aria-label={t("config.providerSearchPlaceholder")} className="pl-8" />
-					</div>
-					{query.trim().length > 0 && <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{t("config.extensionListResultCount", { matched: searchedProviders.length, count: visibleProviders.length })}</span>}
 				</div>
 			)}
 
