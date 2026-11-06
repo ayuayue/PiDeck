@@ -62,7 +62,8 @@ export async function verifyRemoteGitSync(input: { window: Page; credentials: Re
 	 */
 	const refresh = async () => {
 		await panel.getByRole("button", { name: "刷新远端 Git", exact: true }).click();
-		await expect(panel.getByTestId("remote-git-workingTree").or(panel.getByText("工作区干净")))
+		// 干净态改成与本机同一套文案后，按 testid 判「已结算」比按文字更稳（文案会随产品统一而变）。
+		await expect(panel.getByTestId("remote-git-workingTree").or(panel.getByTestId("remote-git-clean")))
 			.toBeVisible({ timeout: timeoutMs })
 			.catch(async (error: unknown) => {
 				const text = await panel.innerText();

@@ -32,6 +32,12 @@ test("全可用时不渲染能力条（只在有入口被关闭时解释原因�
 	assert.deepEqual(plain(describeGitCapabilityBanner(allOpen, { "git.write": "PROJECT_SERVICE_CAPABILITY_PROVIDER_UNSUPPORTED" })), []);
 });
 
+test("干净态与本机同一套文案与图标，不再各写一句", () => {
+	assert.match(panel, /t\("git\.noPendingChanges"\)/, "必须复用本机那句 copy");
+	assert.match(panel, /<CheckCircle2/, "图标与本机一致（勾）");
+	assert.ok(!panel.includes('t("remoteGit.clean")'), "自造文案必须退场");
+});
+
 test("分支选择在顶栏：branchRead 门禁，refs 关闭也有入口，打开下拉才加载列表", () => {
 	// 原来切换按钮只长在「引用」折叠区里：refs 能力一关，即使 branchWrite 开着也没有切分支入口。
 	assert.match(panel, /data-testid="remote-git-branch-select"/);

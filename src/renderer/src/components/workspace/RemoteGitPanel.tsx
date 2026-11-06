@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { ArrowLeft, LoaderCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, CheckCircle2, LoaderCircle, RefreshCw } from "lucide-react";
 import type { RemoteGitRecoveryEntryView } from "../../../../shared/types/git";
 import type { ProjectFileTarget, RemoteProject } from "../../../../shared/types/project";
 import type { GitResourceGroupType } from "../../../../shared/types/git";
@@ -416,7 +416,13 @@ export function RemoteGitPanel({ project }: { project: RemoteProject }) {
 					<p data-testid="remote-git-branch" className="px-3 pb-2 text-xs text-text-secondary">
 						{snapshot.branch ?? t("remoteGit.detached")}
 					</p>
-					{GROUPS.every((group) => snapshot.groups[group].length === 0) ? <p className="px-3 text-text-secondary">{t("remoteGit.clean")}</p> : null}
+					{/* 干净态与本机同一套：同一句文案 + 同一个勾图标，不再各写一句。 */}
+					{GROUPS.every((group) => snapshot.groups[group].length === 0) ? (
+						<p data-testid="remote-git-clean" className="flex items-center gap-1.5 px-3 text-xs text-text-secondary">
+							<CheckCircle2 aria-hidden="true" size={13} className="shrink-0" />
+							{t("git.noPendingChanges")}
+						</p>
+					) : null}
 					{GROUPS.map((group) =>
 						snapshot.groups[group].length ? (
 							<section key={group} data-testid={`remote-git-${group}`} className="pb-2">
