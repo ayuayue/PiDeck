@@ -276,6 +276,9 @@ export function useSessionPreferenceController(options: {
 			} catch {
 				// localStorage 不可用时静默；创建会话回退到各后端自己的默认模型
 			}
+			// 关掉选择器不会重挂载底栏；bump 一次让底栏重读刚写入的偏好，否则
+			// 「菜单点选成功、底栏仍显示默认模型」，首次发送前看起来一直没切换。
+			state.bumpWelcomePreference();
 			onApplied();
 			return;
 		}
