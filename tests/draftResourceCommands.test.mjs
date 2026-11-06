@@ -206,10 +206,7 @@ test("standby preview wins over local discovery for drafts but never over a live
 
 test("DSH skills become bare slash commands after the live command table", () => {
 	const commands = [{ name: "compact", description: "Compact context", source: "command" }];
-	const merged = mergeDshSkillCommands(commands, [
-		{ name: "grill-me", description: "Grill the plan" },
-		{ name: "review" },
-	]);
+	const merged = mergeDshSkillCommands(commands, [{ name: "grill-me", description: "Grill the plan" }, { name: "review" }]);
 
 	assert.equal(
 		JSON.stringify(merged),
