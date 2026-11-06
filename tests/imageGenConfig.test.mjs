@@ -75,6 +75,25 @@ test("apiStyle 白名单：siliconflow 保留，非法回退 undefined（语义 
 	assert.equal(bad.providers[0].apiStyle, undefined);
 });
 
+test("OpenRouter 方言与 input-references 参考图模式可通过白名单", () => {
+	const { sanitizeImageGenConfig } = loadConfig();
+	const next = sanitizeImageGenConfig({
+		providers: [
+			{
+				id: "ig-or",
+				name: "OpenRouter",
+				baseUrl: "https://openrouter.ai/api/v1",
+				apiKey: "sk-or",
+				models: ["google/gemini-2.5-flash-image"],
+				apiStyle: "openrouter",
+				referenceMode: "input-references",
+			},
+		],
+	});
+	assert.equal(next.providers[0].apiStyle, "openrouter");
+	assert.equal(next.providers[0].referenceMode, "input-references");
+});
+
 test("strips kind and keeps extraParams flags", () => {
 	const { sanitizeImageGenConfig } = loadConfig();
 	const next = sanitizeImageGenConfig({

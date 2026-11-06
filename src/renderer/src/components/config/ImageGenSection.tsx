@@ -312,7 +312,7 @@ export const ImageGenSection = forwardRef<ImageGenSectionHandle, ImageGenSection
 											onValueChange={(value) =>
 												updateProvider(provider.id, {
 													// 枚举收窄：未知值回退为不支持，避免脏配置进存储
-													referenceMode: value === "edits" || value === "image-field" ? value : undefined,
+													referenceMode: value === "edits" || value === "image-field" || value === "input-references" ? value : undefined,
 												})
 											}
 										>
@@ -323,6 +323,7 @@ export const ImageGenSection = forwardRef<ImageGenSectionHandle, ImageGenSection
 												<SelectItem value="none">{t("config.imagegen.referenceNone")}</SelectItem>
 												<SelectItem value="edits">{t("config.imagegen.referenceEdits")}</SelectItem>
 												<SelectItem value="image-field">{t("config.imagegen.referenceImageField")}</SelectItem>
+												<SelectItem value="input-references">{t("config.imagegen.referenceInputReferences")}</SelectItem>
 											</SelectContent>
 										</Select>
 									</SettingRow>
@@ -331,12 +332,15 @@ export const ImageGenSection = forwardRef<ImageGenSectionHandle, ImageGenSection
 									<SettingRow title={<span>{t("config.imagegen.apiStyle")}</span>} description={t("config.imagegen.apiStyleHint")} alignEnd={false}>
 										<Select
 											value={provider.apiStyle ?? "openai"}
-											onValueChange={(value) =>
+											onValueChange={(value) => {
+												// 枚举收窄：未知值回退 openai（旧配置无字段同理）
+												const apiStyle = value === "openai" || value === "siliconflow" || value === "openrouter" ? value : undefined;
 												updateProvider(provider.id, {
-													// 枚举收窄：未知值回退 openai（旧配置无字段同理）
-													apiStyle: value === "openai" || value === "siliconflow" ? value : undefined,
-												})
-											}
+													apiStyle,
+													// 选 OpenRouter 且地址还空着时补官方端点，避免用户再查一遍路径
+													...(apiStyle === "openrouter" && !provider.baseUrl.trim() ? { baseUrl: "https://openrouter.ai/api/v1" } : {}),
+												});
+											}}
 										>
 											<SelectTrigger className="w-full">
 												<SelectValue />
@@ -344,6 +348,7 @@ export const ImageGenSection = forwardRef<ImageGenSectionHandle, ImageGenSection
 											<SelectContent>
 												<SelectItem value="openai">{t("config.imagegen.apiStyleOpenai")}</SelectItem>
 												<SelectItem value="siliconflow">{t("config.imagegen.apiStyleSiliconflow")}</SelectItem>
+												<SelectItem value="openrouter">{t("config.imagegen.apiStyleOpenrouter")}</SelectItem>
 											</SelectContent>
 										</Select>
 									</SettingRow>

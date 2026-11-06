@@ -44,7 +44,8 @@ export class ImageGenService {
 			return { ok: false, error: "notConfigured" };
 		}
 		try {
-			const imagesUrl = normalizeImagesUrl(credentials.baseUrl);
+			// OpenRouter 是专用 /images 接口（不是 /images/generations）；其余方言仍按 OpenAI 兼容路径推导
+			const imagesUrl = credentials.apiStyle === "openrouter" ? normalizeOpenRouterImagesUrl(credentials.baseUrl) : normalizeImagesUrl(credentials.baseUrl);
 			// extraParams 缺省全关：没勾选就不发可选字段，避免未知字段 400
 			const extraParams = credentials.extraParams ?? {
 				size: false,
@@ -77,7 +78,8 @@ export class ImageGenService {
 				});
 			} else {
 				// 方言与参考图形态：image-field 时参考图并入 JSON body，builder 按方言组装
-				// （openai/方舟 → dataURI 数组；siliconflow → 首张单 dataURI string）
+				// （openai/方舟 → dataURI 数组；siliconflow → 首张单 dataURI string；
+				//   openrouter → input_references）
 				const body = buildImageGenApiBody({
 					model: request.model,
 					prompt: request.prompt,
@@ -86,7 +88,7 @@ export class ImageGenService {
 					watermark: request.watermark,
 					outputFormat: outputFormat ?? undefined,
 					apiStyle: credentials.apiStyle ?? "openai",
-					referenceImages: refs.length > 0 && referenceMode === "image-field" ? refs : undefined,
+					referenceImages: refs.length > 0 && (referenceMode === "image-field" || referenceMode === "input-references") ? refs : undefined,
 				});
 				response = await modelHttpFetch(imagesUrl, {
 					method: "POST",
@@ -109,7 +111,7 @@ export class ImageGenService {
 				};
 			}
 			const payload = (await this.readJsonCapped(response)) as {
-				data?: Array<{ b64_json?: string; url?: string }>;
+				data?: Array<{ b64_json?: string; url?: string; media_type?: string }>;
 				// SiliconFlow 方言：响应是 images[].url（无 data 数组、无 b64_json）
 				images?: Array<{ url?: string }>;
 			} | null;
@@ -118,10 +120,11 @@ export class ImageGenService {
 				return { ok: false, error: "responseTooLarge" };
 			}
 			// 通用兜底：OpenAI/方舟读 data[0]，硅基读 images[0]，不依赖方言判断
-			const item: { b64_json?: string; url?: string } | undefined = payload.data?.[0] ?? payload.images?.[0];
+			const item: { b64_json?: string; url?: string; media_type?: string } | undefined = payload.data?.[0] ?? payload.images?.[0];
 			if (item?.b64_json) {
-				// b64 无 content-type：只有勾选并发送了 output_format 才按 jpeg/png 标记
-				const mimeType = extraParams.output_format ? imageGenOutputMimeType(outputFormat) : "image/png";
+				// b64 无 content-type：优先用厂商返回的 media_type（OpenRouter），
+				// 其次只有勾选并发送了 output_format 才按 jpeg/png 标记
+				const mimeType = typeof item.media_type === "string" && item.media_type.startsWith("image/") ? item.media_type : extraParams.output_format ? imageGenOutputMimeType(outputFormat) : "image/png";
 				return {
 					ok: true,
 					image: { type: "image", data: item.b64_json, mimeType },
@@ -289,6 +292,18 @@ function normalizeImagesUrl(baseUrl: string): string {
 		return `${trimmed}/images/generations`;
 	}
 	return `${trimmed}/v1/images/generations`;
+}
+
+/** OpenRouter Image API 端点：POST {base}/images（base 通常 https://openrouter.ai/api/v1）。
+ *  与 OpenAI 兼容服务不同，不追加 /images/generations；用户已填完整 /images 时原样使用。 */
+function normalizeOpenRouterImagesUrl(baseUrl: string): string {
+	const trimmed = baseUrl.trim().replace(/\/+$/, "");
+	if (/\/images$/i.test(trimmed)) return trimmed;
+	if (/\/chat\/completions$/i.test(trimmed)) return trimmed.replace(/\/chat\/completions$/i, "/images");
+	if (/\/api\/v1$/i.test(trimmed)) return `${trimmed}/images`;
+	// 自定义反代常把版本段写成 /v1；保留它，避免再插一层 /api
+	if (/\/v1$/i.test(trimmed)) return `${trimmed}/images`;
+	return `${trimmed}/api/v1/images`;
 }
 
 /** edits 端点：与 generations 同规则推导，仅路径换成 /images/edits；用户已配完整 generations 路径时替换尾段。 */

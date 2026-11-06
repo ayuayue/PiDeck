@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: a00b75569db2ef688d8dd1eb6d13e07135f75bb566d8c529e74fb04dcd775a00（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 0bf6d3c9c9c0224ac7f2392c7d3c3b6948efee4425223ee87d9aaf864b4645d2（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -2851,14 +2851,16 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.imagegen.extraParams": "支援的引數",
 	"config.imagegen.extraParamsHint": "按官方文件勾選。沒勾選的欄位不會出現在底欄，也不會發到介面（避免未知欄位 400）。",
 	"config.imagegen.referenceMode": "參考圖模式",
-	"config.imagegen.referenceModeHint": "宣告該供應商能否把上傳的圖片作為參考。不支援時附件欄會被攔截；edits 走 /images/edits 表單介面；image-field 把圖片併入 JSON 請求體。",
+	"config.imagegen.referenceModeHint": "宣告該供應商能否把上傳的圖片作為參考。不支援時附件欄會被攔截；edits 走 /images/edits 表單介面；image-field 把圖片併入 JSON 請求體；input_references 用於 OpenRouter 的專用生圖介面。",
 	"config.imagegen.referenceNone": "不支援",
 	"config.imagegen.referenceEdits": "支援（/images/edits）",
 	"config.imagegen.referenceImageField": "支援（image 欄位）",
+	"config.imagegen.referenceInputReferences": "支援（input_references）",
 	"config.imagegen.apiStyle": "介面方言",
-	"config.imagegen.apiStyleHint": "同一 images/generations 介面各家欄位名/響應結構不同：OpenAI、方舟用 size 欄位、返回 data[].b64_json；SiliconFlow 用 image_size、返回 images[].url（參考圖為單個圖片）",
+	"config.imagegen.apiStyleHint": "不同供應商的端點與欄位名不同：OpenAI、方舟走 /images/generations（size / data[].b64_json）；SiliconFlow 用 image_size、返回 images[].url；OpenRouter 走專用 /images（input_references / data[].b64_json + media_type）",
 	"config.imagegen.apiStyleOpenai": "OpenAI 相容（size / data[].b64_json）",
 	"config.imagegen.apiStyleSiliconflow": "SiliconFlow（image_size / images[].url）",
+	"config.imagegen.apiStyleOpenrouter": "OpenRouter Image API（/images）",
 	"config.imagegen.paramSize": "size（解析度）",
 	"config.imagegen.paramSizeHint": "官方 size。OpenAI 用 1024x1024 等；火山還支援 1K / 2K / 4K。",
 	"config.imagegen.paramOutputFormat": "output_format（輸出格式）",

@@ -135,6 +135,9 @@ export function buildImageGenApiBody(input: { model: string; prompt: string; ext
 	if ((input.apiStyle ?? "openai") === "siliconflow") {
 		return buildSiliconFlowApiBody(input);
 	}
+	if (input.apiStyle === "openrouter") {
+		return buildOpenRouterApiBody(input);
+	}
 	const body: Record<string, unknown> = {
 		model: input.model.trim(),
 		prompt: input.prompt,
@@ -158,6 +161,36 @@ export function buildImageGenApiBody(input: { model: string; prompt: string; ext
 	// image-field 参考图：OpenAI/方舟用 dataURI 数组（seedream 官方格式）
 	if (input.referenceImages && input.referenceImages.length > 0) {
 		body.image = buildImageGenImageField(input.referenceImages);
+	}
+	return body;
+}
+
+/**
+ * OpenRouter Image API body：POST {base}/images，与 OpenAI 的 /images/generations 不是同一形状。
+ * - 不带 response_format：接口固定返回 base64（data[].b64_json）+ media_type；
+ * - watermark 无对应字段（OpenRouter 用 background），不发送；
+ * - 参考图用 input_references（type=image_url，url 支持 dataURI），最多由服务端限制。
+ */
+function buildOpenRouterApiBody(input: { model: string; prompt: string; extraParams?: Partial<ImageGenProviderExtraParams> | null; size?: string; outputFormat?: string; referenceImages?: Array<{ data: string; mimeType: string }> }): Record<string, unknown> {
+	const body: Record<string, unknown> = {
+		model: input.model.trim(),
+		prompt: input.prompt,
+		n: 1,
+	};
+	const extra = resolveExtraParams(input.extraParams ?? DEFAULT_IMAGE_GEN_EXTRA_PARAMS);
+	if (extra.size) {
+		const size = resolveImageGenApiSize(input.size);
+		if (size) body.size = size;
+	}
+	if (extra.output_format) {
+		const outputFormat = parseImageGenOutputFormat(input.outputFormat, null);
+		if (outputFormat) body.output_format = outputFormat;
+	}
+	if (input.referenceImages && input.referenceImages.length > 0) {
+		body.input_references = input.referenceImages.map((image) => ({
+			type: "image_url",
+			image_url: { url: `data:${image.mimeType};base64,${image.data}` },
+		}));
 	}
 	return body;
 }
