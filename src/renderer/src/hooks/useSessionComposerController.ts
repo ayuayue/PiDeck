@@ -89,7 +89,7 @@ import { showNotice } from "../utils/notice";
 import { requireSessionCommand, toSessionRuntimeTarget } from "../utils/sessionCommands";
 import { collectReservedCommandNames, needsTemplateRefetch } from "../utils/reservedCommandNames";
 import { assembleTemplates, mergeRuntimeTemplates } from "../utils/templateCatalog";
-import { buildDraftResourceCommands, draftResourceCommandsForProject, selectComposerSuggestionCommands, standbyPreviewCommandsForProject, type DraftResourceCommandSnapshot, type StandbyPreviewCommandSnapshot } from "../utils/draftResourceCommands";
+import { buildDraftResourceCommands, draftResourceCommandsForProject, mergeDshSkillCommands, selectComposerSuggestionCommands, standbyPreviewCommandsForProject, type DraftResourceCommandSnapshot, type StandbyPreviewCommandSnapshot } from "../utils/draftResourceCommands";
 import { isAcpComposerInitializing } from "../utils/composerInitializing";
 import { isSessionRuntimeBusy, isUserFacingSessionStart } from "./useSessionTimelineController";
 import { truncateQuoteLabel } from "../components/session/composer/quoteChip";
@@ -874,20 +874,38 @@ export function useSessionComposerController(options: UseSessionComposerControll
 				return;
 			}
 			let current = true;
+			// 命令表与技能目录并行：命令先到先出，技能后到再合并，避免 skill.list 拖慢 `/` 菜单。
+			let liveCommands: PiCommand[] = staticCommands;
+			let skillCommands: ReadonlyArray<{ name: string; description?: string }> = [];
+			const publish = () => {
+				if (current) setCommands(mergeDshSkillCommands(liveCommands, skillCommands));
+			};
 			void desktopApi.sessions
 				.listRuntimeCommands(dshTarget)
 				.then((result) => {
-					if (current) {
-						const live = requireSessionCommand(result).value;
-						// live 清单可能不含 help 等基础命令（部分命令仅桌面侧存在）：
-						// 与静态建议集合并去重，优先 live 描述。
-						const names = new Set(live.map((command) => command.name));
-						setCommands([...live, ...staticCommands.filter((command) => !names.has(command.name))]);
-					}
+					if (!current) return;
+					const live = requireSessionCommand(result).value;
+					// live 清单可能不含 help 等基础命令（部分命令仅桌面侧存在）：
+					// 与静态建议集合并去重，优先 live 描述。
+					const names = new Set(live.map((command) => command.name));
+					liveCommands = [...live, ...staticCommands.filter((command) => !names.has(command.name))];
+					publish();
 				})
 				.catch(() => {
-					if (current) setCommands(staticCommands);
+					liveCommands = staticCommands;
+					publish();
 				});
+			if (!isRendererVirtualSessionId(sessionId)) {
+				void desktopApi.sessions
+					.listDshSkills({ sessionId })
+					.then((skills) => {
+						skillCommands = skills;
+						publish();
+					})
+					.catch(() => {
+						// 技能目录失败不影响命令补全；鼠标选择器仍有独立的加载/报错路径。
+					});
+			}
 			return () => {
 				current = false;
 			};

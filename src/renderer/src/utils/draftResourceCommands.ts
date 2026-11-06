@@ -53,6 +53,24 @@ export function selectComposerSuggestionCommands(isDshBackend: boolean, runtimeS
 	return standbyPreviewCommands?.length ? standbyPreviewCommands : draftCommands;
 }
 
+/**
+ * DSH 的技能不进 host 命令表，而是在发送后由 `tool-skill` 识别裸 `/名称` 手势；
+ * 因此 `/` 菜单要按同名命令补上技能，否则只能从鼠标选择器看到它们。
+ * 命令（host/live 或桌面静态建议）先占位：同名时命令会抢先执行，不能再建议一个被遮蔽的技能。
+ */
+export function mergeDshSkillCommands(commands: PiCommand[], skills: ReadonlyArray<{ name: string; description?: string }>): PiCommand[] {
+	const taken = new Set(commands.map((command) => command.name.toLowerCase()));
+	const merged = [...commands];
+	for (const skill of skills) {
+		const name = skill.name.trim();
+		const key = name.toLowerCase();
+		if (!name || taken.has(key)) continue;
+		taken.add(key);
+		merged.push({ name, ...(skill.description ? { description: skill.description } : {}), source: "skill" });
+	}
+	return merged;
+}
+
 /** Maps Pi-discoverable local resources to the slash names Pi exposes before an agent starts. */
 export function buildDraftResourceCommands(skills: DraftSkill[], prompts: DraftPrompt[], options: DraftResourceOptions): PiCommand[] {
 	const disabledGlobalSkillKeys = new Set((options.disabledGlobalSkillKeys ?? []).map((key) => key.toLowerCase()));
