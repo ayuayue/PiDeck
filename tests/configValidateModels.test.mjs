@@ -67,6 +67,14 @@ function compile() {
 		if (specifier === "./tokendanceAttribution") {
 			return loadTsCommonJs("src/main/config/tokendanceAttribution.ts");
 		}
+		// 内置 provider 的默认 api 兜底：validateModels 用它区分「内置继承」与「自定义漏填」。
+		if (specifier === "../pi/piAiBuiltinCatalog") {
+			const builtin = new Map([["openai", new Map([["gpt-4o", { api: "openai-completions" }]])]]);
+			return {
+				getPiAiCatalogIndex: () => ({ byProviderId: builtin }),
+				lookupPiAiCatalogProviderApi: (index, name) => index.byProviderId.get(name)?.values().next().value?.api,
+			};
+		}
 		if (specifier.includes("mainProcessCopy")) {
 			return { mainProcessT: (_locale, key) => key };
 		}
@@ -175,6 +183,31 @@ test("baseUrl 含换行控制字符被拒", async () => {
 
 test("model id 含 / 与 - 等常见字符仍合法", async () => {
 	const result = await manager.saveModelsConfig(makeModels("openai", "deepseek-ai/DeepSeek-V3.2"));
+	assert.equal(result.valid, true);
+});
+
+test("自定义 provider 与模型都没填 api 时被拒（pi 会跳过整个 provider）", async () => {
+	const data = { providers: { custom: { baseUrl: "https://api.example.com/v1", models: [{ id: "gpt-4o" }] } } };
+	const result = await manager.saveModelsConfig(data);
+	assert.equal(result.valid, false);
+	assert.match(result.error, /modelApiRequired/);
+});
+
+test("模型级 api 可替代 provider api", async () => {
+	const data = { providers: { custom: { baseUrl: "https://api.example.com/v1", models: [{ id: "gpt-4o", api: "openai-completions" }] } } };
+	const result = await manager.saveModelsConfig(data);
+	assert.equal(result.valid, true);
+});
+
+test("内置 provider 省略 api 仍合法（继承内置默认协议）", async () => {
+	const data = { providers: { openai: { baseUrl: "https://api.example.com/v1", models: [{ id: "gpt-4o" }] } } };
+	const result = await manager.saveModelsConfig(data);
+	assert.equal(result.valid, true);
+});
+
+test("空模型列表允许不填 api（仅认证/占位 provider）", async () => {
+	const data = { providers: { custom: { models: [] } } };
+	const result = await manager.saveModelsConfig(data);
 	assert.equal(result.valid, true);
 });
 
