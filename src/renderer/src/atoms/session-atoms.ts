@@ -1133,11 +1133,11 @@ export const prependSessionHistoryPageAtom = atom(
  * 回底清理临时历史（2026-11 轮次模型）：贴底稳定后把 runtime 会话翻过的历史前缀清掉，
  * 只保留运行时窗口段 —— atom 数据回到「最近 9 轮窗口」（DOM 3 / atom 9 / main 12 模型）；
  * 再次上翻走「atom → 主进程缓存 → 文件」三级递进重新拉取。
- * 仅 runtime 来源缓存生效；disk 来源（历史会话浏览）不清，避免打断按条分页游标。
+ * 仅窗口已有消息的 runtime 缓存生效；预热空窗口的历史是唯一内容，不能回收。disk 来源不清。
  */
 export const clearSessionHistoryAtom = atom(null, (get, set, sessionId: string) => {
 	const current = get(sessionMessagesCacheAtom)[sessionId];
-	if (!current || current.source !== "runtime" || !current.history) return false;
+	if (!current || current.source !== "runtime" || !current.history || current.messages.length === 0) return false;
 	releaseSessionOutlineProjection(sessionId);
 	set(sessionMessagesCacheAtom, {
 		...get(sessionMessagesCacheAtom),

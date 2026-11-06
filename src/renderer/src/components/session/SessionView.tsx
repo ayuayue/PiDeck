@@ -226,7 +226,7 @@ export function SessionView({
 	const acpRestorePending = useAcpHistoryRestorePending(sessionId);
 	const bottomComposerVisible = shouldMountBottomComposer({
 		hasActiveConversation,
-		messageCount: sessionTimeline.messages.length,
+		messageCount: sessionTimeline.visibleMessages.length,
 		isConversationLoading: sessionTimeline.isSurfaceLoading,
 		isHistoryRestorePending: acpRestorePending,
 	});

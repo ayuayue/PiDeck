@@ -289,10 +289,10 @@ export function canLoadSessionTimelineMore(isStarting: boolean, messageCount: nu
  *     「读盘还没应答/失败」的状态，必须读盘让磁盘给出 ready（起始页）或
  *     error（错误卡片 + 重试），否则失败被伪装成空历史且骨架永驻。
  */
-export function shouldSkipInitialDiskLoad(cachedEntry: { source: "disk" | "runtime" | "remote"; messages: readonly unknown[] } | undefined, knownEmpty: boolean): boolean {
+export function shouldSkipInitialDiskLoad(cachedEntry: { source: "disk" | "runtime" | "remote"; messages: readonly unknown[]; history?: { messages: readonly unknown[] } } | undefined, knownEmpty: boolean): boolean {
 	if (knownEmpty) return true;
 	if (!cachedEntry) return false;
-	if (cachedEntry.messages.length > 0) return true;
+	if (cachedEntry.messages.length > 0 || (cachedEntry.source === "runtime" && Boolean(cachedEntry.history?.messages.length))) return true;
 	// 空条目只有磁盘亲自返回的才算终态；runtime 空投影必须读盘核实。
 	return cachedEntry.source === "disk";
 }
@@ -315,7 +315,7 @@ export function shouldSkipInitialDiskLoad(cachedEntry: { source: "disk" | "runti
  *     形成 loading↔error 的读盘死循环（2026-11 现场：Windows 模式点开 WSL 路径会话，
  *     48 次/秒 IPC，页面一直闪）。错误由 UI 呈现并支持手动重试，自动恢复只靠重新挂载。
  */
-export function shouldSkipInitialDiskRead(input: { previouslyLoaded: boolean; cachedEntry: { source: "disk" | "runtime" | "remote"; messages: readonly unknown[] } | undefined; knownEmpty: boolean; loadStateStatus: SessionLoadState["status"] | undefined }): boolean {
+export function shouldSkipInitialDiskRead(input: { previouslyLoaded: boolean; cachedEntry: { source: "disk" | "runtime" | "remote"; messages: readonly unknown[]; history?: { messages: readonly unknown[] } } | undefined; knownEmpty: boolean; loadStateStatus: SessionLoadState["status"] | undefined }): boolean {
 	if (shouldSkipInitialDiskLoad(input.cachedEntry, input.knownEmpty)) return true;
 	// 首次挂载到本会话：是否读盘完全由缓存权威性决定（与旧行为一致）。
 	if (!input.previouslyLoaded) return false;
@@ -633,6 +633,9 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	// ── Load messages from disk when sessionId changes ──
 	// 只订本会话缓存条目（family selectAtom 隔离）：其它会话的消息到达/分页不拖着重渲染本栏。
 	const cachedEntry = useAtomValue(options.sessionId ? sessionMessageCacheBySessionIdAtomFamily(options.sessionId) : NO_CACHE_ENTRY_ATOM);
+	// 预热空窗口期间历史仍在前缀；加载/空态必须看完整显示数组，不能只看 runtime 窗口。
+	const runtimeHistory = controllerEnabled && cachedEntry?.source === "runtime" ? cachedEntry.history : undefined;
+	const combinedMessages = useMemo(() => (runtimeHistory ? [...runtimeHistory.messages, ...messages] : messages), [runtimeHistory, messages]);
 	const cacheMessages = useSetAtom(cacheSessionMessagesAtom);
 	const prependMessagePage = useSetAtom(prependSessionMessagePageAtom);
 	const prependHistoryPage = useSetAtom(prependSessionHistoryPageAtom);
@@ -652,7 +655,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	// 避免切回时变骨架、输入框从居中跳到底部（用户反馈）。
 	const stickySessionId = options.sessionId;
 	if (stickySessionId) {
-		if (messages.length > 0) {
+		if (combinedMessages.length > 0) {
 			stickyEmptySessionIds.delete(stickySessionId);
 		} else if (knownEmptyFromRecord) {
 			addStickyEmptySession(stickySessionId);
@@ -662,7 +665,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	// 与 SessionMessageTimeline 同一套 deriveSessionSurfaceRuntime：历史会话首帧
 	// messages 仍为空时视为加载中，底部 composer 不能卸掉。空草稿除外——
 	// 新建/切回空会话必须留在起始页，不能先挂底部栏再卸（输入框上跳）。
-	const isSurfaceLoading = deriveSessionSurfaceRuntime(messages.length, loadStateStatus, undefined, undefined, undefined, Boolean(cachedEntry), knownEmpty).isLoading;
+	const isSurfaceLoading = deriveSessionSurfaceRuntime(combinedMessages.length, loadStateStatus, undefined, undefined, undefined, Boolean(cachedEntry), knownEmpty).isLoading;
 
 	// useLayoutEffect 而非 useEffect：loading 状态必须在首帧 paint 之前写入，
 	// 否则被动 effect 先于 loading 绘制一帧「空会话」→ 有历史的会话会闪出起始页。
@@ -776,11 +779,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	}, [reloadFromDisk]);
 
 	const diskPage = controllerEnabled && cachedEntry?.source === "disk" ? cachedEntry.page : undefined;
-	// ── 激活显示窗口（2026-08 激活分页）──
-	// runtime 窗口会话：显示数组 = disk 历史前缀（轮次页 prepend）+ 运行时窗口段。
-	// 前缀与窗口段是两个下标空间，仅在渲染层按顺序拼接，合并/去重由 atoms 保证。
-	const runtimeHistory = controllerEnabled && cachedEntry?.source === "runtime" ? cachedEntry.history : undefined;
-	const combinedMessages = useMemo(() => (runtimeHistory ? [...runtimeHistory.messages, ...messages] : messages), [runtimeHistory, messages]);
 	// 窗口前还有历史可加载：判断与「这次点击真能推进一页」必须同源，否则按钮变成死按钮
 	// （2026-12 真机：已经是第一条消息了按钮还在，点了无任何变化）。旧写法两份实现：
 	// 可见性看 `nextBefore !== null` / `windowStart > 0`，请求侧拿不到锚点就静默 return。

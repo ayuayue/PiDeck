@@ -93,6 +93,7 @@ const timeline = compile("src/renderer/src/hooks/useSessionTimelineController.ts
 	// 跳转收敛判据（2026-11 新增）：纯函数、无内部 import，编译真模块而不是 stub ——
 	// 它自己有 tests/jumpSettle.test.mjs，stub 掉会让控制器测试跑在假实现上。
 	"../components/session/timeline/jumpSettle": compile("src/renderer/src/components/session/timeline/jumpSettle.ts"),
+	"../components/session/timeline/restoreAnchorPolicy": compile("src/renderer/src/components/session/timeline/restoreAnchorPolicy.ts"),
 	// #400：控制器改为经 useVisibleTimelineRows 读视口内行，并用它导出的轮根选择器。
 	// 两样都必须给：只给 hook 不给 ROOT_ROW_SELECTOR 时，控制器里两处
 	// querySelectorAll(ROOT_ROW_SELECTOR) 会拿到 undefined（2026-10-23 评审指出的替身不完整）。

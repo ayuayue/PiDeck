@@ -49,6 +49,13 @@ test("non-empty cache entries keep skipping the disk load (fast path)", () => {
 	assert.equal(shouldSkipInitialDiskLoad({ source: "disk", messages: [{ id: "m1" }] }, false), true);
 });
 
+test("an empty runtime window with loaded history stays authoritative across a fresh mount", () => {
+	const cachedEntry = { source: "runtime", messages: [], history: { messages: [{ id: "persisted-history" }] } };
+	assert.equal(shouldSkipInitialDiskLoad(cachedEntry, false), true);
+	assert.equal(shouldSkipInitialDiskRead({ previouslyLoaded: false, cachedEntry, knownEmpty: false, loadStateStatus: undefined }), true);
+	assert.equal(shouldSkipInitialDiskLoad({ source: "runtime", messages: [], history: { messages: [] } }, false), false);
+});
+
 test("disk-sourced empty cache is a legitimate terminal empty session", () => {
 	// 磁盘已应答「这个会话就是空的」：跳过，起始页是终态（不得反复读盘）。
 	assert.equal(shouldSkipInitialDiskLoad({ source: "disk", messages: [] }, false), true);
