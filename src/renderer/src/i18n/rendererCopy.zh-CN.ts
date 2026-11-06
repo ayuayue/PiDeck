@@ -7291,6 +7291,7 @@ export const zhCN = {
 	"remoteFile.unsaved": "未保存草稿",
 	"remoteFile.saved": "已保存",
 	"remoteFile.loading": "正在读取远端文件",
+	"remoteFile.readOnlyReason": "项目为只读或当前能力不可用，改动不会保存。",
 	"remoteFile.explicitSave": "仅编辑已有 UTF-8 文本文件（最大 256 KiB）。不自动保存；切换项目或文件时保留草稿，可按 Ctrl/Cmd+S 保存。草稿仅在内存中，退出应用前请保存或复制。",
 	"remoteFile.conflict": "远端文件已被其他程序修改，本次保存已拒绝覆盖。草稿仍保留，请复制需要的内容，再重新加载文件。",
 	"remoteFile.expired": "文件版本已失效。草稿仍保留，请重新加载后再编辑保存。",

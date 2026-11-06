@@ -431,7 +431,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 				/>
 			) : null}
 			{!searching ? <RemoteTrashPanel projectId={props.projectId} open={trashOpen} reloadToken={trashReloadToken} busy={files.busy} outcome={trashOutcomeText} onRestore={restoreTrash} onRequestPrune={(ids, count) => setEntryDialog({ kind: "prune", ids, count })} /> : null}
-			{file !== null ? <RemoteFileEditor key={JSON.stringify([props.projectId, file])} services={services} path={file} /> : null}
+			{file !== null ? <RemoteFileEditor key={JSON.stringify([props.projectId, file])} services={services} path={file} canWrite={canWrite} /> : null}
 			<RemoteProjectEntryDialogs dialog={entryDialog} busy={files.busy} errorText={dialogErrorText} onClose={() => setEntryDialog(null)} onCreate={submitNew} onRename={submitRename} onDelete={submitDelete} onPrune={submitPrune} />
 		</div>
 	);

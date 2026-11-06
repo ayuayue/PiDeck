@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: b9630980e7f058d9a7427d9d76c2ee0b1999db639d066a7de07263c78eb886ab（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 87264440b13e3a97d8588505f60ba92c8b95e2424f494c654e076c517178b81f（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -7298,6 +7298,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"remoteFile.unsaved": "未儲存草稿",
 	"remoteFile.saved": "已儲存",
 	"remoteFile.loading": "正在讀取遠端檔案",
+	"remoteFile.readOnlyReason": "專案為只讀或當前能力不可用，改動不會儲存。",
 	"remoteFile.explicitSave": "僅編輯已有 UTF-8 文本檔案（最大 256 KiB）。不自動儲存；切換專案或檔案時保留草稿，可按 Ctrl/Cmd+S 儲存。草稿僅在記憶體中，退出應用前請儲存或複製。",
 	"remoteFile.conflict": "遠端檔案已被其他程式修改，本次儲存已拒絕覆蓋。草稿仍保留，請複製需要的內容，再重新載入檔案。",
 	"remoteFile.expired": "檔案版本已失效。草稿仍保留，請重新載入後再編輯儲存。",

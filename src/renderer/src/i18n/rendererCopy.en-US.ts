@@ -7320,6 +7320,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"remoteFile.unsaved": "Unsaved draft",
 	"remoteFile.saved": "Saved",
 	"remoteFile.loading": "Reading remote file",
+	"remoteFile.readOnlyReason": "This project is read-only or the write capability is unavailable, so changes will not be saved.",
 	"remoteFile.explicitSave": "Edit existing UTF-8 text files only (up to 256 KiB). No autosave. Drafts survive project/file switches; Ctrl/Cmd+S saves. Drafts are memory-only: save or copy them before exiting the app.",
 	"remoteFile.conflict": "The remote file changed externally. This save refused to overwrite it. Your draft is retained; copy what you need before reloading.",
 	"remoteFile.expired": "The file version is no longer valid. Your draft is retained; reload before editing and saving again.",
