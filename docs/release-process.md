@@ -41,11 +41,11 @@
 
 ## latest 指针（release.yml 的 finalize-release 作业）
 
-所有资产上传完成后，`finalize-release` 作业会对本次 tag 做一次 `gh api -X PATCH .../releases/tags/<tag> -f name=<tag> -F make_latest=true`，并把 `/releases/latest` 指向本 tag 作为门禁断言（60s 内未生效即发版失败）。
+所有资产上传完成后，`finalize-release` 作业先 `GET .../releases/tags/<tag>` 取 release id，再 `gh api -X PATCH .../releases/<id> -f name=<tag> -F make_latest=true`（Update a release 只接受 id，`/releases/tags/<tag>` 仅支持 GET，直接 PATCH 恒 404），并把 `/releases/latest` 指向本 tag 作为门禁断言（60s 内未生效即发版失败）。
 
 为什么不能只靠 `softprops/action-gh-release`：Release 若是先建成 draft/预发布暂存、之后由 build 矩阵补资产并把 `prerelease` 翻成 false，GitHub **不会**把已存在的 release 提升为 latest，latest 会静默停在上一版——存量客户端（Windows electron-updater、macOS/Linux 手动更新都读 `/releases/latest`）就完全收不到这次更新，而 CI 全绿。2026-10-31 的 v0.9.9 正是这样漏出去的。
 
-手工补修（历史 tag 已发但 latest 没跟上）：`gh api -X PATCH repos/ayuayue/PiDeck/releases/tags/<tag> -f name=<tag> -F make_latest=true`，再 `curl -sI https://github.com/ayuayue/PiDeck/releases/latest` 确认 302 到该 tag；AtomGit 侧 latest 标记由 `sync-atomgit` 按 GitHub latest 校正，补修后重跑一次 `gh workflow run sync-atomgit.yml -f tags=<tag>` 即可。
+手工补修（历史 tag 已发但 latest 没跟上）：先 `gh api repos/ayuayue/PiDeck/releases/tags/<tag> --jq .id` 取 id，再 `gh api -X PATCH repos/ayuayue/PiDeck/releases/<id> -f name=<tag> -F make_latest=true`，随后 `curl -sI https://github.com/ayuayue/PiDeck/releases/latest` 确认 302 到该 tag；AtomGit 侧 latest 标记由 `sync-atomgit` 按 GitHub latest 校正，补修后重跑一次 `gh workflow run sync-atomgit.yml -f tags=<tag>` 即可。
 
 发版后复核：`node scripts/probe-update-check.mjs`（联网，不属于单测）——校验仓库坐标一致、`/releases/latest` 的 tag 与 latest.yml 版本对齐、latest.yml 声明的安装包真实可下载且字节数一致、AtomGit 的 latest 与 latest.yml 同步，并打印「哪些存量客户端会被提示」的判定矩阵；任一条不成立退出码 1。
 

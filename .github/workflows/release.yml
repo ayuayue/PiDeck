@@ -496,7 +496,10 @@ jobs:
             exit 1
           fi
           # 名称对齐 tag：预发布暂存期的命名会原样留在 Release 页面上。
-          gh api -X PATCH "repos/${REPO}/releases/tags/${TAG}" -f name="$TAG" -F make_latest=true >/dev/null
+          # 必须按 release_id PATCH：GitHub 的「Update a release」只接受 id，
+          # /releases/tags/<tag> 仅支持 GET（PATCH 恒 404，v0.10.0 发版实测）。
+          RELEASE_ID="$(gh api "repos/${REPO}/releases/tags/${TAG}" --jq .id)"
+          gh api -X PATCH "repos/${REPO}/releases/${RELEASE_ID}" -f name="$TAG" -F make_latest=true >/dev/null
           # /releases/latest 有缓存窗口，重试到指向本 tag（最长 60s），超时按失败处理。
           actual=""
           for attempt in $(seq 1 12); do
