@@ -1,4 +1,4 @@
-export type ConfigTab = "models" | "auth" | "settings" | "trust" | "mcp" | "raw";
+export type ConfigTab = "models" | "auth" | "oauth" | "settings" | "trust" | "mcp" | "raw";
 
 import type { ThinkingLevelMap } from "../../../shared/types/modelSpecs";
 import type { ModelCostTier } from "./modelCostTiers";

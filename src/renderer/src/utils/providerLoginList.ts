@@ -42,6 +42,14 @@ export function filterAuthProviders(providers: readonly PiAuthProviderOption[], 
 	return providers.filter((provider) => authProviderSearchText(provider).includes(needle));
 }
 
+/**
+ * 只保留 pi 的 auth.json 里已有凭据的供应商（「已登录」视图）。
+ * 与 `describeAuthProviderRow().loggedIn` 同一判据，避免两套「已登录」定义漂移。
+ */
+export function filterLoggedInProviders(providers: readonly PiAuthProviderOption[]): PiAuthProviderOption[] {
+	return providers.filter((provider) => provider.credential !== undefined);
+}
+
 /** 登录失败的可操作建议类型；`none` 表示只能展示 pi 的原文。 */
 export type AuthFailureHintKind = "region" | "network" | "code-expired" | "none";
 

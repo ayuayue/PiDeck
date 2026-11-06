@@ -57,8 +57,8 @@ function errorTitle(kind: string | undefined): string {
 	}
 }
 
-export function useProviderLoginFlow(options: { open: boolean; preselectedProviderId?: string; onClose: () => void }) {
-	const { open, preselectedProviderId } = options;
+export function useProviderLoginFlow(options: { open: boolean; preselectedProviderId?: string; preselectedMethod?: PiAuthMethod; onClose: () => void }) {
+	const { open, preselectedProviderId, preselectedMethod } = options;
 	const [state, setState] = useState<ProviderLoginPhase>({ phase: "loading" });
 	const [busyProviderId, setBusyProviderId] = useState<string | undefined>(undefined);
 	/**
@@ -72,6 +72,14 @@ export function useProviderLoginFlow(options: { open: boolean; preselectedProvid
 	openRef.current = open;
 	/** 已经替用户打开过的授权地址：同一地址只开一次，避免重复事件把浏览器反复抢到前台。 */
 	const openedExternalRef = useRef<Set<string>>(new Set());
+	/**
+	 * 预选登录方式（配置管理 OAuth 页点「登录」时传入）：列表就绪后直接开始，
+	 * 失败则停在列表让用户改选，不强行替用户决定。消费一次即清空。
+	 *
+	 * 在挂载时初始化而不是每次 open effect 重设：StrictMode 会把 effect 跑两遍，
+	 * 重设会让第二遍再发起一次登录，撞上主进程的「已有登录进行中」。
+	 */
+	const autoStartRef = useRef<{ providerId: string; method: PiAuthMethod } | null>(preselectedProviderId && preselectedMethod ? { providerId: preselectedProviderId, method: preselectedMethod } : null);
 
 	/**
 	 * 打开授权页：pi 只把地址推给宿主（`auth_url` 或设备码的验证页），打开浏览器是宿主的职责。
@@ -168,6 +176,20 @@ export function useProviderLoginFlow(options: { open: boolean; preselectedProvid
 		},
 		[loadProviders],
 	);
+
+	// 列表就绪后消费预选登录方式：只在供应商确实支持该方法时自动开始。
+	// 必须在 startLogin 声明之后：依赖数组在渲染时求值，提前引用会撞上 TDZ。
+	useEffect(() => {
+		if (!open || state.phase !== "picking") return;
+		const pending = autoStartRef.current;
+		if (!pending) return;
+		autoStartRef.current = null;
+		const provider = state.providers.find((item) => item.id === pending.providerId);
+		if (!provider) return;
+		const supported = pending.method === "oauth" ? Boolean(provider.oauth) : Boolean(provider.apiKey?.canLogin);
+		if (!supported) return;
+		void startLogin(provider.id, pending.method);
+	}, [open, state, startLogin]);
 
 	const answerPrompt = useCallback(async (value: string) => {
 		let promptId: string | undefined;

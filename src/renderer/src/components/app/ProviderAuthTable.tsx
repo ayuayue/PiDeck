@@ -13,6 +13,8 @@ type ProviderAuthTableProps = {
 	/** 有登录/登出正在进行：整表按钮禁用，避免并发操作把 pi 的凭据写乱。 */
 	busyProviderId?: string;
 	piVersion?: string;
+	/** 自定义空态：配置管理「已登录」筛选没有条目时用它，避免误报「当前 Pi 没有可登录供应商」。 */
+	emptyMessage?: string;
 	onStartLogin: (providerId: string, method: PiAuthMethod) => void;
 	onLogout: (providerId: string) => void;
 	onRefresh: () => void;
@@ -25,10 +27,12 @@ type ProviderAuthTableProps = {
  * 表格能对齐列、容纳更多行，也避免卡片里「状态」孤零零飘在右上角。
  * 过滤与行状态规则在 `utils/providerLoginList.ts`（纯函数，可单测）。
  */
-export function ProviderAuthTable({ providers, busyProviderId, piVersion, onStartLogin, onLogout, onRefresh }: ProviderAuthTableProps) {
+export function ProviderAuthTable({ providers, busyProviderId, piVersion, emptyMessage, onStartLogin, onLogout, onRefresh }: ProviderAuthTableProps) {
 	const [query, setQuery] = useState("");
 	const visible = useMemo(() => filterAuthProviders(providers, query), [providers, query]);
 	const busy = busyProviderId !== undefined;
+	// 搜索命中与「传进来的列表本身为空」要分开：后者可能是调用方的筛选结果，不能一律说成「没有可登录供应商」。
+	const emptyText = query.trim() ? t("providerLogin.search.empty", { query: query.trim() }) : (emptyMessage ?? t("providerLogin.noProviders"));
 
 	return (
 		<div className="flex min-h-0 flex-col gap-2">
@@ -56,7 +60,7 @@ export function ProviderAuthTable({ providers, busyProviderId, piVersion, onStar
 					{visible.length === 0 && (
 						<TableRow>
 							<TableCell colSpan={3} className="py-8 text-center text-sm text-muted-foreground">
-								{providers.length === 0 ? t("providerLogin.noProviders") : t("providerLogin.search.empty", { query: query.trim() })}
+								{emptyText}
 							</TableCell>
 						</TableRow>
 					)}

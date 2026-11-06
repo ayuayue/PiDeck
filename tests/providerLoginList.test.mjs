@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { classifyAuthFailure, describeAuthProviderRow, filterAuthProviders } = loadTsCommonJs("src/renderer/src/utils/providerLoginList.ts");
+const { classifyAuthFailure, describeAuthProviderRow, filterAuthProviders, filterLoggedInProviders } = loadTsCommonJs("src/renderer/src/utils/providerLoginList.ts");
 
 // loadTsCommonJs 在独立 VM realm 执行，跨 realm 对象原型不同，比较前统一 JSON 归一化。
 const json = (value) => JSON.stringify(value);
@@ -35,6 +35,14 @@ test("describeAuthProviderRow：oauth 在前，apiKey 仅在可交互录入时�
 	// canLogin=false 只能靠环境变量/凭据文件，给按钮必然失败，因此不算可点方式
 	assert.deepEqual(json(describeAuthProviderRow(provider({ apiKey: { name: "Env only", canLogin: false }, ambientOnly: true }))), json({ loggedIn: false, methods: [] }));
 	assert.deepEqual(json(describeAuthProviderRow(provider({ credential: { type: "oauth" } }))), json({ loggedIn: true, methods: [] }));
+});
+
+test("filterLoggedInProviders：只留 auth.json 已有凭据的供应商，保持 pi 原序", () => {
+	const list = [provider({ id: "a", credential: { type: "oauth" } }), provider({ id: "b" }), provider({ id: "c", credential: { type: "api_key" } })];
+	assert.deepEqual(json(filterLoggedInProviders(list).map((item) => item.id)), json(["a", "c"]));
+	// 空列表 / 全未登录不能返回 undefined，OAuth 页的「已登录 (N)」直接取长度
+	assert.deepEqual(json(filterLoggedInProviders([])), json([]));
+	assert.deepEqual(json(filterLoggedInProviders([provider({ id: "d" })])), json([]));
 });
 
 test("classifyAuthFailure：地区限制优先于网络/授权码，未知则不给建议", () => {

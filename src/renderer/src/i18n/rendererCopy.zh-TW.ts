@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 3e81e3d1ebd6cfe7af60edef59aca8e9dee2b897208503ab9a3afca0e507bb58（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: a00b75569db2ef688d8dd1eb6d13e07135f75bb566d8c529e74fb04dcd775a00（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -2366,6 +2366,12 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.nav.config": "配置管理",
 	"config.nav.models": "模型",
 	"config.nav.auth": "認證",
+	"config.nav.oauth": "OAuth 登入",
+	"config.oauth.subtitle": "等價於 pi 終端的 /login：用訂閱帳號（OAuth）或 API key 登入供應商，已登入的帳號會列在下面。憑據由 pi 寫入它自己的 auth.json。",
+	"config.oauth.filter.all": "全部可登入",
+	"config.oauth.filter.loggedIn": "已登入（{count}）",
+	"config.oauth.empty.loggedIn": "還沒有已登入的帳號。切到「全部可登入」挑一個供應商登入。",
+	"config.oauth.actionFailed": "操作失敗",
 	"config.nav.settings": "設定",
 	"config.nav.trust": "信任",
 	"config.nav.mcp": "MCP",

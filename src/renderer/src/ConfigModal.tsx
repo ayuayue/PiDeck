@@ -3,7 +3,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui-shadcn
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "./components/ui-shadcn/dialog";
 import { ConfirmDialog } from "./components/ui-shadcn/ConfirmDialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "./components/ui-shadcn/alert-dialog";
-import { X, Cpu, FileCode2, FileText, KeyRound, Loader2, Puzzle, Settings2, Shield, ShieldCheck, Sparkles, PlugZap, FolderOpen } from "lucide-react";
+import { X, Cpu, FileCode2, FileText, KeyRound, Loader2, LogIn, Puzzle, Settings2, Shield, ShieldCheck, Sparkles, PlugZap, FolderOpen } from "lucide-react";
 import { cn } from "./lib/utils";
 import { WORKBENCH_DIALOG_SIZE_CLASS } from "./components/common/workbenchDialogSize";
 import { deepClone } from "./utils/deepEqual";
@@ -14,6 +14,7 @@ import type { FetchedModel, ConfigProxyMode } from "../../shared/types/fetchedMo
 import { Component, forwardRef, useRef, useState, useEffect, useCallback, useImperativeHandle, useMemo, type ReactNode, type Ref } from "react";
 import type { PiDesktopApi } from "../../preload";
 import { AuthTab } from "./config/AuthTab";
+import { OAuthTab } from "./config/OAuthTab";
 import { PiConfigTargetSelector } from "./config/PiConfigTargetSelector";
 import { hasUnsavedConfigDrafts, samePiConfigTarget, toSshTargetHosts, toWslTargetHosts, type PiConfigTargetHost } from "./config/piConfigTargetModel";
 import { RemoteConfigPanel } from "./config/RemoteConfigPanel";
@@ -101,7 +102,7 @@ function loadLastConfigBackendPane(): "dsh" | "pi" {
 
 /** 全部合法 section / config 组子 tab，用于校验持久化值（避免版本更新后残留旧值导致无高亮）。 */
 const CONFIG_SECTIONS: readonly ConfigSection[] = ["config", "security", "skills", "prompts", "extensions", "mcp"];
-const CONFIG_TABS: readonly ConfigTab[] = ["models", "auth", "settings", "trust", "mcp", "raw"];
+const CONFIG_TABS: readonly ConfigTab[] = ["models", "auth", "oauth", "settings", "trust", "mcp", "raw"];
 /**
  * 读取上次打开的 tab；localStorage 不可用、无记录或值已失效时返回 null（由调用方回退默认值）。
  * Radix Dialog 关闭会卸载内容，state 在每次打开时重建，因此需要从外部存储恢复。
@@ -825,6 +826,8 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 
 	const loadConfig = useCallback(
 		async (target: ConfigTab, options?: { force?: boolean; silent?: boolean }) => {
+			// OAuth 页的数据来自 pi 认证服务（listProviders）而不是配置文件：不走这条读盘链路。
+			if (target === "oauth") return;
 			// silent：测试连接成功后回读磁盘用——不置 loading，避免 ModelsTab 在
 			// `!loading && ...` 条件下被卸载重建、滚动容器内容塔缩后 scrollTop 归零。
 			if (!options?.silent) setLoading(true);
@@ -2637,6 +2640,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 	const configNavItems: Array<{ id: ConfigTab; label: string; icon: ReactNode }> = [
 		{ id: "models", label: t("config.nav.models"), icon: <Cpu size={14} aria-hidden="true" /> },
 		{ id: "auth", label: t("config.nav.auth"), icon: <KeyRound size={14} aria-hidden="true" /> },
+		{ id: "oauth", label: t("config.nav.oauth"), icon: <LogIn size={14} aria-hidden="true" /> },
 		{ id: "settings", label: t("config.nav.settings"), icon: <Settings2 size={14} aria-hidden="true" /> },
 		{ id: "trust", label: t("config.nav.trust"), icon: <ShieldCheck size={14} aria-hidden="true" /> },
 		{ id: "mcp", label: t("config.nav.mcp"), icon: <PlugZap size={14} aria-hidden="true" /> },
@@ -2916,6 +2920,17 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 											/>
 										)}
 									</>
+								)}
+							</div>
+						</TabsContent>
+						<TabsContent value="config:oauth" className="config-main min-w-0">
+							<div className="config-content">
+								{remoteTargetHostId ? (
+									<RemoteConfigUnsupportedNotice bodyKey={REMOTE_CONFIG_UNSUPPORTED_TAB_COPY.auth.bodyKey} code={REMOTE_CONFIG_UNSUPPORTED_TAB_COPY.auth.code} hostLabel={remoteHostLabel} testId="remote-config-unsupported-oauth" />
+								) : wslTargetHost ? (
+									<WslConfigScopeNotice file="auth" host={wslTargetHost} />
+								) : (
+									<OAuthTab />
 								)}
 							</div>
 						</TabsContent>
