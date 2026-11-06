@@ -199,8 +199,9 @@ export const ProcessGroupStep = memo(function ProcessGroupStep(props: ProcessGro
 - **组体**：`max-h-[min(320px,30vh)] overflow-y-auto overscroll-behavior-contain`，外层 `ml-5 border-l-2 border-border-subtle pl-3`（沿用现有「思考展开正文」的缩进语言）。限高 flex 列里的子项必须 `shrink-0`（AGENTS.md 记录过的塌陷事故）。
 - **组体内部跟底（2026-08 用户报修）**：组体复用外层时间线同一套跟底引擎 `lib/stick-to-bottom`（`useStickToBottom`），不另造阈值/意图判定。要点：
   - `scrollRef` 绑组体滚动容器，`contentRef` 绑内层内容包装盒：限高后的滚动容器不随成员增长，必须观察内容盒才能收到 `ResizeObserver` 通知；
-  - 展开时调用 `scrollToBottom({ animation: "instant" })`；后续增高由内容观察器在锁底状态下跟随，手动上滚则解锁内层跟随；
+  - 自动展开时调用 `scrollToBottom({ animation: "instant" })`，手动展开静止历史时用 `restoreAt(0)` 从头阅读；后续增高由内容观察器在锁底状态下跟随，手动上滚则解锁内层跟随；
   - 组体的 `noteWheel` 只改变内层跟随态；不向外层 controller 上报组内用户意图（组内滚动不改变时间线跟随态）。
+- **大折叠栏内部跟底**：`ProcessFold` 同样复用 `useStickToBottom` 并观察独立内容盒；运行中展开从最新内容开始，静止历史展开从头阅读。追加节点与同节点增高均按增高前的跟随意图处理，不能用增高后的距底距离反推是否跟随；上滚阅读后不强拉回底。回归：`tests/processFoldScroll.test.mjs`、`e2e/process-fold-scroll.spec.ts`。
 - **组内手势不得幽灵影响外层（同次审计修复）**：组体到边后滚轮/键盘一律不外溢（`overscroll-contain`），所以引擎必须按「手势到底滚了谁」判定归属 —— 详见 §7 已知限制与 `followState.ts` 的 `resolveGestureOwner`。
 - **组体内容 = 复用现有组件**：`thinking-entry` → `<ThinkingStep hidden={false} .../>`；`tool-entry` → `<ToolStep stopped={!running} hidden={false} .../>`。
 - **扩展输出成员（2026-10 新增）**：appendEntry 投影卡（`meta.type === "customEntry"`）按用户决策折进过程组、不再单独成块：`groupToolMessages` 吸为 run 内 `extension-entries` 组员（连续条目合并且不拆组，run 未开始时保持独立卡兑底），`groupTurnProcess` 里与思考/工具同层入组（不截断、不计入 toolCount），组节点新增 `extensionCount` 字段。组头已结束文案追加扩展段 `t("timeline.processGroup.extension", { count })`（与工具段用 `joinTwo` 连接；纯扩展组只报扩展段、图标用 Puzzle）；组员行渲染 `turn/ExtensionEntryStep.tsx`（折叠行 + 展开看 data 字段）。`customMessage`（子代理完成通知）不受影响：仍是回合边界 + 独立通知卡。

@@ -1,7 +1,8 @@
 import { ChevronUp } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useMemo, useRef, useState, type ReactNode } from "react";
 import { t } from "../../../i18n";
-import { lastProcessGroup, type TurnProcessNode } from "../timeline/groupTurnProcess";
+import type { TurnProcessNode } from "../timeline/groupTurnProcess";
+import { useStickToBottom } from "../../../lib/stick-to-bottom";
 import { boundMountedSteps, PROCESS_FOLD_NODE_LIMIT } from "../timeline/turnMountBudget";
 import { useStableKeyedHandlers } from "../../../lib/hooks/use-render-reuse";
 import { VirtualStack } from "../../ui-shadcn/virtual-stack";
@@ -63,30 +64,10 @@ export const ProcessFold = memo(function ProcessFold(props: ProcessFoldProps) {
 	// 不加 `overscroll-contain`：让滚动链自然向上传递。组体（320px）滚到底后继续滚会带动
 	// 折叠区、再带动页面——这是标准嵌套滚动行为；加了 contain 反而会在组体底部形成
 	// 「滚不动也传不下去」的死区。
-	const scrollRef = useRef<HTMLDivElement>(null);
-	// 贴底**不用跟底引擎**：引擎是每帧 rAF + 每帧读写 scrollTop（强制布局），而这里只需要
-	// 「新节点到达时如果用户本来就在底部，就跟到底」。用一次派发 + 一次阈值判断就够，
-	// 零每帧成本。首次挂载不贴底（用户点开折叠栏是想看开头，不是看结尾）。
-	const didMountRef = useRef(false);
-	useEffect(() => {
-		if (!didMountRef.current) {
-			didMountRef.current = true;
-			return;
-		}
-		const el = scrollRef.current;
-		if (!el) return;
-		// 只有「用户本来就在底部」才跟底（阈值 48px）。
-		if (el.scrollHeight - el.scrollTop - el.clientHeight >= 48) return;
-		el.scrollTop = el.scrollHeight;
-		// 虚拟化后 scrollHeight 取的是 getTotalSize()，而新行的真实高度要到 measureElement
-		// 落定之后才算得出来：这一帧贴到的是估值高度，追加一个大展开组时会差出半行到一行。
-		// 补一帧把它抹平。只在「已经判定该跟底」的分支里补，所以不会把主动上滚的用户拉回来。
-		const frame = requestAnimationFrame(() => {
-			const node = scrollRef.current;
-			if (node) node.scrollTop = node.scrollHeight;
-		});
-		return () => cancelAnimationFrame(frame);
-	}, [props.nodes.length]);
+	// 跟随意图由输入维护，不能拿追加后的 gap 反推；内容盒观察同时覆盖同节点增高与虚拟行实测。
+	// 运行中的折叠区展开到最新内容，静止历史仍从头阅读；内层意图不改外层时间线的跟随态。
+	const stick = useStickToBottom({ initial: props.agentRunning ? "instant" : false, resize: "instant" });
+	const scrollRef = stick.scrollRef;
 	// 只有本轮仍在跑、且**最后一个节点就是这个组**时它才算「运行中」（决定 shimmer 与「正在…」文案）。
 	// 用**节点 id** 而不是数组下标判定：下面渲染的是下界切片 `mounted.items`，
 	// 下标在裁剪后与 `props.nodes` 不对应，按下标比较会把「运行中」标到错误的组上。
@@ -148,22 +129,23 @@ export const ProcessFold = memo(function ProcessFold(props: ProcessFoldProps) {
 					<span>{t("timeline.showEarlierSteps", { count: Math.min(PROCESS_FOLD_NODE_LIMIT, mounted.hiddenCount) })}</span>
 				</button>
 			)}
-			<div ref={scrollRef} className="max-h-[min(70vh,900px)] overflow-y-auto">
-				{/* 行数 <= 16 时 VirtualStack 直出 Fragment，DOM 与接入前逐字一致（既有排版与测试沿用）；
-				    超过才进入虚拟化，只挂视口附近的行。行高靠 measureElement 实测——这里行高方差极大
-				    （收起的组头 32px、展开的组 352px、中间回复几百 px），固定估值会漂移。 */}
-				<VirtualStack
-					items={mounted.items}
-					scrollRef={scrollRef}
-					getKey={(node) => node.id}
-					estimateHeight={40}
-					renderItem={(node) => (
-						// 布局边界由 timeline.css 的 `.execution-summary-details > *` 与
-						// `[data-virtual-stack] > *` 两条子选择器统一给，这里不按节点类型标 class
-						// ——新增节点类型自动获得边界，不会漏。
-						<div className="min-w-0">{renderNode(node)}</div>
-					)}
-				/>
+			<div ref={scrollRef} data-process-fold-scroller="" className="max-h-[min(70vh,900px)] overflow-y-auto [overflow-anchor:none]" onWheel={(event) => stick.noteWheel(event.deltaY, event.target)}>
+				<div ref={stick.contentRef} className="flow-root min-w-0">
+					{/* 行数 <= 16 时直出全部行，超过才虚拟化。内容盒同时观测两种布局的增高；
+				    行高靠 measureElement 实测，不能用组头与长回复的固定均值替代。 */}
+					<VirtualStack
+						items={mounted.items}
+						scrollRef={scrollRef}
+						getKey={(node) => node.id}
+						estimateHeight={40}
+						renderItem={(node) => (
+							// 布局边界由 timeline.css 的 `.execution-summary-details > *` 与
+							// `[data-virtual-stack] > *` 两条子选择器统一给，这里不按节点类型标 class
+							// ——新增节点类型自动获得边界，不会漏。
+							<div className="min-w-0">{renderNode(node)}</div>
+						)}
+					/>
+				</div>
 			</div>
 			{props.stepsVisible && (
 				<button type="button" className="execution-summary-collapse" onClick={props.onCollapse} title={t("common.collapse")}>

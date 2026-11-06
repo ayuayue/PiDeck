@@ -1,5 +1,5 @@
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
-import { useCallback, useInsertionEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Component, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { assertRangeIndexes, mergePinnedRange, resolveRunHeight, splitVirtualRunsByTail, VIRTUAL_ESTIMATED_RUN_HEIGHT } from "./virtualTimelinePolicy";
 
 /**
@@ -49,7 +49,7 @@ function queryRunRow(scroller: HTMLElement, id: string): HTMLElement | null {
  * 读「视口顶部正在看的那一行」。跨视口顶边的行优先（用户视线落点），否则取最靠上的一条。
  * 只遍历已挂载行（虚拟区之外的轮本就不在 DOM 里，也没有几何可读）。
  *
- * 只在 commit 阶段调用（insertion effect / ResizeObserver / rAF），绝不在 render 体里跑：
+ * 只在提交快照 / ResizeObserver / rAF 中调用，绝不在 render 体里跑：
  * 它做一次全量 getBoundingClientRect，放 render 里会变成 render 期的强制布局，且 StrictMode
  * 双渲染会读两遍。
  */
@@ -118,6 +118,48 @@ function settleScrollAnchor(scroller: HTMLElement, anchor: ViewportAnchor): bool
 	return false;
 }
 
+type LayoutSnapshotProps = {
+	layoutKey: string;
+	scrollRef: RefObject<HTMLElement | null>;
+	onBeforeScrollCorrection?: () => void;
+	children: ReactNode;
+};
+
+/** insertion/layout effect 都可能晚于子树 mutation；只有提交快照能读到切换前的几何。 */
+class RunListLayoutSnapshot extends Component<LayoutSnapshotProps, Record<string, never>, ViewportAnchor | null> {
+	private frame: number | undefined;
+
+	override getSnapshotBeforeUpdate(previous: Readonly<LayoutSnapshotProps>): ViewportAnchor | null {
+		const scroller = this.props.scrollRef.current;
+		return previous.layoutKey !== this.props.layoutKey && scroller ? readViewportAnchor(scroller) : null;
+	}
+
+	override componentDidUpdate(_previous: Readonly<LayoutSnapshotProps>, _state: Readonly<Record<string, never>>, anchor: ViewportAnchor | null): void {
+		if (!anchor) return;
+		if (this.frame !== undefined) cancelAnimationFrame(this.frame);
+		const correct = () => {
+			const scroller = this.props.scrollRef.current;
+			if (!scroller) return;
+			this.props.onBeforeScrollCorrection?.();
+			settleScrollAnchor(scroller, anchor);
+		};
+		correct();
+		// 子虚拟器的 layout 测量可能再提交一次；仅补一帧，不保留会拽回读者的陈旧锚点。
+		this.frame = requestAnimationFrame(() => {
+			this.frame = undefined;
+			correct();
+		});
+	}
+
+	override componentWillUnmount(): void {
+		if (this.frame !== undefined) cancelAnimationFrame(this.frame);
+	}
+
+	override render(): ReactNode {
+		return this.props.children;
+	}
+}
+
 /**
  * 宽度分桶的高度缓存：id -> (宽度 -> 实测高度)。
  *
@@ -143,7 +185,7 @@ function pickHeightForWidth(buckets: ReadonlyMap<number, number>, width: number)
 	}
 	if (nearestWidth <= 0) return nearestHeight > 0 ? nearestHeight : undefined;
 	if (width <= 0) return nearestHeight > 0 ? nearestHeight : undefined;
-	const ratio = Math.min(2, Math.max(0.5, width / nearestWidth));
+	const ratio = Math.min(2, Math.max(0.5, nearestWidth / width));
 	const scaled = nearestHeight * ratio;
 	return Number.isFinite(scaled) && scaled > 0 ? scaled : undefined;
 }
@@ -318,17 +360,17 @@ export function VirtualRunList<T>(props: VirtualRunListProps<T>) {
 	 * 库要求返回**升序去重**的下标数组；已在默认范围里时原样返回，不制造重复。
 	 * 只多挂 1~2 行，代价是 O(k log k)，k 通常为 1。
 	 */
-	const rangeExtractor = useCallback((range: Range) => {
-		const count = entriesRef.current.length;
-		const merged = mergePinnedRange(defaultRangeExtractor(range), pinnedIndexesRef.current, count) as number[];
-		// 开发期自证：三项是 tanstack 的硬前提（越界会渲染空行、无序/重复会跳行）。
-		// 只在开发期炸：mergePinnedRange 本身就保证升序/去重/不越界，所以这条断言一旦
-		// 触发就是它坏了；生产环境里 throw 会被根级 AppErrorBoundary 兜住，用户丢的是
-		// 整个应用而不是一行空白 —— 生产降级成不炸才是对的取舍。
-		// 门控变量见文件顶部的 IS_DEV_BUILD：不用 import.meta.env（沙箱里是语法错误）。
-		if (IS_DEV_BUILD) assertRangeIndexes(merged, count);
-		return merged;
-	}, []);
+	// virtual-core 的 range memo 不读 ref：只有钉行索引值改变时才换提取器，流式重渲染保持稳定。
+	const pinnedRangeKey = pinnedIndexesRef.current.join(",");
+	const rangeExtractor = useMemo(
+		() => (range: Range) => {
+			const count = entriesRef.current.length;
+			const merged = mergePinnedRange(defaultRangeExtractor(range), pinnedIndexesRef.current, count) as number[];
+			if (IS_DEV_BUILD) assertRangeIndexes(merged, count);
+			return merged;
+		},
+		[pinnedRangeKey],
+	);
 
 	const virtualizer = useVirtualizer({
 		// solid 期虚拟器不应工作：否则它按 scrollTop 变化 flushSync 重渲染整表（#401 终审 P2）。
@@ -383,44 +425,6 @@ export function VirtualRunList<T>(props: VirtualRunListProps<T>) {
 		[measureRefs, virtualizer, recordHeight],
 	);
 
-	// solid <-> 虚拟切换的补偿锚点。必须在 DOM 变更**之前**读旧几何：layout effect 的 cleanup
-	// 在 mutation 之后才执行（那时两套行已被替换），useInsertionEffect 则在 mutation 阶段之前
-	// flush，读到的还是切换前那一套 DOM。它只写 ref（不 setState、不读后写），StrictMode 的
-	// 二次调用因 previousLayoutRef 已更新而直接返回，幂等。
-	const previousLayoutRef = useRef(layoutKey);
-	const pendingAnchorRef = useRef<ViewportAnchor | null>(null);
-	const anchorAttemptsRef = useRef(0);
-	useInsertionEffect(() => {
-		if (previousLayoutRef.current === layoutKey) return;
-		previousLayoutRef.current = layoutKey;
-		const scroller = scrollRef.current;
-		pendingAnchorRef.current = scroller ? readViewportAnchor(scroller) : null;
-		anchorAttemptsRef.current = 0;
-	}, [layoutKey, scrollRef]);
-
-	// 补偿：同一次提交里先按锚点对齐一次；scrollMargin 的 setState 会触发第二次 layout，
-	// 用同一个锚点再对齐一次（最多两次，避免陈旧锚点把视口拽回旧位置）。
-	useLayoutEffect(() => {
-		const scroller = scrollRef.current;
-		const anchor = pendingAnchorRef.current;
-		if (!scroller || !anchor) return;
-		// 标记一帧程序化滚动：补偿写 scrollTop 会派发原生 scroll 事件，不标记的话
-		// controller 会把浏览钉的 expected 改写成补偿后的位置（#401 复审 P2）。
-		onBeforeScrollCorrection?.();
-		const settled = settleScrollAnchor(scroller, anchor);
-		anchorAttemptsRef.current += 1;
-		if (settled || anchorAttemptsRef.current >= 2) {
-			pendingAnchorRef.current = null;
-			return;
-		}
-		// 没对齐（多半是 scrollMargin 的重测还没落）：把锚点留给同帧内的下一次 layout effect。
-		// 若那一帧没来，就在下一次绘制后丢掉 —— 陈旧锚点会把用户之后的滚动位置拽回旧行。
-		const frame = requestAnimationFrame(() => {
-			pendingAnchorRef.current = null;
-		});
-		return () => cancelAnimationFrame(frame);
-	}, [layoutKey, scrollMargin, scrollRef]);
-
 	// 虚拟区相对滚动容器的偏移：前面可能有「显示更早」栏、错误态块等兄弟节点。
 	// 依赖 solid 而不是执行时机：solid 期 listRef 为 null，切回虚拟区时列表节点是新挂的，
 	// 不重测就会拿 0 当偏移。上方兄弟的高度变化（分页失败行插入、按钮换行）不改变
@@ -465,6 +469,7 @@ export function VirtualRunList<T>(props: VirtualRunListProps<T>) {
 		// 继续生效，静默 140ms 后再付一次完整代价。宽度变化导致的整表重排免不掉，
 		// 但不必每帧付一次。timers 在 cleanup 里清掉，否则卸载后还会跑一次测量。
 		let settleTimer: ReturnType<typeof setTimeout> | undefined;
+		let settleFrame: number | undefined;
 		const observer = new ResizeObserver(() => {
 			const nextWidth = Math.round(scroller.clientWidth);
 			if (Math.abs(nextWidth - lastWidth) < 1) return;
@@ -479,7 +484,7 @@ export function VirtualRunList<T>(props: VirtualRunListProps<T>) {
 		const runWidthSettle = (nextWidth: number) => {
 			const anchor = readViewportAnchor(scroller);
 			const remeasure = () => {
-				for (const node of Array.from(scroller.querySelectorAll<HTMLElement>("[data-index]"))) {
+				for (const node of Array.from(scroller.querySelectorAll<HTMLElement>("[data-virtual-run-id][data-index]"))) {
 					virtualizer.measureElement(node);
 					const id = node.dataset.virtualRunId ?? "";
 					recordHeight(id, nextWidth, node.getBoundingClientRect().height);
@@ -498,7 +503,9 @@ export function VirtualRunList<T>(props: VirtualRunListProps<T>) {
 				setScrollMargin((prev) => (Math.abs(prev - next) > 0.5 ? next : prev));
 			}
 			if (!anchor) return;
-			requestAnimationFrame(() => {
+			if (settleFrame !== undefined) cancelAnimationFrame(settleFrame);
+			settleFrame = requestAnimationFrame(() => {
+				settleFrame = undefined;
 				onBeforeScrollCorrection?.();
 				settleScrollAnchor(scroller, anchor);
 			});
@@ -507,24 +514,25 @@ export function VirtualRunList<T>(props: VirtualRunListProps<T>) {
 		return () => {
 			observer.disconnect();
 			if (settleTimer !== undefined) clearTimeout(settleTimer);
+			if (settleFrame !== undefined) cancelAnimationFrame(settleFrame);
 		};
 	}, [scrollRef, virtualizer, rebuildResolvedHeights, recordHeight, onBeforeScrollCorrection]);
 
 	if (solid || !virtualize) {
 		// 与真实区同构：每轮一个 div（统一测量基准见 RUN_WRAP_STYLE）
 		return (
-			<>
+			<RunListLayoutSnapshot layoutKey={layoutKey} scrollRef={scrollRef} onBeforeScrollCorrection={onBeforeScrollCorrection}>
 				{entries.map((entry) => (
 					<div key={getRunId(entry.run) || entry.index} className="min-w-0" data-solid-run-id={getRunId(entry.run)} ref={measure(getRunId(entry.run))} style={RUN_WRAP_STYLE}>
 						{renderRun(entry.run, entry.index)}
 					</div>
 				))}
-			</>
+			</RunListLayoutSnapshot>
 		);
 	}
 
 	return (
-		<>
+		<RunListLayoutSnapshot layoutKey={layoutKey} scrollRef={scrollRef} onBeforeScrollCorrection={onBeforeScrollCorrection}>
 			{virtualEntries.length > 0 && (
 				// 高度直接取 getTotalSize()：virtual-core 的 _getLayoutTotalSize 已经减掉 scrollMargin
 				// （measurements 的 start 从 paddingStart + scrollMargin 起算），再减一次会让虚拟区
@@ -547,6 +555,6 @@ export function VirtualRunList<T>(props: VirtualRunListProps<T>) {
 					{renderRun(entry.run, entry.index)}
 				</div>
 			))}
-		</>
+		</RunListLayoutSnapshot>
 	);
 }
