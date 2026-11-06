@@ -89,3 +89,15 @@ test("beUI 分叉点在文件头有清单（--overwrite 后照单重施）", () 
 		assert.match(railSource, new RegExp(keyword), `头注释缺 ${keyword}`);
 	}
 });
+
+test("悬停不再给每根刻度跑 JS 弹簧（CSS 过渡 + memo 子组件）", () => {
+	// 回归 2026-11「移入动画卡顿」：旧版每根刻度都是 motion.span + SPRING_LAYOUT，
+	// 一次 pointerenter 要重建几十个 motion 元素并同时驱动几十条弹簧；预览卡还叠了
+	// layoutId FLIP 与 AnimatePresence「等退出再进入」。现在刻度是 memo 子组件、缩放走
+	// CSS transform，卡片只保留位置过渡。源码断言防 `--overwrite` 把这段改回去。
+	assert.match(railSource, /memo\(function PreviewRailTick/);
+	assert.match(railSource, /transition-transform duration-150/);
+	assert.doesNotMatch(railSource, /<motion\./);
+	assert.doesNotMatch(railSource, /<AnimatePresence/);
+	assert.doesNotMatch(railSource, /layoutRoot/);
+});

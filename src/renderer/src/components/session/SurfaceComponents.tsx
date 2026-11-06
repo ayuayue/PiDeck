@@ -1323,9 +1323,9 @@ export { DiagnosticMessageCard, RespondingIndicator, ThinkingBlock };
 export { MultiSelectModal };
 
 /**
- * 会话定位轴（beUI PreviewRail）：消息区右缘一列刻度，一根 = 一条用户提问或一轮的最终回答
- * （中间回复与 thinking 不出刻度，见 buildOutline）；
- * 用户刻度更宽更深、助手刻度更细更淡，预览卡标题前带角色标签。
+ * 会话定位轴（beUI PreviewRail）：消息区右缘一列刻度，一根 = 一条用户提问
+ * （助手回复、中间回复与 thinking 都不出刻度，见 buildOutline）；
+ * 预览卡标题就是用户自己写的话，不再带角色前缀。
  * 静默态整体不可见，指针移上去（或键盘聚焦）才浮现（见 surfaces.css 的 .session-outline-pane）。
  * hover 出预览卡、点击跳转；工具开关已上收会话 Tab 栏（SessionToolAction），
  * 此处不再承载其他入口；容器沿用 .outline-hover 的定位规则（session-outline-pane 贴右缘，有测试守护）。
@@ -1410,7 +1410,7 @@ function ConversationOutlineView(props: ConversationOutlineProps) {
 		const hasHead = props.items.length > RAIL_RECENT_TICK_ITEMS;
 		return Math.max(1, capacity - (hasHead ? 1 : 0));
 	}, [availableHeight, props.items.length]);
-	// 刻度条只覆盖最近 N 条刻度（一轮两条），更早的交给展开态面板。
+	// 刻度条只覆盖最近 N 条用户提问，更早的交给展开态面板。
 	// 真正的好处不是「变短」，是恢复定位精度：railCapacity 约 66 根（800px 屏），
 	// 147 条 > 66 只能均分、每根代表 2.2 条，点一根只落到段首；60 <= 66 就回到
 	// 「能一条一根就一条一根」—— 那本来就是这段代码的设计意图。
@@ -1439,12 +1439,11 @@ function ConversationOutlineView(props: ConversationOutlineProps) {
 					]
 				: []),
 			...plan.items.map((item) => {
-				const roleLabel = item.role === "user" ? t("sessionFind.roleUser") : t("sessionFind.roleAssistant");
 				return {
 					id: item.id,
-					role: item.role === "user" ? ("user" as const) : ("assistant" as const),
-					label: `${roleLabel} · ${item.title}`,
-					ariaLabel: `${roleLabel} · ${item.title}`,
+					role: "user" as const,
+					label: item.title,
+					ariaLabel: item.title,
 					description: item.time,
 					// 目录里有、还没加载的检查点：画淡一档，点之前就知道要补页
 					muted: item.pending === true,

@@ -1,18 +1,20 @@
 "use client";
 // beui.dev/components/motion/preview-rail
 //
-// PiDeck 本地扩展（仅 5 条；`npx shadcn add @beui/preview-rail --overwrite` 会整份覆盖，
+// PiDeck 本地扩展（仅 6 条；`npx shadcn add @beui/preview-rail --overwrite` 会整份覆盖，
 // 覆盖后照此重施即可，tests/outlineRailContract.test.mjs 会在覆盖后变红报警）：
 // 1. `muted`：未加载目标的刻度淡一档（对齐 dsh TurnNavigator 的 markUnloaded）；
 // 2. 预览卡只渲染一张、按刻度算 top 绝对定位（官方版为对齐渲染了 N 个占位格子，DOM 减半）；
 // 3. 预览卡垂直位置用纯计算 + 钳制（`resolveCardTop`），不量 DOM——本组件在 PiDeck 的
 //    挂载点传了 `min-h-0`，导轨高度恰好等于 `条数 × itemSize`，与卡片容器高度一致；
 // 4. 预览卡在相邻刻度间移动补 140ms 过渡（官方版瞬移），减少动态偏好下关闭；
-// 5. `role`：用户/助手刻度用宽高区分（用户更宽更深、助手更细更淡），不改变交互。
+// 5. `role`：用户/助手刻度用宽高区分（用户更宽更深、助手更细更淡），不改变交互；
+// 6. 悬停不给每个刻度跑 JS 动画：刻度是 memo 子组件，缩放走 CSS `transition-transform`，
+//    移入只重渲染高亮附近的几根；预览卡去掉了 layoutId/AnimatePresence（FLIP + 等退出
+//    再进入的双重动画，跨刻度悬停会排队）。见 2026-11「移入动画卡顿」。
 
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { type MouseEvent, type PointerEvent, type ReactNode, useCallback, useId, useRef, useState } from "react";
-import { EASE_OUT, SPRING_LAYOUT } from "@/lib/ease";
+import { type MouseEvent, type PointerEvent, type ReactNode, memo, useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useReducedMotion } from "motion/react";
 import { useDismiss } from "@/lib/hooks/use-dismiss";
 import { useHoverGesture } from "@/lib/hooks/use-hover-gesture";
 import { useTapGesture } from "@/lib/hooks/use-tap-gesture";
@@ -80,6 +82,109 @@ function DefaultPreview({ item }: { item: PreviewRailItem }) {
 	);
 }
 
+type PreviewRailTickProps = {
+	item: PreviewRailItem;
+	itemSize: number;
+	selected: boolean;
+	highlighted: boolean;
+	scale: number;
+	isHorizontal: boolean;
+	reduce: boolean;
+	onPointerEnter: (item: PreviewRailItem, event: PointerEvent<HTMLElement>) => void;
+	onPointerDown: (item: PreviewRailItem, event: PointerEvent<HTMLElement>) => void;
+	onPointerCancel: () => void;
+	onKeyDown: () => void;
+	onFocus: (item: PreviewRailItem, currentTarget: HTMLElement) => void;
+	onSelect: (item: PreviewRailItem, event: MouseEvent<HTMLElement>) => void;
+};
+
+/**
+ * [PiDeck local] 一根刻度。
+ *
+ * 单独 memo：悬停只改变高亮项与它两侧的 scale，其余刻度的 props 全等。
+ * 不 memo 时每次 pointerenter 都要重建全部刻度的 React 元素与样式（30~60 根），
+ * 快速划过整列时就是用户看到的「移入卡顿」。
+ */
+const PreviewRailTick = memo(function PreviewRailTick({
+	item,
+	itemSize,
+	selected,
+	highlighted,
+	scale,
+	isHorizontal,
+	reduce,
+	onPointerEnter,
+	onPointerDown,
+	onPointerCancel,
+	onKeyDown,
+	onFocus,
+	onSelect,
+}: PreviewRailTickProps) {
+	// 用户/助手用宽高区分：用户更宽更深（主消息），助手更细更淡（回复），
+	// 目录里未加载的占位项没有 role，保持中间宽度。
+	const tickToneClass = isHorizontal ? "h-12 w-0.5 origin-bottom" : item.role === "user" ? "h-[3px] w-7 origin-center" : item.role === "assistant" ? "h-0.5 w-5 origin-center" : "h-0.5 w-6 origin-center";
+	const tick = (
+		<span
+			data-slot="preview-rail-tick"
+			aria-hidden="true"
+			// CSS transition 而不是 motion spring：transform 在合成器上跑，不占主线程。
+			// 每个刻度都挂 spring 时，一次移入要同时驱动几十条弹簧，正是卡顿来源。
+			style={{ transform: isHorizontal ? `scaleY(${scale})` : `scaleX(${scale})` }}
+			className={cn("block bg-current transition-transform duration-150 ease-out", reduce && "transition-none", tickToneClass, highlighted ? "text-foreground" : undefined)}
+		/>
+	);
+
+	const sharedClassName = cn(
+		"relative flex focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+		isHorizontal ? "h-12 w-6 items-end justify-center" : "h-6 w-12 items-center",
+		item.role === "user" ? "text-foreground/80" : "text-muted-foreground",
+		item.muted && "opacity-60",
+	);
+	const sharedStyle = isHorizontal ? { width: itemSize } : { height: itemSize };
+
+	if (item.href) {
+		return (
+			<a
+				data-slot="preview-rail-item"
+				href={item.href}
+				target={item.target}
+				rel={item.rel ?? (item.target === "_blank" ? "noreferrer noopener" : undefined)}
+				aria-label={item.ariaLabel ?? item.label}
+				aria-current={selected ? "page" : undefined}
+				onPointerEnter={(event) => onPointerEnter(item, event)}
+				onPointerDown={(event) => onPointerDown(item, event)}
+				onPointerCancel={onPointerCancel}
+				onKeyDown={onKeyDown}
+				onFocus={(event) => onFocus(item, event.currentTarget)}
+				onClick={(event) => onSelect(item, event)}
+				style={sharedStyle}
+				className={sharedClassName}
+			>
+				{tick}
+			</a>
+		);
+	}
+
+	return (
+		<button
+			data-slot="preview-rail-item"
+			type="button"
+			aria-label={item.ariaLabel ?? item.label}
+			aria-current={selected ? "location" : undefined}
+			onPointerEnter={(event) => onPointerEnter(item, event)}
+			onPointerDown={(event) => onPointerDown(item, event)}
+			onPointerCancel={onPointerCancel}
+			onKeyDown={onKeyDown}
+			onFocus={(event) => onFocus(item, event.currentTarget)}
+			onClick={(event) => onSelect(item, event)}
+			style={sharedStyle}
+			className={sharedClassName}
+		>
+			{tick}
+		</button>
+	);
+});
+
 export function PreviewRail({
 	items,
 	label = "Section navigation",
@@ -99,7 +204,6 @@ export function PreviewRail({
 	previewContainerClassName,
 	previewClassName,
 }: PreviewRailProps) {
-	const uid = useId();
 	const reduce = useReducedMotion();
 	const rootRef = useRef<HTMLDivElement>(null);
 	const [internalActiveId, setInternalActiveId] = useState(defaultActiveId ?? items[0]?.id ?? "");
@@ -115,6 +219,16 @@ export function PreviewRail({
 	const hover = useHoverGesture();
 
 	const clearPinned = useCallback(() => setPinnedId(null), []);
+
+	// Handlers passed to the memoized ticks must keep the same identity across
+	// renders; the values they read move through refs instead. Otherwise every
+	// parent render (each scroll-driven activeId change) re-renders all ticks.
+	const pinnedIdRef = useRef(pinnedId);
+	const selectRef = useRef({ activeId, onActiveChange, onItemSelect });
+	useLayoutEffect(() => {
+		pinnedIdRef.current = pinnedId;
+		selectRef.current = { activeId, onActiveChange, onItemSelect };
+	});
 
 	// The next tap outside the rail stands in for the pointer leaving it. The
 	// card is a preview, so that tap passes through to whatever it landed on.
@@ -132,14 +246,55 @@ export function PreviewRail({
 	const rowTemplate = items.length ? `repeat(${items.length}, ${itemSize}px)` : undefined;
 	const isHorizontal = orientation === "horizontal";
 
-	const selectItem = (id: string) => {
-		if (activeId === undefined) setInternalActiveId(id);
-		onActiveChange?.(id);
-	};
+	const handlePointerEnter = useCallback(
+		(item: PreviewRailItem, event: PointerEvent<HTMLElement>) => {
+			if (hover.enter(event)) setHoveredId(item.id);
+		},
+		[hover],
+	);
+	const handlePointerDown = useCallback(
+		(item: PreviewRailItem, event: PointerEvent<HTMLElement>) => {
+			tap.start(event, pinnedIdRef.current === item.id);
+			setFocusedId(null);
+		},
+		[tap],
+	);
+	// A gesture the platform takes away sends no click, and a key press starts
+	// an activation that never had a pointer behind it: either one leaves a
+	// record the next click would read as a tap of its own.
+	const dropGesture = useCallback(() => tap.drop(), [tap]);
+	const handleFocus = useCallback((item: PreviewRailItem, currentTarget: HTMLElement) => {
+		if (currentTarget.matches(":focus-visible")) {
+			setFocusedId(item.id);
+		}
+	}, []);
+	const handleSelect = useCallback(
+		(item: PreviewRailItem, event: MouseEvent<HTMLElement>) => {
+			const gesture = tap.take();
+			const tapped = gesture !== null && gesture.pointerType !== "mouse";
+
+			if (tapped) {
+				// A link would otherwise show its preview and leave the page in the
+				// same tap, so the card is never read: the first tap lights the tick,
+				// the second follows the link.
+				if (item.href && !gesture.state) {
+					event.preventDefault();
+					setPinnedId(item.id);
+					return;
+				}
+				setPinnedId(item.id);
+			}
+
+			const { activeId: currentActiveId, onActiveChange: currentOnActiveChange, onItemSelect: currentOnItemSelect } = selectRef.current;
+			if (currentActiveId === undefined) setInternalActiveId(item.id);
+			currentOnActiveChange?.(item.id);
+			currentOnItemSelect?.(item);
+		},
+		[tap],
+	);
 
 	return (
-		<motion.div
-			layoutRoot
+		<div
 			ref={rootRef}
 			onBlur={(event) => {
 				// Both tick sources leave with the focus: a tap does not always land
@@ -167,96 +322,23 @@ export function PreviewRail({
 					const distance = displayedIndex < 0 ? Number.POSITIVE_INFINITY : Math.abs(index - displayedIndex);
 					const scale = highlighted ? 1 : distance === 1 ? 0.68 : distance === 2 ? 0.44 : 0.25;
 
-					// 用户/助手用宽高区分：用户更宽更深（主消息），助手更细更淡（回复），
-					// 目录里未加载的占位项没有 role，保持中间宽度。
-					const tickToneClass = isHorizontal ? "h-12 w-0.5 origin-bottom" : item.role === "user" ? "h-[3px] w-7 origin-center" : item.role === "assistant" ? "h-0.5 w-5 origin-center" : "h-0.5 w-6 origin-center";
-					const itemContent = (
-						<>
-							<motion.span data-slot="preview-rail-tick" aria-hidden="true" animate={isHorizontal ? { scaleY: scale } : { scaleX: scale }} transition={reduce ? { duration: 0 } : SPRING_LAYOUT} className={cn("block bg-current", tickToneClass, highlighted ? "text-foreground" : undefined)} />
-						</>
-					);
-
-					const sharedClassName = cn(
-						"relative flex focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-						isHorizontal ? "h-12 w-6 items-end justify-center" : "h-6 w-12 items-center",
-						item.role === "user" ? "text-foreground/80" : "text-muted-foreground",
-						item.muted && "opacity-60",
-					);
-					const sharedStyle = isHorizontal ? { width: itemSize } : { height: itemSize };
-					const handlePointerEnter = (event: PointerEvent<HTMLElement>) => {
-						if (hover.enter(event)) setHoveredId(item.id);
-					};
-					const handlePointerDown = (event: PointerEvent<HTMLElement>) => {
-						tap.start(event, pinnedId === item.id);
-						setFocusedId(null);
-					};
-					// A gesture the platform takes away sends no click, and a key press
-					// starts an activation that never had a pointer behind it: either
-					// one leaves a record the next click would read as a tap of its own.
-					const dropGesture = () => tap.drop();
-					const handleFocus = (currentTarget: HTMLElement) => {
-						if (currentTarget.matches(":focus-visible")) {
-							setFocusedId(item.id);
-						}
-					};
-					const handleSelect = (event: MouseEvent<HTMLElement>) => {
-						const gesture = tap.take();
-						const tapped = gesture !== null && gesture.pointerType !== "mouse";
-
-						if (tapped) {
-							// A link would otherwise show its preview and leave the page in
-							// the same tap, so the card is never read: the first tap lights
-							// the tick, the second follows the link.
-							if (item.href && !gesture.state) {
-								event.preventDefault();
-								setPinnedId(item.id);
-								return;
-							}
-							setPinnedId(item.id);
-						}
-
-						selectItem(item.id);
-						onItemSelect?.(item);
-					};
-
-					return item.href ? (
-						<a
+					return (
+						<PreviewRailTick
 							key={item.id}
-							data-slot="preview-rail-item"
-							href={item.href}
-							target={item.target}
-							rel={item.rel ?? (item.target === "_blank" ? "noreferrer noopener" : undefined)}
-							aria-label={item.ariaLabel ?? item.label}
-							aria-current={selected ? "page" : undefined}
+							item={item}
+							itemSize={itemSize}
+							selected={selected}
+							highlighted={highlighted}
+							scale={scale}
+							isHorizontal={isHorizontal}
+							reduce={reduce === true}
 							onPointerEnter={handlePointerEnter}
 							onPointerDown={handlePointerDown}
 							onPointerCancel={dropGesture}
 							onKeyDown={dropGesture}
-							onFocus={(event) => handleFocus(event.currentTarget)}
-							onClick={handleSelect}
-							style={sharedStyle}
-							className={sharedClassName}
-						>
-							{itemContent}
-						</a>
-					) : (
-						<button
-							key={item.id}
-							data-slot="preview-rail-item"
-							type="button"
-							aria-label={item.ariaLabel ?? item.label}
-							aria-current={selected ? "location" : undefined}
-							onPointerEnter={handlePointerEnter}
-							onPointerDown={handlePointerDown}
-							onPointerCancel={dropGesture}
-							onKeyDown={dropGesture}
-							onFocus={(event) => handleFocus(event.currentTarget)}
-							onClick={handleSelect}
-							style={sharedStyle}
-							className={sharedClassName}
-						>
-							{itemContent}
-						</button>
+							onFocus={handleFocus}
+							onSelect={handleSelect}
+						/>
 					);
 				})}
 			</nav>
@@ -265,41 +347,16 @@ export function PreviewRail({
 				<div aria-hidden="true" className={cn("pointer-events-none absolute z-50", isHorizontal ? "top-1/2 left-1/2 h-5 max-w-full -translate-x-1/2 -translate-y-1/2" : previewSide === "before" ? "inset-y-0 right-16 left-4" : "inset-y-0 right-4 left-16", previewContainerClassName)}>
 					<div
 						style={isHorizontal ? { left: previewIndex * itemSize + itemSize / 2 } : { top: `${resolveCardTop(previewIndex, itemSize, items.length)}px` }}
+						// 卡片内容不再做进场/退场动画：移动本身已经有 140ms 的 top 过渡，再叠一层
+						// FLIP + 「等退出再进入」会让快速划过整列时卡片排队追不上指针。
 						className={cn("absolute", !reduce && !isHorizontal && "transition-[top] duration-[140ms] ease-out", isHorizontal ? "bottom-12 w-72 -translate-x-1/2" : cn("w-full max-w-sm", previewSide === "before" ? "right-0" : "left-0"), previewClassName)}
 					>
-						<motion.div layoutId={`preview-rail-card-${uid}`} transition={reduce ? { duration: 0 } : SPRING_LAYOUT}>
-							<AnimatePresence mode="wait" initial={false}>
-								<motion.div
-									key={previewItem.id}
-									initial={reduce ? { opacity: 0 } : { opacity: 0, y: 4, filter: "blur(6px)" }}
-									animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
-									exit={
-										reduce
-											? { opacity: 0 }
-											: {
-													opacity: 0,
-													y: -2,
-													filter: "blur(4px)",
-													transition: {
-														duration: 0.12,
-														ease: EASE_OUT,
-													},
-												}
-									}
-									transition={{
-										duration: reduce ? 0 : 0.18,
-										ease: EASE_OUT,
-									}}
-								>
-									{renderPreview ? renderPreview(previewItem) : <DefaultPreview item={previewItem} />}
-								</motion.div>
-							</AnimatePresence>
-						</motion.div>
+						{renderPreview ? renderPreview(previewItem) : <DefaultPreview item={previewItem} />}
 					</div>
 				</div>
 			) : null}
 
 			{children ? <div className="min-h-0 min-w-0 flex-1">{children}</div> : null}
-		</motion.div>
+		</div>
 	);
 }

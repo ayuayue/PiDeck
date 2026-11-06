@@ -34,8 +34,8 @@ export function SessionSurfaceStage(props: { sessionId: string; sessionTimeline:
 	// Assistant streaming rebuilds the derived array; equal user checkpoints should not rerender the rail.
 	const outlineItemsAtom = useMemo(() => selectAtom(outlineItemsBySessionIdAtomFamily(sessionId), (items) => items, areOutlineRailItemsEqual), [sessionId]);
 	const outlineItems = useAtomValue(outlineItemsAtom);
-	// 目录只覆盖用户检查点：用用户条目数做取数触发，助手回复完成不必重拉目录。
-	const outlineUserCount = useMemo(() => outlineItems.filter((item) => item.role === "user").length, [outlineItems]);
+	// 刻度只收用户提问（buildOutline），条数就是提问数；助手回复增删都不必重拉目录。
+	const outlineUserCount = outlineItems.length;
 	// 索引目录补齐「已加载消息之外」的用户检查点；未加载项点击后连续补页再跳转。
 	const directory = useSessionOutlineDirectory(sessionId, outlineUserCount);
 	// 目录项 → 导轨卡片：标题用索引预览（与已加载标题同一套归一，加载前后是同一句话），
