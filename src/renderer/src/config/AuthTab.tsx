@@ -2,7 +2,7 @@ import { Button } from "../components/ui-shadcn/button";
 import { Collapsible, CollapsibleContent } from "../components/ui-shadcn/collapsible";
 import { Separator } from "../components/ui-shadcn/separator";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowUpDown, Check, ChevronDown, ChevronRight, Copy, ExternalLink, Eye, EyeOff, GripVertical, Trash2 } from "lucide-react";
+import { ArrowUpDown, Check, ChevronDown, ChevronRight, Copy, ExternalLink, Eye, EyeOff, GripVertical, Search, Trash2 } from "lucide-react";
 import { t } from "../i18n";
 import type { AuthFile, ModelsFile } from "./configTypes";
 import { ConfigSelect, openDocsInSystemBrowser, SecretInput } from "./ConfigShared";
@@ -13,6 +13,7 @@ import { ProviderMigrationButton } from "./ProviderMigrationButton";
 import { ProviderUsageInline } from "../components/app/ProviderUsageInline";
 import { UsageQueryEntryButton } from "../components/app/UsageQueryEntryButton";
 import { applyProviderOrder } from "../utils/providerOrder";
+import { filterIndexedRows } from "../utils/configListSearch";
 import { useProviderReorder } from "../hooks/useProviderReorder";
 
 // 根据 pi 官方文档支持的供应商列表 (https://pi.dev/docs/latest/providers#auth-file)
@@ -102,6 +103,11 @@ export function AuthTab(props: {
 	const hiddenAuthSet = new Set(hiddenAuthProviders);
 	const visibleProviders = allProviders.filter((name) => !hiddenAuthSet.has(name));
 	const hiddenProviderNames = allProviders.filter((name) => hiddenAuthSet.has(name));
+	// 认证条目多时逐个翻卡片太慢：顶部一个关键词过滤，同时认 provider 名和预设展示名
+	// （用户记得「Google Gemini」，不一定记得 provider 名是 google）。
+	const [query, setQuery] = useState("");
+	const presetLabelOf = (name: string) => PRESET_PROVIDERS.find((provider) => provider.value === name)?.label;
+	const searchedProviders = filterIndexedRows(visibleProviders, query, (name) => [name, presetLabelOf(name)]).map((entry) => entry.row);
 
 	/**
 	 * 拖拽/上移下移的统一出口：算出新的完整顺序交给父级持久化（与模型页共用一份）。
@@ -110,7 +116,9 @@ export function AuthTab(props: {
 	const reorderProviders = useCallback((nextOrder: string[]) => props.onReorderProviders?.(nextOrder), [props.onReorderProviders]);
 	// 作用域用「模型 + 认证」的并集（父级传入）：只传本页列表的话，在认证页拖动会把模型页独有的
 	// 供应商从顺序里踢出去，模型页的顺序就跟着回到默认了。
-	const providerReorder = useProviderReorder({ names: props.providerOrderScope?.length ? props.providerOrderScope : allProviders, visibleNames: visibleProviders, onReorder: reorderProviders });
+	// visibleNames 传过滤后的列表：手柄 ↑/↓ 只以看得见的邻居为锚点，不会跳到被过滤掉的卡片上。
+	// 排序仍写进完整顺序（names），所以「过滤中调整顺序」不会把没显示的供应商挤掉。
+	const providerReorder = useProviderReorder({ names: props.providerOrderScope?.length ? props.providerOrderScope : allProviders, visibleNames: searchedProviders, onReorder: reorderProviders });
 
 	const [hiddenSectionOpen, setHiddenSectionOpen] = useState(false);
 	const [selectingProvider, setSelectingProvider] = useState(false);
@@ -193,6 +201,16 @@ export function AuthTab(props: {
 							{t("config.providerOrderReset")}
 						</Button>
 					)}
+				</div>
+			)}
+
+			{visibleProviders.length > 0 && (
+				<div className="mb-2.5 flex flex-wrap items-center gap-2">
+					<div className="relative min-w-0 max-w-xs flex-1 basis-52">
+						<Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/70" aria-hidden="true" />
+						<Input type="search" size="sm" value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={t("config.providerSearchPlaceholder")} aria-label={t("config.providerSearchPlaceholder")} className="pl-8" />
+					</div>
+					{query.trim().length > 0 && <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{t("config.extensionListResultCount", { matched: searchedProviders.length, count: visibleProviders.length })}</span>}
 				</div>
 			)}
 
@@ -344,7 +362,9 @@ export function AuthTab(props: {
 								const finalName = customProviderName.trim() || selectedProvider;
 								if (!finalName) return;
 								// 直接传入 finalName 和 newAuthKey，添加后自动展开，用户只需点顶栏保存
+								// 清掉过滤词：新条目名不一定命中当前关键词，留着会「加完看不见」。
 								props.onConfirmAddAuth(finalName, newAuthKey);
+								setQuery("");
 								setSelectingProvider(false);
 							}}
 							disabled={!selectedProvider && !customProviderName.trim()}
@@ -359,7 +379,7 @@ export function AuthTab(props: {
 			</Collapsible>
 
 			<div className="flex flex-col gap-2.5">
-				{visibleProviders.map((name) => {
+				{searchedProviders.map((name) => {
 					const auth = data[name];
 					const isExpanded = expandedAuth === name;
 					return (
@@ -480,6 +500,7 @@ export function AuthTab(props: {
 				)}
 
 				{visibleProviders.length === 0 && hiddenProviderNames.length === 0 && <div className="py-12 text-center text-control text-text-tertiary">{t("config.authEmpty")}</div>}
+				{searchedProviders.length === 0 && visibleProviders.length > 0 && <div className="py-8 text-center text-control text-text-tertiary">{t("config.providerSearchEmpty")}</div>}
 			</div>
 		</div>
 	);

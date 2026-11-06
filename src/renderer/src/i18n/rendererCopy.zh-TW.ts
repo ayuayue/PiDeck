@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: e54889dd385034c9bb9de6572a20abb8d2721f3baedeea707f07bfca07ce15d4（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 3e81e3d1ebd6cfe7af60edef59aca8e9dee2b897208503ab9a3afca0e507bb58（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -2130,6 +2130,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.dsh.modelCapacity": "容量（上下文視窗 / 最大輸出）",
 	"config.dsh.modelIdPlaceholder": "模型 ID",
 	"config.dsh.modelNamePlaceholder": "留空時使用模型 ID",
+	"config.dsh.modelSearchEmpty": "沒有匹配的模型",
 	"config.dsh.modelMaxTokens": "最大輸出 token 數",
 	"config.dsh.modelInputModalities": "輸入模態",
 	"config.dsh.inputModalityInherit": "跟隨目錄 / 預設",
@@ -3237,6 +3238,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	// 排序说明：Pi 侧（模型/认证）与 DSH 侧各一份顺序，提示文案分两套 key。上移/下移按钮已删，键盘微调文案随拖拽提示走。
 	"config.providerOrderHint": "拖動手柄排序（聚焦後 ↑/↓ 也可微調）；順序為本地偏好，「模型」「認證」兩頁與模型選擇列表共用。",
 	"config.providerOrderReset": "恢復預設順序",
+	"config.providerSearchEmpty": "沒有匹配的供應商",
+	"config.providerSearchPlaceholder": "搜尋供應商",
 	"config.migrate.toDsh": "一鍵遷移到 DSH",
 	"config.migrate.toPi": "一鍵遷移到 Pi",
 	"config.migrate.overwriteConfirm": "對端已有供應商「{name}」，覆蓋它的地址、模型和金鑰？",

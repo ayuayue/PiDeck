@@ -2123,6 +2123,7 @@ export const zhCN = {
 	"config.dsh.modelCapacity": "容量（上下文窗口 / 最大输出）",
 	"config.dsh.modelIdPlaceholder": "模型 ID",
 	"config.dsh.modelNamePlaceholder": "留空时使用模型 ID",
+	"config.dsh.modelSearchEmpty": "没有匹配的模型",
 	"config.dsh.modelMaxTokens": "最大输出 token 数",
 	"config.dsh.modelInputModalities": "输入模态",
 	"config.dsh.inputModalityInherit": "跟随目录 / 默认",
@@ -3230,6 +3231,8 @@ export const zhCN = {
 	// 排序说明：Pi 侧（模型/认证）与 DSH 侧各一份顺序，提示文案分两套 key。上移/下移按钮已删，键盘微调文案随拖拽提示走。
 	"config.providerOrderHint": "拖动手柄排序（聚焦后 ↑/↓ 也可微调）；顺序为本地偏好，「模型」「认证」两页与模型选择列表共用。",
 	"config.providerOrderReset": "恢复默认顺序",
+	"config.providerSearchEmpty": "没有匹配的供应商",
+	"config.providerSearchPlaceholder": "搜索供应商",
 	"config.migrate.toDsh": "一键迁移到 DSH",
 	"config.migrate.toPi": "一键迁移到 Pi",
 	"config.migrate.overwriteConfirm": "对端已有供应商「{name}」，覆盖它的地址、模型和密钥？",

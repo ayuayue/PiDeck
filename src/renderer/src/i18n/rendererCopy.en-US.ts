@@ -2128,6 +2128,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"config.dsh.modelCapacity": "Capacity (context window / max output)",
 	"config.dsh.modelIdPlaceholder": "Model ID",
 	"config.dsh.modelNamePlaceholder": "Uses the model ID when empty",
+	"config.dsh.modelSearchEmpty": "No matching models",
 	"config.dsh.modelMaxTokens": "Max output tokens",
 	"config.dsh.modelInputModalities": "Input modalities",
 	"config.dsh.inputModalityInherit": "Follow catalog / default",
@@ -3246,6 +3247,8 @@ export const enUS: Record<TranslationKey, string> = {
 	// Ordering notes: Pi (Models/Auth) and DSH keep separate orders, so there are two hint keys. The up/down buttons are gone; keyboard nudging is documented with the drag hint.
 	"config.providerOrderHint": "Drag the handle to reorder (focus it for ↑/↓). The order is a local preference shared by the Models and Auth tabs and the model picker.",
 	"config.providerOrderReset": "Reset order",
+	"config.providerSearchEmpty": "No matching providers",
+	"config.providerSearchPlaceholder": "Search providers",
 	"config.migrate.toDsh": "Copy to DSH",
 	"config.migrate.toPi": "Copy to Pi",
 	"config.migrate.overwriteConfirm": 'Provider "{name}" already exists on the other side. Overwrite its URL, models, and key?',
