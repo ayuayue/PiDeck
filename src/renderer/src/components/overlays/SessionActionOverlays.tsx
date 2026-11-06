@@ -1,5 +1,4 @@
-import { lazy, Suspense, type ComponentProps } from "react";
-const SettingsModal = lazy(() => import("../app/SettingsModal").then((module) => ({ default: module.SettingsModal })));
+import type { ComponentProps } from "react";
 import { ConfirmDialog } from "./OverlayParts";
 import { TrustConfirmModal } from "../app/TrustConfirmModal";
 import { ProviderLoginModal } from "../app/ProviderLoginModal";
@@ -16,20 +15,15 @@ export type TrustOverlayProps = {
 };
 
 export type SessionActionOverlaysProps = {
-	settings?: { open: boolean; props: ComponentProps<typeof SettingsModal> };
 	feedback?: { open: boolean; props: FeedbackDialogProps };
 	confirm?: { open: boolean; props: ComponentProps<typeof ConfirmDialog> };
 	trust?: TrustOverlayProps;
 };
 
-export function SessionActionOverlays({ settings, feedback, confirm, trust }: SessionActionOverlaysProps) {
+export function SessionActionOverlays({ feedback, confirm, trust }: SessionActionOverlaysProps) {
 	return (
 		<>
-			{settings?.open && (
-				<Suspense fallback={null}>
-					<SettingsModal {...settings.props} />
-				</Suspense>
-			)}
+			{/* 设置已迁成会话列页面 Tab（SettingsFeatureRoot），不再作为会话动作弹框挂载 */}
 			{feedback?.open && <FeedbackDialog {...feedback.props} />}
 			{confirm?.open && <ConfirmDialog {...confirm.props} />}
 			{trust?.open && <TrustConfirmModal cwd={trust.cwd} projectName={trust.projectName} onChoose={trust.onChoose} />}

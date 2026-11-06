@@ -405,14 +405,14 @@
     display: none;
   }
 }
+/* 设置页：会话列里的页面 Tab（不再浮动在 80vw×80vh 弹框里），铺满容器整列。
+   类名保留：背景图透明化规则靠 .settings-modal 选中内部面板。 */
 .settings-modal {
-  width: min(1300px, 80vw);
-  height: min(850px, 80vh);
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  border-radius: var(--radius-lg);
   background: var(--color-bg-panel);
-  box-shadow: var(--shadow-xl);
   overflow: hidden;
 }
 /* ── 设置弹窗头部 ─────────────────────────── */
@@ -933,8 +933,7 @@
   .config-sidebar-group {
     min-width: 180px;
   }
-  /* 小窗口也保留弹框外边距，避免设置与 Pi 管理页面贴满工作区。 */
-  .settings-modal,
+  /* 小窗口也保留弹框外边距，避免 Pi 管理页面贴满工作区（设置已是页面 Tab，铺满整列）。 */
   .config-modal {
     width: 80vw;
     height: 80vh;

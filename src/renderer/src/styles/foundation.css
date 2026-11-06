@@ -2565,8 +2565,14 @@ select:focus-visible {
    透明度走通用弹窗基线，不再单独降档。此前它们跟随面板档（背景图可见度 80%
    → 仅 30% 不透明），弹窗下方的正文会透进设置内容、文字与下层互相穿透，
    观感发虚（用户反馈「有些弹窗页面太透了」）。 */
+/* 设置已是页面壳（不再有 dialog-content 的通用基线），背景图模式下自己补一份同档底色，
+   否则下面把 --color-bg-panel 置透明后整页透出壁纸、正文难读。 */
+:root[data-bg-image="on"] .settings-modal {
+  --wallpaper-dialog-alpha: max(90%, calc(var(--wallpaper-panel-alpha, 30%) + 35%));
+  background-color: color-mix(in srgb, var(--wallpaper-base, var(--color-bg-app)) var(--wallpaper-dialog-alpha), transparent);
+}
 :root[data-bg-image="on"] [data-slot="dialog-content"].config-modal,
-:root[data-bg-image="on"] [data-slot="dialog-content"].settings-modal,
+:root[data-bg-image="on"] .settings-modal,
 :root[data-bg-image="on"] [data-slot="dialog-content"].environment-dialog {
   /* 弹窗内卡片/列表项透明化：弹窗自身已有弹窗基线底色，内部元素若再叠一层
      bg-panel/muted 会形成双层半透明（≈51%）白，观感像磨砂灰白补丁。

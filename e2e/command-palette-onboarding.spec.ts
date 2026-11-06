@@ -32,7 +32,7 @@ test("Agent 回复期间不弹出首次引导，结束后才提示", async ({ wi
 test("设置已打开时不叠加首次引导，关闭设置后才提示", async ({ window }) => {
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 	await window.getByRole("button", { name: "设置", exact: true }).click();
-	const settings = window.getByRole("dialog", { name: "设置", exact: true });
+	const settings = window.locator(".settings-modal");
 	await expect(settings).toBeVisible();
 	const onboarding = window.getByRole("dialog", { name: onboardingTitle });
 

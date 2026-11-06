@@ -26,7 +26,7 @@ test("导出弹窗：长列表虚拟滚动，教训条目同样在可导出范�
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 
 	await window.getByRole("button", { name: "设置" }).click();
-	const settings = window.getByRole("dialog", { name: "设置" });
+	const settings = window.locator(".settings-modal");
 	await expect(settings).toBeVisible();
 	await settings.getByRole("tab", { name: "记忆", exact: true }).click();
 	await settings.getByRole("button", { name: "导出", exact: true }).click();

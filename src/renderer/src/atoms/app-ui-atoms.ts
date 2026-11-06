@@ -8,12 +8,27 @@ import type { ReplyActionsSnapshot } from "../../../shared/types/replyActions";
 import { resolveEffectiveAgentBackend } from "../../../shared/types/dshRuntime";
 import { isModuleHidden } from "../../../shared/hiddenModules";
 import { dshRuntimeStatusAtom } from "./dsh-atoms";
+import { activeWorkspacePageAtom, closeWorkspacePageAtom, openWorkspacePageAtom, workspacePageTabStateAtom } from "./workspace-page-atoms";
 import type { SettingsFieldAnchorSlug } from "../utils/settingsFieldAnchors";
 import { defaultExpandedSidebarProjects, readExpandedSidebarProjects } from "../utils/sidebarExpandedProjects";
 import { DEFAULT_SIDEBAR_NAV_TAB, readSidebarNavTab, type SidebarNavTab } from "../utils/sidebarNavTab";
 
-/** Settings overlay visibility is shared by Sidebar, Pi environment flow, and Session surface. */
-export const settingsOpenAtom = atom(false);
+/**
+ * 设置页是否「正在呈现」（会话列页面 Tab 的激活态）。真值只存一份：页面 Tab 状态。
+ * 独立开关会让两者脱钩——关 Tab 后开关还开着，会话快捷键/终端面板仍被抑制。
+ * 写 true = 打开并激活设置页 Tab；写 false = 关闭 Tab（页面子树卸载，未保存草稿随之丢弃，
+ * 所以 Tab 栏的关闭叉必须先走设置页的脏数据确认，见 App 的 closeRequestRef）。
+ */
+export const settingsOpenAtom = atom(
+	(get) => get(activeWorkspacePageAtom) === "settings",
+	(_get, set, open: boolean) => {
+		if (open) set(openWorkspacePageAtom, "settings");
+		else set(closeWorkspacePageAtom, "settings");
+	},
+);
+
+/** 设置页 Tab 是否打开（切到会话只是失活，仍为 true）：决定页面子树挂载还是卸载。 */
+export const settingsPageOpenAtom = atom((get) => get(workspacePageTabStateAtom).tabs.includes("settings"));
 
 /** Logo 风格的渲染层镜像（App.tsx 在 settings 变化时同步写入，照 announcement-atoms 模式）。
  *  LogoMark / PiTuiLogo / AppParts 侧栏 / AboutPopover 订阅，避免 settings props 透传链；
