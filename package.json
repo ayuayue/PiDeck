@@ -158,6 +158,7 @@
     ],
     "asar": true,
     "compression": "maximum",
+    "beforePack": "./scripts/configure-mac-signing.js",
     "afterPack": "./scripts/after-pack-cleanup.js",
     "npmRebuild": false,
     "asarUnpack": [
