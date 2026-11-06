@@ -20,7 +20,7 @@ type GitStatusTarget = { repoPath?: string; repoRoot: string | null };
 /** 取数结果：失败仓为 null（跳过它，不让单仓故障拖垮整盘着色）。 */
 type GitStatusFetch = { target: GitStatusTarget; groups: GitResourceGroups } | null;
 
-export function useFileTreeGitStatus(options: { projectId?: string; projectRoot?: string }) {
+export function useFileTreeGitStatus(options: { projectId?: string; projectRoot?: string; enabled?: boolean }) {
 	// 状态就是一张查表函数（含大小写兜底与精确优先），换表即触发重渲染；未命中 = 该行不上色。
 	// 注意：React 把函数型入参当 lazy initializer / updater，查表函数必须包一层 () => …，
 	// 否则会被当场调用一次，state 里落地的是它的返回值（undefined）。
@@ -32,7 +32,13 @@ export function useFileTreeGitStatus(options: { projectId?: string; projectRoot?
 	optionsRef.current = options;
 
 	const refresh = useCallback(async () => {
-		const { projectId, projectRoot } = optionsRef.current;
+		const { projectId, projectRoot, enabled = true } = optionsRef.current;
+		// 能力关闭时连请求都不发（远端 Git 读被挡时，文件树只是不上色，不该打主机）。
+		if (!enabled) {
+			setStatusOf(() => EMPTY_FILE_TREE_GIT_STATUS);
+			requestSeqRef.current += 1;
+			return;
+		}
 		if (!projectId) {
 			setStatusOf(() => EMPTY_FILE_TREE_GIT_STATUS);
 			requestSeqRef.current += 1;
@@ -74,8 +80,9 @@ export function useFileTreeGitStatus(options: { projectId?: string; projectRoot?
 
 	// 挂载与项目切换即时拉取；projectRoot 不单独触发（换仓库根时 projectId 必先变）。
 	useEffect(() => {
+		if (options.enabled === false) return;
 		void refresh();
-	}, [refresh, options.projectId]);
+	}, [refresh, options.projectId, options.enabled]);
 
 	// 卸载作废在途请求，防止 setState 落到已卸载组件
 	useEffect(

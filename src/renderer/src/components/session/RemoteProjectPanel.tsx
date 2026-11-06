@@ -25,6 +25,7 @@ import { RemoteTrashPanel } from "./RemoteTrashPanel";
 import { remoteFileEntryIsUnknown, remoteFileEntryKeepsInput } from "./remoteFileManagementState";
 import { FileTreeNodeRow } from "./FileTreeRows";
 import { useRemoteFileTree } from "../../hooks/useRemoteFileTree";
+import { useFileTreeGitStatus } from "../../hooks/files/useFileTreeGitStatus";
 import { fileTreeNodeKey, projectFileKey } from "../../utils/fileTreeLazy";
 import type { RemoteSearchEntryView } from "./remoteProjectSearchState";
 import { RemoteProjectSearchBar } from "./RemoteProjectSearchBar";
@@ -58,6 +59,7 @@ export function RemoteProjectPanel(props: RemoteProjectPanelProps) {
 function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: RemoteProject }) {
 	const services = useProjectServices(props.project);
 	const tree = useRemoteFileTree(props.project, services);
+	const treeGitStatus = useFileTreeGitStatus({ projectId: props.projectId, enabled: services.capabilities.git.read });
 	const [file, setFile] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [query, setQuery] = useState("");
@@ -90,8 +92,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 	const searching = search.phase !== "idle";
 	const busy = tree.loadingDirs.size > 0;
 
-	// 传输关注点（上传 / 拖放 / 下载）整块在 hook 里，面板只保留接线：这个文件已经同时管导航、
-	// 搜索、写操作弹框与回收站，再塞传输就越过「单文件 ≤400 行」的目标。
+	// 传输（上传/拖放/下载）整块在 hook 里：本文件已管导航、搜索、写弹框与回收站，再塞就越过行数目标。
 	const transfer = useRemoteProjectTransfer({ services, directory: tree.currentDir, reload: () => tree.refresh(), setError, searching });
 
 	const files = useRemoteProjectEntries({ services, reload: () => tree.refresh() });
@@ -172,10 +173,8 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 	);
 
 	/**
-	 * 把拖动的条目移动到目标目录。
-	 *
-	 * 复用 rename（服务端本来就是同目录树内的 rename）：不新增 IPC，也不放宽版本令牌与边界校验。
-	 * 拖到自己身上/自己的子目录由服务端 `assertRemoteProjectEntryMove` 拒绝，这里只拦「拖到同一目录」。
+	 * 把拖动的条目移动到目标目录：复用 rename（同目录树内 rename），不新增 IPC、不放宽令牌。
+	 * 拖到自身/子目录由服务端 `assertRemoteProjectEntryMove` 拒绝，这里只拦「拖到同一目录」。
 	 */
 	const moveInto = useCallback(
 		(sourcePath: string, targetDirectory: string) => {
@@ -354,6 +353,7 @@ function RemoteProjectPanelBody(props: RemoteProjectPanelProps & { project: Remo
 							onDragOverDirChange={setDragOverDir}
 							scrollRef={scrollRef}
 							remoteDragType={REMOTE_ENTRY_DRAG_TYPE}
+							gitStatusOf={treeGitStatus.statusOf}
 						/>
 					))}
 				</div>

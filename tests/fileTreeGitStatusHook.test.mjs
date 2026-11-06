@@ -9,6 +9,7 @@
  * - 生命周期：切项目丢弃迟到响应、卸载后不再写状态、同项目重渲染不重复取数。
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 import { quickMessageHookHost } from "./helpers/quickMessageHookHost.mjs";
@@ -79,6 +80,31 @@ function createHarness() {
 		unmount: () => host.unmount(),
 	};
 }
+
+test("Git 读能力关闭（enabled: false）：一个请求都不发，也不上色", async () => {
+	const h = createHarness();
+	h.render({ projectId: "p9", projectRoot: "/p", enabled: false });
+	await flush();
+	assert.equal(h.listReposCalls().length, 0, "能力关闭时不得打主机");
+	assert.equal(h.statusCalls().length, 0, "连状态请求都不该发");
+	assert.equal(h.render({ projectId: "p9", projectRoot: "/p", enabled: false }).statusOf("/p/a.ts"), undefined);
+});
+
+test("能力从关到开：打开后才取一次数", async () => {
+	const h = createHarness();
+	h.render({ projectId: "p10", projectRoot: "/p", enabled: false });
+	await flush();
+	assert.equal(h.listReposCalls().length, 0);
+	h.render({ projectId: "p10", projectRoot: "/p", enabled: true });
+	await flush();
+	assert.equal(h.listReposCalls().length, 1, "能力打开后应按项目取一次仓库列表");
+});
+
+test("远端文件面板复用同一套着色，并按 Git 读能力取数（源码契约）", () => {
+	const panel = readFileSync("src/renderer/src/components/session/RemoteProjectPanel.tsx", "utf8");
+	assert.match(panel, /useFileTreeGitStatus\(\{ projectId: props\.projectId, enabled: services\.capabilities\.git\.read \}\)/, "面板必须按能力位决定是否取数");
+	assert.match(panel, /gitStatusOf=\{treeGitStatus\.statusOf\}/, "行组件必须收到同一张查表函数");
+});
 
 test("多仓：根仓与嵌套仓状态合并；嵌套仓根取数成功时外层仓的未跟踪占位被丢弃", async () => {
 	const h = createHarness();
