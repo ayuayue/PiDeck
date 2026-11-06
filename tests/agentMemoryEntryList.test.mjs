@@ -99,6 +99,66 @@ test("缺 key 或 target 非法时明确报错（IPC 层据此回安全错误码
 	assert.throws(() => entries.deleteAgentMemoryEntry(root, { target: "nope", key: "x" }), /target-invalid/);
 });
 
+test("批量删除：跨作用域一次删完，墓碑逐条落，没选中的条目原样保留", () => {
+	const { root, projectPath } = seed();
+	const projectId = projectKeyFromPath(projectPath);
+	const before = entries.readAgentMemoryEntries({ root });
+	const globalMemory = before.groups.find((group) => group.scope === "global" && group.target === "memory");
+	const project = before.groups.find((group) => group.scope === "project");
+
+	const result = entries.deleteAgentMemoryEntries(root, [
+		{ target: "memory", projectId: "", key: globalMemory.entries[0].key },
+		{ target: "memory", projectId, key: project.entries[0].key },
+		// 列表可能已经过期（别处删过）：没命中的键计入 missing，不能被当成删成功，也不能去别的文件里找补。
+		{ target: "memory", projectId: "", key: "not-a-real-key" },
+	]);
+	assert.equal(result.removed, 2);
+	assert.equal(result.missing, 1);
+
+	const after = entries.readAgentMemoryEntries({ root });
+	const keptGlobal = after.groups.find((group) => group.scope === "global" && group.target === "memory");
+	assert.equal(keptGlobal.entries.length, 1, "同文件里没被选中的条目必须保留");
+	assert.equal(keptGlobal.entries[0].content, globalMemory.entries[1].content);
+	const keptProject = after.groups.find((group) => group.scope === "project");
+	assert.equal(keptProject?.entries.length ?? 0, 0, "项目文件里唯一一条被删后整组清空");
+
+	const tombstones = JSON.parse(readFileSync(join(root, "tombstones.json"), "utf8"));
+	assert.equal(tombstones.length, 2, "每条被删的都要有墓碑，缺一条旧导出包就能复活它");
+	assert.deepEqual(tombstones.map((tombstone) => tombstone.scope).sort(), ["global", "project"]);
+});
+
+test("批量删除：重复键只算一次，空批次直接拒绝", () => {
+	const { root } = seed();
+	const before = entries.readAgentMemoryEntries({ root });
+	const globalMemory = before.groups.find((group) => group.scope === "global" && group.target === "memory");
+	const key = globalMemory.entries[0].key;
+	const result = entries.deleteAgentMemoryEntries(root, [
+		{ target: "memory", key },
+		{ target: "memory", key },
+	]);
+	assert.equal(result.removed, 1, "同一个键在入参里重复出现时只删一条，removed 不重复计数");
+	assert.equal(result.missing, 0);
+	assert.throws(() => entries.deleteAgentMemoryEntries(root, []), /entries-required/);
+});
+
+test("批量删除：任一条非法就整批拒绝，不会删掉一半", () => {
+	const { root } = seed();
+	const before = entries.readAgentMemoryEntries({ root });
+	const globalMemory = before.groups.find((group) => group.scope === "global" && group.target === "memory");
+	const raw = readFileSync(join(root, "MEMORY.md"), "utf8");
+
+	assert.throws(
+		() =>
+			entries.deleteAgentMemoryEntries(root, [
+				{ target: "memory", key: globalMemory.entries[0].key },
+				{ target: "nope", key: "x" },
+			]),
+		/target-invalid/,
+	);
+	assert.equal(readFileSync(join(root, "MEMORY.md"), "utf8"), raw, "校验失败时文件一个字都不能动");
+	assert.ok(!existsSync(join(root, "tombstones.json")), "整批被拒时不该留下墓碑");
+});
+
 test("STANDING：读缺失文件为空串，保存整文件替换并同步索引", () => {
 	const root = makeRoot();
 	assert.equal(entries.readStandingEntry(root), "", "没有 STANDING.md 时读出来是空串");

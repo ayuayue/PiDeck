@@ -1,12 +1,14 @@
 /**
- * 「记忆」tab 的条目浏览器：把 Markdown 真值逐条列出来，可展开看全文、可删除单条。
+ * 「记忆」tab 的条目浏览器：把 Markdown 真值逐条列出来，可展开看全文、可删除单条或批量删除。
  *
  * 只读 + 删除。为什么不做编辑：改写一条记忆的语义（去重键、预算裁剪、墓碑）
  * 全在工具层（`memory_add/replace/remove`），设置页做一份编辑器就等于把那些规则抄第二遍；
  * 想改内容就让 Agent 改，想改措辞就删掉再说一遍。
  *
  * 形态：**表格式列表**（`ui-shadcn/table` + 卡片外壳），与「进程与内存监控」等设置面板同一套视觉。
- * 卡片顶部按类型分两个 tab（记忆 / 教训），下面是工具栏（搜索 + 计数 + 手动刷新）、表格与分页。
+ * 卡片顶部按类型分两个 tab（记忆 / 教训），下面是工具栏（搜索 + 计数 + 批量删除 + 手动刷新）、表格与分页。
+ * 批量删除进入后行首出现勾选框：勾选跨页保留，删除走一次 IPC（主进程按文件分组落盘），
+ * 删完同样给撤销。
  * 列为内容 / 记录于 / 字数 / 删除；时间来自记忆索引（Markdown 真值不存时间戳），
  * 所以工具栏留了一个刷新按钮：Agent 在会话里刚写下的记忆不会主动推到这里。
  * 所有作用域按记录时间混排成一条列表，行首徽标标明全局 / 项目 / 本机设备——早期在时间线里
@@ -20,7 +22,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Brain, ChevronDown, ChevronRight, RefreshCw, RotateCcw, Search, SearchX, Trash2 } from "lucide-react";
+import { AlertTriangle, Brain, ChevronDown, ChevronRight, ListChecks, RefreshCw, RotateCcw, Search, SearchX, Trash2 } from "lucide-react";
 import type { AgentMemoryEntry, AgentMemoryEntryGroup, AgentMemoryEntryList } from "../../../../../shared/types/agentMemory";
 import { t } from "../../../i18n";
 import { desktopApi } from "../../../desktopApi";
@@ -31,6 +33,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Pagination } from "../../ui-shadcn/pagination";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../ui-shadcn/tabs";
 import { ConfirmDialog } from "../../ui-shadcn/ConfirmDialog";
+import { Checkbox } from "../../ui-shadcn/checkbox";
 import { describeAgentMemoryCode, memoryGroupScopeLabel, memoryTargetLabel } from "./agentMemoryLabels";
 import { MEMORY_PAGE_SIZE, buildMemoryPageEntries, memoryEntryId, memoryTotalPages } from "./agentMemoryPaging";
 import { formatFullDateTime, formatRelativeTime } from "../../../utils/relativeTime";
@@ -79,6 +82,12 @@ function EntryTimeCell({ value }: { value?: string }) {
 	);
 }
 
+/** 撤销条只给一行提示：取首行并截断到 80 字，整段内容在表格里已经看过了。 */
+function firstLinePreview(content: string): string {
+	const line = content.split("\n")[0];
+	return line.length > 80 ? `${line.slice(0, 80)}…` : line;
+}
+
 export function AgentMemoryEntryList(props: {
 	/** 兄弟面板（导出/导入/清空索引）改过记忆后 +1。 */
 	reloadKey?: number;
@@ -90,10 +99,16 @@ export function AgentMemoryEntryList(props: {
 	const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 	const [busyKey, setBusyKey] = useState<string | null>(null);
 	const [pending, setPending] = useState<AgentMemoryEntry | null>(null);
-	/** 刚删掉、还来得及撤销的那条：拿着它把内容原样写回并回收墓碑。 */
-	const [deleted, setDeleted] = useState<AgentMemoryEntry | null>(null);
+	/** 刚删掉、还来得及撤销的条目（单条或整批）：拿着它们把内容原样写回并回收墓碑。 */
+	const [deleted, setDeleted] = useState<AgentMemoryEntry[] | null>(null);
 	const [restoring, setRestoring] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	/** 批量选择模式：工具栏「批量删除」进入，行首出现勾选框，选中项由工具栏下方的选择栏统一删除。 */
+	const [selecting, setSelecting] = useState(false);
+	/** 勾选只存条目 id：刷新/删条后已经不在磁盘上的键自动从计数与删除清单里消失。 */
+	const [selected, setSelected] = useState<Set<string>>(() => new Set());
+	const [pendingBatch, setPendingBatch] = useState<AgentMemoryEntry[] | null>(null);
+	const [deleting, setDeleting] = useState(false);
 	/** 记忆 / 教训两个 tab：四种 target 混排时教训总被挤到列表底部。 */
 	const [kind, setKind] = useState<EntryKind>("memory");
 	const [page, setPage] = useState(1);
@@ -145,6 +160,36 @@ export function AgentMemoryEntryList(props: {
 	const totalPages = memoryTotalPages(shown, MEMORY_PAGE_SIZE);
 	const currentPage = Math.min(page, totalPages);
 	const pageEntries = useMemo(() => buildMemoryPageEntries(groups, currentPage), [groups, currentPage]);
+	const byId = useMemo(() => {
+		const map = new Map<string, AgentMemoryEntry>();
+		for (const group of data?.groups ?? []) for (const entry of group.entries) map.set(memoryEntryId(entry), entry);
+		return map;
+	}, [data]);
+	// 选中项从全量数据里回填：翻页、搜索、切 tab 都不会丢勾选，也不存在「拿着已消失的键去删」。
+	const selectedEntries = useMemo(() => [...selected].flatMap((id) => { const entry = byId.get(id); return entry ? [entry] : []; }), [selected, byId]);
+	const pageIds = useMemo(() => pageEntries.map((row) => row.key), [pageEntries]);
+	const pagePicked = pageIds.filter((id) => selected.has(id)).length;
+	const pageAll = pageIds.length > 0 && pagePicked === pageIds.length;
+
+	const togglePage = () => {
+		setSelected((current) => {
+			const next = new Set(current);
+			for (const id of pageIds) {
+				if (pageAll) next.delete(id);
+				else next.add(id);
+			}
+			return next;
+		});
+	};
+
+	const toggleEntry = (id: string) => {
+		setSelected((current) => {
+			const next = new Set(current);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	};
 
 	const runDelete = async () => {
 		const entry = pending;
@@ -156,7 +201,7 @@ export function AgentMemoryEntryList(props: {
 			const result = await desktopApi.agentMemory.deleteEntry({ target: entry.target, projectId: entry.projectId, key: entry.key });
 			if (!result.ok) setError(describeAgentMemoryCode(result.code));
 			else {
-				setDeleted(entry);
+				setDeleted([entry]);
 				await refresh();
 				props.onChanged?.();
 			}
@@ -166,20 +211,54 @@ export function AgentMemoryEntryList(props: {
 	};
 
 	const runRestore = async () => {
-		const entry = deleted;
+		const entries = deleted;
 		setDeleted(null);
-		if (!entry) return;
+		if (!entries || entries.length === 0) return;
 		setRestoring(true);
 		setError(null);
 		try {
-			const result = await desktopApi.agentMemory.restoreEntry({ target: entry.target, projectId: entry.projectId, content: entry.content, category: entry.category || undefined });
+			// 逐条写回：每条都是主进程里「addMemory + 回收墓碑」的原子动作，批量撤销只是重复它。
+			const failed: AgentMemoryEntry[] = [];
+			let firstError: string | null = null;
+			for (const entry of entries) {
+				const result = await desktopApi.agentMemory.restoreEntry({ target: entry.target, projectId: entry.projectId, content: entry.content, category: entry.category || undefined });
+				if (!result.ok) {
+					failed.push(entry);
+					firstError ??= describeAgentMemoryCode(result.code);
+				}
+			}
+			// 写回失败的留在条上，用户还能再点一次撤销，不用重新去那页找。
+			if (failed.length > 0) {
+				setDeleted(failed);
+				setError(firstError);
+			}
+			await refresh();
+			props.onChanged?.();
+		} finally {
+			setRestoring(false);
+		}
+	};
+
+	const runBatchDelete = async () => {
+		const entries = pendingBatch;
+		const refs = entries?.map((entry) => ({ target: entry.target, projectId: entry.projectId, key: entry.key })) ?? [];
+		setPendingBatch(null);
+		if (!entries || refs.length === 0) return;
+		setDeleting(true);
+		setError(null);
+		try {
+			// 一次 IPC：主进程按文件分组，同一份记忆文件只读写一遍，不会因为勾了 20 条就重写 20 次。
+			const result = await desktopApi.agentMemory.deleteEntries(refs);
 			if (!result.ok) setError(describeAgentMemoryCode(result.code));
 			else {
+				setDeleted(entries);
+				setSelected(new Set());
+				setSelecting(false);
 				await refresh();
 				props.onChanged?.();
 			}
 		} finally {
-			setRestoring(false);
+			setDeleting(false);
 		}
 	};
 
@@ -188,7 +267,7 @@ export function AgentMemoryEntryList(props: {
 
 	return (
 		<div className="overflow-hidden rounded-lg border border-border-subtle bg-bg-panel">
-			<Tabs value={kind} onValueChange={(value) => setKind(value === "failure" ? "failure" : "memory")} className="gap-0">
+			<Tabs value={kind} onValueChange={(value) => { setKind(value === "failure" ? "failure" : "memory"); /* 换 tab 等于换一批条目：勾选清掉，避免把另一类的条目一起删掉。 */ setSelected(new Set()); }} className="gap-0">
 				{/* 类型切换：记忆（memory + user）/ 教训（failure）。四种 target 混排时教训永远排在列表底部。 */}
 				<TabsList variant="line" className="px-2" aria-label={t("settings.agentMemoryKindLabel")}>
 					<TabsTrigger variant="line" value="memory">
@@ -219,6 +298,10 @@ export function AgentMemoryEntryList(props: {
 						</div>
 						{/* 计数只在搜索时出现：不搜索时 tab 上的角标就是本类总数，再写一遍只是噪音；分页信息由分页条自己给。 */}
 						<span className="ml-auto shrink-0 text-micro tabular-nums text-muted-foreground">{!data ? t("common.loading") : needle ? t("settings.agentMemoryEntriesCount", { shown: String(shown), total: String(kindTotal) }) : null}</span>
+						{/* 批量删除入口：与刷新同档图标按钮；进入后行首出现勾选框，选中项在下面的选择栏里统一删除。 */}
+						<Button type="button" variant={selecting ? "secondary" : "ghost"} size="icon-sm" aria-pressed={selecting} aria-label={t("settings.agentMemoryBatchDelete")} title={t("settings.agentMemoryBatchDelete")} disabled={shown === 0} onClick={() => { setSelecting((value) => !value); setSelected(new Set()); }}>
+							<ListChecks size={13} aria-hidden="true" />
+						</Button>
 						{/* 手动刷新：条目真值在磁盘上，Agent 在会话里刚写下的记忆不会推到这里（只有兄弟面板改动会 +1 reloadKey）。 */}
 						<Button type="button" variant="ghost" size="icon-sm" aria-label={t("settings.agentMemoryRefresh")} title={t("settings.agentMemoryRefresh")} disabled={refreshing} onClick={() => void runRefresh()}>
 							<RefreshCw size={13} className={refreshing ? "animate-pideck-spin" : undefined} aria-hidden="true" />
@@ -227,9 +310,33 @@ export function AgentMemoryEntryList(props: {
 
 					{error ? <p className="border-b border-border-subtle px-3 py-2 text-control text-destructive">{error}</p> : null}
 
-					{deleted ? (
+					{/* 选择栏：勾选可以跨页（翻页不清空），删除前在这里给出总数与「全选本页」的开关。 */}
+					{selecting ? (
+						<div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border-subtle bg-bg-muted px-3 py-1.5">
+							<span className="text-caption tabular-nums text-foreground">{t("settings.agentMemoryBatchSelected", { count: String(selectedEntries.length) })}</span>
+							<Button type="button" variant="ghost" size="xs" disabled={pageIds.length === 0} onClick={togglePage}>
+								{pageAll ? t("settings.agentMemoryBatchUnselectPage") : t("settings.agentMemoryBatchSelectPage")}
+							</Button>
+							{selectedEntries.length > 0 ? (
+								<Button type="button" variant="ghost" size="xs" onClick={() => setSelected(new Set())}>
+									{t("settings.agentMemoryBatchClear")}
+								</Button>
+							) : null}
+							<span className="ml-auto flex items-center gap-2">
+								<Button type="button" variant="ghost" size="xs" onClick={() => { setSelecting(false); setSelected(new Set()); }}>
+									{t("common.cancel")}
+								</Button>
+								<Button type="button" variant="destructive" size="xs" disabled={selectedEntries.length === 0 || deleting} onClick={() => setPendingBatch(selectedEntries)}>
+									<Trash2 size={12} aria-hidden="true" />
+									{t("settings.agentMemoryBatchDeleteAction")}
+								</Button>
+							</span>
+						</div>
+					) : null}
+
+					{deleted && deleted.length > 0 ? (
 						<div className="flex items-center gap-2 border-b border-border-subtle bg-bg-muted px-3 py-2">
-							<span className="min-w-0 flex-1 truncate text-caption text-muted-foreground">{t("settings.agentMemoryDeletedEntry", { content: deleted.content.split("\n")[0].length > 80 ? `${deleted.content.split("\n")[0].slice(0, 80)}…` : deleted.content.split("\n")[0] })}</span>
+							<span className="min-w-0 flex-1 truncate text-caption text-muted-foreground">{deleted.length === 1 ? t("settings.agentMemoryDeletedEntry", { content: firstLinePreview(deleted[0].content) }) : t("settings.agentMemoryDeletedEntries", { count: String(deleted.length) })}</span>
 							<Button type="button" variant="ghost" size="sm" disabled={restoring} onClick={() => void runRestore()}>
 								<RotateCcw size={13} aria-hidden="true" />
 								{t("settings.agentMemoryUndoDelete")}
@@ -240,6 +347,11 @@ export function AgentMemoryEntryList(props: {
 					<Table>
 						<TableHeader>
 							<TableRow className="hover:bg-transparent">
+								{selecting ? (
+									<TableHead className="w-10">
+										<Checkbox checked={pageAll ? true : pagePicked > 0 ? "indeterminate" : false} onCheckedChange={togglePage} disabled={pageIds.length === 0} aria-label={t("settings.agentMemoryBatchSelectPage")} />
+									</TableHead>
+								) : null}
 								<TableHead>{t("settings.agentMemoryTableContent")}</TableHead>
 								<TableHead className="w-20 text-right" title={t("settings.agentMemoryTableUpdatedHint")}>
 									{t("settings.agentMemoryTableUpdated")}
@@ -251,7 +363,7 @@ export function AgentMemoryEntryList(props: {
 						<TableBody>
 							{emptyKind ? (
 								<TableRow className="hover:bg-transparent">
-									<TableCell colSpan={4} className="whitespace-normal">
+									<TableCell colSpan={selecting ? 5 : 4} className="whitespace-normal">
 										<div className="flex flex-col items-center gap-2 py-8 text-center">
 											<span className="flex size-9 items-center justify-center rounded-full bg-bg-muted text-muted-foreground">{emptyKind === "nomatch" ? <SearchX size={16} aria-hidden="true" /> : <Brain size={16} aria-hidden="true" />}</span>
 											<p className="max-w-sm text-caption leading-relaxed text-muted-foreground">{emptyKind === "loading" ? t("common.loading") : emptyKind === "empty" ? t(kind === "failure" ? "settings.agentMemoryEmptyFailure" : "settings.agentMemoryEmpty") : t("settings.agentMemoryNoMatch")}</p>
@@ -265,7 +377,13 @@ export function AgentMemoryEntryList(props: {
 								</TableRow>
 							) : null}
 							{pageEntries.map((row) => (
-								<TableRow key={row.key} data-state={expanded[row.key] === true ? "selected" : undefined}>
+								<TableRow key={row.key} data-state={selected.has(row.key) || expanded[row.key] === true ? "selected" : undefined}>
+									{/* 勾选框独占一列：点它不会触发行内容那块的展开按钮。 */}
+									{selecting ? (
+										<TableCell className="w-10">
+											<Checkbox checked={selected.has(row.key)} onCheckedChange={() => toggleEntry(row.key)} aria-label={t("settings.agentMemoryBatchSelectRow")} />
+										</TableCell>
+									) : null}
 									<TableCell className="max-w-0 whitespace-normal">
 										{/* 折叠态单行省略，展开后整段铺开：记忆条目是纯文本，首行通常就是结论。 */}
 										<button type="button" className="flex w-full items-start gap-1.5 text-left text-control text-foreground focus-visible:outline-none" aria-expanded={expanded[row.key] === true} onClick={() => setExpanded((current) => ({ ...current, [row.key]: current[row.key] !== true }))}>
@@ -323,6 +441,17 @@ export function AgentMemoryEntryList(props: {
 					danger
 					onConfirm={() => void runDelete()}
 					onCancel={() => setPending(null)}
+				/>
+			) : null}
+
+			{pendingBatch ? (
+				<ConfirmDialog
+					title={t("settings.agentMemoryBatchDeleteTitle")}
+					message={t("settings.agentMemoryBatchConfirm", { count: String(pendingBatch.length) })}
+					confirmLabel={t("settings.agentMemoryBatchDeleteAction")}
+					danger
+					onConfirm={() => void runBatchDelete()}
+					onCancel={() => setPendingBatch(null)}
 				/>
 			) : null}
 		</div>

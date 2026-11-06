@@ -190,3 +190,78 @@ test("列表默认新条目在前，换页与搜索仍保持倒序", async (t) =
 		"过滤后仍要先排序再分页",
 	);
 });
+
+test("批量删除：勾选后只发一次 IPC，删除清单只带定位键，删完给撤销", async (t) => {
+	const data = group("memory", 25);
+	const calls = [];
+	const host = quickMessageHookHost();
+	const { AgentMemoryEntryList } = loadTsCommonJs("src/renderer/src/components/app/settings/AgentMemoryEntryList.tsx", {
+		stubs: {
+			react: host.react,
+			"../../../desktopApi": {
+				desktopApi: {
+					agentMemory: {
+						list: async () => ({ ok: true, value: { root: "/memory", total: 25, groups: [data] } }),
+						deleteEntries: async (items) => {
+							calls.push(items);
+							return { ok: true, value: { removed: items.length, missing: 0 } };
+						},
+					},
+				},
+			},
+			"../../ui-shadcn/badge": { Badge: "badge" },
+			"../../ui-shadcn/button": { Button: "button" },
+			"../../ui-shadcn/checkbox": { Checkbox: "checkbox" },
+			"../../ui-shadcn/input": { Input: "input" },
+			"../../ui-shadcn/table": { Table: "table", TableBody: "tbody", TableCell: "td", TableHead: "th", TableHeader: "thead", TableRow: "tr" },
+			"../../ui-shadcn/pagination": { Pagination: "pagination" },
+			"../../ui-shadcn/tabs": { Tabs: "tabs", TabsContent: "tabs-content", TabsList: "tabs-list", TabsTrigger: "tabs-trigger" },
+			"../../ui-shadcn/ConfirmDialog": { ConfirmDialog: "confirm-dialog" },
+		},
+	});
+	t.after(() => host.unmount());
+	const render = () => host.render(() => AgentMemoryEntryList({}));
+	render();
+	await new Promise(setImmediate);
+	let tree = render();
+
+	// 进入批量模式：工具栏那个带 aria-pressed 的图标按钮（批量删除与刷新并排）。
+	const toggle = walk(tree, (node) => node.type === "button" && node.props["aria-pressed"] !== undefined);
+	assert.equal(toggle.length, 1, "工具栏只应有一个可切换选中态的按钮");
+	toggle[0].props.onClick();
+	tree = render();
+	let boxes = walk(tree, (node) => node.type === "checkbox");
+	assert.equal(boxes.length, MEMORY_PAGE_SIZE + 1, "批量模式：表头全选 + 每行一个勾选框");
+
+	// 本页可见的是第 25..6 条（倒序），勾前两条。
+	boxes[1].props.onCheckedChange();
+	boxes[2].props.onCheckedChange();
+	tree = render();
+	assert.ok(textOf(tree).includes("已选 2 条"), "选择栏要给出跨页累计的选中数");
+
+	// 删除要过一次确认弹框，确认后才发 IPC。
+	assert.equal(walk(tree, (node) => node.props?.onConfirm !== undefined && node.type === "confirm-dialog").length, 0, "没点删除前不应弹确认框");
+	walk(tree, (node) => node.type === "button" && node.props.variant === "destructive")[0].props.onClick();
+	tree = render();
+	const confirm = walk(tree, (node) => node.type === "confirm-dialog" && node.props?.onConfirm !== undefined);
+	assert.equal(confirm.length, 1, "删除所选项要弹确认框");
+	assert.ok(confirm[0].props.message.includes("要删除 2 条记忆"));
+	confirm[0].props.onConfirm();
+	await new Promise(setImmediate);
+	await new Promise(setImmediate);
+	tree = render();
+
+	assert.equal(calls.length, 1, "一批勾选只发一次 IPC（主进程按文件分组落盘）");
+	// 沙箱（vm）里创建的对象跨 realm，strict 的 deepEqual 会因原型不同而失败，这里只比结构。
+	assert.deepEqual(
+		JSON.parse(JSON.stringify(calls[0])),
+		[
+			{ target: "memory", projectId: "", key: "kmemory25" },
+			{ target: "memory", projectId: "", key: "kmemory24" },
+		],
+		"删除清单只带定位键，任何文件路径都不从渲染层传下去",
+	);
+	boxes = walk(tree, (node) => node.type === "checkbox");
+	assert.equal(boxes.length, 0, "删完退出批量模式");
+	assert.ok(textOf(tree).includes("已删除 2 条记忆"), "批量删除同样给撤销条");
+});

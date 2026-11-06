@@ -79,6 +79,25 @@ export interface AgentMemoryEntryList {
 	groups: AgentMemoryEntryGroup[];
 }
 
+/**
+ * 删除一条记忆的定位键：`target` + 作用域 + 内容键。
+ *
+ * 渲染层拿不到文件路径，也就无法借这个通道删到记忆目录之外的任何东西；
+ * 键是规范化后的内容（与列表行、墓碑同一口径）。
+ */
+export interface AgentMemoryEntryRef {
+	target: string;
+	/** 作用域 id（全局为空串，设备形如 `device:<键>`）。 */
+	projectId?: string;
+	key: string;
+}
+
+/** 删除结果：`missing` 是「列表里的键在磁盘上已经找不到」的条数（列表过期或已被别处删掉）。 */
+export interface AgentMemoryDeleteOutcome {
+	removed: number;
+	missing: number;
+}
+
 export interface AgentMemoryExportOutcome {
 	canceled: boolean;
 	/** 用户取消时没有路径。 */

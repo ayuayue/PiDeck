@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 0bf6d3c9c9c0224ac7f2392c7d3c3b6948efee4425223ee87d9aaf864b4645d2（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 66f4bf8231b1b29e8c630549aba9d3526a743e22cfea27b6e852e7290c0e6a1f（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -5649,6 +5649,16 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.agentMemoryDeleteEntry": "刪除這條記憶",
 	"settings.agentMemoryDeletedEntry": "已刪除「{content}」",
 	"settings.agentMemoryUndoDelete": "撤銷",
+	"settings.agentMemoryBatchDelete": "批次刪除",
+	"settings.agentMemoryBatchDeleteTitle": "批次刪除記憶",
+	"settings.agentMemoryBatchDeleteAction": "刪除所選",
+	"settings.agentMemoryBatchSelected": "已選 {count} 條",
+	"settings.agentMemoryBatchSelectPage": "全選本頁",
+	"settings.agentMemoryBatchUnselectPage": "取消本頁",
+	"settings.agentMemoryBatchClear": "清空已選",
+	"settings.agentMemoryBatchSelectRow": "選擇這條記憶",
+	"settings.agentMemoryBatchConfirm": "刪除後這些記憶不會再進入任何會話，並留下墓碑防止舊匯出包把它們導回來。要刪除 {count} 條記憶。",
+	"settings.agentMemoryDeletedEntries": "已刪除 {count} 條記憶",
 	"settings.agentMemoryLearnLast": "上次學習：學過 {count} 個會話，最近 {time}",
 	"settings.agentMemoryLearnNever": "上次學習：還沒有學過任何會話",
 	"settings.agentMemoryStandingSection": "常駐指令（STANDING.md）",
