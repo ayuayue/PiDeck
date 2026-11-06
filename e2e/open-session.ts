@@ -63,7 +63,9 @@ export async function openSettings(window: Page) {
 export async function openConfigPane(window: Page) {
 	const dialog = await openSettings(window);
 	await dialog.getByRole("tab", { name: /配置管理/ }).click();
-	const pane = window.locator(".config-modal");
+	// 设置页里的配置面板是**嵌入模式**（.config-pane）；只有独立弹窗模式才有 .config-modal。
+	// 两者都认，避免设置外壳换形态时这条 helper 静默失效。
+	const pane = window.locator(".config-pane, .config-modal").first();
 	await expect(pane).toBeVisible({ timeout: 15_000 });
 	return pane;
 }
