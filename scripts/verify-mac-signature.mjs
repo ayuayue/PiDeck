@@ -25,6 +25,8 @@
 //      "No route to host"（#347 后续评论）。这条断言把该退化单独钉死。
 //   5. Contents/Frameworks/*.app（Helper）同样要求「签名 identifier == 自己的
 //      CFBundleIdentifier」——0.9.0 的 Helper 保留了通用 `Electron Helper` 标识。
+//   6. 配置 Developer ID 后还要验证 Apple 证书链、TeamIdentifier 与 designated requirement；
+//      ad-hoc 的 cdhash 身份随更新变化，有效 bundle 签名不等于可以继承旧 TCC 授权。
 // 只在 macOS 上运行：没有 codesign 的宿主直接判失败，不允许「跳过了还当通过」。
 
 import { execFile } from "node:child_process";
@@ -43,6 +45,8 @@ const FRAMEWORKS_DIR = join("Contents", "Frameworks");
 const MAC_OUTPUT_DIR = /^mac(-.*)?$/;
 // Helper.app 只在 Frameworks 下平铺一层；留一点余量给嵌套结构，同时避免深遍历大目录。
 const NESTED_APP_DEPTH = 3;
+// Apple's Developer ID Application chain, rather than a forgeable certificate display name.
+const DEVELOPER_ID_REQUIREMENT = "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists";
 
 async function isNonEmptyFile(path) {
 	try {
@@ -93,6 +97,8 @@ export function parseCodeSignDisplay(output) {
 		infoPlist: pick("Info\\.plist") ?? (boundEntries ? `entries=${boundEntries[1]}` : null),
 		sealedResources: pick("Sealed Resources") ?? /^Sealed Resources (version=.*)$/m.exec(text)?.[1]?.trim() ?? null,
 		signature: pick("Signature"),
+		teamIdentifier: pick("TeamIdentifier"),
+		authorities: [...text.matchAll(/^Authority=(.*)$/gm)].map((match) => match[1].trim()),
 	};
 }
 
@@ -153,11 +159,35 @@ export async function findNestedApps(appPath) {
 	return found.sort();
 }
 
+/** Verify the signing identity used to carry TCC grants between releases. */
+async function inspectDeveloperId({ appPath, label, parsed, expectedTeamId, runCodesign, errors }) {
+	if (parsed.signature === "adhoc" || !parsed.authorities[0]?.startsWith("Developer ID Application:")) {
+		errors.push(`${label} 必须使用 Developer ID Application 证书签名，不能回退 ad-hoc：否则更新后 TCC 授权仍可能失效`);
+		return null;
+	}
+	if (!parsed.teamIdentifier || parsed.teamIdentifier === "not set" || (expectedTeamId && parsed.teamIdentifier !== expectedTeamId)) {
+		errors.push(`${label} 的 TeamIdentifier=${parsed.teamIdentifier ?? "缺失"} 与预期开发者身份 ${expectedTeamId ?? "有效 Developer ID Team"} 不一致`);
+	}
+	const trusted = await runCodesign(["--verify", "--strict", `-R=${DEVELOPER_ID_REQUIREMENT}`, appPath]);
+	if (trusted.code !== 0) errors.push(`${label} 未满足 Apple Developer ID 证书链要求（rc=${trusted.code}）：${tail(trusted.output)}`);
+	const displayed = await runCodesign(["-d", "-r-", appPath]);
+	const requirement = /^(?:#\s*)?designated\s*=>\s*(.+)$/m.exec(displayed.output)?.[1]?.trim() ?? null;
+	if (displayed.code !== 0 || !requirement) errors.push(`${label} 无法读取 designated requirement（rc=${displayed.code}）`);
+	else if (/\bcdhash\b/i.test(requirement)) errors.push(`${label} 的 designated requirement 绑定 cdhash，二进制更新后身份会改变，不能继承旧 TCC 授权`);
+	else {
+		const team = /certificate\s+leaf\s*\[\s*subject\.OU\s*\]\s*=\s*"?([A-Z0-9]{10})"?/.exec(requirement)?.[1];
+		if (!/\banchor\s+apple\s+generic\b/.test(requirement) || team !== parsed.teamIdentifier || /\b(?:or|not)\b/.test(requirement)) {
+			errors.push(`${label} 的 designated requirement 缺少明确的 Apple / Team 身份约束；不要用仅含 identifier 的自定义要求保留权限`);
+		}
+	}
+	return requirement;
+}
+
 /**
  * 校验单个 bundle（主 .app 或嵌套 Helper.app）。
  * `deepVerify` 只在主 .app 上跑：--deep 一次就把 Frameworks 下的二进制全查了。
  */
-async function inspectBundle({ appPath, label, deepVerify, runCodesign, readInfoPlist, errors }) {
+async function inspectBundle({ appPath, label, deepVerify, runCodesign, readInfoPlist, errors, warnings, requireDeveloperId, expectedTeamId }) {
 	const sealPath = join(appPath, RESOURCE_SEAL);
 	const sealed = await isNonEmptyFile(sealPath);
 	if (!sealed && deepVerify) errors.push(`缺少资源封印 ${sealPath}：bundle 未做代码签名（签名被跳过时就是这个状态）`);
@@ -204,37 +234,43 @@ async function inspectBundle({ appPath, label, deepVerify, runCodesign, readInfo
 	// 只在主包上断言，避免把合法签名误判成失败。
 	if (deepVerify && !hasSealedResources(parsed.sealedResources)) errors.push(`${label} 的资源未封印（codesign 报告 Sealed Resources=${parsed.sealedResources ?? "缺失"}）`);
 
-	return { path: appPath, label, resourceSeal: deepVerify ? sealPath : null, sealed, codesignExitCode, ...parsed, expectedIdentifier, displayExitCode: display.code };
+	let designatedRequirement = null;
+	if (requireDeveloperId) designatedRequirement = await inspectDeveloperId({ appPath, label, parsed, expectedTeamId, runCodesign, errors });
+	else if (deepVerify && parsed.signature === "adhoc") warnings.push(`${label} 使用 ad-hoc 签名：TCC 权限按二进制 cdhash 记账，更新或本地重签后可能需要重新授权；保留授权需持续使用同一 Developer ID 身份。`);
+	return { path: appPath, label, resourceSeal: deepVerify ? sealPath : null, sealed, codesignExitCode, ...parsed, designatedRequirement, expectedIdentifier, displayExitCode: display.code };
 }
 
 /**
  * 校验 release 目录下每个 mac 产物的代码签名。
  * `platform`/`runCodesign`/`readInfoPlist` 可注入，测试因此在 Linux/Windows 上也能覆盖全部判定分支。
  */
-export async function verifyMacSignature({ releaseDir = join(process.cwd(), "release"), platform = process.platform, runCodesign = defaultRunCodesign, readInfoPlist = defaultReadInfoPlist } = {}) {
+export async function verifyMacSignature({ releaseDir = join(process.cwd(), "release"), platform = process.platform, runCodesign = defaultRunCodesign, readInfoPlist = defaultReadInfoPlist, requireDeveloperId = false, expectedTeamId = null } = {}) {
 	const root = resolve(releaseDir);
 	const errors = [];
+	const warnings = [];
 	const apps = [];
+	requireDeveloperId ||= Boolean(expectedTeamId);
+	if (expectedTeamId !== null && !/^[A-Z0-9]{10}$/.test(expectedTeamId)) return { ok: false, releaseDir: root, apps, warnings, errors: ["expectedTeamId 必须是 10 位大写字母或数字"] };
 
 	if (platform !== "darwin") {
-		return { ok: false, releaseDir: root, apps, errors: [`macOS 签名门禁需要 codesign，只能在 macOS 上运行（当前宿主：${platform}）`] };
+		return { ok: false, releaseDir: root, apps, warnings, errors: [`macOS 签名门禁需要 codesign，只能在 macOS 上运行（当前宿主：${platform}）`] };
 	}
 
 	const appPaths = await findMacApps(root);
 	if (appPaths.length === 0) {
-		return { ok: false, releaseDir: root, apps, errors: [`在 ${root} 下没找到任何 .app（期望 release/mac*/*.app），无法验证签名`] };
+		return { ok: false, releaseDir: root, apps, warnings, errors: [`在 ${root} 下没找到任何 .app（期望 release/mac*/*.app），无法验证签名`] };
 	}
 
 	for (const appPath of appPaths) {
-		const main = await inspectBundle({ appPath, label: relative(root, appPath), deepVerify: true, runCodesign, readInfoPlist, errors });
+		const main = await inspectBundle({ appPath, label: relative(root, appPath), deepVerify: true, runCodesign, readInfoPlist, errors, warnings, requireDeveloperId, expectedTeamId });
 		const nested = [];
 		for (const nestedPath of await findNestedApps(appPath)) {
-			nested.push(await inspectBundle({ appPath: nestedPath, label: relative(root, nestedPath), deepVerify: false, runCodesign, readInfoPlist, errors }));
+			nested.push(await inspectBundle({ appPath: nestedPath, label: relative(root, nestedPath), deepVerify: false, runCodesign, readInfoPlist, errors, warnings, requireDeveloperId, expectedTeamId: expectedTeamId ?? main.teamIdentifier }));
 		}
 		apps.push({ ...main, nested });
 	}
 
-	return { ok: errors.length === 0, releaseDir: root, apps, errors };
+	return { ok: errors.length === 0, releaseDir: root, apps, errors, warnings };
 }
 
 function parseArgs(argv) {
@@ -242,10 +278,11 @@ function parseArgs(argv) {
 	for (let index = 0; index < argv.length; index += 1) {
 		const arg = argv[index];
 		if (arg === "--json") options.json = true;
-		else if (arg === "--release-dir") {
+		else if (arg === "--require-developer-id") options.requireDeveloperId = true;
+		else if (arg === "--release-dir" || arg === "--team-id") {
 			const value = argv[index + 1];
 			if (!value || value.startsWith("--")) throw new Error(`Missing value for ${arg}`);
-			options.releaseDir = value;
+			options[arg === "--release-dir" ? "releaseDir" : "expectedTeamId"] = value;
 			index += 1;
 		} else if (arg === "--help") options.help = true;
 		else throw new Error(`Unknown argument: ${arg}`);
@@ -257,10 +294,13 @@ const isMain = process.argv[1] && resolve(process.argv[1]) === resolve(fileURLTo
 if (isMain) {
 	try {
 		const options = parseArgs(process.argv.slice(2));
+		options.requireDeveloperId ||= /^(true|1)$/i.test(process.env.PIDECK_MAC_REQUIRE_DEVELOPER_ID ?? "");
+		options.expectedTeamId ??= process.env.PIDECK_MAC_TEAM_ID?.trim() || null;
 		if (options.help) {
-			console.log("Usage: node scripts/verify-mac-signature.mjs [--release-dir <path>] [--json]");
+			console.log("Usage: node scripts/verify-mac-signature.mjs [--release-dir <path>] [--json] [--require-developer-id] [--team-id <id>]");
 		} else {
 			const result = await verifyMacSignature(options);
+			if (!options.json) for (const warning of result.warnings) console.warn(`Warning: ${warning}`);
 			if (options.json) console.log(JSON.stringify(result, null, 2));
 			else if (result.ok) {
 				// 把 identifier 与 Helper 数量打出来：下一轮 #347 类事故时，日志本身就能证明门禁查到了什么，
@@ -270,7 +310,7 @@ if (isMain) {
 			} else {
 				console.error(`macOS signature verification failed (${result.errors.length}):`);
 				for (const error of result.errors) console.error(`- ${error}`);
-				console.error('提示：无 Apple 证书时 package.json build.mac.identity 必须为 "-"（显式 ad-hoc），见 docs/release-process.md「macOS 签名（无 Apple 证书时的 ad-hoc 策略）」。');
+				console.error("提示：无证书构建保留显式 ad-hoc 兜底；配置证书后必须通过 Developer ID / TeamIdentifier 校验，见 docs/release-process.md 的 macOS 签名策略。");
 			}
 			if (!result.ok) process.exitCode = 1;
 		}
