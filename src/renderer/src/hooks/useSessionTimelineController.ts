@@ -1579,6 +1579,12 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 							) {
 								const growth = resolvePageWindowGrowth(page.messages, pageSize);
 								if (growth > 0) expandWindowBatched(growth);
+								else if (page.messages.length === 0 && windowExpandableRef.current) {
+									// 空页 = 已经到文件头，游标不会再前进。数据没得翻，但渲染窗口
+									// 可能还压着已加载的轮次：把这次点击转成一次窗口展开，否则
+									// 按钮点了没反应、锚点也永远挂不出来（#477 e2e 真机复现）。
+									expandWindowBatched(TIMELINE_WINDOW_EXPAND_STEP);
+								}
 							}
 						} else {
 							// prepend 被拒（atom 的四个前置之一不成立）：最常见是翻页期间缓存被写入、
@@ -1653,6 +1659,12 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 							) {
 								const growth = resolvePageWindowGrowth(page.messages, pageSize);
 								if (growth > 0) expandWindowBatched(growth);
+								else if (page.messages.length === 0 && windowExpandableRef.current) {
+									// 空页 = 已经到文件头，游标不会再前进。数据没得翻，但渲染窗口
+									// 可能还压着已加载的轮次：把这次点击转成一次窗口展开，否则
+									// 按钮点了没反应、锚点也永远挂不出来（#477 e2e 真机复现）。
+									expandWindowBatched(TIMELINE_WINDOW_EXPAND_STEP);
+								}
 							}
 						} else {
 							// prepend 被拒（atom 的四个前置之一不成立）：最常见是翻页期间缓存被写入、
@@ -2008,7 +2020,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			autoScrollRef.current = true;
 			setAutoScroll(true);
 			setShowScrollToBottom(false);
-			setRestorePhase("complete");
 			const restoreRequest = ++bottomRestoreRequestRef.current;
 			if (bottomRestoreVerificationRef.current !== undefined) cancelAnimationFrame(bottomRestoreVerificationRef.current);
 			const frame = requestAnimationFrame(() => {
@@ -2021,6 +2032,8 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 				} else {
 					timeline.scrollTo({ top: timeline.scrollHeight, behavior: "instant" });
 				}
+				// 先发起恢复再完成；提前 complete 会让 effect cleanup 取消本帧。
+				setRestorePhase("complete");
 				// 恢复被同帧内容变化/旧动画取消时，引擎可能已上报 following，DOM 却不在底部。
 				// 下一帧按真实几何对账；失败则退出跟底并露出回底按钮，避免无声卡在历史位置。
 				const verificationFrame = requestAnimationFrame(() => {

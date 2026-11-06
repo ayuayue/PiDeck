@@ -347,7 +347,27 @@ test("session switch keeps go-bottom available when the restored tail is tool ca
 	await window.getByRole("button", { name: "发送", exact: true }).click();
 	await expect(timeline.locator(".tool-card").first()).toBeVisible({ timeout: 10_000 });
 
-	const beforeOffset = await placeAnchorInViewport(window, 96, TAIL_WINDOW_ANCHOR_TEXT);
+	// TOOLMANY 是 40×250ms 的连续增长，跟底期间直接用 scrollTop 放锚点会被贴底引擎
+	// 立刻拉回（实测保存成 -236.9，测试自己就没有可比较的期望位置）。这里走真实语义：
+	// 先向时间线派发一次 wheel，引擎按「读者位移」解锁跟底，再把锚点放到视口 96px。
+	// 恢复时尾部仍然是这一组工具卡（流式期间工具行保持展开）。
+	const beforeOffset = await window.evaluate(
+		({ targetText, requestedOffset }) => {
+			const timeline = document.querySelector<HTMLElement>(".message-timeline");
+			const anchor = Array.from(document.querySelectorAll<HTMLElement>("article.user-turn")).find((element) => element.textContent?.includes(targetText));
+			if (!timeline || !anchor) throw new Error("scroll anchor is not mounted");
+			timeline.dispatchEvent(new WheelEvent("wheel", { deltaY: -240, bubbles: true, cancelable: true }));
+			const currentOffset = anchor.getBoundingClientRect().top - timeline.getBoundingClientRect().top;
+			timeline.scrollTop += currentOffset - requestedOffset;
+			timeline.dispatchEvent(new Event("scroll", { bubbles: true }));
+			return anchor.getBoundingClientRect().top - timeline.getBoundingClientRect().top;
+		},
+		{ targetText: TAIL_WINDOW_ANCHOR_TEXT, requestedOffset: 96 },
+	);
+	await window.waitForTimeout(350);
+	expect(beforeOffset).toBeGreaterThanOrEqual(40);
+	expect(beforeOffset).toBeLessThanOrEqual(150);
+
 	await openChatSession(window);
 	const sourceTab = window.locator('.session-tab[aria-selected="false"]').first();
 	await expect(sourceTab).toBeVisible({ timeout: 10_000 });

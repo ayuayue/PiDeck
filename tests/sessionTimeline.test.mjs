@@ -316,6 +316,15 @@ test("button 翻页不关闭虚拟化：只有 scroll 路径才开整表渲染",
 	assert.doesNotMatch(source, /if \(!insertionCommitted\) endPrependSolid\(\);/, "不带条件的 end 会关掉别处开的整表渲染");
 });
 
+test("empty history page expands the render window instead of leaving a dead button", () => {
+	// 数据已经到会话开头时，游标仍指向窗口首条带 entryId 的消息（runtime 没有
+	// windowStart 时无法区分「整段已加载」）。点「加载更多对话」会拿到 0 条，
+	// prepend 对空页返回 true 并清空游标；此时若不推进渲染窗口，这次点击毫无变化，
+	// 恢复链也永远挂不出窗口外的锚点（#477 e2e：点完仍在尾部、锚点未挂载）。
+	const branches = source.match(/else if \(page\.messages\.length === 0 && windowExpandableRef\.current\) \{[\s\S]*?expandWindowBatched\(TIMELINE_WINDOW_EXPAND_STEP\);/g) ?? [];
+	assert.equal(branches.length, 2, "disk / runtime 两条翻页链都要有空页回退");
+});
+
 test("没打开整表渲染的翻页不得调用 endPrependSolid", () => {
 	// end 会 ++token 并排一帧 setPrependSolid(false)。button 路径不开整表渲染，
 	// 若消费点仍无条件 end，就会把扩窗路径刚打开、还在消费中的整表渲染关掉。
