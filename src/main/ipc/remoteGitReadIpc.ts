@@ -119,7 +119,8 @@ export function registerRemoteGitReadIpc(input: {
 	 * 仓库列表（目录页 ignore 归因用）：只在目录页装载时用，按项目缓 60s。
 	 * 写成功/unknown 写会清这份缓存（仓库可能新建/删除），不把它当第二份仓库事实源。
 	 */
-	const directoryIgnoreRepos = new Map<string, { repos: readonly string[]; at: number }>();
+	// scope = hostId + root + 项目连接代：断连/重绑立即 miss，不会在 60s 内按旧仓库前缀归因。
+	const directoryIgnoreRepos = new Map<string, { repos: readonly string[]; at: number; scope: string }>();
 	const clearDirectoryIgnoreRepos = (projectId: string): void => {
 		directoryIgnoreRepos.delete(projectId);
 	};
@@ -173,17 +174,18 @@ export function registerRemoteGitReadIpc(input: {
 	 * 它不是第二份仓库事实源：只给修饰用，写成功 / 项目关闭就清。
 	 */
 	async function directoryIgnoreReposOf(projectId: string): Promise<readonly string[]> {
-		const cached = directoryIgnoreRepos.get(projectId);
-		const now = Date.now();
-		if (cached !== undefined && now - cached.at < DIRECTORY_IGNORE_REPOS_TTL_MS) return cached.repos;
 		const locator = input.locator(projectId);
 		if (locator === undefined) return [];
+		const scope = `${locator.hostId} ${locator.remotePath} ${await generationFor(projectId)}`;
+		const cached = directoryIgnoreRepos.get(projectId);
+		const now = Date.now();
+		if (cached !== undefined && cached.scope === scope && now - cached.at < DIRECTORY_IGNORE_REPOS_TTL_MS) return cached.repos;
 		const service = await input.service();
 		const capabilities = service?.projectHelperCapabilities?.(locator.hostId, locator.remotePath);
 		if (capabilities !== undefined && !capabilities.includes("git.checkIgnore")) return [];
 		const listing = await git.listRepositories(projectId);
 		const repos = listing.repos.map((repository) => repository.path);
-		directoryIgnoreRepos.set(projectId, { repos, at: now });
+		directoryIgnoreRepos.set(projectId, { repos, at: now, scope });
 		return repos;
 	}
 
@@ -674,7 +676,8 @@ export function registerRemoteGitReadIpc(input: {
 		 * 无法判定时返回 `undefined`（调用方不填 `ignored`，不冒充“都没被忽略”）。
 		 *
 		 * 仓库归因只有一条规则：仓库列表的最长目录前缀（严格边界）；helper 只看到仓库内路径。
-		 * 超过目录页上限、无能力、无仓库、任一帧失败都整页放弃修饰。
+		 * 超过目录页上限、无能力、无仓库、全部批次都失败时整页放弃修饰；单批失败只丢该批
+		 * （修饰不是目录页的前置条件，不该被一个怪异路径连坐）。
 		 */
 		async probeIgnore(projectId: string, paths: readonly string[]): Promise<readonly boolean[] | undefined> {
 			if (!input.enabled || disposed) return undefined;

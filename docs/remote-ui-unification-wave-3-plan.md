@@ -78,11 +78,42 @@
 | A / T4 单一 owner | ✅ | `remoteProjectDirFacts` 成为工作区事实的**唯一 owner**：目录 `FactCache` 与 Git `SnapshotFactsCache` 同一实例、同一张连接代（`projectGenerations`）、同一条通知出口。五条失效路径（写成功、unknown 写、helper 事件、断连换代、项目/root 关闭）都在这里标脏，并且**一次事件一条通知**。`remoteGitReadIpc` 通过 `workspace` 端口读写同一份实例（缺省时自持缓存，仅旧装配/单测兼容）。 | `src/main/ipc/remoteProjectDirFacts.ts`、`src/main/ipc/remoteProjectIpc.ts`、`src/main/ipc/remoteGitReadIpc.ts`（`invalidateAfterGitWrite`）、`src/main/index.ts`；`tests/remoteWorkspaceFactsOwner.test.mjs`（4 例：目录写→status 也脏且只发一条通知、Git 写→零目录装载、断连/关闭一起作废、真实 Git 写通道走同一 owner） |
 | B / T5 路径语义 | ✅ | `RemoteGitService` 的 `status` / `workspaceDiff` / 写面（`mutate`/`discard`/`recoveryRestore`）/ `refFileDiff`，以及同一份公共输出的 `commitDetail` / `compare` / `recoveryList`，公共 target 与 `path`/`displayPath` 全部改成**项目相对**；仓库内路径只在 helper 帧出现（`repoRelativeFilePath` 唯一转换点）。跨仓/同名前缀/无前缀一律 `GIT_RESULT_INVALID`，不做前缀猜测。legacy controller 不再走旧形状：它的 target 全部来自本服务的公共输出，因此不需要猜仓库。 | `src/main/git/RemoteGitService.ts`；`tests/remoteGitTargetBoundary.test.mjs`（新增 4 例：嵌套 status/写面双向映射、commitDetail/compare 项目相对、跨仓与同名前缀零帧拒绝）；`tests/remoteGitReadIpc.test.mjs` 按新契约更新 target 形状并断言 helper 帧只剩仓库内路径 |
 | C / W5 共用状态机 | ✅（抽 + 两侧接线） | 新增 `createGitOperationGate`：取消（`retire`/`isCurrent`）、互斥（写单飞，写者在途由消费者自己的标志回答；读可 `exclusive` 不重叠）、unknown（持续码，只有成功事实读解除）、迟到读（写一开始在途读作废）。`remoteGitStatusPolling` 的静默轮询、`remoteGitViewState` 的代次/unknown/写单飞、`GitPanel` 的 status 请求与 mutation 单飞都改成走它；history/compare/trust/init/sync 的授权语义保持独立。 | `src/renderer/src/utils/gitOperationGate.ts`；`tests/gitOperationGate.test.mjs`（4 例，一条规则一例）；`tests/remoteGitStatusPolling.test.mjs`、`tests/remoteGitViewState.test.mjs`、`tests/remoteGitMutationView.test.mjs`、`tests/remoteGitUncertainWriteCarry.test.mjs`、`tests/gitPanelPollingGuard.test.mjs`、`tests/gitPanelUi.test.mjs` 全绿 |
-| D / 收尾 | ◐ | Git ignore 修饰：**本机与远端都已接线**（远端 `probeIgnore`：最长仓库前缀归因、64 路径/批、能力门控；本机 `GitService.checkIgnore`：`check-ignore -z --stdin`、exit 1 视为无命中、非仓库不填；WSL 经同一 git 分派）→ 目录页 → 文件行/目录行置灰。位置分派：search / create / rename / move / delete 已收口到 main，**文件 provider 已合并为一个位置无关实现**（位置差异只剩文本通道与系统打开/传输端口的注入）；Git provider 仍按位置二选一（下一步）；rebind UI：未做（产品级界面，不在本批）。 | `src/main/remote/RemoteDirectoryIgnore.ts`、`src/main/ipc/remoteGitReadIpc.ts`（`probeIgnore`）、`src/main/ipc/remoteProjectDirectoryReads.ts`、`src/renderer/src/utils/directoryPageNode.ts`、`src/renderer/src/components/session/FileTreeRows.tsx`；`tests/remoteDirectoryIgnore.test.mjs`（7 例）、`tests/localDirectoryIgnore.test.mjs`（4 例，含真实 git 仓库集成）、`tests/directoryPageIgnoreDecoration.test.mjs`（2 例） |
+| D / 收尾 | ◐ | Git ignore 修饰：**本机宿主路径与远端都已接线**（远端 `probeIgnore`：最长仓库前缀归因、64 路径/批、能力门控；本机 `GitService.checkIgnore`：`check-ignore -z --stdin`、exit 1 视为无命中、非仓库不填）→ 目录页 → 文件行/目录行置灰；**WSL 项目只在 helper 链路回退到 `LocalProjectFileBackend` 时才有修饰，未接原生 WSL 路径（登记）**。位置分派：search / create / rename / move / delete 已收口到 main，**文件 provider 已合并为一个位置无关实现**（位置差异只剩文本通道与系统打开/传输端口的注入）；Git provider 仍按位置二选一（下一步）；rebind UI：未做（产品级界面，不在本批）。 | `src/main/files/DirectoryIgnore.ts`、`src/main/ipc/remoteGitReadIpc.ts`（`probeIgnore`）、`src/main/ipc/remoteProjectDirectoryReads.ts`、`src/renderer/src/utils/directoryPageNode.ts`、`src/renderer/src/components/session/FileTreeRows.tsx`；`tests/remoteDirectoryIgnore.test.mjs`（7 例）、`tests/localDirectoryIgnore.test.mjs`（4 例，含真实 git 仓库集成）、`tests/directoryPageIgnoreDecoration.test.mjs`（2 例） |
 
 **真机验收（2026-11-07）**：远端 Git 10/10 + 文件管理 v1 全部通过，G6b soak 按 Linux-only 跳过；细节见下方「未执行 / 残留项」。
 
 ## 7. 后续：位置分派收口（片 1 / 片 2，2026-11-07）
+
+### 7.1 只读审查处置（2026-11-07，`docs/review-remote-wave3.md`）
+
+审查范围 `55f3e93c8..62b24815c`，P0/P1/P2 全部结论已逐条复核。**已修**：
+
+- **P0-1 改名变跨目录移动**：`remoteEntries.rename` 现在要求目标与原路径同父目录，最后一段必须过
+  `validateRemoteProjectEntryName`（单段、无 `.pideck-tmp` 后缀/控制字节）；本机 `FileSystemService.rename`
+  的同一判据不再只有一侧。测试：`tests/remoteProjectEntryIpc.test.mjs`（非法改名零服务调用）。
+- **P1-4 幽灵通道/错误路径**：文档里的 `git:remote-check-ignore` 与 `RemoteDirectoryIgnore.ts` 已改成真实值
+  （后者从未存在于 `src/main/remote/`）；`checkIgnore` 没有独立 handle 方法，修饰只走 `probeIgnore`。
+- **P2-4 注释与实现不符**：`probeIgnore` 头注释改为「单批失败只丢该批，全部失败才放弃整页」。
+- **P2-5 归因缓存无连接身份**：`directoryIgnoreRepos` 的条目带 `hostId + root + 项目连接代`，换代/重绑立即 miss。
+  测试：`tests/remoteDirectoryIgnore.test.mjs`（换代重新发现仓库）。
+- **P2-7 死导入**、**P2-8 预览桩注释**：已清。
+- **P2-9 清单一致性测试**：改为按函数体括号配对整段解析 `dispatch`（固定 6000 字符窗口废弃），
+  并覆盖 `CAPABILITIES` 全集（fs/config/terminal，不再只 `git.*`）。
+- **P2-10 unknown 端到端**：`tests/filesWriteRouting.test.mjs` 增一例，验证 `REMOTE_FILE_RESULT_UNCONFIRMED`
+  经 `normalizeProjectServiceError` 仍得到 `outcome: "unknown"`。
+
+**登记未修（按收益排序，下一批候选）**：
+
+| 项 | 现状 | 为什么先不做 |
+|---|---|---|
+| P1-1 公共写面 `Op` 信封 | `files:create/rename/move/delete` 的 ssh 分支仍 `throw`，outcome 靠 message 反推 | 需同时改 4 条通道与 renderer 消费面，属契约变更；当前 `REMOTE_FILE_RESULT_UNCONFIRMED` 在闭集内，已有 P2-10 用例兜底 |
+| P1-2 跨目录移动两步写 | move→rename 两次独立远端写，第二步失败留「已移动未改名」且无收据 | 需要 entry 服务新增「移动到指定全路径」的单一写；本批不做半套 |
+| P1-3 乐观锁降级 | rename/delete 由 main 现读现用，契约仍留 `expectedVersion?` | 与「renderer 不持令牌」的收口方向一致；下一步删契约残留并写明语义 |
+| P1-5 WSL ignore | `WslProjectFileBackend` 无 `checkIgnore` | 需在 WSL backend 补同口径判定，涉及 helper 回退路径 |
+| P1-6 ignore 未随目录事实缓存 | 每次目录页都重判；远端每页最多 1+N/64 帧 | 需要把 `ignored` 并入目录 FactCache（按目录+仓库代），改动跨 owner |
+| P2-1/P2-2 闸门 | `endRead` 无令牌作用域；`markUnknown/resolveUnknown/writing` 部分未用 | 只影响多发一次读，不破坏发布；与下一轮闸门收敛一起做 |
+| P2-3 本机/远端口径 | 远端分批归因，本机一次全量 | 行为一致（都只落 true），差异只在调用次数 |
+| P2-11 move 残局用例 | 无 | 与 P1-2 的实现一起补，避免先给两步语义立标准 |
 
 目标：把 renderer 里“本机 vs 远端选通道”的分支逐步收到 main。已交付两片：
 

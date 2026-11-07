@@ -41,7 +41,7 @@ function harness(options = {}) {
 	const localProject = { id: "p1", name: "Local", path: root, lastOpenedAt: 0 };
 	const remoteProject = { id: "p2", name: "Remote", locator: { kind: "ssh", hostId: "h1", remotePath: "/srv/p" }, lastOpenedAt: 0 };
 	writeFileSync(join(root, "a.txt"), "a\n");
-	const remoteEntries = {
+	const remoteEntries = options.remoteEntries ?? {
 		async create(sender, projectId, parent, name, type) {
 			calls.remoteCreate.push({ sender, projectId, parent, name, type });
 			return { relativePath: parent === "" ? name : `${parent}/${name}` };
@@ -178,6 +178,26 @@ test("未装配 remoteEntries：ssh 的 move/delete 明确拒绝，不做本机�
 		await rejectsWith(() => h.call(ipcChannels.filesMove, [{ projectId: "p2", relativePath: "src/a.txt" }], { projectId: "p2", relativePath: "lib" }), /UNSUPPORTED_PROJECT_LOCATION/);
 		await rejectsWith(() => h.call(ipcChannels.filesDelete, { projectId: "p2", relativePath: "src/a.txt" }), /UNSUPPORTED_PROJECT_LOCATION/);
 		assert.equal(h.calls.localCreate.length + h.calls.localRename.length, 0);
+	} finally {
+		h.dispose();
+	}
+});
+
+test("files:create 的 ssh 分支保留 unknown：结果未确认不能被降级成 rejected", async () => {
+	const h = harness({
+		remoteEntries: {
+			async create() {
+				throw new Error("REMOTE_FILE_RESULT_UNCONFIRMED");
+			},
+		},
+	});
+	try {
+		await rejectsWith(() => h.call(ipcChannels.filesCreate, { projectId: "p2", relativePath: "src" }, "b.ts", "file"), /REMOTE_FILE_RESULT_UNCONFIRMED/);
+		// renderer 侧反推：稳定码 → outcome 必须是 unknown（可能已执行，禁止自动重放）。
+		const { normalizeProjectServiceError } = loadTsCommonJs("src/renderer/src/services/projectServiceFence.ts");
+		const normalized = normalizeProjectServiceError(new Error("REMOTE_FILE_RESULT_UNCONFIRMED"));
+		assert.equal(normalized.code, "REMOTE_FILE_RESULT_UNCONFIRMED");
+		assert.equal(normalized.outcome, "unknown");
 	} finally {
 		h.dispose();
 	}

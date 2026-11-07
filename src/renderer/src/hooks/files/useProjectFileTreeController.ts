@@ -6,7 +6,6 @@ import { codeOf } from "../../../../shared/op";
 import { FILE_TREE_ABSOLUTE_MAX_DEPTH, FILE_TREE_MAX_DIRECTORY_ENTRIES } from "../../../../shared/fileTree";
 import type { ProjectServices } from "../../services/projectServiceContracts";
 import type { FileTreeNode } from "../../../../shared/types";
-import type { ProjectDirectoryEntry } from "../../../../shared/types/projectFiles";
 import { migrateExpandedDirKeys } from "../../utils/fileTreeLazy";
 import { localExpandedDirKey, localExpandedDirRelative } from "../../utils/localFileTreeKeys";
 import { legacyAgentIdsForProject, loadExpandedDirsFromStorage, saveExpandedDirsToStorage } from "../../utils/expandedDirsPersistence";

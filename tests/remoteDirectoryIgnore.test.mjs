@@ -55,7 +55,7 @@ function fixture(options = {}) {
 				assert.equal(withOptions.requireReady, true);
 				return { ok: true, value: await work(session) };
 			},
-			projectConnectionFacts: () => ({ connectionId: "conn-1", state: "ready" }),
+			projectConnectionFacts: () => ({ connectionId: options.getConnectionId?.() ?? "conn-1", state: "ready" }),
 		}),
 	});
 	return { port, calls, sender, handlers, session };
@@ -168,7 +168,7 @@ function projectFixture(options = {}) {
 		async withProjectSession(_hostId, _root, work) {
 			return { ok: true, value: await work({ connectionId: "conn-1", request: async (method) => (method === "fs.watch" ? { watchId: "w1" } : { ok: true }), cancel: async () => undefined }) };
 		},
-		projectConnectionFacts: () => ({ connectionId: "conn-1", state: "ready" }),
+		projectConnectionFacts: () => ({ connectionId: options.getConnectionId?.() ?? "conn-1", state: "ready" }),
 		projectHelperCapabilities: () => ["fs.watch"],
 		retainProjectSessionWatch: () => undefined,
 		releaseProjectSessionWatch: () => undefined,
@@ -244,6 +244,19 @@ test("probeIgnore：.git 是保留名，不送进 check-ignore（也不因它整
 	const reserved = await onlyGit.port.probeIgnore(projectId, [".git"]);
 	assert.deepEqual(plain(reserved), [false]);
 	assert.equal(onlyGit.calls.length, 0);
+});
+
+test("probeIgnore：仓库归因缓存随连接代失效，换代后必须重新发现仓库", async () => {
+	let generation = "conn-1";
+	const f = fixture({ getConnectionId: () => generation });
+	const discovered = () => f.calls.filter((call) => call.method === "git.repos").length;
+	await f.port.probeIgnore(projectId, ["a.txt"]);
+	assert.equal(discovered(), 1);
+	await f.port.probeIgnore(projectId, ["b.txt"]);
+	assert.equal(discovered(), 1, "同代暖命中不重复发现");
+	generation = "conn-2";
+	await f.port.probeIgnore(projectId, ["c.txt"]);
+	assert.equal(discovered(), 2, "换代必须重新发现，不能按旧仓库前缀归因");
 });
 
 test("probeIgnore：单批失败只丢这一批，其它批照常修饰（修饰不是读的前置条件）", async () => {

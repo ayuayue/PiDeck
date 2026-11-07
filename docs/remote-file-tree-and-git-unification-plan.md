@@ -535,10 +535,10 @@ helper 事件与写操作仅标脏、发通知；只有活跃读者决定装载�
 | `files:search`（本机旧形状） | 不再被 provider 使用 | — | 否（本机旧调用方仍可用） | 保留一版兼容；新调用方一律用 `files:search-page` |
 | `files:create` / `files:rename` / `files:move` / `files:delete` 的 ssh 分支（2026-11-07 收口第二片） | main 内按位置分派：ssh 走 `remoteEntries`（entry 服务 + 令牌表 + 事实失效复用），本机走 local backend | — | 是 | rename/move/delete 的乐观锁凭据由 main 现读现用（stat→写），renderer 不再持令牌；delete 带回 trashId 收据；未装配端口时 ssh 明确 `UNSUPPORTED_PROJECT_LOCATION` |
 | `remoteHosts.searchProject` / `createProjectFile` / `createProjectDirectory` / `renameProjectEntry` / `deleteProjectEntry` / `statProjectEntry` | renderer **全部不再调用**（2026-11-07 收口第二片扩展：create/rename/move/delete 都走公共 `files:*`） | — | 否 | 兼容壳保留一版；令牌与乐观锁凭据全部留在 main |
-| `git:remote-check-ignore` + `ProjectDirectoryEntry.ignored` | **本机与远端目录页都已接线（2026-11-07）**：远端 `probeIgnore` → `projectDirectoryPage`；本机 `GitService.checkIgnore` → `LocalProjectFileBackend.directoryPage`；渲染层置灰。`git:remote-check-ignore` IPC 方法本身保留给显式调用方 | — | 是 | 只加修饰不过滤；缺失 = 未知（不是“未忽略”） |
+| `ProjectDirectoryEntry.ignored`（无独立 IPC 通道） | **本机宿主路径与远端目录页都已接线（2026-11-07）**：远端 `probeIgnore` → `projectDirectoryPage`；本机 `GitService.checkIgnore` → `LocalProjectFileBackend.directoryPage`；渲染层置灰。没有 `git:remote-check-ignore` 通道，也没有独立 handle 方法（审查 P1-4 已修文档） | — | 是 | 只加修饰不过滤；缺失 = 未知（不是“未忽略”）；WSL 原生路径未接（登记） |
 | `files:list` 的远端 target 分支 | 无 renderer 生产消费者（本机树只用本机 target） | — | 否 | 与 `directoryPage` 共用同一目录事实；保留一版 |
 | `openProjectText` / `saveProjectText` / `readProjectFile` | 远端文本编辑器/图片预览 | — | 是 | 领域文本/图片读写；未迁公共 files 写面，不与目录树重复 |
-| `searchProject` / 条目 stat/create/rename/delete/trash/upload | 远端文件管理面板 | — | 是 | 远端文件写/管理领域入口；T6 未要求迁到公共写面 |
+| `searchProject` / 条目 stat/create/rename/delete/trash/upload | 渲染层已全部改走公共 `files:*`；这些 preload 方法只剩定义 | — | 否 | 兼容壳保留一版；`files:search`（旧形状）与本组同属下一批清理候选 |
 
 **审计结论**
 

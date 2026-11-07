@@ -200,6 +200,13 @@ test("handle.rename：main 内 stat→rename，令牌不出 main（renderer 不�
 	assert.equal(h.calls[1][5], token, "rename 用的就是刚才 stat 签发的那一个令牌");
 });
 
+test("handle.rename：改名不能变成跨目录移动，最后一段必须是单段名字", async () => {
+	const h = entryIpcHarness();
+	for (const target of ["src/sub/a.txt", "other/a.txt"]) await rejectsWith(() => h.handle.rename(h.sender, "p1", "src/a.txt", target), /REMOTE_FILE_INPUT_INVALID/);
+	for (const target of ["src/.pideck-tmp", "src/a.pideck-tmp"]) await rejectsWith(() => h.handle.rename(h.sender, "p1", "src/a.txt", target), /REMOTE_FILE_NAME_INVALID/);
+	assert.equal(h.calls.length, 0, "非法改名一个服务调用都不发");
+});
+
 /** vm 里创建的 Error 不是宿主 Error：按消息断言，不用 assert.rejects 的实例判定。 */
 async function rejectsWith(run, pattern) {
 	try {

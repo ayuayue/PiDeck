@@ -1,9 +1,11 @@
+import { posix } from "node:path";
 import { ipcMain, type IpcMainInvokeEvent } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import { codeOf, opError, opFail, opFailFromCode, opOk, type Op } from "../../shared/op";
 import type { RemoteEntryCreateResult, RemoteEntryDeleteResult, RemoteEntryRenameResult, RemoteEntryStatResult, RemoteTrashListResult, RemoteTrashPruneResult, RemoteTrashRestoreResult } from "../../shared/types/remoteFiles";
 import type { RemoteHostConnectionService } from "../remote/RemoteHostConnectionService";
 import { createRemoteProjectEntryService, REMOTE_FILE_ENTRY_CODES } from "../remote/RemoteProjectEntryService";
+import { validateRemoteProjectEntryName } from "../remote/RemoteProjectEntryCommands";
 import { isUncertainWrite } from "../remote/RemoteProjectWriteFacts";
 
 const VERSION = /^[a-f0-9]{32}$/;
@@ -233,6 +235,10 @@ export function registerRemoteProjectEntryIpc(input: {
 		rename(sender: IpcMainInvokeEvent["sender"], projectId: string, source: string, targetPath: string): Promise<{ relativePath: string }> {
 			if (!input.enabled) throw new Error("REMOTE_FEATURE_DISABLED");
 			if (!PROJECT_ID(projectId) || typeof source !== "string" || typeof targetPath !== "string") throw new Error("REMOTE_FILE_INPUT_INVALID");
+			// 改名不是移动：目标必须与原路径同父目录，最后一段必须是单段名字（不含 `/`、不是临时后缀/保留名）。
+			// 本机 FileSystemService.rename 有同一 P0 判据；这里守在服务边界，任何新入口都绕不过去。
+			if (posix.dirname(targetPath) !== posix.dirname(source)) throw new Error("REMOTE_FILE_INPUT_INVALID");
+			validateRemoteProjectEntryName(posix.basename(targetPath));
 			const senderId = watchSender(sender);
 			return (async () => {
 				// 乐观锁的凭据是 stat 签发的一次性令牌：这里现读现用，绝不跨调用复用。

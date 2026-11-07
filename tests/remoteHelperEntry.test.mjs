@@ -1817,14 +1817,31 @@ helperTest("fs.uploadCommit never clobbers and rejects mismatched or linked stag
 	assert.equal(existsSync(join(fixture.deployRoot, "pwn.txt")), false);
 });
 
-test("every declared git capability is actually dispatched by the helper method table", () => {
+test("every declared capability is actually dispatched by the helper method table", () => {
 	// 回归（2026-11-07）：CAPABILITIES 里声明了 git.checkIgnore，但 dispatch 的分发表漏了它，
 	// 于是 helper 对已声明的方法回 METHOD_NOT_FOUND——能力声明与分发表必须同一个集合。
+	// 2026-11-07 加固：按函数体括号配对整段取 dispatch，不再用固定字符窗口（窗口一超就假绿/假红）；
+	// 覆盖全部能力（fs.* / config.* / terminal.*），不只 git.*。
 	const source = REMOTE_HELPER_INLINE_SOURCE;
 	const capabilities = JSON.parse(/const CAPABILITIES = (\[[^\]]*\]);/.exec(source)[1]);
 	const start = source.indexOf("function dispatch(frame, parsed)");
 	assert.ok(start > 0, "the helper method table must be findable");
-	const dispatched = new Set(Array.from(source.slice(start, start + 6000).matchAll(/frame\.method === "(git\.[A-Za-z]+)"/g), (match) => match[1]));
-	const missing = capabilities.filter((capability) => capability.startsWith("git.") && !dispatched.has(capability));
-	assert.deepEqual(missing, [], "declared git capabilities must reach handleGit (otherwise METHOD_NOT_FOUND)");
+	let depth = 0;
+	let end = -1;
+	for (let index = source.indexOf("{", start); index >= 0 && index < source.length; index += 1) {
+		if (source[index] === "{") depth += 1;
+		else if (source[index] === "}") {
+			depth -= 1;
+			if (depth === 0) {
+				end = index + 1;
+				break;
+			}
+		}
+	}
+	assert.ok(end > start, "the dispatch body must be brace-balanced");
+	const body = source.slice(start, end);
+	assert.ok(body.includes('refuse(identity, "METHOD_NOT_FOUND")'), "the capture must reach the fallthrough, not a truncated prefix");
+	const dispatched = new Set(Array.from(body.matchAll(/frame\.method === "([A-Za-z.]+)"/g), (match) => match[1]));
+	const missing = capabilities.filter((capability) => !dispatched.has(capability));
+	assert.deepEqual(missing, [], "every declared capability must reach a handler (otherwise METHOD_NOT_FOUND)");
 });
