@@ -13,12 +13,18 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { DshPluginMarketSearchResult, DshUserPluginInstallResult, DshUserPluginListEntry } from "../../shared/types";
 import { USER_PATCH_FILENAME, dropEmptyArrayMarker, readUserPatchRows, resolveManagedPluginDir } from "./dshUserPlugins";
-import { createDshPluginNpmRunner, validateNpmSpec, type DshPluginNpmLauncher, type DshPluginNpmRunner } from "./dshPluginNpmRunner";
-import { extractTgz, nestDependencyClosure, npmPackToDir } from "./dshPluginTarball";
+import { createDshPluginNpmRunner, describeError, validateNpmSpec, type DshPluginNpmLauncher, type DshPluginNpmRunner } from "./dshPluginNpmRunner";
+import { extractTgz, nestDependencyClosure, npmPackToDir, type PackedTgz } from "./dshPluginTarball";
 import { searchDshPluginMarket, type FetchLike } from "./dshPluginMarket";
 
 /** 受管插件目录名（userData 下；卸载链路的回收判定用同一约定）。 */
 export const MANAGED_PLUGINS_DIRNAME = "dsh-plugins";
+
+/**
+ * npm「这个精确版本不存在」的错误指纹。只认 npm 自己的错误码行：包名撞词（有个包就叫
+ * `notarget`）不得误触发重试；E404（包本身不存在）、网络、权限同样必须原样抛出，不能被重试掩盖。
+ */
+const NPM_VERSION_MISSING_RE = /npm (?:error|ERR!) code ETARGET|No matching version found/i;
 
 /** 插件 manifest 的 dsh 字段（只取 uiOnly 判别关心的形状）。 */
 export type DshPluginManifestDshField = {
@@ -92,7 +98,8 @@ export class DshPluginInstallService {
 	/**
 	 * 安装用户插件（幂等）：已注册同 id 行时跳过登记，只报告 alreadyRegistered。
 	 * spec 只接受 npm 包名或 name@精确版本（validateNpmSpec 闸门在入口）；交给 npm 的是
-	 * 归一化后的 spec（`pkg@v1.2.3` → `pkg@1.2.3`）。
+	 * 归一化后的 spec（`pkg@v1.2.3` → `pkg@1.2.3`），且精确版本在 registry 上不存在时
+	 * 退回按包名装最新版（见 packPlugin）。
 	 */
 	async installUserPlugin(spec: string): Promise<DshUserPluginInstallResult> {
 		const validated = validateNpmSpec(spec);
@@ -103,7 +110,7 @@ export class DshPluginInstallService {
 		// pack + 解包进临时目录，成功后才原子落位（失败不留半截目录）
 		const tmp = join(managedRoot, `.tmp-install-${process.pid}-${Date.now()}`);
 		try {
-			const packed = await npmPackToDir(this.runNpm, packSpec, tmp);
+			const packed = await this.packPlugin(packSpec, validated, tmp);
 			const unpacked = join(tmp, "unpacked");
 			await extractTgz(packed.tarPath, unpacked);
 			const manifest = JSON.parse(readFileSync(join(unpacked, "package.json"), "utf8")) as Record<string, unknown>;
@@ -145,6 +152,25 @@ export class DshPluginInstallService {
 			};
 		} finally {
 			rmSync(tmp, { recursive: true, force: true });
+		}
+	}
+
+	/**
+	 * pack 主包：精确版本不存在时退回按包名装最新版。
+	 *
+	 * 市场条目的版本来自官方目录的 `vr`（插件仓库的 git tag），实测约 7% 的条目该版本
+	 * 还没发到 npm（tag 领先发布、monorepo 里另一个包的 tag、包名改过）；直接把
+	 * `name@tag版本` 钉死会让按钮「点了才报 ETARGET」——正是本次修复要消灭的东西。
+	 * 其它失败（包不存在、网络、权限）原样抛出，不重试、不掩盖。
+	 */
+	private async packPlugin(packSpec: string, validated: { name: string; version?: string }, destDir: string): Promise<PackedTgz> {
+		try {
+			return await npmPackToDir(this.runNpm, packSpec, destDir);
+		} catch (error) {
+			const failure = describeError(error);
+			if (validated.version === undefined || !NPM_VERSION_MISSING_RE.test(failure)) throw error;
+			this.deps.log?.("dsh-plugin-install", "pinned version missing on registry, retrying unpinned", { spec: packSpec, failure });
+			return npmPackToDir(this.runNpm, validated.name, destDir);
 		}
 	}
 

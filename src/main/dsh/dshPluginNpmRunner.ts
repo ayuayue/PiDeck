@@ -102,8 +102,8 @@ function clampOutput(value: string): string {
 /** execFile 的最小注入面（测试替身只关心 command/args/options）。 */
 type ExecFileLike = (file: string, args: readonly string[], options: ExecFileOptionsWithStringEncoding, callback: (error: ExecFileException | null, stdout: string, stderr: string) => void) => unknown;
 
-/** 取「为什么没跑起来」的文本：spawn 层错误（ENOENT/EACCES）只有 error.message 有信息。 */
-function describeSpawnFailure(error: unknown): string {
+/** 取错误文本（spawn 层错误只有 message 有信息；npm 的失败信息同样在 message 里）。 */
+export function describeError(error: unknown): string {
 	if (typeof error === "object" && error !== null && typeof Reflect.get(error, "message") === "string") {
 		return String(Reflect.get(error, "message"));
 	}
@@ -139,7 +139,7 @@ export function createDshPluginNpmRunner(launcher: DshPluginNpmLauncher, npmComm
 					resolve({
 						code: typeof execError?.code === "number" ? execError.code : error ? -1 : 0,
 						stdout: clampOutput(stdout || ""),
-						stderr: clampOutput(stderr || describeSpawnFailure(error)),
+						stderr: clampOutput(stderr || describeError(error)),
 					});
 				},
 			);

@@ -8,7 +8,7 @@
  * 单源失败不阻断：收集 warnings 返回给 UI 展示。
  */
 import type { DshPluginMarketEntry, DshPluginMarketSearchResult } from "../../shared/types";
-import { normalizeNpmExactVersion } from "./dshPluginNpmRunner";
+import { describeError, normalizeNpmExactVersion } from "./dshPluginNpmRunner";
 
 /** 官方目录 URL（zh 目录与市场插件 UI 默认语言一致；en 变体仅描述文本不同）。 */
 const MARKET_CATALOG_URL = "https://api.dsh-plugin.org/plugins.zh.json";
@@ -43,12 +43,6 @@ export function marketEntryLooksUiOnly(name: string, category: string | undefine
 	if (/(?:^|[-/])client-ui(?:[-/]|$)/i.test(name)) return true;
 	const haystack = [category ?? "", ...topics].join(" ").toLowerCase();
 	return /\bui\b|界面/.test(haystack);
-}
-
-/** 收窄「带 message 的对象」给错误文本兜底。 */
-function describeError(error: unknown): string {
-	if (typeof error === "object" && error !== null && typeof Reflect.get(error, "message") === "string") return String(Reflect.get(error, "message"));
-	return String(error);
 }
 
 /** 短键条目 → 市场条目；无 npm 包名（纯 repo 收录）返回 undefined（PiDeck 无法 npm 安装）。 */

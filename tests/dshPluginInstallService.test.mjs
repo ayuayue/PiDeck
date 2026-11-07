@@ -60,6 +60,12 @@ function createFakeNpm(options = {}) {
 			const packDestination = args[args.indexOf("--pack-destination") + 1];
 			const fixture = packs.get(spec);
 			if (fixture === undefined) {
+				// npm 的真实区分：包在、版本不在是 ETARGET（notarget）；包本身不在才是 E404。
+				// 安装链路的重试只允许对前者生效，替身必须把这个区别演出来。
+				const bareName = spec.lastIndexOf("@") > 0 ? spec.slice(0, spec.lastIndexOf("@")) : spec;
+				if (bareName !== spec && packs.has(bareName)) {
+					return { code: 1, stdout: "", stderr: `npm error code ETARGET\nnpm error notarget No matching version found for ${spec}.` };
+				}
 				return { code: 1, stdout: "", stderr: `npm ERR! 404 Not Found - GET ${spec}` };
 			}
 			tar.c({ sync: true, cwd: fixture.stagingDir, file: join(packDestination, fixture.tgzName) }, ["package"]);
@@ -110,7 +116,7 @@ function createHarness(options = {}) {
 		getUserDataDir: () => userDataDir,
 		resolveRuntimeNodeModules: () => options.runtimeNodeModules,
 		launcher: { createInvocation: (command, args) => ({ command, args }), createProcessEnv: () => ({}) },
-		runNpm: fake.runNpm,
+		runNpm: options.runNpm ?? fake.runNpm,
 		fetchImpl: options.fetchImpl,
 	});
 	return { root, userDataDir, dshHome, service, fake };
@@ -425,6 +431,50 @@ test("installUserPlugin：`name@v1.0.0`（tag 写法）归一化后交给 npm pa
 		assert.ok(
 			harness.fake.calls.some((args) => args[0] === "pack" && args[1] === "dsh-plugin-fixture-hello@1.0.0"),
 			"npm 收到的是归一化 spec（tag 写法不进子进程）",
+		);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("installUserPlugin：目录 tag 对应的版本没发到 npm（ETARGET）时退回按包名装最新版", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pideck-dsh-plugin-etarget-"));
+	try {
+		const harness = createHarness({ fixtures: stageRegistryFixtures(root) });
+		// 官方目录 vr 是仓库 tag，可能领先于 npm 发布（实测 100 条抽样里 7 条 registry 上没有该版本）
+		const result = await harness.service.installUserPlugin("dsh-plugin-fixture-hello@9.9.9");
+		assert.equal(result.name, "dsh-plugin-fixture-hello");
+		assert.equal(result.version, "1.0.0", "装到的是 registry 上真实存在的版本");
+		const packSpecs = harness.fake.calls.filter((args) => args[0] === "pack").map((args) => args[1]);
+		assert.ok(packSpecs.includes("dsh-plugin-fixture-hello@9.9.9"), "先按精确版本尝试");
+		assert.ok(packSpecs.includes("dsh-plugin-fixture-hello"), "再退回裸包名（最新版）");
+
+		// 只有「版本不存在」才重试：包不存在（E404）必须原样失败，不能被重试掩盖
+		await assert.rejects(harness.service.installUserPlugin("ghost-pkg-xyz@1.0.0"), /404 Not Found/);
+		assert.ok(!harness.fake.calls.some((args) => args[0] === "pack" && args[1] === "ghost-pkg-xyz"), "E404 不触发裸包名重试");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("installUserPlugin：网络类失败不触发裸包名重试（不静默换成最新版）", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pideck-dsh-plugin-networkfail-"));
+	try {
+		const fixtures = stageRegistryFixtures(root);
+		const calls = [];
+		const harness = createHarness({
+			fixtures,
+			// npm 的网络失败文本里也带着 spec 本身，重试指纹必须只认错误码行
+			runNpm: async (args, options) => {
+				calls.push(args);
+				return { code: 1, stdout: "", stderr: `npm error code EAI_AGAIN\nnpm error network request to registry.npmjs.org/${args[1]} failed` };
+			},
+		});
+		await assert.rejects(harness.service.installUserPlugin("dsh-plugin-fixture-hello@1.0.0"), /EAI_AGAIN/);
+		assert.deepEqual(
+			calls.map((args) => args[1]),
+			["dsh-plugin-fixture-hello@1.0.0"],
+			"只尝试一次（失败原样抛出，不掩盖成「已装最新版」）",
 		);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
