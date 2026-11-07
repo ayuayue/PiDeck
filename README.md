@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.11.2-blue)
+![Version](https://img.shields.io/badge/version-0.11.3-blue)
 
 国内 AtomGit 托管：https://atomgit.com/ayuayue/PiDeck
 <!-- 预留 AtomGit G-Star 徽章位（替换占位链接后启用）
@@ -102,10 +102,10 @@
 
 ## 📋 更新日志
 
-> **最新版本 v0.11.2**（2026-11-07）
+> **最新版本 v0.11.3**（2026-11-07）
 
-### v0.11.2 更新亮点
-- ✨ **渠道会话继承桌面默认值**
+### v0.11.3 更新亮点
+- ✨ **预览与 diff 支持自动换行**
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
 
