@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.11.0-blue)
+![Version](https://img.shields.io/badge/version-0.11.1-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -82,9 +82,9 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.11.0** (2026-11-07)
+> **Latest: v0.11.1** (2026-11-07)
 
-### v0.11.0 Release Highlights
+### v0.11.1 Release Highlights
 - 🚀 **Settings opens as a page tab instead of a modal**
 - 🚀 **OAuth logins get a page in config**
 - 🚀 **OpenRouter joins image generation**

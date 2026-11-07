@@ -27,7 +27,7 @@ on:
         type: choice
         default: v0.7.6
         options:
-          - v0.11.0
+          - v0.11.1
           - v0.10.0
           - v0.9.9
           - v0.9.8
