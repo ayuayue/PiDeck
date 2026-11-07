@@ -785,7 +785,7 @@ function projectHandlers(options = {}) {
 	const projects = options.projects ?? {};
 	const handlers = new Map();
 	// G1 拆分后项目域有自己的注册入口；stub 的 specifier 与拆分前一致（同一目录下的 ../remote/*）。
-	const { registerRemoteProjectIpc } = loadTsCommonJs("src/main/ipc/remoteProjectIpc.ts", {
+	const projectIpcModule = loadTsCommonJs("src/main/ipc/remoteProjectIpc.ts", {
 		stubs: {
 			electron: { ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) } },
 			"../remote/RemoteBrowseRoot": {
@@ -831,7 +831,7 @@ function projectHandlers(options = {}) {
 			},
 		},
 	});
-	registerRemoteProjectIpc({
+	const projectIpc = projectIpcModule.registerRemoteProjectIpc({
 		enabled: options.enabled ?? true,
 		userDataDir: "/tmp/ignored",
 		directoryReader: {
@@ -900,7 +900,7 @@ function projectHandlers(options = {}) {
 				}),
 	});
 	const sender = { id: 42, isDestroyed: () => false, send: (channel, payload) => calls.sent.push({ channel, payload }) };
-	return { handlers, calls, sender };
+	return { handlers, calls, sender, projectIpc };
 }
 
 async function confirmEnroll(harness, path = "/srv/link-project") {
@@ -1050,7 +1050,7 @@ test("recursive search does not return entries inside the project trash", async 
 			{ path: "src/app.ts", name: "app.ts", kind: "file", bytes: 10 },
 		],
 	});
-	const found = await harness.handlers.get("remote:project-search")({}, "project-remote-1", "", "app");
+	const found = await harness.projectIpc.searchProject("project-remote-1", "", "app");
 	assert.deepEqual(
 		JSON.parse(JSON.stringify(found)),
 		{
@@ -1096,18 +1096,18 @@ test("switching between two projects on one host re-establishes the session with
 	assert.equal(harness.calls.connects.length, 2, "a different root tears down and rebuilds the session");
 });
 
-test("the search channel is declared, bridged and registered", () => {
+test("the legacy search channel is gone; the handle still serves files:search-page", () => {
 	const shared = readFileSync("src/shared/ipc.ts", "utf8");
 	const preload = readFileSync("src/preload/index.ts", "utf8");
-	// 三处同步：通道常量、preload 桥接、主进程 handler；漏任何一处就是运行时 undefined。
-	assert.match(shared, /remoteProjectSearch:\s*"remote:project-search"/);
-	assert.match(preload, /searchProject:\s*\(projectId: string, path: string, query: string\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.remoteProjectSearch/);
-	assert.ok(projectHandlers().handlers.has("remote:project-search"));
+	// 2026-11-07 收口：renderer 只经公共 files:search-page，旧通道与 preload 方法一并下线。
+	assert.ok(!shared.includes("remoteProjectSearch:"), "旧通道常量必须已删除");
+	assert.ok(!preload.includes("searchProject:"), "preload 不再暴露旧入口");
+	assert.equal(typeof projectHandlers().projectIpc.searchProject, "function", "main 内部 handle 仍供 files:search-page 使用");
 });
 
 test("per-project search resolves the locator, switches the root and returns rebuilt fields", async () => {
 	const harness = projectHandlers({ projects: { "project-remote-1": { kind: "ssh", hostId: HOST_ID, remotePath: "/srv/app" } } });
-	const found = await harness.handlers.get("remote:project-search")({}, "project-remote-1", "", "app");
+	const found = await harness.projectIpc.searchProject("project-remote-1", "", "app");
 	assert.deepEqual(JSON.parse(JSON.stringify(found)), { ok: true, value: { entries: [{ path: "src/app.ts", name: "app.ts", kind: "file", bytes: 10 }], scanned: 3, truncated: false } });
 	assert.deepEqual(harness.calls.setRoot, [{ hostId: HOST_ID, root: "/srv/app" }], "the project's root is handed to the connection");
 	assert.deepEqual(harness.calls.search, [{ hostId: HOST_ID, path: ".", query: "app", portHasRequest: true }], "the empty relative path is the project root, spelled the reader's way");
@@ -1115,7 +1115,7 @@ test("per-project search resolves the locator, switches the root and returns reb
 
 test("search passes truncation through instead of pretending a partial answer is complete", async () => {
 	const harness = projectHandlers({ projects: { "project-remote-1": { kind: "ssh", hostId: HOST_ID, remotePath: "/srv/app" } }, searchTruncated: true });
-	const found = await harness.handlers.get("remote:project-search")({}, "project-remote-1", "", "app");
+	const found = await harness.projectIpc.searchProject("project-remote-1", "", "app");
 	assert.equal(found.ok, true);
 	assert.equal(found.value.truncated, true, "a capped walk must be visible to the UI");
 });
@@ -1123,7 +1123,7 @@ test("search passes truncation through instead of pretending a partial answer is
 test("an invalid search query is refused at the boundary without touching the host", async () => {
 	const harness = projectHandlers({ projects: { "project-remote-1": { kind: "ssh", hostId: HOST_ID, remotePath: "/srv/app" } } });
 	for (const bad of ["", "a".repeat(129), "a\u0000b", 42, null, undefined]) {
-		const result = await harness.handlers.get("remote:project-search")({}, "project-remote-1", "", bad);
+		const result = await harness.projectIpc.searchProject("project-remote-1", "", bad);
 		assert.equal(result.ok, false, JSON.stringify(bad) + " must be refused");
 		assert.equal(result.code, "QUERY_INVALID");
 	}
@@ -1134,7 +1134,7 @@ test("an invalid search query is refused at the boundary without touching the ho
 test("a renderer cannot widen the search boundary with an absolute or traversing path", async () => {
 	const harness = projectHandlers({ projects: { "project-remote-1": { kind: "ssh", hostId: HOST_ID, remotePath: "/srv/app" } } });
 	for (const bad of ["/etc", "../outside", "src/../../etc", "a//b", "./x", "a\\b", "x\u0000y"]) {
-		const result = await harness.handlers.get("remote:project-search")({}, "project-remote-1", bad, "app");
+		const result = await harness.projectIpc.searchProject("project-remote-1", bad, "app");
 		assert.equal(result.ok, false, JSON.stringify(bad) + " must be refused for search");
 		assert.equal(result.code, "REMOTE_PROJECT_PATH_INVALID");
 	}
@@ -1143,7 +1143,7 @@ test("a renderer cannot widen the search boundary with an absolute or traversing
 
 test("search surfaces reader failures as stable codes", async () => {
 	const harness = projectHandlers({ projects: { "project-remote-1": { kind: "ssh", hostId: HOST_ID, remotePath: "/srv/app" } }, searchFails: "RESULT_TOO_LARGE" });
-	const result = await harness.handlers.get("remote:project-search")({}, "project-remote-1", "", "app");
+	const result = await harness.projectIpc.searchProject("project-remote-1", "", "app");
 	assert.equal(result.ok, false);
 	assert.equal(result.code, "RESULT_TOO_LARGE", "the reader's own bounded-result refusal is relayed unchanged");
 });
@@ -1207,7 +1207,6 @@ test("every project channel honours the feature gate", async () => {
 		["remote:project-answer", [{ sender: harness.sender }, "req", "approve"]],
 		["remote:project-list", [{}, "project-remote-1", ""]],
 		["remote:project-read", [{}, "project-remote-1", "a"]],
-		["remote:project-search", [{}, "project-remote-1", "", "a"]],
 	]) {
 		const result = await harness.handlers.get(channel)(...args);
 		assert.equal(result.ok, false, `${channel} must be gated`);

@@ -14,7 +14,7 @@ const HOSTS_FILE = "src/main/ipc/remoteHostIpc.ts";
 const PROJECT_FILE = "src/main/ipc/remoteProjectIpc.ts";
 const PROJECT_READ_FILE = "src/main/ipc/remoteProjectReadIpc.ts";
 const HOST_CHANNELS = ["remote:hosts-list", "remote:connect", "remote:disconnect", "remote:diagnostics", "remote:scan-config", "remote:add", "remote:repair-diagnose", "remote:repair-run", "remote:repair-answer"];
-const PROJECT_CHANNELS = ["remote:project-enroll", "remote:project-answer", "remote:project-list", "remote:project-read", "remote:project-search", "remote:project-root-status"];
+const PROJECT_CHANNELS = ["remote:project-enroll", "remote:project-answer", "remote:project-list", "remote:project-read", "remote:project-root-status"];
 
 function registeredChannels(file, registerName, input) {
 	const handlers = new Map();
@@ -57,7 +57,8 @@ test("项目域文件按写面/读面拆分，各自都在体量红线内", () =
 	const read = readFileSync(PROJECT_READ_FILE, "utf8");
 	const hosts = readFileSync(HOSTS_FILE, "utf8");
 	for (const symbol of ["remoteProjectEnroll", "remoteProjectAnswer"]) assert.ok(project.includes(symbol), "项目写面应注册 " + symbol);
-	for (const symbol of ["remoteProjectList", "remoteProjectRead", "remoteProjectSearch"]) assert.ok(read.includes(symbol), "项目读面应注册 " + symbol);
+	for (const symbol of ["remoteProjectList", "remoteProjectRead"]) assert.ok(read.includes(symbol), "项目读面应注册 " + symbol);
+	assert.ok(!read.includes("remoteProjectSearch"), "旧 project-search 通道已删除（搜索走 handle）");
 	assert.ok(!project.includes("remoteProjectList"), "读面 handler 不应留在写面文件");
 	assert.ok(!project.includes("remoteHostConnect"), "项目域不应注册 hosts 域通道");
 	const projectLines = project.split(String.fromCharCode(10)).length;
