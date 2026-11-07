@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.10.0-blue)
+![Version](https://img.shields.io/badge/version-0.11.0-blue)
 
 国内 AtomGit 托管：https://atomgit.com/ayuayue/PiDeck
 <!-- 预留 AtomGit G-Star 徽章位（替换占位链接后启用）
@@ -102,23 +102,18 @@
 
 ## 📋 更新日志
 
-> **最新版本 v0.10.0**（2026-11-05）
+> **最新版本 v0.11.0**（2026-11-07）
 
-### v0.10.0 更新亮点
-- 🚀 **智能体记忆：pi 与 ACP 会话共用一份长期记忆**
-- 🚀 **记忆导出 / 导入带预览与冲突策略**
-- 🚀 **WSL 发行版里的项目可以正常添加与编辑**
-- 🚀 **宿主插件市场**
-- 🚀 **支持导入 CodeBuddy 会话**
-- 🚀 **时间线右缘刻度可展开成完整会话目录**
-- 🚀 **内置 TokenDance 供应商显示折扣 / 免费徽章**
-- 🚀 **Web 端补齐桌面体验**
-- 🚀 **侧栏支持批量移除项目记录**
-- 🚀 **新增「羊皮纸」配色**
-- ✨ **排队消息支持「立即发送」**
-- ✨ **时间线与大纲完成虚拟化收口**
-- ✨ **Git 面板不再挤字也不再卡顿**
-- ✨ **非激活会话暂停流式打字机与 Markdown 重排**
+### v0.11.0 更新亮点
+- 🚀 **设置改为会话列里的页面 Tab**
+- 🚀 **配置新增 OAuth 登录页**
+- 🚀 **生图接入 OpenRouter**
+- 🚀 **记忆条目支持批量删除**
+- 🚀 **供应商与模型列表可搜索**
+- ✨ **工具结果图片内联显示**
+- ✨ **虚拟栈在滚动窗迟到挂载时补一次渲染**
+- ✨ **macOS 包保持签名身份**
+- ✨ **会话预热不再清空输入**
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
 
