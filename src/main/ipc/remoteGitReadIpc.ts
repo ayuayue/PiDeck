@@ -711,13 +711,18 @@ export function registerRemoteGitReadIpc(input: {
 			if (!input.enabled || disposed) return undefined;
 			if (!Array.isArray(paths) || paths.length === 0 || paths.length > DIRECTORY_IGNORE_MAX_PATHS) return undefined;
 			if (paths.some((path) => typeof path !== "string" || path.length === 0)) return undefined;
+			// `.git` 是 git 保留名（从不是用户文件，渲染层也永不显示）：不送进 check-ignore。
+			// 某些 git/环境组合会对它直接失败，那会把整页修饰一起吞掉；跳过的条目保持 false
+			// （目录页只落 true，所以等价于“没判定”）。
+			const candidates = paths.map((path, index) => ({ path, index })).filter((entry) => !entry.path.split("/").some((part: string) => part === ".git"));
+			const flags = new Array<boolean>(paths.length).fill(false);
+			if (candidates.length === 0) return flags;
 			try {
 				const repos = await directoryIgnoreReposOf(projectId);
 				if (repos.length === 0) return undefined;
 				// 先归因：有一条无法归到仓库就整页不修饰（部分置灰比不置灰更容易让人误读）。
 				const groups = new Map<string, { indexes: number[]; relative: string[] }>();
-				for (let index = 0; index < paths.length; index += 1) {
-					const path = paths[index];
+				for (const { path, index } of candidates) {
 					const repo = repoScopeOfPath(repos, path);
 					if (repo === undefined) return undefined;
 					const group = groups.get(repo) ?? { indexes: [], relative: [] };
@@ -725,16 +730,25 @@ export function registerRemoteGitReadIpc(input: {
 					group.relative.push(repoRelativePathOf(repo, path));
 					groups.set(repo, group);
 				}
-				const flags = new Array<boolean>(paths.length).fill(false);
+				// 有没有任何一批真正被判定过：全都失败时返回 undefined（“没判定”），
+				// 而不是一串 false 让调用方误以为“查过了、都没被忽略”。
+				let answered = 0;
 				for (const [repo, group] of groups) {
 					for (let at = 0; at < group.relative.length; at += DIRECTORY_IGNORE_BATCH_SIZE) {
 						const batch = group.relative.slice(at, at + DIRECTORY_IGNORE_BATCH_SIZE);
-						const answer = await git.checkIgnore(projectId, repo, batch);
-						if (answer.length !== batch.length) return undefined;
+						// 单批失败只丢这一批：修饰不是读的前置条件，也不该被一个怪异路径连坐。
+						let answer: readonly boolean[] | undefined;
+						try {
+							answer = await git.checkIgnore(projectId, repo, batch);
+						} catch {
+							answer = undefined;
+						}
+						if (answer === undefined || answer.length !== batch.length) continue;
+						answered += batch.length;
 						for (let offset = 0; offset < batch.length; offset += 1) flags[group.indexes[at + offset]] = answer[offset];
 					}
 				}
-				return flags;
+				return answered === 0 ? undefined : flags;
 			} catch {
 				// 判定不是读的前置条件：任何失败都只是“没修饰”，不是目录页失败。
 				return undefined;

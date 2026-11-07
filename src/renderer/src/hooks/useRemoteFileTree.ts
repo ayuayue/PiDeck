@@ -6,6 +6,7 @@ import type { ProjectDirectoryEntry, ProjectDirectoryPage } from "../../../share
 import { desktopApi } from "../desktopApi";
 import type { ProjectServices } from "../services/projectServiceContracts";
 import { acquireProjectFactSubscription } from "../services/projectServiceFactSubscription";
+import { fileTreeIgnoredField } from "../utils/directoryPageNode";
 import { parseFileTreeKey, projectFileKey } from "../utils/fileTreeLazy";
 import { createLazyDirTreeController, lazyDirTreeInitialState, type LazyDirTreeController, type LazyDirTreeState } from "../utils/lazyDirTree";
 import { readRemoteDirectoryPageWithRetry } from "../utils/remoteDirectoryPageRetry";
@@ -54,6 +55,8 @@ function entryToNode(entry: ProjectDirectoryEntry): FileTreeNode {
 		type: entry.type,
 		// 远端 `hasChildren` 只能是 "unknown"：不能把“没查过”伪装成“没有子项”。
 		...(isDirectory ? { hasChildren: entry.hasChildren !== false } : {}),
+		// 与本机树共用同一处 ignored 转发（缺了它远端行就不会置灰）。
+		...fileTreeIgnoredField(entry),
 	};
 }
 

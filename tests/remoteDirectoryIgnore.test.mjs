@@ -36,6 +36,7 @@ function fixture(options = {}) {
 			if (method === "git.repos") return { repos: options.repos ?? [{ path: "", name: "project" }], truncated: false };
 			if (method === "git.checkIgnore") {
 				if (options.checkIgnoreFails === true) throw new Error("GIT_COMMAND_FAILED");
+				if (options.failPaths !== undefined && params.paths.some((path) => options.failPaths.includes(path))) throw new Error("GIT_COMMAND_FAILED");
 				const ignored = params.paths.map((path) => (options.ignoredPaths ?? []).includes(path));
 				return { ignored };
 			}
@@ -228,4 +229,27 @@ test("目录页：探测失败/未装配都只丢修饰，页面仍然成功且�
 		assert.equal(f.calls.list, 1);
 		for (const entry of result.value.entries) assert.equal(Object.hasOwn(entry, "ignored"), false, probe + "：“没判定”不能写成“未忽略”");
 	}
+});
+
+test("probeIgnore：.git 是保留名，不送进 check-ignore（也不因它整页放弃修饰）", async () => {
+	const f = fixture({ ignoredPaths: ["ignored.log"] });
+	const flags = await f.port.probeIgnore(projectId, [".git", "ignored.log", "visible.txt"]);
+	assert.deepEqual(plain(flags), [false, true, false], ".git 保持“没判定”（false 不落修饰）");
+	const frames = f.calls.filter((call) => call.method === "git.checkIgnore");
+	assert.equal(frames.length, 1);
+	assert.deepEqual(plain(frames[0].params.paths), ["ignored.log", "visible.txt"], ".git 不进帧");
+
+	// 整页都是保留名：直接返回，不发现仓库也不发判定帧。
+	const onlyGit = fixture();
+	const reserved = await onlyGit.port.probeIgnore(projectId, [".git"]);
+	assert.deepEqual(plain(reserved), [false]);
+	assert.equal(onlyGit.calls.length, 0);
+});
+
+test("probeIgnore：单批失败只丢这一批，其它批照常修饰（修饰不是读的前置条件）", async () => {
+	const f = fixture({ ignoredPaths: ["f-1", "f-70"], failPaths: ["f-70"] });
+	const paths = Array.from({ length: 70 }, (_, index) => `f-${index + 1}`);
+	const flags = await f.port.probeIgnore(projectId, paths);
+	assert.equal(plain(flags)[0], true, "第 1 批成功：批内命中照常落 used");
+	assert.equal(plain(flags)[69], false, "第 2 批失败：该批不修饰，但不影响第 1 批");
 });
