@@ -250,7 +250,7 @@ describe("Git panel VS Code Source Control contract", () => {
 		assert.match(panel, /if \(silent && mutationRunningRef\.current\) return;/);
 		assert.match(panel, /const request = gate\.beginRead\(\{ exclusive: silent \}\);/);
 		assert.match(panel, /if \(request === undefined\) return;/);
-		assert.match(panel, /gate\.endRead\(\);/);
+		assert.match(panel, /gate\.endRead\(request\);/);
 		// 旧的手写单飞簿记已退役：只允许闸门一处维护“在途读”。
 		assert.doesNotMatch(panel, /statusRunningRequestRef/);
 		assert.doesNotMatch(panel, /statusRequestRef/);

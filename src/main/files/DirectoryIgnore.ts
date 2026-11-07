@@ -7,14 +7,15 @@
  * 语义边界（写下来以免被后来的“顺手优化”带歪）：
  * - **只加修饰，不过滤**：`ignored: true` 只是“这条不会进 git”，条目照常显示；保护性隐藏规则仍在 backend。
  * - **未知 ≠ 未忽略**：没有能力、没有仓库、判定失败时**不填字段**（字段缺失），绝不填 `false` 冒充“查过了”。
- * - **判定是只读**：不需要令牌、不改事实；结果随目录页事实一起缓存，暖命中不重复判定。
+ * - **判定是只读**：不需要令牌、不改事实。当前每次目录页都会重判（缓存仍未并入目录 FactCache，见
+ *   `docs/remote-ui-unification-wave-3-plan.md` §7.1 P1-6）；修饰缺失不是目录页失败。
  * - **仓库归因只有一条规则**：按仓库列表的最长目录前缀匹配（严格边界，`packages/a-other` 不属于 `packages/a`）。
  *   这是「这条路径归哪个仓库的 ignore 规则」，不是把项目相对路径改写成仓库内路径。
  */
 
 /** 一次目录页最多判定的路径数（目录页上限 2000，故覆盖整页；超出则整页不修饰）。 */
 export const DIRECTORY_IGNORE_MAX_PATHS = 2000;
-/** helper/本机 git 的单批上限：与 `git.checkIgnore` 的既有契约一致。 */
+/** helper 链路的单批上限（`git.checkIgnore` 帧）：本机 `GitService.checkIgnore` 一次全量，不分批。 */
 export const DIRECTORY_IGNORE_BATCH_SIZE = 64;
 /** 仓库列表缓存时长：目录页装载时才会用到，避免每个目录页都做一次仓库发现。 */
 export const DIRECTORY_IGNORE_REPOS_TTL_MS = 60_000;

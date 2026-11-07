@@ -181,10 +181,12 @@ export type ProjectFileService = {
 	writeText(target: ProjectFileTarget, content: string, expectedVersion?: string): Promise<ProjectTextSaveReceipt>;
 	stat(target: ProjectFileTarget): Promise<ProjectServicePathState>;
 	createEntry(parent: ProjectFileTarget, name: string, type: "file" | "directory"): Promise<ProjectEntryReceipt>;
-	renameEntry(target: ProjectFileTarget, newName: string, expectedVersion?: string): Promise<ProjectEntryReceipt>;
+	/** 改名只看「目标是不是同一个父目录下的新名字」；乐观锁凭据由 main 现读现用，调用方不传版本。 */
+	renameEntry(target: ProjectFileTarget, newName: string): Promise<ProjectEntryReceipt>;
 	/** 移动到项目内另一个目录；destinationRelativePath 是完整目标路径（含文件名）。 */
 	moveEntry(target: ProjectFileTarget, destinationRelativePath: string): Promise<ProjectEntryReceipt>;
-	deleteEntry(target: ProjectFileTarget, expectedVersion?: string): Promise<ProjectEntryDeleteReceipt>;
+	/** 删除的版本凭据同样由 main 现读现用；远端进回收站，收据只带 trashId。 */
+	deleteEntry(target: ProjectFileTarget): Promise<ProjectEntryDeleteReceipt>;
 	/** 本机侧选择/拖放来源由 main 再验证；远端 provider 使用 jobful SFTP 传输通道。 */
 	uploadFiles(target: ProjectFileTarget, source: ProjectFileUploadSource, options?: ProjectFileTransferOptions): Promise<RemoteProjectUploadResult>;
 	downloadFile(target: ProjectFileTarget, options?: ProjectFileTransferOptions): Promise<RemoteProjectDownloadResult>;

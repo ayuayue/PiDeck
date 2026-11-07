@@ -36,15 +36,13 @@ export type GitOperationGate = {
 	 */
 	beginRead(options?: { exclusive?: boolean }): GitReadToken | undefined;
 	/** 一次读结束（成功/失败都算）。只影响「在途读」计数，不会让令牌失效。 */
-	endRead(): void;
+	endRead(token: GitReadToken): void;
 	/** 取消所有在途读并换一代：旧令牌之后的发布全部作废。 */
 	retire(): number;
 	/** 迟到读判定：令牌仍是当前代才允许发布。 */
 	isCurrent(token: GitReadToken): boolean;
 	/** 开一次写：已有写在途时返回 undefined（互斥）。写开始即让在途读结果作废。 */
 	beginWrite(): GitWriteToken | undefined;
-	/** 是否有写在途（消费者标志或闸门自己的判定）。 */
-	writing(): boolean;
 	/** 写结果未知：记下稳定码；只有成功的事实读能解除。 */
 	markUnknown(code: string): void;
 	/** 一次成功的事实读解除了不确定状态。 */
@@ -55,23 +53,24 @@ export type GitOperationGate = {
 
 export function createGitOperationGate(options: GitOperationGateOptions = {}): GitOperationGate {
 	let generation = 0;
-	let readsInFlight = 0;
+	// 按令牌记录在途读：retire 清空集合后，旧读迟到的 endRead 不会减掉新读的计数。
+	const readsInFlight = new Set<number>();
 	let unknown: string | undefined;
 	return {
 		current: () => generation,
 		beginRead(beginOptions) {
 			// exclusive = 「不重叠」：已在途就这拍不读，等下一次触发（静默轮询）。
-			if (beginOptions?.exclusive === true && readsInFlight > 0) return undefined;
+			if (beginOptions?.exclusive === true && readsInFlight.size > 0) return undefined;
 			generation += 1;
-			readsInFlight += 1;
+			readsInFlight.add(generation);
 			return generation;
 		},
-		endRead() {
-			readsInFlight = Math.max(0, readsInFlight - 1);
+		endRead(token) {
+			readsInFlight.delete(token);
 		},
 		retire() {
 			generation += 1;
-			readsInFlight = 0;
+			readsInFlight.clear();
 			return generation;
 		},
 		isCurrent: (token) => token === generation,
@@ -81,7 +80,6 @@ export function createGitOperationGate(options: GitOperationGateOptions = {}): G
 			generation += 1;
 			return generation;
 		},
-		writing: () => options.isWriting?.() === true,
 		markUnknown(code) {
 			unknown = code;
 		},

@@ -24,7 +24,6 @@ test("取消：retire 之后旧令牌一律作废，新读是新一代", () => {
 test("互斥：写者在途由调用方回答；读可要求不重叠，但不阻止显式刷新抢先", () => {
 	let writing = false;
 	const gate = createGitOperationGate({ isWriting: () => writing });
-	assert.equal(gate.writing(), false);
 	const write = gate.beginWrite();
 	assert.equal(typeof write, "number", "空闲时写可以开始");
 	writing = true;
@@ -35,7 +34,7 @@ test("互斥：写者在途由调用方回答；读可要求不重叠，但不�
 	const silent = gate.beginRead({ exclusive: true });
 	assert.equal(typeof silent, "number");
 	assert.equal(gate.beginRead({ exclusive: true }), undefined, "在途时静默读被跳过");
-	gate.endRead();
+	gate.endRead(silent);
 	assert.equal(typeof gate.beginRead({ exclusive: true }), "number", "读结束后静默读恢复");
 
 	// 显式刷新（非 exclusive）永远可以开：它以新代取胜，旧结果自然作废。
@@ -43,8 +42,8 @@ test("互斥：写者在途由调用方回答；读可要求不重叠，但不�
 	const newer = gate.beginRead();
 	assert.equal(gate.isCurrent(manual), false, "旧的手动刷新结果被新的一代取代");
 	assert.equal(gate.isCurrent(newer), true);
-	gate.endRead();
-	gate.endRead();
+	gate.endRead(manual);
+	gate.endRead(newer);
 });
 
 test("unknown：写结果未知会一直保留，只有成功的事实读能解除（取消/失败读都不算）", () => {
@@ -68,5 +67,17 @@ test("迟到读：写一开始，在途读就不再代表现状（写完也不�
 	assert.equal(gate.isCurrent(read), true);
 	gate.beginWrite();
 	assert.equal(gate.isCurrent(read), false, "写改变了事实：写前的读不得发布");
-	gate.endRead();
+	gate.endRead(read);
+});
+
+test("endRead 只关自己那一代：retire 之后旧读的收尾不会扣掉新读的计数", () => {
+	const gate = createGitOperationGate();
+	const stale = gate.beginRead();
+	gate.retire();
+	const fresh = gate.beginRead({ exclusive: true });
+	assert.equal(typeof fresh, "number");
+	gate.endRead(stale);
+	assert.equal(gate.beginRead({ exclusive: true }), undefined, "新读仍在途：旧读收尾不能把计数扣掉");
+	gate.endRead(fresh);
+	assert.equal(typeof gate.beginRead({ exclusive: true }), "number");
 });

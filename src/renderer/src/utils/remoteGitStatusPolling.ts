@@ -107,7 +107,7 @@ export function createRemoteGitStatusRefresher<TState extends RemoteGitStatusRef
 				const current = port.current();
 				port.publish({ ...current, errorCode: current.errorCode === "GIT_WRITE_RESULT_UNCONFIRMED" ? "GIT_WRITE_RESULT_UNCONFIRMED" : port.codeOf(error) });
 			} finally {
-				gate.endRead();
+				gate.endRead(generation);
 			}
 		},
 		/** 连接失效：暂停自动轮询，并退休在途的静默答案。 */

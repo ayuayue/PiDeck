@@ -754,7 +754,7 @@ export function GitPanel(props: GitPanelProps) {
 				}
 			} finally {
 				if (current() && !silent) setLoading(false);
-				gate.endRead();
+				gate.endRead(request);
 			}
 		},
 		[props.projectId, repoScopeKey, refreshAheadBehind],

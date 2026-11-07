@@ -104,6 +104,14 @@
 - **P2-7 死导入**、**P2-8 预览桩注释**：已清。
 - **P2-9 清单一致性测试**：改为按函数体括号配对整段解析 `dispatch`（固定 6000 字符窗口废弃），
   并覆盖 `CAPABILITIES` 全集（fs/config/terminal，不再只 `git.*`）。
+- **P1-3 契约残留**：删除 `renameEntry` / `deleteEntry` 的 `expectedVersion?`（乐观锁凭据由 main 现读现用），
+  契约注释写明语义。
+- **P2-1/P2-2 闸门**：`endRead(token)` 只关自己那一代的在途读（`retire` 后旧读的迟到收尾不再扣新读计数），
+  删除无消费者的 `writing()`；新增回归用例。
+- **P2-3 ignore 口径**：`DirectoryIgnore.ts` 注释如实区分「远端分批 / 本机一次全量」，并写明判定尚未并入
+  目录 FactCache（P1-6）。
+- **P2-11 move 残局**：`tests/projectFileProviderMerge.test.mjs` 用一条用例钉住「move 已落地、rename 失败」
+  的两步语义；改成单一写时该用例必须同步改。
 - **P2-10 unknown 端到端**：`tests/filesWriteRouting.test.mjs` 增一例，验证 `REMOTE_FILE_RESULT_UNCONFIRMED`
   经 `normalizeProjectServiceError` 仍得到 `outcome: "unknown"`。
 
@@ -112,12 +120,8 @@
 | 项 | 现状 | 为什么先不做 |
 |---|---|---|
 | P1-2 跨目录移动两步写 | move→rename 两次独立远端写，第二步失败留「已移动未改名」且无收据 | 需要 entry 服务新增「移动到指定全路径」的单一写；本批不做半套 |
-| P1-3 乐观锁降级 | rename/delete 由 main 现读现用，契约仍留 `expectedVersion?` | 与「renderer 不持令牌」的收口方向一致；下一步删契约残留并写明语义 |
 | P1-5 WSL ignore | `WslProjectFileBackend` 无 `checkIgnore` | 需在 WSL backend 补同口径判定，涉及 helper 回退路径 |
 | P1-6 ignore 未随目录事实缓存 | 每次目录页都重判；远端每页最多 1+N/64 帧 | 需要把 `ignored` 并入目录 FactCache（按目录+仓库代），改动跨 owner |
-| P2-1/P2-2 闸门 | `endRead` 无令牌作用域；`markUnknown/resolveUnknown/writing` 部分未用 | 只影响多发一次读，不破坏发布；与下一轮闸门收敛一起做 |
-| P2-3 本机/远端口径 | 远端分批归因，本机一次全量 | 行为一致（都只落 true），差异只在调用次数 |
-| P2-11 move 残局用例 | 无 | 与 P1-2 的实现一起补，避免先给两步语义立标准 |
 
 目标：把 renderer 里“本机 vs 远端选通道”的分支逐步收到 main。已交付两片：
 
