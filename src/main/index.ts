@@ -6836,9 +6836,9 @@ app
 				return agentManager.readSessionTodo(entry.filePath);
 			},
 		});
-		// P1-P3 工作区路由（git/files/prompts）：只读能力注入，未装配的服务自动 503
 		webServiceManager.workspaceRoutes = new WebWorkspaceRoutes({
 			listProjects: () => projectStore.list(),
+			promptTemplates: promptManager,
 			git: {
 				isGitRepo: (cwd) => gitService.isGitRepo(cwd),
 				getBranches: (cwd) => gitService.getBranches(cwd),

@@ -284,6 +284,8 @@ npm run dist:linux:dev # Linux（AppImage + deb + tar.gz）
 | [qgx1992/pideck-mobile](https://github.com/qgx1992/pideck-mobile) | 协议核心 + Capacitor 手机客户端：扫码 / 手填链接配对、流式会话、通知与工作区，可自行打包 APK。 |
 | [xrbbm/PocketDeck](https://github.com/xrbbm/PocketDeck) | 原生 Android（Kotlin + Jetpack Compose）客户端：扫码直达最近会话、审批卡片、Git / 文件工作区，Releases 可直接下载 APK。 |
 
+移动端读取桌面端 pi 文件模板时，使用独立的 [Prompt Templates 只读 API](docs/web-prompt-templates.md)；原 `/api/prompts` 仍用于云端提示词库。
+
 ---
 
 ## 🧰 快速开始（从源码运行）

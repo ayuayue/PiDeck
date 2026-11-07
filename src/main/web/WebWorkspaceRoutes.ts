@@ -4,6 +4,7 @@
  * - GET /api/files、GET /api/file-content —— 文件抽屉（项目内文件沙箱限制在项目根内 + 有界读取）
  *   与项目外文件预览（绝对路径 / `~/x` 按安全等级求值后只读读取，见 fileContent）
  * - GET /api/prompts、GET /api/prompts/:slug —— 中文提示词精选（XuePromptManager）
+ * - GET /api/prompt-templates、GET /api/prompt-templates/:name —— pi 全局/项目文件模板（PromptManager）
  *
  * 独立模块承载（WebServiceManager 已超 1600 行），经 WebServiceManager.handleRequest
  * 在 /api/* 404 兜底前分发；所有路由只读，不引入新的写通道。
@@ -21,6 +22,7 @@ import { assertProjectFileReadPath, FILE_OUTSIDE_PROJECT_ERROR } from "../files/
 import { isPathInsideProject } from "../fs/FileSystemService";
 import type { UserReadAccessVerdict } from "../security/policy";
 import { WEB_CORS_HEADERS } from "./WebHttpResponders";
+import { WebPromptTemplateRoutes, type WebPromptTemplateReader } from "./WebPromptTemplateRoutes";
 
 export type WebWorkspaceRoutesDeps = {
 	/** projectId → 项目根解析（沿用 WebServiceManager 同源数据，避免第二套项目表）。 */
@@ -37,6 +39,8 @@ export type WebWorkspaceRoutesDeps = {
 	files?: {
 		listTree: (root: string, maxDepth?: number, directory?: string) => Promise<FileTreeNode[]>;
 	};
+	/** pi 文件模板（PromptManager 注入；与提示词库独立，只暴露只读能力）。 */
+	promptTemplates?: WebPromptTemplateReader;
 	/** 提示词库（XuePromptManager 注入；缺省时 prompts 路由返回 503）。 */
 	prompts?: {
 		list: (opts?: { category?: string; search?: string; page?: number; pageSize?: number }) => Promise<YaoPromptListResult>;
@@ -177,12 +181,17 @@ function expandHomePath(path: string): string {
 }
 
 export class WebWorkspaceRoutes {
-	constructor(private readonly deps: WebWorkspaceRoutesDeps) {}
+	private readonly promptTemplateRoutes: WebPromptTemplateRoutes;
+
+	constructor(private readonly deps: WebWorkspaceRoutesDeps) {
+		this.promptTemplateRoutes = new WebPromptTemplateRoutes(deps);
+	}
 
 	/** 命中已知路由并完成响应时返回 true；未命中返回 false 交给上层 404。 */
 	async handle(url: URL, request: IncomingMessage, response: ServerResponse): Promise<boolean> {
 		if (!url.pathname.startsWith("/api/")) return false;
 		try {
+			if (await this.promptTemplateRoutes.handle(url, request, response)) return true;
 			if (url.pathname === "/api/git/status") return await this.gitStatus(url, response);
 			if (url.pathname === "/api/git/diff") return await this.gitDiff(url, response);
 			if (url.pathname === "/api/git/log") return await this.gitLog(url, response);
