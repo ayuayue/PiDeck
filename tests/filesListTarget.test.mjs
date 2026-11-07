@@ -67,7 +67,6 @@ function createFilesIpc(root, projectOverride, remoteFiles) {
 	return {
 		listHandler: listHandlers.get(ipcChannels.filesList),
 		directoryPageHandler: listHandlers.get(ipcChannels.filesDirectoryPage),
-		searchHandler: listHandlers.get(ipcChannels.filesSearch),
 		readContentHandler: listHandlers.get(ipcChannels.filesReadContent),
 		writeContentHandler: listHandlers.get(ipcChannels.filesWriteContent),
 		pathsExistHandler: listHandlers.get(ipcChannels.filesPathsExist),
@@ -370,20 +369,6 @@ test("files:copy and move keep local clipboard paths compatible with target dire
 		const moved = await api.moveHandler({}, [movePath], destination);
 		assert.equal(moved[0], join(await realpath(dstDir), "move.txt"));
 		assert.equal(existsSync(movePath), false);
-	} finally {
-		rmSync(fixture, { recursive: true, force: true });
-	}
-});
-
-test("files:search attaches project-relative targets", async () => {
-	const fixture = mkdtempSync(join(tmpdir(), "pideck-files-search-target-"));
-	const root = join(fixture, "project");
-	mkdirSync(root);
-	try {
-		const { searchHandler } = createFilesIpc(root);
-		const results = await searchHandler({}, "project-1", "main");
-		assert.equal(results[0].target.projectId, "project-1");
-		assert.equal(results[0].target.relativePath, "src/main.ts");
 	} finally {
 		rmSync(fixture, { recursive: true, force: true });
 	}

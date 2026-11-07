@@ -532,7 +532,7 @@ helper 事件与写操作仅标脏、发通知；只有活跃读者决定装载�
 | `remoteCommitDetail` / `remoteRefFileDiff` | `ProjectGitService.commitDetail` / `refFileDiff` 的底层通道 | — | 是 | 服务实现复用既有领域通道；renderer 不再直接调用 preload |
 | `remoteProjectList` / `listProject` | 无 renderer 生产消费者 | — | 否 | 旧目录列表适配器；保留一版，候选后续删除 |
 | `files:search-page`（新，2026-11-07 收口第一片） | renderer 两个 provider 的文件名搜索唯一入口；`Op<ProjectFileSearchPage>`，本机与远端同形 | — | 是 | 位置路由在 main：本机索引/BFS、ssh 走 `remoteProjectIpc.searchProject`；`kind:"other"` 只留在 `entries`，`truncated/scanned` 不丢 |
-| `files:search`（本机旧形状） | 不再被 provider 使用 | — | 否（本机旧调用方仍可用） | 保留一版兼容；新调用方一律用 `files:search-page` |
+| `files:search`（本机旧形状） | 无消费者（provider 只用 `files:search-page`） | — | 否 | **2026-11-07 已删除**（shared 常量 / main handler / preload / preview 桩），新调用方一律用 `files:search-page` |
 | `files:create` / `files:rename` / `files:move` / `files:delete` 的 ssh 分支（2026-11-07 收口第二片） | main 内按位置分派：ssh 走 `remoteEntries`（entry 服务 + 令牌表 + 事实失效复用），本机走 local backend | — | 是 | rename/move/delete 的乐观锁凭据由 main 现读现用（stat→写），renderer 不再持令牌；delete 带回 trashId 收据；未装配端口时 ssh 明确 `UNSUPPORTED_PROJECT_LOCATION` |
 | `remoteHosts.searchProject` / `createProjectFile` / `createProjectDirectory` / `renameProjectEntry` / `deleteProjectEntry` / `statProjectEntry` | renderer **全部不再调用**（2026-11-07 收口第二片扩展：create/rename/move/delete 都走公共 `files:*`） | — | 否 | 兼容壳保留一版；令牌与乐观锁凭据全部留在 main |
 | `ProjectDirectoryEntry.ignored`（无独立 IPC 通道） | **本机宿主路径与远端目录页都已接线（2026-11-07）**：远端 `probeIgnore` → `projectDirectoryPage`；本机 `GitService.checkIgnore` → `LocalProjectFileBackend.directoryPage`；渲染层置灰。没有 `git:remote-check-ignore` 通道，也没有独立 handle 方法（审查 P1-4 已修文档） | — | 是 | 只加修饰不过滤；缺失 = 未知（不是“未忽略”）；WSL 原生路径未接（登记） |

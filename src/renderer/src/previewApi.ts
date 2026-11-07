@@ -668,9 +668,6 @@ export function createPreviewApi(): PiDesktopApi {
 			// 预览模式没有主进程：公共目录页返回稳定码，不伪造空目录。
 			directoryPage: async () => ({ ok: false as const, code: "UNSUPPORTED_PROJECT_LOCATION", outcome: "rejected" as const }),
 			open: async () => undefined,
-			// 旧 files:search 的形状是裸数组，无法表达稳定码；预览桩保持空结果。
-			// 新调用方一律走 searchPage（返回 Op，预览下显式报没有后端）。
-			search: async () => [],
 			searchContent: async () => null,
 			// 公共搜索页同样没有后端：返回稳定码，不伪造空结果冒充“搜过了”。
 			searchPage: async () => ({ ok: false as const, code: "UNSUPPORTED_PROJECT_LOCATION", outcome: "rejected" as const }),

@@ -56,15 +56,17 @@
  * 2026-11-07 合并刷新（+1）：上面两条并轨后 ipcChannels 843→844、前缀仍 94（无新增前缀）。
  * 2026-11-07 兼容壳下线（-3）：git:remote-repos / remote-log / remote-compare 删除，
  *   ipcChannels 844→842，git 前缀 62→59，前缀数仍 94。
+ * 2026-11-07 兼容壳下线（-1）：files:search 旧形状删除（调用方一律用 files:search-page），
+ *   ipcChannels 842→841，前缀数仍 94。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const CHANNEL_TOTAL = 842;
+const CHANNEL_TOTAL = 841;
 const PREFIX_COUNT = 94;
-const CHANNEL_DIGEST = "bf642cf47d7eedad21f67094b31173e54d07ca6d20b150d57469ea51c5d5f915";
+const CHANNEL_DIGEST = "235f2841dd3df37a45ca73658170ffbefe05c13c81e9a2e3ed23fa691dab98ab";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";
@@ -83,11 +85,11 @@ const sortedDigest = (pairs) => {
 	return createHash("sha256").update(serialized, "utf8").digest("hex");
 };
 
-test("F3-1 通道常量总数 === 842", () => {
+test("F3-1 通道常量总数 === 841", () => {
 	assert.equal(entries.length, CHANNEL_TOTAL);
 });
 
-test("F3-2 通道值唯一数 === 842（无重复通道字符串）", () => {
+test("F3-2 通道值唯一数 === 841（无重复通道字符串）", () => {
 	assert.equal(new Set(values).size, CHANNEL_TOTAL);
 });
 

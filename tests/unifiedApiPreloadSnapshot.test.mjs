@@ -46,6 +46,8 @@
  * 2026-11-07 兼容壳下线：git.remoteRepos / remoteLog / remoteCompare 三方法移除（公共
  *   git:repos / git:history-page / git:compare-refs 已在 main 内按位置路由），git 64→61；
  *   命名空间数与其他数量锚点不变，仅方法清单摘要重算。
+ * 2026-11-07 兼容壳下线（-1）：files.search 旧形状移除（调用方一律用 files.searchPage），
+ *   files 21→20；命名空间数与四个数量锚点均不变。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -53,7 +55,7 @@ import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const NS_LIST_SHA256 = "f909ece292c40c44553af5d815321bbb8a0666d76c9a4c02a454a319d9505922";
-const FULL_METHODS_SHA256 = "accec6151869294eb55845a095bfcd748b0fd52e4d9ca19ed4a52eb68e351140";
+const FULL_METHODS_SHA256 = "ee8ca96c88fef2fc06cfa85345b0539a54074a7c707160636e74a7067fef8252";
 const NAMESPACE_COUNT = 83;
 
 /** 捕获 preload 暴露的 piDesktop；null/undefined/形态不符时显式红并给诊断（F8-6 共用）。 */

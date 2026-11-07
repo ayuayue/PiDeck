@@ -378,12 +378,6 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		return projectFileBackendRouter.forProject(rawProjectId).search(target, normalizedQuery);
 	};
 
-	ipcMain.handle(ipcChannels.filesSearch, async (_event, rawProjectId: unknown, query: unknown): Promise<FileSearchResult[]> => {
-		if (typeof rawProjectId !== "string" || !rawProjectId.trim() || rawProjectId.length > 256) throw new Error("INVALID_PROJECT_FILE_TARGET");
-		const normalizedQuery = parseFileSearchQuery(query);
-		return searchLocalFileNames(rawProjectId, normalizedQuery);
-	});
-
 	/**
 	 * 公共文件名搜索页（位置分派收口第一片）：本机与远端同一形状，调用方不需要知道位置。
 	 *

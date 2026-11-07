@@ -143,7 +143,6 @@ export const ipcChannels = {
 	/** 公共目录页（v5 T6）：本地/SSH 同一形状，带 truncated + revision + generation。 */
 	filesDirectoryPage: "files:directory-page",
 	/** 工作区文件名搜索（issue #215）：主进程全盘扫描，不受抽屉懒加载深度限制 */
-	filesSearch: "files:search",
 	/** 公共文件名搜索页（本机与远端同一形状，带 truncated/scanned）。 */
 	filesSearchPage: "files:search-page",
 	/** 工作区文件内容检索（Go file-index sidecar）：未就绪/不可用时回 null，渲染层不展示内容分区 */
