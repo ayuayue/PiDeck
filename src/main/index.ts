@@ -3660,6 +3660,8 @@ function registerIpc() {
 		},
 	});
 	quitCleanup.register("remote-git-reads", remoteGitReads.dispose);
+	// T6 收尾：目录页的 Git ignore 修饰接在 Git IPC 之后（仓库归因与能力门控都在那边）。
+	remoteProjectIpc.setIgnoreProbe((projectId, paths) => remoteGitReads.probeIgnore(projectId, paths));
 	const remoteProjectTextPort = registerRemoteProjectFileIpc({
 		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,

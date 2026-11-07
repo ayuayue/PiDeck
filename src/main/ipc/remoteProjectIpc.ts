@@ -28,6 +28,7 @@ import { createProjectDirFacts, type ProjectDirFacts } from "./remoteProjectDirF
 import { registerRemoteProjectCreateFlow } from "./remoteProjectCreateIpc";
 import type { RemoteHostConnectionService } from "../remote/RemoteHostConnectionService";
 import type { RemoteSftpDirectoryPort } from "../remote/RemoteSftpDirectoryReader";
+import type { DirectoryIgnoreProbe } from "../remote/RemoteDirectoryIgnore";
 import { isUserVisibleRemoteEntry } from "../remote/RemoteProjectNameRules";
 import { resolveRemoteBrowseRoot } from "../remote/RemoteBrowseRoot";
 import { createRemoteSearchReader } from "../remote/RemoteSearchReader";
@@ -88,6 +89,8 @@ export type RemoteProjectIpcHandle = {
 	dirWatchStatus(projectId: string): DeepDirWatchStatus;
 	/** 公共目录页（T6）：与远端 list 共用同一份事实缓存，带 truncated/revision/generation。 */
 	directoryPage(projectId: string, path: string, force?: boolean): Promise<ProjectDirectoryPageResult>;
+	/** 目录页 Git ignore 修饰端口（晚绑定：Git IPC 在本模块之后注册）。 */
+	setIgnoreProbe(probe: DirectoryIgnoreProbe | undefined): void;
 	/**
 	 * 远端内容搜索（helper 1.25.0）：按**连接握手声明的能力**路由，旧 helper 返回 `ok:true, value:null`
 	 * （"这个位置不支持"），渲染层据此回退到仅文件名提示，而不是发一次注定失败的请求。
@@ -273,6 +276,7 @@ export function registerRemoteProjectIpc(input: {
 		invalidateStatuses: projectDirs.invalidateStatuses,
 		gitStatusFacts: projectDirs.gitStatusFacts,
 		directoryPage: projectDirs.directoryPage,
+		setIgnoreProbe: projectDirs.setIgnoreProbe,
 		pathsExist: (projectId, paths) => projectPathsExist({ projectId, paths, projectReadTarget }),
 		async searchContent(projectId, query) {
 			const target = await projectReadTarget(projectId);

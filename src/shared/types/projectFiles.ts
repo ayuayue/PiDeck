@@ -26,9 +26,9 @@ export type ProjectDirectoryEntry = {
 	/**
 	 * Git ignore 修饰（仅当 backend 有 Git 判定时出现）；不是“隐藏”。
 	 *
-	 * **当前无渲染层消费者**（第三批 D 收尾显式登记）：目录页不填这个字段，`git:remote-check-ignore`
-	 * 也只有 handler。要接的时候按 T6 的分批约定（≤64 路径/次）在目录页批量判定，用它做置灰修饰，
-	 * 不要改成本地重写 gitignore 语义，也不要拿它当过滤条件。
+	 * 目前由**远端**目录页填写（`git.checkIgnore`：最长仓库前缀归因、64 路径/批、能力门控、失败即不填），
+	 * 渲染层只用来把行置灰（文件行与目录行各一处）。**本机 backend 与 WSL 尚未填**（下一步切片）：
+	 * 字段缺失表示“没判定”，不能当成“未被忽略”，也不该改成本地重写 gitignore 语义或当成过滤条件。
 	 */
 	ignored?: boolean;
 };

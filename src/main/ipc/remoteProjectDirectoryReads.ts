@@ -5,7 +5,8 @@
  */
 
 import { codeOf, opFailFromCode, opOk } from "../../shared/op";
-import type { ProjectDirectoryPageResult, ProjectDirectoryWatchDegradation, ProjectPathState, ProjectPathsExistResult } from "../../shared/types/projectFiles";
+import type { ProjectDirectoryEntry, ProjectDirectoryPageResult, ProjectDirectoryWatchDegradation, ProjectPathState, ProjectPathsExistResult } from "../../shared/types/projectFiles";
+import { applyDirectoryIgnore, type DirectoryIgnoreProbe } from "../remote/RemoteDirectoryIgnore";
 import type { RemoteProjectTargetResolver } from "./remoteProjectTarget";
 import { readRelativePath, readerPath, sessionPort, type RemoteProjectDirSnapshot } from "./remoteProjectReadIpc";
 import { createRemoteWorkspaceReader } from "../remote/RemoteWorkspaceReader";
@@ -39,14 +40,20 @@ export function projectDirectoryPage(input: {
 	generationOf: (projectId: string) => string;
 	/** 目录页是渲染层知道「监听降级」的唯一通道；未装配时页面形状保持旧样。 */
 	dirWatch?: (projectId: string) => ProjectDirectoryWatchDegradation | undefined;
+	/**
+	 * Git ignore 修饰（T6 收尾）：只给已被 git 判定的条目加 `ignored: true`。
+	 * 探测失败/未装配只是“没修饰”，绝不把目录页搞成失败，也不填 `false` 冒充“查过了”。
+	 */
+	ignoreProbe?: DirectoryIgnoreProbe;
 }): Promise<ProjectDirectoryPageResult> {
 	const relative = readRelativePath(input.path);
 	if (relative === undefined) return Promise.resolve(opFailFromCode("REMOTE_PROJECT_PATH_INVALID"));
-	return input.readDirSnapshot(input.projectId, relative, input.force).then((read) => {
+	return (async () => {
+		const read = await input.readDirSnapshot(input.projectId, relative, input.force);
 		if (!read.ok) return opFailFromCode(read.code);
 		const dirWatch = input.dirWatch?.(input.projectId);
 		const prefix = relative === "" ? "" : relative + "/";
-		const entries = read.snapshot.value
+		const entries: ProjectDirectoryEntry[] = read.snapshot.value
 			.filter((entry) => entry.kind === "file" || entry.kind === "directory")
 			.map((entry) => ({
 				target: { projectId: input.projectId, relativePath: prefix + entry.name },
@@ -55,15 +62,29 @@ export function projectDirectoryPage(input: {
 				// 单层目录协议不逐项探测：远端只能是 unknown，不能伪装成“没有子项”。
 				hasChildren: (entry.kind === "directory" ? "unknown" : false) as boolean | "unknown",
 			}));
+		const page = entries.slice(0, 2000);
+		// 只对真正返回的条目判定（截断之后），批次与上限在探测实现里定。
+		// 判定失败只是「没有修饰」：它绝不能让一次成功的目录读变成失败。
+		let ignored: readonly boolean[] | undefined;
+		if (input.ignoreProbe !== undefined && page.length > 0) {
+			try {
+				ignored = await input.ignoreProbe(
+					input.projectId,
+					page.map((entry) => entry.relativePath),
+				);
+			} catch {
+				ignored = undefined;
+			}
+		}
 		return opOk({
-			entries: entries.slice(0, 2000),
+			entries: applyDirectoryIgnore(page, ignored),
 			truncated: read.snapshot.truncated || entries.length > 2000,
 			scanned: read.snapshot.scanned,
 			revision: read.snapshot.revision,
 			generation: input.generationOf(input.projectId),
 			...(dirWatch === undefined ? {} : { dirWatch }),
 		});
-	});
+	})();
 }
 
 export async function projectPathsExist(input: { projectId: string; paths: readonly string[]; projectReadTarget: RemoteProjectTargetResolver }): Promise<ProjectPathsExistResult> {

@@ -23,6 +23,7 @@ import type { RemoteProjectFactsScope, RemoteWorkspaceEntry } from "../../shared
 import { createSnapshotFactsCache, type SnapshotFactsCache } from "../git/RemoteGitSnapshotFacts";
 import type { RemoteGitReadSnapshot } from "../git/RemoteGitService";
 import { createFactCache, type FactCache } from "../remote/RemoteFactCache";
+import type { DirectoryIgnoreProbe } from "../remote/RemoteDirectoryIgnore";
 import type { RemoteFactsHub } from "../remote/RemoteFactsNotifications";
 import { createDeepDirWatch, type DeepDirWatchStatus } from "../remote/RemoteDeepDirWatch";
 import { dirKeysAfterWrite, dirPathsAfterWrite } from "../remote/RemoteDirWatchRegistry";
@@ -55,6 +56,11 @@ export type ProjectDirFacts = {
 	directoryPage(projectId: string, path: string, force?: boolean): Promise<ProjectDirectoryPageResult>;
 	/** 目录事实读（list 与公共目录页共用）。 */
 	readDirSnapshot(projectId: string, relative: string, force: boolean): Promise<RemoteProjectDirSnapshot>;
+	/**
+	 * 目录页的 Git ignore 修饰端口（晚绑定：Git IPC 在本模块之后注册）。
+	 * 未装配 / 判定失败都只是「没有修饰」，不影响目录页本身。
+	 */
+	setIgnoreProbe(probe: DirectoryIgnoreProbe | undefined): void;
 	/** helper 变更事件：把 watchId 换回「哪个项目的哪些目录」，只标脏。 */
 	onHelperEvent(entry: { hostId: string; watchId: string; paths: readonly string[]; sessionKey: string }): void;
 	/** 断连：helper 的 watcher 已随会话一起死，登记直接丢弃（不再发退订）。 */
@@ -72,8 +78,13 @@ export type ProjectDirFacts = {
 	dispose(): Promise<void>;
 };
 
-export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectTargetResolver; factsEvents: RemoteFactsHub; directoryReader?: RemoteSftpDirectoryPort }): ProjectDirFacts {
+export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectTargetResolver; factsEvents: RemoteFactsHub; directoryReader?: RemoteSftpDirectoryPort; ignoreProbe?: DirectoryIgnoreProbe }): ProjectDirFacts {
 	const factsEvents = input.factsEvents;
+	/**
+	 * 目录页 ignore 修饰的判定端口（T6 收尾）：由装配层在 Git IPC 建好后接到这里。
+	 * 保持 `undefined` = 旧装配/无 Git：目录页不带 `ignored`，不猜。
+	 */
+	let ignoreProbe: DirectoryIgnoreProbe | undefined = input.ignoreProbe;
 	const projectWatches = createProjectWatchKeepAlive();
 	const watchRegistry = projectWatches.registry;
 	const dirWatch = createDeepDirWatch({ registry: watchRegistry });
@@ -239,12 +250,16 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 		invalidateStatuses(projectId) {
 			publish(projectId, invalidateStatuses(projectId));
 		},
+		setIgnoreProbe(probe) {
+			ignoreProbe = probe;
+		},
 		directoryPage: (projectId, path, force = false) =>
 			projectDirectoryPage({
 				projectId,
 				path,
 				force,
 				readDirSnapshot,
+				...(ignoreProbe === undefined ? {} : { ignoreProbe }),
 				generationOf,
 				// 监听降级是项目级事实：每个目录页都顺手带出去，渲染层不必再开一条诊断通道。
 				dirWatch: (id) => projectDirectoryWatchDegradation(dirWatch.status(id)),

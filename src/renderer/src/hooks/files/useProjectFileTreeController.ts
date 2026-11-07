@@ -1,3 +1,4 @@
+import { directoryPageNode } from "../../utils/directoryPageNode";
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import { desktopApi as api } from "../../desktopApi";
 import { t } from "../../i18n";
@@ -25,25 +26,6 @@ export interface ProjectFileTreeControllerDeps {
 	/** 项目列表已确认该目录缺失（presence 刷出来的 missing）：用于抑制切换项目时重复提示。 */
 	activeProjectMissing: boolean;
 	showToast: (message: string, duration?: number) => void;
-}
-
-/** 公共目录页条目 → 本机文件树节点：保留绝对路径与排序元数据，行为对齐旧的 files.list。 */
-function directoryPageNode(entry: ProjectDirectoryEntry): FileTreeNode {
-	const name = entry.relativePath.slice(entry.relativePath.lastIndexOf("/") + 1);
-	const path = entry.path ?? entry.relativePath;
-	const isDirectory = entry.type === "directory";
-	return {
-		name,
-		path,
-		displayPath: path,
-		relativePath: entry.relativePath,
-		target: entry.target,
-		type: entry.type,
-		...(isDirectory ? { hasChildren: entry.hasChildren !== false } : {}),
-		...(entry.mtimeMs === undefined ? {} : { mtimeMs: entry.mtimeMs }),
-		...(entry.ctimeMs === undefined ? {} : { ctimeMs: entry.ctimeMs }),
-		...(entry.size === undefined ? {} : { size: entry.size }),
-	};
 }
 
 /**
