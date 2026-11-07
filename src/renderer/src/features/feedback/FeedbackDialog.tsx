@@ -114,9 +114,13 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 	};
 
 	const handleExport = async (kind: "md" | "zip") => {
-		const result = kind === "md" ? await feedback.exportMarkdown() : await feedback.exportBundle();
-		if (result.canceled) return;
-		onToast(result.ok ? t("feedback.exportOk") : `${t("feedback.exportFail")}${result.error ?? ""}`);
+		try {
+			const result = kind === "md" ? await feedback.exportMarkdown() : await feedback.exportBundle();
+			if (result.canceled) return;
+			onToast(result.ok ? t("feedback.exportOk") : `${t("feedback.exportFail")}${result.error ?? ""}`);
+		} catch (error) {
+			onToast(`${t("feedback.exportFail")}${error instanceof Error ? error.message : String(error)}`);
+		}
 	};
 
 	return (
@@ -285,7 +289,7 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 										title={t("feedback.share.exportMarkdown")}
 										desc={t("feedback.share.exportMarkdownDesc")}
 										action={
-											<Button variant="outline" size="sm" onClick={() => void handleExport("md")}>
+											<Button variant="outline" size="sm" disabled={!feedback.report} onClick={() => void handleExport("md")}>
 												{t("feedback.share.exportAction")}
 											</Button>
 										}
@@ -295,7 +299,7 @@ export function FeedbackDialog({ open, project, appInfo, onClose, onToast, onOpe
 										title={t("feedback.share.exportZip")}
 										desc={t("feedback.share.exportZipDesc")}
 										action={
-											<Button variant="outline" size="sm" onClick={() => void handleExport("zip")}>
+											<Button variant="outline" size="sm" disabled={!feedback.report} onClick={() => void handleExport("zip")}>
 												{t("feedback.share.exportZipAction")}
 											</Button>
 										}
