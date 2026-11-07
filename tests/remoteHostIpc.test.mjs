@@ -661,10 +661,11 @@ test("diagnose reports the reasons and the legal actions", async () => {
 
 test("diagnose on a healthy store returns nothing to do, not an error", async () => {
 	// 健康时界面应当什么都不显示；把它做成错误会让面板永远报错。
-	const { handlers, calls } = repairHandlers({ status: "ready" });
+	const { handlers, calls } = repairHandlers({ status: "ready", findings: [] });
 	const result = await handlers.get("remote:repair-diagnose")({});
 	assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: true, findings: [] });
-	assert.equal(calls.diagnose, 0, "a healthy store must not be diagnosed");
+	// 健康 store 也要 diagnose：残留 rebind 锁与状态无关，跳过会把唯一的出路藏起来。
+	assert.equal(calls.diagnose, 1);
 });
 
 test("a repair only ever runs after the user approves it", async () => {
@@ -735,7 +736,8 @@ test("an unknown or unapproved action is refused before anything is offered", as
 });
 
 test("a repair that cannot be diagnosed is refused", async () => {
-	const { handlers, calls, sender } = repairHandlers({ status: "ready" });
+	// 诊断没有给出任何动作 = 当前状态不允许这个修复，UI 不能凭空发明一个。
+	const { handlers, calls, sender } = repairHandlers({ status: "ready", findings: [] });
 	const result = await handlers.get("remote:repair-run")({ sender }, "complete-activation-from-pin", HOST_ID);
 	assert.equal(result.ok, false);
 	assert.equal(calls.sent.length, 0);

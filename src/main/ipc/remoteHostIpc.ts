@@ -469,9 +469,9 @@ export function registerRemoteHostIpc(input: {
 		const disabled = guard<RemoteHostRepairDiagnosisResult>(() => ({ ok: false, code: "REMOTE_FEATURE_DISABLED" }));
 		if (disabled !== undefined) return disabled;
 		try {
-			const { repair, store } = await openRepair();
-			// A healthy store has nothing to diagnose: report an empty list rather than an error.
-			if (store.getSnapshot().status === "ready") return { ok: true, findings: [] };
+			const { repair } = await openRepair();
+			// Always diagnose: a healthy host store can still have a leftover rebind tx lock, and that lock
+			// alone pins every SSH call. Returning [] for "status ready" would hide the only way out.
 			const findings = await repair.diagnose();
 			return { ok: true, findings: findings.map(findingFrom) };
 		} catch (error) {
@@ -499,7 +499,7 @@ export function registerRemoteHostIpc(input: {
 			const snapshot = store.getSnapshot();
 			// Only actions the diagnosis actually authorised may be requested: the UI must not be able to
 			// invent one, and a stale button must not run something the current state no longer allows.
-			const findings = snapshot.status === "ready" ? [] : await repair.diagnose();
+			const findings = await repair.diagnose();
 			const allowed = findings.some((finding) => finding.actions.includes(action as HostRepairAction) && (hostId === undefined || finding.hostIds.length === 0 || finding.hostIds.includes(hostId)));
 			if (!allowed) return { ok: false, code: "HOST_REPAIR_NOT_APPLICABLE" };
 			const requested = action as HostRepairAction;

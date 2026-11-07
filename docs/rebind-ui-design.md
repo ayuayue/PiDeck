@@ -246,6 +246,15 @@
   `rebindWizardState.ts`（换任一端即作废旧摘要）；只有确认页的 approve 会写，running 阶段没有取消按钮。
 - 仍未做：真机 E2E（附 A 第 5 步）；项目页/报错恢复入口（用户已定只放设置页一处）。
 
+- **第 5 步（真机验收，无破坏性子集）**：`e2e/rebind-wizard.spec.ts` 3 例通过（真机启动，31.2s）：
+  ① 入口存在 + 无目标时禁用并给出原因；② 残留 rebind 锁被诊断 → 「执行修复」→ 锁文件消失；
+  ③ 残留 journal 横幅出现 → 「继续收敛」失败时报 `REMOTE_HOST_REBIND_TARGET_MISSING`。
+  **真实迁移未在开发机执行**：一次 rebind 会 disable + retire 来源并改写两个 store，需要专属的第二台
+  已验证主机，不在本机验收的安全范围内（附 A 第 5 步的破坏性部分仍待专用环境）。
+- **验收中发现并修复的缺陷**：`remote:repair-diagnose` 与 `repair-run` 原先在 host store `status === "ready"`
+  时直接跳过 `diagnose()`。于是一个健康 store + 残留 rebind 锁（整机 pinned SSH 都被它挡住）在界面上
+  完全没有出口。现在两者始终诊断：ready 时返回空 find（无锁）或锁 finding（有锁）。
+
 ### 5.5 断开连接
 - 执行前（`③` 之后、写 journal 之前）main 应主动 `disconnect(source, "shutdown")`（`RemoteHostConnectionService` 已有 `disconnect`），否则 tx 一开始所有 pinned 调用（含正在跑的远端 agent）都会被 F3 打断，用户看到的是"应用坏了"。
 - 界面不暴露"是否断开"选项（技术决策，不交给用户）。
