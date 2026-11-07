@@ -1535,7 +1535,7 @@ export function App() {
 	 *
 	 * 目录由新会话页输入框上方的项目选择器决定，用户在那里换项目；待绑定智能体记在
 	 * pendingAgentBindingAtom 里，首次发送时由 ensureSessionForSend 建会话并落绑定。
-	 * 角色设定不预填、不显示：主进程在绑定会话的每次发送时把 systemPrompt 拼进 agentMessage
+	 * 角色设定不预填：主进程在绑定会话的首次发送时把 systemPrompt 拼进 agentMessage
 	 * （对 UI 隐藏，见 src/main/ipc/sessionIpc.ts 的 resolveSessionAgentInstruction）。
 	 * 留在市场页（返回 false）只有一种情形：一个项目都没有，无处可去。
 	 */
@@ -1655,7 +1655,7 @@ export function App() {
 			}
 			const promotion = (async () => {
 				// 「使用」带来的人：首次发送建会话时落地绑定。必须在选中会话之前完成——
-				// 主进程按绑定在每次发送时拼角色设定，晚一步首条消息就不带人设。
+				// 主进程按绑定在首次发送时拼角色设定，晚一步首条消息就不带人设。
 				const pendingAgentId = store.get(pendingAgentBindingAtom);
 				const pendingAgent = pendingAgentId ? store.get(agentProfilesAtom).find((profile) => profile.id === pendingAgentId) : undefined;
 				// 引导页 picker 无 record 分支把显式选择存进 localStorage；创建时将模型交给

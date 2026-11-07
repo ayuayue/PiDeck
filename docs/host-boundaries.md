@@ -43,7 +43,7 @@
   - 输入预测：第三个实例（logger / 退出清理名 `prompt-suggestion`）。入口 `suggest:run` / `suggest:cancel` / `suggest:event`；`systemPrompt` / `userText` 由主进程常量（`src/main/pi/enhance/promptSuggestion.ts`）注入，渲染层禁传，并带 `purpose: "suggest"`。
 - 三者的边界：一次性、无工具、不碰会话文件；事件按 runId 配对，终态恰好一次；fail-safe 与 pi-auth 一致（sidecar 起不来只是按钮置灰/toast，不影响 pi 会话）。禁止扩展成通用模型 API 桥，禁止把 `agent-profiles:invoke` 做成任意 systemPrompt 直通。
 - 输入预测的展示：ghost 文案是绝对定位视觉层，**不得写进 ProseMirror 文档**（不参与撤销/发送判定）；Tab / → 采纳时整体回填草稿，Esc 忽略，失败静默。开关 `settings.promptSuggestionEnabled`（缺省开，只有字面 false 能关）。
-- 智能体本身是 PiDeck 层预设：会话绑定存 `AgentMarketSettings.sessionAgentBindings`（只能经 `agent-profiles:bind-session` 改）；发送时 `sessionIpc` 用 `composeAgentInstruction` 把角色设定拼进 `SendPromptInput.agentMessage`（DSH 拒绝该通道，退化为可见前缀）。PiDeck 不替 pi 写系统提示。
+- 智能体本身是 PiDeck 层预设：会话绑定存 `AgentMarketSettings.sessionAgentBindings`（只能经 `agent-profiles:bind-session` 改）；会话**首次**发送时 `sessionIpc` 用 `composeAgentInstruction` 把角色设定拼进 `SendPromptInput.agentMessage`（DSH 拒绝该通道，退化为可见前缀）。角色设定随第一条用户消息留在历史里，之后轮次不重复注入。PiDeck 不替 pi 写系统提示。
 
 ## 例外五：运行时控制扩展（`pi-deck-runtime.ts`，只允许 `/reload`）
 

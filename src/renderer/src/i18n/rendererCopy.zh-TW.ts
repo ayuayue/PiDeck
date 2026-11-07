@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 0b12482b3c57067c14071bd2b0548bc1e9ca1b81889bb2516f49656b497e446b（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 55630f80d62b18d28255974e4d638f46dbfe7ae81e904453a6399478945abcb9（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -7877,9 +7877,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"agentPromptBar.pendingLabel": "待繫結",
 	"agentPromptBar.pendingHint": "首次傳送時建立會話並繫結；想換人點右側取消",
 	"agentPromptBar.pendingCancel": "取消繫結該智慧體",
-	"agentPromptBar.expand": "展開提示詞",
-	"agentPromptBar.collapse": "收起提示詞",
-	"agentPromptBar.hint": "每次傳送時自動注入，不顯示在對話正文裡",
+	"agentPromptBar.hint": "僅在會話首次傳送時注入一次，之後沿用會話上下文",
 	"settings.selectionTool.title": "劃詞工具",
 	"settings.selectionTool.description": "在 PiDeck 頁面內選中文字後，用所選智慧體翻譯或問答",
 	"settings.selectionTool.enabled": "應用內劃詞",

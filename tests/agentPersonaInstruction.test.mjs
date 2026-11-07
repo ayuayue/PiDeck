@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { composeAgentInstruction } = loadTsCommonJs("src/main/agents/agentPersonaInstruction.ts");
+const { composeAgentInstruction, shouldInjectAgentPersona } = loadTsCommonJs("src/main/agents/agentPersonaInstruction.ts");
+const sessionIpc = readFileSync("src/main/ipc/sessionIpc.ts", "utf8");
 
 /** 生产模块在 vm 沙箱里创建的对象原型属于另一个 realm，深度比较前转成本 realm 的普通对象。 */
 function plain(value) {
@@ -55,4 +57,19 @@ test("unicode persona and message are concatenated verbatim without rewriting", 
 	const composed = composeAgentInstruction({ persona, message, backend: "pi" });
 	assert.equal(composed.agentMessage, `${persona}\n\n${message}`);
 	assert.equal(composed.message, message);
+});
+
+test("persona is injected on the session's first turn only", () => {
+	assert.equal(shouldInjectAgentPersona({ sessionStatus: "draft", alreadyInjected: false }), true, "新会话首轮必须注入");
+	assert.equal(shouldInjectAgentPersona({ sessionStatus: "active", alreadyInjected: false }), false, "首条已落盘后不得重复注入");
+	assert.equal(shouldInjectAgentPersona({ sessionStatus: "draft", alreadyInjected: true }), false, "draft→active 回写前已注入过也不得重拼");
+	assert.equal(shouldInjectAgentPersona({ sessionStatus: "active", alreadyInjected: true }), false);
+	assert.equal(shouldInjectAgentPersona({ sessionStatus: undefined, alreadyInjected: false }), false, "没有 catalog 记录时保守不注入");
+});
+
+test("sessionsSendPrompt still strips hidden payloads from every bound DSH send", () => {
+	const dshFallback = sessionIpc.match(/if \(persona && boundRecord\?\.backend === "dsh"\) \{\s*if \(promptInput === input\) promptInput = \{ \.\.\.input \};\s*delete promptInput\.agentMessage;\s*\}/);
+	assert.ok(dshFallback, "后续 DSH 发送也必须删除 agentMessage，避免 host 拒收");
+	const firstTurnComposition = sessionIpc.indexOf("if (persona && boundRecord && injectPersona) {");
+	assert.ok(firstTurnComposition >= 0 && dshFallback.index > firstTurnComposition, "隐藏载荷清理不能受首轮注入门禁限制");
 });

@@ -9,7 +9,7 @@ import test from "node:test";
  * ui-shadcn/collapsible（真高度渐变、Presence 等 exit 动画播完再卸载、
  * reduced-motion 自动回退）。共性仍是：展开内容为定稿数据，高度稳定。
  *
- * - SessionAgentPromptBar：会话输入框上方的智能体角色设定条（AGENTS.md 领域速查）
+ * - SessionAgentPromptBar：输入卡上方的智能体角色设定卡（与 todo/subagents 同列）
  * - SessionHistoryPanel：抽屉/历史弹窗里父会话下的子代理会话列表
  * - ComposerComponents ExtensionWidgetCard：输入框上下方的扩展 widget 卡
  *   （细节：限高滚动样式在 legacy 层 .extension-widget-card-content，原语基底的
@@ -33,8 +33,8 @@ const read = (path) => readFileSync(`src/renderer/src/${path}`, "utf8");
 const CASES = [
 	{
 		path: "components/session/SessionAgentPromptBar.tsx",
-		root: /<Collapsible\s+open=\{expanded\}\s+className="contents">/,
-		forbidden: [/\{expanded\s*\?\s*\(/],
+		root: /<Collapsible\s+open=\{!collapsed\}\s+className="contents">/,
+		forbidden: [/\{!collapsed\s*\?\s*\(/],
 	},
 	{
 		path: "components/session/SessionHistoryPanel.tsx",
