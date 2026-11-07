@@ -2944,7 +2944,7 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 									<>
 										{statusBlock}
 										{configDiagnosticBlock}
-										{!loading && (
+										{!loading && settingsLoaded && (
 											<SettingsTab
 												data={settingsData}
 												saving={saving}
