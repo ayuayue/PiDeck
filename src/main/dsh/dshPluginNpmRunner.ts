@@ -54,7 +54,21 @@ const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/
 const NPM_EXACT_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 /**
- * 校验可安全传给 npm 的安装 spec：`name` 或 `name@exact-version`。
+ * 归一化「精确版本」：剥掉 v/V 前缀（git tag 写法，npm 的 semver 同样接受）后必须是
+ * 严格精确版本，否则 undefined。
+ *
+ * 官方市场目录的 vr 字段就是 tag 风格（`v0.4.2`），直接拼成 `name@v0.4.2` 会被下面的
+ * 闸门拒绝——归一化是唯一出口。宽松标签（`latest` / `models` / `step-note-v0.1.0` /
+ * 两段式 `v0.1`）一律 undefined，调用方按包名装最新版。
+ */
+export function normalizeNpmExactVersion(value: string): string | undefined {
+	const stripped = value.trim().replace(/^[vV](?=\d)/, "");
+	return NPM_EXACT_VERSION_RE.test(stripped) ? stripped : undefined;
+}
+
+/**
+ * 校验可安全传给 npm 的安装 spec：`name` 或 `name@exact-version`（`@v1.2.3` 归一化为
+ * `@1.2.3`，返回的 version 已是规范形态）。
  * 这是 IPC 边界的第一道闸（渲染层数据一律不可信）：路径分隔符、range、相对路径
  * 全部拒绝——它们会被 npm 当作目录/git/URL 通道或触发版本漂移。
  */
@@ -67,9 +81,10 @@ export function validateNpmSpec(spec: string): { ok: true; name: string; version
 	// name@version 形态：@ 不在首位（首位 @ 是 scope 前缀）
 	if (lastAt > 0) {
 		const name = value.slice(0, lastAt);
-		const version = value.slice(lastAt + 1);
-		if (!NPM_EXACT_VERSION_RE.test(version)) {
-			return { ok: false, reason: `unsupported version suffix "@${version}" (exact version only)` };
+		const rawVersion = value.slice(lastAt + 1);
+		const version = normalizeNpmExactVersion(rawVersion);
+		if (version === undefined) {
+			return { ok: false, reason: `unsupported version suffix "@${rawVersion}" (exact version only, e.g. @1.2.3)` };
 		}
 		return NPM_PACKAGE_NAME_RE.test(name) ? { ok: true, name, version } : { ok: false, reason: `invalid npm package name: ${name}` };
 	}
@@ -87,8 +102,8 @@ function clampOutput(value: string): string {
 /** execFile 的最小注入面（测试替身只关心 command/args/options）。 */
 type ExecFileLike = (file: string, args: readonly string[], options: ExecFileOptionsWithStringEncoding, callback: (error: ExecFileException | null, stdout: string, stderr: string) => void) => unknown;
 
-/** 取「为什么没跑起来」的文本：spawn 层错误（ENOENT/EACCES）只有 error.message 有信息。 */
-function describeSpawnFailure(error: unknown): string {
+/** 取错误文本（spawn 层错误只有 message 有信息；npm 的失败信息同样在 message 里）。 */
+export function describeError(error: unknown): string {
 	if (typeof error === "object" && error !== null && typeof Reflect.get(error, "message") === "string") {
 		return String(Reflect.get(error, "message"));
 	}
@@ -124,7 +139,7 @@ export function createDshPluginNpmRunner(launcher: DshPluginNpmLauncher, npmComm
 					resolve({
 						code: typeof execError?.code === "number" ? execError.code : error ? -1 : 0,
 						stdout: clampOutput(stdout || ""),
-						stderr: clampOutput(stderr || describeSpawnFailure(error)),
+						stderr: clampOutput(stderr || describeError(error)),
 					});
 				},
 			);
