@@ -23,7 +23,13 @@ export type ProjectDirectoryEntry = {
 	mtimeMs?: number;
 	ctimeMs?: number;
 	size?: number;
-	/** Git ignore 修饰（仅当 backend 有 Git 判定时出现）；不是“隐藏”。 */
+	/**
+	 * Git ignore 修饰（仅当 backend 有 Git 判定时出现）；不是“隐藏”。
+	 *
+	 * **当前无渲染层消费者**（第三批 D 收尾显式登记）：目录页不填这个字段，`git:remote-check-ignore`
+	 * 也只有 handler。要接的时候按 T6 的分批约定（≤64 路径/次）在目录页批量判定，用它做置灰修饰，
+	 * 不要改成本地重写 gitignore 语义，也不要拿它当过滤条件。
+	 */
 	ignored?: boolean;
 };
 

@@ -476,8 +476,8 @@ helper 事件与写操作仅标脏、发通知；只有活跃读者决定装载�
 | T1 | ✅ | `RemoteFactCache`：在途 flight 带退休标记，`invalidate/invalidateWhere/clear/clearWhere` 摘掉在途请求；旧 finally 只在身份相同时删除；退休读统一返回 `REQUEST_CANCELLED`。`RemoteGitSnapshotFacts`：`invalidate/invalidateProject/clear` 同样覆盖“只有在途、没有缓存值”的键。 | 新增 `tests/remoteFactInvalidationRace.test.mjs`（9 例，R1–R4）；改前旧实现 5 例失败，改后全绿。T1 套件 30 pass。 |
 | T2 | ✅ | `RemoteProjectSession.connectionId` = manager 实例 token + 连接 generation；`RemoteDirWatchRegistry` 按连接身份换代、并发 ensure 合并、32 路径分片 / 4 watcher 上限、迟到订阅不登记新代、成对 unwatch、`releaseHost/releaseProject/closeProject/clearHost/releaseAll`；`remoteProjectIpc` 用 `connectionId` 订阅并暴露 `onHostDisconnected/closeProject/dispose`；`main/index.ts` 在断连、项目删除、退出时接线。 | 新增 `tests/remoteDirWatchLifecycle.test.mjs`（10 例）；改前旧实现 7 例失败。T2 套件 37 pass；typecheck 绿。未跑 SSH 真机。 |
 | T3 | ✅ | Facts cache 加 generation 围栏 + `force` 显式刷新；`remoteGitReadIpc` 的 snapshot/status 先过调用者边界（enabled/disposed/sender/project/repo/压力），再逐次校验 locator+trust+连接身份与 ready；暖缓存不再绕过 trust/离线；共享装载不再继承单个调用者的取消；写成功与 unknown 都标脏；`RemoteHostConnectionService.connectionFacts(hostId)` 提供稳定身份；目录 list 逐次解析 target + 连接代；preload 新增 `refreshRemoteSnapshot`，控制器显式刷新走 force。 | 新增 `tests/remoteGitFactsBoundary.test.mjs`（8 例：R5–R10、目录暖缓存门禁、renderer force 接线）；改前旧实现 6 例失败、R10 已成立。T3 套件 67 例（45 pass / 22 skip，skip 为既有 ssh 真机用例）。未跑 SSH 真机。 |
-| T4 | ◐ 主进程通知闭环 | 新增 `RemoteFactsNotifications`（订阅绑定 sender+project、窗口销毁清理）；新增 IPC 订阅/退订/推送三通道并在 preload 暴露 `onProjectFactsChanged`（返回 unsubscribe）；目录写面与 helper 事件只标脏 + 发通知，携带 projectId/generation/scopes；断连换代；Git 写成功/unknown 也发 status 标脏通知。 | 新增 `tests/remoteFactsNotificationLoop.test.mjs`（6 例）；`check:ipc-wiring` 绿。**未完成**：dirs/repos/status 仍是两个缓存实例（目录 FactCache 与 Git SnapshotFactsCache）而非一个 owner；展开目录尚未登记真实路径 watcher（当前只有根层非递归 watch）；renderer 消费方/退订接线留给 T8。 |
-| T5 | ◐ 路径边界函数已落地 | `RemoteGitService` 新增唯一归一化 `remoteGitRepoScope`（字符串或 ProjectFileTarget）、`projectFilePath`、`repoRelativeFilePath`（严格目录前缀，拒绝同名前缀/跨仓）；`git:refs` 与 `compatRepo` 改用同一归一化，`git:refs` 现在接受文件树传来的 target scope。 | 新增 `tests/remoteGitTargetBoundary.test.mjs`（3 例）。T5 套件 34 pass。**未完成**：status/workspaceDiff/写面仍按旧远端契约返回/接受仓库内路径（未改成项目相对），避免与现有 legacy controller 及受保护测试冲突；项目相对输出与 `openDiff` 输入适配留到 T7/T8 同批迁移。 |
+| T4 | ✓ 单一 owner（2026-11-07 第三批） | `remoteProjectDirFacts` 收口成工作区事实的唯一 owner：目录 `FactCache` 与 Git `SnapshotFactsCache` 同一实例、同一张连接代、同一条通知出口；五条失效路径（写成功 / unknown 写 / helper 事件 / 断连换代 / 项目或 root 关闭）都在这里标脏，且**一次事件一条通知**。`remoteGitReadIpc` 通过 `workspace` 端口读写同一份缓存（缺省自持一份，仅旧装配/单测）；`main/index.ts` 的 afterWrite 调用点保留，但不再需要二次调用 Git 侧失效。 | 新增 `tests/remoteWorkspaceFactsOwner.test.mjs`（4 例：目录写→Git status 也脏且只发一条通知、Git 写→零目录装载、断连/关闭一起作废、真实 Git 写通道走同一 owner）；T4 相关 63 例全绿；typecheck 0。**仍有**：展开目录只登记根层非递归 watch（W6 范围）。 |
+| T5 | ✓ 公共 target 项目相对（2026-11-07 第三批） | `RemoteGitService` 的 `status` / `workspaceDiff` / 写面（`mutate`/`discard`/`recoveryRestore`）/ `refFileDiff`，以及同一份公共输出的 `commitDetail` / `compare` / `recoveryList`，公共 target/path/displayPath 全部是**项目相对**；仓库内路径只在 helper 帧出现（`repoRelativeFilePath` 唯一转换点）。跨仓、同名前缀、无前缀一律拒绝，不做前缀猜测；legacy controller 的 target 全部来自本服务输出，因此不存在“旧形状”分支。 | `tests/remoteGitTargetBoundary.test.mjs` 扩到 7 例（嵌套 status、写面双向映射、commitDetail/compare 项目相对、跨仓与同名前缀零帧拒绝）；`tests/remoteGitReadIpc.test.mjs` 按新契约更新并断言 helper 帧只剩仓库内路径。 |
 
 **T6–T9 在 T1–T5 交付时的后续任务摘要（后续落实情况见紧随其后的表格；不是新的开工指令）**
 
@@ -502,7 +502,7 @@ helper 事件与写操作仅标脏、发通知；只有活跃读者决定装载�
 | §4.2 能力 | 现状与证据 | 状态 |
 |---|---|---|
 | 仓库发现与 scope | 远端选择器优先 `git:repository-list`（truncated/relativePath）；旧 `remoteRepos` 只在 invoke 拒绝或 `UNSUPPORTED_CAPABILITY` 时回退，当前装配的 `repositoryListing` 两者都不产生；嵌套 scope 保留；本机多仓面板未动 | ✓ |
-| 文件身份与 workspace diff | `RemoteGitService.status` 为每个资源生成公共 `target`；`openDiff` 原样把 `target` + 项目相对 repo scope 传给 `git.workspaceFileDiff`，main 端 `workspaceDiff` 再按 target 校验并返回同一 `ProjectFileTarget`；没有“有前缀就剥”的猜测 | ✓ |
+| 文件身份与 workspace diff | `RemoteGitService.status` 为每个资源生成**项目相对**的公共 `target`（2026-11-07 第三批 T5）：`path`/`displayPath`/`target`/`oldTarget` 同一形状；`openDiff` 原样把 `target` + 项目相对 repo scope 传给 `git.workspaceFileDiff`，`workspaceDiff`/写面/`refFileDiff`/`commitDetail`/`compare`/recovery 都用 `repoRelativeFilePath` 在 helper 边界转换一次。跨仓、同名前缀、无前缀一律 `GIT_RESULT_INVALID`，没有“有前缀就剥”的猜测 | ✓ |
 | status / refresh | T1–T4 的边界/围栏/显式 refresh/通知已在单测覆盖；远端面板消费 status 通知强制重读；暖事实命中仍逐次校验同代连接 | ✓ |
 | history / count / graph | 远端历史走 `git:history-page`（HEAD-only、hasMore）；count/graph 是远端不提供的能力，`GitGraph` 缺席回调不显示成功、`commitCount` 缺席不发请求（F7）；不是“已接但没迁” | ✓ |
 | commit detail / file diff | 生产 renderer 经 `ProjectGitService.commitDetail` / `refFileDiff` 消费；服务复用既有 `remoteCommitDetail` / `remoteRefFileDiff` 通道和 `RemoteGitService` 路径校验，不复制业务逻辑。后者接收 `ProjectFileTarget` + repo scope 并返回 target。 | ✓ |
@@ -515,7 +515,7 @@ helper 事件与写操作仅标脏、发通知；只有活跃读者决定装载�
 | trust / recovery / init / 断连 | T2/T3/T4 的会话身份、缓存 fence、断连换代与既有 trust/init 区块保留 | ✓ |
 | 高级写 / refs watch | 远端仍无 cherryPick/revert/reset/dropCommit；`GitGraph` 缺席回调不再显示成功、count 缺席不调用（F7）；refs 只读轮询受可见性/host 状态约束 | ✓ |
 | 文件树 | 本机/远端已共用 `lazyDirTree`：逐层 target 读取、项目键持久化、legacy 迁移、refs 静默重载、失败重试；远端首读遇切换项目瞬态有有界重试（`remoteDirectoryPageRetry`）；本地 E2E 渲染预算通过 | ✓ |
-| Git 宿主/展示 | 自动刷新策略已拆到 `useGitAutoRefresh`（能力位控制三个 effect）；`DrawerSurface` 的 Git 生产入口收为 `ProjectGitDrawer`，远端复用共用变更树/diff/错误展示，事实由 `useRemoteGitView` 独占；history/compare/trust/init/sync 为真实远端专属区块。两个核心状态机仍未合并。 | ◐ |
+| Git 宿主/展示 | 自动刷新策略已拆到 `useGitAutoRefresh`（能力位控制三个 effect）；`DrawerSurface` 的 Git 生产入口收为 `ProjectGitDrawer`，远端复用共用变更树/diff/错误展示，事实由 `useRemoteGitView` 独占；history/compare/trust/init/sync 为真实远端专属区块（授权语义不同，不合并）。**四条公共规则已统一**（2026-11-07 第三批 W5）：取消 / 互斥 / unknown / 迟到读 只由 `createGitOperationGate` 实现，`GitPanel`、`remoteGitViewState`、`remoteGitStatusPolling` 都走它；两套状态机其余部分（本地面板的自动 fetch/轮询策略、远端专属区块）仍各自持有。 | ◐（规则已合并，区块仍独立） |
 
 #### 兼容壳与旧业务调用清点
 
@@ -531,6 +531,7 @@ helper 事件与写操作仅标脏、发通知；只有活跃读者决定装载�
 | `remoteRefs` | 远端 refs 列表 | — | 是 | 领域入口；无公共 refs 替身，不另建缓存 |
 | `remoteCommitDetail` / `remoteRefFileDiff` | `ProjectGitService.commitDetail` / `refFileDiff` 的底层通道 | — | 是 | 服务实现复用既有领域通道；renderer 不再直接调用 preload |
 | `remoteProjectList` / `listProject` | 无 renderer 生产消费者 | — | 否 | 旧目录列表适配器；保留一版，候选后续删除 |
+| `git:remote-check-ignore` + `ProjectDirectoryEntry.ignored` | **无生产消费者**（第三批 D 显式登记） | — | 否 | 只有 handler 与契约字段；接线时按 ≤64 路径/批在目录页批量判定，用作置灰修饰（不改写 gitignore 语义、不当过滤条件） |
 | `files:list` 的远端 target 分支 | 无 renderer 生产消费者（本机树只用本机 target） | — | 否 | 与 `directoryPage` 共用同一目录事实；保留一版 |
 | `openProjectText` / `saveProjectText` / `readProjectFile` | 远端文本编辑器/图片预览 | — | 是 | 领域文本/图片读写；未迁公共 files 写面，不与目录树重复 |
 | `searchProject` / 条目 stat/create/rename/delete/trash/upload | 远端文件管理面板 | — | 是 | 远端文件写/管理领域入口；T6 未要求迁到公共写面 |

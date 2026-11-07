@@ -1,8 +1,9 @@
 # 远端/本地 UI 统一 · 第三批重构计划（T4 / T5 / W5）
 
-> Status: **待执行**。基线：`dev`（2026-11-07 合并 origin/dev 之后，约 844 IPC 通道）。
+> Status: **已执行（2026-11-07）**。基线：`dev`（9161f0519，87 个提交领先 origin/dev）。
 > 前置阅读：`docs/remote-file-tree-and-git-unification-plan.md`（§4.1 波次进度、§10.7 任务卡、§10.8 兼容壳清点）、`docs/engineering-standards.md`、`AGENTS.md`。
-> 本文件只写**第三批**（T4 收口、T5 路径语义、W5 共用状态机）的现状、验收与顺序，不重复前两批已完成的结论。
+> 本文件只写**第三批**（T4 收口、T5 路径语义、W5 共用状态机）的现状、验收与执行结果，不重复前两批已完成的结论。
+> 执行结果见 §6；未跑项（SSH 真机 E2E）与残留项都写在 §6，不要读成“全部完成”。
 
 ## 0. 已完成、不要重做
 
@@ -69,3 +70,27 @@
 - 不跑全量 `npm run build`（除用户明确要求）；
 - 不自动 `git add/commit/push`，交付时列出改动与验证命令；
 - 与并行 agent 的分工按目录/文件段划分，公共汇聚文件（`src/main/index.ts`、`shared/ipc.ts`、i18n 词典）同一时刻只一个写者。
+
+## 6. 执行结果（2026-11-07，本批实际交付）
+
+| 片 | 状态 | 落地方式 | 证据 |
+|---|---|---|---|
+| A / T4 单一 owner | ✅ | `remoteProjectDirFacts` 成为工作区事实的**唯一 owner**：目录 `FactCache` 与 Git `SnapshotFactsCache` 同一实例、同一张连接代（`projectGenerations`）、同一条通知出口。五条失效路径（写成功、unknown 写、helper 事件、断连换代、项目/root 关闭）都在这里标脏，并且**一次事件一条通知**。`remoteGitReadIpc` 通过 `workspace` 端口读写同一份实例（缺省时自持缓存，仅旧装配/单测兼容）。 | `src/main/ipc/remoteProjectDirFacts.ts`、`src/main/ipc/remoteProjectIpc.ts`、`src/main/ipc/remoteGitReadIpc.ts`（`invalidateAfterGitWrite`）、`src/main/index.ts`；`tests/remoteWorkspaceFactsOwner.test.mjs`（4 例：目录写→status 也脏且只发一条通知、Git 写→零目录装载、断连/关闭一起作废、真实 Git 写通道走同一 owner） |
+| B / T5 路径语义 | ✅ | `RemoteGitService` 的 `status` / `workspaceDiff` / 写面（`mutate`/`discard`/`recoveryRestore`）/ `refFileDiff`，以及同一份公共输出的 `commitDetail` / `compare` / `recoveryList`，公共 target 与 `path`/`displayPath` 全部改成**项目相对**；仓库内路径只在 helper 帧出现（`repoRelativeFilePath` 唯一转换点）。跨仓/同名前缀/无前缀一律 `GIT_RESULT_INVALID`，不做前缀猜测。legacy controller 不再走旧形状：它的 target 全部来自本服务的公共输出，因此不需要猜仓库。 | `src/main/git/RemoteGitService.ts`；`tests/remoteGitTargetBoundary.test.mjs`（新增 4 例：嵌套 status/写面双向映射、commitDetail/compare 项目相对、跨仓与同名前缀零帧拒绝）；`tests/remoteGitReadIpc.test.mjs` 按新契约更新 target 形状并断言 helper 帧只剩仓库内路径 |
+| C / W5 共用状态机 | ✅（抽 + 两侧接线） | 新增 `createGitOperationGate`：取消（`retire`/`isCurrent`）、互斥（写单飞，写者在途由消费者自己的标志回答；读可 `exclusive` 不重叠）、unknown（持续码，只有成功事实读解除）、迟到读（写一开始在途读作废）。`remoteGitStatusPolling` 的静默轮询、`remoteGitViewState` 的代次/unknown/写单飞、`GitPanel` 的 status 请求与 mutation 单飞都改成走它；history/compare/trust/init/sync 的授权语义保持独立。 | `src/renderer/src/utils/gitOperationGate.ts`；`tests/gitOperationGate.test.mjs`（4 例，一条规则一例）；`tests/remoteGitStatusPolling.test.mjs`、`tests/remoteGitViewState.test.mjs`、`tests/remoteGitMutationView.test.mjs`、`tests/remoteGitUncertainWriteCarry.test.mjs`、`tests/gitPanelPollingGuard.test.mjs`、`tests/gitPanelUi.test.mjs` 全绿 |
+| D / 收尾 | ◐ | Git ignore 修饰：**显式标注未消费**（契约字段与 handler 各写明现状+接线形状），未接进目录页 —— 这是 T6 的独立切片；位置分派：保持 provider 边界不变，未做跨层迁移；rebind UI：未做（产品级界面，不在本批）。 | `src/shared/types/projectFiles.ts`、`src/main/ipc/remoteGitReadIpc.ts`（`checkIgnore` 注释） |
+
+**验证命令与结果（本批实际执行）**：
+
+- `npm run typecheck` → exit 0；
+- `node --test tests/remoteWorkspaceFactsOwner.test.mjs tests/remoteProjectDirFacts.test.mjs tests/remoteGitFactsBoundary.test.mjs tests/remoteFactsNotificationLoop.test.mjs tests/remoteFactsTreeInvalidation.test.mjs tests/remoteGitSnapshotFacts.test.mjs tests/remoteFactInvalidationRace.test.mjs` → 63/63 pass；
+- `node --test tests/gitOperationGate.test.mjs tests/remoteGitStatusPolling.test.mjs tests/remoteGitViewState.test.mjs tests/remoteGitMutationView.test.mjs tests/remoteGitUncertainWriteCarry.test.mjs tests/gitPanelPollingGuard.test.mjs tests/remoteGitPollingCapabilityGate.test.mjs tests/remoteGitStability.test.mjs tests/remoteGitRefsPolling.test.mjs tests/gitPanelUi.test.mjs` → 116/116 pass；
+- `node --test tests/remoteGit*.test.mjs tests/gitPanel*.test.mjs …`（全部 `tests/*git*`、`*panel*`）→ 786 pass / 0 fail；
+- `node --test tests/remote*.test.mjs tests/project*.test.mjs tests/lazyDirTree.test.mjs tests/fileTree*.test.mjs` → 2412 pass / 0 fail（272 skip 为真机/环境门禁；`remoteHelperContentSearchProbe.mjs` 为既有真机探针，与本批无关且无 SSH 环境）；
+- `npx biome format <改动文件>` → No fixes applied。
+
+**未执行 / 残留项（如实登记）**：
+
+- **SSH 真机 E2E 未跑**：本机未提供 `PIDECK_E2E_REMOTE_HOST/USER/FINGERPRINT`，`e2e/remoteSessionAcceptance.spec.ts` 会整体 skip；因此本批对 `-g "远端 Git G5b|G5d/G5e|远端文件管理"` 的验收**没有证据**，只有单测与类型证据。
+- **位置分派仍按位置选 provider**：`createProjectServices`（`projectServices.ts`）与两个 provider 工厂仍是 UI 侧唯一的位置判断点。下一步是把 create/rename/read/search 收到 main 的公共入口（`filesIpc` 的 `remoteTextTarget()` 是已有起点），那需要新的公共写面契约，不在本批范围。
+- **rebind UI 未做**：目前只有 `HostRebindJournal` + `RepairPanel` 与主进程旅程；重新绑定界面需要先定产品交互（进入入口、步骤、取消语义），未在本批实现。
