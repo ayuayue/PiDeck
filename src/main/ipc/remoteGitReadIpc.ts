@@ -33,8 +33,21 @@ import type { RemoteProjectFactsScope } from "../../shared/types/remoteHost";
 import { opFailFromCode, opOk } from "../../shared/op";
 import { createRemoteGitService, remoteGitFailureCode, remoteGitRepoScope, validateRemoteGitPath, validateRemoteGitRepoPath, type RemoteGitLocator, type RemoteGitReadSnapshot } from "../git/RemoteGitService";
 import { createRemoteGitMutationTokens } from "../git/RemoteGitMutationTokens";
-import { createSnapshotFactsCache } from "../git/RemoteGitSnapshotFacts";
+import { createSnapshotFactsCache, type SnapshotFactsCache } from "../git/RemoteGitSnapshotFacts";
 import type { RemoteFactsHub } from "../remote/RemoteFactsNotifications";
+
+/**
+ * 工作区事实 owner 的 Git 侧接口（T4）：由 `remoteProjectIpc` 的 handle 提供。
+ *
+ * 这里只声明 Git IPC 真正需要的三件事：读哪份缓存、写后怎么标脏。目录族（dir/repos/订阅）不在这里暴露。
+ */
+export type RemoteWorkspaceFactsPort = {
+	facts: SnapshotFactsCache<RemoteGitReadSnapshot>;
+	/** Git 写成功/结果未知：该仓库 status + 整树标脏，只发一条通知。 */
+	afterGitWrite(projectId: string, repoPath: string): void;
+	/** 文件写：该项目全部已缓存仓库的 status 标脏（由 owner 发通知）。 */
+	invalidateStatuses(projectId: string): void;
+};
 import { REMOTE_GIT_COMMIT_MESSAGE_MAX_BYTES } from "../remote/RemoteHelperContract";
 import type { RemoteHostConnectionService } from "../remote/RemoteHostConnectionService";
 
@@ -61,10 +74,15 @@ export function registerRemoteGitReadIpc(input: {
 	/** 事实变化通知出口（与目录共用同一个 hub）；缺省时不发通知。 */
 	factsEvents?: RemoteFactsHub;
 	/**
-	 * 整树失效的主进程侧入口（装配层注入 remoteProjectIpc.invalidateTree）。
+	 * 工作区事实 owner（T4）：**单一**目录/status 缓存与失效矩阵都由它持有。
 	 *
-	 * 写成功/结果未知都可能让工作树的条目整块变化（切分支、discard、恢复快照、init），目录事实缓存
-	 * 必须与 Git 事实一起标脏；否则下一次打开抽屉仍会命中旧目录。缺省时不标脏（旧装配/测试端口）。
+	 * 生产装配注入 `remoteProjectIpc` 的 handle；缺省时本模块自持一份缓存与通知（旧装配/单测），
+	 * 那是兼容路径，不是第二份事实源：一个进程只会走其中一条。
+	 */
+	workspace?: RemoteWorkspaceFactsPort;
+	/**
+	 * 整树失效的主进程侧入口（旧装配兼容；新装配走 `workspace.afterGitWrite`）。
+	 * 写成功/结果未知都可能让工作树的条目整块变化（切分支/discard/恢复快照/init）。
 	 */
 	onTreeInvalidated?: (projectId: string) => void;
 }) {
@@ -98,7 +116,7 @@ export function registerRemoteGitReadIpc(input: {
 	 * 事实旧了不会让写穿过去：每个写动词都带 `expectedRevision`，revision 不符时远端自己拒绝
 	 * （见 `RemoteGitSnapshotFacts` 的模块头）。令牌仍然每次现签，缓存的只是事实。
 	 */
-	const facts = createSnapshotFactsCache<RemoteGitReadSnapshot>();
+	const facts = input.workspace?.facts ?? createSnapshotFactsCache<RemoteGitReadSnapshot>();
 	/** 公共仓库列表的单调版本：一次成功列表就是一份新事实（truncated 也属这份事实）。 */
 	let repositoryListingRevision = 0;
 
@@ -145,10 +163,20 @@ export function registerRemoteGitReadIpc(input: {
 	}
 
 	/**
-	 * 一次 Git 写造成的跨域失效：主进程目录事实先由装配层注入的入口标脏，再发布 status + tree。
-	 *
-	 * 标脏不是事务的一部分：入口缺失/抛错都不能把一个已经成功的写说成失败。
+	 * 一次 Git 写（成功或结果未知）的跨域失效：
+	 * - 单一 owner 装配：`workspace.afterGitWrite` 同时标脏该仓库 status 与整树，并只发一条通知；
+	 * - 旧装配/单测：自持缓存标脏 + 旧的三件事（标树、发 status+tree 通知）。
 	 */
+	function invalidateAfterGitWrite(projectId: string, repoPath: string): void {
+		if (input.workspace !== undefined) {
+			input.workspace.afterGitWrite(projectId, repoPath);
+			return;
+		}
+		facts.invalidate(projectId, repoPath);
+		publishTreeInvalidation(projectId, repoPath);
+	}
+
+	/** 旧装配用的发布路径（没有单一 owner 时）：目录标脏 + 一条 status/tree 通知。 */
 	function publishTreeInvalidation(projectId: string, repoPath: string): void {
 		try {
 			input.onTreeInvalidated?.(projectId);
@@ -166,17 +194,11 @@ export function registerRemoteGitReadIpc(input: {
 			const value = await task(guard.projectId, guard.controller.signal);
 			if (guard.controller.signal.aborted || guard.sender.isDestroyed()) throw new Error(mutating ? "GIT_WRITE_RESULT_UNCONFIRMED" : "REQUEST_CANCELLED");
 			// 写成功 ⇒ 这一仓的事实过时了：只标脏，下一次读重新装载（不在这里主动再读一次）。
-			if (mutating) {
-				facts.invalidate(guard.projectId, repoPath);
-				publishTreeInvalidation(guard.projectId, repoPath);
-			}
+			if (mutating) invalidateAfterGitWrite(guard.projectId, repoPath);
 			return value;
 		} catch (error) {
 			// 写已发出但结果未知（超时/断连/答复畸形）：事实可能已经变了，标脏但不自动读、不重放。
-			if (mutating && remoteGitFailureCode(error) === "GIT_WRITE_RESULT_UNCONFIRMED") {
-				facts.invalidate(guard.projectId, repoPath);
-				publishTreeInvalidation(guard.projectId, repoPath);
-			}
+			if (mutating && remoteGitFailureCode(error) === "GIT_WRITE_RESULT_UNCONFIRMED") invalidateAfterGitWrite(guard.projectId, repoPath);
 			throw error;
 		} finally {
 			guard.finish();
@@ -622,19 +644,28 @@ export function registerRemoteGitReadIpc(input: {
 				return opFailFromCode(remoteGitFailureCode(error));
 			}
 		},
-		/** 忽略判定（只读、零授权）：结果与请求逐位对应。 */
+		/**
+		 * 忽略判定（只读、零授权）：结果与请求逐位对应。
+		 *
+		 * **当前无生产消费者**（第三批 D 显式登记）：只有 handler 与契约字段 `ProjectDirectoryEntry.ignored`，
+		 * 目录页还没批量接线。接线时的形状已定：≤64 路径/批、按请求顺序、`exit 1` 是正常无命中。
+		 */
 		async checkIgnore(event: IpcMainInvokeEvent, projectId: unknown, repo: unknown, paths: unknown): Promise<boolean[]> {
 			const repoPath = compatRepo(typeof projectId === "string" ? projectId : "", repo);
 			if (!Array.isArray(paths) || paths.length === 0 || paths.length > 64 || paths.some((path) => typeof path !== "string")) throw new Error("GIT_RESULT_INVALID");
 			return read(event, projectId, repoPath, (id, signal) => git.checkIgnore(id, repoPath, paths as string[], signal));
 		},
 		/**
-		 * 文件写成功后（`remoteProjectIpc.afterWrite` 的对侧）：该项目**全部已缓存仓库**的事实过时了。
+		 * 文件写成功后（`remoteProjectIpc.afterWrite` 的对侧，兼容入口）：该项目**全部已缓存仓库**的事实过时了。
 		 *
-		 * 只标脏 + 逐仓发 status：不装载、不重放写，活跃面板按自己的 repoPath 精确匹配后重读。没有暖事实
-		 * 的项目不发通知（不制造空事件）。目录失效仍由文件写自己的 afterWrite 负责，所以这里不发 tree。
+		 * 单一 owner 装配下文件写的 status 失效已由 `afterWrite` 一并完成，这里只在旧装配（自持缓存）里使用；
+		 * 保留它是为了让装配层仍能显式表达“一次文件写影响 Git 事实”，而不是把语义藏在目录模块里。
 		 */
 		invalidateProject(projectId: string): void {
+			if (input.workspace !== undefined) {
+				input.workspace.invalidateStatuses(projectId);
+				return;
+			}
 			const repos = facts.reposOf(projectId);
 			facts.invalidateProject(projectId);
 			for (const repoPath of repos) publishFacts(projectId, repoPath);

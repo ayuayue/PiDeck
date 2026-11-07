@@ -3646,8 +3646,13 @@ function registerIpc() {
 		enabled: remoteFeatureEnabled,
 		service: remoteHostServiceIfEnabled,
 		factsEvents: remoteFactsEvents,
-		// P0-1：Git 写成功/结果未知时，主进程目录事实缓存与渲染层文件树一起失效（tree scope）。
-		onTreeInvalidated: (projectId) => remoteProjectIpc.invalidateTree(projectId),
+		// T4：目录与 Git 状态共用同一份工作区事实 owner（缓存实例、generation、失效矩阵都只一份）。
+		// Git 写成功/结果未知 → owner 把该仓库 status 与整树一起标脏，只发一条通知。
+		workspace: {
+			facts: remoteProjectIpc.gitStatusFacts,
+			afterGitWrite: remoteProjectIpc.afterGitWrite,
+			invalidateStatuses: remoteProjectIpc.invalidateStatuses,
+		},
 		trusted: async (target) => (await remoteProjectTrustService?.trustOverride({ hostId: target.hostId, remoteRoot: target.remotePath })) === "approve",
 		locator: (projectId) => {
 			const project = projectStore.get(projectId);
@@ -3662,10 +3667,9 @@ function registerIpc() {
 			const project = projectStore.get(projectId);
 			return project && isRemoteProject(project) ? project.locator : undefined;
 		},
+		// T4：一次文件写只走一份 owner 的失效矩阵（目录矩阵 + 全部已缓存仓库 status，一条通知）。
 		afterWrite: (projectId, paths) => {
 			remoteProjectFacts?.afterWrite(projectId, paths);
-			// P0-2：文件保存/新建/改名/删除/还原也会改变工作树状态：失效该项目所有已缓存仓库的 status。
-			remoteGitReads.invalidateProject(projectId);
 		},
 	});
 	const remoteProjectTransfers = registerRemoteProjectTransferJobIpc({
@@ -3678,13 +3682,12 @@ function registerIpc() {
 		binary: resolveRemoteSftpBinary,
 		cache: remoteSftpCapabilityCache,
 		probe: remoteSftpCapabilityProbe,
+		// T4：上传下载完成/结果未知同样走单一 owner（目录 + Git status 一次标脏）。
 		afterWrite: (projectId, paths) => {
 			remoteProjectFacts?.afterWrite(projectId, paths);
-			remoteGitReads.invalidateProject(projectId);
 		},
 		afterUnknown: (projectId) => {
 			remoteProjectIpc.invalidateTree(projectId);
-			remoteGitReads.invalidateProject(projectId);
 		},
 	});
 	quitCleanup.register("remote-project-transfer-jobs", remoteProjectTransfers.dispose);
@@ -3697,11 +3700,9 @@ function registerIpc() {
 			const project = projectStore.get(projectId);
 			return project && isRemoteProject(project) ? project.locator : undefined;
 		},
-		// 写成功后只标脏目录事实（W3）：一次写不产生任何远端往返，下一次读自然重新装载。
+		// 写成功后只标脏目录事实与 Git status（T4 单一 owner）：一次写不产生任何远端往返。
 		afterWrite: (projectId, paths) => {
 			remoteProjectIpc.afterWrite(projectId, paths);
-			// P0-2：文件面写同样让 Git status 失效（与文本保存同一条出口）。
-			remoteGitReads.invalidateProject(projectId);
 		},
 	});
 	quitCleanup.register("remote-project-entries", remoteProjectEntries.dispose);

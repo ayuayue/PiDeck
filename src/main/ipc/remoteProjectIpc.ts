@@ -24,7 +24,7 @@ import type { ProjectDirectoryPageResult, ProjectPathsExistResult } from "../../
 import type { RemoteProjectEnrollAnswerResult, RemoteProjectEnrollMode, RemoteProjectEnrollRequest, RemoteProjectEnrollResult } from "../../shared/types/remoteHost";
 import { registerRemoteProjectReadIpc, sessionPort } from "./remoteProjectReadIpc";
 import { projectPathsExist } from "./remoteProjectDirectoryReads";
-import { createProjectDirFacts } from "./remoteProjectDirFacts";
+import { createProjectDirFacts, type ProjectDirFacts } from "./remoteProjectDirFacts";
 import { registerRemoteProjectCreateFlow } from "./remoteProjectCreateIpc";
 import type { RemoteHostConnectionService } from "../remote/RemoteHostConnectionService";
 import type { RemoteSftpDirectoryPort } from "../remote/RemoteSftpDirectoryReader";
@@ -54,13 +54,22 @@ function senderIdOf(sender: WebContents): number | undefined {
  */
 /** 事实层句柄：写面完成后按“我改了哪些路径”标脏，下一次读取自然重新装载。 */
 export type RemoteProjectIpcHandle = {
-	/** 失效矩阵：写到的路径 ⇒ 所在目录 + 其父目录（目录自身的元数据也变了）。 */
+	/**
+	 * 写面失效矩阵（写成功与结果未知共用）：写到的路径 ⇒ 所在目录 + 其父目录，**同时**让本项目
+	 * 已缓存仓库的 Git status 变脏；一次写只发一条通知（T4 单一 owner）。
+	 */
 	afterWrite(projectId: string, paths: readonly string[]): void;
 	/**
-	 * 整树失效（远端 Git 写成功/结果未知）：子树条目可能整块变化，但这不是「根目录事件」——
+	 * 整树失效（结果未知的写）：子树条目可能整块变化，但这不是「根目录事件」——
 	 * 只标脏、不装载；重读范围由活跃的文件树决定（收到 tree scope 后重读根与全部已加载目录）。
 	 */
 	invalidateTree(projectId: string): void;
+	/** Git 写成功/结果未知：该仓库 status + 整树一起标脏，只发一条通知（status + tree）。 */
+	afterGitWrite(projectId: string, repoPath: string): void;
+	/** 文件写后的 Git status 失效（兼容入口；`afterWrite` 已覆盖）。 */
+	invalidateStatuses(projectId: string): void;
+	/** Git 状态事实族（同一 owner）：`remoteGitReadIpc` 读的就是这份缓存，不在别处再建一份。 */
+	gitStatusFacts: ProjectDirFacts["gitStatusFacts"];
 	/**
 	 * helper 变更事件（helper 1.24.0）的入口：把 watchId 换回「哪个项目的哪些目录」。
 	 *
@@ -260,6 +269,9 @@ export function registerRemoteProjectIpc(input: {
 		// 目录事实缓存/订阅/生命周期都在窄模块里：这里只转发，不再把目录细节堆回项目域写面文件。
 		afterWrite: projectDirs.afterWrite,
 		invalidateTree: projectDirs.invalidateTree,
+		afterGitWrite: projectDirs.afterGitWrite,
+		invalidateStatuses: projectDirs.invalidateStatuses,
+		gitStatusFacts: projectDirs.gitStatusFacts,
 		directoryPage: projectDirs.directoryPage,
 		pathsExist: (projectId, paths) => projectPathsExist({ projectId, paths, projectReadTarget }),
 		async searchContent(projectId, query) {
