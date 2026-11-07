@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 66f4bf8231b1b29e8c630549aba9d3526a743e22cfea27b6e852e7290c0e6a1f（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 846f777a0fa11adb20bd74a0d238b8d0a62e3f112b56ea4c805251c3133bc999（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -3407,6 +3407,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.emptyModels": "暫無模型，點選「+ 模型」新增",
 	"config.emptyProviders": "暫無供應商配置",
 	"config.others.title": "其他設定項",
+	"editor.archiveEmpty": "壓縮包為空",
+	"editor.archiveSummary": "{count} 個檔案 · 共 {size}",
 	"editor.binaryFileNotSupported": "{ext} 是二進位制檔案，不支援編輯",
 	"editor.fileNotFound": "檔案不存在或已被移動：{path}",
 	"editor.fileTooLarge": "檔案大小為 {size}MB，超過 {max}MB 限制，無法開啟編輯",
@@ -3435,6 +3437,11 @@ export const zhTW: Record<TranslationKey, string> = {
 	"editor.dirtyCloseMessage": "{file} 有未儲存的更改，關閉後將丟失。仍要關閉嗎？",
 	"editor.saveFailedBanner": "儲存失敗：{error}",
 	"editor.pdfPreview": "PDF 預覽",
+	"editor.mediaUnsupported": "無法內建播放此格式，請用系統程式開啟",
+	"editor.previewFailed": "預覽失敗：{error}",
+	"editor.previewUnavailable": "內建預覽不可用",
+	"editor.sheetEmpty": "工作簿沒有可顯示的內容",
+	"editor.sheetTruncated": "僅顯示前 {rows} 行 × {cols} 列（共 {totalRows} 行 × {totalCols} 列）",
 	"editors.clear": "清除",
 	"editors.browse": "瀏覽",
 	"editors.detectedFrom": "來源：{source}",
@@ -6507,6 +6514,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"tool.loadingFullOutput": "正在載入完整輸出…",
 	"tool.fullOutputLoadFailed": "完整內容讀取失敗",
 	"tool.piOutputTruncated": "輸出已被 Pi 截斷，完整輸出在：{path}",
+	"tool.copyOutput": "複製輸出",
 	"tool.copyPath": "複製路徑",
 	"tool.retry": "重試",
 	"tool.openFile": "開啟檔案",

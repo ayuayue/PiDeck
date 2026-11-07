@@ -12,6 +12,9 @@ import { UNTRUSTED_MARKDOWN_REHYPE_PLUGINS } from "../session/markdownSanitize";
 import rehypeKatex from "rehype-katex";
 import { remarkGfmNoSingleTilde } from "../../utils/markdownPlugins";
 import { imageMimeOrBinary } from "../../utils/imageMime";
+import { base64ToBytes } from "../../utils/base64Bytes";
+import { getBinaryPreviewKind, getMediaMimeForPath } from "../../utils/binaryPreview";
+import { BinaryFilePreview } from "./preview/BinaryFilePreview";
 // CodeMirrorEditor 静态链上挂着整个 CodeMirror 6 全家桶（view/state/commands/
 // autocomplete/search/lint/lang-json），经 WorkbenchContent 静态 import 进主 chunk，
 // App 启动即解析。与 CodeDiffView 同款懒加载：首次打开编辑器才拉 chunk。
@@ -142,6 +145,13 @@ export function FileDiffViewer(props: {
 	// 图片/PDF 走内置预览（view 模式）：二进制内容不可文本读取，跳过编辑器直接渲染。
 	const isImage = isImageFile(props.filePath);
 	const isPdf = isPdfFile(props.filePath);
+	// Office/压缩包/音视频同样不可文本编辑：音视频与图片/PDF 一样读成 Blob URL，
+	// Office/zip 交给 BinaryFilePreview 自己读盘（按类型懒加载解析库，不进首屏 chunk）。
+	const binaryPreviewKind = isDiffMode ? null : getBinaryPreviewKind(props.filePath);
+	// 音视频走 Blob URL（CSP media-src 已允许），Office/zip 交给 BinaryFilePreview 自己读盘。
+	const officePreviewKind = binaryPreviewKind === "docx" || binaryPreviewKind === "spreadsheet" || binaryPreviewKind === "archive" ? binaryPreviewKind : null;
+	const isAudio = binaryPreviewKind === "audio";
+	const isVideo = binaryPreviewKind === "video";
 	// 默认预览模式：markdown/html/svg 打开直接渲染预览（干净阅读），
 	// 点「源码」切换按钮才进入源码模式；源码模式即编辑模式，不再需要独立的编辑按钮。
 	const defaultPreview = !isDiffMode && (isMarkdown || isHtml || isSvg);
@@ -175,8 +185,14 @@ export function FileDiffViewer(props: {
 				// 图片/PDF：仅 view 模式读取二进制转 Blob URL 预览（不文本读取）；
 				// diff 模式无法展示二进制差异，维持「不支持编辑」提示。
 				if (isBinaryExtension(props.filePath)) {
-					if (!isDiffMode && (isImageFile(props.filePath) || isPdfFile(props.filePath))) {
+					if (!isDiffMode && (isImageFile(props.filePath) || isPdfFile(props.filePath) || isAudio || isVideo)) {
 						await loadMediaPreview();
+						return;
+					}
+					// Office/zip：父层只决定该不该展示，读盘与加载/错误态由 BinaryFilePreview 负责，
+					// 避免同一份二进制在父子两层各读一次。
+					if (officePreviewKind) {
+						setLoading(false);
 						return;
 					}
 					setError(t("editor.binaryFileNotSupported", { ext }));
@@ -255,8 +271,8 @@ export function FileDiffViewer(props: {
 					return;
 				}
 				// 传**路径**：映射按扩展名查表，传裸扩展名（"png"）会查不到而永远退化成 octet-stream。
-				const mime = isPdf ? "application/pdf" : imageMimeOrBinary(props.filePath);
-				const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+				const mime = isPdf ? "application/pdf" : (getMediaMimeForPath(props.filePath) ?? imageMimeOrBinary(props.filePath));
+				const bytes = base64ToBytes(base64);
 				revokeMediaUrl();
 				const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
 				mediaUrlRef.current = url;
@@ -612,6 +628,19 @@ export function FileDiffViewer(props: {
 						)}
 						{/* PDF 预览：Blob URL + Chromium 内置 PDF viewer */}
 						{!isDiffMode && isPdf && mediaUrl && <iframe className="file-diff-pdf-preview" src={mediaUrl} title={t("editor.pdfPreview")} referrerPolicy="no-referrer" />}
+						{/* 音视频：与图片/PDF 同一条 Blob URL 链路（CSP media-src 已允许 blob:） */}
+						{!isDiffMode && isAudio && mediaUrl && (
+							<div className="flex h-full w-full items-center justify-center p-6">
+								<audio controls src={mediaUrl} className="w-full max-w-xl" onError={() => setError(t("editor.mediaUnsupported"))} />
+							</div>
+						)}
+						{!isDiffMode && isVideo && mediaUrl && (
+							<div className="flex h-full w-full items-center justify-center bg-black/90">
+								<video controls src={mediaUrl} className="h-full w-full object-contain" onError={() => setError(t("editor.mediaUnsupported"))} />
+							</div>
+						)}
+						{/* Office/压缩包：自带读盘 + lazy 解析器，父层不再读第二遍 */}
+						{!isDiffMode && officePreviewKind && <BinaryFilePreview key={`${props.filePath}:${reloadNonce}`} kind={officePreviewKind} filePath={fileAccessPath} fileAccessScope={props.fileAccessScope} />}
 						{/* SVG 预览：文本内容直接编码为 data URL（无 Blob 生命周期管理） */}
 						{!isDiffMode && preview && isSvg && (
 							<div className="file-diff-media-preview">

@@ -464,3 +464,33 @@ test("isModelInModelsConfig 支持目录宽化（createDraft 幽灵校验同源�
 	assert.equal(isModelInModelsConfig(OPENAI, { provider: "zai-coding-cn", modelId: "glm-5.3" }), false);
 	assert.equal(isModelInModelsConfig(OPENAI, { provider: "zai-coding-cn", modelId: "glm-5.3" }, ZAI_CATALOG), true);
 });
+
+// #478：飞书桥新建会话不写 model/thinkingLevel，pi 按自己的缺省开跑，用户在设置里配的
+// 默认档位（例如 max）对渠道会话完全不生效。渠道会话必须与桌面端同源解析。
+test("IM 渠道新建会话继承桌面默认：模型 + 每模型档位", () => {
+	const { resolveImSessionLaunchDefaults } = load("src/main/sessions/launchDefaults.ts");
+	const out = resolveImSessionLaunchDefaults({
+		settings: { defaultProvider: "zhipu", defaultModel: "glm-5", modelThinkingLevels: { "zhipu/glm-5": "max" } },
+		models: MANY,
+	});
+	assert.deepEqual(out.model && { provider: out.model.provider, modelId: out.model.modelId }, { provider: "zhipu", modelId: "glm-5" });
+	assert.equal(out.thinkingLevel, "max");
+});
+
+test("IM 渠道：无每模型档位回退全局默认，DSH 不写 pi 模型身份", () => {
+	const { resolveImSessionLaunchDefaults } = load("src/main/sessions/launchDefaults.ts");
+	const settings = { defaultProvider: "zhipu", defaultModel: "glm-5", defaultThinkingLevel: "high" };
+	assert.equal(resolveImSessionLaunchDefaults({ settings, models: MANY }).thinkingLevel, "high");
+	// DSH 的模型路由在 host 侧：写 pi 的模型身份会让选择器展示引擎并不认的模型。
+	assert.deepEqual(fullPlain(resolveImSessionLaunchDefaults({ backend: "dsh", settings, models: MANY })), {});
+});
+
+test("IM 渠道：默认模型失效时不落空身份，只保留全局档位", () => {
+	const { resolveImSessionLaunchDefaults } = load("src/main/sessions/launchDefaults.ts");
+	const out = resolveImSessionLaunchDefaults({
+		settings: { defaultProvider: "ghost", defaultModel: "gone", defaultThinkingLevel: "off" },
+		models: MANY,
+	});
+	assert.equal(out.model, undefined);
+	assert.equal(out.thinkingLevel, "off");
+});

@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.11.1-blue)
+![Version](https://img.shields.io/badge/version-0.11.2-blue)
 
 国内 AtomGit 托管：https://atomgit.com/ayuayue/PiDeck
 <!-- 预留 AtomGit G-Star 徽章位（替换占位链接后启用）
@@ -102,18 +102,10 @@
 
 ## 📋 更新日志
 
-> **最新版本 v0.11.1**（2026-11-07）
+> **最新版本 v0.11.2**（2026-11-07）
 
-### v0.11.1 更新亮点
-- 🚀 **设置改为会话列里的页面 Tab**
-- 🚀 **配置新增 OAuth 登录页**
-- 🚀 **生图接入 OpenRouter**
-- 🚀 **记忆条目支持批量删除**
-- 🚀 **供应商与模型列表可搜索**
-- ✨ **工具结果图片内联显示**
-- ✨ **虚拟栈在滚动窗迟到挂载时补一次渲染**
-- ✨ **macOS 包保持签名身份**
-- ✨ **会话预热不再清空输入**
+### v0.11.2 更新亮点
+- ✨ **渠道会话继承桌面默认值**
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
 

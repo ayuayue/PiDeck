@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.11.1-blue)
+![Version](https://img.shields.io/badge/version-0.11.2-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -82,18 +82,10 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.11.1** (2026-11-07)
+> **Latest: v0.11.2** (2026-11-07)
 
-### v0.11.1 Release Highlights
-- 🚀 **Settings opens as a page tab instead of a modal**
-- 🚀 **OAuth logins get a page in config**
-- 🚀 **OpenRouter joins image generation**
-- 🚀 **Batch delete memory entries**
-- 🚀 **Provider and model lists are searchable**
-- ✨ **Tool-result images render inline**
-- ✨ **Virtual stacks render once when the scroll element arrives late**
-- ✨ **macOS builds keep their identity**
-- ✨ **Warming up a session keeps your draft**
+### v0.11.2 Release Highlights
+- ✨ **Channel sessions inherit the desktop defaults**
 
 [View Full Changelog →](CHANGELOG.md)
 

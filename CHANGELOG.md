@@ -1,3 +1,10 @@
+## v0.11.2 (2026-11-07)
+
+Feishu sessions now start from the same defaults as the desktop: the model and thinking level you configure per model (for example `max`) actually apply, instead of every bridge session silently running with thinking off.
+
+### 🐛 Bug Fixes
+- **Channel sessions inherit the desktop defaults** — the bridge created an empty draft without model or thinking level, so pi fell back to its own default (off) and per-model defaults never reached Feishu; new channel sessions now resolve through the same `launchDefaults` path as the desktop (`capability` snapshot + last-used fallback included), and DSH sessions keep their host-side model identity.
+
 ## v0.11.1 (2026-11-07)
 
 Settings stops being a modal and the config surface catches up: settings moves into a page tab beside sessions, OAuth subscription logins get a page of their own, provider and model lists become searchable, and OpenRouter joins image generation. Memory gains batch deletion, and on the ACP side the stall watchdog no longer reports a silent cancellation as success.

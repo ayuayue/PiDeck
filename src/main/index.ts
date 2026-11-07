@@ -357,7 +357,7 @@ import { resolvePiAuthHostLaunch } from "./pi/auth/piAuthHostLaunch";
 import { EnhancePromptService, PI_ENHANCE_HOST_FILENAME } from "./pi/enhance/EnhancePromptService";
 import { testPiProxy } from "./pi/PiProxyTester";
 import { SessionScanner } from "./sessions/SessionScanner";
-import { resolveLaunchDefaultOptions, isModelInModelsConfig } from "./sessions/launchDefaults";
+import { resolveLaunchDefaultOptions, isModelInModelsConfig, resolveImSessionLaunchDefaults } from "./sessions/launchDefaults";
 import { mergeCatalogModels } from "./pi/catalogModelsForValidation";
 import { pickStandbyWarmupProject } from "./pi/standbyWarmupTarget";
 import { createSessionModelPreference } from "../shared/modelDisplayName";
@@ -1880,6 +1880,28 @@ function cancelUnboundUiRequest(payload: unknown): void {
 	void agentManager.sendUIResponse(request.agentId, request.requestId, { cancelled: true });
 }
 
+/**
+ * 渠道会话（飞书/微信）的默认模型与思考档位：与桌面端 createDraft 同一解析器（launchDefaults），
+ * 否则桥建出来的会话不写这两项，pi 按自己的缺省开跑——用户在设置里配的默认档位（如 max）
+ * 对飞书完全不生效（Discussions #478）。配置读取失败退回空：桥建会话不该被配置问题卡住。
+ */
+async function resolveImSessionLaunchPreferences(backend: Parameters<typeof resolveImSessionLaunchDefaults>[0]["backend"]): Promise<ReturnType<typeof resolveImSessionLaunchDefaults>> {
+	try {
+		const [settingsResult, modelsResult] = await Promise.all([configManager.getSettingsConfig(), configManager.getModelsConfig()]);
+		const defaults = resolveImSessionLaunchDefaults({
+			backend,
+			settings: settingsResult.parsed,
+			models: modelsResult.parsed,
+			// 与桌面端 createDraft 同源：存在性校验含 capability 快照（auth 渠道模型也算可选）。
+			catalogModels: validationCatalogModels(),
+			lastUsedModel: settingsStore.get().lastUsedModel,
+		});
+		return defaults;
+	} catch {
+		return {};
+	}
+}
+
 const imSessionRuntimeBindings: SessionRuntimeBindingGateway = {
 	async ensureSession(input) {
 		if (input.existingSessionId) {
@@ -1917,6 +1939,8 @@ const imSessionRuntimeBindings: SessionRuntimeBindingGateway = {
 			environment,
 			// 渠道后端（缺省 pi：保持与历史行为一致，undefined 与 pi 等价）。
 			backend: input.backend,
+			// 默认模型与思考档位：与桌面端同源，否则飞书里永远是 pi 缺省的 off（#478）。
+			...(await resolveImSessionLaunchPreferences(input.backend)),
 			// source 是历史来源（pi JSONL 语系），后端才是引擎：新建渠道会话一律 source=pi，
 			// DSH 会话也一样（且不带 filePath——DSH 会话文件是 zstd，
 			// canAttachRuntimeMetadata 会拒绝，host id 由 Coordinator 回写）。
