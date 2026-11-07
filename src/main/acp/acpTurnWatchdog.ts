@@ -28,7 +28,7 @@ export type AcpTurnWatchdogHost = {
 	logger?: { info(channel: string, message: string, meta?: Record<string, unknown>): void; warn(channel: string, message: string, meta?: Record<string, unknown>): void };
 	/** abort 升级强杀宽限(默认 5s)。测试注入短值验证升级路径。 */
 	abortEscalationMs?: number;
-	/** 回合无输出 stall 判定阈值(默认 90s)。测试注入短值验证看门狗。 */
+	/** 回合无输出 stall 判定阈值(默认 180s)。测试注入短值验证看门狗。 */
 	promptStallTimeoutMs?: number;
 };
 
@@ -103,6 +103,15 @@ export class AcpTurnWatchdog {
 			}
 			if (Date.now() - runtime.lastUpdateAt < timeoutMs) return;
 			this.clearStallWatchdog(runtime);
+			// 报障时 deck 侧必须有证据：CodeBuddy PTC 这类「慢而不死」的后端只会静默，
+			// CLI 日志现场靠不住（#500 只能拿日志时戳反推）。
+			this.host.logger?.warn("acp", "turn stalled: no session/update, sending cancel", {
+				tool: runtime.tool.name,
+				sessionId: runtime.acpSessionId,
+				silentMs: Date.now() - runtime.lastUpdateAt,
+				timeoutMs,
+				updateKinds: Object.fromEntries(runtime.turnUpdateKinds),
+			});
 			runtime.cancelling = true;
 			runtime.cancelReason = "stall";
 			runtime.permissions.cancelAll();

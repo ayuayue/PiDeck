@@ -7242,7 +7242,7 @@ app
 				if (next) void settingsStore.update({ acpToolConfigDefaults: next });
 			},
 			// ACP 超时口径运行时读口：每次布防/派发实时读 settings（变更后新回合生效，
-			// 不需要重启）；undefined 回落代码内默认（stall 90s / turn 10min）。
+			// 不需要重启）；undefined 回落代码内默认（stall 180s / turn 15min）。
 			readAcpTimeoutSettings: () => {
 				const settings = settingsStore.get();
 				return { promptStallTimeoutMs: settings.acpPromptStallTimeoutMs, promptTurnTimeoutMs: settings.acpPromptTurnTimeoutMs };

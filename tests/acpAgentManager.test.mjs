@@ -496,6 +496,48 @@ test("stall 看门狗:cancel 后 CLI 收口但全程无输出 → 按空白回�
 	assert.equal(events.messages.at(-1).messages.length, 0, "孤立用户消息已撤回");
 });
 
+test("stall 看门狗:cancel 后 CLI 收口但已有产出 → 按失败收口并给出 stall 文案(#500)", async (t) => {
+	let promptRpcId = null;
+	const { manager, events, createAgent, lastProc } = harness(
+		t,
+		{
+			handler: (frame) => {
+				if (frame.method === "initialize") return { protocolVersion: 1, agentCapabilities: {} };
+				if (frame.method === "session/new") return { sessionId: "sess-stall-partial" };
+				if (frame.method === "session/prompt") {
+					promptRpcId = frame.id;
+					return undefined; // 挂起:收到 stall cancel 后才收口
+				}
+				return {};
+			},
+		},
+		{ promptStallTimeoutMs: 80 },
+	);
+	const tab = await createAgent();
+	const sendPromise = manager.sendPrompt({ agentId: tab.id, message: "long think" });
+	await waitFor(() => promptRpcId !== null, "prompt dispatched");
+	// 上游吐了一小段思考就彻底静默(CodeBuddy PTC 形态):有产出,但不是完整答案
+	lastProc().writeFromCli({
+		jsonrpc: "2.0",
+		method: "session/update",
+		params: { sessionId: "sess-stall-partial", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "This" } } },
+	});
+	await waitFor(() => events.messages.some((payload) => payload.agentId === tab.id), "partial output flushed");
+	await waitFor(() => lastProc().methodFrames("session/cancel").length === 1, "stall cancel sent");
+	// 宽限内 CLI 按协议回 cancelled(生产形态:session/prompt resolve → 旧代码 accepted:true)
+	lastProc().writeFromCli({ jsonrpc: "2.0", id: promptRpcId, result: { stopReason: "cancelled" } });
+	const result = await sendPromise;
+	assert.equal(result.accepted, false, "被看门狗掐断的回合不得谎报成功");
+	// 用户消息已留在时间线,delivery=unknown 不回填草稿(否则用户重发→重复)
+	assert.equal(result.delivery, "unknown");
+	assert.equal(result.i18nKey, "acp.stallForceStopped");
+	assert.match(result.debugDetails ?? "", /stopReason=cancelled/);
+	assert.ok(
+		events.messages.at(-1).messages.some((message) => message.role === "user"),
+		"已产出的回合不回滚用户消息",
+	);
+});
+
 test("stall 看门狗:挂起审批期间不判静默(等待用户是合法状态)", async (t) => {
 	let promptSeen = false;
 	const { manager, createAgent, lastProc, events } = harness(

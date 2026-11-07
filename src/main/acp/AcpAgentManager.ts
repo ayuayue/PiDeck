@@ -36,7 +36,7 @@ import { killAcpProcessTree, shutdownAcpProcess, spawnAcpProcess } from "./AcpPr
 import type { AcpProxyEnvSettings } from "../sessions/sessionProxyPolicy";
 import { performAcpHandshake } from "./AcpHandshake";
 import { AcpUpdatePipeline } from "./AcpUpdatePipeline";
-import { describeEmptyTurn, emptyTurnRejection, escalatedStopRejection, hasTurnOutput, promptResultSnippet, resolvePromptDispatch } from "./acpTurnSettlement";
+import { describeEmptyTurn, emptyTurnRejection, escalatedStopRejection, hasTurnOutput, promptResultSnippet, resolvePromptDispatch, stalledTurnRejection } from "./acpTurnSettlement";
 import { decideAcpTurnRetry, resolveAcpTurnRetrySettings, type AcpTurnRetrySettings } from "./acpTurnRetry";
 import { failureMessage } from "../../shared/retry/transientFailure";
 
@@ -96,7 +96,7 @@ type AcpManagerDeps = {
 	 * 测试注入短值避免集成用例每停一个会话多等 1.5s。
 	 */
 	gracefulExitMs?: number;
-	/** 回合无输出 stall 判定阈值(默认 90s)。测试注入短值验证看门狗。 */
+	/** 回合无输出 stall 判定阈值(默认 180s)。测试注入短值验证看门狗。 */
 	promptStallTimeoutMs?: number;
 	/**
 	 * 会话归档（userData/acp-sessions）：投影消息按 acpSessionId 落盘，重启后仍可读回。
@@ -107,7 +107,7 @@ type AcpManagerDeps = {
 	 * ACP 超时口径的运行时读口（settings.acpPromptStallTimeoutMs / acpPromptTurnTimeoutMs）。
 	 * 每次布防/派发实时读：设置变更后新回合立即生效，不需要重启。静态注入字段
 	 * （promptStallTimeoutMs/promptTurnTimeoutMs，单测用）优先于本读口（#411：静态快照
-	 * 让设置够不到看门狗，长工具调用/长回合被 90s/10min 硬编码误杀）。
+	 * 让设置够不到看门狗，长工具调用/长回合被 180s/15min 硬编码误杀）。
 	 */
 	readAcpTimeoutSettings?: () => { promptStallTimeoutMs?: number; promptTurnTimeoutMs?: number };
 	/**
@@ -164,7 +164,7 @@ export class AcpAgentManager implements SessionAgentGateway {
 			logger: deps.logger,
 			abortEscalationMs: deps.abortEscalationMs,
 			// getter：stall 阈值每次布防时实时解析（静态测试注入优先，其次 settings 读口，
-			// 最后代码内默认 90s）。构造期静态快照会让设置变更够不到看门狗（#411 根因之一）。
+			// 最后代码内默认 180s）。构造期静态快照会让设置变更够不到看门狗（#411 根因之一）。
 			get promptStallTimeoutMs() {
 				return deps.promptStallTimeoutMs ?? deps.readAcpTimeoutSettings?.().promptStallTimeoutMs;
 			},
@@ -911,6 +911,33 @@ export class AcpAgentManager implements SessionAgentGateway {
 		}
 		// 产出判定提前算：记账只对真有可见输出的回合做（空白回合稍后会被回滚并报错）。
 		const hasOutput = hasTurnOutput(runtime.projection.messages, seededIndex);
+		// 看门狗 stall 代发 cancel 的回合按失败收口（#500）：CLI 按协议正常回 stopReason="cancelled"，
+		// session/prompt 是 resolve 而不是 reject ⇒ 进不了 catch 里的 escalatedStop 分支，回合会被
+		// 谎报 accepted:true，用户在 UI 上只看到「说着说着就停了」且没有任何提示。
+		// 有可见产出时用户消息留在时间线（cancelling 不回滚），因此 delivery=unknown 不回填草稿，
+		// 只把「被自动停止」的原因弹出来；零产出的 stall 仍走下面的空白回合守卫（回滚 + 回填草稿，
+		// 用户能直接重发）。
+		if (runtime.cancelReason === "stall" && hasOutput) {
+			if (retryAttempts > 0) {
+				runtime.projection = upsertAcpRetryStatus(runtime.projection, { agentId: runtime.tab.id, status: "error", attempt: retryAttempts, maxAttempts: retrySettings.maxRetries, delayMs: 0, errorMessage: "turn stalled and was cancelled" });
+			}
+			this.updates.flushMessages(runtime, true);
+			const stalledDetails = describeEmptyTurn({
+				stopReason: settledStopReason,
+				updateKinds: runtime.turnUpdateKinds,
+				stderrTail: runtime.stderrTail,
+				foreignNotification: runtime.turnForeignNotification,
+				rawResult: promptResultSnippet(promptResult),
+			});
+			this.deps.logger?.warn("acp", "turn stalled: cancelled by the stall watchdog", {
+				tool: runtime.tool.name,
+				sessionId: runtime.acpSessionId,
+				stopReason: settledStopReason,
+				updateKinds: Object.fromEntries(runtime.turnUpdateKinds),
+			});
+			await this.persistArchive(runtime);
+			return stalledTurnRejection(runtime.tool.name, stalledDetails);
+		}
 		if (hasOutput) this.recordTurnMetrics(runtime, promptResult);
 		this.updates.flushMessages(runtime, true);
 		this.emit(agentEventTags.agentsState, this.list());
@@ -920,7 +947,8 @@ export class AcpAgentManager implements SessionAgentGateway {
 		// UI 只剩本地用户气泡、草稿已清空、还谎报成功）。回合已确定结束且无任何产出，
 		// 按 rejected 收口并回滚本地用户条目：渲染层回填草稿，用户升级 CLI 后可安全重发。
 		// 用户主动停止(cancelling 且来源 user_stop,CLI 回 cancelled)不在此列:语义同 pi 后端
-		// abort,正常收口;看门狗 stall 代发的 cancel 不豁免——那就是本守卫要抓的异常形态。
+		// abort,正常收口;看门狗 stall 代发的 cancel 不豁免——那就是本守卫要抓的异常形态
+		//（已有可见产出的 stall 已在上面按失败收口，走到这里只剩零产出形态）。
 		if (!hasOutput && runtime.cancelReason !== "user_stop") {
 			// 重试过但仍是空白回合：卡片按失败收口（报 retrySucceeded 会与「什么都没产出」矛盾），
 			// 且必须在 rollback 之前落，rollback 只在尾巴上挂着重试卡时才保留它。

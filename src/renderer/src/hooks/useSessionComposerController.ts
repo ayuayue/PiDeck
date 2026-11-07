@@ -1284,7 +1284,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 			markPromptHistorySessionAccess(promptHistoryRef.current, targetSessionId);
 		},
 		showError: (message, duration) => showNotice(message, duration),
-		showUnknown: () => showNotice(t("app.queuedUnknown"), 6000),
+		showUnknown: (message) => showNotice(message ?? t("app.queuedUnknown"), 6000),
 		// ACP 首启失败回收：激活从未成功（draft + 拒收）的 acp 会话没有任何可恢复内容
 		// （agent 侧会话未建、无消息），删除后把回填的草稿搬回引导页，不留在历史列表。
 		pruneFailedAcpDraft: async (failedSessionId) => {
