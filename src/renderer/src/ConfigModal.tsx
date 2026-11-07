@@ -2944,12 +2944,6 @@ function ConfigModalContent(props: ConfigModalContentProps) {
 									<>
 										{statusBlock}
 										{configDiagnosticBlock}
-										{/* settingsLoaded 之前不渲染：SettingsTab 会在挂载时就对 retry/compaction 做格式归一
-										    并回写表单，而此刻 settingsData 还是 {}。归一写回会立刻改写 baselineSettingsRef，
-										    父组件的脏检测却用本轮渲染的旧 state 与之比较，判定不一致 → config:settings 被标脏 →
-										    紧接着的 loadConfig 以为有未保存草稿而跳过磁盘写回，settings.json 里的
-										    defaultProvider/defaultModel 等键永远进不了表单（下拉框空白、页头只剩
-										    「2 个配置项」，但 pi 仍按磁盘配置生效）。等磁盘数据到位再挂载，竞态根本不成立。 */}
 										{!loading && settingsLoaded && (
 											<SettingsTab
 												data={settingsData}

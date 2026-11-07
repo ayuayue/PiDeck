@@ -3,16 +3,6 @@ import { createRequire } from "node:module";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-/**
- * 运行时回归：设置页「默认供应商 / 默认模型」等 combobox 的触发器必须是文本框。
- *
- * 症状：整框空白——连灰色占位提示都没有。成因是 shadcn <Input> 被直接作为
- * Radix <PopoverTrigger asChild> 的子元素，Slot 会把 trigger 的 type="button"
- * 合到 input 上；按钮类型不渲染 placeholder，值为空时整个框看起来像坏掉了。
- *
- * 断言方式：直接加载生产模块做 SSR 渲染（真实走 Radix Slot 合并），
- * 不读源码字符串——去掉 type="text" 时本文件必然红。
- */
 const require = createRequire(import.meta.url);
 const React = require("react");
 const { createElement } = React;

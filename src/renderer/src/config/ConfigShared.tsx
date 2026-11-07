@@ -189,9 +189,6 @@ export function ConfigComboboxInput(props: { value: string; options: Array<{ val
 		setOpen(false);
 	};
 
-	// PopoverTrigger 默认是 <button type="button">，asChild 会把 type 经 Slot 合到 <Input>；
-	// 不显式写 type="text"，输入框会变成按钮类型：不渲染 placeholder，空值时整个框一片空白
-	// （默认供应商/默认模型未配置时看起来像「坏掉了」）。
 	return (
 		<Popover
 			open={open}
