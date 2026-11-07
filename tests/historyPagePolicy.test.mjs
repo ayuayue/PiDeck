@@ -112,11 +112,7 @@ test("未翻过页：跳过无 entryId 的摘要卡片，取窗口内第一条�
 test("文件窗口已经从 0 开始时，即使首条有 entryId 也没有更早历史", () => {
 	const windowMessages = [{ meta: {} }, { meta: { entryId: "e1" } }]; // 摘要卡片 + 文件首条
 	assert.equal(policy.resolveEarlierHistoryCursor({ windowMessages, windowStartFilePos: 0, windowStart: 1 }), null);
-	assert.equal(
-		policy.resolveEarlierHistoryCursor({ runtimeHistory: { nextBefore: null, nextBeforeEntryId: "e1" }, windowMessages, windowStartFilePos: 0 }),
-		null,
-		"滑出窗口留下的首条锚点也不能把文件头误报为可翻页",
-	);
+	assert.equal(policy.resolveEarlierHistoryCursor({ runtimeHistory: { nextBefore: null, nextBeforeEntryId: "e1" }, windowMessages, windowStartFilePos: 0 }), null, "滑出窗口留下的首条锚点也不能把文件头误报为可翻页");
 	assert.equal(policy.resolveEarlierHistoryCursor({ windowMessages, windowStartFilePos: 4 }).beforeEntryId, "e1", "非文件头仍按 entryId 翻页");
 });
 

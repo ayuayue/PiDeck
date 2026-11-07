@@ -105,21 +105,7 @@ type PreviewRailTickProps = {
  * 不 memo 时每次 pointerenter 都要重建全部刻度的 React 元素与样式（30~60 根），
  * 快速划过整列时就是用户看到的「移入卡顿」。
  */
-const PreviewRailTick = memo(function PreviewRailTick({
-	item,
-	itemSize,
-	selected,
-	highlighted,
-	scale,
-	isHorizontal,
-	reduce,
-	onPointerEnter,
-	onPointerDown,
-	onPointerCancel,
-	onKeyDown,
-	onFocus,
-	onSelect,
-}: PreviewRailTickProps) {
+const PreviewRailTick = memo(function PreviewRailTick({ item, itemSize, selected, highlighted, scale, isHorizontal, reduce, onPointerEnter, onPointerDown, onPointerCancel, onKeyDown, onFocus, onSelect }: PreviewRailTickProps) {
 	// 用户/助手用宽高区分：用户更宽更深（主消息），助手更细更淡（回复），
 	// 目录里未加载的占位项没有 role，保持中间宽度。
 	const tickToneClass = isHorizontal ? "h-12 w-0.5 origin-bottom" : item.role === "user" ? "h-[3px] w-7 origin-center" : item.role === "assistant" ? "h-0.5 w-5 origin-center" : "h-0.5 w-6 origin-center";

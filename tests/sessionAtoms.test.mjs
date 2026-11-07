@@ -1263,7 +1263,16 @@ test("空历史页到文件头后保留终止游标，不因后续 flush 或回�
 		});
 
 	// 文件首条是隐藏的 system entry：第一条可见消息 e1 位于文件下标 1。
-	emit({ agentId: "agent-a", totalLength: 2, windowStartFilePos: 1, fileVersion: "100:2000", messages: [{ id: "m1", role: "user", text: "q1", meta: { entryId: "e1" } }, { id: "m2", role: "assistant", text: "a1", meta: { entryId: "e2" } }] });
+	emit({
+		agentId: "agent-a",
+		totalLength: 2,
+		windowStartFilePos: 1,
+		fileVersion: "100:2000",
+		messages: [
+			{ id: "m1", role: "user", text: "q1", meta: { entryId: "e1" } },
+			{ id: "m2", role: "assistant", text: "a1", meta: { entryId: "e2" } },
+		],
+	});
 	assert.equal(entry().history, undefined);
 	assert.equal(store.set(atoms.prependSessionHistoryPageAtom, { sessionId: "session-a", expectedRevision: entry().revision, before: undefined, page: { messages: [], total: 3, nextBefore: null, indexVersion: "100:2000" } }), true);
 	assert.equal(entry().history?.nextBefore, null, "空页也必须记住已到文件头");
@@ -1287,13 +1296,20 @@ test("空页结束前缀去重后不会把窗口首条重新判为可翻页", ()
 	const atoms = loadAtoms();
 	const store = createStore();
 	const entry = () => store.get(atoms.sessionMessagesCacheAtom)["session-a"];
-	const emit = (payload) => store.set(atoms.applySessionRuntimeEventAtom, {
-		sessionId: "session-a", agentId: "agent-a", runtimeGeneration: 1, sourceChannel: "agents:message", payload,
-	});
+	const emit = (payload) =>
+		store.set(atoms.applySessionRuntimeEventAtom, {
+			sessionId: "session-a",
+			agentId: "agent-a",
+			runtimeGeneration: 1,
+			sourceChannel: "agents:message",
+			payload,
+		});
 	const first = { id: "m1", role: "user", text: "q1", meta: { entryId: "e1" } };
 	emit({ agentId: "agent-a", windowStart: 1, totalLength: 1, windowStartFilePos: 1, fileVersion: "100:2000", messages: [first] });
 	store.set(atoms.prependSessionHistoryPageAtom, {
-		sessionId: "session-a", expectedRevision: entry().revision, before: undefined,
+		sessionId: "session-a",
+		expectedRevision: entry().revision,
+		before: undefined,
 		page: { messages: [first], total: 2, nextBefore: null, indexVersion: "100:2000" },
 	});
 	assert.equal(entry().history?.messages.length, 0);

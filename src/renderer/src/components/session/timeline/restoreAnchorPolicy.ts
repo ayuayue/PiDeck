@@ -22,13 +22,7 @@ export const RESTORE_ANCHOR_PAGE_LIMIT = 3;
  * 第 3 次补页刚发出时 attempts 已等于上限，此时落底会让迟到的页白读，
  * 用户也已经离开恢复流程。
  */
-export function resolveMissingAnchorNextStep(input: {
-	windowExpandable: boolean;
-	hasEarlierPages: boolean;
-	loadingEarlier: boolean;
-	loadAttempts: number;
-	pageLimit?: number;
-}): MissingAnchorNextStep {
+export function resolveMissingAnchorNextStep(input: { windowExpandable: boolean; hasEarlierPages: boolean; loadingEarlier: boolean; loadAttempts: number; pageLimit?: number }): MissingAnchorNextStep {
 	if (input.windowExpandable) return "expand";
 	if (input.loadingEarlier) return "wait";
 	const pageLimit = input.pageLimit ?? RESTORE_ANCHOR_PAGE_LIMIT;

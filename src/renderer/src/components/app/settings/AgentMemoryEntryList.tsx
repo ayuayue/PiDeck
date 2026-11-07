@@ -166,7 +166,14 @@ export function AgentMemoryEntryList(props: {
 		return map;
 	}, [data]);
 	// 选中项从全量数据里回填：翻页、搜索、切 tab 都不会丢勾选，也不存在「拿着已消失的键去删」。
-	const selectedEntries = useMemo(() => [...selected].flatMap((id) => { const entry = byId.get(id); return entry ? [entry] : []; }), [selected, byId]);
+	const selectedEntries = useMemo(
+		() =>
+			[...selected].flatMap((id) => {
+				const entry = byId.get(id);
+				return entry ? [entry] : [];
+			}),
+		[selected, byId],
+	);
 	const pageIds = useMemo(() => pageEntries.map((row) => row.key), [pageEntries]);
 	const pagePicked = pageIds.filter((id) => selected.has(id)).length;
 	const pageAll = pageIds.length > 0 && pagePicked === pageIds.length;
@@ -267,7 +274,14 @@ export function AgentMemoryEntryList(props: {
 
 	return (
 		<div className="overflow-hidden rounded-lg border border-border-subtle bg-bg-panel">
-			<Tabs value={kind} onValueChange={(value) => { setKind(value === "failure" ? "failure" : "memory"); /* 换 tab 等于换一批条目：勾选清掉，避免把另一类的条目一起删掉。 */ setSelected(new Set()); }} className="gap-0">
+			<Tabs
+				value={kind}
+				onValueChange={(value) => {
+					setKind(value === "failure" ? "failure" : "memory"); /* 换 tab 等于换一批条目：勾选清掉，避免把另一类的条目一起删掉。 */
+					setSelected(new Set());
+				}}
+				className="gap-0"
+			>
 				{/* 类型切换：记忆（memory + user）/ 教训（failure）。四种 target 混排时教训永远排在列表底部。 */}
 				<TabsList variant="line" className="px-2" aria-label={t("settings.agentMemoryKindLabel")}>
 					<TabsTrigger variant="line" value="memory">
@@ -299,7 +313,19 @@ export function AgentMemoryEntryList(props: {
 						{/* 计数只在搜索时出现：不搜索时 tab 上的角标就是本类总数，再写一遍只是噪音；分页信息由分页条自己给。 */}
 						<span className="ml-auto shrink-0 text-micro tabular-nums text-muted-foreground">{!data ? t("common.loading") : needle ? t("settings.agentMemoryEntriesCount", { shown: String(shown), total: String(kindTotal) }) : null}</span>
 						{/* 批量删除入口：与刷新同档图标按钮；进入后行首出现勾选框，选中项在下面的选择栏里统一删除。 */}
-						<Button type="button" variant={selecting ? "secondary" : "ghost"} size="icon-sm" aria-pressed={selecting} aria-label={t("settings.agentMemoryBatchDelete")} title={t("settings.agentMemoryBatchDelete")} disabled={shown === 0} onClick={() => { setSelecting((value) => !value); setSelected(new Set()); }}>
+						<Button
+							type="button"
+							variant={selecting ? "secondary" : "ghost"}
+							size="icon-sm"
+							aria-pressed={selecting}
+							aria-label={t("settings.agentMemoryBatchDelete")}
+							title={t("settings.agentMemoryBatchDelete")}
+							disabled={shown === 0}
+							onClick={() => {
+								setSelecting((value) => !value);
+								setSelected(new Set());
+							}}
+						>
 							<ListChecks size={13} aria-hidden="true" />
 						</Button>
 						{/* 手动刷新：条目真值在磁盘上，Agent 在会话里刚写下的记忆不会推到这里（只有兄弟面板改动会 +1 reloadKey）。 */}
@@ -323,7 +349,15 @@ export function AgentMemoryEntryList(props: {
 								</Button>
 							) : null}
 							<span className="ml-auto flex items-center gap-2">
-								<Button type="button" variant="ghost" size="xs" onClick={() => { setSelecting(false); setSelected(new Set()); }}>
+								<Button
+									type="button"
+									variant="ghost"
+									size="xs"
+									onClick={() => {
+										setSelecting(false);
+										setSelected(new Set());
+									}}
+								>
 									{t("common.cancel")}
 								</Button>
 								<Button type="button" variant="destructive" size="xs" disabled={selectedEntries.length === 0 || deleting} onClick={() => setPendingBatch(selectedEntries)}>
@@ -445,14 +479,7 @@ export function AgentMemoryEntryList(props: {
 			) : null}
 
 			{pendingBatch ? (
-				<ConfirmDialog
-					title={t("settings.agentMemoryBatchDeleteTitle")}
-					message={t("settings.agentMemoryBatchConfirm", { count: String(pendingBatch.length) })}
-					confirmLabel={t("settings.agentMemoryBatchDeleteAction")}
-					danger
-					onConfirm={() => void runBatchDelete()}
-					onCancel={() => setPendingBatch(null)}
-				/>
+				<ConfirmDialog title={t("settings.agentMemoryBatchDeleteTitle")} message={t("settings.agentMemoryBatchConfirm", { count: String(pendingBatch.length) })} confirmLabel={t("settings.agentMemoryBatchDeleteAction")} danger onConfirm={() => void runBatchDelete()} onCancel={() => setPendingBatch(null)} />
 			) : null}
 		</div>
 	);
