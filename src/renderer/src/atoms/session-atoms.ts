@@ -952,7 +952,14 @@ function reconcileHistoryPrefix(history: SessionMessageCacheEntry["history"], se
 	const dropKeys = new Set([...segmentKeys, ...slideKeys]);
 	const prefixMessages = (history?.messages ?? []).filter((message) => !dropKeys.has(messageEntryKey(message)));
 	const messages = [...prefixMessages, ...slideMessages];
-	if (messages.length === 0) return undefined;
+	// 空页已经证明窗口前只有不投影的文件条目时，保留「已到头」游标；否则下次 flush
+	// 丢掉空前缀，又会从窗口首条 entryId 反复请求同一空页。
+	if (messages.length === 0) {
+		if (history?.nextBefore === null && !history.nextBeforeEntryId) {
+			return history.messages.length === 0 ? history : { ...history, messages: [] };
+		}
+		return undefined;
+	}
 	// 条数封顶（RUNTIME_HISTORY_PREFIX_MESSAGE_LIMIT）：slideOut 随窗口右移长期累积会把
 	// 前缀推过上限——用户停在中途不上滑时 clearSessionHistory 不会触发，这里是唯一维护点。
 	// 从最旧端丢弃：数值游标按丢弃量推进（前缀下标连续），entryId 锚点重算到保留段
@@ -1112,15 +1119,14 @@ export const prependSessionHistoryPageAtom = atom(
 			...get(sessionMessagesCacheAtom),
 			[input.sessionId]: {
 				...current,
-				history:
-					cappedMessages.length > 0 || nextBefore !== null
-						? {
-								messages: cappedMessages,
-								nextBefore,
-								...(nextBeforeEntryId !== undefined ? { nextBeforeEntryId } : {}),
-								version: input.page.indexVersion ?? current.history?.version,
-							}
-						: undefined,
+				// 即使第一页只有隐藏的 system 条目（投影后为空），也要保存 nextBefore:null，
+				// 否则窗口首条 entryId 在下一次渲染时仍会误报「还有更早历史」。
+				history: {
+					messages: cappedMessages,
+					nextBefore,
+					...(nextBeforeEntryId !== undefined ? { nextBeforeEntryId } : {}),
+					version: input.page.indexVersion ?? current.history?.version,
+				},
 				updatedAt: Date.now(),
 				outlineRevision: allocateSessionMessageOutlineRevision(),
 				outlineLastUserIndex: current.outlineLastUserIndex ?? findLastUserMessageIndex(current.messages),
@@ -1138,6 +1144,8 @@ export const prependSessionHistoryPageAtom = atom(
 export const clearSessionHistoryAtom = atom(null, (get, set, sessionId: string) => {
 	const current = get(sessionMessagesCacheAtom)[sessionId];
 	if (!current || current.source !== "runtime" || !current.history || current.messages.length === 0) return false;
+	// 无可见历史消息的空前缀只作「文件头已确认」标记，回底不能清掉它。
+	if (current.history.messages.length === 0 && current.history.nextBefore === null && !current.history.nextBeforeEntryId) return false;
 	releaseSessionOutlineProjection(sessionId);
 	set(sessionMessagesCacheAtom, {
 		...get(sessionMessagesCacheAtom),
