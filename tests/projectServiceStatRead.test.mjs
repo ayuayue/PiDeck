@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { createLocalProjectFileService, createRemoteProjectFileService } = loadTsCommonJs("src/renderer/src/services/projectFileService.ts");
+const { createProjectFileService, localProjectFilePorts, remoteProjectFilePorts } = loadTsCommonJs("src/renderer/src/services/projectFileService.ts");
 const { PROJECT_SERVICE_CODES } = loadTsCommonJs("src/renderer/src/services/projectServiceContracts.ts");
 const { createRemoteProjectEntryService } = loadTsCommonJs("src/main/remote/RemoteProjectEntryService.ts");
 
@@ -57,7 +57,7 @@ function fixture() {
 
 test("remote provider stat preserves an outstanding rename grant across 128 reads", async () => {
 	const { api, entries } = fixture();
-	const files = createRemoteProjectFileService(projectId, api, testFence());
+	const files = createProjectFileService(projectId, api, testFence(), remoteProjectFilePorts(projectId, api));
 	const target = { projectId, relativePath: "src/a.ts" };
 	for (let index = 0; index < 128; index++) {
 		const state = await files.stat({ projectId, relativePath: `src/file-${index}.ts` });
@@ -70,9 +70,9 @@ test("remote provider stat preserves an outstanding rename grant across 128 read
 });
 
 test("both providers keep project identity and report present, missing, and unavailable states", async () => {
-	for (const createService of [createLocalProjectFileService, createRemoteProjectFileService]) {
+	for (const makePorts of [localProjectFilePorts, remoteProjectFilePorts]) {
 		const { api, entries } = fixture();
-		const files = createService(projectId, api, testFence());
+		const files = createProjectFileService(projectId, api, testFence(), makePorts(projectId, api));
 		const present = await files.stat({ projectId, relativePath: "src/a.ts" });
 		assert.deepEqual(plain(present.target), { projectId, relativePath: "src/a.ts" });
 		assert.equal(present.availability, "present");
@@ -103,7 +103,7 @@ test("stat rejects a target from another project before touching any read channe
 		},
 		remoteHosts: {},
 	};
-	const files = createRemoteProjectFileService(projectId, api, testFence());
+	const files = createProjectFileService(projectId, api, testFence(), remoteProjectFilePorts(projectId, api));
 	await assert.rejects(
 		() => files.stat({ projectId: "other-project", relativePath: "a.ts" }),
 		(error) => error?.code === PROJECT_SERVICE_CODES.projectMismatch,

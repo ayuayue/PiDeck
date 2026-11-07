@@ -3,7 +3,7 @@ import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { projectFileSearchPageFromRemote, projectFileSearchPageFromLocal } = loadTsCommonJs("src/main/files/ProjectFileSearchPage.ts");
-const { createLocalProjectFileService, createRemoteProjectFileService } = loadTsCommonJs("src/renderer/src/services/projectFileService.ts");
+const { createProjectFileService, localProjectFilePorts, remoteProjectFilePorts } = loadTsCommonJs("src/renderer/src/services/projectFileService.ts");
 
 /**
  * 位置分派收口（第一片）：文件名搜索只走公共 `files:search-page`。
@@ -66,14 +66,11 @@ function api(searchPage) {
 
 test("远端 provider：只调公共 searchPage，投影沿用同一份元数据", async () => {
 	const calls = [];
-	const files = createRemoteProjectFileService(
-		projectId,
-		api(async (id, query) => {
-			calls.push([id, query]);
-			return { ok: true, value: { results: [{ name: "a.ts", relativePath: "src/a.ts", displayPath: "src/a.ts", path: "src/a.ts", type: "file" }], truncated: true, scanned: 7, entries: [{ path: "src/a.ts", name: "a.ts", kind: "file" }] } };
-		}),
-		fence,
-	);
+	const apiStub = api(async (id, query) => {
+		calls.push([id, query]);
+		return { ok: true, value: { results: [{ name: "a.ts", relativePath: "src/a.ts", displayPath: "src/a.ts", path: "src/a.ts", type: "file" }], truncated: true, scanned: 7, entries: [{ path: "src/a.ts", name: "a.ts", kind: "file" }] } };
+	});
+	const files = createProjectFileService(projectId, apiStub, fence, remoteProjectFilePorts(projectId, apiStub));
 	const page = await files.searchFiles("a");
 	assert.deepEqual(calls, [[projectId, "a"]]);
 	assert.equal(page.truncated, true);
@@ -83,14 +80,11 @@ test("远端 provider：只调公共 searchPage，投影沿用同一份元数据
 
 test("本机 provider：同样只调 searchPage，位置分支消失", async () => {
 	const calls = [];
-	const files = createLocalProjectFileService(
-		projectId,
-		api(async (id, query) => {
-			calls.push([id, query]);
-			return { ok: true, value: { results: [{ name: "a.ts", path: "/p/a.ts", relativePath: "a.ts", type: "file" }] } };
-		}),
-		fence,
-	);
+	const apiStub = api(async (id, query) => {
+		calls.push([id, query]);
+		return { ok: true, value: { results: [{ name: "a.ts", path: "/p/a.ts", relativePath: "a.ts", type: "file" }] } };
+	});
+	const files = createProjectFileService(projectId, apiStub, fence, localProjectFilePorts(projectId, apiStub));
 	const page = await files.searchFiles("a");
 	assert.deepEqual(calls, [[projectId, "a"]]);
 	assert.equal(page.results.length, 1);

@@ -7,6 +7,7 @@ import {
 	type ProjectFileSearchResult,
 	type ProjectFileService,
 	type ProjectFileTarget,
+	type ProjectFileText,
 	type ProjectFileTransferOptions,
 	type ProjectFileUploadSource,
 	type ProjectServiceFence,
@@ -21,6 +22,7 @@ import type { ProjectDirectoryPage, ProjectFileStatResult } from "../../../share
 const UNSUPPORTED_DETAIL = {
 	fileSystemOpen: "remote workspace has no local path",
 	localTextVersion: "local project has no text version; a remote text version must not be sent here",
+	transferUnavailable: "this project location has no transfer entry",
 } as const;
 
 function joinRelative(parent: string, name: string): string {
@@ -103,94 +105,95 @@ function assertTextVersion(expectedVersion: string | undefined): string {
 	return expectedVersion;
 }
 
-/** 本机文件 provider：公共读面直接透传，写面走 files:* 通道。 */
-export function createLocalProjectFileService(projectId: string, api: ProjectServicesApi, fence: ProjectServiceFence): ProjectFileService {
-	const service: ProjectFileService = {
-		async listDirectory(target, options): Promise<ProjectDirectoryPage> {
-			assertProjectTarget(projectId, target);
-			return unwrapOp(await api.files.directoryPage(target, options), PROJECT_SERVICE_CODES.failed) as ProjectDirectoryPage;
-		},
-		searchFiles: createProjectFileSearch(projectId, api),
-		searchContent(query) {
-			return api.files.searchContent(projectId, query);
-		},
+/**
+ * 文本 / 传输 / 系统打开的后端端口：**位置差异只在这里**。
+ *
+ * provider 本身位置无关——读面、条目写面、失败语义全部走公共 `files:*`（main 内按位置路由）；
+ * 这两组通道的形状确实不同（本机文本 version 是内容指纹、远端是令牌；传输与系统打开只有一侧存在），
+ * 所以由装配层按位置注入端口，而不是让渲染层挑两个 provider。
+ */
+export type ProjectFileBackendPorts = {
+	readText(target: ProjectFileTarget, options?: { maxBytes?: number }): Promise<ProjectFileText>;
+	writeText(target: ProjectFileTarget, content: string, expectedVersion: string | undefined): Promise<ProjectTextSaveReceipt>;
+	openInEditor?: ProjectFileService["openInEditor"];
+	showInFolder?: ProjectFileService["showInFolder"];
+	uploadFiles?: ProjectFileService["uploadFiles"];
+	downloadFile?: ProjectFileService["downloadFile"];
+};
+
+/** 本机端口：文本走 `files:*`（version = 内容指纹），系统打开可用，传输没有。 */
+export function localProjectFilePorts(projectId: string, api: ProjectServicesApi): ProjectFileBackendPorts {
+	// 本机通道按 target 身份寻址，不需要 projectId；签名对称只为装配层不必分叉调用形状。
+	void projectId;
+	return {
 		async readText(target, options) {
-			assertProjectTarget(projectId, target);
 			return { content: await api.files.readContent(target, options?.maxBytes) };
 		},
 		async writeText(target, content, expectedVersion): Promise<ProjectTextSaveReceipt> {
-			assertProjectTarget(projectId, target);
 			// 本机的 version 是内容指纹（sha256/absent），用来做乐观锁；远端令牌形状仍要显式拒绝，不能静默忽略。
 			if (expectedVersion !== undefined && !/^(sha256:[a-f0-9]{64}|absent)$/.test(expectedVersion)) throw unsupported(UNSUPPORTED_DETAIL.localTextVersion);
 			await api.files.writeContent(target, content, undefined, expectedVersion);
 			return {};
 		},
-		stat: createProjectStat(projectId, api),
-		async createEntry(parent, name, type): Promise<ProjectEntryReceipt> {
-			assertProjectTarget(projectId, parent);
-			const created = await api.files.create(parent, name, type);
-			return { target: readProjectTarget(created, childTarget(parent, name)), kind: type };
-		},
-		async renameEntry(target, newName): Promise<ProjectEntryReceipt> {
-			assertProjectTarget(projectId, target);
-			const renamed = await api.files.rename(target, newName);
-			return { target: readProjectTarget(renamed, childTarget(target, newName)) };
-		},
-		moveEntry: (target, destinationRelativePath) => moveProjectEntry(api, projectId, target, destinationRelativePath),
-		async deleteEntry(target): Promise<ProjectEntryDeleteReceipt> {
-			assertProjectTarget(projectId, target);
-			await api.files.delete(target);
-			return { target };
-		},
-		async uploadFiles() {
-			throw unsupported("local project transfer is not implemented by ProjectFileService");
-		},
-		async downloadFile() {
-			throw unsupported("local project transfer is not implemented by ProjectFileService");
-		},
 		async openInEditor(target) {
-			assertProjectTarget(projectId, target);
 			await api.files.open(target);
 		},
 		async showInFolder(target) {
-			assertProjectTarget(projectId, target);
 			await api.files.showInFolder(target);
 		},
 	};
-	return fenceProjectFileService(fence, service);
 }
 
-/** 远端文件 provider：读面同样走公共目录页；写面走 remoteHosts 的令牌化入口。 */
-export function createRemoteProjectFileService(projectId: string, api: ProjectServicesApi, fence: ProjectServiceFence): ProjectFileService {
-	const service: ProjectFileService = {
-		async listDirectory(target, options): Promise<ProjectDirectoryPage> {
-			assertProjectTarget(projectId, target);
-			return unwrapOp(await api.files.directoryPage(target, options), PROJECT_SERVICE_CODES.failed) as ProjectDirectoryPage;
-		},
-		searchFiles: createProjectFileSearch(projectId, api),
-		searchContent(query) {
-			return api.files.searchContent(projectId, query);
-		},
-		async readText(target, options) {
-			assertProjectTarget(projectId, target);
+/** 远端端口：文本走 `remoteHosts` 的令牌化入口，传输走 jobful 通道；系统打开没有本机路径。 */
+export function remoteProjectFilePorts(projectId: string, api: ProjectServicesApi): ProjectFileBackendPorts {
+	return {
+		async readText(target) {
 			// 远端正文有 main 自己的 256 KiB 上限；maxBytes 不进入远端协议。
-			void options;
 			const value = unwrapOp(await api.remoteHosts.openProjectText(projectId, target.relativePath), PROJECT_SERVICE_CODES.failed);
 			return { content: value.document.content, version: value.document.version };
 		},
 		async writeText(target, content, expectedVersion): Promise<ProjectTextSaveReceipt> {
-			assertProjectTarget(projectId, target);
-			// T 的核心：文本保存只能使用 readText 返回的文本 version；缺失/空串时零调用拒绝。
+			// 文本保存只能使用 readText 返回的文本 version；缺失/空串时零调用拒绝。
 			// 绝不 statProjectEntry 取 entry 令牌、也不重新 open 覆盖原版本语义。
 			const version = assertTextVersion(expectedVersion);
 			const saved = unwrapOp(await api.remoteHosts.saveProjectText(projectId, target.relativePath, content, version), PROJECT_SERVICE_CODES.failed);
 			if (typeof saved.version !== "string" || saved.version.length === 0) throw new ProjectServiceError(PROJECT_SERVICE_CODES.failed, "unknown", "save returned no text version");
 			return { version: saved.version };
 		},
+		async uploadFiles(target, source, options) {
+			return uploadThroughRemoteTransfer(api, projectId, target, source, options);
+		},
+		async downloadFile(target, options) {
+			return downloadThroughRemoteTransfer(api, projectId, target, options);
+		},
+	};
+}
+
+/**
+ * 位置无关的文件 provider：读面与条目写面全部走公共 `files:*`，位置差异只剩注入的端口。
+ * `createProjectServices` 因此不再按 isRemoteProject 二选一。
+ */
+export function createProjectFileService(projectId: string, api: ProjectServicesApi, fence: ProjectServiceFence, ports: ProjectFileBackendPorts): ProjectFileService {
+	const service: ProjectFileService = {
+		async listDirectory(target, options): Promise<ProjectDirectoryPage> {
+			assertProjectTarget(projectId, target);
+			return unwrapOp(await api.files.directoryPage(target, options), PROJECT_SERVICE_CODES.failed) as ProjectDirectoryPage;
+		},
+		searchFiles: createProjectFileSearch(projectId, api),
+		searchContent(query) {
+			return api.files.searchContent(projectId, query);
+		},
+		async readText(target, options) {
+			assertProjectTarget(projectId, target);
+			return ports.readText(target, options);
+		},
+		async writeText(target, content, expectedVersion): Promise<ProjectTextSaveReceipt> {
+			assertProjectTarget(projectId, target);
+			return ports.writeText(target, content, expectedVersion);
+		},
 		stat: createProjectStat(projectId, api),
 		async createEntry(parent, name, type): Promise<ProjectEntryReceipt> {
 			assertProjectTarget(projectId, parent);
-			// 位置分派收口：公共 files.create 在 main 内对 ssh 项目走 entry 写面，令牌不离开 main。
 			const created = await api.files.create(parent, name, type);
 			return { target: readProjectTarget(created, childTarget(parent, name)), kind: type };
 		},
@@ -203,24 +206,31 @@ export function createRemoteProjectFileService(projectId: string, api: ProjectSe
 		moveEntry: (target, destinationRelativePath) => moveProjectEntry(api, projectId, target, destinationRelativePath),
 		async deleteEntry(target): Promise<ProjectEntryDeleteReceipt> {
 			assertProjectTarget(projectId, target);
-			// 位置分派收口：公共 files.delete 在 main 内对 ssh 走 entry 删除，收据里带回 trashId。
+			// 远端删除进回收站会带回 trashId；本机没有回收站，收据里就没有这个字段。
 			const receipt = await api.files.delete(target);
 			const trashId = isRecord(receipt) && typeof receipt.trashId === "string" ? receipt.trashId : undefined;
 			return { target, ...(trashId === undefined ? {} : { trashId }) };
 		},
-		async uploadFiles(target, source: ProjectFileUploadSource, options?: ProjectFileTransferOptions) {
+		async uploadFiles(target, source, options) {
+			// 端口缺席 = 这个位置没有传输能力：显式拒绝，绝不静默成功。
+			if (ports.uploadFiles === undefined) throw unsupported(UNSUPPORTED_DETAIL.transferUnavailable);
 			assertProjectTarget(projectId, target);
-			return uploadThroughRemoteTransfer(api, projectId, target, source, options);
+			return ports.uploadFiles(target, source, options);
 		},
-		async downloadFile(target, options?: ProjectFileTransferOptions) {
+		async downloadFile(target, options) {
+			if (ports.downloadFile === undefined) throw unsupported(UNSUPPORTED_DETAIL.transferUnavailable);
 			assertProjectTarget(projectId, target);
-			return downloadThroughRemoteTransfer(api, projectId, target, options);
+			return ports.downloadFile(target, options);
 		},
-		async openInEditor() {
-			throw unsupported(UNSUPPORTED_DETAIL.fileSystemOpen);
+		async openInEditor(target) {
+			if (ports.openInEditor === undefined) throw unsupported(UNSUPPORTED_DETAIL.fileSystemOpen);
+			assertProjectTarget(projectId, target);
+			return ports.openInEditor(target);
 		},
-		async showInFolder() {
-			throw unsupported(UNSUPPORTED_DETAIL.fileSystemOpen);
+		async showInFolder(target) {
+			if (ports.showInFolder === undefined) throw unsupported(UNSUPPORTED_DETAIL.fileSystemOpen);
+			assertProjectTarget(projectId, target);
+			return ports.showInFolder(target);
 		},
 	};
 	return fenceProjectFileService(fence, service);
