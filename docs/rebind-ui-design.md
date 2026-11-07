@@ -255,6 +255,14 @@
   时直接跳过 `diagnose()`。于是一个健康 store + 残留 rebind 锁（整机 pinned SSH 都被它挡住）在界面上
   完全没有出口。现在两者始终诊断：ready 时返回空 find（无锁）或锁 finding（有锁）。
 
+- **收尾补全（Q8 / §4.3 / Q4）**：
+  - 启动时在项目/会话 store 都 load 之后自动 `resumePendingRebind()` 一次；失败不阻塞启动，
+    journal 保留由横幅提示（`index.ts` 的 `projectStoreLoadPromise` 链）。
+  - 设置页横幅补上 `busy`（另一个进程正在处理）与 `lock-unreadable`（需人工处理）两种状态；
+    两者都没有可点按钮，只给说明。
+  - 向导空态可以直接打开既有的 `AddHostDialog` 添加目标主机（复用添加流程，添加后刷新列表，
+    不在这里自动连接）。
+
 ### 5.5 断开连接
 - 执行前（`③` 之后、写 journal 之前）main 应主动 `disconnect(source, "shutdown")`（`RemoteHostConnectionService` 已有 `disconnect`），否则 tx 一开始所有 pinned 调用（含正在跑的远端 agent）都会被 F3 打断，用户看到的是"应用坏了"。
 - 界面不暴露"是否断开"选项（技术决策，不交给用户）。

@@ -650,6 +650,8 @@ let isQuitting = false;
  *  非正常崩溃自动 reload 恢复，崩溃风暴（60s 内超 2 次）放弃。 */
 const rendererCrashGuard = createRendererCrashRecoveryGuard();
 let projectStore: ProjectStore;
+/** rebind IPC 的启动收敛入口（Q8）；注册发生在 whenReady 前半段，调用发生在两个 store load 之后。 */
+let remoteHostRebindIpc: { resumePendingAtStartup: () => Promise<void> } | undefined;
 let fileSystemService: FileSystemService;
 /**
  * 跨会话正文搜索的项目来源：当前环境可见的项目（WSL 项目不进——宿主 Go 进程读 UNC
@@ -3586,7 +3588,7 @@ function registerIpc() {
 		registerCleanup: (cleanup) => quitCleanup.register("remote-host-stores", cleanup),
 	});
 	// 重新绑定（rebind）：与 remoteHostIpc 共用同一对 store/pin 实例；通道没有消费者之前不建。
-	registerRemoteHostRebindIpc({
+	remoteHostRebindIpc = registerRemoteHostRebindIpc({
 		enabled: remoteFeatureEnabled,
 		userDataDir: app.getPath("userData"),
 		openStores: remoteHostIpc.openStores,
@@ -7844,6 +7846,8 @@ app
 		void projectStoreReady.then(() => sendTelemetryHeartbeat());
 		void projectStoreLoadPromise
 			.then(async () => {
+				// 启动时自动收敛一次残留 rebind（设计 Q8）：两个 store 都已 load，失败只留横幅。
+				void remoteHostRebindIpc?.resumePendingAtStartup();
 				// load() 已丢掉 e2e 临时项目；对应 catalog 映射一并清掉，侧栏会话不会再挂回来。
 				const knownProjectIds = new Set(projectStore.list().map((project) => project.id));
 				const orphanProjectIds = new Set(

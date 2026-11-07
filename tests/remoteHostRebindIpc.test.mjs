@@ -46,6 +46,7 @@ function fixture(overrides = {}) {
 		},
 		async resumePendingRebind() {
 			calls.resume += 1;
+			if (overrides.resumeFails === true) throw new Error("REMOTE_HOST_REBIND_TARGET_MISSING");
 			return overrides.resumeOutcome;
 		},
 		async describePending() {
@@ -82,7 +83,7 @@ function fixture(overrides = {}) {
 			"../persistence/StoreFileLock": { readStoreFileLockState: async () => ({ kind: "missing" }) },
 		},
 	});
-	registerRemoteHostRebindIpc({
+	const ipc = registerRemoteHostRebindIpc({
 		enabled: overrides.enabled ?? true,
 		userDataDir: "/tmp/ud",
 		openStores: async () => ({ store: {}, pinStore: {} }),
@@ -91,7 +92,7 @@ function fixture(overrides = {}) {
 		...(overrides.noDisconnect === true ? {} : { disconnect: async (hostId) => calls.disconnect.push(hostId) }),
 	});
 	const sender = { id: 7, isDestroyed: () => false };
-	return { handlers, calls, sender };
+	return { handlers, calls, sender, resumeAtStartup: () => ipc.resumePendingAtStartup() };
 }
 
 const call = (f, channel, ...args) => f.handlers.get(channel)({ sender: f.sender }, ...args);
@@ -201,4 +202,14 @@ test("未装配 disconnect 时批准仍可执行（显式可选，不是静默�
 	const answered = await call(f, ipcChannels.remoteHostRebindAnswer, plan.requestId, "approve");
 	assert.equal(answered.ran, true);
 	assert.equal(f.calls.rebind.length, 1);
+});
+
+test("resumePendingAtStartup：启动时自动收敛一次，失败不抛（留给横幅）", async () => {
+	const f = fixture();
+	await f.resumeAtStartup();
+	assert.equal(f.calls.resume, 1);
+
+	const failing = fixture({ resumeFails: true });
+	await failing.resumeAtStartup();
+	assert.equal(failing.calls.resume, 1, "失败也要尝试过一次");
 });

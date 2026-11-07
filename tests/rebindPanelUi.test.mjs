@@ -44,3 +44,10 @@ test("i18n 三种语言都有入口文案（zh-TW 为生成物）", () => {
 		assert.ok(copy.includes("settings.connections.rebind.confirm.noCancel"), file + " missing confirm.noCancel");
 	}
 });
+
+test("busy / lock-unreadable 各有说明；空态能打开添加主机", () => {
+	assert.match(panel, /txLabel\("busy"\)/);
+	assert.match(panel, /txLabel\("lock-unreadable"\)/);
+	assert.match(panel, /<AddHostDialog/);
+	assert.match(panel, /settings\.connections\.rebind\.emptyTargets/);
+});

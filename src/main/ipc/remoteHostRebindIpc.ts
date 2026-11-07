@@ -72,7 +72,7 @@ export type RemoteHostRebindIpcInput = {
 	registerCleanup?: (cleanup: () => Promise<void>) => void;
 };
 
-export function registerRemoteHostRebindIpc(input: RemoteHostRebindIpcInput): void {
+export function registerRemoteHostRebindIpc(input: RemoteHostRebindIpcInput): { resumePendingAtStartup: () => Promise<void> } {
 	const journal = new HostRebindJournal({ userDataDir: input.userDataDir });
 	const registry = createRemoteHostReferenceRegistry(join(input.userDataDir, "session-catalog.json"), join(input.userDataDir, "projects.json"));
 	const broker = new PendingConfirmationBroker<{ sourceHostId: string; targetHostId: string }>({ ttlMs: CONFIRMATION_TTL_MS });
@@ -216,4 +216,20 @@ export function registerRemoteHostRebindIpc(input: RemoteHostRebindIpcInput): vo
 			return { ok: false, code: codeOf(error, "REMOTE_HOST_REBIND_UNKNOWN_OUTCOME") };
 		}
 	});
+
+	return {
+		/**
+		 * 启动时自动收敛一次（设计 Q8）。失败不抛：journal 还在，横幅会继续显示，
+		 * 用户可以在设置页手动「继续收敛」；启动路径不该被一笔未完成的迁移挡住。
+		 */
+		async resumePendingAtStartup(): Promise<void> {
+			if (!input.enabled) return;
+			try {
+				const coordinator = await coordinatorFor();
+				await coordinator.resumePendingRebind();
+			} catch {
+				// 留待横幅 + 手动收敛。
+			}
+		},
+	};
 }

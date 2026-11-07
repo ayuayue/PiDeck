@@ -4,6 +4,7 @@ import { desktopApi } from "../../../desktopApi";
 import { t } from "../../../i18n";
 import { Button } from "../../ui-shadcn/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../ui-shadcn/dialog";
+import { AddHostDialog } from "./AddHostDialog";
 import type { RemoteHostListItem, RemoteHostRebindPending, RemoteHostRebindStage } from "../../../../../shared/types/remoteHost";
 import { INITIAL_REBIND_WIZARD, reduceRebindWizard } from "../../../utils/rebindWizardState";
 
@@ -52,6 +53,8 @@ export function RebindPanel(props: { hosts: RemoteHostListItem[]; onChanged?: ()
 	const [pending, setPending] = useState<RemoteHostRebindPending | null>(null);
 	const [pendingError, setPendingError] = useState<string | null>(null);
 	const [open, setOpen] = useState(false);
+	// 空态里的「添加主机」：复用既有 AddHostDialog，添加完成后刷新主机列表（不在这里自动连接）。
+	const [adding, setAdding] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [state, dispatch] = useReducer(reduceRebindWizard, INITIAL_REBIND_WIZARD);
 
@@ -160,6 +163,19 @@ export function RebindPanel(props: { hosts: RemoteHostListItem[]; onChanged?: ()
 				</div>
 			) : null}
 
+			{pending !== null && !pending.present && pending.tx === "busy" ? <p className="text-caption text-muted-foreground">{txLabel("busy")}</p> : null}
+			{pending !== null && !pending.present && pending.tx === "lock-unreadable" ? <p className="text-caption text-destructive">{txLabel("lock-unreadable")}</p> : null}
+
+			{adding ? (
+				<AddHostDialog
+					onClose={() => setAdding(false)}
+					onSubmitted={() => {
+						setAdding(false);
+						props.onChanged?.();
+					}}
+				/>
+			) : null}
+
 			<Dialog
 				open={open}
 				onOpenChange={(next) => {
@@ -198,7 +214,14 @@ export function RebindPanel(props: { hosts: RemoteHostListItem[]; onChanged?: ()
 									))}
 								</select>
 							</label>
-							{state.sourceHostId !== null && targets.length === 0 ? <p className="text-caption text-muted-foreground">{t("settings.connections.rebind.emptyTargets")}</p> : null}
+							{state.sourceHostId !== null && targets.length === 0 ? (
+								<div className="flex flex-wrap items-center gap-2">
+									<p className="text-caption text-muted-foreground">{t("settings.connections.rebind.emptyTargets")}</p>
+									<Button size="sm" variant="ghost" onClick={() => setAdding(true)}>
+										{t("settings.connections.new")}
+									</Button>
+								</div>
+							) : null}
 							{state.errorCode !== null ? <p className="text-caption text-destructive">{t("settings.connections.rebind.error", { code: state.errorCode })}</p> : null}
 						</div>
 					) : null}
