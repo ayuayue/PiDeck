@@ -2,7 +2,7 @@ import React, { useRef } from "react";
 import { useSetAtom } from "jotai";
 import { PanelLeft } from "lucide-react";
 import { SidebarContent, type SidebarActions } from "./SidebarContent";
-import type { AppInfo, AppThemeMode, SessionSortModeId, WorktreeEntry } from "../../../../shared/types";
+import type { AppInfo, AppThemeMode, ProjectSortModeId, SessionSortModeId, WorktreeEntry } from "../../../../shared/types";
 import { useSidebarController } from "../../hooks/useSidebarController";
 import type { SidebarNavTab } from "../../utils/sidebarNavTab";
 import { BrandLockup } from "../app/AppParts";
@@ -12,6 +12,7 @@ import { desktopApi } from "../../desktopApi";
 import { Button } from "../ui-shadcn/button";
 import { t } from "../../i18n";
 import { cn } from "../../lib/utils";
+import { showNotice } from "../../utils/notice";
 
 interface AppSidebarProps {
 	simple?: boolean;
@@ -45,6 +46,7 @@ interface AppSidebarProps {
 	settingsPinnedSessionIds?: readonly string[];
 	/** settings.json 中的会话排序模式（settings.sessionSortMode）。 */
 	settingsSessionSortMode?: SessionSortModeId;
+	settingsProjectSortMode?: ProjectSortModeId;
 	/** 首次 settings.get 已完成，controller 可安全处理旧 key 迁移。 */
 	settingsLoaded: boolean;
 	/** 展开集合完成权威 hydration 后，允许 App 按它懒加载会话。 */
@@ -57,6 +59,7 @@ export function AppSidebar(props: AppSidebarProps) {
 	const navTabSaveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
 	const pinnedSessionIdsSaveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
 	const sessionSortModeSaveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+	const projectSortModeSaveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
 	const controller = useSidebarController({
 		getRpcLogging: props.actions.rpc.getLogging,
 		openRpcLogViewer: props.actions.rpc.openViewer,
@@ -64,6 +67,7 @@ export function AppSidebar(props: AppSidebarProps) {
 		settingsNavTab: props.settingsNavTab,
 		settingsPinnedSessionIds: props.settingsPinnedSessionIds,
 		settingsSessionSortMode: props.settingsSessionSortMode,
+		settingsProjectSortMode: props.settingsProjectSortMode,
 		settingsLoaded: props.settingsLoaded,
 		onExpandedProjectsReady: props.onExpandedProjectsReady,
 		persistExpandedProjectIds: (projectIds) => {
@@ -85,6 +89,9 @@ export function AppSidebar(props: AppSidebarProps) {
 				.catch(() => undefined)
 				.then(() => desktopApi.settings.update({ pinnedSessionIds: sessionIds }))
 				.catch(() => undefined);
+		},
+		persistProjectSortMode: (mode) => {
+			projectSortModeSaveQueueRef.current = projectSortModeSaveQueueRef.current.then(() => desktopApi.settings.update({ projectSortMode: mode })).catch((error: unknown) => showNotice(t("app.projectSortFailed", { error: error instanceof Error ? error.message : String(error) }), undefined, "error"));
 		},
 		persistSessionSortMode: (mode) => {
 			// 排序模式与置顶同款串行队列：快速切换选项时避免旧请求覆盖新值。

@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 55630f80d62b18d28255974e4d638f46dbfe7ae81e904453a6399478945abcb9（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: b2c9516e5e326afacf3735b58dd9f04fed1bd11bda7203ba7b4be6a0f104cb68（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -1093,6 +1093,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"app.projectCollapseChildren": "收起",
 	"app.projectShowMoreSessions": "檢視更多 {count} 個歷史會話",
 	"app.projectSortFailed": "專案排序儲存失敗：{error}",
+	"app.projectActivityLoadFailed": "專案活動時間讀取失敗：{error}",
 	"app.codexSubagent": "子代理",
 	"app.codexSubagentCount": "Codex 子代理 {count} 個",
 	"app.piSubagent": "子會話",
@@ -4375,6 +4376,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	"menu.pinProject": "置頂專案",
 	"menu.unpinProject": "取消置頂",
 	"menu.sessionSortMode": "會話排序",
+	"menu.projectSortMode": "專案排序",
+	"app.projectSortMode.manual": "手動排序（可拖拽）",
 	"app.sessionSortMode.updatedAt": "最近活躍",
 	"app.sessionSortMode.createdAt": "建立時間",
 	"app.sessionSortMode.title": "標題",

@@ -2620,8 +2620,7 @@ export function App() {
 			creatingWorktree={worktreeCreating}
 			removingWorktreeProjectIds={removingWorktreeProjectIds}
 			isLanWeb={isLanWeb}
-			// 「新建会话」：清空当前会话并选中活动项目 → 落到初始引导页（居中输入框 + 项目下拉切换），
-			// 用户选择项目后可直接输入对话（首次发送才创建真实会话）。无项目时保持引导页「添加项目」空态。
+			// 新建会话先打开引导页；首次发送再创建真实会话，无项目时显示添加项目空态。
 			onOpenNewSession={() => {
 				if (activeProjectId) selectProjectCommand(activeProjectId);
 			}}
@@ -2630,6 +2629,7 @@ export function App() {
 			settingsNavTab={settings.sidebarNavTab}
 			settingsPinnedSessionIds={settings.pinnedSessionIds}
 			settingsSessionSortMode={settings.sessionSortMode}
+			settingsProjectSortMode={settings.projectSortMode}
 			stickyGroupHeaders={settings.sidebarStickyGroupHeaders === true}
 			settingsLoaded={settingsLoaded}
 			onExpandedProjectsReady={() => setExpandedProjectsReady(true)}

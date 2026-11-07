@@ -28,6 +28,7 @@ import {
 } from "../../shared/types";
 import { normalizePinnedSessionIds } from "../../shared/pinnedSessions";
 import { normalizeSessionSortMode } from "../../shared/sessionSort";
+import { normalizeProjectSortMode } from "../../shared/projectSort";
 import { normalizeHiddenModules } from "../../shared/hiddenModules";
 import { normalizeHiddenComposerFeatures } from "../../shared/composerFeatures";
 import { parseBusySendDelivery } from "../../shared/busySendDelivery";
@@ -657,8 +658,8 @@ export class SettingsStore {
 			this.settings.themeScheduleDarkStart = schedule.darkStart;
 			// 置顶状态只接受稳定、非空的 SessionRecord id；旧设置缺省时自然回落为空。
 			this.settings.pinnedSessionIds = normalizePinnedSessionIds(parsed.pinnedSessionIds);
-			// 会话排序模式：未知字符串（手改/未来删除的方案）回落默认「最近活跃」。
 			this.settings.sessionSortMode = normalizeSessionSortMode(parsed.sessionSortMode);
+			this.settings.projectSortMode = normalizeProjectSortMode(parsed.projectSortMode);
 			// ACP 总开关：可选布尔，缺省/非布尔→false（opt-in；老用户升级后 ACP 入口保持关闭直到主动开启）。
 			this.settings.acpEnabled = parsed.acpEnabled === true;
 			// ACP 工具登记表：手改 settings.json 的脏条目在加载边界归一，不等到首次 update。
@@ -1093,10 +1094,9 @@ export class SettingsStore {
 		if ("pinnedSessionIds" in safePatch) {
 			safePatch.pinnedSessionIds = normalizePinnedSessionIds(safePatch.pinnedSessionIds);
 		}
-		// 排序模式来自渲染层下拉，入参不可信：非法值回落默认而不是写入坏字符串。
-		if ("sessionSortMode" in safePatch) {
-			safePatch.sessionSortMode = normalizeSessionSortMode(safePatch.sessionSortMode);
-		}
+		// 排序模式在设置边界归一，非法值各自回落默认。
+		if ("sessionSortMode" in safePatch) safePatch.sessionSortMode = normalizeSessionSortMode(safePatch.sessionSortMode);
+		if ("projectSortMode" in safePatch) safePatch.projectSortMode = normalizeProjectSortMode(safePatch.projectSortMode);
 		// 隐藏模块清单来自渲染层开关，入参不可信：只收字符串、去重去空。
 		if ("hiddenModules" in safePatch) {
 			safePatch.hiddenModules = normalizeHiddenModules(safePatch.hiddenModules);

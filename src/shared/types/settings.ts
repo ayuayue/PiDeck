@@ -4,7 +4,7 @@ import type { SessionSortModeId } from "./session";
 import type { BusySendDelivery } from "../busySendDelivery";
 import type { SessionStatusPlacement } from "../sessionStatusPlacement";
 import { SESSION_TAB_MAX_WIDTH_DEFAULT } from "../sessionTabWidth";
-import { createDefaultExternalEditorSettings, type ExternalEditorSettings } from "./project";
+import { createDefaultExternalEditorSettings, type ExternalEditorSettings, type ProjectSortModeId } from "./project";
 import type { RemoteProjectTrustRecord } from "./remoteTrust";
 import type { SecurityConfig } from "./security";
 import type { CustomThemeSnapshot } from "../customThemes";
@@ -817,12 +817,10 @@ export type AppSettings = {
 	 */
 	codeBlockWordWrap?: boolean;
 
-	/**
-	 * 项目会话列表排序模式（2027-03 开放排序规则）：updatedAt=最近活跃（历史默认）、
-	 * createdAt=创建时间、title=标题。缺省/非法值回落 updatedAt；由渲染层策略目录
-	 * （sessionSortModes）解释，主进程只存字符串不参与排序。
-	 */
+	/** 会话列表排序：updatedAt（默认）/ createdAt / title，由渲染层解释。 */
 	sessionSortMode?: SessionSortModeId;
+	/** 项目列表排序：manual（默认）/ updatedAt / createdAt / title，置顶组保留手动顺序。 */
+	projectSortMode?: ProjectSortModeId;
 
 	// ── 会话导入 ──
 	/**
