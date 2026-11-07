@@ -291,17 +291,21 @@ test("every read channel carries the repository scope into the helper frame", as
 		return { originalContent: "base\n", modifiedContent: "working\n" };
 	};
 	const scoped = "packages/nested";
+	// T5：公共 target 是**项目相对**的——嵌套仓库里的文件是 `packages/nested/x.txt`，不是 `x.txt`。
+	const scopedFile = { projectId, relativePath: "packages/nested/x.txt" };
 	assert.equal((await f.handlers.get(ipcChannels.gitRemoteSnapshot)(f.event, projectId, scoped)).ok, true);
 	assert.equal((await f.handlers.get(ipcChannels.gitRemoteLog)(f.event, projectId, { maxCount: 10 }, scoped)).ok, true);
 	assert.equal((await f.handlers.get(ipcChannels.gitRemoteCommitDetail)(f.event, projectId, oid("d"), scoped)).ok, true);
 	assert.equal((await f.handlers.get(ipcChannels.gitRemoteRefs)(f.event, projectId, scoped)).ok, true);
 	assert.equal((await f.handlers.get(ipcChannels.gitRemoteCompare)(f.event, projectId, "refs/heads/main", "refs/tags/v1", scoped)).ok, true);
-	assert.equal((await f.handlers.get(ipcChannels.gitRemoteRefFileDiff)(f.event, projectId, null, oid("d"), { projectId, relativePath: "x.txt" }, scoped)).ok, true);
+	assert.equal((await f.handlers.get(ipcChannels.gitRemoteRefFileDiff)(f.event, projectId, null, oid("d"), scopedFile, scoped)).ok, true);
 	assert.equal((await f.handlers.get(ipcChannels.gitRemoteRecoveryList)(f.event, projectId, scoped)).ok, true);
 	assert.equal((await f.handlers.get(ipcChannels.gitRemoteSyncFacts)(f.event, projectId, scoped)).ok, true);
 	const scopedCalls = f.calls.filter((call) => call.method !== "hello");
 	assert.equal(scopedCalls.length, 8, "eight scoped reads reach the helper");
 	for (const call of scopedCalls) assert.equal(call.repo, scoped, call.method + " must carry the selected repository");
+	// helper 只看到仓库内路径：项目相对的公共 target 在边界处被削回仓库内。
+	assert.equal(f.calls.find((call) => call.method === "git.refFileDiff").params.path, "x.txt", "the helper boundary only ever sees a repository-relative path");
 });
 
 const WRITE_CAPABILITIES = ["git.status", "git.stage", "git.unstage", "git.commit", "git.createBranch", "git.switchBranch", "git.discard", "git.recoveryRestore", "git.recoveryDrop", "git.fetch", "git.push", "git.pull"];
@@ -309,13 +313,15 @@ const WRITE_TOKENS = ["mutationToken", "commitToken", "branchToken", "switchToke
 
 /** Every write handler, in call order: the trailing scope is the last argument, exactly like preload sends it. */
 function writeInvocations(grants, repo) {
+	// T5：公共 target/路径是项目相对的（嵌套 scope 下带 `packages/nested/` 前缀）。
+	const file = { projectId, relativePath: repo === undefined || repo === "" ? "a.txt" : repo + "/a.txt" };
 	return [
-		["gitRemoteMutateIndex", projectId, "stage", "workingTree", { projectId, relativePath: "a.txt" }, grants.mutationToken, repo],
+		["gitRemoteMutateIndex", projectId, "stage", "workingTree", file, grants.mutationToken, repo],
 		["gitRemoteCommit", projectId, "message", grants.commitToken, repo],
 		["gitRemoteCreateBranch", projectId, "feature", grants.branchToken, repo],
 		["gitRemoteSwitchBranch", projectId, "feature", grants.switchToken, repo],
-		["gitRemoteDiscard", projectId, "workingTree", { projectId, relativePath: "a.txt" }, grants.discardToken, repo],
-		["gitRemoteRecoveryRestore", projectId, "refs/pideck/recovery/x", oid("a"), "a.txt", grants.restoreToken, repo],
+		["gitRemoteDiscard", projectId, "workingTree", file, grants.discardToken, repo],
+		["gitRemoteRecoveryRestore", projectId, "refs/pideck/recovery/x", oid("a"), file.relativePath, grants.restoreToken, repo],
 		["gitRemoteRecoveryDrop", projectId, "refs/pideck/recovery/x", oid("a"), grants.dropToken, repo],
 		["gitRemoteFetch", projectId, "origin", grants.fetchToken, repo],
 		["gitRemotePush", projectId, "origin", "main", grants.pushToken, repo],
@@ -361,9 +367,11 @@ test("every snapshot mints grants bound to its own scope, and a cross-scope toke
 	assert.equal(crossed.code, "GIT_WRITE_SNAPSHOT_EXPIRED");
 	assert.equal(f.calls.length, callsBefore, "a cross-scope token must never reach the helper");
 	// The same grant still works in the scope it was minted for.
-	const scoped = await f.handlers.get(ipcChannels.gitRemoteMutateIndex)(f.event, projectId, "stage", "workingTree", { projectId, relativePath: "a.txt" }, nested.snapshot.mutationToken, "packages/nested");
+	const scoped = await f.handlers.get(ipcChannels.gitRemoteMutateIndex)(f.event, projectId, "stage", "workingTree", { projectId, relativePath: "packages/nested/a.txt" }, nested.snapshot.mutationToken, "packages/nested");
 	assert.equal(scoped.ok, true);
 	assert.equal(f.calls.at(-1).repo, "packages/nested");
+	// helper 边界只看仓库内路径：项目相对 target 的前缀在这里被剥掉。
+	assert.equal(f.calls.at(-1).params.path, "a.txt");
 });
 
 test("write channels carry the trailing repository scope into the helper frame", async () => {
