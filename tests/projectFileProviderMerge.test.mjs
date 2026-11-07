@@ -109,25 +109,28 @@ test("同一个 provider：远端端口读令牌化通道、缺 version 零调�
 	await rejectsWith(() => files.openInEditor(target), "project has no local path|PROJECT_SERVICE_UNSUPPORTED");
 });
 
-test("跨目录改名是两步写：第二步失败会留下「已移动到目标目录、旧名」且没有收据", async () => {
+test("跨目录改名只发一次 move-to：不再有 move+rename 的中间残局（P1-2）", async () => {
 	const calls = [];
 	const { api } = stub({
 		files: {
-			move: async (sources, targetDir) => {
-				calls.push(["move", sources[0].relativePath, targetDir.relativePath]);
-				return { ok: true, value: [{ projectId, relativePath: targetDir.relativePath === "" ? "a.ts" : `${targetDir.relativePath}/a.ts` }] };
+			moveTo: async (source, destination) => {
+				calls.push(["moveTo", source.relativePath, destination.relativePath]);
+				return { ok: true, value: destination };
+			},
+			move: async () => {
+				calls.push(["move"]);
+				return { ok: true, value: [] };
 			},
 			rename: async () => {
 				calls.push(["rename"]);
-				throw new Error("REMOTE_FILE_RESULT_UNCONFIRMED");
+				return { ok: true, value: target };
 			},
 		},
 	});
 	const files = createProjectFileService(projectId, api, fence, remoteProjectFilePorts(projectId, api));
-	// 已知限制（§7.1 P1-2）：move 已经落地、rename 未落地时没有补偿写；这里把残局钉死，
-	// 未来改成单一写时这条用例必须随之改，而不是悄悄继续两步。
-	await rejectsWith(() => files.moveEntry(target, "lib/b.ts"), "REMOTE_FILE_RESULT_UNCONFIRMED");
-	assert.deepEqual(calls, [["move", "src/a.ts", "lib"], ["rename"]], "先移动到目标目录（保留旧名），再改名");
+	const receipt = await files.moveEntry(target, "lib/b.ts");
+	assert.deepEqual(calls, [["moveTo", "src/a.ts", "lib/b.ts"]], "一次写：既没有先 move 也没有第二步 rename");
+	assert.deepEqual(plain(receipt.target), { projectId, relativePath: "lib/b.ts" });
 });
 
 test("同一个 provider：远端删除带回 trashId，本机删除没有该字段", async () => {

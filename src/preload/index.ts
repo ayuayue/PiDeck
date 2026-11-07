@@ -605,6 +605,8 @@ const api = {
 		copy: (sourcePaths: Array<string | ProjectFileTarget>, targetDir: string | ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.filesCopy, sourcePaths, targetDir) as Promise<Array<string | ProjectFileTarget>>,
 		/** 移动来源路径到目标目录（同设备 rename，跨设备 cp+rm） */
 		move: (sourcePaths: Array<string | ProjectFileTarget>, targetDir: string | ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.filesMove, sourcePaths, targetDir) as Promise<import("../shared/op").Op<Array<string | ProjectFileTarget>>>,
+		/** 单源移动到目标全路径（一次写）：跨目录改名不再由渲染层拆成 move + rename。 */
+		moveTo: (source: ProjectFileTarget, target: ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.filesMoveTo, source, target) as Promise<import("../shared/op").Op<ProjectFileTarget>>,
 		create: (parentDir: string | ProjectFileTarget, name: string, type: "file" | "directory") => ipcRenderer.invoke(ipcChannels.filesCreate, parentDir, name, type) as Promise<import("../shared/op").Op<string | ProjectFileTarget>>,
 		rename: (path: string | ProjectFileTarget, newName: string) => ipcRenderer.invoke(ipcChannels.filesRename, path, newName) as Promise<import("../shared/op").Op<string | ProjectFileTarget>>,
 		/**

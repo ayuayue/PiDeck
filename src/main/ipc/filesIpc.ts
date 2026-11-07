@@ -79,6 +79,8 @@ export type FilesIpcDeps = {
 		create(sender: IpcMainInvokeEvent["sender"], projectId: string, parent: string, name: string, type: "file" | "directory"): Promise<{ relativePath: string }>;
 		rename(sender: IpcMainInvokeEvent["sender"], projectId: string, source: string, targetPath: string): Promise<{ relativePath: string }>;
 		move(sender: IpcMainInvokeEvent["sender"], projectId: string, source: string, targetDir: string): Promise<{ relativePath: string }>;
+		/** 一次写移动到目标全路径（P1-2）：跨目录改名不再由 renderer 拆成两步。 */
+		moveTo(sender: IpcMainInvokeEvent["sender"], projectId: string, source: string, targetPath: string): Promise<{ relativePath: string }>;
 		delete(sender: IpcMainInvokeEvent["sender"], projectId: string, relativePath: string): Promise<{ trashId: string }>;
 	};
 	/**
@@ -798,6 +800,33 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 				}
 				if (backend && backend.locationKind !== "local") throw new Error("UNSUPPORTED_CAPABILITY");
 				return localFileMutationAdapter.move(sourceInputs, targetDirInput);
+			}),
+	);
+
+	/**
+	 * 单源移动到目标全路径（P1-2）：renderer 的跨目录改名只发一次写。
+	 * 不支持该原语的位置明确报 `UNSUPPORTED_CAPABILITY`，不静默退回两步写。
+	 */
+	ipcMain.handle(
+		ipcChannels.filesMoveTo,
+		async (event, rawSource: unknown, rawTarget: unknown): Promise<Op<ProjectFileTarget>> =>
+			writeOp(async () => {
+				const source = parseFilePathInput(rawSource);
+				const target = parseFilePathInput(rawTarget);
+				if (typeof source === "string" || typeof target === "string") throw new Error("INVALID_PROJECT_FILE_TARGET");
+				if (source.projectId !== target.projectId) throw new Error("CROSS_BACKEND_FILE_OPERATION_UNSUPPORTED");
+				const owner = projectStore.get(source.projectId);
+				if (owner !== undefined && isRemoteProject(owner)) {
+					if (remoteEntries === undefined) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+					const moved = await remoteEntries.moveTo(event.sender, source.projectId, source.relativePath, target.relativePath);
+					void appLogger.info("file", "Remote project entry moved", { projectId: source.projectId, from: source.relativePath, to: moved.relativePath });
+					return { projectId: source.projectId, relativePath: moved.relativePath };
+				}
+				const backend = projectFileBackendRouter.forProject(source.projectId);
+				if (typeof backend.moveTo !== "function") throw new Error("UNSUPPORTED_CAPABILITY");
+				const moved = await backend.moveTo(source, target);
+				void appLogger.info("file", "Project file moved", { target: moved });
+				return moved;
 			}),
 	);
 }

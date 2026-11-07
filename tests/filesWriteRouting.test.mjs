@@ -39,7 +39,7 @@ function unwrap(op) {
  */
 function harness(options = {}) {
 	const handlers = new Map();
-	const calls = { localCreate: [], localRename: [], remoteCreate: [], remoteRename: [], remoteMove: [], remoteDelete: [] };
+	const calls = { localCreate: [], localRename: [], remoteCreate: [], remoteRename: [], remoteMove: [], remoteMoveTo: [], remoteDelete: [] };
 	const electron = {
 		app: {},
 		dialog: {},
@@ -58,6 +58,10 @@ function harness(options = {}) {
 		},
 		async rename(sender, projectId, source, targetPath) {
 			calls.remoteRename.push({ sender, projectId, source, targetPath });
+			return { relativePath: targetPath };
+		},
+		async moveTo(sender, projectId, source, targetPath) {
+			calls.remoteMoveTo.push({ sender, projectId, source, targetPath });
 			return { relativePath: targetPath };
 		},
 		async move(sender, projectId, source, targetDir) {
@@ -213,5 +217,34 @@ test("files:create 的 ssh 分支保留 unknown：结果未确认不能被降级
 		assert.equal(normalized.outcome, "unknown");
 	} finally {
 		h.dispose();
+	}
+});
+
+test("files:move-to：ssh 项目一次写；跨项目/未装配都拒绝", async () => {
+	const h = harness();
+	try {
+		const moved = await h.call(ipcChannels.filesMoveTo, { projectId: "p2", relativePath: "src/a.txt" }, { projectId: "p2", relativePath: "lib/b.txt" });
+		assert.deepEqual(JSON.parse(JSON.stringify(moved)), { projectId: "p2", relativePath: "lib/b.txt" });
+		assert.deepEqual(
+			h.calls.remoteMoveTo.map((entry) => [entry.source, entry.targetPath]),
+			[["src/a.txt", "lib/b.txt"]],
+			"一次 stat→rename，没有先移动再改名",
+		);
+	} finally {
+		h.dispose();
+	}
+
+	const cross = harness();
+	try {
+		await rejectsWith(() => cross.call(ipcChannels.filesMoveTo, { projectId: "p2", relativePath: "a" }, { projectId: "p1", relativePath: "b" }), /CROSS_BACKEND_FILE_OPERATION_UNSUPPORTED/);
+	} finally {
+		cross.dispose();
+	}
+
+	const unassembled = harness({ remoteEntries: false });
+	try {
+		await rejectsWith(() => unassembled.call(ipcChannels.filesMoveTo, { projectId: "p2", relativePath: "a" }, { projectId: "p2", relativePath: "b" }), /UNSUPPORTED_PROJECT_LOCATION/);
+	} finally {
+		unassembled.dispose();
 	}
 });

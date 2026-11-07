@@ -119,7 +119,8 @@ test("files:create / files:rename route ssh projects through the main-owned entr
 	assert.doesNotMatch(projectFileService, /remoteHosts\.renameProjectEntry\(/);
 	assert.doesNotMatch(projectFileService, /remoteHosts\.deleteProjectEntry\(/);
 	assert.doesNotMatch(projectFileService, /remoteHosts\.statProjectEntry\(/);
-	assert.match(projectFileService, /api\.files\.move\(\[target\], \{ projectId, relativePath: parentPath \}\)/, "moveEntry 走公共 files.move");
+	assert.match(projectFileService, /api\.files\.moveTo\(target, \{ projectId, relativePath: destinationRelativePath \}\)/, "moveEntry 一次移动到目标全路径");
+	assert.doesNotMatch(projectFileService, /api\.files\.move\(\[target\]/, "跨目录改名不再拆成 move + rename 两步");
 	assert.match(projectFileService, /api\.files\.delete\(target\)/, "deleteEntry 走公共 files.delete");
 	// 搜索同理：provider 只调公共 files:searchPage。
 	assert.match(projectFileService, /api\.files\.searchPage\(projectId, query\)/);

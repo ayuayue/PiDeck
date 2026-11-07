@@ -162,6 +162,8 @@ export const ipcChannels = {
 	filesCopy: "files:copy",
 	/** 移动来源路径到目标目录（同设备 rename，跨设备 cp+rm） */
 	filesMove: "files:move",
+	/** 单源移动到目标全路径（一次写）：跨目录改名不再退化成 move + rename 两步。 */
+	filesMoveTo: "files:move-to",
 	/** 读取文件返回 base64 编码的数据 URL，用于图片等二进制文件 */
 	filesReadBase64: "files:read-base64",
 	/** 粘贴大文本转文件：新写入一律落 userData/paste-files/（项目路径仅做登记校验） */

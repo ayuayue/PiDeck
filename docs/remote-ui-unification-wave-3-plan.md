@@ -104,6 +104,12 @@
 - **P2-7 死导入**、**P2-8 预览桩注释**：已清。
 - **P2-9 清单一致性测试**：改为按函数体括号配对整段解析 `dispatch`（固定 6000 字符窗口废弃），
   并覆盖 `CAPABILITIES` 全集（fs/config/terminal，不再只 `git.*`）。
+- **P1-2 跨目录移动**：新增公共 `files:move-to`（单源移动到目标全路径，一次写）。renderer 的
+  `moveEntry` 不再拆成 move + rename；main 的 ssh 分支走 `remoteEntries.moveTo`（一次 stat→rename），
+  本机/WSL 走新 `backend.moveTo`（rename，跨设备回退 cp+rm）。不支持该原语的位置明确报
+  `UNSUPPORTED_CAPABILITY`，不静默退回两步写。测试：`filesWriteRouting`（ssh/跨项目/未装配）、
+  `filesListTarget`（本机真实 rename）、`remoteProjectEntryIpc`（handle.moveTo 一次 stat→rename）、
+  provider 用例改为「只发一次 move-to」。
 - **P1-3 契约残留**：删除 `renameEntry` / `deleteEntry` 的 `expectedVersion?`（乐观锁凭据由 main 现读现用），
   契约注释写明语义。
 - **P2-1/P2-2 闸门**：`endRead(token)` 只关自己那一代的在途读（`retire` 后旧读的迟到收尾不再扣新读计数），
@@ -119,7 +125,6 @@
 
 | 项 | 现状 | 为什么先不做 |
 |---|---|---|
-| P1-2 跨目录移动两步写 | move→rename 两次独立远端写，第二步失败留「已移动未改名」且无收据 | 需要 entry 服务新增「移动到指定全路径」的单一写；本批不做半套 |
 | P1-5 WSL ignore | `WslProjectFileBackend` 无 `checkIgnore` | 需在 WSL backend 补同口径判定，涉及 helper 回退路径 |
 | P1-6 ignore 未随目录事实缓存 | 每次目录页都重判；远端每页最多 1+N/64 帧 | 需要把 `ignored` 并入目录 FactCache（按目录+仓库代），改动跨 owner |
 

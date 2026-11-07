@@ -84,6 +84,7 @@ function createFilesIpc(root, projectOverride, remoteFiles) {
 		renameHandler: listHandlers.get(ipcChannels.filesRename),
 		copyHandler: listHandlers.get(ipcChannels.filesCopy),
 		moveHandler: listHandlers.get(ipcChannels.filesMove),
+		moveToHandler: listHandlers.get(ipcChannels.filesMoveTo),
 		openedPaths,
 		listCalls,
 		mutationCalls,
@@ -478,6 +479,25 @@ test("files:directory-page treats a vanished subdirectory as empty, only a missi
 		const rootResult = await gone.directoryPageHandler({}, { projectId: "project-1", relativePath: "" });
 		assert.equal(rootResult.ok, false);
 		assert.equal(rootResult.code, "PROJECT_DIRECTORY_MISSING");
+	} finally {
+		rmSync(fixture, { recursive: true, force: true });
+	}
+});
+
+test("files:move-to：本机一次写把文件移动到目标全路径（跨目录改名）", async () => {
+	const fixture = mkdtempSync(join(tmpdir(), "pideck-files-target-move-to-"));
+	const root = join(fixture, "project");
+	const srcDir = join(root, "src");
+	const dstDir = join(root, "dst");
+	mkdirSync(srcDir, { recursive: true });
+	mkdirSync(dstDir, { recursive: true });
+	writeFileSync(join(srcDir, "a.txt"), "a");
+	try {
+		const api = createFilesIpc(root);
+		const moved = unwrap(await api.moveToHandler({}, { projectId: "project-1", relativePath: "src/a.txt" }, { projectId: "project-1", relativePath: "dst/b.txt" }));
+		assert.deepEqual(JSON.parse(JSON.stringify(moved)), { projectId: "project-1", relativePath: "dst/b.txt" });
+		assert.equal(readFileSync(join(dstDir, "b.txt"), "utf8"), "a");
+		assert.equal(existsSync(join(srcDir, "a.txt")), false, "源文件已在同一次写里移走");
 	} finally {
 		rmSync(fixture, { recursive: true, force: true });
 	}

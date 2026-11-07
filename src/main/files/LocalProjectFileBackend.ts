@@ -262,6 +262,32 @@ export class LocalProjectFileBackend implements ProjectFileBackend {
 		return results;
 	}
 
+	/**
+	 * 一次写移动到目标全路径：跨目录改名与同目录改名走同一条路径（不再 move→rename 两步）。
+	 * 跨设备失败时回退 cp + rm，与 `move` 相同。
+	 */
+	async moveTo(source: ProjectFileTarget, target: ProjectFileTarget): Promise<ProjectFileTarget> {
+		const parsedSource = parseProjectFileTarget(source);
+		if (parsedSource.relativePath === "") throw new Error("PROJECT_FILE_ROOT_CANNOT_BE_MOVED");
+		const parsedDestination = parseProjectFileTarget(target);
+		if (parsedDestination.relativePath === "" || parsedDestination.relativePath.endsWith("/")) throw new Error("INVALID_PROJECT_FILE_TARGET");
+		if (parsedDestination.projectId !== parsedSource.projectId) throw new Error("CROSS_BACKEND_FILE_OPERATION_UNSUPPORTED");
+		const resolvedSource = await this.resolveTarget(parsedSource);
+		// 目标文件通常还不存在：用写边界（只需在根内），不能用读面 resolveTarget（它要求存在）。
+		const destinationRoot = this.deps.resolveProjectRoot(parsedDestination.projectId);
+		const destinationBoundary = await createProjectFileReadBoundary(destinationRoot);
+		const destinationPath = await resolveProjectFileWritePath(destinationBoundary, resolveLocalProjectFileTarget(destinationRoot, parsedDestination.relativePath));
+		const sourcePath = await resolveProjectFileWritePath(resolvedSource.boundary, resolveLocalProjectFileTarget(resolvedSource.root, parsedSource.relativePath));
+		if (sourcePath === destinationPath) return parsedDestination;
+		try {
+			await fsRename(sourcePath, destinationPath);
+		} catch {
+			await cp(sourcePath, destinationPath, { recursive: true });
+			await rm(sourcePath, { recursive: true, force: true });
+		}
+		return parsedDestination;
+	}
+
 	private async assertWithinSize(path: string, maxBytes: number): Promise<void> {
 		const fileStat = await stat(path);
 		assertTrustedStatSize(fileStat.size);

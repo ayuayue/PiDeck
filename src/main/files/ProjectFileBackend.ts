@@ -16,6 +16,11 @@ export type ProjectFileBackend = {
 	rename(target: ProjectFileTarget, newName: string): Promise<ProjectFileTarget>;
 	copy(sources: ProjectFileTarget[], targetDir: ProjectFileTarget): Promise<ProjectFileTarget[]>;
 	move(sources: ProjectFileTarget[], targetDir: ProjectFileTarget): Promise<ProjectFileTarget[]>;
+	/**
+	 * 单源移动到**目标全路径**（一次写）：跨目录改名不再退化成 move + rename 两步。
+	 * 可选：没有实现的位置由调用方显式回退并如实标注残局。
+	 */
+	moveTo?(source: ProjectFileTarget, target: ProjectFileTarget): Promise<ProjectFileTarget>;
 	/** 单层目录页（T6）；没有它的位置明确表示「不支持目录页」，调用方不得自行拼凑。 */
 	directoryPage?(target: ProjectFileTarget, limit?: number): Promise<{ entries: ProjectDirectoryEntry[]; truncated: boolean }>;
 };

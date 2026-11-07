@@ -58,13 +58,9 @@ function readProjectTarget(value: unknown, fallback: ProjectFileTarget): Project
  */
 async function moveProjectEntry(api: ProjectServicesApi, projectId: string, target: ProjectFileTarget, destinationRelativePath: string): Promise<ProjectEntryReceipt> {
 	assertProjectTarget(projectId, target);
-	const parentPath = parentOf(destinationRelativePath);
-	const name = destinationRelativePath.slice(destinationRelativePath.lastIndexOf("/") + 1);
-	const moved = unwrapOp(await api.files.move([target], { projectId, relativePath: parentPath }), PROJECT_SERVICE_CODES.failed);
-	const movedTarget = readProjectTarget(moved[0], { projectId, relativePath: destinationRelativePath });
-	if (movedTarget.relativePath === destinationRelativePath) return { target: movedTarget };
-	const renamed = unwrapOp(await api.files.rename(movedTarget, name), PROJECT_SERVICE_CODES.failed);
-	return { target: readProjectTarget(renamed, { projectId, relativePath: destinationRelativePath }) };
+	// 一次写移动到目标全路径（P1-2）：跨目录改名不再拆成 move + rename，第二步失败不会留下残局。
+	const moved = unwrapOp(await api.files.moveTo(target, { projectId, relativePath: destinationRelativePath }), PROJECT_SERVICE_CODES.failed);
+	return { target: readProjectTarget(moved, { projectId, relativePath: destinationRelativePath }) };
 }
 
 /**

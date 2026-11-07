@@ -211,6 +211,17 @@ test("handle：门禁关闭与非法输入都不触达服务", async () => {
 	assert.equal(h.calls.length, 0, "非法输入在打开服务之前就被拒绝");
 });
 
+test("handle.moveTo：一次 stat→rename 到目标全路径；根不能被移动", async () => {
+	const h = entryIpcHarness();
+	const moved = await h.handle.moveTo(h.sender, "p1", "src/a.txt", "lib/b.txt");
+	assert.deepEqual(JSON.parse(JSON.stringify(moved)), { relativePath: "b.txt" });
+	assert.deepEqual(JSON.parse(JSON.stringify(h.calls.map((call) => call[0]))), ["stat", "rename"], "一次 stat 拿令牌，一次 rename 到全路径");
+
+	const root = entryIpcHarness();
+	await rejectsWith(() => root.handle.moveTo(root.sender, "p1", "", "lib"), /REMOTE_FILE_PROTECTED_PATH/);
+	assert.equal(root.calls.length, 0, "根在触达服务之前就拒绝");
+});
+
 test("handle.move：main 内 stat→rename 到目标目录；同目录移动不签令牌也不发帧", async () => {
 	const h = entryIpcHarness();
 	const moved = await h.handle.move(h.sender, "p1", "src/a.txt", "lib");

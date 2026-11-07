@@ -686,6 +686,7 @@ export function createPreviewApi(): PiDesktopApi {
 			rename: async () => opOk(""),
 			copy: async () => [],
 			move: async () => opOk([]),
+			moveTo: async (source) => opOk(source),
 			getPathForFile: () => "",
 			getClipboardPaths: () => [],
 		},

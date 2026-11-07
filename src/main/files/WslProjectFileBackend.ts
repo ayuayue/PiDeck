@@ -378,6 +378,12 @@ export class WslProjectFileBackend implements ProjectFileBackend {
 		return await this.deps.fallback.move(sources, targetDir);
 	}
 
+	async moveTo(source: ProjectFileTarget, target: ProjectFileTarget): Promise<ProjectFileTarget> {
+		// 与 move 同一件事：WSL 路径由 fallback 在 helper 或 UNC 上用同一判据处理。
+		if (typeof this.deps.fallback.moveTo !== "function") throw new Error("UNSUPPORTED_CAPABILITY");
+		return await this.deps.fallback.moveTo(source, target);
+	}
+
 	private assertTrustedSize(size: number, maxBytes?: number): void {
 		if (!Number.isSafeInteger(size) || size < 0 || size > MAX_TRUSTED_STAT_BYTES) throw new Error(`FILE_SIZE_UNREADABLE:${size}`);
 		if (typeof maxBytes === "number" && Number.isFinite(maxBytes) && maxBytes > 0 && size > maxBytes) throw new Error(`FILE_TOO_LARGE:${size}:${Math.floor(maxBytes)}`);

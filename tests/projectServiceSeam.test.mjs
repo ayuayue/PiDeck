@@ -108,6 +108,10 @@ function makeApi(options = {}) {
 				const index = target.relativePath.lastIndexOf("/");
 				return { ok: true, value: { projectId: target.projectId, relativePath: (index < 0 ? "" : target.relativePath.slice(0, index + 1)) + newName } };
 			},
+			moveTo: async (source, destination) => {
+				record("files.moveTo", [source, destination]);
+				return { ok: true, value: destination };
+			},
 			move: async (sources, targetDir) => {
 				record("files.move", [sources, targetDir]);
 				// 公共 files:move 返回移动后的 target（目标目录 + 源文件名），与 local backend 同形。
@@ -422,12 +426,12 @@ test("本机文件写面：读正文/保存/新建/改名/删除返回收据，�
 	assert.deepEqual(plain(renamed.target), { projectId: "p1", relativePath: "src/c.ts" });
 	const deleted = await services.files.deleteEntry(target);
 	assert.deepEqual(plain(deleted), { target });
-	// 跨目录移动：先 files.move 到目标父目录；目标名不同再 rename。
+	// 一次写移动到目标全路径（P1-2）：不再拆成 move + rename 两步。
 	const moved = await services.files.moveEntry(target, "src/c.ts");
 	assert.deepEqual(plain(moved.target), { projectId: "p1", relativePath: "src/c.ts" });
 	await services.files.openInEditor(target);
 	await services.files.showInFolder(target);
-	assert.deepEqual(names(calls), ["files.readContent", "files.writeContent", "files.create", "files.rename", "files.delete", "files.move", "files.rename", "files.open", "files.showInFolder"]);
+	assert.deepEqual(names(calls), ["files.readContent", "files.writeContent", "files.create", "files.rename", "files.delete", "files.moveTo", "files.open", "files.showInFolder"]);
 	assert.equal(services.capabilities.files.textVersion, "none");
 });
 
@@ -478,10 +482,13 @@ test("远端文件管理：新建按类型分流，改名/删除/移动都走公
 	const moved = await services.files.moveEntry({ projectId: "p2", relativePath: "src/a.ts" }, "lib/a.ts");
 	assert.deepEqual(plain(moved.target), { projectId: "p2", relativePath: "lib/a.ts" });
 	// 新建/改名/删除/移动全部收口到公共 files:*（main 内按位置路由；令牌不离开 main）。
-	assert.deepEqual(names(calls), ["files.create", "files.create", "files.rename", "files.delete", "files.move"]);
+	assert.deepEqual(names(calls), ["files.create", "files.create", "files.rename", "files.delete", "files.moveTo"]);
 	assert.deepEqual(plain(calls[2].args), [{ projectId: "p2", relativePath: "src/b.ts" }, "c.ts"]);
 	assert.deepEqual(plain(calls[3].args), [{ projectId: "p2", relativePath: "src/c.ts" }]);
-	assert.deepEqual(plain(calls[4].args), [[{ projectId: "p2", relativePath: "src/a.ts" }], { projectId: "p2", relativePath: "lib" }]);
+	assert.deepEqual(plain(calls[4].args), [
+		{ projectId: "p2", relativePath: "src/a.ts" },
+		{ projectId: "p2", relativePath: "lib/a.ts" },
+	]);
 });
 
 test("文件传输经 ProjectFileService：远端 picker/拖放/下载共用项目身份，本机显式 unsupported", async () => {
