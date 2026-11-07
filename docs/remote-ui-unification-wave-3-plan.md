@@ -91,7 +91,7 @@
 | 1 搜索 | 无 | 新增公共 `files:search-page`（`Op<ProjectFileSearchPage>`）：本机索引/BFS、ssh 走 `remoteProjectIpc.searchProject`；两个 provider 都只调它，`kind:"other"` 只留在 `entries`、`truncated/scanned` 不丢。`files:search` 保留一版兼容 | `tests/filesSearchPage.test.mjs`（4 例）、`tests/projectServiceSeam.test.mjs`（搜索断言迁到 `files.searchPage`）、`check:ipc-wiring` 845 通道 |
 | 2 新建/改名/移动/删除 | 无（失败码与收据不变） | `files:create` / `files:rename` / `files:move` / `files:delete` 在 main 内按位置路由：ssh 走 `remoteProjectEntries` 的 handle（同一套服务/令牌/事实失效），本机仍走 local backend；rename/move/delete 的乐观锁由 main 现读版本后立即提交，renderer 不再持令牌；delete 带回 trashId 收据 | `tests/filesWriteRouting.test.mjs`（6 例）、`tests/remoteProjectEntryIpc.test.mjs`（handle 5 例）、`tests/filesIpcRegistration.test.mjs`（源码断言：provider 不再调 remoteHosts 写面）、`tests/projectServiceSeam.test.mjs`（写面断言迁到 `files.create/rename/move/delete`） |
 
-已知缺陷（2026-11-07 归档，详见 `remote-file-tree-and-git-unification-plan.md` §11）：远端目录页的 Git ignore 修饰在真机上不生效——helper 的 `git.checkIgnore` 返回 `GIT_COMMAND_FAILED`，前端映射缺口已修、bundle 缓存与能力声明已排除，需要带 stderr 的 helper 诊断（单独任务）。
+已知缺陷已修复（2026-11-07，详见 `remote-file-tree-and-git-unification-plan.md` §11）：远端目录页的 Git ignore 修饰曾因 helper `dispatch` 漏发 `git.checkIgnore`（能力声明了但派发表没有）而在真机失效；已补上并 bump 到 helper 1.26.1，新增“声明 ↔ 分派一致”回归测试，`e2e/remote-file-ignore.spec.ts` 与远端 Git 全组均已通过。
 
 未收口（登记）：`projectServices` / `projectFileService` 的 provider 工厂仍按位置选择实现（这是“provider = 位置适配层”的既有边界）；`upload` / `download` 仍走远端传输通道（能力不同，不属文件写面）。
 

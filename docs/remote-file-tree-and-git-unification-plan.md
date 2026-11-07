@@ -548,13 +548,18 @@ helper 事件与写操作仅标脏、发通知；只有活跃读者决定装载�
 - 兼容壳按 W4 只保留一版，不宣称通道数减少；`remoteRepos`/`remoteLog`/`remoteCompare` 的触发条件已在本表固定，新增调用不得重新引入第二事实源。`listProject` 无消费者，登记为后续清理候选而不是继续扩展。
 - 能力边界不是迁移欠账：远端不提供 count/graph、批量/目录写与后台 fetch；这些由 F7 门控或面板不渲染，不能以“补齐”为名放宽授权或伪造结果。
 
-## 11. 已知缺陷：远端目录页的 Git ignore 修饰在真机上不生效（2026-11-07 归档）
+## 11. 已修复：远端目录页的 Git ignore 修饰在真机上不生效（2026-11-07 定位并修复）
 
 **现象**：远端项目的文件树不置灰任何条目。`e2e/remote-file-ignore.spec.ts` 的「后端契约」步骤红：
 `files.directory-page` 返回的 entries 里没有任何 `ignored: true`。
 
 **判定**：产品按契约「没判定就不修饰」在行事（`ProjectDirectoryEntry.ignored` 缺失 = 未知），
 所以没有伪报；但这项功能在真机上等于没生效，属于缺陷而不是设计。
+
+**根因（已确认）**：helper 的方法派发表（`dispatch`）**漏了 `git.checkIgnore`**——
+`CAPABILITIES` 声明了它、`REPO_METHODS` 与 `git-read.mjs` 的 `prepare`/`start` 也都实现了它，
+但入口分派没有把它交给 `handleGit`，于是 helper 对已声明的方法回 `METHOD_NOT_FOUND`。
+主进程把未识别码折成 `GIT_COMMAND_FAILED`，渲染层/目录页只能看到“没判定”。
 
 **已排除（都有实测证据）**：
 
@@ -570,17 +575,18 @@ helper 事件与写操作仅标脏、发通知；只有活跃读者决定装载�
 | git 本身对该命令失败 | 远端手工跑 `git --no-pager --no-optional-locks -c … check-ignore --no-index -- <paths>`（`/tmp`、`$HOME` 下、`/proc/self/fd/N` 作 cwd 三种组合）全部正常：单条无命中 exit 1、有命中 exit 0 |
 | 路径校验拒绝 | `.gitignore`/`visible.txt`/`ignored-dir`/`ignored.log` 都通过 `validateRemoteGitPath` 与 helper 的 `relative()` |
 
-**当前最可能的原因**：helper 的 `execute()` 对 `git check-ignore` 的退出码判定没有生效
-（`allowed=[1]` 未被容忍），或该命令的 spawn/close 走了失败分支；helper 把 stderr 丢掉了
-（`execute` 只累计 stderr 字节数），主进程侧只能看到 `GIT_COMMAND_FAILED`。
+**修复（2026-11-07）**：
 
-**下一步（需要碰 helper 边界，单独任务）**：
+1. `RemoteHelperEntry.ts` 的 `dispatch` 补上 `git.checkIgnore`（能力声明与分派集合从此一致）；
+2. `REMOTE_HELPER_ENTRY_VERSION` 1.26.0 → **1.26.1**（内容变化必须换版本，否则远端复用旧 bundle），
+   同步 inline source 的 `VERSION` 字面量、`REMOTE_HELPER_ENTRY_SHA256`，以及四处版本断言；
+3. 新增回归测试「every declared git capability is actually dispatched」：直接比对
+   `CAPABILITIES` 里的 `git.*` 与 `dispatch` 的 `frame.method === "…"` 集合，漏一个就红；
+4. 验证：`e2e/remote-file-ignore.spec.ts` **通过**（30.3s，后端契约 + UI 置灰两步都过）；
+   远端 `-g "远端 Git|远端文件管理"` **11 passed**；定向单测 971 pass / 0 fail。
 
-1. 临时在 `REMOTE_GIT_READ_SOURCE` 的 `execute` 失败分支里带上 stderr 文本，并 bump
-   `REMOTE_HELPER_ENTRY_VERSION`（否则远端复用旧 bundle 不会重新部署），跑
-   `e2e/remote-file-ignore.spec.ts` 拿到 git 的真实报错；
-2. 按报错修 helper（若确为 allowed 判定，属于 helper 侧 bug，不是协议变更）；
-3. 回滚临时诊断与版本号，重跑该 e2e 与 `-g "远端 Git"` 全组。
+**教训**：能力声明、`prepare`、`start`、`dispatch` 是四处独立清单，任何一处漏写都会表现为
+“能力存在但方法不可用”，而且只在真机出现。回归测试钉住了声明与分派的一致性。
 
 **影响面**：只有「远端文件树置灰」这一条可见效果缺失；不涉及数据、授权或写路径。
 本机目录页的 ignore 修饰（`GitService.checkIgnore`）不受影响。
