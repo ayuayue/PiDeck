@@ -60,10 +60,10 @@ async function moveProjectEntry(api: ProjectServicesApi, projectId: string, targ
 	assertProjectTarget(projectId, target);
 	const parentPath = parentOf(destinationRelativePath);
 	const name = destinationRelativePath.slice(destinationRelativePath.lastIndexOf("/") + 1);
-	const moved = await api.files.move([target], { projectId, relativePath: parentPath });
+	const moved = unwrapOp(await api.files.move([target], { projectId, relativePath: parentPath }), PROJECT_SERVICE_CODES.failed);
 	const movedTarget = readProjectTarget(moved[0], { projectId, relativePath: destinationRelativePath });
 	if (movedTarget.relativePath === destinationRelativePath) return { target: movedTarget };
-	const renamed = await api.files.rename(movedTarget, name);
+	const renamed = unwrapOp(await api.files.rename(movedTarget, name), PROJECT_SERVICE_CODES.failed);
 	return { target: readProjectTarget(renamed, { projectId, relativePath: destinationRelativePath }) };
 }
 
@@ -194,20 +194,20 @@ export function createProjectFileService(projectId: string, api: ProjectServices
 		stat: createProjectStat(projectId, api),
 		async createEntry(parent, name, type): Promise<ProjectEntryReceipt> {
 			assertProjectTarget(projectId, parent);
-			const created = await api.files.create(parent, name, type);
+			const created = unwrapOp(await api.files.create(parent, name, type), PROJECT_SERVICE_CODES.failed);
 			return { target: readProjectTarget(created, childTarget(parent, name)), kind: type };
 		},
 		async renameEntry(target, newName): Promise<ProjectEntryReceipt> {
 			assertProjectTarget(projectId, target);
 			// 乐观锁凭据由 main 现读现用（stat→rename 在同一进程内完成）；调用方不再传令牌/version。
-			const renamed = await api.files.rename(target, newName);
+			const renamed = unwrapOp(await api.files.rename(target, newName), PROJECT_SERVICE_CODES.failed);
 			return { target: readProjectTarget(renamed, childTarget(target, newName)) };
 		},
 		moveEntry: (target, destinationRelativePath) => moveProjectEntry(api, projectId, target, destinationRelativePath),
 		async deleteEntry(target): Promise<ProjectEntryDeleteReceipt> {
 			assertProjectTarget(projectId, target);
 			// 远端删除进回收站会带回 trashId；本机没有回收站，收据里就没有这个字段。
-			const receipt = await api.files.delete(target);
+			const receipt = unwrapOp(await api.files.delete(target), PROJECT_SERVICE_CODES.failed);
 			const trashId = isRecord(receipt) && typeof receipt.trashId === "string" ? receipt.trashId : undefined;
 			return { target, ...(trashId === undefined ? {} : { trashId }) };
 		},

@@ -1,4 +1,5 @@
 import type { PiDesktopApi } from "../../preload";
+import { opOk } from "../../shared/op";
 import { createDefaultExternalEditorSettings, createDefaultSecurityConfig, createDefaultSoundAlertSettings, DEFAULT_PET_SCALE, DEFAULT_TOAST_DURATION_MS, emptyRemoteAccessState, terminalOwnerKeyFor } from "../../shared/types";
 import { DEFAULT_VOICE_TRANSCRIPTION_CONFIG } from "../../shared/voiceTranscriptionConfig";
 import { EMPTY_VIDEO_GEN_CONFIG } from "../../shared/videoGenConfig";
@@ -675,12 +676,12 @@ export function createPreviewApi(): PiDesktopApi {
 			// 预览模式无主进程：只能证明“不可用”，不能伪装成路径不存在。
 			stat: async () => ({ availability: "unavailable" as const, exists: false, isDirectory: false, code: "REMOTE_FEATURE_DISABLED" }),
 			readBase64: async () => "",
-			create: async () => "/mock/created",
+			create: async () => opOk("/mock/created"),
 			writeContent: async () => undefined,
-			delete: async () => undefined,
-			rename: async () => "",
+			delete: async () => opOk(undefined),
+			rename: async () => opOk(""),
 			copy: async () => [],
-			move: async () => [],
+			move: async () => opOk([]),
 			getPathForFile: () => "",
 			getClipboardPaths: () => [],
 		},

@@ -101,25 +101,28 @@ function makeApi(options = {}) {
 			},
 			create: async (parent, name, type) => {
 				record("files.create", [parent, name, type]);
-				return { projectId: parent.projectId, relativePath: parent.relativePath ? parent.relativePath + "/" + name : name };
+				return { ok: true, value: { projectId: parent.projectId, relativePath: parent.relativePath ? parent.relativePath + "/" + name : name } };
 			},
 			rename: async (target, newName) => {
 				record("files.rename", [target, newName]);
 				const index = target.relativePath.lastIndexOf("/");
-				return { projectId: target.projectId, relativePath: (index < 0 ? "" : target.relativePath.slice(0, index + 1)) + newName };
+				return { ok: true, value: { projectId: target.projectId, relativePath: (index < 0 ? "" : target.relativePath.slice(0, index + 1)) + newName } };
 			},
 			move: async (sources, targetDir) => {
 				record("files.move", [sources, targetDir]);
 				// 公共 files:move 返回移动后的 target（目标目录 + 源文件名），与 local backend 同形。
-				return sources.map((source) => {
-					const name = source.relativePath.slice(source.relativePath.lastIndexOf("/") + 1);
-					return { projectId: source.projectId, relativePath: targetDir.relativePath === "" ? name : `${targetDir.relativePath}/${name}` };
-				});
+				return {
+					ok: true,
+					value: sources.map((source) => {
+						const name = source.relativePath.slice(source.relativePath.lastIndexOf("/") + 1);
+						return { projectId: source.projectId, relativePath: targetDir.relativePath === "" ? name : `${targetDir.relativePath}/${name}` };
+					}),
+				};
 			},
 			delete: async (target) => {
 				record("files.delete", [target]);
 				// 远端删除进回收站会带收据；本机没有（undefined）。
-				return options.deleteReceipt;
+				return { ok: true, value: options.deleteReceipt };
 			},
 			open: async (target) => {
 				record("files.open", [target]);

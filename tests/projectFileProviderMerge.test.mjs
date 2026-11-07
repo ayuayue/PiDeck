@@ -7,6 +7,7 @@ const fileServiceSource = readFileSync("src/renderer/src/services/projectFileSer
 const servicesSource = readFileSync("src/renderer/src/services/projectServices.ts", "utf8");
 const { createProjectFileService, localProjectFilePorts, remoteProjectFilePorts } = loadTsCommonJs("src/renderer/src/services/projectFileService.ts");
 const { PROJECT_SERVICE_CODES } = loadTsCommonJs("src/renderer/src/services/projectServiceContracts.ts");
+const { opOk } = loadTsCommonJs("src/shared/op.ts");
 
 /**
  * 位置分派收口的终点：**只有一个文件 provider**。
@@ -53,7 +54,7 @@ function stub(overrides = {}) {
 			showInFolder: async (fileTarget) => {
 				calls.push(["files.showInFolder", fileTarget.relativePath]);
 			},
-			delete: async () => undefined,
+			delete: async () => opOk(undefined),
 			...overrides.files,
 		},
 		remoteHosts: {
@@ -109,7 +110,7 @@ test("同一个 provider：远端端口读令牌化通道、缺 version 零调�
 });
 
 test("同一个 provider：远端删除带回 trashId，本机删除没有该字段", async () => {
-	const remote = stub({ files: { delete: async () => ({ trashId: "trash-1" }) } });
+	const remote = stub({ files: { delete: async () => opOk({ trashId: "trash-1" }) } });
 	const remoteFiles = createProjectFileService(projectId, remote.api, fence, remoteProjectFilePorts(projectId, remote.api));
 	assert.deepEqual(plain(await remoteFiles.deleteEntry(target)), { target, trashId: "trash-1" });
 

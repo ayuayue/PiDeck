@@ -3,7 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 import { relative } from "node:path";
 import { projectLocatorFromLegacy } from "../../shared/locationAdapters";
 import { isRemoteProject } from "../../shared/projectLocation";
-import { codeOf, opFailFromCode, opOk } from "../../shared/op";
+import { codeOf, opFailFromCode, opOk, type Op } from "../../shared/op";
 import { ipcChannels } from "../../shared/ipc";
 import { FILE_TREE_ABSOLUTE_MAX_DEPTH } from "../../shared/fileTree";
 import type { ProjectFileAccessScope, ProjectFileTarget } from "../../shared/types/project";
@@ -121,6 +121,17 @@ function parseOptionalMaxBytes(value: unknown): number | undefined {
 
 export function registerFilesIpc({ fileSystemService, projectStore, settingsStore, getFileIndexService, appLogger, openExternalUrl, remoteFiles, remoteEntries, wslHelperPool, checkIgnore }: FilesIpcDeps): void {
 	registerFilesSystemIpc({ settingsStore, openExternalUrl });
+	/**
+	 * 公共写面的统一信封（P1-1）：成功 `opOk`，失败用稳定码 + 由闭集推出的 `outcome`。
+	 * 不再把 Error 抛给 renderer 去猜码——`unknown` 在结构上就传得下去，不靠 message 反推。
+	 */
+	const writeOp = async <T>(run: () => Promise<T>): Promise<Op<T>> => {
+		try {
+			return opOk(await run());
+		} catch (error) {
+			return opFailFromCode(codeOf(error, "PROJECT_FILE_COMMAND_FAILED"));
+		}
+	};
 	// Windows Node / Electron 边界不能直接消费 WSL Linux 路径：统一走 WslPaths 转成当前发行版的主机 UNC。
 	// 已经是普通 Windows/非 WSL 网络盘的输入保持不变，避免误伤非 WSL 路径。
 	const toWindowsPath = (path: string, project?: { environment?: string; wslDistro?: string }): string => {
@@ -654,82 +665,94 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		}
 	});
 
-	ipcMain.handle(ipcChannels.filesCreate, async (event, rawParentDir: unknown, name: unknown, type: unknown) => {
-		const parentInput = parseFilePathInput(rawParentDir);
-		if (typeof name !== "string" || !name.trim() || name.length > 255) throw new Error("Invalid file name");
-		if (type !== "file" && type !== "directory") throw new Error("Invalid file type");
-		if (typeof parentInput !== "string") {
-			// 位置分派收口：ssh 项目走 entry 写面（令牌留在 main），本机仍走本地 backend。
-			const owner = projectStore.get(parentInput.projectId);
-			if (owner !== undefined && isRemoteProject(owner)) {
-				if (remoteEntries === undefined) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
-				const created = await remoteEntries.create(event.sender, parentInput.projectId, parentInput.relativePath, name, type);
-				void appLogger.info("file", "Remote project entry created", { projectId: parentInput.projectId, target: created.relativePath, type });
-				return { projectId: parentInput.projectId, relativePath: created.relativePath };
-			}
-			const result = await projectFileBackendRouter.forProject(parentInput.projectId).create(parentInput, name, type);
-			void appLogger.info("file", "Project file/folder created", { target: result, type });
-			return result;
-		}
-		const parentDir = await resolveReadablePath(parentInput);
-		const result = await fileSystemService.create(parentDir, name, type);
-		void appLogger.info("file", "File/folder created", { parentDir, name, type, result });
-		return result;
-	});
-
-	ipcMain.handle(ipcChannels.filesDelete, async (event, rawPath: unknown, recursive?: unknown) => {
-		const pathInput = parseFilePathInput(rawPath);
-		if (recursive !== undefined && typeof recursive !== "boolean") throw new Error("Invalid recursive flag");
-		try {
-			if (typeof pathInput !== "string") {
-				// 位置分派收口：ssh 项目走 entry 删除（进回收站，带回 trashId），令牌留在 main。
-				const owner = projectStore.get(pathInput.projectId);
-				if (owner !== undefined && isRemoteProject(owner)) {
-					if (remoteEntries === undefined) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
-					const deleted = await remoteEntries.delete(event.sender, pathInput.projectId, pathInput.relativePath);
-					void appLogger.info("file", "Remote project entry deleted", { projectId: pathInput.projectId, target: pathInput.relativePath });
-					return deleted;
+	ipcMain.handle(
+		ipcChannels.filesCreate,
+		async (event, rawParentDir: unknown, name: unknown, type: unknown): Promise<Op<string | ProjectFileTarget>> =>
+			writeOp(async () => {
+				const parentInput = parseFilePathInput(rawParentDir);
+				if (typeof name !== "string" || !name.trim() || name.length > 255) throw new Error("Invalid file name");
+				if (type !== "file" && type !== "directory") throw new Error("Invalid file type");
+				if (typeof parentInput !== "string") {
+					// 位置分派收口：ssh 项目走 entry 写面（令牌留在 main），本机仍走本地 backend。
+					const owner = projectStore.get(parentInput.projectId);
+					if (owner !== undefined && isRemoteProject(owner)) {
+						if (remoteEntries === undefined) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+						const created = await remoteEntries.create(event.sender, parentInput.projectId, parentInput.relativePath, name, type);
+						void appLogger.info("file", "Remote project entry created", { projectId: parentInput.projectId, target: created.relativePath, type });
+						return { projectId: parentInput.projectId, relativePath: created.relativePath };
+					}
+					const result = await projectFileBackendRouter.forProject(parentInput.projectId).create(parentInput, name, type);
+					void appLogger.info("file", "Project file/folder created", { target: result, type });
+					return result;
 				}
-				await projectFileBackendRouter.forProject(pathInput.projectId).delete(pathInput, recursive);
-				void appLogger.info("file", "Project file deleted", { target: pathInput, recursive: Boolean(recursive) });
-				return;
-			}
-			const path = await resolveReadablePath(pathInput);
-			await fileSystemService.delete(path, recursive);
-			void appLogger.info("file", "File deleted", { path, recursive: Boolean(recursive) });
-		} catch (error) {
-			void appLogger.error("file", "File delete failed", {
-				...(typeof pathInput === "string" ? { path: pathInput } : { target: pathInput }),
-				recursive: Boolean(recursive),
-				error: error instanceof Error ? error.message : String(error),
-			});
-			throw error;
-		}
-	});
+				const parentDir = await resolveReadablePath(parentInput);
+				const result = await fileSystemService.create(parentDir, name, type);
+				void appLogger.info("file", "File/folder created", { parentDir, name, type, result });
+				return result;
+			}),
+	);
 
-	ipcMain.handle(ipcChannels.filesRename, async (event, rawPath: unknown, newName: unknown) => {
-		const pathInput = parseFilePathInput(rawPath);
-		if (typeof newName !== "string" || !newName.trim() || newName.length > 255) throw new Error("Invalid file name");
-		if (typeof pathInput !== "string") {
-			// 位置分派收口：ssh 项目走 entry 写面；令牌由 main 现读现用，renderer 不持令牌。
-			const owner = projectStore.get(pathInput.projectId);
-			if (owner !== undefined && isRemoteProject(owner)) {
-				if (remoteEntries === undefined) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
-				const cut = pathInput.relativePath.lastIndexOf("/");
-				const targetPath = (cut < 0 ? "" : pathInput.relativePath.slice(0, cut + 1)) + newName;
-				const renamed = await remoteEntries.rename(event.sender, pathInput.projectId, pathInput.relativePath, targetPath);
-				void appLogger.info("file", "Remote project entry renamed", { projectId: pathInput.projectId, from: pathInput.relativePath, to: renamed.relativePath });
-				return { projectId: pathInput.projectId, relativePath: renamed.relativePath };
-			}
-			const result = await projectFileBackendRouter.forProject(pathInput.projectId).rename(pathInput, newName);
-			void appLogger.info("file", "Project file renamed", { target: pathInput, newName, result });
-			return result;
-		}
-		const path = await resolveReadablePath(pathInput);
-		const result = await fileSystemService.rename(path, newName);
-		void appLogger.info("file", "File renamed", { path, newName, result });
-		return result;
-	});
+	ipcMain.handle(
+		ipcChannels.filesDelete,
+		async (event, rawPath: unknown, recursive?: unknown): Promise<Op<void | { trashId: string }>> =>
+			writeOp(async () => {
+				const pathInput = parseFilePathInput(rawPath);
+				if (recursive !== undefined && typeof recursive !== "boolean") throw new Error("Invalid recursive flag");
+				try {
+					if (typeof pathInput !== "string") {
+						// 位置分派收口：ssh 项目走 entry 删除（进回收站，带回 trashId），令牌留在 main。
+						const owner = projectStore.get(pathInput.projectId);
+						if (owner !== undefined && isRemoteProject(owner)) {
+							if (remoteEntries === undefined) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+							const deleted = await remoteEntries.delete(event.sender, pathInput.projectId, pathInput.relativePath);
+							void appLogger.info("file", "Remote project entry deleted", { projectId: pathInput.projectId, target: pathInput.relativePath });
+							return deleted;
+						}
+						await projectFileBackendRouter.forProject(pathInput.projectId).delete(pathInput, recursive);
+						void appLogger.info("file", "Project file deleted", { target: pathInput, recursive: Boolean(recursive) });
+						return;
+					}
+					const path = await resolveReadablePath(pathInput);
+					await fileSystemService.delete(path, recursive);
+					void appLogger.info("file", "File deleted", { path, recursive: Boolean(recursive) });
+				} catch (error) {
+					void appLogger.error("file", "File delete failed", {
+						...(typeof pathInput === "string" ? { path: pathInput } : { target: pathInput }),
+						recursive: Boolean(recursive),
+						error: error instanceof Error ? error.message : String(error),
+					});
+					throw error;
+				}
+			}),
+	);
+
+	ipcMain.handle(
+		ipcChannels.filesRename,
+		async (event, rawPath: unknown, newName: unknown): Promise<Op<string | ProjectFileTarget>> =>
+			writeOp(async () => {
+				const pathInput = parseFilePathInput(rawPath);
+				if (typeof newName !== "string" || !newName.trim() || newName.length > 255) throw new Error("Invalid file name");
+				if (typeof pathInput !== "string") {
+					// 位置分派收口：ssh 项目走 entry 写面；令牌由 main 现读现用，renderer 不持令牌。
+					const owner = projectStore.get(pathInput.projectId);
+					if (owner !== undefined && isRemoteProject(owner)) {
+						if (remoteEntries === undefined) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+						const cut = pathInput.relativePath.lastIndexOf("/");
+						const targetPath = (cut < 0 ? "" : pathInput.relativePath.slice(0, cut + 1)) + newName;
+						const renamed = await remoteEntries.rename(event.sender, pathInput.projectId, pathInput.relativePath, targetPath);
+						void appLogger.info("file", "Remote project entry renamed", { projectId: pathInput.projectId, from: pathInput.relativePath, to: renamed.relativePath });
+						return { projectId: pathInput.projectId, relativePath: renamed.relativePath };
+					}
+					const result = await projectFileBackendRouter.forProject(pathInput.projectId).rename(pathInput, newName);
+					void appLogger.info("file", "Project file renamed", { target: pathInput, newName, result });
+					return result;
+				}
+				const path = await resolveReadablePath(pathInput);
+				const result = await fileSystemService.rename(path, newName);
+				void appLogger.info("file", "File renamed", { path, newName, result });
+				return result;
+			}),
+	);
 
 	ipcMain.handle(ipcChannels.filesCopy, async (_event, rawSourcePaths: unknown, rawTargetDir: unknown) => {
 		const sourceInputs = parseFilePathInputs(rawSourcePaths);
@@ -745,32 +768,36 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		return localFileMutationAdapter.copy(sourceInputs, targetDirInput);
 	});
 
-	ipcMain.handle(ipcChannels.filesMove, async (event, rawSourcePaths: unknown, rawTargetDir: unknown) => {
-		const sourceInputs = parseFilePathInputs(rawSourcePaths);
-		const targetDirInput = parseFilePathInput(rawTargetDir);
-		const targetSources = sourceInputs.filter((source): source is ProjectFileTarget => typeof source !== "string");
-		// 位置分派收口：全部是 target 且目标是 ssh 项目 → 逐项走 entry rename（跨目录移动）。
-		if (typeof targetDirInput !== "string" && targetSources.length === sourceInputs.length) {
-			const owner = projectStore.get(targetDirInput.projectId);
-			if (owner !== undefined && isRemoteProject(owner)) {
-				if (sourceInputs.some((source) => (source as ProjectFileTarget).projectId !== targetDirInput.projectId)) throw new Error("CROSS_BACKEND_FILE_OPERATION_UNSUPPORTED");
-				if (remoteEntries === undefined) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
-				const moved: ProjectFileTarget[] = [];
-				for (const source of targetSources) {
-					const result = await remoteEntries.move(event.sender, source.projectId, source.relativePath, targetDirInput.relativePath);
-					moved.push({ projectId: source.projectId, relativePath: result.relativePath });
+	ipcMain.handle(
+		ipcChannels.filesMove,
+		async (event, rawSourcePaths: unknown, rawTargetDir: unknown): Promise<Op<Array<string | ProjectFileTarget>>> =>
+			writeOp(async () => {
+				const sourceInputs = parseFilePathInputs(rawSourcePaths);
+				const targetDirInput = parseFilePathInput(rawTargetDir);
+				const targetSources = sourceInputs.filter((source): source is ProjectFileTarget => typeof source !== "string");
+				// 位置分派收口：全部是 target 且目标是 ssh 项目 → 逐项走 entry rename（跨目录移动）。
+				if (typeof targetDirInput !== "string" && targetSources.length === sourceInputs.length) {
+					const owner = projectStore.get(targetDirInput.projectId);
+					if (owner !== undefined && isRemoteProject(owner)) {
+						if (sourceInputs.some((source) => (source as ProjectFileTarget).projectId !== targetDirInput.projectId)) throw new Error("CROSS_BACKEND_FILE_OPERATION_UNSUPPORTED");
+						if (remoteEntries === undefined) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+						const moved: ProjectFileTarget[] = [];
+						for (const source of targetSources) {
+							const result = await remoteEntries.move(event.sender, source.projectId, source.relativePath, targetDirInput.relativePath);
+							moved.push({ projectId: source.projectId, relativePath: result.relativePath });
+						}
+						void appLogger.info("file", "Remote project entries moved", { projectId: targetDirInput.projectId, count: moved.length });
+						return moved;
+					}
 				}
-				void appLogger.info("file", "Remote project entries moved", { projectId: targetDirInput.projectId, count: moved.length });
-				return moved;
-			}
-		}
-		const targets = [...targetSources, ...(typeof targetDirInput === "string" ? [] : [targetDirInput])];
-		const backend = fileBackendForTargets(targets);
-		if (typeof targetDirInput !== "string" && targetSources.length === sourceInputs.length) {
-			if (!backend) throw new Error("PROJECT_NOT_FOUND");
-			return backend.move(targetSources, targetDirInput);
-		}
-		if (backend && backend.locationKind !== "local") throw new Error("UNSUPPORTED_CAPABILITY");
-		return localFileMutationAdapter.move(sourceInputs, targetDirInput);
-	});
+				const targets = [...targetSources, ...(typeof targetDirInput === "string" ? [] : [targetDirInput])];
+				const backend = fileBackendForTargets(targets);
+				if (typeof targetDirInput !== "string" && targetSources.length === sourceInputs.length) {
+					if (!backend) throw new Error("PROJECT_NOT_FOUND");
+					return backend.move(targetSources, targetDirInput);
+				}
+				if (backend && backend.locationKind !== "local") throw new Error("UNSUPPORTED_CAPABILITY");
+				return localFileMutationAdapter.move(sourceInputs, targetDirInput);
+			}),
+	);
 }

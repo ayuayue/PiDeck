@@ -3792,7 +3792,10 @@ export function App() {
 									onConfirm: async () => {
 										overlays.clearConfirm();
 										try {
-											await api.files.delete(target, true);
+											// 公共写面返回 Op：失败必须显式抛出，才能沿用下面的错误提示；
+											// unknown 也走同一条提示（不自动重放）。
+											const deleted = await api.files.delete(target, true);
+											if (!deleted.ok) throw new Error(deleted.code);
 											void refreshVisibleFiles();
 											showToast(t("app.fileDeleted"), 2000);
 										} catch (error) {

@@ -9,6 +9,13 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { ipcChannels } = loadTsCommonJs("src/shared/ipc.ts");
 
+/** 公共写面返回 Op（P1-1）：成功取 value，失败抛出稳定码。 */
+function unwrap(op) {
+	if (typeof op !== "object" || op === null || !("ok" in op)) return op;
+	if (op.ok) return op.value;
+	throw new Error(op.code);
+}
+
 function projectFixture(root, overrides = {}) {
 	return { id: "project-1", name: "Project", path: root, lastOpenedAt: 0, ...overrides };
 }
@@ -305,9 +312,9 @@ test("file mutation handlers resolve project targets beneath the registered root
 		const api = createFilesIpc(root);
 		const directoryTarget = { projectId: "project-1", relativePath: "src" };
 		const fileTarget = { projectId: "project-1", relativePath: "src/main.ts" };
-		const created = await api.createHandler({}, directoryTarget, "new.ts", "file");
-		await api.deleteHandler({}, fileTarget, true);
-		const renamed = await api.renameHandler({}, fileTarget, "renamed.ts");
+		const created = unwrap(await api.createHandler({}, directoryTarget, "new.ts", "file"));
+		unwrap(await api.deleteHandler({}, fileTarget, true));
+		const renamed = unwrap(await api.renameHandler({}, fileTarget, "renamed.ts"));
 		assert.equal(created.projectId, "project-1");
 		assert.equal(created.relativePath, "src/new.ts");
 		assert.equal("path" in created, false);
@@ -340,7 +347,7 @@ test("files:copy and move resolve target sources and destination", async () => {
 		assert.equal(copied[0].projectId, "project-1");
 		assert.equal(copied[0].relativePath, "dst/copy.txt");
 		assert.equal(readFileSync(join(dstDir, "copy.txt"), "utf8"), "copy me");
-		const moved = await api.moveHandler({}, [{ projectId: "project-1", relativePath: "src/move.txt" }], { projectId: "project-1", relativePath: "dst" });
+		const moved = unwrap(await api.moveHandler({}, [{ projectId: "project-1", relativePath: "src/move.txt" }], { projectId: "project-1", relativePath: "dst" }));
 		assert.equal(moved[0].projectId, "project-1");
 		assert.equal(moved[0].relativePath, "dst/move.txt");
 		assert.equal(readFileSync(join(dstDir, "move.txt"), "utf8"), "move me");
@@ -366,7 +373,7 @@ test("files:copy and move keep local clipboard paths compatible with target dire
 		const destination = { projectId: "project-1", relativePath: "dst" };
 		const copied = await api.copyHandler({}, [copyPath], destination);
 		assert.equal(copied[0], join(await realpath(dstDir), "copy.txt"));
-		const moved = await api.moveHandler({}, [movePath], destination);
+		const moved = unwrap(await api.moveHandler({}, [movePath], destination));
 		assert.equal(moved[0], join(await realpath(dstDir), "move.txt"));
 		assert.equal(existsSync(movePath), false);
 	} finally {

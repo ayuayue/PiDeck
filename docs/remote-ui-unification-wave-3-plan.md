@@ -91,6 +91,11 @@
 - **P0-1 改名变跨目录移动**：`remoteEntries.rename` 现在要求目标与原路径同父目录，最后一段必须过
   `validateRemoteProjectEntryName`（单段、无 `.pideck-tmp` 后缀/控制字节）；本机 `FileSystemService.rename`
   的同一判据不再只有一侧。测试：`tests/remoteProjectEntryIpc.test.mjs`（非法改名零服务调用）。
+- **P1-1 公共写面信封**：`files:create/rename/move/delete` 的 ssh 与本机分支统一返回 `Op<T>`
+  （成功 `opOk`，失败用稳定码 + 由 `OP_UNKNOWN_CODES` 推出的 `outcome`），renderer 侧只做
+  `unwrapOp`；`App.tsx` 的删除改用显式失败抛出保留错误提示。`REMOTE_FILE_RESULT_UNCONFIRMED`
+  从此在结构上就是 `unknown`，不再依赖 message 反推。测试：`filesWriteRouting`（信封断言）、
+  provider 与 seam 的 fake api 同步改为 Op。
 - **P1-4 幽灵通道/错误路径**：文档里的 `git:remote-check-ignore` 与 `RemoteDirectoryIgnore.ts` 已改成真实值
   （后者从未存在于 `src/main/remote/`）；`checkIgnore` 没有独立 handle 方法，修饰只走 `probeIgnore`。
 - **P2-4 注释与实现不符**：`probeIgnore` 头注释改为「单批失败只丢该批，全部失败才放弃整页」。
@@ -106,7 +111,6 @@
 
 | 项 | 现状 | 为什么先不做 |
 |---|---|---|
-| P1-1 公共写面 `Op` 信封 | `files:create/rename/move/delete` 的 ssh 分支仍 `throw`，outcome 靠 message 反推 | 需同时改 4 条通道与 renderer 消费面，属契约变更；当前 `REMOTE_FILE_RESULT_UNCONFIRMED` 在闭集内，已有 P2-10 用例兜底 |
 | P1-2 跨目录移动两步写 | move→rename 两次独立远端写，第二步失败留「已移动未改名」且无收据 | 需要 entry 服务新增「移动到指定全路径」的单一写；本批不做半套 |
 | P1-3 乐观锁降级 | rename/delete 由 main 现读现用，契约仍留 `expectedVersion?` | 与「renderer 不持令牌」的收口方向一致；下一步删契约残留并写明语义 |
 | P1-5 WSL ignore | `WslProjectFileBackend` 无 `checkIgnore` | 需在 WSL backend 补同口径判定，涉及 helper 回退路径 |

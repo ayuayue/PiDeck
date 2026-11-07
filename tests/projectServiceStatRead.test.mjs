@@ -34,7 +34,7 @@ function fixture() {
 		files: {
 			async rename(target, newName) {
 				// 收口后改名走公共 files:rename：main 内部现读版本并提交，renderer 不持令牌。
-				return { projectId: target.projectId, relativePath: target.relativePath.replace(/[^/]+$/, newName) };
+				return { ok: true, value: { projectId: target.projectId, relativePath: target.relativePath.replace(/[^/]+$/, newName) } };
 			},
 			async stat(target) {
 				assert.equal(target.projectId, projectId);

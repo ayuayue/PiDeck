@@ -592,13 +592,13 @@ const api = {
 		/** 保存项目来源文件时复用读取 scope，主进程据此校验真实写入路径。 */
 		writeContent: (path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope, expectedRevision?: string) => ipcRenderer.invoke(ipcChannels.filesWriteContent, path, content, scope, expectedRevision) as Promise<void>,
 		/** 远端目标的删除进回收站，返回 trashId 收据；本机删除没有收据（undefined）。 */
-		delete: (path: string | ProjectFileTarget, recursive?: boolean) => ipcRenderer.invoke(ipcChannels.filesDelete, path, recursive) as Promise<void | { trashId: string }>,
+		delete: (path: string | ProjectFileTarget, recursive?: boolean) => ipcRenderer.invoke(ipcChannels.filesDelete, path, recursive) as Promise<import("../shared/op").Op<void | { trashId: string }>>,
 		/** 复制来源路径到目标目录（支持文件和目录递归），返回目标路径列表 */
 		copy: (sourcePaths: Array<string | ProjectFileTarget>, targetDir: string | ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.filesCopy, sourcePaths, targetDir) as Promise<Array<string | ProjectFileTarget>>,
 		/** 移动来源路径到目标目录（同设备 rename，跨设备 cp+rm） */
-		move: (sourcePaths: Array<string | ProjectFileTarget>, targetDir: string | ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.filesMove, sourcePaths, targetDir) as Promise<Array<string | ProjectFileTarget>>,
-		create: (parentDir: string | ProjectFileTarget, name: string, type: "file" | "directory") => ipcRenderer.invoke(ipcChannels.filesCreate, parentDir, name, type) as Promise<string | ProjectFileTarget>,
-		rename: (path: string | ProjectFileTarget, newName: string) => ipcRenderer.invoke(ipcChannels.filesRename, path, newName) as Promise<string | ProjectFileTarget>,
+		move: (sourcePaths: Array<string | ProjectFileTarget>, targetDir: string | ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.filesMove, sourcePaths, targetDir) as Promise<import("../shared/op").Op<Array<string | ProjectFileTarget>>>,
+		create: (parentDir: string | ProjectFileTarget, name: string, type: "file" | "directory") => ipcRenderer.invoke(ipcChannels.filesCreate, parentDir, name, type) as Promise<import("../shared/op").Op<string | ProjectFileTarget>>,
+		rename: (path: string | ProjectFileTarget, newName: string) => ipcRenderer.invoke(ipcChannels.filesRename, path, newName) as Promise<import("../shared/op").Op<string | ProjectFileTarget>>,
 		/**
 		 * Electron 32+ 已移除 File.path，拖拽/粘贴得到的 File 必须经 webUtils 解析本地路径。
 		 * 同步返回，可在 drop/paste 事件中立即使用。

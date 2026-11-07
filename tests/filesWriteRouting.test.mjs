@@ -19,6 +19,16 @@ async function rejectsWith(run, pattern) {
 }
 
 /**
+ * 公共写面现在返回 `Op`：成功取 `value`、失败按稳定码抛出（等价于 renderer 的 `unwrapOp`）。
+ * 信封本身由文件末尾的 `callRaw` 用例单独覆盖。
+ */
+function unwrap(op) {
+	if (typeof op !== "object" || op === null || !("ok" in op)) return op;
+	if (op.ok) return op.value;
+	throw new Error(op.code);
+}
+
+/**
  * 位置分派收口（第二片）：`files:create` / `files:rename` 在 main 内按位置路由。
  *
  * 验收点：
@@ -80,13 +90,14 @@ function harness(options = {}) {
 		...(options.remoteEntries === false ? {} : { remoteEntries }),
 	});
 	const sender = { id: 7, isDestroyed: () => false, once: () => undefined, removeListener: () => undefined };
-	const call = (channel, ...args) => {
+	const callRaw = (channel, ...args) => {
 		const handler = handlers.get(channel);
 		assert.ok(handler, `handler for ${channel}`);
 		return handler({ sender }, ...args);
 	};
+	const call = async (channel, ...args) => unwrap(await callRaw(channel, ...args));
 	const dispose = () => rmSync(root, { recursive: true, force: true });
-	return { call, calls, root, dispose };
+	return { call, callRaw, calls, root, dispose };
 }
 
 test("files:create：ssh 项目走 remoteEntries（sender 透传），本机走 backend", async () => {
@@ -192,10 +203,12 @@ test("files:create 的 ssh 分支保留 unknown：结果未确认不能被降级
 		},
 	});
 	try {
-		await rejectsWith(() => h.call(ipcChannels.filesCreate, { projectId: "p2", relativePath: "src" }, "b.ts", "file"), /REMOTE_FILE_RESULT_UNCONFIRMED/);
-		// renderer 侧反推：稳定码 → outcome 必须是 unknown（可能已执行，禁止自动重放）。
+		// 信封在结构上传 outcome：不再靠 message 反推，且 unknown 不会被降级成 rejected。
+		const op = await h.callRaw(ipcChannels.filesCreate, { projectId: "p2", relativePath: "src" }, "b.ts", "file");
+		assert.deepEqual(JSON.parse(JSON.stringify(op)), { ok: false, code: "REMOTE_FILE_RESULT_UNCONFIRMED", outcome: "unknown" });
+		// renderer 的 unwrapOp 只透传稳定码，UI 仍按 unknown 处理（不自动重放）。
 		const { normalizeProjectServiceError } = loadTsCommonJs("src/renderer/src/services/projectServiceFence.ts");
-		const normalized = normalizeProjectServiceError(new Error("REMOTE_FILE_RESULT_UNCONFIRMED"));
+		const normalized = normalizeProjectServiceError(new Error(op.code));
 		assert.equal(normalized.code, "REMOTE_FILE_RESULT_UNCONFIRMED");
 		assert.equal(normalized.outcome, "unknown");
 	} finally {
