@@ -8,7 +8,7 @@ import * as tar from "tar";
 import { load } from "js-yaml";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { validateNpmSpec, createDshPluginNpmRunner } = loadTsCommonJs("src/main/dsh/dshPluginNpmRunner.ts");
+const { validateNpmSpec, normalizeNpmExactVersion, createDshPluginNpmRunner } = loadTsCommonJs("src/main/dsh/dshPluginNpmRunner.ts");
 const { npmPackToDir, extractTgz, collectStaticJsImports, nestDependencyClosure } = loadTsCommonJs("src/main/dsh/dshPluginTarball.ts");
 const { marketEntryLooksUiOnly, searchDshPluginMarket, validateSearchKeyword, clearMarketCatalogCache } = loadTsCommonJs("src/main/dsh/dshPluginMarket.ts");
 const { DshPluginInstallService, detectUiOnlyPluginManifest, MANAGED_PLUGINS_DIRNAME } = loadTsCommonJs("src/main/dsh/DshPluginInstallService.ts");
@@ -143,10 +143,26 @@ test("validateNpmSpec：接受裸包名 / scoped / name@精确版本", () => {
 	const beta = validateNpmSpec("@scope/pkg@0.1.0-beta.1");
 	assert.equal(beta.ok, true);
 	assert.equal(beta.ok === true ? beta.version : "", "0.1.0-beta.1");
+	// git tag 写法（官方市场目录 vr 字段的形态）归一化成裸精确版本
+	const tagged = validateNpmSpec("dsh-plugin-foo@v0.4.3");
+	assert.equal(tagged.ok, true);
+	assert.equal(tagged.ok === true ? tagged.name : "", "dsh-plugin-foo");
+	assert.equal(tagged.ok === true ? tagged.version : "", "0.4.3");
+});
+
+test("normalizeNpmExactVersion：只剥 v/V 前缀且必须是三段式精确版本，宽松标签一律 undefined", () => {
+	assert.equal(normalizeNpmExactVersion("v0.4.2"), "0.4.2");
+	assert.equal(normalizeNpmExactVersion("V1.1.2"), "1.1.2");
+	assert.equal(normalizeNpmExactVersion(" v0.1.0-beta.1 "), "0.1.0-beta.1");
+	assert.equal(normalizeNpmExactVersion("1.2.3"), "1.2.3");
+	// 目录里的真实脏值（不是可安装 spec）：按包名装最新版
+	for (const junk of ["latest", "models", "dsh", "v0.1", "stable-20260615-1", "step-note-v0.1.0", "dsh-my-skill-manager@v0.2.1", "^1.0.0", ""]) {
+		assert.equal(normalizeNpmExactVersion(junk), undefined, `expected undefined: ${junk}`);
+	}
 });
 
 test("validateNpmSpec：拒绝路径分隔符 / range 版本 / 相对路径 / 空", () => {
-	for (const bad of ["../evil", "foo\\bar", "a/b/c", "@scope/pkg@^1.0.0", "pkg@latest", "./local-dir", "pkg@1.x", "", "   "]) {
+	for (const bad of ["../evil", "foo\\bar", "a/b/c", "@scope/pkg@^1.0.0", "pkg@latest", "./local-dir", "pkg@1.x", "pkg@v1.2", "pkg@v", "pkg@stable-20260615-1", "", "   "]) {
 		const result = validateNpmSpec(bad);
 		assert.equal(result.ok, false, `expected rejection: ${bad}`);
 	}
@@ -399,6 +415,22 @@ test("installUserPlugin：非法 spec 在入口即被拒绝（不触 npm）", as
 	}
 });
 
+test("installUserPlugin：`name@v1.0.0`（tag 写法）归一化后交给 npm pack", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pideck-dsh-plugin-vspec-"));
+	try {
+		const harness = createHarness({ fixtures: stageRegistryFixtures(root) });
+		const result = await harness.service.installUserPlugin("dsh-plugin-fixture-hello@v1.0.0");
+		assert.equal(result.name, "dsh-plugin-fixture-hello");
+		assert.equal(result.version, "1.0.0");
+		assert.ok(
+			harness.fake.calls.some((args) => args[0] === "pack" && args[1] === "dsh-plugin-fixture-hello@1.0.0"),
+			"npm 收到的是归一化 spec（tag 写法不进子进程）",
+		);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 /* ------------------------------------------------------------------ */
 /* search：双源合并 / repo-only 跳过 / npm 过滤 / warnings                */
 /* ------------------------------------------------------------------ */
@@ -409,6 +441,54 @@ const MARKET_PAYLOAD = [
 	{ s: "repo-only-entry", vr: "0.1.0", d: "只有仓库链接", r: "someone/repo" },
 	{ s: "unrelated-market", d: "desc", r: { repo: "x/y", npmPackage: "unrelated-market" } },
 ];
+
+/** 目录真实形态的 vr：大量 v 前缀 tag + 少量宽松标签（latest / 名字带版本号）。 */
+const MARKET_PAYLOAD_TAGGED_VERSIONS = [
+	{ s: "dsh-plugin-tagged", vr: "v0.4.2", d: "tag 风格版本", r: { repo: "t/b", npmPackage: "dsh-plugin-tagged" } },
+	{ s: "dsh-plugin-upper", vr: "V1.1.2", d: "大写 V", r: { repo: "u/b", npmPackage: "dsh-plugin-upper" } },
+	{ s: "dsh-plugin-latest-label", vr: "latest", d: "宽松标签", r: { repo: "l/b", npmPackage: "dsh-plugin-latest-label" } },
+	{ s: "dsh-plugin-versioned-tag", vr: "step-note-v0.1.0", d: "名字里带版本", r: { repo: "s/b", npmPackage: "dsh-plugin-versioned-tag" } },
+];
+
+test("searchDshPluginMarket：vr（tag 风格）归一化成精确版本；非精确标签不给版本（安装按包名）", async () => {
+	clearMarketCatalogCache();
+	const fetchImpl = async () => ({ ok: true, status: 200, json: async () => MARKET_PAYLOAD_TAGGED_VERSIONS });
+	const fake = createFakeNpm({ searchPayload: [] });
+	const result = await searchDshPluginMarket({ keyword: "dsh-plugin", fetchImpl, runNpm: fake.runNpm });
+	const byName = new Map(result.entries.map((entry) => [entry.name, entry]));
+	assert.equal(byName.get("dsh-plugin-tagged").version, "0.4.2", "v 前缀被剥掉");
+	assert.equal(byName.get("dsh-plugin-upper").version, "1.1.2", "大写 V 同样处理");
+	assert.equal(byName.get("dsh-plugin-latest-label").version, undefined, "latest 不是精确版本");
+	assert.equal(byName.get("dsh-plugin-versioned-tag").version, undefined, "名字带版本号的标签不可作 spec");
+	// 回归不变量：UI 拿 entry.version 拼出的 spec 必须能通过安装闸门（2026-10 用户报错：
+	// name@v0.4.3 被拒 → 市场按钮点了一律失败）
+	for (const entry of result.entries) {
+		const spec = entry.version ? `${entry.name}@${entry.version}` : entry.name;
+		assert.equal(validateNpmSpec(spec).ok, true, `market install spec 必须可安装：${spec}`);
+	}
+	clearMarketCatalogCache();
+});
+
+test("searchDshPluginMarket：npm 源版本同样归一化（build metadata 不埋雷）", async () => {
+	clearMarketCatalogCache();
+	const fetchImpl = async () => ({ ok: true, status: 200, json: async () => [] });
+	const fake = createFakeNpm({
+		searchPayload: [
+			{ name: "dsh-plugin-build-meta", version: "1.2.3+build.5", description: "dsh helper" },
+			{ name: "dsh-plugin-plain-version", version: "2.0.0", description: "dsh helper" },
+		],
+	});
+	const result = await searchDshPluginMarket({ keyword: "dsh-plugin", fetchImpl, runNpm: fake.runNpm });
+	const byName = new Map(result.entries.map((entry) => [entry.name, entry]));
+	// 闸门正则不认 build metadata：给了就是「点了才报错」，不如按包名装最新版
+	assert.equal(byName.get("dsh-plugin-build-meta").version, undefined);
+	assert.equal(byName.get("dsh-plugin-plain-version").version, "2.0.0");
+	for (const entry of result.entries) {
+		const spec = entry.version ? `${entry.name}@${entry.version}` : entry.name;
+		assert.equal(validateNpmSpec(spec).ok, true, `npm install spec 必须可安装：${spec}`);
+	}
+	clearMarketCatalogCache();
+});
 
 test("searchDshPluginMarket：市场 + npm 合并去重（市场优先），repo-only 跳过", async () => {
 	clearMarketCatalogCache();

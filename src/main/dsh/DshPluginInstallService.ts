@@ -91,17 +91,19 @@ export class DshPluginInstallService {
 
 	/**
 	 * 安装用户插件（幂等）：已注册同 id 行时跳过登记，只报告 alreadyRegistered。
-	 * spec 只接受 npm 包名或 name@精确版本（validateNpmSpec 闸门在入口）。
+	 * spec 只接受 npm 包名或 name@精确版本（validateNpmSpec 闸门在入口）；交给 npm 的是
+	 * 归一化后的 spec（`pkg@v1.2.3` → `pkg@1.2.3`）。
 	 */
 	async installUserPlugin(spec: string): Promise<DshUserPluginInstallResult> {
 		const validated = validateNpmSpec(spec);
 		if (!validated.ok) throw new Error(validated.reason);
+		const packSpec = validated.version === undefined ? validated.name : `${validated.name}@${validated.version}`;
 		const managedRoot = this.managedRoot();
 		mkdirSync(managedRoot, { recursive: true });
 		// pack + 解包进临时目录，成功后才原子落位（失败不留半截目录）
 		const tmp = join(managedRoot, `.tmp-install-${process.pid}-${Date.now()}`);
 		try {
-			const packed = await npmPackToDir(this.runNpm, spec, tmp);
+			const packed = await npmPackToDir(this.runNpm, packSpec, tmp);
 			const unpacked = join(tmp, "unpacked");
 			await extractTgz(packed.tarPath, unpacked);
 			const manifest = JSON.parse(readFileSync(join(unpacked, "package.json"), "utf8")) as Record<string, unknown>;

@@ -8,6 +8,7 @@
  * 单源失败不阻断：收集 warnings 返回给 UI 展示。
  */
 import type { DshPluginMarketEntry, DshPluginMarketSearchResult } from "../../shared/types";
+import { normalizeNpmExactVersion } from "./dshPluginNpmRunner";
 
 /** 官方目录 URL（zh 目录与市场插件 UI 默认语言一致；en 变体仅描述文本不同）。 */
 const MARKET_CATALOG_URL = "https://api.dsh-plugin.org/plugins.zh.json";
@@ -63,7 +64,9 @@ function normalizeMarketEntry(raw: Record<string, unknown>): DshPluginMarketEntr
 		npmPackage = typeof value === "string" && value ? value : undefined;
 	}
 	const name = npmPackage ?? slug;
-	const version = typeof raw.vr === "string" ? raw.vr : undefined;
+	// vr 是 git tag 风格的展示版本（`v0.4.2`），还有 latest/models/step-note-v0.1.0 之类
+	// 不可安装的标签：归一化成精确版本，做不成精确版本就不给版本（按包名装最新版）。
+	const version = typeof raw.vr === "string" ? normalizeNpmExactVersion(raw.vr) : undefined;
 	const description = typeof raw.d === "string" ? raw.d : undefined;
 	const category = typeof raw.c === "string" ? raw.c : undefined;
 	const topics = Array.isArray(raw.t) ? raw.t.filter((topic): topic is string => typeof topic === "string") : [];
@@ -131,7 +134,9 @@ async function npmSearch(runNpm: (args: readonly string[], options: { timeoutMs?
 		if (!DSH_RELEVANCE_RE.test(name) && !DSH_RELEVANCE_RE.test(description) && !keywords.some((keyword) => DSH_RELEVANCE_RE.test(keyword))) continue;
 		entries.push({
 			name,
-			version: typeof record.version === "string" ? record.version : undefined,
+			// registry 版本同样过归一化：闸门正则不认 build metadata（1.2.3+build.5），
+			// 原样透传会给按钮埋一颗「点了才报错」的雷；洗不干净就按包名装最新版。
+			version: typeof record.version === "string" ? normalizeNpmExactVersion(record.version) : undefined,
 			description: description || undefined,
 			uiOnly: marketEntryLooksUiOnly(name, undefined, keywords),
 			source: "npm",

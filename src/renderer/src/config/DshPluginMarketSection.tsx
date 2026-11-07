@@ -112,8 +112,8 @@ export function DshPluginMarketSection() {
 		}
 	};
 
-	/** 搜索无结果时：关键词本身像可安装的 npm spec（name / name@1.2.3）才给精确安装入口。 */
-	const keywordLooksLikeSpec = useMemo(() => /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(?:@\d+\.\d+\.\d+(?:-[0-9a-z.-]+)?)?$/i.test(keyword.trim()), [keyword]);
+	/** 搜索无结果时：关键词本身像可安装的 npm spec（name / name@1.2.3 / name@v1.2.3）才给精确安装入口。 */
+	const keywordLooksLikeSpec = useMemo(() => /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(?:@v?\d+\.\d+\.\d+(?:-[0-9a-z.-]+)?)?$/i.test(keyword.trim()), [keyword]);
 
 	return (
 		<div className="grid gap-3">
