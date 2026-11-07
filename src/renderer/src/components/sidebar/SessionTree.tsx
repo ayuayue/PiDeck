@@ -238,27 +238,32 @@ export function SessionTree(props: {
 			</div>
 		);
 	};
-	/** 子会话折叠胶囊：紧贴右侧邻居左缘，自身不预留空白——留白归属由「谁在它右边」决定：
-	 *  - 历史会话行后面跟着相对时间戳 → margin 0，胶囊贴住时间戳（用户要求把标签右移，别再空 28px）；
-	 *  - 运行中 Agent 行没有时间戳，胶囊是行内最后一个元素 → `last:mr-7` 自己预留 28px（= size-6
-	 *    「⋯」按钮 + right-1），否则 hover 让位 padding 长出前的 150ms 里它会正压在「⋯」上。
-	 *   实例代价：两种行非 hover 态的胶囊右缘相差 18px（会话行多让出时间戳宽度 + 间距），
-	 *   但落点都由本行右侧邻居决定，视觉上一致。 */
-	const renderToggle = (key: string, count: number) =>
-		count > 0 ? (
-			<span
-				className="subagent-inline-toggle px-1 py-0.5 last:mr-7"
-				title={t("app.piSubagentCount", { count })}
-				onClick={(event) => {
-					event.stopPropagation();
-					props.controller.toggleSubagentGroup(key);
-				}}
-			>
-				<ChevronDown size={8} className={props.controller.expandedSubagentGroups.has(key) ? "expanded" : ""} />
-				{/* 子 Agent 数量：统一 pill 样式（与项目行会话数徽标同尺寸同圆角），紧凑档 */}
+	/** 父行是 button，行内占位保留标题/时间戳布局；同行独立按钮锚定占位位置，供键盘操作。 */
+	const renderToggle = (key: string, count: number, slot = false) => {
+		if (count === 0) return null;
+		const label = t("app.piSubagentCount", { count });
+		const expanded = props.controller.expandedSubagentGroups.has(key);
+		const content = (
+			<>
+				<ChevronDown size={8} className={expanded ? "expanded" : ""} aria-hidden="true" />
 				<span className="subagent-inline-count inline-flex h-3.5 shrink-0 items-center rounded-full px-1 text-micro font-medium tabular-nums">{count}</span>
-			</span>
-		) : null;
+			</>
+		);
+		return slot ? (
+			<span className="subagent-inline-toggle px-1 py-0.5 last:mr-7 subagent-toggle-slot" aria-hidden="true">{content}</span>
+		) : (
+			<button
+				type="button"
+				className="subagent-inline-toggle subagent-toggle-button px-1 py-0.5 focus-visible:ring-1 focus-visible:ring-ring"
+				aria-label={label}
+				aria-expanded={expanded}
+				title={label}
+				onClick={() => props.controller.toggleSubagentGroup(key)}
+			>
+				{content}
+			</button>
+		);
+	};
 
 	// main 语义：项目下直接展示统一列表（drafts + 会话/Agent 按时间混排），不分组标题；
 	// Tab 栏同款状态点跟随具体 Agent/历史会话行；没有 runtime 的纯历史记录保持无点。
@@ -274,7 +279,7 @@ export function SessionTree(props: {
 				<SidebarRemovalRow key={child.key} itemId={agentSession?.id ?? child.agent.id}>
 					{/* 运行中 Agent 行：标题常被 truncate（如 "JZSSC40..."），悬浮展示完整标题 */}
 					<div
-						className={rowContainerClass}
+						className={cn(rowContainerClass, childCount > 0 && "session-toggle-row")}
 						onContextMenu={(event) => {
 							event.preventDefault();
 							void props.controller.openMenu({ kind: "agent", agentId: child.agent.id, x: event.clientX, y: event.clientY });
@@ -312,11 +317,12 @@ export function SessionTree(props: {
 												<HatGlasses size={11} aria-hidden="true" />
 											</span>
 										)}
-										{renderToggle(groupKey, childCount)}
+										{renderToggle(groupKey, childCount, true)}
 									</div>
 								</div>
 							</button>
 						</SessionHoverCard>
+						{renderToggle(groupKey, childCount)}
 						<Button
 							type="button"
 							variant="ghost"
@@ -342,7 +348,7 @@ export function SessionTree(props: {
 		const pinned = props.controller.isSessionPinned(child.session.id);
 		return (
 			<SidebarRemovalRow key={child.session.id} itemId={child.session.id}>
-				<div className={rowContainerClass} onContextMenu={(event) => openContext(event, child.session)}>
+				<div className={cn(rowContainerClass, childCount > 0 && "session-toggle-row")} onContextMenu={(event) => openContext(event, child.session)}>
 					<SessionHoverCard session={child.session} title={child.session.name} projectName={props.project.name} status={runtimeSnapshot?.status} disabled={Boolean(props.controller.menu)}>
 						<button
 							type="button"
@@ -377,7 +383,7 @@ export function SessionTree(props: {
 									{child.session.backend !== "imagegen" && child.session.hasImageGen && <ImageIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
 									{child.session.channel && <SessionChannelMark channel={child.session.channel} />}
 									{child.session.sideTask && <SideTaskMark />}
-									{renderToggle(groupKey, childCount)}
+									{renderToggle(groupKey, childCount, true)}
 									{/* 相对时间常显：多久前用过一目了然；hover 行时让位给右侧「⋯」按钮。
                   基准是「计时点」而不是文件 mtime（见 hooks/sidebar/useSessionActivityClock）：
                   本轮开始（用户输入）与 turn 结束各算一次，流式期间不会一直被重置成「刚刚」。
@@ -399,6 +405,7 @@ export function SessionTree(props: {
 							</div>
 						</button>
 					</SessionHoverCard>
+					{renderToggle(groupKey, childCount)}
 					<Button
 						type="button"
 						variant="ghost"

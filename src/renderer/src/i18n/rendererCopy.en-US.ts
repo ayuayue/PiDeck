@@ -483,6 +483,8 @@ export const enUS: Record<TranslationKey, string> = {
 	"app.search": "Search",
 	"app.searchSessions": "Search sessions",
 	"app.searchNoResults": "No results found",
+	"app.searchResults": "Search results",
+	"app.closeSearch": "Close",
 	"app.addProject": "Add Project",
 	"app.projectCollapseAll": "Collapse all projects",
 	"app.projectExpandAll": "Expand all projects",

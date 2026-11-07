@@ -480,6 +480,8 @@ export const zhCN = {
 	"app.search": "搜索",
 	"app.searchSessions": "搜索会话",
 	"app.searchNoResults": "无匹配结果",
+	"app.searchResults": "搜索结果",
+	"app.closeSearch": "关闭",
 	"app.addProject": "添加项目",
 	"app.projectCollapseAll": "折叠全部项目",
 	"app.projectExpandAll": "展开全部项目",

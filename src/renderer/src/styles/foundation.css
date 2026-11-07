@@ -2329,7 +2329,7 @@ select:focus-visible {
   color: var(--color-text-secondary);
 }
 /* 会话来源统一使用组件级 Badge，避免旧版来源胶囊样式在不同容器中重复维护。 */
-/* 父行内嵌的子会话折叠按钮：置于行尾，不单独占横条 */
+/* 父行内的占位保留标题布局，同行按钮锚定在其位置，避免 button 嵌套。 */
 .subagent-inline-toggle {
   display: inline-flex;
   align-items: center;
@@ -2344,7 +2344,24 @@ select:focus-visible {
   user-select: none;
   flex-shrink: 0;
 }
-.subagent-inline-toggle:hover {
+.session-toggle-row {
+  anchor-scope: --session-toggle;
+}
+.subagent-toggle-slot {
+  anchor-name: --session-toggle;
+  opacity: 0;
+  pointer-events: none;
+}
+.session-toggle-row .subagent-toggle-button {
+  position: absolute;
+  position-anchor: --session-toggle;
+  top: anchor(top);
+  left: anchor(left);
+  margin-left: 0;
+  border: 0;
+  background: transparent;
+}
+.subagent-toggle-button:hover {
   color: var(--color-text-secondary);
   background: var(--color-bg-hover);
 }

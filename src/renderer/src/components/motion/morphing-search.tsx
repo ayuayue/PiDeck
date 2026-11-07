@@ -3,7 +3,7 @@
 
 import { type LucideIcon, Search } from "lucide-react";
 import { AnimatePresence, LayoutGroup, motion, type Transition, useReducedMotion } from "motion/react";
-import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent as ReactKeyboardEvent, type RefObject, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { EASE_OUT, SPRING_LAYOUT } from "@/lib/ease";
 import { useOnOpen } from "@/lib/hooks/use-on-open";
@@ -30,6 +30,8 @@ export type MorphingSearchItem = {
 	id: string;
 	title: string;
 	description?: string;
+	/** 结果所属位置（如项目名）；与 description 分开，避免长预览淹没归属。 */
+	context?: { label: string; title?: string };
 	keywords?: string[];
 	/**
 	 * 标题的拼音键（`src/renderer/src/utils/pinyinSearch.ts`）：给了就能被首字母/
@@ -52,6 +54,10 @@ export interface MorphingSearchProps {
 	/** 面板结果区最大高度（px，默认 288）。 */
 	maxHeight?: number;
 	emptyMessage?: string;
+	resultsLabel?: string;
+	closeLabel?: string;
+	/** 外部可见入口：受控打开时内部锚点可能不可见，关闭后焦点应回到这里。 */
+	returnFocusRef?: RefObject<HTMLElement | null>;
 	open?: boolean;
 	defaultOpen?: boolean;
 	onOpenChange?: (open: boolean) => void;
@@ -71,7 +77,7 @@ function isEditableTarget(target: EventTarget | null) {
 	return target.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
 }
 
-export function MorphingSearch({ items, placeholder = "Search", shortcut = "f", iconOnly = false, maxWidth = 448, maxHeight = 288, emptyMessage = "No results found.", open: controlledOpen, defaultOpen = false, onOpenChange, onQueryChange, onSelect, className }: MorphingSearchProps) {
+export function MorphingSearch({ items, placeholder = "Search", shortcut = "f", iconOnly = false, maxWidth = 448, maxHeight = 288, emptyMessage = "No results found.", resultsLabel = "Search results", closeLabel = "Close search", returnFocusRef, open: controlledOpen, defaultOpen = false, onOpenChange, onQueryChange, onSelect, className }: MorphingSearchProps) {
 	const [internalOpen, setInternalOpen] = useState(defaultOpen);
 	const [query, setQuery] = useState("");
 	const [mounted, setMounted] = useState(false);
@@ -162,11 +168,11 @@ export function MorphingSearch({ items, placeholder = "Search", shortcut = "f", 
 		};
 	}, [measureAnchor]);
 
-	// 受控打开（侧栏「搜索会话」条目、Ctrl+F 广播）不走 openSearch()，落点会停在上一次
-	// 事件留下的旧值（窗口改过大小、上一次测量不可信）；这里在打开瞬间补测，layout
-	// effect 保证首帧就用新落点，不会先闪一下旧位置。
+	// 受控打开（侧栏入口、Ctrl+F 广播）不走 openSearch()：首帧补测落点，
+	// 并记住原焦点供没有外部可见入口的调用方恢复。
 	useLayoutEffect(() => {
 		if (open) measureAnchor();
+		if (open && !wasOpenRef.current) previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 	}, [measureAnchor, open]);
 
 	useEffect(() => {
@@ -239,12 +245,13 @@ export function MorphingSearch({ items, placeholder = "Search", shortcut = "f", 
 		if (wasOpenRef.current) {
 			const frame = requestAnimationFrame(() => {
 				const previousFocus = previousFocusRef.current;
-				const focusTarget = previousFocus?.isConnected ? previousFocus : triggerRef.current;
+				const returnFocus = returnFocusRef?.current;
+				const focusTarget = returnFocus?.isConnected ? returnFocus : previousFocus?.isConnected ? previousFocus : triggerRef.current;
 				focusTarget?.focus();
 			});
 			return () => cancelAnimationFrame(frame);
 		}
-	}, [open]);
+	}, [open, returnFocusRef]);
 
 	useEffect(() => {
 		wasOpenRef.current = open;
@@ -304,7 +311,9 @@ export function MorphingSearch({ items, placeholder = "Search", shortcut = "f", 
 	// 落点走纯函数：宽度不小于锚点、上限 maxWidth，并保证面板整块落在窗口内
 	// （陈旧/不可信落点也不能把面板送到窗口外）。首帧（未 mounted）直接用锚点值。
 	const geometry = useMemo(() => (mounted ? resolveMorphingSearchGeometry({ anchor: anchorRect, viewport: { width: window.innerWidth, height: window.innerHeight }, maxWidth, maxHeight }) : { ...anchorRect, resultsHeight: maxHeight }), [anchorRect, maxHeight, maxWidth, mounted]);
-	const collapsedContentClip = `inset(0px ${Math.max(0, geometry.width - anchorRect.width)}px ${geometry.resultsHeight}px 0px round 12px)`;
+	// 结果很少时不撑满预算高度；按行的最大单行高度估算，保留空态/底边呼吸位。
+	const contentHeight = Math.min(geometry.resultsHeight, Math.max(104, filteredItems.reduce((height, item) => height + (item.description ? 56 : 44), 16)));
+	const collapsedContentClip = `inset(0px ${Math.max(0, geometry.width - anchorRect.width)}px ${contentHeight}px 0px round 12px)`;
 	const expandedContentClip = "inset(0px 0px 0px 0px round 12px)";
 
 	// Neither grouping layer carries a box: they only hold `inert`/`aria-hidden`,
@@ -318,7 +327,7 @@ export function MorphingSearch({ items, placeholder = "Search", shortcut = "f", 
 					<AnimatePresence initial={false} mode="popLayout" onExitComplete={() => setBackgroundScrollLocked(false)}>
 						{open ? (
 							<motion.div key="morphing-search-overlay" className="fixed left-0 top-0 size-0">
-								<button type="button" aria-label="Close search" className="pointer-events-auto fixed inset-0 cursor-default bg-transparent" onClick={closeSearch} />
+								<button type="button" aria-label={closeLabel} className="pointer-events-auto fixed inset-0 cursor-default bg-transparent" onClick={closeSearch} />
 
 								<motion.div
 									layoutId={shellLayoutId}
@@ -328,7 +337,7 @@ export function MorphingSearch({ items, placeholder = "Search", shortcut = "f", 
 										top: geometry.top,
 										left: geometry.left,
 										width: geometry.width,
-										height: MORPHING_SEARCH_HEADER_HEIGHT + geometry.resultsHeight,
+										height: MORPHING_SEARCH_HEADER_HEIGHT + contentHeight,
 										boxShadow: "inset 0 0 0 1px var(--color-border)",
 									}}
 									transition={morphTransition}
@@ -338,7 +347,7 @@ export function MorphingSearch({ items, placeholder = "Search", shortcut = "f", 
 									ref={dialogRef}
 									role="dialog"
 									aria-modal="true"
-									aria-label="Search"
+									aria-label={placeholder}
 									onKeyDown={handleDialogKeyDown}
 									initial={reduce ? false : { opacity: 0, clipPath: collapsedContentClip }}
 									animate={{ opacity: 1, clipPath: expandedContentClip }}
@@ -393,7 +402,7 @@ export function MorphingSearch({ items, placeholder = "Search", shortcut = "f", 
 										ref={listRef}
 										id={listboxId}
 										role="listbox"
-										aria-label="Search results"
+										aria-label={resultsLabel}
 										transition={reduce ? { duration: 0 } : undefined}
 										variants={
 											reduce
@@ -424,7 +433,7 @@ export function MorphingSearch({ items, placeholder = "Search", shortcut = "f", 
 										// scroll-ok: bounded —— 命令面板结果窗：结果由一次查询产出，条数受结果预算限制，不是随会话增长的列表。
 										className="overscroll-contain overflow-y-auto p-2"
 										style={{
-											maxHeight: geometry.resultsHeight,
+											maxHeight: contentHeight,
 										}}
 									>
 										{filteredItems.length > 0 ? (
@@ -446,9 +455,12 @@ export function MorphingSearch({ items, placeholder = "Search", shortcut = "f", 
 													>
 														{active ? <motion.span layoutId={`${uid}-active-result`} className="absolute inset-0 rounded-lg bg-foreground/5" transition={transition} /> : null}
 														{Icon ? <Icon className="relative size-4 shrink-0 text-muted-foreground" /> : null}
-														<span className="relative min-w-0">
-															<span className="block truncate text-sm font-medium text-foreground">{item.title}</span>
-															{item.description ? <span className="block truncate text-xs text-muted-foreground">{item.description}</span> : null}
+														<span className="relative flex min-w-0 flex-1 items-center gap-3">
+															<span className="min-w-0 flex-1">
+																<span title={item.title} className="block truncate text-sm font-medium text-foreground">{item.title}</span>
+																{item.description ? <span title={item.description} className="block truncate text-xs text-muted-foreground">{item.description}</span> : null}
+															</span>
+															{item.context ? <span title={item.context.title ?? item.context.label} className="max-w-[40%] min-w-0 shrink-0 truncate rounded-md border border-border/60 bg-muted/50 px-1.5 py-0.5 text-xs text-muted-foreground">{item.context.label}</span> : null}
 														</span>
 													</button>
 												);

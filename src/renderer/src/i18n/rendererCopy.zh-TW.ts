@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 50947f2b817e97de5754fc4cfd0f41c074288323adf56b2f88feade31343da3d（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 0b12482b3c57067c14071bd2b0548bc1e9ca1b81889bb2516f49656b497e446b（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -487,6 +487,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	"app.search": "搜尋",
 	"app.searchSessions": "搜尋會話",
 	"app.searchNoResults": "無匹配結果",
+	"app.searchResults": "搜尋結果",
+	"app.closeSearch": "關閉",
 	"app.addProject": "新增專案",
 	"app.projectCollapseAll": "摺疊全部專案",
 	"app.projectExpandAll": "展開全部專案",
