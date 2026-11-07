@@ -224,6 +224,20 @@
 | **P1** | **清残留 rebind 锁的 UI 可达入口**：新增修复动作（例如 `clear-rebind-lock`），复用 `RemoteHostRepair.clearStaleHostLock` 的判定纪律（`RemoteHostRepair.ts:299-327`：活着的 owner 一律拒绝、无 owner 时看年龄与活跃写），只是锁路径换成 `RemoteHostPaths.rebindJournalLockFile`；同时进 `HOST_REPAIR_*` 词表与 `remoteHostIpc.ts:52` 的允许表 | 否则"journal 已删、锁残留"会让整机远端永久不可用（F3 + `SshVerifiedConnection.ts:38`），而唯一能清它的是 `acquireRebindTxLock` 的 R6 回收（需要 journal 或一次引用写）。这是今天**已经存在**的死锁，不是本设计引入的 |
 | **P2** | **`plan()` 需要的"按 hostId 列出记录"读面**：`HostRebindStorePort` 只有 `readHostRecordLocators(recordIds)`（`HostRebindJournal.ts:67-69`），registry 的扫描只产出 `hostId` 集合与 `{source, recordId}` 命中（`RemoteHostReferenceSources.ts:120-141`，**命中项不带 hostId**），无法反推"哪些记录指向 source" | 没有它，`plan()` 生成不出 `records[]`，向导的 `②` 无法显示计数。属 main 侧新增只读端口（`listHostRecords(hostId)`），不在本文件实现 |
 
+### 5.4.1 实施进度（2026-11-07）
+
+两个前置已落地（本片）：
+
+- **P2 端口**：`RemoteHostReferenceHit` 新增 `hostId` 归因（`RemoteHostReferenceSources.ts` 的 sessions/projects
+  扫描产出它），registry 新增 `recordsOf(hostId)`；`HostRebindCoordinator.plan()` 因此能按来源枚举记录，
+  不再需要第二次扫描。
+- **P1 清锁**：`RemoteHostRepair.clearStaleRebindLock` 与 host 锁共用同一 owner 判定（只有可证明已结束的
+  owner，或无 owner 且足够旧的锁）；`diagnose()` 在 `remote-host-rebind.lock` 存在时给出 `clear-rebind-lock`
+  动作，IPC 允许表、确认流与 `RepairPanel` 的显式映射都已接入（i18n zh-CN/en-US + 生成的 zh-TW）。
+- **第 1 步**：`HostRebindCoordinator`（plan / rebind / resumePendingRebind / describePending）与
+  `createRemoteHostRebindPorts`（host 端口 + store 端口装配 + `listHostRecords`）已实现并有单测。
+  仍未装配到 `index.ts`：IPC 通道属于附 A 第 3 步，等向导一起接，避免出现没有消费者的通道。
+
 ### 5.5 断开连接
 - 执行前（`③` 之后、写 journal 之前）main 应主动 `disconnect(source, "shutdown")`（`RemoteHostConnectionService` 已有 `disconnect`），否则 tx 一开始所有 pinned 调用（含正在跑的远端 agent）都会被 F3 打断，用户看到的是"应用坏了"。
 - 界面不暴露"是否断开"选项（技术决策，不交给用户）。

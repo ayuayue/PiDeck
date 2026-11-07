@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 699d476b915b3ca343bddc977ae9806ba0682b289fa6b3997331d16a2997ec55（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: bb35d8c3912f212b722451b8509786caf014b1b72f19db77aec8425e160e9b9c（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -4614,6 +4614,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.connections.repair.action.completeActivation": "完成未完成的啟用",
 	"settings.connections.repair.action.discardOrphanPin": "丟棄孤兒指紋",
 	"settings.connections.repair.action.clearStaleLock": "清除遺留鎖",
+	"settings.connections.repair.action.clearRebindLock": "清理殘留的重新繫結鎖",
 	"settings.connections.repair.action.forgetTrustAnchor": "忘記信任錨",
 	"settings.connections.repair.action.rebuildTarget": "重建目標並重新繫結",
 	"settings.connections.repair.action.inspectSnapshot": "檢查檔案與備份",
@@ -4623,6 +4624,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.connections.repair.hint.completeActivation": "用已儲存的指紋補完上次中斷的啟用。會重新認證該主機，指紋必須與已儲存的一致。",
 	"settings.connections.repair.hint.discardOrphanPin": "刪除一個沒有對應主機的指紋檔案。主機會保持未啟用。",
 	"settings.connections.repair.hint.clearStaleLock": "刪除崩潰殘留的寫鎖。只有確認持有者已死才會執行，活著的持有者會被拒絕。",
+	"settings.connections.repair.hint.clearRebindLock": "刪除上次中斷的重新繫結事務留下的鎖。只有可證明已結束的持有者才會被清理；仍在執行的鎖會被拒絕。",
 	"settings.connections.repair.hint.forgetTrustAnchor": "丟棄不可用的信任錨，主機保留為已停用狀態。",
 	"settings.connections.repair.hint.manual": "需要人工檢查檔案後處理。",
 	"project.remote.title": "遠端專案",

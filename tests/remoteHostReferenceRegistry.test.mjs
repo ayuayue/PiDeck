@@ -9,7 +9,7 @@ const HOST_B = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 /** A well-formed provider result. `source` inside hits is deliberately wrong: the registry re-tags it. */
 function scanOf(hostIds, recordIds = [], overrides = {}) {
-	return { referencedHostIds: new Set(hostIds), hits: recordIds.map((recordId) => ({ source: "runtime", recordId })), complete: true, unavailable: [], ...overrides };
+	return { referencedHostIds: new Set(hostIds), hits: recordIds.map((recordId) => ({ source: "runtime", recordId, hostId: hostIds[0] ?? "unknown-host" })), complete: true, unavailable: [], ...overrides };
 }
 
 function registryWith(entries) {
@@ -150,9 +150,9 @@ test("normalizes provider hits to the registered source and deduplicates them", 
 				scan: async () => ({
 					referencedHostIds: new Set([HOST_A]),
 					hits: [
-						{ source: "sessions", recordId: "p-1" },
-						{ source: "projects", recordId: "p-1" },
-						{ source: "runtime", recordId: "p-2" },
+						{ source: "sessions", recordId: "p-1", hostId: HOST_A },
+						{ source: "projects", recordId: "p-1", hostId: HOST_A },
+						{ source: "runtime", recordId: "p-2", hostId: HOST_A },
 					],
 					complete: true,
 					unavailable: [],
@@ -185,4 +185,46 @@ test("a malformed provider result is unreadable, not empty", async () => {
 		assert.deepEqual(Array.from(scan.unavailable), ["projects"]);
 		await assert.rejects(registry.asStoreReferences().referencedHostIds(), (error) => error.message === "REMOTE_HOST_REFERENCE_SCAN_INCOMPLETE");
 	}
+});
+
+test("recordsOf：按 hostId 归因，incomplete 时仍返回已读到的记录", async () => {
+	const registry = registryWith([
+		[
+			"projects",
+			{
+				scan: async () => ({
+					referencedHostIds: new Set([HOST_A, HOST_B]),
+					hits: [
+						{ source: "projects", recordId: "p-1", hostId: HOST_A },
+						{ source: "projects", recordId: "p-2", hostId: HOST_B },
+					],
+					complete: true,
+					unavailable: [],
+				}),
+			},
+		],
+	]);
+	const found = await registry.recordsOf(HOST_A);
+	assert.equal(found.complete, true);
+	assert.deepEqual(
+		Array.from(found.records, (hit) => hit.recordId),
+		["p-1"],
+		"别的 host 的记录不算进来",
+	);
+
+	const partial = registryWith([
+		[
+			"projects",
+			{
+				scan: async () => ({ referencedHostIds: new Set([HOST_A]), hits: [{ source: "projects", recordId: "p-3", hostId: HOST_A }], complete: false, unavailable: ["sessions"] }),
+			},
+		],
+	]);
+	const incomplete = await partial.recordsOf(HOST_A);
+	assert.equal(incomplete.complete, false, "不完整扫描不能被当成完整记录集");
+	assert.deepEqual(
+		Array.from(incomplete.records, (hit) => hit.recordId),
+		["p-3"],
+		"已读到的仍返回，由调用方决定是否继续",
+	);
 });

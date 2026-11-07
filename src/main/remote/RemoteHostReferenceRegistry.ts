@@ -24,6 +24,11 @@ export type RemoteHostReferenceHit = {
 	readonly source: RemoteHostReferenceSource;
 	/** Record id (projectId / sessionId / hostId); report and per-record CAS only, never a path. */
 	readonly recordId: string;
+	/**
+	 * The hostId this record points at. The rebind planner attributes records by this field instead of
+	 * re-scanning, so a hit without it would be unattributable (and plan would have to guess).
+	 */
+	readonly hostId: string;
 };
 
 export type RemoteHostReferenceScan = {
@@ -100,7 +105,7 @@ export function readHostIdSet(value: unknown): Set<string> | undefined {
 	return ids;
 }
 
-type SourceScan = { readonly referencedHostIds: ReadonlySet<string>; readonly recordIds: readonly string[]; readonly complete: boolean };
+type SourceScan = { readonly referencedHostIds: ReadonlySet<string>; readonly records: readonly { readonly recordId: string; readonly hostId: string }[]; readonly complete: boolean };
 
 /**
  * Strictly decode one source result. A provider that returns something else is not "empty", it is
@@ -110,12 +115,12 @@ function readProviderScan(value: unknown): SourceScan {
 	if (!isRecord(value) || !Array.isArray(value.hits) || typeof value.complete !== "boolean") throw new Error("REMOTE_HOST_REFERENCE_SCAN_INVALID");
 	const referencedHostIds = readHostIdSet(value.referencedHostIds);
 	if (referencedHostIds === undefined) throw new Error("REMOTE_HOST_REFERENCE_SCAN_INVALID");
-	const recordIds: string[] = [];
+	const records: { recordId: string; hostId: string }[] = [];
 	for (const hit of value.hits) {
-		if (!isRecord(hit) || !isRecordId(hit.recordId)) throw new Error("REMOTE_HOST_REFERENCE_SCAN_INVALID");
-		recordIds.push(hit.recordId);
+		if (!isRecord(hit) || !isRecordId(hit.recordId) || !isRecordId(hit.hostId)) throw new Error("REMOTE_HOST_REFERENCE_SCAN_INVALID");
+		records.push({ recordId: hit.recordId, hostId: hit.hostId });
 	}
-	return { referencedHostIds, recordIds, complete: value.complete };
+	return { referencedHostIds, records, complete: value.complete };
 }
 
 type SourceOutcome = { readonly source: RemoteHostReferenceSource } & ({ readonly skipped: true } | { readonly failed: true } | { readonly scan: SourceScan });
@@ -167,9 +172,10 @@ export class RemoteHostReferenceRegistry {
 				continue;
 			}
 			for (const hostId of outcome.scan.referencedHostIds) referencedHostIds.add(hostId);
-			for (const recordId of outcome.scan.recordIds) {
+			for (const record of outcome.scan.records) {
 				// The registration is authoritative for the source label; a provider cannot re-label itself.
-				hits.set(`${outcome.source}\u0000${recordId}`, { source: outcome.source, recordId });
+				// The key keeps hostId so one record id pointing at two hosts stays two distinct hits.
+				hits.set(`${outcome.source}\u0000${record.hostId}\u0000${record.recordId}`, { source: outcome.source, recordId: record.recordId, hostId: record.hostId });
 			}
 			if (!outcome.scan.complete) unavailable.push(outcome.source);
 		}
@@ -187,6 +193,18 @@ export class RemoteHostReferenceRegistry {
 	 * `complete: false`, because the design requires `complete: false` to be handled as "may still be
 	 * referenced" — the safe answer must not be lost by a caller that only looks at `referenced`.
 	 */
+	/**
+	 * Records that point at one hostId, from the same scan the retire gate uses.
+	 *
+	 * `complete: false` is returned with the hits we did get: the caller decides whether a partial
+	 * list is enough (the planner refuses, because a plan that misses a record is a wrong migration).
+	 */
+	async recordsOf(hostId: string): Promise<{ readonly complete: boolean; readonly records: readonly RemoteHostReferenceHit[] }> {
+		if (!isRecordId(hostId)) throw new Error("REMOTE_HOST_REFERENCE_SCAN_INVALID");
+		const scan = await this.scan();
+		return { complete: scan.complete, records: scan.hits.filter((hit) => hit.hostId === hostId) };
+	}
+
 	async isReferenced(hostId: string): Promise<{ readonly referenced: boolean; readonly complete: boolean }> {
 		const scan = await this.scan();
 		return { referenced: !scan.complete || scan.referencedHostIds.has(hostId), complete: scan.complete };
@@ -213,5 +231,6 @@ export class RemoteHostReferenceRegistry {
 function compareHits(left: RemoteHostReferenceHit, right: RemoteHostReferenceHit): number {
 	const bySource = HOST_REFERENCE_SOURCES.indexOf(left.source) - HOST_REFERENCE_SOURCES.indexOf(right.source);
 	if (bySource !== 0) return bySource;
+	if (left.hostId !== right.hostId) return left.hostId < right.hostId ? -1 : 1;
 	return left.recordId < right.recordId ? -1 : left.recordId > right.recordId ? 1 : 0;
 }

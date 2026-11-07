@@ -49,7 +49,7 @@ const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 /** Bounded per request: a host with a long history must not turn one IPC call into an unbounded payload. */
 const MAX_DIAGNOSTIC_ENTRIES = 200;
 /** Repair actions the UI may request. Anything else is refused before it can reach the repair module. */
-const REPAIR_ACTIONS: ReadonlySet<string> = new Set(["complete-activation-from-pin", "discard-orphan-pin", "clear-stale-lock", "forget-trust-anchor"]);
+const REPAIR_ACTIONS: ReadonlySet<string> = new Set(["complete-activation-from-pin", "discard-orphan-pin", "clear-stale-lock", "clear-rebind-lock", "forget-trust-anchor"]);
 
 /** Expose only stable codes and valid ids; no repair commands, pin paths or trust metadata cross IPC. */
 function repairSummary(view: RemoteHostCatalogView): RemoteHostRepairSummary[] {
@@ -488,7 +488,7 @@ export function registerRemoteHostIpc(input: {
 		if (typeof action !== "string" || !REPAIR_ACTIONS.has(action)) return { ok: false, code: "REMOTE_HOST_REPAIR_ACTION_INVALID" };
 		// Lock repair is host-independent by nature; every other action names exactly one host.
 		let hostId: string | undefined;
-		if (action !== "clear-stale-lock") {
+		if (action !== "clear-stale-lock" && action !== "clear-rebind-lock") {
 			if (typeof hostIdValue !== "string" || !HOST_ID.test(hostIdValue)) return { ok: false, code: "REMOTE_HOST_REPAIR_ACTION_INVALID" };
 			hostId = hostIdValue;
 		}
@@ -548,6 +548,9 @@ export function registerRemoteHostIpc(input: {
 					break;
 				case "clear-stale-lock":
 					await repair.clearStaleHostLock(process.pid, confirmation);
+					break;
+				case "clear-rebind-lock":
+					await repair.clearStaleRebindLock(process.pid, confirmation);
 					break;
 				default:
 					return { ok: false, code: "REMOTE_HOST_REPAIR_ACTION_INVALID" };

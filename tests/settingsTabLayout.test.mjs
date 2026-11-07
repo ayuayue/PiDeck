@@ -83,7 +83,7 @@ test("修复面板只提供会执行的动作，并把只读/人工动作显示�
 	// 修复会写 store 或删信任锚，因此只有白名单里的动作可以做成按钮；其余只呈现说明。
 	// 主进程还会再校验一次，界面不是权威——但界面也不该给出点了没用的按钮。
 	const panel = readFileSync("src/renderer/src/components/app/settings/RepairPanel.tsx", "utf8");
-	assert.match(panel, /const EXECUTABLE: ReadonlySet<RemoteHostRepairAction> = new Set\(\["complete-activation-from-pin", "discard-orphan-pin", "clear-stale-lock", "forget-trust-anchor"\]\)/);
+	assert.match(panel, /const EXECUTABLE: ReadonlySet<RemoteHostRepairAction> = new Set\(\["complete-activation-from-pin", "discard-orphan-pin", "clear-stale-lock", "clear-rebind-lock", "forget-trust-anchor"\]\)/);
 	// 动作文案必须是显式映射：远端回来的字符串拼出的 key 不存在。
 	assert.match(panel, /function actionLabel\(action: RemoteHostRepairAction\): string \{[\s\S]{0,200}?switch \(action\)/);
 	// 确认推送必须订阅且退订。

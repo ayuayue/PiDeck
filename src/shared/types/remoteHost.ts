@@ -135,7 +135,7 @@ export type RemoteHostStateChange = { hostId: string; state: RemoteHostConnectio
 export type RemoteHostRepairClassification = "orphan-pin" | "anchor-invalid" | "lock" | "snapshot" | "write-uncertain" | "unknown";
 
 /** 诊断给出的**合法**动作。界面只能从这些里选，不能自己发明。 */
-export type RemoteHostRepairAction = "complete-activation-from-pin" | "discard-orphan-pin" | "clear-stale-lock" | "rebuild-target-and-rebind" | "forget-trust-anchor" | "inspect-snapshot-pair" | "refresh-then-recheck" | "fix-filesystem-permissions" | "human-review";
+export type RemoteHostRepairAction = "complete-activation-from-pin" | "discard-orphan-pin" | "clear-stale-lock" | "clear-rebind-lock" | "rebuild-target-and-rebind" | "forget-trust-anchor" | "inspect-snapshot-pair" | "refresh-then-recheck" | "fix-filesystem-permissions" | "human-review";
 
 export type RemoteHostRepairFinding = {
 	reason: string;

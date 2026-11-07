@@ -593,7 +593,7 @@ test("the ui subscribes to state pushes instead of trusting only the connect res
 
 /** 用桩替换 repair/store/pin，记录调用；不碰文件系统。 */
 function repairHandlers(options = {}) {
-	const calls = { diagnose: 0, completeActivation: [], discard: [], forget: [], clearLock: [], sent: [] };
+	const calls = { diagnose: 0, completeActivation: [], discard: [], forget: [], clearLock: [], clearRebindLock: [], sent: [] };
 	const handlers = new Map();
 	const { registerRemoteHostIpc } = loadTsCommonJs("src/main/ipc/remoteHostIpc.ts", {
 		stubs: {
@@ -616,6 +616,9 @@ function repairHandlers(options = {}) {
 					}
 					async clearStaleHostLock(observerPid, confirmation) {
 						calls.clearLock.push({ observerPid, confirmation });
+					}
+					async clearStaleRebindLock(observerPid, confirmation) {
+						calls.clearRebindLock.push({ observerPid, confirmation });
 					}
 				},
 			},
@@ -693,6 +696,19 @@ test("approving runs the repair against the revision the user saw", async () => 
 	// 传的是用户批准时的 revision；修复模块会在锁内复核它。
 	assert.equal(calls.completeActivation[0].revision, 12);
 	assert.equal(calls.completeActivation[0].confirmation.requestId, requestId);
+});
+
+test("clear-rebind-lock 不带 host：确认之后才清理残留的重新绑定锁", async () => {
+	const { handlers, calls, sender } = repairHandlers({ findings: [{ reason: "REMOTE_HOST_REBIND_LOCK_PRESENT", classification: "lock", hostIds: [], actions: ["clear-rebind-lock"] }] });
+	const run = await handlers.get("remote:repair-run")({ sender }, "clear-rebind-lock");
+	assert.deepEqual(JSON.parse(JSON.stringify(run)), { ok: true, status: "pending" });
+	assert.equal(calls.clearRebindLock.length, 0, "请求阶段不执行任何写入");
+
+	const answered = await handlers.get("remote:repair-answer")({ sender }, calls.sent[0].payload.requestId, "approve");
+	assert.deepEqual(JSON.parse(JSON.stringify(answered)), { ok: true, ran: true });
+	assert.equal(calls.clearRebindLock.length, 1);
+	assert.equal(calls.clearRebindLock[0].observerPid, process.pid);
+	assert.equal(calls.clearRebindLock[0].confirmation.requestId, calls.sent[0].payload.requestId);
 });
 
 test("a repair answer from another window is refused", async () => {
