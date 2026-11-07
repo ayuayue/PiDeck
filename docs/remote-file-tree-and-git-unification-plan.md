@@ -547,3 +547,40 @@ helper 事件与写操作仅标脏、发通知；只有活跃读者决定装载�
 - 本机与远端各保留一个展示事实 owner：本机 `GitPanel` 状态机 / 远端 `useRemoteGitView`；共用的是变更树、diff、错误展示、`lazyDirTree` 与 `useGitAutoRefresh`。`ProjectGitDrawer` 只统一生产入口，不合并两套状态机。history/compare/trust/init/sync 语义和授权不同，继续作为真实远端专属区块保留。
 - 兼容壳按 W4 只保留一版，不宣称通道数减少；`remoteRepos`/`remoteLog`/`remoteCompare` 的触发条件已在本表固定，新增调用不得重新引入第二事实源。`listProject` 无消费者，登记为后续清理候选而不是继续扩展。
 - 能力边界不是迁移欠账：远端不提供 count/graph、批量/目录写与后台 fetch；这些由 F7 门控或面板不渲染，不能以“补齐”为名放宽授权或伪造结果。
+
+## 11. 已知缺陷：远端目录页的 Git ignore 修饰在真机上不生效（2026-11-07 归档）
+
+**现象**：远端项目的文件树不置灰任何条目。`e2e/remote-file-ignore.spec.ts` 的「后端契约」步骤红：
+`files.directory-page` 返回的 entries 里没有任何 `ignored: true`。
+
+**判定**：产品按契约「没判定就不修饰」在行事（`ProjectDirectoryEntry.ignored` 缺失 = 未知），
+所以没有伪报；但这项功能在真机上等于没生效，属于缺陷而不是设计。
+
+**已排除（都有实测证据）**：
+
+| 假设 | 证据 |
+|---|---|
+| 前端没转发 `ignored` | 已修：`fileTreeIgnoredField` 单点转发，本机/远端两棵树都调用（`tests/directoryPageIgnoreDecoration.test.mjs`） |
+| 装配没接 `probeIgnore` | 目录页 `debugProbe` 显示 `function`（临时诊断，已移除） |
+| helper 未声明 `git.checkIgnore` | 能力门控通过（否则是 `UNSUPPORTED_CAPABILITY`，不是 `GIT_COMMAND_FAILED`） |
+| `.git` 保留名让整页失败 | 已跳过 `.git`；跳过之后仍然失败 |
+| 项目未信任 | `remoteTrust.set` 返回 active/approve，同 scope 的 `git.status` 成功 |
+| 项目不是仓库 / 无 HEAD | 仓库有 commit；`git.status` 正常 |
+| helper bundle 是旧版 | 清空 `~/.pideck/remote-host/bundles/*` 后重跑，远端只部署 `896b44d0…`（1.26.0，`git-read.mjs` 含 `allowed` 退出码处理），**仍然失败**；四个历史 bundle 其实都含 `allowed`（早期 grep 误判） |
+| git 本身对该命令失败 | 远端手工跑 `git --no-pager --no-optional-locks -c … check-ignore --no-index -- <paths>`（`/tmp`、`$HOME` 下、`/proc/self/fd/N` 作 cwd 三种组合）全部正常：单条无命中 exit 1、有命中 exit 0 |
+| 路径校验拒绝 | `.gitignore`/`visible.txt`/`ignored-dir`/`ignored.log` 都通过 `validateRemoteGitPath` 与 helper 的 `relative()` |
+
+**当前最可能的原因**：helper 的 `execute()` 对 `git check-ignore` 的退出码判定没有生效
+（`allowed=[1]` 未被容忍），或该命令的 spawn/close 走了失败分支；helper 把 stderr 丢掉了
+（`execute` 只累计 stderr 字节数），主进程侧只能看到 `GIT_COMMAND_FAILED`。
+
+**下一步（需要碰 helper 边界，单独任务）**：
+
+1. 临时在 `REMOTE_GIT_READ_SOURCE` 的 `execute` 失败分支里带上 stderr 文本，并 bump
+   `REMOTE_HELPER_ENTRY_VERSION`（否则远端复用旧 bundle 不会重新部署），跑
+   `e2e/remote-file-ignore.spec.ts` 拿到 git 的真实报错；
+2. 按报错修 helper（若确为 allowed 判定，属于 helper 侧 bug，不是协议变更）；
+3. 回滚临时诊断与版本号，重跑该 e2e 与 `-g "远端 Git"` 全组。
+
+**影响面**：只有「远端文件树置灰」这一条可见效果缺失；不涉及数据、授权或写路径。
+本机目录页的 ignore 修饰（`GitService.checkIgnore`）不受影响。
