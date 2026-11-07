@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
+import type { PiAuthMethod } from "../../../../shared/types/piAuth";
 import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import { closeProviderLoginAtom, providerLoginRequestAtom } from "../../atoms/providerLoginAtoms";
 import { useProviderLoginFlow, type ProviderLoginPhase } from "../../hooks/useProviderLoginFlow";
@@ -29,17 +30,17 @@ import { AuthEntryCard, FlowLogRow } from "./ProviderLoginFlowRows";
 export function ProviderLoginModal() {
 	const request = useAtomValue(providerLoginRequestAtom);
 	if (!request.open) return null;
-	return <ProviderLoginBody preselectedProviderId={request.providerId} />;
+	return <ProviderLoginBody preselectedProviderId={request.providerId} preselectedMethod={request.method} />;
 }
 
 /** 阶段内容区：固定最小高度避免弹框抖动，超高走内部滚动（不放宽弹框本身）。 */
 // 阶段内容区的类名直接写在下方的容器行上（不抽常量）：scrollContainerGuard 只认元素行里
 // 的 overflow-* 字面量，抽成变量会让这个真实滚动窗从判定面里整条消失。
 
-function ProviderLoginBody({ preselectedProviderId }: { preselectedProviderId?: string }) {
+function ProviderLoginBody({ preselectedProviderId, preselectedMethod }: { preselectedProviderId?: string; preselectedMethod?: PiAuthMethod }) {
 	const close = useSetAtom(closeProviderLoginAtom);
 	// 关弹框时 hook 会顺手取消进行中的登录（否则助手进程要等到超时）。
-	const flow = useProviderLoginFlow({ open: true, preselectedProviderId, onClose: () => close() });
+	const flow = useProviderLoginFlow({ open: true, preselectedProviderId, preselectedMethod, onClose: () => close() });
 	const { state } = flow;
 
 	return (

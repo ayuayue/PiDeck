@@ -1,0 +1,59 @@
+name: macOS Signing
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - .github/workflows/mac-signing.yml
+      - .github/workflows/release.yml
+      - .github/workflows/build-macos.yml
+      - .github/workflows/build-dev.yml
+      - .github/workflows/mac-test-build.yml
+      - scripts/configure-mac-signing.js
+      - scripts/verify-mac-signature.mjs
+      - scripts/dist-dev.js
+      - tests/mac*test.mjs
+      - tests/releaseConfig.test.mjs
+      - package.json
+      - package-lock.json
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - .github/workflows/mac-signing.yml
+      - .github/workflows/release.yml
+      - .github/workflows/build-macos.yml
+      - .github/workflows/build-dev.yml
+      - .github/workflows/mac-test-build.yml
+      - scripts/configure-mac-signing.js
+      - scripts/verify-mac-signature.mjs
+      - scripts/dist-dev.js
+      - tests/mac*test.mjs
+      - tests/releaseConfig.test.mjs
+      - package.json
+      - package-lock.json
+
+permissions:
+  contents: read
+
+jobs:
+  signing:
+    name: Signing policy and native identity regression
+    runs-on: macos-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+          cache: npm
+
+      # The native regression signs disposable fixtures ad-hoc; no release key or Electron download is needed.
+      - name: Install test dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Verify signing configuration, gates and native macOS identity
+        run: node --test tests/macSigningConfig.test.mjs tests/macSignatureGate.test.mjs tests/macPermissionIdentity.test.mjs tests/releaseConfig.test.mjs tests/appBrandPackaging.test.mjs

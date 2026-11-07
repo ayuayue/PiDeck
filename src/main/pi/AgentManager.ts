@@ -6415,6 +6415,11 @@ export class AgentManager {
 			}
 		}
 		const result = event.result ?? event.partialResult ?? event.output ?? existing?.meta?.result;
+		// 工具结果可能带 image content（生图类扩展把生成图直接放进结果）：实时事件同样
+		// 提取出来挂到消息上，否则只有文本会进时间线。无新图时保留上一轮的图。
+		const resultContent = result && typeof result === "object" && !Array.isArray(result) ? (result as Record<string, unknown>).content : undefined;
+		const resultImages = this.messageProjector.extractImages(resultContent);
+		const images = resultImages.length > 0 ? resultImages : existing?.images;
 		// pi 侧截断（bash/powershell >1 MiB）：存在时才写 meta.resultTruncation，
 		// 普通结果的 details 无 truncation 字段 → 不下发多余 meta。
 		const piTruncation = extractPiToolTruncation(result);
@@ -6555,6 +6560,7 @@ export class AgentManager {
 		if (existing) {
 			existing.text = text;
 			existing.timestamp = Date.now();
+			if (images && images.length > 0) existing.images = images;
 			// 合并而非替换：重定向到投影版时保留其身份字段（entryId/_piDeckMsgSeq），
 			// 否则渲染层接缝去重与编辑/删除/重发定位会因 entryId 丢失而失效。
 			existing.meta = { ...(existing.meta ?? {}), ...meta };
@@ -6567,6 +6573,7 @@ export class AgentManager {
 				text,
 				timestamp: Date.now(),
 				meta,
+				...(images && images.length > 0 ? { images } : {}),
 			});
 			this.markMessagesDirtyFrom(agentId, list.length - 1);
 		}

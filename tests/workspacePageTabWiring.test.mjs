@@ -35,13 +35,14 @@ test("会话 Tab 栏渲染页面式工作区 Tab（可选中/可关闭，不参�
 	assert.doesNotMatch(pageTabComponent, /draggable|onDragStart|data-session-id/, "页面 Tab 不得参与会话拖拽/会话身份");
 });
 
-test("App 把三个页面挂进会话 Tab 栏，并用当前页面决定会话选中态", () => {
+test("App 把四个页面挂进会话 Tab 栏，并用当前页面决定会话选中态", () => {
 	assert.match(app, /const workspacePageTabItems: WorkspacePageTabItem\[\] = sortWorkspacePageIds\(openWorkspacePageIds\)\.map/, "App 必须从页面 Tab 状态装配 Tab 项（固定展示顺序）");
 	assert.match(app, /pageTabs=\{workspacePageTabItems\}/, "App 必须把页面 Tab 传给 SessionTabsBar");
 	assert.match(app, /currentSessionId=\{activeWorkspacePage \|\| hostPluginPageTab \? undefined : currentSessionId\}/, "页面打开时会话 Tab 不得显示选中态");
 	assert.match(app, /<AutomationPage\s+active=\{activeWorkspacePage === "automation"\}/, "定时任务页面必须按激活态挂载");
 	assert.match(app, /<AgentMarketPage active=\{activeWorkspacePage === "agents"\}/, "智能体页面必须按激活态挂载");
 	assert.match(app, /<FavoritesPage active=\{activeWorkspacePage === "favorites"\}/, "收藏页面必须按激活态挂载");
+	assert.match(app, /<SettingsFeatureRoot[\s\S]{0,600}?closeRequestRef=\{settingsCloseRequestRef\}/, "设置页面（会话列内）必须拿到关闭守卫 ref");
 });
 
 test("页面不是会话 Tab：不进 sessionTabIds，切会话只失活、关闭才卸载", () => {
@@ -54,8 +55,10 @@ test("页面不是会话 Tab：不进 sessionTabIds，切会话只失活、关�
 	assert.match(agentAtoms, /set\(closeWorkspacePageAtom, "agents"\)/);
 });
 
-test("页面标题固定走 i18n：智能体市场已改名「智能体」，不参与自动会话标题", () => {
-	assert.match(app, /title: t\(pageId === "automation" \? "automation\.title" : pageId === "agents" \? "agentMarket\.title" : "favorites\.title"\)/);
+test("页面标题固定走 i18n：标题/图标统一由 WORKSPACE_PAGE_TAB_META 提供，不参与自动会话标题", () => {
+	assert.match(app, /const WORKSPACE_PAGE_TAB_META: Record<WorkspacePageId, \{ titleKey: TranslationKey; icon: LucideIcon \}>/);
+	assert.match(app, /title: t\(WORKSPACE_PAGE_TAB_META\[pageId\]\.titleKey\)/);
+	assert.match(zh, /"settings\.title": "设置"/);
 	assert.match(zh, /"favorites\.title": "收藏"/);
 	assert.match(en, /"favorites\.title": "Favorites"/);
 	assert.match(zh, /"automation\.title": "定时任务"/);
@@ -70,6 +73,20 @@ test("定时任务页面化：复用原管理界面、不再有 Dialog 弹框", 
 	assert.match(automationPage, /absolute inset-0 z-30 flex flex-col bg-background/);
 	assert.match(automationPage, /!props\.active && "hidden"/, "失活时保持挂载并隐藏（切回来状态不丢）");
 	assert.equal(existsSync("src/renderer/src/components/automation/AutomationModal.tsx"), false, "旧弹框宿主必须删除");
+});
+
+test("设置页：会话列页面 Tab，关闭叉先走未保存确认，Esc 只由当前页面响应", () => {
+	// 用户反馈：设置弹框挡着后面的东西不好操作，改成会话列里的页面 Tab（m00001）。
+	const root = read("src/renderer/src/components/app/SettingsFeatureRoot.tsx");
+	const modal = read("src/renderer/src/components/app/SettingsModal.tsx");
+	assert.match(root, /absolute inset-0 z-30 flex flex-col bg-background/, "用与其它工作区页面同构的页面壳");
+	assert.match(root, /!active && "hidden"/, "失活时保持挂载并隐藏（草稿/滚动位置不丢）");
+	assert.match(root, /closeRequestRef: props\.closeRequestRef/);
+	assert.doesNotMatch(root, /<Dialog/, "页面壳不得再包 Radix Dialog（portal 会浮在隐藏容器之上）");
+	assert.match(app, /settingsCloseRequestRef\.current\(\);/, "Tab 关闭叉必须先把关闭请求交给页面（带未保存确认）");
+	assert.match(modal, /closeRequestRef\.current = handleClose/);
+	assert.match(modal, /if \(!props\.active\) return;/);
+	assert.match(modal, /if \(event\.key !== "Escape" \|\| event\.defaultPrevented\) return;/, "Radix 弹层已 preventDefault 时不得重复关页面");
 });
 
 test("页面式插件面板与工作区页面互斥：打开面板时让页面失活（否则面板会被立刻关掉）", () => {

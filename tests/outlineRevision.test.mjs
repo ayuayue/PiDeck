@@ -29,10 +29,10 @@ test("assistant tail updates preserve the outline revision", () => {
 	assert.equal(outlineRevision.shouldRefreshOutlineForRuntimeUpsert(current, 0, 1, [message("answer", "assistant", "completed")]), false);
 });
 
-test("a completed assistant message refreshes the outline so AI replies enter the rail", () => {
+test("a completed assistant message does not refresh the outline (replies are not ticks)", () => {
 	const current = [message("question", "user"), message("answer", "assistant", "partial")];
 	assert.equal(outlineRevision.shouldRefreshOutlineForRuntimeUpsert(current, 0, 1, [{ ...message("answer", "assistant", "pending"), stopReason: "pending" }]), false);
-	assert.equal(outlineRevision.shouldRefreshOutlineForRuntimeUpsert(current, 0, 1, [{ ...message("answer", "assistant", "done"), stopReason: "stop" }]), true);
+	assert.equal(outlineRevision.shouldRefreshOutlineForRuntimeUpsert(current, 0, 1, [{ ...message("answer", "assistant", "done"), stopReason: "stop" }]), false);
 });
 
 test("a runtime upsert touching an earlier user checkpoint refreshes the outline", () => {

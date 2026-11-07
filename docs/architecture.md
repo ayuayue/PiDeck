@@ -68,6 +68,11 @@ src/
 `agents:notice` / `agents:ui-request`）全量下发；新可见的会话由 `AgentManager.emitLiveSnapshot()`
 补一帧全量正文/思考。
 
+**历史会话预热不重置显示面**：runtime 的显示消息由「已加载历史前缀 + 当前窗口段」组成。
+后台预热可能先发布空窗口；加载/空态和底部输入框挂载按完整显示消息判断，不能把窗口为空当成没有历史。
+非空历史前缀仍是有效的初始加载缓存，且 `clearSessionHistoryAtom` 在窗口仍为空时拒绝回收，避免删除唯一可见内容。
+正常预热与延迟历史接管的 DOM、输入焦点和动画回归见 `e2e/session-prewarm-history.spec.ts`。
+
 ## 文件体量（增量门禁，防回流）
 
 存量现实（2026-10 核对）：`main/index.ts` 6724 行、`AgentManager.ts` 6439、`App.tsx` 3722，全仓 **86 个文件 >600 行**；三份拆分计划落地后都出现回涨。

@@ -31,9 +31,14 @@ const out = path.join(__dirname, "..", "build");
 const iconsDir = path.join(out, "icons");
 const iconContentRatio = 0.875;
 const pngSizes = [16, 24, 32, 48, 64, 128, 256, 512, 1024];
+// macOS decodes PNG-backed icp4/icp5 entries as corrupt pixels in Spotlight.
+// Use RGB entries with separate alpha masks for the small 1x icons; unlike
+// ARGB entries, these preserve straight-alpha PNG pixels without premultiplication.
 const icnsSources = [
-	[16, "icp4"],
-	[32, "icp5"],
+	[16, "is32"],
+	[16, "s8mk"],
+	[32, "il32"],
+	[32, "l8mk"],
 	[32, "ic11"],
 	[64, "icp6"],
 	[64, "ic12"],

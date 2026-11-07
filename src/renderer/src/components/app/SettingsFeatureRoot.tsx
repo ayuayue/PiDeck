@@ -1,7 +1,8 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import type { AppInfo, AppSettings, Project } from "../../../../shared/types";
-import { settingsFocusAtom, settingsOpenAtom } from "../../atoms";
+import { settingsFocusAtom, settingsOpenAtom, settingsPageOpenAtom } from "../../atoms";
+import { cn } from "../../lib/utils";
 import { updateStatusAtom } from "../../atoms/update-atoms";
 import { flushUpdateInstallPreflight, updateInstallPreflightTasksAtom } from "../../atoms/update-install-preflight";
 import { desktopApi as api } from "../../desktopApi";
@@ -26,11 +27,16 @@ type SettingsFeatureRootProps = {
 	projectKind?: Project["kind"];
 	/** 当前项目名称：作用域选择器显示用。 */
 	projectName?: string;
+	/** Tab 栏关闭叉的出口：由设置页写入带未保存确认的 handleClose（见 App 的关闭守卫）。 */
+	closeRequestRef?: RefObject<(() => void) | null>;
 };
 
-/** Owns Settings overlay visibility and modal-only commands without mirroring AppSettings. */
+/** Owns the Settings page tab and its commands without mirroring AppSettings. */
 export function SettingsFeatureRoot(props: SettingsFeatureRootProps) {
-	const open = useAtomValue(settingsOpenAtom);
+	/** Tab 已打开（失活仍为 true）：决定页面子树挂载还是卸载。 */
+	const open = useAtomValue(settingsPageOpenAtom);
+	/** 当前正在呈现（页面 Tab 激活）：决定显隐与关闭语义。 */
+	const active = useAtomValue(settingsOpenAtom);
 	const setOpen = useSetAtom(settingsOpenAtom);
 	const setFocus = useSetAtom(settingsFocusAtom);
 	const setUpdateStatus = useSetAtom(updateStatusAtom);
@@ -153,6 +159,8 @@ export function SettingsFeatureRoot(props: SettingsFeatureRootProps) {
 			projectKind: props.projectKind,
 			projectName: props.projectName,
 			projects: props.projects,
+			active,
+			closeRequestRef: props.closeRequestRef,
 		}),
 		[
 			props.settings,
@@ -190,6 +198,8 @@ export function SettingsFeatureRoot(props: SettingsFeatureRootProps) {
 			props.projectKind,
 			props.projectName,
 			props.projects,
+			active,
+			props.closeRequestRef,
 			installAppUpdate,
 			setFocus,
 			setOpen,
@@ -198,9 +208,13 @@ export function SettingsFeatureRoot(props: SettingsFeatureRootProps) {
 
 	if (!open) return null;
 
+	// 页面宿主与其它工作区页面同构（绝对定位覆盖会话列、失活 hidden 保挂载），
+	// 区别只在于设置页自己管着一批内存草稿：关闭 Tab 前必须先走未保存确认。
 	return (
-		<Suspense fallback={null}>
-			<SettingsModal {...modalProps} />
-		</Suspense>
+		<div className={cn("absolute inset-0 z-30 flex flex-col bg-background", !active && "hidden")} role="region" aria-label={t("settings.title")}>
+			<Suspense fallback={null}>
+				<SettingsModal {...modalProps} />
+			</Suspense>
+		</div>
 	);
 }

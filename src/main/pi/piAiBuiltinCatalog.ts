@@ -101,6 +101,17 @@ export function getPiAiCatalogEntries(index: PiAiCatalogIndex): readonly PiAiCat
 	return index.entries;
 }
 
+/** 内置 provider 的默认 API 协议：从 catalog 条目的 provider 级 `api` 取第一个非空值。 */
+export function lookupPiAiCatalogProviderApi(index: PiAiCatalogIndex, providerName: string): string | undefined {
+	const inner = index.byProviderId.get(providerName);
+	if (!inner) return undefined;
+	for (const entry of inner.values()) {
+		const api = typeof entry.api === "string" ? entry.api.trim() : "";
+		if (api) return api;
+	}
+	return undefined;
+}
+
 /** OpenAI 兼容网关常把官方 id 写成 `openai/gpt-4o`；取最后一段做二次精确匹配 */
 export function modelIdTail(modelId: string): string {
 	const trimmed = modelId.trim();

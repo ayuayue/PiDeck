@@ -56,7 +56,8 @@ test("关闭未打开的页面是 no-op（保持引用）", () => {
 	assert.equal(closeWorkspacePage(state, "automation"), state);
 });
 
-test("isWorkspacePageId 只认三个页面 id", () => {
+test("isWorkspacePageId 只认四个页面 id", () => {
+	assert.equal(isWorkspacePageId("settings"), true);
 	assert.equal(isWorkspacePageId("automation"), true);
 	assert.equal(isWorkspacePageId("agents"), true);
 	assert.equal(isWorkspacePageId("favorites"), true);
@@ -64,8 +65,16 @@ test("isWorkspacePageId 只认三个页面 id", () => {
 	assert.equal(isWorkspacePageId(null), false);
 });
 
-test("sortWorkspacePageIds 固定展示顺序：定时任务 → 智能体 → 收藏（与打开顺序无关）", () => {
-	assert.deepEqual([...sortWorkspacePageIds(["favorites", "agents", "automation"])], ["automation", "agents", "favorites"]);
+test("sortWorkspacePageIds 固定展示顺序：设置 → 定时任务 → 智能体 → 收藏（与打开顺序无关）", () => {
+	assert.deepEqual([...sortWorkspacePageIds(["favorites", "agents", "automation", "settings"])], ["settings", "automation", "agents", "favorites"]);
 	assert.deepEqual([...sortWorkspacePageIds(["favorites", "agents"])], ["agents", "favorites"]);
 	assert.deepEqual([...sortWorkspacePageIds([])], []);
+});
+
+test("设置页沿用同一套页面 Tab 状态机（打开/失活/关闭）", () => {
+	const opened = openWorkspacePage(EMPTY_WORKSPACE_PAGE_TAB_STATE, "settings");
+	assert.equal(opened.active, "settings");
+	assert.deepEqual(Array.from(opened.tabs), ["settings"]);
+	assert.equal(deactivateWorkspacePage(opened).active, null, "切回会话只失活，页面不卸载");
+	assert.deepEqual(Array.from(closeWorkspacePage(opened, "settings").tabs), [], "关闭 Tab 才移除");
 });

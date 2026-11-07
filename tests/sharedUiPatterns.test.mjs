@@ -50,8 +50,10 @@ test("AsyncState 契约：loading 是 status live region，空态有标题与说
 
 test("Workbench Dialog 尺寸常量单源（Wave 2 §5.3）", () => {
 	assert.match(DIALOG_SIZE, /WORKBENCH_DIALOG_SIZE_CLASS/, "常量必须导出");
-	assert.match(read("components/app/SettingsModal.tsx"), /WORKBENCH_DIALOG_SIZE_CLASS/, "SettingsModal 引用共享尺寸");
 	assert.match(read("ConfigModal.tsx"), /WORKBENCH_DIALOG_SIZE_CLASS/, "ConfigModal 引用共享尺寸");
+	// 设置自 f66a4eec0 起是会话列里的页面 Tab（铺满整列），不再共用弹框尺寸。
+	assert.doesNotMatch(read("components/app/SettingsModal.tsx"), /WORKBENCH_DIALOG_SIZE_CLASS/, "设置页面不应再套弹框尺寸");
+	assert.match(read("components/app/SettingsModal.tsx"), /className="settings-modal flex min-h-0 flex-1 flex-col/, "设置页面铺满会话列");
 });
 
 test("Changelog 阅读壳单源：桌面/pi 两消费方不自带 markdown 载体", () => {

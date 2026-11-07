@@ -211,6 +211,9 @@ export class AgentMessageProjector {
 							content: typed.content,
 							details: typed.details,
 						};
+						// 工具结果里的图片块（如生图扩展返回的 image content）同样要恢复：
+						// 只喂给文本展示会被丢弃，重新打开历史时用户看不到生成图。
+						const resultImages = this.extractImages(typed.content);
 						const filePath = this.getToolPathFromArgs(historicalCall?.args);
 						// 历史工具结果同样带 pi 0.99 的截断信息（details.truncation / fullOutputPath）
 						const piTruncation = extractSharedPiTruncation(result);
@@ -262,6 +265,7 @@ export class AgentMessageProjector {
 								role: "tool" as const,
 								text: `${isError ? "✗" : "✓"} ${toolName}`,
 								timestamp: typeof typed.timestamp === "number" ? typed.timestamp : Date.now(),
+								...(resultImages.length > 0 ? { images: resultImages } : {}),
 								meta: {
 									...(currentEntryId ? { entryId: currentEntryId } : {}),
 									_piDeckMsgSeq: index,
@@ -404,8 +408,11 @@ export class AgentMessageProjector {
 	 *  兼容两种图片块：
 	 *  - 直接块 { type:"image", data, mimeType }（PiDeck 落盘旧格式）
 	 *  - Anthropic 风格 { type:"image", source:{ type:"base64", media_type, data } }
-	 *    （pi jsonl / SessionHistoryReader.extractResendContent 同协议） */
-	private extractImages(content: unknown): ImageContent[] {
+	 *    （pi jsonl / SessionHistoryReader.extractResendContent 同协议）
+	 *
+	 *  public：实时工具结果（AgentManager.upsertToolMessage）也走同一套提取规则，
+	 *  避免两处各写一份 image block 解析。 */
+	extractImages(content: unknown): ImageContent[] {
 		if (!Array.isArray(content)) return [];
 		return content.flatMap<ImageContent>((item) => {
 			if (!item || typeof item !== "object") return [];

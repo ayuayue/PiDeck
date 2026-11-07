@@ -11,11 +11,11 @@ export function findLastUserMessageIndex(messages: readonly ChatMessage[]): numb
 /**
  * Incremental runtime updates replace a suffix beginning at upsertFrom. They
  * can reuse the outline only when that suffix starts after every user message
- * and does not add a new one. 助手消息在 message_end 才带终态 stopReason：
- * 那一刻要把这条 AI 回复补进大纲，但流式 delta（stopReason=pending/undefined）
- * 仍然复用旧投影，保持「不随 token 频率重算」的性能边界。
+ * and does not add a new one. 助手回复不进大纲（buildOutline 只收用户提问），
+ * 所以流式 delta 与 message_end 的 stopReason 都不再触发重建；只有新提问或改动
+ * 到已有提问（编辑、重发）才会刷新。
  */
-export function shouldRefreshOutlineForRuntimeUpsert(currentMessages: readonly ChatMessage[], cachedLastUserIndex: number | undefined, upsertFrom: number, incomingMessages: readonly Pick<ChatMessage, "role" | "stopReason">[]): boolean {
+export function shouldRefreshOutlineForRuntimeUpsert(currentMessages: readonly ChatMessage[], cachedLastUserIndex: number | undefined, upsertFrom: number, incomingMessages: readonly Pick<ChatMessage, "role">[]): boolean {
 	if (!Number.isInteger(upsertFrom) || upsertFrom < 0 || upsertFrom > currentMessages.length) {
 		return true;
 	}
@@ -23,5 +23,5 @@ export function shouldRefreshOutlineForRuntimeUpsert(currentMessages: readonly C
 	const cachedLastUserIndexIsValid = cachedLastUserIndex !== undefined && cachedLastUserIndex >= -1 && cachedLastUserIndex < currentMessages.length && (cachedLastUserIndex < 0 || currentMessages[cachedLastUserIndex]?.role === "user");
 	const lastUserIndex = cachedLastUserIndexIsValid ? cachedLastUserIndex : findLastUserMessageIndex(currentMessages);
 
-	return upsertFrom <= lastUserIndex || incomingMessages.some((message) => message.role === "user" || (message.role === "assistant" && message.stopReason !== undefined && message.stopReason !== "pending"));
+	return upsertFrom <= lastUserIndex || incomingMessages.some((message) => message.role === "user");
 }

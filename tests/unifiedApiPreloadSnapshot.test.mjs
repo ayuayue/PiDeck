@@ -39,6 +39,8 @@
  * 2026-11-04 刷新：WSL 目录浏览（Wave 0，提交 0f91282e4）把 projects.addWsl 换成
  *   listWslDirectory + addWslPath（净 +1 方法）；命名空间数 82 与 sessions 117 / config 53 /
  *   git 64 / app 32 钓点均不变，仅方法清单摘要变化。
+ * 2026-11-07 刷新：agentMemory.deleteEntries（记忆条目批量删除，提交 483a52dfe 漏刷快照）+1 方法；
+ *   命名空间数 82 与 sessions 117 / config 53 / git 64 / app 32 钓点均不变。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -46,7 +48,7 @@ import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const NS_LIST_SHA256 = "ecf92dceedeea2d9b21c5625e42f3f30786c264a01fba4cb738834630948efee";
-const FULL_METHODS_SHA256 = "8d5e92b1c0f3e86355b6a84048a094514712cf0f565ce8025a661cd9a35ac877";
+const FULL_METHODS_SHA256 = "b0173c33f7a860dae5a0e91ad12a56bbeb7c334cbfaac4ea25dbb51097b240e3";
 const NAMESPACE_COUNT = 82;
 
 /** 捕获 preload 暴露的 piDesktop；null/undefined/形态不符时显式红并给诊断（F8-6 共用）。 */

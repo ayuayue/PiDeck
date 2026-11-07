@@ -72,6 +72,17 @@ export function quickMessageHookHost() {
 		forwardRef(render) {
 			return (props) => render(props, null);
 		},
+		// 类组件只能被 extends：沙箱不渲染子组件，也给不出真实生命周期，给一个能继承的壳即可
+		//（VirtualRunList 的 RunListLayoutSnapshot 用 getSnapshotBeforeUpdate 读切换前几何）。
+		Component: class Component {
+			constructor(props = {}) {
+				this.props = props;
+			}
+
+			setState(next) {
+				this.state = typeof next === "function" ? next(this.state) : { ...(this.state ?? {}), ...next };
+			}
+		},
 	};
 	return {
 		react,

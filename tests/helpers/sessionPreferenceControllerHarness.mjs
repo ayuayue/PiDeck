@@ -7,8 +7,8 @@ export const selectedModel = { provider: "selected", id: "chosen", name: "Chosen
 export const actualSelection = { provider: "selected", modelId: "chosen", modelName: "Pi model", thinkingLevel: "high" };
 
 /** 执行真实 controller；稳定 ref/effect 支持换栏、换绑及目录等待，聚焦身份独立于挂载栏。 */
-export function createSessionPreferenceControllerHarness({ bound = true, ready = true, favoritesLoaded = true, pendingApply = false } = {}) {
-	const calls = { commands: [], updates: [], upserts: [], pending: [], applied: [], notices: [], restarts: [] };
+export function createSessionPreferenceControllerHarness({ bound = true, ready = true, favoritesLoaded = true, pendingApply = false, noRecord = false } = {}) {
+	const calls = { commands: [], updates: [], upserts: [], pending: [], applied: [], notices: [], restarts: [], welcomeBumps: [] };
 	const records = {
 		[SOURCE]: { ...sessionRecord(SOURCE), model: { provider: "saved", modelId: "old", modelName: "Saved" }, thinkingLevel: "low" },
 		[NEXT]: { ...sessionRecord(NEXT), model: { provider: "other", modelId: "next", modelName: "Other" }, thinkingLevel: "medium" },
@@ -18,6 +18,7 @@ export function createSessionPreferenceControllerHarness({ bound = true, ready =
 		[SOURCE]: { models: ready ? [selectedModel] : [], favoriteModels: ["selected/chosen"], favoritesLoaded, report: null, catalogLoading: !ready, isDshSession: false },
 		[NEXT]: { models: ready ? [selectedModel] : [], favoriteModels: ["selected/chosen"], favoritesLoaded, report: null, catalogLoading: !ready, isDshSession: false },
 	};
+	const storage = new Map();
 	const pendingModels = {};
 	const shortcuts = new Set();
 	const refs = [];
@@ -68,7 +69,14 @@ export function createSessionPreferenceControllerHarness({ bound = true, ready =
 	};
 	const services = { restartActiveAgent: async (agentId) => calls.restarts.push(agentId) };
 	const load = createTsSandbox({
-		globals: { Error },
+		globals: {
+			Error,
+			localStorage: {
+				getItem: (key) => storage.get(key) ?? null,
+				setItem: (key, value) => storage.set(key, String(value)),
+				removeItem: (key) => storage.delete(key),
+			},
+		},
 		stubs: {
 			react: {
 				useRef: (initial) => {
@@ -94,8 +102,8 @@ export function createSessionPreferenceControllerHarness({ bound = true, ready =
 			"../atoms": { currentSessionIdAtom: focusedAtom, sessionRuntimeByIdAtom: runtimeAtom, modelPendingByIdAtom: pendingAtom, sessionFocusedByIdAtomFamily },
 			"./useSessionPreferenceState": {
 				useSessionPreferenceState: ({ sessionId }) => ({
-					record: records[sessionId],
-					runtime: runtimes[sessionId],
+					record: noRecord ? undefined : records[sessionId],
+					runtime: noRecord ? undefined : runtimes[sessionId],
 					hiddenProviders: [],
 					hiddenModels: [],
 					currentModel: records[sessionId].model,
@@ -108,6 +116,7 @@ export function createSessionPreferenceControllerHarness({ bound = true, ready =
 						pendingModels[sessionId] = value;
 						calls.pending.push({ sessionId, value: value ? plain(value) : null });
 					},
+					bumpWelcomePreference: () => calls.welcomeBumps.push(sessionId),
 				}),
 			},
 			...(pendingApply ? {} : { "./usePendingModelApply": { usePendingModelApply: () => {} } }),
@@ -148,5 +157,5 @@ export function createSessionPreferenceControllerHarness({ bound = true, ready =
 	const shortcut = (id) => {
 		for (const listener of [...shortcuts]) listener(id);
 	};
-	return { controller: render(), render, unmount, focus, shortcut, shortcuts, subscriptions, sessions, runtimes, records, preferences, pendingModels, calls, services };
+	return { controller: render(), render, unmount, focus, shortcut, shortcuts, subscriptions, sessions, runtimes, records, preferences, pendingModels, calls, services, storage };
 }

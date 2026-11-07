@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.10.0-blue)
+![Version](https://img.shields.io/badge/version-0.11.0-blue)
 
 <!-- star-history:start -->
 <picture>
@@ -82,23 +82,18 @@
 
 ## 📋 Changelog
 
-> **Latest: v0.10.0** (2026-11-05)
+> **Latest: v0.11.0** (2026-11-07)
 
-### v0.10.0 Release Highlights
-- 🚀 **Agent memory shared by pi and ACP sessions**
-- 🚀 **Memory export / import with preview and conflict policy**
-- 🚀 **Projects inside WSL distributions can be added and edited normally**
-- 🚀 **Host plugin market**
-- 🚀 **CodeBuddy session import**
-- 🚀 **The timeline's right-edge scale expands into a full session directory**
-- 🚀 **Built-in TokenDance provider shows discount / free badges**
-- 🚀 **The Web UI catches up with the desktop**
-- 🚀 **Batch remove project records from the sidebar**
-- 🚀 **New Parchment palette**
-- ✨ **Queued messages support Send Immediately**
-- ✨ **Timeline and outline finish their virtualization pass**
-- ✨ **The Git panel no longer squeezes text or stutters**
-- ✨ **Inactive sessions pause the streaming typewriter and Markdown reflow**
+### v0.11.0 Release Highlights
+- 🚀 **Settings opens as a page tab instead of a modal**
+- 🚀 **OAuth logins get a page in config**
+- 🚀 **OpenRouter joins image generation**
+- 🚀 **Batch delete memory entries**
+- 🚀 **Provider and model lists are searchable**
+- ✨ **Tool-result images render inline**
+- ✨ **Virtual stacks render once when the scroll element arrives late**
+- ✨ **macOS builds keep their identity**
+- ✨ **Warming up a session keeps your draft**
 
 [View Full Changelog →](CHANGELOG.md)
 

@@ -26,10 +26,11 @@ import {
 	ScrollText,
 	// 抽屉侧边任务 Tab 图标：不用 PanelRight——那是会话头部抽屉开关的图形，并排会认错
 	Rocket,
-	// 会话 Tab 栏里的页面式工作区 Tab 图标（定时任务 / 智能体 / 收藏）
+	// 会话 Tab 栏里的页面式工作区 Tab 图标（设置 / 定时任务 / 智能体 / 收藏）
 	Clock,
 	Bot,
 	Star,
+	type LucideIcon,
 } from "lucide-react";
 import { configureNoticeDefaults, showNotice, type NoticeKind } from "./utils/notice";
 import { copyTextWithCopiedNotice } from "./utils/clipboardNotice";
@@ -79,7 +80,7 @@ import { AutomationPage } from "./components/automation/AutomationPage";
 import { AgentMarketPage } from "./components/agents/AgentMarketPage";
 import { buildAgentSessionTitle } from "./components/agents/agentIconCodec";
 import { FavoritesPage } from "./components/favorites/FavoritesPage";
-import { sortWorkspacePageIds } from "./utils/workspacePageTabs";
+import { sortWorkspacePageIds, type WorkspacePageId } from "./utils/workspacePageTabs";
 import { SelectionToolHost } from "./components/selectionTool/SelectionToolHost";
 import { useRename } from "./hooks/useRename";
 import { useProjectRuntimeCapabilities } from "./hooks/useRuntimeCapabilities";
@@ -176,7 +177,7 @@ import {
 	sessionRuntimeByIdAtom,
 } from "./atoms";
 import { isSameSessionPath } from "./agentListDisplay";
-import { t } from "./i18n";
+import { t, type TranslationKey } from "./i18n";
 import { isChatProject, loadSessionSourceFilter, saveSessionSourceFilter, isReplacementForPendingAgent, isPendingAgentId, migrateAgentRecord, stampIdleSessionDuration, type PendingAgentTab } from "./rendererUtils";
 import { isLocalProject, isRemoteProject } from "../../shared/projectLocation";
 import { fileTreeNodeDisplayPath } from "./utils/fileTreeLazy";
@@ -262,6 +263,17 @@ import type {
 import type { TerminalDockSettings } from "./components/terminal/TerminalDock";
 import { WallpaperVideoLayer } from "./components/app/wallpaper/WallpaperVideoLayer";
 
+/**
+ * 页面 Tab 的标题与图标（静态元数据，标题在渲染时经 t() 取当前语言）。
+ * 一张表同时管住标题和图标：两串三元链曾分别维护，新增页面时必有一边漏改。
+ */
+const WORKSPACE_PAGE_TAB_META: Record<WorkspacePageId, { titleKey: TranslationKey; icon: LucideIcon }> = {
+	settings: { titleKey: "settings.title", icon: Settings2 },
+	automation: { titleKey: "automation.title", icon: Clock },
+	agents: { titleKey: "agentMarket.title", icon: Bot },
+	favorites: { titleKey: "favorites.title", icon: Star },
+};
+
 export function App() {
 	if (missingElectronPreload) {
 		return (
@@ -312,6 +324,9 @@ export function App() {
 	const openWorkspacePage = useSetAtom(openWorkspacePageAtom);
 	const deactivateWorkspacePage = useSetAtom(deactivateWorkspacePageAtom);
 	const closeWorkspacePage = useSetAtom(closeWorkspacePageAtom);
+	// 设置页的「关闭请求」出口：页面内持有内存草稿，Tab 栏的关闭叉必须先问它（未保存确认），
+	// 确认后才真正关 Tab。页面组件挂载时写入、卸载时置空（用 ref 而非 atom：函数值走 atom 会被当成更新器）。
+	const settingsCloseRequestRef = useRef<(() => void) | null>(null);
 	// 页面式插件面板与工作区页面共用会话列覆盖层：两者同时呈现会互相盖住，打开页面时收起插件页。
 	const hostPluginPanel = useAtomValue(hostPluginPanelAtom);
 	const setHostPluginPanel = useSetAtom(hostPluginPanelAtom);
@@ -2815,11 +2830,19 @@ export function App() {
 	// 激活态只由 activeWorkspacePage 决定；关闭即卸载页面（切会话只是失活）。
 	const workspacePageTabItems: WorkspacePageTabItem[] = sortWorkspacePageIds(openWorkspacePageIds).map((pageId) => ({
 		id: pageId,
-		title: t(pageId === "automation" ? "automation.title" : pageId === "agents" ? "agentMarket.title" : "favorites.title"),
-		icon: pageId === "automation" ? Clock : pageId === "agents" ? Bot : Star,
+		title: t(WORKSPACE_PAGE_TAB_META[pageId].titleKey),
+		icon: WORKSPACE_PAGE_TAB_META[pageId].icon,
 		active: activeWorkspacePage === pageId,
 		onSelect: () => openWorkspacePage(pageId),
-		onClose: () => closeWorkspacePage(pageId),
+		onClose: () => {
+			// 设置页有内存草稿：关闭叉先走页面自己的未保存确认，确认后才真正关 Tab（页面卸载）。
+			// 页面未注册（理论上不会：Tab 开着即挂载）才退回直接关。
+			if (pageId === "settings" && settingsCloseRequestRef.current) {
+				settingsCloseRequestRef.current();
+				return;
+			}
+			closeWorkspacePage(pageId);
+		},
 	}));
 
 	const sessionTabsProps = {
@@ -3323,6 +3346,21 @@ export function App() {
 					<AgentMarketPage active={activeWorkspacePage === "agents"} onUseAgent={handleAgentUseAgent} />
 					{/* 收藏：整条回复 / 划选片段的本地快照，页面式 Tab（与智能体同一层级） */}
 					<FavoritesPage active={activeWorkspacePage === "favorites"} />
+					{/* 设置：从 80vw×80vh 弹框迁成会话列页面（不再遮住工作区），失活只 hidden 保挂载，
+					    关闭 Tab 才卸载（内存草稿随之丢弃，所以关闭叉先走页面的未保存确认） */}
+					<SettingsFeatureRoot
+						settings={settings}
+						piUpdate={piUpdate}
+						webServiceChanging={webServiceChanging}
+						onRestartWebService={restartWebService}
+						appInfo={appInfo}
+						onChange={updateSettings}
+						projects={projects}
+						projectId={activeProject?.id}
+						projectKind={activeProject?.kind}
+						projectName={activeProject?.name}
+						closeRequestRef={settingsCloseRequestRef}
+					/>
 				</div>
 			}
 			content={workbenchContentNode}
@@ -3908,7 +3946,6 @@ export function App() {
 							}}
 						/>
 					</EnvironmentOverlay>
-					<SettingsFeatureRoot settings={settings} piUpdate={piUpdate} webServiceChanging={webServiceChanging} onRestartWebService={restartWebService} appInfo={appInfo} onChange={updateSettings} projects={projects} projectId={activeProject?.id} projectKind={activeProject?.kind} projectName={activeProject?.name} />
 					{/* 远端项目登记：全应用唯一挂载点（侧栏「+」/空态只写开关 atom）。成功后先刷新清单再选中新项目，不创建本地会话。 */}
 					<RemoteProjectEnrollDialog
 						onEnrolled={(projectId) => {

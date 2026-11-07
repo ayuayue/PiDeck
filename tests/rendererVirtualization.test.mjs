@@ -291,6 +291,18 @@ test("VirtualStack 短列表分支：无 containerProps 时直出 Fragment，有
 	assert.match(code, /<Fragment key=\{getKey\(item, index\)\}>/, "短列表行必须带 key：renderItem 的返回值多数不产 key");
 });
 
+test("VirtualStack 在滚动窗 ref 迟到挂载时必须补一次渲染", () => {
+	// 回归防线（2026-11 待办条「展开后一片空白、等好久才出来」）：
+	// React 先跑子组件 layout effect、后 attach 父 host 元素 ref，所以子组件首次 _willUpdate 读到
+	// getScrollElement() === null；virtual-core 见 scrollElement 未变就直接 return（不订阅、不 notify），
+	// 没有这次补渲染就永远不会自己恢复。删掉这段时 e2e/todo-strip-many-items.spec.ts 会一直 0 行。
+	const source = readFileSync(VIRTUAL_STACK, "utf8");
+	const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+	assert.match(code, /const element = scrollRef\.current;/, "必须读 scrollRef.current 做就绪判定");
+	assert.match(code, /if \(element && virtualize\) forceRender\(\);/, "拿到滚动窗（且确实虚拟化）后必须强制重渲染一次");
+	assert.match(code, /if \(element === attachedScrollElement\.current\) return;/, "必须比对上次元素，否则每次渲染都多触发一次");
+});
+
 /* ── 结构复用必须真接线（防死代码回归） ── */
 
 test("structureReuse 必须被生产代码引用（不许是死代码）", () => {

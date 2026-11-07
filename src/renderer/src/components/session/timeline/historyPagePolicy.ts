@@ -122,9 +122,13 @@ export function resolveEarlierHistoryCursor(input: EarlierHistoryCursorInput): E
 			return typeof entryId === "string" && entryId ? { before: nextBefore, beforeEntryId: entryId } : { before: nextBefore };
 		}
 		// nextBefore 为 null 但 entryId 锚点仍在：sliding 后的前缀只靠 entryId 续页。
+		// 若窗口自身已从文件头开始，这个锚点也不可能指向更早的消息。
+		if (input.windowStartFilePos === 0) return null;
 		const entryId = runtime.nextBeforeEntryId;
 		return typeof entryId === "string" && entryId ? { before: null, beforeEntryId: entryId } : null;
 	}
+	// 文件游标 0 已是最早条目；不能被首条 entryId 或 ACP 的 windowStart 兜底覆盖。
+	if (input.windowStartFilePos === 0) return null;
 	// 未翻过页：窗口内第一条带 entryId 的消息是唯一能跨下标的锚点，必须跳过摘要卡片/工具结果。
 	for (const message of input.windowMessages) {
 		const entryId = message.meta?.entryId;

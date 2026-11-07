@@ -108,10 +108,13 @@ test("anchor restoration preserves its effective tail window and expands only wh
 	// 保存必须使用实际窗口，避免切回时恢复到不同高度的文档。
 	assert.match(source, /const effectiveWindowTurns = autoScroll\s*\? TIMELINE_MOUNTED_TURN_LIMIT\s*:\s*scrolledWindowTurns;/);
 	assert.match(source, /renderedWindowTurnsRef\.current = effectiveWindowTurns;/);
-	assert.match(source, /if \(windowExpandableRef\.current\) \{\s*setScrolledWindowTurns\(\(turns\) => turns \+ TIMELINE_WINDOW_EXPAND_STEP\);/);
-	// Even an irrecoverable anchor must unlock stick-to-bottom before showing the
-	// fallback viewport, otherwise ResizeObserver can immediately re-pin it.
-	assert.match(source, /api\.restoreAt\(0\)/);
+	assert.match(source, /resolveMissingAnchorNextStep\(\{/);
+	assert.match(source, /if \(nextStep === "expand"\) \{\s*setScrolledWindowTurns\(\(turns\) => turns \+ TIMELINE_WINDOW_EXPAND_STEP\);/);
+	// 首屏只读 9 轮：锚点在已加载数据之外时补历史页，而不是直接判死（#477）。
+	assert.match(source, /if \(nextStep === "load"\) \{[\s\S]*?loadMoreMessages\("backfill"\);/);
+	// 不可物化时交回无锚点路径回实时尾部；不再回顶部（#477 的「切回落历史开头」）。
+	assert.match(source, /setRestoreAnchor\(undefined\)/);
+	assert.doesNotMatch(source, /api\.restoreAt\(0\)/);
 });
 
 test("scroll events synchronously retain an anchor before a same-task session switch", () => {
@@ -311,6 +314,15 @@ test("button 翻页不关闭虚拟化：只有 scroll 路径才开整表渲染",
 	assert.equal(unguarded.length, 0, "不允许任何无条件 begin：begin 的唯一来源是 needsSolid 分支，否则摘不掉扩窗期的整表渲染");
 	assert.equal((source.match(/if \(needsSolid && !insertionCommitted\) endPrependSolid\(\);/g) ?? []).length, 2, "finally 的 end 也必须带条件");
 	assert.doesNotMatch(source, /if \(!insertionCommitted\) endPrependSolid\(\);/, "不带条件的 end 会关掉别处开的整表渲染");
+});
+
+test("empty history page expands the render window instead of leaving a dead button", () => {
+	// 数据已经到会话开头时，游标仍指向窗口首条带 entryId 的消息（runtime 没有
+	// windowStart 时无法区分「整段已加载」）。点「加载更多对话」会拿到 0 条，
+	// prepend 对空页返回 true 并清空游标；此时若不推进渲染窗口，这次点击毫无变化，
+	// 恢复链也永远挂不出窗口外的锚点（#477 e2e：点完仍在尾部、锚点未挂载）。
+	const branches = source.match(/else if \(page\.messages\.length === 0 && windowExpandableRef\.current\) \{[\s\S]*?expandWindowBatched\(TIMELINE_WINDOW_EXPAND_STEP\);/g) ?? [];
+	assert.equal(branches.length, 2, "disk / runtime 两条翻页链都要有空页回退");
 });
 
 test("没打开整表渲染的翻页不得调用 endPrependSolid", () => {

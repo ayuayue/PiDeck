@@ -1,4 +1,4 @@
-import { Component, Fragment, lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Component, Fragment, lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { getDefaultStore, useAtom, useAtomValue } from "jotai";
 import { settingsFocusAtom, type SettingsPaneId, type SettingsSectionId, type SettingsTabId } from "../../atoms";
 import { hasPendingUpdateAtom, updateStatusAtom } from "../../atoms/update-atoms";
@@ -11,10 +11,7 @@ import { useRemoteFeatureAvailable } from "../../hooks/useRemoteFeatureAvailable
 import { applyRemoteGateToSettingsLayout, isRemoteEntryVisible } from "../../hooks/remoteFeatureVisibility";
 import { Button } from "../ui-shadcn/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui-shadcn/tabs";
-import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "../ui-shadcn/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../ui-shadcn/alert-dialog";
-import { cn } from "../../lib/utils";
-import { WORKBENCH_DIALOG_SIZE_CLASS } from "../common/workbenchDialogSize";
 import { deepClone } from "../../utils/deepEqual";
 import { buttonVariants } from "../ui-shadcn/button";
 import { useVisionBridgeDraft } from "./settings/visionDraft.ts";
@@ -152,15 +149,17 @@ type SettingsModalProps = {
 	projectKind?: Project["kind"];
 	/** 当前项目名称：作用域选择器显示用。 */
 	projectName?: string;
+	/** 页面是否正在呈现（会话列页面 Tab 激活）：只由当前页面响应 Esc，失活时不抢键盘。 */
+	active: boolean;
+	/** 把「带未保存确认的关闭」交给 Tab 栏：关闭叉不能直接关 Tab（页面内有内存草稿）。 */
+	closeRequestRef?: RefObject<(() => void) | null>;
 };
 
 /**
  * 设置弹框错误边界：渲染异常时保留可关闭的错误面板，避免整页白屏无法退出。
+ * 面板留在页面内部（不用 Radix Dialog：页面失活时 hidden，而 Dialog 走 portal，
+ * 隐藏容器里的 portal 仍会浮在全应用上）。
  */
-// 小窗口保留外边距，避免设置页完全压住工作区；821px 以上恢复桌面弹框尺寸。
-// DialogContent 默认带 sm:max-w-lg，必须显式覆盖它，否则小窗口会变成窄高条。
-const settingsModalSizeClass = WORKBENCH_DIALOG_SIZE_CLASS;
-
 class SettingsModalErrorBoundary extends Component<{ onClose: () => void; children: ReactNode }, { error: Error | null }> {
 	override state = { error: null as Error | null };
 
@@ -182,40 +181,36 @@ class SettingsModalErrorBoundary extends Component<{ onClose: () => void; childr
 		if (!this.state.error) return this.props.children;
 		// 三大浏览器懒加载 chunk 拉取失败的报错文案（常见于应用更新 / dev 热更新后），给出针对性提示。
 		const isChunkLoadError = /failed to fetch dynamically imported module|error loading dynamically imported module|importing a module script failed/i.test(this.state.error.message);
-		// #115：错误兜底直接走 shadcn Dialog 外壳
+		// #115：错误兜底留在页面壳（与正常内容同构），关闭按钮直推送 onClose
 		return (
-			<Dialog open onOpenChange={(next) => !next && this.props.onClose()}>
-				<DialogContent showCloseButton={false} className={cn("flex flex-col gap-0 overflow-hidden p-0", settingsModalSizeClass, "settings-modal")}>
-					<DialogHeader className="flex-row items-center justify-between px-4 py-3">
-						<DialogTitle>{t("settings.loadFailed")}</DialogTitle>
-						<DialogClose asChild>
-							<Button variant="ghost" size="icon" aria-label={t("common.close")} title={t("common.close")}>
-								<X size={18} strokeWidth={2.2} aria-hidden="true" />
-							</Button>
-						</DialogClose>
-					</DialogHeader>
-					{/* 不能套 .settings-layout：那是 196px 侧栏 + 内容的双列栅格，唯一子项会被挤进侧栏列（布局错位的根因） */}
-					{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
-					<div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5" role="alert">
-						<div className="config-diagnostic-card">
-							<div>
-								<strong>{t("settings.renderCrashed")}</strong>
-								<span>{this.state.error.message}</span>
-								<small>{isChunkLoadError ? t("settings.renderCrashedChunkHint") : t("settings.renderCrashedHelp")}</small>
-							</div>
-							<pre>{this.state.error.stack ?? this.state.error.message}</pre>
+			<div className="settings-modal flex min-h-0 flex-1 flex-col">
+				<header className="flex shrink-0 flex-row items-center justify-between border-b border-border/40 px-4 py-3">
+					<h2 className="text-base font-semibold leading-none">{t("settings.loadFailed")}</h2>
+					<Button variant="ghost" size="icon" aria-label={t("common.close")} title={t("common.close")} onClick={this.props.onClose}>
+						<X size={18} strokeWidth={2.2} aria-hidden="true" />
+					</Button>
+				</header>
+				{/* 不能套 .settings-layout：那是 196px 侧栏 + 内容的双列栅格，唯一子项会被挤进侧栏列（布局错位的根因） */}
+				{/* scroll-ok: transient —— 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
+				<div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5" role="alert">
+					<div className="config-diagnostic-card">
+						<div>
+							<strong>{t("settings.renderCrashed")}</strong>
+							<span>{this.state.error.message}</span>
+							<small>{isChunkLoadError ? t("settings.renderCrashedChunkHint") : t("settings.renderCrashedHelp")}</small>
 						</div>
-						<div className="flex items-center justify-end gap-2">
-							<Button type="button" variant="outline" onClick={this.handleRetry}>
-								{t("app.renderErrorRetry")}
-							</Button>
-							<Button type="button" variant="default" onClick={this.handleReload}>
-								{t("app.renderErrorReload")}
-							</Button>
-						</div>
+						<pre>{this.state.error.stack ?? this.state.error.message}</pre>
 					</div>
-				</DialogContent>
-			</Dialog>
+					<div className="flex items-center justify-end gap-2">
+						<Button type="button" variant="outline" onClick={this.handleRetry}>
+							{t("app.renderErrorRetry")}
+						</Button>
+						<Button type="button" variant="default" onClick={this.handleReload}>
+							{t("app.renderErrorReload")}
+						</Button>
+					</div>
+				</div>
+			</div>
 		);
 	}
 }
@@ -563,6 +558,25 @@ function SettingsModalContent(props: SettingsModalProps) {
 	const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
 	const [installConfirmOpen, setInstallConfirmOpen] = useState(false);
 
+	/** 页面根节点：从侧栏点进来时把焦点交给它，否则 Tab 键仍在侧栏里走，进不了刚打开的设置页。 */
+	const pageRef = useRef<HTMLDivElement>(null);
+	const wasActiveRef = useRef(false);
+	useEffect(() => {
+		// 弹框时代焦点由 Radix 的 focus trap 接管；页面化后需自己补上。
+		if (props.active && !wasActiveRef.current) pageRef.current?.focus();
+		wasActiveRef.current = props.active;
+	}, [props.active]);
+
+	// Tab 栏的关闭叉不能直接关 Tab：页面里可能有未保存草稿，先交给这里跑确认流程。
+	const closeRequestRef = props.closeRequestRef;
+	useEffect(() => {
+		if (!closeRequestRef) return;
+		closeRequestRef.current = handleClose;
+		return () => {
+			closeRequestRef.current = null;
+		};
+	}, [closeRequestRef, handleClose]);
+
 	/** 安装会终止进程；任何内存草稿都必须先由用户保存或明确放弃。manual 只是打开安装包，不退出应用。 */
 	const handleInstallUpdate = () => {
 		if (isManualUpdateDelivery) {
@@ -648,9 +662,25 @@ function SettingsModalContent(props: SettingsModalProps) {
 	// 相比给 useMemo 挂语言依赖的出错风险（locale 可能在渲染后才加载完）不如直接重建。
 	// 通道拿掉的「连接」tab 同样不进搜索结果：否则搜「ssh」会命中一个打不开的页。
 	const settingsSearchEntries = buildSettingsSearchEntries(t).filter((entry) => entry.tab !== "connections" || isRemoteEntryVisible(remoteAvailable));
-	// 搜索词提升到弹窗壳持有（而不是搜索组件内部）：DialogContent 的 Esc 拦截要在
-	// 搜索中先清搜索、再按一次才关弹窗——结果替换内容区时直接关弹窗会误触未保存确认流。
+	// 搜索词提升到页面壳持有（而不是搜索组件内部）：Esc 要先清搜索、再按一次才关页面——
+	// 结果替换内容区时直接关闭会误触未保存确认流。
 	const [settingsSearchQuery, setSettingsSearchQuery] = useState("");
+	// 页面里没有 DialogContent 接手 Esc，改由窗口监听：搜索中先清搜索词，再按一次才走关闭（带未保存确认）。
+	// 只由当前呈现的页面响应；Radix 弹层（选择器/下拉/确认框）在 document 捕获阶段已 preventDefault，这里跳过。
+	useEffect(() => {
+		if (!props.active) return;
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== "Escape" || event.defaultPrevented) return;
+			if (pane === "settings" && settingsSearchQuery.trim().length > 0) {
+				event.preventDefault();
+				setSettingsSearchQuery("");
+				return;
+			}
+			handleClose();
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [handleClose, pane, props.active, settingsSearchQuery]);
 	// 选中搜索结果：切到设置分区（可能在配置管理分区里搜的）→ 切 tab → 交 settingsFocusAtom 滚到锚点。
 	// 显式 setActiveTab 是必要的：仅靠 atom 时 useSettingsFocus 会走「tab 不一致→只切不滚」分支，
 	// 我们先把 tab 对上，让它的下一次 effect 直接去定位锚点。
@@ -707,429 +737,416 @@ function SettingsModalContent(props: SettingsModalProps) {
 	const mergedUnsavedCount = (unsavedSummary?.totalCount ?? 0) + configPaneState.unsaved.totalCount;
 
 	return (
-		<Dialog open onOpenChange={(next) => !next && handleClose()}>
-			<DialogContent
-				showCloseButton={false}
-				stagger
-				// 搜索中 Esc 先清搜索（查询态见 settingsSearchQuery 注释），空搜索时保持「Esc 关弹窗」的全局既有行为
-				onEscapeKeyDown={(event) => {
-					if (pane === "settings" && settingsSearchQuery.trim().length > 0) {
-						event.preventDefault();
-						setSettingsSearchQuery("");
-					}
-				}}
-				className={cn("flex flex-col gap-0 overflow-hidden p-0", settingsModalSizeClass, "settings-modal")}
-			>
-				<DialogHeader className="flex-row items-center justify-between px-4 py-3">
-					<DialogTitle>{t("settings.title")}</DialogTitle>
-					<div className="flex items-center gap-2">
-						{isConfigPane ? (
-							/* 配置管理分区：按钮与独立 ConfigModal 标题栏同源（ConfigPane ref 委托同一个 handler），
-							   黄点/禁用态由配置页内部脏集合与保存状态上报 */
-							<>
-								<Button variant="default" size="sm" onClick={() => void configPaneRef.current?.saveCurrent()} disabled={configPaneState.saving} title={configPaneState.hasDirty ? t("config.dirtyTooltip") : undefined}>
-									{configPaneState.hasDirty && <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />}
-									{configPaneState.saving ? t("common.saving") : t("common.save")}
-								</Button>
-								<Button variant="outline" size="sm" onClick={() => configPaneRef.current?.exportConfig()} disabled={!configPaneState.exportImportAllowed} title={configPaneState.exportImportAllowed ? undefined : t("config.target.exportLocalOnly")}>
-									{t("common.export")}
-								</Button>
-								{/* 导入与导出统一 outline 白底描边（与独立 ConfigModal 同款），避免一描边一填充的不一致 */}
-								<Button variant="outline" size="sm" onClick={() => configPaneRef.current?.importConfig()} disabled={!configPaneState.exportImportAllowed} title={configPaneState.exportImportAllowed ? undefined : t("config.target.exportLocalOnly")}>
-									{t("common.import")}
-								</Button>
-							</>
-						) : (
-							/* 应用设置分区：保存常驻且不因「无修改」禁用（无修改也允许再次保存）；
-							   视觉桥保存中禁用防重复提交；有未保存变更时显示「放弃更改」 */
-							<>
-								<Button
-									variant="default"
-									size="sm"
-									onClick={saveAll}
-									disabled={settingsSaving || visionDraft.saving || (visionDraft.dirty && visionDraft.modelMissing) || shortcutsInvalid}
-									aria-busy={settingsSaving}
-									// 视觉桥开启但未选模型时禁用保存：悬停说明原因（对应 visionDraft 的 modelRequired 提示）
-									title={shortcutsInvalid ? t("settings.shortcuts.saveBlocked") : visionDraft.dirty && visionDraft.modelMissing ? t("settings.vision.modelRequired") : undefined}
-								>
-									{settingsSaving ? t("common.saving") : t("common.save")}
-								</Button>
-								{hasAnyDirtyChanges ? (
-									/* 放弃更改用 outline（白底描边）而非灰底 secondary：与黑色主按钮形成
-									   清晰的主次层级（shadcn dialog 的 confirm/cancel 惯例），避免一对按钮
-									   都是灰色填充分不出哪个是提交。 */
-									<Button variant="outline" size="sm" onClick={cancelAll} disabled={settingsSaving || configPaneState.saving}>
-										{t("common.cancel")}
-									</Button>
-								) : undefined}
-							</>
-						)}
-						<DialogClose asChild>
-							<Button variant="ghost" size="icon" aria-label={t("common.close")} title={settingsSaving || configPaneState.saving ? t("common.saving") : t("common.close")} disabled={settingsSaving || configPaneState.saving}>
-								<X size={18} strokeWidth={2.2} aria-hidden="true" />
+		/* 页面壳（占会话列整列，不再浮动在 80vw×80vh 的弹框里）：失活只 hidden 保挂载，
+		   所以草稿与滚动位置不随切 Tab 丢失；关闭 Tab 才卸载，由 closeRequestRef 走未保存确认 */
+		<div ref={pageRef} tabIndex={-1} className="settings-modal flex min-h-0 flex-1 flex-col outline-none">
+			<header className="flex shrink-0 flex-row items-center justify-between border-b border-border/40 px-4 py-3">
+				<h2 className="text-base font-semibold leading-none">{t("settings.title")}</h2>
+				<div className="flex items-center gap-2">
+					{isConfigPane ? (
+						/* 配置管理分区：按钮与独立 ConfigModal 标题栏同源（ConfigPane ref 委托同一个 handler），
+						   黄点/禁用态由配置页内部脏集合与保存状态上报 */
+						<>
+							<Button variant="default" size="sm" onClick={() => void configPaneRef.current?.saveCurrent()} disabled={configPaneState.saving} title={configPaneState.hasDirty ? t("config.dirtyTooltip") : undefined}>
+								{configPaneState.hasDirty && <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />}
+								{configPaneState.saving ? t("common.saving") : t("common.save")}
 							</Button>
-						</DialogClose>
-					</div>
-				</DialogHeader>
-				{/* 顶层分区：系统设置 / 配置管理。样式对齐配置页 Pi/DSH 分页（config-backend-switch），
+							<Button variant="outline" size="sm" onClick={() => configPaneRef.current?.exportConfig()} disabled={!configPaneState.exportImportAllowed} title={configPaneState.exportImportAllowed ? undefined : t("config.target.exportLocalOnly")}>
+								{t("common.export")}
+							</Button>
+							{/* 导入与导出统一 outline 白底描边（与独立 ConfigModal 同款），避免一描边一填充的不一致 */}
+							<Button variant="outline" size="sm" onClick={() => configPaneRef.current?.importConfig()} disabled={!configPaneState.exportImportAllowed} title={configPaneState.exportImportAllowed ? undefined : t("config.target.exportLocalOnly")}>
+								{t("common.import")}
+							</Button>
+						</>
+					) : (
+						/* 应用设置分区：保存常驻且不因「无修改」禁用（无修改也允许再次保存）；
+						   视觉桥保存中禁用防重复提交；有未保存变更时显示「放弃更改」 */
+						<>
+							<Button
+								variant="default"
+								size="sm"
+								onClick={saveAll}
+								disabled={settingsSaving || visionDraft.saving || (visionDraft.dirty && visionDraft.modelMissing) || shortcutsInvalid}
+								aria-busy={settingsSaving}
+								// 视觉桥开启但未选模型时禁用保存：悬停说明原因（对应 visionDraft 的 modelRequired 提示）
+								title={shortcutsInvalid ? t("settings.shortcuts.saveBlocked") : visionDraft.dirty && visionDraft.modelMissing ? t("settings.vision.modelRequired") : undefined}
+							>
+								{settingsSaving ? t("common.saving") : t("common.save")}
+							</Button>
+							{hasAnyDirtyChanges ? (
+								/* 放弃更改用 outline（白底描边）而非灰底 secondary：与黑色主按钮形成
+								   清晰的主次层级（shadcn dialog 的 confirm/cancel 惯例），避免一对按钮
+									   都是灰色填充分不出哪个是提交。 */
+								<Button variant="outline" size="sm" onClick={cancelAll} disabled={settingsSaving || configPaneState.saving}>
+									{t("common.cancel")}
+								</Button>
+							) : undefined}
+						</>
+					)}
+					<Button variant="ghost" size="icon" aria-label={t("common.close")} title={settingsSaving || configPaneState.saving ? t("common.saving") : t("common.close")} disabled={settingsSaving || configPaneState.saving} onClick={handleClose}>
+						<X size={18} strokeWidth={2.2} aria-hidden="true" />
+					</Button>
+				</div>
+			</header>
+			{/* 顶层分区：系统设置 / 配置管理。样式对齐配置页 Pi/DSH 分页（config-backend-switch），
 			    黄点 = 对应分区的未保存草稿；两个分区都保持挂载（forceMount + hidden）不丢草稿 */}
-				<Tabs
-					value={pane}
-					onValueChange={(v) => {
-						const next: SettingsPaneId = v === "config" ? "config" : "settings";
-						setPane(next);
-						persistPane(next);
-					}}
-					className="flex min-h-0 min-w-0 flex-1 flex-col"
-				>
-					{/* 顶层分区 tab：直接用 shadcn Tabs 默认观感（bg-muted p-1 圆角条），与全局组件统一；
+			<Tabs
+				value={pane}
+				onValueChange={(v) => {
+					const next: SettingsPaneId = v === "config" ? "config" : "settings";
+					setPane(next);
+					persistPane(next);
+				}}
+				className="flex min-h-0 min-w-0 flex-1 flex-col"
+			>
+				{/* 顶层分区 tab：直接用 shadcn Tabs 默认观感（bg-muted p-1 圆角条），与全局组件统一；
 				    不再套自定义 tab 条样式，只做外边距/自定宽定位。 */}
-					<TabsList className="mx-3 mt-2.5 w-auto justify-start gap-0.5 self-start" aria-label={t("settings.title")}>
-						<TabsTrigger value="settings" className="h-8 gap-1.5 px-3 text-control">
-							<MonitorCog className="size-4" aria-hidden="true" />
-							{t("settings.panes.system")}
-							{/* 系统设置分区黄点：全局设置/视觉桥/生图草稿任一有未保存 */}
-							{hasAnyDirtyChanges ? <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" /> : null}
-						</TabsTrigger>
-						<TabsTrigger value="config" className="h-8 gap-1.5 px-3 text-control">
-							<SlidersHorizontal className="size-4" aria-hidden="true" />
-							{t("settings.panes.config")}
-							{/* 配置管理分区黄点：由 ConfigPane 内部脏集合上报 */}
-							{configPaneState.hasDirty ? <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" /> : null}
-						</TabsTrigger>
-					</TabsList>
-					<TabsContent value="config" forceMount hidden={pane !== "config"} className="flex min-h-0 min-w-0 flex-1 flex-col">
-						<Suspense fallback={<SettingsTabLoading />}>
-							<ConfigPane
-								ref={configPaneRef}
-								onClose={props.onClose}
-								projectId={props.projectId}
-								projectKind={props.projectKind}
-								projectName={props.projectName}
-								projects={props.projects}
-								focusConfigTab={configFocus?.configTab}
-								focusProvider={configFocus?.provider}
-								focusBackendPane={configFocus?.backendPane}
-								onStateChange={handleConfigPaneStateChange}
-								// 嵌套弹层（用量查询「让 AI 帮我查」）整窗关闭走统一关闭确认，
-								// 不直连 onClose 裸关闭——系统设置/配置管理草稿都不能被静默丢弃。
-								onRequestClose={handleClose}
-							/>
-						</Suspense>
-					</TabsContent>
-					<TabsContent value="settings" forceMount hidden={pane !== "settings"} className="flex min-h-0 min-w-0 flex-1 flex-col">
-						<Tabs
-							orientation="vertical"
-							value={activeTab}
-							onValueChange={(v) => {
-								const match = tabs.find((t) => t.id === v);
-								if (!match) return;
-								setActiveTab(match.id);
-								persistTab(match.id);
-								// 点侧栏 tab = 明确要离开搜索直达那个 tab，顺手清掉搜索词让内容区回来
-								setSettingsSearchQuery("");
-							}}
-							className="settings-layout flex min-h-0 flex-1 flex-row gap-0 bg-transparent"
-						>
-							{/* 侧栏 = 纯 tab 列表（搜索框在内容列顶部，别再塞回这 196px 窄列——提示文案与
-							    结果行在窄列里必然换行截断）；边框统一交给这层容器，.settings-tabs 自己的边框用 border-0 收掉。 */}
-							<div className="flex min-h-0 w-[196px] shrink-0 flex-col border-r border-border-subtle max-[820px]:w-full max-[820px]:border-r-0 max-[820px]:border-b">
-								{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
-								<TabsList className="settings-tabs flex min-h-0 flex-1 flex-col items-stretch gap-2.5 overflow-auto border-0 rounded-none bg-transparent p-2.5" aria-label={t("settings.title")}>
-									{settingsSidebarTabs}
-								</TabsList>
-							</div>
-							{/* 内容列 = 搜索工具条 +（搜索结果 | 当前 tab 内容）：tab 内容作为 children 传入，
-							    搜索中整块被结果列表替换，侧栏导航保持可见（见 SettingsSearchBox）。 */}
-							<SettingsSearchBox entries={settingsSearchEntries} tabOrder={SETTINGS_TAB_IDS} query={settingsSearchQuery} onQueryChange={setSettingsSearchQuery} onPick={handleSettingsSearchPick}>
-								{/* ── 常用设置 tab ── */}
-								{activeTab === "common" && (
-									<TabsContent value="common" className="settings-panel min-w-0">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<CommonTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} />
-										</Suspense>
-									</TabsContent>
-								)}
-
-								{/* ── 记忆 tab（跨 pi / DSH / ACP 的长期记忆，见 docs/agent-memory.md） ── */}
-								{activeTab === "memory" && (
-									<TabsContent value="memory" className="settings-panel min-w-0">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<AgentMemoryTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} />
-										</Suspense>
-									</TabsContent>
-								)}
-
-								{/* ── 快捷键管理 tab（全局快捷键自定义，见 shared/shortcuts.ts 注册表） ── */}
-								{activeTab === "shortcuts" && (
-									<TabsContent value="shortcuts" className="settings-panel min-w-0">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<ShortcutsTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} platform={props.appInfo.platform} onInvalidChange={handleShortcutsInvalidChange} />
-										</Suspense>
-									</TabsContent>
-								)}
-
-								{/* ── 外观设置 tab ── */}
-								{activeTab === "appearance" && (
-									<TabsContent value="appearance" className="settings-panel min-w-0">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<AppearanceTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} perAreaFontSize={perAreaFontSize} setPerAreaFontSize={setPerAreaFontSize} visionEnabled={visionDraft.draft?.enabled} />
-										</Suspense>
-									</TabsContent>
-								)}
-
-								{/* ── 终端设置 tab ── */}
-								{activeTab === "terminal" && (
-									<TabsContent value="terminal" className="settings-panel min-w-0">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<TerminalTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} />
-										</Suspense>
-									</TabsContent>
-								)}
-
-								{/* ── 代理设置 tab ── */}
-								{activeTab === "proxy" && (
-									<TabsContent value="proxy" className="settings-panel min-w-0 [overflow-anchor:none]">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<ProxyTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} piProxyChecking={props.piProxyChecking} piProxyNotice={props.piProxyNotice} piProxyNoticeTone={props.piProxyNoticeTone} onTestPiProxy={props.onTestPiProxy} />
-										</Suspense>
-									</TabsContent>
-								)}
-
-								{/* ── 连接 tab（远端 SSH 主机；WSL 将来并列于此）。通道门禁关掉时不渲染 ── */}
-								{activeTab === "connections" && isRemoteEntryVisible(remoteAvailable) && (
-									<TabsContent value="connections" className="settings-panel min-w-0 [overflow-anchor:none]">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<ConnectionsTab />
-										</Suspense>
-									</TabsContent>
-								)}
-
-								{/* ── 局域网 Web 服务 tab（原为开发设置内区块） ── */}
-								{activeTab === "web" && (
-									<TabsContent value="web" className="settings-panel min-w-0">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<WebTab draft={draftSettings} updateDraft={updateDraft} webServiceChanging={props.webServiceChanging} onOpenWebService={props.onOpenWebService} onRestartWebService={props.onRestartWebService} resetKey={webTabResetKey} />
-										</Suspense>
-									</TabsContent>
-								)}
-
-								{/* ── 外部编辑器 tab（由 Pi 管理界面迁入，原为开发设置内区块） ── */}
-								{activeTab === "editors" && (
-									<TabsContent value="editors" className="settings-panel min-w-0">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<EditorsTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} />
-										</Suspense>
-									</TabsContent>
-								)}
-
-								{/* ── Git 设置 tab（原为常用设置内区块，由 Git 面板深链直达） ── */}
-								{activeTab === "git" && (
-									<TabsContent value="git" className="settings-panel min-w-0">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<GitTab
-												draft={draftSettings}
-												updateDraft={updateDraft}
-												isDirty={isDirty}
-												gitModels={gitModels}
-												gitModelsReport={gitModelsReport}
-												gitModelsRefreshing={gitModelsRefreshing}
-												onRefreshGitModels={() => reloadGitModels(true)}
-												gitModelPickerOpen={gitModelPickerOpen}
-												onOpenGitModelPicker={openGitModelPicker}
-												onCloseGitModelPicker={closeGitModelPicker}
-												onPickGitModel={handlePickGitModel}
-												onToggleGitModelFavorite={handleToggleGitModelFavorite}
-											/>
-										</Suspense>
-									</TabsContent>
-								)}
-
-								{/* ── 开发设置 tab（环境/版本/运行/调试；Web 与外部编辑器已拆独立 tab） ── */}
-								{activeTab === "dev" && (
-									<TabsContent value="dev" className="settings-panel min-w-0">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<DevTab
-												draft={draftSettings}
-												updateDraft={updateDraft}
-												isDirty={isDirty}
-												onEnsureWslSettingsSaved={commitWslDraftFields}
-												resetKey={devTabResetKey}
-												appInfo={props.appInfo}
-												piStatus={props.piStatus}
-												piChecking={props.piChecking}
-												piInstallations={props.piInstallations}
-												onChoosePiInstallation={props.onChoosePiInstallation}
-												onShellProbePiInstallations={props.onShellProbePiInstallations}
-												shellProbingPiInstallations={props.shellProbingPiInstallations}
-												applyingPiInstallationPath={props.applyingPiInstallationPath}
-												onRequestPiInstallations={props.onRequestPiInstallations}
-												onBrowsePiPath={props.onBrowsePiPath}
-												browsingPiPath={props.browsingPiPath}
-												onCheckPi={props.onCheckPi}
-												onAddPiCustomPath={props.onAddPiCustomPath}
-												onUpdatePiCustomPath={props.onUpdatePiCustomPath}
-												onRemovePiCustomPath={props.onRemovePiCustomPath}
-												onClearCheckFlag={props.onClearCheckFlag}
-												piUpdateChecking={props.piUpdateChecking}
-												onCheckPiUpdate={props.onCheckPiUpdate}
-												piUpdating={props.piUpdating}
-												onUpdatePi={props.onUpdatePi}
-												piUpdateCheck={props.piUpdateCheck}
-												piUpdateResult={props.piUpdateResult}
-												updateChecking={props.updateChecking}
-												onCheckUpdate={props.onCheckUpdate}
-												onDownloadUpdate={props.onDownloadUpdate}
-												onInstallUpdate={handleInstallUpdate}
-												onToggleDevTools={props.onToggleDevTools}
-												onRestartApp={props.onRestartApp}
-											/>
-										</Suspense>
-									</TabsContent>
-								)}
-
-								{/* ── 外部连接 tab（飞书 / 微信，由 Pi 管理界面迁入） ── */}
-								{activeTab === "im" && (
-									<TabsContent value="im" className="settings-panel min-w-0">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<ImTab />
-										</Suspense>
-									</TabsContent>
-								)}
-
-								{/* ── 桌面宠物 tab ── */}
-								{activeTab === "pet" && (
-									<TabsContent value="pet" className="settings-panel min-w-0">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<PetTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} resetKey={petTabResetKey} />
-										</Suspense>
-									</TabsContent>
-								)}
-
-								{/* ── 通知设置 tab（系统通知 + 声音提醒） ── */}
-								{activeTab === "notification" && (
-									<TabsContent value="notification" className="settings-panel min-w-0">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<NotificationTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} />
-										</Suspense>
-									</TabsContent>
-								)}
-
-								{/* ── 进程监控 tab（由 Pi 管理界面迁入） ── */}
-								{activeTab === "process" && (
-									<TabsContent value="process" className="settings-panel min-w-0">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<ProcessMetricsTab />
-										</Suspense>
-									</TabsContent>
-								)}
-								{/* ── 存储与日志 tab ── */}
-								{activeTab === "storage" && (
-									<TabsContent value="storage" className="settings-panel min-w-0">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<StorageTab settings={draftSettings} onChange={updateDraft} />
-										</Suspense>
-									</TabsContent>
-								)}
-								{/* ── 配置备份 tab ── */}
-								{activeTab === "backup" && (
-									<TabsContent value="backup" className="settings-panel min-w-0">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<BackupTab />
-										</Suspense>
-									</TabsContent>
-								)}
-								{/* ── 用量统计 tab ── */}
-								{activeTab === "usage" && (
-									<TabsContent value="usage" className="settings-panel min-w-0">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<UsageStatsTab />
-										</Suspense>
-									</TabsContent>
-								)}
-								{/* ── 视觉桥 tab：草稿/脏标记/保存由弹框统一管理，本组件只呈现表单 */}
-								{activeTab === "vision" && (
-									<TabsContent value="vision" className="settings-panel min-w-0">
-										<Suspense fallback={<SettingsTabLoading />}>
-											<VisionBridgeSettingsTab draft={visionDraft.draft} saving={visionDraft.saving} configDir={visionDraft.configDir} notice={visionDraft.notice} onChange={visionDraft.updateDraft} />
-										</Suspense>
-									</TabsContent>
-								)}
-								{/* ── 生图 tab：独立 imagegen.json，不属于 pi/dsh，放在设置页统一管理。
-					    草稿保存在 ImageGenSection 内部，切换 tab 时保持挂载（hidden 而非卸载）以免丢失未保存修改。 */}
-								<TabsContent value="imagegen" className="settings-panel min-w-0" hidden={activeTab !== "imagegen"}>
-									<Suspense fallback={<SettingsTabLoading />}>
-										<ImageGenSettingsTab ref={imageGenRef} onDirtyChange={handleImageGenDirtyChange} />
-									</Suspense>
-								</TabsContent>
-								{/* ── 生视频 tab：独立 videogen.json，草稿/脏标记/保存链与生图同构（hidden 保挂载）。 ── */}
-								<TabsContent value="videogen" className="settings-panel min-w-0" hidden={activeTab !== "videogen"}>
-									<Suspense fallback={<SettingsTabLoading />}>
-										<VideoGenSettingsTab ref={videoGenRef} onDirtyChange={handleVideoGenDirtyChange} />
-									</Suspense>
-								</TabsContent>
-								{/* ── ACP 工具 tab：独立 settings.acpTools 字段；草稿自持，切换 tab 保持挂载（hidden）以免丢失未保存行 ── */}
-								<TabsContent value="acp" className="settings-panel min-w-0" hidden={activeTab !== "acp"}>
-									<Suspense fallback={<SettingsTabLoading />}>
-										<AcpToolsTab ref={acpToolsRef} onDirtyChange={handleAcpDirtyChange} />
-									</Suspense>
-								</TabsContent>
-								{/* ── PiDeck 插件 tab：宿主插件管理（安装/授权/启停）。独立于 pi 配置弹窗，
-							    归属应用设置；无草稿语义，切 tab 即卸载（动作型 IPC 即时生效）。 ── */}
-								<TabsContent value="hostplugins" className="settings-panel min-w-0" hidden={activeTab !== "hostplugins"}>
-									<Suspense fallback={<SettingsTabLoading />}>
-										<HostPluginsTab />
-									</Suspense>
-								</TabsContent>
-							</SettingsSearchBox>
-						</Tabs>
-					</TabsContent>
-				</Tabs>
-				{/* 未保存变更确认对话框 */}
-				{closeConfirmOpen && (
-					<AlertDialog
-						open
-						onOpenChange={(open) => {
-							if (!open) setCloseConfirmOpen(false);
+				<TabsList className="mx-3 mt-2.5 w-auto justify-start gap-0.5 self-start" aria-label={t("settings.title")}>
+					<TabsTrigger value="settings" className="h-8 gap-1.5 px-3 text-control">
+						<MonitorCog className="size-4" aria-hidden="true" />
+						{t("settings.panes.system")}
+						{/* 系统设置分区黄点：全局设置/视觉桥/生图草稿任一有未保存 */}
+						{hasAnyDirtyChanges ? <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" /> : null}
+					</TabsTrigger>
+					<TabsTrigger value="config" className="h-8 gap-1.5 px-3 text-control">
+						<SlidersHorizontal className="size-4" aria-hidden="true" />
+						{t("settings.panes.config")}
+						{/* 配置管理分区黄点：由 ConfigPane 内部脏集合上报 */}
+						{configPaneState.hasDirty ? <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" /> : null}
+					</TabsTrigger>
+				</TabsList>
+				<TabsContent value="config" forceMount hidden={pane !== "config"} className="flex min-h-0 min-w-0 flex-1 flex-col">
+					<Suspense fallback={<SettingsTabLoading />}>
+						<ConfigPane
+							ref={configPaneRef}
+							onClose={props.onClose}
+							projectId={props.projectId}
+							projectKind={props.projectKind}
+							projectName={props.projectName}
+							projects={props.projects}
+							focusConfigTab={configFocus?.configTab}
+							focusProvider={configFocus?.provider}
+							focusBackendPane={configFocus?.backendPane}
+							onStateChange={handleConfigPaneStateChange}
+							// 嵌套弹层（用量查询「让 AI 帮我查」）整窗关闭走统一关闭确认，
+							// 不直连 onClose 裸关闭——系统设置/配置管理草稿都不能被静默丢弃。
+							onRequestClose={handleClose}
+						/>
+					</Suspense>
+				</TabsContent>
+				<TabsContent value="settings" forceMount hidden={pane !== "settings"} className="flex min-h-0 min-w-0 flex-1 flex-col">
+					<Tabs
+						orientation="vertical"
+						value={activeTab}
+						onValueChange={(v) => {
+							const match = tabs.find((t) => t.id === v);
+							if (!match) return;
+							setActiveTab(match.id);
+							persistTab(match.id);
+							// 点侧栏 tab = 明确要离开搜索直达那个 tab，顺手清掉搜索词让内容区回来
+							setSettingsSearchQuery("");
 						}}
+						className="settings-layout flex min-h-0 flex-1 flex-row gap-0 bg-transparent"
 					>
-						<AlertDialogContent>
-							<AlertDialogHeader>
-								<AlertDialogTitle>{t("settings.unsavedTitle")}</AlertDialogTitle>
-								<AlertDialogDescription asChild>
-									{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
-									<div className="grid max-h-56 gap-1.5 overflow-auto text-left">
-										{unsavedSummary && unsavedSummary.totalCount === 1 && !configPaneState.hasDirty ? (
-											/* 单项且仅设置区：沿用带「是否在关闭前保存？」的单行提示，不需要列表 */
-											<p>{unsavedCloseMessage}</p>
-										) : (
-											<>
-												{/* 多项或跨分区：先给总数，再逐条列出两区变更项（footer 按钮承担保存/放弃语义） */}
-												<p>{t("settings.unsavedListIntro", { count: mergedUnsavedCount })}</p>
-												<ul className="grid gap-0.5 pl-4 list-disc">
-													{mergedUnsavedItems.map((item) => (
-														<li key={`${item.tabKey}\u0000${item.itemKey}`}>
-															{t(item.tabKey)} · {t(item.itemKey)}
-														</li>
-													))}
-												</ul>
-											</>
-										)}
-									</div>
-								</AlertDialogDescription>
-							</AlertDialogHeader>
-							<AlertDialogFooter>
-								<AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-								<AlertDialogAction className={buttonVariants({ variant: "destructive" })} onClick={handleDiscardAndClose}>
-									{t("settings.discardChanges")}
-								</AlertDialogAction>
-								<AlertDialogAction onClick={handleSaveAndClose}>{t("settings.saveAndClose")}</AlertDialogAction>
-							</AlertDialogFooter>
-						</AlertDialogContent>
-					</AlertDialog>
-				)}
-				<UpdateInstallUnsavedDialog open={installConfirmOpen} items={mergedUnsavedItems} count={mergedUnsavedCount} onCancel={() => setInstallConfirmOpen(false)} onDiscardAndInstall={handleDiscardAndInstall} onSaveAndInstall={handleSaveAndInstall} />
-			</DialogContent>
-		</Dialog>
+						{/* 侧栏 = 纯 tab 列表（搜索框在内容列顶部，别再塞回这 196px 窄列——提示文案与
+							    结果行在窄列里必然换行截断）；边框统一交给这层容器，.settings-tabs 自己的边框用 border-0 收掉。 */}
+						<div className="flex min-h-0 w-[196px] shrink-0 flex-col border-r border-border-subtle max-[820px]:w-full max-[820px]:border-r-0 max-[820px]:border-b">
+							{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
+							<TabsList className="settings-tabs flex min-h-0 flex-1 flex-col items-stretch gap-2.5 overflow-auto border-0 rounded-none bg-transparent p-2.5" aria-label={t("settings.title")}>
+								{settingsSidebarTabs}
+							</TabsList>
+						</div>
+						{/* 内容列 = 搜索工具条 +（搜索结果 | 当前 tab 内容）：tab 内容作为 children 传入，
+							    搜索中整块被结果列表替换，侧栏导航保持可见（见 SettingsSearchBox）。 */}
+						<SettingsSearchBox entries={settingsSearchEntries} tabOrder={SETTINGS_TAB_IDS} query={settingsSearchQuery} onQueryChange={setSettingsSearchQuery} onPick={handleSettingsSearchPick}>
+							{/* ── 常用设置 tab ── */}
+							{activeTab === "common" && (
+								<TabsContent value="common" className="settings-panel min-w-0">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<CommonTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} />
+									</Suspense>
+								</TabsContent>
+							)}
+
+							{/* ── 记忆 tab（跨 pi / DSH / ACP 的长期记忆，见 docs/agent-memory.md） ── */}
+							{activeTab === "memory" && (
+								<TabsContent value="memory" className="settings-panel min-w-0">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<AgentMemoryTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} />
+									</Suspense>
+								</TabsContent>
+							)}
+
+							{/* ── 快捷键管理 tab（全局快捷键自定义，见 shared/shortcuts.ts 注册表） ── */}
+							{activeTab === "shortcuts" && (
+								<TabsContent value="shortcuts" className="settings-panel min-w-0">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<ShortcutsTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} platform={props.appInfo.platform} onInvalidChange={handleShortcutsInvalidChange} />
+									</Suspense>
+								</TabsContent>
+							)}
+
+							{/* ── 外观设置 tab ── */}
+							{activeTab === "appearance" && (
+								<TabsContent value="appearance" className="settings-panel min-w-0">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<AppearanceTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} perAreaFontSize={perAreaFontSize} setPerAreaFontSize={setPerAreaFontSize} visionEnabled={visionDraft.draft?.enabled} />
+									</Suspense>
+								</TabsContent>
+							)}
+
+							{/* ── 终端设置 tab ── */}
+							{activeTab === "terminal" && (
+								<TabsContent value="terminal" className="settings-panel min-w-0">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<TerminalTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} />
+									</Suspense>
+								</TabsContent>
+							)}
+
+							{/* ── 代理设置 tab ── */}
+							{activeTab === "proxy" && (
+								<TabsContent value="proxy" className="settings-panel min-w-0 [overflow-anchor:none]">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<ProxyTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} piProxyChecking={props.piProxyChecking} piProxyNotice={props.piProxyNotice} piProxyNoticeTone={props.piProxyNoticeTone} onTestPiProxy={props.onTestPiProxy} />
+									</Suspense>
+								</TabsContent>
+							)}
+
+							{/* ── 连接 tab（远端 SSH 主机；WSL 将来并列于此）。通道门禁关掉时不渲染 ── */}
+							{activeTab === "connections" && isRemoteEntryVisible(remoteAvailable) && (
+								<TabsContent value="connections" className="settings-panel min-w-0 [overflow-anchor:none]">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<ConnectionsTab />
+									</Suspense>
+								</TabsContent>
+							)}
+
+							{/* ── 局域网 Web 服务 tab（原为开发设置内区块） ── */}
+							{activeTab === "web" && (
+								<TabsContent value="web" className="settings-panel min-w-0">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<WebTab draft={draftSettings} updateDraft={updateDraft} webServiceChanging={props.webServiceChanging} onOpenWebService={props.onOpenWebService} onRestartWebService={props.onRestartWebService} resetKey={webTabResetKey} />
+									</Suspense>
+								</TabsContent>
+							)}
+
+							{/* ── 外部编辑器 tab（由 Pi 管理界面迁入，原为开发设置内区块） ── */}
+							{activeTab === "editors" && (
+								<TabsContent value="editors" className="settings-panel min-w-0">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<EditorsTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} />
+									</Suspense>
+								</TabsContent>
+							)}
+
+							{/* ── Git 设置 tab（原为常用设置内区块，由 Git 面板深链直达） ── */}
+							{activeTab === "git" && (
+								<TabsContent value="git" className="settings-panel min-w-0">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<GitTab
+											draft={draftSettings}
+											updateDraft={updateDraft}
+											isDirty={isDirty}
+											gitModels={gitModels}
+											gitModelsReport={gitModelsReport}
+											gitModelsRefreshing={gitModelsRefreshing}
+											onRefreshGitModels={() => reloadGitModels(true)}
+											gitModelPickerOpen={gitModelPickerOpen}
+											onOpenGitModelPicker={openGitModelPicker}
+											onCloseGitModelPicker={closeGitModelPicker}
+											onPickGitModel={handlePickGitModel}
+											onToggleGitModelFavorite={handleToggleGitModelFavorite}
+										/>
+									</Suspense>
+								</TabsContent>
+							)}
+
+							{/* ── 开发设置 tab（环境/版本/运行/调试；Web 与外部编辑器已拆独立 tab） ── */}
+							{activeTab === "dev" && (
+								<TabsContent value="dev" className="settings-panel min-w-0">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<DevTab
+											draft={draftSettings}
+											updateDraft={updateDraft}
+											isDirty={isDirty}
+											onEnsureWslSettingsSaved={commitWslDraftFields}
+											resetKey={devTabResetKey}
+											appInfo={props.appInfo}
+											piStatus={props.piStatus}
+											piChecking={props.piChecking}
+											piInstallations={props.piInstallations}
+											onChoosePiInstallation={props.onChoosePiInstallation}
+											onShellProbePiInstallations={props.onShellProbePiInstallations}
+											shellProbingPiInstallations={props.shellProbingPiInstallations}
+											applyingPiInstallationPath={props.applyingPiInstallationPath}
+											onRequestPiInstallations={props.onRequestPiInstallations}
+											onBrowsePiPath={props.onBrowsePiPath}
+											browsingPiPath={props.browsingPiPath}
+											onCheckPi={props.onCheckPi}
+											onAddPiCustomPath={props.onAddPiCustomPath}
+											onUpdatePiCustomPath={props.onUpdatePiCustomPath}
+											onRemovePiCustomPath={props.onRemovePiCustomPath}
+											onClearCheckFlag={props.onClearCheckFlag}
+											piUpdateChecking={props.piUpdateChecking}
+											onCheckPiUpdate={props.onCheckPiUpdate}
+											piUpdating={props.piUpdating}
+											onUpdatePi={props.onUpdatePi}
+											piUpdateCheck={props.piUpdateCheck}
+											piUpdateResult={props.piUpdateResult}
+											updateChecking={props.updateChecking}
+											onCheckUpdate={props.onCheckUpdate}
+											onDownloadUpdate={props.onDownloadUpdate}
+											onInstallUpdate={handleInstallUpdate}
+											onToggleDevTools={props.onToggleDevTools}
+											onRestartApp={props.onRestartApp}
+										/>
+									</Suspense>
+								</TabsContent>
+							)}
+
+							{/* ── 外部连接 tab（飞书 / 微信，由 Pi 管理界面迁入） ── */}
+							{activeTab === "im" && (
+								<TabsContent value="im" className="settings-panel min-w-0">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<ImTab />
+									</Suspense>
+								</TabsContent>
+							)}
+
+							{/* ── 桌面宠物 tab ── */}
+							{activeTab === "pet" && (
+								<TabsContent value="pet" className="settings-panel min-w-0">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<PetTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} resetKey={petTabResetKey} />
+									</Suspense>
+								</TabsContent>
+							)}
+
+							{/* ── 通知设置 tab（系统通知 + 声音提醒） ── */}
+							{activeTab === "notification" && (
+								<TabsContent value="notification" className="settings-panel min-w-0">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<NotificationTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} />
+									</Suspense>
+								</TabsContent>
+							)}
+
+							{/* ── 进程监控 tab（由 Pi 管理界面迁入） ── */}
+							{activeTab === "process" && (
+								<TabsContent value="process" className="settings-panel min-w-0">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<ProcessMetricsTab />
+									</Suspense>
+								</TabsContent>
+							)}
+							{/* ── 存储与日志 tab ── */}
+							{activeTab === "storage" && (
+								<TabsContent value="storage" className="settings-panel min-w-0">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<StorageTab settings={draftSettings} onChange={updateDraft} />
+									</Suspense>
+								</TabsContent>
+							)}
+							{/* ── 配置备份 tab ── */}
+							{activeTab === "backup" && (
+								<TabsContent value="backup" className="settings-panel min-w-0">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<BackupTab />
+									</Suspense>
+								</TabsContent>
+							)}
+							{/* ── 用量统计 tab ── */}
+							{activeTab === "usage" && (
+								<TabsContent value="usage" className="settings-panel min-w-0">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<UsageStatsTab />
+									</Suspense>
+								</TabsContent>
+							)}
+							{/* ── 视觉桥 tab：草稿/脏标记/保存由弹框统一管理，本组件只呈现表单 */}
+							{activeTab === "vision" && (
+								<TabsContent value="vision" className="settings-panel min-w-0">
+									<Suspense fallback={<SettingsTabLoading />}>
+										<VisionBridgeSettingsTab draft={visionDraft.draft} saving={visionDraft.saving} configDir={visionDraft.configDir} notice={visionDraft.notice} onChange={visionDraft.updateDraft} />
+									</Suspense>
+								</TabsContent>
+							)}
+							{/* ── 生图 tab：独立 imagegen.json，不属于 pi/dsh，放在设置页统一管理。
+					    草稿保存在 ImageGenSection 内部，切换 tab 时保持挂载（hidden 而非卸载）以免丢失未保存修改。 */}
+							<TabsContent value="imagegen" className="settings-panel min-w-0" hidden={activeTab !== "imagegen"}>
+								<Suspense fallback={<SettingsTabLoading />}>
+									<ImageGenSettingsTab ref={imageGenRef} onDirtyChange={handleImageGenDirtyChange} />
+								</Suspense>
+							</TabsContent>
+							{/* ── 生视频 tab：独立 videogen.json，草稿/脏标记/保存链与生图同构（hidden 保挂载）。 ── */}
+							<TabsContent value="videogen" className="settings-panel min-w-0" hidden={activeTab !== "videogen"}>
+								<Suspense fallback={<SettingsTabLoading />}>
+									<VideoGenSettingsTab ref={videoGenRef} onDirtyChange={handleVideoGenDirtyChange} />
+								</Suspense>
+							</TabsContent>
+							{/* ── ACP 工具 tab：独立 settings.acpTools 字段；草稿自持，切换 tab 保持挂载（hidden）以免丢失未保存行 ── */}
+							<TabsContent value="acp" className="settings-panel min-w-0" hidden={activeTab !== "acp"}>
+								<Suspense fallback={<SettingsTabLoading />}>
+									<AcpToolsTab ref={acpToolsRef} onDirtyChange={handleAcpDirtyChange} />
+								</Suspense>
+							</TabsContent>
+							{/* ── PiDeck 插件 tab：宿主插件管理（安装/授权/启停）。独立于 pi 配置弹窗，
+							    归属应用设置；无草稿语义，切 tab 即卸载（动作型 IPC 即时生效）。 ── */}
+							<TabsContent value="hostplugins" className="settings-panel min-w-0" hidden={activeTab !== "hostplugins"}>
+								<Suspense fallback={<SettingsTabLoading />}>
+									<HostPluginsTab />
+								</Suspense>
+							</TabsContent>
+						</SettingsSearchBox>
+					</Tabs>
+				</TabsContent>
+			</Tabs>
+			{/* 未保存变更确认对话框 */}
+			{closeConfirmOpen && (
+				<AlertDialog
+					open
+					onOpenChange={(open) => {
+						if (!open) setCloseConfirmOpen(false);
+					}}
+				>
+					<AlertDialogContent>
+						<AlertDialogHeader>
+							<AlertDialogTitle>{t("settings.unsavedTitle")}</AlertDialogTitle>
+							<AlertDialogDescription asChild>
+								{/* scroll-ok: transient —— 一次性弹窗 / 设置面板：内容随交互生命周期结束，不是随数据增长的列表。 */}
+								<div className="grid max-h-56 gap-1.5 overflow-auto text-left">
+									{unsavedSummary && unsavedSummary.totalCount === 1 && !configPaneState.hasDirty ? (
+										/* 单项且仅设置区：沿用带「是否在关闭前保存？」的单行提示，不需要列表 */
+										<p>{unsavedCloseMessage}</p>
+									) : (
+										<>
+											{/* 多项或跨分区：先给总数，再逐条列出两区变更项（footer 按钮承担保存/放弃语义） */}
+											<p>{t("settings.unsavedListIntro", { count: mergedUnsavedCount })}</p>
+											<ul className="grid gap-0.5 pl-4 list-disc">
+												{mergedUnsavedItems.map((item) => (
+													<li key={`${item.tabKey}\u0000${item.itemKey}`}>
+														{t(item.tabKey)} · {t(item.itemKey)}
+													</li>
+												))}
+											</ul>
+										</>
+									)}
+								</div>
+							</AlertDialogDescription>
+						</AlertDialogHeader>
+						<AlertDialogFooter>
+							<AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+							<AlertDialogAction className={buttonVariants({ variant: "destructive" })} onClick={handleDiscardAndClose}>
+								{t("settings.discardChanges")}
+							</AlertDialogAction>
+							<AlertDialogAction onClick={handleSaveAndClose}>{t("settings.saveAndClose")}</AlertDialogAction>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
+			)}
+			<UpdateInstallUnsavedDialog open={installConfirmOpen} items={mergedUnsavedItems} count={mergedUnsavedCount} onCancel={() => setInstallConfirmOpen(false)} onDiscardAndInstall={handleDiscardAndInstall} onSaveAndInstall={handleSaveAndInstall} />
+		</div>
 	);
 }

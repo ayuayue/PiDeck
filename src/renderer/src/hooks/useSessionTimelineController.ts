@@ -39,6 +39,7 @@ import { browsePinScrollTop, followBrowsePinAfterUserScroll, pickVisibleRootRow,
 import { countUserTurns, TIMELINE_MOUNTED_TURN_LIMIT, TIMELINE_SCROLLED_TURN_LIMIT, TIMELINE_WINDOW_EXPAND_STEP } from "../components/session/timeline/turnRenderWindow";
 import { readSessionFirstScreenPage } from "../components/session/sessionSubagentTranscript";
 import { estimateJumpExpandTurns, resolveJumpFallbackEntry, resolveJumpPendingAction } from "../components/session/timeline/jumpWindowPolicy";
+import { resolveMissingAnchorNextStep } from "../components/session/timeline/restoreAnchorPolicy";
 import { shouldDeferJumpUntilLoaded } from "./timeline/timelineRevealChannel";
 import { resolveJumpMessageIndex, resolveJumpScrollTarget } from "../components/session/timeline/jumpTarget";
 import { planJumpSettleStep } from "../components/session/timeline/jumpSettle";
@@ -288,10 +289,10 @@ export function canLoadSessionTimelineMore(isStarting: boolean, messageCount: nu
  *     「读盘还没应答/失败」的状态，必须读盘让磁盘给出 ready（起始页）或
  *     error（错误卡片 + 重试），否则失败被伪装成空历史且骨架永驻。
  */
-export function shouldSkipInitialDiskLoad(cachedEntry: { source: "disk" | "runtime" | "remote"; messages: readonly unknown[] } | undefined, knownEmpty: boolean): boolean {
+export function shouldSkipInitialDiskLoad(cachedEntry: { source: "disk" | "runtime" | "remote"; messages: readonly unknown[]; history?: { messages: readonly unknown[] } } | undefined, knownEmpty: boolean): boolean {
 	if (knownEmpty) return true;
 	if (!cachedEntry) return false;
-	if (cachedEntry.messages.length > 0) return true;
+	if (cachedEntry.messages.length > 0 || (cachedEntry.source === "runtime" && Boolean(cachedEntry.history?.messages.length))) return true;
 	// 空条目只有磁盘亲自返回的才算终态；runtime 空投影必须读盘核实。
 	return cachedEntry.source === "disk";
 }
@@ -314,7 +315,7 @@ export function shouldSkipInitialDiskLoad(cachedEntry: { source: "disk" | "runti
  *     形成 loading↔error 的读盘死循环（2026-11 现场：Windows 模式点开 WSL 路径会话，
  *     48 次/秒 IPC，页面一直闪）。错误由 UI 呈现并支持手动重试，自动恢复只靠重新挂载。
  */
-export function shouldSkipInitialDiskRead(input: { previouslyLoaded: boolean; cachedEntry: { source: "disk" | "runtime" | "remote"; messages: readonly unknown[] } | undefined; knownEmpty: boolean; loadStateStatus: SessionLoadState["status"] | undefined }): boolean {
+export function shouldSkipInitialDiskRead(input: { previouslyLoaded: boolean; cachedEntry: { source: "disk" | "runtime" | "remote"; messages: readonly unknown[]; history?: { messages: readonly unknown[] } } | undefined; knownEmpty: boolean; loadStateStatus: SessionLoadState["status"] | undefined }): boolean {
 	if (shouldSkipInitialDiskLoad(input.cachedEntry, input.knownEmpty)) return true;
 	// 首次挂载到本会话：是否读盘完全由缓存权威性决定（与旧行为一致）。
 	if (!input.previouslyLoaded) return false;
@@ -632,6 +633,9 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	// ── Load messages from disk when sessionId changes ──
 	// 只订本会话缓存条目（family selectAtom 隔离）：其它会话的消息到达/分页不拖着重渲染本栏。
 	const cachedEntry = useAtomValue(options.sessionId ? sessionMessageCacheBySessionIdAtomFamily(options.sessionId) : NO_CACHE_ENTRY_ATOM);
+	// 预热空窗口期间历史仍在前缀；加载/空态必须看完整显示数组，不能只看 runtime 窗口。
+	const runtimeHistory = controllerEnabled && cachedEntry?.source === "runtime" ? cachedEntry.history : undefined;
+	const combinedMessages = useMemo(() => (runtimeHistory ? [...runtimeHistory.messages, ...messages] : messages), [runtimeHistory, messages]);
 	const cacheMessages = useSetAtom(cacheSessionMessagesAtom);
 	const prependMessagePage = useSetAtom(prependSessionMessagePageAtom);
 	const prependHistoryPage = useSetAtom(prependSessionHistoryPageAtom);
@@ -651,7 +655,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	// 避免切回时变骨架、输入框从居中跳到底部（用户反馈）。
 	const stickySessionId = options.sessionId;
 	if (stickySessionId) {
-		if (messages.length > 0) {
+		if (combinedMessages.length > 0) {
 			stickyEmptySessionIds.delete(stickySessionId);
 		} else if (knownEmptyFromRecord) {
 			addStickyEmptySession(stickySessionId);
@@ -661,7 +665,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	// 与 SessionMessageTimeline 同一套 deriveSessionSurfaceRuntime：历史会话首帧
 	// messages 仍为空时视为加载中，底部 composer 不能卸掉。空草稿除外——
 	// 新建/切回空会话必须留在起始页，不能先挂底部栏再卸（输入框上跳）。
-	const isSurfaceLoading = deriveSessionSurfaceRuntime(messages.length, loadStateStatus, undefined, undefined, undefined, Boolean(cachedEntry), knownEmpty).isLoading;
+	const isSurfaceLoading = deriveSessionSurfaceRuntime(combinedMessages.length, loadStateStatus, undefined, undefined, undefined, Boolean(cachedEntry), knownEmpty).isLoading;
 
 	// useLayoutEffect 而非 useEffect：loading 状态必须在首帧 paint 之前写入，
 	// 否则被动 effect 先于 loading 绘制一帧「空会话」→ 有历史的会话会闪出起始页。
@@ -775,11 +779,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	}, [reloadFromDisk]);
 
 	const diskPage = controllerEnabled && cachedEntry?.source === "disk" ? cachedEntry.page : undefined;
-	// ── 激活显示窗口（2026-08 激活分页）──
-	// runtime 窗口会话：显示数组 = disk 历史前缀（轮次页 prepend）+ 运行时窗口段。
-	// 前缀与窗口段是两个下标空间，仅在渲染层按顺序拼接，合并/去重由 atoms 保证。
-	const runtimeHistory = controllerEnabled && cachedEntry?.source === "runtime" ? cachedEntry.history : undefined;
-	const combinedMessages = useMemo(() => (runtimeHistory ? [...runtimeHistory.messages, ...messages] : messages), [runtimeHistory, messages]);
 	// 窗口前还有历史可加载：判断与「这次点击真能推进一页」必须同源，否则按钮变成死按钮
 	// （2026-12 真机：已经是第一条消息了按钮还在，点了无任何变化）。旧写法两份实现：
 	// 可见性看 `nextBefore !== null` / `windowStart > 0`，请求侧拿不到锚点就静默 return。
@@ -1018,6 +1017,8 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	}
 	/** 窗口是否仍可扩展（由 SessionMessageTimeline 按 turnWindowActive 同步，渲染期写入）。 */
 	const windowExpandableRef = useRef(false);
+	/** 本次恢复已发起的历史补页次数。按锚点对象区分：会话再切一次就是新恢复。 */
+	const restoreAnchorPagingRef = useRef<{ anchor: SessionScrollAnchor | undefined; attempts: number }>({ anchor: undefined, attempts: 0 });
 	/** 自动扩窗口冷却时间戳（防惯性滚动接近顶部时连扩多轮）。 */
 	const lastWindowExpandAtRef = useRef(0);
 	/** 自动翻页冷却时间戳；回底开始新浏览事务时同步清零。 */
@@ -1576,6 +1577,12 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 							) {
 								const growth = resolvePageWindowGrowth(page.messages, pageSize);
 								if (growth > 0) expandWindowBatched(growth);
+								else if (page.messages.length === 0 && windowExpandableRef.current) {
+									// 空页 = 已经到文件头，游标不会再前进。数据没得翻，但渲染窗口
+									// 可能还压着已加载的轮次：把这次点击转成一次窗口展开，否则
+									// 按钮点了没反应、锚点也永远挂不出来（#477 e2e 真机复现）。
+									expandWindowBatched(TIMELINE_WINDOW_EXPAND_STEP);
+								}
 							}
 						} else {
 							// prepend 被拒（atom 的四个前置之一不成立）：最常见是翻页期间缓存被写入、
@@ -1650,6 +1657,12 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 							) {
 								const growth = resolvePageWindowGrowth(page.messages, pageSize);
 								if (growth > 0) expandWindowBatched(growth);
+								else if (page.messages.length === 0 && windowExpandableRef.current) {
+									// 空页 = 已经到文件头，游标不会再前进。数据没得翻，但渲染窗口
+									// 可能还压着已加载的轮次：把这次点击转成一次窗口展开，否则
+									// 按钮点了没反应、锚点也永远挂不出来（#477 e2e 真机复现）。
+									expandWindowBatched(TIMELINE_WINDOW_EXPAND_STEP);
+								}
 							}
 						} else {
 							// prepend 被拒（atom 的四个前置之一不成立）：最常见是翻页期间缓存被写入、
@@ -1987,6 +2000,7 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 	useEffect(() => {
 		if (!controllerEnabled || restorePhase !== "pending") return;
 		const anchor = restoreAnchor;
+		if (restoreAnchorPagingRef.current.anchor !== anchor) restoreAnchorPagingRef.current = { anchor, attempts: 0 };
 		if (anchor) {
 			// 上滚阅读状态必须在首个 child commit 前关闭跟随；窗口尚在读盘时先等待，
 			// 不把「锚点暂未挂载」误判成永久失效。
@@ -2004,7 +2018,6 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 			autoScrollRef.current = true;
 			setAutoScroll(true);
 			setShowScrollToBottom(false);
-			setRestorePhase("complete");
 			const restoreRequest = ++bottomRestoreRequestRef.current;
 			if (bottomRestoreVerificationRef.current !== undefined) cancelAnimationFrame(bottomRestoreVerificationRef.current);
 			const frame = requestAnimationFrame(() => {
@@ -2017,6 +2030,8 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 				} else {
 					timeline.scrollTo({ top: timeline.scrollHeight, behavior: "instant" });
 				}
+				// 先发起恢复再完成；提前 complete 会让 effect cleanup 取消本帧。
+				setRestorePhase("complete");
 				// 恢复被同帧内容变化/旧动画取消时，引擎可能已上报 following，DOM 却不在底部。
 				// 下一帧按真实几何对账；失败则退出跟底并露出回底按钮，避免无声卡在历史位置。
 				const verificationFrame = requestAnimationFrame(() => {
@@ -2063,30 +2078,45 @@ export function useSessionTimelineController(options: { sessionId?: string; mess
 				// 由 anchor.windowTurns 决定，因此 complete 不会再收缩 DOM 并截断 targetTop。
 				// entryId 反查命中时同步落新 id，避免下次恢复再走一遍反查。
 				currentAnchorRef.current = anchorRowId === anchor.messageId ? anchor : { ...anchor, messageId: anchorRowId };
+				// 恢复成功即接管浏览钉：锚点上方之后仍会长高（图片解码、Markdown 重排），
+				// 而 .message-timeline 是 overflow-anchor:none。没有钉行时增高只会把视口推走，
+				// 用户下次看到的就是「恢复位置差了几百像素」（#477 的漂移变体）。
+				// 期望偏移按真实几何取：targetTop 被文首夹到 0 时 elTop - targetTop 才是实际值。
+				browsePinRef.current = { messageId: anchorRowId, expectedViewportTop: elTop - targetTop };
+				pinFallbackHeightRef.current = timeline.scrollHeight;
 				setRestorePhase("complete");
 				return;
 			}
 
 			// 数据仍在 atom 但被 turn 窗口裁掉时，先扩窗重试。不能立刻回底：
 			// 这正是长历史会话切回后位置丢失的根因。窗口已覆盖当前数据后才降级。
-			if (windowExpandableRef.current) {
+			// 窗口已覆盖、锚点却仍不在已加载数据里（首屏只读 9 轮 / 缓存被淘汰 / 切走
+			// 期间上游追加把锚点挤出尾部）时补历史页，补不到才放弃（#477）。
+			const paging = restoreAnchorPagingRef.current;
+			const nextStep = resolveMissingAnchorNextStep({
+				windowExpandable: windowExpandableRef.current,
+				hasEarlierPages,
+				loadingEarlier: isLoadingMessagePage,
+				loadAttempts: paging.attempts,
+			});
+			if (nextStep === "expand") {
 				setScrolledWindowTurns((turns) => turns + TIMELINE_WINDOW_EXPAND_STEP);
 				return;
 			}
-
-			// 锚点确实不可再物化（压缩/删除等）：保留历史阅读语义并通过引擎解锁，
-			// 不能只写原生 scrollTop，否则 ResizeObserver 会重新把视口钉到底部。
-			markProgrammaticScroll();
-			const api = scrollerScrollApiRef.current;
-			if (api?.restoreAt) {
-				api.restoreAt(0);
-			} else {
-				timeline.scrollTop = 0;
+			if (nextStep === "load") {
+				paging.attempts += 1;
+				loadMoreMessages("backfill");
+				return;
 			}
-			setRestorePhase("complete");
+			if (nextStep === "wait") return;
+
+			// 锚点确实不可再物化（压缩/删除/补页到底）：交回无锚点恢复路径，
+			// 滚到实时尾部并跟底。不再落顶部 —— 否则用户回来看到的是历史开头，
+			// 正是 #477 的原始症状。restoreAnchor 是依赖，置空会重跑上面的无锚点分支。
+			setRestoreAnchor(undefined);
 		});
 		return () => cancelAnimationFrame(frame);
-	}, [controllerEnabled, isSurfaceLoading, markProgrammaticScroll, ownerKey, restoreAnchor, restorePhase, scrolledWindowTurns]);
+	}, [controllerEnabled, hasEarlierPages, isLoadingMessagePage, isSurfaceLoading, loadMoreMessages, markProgrammaticScroll, ownerKey, restoreAnchor, restorePhase, scrolledWindowTurns]);
 
 	// ── 用户上滚接近顶部时自动加载历史（2026-11 轮次模型）──
 	// 历史扩窗只消费 stick 引擎确认的用户意图。普通 scroll 事件仍由

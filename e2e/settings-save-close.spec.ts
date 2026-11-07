@@ -62,7 +62,7 @@ test("保存设置时可以立即关闭，且保存中不会误报未保存修�
 	await expect(settings).toBeHidden();
 
 	await window.getByRole("button", { name: /^设置/ }).first().click();
-	const reopened = window.getByRole("dialog", { name: "设置", exact: true });
+	const reopened = window.locator(".settings-modal");
 	await expect(reopened).toBeVisible();
 	await expect(reopened.locator('input[type="range"][aria-label="聊天内容宽度"]')).toHaveValue("85");
 	await reopened.getByRole("button", { name: "关闭", exact: true }).click();

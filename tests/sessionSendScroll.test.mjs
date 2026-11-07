@@ -356,6 +356,23 @@ test("session switching disposes send animation and spacer instead of scrolling 
 	}
 });
 
+test("a live-edge restore survives the commit before its first animation frame", () => {
+	const h = sendScrollHarness();
+	try {
+		h.switchSession();
+		h.returnToSourceAtLiveEdge();
+		// React commits setRestorePhase before rAF; flushing only after rAF masks cancellation.
+		h.render();
+		h.advance();
+		h.advance();
+		assert.equal(h.viewport.scrollTop, h.viewport.scrollHeight - h.viewport.clientHeight);
+		assert.equal(h.controller.autoScroll, true);
+		assert.equal(h.controller.showScrollToBottom, false);
+	} finally {
+		h.unmount();
+	}
+});
+
 test("a failed live-edge restore exposes go-bottom instead of silently losing follow", () => {
 	const h = sendScrollHarness({ bottomScrollSucceeds: false });
 	try {

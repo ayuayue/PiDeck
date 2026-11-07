@@ -8,7 +8,7 @@
 import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 
 import { ipcChannels } from "../../shared/ipc";
-import type { AgentMemoryBundlePeekOutcome, AgentMemoryEntryList, AgentMemoryExportOutcome, AgentMemoryImportOptions, AgentMemoryImportResult, AgentMemoryResult, AgentMemoryStatus } from "../../shared/types/agentMemory";
+import type { AgentMemoryBundlePeekOutcome, AgentMemoryDeleteOutcome, AgentMemoryEntryList, AgentMemoryEntryRef, AgentMemoryExportOutcome, AgentMemoryImportOptions, AgentMemoryImportResult, AgentMemoryResult, AgentMemoryStatus } from "../../shared/types/agentMemory";
 
 export interface AgentMemoryIpcDeps {
 	getWindow: () => BrowserWindow | null;
@@ -24,6 +24,8 @@ export interface AgentMemoryIpcDeps {
 	listEntries: () => AgentMemoryEntryList;
 	/** 删除单条记忆；写墓碑避免旧导出包把它导回来。 */
 	deleteEntry: (input: { target: string; projectId: string; key: string }) => { removed: number };
+	/** 批量删除：入参是同一套定位键，主进程按文件分组一次落盘。 */
+	deleteEntries: (items: readonly AgentMemoryEntryRef[]) => AgentMemoryDeleteOutcome;
 	/** 撤销刚删的条目（写回内容并回收墓碑）。 */
 	restoreEntry: (input: { target: string; projectId: string; content: string; category?: string }) => { restored: boolean };
 	/** 在系统文件管理器里打开记忆根目录。 */
@@ -46,6 +48,7 @@ export function registerAgentMemoryIpc(deps: AgentMemoryIpcDeps): () => void {
 		ipcChannels.agentMemoryImport,
 		ipcChannels.agentMemoryList,
 		ipcChannels.agentMemoryDeleteEntry,
+		ipcChannels.agentMemoryDeleteEntries,
 		ipcChannels.agentMemoryRestoreEntry,
 		ipcChannels.agentMemoryRevealRoot,
 		ipcChannels.agentMemoryStandingRead,
@@ -79,6 +82,30 @@ export function registerAgentMemoryIpc(deps: AgentMemoryIpcDeps): () => void {
 			items.push(item);
 		}
 		return items;
+	}
+
+	/**
+	 * 一条记忆的定位键：`{ target, projectId?, key }` 三件套。
+	 * 渲染层拿不到文件路径，也就无法借删除通道删到记忆目录之外的任何东西；
+	 * key 是规范化后的内容，最长 4000 字符（单条上限 2000 的两倍余量）。
+	 */
+	function readEntryRef(value: unknown): { target: string; projectId: string; key: string } {
+		if (typeof value !== "object" || value === null) throw new Error("invalid-input");
+		const record = value as Record<string, unknown>;
+		const target = typeof record.target === "string" ? record.target : "";
+		const projectId = typeof record.projectId === "string" ? record.projectId : "";
+		const key = typeof record.key === "string" ? record.key : "";
+		if (!target || !key || key.length > 4000 || projectId.length > 200) throw new Error("invalid-input");
+		return { target, projectId, key };
+	}
+
+	/**
+	 * 批量删除的入参：定位键数组，与单条删除同一套校验。
+	 * 上限 500 条只是防「渲染层被改造成把整个磁盘塞进来」，正常记忆是百量级。
+	 */
+	function readDeleteRefs(value: unknown): AgentMemoryEntryRef[] {
+		if (!Array.isArray(value) || value.length === 0 || value.length > 500) throw new Error("invalid-input");
+		return value.map((item) => readEntryRef(item));
 	}
 
 	ipcMain.handle(ipcChannels.agentMemoryStatus, (event) => result(event, () => deps.readStatus()));
@@ -135,18 +162,10 @@ export function registerAgentMemoryIpc(deps: AgentMemoryIpcDeps): () => void {
 			return deps.renameDevice(name);
 		}),
 	);
-	// 删除只接受「target + 作用域 + 内容键」三件套：渲染层拿不到文件路径，也就无法借这个通道
-	// 删到记忆目录之外的任何东西。键是规范化后的内容，最长 4000 字符（单条上限 2000 的两倍余量）。
-	ipcMain.handle(ipcChannels.agentMemoryDeleteEntry, (event, input: unknown) =>
-		result(event, () => {
-			const value = typeof input === "object" && input !== null ? (input as Record<string, unknown>) : {};
-			const target = typeof value.target === "string" ? value.target : "";
-			const projectId = typeof value.projectId === "string" ? value.projectId : "";
-			const key = typeof value.key === "string" ? value.key : "";
-			if (!target || !key || key.length > 4000 || projectId.length > 200) throw new Error("invalid-input");
-			return deps.deleteEntry({ target, projectId, key });
-		}),
-	);
+	// 删除只接受「target + 作用域 + 内容键」三件套（与批量删除同一套校验）。
+	ipcMain.handle(ipcChannels.agentMemoryDeleteEntry, (event, input: unknown) => result(event, () => deps.deleteEntry(readEntryRef(input))));
+	// 批量删除：一批勾选只跑一次 handler，主进程按文件分组落盘。
+	ipcMain.handle(ipcChannels.agentMemoryDeleteEntries, (event, input: unknown) => result(event, () => deps.deleteEntries(readDeleteRefs(input))));
 	// 撤销的入参校验与删除同源：内容受单条 2000 字上限的 2 倍约束（容 failure 前缀与空白）。
 	ipcMain.handle(ipcChannels.agentMemoryRestoreEntry, (event, input: unknown) =>
 		result(event, () => {

@@ -1,6 +1,6 @@
 {
   "name": "pideck",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "dshRuntimeVersion": "0.2.1-rc.5",
   "packageManager": "npm@11.6.2",
   "engines": {
@@ -158,6 +158,7 @@
     ],
     "asar": true,
     "compression": "maximum",
+    "beforePack": "./scripts/configure-mac-signing.js",
     "afterPack": "./scripts/after-pack-cleanup.js",
     "npmRebuild": false,
     "asarUnpack": [

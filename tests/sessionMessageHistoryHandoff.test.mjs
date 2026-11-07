@@ -88,6 +88,22 @@ test("激活时先到的空窗口不得清空用户正在看的历史", () => {
 	assert.equal(displayed.length, DISK_MESSAGES.length, "空窗口期间时间线仍显示完整历史");
 });
 
+test("预热空窗口期间的回底回收不得删除唯一可见历史，窗口就绪后才允许回收", () => {
+	const store = setup();
+	store.set(atoms.applySessionRuntimeEventAtom, runtimeMessagesEvent({ messages: [], totalLength: 0 }));
+	const pending = entry(store);
+	assert.equal(store.set(atoms.clearSessionHistoryAtom, SESSION_ID), false);
+	assert.equal(entry(store), pending, "拒绝回收必须保留缓存引用和全部历史");
+	assert.equal(entry(store).history.messages.length, DISK_MESSAGES.length);
+	store.set(atoms.applySessionRuntimeEventAtom, runtimeMessagesEvent({ messages: DISK_MESSAGES.slice(34), windowStart: 34, totalLength: 40, fileVersion: DISK_PAGE.indexVersion }));
+	assert.equal(store.set(atoms.clearSessionHistoryAtom, SESSION_ID), true);
+	assert.equal(entry(store).history, undefined);
+	assert.deepEqual(
+		Array.from(entry(store).messages, (item) => item.id),
+		DISK_MESSAGES.slice(34).map((item) => item.id),
+	);
+});
+
 test("普通追加（用户发消息落盘）不丢前缀，历史继续可见", () => {
 	const store = setup();
 	// 发消息 → pi 把 prompt 追加进 JSONL → size 变大、mtime 变化：版本字符串必然不同。

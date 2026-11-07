@@ -847,36 +847,29 @@ export type OutlineItem = {
 	time: string;
 };
 
-/** assistant 消息的可见正文：投影层把 thinking 内联成 <thinking> 标签混进 text。 */
-function visibleAssistantText(message: ChatMessage): string {
-	return stripThinkingTags(stripAnsi(message.text));
-}
-
 /**
- * 会话定位轴条目：**一轮两条** —— 用户提问一条、本轮最终回答一条。
+ * 会话定位轴条目：**一条用户提问一根**，助手回复不进刻度。
  *
- * 为什么不是「一条消息一根」：pi 的一轮里助手每次调工具都是一条独立的 assistant 消息
- * （thinking+toolCall → 工具结果 → 下一条 assistant）。一条消息一根时，一轮 4~9 条助手
- * 刻度挤在一条用户刻度下面，纵向位置既不代表「会话第几成」，最近 30 根的窗口也只装得下
- * 五六轮（2026-11 真机反馈「好几个助手回复才隔一个用户回复」）。
+ * 2026-11 真机反馈：「显示的太多了，还是回复，只显示用户的消息」。此前是「一轮两条」
+ * （提问 + 本轮最终回答），一轮占两根，最近 30 根的窗口只装得下十几轮；助手刻度对
+ * 「我在会话的哪里」没有帮助，却让同样高度里的提问密度翻倍。收成用户提问后，一根刻度
+ * 就是一次提问，窗口覆盖的轮数翻倍，标题也只剩用户自己写的话。
  *
- * 为什么只算最终回答：中间回复与 thinking-only 消息都不是用户要找的落点；而且投影层把
- * thinking 内联成 <thinking> 标签塞进 text，不剥掉的话刻度标题直接就是思考内容
- * （2026-11 真机：某会话 53 条助手刻度标题全部以 <thinking> 开头）。判据取「本轮最后
- * 一条有可见正文的 assistant」，与编辑入口 pickEditableAssistantMessage 同一口径。
+ * 助手回复本来就有同样的问题：pi 一轮里每次调工具都是一条独立 assistant 消息，按消息
+ * 出刻度时一轮能冒出 4~9 根；投影层还把 thinking 内联成 <thinking> 标签混进 text
+ * （2026-11：某会话 53 条助手刻度标题全部以 <thinking> 开头）。不再收助手条目，
+ * 这两个问题一并消失。
  *
- * 回合边界：新用户消息；或本轮已收尾（末尾 assistant 带 stop）后又来了 assistant
- * （后台子代理唤醒这类无提问的新回合，见 groupToolMessages 的 hasFinishedTurnInRun）。
+ * 无提问的后台唤醒回合（groupToolMessages 的 hasFinishedTurnInRun）同样不再单独成刻度：
+ * 定位轴回答的是「用户问过什么」，没有提问就没有落点。
  */
 export function buildOutline(messages: ChatMessage[]): OutlineItem[] {
 	const items: OutlineItem[] = [];
-	// 本轮最后一条有可见正文的助手消息：中间回复不断覆盖它，只有轮末才落成刻度。
-	let answer: ChatMessage | undefined;
-
-	const push = (message: ChatMessage, text: string) => {
+	for (const message of messages) {
+		if (message.role !== "user") continue;
 		// 定位轴标题是纯文本出口：先折叠自包含引用块，否则标题就是 <quoted_context …>
-		const title = summarizeMessage(replaceExpandedRefBlocksWithLabels(text));
-		if (!title) return;
+		const title = summarizeMessage(replaceExpandedRefBlocksWithLabels(message.text));
+		if (!title) continue;
 		items.push({
 			id: message.id,
 			// 导轨目录用 entryId 对齐未加载检查点；缺 meta.entryId 的 live 消息退回 id。
@@ -885,27 +878,7 @@ export function buildOutline(messages: ChatMessage[]): OutlineItem[] {
 			title,
 			time: formatTime(message.timestamp),
 		});
-	};
-
-	const flushAnswer = () => {
-		if (!answer) return;
-		const message = answer;
-		answer = undefined;
-		push(message, visibleAssistantText(message));
-	};
-
-	for (const message of messages) {
-		if (message.role === "user") {
-			flushAnswer();
-			push(message, message.text);
-			continue;
-		}
-		if (message.role !== "assistant") continue;
-		if (answer?.stopReason === "stop") flushAnswer();
-		// 空正文（thinking-only、纯工具调用、message_start 占位）不进刻度，也不打断回合。
-		if (visibleAssistantText(message)) answer = message;
 	}
-	flushAnswer();
 	return items;
 }
 

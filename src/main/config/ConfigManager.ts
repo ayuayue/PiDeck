@@ -28,7 +28,7 @@ import type { UserUsageProbe, UsageProbeSettingsLoadResult } from "./userUsagePr
 import { modelHttpRequest } from "../modelHttp/request";
 import { usageProbeRequest } from "./usageProbeTransport";
 import { pideckUsageProbesDir } from "../dsh/pideckDshHome";
-import { getPiAiCatalogIndex } from "../pi/piAiBuiltinCatalog";
+import { getPiAiCatalogIndex, lookupPiAiCatalogProviderApi } from "../pi/piAiBuiltinCatalog";
 import { loadDshUsageProviderProfile } from "./dshUsageEndpoint";
 import type { ConfigProxyTarget } from "../sessions/sessionProxyPolicy";
 import type { WslEnvironment } from "../wsl/WslPaths";
@@ -148,6 +148,8 @@ function normalizeModelCostForPi(cost: NonNullable<PiModelItem["cost"]> & { tier
 export type PiModelItem = {
 	id: string;
 	name?: string;
+	/** 模型级 API 协议；缺省时继承 provider 或 pi 内置默认。 */
+	api?: string;
 	reasoning?: boolean;
 	input?: string[];
 	contextWindow?: number;
@@ -444,6 +446,11 @@ export class ConfigManager {
 					error: this.translate("mainConfig.baseUrlInvalid", { provider: providerName }),
 				};
 			}
+			const providerApi = typeof config.api === "string" ? config.api.trim() : "";
+			// 内置 provider 允许省略 api：pi 会从内置 base 模型继承默认协议。
+			// 自定义 provider 没有这层兜底，provider/models 都没写 api 时 pi 会丢掉整个 provider，
+			// 模型列表里直接看不到它（pi 的 provider-composer modelFromJson 在 api 为空时抛错）。
+			const defaultApi = providerApi || lookupPiAiCatalogProviderApi(getPiAiCatalogIndex(), providerName);
 			for (let i = 0; i < config.models.length; i++) {
 				const m = config.models[i];
 				if (!m.id || typeof m.id !== "string") {
@@ -457,6 +464,13 @@ export class ConfigManager {
 					return {
 						valid: false,
 						error: this.translate("mainConfig.modelIdInvalid", { provider: providerName, index: i + 1 }),
+					};
+				}
+				const modelApi = typeof m.api === "string" ? m.api.trim() : "";
+				if (!modelApi && !defaultApi) {
+					return {
+						valid: false,
+						error: this.translate("mainConfig.modelApiRequired", { provider: providerName, model: m.id }),
 					};
 				}
 			}

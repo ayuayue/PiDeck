@@ -49,15 +49,17 @@
  *   ipcChannels 811→814，新增 codebuddy 前缀，前缀数 92→93。
  * 2026-11-04 刷新（净 +1）：WSL 目录浏览（Wave 0，提交 0f91282e4）退役 projects:add-wsl，
  *   新增 projects:list-wsl-directory / projects:add-wsl-path → 815，projects 前缀已存在，前缀数仍 93。
+ * 2026-11-07 刷新（+1）：agentMemoryDeleteEntries（记忆条目批量删除，一次 IPC 按落盘文件分组写入，
+ *   提交 483a52dfe 漏刷快照）→ 816，agent-memory 前缀已存在，前缀数仍 93。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const CHANNEL_TOTAL = 815;
+const CHANNEL_TOTAL = 816;
 const PREFIX_COUNT = 93;
-const CHANNEL_DIGEST = "aa75a5cd981930853cc8a7d176ca2e2baf93b8afa8150853c5fedf1b34f73e5d";
+const CHANNEL_DIGEST = "b556503a8d0fdb9c80cbae21e864568a8e2afae5b7e5109e376ed491577ba7fb";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";
@@ -76,11 +78,11 @@ const sortedDigest = (pairs) => {
 	return createHash("sha256").update(serialized, "utf8").digest("hex");
 };
 
-test("F3-1 通道常量总数 === 815", () => {
+test("F3-1 通道常量总数 === 816", () => {
 	assert.equal(entries.length, CHANNEL_TOTAL);
 });
 
-test("F3-2 通道值唯一数 === 815（无重复通道字符串）", () => {
+test("F3-2 通道值唯一数 === 816（无重复通道字符串）", () => {
 	assert.equal(new Set(values).size, CHANNEL_TOTAL);
 });
 

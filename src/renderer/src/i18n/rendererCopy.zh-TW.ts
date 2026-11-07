@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: e54889dd385034c9bb9de6572a20abb8d2721f3baedeea707f07bfca07ce15d4（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 66f4bf8231b1b29e8c630549aba9d3526a743e22cfea27b6e852e7290c0e6a1f（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -2130,6 +2130,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.dsh.modelCapacity": "容量（上下文視窗 / 最大輸出）",
 	"config.dsh.modelIdPlaceholder": "模型 ID",
 	"config.dsh.modelNamePlaceholder": "留空時使用模型 ID",
+	"config.dsh.modelSearchEmpty": "沒有匹配的模型",
 	"config.dsh.modelMaxTokens": "最大輸出 token 數",
 	"config.dsh.modelInputModalities": "輸入模態",
 	"config.dsh.inputModalityInherit": "跟隨目錄 / 預設",
@@ -2365,6 +2366,12 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.nav.config": "配置管理",
 	"config.nav.models": "模型",
 	"config.nav.auth": "認證",
+	"config.nav.oauth": "OAuth 登入",
+	"config.oauth.subtitle": "等價於 pi 終端的 /login：用訂閱帳號（OAuth）或 API key 登入供應商，已登入的帳號會列在下面。憑據由 pi 寫入它自己的 auth.json。",
+	"config.oauth.filter.all": "全部可登入",
+	"config.oauth.filter.loggedIn": "已登入（{count}）",
+	"config.oauth.empty.loggedIn": "還沒有已登入的帳號。切到「全部可登入」挑一個供應商登入。",
+	"config.oauth.actionFailed": "操作失敗",
 	"config.nav.settings": "設定",
 	"config.nav.trust": "信任",
 	"config.nav.mcp": "MCP",
@@ -2844,14 +2851,16 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.imagegen.extraParams": "支援的引數",
 	"config.imagegen.extraParamsHint": "按官方文件勾選。沒勾選的欄位不會出現在底欄，也不會發到介面（避免未知欄位 400）。",
 	"config.imagegen.referenceMode": "參考圖模式",
-	"config.imagegen.referenceModeHint": "宣告該供應商能否把上傳的圖片作為參考。不支援時附件欄會被攔截；edits 走 /images/edits 表單介面；image-field 把圖片併入 JSON 請求體。",
+	"config.imagegen.referenceModeHint": "宣告該供應商能否把上傳的圖片作為參考。不支援時附件欄會被攔截；edits 走 /images/edits 表單介面；image-field 把圖片併入 JSON 請求體；input_references 用於 OpenRouter 的專用生圖介面。",
 	"config.imagegen.referenceNone": "不支援",
 	"config.imagegen.referenceEdits": "支援（/images/edits）",
 	"config.imagegen.referenceImageField": "支援（image 欄位）",
+	"config.imagegen.referenceInputReferences": "支援（input_references）",
 	"config.imagegen.apiStyle": "介面方言",
-	"config.imagegen.apiStyleHint": "同一 images/generations 介面各家欄位名/響應結構不同：OpenAI、方舟用 size 欄位、返回 data[].b64_json；SiliconFlow 用 image_size、返回 images[].url（參考圖為單個圖片）",
+	"config.imagegen.apiStyleHint": "不同供應商的端點與欄位名不同：OpenAI、方舟走 /images/generations（size / data[].b64_json）；SiliconFlow 用 image_size、返回 images[].url；OpenRouter 走專用 /images（input_references / data[].b64_json + media_type）",
 	"config.imagegen.apiStyleOpenai": "OpenAI 相容（size / data[].b64_json）",
 	"config.imagegen.apiStyleSiliconflow": "SiliconFlow（image_size / images[].url）",
+	"config.imagegen.apiStyleOpenrouter": "OpenRouter Image API（/images）",
 	"config.imagegen.paramSize": "size（解析度）",
 	"config.imagegen.paramSizeHint": "官方 size。OpenAI 用 1024x1024 等；火山還支援 1K / 2K / 4K。",
 	"config.imagegen.paramOutputFormat": "output_format（輸出格式）",
@@ -3237,6 +3246,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	// 排序说明：Pi 侧（模型/认证）与 DSH 侧各一份顺序，提示文案分两套 key。上移/下移按钮已删，键盘微调文案随拖拽提示走。
 	"config.providerOrderHint": "拖動手柄排序（聚焦後 ↑/↓ 也可微調）；順序為本地偏好，「模型」「認證」兩頁與模型選擇列表共用。",
 	"config.providerOrderReset": "恢復預設順序",
+	"config.providerSearchEmpty": "沒有匹配的供應商",
+	"config.providerSearchPlaceholder": "搜尋供應商",
 	"config.migrate.toDsh": "一鍵遷移到 DSH",
 	"config.migrate.toPi": "一鍵遷移到 Pi",
 	"config.migrate.overwriteConfirm": "對端已有供應商「{name}」，覆蓋它的地址、模型和金鑰？",
@@ -5638,6 +5649,16 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.agentMemoryDeleteEntry": "刪除這條記憶",
 	"settings.agentMemoryDeletedEntry": "已刪除「{content}」",
 	"settings.agentMemoryUndoDelete": "撤銷",
+	"settings.agentMemoryBatchDelete": "批次刪除",
+	"settings.agentMemoryBatchDeleteTitle": "批次刪除記憶",
+	"settings.agentMemoryBatchDeleteAction": "刪除所選",
+	"settings.agentMemoryBatchSelected": "已選 {count} 條",
+	"settings.agentMemoryBatchSelectPage": "全選本頁",
+	"settings.agentMemoryBatchUnselectPage": "取消本頁",
+	"settings.agentMemoryBatchClear": "清空已選",
+	"settings.agentMemoryBatchSelectRow": "選擇這條記憶",
+	"settings.agentMemoryBatchConfirm": "刪除後這些記憶不會再進入任何會話，並留下墓碑防止舊匯出包把它們導回來。要刪除 {count} 條記憶。",
+	"settings.agentMemoryDeletedEntries": "已刪除 {count} 條記憶",
 	"settings.agentMemoryLearnLast": "上次學習：學過 {count} 個會話，最近 {time}",
 	"settings.agentMemoryLearnNever": "上次學習：還沒有學過任何會話",
 	"settings.agentMemoryStandingSection": "常駐指令（STANDING.md）",

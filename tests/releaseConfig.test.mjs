@@ -25,8 +25,8 @@ test("build.nsis 不得包含 allowDowngrade（electron-builder 26.x 无此键�
 // 显式 identity: "-" 才走 ad-hoc；默认 hardenedRuntime: true 要求
 // com.apple.security.cs.disable-library-validation entitlement——靠 app-builder-lib 默认模板
 // （本仓库未提供自有 entitlements 文件，别为了「自定义」把它覆盖成缺这条的版本，否则原生模块加载会被拦下）。
-// 将来拿到 Developer ID 证书：删掉这一行 + 配 CSC_LINK/CSC_NAME secrets，本测试需同步删除
-//（产物级门禁 tests/macSignatureGate.test.mjs 不区分 ad-hoc/正式证书，无需改动）。
+// 配置证书后由 beforePack 动态解除 ad-hoc 覆盖（tests/macSigningConfig.test.mjs 验证）；
+// 这里仍守住无证书构建的默认值，避免修复权限保留时重新引入 #347 的未签名启动故障。
 test('build.mac.identity 必须显式 "-"：无证书时 electron-builder 26.15+ 不再自动回退 ad-hoc（#347）', () => {
 	const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 	assert.equal(pkg.build?.mac?.identity, "-", "无 Apple 证书时必须显式 ad-hoc：省略该键会产出没有任何 bundle 签名的 mac 包（Apple Silicon 启动即失败），而 CI 不会报错");

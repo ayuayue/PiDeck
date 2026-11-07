@@ -8,8 +8,9 @@
  */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowUpDown, ChevronDown, ChevronRight, Copy, Eye, EyeOff, GripVertical, Plus, Trash2 } from "lucide-react";
+import { ArrowUpDown, ChevronDown, ChevronRight, Copy, Eye, EyeOff, GripVertical, Plus, Search, Trash2 } from "lucide-react";
 import { t } from "../i18n";
+import { filterIndexedRows } from "../utils/configListSearch";
 import { desktopApi } from "../desktopApi";
 import { showNotice } from "../utils/notice";
 import { writeClipboard } from "../utils/clipboard";
@@ -294,6 +295,8 @@ export function PiAiProvidersCard(props: {
 	const [draft, setDraft] = useState<Record<string, unknown>>({});
 	const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 	const [addingProvider, setAddingProvider] = useState(false);
+	/** 供应商卡片列表的关键词过滤（认 provider 名与 displayName，与认证页同款匹配规则）。 */
+	const [query, setQuery] = useState("");
 	const [addPageDirty, setAddPageDirty] = useState(false);
 	/** 密钥草稿：providerKey → 输入的新密钥（保存时统一 credentials.set）。 */
 	const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
@@ -418,7 +421,13 @@ export function PiAiProvidersCard(props: {
 	}, [entries, props.providerOrder]);
 	// 排序输入用有序键列表；DSH 页无隐藏供应商概念，完整列表即可见列表。
 	const orderedKeys = useMemo(() => orderedEntries.map((entry) => entry.key), [orderedEntries]);
-	const providerReorder = useProviderReorder({ names: props.providerOrderScope?.length ? props.providerOrderScope : orderedKeys, visibleNames: orderedKeys, onReorder: props.onReorderProviders ?? noopReorder });
+	// 过滤只影响展示：排序仍以完整有序键为准（否则「过滤中拖动」会把没显示的供应商挤掉）。
+	const searchedEntries = filterIndexedRows(orderedEntries, query, (entry) => {
+		const displayName = (entry.value as Record<string, unknown> | undefined)?.displayName;
+		return [entry.key, typeof displayName === "string" ? displayName : undefined];
+	});
+	const searchedKeys = searchedEntries.map(({ row }) => row.key);
+	const providerReorder = useProviderReorder({ names: props.providerOrderScope?.length ? props.providerOrderScope : orderedKeys, visibleNames: searchedKeys, onReorder: props.onReorderProviders ?? noopReorder });
 
 	if (!schema || !root || !providersField) {
 		return <div className="py-6 text-center text-control text-muted-foreground">{t("config.dsh.schemaUnavailable")}</div>;
@@ -531,10 +540,31 @@ export function PiAiProvidersCard(props: {
 			</div>
 
 			<div className="grid gap-2 p-4">
-				<Button type="button" variant="secondary" size="sm" className="h-7 justify-self-start" disabled={!writable} onClick={() => setAddingProvider(true)}>
-					<Plus className="size-3.5" aria-hidden="true" />
-					{t("config.dsh.addProvider")}
-				</Button>
+				{/* 搜索与计数/添加同一行（与模型页、认证页同款）：单独一行只是白占高度。 */}
+				<div className="flex flex-wrap items-center gap-2">
+					{orderedEntries.length > 0 && (
+						<div className="relative min-w-0 max-w-xs flex-1 basis-52">
+							<Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/70" aria-hidden="true" />
+							<Input type="search" size="sm" value={query} placeholder={t("config.providerSearchPlaceholder")} aria-label={t("config.providerSearchPlaceholder")} className="pl-8" onChange={(event) => setQuery(event.currentTarget.value)} />
+						</div>
+					)}
+					{query.trim().length > 0 && <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{t("config.extensionListResultCount", { matched: searchedEntries.length, count: orderedEntries.length })}</span>}
+					<Button
+						type="button"
+						variant="secondary"
+						size="sm"
+						className="ml-auto h-7 shrink-0"
+						disabled={!writable}
+						onClick={() => {
+							// 新供应商名不一定命中当前关键词，留着会「加完看不见」。
+							setQuery("");
+							setAddingProvider(true);
+						}}
+					>
+						<Plus className="size-3.5" aria-hidden="true" />
+						{t("config.dsh.addProvider")}
+					</Button>
+				</div>
 
 				{/* 排序说明：顺序是 PiDeck 本地偏好（AppSettings.dshProviderOrder），不写回 DSH 配置文件 */}
 				{orderedKeys.length > 1 && (
@@ -550,7 +580,8 @@ export function PiAiProvidersCard(props: {
 				)}
 
 				{/* provider 行列表 */}
-				{orderedEntries.map((entry) => {
+				{searchedEntries.length === 0 && orderedEntries.length > 0 && <div className="px-3 py-2.5 text-micro text-muted-foreground">{t("config.providerSearchEmpty")}</div>}
+				{searchedEntries.map(({ row: entry }) => {
 					const isOpen = expanded[entry.key] ?? false;
 					// 模型列表：draft 覆盖优先（新增/删除行即时反映），否则用现值
 					const draftModels = entryValue(entry.key, ["models"]);

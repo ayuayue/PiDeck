@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { buildDraftResourceCommands, draftResourceCommandsForProject, selectComposerSuggestionCommands, standbyPreviewCommandsForProject } = loadTsCommonJs("src/renderer/src/utils/draftResourceCommands.ts");
+const { buildDraftResourceCommands, draftResourceCommandsForProject, mergeDshSkillCommands, selectComposerSuggestionCommands, standbyPreviewCommandsForProject } = loadTsCommonJs("src/renderer/src/utils/draftResourceCommands.ts");
 
 test("draft resource commands include enabled user-only skills and discovered prompts", () => {
 	const commands = buildDraftResourceCommands(
@@ -200,4 +200,46 @@ test("standby preview wins over local discovery for drafts but never over a live
 	// runtime 已起/DSH：本会话 RPC 表永远唯一权威，预览不掺和
 	assert.strictEqual(selectComposerSuggestionCommands(false, true, live, draft, preview), live);
 	assert.strictEqual(selectComposerSuggestionCommands(true, false, live, draft, preview), live);
+});
+
+// ── DSH 技能补全（Issue #480）────────────────────────────────
+
+test("DSH skills become bare slash commands after the live command table", () => {
+	const commands = [{ name: "compact", description: "Compact context", source: "command" }];
+	const merged = mergeDshSkillCommands(commands, [{ name: "grill-me", description: "Grill the plan" }, { name: "review" }]);
+
+	assert.equal(
+		JSON.stringify(merged),
+		JSON.stringify([
+			{ name: "compact", description: "Compact context", source: "command" },
+			{ name: "grill-me", description: "Grill the plan", source: "skill" },
+			{ name: "review", source: "skill" },
+		]),
+	);
+	assert.equal(JSON.stringify(commands), JSON.stringify([{ name: "compact", description: "Compact context", source: "command" }]), "must not mutate caller commands");
+});
+
+test("DSH command names win collisions; duplicate and blank skills are skipped", () => {
+	const merged = mergeDshSkillCommands(
+		[
+			{ name: "plan", description: "Host command", source: "command" },
+			{ name: "Grill-Me", description: "Existing", source: "command" },
+		],
+		[
+			{ name: "plan", description: "Shadowed skill" },
+			{ name: "grill-me", description: "Case-insensitive collision" },
+			{ name: "  review  ", description: "Trimmed name" },
+			{ name: "review", description: "Duplicate skill" },
+			{ name: "   ", description: "Blank" },
+		],
+	);
+
+	assert.equal(
+		JSON.stringify(merged),
+		JSON.stringify([
+			{ name: "plan", description: "Host command", source: "command" },
+			{ name: "Grill-Me", description: "Existing", source: "command" },
+			{ name: "review", description: "Trimmed name", source: "skill" },
+		]),
+	);
 });

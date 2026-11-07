@@ -36,6 +36,7 @@ on:
         default: auto
         options:
           - auto
+          - v0.11.0
           - v0.10.0
           - v0.9.9
           - v0.9.8
@@ -45,7 +46,6 @@ on:
           - v0.9.1
           - v0.9.0
           - v0.8.0
-          - v0.7.9
       tag_custom:
         description: "自定义 tag（填了则覆盖上面的下拉选择；用于列表外的旧版本，如 v0.5.2）"
         required: false
@@ -283,6 +283,9 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          CSC_NAME: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_NAME || '' }}
           # 发布产物标记：注入后 __PIDECK_RELEASE_BUILD__ 为 true → 构建来源判定 release
           # （src/main/buildIdentity.ts）。少了它，发布包会在设置页显示「本地构建」。
           PIDECK_RELEASE_BUILD: "1"
@@ -318,6 +321,9 @@ jobs:
         if: matrix.platform == 'macos'
         shell: bash
         run: node scripts/verify-mac-signature.mjs
+        env:
+          PIDECK_MAC_REQUIRE_DEVELOPER_ID: ${{ secrets.MAC_CSC_LINK != '' || secrets.MAC_CSC_NAME != '' }}
+          PIDECK_MAC_TEAM_ID: ${{ vars.MAC_TEAM_ID }}
 
       # sidecar 跟应用版本 Release 一起发，不另开 tag（独立 tag 会抢走 GitHub /releases/latest）。
       # runner-node 只在 Windows job 打两个 arch；DSH runtime tgz 改由下方专用的
@@ -490,7 +496,10 @@ jobs:
             exit 1
           fi
           # 名称对齐 tag：预发布暂存期的命名会原样留在 Release 页面上。
-          gh api -X PATCH "repos/${REPO}/releases/tags/${TAG}" -f name="$TAG" -F make_latest=true >/dev/null
+          # 必须按 release_id PATCH：GitHub 的「Update a release」只接受 id，
+          # /releases/tags/<tag> 仅支持 GET（PATCH 恒 404，v0.10.0 发版实测）。
+          RELEASE_ID="$(gh api "repos/${REPO}/releases/tags/${TAG}" --jq .id)"
+          gh api -X PATCH "repos/${REPO}/releases/${RELEASE_ID}" -f name="$TAG" -F make_latest=true >/dev/null
           # /releases/latest 有缓存窗口，重试到指向本 tag（最长 60s），超时按失败处理。
           actual=""
           for attempt in $(seq 1 12); do

@@ -813,6 +813,20 @@ function joined(messages) {
 	return messages.map((message) => `${message.text}:${message.meta?.entryId ?? "-"}`);
 }
 
+test("system-only history before the first visible message returns an empty terminal page", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "pideck-history-system-head-"));
+	const sessionPath = join(directory, "session.jsonl");
+	try {
+		await writeLines(sessionPath, [JSON.stringify({ id: "session", type: "session" }), systemEntry("s0", "session", { sections: { preamble: "You are pi." } }), roleEntry("u1", "s0", "user", "q1"), roleEntry("a1", "u1", "assistant", "a1")]);
+		const reader = createRoleAwareReader((path) => path);
+		const page = await reader.readSessionDisplayTurnPage(sessionPath, "viewer", undefined, 10, "u1");
+		assert.equal(page.messages.length, 0, "system entry has no timeline projection");
+		assert.equal(page.nextBefore, null);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
 test("page projection skips pi 0.86 system entries when assigning entry ids", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "pideck-history-system-ids-"));
 	const sessionPath = join(directory, "session.jsonl");

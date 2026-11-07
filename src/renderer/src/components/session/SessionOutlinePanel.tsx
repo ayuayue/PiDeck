@@ -167,7 +167,6 @@ export function SessionOutlinePanel(props: { items: readonly OutlineRailItem[]; 
 								className={`flex w-full items-start gap-2 px-2 py-1.5 text-left text-xs hover:bg-muted/60 ${isActive || isTarget ? "bg-accent-soft text-foreground" : "text-muted-foreground"}`}
 							>
 								<span className="w-7 shrink-0 text-right tabular-nums opacity-60">{row.index + 1}</span>
-								<span className={`mt-0.5 min-w-7 shrink-0 whitespace-nowrap text-micro ${row.item.role === "user" ? "text-info" : "text-muted-foreground/60"}`}>{row.item.role === "user" ? t("sessionFind.roleUser") : t("sessionFind.roleAssistant")}</span>
 								<span className="min-w-0 flex-1">
 									<span className={`line-clamp-2 break-words ${row.item.pending === true ? "opacity-60" : ""}`}>{row.item.title}</span>
 									{row.item.time ? <span className="mt-0.5 block text-micro opacity-60">{row.item.time}</span> : null}
@@ -177,11 +176,9 @@ export function SessionOutlinePanel(props: { items: readonly OutlineRailItem[]; 
 					})}
 				</div>
 			</div>
-			{/* 这里的条数是 merged 后的长度（用户提问 + 助手回复），与底部状态栏的「N 轮」不是
-			    同一口径：一轮通常包含 1 条提问和至少 1 条回复，差值是助手条目，不是边界误差。
+			{/* 这里的条数就是用户提问数（刻度只收用户提问），与底部状态栏的「N 轮」同一口径；
 			    mergeOutlineRailItems 还会在尾部追加「没有 entryId 的 live 消息」，刚发一条提问、
-			    目录索引还没更新时面板会多一条；状态栏用 max(countUserTurns, directory.length)，
-			    那是轮次口径。两者不强行对齐，只在这里说明差异来源。 */}
+			    目录索引还没更新时面板会多一条 —— 那一轮状态栏也已计入，不属于边界误差。 */}
 			<div className="border-t border-border px-2 py-1.5 text-micro text-muted-foreground">
 				{t("outline.total", { count: items.length })}
 				{hint ? ` · ${hint}` : ""}

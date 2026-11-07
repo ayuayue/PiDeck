@@ -1153,6 +1153,8 @@ export const ipcChannels = {
 	agentMemoryList: "agent-memory:list",
 	/** 删除单条记忆（写墓碑，旧导出包不会把它导回来） */
 	agentMemoryDeleteEntry: "agent-memory:delete-entry",
+	/** 批量删除记忆（同一文件只落盘一次，墓碑与单条删除同口径） */
+	agentMemoryDeleteEntries: "agent-memory:delete-entries",
 	/** 撤销刚删的条目（写回内容并回收墓碑） */
 	agentMemoryRestoreEntry: "agent-memory:restore-entry",
 	agentMemoryStandingRead: "agent-memory:standing-read",

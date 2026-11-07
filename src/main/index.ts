@@ -325,7 +325,7 @@ import { resolveEnhanceTargetModel } from "../shared/enhanceModelPreference";
 import { syncAgentMemoryRegistration } from "./agentMemory/AgentMemoryMcpRegistration";
 import { clearAgentMemoryIndex, readAgentMemoryStatus } from "./agentMemory/agentMemoryStatus";
 import { migrateAgentMemoryProjectKeys } from "./agentMemory/agentMemoryMigration";
-import { deleteAgentMemoryEntry, readAgentMemoryEntries, readStandingEntry, restoreAgentMemoryEntry, writeStandingEntry } from "./agentMemory/agentMemoryEntries";
+import { deleteAgentMemoryEntries, deleteAgentMemoryEntry, readAgentMemoryEntries, readStandingEntry, restoreAgentMemoryEntry, writeStandingEntry } from "./agentMemory/agentMemoryEntries";
 import { renameDevice } from "../../resources/agent-memory/sync.mjs";
 import { exportAgentMemoryBundle, importAgentMemoryBundle, previewAgentMemoryBundle } from "./agentMemory/agentMemoryBundle";
 import { registerAgentMemoryIpc } from "./ipc/agentMemoryIpc";
@@ -4039,6 +4039,7 @@ function registerIpc() {
 				projects: () => projectStore.list().map((project) => ({ name: project.name, path: "locator" in project ? project.locator.remotePath : project.path })),
 			}),
 		deleteEntry: (input) => deleteAgentMemoryEntry(agentMemoryRoot(), input),
+		deleteEntries: (items) => deleteAgentMemoryEntries(agentMemoryRoot(), items),
 		restoreEntry: (input) => restoreAgentMemoryEntry(agentMemoryRoot(), input),
 		// 打开记忆根目录：showItemInFolder 是 fire-and-forget（Linux 上 openPath 会永不 settle，#396），
 		// 包一层 Promise 让信封形态保持一致；失败只告警，不让设置页弹错误。
@@ -7241,7 +7242,7 @@ app
 				if (next) void settingsStore.update({ acpToolConfigDefaults: next });
 			},
 			// ACP 超时口径运行时读口：每次布防/派发实时读 settings（变更后新回合生效，
-			// 不需要重启）；undefined 回落代码内默认（stall 90s / turn 10min）。
+			// 不需要重启）；undefined 回落代码内默认（stall 180s / turn 15min）。
 			readAcpTimeoutSettings: () => {
 				const settings = settingsStore.get();
 				return { promptStallTimeoutMs: settings.acpPromptStallTimeoutMs, promptTurnTimeoutMs: settings.acpPromptTurnTimeoutMs };

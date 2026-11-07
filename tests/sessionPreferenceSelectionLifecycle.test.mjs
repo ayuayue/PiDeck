@@ -102,6 +102,14 @@ for (const operation of operations) {
 	});
 }
 
+test("a welcome-page model selection bumps the preference version so the bar rereads it", async () => {
+	const h = harness({ noRecord: true });
+	await h.controller.applyModel(selectedModel);
+	assert.deepEqual(h.calls.welcomeBumps, [SOURCE], "closing the picker must force the bar to reread the new preference");
+	assert.deepEqual(JSON.parse(h.storage.get("pideck:welcome-model")), { provider: "selected", modelId: "chosen", modelName: "Chosen model" });
+	assert.deepEqual(h.calls.applied, [SOURCE]);
+});
+
 test("busy model lookup cannot offer a source-runtime restart after switching sessions", async () => {
 	const h = harness();
 	const wait = deferred();
