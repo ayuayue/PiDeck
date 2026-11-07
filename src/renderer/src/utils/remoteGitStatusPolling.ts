@@ -10,6 +10,7 @@
  * 闸门（任一关闭就不起一次读）：document 可见、host ready、非变更中、非读中。
  */
 import type { GitReadSnapshot, GitReadSnapshotResult } from "../../../shared/types/git";
+import { createGitOperationGate } from "./gitOperationGate";
 import { startRemoteGitRefsPolling, type RemoteGitRefsPollingTimer } from "./remoteGitRefsPolling";
 
 /** 5 秒：与本机 Git 面板同一节奏；再快会把 SSH 往返变成常态开销。 */
@@ -76,21 +77,23 @@ export type RemoteGitStatusRefreshPort<TState extends RemoteGitStatusRefreshStat
  * 状态机只有一份：闸门在本模块，事实代次在控制器；停止只是推进自己的代次，让在途答案过期。
  */
 export function createRemoteGitStatusRefresher<TState extends RemoteGitStatusRefreshState>(port: RemoteGitStatusRefreshPort<TState>) {
-	let epoch = 0;
-	let inFlight = false;
+	// 取消 / 互斥（不重叠）/ 迟到读 三条规则走共用闸门：本地 GitPanel 用同一份实现。
+	const gate = createGitOperationGate();
 	/**
 	 * 连接失效后的暂停位：断开/重连本身不能自己把事实读回来（显式重连绝不重放一次读）。
 	 * 解除判据在控制器：只有一次**成功的显式 refresh()** 才 resume，失败的刷新不解除。
 	 */
 	let paused = false;
-	const blocked = (state: TState) => paused || !port.isActive() || state.loading || state.diffLoading || state.mutating === true || inFlight;
-	const stale = (generation: number, factGeneration: number) => !port.isActive() || generation !== epoch || factGeneration !== port.factGeneration();
+	const blocked = (state: TState) => paused || !port.isActive() || state.loading || state.diffLoading || state.mutating === true;
+	/** 两个维度都要对：闸门代（取消/写）与控制器事实代（显式刷新/写动作）。 */
+	const stale = (generation: number, factGeneration: number) => !port.isActive() || !gate.isCurrent(generation) || factGeneration !== port.factGeneration();
 	return {
 		async refreshStatus(): Promise<void> {
 			const state = port.current();
 			if (blocked(state)) return;
-			inFlight = true;
-			const generation = ++epoch;
+			// exclusive：前一次静默读还在途就跳过这一拍（不与它重叠，也不把它顶掉）。
+			const generation = gate.beginRead({ exclusive: true });
+			if (generation === undefined) return;
 			const factGeneration = port.factGeneration();
 			try {
 				const result = await port.readSnapshot();
@@ -104,13 +107,13 @@ export function createRemoteGitStatusRefresher<TState extends RemoteGitStatusRef
 				const current = port.current();
 				port.publish({ ...current, errorCode: current.errorCode === "GIT_WRITE_RESULT_UNCONFIRMED" ? "GIT_WRITE_RESULT_UNCONFIRMED" : port.codeOf(error) });
 			} finally {
-				inFlight = false;
+				gate.endRead();
 			}
 		},
 		/** 连接失效：暂停自动轮询，并退休在途的静默答案。 */
 		pause(): void {
 			paused = true;
-			epoch += 1;
+			gate.retire();
 		},
 		/** 一次成功的显式刷新之后恢复轮询（失败的刷新不解除暂停）。 */
 		resume(): void {
@@ -118,7 +121,7 @@ export function createRemoteGitStatusRefresher<TState extends RemoteGitStatusRef
 		},
 		/** 隐藏/卸载/闸门关闭：退休在途结果。 */
 		stop(): void {
-			epoch += 1;
+			gate.retire();
 		},
 	};
 }

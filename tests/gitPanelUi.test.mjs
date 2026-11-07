@@ -147,8 +147,8 @@ describe("Git panel VS Code Source Control contract", () => {
 	test("guards async state and constrains visible pane heights", () => {
 		assert.match(panel, /function fitPaneHeights/);
 		assert.match(panel, /ResizeObserver/);
-		assert.match(panel, /statusRequestRef/);
-		assert.match(panel, /request === statusRequestRef\.current\s*&&\s*projectId === projectIdRef\.current/);
+		// 迟到读由共用闸门回答（与远端 remoteGitViewState 同一份实现），项目/仓库身份仍由本组件再核一次。
+		assert.match(panel, /gate\.isCurrent\(request\)\s*&&\s*projectId === projectIdRef\.current/);
 		assert.match(panel, /requestSequence/);
 		assert.match(panel, /const PANE_MIN_BODY_HEIGHT = 24/);
 		// 头部实际 h-8=32px；26px 旧预算会让折叠按钮被 overflow 裁切、视觉偏下
@@ -246,10 +246,14 @@ describe("Git panel VS Code Source Control contract", () => {
 	});
 
 	test("runs silent refreshes without overlapping slow status requests", () => {
-		assert.match(panel, /const statusRunningRequestRef = useRef<\{\s*projectId: string;\s*repoScopeKey: string;\s*request: number;\s*\} \| null>\(null\)/);
-		assert.match(panel, /statusRunningRequestRef\.current\?\.projectId === props\.projectId/);
-		assert.match(panel, /statusRunningRequestRef\.current = runningRequest/);
-		assert.match(panel, /statusRunningRequestRef\.current = null/);
+		// 静默读不重叠（exclusive 闸门），显式刷新总是抢先；在途 mutation 仍然先短路。
+		assert.match(panel, /if \(silent && mutationRunningRef\.current\) return;/);
+		assert.match(panel, /const request = gate\.beginRead\(\{ exclusive: silent \}\);/);
+		assert.match(panel, /if \(request === undefined\) return;/);
+		assert.match(panel, /gate\.endRead\(\);/);
+		// 旧的手写单飞簿记已退役：只允许闸门一处维护“在途读”。
+		assert.doesNotMatch(panel, /statusRunningRequestRef/);
+		assert.doesNotMatch(panel, /statusRequestRef/);
 	});
 
 	test("keeps mutation locked until IPC settles and times out the real git commands", () => {
