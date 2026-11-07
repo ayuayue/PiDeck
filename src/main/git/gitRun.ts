@@ -151,7 +151,7 @@ export async function resolveGitToplevel(cwd: string, timeoutMs: number = GIT_TO
  * 已知限制：超时用 taskkill /T 只杀得到 wsl.exe，Linux 侧 git 由发行版 init 收养、
  * 可能继续跑完——读类命令无副作用，mutation 的超时本身已是异常路径。
  */
-function runWslGit(plan: GitSpawnPlan, options: { timeoutMs?: number; maxBuffer?: number; input?: string }): Promise<{ stdout: string; stderr: string }> {
+function runWslGit(plan: GitSpawnPlan, options: { timeoutMs?: number; maxBuffer?: number; input?: string; allowExitCodes?: readonly number[] }): Promise<{ stdout: string; stderr: string }> {
 	const maxBuffer = options.maxBuffer ?? WSL_GIT_MAX_BUFFER;
 	// 冷启动与 9P 首次目录遍历可能超过宿主默认超时，WSL 侧统一抬到下限。
 	const timeoutMs = resolveWslGitTimeout(options.timeoutMs);
@@ -235,7 +235,7 @@ function runWslGit(plan: GitSpawnPlan, options: { timeoutMs?: number; maxBuffer?
 			if (overflowed) {
 				// 带上已收集的截断输出：只消费前缀的调用方（提交摘要）可降级，其余照旧按失败处理
 				settle(() => reject(new GitOutputOverflowError(`Command output exceeded ${maxBuffer} bytes: ${plan.display}`, decodeWslGitStdout(stdoutRaw))));
-			} else if (code === 0) {
+			} else if (code === 0 || (code !== null && (options.allowExitCodes?.includes(code) ?? false))) {
 				settle(() => resolve({ stdout: decodeWslGitStdout(stdoutRaw), stderr }));
 			} else {
 				// 对齐 execFile / gitProcess 的报错格式（首行命令、其余 stderr）。

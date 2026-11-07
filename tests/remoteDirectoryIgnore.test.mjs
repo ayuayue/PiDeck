@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { applyDirectoryIgnore, repoScopeOfPath, repoRelativePathOf, DIRECTORY_IGNORE_BATCH_SIZE } = loadTsCommonJs("src/main/remote/RemoteDirectoryIgnore.ts");
+const { applyDirectoryIgnore, repoScopeOfPath, repoRelativePathOf, DIRECTORY_IGNORE_BATCH_SIZE } = loadTsCommonJs("src/main/files/DirectoryIgnore.ts");
 const { ipcChannels } = loadTsCommonJs("src/shared/ipc.ts");
 
 const projectId = "remote-project";

@@ -9,11 +9,17 @@ import { parseProjectFileTarget, resolveLocalProjectFileTarget } from "./project
 import { assertTrustedStatSize, readTextFileGuarded } from "./textFileRead";
 import { writeTextFileGuarded } from "./textFileWrite";
 import type { ProjectFileBackend } from "./ProjectFileBackend";
+import { applyDirectoryIgnore } from "./DirectoryIgnore";
 import type { FileSystemService } from "../fs/FileSystemService";
 
 export type LocalProjectFileBackendDeps = {
 	fileSystemService: Pick<FileSystemService, "listTree" | "listTreePage" | "searchNames" | "create" | "delete" | "rename">;
 	resolveProjectRoot: (projectId: string) => string;
+	/**
+	 * 目录页的 Git ignore 判定（只读）：返回与路径逐位对应的布尔数组；无法判定返回 `undefined`。
+	 * 未装配（旧装配/测试）时目录页不带 `ignored`——缺字段表示“没判定”，不是“未忽略”。
+	 */
+	checkIgnore?: (cwd: string, relativePaths: readonly string[]) => Promise<readonly boolean[] | undefined>;
 };
 
 type ResolvedTarget = {
@@ -78,15 +84,17 @@ export class LocalProjectFileBackend implements ProjectFileBackend {
 	 */
 	async directoryPage(target: ProjectFileTarget, limit = 2000): Promise<{ entries: ProjectDirectoryEntry[]; truncated: boolean }> {
 		let page;
+		let canonicalRoot = "";
 		try {
 			const resolved = await this.resolveTarget(target);
-			page = await this.deps.fileSystemService.listTreePage(resolved.boundary.canonicalRoot, 0, resolved.path);
+			canonicalRoot = resolved.boundary.canonicalRoot;
+			page = await this.deps.fileSystemService.listTreePage(canonicalRoot, 0, resolved.path);
 		} catch (error) {
 			if (isMissingPath(error)) throw new Error("PROJECT_DIRECTORY_MISSING");
 			throw error;
 		}
 		const projectId = target.projectId;
-		const mapped = page.nodes
+		const mapped: ProjectDirectoryEntry[] = page.nodes
 			.filter((node) => node.type === "file" || node.type === "directory")
 			.map((node) => ({
 				target: { projectId, relativePath: node.relativePath },
@@ -99,8 +107,20 @@ export class LocalProjectFileBackend implements ProjectFileBackend {
 				ctimeMs: node.ctimeMs,
 				size: node.size,
 			}));
+		// 本机 ignore 修饰：判定失败只是“没修饰”，它绝不能让一次成功的目录读变成失败。
+		let ignored: readonly boolean[] | undefined;
+		if (this.deps.checkIgnore !== undefined && mapped.length > 0) {
+			try {
+				ignored = await this.deps.checkIgnore(
+					canonicalRoot,
+					mapped.map((entry) => entry.relativePath),
+				);
+			} catch {
+				ignored = undefined;
+			}
+		}
 		const truncated = page.truncated || mapped.length > limit;
-		return { entries: mapped.slice(0, limit), truncated, ...(truncated ? { totalEntries: mapped.length } : {}) };
+		return { entries: applyDirectoryIgnore(mapped.slice(0, limit), ignored?.slice(0, limit)), truncated, ...(truncated ? { totalEntries: mapped.length } : {}) };
 	}
 
 	async search(target: ProjectFileTarget, query: string): Promise<FileSearchResult[]> {

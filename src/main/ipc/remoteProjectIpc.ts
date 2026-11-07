@@ -28,7 +28,7 @@ import { createProjectDirFacts, type ProjectDirFacts } from "./remoteProjectDirF
 import { registerRemoteProjectCreateFlow } from "./remoteProjectCreateIpc";
 import type { RemoteHostConnectionService } from "../remote/RemoteHostConnectionService";
 import type { RemoteSftpDirectoryPort } from "../remote/RemoteSftpDirectoryReader";
-import type { DirectoryIgnoreProbe } from "../remote/RemoteDirectoryIgnore";
+import type { DirectoryIgnoreProbe } from "../files/DirectoryIgnore";
 import { isUserVisibleRemoteEntry } from "../remote/RemoteProjectNameRules";
 import { resolveRemoteBrowseRoot } from "../remote/RemoteBrowseRoot";
 import { createRemoteSearchReader } from "../remote/RemoteSearchReader";

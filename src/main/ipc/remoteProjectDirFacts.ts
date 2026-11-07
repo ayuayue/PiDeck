@@ -23,7 +23,7 @@ import type { RemoteProjectFactsScope, RemoteWorkspaceEntry } from "../../shared
 import { createSnapshotFactsCache, type SnapshotFactsCache } from "../git/RemoteGitSnapshotFacts";
 import type { RemoteGitReadSnapshot } from "../git/RemoteGitService";
 import { createFactCache, type FactCache } from "../remote/RemoteFactCache";
-import type { DirectoryIgnoreProbe } from "../remote/RemoteDirectoryIgnore";
+import type { DirectoryIgnoreProbe } from "../files/DirectoryIgnore";
 import type { RemoteFactsHub } from "../remote/RemoteFactsNotifications";
 import { createDeepDirWatch, type DeepDirWatchStatus } from "../remote/RemoteDeepDirWatch";
 import { dirKeysAfterWrite, dirPathsAfterWrite } from "../remote/RemoteDirWatchRegistry";

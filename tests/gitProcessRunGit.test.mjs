@@ -100,3 +100,14 @@ test("runGit 超时后 settle 并杀掉孙进程树（复现 execFile 卡死场�
 
 	rmSync(dir, { recursive: true, force: true });
 });
+
+test("runGit allowExitCodes：列出的退出码不 reject，stdout 原样返回", async () => {
+	// git check-ignore 用 exit 1 表示「没有任何路径被忽略」，那是正常结果而不是失败。
+	const allowed = await runGit(["-e", "console.log('x'); process.exit(1)"], { cwd: process.cwd(), allowExitCodes: [1] }, node);
+	assert.equal(allowed.stdout, "x\n");
+	// 未列出的退出码仍然按失败处理（错误路径不能被吞掉）。
+	await assert.rejects(
+		() => runGit(["-e", "process.exit(3)"], { cwd: process.cwd(), allowExitCodes: [1] }, node),
+		(err) => /Command failed/.test(String(err)),
+	);
+});

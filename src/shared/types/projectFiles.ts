@@ -26,9 +26,10 @@ export type ProjectDirectoryEntry = {
 	/**
 	 * Git ignore 修饰（仅当 backend 有 Git 判定时出现）；不是“隐藏”。
 	 *
-	 * 目前由**远端**目录页填写（`git.checkIgnore`：最长仓库前缀归因、64 路径/批、能力门控、失败即不填），
-	 * 渲染层只用来把行置灰（文件行与目录行各一处）。**本机 backend 与 WSL 尚未填**（下一步切片）：
-	 * 字段缺失表示“没判定”，不能当成“未被忽略”，也不该改成本地重写 gitignore 语义或当成过滤条件。
+	 * 本机与远端目录页都填这一个字段：远端走 `probeIgnore`（最长仓库前缀归因、64 路径/批、能力门控），
+	 * 本机走 `GitService.checkIgnore`（`git check-ignore --no-index -z --stdin`，WSL 经同一条 git 分派）。
+	 * 渲染层只用来把行置灰（文件行与目录行各一处）。**字段缺失表示“没判定”**，不能当成“未被忽略”，
+	 * 也不该改成本地重写 gitignore 语义或当成过滤条件。
 	 */
 	ignored?: boolean;
 };

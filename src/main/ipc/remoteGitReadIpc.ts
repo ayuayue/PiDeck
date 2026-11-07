@@ -35,7 +35,7 @@ import { createRemoteGitService, remoteGitFailureCode, remoteGitRepoScope, valid
 import { createRemoteGitMutationTokens } from "../git/RemoteGitMutationTokens";
 import { createSnapshotFactsCache, type SnapshotFactsCache } from "../git/RemoteGitSnapshotFacts";
 import type { RemoteFactsHub } from "../remote/RemoteFactsNotifications";
-import { DIRECTORY_IGNORE_BATCH_SIZE, DIRECTORY_IGNORE_MAX_PATHS, DIRECTORY_IGNORE_REPOS_TTL_MS, repoRelativePathOf, repoScopeOfPath } from "../remote/RemoteDirectoryIgnore";
+import { DIRECTORY_IGNORE_BATCH_SIZE, DIRECTORY_IGNORE_MAX_PATHS, DIRECTORY_IGNORE_REPOS_TTL_MS, repoRelativePathOf, repoScopeOfPath } from "../files/DirectoryIgnore";
 
 /**
  * 工作区事实 owner 的 Git 侧接口（T4）：由 `remoteProjectIpc` 的 handle 提供。

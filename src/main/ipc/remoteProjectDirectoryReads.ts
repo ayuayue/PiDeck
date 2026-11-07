@@ -6,7 +6,7 @@
 
 import { codeOf, opFailFromCode, opOk } from "../../shared/op";
 import type { ProjectDirectoryEntry, ProjectDirectoryPageResult, ProjectDirectoryWatchDegradation, ProjectPathState, ProjectPathsExistResult } from "../../shared/types/projectFiles";
-import { applyDirectoryIgnore, type DirectoryIgnoreProbe } from "../remote/RemoteDirectoryIgnore";
+import { applyDirectoryIgnore, type DirectoryIgnoreProbe } from "../files/DirectoryIgnore";
 import type { RemoteProjectTargetResolver } from "./remoteProjectTarget";
 import { readRelativePath, readerPath, sessionPort, type RemoteProjectDirSnapshot } from "./remoteProjectReadIpc";
 import { createRemoteWorkspaceReader } from "../remote/RemoteWorkspaceReader";

@@ -1,5 +1,8 @@
 /**
- * 目录页的 Git ignore 修饰（T6 收尾：把 `git.checkIgnore` 接进公共目录页）。
+ * 目录页的 Git ignore 修饰（T6 收尾：把 `git check-ignore` 接进公共目录页）。
+ *
+ * 本机（`LocalProjectFileBackend`）与远端（`remoteGitReadIpc.probeIgnore`）共用这里的规则：
+ * 批次、仓库归因、`applyDirectoryIgnore` 的“只落 true”。两个 backend 只各自负责“怎么问 git”。
  *
  * 语义边界（写下来以免被后来的“顺手优化”带歪）：
  * - **只加修饰，不过滤**：`ignored: true` 只是“这条不会进 git”，条目照常显示；保护性隐藏规则仍在 backend。

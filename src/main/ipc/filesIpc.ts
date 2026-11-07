@@ -63,6 +63,11 @@ export type FilesIpcDeps = {
 	 * 便于单测与不启动 WSL 的场景维持既有语义。
 	 */
 	wslHelperPool?: WslHelperSessionPool;
+	/**
+	 * 本机目录页的 Git ignore 判定（T6 收尾）：装配层注入 `GitService.checkIgnore`。
+	 * 未装配/不是仓库时目录页不带 `ignored`（缺字段 = 没判定，不是“未忽略”）。
+	 */
+	checkIgnore?: (cwd: string, relativePaths: readonly string[]) => Promise<readonly boolean[] | undefined>;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -96,7 +101,7 @@ function parseOptionalMaxBytes(value: unknown): number | undefined {
 	return value;
 }
 
-export function registerFilesIpc({ fileSystemService, projectStore, settingsStore, getFileIndexService, appLogger, openExternalUrl, remoteFiles, wslHelperPool }: FilesIpcDeps): void {
+export function registerFilesIpc({ fileSystemService, projectStore, settingsStore, getFileIndexService, appLogger, openExternalUrl, remoteFiles, wslHelperPool, checkIgnore }: FilesIpcDeps): void {
 	registerFilesSystemIpc({ settingsStore, openExternalUrl });
 	// Windows Node / Electron 边界不能直接消费 WSL Linux 路径：统一走 WslPaths 转成当前发行版的主机 UNC。
 	// 已经是普通 Windows/非 WSL 网络盘的输入保持不变，避免误伤非 WSL 路径。
@@ -118,6 +123,7 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 	};
 	const localProjectFileBackend = new LocalProjectFileBackend({
 		fileSystemService,
+		checkIgnore,
 		resolveProjectRoot: (projectId) => {
 			const project = localProject(projectId);
 			if (!project) throw new Error("PROJECT_NOT_FOUND");
@@ -136,6 +142,7 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 			delete: (targetPath, recursive) => fileSystemService.delete(targetPath, recursive),
 			rename: (targetPath, newName) => fileSystemService.rename(targetPath, newName),
 		},
+		checkIgnore,
 		resolveProjectRoot: (projectId) => {
 			const project = localProject(projectId);
 			if (!project) throw new Error("PROJECT_NOT_FOUND");

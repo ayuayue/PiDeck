@@ -5391,6 +5391,8 @@ function registerIpc() {
 		appLogger,
 		openExternalUrl,
 		wslHelperPool,
+		// 本机目录页的 Git ignore 修饰（T6 收尾）：与远端 probeIgnore 同一份契约（只加修饰、失败即不填）。
+		checkIgnore: (cwd, relativePaths) => gitService.checkIgnore(cwd, relativePaths),
 		// 公共文件读（T6）：ssh 项目的目录页与批量 stat 走只读 fs 面，不经过 entry 令牌。
 		remoteFiles: {
 			// 中央编辑器读写远端文件：与抽屉编辑器共用同一份远端文本服务与令牌表。
