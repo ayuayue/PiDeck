@@ -469,24 +469,12 @@ const api = {
 		readProjectFile: (projectId: string, path: string) => ipcRenderer.invoke(ipcChannels.remoteProjectRead, projectId, path) as Promise<import("../shared/types/remoteHost").RemoteProjectReadResult>,
 		openProjectText: (projectId: string, path: string): Promise<import("../shared/types/remoteFiles").RemoteTextOpenResult> => ipcRenderer.invoke(ipcChannels.remoteProjectTextOpen, projectId, path),
 		saveProjectText: (projectId: string, path: string, content: string, version: string): Promise<import("../shared/types/remoteFiles").RemoteTextSaveResult> => ipcRenderer.invoke(ipcChannels.remoteProjectTextSave, projectId, path, content, version),
-		/** 远端文件管理：读取条目元数据并签发 rename/delete 的一次性 entry 令牌（不读正文）。 */
-		statProjectEntry: (projectId: string, path: string) => ipcRenderer.invoke(ipcChannels.remoteProjectEntryStat, projectId, path) as Promise<import("../shared/types/remoteFiles").RemoteEntryStatResult>,
-		/** 新建 0 字节文件（create-only；目标已存在返回稳定码）。 */
-		createProjectFile: (projectId: string, parentRelativePath: string, name: string) => ipcRenderer.invoke(ipcChannels.remoteProjectFileCreate, projectId, parentRelativePath, name) as Promise<import("../shared/types/remoteFiles").RemoteEntryCreateResult>,
-		/** 新建单层空目录（不递归创建父链）。 */
-		createProjectDirectory: (projectId: string, parentRelativePath: string, name: string) => ipcRenderer.invoke(ipcChannels.remoteProjectDirectoryCreate, projectId, parentRelativePath, name) as Promise<import("../shared/types/remoteFiles").RemoteEntryCreateResult>,
-		/** 项目根内重命名/移动（需要 statProjectEntry 签发的令牌；不覆盖已有目标）。 */
-		renameProjectEntry: (projectId: string, sourceRelativePath: string, targetRelativePath: string, version: string) => ipcRenderer.invoke(ipcChannels.remoteProjectEntryRename, projectId, sourceRelativePath, targetRelativePath, version) as Promise<import("../shared/types/remoteFiles").RemoteEntryRenameResult>,
-		/** 删除到项目内 .pideck-trash（可还原；需要 entry 令牌）。 */
-		deleteProjectEntry: (projectId: string, path: string, version: string) => ipcRenderer.invoke(ipcChannels.remoteProjectEntryDelete, projectId, path, version) as Promise<import("../shared/types/remoteFiles").RemoteEntryDeleteResult>,
 		/** 列出项目内回收站（只读、有界；不创建回收站目录）。 */
 		listProjectTrash: (projectId: string) => ipcRenderer.invoke(ipcChannels.remoteProjectTrashList, projectId) as Promise<import("../shared/types/remoteFiles").RemoteTrashListResult>,
 		/** 还原回收站条目到 manifest 记录的原路径（目标必须不存在）。 */
 		restoreProjectTrash: (projectId: string, trashId: string) => ipcRenderer.invoke(ipcChannels.remoteProjectTrashRestore, projectId, trashId) as Promise<import("../shared/types/remoteFiles").RemoteTrashRestoreResult>,
 		/** 永久删除回收站条目（显式确认即授权；invalid 条目不会被自动删除）。 */
 		pruneProjectTrash: (projectId: string, trashIds: string[]) => ipcRenderer.invoke(ipcChannels.remoteProjectTrashPrune, projectId, trashIds) as Promise<import("../shared/types/remoteFiles").RemoteTrashPruneResult>,
-		/** 项目内文件名搜索（不含内容搜索）；`path` 传空串表示项目根。 */
-		searchProject: (projectId: string, path: string, query: string) => ipcRenderer.invoke(ipcChannels.remoteProjectSearch, projectId, path, query) as Promise<import("../shared/types/remoteHost").RemoteProjectSearchResult>,
 		/** 该项目已确认 root 的最近一次复核结果（只读；不建会话、不产生 helper 请求）。 */
 		rootStatus: (projectId: string) => ipcRenderer.invoke(ipcChannels.remoteProjectRootStatus, projectId) as Promise<import("../shared/types/remoteHost").RemoteProjectRootStatusResult>,
 	},

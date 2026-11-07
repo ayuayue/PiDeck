@@ -51,16 +51,6 @@ export const ipcChannels = {
 	/** 已有远端文本文件编辑：main持有版本，保存必须携带打开时签发的令牌。 */
 	remoteProjectTextOpen: "remote:project-text-open",
 	remoteProjectTextSave: "remote:project-text-save",
-	/** 远端文件管理（Phase 5 文件面）：entry-stat 签发 rename/delete 的一次性 entry 令牌。 */
-	remoteProjectEntryStat: "remote:project-entry-stat",
-	/** 新建 0 字节文件（create-only；目标已存在返回稳定码）。 */
-	remoteProjectFileCreate: "remote:project-file-create",
-	/** 新建单层空目录（create-only；不递归创建父链）。 */
-	remoteProjectDirectoryCreate: "remote:project-directory-create",
-	/** 项目根内重命名/移动（create-only；不覆盖已有目标）。 */
-	remoteProjectEntryRename: "remote:project-entry-rename",
-	/** 删除到项目内 .pideck-trash（可还原；不是 unlink）。 */
-	remoteProjectEntryDelete: "remote:project-entry-delete",
 	/** 列出项目内回收站（有界；只读，不创建回收站目录）。 */
 	remoteProjectTrashList: "remote:project-trash-list",
 	/** 还原回收站条目到 manifest 记录的原路径（目标必须不存在）。 */
@@ -71,8 +61,6 @@ export const ipcChannels = {
 	remoteProjectCreateAnswer: "remote:project-create-answer",
 	/** 主进程 → 渲染层：「新建空远端项目」确认请求推送（与既有目录登记确认分开）。 */
 	remoteProjectCreateConfirm: "remote:project-create-confirm",
-	/** 按 projectId 在项目内做**文件名**搜索（不含内容搜索）；query 在 main 边界重新校验。 */
-	remoteProjectSearch: "remote:project-search",
 	/** 项目已确认 root 的最近一次复核结果（只读、不建会话、无 helper 请求）。 */
 	remoteProjectRootStatus: "remote:project-root-status",
 	/** 订阅一个项目的目录/Git 事实变化（只标脏，不触发装载）；订阅绑定 sender + project。 */

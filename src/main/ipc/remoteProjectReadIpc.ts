@@ -130,7 +130,6 @@ export function registerRemoteProjectReadIpc(input: { enabled: boolean; projectR
 			return opFailFromCode(codeOf(error, "REMOTE_PROJECT_READ_FAILED"));
 		}
 	};
-	ipcMain.handle(ipcChannels.remoteProjectSearch, (_event, projectIdValue: unknown, pathValue: unknown, queryValue: unknown): Promise<RemoteProjectSearchResult> => searchProject(projectIdValue, pathValue, queryValue));
 
 	ipcMain.handle(ipcChannels.remoteProjectRootStatus, async (_event, projectIdValue: unknown): Promise<RemoteProjectRootStatusResult> => {
 		if (!input.enabled) return opFailFromCode("REMOTE_FEATURE_DISABLED");

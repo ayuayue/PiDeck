@@ -69,13 +69,6 @@ function entryIpcHarness(enabled = true) {
 
 test("entry IPC validates renderer input before touching the remote service and returns stable envelopes", async () => {
 	const f = entryIpcHarness();
-	const invalidVersion = "forged";
-	// 路径/名字的精确码由服务层拥有（见 entryService 套件）；IPC 这里只断言信封是失败且不触达成功分支。
-	assert.equal((await f.invoke("remote:project-entry-stat", "project", "../x")).ok, false);
-	assert.equal((await f.invoke("remote:project-entry-stat", "project", ".pideck-trash/x")).ok, false);
-	assert.equal((await f.invoke("remote:project-file-create", "project", "", "a/b")).ok, false);
-	assert.equal((await f.invoke("remote:project-entry-rename", "project", "a.txt", "b.txt", invalidVersion)).code, "REMOTE_FILE_INPUT_INVALID");
-	assert.equal((await f.invoke("remote:project-entry-delete", "project", "a.txt", invalidVersion)).code, "REMOTE_FILE_INPUT_INVALID");
 	assert.equal((await f.invoke("remote:project-trash-restore", "project", "bad-id")).ok, false);
 	assert.equal((await f.invoke("remote:project-trash-prune", "project", [])).code, "REMOTE_FILE_INPUT_INVALID");
 	assert.equal(
@@ -89,48 +82,36 @@ test("entry IPC validates renderer input before touching the remote service and 
 		"REMOTE_FILE_INPUT_INVALID",
 	);
 	assert.equal(f.calls.length, 0);
-	const stat = await f.invoke("remote:project-entry-stat", "project", "a.txt");
-	assert.equal(stat.ok, true);
-	// v5 单信封：成功载荷在 `value` 下，失败带 `outcome`。
-	assert.match(stat.value.version, /^[a-f0-9]{32}$/);
-	const created = await f.invoke("remote:project-file-create", "project", "", "new.txt");
-	assert.equal(created.ok, true);
-	assert.equal(created.value.relativePath, "new.txt");
-	const renamed = await f.invoke("remote:project-entry-rename", "project", "a.txt", "b.txt", "a".repeat(32));
-	assert.equal(renamed.ok, true);
 	assert.equal((await f.invoke("remote:project-trash-list", "project")).ok, true);
 	assert.equal((await f.invoke("remote:project-trash-prune", "project", ["20261017T093012Z-aaaaaaaa"])).ok, true);
-	assert.equal(f.calls.length, 5);
+	assert.equal(f.calls.length, 2);
 	f.sender.emit("destroyed");
 	assert.deepEqual(f.released, [1]);
 });
 
 test("disabled entry IPC returns REMOTE_FEATURE_DISABLED and registers no sender resources", async () => {
 	const f = entryIpcHarness(false);
-	for (const [channel, args] of [
-		["remote:project-entry-stat", ["project", "a.txt"]],
-		["remote:project-file-create", ["project", "", "new.txt"]],
-		["remote:project-trash-list", ["project"]],
-	])
-		assert.deepEqual(await f.invoke(channel, ...args), { ok: false, code: "REMOTE_FEATURE_DISABLED", outcome: "rejected" });
+	assert.deepEqual(await f.invoke("remote:project-trash-list", "project"), { ok: false, code: "REMOTE_FEATURE_DISABLED", outcome: "rejected" });
 	assert.equal(f.calls.length, 0);
 	assert.equal(f.sender.listenerCount("destroyed"), 0);
 });
 
-test("entry channels are wired through shared/preload/main/preview without local files fallback", () => {
+test("trash channels are wired; the five legacy entry channels are gone", () => {
 	const channels = readFileSync("src/shared/ipc.ts", "utf8");
 	const preload = readFileSync("src/preload/index.ts", "utf8");
 	const main = readFileSync("src/main/index.ts", "utf8");
 	const preview = readFileSync("src/renderer/src/previewApi.ts", "utf8");
-	const names = ["remoteProjectEntryStat", "remoteProjectFileCreate", "remoteProjectDirectoryCreate", "remoteProjectEntryRename", "remoteProjectEntryDelete", "remoteProjectTrashList", "remoteProjectTrashRestore", "remoteProjectTrashPrune"];
-	for (const name of names) {
-		assert.match(channels, new RegExp(name + "\\s*:"), name + " missing channel");
-		assert.match(preload, new RegExp("invoke\\(\\s*ipcChannels\\." + name), name + " missing preload invoke");
+	for (const name of ["remoteProjectTrashList", "remoteProjectTrashRestore", "remoteProjectTrashPrune"]) {
+		assert.ok(channels.includes(name + ":"), name + " missing channel");
+		assert.ok(preload.includes("ipcChannels." + name), name + " missing preload invoke");
 	}
-	for (const method of ["statProjectEntry", "createProjectFile", "createProjectDirectory", "renameProjectEntry", "deleteProjectEntry", "listProjectTrash", "restoreProjectTrash", "pruneProjectTrash"]) assert.match(preview, new RegExp(method + "\\s*:"), method + " missing preview stub");
+	for (const method of ["listProjectTrash", "restoreProjectTrash", "pruneProjectTrash"]) assert.ok(preview.includes(method + ":"), method + " missing preview stub");
+	// 2026-11-07 收口：renderer 已全走公共 files:*，旧五条通道与对应 preload 方法一并下线。
+	for (const name of ["remoteProjectEntryStat", "remoteProjectFileCreate", "remoteProjectDirectoryCreate", "remoteProjectEntryRename", "remoteProjectEntryDelete", "remoteProjectSearch"]) assert.ok(!channels.includes(name + ":"), name + " must be gone");
+	for (const method of ["statProjectEntry", "createProjectFile", "createProjectDirectory", "renameProjectEntry", "deleteProjectEntry", "searchProject"]) assert.ok(!preload.includes(method + ":"), method + " must be gone from preload");
 	assert.match(main, /registerRemoteProjectEntryIpc\(\{\s*enabled:\s*remoteFeatureEnabled/);
 	const handler = readFileSync("src/main/ipc/remoteProjectEntryIpc.ts", "utf8");
-	assert.match(handler, /ipcMain\.handle\(\s*ipcChannels\.remoteProjectEntryStat/);
+	assert.match(handler, /ipcMain\.handle\(\s*ipcChannels\.remoteProjectTrashList/);
 	assert.doesNotMatch(handler, /node:fs|node:child_process|from "electron"\.app/);
 	assert.match(readFileSync("src/main/ipc/remoteProjectFileIpc.ts", "utf8"), /REMOTE_FILE_PROTECTED_PATH/);
 });
@@ -170,7 +151,7 @@ test("window destruction revokes BOTH token classes (text save + entry)", () => 
 	});
 	registerRemoteProjectEntryIpc({ enabled: true, service: () => undefined, locator: () => undefined });
 	// 门禁开启时两个模块都在首次合法调用时挂 destroyed 监听；销毁必须同时撤销两类令牌。
-	return Promise.all([handlers.get("remote:project-text-open")({ sender }, "project", "a.txt"), handlers.get("remote:project-entry-stat")({ sender }, "project", "a.txt")]).then(() => {
+	return Promise.all([handlers.get("remote:project-text-open")({ sender }, "project", "a.txt"), handlers.get("remote:project-trash-list")({ sender }, "project")]).then(() => {
 		sender.emit("destroyed");
 		assert.deepEqual(releasedText, [7]);
 		assert.deepEqual(releasedEntry, [7]);
