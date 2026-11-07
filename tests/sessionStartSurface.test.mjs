@@ -51,7 +51,8 @@ test("bottom composer is hidden while the start surface is showing", () => {
 });
 
 test("empty active sessions render the start surface with the session id", () => {
-	assert.match(timeline, /activeMessages\.length === 0/);
+	// 时间线改按轮窗口渲染后，空态判定看的是可见窗口（paginatedMessages）而不是全量 activeMessages。
+	assert.match(timeline, /paginatedMessages\.length === 0/);
 	assert.match(timeline, /<SessionStartSurface sessionId=\{sessionId\} \/>/);
 });
 
