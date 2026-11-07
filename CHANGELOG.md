@@ -1,6 +1,8 @@
-## v0.11.0 (2026-11-07)
+## v0.11.1 (2026-11-07)
 
 Settings stops being a modal and the config surface catches up: settings moves into a page tab beside sessions, OAuth subscription logins get a page of their own, provider and model lists become searchable, and OpenRouter joins image generation. Memory gains batch deletion, and on the ACP side the stall watchdog no longer reports a silent cancellation as success.
+
+> v0.11.0 shipped without macOS artifacts because of a packaging config bug; this release republishes the complete set (same code as v0.11.0 plus the last fix below).
 
 ### 🚀 New Features
 - **Settings opens as a page tab instead of a modal** — the 80vw×80vh dialog covered the whole workspace, so you could not watch a session while changing a setting; settings now fills the session column while the sidebar and file tree stay usable, switching to a session only deactivates it (mount kept, drafts preserved) and closing the tab unmounts it, with a confirm before discarding unsaved edits. Every "go to settings" deep link (Git commit toast, quick messages, remote host, DSH install prompts, command palette, `Cmd+,`) routes through one opener, and the page focuses the section each link asks for.
@@ -24,6 +26,7 @@ Settings stops being a modal and the config surface catches up: settings moves i
 - **Image-generation providers start collapsed** — loading the config kept the first provider expanded, so a page with several providers was dominated by the first form; expand-all, collapse-all and a freshly added provider keep their behaviour.
 - **Switching models on the welcome page updates the footer** — the picker only wrote localStorage and the footer never remounted, so it kept showing the old model until the first send; a welcome-preference bump now matches what the thinking-level picker already did.
 - **finalize-release updates the latest pointer by release id** — GitHub only accepts `PATCH /releases/<id>`; patching `/releases/tags/<tag>` always returned 404, which made the v0.10.0 finalize job fail.
+- **Unsigned macOS packaging is no longer broken by blank credentials** — the release workflow exports `CSC_LINK: ''` on machines without a certificate, and electron-builder treats that empty string as a configured certificate link, resolves it against the project directory and dies with `<projectPath> not a file`, which took down both macOS jobs of v0.11.0. The `beforePack` hook now drops blank `CSC_LINK` / `CSC_KEY_PASSWORD` / `CSC_NAME` on darwin, so machines without a certificate keep the #347 ad-hoc fallback while signing machines still require a real certificate.
 
 ## v0.10.0 (2026-11-05)
 

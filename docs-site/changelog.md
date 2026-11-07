@@ -10,6 +10,20 @@ description: PiDeck 每个版本的发布记录：新功能、问题修复与体
 - [中文 CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.zh-CN.md)
 - [English CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.md)
 
+## v0.11.1
+
+发布时间：2026-11-07
+
+- 🚀 **设置改为会话列里的页面 Tab**
+- 🚀 **配置新增 OAuth 登录页**
+- 🚀 **生图接入 OpenRouter**
+- 🚀 **记忆条目支持批量删除**
+- 🚀 **供应商与模型列表可搜索**
+- ✨ **工具结果图片内联显示**
+- ✨ **虚拟栈在滚动窗迟到挂载时补一次渲染**
+- ✨ **macOS 包保持签名身份**
+- ✨ **会话预热不再清空输入**
+
 ## v0.11.0
 
 发布时间：2026-11-07

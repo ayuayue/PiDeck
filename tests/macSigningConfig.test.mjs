@@ -59,6 +59,15 @@ test("whitespace-only credentials do not disable the ad-hoc fallback", async () 
 	assert.equal(packager.platformSpecificBuildOptions.identity, "-");
 });
 
+test("blank CSC_* exports are dropped so unsigned macOS builds keep ad-hoc signing", async () => {
+	// release.yml 对非签名机器会导出 CSC_LINK: '' / CSC_KEY_PASSWORD: ''；electron-builder 把空串
+	// 当成已配置的证书链接，再按项目目录解析，报 `<projectPath> not a file` 把打包打挂。
+	const env = { CSC_LINK: "", CSC_KEY_PASSWORD: "", CSC_NAME: "  " };
+	const packager = await configure({ env });
+	assert.deepEqual(env, {}, "空串凭据不得传给 electron-builder 的 getCscLink()");
+	assert.equal(packager.platformSpecificBuildOptions.identity, "-");
+});
+
 test("dev channel inherits the signing hook and keeps its separate bundle identity", async () => {
 	const config = buildDevConfig();
 	const packager = await configure({ config, env: { CSC_LINK: "/temporary/signing.p12" } });
