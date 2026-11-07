@@ -305,9 +305,11 @@ export function useAppAppearance({ settings, systemLanguage, settingsLoaded }: {
 		applyFontSizeAttributes(root, settings);
 		root.dataset.fontBase = settings.fontFamilyBase;
 		root.dataset.fontMono = settings.fontFamilyMono;
+		// 会话内 Markdown 代码块换行：CSS 只认 data 属性，别把布尔值写成 "true"/"false"
+		root.dataset.codeBlockWrap = settings.codeBlockWordWrap === true ? "on" : "off";
 
 		// 字体族：主题包字体 + 用户显式自定义字体（CJK 回退、覆盖顺序）统一在
 		// applyFontFamilyTokens 里算，这里只负责在字体设置变化时重算一次。
 		applyFontFamilyTokens(root, settings, resolvedTheme === "dark");
-	}, [settings.fontSize, settings.uiFontSize, settings.tabBarFontSize, settings.chatFontSize, settings.inputFontSize, settings.fontFamilyBase, settings.fontFamilyBaseCustom, settings.fontFamilyMono, settings.fontFamilyMonoCustom, settings.themePalette, settings.customTheme, resolvedTheme]);
+	}, [settings.fontSize, settings.uiFontSize, settings.tabBarFontSize, settings.chatFontSize, settings.inputFontSize, settings.fontFamilyBase, settings.fontFamilyBaseCustom, settings.fontFamilyMono, settings.fontFamilyMonoCustom, settings.codeBlockWordWrap, settings.themePalette, settings.customTheme, resolvedTheme]);
 }

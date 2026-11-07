@@ -812,6 +812,12 @@ export type AppSettings = {
 	sidebarStickyGroupHeaders?: boolean;
 
 	/**
+	 * 会话内 Markdown 代码块自动换行（Discussions #423）。
+	 * 关闭 = 超长行横向滚动（历史行为）；缺省/脏值回落 false。
+	 */
+	codeBlockWordWrap?: boolean;
+
+	/**
 	 * 项目会话列表排序模式（2027-03 开放排序规则）：updatedAt=最近活跃（历史默认）、
 	 * createdAt=创建时间、title=标题。缺省/非法值回落 updatedAt；由渲染层策略目录
 	 * （sessionSortModes）解释，主进程只存字符串不参与排序。
@@ -1298,6 +1304,8 @@ export function createDefaultAppSettings(): AppSettings {
 		fontFamilyBaseCustom: "",
 		fontFamilyMono: "system-mono",
 		fontFamilyMonoCustom: "",
+		// 会话内 Markdown 代码块默认横向滚动（历史观感），用户可在外观设置里要求折行
+		codeBlockWordWrap: false,
 		// 终端外观/行为默认值：主题 inherit 保持 pi-soft 跟随明暗行为，
 		// scrollback 与 TerminalDock 历史硬编码 5000 一致（升级后行为不变）。
 		terminalTheme: "inherit",

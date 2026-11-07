@@ -423,6 +423,8 @@ Gitmoji 对应关系：
 	fontFamilyBaseCustom: "",
 	fontFamilyMono: "system-mono",
 	fontFamilyMonoCustom: "",
+	// 会话内 Markdown 代码块默认横向滚动（历史观感）
+	codeBlockWordWrap: false,
 
 	// 终端外观/行为默认值：主题 inherit 保持现有 pi-soft 跟随明暗行为，
 	// scrollback 与 TerminalDock 原硬编码 5000 一致（升级后行为不变）。
@@ -559,6 +561,10 @@ export class SettingsStore {
 			// 侧栏分组标题栏冻结开关同理：旧配置缺字段/脏值回落 false（默认关闭 = 历史行为）。
 			if (typeof this.settings.sidebarStickyGroupHeaders !== "boolean") {
 				this.settings.sidebarStickyGroupHeaders = defaultSettings.sidebarStickyGroupHeaders;
+			}
+			// 代码块换行开关同理：旧配置缺字段/脏值回落 false（默认横滚 = 历史行为）。
+			if (typeof this.settings.codeBlockWordWrap !== "boolean") {
+				this.settings.codeBlockWordWrap = defaultSettings.codeBlockWordWrap;
 			}
 			// 公告通知开关同理：旧配置缺字段回落 true（默认开启），脏数据（字符串等）也回落。
 			if (typeof this.settings.announcementNotificationEnabled !== "boolean") {
@@ -860,6 +866,10 @@ export class SettingsStore {
 		// IPC 入参不可信：自动标题开关只接受布尔值，非法值保持原有设置。
 		if ("autoSessionTitle" in safePatch && typeof safePatch.autoSessionTitle !== "boolean") {
 			delete safePatch.autoSessionTitle;
+		}
+		// 代码块换行开关：只接受布尔值，脏值不落盘（渲染层按 dataset 读，字符串会误判为开）。
+		if ("codeBlockWordWrap" in safePatch && typeof safePatch.codeBlockWordWrap !== "boolean") {
+			delete safePatch.codeBlockWordWrap;
 		}
 		// 侧栏分组标题栏冻结开关同理：只接受布尔值，脏值不落盘。
 		if ("sidebarStickyGroupHeaders" in safePatch && typeof safePatch.sidebarStickyGroupHeaders !== "boolean") {

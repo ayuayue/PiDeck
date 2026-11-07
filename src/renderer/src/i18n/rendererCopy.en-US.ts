@@ -5189,6 +5189,8 @@ export const enUS: Record<TranslationKey, string> = {
 	"settings.scrollToLatestOnSend": "Scroll to latest after sending",
 	"settings.scrollToLatestOnSendDesc": "On by default. When off, sending keeps your current scroll position: reading history won't be yanked back to the bottom, while staying at the bottom still follows new replies.",
 	"settings.sidebarStickyGroupHeaders": "Freeze sidebar group headers",
+	"settings.codeBlockWordWrap": "Wrap code blocks",
+	"settings.codeBlockWordWrapDesc": "Markdown code blocks scroll horizontally by default; turn this on to fold long lines inside the block (handy on narrow windows, but wide tables and ASCII art get taller).",
 	"settings.sidebarStickyGroupHeadersDesc": "When on, the Chats and Projects group headers in the sidebar stay pinned to the top while the list scrolls.",
 	"settings.contentWidthPct": "Chat Content Width",
 	"settings.contentWidthPctDesc": "Messages, composer and queued prompts share the same width. 100% is nearly full pane (12px minimum inset).",

@@ -298,6 +298,19 @@
   background: transparent;
 }
 
+/* 代码块自动换行（Discussions #423）：默认横滚 = 历史观感；外观设置里打开后
+   由 useAppAppearance 写 [data-code-block-wrap="on"]，长行在块内折行、不再横向拖动。
+   token 是 span 拼的，折行只能落在 pre/code 的 white-space 上。 */
+[data-code-block-wrap="on"] [data-streamdown="code-block-body"] {
+  overflow-x: hidden;
+}
+
+[data-code-block-wrap="on"] [data-streamdown="code-block-body"] > pre,
+[data-code-block-wrap="on"] [data-streamdown="code-block-body"] > pre > code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* ── 表格（与代码块同属「单卡片」皮） ───────────────────── */
 [data-streamdown="table-wrapper"] {
   position: relative;

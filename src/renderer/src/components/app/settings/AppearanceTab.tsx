@@ -527,6 +527,16 @@ export const AppearanceTab = memo(function AppearanceTab(props: AppearanceTabPro
 					dirtyLabel={t("settings.sidebarStickyGroupHeaders")}
 					onChange={(checked) => updateDraft({ sidebarStickyGroupHeaders: checked })}
 				/>
+				{/* 会话内代码块换行：默认关闭 = 长行横滚（历史观感）；开启后长行在块内折行 */}
+				<SettingSwitchRow
+					anchor="appearance-code-block-wrap"
+					title={t("settings.codeBlockWordWrap")}
+					description={t("settings.codeBlockWordWrapDesc")}
+					checked={draft.codeBlockWordWrap === true}
+					dirty={isDirty("codeBlockWordWrap")}
+					dirtyLabel={t("settings.codeBlockWordWrap")}
+					onChange={(checked) => updateDraft({ codeBlockWordWrap: checked })}
+				/>
 			</SettingsSection>
 
 			{/* 窗口样式 */}
