@@ -54,15 +54,17 @@
  * 2026-11-04 上游刷新（净 +1）：WSL 目录浏览（Wave 0，提交 0f91282e4）退役 projects:add-wsl，
  *   新增 projects:list-wsl-directory / projects:add-wsl-path → 815，projects 前缀已存在，前缀数仍 93。
  * 2026-11-07 合并刷新（+1）：上面两条并轨后 ipcChannels 843→844、前缀仍 94（无新增前缀）。
+ * 2026-11-07 兼容壳下线（-3）：git:remote-repos / remote-log / remote-compare 删除，
+ *   ipcChannels 844→842，git 前缀 62→59，前缀数仍 94。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const CHANNEL_TOTAL = 844;
+const CHANNEL_TOTAL = 842;
 const PREFIX_COUNT = 94;
-const CHANNEL_DIGEST = "4ca870eb280f8c766d03e58cc80c935bc4d47af9b79bd910efb942825eb90b8f";
+const CHANNEL_DIGEST = "bf642cf47d7eedad21f67094b31173e54d07ca6d20b150d57469ea51c5d5f915";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";
@@ -81,11 +83,11 @@ const sortedDigest = (pairs) => {
 	return createHash("sha256").update(serialized, "utf8").digest("hex");
 };
 
-test("F3-1 通道常量总数 === 844", () => {
+test("F3-1 通道常量总数 === 842", () => {
 	assert.equal(entries.length, CHANNEL_TOTAL);
 });
 
-test("F3-2 通道值唯一数 === 844（无重复通道字符串）", () => {
+test("F3-2 通道值唯一数 === 842（无重复通道字符串）", () => {
 	assert.equal(new Set(values).size, CHANNEL_TOTAL);
 });
 
@@ -106,11 +108,11 @@ test("F3-7 agentEventTags 单独锚定：8 个标签 + 摘要（与 ipcChannels 
 	for (const [key, value] of tagEntries) assert.ok(!channelValues.has(value), `事件标签 ${key}=${value} 与 IPC 通道同名`);
 });
 
-test("F3-5 锚点抽查：appGetChannel=update:get-channel、sessionsRuntimeEvent=sessions:runtime-event、git=62、enhance=3", () => {
+test("F3-5 锚点抽查：appGetChannel=update:get-channel、sessionsRuntimeEvent=sessions:runtime-event、git=59、enhance=3", () => {
 	assert.equal(ipcChannels.appGetChannel, "update:get-channel");
 	assert.equal(ipcChannels.sessionsRuntimeEvent, "sessions:runtime-event");
 	const countByPrefix = (prefix) => values.filter((value) => value.startsWith(`${prefix}:`)).length;
-	assert.equal(countByPrefix("git"), 62);
+	assert.equal(countByPrefix("git"), 59);
 	assert.equal(countByPrefix("enhance"), 3);
 });
 
