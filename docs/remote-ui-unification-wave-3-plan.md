@@ -104,6 +104,9 @@
 - **P2-7 死导入**、**P2-8 预览桩注释**：已清。
 - **P2-9 清单一致性测试**：改为按函数体括号配对整段解析 `dispatch`（固定 6000 字符窗口废弃），
   并覆盖 `CAPABILITIES` 全集（fs/config/terminal，不再只 `git.*`）。
+- **P1-5 WSL ignore 修饰**：`ProjectFileBackend` 增加可选 `checkIgnore`；本机从目录页里抽出
+  `checkIgnore(target, relativePaths)` 复用；WSL backend 委托 fallback（同一 git 判据），helper 链路
+  的目录页也带 `ignored`（失败只是不修饰）。测试：`wslProjectFileBackend`（helper 链路修饰 + 失败降级）。
 - **P1-2 跨目录移动**：新增公共 `files:move-to`（单源移动到目标全路径，一次写）。renderer 的
   `moveEntry` 不再拆成 move + rename；main 的 ssh 分支走 `remoteEntries.moveTo`（一次 stat→rename），
   本机/WSL 走新 `backend.moveTo`（rename，跨设备回退 cp+rm）。不支持该原语的位置明确报
@@ -125,8 +128,7 @@
 
 | 项 | 现状 | 为什么先不做 |
 |---|---|---|
-| P1-5 WSL ignore | `WslProjectFileBackend` 无 `checkIgnore` | 需在 WSL backend 补同口径判定，涉及 helper 回退路径 |
-| P1-6 ignore 未随目录事实缓存 | 每次目录页都重判；远端每页最多 1+N/64 帧 | 需要把 `ignored` 并入目录 FactCache（按目录+仓库代），改动跨 owner |
+| P1-6 ignore 未随目录事实缓存 | 每次目录页都重判；远端每页最多 1+N/64 帧 | 不是"给结果加个 TTL 缓存"就能解决：目录页 revision 不随 `.gitignore` 变化，缓存需要"目录事实 + 仓库 git 代"的共同版本（设计变更），否则会陈旧 |
 
 目标：把 renderer 里“本机 vs 远端选通道”的分支逐步收到 main。已交付两片：
 

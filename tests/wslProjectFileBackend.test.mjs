@@ -356,3 +356,29 @@ test("writes stay delegated to the local backend in Wave 1a", async () => {
 	);
 	assert.equal(pool.calls.length, 0);
 });
+
+test("helper 链路也带 Git ignore 修饰（P1-5）：判定失败只是不修饰", async () => {
+	const calls = [];
+	const fallback = makeFallback();
+	fallback.checkIgnore = async (target, paths) => {
+		calls.push([target.relativePath, [...paths]]);
+		return paths.map((path) => path === "src");
+	};
+	const { backend } = makeBackend({ fallback });
+	const page = await backend.directoryPage({ projectId: PROJECT, relativePath: "" });
+	const byPath = Object.fromEntries(page.entries.map((entry) => [entry.relativePath, entry]));
+	assert.equal(byPath.src.ignored, true);
+	assert.equal(byPath["README.md"].ignored, undefined, "未忽略不写字段（未知 ≠ 未忽略）");
+	assert.deepEqual(calls, [["", ["src", "README.md"]]], ".git 与 node_modules 已在 helper 链路被隐藏，不参与判定");
+
+	const throwing = makeFallback();
+	throwing.checkIgnore = async () => {
+		throw new Error("GIT_COMMAND_FAILED");
+	};
+	const { backend: degraded } = makeBackend({ fallback: throwing });
+	const degradedPage = await degraded.directoryPage({ projectId: PROJECT, relativePath: "" });
+	assert.ok(
+		degradedPage.entries.every((entry) => entry.ignored === undefined),
+		"判定失败 = 不修饰，目录页仍然成功",
+	);
+});

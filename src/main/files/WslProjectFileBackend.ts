@@ -18,6 +18,7 @@
  */
 
 import { isUtf8 } from "node:buffer";
+import { applyDirectoryIgnore } from "./DirectoryIgnore";
 import { codeOf } from "../../shared/op";
 import type { FileSearchResult, FileTreeNode, ProjectFileTarget } from "../../shared/types";
 import type { ProjectDirectoryEntry, ProjectFileStatResult } from "../../shared/types/projectFiles";
@@ -214,10 +215,26 @@ export class WslProjectFileBackend implements ProjectFileBackend {
 							hasChildren: type === "directory" ? ("unknown" as const) : false,
 						};
 					});
-				return { entries: entries.slice(0, limit), truncated: entries.length > limit };
+				// P1-5：helper 链路也要修饰；判定失败只是「没有修饰」，不影响目录页。
+				const ignored = await this.checkIgnore(
+					target,
+					entries.map((entry) => entry.relativePath),
+				);
+				return { entries: applyDirectoryIgnore(entries.slice(0, limit), ignored?.slice(0, limit)), truncated: entries.length > limit };
 			},
 			async () => await this.deps.fallback.directoryPage(target, limit),
 		);
+	}
+
+	async checkIgnore(target: ProjectFileTarget, relativePaths: readonly string[]): Promise<readonly boolean[] | undefined> {
+		// WSL 路径的 ignore 规则由 fallback 用同一份 git 判据完成（UNC 路径）；失败即不修饰。
+		if (typeof this.deps.fallback.checkIgnore !== "function") return undefined;
+		try {
+			return await this.deps.fallback.checkIgnore(target, relativePaths);
+		} catch {
+			// 修饰不是目录页的前置条件：任何失败都只是「没判定」。
+			return undefined;
+		}
 	}
 
 	async search(rawTarget: ProjectFileTarget, query: string): Promise<FileSearchResult[]> {

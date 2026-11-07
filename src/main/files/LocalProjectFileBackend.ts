@@ -82,6 +82,22 @@ export class LocalProjectFileBackend implements ProjectFileBackend {
 	 * 公共目录页（T6）：只读一层，带 exact 的 hasChildren 与显式 truncated。
 	 * 本机 `generation` 是稳定常量（同一个本地项目不存在连接代切换），`revision` 由调用方每次读取计。
 	 */
+	async checkIgnore(target: ProjectFileTarget, relativePaths: readonly string[]): Promise<readonly boolean[] | undefined> {
+		if (this.deps.checkIgnore === undefined || relativePaths.length === 0) return undefined;
+		let canonicalRoot: string;
+		try {
+			canonicalRoot = (await this.resolveTarget(target)).boundary.canonicalRoot;
+		} catch {
+			return undefined;
+		}
+		try {
+			return await this.deps.checkIgnore(canonicalRoot, relativePaths);
+		} catch {
+			// 判定不是目录页的前置条件：失败就是不修饰。
+			return undefined;
+		}
+	}
+
 	async directoryPage(target: ProjectFileTarget, limit = 2000): Promise<{ entries: ProjectDirectoryEntry[]; truncated: boolean }> {
 		let page;
 		let canonicalRoot = "";
@@ -108,17 +124,11 @@ export class LocalProjectFileBackend implements ProjectFileBackend {
 				size: node.size,
 			}));
 		// 本机 ignore 修饰：判定失败只是“没修饰”，它绝不能让一次成功的目录读变成失败。
-		let ignored: readonly boolean[] | undefined;
-		if (this.deps.checkIgnore !== undefined && mapped.length > 0) {
-			try {
-				ignored = await this.deps.checkIgnore(
-					canonicalRoot,
-					mapped.map((entry) => entry.relativePath),
-				);
-			} catch {
-				ignored = undefined;
-			}
-		}
+		// 目录页的 ignore 修饰：判定失败只是「没有修饰」，不影响这一次成功的目录读。
+		const ignored = await this.checkIgnore(
+			{ projectId, relativePath: target.relativePath },
+			mapped.map((entry) => entry.relativePath),
+		);
 		const truncated = page.truncated || mapped.length > limit;
 		return { entries: applyDirectoryIgnore(mapped.slice(0, limit), ignored?.slice(0, limit)), truncated, ...(truncated ? { totalEntries: mapped.length } : {}) };
 	}

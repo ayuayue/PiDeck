@@ -23,6 +23,11 @@ export type ProjectFileBackend = {
 	moveTo?(source: ProjectFileTarget, target: ProjectFileTarget): Promise<ProjectFileTarget>;
 	/** 单层目录页（T6）；没有它的位置明确表示「不支持目录页」，调用方不得自行拼凑。 */
 	directoryPage?(target: ProjectFileTarget, limit?: number): Promise<{ entries: ProjectDirectoryEntry[]; truncated: boolean }>;
+	/**
+	 * 目录页的 Git ignore 判定（只加修饰，不过滤）：返回与输入逐位对应；无法判定时 undefined。
+	 * 可选：没有该能力的 backend 不填 `ignored`（未知 ≠ 未忽略）。
+	 */
+	checkIgnore?(target: ProjectFileTarget, relativePaths: readonly string[]): Promise<readonly boolean[] | undefined>;
 };
 
 /** Selects a backend by the project's canonical location; the WSL backend is optional so tests and non-Windows builds stay local-only. */
