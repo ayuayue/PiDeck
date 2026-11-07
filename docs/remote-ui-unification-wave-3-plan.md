@@ -82,6 +82,17 @@
 
 **真机验收（2026-11-07）**：远端 Git 10/10 + 文件管理 v1 全部通过，G6b soak 按 Linux-only 跳过；细节见下方「未执行 / 残留项」。
 
+## 7. 后续：位置分派收口（片 1 / 片 2，2026-11-07）
+
+目标：把 renderer 里“本机 vs 远端选通道”的分支逐步收到 main。已交付两片：
+
+| 片 | 行为变化（用户可见：无/极小） | 落地 | 证据 |
+|---|---|---|---|
+| 1 搜索 | 无 | 新增公共 `files:search-page`（`Op<ProjectFileSearchPage>`）：本机索引/BFS、ssh 走 `remoteProjectIpc.searchProject`；两个 provider 都只调它，`kind:"other"` 只留在 `entries`、`truncated/scanned` 不丢。`files:search` 保留一版兼容 | `tests/filesSearchPage.test.mjs`（4 例）、`tests/projectServiceSeam.test.mjs`（搜索断言迁到 `files.searchPage`）、`check:ipc-wiring` 845 通道 |
+| 2 新建/改名 | 无（失败码与收据不变） | `files:create` / `files:rename` 在 main 内按位置路由：ssh 走 `remoteProjectEntries` 的 handle（同一套服务/令牌/事实失效），本机仍走 local backend；rename 的乐观锁由 main 现读版本后立即提交，renderer 不再持令牌 | `tests/filesWriteRouting.test.mjs`（3 例）、`tests/remoteProjectEntryIpc.test.mjs`（handle 3 例）、`tests/filesIpcRegistration.test.mjs`（源码断言）、`tests/projectServiceSeam.test.mjs`（写面断言迁到 `files.create/rename`） |
+
+未收口（登记）：`move` / `delete` 的 ssh 分支仍在 renderer provider（`remoteHosts.renameProjectEntry` / `deleteProjectEntry`），以及 `projectServices`/`projectFileService` 的 provider 工厂仍按位置选择实现（这是“provider = 位置适配层”的既有边界）。
+
 **验证命令与结果（本批实际执行）**：
 
 - `npm run typecheck` → exit 0；

@@ -8,6 +8,8 @@
  */
 import type { Op } from "../op";
 import type { ProjectFileTarget } from "./project";
+import type { RemoteProjectSearchEntry } from "./remoteHost";
+import type { FileSearchResult } from "./session";
 
 export type ProjectDirectoryEntry = {
 	target: ProjectFileTarget;
@@ -33,6 +35,22 @@ export type ProjectDirectoryEntry = {
 	 */
 	ignored?: boolean;
 };
+
+/**
+ * 公共文件名搜索页（位置分派收口）：本机与远端同一个形状。
+ *
+ * `results` 只含 file/directory；远端 `kind:"other"` 只保留在 `entries` 里，不伪装成文件。
+ * `truncated`/`scanned` 只在 backend 真能给出时出现——本机不填，不冒充“完整”。
+ */
+export type ProjectFileSearchPage = {
+	results: FileSearchResult[];
+	truncated?: boolean;
+	scanned?: number;
+	/** 远端 searchProject 的原始条目（保留 other/bytes）；本机缺席。 */
+	entries?: RemoteProjectSearchEntry[];
+};
+
+export type ProjectFileSearchPageResult = Op<ProjectFileSearchPage>;
 
 /**
  * 深层目录订阅的降级（watch 能力不足，不是读失败）。

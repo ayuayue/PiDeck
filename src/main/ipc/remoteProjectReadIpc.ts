@@ -45,7 +45,15 @@ export function sessionPort(session: RemoteProjectSession, hostId: string): Remo
 	};
 }
 
-export function registerRemoteProjectReadIpc(input: { enabled: boolean; projectReadTarget: RemoteProjectTargetResolver; factsEvents: RemoteFactsHub; readDirSnapshot: (projectId: string, relative: string, force: boolean) => Promise<RemoteProjectDirSnapshot> }): void {
+export type RemoteProjectReadIpcHandle = {
+	/**
+	 * 项目内**文件名**搜索的公共实现（`remote:project-search` 与 `files:search-page` 共用）：
+	 * 只做读取与投影，不改事实、不签令牌。非法输入/未启用返回 `Op` 失败，不抛异常。
+	 */
+	searchProject(projectIdValue: unknown, pathValue: unknown, queryValue: unknown): Promise<RemoteProjectSearchResult>;
+};
+
+export function registerRemoteProjectReadIpc(input: { enabled: boolean; projectReadTarget: RemoteProjectTargetResolver; factsEvents: RemoteFactsHub; readDirSnapshot: (projectId: string, relative: string, force: boolean) => Promise<RemoteProjectDirSnapshot> }): RemoteProjectReadIpcHandle {
 	ipcMain.handle(ipcChannels.remoteProjectList, async (_event, projectIdValue: unknown, pathValue: unknown): Promise<RemoteProjectListResult> => {
 		if (!input.enabled) return opFailFromCode("REMOTE_FEATURE_DISABLED");
 		const relative = readRelativePath(pathValue);
@@ -98,7 +106,7 @@ export function registerRemoteProjectReadIpc(input: { enabled: boolean; projectR
 	 * 因此一次搜索不会横跨两个 root；非法 query 一个帧都不发出去。
 	 * `truncated` 如实透传，不能把一屏结果伪装成完整答案。
 	 */
-	ipcMain.handle(ipcChannels.remoteProjectSearch, async (_event, projectIdValue: unknown, pathValue: unknown, queryValue: unknown): Promise<RemoteProjectSearchResult> => {
+	const searchProject: RemoteProjectReadIpcHandle["searchProject"] = async (projectIdValue, pathValue, queryValue) => {
 		if (!input.enabled) return opFailFromCode("REMOTE_FEATURE_DISABLED");
 		const relative = readRelativePath(pathValue);
 		if (relative === undefined) return opFailFromCode("REMOTE_PROJECT_PATH_INVALID");
@@ -121,7 +129,8 @@ export function registerRemoteProjectReadIpc(input: { enabled: boolean; projectR
 		} catch (error) {
 			return opFailFromCode(codeOf(error, "REMOTE_PROJECT_READ_FAILED"));
 		}
-	});
+	};
+	ipcMain.handle(ipcChannels.remoteProjectSearch, (_event, projectIdValue: unknown, pathValue: unknown, queryValue: unknown): Promise<RemoteProjectSearchResult> => searchProject(projectIdValue, pathValue, queryValue));
 
 	ipcMain.handle(ipcChannels.remoteProjectRootStatus, async (_event, projectIdValue: unknown): Promise<RemoteProjectRootStatusResult> => {
 		if (!input.enabled) return opFailFromCode("REMOTE_FEATURE_DISABLED");
@@ -140,4 +149,6 @@ export function registerRemoteProjectReadIpc(input: { enabled: boolean; projectR
 			...(capabilities === undefined ? {} : { helperCapabilities: capabilities }),
 		});
 	});
+
+	return { searchProject };
 }

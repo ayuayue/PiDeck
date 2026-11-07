@@ -63,8 +63,8 @@ function entryIpcHarness(enabled = true) {
 			},
 		},
 	});
-	registerRemoteProjectEntryIpc({ enabled, service: () => undefined, locator: () => undefined });
-	return { calls, released, sender, handlers, invoke: async (channel, ...args) => structuredClone(await handlers.get(channel)({ sender }, ...args)) };
+	const handle = registerRemoteProjectEntryIpc({ enabled, service: () => undefined, locator: () => undefined });
+	return { calls, released, sender, handlers, handle, invoke: async (channel, ...args) => structuredClone(await handlers.get(channel)({ sender }, ...args)) };
 }
 
 test("entry IPC validates renderer input before touching the remote service and returns stable envelopes", async () => {
@@ -175,4 +175,50 @@ test("window destruction revokes BOTH token classes (text save + entry)", () => 
 		assert.deepEqual(releasedText, [7]);
 		assert.deepEqual(releasedEntry, [7]);
 	});
+});
+
+/* ------------------------------------------- files:create / files:rename 的主进程内复用（收口第二片） */
+
+test("handle.create：与 IPC 通道同一套服务与事实路径，sender 作用域照旧", async () => {
+	const h = entryIpcHarness();
+	const created = await h.handle.create(h.sender, "p1", "src", "new.txt", "file");
+	assert.deepEqual(JSON.parse(JSON.stringify(created)), { relativePath: "new.txt", kind: "file" });
+	assert.deepEqual(JSON.parse(JSON.stringify(h.calls)), [["createFile", 1, "p1", "src", "new.txt"]], "sender id / projectId / parent / name 原样交给服务");
+
+	const dir = await h.handle.create(h.sender, "p1", "src", "dir", "directory");
+	assert.deepEqual(JSON.parse(JSON.stringify(dir)), { relativePath: "dir", kind: "directory" });
+	assert.deepEqual(JSON.parse(JSON.stringify(h.calls.at(-1))), ["createDirectory", 1, "p1", "src", "dir"]);
+});
+
+test("handle.rename：main 内 stat→rename，令牌不出 main（renderer 不再传 version）", async () => {
+	const h = entryIpcHarness();
+	const renamed = await h.handle.rename(h.sender, "p1", "src/a.txt", "src/b.txt");
+	assert.deepEqual(JSON.parse(JSON.stringify(renamed)), { relativePath: "b.txt" });
+	const methods = h.calls.map((call) => call[0]);
+	assert.deepEqual(methods, ["stat", "rename"], "先读版本再写");
+	const token = h.calls[0][1] && "a".repeat(32);
+	assert.equal(h.calls[1][5], token, "rename 用的就是刚才 stat 签发的那一个令牌");
+});
+
+/** vm 里创建的 Error 不是宿主 Error：按消息断言，不用 assert.rejects 的实例判定。 */
+async function rejectsWith(run, pattern) {
+	try {
+		await run();
+	} catch (error) {
+		assert.match(String(error?.message ?? error), pattern);
+		return;
+	}
+	assert.fail("expected rejection: " + pattern);
+}
+
+test("handle：门禁关闭与非法输入都不触达服务", async () => {
+	const disabled = entryIpcHarness(false);
+	await rejectsWith(() => disabled.handle.create(disabled.sender, "p1", "", "a.txt", "file"), /REMOTE_FEATURE_DISABLED/);
+	await rejectsWith(() => disabled.handle.rename(disabled.sender, "p1", "a.txt", "b.txt"), /REMOTE_FEATURE_DISABLED/);
+	assert.equal(disabled.calls.length, 0);
+
+	const h = entryIpcHarness();
+	await rejectsWith(() => h.handle.create(h.sender, "", "", "a.txt", "file"), /REMOTE_FILE_INPUT_INVALID/);
+	await rejectsWith(() => h.handle.rename(h.sender, "p1", 1, "b.txt"), /REMOTE_FILE_INPUT_INVALID/);
+	assert.equal(h.calls.length, 0, "非法输入在打开服务之前就被拒绝");
 });

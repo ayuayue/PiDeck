@@ -32,6 +32,10 @@ function fixture() {
 	});
 	const api = {
 		files: {
+			async rename(target, newName) {
+				// 收口后改名走公共 files:rename：main 内部现读版本并提交，renderer 不持令牌。
+				return { projectId: target.projectId, relativePath: target.relativePath.replace(/[^/]+$/, newName) };
+			},
 			async stat(target) {
 				assert.equal(target.projectId, projectId);
 				if (target.relativePath === "missing") return { availability: "missing", exists: false, isDirectory: false, code: "ENOENT" };
@@ -55,15 +59,14 @@ test("remote provider stat preserves an outstanding rename grant across 128 read
 	const { api, entries } = fixture();
 	const files = createRemoteProjectFileService(projectId, api, testFence());
 	const target = { projectId, relativePath: "src/a.ts" };
-	const grant = await entries.stat(1, projectId, target.relativePath);
 	for (let index = 0; index < 128; index++) {
 		const state = await files.stat({ projectId, relativePath: `src/file-${index}.ts` });
 		assert.equal(state.availability, "present");
 	}
-	assert.equal(entries.tokenCount(), 1);
-	const renamed = await files.renameEntry(target, "renamed.ts", grant.version);
+	// 改名不再需要 renderer 持有的 grant：public files:rename 由 main 现读版本并提交。
+	const renamed = await files.renameEntry(target, "renamed.ts");
 	assert.deepEqual(plain(renamed.target), { projectId, relativePath: "src/renamed.ts" });
-	assert.equal(entries.tokenCount(), 0);
+	assert.equal(entries.tokenCount(), 0, "provider 不再签发/持有 entry 令牌");
 });
 
 test("both providers keep project identity and report present, missing, and unavailable states", async () => {

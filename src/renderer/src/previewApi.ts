@@ -671,6 +671,8 @@ export function createPreviewApi(): PiDesktopApi {
 			// 预览模式无主进程：文件搜索按空结果处理，搜索入口可用但不返回内容
 			search: async () => [],
 			searchContent: async () => null,
+			// 公共搜索页同样没有后端：返回稳定码，不伪造空结果冒充“搜过了”。
+			searchPage: async () => ({ ok: false as const, code: "UNSUPPORTED_PROJECT_LOCATION", outcome: "rejected" as const }),
 			showInFolder: async () => undefined,
 			// 预览模式无主进程：不检测文件管理器（打开方式下拉不显示该入口）
 			detectFileManager: async () => null,

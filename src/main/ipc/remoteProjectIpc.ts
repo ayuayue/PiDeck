@@ -21,7 +21,7 @@ import { ipcChannels } from "../../shared/ipc";
 import { codeOf, opFailFromCode, opOk, type Op } from "../../shared/op";
 import type { FileContentSearchResult } from "../../shared/types";
 import type { ProjectDirectoryPageResult, ProjectPathsExistResult } from "../../shared/types/projectFiles";
-import type { RemoteProjectEnrollAnswerResult, RemoteProjectEnrollMode, RemoteProjectEnrollRequest, RemoteProjectEnrollResult } from "../../shared/types/remoteHost";
+import type { RemoteProjectEnrollAnswerResult, RemoteProjectEnrollMode, RemoteProjectEnrollRequest, RemoteProjectEnrollResult, RemoteProjectSearchResult } from "../../shared/types/remoteHost";
 import { registerRemoteProjectReadIpc, sessionPort } from "./remoteProjectReadIpc";
 import { projectPathsExist } from "./remoteProjectDirectoryReads";
 import { createProjectDirFacts, type ProjectDirFacts } from "./remoteProjectDirFacts";
@@ -91,6 +91,11 @@ export type RemoteProjectIpcHandle = {
 	directoryPage(projectId: string, path: string, force?: boolean): Promise<ProjectDirectoryPageResult>;
 	/** 目录页 Git ignore 修饰端口（晚绑定：Git IPC 在本模块之后注册）。 */
 	setIgnoreProbe(probe: DirectoryIgnoreProbe | undefined): void;
+	/**
+	 * 项目内文件名搜索的公共实现（`files:search-page` 按位置路由到这里）。
+	 * 与 `remote:project-search` 是同一份实现：一次搜索在同一 root 会话内完成，不跨 root。
+	 */
+	searchProject(projectId: string, path: string, query: string): Promise<RemoteProjectSearchResult>;
 	/**
 	 * 远端内容搜索（helper 1.25.0）：按**连接握手声明的能力**路由，旧 helper 返回 `ok:true, value:null`
 	 * （"这个位置不支持"），渲染层据此回退到仅文件名提示，而不是发一次注定失败的请求。
@@ -261,7 +266,7 @@ export function registerRemoteProjectIpc(input: {
 	/** 目录事实缓存 + generation/host/root 归属 + 深层订阅：拆到窄模块，保持本文件在体量红线内。 */
 	const projectDirs = createProjectDirFacts({ projectReadTarget, factsEvents, directoryReader: input.directoryReader });
 
-	registerRemoteProjectReadIpc({
+	const projectReads = registerRemoteProjectReadIpc({
 		enabled: input.enabled,
 		projectReadTarget,
 		factsEvents,
@@ -277,6 +282,7 @@ export function registerRemoteProjectIpc(input: {
 		gitStatusFacts: projectDirs.gitStatusFacts,
 		directoryPage: projectDirs.directoryPage,
 		setIgnoreProbe: projectDirs.setIgnoreProbe,
+		searchProject: (projectId, path, query) => projectReads.searchProject(projectId, path, query),
 		pathsExist: (projectId, paths) => projectPathsExist({ projectId, paths, projectReadTarget }),
 		async searchContent(projectId, query) {
 			const target = await projectReadTarget(projectId);

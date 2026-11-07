@@ -5393,11 +5393,18 @@ function registerIpc() {
 		wslHelperPool,
 		// 本机目录页的 Git ignore 修饰（T6 收尾）：与远端 probeIgnore 同一份契约（只加修饰、失败即不填）。
 		checkIgnore: (cwd, relativePaths) => gitService.checkIgnore(cwd, relativePaths),
+		// 位置分派收口第二片：files:create / files:rename 的 ssh 分支复用 entry 写面（令牌留在 main）。
+		remoteEntries: {
+			create: (sender, projectId, parent, name, type) => remoteProjectEntries.create(sender, projectId, parent, name, type),
+			rename: (sender, projectId, source, targetPath) => remoteProjectEntries.rename(sender, projectId, source, targetPath),
+		},
 		// 公共文件读（T6）：ssh 项目的目录页与批量 stat 走只读 fs 面，不经过 entry 令牌。
 		remoteFiles: {
 			// 中央编辑器读写远端文件：与抽屉编辑器共用同一份远端文本服务与令牌表。
 			...remoteProjectTextPort,
 			directoryPage: (projectId, path, force) => remoteProjectIpc.directoryPage(projectId, path, force),
+			// 位置分派收口第一片：`files:search-page` 的 ssh 分支走项目域同一份搜索实现。
+			searchProject: (projectId, path, query) => remoteProjectIpc.searchProject(projectId, path, query),
 			pathsExist: (projectId, paths) => remoteProjectIpc.pathsExist(projectId, paths),
 			// 远端内容搜索按 hello capabilities 门控：旧 helper 返回 null（渲染层回退“仅文件名”），不发无效请求。
 			searchContent: (projectId, query) => remoteProjectIpc.searchContent(projectId, query),

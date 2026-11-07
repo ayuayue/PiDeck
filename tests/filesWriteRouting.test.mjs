@@ -1,0 +1,126 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+
+const { ipcChannels } = loadTsCommonJs("src/shared/ipc.ts");
+
+/**
+ * 位置分派收口（第二片）：`files:create` / `files:rename` 在 main 内按位置路由。
+ *
+ * 验收点：
+ * 1. ssh 项目走 `remoteEntries` 端口（entry 服务 + 令牌表 + 事实失效都在 main 内复用），
+ *    renderer 不再需要 `remoteHosts.createProjectFile` / `renameProjectEntry`；
+ * 2. 本机项目仍走 local backend，端口一次都不碰；
+ * 3. 未装配端口时对 ssh 明确拒绝（`UNSUPPORTED_PROJECT_LOCATION`），不静默回退本机。
+ */
+function harness(options = {}) {
+	const handlers = new Map();
+	const calls = { localCreate: [], localRename: [], remoteCreate: [], remoteRename: [] };
+	const electron = {
+		app: {},
+		dialog: {},
+		ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+		shell: { openPath: async () => "", showItemInFolder: () => undefined },
+	};
+	const { registerFilesIpc } = loadTsCommonJs("src/main/ipc/filesIpc.ts", { stubs: { electron } });
+	const root = options.root ?? mkdtempSync(join(tmpdir(), "pideck-write-routing-"));
+	const localProject = { id: "p1", name: "Local", path: root, lastOpenedAt: 0 };
+	const remoteProject = { id: "p2", name: "Remote", locator: { kind: "ssh", hostId: "h1", remotePath: "/srv/p" }, lastOpenedAt: 0 };
+	writeFileSync(join(root, "a.txt"), "a\n");
+	const remoteEntries = {
+		async create(sender, projectId, parent, name, type) {
+			calls.remoteCreate.push({ sender, projectId, parent, name, type });
+			return { relativePath: parent === "" ? name : `${parent}/${name}` };
+		},
+		async rename(sender, projectId, source, targetPath) {
+			calls.remoteRename.push({ sender, projectId, source, targetPath });
+			return { relativePath: targetPath };
+		},
+	};
+	registerFilesIpc({
+		fileSystemService: {
+			listTree: async () => [],
+			listTreePage: async () => ({ nodes: [], truncated: false }),
+			searchNames: async () => [],
+			create: async (parentDir, name) => {
+				calls.localCreate.push({ parentDir, name });
+			},
+			delete: async () => undefined,
+			rename: async (targetPath, newName) => {
+				calls.localRename.push({ targetPath, newName });
+			},
+		},
+		projectStore: { get: (id) => (id === localProject.id ? localProject : id === remoteProject.id ? remoteProject : undefined) },
+		settingsStore: { get: () => ({}) },
+		appLogger: { info: async () => undefined, error: async () => undefined },
+		openExternalUrl: async () => undefined,
+		...(options.remoteEntries === false ? {} : { remoteEntries }),
+	});
+	const sender = { id: 7, isDestroyed: () => false, once: () => undefined, removeListener: () => undefined };
+	const call = (channel, ...args) => {
+		const handler = handlers.get(channel);
+		assert.ok(handler, `handler for ${channel}`);
+		return handler({ sender }, ...args);
+	};
+	const dispose = () => rmSync(root, { recursive: true, force: true });
+	return { call, calls, root, dispose };
+}
+
+test("files:create：ssh 项目走 remoteEntries（sender 透传），本机走 backend", async () => {
+	const h = harness();
+	try {
+		const remote = await h.call(ipcChannels.filesCreate, { projectId: "p2", relativePath: "src" }, "b.ts", "file");
+		assert.deepEqual(JSON.parse(JSON.stringify(remote)), { projectId: "p2", relativePath: "src/b.ts" });
+		assert.equal(h.calls.remoteCreate.length, 1);
+		assert.equal(h.calls.remoteCreate[0].projectId, "p2");
+		assert.equal(h.calls.remoteCreate[0].parent, "src");
+		assert.equal(h.calls.remoteCreate[0].type, "file");
+		assert.equal(h.calls.remoteCreate[0].sender.id, 7, "sender 作用域照旧（令牌表按窗口隔离）");
+
+		const local = await h.call(ipcChannels.filesCreate, { projectId: "p1", relativePath: "" }, "l.ts", "directory");
+		assert.deepEqual(JSON.parse(JSON.stringify(local)), { projectId: "p1", relativePath: "l.ts" });
+		assert.equal(h.calls.localCreate.length, 1, "本机仍由 backend 建");
+		assert.equal(h.calls.remoteCreate.length, 1, "本机项目绝不触达远端端口");
+	} finally {
+		h.dispose();
+	}
+});
+
+test("files:rename：ssh 项目走 remoteEntries，本机走 backend；目标路径按父目录拼接", async () => {
+	const h = harness();
+	try {
+		const remote = await h.call(ipcChannels.filesRename, { projectId: "p2", relativePath: "src/a.txt" }, "c.txt");
+		assert.deepEqual(JSON.parse(JSON.stringify(remote)), { projectId: "p2", relativePath: "src/c.txt" });
+		assert.equal(h.calls.remoteRename.length, 1);
+		assert.deepEqual(JSON.parse(JSON.stringify({ projectId: h.calls.remoteRename[0].projectId, source: h.calls.remoteRename[0].source, targetPath: h.calls.remoteRename[0].targetPath })), { projectId: "p2", source: "src/a.txt", targetPath: "src/c.txt" });
+		assert.equal(h.calls.remoteRename[0].sender.id, 7, "sender 作用域照旧");
+
+		const local = await h.call(ipcChannels.filesRename, { projectId: "p1", relativePath: "a.txt" }, "b.txt");
+		assert.deepEqual(JSON.parse(JSON.stringify(local)), { projectId: "p1", relativePath: "b.txt" });
+		assert.equal(h.calls.localRename.length, 1, "本机仍由 backend 改名");
+		assert.equal(h.calls.remoteRename.length, 1);
+	} finally {
+		h.dispose();
+	}
+});
+
+test("未装配 remoteEntries：ssh 项目明确拒绝，不静默回退本机", async () => {
+	const h = harness({ remoteEntries: false });
+	try {
+		await assert.rejects(
+			() => h.call(ipcChannels.filesCreate, { projectId: "p2", relativePath: "" }, "x.ts", "file"),
+			(error) => /UNSUPPORTED_PROJECT_LOCATION/.test(String(error)),
+		);
+		await assert.rejects(
+			() => h.call(ipcChannels.filesRename, { projectId: "p2", relativePath: "a.txt" }, "b.txt"),
+			(error) => /UNSUPPORTED_PROJECT_LOCATION/.test(String(error)),
+		);
+		assert.equal(h.calls.localCreate.length, 0);
+		assert.equal(h.calls.localRename.length, 0, "拒绝时一个本机写都不发生");
+	} finally {
+		h.dispose();
+	}
+});

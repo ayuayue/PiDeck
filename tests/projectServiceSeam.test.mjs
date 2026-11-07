@@ -80,6 +80,10 @@ function makeApi(options = {}) {
 				record("files.search", [projectId, query]);
 				return [];
 			},
+			searchPage: async (projectId, query) => {
+				record("files.searchPage", [projectId, query]);
+				return options.searchPage === undefined ? { ok: true, value: { results: [] } } : options.searchPage(projectId);
+			},
 			searchContent: async (projectId, query) => {
 				record("files.searchContent", [projectId, query]);
 				return null;
@@ -367,7 +371,18 @@ test("目录页与搜索：本地/远端同通道，truncated/revision/generatio
 		[localProject, undefined],
 		[remoteProject, remoteFacts()],
 	]) {
-		const { api, calls } = makeApi();
+		// 收口后两端都走公共 files:search-page：位置差异只体现在 main 的路由，provider 不再分叉。
+		const { api, calls } = makeApi({
+			searchPage: () => ({
+				ok: true,
+				value: {
+					results: [{ name: "a.ts", relativePath: "src/a.ts", displayPath: "src/a.ts", target: { projectId: "p2", relativePath: "src/a.ts" }, type: "file" }],
+					truncated: true,
+					scanned: 1,
+					entries: [{ path: "src/a.ts", name: "a.ts", kind: "file", bytes: 1 }],
+				},
+			}),
+		});
 		const services = createProjectServices(project, api, facts ? { facts } : {});
 		const target = { projectId: project.id, relativePath: "" };
 		const page = await services.files.listDirectory(target, { force: true });
@@ -375,19 +390,14 @@ test("目录页与搜索：本地/远端同通道，truncated/revision/generatio
 		assert.equal(page.entries[0].hasChildren, "unknown");
 		const search = await services.files.searchFiles("calc");
 		await services.files.searchContent("验收");
-		if (project.id === "p1") {
-			assert.deepEqual(plain(search), { results: [] });
-			assert.deepEqual(names(calls), ["files.directoryPage", "files.search", "files.searchContent"]);
-		} else {
-			assert.deepEqual(plain(search), {
-				results: [{ name: "a.ts", relativePath: "src/a.ts", displayPath: "src/a.ts", target: { projectId: "p2", relativePath: "src/a.ts" }, type: "file" }],
-				truncated: true,
-				scanned: 1,
-				entries: [{ path: "src/a.ts", name: "a.ts", kind: "file", bytes: 1 }],
-			});
-			assert.deepEqual(names(calls), ["files.directoryPage", "remoteHosts.searchProject", "files.searchContent"]);
-			assert.deepEqual(calls[1].args, ["p2", "", "calc"]);
-		}
+		assert.deepEqual(plain(search), {
+			results: [{ name: "a.ts", relativePath: "src/a.ts", displayPath: "src/a.ts", target: { projectId: "p2", relativePath: "src/a.ts" }, type: "file" }],
+			truncated: true,
+			scanned: 1,
+			entries: [{ path: "src/a.ts", name: "a.ts", kind: "file", bytes: 1 }],
+		});
+		assert.deepEqual(names(calls), ["files.directoryPage", "files.searchPage", "files.searchContent"]);
+		assert.deepEqual(calls[1].args, [project.id, "calc"]);
 	}
 });
 
@@ -458,10 +468,11 @@ test("远端文件管理：新建按类型分流，改名/删除复用 entry 令
 	assert.deepEqual(plain(deleted), { target: { projectId: "p2", relativePath: "src/c.ts" }, trashId: "trash-1" });
 	const moved = await services.files.moveEntry({ projectId: "p2", relativePath: "src/a.ts" }, "lib/a.ts");
 	assert.deepEqual(plain(moved.target), { projectId: "p2", relativePath: "lib/a.ts" });
-	assert.deepEqual(names(calls), ["remoteHosts.createProjectFile", "remoteHosts.createProjectDirectory", "remoteHosts.statProjectEntry", "remoteHosts.renameProjectEntry", "remoteHosts.statProjectEntry", "remoteHosts.deleteProjectEntry", "remoteHosts.statProjectEntry", "remoteHosts.renameProjectEntry"]);
-	assert.deepEqual(calls[3].args, ["p2", "src/b.ts", "src/c.ts", "entry-v1"]);
-	assert.deepEqual(calls[5].args, ["p2", "src/c.ts", "entry-v1"]);
-	assert.deepEqual(calls[7].args, ["p2", "src/a.ts", "lib/a.ts", "entry-v1"]);
+	// 新建/改名已收口到公共 files:*（main 内按位置路由）；删除/移动仍走 entry 专用通道（本片未动）。
+	assert.deepEqual(names(calls), ["files.create", "files.create", "files.rename", "remoteHosts.statProjectEntry", "remoteHosts.deleteProjectEntry", "remoteHosts.statProjectEntry", "remoteHosts.renameProjectEntry"]);
+	assert.deepEqual(calls[2].args, [{ projectId: "p2", relativePath: "src/b.ts" }, "c.ts"]);
+	assert.deepEqual(calls[4].args, ["p2", "src/c.ts", "entry-v1"]);
+	assert.deepEqual(calls[6].args, ["p2", "src/a.ts", "lib/a.ts", "entry-v1"]);
 });
 
 test("文件传输经 ProjectFileService：远端 picker/拖放/下载共用项目身份，本机显式 unsupported", async () => {

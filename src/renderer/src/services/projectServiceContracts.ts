@@ -2,7 +2,7 @@ import type { Op } from "../../../shared/op";
 import type { HostConnectionStateLike } from "../../../shared/projectCapabilities";
 import type { GitAheadBehind, GitBranchInfo, GitCompareRefsValue, GitDiscardResource, GitHistoryPage, GitRef, GitRepositoryListing, GitResourceGroups, GitWorkspaceDiffGroup, GitWorkspaceFileDiff, RemoteGitCommitDetail, RemoteGitRefFileDiff, WorktreeEntry } from "../../../shared/types/git";
 import type { Project, ProjectFileTarget } from "../../../shared/types";
-import type { ProjectDirectoryPage } from "../../../shared/types/projectFiles";
+import type { ProjectDirectoryPage, ProjectFileSearchPage } from "../../../shared/types/projectFiles";
 import type { RemoteProjectDownloadResult, RemoteProjectSearchEntry, RemoteProjectUploadResult } from "../../../shared/types/remoteHost";
 import type { RemoteTransferOperation } from "../../../shared/types/remoteTransfers";
 import type { FileContentSearchResult, FileSearchResult } from "../../../shared/types/session";
@@ -122,16 +122,13 @@ export type ProjectFileText = { content: string; version?: string };
  * 文件名搜索结果。远端 searchProject 带 truncated/scanned；本机 files.search 没有该元数据时缺席，
  * 不填 false 冒充“结果完整”。
  */
-export type ProjectFileSearchResult = {
-	results: FileSearchResult[];
-	truncated?: boolean;
-	scanned?: number;
-	/**
-	 * 远端 searchProject 的原始条目：保留 `kind: "other"` 与 `bytes`（公共 FileSearchResult 装不下）。
-	 * 本机 provider/旧 provider 可缺席；F 有 entries 时优先用它重建视图，绝不把 other 伪装成 file。
-	 */
-	entries?: RemoteProjectSearchEntry[];
-};
+/**
+ * 文件名搜索结果（位置分派收口后与 IPC 契约同形）：`files:search-page` 的 value。
+ *
+ * `results` 只含 file/directory；远端 `kind:"other"` 只留在 `entries`，`truncated/scanned`
+ * 只在 backend 能给出时出现（本机不填，不冒充“完整”）。
+ */
+export type ProjectFileSearchResult = ProjectFileSearchPage;
 
 /**
  * 文本保存收据：远端 next version 是下一次保存的输入；本机没有 version（textVersion = "none"）。

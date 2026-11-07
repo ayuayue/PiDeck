@@ -7,6 +7,7 @@ const filesIpc = readFileSync("src/main/ipc/filesIpc.ts", "utf8");
 const filesSystemIpc = readFileSync("src/main/ipc/filesSystemIpc.ts", "utf8");
 const localFileBackend = readFileSync("src/main/files/LocalProjectFileBackend.ts", "utf8");
 const preload = readFileSync("src/preload/index.ts", "utf8");
+const projectFileService = readFileSync("src/renderer/src/services/projectFileService.ts", "utf8");
 
 /**
  * 回归（30b6954b）：新增 files:copy/files:move 时误删了 filesShowInFolder
@@ -102,4 +103,21 @@ test("filesReadBase64 enforces a main-process default cap when the renderer omit
 	assert.match(block[0], /const effectiveMaxBytes\s*=/);
 	assert.match(block[0], /const fileStat = await stat\(readablePath\)/);
 	assert.match(block[0], /FILE_TOO_LARGE:\$\{fileStat\.size\}:\$\{Math\.floor\(effectiveMaxBytes\)\}/);
+});
+
+test("files:create / files:rename route ssh projects through the main-owned entry port", () => {
+	// 位置分派收口第二片：ssh 项目在 main 内复用 entry 写面（令牌留在 main），本机仍走 local backend。
+	assert.match(filesIpc, /if \(remoteEntries === undefined\) throw new Error\("UNSUPPORTED_PROJECT_LOCATION"\)/);
+	assert.match(filesIpc, /remoteEntries\.create\(event\.sender, parentInput\.projectId, parentInput\.relativePath, name, type\)/);
+	assert.match(filesIpc, /remoteEntries\.rename\(event\.sender, pathInput\.projectId, pathInput\.relativePath, targetPath\)/);
+	assert.match(filesIpc, /const owner = projectStore\.get\(parentInput\.projectId\);/);
+	assert.match(filesIpc, /const owner = projectStore\.get\(pathInput\.projectId\);/);
+	// renderer 不再自己选远端写通道：create 的两条 remoteHosts 调用必须消失；rename 只剩 moveEntry 在复用
+	// （跨目录移动本片未收口），renameEntry 本身不得再直接调远端通道。
+	assert.doesNotMatch(projectFileService, /remoteHosts\.createProject(File|Directory)\(/);
+	assert.match(projectFileService, /moveEntry[\s\S]{0,400}remoteHosts\.renameProjectEntry\(/, "moveEntry 仍复用 entry rename（本片未收口）");
+	assert.match(projectFileService, /async renameEntry\(target, newName\)[\s\S]{0,200}api\.files\.rename\(target, newName\)/, "renameEntry 只调公共 files.rename");
+	// 搜索同理：provider 只调公共 files:searchPage。
+	assert.match(projectFileService, /api\.files\.searchPage\(projectId, query\)/);
+	assert.doesNotMatch(projectFileService, /remoteHosts\.searchProject\(/);
 });

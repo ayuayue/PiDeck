@@ -1,4 +1,4 @@
-import { ipcMain, shell } from "electron";
+import { ipcMain, shell, type IpcMainInvokeEvent } from "electron";
 import { readFile, stat } from "node:fs/promises";
 import { relative } from "node:path";
 import { projectLocatorFromLegacy } from "../../shared/locationAdapters";
@@ -7,7 +7,9 @@ import { codeOf, opFailFromCode, opOk } from "../../shared/op";
 import { ipcChannels } from "../../shared/ipc";
 import { FILE_TREE_ABSOLUTE_MAX_DEPTH } from "../../shared/fileTree";
 import type { ProjectFileAccessScope, ProjectFileTarget } from "../../shared/types/project";
-import type { ProjectDirectoryPage, ProjectDirectoryPageResult, ProjectFileStatResult, ProjectPathsExistResult } from "../../shared/types/projectFiles";
+import type { ProjectDirectoryPage, ProjectDirectoryPageResult, ProjectFileSearchPageResult, ProjectFileStatResult, ProjectPathsExistResult } from "../../shared/types/projectFiles";
+import type { RemoteProjectSearchResult } from "../../shared/types/remoteHost";
+import { projectFileSearchPageFromLocal, projectFileSearchPageFromRemote } from "../files/ProjectFileSearchPage";
 import type { FileContentSearchResult, FileSearchResult } from "../../shared/types";
 import { detectFileManager, openFileManagerAt } from "../files/FileManager";
 import { localTextRevision } from "../files/LocalProjectFileBackend";
@@ -48,6 +50,11 @@ export type FilesIpcDeps = {
 	 */
 	remoteFiles?: {
 		directoryPage(projectId: string, path: string, force?: boolean): Promise<ProjectDirectoryPageResult>;
+		/**
+		 * 远端文件名搜索（收口第一片）：`files:search-page` 按位置路由到这里。
+		 * 未装配时该通道对 ssh 项目返回稳定码，不静默回退本机。
+		 */
+		searchProject?(projectId: string, path: string, query: string): Promise<RemoteProjectSearchResult>;
 		pathsExist(projectId: string, paths: readonly string[]): Promise<ProjectPathsExistResult>;
 		/**
 		 * 远端内容搜索：按连接 hello 的 `fs.searchContent` 能力路由，旧 helper 返回 `{ok:true,value:null}`
@@ -63,6 +70,15 @@ export type FilesIpcDeps = {
 	 * 便于单测与不启动 WSL 的场景维持既有语义。
 	 */
 	wslHelperPool?: WslHelperSessionPool;
+	/**
+	 * 远端条目写面的主进程入口（位置分派收口第二片）：由 `registerRemoteProjectEntryIpc` 的 handle 注入。
+	 * 与 `remote:project-entry-*` 通道共用同一套服务、令牌表与事实失效；令牌不离开 main。
+	 * 未装配时 `files:create`/`files:rename` 对 ssh 项目返回稳定码，不静默回退本机。
+	 */
+	remoteEntries?: {
+		create(sender: IpcMainInvokeEvent["sender"], projectId: string, parent: string, name: string, type: "file" | "directory"): Promise<{ relativePath: string }>;
+		rename(sender: IpcMainInvokeEvent["sender"], projectId: string, source: string, targetPath: string): Promise<{ relativePath: string }>;
+	};
 	/**
 	 * 本机目录页的 Git ignore 判定（T6 收尾）：装配层注入 `GitService.checkIgnore`。
 	 * 未装配/不是仓库时目录页不带 `ignored`（缺字段 = 没判定，不是“未忽略”）。
@@ -101,7 +117,7 @@ function parseOptionalMaxBytes(value: unknown): number | undefined {
 	return value;
 }
 
-export function registerFilesIpc({ fileSystemService, projectStore, settingsStore, getFileIndexService, appLogger, openExternalUrl, remoteFiles, wslHelperPool, checkIgnore }: FilesIpcDeps): void {
+export function registerFilesIpc({ fileSystemService, projectStore, settingsStore, getFileIndexService, appLogger, openExternalUrl, remoteFiles, remoteEntries, wslHelperPool, checkIgnore }: FilesIpcDeps): void {
 	registerFilesSystemIpc({ settingsStore, openExternalUrl });
 	// Windows Node / Electron 边界不能直接消费 WSL Linux 路径：统一走 WslPaths 转成当前发行版的主机 UNC。
 	// 已经是普通 Windows/非 WSL 网络盘的输入保持不变，避免误伤非 WSL 路径。
@@ -333,9 +349,8 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 	// 直接返回空让搜索回退 BFS（与跨会话正文搜索的 WSL 口径一致）。
 	const indexRootsFor = (environment: string | undefined, windowsPath: string): string[] => (environment === "wsl" || !windowsPath ? [] : [windowsPath]);
 
-	ipcMain.handle(ipcChannels.filesSearch, async (_event, rawProjectId: unknown, query: unknown): Promise<FileSearchResult[]> => {
-		if (typeof rawProjectId !== "string" || !rawProjectId.trim() || rawProjectId.length > 256) throw new Error("INVALID_PROJECT_FILE_TARGET");
-		const normalizedQuery = parseFileSearchQuery(query);
+	/** 本机文件名搜索（索引优先、BFS 兜底）：`files:search` 与公共 `files:search-page` 共用同一份实现。 */
+	const searchLocalFileNames = async (rawProjectId: string, normalizedQuery: string): Promise<FileSearchResult[]> => {
 		const project = localProject(rawProjectId);
 		if (!project) throw new Error("PROJECT_NOT_FOUND");
 		const root = toWindowsPath(project.path, project);
@@ -359,6 +374,39 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		}
 		const target = { projectId: rawProjectId, relativePath: "" };
 		return projectFileBackendRouter.forProject(rawProjectId).search(target, normalizedQuery);
+	};
+
+	ipcMain.handle(ipcChannels.filesSearch, async (_event, rawProjectId: unknown, query: unknown): Promise<FileSearchResult[]> => {
+		if (typeof rawProjectId !== "string" || !rawProjectId.trim() || rawProjectId.length > 256) throw new Error("INVALID_PROJECT_FILE_TARGET");
+		const normalizedQuery = parseFileSearchQuery(query);
+		return searchLocalFileNames(rawProjectId, normalizedQuery);
+	});
+
+	/**
+	 * 公共文件名搜索页（位置分派收口第一片）：本机与远端同一形状，调用方不需要知道位置。
+	 *
+	 * 远端 `kind:"other"` 只留在 `entries`（不伪装成 file）；`truncated/scanned` 原样带出。
+	 * 本机不填这两个字段：没有就不冒充“完整”。兼容入口 `files:search` 仍保留（本机旧形状）。
+	 */
+	ipcMain.handle(ipcChannels.filesSearchPage, async (_event, rawProjectId: unknown, query: unknown): Promise<ProjectFileSearchPageResult> => {
+		try {
+			if (typeof rawProjectId !== "string" || !rawProjectId.trim() || rawProjectId.length > 256) return opFailFromCode("INVALID_PROJECT_FILE_TARGET");
+			const normalizedQuery = parseFileSearchQuery(query);
+			const project = projectStore.get(rawProjectId);
+			if (!project) return opFailFromCode("PROJECT_NOT_FOUND");
+			if (isRemoteProject(project)) {
+				// 未装配远端搜索端口时明确拒绝，不静默回退本机（远端路径不能进本机 fs）。
+				if (remoteFiles?.searchProject === undefined) return opFailFromCode("UNSUPPORTED_PROJECT_LOCATION");
+				const remote = await remoteFiles.searchProject(rawProjectId, "", normalizedQuery);
+				if (!remote.ok) return opFailFromCode(remote.code);
+				return opOk(projectFileSearchPageFromRemote(rawProjectId, remote.value));
+			}
+			// 未来的非本机、非 ssh locator 同样没有搜索实现：不猜。
+			if ("locator" in project) return opFailFromCode("UNSUPPORTED_PROJECT_LOCATION");
+			return opOk(projectFileSearchPageFromLocal(await searchLocalFileNames(rawProjectId, normalizedQuery)));
+		} catch (error) {
+			return opFailFromCode(codeOf(error, "INVALID_PROJECT_FILE_TARGET"));
+		}
 	});
 
 	ipcMain.handle(ipcChannels.filesSearchContent, async (_event, rawProjectId: unknown, query: unknown): Promise<FileContentSearchResult | null> => {
@@ -610,11 +658,19 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		}
 	});
 
-	ipcMain.handle(ipcChannels.filesCreate, async (_event, rawParentDir: unknown, name: unknown, type: unknown) => {
+	ipcMain.handle(ipcChannels.filesCreate, async (event, rawParentDir: unknown, name: unknown, type: unknown) => {
 		const parentInput = parseFilePathInput(rawParentDir);
 		if (typeof name !== "string" || !name.trim() || name.length > 255) throw new Error("Invalid file name");
 		if (type !== "file" && type !== "directory") throw new Error("Invalid file type");
 		if (typeof parentInput !== "string") {
+			// 位置分派收口：ssh 项目走 entry 写面（令牌留在 main），本机仍走本地 backend。
+			const owner = projectStore.get(parentInput.projectId);
+			if (owner !== undefined && isRemoteProject(owner)) {
+				if (remoteEntries === undefined) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+				const created = await remoteEntries.create(event.sender, parentInput.projectId, parentInput.relativePath, name, type);
+				void appLogger.info("file", "Remote project entry created", { projectId: parentInput.projectId, target: created.relativePath, type });
+				return { projectId: parentInput.projectId, relativePath: created.relativePath };
+			}
 			const result = await projectFileBackendRouter.forProject(parentInput.projectId).create(parentInput, name, type);
 			void appLogger.info("file", "Project file/folder created", { target: result, type });
 			return result;
@@ -647,10 +703,20 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		}
 	});
 
-	ipcMain.handle(ipcChannels.filesRename, async (_event, rawPath: unknown, newName: unknown) => {
+	ipcMain.handle(ipcChannels.filesRename, async (event, rawPath: unknown, newName: unknown) => {
 		const pathInput = parseFilePathInput(rawPath);
 		if (typeof newName !== "string" || !newName.trim() || newName.length > 255) throw new Error("Invalid file name");
 		if (typeof pathInput !== "string") {
+			// 位置分派收口：ssh 项目走 entry 写面；令牌由 main 现读现用，renderer 不持令牌。
+			const owner = projectStore.get(pathInput.projectId);
+			if (owner !== undefined && isRemoteProject(owner)) {
+				if (remoteEntries === undefined) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+				const cut = pathInput.relativePath.lastIndexOf("/");
+				const targetPath = (cut < 0 ? "" : pathInput.relativePath.slice(0, cut + 1)) + newName;
+				const renamed = await remoteEntries.rename(event.sender, pathInput.projectId, pathInput.relativePath, targetPath);
+				void appLogger.info("file", "Remote project entry renamed", { projectId: pathInput.projectId, from: pathInput.relativePath, to: renamed.relativePath });
+				return { projectId: pathInput.projectId, relativePath: renamed.relativePath };
+			}
 			const result = await projectFileBackendRouter.forProject(pathInput.projectId).rename(pathInput, newName);
 			void appLogger.info("file", "Project file renamed", { target: pathInput, newName, result });
 			return result;

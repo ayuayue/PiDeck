@@ -57,6 +57,14 @@ function readProjectTarget(value: unknown, fallback: ProjectFileTarget): Project
 }
 
 /**
+ * 文件名搜索（位置分派收口）：本机与远端都只调公共 `files:search-page`，
+ * 位置差异（索引/BFS vs helper 搜索）全部在 main 内决定；provider 只负责拆信封与保留元数据。
+ */
+function createProjectFileSearch(projectId: string, api: ProjectServicesApi): ProjectFileService["searchFiles"] {
+	return async (query) => unwrapOp(await api.files.searchPage(projectId, query), PROJECT_SERVICE_CODES.failed);
+}
+
+/**
  * 纯读取复用 main 的位置路由，不能通过 entry.stat 挤占写授权。
  *
  * 公共 files.stat 携带 present / missing / unavailable 三态；provider 不再从布尔负结果猜测。
@@ -93,10 +101,7 @@ export function createLocalProjectFileService(projectId: string, api: ProjectSer
 			assertProjectTarget(projectId, target);
 			return unwrapOp(await api.files.directoryPage(target, options), PROJECT_SERVICE_CODES.failed) as ProjectDirectoryPage;
 		},
-		async searchFiles(query): Promise<ProjectFileSearchResult> {
-			// 本机 files.search 没有 truncated/scanned 元数据；不填 false 冒充完整。
-			return { results: await api.files.search(projectId, query) };
-		},
+		searchFiles: createProjectFileSearch(projectId, api),
 		searchContent(query) {
 			return api.files.searchContent(projectId, query);
 		},
@@ -181,23 +186,7 @@ export function createRemoteProjectFileService(projectId: string, api: ProjectSe
 			assertProjectTarget(projectId, target);
 			return unwrapOp(await api.files.directoryPage(target, options), PROJECT_SERVICE_CODES.failed) as ProjectDirectoryPage;
 		},
-		async searchFiles(query): Promise<ProjectFileSearchResult> {
-			// 远端文件名搜索的唯一真实入口是 remoteHosts.searchProject（files:search 对远端项目直接拒绝）。
-			const value = unwrapOp(await api.remoteHosts.searchProject(projectId, "", query), PROJECT_SERVICE_CODES.failed);
-			return {
-				results: value.entries.map((entry) => ({
-					name: entry.name,
-					relativePath: entry.path,
-					displayPath: entry.path,
-					target: { projectId, relativePath: entry.path },
-					type: entry.kind === "directory" ? "directory" : "file",
-				})),
-				truncated: value.truncated,
-				scanned: value.scanned,
-				// 原始条目只作为附加信息：普通 results 仍是位置无关的公共投影。
-				entries: value.entries,
-			};
-		},
+		searchFiles: createProjectFileSearch(projectId, api),
 		searchContent(query) {
 			return api.files.searchContent(projectId, query);
 		},
@@ -220,16 +209,15 @@ export function createRemoteProjectFileService(projectId: string, api: ProjectSe
 		stat: createProjectStat(projectId, api),
 		async createEntry(parent, name, type): Promise<ProjectEntryReceipt> {
 			assertProjectTarget(projectId, parent);
-			const result = type === "file" ? await api.remoteHosts.createProjectFile(projectId, parent.relativePath, name) : await api.remoteHosts.createProjectDirectory(projectId, parent.relativePath, name);
-			const created = unwrapOp(result, PROJECT_SERVICE_CODES.failed);
-			return { target: { projectId, relativePath: created.relativePath }, kind: created.kind };
+			// 位置分派收口：公共 files.create 在 main 内对 ssh 项目走 entry 写面，令牌不离开 main。
+			const created = await api.files.create(parent, name, type);
+			return { target: readProjectTarget(created, childTarget(parent, name)), kind: type };
 		},
-		async renameEntry(target, newName, expectedVersion): Promise<ProjectEntryReceipt> {
+		async renameEntry(target, newName): Promise<ProjectEntryReceipt> {
 			assertProjectTarget(projectId, target);
-			const version = await requireEntryVersion(api, projectId, target, expectedVersion);
-			const targetPath = joinRelative(parentOf(target.relativePath), newName);
-			const renamed = unwrapOp(await api.remoteHosts.renameProjectEntry(projectId, target.relativePath, targetPath, version), PROJECT_SERVICE_CODES.failed);
-			return { target: { projectId, relativePath: renamed.relativePath } };
+			// 乐观锁凭据由 main 现读现用（stat→rename 在同一进程内完成）；调用方不再传令牌/version。
+			const renamed = await api.files.rename(target, newName);
+			return { target: readProjectTarget(renamed, childTarget(target, newName)) };
 		},
 		async moveEntry(target, destinationRelativePath): Promise<ProjectEntryReceipt> {
 			assertProjectTarget(projectId, target);

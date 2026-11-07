@@ -214,6 +214,37 @@ export function registerRemoteProjectEntryIpc(input: {
 	);
 
 	return {
+		/**
+		 * 供 `files:create` / `files:rename` 在 main 内按位置分派时复用（位置分派收口第二片）：
+		 * 与既有 `remote:project-entry-*` 通道共用同一套服务、令牌表、事实失效与错误码。
+		 * 令牌不离开 main：rename 先 stat 取得一次性令牌，立刻用它提交。
+		 */
+		create(sender: IpcMainInvokeEvent["sender"], projectId: string, parent: string, name: string, type: "file" | "directory"): Promise<{ relativePath: string; kind: "file" | "directory" | "other" }> {
+			if (!input.enabled) throw new Error("REMOTE_FEATURE_DISABLED");
+			if (!PROJECT_ID(projectId) || typeof parent !== "string" || typeof name !== "string") throw new Error("REMOTE_FILE_INPUT_INVALID");
+			const senderId = watchSender(sender);
+			return writeWithFacts(
+				projectId,
+				[requestedEntryPath(parent, name)],
+				(created) => [created.relativePath],
+				() => (type === "file" ? entry.createFile(senderId, projectId, parent, name) : entry.createDirectory(senderId, projectId, parent, name)),
+			);
+		},
+		rename(sender: IpcMainInvokeEvent["sender"], projectId: string, source: string, targetPath: string): Promise<{ relativePath: string }> {
+			if (!input.enabled) throw new Error("REMOTE_FEATURE_DISABLED");
+			if (!PROJECT_ID(projectId) || typeof source !== "string" || typeof targetPath !== "string") throw new Error("REMOTE_FILE_INPUT_INVALID");
+			const senderId = watchSender(sender);
+			return (async () => {
+				// 乐观锁的凭据是 stat 签发的一次性令牌：这里现读现用，绝不跨调用复用。
+				const { version } = await entry.stat(senderId, projectId, source);
+				return await writeWithFacts(
+					projectId,
+					[source, targetPath],
+					(renamed) => [source, renamed.relativePath],
+					() => entry.rename(senderId, projectId, source, targetPath, version),
+				);
+			})();
+		},
 		/** 退出清理：撤销全部 sender 令牌并解除窗口监听（与文本保存 IPC 各管各的表）。 */
 		dispose(): void {
 			for (const { sender, destroy } of senders.values()) sender.removeListener("destroyed", destroy);
