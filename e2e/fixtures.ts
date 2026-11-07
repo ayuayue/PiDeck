@@ -30,6 +30,15 @@ export type SeedProject = { id: string; name: string; path: string; pinned?: boo
 /** 测试文件可通过 test.use({ seedSettings }) 预置桌面设置（写入 settings.json，启动即生效） */
 export type SeedSettings = Record<string, unknown>;
 
+/**
+ * 测试文件可通过 test.use({ seedPiAgent }) 预置被隔离的 `$USERPROFILE/.pi/agent` 文件。
+ *
+ * 为什么必须走这里：`ConfigManager` 在模块加载期就按 `os.homedir()` 定死 pi 目录，
+ * 而 `os.homedir()` 在 Windows 上读 `USERPROFILE`、在 POSIX 上读 `HOME`。只有本 fixture
+ * 的 launch 环境同时重定向了两者；在测试体里临时改 `process.env` 不会影响子进程。
+ */
+export type SeedPiAgent = { settings?: Record<string, unknown>; models?: unknown; auth?: unknown };
+
 const repoRoot = resolve(__dirname, "..");
 
 /**
@@ -37,9 +46,10 @@ const repoRoot = resolve(__dirname, "..");
  * 实现与原因见 `./win-profile.ts`（本文件与 `./mock-pi-fixture.ts` 共用同一份）。
  */
 
-export const test = base.extend<AppFixture & { seedProjects: SeedProject[] | undefined; seedSettings: SeedSettings | undefined; e2eWindowMode: E2EWindowMode }>({
+export const test = base.extend<AppFixture & { seedProjects: SeedProject[] | undefined; seedSettings: SeedSettings | undefined; seedPiAgent: SeedPiAgent | undefined; e2eWindowMode: E2EWindowMode }>({
 	seedProjects: [undefined, { option: true }],
 	seedSettings: [undefined, { option: true }],
+	seedPiAgent: [undefined, { option: true }],
 	e2eWindowMode: ["quiet", { option: true }],
 	userDataRoot: async ({}, use) => {
 		const dir = mkdtempSync(join(tmpdir(), "pideck-e2e-"));
@@ -49,7 +59,7 @@ export const test = base.extend<AppFixture & { seedProjects: SeedProject[] | und
 		// persistent cleanup failure instead of silently leaving test profiles behind.
 		await rm(dir, { recursive: true, force: true, maxRetries: 12, retryDelay: 250 });
 	},
-	app: async ({ userDataRoot, seedProjects, seedSettings, e2eWindowMode }, use) => {
+	app: async ({ userDataRoot, seedProjects, seedSettings, seedPiAgent, e2eWindowMode }, use) => {
 		// 预置项目列表（ProjectStore.load 保留种子项目并追加内置 Chat 项目）；
 		// 写进 profile 目录（应用尊重 --user-data-dir，见 main/index.ts 注释）。
 		if (seedProjects && seedProjects.length > 0) {
@@ -76,6 +86,15 @@ export const test = base.extend<AppFixture & { seedProjects: SeedProject[] | und
 		// （2026-10 main 流水线实际红过）。要测语系切换的用例用 seedSettings 覆盖。
 		mkdirSync(join(userDataRoot, "profile"), { recursive: true });
 		writeFileSync(join(userDataRoot, "profile", "settings.json"), JSON.stringify({ piEnvironmentChecked: true, language: "zh-CN", ...seedSettings }));
+		// pi 的 agent 目录（settings/models/auth）：homedir 已被重定向到 userDataRoot，
+		// 所以这里写的文件就是应用里读到的那一份，不会碰开发者真实 `~/.pi`。
+		if (seedPiAgent) {
+			const piAgentDir = join(userDataRoot, ".pi", "agent");
+			mkdirSync(piAgentDir, { recursive: true });
+			if (seedPiAgent.settings) writeFileSync(join(piAgentDir, "settings.json"), JSON.stringify(seedPiAgent.settings));
+			if (seedPiAgent.models !== undefined) writeFileSync(join(piAgentDir, "models.json"), JSON.stringify(seedPiAgent.models));
+			if (seedPiAgent.auth !== undefined) writeFileSync(join(piAgentDir, "auth.json"), JSON.stringify(seedPiAgent.auth));
+		}
 		// 重定向 USERPROFILE 后，shell 文件夹解析要求配置目录骨架存在（见函数注释）；
 		// 骨架缺失会让主进程在 win32 上启动即崩，先补目录再 spawn。
 		if (process.platform === "win32") ensureWindowsProfileSkeleton(userDataRoot);
