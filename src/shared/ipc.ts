@@ -34,6 +34,14 @@ export const ipcChannels = {
 	remoteHostRepairAnswer: "remote:repair-answer",
 	/** 主进程 → 渲染层：修复确认请求推送。 */
 	remoteHostRepairConfirm: "remote:repair-confirm",
+	/** 重新绑定预检（只读）：校验来源/目标并枚举记录，返回计数与一次性确认 requestId。 */
+	remoteHostRebindPlan: "remote:rebind-plan",
+	/** 回答重新绑定确认；批准后才执行（不可取消，见设计 F2）。 */
+	remoteHostRebindAnswer: "remote:rebind-answer",
+	/** 只读：是否有未完成的重新绑定 journal（横幅 + 继续收敛）。 */
+	remoteHostRebindDescribe: "remote:rebind-describe",
+	/** 继续收敛残留 journal（幂等；没有 journal 或另一个活进程持锁时 resumed=false）。 */
+	remoteHostRebindResume: "remote:rebind-resume",
 	/** 登记远端目录为持久项目：canonical 化并推送确认（不写任何东西）。 */
 	remoteProjectEnroll: "remote:project-enroll",
 	/** 回答登记确认；批准后才写 ProjectStore。 */

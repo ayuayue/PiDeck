@@ -51,6 +51,8 @@
  * 2026-11-07 兼容壳下线（-6）：remoteHosts 的 statProjectEntry / createProjectFile /
  *   createProjectDirectory / renameProjectEntry / deleteProjectEntry / searchProject 移除
  *   （renderer 已全走公共 files:*），remoteHosts 40→34；其余锚点不变。
+ * 2026-11-07 rebind 向导（+4）：remoteHosts.planRebind / answerRebind / describeRebind /
+ *   resumeRebind 入场，remoteHosts 34→38；命名空间数与四个数量锚点不变。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -58,7 +60,7 @@ import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const NS_LIST_SHA256 = "f909ece292c40c44553af5d815321bbb8a0666d76c9a4c02a454a319d9505922";
-const FULL_METHODS_SHA256 = "f677514ff34e1ed0b924595fa176e9d20ac2a0fc2380bd103853cdd1e7617fe0";
+const FULL_METHODS_SHA256 = "59ac4c1fd6c41b4ecfaa19366227aa7cd49ccf15415fb4370fb9487dadc61d69";
 const NAMESPACE_COUNT = 83;
 
 /** 捕获 preload 暴露的 piDesktop；null/undefined/形态不符时显式红并给诊断（F8-6 共用）。 */

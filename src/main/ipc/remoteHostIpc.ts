@@ -136,7 +136,7 @@ export function registerRemoteHostIpc(input: {
 	userDataDir: string;
 	registerCleanup?: (cleanup: () => Promise<void>) => void;
 	onHostRetired?: (hostId: string) => Promise<void>;
-}): void {
+}): { openStores: () => Promise<{ store: Awaited<ReturnType<typeof RemoteHostStore.open>>; pinStore: SshHostPinStore }> } {
 	const guard = <T>(fallback: () => T): T | undefined => (input.enabled ? undefined : fallback());
 
 	/**
@@ -560,6 +560,7 @@ export function registerRemoteHostIpc(input: {
 			return { ok: false, code: codeOf(error, "REMOTE_HOST_REPAIR_FAILED") };
 		}
 	});
+	return { openStores };
 }
 
 /** Project a diagnosis finding onto the renderer contract, dropping anything not on the allowlist. */

@@ -438,6 +438,7 @@ import { ResourceImportManager } from "./resourceImport/ResourceImportManager";
 import { toWslLinuxPath, toWindowsHostPath } from "./wsl/WslPaths";
 import { registerProjectsIpc } from "./ipc/projectsIpc";
 import { registerRemoteHostIpc } from "./ipc/remoteHostIpc";
+import { registerRemoteHostRebindIpc } from "./ipc/remoteHostRebindIpc";
 import { registerWslHostIpc } from "./ipc/wslHostIpc";
 import { createWslHostReferenceRegistry } from "./wsl/WslHostReferences";
 import { createWslHostStore } from "./wsl/WslHostStore";
@@ -3571,7 +3572,7 @@ function registerIpc() {
 	// 远端会话的 trust 解析发生在 AgentManager 的端口里（它比本函数先构造），所以实例挂在模块级变量上：
 	// 那里的 `resolveTrust` 闭包在**真正 spawn 时**才求值，不会拿到一个当时还不存在的对象。
 	remoteProjectTrustService = remoteProjectTrust;
-	registerRemoteHostIpc({
+	const remoteHostIpc = registerRemoteHostIpc({
 		enabled: remoteFeatureEnabled,
 		userDataDir: app.getPath("userData"),
 		// 主机退役时同时清掉它的 trust 决策（与 pin 清理同一位置、同一重试语义）。
@@ -3583,6 +3584,20 @@ function registerIpc() {
 		// lifetime is the process, not a call. Registering disposal here keeps the broker's timers from
 		// outliving the app.
 		registerCleanup: (cleanup) => quitCleanup.register("remote-host-stores", cleanup),
+	});
+	// 重新绑定（rebind）：与 remoteHostIpc 共用同一对 store/pin 实例；通道没有消费者之前不建。
+	registerRemoteHostRebindIpc({
+		enabled: remoteFeatureEnabled,
+		userDataDir: app.getPath("userData"),
+		openStores: remoteHostIpc.openStores,
+		projectStore: () => projectStore,
+		sessionCatalog: () => sessionCatalog,
+		// §5.5：执行前断开来源；失败直接上报（此时 tx 还没写任何东西）。
+		disconnect: async (hostId) => {
+			const service = await remoteHostServiceIfEnabled();
+			await service?.disconnect(hostId, "shutdown");
+		},
+		registerCleanup: (cleanup) => quitCleanup.register("remote-host-rebind", cleanup),
 	});
 	// 远端项目域（登记/回答/列表/读取/搜索）与 hosts 域分开注册：同一个连接服务端口，不同域的 handler。
 	// 远端 trust 域（决策表的清单/写入/撤销）同样分开：它不动 SSH，只读写桌面配置 + 已确认的 pin 事实。

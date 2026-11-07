@@ -30,7 +30,7 @@ test("远端域注册开关只有一个来源，且不允许写死", () => {
 	assert.equal([...main.matchAll(/const remoteFeatureEnabled\s*=\s*REMOTE_FEATURE_AVAILABLE;/g)].length, 1, "策略位应只在装配层派生一次");
 	const registrations = [...main.matchAll(/registerRemote\w+Ipc\(\{/g)].length;
 	const switches = [...main.matchAll(/enabled:\s*remoteFeatureEnabled\b/g)].length;
-	assert.equal(registrations, 9, "远端域注册点数量变化时，同步更新本条断言与 docs/remote-release-readiness.md 的口径");
+	assert.equal(registrations, 10, "远端域注册点数量变化时，同步更新本条断言与 docs/remote-release-readiness.md 的口径");
 	assert.equal(switches, registrations, "每个远端注册点都必须用同一个开关，否则翻策略位只关掉一部分域");
 	assert.doesNotMatch(main, /enabled:\s*true\b/, "不允许出现写死的 enabled: true（策略位会形同虚设）");
 });

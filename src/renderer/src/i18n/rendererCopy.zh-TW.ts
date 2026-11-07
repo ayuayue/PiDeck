@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: bb35d8c3912f212b722451b8509786caf014b1b72f19db77aec8425e160e9b9c（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: fcb23135d0ba865530a0397782d7b42191fcade2acb8128b43cc0b294b0a87ba（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -4615,6 +4615,41 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.connections.repair.action.discardOrphanPin": "丟棄孤兒指紋",
 	"settings.connections.repair.action.clearStaleLock": "清除遺留鎖",
 	"settings.connections.repair.action.clearRebindLock": "清理殘留的重新繫結鎖",
+	"settings.connections.rebind.title": "重新繫結主機引用",
+	"settings.connections.rebind.subtitle": "把遠端專案與會話的引用從一臺主機遷移到另一臺。",
+	"settings.connections.rebind.action": "重新繫結",
+	"settings.connections.rebind.source": "來源主機",
+	"settings.connections.rebind.target": "目標主機",
+	"settings.connections.rebind.selectPlaceholder": "請選擇主機",
+	"settings.connections.rebind.emptyTargets": "沒有可選目標：目標必須是一臺已完成指紋驗證、未停用的另一臺主機。",
+	"settings.connections.rebind.preview": "預檢",
+	"settings.connections.rebind.records": "將遷移 {projects} 個專案、{sessions} 個會話",
+	"settings.connections.rebind.referenceScan": "引用掃描：{count} 條",
+	"settings.connections.rebind.continue": "繼續",
+	"settings.connections.rebind.cancel": "取消",
+	"settings.connections.rebind.close": "關閉",
+	"settings.connections.rebind.running": "正在執行，確認後無法取消……",
+	"settings.connections.rebind.confirm.title": "確認執行",
+	"settings.connections.rebind.confirm.sourceDisabled": "來源主機會被停用，之後不能再連線。",
+	"settings.connections.rebind.confirm.noCancel": "確認之後無法取消。",
+	"settings.connections.rebind.confirm.trust": "遷移完成後，遠端專案需要重新確認授權。",
+	"settings.connections.rebind.confirm.run": "確認執行",
+	"settings.connections.rebind.result.committed": "重新繫結已完成",
+	"settings.connections.rebind.result.committedWithWarnings": "重新繫結已完成（有非致命遺留）",
+	"settings.connections.rebind.result.warnings": "遺留項：{warnings}",
+	"settings.connections.rebind.pending.title": "有未完成的重新繫結（{stage}）",
+	"settings.connections.rebind.pending.resume": "繼續收斂",
+	"settings.connections.rebind.error": "操作失敗：{code}",
+	"settings.connections.rebind.tx.idle": "空閒",
+	"settings.connections.rebind.tx.journalPresent": "有未完成的 journal",
+	"settings.connections.rebind.tx.busy": "另一個程序正在處理",
+	"settings.connections.rebind.tx.lockUnreadable": "鎖不可讀，需要人工處理",
+	"settings.connections.rebind.stage.prepared": "已寫入 journal",
+	"settings.connections.rebind.stage.sourceDisabled": "來源已停用",
+	"settings.connections.rebind.stage.projectsWritten": "專案引用已遷移",
+	"settings.connections.rebind.stage.sessionsWritten": "會話引用已遷移",
+	"settings.connections.rebind.stage.sourceRetired": "正在退役來源",
+	"settings.connections.rebind.stage.committed": "已提交",
 	"settings.connections.repair.action.forgetTrustAnchor": "忘記信任錨",
 	"settings.connections.repair.action.rebuildTarget": "重建目標並重新繫結",
 	"settings.connections.repair.action.inspectSnapshot": "檢查檔案與備份",

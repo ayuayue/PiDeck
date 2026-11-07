@@ -453,6 +453,14 @@ const api = {
 		answerRepair: (requestId: string, choice: "approve" | "deny") => ipcRenderer.invoke(ipcChannels.remoteHostRepairAnswer, requestId, choice) as Promise<import("../shared/types/remoteHost").RemoteHostRepairAnswerResult>,
 		/** 订阅修复确认请求；返回 unsubscribe。 */
 		onRepairConfirm: (callback: (request: import("../shared/types/remoteHost").RemoteHostRepairRequest) => void) => subscribe(ipcChannels.remoteHostRepairConfirm, callback),
+		/** 重新绑定预检（只读）：返回计数与一次性确认 requestId；写入只发生在 answer 批准之后。 */
+		planRebind: (sourceHostId: string, targetHostId: string) => ipcRenderer.invoke(ipcChannels.remoteHostRebindPlan, sourceHostId, targetHostId) as Promise<import("../shared/types/remoteHost").RemoteHostRebindPlanResult>,
+		/** 回答重新绑定确认；deny 不执行，approve 后开始且不可取消（设计 F2）。 */
+		answerRebind: (requestId: string, choice: "approve" | "deny") => ipcRenderer.invoke(ipcChannels.remoteHostRebindAnswer, requestId, choice) as Promise<import("../shared/types/remoteHost").RemoteHostRebindAnswerResult>,
+		/** 只读：是否有未完成的重新绑定 journal（横幅用）。 */
+		describeRebind: () => ipcRenderer.invoke(ipcChannels.remoteHostRebindDescribe) as Promise<import("../shared/types/remoteHost").RemoteHostRebindDescribeResult>,
+		/** 继续收敛残留 journal（幂等）。 */
+		resumeRebind: () => ipcRenderer.invoke(ipcChannels.remoteHostRebindResume) as Promise<import("../shared/types/remoteHost").RemoteHostRebindResumeResult>,
 		/** 登记远端目录为持久项目：canonical 化并推送确认（推送经 onProjectEnrollConfirm 到达）。 */
 		enrollProject: (hostId: string, path: string, mode?: "existing" | "create") => ipcRenderer.invoke(ipcChannels.remoteProjectEnroll, hostId, path, mode) as Promise<import("../shared/types/remoteHost").RemoteProjectEnrollResult>,
 		/** 回答登记确认：只能回答 main 签发的 requestId；批准后才写 ProjectStore。 */

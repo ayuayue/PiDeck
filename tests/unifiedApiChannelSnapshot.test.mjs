@@ -61,15 +61,17 @@
  * 2026-11-07 兼容壳下线（-6）：remote:project-entry-stat / file-create / directory-create /
  *   entry-rename / entry-delete / project-search 删除（renderer 已全走公共 files:*），
  *   ipcChannels 841→835，前缀数仍 94。
+ * 2026-11-07 rebind 向导（+4）：remote:rebind-plan / answer / describe / resume，
+ *   ipcChannels 835→839，前缀数仍 94（remote 前缀已存在）。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const CHANNEL_TOTAL = 835;
+const CHANNEL_TOTAL = 839;
 const PREFIX_COUNT = 94;
-const CHANNEL_DIGEST = "ed8cec43b2e51d632f4c97c9387b09469d37416af267dba5158729408c4b898c";
+const CHANNEL_DIGEST = "b93055b826307bbbd51d36d07ed1e95aff6cdef2eaf83a2e68df5a85cdcf0149";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";
@@ -88,11 +90,11 @@ const sortedDigest = (pairs) => {
 	return createHash("sha256").update(serialized, "utf8").digest("hex");
 };
 
-test("F3-1 通道常量总数 === 835", () => {
+test("F3-1 通道常量总数 === 839", () => {
 	assert.equal(entries.length, CHANNEL_TOTAL);
 });
 
-test("F3-2 通道值唯一数 === 835（无重复通道字符串）", () => {
+test("F3-2 通道值唯一数 === 839（无重复通道字符串）", () => {
 	assert.equal(new Set(values).size, CHANNEL_TOTAL);
 });
 

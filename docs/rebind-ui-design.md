@@ -238,6 +238,14 @@
   `createRemoteHostRebindPorts`（host 端口 + store 端口装配 + `listHostRecords`）已实现并有单测。
   仍未装配到 `index.ts`：IPC 通道属于附 A 第 3 步，等向导一起接，避免出现没有消费者的通道。
 
+- **第 3 步（IPC）**：`remote:rebind-plan` / `answer` / `describe` / `resume` 四条通道。
+  确认是一次性的（60s TTL），digest 绑定「来源 + 目标 + host store revision + 每条记录当前 locator」；
+  批准前用当前状态重算 digest，不一致即 `CONFIRMATION_CHANGED` 且不执行。批准后先断开来源（§5.5），
+  再执行；IPC 只回稳定码、阶段与计数（txId/recordId 不出 main）。
+- **第 4 步（向导）**：设置 → 连接里的 `RebindPanel`（横幅 + 5 步向导），状态机在
+  `rebindWizardState.ts`（换任一端即作废旧摘要）；只有确认页的 approve 会写，running 阶段没有取消按钮。
+- 仍未做：真机 E2E（附 A 第 5 步）；项目页/报错恢复入口（用户已定只放设置页一处）。
+
 ### 5.5 断开连接
 - 执行前（`③` 之后、写 journal 之前）main 应主动 `disconnect(source, "shutdown")`（`RemoteHostConnectionService` 已有 `disconnect`），否则 tx 一开始所有 pinned 调用（含正在跑的远端 agent）都会被 F3 打断，用户看到的是"应用坏了"。
 - 界面不暴露"是否断开"选项（技术决策，不交给用户）。
