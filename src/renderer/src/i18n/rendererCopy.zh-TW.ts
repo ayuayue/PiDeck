@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 846f777a0fa11adb20bd74a0d238b8d0a62e3f112b56ea4c805251c3133bc999（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 42e6f30d6f0ddee7277694d000af9502bbffeff3e8b64d54151c15cbcf966bef（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -3418,6 +3418,9 @@ export const zhTW: Record<TranslationKey, string> = {
 	"editor.writeBlockedEncrypted": "已阻止儲存：磁碟上的現有內容無法安全地作為 UTF-8 文本讀取（{size}），可能是二進位制、其它編碼或加密內容。為避免覆蓋原檔案，本次未寫入。請先檢查檔案格式；如使用加密軟體，請聯絡管理員核對 PiDeck 的訪問權限。",
 	"editor.preview": "預覽",
 	"editor.source": "原始碼",
+	"editor.wordWrap": "自動換行",
+	"editor.wordWrapOn": "自動換行：開（點選改為橫向滾動）",
+	"editor.wordWrapOff": "自動換行：關（點選改為折行）",
 	"editor.readOnlyBadge": "只讀",
 	"editor.readOnlyHint": "此檔案不在專案目錄內，按只讀方式開啟：可選中複製，不能編輯或儲存。若確實要改，點標題旁的「轉為可編輯」顯式解鎖，或用外部編輯器",
 	"editor.unlockEdit": "轉為可編輯",
