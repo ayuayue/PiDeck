@@ -524,9 +524,9 @@ helper 事件与写操作仅标脏、发通知；只有活跃读者决定装载�
 | 入口 | 生产调用/用途 | 兼容触发 | 当前装配可达 | 结论 |
 |---|---|---|---|---|
 | `files.directoryPage` / `files:directory-page` | `useRemoteFileTree`（本机树仍走 `files:list`） | — | 是 | 公共目录读，远端树唯一入口 |
-| `git.repositoryList` / `git:repository-list` | `useRemoteGitRepos` | `remoteRepos` 在 invoke 拒绝（旧 main 缺通道）或结果码为 `UNSUPPORTED_CAPABILITY` 时回退；普通失败不回退 | 否 | 保留一版兼容；当前 main 两者都不产生 |
-| `git.historyPage` / `git:history-page` | `remoteGitViewState.readHistoryPage` | `remoteLog` 仅当 `historyPage` 方法不存在时回退 | 否 | 保留一版兼容；preload 始终有现值 |
-| `git.compareRefs` / `git:compare-refs` | `remoteGitViewState.runCompare` | `remoteCompare` 仅当 `compareRefs` 方法不存在时回退 | 否 | 保留一版兼容；preload 始终有现值 |
+| `git.repositoryList` / `git:repository-list` | `useRemoteGitRepos` | —（2026-11-07 已删 `git:remote-repos` 通道与 preload `remoteRepos`） | 是 | 唯一入口；旧通道删除后无回退可走 |
+| `git.historyPage` / `git:history-page` | `remoteGitViewState.readHistoryPage` | —（2026-11-07 已删 `git:remote-log` 通道与 preload `remoteLog`） | 是 | 唯一入口；旧通道删除后无回退可走 |
+| `git.compareRefs` / `git:compare-refs` | `remoteGitViewState.runCompare` | —（2026-11-07 已删 `git:remote-compare` 通道与 preload `remoteCompare`） | 是 | 唯一入口；旧通道删除后无回退可走 |
 | `remoteSnapshot` / `refreshRemoteSnapshot` | 远端 Git 面板 status/refresh | — | 是 | **活动事实 owner**（`RemoteGitSnapshotFacts`），不是兼容壳 |
 | `remoteRefs` | 远端 refs 列表 | — | 是 | 领域入口；无公共 refs 替身，不另建缓存 |
 | `remoteCommitDetail` / `remoteRefFileDiff` | `ProjectGitService.commitDetail` / `refFileDiff` 的底层通道 | — | 是 | 服务实现复用既有领域通道；renderer 不再直接调用 preload |
@@ -543,9 +543,12 @@ helper 事件与写操作仅标脏、发通知；只有活跃读者决定装载�
 **审计结论**
 
 - T1–T5 的主进程事实层、T6/T7 的公共读入口、T8 的两棵树共用内核与 Git 宿主组合、T9 的 sessions 信封与真机验收已收口。
-- 没有第二份目录事实缓存：`remoteProjectList` 与 `directoryPage` 都经同一 `readDirSnapshot` / `FactCache`；`remoteRepos`/`remoteLog`/`remoteCompare` 都委托同一 `RemoteGitService`，不建旁路缓存或业务分支。
+- 没有第二份目录事实缓存：`remoteProjectList` 与 `directoryPage` 都经同一 `readDirSnapshot` / `FactCache`；三条旧 Git 读通道（`remoteRepos`/`remoteLog`/`remoteCompare`）已于 2026-11-07 删除，`git:repos` / `git:history-page` / `git:compare-refs` 在 main 内按位置路由到同一 `RemoteGitService`，不建旁路缓存或业务分支。
 - 本机与远端各保留一个展示事实 owner：本机 `GitPanel` 状态机 / 远端 `useRemoteGitView`；共用的是变更树、diff、错误展示、`lazyDirTree` 与 `useGitAutoRefresh`。`ProjectGitDrawer` 只统一生产入口，不合并两套状态机。history/compare/trust/init/sync 语义和授权不同，继续作为真实远端专属区块保留。
-- 兼容壳按 W4 只保留一版，不宣称通道数减少；`remoteRepos`/`remoteLog`/`remoteCompare` 的触发条件已在本表固定，新增调用不得重新引入第二事实源。`listProject` 无消费者，登记为后续清理候选而不是继续扩展。
+- 兼容壳按 W4 只保留一版，不宣称通道数减少；`listProject` 无消费者，登记为后续清理候选而不是继续扩展。
+- **2026-11-07 清理**：删除 `git:remote-repos` / `git:remote-log` / `git:remote-compare` 三条零消费者通道（shared 常量、main handler、preload、previewApi 桩、对应测试与 preload 快照锚点 `git 64→61`）。直接调用这些通道的 renderer 代码早已不存在，公共通道已在 main 内按位置路由。
+
+**为什么 Git 面 provider 不做同款合并（决策）**：文件 provider 合并后只剩文本/传输端口；Git 面两个实现的写面语义本质不同——本机直接委派 `git:*`，远端是令牌经纪（快照桶 + `projectId+repoPath` promise 队列 + grant 选取 + unknown 禁止重放），约 390 行。把它们塞进一个"位置端口"只会把同一段逻辑搬进间接层，净代码量不变、错误边界变模糊，因此保留 `createLocalProjectGitService` / `createRemoteProjectGitService` 两个实现，读面与围栏已共用（`createReadFace` / `fenceProjectGitService`）。若未来要合并，判据是"两边写面方法体可共用 >= 80% 且令牌逻辑可外移"，不是形状相似。
 - 能力边界不是迁移欠账：远端不提供 count/graph、批量/目录写与后台 fetch；这些由 F7 门控或面板不渲染，不能以“补齐”为名放宽授权或伪造结果。
 
 ## 11. 已修复：远端目录页的 Git ignore 修饰在真机上不生效（2026-11-07 定位并修复）

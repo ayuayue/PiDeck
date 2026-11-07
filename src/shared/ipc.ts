@@ -660,15 +660,11 @@ export const ipcChannels = {
 	gitStatus: "git:status",
 	/** SSH root repository facts plus SCM groups; writes/history/sync remain capability-blocked. */
 	gitRemoteSnapshot: "git:remote-snapshot",
-	/** G5d: bounded repository discovery under the project root (no token, read only). */
-	gitRemoteRepos: "git:remote-repos",
 	gitRemoteMutateIndex: "git:remote-mutate-index",
 	gitRemoteCommit: "git:remote-commit",
-	gitRemoteLog: "git:remote-log",
 	gitRemoteCommitDetail: "git:remote-commit-detail",
 	gitRemoteRefs: "git:remote-refs",
 	gitRemoteRefFileDiff: "git:remote-ref-file-diff",
-	gitRemoteCompare: "git:remote-compare",
 	/** Explicit init at the project root; no token because there is no confirmed repository state to bind. */
 	gitRemoteInit: "git:remote-init",
 	gitRemoteCreateBranch: "git:remote-create-branch",

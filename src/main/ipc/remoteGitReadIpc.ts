@@ -13,15 +13,12 @@ import type {
 	GitRepositoryListResult,
 	RemoteGitBranchMutationResult,
 	RemoteGitCommitDetailResult,
-	RemoteGitCompareResult,
 	RemoteGitDiscardResult,
-	RemoteGitLogResult,
 	RemoteGitRecoveryDropResult,
 	RemoteGitRecoveryListResult,
 	RemoteGitRecoveryRestoreResult,
 	RemoteGitRefFileDiffResult,
 	RemoteGitRefsResult,
-	RemoteGitReposResult,
 	RemoteGitFetchOutcomeResult,
 	RemoteGitInitResult,
 	RemoteGitPullOutcomeResult,
@@ -373,15 +370,6 @@ export function registerRemoteGitReadIpc(input: {
 			return { ok: false, code: remoteGitFailureCode(error) };
 		}
 	});
-	/** G5d: one read-only, bounded discovery of the repositories under the project root; no token, no write. */
-	ipcMain.handle(ipcChannels.gitRemoteRepos, async (event, projectId: unknown): Promise<RemoteGitReposResult> => {
-		try {
-			const listing = await read(event, projectId, "", (id, signal) => git.listRepositories(id, signal));
-			return { ok: true, repos: listing.repos, truncated: listing.truncated };
-		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
-		}
-	});
 	ipcMain.handle(ipcChannels.gitRemoteMutateIndex, async (event, projectId: unknown, operation: unknown, group: unknown, value: unknown, token: unknown, repo: unknown, ...extra: unknown[]): Promise<GitIndexMutationResult> => {
 		try {
 			// The trailing scope is validated before any host work; undefined/'' keeps the project-root repository.
@@ -521,16 +509,6 @@ export function registerRemoteGitReadIpc(input: {
 			return { ok: false, code: remoteGitFailureCode(error) };
 		}
 	});
-	/* Read-only history (G3a): same sender/project/pressure boundaries as status; never a token. */
-	ipcMain.handle(ipcChannels.gitRemoteLog, async (event, projectId: unknown, options: unknown, repo: unknown): Promise<RemoteGitLogResult> => {
-		try {
-			const repoPath = validateRemoteGitRepoPath(repo);
-			const page = await read(event, projectId, repoPath, (id, signal) => git.log(id, options, repoPath, signal));
-			return { ok: true, page };
-		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
-		}
-	});
 	ipcMain.handle(ipcChannels.gitRemoteCommitDetail, async (event, projectId: unknown, oid: unknown, repo: unknown): Promise<RemoteGitCommitDetailResult> => {
 		try {
 			const repoPath = validateRemoteGitRepoPath(repo);
@@ -545,15 +523,6 @@ export function registerRemoteGitReadIpc(input: {
 			const repoPath = validateRemoteGitRepoPath(repo);
 			const refs = await read(event, projectId, repoPath, (id, signal) => git.refs(id, repoPath, signal));
 			return { ok: true, refs };
-		} catch (error) {
-			return { ok: false, code: remoteGitFailureCode(error) };
-		}
-	});
-	/* G5b refs compare: same read boundary as history, no token; both refs are full local ref names. */
-	ipcMain.handle(ipcChannels.gitRemoteCompare, async (event, projectId: unknown, base: unknown, head: unknown, repo: unknown): Promise<RemoteGitCompareResult> => {
-		try {
-			const repoPath = validateRemoteGitRepoPath(repo);
-			return { ok: true, compare: await read(event, projectId, repoPath, (id, signal) => git.compare(id, base, head, repoPath, signal)) };
 		} catch (error) {
 			return { ok: false, code: remoteGitFailureCode(error) };
 		}

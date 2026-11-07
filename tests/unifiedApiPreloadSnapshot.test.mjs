@@ -3,7 +3,7 @@
  *
  * 捕获 src/preload/index.ts 经 contextBridge 实际暴露的 piDesktop API，对
  * 83 命名空间清单与每命名空间方法清单做 sha256 快照（A10：暴露面零变化），
- * 并核对数量锚点（sessions 117 / config 53 / git 64 / app 32）与订阅形态。
+ * 并核对数量锚点（sessions 117 / config 53 / git 61 / app 32）与订阅形态。
  * 摘要来源：T7 只读探针实测（2026-10-14；2026-10-16 合并刷新随 dev 演进重算：
  * yaoPrompts 方法与 sessions.searchContent、skillHub.onInstallProgress 入场，命名空间数不变；
  * 2026-10-17 再刷新：files.searchContent（file-index 工作区文件内容检索）入场，命名空间/方法数锚点不变；
@@ -43,6 +43,9 @@
  *   listWslDirectory + addWslPath（净 +1 方法）；命名空间数与四个数量锚点均不变。
  * 2026-11-07 合并刷新：并轨后命名空间仍 83、sessions 117 / config 53 / git 64 / app 32 均不变，
  *   仅方法清单摘要随两条线合并后重算。
+ * 2026-11-07 兼容壳下线：git.remoteRepos / remoteLog / remoteCompare 三方法移除（公共
+ *   git:repos / git:history-page / git:compare-refs 已在 main 内按位置路由），git 64→61；
+ *   命名空间数与其他数量锚点不变，仅方法清单摘要重算。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -50,7 +53,7 @@ import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const NS_LIST_SHA256 = "f909ece292c40c44553af5d815321bbb8a0666d76c9a4c02a454a319d9505922";
-const FULL_METHODS_SHA256 = "44aea4ae1f3e754defdabaaea6a19f404d7c82e973721ebef629a443edfd55f7";
+const FULL_METHODS_SHA256 = "accec6151869294eb55845a095bfcd748b0fd52e4d9ca19ed4a52eb68e351140";
 const NAMESPACE_COUNT = 83;
 
 /** 捕获 preload 暴露的 piDesktop；null/undefined/形态不符时显式红并给诊断（F8-6 共用）。 */
@@ -103,10 +106,10 @@ test("F8-2 每命名空间排序方法清单摘要零漂移", () => {
 	assert.equal(sha256(methodLines.join(";")), FULL_METHODS_SHA256, "方法清单摘要漂移：任一命名空间的方法暴露面发生变化（A10 红线）");
 });
 
-test("F8-3 数量锚点：sessions 117 / config 53 / git 64 / app 32", () => {
+test("F8-3 数量锚点：sessions 117 / config 53 / git 61 / app 32", () => {
 	assert.equal(Object.keys(api.sessions).length, 117, "sessions 方法数漂移");
 	assert.equal(Object.keys(api.config).length, 53, "config 方法数漂移");
-	assert.equal(Object.keys(api.git).length, 64, "git 方法数漂移");
+	assert.equal(Object.keys(api.git).length, 61, "git 方法数漂移");
 	assert.equal(Object.keys(api.app).length, 32, "app 方法数漂移");
 });
 

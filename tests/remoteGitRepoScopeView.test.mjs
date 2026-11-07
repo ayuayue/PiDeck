@@ -257,19 +257,13 @@ test("the panel exposes the scope selector and keeps init root-only", () => {
 });
 
 test("the repository-scope API is wired through all four layers and the dictionaries", () => {
-	assert.match(readFileSync("src/shared/ipc.ts", "utf8"), /gitRemoteRepos:\s*"git:remote-repos"/);
-	assert.match(readFileSync("src/main/ipc/remoteGitReadIpc.ts", "utf8"), /ipcMain\.handle\(ipcChannels\.gitRemoteRepos/);
-	assert.match(readFileSync("src/preload/index.ts", "utf8"), /remoteRepos:\s*\(projectId: string\)\s*=>\s*ipcRenderer\.invoke\(ipcChannels\.gitRemoteRepos/);
-	assert.match(readFileSync("src/renderer/src/previewApi.ts", "utf8"), /remoteRepos:\s*async \(\) => \(\{ ok: false, code: "REMOTE_FEATURE_DISABLED" \}\)/);
 	// Read channels carry a trailing repo argument in preload; write channels carry one too since G5e.
 	const preload = readFileSync("src/preload/index.ts", "utf8");
 	for (const signature of [
 		"remoteSnapshot: (projectId: string, repo?: string)",
-		"remoteLog: (projectId: string, options?: { maxCount?: number; skip?: number }, repo?: string)",
 		"remoteCommitDetail: (projectId: string, oid: string, repo?: string)",
 		"remoteRefs: (projectId: string, repo?: string)",
 		"remoteRefFileDiff: (projectId: string, base: string | null, head: string, target: ProjectFileTarget, repo?: string)",
-		"remoteCompare: (projectId: string, base: string, head: string, repo?: string)",
 		"recoveryList: (projectId: string, repo?: string)",
 		"syncFacts: (projectId: string, repo?: string)",
 	])

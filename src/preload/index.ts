@@ -1138,7 +1138,6 @@ const api = {
 		 */
 		refreshRemoteGitFacts: (projectId: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteSnapshot, projectId, repo, true, "facts") as Promise<import("../shared/types").GitReadSnapshotResult>,
 		// G5d：项目根下的有界仓库发现（无 token、纯读）
-		remoteRepos: (projectId: string) => ipcRenderer.invoke(ipcChannels.gitRemoteRepos, projectId) as Promise<import("../shared/types").RemoteGitReposResult>,
 		// 分支写面（G3b）：新建分支不移动 HEAD，切换走原生 switch 且冲突即拒（绝不 force）
 		createRemoteBranch: (projectId: string, name: string, token: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteCreateBranch, projectId, name, token, repo) as Promise<import("../shared/types").RemoteGitBranchMutationResult>,
 		switchRemoteBranch: (projectId: string, name: string, token: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteSwitchBranch, projectId, name, token, repo) as Promise<import("../shared/types").RemoteGitBranchMutationResult>,
@@ -1154,12 +1153,10 @@ const api = {
 		recoveryRestore: (projectId: string, ref: string, oid: string, path: string, token: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteRecoveryRestore, projectId, ref, oid, path, token, repo) as Promise<import("../shared/types").RemoteGitRecoveryRestoreResult>,
 		recoveryDrop: (projectId: string, ref: string, oid: string, token: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteRecoveryDrop, projectId, ref, oid, token, repo) as Promise<import("../shared/types").RemoteGitRecoveryDropResult>,
 		// 只读历史（G3a）：分页日志／提交详情／本地引用／两版本间单文件；与 status 同一信任边界，无 token
-		remoteLog: (projectId: string, options?: { maxCount?: number; skip?: number }, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteLog, projectId, options, repo) as Promise<import("../shared/types").RemoteGitLogResult>,
 		remoteCommitDetail: (projectId: string, oid: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteCommitDetail, projectId, oid, repo) as Promise<import("../shared/types").RemoteGitCommitDetailResult>,
 		remoteRefs: (projectId: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteRefs, projectId, repo) as Promise<import("../shared/types").RemoteGitRefsResult>,
 		remoteRefFileDiff: (projectId: string, base: string | null, head: string, target: ProjectFileTarget, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteRefFileDiff, projectId, base, head, target, repo) as Promise<import("../shared/types").RemoteGitRefFileDiffResult>,
 		// G5b：两个全名本地引用之间的只读树对比（无 token）；逐文件两侧内容仍走 remoteRefFileDiff
-		remoteCompare: (projectId: string, base: string, head: string, repo?: string) => ipcRenderer.invoke(ipcChannels.gitRemoteCompare, projectId, base, head, repo) as Promise<import("../shared/types").RemoteGitCompareResult>,
 		// G5c：显式初始化项目根仓库（无 token；属于写操作，结果未知时不重放）
 		initRemote: (projectId: string) => ipcRenderer.invoke(ipcChannels.gitRemoteInit, projectId) as Promise<import("../shared/types").RemoteGitInitResult>,
 		status: (projectId: string, repoPath?: ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.gitStatus, projectId, repoPath) as Promise<import("../shared/types").GitResourceGroups>,
