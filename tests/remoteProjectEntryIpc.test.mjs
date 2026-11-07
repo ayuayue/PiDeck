@@ -222,3 +222,29 @@ test("handle：门禁关闭与非法输入都不触达服务", async () => {
 	await rejectsWith(() => h.handle.rename(h.sender, "p1", 1, "b.txt"), /REMOTE_FILE_INPUT_INVALID/);
 	assert.equal(h.calls.length, 0, "非法输入在打开服务之前就被拒绝");
 });
+
+test("handle.move：main 内 stat→rename 到目标目录；同目录移动不签令牌也不发帧", async () => {
+	const h = entryIpcHarness();
+	const moved = await h.handle.move(h.sender, "p1", "src/a.txt", "lib");
+	assert.deepEqual(JSON.parse(JSON.stringify(moved)), { relativePath: "b.txt" });
+	assert.deepEqual(JSON.parse(JSON.stringify(h.calls.map((call) => call[0]))), ["stat", "rename"], "先读版本再写");
+	assert.equal(h.calls[1][4], "lib/a.txt", "目标路径 = 目标目录 + 源文件名");
+
+	const noop = entryIpcHarness();
+	const same = await noop.handle.move(noop.sender, "p1", "src/a.txt", "src");
+	assert.deepEqual(JSON.parse(JSON.stringify(same)), { relativePath: "src/a.txt" });
+	assert.equal(noop.calls.length, 0, "移到同一目录是无操作：不签令牌、不发帧");
+});
+
+test("handle.delete：main 内 stat→deleteEntry，带回回收站收据", async () => {
+	const h = entryIpcHarness();
+	const deleted = await h.handle.delete(h.sender, "p1", "src/a.txt");
+	assert.deepEqual(JSON.parse(JSON.stringify(deleted)), { trashId: "20261017T093012Z-aaaaaaaa" });
+	assert.deepEqual(JSON.parse(JSON.stringify(h.calls.map((call) => call[0]))), ["stat", "deleteEntry"], "先读版本再删");
+	assert.equal(h.calls[1][3], "src/a.txt");
+
+	const disabled = entryIpcHarness(false);
+	await rejectsWith(() => disabled.handle.move(disabled.sender, "p1", "a.txt", "b"), /REMOTE_FEATURE_DISABLED/);
+	await rejectsWith(() => disabled.handle.delete(disabled.sender, "p1", "a.txt"), /REMOTE_FEATURE_DISABLED/);
+	assert.equal(disabled.calls.length, 0);
+});

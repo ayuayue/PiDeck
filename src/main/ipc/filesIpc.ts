@@ -78,6 +78,8 @@ export type FilesIpcDeps = {
 	remoteEntries?: {
 		create(sender: IpcMainInvokeEvent["sender"], projectId: string, parent: string, name: string, type: "file" | "directory"): Promise<{ relativePath: string }>;
 		rename(sender: IpcMainInvokeEvent["sender"], projectId: string, source: string, targetPath: string): Promise<{ relativePath: string }>;
+		move(sender: IpcMainInvokeEvent["sender"], projectId: string, source: string, targetDir: string): Promise<{ relativePath: string }>;
+		delete(sender: IpcMainInvokeEvent["sender"], projectId: string, relativePath: string): Promise<{ trashId: string }>;
 	};
 	/**
 	 * 本机目录页的 Git ignore 判定（T6 收尾）：装配层注入 `GitService.checkIgnore`。
@@ -681,11 +683,19 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		return result;
 	});
 
-	ipcMain.handle(ipcChannels.filesDelete, async (_event, rawPath: unknown, recursive?: unknown) => {
+	ipcMain.handle(ipcChannels.filesDelete, async (event, rawPath: unknown, recursive?: unknown) => {
 		const pathInput = parseFilePathInput(rawPath);
 		if (recursive !== undefined && typeof recursive !== "boolean") throw new Error("Invalid recursive flag");
 		try {
 			if (typeof pathInput !== "string") {
+				// 位置分派收口：ssh 项目走 entry 删除（进回收站，带回 trashId），令牌留在 main。
+				const owner = projectStore.get(pathInput.projectId);
+				if (owner !== undefined && isRemoteProject(owner)) {
+					if (remoteEntries === undefined) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+					const deleted = await remoteEntries.delete(event.sender, pathInput.projectId, pathInput.relativePath);
+					void appLogger.info("file", "Remote project entry deleted", { projectId: pathInput.projectId, target: pathInput.relativePath });
+					return deleted;
+				}
 				await projectFileBackendRouter.forProject(pathInput.projectId).delete(pathInput, recursive);
 				void appLogger.info("file", "Project file deleted", { target: pathInput, recursive: Boolean(recursive) });
 				return;
@@ -741,10 +751,25 @@ export function registerFilesIpc({ fileSystemService, projectStore, settingsStor
 		return localFileMutationAdapter.copy(sourceInputs, targetDirInput);
 	});
 
-	ipcMain.handle(ipcChannels.filesMove, async (_event, rawSourcePaths: unknown, rawTargetDir: unknown) => {
+	ipcMain.handle(ipcChannels.filesMove, async (event, rawSourcePaths: unknown, rawTargetDir: unknown) => {
 		const sourceInputs = parseFilePathInputs(rawSourcePaths);
 		const targetDirInput = parseFilePathInput(rawTargetDir);
 		const targetSources = sourceInputs.filter((source): source is ProjectFileTarget => typeof source !== "string");
+		// 位置分派收口：全部是 target 且目标是 ssh 项目 → 逐项走 entry rename（跨目录移动）。
+		if (typeof targetDirInput !== "string" && targetSources.length === sourceInputs.length) {
+			const owner = projectStore.get(targetDirInput.projectId);
+			if (owner !== undefined && isRemoteProject(owner)) {
+				if (sourceInputs.some((source) => (source as ProjectFileTarget).projectId !== targetDirInput.projectId)) throw new Error("CROSS_BACKEND_FILE_OPERATION_UNSUPPORTED");
+				if (remoteEntries === undefined) throw new Error("UNSUPPORTED_PROJECT_LOCATION");
+				const moved: ProjectFileTarget[] = [];
+				for (const source of targetSources) {
+					const result = await remoteEntries.move(event.sender, source.projectId, source.relativePath, targetDirInput.relativePath);
+					moved.push({ projectId: source.projectId, relativePath: result.relativePath });
+				}
+				void appLogger.info("file", "Remote project entries moved", { projectId: targetDirInput.projectId, count: moved.length });
+				return moved;
+			}
+		}
 		const targets = [...targetSources, ...(typeof targetDirInput === "string" ? [] : [targetDirInput])];
 		const backend = fileBackendForTargets(targets);
 		if (typeof targetDirInput !== "string" && targetSources.length === sourceInputs.length) {

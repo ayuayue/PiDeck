@@ -110,10 +110,16 @@ function makeApi(options = {}) {
 			},
 			move: async (sources, targetDir) => {
 				record("files.move", [sources, targetDir]);
-				return sources;
+				// 公共 files:move 返回移动后的 target（目标目录 + 源文件名），与 local backend 同形。
+				return sources.map((source) => {
+					const name = source.relativePath.slice(source.relativePath.lastIndexOf("/") + 1);
+					return { projectId: source.projectId, relativePath: targetDir.relativePath === "" ? name : `${targetDir.relativePath}/${name}` };
+				});
 			},
 			delete: async (target) => {
 				record("files.delete", [target]);
+				// 远端删除进回收站会带收据；本机没有（undefined）。
+				return options.deleteReceipt;
 			},
 			open: async (target) => {
 				record("files.open", [target]);
@@ -454,8 +460,8 @@ test("本机文本保存没有 version 通道：传入远端令牌显式拒绝�
 	assert.deepEqual(calls, []);
 });
 
-test("远端文件管理：新建按类型分流，改名/删除复用 entry 令牌并返回收据", async () => {
-	const { api, calls } = makeApi();
+test("远端文件管理：新建按类型分流，改名/删除/移动都走公共 files:* 并返回收据", async () => {
+	const { api, calls } = makeApi({ deleteReceipt: { trashId: "trash-1" } });
 	const services = createProjectServices(remoteProject, api, { facts: remoteFacts() });
 	const parent = { projectId: "p2", relativePath: "src" };
 	const file = await services.files.createEntry(parent, "b.ts", "file");
@@ -468,11 +474,11 @@ test("远端文件管理：新建按类型分流，改名/删除复用 entry 令
 	assert.deepEqual(plain(deleted), { target: { projectId: "p2", relativePath: "src/c.ts" }, trashId: "trash-1" });
 	const moved = await services.files.moveEntry({ projectId: "p2", relativePath: "src/a.ts" }, "lib/a.ts");
 	assert.deepEqual(plain(moved.target), { projectId: "p2", relativePath: "lib/a.ts" });
-	// 新建/改名已收口到公共 files:*（main 内按位置路由）；删除/移动仍走 entry 专用通道（本片未动）。
-	assert.deepEqual(names(calls), ["files.create", "files.create", "files.rename", "remoteHosts.statProjectEntry", "remoteHosts.deleteProjectEntry", "remoteHosts.statProjectEntry", "remoteHosts.renameProjectEntry"]);
-	assert.deepEqual(calls[2].args, [{ projectId: "p2", relativePath: "src/b.ts" }, "c.ts"]);
-	assert.deepEqual(calls[4].args, ["p2", "src/c.ts", "entry-v1"]);
-	assert.deepEqual(calls[6].args, ["p2", "src/a.ts", "lib/a.ts", "entry-v1"]);
+	// 新建/改名/删除/移动全部收口到公共 files:*（main 内按位置路由；令牌不离开 main）。
+	assert.deepEqual(names(calls), ["files.create", "files.create", "files.rename", "files.delete", "files.move"]);
+	assert.deepEqual(plain(calls[2].args), [{ projectId: "p2", relativePath: "src/b.ts" }, "c.ts"]);
+	assert.deepEqual(plain(calls[3].args), [{ projectId: "p2", relativePath: "src/c.ts" }]);
+	assert.deepEqual(plain(calls[4].args), [[{ projectId: "p2", relativePath: "src/a.ts" }], { projectId: "p2", relativePath: "lib" }]);
 });
 
 test("文件传输经 ProjectFileService：远端 picker/拖放/下载共用项目身份，本机显式 unsupported", async () => {

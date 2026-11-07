@@ -110,13 +110,17 @@ test("files:create / files:rename route ssh projects through the main-owned entr
 	assert.match(filesIpc, /if \(remoteEntries === undefined\) throw new Error\("UNSUPPORTED_PROJECT_LOCATION"\)/);
 	assert.match(filesIpc, /remoteEntries\.create\(event\.sender, parentInput\.projectId, parentInput\.relativePath, name, type\)/);
 	assert.match(filesIpc, /remoteEntries\.rename\(event\.sender, pathInput\.projectId, pathInput\.relativePath, targetPath\)/);
+	assert.match(filesIpc, /remoteEntries\.move\(event\.sender, source\.projectId, source\.relativePath, targetDirInput\.relativePath\)/);
+	assert.match(filesIpc, /remoteEntries\.delete\(event\.sender, pathInput\.projectId, pathInput\.relativePath\)/);
 	assert.match(filesIpc, /const owner = projectStore\.get\(parentInput\.projectId\);/);
 	assert.match(filesIpc, /const owner = projectStore\.get\(pathInput\.projectId\);/);
-	// renderer 不再自己选远端写通道：create 的两条 remoteHosts 调用必须消失；rename 只剩 moveEntry 在复用
-	// （跨目录移动本片未收口），renameEntry 本身不得再直接调远端通道。
+	// renderer 不再自己选远端写通道：create/rename/move/delete 的 write 面全走公共 files:*。
 	assert.doesNotMatch(projectFileService, /remoteHosts\.createProject(File|Directory)\(/);
-	assert.match(projectFileService, /moveEntry[\s\S]{0,400}remoteHosts\.renameProjectEntry\(/, "moveEntry 仍复用 entry rename（本片未收口）");
-	assert.match(projectFileService, /async renameEntry\(target, newName\)[\s\S]{0,200}api\.files\.rename\(target, newName\)/, "renameEntry 只调公共 files.rename");
+	assert.doesNotMatch(projectFileService, /remoteHosts\.renameProjectEntry\(/);
+	assert.doesNotMatch(projectFileService, /remoteHosts\.deleteProjectEntry\(/);
+	assert.doesNotMatch(projectFileService, /remoteHosts\.statProjectEntry\(/);
+	assert.match(projectFileService, /api\.files\.move\(\[target\], \{ projectId, relativePath: parentPath \}\)/, "moveEntry 走公共 files.move");
+	assert.match(projectFileService, /api\.files\.delete\(target\)/, "deleteEntry 走公共 files.delete");
 	// 搜索同理：provider 只调公共 files:searchPage。
 	assert.match(projectFileService, /api\.files\.searchPage\(projectId, query\)/);
 	assert.doesNotMatch(projectFileService, /remoteHosts\.searchProject\(/);

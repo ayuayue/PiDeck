@@ -245,6 +245,39 @@ export function registerRemoteProjectEntryIpc(input: {
 				);
 			})();
 		},
+		move(sender: IpcMainInvokeEvent["sender"], projectId: string, source: string, targetDir: string): Promise<{ relativePath: string }> {
+			if (!input.enabled) throw new Error("REMOTE_FEATURE_DISABLED");
+			if (!PROJECT_ID(projectId) || typeof source !== "string" || typeof targetDir !== "string") throw new Error("REMOTE_FILE_INPUT_INVALID");
+			const senderId = watchSender(sender);
+			const name = source.slice(source.lastIndexOf("/") + 1);
+			const targetPath = targetDir === "" ? name : `${targetDir}/${name}`;
+			// 移到同一个目录 = 无操作：不签令牌、不发帧（与本地 backend 的“同名移动”语义一致）。
+			if (targetPath === source) return Promise.resolve({ relativePath: source });
+			return (async () => {
+				const { version } = await entry.stat(senderId, projectId, source);
+				return await writeWithFacts(
+					projectId,
+					[source, targetPath],
+					(renamed) => [source, renamed.relativePath],
+					() => entry.rename(senderId, projectId, source, targetPath, version),
+				);
+			})();
+		},
+		delete(sender: IpcMainInvokeEvent["sender"], projectId: string, relativePath: string): Promise<{ trashId: string }> {
+			if (!input.enabled) throw new Error("REMOTE_FEATURE_DISABLED");
+			if (!PROJECT_ID(projectId) || typeof relativePath !== "string") throw new Error("REMOTE_FILE_INPUT_INVALID");
+			const senderId = watchSender(sender);
+			return (async () => {
+				// 删除不可恢复（进回收站）：乐观锁凭据同样现读现用，不跨调用复用。
+				const { version } = await entry.stat(senderId, projectId, relativePath);
+				return await writeWithFacts(
+					projectId,
+					[relativePath],
+					() => [relativePath],
+					() => entry.deleteEntry(senderId, projectId, relativePath, version),
+				);
+			})();
+		},
 		/** 退出清理：撤销全部 sender 令牌并解除窗口监听（与文本保存 IPC 各管各的表）。 */
 		dispose(): void {
 			for (const { sender, destroy } of senders.values()) sender.removeListener("destroyed", destroy);

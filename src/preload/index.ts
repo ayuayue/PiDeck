@@ -604,7 +604,8 @@ const api = {
 		readBase64: (path: string | ProjectFileTarget, maxBytes?: number, scope?: ProjectFileAccessScope) => ipcRenderer.invoke(ipcChannels.filesReadBase64, path, maxBytes, scope) as Promise<string>,
 		/** 保存项目来源文件时复用读取 scope，主进程据此校验真实写入路径。 */
 		writeContent: (path: string | ProjectFileTarget, content: string, scope?: ProjectFileAccessScope, expectedRevision?: string) => ipcRenderer.invoke(ipcChannels.filesWriteContent, path, content, scope, expectedRevision) as Promise<void>,
-		delete: (path: string | ProjectFileTarget, recursive?: boolean) => ipcRenderer.invoke(ipcChannels.filesDelete, path, recursive) as Promise<void>,
+		/** 远端目标的删除进回收站，返回 trashId 收据；本机删除没有收据（undefined）。 */
+		delete: (path: string | ProjectFileTarget, recursive?: boolean) => ipcRenderer.invoke(ipcChannels.filesDelete, path, recursive) as Promise<void | { trashId: string }>,
 		/** 复制来源路径到目标目录（支持文件和目录递归），返回目标路径列表 */
 		copy: (sourcePaths: Array<string | ProjectFileTarget>, targetDir: string | ProjectFileTarget) => ipcRenderer.invoke(ipcChannels.filesCopy, sourcePaths, targetDir) as Promise<Array<string | ProjectFileTarget>>,
 		/** 移动来源路径到目标目录（同设备 rename，跨设备 cp+rm） */

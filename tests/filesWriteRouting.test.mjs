@@ -7,6 +7,17 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { ipcChannels } = loadTsCommonJs("src/shared/ipc.ts");
 
+/** vm 里创建的 Error 不是宿主 Error：按消息断言。 */
+async function rejectsWith(run, pattern) {
+	try {
+		await run();
+	} catch (error) {
+		assert.match(String(error?.message ?? error), pattern);
+		return;
+	}
+	assert.fail("expected rejection: " + pattern);
+}
+
 /**
  * 位置分派收口（第二片）：`files:create` / `files:rename` 在 main 内按位置路由。
  *
@@ -18,7 +29,7 @@ const { ipcChannels } = loadTsCommonJs("src/shared/ipc.ts");
  */
 function harness(options = {}) {
 	const handlers = new Map();
-	const calls = { localCreate: [], localRename: [], remoteCreate: [], remoteRename: [] };
+	const calls = { localCreate: [], localRename: [], remoteCreate: [], remoteRename: [], remoteMove: [], remoteDelete: [] };
 	const electron = {
 		app: {},
 		dialog: {},
@@ -38,6 +49,15 @@ function harness(options = {}) {
 		async rename(sender, projectId, source, targetPath) {
 			calls.remoteRename.push({ sender, projectId, source, targetPath });
 			return { relativePath: targetPath };
+		},
+		async move(sender, projectId, source, targetDir) {
+			calls.remoteMove.push({ sender, projectId, source, targetDir });
+			const name = source.slice(source.lastIndexOf("/") + 1);
+			return { relativePath: targetDir === "" ? name : `${targetDir}/${name}` };
+		},
+		async delete(sender, projectId, relativePath) {
+			calls.remoteDelete.push({ sender, projectId, relativePath });
+			return { trashId: "trash-1" };
 		},
 	};
 	registerFilesIpc({
@@ -120,6 +140,44 @@ test("未装配 remoteEntries：ssh 项目明确拒绝，不静默回退本机",
 		);
 		assert.equal(h.calls.localCreate.length, 0);
 		assert.equal(h.calls.localRename.length, 0, "拒绝时一个本机写都不发生");
+	} finally {
+		h.dispose();
+	}
+});
+
+test("files:move：ssh 项目走 remoteEntries（源与目标目录透传），本机不触达端口", async () => {
+	const h = harness();
+	try {
+		const moved = await h.call(ipcChannels.filesMove, [{ projectId: "p2", relativePath: "src/a.txt" }], { projectId: "p2", relativePath: "lib" });
+		assert.deepEqual(JSON.parse(JSON.stringify(moved)), [{ projectId: "p2", relativePath: "lib/a.txt" }]);
+		assert.equal(h.calls.remoteMove.length, 1);
+		assert.equal(h.calls.remoteMove[0].projectId, "p2");
+		assert.equal(h.calls.remoteMove[0].source, "src/a.txt");
+		assert.equal(h.calls.remoteMove[0].targetDir, "lib");
+		assert.equal(h.calls.remoteMove[0].sender.id, 7, "sender 作用域照旧");
+	} finally {
+		h.dispose();
+	}
+});
+
+test("files:delete：ssh 项目走 remoteEntries 并带回 trashId 收据；本机不触达端口", async () => {
+	const h = harness();
+	try {
+		const receipt = await h.call(ipcChannels.filesDelete, { projectId: "p2", relativePath: "src/a.txt" });
+		assert.deepEqual(JSON.parse(JSON.stringify(receipt)), { trashId: "trash-1" });
+		assert.equal(h.calls.remoteDelete.length, 1);
+		assert.equal(h.calls.remoteDelete[0].relativePath, "src/a.txt");
+	} finally {
+		h.dispose();
+	}
+});
+
+test("未装配 remoteEntries：ssh 的 move/delete 明确拒绝，不做本机写", async () => {
+	const h = harness({ remoteEntries: false });
+	try {
+		await rejectsWith(() => h.call(ipcChannels.filesMove, [{ projectId: "p2", relativePath: "src/a.txt" }], { projectId: "p2", relativePath: "lib" }), /UNSUPPORTED_PROJECT_LOCATION/);
+		await rejectsWith(() => h.call(ipcChannels.filesDelete, { projectId: "p2", relativePath: "src/a.txt" }), /UNSUPPORTED_PROJECT_LOCATION/);
+		assert.equal(h.calls.localCreate.length + h.calls.localRename.length, 0);
 	} finally {
 		h.dispose();
 	}

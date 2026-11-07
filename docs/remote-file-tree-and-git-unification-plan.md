@@ -533,8 +533,8 @@ helper 事件与写操作仅标脏、发通知；只有活跃读者决定装载�
 | `remoteProjectList` / `listProject` | 无 renderer 生产消费者 | — | 否 | 旧目录列表适配器；保留一版，候选后续删除 |
 | `files:search-page`（新，2026-11-07 收口第一片） | renderer 两个 provider 的文件名搜索唯一入口；`Op<ProjectFileSearchPage>`，本机与远端同形 | — | 是 | 位置路由在 main：本机索引/BFS、ssh 走 `remoteProjectIpc.searchProject`；`kind:"other"` 只留在 `entries`，`truncated/scanned` 不丢 |
 | `files:search`（本机旧形状） | 不再被 provider 使用 | — | 否（本机旧调用方仍可用） | 保留一版兼容；新调用方一律用 `files:search-page` |
-| `files:create` / `files:rename` 的 ssh 分支（2026-11-07 收口第二片） | main 内按位置分派：ssh 走 `remoteEntries`（entry 服务 + 令牌表 + 事实失效复用），本机走 local backend | — | 是 | rename 的乐观锁凭据由 main 现读现用（stat→rename），renderer 不再持令牌；未装配端口时 ssh 明确 `UNSUPPORTED_PROJECT_LOCATION` |
-| `remoteHosts.searchProject` / `createProjectFile` / `createProjectDirectory` | renderer 不再调用（`renameProjectEntry` 仅剩 `moveEntry` 复用） | — | 否（provider）/是（move 兼容） | 兼容壳保留一版；move/delete 的收口留后续切片 |
+| `files:create` / `files:rename` / `files:move` / `files:delete` 的 ssh 分支（2026-11-07 收口第二片） | main 内按位置分派：ssh 走 `remoteEntries`（entry 服务 + 令牌表 + 事实失效复用），本机走 local backend | — | 是 | rename/move/delete 的乐观锁凭据由 main 现读现用（stat→写），renderer 不再持令牌；delete 带回 trashId 收据；未装配端口时 ssh 明确 `UNSUPPORTED_PROJECT_LOCATION` |
+| `remoteHosts.searchProject` / `createProjectFile` / `createProjectDirectory` / `renameProjectEntry` / `deleteProjectEntry` / `statProjectEntry` | renderer **全部不再调用**（2026-11-07 收口第二片扩展：create/rename/move/delete 都走公共 `files:*`） | — | 否 | 兼容壳保留一版；令牌与乐观锁凭据全部留在 main |
 | `git:remote-check-ignore` + `ProjectDirectoryEntry.ignored` | **本机与远端目录页都已接线（2026-11-07）**：远端 `probeIgnore` → `projectDirectoryPage`；本机 `GitService.checkIgnore` → `LocalProjectFileBackend.directoryPage`；渲染层置灰。`git:remote-check-ignore` IPC 方法本身保留给显式调用方 | — | 是 | 只加修饰不过滤；缺失 = 未知（不是“未忽略”） |
 | `files:list` 的远端 target 分支 | 无 renderer 生产消费者（本机树只用本机 target） | — | 否 | 与 `directoryPage` 共用同一目录事实；保留一版 |
 | `openProjectText` / `saveProjectText` / `readProjectFile` | 远端文本编辑器/图片预览 | — | 是 | 领域文本/图片读写；未迁公共 files 写面，不与目录树重复 |
