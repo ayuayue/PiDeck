@@ -1,6 +1,6 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, dropCursor, rectangularSelection, crosshairCursor } from "@codemirror/view";
-import { Annotation, EditorState, Transaction } from "@codemirror/state";
+import { Annotation, Compartment, EditorState, Transaction } from "@codemirror/state";
 import { foldGutter, foldKeymap, indentOnInput, bracketMatching, indentUnit } from "@codemirror/language";
 import { defaultKeymap, history, historyKeymap, indentWithTab, toggleComment } from "@codemirror/commands";
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
@@ -29,6 +29,9 @@ export type CodeMirrorEditorProps = {
 	 * 用于 `path:line` 链接（对齐 VS Code/Claude Code 的行内跳转）；
 	 * 行号超界时钳制到最近行。 */
 	initialLine?: number;
+	/** 自动换行（默认开启，保持编辑器原有观感）。运行时用 Compartment 热切换，
+	 * 不重建实例——重建会丢掉撤销栈与滚动位置。 */
+	wordWrap?: boolean;
 };
 
 /** 右键选区菜单状态：无选区时保持 null（不接管浏览器右键菜单） */
@@ -84,7 +87,7 @@ setEditorFindHandler(openActiveEditorFind);
 /** 统一封装：与旧 MonacoEditor 的 props 完全兼容（value/onChange/language/height/readOnly），
  * 外部切换时零成本替换。EditorView 生命周期由本组件托管：卸载 dispose、外部 value 变化
  * 以「与当前文档不同才替换」的方式同步，避免覆盖用户正在输入的内容。 */
-export const CodeMirrorEditor = memo(function CodeMirrorEditor({ value, onChange, language, height = "100%", readOnly = false, lineSeparator, onAttachSelection, initialLine }: CodeMirrorEditorProps) {
+export const CodeMirrorEditor = memo(function CodeMirrorEditor({ value, onChange, language, height = "100%", readOnly = false, lineSeparator, onAttachSelection, initialLine, wordWrap = true }: CodeMirrorEditorProps) {
 	const hostRef = useRef<HTMLDivElement | null>(null);
 	const viewRef = useRef<EditorView | null>(null);
 	const onChangeRef = useRef(onChange);
@@ -95,6 +98,8 @@ export const CodeMirrorEditor = memo(function CodeMirrorEditor({ value, onChange
 	const initialLineRef = useRef(initialLine);
 	initialLineRef.current = initialLine;
 	const [selectionMenu, setSelectionMenu] = useState<SelectionMenu | null>(null);
+	// 换行开关走 Compartment 热切换：重建 EditorView 会清掉撤销栈与滚动位置。
+	const wrapCompartment = useMemo(() => new Compartment(), []);
 
 	// 右键：存在文本选区时接管默认菜单，弹出「引用选中内容」；无选区不拦截（保留浏览器菜单）。
 	// 行号取 selection.main 的起止位置所在行（CM6 行号从 1 起，与编辑器 gutter 一致）。
@@ -119,7 +124,8 @@ export const CodeMirrorEditor = memo(function CodeMirrorEditor({ value, onChange
 				doc: value,
 				extensions: [
 					...(lineSeparator ? [EditorState.lineSeparator.of(lineSeparator)] : []),
-					...baseEditorExtensions({ readOnly, wordWrap: true, language: resolvedLanguage }),
+					...baseEditorExtensions({ readOnly, language: resolvedLanguage }),
+					wrapCompartment.of(wordWrap ? EditorView.lineWrapping : []),
 					// 与 Monaco 默认一致的编辑体验：行号/折叠/自动换行/括号匹配/补全/查找
 					lineNumbers(),
 					foldGutter({ markerDOM: foldMarkerDOM }),
@@ -186,6 +192,12 @@ export const CodeMirrorEditor = memo(function CodeMirrorEditor({ value, onChange
 		};
 		// 语言/只读变化需重建实例（CM6 无热切换语言的标准路径，重建成本低且简单可靠）
 	}, [language, readOnly, lineSeparator]);
+
+	useEffect(() => {
+		const view = viewRef.current;
+		if (!view) return;
+		view.dispatch({ effects: wrapCompartment.reconfigure(wordWrap ? EditorView.lineWrapping : []) });
+	}, [wordWrap, wrapCompartment]);
 
 	// initialLine 变化（重新点击同文件链接/切换 tab）：文档未变时重新定位
 	useEffect(() => {

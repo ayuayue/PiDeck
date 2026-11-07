@@ -1,3 +1,10 @@
+## v0.11.3 (2026-11-07)
+
+The preview panel finally has a word-wrap switch: long lines no longer force horizontal dragging, in the diff view and the source view alike.
+
+### ✨ Improvements
+- **Word wrap toggle for previews and diffs** — a toolbar switch flips the diff view between wrapping and horizontal scrolling (the library's `overflow`), and the source view hot-swaps CodeMirror's `lineWrapping` through a compartment so toggling keeps your undo stack and scroll position. Defaults are unchanged (source wraps, diff scrolls); once you touch the switch the choice is remembered per machine in the renderer preference, not in `settings.json`.
+
 ## v0.11.2 (2026-11-07)
 
 Feishu sessions now start from the same defaults as the desktop: the model and thinking level you configure per model (for example `max`) actually apply, instead of every bridge session silently running with thinking off.
