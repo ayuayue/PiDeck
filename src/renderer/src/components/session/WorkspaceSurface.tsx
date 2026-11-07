@@ -407,6 +407,8 @@ function FilesPanelBody(props: FilesPanelProps & { services: ProjectServices | n
 					onQueryChange={fileSearch.setQuery}
 					results={fileSearch.results}
 					isSearching={fileSearch.isSearching}
+					error={fileSearch.error}
+					onRetry={() => void fileSearch.searchNow(fileSearch.query)}
 					contentResults={fileSearch.contentResults}
 					isContentSearching={fileSearch.isContentSearching}
 					contentSearchSupported={contentSearchSupported}

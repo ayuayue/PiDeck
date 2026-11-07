@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import type { ReactNode } from "react";
 import { PanelRight, Plus, X } from "lucide-react";
 import { Button } from "../ui-shadcn/button";
@@ -32,11 +32,13 @@ export type WorkspaceDrawerRailAction = {
  * 用户要求与上方分栏竖线对齐）；只有原生标题栏（顶栏高度为 0）才退回本栏左端兜底（.drawer-rail-close）。
  */
 export function WorkspaceDrawerRail(props: { actions: WorkspaceDrawerRailAction[]; addLabel: string; onClose?: () => void }) {
+	const [focusedId, setFocusedId] = useState<string | null>(null);
 	if (props.actions.length === 0) return null;
 	const optionalActions = props.actions.filter((action) => action.canRemove && action.onTogglePinned);
 	// 活动面板必须在 rail 里可见：外部入口（消息里的「在浏览器打开」、插件打开本地服务 UI）只切内容
 	// 不钉住 tab，漏掉 active 会让面板内容看起来「没有归属 tab」（2026-10 用户反馈）。
 	const visibleActions = props.actions.filter((action) => (action.pinned ?? false) || !action.canRemove || action.active);
+	const tabStopId = visibleActions.find((action) => action.id === focusedId)?.id ?? visibleActions.find((action) => action.active)?.id ?? visibleActions[0]?.id;
 	return (
 		<div className="drawer-activity-rail flex h-10 shrink-0 items-center gap-1 border-b border-border/40 bg-bg-page-raised px-2">
 			{/* 兜底：原生标题栏下抽屉顶栏让位条高度为 0，关闭按钮落在活动栏最左端；
@@ -50,7 +52,14 @@ export function WorkspaceDrawerRail(props: { actions: WorkspaceDrawerRailAction[
 					<span aria-hidden="true" className="mx-0.5 h-5 w-px shrink-0 bg-border/60" />
 				</span>
 			) : null}
-			<div role="tablist" aria-orientation="horizontal" className="flex min-w-0 items-center gap-1">
+			<div
+				role="tablist"
+				aria-orientation="horizontal"
+				className="flex min-w-0 items-center gap-1 overflow-x-auto overscroll-x-contain p-1 -m-1 [scrollbar-width:none]"
+				onBlur={(event) => {
+					if (!event.currentTarget.contains(event.relatedTarget)) setFocusedId(null);
+				}}
+			>
 				{visibleActions.map((action) => (
 					<Fragment key={action.id}>
 						{/* group 容器：X 角标相对 tab 定位，悬停/聚焦时显现，活动 tab 常驻 */}
@@ -59,6 +68,7 @@ export function WorkspaceDrawerRail(props: { actions: WorkspaceDrawerRailAction[
 								type="button"
 								role="tab"
 								aria-selected={action.active}
+								tabIndex={action.id === tabStopId ? 0 : -1}
 								data-testid={`drawer-rail-${action.id}`}
 								variant={action.active ? "secondary" : "ghost"}
 								size="icon"
@@ -66,6 +76,16 @@ export function WorkspaceDrawerRail(props: { actions: WorkspaceDrawerRailAction[
 								title={action.label}
 								aria-label={action.label}
 								onClick={action.onClick}
+								onFocus={() => setFocusedId(action.id)}
+								onKeyDown={(event) => {
+									const tabs = Array.from(event.currentTarget.closest('[role="tablist"]')?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? []);
+									const index = tabs.indexOf(event.currentTarget);
+									const next = event.key === "Home" ? tabs[0] : event.key === "End" ? tabs.at(-1) : event.key === "ArrowRight" ? tabs[(index + 1) % tabs.length] : event.key === "ArrowLeft" ? tabs[(index + tabs.length - 1) % tabs.length] : undefined;
+									if (!next) return;
+									event.preventDefault();
+									// 面板可能自动聚焦编辑器；方向键只移动焦点，Enter / 空格显式打开。
+									next.focus();
+								}}
 							>
 								{action.icon}
 								{action.active ? <span className="pointer-events-none absolute inset-x-1.5 -bottom-1 h-0.5 rounded-full bg-foreground" aria-hidden="true" /> : null}

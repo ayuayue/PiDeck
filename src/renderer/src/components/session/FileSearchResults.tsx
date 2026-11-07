@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { ChevronRight, FileText, Folder, FolderOpen, Search, X } from "lucide-react";
+import { ChevronRight, FileText, Folder, FolderOpen, LoaderCircle, Search, TriangleAlert, X } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui-shadcn/button";
 import { getFileIconSeti, getFileIconColor } from "../../fileIcons";
@@ -23,6 +23,8 @@ export function FileSearchResults(props: {
 	onQueryChange: (value: string) => void;
 	results: FileSearchResult[] | null;
 	isSearching: boolean;
+	error?: string | null;
+	onRetry?: () => void;
 	/** 正文命中（Go sidecar）；null = 未就绪/失败/词太短，此时不渲染正文分区 */
 	contentResults: FileContentSearchResult | null;
 	isContentSearching: boolean;
@@ -68,10 +70,13 @@ export function FileSearchResults(props: {
 
 	return (
 		<div className="file-search-results flex min-h-0 flex-1 flex-col overflow-hidden">
-			<div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-border/40 px-2">
+			<div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-border/40 px-2 focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring">
 				<Search size={13} className="shrink-0 text-muted-foreground" aria-hidden="true" />
 				<input
 					ref={inputRef}
+					type="text"
+					role="searchbox"
+					aria-label={t("drawer.fileSearchPlaceholder")}
 					value={query}
 					onChange={(event) => props.onQueryChange(event.target.value)}
 					onKeyDown={(event) => {
@@ -85,7 +90,12 @@ export function FileSearchResults(props: {
 					className="file-search-input h-full min-w-0 flex-1 border-0 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
 					spellCheck={false}
 				/>
-				{isSearching && <span className="mini-loader animate-pideck-spin" aria-hidden="true" />}
+				{isSearching && <LoaderCircle className="size-3.5 shrink-0 animate-pideck-spin text-muted-foreground motion-reduce:animate-none" aria-hidden="true" />}
+				{query.length > 0 && (
+					<Button type="button" variant="ghost" size="xs" onClick={() => props.onQueryChange("")}>
+						{t("common.clear")}
+					</Button>
+				)}
 				<Button type="button" variant="ghost" size="icon-sm" className="icon-only inline-grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground" onClick={props.onClear} title={t("common.close")} aria-label={t("common.close")}>
 					<X size={13} />
 				</Button>
@@ -93,13 +103,25 @@ export function FileSearchResults(props: {
 			{/* scroll-ok: nested —— 这个滚动窗里是**两段异质列表**：文件名字结果 + 正文命中分区
 			     （FileContentSection 自带 header 与自己的 hits 数组）。要虚拟化必须先把两段摊平成
 			     一个行序列，否则虚拟器算的高度只是其中一段、与容器 scrollHeight 不一致，滚动位置会错。 */}
-			<div className="file-search-list min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+			<div className="file-search-list min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]" aria-busy={isSearching || props.isContentSearching}>
 				{trimmed.length === 0 ? (
 					<div className="px-3 py-6 text-center text-xs text-muted-foreground">{t("drawer.fileSearchEmptyHint")}</div>
 				) : (
 					<>
-						{tree.length === 0 ? (
-							<div className="px-3 py-6 text-center text-xs text-muted-foreground">{isSearching ? t("drawer.fileSearchScanning") : t("drawer.fileSearchNoResults", { query: trimmed })}</div>
+						{props.error ? (
+							<div role="alert" className="flex flex-col items-center gap-2 px-3 py-6 text-center text-xs">
+								<TriangleAlert className="size-4 text-destructive" aria-hidden="true" />
+								<p className="max-w-full break-words text-muted-foreground">{t("project.remote.searchFailed", { code: props.error })}</p>
+								{props.onRetry && (
+									<Button type="button" variant="outline" size="sm" onClick={props.onRetry}>
+										{t("common.retry")}
+									</Button>
+								)}
+							</div>
+						) : tree.length === 0 ? (
+							<div role="status" className="break-words px-3 py-6 text-center text-xs text-muted-foreground">
+								{isSearching ? t("drawer.fileSearchScanning") : t("drawer.fileSearchNoResults", { query: trimmed })}
+							</div>
 						) : (
 							tree.map((entry) => <SearchTreeRow key={entry.key} entry={entry} depth={0} query={trimmed} collapsedDirs={collapsedDirs} onToggleDir={toggleDir} onViewFile={props.onViewFile} onFileContextMenu={props.onFileContextMenu} />)
 						)}
