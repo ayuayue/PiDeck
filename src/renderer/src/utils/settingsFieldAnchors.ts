@@ -231,6 +231,12 @@ const SETTINGS_ROW_ANCHORS = [
 	},
 	{
 		tab: "appearance",
+		slug: "appearance-code-block-wrap",
+		labelKey: "settings.codeBlockWordWrap",
+		keywords: ["代码块", "换行", "自动换行", "折行", "横向滚动", "code block", "word wrap", "wrap", "markdown"],
+	},
+	{
+		tab: "appearance",
 		slug: "appearance-sidebar-sticky-group-headers",
 		labelKey: "settings.sidebarStickyGroupHeaders",
 		keywords: ["侧栏", "分组标题", "冻结", "置顶", "吸附", "标题栏", "sticky", "freeze", "pin"],
