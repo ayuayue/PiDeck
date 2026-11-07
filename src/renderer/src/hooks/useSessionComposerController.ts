@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import type { AgentBackend, ChatMessage, ComposerAgentMode, FileTreeNode, ImageContent, PiCommand, ResolvedLaunchDefaults, SessionRuntimeTarget, SessionSummary } from "../../../shared/types";
 import { DEFAULT_IMAGE_GEN_OUTPUT_FORMAT, DEFAULT_IMAGE_GEN_SIZE, DEFAULT_IMAGE_GEN_WATERMARK, parseImageGenOutputFormat, parseImageGenSize, parseImageGenWatermark } from "../../../shared/imageGenParams";
 import { resolveBusySendDelivery } from "../../../shared/busySendDelivery";
-import { FILE_TREE_ABSOLUTE_MAX_DEPTH } from "../../../shared/fileTree";
 import { isRemoteProject } from "../../../shared/projectLocation";
 import { classifyCompactError, compactOwnerReason, compactRoutedCommand, type CompactNoticeKind } from "../../../shared/compactFeedback";
 import { isRendererVirtualSessionId } from "../../../shared/rendererVirtualSessionId";
@@ -72,7 +71,7 @@ import {
 } from "../composerBehavior";
 import { applySuggestion, buildSuggestionItems, clearSuggestionTrigger, detectTrigger, DSH_COMMAND_SUGGESTIONS, fileNodeDragPayloadToRef, flattenFiles, mergeCommands, PI_FILE_NODE_DRAG_MIME, PI_FILE_PATH_DRAG_MIME, readFileNodeDragPayload, type SuggestionItem } from "../components/app/AppUtils";
 import { SESSION_TAB_DRAG_MIME } from "../utils/sessionSplitEdge";
-import { fileTreeNodeKey, mergeFileTreeChildren, resolveAtDrillDirectory, shouldLoadFullTreeForAtSearch } from "../utils/fileTreeLazy";
+import { fileTreeNodeKey, loadAtFileNameSearch, mergeAtFileNameSearchFiles, mergeFileTreeChildren, resolveAtDrillDirectory, shouldSearchFileNames, type AtFileNameSearchSnapshot } from "../utils/fileTreeLazy";
 import { formatFilePathRef, type ComposerChip } from "../components/session/composer/chips";
 import type { ComposerCaretRequest } from "../components/session/composer/types";
 import { getComposerCaretCoords, getComposerCaretOffset, getComposerCaretBlockEdge, getComposerSelectionRange, isComposerAtVisualEdge } from "../components/session/composer/caretCoords";
@@ -519,13 +518,8 @@ export function useSessionComposerController(options: UseSessionComposerControll
 	// 与在途加载集合成对出现；目录不在任一集合才能发新请求。
 	const loadedDirPathsRef = useRef<Set<string>>(new Set());
 	const loadingDirPathsRef = useRef<Set<string>>(new Set());
-	// @ 纯文件名搜索的整树后台加载：按 projectId 隔离的单个状态，每项目最多触发
-	// 一次（成功或失败都算尝试过），避免用户每敲一个新关键词都重扫整棵目录树。
-	const deepTreeStateRef = useRef<{ projectId: string; loaded: boolean; loading: boolean }>({
-		projectId: "",
-		loaded: false,
-		loading: false,
-	});
+	// 深层 @ 搜索只返回按项目/查询标记的有界命中，不扩张目录懒加载树。
+	const [atFileNameSearch, setAtFileNameSearch] = useState<AtFileNameSearchSnapshot | null>(null);
 	// 运行时模板正文按「agentId:generation」缓存键刷新：runtime 对象本身每次状态变更都会换
 	// 引用，直接进依赖会让模板表随每次流式状态变化重拉。
 	const runtimeTargetKey = runtime?.agentId && runtime.runtimeGeneration !== undefined ? `${runtime.agentId}:${runtime.runtimeGeneration}` : "";
@@ -995,6 +989,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 	}, [loadTemplates, templateKey]);
 
 	const flatFiles = useMemo(() => flattenFiles(files), [files]);
+
 	const mergedCommands = useMemo(() => mergeCommands(commands), [commands]);
 	/**
 	 * 后端已接管的命令名（本地展开要避让）。用 ref 让发送路径读最新值：
@@ -1006,6 +1001,12 @@ export function useSessionComposerController(options: UseSessionComposerControll
 	const validCommandNames = useMemo(() => new Set([...mergedCommands.map((command) => command.name), ...templates.map((template) => template.name)]), [mergedCommands, templates]);
 	const validFilePaths = useMemo(() => new Set(flatFiles.map((file) => file.relativePath)), [flatFiles]);
 	const validSessionRefs = useMemo(() => new Set(projectSessions.map((session) => session.name ?? session.filePath)), [projectSessions]);
+	const atFileQuery = useMemo(() => {
+		const trigger = detectTrigger(draft, cursor, validSessionRefs);
+		return trigger?.char === "@" && shouldSearchFileNames(trigger.query) ? trigger.query : null;
+	}, [cursor, draft, validSessionRefs]);
+	const atFileSearchKey = effectiveProjectId && atFileQuery !== null ? `${effectiveProjectId}\0${atFileQuery}` : "";
+	const suggestionFiles = useMemo(() => mergeAtFileNameSearchFiles(flatFiles, atFileNameSearch && `${atFileNameSearch.projectId}\0${atFileNameSearch.query}` === atFileSearchKey ? atFileNameSearch.files : []), [atFileNameSearch, atFileSearchKey, flatFiles]);
 	// 引用 chip 白名单：id → 截断后的快照预览 label；无快照时返回 undefined，
 	// 解析器直接跳过引用分支（零开销快速路径）
 	const sessionQuotes = useAtomValue(quotesAtom);
@@ -1018,7 +1019,7 @@ export function useSessionComposerController(options: UseSessionComposerControll
 	const draftResourceCommands = draftResourceCommandsForProject(draftResourceCommandSnapshot, effectiveProjectId);
 	const standbyPreviewCommands = standbyPreviewCommandsForProject(standbyPreviewCommandSnapshot, effectiveProjectId);
 	const suggestionCommands = selectComposerSuggestionCommands(isDshBackend, Boolean(runtime?.agentId), commands, draftResourceCommands, standbyPreviewCommands);
-	const suggestionItems = useMemo(() => (suggestionsOpen ? buildSuggestionItems(draft, cursor, suggestionCommands, flatFiles, projectSessions) : []), [cursor, draft, flatFiles, projectSessions, suggestionCommands, suggestionsOpen]);
+	const suggestionItems = useMemo(() => (suggestionsOpen ? buildSuggestionItems(draft, cursor, suggestionCommands, suggestionFiles, projectSessions) : []), [cursor, draft, projectSessions, suggestionCommands, suggestionFiles, suggestionsOpen]);
 
 	// @ 引用向下钻取：随输入懒加载子目录（maxDepth 0 只拉一层，与文件抽屉同语义）。
 	// 修复 maxDepth 0 化后只能引用到项目根一层（71d27ed1 为保主进程响应把 8 层递归改成
@@ -1054,47 +1055,27 @@ export function useSessionComposerController(options: UseSessionComposerControll
 		};
 	}, [cursor, draft, effectiveProjectId, files, validSessionRefs]);
 
-	// @ 纯文件名搜索（无 /，如 @index）：懒加载缺少锚点目录，必须一次性拿到整树
-	// 才能让模糊搜索覆盖深层文件（恢复 71d27ed1 之前的深度搜索能力）。
-	// 只在用户确实在搜索（长度 ≥2）且每项目只触发一次；整树合并后所有目录
-	// 都有 children 数组，下钻 effect 的 Array.isArray 门自然短路，不会重复拉。
+	// @ 纯文件名搜索走已有 Go 索引/有界 BFS；纯名查询延迟合并连续输入，目录下钻仍按需加载。
 	useEffect(() => {
-		if (!effectiveProjectId) return;
-		// 切到新项目：重建状态（不 return，继续按新状态评估是否触发）
-		const state = deepTreeStateRef.current;
-		if (state.projectId !== effectiveProjectId) {
-			deepTreeStateRef.current = { projectId: effectiveProjectId, loaded: false, loading: false };
-		}
-		if (deepTreeStateRef.current.loaded || deepTreeStateRef.current.loading) return;
-		const trigger = detectTrigger(draft, cursor, validSessionRefs);
-		if (!trigger || trigger.char !== "@" || !shouldLoadFullTreeForAtSearch(trigger.query)) {
-			return;
-		}
-		// 标记在途后即便本 effect 因继续输入被重新评估，loading 门也会挡住重复请求
-		deepTreeStateRef.current.loading = true;
-		void desktopApi.files
-			.list(effectiveProjectId, { maxDepth: FILE_TREE_ABSOLUTE_MAX_DEPTH, skipGeneratedDirs: true })
-			.then((next) => {
-				// 用项目比对而非 current 标志：输入过程中的每个按键都会触发本 effect
-				// 重新评估并清理旧闭包，但请求仍属于当前项目——数据不该被丢弃，
-				// 否则快速打字会连续浪费整树扫描（重扫风暴）。只有切走项目才丢弃。
-				if (deepTreeStateRef.current.projectId !== effectiveProjectId) return;
-				// 整树是根层清单的超集且目录均带 children，整体替换最省事：
-				// 已下钻目录的数据都在里面（幂等），无需再逐目录 merge。
-				setFiles(next);
-			})
-			.catch(() => {
-				// 超大目录（FILE_TREE_DIRECTORY_TOO_LARGE）/权限问题：保留已加载部分；
-				// 同样标记为已尝试，避免每个关键词都重扫整个项目。
-			})
-			.finally(() => {
-				// 只有请求仍属于当前项目才写状态：切走后的旧闭包不能污染新项目标记。
-				if (deepTreeStateRef.current.projectId === effectiveProjectId) {
-					deepTreeStateRef.current.loading = false;
-					deepTreeStateRef.current.loaded = true;
-				}
-			});
-	}, [cursor, draft, effectiveProjectId, validSessionRefs]);
+		setAtFileNameSearch(null);
+		if (!effectiveProjectId || atFileQuery === null) return;
+		const projectId = effectiveProjectId;
+		const query = atFileQuery;
+		let current = true;
+		const timer = window.setTimeout(() => {
+			void loadAtFileNameSearch(projectId, query, (id, text) => desktopApi.files.search(id, text))
+				.then((snapshot) => {
+					if (current) setAtFileNameSearch(snapshot);
+				})
+				.catch(() => {
+					if (current) setAtFileNameSearch({ projectId, query, files: [] });
+				});
+		}, 150);
+		return () => {
+			current = false;
+			window.clearTimeout(timer);
+		};
+	}, [atFileQuery, effectiveProjectId]);
 	const suggestionAnchorStyle = useMemo<CSSProperties | undefined>(() => {
 		if (!suggestionsOpen) return undefined;
 		const menuWidth = Math.min(520, window.innerWidth - 120);

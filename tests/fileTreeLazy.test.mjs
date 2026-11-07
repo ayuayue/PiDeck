@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { findLoadedDirectory, findDirectoryNodeByRelativePath, fileTreeNodeKey, projectFileKey, findDirectoryNodeByPath, mergeFileTreeChildren, hydrateExpandedFileTree, markFileTreeLoadFailed, resolveAtDrillDirectory, shouldLoadFullTreeForAtSearch } = loadTsCommonJs("src/renderer/src/utils/fileTreeLazy.ts");
+const { findLoadedDirectory, findDirectoryNodeByRelativePath, fileTreeNodeKey, projectFileKey, findDirectoryNodeByPath, mergeFileTreeChildren, hydrateExpandedFileTree, markFileTreeLoadFailed, resolveAtDrillDirectory, shouldSearchFileNames, loadAtFileNameSearch, mergeAtFileNameSearchFiles } = loadTsCommonJs("src/renderer/src/utils/fileTreeLazy.ts");
 
 /**
  * 夹具说明（W1 之后）：树里的键是**项目作用域身份**，不再等于本机绝对路径。
@@ -214,13 +214,34 @@ test("打标后重新 merge 成功结果可恢复（重试入口语义）", () =
 	assert.equal(recovered[0].children[0].name, "a.ts");
 });
 
-test("shouldLoadFullTreeForAtSearch requires real search intent", () => {
-	assert.equal(shouldLoadFullTreeForAtSearch("index"), true);
-	assert.equal(shouldLoadFullTreeForAtSearch("in"), true);
-	assert.equal(shouldLoadFullTreeForAtSearch("i"), false); // 太短，可能只是 @ 后随手一敲
-	assert.equal(shouldLoadFullTreeForAtSearch(""), false);
-	assert.equal(shouldLoadFullTreeForAtSearch("src/"), false); // 有 / ，走目录下钻
-	assert.equal(shouldLoadFullTreeForAtSearch("src/com"), false);
-	assert.equal(shouldLoadFullTreeForAtSearch("C:\\Users\\me\\a.ts"), false); // 盘符绝对路径
-	assert.equal(shouldLoadFullTreeForAtSearch("C:/Users/me/a.ts"), false);
+test("@ 纯文件名搜索只请求一次有界搜索，保留项目 target 并过滤目录浏览重复项", async () => {
+	const calls = [];
+	const snapshot = await loadAtFileNameSearch(PROJECT, "leaf", async (projectId, query) => {
+		calls.push({ projectId, query });
+		return [{ name: "leaf.ts", relativePath: "nested/deep/leaf.ts", path: "/p/nested/deep/leaf.ts", type: "file" }];
+	});
+	assert.deepEqual(calls, [{ projectId: PROJECT, query: "leaf" }]);
+	assert.equal(snapshot.projectId, PROJECT);
+	assert.equal(snapshot.query, "leaf");
+	assert.equal(snapshot.files[0].path, "/p/nested/deep/leaf.ts");
+	assert.equal(snapshot.files[0].type, "file");
+	assert.equal(snapshot.files[0].target.projectId, PROJECT);
+	assert.equal(snapshot.files[0].target.relativePath, "nested/deep/leaf.ts");
+
+	const loaded = [file("leaf.ts", "/p/nested/deep/leaf.ts"), file("other.ts", "/p/other.ts")];
+	const merged = mergeAtFileNameSearchFiles(loaded, snapshot.files);
+	assert.equal(merged[0], snapshot.files[0], "保留搜索命中的 target，不以本机路径节点覆盖");
+	assert.equal(merged.length, 2);
+	assert.equal(mergeAtFileNameSearchFiles(loaded, []), loaded);
+});
+
+test("shouldSearchFileNames requires real non-path search intent", () => {
+	assert.equal(shouldSearchFileNames("index"), true);
+	assert.equal(shouldSearchFileNames("in"), true);
+	assert.equal(shouldSearchFileNames("i"), false);
+	assert.equal(shouldSearchFileNames(""), false);
+	assert.equal(shouldSearchFileNames("src/"), false);
+	assert.equal(shouldSearchFileNames("src/com"), false);
+	assert.equal(shouldSearchFileNames("C:\\Users\\me\\a.ts"), false);
+	assert.equal(shouldSearchFileNames("C:/Users/me/a.ts"), false);
 });

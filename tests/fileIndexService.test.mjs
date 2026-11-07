@@ -55,6 +55,7 @@ function createService(overrides = {}) {
 		},
 		logger: SILENT_LOGGER,
 		timeouts: { boot: overrides.bootTimeout ?? 5_000, request: overrides.requestTimeout ?? 5_000 },
+		now: overrides.now,
 	});
 	return { service, harnesses, spawnCalls, latest: () => harnesses.at(-1) };
 }
@@ -185,16 +186,45 @@ test("warmup：未就绪时后台建索引、booting 中不重复 spawn、已就
 	assert.equal(spawnCalls.length, 1, "booting 中不得重复起进程");
 	bootReady(harnesses[0]);
 	await tick();
-	// 就绪后的 warmup 立刻发出 refresh，且不新建进程
+	// 就绪后再次预热仍是零动作，不新建进程，也不重复 refresh。
 	service.warmup(["/proj/a"]);
 	await tick();
 	assert.equal(spawnCalls.length, 1);
 	await tick();
-	const commands = harnesses[0].commands();
-	assert.equal(
-		commands.some((command) => command.cmd === "refresh"),
-		true,
-	);
+	assert.deepEqual(harnesses[0].commands(), [], "boot ready 已经包含一次索引，预热不得额外刷新");
+	service.dispose();
+});
+
+test("快照过期后合并并发搜索的刷新；显式刷新保留", async () => {
+	let now = 0;
+	const { service, harnesses } = createService({ now: () => now });
+	service.warmup(["/proj/a"]);
+	await tick();
+	bootReady(harnesses[0]);
+	await tick();
+	assert.deepEqual(harnesses[0].commands(), []);
+
+	now = 5_000;
+	const alpha = service.searchNames(["/proj/a"], "alpha");
+	const beta = service.searchNames(["/proj/a"], "beta");
+	await tick();
+	assert.equal(harnesses[0].commands().filter((command) => command.cmd === "refresh").length, 1);
+	const refresh = harnesses[0].commands().find((command) => command.cmd === "refresh");
+	harnesses[0].emitLine({ type: "response", id: refresh.id, ok: true, result: { rootCount: 1, fileCount: 3, dirCount: 2, indexMs: 1, truncated: false } });
+	await tick();
+	assert.equal(harnesses[0].commands().filter((command) => command.cmd === "search-name").length, 2);
+	for (const command of harnesses[0].commands().filter((command) => command.cmd === "search-name")) {
+		harnesses[0].emitLine({ type: "response", id: command.id, ok: true, result: NAME_RESULT });
+	}
+	assert.equal((await alpha).ok, true);
+	assert.equal((await beta).ok, true);
+
+	const refreshed = service.refresh(["/proj/a"]);
+	await tick();
+	const explicit = harnesses[0].commands().at(-1);
+	assert.equal(explicit.cmd, "refresh");
+	harnesses[0].emitLine({ type: "response", id: explicit.id, ok: true, result: { rootCount: 1, fileCount: 4, dirCount: 2, indexMs: 1, truncated: false } });
+	assert.equal((await refreshed).value.fileCount, 4);
 	service.dispose();
 });
 
