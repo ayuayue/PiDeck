@@ -61,8 +61,8 @@ test("主进程装配：userData/favorites.json + 注册收藏 IPC + 域清单�
 });
 
 test("页面式 Tab：收藏排在智能体下面，标题走 i18n，失活隐藏、关闭卸载、Esc 仅当前页响应", () => {
-	assert.match(pageTabs, /export type WorkspacePageId = "automation" \| "agents" \| "favorites"/);
-	assert.match(pageTabs, /WORKSPACE_PAGE_ORDER[\s\S]{0,120}?\["automation", "agents", "favorites"\]/);
+	assert.match(pageTabs, /export type WorkspacePageId = "settings" \| "automation" \| "agents" \| "favorites"/);
+	assert.match(pageTabs, /WORKSPACE_PAGE_ORDER[\s\S]{0,120}?\["settings", "automation", "agents", "favorites"\]/);
 	assert.match(pageTabs, /export function sortWorkspacePageIds/);
 	assert.match(app, /sortWorkspacePageIds\(openWorkspacePageIds\)\.map/);
 	assert.match(app, /"favorites\.title"/, "页面标题必须走 favorites.title");
