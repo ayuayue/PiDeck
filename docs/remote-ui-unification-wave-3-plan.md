@@ -80,6 +80,8 @@
 | C / W5 共用状态机 | ✅（抽 + 两侧接线） | 新增 `createGitOperationGate`：取消（`retire`/`isCurrent`）、互斥（写单飞，写者在途由消费者自己的标志回答；读可 `exclusive` 不重叠）、unknown（持续码，只有成功事实读解除）、迟到读（写一开始在途读作废）。`remoteGitStatusPolling` 的静默轮询、`remoteGitViewState` 的代次/unknown/写单飞、`GitPanel` 的 status 请求与 mutation 单飞都改成走它；history/compare/trust/init/sync 的授权语义保持独立。 | `src/renderer/src/utils/gitOperationGate.ts`；`tests/gitOperationGate.test.mjs`（4 例，一条规则一例）；`tests/remoteGitStatusPolling.test.mjs`、`tests/remoteGitViewState.test.mjs`、`tests/remoteGitMutationView.test.mjs`、`tests/remoteGitUncertainWriteCarry.test.mjs`、`tests/gitPanelPollingGuard.test.mjs`、`tests/gitPanelUi.test.mjs` 全绿 |
 | D / 收尾 | ◐ | Git ignore 修饰：**显式标注未消费**（契约字段与 handler 各写明现状+接线形状），未接进目录页 —— 这是 T6 的独立切片；位置分派：保持 provider 边界不变，未做跨层迁移；rebind UI：未做（产品级界面，不在本批）。 | `src/shared/types/projectFiles.ts`、`src/main/ipc/remoteGitReadIpc.ts`（`checkIgnore` 注释） |
 
+**真机验收（2026-11-07）**：远端 Git 10/10 + 文件管理 v1 全部通过，G6b soak 按 Linux-only 跳过；细节见下方「未执行 / 残留项」。
+
 **验证命令与结果（本批实际执行）**：
 
 - `npm run typecheck` → exit 0；
@@ -91,6 +93,10 @@
 
 **未执行 / 残留项（如实登记）**：
 
-- **SSH 真机 E2E 未跑**：本机未提供 `PIDECK_E2E_REMOTE_HOST/USER/FINGERPRINT`，`e2e/remoteSessionAcceptance.spec.ts` 会整体 skip；因此本批对 `-g "远端 Git G5b|G5d/G5e|远端文件管理"` 的验收**没有证据**，只有单测与类型证据。
+- **SSH 真机 E2E 已跑（2026-11-07，serve / Linux 主机，登录 shell node v24.11.0）**：
+  `npx playwright test e2e/remoteSessionAcceptance.spec.ts -g "远端 Git|远端文件管理"` → **11 passed / 1 skipped**（G6b soak 为 Linux-only skip，9.4 分钟）。
+  覆盖：G1 只读 SCM/双项目隔离/断开不重连、G2a/G2b 精确暂存与提交、G3a 历史/引用/两版本差异、G3b 分支创建与切换、
+  G4a/G4b 丢弃与恢复区、G5a fetch/pull/push、G5b 引用对比与轮询、G5c 显式初始化、G5d/G5e 嵌套仓读写、文件管理 v1。
+  flaky 记录：`远端文件管理 v1` 单独首跑时 `remote-trash-row` 断言一次未命中，retry 通过；随后全量运行一次通过（既有 UI 时序抖动，本批未改回收站链路）。
 - **位置分派仍按位置选 provider**：`createProjectServices`（`projectServices.ts`）与两个 provider 工厂仍是 UI 侧唯一的位置判断点。下一步是把 create/rename/read/search 收到 main 的公共入口（`filesIpc` 的 `remoteTextTarget()` 是已有起点），那需要新的公共写面契约，不在本批范围。
 - **rebind UI 未做**：目前只有 `HostRebindJournal` + `RepairPanel` 与主进程旅程；重新绑定界面需要先定产品交互（进入入口、步骤、取消语义），未在本批实现。
