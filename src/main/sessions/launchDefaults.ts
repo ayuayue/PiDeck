@@ -1,4 +1,4 @@
-import type { ResolveLaunchDefaultsInput, ResolvedLaunchDefaults } from "../../shared/types";
+import type { ImChannelBackend, ResolveLaunchDefaultsInput, ResolvedLaunchDefaults } from "../../shared/types";
 import { createSessionModelPreference } from "../../shared/modelDisplayName";
 import { modelThinkingLevelOf, parseModelThinkingLevels } from "../../shared/modelThinkingLevels";
 
@@ -71,6 +71,33 @@ export function resolveLaunchDefaultOptions(input: {
 	const thinkingLevel = (input.backend !== "dsh" && defaults.model ? modelThinkingLevelOf(input.settings, defaults.model.provider, defaults.model.modelId) : undefined) ?? optionalString(input.settings, "defaultThinkingLevel");
 	if (thinkingLevel) defaults.thinkingLevel = thinkingLevel;
 	return defaults;
+}
+
+/**
+ * IM 渠道（飞书/微信）新建会话的启动偏好：与桌面端 createDraft 走同一个解析器。
+ *
+ * 桥接的 ensureSession 原先只建空草稿（不写 model / thinkingLevel），pi 于是按自己的缺省
+ * 开跑——用户在「供应商与模型」里配的默认档位（例如 max）对渠道会话完全失效，表现为
+ * 无论怎么设，桥里始终是 off（Discussions #478）。渠道会话同样是会话，默认值必须与桌面端
+ * 同源，否则「桌面上是 max、飞书里是 off」这类分叉只会越修越多。
+ *
+ * 只对 pi 生效：DSH 的模型路由在 host 侧、ACP 的模型由各自 CLI 决定，写 pi 的模型身份会
+ * 让选择器展示一个引擎并不认的模型。微信仍每轮强制 off（WeChatBridge.applyRunThinking，
+ * 纯文本渠道看不到推理过程、推理 token 白花），这里给的只是会话初始档位。
+ */
+export function resolveImSessionLaunchDefaults(input: { backend?: ImChannelBackend; settings: unknown; models: unknown; catalogModels?: unknown; lastUsedModel?: unknown }): { model?: ResolvedLaunchDefaults["model"]; thinkingLevel?: string } {
+	if (input.backend === "dsh") return {};
+	const defaults = resolveLaunchDefaultOptions({
+		backend: "pi",
+		settings: input.settings,
+		models: input.models,
+		catalogModels: input.catalogModels,
+		lastUsedModel: input.lastUsedModel,
+	});
+	const result: { model?: ResolvedLaunchDefaults["model"]; thinkingLevel?: string } = {};
+	if (defaults.model) result.model = defaults.model;
+	if (defaults.thinkingLevel) result.thinkingLevel = defaults.thinkingLevel;
+	return result;
 }
 
 /**

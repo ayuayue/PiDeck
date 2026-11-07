@@ -1090,3 +1090,15 @@ test("pi 会话仍走宿主指令与本地 agent_end（行为不变）", async (
 	for (const listener of listeners) listener("A", { type: "agent_end" });
 	await run;
 });
+
+// #478（Discussions）：桥建会话原先只建空草稿，pi 按缺省 off 开跑，用户在设置里配的
+// 每模型默认档位对飞书失效。渠道会话必须与桌面端 createDraft 同一解析器。
+test("渠道新建会话带上与桌面端同源的默认模型与思考档位", () => {
+	const gateway = mainSource.match(/const imSessionRuntimeBindings:[\s\S]*?\n\};/)?.[0] ?? "";
+	assert.match(mainSource, /import \{[^}]*resolveImSessionLaunchDefaults[^}]*\} from "\.\/sessions\/launchDefaults"/);
+	assert.match(gateway, /\.\.\.\(await resolveImSessionLaunchPreferences\(input\.backend\)\)/);
+	// 解析输入必须与桌面端 createDraft 同源：目录快照含 auth 渠道模型，lastUsed 参与回退。
+	const helper = mainSource.match(/async function resolveImSessionLaunchPreferences[\s\S]*?\n\}/)?.[0] ?? "";
+	assert.match(helper, /catalogModels: validationCatalogModels\(\)/);
+	assert.match(helper, /lastUsedModel: settingsStore\.get\(\)\.lastUsedModel/);
+});
