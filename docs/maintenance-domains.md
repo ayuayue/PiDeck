@@ -24,6 +24,7 @@
 | 技能商店安装 | 商店搜索必须走注入的 `fetchImpl`（Electron net.fetch），禁裸全局 fetch（undici 不读代理，境外 API 挂到超时）；安装用 spawn + 流式解析（禁 execFile 等终态输出）、进度走 `skill-hub:install-progress`、子进程必注入代理 env（CLI 内部 git 不读 npm proxy） | 本文「技能商店安装链路」 |
 | 内置扩展热更新 | 判据是逐文件 sha256 不是版本号；覆盖层必须完整快照 + vendored 依赖；磁盘根统一走 `resolveBuiltInExtensionRoots()` | 本文「内置扩展热更新」 |
 | 生图存储 | **base64 不进 JSONL**（只存 ref）；读取永远有字节上界；`<img src>` 只走 `imageContentSrc()` | 本文「生图会话存储」 |
+| 二进制文件预览 | 只经 `FileDiffViewer` 调度：图片/PDF/音视频 → Blob URL（CSP `media-src` 必须含 `blob:`），docx/xlsx/zip → `BinaryFilePreview` + lazy chunk；docx 渲染后剥 `a[href]`/外链 `img`；读盘上限 docx/xlsx 32MiB、zip 64MiB；`.doc`/`.pptx` 明确不支持 | 本文「二进制文件预览」 |
 | 主进程出网（模型/供应商 API、CDN、目录页） | 一律经 `src/main/modelHttp/`：要 JSON 文本走 `modelHttpRequest`，要 multipart/二进制响应体走 `modelHttpFetch`；**禁再直接写全局 `fetch`**（undici 不读代理）；本地子进程（whisper-server）例外 | 本文「出网传输（modelHttp 统一层）」 |
 | 智能体 / 划词工具 | 配置只落 `<userData>/agent-profiles.json`（内置 `builtin-translate` / `builtin-pideck-helper` / `builtin-pideck-diagnostic` / `builtin-pideck-plugin-dev` 只补种不覆盖用户编辑）；一次性调用 `agent-profiles:invoke` 的 systemPrompt 只能由主进程按 agentId 解析（渲染层禁传），侧车必须**独立实例**（单飞语义，共用会打断输入框增强）；「使用」= 会话绑定（`sessionAgentBindings`），每次发送由主进程注入隐藏 `agentMessage`（DSH 退化为可见前缀），时间线只显示用户输入；「智能体」与「定时任务」都是**会话 Tab 栏里的页面式 Tab**（不是弹窗、不是会话 Tab：切会话只失活、关闭才卸载），标题固定走 i18n；系统级划词目前隐藏且默认关闭（`SYSTEM_SELECTION_TOOL_ENABLED=false`、默认设置 false；复制监听、原生捕获、快捷键全部不启动） | 本文「智能体与划词工具」+ `docs/host-boundaries.md` §例外四 |
 | 内置浏览器 Agent | 只经 `pideck-cua` MCP host 暴露 `browser_*`；页面文本不可信、写动作默认自动放行（可关闭改为逐次审批）；guest 不缓存（抽屉/全屏会重建）；CDP 被 DevTools/内存探针占用时降级并标 degraded；不注入 preload、不改 webview 安全档位 | `docs/archive/plans/browser-agent-plan.md` §7/§9/§12 |
@@ -93,6 +94,17 @@
 - **WSL**：WSL 项目不进索引（宿主 Go 进程读 UNC 不可靠），`files:search-content` 对 WSL 项目直接不启用（返回 null），名字搜索保持原样。
 - **构建链**：`npm run build:file-index`（fail-open，Go 缺失/构建失败只告警 exit 0）；`scripts/dev.js` 自动构建；`package.json` 的 `build` 链与 `extraResources`（`resources/file-index/bin` → `file-index`）；`.gitignore` 忽略产物只留 `.gitkeep`；`native/file-index/go.sum` 必须入库（拼音依赖），三平台 workflow 的 `FILE_INDEX_OS/ARCH` env + `cache-dependency-path` 含该 go.sum + `go -C native/file-index test ./...`。
 - 测试：`tests/fileIndexService.test.mjs`（宿主协议生命周期）+ `tests/fileSearchContentChain.test.mjs`（IPC 三处同步/降级/渲染层接线/拼音依赖入库源码契约）+ Go 侧 `native/file-index/*_test.go`（名字排序/模糊匹配/拼音分级与异读/内容扫描/预算截断/片段）。
+
+## 二进制文件预览（Office / 音视频 / ZIP）
+
+- **路由**：`src/renderer/src/utils/binaryPreview.ts` 的 `getBinaryPreviewKind()` 按扩展名给出 `docx | spreadsheet | archive | audio | video`，未命中仍走「二进制文件不支持编辑」；`FileDiffViewer` 是唯一调度点。新增格式只改这张表 + 对应 lazy 预览器，不要在多个组件里各判一次扩展名。
+- **渲染分工**：图片/PDF/音视频由 `FileDiffViewer` 自己读 base64 → Blob URL（`<img>/<iframe>/<audio>/<video>`）；docx/xlsx/zip 交给 `components/app/preview/BinaryFilePreview.tsx`，它自己按类型读盘再把字节传给子预览器。父层不替子预览器预读，避免同一份二进制读两遍。
+- **依赖与首屏**：`docx-preview`、`@e965/xlsx`、`fflate` 三个解析库全部经 `React.lazy` 分包，只在内置预览真正打开时加载。xlsx 用 `@e965/xlsx@0.20.3`（SheetJS 0.20 的 npm 镜像，`dist` 与官方 CDN 包逐字节一致；npm 官方 `xlsx` 停在 0.18.5 且含 CVE-2023-30533），不要改回 `xlsx`。
+- **大小上限**：`BINARY_PREVIEW_MAX_BYTES` 定义在 `binaryPreview.ts`（docx/xlsx 32MiB、zip 64MiB），超限由主进程 `FILE_TOO_LARGE` 前缀 + `fileLoadErrorMessage` 转文案；改上限必须同时确认 `files.readBase64` 的默认上限（`filesIpc.ts` 的 `MAX_BINARY_PREVIEW_BYTES`）。
+- **安全边界**：docx 内容不可信——渲染后必须剥掉 `a[href]/target`、只保留 `data:/blob:` 图片并拦截点击（`DocxPreview.tsx` 的 `sanitizeRenderedDocx`）；zip 只用 `unzipSync` 的 `filter` 读中央目录（返回 false 不解压）；xlsx 只渲染文本网格，不求值公式。新增预览器同样按「文档不可信」处理。
+- **CSP**：音视频 `<audio>/<video>` 用 Blob URL，所以 `src/renderer/index.html` 的 `media-src` 必须含 `blob:`；只加 `img-src` 不够（浏览器按资源类型分别校验）。
+- **明确不支持**：旧版 `.doc`（OLE）、`.pptx`、`.rar/.7z` 等——扩展名不在路由表里就显示原提示，不要为了「全覆盖」引入重型库。
+- 测试：`tests/binaryPreview.test.mjs`（扩展名分类/MIME/base64 解码/lazy 分包/CSP/docx 外链剥离/右键菜单与 i18n 键存在性）。
 
 ## 会话数据面 sidecar（session-store，Wave 1 骨架 + Wave 2/2b 条目表默认开）
 
