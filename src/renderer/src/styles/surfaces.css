@@ -399,6 +399,50 @@
   flex: 1;
   border-radius: 0;
 }
+/* 浏览器宿主 stage（issue #508）：抽屉态与全屏态共用**同一个宿主 DOM 节点**，只切样式。
+   绝不能让 stage 换父节点 —— <webview> 一旦脱离文档再插回，Electron 就会重建 guest（页面重载）。 */
+.browser-surface-host {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.browser-surface-stage {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+/* 全屏态：不 portal、不换父节点，直接把这个节点钉到视口上。
+   z-index 高于抽屉/侧栏，低于弹窗(950+)与浮层，避免盖住设置等模态。 */
+.browser-surface-stage--fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 940;
+  background: var(--overlay-backdrop);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+/* 全屏态里的面板恢复成弹框尺寸（.browser-modal 的既有外观），只是容器换成了固定层。 */
+.browser-surface-stage--fullscreen .browser-panel {
+  width: min(1300px, calc(100vw - 48px));
+  height: min(850px, calc(100vh - 48px));
+  flex: none;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  background: var(--color-bg-panel);
+  overflow: hidden;
+}
+/* 全屏遮罩：铺在 stage 下面的整窗点击层（点空白处关闭）。 */
+.browser-surface-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 930;
+}
 
 @media (max-width: 640px) {
   .outline-hover {
