@@ -121,6 +121,7 @@ const FIELD_CATALOG: readonly FieldCatalogEntry[] = [
 	{ field: "scrollToLatestOnSend", tab: "appearance", itemKey: "settings.scrollToLatestOnSend" },
 	{ field: "sidebarStickyGroupHeaders", tab: "appearance", itemKey: "settings.sidebarStickyGroupHeaders" },
 	{ field: "codeBlockWordWrap", tab: "appearance", itemKey: "settings.codeBlockWordWrap" },
+	{ field: "reduceMotion", tab: "appearance", itemKey: "settings.reduceMotion" },
 	{ field: "contentMaxWidth", tab: "appearance", itemKey: "settings.contentWidthPct" },
 	{ field: "navigationMode", tab: "appearance", itemKey: "settings.navigationMode" },
 	{ field: "sessionTabMaxWidth", tab: "appearance", itemKey: "settings.sessionTabMaxWidth" },

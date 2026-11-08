@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 7b65168e77cb9692be4509444f9e424f13f74143beffe3d00347506c7472e101（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 26550cae12b595fd6fb462fa68be026cfa761393a28a4f8ef9e0eb359e4e6e78（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -5220,6 +5220,8 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.sidebarStickyGroupHeaders": "側欄分組標題欄凍結",
 	"settings.codeBlockWordWrap": "程式碼塊自動換行",
 	"settings.codeBlockWordWrapDesc": "會話裡的 Markdown 程式碼塊預設橫向滾動；開啟後超長行在塊內折行（細長豎屏更省事，寬行表格/ASCII 圖會變高）。",
+	"settings.reduceMotion": "減弱動效",
+	"settings.reduceMotionDesc": "停掉掃光、脈衝、入場等裝飾性動畫與過渡，介面直接呈現終態。系統「減弱動態效果」不一定能傳到應用內，需要降耗時直接開這個開關（回合進行中尤其明顯）。",
 	"settings.sidebarStickyGroupHeadersDesc": "開啟後，側欄「聊天」「專案」分組標題欄在列表滾動時固定在頂部，不隨內容滾走。",
 	"settings.contentWidthPct": "聊天內容寬度",
 	"settings.contentWidthPctDesc": "訊息、輸入框與待發送共用同一寬度。100% 接近全寬（仍留 12px 邊距）。",

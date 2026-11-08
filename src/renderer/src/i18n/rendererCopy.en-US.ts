@@ -5235,6 +5235,8 @@ export const enUS: Record<TranslationKey, string> = {
 	"settings.sidebarStickyGroupHeaders": "Freeze sidebar group headers",
 	"settings.codeBlockWordWrap": "Wrap code blocks",
 	"settings.codeBlockWordWrapDesc": "Markdown code blocks scroll horizontally by default; turn this on to fold long lines inside the block (handy on narrow windows, but wide tables and ASCII art get taller).",
+	"settings.reduceMotion": "Reduce motion",
+	"settings.reduceMotionDesc": "Stops decorative animations and transitions (shimmer, pulse, enter effects) so the UI shows the end state immediately. The system Reduce Motion setting does not always reach the app — turn this on to cut the cost directly, especially while a turn is running.",
 	"settings.sidebarStickyGroupHeadersDesc": "When on, the Chats and Projects group headers in the sidebar stay pinned to the top while the list scrolls.",
 	"settings.contentWidthPct": "Chat Content Width",
 	"settings.contentWidthPctDesc": "Messages, composer and queued prompts share the same width. 100% is nearly full pane (12px minimum inset).",

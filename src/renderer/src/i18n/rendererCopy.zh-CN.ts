@@ -5213,6 +5213,8 @@ export const zhCN = {
 	"settings.sidebarStickyGroupHeaders": "侧栏分组标题栏冻结",
 	"settings.codeBlockWordWrap": "代码块自动换行",
 	"settings.codeBlockWordWrapDesc": "会话里的 Markdown 代码块默认横向滚动；开启后超长行在块内折行（细长竖屏更省事，宽行表格/ASCII 图会变高）。",
+	"settings.reduceMotion": "减弱动效",
+	"settings.reduceMotionDesc": "停掉扫光、脉冲、入场等装饰性动画与过渡，界面直接呈现终态。系统「减弱动态效果」不一定能传到应用内，需要降耗时直接开这个开关（回合进行中尤其明显）。",
 	"settings.sidebarStickyGroupHeadersDesc": "开启后，侧栏「聊天」「项目」分组标题栏在列表滚动时固定在顶部，不随内容滚走。",
 	"settings.contentWidthPct": "聊天内容宽度",
 	"settings.contentWidthPctDesc": "消息、输入框与待发送共用同一宽度。100% 接近全宽（仍留 12px 边距）。",

@@ -237,6 +237,12 @@ const SETTINGS_ROW_ANCHORS = [
 	},
 	{
 		tab: "appearance",
+		slug: "appearance-reduce-motion",
+		labelKey: "settings.reduceMotion",
+		keywords: ["减弱动效", "降低动画", "动画", "过渡", "扫光", "卡顿", "省电", "reduce motion", "animation", "motion", "performance"],
+	},
+	{
+		tab: "appearance",
 		slug: "appearance-sidebar-sticky-group-headers",
 		labelKey: "settings.sidebarStickyGroupHeaders",
 		keywords: ["侧栏", "分组标题", "冻结", "置顶", "吸附", "标题栏", "sticky", "freeze", "pin"],

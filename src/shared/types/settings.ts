@@ -817,6 +817,13 @@ export type AppSettings = {
 	 */
 	codeBlockWordWrap?: boolean;
 
+	/**
+	 * 减弱动效（应用内开关）：开启后全局停掉装饰性动画/过渡。
+	 * 不依赖系统 prefers-reduced-motion——Electron 在部分平台/版本不向 renderer 上报该偏好，
+	 * 只靠 media query 会让「减弱动态效果」在用户机器上整体失效。缺省/脏值回落 false。
+	 */
+	reduceMotion?: boolean;
+
 	/** 会话列表排序：updatedAt（默认）/ createdAt / title，由渲染层解释。 */
 	sessionSortMode?: SessionSortModeId;
 	/** 项目列表排序：manual（默认）/ updatedAt / createdAt / title，置顶组保留手动顺序。 */
@@ -1304,6 +1311,8 @@ export function createDefaultAppSettings(): AppSettings {
 		fontFamilyMonoCustom: "",
 		// 会话内 Markdown 代码块默认横向滚动（历史观感），用户可在外观设置里要求折行
 		codeBlockWordWrap: false,
+		// 减弱动效默认关闭：保留历史观感，需要时由用户在外观设置里显式开启
+		reduceMotion: false,
 		// 终端外观/行为默认值：主题 inherit 保持 pi-soft 跟随明暗行为，
 		// scrollback 与 TerminalDock 历史硬编码 5000 一致（升级后行为不变）。
 		terminalTheme: "inherit",
