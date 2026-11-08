@@ -14,9 +14,13 @@ import { t } from "../../i18n";
  *   滚到底时最后几行停在卡片上方；
  * - 卡片横向压住「回到底部」按钮时把按钮抬到卡片上方（`--ask-float-scroll-lift`）；
  * - 右缘让开对话大纲刻度轴，并在父列打 `data-ask-floating`，让刻度的预览卡与展开面板盖在卡片之上。
+ *
+ * 宽度与位置：直接量消息列（`[role=log]`）的矩形，与 `chatContentWidthStyle` 同一契约——
+ * 默认框与消息列/输入卡同宽、水平居中、贴底；不自己拍一个 640px 上限，否则窄列空、宽列偏右。
  */
 
-const STORAGE_KEY = "pideck:ask-float-offset:v1";
+// v2：默认锚点从「右下角」改为「消息列左缘」，旧偏移语义不同，不能沿用。
+const STORAGE_KEY = "pideck:ask-float-offset:v2";
 /** 浮层与列边缘的间距（px），也是拖动时的最小留边。 */
 export const ASK_FLOAT_MARGIN = 12;
 /** 留给时间线末尾的额外缓冲，避免最后一行贴着卡片边。 */
@@ -29,23 +33,40 @@ const SCROLL_BUTTON_HALF_WIDTH = 20;
 const RAIL_GAP = 6;
 
 export type AskFloatOffset = { x: number; y: number };
-/** rightInset：卡片右缘到列右缘的距离（有大纲刻度轴时要让开它）。 */
-export type AskFloatBounds = { parentWidth: number; parentHeight: number; cardWidth: number; cardHeight: number; rightInset?: number };
+/**
+ * columnLeft/columnWidth：消息列（与输入卡同一列）相对父列的左缘与宽度。
+ * rightInset：卡片右缘到列右缘的距离（有大纲刻度轴时要让开它）。
+ */
+export type AskFloatBounds = { parentWidth: number; parentHeight: number; cardWidth: number; cardHeight: number; columnLeft: number; columnWidth: number; rightInset?: number };
 
 function hasSize(bounds: AskFloatBounds): boolean {
-	return bounds.parentWidth > 0 && bounds.parentHeight > 0 && bounds.cardWidth > 0 && bounds.cardHeight > 0;
+	return bounds.parentWidth > 0 && bounds.parentHeight > 0 && bounds.cardWidth > 0 && bounds.cardHeight > 0 && bounds.columnWidth > 0;
 }
 
 /**
- * 偏移以「右下角默认锚点」为原点：x/y 只会 ≤ 0（往左、往上拖）。超界时收回到列内。
+ * 默认框：与消息列 / 输入卡同宽同居中。宽度拉到 100% 且有大纲刻度轴时，按刻度让位收窄并左移
+ * ——卡片永不压刻度，也不越过列留边。
+ */
+export function askFloatFrame(bounds: AskFloatBounds): { left: number; width: number } {
+	const rightInset = bounds.rightInset ?? ASK_FLOAT_MARGIN;
+	const rightBound = Math.max(ASK_FLOAT_MARGIN, bounds.parentWidth - rightInset);
+	const width = Math.max(0, Math.min(bounds.columnWidth, rightBound - ASK_FLOAT_MARGIN));
+	const left = Math.min(Math.max(bounds.columnLeft, ASK_FLOAT_MARGIN), Math.max(ASK_FLOAT_MARGIN, rightBound - width));
+	return { left, width };
+}
+
+/**
+ * 偏移以默认框（消息列左缘、贴底）为原点：x 可左右拖，y 只往上拖。超界时收回到列内。
  * 测量为 0（未布局、标签页隐藏）时原样返回，不能把用户记住的位置夹成 {0,0}。
  */
 export function clampAskFloatOffset(offset: AskFloatOffset, bounds: AskFloatBounds): AskFloatOffset {
 	if (!hasSize(bounds)) return offset;
+	const frame = askFloatFrame(bounds);
 	const rightInset = bounds.rightInset ?? ASK_FLOAT_MARGIN;
-	const minX = Math.min(0, -(bounds.parentWidth - bounds.cardWidth - rightInset - ASK_FLOAT_MARGIN));
+	const minX = ASK_FLOAT_MARGIN - frame.left;
+	const maxX = Math.max(minX, bounds.parentWidth - rightInset - (frame.left + frame.width));
 	const minY = Math.min(0, -(bounds.parentHeight - bounds.cardHeight - 2 * ASK_FLOAT_MARGIN));
-	return { x: Math.round(Math.min(0, Math.max(minX, offset.x))), y: Math.round(Math.min(0, Math.max(minY, offset.y))) };
+	return { x: Math.round(Math.min(maxX, Math.max(minX, offset.x))), y: Math.round(Math.min(0, Math.max(minY, offset.y))) };
 }
 
 /** 卡片在列内的上下边（px，相对列顶）。 */
@@ -72,9 +93,9 @@ export function askFloatReserve(offset: AskFloatOffset, bounds: AskFloatBounds):
  */
 export function askFloatScrollButtonLift(offset: AskFloatOffset, bounds: AskFloatBounds): number {
 	if (!hasSize(bounds)) return 0;
-	const rightInset = bounds.rightInset ?? ASK_FLOAT_MARGIN;
-	const cardRight = bounds.parentWidth - rightInset + offset.x;
-	const cardLeft = cardRight - bounds.cardWidth;
+	const frame = askFloatFrame(bounds);
+	const cardLeft = frame.left + offset.x;
+	const cardRight = cardLeft + frame.width;
 	const center = bounds.parentWidth / 2;
 	if (cardLeft > center + SCROLL_BUTTON_HALF_WIDTH || cardRight < center - SCROLL_BUTTON_HALF_WIDTH) return 0;
 	const edges = cardEdges(offset, bounds);
@@ -114,8 +135,25 @@ function measureRightInset(parent: HTMLElement, previous: number | undefined): n
 	return Math.max(ASK_FLOAT_MARGIN, Math.round(parent.getBoundingClientRect().right - railRect.left + RAIL_GAP));
 }
 
+/**
+ * 量消息列（优先 [role=log]，空态/未挂载时退回输入卡）：与 chatContentWidthStyle 同一契约，
+ * 消息列与输入卡必须同宽居中。量实际矩形，窗口宽度、内容宽度设置、滚动条槽位都自动跟上。
+ */
+function measureColumn(parent: HTMLElement): { left: number; width: number; element: HTMLElement } | null {
+	const parentRect = parent.getBoundingClientRect();
+	const selectors = ['.message-timeline > [role="log"]', ".session-v-composer .composer"];
+	for (const selector of selectors) {
+		const element = parent.querySelector<HTMLElement>(selector);
+		if (!element) continue;
+		const rect = element.getBoundingClientRect();
+		if (rect.width <= 0) continue;
+		return { left: Math.round(rect.left - parentRect.left), width: Math.round(rect.width), element };
+	}
+	return null;
+}
+
 function sameBounds(left: AskFloatBounds | null, right: AskFloatBounds): boolean {
-	return Boolean(left && left.parentWidth === right.parentWidth && left.parentHeight === right.parentHeight && left.cardWidth === right.cardWidth && left.cardHeight === right.cardHeight && left.rightInset === right.rightInset);
+	return Boolean(left && left.parentWidth === right.parentWidth && left.parentHeight === right.parentHeight && left.cardWidth === right.cardWidth && left.cardHeight === right.cardHeight && left.columnLeft === right.columnLeft && left.columnWidth === right.columnWidth && left.rightInset === right.rightInset);
 }
 
 export function FloatingAskLayer(props: { children: ReactNode }) {
@@ -139,6 +177,7 @@ export function FloatingAskLayer(props: { children: ReactNode }) {
 		if (!layer || !parent) return;
 		const observer = new ResizeObserver(() => sync());
 		let observedRail: Element | null = null;
+		let observedColumn: Element | null = null;
 		function sync() {
 			if (!layer || !parent) return;
 			const rail = parent.querySelector(".session-outline-pane");
@@ -147,7 +186,14 @@ export function FloatingAskLayer(props: { children: ReactNode }) {
 				if (rail) observer.observe(rail);
 				observedRail = rail;
 			}
-			const next = { parentWidth: parent.clientWidth, parentHeight: parent.clientHeight, cardWidth: layer.offsetWidth, cardHeight: layer.offsetHeight, rightInset: measureRightInset(parent, boundsRef.current?.rightInset) };
+			const column = measureColumn(parent);
+			if (column && column.element !== observedColumn) {
+				if (observedColumn) observer.unobserve(observedColumn);
+				observedColumn = column.element;
+				observer.observe(column.element);
+			}
+			if (!column) return;
+			const next = { parentWidth: parent.clientWidth, parentHeight: parent.clientHeight, cardWidth: layer.offsetWidth, cardHeight: layer.offsetHeight, columnLeft: column.left, columnWidth: column.width, rightInset: measureRightInset(parent, boundsRef.current?.rightInset) };
 			// 0 尺寸测量（隐藏标签页、未布局）不算数，沿用上一次的边界
 			if (!hasSize(next)) return;
 			setBounds((current) => (sameBounds(current, next) ? current : next));
@@ -200,18 +246,31 @@ export function FloatingAskLayer(props: { children: ReactNode }) {
 		writeStoredOffset({ x: 0, y: 0 });
 	};
 
-	const rightInset = bounds?.rightInset ?? ASK_FLOAT_MARGIN;
+	const frame = bounds ? askFloatFrame(bounds) : null;
 	return (
 		<div
 			ref={layerRef}
 			className="session-v-ask session-v-ask--floating absolute z-30 flex min-h-0 flex-col overflow-hidden rounded-lg shadow-[0_12px_32px_-8px_rgb(0_0_0/0.35)]"
-			style={{
-				right: rightInset,
-				bottom: ASK_FLOAT_MARGIN,
-				width: `min(640px, calc(100% - ${rightInset + ASK_FLOAT_MARGIN}px))`,
-				maxHeight: `calc(100% - ${2 * ASK_FLOAT_MARGIN}px)`,
-				transform: `translate(${offset.x}px, ${offset.y}px)`,
-			}}
+			style={
+				frame
+					? {
+							left: frame.left,
+							width: frame.width,
+							bottom: ASK_FLOAT_MARGIN,
+							maxHeight: `calc(100% - ${2 * ASK_FLOAT_MARGIN}px)`,
+							transform: `translate(${offset.x}px, ${offset.y}px)`,
+						}
+					: {
+							// 首帧测量前按同一契约兜底：与消息列/输入卡同宽居中。
+							left: 0,
+							right: 0,
+							marginInline: "auto",
+							width: "min(var(--chat-content-pct-set, 80%), calc(100% - 48px))",
+							bottom: ASK_FLOAT_MARGIN,
+							maxHeight: `calc(100% - ${2 * ASK_FLOAT_MARGIN}px)`,
+							transform: `translate(${offset.x}px, ${offset.y}px)`,
+						}
+			}
 			aria-live="polite"
 		>
 			<div

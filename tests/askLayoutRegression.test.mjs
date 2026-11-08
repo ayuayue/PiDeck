@@ -271,7 +271,8 @@ test("ask floats over the timeline instead of taking the column bottom", () => {
 	assert.match(injector, /askPanelVisible=\{askPanelVisible\}/);
 	assert.match(timeline, /className="session-runtime-ui mx-auto w-full/);
 	assert.doesNotMatch(timeline, /session-runtime-ui sticky bottom-0/);
-	// 内容宽度：消息区/输入框 inline width（浮动 Ask 自有宽度 min(640px, 列宽 - 边距)，见 FloatingAskLayer）。
+	// 内容宽度：消息区/输入框 inline width；浮动 Ask 量同一列的实际矩形（见 FloatingAskLayer），
+	// 默认与消息列/输入卡同宽居中，不再自带上限与右下角锚点。
 	// 时间线侧挂在 MessageScroller 的 contentProps（内层 [role=log]）上，
 	// 视口铺满面板、滚动条贴面板最右，内容列仍与 composer 同宽居中。
 	// 空态例外：showSurfaceEmptyState 时去掉约束（起始页自控宽度，与引导页一致）。
@@ -314,25 +315,40 @@ function loadFloating() {
 	);
 }
 
-test("floating ask stays inside the column, clear of the outline rail", async () => {
-	const { clampAskFloatOffset, ASK_FLOAT_MARGIN } = await loadFloating();
-	const bounds = { parentWidth: 1000, parentHeight: 800, cardWidth: 600, cardHeight: 300 };
-	// 拖出左上界被收回；不能拖到默认锚点右下之外
-	assert.deepEqual({ ...clampAskFloatOffset({ x: -5000, y: -5000 }, bounds) }, { x: -(1000 - 600 - 2 * ASK_FLOAT_MARGIN), y: -(800 - 300 - 2 * ASK_FLOAT_MARGIN) });
-	assert.deepEqual({ ...clampAskFloatOffset({ x: 50, y: 50 }, bounds) }, { x: 0, y: 0 });
-	// 右缘让开刻度轴后，左移上限随之缩小（卡片左缘仍停在列内 12px）
-	assert.deepEqual({ ...clampAskFloatOffset({ x: -5000, y: 0 }, { ...bounds, rightInset: 48 }) }, { x: -(1000 - 600 - 48 - ASK_FLOAT_MARGIN), y: 0 });
+test("floating ask defaults to the message/composer column and stays inside it", async () => {
+	const { clampAskFloatOffset, askFloatFrame, ASK_FLOAT_MARGIN } = await loadFloating();
+	const bounds = { parentWidth: 1000, parentHeight: 800, cardWidth: 760, cardHeight: 300, columnLeft: 120, columnWidth: 760 };
+	// 默认框与消息列/输入框同宽同左缘（正常内容宽度下就是同一列）
+	assert.deepEqual({ ...askFloatFrame(bounds) }, { left: 120, width: 760 });
+	// 拖出左上界被收回：左边贴列留边 12px，顶部不出列
+	assert.deepEqual({ ...clampAskFloatOffset({ x: -5000, y: -5000 }, bounds) }, { x: ASK_FLOAT_MARGIN - 120, y: -(800 - 300 - 2 * ASK_FLOAT_MARGIN) });
+	// 往右拖也受限：卡片右缘停在列留边内（不再只能往左拖）
+	assert.deepEqual({ ...clampAskFloatOffset({ x: 5000, y: 50 }, bounds) }, { x: 1000 - ASK_FLOAT_MARGIN - (120 + 760), y: 0 });
+	// 右缘让开刻度轴后，右拖空间随之缩小
+	assert.deepEqual({ ...clampAskFloatOffset({ x: 5000, y: 0 }, { ...bounds, rightInset: 48 }) }, { x: 1000 - 48 - (120 + 760), y: 0 });
+	// 内容宽度拉到 100%：默认框按刻度让位收窄并左移，仍不压刻度
+	const wide = askFloatFrame({ ...bounds, columnLeft: 24, columnWidth: 952, rightInset: 48 });
+	assert.equal(wide.width, 1000 - 48 - ASK_FLOAT_MARGIN);
+	assert.equal(wide.left + wide.width, 1000 - 48);
 	// 0 尺寸测量（未布局、隐藏）不能把记住的位置夹成 {0,0}
-	assert.deepEqual({ ...clampAskFloatOffset({ x: -120, y: -300 }, { parentWidth: 0, parentHeight: 0, cardWidth: 0, cardHeight: 0 }) }, { x: -120, y: -300 });
+	assert.deepEqual({ ...clampAskFloatOffset({ x: -120, y: -300 }, { parentWidth: 0, parentHeight: 0, cardWidth: 0, cardHeight: 0, columnLeft: 0, columnWidth: 0 }) }, { x: -120, y: -300 });
 	// 列临时变矮只影响渲染位置：preferred 不变，列恢复后夹紧结果回到原位
 	const preferred = { x: 0, y: -400 };
 	assert.equal(clampAskFloatOffset(preferred, { ...bounds, parentHeight: 400 }).y, -(400 - 300 - 2 * ASK_FLOAT_MARGIN));
 	assert.equal(clampAskFloatOffset(preferred, bounds).y, -400);
 });
 
+test("floating ask measures the same column as messages and composer", () => {
+	// 宽度/居中必须来自聊天内容契约，而不是自己拍一个宽度上限。
+	const floating = readFileSync("src/renderer/src/components/session/FloatingAskLayer.tsx", "utf8");
+	assert.match(floating, /\.message-timeline > \[role="log"\]/);
+	assert.match(floating, /--chat-content-pct-set/);
+	assert.doesNotMatch(floating, /min\(640px/);
+});
+
 test("floating ask reserves the timeline tail whenever the card sits on the bottom, however tall", async () => {
 	const { askFloatReserve, ASK_FLOAT_MARGIN, ASK_FLOAT_TAIL_CLEARANCE } = await loadFloating();
-	const at = (cardHeight, y = 0) => askFloatReserve({ x: 0, y }, { parentWidth: 1000, parentHeight: 760, cardWidth: 600, cardHeight });
+	const at = (cardHeight, y = 0) => askFloatReserve({ x: 0, y }, { parentWidth: 1000, parentHeight: 760, cardWidth: 760, cardHeight, columnLeft: 120, columnWidth: 760 });
 	// 维护者给的边界：368 与 369 高的卡片不能一个 388、一个 0
 	assert.equal(at(368), 368 + ASK_FLOAT_MARGIN + 8);
 	assert.equal(at(369), 369 + ASK_FLOAT_MARGIN + 8);
@@ -340,17 +356,18 @@ test("floating ask reserves the timeline tail whenever the card sits on the bott
 	// 拖离底部、下面留出足够的缝：尾部内容能从卡片下方滚出来，不再留余量
 	assert.equal(at(300, -ASK_FLOAT_TAIL_CLEARANCE), 0);
 	assert.ok(at(300, -(ASK_FLOAT_TAIL_CLEARANCE - ASK_FLOAT_MARGIN - 1)) > 0);
-	assert.equal(askFloatReserve({ x: 0, y: 0 }, { parentWidth: 0, parentHeight: 0, cardWidth: 0, cardHeight: 0 }), 0);
+	assert.equal(askFloatReserve({ x: 0, y: 0 }, { parentWidth: 0, parentHeight: 0, cardWidth: 0, cardHeight: 0, columnLeft: 0, columnWidth: 0 }), 0);
 });
 
 test("floating ask lifts the scroll-to-bottom button only when the card covers it", async () => {
 	const { askFloatScrollButtonLift, ASK_FLOAT_MARGIN } = await loadFloating();
-	const lift = (parentWidth, offset = { x: 0, y: 0 }, cardHeight = 300) => askFloatScrollButtonLift(offset, { parentWidth, parentHeight: 760, cardWidth: Math.min(640, parentWidth - 2 * ASK_FLOAT_MARGIN), cardHeight });
-	// 维护者实测：列宽 1400 时卡片不压按钮；1000/900/800 时压住
-	assert.equal(lift(1400), 0);
-	for (const width of [1000, 900, 800]) assert.equal(lift(width), 300 + ASK_FLOAT_MARGIN + 8);
+	const bounds = { parentWidth: 1200, parentHeight: 760, cardWidth: 960, cardHeight: 300, columnLeft: 120, columnWidth: 960 };
+	// 与输入框同宽的居中卡片贴着列底时必然压住居中的「回到底部」按钮
+	assert.equal(askFloatScrollButtonLift({ x: 0, y: 0 }, bounds), 300 + ASK_FLOAT_MARGIN + 8);
 	// 卡片拖离底部：按钮不被盖住，不抬
-	assert.equal(lift(900, { x: 0, y: -300 }), 0);
+	assert.equal(askFloatScrollButtonLift({ x: 0, y: -300 }, bounds), 0);
+	// 拖到侧边、让开列中线：不抬
+	assert.equal(askFloatScrollButtonLift({ x: -600, y: 0 }, bounds), 0);
 	// 几乎占满整列的卡片：按钮最多抬到列顶附近，不出列
-	assert.equal(lift(900, { x: 0, y: 0 }, 736), 760 - 48);
+	assert.equal(askFloatScrollButtonLift({ x: 0, y: 0 }, { ...bounds, cardHeight: 736 }), 760 - 48);
 });

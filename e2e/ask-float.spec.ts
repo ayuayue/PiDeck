@@ -2,8 +2,8 @@ import type { Page } from "@playwright/test";
 import { test, expect } from "./mock-pi-fixture";
 import { openFirstSession } from "./open-session";
 
-// 浮动提问卡：时间线占满整列、贴底时末尾留白（最后一行不被盖住）、不盖「回到底部」与大纲刻度、
-// 折叠、拖动（位置记忆）、浮层内照常作答。
+// 浮动提问卡：与消息列/输入框同宽居中、时间线占满整列、贴底时末尾留白（最后一行不被盖住）、
+// 不盖「回到底部」与大纲刻度、折叠、拖动（位置记忆）、浮层内照常作答。
 
 function geometry() {
 	const layer = document.querySelector(".session-v-ask--floating") as HTMLElement;
@@ -12,12 +12,17 @@ function geometry() {
 	const log = column.querySelector('.message-timeline > [role="log"]') as HTMLElement;
 	const l = layer.getBoundingClientRect();
 	const c = column.getBoundingClientRect();
+	const r = log.getBoundingClientRect();
 	return {
 		column: c.height,
 		stage: stage.getBoundingClientRect().height,
 		layerTop: l.top - c.top,
+		layerLeft: l.left - c.left,
+		layerWidth: l.width,
+		columnLeft: r.left - c.left,
+		columnWidth: r.width,
 		reserve: getComputedStyle(log, "::after").height,
-		stored: localStorage.getItem("pideck:ask-float-offset:v1"),
+		stored: localStorage.getItem("pideck:ask-float-offset:v2"),
 	};
 }
 
@@ -45,6 +50,9 @@ test("floating ask card", async ({ window }) => {
 	await window.waitForTimeout(600);
 
 	const initial = await window.evaluate(geometry);
+	// 默认与消息列/输入框同宽、同一左缘（不再贴右、不再 640px 封顶，否则首弹位置会偏）
+	expect(Math.abs(initial.layerWidth - initial.columnWidth)).toBeLessThan(2);
+	expect(Math.abs(initial.layerLeft - initial.columnLeft)).toBeLessThan(2);
 	// 时间线占满整列（浮层不再挤占高度），贴底时余量 = 卡片顶边到列底 + 缓冲
 	expect(Math.abs(initial.column - initial.stage)).toBeLessThan(4);
 	expect(Math.abs(Number.parseFloat(initial.reserve) - (initial.column - initial.layerTop + 8))).toBeLessThan(3);
