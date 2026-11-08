@@ -50,6 +50,9 @@ test("ask is pinned below the session timeline instead of inside its scroll cont
 	// 时间线仍保留 runtimeUi 通道：并行问询浮层（AskPanelOverlay）走 OwnedSessionMessageTimeline。
 	assert.match(sessionTimeline, /className="session-runtime-ui mx-auto w-full/);
 	assert.doesNotMatch(sessionTimeline, /session-runtime-ui sticky bottom-0/);
-	// 卡片自身仍不自建滚动：超出浮层高度的部分由 FloatingAskLayer 那一层滚。
+	// 卡片自身仍不自建滚动：超出浮层高度的部分由 FloatingAskLayer 那一层滚，且只有这一层。
 	assert.doesNotMatch(overlay, /overflow-y-auto/);
+	const floating = readFileSync("src/renderer/src/components/session/FloatingAskLayer.tsx", "utf8");
+	assert.equal(floating.match(/overflow-y-auto/g)?.length, 1);
+	assert.match(floating, /scroll-ok: bounded[\s\S]{0,120}overflow-y-auto overscroll-contain/);
 });

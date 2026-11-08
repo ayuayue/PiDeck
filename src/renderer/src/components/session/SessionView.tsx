@@ -21,7 +21,6 @@ import { FloatingAskLayer } from "./FloatingAskLayer";
 import type { SessionMenuModel, SessionMenuRunControl } from "./SessionActionsMenu";
 import { useReplyActions } from "../../hooks/useReplyActions";
 import { useAnimationWindow } from "../../hooks/useAnimationWindow";
-import { chatContentWidthStyle } from "./chatContentWidth";
 import { TerminalDockPanel, TERMINAL_PANEL_COLLAPSED_SIZE, TERMINAL_PANEL_MIN_SIZE } from "../terminal/TerminalDockPanel";
 import type { TerminalDockSettings } from "../terminal/TerminalDock";
 import { useSessionPaneServices } from "./SessionPaneServices";

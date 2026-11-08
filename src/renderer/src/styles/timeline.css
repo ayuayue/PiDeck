@@ -1052,6 +1052,20 @@
   flex-shrink: 0;
   height: var(--ask-float-reserve, 0px);
 }
+/* 浮动 Ask 卡自带不透明底：ApprovalCard 的 --color-card 在壁纸模式下是半透明的，
+ * 浮在消息上会文字叠文字。壁纸模式与设置页同档（≥90% 底色）并加磨砂。 */
+.session-v-ask--floating {
+  background-color: var(--color-bg-panel);
+}
+:root[data-bg-image="on"] .session-v-ask--floating {
+  background-color: color-mix(in srgb, var(--wallpaper-base, var(--color-bg-app)) max(90%, calc(var(--wallpaper-panel-alpha, 30%) + 35%)), transparent);
+  backdrop-filter: blur(18px) saturate(1.3);
+}
+/* 浮动 Ask 期间大纲刻度轴（z-15）抬到卡片（z-30）之上：卡片右缘已让开刻度，
+ * 抬高后刻度的悬停预览与展开目录面板不会被卡片压住。 */
+.session-v-timeline[data-ask-floating] .outline-hover.session-outline-pane {
+  z-index: 31;
+}
 .session-runtime-ui {
   position: relative;
   margin-top: auto;
