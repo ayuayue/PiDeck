@@ -83,10 +83,10 @@
 - 链路：随包扩展 `resources/extensions/pi-deck-linked-sessions.ts`（`-e` 注入，用户可在设置里移除）注册 `start_session` / `send_to_session` / `list_linked_sessions` 三个工具，POST 给主进程回环端点 `src/main/linkedSessions/LinkedSessionServer.ts`（只绑 `127.0.0.1`，路径 `/linked/<token>`，强校验头 `x-pideck-linked-token`）。token 每 agent 一份，spawn 时注入 `PIDECK_LINKED_SESSIONS_URL` / `PIDECK_LINKED_SESSIONS_TOKEN`，与模型快照同一套生命周期（`AgentManager` 注册/注销）。**调用方身份只认 token → agentId → 会话绑定**，不信请求体里的任何会话 id 作为调用方。
 - 宿主侧 `LinkedSessionService` 只做三件事：建草稿并发首条 prompt（`SessionCatalog.createDraft` → `SessionRuntimeCoordinator.send`，与自动化同链路）、向关联会话发消息（同一 `send`，忙时 `followUp`）、读 `agents:state` / `agents:runtime-state` 判子会话回合结束并把回报以 `followUp` 发给父会话。关联关系存 `<userData>/linked-sessions.json`（原子落盘），键是 `SessionRecord.id`。
 - 发起方式：`user_asked` 立即开；`offer` 在父会话时间线出卡片，工具调用挂起到用户点「新会话 / 在此做」或 10 分钟超时；`own_initiative` 只登记提议卡片（7 天过期），用户点开才建会话。卡片按钮走 `linked-sessions:*` IPC。
-- 会话生命周期：子会话就是普通会话，删除 / 归档走侧栏原有菜单；`sessions:catalog-delete` 成功后清掉该会话的全部关系（作父时子会话回到普通会话），`sessions:catalog-archive` 成功后把它作为子会话的关系标成已归档（不再回报、侧栏不再嵌套）。
-- 防空转：父会话被回报自动续跑的连续轮数有上限（`MAX_AUTO_CONTINUE`），用户在父会话发消息即清零；超限后回报只记在关联表里（`list_linked_sessions` 可读），不再自动续跑。父会话没有活着的运行时也不会被回报拉起。
+- 会话生命周期：子会话就是普通会话，删除 / 归档走侧栏原有菜单。清理挂在 `SessionCatalog.onRowsRemoved` 这一个集中点上（`remove` / `removeWithDescendants` / `removeByProjectId` / `mergeScanned` 的外部删除清理都会触发），不在 IPC 里逐条打补丁：会话行一消失就清掉它的全部关系和它作父会话挂着的提议，另一端回到普通会话。归档后恢复出来是新 id 的普通会话，所以归档与删除同样处理，不留孤儿。
+- 防空转：父会话被回报自动续跑的连续轮数有上限（`MAX_AUTO_CONTINUE`）；被父会话拒绝的投递不占额度；清零挂在 `SessionRuntimeCoordinator.onPromptSubmitted`（所有入口的消息都经 `send`，requestId 带 `linked-` 前缀的是本服务自己的回报 / 转发，其余都算用户侧输入）。超限后回报只记在关联表里（`list_linked_sessions` 可读），不再自动续跑。父会话没有活着的运行时也不会被回报拉起。
 - 禁止项：只能对**与调用方直接关联**的会话（自己的子会话或自己的父会话）发消息；不暴露删除会话、改设置、读任意会话正文、跨项目建会话；不用于 DSH / ACP / 远端 SSH 会话（远端快照标 `local-only`，端点未就绪或 env 缺失时扩展不注册任何工具）。回报文本是不可信数据，原样转交、不解析成指令。
-- 守卫测试：`tests/linkedSessionsExtension.test.mjs`（env 缺失不注册、帧字段与共享类型对齐）、`tests/linkedSessionStore.test.mjs`（提议状态机、防空转计数、落盘可重入）。
+- 守卫测试：`tests/linkedSessionsExtension.test.mjs`（env 缺失不注册、帧字段与共享类型对齐）、`tests/linkedSessionStore.test.mjs`（提议状态机、防空转计数、落盘可重入）、`tests/linkedSessionReview.test.mjs`（回合文本基线、额度退还、每回合只报一次、回滚）、`tests/sessionCatalogRowsRemoved.test.mjs`（会话行移除的集中通知）。
 
 ## 侧车通用规则
 

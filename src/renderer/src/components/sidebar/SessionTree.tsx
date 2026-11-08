@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { SidebarRemovalList, SidebarRemovalRow } from "./SidebarRemovalRow";
 import { ChevronDown, ChevronUp, CornerDownRight, Ellipsis, HatGlasses, Image as ImageIcon, Pin, Trash2 } from "lucide-react";
 import { useAtomValue } from "jotai";
@@ -21,7 +21,7 @@ import { SessionActivityIndicator } from "../session/SessionActivityIndicator";
 import { SessionHoverCard } from "./SessionHoverCard";
 import { TitleScrollText } from "./TitleScrollText";
 import { SESSION_ROW_CLASS, SESSION_ROW_SELECTED_CLASS, ROW_MORE_ACTIONS_CLASS, ROW_CONTAINER_CLASS } from "./sidebarRowStyles";
-import { resolveBoundSession } from "./activitySessionsModel";
+import { LINKED_NEST_MAX_DEPTH, groupLinkedChildren, resolveBoundSession } from "./activitySessionsModel";
 import { cn } from "../../lib/utils";
 import { SESSION_TAB_DRAG_MIME } from "../../utils/sessionSplitEdge";
 import { useSessionActivityAt } from "../../hooks/sidebar/useSessionActivityClock";
@@ -129,20 +129,8 @@ export function SessionTree(props: {
 	const activityAt = useSessionActivityAt();
 	const linkByChildId = useAtomValue(linkedSessionLinkByChildIdAtom);
 	// 关联子会话（子对话）：父会话在本项目里时从主列表拿掉、挂到父会话行下面；父会话不在（被删 / 跨项目）就按普通会话显示。
-	const linkedChildrenByParent = new Map<string, SessionRecord[]>();
-	const linkedChildIds = new Set<string>();
-	if (linkByChildId.size > 0) {
-		const sessionIds = new Set(props.sessions.map((session) => session.id));
-		for (const session of props.sessions) {
-			const link = linkByChildId.get(session.id);
-			if (!link || link.archived || !sessionIds.has(link.parentSessionId)) continue;
-			linkedChildIds.add(session.id);
-			const siblings = linkedChildrenByParent.get(link.parentSessionId) ?? [];
-			siblings.push(session);
-			linkedChildrenByParent.set(link.parentSessionId, siblings);
-		}
-		for (const siblings of linkedChildrenByParent.values()) siblings.sort((left, right) => (linkByChildId.get(left.id)?.createdAt ?? 0) - (linkByChildId.get(right.id)?.createdAt ?? 0));
-	}
+	// 可多层（A > B > C）：孙会话挂在子会话行下面，由 renderLinkedChild 递归。
+	const { childrenByParent: linkedChildrenByParent, childIds: linkedChildIds } = linkByChildId.size > 0 ? groupLinkedChildren(props.sessions, (id) => linkByChildId.get(id)) : { childrenByParent: new Map<string, SessionRecord[]>(), childIds: new Set<string>() };
 	const allSummaries = props.sessions.flatMap((session) => {
 		const summary = sessionRecordToSummary(session);
 		return summary ? [summary] : [];
@@ -277,7 +265,7 @@ export function SessionTree(props: {
 			</div>
 		);
 	};
-	const renderLinkedChild = (record: SessionRecord) => {
+	const renderLinkedChild = (record: SessionRecord, depth: number) => {
 		const link = linkByChildId.get(record.id);
 		if (!link) return null;
 		const summary = sessionRecordToSummary(record);
@@ -285,49 +273,53 @@ export function SessionTree(props: {
 		const dotStatus = link.state === "failed" ? "error" : (liveStatus ?? LINKED_STATE_DOT[link.state]);
 		const title = record.title || t("common.untitled");
 		return (
-			<div key={record.id} className={rowContainerClass} onContextMenu={summary ? (event) => openContext(event, summary, false) : undefined}>
-				<button
-					type="button"
-					className={cn(sessionRowClass, "session-row linked-session-sidebar-row pl-2", record.id === props.currentSessionId && selectedRowClass)}
-					title={`${title}\n${linkedChildTooltip(link)}`}
-					data-linked-state={link.state}
-					onClick={() => openSession(record.id)}
-					onDoubleClick={props.actions.sessions.simpleNavigation ? undefined : () => openSession(record.id, "permanent")}
-					{...sessionDragProps(record.id)}
-				>
-					<CornerDownRight className="size-3 shrink-0 text-muted-foreground" aria-label={t("linkedSessions.childBadge")} />
-					{renderRuntimeStatusDot(dotStatus)}
-					<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
-						<div className="conversation-title flex min-w-0 items-center gap-1.5">
-							<TitleScrollText text={title} className={cn(liveStatus ? "font-medium" : "font-normal text-muted-foreground/90")} />
-							{hasPendingAskForSession(record.id, sessionRuntimeUiById) && <PendingAskBadge count={1} />}
-							<span className="w-max shrink-0 overflow-hidden whitespace-nowrap text-micro text-muted-foreground transition-[width,opacity] [interpolate-size:allow-keywords] group-hover/row:w-0 group-hover/row:opacity-0 group-focus-within/row:w-0 group-focus-within/row:opacity-0">{linkedStateLabel(link.state)}</span>
-						</div>
-					</div>
-				</button>
-				{summary && (
-					<Button
+			<Fragment key={record.id}>
+				<div className={rowContainerClass} onContextMenu={summary ? (event) => openContext(event, summary, false) : undefined}>
+					<button
 						type="button"
-						variant="ghost"
-						size="icon-xs"
-						className={rowMoreMenuActiveClass(props.controller.menu?.kind === "session" && props.controller.menu.sessionId === record.id)}
-						aria-label={t("sidebar.moreActions")}
-						title={t("sidebar.moreActions")}
-						onClick={(event) => {
-							event.stopPropagation();
-							openContext(event, summary, false);
-						}}
+						className={cn(sessionRowClass, "session-row linked-session-sidebar-row pl-2", record.id === props.currentSessionId && selectedRowClass)}
+						title={`${title}\n${linkedChildTooltip(link)}`}
+						data-linked-state={link.state}
+						onClick={() => openSession(record.id)}
+						onDoubleClick={props.actions.sessions.simpleNavigation ? undefined : () => openSession(record.id, "permanent")}
+						{...sessionDragProps(record.id)}
 					>
-						<Ellipsis size={14} aria-hidden="true" />
-					</Button>
-				)}
-			</div>
+						<CornerDownRight className="size-3 shrink-0 text-muted-foreground" aria-label={t("linkedSessions.childBadge")} />
+						{renderRuntimeStatusDot(dotStatus)}
+						<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
+							<div className="conversation-title flex min-w-0 items-center gap-1.5">
+								<TitleScrollText text={title} className={cn(liveStatus ? "font-medium" : "font-normal text-muted-foreground/90")} />
+								{hasPendingAskForSession(record.id, sessionRuntimeUiById) && <PendingAskBadge count={1} />}
+								<span className="w-max shrink-0 overflow-hidden whitespace-nowrap text-micro text-muted-foreground transition-[width,opacity] [interpolate-size:allow-keywords] group-hover/row:w-0 group-hover/row:opacity-0 group-focus-within/row:w-0 group-focus-within/row:opacity-0">{linkedStateLabel(link.state)}</span>
+							</div>
+						</div>
+					</button>
+					{summary && (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-xs"
+							className={rowMoreMenuActiveClass(props.controller.menu?.kind === "session" && props.controller.menu.sessionId === record.id)}
+							aria-label={t("sidebar.moreActions")}
+							title={t("sidebar.moreActions")}
+							onClick={(event) => {
+								event.stopPropagation();
+								openContext(event, summary, false);
+							}}
+						>
+							<Ellipsis size={14} aria-hidden="true" />
+						</Button>
+					)}
+				</div>
+				{renderLinkedChildren(record.id, depth + 1)}
+			</Fragment>
 		);
 	};
-	const renderLinkedChildren = (parentSessionId?: string) => {
+	const renderLinkedChildren = (parentSessionId: string | undefined, depth = 1) => {
 		const children = parentSessionId ? linkedChildrenByParent.get(parentSessionId) : undefined;
 		if (!children?.length) return null;
-		return <div className={cn("linked-session-sidebar-group", !props.nested && "ml-3")}>{children.map(renderLinkedChild)}</div>;
+		// 缩进随层数累加，到 LINKED_NEST_MAX_DEPTH 为止（侧栏宽度有限）；关系成环的行在 groupLinkedChildren 里已摘出。
+		return <div className={cn("linked-session-sidebar-group", depth <= LINKED_NEST_MAX_DEPTH && (depth > 1 || !props.nested) && "ml-3")}>{children.map((child) => renderLinkedChild(child, depth))}</div>;
 	};
 	const renderSubagents = (parentKey: string, codex: SessionSummary[], pi: SessionSummary[]) => {
 		if (codex.length + pi.length === 0 || !props.controller.expandedSubagentGroups.has(parentKey)) return null;

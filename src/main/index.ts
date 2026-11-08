@@ -22,7 +22,7 @@ import { AgentProfileStore } from "./agents/AgentProfileStore";
 import { FavoritesStore } from "./favorites/FavoritesStore";
 import { SessionGroupStore } from "./sessionGroups/sessionGroupStore";
 import { LinkedSessionServer } from "./linkedSessions/LinkedSessionServer";
-import { LinkedSessionService } from "./linkedSessions/LinkedSessionService";
+import { LinkedSessionService, lastAssistantTextSince } from "./linkedSessions/LinkedSessionService";
 import { LinkedSessionStore } from "./linkedSessions/LinkedSessionStore";
 import { registerLinkedSessionsIpc } from "./ipc/linkedSessionsIpc";
 import { AgentInvokeService } from "./agents/AgentInvokeService";
@@ -1212,14 +1212,7 @@ const runtimeEventListeners = new Set<(event: SessionRuntimeEvent) => void>();
 function setupLinkedSessions(): void {
 	const store = new LinkedSessionStore(join(app.getPath("userData"), "linked-sessions.json"));
 	linkedSessionStore = store;
-	const lastAssistantText = (sessionId: string): string => {
-		const messages = sessionRuntimeCoordinator.getRuntimeMessages(sessionId)?.value ?? [];
-		for (let index = messages.length - 1; index >= 0; index -= 1) {
-			const message = messages[index];
-			if (message?.role === "assistant" && typeof message.text === "string" && message.text.trim()) return message.text;
-		}
-		return "";
-	};
+	const runtimeMessages = (sessionId: string) => sessionRuntimeCoordinator.getRuntimeMessages(sessionId)?.value ?? [];
 	const service = new LinkedSessionService({
 		store,
 		getSessionIdForAgent: (agentId) => sessionRuntimeCoordinator.getSessionId(agentId),
@@ -1263,7 +1256,13 @@ function setupLinkedSessions(): void {
 			return result.accepted ? { accepted: true } : { accepted: false, error: result.error };
 		},
 		hasLiveRuntime: (sessionId) => Boolean(sessionRuntimeCoordinator.getTarget(sessionId)),
-		getLastAssistantText: lastAssistantText,
+		getMessageCount: (sessionId) => runtimeMessages(sessionId).length,
+		getAssistantTextSince: (sessionId, fromIndex) => lastAssistantTextSince(runtimeMessages(sessionId), fromIndex),
+		discardDraft: async (sessionId) => {
+			const projectId = sessionCatalog.get(sessionId)?.projectId;
+			await sessionCatalog.remove(sessionId);
+			if (projectId) notifyCatalogRefreshed([projectId]);
+		},
 		log: (level, message, data) => void appLogger?.[level]("linked-sessions", message, data),
 	});
 	linkedSessionService = service;
@@ -1276,6 +1275,9 @@ function setupLinkedSessions(): void {
 		if (win && !win.isDestroyed()) win.webContents.send(ipcChannels.linkedSessionsChanged, null);
 	});
 	runtimeEventListeners.add((event) => service.observeRuntimeEvent(event));
+	// 两个集中点，覆盖所有入口：消息提交（清零自动续跑额度）与会话行消失（清理关系）。
+	sessionRuntimeCoordinator.onPromptSubmitted((input) => service.noteOutgoingPrompt(input));
+	sessionCatalog.onRowsRemoved((sessionIds) => void service.noteSessionsRemoved(sessionIds));
 	const server = new LinkedSessionServer((agentId, request) => service.handle(agentId, request));
 	agentManager.setLinkedSessionsHost({
 		registerAgent: (agentId) => server.registerAgent(agentId),
@@ -4703,9 +4705,6 @@ function registerIpc() {
 		// 会话 ↔ 智能体绑定：绑定的会话每次发送注入角色设定（pi/acp 隐藏 agentMessage，
 		// dsh 退化为可见前缀，由 sessionIpc 的 composeAgentInstruction 统一组合）。
 		resolveSessionAgentInstruction: (sessionId) => agentProfileStore?.getBoundAgent(sessionId)?.systemPrompt,
-		// 用户亲手发消息：关联会话回报的自动续跑额度清零（防空转只拦「回报接回报」）。
-		onUserPromptSent: (sessionId) => linkedSessionService?.noteUserPrompt(sessionId),
-		onSessionRemoved: (sessionId, reason) => void linkedSessionService?.noteSessionRemoved(sessionId, reason),
 		sessionRuntimeCoordinator,
 		agentManager,
 		configManager,

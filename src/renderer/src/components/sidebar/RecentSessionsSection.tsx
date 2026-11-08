@@ -73,7 +73,11 @@ export function RecentSessionsSection(props: { controller: SidebarController; ac
 	// 收起：只有展开过（超过首页 10 条）才出现，与项目页「查看更多 / 收起」并列的语义一致。
 	const canCollapse = canCollapseRecent(props.visibleCount);
 	const projectNamesById = new Map(props.controller.catalog.projects.map((project) => [project.id, project.name]));
-	const nestedRows = nestLinkedSessionRows(props.rows, (row) => row.session.id, (id) => linkedParentByChildId.get(id));
+	const nestedRows = nestLinkedSessionRows(
+		props.rows,
+		(row) => row.session.id,
+		(id) => linkedParentByChildId.get(id),
+	);
 	return (
 		<section aria-label={t("app.sidebarRecentSessions")} className="mt-1 flex flex-col gap-0">
 			{/* 分界线：上方活动行、下方最近会话，用户要求两段之间有明确界限。

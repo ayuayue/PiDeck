@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
+import { LINKED_SESSION_MAX_AUTO_CONTINUE, LinkedSessionStore, clipReport, emit, flush, makeRig, plain, runTurn } from "./helpers/linkedSessionRig.mjs";
 
 /**
  * 关联会话（子对话，docs/host-boundaries.md 例外九）：关系表 + 编排服务。
@@ -15,53 +15,6 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  * - 回报自动续跑有上限，用户发消息清零；父会话没运行时不拉起；
  * - 重启后不留下「永远在跑」的子会话与挂起的 offer。
  */
-
-const { LinkedSessionStore, clipReport } = loadTsCommonJs("src/main/linkedSessions/LinkedSessionStore.ts");
-const { LinkedSessionService } = loadTsCommonJs("src/main/linkedSessions/LinkedSessionService.ts");
-const { LINKED_SESSION_MAX_AUTO_CONTINUE } = loadTsCommonJs("src/shared/types/linkedSessions.ts");
-
-const plain = (value) => JSON.parse(JSON.stringify(value));
-
-function makeRig({ liveParents = new Set(["parent"]), lastText = "完成了：改了 a.ts，测试 3/3 通过。" } = {}) {
-	const store = new LinkedSessionStore(null);
-	const sessions = new Map([
-		["parent", { id: "parent", projectId: "p1", title: "父会话", backend: "pi", environment: "native" }],
-		["other", { id: "other", projectId: "p1", title: "无关会话", backend: "pi", environment: "native" }],
-	]);
-	const agents = new Map([
-		["agent-parent", "parent"],
-		["agent-other", "other"],
-	]);
-	const sent = [];
-	let draftSeq = 0;
-	const service = new LinkedSessionService({
-		store,
-		getSessionIdForAgent: (agentId) => agents.get(agentId),
-		getSession: (id) => sessions.get(id),
-		createDraft: async ({ parent, title }) => {
-			draftSeq += 1;
-			const id = `child-${draftSeq}`;
-			sessions.set(id, { id, projectId: parent.projectId, title, backend: "pi", environment: "native" });
-			agents.set(`agent-${id}`, id);
-			return { id };
-		},
-		send: async (input) => {
-			sent.push(input);
-			return { accepted: true };
-		},
-		hasLiveRuntime: (id) => liveParents.has(id) || id.startsWith("child-"),
-		getLastAssistantText: () => lastText,
-	});
-	return { store, service, sent, sessions };
-}
-
-/** 驱动一个子会话跑完一轮：runtime-state 开始 → agents:state idle。 */
-function runTurn(service, sessionId, { fail = false } = {}) {
-	service.observeRuntimeEvent({ sessionId, agentId: "a", runtimeGeneration: 1, sourceChannel: "agents:runtime-state", payload: { state: { isTurnActive: true } } });
-	service.observeRuntimeEvent({ sessionId, agentId: "a", runtimeGeneration: 1, sourceChannel: "agents:state", payload: fail ? { status: "error", error: "boom" } : { status: "idle" } });
-}
-
-const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 test("user_asked 立即建子会话：草稿 + 带父会话身份的简报 + 关系落表", async () => {
 	const { service, sent, store } = makeRig();
@@ -156,13 +109,14 @@ test("send_to_session 只允许直接关联的会话；子会话可以回发父�
 });
 
 test("子会话回合结束才回报：残留 idle 快照不算一轮；回报带最终回复且以 followUp 送达父会话", async () => {
-	const { service, sent, store } = makeRig();
+	const rig = makeRig();
+	const { service, sent, store } = rig;
 	await service.handle("agent-parent", { op: "start", title: "子任务", prompt: "做事", initiation: "user_asked" });
 	sent.length = 0;
-	service.observeRuntimeEvent({ sessionId: "child-1", agentId: "a", runtimeGeneration: 1, sourceChannel: "agents:state", payload: { status: "idle" } });
+	emit(service, "child-1", "agents:state", { status: "idle" });
 	await flush();
 	assert.equal(sent.length, 0, "没开始过的 idle 不是回合结束");
-	runTurn(service, "child-1");
+	runTurn(rig, "child-1");
 	await flush();
 	await flush();
 	assert.equal(sent.length, 1);
@@ -176,10 +130,11 @@ test("子会话回合结束才回报：残留 idle 快照不算一轮；回报�
 });
 
 test("失败回合标 failed 并回报错误文本", async () => {
-	const { service, sent, store } = makeRig({ lastText: "" });
+	const rig = makeRig();
+	const { service, sent, store } = rig;
 	await service.handle("agent-parent", { op: "start", title: "子任务", prompt: "做事", initiation: "user_asked" });
 	sent.length = 0;
-	runTurn(service, "child-1", { fail: true });
+	runTurn(rig, "child-1", { fail: true, text: null });
 	await flush();
 	await flush();
 	assert.equal(store.getLink("child-1").state, "failed");
@@ -188,39 +143,42 @@ test("失败回合标 failed 并回报错误文本", async () => {
 });
 
 test("防空转：连续自动续跑到上限后只记表不再发；用户在父会话发消息清零", async () => {
-	const { service, sent, store } = makeRig();
+	const rig = makeRig();
+	const { service, sent, store } = rig;
 	await service.handle("agent-parent", { op: "start", title: "子任务", prompt: "做事", initiation: "user_asked" });
 	sent.length = 0;
 	for (let index = 0; index < LINKED_SESSION_MAX_AUTO_CONTINUE + 2; index += 1) {
-		runTurn(service, "child-1");
+		runTurn(rig, "child-1");
 		await flush();
 		await flush();
 	}
 	assert.equal(sent.length, LINKED_SESSION_MAX_AUTO_CONTINUE);
 	assert.equal(store.getLink("child-1").turnCount, LINKED_SESSION_MAX_AUTO_CONTINUE + 2, "超限的回合照样记表，list_linked_sessions 能读到");
-	service.noteUserPrompt("parent");
-	runTurn(service, "child-1");
+	service.noteOutgoingPrompt({ sessionId: "parent", requestId: "user-1" });
+	runTurn(rig, "child-1");
 	await flush();
 	await flush();
 	assert.equal(sent.length, LINKED_SESSION_MAX_AUTO_CONTINUE + 1);
 });
 
 test("父会话没有活着的运行时：不为回报拉起它", async () => {
-	const { service, sent } = makeRig({ liveParents: new Set() });
+	const rig = makeRig({ liveParents: new Set() });
+	const { service, sent } = rig;
 	await service.handle("agent-parent", { op: "start", title: "子任务", prompt: "做事", initiation: "user_asked" });
 	sent.length = 0;
-	runTurn(service, "child-1");
+	runTurn(rig, "child-1");
 	await flush();
 	await flush();
 	assert.equal(sent.length, 0);
 });
 
 test("归档后的子会话不再回报；list 只列未归档", async () => {
-	const { service, sent } = makeRig();
+	const rig = makeRig();
+	const { service, sent } = rig;
 	await service.handle("agent-parent", { op: "start", title: "子任务", prompt: "做事", initiation: "user_asked" });
 	await service.archive("child-1");
 	sent.length = 0;
-	runTurn(service, "child-1");
+	runTurn(rig, "child-1");
 	await flush();
 	await flush();
 	assert.equal(sent.length, 0);
@@ -228,21 +186,36 @@ test("归档后的子会话不再回报；list 只列未归档", async () => {
 	assert.equal(listed.data.children.length, 0);
 });
 
-test("会话被删 / 被归档：删父会话清掉整条关系；归档子会话只标归档、不再回报", async () => {
-	const { service, store, sent } = makeRig();
+test("会话行消失（删除 / 归档 / 删项目共用的 catalog 回调）：关系整条清掉，另一端回到普通会话，不再回报", async () => {
+	const rig = makeRig();
+	const { service, store, sent } = rig;
 	await service.handle("agent-parent", { op: "start", title: "子一", prompt: "做事", initiation: "user_asked" });
 	await service.handle("agent-parent", { op: "start", title: "子二", prompt: "做事", initiation: "user_asked" });
-	await service.noteSessionRemoved("child-2", "archive");
-	assert.equal(store.getLink("child-2").archived, true, "归档只标记，恢复后按普通会话显示");
+	await service.noteSessionsRemoved(["child-2"]);
+	assert.equal(store.getLink("child-2"), undefined, "归档后恢复出来是新 id，旧关系留着只会变孤儿");
+	assert.ok(store.getLink("child-1"));
 	sent.length = 0;
-	runTurn(service, "child-2");
+	runTurn(rig, "child-2");
 	await flush();
 	await flush();
-	assert.equal(sent.length, 0, "已归档的子会话不再回报");
-	await service.noteSessionRemoved("parent", "delete");
-	assert.equal(store.getLink("child-1"), undefined, "父会话被删，子会话关系一并清掉");
-	assert.equal(store.getLink("child-2"), undefined);
+	assert.equal(sent.length, 0, "关系没了就不再回报");
+	await service.noteSessionsRemoved(["parent"]);
+	assert.equal(store.getLink("child-1"), undefined, "父会话没了，子会话关系一并清掉");
 	assert.equal(store.childrenOf("parent", true).length, 0);
+});
+
+test("会话行消失时，它作父会话挂着的提议一并清掉；批量移除只写一次", async () => {
+	const { service, store } = makeRig();
+	await service.handle("agent-parent", { op: "start", title: "后续", prompt: "做事", initiation: "own_initiative" });
+	await service.handle("agent-parent", { op: "start", title: "子一", prompt: "做事", initiation: "user_asked" });
+	await service.handle("agent-parent", { op: "start", title: "子二", prompt: "做事", initiation: "user_asked" });
+	let changes = 0;
+	store.onChanged(() => {
+		changes += 1;
+	});
+	await service.noteSessionsRemoved(["parent", "child-1", "child-2"]);
+	assert.equal(changes, 1);
+	assert.deepEqual(plain(store.snapshot()), { links: [], proposals: [] });
 });
 
 test("落盘可重入：重启后运行中状态归为已停止、挂起的 offer 归为过期，坏条目丢弃", async () => {

@@ -50,7 +50,10 @@ function num(value: unknown): number | undefined {
 
 /** 回报截取：压掉多余空白后取前 N 字，超出加省略号。 */
 export function clipReport(text: string, max = LINKED_SESSION_REPORT_MAX_CHARS): string {
-	const compact = text.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+	const compact = text
+		.replace(/[ \t]+\n/g, "\n")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
 	return compact.length > max ? `${compact.slice(0, max)}…` : compact;
 }
 
@@ -139,7 +142,15 @@ export class LinkedSessionStore {
 		return () => this.listeners.delete(listener);
 	}
 
-	async load(): Promise<void> {
+	/** 读盘只发生一次；写操作等它完成后再动内存，否则 load 会用旧磁盘内容盖掉启动期已做的改动。 */
+	private loadPromise: Promise<void> | undefined;
+
+	load(): Promise<void> {
+		this.loadPromise ??= this.loadFromDisk();
+		return this.loadPromise;
+	}
+
+	private async loadFromDisk(): Promise<void> {
 		if (!this.filePath) return;
 		try {
 			this.state = normalizeLinkedSessionsState(JSON.parse(await readFile(this.filePath, "utf8")) as unknown);
@@ -147,6 +158,10 @@ export class LinkedSessionStore {
 			this.state = { version: STORE_VERSION, links: [], proposals: [] };
 		}
 		this.expireProposals(Date.now(), false);
+	}
+
+	private async whenLoaded(): Promise<void> {
+		await this.loadPromise;
 	}
 
 	snapshot(): LinkedSessionsSnapshot {
@@ -176,6 +191,7 @@ export class LinkedSessionStore {
 	}
 
 	async addLink(input: { childSessionId: string; parentSessionId: string; projectId: string; title: string; now?: number }): Promise<LinkedSessionLink> {
+		await this.whenLoaded();
 		const link: LinkedSessionLink = {
 			childSessionId: input.childSessionId,
 			parentSessionId: input.parentSessionId,
@@ -199,6 +215,7 @@ export class LinkedSessionStore {
 
 	/** 状态没变时不写盘不广播（运行时事件很密）。返回是否变了。 */
 	async setState(childSessionId: string, state: LinkedSessionState): Promise<boolean> {
+		await this.whenLoaded();
 		const link = this.state.links.find((candidate) => candidate.childSessionId === childSessionId);
 		if (!link || link.state === state) return false;
 		await this.mutate(() => {
@@ -208,6 +225,7 @@ export class LinkedSessionStore {
 	}
 
 	async recordTurnEnd(childSessionId: string, input: { report: string; failed: boolean; now?: number }): Promise<LinkedSessionLink | undefined> {
+		await this.whenLoaded();
 		const link = this.state.links.find((candidate) => candidate.childSessionId === childSessionId);
 		if (!link) return undefined;
 		await this.mutate(() => {
@@ -223,26 +241,45 @@ export class LinkedSessionStore {
 	}
 
 	async setArchived(childSessionId: string, archived: boolean): Promise<boolean> {
+		await this.whenLoaded();
 		const link = this.state.links.find((candidate) => candidate.childSessionId === childSessionId);
 		if (!link || link.archived === archived) return false;
+		// 归档 / 解档是用户对这组会话的一次手动操作：父会话的自动续跑额度重新计。
+		this.autoContinueCount.delete(link.parentSessionId);
 		await this.mutate(() => {
 			link.archived = archived;
 		});
 		return true;
 	}
 
-	/** 子会话被删掉时清掉关系（父会话被删时它的子会话关系一并清掉，子会话本身保留为普通会话）。 */
-	async forgetSession(sessionId: string): Promise<boolean> {
-		const before = this.state.links.length;
-		const remaining = this.state.links.filter((link) => link.childSessionId !== sessionId && link.parentSessionId !== sessionId);
-		if (remaining.length === before) return false;
+	/**
+	 * 会话行从 catalog 消失（删除 / 归档 / 删项目 / 外部删除清理）：
+	 * 它作子会话的关系、作父会话的关系、它作父会话挂着的提议一并清掉；其余会话本身不动，回到普通会话。
+	 * 归档后恢复出来的是新 id 的普通会话，旧关系留着只会变孤儿，所以归档同样清除。
+	 * 返回被清掉的关系（调用方据此清理内存里的回合跟踪）。
+	 */
+	async forgetSessions(sessionIds: readonly string[]): Promise<LinkedSessionLink[]> {
+		await this.whenLoaded();
+		const gone = new Set(sessionIds);
+		if (gone.size === 0) return [];
+		const removed = this.state.links.filter((link) => gone.has(link.childSessionId) || gone.has(link.parentSessionId));
+		const proposalGone = this.state.proposals.some((proposal) => gone.has(proposal.parentSessionId));
+		for (const id of gone) this.autoContinueCount.delete(id);
+		for (const link of removed) this.autoContinueCount.delete(link.parentSessionId);
+		if (removed.length === 0 && !proposalGone) return [];
 		await this.mutate(() => {
-			this.state.links = remaining;
+			this.state.links = this.state.links.filter((link) => !gone.has(link.childSessionId) && !gone.has(link.parentSessionId));
+			this.state.proposals = this.state.proposals.filter((proposal) => !gone.has(proposal.parentSessionId));
 		});
-		return true;
+		return removed.map((link) => ({ ...link }));
+	}
+
+	async forgetSession(sessionId: string): Promise<boolean> {
+		return (await this.forgetSessions([sessionId])).length > 0;
 	}
 
 	async addProposal(input: Omit<LinkedSessionProposal, "id" | "status" | "createdAt"> & { now?: number }): Promise<LinkedSessionProposal> {
+		await this.whenLoaded();
 		const proposal: LinkedSessionProposal = {
 			id: randomUUID(),
 			parentSessionId: input.parentSessionId,
@@ -269,6 +306,7 @@ export class LinkedSessionStore {
 	 * 这是「一张卡片只能开一个会话」的唯一闸门，调用方据返回值决定要不要真的建会话。
 	 */
 	async settleProposal(id: string, status: Exclude<LinkedSessionProposalStatus, "pending">, childSessionId?: string): Promise<boolean> {
+		await this.whenLoaded();
 		const proposal = this.state.proposals.find((candidate) => candidate.id === id);
 		if (!proposal || proposal.status !== "pending") return false;
 		await this.mutate(() => {
@@ -280,10 +318,25 @@ export class LinkedSessionStore {
 
 	/** 把已 started 的提议补上子会话 id（先占位结算再建会话，建好后回填）。 */
 	async attachProposalChild(id: string, childSessionId: string): Promise<void> {
+		await this.whenLoaded();
 		const proposal = this.state.proposals.find((candidate) => candidate.id === id);
 		if (!proposal) return;
 		await this.mutate(() => {
 			proposal.childSessionId = childSessionId;
+		});
+	}
+
+	/**
+	 * 「先占位结算再建会话」的建会话那步失败时撤销占位：own_initiative 卡片回到 pending 让用户能再点；
+	 * offer 的等待者已经收到错误，卡片按过期收口。只处理 started 且还没挂上子会话的提议。
+	 */
+	async revertStartedProposal(id: string): Promise<void> {
+		await this.whenLoaded();
+		const proposal = this.state.proposals.find((candidate) => candidate.id === id);
+		if (!proposal || proposal.status !== "started") return;
+		await this.mutate(() => {
+			proposal.status = proposal.initiation === "own_initiative" ? "pending" : "expired";
+			delete proposal.childSessionId;
 		});
 	}
 
@@ -308,18 +361,31 @@ export class LinkedSessionStore {
 		return true;
 	}
 
-	/** 用户在父会话里亲手发了消息：自动续跑额度清零。 */
+	/** 投递被父会话拒绝：额度没用上，退还。 */
+	refundAutoContinue(parentSessionId: string): void {
+		const used = this.autoContinueCount.get(parentSessionId) ?? 0;
+		if (used <= 1) this.autoContinueCount.delete(parentSessionId);
+		else this.autoContinueCount.set(parentSessionId, used - 1);
+	}
+
+	/** 父会话收到了非回报的输入（用户消息等）：自动续跑额度清零。 */
 	resetAutoContinue(sessionId: string): void {
 		this.autoContinueCount.delete(sessionId);
 	}
 
 	private async mutate(apply: () => void): Promise<void> {
 		apply();
+		let failure: { error: unknown } | undefined;
 		if (this.filePath) {
 			const task = this.saveQueue.then(() => this.persist());
 			this.saveQueue = task.catch(() => undefined);
-			await task;
+			try {
+				await task;
+			} catch (error) {
+				failure = { error };
+			}
 		}
+		// 内存已变：落盘失败也要通知侧栏刷新，再把失败交给调用方。
 		for (const listener of this.listeners) {
 			try {
 				listener();
@@ -327,6 +393,7 @@ export class LinkedSessionStore {
 				// 监听者失败不影响落盘结果
 			}
 		}
+		if (failure) throw failure.error;
 	}
 
 	private async persist(): Promise<void> {

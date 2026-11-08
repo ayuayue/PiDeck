@@ -56,7 +56,13 @@ const crypto = require("node:crypto");
 // 关联会话 e2e 在同一项目里同时跑父/子两个会话：按 cwd 哈希会让两者共用一个会话文件。
 // 该用例设 PIDECK_MOCK_SESSION_PER_DECK=1，按 PiDeck 注入的会话身份（PIDECK_SESSION_ID）再区分一次。
 const deckSessionKey = process.env.PIDECK_MOCK_SESSION_PER_DECK === "1" ? process.env.PIDECK_SESSION_ID : undefined;
-const sessionId = "mock-" + crypto.createHash("md5").update(deckSessionKey ? `${process.cwd()}|${deckSessionKey}` : process.cwd()).digest("hex").slice(0, 10);
+const sessionId =
+	"mock-" +
+	crypto
+		.createHash("md5")
+		.update(deckSessionKey ? `${process.cwd()}|${deckSessionKey}` : process.cwd())
+		.digest("hex")
+		.slice(0, 10);
 // 桌面端 resume 历史会话时会传 --session <path>（PiProcess.start:305 → finalPiArgs.push("--session", sessionPath)）。
 // 真实 pi 会加载该文件续写；mock 必须同样尊重它，否则「未启动会话重发」会在 mock 自己的
 // mock-<hash>.jsonl 里另起炉灶，丢掉截断前保留的历史（编辑后的首轮回复从时间线消失）。

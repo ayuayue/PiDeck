@@ -340,6 +340,7 @@ export class SessionRuntimeCoordinator {
 	private dispatchLeaseSequence = 0;
 	/** 渲染层当前聚焦的会话 id；为 undefined 时视为全部会话都需要通知 */
 	private focusedSessionId: string | undefined = undefined;
+	private readonly promptSubmittedListeners = new Set<(input: { sessionId: string; requestId: string }) => void>();
 	/** 正在删除的会话：先解绑再异步停 agent，禁止激活/bind 把运行时写回 catalog。 */
 	private readonly deletingSessions = new Set<string>();
 	/**
@@ -390,6 +391,17 @@ export class SessionRuntimeCoordinator {
 		return this.focusedSessionId;
 	}
 
+	/**
+	 * 订阅「有消息提交到某会话」：渲染层、Web 端、飞书 / 微信桥、自动化、宿主内部转发都经 send，
+	 * 订阅者据 requestId 自行区分来源。只在通过入参校验后、投递（激活运行时）之前同步触发一次。
+	 */
+	onPromptSubmitted(listener: (input: { sessionId: string; requestId: string }) => void): () => void {
+		this.promptSubmittedListeners.add(listener);
+		return () => {
+			this.promptSubmittedListeners.delete(listener);
+		};
+	}
+
 	send(input: SendSessionPromptInput): Promise<SendSessionPromptResult> {
 		const sessionId = input.sessionId.trim();
 		const requestId = input.requestId.trim();
@@ -401,6 +413,13 @@ export class SessionRuntimeCoordinator {
 					i18nKey: "diagnostic.messageRequired",
 				}),
 			);
+		}
+		for (const listener of this.promptSubmittedListeners) {
+			try {
+				listener({ sessionId: this.canonicalSessionId(sessionId), requestId });
+			} catch {
+				// 订阅者失败不能挡住用户的消息
+			}
 		}
 
 		this.pruneDeliveryCache();

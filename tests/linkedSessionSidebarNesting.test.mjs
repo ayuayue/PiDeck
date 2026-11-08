@@ -6,7 +6,7 @@ import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
  * 侧栏「活动」页与「最近」区的关联子会话嵌套（activitySessionsModel.nestLinkedSessionRows）。
  * 「聊天 / 项目」树由 SessionTree 自己嵌套；活动页两段列表共用这个纯函数。
  */
-const { nestLinkedSessionRows } = loadTsCommonJs("src/renderer/src/components/sidebar/activitySessionsModel.ts");
+const { nestLinkedSessionRows, groupLinkedChildren } = loadTsCommonJs("src/renderer/src/components/sidebar/activitySessionsModel.ts");
 
 /** 被测模块跑在沙箱 realm 里：展开成本 realm 的数组再比较。 */
 function nestIds(rows, idOf, parents) {
@@ -39,5 +39,44 @@ test("关系成环（外部文件被改坏）：不丢行、不死循环", () =>
 });
 
 test("没有会话 id 的行（全新 Agent）原样保留", () => {
-	assert.deepEqual(nestIds([{ id: undefined }, { id: "c" }, { id: "p" }], (row) => row.id, { c: "p" }), ["-:0", "p:0", "c:1"]);
+	assert.deepEqual(
+		nestIds([{ id: undefined }, { id: "c" }, { id: "p" }], (row) => row.id, { c: "p" }),
+		["-:0", "p:0", "c:1"],
+	);
+});
+
+/** 「聊天 / 项目」树：按 parentSessionId 分组，孙会话挂在子会话下面（SessionTree 递归渲染）。 */
+function group(ids, links) {
+	const { childrenByParent, childIds } = groupLinkedChildren(
+		ids.map((id) => ({ id })),
+		(id) => links[id],
+	);
+	// 被测模块跑在沙箱 realm：经 JSON 展开成本 realm 的普通对象再比较。
+	return JSON.parse(
+		JSON.stringify({
+			children: Object.fromEntries([...childrenByParent].map(([parent, rows]) => [parent, rows.map((row) => row.id)])),
+			childIds: [...childIds].sort(),
+		}),
+	);
+}
+
+const link = (parentSessionId, createdAt = 0, archived = false) => ({ parentSessionId, createdAt, archived });
+
+test("树视图：A > B > C 三层都挂靠，孙会话挂在子会话下面而不是丢失", () => {
+	const result = group(["a", "b", "c", "x"], { b: link("a"), c: link("b") });
+	assert.deepEqual(result.children, { a: ["b"], b: ["c"] });
+	assert.deepEqual(result.childIds, ["b", "c"]);
+});
+
+test("树视图：兄弟按关系创建时间排序；已归档 / 父会话不在列表的关系不挂靠", () => {
+	const result = group(["p", "late", "early", "gone", "archived"], { late: link("p", 20), early: link("p", 10), gone: link("elsewhere"), archived: link("p", 5, true) });
+	assert.deepEqual(result.children, { p: ["early", "late"] });
+	assert.deepEqual(result.childIds, ["early", "late"]);
+});
+
+test("树视图：关系成环（外部文件被改坏）时环上的行按普通会话显示，不丢行", () => {
+	const result = group(["a", "b", "c"], { a: link("b"), b: link("a"), c: link("a") });
+	assert.deepEqual(result.children, { a: ["c"] }, "c 挂在 a 下面，a/b 自己不挂靠");
+	assert.deepEqual(result.childIds, ["c"]);
+	assert.deepEqual(group(["s"], { s: link("s") }).childIds, []);
 });

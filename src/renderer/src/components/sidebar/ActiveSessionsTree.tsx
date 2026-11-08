@@ -57,7 +57,15 @@ export function ActiveSessionsTree(props: { controller: SidebarController; actio
 	const liveRows = useMemo(() => collectActiveSessionRows(controller.catalog), [controller.catalog]);
 	// 关联子会话挂到父会话行下面（父会话也在活动区时）；不在同一区的子会话原位不动、只标 ↳。
 	const linkedParentByChildId = useAtomValue(linkedSessionParentByChildIdAtom);
-	const nestedLiveRows = useMemo(() => nestLinkedSessionRows(liveRows, (row) => row.record?.id, (id) => linkedParentByChildId.get(id)), [liveRows, linkedParentByChildId]);
+	const nestedLiveRows = useMemo(
+		() =>
+			nestLinkedSessionRows(
+				liveRows,
+				(row) => row.record?.id,
+				(id) => linkedParentByChildId.get(id),
+			),
+		[liveRows, linkedParentByChildId],
+	);
 	// 「最近会话」可见条数：默认 10 条，手动「加载更多」每次 +10；「收起」回到首页大小。
 	// 行数受控是性能要求——侧栏一次性渲染几百行历史会明显卡顿（用户反馈）。
 	const [recentVisibleCount, setRecentVisibleCount] = useState(RECENT_SESSIONS_INITIAL_VISIBLE);

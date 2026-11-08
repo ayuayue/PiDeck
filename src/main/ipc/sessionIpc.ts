@@ -515,10 +515,6 @@ export type SessionIpcDeps = {
 	 * 未装配（单测 / 旧宿主）时不做任何注入，发送行为与此前完全一致。
 	 */
 	resolveSessionAgentInstruction?: (sessionId: string) => string | undefined;
-	/** 用户经渲染层发出一条消息（关联会话据此清零父会话的自动续跑额度）。 */
-	onUserPromptSent?: (sessionId: string) => void;
-	/** 会话已从目录移除（删除 / 归档）：关联会话据此清理父子关系或把子会话标为已归档。 */
-	onSessionRemoved?: (sessionId: string, reason: "delete" | "archive") => void;
 	/** DSH 后端专用 IPC 依赖（C1 分组；未装配 = 无 DSH 后端）。 */
 	dshBackend?: DshBackendIpcDeps;
 };
@@ -602,8 +598,6 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		exportRemoteCatalogSessionHtml,
 		replaceAgentSession,
 		resolveSessionAgentInstruction,
-		onUserPromptSent,
-		onSessionRemoved,
 		dshBackend,
 		readRemoteSessionHistoryPage,
 		archiveRemoteSession,
@@ -1317,7 +1311,6 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 				sessionId,
 				hostId: remoteLocator.hostId,
 			});
-			onSessionRemoved?.(sessionId, "delete");
 			return true;
 		}
 		const sessionFilePath = localSessionFilePath(sessionId);
@@ -1345,7 +1338,6 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			// 否则 mergeScanned 只增改不删，子会话会孤儿提升成顶层行。
 			await sessionCatalog.removeWithDescendants(sessionId);
 			void appLogger.info("session", "Catalog session deleted", { sessionId, filePath: sessionFilePath });
-			onSessionRemoved?.(sessionId, "delete");
 			return true;
 		} catch (error) {
 			// 会话删除失败（文件删除失败/记录移除失败/会话使用中拦截）也要留痕，便于事后追踪。
@@ -1378,7 +1370,6 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 				dshSessionId: entry.dshSessionId,
 				archivedPath,
 			});
-			onSessionRemoved?.(sessionId, "archive");
 			return true;
 		}
 		// 远端会话归档（P4.5b）：远端文件 `mv` 进同目录旁的 `.pideck-archive/` + 本机归档索引 + 移出 catalog。
@@ -1412,7 +1403,6 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			await sessionCatalog.removeWithDescendants(sessionId);
 			// 只记身份与稳定码，不记远端路径、不记命令（与读取侧同一股敏纪律）。
 			void appLogger.info("session", "Remote session archived (remote file moved into .pideck-archive)", { sessionId, hostId: remoteLocator.hostId });
-			onSessionRemoved?.(sessionId, "archive");
 			return true;
 		}
 		const sessionFilePath = localSessionFilePath(sessionId);
@@ -1425,7 +1415,6 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		// scanner.archive 会把 sibling `<stem>/` 一并移走；catalog 同步清子树，避免幽灵子会话。
 		await sessionCatalog.removeWithDescendants(sessionId);
 		void appLogger.info("session", "Session archived", { sessionId, archivedPath });
-		onSessionRemoved?.(sessionId, "archive");
 		return true;
 	});
 	ipcMain.handle(ipcChannels.sessionsCatalogUnarchive, async (_event, archivedPath: string) => {
@@ -2209,7 +2198,6 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			imageCount: input.images?.length ?? 0,
 		});
 		try {
-			onUserPromptSent?.(input.sessionId);
 			// 绑定了智能体的会话：只在首轮注入角色设定。首条消息被接受后，角色设定已经
 			// 随用户消息留在会话历史里，之后再拼会让模型上下文重复；绑定只经新会话「使用」
 			// 流程建立，因此 draft = 还没成功发过首条消息。注入点是「发送前」的唯一收口，
