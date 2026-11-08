@@ -177,3 +177,60 @@ test("allowOther:false 传值被接受但不再隐藏自定义输入（恒定显
 	await promise;
 	assert.equal(envelope().questions[0].allowOther, true);
 });
+
+/** 以给定的桌面端回包跑一次三题批量，返回工具结果。 */
+async function runWithReply(reply) {
+	const tool = registerTool();
+	const ctx = { hasUI: true, ui: { input: async () => (typeof reply === "string" ? reply : JSON.stringify(reply)) } };
+	return tool.execute(
+		"call_1",
+		{
+			questions: [
+				{ id: "a", question: "A?", options: ["x", "y"] },
+				{ id: "b", question: "B?" },
+				{ id: "c", question: "C?" },
+			],
+		},
+		undefined,
+		undefined,
+		ctx,
+	);
+}
+
+test("主动跳过的题算已处理：整卡不算取消，结果里明确标出跳过", async () => {
+	const result = await runWithReply({
+		answers: [
+			{ id: "a", type: "select", value: "x" },
+			{ id: "b", type: "input", value: null, skipped: true },
+			{ id: "c", type: "input", value: "ok" },
+		],
+	});
+	assert.equal(result.details.cancelled, false);
+	assert.equal(result.details.closed, undefined);
+	assert.equal(result.content[0].text, "a: x\nb: (用户跳过，未作答)\nc: ok");
+});
+
+test("答了一部分后关闭卡片：已答内容交回模型，未答的标出，不当成整单取消", async () => {
+	const result = await runWithReply({
+		cancelled: true,
+		answers: [
+			{ id: "a", type: "select", value: "y" },
+			{ id: "b", type: "input", value: null },
+			{ id: "c", type: "input", value: null },
+		],
+	});
+	assert.equal(result.details.cancelled, false);
+	assert.equal(result.details.closed, true);
+	const text = result.content[0].text;
+	assert.match(text, /关闭了提问卡/);
+	assert.match(text, /a: y/);
+	assert.match(text, /b: \(未作答\)/);
+});
+
+test("一题没答就关闭（含旧版桌面端的空回包）仍是取消", async () => {
+	for (const reply of ["", { cancelled: true, answers: [{ id: "a", type: "select", value: null }] }]) {
+		const result = await runWithReply(reply);
+		assert.equal(result.details.cancelled, true);
+		assert.equal(result.content[0].text, "用户取消了提问");
+	}
+});
