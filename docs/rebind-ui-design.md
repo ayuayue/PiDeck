@@ -244,13 +244,16 @@
   再执行；IPC 只回稳定码、阶段与计数（txId/recordId 不出 main）。
 - **第 4 步（向导）**：设置 → 连接里的 `RebindPanel`（横幅 + 5 步向导），状态机在
   `rebindWizardState.ts`（换任一端即作废旧摘要）；只有确认页的 approve 会写，running 阶段没有取消按钮。
-- 仍未做：真机 E2E（附 A 第 5 步）；项目页/报错恢复入口（用户已定只放设置页一处）。
+  项目页/报错恢复入口是产品决策不做（只放设置页一处）。
 
 - **第 5 步（真机验收，无破坏性子集）**：`e2e/rebind-wizard.spec.ts` 3 例通过（真机启动，31.2s）：
   ① 入口存在 + 无目标时禁用并给出原因；② 残留 rebind 锁被诊断 → 「执行修复」→ 锁文件消失；
   ③ 残留 journal 横幅出现 → 「继续收敛」失败时报 `REMOTE_HOST_REBIND_TARGET_MISSING`。
-  **真实迁移未在开发机执行**：一次 rebind 会 disable + retire 来源并改写两个 store，需要专属的第二台
-  已验证主机，不在本机验收的安全范围内（附 A 第 5 步的破坏性部分仍待专用环境）。
+  **真实迁移也已真机验收**（`e2e/rebind-migration.spec.ts`，隔离 profile）：同一测试机的两个 host 条目
+  （IPC 添加，绕过 AddHostDialog 的候选去重）→ 远端项目 enroll → plan → approve → 断言落盘的
+  `projects.json` hostId 已改写、`remote-hosts.json` 的 `retiredHostIds` 含来源且 profiles 不再含它。
+  验收中发现并修复：`remoteHostIpc` 的 `openStores` 未传 `references`，retire 必抛
+  `REMOTE_HOST_REFERENCES_UNAVAILABLE`（rebind 的真实装配永远走不到 commit）。
 - **验收中发现并修复的缺陷**：`remote:repair-diagnose` 与 `repair-run` 原先在 host store `status === "ready"`
   时直接跳过 `diagnose()`。于是一个健康 store + 残留 rebind 锁（整机 pinned SSH 都被它挡住）在界面上
   完全没有出口。现在两者始终诊断：ready 时返回空 find（无锁）或锁 finding（有锁）。

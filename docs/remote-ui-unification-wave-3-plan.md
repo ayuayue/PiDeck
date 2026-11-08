@@ -61,7 +61,7 @@
 
 - **Git ignore 修饰**：`ignored` 字段（`shared/types/projectFiles.ts`）渲染层零消费者；`git.checkIgnore`（`remoteGitReadIpc.ts:626`）只有 handler。要么接进文件树着色/置灰，要么把字段与 handler 标记为未消费并写进文档。
 - **位置分派收口**：`projectServices.ts:64-65`、`projectFileService.ts:90/178`、`projectGitService.ts:80/215` 仍按位置选 provider；逐步把 create/rename/read/search 的分派收到 main（`filesIpc` 已经开了头：`remoteTextTarget()`）。
-- **rebind UI**：目前只有 `HostRebindJournal` + `RepairPanel`，没有重新绑定界面。
+- **rebind UI**：已落地——设置 → 连接页的 `RebindPanel`（横幅 + 5 步向导）、`remote:rebind-plan/answer/describe/resume` 四条通道、启动自动收敛（`198d8992e`/`6b2a00da5`）。
 
 ## 5. 纪律
 
@@ -78,7 +78,7 @@
 | A / T4 单一 owner | ✅ | `remoteProjectDirFacts` 成为工作区事实的**唯一 owner**：目录 `FactCache` 与 Git `SnapshotFactsCache` 同一实例、同一张连接代（`projectGenerations`）、同一条通知出口。五条失效路径（写成功、unknown 写、helper 事件、断连换代、项目/root 关闭）都在这里标脏，并且**一次事件一条通知**。`remoteGitReadIpc` 通过 `workspace` 端口读写同一份实例（缺省时自持缓存，仅旧装配/单测兼容）。 | `src/main/ipc/remoteProjectDirFacts.ts`、`src/main/ipc/remoteProjectIpc.ts`、`src/main/ipc/remoteGitReadIpc.ts`（`invalidateAfterGitWrite`）、`src/main/index.ts`；`tests/remoteWorkspaceFactsOwner.test.mjs`（4 例：目录写→status 也脏且只发一条通知、Git 写→零目录装载、断连/关闭一起作废、真实 Git 写通道走同一 owner） |
 | B / T5 路径语义 | ✅ | `RemoteGitService` 的 `status` / `workspaceDiff` / 写面（`mutate`/`discard`/`recoveryRestore`）/ `refFileDiff`，以及同一份公共输出的 `commitDetail` / `compare` / `recoveryList`，公共 target 与 `path`/`displayPath` 全部改成**项目相对**；仓库内路径只在 helper 帧出现（`repoRelativeFilePath` 唯一转换点）。跨仓/同名前缀/无前缀一律 `GIT_RESULT_INVALID`，不做前缀猜测。legacy controller 不再走旧形状：它的 target 全部来自本服务的公共输出，因此不需要猜仓库。 | `src/main/git/RemoteGitService.ts`；`tests/remoteGitTargetBoundary.test.mjs`（新增 4 例：嵌套 status/写面双向映射、commitDetail/compare 项目相对、跨仓与同名前缀零帧拒绝）；`tests/remoteGitReadIpc.test.mjs` 按新契约更新 target 形状并断言 helper 帧只剩仓库内路径 |
 | C / W5 共用状态机 | ✅（抽 + 两侧接线） | 新增 `createGitOperationGate`：取消（`retire`/`isCurrent`）、互斥（写单飞，写者在途由消费者自己的标志回答；读可 `exclusive` 不重叠）、unknown（持续码，只有成功事实读解除）、迟到读（写一开始在途读作废）。`remoteGitStatusPolling` 的静默轮询、`remoteGitViewState` 的代次/unknown/写单飞、`GitPanel` 的 status 请求与 mutation 单飞都改成走它；history/compare/trust/init/sync 的授权语义保持独立。 | `src/renderer/src/utils/gitOperationGate.ts`；`tests/gitOperationGate.test.mjs`（4 例，一条规则一例）；`tests/remoteGitStatusPolling.test.mjs`、`tests/remoteGitViewState.test.mjs`、`tests/remoteGitMutationView.test.mjs`、`tests/remoteGitUncertainWriteCarry.test.mjs`、`tests/gitPanelPollingGuard.test.mjs`、`tests/gitPanelUi.test.mjs` 全绿 |
-| D / 收尾 | ◐ | Git ignore 修饰：**本机宿主路径与远端都已接线**（远端 `probeIgnore`：最长仓库前缀归因、64 路径/批、能力门控；本机 `GitService.checkIgnore`：`check-ignore -z --stdin`、exit 1 视为无命中、非仓库不填）→ 目录页 → 文件行/目录行置灰；**WSL 项目只在 helper 链路回退到 `LocalProjectFileBackend` 时才有修饰，未接原生 WSL 路径（登记）**。位置分派：search / create / rename / move / delete 已收口到 main，**文件 provider 已合并为一个位置无关实现**（位置差异只剩文本通道与系统打开/传输端口的注入）；Git provider 仍按位置二选一（下一步）；rebind UI：未做（产品级界面，不在本批）。 | `src/main/files/DirectoryIgnore.ts`、`src/main/ipc/remoteGitReadIpc.ts`（`probeIgnore`）、`src/main/ipc/remoteProjectDirectoryReads.ts`、`src/renderer/src/utils/directoryPageNode.ts`、`src/renderer/src/components/session/FileTreeRows.tsx`；`tests/remoteDirectoryIgnore.test.mjs`（7 例）、`tests/localDirectoryIgnore.test.mjs`（4 例，含真实 git 仓库集成）、`tests/directoryPageIgnoreDecoration.test.mjs`（2 例） |
+| D / 收尾 | ◐ | Git ignore 修饰：**本机宿主路径与远端都已接线**（远端 `probeIgnore`：最长仓库前缀归因、64 路径/批、能力门控；本机 `GitService.checkIgnore`：`check-ignore -z --stdin`、exit 1 视为无命中、非仓库不填）→ 目录页 → 文件行/目录行置灰；**WSL 后端同样实现 `checkIgnore`（委托 fallback，失败只是不修饰）**。位置分派：search / create / rename / move / delete 已收口到 main，**文件 provider 已合并为一个位置无关实现**（位置差异只剩文本通道与系统打开/传输端口的注入）；Git provider 仍按位置二选一（已决策不合并，判据见 `remote-file-tree-and-git-unification-plan.md` §10.8）；rebind UI：已落地（`RebindPanel` + 向导 + 启动收敛，真机 4 例）。 | `src/main/files/DirectoryIgnore.ts`、`src/main/ipc/remoteGitReadIpc.ts`（`probeIgnore`）、`src/main/ipc/remoteProjectDirectoryReads.ts`、`src/renderer/src/utils/directoryPageNode.ts`、`src/renderer/src/components/session/FileTreeRows.tsx`；`tests/remoteDirectoryIgnore.test.mjs`（7 例）、`tests/localDirectoryIgnore.test.mjs`（4 例，含真实 git 仓库集成）、`tests/directoryPageIgnoreDecoration.test.mjs`（2 例） |
 
 **真机验收（2026-11-07）**：远端 Git 10/10 + 文件管理 v1 全部通过，G6b soak 按 Linux-only 跳过；细节见下方「未执行 / 残留项」。
 
@@ -169,5 +169,5 @@
   覆盖：G1 只读 SCM/双项目隔离/断开不重连、G2a/G2b 精确暂存与提交、G3a 历史/引用/两版本差异、G3b 分支创建与切换、
   G4a/G4b 丢弃与恢复区、G5a fetch/pull/push、G5b 引用对比与轮询、G5c 显式初始化、G5d/G5e 嵌套仓读写、文件管理 v1。
   flaky 记录：`远端文件管理 v1` 单独首跑时 `remote-trash-row` 断言一次未命中，retry 通过；随后全量运行一次通过（既有 UI 时序抖动，本批未改回收站链路）。
-- **位置分派仍按位置选 provider**：`createProjectServices`（`projectServices.ts`）与两个 provider 工厂仍是 UI 侧唯一的位置判断点。下一步是把 create/rename/read/search 收到 main 的公共入口（`filesIpc` 的 `remoteTextTarget()` 是已有起点），那需要新的公共写面契约，不在本批范围。
-- **rebind UI 未做**：目前只有 `HostRebindJournal` + `RepairPanel` 与主进程旅程；重新绑定界面需要先定产品交互（进入入口、步骤、取消语义），未在本批实现。
+- 位置分派（search / create / rename / move / delete）与文件 provider 合并：已完成，见上文「已收口」。
+- rebind UI 与真机验收：已完成（`e2e/rebind-wizard.spec.ts` 3 例 + `e2e/rebind-migration.spec.ts` 1 例真实迁移）。
