@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Loader2, RefreshCw, Save } from "lucide-react";
 import { useRemoteFileDraft } from "../../hooks/useRemoteFileDraft";
 import type { ProjectServices } from "../../services/projectServiceContracts";
 import { imageMimeForPath } from "../../utils/imageMime";
 import { RemoteImagePreview } from "./RemoteImagePreview";
 import { t } from "../../i18n";
-import { CodeMirrorEditor } from "../app/CodeMirrorEditor";
+// CodeMirror 静态链（DrawerSurface → RemoteProjectPanel → 本文件）会把它拉进主 chunk：
+// 抽屉默认收起，编辑器却随启动解析。与 FileDiffViewer 同款懒加载，首次打开远端文件才拉取。
+const CodeMirrorEditor = lazy(() => import("../app/CodeMirrorEditor").then((m) => ({ default: m.CodeMirrorEditor })));
 import { Button } from "../ui-shadcn/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui-shadcn/dialog";
 
@@ -94,7 +96,15 @@ function RemoteTextFileEditor(props: { services: ProjectServices; path: string }
 			{draft?.phase === "loading" ? <Loader2 className="size-4 animate-pideck-spin" aria-label={t("remoteFile.loading")} /> : null}
 			{draft && (draft.phase === "ready" || draft.phase === "saving" || dirty) ? (
 				<div className="min-h-0 flex-1 overflow-hidden">
-					<CodeMirrorEditor key={draft.rejectedEdits ?? 0} value={draft.content} lineSeparator={draft.savedContent.includes("\r\n") ? "\r\n" : "\n"} onChange={change} language={props.path.split(".").at(-1)} readOnly={draft.phase === "loading"} />
+					<Suspense
+						fallback={
+							<div className="flex h-full items-center justify-center">
+								<Loader2 className="size-4 animate-pideck-spin" aria-label={t("remoteFile.loading")} />
+							</div>
+						}
+					>
+						<CodeMirrorEditor key={draft.rejectedEdits ?? 0} value={draft.content} lineSeparator={draft.savedContent.includes("\r\n") ? "\r\n" : "\n"} onChange={change} language={props.path.split(".").at(-1)} readOnly={draft.phase === "loading"} />
+					</Suspense>
 				</div>
 			) : null}
 			<Dialog open={confirmReload} onOpenChange={setConfirmReload}>
