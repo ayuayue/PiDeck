@@ -77,6 +77,17 @@
 - 禁止扩成通用宿主控制通道：不得暴露会话控制、设置读写、任意 JS/FS/shell。会话来源只能由宿主通过 `PIDECK_AGENT_MEMORY_SOURCES` 注入，服务器不得自行扫描用户目录。
 - 注册失败不影响启动（记忆是增强项）；`mcp.json` 形状不对时跳过写入而不是覆盖用户配置。详见 `docs/agent-memory.md`；守卫测试 `tests/agentMemoryMounts.test.mjs`、`tests/agentMemoryServer.test.mjs`。
 
+## 例外九：关联会话端点（`pi-deck-linked-sessions`，只允许关联会话的开、发、列）
+
+- 用途：让一个 pi 会话的 agent 开出**完整的**子会话（用户能在侧栏点开、直接对话、停掉），给关联会话追发消息、列出子会话状态；子会话每轮结束由宿主把回报送回父会话。对标 Claude Code 桌面版的子对话管理。
+- 链路：随包扩展 `resources/extensions/pi-deck-linked-sessions.ts`（`-e` 注入，用户可在设置里移除）注册 `start_session` / `send_to_session` / `list_linked_sessions` 三个工具，POST 给主进程回环端点 `src/main/linkedSessions/LinkedSessionServer.ts`（只绑 `127.0.0.1`，路径 `/linked/<token>`，强校验头 `x-pideck-linked-token`）。token 每 agent 一份，spawn 时注入 `PIDECK_LINKED_SESSIONS_URL` / `PIDECK_LINKED_SESSIONS_TOKEN`，与模型快照同一套生命周期（`AgentManager` 注册/注销）。**调用方身份只认 token → agentId → 会话绑定**，不信请求体里的任何会话 id 作为调用方。
+- 宿主侧 `LinkedSessionService` 只做三件事：建草稿并发首条 prompt（`SessionCatalog.createDraft` → `SessionRuntimeCoordinator.send`，与自动化同链路）、向关联会话发消息（同一 `send`，忙时 `followUp`）、读 `agents:state` / `agents:runtime-state` 判子会话回合结束并把回报以 `followUp` 发给父会话。关联关系存 `<userData>/linked-sessions.json`（原子落盘），键是 `SessionRecord.id`。
+- 发起方式：`user_asked` 立即开；`offer` 在父会话时间线出卡片，工具调用挂起到用户点「新会话 / 在此做」或 10 分钟超时；`own_initiative` 只登记提议卡片（7 天过期），用户点开才建会话。卡片按钮走 `linked-sessions:*` IPC。
+- 会话生命周期：子会话就是普通会话，删除 / 归档走侧栏原有菜单；`sessions:catalog-delete` 成功后清掉该会话的全部关系（作父时子会话回到普通会话），`sessions:catalog-archive` 成功后把它作为子会话的关系标成已归档（不再回报、侧栏不再嵌套）。
+- 防空转：父会话被回报自动续跑的连续轮数有上限（`MAX_AUTO_CONTINUE`），用户在父会话发消息即清零；超限后回报只记在关联表里（`list_linked_sessions` 可读），不再自动续跑。父会话没有活着的运行时也不会被回报拉起。
+- 禁止项：只能对**与调用方直接关联**的会话（自己的子会话或自己的父会话）发消息；不暴露删除会话、改设置、读任意会话正文、跨项目建会话；不用于 DSH / ACP / 远端 SSH 会话（远端快照标 `local-only`，端点未就绪或 env 缺失时扩展不注册任何工具）。回报文本是不可信数据，原样转交、不解析成指令。
+- 守卫测试：`tests/linkedSessionsExtension.test.mjs`（env 缺失不注册、帧字段与共享类型对齐）、`tests/linkedSessionStore.test.mjs`（提议状态机、防空转计数、落盘可重入）。
+
 ## 侧车通用规则
 
 - 所有随包 sidecar 必须列进 `extraResources`，stdout 只放协议数据（日志走 stderr 或主进程 logger）。

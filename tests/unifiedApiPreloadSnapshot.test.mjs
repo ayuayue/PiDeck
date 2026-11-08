@@ -2,7 +2,7 @@
  * F8 · preload 暴露面快照守卫（TEST-PLAN §F8，6 例=4 正+2 负）。
  *
  * 捕获 src/preload/index.ts 经 contextBridge 实际暴露的 piDesktop API，对
- * 82 命名空间清单与每命名空间方法清单做 sha256 快照（A10：暴露面零变化），
+ * 83 命名空间清单与每命名空间方法清单做 sha256 快照（A10：暴露面零变化），
  * 并核对数量锚点（sessions 117 / config 53 / git 64 / app 32）与订阅形态。
  * 摘要来源：T7 只读探针实测（2026-10-14；2026-10-16 合并刷新随 dev 演进重算：
  * yaoPrompts 方法与 sessions.searchContent、skillHub.onInstallProgress 入场，命名空间数不变；
@@ -41,15 +41,17 @@
  *   git 64 / app 32 钓点均不变，仅方法清单摘要变化。
  * 2026-11-07 刷新：agentMemory.deleteEntries（记忆条目批量删除，提交 483a52dfe 漏刷快照）+1 方法；
  *   命名空间数 82 与 sessions 117 / config 53 / git 64 / app 32 钓点均不变。
+ * 2026-11-08 刷新：关联会话（host-boundaries 例外九）新增 linkedSessions 命名空间（snapshot / answer / archive / onChanged），
+ *   命名空间 82→83；sessions 117 / config 53 / git 64 / app 32 钓点均不变。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const NS_LIST_SHA256 = "ecf92dceedeea2d9b21c5625e42f3f30786c264a01fba4cb738834630948efee";
-const FULL_METHODS_SHA256 = "b0173c33f7a860dae5a0e91ad12a56bbeb7c334cbfaac4ea25dbb51097b240e3";
-const NAMESPACE_COUNT = 82;
+const NS_LIST_SHA256 = "fb7ccaaa47be1dd3a639b5bd7438da83ff952202f77043dc69ad7e8113cb31c5";
+const FULL_METHODS_SHA256 = "1251d4f4ca33e846d3ffc54104f0b0c1f417eb9c82e6f84c683ca66d41c251d2";
+const NAMESPACE_COUNT = 83;
 
 /** 捕获 preload 暴露的 piDesktop；null/undefined/形态不符时显式红并给诊断（F8-6 共用）。 */
 function assertValidCapture(capture) {
@@ -92,7 +94,7 @@ const api = capturePreloadApi();
 const namespaces = sortedKeys(api);
 const methodLines = namespaces.map((ns) => `${ns}=${sortedKeys(api[ns]).join(",")}`);
 
-test("F8-1 preload 顶层命名空间数 === 82 且排序清单摘要零漂移", () => {
+test("F8-1 preload 顶层命名空间数 === 83 且排序清单摘要零漂移", () => {
 	assert.equal(namespaces.length, NAMESPACE_COUNT, `命名空间数 ${namespaces.length} ≠ ${NAMESPACE_COUNT}`);
 	assert.equal(sha256(namespaces.join(",")), NS_LIST_SHA256, "命名空间清单摘要漂移：preload 暴露面发生变化（A10 红线）");
 });

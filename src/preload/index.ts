@@ -44,6 +44,7 @@ import type { SelectionToolInsertInput, SelectionToolResizeInput, SelectionToolS
 import type { QuickMessagesSaveResult, QuickMessagesSnapshot } from "../shared/types/quickMessages";
 import type { AddFavoriteInput, FavoriteEntry } from "../shared/types/favorites";
 import type { SessionGroup } from "../shared/types/sessionGroups";
+import type { AnswerLinkedSessionProposalInput, AnswerLinkedSessionProposalResult, LinkedSessionsSnapshot } from "../shared/types/linkedSessions";
 import type { NoticeHistoryFileEntry, NoticeHistoryRecordInput } from "../shared/types/noticeHistory";
 import type { ReplyActionRule, ReplyActionsSaveResult, ReplyActionsSnapshot } from "../shared/types/replyActions";
 import type {
@@ -2024,6 +2025,12 @@ const api = {
 		delete: (groupId: string) => ipcRenderer.invoke(ipcChannels.sessionGroupsDelete, groupId) as Promise<boolean>,
 		reorder: (groupIds: string[]) => ipcRenderer.invoke(ipcChannels.sessionGroupsReorder, groupIds) as Promise<SessionGroup[]>,
 		onChanged: (callback: () => void) => subscribe(ipcChannels.sessionGroupsChanged, callback),
+	},
+	linkedSessions: {
+		snapshot: () => ipcRenderer.invoke(ipcChannels.linkedSessionsSnapshot) as Promise<LinkedSessionsSnapshot>,
+		answer: (input: AnswerLinkedSessionProposalInput) => ipcRenderer.invoke(ipcChannels.linkedSessionsAnswer, input) as Promise<AnswerLinkedSessionProposalResult>,
+		archive: (childSessionId: string, archived = true) => ipcRenderer.invoke(ipcChannels.linkedSessionsArchive, childSessionId, archived) as Promise<boolean>,
+		onChanged: (callback: () => void) => subscribe(ipcChannels.linkedSessionsChanged, callback),
 	},
 
 	// ── 系统级划词浮窗（全局快捷键触发的独立窗口；与主窗口共用同一份 preload） ──

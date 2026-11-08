@@ -61,10 +61,10 @@ test("project menu pins text clearance with the same state that keeps its action
 
 test("session rows yield to hover actions on narrow sidebar", () => {
 	const src = read("src/renderer/src/components/sidebar/SessionTree.tsx");
-	// agent 行、运行中会话行、历史会话行、普通会话行共 4 处 conversation-body 全部接入
+	// agent 行、运行中会话行、历史会话行、普通会话行、关联子会话行共 5 处 conversation-body 全部接入
 	// （一个 size-6 更多按钮 → 28px 留白）
 	const matches = src.match(/conversation-body min-w-0 flex-1 transition-\[padding-right\] group-hover\/row:pr-7 group-focus-within\/row:pr-7/g);
-	assert.ok(matches && matches.length === 4, `expected 4 row bodies, got ${matches?.length ?? 0}`);
+	assert.ok(matches && matches.length === 5, `expected 5 row bodies, got ${matches?.length ?? 0}`);
 	// 浮层模式不变
 	const rowStyles = read("src/renderer/src/components/sidebar/sidebarRowStyles.ts");
 	assert.match(rowStyles, /row-more-actions pointer-events-none absolute top-1\/2 right-1/);

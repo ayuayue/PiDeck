@@ -26,6 +26,7 @@ import { copyTextWithCopiedNotice } from "../../utils/clipboardNotice";
 import { formatDuration, getToolDetailText, getToolDiffTarget, getToolExitCode, getToolLiveStartTimestamp, getToolName, getToolStatus, fileChangeToDiffLines } from "./TimelineFormat";
 import { hasFileChangePayload } from "../../../../shared/fileChanges";
 import { useInsideProcessGroupBody } from "./turn/processGroupScrollContext";
+import { LINKED_SESSION_TOOL_NAMES, LinkedSessionToolCard } from "./LinkedSessionToolCard";
 
 export type DiffFileHandler = (path: string, originalContent?: string, content?: string) => void;
 
@@ -556,9 +557,13 @@ export const ToolGroupCard = memo(function ToolGroupCard(props: {
 	return (
 		<section className={cn("tool-group-card w-full min-w-0 rounded-none border-0 bg-transparent", insideProcessGroupBody ? "overflow-visible" : "overflow-hidden")} data-message-id={props.group.id}>
 			<div className="flex flex-col gap-0 p-0">
-				{props.group.messages.map((message) => (
-					<ToolCard key={message.id} message={message} stopped={props.stopped} sessionId={props.sessionId} onOpenFile={props.onOpenFile} />
-				))}
+				{props.group.messages.map((message) =>
+					LINKED_SESSION_TOOL_NAMES.has(getToolName(message)) ? (
+						<LinkedSessionToolCard key={message.id} message={message} stopped={props.stopped} />
+					) : (
+						<ToolCard key={message.id} message={message} stopped={props.stopped} sessionId={props.sessionId} onOpenFile={props.onOpenFile} />
+					),
+				)}
 			</div>
 		</section>
 	);

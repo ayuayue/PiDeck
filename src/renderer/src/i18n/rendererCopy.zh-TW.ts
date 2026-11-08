@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 8c7277f2ffe145ffd595d45c38db9cc209362610fc693cb03e6681ae6b0ea6e0（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: c7b92704027276debac7181bbbc49754ae9b2df66cb1b854761960affcce2398（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -3620,6 +3620,34 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.builtInExtDesc.pi-deck-todo": "待辦計劃管理：分支級持久化的當前工作計劃，僅通過 list/add/update/delete/replace/restore/clear 顯式工具變更，切換分支自動恢復對應計劃。",
 	"config.builtInExtDesc.pi-deck-trash-guard": "回收站守衛：攔截 rm/Remove-Item 等刪除類命令，執行前把每個目標複製送入系統回收站留底，原命令照常執行。",
 	"config.builtInExtDesc.pi-deck-vision": "視覺橋接：給 DeepSeek 等無視覺模型「裝上眼睛」，把貼上/上傳及工具結果中的圖片轉成文字描述後再交給模型。",
+	"config.builtInExtDesc.pi-deck-linked-sessions": "關聯會話：讓 agent 開出完整的子會話做獨立任務（側欄掛在父會話下、可直接對話），子會話每輪結束把結果回報給父會話。",
+	"linkedSessions.cardOffer": "提議開新會話",
+	"linkedSessions.cardOwnInitiative": "建議的後續任務",
+	"linkedSessions.cardUserAsked": "開子會話",
+	"linkedSessions.cardSend": "發給關聯會話",
+	"linkedSessions.cardList": "檢視關聯會話",
+	"linkedSessions.newSession": "新會話",
+	"linkedSessions.doHere": "在此做",
+	"linkedSessions.dismiss": "不要",
+	"linkedSessions.open": "開啟",
+	"linkedSessions.showBrief": "簡報",
+	"linkedSessions.status.pending": "等你決定",
+	"linkedSessions.status.started": "已開新會話",
+	"linkedSessions.status.here": "在此會話裡做",
+	"linkedSessions.status.dismissed": "已不要",
+	"linkedSessions.status.expired": "已失效",
+	"linkedSessions.state.starting": "啟動中",
+	"linkedSessions.state.running": "執行中",
+	"linkedSessions.state.idle": "等待中",
+	"linkedSessions.state.failed": "失敗",
+	"linkedSessions.state.stopped": "已停止",
+	"linkedSessions.childBadge": "子對話",
+	"linkedSessions.childCount": "子對話 {count} 個",
+	"linkedSessions.turns": "已跑 {count} 輪",
+	"linkedSessions.lastReport": "最近回報",
+	"linkedSessions.archive": "歸檔子對話",
+	"linkedSessions.unarchive": "取消歸檔",
+	"linkedSessions.actionFailed": "操作失敗：{error}",
 	"config.installing": "安裝中…",
 	"config.installFailed": "安裝失敗",
 	"config.extensionToggleFailed": "切換擴充套件狀態失敗，請稍後重試",

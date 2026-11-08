@@ -49,8 +49,9 @@ test("listActiveBuiltInExtensionPaths respects removedBuiltIn and missing files"
 		const paths = listActiveBuiltInExtensionPaths({ appPath: root, resourcesPath: root, isDev: true }, ["pi-deck-todo.ts"]);
 		assert.equal(paths.length, 1);
 		assert.ok(String(paths[0]).endsWith("pi-deck-ask-question.ts"));
-		// 内置扩展清单随版本增长：ask/goal/model-trace/nul-redirect/plan-mode/request-size-recovery/retry-no-body/security-gate/session-title/subagents/todo/trash-guard/vision
-		assert.equal(BUILT_IN_EXTENSIONS.length, 13);
+		// 内置扩展清单随版本增长：ask/goal/linked-sessions/model-trace/nul-redirect/plan-mode/request-size-recovery/retry-no-body/security-gate/session-title/subagents/todo/trash-guard/vision
+		assert.equal(BUILT_IN_EXTENSIONS.length, 14);
+		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-linked-sessions.ts"));
 		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-goal-mode.ts"));
 		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-session-title.ts"));
 		assert.ok(BUILT_IN_EXTENSIONS.includes("pi-deck-trash-guard.ts"));

@@ -92,6 +92,11 @@ type PiProcessOptions = {
 	 */
 	modelTraceEnv?: Record<string, string>;
 	/**
+	 * 关联会话端点的环境变量（`PIDECK_LINKED_SESSIONS_URL` / `PIDECK_LINKED_SESSIONS_TOKEN`，docs/host-boundaries.md 例外九）。
+	 * 缺省表示端点不可用 —— `pi-deck-linked-sessions` 扩展不注册工具。
+	 */
+	linkedSessionsEnv?: Record<string, string>;
+	/**
 	 * spawn pi 前对会话文件的预检/修复回调（如剔除旧版 PiDeck 私有 sessionName 头行，
 	 * 该行会让 pi 报 "Session file is not a valid pi session" 并 exit 1）。
 	 * 返回是否发生修复；抛错或未注入都不阻塞启动（pi 自身的加载错误更接近事实，留日志即可）。
@@ -502,6 +507,11 @@ export class PiProcess extends EventEmitter {
 			// 端点不可用时 modelTraceEnv 为空 → 不注入 → 扩展静默不工作，pi 行为不变。
 			if (this.options.modelTraceEnv) {
 				for (const [key, value] of Object.entries(this.options.modelTraceEnv)) {
+					if (value) env[key] = value;
+				}
+			}
+			if (this.options.linkedSessionsEnv) {
+				for (const [key, value] of Object.entries(this.options.linkedSessionsEnv)) {
 					if (value) env[key] = value;
 				}
 			}

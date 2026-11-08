@@ -21,6 +21,10 @@ import { AutomationStore } from "./automation/AutomationStore";
 import { AgentProfileStore } from "./agents/AgentProfileStore";
 import { FavoritesStore } from "./favorites/FavoritesStore";
 import { SessionGroupStore } from "./sessionGroups/sessionGroupStore";
+import { LinkedSessionServer } from "./linkedSessions/LinkedSessionServer";
+import { LinkedSessionService } from "./linkedSessions/LinkedSessionService";
+import { LinkedSessionStore } from "./linkedSessions/LinkedSessionStore";
+import { registerLinkedSessionsIpc } from "./ipc/linkedSessionsIpc";
 import { AgentInvokeService } from "./agents/AgentInvokeService";
 import { AutomationScheduler } from "./automation/AutomationScheduler";
 import { AutomationRunCoordinator } from "./automation/AutomationRunCoordinator";
@@ -847,6 +851,9 @@ let agentProfileStore: AgentProfileStore | null = null;
 let favoritesStore: FavoritesStore | null = null;
 /** 会话分组存储（<userData>/session-groups.json）；null = 尚未初始化。侧栏与插件经它共用一份数据。 */
 let sessionGroupStore: SessionGroupStore | null = null;
+/** 关联会话（子对话，docs/host-boundaries.md 例外九）：关系表 + 编排 + 回环端点。 */
+let linkedSessionStore: LinkedSessionStore | null = null;
+let linkedSessionService: LinkedSessionService | null = null;
 /** 智能体一次性调用服务（划词工具 / 市场面板）：业务在 service，侧车进程在下面的 completion。 */
 let agentInvokeService: AgentInvokeService | null = null;
 /**
@@ -1197,6 +1204,89 @@ function emitAgentsNotice(payload: { message: string; i18nKey: string; i18nParam
  * 「compositeAgentGateway.onOutput 拆包后」的所有分支。
  */
 const runtimeEventListeners = new Set<(event: SessionRuntimeEvent) => void>();
+
+/**
+ * 关联会话装配（docs/host-boundaries.md 例外九）。端点起不来只是工具不出现，不影响启动。
+ * 与模型快照端点一样是 fire-and-forget：端点就绪前 spawn 的 agent 拿不到 env，下次 spawn 生效。
+ */
+function setupLinkedSessions(): void {
+	const store = new LinkedSessionStore(join(app.getPath("userData"), "linked-sessions.json"));
+	linkedSessionStore = store;
+	const lastAssistantText = (sessionId: string): string => {
+		const messages = sessionRuntimeCoordinator.getRuntimeMessages(sessionId)?.value ?? [];
+		for (let index = messages.length - 1; index >= 0; index -= 1) {
+			const message = messages[index];
+			if (message?.role === "assistant" && typeof message.text === "string" && message.text.trim()) return message.text;
+		}
+		return "";
+	};
+	const service = new LinkedSessionService({
+		store,
+		getSessionIdForAgent: (agentId) => sessionRuntimeCoordinator.getSessionId(agentId),
+		getSession: (sessionId) => {
+			const entry = sessionCatalog.get(sessionId);
+			if (!entry) return undefined;
+			return {
+				id: entry.id,
+				projectId: entry.projectId,
+				title: entry.title,
+				backend: entry.backend ?? "pi",
+				environment: entry.environment,
+				...(entry.wslDistro ? { wslDistro: entry.wslDistro } : {}),
+				...(entry.wslUser ? { wslUser: entry.wslUser } : {}),
+			};
+		},
+		createDraft: async ({ parent, title }) => {
+			const draft = await sessionCatalog.createDraft({
+				projectId: parent.projectId,
+				title,
+				environment: parent.environment,
+				...(parent.wslDistro ? { wslDistro: parent.wslDistro } : {}),
+				...(parent.wslUser ? { wslUser: parent.wslUser } : {}),
+				source: "pi",
+				// 标题是开会话的 agent 起的终态名，不让自动标题覆盖（子会话靠标题在侧栏里被认出来）。
+				titleOrigin: "manual",
+				backend: "pi",
+			});
+			notifyCatalogRefreshed([parent.projectId]);
+			return { id: draft.id };
+		},
+		send: async (input) => {
+			const result = await sessionRuntimeCoordinator.send({
+				sessionId: input.sessionId,
+				requestId: LinkedSessionService.newRequestId(),
+				message: input.message,
+				...(input.agentMessage ? { agentMessage: input.agentMessage } : {}),
+				...(input.description ? { description: input.description } : {}),
+				...(input.streamingBehavior ? { streamingBehavior: input.streamingBehavior } : {}),
+			});
+			return result.accepted ? { accepted: true } : { accepted: false, error: result.error };
+		},
+		hasLiveRuntime: (sessionId) => Boolean(sessionRuntimeCoordinator.getTarget(sessionId)),
+		getLastAssistantText: lastAssistantText,
+		log: (level, message, data) => void appLogger?.[level]("linked-sessions", message, data),
+	});
+	linkedSessionService = service;
+	store.onChanged(() => {
+		const win = mainWindow;
+		if (win && !win.isDestroyed()) win.webContents.send(ipcChannels.linkedSessionsChanged, null);
+	});
+	void store.load().then(() => {
+		const win = mainWindow;
+		if (win && !win.isDestroyed()) win.webContents.send(ipcChannels.linkedSessionsChanged, null);
+	});
+	runtimeEventListeners.add((event) => service.observeRuntimeEvent(event));
+	const server = new LinkedSessionServer((agentId, request) => service.handle(agentId, request));
+	agentManager.setLinkedSessionsHost({
+		registerAgent: (agentId) => server.registerAgent(agentId),
+		unregisterAgent: (agentId) => server.unregisterAgent(agentId),
+	});
+	void server.start();
+	quitCleanup.register("linked-sessions", () => {
+		service.dispose();
+		server.stop();
+	});
+}
 
 function emitSessionRuntimeEvent(agentId: string, sourceChannel: string, payload: unknown): boolean {
 	const runtimeBinding = sessionRuntimeCoordinator.getRuntimeBinding(agentId);
@@ -3796,6 +3886,7 @@ function registerIpc() {
 	if (favoritesStore) registerFavoritesIpc({ store: favoritesStore, appLogger });
 	// 会话分组：侧栏只读消费 + 插件页写入，同一份 store（userData/session-groups.json）。
 	if (sessionGroupStore) registerSessionGroupsIpc({ store: sessionGroupStore, appLogger });
+	if (linkedSessionStore && linkedSessionService) registerLinkedSessionsIpc({ store: linkedSessionStore, service: linkedSessionService, appLogger });
 	registerAgentInvokeIpc(ipcMain, agentInvokeService);
 	// 系统级划词浮窗：状态/隐藏/「发送到 PiDeck」（文本插入主窗口当前会话输入框）。
 	registerSelectionToolIpc({
@@ -4612,6 +4703,9 @@ function registerIpc() {
 		// 会话 ↔ 智能体绑定：绑定的会话每次发送注入角色设定（pi/acp 隐藏 agentMessage，
 		// dsh 退化为可见前缀，由 sessionIpc 的 composeAgentInstruction 统一组合）。
 		resolveSessionAgentInstruction: (sessionId) => agentProfileStore?.getBoundAgent(sessionId)?.systemPrompt,
+		// 用户亲手发消息：关联会话回报的自动续跑额度清零（防空转只拦「回报接回报」）。
+		onUserPromptSent: (sessionId) => linkedSessionService?.noteUserPrompt(sessionId),
+		onSessionRemoved: (sessionId, reason) => void linkedSessionService?.noteSessionRemoved(sessionId, reason),
 		sessionRuntimeCoordinator,
 		agentManager,
 		configManager,
@@ -7430,6 +7524,7 @@ app
 			automationScheduler = null;
 			automationRunCoordinator = null;
 		});
+		setupLinkedSessions();
 		// 闲置 agent 自动释放（内存优化）：轮询 agents.list() 自记 idle 时长，释放走
 		// coordinator.stopAgentById（解绑 + agents.stop + agents:state 推送，会话状态自动同步）。
 		// 设置项（开关/保留数/闲置时长）每次扫描时读取，改设置后下一轮自动生效。

@@ -699,6 +699,8 @@ export class AgentManager {
 			// 模型快照端点：注册本 agent 的会话，拿到注入用的 URL/token。
 			// 端点未就绪时返回 undefined → 不注入 → 扩展静默不工作（fail-safe）。
 			modelTraceEnv: agentId ? this.registerModelTraceSession(agentId) : undefined,
+			// 关联会话端点（例外九）：同一套「每 agent 一份 token」生命周期，随模型快照一起注销。
+			linkedSessionsEnv: agentId ? this.linkedSessionsHost?.registerAgent(agentId) : undefined,
 			// 扩展解析器与模型能力缓存共用（piProcessExtensionResolvers）：
 			// 保证「选择器能看到扩展贡献的模型」与「运行时实际加载的扩展」同源。
 			// PiDeck 自带扩展用 -e 注入；普通资源的启停已交给 pi 原生 settings.json 过滤规则。
@@ -781,6 +783,18 @@ export class AgentManager {
 		} catch {
 			// 注销失败无副作用（token 会随端点关闭一起清掉）
 		}
+		try {
+			this.linkedSessionsHost?.unregisterAgent(agentId);
+		} catch {
+			// 同上
+		}
+	}
+
+	/** 关联会话端点（例外九）；index.ts 在端点就绪后注入，缺省时不给 pi 注入 env。 */
+	private linkedSessionsHost?: { registerAgent(agentId: string): Record<string, string> | undefined; unregisterAgent(agentId: string): void };
+
+	setLinkedSessionsHost(host: { registerAgent(agentId: string): Record<string, string> | undefined; unregisterAgent(agentId: string): void }): void {
+		this.linkedSessionsHost = host;
 	}
 
 	/**

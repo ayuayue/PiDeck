@@ -2261,6 +2261,13 @@ export function createPreviewApi(): PiDesktopApi {
 			reorder: async () => [],
 			onChanged: () => () => {},
 		},
+		// 关联会话：预览/Web 端没有宿主编排，快照恒空、作答返回失败。
+		linkedSessions: {
+			snapshot: async () => ({ links: [], proposals: [] }),
+			answer: async () => ({ ok: false as const, error: "desktop-only" }),
+			archive: async () => false,
+			onChanged: () => () => {},
+		},
 		// 系统级划词浮窗：预览/Web 端没有独立窗口，全部 inert。
 		selectionTool: {
 			getState: async () => ({ visible: false }),

@@ -1,12 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { SidebarRemovalList, SidebarRemovalRow } from "./SidebarRemovalRow";
-import { ChevronDown, ChevronUp, Ellipsis, HatGlasses, Image as ImageIcon, Pin, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, CornerDownRight, Ellipsis, HatGlasses, Image as ImageIcon, Pin, Trash2 } from "lucide-react";
 import { useAtomValue } from "jotai";
 import type { AgentTab, Project, SessionRecord, SessionSummary } from "../../../../shared/types";
 import { collectDisplayedSessionIds, filterAgentsForSidebarDisplay, getProjectAgentSessionDisplay, isActiveSessionStatus, sessionStatusDotClass, type ProjectChildItem } from "../../agentListDisplay";
 import { compareSessionsForSortMode } from "../../sessionSortModes";
 import { sessionRecordToSummary } from "../../atoms";
 import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
+import { linkedSessionLinkByChildIdAtom } from "../../atoms/linked-session-atoms";
+import type { LinkedSessionLink, LinkedSessionState } from "../../../../shared/types/linkedSessions";
 import { t } from "../../i18n";
 import { formatRelativeTime } from "../../utils/relativeTime";
 import { hasPendingAskForSession } from "../../utils/askUi";
@@ -59,6 +61,35 @@ function formatCodexSubagentName(session: SessionSummary) {
 	return [session.codexAgentNickname, session.codexAgentRole].filter(Boolean).join(" · ") || session.name || t("app.codexSubagent");
 }
 
+/** 关联子会话的展示状态 → 状态点语义（与 Tab 栏同一套颜色）；有活着的运行时时以运行时为准。 */
+const LINKED_STATE_DOT: Record<LinkedSessionState, string | undefined> = {
+	starting: "starting",
+	running: "running",
+	idle: "idle",
+	failed: "error",
+	stopped: undefined,
+};
+
+function linkedStateLabel(state: LinkedSessionState): string {
+	switch (state) {
+		case "starting":
+			return t("linkedSessions.state.starting");
+		case "running":
+			return t("linkedSessions.state.running");
+		case "idle":
+			return t("linkedSessions.state.idle");
+		case "failed":
+			return t("linkedSessions.state.failed");
+		case "stopped":
+			return t("linkedSessions.state.stopped");
+	}
+}
+
+function linkedChildTooltip(link: LinkedSessionLink): string {
+	const head = `${linkedStateLabel(link.state)} · ${t("linkedSessions.turns", { count: link.turnCount })}`;
+	return link.lastReport ? `${head}\n${t("linkedSessions.lastReport")}：${link.lastReport}` : head;
+}
+
 function formatPiSubagentName(session: SessionSummary) {
 	return session.name || t("app.piSubagent");
 }
@@ -96,14 +127,32 @@ export function SessionTree(props: {
 	const sessionRuntimeUiById = useAtomValue(sessionRuntimeUiByIdAtom);
 	// 相对时间的基准：live 计时点（本轮开始/上一轮结束）优先，历史会话回落会话更新时间。
 	const activityAt = useSessionActivityAt();
+	const linkByChildId = useAtomValue(linkedSessionLinkByChildIdAtom);
+	// 关联子会话（子对话）：父会话在本项目里时从主列表拿掉、挂到父会话行下面；父会话不在（被删 / 跨项目）就按普通会话显示。
+	const linkedChildrenByParent = new Map<string, SessionRecord[]>();
+	const linkedChildIds = new Set<string>();
+	if (linkByChildId.size > 0) {
+		const sessionIds = new Set(props.sessions.map((session) => session.id));
+		for (const session of props.sessions) {
+			const link = linkByChildId.get(session.id);
+			if (!link || link.archived || !sessionIds.has(link.parentSessionId)) continue;
+			linkedChildIds.add(session.id);
+			const siblings = linkedChildrenByParent.get(link.parentSessionId) ?? [];
+			siblings.push(session);
+			linkedChildrenByParent.set(link.parentSessionId, siblings);
+		}
+		for (const siblings of linkedChildrenByParent.values()) siblings.sort((left, right) => (linkByChildId.get(left.id)?.createdAt ?? 0) - (linkByChildId.get(right.id)?.createdAt ?? 0));
+	}
 	const allSummaries = props.sessions.flatMap((session) => {
 		const summary = sessionRecordToSummary(session);
 		return summary ? [summary] : [];
 	});
-	const summaries = filterSidebarSessions(allSummaries, filter).filter((session) => matchesSearch(`${session.name ?? ""}${session.preview}${session.filePath}`, search));
+	const summaries = filterSidebarSessions(allSummaries, filter)
+		.filter((session) => !linkedChildIds.has(session.id))
+		.filter((session) => matchesSearch(`${session.name ?? ""}${session.preview}${session.filePath}`, search));
 	const projectAgents = props.agents.filter((agent) => agent.projectId === props.project.id);
 	const displayAgents = filterAgentsForSidebarDisplay({
-		agents: projectAgents,
+		agents: linkedChildIds.size > 0 ? projectAgents.filter((agent) => !agent.deckSessionId || !linkedChildIds.has(agent.deckSessionId)) : projectAgents,
 		allSessions: allSummaries,
 		visibleSessions: summaries,
 		sources: filter,
@@ -122,6 +171,7 @@ export function SessionTree(props: {
 	const draftSessions = props.sessions
 		.filter((session) => session.status === "draft")
 		.filter((session) => !displayedSessionIds.has(session.id))
+		.filter((session) => !linkedChildIds.has(session.id))
 		.filter((session) => matchesSearch(session.title, search))
 		.filter((session) => filter === null || filter.has(session.source))
 		.sort((left, right) => compareSessionsForSortMode(left, right, props.controller.sessionSortMode));
@@ -226,6 +276,58 @@ export function SessionTree(props: {
 				</Button>
 			</div>
 		);
+	};
+	const renderLinkedChild = (record: SessionRecord) => {
+		const link = linkByChildId.get(record.id);
+		if (!link) return null;
+		const summary = sessionRecordToSummary(record);
+		const liveStatus = props.controller.catalog.runtimeBySessionId[record.id]?.status;
+		const dotStatus = link.state === "failed" ? "error" : (liveStatus ?? LINKED_STATE_DOT[link.state]);
+		const title = record.title || t("common.untitled");
+		return (
+			<div key={record.id} className={rowContainerClass} onContextMenu={summary ? (event) => openContext(event, summary, false) : undefined}>
+				<button
+					type="button"
+					className={cn(sessionRowClass, "session-row linked-session-sidebar-row pl-2", record.id === props.currentSessionId && selectedRowClass)}
+					title={`${title}\n${linkedChildTooltip(link)}`}
+					data-linked-state={link.state}
+					onClick={() => openSession(record.id)}
+					onDoubleClick={props.actions.sessions.simpleNavigation ? undefined : () => openSession(record.id, "permanent")}
+					{...sessionDragProps(record.id)}
+				>
+					<CornerDownRight className="size-3 shrink-0 text-muted-foreground" aria-label={t("linkedSessions.childBadge")} />
+					{renderRuntimeStatusDot(dotStatus)}
+					<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">
+						<div className="conversation-title flex min-w-0 items-center gap-1.5">
+							<TitleScrollText text={title} className={cn(liveStatus ? "font-medium" : "font-normal text-muted-foreground/90")} />
+							{hasPendingAskForSession(record.id, sessionRuntimeUiById) && <PendingAskBadge count={1} />}
+							<span className="w-max shrink-0 overflow-hidden whitespace-nowrap text-micro text-muted-foreground transition-[width,opacity] [interpolate-size:allow-keywords] group-hover/row:w-0 group-hover/row:opacity-0 group-focus-within/row:w-0 group-focus-within/row:opacity-0">{linkedStateLabel(link.state)}</span>
+						</div>
+					</div>
+				</button>
+				{summary && (
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-xs"
+						className={rowMoreMenuActiveClass(props.controller.menu?.kind === "session" && props.controller.menu.sessionId === record.id)}
+						aria-label={t("sidebar.moreActions")}
+						title={t("sidebar.moreActions")}
+						onClick={(event) => {
+							event.stopPropagation();
+							openContext(event, summary, false);
+						}}
+					>
+						<Ellipsis size={14} aria-hidden="true" />
+					</Button>
+				)}
+			</div>
+		);
+	};
+	const renderLinkedChildren = (parentSessionId?: string) => {
+		const children = parentSessionId ? linkedChildrenByParent.get(parentSessionId) : undefined;
+		if (!children?.length) return null;
+		return <div className={cn("linked-session-sidebar-group", !props.nested && "ml-3")}>{children.map(renderLinkedChild)}</div>;
 	};
 	const renderSubagents = (parentKey: string, codex: SessionSummary[], pi: SessionSummary[]) => {
 		if (codex.length + pi.length === 0 || !props.controller.expandedSubagentGroups.has(parentKey)) return null;
@@ -335,6 +437,7 @@ export function SessionTree(props: {
 						</Button>
 					</div>
 					{renderSubagents(groupKey, child.codexSubagents, child.piSubagents)}
+					{renderLinkedChildren(agentSession?.id)}
 				</SidebarRemovalRow>
 			);
 		}
@@ -417,6 +520,7 @@ export function SessionTree(props: {
 					</Button>
 				</div>
 				{renderSubagents(groupKey, child.codexSubagents, child.piSubagents)}
+				{renderLinkedChildren(child.session.id)}
 			</SidebarRemovalRow>
 		);
 	};
