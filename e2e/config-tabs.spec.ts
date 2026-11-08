@@ -64,7 +64,7 @@ test("config modal: external MCP and skill import dialogs open without writing r
 	const mcpDialog = window.getByRole("dialog");
 	await expect(mcpDialog.getByRole("heading", { name: "导入外部 MCP" })).toBeVisible();
 	await expect(mcpDialog.getByText("没有发现可导入资源")).toBeVisible();
-	await mcpDialog.getByRole("button", { name: "取消" }).click();
+	await mcpDialog.getByRole("button", { name: "取消", exact: true }).click();
 
 	await modal.getByRole("tab", { name: "技能", exact: true }).click();
 	const skillImport = modal.getByRole("button", { name: "导入", exact: true });
@@ -73,7 +73,7 @@ test("config modal: external MCP and skill import dialogs open without writing r
 	const skillDialog = window.getByRole("dialog");
 	await expect(skillDialog.getByRole("heading", { name: "导入外部技能" })).toBeVisible();
 	await expect(skillDialog.getByText("没有发现可导入资源")).toBeVisible();
-	await skillDialog.getByRole("button", { name: "取消" }).click();
+	await skillDialog.getByRole("button", { name: "取消", exact: true }).click();
 });
 
 test("config modal: feishu bot section renders connect form (UI smoke)", async ({ window }) => {
