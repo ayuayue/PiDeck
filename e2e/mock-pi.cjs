@@ -163,6 +163,16 @@ const ASK_MARKERS = {
 			],
 		}),
 	},
+	ASK_BATCH_PREFILL: {
+		method: "input",
+		title: JSON.stringify({
+			__piDeckBatchAsk: 1,
+			questions: [
+				{ id: "p1", type: "select", question: "选择框架", options: ["React", "Vue"] },
+				{ id: "p2", type: "editor", question: "备注", prefill: "预填的默认备注" },
+			],
+		}),
+	},
 };
 let pendingAsk = null; // { requestId, method, title, marker }
 let askAnswerLog = []; // 记录每次 ask 的答案，供 E2E 主进程侧断言

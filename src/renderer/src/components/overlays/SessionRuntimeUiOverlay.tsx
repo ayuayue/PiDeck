@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ClipboardList } from "lucide-react";
+import { Check, ClipboardList, SkipForward } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useAtom } from "jotai";
 import { EASE_OUT, SPRING_LAYOUT } from "../../lib/ease";
@@ -8,7 +8,7 @@ import type { AgentUiBatchQuestion, AgentUiRequest, AgentUiResponse, SessionUiRe
 import type { SessionRuntimeUiState, SessionRuntimeViewState } from "../../atoms/session-atoms";
 import { askDraftBySessionRequestAtomFamily, type AskInteractionDraft, type AskSingleDraft } from "../../atoms/ask-draft-atoms";
 import { t } from "../../i18n";
-import { inspectBatchAnswers, isBatchAnswered } from "../../utils/askBatchSubmission";
+import { inspectBatchAnswers, isBatchAnswered, isBatchSettled, isUntouchedPrefill, withPendingTextAnswers } from "../../utils/askBatchSubmission";
 import {
 	type AskBatchDraft,
 	type BatchAnswerValue,
@@ -26,6 +26,7 @@ import {
 	serializeBatchAnswers,
 	shouldAutoAdvanceBatchAnswer,
 	shouldSuppressAskClick,
+	skipBatchQuestion,
 	splitAskOption,
 } from "../../utils/askUi";
 import { SecurityConfirmCard } from "./SecurityConfirmCard";
@@ -54,6 +55,9 @@ const ASK_TAB_ACTIVE_CLASS =
 
 /** 已作答（未必聚焦）的题目 tab：绿色边框提示「这题已答」，作为 Check 图标之外的第二线索。 */
 const ASK_TAB_ANSWERED_CLASS = "answered border-[var(--color-success)]";
+
+/** 主动跳过的题目 tab：虚线边框 + 跳过图标，与「已答」「未答」都区分开。 */
+const ASK_TAB_SKIPPED_CLASS = "skipped border-dashed border-border-strong";
 
 export type RuntimeUiBinding = {
 	sessionId: string;
@@ -158,9 +162,6 @@ function BatchAskInlineBar(props: {
 	const reduce = useReducedMotion() ?? false;
 	const draftKey = props.requestKey;
 	const batch = props.draft?.batch ?? emptyAskBatchDraft();
-	const answers = batch.answers;
-	const answerLabels = batch.labels;
-	const customAnswerIds = batch.customAnswerIds;
 	const inputValues = batch.inputValues;
 	const currentTab = batch.currentTab;
 	const expanded = batch.expanded;
@@ -187,16 +188,16 @@ function BatchAskInlineBar(props: {
 		});
 	}
 
-	const answeredCount = questions.filter((question) => isBatchAnswered(answers[question.id])).length;
-	const allAnswered = total > 0 && answeredCount === total;
+	const skippedIds = batch.skippedIds ?? [];
+	// 展示与提交都看「含未点提交的输入文本」的有效答案：输入框里看得见的字就算答了，
+	// 不会因为用户直接点下一题/提交/切题而被丢掉（见 withPendingTextAnswers）。
+	const effectiveDraft = withPendingTextAnswers(questions, batch);
+	const effectiveAnswers = effectiveDraft.answers;
+	const settledCount = questions.filter((question) => isBatchSettled(question.id, effectiveAnswers, skippedIds)).length;
+	const allSettled = total > 0 && settledCount === total;
 	const reviewTab = props.request.batchReview === true && currentTab === total;
 	const currentQuestion = reviewTab ? undefined : questions[currentTab];
 	const finalStep = currentTab === total - 1;
-
-	/** 写入一题答案（纯函数式，见 commitBatchAnswer 注释）。 */
-	function commitAnswer(questionId: string, value: BatchAnswerValue, label = batchAnswerLabel(value), wasCustom = false) {
-		changeBatch((current) => commitBatchAnswer(current, questionId, value, label, wasCustom));
-	}
 
 	/** 自定义输入（select 的「其他」）与纯输入题的提交：写入答案并按策略自动前进。 */
 	function submitText(question: AgentUiBatchQuestion): boolean {
@@ -205,53 +206,89 @@ function BatchAskInlineBar(props: {
 		return answerAndAdvance(question, value, value, question.type === "select");
 	}
 
+	function serializeDraft(draft: AskBatchDraft, closed: boolean): string {
+		return serializeBatchAnswers(
+			questions,
+			draft.answers,
+			Object.fromEntries(
+				questions.map((question) => [
+					question.id,
+					{
+						label: draft.labels[question.id],
+						wasCustom: draft.customAnswerIds.includes(question.id),
+						skipped: draft.skippedIds?.includes(question.id) ?? false,
+					},
+				]),
+			),
+			{ closed },
+		);
+	}
+
 	function submitAnswers(committed?: AskBatchDraft) {
 		// 校验与序列化共用本次提交快照，避免读到异步写盘前的旧答案。
-		const effective = committed ?? batch;
-		const { complete, firstUnanswered } = inspectBatchAnswers(questions, effective.answers);
+		const effective = withPendingTextAnswers(questions, committed ?? batch);
+		const { complete, firstUnanswered } = inspectBatchAnswers(questions, effective.answers, effective.skippedIds);
 		if (!complete) {
 			if (firstUnanswered !== -1) changeBatch((current) => ({ ...current, currentTab: firstUnanswered }));
 			return;
 		}
-		props.onSubmit(
-			serializeBatchAnswers(
-				questions,
-				effective.answers,
-				Object.fromEntries(
-					questions.map((question) => [
-						question.id,
-						{
-							label: effective.labels[question.id],
-							wasCustom: effective.customAnswerIds.includes(question.id),
-						},
-					]),
-				),
-			),
-		);
+		props.onSubmit(serializeDraft(effective, false));
 	}
 
-	/** 答题并推进（返回值：本函数是否已把卡片推进到下一站，供焦点修复判断）。 */
-	function answerAndAdvance(question: AgentUiBatchQuestion, value: BatchAnswerValue, label?: string, wasCustom?: boolean): boolean {
-		// 先组装「写完本题后的完整答案集」：提交用的 committed 与写盘用的 updater 同源，
-		// 不依赖草稿写盘是否已生效（写盘是异步应用的，读 state/草稿会漏掉本题）。
-		const effectiveQuestionId = question.id;
-		const committed: AskBatchDraft = {
-			...batch,
-			answers: { ...batch.answers, [effectiveQuestionId]: value },
-			labels: { ...batch.labels, [effectiveQuestionId]: label ?? batchAnswerLabel(value) },
-			customAnswerIds: wasCustom ? (batch.customAnswerIds.includes(effectiveQuestionId) ? batch.customAnswerIds : [...batch.customAnswerIds, effectiveQuestionId]) : batch.customAnswerIds.filter((id) => id !== effectiveQuestionId),
-		};
-		commitAnswer(effectiveQuestionId, value, label, wasCustom);
-		if (!shouldAutoAdvanceBatchAnswer({ type: question.type, total })) return false;
+	/**
+	 * 关闭卡片：已经答了的题照样交回模型（标记 closed），只有一题都没答才是真正的取消。
+	 * 之前关闭一律发 cancelled，用户答了大半的内容整单丢失，模型只看到「用户取消了提问」。
+	 */
+	function closeCard() {
+		const effective = withPendingTextAnswers(questions, batch);
+		const hasAnswer = questions.some((question) => isBatchAnswered(effective.answers[question.id]) && !effective.skippedIds?.includes(question.id));
+		if (!hasAnswer) {
+			props.onCancel();
+			return;
+		}
+		props.onSubmit(serializeDraft(effective, true));
+	}
+
+	/** 写完一题（答或跳过）后推进到下一站；末题且无需审阅时带着本次快照提交全部。 */
+	function advanceAfter(committed: AskBatchDraft) {
 		if (!finalStep) {
 			// 前进：基于「写完本题后的 current」改 currentTab（函数式，答案与 tab 不互相覆盖）
 			changeBatch((current) => ({ ...current, currentTab: currentTab + 1 }));
 		} else if (props.request.batchReview) {
 			changeBatch((current) => ({ ...current, currentTab: total }));
 		} else {
-			// 末题且无需审阅：带上刚写入的答案直接提交全部
 			submitAnswers(committed);
 		}
+	}
+
+	/** 答题并推进（返回值：本函数是否已把卡片推进到下一站，供焦点修复判断）。 */
+	function answerAndAdvance(question: AgentUiBatchQuestion, value: BatchAnswerValue, label?: string, wasCustom = false): boolean {
+		// 提交用的 committed 与写盘用的 updater 同源（commitBatchAnswer），
+		// 不依赖草稿写盘是否已生效（写盘是异步应用的，读 state/草稿会漏掉本题）。
+		const resolvedLabel = label ?? batchAnswerLabel(value);
+		const committed = commitBatchAnswer(batch, question.id, value, resolvedLabel, wasCustom);
+		changeBatch((current) => commitBatchAnswer(current, question.id, value, resolvedLabel, wasCustom));
+		if (!shouldAutoAdvanceBatchAnswer({ type: question.type, total })) return false;
+		advanceAfter(committed);
+		return true;
+	}
+
+	/**
+	 * 采用预填：预填是模型的提议，原样不动不算作答（见 isUntouchedPrefill）；
+	 * 用户点了这个按钮才把预填当成自己的答案。
+	 */
+	function adoptPrefill(question: AgentUiBatchQuestion): boolean {
+		const prefill = question.prefill ?? "";
+		const value = question.type === "editor" ? prefill : prefill.trim();
+		if (!value.trim()) return false;
+		return answerAndAdvance(question, value, value);
+	}
+
+	/** 跳过当前题并推进：跳过是显式动作，与「没答」区分，扩展会把它标成跳过交给模型。 */
+	function skipAndAdvance(question: AgentUiBatchQuestion): boolean {
+		const committed = skipBatchQuestion(batch, question.id);
+		changeBatch((current) => skipBatchQuestion(current, question.id));
+		advanceAfter(committed);
 		return true;
 	}
 
@@ -265,26 +302,27 @@ function BatchAskInlineBar(props: {
 				notifyAskExpanded(props.onExpandedChange, next);
 			}}
 			title={formatAskTitle(props.request.title || t("ask.batchTitle", { count: total }))}
-			status={t("ask.batchProgress", { done: answeredCount, total })}
-			statusTone={allAnswered ? "success" : "active"}
-			onCancel={props.onCancel}
+			status={t("ask.batchProgress", { done: settledCount, total })}
+			statusTone={allSettled ? "success" : "active"}
+			onCancel={closeCard}
 			cancelDisabled={props.responding}
 			cancelLabel={t("common.close")}
 			className="ask-inline-bar ask-inline-bar--active w-full"
 		>
-			<div className="mb-2 flex min-w-0 items-center gap-2" aria-label={t("ask.batchProgress", { done: answeredCount, total })}>
-				<div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={answeredCount}>
+			<div className="mb-2 flex min-w-0 items-center gap-2" aria-label={t("ask.batchProgress", { done: settledCount, total })}>
+				<div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={settledCount}>
 					{/* 进度宽度走弹簧（beui ProgressDots 同源 SPRING_LAYOUT）：逐题完成时比线性 width 过渡更有「落定」感；首帧不补间。 */}
-					<motion.div className="h-full rounded-full bg-[var(--color-success)]" initial={false} animate={{ width: `${total > 0 ? (answeredCount / total) * 100 : 0}%` }} transition={reduce ? { duration: 0 } : SPRING_LAYOUT} />
+					<motion.div className="h-full rounded-full bg-[var(--color-success)]" initial={false} animate={{ width: `${total > 0 ? (settledCount / total) * 100 : 0}%` }} transition={reduce ? { duration: 0 } : SPRING_LAYOUT} />
 				</div>
-				<span className="shrink-0 text-micro font-medium text-text-secondary">{t("ask.batchProgress", { done: answeredCount, total })}</span>
+				<span className="shrink-0 text-micro font-medium text-text-secondary">{t("ask.batchProgress", { done: settledCount, total })}</span>
 			</div>
 
 			{/* 题目索引：单行不换行（2026-12 用户反馈：换行后标签条占掉好几行，太占位置）。
 			    标签只做「序号 + 短标题」，宽度封顶后横向滚动；条高固定一行，不再抢正文高度。 */}
 			<div className="mb-1 flex min-w-0 items-center gap-1 overflow-x-auto border-b border-border-subtle pb-1" role="tablist">
 				{questions.map((question, index) => {
-					const answered = isBatchAnswered(answers[question.id]);
+					const answered = isBatchAnswered(effectiveAnswers[question.id]);
+					const skipped = skippedIds.includes(question.id);
 					const active = index === currentTab;
 					return (
 						<PromptTooltip key={question.id} text={question.question}>
@@ -292,14 +330,14 @@ function BatchAskInlineBar(props: {
 								variant="ghost"
 								role="tab"
 								aria-selected={active}
-								className={`ask-batch-tab inline-flex h-[24px] flex-none items-center gap-1 rounded-md border border-border-subtle bg-transparent px-1.5 font-sans text-micro whitespace-nowrap text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary focus-visible:outline-[var(--focus-ring)] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-55${answered ? ` ${ASK_TAB_ANSWERED_CLASS}` : ""}${active ? ` ${ASK_TAB_ACTIVE_CLASS}` : ""}`}
+								className={`ask-batch-tab inline-flex h-[24px] flex-none items-center gap-1 rounded-md border border-border-subtle bg-transparent px-1.5 font-sans text-micro whitespace-nowrap text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary focus-visible:outline-[var(--focus-ring)] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-55${answered ? ` ${ASK_TAB_ANSWERED_CLASS}` : ""}${skipped ? ` ${ASK_TAB_SKIPPED_CLASS}` : ""}${active ? ` ${ASK_TAB_ACTIVE_CLASS}` : ""}`}
 								disabled={props.responding}
 								onClick={() => changeBatch((current) => ({ ...current, currentTab: index }))}
 							>
 								<span className="min-w-[14px] text-center font-mono font-semibold">{index + 1}</span>
 								{/* 标签仍只占一行；整颗按钮悬停/聚焦都能看全文，不只文字区域生效。 */}
 								<span className="max-w-[14ch] min-w-0 truncate text-left">{question.question}</span>
-								{answered ? <Check size={11} className="shrink-0 text-[var(--color-success)]" aria-hidden="true" /> : null}
+								{answered ? <Check size={11} className="shrink-0 text-[var(--color-success)]" aria-hidden="true" /> : skipped ? <SkipForward size={11} className="shrink-0 text-text-tertiary" aria-label={t("ask.batchSkipped")} /> : null}
 							</Button>
 						</PromptTooltip>
 					);
@@ -341,19 +379,20 @@ function BatchAskInlineBar(props: {
 						<div className="text-caption text-text-tertiary">{t("ask.batchReviewHint")}</div>
 						<div className="flex flex-col gap-1 rounded-sm bg-bg-muted p-2">
 							{questions.map((question, index) => {
-								const value = answers[question.id];
+								const value = effectiveAnswers[question.id];
 								const answered = isBatchAnswered(value);
+								const skipped = skippedIds.includes(question.id);
 								return (
 									<div key={question.id} className="grid grid-cols-[20px_minmax(0,1fr)_minmax(0,30ch)] items-start gap-2 text-caption leading-[1.6] text-text-primary">
 										<span className="font-mono font-semibold">{index + 1}</span>
 										<span className="min-w-0 [overflow-wrap:anywhere]">{question.question}</span>
-										<span className={`min-w-0 text-right font-mono font-medium [overflow-wrap:anywhere]${answered ? " answered" : " unanswered"}`}>{answered ? (answerLabels[question.id] ?? batchAnswerLabel(value)) : "-"}</span>
+										<span className={`min-w-0 text-right font-mono font-medium [overflow-wrap:anywhere]${answered ? " answered" : skipped ? " skipped text-text-tertiary" : " unanswered"}`}>{answered ? (effectiveDraft.labels[question.id] ?? batchAnswerLabel(value)) : skipped ? t("ask.batchSkipped") : "-"}</span>
 									</div>
 								);
 							})}
 						</div>
-						{!allAnswered ? <div className="rounded-sm bg-[color:color-mix(in_srgb,var(--color-warning)_10%,transparent)] p-2 text-caption text-[var(--color-warning)]">{t("ask.batchIncomplete")}</div> : null}
-						<Button className="w-full" variant="default" disabled={!allAnswered || props.responding} onClick={() => submitAnswers()}>
+						{!allSettled ? <div className="rounded-sm bg-[color:color-mix(in_srgb,var(--color-warning)_10%,transparent)] p-2 text-caption text-[var(--color-warning)]">{t("ask.batchIncomplete")}</div> : null}
+						<Button className="w-full" variant="default" disabled={!allSettled || props.responding} onClick={() => submitAnswers()}>
 							{t("ask.batchSubmitAll")}
 						</Button>
 					</motion.div>
@@ -363,10 +402,15 @@ function BatchAskInlineBar(props: {
 							question={currentQuestion}
 							questionIndex={currentTab}
 							total={total}
-							answer={answers[currentQuestion.id]}
+							answer={effectiveAnswers[currentQuestion.id]}
+							skipped={skippedIds.includes(currentQuestion.id)}
 							inputValue={inputValues[currentQuestion.id] ?? ""}
 							responding={props.responding}
 							onAnswer={(value, label, wasCustom) => answerAndAdvance(currentQuestion, value, label, wasCustom)}
+							onSkip={() => skipAndAdvance(currentQuestion)}
+							onAdoptPrefill={
+								(currentQuestion.type === "input" || currentQuestion.type === "editor") && !isBatchAnswered(effectiveAnswers[currentQuestion.id]) && !skippedIds.includes(currentQuestion.id) && isUntouchedPrefill(currentQuestion, inputValues[currentQuestion.id] ?? "") ? () => adoptPrefill(currentQuestion) : undefined
+							}
 							onInputChange={(value) => changeBatch((current) => ({ ...current, inputValues: { ...current.inputValues, [currentQuestion.id]: value } }))}
 							onSubmitInput={() => submitText(currentQuestion)}
 							onPrevious={currentTab > 0 ? () => changeBatch((current) => ({ ...current, currentTab: currentTab - 1 })) : undefined}
@@ -379,7 +423,7 @@ function BatchAskInlineBar(props: {
 									submitAnswers();
 								}
 							}}
-							nextDisabled={finalStep && !props.request.batchReview && !allAnswered}
+							nextDisabled={finalStep && !props.request.batchReview && !allSettled}
 							finalLabel={finalStep && !props.request.batchReview ? t("ask.batchSubmitAll") : undefined}
 						/>
 					</motion.div>
@@ -394,9 +438,14 @@ function BatchQuestion(props: {
 	questionIndex: number;
 	total: number;
 	answer: BatchAnswerValue;
+	/** 本题已被用户主动跳过 */
+	skipped: boolean;
 	inputValue: string;
 	responding: boolean;
 	onAnswer: (value: BatchAnswerValue, label?: string, wasCustom?: boolean) => boolean;
+	onSkip: () => boolean;
+	/** 本题有未改动的预填时才提供：把预填当成作答（预填本身不算答案） */
+	onAdoptPrefill?: () => boolean;
 	onInputChange: (value: string) => void;
 	onSubmitInput: () => boolean;
 	onPrevious?: () => void;
@@ -421,6 +470,14 @@ function BatchQuestion(props: {
 	// 自定义输入/纯输入题提交后同样可能自动前进，输入框随换题卸载，焦点要一起收回。
 	const submitInput = () => {
 		if (!props.onSubmitInput()) return;
+		refocusAfterAdvanceRef.current = true;
+	};
+	const skip = () => {
+		if (!props.onSkip()) return;
+		refocusAfterAdvanceRef.current = true;
+	};
+	const adoptPrefill = () => {
+		if (!props.onAdoptPrefill?.()) return;
 		refocusAfterAdvanceRef.current = true;
 	};
 	return (
@@ -622,6 +679,15 @@ function BatchQuestion(props: {
 					</Button>
 				) : null}
 				<span className="flex-1" />
+				{props.onAdoptPrefill ? (
+					<Button className="ask-batch-adopt-prefill h-7 px-2 text-caption" variant="ghost" disabled={props.responding} onClick={adoptPrefill}>
+						{t("ask.batchUsePrefill")}
+					</Button>
+				) : null}
+				{/* 跳过：显式放弃本题（与「没答」区分），跳过后整卡即可提交，模型会看到「跳过」而不是空答案 */}
+				<Button className={`ask-batch-skip h-7 px-2 text-caption text-text-tertiary${props.skipped ? " skipped" : ""}`} variant="ghost" disabled={props.responding} aria-pressed={props.skipped} onClick={skip}>
+					{props.skipped ? t("ask.batchSkipped") : t("ask.batchSkip")}
+				</Button>
 				<Button className="h-7 px-2 text-caption" variant="ghost" disabled={props.responding || props.nextDisabled} onClick={props.onNext}>
 					{props.questionIndex < props.total - 1 ? t("ask.batchNext") : (props.finalLabel ?? t("ask.batchGoReview"))}
 				</Button>
