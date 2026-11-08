@@ -80,6 +80,21 @@ test("offer 卡片 → 新会话 → 侧栏嵌套 + 状态 → 子会话回报�
 	await expect(window.getByText(/linked-session-report/).first()).toBeVisible({ timeout: 30_000 });
 	await snap(window, "3-parent-got-report");
 
+	// ── 「活动」视图：子会话紧跟在父会话行下面并缩进一层 ──
+	await window.getByRole("tab", { name: "活动" }).click();
+	const activeRows = window.locator('.active-sessions-list [class*="group/row"]');
+	const nestedChild = window.locator('.active-sessions-list .linked-session-sidebar-row[data-linked-depth="1"]');
+	await expect(nestedChild).toContainText("补登录页单测", { timeout: 20_000 });
+	const order = await activeRows.evaluateAll((rows) => rows.map((row) => ({ text: row.textContent ?? "", depth: row.getAttribute("data-linked-depth") })));
+	const childIndex = order.findIndex((row) => row.text.includes("补登录页单测"));
+	expect(childIndex).toBeGreaterThan(0);
+	expect(order[childIndex - 1].text).toContain("LINKED_START offer");
+	const parentBox = await activeRows.nth(childIndex - 1).boundingBox();
+	const childBox = await nestedChild.boundingBox();
+	expect(childBox && parentBox && childBox.x - parentBox.x).toBeGreaterThan(8);
+	await snap(window, "6-activity-nested");
+	await window.getByRole("tab", { name: "聊天" }).click();
+
 	// ── 点子会话行：能直接打开、看到简报与它自己的回复 ──
 	await childRow.click();
 	await expect(window.getByText(/给 login\.ts 补单测/).first()).toBeVisible({ timeout: 20_000 });

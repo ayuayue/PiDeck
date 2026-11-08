@@ -1,9 +1,10 @@
 import { recentSessionActivityAtom } from "../../atoms/recent-session-atoms";
-import { Ellipsis } from "lucide-react";
+import { CornerDownRight, Ellipsis } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue } from "jotai";
 import { sessionRecordToSummary } from "../../atoms";
 import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
+import { linkedSessionParentByChildIdAtom } from "../../atoms/linked-session-atoms";
 import { hasPendingAskForSession } from "../../utils/askUi";
 import { t } from "../../i18n";
 import { cn } from "../../lib/utils";
@@ -17,7 +18,7 @@ import { TitleScrollText } from "./TitleScrollText";
 import { SESSION_TAB_DRAG_MIME } from "../../utils/sessionSplitEdge";
 import { formatRelativeTime } from "../../utils/relativeTime";
 import { useSessionActivityAt } from "../../hooks/sidebar/useSessionActivityClock";
-import { RECENT_SESSIONS_INITIAL_VISIBLE, collectActiveSessionRows, collectRecentActivityRows, growRecentVisible } from "./activitySessionsModel";
+import { LINKED_NEST_MAX_DEPTH, RECENT_SESSIONS_INITIAL_VISIBLE, collectActiveSessionRows, collectRecentActivityRows, growRecentVisible, nestLinkedSessionRows } from "./activitySessionsModel";
 import { RecentSessionsSection } from "./RecentSessionsSection";
 import { SidebarStatusDot } from "./SidebarStatusDot";
 import { SESSION_ROW_CLASS, ROW_MORE_ACTIONS_CLASS } from "./sidebarRowStyles";
@@ -54,6 +55,9 @@ export function ActiveSessionsTree(props: { controller: SidebarController; actio
 	// 因此不再按 isLiveRuntimeStatus 过滤——否则 error/closed 的失败会话会从活动页消失。
 	// 收集与排序规则在 activitySessionsModel（纯函数可单测），catalog 引用稳定时 memo 复用结果。
 	const liveRows = useMemo(() => collectActiveSessionRows(controller.catalog), [controller.catalog]);
+	// 关联子会话挂到父会话行下面（父会话也在活动区时）；不在同一区的子会话原位不动、只标 ↳。
+	const linkedParentByChildId = useAtomValue(linkedSessionParentByChildIdAtom);
+	const nestedLiveRows = useMemo(() => nestLinkedSessionRows(liveRows, (row) => row.record?.id, (id) => linkedParentByChildId.get(id)), [liveRows, linkedParentByChildId]);
 	// 「最近会话」可见条数：默认 10 条，手动「加载更多」每次 +10；「收起」回到首页大小。
 	// 行数受控是性能要求——侧栏一次性渲染几百行历史会明显卡顿（用户反馈）。
 	const [recentVisibleCount, setRecentVisibleCount] = useState(RECENT_SESSIONS_INITIAL_VISIBLE);
@@ -128,14 +132,15 @@ export function ActiveSessionsTree(props: { controller: SidebarController; actio
 				    最近活动排序，顺序随消息实时变化不是用户动作，不开顺序敏感测量——
 				    否则每次流式刷新都会让整列重新测量。remainingIds 只圈活动行：会话关闭
 				    离开活动区也算一次移除，淡出后自然出现在下方「最近会话」。 */}
-				<RemovalList remainingIds={liveRows.map((row) => row.agent.id)}>
-					{liveRows.map(({ agent, projectId, record, sortAt }) => {
+				<RemovalList remainingIds={nestedLiveRows.map(({ row }) => row.agent.id)}>
+					{nestedLiveRows.map(({ row: { agent, projectId, record, sortAt }, depth }) => {
 						const sessionId = record?.id;
 						const selected = sessionId === props.currentSessionId;
 						const summary = record ? sessionRecordToSummary(record) : undefined;
 						const displayTitle = summary?.name || agent.title || t("common.untitled");
 						const project = controller.catalog.projects.find((p) => p.id === projectId);
 						const pendingAsk = hasPendingAskForSession(sessionId, sessionRuntimeUiById);
+						const linkedChild = Boolean(sessionId && linkedParentByChildId.has(sessionId));
 						// 单击默认 preview；双击显式常驻（与 SessionTree 同一入口语义）。
 						const openSession = (tabMode?: "preview" | "permanent") => {
 							if (sessionId) void props.actions.sessions.open(projectId, sessionId, tabMode);
@@ -144,7 +149,9 @@ export function ActiveSessionsTree(props: { controller: SidebarController; actio
 							<RemovalRow
 								key={agent.id}
 								itemId={agent.id}
-								className="group/row relative mt-0.5 flex min-h-8 items-center"
+								className={cn("group/row relative mt-0.5 flex min-h-8 items-center", linkedChild && "linked-session-sidebar-row")}
+								style={depth > 0 ? { marginLeft: `${Math.min(depth, LINKED_NEST_MAX_DEPTH) * 0.75}rem` } : undefined}
+								data-linked-depth={linkedChild ? depth : undefined}
 								onContextMenu={(event) => {
 									event.preventDefault();
 									void controller.openMenu({ kind: "agent", agentId: agent.id, x: event.clientX, y: event.clientY });
@@ -166,6 +173,7 @@ export function ActiveSessionsTree(props: { controller: SidebarController; actio
 										}}
 										onDragEnd={() => props.actions.sessions.endDrag?.()}
 									>
+										{linkedChild && <CornerDownRight className="size-3 shrink-0 text-muted-foreground" aria-label={t("linkedSessions.childBadge")} />}
 										{/* 终态（closed/detached/未知）不留空色点占位，见 SidebarStatusDot。 */}
 										<SidebarStatusDot status={agent.status} />
 										<div className="conversation-body min-w-0 flex-1 transition-[padding-right] group-hover/row:pr-7 group-focus-within/row:pr-7">

@@ -1,7 +1,8 @@
-import { ChevronDown, ChevronUp, Ellipsis } from "lucide-react";
+import { ChevronDown, ChevronUp, CornerDownRight, Ellipsis } from "lucide-react";
 import { useAtomValue } from "jotai";
 import { sessionRecordToSummary } from "../../atoms/session-selectors";
 import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
+import { linkedSessionParentByChildIdAtom } from "../../atoms/linked-session-atoms";
 import { hasPendingAskForSession } from "../../utils/askUi";
 import { t } from "../../i18n";
 import { cn } from "../../lib/utils";
@@ -19,7 +20,7 @@ import { SESSION_ROW_CLASS, SESSION_ROW_SELECTED_CLASS, ROW_MORE_ACTIONS_CLASS }
 import { SESSION_TAB_DRAG_MIME } from "../../utils/sessionSplitEdge";
 import { formatRelativeTime } from "../../utils/relativeTime";
 import { useSessionActivityAt } from "../../hooks/sidebar/useSessionActivityClock";
-import { RECENT_SESSIONS_INITIAL_VISIBLE, canCollapseRecent } from "./activitySessionsModel";
+import { LINKED_NEST_MAX_DEPTH, RECENT_SESSIONS_INITIAL_VISIBLE, canCollapseRecent, nestLinkedSessionRows } from "./activitySessionsModel";
 import type { RecentSessionRow } from "./activitySessionsModel";
 
 /**
@@ -61,6 +62,8 @@ const collapseRowClass = "session-more-row h-auto shrink-0 w-auto justify-start 
 export function RecentSessionsSection(props: { controller: SidebarController; actions: SidebarActions; currentSessionId?: string; rows: readonly RecentSessionRow[]; totalCount: number; visibleCount: number; onLoadMore: () => void; onCollapse: () => void }) {
 	// 待确认标记按本行 sessionId 判定（与活动行同一策略，不订阅项目级聚合值）。
 	const sessionRuntimeUiById = useAtomValue(sessionRuntimeUiByIdAtom);
+	// 关联子会话挂到父会话行下面（父会话也在本区时）；不在本区的子会话原位不动、只标 ↳。
+	const linkedParentByChildId = useAtomValue(linkedSessionParentByChildIdAtom);
 	// 没有历史会话时整段消失：标题与分界线一起收起，活动页保持现状（不为空列表留一条悬空分界线）。
 	if (props.rows.length === 0) return null;
 	// 剩余未展示条数：按钮标题用「再加载 N 个会话」，条数内联在动词后用括号展示。
@@ -70,6 +73,7 @@ export function RecentSessionsSection(props: { controller: SidebarController; ac
 	// 收起：只有展开过（超过首页 10 条）才出现，与项目页「查看更多 / 收起」并列的语义一致。
 	const canCollapse = canCollapseRecent(props.visibleCount);
 	const projectNamesById = new Map(props.controller.catalog.projects.map((project) => [project.id, project.name]));
+	const nestedRows = nestLinkedSessionRows(props.rows, (row) => row.session.id, (id) => linkedParentByChildId.get(id));
 	return (
 		<section aria-label={t("app.sidebarRecentSessions")} className="mt-1 flex flex-col gap-0">
 			{/* 分界线：上方活动行、下方最近会话，用户要求两段之间有明确界限。
@@ -88,10 +92,10 @@ export function RecentSessionsSection(props: { controller: SidebarController; ac
 			{/* 删除会话/收起分页时行淡出 + 下方行滑位（与 SessionTree 同一原语）；「最近」按
 			    访问时间排序，顺序变化不是用户动作，不开 orderSensitive。收起分页一次移除多行
 			    也是用户动作，批量淡出 + 滑位正是想要的反馈。 */}
-			<RemovalList remainingIds={props.rows.map((row) => row.session.id)}>
-				{props.rows.map((row) => (
+			<RemovalList remainingIds={nestedRows.map(({ row }) => row.session.id)}>
+				{nestedRows.map(({ row, depth }) => (
 					<RemovalRow key={row.session.id} itemId={row.session.id}>
-						<RecentSessionRowItem row={row} projectName={projectNamesById.get(row.projectId)} controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} sessionRuntimeUiById={sessionRuntimeUiById} />
+						<RecentSessionRowItem row={row} depth={depth} linkedChild={linkedParentByChildId.has(row.session.id)} projectName={projectNamesById.get(row.projectId)} controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} sessionRuntimeUiById={sessionRuntimeUiById} />
 					</RemovalRow>
 				))}
 			</RemovalList>
@@ -123,7 +127,7 @@ export function RecentSessionsSection(props: { controller: SidebarController; ac
 }
 
 /** 单条最近会话行：点击打开（preview/permanent）、右键会话菜单、可拖拽分屏。 */
-function RecentSessionRowItem(props: { row: RecentSessionRow; projectName?: string; controller: SidebarController; actions: SidebarActions; currentSessionId?: string; sessionRuntimeUiById: Parameters<typeof hasPendingAskForSession>[1] }) {
+function RecentSessionRowItem(props: { row: RecentSessionRow; depth: number; linkedChild: boolean; projectName?: string; controller: SidebarController; actions: SidebarActions; currentSessionId?: string; sessionRuntimeUiById: Parameters<typeof hasPendingAskForSession>[1] }) {
 	const { row, controller } = props;
 	// 相对时间基准：live 计时点（本轮开始/上一轮结束）优先，否则回落最近访问时间。
 	const activityAt = useSessionActivityAt();
@@ -144,7 +148,9 @@ function RecentSessionRowItem(props: { row: RecentSessionRow; projectName?: stri
 	};
 	return (
 		<div
-			className="group/row relative mt-0.5 flex min-h-8 items-center"
+			className={cn("group/row relative mt-0.5 flex min-h-8 items-center", props.linkedChild && "linked-session-sidebar-row")}
+			style={props.depth > 0 ? { marginLeft: `${Math.min(props.depth, LINKED_NEST_MAX_DEPTH) * 0.75}rem` } : undefined}
+			data-linked-depth={props.linkedChild ? props.depth : undefined}
 			onContextMenu={(event) => {
 				event.preventDefault();
 				openMenu(event.clientX, event.clientY);
@@ -170,6 +176,7 @@ function RecentSessionRowItem(props: { row: RecentSessionRow; projectName?: stri
 						<div className="conversation-title flex min-w-0 items-center gap-1.5">
 							{/* 关闭/解绑后 runtime 仍在位（closed/detached）：不能只判 runtime，否则空色点 + gap-1.5
 							    会在标题左侧留下一截空白（#390「状态小点占位没释放」）。无状态时整格不渲染。 */}
+							{props.linkedChild && <CornerDownRight className="size-3 shrink-0 text-muted-foreground" aria-label={t("linkedSessions.childBadge")} />}
 							{props.actions.sessions.simpleNavigation ? <SessionActivityIndicator status={runtime?.status} sessionId={sessionId} /> : <SidebarStatusDot status={runtime?.status} />}
 							{/* 后端/来源身份标放标题左侧（与顶部 Tab 一致，用户反馈原先在标题右侧）。 */}
 							{row.session.backend === "acp" ? <AcpBackendMark acpToolId={row.session.acpToolId} /> : (row.session.backend === "dsh" || row.session.backend === "imagegen") && <SessionBackendMark backend={row.session.backend} />}

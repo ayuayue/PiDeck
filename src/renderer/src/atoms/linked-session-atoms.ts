@@ -35,6 +35,13 @@ export const linkedSessionLinkByChildIdAtom = atom((get) => {
 	return map;
 });
 
+/** 子会话 id → 父会话 id，只含未归档关系：侧栏各视图据此把子会话嵌到父会话下面。 */
+export const linkedSessionParentByChildIdAtom = atom((get) => {
+	const map = new Map<string, string>();
+	for (const link of get(linkedSessionsSnapshotAtom).links) if (!link.archived) map.set(link.childSessionId, link.parentSessionId);
+	return map;
+});
+
 /** 提议 id / 工具调用 id → 提议：时间线卡片按工具调用 id 找到自己的提议。 */
 export const linkedSessionProposalIndexAtom = atom((get) => {
 	const byId = new Map<string, LinkedSessionProposal>();
