@@ -129,7 +129,7 @@ export function Toaster() {
 					// 让开自定义标题栏拖拽区（--window-drag-height：frameless 下 32px，否则 0px）。
 					// 首个 toast 若贴顶，左上角关闭按钮会落在 -webkit-app-region: drag 层里，
 					// 点击被拖拽命中测试吞掉，表现为“点叉没反应”。
-					top: "calc(var(--window-drag-height, 0px) + 12px)",
+					top: "calc(var(--window-drag-height, 0px) + 12px + var(--notice-top-shift, 0px))",
 					right: "16px",
 				}}
 			/>

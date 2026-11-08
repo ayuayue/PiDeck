@@ -57,6 +57,7 @@ import {
 	promptSuggestionModelAtom,
 	dshRuntimeStatusAtom,
 	openSettingsAtom,
+	settingsOpenAtom,
 	openAutomationPageAtom,
 	agentProfilesAtom,
 	pendingAgentBindingAtom,
@@ -311,6 +312,8 @@ export function App() {
 	const modifiedFiles = useAtomValue(modifiedFilesAtom);
 	const projects = useAtomValue(projectInventoryAtom);
 	const agents = useAtomValue(agentInventoryAtom);
+	// 设置页是整列页面 Tab：它会盖住欢迎页/会话列，首次引导不能叠在它上面。
+	const settingsPageActive = useAtomValue(settingsOpenAtom);
 	const setCurrentSessionId = useSetAtom(currentSessionIdAtom);
 	const replaceProjectSessions = useSetAtom(replaceProjectSessionsAtom);
 	const openAutomationPage = useSetAtom(openAutomationPageAtom);
@@ -4036,7 +4039,7 @@ export function App() {
 				{/* 命令面板首次引导：它是纯键盘入口，没有任何可点的 affordance，
         不主动提示就等于不存在。看完即写 localStorage，只弹一次。
         空状态（没项目）不弹——那时面板本身也没什么可搜的。 */}
-				{!quickTask.active && <CommandPaletteOnboarding enabled={Boolean(activeProjectId) && !activeProjectHasBusyAgent && !commandPaletteOpen} onTryNow={openCommandPalette} />}
+				{!quickTask.active && <CommandPaletteOnboarding enabled={Boolean(activeProjectId) && !activeProjectHasBusyAgent && !commandPaletteOpen && !settingsPageActive} onTryNow={openCommandPalette} />}
 
 				{/* 数据环境弹窗族：首启数据模式选择（内含导入向导）与目录标记警告，事件/atom 驱动 */}
 				<DataModeChoiceDialog />
