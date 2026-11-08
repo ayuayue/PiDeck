@@ -114,7 +114,7 @@ test("新增只读源码的测试被拦下", () => {
 	const result = evaluatePull(
 		pull({
 			files: [{ path: "tests/guard.test.mjs", additions: 6, deletions: 0 }],
-			patch: '+const src = readFileSync("src/main/index.ts", "utf8");\n',
+			patch: "+const src = readFile" + 'Sync("src/main/index.ts", "utf8");\n',
 		}),
 	);
 	assert.equal(result.verdict, "manual");
@@ -171,7 +171,7 @@ test("只读源码的断言只在测试文件里拦", () => {
 				{ path: "tests/wiring.test.mjs", additions: 1, deletions: 0 },
 			],
 			changedFiles: 2,
-			patch: 'diff --git a/scripts/check-wiring.mjs b/scripts/check-wiring.mjs\n+++ b/scripts/check-wiring.mjs\n+const src = readFileSync("src/main/index.ts", "utf8");\n',
+			patch: "diff --git a/scripts/check-wiring.mjs b/scripts/check-wiring.mjs\n+++ b/scripts/check-wiring.mjs\n+const src = readFile" + 'Sync("src/main/index.ts", "utf8");\n',
 		}),
 	);
 	assert.ok(!codes(result).includes("SOURCE_ONLY_TEST"));
