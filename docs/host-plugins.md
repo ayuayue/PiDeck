@@ -157,6 +157,7 @@
 
 - `session-groups` 的分组数据自 v3 存在宿主 store（`<userData>/session-groups.json`，经 `pideck.sessionGroups.*` 读写）；旧版插件私有 `storage` 里的 `ws.meta` / `ws.g.*` 由 `SessionGroupStore` 在启动时一次性迁移且不删旧文件。它没有网络/服务权限。
 - 侧栏分组树只在 `session-groups` 已安装且启用时出现（`isSessionGroupsPluginEnabled`，fail-closed）：没装就不显示分组，装回来即恢复（数据在宿主 store，不在插件目录里）。
+- 侧栏分组树是**两层**（分组 → 会话）：组内会话直接按 `updatedAt` 降序混排，不再按项目分文件夹层；跨项目分组才在行内标项目名。已入组的会话从下方项目列表隐藏（入口与卡片是同一会话，重复展示会让两处状态不同步），只有侧栏搜索命中时才两边都显示；全被收走的项目显示「会话都在分组里」而不是空列表。分组行与项目树会话行的右键菜单同一入口（`openSessionRowMenu`）。
 - 示例包的能力面在 `tests/exampleHostPlugins.test.mjs` 的登记表里锁定：目录与登记表必须一一对应，权限/面板形态变化会让测试先红——同步上游新版（尤其新增 `network.*` / `service.local`）时必须先审一遍数据外发与命令执行风险、改登记表。
 
 ## pi-context 本地适配
