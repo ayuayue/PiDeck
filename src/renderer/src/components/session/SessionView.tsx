@@ -17,6 +17,7 @@ import { SessionAcpRestoreStrip } from "./SessionAcpRestoreStrip";
 import { SessionQueuedMessagesStrip } from "./SessionQueuedMessagesStrip";
 import { SessionSurfaceStage } from "./SessionSurfaceStage";
 import { ComposerArea } from "./ComposerArea";
+import { FloatingAskLayer } from "./FloatingAskLayer";
 import type { SessionMenuModel, SessionMenuRunControl } from "./SessionActionsMenu";
 import { useReplyActions } from "../../hooks/useReplyActions";
 import { useAnimationWindow } from "../../hooks/useAnimationWindow";
@@ -238,13 +239,9 @@ export function SessionView({
 	const timelineColumnStyle = {
 		"--session-timeline-min": `${TIMELINE_MIN_HEIGHT}px`,
 	} as CSSProperties;
-	// Ask 底栏与 composer 互斥分高（issue #230 定案，2026-12 用户拍板 B：卡片接管列底）：
-	// ask 可见时 composer 通过 max-height:0 + overflow-hidden 坍缩到零高，而不是卸载——
-	// 粘贴转文件的 chip 删盘动作在 composer 的卸载路径上会丢失（orphan 临时文件），
-	// 草稿/附件虽在 atom 里，仍以「不卸载」为更强约束。
-	// 因此两者不会同时占高；不设固定像素上限（用户反馈：别限我的卡片高度），
-	// 上限就是「列高 - 对话区保底」，正常情况下卡片不会被截断，超长才内部滚动兜底。
-	const askMaxHeight = `calc(100% - var(--session-timeline-min, ${TIMELINE_MIN_HEIGHT}px))`;
+	// Ask 浮层期间 composer 让位（issue #230 定案沿用）：通过 max-height:0 + overflow-hidden 坍缩到零高，
+	// 把整列高度留给时间线，而不是卸载——粘贴转文件的 chip 删盘动作在 composer 的卸载路径上
+	// 会丢失（orphan 临时文件），草稿/附件虽在 atom 里，仍以「不卸载」为更强约束。
 	const composerMaxHeight = askPanelVisible ? "0px" : `min(${COMPOSER_MAX_HEIGHT}px, calc(100% - var(--session-timeline-min, ${TIMELINE_MIN_HEIGHT}px)))`;
 
 	// 时间线 props 稳定化（2027-02 性能审计）：这里原先每渲染新建对象 + 内联
@@ -359,24 +356,15 @@ export function SessionView({
 				defaultLayout={sessionGroupDefaultLayout(sessionPanels, terminalCollapsed ? TERMINAL_PANEL_COLLAPSED_SIZE : terminalRowHeight, Math.max(1, window.innerHeight - 120))}
 				resizeTargetMinimumSize={{ fine: 20, coarse: 24 }}
 			>
-				<ResizablePanel id="timeline" minSize={timelineColumnMinSize} className="session-v-timeline flex min-h-0 flex-col" style={timelineColumnStyle}>
+				<ResizablePanel id="timeline" minSize={timelineColumnMinSize} className="session-v-timeline relative flex min-h-0 flex-col" style={timelineColumnStyle}>
 					<div className="session-v-timeline-stage min-h-[var(--session-timeline-min,160px)] flex-1 overflow-hidden">
 						<SessionSurfaceStage sessionId={sessionId} sessionTimeline={sessionTimeline} isRestarting={isRestarting} isReloading={Boolean(runControl?.isReloading)} timelineProps={timelineInteractionProps} />
 					</div>
-					{/* 阻塞式 Ask 底栏（issue #230）：与输入框同级钉在对话区下方，
-					    不再随时间线滚动——用户上翻看历史时提问卡仍常驻可见，不必再往下找。
-					    宽度基准与消息列/输入框同源（chatContentWidthStyle + scrollbar-gutter 槽位），
-					    内容超「列高 - 对话区保底」时由本层滚动（时间线仍是唯一的消息滚动 owner）。
+					{/* 阻塞式 Ask 浮层：浮在时间线之上而不是钉在列底占高，时间线保持整列高度，
+					    用户能先读完回复再作答（可折叠、可拖动，见 FloatingAskLayer）。
 					    必须用 askPanelVisible 而不是仅 runtimeUi 门控：overlay 无 pending 时返回 null，
-					    只看 runtimeUi 会留下一条空白底栏。 */}
-					{runtimeUi && askPanelVisible ? (
-						// scroll-ok: bounded —— 行数有硬上限（受控分页 / 上限常量 / 固定枚举），不随数据无限增长。
-						<div className="session-v-ask min-h-0 shrink-0 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]" style={{ maxHeight: askMaxHeight }} aria-live="polite">
-							<div className="pb-2" style={chatContentWidthStyle}>
-								{runtimeUi}
-							</div>
-						</div>
-					) : null}
+					    只看 runtimeUi 会留下一个空浮层。 */}
+					{runtimeUi && askPanelVisible ? <FloatingAskLayer>{runtimeUi}</FloatingAskLayer> : null}
 					{/* 有消息或仍在加载：列底固有高度输入栏。空会话就绪后卸掉，改由起始页居中输入。
               max-height 相对本列：窗口放大后上限抬起，待办/改文件条随内容恢复，不锁死像素。 */}
 					{bottomComposerVisible && (

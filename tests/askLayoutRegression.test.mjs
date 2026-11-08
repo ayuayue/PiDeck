@@ -234,17 +234,18 @@ test("Ask option clicks skip submit while text is selected", () => {
  * 编辑器的最小高度互相挤压。回归契约从两方面锁定这个边界：composer 不再接收 runtimeUi，
  * timeline 负责承载它；Ask 内容也不再创建第二个纵向滚动 owner。
  */
-test("ask owns a pinned slot between the timeline stage and the composer", () => {
+test("ask floats over the timeline instead of taking the column bottom", () => {
 	assert.doesNotMatch(composerArea, /runtimeUi/);
 	// Ask 不再进时间线滚动内容（issue #230：看历史时提问卡在视口外）。
 	assert.doesNotMatch(sessionView, /<SessionSurfaceStage[\s\S]*runtimeUi,/);
-	// 底栏本身是唯一新增的 Ask 滚动层；高度就是「列高 - 对话区保底」，不设固定像素。
-	assert.match(sessionView, /session-v-ask min-h-0 shrink-0 overflow-y-auto overscroll-contain \[scrollbar-gutter:stable\]/);
-	assert.match(sessionView, /\{runtimeUi && askPanelVisible \? \(/);
-	assert.match(sessionView, /const askMaxHeight = `calc\(100% - var\(--session-timeline-min, \$\{TIMELINE_MIN_HEIGHT\}px\)\)`/);
-	// 不设固定像素上限（用户反馈：别限卡片高度）；超长才由内滚兜底。
-	assert.doesNotMatch(sessionView, /ASK_PANEL_MAX_HEIGHT/);
-	// Ask 与 composer 互斥分高（issue #230 定案 B：弹卡时卡片独占列底，输入框坍缩到零高）。
+	// 浮层而非列底槽位：时间线保持整列高度，用户能先读完回复再作答（可折叠、可拖动）。
+	assert.match(sessionView, /\{runtimeUi && askPanelVisible \? <FloatingAskLayer>\{runtimeUi\}<\/FloatingAskLayer> : null\}/);
+	assert.doesNotMatch(sessionView, /askMaxHeight/);
+	assert.match(sessionView, /className="session-v-timeline relative flex min-h-0 flex-col"/);
+	const floating = readFileSync("src/renderer/src/components/session/FloatingAskLayer.tsx", "utf8");
+	assert.match(floating, /session-v-ask session-v-ask--floating absolute z-30/);
+	assert.match(floating, /--ask-float-reserve/);
+	// 浮层期间 composer 仍坍缩让位（输入框坍缩到零高，整列留给时间线）。
 	// 不卸载——粘贴转文件的删盘动作在 composer 卸载路径上会丢（orphan 临时文件）。
 	assert.match(sessionView, /const composerMaxHeight = askPanelVisible \? "0px" : `min\(\$\{COMPOSER_MAX_HEIGHT\}px, calc\(100% - var\(--session-timeline-min, \$\{TIMELINE_MIN_HEIGHT\}px\)\)\)`/);
 	assert.match(sessionView, /maxHeight: composerMaxHeight/);
@@ -259,8 +260,6 @@ test("ask owns a pinned slot between the timeline stage and the composer", () =>
 	const injector = readFileSync("src/renderer/src/components/session/SessionRuntimeInjector.tsx", "utf8");
 	assert.match(injector, /const askPanelVisible = React\.useMemo\(\(\) => Boolean\(resolveActiveAskRequest\(currentSessionRuntime, currentSessionRuntimeUi\)\)/);
 	assert.match(injector, /askPanelVisible=\{askPanelVisible\}/);
-	// 宽度基准与消息列/输入框同源，不另开一套宽度。
-	assert.match(sessionView, /<div className="pb-2" style=\{chatContentWidthStyle\}>[\s\S]*?\{runtimeUi\}/);
 	assert.match(timeline, /className="session-runtime-ui mx-auto w-full/);
 	assert.doesNotMatch(timeline, /session-runtime-ui sticky bottom-0/);
 	// 内容宽度：消息区/输入框 inline width，Ask 随时间线同宽。
@@ -296,4 +295,18 @@ test("composer panel reserves the same scrollbar gutter as the timeline", () => 
 	// 空态例外：showSurfaceEmptyState 时去掉约束（起始页自控宽度，与引导页一致）。
 	assert.match(timeline, /contentProps=\{showSurfaceEmptyState \? undefined : \{ style: chatContentWidthStyle \}\}/);
 	assert.match(chatContentWidth, /scrollbar-gutter:stable/);
+});
+
+test("floating ask stays inside the column and reserves timeline tail only in the lower half", async () => {
+	const { loadTsCommonJs } = await import("./helpers/loadTsCommonJs.mjs");
+	const { clampAskFloatOffset, askFloatReserve, ASK_FLOAT_MARGIN } = loadTsCommonJs("src/renderer/src/components/session/FloatingAskLayer.tsx", {
+		stubs: { react: {}, "lucide-react": { GripHorizontal: "grip" }, "../../i18n": { t: (key) => key } },
+	});
+	const bounds = { parentWidth: 1000, parentHeight: 800, cardWidth: 600, cardHeight: 300 };
+	// 拖出左上界被收回；不能拖到默认锚点右下之外
+	assert.deepEqual({ ...clampAskFloatOffset({ x: -5000, y: -5000 }, bounds) }, { x: -(1000 - 600 - 2 * ASK_FLOAT_MARGIN), y: -(800 - 300 - 2 * ASK_FLOAT_MARGIN) });
+	assert.deepEqual({ ...clampAskFloatOffset({ x: 50, y: 50 }, bounds) }, { x: 0, y: 0 });
+	// 默认贴底：留出卡片占高 + 缓冲；拖到上半部分：不留
+	assert.equal(askFloatReserve({ x: 0, y: 0 }, bounds), 300 + ASK_FLOAT_MARGIN + 8);
+	assert.equal(askFloatReserve({ x: 0, y: -400 }, bounds), 0);
 });

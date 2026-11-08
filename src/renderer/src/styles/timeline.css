@@ -1044,6 +1044,14 @@
   min-height: 100%;
   flex-direction: column;
 }
+/* 浮动 Ask 卡落在列下半部分时，时间线末尾按卡片占高留出滚动余量（FloatingAskLayer 写入变量），
+ * 滚到底时最后几行不会被卡片盖住；无浮层时变量缺省为 0，不影响布局。 */
+.session-v-timeline .message-timeline > [role="log"]::after {
+  content: "";
+  display: block;
+  flex-shrink: 0;
+  height: var(--ask-float-reserve, 0px);
+}
 .session-runtime-ui {
   position: relative;
   margin-top: auto;

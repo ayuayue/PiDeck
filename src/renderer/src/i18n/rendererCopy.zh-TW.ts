@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 8c7277f2ffe145ffd595d45c38db9cc209362610fc693cb03e6681ae6b0ea6e0（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 52ff31a6c9a0bb5da5483e60a7e4b183d2e74427a9c9a3d5afd990d0c3ad9f10（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -1425,6 +1425,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"ask.batchIncomplete": "還有題目未回答",
 	"ask.batchGoReview": "去審閱",
 	"ask.multiSelectHint": "可多選",
+	"ask.floatDragHint": "拖動移動提問卡，雙擊回到右下角",
 	// ── 命令面板（Ctrl/Cmd+P）：模糊搜索设置项并跳转 + 执行操作 ──
 	"command.placeholder": "搜尋設定項或操作…",
 	"command.empty": "沒有匹配的結果",

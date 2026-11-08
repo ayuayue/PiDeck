@@ -1418,6 +1418,7 @@ export const zhCN = {
 	"ask.batchIncomplete": "还有题目未回答",
 	"ask.batchGoReview": "去审阅",
 	"ask.multiSelectHint": "可多选",
+	"ask.floatDragHint": "拖动移动提问卡，双击回到右下角",
 	// ── 命令面板（Ctrl/Cmd+P）：模糊搜索设置项并跳转 + 执行操作 ──
 	"command.placeholder": "搜索设置项或操作…",
 	"command.empty": "没有匹配的结果",

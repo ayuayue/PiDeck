@@ -1424,6 +1424,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"ask.batchIncomplete": "Some questions are still unanswered",
 	"ask.batchGoReview": "Go to review",
 	"ask.multiSelectHint": "Select multiple",
+	"ask.floatDragHint": "Drag to move the question card; double-click to reset",
 	// ── Command palette (Ctrl/Cmd+P): fuzzy-search settings + run actions ──
 	"command.placeholder": "Search settings or commands…",
 	"command.empty": "No matching results",
