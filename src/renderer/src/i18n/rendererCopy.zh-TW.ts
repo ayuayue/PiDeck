@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 52ff31a6c9a0bb5da5483e60a7e4b183d2e74427a9c9a3d5afd990d0c3ad9f10（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 6ec45aaf1ea537a62fe97a29896771e69ab8e4f3039cd2f12dd375cb8bf65ce7（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -1415,7 +1415,10 @@ export const zhTW: Record<TranslationKey, string> = {
 	"ask.unanswered": "未回答",
 	"ask.waiting": "等待回答",
 	"ask.batchTitle": "提問（{count} 題）",
-	"ask.batchProgress": "已答 {done}/{total}",
+	"ask.batchProgress": "已完成 {done}/{total}",
+	"ask.batchSkip": "跳過此題",
+	"ask.batchSkipped": "已跳過",
+	"ask.batchUsePrefill": "採用預填",
 	"ask.batchNext": "下一題",
 	"ask.batchPrev": "上一題",
 	"ask.batchReviewTab": "提交審閱",
@@ -4348,7 +4351,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"drawer.sessionEmptyDesc": "點選專案右側歷史按鈕或右鍵專案開啟歷史會話；新會話完成後會出現在這裡。",
 	"drawer.sessionEmptyTitle": "暫無歷史會話",
 	"drawer.sessionExported": "已匯出",
-	"drawer.sessionMessages": "{count} 則訊息",
+	"drawer.sessionMessages": "{count} 條訊息",
 	"drawer.sessionCount": "{count} 個會話",
 	"drawer.subagentSession": "子會話",
 	"drawer.subagentSessionCount": "{count} 個子會話",
