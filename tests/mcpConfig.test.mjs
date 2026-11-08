@@ -178,10 +178,11 @@ test("pi 1.0.1 项目覆盖条目参与合并：部分覆盖全局，传输/凭�
 	assert.match(noBase.invalidServers[0].error, /or a global server to override/);
 });
 
-test("pi 1.0.1 oauth.clientRegistration：dcr/cimd 值与 cimd 约束", () => {
+test("pi 1.5.0 oauth.clientRegistration：auto/dcr/cimd 值与 cimd 约束", () => {
+	assert.equal(validateMcpServerValue("docs", { url: "https://x/mcp", oauth: { clientRegistration: "auto" } }), null);
 	assert.equal(validateMcpServerValue("docs", { url: "https://x/mcp", oauth: { clientRegistration: "dcr" } }), null);
 	assert.equal(validateMcpServerValue("docs", { url: "https://x/mcp", oauth: { clientRegistration: "cimd" } }), null);
-	assert.match(validateMcpServerValue("docs", { url: "https://x/mcp", oauth: { clientRegistration: "bogus" } }), /clientRegistration must be/);
+	assert.match(validateMcpServerValue("docs", { url: "https://x/mcp", oauth: { clientRegistration: "bogus" } }), /clientRegistration must be "auto", "dcr", or "cimd"/);
 	assert.match(validateMcpServerValue("docs", { url: "https://x/mcp", oauth: { clientRegistration: "cimd", clientId: "a" } }), /cannot be combined/);
 	assert.match(validateMcpServerValue("docs", { url: "https://x/mcp", oauth: { clientRegistration: "cimd", clientName: "pi" } }), /cannot be combined/);
 	assert.match(validateMcpServerValue("docs", { url: "https://x/mcp", oauth: { clientRegistration: "cimd", callbackUrl: "http://[::1]:1/callback" } }), /requires oauth.callbackUrl/);
