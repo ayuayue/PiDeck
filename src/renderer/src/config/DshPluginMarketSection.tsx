@@ -22,10 +22,10 @@ export function DshPluginMarketSection() {
 	/** null = 尚未搜索（与「搜索了但为空」区分：后者展示空态 + 精确安装入口）。 */
 	const [results, setResults] = useState<DshPluginMarketEntry[] | null>(null);
 	const [warnings, setWarnings] = useState<string[]>([]);
-	/** 正在安装的条目名（按钮禁用与文案用）。 */
-	const [installingName, setInstallingName] = useState<string | null>(null);
-	/** 两步确认：uiOnly 插件第一次点安装进入警示态，第二次「仍要安装」才执行。 */
-	const [confirmUiOnlyName, setConfirmUiOnlyName] = useState<string | null>(null);
+	/** 正在安装的 spec（不是包名：带版本时 spec 是 name@version；按钮禁用与文案都按 spec 对）。 */
+	const [installingSpec, setInstallingSpec] = useState<string | null>(null);
+	/** 两步确认：uiOnly 插件第一次点安装进入警示态，第二次「仍要安装」才执行（同样按 spec 记）。 */
+	const [confirmUiOnlySpec, setConfirmUiOnlySpec] = useState<string | null>(null);
 
 	const [installed, setInstalled] = useState<DshUserPluginListEntry[]>([]);
 	const [installedLoading, setInstalledLoading] = useState(true);
@@ -50,7 +50,7 @@ export function DshPluginMarketSection() {
 		const value = keyword.trim();
 		if (!value || searching) return;
 		setSearching(true);
-		setConfirmUiOnlyName(null);
+		setConfirmUiOnlySpec(null);
 		try {
 			const result = await desktopApi.sessions.searchDshPluginMarket(value);
 			setResults(result.entries);
@@ -64,13 +64,13 @@ export function DshPluginMarketSection() {
 
 	/** 安装执行（uiOnly 两步确认的终点 / 普通条目直达）。 */
 	const install = async (spec: string, uiOnly: boolean) => {
-		if (installingName) return;
-		if (uiOnly && confirmUiOnlyName !== spec) {
-			setConfirmUiOnlyName(spec);
+		if (installingSpec) return;
+		if (uiOnly && confirmUiOnlySpec !== spec) {
+			setConfirmUiOnlySpec(spec);
 			return;
 		}
-		setConfirmUiOnlyName(null);
-		setInstallingName(spec);
+		setConfirmUiOnlySpec(null);
+		setInstallingSpec(spec);
 		try {
 			const result = await desktopApi.sessions.installDshUserPlugin(spec);
 			// 安装的插件在 host 进程下次启动时才被 Loader 读取（补丁层是启动期快照），
@@ -80,7 +80,7 @@ export function DshPluginMarketSection() {
 		} catch (error) {
 			showNotice(`${t("config.dsh.pluginMarketInstallFailed")}：${error instanceof Error ? error.message : String(error)}`, 7000);
 		} finally {
-			setInstallingName(null);
+			setInstallingSpec(null);
 		}
 	};
 
@@ -112,8 +112,8 @@ export function DshPluginMarketSection() {
 		}
 	};
 
-	/** 搜索无结果时：关键词本身像可安装的 npm spec（name / name@1.2.3）才给精确安装入口。 */
-	const keywordLooksLikeSpec = useMemo(() => /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(?:@\d+\.\d+\.\d+(?:-[0-9a-z.-]+)?)?$/i.test(keyword.trim()), [keyword]);
+	/** 搜索无结果时：关键词本身像可安装的 npm spec（name / name@1.2.3 / name@v1.2.3）才给精确安装入口。 */
+	const keywordLooksLikeSpec = useMemo(() => /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(?:@v?\d+\.\d+\.\d+(?:-[0-9a-z.-]+)?)?$/i.test(keyword.trim()), [keyword]);
 
 	return (
 		<div className="grid gap-3">
@@ -142,7 +142,7 @@ export function DshPluginMarketSection() {
 					<p className="text-micro text-muted-foreground">{t("config.dsh.pluginMarketEmpty")}</p>
 					{keywordLooksLikeSpec && (
 						<div className="flex items-center gap-2">
-							<Button type="button" variant="secondary" size="sm" className="h-7 gap-1" disabled={installingName !== null} onClick={() => void install(keyword.trim(), false)}>
+							<Button type="button" variant="secondary" size="sm" className="h-7 gap-1" disabled={installingSpec !== null} onClick={() => void install(keyword.trim(), false)}>
 								<Download className="size-3" aria-hidden="true" />
 								{t("config.dsh.pluginMarketInstallExact")}：{keyword.trim()}
 							</Button>
@@ -154,7 +154,9 @@ export function DshPluginMarketSection() {
 				<div className="grid gap-2">
 					{results.map((entry) => {
 						const key = entry.version ? `${entry.name}@${entry.version}` : entry.name;
-						const uiOnlyConfirming = confirmUiOnlyName === entry.name;
+						// 状态存的是 spec（name@version），比较也用同一个 key；用 entry.name 比会让带版本
+						// 的条目永远进不了「安装中 / 仍要安装」文案态（uiOnly 警示因此看不见）。
+						const uiOnlyConfirming = confirmUiOnlySpec === key;
 						return (
 							<div key={key} className="grid gap-1.5 rounded-md border border-border-subtle bg-bg-panel p-2.5">
 								<div className="flex flex-wrap items-center gap-2">
@@ -162,8 +164,8 @@ export function DshPluginMarketSection() {
 									{entry.version && <span className="text-micro tabular-nums text-muted-foreground">{entry.version}</span>}
 									<SourceBadge source={entry.source} />
 									{entry.uiOnly && <UiOnlyBadge />}
-									<Button type="button" variant={entry.uiOnly && uiOnlyConfirming ? "destructive" : "secondary"} size="sm" className="ml-auto h-7" disabled={installingName !== null} onClick={() => void install(entry.version ? `${entry.name}@${entry.version}` : entry.name, entry.uiOnly)}>
-										{installingName === entry.name ? t("config.dsh.pluginMarketInstalling") : entry.uiOnly && uiOnlyConfirming ? t("config.dsh.pluginMarketUiOnlyConfirm") : t("config.dsh.pluginMarketInstall")}
+									<Button type="button" variant={entry.uiOnly && uiOnlyConfirming ? "destructive" : "secondary"} size="sm" className="ml-auto h-7" disabled={installingSpec !== null} onClick={() => void install(key, entry.uiOnly)}>
+										{installingSpec === key ? t("config.dsh.pluginMarketInstalling") : entry.uiOnly && uiOnlyConfirming ? t("config.dsh.pluginMarketUiOnlyConfirm") : t("config.dsh.pluginMarketInstall")}
 									</Button>
 								</div>
 								{entry.description && <p className="text-micro text-muted-foreground">{entry.description}</p>}
