@@ -25,8 +25,8 @@ test("preview tab becomes permanent after send", async ({ window }) => {
 
 	// 侧栏分段(56469f95)后默认停在「聊天」分段，工作区项目行在「项目」分段下，先切换
 	await window.getByRole("tab", { name: "项目" }).click();
-	// 打开项目 → 新建 Agent → composer 可用（侧栏项目行按路径目录名匹配）
-	const projectRow = window.locator(".conversation", { hasText: "pideck-seed-preview-promote" }).first();
+	// 打开项目 → 新建 Agent → composer 可用（侧栏项目行展示 project.name）
+	const projectRow = window.locator(".conversation", { hasText: "PreviewE2E" }).first();
 	await projectRow.click();
 	await projectRow.getByTitle("普通会话").first().click();
 	const composer = window.locator(".composer .rich-input");
