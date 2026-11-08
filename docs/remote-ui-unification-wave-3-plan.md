@@ -104,6 +104,12 @@
 - **P2-7 死导入**、**P2-8 预览桩注释**：已清。
 - **P2-9 清单一致性测试**：改为按函数体括号配对整段解析 `dispatch`（固定 6000 字符窗口废弃），
   并覆盖 `CAPABILITIES` 全集（fs/config/terminal，不再只 `git.*`）。
+- **P1-6 ignore 判定结果缓存**：远端 `projectDirectoryPage` 按「项目 + 目录 + 目录页 revision + 连接代」
+  缓存 ignore 结果（30s TTL 兜 `.gitignore` 的外部修改），`remoteProjectDirFacts` 在写成功/目录事件/
+  整树失效/dispose 时清空；本机 `LocalProjectFileBackend.checkIgnore` 加 5s TTL 并在所有写操作后清空。
+  只缓存成功结果（`undefined` 仍每次重试）。测试：`remoteDirectoryIgnore`（暖命中/TTL/revision 变化）、
+  `localDirectoryIgnore`（5s 复用 / TTL / 写后重判）。审查里“不是加个 TTL 缓存就能解决”的判断据此修正：
+  目录 revision 不随 `.gitignore` 变，所以 TTL 是必要的一层，不是唯一一层。
 - **P1-5 WSL ignore 修饰**：`ProjectFileBackend` 增加可选 `checkIgnore`；本机从目录页里抽出
   `checkIgnore(target, relativePaths)` 复用；WSL backend 委托 fallback（同一 git 判据），helper 链路
   的目录页也带 `ignored`（失败只是不修饰）。测试：`wslProjectFileBackend`（helper 链路修饰 + 失败降级）。
@@ -128,7 +134,6 @@
 
 | 项 | 现状 | 为什么先不做 |
 |---|---|---|
-| P1-6 ignore 未随目录事实缓存 | 每次目录页都重判；远端每页最多 1+N/64 帧 | 不是"给结果加个 TTL 缓存"就能解决：目录页 revision 不随 `.gitignore` 变化，缓存需要"目录事实 + 仓库 git 代"的共同版本（设计变更），否则会陈旧 |
 
 目标：把 renderer 里“本机 vs 远端选通道”的分支逐步收到 main。已交付两片：
 

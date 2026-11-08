@@ -119,3 +119,42 @@ test("GitService.checkIgnore：真实 git 仓库逐位判定；非仓库返回 u
 		throw error;
 	}
 });
+
+test("ignore 结果按目录 5s 复用；写操作与 TTL 都会让它重判", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pideck-local-ignore-cache-"));
+	writeFileSync(join(root, "a.txt"), "a");
+	let now = 1_000;
+	const probeCalls = [];
+	const factory = new LocalProjectFileBackend({
+		fileSystemService: {
+			listTreePage: async () => page([]),
+			create: async () => undefined,
+			delete: async () => undefined,
+			rename: async () => undefined,
+			searchNames: async () => [],
+		},
+		resolveProjectRoot: () => root,
+		now: () => now,
+		checkIgnore: async (_cwd, paths) => {
+			probeCalls.push([...paths]);
+			return paths.map(() => false);
+		},
+	});
+	try {
+		const target = { projectId: "p1", relativePath: "" };
+		await factory.checkIgnore(target, ["a.txt"]);
+		await factory.checkIgnore(target, ["a.txt"]);
+		assert.equal(probeCalls.length, 1, "5s 内同目录同路径集只判一次");
+
+		now += 6_000;
+		await factory.checkIgnore(target, ["a.txt"]);
+		assert.equal(probeCalls.length, 2, "TTL 过期后重判");
+
+		// 写操作可能改 .gitignore：缓存必须作废，下一次重新判定。
+		await factory.writeContent({ projectId: "p1", relativePath: "a.txt" }, "next");
+		await factory.checkIgnore(target, ["a.txt"]);
+		assert.equal(probeCalls.length, 3, "写操作清空 ignore 缓存");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});

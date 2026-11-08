@@ -266,3 +266,38 @@ test("probeIgnore：单批失败只丢这一批，其它批照常修饰（修饰
 	assert.equal(plain(flags)[0], true, "第 1 批成功：批内命中照常落 used");
 	assert.equal(plain(flags)[69], false, "第 2 批失败：该批不修饰，但不影响第 1 批");
 });
+
+test("目录页 ignore 结果按 revision + 连接代缓存；TTL 与 revision 变化都会重判", async () => {
+	const { projectDirectoryPage } = loadTsCommonJs("src/main/ipc/remoteProjectDirectoryReads.ts", { stubs: { electron: { ipcMain: { handle: () => {} } } } });
+	let probes = 0;
+	let now = 1_000;
+	let revision = 7;
+	const cache = new Map();
+	const input = () => ({
+		projectId,
+		path: "",
+		force: false,
+		readDirSnapshot: async () => ({ ok: true, snapshot: { value: [{ kind: "file", name: "a.txt" }], revision, truncated: false, scanned: 1 } }),
+		generationOf: () => "conn-1",
+		ignoreProbe: async () => {
+			probes += 1;
+			return [true];
+		},
+		ignoreResultCache: cache,
+		now: () => now,
+	});
+	const first = await projectDirectoryPage(input());
+	assert.equal(probes, 1);
+	assert.equal(plain(first.value).entries[0].ignored, true);
+
+	await projectDirectoryPage(input());
+	assert.equal(probes, 1, "同 revision + 同代：暖命中不重判");
+
+	now += 31_000;
+	await projectDirectoryPage(input());
+	assert.equal(probes, 2, "TTL 过期（.gitignore 可能被外部改了）重判");
+
+	revision = 8;
+	await projectDirectoryPage(input());
+	assert.equal(probes, 3, "目录页 revision 变化重判");
+});

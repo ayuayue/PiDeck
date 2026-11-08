@@ -85,6 +85,8 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 	 * 保持 `undefined` = 旧装配/无 Git：目录页不带 `ignored`，不猜。
 	 */
 	let ignoreProbe: DirectoryIgnoreProbe | undefined = input.ignoreProbe;
+	// ignore 判定的暖缓存：目录页 revision/连接代进 key；任何写/目录事件/断连都清空（保守）。
+	const ignoreResults = new Map<string, { readonly value: readonly boolean[]; readonly at: number }>();
 	const projectWatches = createProjectWatchKeepAlive();
 	const watchRegistry = projectWatches.registry;
 	const dirWatch = createDeepDirWatch({ registry: watchRegistry });
@@ -224,6 +226,8 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 		gitStatusFacts,
 		afterWrite(projectId, paths) {
 			const scopes: RemoteProjectFactsScope[] = [];
+			// 写可能改了 .gitignore：ignore 判定结果一律作废（低频，按项目全清）。
+			ignoreResults.clear();
 			// 没有活着的项目代 = 写面在关闭之后才回来：不得为已清理的项目重新制造目录事实/通知。
 			// 首次目录读尚未落地时也没有代，但那时同样没有可失效的目录事实。
 			if (projectGenerations.has(projectId)) {
@@ -236,12 +240,14 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 			publish(projectId, scopes);
 		},
 		invalidateTree(projectId) {
+			ignoreResults.clear();
 			// 前缀匹配 = 本项目全部目录键（项目 id 后紧跟真实的 NUL 分隔符，不会误命中同前缀的其它项目）。
 			if (projectGenerations.has(projectId)) invalidateAllDirs(projectId);
 			// 与改动前的组合语义一致：目录静默标脏，status 发通知（不装载）。
 			publish(projectId, invalidateStatuses(projectId));
 		},
 		afterGitWrite(projectId, repoPath) {
+			ignoreResults.clear();
 			gitStatusFacts.invalidate(projectId, repoPath);
 			// 写可能让工作树的条目整块变化（切分支/discard/恢复）：整树一起标脏，但这不是根目录事件。
 			if (projectGenerations.has(projectId)) invalidateAllDirs(projectId);
@@ -260,12 +266,14 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 				force,
 				readDirSnapshot,
 				...(ignoreProbe === undefined ? {} : { ignoreProbe }),
+				ignoreResultCache: ignoreResults,
 				generationOf,
 				// 监听降级是项目级事实：每个目录页都顺手带出去，渲染层不必再开一条诊断通道。
 				dirWatch: (id) => projectDirectoryWatchDegradation(dirWatch.status(id)),
 			}),
 		readDirSnapshot,
 		onHelperEvent(entry) {
+			ignoreResults.clear();
 			const changed = watchRegistry.scopesForEvent(entry.hostId, entry.sessionKey, entry.watchId) ?? [];
 			// 先发通知再标脏：两者都是同步的，读仍由活跃的消费者决定（事件不装载）。
 			for (const scope of changed) factsEvents.publish({ projectId: scope.projectId, generation: generationOf(scope.projectId), scopes: scope.paths.map((path) => ({ kind: "dir" as const, path })) });
@@ -317,6 +325,7 @@ export function createProjectDirFacts(input: { projectReadTarget: RemoteProjectT
 		dirWatchStatus: (projectId) => dirWatch.status(projectId),
 		dirLoads: () => dirs.stats().loads,
 		dispose() {
+			ignoreResults.clear();
 			dirWatch.dispose();
 			gitStatusFacts.clear();
 			return watchRegistry.releaseAll();

@@ -17,6 +17,8 @@
 export const DIRECTORY_IGNORE_MAX_PATHS = 2000;
 /** helper 链路的单批上限（`git.checkIgnore` 帧）：本机 `GitService.checkIgnore` 一次全量，不分批。 */
 export const DIRECTORY_IGNORE_BATCH_SIZE = 64;
+/** ignore 判定结果的缓存时长：.gitignore 的外部修改不会触发目录事实失效，只能靠 TTL 兜底。 */
+export const DIRECTORY_IGNORE_RESULT_TTL_MS = 30_000;
 /** 仓库列表缓存时长：目录页装载时才会用到，避免每个目录页都做一次仓库发现。 */
 export const DIRECTORY_IGNORE_REPOS_TTL_MS = 60_000;
 
