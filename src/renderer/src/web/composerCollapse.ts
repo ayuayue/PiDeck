@@ -2,7 +2,6 @@ export type ComposerCollapseInput = {
 	mobileViewport: boolean;
 	draft: string;
 	imageCount: number;
-	streaming: boolean;
 	focused: boolean;
 	busy: boolean;
 	attachError: boolean;
@@ -13,7 +12,7 @@ export function resolveComposerCollapsed(input: ComposerCollapseInput): boolean 
 	if (!input.mobileViewport) return false;
 	if (input.draft !== "") return false;
 	if (input.imageCount > 0) return false;
-	if (input.streaming) return false;
+	// 运行态本身不展开工具区：空草稿只留单行输入和停止按钮；聚焦/草稿仍走下面的展开条件。
 	if (input.focused) return false;
 	if (input.busy) return false;
 	if (input.attachError) return false;
