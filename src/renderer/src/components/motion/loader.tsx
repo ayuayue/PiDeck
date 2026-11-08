@@ -419,16 +419,17 @@ function DotMatrix({ size, speed, reduce }: PartProps) {
 				// Diagonal wave: cells light in order of their distance from the corner.
 				const delay = ((x + y) / (2 * (n - 1))) * speed;
 				return (
-					<motion.span
+					<span
 						key={idx}
-						className="rounded-full bg-current"
-						style={{ width: dot, height: dot }}
-						animate={reduce ? { opacity: [0.3, 1, 0.3] } : { opacity: [0.2, 1, 0.2], scale: [0.7, 1, 0.7] }}
-						transition={{
-							duration: speed,
-							ease: EASE_IN_OUT,
-							repeat: Infinity,
-							delay,
+						// CSS keyframes 而不是 Motion：Motion 的 scale 循环每帧回写内联 transform，
+						// 九点同时跑就是一个常驻 JS driver（issue #510 实测）。reduced-motion 下
+						// 直接静态停住，只保留可见的九个点。
+						className={cn("rounded-full bg-current", !reduce && "animate-pideck-dot")}
+						style={{
+							width: dot,
+							height: dot,
+							animationDuration: `${speed}s`,
+							animationDelay: `${delay}s`,
 						}}
 					/>
 				);

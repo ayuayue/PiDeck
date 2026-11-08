@@ -389,6 +389,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"sidebar.moreActions": "More actions",
 	"sidebar.sessionGroups": "Groups",
 	"sidebar.sessionGroupsEmpty": "No sessions available in this group",
+	"sidebar.sessionsOnlyInGroups": "All sessions are in groups",
 	"sidebar.hoverCard.workspace": "Workspace: {name}",
 	"sidebar.hoverCard.updatedAt": "Updated at {time}",
 	"sidebar.hoverCard.emptyPreview": "No preview available",

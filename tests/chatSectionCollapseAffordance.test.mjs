@@ -48,7 +48,9 @@ test("chat section renders an explicit empty state instead of nothing (issue #38
 	assert.match(chatSection, /t\("app\.chatEmptySessions"\)/);
 	// SessionTree 必须有 emptyState 渲染分支；静默 return null 仅对未传空态的调用方（工作区项目）保留。
 	assert.match(sessionTree, /emptyState\?: ReactNode/);
-	assert.match(sessionTree, /if \(!hasRows && !retainingExit\) return props\.emptyState \? <>\{props\.emptyState\}<\/> : null;/);
+	assert.match(sessionTree, /if \(!retainingExit\) return props\.emptyState \? <>\{props\.emptyState\}<\/> : null;/);
+	// 会话全被分组收走时给出提示行而不是空白：会话在上方分组区，不是丢了。
+	assert.match(sessionTree, /data-testid="sessions-in-groups-only"/);
 });
 
 test("creating a session reveals its (possibly collapsed) group (issue #387)", () => {

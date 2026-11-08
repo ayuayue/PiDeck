@@ -231,10 +231,46 @@
    prefers-reduced-motion 静态化；仅使用线性 transform 旋转，不引入位移或闪烁。 */
 @theme {
   --animate-pideck-spin: pideck-spin 1s linear infinite;
+  /* 运行态九点指示器（Loader variant="dot-matrix"）：也走 CSS keyframes。
+     Motion 的 scale 循环每帧把 transform 写回内联样式（JS driver 常驻 rAF），
+     九点同时在跑就是每帧九份样式写入；CSS 动画交给合成器，主线程不再被唤醒。
+     形状与原 Motion keyframes 一致：opacity 0.2→1→0.2、scale 0.7→1→0.7，
+     缓动取 lib/ease.ts 的 EASE_IN_OUT。backwards：错峰靠 animation-delay，
+     延迟期必须停在首帧，否则九点会先实心亮一下再错开。
+     曲线写成字面量而不是 var(--ease-*)：Tailwind 只输出被 utility 直接引用的
+     theme 变量，引用未输出的变量会让整条 animation 简写失效（实测无动画）。 */
+  --animate-pideck-dot: pideck-dot 1.1s cubic-bezier(0.77, 0, 0.175, 1) infinite backwards;
+  /* 胶囊脉冲：同上面的道理，Motion 的 scale 循环每帧回写内联 transform，
+     而运行态里 pulse 和九点一样是常驻的。 */
+  --animate-pideck-pulse: pideck-pulse 1.6s cubic-bezier(0.77, 0, 0.175, 1) infinite;
 
   @keyframes pideck-spin {
     to {
       transform: rotate(360deg);
+    }
+  }
+
+  @keyframes pideck-dot {
+    0%,
+    100% {
+      opacity: 0.2;
+      transform: scale(0.7);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes pideck-pulse {
+    0%,
+    100% {
+      opacity: 0.08;
+      transform: scale(0.94);
+    }
+    50% {
+      opacity: 0.16;
+      transform: scale(1.08);
     }
   }
 }

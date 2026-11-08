@@ -386,6 +386,7 @@ export const zhCN = {
 	"sidebar.moreActions": "更多操作",
 	"sidebar.sessionGroups": "分组",
 	"sidebar.sessionGroupsEmpty": "组内没有可用会话",
+	"sidebar.sessionsOnlyInGroups": "会话都在分组里",
 	"sidebar.hoverCard.workspace": "所属空间: {name}",
 	"sidebar.hoverCard.updatedAt": "更新于 {time}",
 	"sidebar.hoverCard.emptyPreview": "暂无内容摘要",
@@ -1422,7 +1423,7 @@ export const zhCN = {
 	"ask.batchIncomplete": "还有题目未回答",
 	"ask.batchGoReview": "去审阅",
 	"ask.multiSelectHint": "可多选",
-	"ask.floatDragHint": "拖动移动提问卡，双击回到右下角",
+	"ask.floatDragHint": "拖动移动提问卡，双击回到默认位置",
 	// ── 命令面板（Ctrl/Cmd+P）：模糊搜索设置项并跳转 + 执行操作 ──
 	"command.placeholder": "搜索设置项或操作…",
 	"command.empty": "没有匹配的结果",

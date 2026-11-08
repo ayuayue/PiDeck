@@ -24,7 +24,10 @@ import { WorktreeTree } from "./WorktreeTree";
 import { SessionActivityIndicator } from "../session/SessionActivityIndicator";
 import { sessionDisplayName } from "../../utils/sessionDisplayName";
 import { displayProjectDirectoryName, isChatProject } from "../../rendererUtils";
-import { sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
+import { sessionRecordsAtom, sessionRuntimeUiByIdAtom } from "../../atoms/session-atoms";
+import { projectInventoryByIdAtom } from "../../atoms/project-atoms";
+import { useSessionGroups } from "../../hooks/sidebar/useSessionGroups";
+import { buildSessionGroupNodes, collectGroupedSessionIds } from "./sessionGroupsModel";
 import { countPendingAsksForSessions, findFirstPendingAskSessionId, hasPendingAskForSession } from "../../utils/askUi";
 import type { AskRequestEntry } from "../../utils/askUi";
 import { PendingAskBadge } from "./PendingAskBadge";
@@ -100,6 +103,13 @@ export function ProjectTree(props: {
 	stickyGroupHeaders?: boolean;
 }) {
 	const sessionRuntimeUiById = useAtomValue(sessionRuntimeUiByIdAtom);
+	// 分组数据在这里取一次：分组树要渲染它，「项目列表隐藏已入组会话」也要用同一份节点解析结果。
+	// 只用解析后的节点做隐藏（见 collectGroupedSessionIds），未加载项目的会话不会两边都消失。
+	const projectsById = useAtomValue(projectInventoryByIdAtom);
+	const sessionRecords = useAtomValue(sessionRecordsAtom);
+	const sessionGroups = useSessionGroups();
+	const sessionGroupNodes = useMemo(() => buildSessionGroupNodes(sessionGroups, sessionRecords, projectsById), [sessionGroups, sessionRecords, projectsById]);
+	const groupedSessionIds = useMemo(() => collectGroupedSessionIds(sessionGroupNodes), [sessionGroupNodes]);
 	// 冻结标题只在常规模式生效：simple 壳侧栏背景是 --simple-shell-surface，
 	// 遮底用的 bg-sidebar 会在该模式下露出色差，直接不启用。
 	const stickyHeader = !props.simple && props.stickyGroupHeaders === true;
@@ -314,11 +324,11 @@ export function ProjectTree(props: {
 						) : isRemoteProject(project) ? (
 							<>
 								{/* 已导入本地的远端会话仍在 SessionTree 里；下面这块是远端侧的「发现」列表（只读扫描 + 导入）。 */}
-								<SessionTree project={project} sessions={rootProjectSessions} agents={props.controller.catalog.agents} currentSessionId={props.currentSessionId} controller={props.controller} actions={props.actions} />
+								<SessionTree project={project} sessions={rootProjectSessions} groupedSessionIds={groupedSessionIds} agents={props.controller.catalog.agents} currentSessionId={props.currentSessionId} controller={props.controller} actions={props.actions} />
 								<RemoteSessionsSection hostId={project.locator.hostId} importedRemoteSessionIds={collectRegisteredRemoteSessionIds(rootProjectSessions, project.locator.hostId)} onImported={(result) => props.actions.sessions.importRemoteSession(project.id, result.sessionId)} />
 							</>
 						) : (
-							<SessionTree project={project} sessions={rootProjectSessions} agents={props.controller.catalog.agents} currentSessionId={props.currentSessionId} controller={props.controller} actions={props.actions} />
+							<SessionTree project={project} sessions={rootProjectSessions} groupedSessionIds={groupedSessionIds} agents={props.controller.catalog.agents} currentSessionId={props.currentSessionId} controller={props.controller} actions={props.actions} />
 						)}
 					</div>
 				)}
@@ -448,6 +458,7 @@ export function ProjectTree(props: {
 						<SessionTree
 							project={project}
 							sessions={sessions}
+							groupedSessionIds={groupedSessionIds}
 							agents={props.controller.catalog.agents}
 							currentSessionId={props.currentSessionId}
 							controller={props.controller}
@@ -470,7 +481,7 @@ export function ProjectTree(props: {
 	const projectsSection = (
 		<section aria-label={t("app.sidebarProjects")} role="tree">
 			{/* 会话分组树（只读浏览，数据在宿主 store，写入方是分组插件页）：置于普通项目之上 */}
-			<SessionGroupsSection actions={props.actions} currentSessionId={props.currentSessionId} />
+			<SessionGroupsSection nodes={sessionGroupNodes} projectsById={projectsById} controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} />
 			{/* 分组标题栏：左侧「项目」标题，右侧 = 「+ 添加项目」+ 全部折叠/展开（高频操作外露）
             + 「⋯ 更多操作」。目录存在性重扫属于低频维护动作，收进菜单避免挤占窄侧栏。
             开启冻结时给这层纯逻辑包裹加 display:contents：它不生成盒子，里面的标题栏
@@ -564,7 +575,7 @@ export function ProjectTree(props: {
 				<ActiveSessionsTree controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} recentOnly />
 			</>
 		);
-	const groupsSection = <SessionGroupsSection actions={props.actions} currentSessionId={props.currentSessionId} />;
+	const groupsSection = <SessionGroupsSection nodes={sessionGroupNodes} projectsById={projectsById} controller={props.controller} actions={props.actions} currentSessionId={props.currentSessionId} />;
 	return (
 		<>
 			{props.controller.navTab === "active" ? (

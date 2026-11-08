@@ -22,6 +22,8 @@ import { SessionHoverCard } from "./SessionHoverCard";
 import { TitleScrollText } from "./TitleScrollText";
 import { SESSION_ROW_CLASS, SESSION_ROW_SELECTED_CLASS, ROW_MORE_ACTIONS_CLASS, ROW_CONTAINER_CLASS } from "./sidebarRowStyles";
 import { LINKED_NEST_MAX_DEPTH, groupLinkedChildren, resolveBoundSession } from "./activitySessionsModel";
+import { shouldHideGroupedSession } from "./sessionGroupsModel";
+import { openSessionRowMenu } from "./sessionRowMenu";
 import { cn } from "../../lib/utils";
 import { SESSION_TAB_DRAG_MIME } from "../../utils/sessionSplitEdge";
 import { useSessionActivityAt } from "../../hooks/sidebar/useSessionActivityClock";
@@ -119,6 +121,8 @@ export function SessionTree(props: {
 	onShowMore?: () => void;
 	/** 无行可渲染时的空态（仅聊天分组传入）：空列表必须有可见反馈，不能静默 return null。 */
 	emptyState?: ReactNode;
+	/** 已进入会话分组的会话 id：这些行已在上方分组区出现，项目列表不再重复显示（搜索时不隐藏）。 */
+	groupedSessionIds?: ReadonlySet<string>;
 }) {
 	const filter = props.controller.sourceFilterFor(props.project.id);
 	const search = props.controller.search.trim();
@@ -138,22 +142,26 @@ export function SessionTree(props: {
 	const summaries = filterSidebarSessions(allSummaries, filter)
 		.filter((session) => !linkedChildIds.has(session.id))
 		.filter((session) => matchesSearch(`${session.name ?? ""}${session.preview}${session.filePath}`, search));
+	// 已加入分组的会话不在项目列表重复出现（分组区已经在上面展示了它）。
+	// 搜索是「按名字找回会话」的入口，命中时两边都给，否则越搜越找不到。
+	const groupedHiddenSummaries = summaries.filter((session) => shouldHideGroupedSession(session.id, props.groupedSessionIds, search));
+	const visibleSummaries = summaries.filter((session) => !shouldHideGroupedSession(session.id, props.groupedSessionIds, search));
 	const projectAgents = props.agents.filter((agent) => agent.projectId === props.project.id);
 	const displayAgents = filterAgentsForSidebarDisplay({
 		agents: linkedChildIds.size > 0 ? projectAgents.filter((agent) => !agent.deckSessionId || !linkedChildIds.has(agent.deckSessionId)) : projectAgents,
 		allSessions: allSummaries,
-		visibleSessions: summaries,
+		visibleSessions: visibleSummaries,
 		sources: filter,
 	});
 	const display = getProjectAgentSessionDisplay({
 		agents: displayAgents,
-		sessions: summaries,
+		sessions: visibleSummaries,
 		visibleChildCount: props.visibleChildCount ?? (props.nested ? Number.MAX_SAFE_INTEGER : props.controller.visibleChildCountFor(props.project.id)),
 		pinnedSessionIds: props.controller.pinnedSessionIds,
 		sortMode: props.controller.sessionSortMode,
 	});
 	const displayedSessionIds = collectDisplayedSessionIds(display.visibleChildren, (agent) => {
-		const linked = resolveBoundSession(agent, props.sessions, props.controller.catalog.runtimeBySessionId) ?? (agent.sessionPath ? summaries.find((session) => session.filePath === agent.sessionPath) : undefined);
+		const linked = resolveBoundSession(agent, props.sessions, props.controller.catalog.runtimeBySessionId) ?? (agent.sessionPath ? visibleSummaries.find((session) => session.filePath === agent.sessionPath) : undefined);
 		return linked?.id;
 	});
 	const draftSessions = props.sessions
@@ -162,6 +170,8 @@ export function SessionTree(props: {
 		.filter((session) => !linkedChildIds.has(session.id))
 		.filter((session) => matchesSearch(session.title, search))
 		.filter((session) => filter === null || filter.has(session.source))
+		// 草稿不参与分组隐藏：草稿行的删除入口只在项目列表的草稿行/草稿菜单里，
+		// 分组行只会弹普通会话菜单（没有「删除草稿」）。
 		.sort((left, right) => compareSessionsForSortMode(left, right, props.controller.sessionSortMode));
 	const catalogLoading = props.controller.catalog.catalogLoadStateByProject[props.project.id]?.status === "loading";
 	const canCollapseChildren = props.controller.hasExpandedChildren(props.project.id);
@@ -179,7 +189,18 @@ export function SessionTree(props: {
 	}, [hasRows]);
 	// 最后一条也必须留到退场结束；空树在调用方未提供空态时仍不占 session-card 的空间。
 	// 聊天分组提供 emptyState：展开且为空时显示「还没有聊天记录」，与「分组被折叠」区分开（#387）。
-	if (!hasRows && !retainingExit) return props.emptyState ? <>{props.emptyState}</> : null;
+	// 全被分组收走时先给一句提示（不等退场结束）：否则用户看到的是空壳或「还没有聊天记录」，
+	// 会以为会话丢了；搜索词非空时不隐藏，所以这里也不必考虑搜索结果。
+	const onlyInGroups = groupedHiddenSummaries.length > 0;
+	if (!hasRows) {
+		if (onlyInGroups)
+			return (
+				<div className="px-2 py-1 text-caption text-muted-foreground/70" data-testid="sessions-in-groups-only">
+					{t("sidebar.sessionsOnlyInGroups")}
+				</div>
+			);
+		if (!retainingExit) return props.emptyState ? <>{props.emptyState}</> : null;
+	}
 
 	/** 单击走设置默认模式（App 层读 sessionTabOpenMode）；双击显式常驻。
 	 *  不设本地默认值：undefined 透传后由 App 的 sessions.open 用设置值兜底 */
@@ -202,9 +223,8 @@ export function SessionTree(props: {
 	});
 
 	const openContext = (event: React.MouseEvent, session: SessionSummary, pinnable = true) => {
-		event.preventDefault();
-		const runtime = getBoundSidebarRuntimeAgent(props.controller.catalog, session.id);
-		void props.controller.openMenu(runtime ? { kind: "agent", agentId: runtime.id, pinnable, x: event.clientX, y: event.clientY } : { kind: "session", projectId: props.project.id, sessionId: session.id, pinnable, x: event.clientX, y: event.clientY });
+		// 菜单判定收敛到 openSessionRowMenu：分组树的行也用同一入口，避免同一会话在两处弹不同菜单。
+		openSessionRowMenu(props.controller, event, props.project.id, session.id, pinnable);
 	};
 	const openDraftContext = (event: React.MouseEvent, session: SessionRecord) => {
 		event.preventDefault();
