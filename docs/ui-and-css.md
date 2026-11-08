@@ -28,6 +28,7 @@
 5. **`--color-accent` 是「面」不是「字」**：`text-accent` 会解析成悬停面色（亮暗色都是字底同色 → 文字消失）。面上的正文用 `text-accent-foreground`；主题强调色文字用 `text-primary`。守卫：`tests/storeSuggestionChipContrast.test.mjs`。
 6. **限高 flex 列的子项必须 `shrink-0`**（近期排版事故）：`overflow-y-auto` + `max-h-*` 容器里，子项带 `overflow:hidden` 后 `min-height:auto` 被清零 → 内容被线性压缩成横条且滚动条不出现。给限高容器子项加 `overflow-hidden` 时必须同步 `shrink-0`。守卫：`tests/sessionTodoStrip.test.mjs` + `e2e/todo-strip-scrollbar.spec.ts`。
 7. **utility「看不见」时用 DevTools 看胜出规则来自哪一层**，先处理冲突源再改 class。
+8. **常驻循环动画走 CSS keyframes，不用 Motion 的 `repeat: Infinity`**：Motion 只把 opacity/backgroundColor 交给 WAAPI，`transform` 仍由自己的 rAF 循环每帧写内联样式（issue #510 实测：一个九点等待指示器 2s 内 1006 次 style 写入 → 改 CSS 后 0 次）。写法：`@theme { --animate-xxx: xxx 1.1s cubic-bezier(...) infinite; @keyframes xxx {...} }` + `animate-xxx`；错峰用 `animation-delay`，并在 token 里带 `backwards` 填充，否则延迟期会先显示基准样式。token 里的缓动**写字面量**，不要 `var(--ease-*)`——Tailwind 只输出被 utility 直接引用的 theme 变量，引用未输出的变量会让整条 `animation` 简写静默失效。守卫：`tests/runStateAnimation.test.mjs`。
 
 ## Markdown 语义色（`--color-md-*`）
 

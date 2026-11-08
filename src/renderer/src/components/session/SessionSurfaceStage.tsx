@@ -166,9 +166,11 @@ export function SessionSurfaceStage(props: { sessionId: string; sessionTimeline:
 					</div>
 				</div>
 			)}
-			{/* 重启 / 历史改写遮罩：opacity 过渡 + loader 旋转走合成器，始终挂载以便淡出。 */}
+			{/* 重启 / 历史改写遮罩：opacity 过渡 + loader 旋转走合成器，始终挂载以便淡出。
+			   旋转类只在可见时挂上——隐藏态 opacity:0 不能代表动画停下，一直在转的
+			   loader 仍会每帧参与合成（issue #510：DOM 里那个透明 overlay 的 spinner）。 */}
 			<div className={`absolute inset-0 z-30 flex flex-col items-center justify-center gap-2.5 bg-bg-panel/70 transition-opacity duration-base ${overlayVisible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`} role={overlayVisible ? "status" : undefined} aria-hidden={!overlayVisible}>
-				<div className="loader animate-pideck-spin" />
+				<div className={`loader${overlayVisible ? " animate-pideck-spin" : ""}`} />
 				<span className="text-body text-text-secondary">{overlayLabel}</span>
 			</div>
 		</div>
