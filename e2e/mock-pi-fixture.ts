@@ -1,8 +1,9 @@
 import { test as base, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ImageGenConfigFile } from "../src/shared/types/imagegen";
+import { readHostPluginPackage } from "../src/main/plugins/hostPluginFiles";
 import { armStartupOverlayDismissal } from "./startupOverlays";
 import { ensureWindowsProfileSkeleton } from "./win-profile";
 
@@ -21,6 +22,14 @@ export type SeedProject = { id: string; name: string; path: string; pinned?: boo
 
 /** 测试文件可通过 test.use({ seedFeishuBots }) 预置飞书 Bot 配置（写入 pi-desktop/feishu.json） */
 export type SeedFeishuBot = { id: string; name: string; appId: string };
+
+/**
+ * 测试文件可通过 test.use({ seedHostPlugins }) 预置已授权的主机插件：
+ * 拷贝 source 目录到 `<userData>/host-plugins/<id>`，再按包内真实字节算指纹写
+ * `host-plugin-state.json`。授权按精确指纹匹配（见 HostPluginManager.readState），
+ * 手写假指纹会被判「未授权」，插件保持 disabled。
+ */
+export type SeedHostPlugin = { id: string; source: string; enabled?: boolean };
 
 /** 测试文件可通过 test.use({ seedSessionFiles }) 预置历史会话文件（未启动 agent 场景）：
  *  写入 <projectPath>/.pi/sessions/<encode>.jsonl + .pi/settings.json（sessionDir 配置），
@@ -125,6 +134,7 @@ export const test = base.extend<
 		seedSessionFiles: SeedSessionFile[] | undefined;
 		seedMemoryFiles: SeedMemoryFiles | undefined;
 		seedSettings: SeedSettings | undefined;
+		seedHostPlugins: SeedHostPlugin[] | undefined;
 		seedImageGenConfig: SeedImageGenConfig | undefined;
 		launchArgs: string[];
 		mockSessionInProject: boolean;
@@ -140,17 +150,19 @@ export const test = base.extend<
 	seedSessionFiles: [undefined, { option: true }],
 	seedMemoryFiles: [undefined, { option: true }],
 	seedSettings: [undefined, { option: true }],
+	seedHostPlugins: [undefined, { option: true }],
 	seedImageGenConfig: [undefined, { option: true }],
 	// Exercise real startup intents with the same isolated profile and mock RPC backend.
 	launchArgs: [[], { option: true }],
 	mockSessionInProject: [false, { option: true }],
-	app: async ({ seedProjects, seedFeishuBots, seedFavorites, seedSessionFiles, seedMemoryFiles, seedSettings, seedImageGenConfig, launchArgs, mockSessionInProject, e2eWindowMode }, use) => {
+	app: async ({ seedProjects, seedFeishuBots, seedFavorites, seedSessionFiles, seedMemoryFiles, seedSettings, seedHostPlugins, seedImageGenConfig, launchArgs, mockSessionInProject, e2eWindowMode }, use) => {
 		// 先归一化（元组陷阱见 normalizeSeeds 注释）：非法值在启动 Electron 之前就报错，
 		// 避免用例因「种子项目凭空消失」在后面超时。
 		const projects = normalizeSeeds("seedProjects", seedProjects, "项目需含 id / name / path（用 makeSeedProject 生成）。");
 		const feishuBots = normalizeSeeds("seedFeishuBots", seedFeishuBots, "Bot 需含 id / name / appId。");
 		const sessionFiles = normalizeSeeds("seedSessionFiles", seedSessionFiles, "会话文件需含 projectPath / entries。");
 		const favorites = normalizeSeeds("seedFavorites", seedFavorites, "收藏需含 id / text。");
+		const hostPlugins = normalizeSeeds("seedHostPlugins", seedHostPlugins, "插件需含 id / source（source 为插件目录绝对路径）。");
 		const userDataRoot = mkdtempSync(join(tmpdir(), "pideck-mockpi-"));
 		try {
 			// Windows 桌面端通过 cmd shim 调起自定义 pi（见 PiLocator.createInvocation），
@@ -187,6 +199,18 @@ export const test = base.extend<
 			);
 			if (seedImageGenConfig) {
 				writeFileSync(join(userDataRoot, "profile", "imagegen.json"), JSON.stringify(seedImageGenConfig));
+			}
+			// 可选：预置已授权的主机插件（拷贝包 + 按真实字节算指纹）。
+			if (hostPlugins.length > 0) {
+				const pluginRoot = join(userDataRoot, "profile", "host-plugins");
+				mkdirSync(pluginRoot, { recursive: true });
+				const grants: Record<string, { fingerprint: string; enabled: boolean }> = {};
+				for (const plugin of hostPlugins) {
+					const target = join(pluginRoot, plugin.id);
+					cpSync(plugin.source, target, { recursive: true });
+					grants[plugin.id] = { fingerprint: (await readHostPluginPackage(target)).fingerprint, enabled: plugin.enabled ?? true };
+				}
+				writeFileSync(join(userDataRoot, "profile", "host-plugin-state.json"), JSON.stringify({ version: 1, grants }));
 			}
 			// 可选：预置记忆文件（记忆根 = <userData>/memory；条目之间用 `\n§\n` 分隔）。
 			if (seedMemoryFiles) {
