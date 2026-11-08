@@ -22,10 +22,20 @@ export function inspectBatchAnswers(questions: AgentUiBatchQuestion[], answers: 
 }
 
 /**
+ * A prefill is the model's proposal, not the user's answer: text still identical to it does
+ * not count as answered until the user edits it, confirms it with the field's own submit
+ * button, or presses "use prefill". Otherwise an untouched suggestion would be returned as if
+ * the user had chosen it, indistinguishable from a real answer (#448).
+ */
+export function isUntouchedPrefill(question: AgentUiBatchQuestion, raw: string): boolean {
+	return typeof question.prefill === "string" && question.prefill.length > 0 && raw === question.prefill;
+}
+
+/**
  * Fold text that is visible in a field but was never confirmed with its own submit button
- * into the answers: input/editor text (including a prefill the user accepted as-is) and the
- * custom text of a select. Without this, typing an answer and then pressing Next/Submit or a
- * tab silently dropped it, and a prefilled editor question could never be submitted.
+ * into the answers: input/editor text the user typed or edited and the custom text of a
+ * select. Without this, typing an answer and then pressing Next/Submit or a tab silently
+ * dropped it. An untouched prefill is left out (see isUntouchedPrefill).
  * Committed answers and skipped questions win over pending text.
  */
 export function withPendingTextAnswers(questions: ReadonlyArray<AgentUiBatchQuestion>, draft: AskBatchDraft): AskBatchDraft {
@@ -37,7 +47,7 @@ export function withPendingTextAnswers(questions: ReadonlyArray<AgentUiBatchQues
 		if (isBatchAnswered(answers[question.id]) || skipped.includes(question.id)) continue;
 		if (question.type !== "input" && question.type !== "editor" && question.type !== "select") continue;
 		const raw = draft.inputValues[question.id] ?? "";
-		if (!raw.trim()) continue;
+		if (!raw.trim() || isUntouchedPrefill(question, raw)) continue;
 		// editor keeps its line breaks and indentation; single-line fields are trimmed like their submit buttons do.
 		const value = question.type === "editor" ? raw : raw.trim();
 		answers = { ...answers, [question.id]: value };

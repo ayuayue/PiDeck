@@ -8,7 +8,7 @@ import type { AgentUiBatchQuestion, AgentUiRequest, AgentUiResponse, SessionUiRe
 import type { SessionRuntimeUiState, SessionRuntimeViewState } from "../../atoms/session-atoms";
 import { askDraftBySessionRequestAtomFamily, type AskInteractionDraft, type AskSingleDraft } from "../../atoms/ask-draft-atoms";
 import { t } from "../../i18n";
-import { inspectBatchAnswers, isBatchAnswered, isBatchSettled, withPendingTextAnswers } from "../../utils/askBatchSubmission";
+import { inspectBatchAnswers, isBatchAnswered, isBatchSettled, isUntouchedPrefill, withPendingTextAnswers } from "../../utils/askBatchSubmission";
 import {
 	type AskBatchDraft,
 	type BatchAnswerValue,
@@ -273,6 +273,17 @@ function BatchAskInlineBar(props: {
 		return true;
 	}
 
+	/**
+	 * 采用预填：预填是模型的提议，原样不动不算作答（见 isUntouchedPrefill）；
+	 * 用户点了这个按钮才把预填当成自己的答案。
+	 */
+	function adoptPrefill(question: AgentUiBatchQuestion): boolean {
+		const prefill = question.prefill ?? "";
+		const value = question.type === "editor" ? prefill : prefill.trim();
+		if (!value.trim()) return false;
+		return answerAndAdvance(question, value, value);
+	}
+
 	/** 跳过当前题并推进：跳过是显式动作，与「没答」区分，扩展会把它标成跳过交给模型。 */
 	function skipAndAdvance(question: AgentUiBatchQuestion): boolean {
 		const committed = skipBatchQuestion(batch, question.id);
@@ -397,6 +408,9 @@ function BatchAskInlineBar(props: {
 							responding={props.responding}
 							onAnswer={(value, label, wasCustom) => answerAndAdvance(currentQuestion, value, label, wasCustom)}
 							onSkip={() => skipAndAdvance(currentQuestion)}
+							onAdoptPrefill={
+								(currentQuestion.type === "input" || currentQuestion.type === "editor") && !isBatchAnswered(effectiveAnswers[currentQuestion.id]) && !skippedIds.includes(currentQuestion.id) && isUntouchedPrefill(currentQuestion, inputValues[currentQuestion.id] ?? "") ? () => adoptPrefill(currentQuestion) : undefined
+							}
 							onInputChange={(value) => changeBatch((current) => ({ ...current, inputValues: { ...current.inputValues, [currentQuestion.id]: value } }))}
 							onSubmitInput={() => submitText(currentQuestion)}
 							onPrevious={currentTab > 0 ? () => changeBatch((current) => ({ ...current, currentTab: currentTab - 1 })) : undefined}
@@ -430,6 +444,8 @@ function BatchQuestion(props: {
 	responding: boolean;
 	onAnswer: (value: BatchAnswerValue, label?: string, wasCustom?: boolean) => boolean;
 	onSkip: () => boolean;
+	/** 本题有未改动的预填时才提供：把预填当成作答（预填本身不算答案） */
+	onAdoptPrefill?: () => boolean;
 	onInputChange: (value: string) => void;
 	onSubmitInput: () => boolean;
 	onPrevious?: () => void;
@@ -458,6 +474,10 @@ function BatchQuestion(props: {
 	};
 	const skip = () => {
 		if (!props.onSkip()) return;
+		refocusAfterAdvanceRef.current = true;
+	};
+	const adoptPrefill = () => {
+		if (!props.onAdoptPrefill?.()) return;
 		refocusAfterAdvanceRef.current = true;
 	};
 	return (
@@ -659,6 +679,11 @@ function BatchQuestion(props: {
 					</Button>
 				) : null}
 				<span className="flex-1" />
+				{props.onAdoptPrefill ? (
+					<Button className="ask-batch-adopt-prefill h-7 px-2 text-caption" variant="ghost" disabled={props.responding} onClick={adoptPrefill}>
+						{t("ask.batchUsePrefill")}
+					</Button>
+				) : null}
 				{/* 跳过：显式放弃本题（与「没答」区分），跳过后整卡即可提交，模型会看到「跳过」而不是空答案 */}
 				<Button className={`ask-batch-skip h-7 px-2 text-caption text-text-tertiary${props.skipped ? " skipped" : ""}`} variant="ghost" disabled={props.responding} aria-pressed={props.skipped} onClick={skip}>
 					{props.skipped ? t("ask.batchSkipped") : t("ask.batchSkip")}

@@ -225,7 +225,7 @@ test("typed text that was never confirmed is kept when the final submit is press
 	assert.equal(submitted(batch).answers[2].value, "typed but not submitted");
 });
 
-test("an accepted editor prefill counts as the answer", () => {
+test("an edited editor prefill counts as the answer", () => {
 	const batch = createBatch({
 		questions: [
 			{ id: "first", type: "select", question: "First", options: ["A"] },
@@ -236,6 +236,62 @@ test("an accepted editor prefill counts as the answer", () => {
 	});
 	question(batch).onNext();
 	assert.equal(submitted(batch).answers[1].value, "keep this\n  indented");
+});
+
+function prefillBatch(type, inputValue) {
+	return createBatch({
+		questions: [
+			{ id: "first", type: "select", question: "First", options: ["A"] },
+			{ id: "note", type, question: "Note", prefill: "预填的默认备注" },
+		],
+		answers: { first: "A" },
+		inputValues: { note: inputValue ?? "预填的默认备注" },
+	});
+}
+
+for (const type of ["editor", "input"]) {
+	test(`an untouched ${type} prefill is a suggestion, not the user's answer`, () => {
+		const batch = prefillBatch(type);
+		const current = question(batch);
+		assert.equal(current.nextDisabled, true, "the card stays blocked until the user decides about the prefill");
+		current.onNext();
+		assert.equal(batch.responses.length, 0, "submitting must not send the model's own prefill back as the answer");
+		assert.equal(batch.draft.currentTab, 1);
+	});
+
+	test(`"use prefill" on a ${type} question adopts the suggestion as the answer`, () => {
+		const batch = prefillBatch(type);
+		const current = question(batch);
+		assert.equal(typeof current.onAdoptPrefill, "function");
+		current.onAdoptPrefill();
+		assert.equal(batch.draft.answers.note, "预填的默认备注");
+		if (batch.responses.length === 0) question(batch).onNext();
+		const note = submitted(batch).answers[1];
+		assert.equal(note.value, "预填的默认备注");
+		assert.equal(note.skipped, undefined);
+	});
+
+	test(`an edited ${type} prefill no longer offers "use prefill"`, () => {
+		const batch = prefillBatch(type, "用户改过的备注");
+		assert.equal(question(batch).onAdoptPrefill, undefined);
+	});
+}
+
+test("skipping a prefilled question returns it as skipped, not as the prefill", () => {
+	const batch = prefillBatch("editor");
+	question(batch).onSkip();
+	const note = submitted(batch).answers[1];
+	assert.equal(note.value, null);
+	assert.equal(note.skipped, true);
+});
+
+test("closing a card leaves an untouched prefill unanswered", () => {
+	const batch = prefillBatch("editor");
+	card(batch).onCancel();
+	const result = submitted(batch);
+	assert.equal(result.cancelled, true);
+	assert.equal(result.answers[0].value, "A");
+	assert.equal(result.answers[1].value, null);
 });
 
 test("custom select text that was never confirmed is submitted as a custom answer", () => {

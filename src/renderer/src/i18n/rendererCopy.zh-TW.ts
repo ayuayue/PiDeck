@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: e3166cf897dff39c7dfdbb3c490551db7c180a606351652768c24ac1e3ee093d（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: ffad3a995c5c35aef2cbb8ad2a388876e8a7f08acb6bcac497a8b3ae8351c0cb（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -1418,6 +1418,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"ask.batchProgress": "已完成 {done}/{total}",
 	"ask.batchSkip": "跳過此題",
 	"ask.batchSkipped": "已跳過",
+	"ask.batchUsePrefill": "採用預填",
 	"ask.batchNext": "下一題",
 	"ask.batchPrev": "上一題",
 	"ask.batchReviewTab": "提交審閱",

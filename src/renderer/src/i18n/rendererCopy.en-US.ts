@@ -1417,6 +1417,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"ask.batchProgress": "{done}/{total} done",
 	"ask.batchSkip": "Skip",
 	"ask.batchSkipped": "Skipped",
+	"ask.batchUsePrefill": "Use suggested text",
 	"ask.batchNext": "Next",
 	"ask.batchPrev": "Previous",
 	"ask.batchReviewTab": "Review",

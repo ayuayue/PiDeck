@@ -227,6 +227,22 @@ test("答了一部分后关闭卡片：已答内容交回模型，未答的标�
 	assert.match(text, /b: \(未作答\)/);
 });
 
+test("关闭时 confirm 答「否」照样算有效作答，不会被说成没答", async () => {
+	const result = await runWithReply({
+		cancelled: true,
+		answers: [
+			{ id: "a", type: "confirm", value: false },
+			{ id: "b", type: "input", value: null },
+		],
+	});
+	assert.equal(result.details.cancelled, false);
+	assert.equal(result.details.closed, true);
+	const text = result.content[0].text;
+	assert.match(text, /a: 否/);
+	assert.match(text, /「否」也是有效作答/);
+	assert.match(text, /b: \(未作答\)/);
+});
+
 test("一题没答就关闭（含旧版桌面端的空回包）仍是取消", async () => {
 	for (const reply of ["", { cancelled: true, answers: [{ id: "a", type: "select", value: null }] }]) {
 		const result = await runWithReply(reply);

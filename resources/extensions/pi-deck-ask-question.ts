@@ -214,7 +214,7 @@ function batchResult(qs: NormalizedQuestion[], answers: Answer[], cancelled: boo
 					(cancelled && !answers.some(hasAnswerValue)
 						? "用户取消了提问"
 						: closed
-							? `用户只回答了部分问题就关闭了提问卡，以下是已作答的部分；未作答的题不要替用户假设答案：\n${body}`
+							? `用户关闭了提问卡，没有答完全部问题。下面逐题列出作答情况（「否」也是有效作答）；标为未作答或跳过的题不要替用户假设答案：\n${body}`
 							: body),
 			},
 		],

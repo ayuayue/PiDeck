@@ -179,6 +179,24 @@ test("ask batch 跳过: 单题可跳过，输入框里未点提交的文字也�
 	await expect(timeline(window)).toContainText("React");
 });
 
+test("ask batch 预填: 原样不动的预填不算作答，点「采用预填」才交回", async ({ window }) => {
+	test.setTimeout(120_000);
+	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
+	await startAgent(window);
+	await sendAndWaitAsk(window, "ASK_BATCH_PREFILL 预填");
+
+	const bar = askBar(window);
+	await bar.locator(".ask-inline-bar-option", { hasText: "React" }).click();
+	await expect(bar.locator(".ask-batch-question-body textarea")).toHaveValue("预填的默认备注");
+	// 预填没确认前整卡不能提交
+	await expect(bar.getByRole("button", { name: "提交", exact: true }).last()).toBeDisabled();
+	await bar.getByRole("button", { name: "采用预填" }).click();
+	await expect(bar.getByRole("button", { name: "采用预填" })).toHaveCount(0);
+	await bar.getByRole("button", { name: "提交", exact: true }).last().click();
+	await expect(timeline(window)).toContainText("预填的默认备注", { timeout: 15_000 });
+	await expect(timeline(window)).toContainText("React");
+});
+
 test("ask batch 关闭: 已答部分随关闭交回，不整单丢弃", async ({ window }) => {
 	test.setTimeout(120_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
