@@ -816,6 +816,9 @@ export class SessionCatalog implements HostRebindStorePort {
 	 *  其 filePath 指向的 jsonl 可能尚未由 pi 落盘，外部删除清理不得误剔。 */
 	private sessionLivenessProbe?: (sessionId: string) => boolean;
 
+	/** 「行被移除」监听：任何路径（删除 / 归档 / 删项目 / 外部删除清理 / 清洗）让会话行消失后触发一次。 */
+	private readonly rowsRemovedListeners = new Set<(sessionIds: string[]) => void>();
+
 	constructor(
 		private readonly filePath: string,
 		identityContext: SessionCatalogContext = {},
@@ -829,6 +832,33 @@ export class SessionCatalog implements HostRebindStorePort {
 
 	setIdentityContext(context: SessionCatalogContext): void {
 		this.identityContext = { ...context };
+	}
+
+	/**
+	 * 订阅「会话行被移除」。覆盖 remove / removeWithDescendants / removeByProjectId / removeByFilePath /
+	 * mergeScanned 的清理，以及草稿 / 匿名会话的内存条目；被同源归并吸收（别名仍指向存活行）的 id 不算移除。
+	 * 回调同步触发、异常被吞掉，不影响写事务；需要异步收尾的订阅者自己兜底。
+	 */
+	onRowsRemoved(listener: (sessionIds: string[]) => void): () => void {
+		this.rowsRemovedListeners.add(listener);
+		return () => {
+			this.rowsRemovedListeners.delete(listener);
+		};
+	}
+
+	private notifyRowsRemoved(sessionIds: Iterable<string>): void {
+		const ids = [...new Set(sessionIds)].filter((id) => {
+			const survivor = this.mergedIdAliases.get(id);
+			return !(survivor && this.entries.some((entry) => entry.id === survivor));
+		});
+		if (ids.length === 0) return;
+		for (const listener of this.rowsRemovedListeners) {
+			try {
+				listener(ids);
+			} catch {
+				// 订阅者失败不影响 catalog
+			}
+		}
 	}
 
 	/** 注入活性探针（main 装配时一次性接线）；传 undefined 解除。 */
@@ -1158,7 +1188,9 @@ export class SessionCatalog implements HostRebindStorePort {
 
 	removeTransient(id: string): boolean {
 		this.assertLoaded();
-		return this.transientEntries.delete(id);
+		const removed = this.transientEntries.delete(id);
+		if (removed) this.notifyRowsRemoved([id]);
+		return removed;
 	}
 
 	getRecord(id: string): SessionRecord | undefined {
@@ -1918,7 +1950,10 @@ export class SessionCatalog implements HostRebindStorePort {
 	async remove(id: string): Promise<boolean> {
 		this.assertLoaded();
 		const requestedId = this.resolveSessionId(id);
-		if (this.transientEntries.delete(requestedId)) return true;
+		if (this.transientEntries.delete(requestedId)) {
+			this.notifyRowsRemoved([requestedId]);
+			return true;
+		}
 		return this.enqueueMutation((entries) => {
 			// 执行时解析：排队期间同源归并可能已把旧 ID 吸收进存活条目。
 			const entry = this.findEntryInTransaction(entries, requestedId);
@@ -1948,6 +1983,7 @@ export class SessionCatalog implements HostRebindStorePort {
 		for (const sessionId of ids) {
 			if (this.transientEntries.delete(sessionId)) removed.push(sessionId);
 		}
+		if (removed.length > 0) this.notifyRowsRemoved(removed);
 		const persistedIds = ids.filter((sessionId) => !removed.includes(sessionId));
 		if (persistedIds.length === 0) return removed;
 
@@ -1994,9 +2030,13 @@ export class SessionCatalog implements HostRebindStorePort {
 		this.assertLoaded();
 		// 引用写入与引用删除都必须在有 rebind 事务时退让（设计 §3.1 方案 A 的 advisory interlock）。
 		if (this.referenceGuard) await this.referenceGuard.assertRebindIdle();
+		const removedTransient: string[] = [];
 		for (const [id, entry] of this.transientEntries) {
-			if (entry.projectId === projectId) this.transientEntries.delete(id);
+			if (entry.projectId !== projectId) continue;
+			this.transientEntries.delete(id);
+			removedTransient.push(id);
 		}
+		if (removedTransient.length > 0) this.notifyRowsRemoved(removedTransient);
 		return this.enqueueMutation((entries) => {
 			const next = entries.filter((entry) => entry.projectId !== projectId);
 			const removed = entries.length - next.length;
@@ -2642,6 +2682,7 @@ export class SessionCatalog implements HostRebindStorePort {
 			.catch(() => undefined)
 			.then(async () => {
 				this.assertWritable();
+				let removedIds: string[] = [];
 				const value = await withStoreFileCas<SessionCatalogEntry[], T>({
 					rootDir: this.rootDir,
 					lockPath: this.lockPath,
@@ -2652,12 +2693,19 @@ export class SessionCatalog implements HostRebindStorePort {
 					mutate: async (fresh) => {
 						const nextEntries = fresh.map(cloneEntry);
 						const result = await mutate(nextEntries);
+						// 重试时 mutate 会再跑一遍：每次都重算，只留最后（真正落盘）那次的差集。
+						removedIds = [];
+						if (result.changed) {
+							const kept = new Set(nextEntries.map((entry) => entry.id));
+							removedIds = fresh.filter((entry) => !kept.has(entry.id)).map((entry) => entry.id);
+						}
 						return result.changed ? { state: nextEntries, changed: true, value: result.value } : { state: fresh, changed: false, value: result.value };
 					},
 					write: (state, revision) => this.writeSnapshot(state, revision),
 				});
 				// 归并别名索引必须随条目集合前进（删除会让旧 ID 指向不存在的记录）。
 				this.rebuildMergedIdAliases();
+				if (removedIds.length > 0) this.notifyRowsRemoved(removedIds);
 				return value;
 			});
 		this.writeQueue = operation.then(

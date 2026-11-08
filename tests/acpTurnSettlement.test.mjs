@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { describeEmptyTurn, emptyTurnRejection, promptResultSnippet } = loadTsCommonJs("src/main/acp/acpTurnSettlement.ts");
+const { describeEmptyTurn, emptyTurnRejection, promptResultSnippet, stalledTurnRejection } = loadTsCommonJs("src/main/acp/acpTurnSettlement.ts");
 
 test("describeEmptyTurn 把 stderr 排在最前,并带上 stopReason/update 统计/通知/响应原文", () => {
 	const details = describeEmptyTurn({
@@ -37,4 +37,16 @@ test("promptResultSnippet 只保留 stopReason/_meta 之外的字段", () => {
 test("emptyTurnRejection 带上诊断,无诊断时保持原样", () => {
 	assert.equal(emptyTurnRejection("CodeBuddy").debugDetails, undefined);
 	assert.equal(emptyTurnRejection("CodeBuddy", "stderr=boom").debugDetails, "stderr=boom");
+});
+
+test("stalledTurnRejection:被看门狗掐断的回合按失败收口(#500)", () => {
+	const result = stalledTurnRejection("CodeBuddy", "updates=agent_message_chunkx1");
+	assert.equal(result.accepted, false, "有产出的 stall 不得谎报 accepted:true");
+	// delivery=unknown:用户消息已留在时间线,回填草稿会让用户重发一遍
+	assert.equal(result.delivery, "unknown");
+	assert.equal(result.i18nKey, "acp.stallForceStopped");
+	assert.deepEqual({ ...result.i18nParams }, { tool: "CodeBuddy" });
+	assert.equal(result.debugDetails, "updates=agent_message_chunkx1");
+	assert.match(result.error, /CodeBuddy/);
+	assert.equal(stalledTurnRejection("CodeBuddy").debugDetails, undefined);
 });

@@ -1,5 +1,5 @@
 import type { ProjectFileTarget } from "../../../shared/types/project";
-import type { FileTreeNode } from "../../../shared/types";
+import type { FileSearchResult, FileTreeNode } from "../../../shared/types";
 
 export type FileTreeListTarget = ProjectFileTarget | string;
 
@@ -53,17 +53,29 @@ export function resolveAtDrillDirectory(query: string, files: FileTreeNode[]): F
 }
 
 /**
- * 无 / 的纯文件名搜索（如 @index）是否需要触发一次整树后台加载。
- * 目录浏览有下钻锚点，按需拉一层即可；按名搜索没有锚点，只能搜到已加载树，
- * 而默认树只有根层——所以要搜到深层文件必须一次性拉全树（仅当查询已有
- * 一定长度、看起来是真实搜索意图；绝对路径引用（盘符开头）不触发）。
+ * 无 / 的纯文件名搜索（如 @index）是否值得调用有界文件搜索。
+ * 目录/绝对路径查询保留已有的目录懒加载行为。
  */
-export function shouldLoadFullTreeForAtSearch(query: string): boolean {
+export function shouldSearchFileNames(query: string): boolean {
 	if (query.length < 2) return false;
 	if (query.includes("/") || query.includes("\\")) return false;
-	// 盘符绝对路径（@C:\… / @C:/…）是按地址引用，不是搜索，无需整树
 	if (/^[a-zA-Z]:/.test(query)) return false;
 	return true;
+}
+
+export type AtFileNameSearchSnapshot = { projectId: string; query: string; files: FileTreeNode[] };
+
+/** 搜索命中独立于目录懒加载树，避免为纯名查询构造整棵 FileTreeNode。 */
+export async function loadAtFileNameSearch(projectId: string, query: string, search: (projectId: string, query: string) => Promise<FileSearchResult[]>): Promise<AtFileNameSearchSnapshot> {
+	const hits = await search(projectId, query);
+	const files = hits.map((hit) => ({ name: hit.name, relativePath: hit.relativePath, path: hit.path, type: hit.type, target: hit.target ?? { projectId, relativePath: hit.relativePath } }));
+	return { projectId, query, files };
+}
+
+export function mergeAtFileNameSearchFiles(loadedFiles: FileTreeNode[], searchFiles: FileTreeNode[]): FileTreeNode[] {
+	if (searchFiles.length === 0) return loadedFiles;
+	const hits = new Set(searchFiles.map(fileTreeNodeKey));
+	return [...searchFiles, ...loadedFiles.filter((file) => !hits.has(fileTreeNodeKey(file)))];
 }
 
 /**

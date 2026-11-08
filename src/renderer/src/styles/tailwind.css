@@ -466,3 +466,34 @@
     }
   }
 }
+
+/* ── 减弱动效（应用内开关 + 系统偏好）──────────────────────────────────
+ * 触发：设置 → 外观 →「减弱动效」（写 :root[data-motion="reduced"]），
+ * 或系统 prefers-reduced-motion（Chromium 在部分平台不上报，故不能只靠 media query）。
+ *
+ * 做法：把动画/过渡时长压到 0.001ms 而不是 `animation: none`——保留 animationend
+ * 事件（AppShell 折叠、时间线大纲靠它收尾），元素直接停在终态，状态仍可读。
+ * iteration-count:1 让无限循环（扫光 shimmer、pulse）只跑一次即静止。
+ * 全局 `*` 选择器只在开关切换时触发一次样式重算，稳态无成本。 */
+:root[data-motion="reduced"] *,
+:root[data-motion="reduced"] *::before,
+:root[data-motion="reduced"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -76,6 +76,19 @@ test("mobile: layout fits and composer toolbar stays reachable", async ({ app })
 	expect(titleTruncated).toBe(false);
 	const [titleBox, actionsBox] = await Promise.all([titleBlock.boundingBox(), headerActions.boundingBox()]);
 	expect((titleBox?.x ?? 0) + (titleBox?.width ?? 0)).toBeLessThanOrEqual((actionsBox?.x ?? 999) + 1);
+	const statusBox = await page.locator(".web-title-block [role='status']").boundingBox();
+	expect(Math.abs((statusBox?.y ?? 0) + (statusBox?.height ?? 0) / 2 - ((titleBox?.y ?? 0) + (titleBox?.height ?? 0) / 2))).toBeLessThanOrEqual(1);
+	expect(statusBox?.height ?? 999).toBeLessThanOrEqual(20);
+
+	// 手机只保留高频头部动作；先建立会话，再确认工作区仍能经溢出菜单打开。
+	await page.locator("textarea#prompt").fill("header actions");
+	await page.keyboard.press("Enter");
+	await expect(page.locator(".assistant-text").first()).toBeVisible({ timeout: 30_000 });
+	await expect(page.getByTestId("web-header-workspace")).toBeHidden();
+	await expect(page.getByTestId("web-header-theme-toggle")).toBeHidden();
+	await headerActions.locator("button").last().click();
+	await expect(page.getByTestId("web-menu-workspace")).toBeVisible();
+	await page.keyboard.press("Escape");
 
 	// 工具区两行：操作行（附件/提示词/计划）+ 模型行（模型/思考 pill + 发送）；窄屏默认折叠，先聚焦展开
 	const { opsRow, modelRow } = await expandComposer(page);
@@ -128,6 +141,30 @@ test("mobile: idle composer collapses to one line and re-expands on focus", asyn
 	await page.locator("textarea#prompt").fill("");
 	await page.locator(".message-timeline").click({ position: { x: 10, y: 10 } });
 	await expect(toolRows).toHaveAttribute("inert", "", { timeout: 5_000 });
+});
+
+test("mobile: running empty composer stays compact and focused draft expands", async ({ app }) => {
+	test.setTimeout(120_000);
+	const page = await openMobilePage(app);
+	const textarea = page.locator("textarea#prompt");
+	await textarea.fill("SLOW THINK TOOL compact composer");
+	await page.keyboard.press("Enter");
+	await expect(page.getByTestId("web-composer-stop")).toBeVisible({ timeout: 20_000 });
+	// 发送是明确的离开输入信号：手机上直接回到紧凑态，无需等一次额外的 blur。
+	await expect(page.getByTestId("web-composer-stop-compact")).toBeVisible({ timeout: 5_000 });
+	const toolRows = page.getByTestId("web-composer-tool-rows");
+	await expect(toolRows).toHaveAttribute("inert", "");
+	const collapsedHeight = (await page.locator(".composer-box").boundingBox())?.height ?? 999;
+	expect(collapsedHeight).toBeLessThanOrEqual(80);
+	await expect(page.locator(".tool-card").first()).toBeVisible();
+	await page.screenshot({ path: test.info().outputPath("mobile-running-compact.png"), fullPage: false });
+
+	await expandComposer(page);
+	await textarea.fill("follow up while running");
+	await page.locator(".message-timeline").click({ position: { x: 10, y: 10 } });
+	await expect(toolRows).not.toHaveAttribute("inert", "");
+	await expect(page.getByTestId("web-composer-queue")).toBeVisible();
+	await page.getByTestId("web-composer-stop").click();
 });
 
 test("mobile: model bottom sheet opens from bottom and selection updates pill", async ({ app }) => {

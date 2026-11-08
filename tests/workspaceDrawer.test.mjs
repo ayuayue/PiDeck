@@ -130,6 +130,46 @@ test("browser surface has explicit fullscreen and minimize paths", () => {
 	assert.match(hook, /openBrowser\(\)/);
 });
 
+/**
+ * 回归（issue #508 第一步）：抽屉态与全屏态共用**同一个宿主 DOM 节点**，切换不能让页面重载。
+ *
+ * 此前两种形态各渲染一个 <BrowserPanel>（两棵不同元素树），切换时 React 卸载重挂，
+ * <webview> 被销毁 → WebContents 重建 → SPA 状态/滚动位置/登录上下文丢失，
+ * did-attach-webview 也换 webContentsId，browser_* MCP 工具看到的是新页面。
+ *
+ * 实测结论（改这里之前务必读）：把子树在「普通父节点 ↔ portal」之间搬动同样会让 React
+ * remove/append 宿主节点，<webview> 脱离文档再插回会被 Electron 重建 guest。
+ * 所以不能用 createPortal 切形态，只能**换 class**。e2e/browser-lifecycle.spec.ts 用服务端
+ * 自增的加载序号守住了这一点（旧实现在该用例上失败）。
+ */
+test("browser surface keeps one host node across drawer and fullscreen (no reparenting)", () => {
+	// 只有一处 JSX 渲染站点（注释里提到 <BrowserPanel> 不算）：写两次就说明又分叉成两个实例了。
+	const jsxSites = browser
+		.split("\n")
+		.filter((line) => !/^\s*(\*|\/\/)/.test(line))
+		.join("\n")
+		.match(/<BrowserPanel\b/g);
+	assert.equal(jsxSites?.length, 1, "BrowserPanel 只能渲染一处（两态共用同一实例）");
+	// 关键约束：不按形态分叉两棵树 —— 没有 createPortal、没有 if (props.fullscreen) return。
+	// （注释里会解释「为什么不用 createPortal」，只检查代码部分。）
+	const code = browser
+		.split("\n")
+		.filter((line) => !/^\s*(\*|\/\/)/.test(line))
+		.join("\n");
+	assert.doesNotMatch(code, /createPortal/, "不能 portal 切换形态：宿主节点搬迁会让 webview 重载");
+	assert.doesNotMatch(code, /if \(props\.fullscreen\) return/, "两种形态必须走同一个 return 树");
+	// 形态只体现在同一个 stage 节点的 class 与 data 属性上。
+	assert.match(browser, /browser-surface-stage--fullscreen/);
+	assert.match(browser, /browser-surface-stage--drawer/);
+	assert.match(browser, /data-browser-surface=\{props\.fullscreen \? "fullscreen" : "drawer"\}/);
+	// 关闭钮：抽屉态隐藏（改走 Tab 栏活动图标），全屏态自带。
+	assert.match(browser, /hideChromeClose=\{!props\.fullscreen\}/);
+	const css = readFileSync("src/renderer/src/styles/surfaces.css", "utf8");
+	// 全屏靠固定定位盖住主界面（不 portal），层级要高于抽屉、低于弹窗。
+	assert.match(css, /\.browser-surface-stage--fullscreen \{[\s\S]*?position: fixed;/);
+	assert.match(css, /\.browser-surface-stage--fullscreen \{[\s\S]*?z-index: 940;/);
+});
+
 // 回归（#113 parity）：抽屉面板切换入口必须挂在抽屉自身（activity rail），
 // 不能只在会话 outline 浮动按钮里 —— 否则无活跃会话时无法切到 git/browser。
 test("drawer host renders an injected activity rail while open", () => {

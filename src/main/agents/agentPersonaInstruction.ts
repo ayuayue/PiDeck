@@ -2,7 +2,8 @@
  * 会话绑定的智能体角色设定注入（纯函数，无 IO）。
  *
  * 「使用」智能体时渲染层把 sessionId → agentId 绑定写入 AgentProfileStore，
- * 之后该会话每次发送都由主进程把智能体的 systemPrompt 作为角色设定拼进本轮 prompt：
+ * 之后该会话**首次**发送时由主进程把智能体的 systemPrompt 作为角色设定拼进本轮 prompt
+ *（只在首轮注入：角色设定随第一条用户消息留在会话历史里，之后每轮再拼会重复）：
  * - pi（及支持隐藏通道的 ACP）：拼进 SendPromptInput.agentMessage。AgentManager 在
  *   agentMessage 非空时**整体替换** message（只影响本轮/模型可见内容，时间线仍只显示用户原文），
  *   所以角色设定必须与真正要发的载荷拼在一起，不能单独成一个字段。
@@ -30,6 +31,24 @@ export type ComposedAgentInstruction = {
 	/** 隐藏载荷；undefined 表示本轮没有隐藏指令。 */
 	agentMessage?: string;
 };
+
+export type AgentPersonaGateInput = {
+	/** catalog 记录的会话状态：绑定只经新会话「使用」流程建立，draft = 还没成功发过首条消息。 */
+	sessionStatus: "draft" | "active" | undefined;
+	/** 本进程内是否已成功注入过（覆盖首条已接受、catalog 的 draft→active 还没回写的窗口）。 */
+	alreadyInjected: boolean;
+};
+
+/**
+ * 角色设定只在会话首轮注入一次。
+ *
+ * 首条消息被接受后，pi 的会话文件里已经存了「角色设定 + 用户原文」这条 user 消息，
+ * 后续轮次沿用上下文即可；每轮重拼会在模型上下文里出现重复的角色设定。
+ * 发送失败/被拒绝时状态仍是 draft，下一次发送会重新注入。
+ */
+export function shouldInjectAgentPersona(input: AgentPersonaGateInput): boolean {
+	return input.sessionStatus === "draft" && !input.alreadyInjected;
+}
 
 export function composeAgentInstruction(input: ComposeAgentInstructionInput): ComposedAgentInstruction {
 	const persona = input.persona.trim();

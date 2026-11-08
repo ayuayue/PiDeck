@@ -156,3 +156,87 @@ export function collectRecentActivityRows(input: { catalog: ActivityCatalog; act
 export function growRecentVisible(current: number, totalCount: number): number {
 	return Math.min(current + RECENT_SESSIONS_PAGE_SIZE, Math.max(0, totalCount));
 }
+
+/** 嵌套缩进的最大层数：再深就不再右移（侧栏宽度有限），层级关系仍由 ↳ 标记表达。 */
+export const LINKED_NEST_MAX_DEPTH = 3;
+
+/**
+ * 关联子会话（子对话）嵌套：把子会话行挪到父会话行正下方并给出层级，活动区与「最近」区共用。
+ *
+ * - 只在同一列表内嵌套：父会话不在本列表（在另一区、或已不在活动区）时子会话原位不动，
+ *   层级 0，渲染层仍会标 ↳ 说明它是子会话；
+ * - 兄弟之间保留原排序（活动区按更新时间、最近区按访问时间）；
+ * - 关系数据来自外部文件，防御环：环上的行按原顺序以层级 0 补在末尾，不丢行。
+ */
+export function nestLinkedSessionRows<T>(rows: readonly T[], sessionIdOf: (row: T) => string | undefined, parentOf: (sessionId: string) => string | undefined): Array<{ row: T; depth: number }> {
+	const indexById = new Map<string, number>();
+	rows.forEach((row, index) => {
+		const id = sessionIdOf(row);
+		if (id) indexById.set(id, index);
+	});
+	const childrenOf = new Map<number, number[]>();
+	const isChild = new Set<number>();
+	rows.forEach((row, index) => {
+		const id = sessionIdOf(row);
+		const parentId = id ? parentOf(id) : undefined;
+		const parentIndex = parentId !== undefined && parentId !== id ? indexById.get(parentId) : undefined;
+		if (parentIndex === undefined) return;
+		isChild.add(index);
+		const siblings = childrenOf.get(parentIndex) ?? [];
+		siblings.push(index);
+		childrenOf.set(parentIndex, siblings);
+	});
+	const out: Array<{ row: T; depth: number }> = [];
+	const emitted = new Set<number>();
+	const visit = (index: number, depth: number) => {
+		if (emitted.has(index)) return;
+		emitted.add(index);
+		out.push({ row: rows[index], depth });
+		for (const child of childrenOf.get(index) ?? []) visit(child, depth + 1);
+	};
+	rows.forEach((_row, index) => {
+		if (!isChild.has(index)) visit(index, 0);
+	});
+	rows.forEach((_row, index) => {
+		if (!emitted.has(index)) visit(index, 0);
+	});
+	return out;
+}
+
+/**
+ * 「聊天 / 项目」树的关联子会话分组：父会话在同一列表里的未归档子会话挂到父会话下面（可多层：A > B > C）。
+ * 兄弟按关系创建时间排序；关系数据来自外部文件，成环的行不挂靠（按普通会话显示），不丢行、不死循环。
+ */
+export function groupLinkedChildren<T extends { id: string }>(rows: readonly T[], linkOf: (sessionId: string) => { parentSessionId: string; archived: boolean; createdAt: number } | undefined): { childrenByParent: Map<string, T[]>; childIds: Set<string> } {
+	const ids = new Set(rows.map((row) => row.id));
+	const parentOf = new Map<string, string>();
+	for (const row of rows) {
+		const link = linkOf(row.id);
+		if (!link || link.archived || link.parentSessionId === row.id || !ids.has(link.parentSessionId)) continue;
+		parentOf.set(row.id, link.parentSessionId);
+	}
+	// 沿父链往上走，能回到自己就是环：环上的行一律不挂靠。
+	const inCycle = new Set<string>();
+	for (const start of parentOf.keys()) {
+		let cursor = parentOf.get(start);
+		for (let step = 0; cursor !== undefined && step <= parentOf.size; step += 1) {
+			if (cursor === start) {
+				inCycle.add(start);
+				break;
+			}
+			cursor = parentOf.get(cursor);
+		}
+	}
+	const childrenByParent = new Map<string, T[]>();
+	const childIds = new Set<string>();
+	for (const row of rows) {
+		const parentId = parentOf.get(row.id);
+		if (parentId === undefined || inCycle.has(row.id)) continue;
+		childIds.add(row.id);
+		const siblings = childrenByParent.get(parentId) ?? [];
+		siblings.push(row);
+		childrenByParent.set(parentId, siblings);
+	}
+	for (const siblings of childrenByParent.values()) siblings.sort((left, right) => (linkOf(left.id)?.createdAt ?? 0) - (linkOf(right.id)?.createdAt ?? 0));
+	return { childrenByParent, childIds };
+}

@@ -66,6 +66,18 @@ test("不可隐藏的 tab 即使出现在 hiddenModules 里也不会消失", () 
 	assert.equal(isSettingsTabHidden(["im"], "im"), true);
 });
 
+test("分组标题随被隐藏的簇首项顺延，整簇隐藏后不借给下一组", () => {
+	const visible = resolveVisibleSettingsTabs(["im", "web"], new Set());
+	assert.deepEqual(plain(visible.filter((entry) => entry.groupLabel).map((entry) => [entry.id, entry.groupLabel])), [
+		["common", "settings.group.basic"],
+		["pet", "settings.group.integrations"],
+		["editors", "settings.group.developer"],
+		["dev", "settings.group.maintenance"],
+	]);
+	const withoutIntegration = resolveVisibleSettingsTabs(["im", "pet", "vision", "imagegen", "videogen", "acp", "hostplugins"], new Set());
+	assert.deepEqual(plain(withoutIntegration.filter((entry) => entry.groupLabel).map((entry) => entry.groupLabel)), ["settings.group.basic", "settings.group.integrations", "settings.group.developer", "settings.group.maintenance"]);
+});
+
 test("隐藏簇首项时分割线顺延到该簇下一个可见项", () => {
 	// 「扩展集成」簇首项是 im（dividerBefore）；隐藏 im 后 pet 应带上分割线
 	const visible = resolveVisibleSettingsTabs(["im"], new Set());

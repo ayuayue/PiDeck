@@ -1390,8 +1390,10 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 				},
 				eventLoopLagMs: 0,
 				eventLoopLagMaxMs: 0,
+				processCpu: [],
 				memoryProfilePath: null,
 				timingsPath: null,
+				cpuPath: null,
 				recentTimings: [],
 			}
 		);

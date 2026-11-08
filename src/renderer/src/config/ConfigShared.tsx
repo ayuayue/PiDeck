@@ -200,6 +200,7 @@ export function ConfigComboboxInput(props: { value: string; options: Array<{ val
 		>
 			<PopoverTrigger asChild>
 				<Input
+					type="text"
 					readOnly
 					value={props.value}
 					placeholder={props.placeholder}

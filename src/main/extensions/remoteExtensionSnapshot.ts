@@ -38,6 +38,8 @@ export type RemoteExtensionDisposition = "remote" | "remote-needs-env" | "local-
  * 「本机平台特有行为」的，一律不进远端；凡是「纯 pi 扩展 API + 会话条目 + RPC UI」的都可以进。
  */
 export const REMOTE_EXTENSION_DISPOSITIONS: Record<BuiltInExtensionName, RemoteExtensionDisposition> = {
+	// 关联会话工具回调本机端点（`PIDECK_LINKED_SESSIONS_URL`，127.0.0.1），远端 pi 连不到。
+	"pi-deck-linked-sessions.ts": "local-only",
 	// 模型请求快照经本机端点（`PIDECK_MODEL_TRACE_URL`，127.0.0.1）上传，远端 pi 连不到；
 	// 要做先设计 SSH 反向隧道。
 	"pi-deck-model-trace.ts": "local-only",

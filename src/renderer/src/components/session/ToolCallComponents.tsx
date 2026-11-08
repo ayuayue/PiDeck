@@ -9,6 +9,7 @@ import { formatAskTitle } from "../../utils/askUi";
 import { Badge } from "../ui-shadcn/badge";
 import { detectSubagentFailure } from "./subagentStatus";
 import { Button } from "../ui-shadcn/button";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "../ui-shadcn/context-menu";
 import type { ChatMessage, ImageContent } from "../../../../shared/types";
 import { imageContentSrc } from "../../../../shared/imageContentSrc";
 import { ImageLightbox } from "./ImageLightbox";
@@ -25,6 +26,7 @@ import { copyTextWithCopiedNotice } from "../../utils/clipboardNotice";
 import { formatDuration, getToolDetailText, getToolDiffTarget, getToolExitCode, getToolLiveStartTimestamp, getToolName, getToolStatus, fileChangeToDiffLines } from "./TimelineFormat";
 import { hasFileChangePayload } from "../../../../shared/fileChanges";
 import { useInsideProcessGroupBody } from "./turn/processGroupScrollContext";
+import { LINKED_SESSION_TOOL_NAMES, LinkedSessionToolCard } from "./LinkedSessionToolCard";
 
 export type DiffFileHandler = (path: string, originalContent?: string, content?: string) => void;
 
@@ -264,6 +266,9 @@ export const ToolCard = memo(function ToolCard(props: {
 	const diffTarget = getToolDiffTarget(props.message);
 	// ACP 的编辑可能只有路径（wire 上没有旧/新文本）：有目标但没有内容时不渲染空的 diff 块。
 	const showDiff = diffTarget !== undefined && hasFileChangePayload(diffTarget);
+	// 可在工作区打开的目标：edit/write 用 diff 目标文件，其余工具取参数里的路径。
+	// 走与文件 chip 同一个 App 路由：项目外路径仍受安全等级门约束，不能绕过。
+	const openableFilePath = diffTarget?.path ?? getToolFilePath(props.message.meta?.args ?? props.message.meta?.path);
 	// 学 ZCode 过程行：主标签是语义动词（「读取」「执行」），作用对象进等宽 chip 单行截断；
 	// 原始工具名退到行 tooltip，不再常驻行内与动词重复占位。
 	const phrase = getToolPhraseFromArgs(toolName, props.message.meta?.args, props.message.meta?.kind);
@@ -339,167 +344,202 @@ export const ToolCard = memo(function ToolCard(props: {
 			// 工具/思考同为过程行：底距都压到 pb-1，不再给工具单独留卡片呼吸空间
 			contentClassName="pb-1"
 		>
-			<section
-				// 无框过程行（与 ThinkingBlock 同一语言）：边框/面板底由 timeline.css 的
-				// .tool-card 保证为 0/transparent，这里不再叠 border / bg-bg-panel。
-				className={`tool-card w-full min-w-0 tone-${tone}${isSkillRead ? " tool-card--skill" : ""}${isAskCard ? " tool-card--ask" : ""}${status === "running" ? " tool-card--running" : ""}`}
-				ref={sticky.entryRef}
-				data-status={status}
-				data-tool-kind={isSkillRead ? "skill" : getToolKind(toolName)}
-				data-message-id={props.message.id}
-			>
-				<div
-					ref={sticky.headerRef}
-					data-process-entry-header=""
-					data-process-entry-pinned={sticky.pinned}
-					className={cn(
-						"relative flex min-h-7 items-center overflow-hidden rounded-md transition-colors duration-fast hover:bg-[color:color-mix(in_srgb,var(--color-bg-hover)_50%,transparent)]",
-						sticky.sticky && "sticky top-0 z-10",
-						sticky.pinned && "rounded-none bg-bg-app shadow-[0_1px_0_var(--color-border-subtle)] hover:bg-[color:color-mix(in_srgb,var(--color-bg-hover)_50%,var(--color-bg-app))]",
-					)}
-				>
-					{/* 工具运行中整行扫光（dsh-web command-row-sweep 同款，与思考扫光同 keyframes）。
+			<ContextMenu>
+				<ContextMenuTrigger asChild>
+					<section
+						// 无框过程行（与 ThinkingBlock 同一语言）：边框/面板底由 timeline.css 的
+						// .tool-card 保证为 0/transparent，这里不再叠 border / bg-bg-panel。
+						className={`tool-card group/tool w-full min-w-0 tone-${tone}${isSkillRead ? " tool-card--skill" : ""}${isAskCard ? " tool-card--ask" : ""}${status === "running" ? " tool-card--running" : ""}`}
+						ref={sticky.entryRef}
+						data-status={status}
+						data-tool-kind={isSkillRead ? "skill" : getToolKind(toolName)}
+						data-message-id={props.message.id}
+					>
+						<div
+							ref={sticky.headerRef}
+							data-process-entry-header=""
+							data-process-entry-pinned={sticky.pinned}
+							className={cn(
+								"relative flex min-h-7 items-center overflow-hidden rounded-md transition-colors duration-fast hover:bg-[color:color-mix(in_srgb,var(--color-bg-hover)_50%,transparent)]",
+								sticky.sticky && "sticky top-0 z-10",
+								sticky.pinned && "rounded-none bg-bg-app shadow-[0_1px_0_var(--color-border-subtle)] hover:bg-[color:color-mix(in_srgb,var(--color-bg-hover)_50%,var(--color-bg-app))]",
+							)}
+						>
+							{/* 工具运行中整行扫光（dsh-web command-row-sweep 同款，与思考扫光同 keyframes）。
 					    status === "running" 才挂载：stopped/error/done 立即消失（stopped 由 props.stopped 短路）；
 					    pointer-events-none 不挡 trigger 点击展开 */}
-					{status === "running" && <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-[300px] animate-tool-sweep motion-reduce:animate-none bg-[linear-gradient(90deg,transparent,color-mix(in_srgb,var(--color-bg-app)_55%,transparent),transparent)]" />}
-					<button type="button" className="flex min-h-7 min-w-0 flex-[1_1_auto] cursor-pointer items-center gap-2 border-0 bg-transparent py-1 pr-0.5 pl-1 text-left text-chat-row text-text-faint focus-visible:-outline-offset-2 focus-visible:outline-2" onClick={toggleExpanded} aria-expanded={expanded} title={rowTitle}>
-						<span className="tool-card-icon inline-flex shrink-0 items-center justify-center">{isSkillRead ? <Brain size={16} /> : isAskCard ? <MessageCircle size={16} /> : toolIcon(toolName)}</span>
-						{/* 文本段：动词标签（14px）与等宽 chip 预览（12px）必须共基线，否则等宽详情
+							{status === "running" && <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-[300px] animate-tool-sweep motion-reduce:animate-none bg-[linear-gradient(90deg,transparent,color-mix(in_srgb,var(--color-bg-app)_55%,transparent),transparent)]" />}
+							<button
+								type="button"
+								className="flex min-h-7 min-w-0 flex-[1_1_auto] cursor-pointer items-center gap-2 border-0 bg-transparent py-1 pr-0.5 pl-1 text-left text-chat-row text-text-faint focus-visible:-outline-offset-2 focus-visible:outline-2"
+								onClick={toggleExpanded}
+								aria-expanded={expanded}
+								title={rowTitle}
+							>
+								<span className="tool-card-icon inline-flex shrink-0 items-center justify-center">{isSkillRead ? <Brain size={16} /> : isAskCard ? <MessageCircle size={16} /> : toolIcon(toolName)}</span>
+								{/* 文本段：动词标签（14px）与等宽 chip 预览（12px）必须共基线，否则等宽详情
 						    比正文高约 3px、看起来「没纵向居中」（原理解释见 RowText）。
 						    徽章 / chevron / kind pill 是盒子，self-center 保持原有居中观感。 */}
-						<RowText className="flex-[1_1_auto]">
-							{/* 主标签 = 语义动词（「读取」「执行」）：过程层文字，用 faint 浅色退到正文之后；
+								<RowText className="flex-[1_1_auto]">
+									{/* 主标签 = 语义动词（「读取」「执行」）：过程层文字，用 faint 浅色退到正文之后；
 							    字重保持 normal（不降档），过轻在 CJK 下会有锯齿/发虚。
 							    原始工具名已移进行 tooltip，MCP 来源仍由 kind pill 标识。 */}
-							<span className="shrink-0 text-chat-row lowercase text-text-faint">{isSkillRead ? `skill:${skillName}` : isAskCard ? t("ask.toolName") : phrase.verb}</span>
-							{expanded ? <ChevronDown size={14} className="shrink-0 self-center text-text-faint" aria-hidden="true" /> : <ChevronRight size={14} className="shrink-0 self-center text-text-faint" aria-hidden="true" />}
-							{!isSkillRead && kindLabel && <span className="tool-card-kind self-center">{kindLabel}</span>}
-							{statusBadge && <span className="inline-flex self-center">{statusBadge}</span>}
-							{/* 耗时只对运行中的工具有行内意义（活秒表）；完成后的耗时移入行 tooltip，
+									<span className="shrink-0 text-chat-row lowercase text-text-faint">{isSkillRead ? `skill:${skillName}` : isAskCard ? t("ask.toolName") : phrase.verb}</span>
+									{expanded ? <ChevronDown size={14} className="shrink-0 self-center text-text-faint" aria-hidden="true" /> : <ChevronRight size={14} className="shrink-0 self-center text-text-faint" aria-hidden="true" />}
+									{!isSkillRead && kindLabel && <span className="tool-card-kind self-center">{kindLabel}</span>}
+									{statusBadge && <span className="inline-flex self-center">{statusBadge}</span>}
+									{/* 耗时只对运行中的工具有行内意义（活秒表）；完成后的耗时移入行 tooltip，
 							    与静默完成态一致（学 ZCode：单条耗时撤出常驻行，交给 hover）。 */}
-							{status === "running" && (
-								<span className="shrink-0 text-chat-detail tabular-nums text-text-tertiary" title={isAskCard ? t("ask.waitingHint") : t("tool.durationTitle")}>
-									{isAskCard ? (
-										// ask 等待用户回答阶段不计入工具耗时：不展示累加秒表，改用「等待回答…」
-										// 提示。用户回答后 tool_execution_end 落地的 durationMs 已由主进程扣除等待时长。
-										t("ask.waitingForAnswer")
-									) : (
-										// 工具执行中：以 meta.startedAt 为秒表起点实时计时。消息 timestamp 会被主进程
-										// 在每次 update/end 时刷新（见 getToolLiveStartTimestamp），直接用会让长命令的
-										// 耗时显示反复归零，结束才突然跳到总时长。
-										<LiveDuration startedAt={getToolLiveStartTimestamp(props.message)} isStreaming />
+									{status === "running" && (
+										<span className="shrink-0 text-chat-detail tabular-nums text-text-tertiary" title={isAskCard ? t("ask.waitingHint") : t("tool.durationTitle")}>
+											{isAskCard ? (
+												// ask 等待用户回答阶段不计入工具耗时：不展示累加秒表，改用「等待回答…」
+												// 提示。用户回答后 tool_execution_end 落地的 durationMs 已由主进程扣除等待时长。
+												t("ask.waitingForAnswer")
+											) : (
+												// 工具执行中：以 meta.startedAt 为秒表起点实时计时。消息 timestamp 会被主进程
+												// 在每次 update/end 时刷新（见 getToolLiveStartTimestamp），直接用会让长命令的
+												// 耗时显示反复归零，结束才突然跳到总时长。
+												<LiveDuration startedAt={getToolLiveStartTimestamp(props.message)} isStreaming />
+											)}
+										</span>
 									)}
-								</span>
+									{isAskCard && askCard?.question ? (
+										<span className="min-w-0 flex-[1_1_auto] whitespace-normal break-words font-mono text-chat-detail text-text-faint" title={askCard.question}>
+											| {askCard.question}
+										</span>
+									) : !isSkillRead && (phrase.object || subtitle) ? (
+										// 作用对象预览（ZCode 工具行同款）：裸等宽暗字，无底色——过程行每轮
+										// 都有命令/路径，成片的灰底 chip 会把时间线切成碎条（2026-10 去底）。
+										// 长命令/路径的完整内容在行 tooltip 里，文本只做扫读锚点。
+										<span className="min-w-0 flex-[0_1_auto] truncate font-mono text-chat-detail text-text-faint" title={phrase.object || subtitle}>
+											{phrase.object || subtitle}
+										</span>
+									) : null}
+								</RowText>
+							</button>
+							{/* 悬浮/聚焦才露出：完成态过程行保持安静，但路径类工具随时可一键打开预览。
+					    按钮必须在 trigger <button> 之外（button 不能嵌套），否则点开文件会连带折叠。 */}
+							{props.onOpenFile && openableFilePath && (
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon"
+									className="size-6 shrink-0 text-text-faint opacity-0 transition-opacity duration-fast group-hover/tool:opacity-100 focus-visible:opacity-100 hover:text-text-secondary"
+									title={t("tool.openFile")}
+									aria-label={t("tool.openFile")}
+									onClick={() => props.onOpenFile?.(openableFilePath)}
+								>
+									<FileText size={12} aria-hidden="true" />
+								</Button>
 							)}
-							{isAskCard && askCard?.question ? (
-								<span className="min-w-0 flex-[1_1_auto] whitespace-normal break-words font-mono text-chat-detail text-text-faint" title={askCard.question}>
-									| {askCard.question}
-								</span>
-							) : !isSkillRead && (phrase.object || subtitle) ? (
-								// 作用对象预览（ZCode 工具行同款）：裸等宽暗字，无底色——过程行每轮
-								// 都有命令/路径，成片的灰底 chip 会把时间线切成碎条（2026-10 去底）。
-								// 长命令/路径的完整内容在行 tooltip 里，文本只做扫读锚点。
-								<span className="min-w-0 flex-[0_1_auto] truncate font-mono text-chat-detail text-text-faint" title={phrase.object || subtitle}>
-									{phrase.object || subtitle}
-								</span>
-							) : null}
-						</RowText>
-					</button>
-					{sticky.pinned && <ProcessEntryReturnToStart onClick={sticky.returnToStart} />}
-				</div>
-				{props.message.images && props.message.images.length > 0 && <ToolResultImages images={props.message.images} />}
-				{expanded && (
-					<div className="relative ml-5 mt-1 mb-2 rounded-b-sm border-l-2 border-border-subtle bg-transparent pl-3 animate-in fade-in duration-fast motion-reduce:animate-none">
-						{isAskCard && askCard ? (
-							<div className="ask-question-card-tool-inner">
-								<div className="ask-question-card-title">
-									<MessageCircle size={13} />
-									<span>{t("ask.question")}</span>
-									<span className="ask-question-card-status">{askCard.answered ? t("ask.answered") : t("ask.unanswered")}</span>
-								</div>
-								<div className="ask-question-card-result-list">
-									{(askCard.questions?.length ? askCard.questions : [askCard]).map((item, index) => (
-										<div key={`${item.question ?? "question"}:${index}`} className="ask-question-card-result-row">
-											<span className="ask-question-card-result-index">{(askCard.questions?.length ?? 0) > 1 ? index + 1 : "?"}</span>
-											<div className="ask-question-card-result-copy">
-												<span className="ask-question-card-result-question">{formatAskTitle(item.question || t("ask.defaultTitle"))}</span>
-												<span className={`ask-question-card-result-answer${item.answered ? " answered" : " unanswered"}`}>
-													{item.answered ? <Check size={12} aria-hidden="true" /> : null}
-													{item.answered ? askAnswerText(item.answer, item.answerLabel) : t("ask.unanswered")}
-												</span>
-											</div>
+							{sticky.pinned && <ProcessEntryReturnToStart onClick={sticky.returnToStart} />}
+						</div>
+						{props.message.images && props.message.images.length > 0 && <ToolResultImages images={props.message.images} />}
+						{expanded && (
+							<div className="relative ml-5 mt-1 mb-2 rounded-b-sm border-l-2 border-border-subtle bg-transparent pl-3 animate-in fade-in duration-fast motion-reduce:animate-none">
+								{isAskCard && askCard ? (
+									<div className="ask-question-card-tool-inner">
+										<div className="ask-question-card-title">
+											<MessageCircle size={13} />
+											<span>{t("ask.question")}</span>
+											<span className="ask-question-card-status">{askCard.answered ? t("ask.answered") : t("ask.unanswered")}</span>
 										</div>
-									))}
-								</div>
-							</div>
-						) : (
-							<>
-								{showDiff && diffTarget && (
-									// 文件工具内联 diff（issue-兼容期：edit/write 的工具卡直接看改动，
-									// 不必再点开右侧差异查看器）。折叠态渲染行；maxHeight 上限防长文件撑爆卡片。
-									<div className="mb-1.5 flex min-w-0 items-start gap-1">
-										<FileDiff className="min-w-0 flex-1" file={diffTarget.path} lines={fileChangeToDiffLines(diffTarget)} status="complete" defaultOpen={false} maxHeight={insideProcessGroupBody ? null : 200} language="diff" />
-										{props.onOpenFile && (
-											// 打开按钮与 diff 标题同行但不嵌套在 FileDiff 的折叠按钮内，
-											// 避免无效的 button 嵌套；路径解析交给会话工作区统一处理。
-											<div className="flex h-9 shrink-0 items-center">
-												<Button type="button" variant="ghost" size="icon-xs" className="size-6 rounded text-text-tertiary hover:bg-muted hover:text-foreground" aria-label={t("tool.openFile")} title={t("tool.openFile")} onClick={() => props.onOpenFile?.(diffTarget.path)}>
-													<FileText size={12} aria-hidden="true" />
-												</Button>
+										<div className="ask-question-card-result-list">
+											{(askCard.questions?.length ? askCard.questions : [askCard]).map((item, index) => (
+												<div key={`${item.question ?? "question"}:${index}`} className="ask-question-card-result-row">
+													<span className="ask-question-card-result-index">{(askCard.questions?.length ?? 0) > 1 ? index + 1 : "?"}</span>
+													<div className="ask-question-card-result-copy">
+														<span className="ask-question-card-result-question">{formatAskTitle(item.question || t("ask.defaultTitle"))}</span>
+														<span className={`ask-question-card-result-answer${item.answered ? " answered" : " unanswered"}`}>
+															{item.answered ? <Check size={12} aria-hidden="true" /> : null}
+															{item.answered ? askAnswerText(item.answer, item.answerLabel) : t("ask.unanswered")}
+														</span>
+													</div>
+												</div>
+											))}
+										</div>
+									</div>
+								) : (
+									<>
+										{showDiff && diffTarget && (
+											// 文件工具内联 diff（issue-兼容期：edit/write 的工具卡直接看改动，
+											// 不必再点开右侧差异查看器）。折叠态渲染行；maxHeight 上限防长文件撑爆卡片。
+											<div className="mb-1.5 flex min-w-0 items-start gap-1">
+												<FileDiff className="min-w-0 flex-1" file={diffTarget.path} lines={fileChangeToDiffLines(diffTarget)} status="complete" defaultOpen={false} maxHeight={insideProcessGroupBody ? null : 200} language="diff" />
+												{props.onOpenFile && (
+													// 打开按钮与 diff 标题同行但不嵌套在 FileDiff 的折叠按钮内，
+													// 避免无效的 button 嵌套；路径解析交给会话工作区统一处理。
+													<div className="flex h-9 shrink-0 items-center">
+														<Button type="button" variant="ghost" size="icon-xs" className="size-6 rounded text-text-tertiary hover:bg-muted hover:text-foreground" aria-label={t("tool.openFile")} title={t("tool.openFile")} onClick={() => props.onOpenFile?.(diffTarget.path)}>
+															<FileText size={12} aria-hidden="true" />
+														</Button>
+													</div>
+												)}
 											</div>
+										)}
+										<ToolResult
+											showHeader={false}
+											tool={toolIcon(toolName)}
+											title={toolName}
+											status={status === "running" ? "running" : status === "error" ? "error" : "success"}
+											kind={toolName.toLowerCase().includes("bash") || toolName.toLowerCase().includes("shell") ? "terminal" : "custom"}
+											maxHeight={insideProcessGroupBody ? null : TOOL_RESULT_MAX_HEIGHT_OUTSIDE_GROUP}
+											copyText={displayText}
+											copyClassName="tool-card-copy"
+											contentClassName="text-text-tertiary"
+										>
+											<ToolResultOutput>{displayText}</ToolResultOutput>
+										</ToolResult>
+									</>
+								)}
+								{piTruncation?.fullOutputPath ? (
+									// pi 侧截断提示：完整输出在磁盘文件里，给出路径 + 一键复制（PiDeck 不代读
+									// pi 的截断文件：那是 pi 的内部产物，路径交给用户自行查看/检索）。
+									<div className="flex items-center gap-2 pl-1 pb-1">
+										<Scissors size={12} className="shrink-0 text-text-tertiary" aria-hidden="true" />
+										<span className="min-w-0 flex-1 truncate text-chat-detail text-text-tertiary" title={piTruncation.fullOutputPath}>
+											{t("tool.piOutputTruncated", { path: piTruncation.fullOutputPath })}
+										</span>
+										<Button type="button" variant="ghost" size="sm" className="h-auto px-1 py-0 text-chat-detail text-text-tertiary hover:text-text-secondary" onClick={() => void copyTextWithCopiedNotice(piTruncation.fullOutputPath ?? "")}>
+											{t("tool.copyPath")}
+										</Button>
+										{props.onOpenFile && (
+											<Button type="button" variant="ghost" size="sm" className="h-auto px-1 py-0 text-chat-detail text-text-tertiary hover:text-text-secondary" onClick={() => props.onOpenFile?.(piTruncation.fullOutputPath ?? "")}>
+												{t("tool.openFile")}
+											</Button>
+										)}
+									</div>
+								) : null}
+								{isTruncated && !fullText && (
+									// 截断提示后的按需加载入口：内容完整与否由主进程决定（内存缓存/会话文件），
+									// 失败时保留重试，不让用户卡死在加载态。
+									<div className="flex items-center gap-2 pl-1 pb-1">
+										{fullError ? (
+											<>
+												<span className="text-chat-detail text-text-tertiary">{t("tool.fullOutputLoadFailed")}</span>
+												<Button type="button" variant="ghost" size="sm" className="h-auto px-1 py-0 text-chat-detail text-text-tertiary hover:text-text-secondary" onClick={() => void loadFullText()}>
+													{t("tool.retry")}
+												</Button>
+											</>
+										) : (
+											<Button type="button" variant="ghost" size="sm" className="h-auto gap-1 px-1 py-0 text-chat-detail text-text-tertiary hover:text-text-secondary" disabled={fullLoading} onClick={() => void loadFullText()}>
+												{fullLoading ? <Loader2 size={12} className="animate-pideck-spin" aria-hidden="true" /> : null}
+												{fullLoading ? t("tool.loadingFullOutput") : t("tool.viewFullOutput")}
+											</Button>
 										)}
 									</div>
 								)}
-								<ToolResult
-									showHeader={false}
-									tool={toolIcon(toolName)}
-									title={toolName}
-									status={status === "running" ? "running" : status === "error" ? "error" : "success"}
-									kind={toolName.toLowerCase().includes("bash") || toolName.toLowerCase().includes("shell") ? "terminal" : "custom"}
-									maxHeight={insideProcessGroupBody ? null : TOOL_RESULT_MAX_HEIGHT_OUTSIDE_GROUP}
-									copyText={displayText}
-									copyClassName="tool-card-copy"
-									contentClassName="text-text-tertiary"
-								>
-									<ToolResultOutput>{displayText}</ToolResultOutput>
-								</ToolResult>
-							</>
-						)}
-						{piTruncation?.fullOutputPath ? (
-							// pi 侧截断提示：完整输出在磁盘文件里，给出路径 + 一键复制（PiDeck 不代读
-							// pi 的截断文件：那是 pi 的内部产物，路径交给用户自行查看/检索）。
-							<div className="flex items-center gap-2 pl-1 pb-1">
-								<Scissors size={12} className="shrink-0 text-text-tertiary" aria-hidden="true" />
-								<span className="min-w-0 flex-1 truncate text-chat-detail text-text-tertiary" title={piTruncation.fullOutputPath}>
-									{t("tool.piOutputTruncated", { path: piTruncation.fullOutputPath })}
-								</span>
-								<Button type="button" variant="ghost" size="sm" className="h-auto px-1 py-0 text-chat-detail text-text-tertiary hover:text-text-secondary" onClick={() => void copyTextWithCopiedNotice(piTruncation.fullOutputPath ?? "")}>
-									{t("tool.copyPath")}
-								</Button>
-							</div>
-						) : null}
-						{isTruncated && !fullText && (
-							// 截断提示后的按需加载入口：内容完整与否由主进程决定（内存缓存/会话文件），
-							// 失败时保留重试，不让用户卡死在加载态。
-							<div className="flex items-center gap-2 pl-1 pb-1">
-								{fullError ? (
-									<>
-										<span className="text-chat-detail text-text-tertiary">{t("tool.fullOutputLoadFailed")}</span>
-										<Button type="button" variant="ghost" size="sm" className="h-auto px-1 py-0 text-chat-detail text-text-tertiary hover:text-text-secondary" onClick={() => void loadFullText()}>
-											{t("tool.retry")}
-										</Button>
-									</>
-								) : (
-									<Button type="button" variant="ghost" size="sm" className="h-auto gap-1 px-1 py-0 text-chat-detail text-text-tertiary hover:text-text-secondary" disabled={fullLoading} onClick={() => void loadFullText()}>
-										{fullLoading ? <Loader2 size={12} className="animate-pideck-spin" aria-hidden="true" /> : null}
-										{fullLoading ? t("tool.loadingFullOutput") : t("tool.viewFullOutput")}
-									</Button>
-								)}
 							</div>
 						)}
-					</div>
-				)}
-			</section>
+					</section>
+				</ContextMenuTrigger>
+				{/* 右键菜单：复制完整输出 / 打开目标文件（与行尾悬浮按钮同一入口）。 */}
+				<ContextMenuContent>
+					<ContextMenuItem onSelect={() => void copyTextWithCopiedNotice(displayText)}>{t("tool.copyOutput")}</ContextMenuItem>
+					{props.onOpenFile && openableFilePath && <ContextMenuItem onSelect={() => props.onOpenFile?.(openableFilePath)}>{t("tool.openFile")}</ContextMenuItem>}
+				</ContextMenuContent>
+			</ContextMenu>
 		</TimelineMarker>
 	);
 });
@@ -517,9 +557,9 @@ export const ToolGroupCard = memo(function ToolGroupCard(props: {
 	return (
 		<section className={cn("tool-group-card w-full min-w-0 rounded-none border-0 bg-transparent", insideProcessGroupBody ? "overflow-visible" : "overflow-hidden")} data-message-id={props.group.id}>
 			<div className="flex flex-col gap-0 p-0">
-				{props.group.messages.map((message) => (
-					<ToolCard key={message.id} message={message} stopped={props.stopped} sessionId={props.sessionId} onOpenFile={props.onOpenFile} />
-				))}
+				{props.group.messages.map((message) =>
+					LINKED_SESSION_TOOL_NAMES.has(getToolName(message)) ? <LinkedSessionToolCard key={message.id} message={message} stopped={props.stopped} /> : <ToolCard key={message.id} message={message} stopped={props.stopped} sessionId={props.sessionId} onOpenFile={props.onOpenFile} />,
+				)}
 			</div>
 		</section>
 	);

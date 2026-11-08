@@ -13,31 +13,36 @@ type DiagnosticsPanelProps = {
 
 /**
  * 开发设置里的性能诊断：开关 + 即时快照。
- * 采样在主进程，本面板只拉 snapshot / 打开目录，不做轮询以免关着也有开销。
+ * 采样在主进程，本面板只拉 snapshot / 打开目录；关着时零轮询，
+ * 开着时 2s 拉一次——CPU 归因要看的是变化，手动刷新容易正好错过尖刺。
  */
 export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
 	const [snapshot, setSnapshot] = useState<DiagnosticsSnapshot | null>(null);
 	const [loading, setLoading] = useState(false);
 
-	const refresh = useCallback(async () => {
-		setLoading(true);
+	const refresh = useCallback(async (showLoading = true) => {
+		if (showLoading) setLoading(true);
 		try {
 			const next = await desktopApi.system.getDiagnosticsSnapshot();
-			setSnapshot(next);
+			if (next) setSnapshot(next);
 		} catch {
 			setSnapshot(null);
 		} finally {
-			setLoading(false);
+			if (showLoading) setLoading(false);
 		}
 	}, []);
 
 	useEffect(() => {
-		if (props.enabled) void refresh();
+		if (!props.enabled) return;
+		void refresh();
+		const timer = setInterval(() => void refresh(false), 2000);
+		return () => clearInterval(timer);
 	}, [props.enabled, refresh]);
 
 	const lag = snapshot?.eventLoopLagMs ?? 0;
 	const maxLag = snapshot?.eventLoopLagMaxMs ?? 0;
 	const timings = snapshot?.recentTimings ?? [];
+	const processCpu = snapshot?.processCpu ?? [];
 
 	return (
 		<>
@@ -68,6 +73,19 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
 							</Button>
 						</div>
 					</SettingRow>
+					{processCpu.length > 0 ? (
+						// scroll-ok: text —— 单行文本列表（进程数 <= 十几个），无虚拟化必要。
+						<div className="mt-1 max-h-40 overflow-auto px-1">
+							<div className="font-mono text-caption text-muted-foreground">{t("settings.developerDiagnosticsProcesses")}</div>
+							<ul className="font-mono text-caption text-muted-foreground">
+								{processCpu.slice(0, 12).map((row) => (
+									<li key={row.pid}>
+										{processTypeLabel(row.type)} #{row.pid} {row.cpuPct}%{row.peakCpuPct > row.cpuPct ? ` · ${t("settings.developerDiagnosticsProcessPeak", { peak: String(row.peakCpuPct) })}` : ""}
+									</li>
+								))}
+							</ul>
+						</div>
+					) : null}
 					{timings.length > 0 ? (
 						// scroll-ok: text —— 单一文本块（pre / markdown 正文），没有行列表可切，虚拟化无从下手。
 						<ul className="mt-1 max-h-48 overflow-auto px-1 font-mono text-caption text-muted-foreground">
@@ -83,4 +101,20 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
 			) : null}
 		</>
 	);
+}
+
+/** 进程类型到文案；Electron 新类型（Zygote 等）直接显示原值。 */
+function processTypeLabel(type: string): string {
+	switch (type) {
+		case "Browser":
+			return t("settings.developerDiagnosticsProcMain");
+		case "Tab":
+			return t("settings.developerDiagnosticsProcRender");
+		case "GPU":
+			return t("settings.developerDiagnosticsProcGpu");
+		case "Utility":
+			return t("settings.developerDiagnosticsProcUtility");
+		default:
+			return type;
+	}
 }

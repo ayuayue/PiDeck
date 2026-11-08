@@ -12,6 +12,7 @@
       "offset": 0,
       "byteLength": 116,
       "hasMessage": false,
+      "subagentCandidate": false,
       "timestamp": "2026-03-01T10:00:00.000Z",
       "parentSession": "parent-abc"
     },
@@ -24,6 +25,7 @@
       "hasMessage": true,
       "role": "user",
       "messageTimestamp": 1772359201000,
+      "subagentCandidate": false,
       "timestamp": "2026-03-01T10:00:01.000Z",
       "preview": "первый вопрос про 索引 🔍"
     },
@@ -42,6 +44,7 @@
       "toolName": "read_file",
       "messageId": "call-1",
       "messageTimestamp": 1772350002000,
+      "subagentCandidate": false,
       "timestamp": "2026-03-01T10:00:02.500Z"
     },
     {
@@ -52,6 +55,7 @@
       "byteLength": 136,
       "hasMessage": false,
       "role": "user",
+      "subagentCandidate": false,
       "preview": "строка без блока"
     },
     {
@@ -62,7 +66,8 @@
       "byteLength": 89,
       "hasMessage": false,
       "modelChangeProvider": "openai",
-      "modelChangeId": "gpt-5.2"
+      "modelChangeId": "gpt-5.2",
+      "subagentCandidate": false
     },
     {
       "id": "m5",
@@ -71,7 +76,8 @@
       "offset": 863,
       "byteLength": 81,
       "hasMessage": false,
-      "thinkingLevel": "high"
+      "thinkingLevel": "high",
+      "subagentCandidate": false
     },
     {
       "id": "m6",
@@ -82,7 +88,8 @@
       "hasMessage": true,
       "customType": "plan-note",
       "customDisplay": true,
-      "role": "assistant"
+      "role": "assistant",
+      "subagentCandidate": false
     },
     {
       "id": "m7",
@@ -92,6 +99,7 @@
       "byteLength": 124,
       "hasMessage": true,
       "role": "user",
+      "subagentCandidate": false,
       "preview": "без timestamp"
     },
     {
@@ -101,6 +109,7 @@
       "offset": 1247,
       "byteLength": 177,
       "hasMessage": false,
+      "subagentCandidate": false,
       "summary": "压缩摘要：保留最近三轮",
       "firstKeptEntryId": "m3",
       "timestamp": "2026-03-01T10:05:00.000Z",
@@ -113,6 +122,7 @@
       "offset": 1425,
       "byteLength": 84,
       "hasMessage": false,
+      "subagentCandidate": false,
       "contextEditTargetId": "m2",
       "contextEditExcludes": true
     },
@@ -123,6 +133,7 @@
       "offset": 1510,
       "byteLength": 161,
       "hasMessage": false,
+      "subagentCandidate": false,
       "contextEditTargetId": "m3",
       "contextEditText": "замена "
     },
@@ -132,7 +143,8 @@
       "type": "todo_snapshot",
       "offset": 1672,
       "byteLength": 63,
-      "hasMessage": false
+      "hasMessage": false,
+      "subagentCandidate": false
     },
     {
       "id": "m12",
@@ -140,7 +152,8 @@
       "type": "",
       "offset": 1752,
       "byteLength": 29,
-      "hasMessage": false
+      "hasMessage": false,
+      "subagentCandidate": false
     },
     {
       "id": "m13",
@@ -150,7 +163,8 @@
       "byteLength": 150,
       "hasMessage": true,
       "role": "assistant",
-      "toolName": ""
+      "toolName": "",
+      "subagentCandidate": false
     },
     {
       "id": "m15",
@@ -159,7 +173,8 @@
       "offset": 2060,
       "byteLength": 88,
       "hasMessage": false,
-      "customType": "pi-deck-todo"
+      "customType": "pi-deck-todo",
+      "subagentCandidate": false
     },
     {
       "id": "m16",
@@ -170,6 +185,7 @@
       "hasMessage": true,
       "role": "assistant",
       "messageTimestamp": 1772359800000,
+      "subagentCandidate": false,
       "timestamp": "2026-03-01T10:10:00.000Z"
     },
     {
@@ -183,7 +199,8 @@
         "provider": "openai",
         "modelId": "gpt-5.2-codex"
       },
-      "role": "assistant"
+      "role": "assistant",
+      "subagentCandidate": false
     },
     {
       "id": "m18",
@@ -192,7 +209,8 @@
       "offset": 2508,
       "byteLength": 171,
       "hasMessage": true,
-      "role": "assistant"
+      "role": "assistant",
+      "subagentCandidate": false
     },
     {
       "id": "m19",
@@ -202,6 +220,7 @@
       "byteLength": 252,
       "hasMessage": true,
       "role": "user",
+      "subagentCandidate": false,
       "preview": "真正的问题在这里"
     },
     {
@@ -211,7 +230,8 @@
       "offset": 2933,
       "byteLength": 178,
       "hasMessage": true,
-      "role": "user"
+      "role": "user",
+      "subagentCandidate": false
     }
   ],
   "oversizedLines": 0

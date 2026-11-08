@@ -1,3 +1,47 @@
+## v0.11.3 (2026-11-07)
+
+The preview panel finally has a word-wrap switch: long lines no longer force horizontal dragging, in the diff view and the source view alike.
+
+### ✨ Improvements
+- **Word wrap toggle for previews and diffs** — a toolbar switch flips the diff view between wrapping and horizontal scrolling (the library's `overflow`), and the source view hot-swaps CodeMirror's `lineWrapping` through a compartment so toggling keeps your undo stack and scroll position. Defaults are unchanged (source wraps, diff scrolls); once you touch the switch the choice is remembered per machine in the renderer preference, not in `settings.json`.
+
+## v0.11.2 (2026-11-07)
+
+Feishu sessions now start from the same defaults as the desktop: the model and thinking level you configure per model (for example `max`) actually apply, instead of every bridge session silently running with thinking off.
+
+### 🐛 Bug Fixes
+- **Channel sessions inherit the desktop defaults** — the bridge created an empty draft without model or thinking level, so pi fell back to its own default (off) and per-model defaults never reached Feishu; new channel sessions now resolve through the same `launchDefaults` path as the desktop (`capability` snapshot + last-used fallback included), and DSH sessions keep their host-side model identity.
+
+## v0.11.1 (2026-11-07)
+
+Settings stops being a modal and the config surface catches up: settings moves into a page tab beside sessions, OAuth subscription logins get a page of their own, provider and model lists become searchable, and OpenRouter joins image generation. Memory gains batch deletion, and on the ACP side the stall watchdog no longer reports a silent cancellation as success.
+
+> v0.11.0 shipped without macOS artifacts because of a packaging config bug; this release republishes the complete set (same code as v0.11.0 plus the last fix below).
+
+### 🚀 New Features
+- **Settings opens as a page tab instead of a modal** — the 80vw×80vh dialog covered the whole workspace, so you could not watch a session while changing a setting; settings now fills the session column while the sidebar and file tree stay usable, switching to a session only deactivates it (mount kept, drafts preserved) and closing the tab unmounts it, with a confirm before discarding unsaved edits. Every "go to settings" deep link (Git commit toast, quick messages, remote host, DSH install prompts, command palette, `Cmd+,`) routes through one opener, and the page focuses the section each link asks for.
+- **OAuth logins get a page in config** — `config:oauth` lists every provider pi's `/login` supports (OAuth and API key) with all / signed-in filters, refresh and sign-out; picking one reuses the existing login dialog with provider and method preselected and starts as soon as the list is ready, and closing the dialog re-reads the credentials.
+- **OpenRouter joins image generation** — it goes through its own `POST /images` instead of OpenAI's `/images/generations`: no `response_format` in the body, reference images as `input_references`, and the result read from `data[]`.
+- **Batch delete memory entries** — the memory tab's toolbar gains batch delete: selections persist across pages and one IPC call removes them all. Entries are grouped by backing file so each file is read and written once, tombstones follow the single-delete rule (the device scope is skipped), any invalid entry rejects the whole batch before writing, the payload carries only target / projectId / key, and the batch can be undone in one click.
+- **Provider and model lists are searchable** — the auth page filters by provider name and preset display name (searching `gemini` hits Google), model pages filter by provider, and the DSH catalog filters by model id / name while row edits keep their original index; hit counts and empty-result hints come along, sorting and batch selection stay unfiltered, and the search box now shares the header row with the provider count.
+
+### ✨ Improvements
+- **Tool-result images render inline** — image extensions put the generated picture in the tool result's image content, which used to be dropped for the text only; both the live path and the history projection now attach it to the message, the collapsed tool card shows a thumbnail, and clicking opens the existing full-screen preview with save and copy.
+- **Virtual stacks render once when the scroll element arrives late** — a collapsible subtree that mounts its container and the virtual list in the same commit found no scroll element, so no range was ever computed and expanding a long list showed a blank block until something else re-rendered.
+- **macOS builds keep their identity** — the app is signed with a certificate so the permission identity stays stable across updates, and the icon is no longer corrupted by Spotlight.
+- **Warming up a session keeps your draft** — an empty window during history preload no longer resets messages or the input box, covered by a focus and continuous-typing test.
+
+### 🐛 Fixes
+- **A stall cancellation no longer reports success (#500)** — when the watchdog cancels a silent prompt the CLI answers `stopReason: "cancelled"` and `session/prompt` resolves instead of rejecting, so the turn took the happy path and was recorded as accepted while `escalatedStopRejection()` stayed unreachable from the catch branch, making `acp.stallForceStopped` dead copy. A stall with visible output now settles as a failure with `delivery: "unknown"`, the specific reason in the toast and the CLI, stop reason and update-kind counts in the log; a stall with no output keeps the empty-turn guard that rolls the bubble back and restores the draft.
+- **Timeline restore stops drifting (#477)** — an anchor outside the loaded data now widens the window and backfills history pages (up to three) instead of falling back to the top; a successful restore installs a browse pin so image decoding and Markdown reflow above the anchor no longer move the viewport; and Load More on an empty page expands the render window instead of doing nothing.
+- **The outline scale lists user prompts only** — each turn used to contribute both its prompt and its final answer, so a long session's window held half as many rounds; the scale keeps `role === "user"`, drops the role prefix columns, and swaps the hover spring for a CSS transform so one pointer enter no longer rebuilds dozens of motion elements.
+- **The DSH `/` menu lists session skills (#480)** — a live DSH session merges its skill catalog into the composer suggestions under the bare name with `source: "skill"`, and host or static commands win on name collisions.
+- **A provider without an api key is blocked on save** — pi's provider composer would throw and drop the whole provider, so a provider with models but no api anywhere in the chain made its models vanish from the list; saving now validates first and names the missing field.
+- **Image-generation providers start collapsed** — loading the config kept the first provider expanded, so a page with several providers was dominated by the first form; expand-all, collapse-all and a freshly added provider keep their behaviour.
+- **Switching models on the welcome page updates the footer** — the picker only wrote localStorage and the footer never remounted, so it kept showing the old model until the first send; a welcome-preference bump now matches what the thinking-level picker already did.
+- **finalize-release updates the latest pointer by release id** — GitHub only accepts `PATCH /releases/<id>`; patching `/releases/tags/<tag>` always returned 404, which made the v0.10.0 finalize job fail.
+- **Unsigned macOS packaging is no longer broken by blank credentials** — the release workflow exports `CSC_LINK: ''` on machines without a certificate, and electron-builder treats that empty string as a configured certificate link, resolves it against the project directory and dies with `<projectPath> not a file`, which took down both macOS jobs of v0.11.0. The `beforePack` hook now drops blank `CSC_LINK` / `CSC_KEY_PASSWORD` / `CSC_NAME` on darwin, so machines without a certificate keep the #347 ad-hoc fallback while signing machines still require a real certificate.
+
 ## v0.10.0 (2026-11-05)
 
 PiDeck grows from managing pi sessions into a workbench for several backends and environments: agent memory lands for pi and ACP sessions, and projects inside WSL distributions can be added and edited like local ones. On the engineering side, main-process networking moves onto Chromium's stack, and the timeline plus long lists finish their virtualization pass.

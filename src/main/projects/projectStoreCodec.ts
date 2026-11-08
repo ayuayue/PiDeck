@@ -106,6 +106,7 @@ function readV2Project(value: unknown): Project {
 
 function readProjectMetadata(value: Record<string, unknown>): ParsedProjectMetadata | undefined {
 	if (typeof value.id !== "string" || !value.id || typeof value.name !== "string" || !value.name || typeof value.lastOpenedAt !== "number" || !Number.isFinite(value.lastOpenedAt)) return undefined;
+	if ("createdAt" in value && (typeof value.createdAt !== "number" || !Number.isFinite(value.createdAt))) return undefined;
 	if ("pinned" in value && typeof value.pinned !== "boolean") return undefined;
 	if ("sortOrder" in value && (typeof value.sortOrder !== "number" || !Number.isFinite(value.sortOrder))) return undefined;
 	if ("kind" in value && value.kind !== "chat") return undefined;
@@ -116,6 +117,7 @@ function readProjectMetadata(value: Record<string, unknown>): ParsedProjectMetad
 		id: value.id,
 		name: value.name,
 		lastOpenedAt: value.lastOpenedAt,
+		...(typeof value.createdAt === "number" ? { createdAt: value.createdAt } : {}),
 		...(typeof value.pinned === "boolean" ? { pinned: value.pinned } : {}),
 		...(typeof value.sortOrder === "number" ? { sortOrder: value.sortOrder } : {}),
 		...(value.kind === "chat" ? { kind: "chat" } : {}),

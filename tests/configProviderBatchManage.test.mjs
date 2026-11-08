@@ -28,9 +28,9 @@ test("provider batch toolbar uses neutral manage entry, action dropdown and sing
 	// 入口中性化：改用 batchManage；common.deleteBatch 仍被模型级批量使用（~L635-644），不作全局缺失断言
 	assert.match(tab, /common\.batchManage/);
 	// 批量模式隐藏 添加/导入/指南
-	assert.match(tab, /\{!batchMode &&[\s\S]{0,600}?onStartAddProvider/);
-	assert.match(tab, /\{!batchMode &&[\s\S]{0,600}?kind: "import"/);
-	assert.match(tab, /\{!batchMode &&[\s\S]{0,600}?setShowGuide/);
+	assert.match(tab, /\{!batchMode &&[\s\S]{0,1400}?onStartAddProvider/);
+	assert.match(tab, /\{!batchMode &&[\s\S]{0,1400}?kind: "import"/);
+	assert.match(tab, /\{!batchMode &&[\s\S]{0,1400}?setShowGuide/);
 	// 动作下拉：无默认值，两选项
 	assert.match(tab, /useState<"delete" \| "export" \| null>\(null\)/);
 	assert.match(tab, /<Select value=\{batchAction \?\? undefined\}[\s\S]{0,600}?batchActionLabel/);

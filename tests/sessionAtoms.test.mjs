@@ -1249,6 +1249,76 @@ test("full flush merges trim slide-out turns into the history prefix (H2 regress
 	assert.deepEqual([...entry().history.messages.map((m) => m.meta.entryId)], ["n1"]);
 });
 
+test("空历史页到文件头后保留终止游标，不因后续 flush 或回底清理反复出现加载入口", () => {
+	const atoms = loadAtoms();
+	const store = createStore();
+	const entry = () => store.get(atoms.sessionMessagesCacheAtom)["session-a"];
+	const emit = (payload) =>
+		store.set(atoms.applySessionRuntimeEventAtom, {
+			sessionId: "session-a",
+			agentId: "agent-a",
+			runtimeGeneration: 1,
+			sourceChannel: "agents:message",
+			payload,
+		});
+
+	// 文件首条是隐藏的 system entry：第一条可见消息 e1 位于文件下标 1。
+	emit({
+		agentId: "agent-a",
+		totalLength: 2,
+		windowStartFilePos: 1,
+		fileVersion: "100:2000",
+		messages: [
+			{ id: "m1", role: "user", text: "q1", meta: { entryId: "e1" } },
+			{ id: "m2", role: "assistant", text: "a1", meta: { entryId: "e2" } },
+		],
+	});
+	assert.equal(entry().history, undefined);
+	assert.equal(store.set(atoms.prependSessionHistoryPageAtom, { sessionId: "session-a", expectedRevision: entry().revision, before: undefined, page: { messages: [], total: 3, nextBefore: null, indexVersion: "100:2000" } }), true);
+	assert.equal(entry().history?.nextBefore, null, "空页也必须记住已到文件头");
+	assert.equal(entry().history?.messages.length, 0);
+	assert.equal(entry().history?.nextBeforeEntryId, undefined);
+
+	// 增量和全量刷新不能抹掉终止标记；回底只清理有内容的历史前缀。
+	emit({ agentId: "agent-a", upsertFrom: 1, totalLength: 2, messages: [{ id: "m2", role: "assistant", text: "a1", meta: { entryId: "e2" } }] });
+	assert.equal(entry().history?.nextBefore, null);
+	emit({ agentId: "agent-a", totalLength: 2, windowStartFilePos: 1, fileVersion: "101:2100", messages: entry().messages });
+	assert.equal(entry().history?.nextBefore, null);
+	assert.equal(store.set(atoms.clearSessionHistoryAtom, "session-a"), false);
+	assert.equal(entry().history?.nextBefore, null);
+
+	// 文件重写后游标可能过期，按既有版本守卫丢弃终止标记。
+	emit({ agentId: "agent-a", totalLength: 2, windowStartFilePos: 1, fileVersion: "102:1000", messages: entry().messages });
+	assert.equal(entry().history, undefined);
+});
+
+test("空页结束前缀去重后不会把窗口首条重新判为可翻页", () => {
+	const atoms = loadAtoms();
+	const store = createStore();
+	const entry = () => store.get(atoms.sessionMessagesCacheAtom)["session-a"];
+	const emit = (payload) =>
+		store.set(atoms.applySessionRuntimeEventAtom, {
+			sessionId: "session-a",
+			agentId: "agent-a",
+			runtimeGeneration: 1,
+			sourceChannel: "agents:message",
+			payload,
+		});
+	const first = { id: "m1", role: "user", text: "q1", meta: { entryId: "e1" } };
+	emit({ agentId: "agent-a", windowStart: 1, totalLength: 1, windowStartFilePos: 1, fileVersion: "100:2000", messages: [first] });
+	store.set(atoms.prependSessionHistoryPageAtom, {
+		sessionId: "session-a",
+		expectedRevision: entry().revision,
+		before: undefined,
+		page: { messages: [first], total: 2, nextBefore: null, indexVersion: "100:2000" },
+	});
+	assert.equal(entry().history?.messages.length, 0);
+	assert.equal(entry().history?.nextBefore, null);
+	emit({ agentId: "agent-a", windowStart: 1, totalLength: 1, windowStartFilePos: 1, fileVersion: "101:2100", messages: [first] });
+	assert.equal(entry().history?.messages.length, 0);
+	assert.equal(entry().history?.nextBefore, null);
+});
+
 test("slideOut-only history keeps an entryId cursor so older pages stay reachable", () => {
 	const atoms = loadAtoms();
 	const store = createStore();

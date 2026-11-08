@@ -53,7 +53,16 @@ function log(direction, payload) {
 // sessionId 按 cwd 稳定哈希：重启 Agent（杀进程重 spawn）后桌面端期望
 // 同一会话文件被重新接管（#113 3.2-6 续聊语义），不能按时间乱变。
 const crypto = require("node:crypto");
-const sessionId = "mock-" + crypto.createHash("md5").update(process.cwd()).digest("hex").slice(0, 10);
+// 关联会话 e2e 在同一项目里同时跑父/子两个会话：按 cwd 哈希会让两者共用一个会话文件。
+// 该用例设 PIDECK_MOCK_SESSION_PER_DECK=1，按 PiDeck 注入的会话身份（PIDECK_SESSION_ID）再区分一次。
+const deckSessionKey = process.env.PIDECK_MOCK_SESSION_PER_DECK === "1" ? process.env.PIDECK_SESSION_ID : undefined;
+const sessionId =
+	"mock-" +
+	crypto
+		.createHash("md5")
+		.update(deckSessionKey ? `${process.cwd()}|${deckSessionKey}` : process.cwd())
+		.digest("hex")
+		.slice(0, 10);
 // 桌面端 resume 历史会话时会传 --session <path>（PiProcess.start:305 → finalPiArgs.push("--session", sessionPath)）。
 // 真实 pi 会加载该文件续写；mock 必须同样尊重它，否则「未启动会话重发」会在 mock 自己的
 // mock-<hash>.jsonl 里另起炉灶，丢掉截断前保留的历史（编辑后的首轮回复从时间线消失）。
@@ -160,6 +169,16 @@ const ASK_MARKERS = {
 				{ id: "b1", type: "select", question: "选择框架", options: ["React", "Vue"] },
 				{ id: "b2", type: "confirm", question: "使用 TypeScript？" },
 				{ id: "b3", type: "input", question: "项目名", placeholder: "my-app" },
+			],
+		}),
+	},
+	ASK_BATCH_PREFILL: {
+		method: "input",
+		title: JSON.stringify({
+			__piDeckBatchAsk: 1,
+			questions: [
+				{ id: "p1", type: "select", question: "选择框架", options: ["React", "Vue"] },
+				{ id: "p2", type: "editor", question: "备注", prefill: "预填的默认备注" },
 			],
 		}),
 	},
@@ -674,6 +693,41 @@ function startStream(userText, options = {}) {
 	streamTimer = setTimeout(emitChunk, chunkDelay(0));
 }
 
+/**
+ * 关联会话（linked-sessions.spec.ts）：复刻 pi-deck-linked-sessions 扩展的 start_session 工具调用——
+ * 推 tool_execution_start → 按扩展同一线格式 POST 宿主端点（offer 会挂到用户点卡片）→ tool_execution_end
+ * 带端点结果 → 再流一段正文收尾。端点 env 来自 PiProcess 注入，缺失时按扩展语义返回失败。
+ */
+async function runLinkedStart(text) {
+	const initiation = /LINKED_START\s+(offer|user_asked|own_initiative)/.exec(text)?.[1] ?? "offer";
+	streaming = true;
+	emit({ type: "agent_start" });
+	const toolCallId = `linked-e2e-${Date.now()}`;
+	const args = { title: "补登录页单测", prompt: "LINKED_CHILD 给 login.ts 补单测，跑通后汇报结果。", initiation };
+	emit({ type: "tool_execution_start", toolName: "start_session", toolCallId, args });
+	let resultText;
+	const url = process.env.PIDECK_LINKED_SESSIONS_URL;
+	const token = process.env.PIDECK_LINKED_SESSIONS_TOKEN;
+	if (!url || !token) {
+		resultText = "失败：no-endpoint";
+	} else {
+		try {
+			const response = await fetch(url, {
+				method: "POST",
+				headers: { "content-type": "application/json", "x-pideck-linked-token": token },
+				body: JSON.stringify({ op: "start", toolCallId, ...args }),
+			});
+			const body = await response.json();
+			resultText = body.ok ? JSON.stringify(body.data, null, 2) : `失败：${body.error}`;
+		} catch (error) {
+			resultText = `失败：${error instanceof Error ? error.message : String(error)}`;
+		}
+	}
+	emit({ type: "tool_execution_end", toolName: "start_session", toolCallId, result: { content: [{ type: "text", text: resultText }] }, isError: resultText.startsWith("失败：") });
+	streaming = false;
+	startStream(`开会话请求已处理（${initiation}）`);
+}
+
 function handleCommand(cmd) {
 	switch (cmd.type) {
 		case "get_state":
@@ -775,6 +829,11 @@ function handleCommand(cmd) {
 			}
 			if (text.includes("RETRY_OK") || text.includes("RETRY_FAIL")) {
 				simulateRetry(text);
+				return;
+			}
+			// 只认开头：子会话简报会引用父会话标题（也含这个标记），不能让子会话再开一次
+			if (text.startsWith("LINKED_START") && !streaming) {
+				void runLinkedStart(text);
 				return;
 			}
 			if (streaming) {

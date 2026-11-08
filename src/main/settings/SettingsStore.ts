@@ -28,6 +28,7 @@ import {
 } from "../../shared/types";
 import { normalizePinnedSessionIds } from "../../shared/pinnedSessions";
 import { normalizeSessionSortMode } from "../../shared/sessionSort";
+import { normalizeProjectSortMode } from "../../shared/projectSort";
 import { normalizeHiddenModules } from "../../shared/hiddenModules";
 import { normalizeHiddenComposerFeatures } from "../../shared/composerFeatures";
 import { parseBusySendDelivery } from "../../shared/busySendDelivery";
@@ -423,6 +424,10 @@ Gitmoji 对应关系：
 	fontFamilyBaseCustom: "",
 	fontFamilyMono: "system-mono",
 	fontFamilyMonoCustom: "",
+	// 会话内 Markdown 代码块默认横向滚动（历史观感）
+	codeBlockWordWrap: false,
+	// 减弱动效默认关闭（保留历史观感）
+	reduceMotion: false,
 
 	// 终端外观/行为默认值：主题 inherit 保持现有 pi-soft 跟随明暗行为，
 	// scrollback 与 TerminalDock 原硬编码 5000 一致（升级后行为不变）。
@@ -504,6 +509,25 @@ function clampToastDurationMs(value: unknown): number {
  * ACP 超时口径清洗：只接受正整数毫秒（上限 24h）；其余（脏数据/越界/负数/浮点）返回
  * undefined 回落代码内默认（stall 90s / turn 10min），不落盘脏值去骗看门狗。
  */
+/**
+ * 外部合并基准（#433/#501）：内存里有有效值、且磁盘原文里有这个键 → 用磁盘原文值；
+ * 其余一律不进基准（手工键不在内存里；归一化成 undefined 的键也不算「内存状态」）。
+ */
+function buildMergeBaseline(settings: AppSettings, diskParsed: Partial<AppSettings>): Record<string, unknown> {
+	const baseline: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(stripShowThinking(settings))) {
+		if (value === undefined) continue;
+		if (key in diskParsed) baseline[key] = (diskParsed as Record<string, unknown>)[key];
+	}
+	return baseline;
+}
+
+/** 去掉不持久化的 showThinking，得到真正会写进 settings.json 的内存视图。 */
+function stripShowThinking(settings: AppSettings): Omit<AppSettings, "showThinking"> {
+	const { showThinking: _unused, ...persistable } = settings;
+	return persistable;
+}
+
 function sanitizeOptionalPositiveIntMs(value: unknown): number | undefined {
 	if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
 	const n = Math.floor(value);
@@ -531,12 +555,10 @@ export class SettingsStore {
 		// 主文件解析失败（撕裂写/外部改坏）时回退上一次原子保存留下的 .bak：
 		// 直接重置默认值会静默丢掉用户的全部设置（代理/编辑器/快捷键/置顶等）。
 		// .bak 也不可用（全新安装/首次保存前）才用默认值。
-		const persisted = await this.readPersistedSettings();
-		if (persisted === null) {
+		const parsed = await this.readPersistedSettings();
+		if (parsed === null) {
 			this.settings = { ...defaultSettings };
 		} else {
-			const parsed = persisted.settings;
-			this.loadedJson = persisted.text;
 			this.settings = {
 				...defaultSettings,
 				...parsed,
@@ -559,6 +581,14 @@ export class SettingsStore {
 			// 侧栏分组标题栏冻结开关同理：旧配置缺字段/脏值回落 false（默认关闭 = 历史行为）。
 			if (typeof this.settings.sidebarStickyGroupHeaders !== "boolean") {
 				this.settings.sidebarStickyGroupHeaders = defaultSettings.sidebarStickyGroupHeaders;
+			}
+			// 代码块换行开关同理：旧配置缺字段/脏值回落 false（默认横滚 = 历史行为）。
+			if (typeof this.settings.codeBlockWordWrap !== "boolean") {
+				this.settings.codeBlockWordWrap = defaultSettings.codeBlockWordWrap;
+			}
+			// 减弱动效开关同理：旧配置缺字段/脏值回落 false（默认不降级 = 历史观感）。
+			if (typeof this.settings.reduceMotion !== "boolean") {
+				this.settings.reduceMotion = defaultSettings.reduceMotion;
 			}
 			// 公告通知开关同理：旧配置缺字段回落 true（默认开启），脏数据（字符串等）也回落。
 			if (typeof this.settings.announcementNotificationEnabled !== "boolean") {
@@ -634,8 +664,8 @@ export class SettingsStore {
 			this.settings.themeScheduleDarkStart = schedule.darkStart;
 			// 置顶状态只接受稳定、非空的 SessionRecord id；旧设置缺省时自然回落为空。
 			this.settings.pinnedSessionIds = normalizePinnedSessionIds(parsed.pinnedSessionIds);
-			// 会话排序模式：未知字符串（手改/未来删除的方案）回落默认「最近活跃」。
 			this.settings.sessionSortMode = normalizeSessionSortMode(parsed.sessionSortMode);
+			this.settings.projectSortMode = normalizeProjectSortMode(parsed.projectSortMode);
 			// ACP 总开关：可选布尔，缺省/非布尔→false（opt-in；老用户升级后 ACP 入口保持关闭直到主动开启）。
 			this.settings.acpEnabled = parsed.acpEnabled === true;
 			// ACP 工具登记表：手改 settings.json 的脏条目在加载边界归一，不等到首次 update。
@@ -720,6 +750,11 @@ export class SettingsStore {
 			this.settings.hiddenModules = normalizeHiddenModules(parsed.hiddenModules);
 			// 输入框功能入口同规则清洗（与 hiddenModules 共用实现）。
 			this.settings.hiddenComposerFeatures = normalizeHiddenComposerFeatures(parsed.hiddenComposerFeatures);
+			// 合并基准（#433/#501）：只取「磁盘原文里、内存当前有有效值」的键——归一化把某个键
+			// 判成 undefined 时它不进基准，磁盘上的手工值就不会被当成「用户清空」而删掉；
+			// 内存里新增的默认键也不进基准，于是首个写盘仍会把它们补进文件。后面的迁移
+			// （composerModes 等）在基准之后执行，差异照常落盘。
+			this.lastPersistedMemoryJson = JSON.stringify(buildMergeBaseline(this.settings, parsed), null, 2);
 			// 兼容迁移：模式选择器开关原在「功能模块」（hiddenModules）里，现归「输入框功能显示」。
 			this.migrateRemovedComposerModesToggle();
 			// 远端 trust 决策表来自旧 JSON 时可能是脏值（非数组 / 字段畸形 / key 与零件不自洽）：
@@ -746,12 +781,11 @@ export class SettingsStore {
 	 * 读主 settings.json；解析失败（撕裂写/外部改坏）时回退 .bak，两者都不可用返回 null。
 	 * 只负责读与解析，不做任何规范化——normalize 逻辑保持在 load() 单一位置。
 	 */
-	/** 读盘结果附带原文 text：writeAtomic 的外部合并（#433）需要「本次启动读到的原文」作对比基准。 */
-	private async readPersistedSettings(): Promise<{ settings: Partial<AppSettings>; text: string } | null> {
+	private async readPersistedSettings(): Promise<Partial<AppSettings> | null> {
 		for (const path of [this.filePath, `${this.filePath}.bak`]) {
 			try {
 				const text = await readFile(path, "utf8");
-				return { settings: JSON.parse(text) as Partial<AppSettings>, text };
+				return JSON.parse(text) as Partial<AppSettings>;
 			} catch {
 				// 主文件缺失/损坏 → 试 .bak（与既有兜底顺序一致），两份都不可用才返回 null
 			}
@@ -860,6 +894,14 @@ export class SettingsStore {
 		// IPC 入参不可信：自动标题开关只接受布尔值，非法值保持原有设置。
 		if ("autoSessionTitle" in safePatch && typeof safePatch.autoSessionTitle !== "boolean") {
 			delete safePatch.autoSessionTitle;
+		}
+		// 代码块换行开关：只接受布尔值，脏值不落盘（渲染层按 dataset 读，字符串会误判为开）。
+		if ("codeBlockWordWrap" in safePatch && typeof safePatch.codeBlockWordWrap !== "boolean") {
+			delete safePatch.codeBlockWordWrap;
+		}
+		// 减弱动效开关：只接受布尔值，脏值不落盘（dataset 读 "true"/"false" 会误判为开）。
+		if ("reduceMotion" in safePatch && typeof safePatch.reduceMotion !== "boolean") {
+			delete safePatch.reduceMotion;
 		}
 		// 侧栏分组标题栏冻结开关同理：只接受布尔值，脏值不落盘。
 		if ("sidebarStickyGroupHeaders" in safePatch && typeof safePatch.sidebarStickyGroupHeaders !== "boolean") {
@@ -1062,10 +1104,9 @@ export class SettingsStore {
 		if ("pinnedSessionIds" in safePatch) {
 			safePatch.pinnedSessionIds = normalizePinnedSessionIds(safePatch.pinnedSessionIds);
 		}
-		// 排序模式来自渲染层下拉，入参不可信：非法值回落默认而不是写入坏字符串。
-		if ("sessionSortMode" in safePatch) {
-			safePatch.sessionSortMode = normalizeSessionSortMode(safePatch.sessionSortMode);
-		}
+		// 排序模式在设置边界归一，非法值各自回落默认。
+		if ("sessionSortMode" in safePatch) safePatch.sessionSortMode = normalizeSessionSortMode(safePatch.sessionSortMode);
+		if ("projectSortMode" in safePatch) safePatch.projectSortMode = normalizeProjectSortMode(safePatch.projectSortMode);
 		// 隐藏模块清单来自渲染层开关，入参不可信：只收字符串、去重去空。
 		if ("hiddenModules" in safePatch) {
 			safePatch.hiddenModules = normalizeHiddenModules(safePatch.hiddenModules);
@@ -1352,13 +1393,18 @@ export class SettingsStore {
 	/** 上次成功落盘的序列化内容：.bak 只在内容真正变化时复制（去重高频写）。 */
 	private lastPersistedJson: string | null = null;
 
-	/** 本次启动 load() 读到的磁盘原文：外部合并（#433）的对比基准（首写前 lastPersistedJson 为 null 时使用）。 */
-	private loadedJson: string | null = null;
+	/**
+	 * 外部合并（#433）的对比基准：**内存快照**在上次落盘时的序列化结果。
+	 *
+	 * 不能用落盘原文当基准——落盘原文里混着磁盘侧的手工键（#501），拿它当基准会让
+	 * 下一轮把这些键误判成「程序里已删除」而静默抹掉。基准只描述「内存当时是什么」。
+	 */
+	private lastPersistedMemoryJson: string | null = null;
 
 	private async writeAtomic(): Promise<void> {
 		await mkdir(app.getPath("userData"), { recursive: true });
 		// showThinking 由 pi agent 的 hideThinkingBlock 决定，不持久化到桌面 settings.json
-		const { showThinking: _unused, ...persistable } = this.settings;
+		const persistable = stripShowThinking(this.settings);
 		const tmpPath = `${this.filePath}.tmp`;
 		const json = await this.resolveJsonToPersist(persistable);
 		await writeFile(tmpPath, json, "utf8");
@@ -1369,6 +1415,7 @@ export class SettingsStore {
 		}
 		await renameWithRetry(tmpPath, this.filePath);
 		this.lastPersistedJson = json;
+		this.lastPersistedMemoryJson = JSON.stringify(persistable, null, 2);
 	}
 
 	/**
@@ -1381,22 +1428,42 @@ export class SettingsStore {
 	 * 外部文件损坏时退回内存覆盖（load 已有 .bak 兜底，坏文件没有合并价值）。
 	 */
 	private async resolveJsonToPersist(persistable: Omit<AppSettings, "showThinking">): Promise<string> {
-		const baseline = this.lastPersistedJson ?? this.loadedJson;
+		const baseline = this.lastPersistedMemoryJson;
 		if (baseline === null) return JSON.stringify(persistable, null, 2);
 		const diskText = await readFile(this.filePath, "utf8").catch(() => null);
-		if (diskText === null || diskText === baseline) return JSON.stringify(persistable, null, 2);
+		if (diskText === null) return JSON.stringify(persistable, null, 2);
 		try {
 			const disk = JSON.parse(diskText) as Record<string, unknown>;
 			const fromBaseline = JSON.parse(baseline) as Record<string, unknown>;
 			const memory = persistable as unknown as Record<string, unknown>;
 			const merged: Record<string, unknown> = { ...disk };
+			const dropped: string[] = [];
 			for (const [key, value] of Object.entries(memory)) {
+				// 可选键的 sanitizer 会把缺省/脏值归一成 undefined（acpPromptStallTimeoutMs 等），
+				// 内存里「没有有效值」不等于用户清空：磁盘上的手工值必须原样留着（#501）。
+				// 只有基准里确实有值、现在变 undefined，才是用户/程序真的清掉了它。
+				if (value === undefined) {
+					if (fromBaseline[key] !== undefined) {
+						delete merged[key];
+						dropped.push(key);
+					}
+					continue;
+				}
 				if (JSON.stringify(value) !== JSON.stringify(fromBaseline[key])) merged[key] = value;
 			}
+			// 只删「基准里有、内存里没了」的键（程序侧删除）。磁盘独有的手工键不在基准里，
+			// 绝不能因为内存不认识就被当成删除对象——这正是 #501 的静默丢失路径。
 			for (const key of Object.keys(fromBaseline)) {
-				if (!(key in memory)) delete merged[key];
+				if (!(key in memory)) {
+					if (key in merged) dropped.push(key);
+					delete merged[key];
+				}
 			}
 			delete merged.showThinking;
+			if (dropped.length > 0) {
+				// 手工编辑被程序侧覆盖/删除时留痕，不再静默（#501 反馈：丢失毫无提示）。
+				getAppLogger()?.info("settings", "settings write dropped keys", { keys: dropped });
+			}
 			return JSON.stringify(merged, null, 2);
 		} catch {
 			return JSON.stringify(persistable, null, 2);

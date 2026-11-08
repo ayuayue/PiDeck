@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtom, useAtomValue } from "jotai";
-import type { AgentBackend, AgentTab, Project, SessionRecord, SessionSortModeId } from "../../../shared/types";
+import type { AgentBackend, AgentTab, Project, ProjectSortModeId, SessionRecord, SessionSortModeId } from "../../../shared/types";
 import { agentInventoryAtom, projectInventoryAtom, rpcLoggingAgentIdsAtom, sessionCatalogLoadStateAtom, sessionIdsByProjectAtom, sessionRecordsAtom, sidebarExpandedProjectIdsAtom, sidebarNavTabAtom, sidebarRuntimeAtom, toggleRpcLoggingAgent } from "../atoms";
 import { migrateLegacyCollapsedProjects, sameProjectIdSet, writeExpandedSidebarProjects } from "../utils/sidebarExpandedProjects";
 import { parseSidebarNavTab, writeSidebarNavTab, type SidebarNavTab } from "../utils/sidebarNavTab";
 import { SESSION_FILTER_PILLS, parseSessionFilterState, serializeSessionFilterState, sessionPillOf, type SessionFilterPill, type SessionFilterState } from "../sessionFilterPills";
 import { resolveSessionSortMode } from "../sessionSortModes";
+import { useProjectSortMode, type ProjectSortModeOptions } from "./sidebar/useProjectSortMode";
 
 export const SIDEBAR_PROJECT_CHILD_PAGE_SIZE = 5;
 
@@ -53,6 +54,8 @@ export type SidebarController = {
 	/** 当前会话排序模式（settings.sessionSortMode 的运行时快照） */
 	sessionSortMode: SessionSortModeId;
 	setSessionSortMode: (mode: SessionSortModeId) => void;
+	projectSortMode: ProjectSortModeId;
+	setProjectSortMode: (mode: ProjectSortModeId) => void;
 	isSessionPinned: (sessionId: string) => boolean;
 	toggleSessionPin: (sessionId: string) => void;
 	expandedProjectIds: ReadonlySet<string>;
@@ -192,8 +195,9 @@ export function useSidebarController(
 		settingsLoaded?: boolean;
 		/** 权威 settings 已应用且旧 key 已完成迁移后通知 App 开始懒加载会话。 */
 		onExpandedProjectsReady?: () => void;
-	} = {},
+	} & ProjectSortModeOptions = {},
 ): SidebarController {
+	const projectSort = useProjectSortMode(options);
 	const projects = useAtomValue(projectInventoryAtom);
 	const agents = useAtomValue(agentInventoryAtom);
 	const sessionRecords = useAtomValue(sessionRecordsAtom);
@@ -541,6 +545,7 @@ export function useSidebarController(
 		toggleSessionPin,
 		sessionSortMode,
 		setSessionSortMode,
+		...projectSort,
 		expandedProjectIds,
 		isProjectCollapsed: (projectId) => !expandedProjectIds.has(projectId),
 		toggleProject,

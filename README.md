@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-38-47848f)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Version](https://img.shields.io/badge/version-0.10.0-blue)
+![Version](https://img.shields.io/badge/version-0.11.3-blue)
 
 国内 AtomGit 托管：https://atomgit.com/ayuayue/PiDeck
 <!-- 预留 AtomGit G-Star 徽章位（替换占位链接后启用）
@@ -102,23 +102,10 @@
 
 ## 📋 更新日志
 
-> **最新版本 v0.10.0**（2026-11-05）
+> **最新版本 v0.11.3**（2026-11-07）
 
-### v0.10.0 更新亮点
-- 🚀 **智能体记忆：pi 与 ACP 会话共用一份长期记忆**
-- 🚀 **记忆导出 / 导入带预览与冲突策略**
-- 🚀 **WSL 发行版里的项目可以正常添加与编辑**
-- 🚀 **宿主插件市场**
-- 🚀 **支持导入 CodeBuddy 会话**
-- 🚀 **时间线右缘刻度可展开成完整会话目录**
-- 🚀 **内置 TokenDance 供应商显示折扣 / 免费徽章**
-- 🚀 **Web 端补齐桌面体验**
-- 🚀 **侧栏支持批量移除项目记录**
-- 🚀 **新增「羊皮纸」配色**
-- ✨ **排队消息支持「立即发送」**
-- ✨ **时间线与大纲完成虚拟化收口**
-- ✨ **Git 面板不再挤字也不再卡顿**
-- ✨ **非激活会话暂停流式打字机与 Markdown 重排**
+### v0.11.3 更新亮点
+- ✨ **预览与 diff 支持自动换行**
 
 [查看完整更新日志 →](CHANGELOG.zh-CN.md)
 
@@ -130,7 +117,7 @@
 
 | 功能 | 说明 |
 |---|---|
-| **多项目工作区** | 添加、搜索、拖动排序和切换本地项目目录，同时运行多个 pi Agent，项目间完全隔离。 |
+| **多项目工作区** | 添加、搜索和切换本地项目目录，同时运行多个 pi Agent，项目间完全隔离。项目分组的「⋯ → 项目排序」可选手动拖拽、最近活动、创建时间或标题，记住所选方式并始终优先展示置顶项目；没有创建时间记录的旧项目排在已记录项目之后，保留原有相对顺序。 |
 | **内置 Chat** | 项目列表顶部固定 Chat 入口，写入应用用户目录，适合无需绑定代码项目的通用对话。 |
 | **会话引导页** | 新建会话时预选模型与思考档位，支持 `@` 文件引用，开箱即聊。 |
 | **信任确认系统** | 桌面端拦截 pi 的信任确认；不信任的项目仍可打开，有 Agent 运行时禁止删除项目。 |
@@ -296,6 +283,8 @@ npm run dist:linux:dev # Linux（AppImage + deb + tar.gz）
 |---|---|
 | [qgx1992/pideck-mobile](https://github.com/qgx1992/pideck-mobile) | 协议核心 + Capacitor 手机客户端：扫码 / 手填链接配对、流式会话、通知与工作区，可自行打包 APK。 |
 | [xrbbm/PocketDeck](https://github.com/xrbbm/PocketDeck) | 原生 Android（Kotlin + Jetpack Compose）客户端：扫码直达最近会话、审批卡片、Git / 文件工作区，Releases 可直接下载 APK。 |
+
+移动端读取桌面端 pi 文件模板时，使用独立的 [Prompt Templates 只读 API](docs/web-prompt-templates.md)；原 `/api/prompts` 仍用于云端提示词库。
 
 ---
 

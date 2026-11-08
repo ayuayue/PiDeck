@@ -64,15 +64,21 @@
  * 2026-11-07 rebind 向导（+4）：remote:rebind-plan / answer / describe / resume，
  *   ipcChannels 835→839，前缀数仍 94（remote 前缀已存在）。
  * 2026-11-07 P1-2（+1）：files:move-to（单源移动到目标全路径），ipcChannels 839→840。
+ * 2026-11-08 合并 origin/dev（+4）：linked-sessions 域入场（+4 通道），ipcChannels 840→844，
+ *   前缀数 94→95；git 前缀仍 59（兼容壳下线未被远端改回）。
+ * 2026-11-07 刷新（+1）：agentMemoryDeleteEntries（记忆条目批量删除，一次 IPC 按落盘文件分组写入，
+ *   提交 483a52dfe 漏刷快照）→ 816，agent-memory 前缀已存在，前缀数仍 93。
+ * 2026-11-08 刷新（+4）：关联会话（子对话，host-boundaries 例外九）linked-sessions:snapshot/answer/archive/changed
+ *   → 820，新增 linked-sessions 前缀，前缀数 93→94。
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const CHANNEL_TOTAL = 840;
-const PREFIX_COUNT = 94;
-const CHANNEL_DIGEST = "bd3322ea3b50f5f82d997f1f191b933c6a132888f436117107707a497ee9ba65";
+const CHANNEL_TOTAL = 844;
+const PREFIX_COUNT = 95;
+const CHANNEL_DIGEST = "af428f15e872d8cea881f09fb85b465a6893fe4807bdaafb80f76041d4ca918a";
 // agentEventTags：Agent 内部事件标签（emit 的 sourceChannel），不是 IPC 通道，不进 preload。
 const EVENT_TAG_TOTAL = 8;
 const EVENT_TAG_DIGEST = "aab959e88353903d214ac0276ccbdc0c90a31240dabc6469b6174a902c76d44b";
@@ -91,11 +97,11 @@ const sortedDigest = (pairs) => {
 	return createHash("sha256").update(serialized, "utf8").digest("hex");
 };
 
-test("F3-1 通道常量总数 === 840", () => {
+test("F3-1 通道常量总数 === 844", () => {
 	assert.equal(entries.length, CHANNEL_TOTAL);
 });
 
-test("F3-2 通道值唯一数 === 840（无重复通道字符串）", () => {
+test("F3-2 通道值唯一数 === 844（无重复通道字符串）", () => {
 	assert.equal(new Set(values).size, CHANNEL_TOTAL);
 });
 

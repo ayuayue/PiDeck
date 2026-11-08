@@ -93,7 +93,7 @@ export type UseSessionSendOptions = {
 	recordPromptHistory?: (sessionId: string, message: string) => void;
 	refreshProject?: (projectId: string) => void;
 	showError?: (message: string, duration?: number) => void;
-	showUnknown?: () => void;
+	showUnknown?: (message?: string) => void;
 	/** ACP 首启失败回收（可选）：会话激活从未成功（仍 draft 且被 agent 拒收）时由外层
 	 *  删除会话并回收草稿到引导页；返回 true 表示已清理，发送链路立即结算。 */
 	pruneFailedAcpDraft?: (sessionId: string) => Promise<boolean> | boolean;
@@ -699,7 +699,9 @@ export function useSessionSend(options: UseSessionSendOptions) {
 						},
 					},
 				});
-				options.showUnknown?.();
+				// 宿主给了具体原因（stall/升级强杀/回合超时）就弹它，否则严重降级成「可能已提交」——
+				// 对「被自动停止」这类语义，“已提交但未确认”会误导用户以为是网络问题（#500）。
+				options.showUnknown?.(toastMessage);
 			} else {
 				// 拒绝时回填原始草稿（含 token）保留 chip 形态；unknown 快照仍存展开后文本（已实际投递的内容）
 				restoreRejectedPrompt(sessionId, keepDraft, rawDraft, imageSnapshot, quoteMap);

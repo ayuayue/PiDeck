@@ -2,7 +2,7 @@ import type { ProjectFileAccessScope, ProjectFileTarget } from "../../../../shar
 import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useSetAtom } from "jotai";
 import { t } from "../../i18n";
-import { ArrowLeft, Maximize, Minimize2, RefreshCw, Rows2, SquareSplitHorizontal, X, Eye, FileCode, Loader2, TriangleAlert } from "lucide-react";
+import { ArrowLeft, Maximize, Minimize2, RefreshCw, Rows2, SquareSplitHorizontal, X, Eye, FileCode, Loader2, TriangleAlert, WrapText } from "lucide-react";
 import { Button } from "../ui-shadcn/button";
 import { cn } from "../../lib/utils";
 import { MarkdownStream } from "../session/MarkdownStream";
@@ -12,9 +12,15 @@ import { UNTRUSTED_MARKDOWN_REHYPE_PLUGINS } from "../session/markdownSanitize";
 import rehypeKatex from "rehype-katex";
 import { remarkGfmNoSingleTilde } from "../../utils/markdownPlugins";
 import { imageMimeOrBinary } from "../../utils/imageMime";
+import { base64ToBytes } from "../../utils/base64Bytes";
+import { getBinaryPreviewKind, getMediaMimeForPath } from "../../utils/binaryPreview";
+import { BinaryFilePreview } from "./preview/BinaryFilePreview";
 // CodeMirrorEditor 静态链上挂着整个 CodeMirror 6 全家桶（view/state/commands/
 // autocomplete/search/lint/lang-json），经 WorkbenchContent 静态 import 进主 chunk，
 // App 启动即解析。与 CodeDiffView 同款懒加载：首次打开编辑器才拉 chunk。
+/** 预览面板自动换行的本机偏好键（值 "wrap" / "scroll"）。 */
+const FILE_WORD_WRAP_KEY = "pideck.filePreview.wordWrap";
+
 const CodeMirrorEditor = lazy(() => import("./CodeMirrorEditor").then((m) => ({ default: m.CodeMirrorEditor })));
 // CodeDiffView 静态链上挂着 @pierre/diffs + shiki（WASM 重库），懒加载后这些模块
 // 移出首屏初始 chunk（约 -500KB 解析量），仅在用户打开 diff 时才拉取。
@@ -107,6 +113,17 @@ export function FileDiffViewer(props: {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [sideBySide, setSideBySide] = useState(props.displayMode !== "drawer");
+	// 自动换行偏好（Discussions #423）：只影响本机的预览观感，属渲染层偏好，
+	// 存 localStorage 而不是 settings.json——升级不该改变任何人的默认排版，
+	// 也不需要为此扩设置 schema 与 IPC。null = 没点过开关，按各视图原有默认。
+	const [wordWrapPref, setWordWrapPref] = useState<boolean | null>(() => {
+		try {
+			const stored = window.localStorage.getItem(FILE_WORD_WRAP_KEY);
+			return stored === "wrap" ? true : stored === "scroll" ? false : null;
+		} catch {
+			return null;
+		}
+	});
 	// 「转为可编辑」二次确认：解锁后本 tab 就能自动保存/Ctrl+S，所以把后果（直接写这个路径）先摆给用户。
 	const [unlockConfirmOpen, setUnlockConfirmOpen] = useState(false);
 	// 重新加载（重读磁盘）：内容只在打开/切 Tab 时读一次，AI 或外部工具改完磁盘后
@@ -136,6 +153,17 @@ export function FileDiffViewer(props: {
 	const lineSeparatorRef = useRef<"\n" | "\r\n">("\n");
 
 	const isDiffMode = props.mode === "diff";
+	// 没点过开关时沿用各视图原有观感：源码/单文件换行、diff 横向滚动。
+	const wordWrap = wordWrapPref ?? !isDiffMode;
+	const toggleWordWrap = () => {
+		const next = !wordWrap;
+		setWordWrapPref(next);
+		try {
+			window.localStorage.setItem(FILE_WORD_WRAP_KEY, next ? "wrap" : "scroll");
+		} catch {
+			// 隐私模式/配额满：开关本次会话内仍生效，只是不记住
+		}
+	};
 	const fileAccessPath = props.fileTarget ?? props.filePath;
 	// 只读查看：项目外文件经安全门打开时没有 saveContent（allowSave=false），编辑器只展示不可输入。
 	const readOnlyView = !isDiffMode && !props.saveContent;
@@ -148,6 +176,13 @@ export function FileDiffViewer(props: {
 	// 图片/PDF 走内置预览（view 模式）：二进制内容不可文本读取，跳过编辑器直接渲染。
 	const isImage = isImageFile(props.filePath);
 	const isPdf = isPdfFile(props.filePath);
+	// Office/压缩包/音视频同样不可文本编辑：音视频与图片/PDF 一样读成 Blob URL，
+	// Office/zip 交给 BinaryFilePreview 自己读盘（按类型懒加载解析库，不进首屏 chunk）。
+	const binaryPreviewKind = isDiffMode ? null : getBinaryPreviewKind(props.filePath);
+	// 音视频走 Blob URL（CSP media-src 已允许），Office/zip 交给 BinaryFilePreview 自己读盘。
+	const officePreviewKind = binaryPreviewKind === "docx" || binaryPreviewKind === "spreadsheet" || binaryPreviewKind === "archive" ? binaryPreviewKind : null;
+	const isAudio = binaryPreviewKind === "audio";
+	const isVideo = binaryPreviewKind === "video";
 	// 默认预览模式：markdown/html/svg 打开直接渲染预览（干净阅读），
 	// 点「源码」切换按钮才进入源码模式；源码模式即编辑模式，不再需要独立的编辑按钮。
 	const defaultPreview = !isDiffMode && (isMarkdown || isHtml || isSvg);
@@ -181,8 +216,14 @@ export function FileDiffViewer(props: {
 				// 图片/PDF：仅 view 模式读取二进制转 Blob URL 预览（不文本读取）；
 				// diff 模式无法展示二进制差异，维持「不支持编辑」提示。
 				if (isBinaryExtension(props.filePath)) {
-					if (!isDiffMode && (isImageFile(props.filePath) || isPdfFile(props.filePath))) {
+					if (!isDiffMode && (isImageFile(props.filePath) || isPdfFile(props.filePath) || isAudio || isVideo)) {
 						await loadMediaPreview();
+						return;
+					}
+					// Office/zip：父层只决定该不该展示，读盘与加载/错误态由 BinaryFilePreview 负责，
+					// 避免同一份二进制在父子两层各读一次。
+					if (officePreviewKind) {
+						setLoading(false);
 						return;
 					}
 					setError(t("editor.binaryFileNotSupported", { ext }));
@@ -264,8 +305,8 @@ export function FileDiffViewer(props: {
 					return;
 				}
 				// 传**路径**：映射按扩展名查表，传裸扩展名（"png"）会查不到而永远退化成 octet-stream。
-				const mime = isPdf ? "application/pdf" : imageMimeOrBinary(props.filePath);
-				const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+				const mime = isPdf ? "application/pdf" : (getMediaMimeForPath(props.filePath) ?? imageMimeOrBinary(props.filePath));
+				const bytes = base64ToBytes(base64);
 				revokeMediaUrl();
 				const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
 				mediaUrlRef.current = url;
@@ -548,6 +589,11 @@ export function FileDiffViewer(props: {
 							{preview ? <FileCode size={15} /> : <Eye size={15} />}
 						</Button>
 					)}
+					{!loading && !error && !binaryPreviewKind && (
+						<Button variant="ghost" size="icon-sm" title={wordWrap ? t("editor.wordWrapOff") : t("editor.wordWrapOn")} aria-label={t("editor.wordWrap")} aria-pressed={wordWrap} className={cn(wordWrap && "text-foreground")} onClick={toggleWordWrap}>
+							<WrapText size={15} />
+						</Button>
+					)}
 					{isDiffMode && !loading && !error && displayMode !== "drawer" && (
 						<Button variant="ghost" size="icon-sm" title={sideBySide ? t("app.showSingle") : t("app.showSplit")} onClick={() => setSideBySide(!sideBySide)}>
 							{/* 图标随模式变化：分栏时显示「单栏」图标（点击合并），单栏时显示「分栏」图标（点击分栏），
@@ -625,6 +671,19 @@ export function FileDiffViewer(props: {
 						)}
 						{/* PDF 预览：Blob URL + Chromium 内置 PDF viewer */}
 						{!isDiffMode && isPdf && mediaUrl && <iframe className="file-diff-pdf-preview" src={mediaUrl} title={t("editor.pdfPreview")} referrerPolicy="no-referrer" />}
+						{/* 音视频：与图片/PDF 同一条 Blob URL 链路（CSP media-src 已允许 blob:） */}
+						{!isDiffMode && isAudio && mediaUrl && (
+							<div className="flex h-full w-full items-center justify-center p-6">
+								<audio controls src={mediaUrl} className="w-full max-w-xl" onError={() => setError(t("editor.mediaUnsupported"))} />
+							</div>
+						)}
+						{!isDiffMode && isVideo && mediaUrl && (
+							<div className="flex h-full w-full items-center justify-center bg-black/90">
+								<video controls src={mediaUrl} className="h-full w-full object-contain" onError={() => setError(t("editor.mediaUnsupported"))} />
+							</div>
+						)}
+						{/* Office/压缩包：自带读盘 + lazy 解析器，父层不再读第二遍 */}
+						{!isDiffMode && officePreviewKind && <BinaryFilePreview key={`${props.filePath}:${reloadNonce}`} kind={officePreviewKind} filePath={fileAccessPath} fileAccessScope={props.fileAccessScope} />}
 						{/* SVG 预览：文本内容直接编码为 data URL（无 Blob 生命周期管理） */}
 						{!isDiffMode && preview && isSvg && (
 							<div className="file-diff-media-preview">
@@ -660,7 +719,7 @@ export function FileDiffViewer(props: {
 										</div>
 									}
 								>
-									<CodeMirrorEditor value={content} lineSeparator={lineSeparatorRef.current} language={language} readOnly={readOnlyView} initialLine={props.initialLine} onChange={handleEditorChange} onAttachSelection={handleAttachSelection} />
+									<CodeMirrorEditor value={content} lineSeparator={lineSeparatorRef.current} language={language} readOnly={readOnlyView} initialLine={props.initialLine} wordWrap={wordWrap} onChange={handleEditorChange} onAttachSelection={handleAttachSelection} />
 								</Suspense>
 							</div>
 						)}
@@ -684,7 +743,7 @@ export function FileDiffViewer(props: {
 										</div>
 									}
 								>
-									<CodeDiffView key={sideBySide ? "split" : "unified"} oldContent={original} newContent={content} filePath={props.filePath} viewMode={sideBySide ? "split" : "unified"} theme={props.theme} />
+									<CodeDiffView key={sideBySide ? "split" : "unified"} oldContent={original} newContent={content} filePath={props.filePath} viewMode={sideBySide ? "split" : "unified"} theme={props.theme} wordWrap={wordWrap} />
 								</Suspense>
 							</div>
 						)}

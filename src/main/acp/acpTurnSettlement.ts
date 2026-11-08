@@ -88,6 +88,21 @@ export function emptyTurnRejection(toolName: string, debugDetails?: string): Sen
 	};
 }
 
+/** stall 看门狗代发 cancel 后 CLI 按协议正常回 `cancelled` 的收口（#500）：`session/prompt` 是
+ *  resolve 而不是 reject，走不到 catch 里的 escalatedStop 分支，回合会被谎报 `accepted: true`，
+ *  用户在 UI 上只看到「说着说着就停了」且没有任何提示。happy path 用本函数按失败收口：
+ *  delivery=unknown（用户消息已留在时间线，不回填草稿避免重发重复），文案说明「已自动停止」。 */
+export function stalledTurnRejection(toolName: string, debugDetails?: string): SendPromptResult {
+	return {
+		accepted: false,
+		error: `ACP agent ${toolName} produced no output for too long, so the turn was cancelled`,
+		delivery: "unknown",
+		i18nKey: "acp.stallForceStopped",
+		i18nParams: { tool: toolName },
+		...(debugDetails ? { debugDetails } : {}),
+	};
+}
+
 /** 升级强杀（abort 宽限超时/二次停止/stall）的结果：delivery=unknown，不回填草稿避免重发重复。 */
 export function escalatedStopRejection(reason: AcpAbortEscalationReason, message: string, toolName: string): SendPromptResult {
 	return {

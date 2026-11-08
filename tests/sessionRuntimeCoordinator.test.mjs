@@ -300,6 +300,25 @@ test("rejects an empty prompt before activating a runtime", async () => {
 	assert.equal(harness.calls.send, 0);
 });
 
+test("prompt-submitted listeners fire once per valid send (any entry point) and never for invalid ones", async () => {
+	const { SessionRuntimeCoordinator } = loadCoordinator();
+	const harness = createHarness();
+	const coordinator = new SessionRuntimeCoordinator(harness.catalog, harness.agents, harness.sender);
+	const seen = [];
+	const dispose = coordinator.onPromptSubmitted((input) => seen.push(`${input.sessionId}:${input.requestId}`));
+	coordinator.onPromptSubmitted(() => {
+		throw new Error("listener failure must not block the prompt");
+	});
+	await coordinator.send(prompt({ message: "   " }));
+	assert.deepEqual([...seen], [], "invalid input is not a submission");
+	const result = await coordinator.send(prompt({ requestId: "web-1" }));
+	assert.equal(result.accepted, true);
+	assert.deepEqual([...seen], ["session-1:web-1"]);
+	dispose();
+	await coordinator.send(prompt({ requestId: "web-2" }));
+	assert.deepEqual([...seen], ["session-1:web-1"]);
+});
+
 // issue #370：pi 的 /fork 按旧分支 model_change 恢复模型，模型被删除/改名时只静默回落到默认模型。
 // 重发/编辑带着「在用户看到的模型上重试」的前置，必须核对而不是拿别的模型跑一圈。
 const FALLBACK_ENTRY = { model: { provider: "deepseek", modelId: "deepseek-v4.1-flash", modelName: "DeepSeek V4.1 Flash" } };

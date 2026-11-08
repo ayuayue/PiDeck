@@ -35,6 +35,18 @@ test("settings search toolbar lives in the content column and keeps its hint on 
 	expect(hintBox.height).toBeLessThanOrEqual(20);
 });
 
+test("settings navigation names its groups without adding keyboard stops", async ({ window }) => {
+	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
+	const { modal } = await openSearch(window);
+	const sidebar = modal.locator(".settings-tabs");
+	const labels = ["基础设置", "扩展与集成", "开发工具", "维护与诊断"];
+	await expect(sidebar.locator("span.text-micro")).toHaveText(labels);
+	await expect(sidebar.getByRole("tab")).toHaveCount(23);
+	for (const label of labels) await expect(sidebar.getByRole("tab", { name: label, exact: true })).toHaveCount(0);
+	await sidebar.getByRole("tab", { name: "外观设置", exact: true }).click();
+	await expect(sidebar.getByRole("tab", { name: "外观设置", exact: true })).toHaveAttribute("aria-selected", "true");
+});
+
 test("settings search jumps to a tab by pinyin", async ({ window }) => {
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 	await openSearch(window);
@@ -103,7 +115,12 @@ test("settings search shows an empty state and clears via the clear button", asy
 	await input.fill("zzzzzzzz");
 	await expect(modal.getByText("没有匹配的设置项")).toBeVisible();
 
-	await modal.getByRole("button", { name: "清除" }).click();
+	const clear = modal.getByRole("button", { name: "清除" });
+	const clearBox = await clear.boundingBox();
+	expect(clearBox).not.toBeNull();
+	expect(clearBox.width).toBeGreaterThanOrEqual(24);
+	expect(clearBox.height).toBeGreaterThanOrEqual(24);
+	await clear.click();
 	await expect(input).toHaveValue("");
 	// 清空后回到 tab 列表
 	await expect(modal.getByRole("tab").first()).toBeVisible();

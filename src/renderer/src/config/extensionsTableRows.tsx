@@ -25,6 +25,7 @@ const BUILT_IN_EXTENSION_DESC: Record<string, TranslationKey> = {
 	"pi-deck-todo.ts": "config.builtInExtDesc.pi-deck-todo",
 	"pi-deck-trash-guard.ts": "config.builtInExtDesc.pi-deck-trash-guard",
 	"pi-deck-vision.ts": "config.builtInExtDesc.pi-deck-vision",
+	"pi-deck-linked-sessions.ts": "config.builtInExtDesc.pi-deck-linked-sessions",
 };
 
 /** 运行时发现（package/settings）扩展条目的只读描述。 */

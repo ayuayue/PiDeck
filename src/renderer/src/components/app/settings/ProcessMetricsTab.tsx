@@ -93,10 +93,13 @@ export function ProcessMetricsTab() {
 						</div>
 					</div>
 
-					{/* 内存口径提示（常驻可见，不靠悬停）：node 直启后监控的是 pi 本体真实内存 */}
+					{/* 口径提示（常驻可见，不靠悬停）：内存口径 + CPU 窗口，避免用户拿数字对不上任务管理器 */}
 					<div className="flex items-start gap-1.5 text-micro text-muted-foreground">
 						<Info className="mt-px size-3 shrink-0" aria-hidden="true" />
-						<span>{t("config.process.memoryHint")}</span>
+						<div className="flex flex-col gap-0.5">
+							<span>{t("config.process.memoryHint")}</span>
+							<span>{t("config.process.cpuHint")}</span>
+						</div>
 					</div>
 
 					<div className="overflow-hidden rounded-lg border border-border-subtle bg-bg-panel">
@@ -116,6 +119,7 @@ export function ProcessMetricsTab() {
 										<TableHead>{t("config.process.column.agentId")}</TableHead>
 										<TableHead>{t("config.process.column.session")}</TableHead>
 										<TableHead>PID</TableHead>
+										<TableHead>{t("config.process.column.cpu")}</TableHead>
 										<TableHead>{t("config.process.column.memory")}</TableHead>
 										<TableHead className="text-center">{t("config.process.column.action")}</TableHead>
 									</TableRow>
@@ -131,6 +135,7 @@ export function ProcessMetricsTab() {
 												{sessionColumnLabel(agent)}
 											</TableCell>
 											<TableCell className="font-mono text-text-secondary">{agent.pid}</TableCell>
+											<TableCell className="font-mono text-text-secondary">{formatCpuPct(agent.cpuPct)}</TableCell>
 											<TableCell className="font-mono text-text-secondary">{agent.memoryBytes == null ? "-" : formatMb(agent.memoryBytes)}</TableCell>
 											{/* 操作列固定最右侧（表格惯例），列内按钮居中显示 */}
 											<TableCell className="text-center">
@@ -180,6 +185,11 @@ export function ProcessMetricsTab() {
 			) : null}
 		</div>
 	);
+}
+
+/** CPU 单元格：undefined（首次采样/进程刚起）显示 "-"，有值固定一位小数。 */
+function formatCpuPct(cpuPct: number | undefined): string {
+	return cpuPct == null ? "-" : `${cpuPct.toFixed(1)}%`;
 }
 
 function isDshHostRow(agent: AgentProcessMetric): boolean {

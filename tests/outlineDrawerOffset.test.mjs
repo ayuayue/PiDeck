@@ -13,7 +13,7 @@ test("right-side entries keep the same gap to the drawer splitter", () => {
 });
 
 /** 会话定位轴（刻度条）所在的容器规则块。 */
-const paneBlock = styles.match(/\.outline-hover\.session-outline-pane \{([\s\S]*?)\n\}/)?.[1] ?? "";
+const paneBlock = [...styles.matchAll(/\.outline-hover\.session-outline-pane \{([\s\S]*?)\n\}/g)].map((match) => match[1]).join("\n");
 
 test("会话定位轴贴消息区右缘，不得改到左缘", () => {
 	assert.ok(paneBlock, "session outline pane styles must exist");

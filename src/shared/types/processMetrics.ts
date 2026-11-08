@@ -4,7 +4,7 @@
  * 监控 pi agent 子进程 + 共享的 DSH host utilityProcess。
  * Electron 自身进程的内存由用户自行在系统任务管理器/活动监视器中查看
  * （口径因平台/Chromium 版本而异，内置监控容易对不上，徒增困惑）。
- * 子进程不在 app metrics 里，由主进程按 pid 调系统命令查询内存
+ * 子进程不在 app metrics 里，由主进程按 pid 调系统命令查询内存与 CPU
  * （Windows PowerShell PrivateMemorySize64 / Linux·macOS `ps -o rss`），缺失时为 undefined。
  */
 
@@ -28,6 +28,8 @@ export type AgentProcessMetric = {
 	pid: number;
 	/** 常驻内存（字节）；系统命令采样失败时 undefined */
 	memoryBytes?: number;
+	/** 刷新窗口内的平均 CPU%（100 = 占满一核，多线程可超过 100）；首次采样或进程刚启动时 undefined */
+	cpuPct?: number;
 	/** 该进程采样失败的原因（非致命，仅展示用） */
 	error?: string;
 };

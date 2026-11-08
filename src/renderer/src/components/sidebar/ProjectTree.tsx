@@ -1,5 +1,5 @@
 import { ChevronRight, ChevronsDownUp, Ellipsis, Filter, Folder, FolderOpen, FolderPlus, Pin, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { useState, type DragEvent } from "react";
+import { useMemo, useState, type DragEvent } from "react";
 import { BatchRemoveProjectsDialog } from "./BatchRemoveProjectsDialog";
 import { SidebarRemovalList, SidebarRemovalRow } from "./SidebarRemovalRow";
 import { useAtomValue } from "jotai";
@@ -31,6 +31,11 @@ import { PendingAskBadge } from "./PendingAskBadge";
 import { Button } from "../ui-shadcn/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../ui-shadcn/dropdown-menu";
 import { cn } from "../../lib/utils";
+import { ProjectSortMenu } from "./ProjectSortMenu";
+import { sortSidebarProjects } from "../../projectSortModes";
+import { sessionActivityAnchorByIdAtom } from "../../atoms/sessionActivityAtoms";
+import { useCachedProjectActivity } from "../../hooks/sidebar/useCachedProjectActivity";
+import { showNotice } from "../../utils/notice";
 
 /** 项目行只做容器：hover 浅灰，永不挂选中底。
  * 选中态只给叶子会话（对标 dsh-web：.sessionRow.selected = hover 灰，项目行无 selected）。 */
@@ -105,12 +110,17 @@ export function ProjectTree(props: {
 	useRemoteProjectRootStatuses(desktopApi, props.controller.catalog.projects);
 	// 主机名与连接状态：目录一次只读拉取 + main 推送，行内只读 atom（见 useRemoteHostIdentityIndex）。
 	useRemoteHostIdentityIndex(desktopApi, props.controller.catalog.projects);
-	const rootProjects = props.controller.catalog.projects.filter((project) => !project.worktreeParentId && matchesProject(project, props.controller.search.trim(), props.controller));
+	const activityAnchors = useAtomValue(sessionActivityAnchorByIdAtom);
+	const { projects, sessionsByProject } = props.controller.catalog;
+	const cachedActivity = useCachedProjectActivity(projects, props.controller.projectSortMode === "updatedAt", desktopApi.sessions.listCatalog, (error) => showNotice(t("app.projectActivityLoadFailed", { error: error instanceof Error ? error.message : String(error) }), undefined, "error"));
+	const sortedProjects = useMemo(() => sortSidebarProjects(projects, sessionsByProject, props.controller.projectSortMode, activityAnchors, cachedActivity), [projects, sessionsByProject, props.controller.projectSortMode, activityAnchors, cachedActivity]);
+	const rootProjects = sortedProjects.filter((project) => matchesProject(project, props.controller.search.trim(), props.controller));
+	const canDragProjects = props.controller.projectSortMode === "manual" && !props.controller.search.trim();
 	// 项目拖拽不再要求静止长按：原生 HTML5 拖拽自带 ~4px 启动阈值，天然区分点按与拖动
 	//（2027-03 用户反馈「拖动行为不好用」：旧逻辑要先静止长按 350ms 才变 draggable，
 	// 按下即移动会取消 arming，自然拖动手势永远拖不起来）。
 	const dragStart = (event: DragEvent<HTMLButtonElement>, projectId: string) => {
-		if (props.controller.search.trim()) {
+		if (!canDragProjects) {
 			event.preventDefault();
 			return;
 		}
@@ -128,7 +138,7 @@ export function ProjectTree(props: {
 		event.preventDefault();
 		const source = event.dataTransfer.getData("text/plain") || props.controller.drag.sourceProjectId;
 		props.controller.finishProjectDrag();
-		if (props.controller.search.trim()) return;
+		if (!canDragProjects) return;
 		if (source && source !== projectId) void props.actions.projects.reorder(source, projectId, position);
 	};
 	const renderProject = (project: Project) => {
@@ -180,11 +190,11 @@ export function ProjectTree(props: {
 					</button>
 					<button
 						type="button"
-						className="flex min-w-0 flex-1 cursor-grab select-none items-center gap-1 py-0 pr-1 text-left active:cursor-grabbing"
-						draggable={!props.controller.search.trim()}
+						className={cn("flex min-w-0 flex-1 select-none items-center gap-1 py-0 pr-1 text-left", canDragProjects && "cursor-grab active:cursor-grabbing")}
+						draggable={canDragProjects}
 						onDragStart={(event) => dragStart(event, project.id)}
 						onDragOver={(event) => {
-							if (props.controller.drag.sourceProjectId && props.controller.drag.sourceProjectId !== project.id) {
+							if (canDragProjects && props.controller.drag.sourceProjectId && props.controller.drag.sourceProjectId !== project.id) {
 								event.preventDefault();
 								props.controller.setProjectDropTarget(project.id, dropPositionFor(event));
 							}
@@ -493,6 +503,7 @@ export function ProjectTree(props: {
 									</Button>
 								</DropdownMenuTrigger>
 								<DropdownMenuContent align="end" sideOffset={4} className="min-w-36">
+									<ProjectSortMenu mode={props.controller.projectSortMode} onChange={props.controller.setProjectSortMode} />
 									<DropdownMenuItem onSelect={() => void props.actions.projects.refreshAll()}>
 										<RefreshCw className="size-3.5" aria-hidden="true" />
 										{t("app.projectRefreshAll")}
@@ -509,10 +520,8 @@ export function ProjectTree(props: {
 					</div>
 				</div>
 			)}
-			{/* 项目顺序是用户拖拽决定的（唯一语义来源），因此开启 orderSensitive：
-			    拖拽重排与新增项目时，其余行播 0.16s 位移而不是瞬跳。会话列表不开启——
-			    它按 updatedAt 实时排序，顺序变化不是用户动作。 */}
-			<SidebarRemovalList orderSensitive remainingIds={props.controller.catalog.projects.map((project) => project.id)}>
+			{/* 手动重排播放位移动画，实时活动排序直接更新位置。 */}
+			<SidebarRemovalList orderSensitive={props.controller.projectSortMode === "manual"} remainingIds={props.controller.catalog.projects.map((project) => project.id)}>
 				{workspaceProjects.map(renderProject)}
 			</SidebarRemovalList>
 			{/* 无任何工作区项目（新用户只有内置 Chat）：显式渲染空态引导。

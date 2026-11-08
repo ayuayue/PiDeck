@@ -44,6 +44,7 @@
 | [release-test-shape-exceptions.md](release-test-shape-exceptions.md) | `check:test-shape` 基线例外 |
 | [data-migrations.md](data-migrations.md) | 持久数据迁移索引 |
 | [ai-assist.md](ai-assist.md) | AI issue/PR 协助工作流 |
+| [pr-merge-gate.md](pr-merge-gate.md) | 社区 PR 合并门禁、安全红线、回归复盘（首筛脚本 `scripts/prGate.mjs`） |
 | [dsh-remote-contract.md](dsh-remote-contract.md) | DSH Typert Remote 集成契约 |
 | [dsh-0.2.0-migration.md](dsh-0.2.0-migration.md) | DSH 0.2.0 增量契约（与上文叠加；V3→V4 与回退边界仍现行） |
 | [pideck-mcp.md](pideck-mcp.md) | PiDeck 本机 MCP 服务说明 |

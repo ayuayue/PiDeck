@@ -38,7 +38,7 @@ const COLLAPSED_CONTEXT_THRESHOLD = 0;
 /** worker 池大小：1 个足以串行处理，2 个兼顾并发分屏，避免默认 8 个占内存。 */
 const WORKER_POOL_SIZE = 2;
 
-export const CodeDiffView = memo(function CodeDiffView(props: { oldContent: string; newContent: string; filePath: string; viewMode: CodeDiffViewMode; theme?: "light" | "dark" }) {
+export const CodeDiffView = memo(function CodeDiffView(props: { oldContent: string; newContent: string; filePath: string; viewMode: CodeDiffViewMode; theme?: "light" | "dark" /** 自动换行（默认关闭，保持横向滚动）。库的 overflow="wrap" 让长行进视口内折行。 */; wordWrap?: boolean }) {
 	const theme = props.theme ?? (typeof document !== "undefined" ? (document.documentElement.dataset.theme === "dark" ? "dark" : "light") : "light");
 
 	const oldLines = useMemo(() => countLines(props.oldContent), [props.oldContent]);
@@ -71,7 +71,7 @@ export const CodeDiffView = memo(function CodeDiffView(props: { oldContent: stri
 			disableFileHeader: true,
 			diffIndicators: "bars" as const,
 			hunkSeparators: "line-info" as const,
-			overflow: "scroll" as const,
+			overflow: (props.wordWrap ? "wrap" : "scroll") as "wrap" | "scroll",
 			themeType: theme as "light" | "dark" | "system",
 			// GitHub 式折叠：未变化段超阈值折叠，点击展开（每次最多 expansionLineCount 行）
 			collapsedContextThreshold: COLLAPSED_CONTEXT_THRESHOLD,
@@ -128,7 +128,7 @@ export const CodeDiffView = memo(function CodeDiffView(props: { oldContent: stri
 			}
 		`,
 		};
-	}, [props.viewMode, theme, plan]);
+	}, [props.viewMode, props.wordWrap, theme, plan]);
 
 	if (plan.mode === "fallback") {
 		return (

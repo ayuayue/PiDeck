@@ -392,6 +392,11 @@ export const ipcChannels = {
 	sessionGroupsDelete: "session-groups:delete",
 	sessionGroupsReorder: "session-groups:reorder",
 	sessionGroupsChanged: "session-groups:changed",
+	/** 关联会话（子对话，docs/host-boundaries.md 例外九）：快照 / 提议卡片作答 / 归档 / 变化推送。 */
+	linkedSessionsSnapshot: "linked-sessions:snapshot",
+	linkedSessionsAnswer: "linked-sessions:answer",
+	linkedSessionsArchive: "linked-sessions:archive",
+	linkedSessionsChanged: "linked-sessions:changed",
 	/** 系统级划词浮窗（全局快捷键触发）：可见性/隐藏/发送回主窗口/捕获推流。 */
 	selectionToolGetState: "selection-tool:get-state",
 	selectionToolHide: "selection-tool:hide",

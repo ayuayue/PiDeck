@@ -18,6 +18,7 @@ PiDeck 桌面能力面统一门面 `piDeckApi` 的契约文档。三层结构：
 - 2026-10-30 合并 origin/dev：并入 session-groups 域（侧栏分组树；宿主插件按 sessionGroups.manage 写入），通道 795 / 前缀 91 / 命名空间 79。
 - 2026-11-02 合并 origin/dev：并入 agent-memory 域（PiDeck 本地记忆与索引），通道 796→808、前缀 91→92、命名空间 79→80，目录现为 68 域 + 11 导入器。
 - 2026-11-04 本地 dev 集成：并入 cloud-sync 域（端到端加密同步、Provider 适配器与挂载映射），通道 811→843、前缀 93→94、命名空间 82→83，目录现为 69 域 + 11 导入器。
+- 2026-11-08 关联会话（子对话，host-boundaries 例外九）：新增 linked-sessions 域，通道 816→820、前缀 93→94、命名空间 82→83，目录现为 69 域 + 11 导入器。
 
 ## 按域调用面
 
@@ -61,6 +62,7 @@ PiDeck 桌面能力面统一门面 `piDeckApi` 的契约文档。三层结构：
 | `extensions` | content | ExtensionManager + BuiltInExtensionsUpdater | ipc/storeIpc.ts, ipc/builtInExtensionIpc.ts | `extensions` | `extensions` | `aggregate` |
 | `favorites` | content | FavoritesStore（`<userData>/favorites.json` 本机快照；正文只在收藏动作发生时由渲染层提交，不动会话文件） | ipc/favoritesIpc.ts | `favorites` | `favorites` | `aggregate` |
 | `session-groups` | content | SessionGroupStore（`<userData>/session-groups.json`；示例插件 session-groups v3 经 host API 读写同一份，不是 pi 能力） | ipc/sessionGroupsIpc.ts | `sessionGroups` | `session-groups` | `aggregate` |
+| `linked-sessions` | content | LinkedSessionStore（`<userData>/linked-sessions.json`）+ LinkedSessionService（关联会话开/发/列与回报；例外九回环端点） | ipc/linkedSessionsIpc.ts | `linkedSessions` | `linked-sessions` | `aggregate` |
 | `imagegen` | content | ImagegenService + 三个图存储 Store | ipc/imagegenIpc.ts | `imagegen` | `imagegen` | `aggregate` |
 | `videogen` | content | VideoJobRunner + IlinkClient + VideoJobStore/VideoBlobStore/VideoSessionStore/VideoGenConfigStore | ipc/videogenIpc.ts | `videogen` | `videogen` | `aggregate` |
 | `settings` | config | SettingsStore + VisionBridgeConfigManager | ipc/systemIpc.ts | `settings` | `settings` | `aggregate` |

@@ -100,12 +100,20 @@ test("nextBefore 为 null 但 entryId 锚点仍在：before 必须是 null 而�
 	assert.equal(cursor.before, null);
 	assert.equal(cursor.beforeEntryId, "e3");
 	assert.equal(policy.resolveEarlierHistoryCursor({ runtimeHistory: { nextBefore: null, nextBeforeEntryId: null }, windowMessages: [] }), null);
+	assert.equal(policy.resolveEarlierHistoryCursor({ runtimeHistory: { nextBefore: null }, windowMessages: [{ meta: { entryId: "e1" } }], windowStartFilePos: 1 }), null, "空页证实到头后不能按窗口锚点重复请求");
 });
 
 test("未翻过页：跳过无 entryId 的摘要卡片，取窗口内第一条带 entryId 的消息", () => {
 	const cursor = policy.resolveEarlierHistoryCursor({ windowMessages: [{ meta: {} }, { meta: { entryId: "e9" } }, { meta: { entryId: "e10" } }] });
 	assert.equal(cursor.beforeEntryId, "e9");
 	assert.equal(cursor.before, undefined);
+});
+
+test("文件窗口已经从 0 开始时，即使首条有 entryId 也没有更早历史", () => {
+	const windowMessages = [{ meta: {} }, { meta: { entryId: "e1" } }]; // 摘要卡片 + 文件首条
+	assert.equal(policy.resolveEarlierHistoryCursor({ windowMessages, windowStartFilePos: 0, windowStart: 1 }), null);
+	assert.equal(policy.resolveEarlierHistoryCursor({ runtimeHistory: { nextBefore: null, nextBeforeEntryId: "e1" }, windowMessages, windowStartFilePos: 0 }), null, "滑出窗口留下的首条锚点也不能把文件头误报为可翻页");
+	assert.equal(policy.resolveEarlierHistoryCursor({ windowMessages, windowStartFilePos: 4 }).beforeEntryId, "e1", "非文件头仍按 entryId 翻页");
 });
 
 test("整段窗口缺 entryId：退化为 windowStartFilePos", () => {

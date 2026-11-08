@@ -4,7 +4,7 @@ import type { SessionSortModeId } from "./session";
 import type { BusySendDelivery } from "../busySendDelivery";
 import type { SessionStatusPlacement } from "../sessionStatusPlacement";
 import { SESSION_TAB_MAX_WIDTH_DEFAULT } from "../sessionTabWidth";
-import { createDefaultExternalEditorSettings, type ExternalEditorSettings } from "./project";
+import { createDefaultExternalEditorSettings, type ExternalEditorSettings, type ProjectSortModeId } from "./project";
 import type { RemoteProjectTrustRecord } from "./remoteTrust";
 import type { SecurityConfig } from "./security";
 import type { CustomThemeSnapshot } from "../customThemes";
@@ -812,11 +812,22 @@ export type AppSettings = {
 	sidebarStickyGroupHeaders?: boolean;
 
 	/**
-	 * 项目会话列表排序模式（2027-03 开放排序规则）：updatedAt=最近活跃（历史默认）、
-	 * createdAt=创建时间、title=标题。缺省/非法值回落 updatedAt；由渲染层策略目录
-	 * （sessionSortModes）解释，主进程只存字符串不参与排序。
+	 * 会话内 Markdown 代码块自动换行（Discussions #423）。
+	 * 关闭 = 超长行横向滚动（历史行为）；缺省/脏值回落 false。
 	 */
+	codeBlockWordWrap?: boolean;
+
+	/**
+	 * 减弱动效（应用内开关）：开启后全局停掉装饰性动画/过渡。
+	 * 不依赖系统 prefers-reduced-motion——Electron 在部分平台/版本不向 renderer 上报该偏好，
+	 * 只靠 media query 会让「减弱动态效果」在用户机器上整体失效。缺省/脏值回落 false。
+	 */
+	reduceMotion?: boolean;
+
+	/** 会话列表排序：updatedAt（默认）/ createdAt / title，由渲染层解释。 */
 	sessionSortMode?: SessionSortModeId;
+	/** 项目列表排序：manual（默认）/ updatedAt / createdAt / title，置顶组保留手动顺序。 */
+	projectSortMode?: ProjectSortModeId;
 
 	// ── 会话导入 ──
 	/**
@@ -1298,6 +1309,10 @@ export function createDefaultAppSettings(): AppSettings {
 		fontFamilyBaseCustom: "",
 		fontFamilyMono: "system-mono",
 		fontFamilyMonoCustom: "",
+		// 会话内 Markdown 代码块默认横向滚动（历史观感），用户可在外观设置里要求折行
+		codeBlockWordWrap: false,
+		// 减弱动效默认关闭：保留历史观感，需要时由用户在外观设置里显式开启
+		reduceMotion: false,
 		// 终端外观/行为默认值：主题 inherit 保持 pi-soft 跟随明暗行为，
 		// scrollback 与 TerminalDock 历史硬编码 5000 一致（升级后行为不变）。
 		terminalTheme: "inherit",

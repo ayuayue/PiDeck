@@ -23,6 +23,8 @@ function editorHarness(initialProps) {
 	class EditorView {
 		static updateListener = cmView.EditorView.updateListener;
 		static scrollIntoView = cmView.EditorView.scrollIntoView;
+		// 远端起默认开启 wordWrap：Compartment 里会读这个静态扩展，缺了会让 EditorState.create 直接崩。
+		static lineWrapping = cmView.EditorView.lineWrapping;
 		constructor({ state }) {
 			this.state = state;
 			this.dom = { addEventListener() {}, removeEventListener() {} };
@@ -107,7 +109,7 @@ function viewerHarness(initialProps = {}) {
 			crypto: digestStub,
 		},
 		stubs: {
-			react: { ...host.react, lazy: () => (++lazyId === 1 ? "CodeMirrorEditor" : "CodeDiffView"), Suspense: "suspense" },
+			react: { ...host.react, lazy: () => "L" + ++lazyId, Suspense: "suspense" },
 			jotai: { useSetAtom: () => setPreflight },
 			"../../atoms/update-install-preflight": { updateInstallPreflightTasksAtom: {} },
 			"../ui-shadcn/button": { Button: "button" },
@@ -122,7 +124,9 @@ function viewerHarness(initialProps = {}) {
 		},
 	});
 	let props = {
-		filePath: "App.vue",
+		// 用非 HTML/SVG 扩展名：上游新增的内容嗅探会把 .vue（以 <template> 开头）当 HTML 预览，
+		// 此时根本不渲染编辑器，与这些用例要验的「编辑器自动保存」无关。
+		filePath: "App.ts",
 		activeTabId: "tab-1",
 		mode: "view",
 		theme: "dark",
@@ -147,7 +151,8 @@ function viewerHarness(initialProps = {}) {
 		listeners,
 		dirtyChanges,
 		preflight: () => [...preflightTasks.values()][0](),
-		editor: () => findElement(tree, (element) => element.type === "CodeMirrorEditor"),
+		// lazy 桩给每个懒加载组件唯一名字（L1/L2/…）；编辑器是其中唯一带 onChange 的那个。
+		editor: () => findElement(tree, (element) => typeof element.type === "string" && /^L\d+$/.test(element.type) && element.props?.onChange !== undefined),
 		alert: () => findElement(tree, (element) => element.props?.role === "alert"),
 		async settle() {
 			await setImmediate();

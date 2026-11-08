@@ -46,12 +46,13 @@ test("ask is pinned below the session timeline instead of inside its scroll cont
 	// issue #230：看历史时提问卡在视口外还得往下翻。Ask 现与输入框同级钉在对话区下方，
 	// 不再作为时间线滚动内容的一块（不再传给 SessionSurfaceStage）。
 	assert.doesNotMatch(sessionView, /<SessionSurfaceStage[\s\S]*runtimeUi,/);
-	assert.match(sessionView, /session-v-ask min-h-0 shrink-0 overflow-y-auto overscroll-contain \[scrollbar-gutter:stable\]/);
-	assert.match(sessionView, /\{runtimeUi && askPanelVisible \? \(/);
-	assert.match(sessionView, /maxHeight: askMaxHeight/);
+	assert.match(sessionView, /<FloatingAskLayer>\{runtimeUi\}<\/FloatingAskLayer>/);
 	// 时间线仍保留 runtimeUi 通道：并行问询浮层（AskPanelOverlay）走 OwnedSessionMessageTimeline。
 	assert.match(sessionTimeline, /className="session-runtime-ui mx-auto w-full/);
 	assert.doesNotMatch(sessionTimeline, /session-runtime-ui sticky bottom-0/);
-	// 卡片自身仍不自建滚动：超出底栏高度的部分由 SessionView 那一层滚。
+	// 卡片自身仍不自建滚动：超出浮层高度的部分由 FloatingAskLayer 那一层滚，且只有这一层。
 	assert.doesNotMatch(overlay, /overflow-y-auto/);
+	const floating = readFileSync("src/renderer/src/components/session/FloatingAskLayer.tsx", "utf8");
+	assert.equal(floating.match(/overflow-y-auto/g)?.length, 1);
+	assert.match(floating, /scroll-ok: bounded[\s\S]{0,120}overflow-y-auto overscroll-contain/);
 });
