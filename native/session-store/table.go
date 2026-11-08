@@ -46,6 +46,7 @@ type displayEntry struct {
 	MessageID           *string         `json:"messageId,omitempty"`
 	MessageTimestamp    *float64        `json:"messageTimestamp,omitempty"`
 	Oversized           *bool           `json:"oversized,omitempty"`
+	SubagentCandidate   *bool           `json:"subagentCandidate,omitempty"`
 	Summary             *string         `json:"summary,omitempty"`
 	FirstKeptEntryID    *string         `json:"firstKeptEntryId,omitempty"`
 	Timestamp           *string         `json:"timestamp,omitempty"`
@@ -159,6 +160,70 @@ func parseTimestampMs(value string) (float64, bool) {
 	return 0, false
 }
 
+func subagentDerivationCandidate(object jsonObject) bool {
+	message := childObject(object, "message")
+	role, ok := rawString(message, "role")
+	if !ok {
+		return false
+	}
+	const runTool = "acp_delegate"
+	const cancelTool = "acp_delegate_cancel"
+	const subagentTool = "subagent"
+	switch role {
+	case "assistant":
+		var content []json.RawMessage
+		if err := json.Unmarshal(message["content"], &content); err != nil {
+			return false
+		}
+		for _, raw := range content {
+			item, ok := decodeObject(raw)
+			if !ok {
+				continue
+			}
+			kind, _ := rawString(item, "type")
+			name, _ := rawString(item, "name")
+			if kind == "toolCall" && (name == runTool || name == cancelTool || name == subagentTool) {
+				return true
+			}
+		}
+	case "toolResult":
+		toolName, _ := rawString(message, "toolName")
+		_, hasCallID := rawString(message, "toolCallId")
+		return (toolName == runTool || toolName == subagentTool) && hasCallID
+	case "user":
+		text := jsonlMessageText(message["content"])
+		return strings.HasPrefix(text, "[acp_delegate completed]") || strings.HasPrefix(text, "[acp_delegate FAILED")
+	}
+	return false
+}
+
+// jsonlMessageText mirrors the text extraction used by derivedSubagents.ts.
+func jsonlMessageText(raw json.RawMessage) string {
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return text
+	}
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return ""
+	}
+	var out strings.Builder
+	for _, raw := range blocks {
+		var text string
+		if err := json.Unmarshal(raw, &text); err == nil {
+			out.WriteString(text)
+			continue
+		}
+		block, ok := decodeObject(raw)
+		kind, _ := rawString(block, "type")
+		value, valueOK := rawString(block, "text")
+		if ok && kind == "text" && valueOK {
+			out.WriteString(value)
+		}
+	}
+	return out.String()
+}
+
 // parseIndexEntry 解析单行 JSONL；损坏行 / 缺 id 返回 false（TS 的 null）。
 func parseIndexEntry(line string, offset int64, byteLength int64) (displayEntry, bool) {
 	trimmed := strings.TrimSuffix(line, "\r")
@@ -183,7 +248,7 @@ func parseIndexEntry(line string, offset int64, byteLength int64) (displayEntry,
 	}
 	entryType, _ := rawString(object, "type")
 
-	entry := displayEntry{ID: id, Type: entryType, Offset: offset, ByteLength: byteLength}
+	entry := displayEntry{ID: id, Type: entryType, Offset: offset, ByteLength: byteLength, SubagentCandidate: optionalBool(subagentDerivationCandidate(object))}
 	if parentID, ok := rawString(object, "parentId"); ok {
 		entry.ParentID = optionalString(parentID)
 	}
@@ -444,7 +509,7 @@ func parseOversizedEntry(prefix string, offset int64, byteLength int64) (display
 	if len(idMatch) < 2 {
 		return displayEntry{}, false
 	}
-	entry := displayEntry{ID: idMatch[1], Offset: offset, ByteLength: byteLength, Oversized: optionalBool(true)}
+	entry := displayEntry{ID: idMatch[1], Offset: offset, ByteLength: byteLength, Oversized: optionalBool(true), SubagentCandidate: optionalBool(false)}
 	if parentID := oversizedParentIDPattern.FindStringSubmatch(prefix); len(parentID) >= 2 {
 		entry.ParentID = optionalString(parentID[1])
 	}

@@ -160,6 +160,25 @@ func TestParseIndexEntryFallsBackToTimestampString(t *testing.T) {
 	}
 }
 
+func TestSubagentCandidateLocatesRawEvents(t *testing.T) {
+	cases := []struct {
+		line string
+		want bool
+	}{
+		{`{"id":"plain","type":"message","message":{"role":"assistant"}}`, false},
+		{`{"id":"unrelated","type":"message","message":{"role":"user","content":"renamed [acp_delegate completed]"}}`, false},
+		{`{"id":"acp","type":"message","message":{"role":"user","content":[{"type":"text","text":"[acp_delegate completed]"}]}}`, true},
+		{`{"id":"result","type":"message","message":{"role":"toolResult","toolName":"subagent","content":[]}}`, false},
+		{`{"id":"pi","type":"message","message":{"role":"assistant","content":[{"type":"toolCall","name":"subagent"}]}}`, true},
+	}
+	for _, tc := range cases {
+		entry := mustParse(t, tc.line)
+		if entry.SubagentCandidate == nil || *entry.SubagentCandidate != tc.want {
+			t.Fatalf("候选标记错误: want=%v, got=%v, line=%s", tc.want, entry.SubagentCandidate, tc.line)
+		}
+	}
+}
+
 func TestParseIndexEntryRejectsBrokenLines(t *testing.T) {
 	for _, line := range []string{"", "   ", "{", `{"type":"message"}`, `{"id":42}`, `not json`} {
 		if entry, ok := parseIndexEntry(line, 0, 0); ok {

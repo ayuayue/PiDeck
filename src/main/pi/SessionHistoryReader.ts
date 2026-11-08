@@ -2,7 +2,7 @@ import { open, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { ChatMessage, ImageContent, PiSubagentEntry, SessionBranchNode, SessionBranchTree, SessionMessagePage, SessionTodoSnapshot } from "../../shared/types";
 import { parseTodoSnapshotData } from "../../shared/sessionTodo";
-import { deriveToolSubagentEntries } from "./derivedSubagents";
+import { deriveToolSubagentEntries, isSubagentDerivationInput } from "./derivedSubagents";
 import { scanJsonlLines } from "../sessions/jsonlLineStream";
 import { readBoundedEntryPage } from "../sessions/boundedEntryPage";
 import type { HostPluginEntriesPage, HostPluginEntryCursor } from "../../shared/types/hostPlugin";
@@ -279,7 +279,7 @@ function parseIndexTableEntry(value: unknown): SessionDisplayEntry | null {
 		if (typeof field !== "string") return null;
 		entry[key] = field;
 	}
-	const optionalBooleans = ["customDisplay", "contextEditExcludes"] as const;
+	const optionalBooleans = ["customDisplay", "contextEditExcludes", "subagentCandidate"] as const;
 	for (const key of optionalBooleans) {
 		const field = value[key];
 		if (field === undefined) continue;
@@ -372,6 +372,8 @@ type SessionDisplayEntry = {
 	role?: string;
 	/** 消息条目的 message.toolName：文件汇总按「是否文件类工具」预判前先过滤掉大体量非文件工具结果 */
 	toolName?: string;
+	/** 子代理推导候选行：保留消息体定向读取，不按 activeBranch 过滤。 */
+	subagentCandidate?: boolean;
 	/** 消息条目的 message.id：编辑/删除/重发缓存未命中时按 messageId 定位文件条目 */
 	messageId?: string;
 	/** 停止后 live ID 的安全回查窗口；只读时间邻近条目，避免整段历史按正文扫描。 */
@@ -792,8 +794,8 @@ export class SessionHistoryReader {
 	private static readonly INDEX_PARSE_YIELD_EVERY = 400;
 	/** 完整消息文本 LRU 缓存（「查看完整输出」按需读取结果）：键 `${sessionPath}#${messageId}`。 */
 	private readonly fullTextCache = new Map<string, string>();
-	/** 推导型子代理条目的 (size, mtime) 结果缓存（readDerivedSubagentEntries 全量扫的去重，见方法注释）。 */
-	private readonly derivedSubagentCache = new Map<string, { size: number; mtimeMs: number; entries: PiSubagentEntry[] }>();
+	/** 派生结果与配对输入的增量缓存；只有完整行末尾可作为下次读取起点。 */
+	private readonly derivedSubagentCache = new Map<string, { size: number; mtimeMs: number; rawEntries: unknown[]; entries: PiSubagentEntry[]; endsWithNewline: boolean }>();
 	/** 已驻留完整文本的总字节数（字节预算 LRU 淘汰用，命中刷新不增减）。 */
 	private fullTextCacheBytes = 0;
 	private static readonly FULL_TEXT_CACHE_LIMIT = 200;
@@ -1998,6 +2000,7 @@ export class SessionHistoryReader {
 				offset,
 				byteLength,
 				hasMessage: parsed.message !== undefined && parsed.message !== null,
+				subagentCandidate: isSubagentDerivationInput(parsed),
 				modelChangeProvider,
 				modelChangeId,
 				assistantModel,
@@ -2459,17 +2462,14 @@ export class SessionHistoryReader {
 	 * 流式扫描会话文件全量条目，推导不走 record/事件链的子代理运行
 	 * （acp_delegate：billion-context-pi；subagent 工具：nicobailon pi-subagents）。
 	 *
+	 * 首次扫描全量；后续文件规范追加时只读新增尾部，并复用配对所需的消息。
+	 *
 	 * 这些插件不落 subagents:record / start 锚点，读取侧无法像 record 那样按
-	 * customType 走索引定向读，只能全量扫描。行级预检：相关条目必然包含
+	 * customType 走索引定向读。行级预检：相关条目必然包含
 	 * "acp_delegate" 或带引号的 "subagent" 字样，不含两者的行直接跳过
-	 * JSON.parse，纯 record 会话的扫描成本接近纯文本搜索。损坏行忽略。
+	 * JSON.parse。损坏行忽略。
 	 */
 	async readDerivedSubagentEntries(sessionPath: string): Promise<PiSubagentEntry[]> {
-		// (size, mtime) 结果缓存（2027-02 性能审计）：这是「全量扫」语义（插件不落
-		// customType，无法定向读），Web 端 strips 每 5s 轮询 /subagents、桌面端同路径
-		// 叠加——大会话（几十~几百 MB）空闲期也会每 5s 整文件读盘一次。文件未追加
-		//（size/mtime 未变）时结果必然一致，直接复用；流式期间文件持续追加会自然
-		// 失效重扫（与 displayIndex/summaryCache 同款判据）。
 		const cacheKey = this.deps.toHostPath(sessionPath);
 		let stats: { size: number; mtimeMs: number } | null = null;
 		try {
@@ -2478,46 +2478,74 @@ export class SessionHistoryReader {
 		} catch {
 			stats = null;
 		}
-		if (stats) {
-			const cached = this.derivedSubagentCache.get(cacheKey);
-			if (cached && cached.size === stats.size && cached.mtimeMs === stats.mtimeMs) {
-				return cached.entries;
-			}
+		// 只有规范追加且上次扫描恰好落在完整行边界时，才复用之前的输入并读
+		// 新增尾部。文件重写或上次读到残行时必须从头扫描：残行使字节 offset
+		// 失配，而不能靠重复执行配对逻辑来假装它可以安全重放。
+		const cached = this.derivedSubagentCache.get(cacheKey);
+		if (stats && cached && cached.size === stats.size && cached.mtimeMs === stats.mtimeMs) return cached.entries;
+		const append = stats !== null && cached !== undefined && stats.size > cached.size && cached.endsWithNewline;
+		const start = append ? cached.size : 0;
+		const scan = (append ? null : await this.scanDerivedSubagentEntriesFromIndex(sessionPath, stats)) ?? (await this.scanDerivedSubagentEntries(sessionPath, start));
+		const rawEntries = [...(append ? cached.rawEntries : []), ...(scan?.rawEntries ?? [])];
+		const entries = deriveToolSubagentEntries(rawEntries);
+		if (stats && scan?.endsWithNewline && start + scan.bytesScanned === stats.size) {
+			this.derivedSubagentCache.set(cacheKey, { ...stats, rawEntries, entries, endsWithNewline: true });
+		} else {
+			// 扫描期间又追加、遇到残行或读盘失败：结果仍按原逻辑返回，但文件版本
+			// 不能确认，不能把没有覆盖到结尾的扫描当成下一次安全增量点。
+			this.derivedSubagentCache.delete(cacheKey);
 		}
-		const entries = await this.readDerivedSubagentEntriesUncached(sessionPath);
-		if (stats) this.derivedSubagentCache.set(cacheKey, { ...stats, entries });
 		return entries;
 	}
 
-	private async readDerivedSubagentEntriesUncached(sessionPath: string): Promise<PiSubagentEntry[]> {
+	/**
+	 * session-store 已经定位派生器所需的消息。沿用全文件（含 off-branch）顺序，
+	 * 只物化候选行，不在 TS 再扫一次 JSONL。缺少新标记或版本失配都回退逐行扫描。
+	 */
+	private async scanDerivedSubagentEntriesFromIndex(sessionPath: string, version: { size: number; mtimeMs: number } | null): Promise<{ rawEntries: unknown[]; bytesScanned: number; endsWithNewline: boolean } | null> {
+		if (!version) return null;
+		try {
+			const index = await this.getSessionDisplayIndex(sessionPath);
+			const entries = [...index.entries.values()];
+			if (index.size !== version.size || index.mtimeMs !== version.mtimeMs || !index.endsWithNewline || entries.some((entry) => typeof entry.subagentCandidate !== "boolean")) return null;
+			const candidates = entries.filter((entry) => entry.subagentCandidate && !entry.oversized).sort((a, b) => a.offset - b.offset);
+			const rawEntries = (await this.readIndexedRawLines(index.hostPath, candidates)).filter(isSubagentDerivationInput);
+			return { rawEntries, bytesScanned: version.size, endsWithNewline: true };
+		} catch (error) {
+			this.deps.logger?.warn("session-history", "Subagent candidate index unavailable", { sessionPath, error: error instanceof Error ? error.message : String(error) });
+			return null;
+		}
+	}
+
+	private async scanDerivedSubagentEntries(sessionPath: string, start = 0): Promise<{ rawEntries: unknown[]; bytesScanned: number; endsWithNewline: boolean } | null> {
 		const hostPath = this.deps.toHostPath(sessionPath);
 		const rawEntries: unknown[] = [];
 		try {
-			// 流式扫描：本函数是「全量扫」语义（这些插件不落 customType，无法走索引定向读），
-			// 整文件 readFile 在大会话上会撞字符串上限/堆上限（见 jsonlLineStream 模块注释）。
+			// 流式扫描新增的尾部（首次/失效回退为全量），避免逐次轮询重复读旧内容。
+			// 不整文件 readFile，避免大会话撞 V8 字符串上限/堆上限。
 			// 行级预检保留：不含 "acp_delegate" / "\"subagent\"" 的行直接跳过 JSON.parse。
-			await scanJsonlLines(
+			const summary = await scanJsonlLines(
 				hostPath,
 				(line) => {
 					const jsonLine = line.endsWith("\r") ? line.slice(0, -1) : line;
 					if (!jsonLine.includes("acp_delegate") && !jsonLine.includes('"subagent"')) return;
 					try {
 						const parsed: unknown = JSON.parse(jsonLine);
-						if (isRecord(parsed)) rawEntries.push(parsed);
+						if (isSubagentDerivationInput(parsed)) rawEntries.push(parsed);
 					} catch {
 						// 损坏行忽略
 					}
 				},
-				{ yieldEveryLines: SessionHistoryReader.INDEX_PARSE_YIELD_EVERY },
+				{ start, yieldEveryLines: SessionHistoryReader.INDEX_PARSE_YIELD_EVERY },
 			);
+			return { rawEntries, bytesScanned: summary.bytesScanned, endsWithNewline: summary.endsWithNewline };
 		} catch (error) {
 			void this.deps.logger?.warn("agent", "Failed to read session for subagent derivation", {
 				sessionPath,
 				error: error instanceof Error ? error.message : String(error),
 			});
-			return [];
+			return null;
 		}
-		return deriveToolSubagentEntries(rawEntries);
 	}
 
 	/**
