@@ -36,6 +36,7 @@ import type { RemoteHostConnectionService } from "../remote/RemoteHostConnection
 import { parseSshConfig } from "../remote/SshConfigCandidates";
 import { normalizeRemoteHostIdentityFile, REMOTE_HOST_IDENTITY_FILE_INVALID } from "../remote/RemoteHostIdentityFile";
 import { RemoteHostStore } from "../remote/RemoteHostStore";
+import { createRemoteHostReferenceRegistry } from "../remote/RemoteHostReferenceSources";
 import { SshHostPinStore } from "../remote/SshHostPinStore";
 
 const REPAIR_REASON = /^REMOTE_HOST_[A-Z0-9_]{1,64}$/;
@@ -152,7 +153,10 @@ export function registerRemoteHostIpc(input: {
 	const openStores = () => {
 		stores ??= (async () => {
 			const pinStore = new SshHostPinStore(input.userDataDir);
-			const store = await RemoteHostStore.open(input.userDataDir, { pinStore });
+			// retire/updateDraft 需要引用检查；缺了 references 时 retire 会直接
+			// REMOTE_HOST_REFERENCES_UNAVAILABLE（rebind 的真实装配就踩过这一条）。
+			const references = createRemoteHostReferenceRegistry(join(input.userDataDir, "session-catalog.json"), join(input.userDataDir, "projects.json")).asStoreReferences();
+			const store = await RemoteHostStore.open(input.userDataDir, { pinStore, references });
 			return { store, pinStore };
 		})();
 		// A failed open must not be cached: a store stuck in needs-repair can be fixed by hand, and the
