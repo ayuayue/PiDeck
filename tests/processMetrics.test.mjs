@@ -2,57 +2,48 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { parsePrivateMemoryBytes, parsePsRssKb, parseTasklistMemoryKb } from "../src/main/process/pidMemoryParsers.ts";
+import { parsePsCpuTime, parsePsProcessTable, parseWindowsProcessTable } from "../src/main/process/processTableParsers.ts";
 import { buildDshHostMonitorRow, DSH_HOST_MONITOR_ROW_ID, isDshHostMonitorId } from "../src/main/process/dshHostMonitor.ts";
 import { DSH_HOST_MONITOR_ID } from "../src/shared/types/processMetrics.ts";
 import { formatBytes, formatMb } from "../src/shared/formatBytes.ts";
 
-// ===== 纯函数：tasklist CSV / ps rss 解析 =====
+// ===== 纯函数：批量采样的进程表解析 =====
 
-test("parseTasklistMemoryKb: standard CSV row", () => {
-	assert.equal(parseTasklistMemoryKb('"node.exe","12345","Console","1","32,456 K"'), 32456);
+test("parsePsCpuTime: hh:mm:ss / mm:ss.ss / dd- 三种 TIME 形状", () => {
+	// Linux `ps -o time=`：h:mm:ss（超过 24h 加 dd- 前缀）
+	assert.equal(parsePsCpuTime("00:00:05"), 5);
+	assert.equal(parsePsCpuTime("1:02:03"), 3723);
+	assert.equal(parsePsCpuTime("2-01:00:00"), 2 * 86400 + 3600);
+	// macOS 短格式只有两段（m:ss.ss），不能当 hh:mm 解析，否则小数秒会被放大 100 倍
+	assert.equal(parsePsCpuTime("0:00.05"), 0.05);
+	assert.equal(parsePsCpuTime("1:23.45"), 83.45);
+	assert.equal(parsePsCpuTime("  0:10  "), 10);
+	for (const bad of ["", "   ", "abc", "5", "1:2:3:4", "-1:00", "10:xx"]) {
+		assert.equal(parsePsCpuTime(bad), null, `should reject ${JSON.stringify(bad)}`);
+	}
 });
 
-test("parseTasklistMemoryKb: no thousands separator", () => {
-	assert.equal(parseTasklistMemoryKb('"pi.exe","99","Console","1","2048 K"'), 2048);
+test("parsePsProcessTable: pid / rss(KB) / TIME → {memoryBytes, cpuSeconds}", () => {
+	const table = parsePsProcessTable("  1234  56789 00:00:05\n 4321 1024 0:00.05\n");
+	assert.equal(table.size, 2);
+	assert.deepEqual(table.get(1234), { memoryBytes: 56789 * 1024, cpuSeconds: 5 });
+	assert.deepEqual(table.get(4321), { memoryBytes: 1024 * 1024, cpuSeconds: 0.05 });
 });
 
-test("parseTasklistMemoryKb: rejects malformed rows", () => {
-	assert.equal(parseTasklistMemoryKb(""), null);
-	assert.equal(parseTasklistMemoryKb('"node.exe","1"'), null);
-	assert.equal(parseTasklistMemoryKb('"node.exe","1","Console","1","not-a-size"'), null);
-	// 非 K 单位（tasklist 不会出现，防御性）
-	assert.equal(parseTasklistMemoryKb('"node.exe","1","Console","1","12 M"'), null);
+test("parsePsProcessTable: 跳过坏行而不是整批失败", () => {
+	// 进程刚好退出时该 pid 的行缺失属正常；格式不合的行只能丢弃
+	const table = parsePsProcessTable("\n  bad line\n0 1 2\n-5 10 00:00:01\n12 34 not-a-time\n99 77 00:00:01");
+	assert.deepEqual([...table.keys()], [99]);
+	assert.equal(parsePsProcessTable("").size, 0);
 });
 
-test("parsePsRssKb: standard ps output", () => {
-	assert.equal(parsePsRssKb("  123456\n"), 123456);
-	assert.equal(parsePsRssKb("0\n"), 0);
-});
-
-test("parsePsRssKb: rejects empty/non-numeric output", () => {
-	assert.equal(parsePsRssKb(""), null);
-	assert.equal(parsePsRssKb("  \n"), null);
-	assert.equal(parsePsRssKb("abc"), null);
-	assert.equal(parsePsRssKb("-5"), null);
-});
-
-// ===== 纯函数：PowerShell PrivateMemorySize64 解析 =====
-
-test("parsePrivateMemoryBytes: standard PS output (bytes)", () => {
-	assert.equal(parsePrivateMemoryBytes("123456789\r\n"), 123456789);
-	assert.equal(parsePrivateMemoryBytes("0\n"), 0);
-});
-
-test("parsePrivateMemoryBytes: strips BOM/whitespace/thousands separators", () => {
-	assert.equal(parsePrivateMemoryBytes("\uFEFF  123,456,789 \r\n"), 123456789);
-});
-
-test("parsePrivateMemoryBytes: rejects empty/non-numeric output", () => {
-	assert.equal(parsePrivateMemoryBytes(""), null);
-	assert.equal(parsePrivateMemoryBytes("\uFEFF \r\n"), null);
-	assert.equal(parsePrivateMemoryBytes("N/A"), null);
-	assert.equal(parsePrivateMemoryBytes("-5"), null);
+test("parseWindowsProcessTable: pid;bytes;cpuMs（整数毫秒规避 locale 小数逗号）", () => {
+	const table = parseWindowsProcessTable("\uFEFF  1234;56789012;500\r\n4321;2048;0\r\n");
+	assert.equal(table.size, 2);
+	assert.deepEqual(table.get(1234), { memoryBytes: 56789012, cpuSeconds: 0.5 });
+	assert.deepEqual(table.get(4321), { memoryBytes: 2048, cpuSeconds: 0 });
+	// 坏行跳过
+	assert.equal(parseWindowsProcessTable("nope\n0;1;2\n7;8\n").size, 0);
 });
 
 test("formatBytes: human readable units", () => {
@@ -95,30 +86,37 @@ test("formatMb: fixed MB unit for process monitor", () => {
 
 // ===== 主进程装配：进程枚举与采样链路 =====
 
-test("ProcessMonitor uses array-form system commands with timeout", () => {
+test("ProcessMonitor 批量采样：一条命令取全部 pid 的内存 + 累计 CPU", () => {
 	const source = readFileSync("src/main/process/ProcessMonitor.ts", "utf8");
 	// 安全规范：命令必须数组参数，禁止字符串拼接 shell
 	assert.match(source, /spawn\(args\[0\], args\.slice\(1\)/);
-	// Windows 用 PowerShell PrivateMemorySize64（专用内存口径，同任务管理器），
-	// Linux/macOS 用 ps -o rss；固定参数数组
+	// Windows 用 PowerShell PrivateMemorySize64（专用内存口径，同任务管理器）+ `$_.CPU` 累计秒；
+	// Linux/macOS 用 ps -o pid=,rss=,time=
 	assert.match(source, /\"powershell\"[\s\S]*PrivateMemorySize64/);
-	assert.match(source, /\[\"ps\", \"-o\", \"rss=\", \"-p\", String\(pid\)\]/);
-	// 超时兜底：采样挂死不阻塞 IPC（超时常量作为 runCollect 第二参数传入）
+	assert.match(source, /\[\"ps\", \"-o\", \"pid=,rss=,time=\", \"-p\", pids\.join\(\",\"\)\]/);
+	// 批量而不是逐 pid：pids.join 只出现一次在 ps 命令里，采样函数接收 pid 数组
+	assert.match(source, /async function sampleProcessTable\(pids: number\[\]\)/);
+	assert.doesNotMatch(source, /sampleProcessMemoryBytes/);
+	// 超时兜底：采样挂死不阻塞 IPC
 	assert.match(source, /timeout: timeoutMs/);
-	assert.match(source, /TASKLIST_TIMEOUT_MS/);
-	// 数组元素可能独占一行：用 PS_TIMEOUT_MS 出现即可（定义处已单独断言常量存在）。
-	// 实参可能被格式化换行/位置变化：只断言常量被用作超时实参。
-	assert.match(source, /PS_TIMEOUT_MS\)/);
+	assert.match(source, /PROCESS_SAMPLE_TIMEOUT_MS/);
+	// 两次采样构成 CPU 差分窗口：先建 baseline，再用第二遍算占用
+	assert.match(source, /const first = await sampleProcessTable\(pids\);/);
+	assert.match(source, /const second = await sampleProcessTable\(pids\);/);
+	assert.match(source, /sampleProcessCpu\(/);
+	assert.match(source, /cpuPct: cpuPctByPid\.get\(agent\.pid\)/);
+	// 内存取最新一遍（进程在窗口内退出时回落到第一遍）
+	assert.match(source, /second\.get\(agent\.pid\) \?\? first\.get\(agent\.pid\)/);
 });
 
 test("ProcessMonitor assembles agent snapshot with total", () => {
 	const source = readFileSync("src/main/process/ProcessMonitor.ts", "utf8");
-	// 只监控 pi agent：不再采集 Electron 自身进程（用户自行在系统任务管理器/活动监视器查看）
+	// 只监控 pi agent + DSH host：不再采集 Electron 自身进程（用户自行在系统任务管理器/活动监视器查看）
 	assert.doesNotMatch(source, /app\.getAppMetrics\(\)/);
 	assert.doesNotMatch(source, /totalElectronBytes/);
-	assert.match(source, /Promise\.all\(/);
 	assert.match(source, /totalAgentBytes/);
-	assert.match(source, /sampledAt: Date\.now\(\)/);
+	// sampledAt 用第二遍采样的时刻，与 cpuPct 的时间窗口末端对齐
+	assert.match(source, /sampledAt: secondAt/);
 });
 
 test("AgentManager exposes listAgentPids filtered to running processes", () => {
@@ -212,8 +210,8 @@ test("stop-agent: full session stop chain (coordinator + detach)", () => {
 	assert.match(tab, /CircleStop/);
 	assert.match(tab, /text-destructive hover:bg-destructive\/10/);
 	assert.match(tab, /size="sm"/);
-	// Agent 表头列序：agentId → 会话 → PID → memory → action（操作列在最右侧，列内居中）
-	assert.match(tab, /config\.process\.column\.agentId.*config\.process\.column\.session.*>PID<.*config\.process\.column\.memory.*config\.process\.column\.action/s);
+	// Agent 表头列序：agentId → 会话 → PID → CPU → memory → action（操作列在最右侧，列内居中）
+	assert.match(tab, /config\.process\.column\.agentId.*config\.process\.column\.session.*>PID<.*config\.process\.column\.cpu.*config\.process\.column\.memory.*config\.process\.column\.action/s);
 	assert.match(tab, /<TableCell className="text-center">/);
 	// 表头「操作」也居中，与列内按钮对齐（TableHead 默认 text-left 需覆盖）
 	assert.match(tab, /<TableHead className="text-center">\{t\("config\.process\.column\.action"\)\}<\/TableHead>/);
@@ -252,6 +250,9 @@ test("ProcessMetricsTab wires table columns and refresh", () => {
 	assert.match(source, /formatMb\(agentTotal\)/);
 	assert.match(source, /t\("config\.process\.refresh"\)/);
 	assert.match(source, /agent\.agentId/);
+	// CPU 列：无基线时显示 "-"，有值固定一位小数
+	assert.match(source, /formatCpuPct\(agent\.cpuPct\)/);
+	assert.match(source, /cpuPct == null \? "-" : `\$\{cpuPct\.toFixed\(1\)\}%`/);
 	assert.match(source, /t\("config\.process\.empty"\)/);
 });
 
@@ -289,6 +290,8 @@ test("process monitor i18n keys exist in zh-CN and en-US", () => {
 		"config.process.stopHostConfirm",
 		"config.process.loadFailed",
 		"config.process.column.memory",
+		"config.process.column.cpu",
+		"config.process.cpuHint",
 		"config.process.column.agentId",
 		"config.process.column.session",
 		"config.process.column.action",

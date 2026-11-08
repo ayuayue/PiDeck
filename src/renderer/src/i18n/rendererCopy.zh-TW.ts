@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 45a0d2dc5c6e79437d35219b0f207e60e95fea526567506365962b4ceddb822a（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 7b65168e77cb9692be4509444f9e424f13f74143beffe3d00347506c7472e101（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -2822,8 +2822,10 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.process.empty": "當前沒有執行中的程序",
 	"config.process.loadFailed": "獲取程序快照失敗",
 	"config.process.column.pid": "PID",
+	"config.process.column.cpu": "CPU",
 	"config.process.column.memory": "記憶體",
 	"config.process.memoryHint": "專用記憶體（Private Memory），口徑對齊系統工作管理員。Pi 經 node 直啟後統計的是 Pi 本體程序的真實記憶體（完整 Node 執行時 + Pi bundle，通常 100~300MB 屬正常水平）。",
+	"config.process.cpuHint": "CPU 為重新整理時最近 0.6 秒的平均佔用率，100% = 跑滿一個核，多執行緒可超過 100%；剛啟動的程序首輪沒有基線，顯示 \"-\"。",
 	"config.process.column.agentId": "程序",
 	"config.process.column.session": "會話",
 	"config.process.column.action": "操作",
@@ -5573,12 +5575,18 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.devTools": "開發者控制台",
 	"settings.devToolsDesc": "開啟 DevTools 檢視控制台日誌，排查問題",
 	"settings.developerDiagnostics": "效能診斷",
-	"settings.developerDiagnosticsDesc": "記錄主程序記憶體、事件迴圈延遲、開啟會話/載入歷史等關鍵耗時。資料寫到應用資料目錄的 diagnostics 資料夾，用來追查卡死和記憶體上漲。預設關閉。",
+	"settings.developerDiagnosticsDesc": "記錄主程序記憶體、事件迴圈延遲、各程序 CPU、開啟會話/載入歷史等關鍵耗時。資料寫到應用資料目錄的 diagnostics 資料夾，用來追查卡死、CPU 偏高和記憶體上漲。預設關閉。",
 	"settings.developerDiagnosticsOpenFolder": "開啟診斷目錄",
 	"settings.developerDiagnosticsRefresh": "重新整理快照",
 	"settings.developerDiagnosticsLag": "事件迴圈延遲 {lag} ms（峰值 {max} ms）",
 	"settings.developerDiagnosticsMemory": "主程序 RSS {rss} · 堆 {heap}",
 	"settings.developerDiagnosticsEmpty": "開啟後點重新整理，可看到最近關鍵路徑耗時。",
+	"settings.developerDiagnosticsProcesses": "各程序 CPU（最近 1 秒，100% = 佔滿一個核）",
+	"settings.developerDiagnosticsProcessPeak": "峰值 {peak}%",
+	"settings.developerDiagnosticsProcMain": "主程序",
+	"settings.developerDiagnosticsProcRender": "渲染程序",
+	"settings.developerDiagnosticsProcGpu": "GPU 程序",
+	"settings.developerDiagnosticsProcUtility": "工具程序",
 	"settings.detectFailed": "檢測失敗：{error}",
 	"settings.enableDesktopProxy": "啟用桌面端網路代理",
 	"settings.enableNotifications": "Agent 完成響應時傳送系統通知",
