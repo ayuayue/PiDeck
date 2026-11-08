@@ -77,7 +77,24 @@ function isEditableTarget(target: EventTarget | null) {
 	return target.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
 }
 
-export function MorphingSearch({ items, placeholder = "Search", shortcut = "f", iconOnly = false, maxWidth = 448, maxHeight = 288, emptyMessage = "No results found.", resultsLabel = "Search results", closeLabel = "Close search", returnFocusRef, open: controlledOpen, defaultOpen = false, onOpenChange, onQueryChange, onSelect, className }: MorphingSearchProps) {
+export function MorphingSearch({
+	items,
+	placeholder = "Search",
+	shortcut = "f",
+	iconOnly = false,
+	maxWidth = 448,
+	maxHeight = 288,
+	emptyMessage = "No results found.",
+	resultsLabel = "Search results",
+	closeLabel = "Close search",
+	returnFocusRef,
+	open: controlledOpen,
+	defaultOpen = false,
+	onOpenChange,
+	onQueryChange,
+	onSelect,
+	className,
+}: MorphingSearchProps) {
 	const [internalOpen, setInternalOpen] = useState(defaultOpen);
 	const [query, setQuery] = useState("");
 	const [mounted, setMounted] = useState(false);
@@ -312,7 +329,13 @@ export function MorphingSearch({ items, placeholder = "Search", shortcut = "f", 
 	// （陈旧/不可信落点也不能把面板送到窗口外）。首帧（未 mounted）直接用锚点值。
 	const geometry = useMemo(() => (mounted ? resolveMorphingSearchGeometry({ anchor: anchorRect, viewport: { width: window.innerWidth, height: window.innerHeight }, maxWidth, maxHeight }) : { ...anchorRect, resultsHeight: maxHeight }), [anchorRect, maxHeight, maxWidth, mounted]);
 	// 结果很少时不撑满预算高度；按行的最大单行高度估算，保留空态/底边呼吸位。
-	const contentHeight = Math.min(geometry.resultsHeight, Math.max(104, filteredItems.reduce((height, item) => height + (item.description ? 56 : 44), 16)));
+	const contentHeight = Math.min(
+		geometry.resultsHeight,
+		Math.max(
+			104,
+			filteredItems.reduce((height, item) => height + (item.description ? 56 : 44), 16),
+		),
+	);
 	const collapsedContentClip = `inset(0px ${Math.max(0, geometry.width - anchorRect.width)}px ${contentHeight}px 0px round 12px)`;
 	const expandedContentClip = "inset(0px 0px 0px 0px round 12px)";
 
@@ -457,10 +480,20 @@ export function MorphingSearch({ items, placeholder = "Search", shortcut = "f", 
 														{Icon ? <Icon className="relative size-4 shrink-0 text-muted-foreground" /> : null}
 														<span className="relative flex min-w-0 flex-1 items-center gap-3">
 															<span className="min-w-0 flex-1">
-																<span title={item.title} className="block truncate text-sm font-medium text-foreground">{item.title}</span>
-																{item.description ? <span title={item.description} className="block truncate text-xs text-muted-foreground">{item.description}</span> : null}
+																<span title={item.title} className="block truncate text-sm font-medium text-foreground">
+																	{item.title}
+																</span>
+																{item.description ? (
+																	<span title={item.description} className="block truncate text-xs text-muted-foreground">
+																		{item.description}
+																	</span>
+																) : null}
 															</span>
-															{item.context ? <span title={item.context.title ?? item.context.label} className="max-w-[40%] min-w-0 shrink-0 truncate rounded-md border border-border/60 bg-muted/50 px-1.5 py-0.5 text-xs text-muted-foreground">{item.context.label}</span> : null}
+															{item.context ? (
+																<span title={item.context.title ?? item.context.label} className="max-w-[40%] min-w-0 shrink-0 truncate rounded-md border border-border/60 bg-muted/50 px-1.5 py-0.5 text-xs text-muted-foreground">
+																	{item.context.label}
+																</span>
+															) : null}
 														</span>
 													</button>
 												);

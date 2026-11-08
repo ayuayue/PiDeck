@@ -250,16 +250,11 @@ export function SessionTree(props: {
 			</>
 		);
 		return slot ? (
-			<span className="subagent-inline-toggle px-1 py-0.5 last:mr-7 subagent-toggle-slot" aria-hidden="true">{content}</span>
+			<span className="subagent-inline-toggle px-1 py-0.5 last:mr-7 subagent-toggle-slot" aria-hidden="true">
+				{content}
+			</span>
 		) : (
-			<button
-				type="button"
-				className="subagent-inline-toggle subagent-toggle-button px-1 py-0.5 focus-visible:ring-1 focus-visible:ring-ring"
-				aria-label={label}
-				aria-expanded={expanded}
-				title={label}
-				onClick={() => props.controller.toggleSubagentGroup(key)}
-			>
+			<button type="button" className="subagent-inline-toggle subagent-toggle-button px-1 py-0.5 focus-visible:ring-1 focus-visible:ring-ring" aria-label={label} aria-expanded={expanded} title={label} onClick={() => props.controller.toggleSubagentGroup(key)}>
 				{content}
 			</button>
 		);

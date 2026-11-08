@@ -33,10 +33,24 @@ function delegateResult(id, toolCallId) {
 
 function createReader(readIndexTable = async (path) => candidateTable(await fsPromises.readFile(path, "utf8"))) {
 	let indexedBytesRead = 0;
-	const { SessionHistoryReader } = loadTsCommonJs("src/main/pi/SessionHistoryReader.ts", { stubs: { "node:fs/promises": { ...fsPromises, open: async (...args) => {
-		const handle = await fsPromises.open(...args);
-		return { ...handle, read: async (...readArgs) => { const result = await handle.read(...readArgs); indexedBytesRead += result.bytesRead; return result; } };
-	} } } });
+	const { SessionHistoryReader } = loadTsCommonJs("src/main/pi/SessionHistoryReader.ts", {
+		stubs: {
+			"node:fs/promises": {
+				...fsPromises,
+				open: async (...args) => {
+					const handle = await fsPromises.open(...args);
+					return {
+						...handle,
+						read: async (...readArgs) => {
+							const result = await handle.read(...readArgs);
+							indexedBytesRead += result.bytesRead;
+							return result;
+						},
+					};
+				},
+			},
+		},
+	});
 	return { reader: new SessionHistoryReader({ toHostPath: (path) => path, readIndexTable }), readBytes: () => indexedBytesRead };
 }
 

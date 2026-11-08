@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
-const { findLoadedDirectory, findDirectoryNodeByRelativePath, fileTreeNodeKey, projectFileKey, findDirectoryNodeByPath, mergeFileTreeChildren, hydrateExpandedFileTree, markFileTreeLoadFailed, resolveAtDrillDirectory, shouldSearchFileNames, loadAtFileNameSearch, mergeAtFileNameSearchFiles } = loadTsCommonJs("src/renderer/src/utils/fileTreeLazy.ts");
+const { findLoadedDirectory, findDirectoryNodeByRelativePath, fileTreeNodeKey, projectFileKey, findDirectoryNodeByPath, mergeFileTreeChildren, hydrateExpandedFileTree, markFileTreeLoadFailed, resolveAtDrillDirectory, shouldSearchFileNames, loadAtFileNameSearch, mergeAtFileNameSearchFiles } =
+	loadTsCommonJs("src/renderer/src/utils/fileTreeLazy.ts");
 
 /**
  * 夹具说明（W1 之后）：树里的键是**项目作用域身份**，不再等于本机绝对路径。

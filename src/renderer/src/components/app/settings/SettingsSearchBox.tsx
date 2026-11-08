@@ -103,7 +103,13 @@ export function SettingsSearchBox(props: { entries: readonly SettingsSearchEntry
 						className="pl-9 pr-8 text-control [&::-webkit-search-cancel-button]:hidden"
 					/>
 					{query ? (
-						<button type="button" onClick={() => props.onQueryChange("")} aria-label={t("common.clear")} title={t("common.clear")} className="absolute right-1.5 top-1/2 grid size-6 -translate-y-1/2 cursor-pointer place-items-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring">
+						<button
+							type="button"
+							onClick={() => props.onQueryChange("")}
+							aria-label={t("common.clear")}
+							title={t("common.clear")}
+							className="absolute right-1.5 top-1/2 grid size-6 -translate-y-1/2 cursor-pointer place-items-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+						>
 							<X className="size-3.5" aria-hidden="true" />
 						</button>
 					) : null}
