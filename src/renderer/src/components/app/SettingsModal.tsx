@@ -643,6 +643,7 @@ function SettingsModalContent(props: SettingsModalProps) {
 	const tabs = resolveVisibleSettingsTabs(hiddenModules, revealedTabs, settingsLayout).map((entry) => ({
 		id: entry.id,
 		dividerBefore: entry.dividerBefore ?? false,
+		groupLabel: entry.groupLabel ? t(entry.groupLabel) : undefined,
 		label: t(TAB_META[entry.id].labelKey),
 		icon: TAB_META[entry.id].icon,
 	}));
@@ -700,9 +701,9 @@ function SettingsModalContent(props: SettingsModalProps) {
 	// 侧栏 tab 项：抽成变量而不是内联 map —— 它现在嵌在「搜索框 → TabsList」两层容器里，内联会形成 7 层缩进。
 	const settingsSidebarTabs = tabs.map((tab) => (
 		<Fragment key={tab.id}>
-			{/* 分组分割线（纯视觉）：竖排侧栏为横线；≤820px 横排时变竖线，
-	    与 surfaces.css 里 .settings-tabs 转横向布局的媒体查询同条件 */}
+			{/* 竖排用标题标注分组；≤820px 横排时只保留窄分隔线，避免标题占用一整屏。 */}
 			{tab.dividerBefore ? <div aria-hidden="true" className="my-1.5 h-px w-auto shrink-0 bg-border-subtle max-[820px]:mx-1 max-[820px]:my-0 max-[820px]:h-auto max-[820px]:w-px" /> : null}
+			{tab.groupLabel ? <span className="px-2 pt-1 text-micro font-semibold text-muted-foreground max-[820px]:hidden">{tab.groupLabel}</span> : null}
 			<TabsTrigger value={tab.id} className="config-nav-btn h-8 justify-start gap-1.5 px-2.5 text-control font-medium">
 				<span className="settings-tab-icon">{tab.icon}</span>
 				<strong>{tab.label}</strong>

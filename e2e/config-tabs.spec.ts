@@ -25,6 +25,20 @@ async function openConfigurationManagement(window: Page) {
  *
  * 注意：e2e 无真实 pi/网络，这里只验证 UI 链路与错误兜底，不验证真实安装/开关。
  */
+test("config modal: empty provider state opens the add-provider form", async ({ window }) => {
+	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
+	const modal = await openConfigurationManagement(window);
+	const emptyState = modal.locator(".config-provider-empty");
+	await expect(emptyState).toContainText("暂无供应商配置");
+	await expect(emptyState).toContainText("添加供应商后");
+	await expect(modal.getByRole("button", { name: "+ 添加供应商", exact: true })).toHaveCount(1);
+	await emptyState.getByRole("button", { name: "+ 添加供应商", exact: true }).click();
+	const form = modal.locator(".provider-add-page");
+	await expect(form.getByRole("textbox", { name: "供应商名称", exact: true })).toBeVisible();
+	await form.getByRole("button", { name: "返回", exact: true }).click();
+	await expect(emptyState).toBeVisible();
+});
+
 test("config modal: installed extensions section renders", async ({ window }) => {
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 
@@ -64,7 +78,7 @@ test("config modal: external MCP and skill import dialogs open without writing r
 	const mcpDialog = window.getByRole("dialog");
 	await expect(mcpDialog.getByRole("heading", { name: "导入外部 MCP" })).toBeVisible();
 	await expect(mcpDialog.getByText("没有发现可导入资源")).toBeVisible();
-	await mcpDialog.getByRole("button", { name: "取消" }).click();
+	await mcpDialog.getByRole("button", { name: "取消", exact: true }).click();
 
 	await modal.getByRole("tab", { name: "技能", exact: true }).click();
 	const skillImport = modal.getByRole("button", { name: "导入", exact: true });
@@ -73,7 +87,7 @@ test("config modal: external MCP and skill import dialogs open without writing r
 	const skillDialog = window.getByRole("dialog");
 	await expect(skillDialog.getByRole("heading", { name: "导入外部技能" })).toBeVisible();
 	await expect(skillDialog.getByText("没有发现可导入资源")).toBeVisible();
-	await skillDialog.getByRole("button", { name: "取消" }).click();
+	await skillDialog.getByRole("button", { name: "取消", exact: true }).click();
 });
 
 test("config modal: feishu bot section renders connect form (UI smoke)", async ({ window }) => {

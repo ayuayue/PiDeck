@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { ChevronRight, FileText, Folder, FolderOpen, LoaderCircle, Search, TriangleAlert, X } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui-shadcn/button";
@@ -33,7 +33,7 @@ export function FileSearchResults(props: {
 	 * 不渲染正文分区与正文 spinner，改在查询非空时显示「仅文件名搜索」提示。
 	 */
 	contentSearchSupported?: boolean;
-	onViewFile?: (path: string | ProjectFileTarget, openMode?: "preview" | "permanent") => void;
+	onViewFile?: (path: string | ProjectFileTarget, openMode?: "preview" | "permanent", initialLine?: number) => void;
 	onFileContextMenu: (node: FileSearchResult, x: number, y: number) => void;
 	onClear: () => void;
 }) {
@@ -68,8 +68,45 @@ export function FileSearchResults(props: {
 			return next;
 		});
 
+	// 方向键沿当前可见的目录、文件及正文命中移动；已折叠的子项不获取焦点。
+	// 原生 button 继续负责 Enter/Space；输入框保留 Home/End 的原生光标移动。
+	const handleListKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+		if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+		const target = event.target;
+		if (!(target instanceof HTMLElement)) return;
+		const input = inputRef.current;
+		if (target !== input && !target.matches(".file-node-row")) return;
+		const key = event.key;
+		const directoryPath = target.dataset.searchDirKey;
+		if (directoryPath && (key === "ArrowLeft" || key === "ArrowRight")) {
+			event.preventDefault();
+			event.stopPropagation();
+			if (target.getAttribute("aria-expanded") === "true") {
+				if (key === "ArrowLeft") toggleDir(directoryPath);
+				else target.parentElement?.querySelector<HTMLButtonElement>(".file-children .file-node-row")?.focus();
+			} else if (key === "ArrowRight") toggleDir(directoryPath);
+			else target.parentElement?.parentElement?.closest(".file-node")?.querySelector<HTMLButtonElement>(":scope > button.directory")?.focus();
+			return;
+		}
+		if (key !== "ArrowDown" && key !== "ArrowUp" && key !== "Home" && key !== "End") return;
+		if (target === input && (key === "Home" || key === "End")) return;
+		const rows = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>(".file-node-row"));
+		if (rows.length === 0) return;
+		const index = rows.indexOf(target as HTMLButtonElement);
+		let next: HTMLButtonElement | HTMLInputElement | null = null;
+		if (key === "Home" && target !== input) next = rows[0];
+		else if (key === "End" && target !== input) next = rows[rows.length - 1];
+		else if (target === input) next = rows[key === "ArrowDown" ? 0 : rows.length - 1];
+		else if (index === 0 && key === "ArrowUp") next = input;
+		else if (index >= 0) next = rows[key === "ArrowDown" ? Math.min(index + 1, rows.length - 1) : Math.max(index - 1, 0)];
+		if (!next || next === target) return; // 保留末行继续向下、输入框原生的方向键行为
+		event.preventDefault();
+		event.stopPropagation();
+		next.focus();
+	};
+
 	return (
-		<div className="file-search-results flex min-h-0 flex-1 flex-col overflow-hidden">
+		<div className="file-search-results flex min-h-0 flex-1 flex-col overflow-hidden" onKeyDown={handleListKeyDown}>
 			<div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-border/40 px-2 focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring">
 				<Search size={13} className="shrink-0 text-muted-foreground" aria-hidden="true" />
 				<input
@@ -147,7 +184,7 @@ export function FileSearchResults(props: {
  * 正文命中分区：本机文件抽屉与远端项目面板共用同一段 UI。
  * 行内 snippet 已由主进程截好（含边界），这里只做截断与等宽路径显示。
  */
-export function FileContentSection(props: { query: string; result: FileContentSearchResult | null; isSearching: boolean; onViewFile?: (path: string, openMode?: "preview" | "permanent") => void; onFileContextMenu: (node: FileSearchResult, x: number, y: number) => void }) {
+export function FileContentSection(props: { query: string; result: FileContentSearchResult | null; isSearching: boolean; onViewFile?: (path: string, openMode?: "preview" | "permanent", initialLine?: number) => void; onFileContextMenu: (node: FileSearchResult, x: number, y: number) => void }) {
 	const hits = props.result?.hits ?? [];
 	if (hits.length === 0 && !props.isSearching) return null;
 	return (
@@ -166,7 +203,7 @@ export function FileContentSection(props: { query: string; result: FileContentSe
 	);
 }
 
-function FileContentRow(props: { hit: FileContentSearchHit; onViewFile?: (path: string, openMode?: "preview" | "permanent") => void; onFileContextMenu: (node: FileSearchResult, x: number, y: number) => void }) {
+function FileContentRow(props: { hit: FileContentSearchHit; onViewFile?: (path: string, openMode?: "preview" | "permanent", initialLine?: number) => void; onFileContextMenu: (node: FileSearchResult, x: number, y: number) => void }) {
 	const { hit } = props;
 	// 右键菜单按文件树节点形状复用：路径类操作只关心 path/name，行号由 title 补充
 	const node: FileSearchResult = { name: hit.name, path: hit.path, relativePath: hit.relativePath, type: "file" };
@@ -175,10 +212,10 @@ function FileContentRow(props: { hit: FileContentSearchHit; onViewFile?: (path: 
 			type="button"
 			className="file-node-row flex w-full flex-col items-start gap-0.5 rounded-sm border-0 bg-transparent px-2 py-1 text-left text-body font-normal text-foreground transition-[background-color] duration-base hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
 			title={`${hit.relativePath}:${hit.line}`}
-			onClick={() => props.onViewFile?.(hit.path)}
+			onClick={() => props.onViewFile?.(hit.path, undefined, hit.line)}
 			onDoubleClick={(event) => {
 				event.preventDefault();
-				props.onViewFile?.(hit.path, "permanent");
+				props.onViewFile?.(hit.path, "permanent", hit.line);
 			}}
 			onContextMenu={(event) => {
 				event.preventDefault();
@@ -246,6 +283,7 @@ function SearchDirectoryRow(props: SearchTreeRowProps & { entry: FileSearchTreeD
 				style={treeRowStyle(depth)}
 				title={entry.item ? (entry.item.displayPath ?? entry.item.relativePath) : entry.key}
 				aria-expanded={hasChildren ? expanded : undefined}
+				data-search-dir-key={hasChildren ? entry.key : undefined}
 				onClick={() => {
 					if (hasChildren) props.onToggleDir(entry.key);
 				}}

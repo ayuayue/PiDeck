@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: b2c9516e5e326afacf3735b58dd9f04fed1bd11bda7203ba7b4be6a0f104cb68（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 8c7277f2ffe145ffd595d45c38db9cc209362610fc693cb03e6681ae6b0ea6e0（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -3409,6 +3409,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"config.emptyExtensions": "暫無已安裝擴充套件。",
 	"config.emptyModels": "暫無模型，點選「+ 模型」新增",
 	"config.emptyProviders": "暫無供應商配置",
+	"config.emptyProvidersHint": "新增供應商後，即可配置連線並新增模型。",
 	"config.others.title": "其他設定項",
 	"editor.archiveEmpty": "壓縮包為空",
 	"editor.archiveSummary": "{count} 個檔案 · 共 {size}",
@@ -4516,6 +4517,10 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.searchPlaceholder": "搜尋設定項",
 	"settings.searchHint": "支援中文、英文和拼音首字母：dl → 代理，ylcx → 用量查詢。↑↓ 選擇，Enter 跳轉",
 	"settings.searchNoResult": "沒有匹配的設定項",
+	"settings.group.basic": "基礎設定",
+	"settings.group.integrations": "擴充套件與整合",
+	"settings.group.developer": "開發工具",
+	"settings.group.maintenance": "維護與診斷",
 	"settings.tabs.common": "常用設定",
 	"settings.tabs.shortcuts": "快捷鍵",
 	"settings.tabs.notification": "通知設定",
