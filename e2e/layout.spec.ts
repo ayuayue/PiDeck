@@ -58,5 +58,7 @@ test("layout: project present in sidebar hides the add-directory guide", async (
 	// （空态引导只出现在仅内置 Chat 的新用户场景，见 sidebar-empty-state.spec.ts）
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 	await expect(window.getByText("添加你的项目目录")).toHaveCount(0, { timeout: 10_000 });
-	await expect(window.locator(".conversation", { hasText: "pideck-seed-layoute2e-" }).first()).toBeVisible({ timeout: 20_000 });
+	// 项目行在侧栏「项目」分段；默认分段是聊天（activeProjectId 未定），先切过去。
+	await window.getByRole("tab", { name: "项目" }).click();
+	await expect(window.locator(".conversation", { hasText: seedProject.name }).first()).toBeVisible({ timeout: 20_000 });
 });
