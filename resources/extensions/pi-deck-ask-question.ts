@@ -58,6 +58,8 @@ interface Answer {
 	value: string | boolean | string[] | null;
 	label?: string;
 	wasCustom?: boolean;
+	/** 用户在卡片上主动跳过本题（value 为 null） */
+	skipped?: boolean;
 }
 
 // askOne/askBatch 需要的上下文子集：桌面端统一走批量信封后只依赖 ui.input
@@ -178,9 +180,22 @@ function toQuestions(params: Record<string, unknown>): NormalizedQuestion[] {
 	];
 }
 
-/** 批量结果：返回结构化 questions/answers，便于 LLM 按 id 取值 */
-function batchResult(qs: NormalizedQuestion[], answers: Answer[], cancelled: boolean, overrideText?: string) {
+/** 有效作答：null/undefined 与空的 multi_select 数组都算没答 */
+function hasAnswerValue(answer: Answer | undefined): boolean {
+	const value = answer?.value;
+	if (value === null || value === undefined) return false;
+	return !Array.isArray(value) || value.length > 0;
+}
+
+/**
+ * 批量结果：返回结构化 questions/answers，便于 LLM 按 id 取值。
+ * closed：用户关闭了卡片但已答了部分题——已答内容照常交回，未答的明确标出，
+ * 不让模型把空答案当成用户的选择，也不把已答内容整单丢掉。
+ */
+function batchResult(qs: NormalizedQuestion[], answers: Answer[], cancelled: boolean, overrideText?: string, closed = false) {
 	const lines = answers.map((a) => {
+		if (a.skipped) return `${a.id}: (用户跳过，未作答)`;
+		if (!hasAnswerValue(a)) return `${a.id}: (未作答)`;
 		// multi_select 的 value 是数组，拼接展示（如「A、C」）
 		const v = Array.isArray(a.value)
 			? a.value.join("、")
@@ -189,20 +204,21 @@ function batchResult(qs: NormalizedQuestion[], answers: Answer[], cancelled: boo
 				: String(a.value ?? "");
 		return `${a.id}: ${a.wasCustom ? "(自行输入) " : ""}${v}`;
 	});
+	const body = lines.length ? lines.join("\n") : "无答案";
 	return {
 		content: [
 			{
 				type: "text" as const,
 				text:
 					overrideText ??
-					(cancelled && answers.length === 0
+					(cancelled && !answers.some(hasAnswerValue)
 						? "用户取消了提问"
-						: lines.length
-							? lines.join("\n")
-							: "无答案"),
+						: closed
+							? `用户关闭了提问卡，没有答完全部问题。下面逐题列出作答情况（「否」也是有效作答）；标为未作答或跳过的题不要替用户假设答案：\n${body}`
+							: body),
 			},
 		],
-		details: { questions: qs, answers, cancelled },
+		details: { questions: qs, answers, cancelled, ...(closed ? { closed: true } : {}) },
 	};
 }
 
@@ -211,29 +227,25 @@ async function askBatch(
 	questions: NormalizedQuestion[],
 	review: boolean,
 	ctx: AskCtx,
-): Promise<{ answers: Answer[]; cancelled: boolean }> {
+): Promise<{ answers: Answer[]; cancelled: boolean; closed: boolean }> {
 	const envelope = JSON.stringify({
 		[BATCH_ASK_ENVELOPE_KEY]: 1,
 		review,
 		questions,
 	});
 	const raw = await ctx.ui.input(envelope, "__piDeckBatchAsk__");
-	if (typeof raw !== "string" || !raw.trim()) return { answers: [], cancelled: true };
+	if (typeof raw !== "string" || !raw.trim()) return { answers: [], cancelled: true, closed: false };
 	try {
 		const parsed = JSON.parse(raw) as { cancelled?: boolean; answers?: Answer[] };
 		const answers = Array.isArray(parsed.answers) ? parsed.answers : [];
-		const complete =
-			!parsed.cancelled &&
-			answers.length >= questions.length &&
-			answers.every((answer) => {
-				const value = answer?.value;
-				// multi_select 空数组视为未作答
-				if (value === null || value === undefined) return false;
-				return !Array.isArray(value) || value.length > 0;
-			});
-		return { answers, cancelled: !complete };
+		const answeredAny = answers.some(hasAnswerValue);
+		// 带答案的 cancelled 信封 = 用户答了一部分后关闭卡片：已答部分有效，不算整单取消
+		if (parsed.cancelled) return { answers, cancelled: !answeredAny, closed: answeredAny };
+		// 主动跳过算已处理；答案条数不足（旧桌面端或异常信封）仍视为未完成
+		const complete = answers.length >= questions.length && answers.every((answer) => answer?.skipped === true || hasAnswerValue(answer));
+		return { answers, cancelled: !complete && !answeredAny, closed: !complete && answeredAny };
 	} catch {
-		return { answers: [], cancelled: true };
+		return { answers: [], cancelled: true, closed: false };
 	}
 }
 
@@ -297,8 +309,8 @@ export default function (pi: ExtensionAPI) {
 
 			// 单一渲染形态：无论单问题还是批量，都走同一个批量信封，桌面端只有一种卡片外观
 			try {
-				const { answers, cancelled } = await askBatch(questions, record.review === true, ctx);
-				return batchResult(questions, answers, cancelled);
+				const { answers, cancelled, closed } = await askBatch(questions, record.review === true, ctx);
+				return batchResult(questions, answers, cancelled, undefined, closed);
 			} catch {
 				return batchResult(questions, [], true);
 			}

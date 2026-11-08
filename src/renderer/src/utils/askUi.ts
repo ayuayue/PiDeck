@@ -354,19 +354,24 @@ export function formatAskTitle(title: string): string {
  * 主进程收到后原样作为 input 答案返回给 pi 扩展。
  * meta 提供每个问题的展示 label 与自定义标记（可选）。
  */
-export function serializeBatchAnswers(questions: ReadonlyArray<{ id: string; type: string }>, answers: Readonly<Record<string, BatchAnswerValue>>, meta?: Readonly<Record<string, { label?: string; wasCustom?: boolean }>>): string {
+export function serializeBatchAnswers(questions: ReadonlyArray<{ id: string; type: string }>, answers: Readonly<Record<string, BatchAnswerValue>>, meta?: Readonly<Record<string, { label?: string; wasCustom?: boolean; skipped?: boolean }>>, options?: { closed?: boolean }): string {
 	const result = questions.map((question) => {
-		const value = answers[question.id] ?? null;
 		const itemMeta = meta?.[question.id];
+		// 跳过的题一律 value=null，扩展据 skipped 区分「主动跳过」与「没答」
+		const skipped = Boolean(itemMeta?.skipped);
+		const value = skipped ? null : (answers[question.id] ?? null);
 		return {
 			id: question.id,
 			type: question.type,
 			value,
-			label: itemMeta?.label ?? batchAnswerLabel(value),
-			wasCustom: Boolean(itemMeta?.wasCustom),
+			label: skipped ? "" : (itemMeta?.label ?? batchAnswerLabel(value)),
+			wasCustom: !skipped && Boolean(itemMeta?.wasCustom),
+			...(skipped ? { skipped: true } : {}),
 		};
 	});
-	return JSON.stringify({ answers: result });
+	// closed：用户点关闭时已答了部分题，已答内容照样交回模型，而不是整单丢弃。
+	// 字段名沿用 cancelled：旧版扩展读到后按「取消 + 列出已有答案」降级，不会误当成完整作答。
+	return JSON.stringify(options?.closed ? { cancelled: true, answers: result } : { answers: result });
 }
 
 /**
@@ -532,6 +537,8 @@ export type AskBatchDraft = {
 	labels: Record<string, string>;
 	/** 走了「其他」自定义输入的题号集合（提交时序列化 wasCustom 标记） */
 	customAnswerIds: string[];
+	/** 用户主动跳过的题号集合：跳过算「已处理」，不再阻塞整卡提交；再作答即移出 */
+	skippedIds?: string[];
 	/** 各题自定义输入框 / 纯输入题的当前文本 */
 	inputValues: Record<string, string>;
 	/** 当前所在题目 tab 索引 */
@@ -542,7 +549,7 @@ export type AskBatchDraft = {
 
 /** 空草稿：所有字段的初始值。prefill 由组件在首次挂载时注入（见 SessionRuntimeUiOverlay）。 */
 export function emptyAskBatchDraft(): AskBatchDraft {
-	return { answers: {}, labels: {}, customAnswerIds: [], inputValues: {}, currentTab: 0, expanded: true };
+	return { answers: {}, labels: {}, customAnswerIds: [], skippedIds: [], inputValues: {}, currentTab: 0, expanded: true };
 }
 
 /** 单问题卡的交互草稿初始值。 */
@@ -577,5 +584,14 @@ export function isSameAskDraftKey(left: string | undefined, right: string): bool
  */
 export function commitBatchAnswer(draft: AskBatchDraft, questionId: string, value: BatchAnswerValue, label: string, wasCustom: boolean): AskBatchDraft {
 	const customAnswerIds = wasCustom ? (draft.customAnswerIds.includes(questionId) ? draft.customAnswerIds : [...draft.customAnswerIds, questionId]) : draft.customAnswerIds.filter((id) => id !== questionId);
-	return { ...draft, answers: { ...draft.answers, [questionId]: value }, labels: { ...draft.labels, [questionId]: label }, customAnswerIds };
+	const skippedIds = (draft.skippedIds ?? []).filter((id) => id !== questionId);
+	return { ...draft, answers: { ...draft.answers, [questionId]: value }, labels: { ...draft.labels, [questionId]: label }, customAnswerIds, skippedIds };
+}
+
+/** 标记一题为跳过（纯函数）：清掉该题已选答案与自定义标记；输入框文本保留，用户改主意时不用重打。 */
+export function skipBatchQuestion(draft: AskBatchDraft, questionId: string): AskBatchDraft {
+	const { [questionId]: _answer, ...answers } = draft.answers;
+	const { [questionId]: _label, ...labels } = draft.labels;
+	const skippedIds = draft.skippedIds?.includes(questionId) ? draft.skippedIds : [...(draft.skippedIds ?? []), questionId];
+	return { ...draft, answers, labels, customAnswerIds: draft.customAnswerIds.filter((id) => id !== questionId), skippedIds };
 }
