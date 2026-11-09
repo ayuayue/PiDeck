@@ -112,6 +112,12 @@ export type RemoteHostAddInput = {
  */
 export type RemoteHostAddResult = { ok: true; hostId: string; status: "verified" } | { ok: false; code: string };
 
+/**
+ * 「测试连接」结果：不写任何状态，只回报握手是否能过。
+ * 成功时带上主机密钥指纹与解析后的端点（config 里的 HostName/User/Port 可能与表单不同）。
+ */
+export type RemoteHostTestResult = { ok: true; fingerprint: string; hostName: string; user: string; port: number } | { ok: false; code: string };
+
 /** Result of the native file picker used for a private key. The path is absolute; nothing is read here. */
 export type RemoteHostPickIdentityFileResult = { ok: true; path: string } | { ok: false; code: string };
 

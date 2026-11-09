@@ -509,6 +509,7 @@ export function createPreviewApi(): PiDesktopApi {
 			diagnostics: async (hostId) => ({ ok: false as const, hostId, code: "REMOTE_FEATURE_DISABLED" }),
 			scanConfig: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED" }),
 			add: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED" }),
+			test: async () => ({ ok: false as const, code: "REMOTE_FEATURE_DISABLED" }),
 			remove: async (hostId) => ({ ok: false as const, hostId, code: "REMOTE_FEATURE_DISABLED" }),
 			listDirs: async (hostId) => ({ ok: false as const, hostId, code: "REMOTE_FEATURE_DISABLED" }),
 			listWslHosts: async () => ({ ok: true as const, hosts: [] }),

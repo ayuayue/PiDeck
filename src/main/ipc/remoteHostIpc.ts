@@ -10,6 +10,7 @@ import { registerRemoteHostScanIpc } from "./remoteHostScanIpc";
 import type {
 	RemoteHostAddInput,
 	RemoteHostAddResult,
+	RemoteHostTestResult,
 	RemoteHostConfigScanResult,
 	RemoteHostConnectResult,
 	RemoteHostDiagnosticEntry,
@@ -364,6 +365,33 @@ export function registerRemoteHostIpc(input: {
 			return { ok: true, hostId, entries };
 		} catch {
 			return { ok: false, hostId, code: "REMOTE_CONNECTION_FAILED" };
+		}
+	});
+
+	/**
+	 * 「测试连接」：只做一次真实握手（可达性 + 认证 + 主机密钥），不写 host store、不落 pin。
+	 *
+	 * 添加失败时用户只能看到一个稳定码，分不清是钥被拒、路径写错还是网络不通；表单里先试一次
+	 * 就能把失败定位在填错字段，而不是等保存后的连接进度框。
+	 * 密码方式不走这里：探针固定 BatchMode=yes，没有可用的非交互凭据，密码正确性只能在连接时验证。
+	 */
+	ipcMain.handle(ipcChannels.remoteHostTest, async (_event, value: unknown): Promise<RemoteHostTestResult> => {
+		if (!input.enabled) return { ok: false, code: "REMOTE_FEATURE_DISABLED" };
+		const parsed = readAddInput(value);
+		if (!parsed.ok) return parsed;
+		const add = parsed.input;
+		if (add.authMethod === "password") return { ok: false, code: "REMOTE_HOST_TEST_PASSWORD_UNSUPPORTED" };
+		try {
+			const { pinStore } = await openStores();
+			const candidate = await pinStore.probe({
+				sshHost: add.hostName,
+				...(add.user === undefined ? {} : { user: add.user }),
+				...(add.port === undefined ? {} : { port: add.port }),
+				...(add.identityFile === undefined ? {} : { identityFile: add.identityFile }),
+			});
+			return { ok: true, fingerprint: candidate.hostKeyFingerprints[0] ?? "", hostName: candidate.hostName, user: candidate.user, port: candidate.port };
+		} catch (error) {
+			return { ok: false, code: codeOf(error, "REMOTE_HOST_TEST_FAILED") };
 		}
 	});
 

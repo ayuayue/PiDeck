@@ -420,6 +420,7 @@ const api = {
 		scanConfig: () => ipcRenderer.invoke(ipcChannels.remoteHostScanConfig) as Promise<import("../shared/types/remoteHost").RemoteHostConfigScanResult>,
 		/** 添加主机：建立 draft、完成首次 host key 信任（TOFU）并落盘 pin；成功即 verified，可直接连接。 */
 		add: (input: import("../shared/types/remoteHost").RemoteHostAddInput) => ipcRenderer.invoke(ipcChannels.remoteHostAdd, input) as Promise<import("../shared/types/remoteHost").RemoteHostAddResult>,
+		test: (input: import("../shared/types/remoteHost").RemoteHostAddInput) => ipcRenderer.invoke(ipcChannels.remoteHostTest, input) as Promise<import("../shared/types/remoteHost").RemoteHostTestResult>,
 		/** 移除连接：主进程先断开再退役 profile/pin；仍被项目引用时拒绝。 */
 		remove: (hostId: string) => ipcRenderer.invoke(ipcChannels.remoteHostRemove, hostId) as Promise<import("../shared/types/remoteHost").RemoteHostRemoveResult>,
 		/** 只读列目录：path 缺省从远端 home 开始；只返回目录名。 */

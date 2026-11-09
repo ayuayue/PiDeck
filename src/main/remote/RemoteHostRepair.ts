@@ -523,7 +523,13 @@ export class RemoteHostRepair {
 }
 
 function routeOf(profile: RemoteHostProfile): SshDraftRoute {
-	return { sshHost: profile.sshHost, ...(profile.user !== undefined ? { user: profile.user } : {}), ...(profile.port !== undefined ? { port: profile.port } : {}), ...(profile.proxyJump !== undefined ? { proxyJump: profile.proxyJump } : {}) };
+	return {
+		sshHost: profile.sshHost,
+		...(profile.user !== undefined ? { user: profile.user } : {}),
+		...(profile.port !== undefined ? { port: profile.port } : {}),
+		...(profile.proxyJump !== undefined ? { proxyJump: profile.proxyJump } : {}),
+		...(profile.identityFile !== undefined ? { identityFile: profile.identityFile } : {}),
+	};
 }
 
 /** The candidate the live host just presented must equal the bytes of the already published pin. */

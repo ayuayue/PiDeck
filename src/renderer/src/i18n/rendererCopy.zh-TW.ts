@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: b1a82abace984007c893cd9083d31e00ac46175f64f5a2057358b8f1c6dc7ab8（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 0b28edc67479d13dd618b0773650a561db6017d43d8941adddea59f3d31fa47d（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -4598,6 +4598,18 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.connections.add.manual": "手動新增",
 	"settings.connections.add.fromConfig": "從 SSH 配置選擇",
 	"settings.connections.add.submit": "儲存",
+	"settings.connections.add.test": "測試連線",
+	"settings.connections.add.testing": "正在測試連線…",
+	"settings.connections.add.testOk": "連線成功：主機金鑰 {fingerprint}",
+	"settings.connections.add.testFailed": "測試失敗：{reason}",
+	"settings.connections.add.testPasswordUnsupported": "密碼方式只能儲存後連線驗證（測試探針不接受互動式密碼）",
+	"settings.connections.add.reason.keyRejected": "伺服器拒絕了這把私鑰。確認公鑰已寫進目標使用者的 ~/.ssh/authorized_keys，並檢查使用者名稱是否正確。",
+	"settings.connections.add.reason.keyUnreadable": "讀不到這把私鑰：路徑不存在、檔案權限過寬，或者它不是 OpenSSH 格式的私鑰。",
+	"settings.connections.add.reason.passphraseRequired": "私鑰帶口令：首次握手不接受互動式口令，請先用 ssh-add 把這把鑰加進 agent 再試（加進 agent 後 PiDeck 就能用它認證）。",
+	"settings.connections.add.reason.unreachable": "連不上主機：檢查地址、埠與網路（連線超時、被拒絕或域名解析失敗）。",
+	"settings.connections.add.reason.timeout": "連線超時：檢查網路，或確認主機沒有防火牆丟包。",
+	"settings.connections.add.reason.authFailed": "認證失敗：檢查使用者名稱、私鑰與 agent 裡的金鑰。",
+	"settings.connections.add.reason.keyPathInvalid": "私鑰路徑必須是本機絕對路徑（例如 C:\Users\you\.ssh\id_ed25519）。",
 	"settings.connections.add.required": "顯示名稱與主機名不能為空。",
 	"settings.connections.add.badPort": "埠必須是 1-65535 之間的整數。",
 	"settings.connections.add.user": "使用者名稱（可選）",

@@ -7,6 +7,11 @@ export type SshDraftRoute = {
 	user?: string;
 	port?: number;
 	proxyJump?: string;
+	/**
+	 * 本机私钥绝对路径：未验证的草稿也要靠它完成首次握手（用户用 `ssh -i` 才能登录的主机很多，
+	 * 缺了它 probe 只能拿默认钥/agent 试，于是在「添加连接」这一步就报 SSH_HOST_AUTHENTICATION_FAILED）。
+	 */
+	identityFile?: string;
 };
 
 const SSH_NAME = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
@@ -39,11 +44,15 @@ export function buildSshConfigQueryArgs(route: SshDraftRoute): string[] {
 	if (route.user !== undefined && (typeof route.user !== "string" || !SSH_NAME.test(route.user))) throw new Error("INVALID_SSH_USER");
 	if (route.port !== undefined && !validPort(route.port)) throw new Error("INVALID_SSH_PORT");
 	if (route.proxyJump !== undefined && (typeof route.proxyJump !== "string" || !validJump(route.proxyJump))) throw new Error("INVALID_SSH_PROXY_JUMP");
+	if (route.identityFile !== undefined && !validLocalPath(route.identityFile)) throw new Error("INVALID_SSH_LOCAL_PATH");
 
 	const args = ["-G", ...(isIP(route.sshHost) !== 0 && route.proxyJump === undefined ? ["-F", process.platform === "win32" ? "NUL" : "/dev/null"] : []), "-o", "BatchMode=yes", "-o", "PermitLocalCommand=no", "-o", "ForwardAgent=no", "-o", "ClearAllForwardings=yes"];
 	if (route.user !== undefined) args.push("-l", route.user);
 	if (route.port !== undefined) args.push("-p", String(route.port));
 	if (route.proxyJump !== undefined) args.push("-J", route.proxyJump);
+	// 与已验证链路同代数：显式密钥必须配 IdentitiesOnly，否则 ssh 还会拿 agent/默认钥去试，
+	// 失败时报告的可能是另一把钥的问题。
+	if (route.identityFile !== undefined) args.push("-i", route.identityFile, "-o", "IdentitiesOnly=yes");
 	args.push(route.sshHost);
 	return args;
 }

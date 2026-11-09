@@ -536,7 +536,14 @@ export class RemoteHostStore {
 		return this.pinStore.offer({
 			hostId,
 			senderId,
-			route: { sshHost: profile.sshHost, ...(profile.user !== undefined ? { user: profile.user } : {}), ...(profile.port !== undefined ? { port: profile.port } : {}), ...(profile.proxyJump !== undefined ? { proxyJump: profile.proxyJump } : {}) },
+			// identityFile 必须一起带上：探针握手用的就是这把钥，缺了它用户用非默认密钥名的主机必失败。
+			route: {
+				sshHost: profile.sshHost,
+				...(profile.user !== undefined ? { user: profile.user } : {}),
+				...(profile.port !== undefined ? { port: profile.port } : {}),
+				...(profile.proxyJump !== undefined ? { proxyJump: profile.proxyJump } : {}),
+				...(profile.identityFile !== undefined ? { identityFile: profile.identityFile } : {}),
+			},
 			...(preverifiedHostKey === undefined ? {} : { preverifiedHostKey }),
 			// A password host has no credential at enrollment time by design: the key is pinned first, the
 			// secret is only ever sent to a host whose key is already on disk.

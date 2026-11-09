@@ -79,7 +79,13 @@ function readProfile(value: unknown): RemoteHostProfile {
 	)
 		invalid();
 	if (typeof value.sshHost !== "string" || (value.port !== undefined && typeof value.port !== "number") || (value.user !== undefined && typeof value.user !== "string") || (value.proxyJump !== undefined && typeof value.proxyJump !== "string")) invalid();
-	const route: SshDraftRoute = { sshHost: value.sshHost, ...(value.port !== undefined ? { port: value.port } : {}), ...(value.user !== undefined ? { user: value.user } : {}), ...(value.proxyJump !== undefined ? { proxyJump: value.proxyJump } : {}) };
+	const route: SshDraftRoute = {
+		sshHost: value.sshHost,
+		...(value.port !== undefined ? { port: value.port } : {}),
+		...(value.user !== undefined ? { user: value.user } : {}),
+		...(value.proxyJump !== undefined ? { proxyJump: value.proxyJump } : {}),
+		...(value.identityFile !== undefined ? { identityFile: value.identityFile } : {}),
+	};
 	try {
 		buildSshConfigQueryArgs(route);
 	} catch {

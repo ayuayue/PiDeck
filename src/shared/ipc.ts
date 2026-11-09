@@ -10,6 +10,7 @@ export const ipcChannels = {
 	remoteHostScanConfig: "remote:scan-config",
 	/** 添加主机：建立 draft、完成首次 host key 信任（TOFU）并落盘 pin，返回 verified。 */
 	remoteHostAdd: "remote:add",
+	remoteHostTest: "remote:test",
 	/** 编辑已添加的主机（显示名/地址/端口/用户/私钥/认证方式）；地址变化后重新验证并 pin。 */
 	remoteHostUpdate: "remote:update",
 	/** 编辑表单的初值：主机字段 + 已保存口令（明文，仅回给发起编辑的窗口）。 */

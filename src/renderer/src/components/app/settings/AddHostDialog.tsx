@@ -26,6 +26,37 @@ function skipReasonLabel(reason: string): string {
 	}
 }
 
+/**
+ * 添加/测试失败时的稳定码 → 人话。
+ *
+ * 以前这里只有一个 `{ code }` 占位：用户看到 SSH_HOST_AUTHENTICATION_FAILED 完全不知道该改哪个字段。
+ * 私钥被拒、私钥读不了、私钥带口令、网络不通，这四类的下一步动作完全不同，必须分开讲。
+ */
+function addFailureReason(code: string): string {
+	switch (code) {
+		case "SSH_AUTH_KEY_REJECTED":
+			return t("settings.connections.add.reason.keyRejected");
+		case "SSH_AUTH_KEY_UNREADABLE":
+		case "SSH_HOST_KEY_INVALID":
+			return t("settings.connections.add.reason.keyUnreadable");
+		case "SSH_AUTH_PASSPHRASE_REQUIRED":
+			return t("settings.connections.add.reason.passphraseRequired");
+		case "SSH_HOST_UNREACHABLE":
+			return t("settings.connections.add.reason.unreachable");
+		case "SSH_HOST_COMMAND_TIMEOUT":
+			return t("settings.connections.add.reason.timeout");
+		case "SSH_HOST_AUTHENTICATION_FAILED":
+			return t("settings.connections.add.reason.authFailed");
+		case "REMOTE_HOST_IDENTITY_FILE_INVALID":
+		case "INVALID_SSH_LOCAL_PATH":
+			return t("settings.connections.add.reason.keyPathInvalid");
+		case "REMOTE_FEATURE_DISABLED":
+			return t("settings.connections.add.disabled");
+		default:
+			return t("settings.connections.add.failed", { code });
+	}
+}
+
 type AuthMode = "agent" | "key" | "password";
 type ConnectionKind = "ssh" | "wsl";
 
@@ -84,6 +115,9 @@ export function AddHostDialog(props: { onClose: () => void; onSubmitted: (hostId
 	// WSL 档案：只保存显示名/发行版/Linux 用户，目录在「添加项目」时选。
 	const [wsl, setWsl] = useState({ label: "", distro: "", user: "" });
 	const [wslBusy, setWslBusy] = useState(false);
+	// 「测试连接」：只握手不落库。结果分成功（带主机密钥指纹）与失败（已翻译成行动建议）。
+	const [testing, setTesting] = useState(false);
+	const [testResult, setTestResult] = useState<{ ok: true; fingerprint: string } | { ok: false; reason: string } | null>(null);
 	const [wslError, setWslError] = useState<string | null>(null);
 
 	useEffect(() => {
@@ -152,17 +186,40 @@ export function AddHostDialog(props: { onClose: () => void; onSubmitted: (hostId
 				});
 				if (result.ok) props.onSubmitted(result.hostId, input.label, secret.length > 0 ? secret : undefined);
 				else if (result.saved) setError(t("settings.connections.edit.savedUnverified", { code: result.code }));
-				else setError(t("settings.connections.add.failed", { code: result.code }));
+				else setError(addFailureReason(result.code));
 				return;
 			}
 			const result = await desktopApi.remoteHosts.add(input);
 			// 回传 label 让连接进度屏显示人话，而不是 UUID。
 			if (result.ok) props.onSubmitted(result.hostId, input.label, secret.length > 0 ? secret : undefined);
-			else setError(t("settings.connections.add.failed", { code: result.code }));
+			else setError(addFailureReason(result.code));
 		} finally {
 			setBusy(false);
 		}
 	}, [props, validate]);
+
+	// 表单里的连接参数一变，上一次「测试连接」的结论就作废：留着旧的「连接成功」会让人以为新配置也通了。
+	useEffect(() => {
+		setTestResult(null);
+	}, [form.hostName, form.port, form.user, form.identityFile, form.auth, form.passphrase]);
+
+	/** 用当前表单值做一次真实握手（不保存、不写 pin），把失败定位到字段而不是保存后的连接进度框。 */
+	const testConnection = useCallback(async () => {
+		const input = validate();
+		if (typeof input === "string") {
+			setError(input);
+			return;
+		}
+		setError(null);
+		setTestResult(null);
+		setTesting(true);
+		try {
+			const result = await desktopApi.remoteHosts.test(input);
+			setTestResult(result.ok ? { ok: true, fingerprint: result.fingerprint } : { ok: false, reason: addFailureReason(result.code) });
+		} finally {
+			setTesting(false);
+		}
+	}, [validate]);
 
 	/** 选中一条 config 候选 = 把字段填进表单，仍然由用户确认后再添加（不隐式提交）。 */
 	const applyCandidate = useCallback((candidate: RemoteHostConfigCandidate) => {
@@ -513,6 +570,7 @@ export function AddHostDialog(props: { onClose: () => void; onSubmitted: (hostId
 							<p className="text-label text-muted-foreground">{t("settings.connections.add.credentialsHint")}</p>
 						</div>
 
+						{testResult !== null ? <p className={cn("text-label", testResult.ok ? "text-muted-foreground" : "text-destructive")}>{testResult.ok ? t("settings.connections.add.testOk", { fingerprint: testResult.fingerprint }) : t("settings.connections.add.testFailed", { reason: testResult.reason })}</p> : null}
 						{error !== null ? <p className="text-label text-destructive">{error}</p> : null}
 					</>
 				)}
@@ -524,9 +582,14 @@ export function AddHostDialog(props: { onClose: () => void; onSubmitted: (hostId
 							{t("common.cancel")}
 						</Button>
 						{kind === "ssh" ? (
-							<Button disabled={busy} onClick={() => void submit()}>
-								{editing === undefined ? t("settings.connections.add.submitConnect") : t("common.save")}
-							</Button>
+							<>
+								<Button variant="outline" disabled={busy || testing || form.auth === "password"} title={form.auth === "password" ? t("settings.connections.add.testPasswordUnsupported") : undefined} onClick={() => void testConnection()}>
+									{testing ? t("settings.connections.add.testing") : t("settings.connections.add.test")}
+								</Button>
+								<Button disabled={busy || testing} onClick={() => void submit()}>
+									{editing === undefined ? t("settings.connections.add.submitConnect") : t("common.save")}
+								</Button>
+							</>
 						) : (
 							<Button disabled={wslBusy} onClick={() => void submitWsl()}>
 								{t("settings.connections.add.wsl.submit")}
