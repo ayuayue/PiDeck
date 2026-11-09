@@ -429,7 +429,7 @@ export const DevTab = memo(function DevTab(props: DevTabProps) {
 					onDownloadUpdate={props.onDownloadUpdate}
 					onInstallUpdate={props.onInstallUpdate}
 				/>
-				{props.appInfo.platform === "darwin" ? (
+				{props.appInfo.platform === "darwin" && updateStatus?.deliveryMode !== "automatic" ? (
 					<p className="px-0.5 text-caption text-muted-foreground">{t("settings.macManualUpdateDesc")}</p>
 				) : updateStatus?.deliveryMode === "manual" ? (
 					<p className="px-0.5 text-caption text-muted-foreground">{t(updateStatus.deliveryReason === "linux-arm64" ? "settings.linuxArm64ManualUpdateDesc" : props.appInfo.platform === "linux" ? "settings.linuxPackageManualUpdateDesc" : "settings.manualUpdateDesc")}</p>

@@ -105,6 +105,12 @@ GitHub 的 choice 只能写死静态列表，无法动态读 tag，所以每发�
 `src/main/buildIdentity.ts`）。漏标的表现是发布包也显示「本地构建」，守卫测试
 `tests/releaseWorkflowBuildOrigin.test.mjs` 会按「会发 Release 的 workflow」逐一拦下。
 
+### macOS 自动更新能力与双架构清单
+
+运行时检查当前安装的 Developer ID 签名后决定交付方式：有效身份走现有 electron-updater 下载与用户确认后的重启安装；ad-hoc、源码运行或探测失败保留手动 DMG 交付。首次从 ad-hoc 过渡到 Developer ID 仍需手动安装，后续更新必须保持 Team 与 Bundle ID 一致，详见 [macOS 自动更新恢复](macos-auto-update.md)。
+
+`release.yml` / `build-dev.yml` 的 macOS 构建任务只上传安装包并暂存各架构的 `*-mac.yml`。共用 `publish-mac-update-metadata.yml` 在两个架构任务完成后调用 `scripts/merge-mac-update-metadata.mjs` 合并并验证，再单独上传完整通道文件；不要恢复两个任务直接上传同名清单的行为，否则后完成的架构会覆盖另一架构。stable 的 latest 收尾与后续 runtime 资产完成检测依赖完整清单已发布。验收时同时检查 x64 / arm64 ZIP 与 `latest-mac.yml`、适用时 `beta-mac.yml` 的 `files`，不要只检查 DMG。
+
 ### macOS 签名与更新后的权限保留
 
 - `build.mac.identity: "-"` 继续作为**无证书构建的兜底**，不要直接删除：electron-builder 26.15+ 已移除自动 ad-hoc 回退，省略身份且没有证书会再次产出未封印的坏包（#347）。`beforePack` 的 `scripts/configure-mac-signing.js` 在配置 `CSC_LINK` / `CSC_NAME` 或显式证书身份时解除 `"-"` 的覆盖，选择 distribution 证书并强制签名；证书缺失或导入失败必须停止构建，不能静默降级。

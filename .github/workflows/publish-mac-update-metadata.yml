@@ -1,0 +1,47 @@
+name: Publish macOS update metadata
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      tag:
+        required: true
+        type: string
+      ref:
+        required: false
+        type: string
+        default: ""
+    secrets:
+      RELEASE_PAT:
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mac-update-metadata-*
+          path: release/mac-metadata-inputs
+      - name: Merge and validate both architectures
+        env:
+          VERSION: ${{ inputs.version }}
+        run: node scripts/merge-mac-update-metadata.mjs --input-dir release/mac-metadata-inputs --output-dir release/mac-metadata --version "$VERSION"
+      - name: Publish macOS channel metadata
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          TAG: ${{ inputs.tag }}
+        run: gh release upload "$TAG" release/mac-metadata/*-mac.yml --clobber --repo "$GITHUB_REPOSITORY"

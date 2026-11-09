@@ -10,7 +10,7 @@ const connectionSource = () => readFileSync("src/main/feishu/FeishuConnection.ts
 const configSource = () => readFileSync("src/main/feishu/FeishuConfig.ts", "utf8");
 
 function promptIntegrationSource(source) {
-	return source.match(/async function sendAgentPromptWithIntegrations\([\s\S]*?\n\}\n\nfunction registerIpc/)?.[0] ?? "";
+	return source.match(/async function sendAgentPromptWithIntegrations\([\s\S]*?\n\}\n\n(?:async\s+)?function registerIpc/)?.[0] ?? "";
 }
 
 test("FeishuBridge.start propagates startup failure to IPC callers", () => {

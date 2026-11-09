@@ -68,14 +68,14 @@ jobs:
             name: macOS x64
             os: macos-latest
             command: node scripts/dist-dev.js --mac dmg zip --x64
-            verify_globs: "PiDeck-Dev-*-x64.dmg PiDeck-Dev-*-x64.zip latest*.yml"
+            verify_globs: "PiDeck-Dev-*-x64.dmg PiDeck-Dev-*-x64.zip *-mac.yml"
             electron_mirror: ""
             electron_builder_binaries_mirror: ""
           - platform: macos
             name: macOS arm64
             os: macos-latest
             command: node scripts/dist-dev.js --mac dmg zip --arm64
-            verify_globs: "PiDeck-Dev-*-arm64.dmg PiDeck-Dev-*-arm64.zip latest*.yml"
+            verify_globs: "PiDeck-Dev-*-arm64.dmg PiDeck-Dev-*-arm64.zip *-mac.yml"
             electron_mirror: ""
             electron_builder_binaries_mirror: ""
           - platform: linux
@@ -163,6 +163,14 @@ jobs:
           echo "产物齐全："
           ls release/PiDeck-Dev-* release/latest*.yml 2>/dev/null || true
 
+      - name: Stage macOS update metadata
+        if: matrix.platform == 'macos'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-update-metadata-${{ matrix.name }}
+          path: release/*-mac.yml
+          if-no-files-found: error
+
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
@@ -187,4 +195,15 @@ jobs:
             release/*.deb
             release/*.tar.gz
             release/*.blockmap
-            ${{ matrix.skip_yml != true && 'release/latest*.yml' || '' }}
+            ${{ matrix.skip_yml != true && matrix.platform != 'macos' && 'release/latest*.yml' || '' }}
+
+  publish-mac-update-metadata:
+    name: Publish complete macOS update feeds
+    needs: [resolve-version, build-dev]
+    uses: ./.github/workflows/publish-mac-update-metadata.yml
+    with:
+      version: ${{ needs.resolve-version.outputs.version }}
+      tag: ${{ needs.resolve-version.outputs.tag }}
+      ref: ${{ github.sha }}
+    secrets:
+      RELEASE_PAT: ${{ secrets.RELEASE_PAT }}

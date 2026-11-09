@@ -4,6 +4,7 @@ on:
   push:
     branches: [main, dev]
     paths:
+      - .github/workflows/publish-mac-update-metadata.yml
       - .github/workflows/mac-signing.yml
       - .github/workflows/release.yml
       - .github/workflows/build-macos.yml
@@ -12,6 +13,12 @@ on:
       - scripts/configure-mac-signing.js
       - scripts/verify-mac-signature.mjs
       - scripts/dist-dev.js
+      - scripts/merge-mac-update-metadata.mjs
+      - src/main/update/deliveryPlan.ts
+      - src/main/update/installedAppDelivery.ts
+      - src/renderer/src/components/app/settings/AppUpdateCard.tsx
+      - src/renderer/src/components/app/settings/DevTab.tsx
+      - tests/appUpdateDeliveryPlan.test.mjs
       - tests/mac*test.mjs
       - tests/releaseConfig.test.mjs
       - package.json
@@ -19,6 +26,7 @@ on:
   pull_request:
     branches: [main, dev]
     paths:
+      - .github/workflows/publish-mac-update-metadata.yml
       - .github/workflows/mac-signing.yml
       - .github/workflows/release.yml
       - .github/workflows/build-macos.yml
@@ -27,6 +35,12 @@ on:
       - scripts/configure-mac-signing.js
       - scripts/verify-mac-signature.mjs
       - scripts/dist-dev.js
+      - scripts/merge-mac-update-metadata.mjs
+      - src/main/update/deliveryPlan.ts
+      - src/main/update/installedAppDelivery.ts
+      - src/renderer/src/components/app/settings/AppUpdateCard.tsx
+      - src/renderer/src/components/app/settings/DevTab.tsx
+      - tests/appUpdateDeliveryPlan.test.mjs
       - tests/mac*test.mjs
       - tests/releaseConfig.test.mjs
       - package.json
@@ -56,4 +70,4 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Verify signing configuration, gates and native macOS identity
-        run: node --test tests/macSigningConfig.test.mjs tests/macSignatureGate.test.mjs tests/macPermissionIdentity.test.mjs tests/releaseConfig.test.mjs tests/appBrandPackaging.test.mjs
+        run: node --test tests/macSigningConfig.test.mjs tests/macSignatureGate.test.mjs tests/macPermissionIdentity.test.mjs tests/macInstalledUpdateDelivery.test.mjs tests/macAutoUpdateUi.test.mjs tests/macUpdateMetadata.test.mjs tests/appUpdateDeliveryPlan.test.mjs tests/releaseConfig.test.mjs tests/appBrandPackaging.test.mjs

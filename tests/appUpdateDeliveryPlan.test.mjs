@@ -26,6 +26,13 @@ test("macOS 无 Developer ID 签名走 manual", () => {
 	assertPlan(resolveAppUpdateDeliveryPlan({ platform: "darwin", arch: "x64" }), "manual", "mac-unsigned");
 });
 
+test("macOS Developer ID 签名发行物走 automatic，未确认签名仍保守手动更新", () => {
+	for (const arch of ["arm64", "x64"]) {
+		assertPlan(resolveAppUpdateDeliveryPlan({ platform: "darwin", arch, macHasDeveloperId: true }), "automatic", "automatic");
+		assertPlan(resolveAppUpdateDeliveryPlan({ platform: "darwin", arch, macHasDeveloperId: false }), "manual", "mac-unsigned");
+	}
+});
+
 test("Linux x64 AppImage 走 automatic；arm64 一律 manual", () => {
 	assertPlan(resolveAppUpdateDeliveryPlan({ platform: "linux", arch: "x64", isAppImage: true }), "automatic", "automatic");
 	assertPlan(resolveAppUpdateDeliveryPlan({ platform: "linux", arch: "arm64", isAppImage: true }), "manual", "linux-arm64");
@@ -42,7 +49,7 @@ test("未知平台保守走 manual，不承诺应用内替换", () => {
 
 test("main 装配：manual 交付注入设备推荐检查器与一键下载器", () => {
 	const source = readFileSync("src/main/index.ts", "utf8");
-	assert.match(source, /resolveAppUpdateDeliveryPlan\(\s*\{/);
+	assert.match(source, /resolveInstalledAppUpdateDeliveryPlan\(\s*\{/);
 	assert.match(source, /createManualUpdateChecker\(\s*\{\s*channel:\s*updateChannel,\s*target:\s*manualUpdateTarget\s*\}/);
 	assert.match(source, /deliveryReason:\s*appUpdateDelivery\.reason/);
 	assert.match(source, /downloadManualUpdate:[\s\S]*?downloadInstallerAsset\(\s*\{/);

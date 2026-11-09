@@ -18,9 +18,9 @@ export type AppUpdateDeliveryPlan = {
 	reason: AppUpdateDeliveryReason;
 };
 
-export function resolveAppUpdateDeliveryPlan(input: { platform: NodeJS.Platform; arch: string; isAppImage?: boolean }): AppUpdateDeliveryPlan {
+export function resolveAppUpdateDeliveryPlan(input: { platform: NodeJS.Platform; arch: string; isAppImage?: boolean; macHasDeveloperId?: boolean }): AppUpdateDeliveryPlan {
 	if (input.platform === "win32") return { mode: "automatic", reason: "automatic" };
-	if (input.platform === "darwin") return { mode: "manual", reason: "mac-unsigned" };
+	if (input.platform === "darwin") return input.macHasDeveloperId === true ? { mode: "automatic", reason: "automatic" } : { mode: "manual", reason: "mac-unsigned" };
 	if (input.platform === "linux") {
 		if (input.arch === "arm64" || input.arch === "aarch64") return { mode: "manual", reason: "linux-arm64" };
 		if (input.isAppImage === true) return { mode: "automatic", reason: "automatic" };

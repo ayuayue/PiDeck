@@ -70,7 +70,7 @@ export function AppUpdateCard(props: AppUpdateCardProps) {
 	const download = app?.download ?? null;
 	const phase = download?.phase ?? "idle";
 	const autoDownload = updateStatus?.autoDownload !== false;
-	const isManualDelivery = updateStatus?.deliveryMode === "manual" || props.platform === "darwin";
+	const isManualDelivery = updateStatus ? updateStatus.deliveryMode === "manual" : props.platform === "darwin";
 	const recommended = app?.recommendedDownload ?? null;
 	const recommendedTarget = recommended ? manualUpdateTargetLabel(recommended) : null;
 	const recommendedTargetText = recommendedTarget ? t(recommendedTarget.key, recommendedTarget.params) : "";
