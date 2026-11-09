@@ -1,6 +1,6 @@
 {
-	"capturedAt": "2026-11-04",
-	"total": 1921,
+	"capturedAt": "2026-11-09",
+	"total": 1995,
 	"sourceOnly": [
 		"tests/abortSlowRecoveryNotice.test.mjs",
 		"tests/abortStreamRegression.test.mjs",
@@ -28,7 +28,6 @@
 		"tests/archMismatchNotice.test.mjs",
 		"tests/askDirectEnter.test.mjs",
 		"tests/askLayout.test.mjs",
-		"tests/askLayoutRegression.test.mjs",
 		"tests/askNotificationSetting.test.mjs",
 		"tests/askPanelContext.test.mjs",
 		"tests/askPanelGeometry.test.mjs",
@@ -236,6 +235,7 @@
 		"tests/providerTestConnection.test.mjs",
 		"tests/queuedPromptAbortSuppression.test.mjs",
 		"tests/quoteChipStyle.test.mjs",
+		"tests/rebindPanelUi.test.mjs",
 		"tests/reconcileRuns.test.mjs",
 		"tests/relativeTime.test.mjs",
 		"tests/releaseSelectionSharedBoundary.test.mjs",
@@ -398,7 +398,6 @@
 		"tests/wslPerSessionSpawn.test.mjs",
 		"tests/wslProjectAddContract.test.mjs",
 		"tests/wslRuntimeIdentity.test.mjs",
-		"tests/wslSettingsHotApply.test.mjs",
 		"tests/xuePromptLikeGate.test.mjs"
 	]
 }
