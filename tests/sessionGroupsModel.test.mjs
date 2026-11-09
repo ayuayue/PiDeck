@@ -104,6 +104,8 @@ test("shouldHideGroupedSession：未入组不隐藏；搜索词非空时两边�
 	assert.equal(shouldHideGroupedSession("s2", grouped, ""), false);
 	// 插件未启用 / 没有分组时 groupedSessionIds 为 undefined：什么都不隐藏。
 	assert.equal(shouldHideGroupedSession("s1", undefined, ""), false);
+	// 未绑定 catalog 会话的运行时 agent（无 deckSessionId）不隐藏。
+	assert.equal(shouldHideGroupedSession(undefined, grouped, ""), false);
 });
 
 test("分组插件未启用时侧栏不展示分组的会话", () => {

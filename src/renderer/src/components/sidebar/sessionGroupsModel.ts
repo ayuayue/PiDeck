@@ -96,8 +96,11 @@ export function collectGroupedSessionIds(nodes: readonly SessionGroupNode[]): Re
 /**
  * 项目列表是否隐藏某会话：已进入分组、且当前没有搜索词时隐藏。
  * 搜索是「按名字找回会话」的入口，命中时必须也能在项目列表里看到，否则越搜越找不到。
+ *
+ * 也用于运行时 agent 行（传 agent.deckSessionId）：运行中会话已入组时，项目列表不能再多一条
+ * 同名 agent 行，否则用户看到的是「分组没生效」；未绑定 catalog 会话（无 id）的 agent 不隐藏。
  */
-export function shouldHideGroupedSession(sessionId: string, groupedSessionIds: ReadonlySet<string> | undefined, search: string): boolean {
-	if (!groupedSessionIds?.has(sessionId)) return false;
+export function shouldHideGroupedSession(sessionId: string | undefined, groupedSessionIds: ReadonlySet<string> | undefined, search: string): boolean {
+	if (!sessionId || !groupedSessionIds?.has(sessionId)) return false;
 	return search.trim().length === 0;
 }

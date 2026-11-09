@@ -451,11 +451,13 @@ test("sidebar uses one persisted project accordion without duplicating current p
 	// 已启动的会话行复用 Tab 栏蓝/黄/红状态点，而不是回退到项目头像。
 	assert.doesNotMatch(sessionTree, /\?\? \"bg-muted-foreground\/50\"/);
 	assert.doesNotMatch(sessionTree, /\?\? \"bg-border\"/);
-	assert.match(sessionTree, /function renderRuntimeStatusDot/);
-	assert.match(sessionTree, /if \(!dotClass\) return null/);
-	assert.match(sessionTree, /sessionStatusDotClass\(status\)/);
-	assert.match(sessionTree, /renderRuntimeStatusDot\(child\.agent\.status\)/);
-	assert.match(sessionTree, /renderRuntimeStatusDot\(runtimeSnapshot\?\.status\)/);
+	// 状态点实现提取到 SidebarStatusDot（项目树 / 分组树共用一套 label/脉动），调用点绑定具体 Agent/会话。
+	const statusDot = readFileSync("src/renderer/src/components/sidebar/SidebarStatusDot.tsx", "utf8");
+	assert.match(statusDot, /function SessionRuntimeStatusDot/);
+	assert.match(statusDot, /if \(!dotClass\) return null/);
+	assert.match(statusDot, /sessionStatusDotClass\(props\.status\)/);
+	assert.match(sessionTree, /<SessionRuntimeStatusDot status=\{child\.agent\.status\} \/>/);
+	assert.match(sessionTree, /<SessionRuntimeStatusDot status=\{runtimeSnapshot\?\.status\} \/>/);
 	assert.match(sessionTree, /display\.visibleChildren\.map\(renderChild\)/);
 	assert.match(sessionTree, /renderSubagents\(groupKey, child\.codexSubagents, child\.piSubagents\)/);
 });
@@ -499,6 +501,22 @@ test("sidebar splits Chats/Projects by navTab without duplicating list logic", (
 	// controller 暴露 navTab + setNavTab
 	assert.match(controller, /navTab: SidebarNavTab;/);
 	assert.match(controller, /setNavTab: \(tab: SidebarNavTab\) => void/);
+});
+
+test("分组隐藏覆盖运行时 agent 行，分组行展示运行状态", () => {
+	const sessionTree = readFileSync("src/renderer/src/components/sidebar/SessionTree.tsx", "utf8");
+	const groups = readFileSync("src/renderer/src/components/sidebar/SessionGroupsSection.tsx", "utf8");
+	const statusDot = readFileSync("src/renderer/src/components/sidebar/SidebarStatusDot.tsx", "utf8");
+
+	// 运行中的会话在项目列表里是 agent 行：已入组时与历史行同口径隐藏，
+	// 否则任务跑起来后项目列表会再冒出一条同名行，看起来像分组没生效。
+	assert.match(sessionTree, /\.filter\(\(agent\) => !shouldHideGroupedSession\(agent\.deckSessionId, props\.groupedSessionIds, search\)\)/);
+	// 状态点只有一套实现（项目树 / 分组树共用），不在 SessionTree 内重复。
+	assert.equal((sessionTree.match(/renderRuntimeStatusDot/g) ?? []).length, 0, "状态点实现应已提取到 SidebarStatusDot");
+	assert.match(sessionTree, /<SessionRuntimeStatusDot status=\{dotStatus\} \/>/);
+	assert.match(statusDot, /export function SessionRuntimeStatusDot/);
+	// agent 行被隐藏后，分组行就是该会话唯一的运行态入口。
+	assert.match(groups, /<SessionRuntimeStatusDot status=\{props\.controller\.catalog\.runtimeBySessionId\[session\.id\]\?\.status\} \/>/);
 });
 
 test("sidebar nav rail stretches its tabs across the full width", () => {
