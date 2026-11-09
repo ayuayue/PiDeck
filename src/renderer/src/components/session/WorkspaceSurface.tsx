@@ -1,7 +1,7 @@
 import { cn } from "../../lib/utils";
 import { useAtom, useAtomValue } from "jotai";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronsDownUp, Folder, FolderTree, RefreshCw, X } from "lucide-react";
+import { ChevronDown, ChevronsDownUp, Folder, FolderOpen, FolderTree, RefreshCw, X } from "lucide-react";
 import { Button } from "../ui-shadcn/button";
 import { Collapsible, CollapsibleContent } from "../ui-shadcn/collapsible";
 import { FileSortControl } from "./FileSortControl";
@@ -416,6 +416,14 @@ function FilesPanelBody(props: FilesPanelProps & { services: ProjectServices | n
 					onFileContextMenu={props.onFileContextMenu}
 					onClear={closeSearch}
 				/>
+			) : displayFiles.length === 0 ? (
+				// 空态：无项目（纯聊天）与目录为空分开说明。缺了它抽屉就是一片空白，
+				// 用户分不清是加载失败、项目没选，还是目录真的空。
+				<div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 px-6 pb-12 text-center text-text-secondary">
+					<FolderOpen size={22} className="mb-1 opacity-40" aria-hidden="true" />
+					<p className="text-control font-medium text-foreground/80">{t(props.projectId && props.projectRoot ? "drawer.filesEmptyTitle" : "drawer.filesNoProjectTitle")}</p>
+					<p className="max-w-[16rem] text-caption leading-5">{t(props.projectId && props.projectRoot ? "drawer.filesEmptyDesc" : "drawer.filesNoProjectDesc")}</p>
+				</div>
 			) : (
 				<>
 					{rootWindow.visible.map((node) => (

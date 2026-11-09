@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: d2efec8c20c6029cf0a4fac04b30fda64a86404589a032ffc99894de3ae5e752（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: ba7ebf5a9bf53dff8dc49e0313bf3bf7b69d73cd480dc7136067958a8c21db4c（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -306,6 +306,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"acp.abortForceStopped": "「{tool}」長時間未響應停止請求，已強制結束本輪；重新發送即可繼續",
 	"acp.stallForceStopped": "「{tool}」長時間無任何輸出，已自動停止本輪；請檢查該 CLI 的模型/網路配置後重試",
 	"acp.emptyTurn": "「{tool}」本輪結束但沒有返回任何輸出（該 CLI 可能存在已知缺陷，如事件流丟失），請升級到最新版本後重試",
+	"acp.commandReceiptNoOutput": "「{tool}」已執行原生命令 {command}（本回合沒有返回內容）",
 	"acp.imagesNotSupported": "{tool} 不支援圖片輸入，請移除圖片後重試",
 	"acp.authRequired": "「{tool}」未登入或憑據失效：請先在終端執行該 CLI 完成登入，再回到這裡重試",
 	"acp.bypassPermissionsLabel": "預設自動批准工具（Bypass 權限）",
@@ -4350,6 +4351,10 @@ export const zhTW: Record<TranslationKey, string> = {
 	"drawer.deleteFolderConfirm": "確定要刪除「{name}」及其所有內容嗎？此操作不可撤銷。",
 	"drawer.renameTitle": "重新命名",
 	"drawer.files": "檔案",
+	"drawer.filesNoProjectTitle": "這個會話沒有關聯專案",
+	"drawer.filesNoProjectDesc": "從專案頁開啟或新建專案後，這裡會顯示檔案樹。",
+	"drawer.filesEmptyTitle": "目錄為空",
+	"drawer.filesEmptyDesc": "把檔案拖進面板，或點工具欄的重新整理按鈕重新讀取。",
 	"drawer.pasteFiles": "貼上檔案到此處",
 	"drawer.openFolder": "開啟資料夾",
 	"drawer.newFile": "新建檔案",
@@ -5377,7 +5382,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.startupWindow.large": "視窗 · 大 (1480×960)",
 	"settings.startupWindow.maximized": "最大化",
 	"settings.startupWindow.fullscreen": "全屏",
-	"settings.startupWindowModeDesc": "下次啟動時應用。預設最大化（與歷史行為一致，不擋工作列）。",
+	"settings.startupWindowModeDesc": "下次啟動時應用。「上次視窗位置和大小」會連最大化/全屏一起恢復；預設最大化（與歷史行為一致，不擋工作列）。",
 	"settings.startupWindowMode": "啟動視窗大小",
 	"settings.singleInstanceDesc": "開啟後，同一版本再次開啟會喚起已有視窗（含托盤隱藏）。不同版本（如 0.6.7 與 0.6.8）可同時執行。開發模式與正式版資料目錄隔離。關閉後允許同版本多開（點系統通知仍會回到已執行的視窗）。修改後需重啟生效。",
 	"settings.singleInstance": "單例項執行（複用視窗）",
