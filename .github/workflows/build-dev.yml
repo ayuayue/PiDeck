@@ -132,19 +132,20 @@ jobs:
           CSC_LINK: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_LINK || '' }}
           CSC_KEY_PASSWORD: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
           CSC_NAME: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_NAME || '' }}
+          PIDECK_MAC_TEAM_ID: ${{ vars.MAC_TEAM_ID }}
           # 发布产物标记（dev 通道同样是正式发布）：注入后构建来源判定 release，
           # 否则 PiDeck Dev 安装包会在设置页显示「本地构建」（见 src/main/buildIdentity.ts）。
           PIDECK_RELEASE_BUILD: "1"
           ELECTRON_MIRROR: ${{ matrix.electron_mirror }}
           ELECTRON_BUILDER_BINARIES_MIRROR: ${{ matrix.electron_builder_binaries_mirror }}
 
-      # 打包后门禁：mac 包必须带有效 bundle 签名（dev 通道经 dist-dev.js 浅合并继承
-      # build.mac.identity 的显式 ad-hoc，配置回归时这里必须红，不能静默发坏包，#347）。
+      # 预发布同样要保留更新授权：证书缺失时必须失败，不能发布 ad-hoc 包。
       - name: Verify macOS bundle signature
         if: matrix.platform == 'macos'
         run: node scripts/verify-mac-signature.mjs
         env:
-          PIDECK_MAC_REQUIRE_DEVELOPER_ID: ${{ secrets.MAC_CSC_LINK != '' || secrets.MAC_CSC_NAME != '' }}
+          PIDECK_RELEASE_BUILD: "1"
+          PIDECK_MAC_REQUIRE_DEVELOPER_ID: "true"
           PIDECK_MAC_TEAM_ID: ${{ vars.MAC_TEAM_ID }}
 
       # 上传前断言关键产物存在，防止构建静默失败产出空 Release

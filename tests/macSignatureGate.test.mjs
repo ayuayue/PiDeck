@@ -386,6 +386,37 @@ test("a team id alone requires certificate signing, including for nested helpers
 	});
 });
 
+test("release verification requires a pinned team even for a valid Developer ID bundle", async () => {
+	await withTempRelease(async (release) => {
+		const app = await createApp(release, "mac-arm64", "PiDeck.app");
+		useDeveloperId(app);
+		const result = await verifyMacSignature({ releaseDir: release, platform: "darwin", ...harness([app]), releaseBuild: true });
+		assert.equal(result.ok, false);
+		assert.match(result.errors.join("\n"), /PIDECK_MAC_TEAM_ID/);
+	});
+});
+
+test("release verification enforces Developer ID even if the caller disables the optional certificate flag", async () => {
+	await withTempRelease(async (release) => {
+		const app = await createApp(release, "mac-arm64", "PiDeck.app");
+		const result = await verifyMacSignature({ releaseDir: release, platform: "darwin", ...harness([app]), releaseBuild: true, requireDeveloperId: false, expectedTeamId: "A1B2C3D4E5" });
+		assert.equal(result.ok, false);
+		assert.match(result.errors.join("\n"), /Developer ID/);
+	});
+});
+
+test("release verification accepts the pinned Developer ID on stable and dev bundles", async () => {
+	await withTempRelease(async (release) => {
+		const stable = await createApp(release, "mac-arm64", "PiDeck.app");
+		const dev = await createApp(release, "mac", "PiDeck Dev.app", { bundleId: "com.ayuayue.pi-desktop-dev" });
+		useDeveloperId(stable);
+		useDeveloperId(dev);
+		const result = await verifyMacSignature({ releaseDir: release, platform: "darwin", ...harness([stable, dev]), releaseBuild: true, expectedTeamId: "A1B2C3D4E5" });
+		assert.equal(result.ok, true, result.errors.join("\n"));
+		assert.deepEqual(result.apps.map((app) => app.identifier).sort(), ["com.ayuayue.pi-desktop", "com.ayuayue.pi-desktop-dev"]);
+	});
+});
+
 // 接线守卫：门禁脚本必须挂在真正打包 mac 产物的 workflow 上，否则改了脚本也没人跑。
 // 正则空白容忍（AGENTS.md：格式调整不得让契约测试假红）。
 // build-dev.yml 同样在 macOS runner 上出包并上传 prerelease——dev 通道只靠 dist-dev.js 浅合并

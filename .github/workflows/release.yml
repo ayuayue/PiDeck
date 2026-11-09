@@ -286,6 +286,7 @@ jobs:
           CSC_LINK: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_LINK || '' }}
           CSC_KEY_PASSWORD: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
           CSC_NAME: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_NAME || '' }}
+          PIDECK_MAC_TEAM_ID: ${{ vars.MAC_TEAM_ID }}
           # 发布产物标记：注入后 __PIDECK_RELEASE_BUILD__ 为 true → 构建来源判定 release
           # （src/main/buildIdentity.ts）。少了它，发布包会在设置页显示「本地构建」。
           PIDECK_RELEASE_BUILD: "1"
@@ -314,15 +315,15 @@ jobs:
           fi
           node scripts/linux-native-baseline.js scan --root "$unpacked" --fail
 
-      # 打包后门禁：mac 包必须带有效 bundle 签名。electron-builder 26.15 起找不到证书时
-      # 不再回退 ad-hoc（26.8.1 的 fallBackToAdhoc 已删除），本仓库又没有 Apple 证书，
-      # 签名会被静默跳过且 CI 全绿，产物在 Apple Silicon 上停在 _dyld_start 起不来（#347）。
+      # 发布包必须通过固定 Team 的 Developer ID 校验；缺少 secrets 不能降级成
+      # ad-hoc 后继续上传，否则每次更新都会改变 TCC 识别的 cdhash 身份。
       - name: Verify macOS bundle signature
         if: matrix.platform == 'macos'
         shell: bash
         run: node scripts/verify-mac-signature.mjs
         env:
-          PIDECK_MAC_REQUIRE_DEVELOPER_ID: ${{ secrets.MAC_CSC_LINK != '' || secrets.MAC_CSC_NAME != '' }}
+          PIDECK_RELEASE_BUILD: "1"
+          PIDECK_MAC_REQUIRE_DEVELOPER_ID: "true"
           PIDECK_MAC_TEAM_ID: ${{ vars.MAC_TEAM_ID }}
 
       # sidecar 跟应用版本 Release 一起发，不另开 tag（独立 tag 会抢走 GitHub /releases/latest）。

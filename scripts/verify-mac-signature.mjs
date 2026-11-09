@@ -34,6 +34,7 @@ import { readdir, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { getMacSigningPolicy } from "./configure-mac-signing.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -244,12 +245,15 @@ async function inspectBundle({ appPath, label, deepVerify, runCodesign, readInfo
  * 校验 release 目录下每个 mac 产物的代码签名。
  * `platform`/`runCodesign`/`readInfoPlist` 可注入，测试因此在 Linux/Windows 上也能覆盖全部判定分支。
  */
-export async function verifyMacSignature({ releaseDir = join(process.cwd(), "release"), platform = process.platform, runCodesign = defaultRunCodesign, readInfoPlist = defaultReadInfoPlist, requireDeveloperId = false, expectedTeamId = null } = {}) {
+export async function verifyMacSignature({ releaseDir = join(process.cwd(), "release"), platform = process.platform, runCodesign = defaultRunCodesign, readInfoPlist = defaultReadInfoPlist, requireDeveloperId = false, expectedTeamId = null, releaseBuild = false } = {}) {
 	const root = resolve(releaseDir);
 	const errors = [];
 	const warnings = [];
 	const apps = [];
-	requireDeveloperId ||= Boolean(expectedTeamId);
+	// Release policy must not disappear when a signing secret is missing or an
+	// optional certificate flag is false. The expected team pins publisher identity.
+	requireDeveloperId ||= releaseBuild || Boolean(expectedTeamId);
+	if (releaseBuild && !expectedTeamId) return { ok: false, releaseDir: root, apps, warnings, errors: ["macOS 发布必须配置 PIDECK_MAC_TEAM_ID（Actions variable MAC_TEAM_ID），固定 Developer ID 团队以保留更新授权"] };
 	if (expectedTeamId !== null && !/^[A-Z0-9]{10}$/.test(expectedTeamId)) return { ok: false, releaseDir: root, apps, warnings, errors: ["expectedTeamId 必须是 10 位大写字母或数字"] };
 
 	if (platform !== "darwin") {
@@ -294,8 +298,10 @@ const isMain = process.argv[1] && resolve(process.argv[1]) === resolve(fileURLTo
 if (isMain) {
 	try {
 		const options = parseArgs(process.argv.slice(2));
-		options.requireDeveloperId ||= /^(true|1)$/i.test(process.env.PIDECK_MAC_REQUIRE_DEVELOPER_ID ?? "");
-		options.expectedTeamId ??= process.env.PIDECK_MAC_TEAM_ID?.trim() || null;
+		const policy = getMacSigningPolicy(process.env);
+		options.releaseBuild = policy.releaseBuild;
+		options.requireDeveloperId ||= policy.requireDeveloperId;
+		options.expectedTeamId ??= policy.expectedTeamId;
 		if (options.help) {
 			console.log("Usage: node scripts/verify-mac-signature.mjs [--release-dir <path>] [--json] [--require-developer-id] [--team-id <id>]");
 		} else {
@@ -310,7 +316,7 @@ if (isMain) {
 			} else {
 				console.error(`macOS signature verification failed (${result.errors.length}):`);
 				for (const error of result.errors) console.error(`- ${error}`);
-				console.error("提示：无证书构建保留显式 ad-hoc 兜底；配置证书后必须通过 Developer ID / TeamIdentifier 校验，见 docs/release-process.md 的 macOS 签名策略。");
+				console.error("提示：发布包必须使用固定 Team 的 Developer ID 签名；ad-hoc 仅供本地/测试构建，见 docs/release-process.md 的 macOS 签名策略。");
 			}
 			if (!result.ok) process.exitCode = 1;
 		}

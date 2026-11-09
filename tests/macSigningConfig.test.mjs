@@ -79,8 +79,38 @@ test("dev channel inherits the signing hook and keeps its separate bundle identi
 
 test("Windows and Linux targets are unaffected by macOS signing credentials", async () => {
 	for (const platform of ["win32", "linux"]) {
-		const packager = await configure({ platform, env: { CSC_LINK: "/temporary/signing.p12", CSC_NAME: "PiDeck Publisher" } });
+		const packager = await configure({ platform, env: { CSC_LINK: "/temporary/signing.p12", CSC_NAME: "PiDeck Publisher", PIDECK_RELEASE_BUILD: "1" } });
 		assert.equal(packager.platformSpecificBuildOptions.identity, "-");
 		assert.equal(packager.forceCodeSigning, false);
+	}
+});
+
+for (const env of [{ PIDECK_RELEASE_BUILD: "1", PIDECK_MAC_REQUIRE_DEVELOPER_ID: "false" }, { PIDECK_RELEASE_BUILD: "1", CSC_LINK: " ", CSC_NAME: "\t" }, { PIDECK_MAC_REQUIRE_DEVELOPER_ID: "true" }, { PIDECK_MAC_TEAM_ID: "A1B2C3D4E5" }]) {
+	test(`required signing rejects missing credentials instead of silently packaging ad-hoc (${JSON.stringify(env)})`, async () => {
+		await assert.rejects(configure({ env: { ...env } }), /Developer ID/);
+	});
+}
+
+for (const team of [undefined, "", " ", "invalid-team"]) {
+	test(`release signing rejects a missing or malformed pinned team (${JSON.stringify(team)})`, async () => {
+		await assert.rejects(configure({ env: { PIDECK_RELEASE_BUILD: "1", CSC_LINK: "/temporary/signing.p12", PIDECK_MAC_TEAM_ID: team } }), /PIDECK_MAC_TEAM_ID/);
+	});
+}
+
+test("release signing cannot be explicitly disabled even without credentials", async () => {
+	const config = structuredClone(pkg.build);
+	config.mac.identity = null;
+	await assert.rejects(configure({ config, env: { PIDECK_RELEASE_BUILD: "1" } }), /identity.*null/i);
+});
+
+test("stable and dev releases require signing while retaining their original app identities", async () => {
+	for (const [config, expectedId] of [
+		[structuredClone(pkg.build), "com.ayuayue.pi-desktop"],
+		[buildDevConfig(), "com.ayuayue.pi-desktop-dev"],
+	]) {
+		const packager = await configure({ config, env: { PIDECK_RELEASE_BUILD: "1", CSC_LINK: "/temporary/signing.p12", PIDECK_MAC_TEAM_ID: " A1B2C3D4E5 " } });
+		assert.equal(packager.forceCodeSigning, true);
+		assert.equal(packager.platformSpecificBuildOptions.identity, undefined);
+		assert.equal(packager.appInfo.id, expectedId);
 	}
 });
