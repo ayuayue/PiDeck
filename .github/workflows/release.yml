@@ -194,20 +194,28 @@ jobs:
             command_dev: npm run dist:win:dev -- --publish never
             electron_mirror: https://npmmirror.com/mirrors/electron/
             electron_builder_binaries_mirror: https://npmmirror.com/mirrors/electron-builder-binaries/
+          # mac 必须带 --config scripts/electron-builder.config.js：有 Developer ID secrets 时它会
+          # 删掉 package.json 写死的 ad-hoc identity 并开公证；发布门禁要求完整凭据（dist-dev.js 内置同一逻辑）。
+          # skip_yml=true：x64/arm64 各自的 latest-mac.yml 只含自己那一半文件，直接上传会互相覆盖；
+          # 两个 job 改为上传 artifact，由下方 merge-mac-update-manifest 合并后再放到 Release。
           - platform: macos
             name: macOS x64
-            os: macos-latest
-            command: npm run build && npx electron-builder --mac dmg zip --x64 --publish never
+            os: macos-15-intel
+            mac_arch: x64
+            command: npm run build && npx electron-builder --mac dmg zip --x64 --publish never --config scripts/electron-builder.config.js
             command_dev: npm run dist:mac:dev -- --x64 --publish never
             electron_mirror: ""
             electron_builder_binaries_mirror: ""
+            skip_yml: true
           - platform: macos
             name: macOS arm64
             os: macos-latest
-            command: npm run build && npx electron-builder --mac dmg zip --arm64 --publish never
+            mac_arch: arm64
+            command: npm run build && npx electron-builder --mac dmg zip --arm64 --publish never --config scripts/electron-builder.config.js
             command_dev: npm run dist:mac:dev -- --arm64 --publish never
             electron_mirror: ""
             electron_builder_binaries_mirror: ""
+            skip_yml: true
           - platform: linux
             name: Linux x64
             os: ubuntu-latest
@@ -286,6 +294,7 @@ jobs:
           CSC_LINK: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_LINK || '' }}
           CSC_KEY_PASSWORD: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
           CSC_NAME: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_NAME || '' }}
+          PIDECK_MAC_TEAM_ID: ${{ matrix.platform == 'macos' && (vars.MAC_TEAM_ID || secrets.APPLE_TEAM_ID) || '' }}
           # 发布产物标记：注入后 __PIDECK_RELEASE_BUILD__ 为 true → 构建来源判定 release
           # （src/main/buildIdentity.ts）。少了它，发布包会在设置页显示「本地构建」。
           PIDECK_RELEASE_BUILD: "1"
@@ -295,6 +304,12 @@ jobs:
           # so the matrix intentionally leaves Electron/builder mirrors empty for macOS.
           ELECTRON_MIRROR: ${{ matrix.electron_mirror }}
           ELECTRON_BUILDER_BINARIES_MIRROR: ${{ matrix.electron_builder_binaries_mirror }}
+          # 正式 mac 发布必须具备 Developer ID 和完整公证凭据；缺失时打包前失败。
+          # 只给 mac job 注入：CSC_LINK 对 Windows 同样生效，不能拿 mac 证书签 exe。
+          APPLE_ID: ${{ matrix.platform == 'macos' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.platform == 'macos' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.platform == 'macos' && secrets.APPLE_TEAM_ID || '' }}
+          PIDECK_MAC_REQUIRE_NOTARIZATION: ${{ matrix.platform == 'macos' && '1' || '' }}
 
       # 打包后门禁：真正发出去的 pty.node 必须是基线内产物。afterPack 只保证「产物在包里且
       # 被 asarUnpack」，这里再核对 ELF 符号需求，防止重建步骤被跳过或 runner 升级后静默回退。
@@ -315,15 +330,33 @@ jobs:
           node scripts/linux-native-baseline.js scan --root "$unpacked" --fail
 
       # 打包后门禁：mac 包必须带有效 bundle 签名。electron-builder 26.15 起找不到证书时
-      # 不再回退 ad-hoc（26.8.1 的 fallBackToAdhoc 已删除），本仓库又没有 Apple 证书，
-      # 签名会被静默跳过且 CI 全绿，产物在 Apple Silicon 上停在 _dyld_start 起不来（#347）。
+      # 不再回退 ad-hoc（26.8.1 的 fallBackToAdhoc 已删除），签名被静默跳过时 CI 仍全绿，
+      # 产物在 Apple Silicon 上停在 _dyld_start 起不来（#347）。配了 Developer ID secrets 时
+      # 门禁升级：必须是 Developer ID + hardened runtime + 已公证装订，产出 ad-hoc 即红。
       - name: Verify macOS bundle signature
         if: matrix.platform == 'macos'
         shell: bash
         run: node scripts/verify-mac-signature.mjs
         env:
-          PIDECK_MAC_REQUIRE_DEVELOPER_ID: ${{ secrets.MAC_CSC_LINK != '' || secrets.MAC_CSC_NAME != '' }}
-          PIDECK_MAC_TEAM_ID: ${{ vars.MAC_TEAM_ID }}
+          PIDECK_RELEASE_BUILD: "1"
+          PIDECK_MAC_REQUIRE_DEVELOPER_ID: "true"
+          PIDECK_MAC_TEAM_ID: ${{ vars.MAC_TEAM_ID || secrets.APPLE_TEAM_ID }}
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_NAME: ${{ secrets.MAC_CSC_NAME }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          PIDECK_MAC_REQUIRE_NOTARIZATION: "1"
+
+      # mac 更新清单不直接上 Release（见 matrix 注释），交给 merge-mac-update-manifest 合并。
+      - name: Upload latest-mac.yml for merge
+        if: matrix.platform == 'macos'
+        uses: actions/upload-artifact@v4
+        with:
+          name: latest-mac-yml-${{ matrix.mac_arch }}
+          path: release/latest-mac.yml
+          if-no-files-found: error
+          retention-days: 3
 
       # sidecar 跟应用版本 Release 一起发，不另开 tag（独立 tag 会抢走 GitHub /releases/latest）。
       # runner-node 只在 Windows job 打两个 arch；DSH runtime tgz 改由下方专用的
@@ -331,6 +364,13 @@ jobs:
       - name: Pack DSH runner Node sidecar
         if: matrix.platform == 'windows'
         run: node scripts/pack-dsh-runner-node.mjs --arch x64 && node scripts/pack-dsh-runner-node.mjs --arch arm64
+
+      - name: Preserve existing release visibility
+        id: release-staging
+        run: node scripts/release-staging.mjs
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          TAG: ${{ needs.resolve-version.outputs.tag }}
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
@@ -347,7 +387,8 @@ jobs:
           target_commitish: ${{ needs.resolve-version.outputs.target_commitish }}
           body: ${{ needs.extract-changelog.outputs.release_body }}
           fail_on_unmatched_files: false
-          draft: false
+          draft: ${{ steps.release-staging.outputs.draft == 'true' }}
+          make_latest: "false"
           files: |
             release/*.exe
             release/*.msi
@@ -360,6 +401,47 @@ jobs:
             ${{ matrix.skip_yml != true && 'release/latest*.yml' || '' }}
             dist-runtime/dsh-runner-node/*.zip
             dist-runtime/dsh-runner-node/dsh-runner-node-releases.json
+
+  # mac 自动更新清单：x64 / arm64 两个 job 的 latest-mac.yml 各含一半文件，合并后才能让 electron-updater
+  # 按架构选对 zip（脚本头注释有失败模式）。任一 mac job 失败则本 job 不跑，Release 缺 latest-mac.yml：
+  # 新版本保持草稿，不提升 latest；重跑补齐后才发布。
+  merge-mac-update-manifest:
+    name: Merge latest-mac.yml
+    needs: [resolve-version, build-release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-version.outputs.ref || '' }}
+
+      - name: Download per-arch manifests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: latest-mac-yml-*
+          path: mac-manifests
+
+      # x64 在前：顶层 path/sha512 旧字段取第一份，给只读 path 的老客户端一个能跑的选择。
+      - name: Merge manifests
+        run: node scripts/merge-latest-mac-yml.mjs --out release/latest-mac.yml mac-manifests/latest-mac-yml-x64/latest-mac.yml mac-manifests/latest-mac-yml-arm64/latest-mac.yml
+
+      - name: Upload merged manifest onto Release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          TAG: ${{ needs.resolve-version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5; do
+            if gh release upload "$TAG" release/latest-mac.yml --clobber --repo "${{ github.repository }}"; then
+              exit 0
+            fi
+            echo "upload failed, retry ${i}/5"
+            sleep $((i * 5))
+          done
+          echo "::error::上传 latest-mac.yml 到 ${TAG} 失败"
+          exit 1
 
   # DSH runtime tgz：单 runner 交叉打包 6 平台（2026-09 起，替代「各构建机本地产出 +
   # post-release-sidecars 补 2 个平台」的旧链路）。
@@ -474,12 +556,11 @@ jobs:
   # 后果：Windows（electron-updater 读 /releases/latest）与 macOS/Linux 手动更新（读
   # /releases/latest 的 302）全部拿到旧版本，用户完全收不到这次更新。
   # 所以不在 publish 步骤依赖 action 的 make_latest 默认值，而是在全部资产上传完成后
-  # 用一次显式 PATCH 兜住，并把「latest 是否已指向本 tag」作为发版门禁。
+  # 用 gh release edit 显式设置，并把「latest 是否已指向本 tag」作为发版门禁。
   finalize-release:
     name: Finalize latest pointer
-    needs: [resolve-version, build-release, pack-dsh-runtime]
-    # dev 通道恒 prerelease，不抢占 latest（GitHub 也不允许 prerelease 成为 latest）。
-    if: needs.resolve-version.outputs.prerelease != 'true'
+    # 所有安装包、runtime 和 mac 更新清单齐全之后才把新草稿发布给客户端。
+    needs: [resolve-version, build-release, pack-dsh-runtime, merge-mac-update-manifest]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -488,6 +569,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_PAT }}
           TAG: ${{ needs.resolve-version.outputs.tag }}
           REPO: ${{ github.repository }}
+          PRERELEASE: ${{ needs.resolve-version.outputs.prerelease }}
         shell: bash
         run: |
           set -euo pipefail
@@ -495,11 +577,12 @@ jobs:
             echo "::error::目标不是应用版本 tag（got ${TAG}）"
             exit 1
           fi
-          # 名称对齐 tag：预发布暂存期的命名会原样留在 Release 页面上。
-          # 必须按 release_id PATCH：GitHub 的「Update a release」只接受 id，
-          # /releases/tags/<tag> 仅支持 GET（PATCH 恒 404，v0.10.0 发版实测）。
-          RELEASE_ID="$(gh api "repos/${REPO}/releases/tags/${TAG}" --jq .id)"
-          gh api -X PATCH "repos/${REPO}/releases/${RELEASE_ID}" -f name="$TAG" -F make_latest=true >/dev/null
+          # dev 也要发布完整草稿，但绝不抢占 stable latest。
+          if [ "$PRERELEASE" = "true" ]; then
+            gh release edit "$TAG" --repo "$REPO" --title "$TAG" --draft=false --prerelease=true --latest=false
+            exit 0
+          fi
+          gh release edit "$TAG" --repo "$REPO" --title "$TAG" --draft=false --prerelease=false --latest
           # /releases/latest 有缓存窗口，重试到指向本 tag（最长 60s），超时按失败处理。
           actual=""
           for attempt in $(seq 1 12); do

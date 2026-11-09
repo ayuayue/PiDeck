@@ -46,6 +46,7 @@ export default defineConfig({
 		define: {
 			// 构建标记：npm run dist:win:dev 打包时注入 true，用于隔离 dev 构建的配置目录与 AppUserModelID。
 			__PIDECK_DEV_BUILD__: JSON.stringify(process.env.PIDECK_DEV_BUILD === "1"),
+			__PIDECK_RELEASE_BUILD__: JSON.stringify(process.env.PIDECK_RELEASE_BUILD === "1"),
 		},
 	},
 	preload: {
