@@ -1,4 +1,5 @@
 import type { PiCommand } from "../../../shared/types";
+import { stripFrontmatter } from "./frontmatter";
 
 /**
  * 后端已经接管的命令名（本地展开必须避让的集合）。
@@ -31,14 +32,21 @@ export function collectReservedCommandNames(commands: readonly PiCommand[]): Set
 /**
  * 这次发送是否需要补拉模板表。
  *
- * 三种情况返回 false：
+ * false 的情况：
  * - 不是 `/名称` 形态；
- * - 名字在当前模板表里（已知，直接展开）；
  * - 名字属于后端接管的命令（补拉也没用：它永远不会出现在模板表里，
- *   否则每发一次 `/permission` 就白跑三趟 IPC）。
+ *   否则每发一次 `/permission` 就白跑三趟 IPC）；
+ * - 名字已知且正文非空（直接展开）。
+ *
+ * 已知但**正文为空**时必须返回 true：模板表是会话级缓存，设置页新建/编辑模板不会回灌；
+ * 只按名字判断会把「新建时只有 frontmatter、之后在设置页补了正文」的旧缓存当真空模板，
+ * 发送时误报「提示词模板正文为空」（#518）。补拉一次就能把文件里的正文读回来；
+ * 模板确实是空壳时也只是多一次 IPC，随后仍按空正文拦截。
  */
-export function needsTemplateRefetch(name: string | undefined, templates: readonly { name: string }[], reserved: ReadonlySet<string>): boolean {
+export function needsTemplateRefetch(name: string | undefined, templates: readonly { name: string; content: string }[], reserved: ReadonlySet<string>): boolean {
 	if (!name) return false;
 	if (reserved.has(name)) return false;
-	return !templates.some((template) => template.name === name);
+	const cached = templates.find((template) => template.name === name);
+	if (!cached) return true;
+	return !stripFrontmatter(cached.content).trim();
 }
