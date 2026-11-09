@@ -99,9 +99,6 @@ const CONTROL_CHARS = /[\x00-\x1f\x7f]/;
  */
 const PI_VERSION_OUTPUT = /^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)[ \t\r\n]*$/;
 
-/** 候选名集合：`Set<string>` 让路径末段（string）可以查，而不必对联合类型做断言。 */
-const PI_CANDIDATE_NAME_SET: ReadonlySet<string> = new Set<string>(PI_CANDIDATE_NAMES);
-
 /** 探测结果：命中哪个 pi、它自称的版本、花了多少次探测，以及可选的非致命标记。 */
 export type RemotePiObservation = { piPath: string; version: string; versionParsed: PiVersion; probed: number; warning?: typeof REMOTE_PI_VERSION_UNVERIFIED };
 
@@ -139,11 +136,27 @@ function requireAbsoluteToolPath(value: unknown, code: string): string {
 }
 
 /**
- * 校验远端 pi 路径的形状：绝对路径之外，末段还必须是已知候选名。
+ * 校验远端 pi 路径的形状（绝对、有界、无控制字符、无 `.`/`..`/空段）。
+ *
+ * 候选名（`pi`/`pi.js`/`pi.mjs`/`pi.cjs`）只约束**按 PATH 自动发现**的候选（`listPiCandidatesFromPath`
+ * 仍按 `PI_CANDIDATE_NAMES` 过滤）；这里刻意不要求末段是候选名：用户可以在主机档案里手填
+ * 一个自定义文件名或包装脚本，那条路径不是从 PATH 猜出来的，而是用户自己的选择。命令执行面仍只有
+ * `--version` 与启动，且路径形状在命令构造前就被核验。
  */
 function requirePiExecutable(value: unknown): string {
+	return requireAbsoluteToolPath(value, REMOTE_PI_PATH_INVALID);
+}
+
+/**
+ * 手填 pi 路径的对外校验入口（IPC 边界与探测共用同一份判据）。非法时抛 `REMOTE_PI_PATH_INVALID`。
+ *
+ * 除路径形状之外还限制字符集（`[A-Za-z0-9._/-]`）：手填值会被**持久化**到主机档案，而档案 codec
+ * 对 `remotePiCommand` 用的是同一套 token 规则。放宽这里等于写出一份「本机能存、下次读不出来」
+ * 的档案（codec 在读取时校验整份快照，一条非法路径会让整个主机库不可读）。
+ */
+export function normalizeRemotePiPath(value: unknown): string {
 	const path = requireAbsoluteToolPath(value, REMOTE_PI_PATH_INVALID);
-	if (!PI_CANDIDATE_NAME_SET.has(path.slice(1).split("/").pop() ?? "")) fail(REMOTE_PI_PATH_INVALID);
+	if (!/^\/[A-Za-z0-9._/-]+$/.test(path)) fail(REMOTE_PI_PATH_INVALID);
 	return path;
 }
 
@@ -264,6 +277,37 @@ function boundedVersionText(stdout: unknown): string {
 }
 
 /**
+ * 用户手填路径的探测：一条 `--version` 命令，版本门与自动发现完全同一条。
+ *
+ * 失败只有两个码：跑不起来/输出不可解析 ⇒ `REMOTE_PI_VERSION_UNREADABLE`；可读但低于下限 ⇒
+ * `REMOTE_PI_TOO_OLD`。不给「换个候选再试」的余地：这条路径是用户指定的，换目标就是猜。
+ */
+async function probeExplicitPi(input: { userDataDir: string; hostId: string; client: SshClientRuntime; nodePath: string; piPath: string }): Promise<RemotePiObservation> {
+	const piPath = normalizeRemotePiPath(input.piPath);
+	const versionCommand = buildRemotePiVersionCommand(piPath, input.nodePath);
+	const invocation = await buildPinnedSshInvocation(input.userDataDir, input.hostId, "ssh-batch", { client: input.client, remoteCommand: versionCommand });
+	let result: SshCommandResult;
+	try {
+		result = await input.client.run(invocation.executable, invocation.args);
+	} catch {
+		fail(REMOTE_PI_VERSION_UNREADABLE);
+	}
+	if (result.exitCode !== 0) fail(REMOTE_PI_VERSION_UNREADABLE);
+	const parsed = parsePiVersionOutput(result.stdout);
+	if (parsed === null) fail(REMOTE_PI_VERSION_UNREADABLE);
+	const classification = classifyRemotePiVersion(parsed);
+	if (classification === "below-minimum") {
+		const tooOld = new Error(REMOTE_PI_TOO_OLD) as RemotePiError;
+		tooOld.piPath = piPath;
+		tooOld.observedVersion = boundedVersionText(result.stdout);
+		tooOld.probed = 1;
+		throw tooOld;
+	}
+	const observation: RemotePiObservation = { piPath, version: boundedVersionText(result.stdout), versionParsed: parsed, probed: 1 };
+	return classification === "above-verified" ? { ...observation, warning: REMOTE_PI_VERSION_UNVERIFIED } : observation;
+}
+
+/**
  * 解析「这台主机上用户自己会用的那个 pi」。
  *
  * `nodePath` 由调用方先用 `RemoteBootstrapSession.resolveRemoteNodeExecutable` 解析（登录 shell PATH +
@@ -284,10 +328,15 @@ function boundedVersionText(stdout: unknown): string {
  *    的 PATH 里另找一个 pi 来掩盖它。
  * 4. 候选耗尽 ⇒ `REMOTE_PI_VERSION_UNREADABLE`，已探次数挂在 `probed` 上。
  *
+ * `piPath` 是**用户手填的覆盖值**（主机档案里的 `remotePiCommand`）：给了它就不再扫登录 shell 的
+ * PATH，直接对这条路径跑同一条 `--version` 命令、走同一道版本门。手填路径是用户对「我的 pi 装在
+ * 哪」的明确声明，重新扫 PATH 只会拿别人目录里的 pi 去掩盖它。
+ *
  * 上限 `MAX_PI_CANDIDATES` 是硬约束：超过的候选一个命令都不会发出。
  */
-export async function resolveRemotePiExecutable(input: { userDataDir: string; hostId: string; client: SshClientRuntime; sentinel: string; nodePath: string }): Promise<RemotePiObservation> {
+export async function resolveRemotePiExecutable(input: { userDataDir: string; hostId: string; client: SshClientRuntime; sentinel: string; nodePath: string; piPath?: string }): Promise<RemotePiObservation> {
 	const nodePath = requireNodeInterpreter(input?.nodePath, REMOTE_PI_NODE_PATH_INVALID);
+	if (input.piPath !== undefined) return probeExplicitPi({ userDataDir: input.userDataDir, hostId: input.hostId, client: input.client, nodePath, piPath: input.piPath });
 	const pathInvocation = await buildPinnedSshInvocation(input.userDataDir, input.hostId, "ssh-batch", { client: input.client, remoteCommand: buildLoginShellPathCommand(input.sentinel) });
 	let pathResult: SshCommandResult;
 	try {

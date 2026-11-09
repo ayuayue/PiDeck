@@ -19,6 +19,6 @@ test("WSL in the add dialog creates a profile instead of deep-linking", () => {
 	assert.match(dialog, /addWslHost\(\{ label, distro, user \}\)/);
 	assert.match(dialog, /kind === "wsl" \? \(/);
 	assert.match(dialog, /id="wsl-host-distro"/);
-	// WSL 页不再渲染 SSH 表单或提交按钮。
-	assert.match(dialog, /\{kind === "ssh" \? \(\s*<Button disabled=\{busy\} onClick=\{\(\) => void submit\(\)\}>/);
+	// WSL 页不再渲染 SSH 的保存+检测按钮（那条链路只在 SSH 分支里）。
+	assert.match(dialog, /\{kind === "ssh" \? \(\s*<>\s*\{setupRunning \|\| setupSettled \? null : \(/);
 });

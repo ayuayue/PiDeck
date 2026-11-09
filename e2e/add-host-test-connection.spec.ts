@@ -54,3 +54,39 @@ test("add host dialog: test connection shows a readable reason", async ({ window
 	await dialog.getByRole("button", { name: "密码", exact: true }).click();
 	await expect(dialog.getByRole("button", { name: "测试连接" })).toBeDisabled();
 });
+
+test("save and check fails inline and leaves no connection behind", async ({ window }) => {
+	test.setTimeout(120_000);
+	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
+
+	await window.getByRole("button", { name: /^设置/ }).click();
+	const modal = window.locator(".settings-modal");
+	await expect(modal).toBeVisible();
+	const tab = modal.getByRole("tab", { name: "连接", exact: true });
+	await expect(tab).toBeVisible({ timeout: 15_000 });
+	await tab.click();
+	await modal.getByRole("button", { name: "新建连接" }).click();
+
+	const dialog = window.getByRole("dialog").filter({ hasText: "新建连接" }).first();
+	await expect(dialog).toBeVisible({ timeout: 10_000 });
+	await dialog.locator("#remote-host-name").fill("127.0.0.1");
+	await dialog.locator("#remote-host-port").fill("9");
+	await dialog.locator("#remote-host-user").fill("nobody");
+	await dialog.locator("#remote-host-label").fill("no-leftover");
+	await dialog.getByRole("button", { name: "指定私钥" }).click();
+	await dialog.locator("#remote-host-identity").fill(fakeKey);
+
+	// 「保存并检测」：握手先失败 → 停在表单里，四步状态轨可见且没有另开进度弹窗。
+	await dialog.getByRole("button", { name: "保存并检测" }).click();
+	await expect(dialog).toBeVisible();
+	await expect(dialog.getByText("测试 SSH 连接")).toBeVisible({ timeout: 10_000 });
+	const failure = dialog.getByText(/^测试失败：/);
+	await expect(failure).toBeVisible({ timeout: 30_000 });
+	await expect(failure).not.toContainText("SSH_");
+	await window.screenshot({ path: "test-results/v5-addhost-inline-failure.png" });
+
+	// 取消：本次没有建成任何记录，列表里不应出现这个显示名。
+	await dialog.getByRole("button", { name: "取消", exact: true }).click();
+	await expect(dialog).toHaveCount(0);
+	await expect(modal.getByText("no-leftover")).toHaveCount(0);
+});

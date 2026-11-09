@@ -69,6 +69,9 @@ const COVERED_HOST_ID_FIELDS = new Map([
 	["src/shared/types/remoteHost.ts:RemoteProjectCreateRequest", "runtime"],
 	// 目录浏览结果只回显 hostId + 一次探针结果，不持久化引用；项目登记仍写 ProjectStore 的 ssh locator。
 	["src/shared/types/remoteHost.ts:RemoteDirectoryListResult", "runtime"],
+	// 远端 pi 探测结果只回显调用方的主机 id + 一次只读探测事实（版本/路径），不写任何东西；
+	// 手填的 pi 路径写在主机档案自己的字段上（随档案生命周期），不形成新的引用。
+	["src/shared/types/remoteHost.ts:RemoteHostPiProbeResult", "runtime"],
 	// Phase 5 模型目录探测（task-18）：结果只回显调用方的 hostId，不持久化任何引用；真正的模型
 	// catalog 数据来自远端 runtime，随会话生命周期消失。归 runtime 源（canHoldHostReferences: false）。
 	["src/shared/types/remoteModel.ts:RemoteModelProbeResult", "runtime"],
@@ -112,7 +115,9 @@ function hostIdFields(filePath, content = readFileSync(filePath, "utf8")) {
 }
 
 function assertReferenceSourcesCovered(overrides = new Map()) {
-	const fields = [...TYPE_FILES, ...CODEC_FILES].flatMap((filePath) => hostIdFields(filePath, overrides.get(filePath))).sort();
+	// 一个联合类型里两个分支都可以带 hostId（如 RemoteHostAddResult 的 verified / saved-failed）时，
+	// 扫描会产生同名条目——按「哪个类型持有 hostId」去重，属主登记仍是每类型一条。
+	const fields = [...new Set([...TYPE_FILES, ...CODEC_FILES].flatMap((filePath) => hostIdFields(filePath, overrides.get(filePath))))].sort();
 	const declared = [...COVERED_HOST_ID_FIELDS.keys()].sort();
 	assert.deepEqual(fields, declared, "Every hostId field in shared types and store codecs needs an explicit reference-source owner");
 	for (const source of COVERED_HOST_ID_FIELDS.values()) assert.ok(HOST_REFERENCE_SOURCES.includes(source), `${source} is not a registered reference-source kind`);

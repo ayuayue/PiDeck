@@ -1,11 +1,12 @@
 import { readdir, readFile } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { BrowserWindow, dialog, ipcMain, type WebContents } from "electron";
+import { ipcMain, type WebContents } from "electron";
 import { ipcChannels } from "../../shared/ipc";
 import { codeOf, HOST_ID, HOST_NAME, MAX_LABEL, SAFE_USER, senderIdOf } from "./remoteHostInputValidation";
 import { registerRemoteHostEditIpc } from "./remoteHostEditIpc";
+import { registerRemoteHostPiIpc } from "./remoteHostPiIpc";
 import { registerRemoteHostScanIpc } from "./remoteHostScanIpc";
 import type {
 	RemoteHostAddInput,
@@ -17,7 +18,6 @@ import type {
 	RemoteHostDiagnosticsResult,
 	RemoteHostDisconnectResult,
 	RemoteHostListResult,
-	RemoteHostPickIdentityFileResult,
 	RemoteHostRepairAnswerResult,
 	RemoteHostRepairDiagnosisResult,
 	RemoteHostRepairFinding,
@@ -201,6 +201,8 @@ export function registerRemoteHostIpc(input: {
 	registerRemoteHostScanIpc({ enabled: input.enabled });
 	// 编辑域与连接域共用同一份 store/service：拆分只影响文件大小，不影响实例数量。
 	registerRemoteHostEditIpc({ enabled: input.enabled, openStores, resolveService });
+	// 远端 pi 环境域：添加连接时在表单里直接探测，不再另开进度弹窗。
+	registerRemoteHostPiIpc({ enabled: input.enabled, resolveService });
 
 	/**
 	 * 移除连接：先中止/断开本次连接，再走 store 的 disable → retire。
@@ -278,10 +280,6 @@ export function registerRemoteHostIpc(input: {
 	});
 
 	/**
-	 * Native file picker for a private key. Only the absolute path crosses back to the renderer: nothing is read
-	 * here and no passphrase is involved, so a cancelled dialog is an ordinary `ok: false` answer.
-	 */
-	/**
 	 * Private keys a user is likely to pick, from the same `~/.ssh` directory on every platform.
 	 *
 	 * Only names are listed - files are never opened, so this cannot read a key or a passphrase. The filter is
@@ -307,17 +305,6 @@ export function registerRemoteHostIpc(input: {
 		return found;
 	}
 
-	ipcMain.handle(ipcChannels.remoteHostPickIdentityFile, async (event): Promise<RemoteHostPickIdentityFileResult> => {
-		if (!input.enabled) return { ok: false, code: "REMOTE_FEATURE_DISABLED" };
-		const window = BrowserWindow.fromWebContents(event.sender);
-		const options = { title: "SSH 私钥", defaultPath: join(homedir(), ".ssh"), properties: ["openFile" as const] };
-		const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
-		const picked = result.filePaths[0];
-		if (result.canceled || picked === undefined) return { ok: false, code: "REMOTE_HOST_IDENTITY_FILE_CANCELLED" };
-		// The store only accepts a local absolute path; reject anything else at the boundary.
-		if (!isAbsolute(picked) || /[ -]/.test(picked)) return { ok: false, code: "REMOTE_HOST_IDENTITY_FILE_INVALID" };
-		return { ok: true, path: picked };
-	});
 
 	ipcMain.handle(ipcChannels.remoteHostConnect, async (_event, hostId: unknown, password?: unknown): Promise<RemoteHostConnectResult> => {
 		// Renderer input is never trusted: validate at the boundary before any process can start.
@@ -426,12 +413,10 @@ export function registerRemoteHostIpc(input: {
 			try {
 				offer = await store.offerPin(profile.id, senderId, currentRevision);
 			} catch (error) {
-				// The offer is where the real host verification happens (reachability, key mismatch), so it
-				// is the step that actually fails in practice. The draft was created moments ago and holds no
-				// trust anchor, so roll it back: leaving it behind is what produced a growing list of
-				// unremovable "unverified" rows, one per failed attempt.
-				await rollbackDraft(store, profile.id);
-				throw error;
+				// 握手失败（钥被拒、口令、网络不通）时**保留**草稿：用户已经填过一次表，下次进来
+				// 直接点编辑改错的那一项就行，不必重填。草稿没有信任锚，列表现为「未验证」，
+				// 不能连接；它可以被移除（remove 走 disable→retire），也能在编辑成功后重新验证。
+				return { ok: false, code: codeOf(error, "REMOTE_HOST_ADD_FAILED"), saved: true, hostId: profile.id };
 			}
 			// 首次信任（TOFU）：主机密钥在这台机器上没有先例，`offerPin` 已经完成了真实握手并把候选
 			// 密钥指纹算出来——再让用户逐字比对一串 SHA256 只是仪式，产品上等于「添加主机」多一步必点
@@ -446,12 +431,11 @@ export function registerRemoteHostIpc(input: {
 			try {
 				confirmed = await store.confirmPin({ requestId: offer.requestId, hostId: profile.id, senderId, choice: "approve" }, offerRevision);
 			} catch (error) {
-				await rollbackDraft(store, profile.id);
-				throw error;
+				// 同 offer：草稿留着，用户可编辑后重试。
+				return { ok: false, code: codeOf(error, "REMOTE_HOST_ADD_FAILED"), saved: true, hostId: profile.id };
 			}
 			if (!confirmed) {
-				await rollbackDraft(store, profile.id);
-				return { ok: false, code: "REMOTE_HOST_PIN_ANSWER_FAILED" };
+				return { ok: false, code: "REMOTE_HOST_PIN_ANSWER_FAILED", saved: true, hostId: profile.id };
 			}
 			return { ok: true, hostId: profile.id, status: "verified" };
 		} catch (error) {
@@ -603,22 +587,6 @@ function findingFrom(finding: { reason: string; classification: string; hostIds:
 		hostIds: finding.hostIds.filter((id) => HOST_ID.test(id)).slice(0, 2000),
 		actions: finding.actions.filter((action) => REPAIR_ACTIONS.has(action)) as RemoteHostRepairFinding["actions"],
 	};
-}
-
-/**
- * Best-effort rollback of a draft whose offer failed.
- *
- * Deliberately swallows its own failure: the caller is already reporting the offer error, and losing
- * that in favour of a cleanup error would hide the reason the add did not work. A draft that survives
- * a failed rollback is still visible and still unremovable, so this is a real (if unlikely) residue
- * rather than something to pretend about.
- */
-async function rollbackDraft(store: { getSnapshot: () => { revision: number }; discardUnverifiedDraft: (hostId: string, revision: number) => Promise<string> }, hostId: string): Promise<void> {
-	try {
-		await store.discardUnverifiedDraft(hostId, store.getSnapshot().revision);
-	} catch {
-		// Residue is preferable to masking the original failure.
-	}
 }
 
 /** The broker keys on a positive integer sender; `webContents.id` is exactly that. */

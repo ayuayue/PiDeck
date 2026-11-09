@@ -285,3 +285,30 @@ test("discardUnverifiedDraft refuses a verified host", async (t) => {
 	assert.ok(store.getSnapshot().profiles.find((profile) => profile.id === created.id)?.verifiedEndpoint, "fixture must be verified");
 	await assert.rejects(() => store.discardUnverifiedDraft(created.id, store.getSnapshot().revision), /REMOTE_HOST_DISCARD_INVALID/);
 });
+
+test("the manual remote pi path is persisted on the profile and can be cleared again", async (t) => {
+	const directory = await fixture(t);
+	const pinStore = new SshHostPinStore(directory, { verifier: async (_route, alias) => authenticatedCandidate(alias.slice("pideck-".length)) });
+	t.after(() => pinStore.dispose());
+	const store = await RemoteHostStore.open(directory, { pinStore });
+	const profile = await store.createDraft({ label: "Build Pi", sshHost: "build-pi", connectTimeoutMs: 15000 }, 0);
+	const offer = await store.offerPin(profile.id, 7, 1);
+	await store.confirmPin({ requestId: offer.requestId, hostId: profile.id, senderId: 7, choice: "approve" }, 1);
+	const piPath = "/home/me/.nvm/versions/node/v22.11.0/bin/pi";
+	const updated = await store.updateProfile(profile.id, { remotePiCommand: piPath }, store.getSnapshot().revision);
+	assert.equal(updated.endpointChanged, false, "a pi path is not an endpoint change");
+	assert.equal(store.getSnapshot().profiles[0].remotePiCommand, piPath);
+	// 端点与 pin 都不受影响：换一条 pi 路径与「这台机器是谁」无关。
+	assert.equal(store.getSnapshot().profiles[0].verifiedEndpoint.hostName, "pi.example.invalid");
+	// 重开仍读得出来：写入侧的校验必须不比 codec 宽松，否则会写出一份下次读不回来的档案。
+	const reopened = await RemoteHostStore.open(directory);
+	assert.equal(reopened.getSnapshot().status, "ready");
+	assert.equal(reopened.getSnapshot().profiles[0].remotePiCommand, piPath);
+	// 显式 undefined = 回到自动探测：字段被真的去掉，而不是留着旧值。
+	await reopened.updateProfile(profile.id, { remotePiCommand: undefined }, reopened.getSnapshot().revision);
+	assert.equal("remotePiCommand" in reopened.getSnapshot().profiles[0], false);
+	// 非法形状在写入前就拒掉（绝对路径 + 档案 token 字符集）。
+	for (const bad of ["pi", "~/bin/pi", "/home/me/bin dir/pi", "/home/me/pi\n", "/usr/../bin/pi", "/usr/bin/pi/"]) {
+		await assert.rejects(reopened.updateProfile(profile.id, { remotePiCommand: bad }, reopened.getSnapshot().revision), /REMOTE_HOST_EDIT_INVALID/, `must reject ${String(bad)}`);
+	}
+});

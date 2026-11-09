@@ -1,5 +1,5 @@
 import { useSetAtom } from "jotai";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { LoaderCircle, Pencil, Plus, Server, TerminalSquare, Trash2 } from "lucide-react";
 import { desktopApi } from "../../../desktopApi";
 import { wslProjectPickerAtom } from "../../../atoms/wsl-project-atoms";
@@ -12,7 +12,6 @@ import { Label } from "../../ui-shadcn/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../ui-shadcn/dialog";
 import { AddHostDialog } from "./AddHostDialog";
 import type { AddHostEditSeed } from "./AddHostDialog";
-import { RemoteConnectionProgressDialog } from "./RemoteConnectionProgressDialog";
 import { RepairPanel } from "./RepairPanel";
 import { RebindPanel } from "./RebindPanel";
 import { RemoteProjectTrustPanel } from "./RemoteProjectTrustPanel";
@@ -44,8 +43,6 @@ export function ConnectionsTab() {
 	/** 正在编辑的主机初值；加载失败时保留稳定码，不打开一个空表单。 */
 	const [editing, setEditing] = useState<AddHostEditSeed | null>(null);
 	const [editLoading, setEditLoading] = useState<string | null>(null);
-	/** 当前正在展示进度的那次连接；errorCode 只来自这次 connect 的结果。 */
-	const [progress, setProgress] = useState<{ hostId: string; label: string; errorCode: string | null } | null>(null);
 	/** 每台主机最近一次 connect 的稳定失败码；成功后清除，用于行内重试。 */
 	const [failures, setFailures] = useState<Record<string, string>>({});
 	/** 待确认的移除目标：删除 profile/pin 属于破坏性动作，必须先确认。 */
@@ -61,8 +58,6 @@ export function ConnectionsTab() {
 	const [wslRemoveError, setWslRemoveError] = useState<string | null>(null);
 	// 「添加项目」交给 App 挂载的 WSL 目录选择器：这里只递档案 id，不自己开系统对话框。
 	const openWslProjectPicker = useSetAtom(wslProjectPickerAtom);
-	/** 取消/重试会换代：旧 connect 的迟到结果不得回写新一次的状态。 */
-	const attemptRef = useRef(0);
 
 	/**
 	 * 订阅连接状态推送。
@@ -163,6 +158,7 @@ export function ConnectionsTab() {
 				...(result.draft.port === undefined ? {} : { port: result.draft.port }),
 				...(result.draft.identityFile === undefined ? {} : { identityFile: result.draft.identityFile }),
 				...(result.draft.authMethod === undefined ? {} : { authMethod: result.draft.authMethod }),
+				...(result.draft.remotePiCommand === undefined ? {} : { remotePiCommand: result.draft.remotePiCommand }),
 				...(result.secret === null ? {} : { secret: result.secret }),
 			});
 		} finally {
@@ -171,14 +167,10 @@ export function ConnectionsTab() {
 	}, []);
 
 	const toggle = useCallback(async (hostId: string, connect: boolean, label?: string, password?: string) => {
-		const attempt = ++attemptRef.current;
 		setBusy((current) => ({ ...current, [hostId]: true }));
-		if (connect) setProgress({ hostId, label: label ?? hostId, errorCode: null });
 		try {
 			if (connect) {
 				const result = await desktopApi.remoteHosts.connect(hostId, password);
-				// 取消/重试已换代：这次 attempt 的迟到结果整体丢弃。
-				if (attemptRef.current !== attempt) return;
 				if (result.ok) {
 					setStates((current) => ({ ...current, [hostId]: result.state }));
 					setMessage(null);
@@ -191,19 +183,16 @@ export function ConnectionsTab() {
 				} else if (result.code === "SSH_PASSWORD_REQUIRED") {
 					// The secret lives in main memory only, so it is gone after a restart or a disconnect:
 					// ask for it again instead of reporting a generic connection failure.
-					setProgress(null);
 					setStates((current) => ({ ...current, [hostId]: "offline" }));
 					setPasswordRequest({ hostId, label: label ?? hostId });
 				} else {
-					// 失败不猜状态：显示稳定码，具体原因去诊断里看。
+					// 失败不猜状态：行内显示稳定码并给重试，具体原因去诊断里看。
 					setMessage(t("settings.connections.connectFailed", { code: result.code }));
 					setStates((current) => ({ ...current, [hostId]: "offline" }));
-					setProgress((current) => (current?.hostId === hostId ? { ...current, errorCode: result.code } : current));
 					setFailures((current) => ({ ...current, [hostId]: result.code }));
 				}
 			} else {
 				const result = await desktopApi.remoteHosts.disconnect(hostId);
-				if (attemptRef.current !== attempt) return;
 				if (result.ok) {
 					setStates((current) => ({ ...current, [hostId]: "disconnected" }));
 					setMessage(null);
@@ -218,13 +207,10 @@ export function ConnectionsTab() {
 				}
 			}
 		} finally {
-			// 被取消/重试取代的那次 attempt 不再回写忙碌与诊断。
-			if (attemptRef.current === attempt) {
-				setBusy((current) => ({ ...current, [hostId]: false }));
-				// 诊断随开关一起刷新，用户失败后立刻能看到阶段停在哪儿。
-				const result = await desktopApi.remoteHosts.diagnostics(hostId);
-				if (result.ok) setDiagnostics((current) => ({ ...current, [hostId]: result.entries }));
-			}
+			setBusy((current) => ({ ...current, [hostId]: false }));
+			// 诊断随开关一起刷新，用户失败后立刻能看到阶段停在哪儿。
+			const result = await desktopApi.remoteHosts.diagnostics(hostId);
+			if (result.ok) setDiagnostics((current) => ({ ...current, [hostId]: result.entries }));
 		}
 	}, []);
 
@@ -264,7 +250,6 @@ export function ConnectionsTab() {
 				delete next[hostId];
 				return next;
 			});
-			setProgress((current) => (current?.hostId === hostId ? null : current));
 			await refresh();
 		} finally {
 			setRemovingBusy(false);
@@ -329,6 +314,8 @@ export function ConnectionsTab() {
 										<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 											<div className="flex min-w-0 items-center gap-2">
 												<strong className="truncate text-body font-semibold text-foreground">{host.label}</strong>
+												{/* 类型标记：与 WSL 行的 WSL 徽标对称，连在一张表里也能一眼看出一行是哪种连接。 */}
+												<span className="shrink-0 rounded border border-border-subtle px-1 text-micro text-muted-foreground">{t("settings.connections.ssh.badge")}</span>
 												{host.disabled ? <span className="shrink-0 text-micro text-muted-foreground">{t("settings.connections.disabledTag")}</span> : null}
 												{host.verified ? null : <span className="shrink-0 text-micro text-muted-foreground">{t("settings.connections.unverifiedTag")}</span>}
 											</div>
@@ -483,33 +470,15 @@ export function ConnectionsTab() {
 				<AddHostDialog
 					edit={editing}
 					onClose={() => setEditing(null)}
-					onSubmitted={(hostId, label, password) => {
-						const host = editing;
-						setEditing(null);
-						void refresh();
-						// 地址或凭据变了，旧连接已不代表新配置：先断开再按新值连一次。
-						if (states[hostId] === "ready" || states[hostId] === "degraded") {
-							void (async () => {
-								await desktopApi.remoteHosts.disconnect(hostId).catch(() => undefined);
-								await toggle(hostId, true, label, password);
-							})();
-						} else {
-							void toggle(hostId, true, label, password);
-						}
-						void host;
-					}}
+					/* 编辑对话框自己完成保存、重连与重测；宿主只需刷新列表。 */
+					onChanged={() => void refresh()}
 				/>
 			) : null}
 			{adding ? (
 				<AddHostDialog
 					onClose={() => setAdding(false)}
-					onSubmitted={(hostId, label, password) => {
-						// 添加即已验证（首次信任在主进程内完成）：关框、刷新列表，并直接把这条新主机连上——
-						// 用户的下一步永远是「连上它」，多一次点击只是仪式。
-						setAdding(false);
-						void refresh();
-						void toggle(hostId, true, label, password);
-					}}
+					/* 新增同样自带「测试 → 保存 → 连接 → 探测 pi」；新增/移除都经 onChanged 反映到列表。 */
+					onChanged={() => void refresh()}
 					onWslSubmitted={(host) => {
 						setAdding(false);
 						setMessage(t("settings.connections.wsl.added", { host: host.label }));
@@ -540,7 +509,6 @@ export function ConnectionsTab() {
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
-			{/* 连接进度：添加/连接后立即出现；阶段来自诊断历史，状态来自 main 推送。 */}
 			{/* 移除确认：删掉的是本机 profile 与 host key pin，远端数据不动。 */}
 			<Dialog
 				open={removing !== null}
@@ -565,19 +533,6 @@ export function ConnectionsTab() {
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
-			{progress !== null ? (
-				<RemoteConnectionProgressDialog
-					open
-					hostId={progress.hostId}
-					hostLabel={progress.label}
-					state={states[progress.hostId]}
-					errorCode={progress.errorCode}
-					busy={busy[progress.hostId] === true}
-					onCancel={() => void toggle(progress.hostId, false, progress.label)}
-					onRetry={() => void toggle(progress.hostId, true, progress.label)}
-					onClose={() => setProgress(null)}
-				/>
-			) : null}
 		</div>
 	);
 }

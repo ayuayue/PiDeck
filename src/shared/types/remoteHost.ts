@@ -90,7 +90,16 @@ export type RemoteHostUpdatePatch = { label?: string; hostName?: string; user?: 
 export type RemoteHostUpdateResult = { ok: true; hostId: string; endpointChanged: boolean; verified: boolean } | (RemoteHostOperationFailure & { saved?: true });
 
 /** 编辑表单初值；`secret: null` 表示没有保存口令（或本机无法解密）。 */
-export type RemoteHostEditDraft = { label: string; hostName: string; user?: string; port?: number; identityFile?: string; authMethod?: "password" };
+export type RemoteHostEditDraft = {
+	label: string;
+	hostName: string;
+	user?: string;
+	port?: number;
+	identityFile?: string;
+	authMethod?: "password";
+	/** 手填的远端 pi 绝对路径；缺省表示自动探测。 */
+	remotePiCommand?: string;
+};
 export type RemoteHostEditDraftResult = { ok: true; hostId: string; draft: RemoteHostEditDraft; secret: string | null } | RemoteHostOperationFailure;
 
 export type RemoteHostAddInput = {
@@ -110,7 +119,11 @@ export type RemoteHostAddInput = {
  * `pending` 这种中间态：首次信任不需要用户逐字比对指纹（主机密钥变化时走的是连接期校验，
  * 不会在这里被静默接受）。
  */
-export type RemoteHostAddResult = { ok: true; hostId: string; status: "verified" } | { ok: false; code: string };
+/**
+ * 添加主机的结果。失败也可能带着 `saved: true` + hostId：握手没过（钥被拒/口令/网络）时草稿会保留，
+ * 列表里显示为未验证连接，用户改完错的那一项可以再验，不必重填整张表单。
+ */
+export type RemoteHostAddResult = { ok: true; hostId: string; status: "verified" } | { ok: false; code: string; saved?: boolean; hostId?: string };
 
 /**
  * 「测试连接」结果：不写任何状态，只回报握手是否能过。
@@ -120,6 +133,15 @@ export type RemoteHostTestResult = { ok: true; fingerprint: string; hostName: st
 
 /** Result of the native file picker used for a private key. The path is absolute; nothing is read here. */
 export type RemoteHostPickIdentityFileResult = { ok: true; path: string } | { ok: false; code: string };
+
+/**
+ * 远端 pi 环境探测结果（添加/编辑连接时在表单里跑，不再靠独立进度弹窗）。
+ *
+ * 成功只回脱敏事实：pi 的绝对路径与版本是用户自己机器上的东西，可以上屏；node 路径、命令、
+ * 登录 shell 输出都不回。失败一律开关闭码集（`REMOTE_PI_*` / `SSH_*` / `REMOTE_HOST_*`），
+ * 调用方据此分支：找不到 pi → 安装引导 + 手填路径；版本过低 → 升级引导。
+ */
+export type RemoteHostPiProbeResult = { ok: true; hostId: string; piPath: string; version: string; warning?: string } | RemoteHostOperationFailure;
 
 /**
  * 连接状态变化推送。

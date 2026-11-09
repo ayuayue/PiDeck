@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Box, ChevronDown, Eye, EyeOff, FileCode, FolderOpen, Search, Server, TerminalSquare } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Box, Check, ChevronDown, Circle, CircleCheck, Copy, Eye, EyeOff, FileCode, FolderOpen, LoaderCircle, Search, Server, TerminalSquare, TriangleAlert, X } from "lucide-react";
 import { detectRendererPlatform } from "../../../lib/detectRendererPlatform";
 import { desktopApi } from "../../../desktopApi";
-import { t } from "../../../i18n";
+import { t, type TranslationKey } from "../../../i18n";
+import { remoteHostFailureReason, remotePiProbeReason } from "../../../utils/remoteHostFailureCopy";
 import { cn } from "../../../lib/utils";
 import { Button } from "../../ui-shadcn/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../ui-shadcn/dialog";
@@ -26,39 +27,26 @@ function skipReasonLabel(reason: string): string {
 	}
 }
 
-/**
- * 添加/测试失败时的稳定码 → 人话。
- *
- * 以前这里只有一个 `{ code }` 占位：用户看到 SSH_HOST_AUTHENTICATION_FAILED 完全不知道该改哪个字段。
- * 私钥被拒、私钥读不了、私钥带口令、网络不通，这四类的下一步动作完全不同，必须分开讲。
- */
-function addFailureReason(code: string): string {
-	switch (code) {
-		case "SSH_AUTH_KEY_REJECTED":
-			return t("settings.connections.add.reason.keyRejected");
-		case "SSH_AUTH_KEY_UNREADABLE":
-		case "SSH_HOST_KEY_INVALID":
-			return t("settings.connections.add.reason.keyUnreadable");
-		case "SSH_AUTH_PASSPHRASE_REQUIRED":
-			return t("settings.connections.add.reason.passphraseRequired");
-		case "SSH_HOST_UNREACHABLE":
-			return t("settings.connections.add.reason.unreachable");
-		case "SSH_HOST_COMMAND_TIMEOUT":
-			return t("settings.connections.add.reason.timeout");
-		case "SSH_HOST_AUTHENTICATION_FAILED":
-			return t("settings.connections.add.reason.authFailed");
-		case "REMOTE_HOST_IDENTITY_FILE_INVALID":
-		case "INVALID_SSH_LOCAL_PATH":
-			return t("settings.connections.add.reason.keyPathInvalid");
-		case "REMOTE_FEATURE_DISABLED":
-			return t("settings.connections.add.disabled");
-		default:
-			return t("settings.connections.add.failed", { code });
-	}
-}
-
 type AuthMode = "agent" | "key" | "password";
 type ConnectionKind = "ssh" | "wsl";
+
+/** 内联环境检测的四步（就是「保存并检测」真正做的事，不再是弹窗里的装饰阶段）。 */
+type SetupStepKey = "test" | "save" | "connect" | "pi";
+type SetupStepStatus = "pending" | "active" | "done" | "failed";
+const SETUP_STEPS: readonly SetupStepKey[] = ["test", "save", "connect", "pi"];
+const EMPTY_STEPS: Record<SetupStepKey, SetupStepStatus> = { test: "pending", save: "pending", connect: "pending", pi: "pending" };
+const SETUP_STEP_LABEL: Record<SetupStepKey, TranslationKey> = {
+	test: "settings.connections.add.step.test",
+	save: "settings.connections.add.step.save",
+	connect: "settings.connections.add.step.connect",
+	pi: "settings.connections.add.step.pi",
+};
+const SETUP_STEP_ICON: Record<SetupStepStatus, typeof Circle> = { pending: Circle, active: LoaderCircle, done: Check, failed: X };
+const SETUP_STEP_TONE: Record<SetupStepStatus, string> = { pending: "text-muted-foreground/50", active: "text-warning", done: "text-success", failed: "text-destructive" };
+/** 远端 pi 探测：成功只回版本/路径，失败只回稳定码（与主进程的脱敏结果同形）。 */
+type PiProbeOutcome = { state: "found"; version: string; piPath: string; warning?: string } | { state: "failed"; code: string };
+/** 远端安装 pi 的命令：只给用户复制，不在远端替用户执行安装（远端副作用必须由用户自己按）。 */
+const PI_INSTALL_COMMAND = "npm i -g @earendil-works/pi-coding-agent";
 
 /** 表单初值：端口默认 22，认证默认交给 ssh-agent / 默认密钥（与 Transport 的 BatchMode 一致）。 */
 const EMPTY_FORM = { label: "", hostName: "", port: "22", user: "", auth: "agent" as AuthMode, identityFile: "", password: "", passphrase: "" };
@@ -74,13 +62,26 @@ type FormState = typeof EMPTY_FORM;
  * 认证提供「自动（ssh-agent/默认密钥）」「指定私钥」与「密码」：密码模式由主进程用一次性
  * askpass 桥回答 OpenSSH 的 password 提问，口令只在本次运行的内存里，既不落盘也不进 argv/env。
  *
- * 保存仍是「一次动作」：主进程在同一次 add 里完成首次 host key 信任（TOFU）并落盘 pin，
- * 成功后由调用方立刻发起连接，没有第二步「核对指纹」。
+ * 远程环境的检测**全部在这张表单里完成**（不再开独立进度弹窗）：点「保存并检测」后依次做
+ * 握手测试 → 保存主机 → 建立会话 → 探测远端 pi，四步状态内联显示。pi 探测要在远端执行命令，
+ * 而执行命令必须有一台已落库、已 pin 的主机，所以「测试通过就直接检测」意味着测试一过就保存；
+ * 用户没点「完成」就关闭时由 close() 移除这条刚建的记录（取消 = 什么都没留下）。
+ *
+ * 远端没有 pi 时给安装命令（可复制）与手填绝对路径两条出路；手填路径写进主机档案，
+ * 之后每次会话都用它，不再靠登录 shell 的 PATH 猜。
  */
 /** 编辑一台已添加主机时的初值：字段来自 store，口令来自系统加密存储（可能为空）。 */
-export type AddHostEditSeed = { hostId: string; label: string; hostName: string; user?: string; port?: number; identityFile?: string; authMethod?: "password"; secret?: string };
+export type AddHostEditSeed = { hostId: string; label: string; hostName: string; user?: string; port?: number; identityFile?: string; authMethod?: "password"; secret?: string; remotePiCommand?: string };
 
-export function AddHostDialog(props: { onClose: () => void; onSubmitted: (hostId: string, label: string, password?: string) => void; onWslSubmitted?: (host: WslHostListItem) => void; initialKind?: ConnectionKind; edit?: AddHostEditSeed }) {
+export function AddHostDialog(props: {
+	/** 关闭对话框：宿主只负责卸载，记录的新增/移除由这里自己完成。 */
+	onClose: () => void;
+	/** 主机档案变了（新增/编辑/移除）：宿主据此刷新列表。 */
+	onChanged?: () => void;
+	onWslSubmitted?: (host: WslHostListItem) => void;
+	initialKind?: ConnectionKind;
+	edit?: AddHostEditSeed;
+}) {
 	const editing = props.edit;
 	const [kind, setKind] = useState<ConnectionKind>(props.initialKind ?? "ssh");
 	const [candidates, setCandidates] = useState<RemoteHostConfigCandidate[]>([]);
@@ -110,7 +111,6 @@ export function AddHostDialog(props: { onClose: () => void; onSubmitted: (hostId
 	const [showSecret, setShowSecret] = useState(false);
 	// 密码与密钥口令是两个独立字段：共用一个可见态会让「看密码」顺手把口令也揭开。
 	const [showPassword, setShowPassword] = useState(false);
-	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	// WSL 档案：只保存显示名/发行版/Linux 用户，目录在「添加项目」时选。
 	const [wsl, setWsl] = useState({ label: "", distro: "", user: "" });
@@ -119,6 +119,33 @@ export function AddHostDialog(props: { onClose: () => void; onSubmitted: (hostId
 	const [testing, setTesting] = useState(false);
 	const [testResult, setTestResult] = useState<{ ok: true; fingerprint: string } | { ok: false; reason: string } | null>(null);
 	const [wslError, setWslError] = useState<string | null>(null);
+	// 内联环境检测：四步状态 + pi 结果。所有结论只来自主进程的稳定码。
+	const [steps, setSteps] = useState<Record<SetupStepKey, SetupStepStatus>>(EMPTY_STEPS);
+	const [piOutcome, setPiOutcome] = useState<PiProbeOutcome | null>(null);
+	// 手填的 pi 路径：编辑时回填已保存值，探测成功后回填探测到的路径（用户可以直接改）。
+	const [piPathDraft, setPiPathDraft] = useState(editing?.remotePiCommand ?? "");
+	const [piPathError, setPiPathError] = useState<string | null>(null);
+	const [savingPiPath, setSavingPiPath] = useState(false);
+	const [copiedInstall, setCopiedInstall] = useState(false);
+	/** 本对话框对应/新建的主机 id（重试和手填路径都用它，不重复 add）。 */
+	const hostIdRef = useRef<string | null>(editing?.hostId ?? null);
+	/** 本次对话框新建的记录：没点「完成」就关闭时它不该留下。 */
+	const createdHostRef = useRef<string | null>(null);
+	const committedRef = useRef(false);
+	/** 对话框关闭后仍可能在飞的请求不得再回写状态或改动记录。 */
+	const aliveRef = useRef(true);
+	useEffect(
+		() => () => {
+			aliveRef.current = false;
+		},
+		[],
+	);
+	const setupRunning = SETUP_STEPS.some((key) => steps[key] === "active");
+	const setupStarted = SETUP_STEPS.some((key) => steps[key] !== "pending");
+	const setupSettled = setupStarted && !setupRunning;
+	/** 已经保存过的连接不再允许改字段：改完就不再是这条记录了（要改请取消后重建，或在列表里编辑）。 */
+	const formLocked = setupRunning || steps.save === "done";
+	const piFound = piOutcome?.state === "found";
 
 	useEffect(() => {
 		let active = true;
@@ -159,44 +186,191 @@ export function AddHostDialog(props: { onClose: () => void; onSubmitted: (hostId
 		return { label, hostName, ...(port === undefined ? {} : { port }), ...(user.length > 0 ? { user } : {}), ...(identityFile.length > 0 ? { identityFile } : {}), ...(form.auth === "password" ? { authMethod: "password" as const } : {}) };
 	}, [form]);
 
-	const submit = useCallback(async () => {
-		const input = validate();
-		if (typeof input === "string") {
-			setError(input);
-			return;
+	/** 当前表单值对应的口令：密码模式是登录口令，私钥模式是私钥口令（只随本次请求进 main 内存）。 */
+	const currentSecret = useCallback(() => (form.auth === "password" ? form.password : form.auth === "key" ? form.passphrase : ""), [form]);
+
+	/** 把一次探测结果落到状态：成功/失败都只认主进程的脱敏结果。 */
+	const applyPiOutcome = useCallback((result: { ok: true; piPath: string; version: string; warning?: string } | { ok: false; code: string }) => {
+		if (result.ok) {
+			setPiOutcome({ state: "found", version: result.version, piPath: result.piPath, ...(result.warning === undefined ? {} : { warning: result.warning }) });
+			setPiPathDraft(result.piPath);
+			setSteps((current) => ({ ...current, pi: "done" }));
+		} else {
+			setPiOutcome({ state: "failed", code: result.code });
+			setSteps((current) => ({ ...current, pi: "failed" }));
 		}
-		setBusy(true);
-		setError(null);
-		const secret = form.auth === "password" ? form.password : form.auth === "key" ? form.passphrase : "";
-		try {
-			if (editing !== undefined) {
-				const result = await desktopApi.remoteHosts.update({
-					hostId: editing.hostId,
-					patch: {
-						label: input.label,
-						hostName: input.hostName,
-						user: input.user ?? "",
-						port: typeof input.port === "number" ? input.port : undefined,
-						identityFile: input.identityFile ?? "",
-						// 显式写入 undefined：从密码切回密钥/agent 时必须清掉旧的 authMethod。
-						authMethod: input.authMethod === "password" ? ("password" as const) : undefined,
-					},
-					// 空口令 = 不覆盖；用户显式输入了才更新存储。
-					...(secret.length > 0 ? { secret } : {}),
-				});
-				if (result.ok) props.onSubmitted(result.hostId, input.label, secret.length > 0 ? secret : undefined);
-				else if (result.saved) setError(t("settings.connections.edit.savedUnverified", { code: result.code }));
-				else setError(addFailureReason(result.code));
+	}, []);
+
+	/** 只探测 pi（会话已经在时成本是两次远端往返）。 */
+	const probePi = useCallback(
+		async (hostId: string) => {
+			setSteps((current) => ({ ...current, pi: "active" }));
+			const result = await desktopApi.remoteHosts.probePi(hostId);
+			if (!aliveRef.current) return;
+			applyPiOutcome(result);
+		},
+		[applyPiOutcome],
+	);
+
+	/**
+	 * 一次完整的连接准备：握手测试 → 保存主机 → 建立会话 → 探测远端 pi。
+	 *
+	 * `reconnect` 跳过测试与保存，只重做「建立会话 + 探测」：连接抖动失败后重试不该再写一次库。
+	 * 所有中断点都用稳定码回到表单，不抛异常，也不关框——失败要停在让它失败的那一步。
+	 */
+	const runSetup = useCallback(
+		async (mode: "full" | "reconnect") => {
+			if (setupRunning) return;
+			const input = validate();
+			if (typeof input === "string") {
+				setError(input);
 				return;
 			}
-			const result = await desktopApi.remoteHosts.add(input);
-			// 回传 label 让连接进度屏显示人话，而不是 UUID。
-			if (result.ok) props.onSubmitted(result.hostId, input.label, secret.length > 0 ? secret : undefined);
-			else setError(addFailureReason(result.code));
-		} finally {
-			setBusy(false);
+			setError(null);
+			setTestResult(null);
+			setPiPathError(null);
+			if (mode === "full") setPiOutcome(null);
+			// 密码认证不能用探针预检（探针固定 BatchMode=yes，没有非交互凭据），直接把第一步记完成：
+			// 密码对不对由紧接着的 connect 验证，不能因此把密码主机拦在添加流程外。
+			const skipTest = form.auth === "password";
+			setSteps((current) =>
+				mode === "full" ? { test: skipTest ? "done" : "active", save: skipTest ? "active" : "pending", connect: "pending", pi: "pending" } : { ...current, connect: "active", pi: "pending" },
+			);
+			const secret = currentSecret();
+			if (mode === "full") {
+				const tested = skipTest ? null : await desktopApi.remoteHosts.test(input);
+				if (!aliveRef.current) return;
+				if (tested !== null && !tested.ok) {
+					setSteps((current) => ({ ...current, test: "failed" }));
+					setError(t("settings.connections.add.testFailed", { reason: remoteHostFailureReason(tested.code) }));
+					return;
+				}
+				if (tested !== null) setTestResult({ ok: true, fingerprint: tested.fingerprint });
+				setSteps((current) => ({ ...current, test: "done", save: "active" }));
+				// 重试时不能重复 add：已经有一条记录（新建成功或握手失败留下来的草稿）就原地修改。
+				const existingHostId = hostIdRef.current;
+				if (existingHostId !== null) {
+					const updated = await desktopApi.remoteHosts.update({
+						hostId: existingHostId,
+						patch: {
+							label: input.label,
+							hostName: input.hostName,
+							user: input.user ?? "",
+							port: typeof input.port === "number" ? input.port : undefined,
+							identityFile: input.identityFile ?? "",
+							// 显式写入 undefined：从密码切回密钥/agent 时必须清掉旧的 authMethod。
+							authMethod: input.authMethod === "password" ? ("password" as const) : undefined,
+						},
+						// 空口令 = 不覆盖；用户显式输入了才更新存储。
+						...(secret.length > 0 ? { secret } : {}),
+					});
+					if (!aliveRef.current) return;
+					if (!updated.ok) {
+						setSteps((current) => ({ ...current, save: "failed" }));
+						setError(updated.saved === true ? t("settings.connections.edit.savedUnverifiedReason", { reason: remoteHostFailureReason(updated.code) }) : remoteHostFailureReason(updated.code));
+						return;
+					}
+					hostIdRef.current = existingHostId;
+					props.onChanged?.();
+				} else {
+					const added = await desktopApi.remoteHosts.add(input);
+					// 对话框已经关了：这次 add 的产物不该留下（包括握手没过但已保存的草稿）。
+					if (!aliveRef.current) {
+						const orphan = added.ok ? added.hostId : added.saved === true ? added.hostId : undefined;
+						if (orphan !== undefined) void desktopApi.remoteHosts.remove(orphan).catch(() => undefined);
+						return;
+					}
+					if (!added.ok) {
+						if (added.saved === true && added.hostId !== undefined) createdHostRef.current = added.hostId;
+						setSteps((current) => ({ ...current, save: "failed" }));
+						setError(added.saved === true ? t("settings.connections.add.savedUnverified", { host: input.label, reason: remoteHostFailureReason(added.code) }) : remoteHostFailureReason(added.code));
+						return;
+					}
+					hostIdRef.current = added.hostId;
+					createdHostRef.current = added.hostId;
+					props.onChanged?.();
+				}
+				setSteps((current) => ({ ...current, save: "done", connect: "active" }));
+			}
+			const hostId = hostIdRef.current;
+			if (hostId === null) return;
+			const connected = await desktopApi.remoteHosts.connect(hostId, secret.length > 0 ? secret : undefined);
+			if (!aliveRef.current) return;
+			if (!connected.ok) {
+				setSteps((current) => ({ ...current, connect: "failed" }));
+				setError(t("settings.connections.add.connectFailed", { reason: remoteHostFailureReason(connected.code) }));
+				return;
+			}
+			setSteps((current) => ({ ...current, connect: "done", pi: "active" }));
+			await probePi(hostId);
+		},
+		[currentSecret, form.auth, probePi, props, setupRunning, validate],
+	);
+
+	/** 手填路径：写进主机档案并立刻重探（null/空串 = 回到自动探测）。 */
+	const savePiPath = useCallback(async () => {
+		const hostId = hostIdRef.current;
+		if (hostId === null) return;
+		const value = piPathDraft.trim();
+		// 与主进程同一份形状（绝对路径 + 限定字符集）：不合法就不发请求，错误定位在输入框。
+		if (value.length > 0 && (!value.startsWith("/") || value.endsWith("/") || !/^\/[A-Za-z0-9._/-]+$/.test(value))) {
+			setPiPathError(t("settings.connections.add.piPathInvalid"));
+			return;
 		}
-	}, [props, validate]);
+		setPiPathError(null);
+		setSavingPiPath(true);
+		try {
+			const result = await desktopApi.remoteHosts.setPiPath(hostId, value.length === 0 ? null : value);
+			if (!aliveRef.current) return;
+			applyPiOutcome(result);
+		} finally {
+			setSavingPiPath(false);
+		}
+	}, [applyPiOutcome, piPathDraft]);
+
+	/** 重试：还没建会话就从连接开始，否则整条重跑（不重复写库）。 */
+	const retrySetup = useCallback(() => {
+		const hostId = hostIdRef.current;
+		if (hostId !== null && steps.save === "done") void runSetup("reconnect");
+		else void runSetup("full");
+	}, [runSetup, steps.save]);
+
+	const copyInstallCommand = useCallback(async () => {
+		try {
+			await navigator.clipboard.writeText(PI_INSTALL_COMMAND);
+			setCopiedInstall(true);
+			setTimeout(() => setCopiedInstall(false), 2000);
+		} catch {
+			// 剪贴板不可用时静默失败：命令本身就在旁边，可以手选复制。
+		}
+	}, []);
+
+	/**
+	 * 关闭对话框。新建模式下没点「完成」就关 = 这次连接不保留：它只是本次检测的产物，
+	 * 而取消的用户期望「什么都没留下」。删除只涉及本机记录与 pin，远端文件/进程不受影响。
+	 */
+	const close = useCallback(() => {
+		aliveRef.current = false;
+		const created = createdHostRef.current;
+		if (created !== null && !committedRef.current) {
+			void desktopApi.remoteHosts
+				.remove(created)
+				.catch(() => undefined)
+				.finally(() => {
+					props.onChanged?.();
+					props.onClose();
+				});
+			return;
+		}
+		props.onClose();
+	}, [props]);
+
+	/** 点「完成」才算保留这台连接（此时 pi 已经可用）。 */
+	const complete = useCallback(() => {
+		committedRef.current = true;
+		props.onChanged?.();
+		props.onClose();
+	}, [props]);
 
 	// 表单里的连接参数一变，上一次「测试连接」的结论就作废：留着旧的「连接成功」会让人以为新配置也通了。
 	useEffect(() => {
@@ -215,7 +389,7 @@ export function AddHostDialog(props: { onClose: () => void; onSubmitted: (hostId
 		setTesting(true);
 		try {
 			const result = await desktopApi.remoteHosts.test(input);
-			setTestResult(result.ok ? { ok: true, fingerprint: result.fingerprint } : { ok: false, reason: addFailureReason(result.code) });
+			setTestResult(result.ok ? { ok: true, fingerprint: result.fingerprint } : { ok: false, reason: remoteHostFailureReason(result.code) });
 		} finally {
 			setTesting(false);
 		}
@@ -282,7 +456,7 @@ export function AddHostDialog(props: { onClose: () => void; onSubmitted: (hostId
 		<Dialog
 			open
 			onOpenChange={(open) => {
-				if (!open) props.onClose();
+				if (!open) close();
 			}}
 		>
 			{/* scroll-ok: bounded 表单对话框整页滚动，字段数量固定且由 max-h 收束 */}
@@ -406,7 +580,8 @@ export function AddHostDialog(props: { onClose: () => void; onSubmitted: (hostId
 					</div>
 				) : (
 					<>
-						<div className="flex flex-col gap-4">
+						{/* 保存成功后锁住字段：这条记录已经落库，再改字段就不再是它了（要改请在列表里编辑）。 */}
+						<fieldset disabled={formLocked} className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0">
 							<div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
 								<div className="flex min-w-0 flex-col gap-1">
 									<Label htmlFor="remote-host-name">{t("settings.connections.add.hostName")}</Label>
@@ -568,27 +743,123 @@ export function AddHostDialog(props: { onClose: () => void; onSubmitted: (hostId
 								</div>
 							) : null}
 							<p className="text-label text-muted-foreground">{t("settings.connections.add.credentialsHint")}</p>
-						</div>
+						</fieldset>
 
-						{testResult !== null ? <p className={cn("text-label", testResult.ok ? "text-muted-foreground" : "text-destructive")}>{testResult.ok ? t("settings.connections.add.testOk", { fingerprint: testResult.fingerprint }) : t("settings.connections.add.testFailed", { reason: testResult.reason })}</p> : null}
+						{/* 内联环境检测：四步状态 + pi 结论。整个过程就在这张表单里，不再弹独立进度框。 */}
+						{setupStarted ? (
+							<div className="flex flex-col gap-3 rounded-lg border border-border-subtle bg-bg-input/40 p-3">
+								<ol aria-live="polite" className="flex flex-col gap-1.5">
+									{SETUP_STEPS.map((key) => {
+										const status = steps[key];
+										const Icon = SETUP_STEP_ICON[status];
+										return (
+											<li key={key} aria-current={status === "active" ? "step" : undefined} className="flex min-w-0 items-center gap-2 text-body">
+												<Icon className={cn("size-3.5 shrink-0", SETUP_STEP_TONE[status], status === "active" && "animate-pideck-spin motion-reduce:animate-none")} aria-hidden="true" />
+												<span className={cn("min-w-0 truncate", status === "pending" ? "text-muted-foreground" : "text-foreground")}>{t(SETUP_STEP_LABEL[key])}</span>
+												<span className="ml-auto shrink-0 text-label text-muted-foreground">{status === "active" ? t("settings.connections.add.stepState.running") : status === "done" ? t("settings.connections.add.stepState.done") : status === "failed" ? t("settings.connections.add.stepState.failed") : null}</span>
+											</li>
+										);
+									})}
+								</ol>
+
+								{piOutcome?.state === "found" ? (
+									<div className="flex flex-col gap-0.5 border-t border-border-subtle/70 pt-2">
+										<p role="status" className="flex items-start gap-1.5 text-label text-[var(--color-success)]">
+											<CircleCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+											<span className="min-w-0">{t("settings.connections.add.piFound", { version: piOutcome.version })}</span>
+										</p>
+										<p className="break-all pl-5 font-mono text-label text-muted-foreground">{piOutcome.piPath}</p>
+										{piOutcome.warning === undefined ? null : <p className="pl-5 text-label text-warning">{t("settings.connections.add.piWarning")}</p>}
+									</div>
+								) : null}
+
+								{piOutcome?.state === "failed" ? (
+									<div className="flex flex-col gap-2 border-t border-border-subtle/70 pt-2">
+										<p role="status" className="flex items-start gap-1.5 text-label text-destructive">
+											<TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+											<span className="min-w-0">{remotePiProbeReason(piOutcome.code)}</span>
+										</p>
+										{piOutcome.code === "REMOTE_PI_NOT_FOUND" ? (
+											<div className="flex flex-col gap-1.5 rounded-md bg-bg-panel p-2">
+												<span className="text-label text-muted-foreground">{t("settings.connections.add.piInstallHint")}</span>
+												<div className="flex flex-wrap items-center gap-2">
+													<code className="min-w-0 flex-1 select-all break-all rounded bg-muted px-2 py-1 font-mono text-label">{PI_INSTALL_COMMAND}</code>
+													<Button type="button" variant="outline" size="sm" onClick={() => void copyInstallCommand()}>
+														<Copy className="size-3.5" aria-hidden="true" />
+														{copiedInstall ? t("settings.connections.add.piCopied") : t("settings.connections.add.piCopy")}
+													</Button>
+												</div>
+											</div>
+										) : null}
+									</div>
+								) : null}
+
+								{/* 手填路径：探测失败时的出路，探测成功时也能改成另一个 pi。 */}
+								{steps.pi === "failed" || steps.pi === "done" ? (
+									<div className="flex flex-col gap-1.5 border-t border-border-subtle/70 pt-2">
+										<Label htmlFor="remote-pi-path">{t("settings.connections.add.piPathLabel")}</Label>
+										<div className="flex flex-wrap items-center gap-2">
+											<Input
+												id="remote-pi-path"
+												autoComplete="off"
+												spellCheck={false}
+												className="min-w-0 flex-1 font-mono"
+												placeholder={t("settings.connections.add.piPathPlaceholder")}
+												value={piPathDraft}
+												disabled={savingPiPath || setupRunning}
+												onChange={(event) => {
+													setPiPathDraft(event.target.value);
+													setPiPathError(null);
+												}}
+											/>
+											<Button type="button" variant="outline" disabled={savingPiPath || setupRunning} onClick={() => void savePiPath()}>
+												{savingPiPath ? t("settings.connections.add.piPathSaving") : t("settings.connections.add.piPathSave")}
+											</Button>
+										</div>
+										<p className="text-label text-muted-foreground">{t("settings.connections.add.piPathHint")}</p>
+										{piPathError === null ? null : <p className="text-label text-destructive">{piPathError}</p>}
+									</div>
+								) : null}
+							</div>
+						) : null}
+
+						{testResult !== null ? (
+							<div role="status" className={cn("flex flex-col gap-1 text-label", testResult.ok ? "text-[var(--color-success)]" : "text-destructive")}>
+								<p className="flex items-start gap-1.5">
+									{testResult.ok ? <CircleCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" /> : <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />}
+									<span className="min-w-0">{testResult.ok ? t("settings.connections.add.testOk", { fingerprint: testResult.fingerprint }) : t("settings.connections.add.testFailed", { reason: testResult.reason })}</span>
+								</p>
+								{testResult.ok ? <p className="pl-5 text-label text-muted-foreground">{t("settings.connections.add.testOkHint")}</p> : null}
+							</div>
+						) : null}
 						{error !== null ? <p className="text-label text-destructive">{error}</p> : null}
 					</>
 				)}
 
 				<DialogFooter className="flex-row items-center justify-between gap-2 border-t border-border-subtle pt-4 sm:justify-between">
-					<span className="min-w-0 truncate text-label text-muted-foreground">{kind === "ssh" && importing ? t("settings.connections.add.importHint") : null}</span>
+					<span className="min-w-0 truncate text-label text-muted-foreground">{kind === "ssh" && importing ? t("settings.connections.add.importHint") : kind === "ssh" && createdHostRef.current !== null && !committedRef.current ? t("settings.connections.add.cancelDiscard") : null}</span>
 					<div className="flex items-center gap-2">
-						<Button variant="ghost" onClick={props.onClose}>
+						<Button variant="ghost" onClick={close}>
 							{t("common.cancel")}
 						</Button>
 						{kind === "ssh" ? (
 							<>
-								<Button variant="outline" disabled={busy || testing || form.auth === "password"} title={form.auth === "password" ? t("settings.connections.add.testPasswordUnsupported") : undefined} onClick={() => void testConnection()}>
-									{testing ? t("settings.connections.add.testing") : t("settings.connections.add.test")}
-								</Button>
-								<Button disabled={busy || testing} onClick={() => void submit()}>
-									{editing === undefined ? t("settings.connections.add.submitConnect") : t("common.save")}
-								</Button>
+								{setupRunning || setupSettled ? null : (
+									<Button variant="outline" disabled={testing || form.auth === "password"} title={form.auth === "password" ? t("settings.connections.add.testPasswordUnsupported") : undefined} onClick={() => void testConnection()}>
+										{testing ? t("settings.connections.add.testing") : t("settings.connections.add.test")}
+									</Button>
+								)}
+								{setupRunning ? null : piFound ? (
+									<Button onClick={complete}>{t("settings.connections.add.doneAction")}</Button>
+								) : setupSettled ? (
+									<Button disabled={savingPiPath} onClick={retrySetup}>
+										{t("settings.connections.add.retry")}
+									</Button>
+								) : (
+									<Button disabled={testing} onClick={() => void runSetup("full")}>
+										{editing === undefined ? t("settings.connections.add.setup") : t("settings.connections.add.setupEdit")}
+									</Button>
+								)}
 							</>
 						) : (
 							<Button disabled={wslBusy} onClick={() => void submitWsl()}>

@@ -169,10 +169,7 @@ export function RebindPanel(props: { hosts: RemoteHostListItem[]; onChanged?: ()
 			{adding ? (
 				<AddHostDialog
 					onClose={() => setAdding(false)}
-					onSubmitted={() => {
-						setAdding(false);
-						props.onChanged?.();
-					}}
+					onChanged={() => props.onChanged?.()}
 				/>
 			) : null}
 
