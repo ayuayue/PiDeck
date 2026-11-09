@@ -84,7 +84,7 @@ import type { RemoteSessionRegistration } from "../sessions/SessionCatalog";
 import { SessionFileEditor, type SessionEntryTarget, type SessionFileRef } from "./SessionFileEditor";
 import { SessionHistoryReader, applySessionContextEdits, boundTurnWindowStart } from "./SessionHistoryReader";
 import { createTrajectoryFactsReader, type TrajectoryFactsReader } from "../sessions/trajectoryFactsReader";
-import { scanJsonlLines } from "../sessions/jsonlLineStream";
+import { createJsonlScanLines } from "../sessions/jsonlLineStream";
 import { estimateMessagesPayloadBytes } from "./messagePayloadSize";
 import { bindRemoteUserMessageTimestamp } from "./remoteMessageTimestamp";
 import { StoppedMessageIdentityCache } from "./stoppedMessageIdentity";
@@ -3538,11 +3538,9 @@ export class AgentManager {
 	 * V8 直接 abort 整个主进程（用户看到「大会话闪退」，连堆栈都记不下来）。
 	 */
 	private readonly cacheHitStatsReader: CacheHitStatsReader = createCacheHitStatsReader({
-		// scanJsonlLines 的 visitor 是 (line, context) 两参，读取器需要一个投影函数：
-		// 只额外传递 offset/byteLength/complete（增量续算靠它确定行边界）。
-		scanLines: async (filePath, visitor) => {
-			await scanJsonlLines(filePath, visitor);
-		},
+		// 适配器必须把读取器算出的增量起点 `{ start }` 透传给 scanJsonlLines：
+		// 漏传时底层从字节 0 重扫、上层却复用旧累加器，样本会被重复累计（#511）。
+		scanLines: createJsonlScanLines(),
 		stat,
 	});
 
