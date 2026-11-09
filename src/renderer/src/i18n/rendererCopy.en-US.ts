@@ -4624,6 +4624,7 @@ export const enUS: Record<TranslationKey, string> = {
 	"settings.connections.add.reason.authFailed": "Authentication failed: check the user name, the key, and the keys loaded in your agent.",
 	"settings.connections.add.reason.passwordRequired": "This connection authenticates with a password: enter the login password again and retry.",
 	"settings.connections.add.reason.keyPathInvalid": "The key path must be an absolute local path (for example C:\Users\you\.ssh\id_ed25519).",
+	"settings.connections.add.reason.nodeTooOld": "The remote Node is too old (the helper needs Node 22.3+): upgrade Node on the remote (e.g. nvm install 22), or make sure the login shell PATH picks the newer node first, then reconnect.",
 	"settings.connections.add.savedUnverified": "Saved “{host}” as an unverified connection: {reason} Edit it in the list and connect again.",
 	"settings.connections.add.required": "Display name and host name are required.",
 	"settings.connections.add.badPort": "Port must be an integer between 1 and 65535.",

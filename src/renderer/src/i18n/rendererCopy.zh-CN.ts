@@ -4605,6 +4605,7 @@ export const zhCN = {
 	"settings.connections.add.reason.authFailed": "认证失败：检查用户名、私钥与 agent 里的密钥。",
 	"settings.connections.add.reason.passwordRequired": "这台连接用密码认证：请重新填写登录密码后再检测。",
 	"settings.connections.add.reason.keyPathInvalid": "私钥路径必须是本机绝对路径（例如 C:\Users\you\.ssh\id_ed25519）。",
+	"settings.connections.add.reason.nodeTooOld": "远端 Node 版本太旧（helper 需要 Node 22.3 及以上）：请在远端升级 Node（例如 nvm install 22），或确认登录 shell 的 PATH 优先排新版，然后重连。",
 	"settings.connections.add.savedUnverified": "已保存为未验证连接「{host}」：{reason} 在列表里点「编辑」改好后再连即可。",
 	"settings.connections.add.required": "显示名称与主机名不能为空。",
 	"settings.connections.add.badPort": "端口必须是 1-65535 之间的整数。",

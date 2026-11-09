@@ -594,7 +594,7 @@ export function AddHostDialog(props: {
 									<datalist id="wsl-distro-options">
 										{wslDistros.map((distro) => (
 											<option key={distro} value={distro} />
-									))}
+										))}
 									</datalist>
 								) : null}
 							</div>

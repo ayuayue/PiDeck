@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 18942c30d7c297b4dc03be10bcf9f17a10e9bc5321fae6ab881a7c2a4062bfd1（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 28c55b3d0541bf484ad7923c682b93bbf2a30a1e790cd1829b4c21fbb02f35b5（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -4612,6 +4612,7 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.connections.add.reason.authFailed": "認證失敗：檢查使用者名稱、私鑰與 agent 裡的金鑰。",
 	"settings.connections.add.reason.passwordRequired": "這臺連線用密碼認證：請重新填寫登入密碼後再檢測。",
 	"settings.connections.add.reason.keyPathInvalid": "私鑰路徑必須是本機絕對路徑（例如 C:\Users\you\.ssh\id_ed25519）。",
+	"settings.connections.add.reason.nodeTooOld": "遠端 Node 版本太舊（helper 需要 Node 22.3 及以上）：請在遠端升級 Node（例如 nvm install 22），或確認登入 shell 的 PATH 優先排新版，然後重連。",
 	"settings.connections.add.savedUnverified": "已儲存為未驗證連線「{host}」：{reason} 在列表裡點「編輯」改好後再連即可。",
 	"settings.connections.add.required": "顯示名稱與主機名不能為空。",
 	"settings.connections.add.badPort": "埠必須是 1-65535 之間的整數。",

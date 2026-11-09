@@ -26,6 +26,8 @@ export function remoteHostFailureReason(code: string): string {
 		case "REMOTE_HOST_IDENTITY_FILE_INVALID":
 		case "INVALID_SSH_LOCAL_PATH":
 			return t("settings.connections.add.reason.keyPathInvalid");
+		case "REMOTE_NODE_VERSION_UNSUPPORTED":
+			return t("settings.connections.add.reason.nodeTooOld");
 		case "REMOTE_FEATURE_DISABLED":
 			return t("settings.connections.add.disabled");
 		default:
