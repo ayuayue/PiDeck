@@ -68,9 +68,11 @@ test("配置管理：修改后关闭弹确认并点名变更项", async ({ windo
 	await modal.getByRole("button", { name: "+ 添加供应商" }).click();
 	const nameInput = modal.getByPlaceholder("供应商名称，如 openai");
 	await nameInput.fill("e2e-provider");
-	await modal.getByRole("button", { name: "确认" }).click();
+	// 供应商页底部操作是「取消 / 添加」（config.addProviderConfirm），不是旧弹窗的「确认」。
+	await modal.getByRole("button", { name: "添加", exact: true }).click();
 
-	await modal.getByRole("button", { name: "关闭" }).first().click();
+	// 嵌入模式下 .config-pane 只是设置页的配置分区，关闭按钮在设置外壳标题栏（.settings-modal）。
+	await window.locator(".settings-modal").getByRole("button", { name: "关闭", exact: true }).first().click();
 
 	const dialog = window.getByRole("alertdialog");
 	await expect(dialog).toBeVisible();
