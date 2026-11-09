@@ -215,10 +215,13 @@ if (process.platform === "win32") {
 // 唤起实例的 argv 携带 pideck://session/<id> URL，主进程据此跳转对应会话。
 // 仅 packaged 应用注册：dev 模式跑的是 electron 二进制，注册会把协议关联劫持到 electron.exe，
 // 覆盖已安装正式版的关联；dev 模式下通知点击依赖 Electron 原生 click 事件聚焦即可。
+// E2E 实例（同为打包态）也默认跳过同一原因：#513 注册表按 scheme 全局唯一，跑一次用例
+// 就会把真实安装版的 pideck:// 改写成临时 userData 的测试实例；需要验证深链的用例用
+// PIDECK_E2E_REGISTER_PROTOCOL=1 显式 opt-in。
 // 安装包内 electron-builder 的 protocols 配置也会在安装时写入注册表，此处是运行时兜底。
 // dev 通道构建注册 pideck-dev://（安装清单同 scheme）：注册表按 scheme 为键，
 // 两通道同 scheme 会互相抢占关联，点击通知会唤起错误的通道。
-if (app.isPackaged) {
+if (shouldRegisterDeepLinkProtocol({ isPackaged: app.isPackaged, isE2E, optIn: process.env.PIDECK_E2E_REGISTER_PROTOCOL === "1" })) {
 	app.setAsDefaultProtocolClient(APP_DEEP_LINK_SCHEME);
 }
 
@@ -480,6 +483,7 @@ import { registerUsageStatsIpc } from "./ipc/usageStatsIpc";
 import { UsageStatsService } from "./usageStats/UsageStatsService";
 import { constrainWindowBoundsToWorkArea, type LastWindowBounds, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, readLastWindowBounds, saveLastWindowBounds } from "./windowState";
 import { applyE2EWindowPlacement, E2E_RENDERING_SWITCHES, resolveE2EWindowPlacement } from "./e2eWindowMode";
+import { shouldRegisterDeepLinkProtocol } from "./e2eProtocolRegistration";
 import { applyChromiumFeatureFlags } from "./chromiumFeatureFlags";
 import { createRendererCrashRecoveryGuard } from "./window/rendererCrashRecovery";
 import { registerBackgroundImageProtocol, registerBackgroundsIpc } from "./ipc/backgroundsIpc";
