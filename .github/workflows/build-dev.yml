@@ -138,6 +138,7 @@ jobs:
           CSC_LINK: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_LINK || '' }}
           CSC_KEY_PASSWORD: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
           CSC_NAME: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_NAME || '' }}
+          PIDECK_MAC_TEAM_ID: ${{ matrix.platform == 'macos' && (vars.MAC_TEAM_ID || secrets.APPLE_TEAM_ID) || '' }}
           # 发布产物标记（dev 通道同样是正式发布）：注入后构建来源判定 release，
           # 否则 PiDeck Dev 安装包会在设置页显示「本地构建」（见 src/main/buildIdentity.ts）。
           PIDECK_RELEASE_BUILD: "1"
@@ -155,8 +156,9 @@ jobs:
         if: matrix.platform == 'macos'
         run: node scripts/verify-mac-signature.mjs
         env:
-          PIDECK_MAC_REQUIRE_DEVELOPER_ID: ${{ secrets.MAC_CSC_LINK != '' || secrets.MAC_CSC_NAME != '' }}
-          PIDECK_MAC_TEAM_ID: ${{ vars.MAC_TEAM_ID }}
+          PIDECK_RELEASE_BUILD: "1"
+          PIDECK_MAC_REQUIRE_DEVELOPER_ID: "true"
+          PIDECK_MAC_TEAM_ID: ${{ vars.MAC_TEAM_ID || secrets.APPLE_TEAM_ID }}
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_NAME: ${{ secrets.MAC_CSC_NAME }}
           APPLE_ID: ${{ secrets.APPLE_ID }}

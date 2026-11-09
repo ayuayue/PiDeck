@@ -22,6 +22,7 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
+const { resolveMacIdentityPolicy, validateMacIdentityPolicy, hasNotarizationCredentials, validateMacNotarization } = require("./mac-signing-policy.js");
 
 const root = path.resolve(__dirname, "..");
 // Binary detection in osx-sign also matches Chromium locale data. The signed framework seals it.
@@ -42,19 +43,6 @@ function hasDeveloperIdCertificate(env) {
 }
 
 /**
- * 公证凭据是否齐全（与 app-builder-lib MacTargetHelper.getNotarizeOptions 三条路径一致）：
- * Apple ID + app 专用密码 + Team ID；或 App Store Connect API key 三元组；或 notarytool
- * keychain profile。半套凭据视为未配置（electron-builder 会对半套直接抛错，所以这里也
- * 不开 notarize，让 verify 门禁去报「签了但没公证」）。
- */
-function hasNotarizationCredentials(env) {
-	if (hasValue(env.APPLE_ID) && hasValue(env.APPLE_APP_SPECIFIC_PASSWORD) && hasValue(env.APPLE_TEAM_ID)) return true;
-	if (hasValue(env.APPLE_API_KEY) && hasValue(env.APPLE_API_KEY_ID) && hasValue(env.APPLE_API_ISSUER)) return true;
-	if (hasValue(env.APPLE_KEYCHAIN_PROFILE)) return true;
-	return false;
-}
-
-/**
  * 解析 mac 签名策略。返回值：
  * - mode: "developer-id" | "adhoc"
  * - notarize: 是否开启公证（仅 developer-id 且凭据齐全）
@@ -63,9 +51,13 @@ function hasNotarizationCredentials(env) {
 function resolveMacSigning(env = process.env) {
 	const certificate = hasDeveloperIdCertificate(env);
 	const notarize = hasNotarizationCredentials(env);
-	if (env.PIDECK_MAC_REQUIRE_NOTARIZATION === "1") {
+	// This config is loaded for Windows/Linux too. The mac-only beforePack hook
+	// always enforces release identity; explicit mac requirements also fail early here.
+	if (env.PIDECK_MAC_REQUIRE_NOTARIZATION === "1" || /^(true|1)$/i.test(env.PIDECK_MAC_REQUIRE_DEVELOPER_ID ?? "")) {
+		const policy = resolveMacIdentityPolicy(env);
 		if (!certificate) throw new Error("macOS 正式发布需要 Developer ID 证书：请配置 CSC_LINK 或 CSC_NAME");
-		if (!notarize) throw new Error("macOS 正式发布需要完整公证凭据：APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID，或 API key / keychain profile");
+		validateMacNotarization(policy, env);
+		validateMacIdentityPolicy(policy);
 	}
 	if (!certificate) {
 		return { mode: "adhoc", notarize: false, mac: { identity: "-", notarize: false } };
@@ -104,6 +96,8 @@ function createElectronBuilderConfig(options = {}) {
 	const ignored = mac.signIgnore == null ? [] : Array.isArray(mac.signIgnore) ? mac.signIgnore : [mac.signIgnore];
 	mac.signIgnore = [...new Set([MAC_RESOURCE_SIGN_IGNORE, ...ignored])];
 	for (const [key, value] of Object.entries(signing.mac)) {
+		// Preserve an explicit opt-out so the mac hook can reject it for releases.
+		if (key === "identity" && mac.identity === null) continue;
 		if (value === undefined) delete mac[key];
 		else mac[key] = value;
 	}

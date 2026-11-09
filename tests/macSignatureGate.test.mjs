@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import test from "node:test";
 import { findMacApps, findNestedApps, hasHardenedRuntime, isDeveloperIdSigned, parseCodeSignDisplay, verifyMacSignature } from "../scripts/verify-mac-signature.mjs";
+import { resolveMacIdentityPolicy } from "../scripts/mac-signing-policy.js";
 
 // 门禁默认按环境变量推断期望的签名模式（与打包配置同源）；本地开发机若导出过 CSC_* 会把
 // 下面的 ad-hoc 用例全部拉成 developer-id 期望。测试进程内清掉，developer-id 用例显式注入 signing。
@@ -432,6 +433,38 @@ function useDeveloperId(app) {
 		});
 	}
 }
+
+test("release verification requires a fixed Team even for a valid Developer ID signature", async () => {
+	await withTempRelease(async (release) => {
+		const app = await createApp(release, "mac", "PiDeck.app");
+		useDeveloperId(app);
+		const result = await verifyMacSignature({ releaseDir: release, platform: "darwin", ...harness([app]), identityPolicy: resolveMacIdentityPolicy({ PIDECK_RELEASE_BUILD: "1", PIDECK_MAC_REQUIRE_DEVELOPER_ID: "false" }) });
+		assert.equal(result.ok, false);
+		assert.match(result.errors.join("\n"), /TEAM_ID/);
+	});
+});
+
+test("stable/dev release verification pins the Team and forces notarization despite optional overrides", async () => {
+	await withTempRelease(async (release) => {
+		const stable = await createApp(release, "mac", "PiDeck.app");
+		const dev = await createApp(release, "mac-arm64", "PiDeck Dev.app", { bundleId: "com.ayuayue.pi-desktop-dev", helpers: [{ name: "Helper.app", bundleId: "com.ayuayue.pi-desktop-dev.helper" }] });
+		for (const app of [stable, dev]) useDeveloperId(app);
+		const identityPolicy = resolveMacIdentityPolicy({ PIDECK_RELEASE_BUILD: "1", PIDECK_MAC_TEAM_ID: "A1B2C3D4E5", PIDECK_MAC_REQUIRE_DEVELOPER_ID: "false" });
+		const spctl = makeTool(),
+			stapler = makeTool();
+		const options = { releaseDir: release, platform: "darwin", ...harness([stable, dev]), identityPolicy, requireDeveloperId: false, signing: { mode: "adhoc", notarize: false }, runSpctl: spctl.run, runStapler: stapler.run };
+		const result = await verifyMacSignature(options);
+		assert.equal(result.ok, true, result.errors.join("\n"));
+		assert.equal(stapler.calls.length, 2);
+		assert.equal(spctl.calls.length, 2);
+		const wrongTeam = await verifyMacSignature({ ...options, identityPolicy: resolveMacIdentityPolicy({ PIDECK_RELEASE_BUILD: "1", PIDECK_MAC_TEAM_ID: "OTHERTEAM1" }) });
+		assert.equal(wrongTeam.ok, false);
+		assert.match(wrongTeam.errors.join("\n"), /TeamIdentifier/);
+		const override = await verifyMacSignature({ ...options, expectedTeamId: "OTHERTEAM1" });
+		assert.equal(override.ok, false);
+		assert.match(override.errors.join("\n"), /不能覆盖/);
+	});
+});
 
 test("valid ad-hoc bundles warn that TCC grants cannot be retained across updates", async () => {
 	await withTempRelease(async (release) => {

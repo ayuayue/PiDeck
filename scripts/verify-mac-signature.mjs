@@ -34,7 +34,8 @@ import { readdir, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { resolveMacSigning } from "./electronBuilderConfig.js";
+import { hasDeveloperIdCertificate, hasNotarizationCredentials } from "./electronBuilderConfig.js";
+import { resolveMacIdentityPolicy, validateMacIdentityPolicy } from "./mac-signing-policy.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -286,9 +287,10 @@ export async function verifyMacSignature({
 	platform = process.platform,
 	runCodesign = defaultRunCodesign,
 	readInfoPlist = defaultReadInfoPlist,
+	identityPolicy = resolveMacIdentityPolicy(process.env),
 	requireDeveloperId = false,
-	expectedTeamId = null,
-	signing = resolveMacSigning(process.env),
+	expectedTeamId = identityPolicy.teamId,
+	signing = { mode: identityPolicy.requireCertificate || hasDeveloperIdCertificate(process.env) ? "developer-id" : "adhoc", notarize: identityPolicy.requireNotarization || hasNotarizationCredentials(process.env) },
 	runSpctl = defaultRunSpctl,
 	runStapler = defaultRunStapler,
 } = {}) {
@@ -296,9 +298,15 @@ export async function verifyMacSignature({
 	const errors = [];
 	const warnings = [];
 	const apps = [];
-	requireDeveloperId ||= Boolean(expectedTeamId) || signing.mode === "developer-id";
-	if (expectedTeamId !== null && !/^[A-Z0-9]{10}$/.test(expectedTeamId)) return { ok: false, releaseDir: root, signing: signing.mode, apps, warnings, errors: ["expectedTeamId 必须是 10 位大写字母或数字"] };
-
+	requireDeveloperId ||= identityPolicy.requireCertificate || Boolean(expectedTeamId) || signing.mode === "developer-id";
+	// Injected or optional settings must not lower mandatory release requirements.
+	signing = { ...signing, mode: requireDeveloperId ? "developer-id" : signing.mode, notarize: identityPolicy.requireNotarization || signing.notarize };
+	try {
+		validateMacIdentityPolicy({ ...identityPolicy, teamId: expectedTeamId });
+		if (identityPolicy.teamId && identityPolicy.teamId !== expectedTeamId) throw new Error("expectedTeamId 不能覆盖已固定的 PIDECK_MAC_TEAM_ID");
+	} catch (error) {
+		return { ok: false, releaseDir: root, signing: signing.mode, apps, warnings, errors: [error instanceof Error ? error.message : String(error)] };
+	}
 	if (platform !== "darwin") {
 		return { ok: false, releaseDir: root, signing: signing.mode, apps, warnings, errors: [`macOS 签名门禁需要 codesign，只能在 macOS 上运行（当前宿主：${platform}）`] };
 	}
@@ -341,8 +349,6 @@ const isMain = process.argv[1] && resolve(process.argv[1]) === resolve(fileURLTo
 if (isMain) {
 	try {
 		const options = parseArgs(process.argv.slice(2));
-		options.requireDeveloperId ||= /^(true|1)$/i.test(process.env.PIDECK_MAC_REQUIRE_DEVELOPER_ID ?? "");
-		options.expectedTeamId ??= process.env.PIDECK_MAC_TEAM_ID?.trim() || null;
 		if (options.help) {
 			console.log("Usage: node scripts/verify-mac-signature.mjs [--release-dir <path>] [--json] [--require-developer-id] [--team-id <id>]");
 		} else {

@@ -17,7 +17,7 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 const NOTARY_ENV = { APPLE_ID: "dev@example.com", APPLE_APP_SPECIFIC_PASSWORD: "xxxx-xxxx", APPLE_TEAM_ID: "ABCDE12345" };
 
 test("正式发布要求签名与公证齐全，缺证书或缺任一公证凭据在打包前失败", () => {
-	const strict = { PIDECK_MAC_REQUIRE_NOTARIZATION: "1" };
+	const strict = { PIDECK_MAC_REQUIRE_NOTARIZATION: "1", PIDECK_MAC_TEAM_ID: NOTARY_ENV.APPLE_TEAM_ID };
 	assert.throws(() => resolveMacSigning(strict), /Developer ID/);
 	assert.throws(() => resolveMacSigning({ ...strict, CSC_LINK: "cert" }), /公证/);
 	for (const key of Object.keys(NOTARY_ENV)) {
@@ -26,6 +26,18 @@ test("正式发布要求签名与公证齐全，缺证书或缺任一公证凭�
 		assert.throws(() => resolveMacSigning(env), /公证/);
 	}
 	assert.equal(resolveMacSigning({ ...strict, CSC_LINK: "cert", ...NOTARY_ENV }).notarize, true);
+});
+
+test("公证发行在配置阶段拒绝缺失、非法及不匹配的固定 Team", () => {
+	const env = { PIDECK_MAC_REQUIRE_NOTARIZATION: "1", CSC_LINK: "certificate", ...NOTARY_ENV };
+	for (const team of [undefined, "", "invalid", "OTHERTEAM1"]) {
+		assert.throws(() => resolveMacSigning({ ...env, PIDECK_MAC_TEAM_ID: team }), /Team|TEAM_ID/);
+	}
+});
+
+test("配置装配保留显式禁用签名，让 mac 打包门禁拒绝发布", () => {
+	const config = createElectronBuilderConfig({ env: { CSC_LINK: "certificate" }, overrides: { mac: { identity: null } } });
+	assert.equal(config.mac.identity, null);
 });
 
 test("语言资源不单独签名，可执行文件和框架仍参与签名", () => {

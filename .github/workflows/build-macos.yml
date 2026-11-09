@@ -76,6 +76,7 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=4096"
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_NAME: ${{ secrets.MAC_CSC_NAME }}
+          PIDECK_MAC_TEAM_ID: ${{ vars.MAC_TEAM_ID || secrets.APPLE_TEAM_ID }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           # Developer ID 签名 + 公证；secrets 未配置时回退 ad-hoc（scripts/electronBuilderConfig.js）。
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -98,7 +99,7 @@ jobs:
         run: node scripts/verify-mac-signature.mjs
         env:
           PIDECK_MAC_REQUIRE_DEVELOPER_ID: ${{ secrets.MAC_CSC_LINK != '' || secrets.MAC_CSC_NAME != '' }}
-          PIDECK_MAC_TEAM_ID: ${{ vars.MAC_TEAM_ID }}
+          PIDECK_MAC_TEAM_ID: ${{ vars.MAC_TEAM_ID || secrets.APPLE_TEAM_ID }}
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_NAME: ${{ secrets.MAC_CSC_NAME }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
