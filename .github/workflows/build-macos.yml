@@ -1,13 +1,14 @@
 name: Build macOS
 
-# 手动触发：可选构建分支/tag（默认 main）与目标架构（默认 both = arm64 + x64）
+# 手动触发：可选构建分支/tag（留空 = 当前触发分支）与目标架构（默认 both = arm64 + x64）
 on:
   workflow_dispatch:
     inputs:
       ref:
-        description: 要构建的分支或 tag（如 dev、main、v0.7.0）
+        # 不能写 default: main：workflow_dispatch 的 default 不支持表达式，
+        # 而写死 main 会让「从 dev 触发」变成用 dev 的 workflow 文件构建 main 的代码。
+        description: 要构建的分支或 tag（留空 = 当前触发分支；可填 dev、main、v0.7.0）
         required: false
-        default: main
       arch:
         description: 目标架构
         required: false
@@ -34,7 +35,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref || 'main' }}
+          ref: ${{ inputs.ref || github.ref_name }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
