@@ -124,16 +124,17 @@ test("pi 探测失败：安装命令可复制，也可以手填绝对路径", ()
 	}
 });
 
-test("新建记录只有点「完成」才保留；关闭对话框会移除它", () => {
-	// 取消的用户期望「什么都没留下」：主机是在测试通过后为了执行远端命令才落库的。
-	assert.match(dialog, /if \(created !== null && !committedRef\.current\) \{/);
-	assert.match(dialog, /desktopApi\.remoteHosts\s*\.remove\(created\)/);
-	assert.match(dialog, /const complete = useCallback\(\(\) => \{\n\t\tcommittedRef\.current = true;/);
-	assert.match(dialog, /onClick=\{complete\}/);
+test("关闭对话框不删除记录：失败留下的未验证连接能直接编辑", () => {
+	// 2026-11 用户反馈：失败就丢，下次还得重填。记录的去留交给列表里的删除按钮，
+	// 关闭对话框（X / Esc / 取消）只关闭，不再调用 remove。
+	assert.doesNotMatch(dialog, /desktopApi\.remoteHosts\s*\.remove\(created\)/);
+	assert.doesNotMatch(dialog, /committedRef/);
+	assert.doesNotMatch(dialog, /createdHostRef/);
+	assert.doesNotMatch(dialog, /settings\.connections\.add\.cancelDiscard/);
 	// 关闭路径（X / Esc / 取消）都走同一个 close()。
 	assert.match(dialog, /if \(!open\) close\(\);/);
 	assert.match(dialog, /onClick=\{close\}/);
-	// 对话框卸载后仍可能在飞的请求不得回写状态。
+	// 对话框卸载后仍可能在飞的请求不得回写状态（但保留已写入的记录）。
 	assert.match(dialog, /aliveRef\.current = false;/);
 });
 
@@ -141,8 +142,12 @@ test("握手失败保留下来的草稿：对话框内联说明，不再由宿�
 	const types = readFileSync("src/shared/types/remoteHost.ts", "utf8");
 	assert.match(types, /saved\?: boolean; hostId\?: string/);
 	assert.match(main, /saved: true, hostId: profile\.id/);
-	// 草稿由对话框记住，重试时不重复 add（改成原地 update）。
-	assert.match(dialog, /if \(added\.saved === true && added\.hostId !== undefined\) createdHostRef\.current = added\.hostId;/);
+	// 草稿由对话框记住，重试时不重复 add（改成原地 update）：saved 分支必须同时写 hostIdRef，
+	// 否则重试会再 add 一次，每失败一次就多一条同名记录。
+	assert.match(dialog, /if \(added\.saved === true && added\.hostId !== undefined\) hostIdRef\.current = added\.hostId;/);
+	// 预检（测试连接）失败也要落库：否则用户关掉对话框就只剩重填一条路。
+	assert.match(dialog, /const persisted = await desktopApi\.remoteHosts\.add\(input\);/);
+	assert.match(dialog, /if \(!persisted\.ok && persisted\.saved === true && persisted\.hostId !== undefined\) \{/);
 	assert.match(dialog, /settings\.connections\.add\.savedUnverified/);
 	assert.match(dialog, /const existingHostId = hostIdRef\.current;\n\t\t\t\tif \(existingHostId !== null\) \{/);
 	// 宿主不再接收「已保存但未验证」的回调，也不再自己发起连接。

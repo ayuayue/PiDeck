@@ -392,7 +392,10 @@ export class RemoteHostStore {
 						!remotePiCommand.startsWith("/") ||
 						remotePiCommand.endsWith("/") ||
 						!/^\/[A-Za-z0-9._/-]+$/.test(remotePiCommand) ||
-						remotePiCommand.slice(1).split("/").some((segment) => segment === "" || segment === "." || segment === "..") ||
+						remotePiCommand
+							.slice(1)
+							.split("/")
+							.some((segment) => segment === "" || segment === "." || segment === "..") ||
 						/[\x00-\x1f\x7f]/.test(remotePiCommand))
 				)
 					throw new Error("REMOTE_HOST_EDIT_INVALID");

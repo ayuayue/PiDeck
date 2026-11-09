@@ -55,7 +55,7 @@ test("add host dialog: test connection shows a readable reason", async ({ window
 	await expect(dialog.getByRole("button", { name: "测试连接" })).toBeDisabled();
 });
 
-test("save and check fails inline and leaves no connection behind", async ({ window }) => {
+test("save and check: failure still keeps an editable connection", async ({ window }) => {
 	test.setTimeout(120_000);
 	await expect(window.locator("#boot-overlay")).toHaveCount(0, { timeout: 20_000 });
 
@@ -72,21 +72,33 @@ test("save and check fails inline and leaves no connection behind", async ({ win
 	await dialog.locator("#remote-host-name").fill("127.0.0.1");
 	await dialog.locator("#remote-host-port").fill("9");
 	await dialog.locator("#remote-host-user").fill("nobody");
-	await dialog.locator("#remote-host-label").fill("no-leftover");
+	await dialog.locator("#remote-host-label").fill("keep-me");
 	await dialog.getByRole("button", { name: "指定私钥" }).click();
 	await dialog.locator("#remote-host-identity").fill(fakeKey);
 
-	// 「保存并检测」：握手先失败 → 停在表单里，四步状态轨可见且没有另开进度弹窗。
+	// 「保存并检测」：握手先失败 —— 但草稿照样保存（用户反馈：失败了就丢，下次还得重填），
+	// 表单内联给出可读原因，且没有另开进度弹窗。
 	await dialog.getByRole("button", { name: "保存并检测" }).click();
 	await expect(dialog).toBeVisible();
 	await expect(dialog.getByText("测试 SSH 连接")).toBeVisible({ timeout: 10_000 });
-	const failure = dialog.getByText(/^测试失败：/);
+	const failure = dialog.getByText(/^已保存为未验证连接/);
 	await expect(failure).toBeVisible({ timeout: 30_000 });
 	await expect(failure).not.toContainText("SSH_");
 	await window.screenshot({ path: "test-results/v5-addhost-inline-failure.png" });
 
-	// 取消：本次没有建成任何记录，列表里不应出现这个显示名。
+	// 关闭对话框：记录保留，列表里显示「未验证」，点编辑能带出已填的值（不必重填）。
 	await dialog.getByRole("button", { name: "取消", exact: true }).click();
 	await expect(dialog).toHaveCount(0);
-	await expect(modal.getByText("no-leftover")).toHaveCount(0);
+	const row = modal.locator("section").getByText("keep-me").first();
+	await expect(row).toBeVisible({ timeout: 15_000 });
+	await expect(modal.getByText("未验证").first()).toBeVisible();
+	await window.screenshot({ path: "test-results/v5-saved-unverified.png" });
+
+	await modal.getByRole("button", { name: "编辑连接" }).first().click();
+	const editDialog = window.getByRole("dialog").filter({ hasText: "编辑连接" }).first();
+	await expect(editDialog).toBeVisible({ timeout: 10_000 });
+	await expect(editDialog.locator("#remote-host-name")).toHaveValue("127.0.0.1");
+	await expect(editDialog.locator("#remote-host-user")).toHaveValue("nobody");
+	await expect(editDialog.locator("#remote-host-identity")).toHaveValue(fakeKey);
+	await window.screenshot({ path: "test-results/v5-edit-unverified.png" });
 });

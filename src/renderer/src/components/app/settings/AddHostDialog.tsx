@@ -129,9 +129,6 @@ export function AddHostDialog(props: {
 	const [copiedInstall, setCopiedInstall] = useState(false);
 	/** 本对话框对应/新建的主机 id（重试和手填路径都用它，不重复 add）。 */
 	const hostIdRef = useRef<string | null>(editing?.hostId ?? null);
-	/** 本次对话框新建的记录：没点「完成」就关闭时它不该留下。 */
-	const createdHostRef = useRef<string | null>(null);
-	const committedRef = useRef(false);
 	/** 对话框关闭后仍可能在飞的请求不得再回写状态或改动记录。 */
 	const aliveRef = useRef(true);
 	useEffect(
@@ -233,16 +230,24 @@ export function AddHostDialog(props: {
 			// 密码认证不能用探针预检（探针固定 BatchMode=yes，没有非交互凭据），直接把第一步记完成：
 			// 密码对不对由紧接着的 connect 验证，不能因此把密码主机拦在添加流程外。
 			const skipTest = form.auth === "password";
-			setSteps((current) =>
-				mode === "full" ? { test: skipTest ? "done" : "active", save: skipTest ? "active" : "pending", connect: "pending", pi: "pending" } : { ...current, connect: "active", pi: "pending" },
-			);
+			setSteps((current) => (mode === "full" ? { test: skipTest ? "done" : "active", save: skipTest ? "active" : "pending", connect: "pending", pi: "pending" } : { ...current, connect: "active", pi: "pending" }));
 			const secret = currentSecret();
 			if (mode === "full") {
 				const tested = skipTest ? null : await desktopApi.remoteHosts.test(input);
 				if (!aliveRef.current) return;
 				if (tested !== null && !tested.ok) {
 					setSteps((current) => ({ ...current, test: "failed" }));
-					setError(t("settings.connections.add.testFailed", { reason: remoteHostFailureReason(tested.code) }));
+					// 失败也要把草稿留下（用户反馈：失败了就丢，下次还得把主机名/用户/私钥全填一遍）。
+					// add 会再握手一次，失败时返回 saved + hostId；拿到 id 后就是一条「未验证连接」，
+					// 用户可以关掉对话框，在列表里点编辑改错的那一项再重试。
+					const persisted = await desktopApi.remoteHosts.add(input);
+					if (!aliveRef.current) return;
+					if (!persisted.ok && persisted.saved === true && persisted.hostId !== undefined) {
+						hostIdRef.current = persisted.hostId;
+						setError(t("settings.connections.add.savedUnverified", { host: input.label, reason: remoteHostFailureReason(tested.code) }));
+					} else {
+						setError(t("settings.connections.add.testFailed", { reason: remoteHostFailureReason(tested.code) }));
+					}
 					return;
 				}
 				if (tested !== null) setTestResult({ ok: true, fingerprint: tested.fingerprint });
@@ -274,20 +279,16 @@ export function AddHostDialog(props: {
 					props.onChanged?.();
 				} else {
 					const added = await desktopApi.remoteHosts.add(input);
-					// 对话框已经关了：这次 add 的产物不该留下（包括握手没过但已保存的草稿）。
-					if (!aliveRef.current) {
-						const orphan = added.ok ? added.hostId : added.saved === true ? added.hostId : undefined;
-						if (orphan !== undefined) void desktopApi.remoteHosts.remove(orphan).catch(() => undefined);
-						return;
-					}
+					// 对话框已经关了：记录照样保留（用户可在列表里查看/编辑/删除），只是不再回写界面。
+					if (!aliveRef.current) return;
 					if (!added.ok) {
-						if (added.saved === true && added.hostId !== undefined) createdHostRef.current = added.hostId;
+						// 草稿已保存：记下 id，重试时原地 update（否则每失败一次就多一条同名记录）。
+						if (added.saved === true && added.hostId !== undefined) hostIdRef.current = added.hostId;
 						setSteps((current) => ({ ...current, save: "failed" }));
 						setError(added.saved === true ? t("settings.connections.add.savedUnverified", { host: input.label, reason: remoteHostFailureReason(added.code) }) : remoteHostFailureReason(added.code));
 						return;
 					}
 					hostIdRef.current = added.hostId;
-					createdHostRef.current = added.hostId;
 					props.onChanged?.();
 				}
 				setSteps((current) => ({ ...current, save: "done", connect: "active" }));
@@ -346,28 +347,18 @@ export function AddHostDialog(props: {
 	}, []);
 
 	/**
-	 * 关闭对话框。新建模式下没点「完成」就关 = 这次连接不保留：它只是本次检测的产物，
-	 * 而取消的用户期望「什么都没留下」。删除只涉及本机记录与 pin，远端文件/进程不受影响。
+	 * 关闭对话框。**不再删除**本次新建的记录（2026-11 用户反馈）：握手失败时草稿已经保存，
+	 * 关掉对话框就把它删了等于「下次还得重填」。留着的行在列表里显示「未验证」，连不上也删得掉，
+	 * 点编辑就能接着改——记录的去留交给列表里的删除按钮。
 	 */
 	const close = useCallback(() => {
 		aliveRef.current = false;
-		const created = createdHostRef.current;
-		if (created !== null && !committedRef.current) {
-			void desktopApi.remoteHosts
-				.remove(created)
-				.catch(() => undefined)
-				.finally(() => {
-					props.onChanged?.();
-					props.onClose();
-				});
-			return;
-		}
+		props.onChanged?.();
 		props.onClose();
 	}, [props]);
 
-	/** 点「完成」才算保留这台连接（此时 pi 已经可用）。 */
+	/** 点「完成」：刷新列表并关闭（记录早已保存，这里只是收尾）。 */
 	const complete = useCallback(() => {
-		committedRef.current = true;
 		props.onChanged?.();
 		props.onClose();
 	}, [props]);
@@ -837,7 +828,7 @@ export function AddHostDialog(props: {
 				)}
 
 				<DialogFooter className="flex-row items-center justify-between gap-2 border-t border-border-subtle pt-4 sm:justify-between">
-					<span className="min-w-0 truncate text-label text-muted-foreground">{kind === "ssh" && importing ? t("settings.connections.add.importHint") : kind === "ssh" && createdHostRef.current !== null && !committedRef.current ? t("settings.connections.add.cancelDiscard") : null}</span>
+					<span className="min-w-0 truncate text-label text-muted-foreground">{kind === "ssh" && importing ? t("settings.connections.add.importHint") : null}</span>
 					<div className="flex items-center gap-2">
 						<Button variant="ghost" onClick={close}>
 							{t("common.cancel")}

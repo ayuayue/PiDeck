@@ -2,7 +2,7 @@
  * 本文件由 `node scripts/genZhTwCopy.mjs` 生成，请勿手改。
  * 文案改动请修改对应的 zh-CN 源文件后重新生成；转换规则见该脚本的 OVERRIDES。
  * 注释刻意保留简体：属于开发者视角文本，不面向用户。
- * source-sha256: 9e6f707613eebf83cc09fe8ad879ad8c5578575d0cbf27e54f49fb8b78cbce82（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
+ * source-sha256: 01a86196e966e264fe9dfe3df8780b7f3acb6167632d7d744ff163b627ed98be（来自 src/renderer/src/i18n/rendererCopy.zh-CN.ts 的词典区块指纹，由 tests/zhTwCopy.test.mjs 校验新鲜度）
  */
 import { mainProcessZhTW } from "../../../shared/i18n/mainProcessCopy.zh-TW";
 import type { TranslationKey } from "./rendererCopy.zh-CN";
@@ -4666,7 +4666,6 @@ export const zhTW: Record<TranslationKey, string> = {
 	"settings.connections.add.setupEdit": "儲存並重新檢測",
 	"settings.connections.add.retry": "重試",
 	"settings.connections.add.doneAction": "完成",
-	"settings.connections.add.cancelDiscard": "取消不會保留這次新建的連線。",
 	"settings.connections.add.testOkHint": "接著點「儲存並檢測」：會儲存這臺連線並檢測遠端 pi。",
 	"settings.connections.add.connectFailed": "已儲存連線，但建立會話失敗：{reason}",
 	"settings.connections.add.step.test": "測試 SSH 連線",

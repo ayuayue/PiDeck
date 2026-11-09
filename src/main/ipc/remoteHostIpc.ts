@@ -305,7 +305,6 @@ export function registerRemoteHostIpc(input: {
 		return found;
 	}
 
-
 	ipcMain.handle(ipcChannels.remoteHostConnect, async (_event, hostId: unknown, password?: unknown): Promise<RemoteHostConnectResult> => {
 		// Renderer input is never trusted: validate at the boundary before any process can start.
 		if (typeof hostId !== "string" || !HOST_ID.test(hostId)) return { ok: false, hostId: typeof hostId === "string" ? hostId : "", code: "REMOTE_CONNECTION_HOST_ID_INVALID" };

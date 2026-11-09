@@ -4659,7 +4659,6 @@ export const zhCN = {
 	"settings.connections.add.setupEdit": "保存并重新检测",
 	"settings.connections.add.retry": "重试",
 	"settings.connections.add.doneAction": "完成",
-	"settings.connections.add.cancelDiscard": "取消不会保留这次新建的连接。",
 	"settings.connections.add.testOkHint": "接着点「保存并检测」：会保存这台连接并检测远端 pi。",
 	"settings.connections.add.connectFailed": "已保存连接，但建立会话失败：{reason}",
 	"settings.connections.add.step.test": "测试 SSH 连接",
