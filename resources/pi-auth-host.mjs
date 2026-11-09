@@ -31,6 +31,7 @@
  */
 
 import { createInterface } from "node:readline";
+import { createRequire } from "node:module";
 
 const PROTOCOL_VERSION = 1;
 
@@ -313,6 +314,31 @@ function abortActive(reason) {
 // 主流程
 // ---------------------------------------------------------------------------
 
+/**
+ * 修复 undici 全局 dispatcher 被 pi SDK 顶层副作用重置的问题：pi 的 import 链
+ * 会加载 npm undici，其 global.js 模块顶层在槽位为空时无条件塞一个裸 Agent，
+ * 顶掉 Node 因 NODE_USE_ENV_PROXY=1 给内置 fetch 配好的 env 代理 dispatcher
+ * （该开关只在进程启动时读取，事后无法补救）——之后所有 fetch 全部直连，
+ * 需要走代理的供应商授权（如 OpenAI token exchange）会报 403 region 错误。
+ * 与 pi CLI 入口的 configureHttpDispatcher 同款：用 pi 自己那份 npm undici
+ * 装 EnvHttpProxyAgent（读 HTTP(S)_PROXY 环境变量）并 install 到全局 fetch，
+ * 保证 fetch 与 dispatcher 是同一份 undici 实现。失败仅记日志：pi 未来版本
+ * 若自带修复，这里静默降级为现状。
+ */
+function restoreProxyDispatcher(sdkEntry) {
+	try {
+		const undici = createRequire(sdkEntry)("undici");
+		undici.setGlobalDispatcher(new undici.EnvHttpProxyAgent({
+			allowH2: false,
+			proxyTunnel: true,
+		}));
+		undici.install?.();
+		log(`proxy dispatcher: EnvHttpProxyAgent installed via pi's undici`);
+	} catch (error) {
+		log(`proxy dispatcher: not restored (${error instanceof Error ? error.message : String(error)})`);
+	}
+}
+
 async function main() {
 	// boot 阶段计时日志（stderr，不碰协议通道）：与 pi-enhance-host 同形——宿主
 	// 报启动超时时，能区分「进程没起来 / SDK 导入慢 / create 卡住」的只有这几行。
@@ -329,6 +355,7 @@ async function main() {
 		return;
 	}
 	log(`boot: sdk imported in ${Date.now() - bootStartedAt}ms${sdkVersion ? ` (pi ${sdkVersion})` : ""}`);
+	restoreProxyDispatcher(sdkEntry);
 
 	const createStartedAt = Date.now();
 	let runtime;

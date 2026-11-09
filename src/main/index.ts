@@ -599,6 +599,7 @@ import { createRealAutoUpdater } from "./update/createAutoUpdater";
 import { installAtomgitNoCacheBypass, UPDATER_PARTITION_NAME } from "./update/atomgitNoCacheBypass";
 import { createManualUpdateChecker } from "./update/macManualUpdate";
 import { resolveAppUpdateDeliveryPlan } from "./update/deliveryPlan";
+import { detectMacDeveloperIdSignature } from "./update/macCodeSignature";
 import { resolveManualUpdateTarget } from "./update/manualUpdateSelection";
 import { downloadInstallerAsset, type InstallerDownloadProgress } from "./update/installerDownload";
 import { UpdateService } from "./update/UpdateService";
@@ -5147,11 +5148,13 @@ function registerIpc() {
 	// quitAndInstall 会调用 app.quit；该标记让 closeToTray 放行真正的退出。
 	let updateInstallSetQuitting = false;
 	// 交付模式按设备能力判定：Linux arm64 / deb / tar.gz 没有可靠的应用内替换链路，
-	// 与 macOS 无签名发行物一样走 manual（检查更新 + 一键下载设备匹配安装包）。
+	// 与 macOS 无签名发行物一样走 manual（检查更新 + 一键下载设备匹配安装包）；
+	// macOS Developer ID 签名包由运行时 codesign 探测识别，走 electron-updater 自动替换。
 	const appUpdateDelivery = resolveAppUpdateDeliveryPlan({
 		platform: process.platform,
 		arch: process.arch,
 		isAppImage: Boolean(process.env.APPIMAGE),
+		macDeveloperIdSigned: detectMacDeveloperIdSignature({ isPackaged: app.isPackaged }),
 	});
 	const manualUpdateTarget = resolveManualUpdateTarget({
 		platform: process.platform,

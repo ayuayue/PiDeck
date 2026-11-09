@@ -29,6 +29,25 @@ async function put(path, content) {
 	await writeFile(path, content, "utf8");
 }
 
+test("macOS afterPack cleans the real bundle Resources and keeps only its target native addon", async () => {
+	const appOutDir = await mkdtemp(join(tmpdir(), "pideck-after-pack-mac-"));
+	try {
+		const resources = join(appOutDir, "PiDeck Upgrade Lab.app", "Contents", "Resources");
+		const source = join(appOutDir, "fixture");
+		const archive = join(resources, "app.asar");
+		await put(join(source, "node_modules/node-pty/README.md"), "removable docs");
+		for (const arch of ["darwin-x64", "darwin-arm64", "win32-x64"]) await put(join(source, "node_modules/node-pty/prebuilds", arch, "pty.node"), "NATIVE");
+		await mkdir(resources, { recursive: true });
+		await createAsarPackageWithOptions(source, archive, { unpack: "*.node" });
+		await afterPackCleanup({ appOutDir, electronPlatformName: "darwin", arch: 1, packager: { getResourcesDir: () => resources } });
+		assert.equal(normalizedEntries(archive).includes("node_modules/node-pty/README.md"), false);
+		assert.deepEqual(await readdir(join(resources, "app.asar.unpacked/node_modules/node-pty/prebuilds")), ["darwin-x64"]);
+		assert.equal(isUnpackedInHeader(archive, "node_modules/node-pty/prebuilds/darwin-x64/pty.node"), true);
+	} finally {
+		await rm(appOutDir, { recursive: true, force: true });
+	}
+});
+
 /**
  * @electron/asar 返回写入流而不是完成 Promise；测试必须等待 close，
  * 否则 afterPack 可能在 archive 尚未落盘时开始 extract，得到空 fixture。
@@ -152,7 +171,7 @@ test("afterPack cleanup falls back to host arch when context arch is absent", as
 		const prebuildsDir = join(appOutDir, "resources", "app.asar.unpacked", "node_modules", "node-pty", "prebuilds");
 
 		await put(join(ptyDir, "README.md"), "fixture documentation\n");
-		for (const archName of ["linux-x64", "win32-x64"]) {
+		for (const archName of new Set([`${process.platform}-${process.arch}`, "linux-x64", "win32-x64"])) {
 			await put(join(ptyDir, "prebuilds", archName, "pty.node"), "NATIVE");
 		}
 		await mkdir(dirname(archive), { recursive: true });

@@ -115,7 +115,10 @@ test("store：v1 文件读取时补齐提交规则的 fileEdits 前置条件并�
 	]);
 	assert.equal(snapshot.seeded, false);
 	assert.equal(readConfig(configPath).version, REPLY_ACTIONS_FILE_VERSION, "迁移后写回当前版本，避免每次读取重复迁移");
-	assert.equal(logs.some((entry) => entry.message === "config migrated"), true);
+	assert.equal(
+		logs.some((entry) => entry.message === "config migrated"),
+		true,
+	);
 	// 用户迁移后显式删掉 requires：再次读取不得补回
 	await store.save([{ text: "提交", triggers: legacy.items[0].triggers }]);
 	assert.deepEqual(plain((await store.getSnapshot()).items), [{ text: "提交", triggers: legacy.items[0].triggers }]);

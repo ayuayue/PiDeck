@@ -7,20 +7,24 @@
 > 背景：PiDeck 的社区 PR 由本机自动化（gh-agent）审查并给合并标记，人类只点批准。
 > 人类不再逐行读 diff，所以**规则必须写成可判定的条目**，而不是"注意质量"。
 
-## 1. 五条安全红线（命中即拒绝，不给合并标记）
+## 1. 六条安全红线（命中即拒绝，不给合并标记）
+
+前六条都由 `scripts/prGate.mjs` 判定（R1–R5 只看**新增行**）；实现不了的细节在表里注明「人工」。
 
 | 编号 | 红线 | 判定 |
 |---|---|---|
-| R1 | 关闭 Electron 隔离：`webSecurity:false`、`contextIsolation:false`、`nodeIntegration:true`、`sandbox:false` | 新增行即命中；确有必要必须先改本文并经维护者同意 |
-| R2 | 引入未审的远程代码或回传：新增第三方运行时依赖、`preinstall`/`postinstall`、向陌生域名发送会话/凭据 | `package.json` 新增依赖或脚本、新增非第一方外链 |
+| R1 | 关闭 Electron 隔离：`webSecurity:false`、`contextIsolation:false`、`nodeIntegration:true` | 新增行即命中（含 `webPreferences.webSecurity = false;` 赋值式、`"nodeIntegration": true` 引号键）；**测试文件里**命中只算人工复核。`sandbox:false` 不算红线（主窗口当前就是 `sandbox:false`，见 `src/main/index.ts` 的 `createWindow`），只人工确认不是扩大范围 |
+| R2 | 引入未审的远程代码或回传：新增第三方运行时依赖、`preinstall`/`postinstall`、向陌生域名发送会话/凭据 | 自动：`package.json` 新增依赖或 install 脚本；**人工**：新增非第一方外链/上传目标 |
 | R3 | 破坏文件/协议边界：自定义协议直接拼接路径、CSP 放开 `allow-same-origin`、未做 realpath containment | 参照正面样例 `src/main/wallpaperEngine/wallpaperEngineLibrary.ts` 的 `resolveInsideItem` |
 | R4 | 命令注入：`shell:true` 拼接用户输入、`eval`/`new Function`、把 PR 内容当命令执行 | 新增行命中即人工复核 |
-| R5 | 会话/凭据：读写 pi 活跃 JSONL、把 key 写进日志或错误上报 | 参见 `AGENTS.md` 铁律 2 |
+| R5 | 会话/凭据：读写 pi 活跃 JSONL、把 key 写成字面量、新增 `.env`/私钥文件 | `src/main/` 里新增 `.jsonl` 写入且同行出现 `session`/`.pi/`/`piDir` → 人工；`apiKey/token/secret/password` 赋 16+ 字符字面量（非 `process.env`）→ 人工；新增凭据类文件 → 拒绝。参见 `AGENTS.md` 铁律 2 |
+| R6 | 门禁自改：改 `scripts/prGate.mjs`、`scripts/check-*.mjs`、`scripts/testShapeBaseline.json`、`tests/prGate.test.mjs`、`.github/workflows/`、`biome*.jsonc` **同时**改 `src/`、`resources/`、`native/` | 拒绝。规则与基线都在被审的仓库里，不拦这条就能「改产品代码顺便放宽判自己的尺子」。维护者本人确有必要时加 `--allow-protected`；只改 CI/脚本/docs（无产品代码）只留提示 |
 
 判定命令（确定性首筛，退出码 1 = 命中红线）：
 
 ```bash
-node scripts/prGate.mjs --pr <编号>
+node scripts/prGate.mjs --pr <编号>            # 社区 PR
+node scripts/prGate.mjs --pr <编号> --allow-protected   # 维护者本人改门禁/CI 时
 ```
 
 ## 2. 尺寸与证据阈值
@@ -35,10 +39,11 @@ node scripts/prGate.mjs --pr <编号>
 证据规则（`--pr` 会自动检查）：
 
 1. 改了 `src/` 非测试文件却**零测试变更** → 人工复核（纯 `docs/`、纯样式、i18n 文案除外）。
-2. 删除测试 → 必须说明对应功能确实被移除；只删测试不删功能 = 拒绝。
-3. 新增 `tests/*.test.mjs` 只读生产源码再正则断言 → 拒绝（`npm run check:test-shape` 会红）。
-4. 改 `rendererCopy.zh-CN.ts` 却没改 `zh-TW.ts` → 人工复核（必须跑 `node scripts/genZhTwCopy.mjs`）。
-5. 同一作者 48 小时内对同一文件连开 ≥ 3 个 PR → 要求合并成一个 PR。
+2. 删除测试 → 必须说明对应功能确实被移除；只删测试不删功能 = 拒绝。按**净减少**计（删旧加新的改写是正常动作，实测占已合并 PR 的 46%）。
+3. 新增 `tests/*.test.mjs` 只读生产源码再正则断言 → 拒绝。判定口径只在 `npm run check:test-shape`（含运行时加载豁免），`prGate.mjs` 不重复实现。**已知局限**：基线 `scripts/testShapeBaseline.json` 按文件名 grandfather，已入库文件仍可追加源码断言；`--update` 只能由维护者在合并后刷，且需一并提交。
+4. 改 `rendererCopy.zh-CN.ts` 却没改 `zh-TW.ts` → 人工复核。真正的同步门禁是 `tests/zhTwCopy.test.mjs` 的 source-sha256 断言（`genZhTwCopy.mjs --check` 无 opencc-js 时会直接跳过，不能当门禁）；修法 `node scripts/genZhTwCopy.mjs`。
+5. 同一作者 48 小时内对同一文件连开 ≥ 3 个 PR → 要求合并成一个 PR。**未自动化**（要调 GitHub 时间线），由审查者人工看 `gh pr list --author`。
+6. 新增 `e2e/*.spec.ts` **自己在 spec 里 launch Electron**（不走 `e2e/fixtures` 等共享 helper）→ 人工确认 `USERPROFILE`/`HOME` 已重定向（#502 教训）。走共享 helper 的新用例只提示。
 
 ## 3. 合并后观察期
 
@@ -73,7 +78,7 @@ node scripts/prGate.mjs --pr <编号>
 1. **gh-agent**：PR 审查时按本文件判定；私有分级文件可选。命中 §1 或 §2 的"禁止自动合并"就在回复里写阻塞项，**不输出合并标记**。
 2. **人工**：桌面壳永远人工点批准；批准前只看回复里的"阻塞项"与证据。
 3. **脚本**：`node scripts/prGate.mjs --pr <n>` 给出确定性首筛，避免每次口径漂移。
-4. **定期清理**：见 skill `pideck-pr-hygiene`（审计 → 复盘 → 清理 → 更新本文档 §5）。
+4. **定期清理**：手工走 §5 → 复盘 → 更新本文档。~~skill `pideck-pr-hygiene`~~ 尚未存在（`.pi/skills/` 未入库），别按文件名去找。
 
 ## 7. 维护
 

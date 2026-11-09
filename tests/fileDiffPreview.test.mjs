@@ -10,7 +10,8 @@ test("HTML files have an in-place preview without widening BrowserPanel access",
 	assert.match(source, /<HtmlPreview content=\{content\} \/>/);
 });
 
-test("CSV 默认表格预览，且预览下不挂空编辑器", () => {	// csv/tsv 是文本但默认走表格：打开就渲染，不要求用户先点「预览」。
+test("CSV 默认表格预览，且预览下不挂空编辑器", () => {
+	// csv/tsv 是文本但默认走表格：打开就渲染，不要求用户先点「预览」。
 	assert.match(source, /const isCsv = ext === "csv" \|\| ext === "tsv"/);
 	assert.match(source, /const defaultPreview = !isDiffMode && \(isMarkdown \|\| isHtml \|\| isSvg \|\| isCsv\)/);
 	// 专属预览同时排除图片/PDF/音视频/Office/压缩包与表格：二进制读成空串，

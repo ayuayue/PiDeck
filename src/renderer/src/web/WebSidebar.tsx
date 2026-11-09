@@ -354,18 +354,7 @@ export function WebSidebar(props: {
 					<div className="search-row flex shrink-0 items-center gap-1.5">
 						<div className={cn(fieldChromeClass, "search-box min-w-0 flex-1 gap-1 pr-1 pl-2.5")}>
 							<Search className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-							<Input
-								value={search}
-								onChange={(event) => setSearch(event.target.value)}
-								placeholder={t("app.search")}
-								aria-label={t("app.search")}
-								type="text"
-								inputMode="search"
-								enterKeyHint="search"
-								autoComplete="off"
-								spellCheck={false}
-								className={fieldInputClass}
-							/>
+							<Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("app.search")} aria-label={t("app.search")} type="text" inputMode="search" enterKeyHint="search" autoComplete="off" spellCheck={false} className={fieldInputClass} />
 							{search ? (
 								<button type="button" className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onClick={() => setSearch("")} aria-label={t("common.clear")} title={t("common.clear")}>
 									<X className="size-3.5" aria-hidden="true" />
@@ -514,4 +503,3 @@ export function WebSidebar(props: {
 		</>
 	);
 }
-

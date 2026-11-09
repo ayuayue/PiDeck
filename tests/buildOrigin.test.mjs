@@ -4,6 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createTsSandbox } from "./helpers/createTsSandbox.mjs";
+import { loadConfigFromFile } from "electron-vite";
 
 /**
  * 加载 buildIdentity 并覆盖两个判定输入。
@@ -30,4 +31,23 @@ test("打包但没有发布标记 → local-package（本机打包）", () => {
 
 test("打包且有发布标记 → release（CI 发布产物）", () => {
 	assert.equal(loadBuildIdentity({ isPackaged: true, releaseBuild: true }).resolveBuildOrigin(), "release");
+});
+
+test("完整与主进程子构建均可启动并正确识别构建来源", async () => {
+	const previous = process.env.PIDECK_RELEASE_BUILD;
+	try {
+		for (const releaseBuild of [false, true]) {
+			process.env.PIDECK_RELEASE_BUILD = releaseBuild ? "1" : "0";
+			for (const configFile of ["electron.vite.config.ts", "electron.vite.main.mjs"]) {
+				const { config } = await loadConfigFromFile({ command: "build", mode: "production" }, configFile);
+				const globals = Object.fromEntries(Object.entries(config.main.define).map(([key, value]) => [key, JSON.parse(value)]));
+				assert.ok(Object.hasOwn(globals, "__PIDECK_RELEASE_BUILD__"), `${configFile} must replace the build origin constant`);
+				const load = createTsSandbox({ stubs: { electron: { app: { isPackaged: true } } }, globals });
+				assert.equal(load("src/main/buildIdentity.ts").resolveBuildOrigin(), releaseBuild ? "release" : "local-package", configFile);
+			}
+		}
+	} finally {
+		if (previous === undefined) delete process.env.PIDECK_RELEASE_BUILD;
+		else process.env.PIDECK_RELEASE_BUILD = previous;
+	}
 });
