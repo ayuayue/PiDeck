@@ -1,10 +1,11 @@
 /**
  * 「会话文件过大」错误的展示参数（纯函数，便于单测）。
  *
- * 背景：SessionFileEditor 的编辑类操作需要完整文档（定位条目 + 重算 parentId 链），
- * 无法像读取那样流式化，因此用 `assertInMemoryReadSafe` 做了整读护栏：超过上限时抛
- * `SESSION_FILE_TOO_LARGE`，并把 `details: { size, limit }` 带在错误上
- * （见 v8HeapLimits.ts 的第三次事故补记）。
+ * 背景：SessionFileEditor 的编辑类操作需要定位条目 + 重算 parentId 链。旧实现整读成
+ * 单一字符串 + 全量对象图，超过 32MB 时用 `assertInMemoryReadSafe` 拒绝并抛
+ * `SESSION_FILE_TOO_LARGE`；现在超限会话改走流式路径（sessionFileStream.ts），
+ * 本错误退为「流式分流不可用」的兜底（stat 不可用等），但仍带 `details: { size, limit }`
+ *（见 v8HeapLimits.ts 的第三次事故补记）。
  *
  * 这里把字节换算成 MB 供 i18n 文案的 `{sizeMb}` / `{limitMb}` 占位使用。
  * 单独成模块的原因：文案里两个占位符缺一不可——只填 size 会让 `{limitMb}` 原样
